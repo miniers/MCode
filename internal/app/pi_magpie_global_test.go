@@ -262,3 +262,37 @@ func TestPiStaleModelGlobalApplied(t *testing.T) {
 		t.Error("inject 且有可注入端点时不应判为失效")
 	}
 }
+
+// TestPiUnregisteredModelGlobalApplied 校验 global 已接管时模型不算未注册，off / inject 时仍判未注册。
+func TestPiUnregisteredModelGlobalApplied(t *testing.T) {
+	srv := agentMagpieModelsServer(t, "glm-4.6")
+	env := newAgentMagpieTestEnv(t, srv.URL)
+	ctx := context.Background()
+	setPiMagpieRuntime(env.dataDir, env.client.secrets)
+	t.Cleanup(func() { setPiMagpieRuntime("", nil) })
+
+	if err := env.client.SetPiMagpieModels("jp", []string{"glm-4.6"}); err != nil {
+		t.Fatalf("SetPiMagpieModels 失败: %v", err)
+	}
+	if err := env.client.SetAgentMagpieMode(ctx, "pi", "global"); err != nil {
+		t.Fatalf("切 global 失败: %v", err)
+	}
+	if piUnregisteredModel("magpie-jp/glm-4.6") {
+		t.Error("global 已接管时不应判为未注册")
+	}
+	if piUnregisteredModel("anthropic/claude-x") {
+		t.Error("非 Magpie provider 的模型任何模式都不应判为未注册")
+	}
+	if err := env.client.SetAgentMagpieMode(ctx, "pi", "off"); err != nil {
+		t.Fatalf("切 off 失败: %v", err)
+	}
+	if !piUnregisteredModel("magpie-jp/glm-4.6") {
+		t.Error("off 时 Magpie provider 的模型应判为未注册")
+	}
+	if err := env.client.SetAgentMagpieMode(ctx, "pi", "inject"); err != nil {
+		t.Fatalf("切 inject 失败: %v", err)
+	}
+	if !piUnregisteredModel("magpie-jp/glm-4.6") {
+		t.Error("inject 时不属于 global 接管，应判为未注册（注入轮 magpieEnv 非空不受影响）")
+	}
+}

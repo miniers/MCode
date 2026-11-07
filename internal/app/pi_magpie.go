@@ -277,6 +277,32 @@ func piInjectedModel(model string) bool {
 	return false
 }
 
+// piGlobalApplied 判断 pi 的 Magpie 设置是否为 global，且端点已写进 pi 自己的 models.json。
+func piGlobalApplied(cfg config.Config, dataDir string) bool {
+	if dataDir == "" {
+		return false
+	}
+	if config.MagpieAgentSetting(cfg, config.ProviderPi).Mode != config.MagpieModeGlobal {
+		return false
+	}
+	applied, err := magpiecfg.Applied(dataDir, config.ProviderPi)
+	return err == nil && applied
+}
+
+// piUnregisteredModel 判断模型是否属于 Magpie provider、但 pi 自己的 models.json 里没有该
+// provider（未被 global 接管）：直连时 pi 会报 Unknown provider，需要降级为默认模型。
+func piUnregisteredModel(model string) bool {
+	if !piInjectedModel(model) {
+		return false
+	}
+	dataDir, _ := piMagpieRuntimeState()
+	cfg, err := config.Load(dataDir)
+	if err != nil {
+		return false
+	}
+	return !piGlobalApplied(cfg, dataDir)
+}
+
 // piStaleModel 判断线程里保存的 pi 模型是否已因直连失效：属于某个 Magpie 端点的 provider，
 // 而本轮不会注入（设置为直连，或没有可注入的端点）。global 模式且该 agent 已接管全局
 // 配置时模型由 pi 自己的 models.json 提供，不算失效。不拉取网关，可在每轮启动时调用。
@@ -293,10 +319,8 @@ func piStaleModel(model string) bool {
 	if mode == config.MagpieModeOff {
 		return true
 	}
-	if mode == config.MagpieModeGlobal {
-		if applied, err := magpiecfg.Applied(dataDir, config.ProviderPi); err == nil && applied {
-			return false
-		}
+	if piGlobalApplied(cfg, dataDir) {
+		return false
 	}
 	for _, target := range piMagpieTargets(cfg, secrets) {
 		if target.injectable() {

@@ -1848,7 +1848,7 @@ func buildProviderHarness(cfg config.Config, secrets config.SecretStore, id stri
 			Extension:      piGate.path,
 			MagpieBridge:   installPiMagpieBridge(),
 			MagpieEnv:      currentPiMagpieEnv,
-			InjectedModel:  piInjectedModel,
+			InjectedModel:  piUnregisteredModel,
 			OnMagpieMember: recordPiMagpieMember,
 			BuiltinMCP:     mcpInjection.Builtin,
 			ExternalMCP:    mcpInjection.External,

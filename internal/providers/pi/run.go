@@ -135,7 +135,8 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		return err
 	}
 	spec := h.planLaunch(turn)
-	// 直连时没有桥注册 provider，线程里残留的注入模型会让 pi 报 Unknown provider。
+	// 直连时没有桥注册 provider，线程里残留的注入模型会让 pi 报 Unknown provider；global 接管时
+	// 该 provider 已写进 pi 的 models.json，pi 自己认识，不会走到这里。
 	if spec.magpieEnv == "" && h.opts.InjectedModel != nil && h.opts.InjectedModel(turn.Model) {
 		turn.Model = "default"
 		spec = h.planLaunch(turn)

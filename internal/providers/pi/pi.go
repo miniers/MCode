@@ -62,8 +62,8 @@ type Options struct {
 	// MagpieEnv 返回 MCODE_PI_MAGPIE 的 JSON（mcode 设置里的 Magpie 端点），返回空串表示
 	// 本轮不注入、pi 用它自己的配置。apiKey 只随这个环境变量走，不进命令行参数。
 	MagpieEnv func() string
-	// InjectedModel 判断模型 ID 是否属于 mcode 注入的 Magpie provider。本轮没有注入
-	// （如设置为直连）时，这类模型 pi 不认识，Run 会改用 pi 的默认模型。
+	// InjectedModel 判断模型 ID 是否属于 mcode 注入的 Magpie provider，且 pi 自己的 models.json
+	// 里没有该 provider（未被 global 接管）。这类模型 pi 不认识，Run 会改用 pi 的默认模型。
 	InjectedModel func(model string) bool
 	// OnMagpieMember 在 Magpie 桥回传实际路由到的上游账号时被调用。
 	OnMagpieMember func(endpoint, provider, model string)
