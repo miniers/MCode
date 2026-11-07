@@ -225,6 +225,57 @@ func TestParser_BackgroundTaskEvents(t *testing.T) {
 	})
 }
 
+func TestParser_MCPBackgroundTasks(t *testing.T) {
+	results := []string{
+		`"MCP tool moved to the background as task kdxhm0uqv and keeps running"`,
+		`[{"type":"text","text":"MCP tool moved to the background as task kdxhm0uqv."}]`,
+	}
+	notifications := []string{
+		`"<system-reminder><task-notification>\n<task-id>kdxhm0uqv</task-id><status>completed</status></task-notification></system-reminder>"`,
+		`[{"type":"text","text":"<task-notification><task-id>kdxhm0uqv</task-id><status>completed</status></task-notification>"}]`,
+	}
+	for i := range results {
+		events := feedParserLines(t,
+			`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_mcp","content":`+results[i]+`}]}}`,
+			`{"type":"user","message":{"content":`+notifications[i]+`}}`,
+			`{"type":"user","message":{"content":`+notifications[i]+`}}`,
+		)
+		if len(events) != 3 {
+			t.Fatalf("应依次发出工具结束、后台开始和后台结束，实际 %+v", events)
+		}
+		if events[0].Type != harness.EventToolEnd || events[0].ToolID != "toolu_mcp" {
+			t.Fatalf("工具结束事件不对: %+v", events[0])
+		}
+		if events[1].Type != harness.EventBackgroundTaskStart || events[1].ToolID != "toolu_mcp" || events[1].TaskID != "kdxhm0uqv" {
+			t.Fatalf("后台开始事件不对: %+v", events[1])
+		}
+		if events[2].Type != harness.EventBackgroundTaskEnd || events[2].ToolID != "toolu_mcp" || events[2].TaskID != "kdxhm0uqv" || events[2].TaskStatus != "completed" {
+			t.Fatalf("后台结束事件不对: %+v", events[2])
+		}
+	}
+}
+
+func TestParser_BackgroundTaskNotificationDeduplication(t *testing.T) {
+	events := feedParserLines(t,
+		`{"type":"system","subtype":"task_started","task_id":"task-1","tool_use_id":"toolu_bg","is_backgrounded":true}`,
+		`{"type":"system","subtype":"task_notification","task_id":"task-1","status":"failed"}`,
+		`{"type":"user","message":{"content":"<task-notification><task-id>task-1</task-id><status>failed</status></task-notification><task-notification><task-id>unknown</task-id><status>completed</status></task-notification>"}}`,
+	)
+	if len(events) != 2 || events[0].Type != harness.EventBackgroundTaskStart || events[1].Type != harness.EventBackgroundTaskEnd || events[1].ToolID != "toolu_bg" || events[1].TaskID != "task-1" || events[1].TaskStatus != "failed" {
+		t.Fatalf("原生后台任务应只结束一次，实际 %+v", events)
+	}
+}
+
+func TestParser_SubagentMCPBackgroundTaskIgnored(t *testing.T) {
+	events := feedParserLines(t,
+		`{"type":"user","parent_tool_use_id":"parent","message":{"content":[{"type":"tool_result","tool_use_id":"child","content":"moved to the background as task abc123."}]}}`,
+		`{"type":"user","message":{"content":"<task-notification><task-id>abc123</task-id><status>completed</status></task-notification>"}}`,
+	)
+	if len(events) != 1 || events[0].Type != harness.EventToolEnd {
+		t.Fatalf("子代理不应产生后台任务事件，实际 %+v", events)
+	}
+}
+
 // TestParser_ResultModelUsageAndCost 校验 result.modelUsage 的上下文窗口（取最大值）与
 // total_cost_usd 被带到 usage 上。
 func TestParser_ResultModelUsageAndCost(t *testing.T) {

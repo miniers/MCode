@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -11,10 +12,18 @@ import (
 	"mcode/internal/harness"
 )
 
+var (
+	backgroundTaskPattern   = regexp.MustCompile(`moved to the background as task ([A-Za-z0-9]+)(\s|\.|$)`)
+	taskNotificationPattern = regexp.MustCompile(`(?s)<task-notification>.*?</task-notification>`)
+	taskIDPattern           = regexp.MustCompile(`<task-id>\s*([^<\s]+)\s*</task-id>`)
+	taskStatusPattern       = regexp.MustCompile(`<status>\s*([^<\s]+)\s*</status>`)
+)
+
 // parser 负责解析 Claude Code CLI 的 stream-json 行并维护流式状态。
 type parser struct {
 	textStreamed      map[int]*strings.Builder
 	reasoningStreamed map[int]*strings.Builder
+	backgroundTasks   map[string]string
 	curTextIndex      int // 当前正文块的 stream index，-1 表示尚无
 	curReasoningIndex int // 当前思考块的 stream index，-1 表示尚无
 	// textPending 记录本次请求里已经以增量流出、还没被 assistant 完整块确认的正文 index。
@@ -349,7 +358,7 @@ func (p *parser) handleLine(line []byte, emit func(harness.Event)) error {
 	case "assistant":
 		p.handleAssistant(line, parentID != "", emit)
 	case "user":
-		p.handleUser(line, emit)
+		p.handleUser(line, parentID != "", emit)
 	case "result":
 		p.handleResult(line, emit)
 	default:
@@ -405,10 +414,16 @@ func (p *parser) handleSystem(line []byte, isSubagent bool, emit func(harness.Ev
 	// 开始帧把发起它的工具消息标成 background，结束帧（常出现在后续 attach 续跑轮次）按
 	// tool_use_id 回写最终状态。is_backgrounded 显式为 false 表示这条任务没有在后台运行；
 	// 子代理的任务不影响主会话时间线。
-	if !isSubagent && sys.ToolUseID != "" {
+	if !isSubagent {
 		switch sys.Subtype {
 		case "task_started":
-			if sys.IsBackgrounded == nil || *sys.IsBackgrounded {
+			if sys.ToolUseID != "" && (sys.IsBackgrounded == nil || *sys.IsBackgrounded) {
+				if sys.TaskID != "" {
+					if p.backgroundTasks == nil {
+						p.backgroundTasks = make(map[string]string)
+					}
+					p.backgroundTasks[sys.TaskID] = sys.ToolUseID
+				}
 				_ = harness.Emit(emit, harness.Event{
 					Type:   harness.EventBackgroundTaskStart,
 					ToolID: sys.ToolUseID,
@@ -417,12 +432,19 @@ func (p *parser) handleSystem(line []byte, isSubagent bool, emit func(harness.Ev
 				})
 			}
 		case "task_notification":
-			_ = harness.Emit(emit, harness.Event{
-				Type:       harness.EventBackgroundTaskEnd,
-				ToolID:     sys.ToolUseID,
-				TaskID:     sys.TaskID,
-				TaskStatus: sys.Status,
-			})
+			toolID := sys.ToolUseID
+			if toolID == "" {
+				toolID = p.backgroundTasks[sys.TaskID]
+			}
+			if toolID != "" {
+				_ = harness.Emit(emit, harness.Event{
+					Type:       harness.EventBackgroundTaskEnd,
+					ToolID:     toolID,
+					TaskID:     sys.TaskID,
+					TaskStatus: sys.Status,
+				})
+				delete(p.backgroundTasks, sys.TaskID)
+			}
 		}
 	}
 }
@@ -647,15 +669,10 @@ func (p *parser) handleAssistant(line []byte, isSubagent bool, emit func(harness
 	}
 }
 
-func (p *parser) handleUser(line []byte, emit func(harness.Event)) {
+func (p *parser) handleUser(line []byte, isSubagent bool, emit func(harness.Event)) {
 	var usr struct {
 		Message struct {
-			Content []struct {
-				Type      string          `json:"type"`
-				ToolUseID string          `json:"tool_use_id"`
-				Content   json.RawMessage `json:"content"`
-				IsError   bool            `json:"is_error"`
-			} `json:"content"`
+			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 		ToolResultMeta []toolResultMeta `json:"tool_result_meta"`
 		// ToolUseResult 是工具的结构化输出（CLI 2.1.x）：编辑类工具在这里给出完整 patch。
@@ -665,7 +682,23 @@ func (p *parser) handleUser(line []byte, emit func(harness.Event)) {
 		return
 	}
 
-	for _, blk := range usr.Message.Content {
+	var blocks []struct {
+		Type      string          `json:"type"`
+		Text      string          `json:"text"`
+		ToolUseID string          `json:"tool_use_id"`
+		Content   json.RawMessage `json:"content"`
+		IsError   bool            `json:"is_error"`
+	}
+	if json.Unmarshal(usr.Message.Content, &blocks) != nil {
+		var text string
+		if json.Unmarshal(usr.Message.Content, &text) == nil && !isSubagent {
+			p.handleTaskNotifications(text, emit)
+		}
+	}
+	for _, blk := range blocks {
+		if blk.Type == "text" && !isSubagent {
+			p.handleTaskNotifications(blk.Text, emit)
+		}
 		if blk.Type == "tool_result" && blk.ToolUseID != "" {
 			output := parseToolResultContent(blk.Content)
 			_ = harness.Emit(emit, harness.Event{
@@ -675,6 +708,15 @@ func (p *parser) handleUser(line []byte, emit func(harness.Event)) {
 				IsError: blk.IsError,
 				Blocked: isHookBlockedResult(usr.ToolResultMeta, blk.ToolUseID, output, blk.IsError),
 			})
+			if match := backgroundTaskPattern.FindStringSubmatch(output); !isSubagent && len(match) > 1 {
+				if p.backgroundTasks == nil {
+					p.backgroundTasks = make(map[string]string)
+				}
+				p.backgroundTasks[match[1]] = blk.ToolUseID
+				_ = harness.Emit(emit, harness.Event{
+					Type: harness.EventBackgroundTaskStart, ToolID: blk.ToolUseID, TaskID: match[1],
+				})
+			}
 		}
 	}
 
@@ -686,6 +728,22 @@ func (p *parser) handleUser(line []byte, emit func(harness.Event)) {
 			Path:  path,
 			Patch: patch,
 		})
+	}
+}
+
+func (p *parser) handleTaskNotifications(text string, emit func(harness.Event)) {
+	for _, notification := range taskNotificationPattern.FindAllString(text, -1) {
+		id := taskIDPattern.FindStringSubmatch(notification)
+		status := taskStatusPattern.FindStringSubmatch(notification)
+		if len(id) < 2 || len(status) < 2 {
+			continue
+		}
+		if toolID := p.backgroundTasks[id[1]]; toolID != "" {
+			_ = harness.Emit(emit, harness.Event{
+				Type: harness.EventBackgroundTaskEnd, ToolID: toolID, TaskID: id[1], TaskStatus: status[1],
+			})
+			delete(p.backgroundTasks, id[1])
+		}
 	}
 }
 
