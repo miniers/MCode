@@ -17,17 +17,22 @@ type settingsWindowEntry struct {
 
 var settingsWindowMu sync.Mutex
 var settingsWindow *settingsWindowEntry
+var settingsWindowOpener = openSettingsWindowNative
 
 func openSettingsWindow(owner *chatState, page string) *mygo.Window {
 	if owner == nil || getChatSettings(owner) == nil {
 		return nil
 	}
+	return settingsWindowOpener(owner, page)
+}
+
+func openSettingsWindowNative(owner *chatState, page string) *mygo.Window {
 	var win *mygo.Window
 	mygo.RunOnMain(func() {
 		settingsWindowMu.Lock()
 		entry := settingsWindow
 		settingsWindowMu.Unlock()
-		if entry != nil && !entry.win.IsDestroyed() {
+		if entry != nil && entry.win != nil && !entry.win.IsDestroyed() {
 			settingsWindowMu.Lock()
 			entry.visitors[owner] = true
 			settingsWindowMu.Unlock()
@@ -111,6 +116,15 @@ func closeSettingsWindowForOwner(owner *chatState) bool {
 	}
 	if !entry.state.prepareWindowClose() {
 		return false
+	}
+	if entry.win == nil {
+		settingsWindowMu.Lock()
+		if settingsWindow == entry {
+			settingsWindow = nil
+		}
+		settingsWindowMu.Unlock()
+		entry.state.Close()
+		return true
 	}
 	entry.win.Close()
 	return entry.win.IsDestroyed()
