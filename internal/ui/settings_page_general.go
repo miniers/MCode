@@ -7,13 +7,11 @@ import (
 	"mcode/internal/config"
 )
 
-// permissionModeChoices 返回默认权限档位的选项，覆盖 config 里全部合法档位
-// （readonly 也是合法值且被 config.Validate 接受，界面必须能表达、能显示）。
+// permissionModeChoices 返回默认权限档位的选项，包含只读档位。
 func permissionModeChoices() []choiceOption {
 	return []choiceOption{
 		{Value: config.ModeReadOnly, Label: "只读"},
 		{Value: config.ModeSupervised, Label: "监督"},
-		{Value: config.ModeAutoAcceptEdits, Label: "自动接受编辑"},
 		{Value: config.ModeAuto, Label: "自动"},
 		{Value: config.ModeFullAccess, Label: "完全访问"},
 	}
@@ -21,6 +19,9 @@ func permissionModeChoices() []choiceOption {
 
 // permissionModeKnown 判断权限档位在界面上是否有对应选项。
 func permissionModeKnown(mode string) bool {
+	if mode == config.ModeAutoAcceptEdits {
+		return true
+	}
 	for _, opt := range permissionModeChoices() {
 		if opt.Value == mode {
 			return true
@@ -45,7 +46,7 @@ var pageGeneral = settingsPage{
 				Title: "默认权限",
 				Aliases: []string{
 					"新会话默认权限档位", "权限档位", "权限模式", "重启", "只读", "监督",
-					"自动", "自动接受编辑", "完全访问", "审批",
+					"自动", "完全访问", "审批",
 				},
 				Lock: "mode",
 				// 被启动参数锁定时选中项跟着真正生效的档位走：Open() 会重新从磁盘 Load，
@@ -53,7 +54,16 @@ var pageGeneral = settingsPage{
 				Control: choice(
 					val(func(c *config.Config) *string { return &c.Permissions.Mode }, config.ModeFullAccess),
 					permissionModeChoices(),
-				).withDisplay(func(st *SettingsState) string { return st.launchPermissionMode() }),
+				).withDisplay(func(st *SettingsState) string {
+					mode := st.launchPermissionMode()
+					if mode == "" {
+						mode = st.cfg.Permissions.Mode
+					}
+					if mode == config.ModeAutoAcceptEdits {
+						return config.ModeAuto
+					}
+					return mode
+				}),
 				Status: func(st *SettingsState, locked bool) string {
 					if locked {
 						if launch := st.launchPermissionMode(); launch != "" {

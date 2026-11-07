@@ -7,7 +7,7 @@ import (
 )
 
 // headerPermissionCapsuleLabel 是默认档位下权限圆钮的 Label，点击它打开权限菜单。
-const headerPermissionCapsuleLabel = "自动接受编辑 · 改文件不询问，其他操作询问"
+const headerPermissionCapsuleLabel = "自动 · 改文件和只读命令不询问"
 
 // personaMenuTestPersonas 返回测试用的人设列表。
 func personaMenuTestPersonas() []MagpiePersona {

@@ -600,9 +600,7 @@ func mapPermissionMode(mode harness.PermissionMode) (sandbox string, approvalPol
 		return "read-only", "on-request"
 	case harness.ModeSupervised:
 		return "read-only", "untrusted"
-	case harness.ModeAutoAcceptEdits, "":
-		return "workspace-write", "on-request"
-	case harness.ModeAuto:
+	case harness.ModeAutoAcceptEdits, harness.ModeAuto, "":
 		return "workspace-write", "on-request"
 	case harness.ModeFullAccess:
 		return "danger-full-access", "never"

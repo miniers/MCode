@@ -1447,7 +1447,7 @@ func TestChatHeaderPermissionSwitch(t *testing.T) {
 	s, root := buildRoot(fake)
 	tt := ui.NewTester(root, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
-	const initialLabel = "自动接受编辑 · 改文件不询问，其他操作询问"
+	const initialLabel = "自动 · 改文件和只读命令不询问"
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find(initialLabel)
 		return ok
@@ -1461,7 +1461,7 @@ func TestChatHeaderPermissionSwitch(t *testing.T) {
 	if tt.HasText("由 Agent 自行判断常规操作") {
 		t.Fatalf("权限菜单不应显示说明行: %q", tt.Texts())
 	}
-	for _, title := range []string{"监督", "自动接受编辑", "自动", "完全访问"} {
+	for _, title := range []string{"监督", "自动", "完全访问"} {
 		if !tt.HasText(title) {
 			t.Fatalf("权限菜单缺少档位 %q: %q", title, tt.Texts())
 		}

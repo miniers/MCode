@@ -197,8 +197,7 @@ const PERSONA_SELECT_CLASS =
 
 function permissionLabel(mode?: RemoteComposerOptions['runtimeMode']): string {
   if (mode === 'supervised') return '逐项确认';
-  if (mode === 'autoAcceptEdits') return '自动接受编辑';
-  if (mode === 'auto') return '自动';
+  if (mode === 'autoAcceptEdits' || mode === 'auto') return '自动';
   if (mode === 'fullAccess') return '完全访问';
   return '权限: 默认';
 }
@@ -2394,7 +2393,6 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                   {[
                     ...(composerOptions?.runtimeMode ? [] : [{ id: undefined, label: '宿主默认' }]),
                     { id: 'supervised' as const, label: '逐项确认' },
-                    { id: 'autoAcceptEdits' as const, label: '自动接受编辑' },
                     { id: 'auto' as const, label: '自动' },
                     { id: 'fullAccess' as const, label: '完全访问' }
                   ].map((item) => (
@@ -2405,7 +2403,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                       onClick={() => selectRuntimeMode(item.id)}
                     >
                       <span className="text-sm text-[var(--foreground)]">{item.label}</span>
-                      {composerOptions?.runtimeMode === item.id && (
+                      {(composerOptions?.runtimeMode === item.id || (composerOptions?.runtimeMode === 'autoAcceptEdits' && item.id === 'auto')) && (
                         <CheckCircleIcon className="w-4 h-4 text-[var(--primary)]" />
                       )}
                     </button>

@@ -175,17 +175,13 @@ func (g *gate) autoApproves(toolName string, input json.RawMessage) bool {
 	case harness.ModeReadOnly, harness.ModeSupervised:
 		// 只读与会话模式一律询问（没有审批方时按拒绝处理），保证只读模式下不会有写改溜过去。
 		return false
-	case harness.ModeAutoAcceptEdits:
-		return isEdit
-	case harness.ModeAuto:
+	case harness.ModeAutoAcceptEdits, harness.ModeAuto:
 		if isEdit {
 			return true
 		}
 		switch toolName {
 		case "shell_command", "run_command", "powershell", "monitor_command":
 			return !shellMayWriteFiles(inputString(input, "command"))
-		case "kill_shell", "cron_create", "cron_delete", "task_stop":
-			return true
 		default:
 			return false
 		}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"mcode/internal/automation"
+	"mcode/internal/harness"
 	"mcode/internal/store"
 )
 
@@ -163,8 +164,8 @@ func (r *Registry) registerAutomationTools(s *Server) {
 				},
 				"runtime_mode": map[string]any{
 					"type":        "string",
-					"enum":        []string{"readonly", "supervised", "autoAcceptEdits", "auto", "fullAccess"},
-					"description": "可选。每次运行新建会话的权限模式：readonly 只读、supervised 需审批、autoAcceptEdits 自动接受编辑、auto 自动、fullAccess 完全访问；不填则跟随默认。heartbeat 模式投递到已有会话，该设置不生效。",
+					"enum":        []string{"readonly", "supervised", "auto", "fullAccess"},
+					"description": "可选。每次运行新建会话的权限模式：readonly 只读、supervised 需审批、auto 自动、fullAccess 完全访问；不填则跟随默认。heartbeat 模式投递到已有会话，该设置不生效。",
 				},
 				"project_id": map[string]any{
 					"type": "string",
@@ -247,7 +248,7 @@ func (r *Registry) registerAutomationTools(s *Server) {
 				},
 				"runtime_mode": map[string]any{
 					"type":        "string",
-					"enum":        []string{"readonly", "supervised", "autoAcceptEdits", "auto", "fullAccess"},
+					"enum":        []string{"readonly", "supervised", "auto", "fullAccess"},
 					"description": "可选。每次运行新建会话的权限模式；不传表示不改，传空串表示跟随默认。heartbeat 模式不生效。",
 				},
 			},
@@ -355,7 +356,7 @@ func parseAutomationSchedule(schedType, schedVal string) (automation.Schedule, e
 const automationMaxRunsLimit = 1000
 
 // automationRuntimeModes 是允许写入 Spec.RuntimeMode 的取值，空串表示跟随默认。
-var automationRuntimeModes = []string{"readonly", "supervised", "autoAcceptEdits", "auto", "fullAccess"}
+var automationRuntimeModes = []string{"readonly", "supervised", "auto", "fullAccess"}
 
 // applyAutomationRunSettings 解析 provider、model、effort、runtime_mode 四个可选参数并写入 spec。
 // spec 为 nil 时只做校验。返回值 present 表示请求里出现了这四个参数中的至少一个，
@@ -374,6 +375,7 @@ func applyAutomationRunSettings(args map[string]any, spec *automation.Spec) (boo
 		}
 		val = strings.TrimSpace(val)
 		if key == "runtime_mode" && val != "" {
+			val = harness.NormalizeMode(val)
 			valid := false
 			for _, mode := range automationRuntimeModes {
 				if val == mode {
@@ -386,7 +388,7 @@ func applyAutomationRunSettings(args map[string]any, spec *automation.Spec) (boo
 					CodeInvalidArguments,
 					fmt.Sprintf("Unknown runtime_mode '%s'.", val),
 					false,
-					"runtime_mode is 'readonly', 'supervised', 'autoAcceptEdits', 'auto', 'fullAccess' or an empty string for the default.",
+					"runtime_mode is 'readonly', 'supervised', 'auto', 'fullAccess' or an empty string for the default.",
 				)
 				return false, &res
 			}

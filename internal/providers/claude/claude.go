@@ -274,9 +274,7 @@ func permissionModeFor(turn harness.Turn) string {
 		perm = "plan"
 	case harness.ModeSupervised:
 		perm = "default"
-	case harness.ModeAutoAcceptEdits, "":
-		perm = "acceptEdits"
-	case harness.ModeAuto:
+	case harness.ModeAutoAcceptEdits, harness.ModeAuto, "":
 		perm = "auto"
 	case harness.ModeFullAccess:
 		perm = "bypassPermissions"

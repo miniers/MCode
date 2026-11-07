@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"mcode/internal/harness"
 	"mcode/internal/kanban"
 	"mcode/internal/procattr"
 	"mcode/internal/providers/loginenv"
@@ -189,6 +190,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Definition, error
 		return Definition{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
 
+	in.Spec.RuntimeMode = harness.NormalizeMode(in.Spec.RuntimeMode)
 	in.Spec.State = RunState{}
 	in.Spec.RunMode = in.Spec.NormalizedRunMode()
 	// MaxRuns 是规范字段，同时镜像到旧字段，保证旧版本二进制仍能拦截。
@@ -353,7 +355,7 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput, expecte
 		spec.Provider = in.Spec.Provider
 		spec.Model = in.Spec.Model
 		spec.Effort = in.Spec.Effort
-		spec.RuntimeMode = in.Spec.RuntimeMode
+		spec.RuntimeMode = harness.NormalizeMode(in.Spec.RuntimeMode)
 		scheduleChanged = true
 	}
 

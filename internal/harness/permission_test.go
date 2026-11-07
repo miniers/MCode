@@ -316,6 +316,29 @@ func TestDecide(t *testing.T) {
 	}
 }
 
+func TestDecideAuto(t *testing.T) {
+	for _, mode := range []PermissionMode{ModeAuto, ModeAutoAcceptEdits} {
+		for _, tc := range []struct {
+			tool, arg string
+			want Decision
+		}{
+			{"write_file", "a.go", DecisionAllow},
+			{"edit_file", "a.go", DecisionAllow},
+			{"bash", "ls", DecisionAllow},
+			{"bash", "git status", DecisionAllow},
+			{"bash", "go build", DecisionAsk},
+			{"bash", "git branch new", DecisionAsk},
+			{"bash", "rg --pre=touch pattern", DecisionAsk},
+		} {
+			t.Run(string(mode)+"/"+tc.tool+"/"+tc.arg, func(t *testing.T) {
+				if got := Decide(mode, nil, tc.tool, tc.arg, false); got != tc.want {
+					t.Errorf("Decide() = %v, want %v", got, tc.want)
+				}
+			})
+		}
+	}
+}
+
 func TestParseMode(t *testing.T) {
 	tests := []struct {
 		input   string

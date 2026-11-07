@@ -830,13 +830,15 @@ var automationRuntimeModeOptions = []automationRuntimeModeOption{
 	{Label: "跟随默认", Value: ""},
 	{Label: "只读", Value: "readonly"},
 	{Label: "需审批", Value: "supervised"},
-	{Label: "自动接受编辑", Value: "autoAcceptEdits"},
 	{Label: "自动", Value: "auto"},
 	{Label: "完全访问", Value: "fullAccess"},
 }
 
 // automationRuntimeModeLabel 把权限模式取值转成下拉文案；未知值回退到「跟随默认」。
 func automationRuntimeModeLabel(value string) string {
+	if value == "autoAcceptEdits" {
+		value = "auto"
+	}
 	for _, opt := range automationRuntimeModeOptions {
 		if opt.Value == value {
 			return opt.Label

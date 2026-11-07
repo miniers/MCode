@@ -29,6 +29,8 @@ const approvalKindLabels: Record<string, string> = {
 };
 
 function requestLabel(request: RemoteRequest): string {
+  if (request.reason === 'credential') return '读取凭证';
+  if (request.reason === 'controlPlane') return '改动 mcode 数据';
   return request.kind === 'question' ? '需要回答' : approvalKindLabels[request.kind] ?? '需要授权';
 }
 
@@ -275,6 +277,7 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
         const isCommandExpanded = expandedCommandIDs.has(request.requestID);
         const isDetailLong = (request.detail?.length ?? 0) > 120;
         const deliveryNoticeText = deliveryNotice(request.deliveryError);
+        const reason = request.reason === 'credential' || request.reason === 'controlPlane' ? '' : (request.reason ?? '').trim();
 
         return (
           <article
@@ -343,9 +346,9 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
               </div>
             )}
 
-            {request.reason && (
+            {reason && (
               <p className="whitespace-pre-wrap break-words text-sm text-[var(--foreground-muted)] leading-relaxed">
-                {request.reason}
+                {reason}
               </p>
             )}
 

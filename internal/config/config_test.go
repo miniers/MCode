@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+
+	"mcode/internal/harness"
 )
 
 func TestHideMagpieModelsInPickerDefaultAndRoundTrip(t *testing.T) {
@@ -366,15 +368,43 @@ func TestMemorySecretStore(t *testing.T) {
 	}
 }
 
-// 9. Load 把旧权限模式 agent 规范化为 autoAcceptEdits，full_access 规范化为 fullAccess。
+// 9. Load 把旧权限模式规范化。
+func TestHarnessPermissionModeNormalization(t *testing.T) {
+	for _, tt := range []struct {
+		input string
+		want string
+		valid bool
+	}{
+		{"readonly", "readonly", true},
+		{"supervised", "supervised", true},
+		{"autoAcceptEdits", "auto", true},
+		{"agent", "auto", true},
+		{"auto", "auto", true},
+		{"fullAccess", "fullAccess", true},
+		{"full_access", "fullAccess", true},
+		{"", "", false},
+		{"unknown", "unknown", false},
+	} {
+		t.Run(tt.input, func(t *testing.T) {
+			mode, err := harness.ParseMode(tt.input)
+			if (err == nil) != tt.valid || (tt.valid && string(mode) != tt.want) {
+				t.Errorf("ParseMode(%q) = %q, %v", tt.input, mode, err)
+			}
+			if got := harness.NormalizeMode(tt.input); got != tt.want {
+				t.Errorf("NormalizeMode(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadLegacyPermissionModeNormalization(t *testing.T) {
 	tests := []struct {
 		legacy string
 		want   string
 	}{
-		{"agent", ModeAutoAcceptEdits},
+		{"agent", ModeAuto},
 		{"full_access", ModeFullAccess},
-		{"autoAcceptEdits", ModeAutoAcceptEdits},
+		{"autoAcceptEdits", ModeAuto},
 		{"fullAccess", ModeFullAccess},
 		{"supervised", ModeSupervised},
 		{"readonly", ModeReadOnly},

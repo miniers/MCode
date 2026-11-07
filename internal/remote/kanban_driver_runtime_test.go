@@ -104,7 +104,7 @@ func TestPromoteReadOnlySession(t *testing.T) {
 	}
 
 	// 其他档位是用户选过的，不能被改动
-	for _, mode := range []string{"supervised", "autoAcceptEdits", "auto", "fullAccess"} {
+	for _, mode := range []string{"supervised", "auto", "fullAccess"} {
 		id := startWith(harness.PermissionMode(mode))
 		if err := b.PromoteReadOnlySession(ctx, id); err != nil {
 			t.Fatalf("升档 %q 会话不应报错: %v", mode, err)

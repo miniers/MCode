@@ -69,10 +69,10 @@ func approvalFromGate(gate *gatePayload) harness.ApprovalRequest {
 		name = "tool"
 	}
 	req := harness.ApprovalRequest{
-		ToolID:   gate.ToolCallID,
-		ToolName: name,
-		Input:    gate.Input,
-		Kind:     kind,
+		ToolID:    gate.ToolCallID,
+		ToolName:  name,
+		Input:     gate.Input,
+		Kind:      kind,
 		Sensitive: gate.Sensitive,
 	}
 	// 摘要取行内标题：命令取 command，文件变更取 path，只读工具优先取路径或模式。

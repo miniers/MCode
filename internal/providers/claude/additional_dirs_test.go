@@ -13,7 +13,7 @@ func TestBuildArgsAdditionalDirs(t *testing.T) {
 	base := func(rest ...string) []string {
 		args := []string{
 			"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-			"--disallowed-tools", "Agent,Task", "--permission-mode", "acceptEdits",
+			"--disallowed-tools", "Agent,Task", "--permission-mode", "auto",
 		}
 		return append(args, rest...)
 	}

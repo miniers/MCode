@@ -308,11 +308,11 @@ func newSessionID() string {
 }
 
 // permissionModeName 将 harness.PermissionMode 映射为 CLI 自己的权限模式名（manual/assisted/allow-all）。
-// 对照 Copilot CLI 自身的规则：supervised 与 autoAcceptEdits 都用 manual，
+// 对照 Copilot CLI 自身的规则：supervised 使用 manual，auto 使用 assisted，
 // 需要审批的请求交回应用自身的规则裁决。
 func permissionModeName(mode harness.PermissionMode) string {
 	switch mode {
-	case harness.ModeAuto:
+	case harness.ModeAutoAcceptEdits, harness.ModeAuto:
 		return "assisted"
 	case harness.ModeFullAccess:
 		return "allow-all"

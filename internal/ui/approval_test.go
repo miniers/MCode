@@ -155,6 +155,26 @@ func TestApprovalCardTitleByKind(t *testing.T) {
 	}
 }
 
+func TestApprovalReasonText(t *testing.T) {
+	cases := []struct {
+		reason string
+		want   string
+	}{
+		{"credential", ""},
+		{"controlPlane", ""},
+		{"普通中文文字", "普通中文文字"},
+		{"  普通中文文字  ", "普通中文文字"},
+	}
+	for _, tc := range cases {
+		if got := approvalAuxText(Approval{Reason: tc.reason}); got != tc.want {
+			t.Errorf("approvalAuxText(%q) = %q, want %q", tc.reason, got, tc.want)
+		}
+	}
+	if got := approvalCardTitle(Approval{Kind: ApprovalKindCommand, Title: "bash", Reason: "credential"}); got != "读取凭证 · bash" {
+		t.Errorf("approvalCardTitle = %q, want %q", got, "读取凭证 · bash")
+	}
+}
+
 func TestApprovalKindRendering(t *testing.T) {
 	_, tt := newApprovalTester(t, []Approval{
 		{ThreadID: "t1", RequestID: "r-cmd", Kind: ApprovalKindCommand, Title: "Bash", Detail: "ls -la", Reason: "列出目录", Options: allowDenyOptions()},

@@ -80,12 +80,10 @@ func DisplayName(a Agent) string {
 //   - cursor: auto -> ["--auto-review", "acp"], fullAccess -> ["--force", "acp"], 其他 -> ["acp"]
 //   - grok:
 //     supervised -> ["--permission-mode", "default", "agent", "stdio"]
-//     autoAcceptEdits -> ["--permission-mode", "acceptEdits", "agent", "stdio"]
 //     auto -> ["--permission-mode", "auto", "agent", "stdio"]
 //     fullAccess -> ["agent", "--always-approve", "stdio"]
 //   - devin:
 //     supervised -> ["--permission-mode", "auto", "acp"]
-//     autoAcceptEdits -> ["--permission-mode", "accept-edits", "acp"]
 //     auto -> ["--permission-mode", "smart", "acp"]
 //     fullAccess -> ["--permission-mode", "dangerous", "acp"]
 //   - opencode 及默认: ["acp"]
@@ -93,6 +91,8 @@ func LaunchArgs(a Agent, mode harness.PermissionMode) []string {
 	// readonly 模式按 supervised 处理
 	if mode == harness.ModeReadOnly {
 		mode = harness.ModeSupervised
+	} else if mode == harness.ModeAutoAcceptEdits {
+		mode = harness.ModeAuto
 	}
 
 	switch a {
@@ -116,8 +116,6 @@ func LaunchArgs(a Agent, mode harness.PermissionMode) []string {
 		switch mode {
 		case harness.ModeSupervised:
 			return []string{"--permission-mode", "default", "agent", "stdio"}
-		case harness.ModeAutoAcceptEdits:
-			return []string{"--permission-mode", "acceptEdits", "agent", "stdio"}
 		case harness.ModeAuto:
 			return []string{"--permission-mode", "auto", "agent", "stdio"}
 		case harness.ModeFullAccess:
@@ -130,8 +128,6 @@ func LaunchArgs(a Agent, mode harness.PermissionMode) []string {
 		switch mode {
 		case harness.ModeSupervised:
 			return []string{"--permission-mode", "auto", "acp"}
-		case harness.ModeAutoAcceptEdits:
-			return []string{"--permission-mode", "accept-edits", "acp"}
 		case harness.ModeAuto:
 			return []string{"--permission-mode", "smart", "acp"}
 		case harness.ModeFullAccess:

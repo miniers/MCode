@@ -29,7 +29,7 @@ const SAFE_GIT = new Set(["status", "log", "diff", "show", "blame", "branch", "l
 
 // DANGEROUS_FIND_ACTIONS 是 find 里会删除文件、写文件或执行命令的动作，出现任何一个都不算只读。
 const DANGEROUS_FIND_ACTIONS = new Set([
-  "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprintf", "-fls",
+  "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls",
 ]);
 
 // SAFE_BRANCH_FLAGS 是 git branch 里只读的开关；其余（-d / -D / -m / -c / -u / --set-upstream-to 等）会改仓库。
@@ -153,12 +153,14 @@ function onlyReads(command) {
         continue;
       }
       if (!SAFE_GIT.has(sub)) return false;
-      if (sub === "branch" && tokens.slice(2).some((t) => t.startsWith("-") && !SAFE_BRANCH_FLAGS.has(t))) return false;
+      if (tokens.slice(2).some((t) => t === "--ext-diff" || t === "--output" || t.startsWith("--output="))) return false;
+      if (sub === "branch" && tokens.slice(2).some((t) => !SAFE_BRANCH_FLAGS.has(t))) return false;
       continue;
     }
     if (!SAFE_PROGRAMS.has(program)) return false;
+    if (program === "rg" && tokens.slice(1).some((t) => t === "--pre" || t.startsWith("--pre="))) return false;
     // sort -o / --output、find -delete / -exec 等会把“只读”变成写入。
-    if (program === "sort" && tokens.slice(1).some((t) => t === "-o" || t.startsWith("--output"))) return false;
+    if (program === "sort" && tokens.slice(1).some((t) => t.startsWith("-o") || t.startsWith("--output"))) return false;
     if (program === "find" && tokens.slice(1).some((t) => DANGEROUS_FIND_ACTIONS.has(t))) return false;
   }
   return true;
@@ -426,9 +428,9 @@ function verdictWithoutAsking(gate, event, kind, sensitive) {
   if (sensitive) return null;
 
   if (LOOK_ONLY_TOOLS.has(event.toolName)) return "allow";
-  const mode = gate.runtimeMode;
+  const mode = gate.runtimeMode === "autoAcceptEdits" ? "auto" : gate.runtimeMode;
   if (mode === "fullAccess") return "allow";
-  if (kind === "fileChange" && (mode === "auto" || mode === "autoAcceptEdits")) return "allow";
+  if (kind === "fileChange" && mode === "auto") return "allow";
   if (kind === "command" && (mode === "auto" || mode === "readonly") && onlyReads(event.input?.command)) return "allow";
   return null;
 }

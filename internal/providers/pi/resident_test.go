@@ -281,7 +281,7 @@ func TestResidentReusesProcessAcrossTurns(t *testing.T) {
 		t.Fatalf("请求序列应为 %v，得到 %v", want, got)
 	}
 	content, err := os.ReadFile(gate)
-	if err != nil || !strings.Contains(string(content), `"runtimeMode":"autoAcceptEdits"`) {
+	if err != nil || !strings.Contains(string(content), `"runtimeMode":"auto"`) {
 		t.Fatalf("第二轮的门禁文件应反映 autoAcceptEdits 模式: %q %v", content, err)
 	}
 

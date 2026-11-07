@@ -800,17 +800,27 @@ func commandSegments(command string) []string {
 	}
 	for {
 		next := commandNullRedirect.ReplaceAllString(command, "$1$3")
-		if next == command { break }
+		if next == command {
+			break
+		}
 		command = next
 	}
-	if strings.ContainsAny(command, "<>") { return nil }
+	if strings.ContainsAny(command, "<>") {
+		return nil
+	}
 	command = strings.NewReplacer("&&", "\n", "||", "\n", "|", "\n", ";", "\n").Replace(command)
-	if strings.Contains(command, "&") { return nil }
+	if strings.Contains(command, "&") {
+		return nil
+	}
 	var segments []string
 	for _, part := range strings.Split(command, "\n") {
 		fields := strings.Fields(part)
-		if len(fields) == 0 { return nil }
-		if fields[0] == "cd" { continue }
+		if len(fields) == 0 {
+			return nil
+		}
+		if fields[0] == "cd" {
+			continue
+		}
 		segments = append(segments, part)
 	}
 	return segments
@@ -818,20 +828,28 @@ func commandSegments(command string) []string {
 
 func commandSegmentPrefix(segment string) string {
 	fields := strings.Fields(segment)
-	if len(fields) == 0 || commandAssignment.MatchString(fields[0]) { return "" }
+	if len(fields) == 0 || commandAssignment.MatchString(fields[0]) {
+		return ""
+	}
 	name := filepath.Base(fields[0])
 	switch name {
 	case "sh", "bash", "zsh", "fish", "python", "python3", "node", "ruby", "perl", "php", "deno", "eval", "exec", "sudo", "su", "env", "xargs", "rm", "curl", "wget", "ssh", "scp", "dd", "chmod", "chown", "osascript", "security", "open":
 		return ""
 	}
-	if !commandProgram.MatchString(name) { return "" }
-	if len(fields) > 1 && commandPrefixArg.MatchString(fields[1]) { return name + " " + fields[1] }
+	if !commandProgram.MatchString(name) {
+		return ""
+	}
+	if len(fields) > 1 && commandPrefixArg.MatchString(fields[1]) {
+		return name + " " + fields[1]
+	}
 	return name
 }
 
 func commandAllowPrefix(command string) string {
 	segments := commandSegments(command)
-	if len(segments) != 1 { return "" }
+	if len(segments) != 1 {
+		return ""
+	}
 	return commandSegmentPrefix(segments[0])
 }
 
@@ -845,12 +863,18 @@ func alwaysAllowKey(kind harness.RequestKind, req harness.ApprovalRequest) strin
 }
 
 func commandPrefixesAllowed(kind harness.RequestKind, req harness.ApprovalRequest, allowed func(string) bool) bool {
-	if kind != harness.RequestKindCommand { return false }
+	if kind != harness.RequestKindCommand {
+		return false
+	}
 	segments := commandSegments(approvalCommand(req))
-	if len(segments) == 0 { return false }
+	if len(segments) == 0 {
+		return false
+	}
 	for _, segment := range segments {
 		prefix := commandSegmentPrefix(segment)
-		if prefix == "" || !allowed(req.ToolName + "\x00prefix\x00" + prefix) { return false }
+		if prefix == "" || !allowed(req.ToolName+"\x00prefix\x00"+prefix) {
+			return false
+		}
 	}
 	return true
 }
@@ -1098,7 +1122,9 @@ func requestOptions(kind harness.RequestKind, req harness.ApprovalRequest) []wir
 	default:
 		title := "在此项目始终允许"
 		if kind == harness.RequestKindCommand {
-			if prefix := commandAllowPrefix(approvalCommand(req)); prefix != "" { title += " " + prefix }
+			if prefix := commandAllowPrefix(approvalCommand(req)); prefix != "" {
+				title += " " + prefix
+			}
 		}
 		return []wire.RemoteRequestOption{
 			{ID: "allow", Title: "允许", Role: "approve"},

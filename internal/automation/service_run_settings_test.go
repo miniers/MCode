@@ -6,6 +6,17 @@ import (
 	"time"
 )
 
+func TestDecodeSpecLegacyRuntimeMode(t *testing.T) {
+	for _, mode := range []string{"autoAcceptEdits", "agent"} {
+		t.Run(mode, func(t *testing.T) {
+			spec := DecodeSpec(`{"runtimeMode":"` + mode + `"}`)
+			if spec.RuntimeMode != "auto" {
+				t.Fatalf("旧权限档 %q 规范化后为 %q", mode, spec.RuntimeMode)
+			}
+		})
+	}
+}
+
 // runSettingsSpec 构造一份带模型与权限设置的 Spec，供下面的用例复用。
 func runSettingsSpec(runMode string) Spec {
 	return Spec{
@@ -21,7 +32,7 @@ func runSettingsSpec(runMode string) Spec {
 // assertRunSettings 校验一次 StartSession 收到的请求带上了 Spec 里的模型与权限设置。
 func assertRunSettings(t *testing.T, provider, model, effort, runtimeMode string) {
 	t.Helper()
-	if provider != "anthropic" || model != "claude-sonnet-4-5" || effort != "high" || runtimeMode != "autoAcceptEdits" {
+	if provider != "anthropic" || model != "claude-sonnet-4-5" || effort != "high" || runtimeMode != "auto" {
 		t.Fatalf("run settings not passed through: provider=%q model=%q effort=%q runtimeMode=%q",
 			provider, model, effort, runtimeMode)
 	}

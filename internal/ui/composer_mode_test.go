@@ -2,11 +2,13 @@ package mcodeui
 
 import "testing"
 
-// runtimeModeTitle 把权限档位翻成中文：readonly 显示「只读」，空值回退「自动接受编辑」，
+// runtimeModeTitle 把权限档位翻成中文：readonly 显示「只读」，空值回退「自动」，
 // 未知档位不把原始英文模式名回显给用户。
 func TestRuntimeModeTitle(t *testing.T) {
 	for _, tc := range []struct{ mode, want string }{
-		{mode: "", want: "自动接受编辑"},
+		{mode: "", want: "自动"},
+		{mode: "autoAcceptEdits", want: "自动"},
+		{mode: "agent", want: "自动"},
 		{mode: "auto", want: "自动"},
 		{mode: "fullAccess", want: "完全访问"},
 		{mode: "readonly", want: "只读"},

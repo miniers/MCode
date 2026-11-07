@@ -501,6 +501,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 					Name       string          `json:"name"`
 					ToolName   string          `json:"toolName"`
 					Title      string          `json:"title"`
+					Kind       string          `json:"kind"`
 					RawInput   json.RawMessage `json:"rawInput"`
 					Input      json.RawMessage `json:"input"`
 				} `json:"toolCall"`
@@ -569,10 +570,23 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 					decision = dec
 				}
 			} else {
-				if turn.Mode == harness.ModeFullAccess || turn.Mode == harness.ModeAuto {
+				decision = harness.DecisionDeny
+				if turn.Mode == harness.ModeFullAccess {
 					decision = harness.DecisionAllow
-				} else {
-					decision = harness.DecisionDeny
+				} else if !planExit && (turn.Mode == harness.ModeAuto || turn.Mode == harness.ModeAutoAcceptEdits) {
+					name := toolName
+					arg := ""
+					var values map[string]any
+					_ = json.Unmarshal(input, &values)
+					if p.ToolCall.Kind == "execute" || name == "bash" || name == "shell_command" || name == "run_command" {
+						command, _ := values["command"].(string)
+						name, arg = "bash", command
+					} else if p.ToolCall.Kind == "edit" {
+						name = "edit_file"
+					}
+					if harness.Decide(turn.Mode, nil, name, arg, p.ToolCall.Kind == "read") == harness.DecisionAllow {
+						decision = harness.DecisionAllow
+					}
 				}
 			}
 

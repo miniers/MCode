@@ -67,21 +67,21 @@ func TestLaunchArgsMatrix(t *testing.T) {
 		// Cursor
 		{AgentCursor, harness.ModeReadOnly, []string{"acp"}},
 		{AgentCursor, harness.ModeSupervised, []string{"acp"}},
-		{AgentCursor, harness.ModeAutoAcceptEdits, []string{"acp"}},
+		{AgentCursor, harness.ModeAutoAcceptEdits, []string{"--auto-review", "acp"}},
 		{AgentCursor, harness.ModeAuto, []string{"--auto-review", "acp"}},
 		{AgentCursor, harness.ModeFullAccess, []string{"--force", "acp"}},
 
 		// Grok
 		{AgentGrok, harness.ModeReadOnly, []string{"--permission-mode", "default", "agent", "stdio"}},
 		{AgentGrok, harness.ModeSupervised, []string{"--permission-mode", "default", "agent", "stdio"}},
-		{AgentGrok, harness.ModeAutoAcceptEdits, []string{"--permission-mode", "acceptEdits", "agent", "stdio"}},
+		{AgentGrok, harness.ModeAutoAcceptEdits, []string{"--permission-mode", "auto", "agent", "stdio"}},
 		{AgentGrok, harness.ModeAuto, []string{"--permission-mode", "auto", "agent", "stdio"}},
 		{AgentGrok, harness.ModeFullAccess, []string{"agent", "--always-approve", "stdio"}},
 
 		// Devin
 		{AgentDevin, harness.ModeReadOnly, []string{"--permission-mode", "auto", "acp"}},
 		{AgentDevin, harness.ModeSupervised, []string{"--permission-mode", "auto", "acp"}},
-		{AgentDevin, harness.ModeAutoAcceptEdits, []string{"--permission-mode", "accept-edits", "acp"}},
+		{AgentDevin, harness.ModeAutoAcceptEdits, []string{"--permission-mode", "smart", "acp"}},
 		{AgentDevin, harness.ModeAuto, []string{"--permission-mode", "smart", "acp"}},
 		{AgentDevin, harness.ModeFullAccess, []string{"--permission-mode", "dangerous", "acp"}},
 

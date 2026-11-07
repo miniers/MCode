@@ -71,7 +71,7 @@ func threadToStore(t wire.ThreadSummary, sessionID string, sortOrder int64, cont
 	}
 	// 侧边栏排序依据（用户最后发消息时间）；重启后靠 store 里的这一列保持顺序。
 	lastUserMessageAt := parseOptionalTime(t.LastUserMessageAt)
-	mode := t.RuntimeMode
+	mode := harness.NormalizeMode(t.RuntimeMode)
 	if mode == "" {
 		mode = "fullAccess"
 	}
@@ -173,7 +173,7 @@ func threadFromStore(t store.Thread) wire.ThreadSummary {
 	var modelPtr *string
 	m := t.Model
 	modelPtr = &m
-	runtimeMode := t.RuntimeMode
+	runtimeMode := harness.NormalizeMode(t.RuntimeMode)
 	// 早期版本写入过 schema 不认的 "standard"
 	if !isValidRuntimeMode(runtimeMode) {
 		runtimeMode = "fullAccess"

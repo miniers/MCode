@@ -1985,8 +1985,8 @@ func (b *MemoryBackend) SetHarness(h harness.Harness, workDir string, mode harne
 }
 
 func isValidRuntimeMode(mode string) bool {
-	switch mode {
-	case string(harness.ModeReadOnly), "supervised", "autoAcceptEdits", "auto", "fullAccess":
+	switch harness.NormalizeMode(mode) {
+	case string(harness.ModeReadOnly), "supervised", "auto", "fullAccess":
 		return true
 	default:
 		return false
@@ -1996,7 +1996,7 @@ func isValidRuntimeMode(mode string) bool {
 func (b *MemoryBackend) defaultRuntimeModeLocked() string {
 	mode, err := harness.ParseMode(string(b.harnessMode))
 	if err != nil || mode == "" {
-		return "autoAcceptEdits"
+		return "auto"
 	}
 	if mode == harness.ModeReadOnly {
 		return "supervised"
@@ -4028,7 +4028,7 @@ func (b *MemoryBackend) createThread(ctx context.Context, params wire.ThreadCrea
 			}
 			return wire.ThreadCreateResult{}, rpcErr
 		}
-		runtimeMode = reqRuntimeMode
+		runtimeMode = harness.NormalizeMode(reqRuntimeMode)
 	}
 
 	var reqModel *string
@@ -4302,8 +4302,8 @@ func (b *MemoryBackend) UpdateThread(ctx context.Context, params wire.ThreadUpda
 		td.summary.Title = *params.Title
 		titleChanged = true
 	}
-	if params.RuntimeMode != nil && *params.RuntimeMode != "" && *params.RuntimeMode != td.summary.RuntimeMode {
-		td.summary.RuntimeMode = *params.RuntimeMode
+	if params.RuntimeMode != nil && *params.RuntimeMode != "" && harness.NormalizeMode(*params.RuntimeMode) != td.summary.RuntimeMode {
+		td.summary.RuntimeMode = harness.NormalizeMode(*params.RuntimeMode)
 		runtimeModeChanged = true
 	}
 	if params.Pinned != nil && *params.Pinned != td.summary.IsPinned {

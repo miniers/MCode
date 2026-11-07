@@ -19,35 +19,42 @@ type PermissionMode string
 const (
 	ModeReadOnly        PermissionMode = "readonly"
 	ModeSupervised      PermissionMode = "supervised"
+	// ModeAutoAcceptEdits 已废弃：仅用于识别旧数据，解析时迁移为 ModeAuto。
 	ModeAutoAcceptEdits PermissionMode = "autoAcceptEdits"
 	ModeAuto            PermissionMode = "auto"
 	ModeFullAccess      PermissionMode = "fullAccess"
 
 	// ModeAgent 是 ModeAutoAcceptEdits 的兼容别名。
-	// Deprecated: 请使用 ModeAutoAcceptEdits。
+	// Deprecated: 请使用 ModeAuto。
 	ModeAgent PermissionMode = ModeAutoAcceptEdits
 )
 
 // ParseMode 将字符串解析为对应的 PermissionMode。
-// 接受 readonly、supervised、autoAcceptEdits、auto、fullAccess，
-// 以及旧值 "agent"（映射为 ModeAutoAcceptEdits）与 "full_access"（映射为 ModeFullAccess）。
+// 接受 readonly、supervised、auto、fullAccess，以及旧值 autoAcceptEdits、agent 和 full_access。
 func ParseMode(s string) (PermissionMode, error) {
 	switch s {
 	case string(ModeReadOnly):
 		return ModeReadOnly, nil
 	case string(ModeSupervised):
 		return ModeSupervised, nil
-	case string(ModeAutoAcceptEdits), "agent":
-		return ModeAutoAcceptEdits, nil
-	case string(ModeAuto):
+	case string(ModeAutoAcceptEdits), "agent", string(ModeAuto):
 		return ModeAuto, nil
 	case string(ModeFullAccess), "full_access":
 		return ModeFullAccess, nil
 	case "":
-		return "", fmt.Errorf("permission mode cannot be empty; valid modes: readonly, supervised, autoAcceptEdits, auto, fullAccess")
+		return "", fmt.Errorf("permission mode cannot be empty; valid modes: readonly, supervised, auto, fullAccess")
 	default:
-		return "", fmt.Errorf("unknown permission mode %q, valid modes: readonly, supervised, autoAcceptEdits, auto, fullAccess", s)
+		return "", fmt.Errorf("unknown permission mode %q, valid modes: readonly, supervised, auto, fullAccess", s)
 	}
+}
+
+// NormalizeMode 将已知权限模式转为规范值，未知值保持不变。
+func NormalizeMode(s string) string {
+	mode, err := ParseMode(s)
+	if err != nil {
+		return s
+	}
+	return string(mode)
 }
 
 // NonInteractiveEnv 返回注入给 agent 进程的环境变量：让它在非交互环境下不要因为等

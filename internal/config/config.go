@@ -49,12 +49,12 @@ const (
 	// 权限模式常量（与 internal/harness 中 ModeReadOnly、ModeSupervised、ModeAutoAcceptEdits、ModeAuto、ModeFullAccess 保持严格一致）。
 	ModeReadOnly        = "readonly"        // 对应 internal/harness.ModeReadOnly
 	ModeSupervised      = "supervised"      // 对应 internal/harness.ModeSupervised
-	ModeAutoAcceptEdits = "autoAcceptEdits" // 对应 internal/harness.ModeAutoAcceptEdits
+	ModeAutoAcceptEdits = "autoAcceptEdits" // 已废弃：仅读取旧数据时使用
 	ModeAuto            = "auto"            // 对应 internal/harness.ModeAuto
 	ModeFullAccess      = "fullAccess"      // 对应 internal/harness.ModeFullAccess
 
 	// 兼容旧模式常量（与 internal/harness 中旧值一致）
-	ModeAgent = "agent" // 对应旧版 internal/harness.ModeAgent，规范化为 ModeAutoAcceptEdits
+	ModeAgent = "agent" // 旧值，规范化为 ModeAuto
 
 	// 外观主题常量。
 	ThemeSystem = "system"
@@ -1600,8 +1600,8 @@ func normalizeQuotaProviders(providers []string) []string {
 // Normalize 对配置执行全局规范化（包括权限模式与自定义端点列表）。
 func Normalize(cfg Config) Config {
 	switch cfg.Permissions.Mode {
-	case "agent":
-		cfg.Permissions.Mode = ModeAutoAcceptEdits
+	case "agent", ModeAutoAcceptEdits:
+		cfg.Permissions.Mode = ModeAuto
 	case "full_access":
 		cfg.Permissions.Mode = ModeFullAccess
 	}

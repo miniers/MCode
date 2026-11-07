@@ -1664,7 +1664,7 @@ func (s *chatState) threadRuntimeMode(threadID string) string {
 	if p := s.pendingThread; p != nil && threadID == "" && p.Thread.RuntimeMode != "" {
 		return p.Thread.RuntimeMode
 	}
-	return "autoAcceptEdits"
+	return "auto"
 }
 
 // threadProvider 返回指定会话的 provider ID，找不到时返回空字符串。
@@ -1757,9 +1757,9 @@ func runtimeModeSummary(mode string) string {
 	return ""
 }
 
-// headerRuntimeModeSupported 判断 provider 是否支持该档位：目前只有 omp 不支持 auto 档位。
+// headerRuntimeModeSupported 判断 provider 是否支持该档位。
 func headerRuntimeModeSupported(provider, mode string) bool {
-	return !(provider == "omp" && mode == "auto")
+	return true
 }
 
 // permissionModeIcon 返回权限档位对应的图标（与设置页、composer 保持一致）。
@@ -1776,9 +1776,12 @@ func permissionModeIcon(mode string) *ui.SVG {
 	}
 }
 
-// renderHeaderPermissionCapsule 渲染 32×32 权限圆钮与四档单行菜单；菜单底部是当前 provider/model 的人设分区。
+// renderHeaderPermissionCapsule 渲染 32×32 权限圆钮与三档单行菜单；菜单底部是当前 provider/model 的人设分区。
 func renderHeaderPermissionCapsule(c *ui.Context, s *chatState, threadID string) {
 	mode := s.threadRuntimeMode(threadID)
+	if mode == "autoAcceptEdits" || mode == "agent" {
+		mode = "auto"
+	}
 	title := runtimeModeTitle(mode)
 	summary := runtimeModeSummary(mode)
 	provider := s.threadProvider(threadID)

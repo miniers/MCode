@@ -118,15 +118,15 @@ func TestBuildArgs(t *testing.T) {
 			},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
-				"--permission-mode", "acceptEdits",
+				"--permission-mode", "auto",
 			},
 		},
 		{
-			name: "空权限模式默认为ModeAgent",
+			name: "空权限模式默认为auto",
 			turn: harness.Turn{},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
-				"--permission-mode", "acceptEdits",
+				"--permission-mode", "auto",
 			},
 		},
 		{
@@ -150,13 +150,13 @@ func TestBuildArgs(t *testing.T) {
 			},
 		},
 		{
-			name: "ModeAutoAcceptEdits映射为acceptEdits",
+			name: "ModeAutoAcceptEdits映射为auto",
 			turn: harness.Turn{
 				Mode: harness.ModeAutoAcceptEdits,
 			},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
-				"--permission-mode", "acceptEdits",
+				"--permission-mode", "auto",
 			},
 		},
 		{
@@ -192,7 +192,7 @@ func TestBuildArgs(t *testing.T) {
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
 				"--model", "claude-3-7-sonnet",
 				"--resume", "sess-resume-123",
-				"--permission-mode", "acceptEdits",
+				"--permission-mode", "auto",
 				"--custom-flag", "val",
 			},
 		},
@@ -201,7 +201,7 @@ func TestBuildArgs(t *testing.T) {
 			turn: harness.Turn{Model: "default"},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
-				"--permission-mode", "acceptEdits",
+				"--permission-mode", "auto",
 			},
 		},
 		{
@@ -209,7 +209,7 @@ func TestBuildArgs(t *testing.T) {
 			turn: harness.Turn{Effort: "high"},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
-				"--effort", "high", "--permission-mode", "acceptEdits",
+				"--effort", "high", "--permission-mode", "auto",
 			},
 		},
 		{

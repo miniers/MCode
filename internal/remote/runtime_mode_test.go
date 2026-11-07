@@ -15,7 +15,7 @@ import (
 func TestRuntimeMode_DefaultMode(t *testing.T) {
 	ctx := context.Background()
 
-	// 默认未设置 harnessMode 时，默认为 autoAcceptEdits
+	// 默认未设置 harnessMode 时，默认为 auto
 	hub := NewStreamHub(StreamHubOptions{})
 	defer hub.Close()
 	b := NewMemoryBackend(hub)
@@ -32,8 +32,8 @@ func TestRuntimeMode_DefaultMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetThread failed: %v", err)
 	}
-	if th.RuntimeMode != "autoAcceptEdits" {
-		t.Errorf("expected default runtimeMode 'autoAcceptEdits', got %q", th.RuntimeMode)
+	if th.RuntimeMode != "auto" {
+		t.Errorf("expected default runtimeMode 'auto', got %q", th.RuntimeMode)
 	}
 
 	// 当后台设置为 ModeReadOnly 时，新线程显示 "supervised"
@@ -69,6 +69,17 @@ func TestRuntimeMode_DefaultMode(t *testing.T) {
 	}
 	if thFA.RuntimeMode != "fullAccess" {
 		t.Errorf("expected fullAccess backend thread to display 'fullAccess', got %q", thFA.RuntimeMode)
+	}
+}
+
+func TestRuntimeMode_LegacyThread(t *testing.T) {
+	for _, mode := range []string{"autoAcceptEdits", "agent"} {
+		t.Run(mode, func(t *testing.T) {
+			thread := threadFromStore(store.Thread{RuntimeMode: mode})
+			if thread.RuntimeMode != "auto" {
+				t.Fatalf("旧权限档 %q 规范化后为 %q", mode, thread.RuntimeMode)
+			}
+		})
 	}
 }
 
@@ -149,7 +160,7 @@ func TestRuntimeMode_UpdateAffectsNextTurn(t *testing.T) {
 	b.SetHarness(mock, t.TempDir(), harness.ModeAgent)
 	b.AddProject(wire.ProjectSummary{ID: "p1", Name: "Proj1", Path: t.TempDir()})
 
-	// 创建新线程，默认模式为 autoAcceptEdits
+	// 创建新线程，默认模式为 auto
 	res, err := b.CreateThread(ctx, wire.ThreadCreateParams{
 		ProjectID: "p1",
 		ActionID:  "a1",
@@ -174,8 +185,8 @@ func TestRuntimeMode_UpdateAffectsNextTurn(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 turn call, got %d", len(calls))
 	}
-	if calls[0].Mode != harness.PermissionMode("autoAcceptEdits") {
-		t.Errorf("expected first turn Mode 'autoAcceptEdits', got %q", calls[0].Mode)
+	if calls[0].Mode != harness.ModeAuto {
+		t.Errorf("expected first turn Mode 'auto', got %q", calls[0].Mode)
 	}
 
 	// 通过 UpdateThread 改为 fullAccess

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"mcode/internal/harness"
 	"mcode/internal/store"
 )
 
@@ -97,7 +98,7 @@ type Spec struct {
 	Model    string `json:"model,omitempty"`
 	Effort   string `json:"effort,omitempty"`
 	// RuntimeMode 非空时以该权限模式创建会话，取值同 ThreadCreateParams.RuntimeMode
-	// （readonly/supervised/autoAcceptEdits/auto/fullAccess），空串表示跟随默认；
+	// （readonly/supervised/auto/fullAccess），空串表示跟随默认；
 	// 与模型字段一样，heartbeat 模式不生效。
 	RuntimeMode string   `json:"runtimeMode,omitempty"`
 	State       RunState `json:"state"`
@@ -137,6 +138,7 @@ type Definition struct {
 
 // EncodeSpec 将 Spec 序列化为 JSON 字符串。
 func EncodeSpec(s Spec) (string, error) {
+	s.RuntimeMode = harness.NormalizeMode(s.RuntimeMode)
 	b, err := json.Marshal(s)
 	if err != nil {
 		return "", err
@@ -155,6 +157,7 @@ func DecodeSpec(raw string) Spec {
 			RunMode:                RunModeStandalone,
 		}
 	}
+	s.RuntimeMode = harness.NormalizeMode(s.RuntimeMode)
 	s.RunMode = s.NormalizedRunMode()
 	switch s.Schedule.Type {
 	case "interval", "once", "daily", "weekdays", "weekly", "cron":

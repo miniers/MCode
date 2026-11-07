@@ -659,7 +659,11 @@ func executeToolCallWithMCP(ctx context.Context, turn harness.Turn, call toolCal
 	// （白名单在 MCP 服务器一侧），其余情况仍按权限模式判定。
 	if !readOnly && !harness.MCPToolAllowed(ctx, turn.Approver, toolName) {
 		pathArg := getString("path")
-		decision := harness.Decide(turn.Mode, nil, toolName, pathArg, false)
+		decisionArg := pathArg
+		if toolName == "bash" || toolName == "shell_command" || toolName == "run_command" {
+			decisionArg = getString("command")
+		}
+		decision := harness.Decide(turn.Mode, nil, toolName, decisionArg, false)
 		switch decision {
 		case harness.DecisionAllow:
 			// 放行

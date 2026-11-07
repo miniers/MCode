@@ -253,7 +253,7 @@ func TestThreadTitle_PersistenceAcrossReload(t *testing.T) {
 	off := false
 	backend1.SetGeneralSettingsFunc(func() config.Config { return config.Config{Session: config.SessionConfig{ConciseRepliesEnabled: &off}} })
 
-	// 注册带 harness.Turn 的 Mock，验证指定模式常量 ModeAgent
+	// 注册带 harness.Turn 的 Mock，验证旧权限档规范化
 	mock := &mockHarness{
 		runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
 			emit(harness.Event{Type: harness.EventText, Text: "harness echo"})
@@ -302,8 +302,8 @@ func TestThreadTitle_PersistenceAcrossReload(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 turn call, got %d", len(calls))
 	}
-	if calls[0].Mode != harness.ModeAgent {
-		t.Errorf("expected ModeAgent, got %v", calls[0].Mode)
+	if calls[0].Mode != harness.ModeAuto {
+		t.Errorf("expected ModeAuto, got %v", calls[0].Mode)
 	}
 	if calls[0].Prompt != sentText {
 		t.Errorf("expected prompt %q, got %q", sentText, calls[0].Prompt)

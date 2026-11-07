@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // Decision 表示权限判决结果。
@@ -90,6 +91,46 @@ func MCPToolAllowed(ctx context.Context, approver Approver, toolName string) boo
 	return allower.MCPToolAllowed(ctx, toolName)
 }
 
+// onlyReadsCommand 只放行可直接识别的单条只读命令，复杂 shell 表达式交给审批。
+func onlyReadsCommand(command string) bool {
+	if strings.ContainsAny(command, "\r\n;&|<>`$\\\"'") {
+		return false
+	}
+	tokens := strings.Fields(command)
+	if len(tokens) == 0 {
+		return false
+	}
+	if tokens[0] == "git" {
+		if len(tokens) < 2 {
+			return false
+		}
+		switch tokens[1] {
+		case "status", "log", "diff", "show", "blame", "ls-files":
+			for _, arg := range tokens[2:] {
+				if strings.HasPrefix(arg, "-") {
+					return false
+				}
+			}
+			return true
+		case "branch":
+			return len(tokens) == 2
+		default:
+			return false
+		}
+	}
+	for _, arg := range tokens[1:] {
+		if strings.HasPrefix(arg, "-") {
+			return false
+		}
+	}
+	switch tokens[0] {
+	case "ls", "cat", "head", "tail", "wc", "grep", "rg", "find", "tree", "du", "stat", "file", "pwd", "echo", "which", "sort", "uniq", "diff", "cd":
+		return true
+	default:
+		return false
+	}
+}
+
 // Decide 根据权限模式、预设规则列表、工具属性裁决是否放行、拒绝或请求审批。
 func Decide(mode PermissionMode, rules []Rule, toolName string, arg string, readOnlyTool bool) Decision {
 	// ModeReadOnly 下对非只读工具始终拒绝，优先于任何规则或模式默认设置
@@ -151,13 +192,9 @@ func Decide(mode PermissionMode, rules []Rule, toolName string, arg string, read
 			return DecisionAllow
 		}
 		return DecisionAsk
-	case ModeAutoAcceptEdits:
-		if readOnlyTool {
-			return DecisionAllow
-		}
-		return DecisionAsk
-	case ModeAuto:
-		if readOnlyTool {
+	case ModeAutoAcceptEdits, ModeAuto:
+		if readOnlyTool || toolName == "write_file" || toolName == "edit_file" ||
+			((toolName == "bash" || toolName == "shell_command" || toolName == "run_command") && onlyReadsCommand(arg)) {
 			return DecisionAllow
 		}
 		return DecisionAsk

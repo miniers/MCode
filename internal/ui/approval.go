@@ -659,13 +659,22 @@ func renderApprovalCode(c *ui.Context, key, text string) {
 		Border(Hairline, ThemeBorder(c))
 }
 
+func approvalReasonText(a Approval) string {
+	switch a.Reason {
+	case "credential", "controlPlane":
+		return ""
+	default:
+		return strings.TrimSpace(a.Reason)
+	}
+}
+
 // renderApprovalReason 渲染审批原因说明，以及上次答复未送达的提示；两者都为空时什么都不画。
 // DeliveryError 非空说明上一次答复没有投递给 Agent，卡片保留以便用户重新选择，
 // 所以这里用危险色明确提示“上次没送达”，否则用户会以为答复已经生效。
 func renderApprovalReason(c *ui.Context, approval Approval) {
-	if approval.Reason != "" {
+	if reason := approvalReasonText(approval); reason != "" {
 		ui.Row(c.Key("approval-reason-row")).Children(func() {
-			ui.Text(c, approval.Reason).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).Selectable()
+			ui.Text(c, reason).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).Selectable()
 		})
 	}
 	if notice := approvalDeliveryNotice(approval.DeliveryError); notice != "" {
@@ -687,7 +696,7 @@ func approvalDeliveryNotice(deliveryError string) string {
 // approvalAuxText 把审批原因与“上次答复未送达”提示合并成一条 Banner 文案。
 func approvalAuxText(approval Approval) string {
 	parts := make([]string, 0, 2)
-	if reason := strings.TrimSpace(approval.Reason); reason != "" {
+	if reason := approvalReasonText(approval); reason != "" {
 		parts = append(parts, reason)
 	}
 	if notice := approvalDeliveryNotice(approval.DeliveryError); notice != "" {

@@ -1179,7 +1179,7 @@ func TestGateContent(t *testing.T) {
 	}{
 		{harness.ModeReadOnly, "readonly"},
 		{harness.ModeSupervised, "supervised"},
-		{harness.ModeAutoAcceptEdits, "autoAcceptEdits"},
+		{harness.ModeAutoAcceptEdits, "auto"},
 		{harness.ModeAuto, "auto"},
 		{harness.ModeFullAccess, "fullAccess"},
 		{"", "supervised"},

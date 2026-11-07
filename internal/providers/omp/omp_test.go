@@ -607,7 +607,7 @@ func TestPrepareLaunchFiles(t *testing.T) {
 	if err := json.Unmarshal(gateData, &state); err != nil {
 		t.Fatalf("门禁文件不是合法 JSON: %v", err)
 	}
-	if state.RuntimeMode != "autoAcceptEdits" || state.InteractionMode != "plan" || state.FinalReport || state.AllowTask {
+	if state.RuntimeMode != "auto" || state.InteractionMode != "plan" || state.FinalReport || state.AllowTask {
 		t.Errorf("运行模式注入内容错误: %+v", state)
 	}
 
@@ -666,7 +666,7 @@ func TestRuntimeModeName(t *testing.T) {
 	}{
 		{harness.ModeReadOnly, "supervised"},
 		{harness.ModeSupervised, "supervised"},
-		{harness.ModeAutoAcceptEdits, "autoAcceptEdits"},
+		{harness.ModeAutoAcceptEdits, "auto"},
 		{harness.ModeAuto, "auto"},
 		{harness.ModeFullAccess, "fullAccess"},
 		{"", "supervised"},

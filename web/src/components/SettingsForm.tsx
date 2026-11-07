@@ -34,7 +34,6 @@ interface SelectOption {
 const PERMISSION_MODES: SelectOption[] = [
   { value: 'readonly', label: '只读' },
   { value: 'supervised', label: '监督' },
-  { value: 'autoAcceptEdits', label: '自动接受编辑' },
   { value: 'auto', label: '自动' },
   { value: 'fullAccess', label: '完全访问' }
 ];
@@ -808,7 +807,7 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
           itemID="row-mode"
           label="新会话默认权限档位"
           note="新会话按这一档执行权限限制"
-          value={asString(values['permissions.mode'], 'supervised')}
+          value={values['permissions.mode'] === 'autoAcceptEdits' ? 'auto' : asString(values['permissions.mode'], 'supervised')}
           options={PERMISSION_MODES}
           disabled={busy}
           error={errors['permissions.mode']}

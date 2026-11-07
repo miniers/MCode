@@ -1753,14 +1753,9 @@ var runtimeModeOptions = []runtimeModeOption{
 		summary: "询问后再执行命令和改文件",
 	},
 	{
-		mode:    "autoAcceptEdits",
-		title:   "自动接受编辑",
-		summary: "改文件不询问，其他操作询问",
-	},
-	{
 		mode:    "auto",
 		title:   "自动",
-		summary: "由 Agent 自行判断常规操作",
+		summary: "改文件和只读命令不询问",
 	},
 	{
 		mode:    "fullAccess",
@@ -1776,8 +1771,8 @@ func runtimeModeTitle(mode string) string {
 			return opt.title
 		}
 	}
-	if mode == "" {
-		return "自动接受编辑"
+	if mode == "" || mode == "autoAcceptEdits" || mode == "agent" {
+		return "自动"
 	}
 	if mode == "readonly" {
 		return "只读"

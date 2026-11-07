@@ -93,7 +93,7 @@ func repairInvalidFields(cfg *Config) []string {
 	// 权限模式非法时回退到 supervised 而不是默认的 fullAccess：磁盘上的笔误（如 "readOnly"）
 	// 不应被静默提升为完全访问权限。
 	switch cfg.Permissions.Mode {
-	case ModeReadOnly, ModeSupervised, ModeAutoAcceptEdits, ModeAuto, ModeFullAccess:
+	case ModeReadOnly, ModeSupervised, ModeAuto, ModeFullAccess:
 	default:
 		warnings = append(warnings, fmt.Sprintf("permissions.mode %q 非法，已重置为 %q", cfg.Permissions.Mode, ModeSupervised))
 		cfg.Permissions.Mode = ModeSupervised

@@ -539,11 +539,7 @@ func (h *eventHandler) automaticDecision(request, prompt json.RawMessage) map[st
 	switch h.turn.Mode {
 	case harness.ModeFullAccess:
 		return approve
-	case harness.ModeAutoAcceptEdits:
-		if kind == "write" || kind == "read" {
-			return approve
-		}
-	case harness.ModeAuto:
+	case harness.ModeAutoAcceptEdits, harness.ModeAuto:
 		if kind == "write" || kind == "read" {
 			return approve
 		}

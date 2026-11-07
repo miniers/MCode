@@ -219,7 +219,7 @@ func modeArguments(mode harness.PermissionMode) []string {
 		// 在 headless 环境下不因缺少交互审批而被自动拒绝（对照 claude 的 plan 映射）。
 		return []string{"--mode", "plan", "--dangerously-skip-permissions"}
 	}
-	// autoAcceptEdits / auto / fullAccess / 空值与未知值：接受编辑并跳过权限询问。
+	// auto（含旧值 autoAcceptEdits）/ fullAccess / 空值与未知值：接受编辑并跳过权限询问。
 	return []string{"--mode", "accept-edits", "--dangerously-skip-permissions"}
 }
 

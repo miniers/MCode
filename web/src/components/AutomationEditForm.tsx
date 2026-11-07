@@ -47,7 +47,6 @@ export const AUTOMATION_RUNTIME_MODES: ReadonlyArray<{ value: string; label: str
   { value: '', label: '跟随默认' },
   { value: 'readonly', label: '只读' },
   { value: 'supervised', label: '需审批' },
-  { value: 'autoAcceptEdits', label: '自动接受编辑' },
   { value: 'auto', label: '自动' },
   { value: 'fullAccess', label: '完全访问' }
 ];
@@ -179,7 +178,7 @@ export function automationFormValues(
     provider: (automation.provider ?? '').trim(),
     model: (automation.model ?? '').trim(),
     effort: (automation.effort ?? '').trim(),
-    runtimeMode: (automation.runtimeMode ?? '').trim()
+    runtimeMode: automation.runtimeMode?.trim() === 'autoAcceptEdits' ? 'auto' : (automation.runtimeMode ?? '').trim()
   };
 }
 

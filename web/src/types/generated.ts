@@ -495,7 +495,7 @@ export type RemoteThreadSummary = {
   hasPendingRequest: boolean;
   taskID: string | null;
   goalID: string | null;
-  runtimeMode: "readonly" | "supervised" | "autoAcceptEdits" | "auto" | "fullAccess";
+  runtimeMode: "readonly" | "supervised" | "auto" | "fullAccess";
   interactionMode: "build" | "plan";
   persona?: string;
   contextUsedTokens?: number;
@@ -927,7 +927,7 @@ export type RemoteComposerOptions = {
   provider?: string;
   model?: string;
   effort?: string;
-  runtimeMode?: "readonly" | "supervised" | "autoAcceptEdits" | "auto" | "fullAccess";
+  runtimeMode?: "readonly" | "supervised" | "auto" | "fullAccess";
   interactionMode?: "build" | "plan";
   workspaceMode?: "local" | "worktree";
   fastMode?: boolean;
@@ -1006,7 +1006,7 @@ export type RemoteComposerDraftDefaults = {
   model: string | null;
   effort: string | null;
   fastMode: boolean;
-  runtimeMode: "readonly" | "supervised" | "autoAcceptEdits" | "auto" | "fullAccess";
+  runtimeMode: "readonly" | "supervised" | "auto" | "fullAccess";
   interactionMode: "build" | "plan";
   workspaceMode: "local" | "worktree";
   swarmEnabled: boolean;
@@ -3804,7 +3804,7 @@ export type RemoteAutomationExtInput = {
   provider?: string;
   model?: string;
   effort?: string;
-  runtimeMode?: "readonly" | "supervised" | "autoAcceptEdits" | "auto" | "fullAccess" | "";
+  runtimeMode?: "readonly" | "supervised" | "auto" | "fullAccess" | "";
 };
 
 export type RemoteAutomationExtAutomationResult = {

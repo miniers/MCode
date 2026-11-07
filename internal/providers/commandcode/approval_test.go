@@ -84,12 +84,12 @@ func TestGateAutoApproveModes(t *testing.T) {
 	}{
 		{"监督模式命令要问", harness.ModeSupervised, "shell_command", `{"command":"ls -la"}`, true, "allow"},
 		{"自动接受编辑放行写文件", harness.ModeAutoAcceptEdits, "write_file", `{"file_path":"a.go","content":"x"}`, false, "allow"},
-		{"自动接受编辑仍要问命令", harness.ModeAutoAcceptEdits, "shell_command", `{"command":"ls"}`, true, "allow"},
+		{"旧自动模式放行只读命令", harness.ModeAutoAcceptEdits, "shell_command", `{"command":"ls"}`, false, "allow"},
 		{"自动模式放行只读命令", harness.ModeAuto, "shell_command", `{"command":"ls -la && git status"}`, false, "allow"},
 		{"自动模式拦截可写命令", harness.ModeAuto, "shell_command", `{"command":"rm -rf build"}`, true, "allow"},
 		{"自动模式放行 run_command 只读命令", harness.ModeAuto, "run_command", `{"command":"ls"}`, false, "allow"},
 		{"自动模式拦截 run_command 可写命令", harness.ModeAuto, "run_command", `{"command":"rm a"}`, true, "allow"},
-		{"自动模式放行停 shell", harness.ModeAuto, "kill_shell", `{"id":"1"}`, false, "allow"},
+		{"自动模式询问停止 shell", harness.ModeAuto, "kill_shell", `{"id":"1"}`, true, "allow"},
 		{"只读模式命令要问", harness.ModeReadOnly, "shell_command", `{"command":"ls"}`, true, "allow"},
 	}
 	for _, test := range tests {

@@ -281,13 +281,11 @@ type gateState struct {
 }
 
 // runtimeModeName 把 harness 权限模式映射为门禁扩展认识的 RuntimeMode 取值
-// （RuntimeMode 取值：supervised / autoAcceptEdits / auto / fullAccess）。
+// （RuntimeMode 取值：supervised / auto / fullAccess）。
 // 只读模式在 omp 侧没有对应档位，按最严的 supervised 处理（每次改动与命令都要问）。
 func runtimeModeName(mode harness.PermissionMode) string {
 	switch mode {
-	case harness.ModeAutoAcceptEdits:
-		return "autoAcceptEdits"
-	case harness.ModeAuto:
+	case harness.ModeAutoAcceptEdits, harness.ModeAuto:
 		return "auto"
 	case harness.ModeFullAccess:
 		return "fullAccess"

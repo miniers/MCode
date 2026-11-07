@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 )
 
@@ -384,7 +385,7 @@ func automationExtProjectExists(ctx context.Context, d *Dispatcher, projectID st
 }
 
 // automationExtRuntimeModes 是新建会话允许的权限模式取值，空串表示跟随默认。
-var automationExtRuntimeModes = []string{"readonly", "supervised", "autoAcceptEdits", "auto", "fullAccess"}
+var automationExtRuntimeModes = []string{"readonly", "supervised", "auto", "fullAccess"}
 
 // automationExtNormalizeInput 校验并归一化写操作入参：去首尾空白、补默认值。
 // 任一字段不合法就整体拒绝，不做部分写入。
@@ -412,7 +413,7 @@ func automationExtNormalizeInput(in wire.AutomationExtInput) (wire.AutomationExt
 		out.Effort = &v
 	}
 	if in.RuntimeMode != nil {
-		v := strings.TrimSpace(*in.RuntimeMode)
+		v := harness.NormalizeMode(strings.TrimSpace(*in.RuntimeMode))
 		if v != "" {
 			valid := false
 			for _, mode := range automationExtRuntimeModes {
@@ -422,7 +423,7 @@ func automationExtNormalizeInput(in wire.AutomationExtInput) (wire.AutomationExt
 				}
 			}
 			if !valid {
-				return out, ExtInvalidParams("Invalid params: 'runtimeMode' 只能是 readonly、supervised、autoAcceptEdits、auto、fullAccess 或空串（跟随默认）")
+				return out, ExtInvalidParams("Invalid params: 'runtimeMode' 只能是 readonly、supervised、auto、fullAccess 或空串（跟随默认）")
 			}
 		}
 		out.RuntimeMode = &v

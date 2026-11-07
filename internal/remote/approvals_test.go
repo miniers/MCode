@@ -2100,7 +2100,10 @@ func TestStewardMainThreadAsksForReadTool(t *testing.T) {
 
 func TestCommandAllowPrefixes(t *testing.T) {
 	allowed := map[string]bool{"bash\x00prefix\x00go test": true}
-	for _, tc := range []struct { command string; want bool }{
+	for _, tc := range []struct {
+		command string
+		want    bool
+	}{
 		{"go test ./internal/...", true},
 		{"cd x && go test ./...", true},
 		{"go build ./...", false},
@@ -2112,15 +2115,19 @@ func TestCommandAllowPrefixes(t *testing.T) {
 			t.Errorf("%q: got %v, want %v", tc.command, got, tc.want)
 		}
 	}
-	for _, tc := range []struct { command, prefix string }{
+	for _, tc := range []struct{ command, prefix string }{
 		{"go test ./...", "go test"}, {"make build", "make build"}, {"ls -la", "ls"},
 		{"bash -c x", ""}, {"python x.py", ""}, {"X=y go test", ""},
 		{"go test >out", ""}, {"go test 2>&1", "go test"}, {"go test >/dev/null", "go test"},
 	} {
-		if got := commandAllowPrefix(tc.command); got != tc.prefix { t.Errorf("%q: got %q, want %q", tc.command, got, tc.prefix) }
+		if got := commandAllowPrefix(tc.command); got != tc.prefix {
+			t.Errorf("%q: got %q, want %q", tc.command, got, tc.prefix)
+		}
 		if tc.prefix == "" {
 			req := harness.ApprovalRequest{ToolName: "bash", Summary: tc.command}
-			if got := alwaysAllowKey(harness.RequestKindCommand, req); got != "bash\x00"+tc.command { t.Errorf("完整键 = %q", got) }
+			if got := alwaysAllowKey(harness.RequestKindCommand, req); got != "bash\x00"+tc.command {
+				t.Errorf("完整键 = %q", got)
+			}
 		}
 	}
 }
@@ -2131,18 +2138,26 @@ func TestCommandPrefixAndLegacyIntegration(t *testing.T) {
 	threadID := "00000000-0000-0000-0000-0000000000e2"
 	backend := newAlwaysAllowProjectBackend(t, dataDir, projectDir, threadID)
 	legacy := alwaysAllowBashRequest("python x.py")
-	if err := alwaysAllowStoreFor(dataDir).Add(projectDir, fullAllowKey(harness.RequestKindCommand, legacy)); err != nil { t.Fatal(err) }
+	if err := alwaysAllowStoreFor(dataDir).Add(projectDir, fullAllowKey(harness.RequestKindCommand, legacy)); err != nil {
+		t.Fatal(err)
+	}
 	commands := []string{"go test ./...", "go test ./internal/...", "cd x && go test ./...", "python x.py", "go build", "go test ./... && rm -rf y", "go test $(echo x)"}
 	backend.SetHarness(&mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
-		for _, command := range commands { _, _ = turn.Approver.Approve(ctx, alwaysAllowBashRequest(command)) }
+		for _, command := range commands {
+			_, _ = turn.Approver.Approve(ctx, alwaysAllowBashRequest(command))
+		}
 		return nil
 	}}, projectDir, harness.ModeAgent)
 	changed := startAlwaysAllowTurn(t, backend, threadID, "00000000-0000-0000-0000-000000000e02")
 	for i := 0; i < 4; i++ {
 		pending := waitPendingApproval(t, changed)
 		option := "deny"
-		if i == 0 { option = "allow_always" }
-		if _, err := backend.RespondRequest(context.Background(), wire.RequestsRespondParams{ThreadID: threadID, RunID: pending.RunID, RequestID: pending.RequestID, OptionID: &option}); err != nil { t.Fatal(err) }
+		if i == 0 {
+			option = "allow_always"
+		}
+		if _, err := backend.RespondRequest(context.Background(), wire.RequestsRespondParams{ThreadID: threadID, RunID: pending.RunID, RequestID: pending.RequestID, OptionID: &option}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	waitThreadIdle(t, backend, context.Background(), threadID)
 }
@@ -2154,7 +2169,9 @@ func TestSensitiveApprovalAlwaysPrompts(t *testing.T) {
 	backend := newAlwaysAllowProjectBackend(t, dataDir, projectDir, threadID)
 	req := alwaysAllowBashRequest("go test ./...")
 	req.Sensitive = "credential"
-	if err := alwaysAllowStoreFor(dataDir).Add(projectDir, fullAllowKey(harness.RequestKindCommand, req)); err != nil { t.Fatal(err) }
+	if err := alwaysAllowStoreFor(dataDir).Add(projectDir, fullAllowKey(harness.RequestKindCommand, req)); err != nil {
+		t.Fatal(err)
+	}
 	backend.SetHarness(&mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
 		_, _ = turn.Approver.Approve(ctx, req)
 		_, _ = turn.Approver.Approve(ctx, req)
@@ -2163,19 +2180,29 @@ func TestSensitiveApprovalAlwaysPrompts(t *testing.T) {
 	changed := startAlwaysAllowTurn(t, backend, threadID, "00000000-0000-0000-0000-000000000e01")
 	for i := 0; i < 2; i++ {
 		pending := waitPendingApproval(t, changed)
-		if pending.Reason == nil || *pending.Reason != "credential" || len(pending.Options) != 2 || pending.Options[0].ID != "allow" || pending.Options[1].ID != "deny" { t.Fatalf("敏感请求错误: %+v", pending) }
+		if pending.Reason == nil || *pending.Reason != "credential" || len(pending.Options) != 2 || pending.Options[0].ID != "allow" || pending.Options[1].ID != "deny" {
+			t.Fatalf("敏感请求错误: %+v", pending)
+		}
 		option := "allow"
-		if _, err := backend.RespondRequest(context.Background(), wire.RequestsRespondParams{ThreadID: threadID, RunID: pending.RunID, RequestID: pending.RequestID, OptionID: &option}); err != nil { t.Fatal(err) }
+		if _, err := backend.RespondRequest(context.Background(), wire.RequestsRespondParams{ThreadID: threadID, RunID: pending.RunID, RequestID: pending.RequestID, OptionID: &option}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	waitThreadIdle(t, backend, context.Background(), threadID)
-	if keys := backend.ListAlwaysAllowed(projectDir); len(keys) != 1 || keys[0] != fullAllowKey(harness.RequestKindCommand, req) { t.Fatalf("敏感请求不应记账: %v", keys) }
+	if keys := backend.ListAlwaysAllowed(projectDir); len(keys) != 1 || keys[0] != fullAllowKey(harness.RequestKindCommand, req) {
+		t.Fatalf("敏感请求不应记账: %v", keys)
+	}
 }
 
 func TestProjectAllowOptions(t *testing.T) {
 	options := requestOptions(harness.RequestKindCommand, harness.ApprovalRequest{Summary: "go test ./..."})
-	if options[1].Title != "在此项目始终允许 go test" { t.Fatal(options) }
+	if options[1].Title != "在此项目始终允许 go test" {
+		t.Fatal(options)
+	}
 	options = requestOptions(harness.RequestKindPermissions, harness.ApprovalRequest{})
-	if options[1].Title != "本会话始终允许" { t.Fatal(options) }
+	if options[1].Title != "本会话始终允许" {
+		t.Fatal(options)
+	}
 }
 
 // TestStewardMainThreadStillAsksForWriteTool 覆盖总管的会话的写工具：Edit 与 Write 仍走审批。

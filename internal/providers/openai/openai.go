@@ -946,7 +946,7 @@ func buildSystemPrompt(displayName, model string, turn harness.Turn) string {
 	case harness.ModeFullAccess:
 		modeLine = "Permissions: full access. Tools run without asking the user."
 	default: // ModeAutoAcceptEdits、ModeAuto 与未知模式
-		modeLine = "Permissions: file reads and edits run directly; shell commands wait for the user to approve them in mcode."
+		modeLine = "Permissions: file reads, edits, and recognized read-only commands run directly; other actions require the user's approval in mcode."
 	}
 
 	today := time.Now().UTC().Format("2006-01-02")

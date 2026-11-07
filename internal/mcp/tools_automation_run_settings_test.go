@@ -56,7 +56,7 @@ func TestAutomationCreateRunSettings(t *testing.T) {
 		t.Fatalf("读取自动化失败: %v", err)
 	}
 	if def.Spec.Provider != "anthropic" || def.Spec.Model != "claude-sonnet-4-5" ||
-		def.Spec.Effort != "high" || def.Spec.RuntimeMode != "autoAcceptEdits" {
+		def.Spec.Effort != "high" || def.Spec.RuntimeMode != "auto" {
 		t.Fatalf("模型与权限未写入 spec: %+v", def.Spec)
 	}
 }
@@ -140,7 +140,7 @@ func TestAutomationUpdateRunSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取自动化失败: %v", err)
 	}
-	if def.Spec.Model != "claude-sonnet-4-5" || def.Spec.RuntimeMode != "autoAcceptEdits" {
+	if def.Spec.Model != "claude-sonnet-4-5" || def.Spec.RuntimeMode != "auto" {
 		t.Fatalf("更新后 spec 未生效: %+v", def.Spec)
 	}
 
