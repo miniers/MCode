@@ -109,10 +109,12 @@ func renderChat(c *ui.Context, s *chatState) {
 		}
 	}
 	running := false
+	mainRunning := false
 	for _, th := range s.threads {
 		if th.ID == selectedID {
 			// 子线程仍在跑时这一轮没结束，末尾活动组仍是“进行中”的组。
-			running = th.IsRunning || th.SwarmBusy
+			mainRunning = th.IsRunning
+			running = mainRunning || th.SwarmBusy
 			break
 		}
 	}
@@ -167,7 +169,7 @@ func renderChat(c *ui.Context, s *chatState) {
 		var liveID string
 		s.mu.Lock()
 		isRunning := running
-		if isRunning && len(messages) > 0 {
+		if mainRunning && len(messages) > 0 {
 			lastMsg := messages[len(messages)-1]
 			if (lastMsg.Role == "assistant" || lastMsg.Kind == "reasoning") && lastMsg.Role != "user" && lastMsg.Role != "tool" && lastMsg.Role != "system" {
 				liveID = lastMsg.ID
@@ -998,7 +1000,11 @@ func ensureChatMarkdown(c *ui.Context, s *chatState) {
 		}
 	}
 
-	if s.mdOpts.Reveal == nil {
+	if reduceMotion(c) {
+		if s.mdOpts.Reveal == nil || s.mdOpts.Reveal.Unit != markdown.AtOnce {
+			s.mdOpts.Reveal = &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}
+		}
+	} else if s.mdOpts.Reveal == nil || s.mdOpts.Reveal.Unit != markdown.ByCharacter {
 		s.mdOpts.Reveal = &markdown.Reveal{Unit: markdown.ByCharacter, CatchUp: 250 * time.Millisecond}
 	}
 	if s.mdStaticOpts.Reveal == nil {

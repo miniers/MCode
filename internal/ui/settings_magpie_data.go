@@ -39,7 +39,7 @@ func magpieConnected(st *SettingsState) (connected bool, known bool) {
 		return false, true
 	}
 	endpoints, loading, loaded, errText, _ := magpieEndpointsFor(st, "pi")
-	if !loaded || loading {
+	if !loaded {
 		if !loading && errText == "" {
 			magpieLoadFor(st, "pi")()
 		}
@@ -83,7 +83,7 @@ func magpieNavStatus(st *SettingsState) string {
 
 func magpieModelSource(st *SettingsState, agent, modelID string) (endpointID string, ok bool) {
 	endpoints, loading, loaded, errText, _ := magpieEndpointsFor(st, agent)
-	if !loaded || loading {
+	if !loaded {
 		if !loading && errText == "" {
 			magpieLoadFor(st, agent)()
 		}

@@ -468,13 +468,13 @@ func draftThreadMentionLabel(title string) string {
 
 // 输入卡片尺寸常量。
 const (
-	composerTextMinHeight     float32 = 44 // token-exempt: 输入区规定的最小高度
-	composerActionBtnSize              float32 = ControlMD
-	composerControlGap                         = Space2
-	composerContextRingDiameter        float32 = 18
-	composerContextMeterImageSize              = composerContextRingDiameter * 24 / 20.5 // SVG 外径 20.5，画布宽 24
-	composerDockPadBottom              float32 = 10 // 有消息时卡片距窗口底部
-	composerEmbeddedPadBottom float32 = 8  // 浮动面板/子代理窗口内的输入框底距
+	composerTextMinHeight         float32 = 44 // token-exempt: 输入区规定的最小高度
+	composerActionBtnSize         float32 = ControlMD
+	composerControlGap                    = Space2
+	composerContextRingDiameter   float32 = 18
+	composerContextMeterImageSize         = composerContextRingDiameter * 24 / 20.5 // SVG 外径 20.5，画布宽 24
+	composerDockPadBottom         float32 = 10                                      // 有消息时卡片距窗口底部
+	composerEmbeddedPadBottom     float32 = 8                                       // 浮动面板/子代理窗口内的输入框底距
 	// composerQueueScrollMaxHeight 是排队列表展开后的滚动高度，约 3 行。
 	composerQueueScrollMaxHeight float32 = 132
 )

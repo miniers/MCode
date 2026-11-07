@@ -116,11 +116,10 @@ func (st *SettingsState) loadAgentMagpie(agent string) {
 	}()
 }
 
-// reloadAgentMagpie 丢弃当前缓存并重新读取指定 agent 的 magpie 设置。
+// reloadAgentMagpie 保留当前缓存并重新读取指定 agent 的 magpie 设置。
 func (st *SettingsState) reloadAgentMagpie(agent string) {
 	st.mu.Lock()
 	state := st.agentMagpieFor(agent)
-	state.loaded = false
 	state.loading = false
 	st.mu.Unlock()
 	st.loadAgentMagpie(agent)

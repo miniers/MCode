@@ -212,8 +212,8 @@ func TestMagpieModelSource(t *testing.T) {
 		t.Fatal("不同供应商不应匹配")
 	}
 	st.piMagpie.loading = true
-	if _, ok := magpieModelSource(st, "pi", "magpie-gw/auto/model"); ok {
-		t.Fatal("加载中不应返回缓存匹配")
+	if id, ok := magpieModelSource(st, "pi", "magpie-gw/auto/model"); !ok || id != "gw" {
+		t.Fatalf("重载中匹配结果 = %q, %v", id, ok)
 	}
 }
 
@@ -233,6 +233,14 @@ func TestMagpieConnected(t *testing.T) {
 	st.piMagpie.endpoints = []PiMagpieEndpoint{{ID: "gw"}}
 	if connected, known := magpieConnected(st); !connected || !known {
 		t.Fatalf("检测成功 = %v, %v", connected, known)
+	}
+	st.piMagpie.loading = true
+	if connected, known := magpieConnected(st); !connected || !known {
+		t.Fatalf("已连接时重载 = %v, %v", connected, known)
+	}
+	st.piMagpie.endpoints[0].Err = "连接失败"
+	if connected, known := magpieConnected(st); connected || !known {
+		t.Fatalf("未连接时重载 = %v, %v", connected, known)
 	}
 }
 

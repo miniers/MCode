@@ -1418,7 +1418,11 @@ func (s *chatState) markRevealBaselineLocked(messages []Message) {
 		if m.ID == "" {
 			continue
 		}
-		s.revealProgress[m.ID] = &messageReveal{shown: len(m.Text)}
+		text := m.Text
+		if m.Role == "assistant" && !isReasoningMessage(m) {
+			text = stripSwarmFence(text)
+		}
+		s.revealProgress[m.ID] = &messageReveal{shown: len(text)}
 	}
 }
 

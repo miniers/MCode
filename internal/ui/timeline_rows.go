@@ -2899,7 +2899,8 @@ func renderAssistantMessage(c *ui.Context, s *chatState, m Message, liveID, last
 
 		// 助手回复下方淡色小图标操作栏（复制、分支、回报父会话、更多）：默认隐藏，hover 才显示。
 		// 隐藏时只把不透明度置零，占位高度照旧，hover 时布局不跳动。
-		if shouldShowAssistantActions(m, isStreamingNow, isLastAssistant, revealed) {
+		lastLiveAssistant := lastLiveID != "" && m.ID == lastLiveID && s.lastAssistantPerTurn()[m.TurnIndex] == m.ID
+		if shouldShowAssistantActions(m, isStreamingNow, isLastAssistant || lastLiveAssistant, revealed) {
 			copyKey := "copy-btn-" + m.ID
 			bar := ui.Row(c.Key("msg-actions-"+m.ID)).
 				AlignItems(ui.Center).
@@ -3157,9 +3158,7 @@ func reasoningMarkdownOptionsAt(c *ui.Context, s *chatState, baseSize float32) *
 	installLocalFileLinkHook(opts, s)
 	// 思考正文里的表格同样可以展开到浮窗里看完整内容。
 	installTableExpandHook(opts, s)
-	if opts.Reveal == nil {
-		opts.Reveal = s.mdOpts.Reveal
-	}
+	opts.Reveal = s.mdOpts.Reveal
 	return opts
 }
 

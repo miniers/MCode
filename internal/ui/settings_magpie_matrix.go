@@ -279,6 +279,8 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 			st.mu.Unlock()
 			if loading || !loaded {
 				allLoaded = false
+			}
+			if !loaded {
 				ui.Text(c, "正在加载…").
 					FontSize(TypeFootnote).
 					TextColor(ThemeSecondaryText(c)).
