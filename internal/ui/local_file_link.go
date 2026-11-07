@@ -18,12 +18,13 @@ var riskyOpenExts = map[string]bool{
 	".tool": true, ".webloc": true, ".url": true,
 }
 
-// localFileLinkPath 把 Markdown 链接地址解析成已存在的本地文件或目录路径：
-// 接受 file:// URL、绝对路径与 ~/ 路径，兼容百分号编码与 #L12 这类位置后缀；其他地址返回 false。
-func localFileLinkPath(dest string) (string, bool) {
+// localFileLinkCandidates 把 Markdown 链接地址解析成可能的本地路径：
+// 接受 file:// URL、绝对路径与 ~/ 路径，兼容百分号编码与 #L12 这类位置后缀；其他地址返回 nil。
+// 这里只做字符串解析，不访问文件系统，可以在每次构建视图时调用。
+func localFileLinkCandidates(dest string) []string {
 	path, err := localImagePath(dest)
 	if err != nil {
-		return "", false
+		return nil
 	}
 	bases := []string{path}
 	if i := strings.IndexAny(path, "#?"); i > 0 {
@@ -36,7 +37,13 @@ func localFileLinkPath(dest string) (string, bool) {
 			candidates = append(candidates, dec)
 		}
 	}
-	for _, p := range candidates {
+	return candidates
+}
+
+// localFileLinkPath 把 Markdown 链接地址解析成已存在的本地文件或目录路径：
+// 候选路径由 localFileLinkCandidates 给出，这里逐个 stat，第一个存在的为准。
+func localFileLinkPath(dest string) (string, bool) {
+	for _, p := range localFileLinkCandidates(dest) {
 		if _, err := os.Stat(p); err == nil {
 			return filepath.Clean(p), true
 		}
@@ -91,6 +98,9 @@ func installLocalFileLinkHook(o *markdown.Options, s *chatState) {
 				s.setToast("文件不存在")
 			}
 		}
+	}
+	if o.Preview == nil {
+		o.Preview = localFileLinkPreview
 	}
 	if o.LinkMenu == nil {
 		o.LinkMenu = func(menu *ui.Menu, dest string) {

@@ -162,6 +162,7 @@ func TestInstallTableExpandHookOnce(t *testing.T) {
 	o.Theme = theme
 	called := false
 	o.LinkMenu = func(*ui.Menu, string) { called = true }
+	o.Preview = func(*ui.Context, string) func(ui.Element) { return nil }
 	if got := tableBodyOptions(o); got != body {
 		t.Fatal("同一份选项应复用同一份表格本体选项")
 	}
@@ -174,6 +175,9 @@ func TestInstallTableExpandHookOnce(t *testing.T) {
 	body.LinkMenu(nil, "")
 	if !called {
 		t.Fatal("表格本体选项应使用原链接菜单钩子")
+	}
+	if body.Preview == nil {
+		t.Fatal("表格本体选项应同步链接悬停预览钩子")
 	}
 	if tableBodyOptions(nil) != nil {
 		t.Fatal("空选项应返回 nil")
