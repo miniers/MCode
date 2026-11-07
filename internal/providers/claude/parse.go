@@ -16,6 +16,7 @@ var (
 	backgroundTaskPattern   = regexp.MustCompile(`moved to the background as task ([A-Za-z0-9]+)(\s|\.|$)`)
 	taskNotificationPattern = regexp.MustCompile(`(?s)<task-notification>.*?</task-notification>`)
 	taskIDPattern           = regexp.MustCompile(`<task-id>\s*([^<\s]+)\s*</task-id>`)
+	toolUseIDPattern        = regexp.MustCompile(`<tool-use-id>\s*([^<\s]+)\s*</tool-use-id>`)
 	taskStatusPattern       = regexp.MustCompile(`<status>\s*([^<\s]+)\s*</status>`)
 )
 
@@ -436,7 +437,7 @@ func (p *parser) handleSystem(line []byte, isSubagent bool, emit func(harness.Ev
 			if toolID == "" {
 				toolID = p.backgroundTasks[sys.TaskID]
 			}
-			if toolID != "" {
+			if toolID != "" || sys.TaskID != "" {
 				_ = harness.Emit(emit, harness.Event{
 					Type:       harness.EventBackgroundTaskEnd,
 					ToolID:     toolID,
@@ -738,12 +739,14 @@ func (p *parser) handleTaskNotifications(text string, emit func(harness.Event)) 
 		if len(id) < 2 || len(status) < 2 {
 			continue
 		}
-		if toolID := p.backgroundTasks[id[1]]; toolID != "" {
-			_ = harness.Emit(emit, harness.Event{
-				Type: harness.EventBackgroundTaskEnd, ToolID: toolID, TaskID: id[1], TaskStatus: status[1],
-			})
-			delete(p.backgroundTasks, id[1])
+		toolID := p.backgroundTasks[id[1]]
+		if match := toolUseIDPattern.FindStringSubmatch(notification); len(match) > 1 {
+			toolID = match[1]
 		}
+		_ = harness.Emit(emit, harness.Event{
+			Type: harness.EventBackgroundTaskEnd, ToolID: toolID, TaskID: id[1], TaskStatus: status[1],
+		})
+		delete(p.backgroundTasks, id[1])
 	}
 }
 

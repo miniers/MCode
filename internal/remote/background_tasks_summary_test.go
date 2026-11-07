@@ -78,6 +78,55 @@ func TestMemoryBackend_BackgroundTasksSummary(t *testing.T) {
 	}
 }
 
+// 跨回合的结束通知只带 task id 时，仍能回写工具状态；重复通知不能覆盖最终状态。
+func TestMemoryBackend_BackgroundTaskEndByTaskID(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		duplicate bool
+	}{
+		{name: "跨回合结束"},
+		{name: "重复结束不覆盖状态", duplicate: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			threadID := "00000000-0000-0000-0000-0000000000fb"
+			backend, ctx := newBackgroundTestBackend(t, threadID)
+			turns := 0
+			mock := &mockHarness{
+				runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+					turns++
+					if turns == 1 {
+						emit(harness.Event{Type: harness.EventToolStart, ToolID: "toolu_mcp", ToolName: "MCP"})
+						emit(harness.Event{Type: harness.EventToolEnd, ToolID: "toolu_mcp", Output: "后台运行中"})
+						emit(harness.Event{Type: harness.EventBackgroundTaskStart, ToolID: "toolu_mcp", TaskID: "task-mcp"})
+					} else {
+						emit(harness.Event{Type: harness.EventBackgroundTaskEnd, TaskID: "task-mcp", TaskStatus: "completed"})
+						if tc.duplicate {
+							emit(harness.Event{Type: harness.EventBackgroundTaskEnd, ToolID: "toolu_mcp", TaskID: "task-mcp", TaskStatus: "failed"})
+							emit(harness.Event{Type: harness.EventBackgroundTaskEnd, TaskID: "task-mcp", TaskStatus: "failed"})
+						}
+					}
+					emit(harness.Event{Type: harness.EventDone})
+					return nil
+				},
+			}
+			backend.SetHarness(mock, t.TempDir(), harness.ModeAgent)
+			if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: threadID, Text: "启动", ActionID: "00000000-0000-0000-0000-0000000000fc"}); err != nil {
+				t.Fatalf("SendMessage failed: %v", err)
+			}
+			waitThreadIdle(t, backend, ctx, threadID)
+			waitToolStatus(t, backend, ctx, threadID, "MCP", "background")
+			waitBackgroundTasks(t, backend, ctx, threadID, 1)
+
+			if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: threadID, Text: "继续", ActionID: "00000000-0000-0000-0000-0000000000fd"}); err != nil {
+				t.Fatalf("SendMessage failed: %v", err)
+			}
+			waitThreadIdle(t, backend, ctx, threadID)
+			waitToolStatus(t, backend, ctx, threadID, "MCP", "completed")
+			waitBackgroundTasks(t, backend, ctx, threadID, 0)
+		})
+	}
+}
+
 // 会话摘要的 BackgroundTasks：回合内的 running 工具不算后台，回合结束后仍在 running 的工具才计入。
 func TestMemoryBackend_BackgroundTasksCountsRunningToolOnlyWhenIdle(t *testing.T) {
 	threadID := "00000000-0000-0000-0000-0000000000fd"

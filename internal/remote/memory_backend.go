@@ -174,6 +174,8 @@ type memoryThread struct {
 	// backgroundTools 记录 provider 托管的后台任务：tool id → 发起它的工具消息 ID。
 	// 进程内索引，宿主重启即丢；重启后遗留的 background 消息由启动对账改成失败。
 	backgroundTools map[string]string
+	// backgroundTaskTools 记录 provider 托管的后台任务：task id → tool id。
+	backgroundTaskTools map[string]string
 	// backgroundPending 记录 task_started 早于 tool_result 到达的工具：tool_end 到达时据此把状态
 	// 改成 background，而不是先落成 completed 再回写。
 	backgroundPending map[string]bool
@@ -3473,6 +3475,11 @@ func (b *MemoryBackend) finalizeThreadBackgroundTasks(threadID string, before ti
 		if changedIDs[msgID] {
 			delete(td.backgroundTools, toolID)
 			delete(td.backgroundPending, toolID)
+			for taskID, taskToolID := range td.backgroundTaskTools {
+				if taskToolID == toolID {
+					delete(td.backgroundTaskTools, taskID)
+				}
+			}
 		}
 	}
 	td.bgCount.invalidate()
@@ -6940,6 +6947,12 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					td.backgroundTools = make(map[string]string)
 				}
 				td.backgroundTools[e.ToolID] = toolMsgID
+				if e.TaskID != "" {
+					if td.backgroundTaskTools == nil {
+						td.backgroundTaskTools = make(map[string]string)
+					}
+					td.backgroundTaskTools[e.TaskID] = e.ToolID
+				}
 				if td.messages[idx].ToolStatus != nil && *td.messages[idx].ToolStatus == "running" {
 					if td.backgroundPending == nil {
 						td.backgroundPending = make(map[string]bool)
@@ -6959,6 +6972,10 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			case harness.EventBackgroundTaskEnd:
 				// provider 托管的后台任务结束：按 tool id 回写最终状态。结束帧常出现在后续 attach
 				// 续跑轮次，此时消息可能已被冷会话淘汰，需要先回载。
+				if e.ToolID == "" && e.TaskID != "" {
+					e.ToolID = td.backgroundTaskTools[e.TaskID]
+				}
+				delete(td.backgroundTaskTools, e.TaskID)
 				toolMsgID, known := td.backgroundTools[e.ToolID]
 				if !known {
 					toolMsgID = toolMsgIDs[e.ToolID]

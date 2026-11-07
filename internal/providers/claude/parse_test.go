@@ -171,7 +171,7 @@ func TestParser_ContextCompactedEvent(t *testing.T) {
 
 // TestParser_BackgroundTaskEvents 校验后台任务的两种系统帧：task_started 发开始事件（带 task_id、
 // tool_use_id、description），task_notification 发结束事件（带原始 status）；is_backgrounded:false
-// 与缺少 tool_use_id 的帧都不发事件。
+// 与缺少 tool_use_id 的开始帧不发事件。
 func TestParser_BackgroundTaskEvents(t *testing.T) {
 	pickEvents := func(events []harness.Event, typ harness.EventType) []harness.Event {
 		var got []harness.Event
@@ -211,7 +211,7 @@ func TestParser_BackgroundTaskEvents(t *testing.T) {
 		}
 	})
 
-	t.Run("缺少 tool_use_id 不发事件", func(t *testing.T) {
+	t.Run("缺少 tool_use_id 仍发结束事件", func(t *testing.T) {
 		got := feedParserLines(t,
 			`{"type":"system","subtype":"task_started","task_id":"task-3","description":"sleep 5"}`,
 			`{"type":"system","subtype":"task_notification","task_id":"task-3","status":"completed"}`,
@@ -219,8 +219,8 @@ func TestParser_BackgroundTaskEvents(t *testing.T) {
 		if starts := pickEvents(got, harness.EventBackgroundTaskStart); len(starts) != 0 {
 			t.Fatalf("缺少 tool_use_id 不应发开始事件，实际 %+v", starts)
 		}
-		if ends := pickEvents(got, harness.EventBackgroundTaskEnd); len(ends) != 0 {
-			t.Fatalf("缺少 tool_use_id 不应发结束事件，实际 %+v", ends)
+		if ends := pickEvents(got, harness.EventBackgroundTaskEnd); len(ends) != 1 || ends[0].ToolID != "" || ends[0].TaskID != "task-3" {
+			t.Fatalf("缺少 tool_use_id 应按 task_id 发结束事件，实际 %+v", ends)
 		}
 	})
 }
@@ -240,8 +240,8 @@ func TestParser_MCPBackgroundTasks(t *testing.T) {
 			`{"type":"user","message":{"content":`+notifications[i]+`}}`,
 			`{"type":"user","message":{"content":`+notifications[i]+`}}`,
 		)
-		if len(events) != 3 {
-			t.Fatalf("应依次发出工具结束、后台开始和后台结束，实际 %+v", events)
+		if len(events) != 4 {
+			t.Fatalf("应发出工具结束、后台开始和两次后台结束，实际 %+v", events)
 		}
 		if events[0].Type != harness.EventToolEnd || events[0].ToolID != "toolu_mcp" {
 			t.Fatalf("工具结束事件不对: %+v", events[0])
@@ -252,17 +252,36 @@ func TestParser_MCPBackgroundTasks(t *testing.T) {
 		if events[2].Type != harness.EventBackgroundTaskEnd || events[2].ToolID != "toolu_mcp" || events[2].TaskID != "kdxhm0uqv" || events[2].TaskStatus != "completed" {
 			t.Fatalf("后台结束事件不对: %+v", events[2])
 		}
+		if events[3].Type != harness.EventBackgroundTaskEnd || events[3].ToolID != "" || events[3].TaskID != "kdxhm0uqv" {
+			t.Fatalf("重复通知应按 task_id 发结束事件: %+v", events[3])
+		}
+	}
+
+	for _, tc := range []struct {
+		name   string
+		field  string
+		toolID string
+	}{
+		{name: "跨轮", field: "", toolID: ""},
+		{name: "通知包含工具 ID", field: "<tool-use-id>toolu_explicit</tool-use-id>", toolID: "toolu_explicit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			events := feedParserLines(t, `{"type":"user","message":{"content":"<task-notification><task-id>unknown</task-id>`+tc.field+`<status>completed</status></task-notification>"}}`)
+			if len(events) != 1 || events[0].Type != harness.EventBackgroundTaskEnd || events[0].ToolID != tc.toolID || events[0].TaskID != "unknown" || events[0].TaskStatus != "completed" {
+				t.Fatalf("跨轮通知事件不对: %+v", events)
+			}
+		})
 	}
 }
 
-func TestParser_BackgroundTaskNotificationDeduplication(t *testing.T) {
+func TestParser_BackgroundTaskNotifications(t *testing.T) {
 	events := feedParserLines(t,
 		`{"type":"system","subtype":"task_started","task_id":"task-1","tool_use_id":"toolu_bg","is_backgrounded":true}`,
 		`{"type":"system","subtype":"task_notification","task_id":"task-1","status":"failed"}`,
 		`{"type":"user","message":{"content":"<task-notification><task-id>task-1</task-id><status>failed</status></task-notification><task-notification><task-id>unknown</task-id><status>completed</status></task-notification>"}}`,
 	)
-	if len(events) != 2 || events[0].Type != harness.EventBackgroundTaskStart || events[1].Type != harness.EventBackgroundTaskEnd || events[1].ToolID != "toolu_bg" || events[1].TaskID != "task-1" || events[1].TaskStatus != "failed" {
-		t.Fatalf("原生后台任务应只结束一次，实际 %+v", events)
+	if len(events) != 4 || events[0].Type != harness.EventBackgroundTaskStart || events[1].Type != harness.EventBackgroundTaskEnd || events[1].ToolID != "toolu_bg" || events[1].TaskID != "task-1" || events[1].TaskStatus != "failed" || events[2].ToolID != "" || events[2].TaskID != "task-1" || events[3].Type != harness.EventBackgroundTaskEnd || events[3].ToolID != "" || events[3].TaskID != "unknown" {
+		t.Fatalf("后台任务通知事件不对，实际 %+v", events)
 	}
 }
 
@@ -271,8 +290,8 @@ func TestParser_SubagentMCPBackgroundTaskIgnored(t *testing.T) {
 		`{"type":"user","parent_tool_use_id":"parent","message":{"content":[{"type":"tool_result","tool_use_id":"child","content":"moved to the background as task abc123."}]}}`,
 		`{"type":"user","message":{"content":"<task-notification><task-id>abc123</task-id><status>completed</status></task-notification>"}}`,
 	)
-	if len(events) != 1 || events[0].Type != harness.EventToolEnd {
-		t.Fatalf("子代理不应产生后台任务事件，实际 %+v", events)
+	if len(events) != 2 || events[0].Type != harness.EventToolEnd || events[1].Type != harness.EventBackgroundTaskEnd || events[1].ToolID != "" || events[1].TaskID != "abc123" {
+		t.Fatalf("子代理不应产生后台开始事件，实际 %+v", events)
 	}
 }
 
