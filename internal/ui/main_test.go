@@ -27,6 +27,8 @@ func TestMain(m *testing.M) {
 		}
 	}
 
+	// 测试没有 mygo 主循环，RunOnMain 会阻塞。
+	settingsWindowOpener = openSettingsWindowHeadless
 	code := m.Run()
 	// 测试期间可能还有后台写 ui-state.json 的 goroutine 未结束，先等它们写完再删临时数据目录。
 	waitUIStateWrites()

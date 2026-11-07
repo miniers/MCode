@@ -26,6 +26,38 @@ func openSettingsWindow(owner *chatState, page string) *mygo.Window {
 	return settingsWindowOpener(owner, page)
 }
 
+// openSettingsWindowHeadless 供没有主事件循环的测试使用。
+func openSettingsWindowHeadless(owner *chatState, page string) *mygo.Window {
+	st := getChatSettings(owner)
+	if st == nil {
+		return nil
+	}
+	settingsWindowMu.Lock()
+	entry := settingsWindow
+	if entry != nil && entry.state == st {
+		entry.visitors[owner] = true
+		settingsWindowMu.Unlock()
+	} else {
+		settingsWindowMu.Unlock()
+		st.Open()
+		entry = &settingsWindowEntry{owner: owner, state: st, visitors: map[*chatState]bool{owner: true}}
+		settingsWindowMu.Lock()
+		settingsWindow = entry
+		settingsWindowMu.Unlock()
+	}
+	if page != "" {
+		st.selectSettingsPage(page)
+		st.openLegacySettingsSheet(page)
+	}
+	return nil
+}
+
+func resetSettingsWindowForTest() {
+	settingsWindowMu.Lock()
+	settingsWindow = nil
+	settingsWindowMu.Unlock()
+}
+
 func openSettingsWindowNative(owner *chatState, page string) *mygo.Window {
 	var win *mygo.Window
 	mygo.RunOnMain(func() {
