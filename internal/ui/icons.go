@@ -91,6 +91,7 @@ const (
 	svgPathFile            = `<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/>`
 	svgPathBrain           = `<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M12 18v4"/>`
 	svgPathWrench          = `<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>`
+	svgPathHammer          = `<path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9"/><path d="m18 15 4-4"/><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"/>`
 	svgPathGitBranch       = `<path d="M15 6a9 9 0 0 0-9 9V3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>`
 	svgPathCopy            = `<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>`
 	svgPathCircle          = `<circle cx="12" cy="12" r="10"/>`
@@ -122,6 +123,7 @@ var (
 	iconFile            = parseLucideSVG(svgPathFile)
 	iconBrain           = parseLucideSVG(svgPathBrain)
 	iconWrench          = parseLucideSVG(svgPathWrench)
+	iconHammer          = parseLucideSVG(svgPathHammer)
 	iconGitBranch       = parseLucideSVG(svgPathGitBranch)
 	iconCopy            = parseLucideSVG(svgPathCopy)
 	iconCircle          = parseLucideSVG(svgPathCircle)
@@ -158,6 +160,7 @@ func IconGlobe() *ui.SVG           { return iconGlobe }
 func IconFile() *ui.SVG            { return iconFile }
 func IconBrain() *ui.SVG           { return iconBrain }
 func IconWrench() *ui.SVG          { return iconWrench }
+func IconHammer() *ui.SVG          { return iconHammer }
 func IconGitBranch() *ui.SVG       { return iconGitBranch }
 func IconCopy() *ui.SVG            { return iconCopy }
 
@@ -211,6 +214,10 @@ func IconByName(name string) *ui.SVG {
 		return iconBrain
 	case "wrench":
 		return iconWrench
+	case "hammer":
+		return iconHammer
+	case "list-checks":
+		return iconListChecks
 	case "git-branch", "branch":
 		return iconGitBranch
 	case "copy":

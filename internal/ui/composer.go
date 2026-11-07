@@ -1374,6 +1374,13 @@ func composerWaitingPlaceholder(base string, waiting bool) string {
 	return base
 }
 
+func interactionModeIcon(mode string) *ui.SVG {
+	if mode == "plan" {
+		return IconListChecks()
+	}
+	return IconHammer()
+}
+
 // renderInteractionModeToggle 渲染构建/计划模式切换按钮。
 func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disabled bool, buttonRadius float32) {
 	title := "构建"
@@ -1403,11 +1410,7 @@ func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disab
 		composerHoverBg(c, btn, hovered)
 	}
 	btn.Children(func() {
-		icon := "hammer"
-		if mode == "plan" {
-			icon = "list"
-		}
-		ui.Icon(c, IconByName(icon)).Size(IconSM, IconSM).TextColor(textColor)
+		ui.Icon(c, interactionModeIcon(mode)).Size(IconSM, IconSM).TextColor(textColor)
 	})
 }
 

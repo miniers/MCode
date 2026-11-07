@@ -25,6 +25,22 @@ func TestRuntimeModeTitle(t *testing.T) {
 	}
 }
 
+func TestInteractionModeIcon(t *testing.T) {
+	build := interactionModeIcon("build")
+	plan := interactionModeIcon("plan")
+	if build == nil || plan == nil {
+		t.Fatal("构建和计划模式图标均不能为空")
+	}
+	if build == plan {
+		t.Fatal("构建和计划模式图标应不同")
+	}
+	for _, name := range []string{"hammer", "list-checks"} {
+		if IconByName(name) == nil {
+			t.Errorf("图标 %q 不能为空", name)
+		}
+	}
+}
+
 func TestInteractionModeToggleIconAndTooltip(t *testing.T) {
 	for _, width := range []int{600, 320} {
 		for _, tc := range []struct{ mode, title string }{
