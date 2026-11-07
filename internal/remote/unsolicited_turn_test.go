@@ -163,9 +163,9 @@ func TestUnsolicitedTurn_OpensAttachTurn(t *testing.T) {
 	}
 }
 
-// TestUnsolicitedTurn_IgnoredWhileThreadRunning 覆盖线程正在跑时收到通知：不开新轮，
-// 免得和正在进行的轮次抢同一个进程。
-func TestUnsolicitedTurn_IgnoredWhileThreadRunning(t *testing.T) {
+// TestUnsolicitedTurn_RetryWhileThreadRunning 覆盖运行期间收到重复通知后，
+// 先等待当前轮结束，再且只再开启一个自发轮次。
+func TestUnsolicitedTurn_RetryWhileThreadRunning(t *testing.T) {
 	h := &unsolicitedTestHarness{release: make(chan struct{})}
 	b := runtimeBackend(t, h)
 	id := runtimeThread(b)
@@ -175,13 +175,21 @@ func TestUnsolicitedTurn_IgnoredWhileThreadRunning(t *testing.T) {
 	}
 	waitTurns(t, h, 1)
 	h.notify(id)
+	h.notify(id)
 	time.Sleep(100 * time.Millisecond)
 	if turns := h.turnsSeen(); len(turns) != 1 {
 		t.Fatalf("线程运行中不该为自发输出再开一轮，实际 %d 轮", len(turns))
 	}
 
 	close(h.release)
+	turns := waitTurns(t, h, 2)
+	if !turns[1].Attach {
+		t.Fatalf("收尾后应自动开启自发续跑，实际 %+v", turns[1])
+	}
 	waitThreadIdle(t, b, context.Background(), id)
+	if turns := h.turnsSeen(); len(turns) != 2 {
+		t.Fatalf("重复通知只应开启一个自发续跑，实际 %d 轮", len(turns))
+	}
 }
 
 // TestUnsolicitedTurn_UnknownThreadIsNoop 覆盖线程不存在（或已被删掉）的通知：直接返回，不 panic。
