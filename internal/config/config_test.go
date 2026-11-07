@@ -372,7 +372,7 @@ func TestMemorySecretStore(t *testing.T) {
 func TestHarnessPermissionModeNormalization(t *testing.T) {
 	for _, tt := range []struct {
 		input string
-		want string
+		want  string
 		valid bool
 	}{
 		{"readonly", "readonly", true},

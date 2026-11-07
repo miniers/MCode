@@ -1433,8 +1433,8 @@ type ProvidersConfig struct {
 	Presets     map[string]PresetProviderConfig `json:"presets,omitempty"`
 	// MagpieAgents 按 agent id 存 magpie 的设置：模式与每个端点勾选的模型；
 	// 旧的 CustomEndpointConfig.PiModels 由 Normalize 双向镜像进 agents["pi"]。
-	MagpieAgents map[string]MagpieAgentConfig `json:"magpieAgents,omitempty"`
-	HideMagpieModelsInPicker bool `json:"hideMagpieModelsInPicker,omitempty"`
+	MagpieAgents             map[string]MagpieAgentConfig `json:"magpieAgents,omitempty"`
+	HideMagpieModelsInPicker bool                         `json:"hideMagpieModelsInPicker,omitempty"`
 	// MagpieRoutingVersion 是 Magpie 路由一次性迁移的版本号。
 	MagpieRoutingVersion int                    `json:"magpieRoutingVersion,omitempty"`
 	Custom               []CustomEndpointConfig `json:"custom,omitempty"`

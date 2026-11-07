@@ -320,7 +320,7 @@ func TestDecideAuto(t *testing.T) {
 	for _, mode := range []PermissionMode{ModeAuto, ModeAutoAcceptEdits} {
 		for _, tc := range []struct {
 			tool, arg string
-			want Decision
+			want      Decision
 		}{
 			{"write_file", "a.go", DecisionAllow},
 			{"edit_file", "a.go", DecisionAllow},
@@ -347,11 +347,11 @@ func TestParseMode(t *testing.T) {
 	}{
 		{"readonly", ModeReadOnly, false},
 		{"supervised", ModeSupervised, false},
-		{"autoAcceptEdits", ModeAutoAcceptEdits, false},
+		{"autoAcceptEdits", ModeAuto, false},
 		{"auto", ModeAuto, false},
 		{"fullAccess", ModeFullAccess, false},
 		// 旧值兼容
-		{"agent", ModeAutoAcceptEdits, false},
+		{"agent", ModeAuto, false},
 		{"full_access", ModeFullAccess, false},
 		// 非法值与空字符串
 		{"", "", true},

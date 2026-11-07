@@ -17,8 +17,8 @@ type Kind string
 type PermissionMode string
 
 const (
-	ModeReadOnly        PermissionMode = "readonly"
-	ModeSupervised      PermissionMode = "supervised"
+	ModeReadOnly   PermissionMode = "readonly"
+	ModeSupervised PermissionMode = "supervised"
 	// ModeAutoAcceptEdits 已废弃：仅用于识别旧数据，解析时迁移为 ModeAuto。
 	ModeAutoAcceptEdits PermissionMode = "autoAcceptEdits"
 	ModeAuto            PermissionMode = "auto"

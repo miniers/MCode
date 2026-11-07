@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1439,7 +1440,7 @@ func TestChatHeaderOpenInMenu(t *testing.T) {
 }
 
 // 权限圆钮：Label 为「档位 · 说明」，菜单单行只显示勾选列、档位图标与标题；
-// 选「自动」后调用设置函数并持久化，圆钮 Label 随之更新。
+// 选「监督」后调用设置函数并持久化，圆钮 Label 随之更新。
 func TestChatHeaderPermissionSwitch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -1453,12 +1454,14 @@ func TestChatHeaderPermissionSwitch(t *testing.T) {
 		return ok
 	})
 
+	const summary = "改文件和只读命令不询问"
+	initialSummaryCount := strings.Count(strings.Join(tt.Texts(), "\n"), summary)
 	if err := tt.Click(initialLabel); err != nil {
 		t.Fatalf("click permission capsule failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("权限") })
 	// 单行菜单：不显示说明行
-	if tt.HasText("由 Agent 自行判断常规操作") {
+	if strings.Count(strings.Join(tt.Texts(), "\n"), summary) > initialSummaryCount {
 		t.Fatalf("权限菜单不应显示说明行: %q", tt.Texts())
 	}
 	for _, title := range []string{"监督", "自动", "完全访问"} {
@@ -1467,12 +1470,12 @@ func TestChatHeaderPermissionSwitch(t *testing.T) {
 		}
 	}
 
-	if err := tt.Click("自动"); err != nil {
-		t.Fatalf("click 自动 failed: %v", err)
+	if err := tt.Click("监督"); err != nil {
+		t.Fatalf("click 监督 failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		tid, mode := lastRuntimeModeCall(fake)
-		return tid == "t1" && mode == "auto"
+		return tid == "t1" && mode == "supervised"
 	})
 	// 持久化到本地会话列表
 	waitFor(t, tt, func() bool {
@@ -1480,13 +1483,13 @@ func TestChatHeaderPermissionSwitch(t *testing.T) {
 		defer s.mu.Unlock()
 		for _, th := range s.threads {
 			if th.ID == "t1" {
-				return th.RuntimeMode == "auto"
+				return th.RuntimeMode == "supervised"
 			}
 		}
 		return false
 	})
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("自动 · 由 Agent 自行判断常规操作")
+		_, ok := tt.Find("监督 · 询问后再执行命令和改文件")
 		return ok
 	})
 }

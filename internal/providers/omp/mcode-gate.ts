@@ -91,7 +91,6 @@ function verdictWithoutAsking(gate, name, command, hasUI) {
   if (gate.runtimeMode === "fullAccess") return "allow";
   if (gate.runtimeMode === "auto" || gate.runtimeMode === "autoAcceptEdits") {
     if (FILE_TOOLS.has(name) || (name === "bash" && onlyReads(command))) return "allow";
-    if (!hasUI) return { block: true, reason: "Blocked by mcode: approval is unavailable." };
   }
   // 子代理里没有可以问的人（ctx.hasUI 为 false），这里不再拦。
   if (!hasUI) return "allow";
