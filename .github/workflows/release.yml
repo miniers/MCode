@@ -82,6 +82,11 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" "${args[@]}"
           fi
 
+      - name: 安装 NSIS
+        run: |
+          brew install makensis
+          makensis -VERSION
+
       - name: 导入签名证书
         if: env.MACOS_CERTIFICATE != ''
         env:
@@ -127,7 +132,11 @@ jobs:
           if [[ "${MCODE_NOTARIZE:-}" != 1 ]]; then
             sign_args+=(-skip-notarize)
           fi
-          go tool mygo build -platform darwin/arm64 -o dist "${sign_args[@]}" -upload
+          go tool mygo build -platform darwin/arm64,windows/amd64 -o dist "${sign_args[@]}" -upload
+          if ! compgen -G 'dist/windows-amd64/*-setup-*-amd64.exe' > /dev/null; then
+            echo '::error::未生成 Windows 安装程序。'
+            exit 1
+          fi
 
       - name: 发布
         env:
@@ -139,6 +148,10 @@ jobs:
             else
               note='macOS 版未签名（ad hoc），也未做 Apple 公证。首次打开请右键 → 打开；或执行 xattr -dr com.apple.quarantine /Applications/MCode.app。'
             fi
-            printf '\n---\n\n%s\n' "$note" >> "$RUNNER_TEMP/notes.md"
           fi
+          printf '\n---\n\n' >> "$RUNNER_TEMP/notes.md"
+          if [[ -n "${note:-}" ]]; then
+            printf '%s\n' "$note" >> "$RUNNER_TEMP/notes.md"
+          fi
+          printf '%s\n' 'Windows 版未做代码签名，首次运行如遇 SmartScreen 提示，请点「更多信息」→「仍要运行」。' >> "$RUNNER_TEMP/notes.md"
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --notes-file "$RUNNER_TEMP/notes.md"
