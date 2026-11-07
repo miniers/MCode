@@ -64,7 +64,7 @@ func TestRenderBackgroundWaitBar(t *testing.T) {
 	if _, ok := tt.Find(backgroundWaitShimmerLabel); !ok {
 		t.Fatalf("等待条应渲染扫光条，当前文本 %v", tt.Texts())
 	}
-	if tt.HasText(backgroundTasksAutoContinueHint) {
+	if tt.HasText("完成后 AI 会自动继续") {
 		t.Fatalf("等待条不应再重复续跑提示，当前文本 %v", tt.Texts())
 	}
 
@@ -127,13 +127,13 @@ func TestRenderBackgroundWaitBarHasNoHint(t *testing.T) {
 	if !commands.HasText("等待 1 个后台任务") {
 		t.Fatalf("等待条应显示后台命令，当前文本 %v", commands.Texts())
 	}
-	if commands.HasText(backgroundTasksAutoContinueHint) {
+	if commands.HasText("完成后 AI 会自动继续") {
 		t.Fatalf("后台命令不应显示续跑提示，当前文本 %v", commands.Texts())
 	}
 
 	// provider 托管的后台任务：同样不显示提示。
 	tasks := render(backgroundTasksTestBackground("bg1"))
-	if tasks.HasText(backgroundTasksAutoContinueHint) {
+	if tasks.HasText("完成后 AI 会自动继续") {
 		t.Fatalf("等待条不应显示续跑提示，当前文本 %v", tasks.Texts())
 	}
 }

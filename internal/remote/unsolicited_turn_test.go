@@ -192,6 +192,69 @@ func TestUnsolicitedTurn_RetryWhileThreadRunning(t *testing.T) {
 	}
 }
 
+type unsolicitedEmptyHarness struct {
+	*unsolicitedTestHarness
+	checked chan struct{}
+}
+
+func (h *unsolicitedEmptyHarness) HasUnsolicitedOutput(threadID string) bool {
+	close(h.checked)
+	return false
+}
+
+func TestUnsolicitedTurn_NoRetryWhenOutputDrained(t *testing.T) {
+	h := &unsolicitedEmptyHarness{
+		unsolicitedTestHarness: &unsolicitedTestHarness{release: make(chan struct{})},
+		checked:                make(chan struct{}),
+	}
+	b := runtimeBackend(t, h)
+	id := runtimeThread(b)
+	if _, err := b.SendMessage(context.Background(), wire.SendMessageParams{ThreadID: id, Text: "先跑一轮"}); err != nil {
+		t.Fatalf("发送首条消息失败: %v", err)
+	}
+	waitTurns(t, h.unsolicitedTestHarness, 1)
+	h.notify(id)
+	close(h.release)
+	select {
+	case <-h.checked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("没有检查自发输出是否已经排空")
+	}
+	waitThreadIdle(t, b, context.Background(), id)
+	if turns := h.turnsSeen(); len(turns) != 1 {
+		t.Fatalf("输出已排空时不应补开轮次，实际 %d 轮", len(turns))
+	}
+}
+
+func TestUnsolicitedTurn_PendingSendConsumesOutput(t *testing.T) {
+	h := &unsolicitedTestHarness{release: make(chan struct{})}
+	b := runtimeBackend(t, h)
+	id := runtimeThread(b)
+	if _, err := b.SendMessage(context.Background(), wire.SendMessageParams{ThreadID: id, Text: "先跑一轮"}); err != nil {
+		t.Fatalf("发送首条消息失败: %v", err)
+	}
+	waitTurns(t, h, 1)
+	b.mu.Lock()
+	b.threads[id].pendingSend = &wire.FollowUp{ID: "queued", Text: "排队消息"}
+	b.mu.Unlock()
+	h.notify(id)
+	b.mu.Lock()
+	pending := b.threads[id].unsolicitedPending
+	b.mu.Unlock()
+	if pending {
+		t.Fatal("已有待发送消息时不应标记自发续跑")
+	}
+	close(h.release)
+	turns := waitTurns(t, h, 2)
+	if turns[1].Attach || !strings.Contains(turns[1].Prompt, "排队消息") {
+		t.Fatalf("第二轮应发送排队消息，实际 %+v", turns[1])
+	}
+	waitThreadIdle(t, b, context.Background(), id)
+	if turns := h.turnsSeen(); len(turns) != 2 {
+		t.Fatalf("只应执行首轮和排队轮，实际 %d 轮", len(turns))
+	}
+}
+
 // TestUnsolicitedTurn_UnknownThreadIsNoop 覆盖线程不存在（或已被删掉）的通知：直接返回，不 panic。
 func TestUnsolicitedTurn_UnknownThreadIsNoop(t *testing.T) {
 	h := &unsolicitedTestHarness{}

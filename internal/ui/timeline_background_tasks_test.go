@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -39,6 +40,88 @@ func backgroundTasksTestBackgroundAt(id, description string, createdAt time.Time
 	m.ToolInput = fmt.Sprintf(`{"command":"npm run build","description":%q}`, description)
 	m.CreatedAt = createdAt.Format(time.RFC3339)
 	return m
+}
+
+// TestBackgroundTaskExpandAndStop 验证展开拉日志、收起，以及任务停止失败时保留行。
+func TestBackgroundTaskExpandAndStop(t *testing.T) {
+	client := NewFakeClient()
+	client.backgroundTaskLogText = "日志内容"
+	client.backgroundTaskLogAvailable = true
+	client.stopBackgroundTaskErr = errors.New("停止失败")
+	s := newChatState(client)
+	s.selectedThreadID = "t1"
+	s.composerView.backgroundTasksOpen = true
+	data := backgroundTasksItem{threadID: "t1", tasks: []Message{backgroundTasksTestBackground("bg1")}, commands: []Message{backgroundTasksTestCommandLine("c1", 1, "running", "echo command")}}
+	tt := ui.NewTester(func(c *ui.Context) { renderBackgroundTasksPanel(c, s, "tasks", data, nil) }, 800, 500)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
+	tt.Frame()
+	clickText(t, tt, "npm run build")
+	tt.Frame()
+	deadline := time.Now().Add(time.Second)
+	for {
+		client.mu.Lock()
+		calls := append([]string(nil), client.backgroundTaskLogCalls...)
+		client.mu.Unlock()
+		if len(calls) > 0 {
+			if calls[0] != "t1/bg1" { t.Fatalf("日志请求目标 = %v", calls) }
+			break
+		}
+		if time.Now().After(deadline) { t.Fatal("未请求后台任务日志") }
+		time.Sleep(time.Millisecond)
+	}
+	clickText(t, tt, "npm run build")
+	tt.Frame()
+	s.mu.Lock()
+	expanded := s.composerView.backgroundTaskExpanded
+	s.mu.Unlock()
+	if expanded != "" { t.Fatalf("再次点击应收起，实际 %q", expanded) }
+	client.mu.Lock()
+	before := len(client.backgroundTaskLogCalls)
+	client.mu.Unlock()
+	s.mu.Lock()
+	s.composerView.backgroundTaskLogNext = time.Time{}
+	s.mu.Unlock()
+	tt.Frame()
+	client.mu.Lock()
+	after := len(client.backgroundTaskLogCalls)
+	client.mu.Unlock()
+	if after != before { t.Fatal("收起后不应继续请求日志") }
+	row, ok := tt.Find("npm run build")
+	if !ok { t.Fatal("找不到任务行") }
+	tt.Move(row.X+row.W/2, row.Y+row.H/2)
+	tt.Frame()
+	if _, ok := tt.Find("停止"); !ok { t.Fatal("任务行悬停时应显示停止按钮") }
+	clickText(t, tt, "停止")
+	tt.Frame()
+	deadline = time.Now().Add(time.Second)
+	for {
+		client.mu.Lock()
+		calls := append([]string(nil), client.stopBackgroundTaskCalls...)
+		client.mu.Unlock()
+		if len(calls) > 0 {
+			if calls[0] != "t1/bg1" { t.Fatalf("停止请求目标 = %v", calls) }
+			break
+		}
+		if time.Now().After(deadline) { t.Fatal("未请求停止后台任务") }
+		time.Sleep(time.Millisecond)
+	}
+	for {
+		s.mu.Lock()
+		toast := s.toastMessage
+		expanded = s.composerView.backgroundTaskExpanded
+		s.mu.Unlock()
+		if toast != "" { break }
+		if time.Now().After(deadline) { t.Fatal("停止失败未提示") }
+		time.Sleep(time.Millisecond)
+	}
+	if expanded != "" { t.Fatal("点击停止不应展开任务") }
+	tt.Frame()
+	if _, ok := tt.Find("npm run build"); !ok { t.Fatal("停止失败应保留任务行") }
+	command, ok := tt.Find("echo command")
+	if !ok { t.Fatal("找不到命令行") }
+	tt.Move(command.X+command.W/2, command.Y+command.H/2)
+	tt.Frame()
+	if _, ok := tt.Find("停止"); ok { t.Fatal("命令行不应有停止按钮") }
 }
 
 // TestBackgroundRunningCommands 验证后台命令口径：
@@ -347,8 +430,8 @@ func TestRenderBackgroundTasksPanelCard(t *testing.T) {
 	if !tt.HasText("Birch") || !tt.HasText("运行中") {
 		t.Fatalf("面板应直接列出 bee 名字与状态，当前文本 %v", tt.Texts())
 	}
-	if !tt.HasText(backgroundTasksAutoContinueHint) {
-		t.Fatalf("有 provider 托管的后台任务时应提示完成后会自动继续，当前文本 %v", tt.Texts())
+	if tt.HasText("完成后 AI 会自动继续") {
+		t.Fatalf("后台任务浮层不应显示续跑提示，当前文本 %v", tt.Texts())
 	}
 
 	// 没有后台项时面板不渲染，页面上不出现「后台」。
@@ -583,7 +666,7 @@ func TestTimelineBackgroundTaskCard(t *testing.T) {
 	if hasExactText(tt, "1 个运行中") {
 		t.Fatalf("时间线末尾不应再出现后台任务卡片或浮层: %v", tt.Texts())
 	}
-	if tt.HasText(backgroundTasksAutoContinueHint) {
+	if tt.HasText("完成后 AI 会自动继续") {
 		t.Fatalf("时间线不应再提示完成后自动继续: %v", tt.Texts())
 	}
 

@@ -263,6 +263,19 @@ func (h *Harness) runAttach(ctx context.Context, turn harness.Turn, emit func(ha
 	return h.runOnResident(ctx, p, turn, claudeLaunch{}, emit, true)
 }
 
+// HasUnsolicitedOutput 供后端在线程空闲后判断是否需要补开 attach 轮。
+func (h *Harness) HasUnsolicitedOutput(threadID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p := h.residents[threadID]
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.dead && (p.unsolicited || len(p.backlog) > 0 || p.unsolicitedDone)
+}
+
 // acquireAttached 取出 attach 轮要接的常驻进程：只看会话表里的现有进程，没有进程、已死、正忙
 // 或没有待接的自发输出时返回 false。与 acquireResident 不同，这里不比对启动指纹与会话，也不重建
 // 进程：attach 轮只读这一段已经开始的输出。
@@ -512,6 +525,7 @@ func (h *Harness) release(p *residentProc, keep bool) {
 	}
 	p.mu.Lock()
 	p.busy = false
+	p.drained = false
 	p.resetSteerLocked()
 	p.lastUsed = time.Now()
 	p.mu.Unlock()
@@ -864,6 +878,7 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 			_ = harness.Emit(emit, harness.Event{Type: harness.EventDone, StopReason: drainedStop})
 		}
 		keep = !p.takeOrphan()
+		p.markDrained(sink)
 		return nil
 	}
 
@@ -911,6 +926,7 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 				}
 				// 收到 result 立即结束本轮，不再等排空；排队中的 steer 没有被消费时进程不能留。
 				keep = !p.takeOrphan()
+				p.markDrained(sink)
 				return nil
 			}
 			resetTimer(timer, h.opts.stallTimeout())
@@ -1233,8 +1249,9 @@ func resetTimer(t *time.Timer, d time.Duration) {
 // lineSink 是当前这一轮接收 stdout 行的通道：ch 由读取协程在 EOF 时关闭，quit 在轮次结束时
 // 关闭，让读取协程不会卡在一个已经没人读的通道上。
 type lineSink struct {
-	ch   chan []byte
-	quit chan struct{}
+	ch      chan []byte
+	quit    chan struct{}
+	drained chan struct{}
 }
 
 // stdinUserFrame 是写到 CLI stdin 的一帧用户消息。stream-json 输入每行一帧，
@@ -1286,6 +1303,8 @@ type residentProc struct {
 	sessionID string
 	dead      bool
 	busy      bool
+	// drained 表示本轮消费者已收到结束本轮的 result，不再读 sink。
+	drained   bool
 	lastUsed  time.Time
 	idle      *time.Timer
 	gen       uint64
@@ -1405,11 +1424,8 @@ func parseStdoutFrame(line []byte) (typ, subtype string) {
 // 新一轮（后台任务结束后的续跑）时通知上层补一轮，把这一段行先缓存下来喂给那个轮次。
 // 没有登记通知回调时行为与以前完全一致：空闲时的输出直接丢弃。
 //
-// busy 为真时（进程刚启动还没 attach、或一轮收尾时 detach 与 release 之间）sink 也是 nil，但这不
-// 是自发轮次：这些行属于正要开始/正在收尾的那一轮，或者就是启动期的 system/init。把启动期的
-// system/init 当成自发轮次会让上层白开一个 Turn.Attach，随后用户这一轮在排空阶段等一个永远不会
-// 到来的 result，直到超时杀进程。因此 busy 期间不置 unsolicited、不缓存、不通知，输出照旧丢弃；
-// 后台任务计数不受 busy 影响（回收与换进程始终要知道还有几个后台任务在跑）。
+// 启动期 busy 为真且尚未 attach 时，system/init 不是自发轮次，不能触发通知；
+// 本轮 result 已被消费后则按空闲状态处理，后台任务计数始终有效。
 func (p *residentProc) deliver(line []byte) {
 	typ, subtype := parseStdoutFrame(line)
 	candidate := typ == "system" && (subtype == "task_notification" || subtype == "init")
@@ -1427,25 +1443,11 @@ func (p *residentProc) deliver(line []byte) {
 	case typ == "system" && subtype == "task_notification" && p.bgTasks > 0:
 		p.bgTasks--
 	}
-	if p.sink == nil {
-		if typ == "result" && !p.busy {
-			p.unsolicitedDone = true
-		}
-		if candidate && !p.busy && !p.unsolicited && handler != nil && p.threadID != "" {
-			p.unsolicited = true
-			notify = true
-		}
-		if p.unsolicited {
-			switch {
-			case len(p.backlog) < unsolicitedBacklogLimit:
-				p.backlog = append(p.backlog, append([]byte(nil), line...))
-			case !p.backlogDropped:
-				p.backlogDropped = true
-				dropped = true
-			}
-		}
-	}
 	sink := p.sink
+	if sink == nil || p.drained {
+		notify, dropped = p.deliverIdleLocked(line, handler)
+		sink = nil
+	}
 	p.mu.Unlock()
 
 	// 回调必须在锁外、新协程里跑：它最终会回来开一轮并调用 acquireResident（锁序 h.mu → p.mu）。
@@ -1460,7 +1462,97 @@ func (p *residentProc) deliver(line []byte) {
 	}
 	select {
 	case sink.ch <- line:
+		// drained 关闭与发送同时就绪时，select 仍可能选中发送，须再次搬走该行。
+		p.markDrainedIfNeeded(sink, handler)
 	case <-sink.quit:
+		p.mu.Lock()
+		if p.drained {
+			notify, dropped = p.deliverIdleLocked(line, handler)
+		}
+		p.mu.Unlock()
+		p.reportIdle(handler, notify, dropped)
+	case <-sink.drained:
+		p.mu.Lock()
+		notify, dropped = p.deliverIdleLocked(line, handler)
+		p.mu.Unlock()
+		p.reportIdle(handler, notify, dropped)
+	}
+}
+
+// deliverIdleLocked 在持有 p.mu 时缓存空闲输出，返回是否需要通知或记录超限。
+func (p *residentProc) deliverIdleLocked(line []byte, handler func(string)) (notify, dropped bool) {
+	typ, subtype := parseStdoutFrame(line)
+	idle := !(p.busy && !p.drained)
+	if typ == "result" && idle {
+		p.unsolicitedDone = true
+	}
+	if typ == "system" && (subtype == "task_notification" || subtype == "init") && idle && !p.unsolicited && handler != nil && p.threadID != "" {
+		p.unsolicited = true
+		notify = true
+	}
+	if p.unsolicited {
+		switch {
+		case len(p.backlog) < unsolicitedBacklogLimit:
+			p.backlog = append(p.backlog, append([]byte(nil), line...))
+		case !p.backlogDropped:
+			p.backlogDropped = true
+			dropped = true
+		}
+	}
+	return
+}
+
+// reportIdle 在锁外派发自发输出通知和超限日志。
+func (p *residentProc) reportIdle(handler func(string), notify, dropped bool) {
+	if notify {
+		go handler(p.threadID)
+	}
+	if dropped && p.owner != nil {
+		p.owner.logf("claude: resident thread=%s unsolicited backlog capped at %d lines", p.threadID, unsolicitedBacklogLimit)
+	}
+}
+
+// markDrained 标记本轮结束，并按顺序转移 sink 中尚未消费的行。
+func (p *residentProc) markDrained(sink *lineSink) {
+	var handler func(string)
+	if p.owner != nil {
+		handler = p.owner.unsolicitedHandlerNow()
+	}
+	p.mu.Lock()
+	if !p.drained {
+		p.drained = true
+		close(sink.drained)
+	}
+	notify, dropped := p.drainSinkLocked(sink, handler)
+	p.mu.Unlock()
+	p.reportIdle(handler, notify, dropped)
+}
+
+// markDrainedIfNeeded 处理发送与 drained 同时就绪时留在旧 sink 的行。
+func (p *residentProc) markDrainedIfNeeded(sink *lineSink, handler func(string)) {
+	p.mu.Lock()
+	var notify, dropped bool
+	select {
+	case <-sink.drained:
+		notify, dropped = p.drainSinkLocked(sink, handler)
+	default:
+	}
+	p.mu.Unlock()
+	p.reportIdle(handler, notify, dropped)
+}
+
+func (p *residentProc) drainSinkLocked(sink *lineSink, handler func(string)) (notify, dropped bool) {
+	for {
+		select {
+		case line, ok := <-sink.ch:
+			if !ok {
+				return
+			}
+			n, d := p.deliverIdleLocked(line, handler)
+			notify, dropped = notify || n, dropped || d
+		default:
+			return
+		}
 	}
 }
 
@@ -1469,8 +1561,9 @@ func (p *residentProc) deliver(line []byte) {
 // 同一个临界区里完成，结束后到达的行直接进 sink，因此排空不会丢行也不会乱序。
 // 进程已死时返回一个已关闭的通道，调用方会立刻按“本轮没有任何输出”处理。
 func (p *residentProc) attach() (sink *lineSink, backlog [][]byte, unsolicitedDone, pending bool) {
-	sink = &lineSink{ch: make(chan []byte, sinkBuffer), quit: make(chan struct{})}
+	sink = &lineSink{ch: make(chan []byte, sinkBuffer), quit: make(chan struct{}), drained: make(chan struct{})}
 	p.mu.Lock()
+	p.drained = false
 	backlog = p.backlog
 	p.backlog = nil
 	p.backlogDropped = false

@@ -170,6 +170,8 @@ type memoryThread struct {
 	// attachTurnID 是要接住常驻进程自发输出（后台任务结束后的续跑）的那一轮：
 	// 这一轮不发用户帧，只把进程已经产出的这一段读完。为空表示没有待接的轮次。
 	attachTurnID string
+	// unsolicitedPending 自发续跑通知到达时线程正忙，空闲后需要补开 attach 轮。
+	unsolicitedPending bool
 
 	// backgroundTools 记录 provider 托管的后台任务：tool id → 发起它的工具消息 ID。
 	// 进程内索引，宿主重启即丢；重启后遗留的 background 消息由启动对账改成失败。
@@ -3386,12 +3388,16 @@ func (b *MemoryBackend) publishStartedTurn(threadID string, st *startedTurn) {
 }
 
 // handleUnsolicitedTurn 接住常驻进程自发跑出的一段输出：线程空闲时开一轮用 Turn.Attach 把它读回来，
-// 输出照常落进线程消息。线程不存在、是辅助会话、已有轮次在跑、有排队中的发送或正在收回轮次时
-// 什么都不做：这些情况下新开一轮会与正在进行的轮次抢同一个进程。
+// 输出照常落进线程消息。线程忙时记下通知，空闲后再尝试接回输出。
 func (b *MemoryBackend) handleUnsolicitedTurn(threadID string) {
 	b.mu.Lock()
 	td, ok := b.threads[threadID]
-	if !ok || td.isHelper || td.runTurnID != "" || td.summary.IsRunning || td.pendingSend != nil || td.takingBack {
+	if !ok || td.isHelper || td.pendingSend != nil {
+		b.mu.Unlock()
+		return
+	}
+	if td.runTurnID != "" || td.summary.IsRunning || td.takingBack {
+		td.unsolicitedPending = true
 		b.mu.Unlock()
 		return
 	}
@@ -3405,6 +3411,34 @@ func (b *MemoryBackend) handleUnsolicitedTurn(threadID string) {
 	b.mu.Unlock()
 
 	b.publishStartedTurn(threadID, st)
+}
+
+type unsolicitedOutputChecker interface {
+	HasUnsolicitedOutput(threadID string) bool
+}
+
+func (b *MemoryBackend) retryUnsolicitedTurn(threadID string) {
+	b.mu.Lock()
+	td, ok := b.threads[threadID]
+	if !ok {
+		b.mu.Unlock()
+		return
+	}
+	h := b.threadHarnessLocked(td.summary.Provider)
+	b.mu.Unlock()
+	if checker, ok := h.(unsolicitedOutputChecker); ok && !checker.HasUnsolicitedOutput(threadID) {
+		return
+	}
+	b.handleUnsolicitedTurn(threadID)
+}
+
+// takeUnsolicitedPendingLocked 在真正空闲时取走待重试通知。
+func (td *memoryThread) takeUnsolicitedPendingLocked() bool {
+	if td.takingBack || td.runTurnID != "" || td.summary.IsRunning || !td.unsolicitedPending {
+		return false
+	}
+	td.unsolicitedPending = false
+	return true
 }
 
 // bindUnsolicitedTurnHandlerLocked 把自发轮次回调登记到支持它的 harness 上（调用方持有 b.mu）。
@@ -5286,6 +5320,7 @@ func (b *MemoryBackend) forceInterruptFinishLocked(td *memoryThread, turnID stri
 	td.continuationSent = false
 	td.runTurnID = ""
 	td.setIdleLocked()
+	retryUnsolicited := td.takeUnsolicitedPendingLocked()
 	// 强制收尾不会经过 Interact 的清理块，这里显式复位等待标记，避免摘要一直显示"等待审批"。
 	td.summary.HasPendingRequest = false
 	td.summary.LastActivityText = nil
@@ -5373,6 +5408,9 @@ func (b *MemoryBackend) forceInterruptFinishLocked(td *memoryThread, turnID stri
 			b.hub.BeginRun(threadID)
 			b.hub.Publish(threadID, []wire.ThreadMessage{next.userMsg}, nil, next.currentSummary)
 			b.launchTurnRun(threadID, next, text)
+		}
+		if retryUnsolicited {
+			go b.retryUnsolicitedTurn(threadID)
 		}
 	}()
 	return batch
@@ -5570,7 +5608,11 @@ func (b *MemoryBackend) recallTurn(ctx context.Context, threadID string, draftOn
 	defer func(target *memoryThread) {
 		b.mu.Lock()
 		target.takingBack = false
+		retryUnsolicited := b.threads[threadID] == target && target.takeUnsolicitedPendingLocked()
 		b.mu.Unlock()
+		if retryUnsolicited {
+			go b.retryUnsolicitedTurn(threadID)
+		}
 	}(td)
 	b.cancelAutoContinueLocked(threadID)
 	_, batch, err := b.interruptLocked(td, turnID)
@@ -6045,6 +6087,7 @@ func (b *MemoryBackend) finishTurnEarly(td *memoryThread, threadID, turnID strin
 	td.summary.LastActivityText = nil
 	td.summary.UpdatedAt = b.nowLocked().Format(time.RFC3339Nano)
 	td.setIdleLocked()
+	retryUnsolicited := td.takeUnsolicitedPendingLocked()
 	if isNormal || isInterrupted {
 		td.summary.Attention = "ready"
 	} else {
@@ -6090,6 +6133,9 @@ func (b *MemoryBackend) finishTurnEarly(td *memoryThread, threadID, turnID strin
 		b.hub.BeginRun(threadID)
 		b.hub.Publish(threadID, []wire.ThreadMessage{nextStarted.userMsg}, nil, nextStarted.currentSummary)
 		b.launchTurnRun(threadID, nextStarted, nextText)
+	}
+	if retryUnsolicited {
+		go b.retryUnsolicitedTurn(threadID)
 	}
 }
 
@@ -7410,6 +7456,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 		hookLastAssistantText string
 		hookCompleted         bool
 		turnHook              func(threadID, projectID, assistantText string, completed bool)
+		retryUnsolicited      bool
 	)
 	autoContinueAfterLimit := b.generalSettings().Session.AutoContinueAfterLimit
 	b.mu.Lock()
@@ -7466,6 +7513,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			return
 		}
 		td.setIdleLocked()
+		retryUnsolicited = td.takeUnsolicitedPendingLocked()
 		if isNormal || isInterrupted {
 			td.summary.Attention = "ready"
 			// 正常结束（含被中断）时清空错误原文，摘要里不再保留上一轮的失败原因。
@@ -7507,6 +7555,9 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 		b.launchTurnRun(threadID, nextStarted, nextText)
 	} else {
 		b.hub.Publish(threadID, nil, nil, finalSummary)
+	}
+	if retryUnsolicited {
+		go b.retryUnsolicitedTurn(threadID)
 	}
 }
 
@@ -7673,6 +7724,7 @@ loop:
 		hookLastAssistantText string
 		hookCompleted         bool
 		turnHook              func(threadID, projectID, assistantText string, completed bool)
+		retryUnsolicited      bool
 	)
 	b.mu.Lock()
 	if td, ok := b.threads[threadID]; ok && td.runTurnID == turnID {
@@ -7710,6 +7762,7 @@ loop:
 			return
 		}
 		td.setIdleLocked()
+		retryUnsolicited = td.takeUnsolicitedPendingLocked()
 		finalSummary = b.summaryForPublishLocked(td)
 
 		// 宿主关闭时保留队列不动，避免排队项在关闭途中被移除后既没发送也无法恢复。
@@ -7740,6 +7793,9 @@ loop:
 		b.launchTurnRun(threadID, nextStarted, nextText)
 	} else {
 		b.hub.Publish(threadID, nil, nil, finalSummary)
+	}
+	if retryUnsolicited {
+		go b.retryUnsolicitedTurn(threadID)
 	}
 }
 

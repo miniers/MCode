@@ -1,7 +1,9 @@
 package mcodeui
 
 import (
+	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -15,9 +17,6 @@ const (
 	backgroundTasksTooltipSuffix = "列出 provider 托管的后台任务、回合结束后仍在运行的命令与运行中的子智能体"
 	// backgroundTasksMaxRows 是浮层最多列出的条目数：再多会撑高浮层，其余用一行「还有 N 个」概括。
 	backgroundTasksMaxRows = 5
-	// backgroundTasksAutoContinueHint 是浮层底部的续跑提示。目前只有 Claude 会产生 background 状态，
-	// 并在后台任务结束后自动继续；其他供应商接入该状态时按各自能力决定是否显示这句文案。
-	backgroundTasksAutoContinueHint = "完成后 AI 会自动继续"
 	// backgroundWaitShimmerLabel 是时间线等待条扫光的无障碍名，供测试与调试定位这条装饰层。
 	backgroundWaitShimmerLabel = "等待后台任务扫光"
 )
@@ -182,7 +181,7 @@ func backgroundTasksTitle(tasks, commands, bees int) string {
 // backgroundTasksFor 按会话当前消息与 Swarm 状态算出后台任务浮层内容。
 // runningTurn 取当前最大回合号：回合运行中时，属于这一回合的命令仍在运行中工具组里，
 // 不算后台。provider 托管的后台任务（Bash run_in_background 等）按 ToolStatus=background
-// 直接识别，不论会话是否在跑都计入；它们已交给供应商继续执行，卡片只读，不提供终止入口。
+// 直接识别，不论会话是否在跑都计入。
 func backgroundTasksFor(s *chatState, threadID string) backgroundTasksItem {
 	if s == nil {
 		return backgroundTasksItem{}
@@ -220,7 +219,7 @@ func shouldShowBackgroundWait(running bool, data backgroundTasksItem) bool {
 }
 
 // renderBackgroundWaitBar 渲染时间线末尾的等待后台任务条：一行扫光文字（时钟、任务数、
-// 最早任务名与实时计时）。续跑提示只出现在输入区胶囊的浮层里，时间线里不再重复。
+// 最早任务名与实时计时）。
 // 整行可点，点击打开输入区胶囊上已有的后台任务浮层，不新建浮层状态。没有后台项时
 // 返回空元素；有开始时间时每秒请求重绘，让计时逐秒走动。
 func renderBackgroundWaitBar(c *ui.Context, s *chatState, key string) ui.Element {
@@ -274,10 +273,10 @@ func renderBackgroundWaitBar(c *ui.Context, s *chatState, key string) ui.Element
 	})
 }
 
-// renderBackgroundTasksPanel 渲染输入区后台任务浮层的内容，分表头、分隔线、条目列表与续跑提示四段：
+// renderBackgroundTasksPanel 渲染输入区后台任务浮层的表头、分隔线和条目列表：
 // 表头是状态点、「后台任务」标题与实时总数胶囊；条目列表始终展开，逐条列出后台任务、
 // 回合结束后仍在跑的命令与运行中的子智能体，超过 backgroundTasksMaxRows 条时只列前几条，
-// 其余用一行「还有 N 个」概括；存在 provider 托管任务时在列表下方提示完成后自动继续。
+// 其余用一行「还有 N 个」概括。
 // 卡片外观由 popoverCard 提供（appPopover 不画底色），面板只约束宽度。没有后台项时返回空元素。
 func renderBackgroundTasksPanel(c *ui.Context, s *chatState, key string, data backgroundTasksItem, onNavigate func()) ui.Element {
 	title := data.title()
@@ -323,14 +322,14 @@ func renderBackgroundTasksPanel(c *ui.Context, s *chatState, key string, data ba
 					if shown >= backgroundTasksMaxRows {
 						break
 					}
-					renderBackgroundTaskRow(c, key, shown, m)
+					renderBackgroundTaskRow(c, s, key, data.threadID, m, true)
 					shown++
 				}
 				for _, m := range data.commands {
 					if shown >= backgroundTasksMaxRows {
 						break
 					}
-					renderBackgroundTaskRow(c, key, shown, m)
+					renderBackgroundTaskRow(c, s, key, data.threadID, m, false)
 					shown++
 				}
 				for _, h := range data.bees {
@@ -348,51 +347,171 @@ func renderBackgroundTasksPanel(c *ui.Context, s *chatState, key string, data ba
 					})
 				}
 			})
-			if len(data.tasks) > 0 {
-				// 只有 Claude 会产出 background 状态，并在后台任务结束后自动续跑；
-				// 其他供应商接入时按各自能力决定是否显示这句提示。
-				ui.Row(c.Key(key+"/auto-continue")).
-					Padding(Space2, Space4, Space3, Space4).
-					Children(func() {
-						ui.Text(c, backgroundTasksAutoContinueHint).
-							FontSize(scaledFont(TypeCaption)).
-							TextColor(ThemeSecondaryText(c).Alpha(0.85))
-					})
-			}
 		})
 }
 
-// renderBackgroundTaskRow 渲染浮层里的一条后台任务或后台命令：左侧圆角图标槽、中间短标题、右侧实时运行时长。
-// 行高固定、内容左对齐；短标题放在可伸缩容器里，长标题先被裁掉，不会把右侧时长挤出行外。
-// 浮层只读：provider 托管的后台任务由供应商自己结束，回合结束后仍在跑的命令仍在各自的工具详情里操作。
-func renderBackgroundTaskRow(c *ui.Context, key string, index int, m Message) {
-	short := backgroundTaskDisplayTitle(m)
-	rowKey := fmt.Sprintf("%s/task-%d", key, index)
-	ui.Row(c.Key(rowKey)).
-		FillWidth().
-		Height(ControlMD).
-		Padding(0, Space3).
-		Radius(RadiusMD).
-		Gap(Space3).
-		AlignItems(ui.Center).
-		Justify(ui.Start).
-		Children(func() {
-			ui.Row(c.Key(rowKey+"/icon")).
-				Size(18, 18).
-				Radius(RadiusXS).
-				Background(ThemeHover(c).Alpha(0.6)).
-				Justify(ui.Center).
-				AlignItems(ui.Center).
-				Children(func() {
-					ui.Icon(c, IconTerminal()).Size(10, 10).TextColor(ThemeSecondaryText(c))
-				})
-			ui.Row(c.Key(rowKey + "/title")).Grow(1).Shrink(1).Clip().AlignItems(ui.Center).Children(func() {
-				ui.Text(c, short).FontSize(scaledFont(TypeFootnote)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine()
+// closeBackgroundTasks 收起浮层并使未完成的日志请求失效。
+func closeBackgroundTasks(s *chatState) {
+	s.mu.Lock()
+	s.composerView.backgroundTasksOpen = false
+	s.composerView.backgroundTaskExpanded = ""
+	s.composerView.backgroundTaskGeneration++
+	s.mu.Unlock()
+}
+
+// requestBackgroundTaskLog 在展开期间按秒请求日志，同一时间只允许一个请求。
+func requestBackgroundTaskLog(c *ui.Context, s *chatState, threadID, messageID string) {
+	s.mu.Lock()
+	v := &s.composerView
+	if !v.backgroundTasksOpen || v.backgroundTaskExpanded != messageID || v.backgroundTaskLogPending || c.Now().Before(v.backgroundTaskLogNext) || s.client == nil {
+		s.mu.Unlock()
+		return
+	}
+	v.backgroundTaskLogPending = true
+	v.backgroundTaskLogNext = c.Now().Add(time.Second)
+	generation := v.backgroundTaskGeneration
+	client := s.client
+	s.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), killCommandTimeout)
+		defer cancel()
+		text, available, err := client.BackgroundTaskLog(ctx, threadID, messageID)
+		s.mu.Lock()
+		v := &s.composerView
+		v.backgroundTaskLogPending = false
+		if s.selectedThreadID == threadID && v.backgroundTaskGeneration == generation && v.backgroundTaskExpanded == messageID && err == nil {
+			v.backgroundTaskLogID = messageID
+			v.backgroundTaskLog = ""
+			if available {
+				v.backgroundTaskLog = text
+			}
+		}
+		s.mu.Unlock()
+		s.invalidate()
+	}()
+}
+
+// stopBackgroundTask 异步停止指定任务，失败时保留条目并提示错误。
+func stopBackgroundTask(s *chatState, threadID, messageID string) {
+	s.mu.Lock()
+	v := &s.composerView
+	if v.backgroundTaskStopping[messageID] || s.client == nil {
+		s.mu.Unlock()
+		return
+	}
+	if v.backgroundTaskStopping == nil {
+		v.backgroundTaskStopping = make(map[string]bool)
+	}
+	v.backgroundTaskStopping[messageID] = true
+	client := s.client
+	s.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), killCommandTimeout)
+		defer cancel()
+		stopped, err := client.StopBackgroundTask(ctx, threadID, messageID)
+		s.mu.Lock()
+		v := &s.composerView
+		delete(v.backgroundTaskStopping, messageID)
+		if s.selectedThreadID == threadID {
+			if err != nil {
+				s.toastMessage = "停止后台任务失败: " + err.Error()
+			} else if !stopped {
+				s.toastMessage = "未能停止后台任务"
+			} else {
+				if v.backgroundTaskStopped == nil {
+					v.backgroundTaskStopped = make(map[string]time.Time)
+				}
+				v.backgroundTaskStopped[messageID] = time.Now()
+				if v.backgroundTaskExpanded == messageID {
+					v.backgroundTaskExpanded = ""
+					v.backgroundTaskGeneration++
+				}
+			}
+		}
+		s.mu.Unlock()
+		s.invalidate()
+	}()
+}
+
+// renderBackgroundTaskRow 渲染可展开的任务或命令，只有任务可以停止。
+func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, m Message, canStop bool) {
+	rowKey := key + "/task-" + m.ID
+	s.mu.Lock()
+	v := &s.composerView
+	expanded := v.backgroundTaskExpanded == m.ID
+	log := ""
+	if v.backgroundTaskLogID == m.ID {
+		log = v.backgroundTaskLog
+	}
+	stoppedAt, stopped := v.backgroundTaskStopped[m.ID]
+	stopping := v.backgroundTaskStopping[m.ID]
+	s.mu.Unlock()
+	if stopped && (reduceMotion(c) || c.Now().Sub(stoppedAt) >= DurFast) {
+		return
+	}
+	if stopped {
+		c.After(DurFast)
+	}
+	if expanded {
+		c.After(time.Second)
+		requestBackgroundTaskLog(c, s, threadID, m.ID)
+	}
+	row := ui.Column(c.Key(rowKey)).FillWidth().Clip()
+	target := float32(1)
+	if stopped { target = 0 }
+	fade := row.AnimateTo("stop", target, ui.Animation{Duration: animateDuration(c, DurFast), Ease: ui.EaseOut})
+	row.Opacity(fade)
+	if stopped {
+		row.Height(ControlMD * fade)
+	}
+	row.Children(func() {
+		btn := ui.ButtonBase(c.Key(rowKey+"/button")).FillWidth().Height(ControlMD).
+			Padding(0, Space3).Radius(RadiusMD).Gap(Space3).AlignItems(ui.Center).
+			Justify(ui.Start).Cursor(ui.CursorPointer).Label(backgroundTaskDisplayTitle(m))
+		if btn.Hovered() { btn.Background(ThemeHover(c).Alpha(0.5)) }
+		if btn.Clicked() {
+			s.mu.Lock()
+			v := &s.composerView
+			if v.backgroundTaskExpanded == m.ID { v.backgroundTaskExpanded = "" } else { v.backgroundTaskExpanded = m.ID }
+			v.backgroundTaskGeneration++
+			v.backgroundTaskLogNext = time.Time{}
+			s.mu.Unlock()
+			s.invalidate()
+		}
+		btn.Children(func() {
+			ui.Row(c.Key(rowKey+"/icon")).Size(18, 18).Radius(RadiusXS).
+				Background(ThemeHover(c).Alpha(0.6)).Justify(ui.Center).AlignItems(ui.Center).
+				Children(func() { ui.Icon(c, IconTerminal()).Size(10, 10).TextColor(ThemeSecondaryText(c)) })
+			ui.Row(c.Key(rowKey+"/title")).Grow(1).Shrink(1).Clip().AlignItems(ui.Center).Children(func() {
+				ui.Text(c, backgroundTaskDisplayTitle(m)).FontSize(scaledFont(TypeFootnote)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine()
 			})
 			if duration, ok := toolBackgroundRunDuration(c, m); ok {
 				ui.Text(c, duration).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine()
 			}
+			if canStop && (btn.Hovered() || stopping) {
+				stop := ui.ButtonBase(c.Key(rowKey+"/stop")).Size(18, 18).Label("停止").Tooltip("停止").Cursor(ui.CursorPointer)
+				if stop.Clicked() && !stopping { stopBackgroundTask(s, threadID, m.ID) }
+				stop.Children(func() { ui.Icon(c, IconStopFilled()).Size(10, 10).TextColor(ThemeSecondaryText(c)) })
+			}
 		})
+		if log == "" { log = "暂无输出" }
+		lines := float32(strings.Count(log, "\n") + 1)
+		if lines > 8 { lines = 8 }
+		height := float32(0)
+		if expanded { height = lines * scaledFont(TypeCaption) * 1.4 + Space2 }
+		wrap := ui.Column(c.Key(rowKey+"/log-wrap")).FillWidth().Clip()
+		wrap.Height(wrap.AnimateTo("expand", height, ui.Animation{Duration: animateDuration(c, DurBase), Ease: ui.EaseOut}))
+		wrap.Children(func() {
+			if v.backgroundTaskScrolledLog != log {
+				v.backgroundTaskScroll.Y = math.MaxFloat32
+				v.backgroundTaskScrolledLog = log
+			}
+			ui.Scroll(c.Key(rowKey+"/log")).FillWidth().MaxHeight(8 * scaledFont(TypeCaption) * 1.4).
+				TrackScroll(&v.backgroundTaskScroll).Children(func() {
+					ui.Text(c, log).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).LineHeight(1.4).TextColor(ThemeSecondaryText(c)).Selectable()
+				})
+		})
+	})
 }
 
 // renderBackgroundBeeRow 渲染后台任务浮层里的一个运行中子智能体：人设图标、名字、当前活动、右侧时长与右箭头。

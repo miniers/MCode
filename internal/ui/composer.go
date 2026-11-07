@@ -16,6 +16,17 @@ import (
 type composerViewState struct {
 	planPillOpen         bool // 待办进度胶囊的弹层是否打开
 	backgroundTasksOpen  bool // 后台任务胶囊的浮层是否打开
+	backgroundTaskExpanded string // 当前展开的消息 ID。
+	backgroundTaskThread string // 后台任务浮层所属会话。
+	backgroundTaskLog string // 最近一次获取的日志。
+	backgroundTaskLogID string // 日志所属消息 ID。
+	backgroundTaskLogPending bool // 是否有日志请求在途。
+	backgroundTaskLogNext time.Time // 下一次日志请求时间。
+	backgroundTaskGeneration uint64 // 展开状态变更时递增，用于丢弃过期回包。
+	backgroundTaskStopping map[string]bool // 正在停止的消息。
+	backgroundTaskStopped map[string]time.Time // 已停止消息的动画起始时间。
+	backgroundTaskScroll ui.ScrollState // 日志滚动位置。
+	backgroundTaskScrolledLog string // 上次滚动到底部时的日志。
 	downloadsOpen        bool
 	usageOpen            bool
 	quotaOpen            bool                          // 额度弹层是否打开

@@ -263,6 +263,13 @@ type FakeClient struct {
 	killRunningCommandCalls []string
 	// killRunningCommandKilled 让 FakeClient.KillRunningCommand 模拟后端返回的终止进程数。
 	killRunningCommandKilled int
+	backgroundTaskLogCalls []string
+	backgroundTaskLogText string
+	backgroundTaskLogAvailable bool
+	backgroundTaskLogErr error
+	stopBackgroundTaskCalls []string
+	stopBackgroundTaskStopped bool
+	stopBackgroundTaskErr error
 	// interruptAlreadyStopped 让 FakeClient.Interrupt 模拟后端返回 already_stopped。
 	interruptAlreadyStopped bool
 	// sendDelegated 让 FakeClient.Send/SendWithAttachments 模拟消息被交给子线程。
@@ -1088,6 +1095,20 @@ func (f *FakeClient) KillRunningCommand(ctx context.Context, threadID, messageID
 	defer f.mu.Unlock()
 	f.killRunningCommandCalls = append(f.killRunningCommandCalls, threadID+"/"+messageID)
 	return f.killRunningCommandKilled, nil
+}
+
+func (f *FakeClient) BackgroundTaskLog(ctx context.Context, threadID, messageID string) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.backgroundTaskLogCalls = append(f.backgroundTaskLogCalls, threadID+"/"+messageID)
+	return f.backgroundTaskLogText, f.backgroundTaskLogAvailable, f.backgroundTaskLogErr
+}
+
+func (f *FakeClient) StopBackgroundTask(ctx context.Context, threadID, messageID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stopBackgroundTaskCalls = append(f.stopBackgroundTaskCalls, threadID+"/"+messageID)
+	return f.stopBackgroundTaskStopped, f.stopBackgroundTaskErr
 }
 
 func (f *FakeClient) Watch(threadID string, onUpdate func(ThreadUpdate), onApprovals func([]Approval)) func() {

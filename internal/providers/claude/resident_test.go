@@ -171,6 +171,14 @@ func (st *fakeResidentState) handle(frame []byte) bool {
 			default:
 				_, _ = out.Write(st.data)
 			}
+		case "resident_bg_immediate":
+			_, _ = out.Write(st.firstLine)
+			_, _ = out.WriteString(fakeTaskStartedFrame + "\n")
+			_, _ = out.Write(rest)
+			_, _ = out.WriteString(`{"type":"system","subtype":"task_notification","task_id":"task-1","status":"completed"}` + "\n")
+			_, _ = out.WriteString(`{"type":"system","subtype":"init","session_id":"sess-123"}` + "\n")
+			_, _ = out.WriteString(fakeAssistantFrame("紧随结果的续跑") + "\n")
+			_, _ = out.WriteString(`{"type":"result","subtype":"success","is_error":false,"result":"续跑完成","stop_reason":"end_turn"}` + "\n")
 		case "resident_bg_hold", "resident_bg_notify", "resident_bg_double":
 			// 轮内先报后台任务已启动，再回正常的一轮；后台那次续跑由 runBackgroundTasks 另起协程发。
 			_, _ = out.Write(st.firstLine)
@@ -1490,6 +1498,81 @@ func TestResident_StartupInitDoesNotStartUnsolicitedTurn(t *testing.T) {
 	case threadID := <-calls:
 		t.Fatalf("整段用例里启动期 init 都不该触发回调，收到 %q", threadID)
 	default:
+	}
+}
+
+// TestResident_ImmediateUnsolicitedAfterResult 覆盖 result 后立即到来的自发输出。
+func TestResident_ImmediateUnsolicitedAfterResult(t *testing.T) {
+	fixture := fixtureAbs(t, "basic.jsonl")
+	logPath := filepath.Join(t.TempDir(), "starts.log")
+	usersPath := filepath.Join(t.TempDir(), "users.log")
+	h := New(Options{Binary: os.Args[0], IdleTTL: time.Minute})
+	defer h.Close()
+	calls := make(chan string, 8)
+	h.SetUnsolicitedTurnHandler(func(threadID string) { calls <- threadID })
+	if h.HasUnsolicitedOutput(residentTestThreadID) {
+		t.Fatal("不存在进程时不应有自发输出")
+	}
+	turn := residentTurn("resident_bg_immediate:"+fixture, logPath, t.TempDir())
+	turn.Env = append(turn.Env, fakeUsersEnv+"="+usersPath)
+	var first []harness.Event
+	err := h.Run(context.Background(), turn, func(e harness.Event) {
+		first = append(first, e)
+		if e.Type == harness.EventDone {
+			// 等待续跑帧进入旧 sink，确定覆盖 result 与 detach 之间的窗口。
+			waitFor(t, 10*time.Second, "续跑帧进入旧 sink", func() bool {
+				h.mu.Lock()
+				p := h.residents[residentTestThreadID]
+				h.mu.Unlock()
+				if p == nil {
+					return false
+				}
+				p.mu.Lock()
+				defer p.mu.Unlock()
+				return p.sink != nil && len(p.sink.ch) >= 4
+			})
+		}
+	})
+	if err != nil || !strings.Contains(eventTexts(first), "Hello world!") || countEvents(first, harness.EventDone) != 1 {
+		t.Fatalf("首轮结果异常: err=%v events=%+v", err, first)
+	}
+	select {
+	case threadID := <-calls:
+		if threadID != residentTestThreadID {
+			t.Fatalf("回调线程错误: %q", threadID)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("没有收到自发输出回调")
+	}
+	if !h.HasUnsolicitedOutput(residentTestThreadID) {
+		t.Fatal("续跑输出应等待 attach")
+	}
+	h.mu.Lock()
+	p := h.residents[residentTestThreadID]
+	p.mu.Lock()
+	backlog := append([][]byte(nil), p.backlog...)
+	p.mu.Unlock()
+	h.mu.Unlock()
+	if len(backlog) != 4 || !bytes.Contains(backlog[0], []byte(`"task_notification"`)) || !bytes.Contains(backlog[1], []byte(`"init"`)) || !bytes.Contains(backlog[2], []byte("紧随结果的续跑")) || !bytes.Contains(backlog[3], []byte(`"result"`)) {
+		t.Fatalf("续跑帧有丢失或乱序: %q", backlog)
+	}
+	var attached []harness.Event
+	if err := h.Run(context.Background(), attachOf(turn), collectEvents(&attached)); err != nil {
+		t.Fatalf("attach 返回错误: %v", err)
+	}
+	if text := eventTexts(attached); text != "紧随结果的续跑" {
+		t.Fatalf("续跑正文不完整: %q", text)
+	}
+	if countEvents(attached, harness.EventDone) != 1 || countUserFrames(t, usersPath) != 1 {
+		t.Fatalf("attach 的结束事件或用户帧数量异常: %+v", attached)
+	}
+	if h.HasUnsolicitedOutput(residentTestThreadID) {
+		t.Fatal("attach 排空后不应有自发输出")
+	}
+	select {
+	case threadID := <-calls:
+		t.Fatalf("自发输出重复通知: %q", threadID)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 

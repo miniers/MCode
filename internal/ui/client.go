@@ -1038,6 +1038,10 @@ type Client interface {
 	// KillRunningCommand 只终止该工具消息对应的正在运行的命令子进程，不中断本轮；
 	// killed 为 0 表示没找到进程。
 	KillRunningCommand(ctx context.Context, threadID, messageID string) (killed int, err error)
+	// BackgroundTaskLog 获取指定后台任务的日志。
+	BackgroundTaskLog(ctx context.Context, threadID, messageID string) (text string, available bool, err error)
+	// StopBackgroundTask 停止指定的后台任务。
+	StopBackgroundTask(ctx context.Context, threadID, messageID string) (stopped bool, err error)
 	// Approvals 获取指定会话的待处理审批请求。
 	Approvals(ctx context.Context, threadID string) ([]Approval, error)
 	// Respond 对审批请求做出决策回复。

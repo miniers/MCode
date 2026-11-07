@@ -215,10 +215,19 @@ func composerBackgroundTasksCapsule(c *ui.Context, s *chatState, threadID string
 	if s == nil || s.embeddedBee {
 		return composerCapsule{}, false
 	}
+	s.mu.Lock()
+	if s.composerView.backgroundTaskThread != threadID {
+		s.composerView.backgroundTaskThread = threadID
+		s.composerView.backgroundTaskExpanded = ""
+		s.composerView.backgroundTaskGeneration++
+		s.composerView.backgroundTaskStopped = nil
+		s.composerView.backgroundTasksOpen = false
+	}
+	s.mu.Unlock()
 	data := backgroundTasksFor(s, threadID)
 	if data.empty() {
 		// 胶囊消失（跑完或换会话）时同步收起浮层，避免下次出现时突然弹开。
-		s.composerView.backgroundTasksOpen = false
+		closeBackgroundTasks(s)
 		return composerCapsule{}, false
 	}
 	// 测试会传 nil：此时按 time.Now() 算计时，也不请求下一帧。
@@ -243,14 +252,18 @@ func composerBackgroundTasksCapsule(c *ui.Context, s *chatState, threadID string
 		Live:    true,
 		Text:    backgroundTasksStatusText(name, elapsed, hasStart, data.total()-1),
 		OnClick: func() {
-			s.composerView.backgroundTasksOpen = !s.composerView.backgroundTasksOpen
+			if s.composerView.backgroundTasksOpen {
+				closeBackgroundTasks(s)
+			} else {
+				s.composerView.backgroundTasksOpen = true
+			}
 		},
 		PopoverKey:     "composer-background-tasks-popover",
 		PopoverOpen:    &s.composerView.backgroundTasksOpen,
-		PopoverDismiss: func() { s.composerView.backgroundTasksOpen = false },
+		PopoverDismiss: func() { closeBackgroundTasks(s) },
 		PopoverBody: func() {
 			renderBackgroundTasksPanel(c, s, "background-tasks-panel", data, func() {
-				s.composerView.backgroundTasksOpen = false
+				closeBackgroundTasks(s)
 			})
 		},
 	}, true
