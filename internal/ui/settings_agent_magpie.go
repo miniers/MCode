@@ -715,7 +715,14 @@ func magpieAgentRouteChoice(agent string) choiceFuncControl {
 
 // magpieAgentRouteRow 保留标题供页面树与索引使用，由具体控件接管整行布局。
 func magpieAgentRouteRow(agent string) setting {
-	return setting{ID: "row-magpie-agent-" + agent, Title: magpieAgentTitle(agent), Control: magpieAgentRouteControl{agent: agent}}
+	return setting{ID: "row-magpie-agent-" + agent, Title: magpieAgentTitle(agent), Visible: func(st *SettingsState) bool {
+		for _, installed := range magpieInstalledAgents(st) {
+			if installed == agent {
+				return true
+			}
+		}
+		return false
+	}, Control: magpieAgentRouteControl{agent: agent}}
 }
 
 func magpieAgentRouteDescription(agent string, snapshot AgentMagpieSetting, known, saving bool) string {

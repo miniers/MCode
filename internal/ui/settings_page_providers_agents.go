@@ -16,6 +16,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/procattr"
 	"mcode/internal/providers/agy/accounts"
 )
 
@@ -951,6 +952,8 @@ func providerRowBin(st *SettingsState, id string) string {
 	return bin
 }
 
+var providerTerminalGOOS = runtime.GOOS
+
 // providerTerminalCommand 返回供应商终端动作对应的命令；不支持的动作返回 ok=false。
 // 更新优先用后端按安装渠道动态生成的命令（ProviderVersionInfo.UpdateCommand），
 // 它跟着二进制的真实安装方式走，不只限 claude/codex/copilot。
@@ -963,6 +966,9 @@ func providerTerminalCommand(st *SettingsState, id, action string) (string, bool
 	switch id {
 	case "claude":
 		if action == "install" {
+			if providerTerminalGOOS == "windows" {
+				return "irm https://claude.ai/install.ps1 | iex", true
+			}
 			return "npm install -g @anthropic-ai/claude-code", true
 		}
 		bin := st.cfg.Providers.Claude.Bin
@@ -986,7 +992,7 @@ func providerTerminalCommand(st *SettingsState, id, action string) (string, bool
 		return "", false
 	case "agy":
 		if action == "install" {
-			if runtime.GOOS == "windows" {
+			if providerTerminalGOOS == "windows" {
 				return "irm https://antigravity.google/cli/install.ps1 | iex", true
 			}
 			return "curl -fsSL https://antigravity.google/cli/install.sh | bash", true
@@ -1072,6 +1078,24 @@ func providerConfiguredBin(st *SettingsState, id string) string {
 	return ""
 }
 
+func providerInstallScript(goos, cmd string) string {
+	if goos != "windows" {
+		return "#!/bin/zsh -l\n" + cmd + "\n"
+	}
+	if strings.HasPrefix(strings.TrimSpace(cmd), "npm ") || strings.TrimSpace(cmd) == "npm" {
+		return `if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Host '需要先安装 Node.js：https://nodejs.org'
+        exit 1
+    }
+}
+` + cmd + "\n"
+	}
+	return cmd + "\n"
+}
+
 func launchProviderTerminalAction(st *SettingsState, id, action string) {
 	cmd, ok := providerTerminalCommand(st, id, action)
 	if !ok {
@@ -1089,39 +1113,41 @@ func launchProviderTerminalAction(st *SettingsState, id, action string) {
 		st.invalidate()
 	}
 
-	dir := filepath.Join(os.TempDir(), "mcode-login")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		fail(err)
-		return
-	}
-	// darwin/linux 写 .command 交给终端执行；windows 写 .ps1 由新窗口的 powershell 执行。
-	ext := ".command"
-	if runtime.GOOS == "windows" {
-		ext = ".ps1"
-	}
-	scriptPath := filepath.Join(dir, fmt.Sprintf("%s-%s%s", action, id, ext))
-	content := cmd + "\n"
-	if runtime.GOOS != "windows" {
-		content = "#!/bin/zsh -l\n" + cmd + "\n"
-	}
-	if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
-		fail(err)
-		return
-	}
-	switch runtime.GOOS {
-	case "windows":
-		if err := exec.Command("cmd", "/c", "start", "", "powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", scriptPath).Run(); err != nil {
+	go func() {
+		dir := filepath.Join(os.TempDir(), "mcode-login")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			fail(err)
+			return
 		}
-	case "darwin":
-		if err := exec.Command("open", scriptPath).Run(); err != nil {
+		// darwin/linux 写 .command 交给终端执行；windows 写 .ps1 由新窗口的 powershell 执行。
+		ext := ".command"
+		if runtime.GOOS == "windows" {
+			ext = ".ps1"
+		}
+		scriptPath := filepath.Join(dir, fmt.Sprintf("%s-%s%s", action, id, ext))
+		content := providerInstallScript(runtime.GOOS, cmd)
+		if runtime.GOOS == "windows" {
+			content = "\ufeff" + content
+		}
+		if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
 			fail(err)
+			return
 		}
-	default:
-		if err := mygo.Shell.OpenPath(scriptPath); err != nil {
-			fail(err)
+		switch runtime.GOOS {
+		case "windows":
+			if err := procattr.HideWindow(exec.Command("cmd", "/c", "start", "", "powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", scriptPath)).Run(); err != nil {
+				fail(err)
+			}
+		case "darwin":
+			if err := exec.Command("open", scriptPath).Run(); err != nil {
+				fail(err)
+			}
+		default:
+			if err := mygo.Shell.OpenPath(scriptPath); err != nil {
+				fail(err)
+			}
 		}
-	}
+	}()
 }
 
 func (st *SettingsState) checkProviderUpdate(id string) {

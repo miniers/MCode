@@ -9,6 +9,21 @@ import (
 	"mcode/internal/providers/agy/quota"
 )
 
+func TestTrayPanelRootBackground(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		tester := ui.NewTester(func(c *ui.Context) {
+			if got := trayPanelRootBackground(c, "darwin"); got != ui.Transparent {
+				t.Errorf("dark=%v: macOS 背景应透明，得到 %v", dark, got)
+			}
+			if got := trayPanelRootBackground(c, "windows"); got.A != 255 {
+				t.Errorf("dark=%v: Windows 背景应不透明，得到 %v", dark, got)
+			}
+		}, 100, 100)
+		tester.SetDark(dark)
+		tester.Frame()
+	}
+}
+
 func TestTrayQuotaSummary(t *testing.T) {
 	tests := []struct {
 		name   string

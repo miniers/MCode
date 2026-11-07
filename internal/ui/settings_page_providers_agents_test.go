@@ -18,14 +18,16 @@ import (
 func TestProviderTerminalCommandsAndInstallActions(t *testing.T) {
 	st := &SettingsState{}
 	agyInstall := "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+	claudeInstall := "npm install -g @anthropic-ai/claude-code"
 	if runtime.GOOS == "windows" {
 		agyInstall = "irm https://antigravity.google/cli/install.ps1 | iex"
+		claudeInstall = "irm https://claude.ai/install.ps1 | iex"
 	}
 	for _, tc := range []struct {
 		id, action, want string
 		ok               bool
 	}{
-		{"claude", "install", "npm install -g @anthropic-ai/claude-code", true},
+		{"claude", "install", claudeInstall, true},
 		{"codex", "install", "npm install -g @openai/codex", true},
 		{"pi", "install", "npm install -g @earendil-works/pi-coding-agent", true},
 		{"pi", "login", "", false},
@@ -49,6 +51,43 @@ func TestProviderTerminalCommandsAndInstallActions(t *testing.T) {
 		if !providerRowNotInstalled(st, id) {
 			t.Errorf("%s 应归入未安装", id)
 		}
+	}
+}
+
+func TestProviderInstallScript(t *testing.T) {
+	cmd := "npm install -g @openai/codex"
+	got := providerInstallScript("windows", cmd)
+	for _, want := range []string{
+		"Get-Command npm -ErrorAction SilentlyContinue",
+		"winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements",
+		"[Environment]::GetEnvironmentVariable('Path', 'Machine')",
+		"[Environment]::GetEnvironmentVariable('Path', 'User')",
+		"需要先安装 Node.js：https://nodejs.org",
+		"exit 1",
+		cmd + "\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Windows 安装脚本缺少 %q", want)
+		}
+	}
+	if strings.Count(got, "Get-Command npm -ErrorAction SilentlyContinue") != 2 {
+		t.Error("应在安装 Node.js 前后检查 npm")
+	}
+	if got := providerInstallScript("windows", "irm https://claude.ai/install.ps1 | iex"); got != "irm https://claude.ai/install.ps1 | iex\n" {
+		t.Errorf("非 npm 命令的 Windows 脚本 = %q", got)
+	}
+	if got := providerInstallScript("darwin", cmd); got != "#!/bin/zsh -l\n"+cmd+"\n" {
+		t.Errorf("macOS 脚本 = %q", got)
+	}
+}
+
+func TestProviderClaudeWindowsInstallCommand(t *testing.T) {
+	original := providerTerminalGOOS
+	providerTerminalGOOS = "windows"
+	defer func() { providerTerminalGOOS = original }()
+	got, ok := providerTerminalCommand(&SettingsState{}, "claude", "install")
+	if !ok || got != "irm https://claude.ai/install.ps1 | iex" {
+		t.Fatalf("Windows Claude 安装命令 = %q/%v", got, ok)
 	}
 }
 

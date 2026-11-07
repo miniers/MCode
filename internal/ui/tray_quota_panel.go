@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -642,8 +643,15 @@ func (p *TrayQuotaPanel) renderView(c *ui.Context) {
 	p.renderModelView(c, m)
 }
 
+func trayPanelRootBackground(c *ui.Context, goos string) ui.Color {
+	if goos == "darwin" {
+		return ui.Transparent
+	}
+	return ThemeSurface(c)
+}
+
 func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
-	c.Root().Background(ui.Transparent)
+	c.Root().Background(trayPanelRootBackground(c, runtime.GOOS))
 
 	ui.Column(c.Key("tray-quota-panel-root")).
 		Fill().

@@ -10,6 +10,20 @@ import (
 // magpieMatrixAgents 是模型矩阵的列顺序：按智能体名逐列展示勾选状态。
 var magpieMatrixAgents = []string{"claude", "codex", "pi"}
 
+func magpieInstalledAgents(st *SettingsState) []string {
+	var agents []string
+	for _, agent := range magpieMatrixAgents {
+		st.mu.Lock()
+		_, known := st.providerRows.available[agent]
+		st.mu.Unlock()
+		status := providerStatusFor(st, agent)
+		if !known || status.Ready || !strings.HasPrefix(status.Summary, "未安装") {
+			agents = append(agents, agent)
+		}
+	}
+	return agents
+}
+
 // magpieMatrixColWidth 是每个智能体列的固定宽度：表头、家族批量勾选与模型行共用，
 // 保证三列勾选框严格竖直对齐。
 const magpieMatrixColWidth float32 = 72
@@ -44,8 +58,9 @@ func magpieMatrixData(st *SettingsState, query string) []magpieMatrixGateway {
 		order[gw.ID] = i
 	}
 
+	agents := magpieInstalledAgents(st)
 	byID := make(map[string]*magpieMatrixGateway)
-	for _, agent := range magpieMatrixAgents {
+	for _, agent := range agents {
 		st.mu.Lock()
 		state := st.agentMagpieFor(agent)
 		loaded, loading, loadErr := state.loaded, state.loading, state.err
@@ -76,7 +91,7 @@ func magpieMatrixData(st *SettingsState, query string) []magpieMatrixGateway {
 	var result []magpieMatrixGateway
 	for _, gateway := range byID {
 		models := make(map[string]*magpieMatrixModel)
-		for _, agent := range magpieMatrixAgents {
+		for _, agent := range agents {
 			ep, ok := gateway.endpoints[agent]
 			if !ok {
 				continue
@@ -193,10 +208,10 @@ func magpieMatrixModelIDLabel(m PiMagpieModel) string {
 
 // magpieMatrixErrorLines 把各 agent 的错误按文字去重：同一段文字只输出一行，
 // 只有部分 agent 出错时在行首标出 agent 名；输出顺序按 magpieMatrixAgents。
-func magpieMatrixErrorLines(errs map[string]string) []string {
+func magpieMatrixErrorLines(agents []string, errs map[string]string) []string {
 	groups := make(map[string][]string, len(errs))
 	order := make([]string, 0, len(errs))
-	for _, agent := range magpieMatrixAgents {
+	for _, agent := range agents {
 		text := strings.TrimSpace(errs[agent])
 		if text == "" {
 			continue
@@ -209,7 +224,7 @@ func magpieMatrixErrorLines(errs map[string]string) []string {
 	lines := make([]string, 0, len(order))
 	for _, text := range order {
 		names := groups[text]
-		if len(names) == len(magpieMatrixAgents) {
+		if len(names) == len(agents) {
 			lines = append(lines, text)
 			continue
 		}
@@ -241,7 +256,8 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 	query := &st.magpieMatrixSearch
 	st.mu.Unlock()
 
-	for _, agent := range magpieMatrixAgents {
+	agents := magpieInstalledAgents(st)
+	for _, agent := range agents {
 		ensureAgentMagpieLoaded(st, agent)
 	}
 	ui.Column(c.Key("magpie-model-matrix")).FillWidth().Gap(Space2).Padding(Space0, Space0, Space3, Space0).Children(func() {
@@ -249,14 +265,20 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 			// 复用供应商页的搜索框，避免在 settings_controls.go 之外直接调用 ui.TextInput。
 			renderProviderModelSearchBox(c, st, "magpie-matrix", query).Grow(1)
 		})
-		loadErrs := make(map[string]string, len(magpieMatrixAgents))
-		matrixErrs := make(map[string]string, len(magpieMatrixAgents))
-		for _, agent := range magpieMatrixAgents {
+		loadErrs := make(map[string]string, len(agents))
+		matrixErrs := make(map[string]string, len(agents))
+		allLoaded := true
+		for _, agent := range agents {
 			_, loading, loaded, loadErr, _ := magpieEndpointsFor(st, agent)
 			st.mu.Lock()
-			matrixErr := st.agentMagpieFor(agent).matrixErr
+			state := st.agentMagpieFor(agent)
+			matrixErr := state.matrixErr
+			if state.loading || !state.loaded || state.err != "" {
+				allLoaded = false
+			}
 			st.mu.Unlock()
 			if loading || !loaded {
+				allLoaded = false
 				ui.Text(c, "正在加载…").
 					FontSize(TypeFootnote).
 					TextColor(ThemeSecondaryText(c)).
@@ -269,7 +291,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 				matrixErrs[agent] = matrixErr
 			}
 		}
-		if lines := magpieMatrixErrorLines(loadErrs); len(lines) > 0 {
+		if lines := magpieMatrixErrorLines(agents, loadErrs); len(lines) > 0 {
 			ui.Row(c.Key("magpie-matrix-load-err")).Gap(Space2).PaddingX(settingsRowPadX).Children(func() {
 				ui.Column(c.Key("magpie-matrix-load-err-lines")).Gap(Space1).Children(func() {
 					for _, line := range lines {
@@ -278,7 +300,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 				})
 				retry := ui.ButtonBase(c.Key("retry-magpie-matrix")).Label("重试")
 				if retry.Clicked() {
-					for _, agent := range magpieMatrixAgents {
+					for _, agent := range agents {
 						if loadErrs[agent] == "" {
 							continue
 						}
@@ -290,7 +312,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 				})
 			})
 		}
-		for _, line := range magpieMatrixErrorLines(matrixErrs) {
+		for _, line := range magpieMatrixErrorLines(agents, matrixErrs) {
 			ui.Text(c, line).
 				FontSize(TypeFootnote).
 				TextColor(ThemeDanger(c)).
@@ -308,7 +330,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 					FontWeight(600).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
-				for _, agent := range magpieMatrixAgents {
+				for _, agent := range agents {
 					magpieMatrixCell(c, "magpie-matrix-head-"+agent, func() {
 						ui.Text(c, magpieAgentTitle(agent)).
 							FontSize(TypeFootnote).
@@ -321,10 +343,12 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 		renderSettingsDivider(c, "magpie-matrix-head-divider")
 		gateways := magpieMatrixData(st, *query)
 		if len(gateways) == 0 {
-			ui.Text(c, "网关没有返回模型").
-				FontSize(TypeFootnote).
-				TextColor(ThemeSecondaryText(c)).
-				PaddingX(settingsRowPadX)
+			if len(agents) > 0 && allLoaded && len(loadErrs) == 0 && strings.TrimSpace(*query) == "" {
+				ui.Text(c, "网关没有返回模型").
+					FontSize(TypeFootnote).
+					TextColor(ThemeSecondaryText(c)).
+					PaddingX(settingsRowPadX)
+			}
 			return
 		}
 		showGateway := len(gateways) > 1
@@ -341,12 +365,12 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 							Padding(Space2, settingsRowPadX)
 					}
 					epErrs := make(map[string]string, len(gateway.endpoints))
-					for _, agent := range magpieMatrixAgents {
+					for _, agent := range agents {
 						if ep, ok := gateway.endpoints[agent]; ok && ep.Err != "" {
 							epErrs[agent] = ep.Err
 						}
 					}
-					for _, line := range magpieMatrixErrorLines(epErrs) {
+					for _, line := range magpieMatrixErrorLines(agents, epErrs) {
 						ui.Text(c, line).
 							FontSize(TypeFootnote).
 							TextColor(ThemeDanger(c)).
@@ -365,6 +389,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 // renderMagpieMatrixFamily 画一个模型家族：家族标题行带批量勾选，下面逐行列出模型。
 // separated 为真时在家族上方留出间距，把不同模型组隔开。
 func renderMagpieMatrixFamily(c *ui.Context, st *SettingsState, gateway magpieMatrixGateway, family magpieMatrixFamily, query string, separated bool) {
+	agents := magpieInstalledAgents(st)
 	ui.Column(c.Key("magpie-family-" + gateway.id + "-" + family.title)).FillWidth().Children(func() {
 		if separated {
 			ui.Box(c.Key("magpie-family-gap-" + gateway.id + "-" + family.title)).Height(Space2)
@@ -381,7 +406,7 @@ func renderMagpieMatrixFamily(c *ui.Context, st *SettingsState, gateway magpieMa
 					FontWeight(600).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
-				for _, agent := range magpieMatrixAgents {
+				for _, agent := range agents {
 					checked, total, picked := true, 0, 0
 					for _, row := range family.models {
 						ep, ok := gateway.endpoints[agent]
@@ -453,7 +478,7 @@ func renderMagpieMatrixFamily(c *ui.Context, st *SettingsState, gateway magpieMa
 								MinWidth(0)
 						}
 						var defaults []string
-						for _, agent := range magpieMatrixAgents {
+						for _, agent := range agents {
 							ep, ok := gateway.endpoints[agent]
 							if ok && matrixDefaultMatches(st, agent, ep, row.model.ID) {
 								defaults = append(defaults, agent)
@@ -470,7 +495,7 @@ func renderMagpieMatrixFamily(c *ui.Context, st *SettingsState, gateway magpieMa
 								Shrink(0)
 						}
 					})
-				for _, agent := range magpieMatrixAgents {
+				for _, agent := range agents {
 					magpieMatrixCell(c, "magpie-cell-"+gateway.id+"-"+row.model.ID+"-"+agent, func() {
 						ep, ok := gateway.endpoints[agent]
 						if !ok || !matrixEndpointHasModel(ep, row.model.ID) {

@@ -86,10 +86,24 @@ func TestMagpieModelPickerVisibilityToggle(t *testing.T) {
 		t.Fatal("模型选择器可见性应使用开关")
 	}
 	tt, st, _ := magpiePageTester(t, true)
+	st.mu.Lock()
+	st.providerRows.available = map[string]bool{"claude": true, "codex": true, "pi": true}
+	st.providerRows.loaded = true
+	st.mu.Unlock()
 	if !control.b.value(&st.cfg) {
 		t.Fatal("默认应显示 Magpie 模型")
 	}
 	waitMagpie(t, tt, func() bool { return tt.HasText("在模型选择器中显示") && tt.HasText("网关没有返回模型") })
+	st.mu.Lock()
+	st.agentMagpieFor("codex").loading = true
+	st.mu.Unlock()
+	tt.Frame()
+	if tt.HasText("网关没有返回模型") {
+		t.Fatal("加载中不应提示网关没有返回模型")
+	}
+	st.mu.Lock()
+	st.agentMagpieFor("codex").loading = false
+	st.mu.Unlock()
 	if err := tt.Click("切换在模型选择器中显示"); err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +113,46 @@ func TestMagpieModelPickerVisibilityToggle(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("网关没有返回模型") {
 		t.Fatal("关闭开关后矩阵仍应渲染")
+	}
+}
+
+func TestMagpieInstalledAgentSections(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		available map[string]bool
+		codex     bool
+	}{
+		{name: "没有已安装的智能体", available: map[string]bool{"claude": false, "codex": false, "pi": false}},
+		{name: "仅安装 Codex", available: map[string]bool{"claude": false, "codex": true, "pi": false}, codex: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := NewFakeClient()
+			fake.SetAgentMagpie(AgentMagpieSetting{Agent: "codex", Endpoints: []PiMagpieEndpoint{{ID: "gw", Models: []PiMagpieModel{{ID: "model-a", Name: "测试模型"}}}}})
+			tt, st := magpiePageWithFake(t, fake, true)
+			st.mu.Lock()
+			st.providerRows.available = tc.available
+			st.providerRows.versions = nil
+			st.providerRows.loaded = true
+			st.mu.Unlock()
+			if tc.codex {
+				waitMagpie(t, tt, func() bool { return tt.HasText("切换 Codex 测试模型") })
+				if countExactText(tt.Texts(), "Codex") != 2 {
+					t.Fatalf("应显示 Codex 行和矩阵列: %v", tt.Texts())
+				}
+			} else {
+				tt.Frame()
+				for _, text := range []string{"智能体", "模型", "在模型选择器中显示", "网关没有返回模型"} {
+					if tt.HasText(text) {
+						t.Fatalf("没有已安装智能体时不应显示 %q: %v", text, tt.Texts())
+					}
+				}
+			}
+			for _, text := range []string{"Claude", "pi", "Claude 路由", "pi 路由", "切换 Claude 测试模型", "切换 pi 测试模型"} {
+				if tt.HasText(text) {
+					t.Fatalf("未安装的智能体不应显示 %q: %v", text, tt.Texts())
+				}
+			}
+		})
 	}
 }
 

@@ -391,7 +391,7 @@ func TestMagpieMatrixErrorLines(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		got := magpieMatrixErrorLines(tc.errs)
+		got := magpieMatrixErrorLines(magpieMatrixAgents, tc.errs)
 		if len(got) != len(tc.want) {
 			t.Fatalf("%s: magpieMatrixErrorLines(%v) = %v，期望 %v", tc.name, tc.errs, got, tc.want)
 		}

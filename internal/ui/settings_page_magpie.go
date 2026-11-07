@@ -18,6 +18,10 @@ func magpiePageHasGateways(st *SettingsState) bool {
 	return len(gateways) > 0
 }
 
+func magpiePageHasInstalledAgents(st *SettingsState) bool {
+	return magpiePageHasGateways(st) && len(magpieInstalledAgents(st)) > 0
+}
+
 var pageMagpie = settingsPage{
 	ID: "magpie", Title: "Magpie", Icon: IconSettings(),
 	Sections: []settingsSection{
@@ -62,12 +66,12 @@ var pageMagpie = settingsPage{
 			}
 			return ""
 		}, "magpie-personas")}}},
-		{ID: "sec-magpie-agents", Title: "智能体", Visible: magpiePageHasGateways, Rows: []setting{
+		{ID: "sec-magpie-agents", Title: "智能体", Visible: magpiePageHasInstalledAgents, Rows: []setting{
 			magpieAgentRouteRow("claude"),
 			magpieAgentRouteRow("codex"),
 			magpieAgentRouteRow("pi"),
 		}},
-		{ID: "sec-magpie-models", Title: "模型", Visible: magpiePageHasGateways, Rows: []setting{
+		{ID: "sec-magpie-models", Title: "模型", Visible: magpiePageHasInstalledAgents, Rows: []setting{
 			{ID: "row-magpie-model-picker-visible", Title: "在模型选择器中显示", Aliases: []string{"Magpie", "模型选择器", "显示"}, Control: toggle(inverted(val(func(cfg *config.Config) *bool { return &cfg.Providers.HideMagpieModelsInPicker }, false)))},
 			{ID: "row-magpie-model-matrix", Control: customFullWidth(renderMagpieModelMatrix)},
 		}},
