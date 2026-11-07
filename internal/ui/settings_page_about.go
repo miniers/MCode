@@ -14,10 +14,15 @@ import (
 
 // AppUpdateStatus 描述一次更新检查的结果。
 type AppUpdateStatus struct {
-	Current   string
-	Latest    string
-	URL       string
-	Available bool
+	Current     string
+	Latest      string
+	URL         string
+	Available   bool
+	Installable bool
+}
+
+type appUpdateInstallClient interface {
+	InstallUpdate(ctx context.Context, progress func(float64)) error
 }
 
 // appUpdateClient 由 internal/app 的 Client 实现；未实现时关于页隐藏检查更新入口，
@@ -65,10 +70,12 @@ type aboutPageState struct {
 	hasUpdate bool
 	hasDiag   bool
 
-	checking bool
-	done     bool
-	status   AppUpdateStatus
-	errMsg   string
+	checking   bool
+	done       bool
+	status     AppUpdateStatus
+	errMsg     string
+	installing bool
+	progress   float64
 
 	// 诊断日志导出状态。
 	exporting bool
@@ -90,6 +97,8 @@ func resetAboutPageStateForTest() {
 	globalAboutState.done = false
 	globalAboutState.status = AppUpdateStatus{}
 	globalAboutState.errMsg = ""
+	globalAboutState.installing = false
+	globalAboutState.progress = 0
 	globalAboutState.exporting = false
 	globalAboutState.diagMsg = ""
 	globalAboutState.diagErr = ""
@@ -205,6 +214,44 @@ func startUpdateCheck(st *SettingsState) {
 	go runAppUpdateCheck(st, client)
 }
 
+// runAppUpdateInstall 同步安装更新并刷新进度。
+func runAppUpdateInstall(st *SettingsState, client appUpdateInstallClient) {
+	err := client.InstallUpdate(context.Background(), func(progress float64) {
+		globalAboutState.mu.Lock()
+		globalAboutState.progress = progress
+		globalAboutState.mu.Unlock()
+		if st != nil {
+			st.invalidate()
+		}
+	})
+	globalAboutState.mu.Lock()
+	globalAboutState.installing = false
+	if err != nil {
+		globalAboutState.errMsg = err.Error()
+	}
+	globalAboutState.mu.Unlock()
+	if st != nil {
+		st.invalidate()
+	}
+}
+
+// startAppUpdateInstall 在后台安装更新。
+func startAppUpdateInstall(st *SettingsState, client appUpdateInstallClient) {
+	globalAboutState.mu.Lock()
+	if globalAboutState.installing {
+		globalAboutState.mu.Unlock()
+		return
+	}
+	globalAboutState.installing = true
+	globalAboutState.progress = 0
+	globalAboutState.errMsg = ""
+	globalAboutState.mu.Unlock()
+	if st != nil {
+		st.invalidate()
+	}
+	go runAppUpdateInstall(st, client)
+}
+
 // openExternalURL 用系统默认应用（浏览器）打开外链。
 func openExternalURL(url string) {
 	if url == "" {
@@ -286,13 +333,18 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 	done := globalAboutState.done
 	status := globalAboutState.status
 	errMsg := globalAboutState.errMsg
+	installing := globalAboutState.installing
+	progress := globalAboutState.progress
 	globalAboutState.mu.Unlock()
+	installer, canInstall := archiveClient(st).(appUpdateInstallClient)
 
 	ui.Row(c.Key("row-about-update-controls")).
 		AlignItems(ui.Center).
 		Gap(Space3).
 		Children(func() {
 			switch {
+			case installing:
+				ui.Text(c, fmt.Sprintf("下载中 %.0f%%", progress*100)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
 			case checking:
 				ui.Text(c, "检查中…").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
 			case errMsg != "":
@@ -303,7 +355,25 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 				ui.Text(c, "已是最新版本").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
 			}
 
-			if done && status.Available && status.URL != "" {
+			if installing {
+				return
+			}
+			if done && status.Available && status.Installable && canInstall {
+				installBtn := ui.ButtonBase(c.Key("btn-about-install-update")).
+					Label("btn-about-install-update").
+					Radius(RadiusSM).
+					Padding(settingsPillPadX, Space4).
+					Background(ThemeOverlay(c, 0.06))
+				if installBtn.Hovered() {
+					installBtn.Background(ThemeHover(c))
+				}
+				if installBtn.Clicked() && !checking {
+					startAppUpdateInstall(st, installer)
+				}
+				installBtn.Children(func() {
+					ui.Text(c, "更新并重启").FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+				})
+			} else if done && status.Available && status.URL != "" {
 				downloadBtn := ui.ButtonBase(c.Key("btn-about-download")).
 					Radius(RadiusSM).
 					Padding(settingsPillPadX, Space4).

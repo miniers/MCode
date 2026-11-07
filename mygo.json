@@ -4,6 +4,10 @@
   "version": "0.2.7",
   "icon": "resources/icon.png",
   "main": "./cmd/mcode",
+  "updates": {
+    "publicKey": "q2Rzez1DsNSZmWFbY8N3+TG4XC1F4DkjlkeWPWsXo/0=",
+    "github": "miniers/MCode"
+  },
   "macos": {
     "minimumSystemVersion": "14.0",
     "entitlements": "resources/mcode.entitlements",

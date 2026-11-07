@@ -1,0 +1,147 @@
+package scripts_test
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func releaseGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func releaseRepo(t *testing.T) (string, string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("未安装 git")
+	}
+	root := t.TempDir()
+	remote := filepath.Join(root, "origin.git")
+	clone := filepath.Join(root, "clone")
+	releaseGit(t, root, "init", "--bare", remote)
+	releaseGit(t, root, "clone", remote, clone)
+	releaseGit(t, clone, "switch", "-c", "main")
+	releaseGit(t, clone, "config", "user.name", "测试用户")
+	releaseGit(t, clone, "config", "user.email", "test@example.com")
+	if err := os.Mkdir(filepath.Join(clone, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile("release.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(clone, "scripts", "release.sh"), script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(clone, "mygo.json"), []byte("{\n  \"version\": \"0.2.9\",\n  \"name\": \"测试\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	releaseGit(t, clone, "add", ".")
+	releaseGit(t, clone, "commit", "-m", "初始提交")
+	releaseGit(t, clone, "push", "-u", "origin", "main")
+	return clone, remote
+}
+
+func runRelease(t *testing.T, dir string, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.Command("bash", append([]string{filepath.Join(dir, "scripts", "release.sh")}, args...)...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func TestReleaseVersions(t *testing.T) {
+	for _, tc := range []struct {
+		name, version string
+		args          []string
+	}{
+		{name: "默认补丁", version: "0.2.10"},
+		{name: "次版本", version: "0.3.0", args: []string{"minor"}},
+		{name: "预发布版本", version: "1.0.0-beta.1", args: []string{"1.0.0-beta.1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, remote := releaseRepo(t)
+			before := releaseGit(t, dir, "rev-parse", "HEAD")
+			out, err := runRelease(t, dir, tc.args...)
+			if err != nil {
+				t.Fatalf("发布失败: %v\n%s", err, out)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "mygo.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "{\n  \"version\": \"" + tc.version + "\",\n  \"name\": \"测试\"\n}\n"
+			if string(data) != want {
+				t.Fatalf("版本文件不符合预期: %s", data)
+			}
+			tag := "v" + tc.version
+			if releaseGit(t, dir, "rev-parse", "HEAD^") != before || releaseGit(t, dir, "log", "-1", "--format=%s") != "chore(release): "+tag {
+				t.Fatal("发布提交不符合预期")
+			}
+			if releaseGit(t, dir, "rev-parse", tag+"^{}") != releaseGit(t, dir, "rev-parse", "HEAD") {
+				t.Fatal("标签未指向发布提交")
+			}
+			if releaseGit(t, dir, "ls-remote", "--tags", remote, "refs/tags/"+tag) == "" {
+				t.Fatal("远程缺少发布标签")
+			}
+		})
+	}
+}
+
+func TestReleasePreconditionsAndDryRun(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		dirty, tag, dry bool
+	}{
+		{name: "工作区不干净", dirty: true},
+		{name: "标签已存在", tag: true},
+		{name: "试运行", args: []string{"--dry-run"}, dry: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, remote := releaseRepo(t)
+			if tc.dirty {
+				if err := os.WriteFile(filepath.Join(dir, "dirty"), []byte("未提交"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.tag {
+				releaseGit(t, dir, "tag", "v0.2.10")
+			}
+			before := releaseGit(t, dir, "rev-parse", "HEAD")
+			status := releaseGit(t, dir, "status", "--porcelain")
+			version, err := os.ReadFile(filepath.Join(dir, "mygo.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := runRelease(t, dir, tc.args...)
+			if (err == nil) != tc.dry {
+				t.Fatalf("运行结果不符合预期: %v\n%s", err, out)
+			}
+			after, err := os.ReadFile(filepath.Join(dir, "mygo.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(version) != string(after) || before != releaseGit(t, dir, "rev-parse", "HEAD") || status != releaseGit(t, dir, "status", "--porcelain") {
+				t.Fatal("文件或提交意外改变")
+			}
+			if releaseGit(t, dir, "ls-remote", "--tags", remote, "refs/tags/v0.2.10") != "" {
+				t.Fatal("远程意外出现标签")
+			}
+			if !tc.tag && releaseGit(t, dir, "tag", "--list", "v0.2.10") != "" {
+				t.Fatal("本地意外出现标签")
+			}
+		})
+	}
+}

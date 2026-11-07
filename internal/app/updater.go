@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/egoist/mygo"
 )
 
 // UpdateFeedURL 是 GitHub releases/latest 接口地址，可通过 -ldflags -X 覆盖；为空时不检查。
@@ -20,10 +22,25 @@ var AppVersion = "dev"
 
 // UpdateInfo 描述一次更新检查的结果。
 type UpdateInfo struct {
-	Latest    string
-	URL       string
-	Available bool
+	Latest      string
+	URL         string
+	Available   bool
+	Installable bool
 }
+
+type installableUpdate interface {
+	Install(context.Context, func(downloaded, total int64)) error
+}
+
+var nativeUpdatesEnabled = mygo.Updater.Enabled
+var nativeUpdateCheck = func(ctx context.Context) (string, installableUpdate, error) {
+	update, err := mygo.Updater.Check(ctx)
+	if err != nil || update == nil {
+		return "", nil, err
+	}
+	return update.Version, update, nil
+}
+var relaunchAfterUpdate = mygo.App.Relaunch
 
 // CompareSemver 比较两个语义化版本：a<b 返回 -1，相等 0，a>b 返回 1。
 // 忽略 v 前缀；带 -beta、-nightly 等预发布后缀的版本低于同号正式版。
@@ -78,10 +95,32 @@ type UpdateChecker struct {
 	mu        sync.Mutex
 	latest    UpdateInfo
 	checkedAt time.Time
+	pending   installableUpdate
 }
 
 // Check 拉取 releases/latest，跳过 prerelease，并与当前版本比较。
 func (u *UpdateChecker) Check(ctx context.Context) (UpdateInfo, error) {
+	if nativeUpdatesEnabled() {
+		version, update, err := nativeUpdateCheck(ctx)
+		if err != nil {
+			return UpdateInfo{}, err
+		}
+		info := UpdateInfo{}
+		if update != nil {
+			version = strings.TrimPrefix(version, "v")
+			info = UpdateInfo{Latest: version, URL: "https://github.com/miniers/MCode/releases/tag/v" + version, Available: true, Installable: true}
+		}
+		now := time.Now
+		if u.Now != nil {
+			now = u.Now
+		}
+		u.mu.Lock()
+		u.pending = update
+		u.latest = info
+		u.checkedAt = now()
+		u.mu.Unlock()
+		return info, nil
+	}
 	if u.FeedURL == "" {
 		return UpdateInfo{}, fmt.Errorf("update feed URL not configured")
 	}
@@ -125,9 +164,35 @@ func (u *UpdateChecker) Check(ctx context.Context) (UpdateInfo, error) {
 	}
 	u.mu.Lock()
 	u.latest = info
+	u.pending = nil
 	u.checkedAt = now()
 	u.mu.Unlock()
 	return info, nil
+}
+
+// Install 安装待处理的更新并重启应用。
+func (u *UpdateChecker) Install(ctx context.Context, progress func(float64)) error {
+	u.mu.Lock()
+	update := u.pending
+	u.mu.Unlock()
+	if update == nil {
+		return fmt.Errorf("没有可安装的更新")
+	}
+	err := update.Install(ctx, func(downloaded, total int64) {
+		if progress == nil {
+			return
+		}
+		value := float64(0)
+		if total > 0 {
+			value = max(0, min(1, float64(downloaded)/float64(total)))
+		}
+		progress(value)
+	})
+	if err != nil {
+		return err
+	}
+	relaunchAfterUpdate()
+	return nil
 }
 
 // Latest 返回最近一次检查结果。
@@ -154,9 +219,9 @@ func (u *UpdateChecker) checkIfEnabled(ctx context.Context) {
 }
 
 // Start 在后台定时检查：首次延迟 1 分钟，之后每 interval 一次，ctx 取消后退出。
-// FeedURL 为空时直接返回，不发任何请求。
+// 未配置更新源且原生更新不可用时直接返回。
 func (u *UpdateChecker) Start(ctx context.Context, interval time.Duration) {
-	if u.FeedURL == "" {
+	if u.FeedURL == "" && !nativeUpdatesEnabled() {
 		return
 	}
 	go func() {

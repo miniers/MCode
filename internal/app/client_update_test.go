@@ -9,6 +9,28 @@ import (
 	"testing"
 )
 
+func TestClientNativeUpdateInstall(t *testing.T) {
+	oldEnabled, oldCheck, oldRelaunch := nativeUpdatesEnabled, nativeUpdateCheck, relaunchAfterUpdate
+	t.Cleanup(func() { nativeUpdatesEnabled, nativeUpdateCheck, relaunchAfterUpdate = oldEnabled, oldCheck, oldRelaunch })
+	nativeUpdatesEnabled = func() bool { return true }
+	nativeUpdateCheck = func(context.Context) (string, installableUpdate, error) {
+		return "2.0.0", fakeInstallableUpdate{}, nil
+	}
+	relaunched := false
+	relaunchAfterUpdate = func() { relaunched = true }
+	client := &Client{updateChecker: &UpdateChecker{}}
+	status, err := client.CheckForUpdate(context.Background())
+	if err != nil || !status.Available || !status.Installable || !client.LatestUpdate().Installable {
+		t.Fatalf("原生更新状态错误: %+v, %v", status, err)
+	}
+	if err := client.InstallUpdate(context.Background(), nil); err != nil || !relaunched {
+		t.Fatalf("安装失败: %v, 重启=%v", err, relaunched)
+	}
+	if err := (&Client{}).InstallUpdate(context.Background(), nil); err == nil {
+		t.Fatal("缺少更新检查器时应报错")
+	}
+}
+
 func TestClientLatestUpdate(t *testing.T) {
 	client := &Client{}
 	if got := client.LatestUpdate(); got.Latest != "" || got.Available {

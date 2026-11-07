@@ -29,6 +29,51 @@ func (f *fakeUpdateClient) CheckForUpdate(ctx context.Context) (AppUpdateStatus,
 
 func (f *fakeUpdateClient) AppVersion() string { return f.version }
 
+type fakeUpdateInstallClient struct {
+	*fakeUpdateClient
+	err error
+}
+
+func (f *fakeUpdateInstallClient) InstallUpdate(_ context.Context, progress func(float64)) error {
+	progress(0.5)
+	return f.err
+}
+
+func TestAboutInstallUpdate(t *testing.T) {
+	resetAboutPageStateForTest()
+	fc := &fakeUpdateInstallClient{fakeUpdateClient: &fakeUpdateClient{
+		FakeClient: NewFakeClient(), version: "1.0.0",
+		latest: AppUpdateStatus{Latest: "2.0.0", URL: "https://example.com", Available: true, Installable: true},
+	}}
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fc))
+	tt := ui.NewTester(func(c *ui.Context) { renderPageGeneral(c, st) }, 1000, 4000)
+	waitFor(t, tt, func() bool { return tt.HasText("更新并重启") })
+	if _, ok := tt.Find("btn-about-install-update"); !ok || tt.HasText("前往下载页") {
+		t.Fatal("可安装更新应显示更新按钮而不是下载页")
+	}
+	globalAboutState.mu.Lock()
+	globalAboutState.installing = true
+	globalAboutState.mu.Unlock()
+	runAppUpdateInstall(st, fc)
+	globalAboutState.mu.Lock()
+	installing, progress, errMsg := globalAboutState.installing, globalAboutState.progress, globalAboutState.errMsg
+	globalAboutState.mu.Unlock()
+	if installing || progress != 0.5 || errMsg != "" {
+		t.Fatalf("安装成功状态错误: %v %v %q", installing, progress, errMsg)
+	}
+	fc.err = errors.New("安装失败")
+	globalAboutState.mu.Lock()
+	globalAboutState.installing = true
+	globalAboutState.mu.Unlock()
+	runAppUpdateInstall(st, fc)
+	globalAboutState.mu.Lock()
+	installing, errMsg = globalAboutState.installing, globalAboutState.errMsg
+	globalAboutState.mu.Unlock()
+	if installing || errMsg != "安装失败" {
+		t.Fatalf("安装失败状态错误: %v %q", installing, errMsg)
+	}
+}
+
 // readAboutState 读取关于页状态快照，避免测试中复制互斥锁。
 func readAboutState() (checking, done bool, status AppUpdateStatus, errMsg string) {
 	globalAboutState.mu.Lock()

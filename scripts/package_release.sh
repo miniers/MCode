@@ -28,7 +28,7 @@ usage() {
                       设为 1 时联网刷新 models.dev 能力快照（默认使用已提交的快照）；
                       刷新后请检查 internal/modelsdev/snapshot.json 的 diff 再提交。
 
-注意: 当前 mygo.json 未配置 updates，产物不含自动更新包；要启用更新，需在 mygo.json 补上 updates（publicKey 加上 github 或 https url），私钥放在 ~/.config/mcode/mygo-update.key。
+注意: 已配置自动更新；生成更新包需要 MYGO_UPDATER_PRIVATE_KEY 或 ~/.config/mcode/mygo-update.key 私钥。
 EOF
 }
 

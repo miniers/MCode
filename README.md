@@ -73,6 +73,12 @@ MCode 是一款 AI 编码桌面客户端，用一个窗口管理多个 AI coding
 - **数据与日志**：数据目录默认 `~/.mcode`（`MCODE_DATA` 或 `-data` 可改），日志在 `<数据目录>/logs`（`mcode.log`、`startup.log`、`crash.log`）
 - **测试**：`go test -timeout 60s ./...`、`go test -race -timeout 120s ./...`（显式超时，避免 UI 死锁时空等默认的 10 分钟）
 
+## 发布
+
+运行 `scripts/release.sh [patch|minor|major|版本号]`；推送的标签会触发 `.github/workflows/release.yml` 构建并发布版本，已安装的应用从该版本更新。
+
+首次配置：`gh secret set MYGO_UPDATER_PRIVATE_KEY < ~/.config/mcode/mygo-update.key`。可选签名密钥：`MACOS_CERTIFICATE`、`MACOS_CERTIFICATE_PASSWORD`、`MACOS_SIGN_IDENTITY`、`APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_PASSWORD`。
+
 ## 编排（主代理 / 子代理）
 
 开启会话的编排后，主代理轮次结束时会解析回复中的 `swarm` JSON 代码块并派发子代理。默认关闭审查、子代理汇报后自动合入；可在设置里把 `orchestration.review_mode` 改成 `ai`（由只读审查会话自动判断）或 `human`（在编排面板人工批准或放弃），审查有结论后才把 `[编排] 子代理汇报` 交给主代理，普通跟进消息等待审查及汇报轮次结束。
