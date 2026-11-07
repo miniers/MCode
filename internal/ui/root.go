@@ -188,18 +188,12 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 
 			pal := getPaletteState(state)
 
-			st := getChatSettings(state)
-			settingsOpen := st != nil && st.IsOpen()
-			// 命令面板在设置打开时也可使用。
+			// 命令面板与设置窗口互不遮挡。
 			if mods, key, ok := shortcutBindingFor("command-palette"); ok && c.Shortcut(mods, key) {
 				togglePalette(state)
 			}
-			if settingsOpen {
-				state.closeShortcutHelp()
-			} else {
-				if mods, key, ok := shortcutBindingFor("toggle-sidebar"); ok && c.Shortcut(mods, key) {
-					toggleSidebarPersisted(state)
-				}
+			if mods, key, ok := shortcutBindingFor("toggle-sidebar"); ok && c.Shortcut(mods, key) {
+				toggleSidebarPersisted(state)
 			}
 
 			// 主界面快捷键处理（仅在设置面板未打开时生效）
@@ -212,11 +206,11 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			}
 
 			paletteOpen := pal != nil && pal.open
-			if !settingsOpen && paletteOpen {
+			if paletteOpen {
 				if c.Shortcut(0, ui.KeyEscape) {
 					closePalette(state)
 				}
-			} else if !settingsOpen && view != "chat" && c.Shortcut(0, ui.KeyEscape) {
+			} else if view != "chat" && c.Shortcut(0, ui.KeyEscape) {
 				// 看板的快速添加与搜索框先消费 Esc（取消输入或清空搜索），工作区保持打开。
 				if view != "tasks" || !consumeKanbanEscape(state) {
 					state.closeWorkspace()
@@ -224,26 +218,9 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				}
 			}
 
-			var scID string
-			var scIdx int
-			var ok bool
-			if settingsOpen {
-				// 清空队列，避免关闭设置后执行期间收到的工作区动作。
-				for {
-					id, _, pending := state.popPendingAction()
-					if !pending {
-						break
-					}
-					if id == "open-settings" {
-						st.Open()
-					}
-				}
-			} else {
-				scID, scIdx, ok = dispatchActiveShortcut(c)
-				if !ok {
-					// 菜单派发的动作与快捷键走同一条执行路径，在下一帧从这里出队。
-					scID, scIdx, ok = state.popPendingAction()
-				}
+			scID, scIdx, ok := dispatchActiveShortcut(c)
+			if !ok {
+				scID, scIdx, ok = state.popPendingAction()
 			}
 			if ok {
 				// 右侧分栏面板（文件、网页预览、改动）的开关由 side_pane.go 的注册表统一派发，
@@ -329,10 +306,8 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 						view = "chat"
 					}
 				case "open-settings":
-					if st := getChatSettings(state); st != nil {
-						state.closeShortcutHelp()
-						st.Open()
-					}
+					state.closeShortcutHelp()
+					openSettingsWindow(state, "")
 				case "show-shortcuts":
 					state.toggleShortcutHelp()
 				case "jump-to-latest":
@@ -425,7 +400,6 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			renderTablePopupOverlay(c, state)
 			// 快捷键浮层最后渲染，盖在其他弹窗之上。
 			renderShortcutHelp(c, state)
-			renderSettingsDialog(c, st)
 			renderOnboardingDialog(c, state)
 			renderCommandPalette(c, state)
 		})

@@ -120,7 +120,7 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 			})
 
 			// 设置入口图标按钮
-			if st := getChatSettings(s); st != nil {
+			if getChatSettings(s) != nil {
 				ui.Row(c.Key("sidebar-settings-wrapper")).Children(func() {
 					IconButton(c, IconButtonProps{
 						Key:     "sidebar-settings-btn",
@@ -129,7 +129,7 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 						Variant: ButtonGhost,
 						Label:   "设置",
 						OnClick: func() {
-							st.Open()
+							openSettingsWindow(s, "")
 						},
 					})
 					available := updateAvailable(s.client)

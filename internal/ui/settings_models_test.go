@@ -877,7 +877,7 @@ func modelsDialogWithProvidersTester(t *testing.T, client Client, providers []Pr
 	st.currentPage = "models"
 	st.open = true
 	state := observeModelsPageState(t)
-	tt := ui.NewTester(func(c *ui.Context) { renderSettingsDialog(c, st) }, 1000, 4000)
+	tt := ui.NewTester(func(c *ui.Context) { renderSettingsWindow(c, st) }, 1000, 4000)
 	waitModelsPageLoaded(t, tt, state)
 	return tt, st
 }

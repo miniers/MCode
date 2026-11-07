@@ -130,13 +130,11 @@ func TestPaletteAvailableInSettings(t *testing.T) {
 		state = s
 	}), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
-	if err := tt.Click("设置"); err != nil {
-		t.Fatal(err)
-	}
 	st := getChatSettings(state)
-	if st == nil || !st.IsOpen() {
-		t.Fatal("clicking 设置 did not open settings")
+	if st == nil {
+		t.Fatal("settings state missing")
 	}
+	st.Open()
 	tt.Key(ui.Cmd, ui.KeyK)
 	if p := getPaletteState(state); p == nil || !p.open {
 		t.Fatalf("Cmd+K did not open palette in settings: %v", tt.Texts())
@@ -157,9 +155,10 @@ func TestPaletteAvailableInSettings(t *testing.T) {
 	if p := getPaletteState(state); p != nil && p.open {
 		t.Fatal("selecting thread did not close palette")
 	}
-	if st.IsOpen() {
-		t.Fatal("selecting thread did not leave settings")
+	if !st.IsOpen() {
+		t.Fatal("selecting thread should keep settings open")
 	}
+	st.Close()
 	state.mu.Lock()
 	selected := state.selectedThreadID
 	state.mu.Unlock()

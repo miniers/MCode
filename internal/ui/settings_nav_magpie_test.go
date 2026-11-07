@@ -22,11 +22,11 @@ func TestSettingsNav_MagpieEntry(t *testing.T) {
 				fake.customEndpoints = []CustomEndpoint{{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true, HasAPIKey: true}}
 				fake.SetPiMagpieEndpoints([]PiMagpieEndpoint{{ID: "gw"}})
 			}
-			tt := ui.NewTester(Root(&routeTestClient{FakeClient: fake}, WithSettings(settingsTestDir(t), nil)), 1000, 4000)
-			waitMagpie(t, tt, func() bool { return tt.HasText("设置") })
-			if err := tt.Click("设置"); err != nil {
-				t.Fatal(err)
-			}
+			state := newChatState(&routeTestClient{FakeClient: fake})
+			st := NewSettingsState(settingsTestDir(t), nil, state)
+			st.open = true
+			st.currentPage = "general"
+			tt := ui.NewTester(func(c *ui.Context) { renderSettingsWindow(c, st) }, 1000, 4000)
 			waitMagpie(t, tt, func() bool { return tt.HasText(tc.status) && tt.HasText("通用") })
 			general, ok := tt.Find("通用")
 			if !ok {
@@ -50,7 +50,7 @@ func TestSettingsSearch_ProviderItemOpensSheet(t *testing.T) {
 	st.open = true
 	st.currentPage = "general"
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderSettingsDialog(c, st)
+		renderSettingsWindow(c, st)
 	}, 1000, 4000)
 	tt.Frame()
 	if err := tt.Click("搜索设置"); err != nil {

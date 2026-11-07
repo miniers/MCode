@@ -380,15 +380,19 @@ func openThreadWindow(client Client, threadID, title string, opts ...Option) (*m
 		})
 		win.OnHide(func() { state.reportForegroundThread() })
 
-		if threadID == "" {
-			win.OnClose(func(e *mygo.CloseEvent) {
+		win.OnClose(func(e *mygo.CloseEvent) {
+			if threadID == "" {
 				st := getChatSettings(state)
 				if st != nil && st.cfg.Startup.QuitAction == config.QuitActionMinimizeToTray && st.cfg.Startup.ShowTrayIcon {
 					e.PreventDefault()
 					win.Hide()
+					return
 				}
-			})
-		}
+			}
+			if !closeSettingsWindowForOwner(state) {
+				e.PreventDefault()
+			}
+		})
 
 		win.OnClosed(func() {
 			unregisterChatWindow(win)

@@ -58,13 +58,11 @@ func TestSettingsLayout_DetailColumnWidth(t *testing.T) {
 
 // TestSettingsLayout_Dialog 校验弹窗居中、导航纵向排列及小窗口边界。
 func TestSettingsLayout_Dialog(t *testing.T) {
-	modalDragReset(modalDragSettings)
-	t.Cleanup(func() { modalDragReset(modalDragSettings) })
 	for _, size := range []struct{ width, height int }{{1600, 1000}, {700, 500}} {
 		st := NewSettingsState(settingsTestDir(t), nil, nil)
 		st.open = true
 		st.currentPage = "general"
-		tt := ui.NewTester(func(c *ui.Context) { renderSettingsDialog(c, st) }, size.width, size.height)
+		tt := ui.NewTester(func(c *ui.Context) { renderSettingsWindow(c, st) }, size.width, size.height)
 		tt.Frame()
 		card, ok := tt.Find("设置")
 		if !ok {
@@ -74,10 +72,10 @@ func TestSettingsLayout_Dialog(t *testing.T) {
 		if card.W < 0 || card.H < 0 || card.X < 0 || card.Y < 0 || card.X+card.W > w || card.Y+card.H > h {
 			t.Fatalf("设置卡片超出窗口：%+v", card)
 		}
+		if card.X != 0 || card.Y != 0 || card.W != w || card.H != h {
+			t.Fatalf("设置窗口内容未铺满：%+v", card)
+		}
 		if size.width == 1600 {
-			if card.W > 960 || card.H > 680 || absFloat32(card.X-(w-card.W)/2) > 2 || absFloat32(card.Y-(h-card.H)/2) > 2 {
-				t.Fatalf("设置卡片尺寸或位置不正确：%+v", card)
-			}
 			first, firstOK := tt.Find("Magpie")
 			second, secondOK := tt.Find("通用")
 			if !firstOK || !secondOK || first.Y >= second.Y {

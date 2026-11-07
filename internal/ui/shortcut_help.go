@@ -267,9 +267,7 @@ func renderShortcutHelp(c *ui.Context, s *chatState) {
 									Variant: ButtonSecondary,
 									OnClick: func() {
 										s.closeShortcutHelp()
-										if st := getChatSettings(s); st != nil {
-											st.OpenPage("shortcuts")
-										}
+										openSettingsWindow(s, "shortcuts")
 									},
 								})
 							}

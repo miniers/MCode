@@ -23,7 +23,6 @@ const modalDragMargin float32 = 8
 
 // 各弹窗的拖拽 key：同一个弹窗的面板与标题行用同一个 key。
 const (
-	modalDragSettings          = "modal-drag-settings"
 	modalDragScriptsSheet      = "modal-drag-scripts-sheet"
 	modalDragArchiveDelete     = "modal-drag-archive-delete"
 	modalDragArchiveDeleteAll  = "modal-drag-archive-delete-all"
@@ -155,8 +154,12 @@ func modalResizeSize(key string, defW, defH, minW, minH, winW, winH float32) (w,
 	w, h = defW, defH
 	modalDragMu.Lock()
 	if st := modalDragOffsets[key]; st != nil {
-		if st.rw > 0 { w = st.rw }
-		if st.rh > 0 { h = st.rh }
+		if st.rw > 0 {
+			w = st.rw
+		}
+		if st.rh > 0 {
+			h = st.rh
+		}
 	}
 	modalDragMu.Unlock()
 	return max(minW, min(w, winW-modalDragPanelInset)), max(minH, min(h, winH-modalDragPanelInset))
@@ -173,16 +176,32 @@ func modalResizeUserHeight(key string) bool {
 // modalResizeApply 按实际尺寸变化补偿位移，保持对边不动。
 func modalResizeApply(edge string, dx, dy, w, h, offX, offY, minW, minH, maxW, maxH float32) (float32, float32, float32, float32) {
 	oldW, oldH := w, h
-	if strings.Contains(edge, "left") { w -= dx }
-	if strings.Contains(edge, "right") { w += dx }
-	if strings.Contains(edge, "top") { h -= dy }
-	if strings.Contains(edge, "bottom") { h += dy }
+	if strings.Contains(edge, "left") {
+		w -= dx
+	}
+	if strings.Contains(edge, "right") {
+		w += dx
+	}
+	if strings.Contains(edge, "top") {
+		h -= dy
+	}
+	if strings.Contains(edge, "bottom") {
+		h += dy
+	}
 	w = max(minW, min(w, maxW))
 	h = max(minH, min(h, maxH))
-	if strings.Contains(edge, "left") { offX -= (w-oldW)/2 }
-	if strings.Contains(edge, "right") { offX += (w-oldW)/2 }
-	if strings.Contains(edge, "top") { offY -= (h-oldH)/2 }
-	if strings.Contains(edge, "bottom") { offY += (h-oldH)/2 }
+	if strings.Contains(edge, "left") {
+		offX -= (w - oldW) / 2
+	}
+	if strings.Contains(edge, "right") {
+		offX += (w - oldW) / 2
+	}
+	if strings.Contains(edge, "top") {
+		offY -= (h - oldH) / 2
+	}
+	if strings.Contains(edge, "bottom") {
+		offY += (h - oldH) / 2
+	}
 	return w, h, offX, offY
 }
 
@@ -193,28 +212,38 @@ func modalResizeGrips(c *ui.Context, key string, w, h float32) {
 
 func modalResizeGripsMin(c *ui.Context, key string, w, h, minW, minH float32) {
 	winW, winH := c.Size()
-	grips := []struct { edge string; x, y, w, h float32; cursor ui.Cursor; corner bool }{
+	grips := []struct {
+		edge       string
+		x, y, w, h float32
+		cursor     ui.Cursor
+		corner     bool
+	}{
 		{"left", 0, 12, 6, max(0, h-24), ui.CursorResizeEW, false},
-		{"right", w-6, 12, 6, max(0, h-24), ui.CursorResizeEW, false},
+		{"right", w - 6, 12, 6, max(0, h-24), ui.CursorResizeEW, false},
 		{"top", 12, 0, max(0, w-24), 6, ui.CursorResizeNS, false},
-		{"bottom", 12, h-6, max(0, w-24), 6, ui.CursorResizeNS, false},
+		{"bottom", 12, h - 6, max(0, w-24), 6, ui.CursorResizeNS, false},
 		{"top-left", 0, 0, 12, 12, ui.CursorResizeNWSE, true},
-		{"top-right", w-12, 0, 12, 12, ui.CursorResizeNESW, true},
-		{"bottom-left", 0, h-12, 12, 12, ui.CursorResizeNESW, true},
-		{"bottom-right", w-12, h-12, 12, 12, ui.CursorResizeNWSE, true},
+		{"top-right", w - 12, 0, 12, 12, ui.CursorResizeNESW, true},
+		{"bottom-left", 0, h - 12, 12, 12, ui.CursorResizeNESW, true},
+		{"bottom-right", w - 12, h - 12, 12, 12, ui.CursorResizeNWSE, true},
 	}
 	for _, g := range grips {
-		grip := ui.Box(c.Key(key+"-resize-"+g.edge)).Absolute().Left(g.x).Top(g.y).Width(g.w).Height(g.h).Cursor(g.cursor).Label("调整弹窗大小")
+		grip := ui.Box(c.Key(key + "-resize-" + g.edge)).Absolute().Left(g.x).Top(g.y).Width(g.w).Height(g.h).Cursor(g.cursor).Label("调整弹窗大小")
 		if g.corner && grip.DoubleClicked() {
 			modalDragReset(key)
 			c.Invalidate()
 			continue
 		}
 		dx, dy, held := grip.Dragged()
-		if !held || (dx == 0 && dy == 0) { continue }
+		if !held || (dx == 0 && dy == 0) {
+			continue
+		}
 		modalDragMu.Lock()
 		st := modalDragOffsets[key]
-		if st == nil { st = &modalDragOffset{}; modalDragOffsets[key] = st }
+		if st == nil {
+			st = &modalDragOffset{}
+			modalDragOffsets[key] = st
+		}
 		st.rw, st.rh, st.dx, st.dy = modalResizeApply(g.edge, dx, dy, w, h, st.dx, st.dy, minW, minH, winW-modalDragPanelInset, winH-modalDragPanelInset)
 		modalDragMu.Unlock()
 		c.Invalidate()

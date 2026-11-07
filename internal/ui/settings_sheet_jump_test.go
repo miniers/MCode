@@ -17,7 +17,7 @@ func TestSettingsSearch_OpenInHitOpensSheet(t *testing.T) {
 	}
 
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderSettingsDialog(c, st)
+		renderSettingsWindow(c, st)
 	}, 1200, 1600)
 	tt.Frame()
 	if err := tt.Click("搜索设置"); err != nil {

@@ -118,9 +118,7 @@ func buildPaletteItems(s *chatState) []paletteItem {
 			kind:  "command",
 			title: "打开设置",
 			run: func(cs *chatState) {
-				if st := getChatSettings(cs); st != nil {
-					st.Open()
-				}
+				openSettingsWindow(cs, "")
 			},
 		},
 		paletteItem{
@@ -446,11 +444,6 @@ func executePaletteSelection(s *chatState, items []paletteItem) {
 	}
 	closePalette(s)
 	if target != nil && target.run != nil {
-		if target.id != "cmd-open-settings" {
-			if st := getChatSettings(s); st != nil {
-				st.Close()
-			}
-		}
 		target.run(s)
 	}
 }

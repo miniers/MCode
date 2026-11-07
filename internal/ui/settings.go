@@ -440,7 +440,6 @@ func (s *SettingsState) Close() {
 	s.nowledgePage = nil
 	s.mu.Unlock()
 	closeSettingsSheet(s)
-	modalDragReset(modalDragSettings)
 
 	s.invalidate()
 }
@@ -452,6 +451,7 @@ func (s *SettingsState) invalidate() {
 	if chat != nil {
 		chat.invalidate()
 	}
+	invalidateSettingsWindow(s)
 }
 
 func (s *SettingsState) isLocked(key string) bool {
@@ -474,7 +474,7 @@ var settingsSaveHook func()
 // 线程约定：cfg / base 只通过 cfgMu 持有或在锁内整体替换；save 的磁盘 IO 不持任何锁，
 // 回写只覆盖真正变了的字段。后台 goroutine（如 loadProjects → rememberUsedProvider）也会调
 // 这里，整份换掉 cfg 会和渲染路径的无锁读撞车。
-func (s *SettingsState) save() {
+func (s *SettingsState) save() bool {
 	if settingsSaveHook != nil {
 		settingsSaveHook()
 	}
@@ -487,7 +487,7 @@ func (s *SettingsState) save() {
 	cfg := cloneConfig(s.cfg)
 	base := cloneConfig(s.base)
 	s.cfgMu.Unlock()
-	s.saveSnapshot(cfg, base)
+	return s.saveSnapshot(cfg, base)
 }
 
 // updateAndSave 给后台 goroutine 用：在锁内改配置再落盘。调用方（如记「上次使用的 Agent」）
@@ -508,10 +508,10 @@ func (s *SettingsState) updateAndSave(mutate func(cfg *config.Config)) {
 
 // saveSnapshot 用锁内拍下的快照完成校验、合并写盘与内存回写。
 // 不碰 s.mu：设置页多处是在持 s.mu 的临界区里改完就 save 的，重入会自锁。
-func (s *SettingsState) saveSnapshot(cfg, base config.Config) {
+func (s *SettingsState) saveSnapshot(cfg, base config.Config) bool {
 	if err := config.Validate(cfg); err != nil {
 		s.noteError(err.Error())
-		return
+		return false
 	}
 	// merged 保存合并后的结果，落盘成功后用它刷新内存快照，界面上就能看到别处写入的最新值。
 	var merged config.Config
@@ -524,7 +524,7 @@ func (s *SettingsState) saveSnapshot(cfg, base config.Config) {
 		return nil
 	}); err != nil {
 		s.noteError(err.Error())
-		return
+		return false
 	}
 
 	// 写盘期间用户可能又改过配置：merged 只覆盖和快照一致（也就是没再动过）的字段，
@@ -541,6 +541,7 @@ func (s *SettingsState) saveSnapshot(cfg, base config.Config) {
 
 	// 设置改动后同步进程内的文字大小，侧栏与时间线下一帧即按新档位渲染。
 	setTextScale(textScale)
+	return true
 }
 
 // noteError 记错误条内容；值没变就不写，少给渲染路径制造无意义的写入。
@@ -582,17 +583,32 @@ func (s *SettingsState) noteTextEdit() {
 }
 
 // flushTextSave 在界面线程把到期的文本改动落盘；force 忽略剩余防抖时间（关闭面板前调用）。
-func (s *SettingsState) flushTextSave(force bool) {
+func (s *SettingsState) flushTextSave(force bool) bool {
 	s.mu.Lock()
 	pending, due := s.textSavePending, s.textSaveDue
 	if !pending || (!force && time.Now().Before(due)) {
 		s.mu.Unlock()
-		return
+		return true
 	}
-	s.textSavePending = false
 	s.mu.Unlock()
 
-	s.save()
+	if !s.save() {
+		return false
+	}
+	s.mu.Lock()
+	if s.textSaveDue == due {
+		s.textSavePending = false
+	}
+	s.mu.Unlock()
+	return true
+}
+
+func (s *SettingsState) prepareWindowClose() bool {
+	if !s.flushTextSave(true) || !s.flushShortcutDrafts(true) {
+		s.invalidate()
+		return false
+	}
+	return true
 }
 
 // cloneConfig 深拷贝整份配置。Config 里含 slice 与 map，直接赋值会让两份快照共享底层存储，
@@ -1238,7 +1254,7 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 	}
 
 	ui.Column(c.Key("settings-nav-col")).Fill().Background(ThemeSidebarBg(c)).Children(func() {
-		modalDragHandle(c, modalDragSettings, ui.Row(c.Key("settings-nav-drag-handle")).Height(Space5).Shrink(0))
+		ui.Row(c.Key("settings-nav-drag-handle")).Height(Space5).Shrink(0).DragWindow()
 		// 按页面名和设置项过滤导航。
 		ui.Row(c.Key("settings-nav-search-wrap")).
 			Padding(0, ListInset, Space3, ListInset).
@@ -1267,8 +1283,9 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 		})
 		if st.chat != nil {
 			Button(c, ButtonOpts{Key: "settings-onboarding", Text: "新用户引导", Variant: ButtonGhost, OnClick: func() {
-				st.Close()
-				openOnboarding(st.chat)
+				if closeSettingsWindowForOwner(st.chat) {
+					openOnboarding(st.chat)
+				}
 			}})
 		}
 	})
@@ -1378,8 +1395,8 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 					}
 
 					// 顶部标题及支持刷新的页面操作。
-					modalDragHandle(c, modalDragSettings, ui.Row(c.Key("settings-detail-title-row")).
-						AlignItems(ui.Center)).
+					ui.Row(c.Key("settings-detail-title-row")).
+						AlignItems(ui.Center).
 						Children(func() {
 							ui.Text(c, title).
 								FontSize(TypePageTitle).
@@ -1427,7 +1444,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 								closeBtn.Background(ThemeHover(c))
 							}
 							if closeBtn.Clicked() {
-								st.Close()
+								closeSettingsWindowForOwner(st.chat)
 							}
 							closeBtn.Children(func() {
 								ui.Icon(c, IconX()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
@@ -1471,50 +1488,28 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 
 }
 
-// renderSettingsDialog 在工作区之上绘制设置及其子弹窗。
-func renderSettingsDialog(c *ui.Context, st *SettingsState) {
+// renderSettingsWindow 绘制设置窗口及其子弹窗。
+func renderSettingsWindow(c *ui.Context, st *SettingsState) {
 	if st == nil || !st.IsOpen() {
 		return
 	}
-	open := st.IsOpen()
 	openSheet, _ := settingsTreeSheetState(st)
-	childOpen := openSheet != "" || st.resetPendingPage != ""
-	windowWidth, windowHeight := c.Size()
-	minWidth := min(float32(640), max(0, windowWidth-modalDragPanelInset))
-	minHeight := min(float32(420), max(0, windowHeight-modalDragPanelInset))
-	width, height := modalResizeSize(modalDragSettings,
-		min(float32(960), max(0, windowWidth-80)), min(float32(680), max(0, windowHeight-80)),
-		minWidth, minHeight, windowWidth, windowHeight)
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.Color{}.Alpha(ScrimOpacity))
-		if mods, key, ok := shortcutBindingFor("command-palette"); ok && st.chat != nil && backdrop.OverlayShortcut(mods, key) {
-			togglePalette(st.chat)
-		}
-		panel.MaxWidth(width).MaxHeight(height)
-		modalDragPanel(c, modalDragSettings, panel)
-		card := applyElevation(c, ui.Column(c.Key("settings-dialog-card")).
-			Label("设置").Width(width).Height(height).Radius(RadiusLG).
-			Background(ThemeWindowBg(c)).Border(Hairline, ThemeBorder(c)).Clip(), ElevDialog)
-		panel.Children(func() {
-			card.Children(func() {
-				ui.Row(c.Key("settings-dialog-body")).FillWidth().Height(height).Children(func() {
-					ui.Column(c.Key("settings-dialog-nav")).Width(min(float32(220), width*0.35)).Height(height).Children(func() {
-						renderSettingsNav(c, st)
-					})
-					ui.Column(c.Key("settings-dialog-detail")).Grow(1).MinWidth(0).Height(height).Children(func() {
-						renderSettingsDetail(c, st)
-					})
-				})
-				modalResizeGripsMin(c, modalDragSettings, width, height, minWidth, minHeight)
+	if openSheet == "" && st.resetPendingPage == "" && c.Shortcut(0, ui.KeyEscape) {
+		closeSettingsWindowForOwner(st.chat)
+	}
+	width, _ := c.Size()
+	ui.Column(c.Key("settings-window-root")).Label("设置").Fill().Background(ThemeWindowBg(c)).Children(func() {
+		ui.Row(c.Key("settings-window-titlebar")).FillWidth().Height(HeaderHeight).DragWindow().
+			Padding(0, titleBarTrailingInset(c), 0, titleBarLeadingInset(c))
+		ui.Row(c.Key("settings-dialog-body")).FillWidth().Grow(1).MinHeight(0).Children(func() {
+			ui.Column(c.Key("settings-dialog-nav")).Width(min(float32(220), width*0.35)).FillHeight().Children(func() {
+				renderSettingsNav(c, st)
+			})
+			ui.Column(c.Key("settings-dialog-detail")).Grow(1).MinWidth(0).FillHeight().Children(func() {
+				renderSettingsDetail(c, st)
 			})
 		})
 	})
-	if !open && !childOpen {
-		st.Close()
-	}
-	if !st.IsOpen() {
-		return
-	}
 
 	if openSheet, _ := settingsTreeSheetState(st); openSheet != "" {
 		if sheet, ok := settingsTreeSheetOf(openSheet); ok {

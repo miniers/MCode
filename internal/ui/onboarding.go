@@ -160,8 +160,14 @@ func onboardingSuspend(s *chatState, page string, gateway bool) {
 	u.mu.Lock()
 	u.suspendedForSettings = true
 	u.mu.Unlock()
-	st.OpenPage(page)
-	if gateway {
+	if openSettingsWindow(s, page) == nil {
+		u.mu.Lock()
+		u.suspendedForSettings = false
+		u.mu.Unlock()
+		return
+	}
+	st = currentSettingsWindowState()
+	if gateway && st != nil {
 		gateways, _ := magpieGateways(st)
 		if len(gateways) > 0 {
 			openMagpieGatewaySheet(st, gateways[0].ID)
@@ -177,8 +183,9 @@ func onboardingResume(s *chatState, st *SettingsState) bool {
 	if u == nil {
 		return false
 	}
+	settingsOpen := currentSettingsWindowState() != nil || (st != nil && st.IsOpen())
 	u.mu.Lock()
-	resume := u.open && u.suspendedForSettings && (st == nil || !st.IsOpen())
+	resume := u.open && u.suspendedForSettings && !settingsOpen
 	if resume {
 		u.suspendedForSettings = false
 	}
@@ -187,7 +194,7 @@ func onboardingResume(s *chatState, st *SettingsState) bool {
 	if resume {
 		refreshOnboarding(s)
 	}
-	return visible && (st == nil || !st.IsOpen())
+	return visible && !settingsOpen
 }
 
 // onboardingSetStep 处理新手引导中的对应流程。

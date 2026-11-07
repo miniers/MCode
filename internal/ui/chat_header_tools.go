@@ -309,9 +309,7 @@ func renderHeaderOpenInButton(c *ui.Context, s *chatState, threadID string) {
 
 	openSettings := func() {
 		hs.openInMenuOpen = false
-		if st := getChatSettings(s); st != nil {
-			st.OpenPage("openIn")
-		}
+		openSettingsWindow(s, "openIn")
 		s.invalidate()
 	}
 

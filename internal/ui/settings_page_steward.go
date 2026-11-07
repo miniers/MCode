@@ -146,8 +146,7 @@ func stewardMainSection(st *SettingsState) settingsSection {
 						Variant: ButtonSecondary,
 						Size:    ControlMD,
 						OnClick: func() {
-							st.Close()
-							if chat != nil {
+							if chat != nil && closeSettingsWindowForOwner(chat) {
 								chat.openStewardThread()
 							}
 						},

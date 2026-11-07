@@ -136,6 +136,15 @@ func menuAcceleratorKey(key ui.Key) string {
 // 因此统一入队，由该窗口在下一帧按顺序消费。
 // 全部窗口关闭后菜单栏仍然可用：此时先开一个聊天窗口，再在其中执行动作。
 func DispatchMenuAction(id string, index int) {
+	if id == "open-settings" {
+		settingsWindowMu.Lock()
+		entry := settingsWindow
+		settingsWindowMu.Unlock()
+		if entry != nil {
+			openSettingsWindow(entry.owner, "")
+			return
+		}
+	}
 	win, state := activeChatWindow()
 	if state == nil {
 		win, state = ensureChatWindow()

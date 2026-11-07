@@ -497,23 +497,25 @@ func shortcutDraftChanges(ids map[string]bool) map[string]string {
 
 // flushShortcutDrafts 在界面线程把到期的快捷键草稿一次性写进配置并落盘；force 忽略剩余
 // 防抖时间（失焦、关面板）。先清掉待落盘标记再写，重复调用不会多写一次盘。
-func (st *SettingsState) flushShortcutDrafts(force bool) {
+func (st *SettingsState) flushShortcutDrafts(force bool) bool {
 	st.mu.Lock()
 	ids, due := st.shortcutDirtyIDs, st.shortcutSaveDue
 	if len(ids) == 0 || (!force && time.Now().Before(due)) {
 		st.mu.Unlock()
-		return
+		return true
 	}
-	st.shortcutDirtyIDs = nil
 	st.mu.Unlock()
 
 	changes := shortcutDraftChanges(ids)
-	if len(changes) == 0 {
-		return
+	if len(changes) != len(ids) {
+		st.noteError("快捷键无效，请修正后重试")
+		return false
 	}
 
 	var next map[string]string
-	st.updateAndSave(func(cfg *config.Config) {
+	st.mu.Lock()
+	st.cfgMu.Lock()
+	func(cfg *config.Config) {
 		overrides := cfg.Shortcuts.ShortcutOverrides
 		for id, normalized := range changes {
 			if normalized == "" {
@@ -530,9 +532,20 @@ func (st *SettingsState) flushShortcutDrafts(force bool) {
 			cfg.Shortcuts.ShortcutOverrides = nil
 		}
 		next = cfg.Shortcuts.ShortcutOverrides
-	})
+	}(&st.cfg)
+	st.cfgMu.Unlock()
+	st.mu.Unlock()
+	if !st.save() {
+		return false
+	}
+	st.mu.Lock()
+	if st.shortcutSaveDue == due {
+		st.shortcutDirtyIDs = nil
+	}
+	st.mu.Unlock()
 	setShortcutOverrides(next)
 	st.invalidate()
+	return true
 }
 
 // applyShortcutOverride 应用单条快捷键覆盖并立即生效、持久化；空文本恢复默认，
