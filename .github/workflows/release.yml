@@ -25,6 +25,34 @@ jobs:
         run: |
           if [ "$GITHUB_REF_TYPE" != tag ]; then echo '::error::手动运行时必须选择 v* 标签作为 ref。'; exit 1; fi
           test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
+          if [ ! -f CHANGELOG.md ]; then
+            echo '::error::缺少 CHANGELOG.md。'
+            exit 1
+          fi
+          awk -v version="$(jq -r .version mygo.json)" '
+            /^## / {
+              if (found) exit
+              heading = $2
+              sub(/^\[/, "", heading)
+              sub(/\].*$/, "", heading)
+              sub(/^v/, "", heading)
+              if (heading == version) found = 1
+              next
+            }
+            found {
+              if ($0 ~ /^[[:space:]]*$/) {
+                if (started) blanks = blanks $0 "\n"
+              } else {
+                printf "%s%s\n", blanks, $0
+                blanks = ""
+                started = 1
+              }
+            }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then
+            echo '::error::CHANGELOG.md 中缺少当前版本的发布说明或内容为空。'
+            exit 1
+          fi
 
       - uses: actions/setup-go@v7
         with:
@@ -47,14 +75,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            args=(--draft --verify-tag --title "$GITHUB_REF_NAME" --generate-notes)
+            args=(--draft --verify-tag --title "$GITHUB_REF_NAME" --notes '')
             if [[ "$GITHUB_REF_NAME" == *-* ]]; then
               args+=(--prerelease)
             fi
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" "${args[@]}"
           fi
 
-      - name: 导入签名证书与公证凭据
+      - name: 导入签名证书
         if: env.MACOS_CERTIFICATE != ''
         env:
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -74,9 +102,12 @@ jobs:
           rm "$RUNNER_TEMP/certificate.p12"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
           security list-keychains -d user -s "$keychain" login.keychain
-          security default-keychain -s "$keychain"
-          xcrun notarytool store-credentials mcode-notary --keychain "$keychain" \
-            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          if [[ -n "$APPLE_ID" && -n "$APPLE_TEAM_ID" && -n "$APPLE_APP_PASSWORD" ]]; then
+            security default-keychain -s "$keychain"
+            xcrun notarytool store-credentials mcode-notary --keychain "$keychain" \
+              --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+            echo 'MCODE_NOTARIZE=1' >> "$GITHUB_ENV"
+          fi
           echo "MCODE_SIGN_IDENTITY=$MACOS_SIGN_IDENTITY" >> "$GITHUB_ENV"
 
       - name: 构建并上传
@@ -91,11 +122,23 @@ jobs:
           if [[ -n "${MCODE_SIGN_IDENTITY:-}" ]]; then
             sign_args=(-sign "$MCODE_SIGN_IDENTITY")
           else
-            sign_args=(-sign - -skip-notarize)
+            sign_args=(-sign -)
+          fi
+          if [[ "${MCODE_NOTARIZE:-}" != 1 ]]; then
+            sign_args+=(-skip-notarize)
           fi
           go tool mygo build -platform darwin/arm64 -o dist "${sign_args[@]}" -upload
 
       - name: 发布
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+        run: |
+          if [[ "${MCODE_NOTARIZE:-}" != 1 ]]; then
+            if [[ -n "${MCODE_SIGN_IDENTITY:-}" ]]; then
+              note='macOS 版已用 Developer ID 签名，但未做 Apple 公证。首次打开请右键 → 打开；或执行 xattr -dr com.apple.quarantine /Applications/MCode.app。'
+            else
+              note='macOS 版未签名（ad hoc），也未做 Apple 公证。首次打开请右键 → 打开；或执行 xattr -dr com.apple.quarantine /Applications/MCode.app。'
+            fi
+            printf '\n---\n\n%s\n' "$note" >> "$RUNNER_TEMP/notes.md"
+          fi
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --notes-file "$RUNNER_TEMP/notes.md"

@@ -85,6 +85,16 @@ func TestReleaseVersions(t *testing.T) {
 			if string(data) != want {
 				t.Fatalf("版本文件不符合预期: %s", data)
 			}
+			changelog, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(changelog), "\n## "+tc.version+"\n") || !strings.Contains(string(changelog), "- 初始提交") {
+				t.Fatalf("更新日志不符合预期: %s", changelog)
+			}
+			if !strings.Contains(releaseGit(t, dir, "show", "--format=", "--name-only", "HEAD"), "CHANGELOG.md") {
+				t.Fatal("发布提交缺少更新日志")
+			}
 			tag := "v" + tc.version
 			if releaseGit(t, dir, "rev-parse", "HEAD^") != before || releaseGit(t, dir, "log", "-1", "--format=%s") != "chore(release): "+tag {
 				t.Fatal("发布提交不符合预期")
@@ -96,6 +106,67 @@ func TestReleaseVersions(t *testing.T) {
 				t.Fatal("远程缺少发布标签")
 			}
 		})
+	}
+}
+
+func TestReleaseNotesFromCommits(t *testing.T) {
+	dir, _ := releaseRepo(t)
+	releaseGit(t, dir, "tag", "v0.2.9")
+	for _, subject := range []string{"feat: 新增更新说明", "test: 补测试"} {
+		if err := os.WriteFile(filepath.Join(dir, "change"), []byte(subject), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		releaseGit(t, dir, "add", "change")
+		releaseGit(t, dir, "commit", "-m", subject)
+	}
+	if out, err := runRelease(t, dir); err != nil {
+		t.Fatalf("发布失败: %v\n%s", err, out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "- 新增更新说明") || strings.Contains(string(data), "补测试") || strings.Contains(string(data), "初始提交") {
+		t.Fatalf("提交生成的更新日志不符合预期: %s", data)
+	}
+}
+
+func TestReleaseNotesFile(t *testing.T) {
+	dir, _ := releaseRepo(t)
+	notes := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(notes, []byte("\n### 新功能\n- 中文说明\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runRelease(t, dir, "--notes", notes); err != nil {
+		t.Fatalf("发布失败: %v\n%s", err, out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "# 更新日志\n\n## 0.2.10\n\n### 新功能\n- 中文说明\n" {
+		t.Fatalf("指定的更新日志不符合预期: %s", data)
+	}
+}
+
+func TestReleaseExistingChangelog(t *testing.T) {
+	dir, _ := releaseRepo(t)
+	path := filepath.Join(dir, "CHANGELOG.md")
+	if err := os.WriteFile(path, []byte("# 更新日志\n\n## 0.2.9\n\n- 旧内容\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	releaseGit(t, dir, "add", "CHANGELOG.md")
+	releaseGit(t, dir, "commit", "-m", "docs: 旧日志")
+	if out, err := runRelease(t, dir); err != nil {
+		t.Fatalf("发布失败: %v\n%s", err, out)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newIndex, oldIndex := strings.Index(string(data), "## 0.2.10\n"), strings.Index(string(data), "## 0.2.9\n")
+	if newIndex < 0 || oldIndex < 0 || newIndex >= oldIndex || !strings.Contains(string(data), "- 旧内容") {
+		t.Fatalf("已有更新日志不符合预期: %s", data)
 	}
 }
 
@@ -129,6 +200,14 @@ func TestReleasePreconditionsAndDryRun(t *testing.T) {
 			out, err := runRelease(t, dir, tc.args...)
 			if (err == nil) != tc.dry {
 				t.Fatalf("运行结果不符合预期: %v\n%s", err, out)
+			}
+			if tc.dry {
+				if !strings.Contains(out, "更新内容:") || !strings.Contains(out, "git add mygo.json CHANGELOG.md") {
+					t.Fatalf("试运行输出缺少更新内容或暂存命令: %s", out)
+				}
+				if _, err := os.Stat(filepath.Join(dir, "CHANGELOG.md")); !os.IsNotExist(err) {
+					t.Fatalf("试运行不应创建更新日志: %v", err)
+				}
 			}
 			if tc.want != "" && !strings.Contains(out, tc.want) {
 				t.Fatalf("输出不包含预期信息 %q: %s", tc.want, out)
