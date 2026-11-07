@@ -147,7 +147,7 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 				s.duplicateFileManagerEntry(entry.Path)
 			}
 		}
-		if m.Item("移到废纸篓…").Chosen() {
+		if m.Item("移到废纸篓…").Danger().Chosen() {
 			openFileManagerTrashDialog(s, entry.Path)
 		}
 	}

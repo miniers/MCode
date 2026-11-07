@@ -1490,7 +1490,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 														s.duplicateAutomation(autoVal)
 													}
 													m.Separator()
-													if m.Item("删除").Chosen() {
+													if m.Item("删除").Danger().Chosen() {
 														s.deleteAutomation(autoVal.ID)
 													}
 												})

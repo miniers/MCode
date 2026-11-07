@@ -1167,7 +1167,7 @@ func stewardTopicContextMenu(c *ui.Context, s *chatState, topic StewardTopic) fu
 				s.reviewStewardTopicPlan(topic)
 			}
 		}
-		if m.Item("删除话题…").Chosen() {
+		if m.Item("删除话题…").Danger().Chosen() {
 			s.openStewardDeleteTopicModal(topic)
 		}
 	}

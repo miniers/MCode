@@ -1447,7 +1447,7 @@ func threadContextMenu(c *ui.Context, s *chatState, projectID string, thVal Thre
 			// 单条归档也返回撤销令牌，可从撤销条撤销。
 			s.archiveThreadWithUndo(projectID, thVal.ID)
 		}
-		if m.Item("删除…").Chosen() {
+		if m.Item("删除…").Danger().Chosen() {
 			// E-01：删除前确认关闭时跳过确认框，直接删除。
 			if confirmBeforeDeleting(s) {
 				s.openDeleteModal(thVal.ID, thVal.Title)

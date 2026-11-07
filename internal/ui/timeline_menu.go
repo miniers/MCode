@@ -47,7 +47,7 @@ func messageContextMenu(c *ui.Context, s *chatState, m Message) func(*ui.Menu) {
 			}
 			// 只有带轮次 ID 的消息才能定位到该轮的检查点
 			if m.TurnID != "" {
-				if menu.Item("撤销此轮改动…").Chosen() {
+				if menu.Item("撤销此轮改动…").Danger().Chosen() {
 					s.mu.Lock()
 					threadID := s.selectedThreadID
 					s.mu.Unlock()
