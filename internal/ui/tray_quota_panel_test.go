@@ -441,7 +441,7 @@ func TestBuildTrayQuotaModel(t *testing.T) {
 			},
 		}
 		m := buildTrayQuotaModel(groups, now, now, false)
-		wantHead := formatLimitReset(now, t1)
+		wantHead := "周: " + formatLimitReset(now, t1)
 		if m.Groups[0].HeadText != wantHead {
 			t.Errorf("HeadText = %q, want %q", m.Groups[0].HeadText, wantHead)
 		}
@@ -467,7 +467,7 @@ func TestBuildTrayQuotaModel(t *testing.T) {
 		if !g.HeadWarn {
 			t.Errorf("expected HeadWarn=true")
 		}
-		expectedRight := g.Accounts[0].Windows[0].RightText
+		expectedRight := "5h: " + g.Accounts[0].Windows[0].RightText
 		if g.HeadText != expectedRight {
 			t.Errorf("HeadText = %q, want %q", g.HeadText, expectedRight)
 		}
@@ -624,10 +624,10 @@ func TestBuildTrayQuotaModel(t *testing.T) {
 		if len(g.Accounts) != 2 {
 			t.Fatalf("expected 2 accounts, got %d", len(g.Accounts))
 		}
-		if want := formatLimitReset(now, t1); g.Accounts[0].HeadText != want {
+		if want := "周: " + formatLimitReset(now, t1); g.Accounts[0].HeadText != want {
 			t.Errorf("account 0 HeadText = %q, want %q", g.Accounts[0].HeadText, want)
 		}
-		if want := formatLimitReset(now, t2); g.Accounts[1].HeadText != want {
+		if want := "5h: " + formatLimitReset(now, t2); g.Accounts[1].HeadText != want {
 			t.Errorf("account 1 HeadText = %q, want %q", g.Accounts[1].HeadText, want)
 		}
 	})
@@ -655,7 +655,7 @@ func TestBuildTrayQuotaModel(t *testing.T) {
 		if g.HeadText != g.Accounts[0].HeadText {
 			t.Errorf("group HeadText = %q, account HeadText = %q", g.HeadText, g.Accounts[0].HeadText)
 		}
-		if want := formatLimitReset(now, t1); g.HeadText != want {
+		if want := "5h: " + formatLimitReset(now, t1); g.HeadText != want {
 			t.Errorf("group HeadText = %q, want %q", g.HeadText, want)
 		}
 	})
@@ -676,6 +676,48 @@ func TestBuildTrayQuotaModel(t *testing.T) {
 			t.Errorf("停用账号不应有头部倒计时：HeadText=%q, HeadWarn=%v", acc.HeadText, acc.HeadWarn)
 		}
 	})
+}
+
+func TestTrayQuotaHeadLabels(t *testing.T) {
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.Local)
+	early := now.Add(time.Hour)
+	tests := []struct {
+		name    string
+		windows []trayQuotaWindowModel
+		want    string
+		warn    bool
+	}{
+		{
+			name: "最早重置窗口的标签",
+			windows: []trayQuotaWindowModel{
+				{ShortLabel: "5h", resetsAt: now.Add(2 * time.Hour)},
+				{ShortLabel: " 周 ", resetsAt: early},
+			},
+			want: "周: " + formatLimitReset(now, early),
+		},
+		{
+			name: "提前用尽提示优先",
+			windows: []trayQuotaWindowModel{
+				{ShortLabel: "周", resetsAt: early},
+				{ShortLabel: "5h", RightText: "预计用尽", IsEarlyRunOut: true},
+			},
+			want: "5h: 预计用尽",
+			warn: true,
+		},
+		{
+			name:    "空白标签不加前缀",
+			windows: []trayQuotaWindowModel{{ShortLabel: " \t", resetsAt: early}},
+			want:    formatLimitReset(now, early),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text, warn := trayQuotaHead(tt.windows, now)
+			if text != tt.want || warn != tt.warn {
+				t.Errorf("trayQuotaHead() = %q, %v; want %q, %v", text, warn, tt.want, tt.warn)
+			}
+		})
+	}
 }
 
 func TestTrayQuotaPanel_CommandCodeOrder(t *testing.T) {

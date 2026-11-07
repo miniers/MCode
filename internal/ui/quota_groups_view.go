@@ -184,7 +184,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 														SingleLine().
 														Shrink(0)
 
-													if win.RightText != "" && win.RightText != curAcc.HeadText {
+													if win.RightText != "" && trayQuotaLabeledText(win.ShortLabel, win.RightText) != curAcc.HeadText {
 														rightColor := ThemeTertiaryText(c)
 														if win.IsEarlyRunOut {
 															rightColor = ThemeWarning(c)

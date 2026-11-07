@@ -4,12 +4,28 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+func TestComposerQuotaPopoverHorizontalPadding(t *testing.T) {
+	src, err := os.ReadFile("composer_usage_panel.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ui.Column(c.Key(\"composer-quota-popover-panel\")).\n\t\tLabel(\"额度详情\").\n\t\tFillWidth().\n\t\tPadding(Space4, 0)",
+		"ui.Row(c.Key(\"composer-quota-popover-header\")).\n\t\t\tFillWidth().\n\t\t\tPadding(0, Space4)",
+	} {
+		if !strings.Contains(string(src), want) {
+			t.Errorf("额度浮层水平内边距约定缺失: %s", want)
+		}
+	}
+}
 
 // 场景 1：formatTokenCount 紧凑格式化各量级 token 数量。
 func TestFormatTokenCount(t *testing.T) {

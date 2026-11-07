@@ -421,22 +421,31 @@ type trayQuotaWindowModel struct {
 	Display     string
 }
 
-// trayQuotaHead 汇总一个账号所有窗口的倒计时文案。
-// 第一个提前用尽提示优先并返回 warn=true；否则取晚于 now 的最早重置时间。
+// trayQuotaLabeledText 为文案添加非空窗口标签。
+func trayQuotaLabeledText(label, text string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return text
+	}
+	return label + ": " + text
+}
+
+// trayQuotaHead 汇总账号窗口的带标签倒计时文案。
+// 第一个提前用尽提示优先并返回 warn=true；否则取晚于 now 的最早重置窗口。
 func trayQuotaHead(windows []trayQuotaWindowModel, now time.Time) (text string, warn bool) {
-	var earliestReset time.Time
+	var earliest trayQuotaWindowModel
 	for _, win := range windows {
 		if win.IsEarlyRunOut {
-			return win.RightText, true
+			return trayQuotaLabeledText(win.ShortLabel, win.RightText), true
 		}
 		if !win.resetsAt.IsZero() && win.resetsAt.After(now) {
-			if earliestReset.IsZero() || win.resetsAt.Before(earliestReset) {
-				earliestReset = win.resetsAt
+			if earliest.resetsAt.IsZero() || win.resetsAt.Before(earliest.resetsAt) {
+				earliest = win
 			}
 		}
 	}
-	if !earliestReset.IsZero() {
-		return formatLimitReset(now, earliestReset), false
+	if !earliest.resetsAt.IsZero() {
+		return trayQuotaLabeledText(earliest.ShortLabel, formatLimitReset(now, earliest.resetsAt)), false
 	}
 	return "", false
 }

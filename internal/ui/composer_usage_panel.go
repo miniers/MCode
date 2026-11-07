@@ -2358,11 +2358,11 @@ func composerQuotaPopoverMaxHeight(c *ui.Context, anchor ui.Element) float32 {
 // maxHeight 大于 0 时面板与列表都不超过它，供应商再多也不会长出窗口。
 func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provider string, maxHeight float32) {
 	// 卡片外观（圆角、边框、Popover 阴影、背景）由外层 PopoverCard 统一提供，这里只排内容。
-	// 面板内边距统一 Space4；字号用不随全局字号缩放的令牌，保证放大后窗口行仍不折行。
+	// 面板保留上下内边距，水平内边距由各行和列表提供；字号不随全局字号缩放。
 	panel := ui.Column(c.Key("composer-quota-popover-panel")).
 		Label("额度详情").
 		FillWidth().
-		Padding(Space4).
+		Padding(Space4, 0).
 		Gap(Space4)
 	if maxHeight > 0 {
 		panel.MaxHeight(maxHeight)
@@ -2379,6 +2379,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 	panel.Children(func() {
 		ui.Row(c.Key("composer-quota-popover-header")).
 			FillWidth().
+			Padding(0, Space4).
 			Shrink(0).
 			AlignItems(ui.Center).
 			Gap(Space2).
@@ -2430,14 +2431,18 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 		s.loadComposerCreditsForProvider(provider, false)
 		credits, hasCredits := getChatCreditsForProvider(s, provider)
 		if hasCredits {
-			renderComposerCreditsRow(c, "composer-quota-credits", credits)
+			ui.Row(c.Key("composer-quota-credits-wrapper")).FillWidth().Padding(0, Space4).Children(func() {
+				renderComposerCreditsRow(c, "composer-quota-credits", credits)
+			})
 		}
 
 		if len(windows) > 0 {
 			errText := composerQuotaRefreshErr(s, provider)
 			if errText != "" {
 				// 有旧数据时列表照常展示，但刷新失败要看得见。
-				renderUsageStatusLine(c, usageStatusFor(errText, nil, time.Time{}, usagePanelNow()), FontSizeCallout)
+				ui.Row(c.Key("composer-quota-popover-refresh-error")).FillWidth().Padding(0, Space4).Children(func() {
+					renderUsageStatusLine(c, usageStatusFor(errText, nil, time.Time{}, usagePanelNow()), FontSizeCallout)
+				})
 			}
 			// 标题行固定在面板顶部，账户列表放进滚动容器：窗口矮或供应商多时只滚列
 			// 表，不把弹层顶出屏幕。列表高度扣掉面板内边距、标题行与间距后不超过上限。
@@ -2475,9 +2480,13 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 			if status.State == usageStateOK {
 				status = usageStatusFor(quotaErr, nil, time.Time{}, usagePanelNow())
 			}
-			renderUsageStatusLine(c, status, FontSizeCallout)
+			ui.Row(c.Key("composer-quota-popover-error")).FillWidth().Padding(0, Space4).Children(func() {
+				renderUsageStatusLine(c, status, FontSizeCallout)
+			})
 		case loading:
 			ui.Row(c.Key("composer-quota-popover-loading")).
+				FillWidth().
+				Padding(0, Space4).
 				Gap(Space2).
 				AlignItems(ui.Center).
 				Children(func() {
@@ -2487,9 +2496,11 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 						TextColor(ThemeSecondaryText(c))
 				})
 		default:
-			ui.Text(c, "暂无额度数据").
-				FontSize(FontSizeCallout).
-				TextColor(ThemeSecondaryText(c))
+			ui.Row(c.Key("composer-quota-popover-empty")).FillWidth().Padding(0, Space4).Children(func() {
+				ui.Text(c, "暂无额度数据").
+					FontSize(FontSizeCallout).
+					TextColor(ThemeSecondaryText(c))
+			})
 		}
 	})
 }
