@@ -9,7 +9,6 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
-	"github.com/egoist/mygo/ui/markdown/parser"
 )
 
 // riskyOpenExts 是直接交给系统默认程序可能执行代码的扩展名：点击时只在访达中定位，不直接打开。
@@ -17,12 +16,6 @@ var riskyOpenExts = map[string]bool{
 	".app": true, ".command": true, ".sh": true, ".zsh": true, ".bash": true, ".terminal": true,
 	".workflow": true, ".action": true, ".pkg": true, ".dmg": true, ".scpt": true, ".jar": true,
 	".tool": true, ".webloc": true, ".url": true,
-}
-
-// localFileLink 是消息正文里指向本地已存在文件的链接。
-type localFileLink struct {
-	Path  string
-	Label string
 }
 
 // localFileLinkPath 把 Markdown 链接地址解析成已存在的本地文件或目录路径：
@@ -49,41 +42,6 @@ func localFileLinkPath(dest string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// extractLocalFileLinks 按出现顺序返回文本里指向本地存在文件的链接，同一路径只保留一条。
-func extractLocalFileLinks(text string) []localFileLink {
-	if !strings.ContainsAny(text, "[<") {
-		return nil
-	}
-	doc := parser.New(parser.Default)
-	doc.Set(text)
-	var out []localFileLink
-	seen := map[string]bool{}
-	for i := 1; i < doc.Len(); i++ {
-		switch doc.Block(i).Kind {
-		case parser.Paragraph, parser.Heading, parser.TableCell:
-		default:
-			continue
-		}
-		in := doc.Inlines(i)
-		for k := 0; k < len(in); k = in[k].Next {
-			if in[k].Kind != parser.Link || in[k].Pending {
-				continue
-			}
-			path, ok := localFileLinkPath(in[k].Dest)
-			if !ok || seen[path] {
-				continue
-			}
-			seen[path] = true
-			label := strings.TrimSpace(parser.PlainText(in[k+1 : in[k].Next]))
-			if label == "" {
-				label = filepath.Base(path)
-			}
-			out = append(out, localFileLink{Path: path, Label: label})
-		}
-	}
-	return out
 }
 
 // openLocalFile 用系统默认程序打开文件；可能执行代码的类型改为在访达中定位。
@@ -116,40 +74,41 @@ func openLocalFilePreview(s *chatState, path string) {
 // installLocalFileLinkHook 接管 Markdown 链接点击：本地文件在工作区内预览、否则用默认程序打开，
 // http、https、mailto 交给系统浏览器，其余地址（含不存在的文件）给出提示。
 func installLocalFileLinkHook(o *markdown.Options, s *chatState) {
-	if o == nil || s == nil || o.OnLink != nil {
+	if o == nil || s == nil {
 		return
 	}
-	o.OnLink = func(dest string) {
-		if path, ok := localFileLinkPath(dest); ok {
-			openLocalFilePreview(s, path)
-			return
-		}
-		if ui.SafeToOpen(dest) {
-			_ = mygo.Shell.OpenExternal(dest)
-			return
-		}
-		if _, err := localImagePath(dest); err == nil {
-			s.setToast("文件不存在")
+	if o.OnLink == nil {
+		o.OnLink = func(dest string) {
+			if path, ok := localFileLinkPath(dest); ok {
+				openLocalFilePreview(s, path)
+				return
+			}
+			if ui.SafeToOpen(dest) {
+				_ = mygo.Shell.OpenExternal(dest)
+				return
+			}
+			if _, err := localImagePath(dest); err == nil {
+				s.setToast("文件不存在")
+			}
 		}
 	}
-}
-
-// localFileLinkMenu 把消息里的本地文件链接加进右键菜单：单个文件直接给预览、打开方式、
-// 在访达中显示与复制路径，多个文件按文件名各开一个子菜单。
-func localFileLinkMenu(c *ui.Context, menu *ui.Menu, s *chatState, text string) {
-	links := extractLocalFileLinks(text)
-	if len(links) == 0 {
-		return
-	}
-	menu.Separator()
-	if len(links) == 1 {
-		localFileLinkItems(c, s, menu, links[0])
-		return
-	}
-	for _, l := range links {
-		menu.Submenu(filepath.Base(l.Path), func(sub *ui.Menu) {
-			localFileLinkItems(c, s, sub, l)
-		})
+	if o.LinkMenu == nil {
+		o.LinkMenu = func(menu *ui.Menu, dest string) {
+			menu.EditItems()
+			if path, ok := localFileLinkPath(dest); ok {
+				menu.Separator()
+				localFileLinkItems(s, menu, path)
+			} else if ui.SafeToOpen(dest) {
+				menu.Separator()
+				if menu.Item("打开链接").Chosen() {
+					_ = mygo.Shell.OpenExternal(dest)
+				}
+				if menu.Item("复制链接").Chosen() {
+					mygo.Clipboard.WriteText(dest)
+					s.setToast("已复制")
+				}
+			}
+		}
 	}
 }
 
@@ -160,36 +119,37 @@ func localRelativePath(s *chatState, path string) string {
 	return turnFilePreviewPath(workDir, turnEditedFile{path: p, abs: p})
 }
 
-func localFileLinkItems(c *ui.Context, s *chatState, menu *ui.Menu, l localFileLink) {
+func localFileLinkItems(s *chatState, menu *ui.Menu, path string) {
 	if menu.Item("侧边栏预览").Chosen() {
-		openLocalFilePreview(s, l.Path)
+		openLocalFilePreview(s, path)
 	}
 	apps := installedOpenInApps(currentWorkbenchConfig(s), openInStatFn)
 	menu.Submenu("打开方式", func(sub *ui.Menu) {
 		for _, app := range apps {
 			app := app
 			if sub.Item(app.Name).Chosen() {
-				openInWithApp(app, l.Path)
+				openInWithApp(app, path)
 			}
 		}
 		if sub.Item("默认程序").Chosen() {
-			openLocalFile(l.Path)
+			openLocalFile(path)
 		}
 	})
 	if menu.Item("在访达中显示").Chosen() {
-		openItemInFinder(l.Path)
+		openItemInFinder(path)
 	}
 	if menu.Item("复制路径").Chosen() {
-		if c != nil {
-			c.WriteClipboard(l.Path)
-		}
+		mygo.Clipboard.WriteText(path)
 		if s != nil {
-			s.setToast("已复制路径")
+			s.setToast("已复制")
 		}
 	}
-	if rel := localRelativePath(s, l.Path); rel != "" {
-		if menu.Item("复制相对路径").Chosen() && c != nil {
-			c.WriteClipboard(rel)
+	if rel := localRelativePath(s, path); rel != "" {
+		if menu.Item("复制相对路径").Chosen() {
+			mygo.Clipboard.WriteText(rel)
+			if s != nil {
+				s.setToast("已复制")
+			}
 		}
 	}
 }

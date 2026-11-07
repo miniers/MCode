@@ -34,7 +34,6 @@ func messageContextMenu(c *ui.Context, s *chatState, m Message) func(*ui.Menu) {
 		if menu.Item("引用到回复").Chosen() {
 			s.quoteIntoDraft(m.Text)
 		}
-		localFileLinkMenu(c, menu, s, linkifyMessageText(s, m.Text))
 		if m.Role == "user" {
 			menu.Separator()
 			if menu.Item("编辑").Chosen() {
@@ -74,12 +73,15 @@ func markdownToPlain(text string) string {
 	previousCellRow := -1
 	for i := 1; i < doc.Len(); i++ {
 		block := doc.Block(i)
+		if block.Kind == parser.Paragraph && doc.LineCount(i) == 0 {
+			continue
+		}
 		var content strings.Builder
 		switch block.Kind {
 		case parser.Paragraph, parser.Heading, parser.TableCell:
 			for _, inline := range doc.Inlines(i) {
 				switch inline.Kind {
-				case parser.Text, parser.Code, parser.HTML, parser.Math, parser.FootnoteRef:
+				case parser.Text, parser.Code, parser.HTML, parser.Math, parser.FootnoteRef, parser.Mention, parser.Reference:
 					content.WriteString(inline.Text)
 				case parser.SoftBreak, parser.LineBreak:
 					content.WriteByte('\n')

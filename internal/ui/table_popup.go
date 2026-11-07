@@ -125,6 +125,7 @@ func tableBodyOptions(o *markdown.Options) *markdown.Options {
 	out.Theme = o.Theme
 	out.Extensions = o.Extensions
 	out.OnLink = o.OnLink
+	out.LinkMenu = o.LinkMenu
 	out.LoadImage = o.LoadImage
 	out.CodeBlock = o.CodeBlock
 	out.Code = o.Code

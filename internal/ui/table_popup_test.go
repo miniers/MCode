@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/egoist/mygo/ui/markdown/parser"
 )
@@ -159,11 +160,20 @@ func TestInstallTableExpandHookOnce(t *testing.T) {
 	}
 	theme := &markdown.Theme{}
 	o.Theme = theme
+	called := false
+	o.LinkMenu = func(*ui.Menu, string) { called = true }
 	if got := tableBodyOptions(o); got != body {
 		t.Fatal("同一份选项应复用同一份表格本体选项")
 	}
 	if body.Theme != theme {
 		t.Fatal("表格本体选项应跟随原选项的主题")
+	}
+	if body.LinkMenu == nil {
+		t.Fatal("表格本体选项应同步链接菜单钩子")
+	}
+	body.LinkMenu(nil, "")
+	if !called {
+		t.Fatal("表格本体选项应使用原链接菜单钩子")
 	}
 	if tableBodyOptions(nil) != nil {
 		t.Fatal("空选项应返回 nil")

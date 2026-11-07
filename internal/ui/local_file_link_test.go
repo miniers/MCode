@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 )
 
 func TestLocalFileLinkPath(t *testing.T) {
@@ -36,31 +39,33 @@ func TestLocalFileLinkPath(t *testing.T) {
 	}
 }
 
-func TestExtractLocalFileLinks(t *testing.T) {
-	dir := t.TempDir()
-	a := filepath.Join(dir, "a.docx")
-	b := filepath.Join(dir, "b.pdf")
-	for _, p := range []string{a, b} {
-		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+func TestInstallLocalFileLinkHook(t *testing.T) {
+	s := &chatState{}
+	o := &markdown.Options{}
+	installLocalFileLinkHook(o, s)
+	if o.OnLink == nil || o.LinkMenu == nil {
+		t.Fatal("应安装链接点击和菜单钩子")
 	}
-	text := "打开 [月报](" + a + ") 和 [网页](https://example.com)，再看 [重复](" + a + ") 与 [B](file://" + b + ")。"
-	got := extractLocalFileLinks(text)
-	if len(got) != 2 || got[0].Path != a || got[0].Label != "月报" || got[1].Path != b || got[1].Label != "B" {
-		t.Fatalf("extractLocalFileLinks = %+v", got)
-	}
-	if extractLocalFileLinks("没有链接 /tmp/x") != nil {
-		t.Fatal("无链接文本应返回 nil")
-	}
-}
 
-func TestExtractLocalFileLinksFromLinkifiedText(t *testing.T) {
-	dir := t.TempDir()
-	file := writeTestFile(t, filepath.Join(dir, "docs", "plans", "x.md"))
-	text := linkifyInlinePaths("见 `docs/plans/x.md:12`。", dir)
-	got := extractLocalFileLinks(text)
-	if len(got) != 1 || got[0].Path != file || got[0].Label != "docs/plans/x.md:12" {
-		t.Fatalf("extractLocalFileLinks = %+v", got)
+	clicked := false
+	o = &markdown.Options{OnLink: func(string) { clicked = true }}
+	installLocalFileLinkHook(o, s)
+	if o.LinkMenu == nil {
+		t.Fatal("已有点击钩子时仍应安装菜单钩子")
+	}
+	o.OnLink("")
+	if !clicked {
+		t.Fatal("不应覆盖已有点击钩子")
+	}
+
+	called := false
+	o = &markdown.Options{LinkMenu: func(*ui.Menu, string) { called = true }}
+	installLocalFileLinkHook(o, s)
+	if o.OnLink == nil {
+		t.Fatal("已有菜单钩子时仍应安装点击钩子")
+	}
+	o.LinkMenu(nil, "")
+	if !called {
+		t.Fatal("不应覆盖已有菜单钩子")
 	}
 }
