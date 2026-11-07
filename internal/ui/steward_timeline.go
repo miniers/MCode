@@ -231,7 +231,7 @@ func renderToolGroupReasoningHint(c *ui.Context, tools []Message, groupID string
 	// 缩进与下面的工具预览一致，一眼看出这两行同属这个组。
 	ui.Row(c.Key("group-reasoning-hint-"+groupID)).
 		FillWidth().
-		Padding(0, Space2, Space0, toolBeatPadLeft+12).
+		Padding(0, Space2, Space0, toolBeatPadLeft).
 		Children(func() {
 			ui.Text(c, "思考中 · "+headline).
 				FontSize(scaledFont(TypeFootnote)).

@@ -4170,11 +4170,8 @@ func toolCallRowLabel(verb, target, detail string) string {
 // toolChipHeight 是动作胶囊的高度，圆角取其一半。
 const toolChipHeight float32 = 22
 
-// toolBeatPadLeft 是节拍里的胶囊行与展开后的详情区相对组头缩进的距离（思考叙事与组头对齐）。
+// toolBeatPadLeft 是节拍胶囊、折叠预览和详情区相对组头的缩进距离。
 const toolBeatPadLeft float32 = 12
-
-// toolGroupPreviewPadLeft 是工具组只读预览胶囊相对组头的缩进：在节拍缩进之上再让出一格。
-const toolGroupPreviewPadLeft float32 = toolBeatPadLeft + Space4
 
 // renderSingleToolItem 渲染单条工具调用：一个左对齐的动作胶囊，点开后下方展开详情（按 2.4 节）。
 func renderSingleToolItem(c *ui.Context, s *chatState, m Message) ui.Element {
@@ -5576,7 +5573,7 @@ func toolGroupPreviewTools(tools []Message, limit int) []Message {
 	return picked
 }
 
-// renderToolGroupPreview 渲染运行中工具组折叠态的预览：组头下方缩进列出最近几条工具行。
+// renderToolGroupPreview 渲染运行中工具组折叠态的预览：以节拍相同的缩进和间距竖排最近几条工具。
 // 预览只读，不挂点击与展开，组跑完或用户展开后自然消失。
 func renderToolGroupPreview(c *ui.Context, s *chatState, tools []Message, groupID string) {
 	preview := toolGroupPreviewTools(tools, toolGroupPreviewCount)
@@ -5586,7 +5583,7 @@ func renderToolGroupPreview(c *ui.Context, s *chatState, tools []Message, groupI
 	ui.Column(c.Key("group-preview-"+groupID)).
 		FillWidth().
 		Gap(Space1).
-		Padding(Hairline, Space2, Space0, toolGroupPreviewPadLeft).
+		Padding(Hairline, Space2, Space0, toolBeatPadLeft).
 		Children(func() {
 			for _, m := range preview {
 				renderToolChipReadOnly(c, s, m)
@@ -6062,7 +6059,7 @@ func renderTurnWorkFooter(c *ui.Context, s *chatState, item timelineItem, usage 
 }
 
 // renderToolBeatItem 渲染工具组内的一个节拍：上方是思考叙事（这节拍没有前置思考时省略），
-// 下方是它触发的工具胶囊行（各胶囊按可用宽度自动换行），点开胶囊后详情区紧跟在被点开的那个胶囊所在行下方。
+// 下方胶囊竖排，一行一个，点开后详情紧跟在该胶囊下方。
 // 整段没有竖线、圆点或图标，只剩“叙事 + 动作胶囊”。
 func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID string) ui.Element {
 	beatTools := item.beatTools
@@ -6075,40 +6072,20 @@ func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID s
 				renderToolBeatReasoning(c, s, item.msg, liveID)
 			}
 			if len(beatTools) > 0 {
-				// 同一节拍同一时刻只展开一个胶囊：先找到第一个处于展开状态的工具
-				openIdx := -1
-				for i, toolMsg := range beatTools {
-					if s.toolMessageExpanded(toolMsg) {
-						openIdx = i
-						break
-					}
-				}
-
-				// renderChipRow 渲染一段胶囊行，两段共用同一套样式链
-				renderChipRow := func(key string, chips []Message) {
-					ui.Row(c.Key(key)).
-						Gap(Space2).
-						Wrap().
-						AlignItems(ui.Center).
-						Padding(0, 0, 0, toolBeatPadLeft).
-						Children(func() {
-							for _, toolMsg := range chips {
-								renderToolChip(c, s, toolMsg, beatTools)
+				ui.Column(c.Key("tool-beat-chips-"+item.id)).
+					Gap(Space1).
+					AlignItems(ui.Start).
+					Padding(0, 0, 0, toolBeatPadLeft).
+					Children(func() {
+						opened := false
+						for _, toolMsg := range beatTools {
+							renderToolChip(c, s, toolMsg, beatTools)
+							if !opened && s.toolMessageExpanded(toolMsg) {
+								renderToolDetail(c, s, toolMsg)
+								opened = true
 							}
-						})
-				}
-
-				if openIdx < 0 {
-					renderChipRow("tool-beat-chips-"+item.id, beatTools)
-					return
-				}
-
-				// 被点开的胶囊连同它前面的胶囊成一行，详情紧跟在行下方，剩余胶囊另起一行
-				renderChipRow("tool-beat-chips-"+item.id, beatTools[:openIdx+1])
-				renderToolDetail(c, s, beatTools[openIdx])
-				if openIdx+1 < len(beatTools) {
-					renderChipRow("tool-beat-chips-after-"+item.id, beatTools[openIdx+1:])
-				}
+						}
+					})
 			}
 		})
 }

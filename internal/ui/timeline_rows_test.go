@@ -344,7 +344,7 @@ func TestTimelineRows_ToolGroupToggle(t *testing.T) {
 	}
 }
 
-// TestTimelineRows_ToolBeatChips 验证展开后的工具组里思考下面直接是动作胶囊：点开胶囊在胶囊行下方展开详情，
+// TestTimelineRows_ToolBeatChips 验证展开后的工具组里动作胶囊竖排，点开胶囊在其下方展开详情，
 // 且同一节拍同一时刻只展开一个。
 func TestTimelineRows_ToolBeatChips(t *testing.T) {
 	msgs := []Message{
@@ -352,6 +352,7 @@ func TestTimelineRows_ToolBeatChips(t *testing.T) {
 		{ID: "r1", Role: "assistant", Kind: "reasoning", Text: "先看仓库状态", TurnIndex: 1},
 		{ID: "t1", Role: "tool", Text: `Bash {"command":"git status"}` + "\nOUT-STATUS", TurnIndex: 1},
 		{ID: "t2", Role: "tool", Text: `Bash {"command":"git diff"}` + "\nOUT-DIFF", TurnIndex: 1},
+		{ID: "t3", Role: "tool", Text: `Bash {"command":"git log"}` + "\nOUT-LOG", TurnIndex: 1},
 	}
 	tt := newTimelineTester(t, msgs, "思考 · 命令")
 	clickText(t, tt, "思考 · 命令")
@@ -360,6 +361,12 @@ func TestTimelineRows_ToolBeatChips(t *testing.T) {
 	}
 	if tt.HasText("OUT-STATUS") || tt.HasText("OUT-DIFF") {
 		t.Fatalf("胶囊未展开时不应显示详情: %q", tt.Texts())
+	}
+	first, ok1 := tt.Find("$ git status")
+	middle, ok2 := tt.Find("$ git diff")
+	last, ok3 := tt.Find("$ git log")
+	if !ok1 || !ok2 || !ok3 || first.Y >= middle.Y || middle.Y >= last.Y || first.X != middle.X || middle.X != last.X {
+		t.Fatalf("工具胶囊应左对齐并按顺序竖排: first=%+v middle=%+v last=%+v", first, middle, last)
 	}
 
 	clickText(t, tt, "$ git status")
@@ -371,6 +378,12 @@ func TestTimelineRows_ToolBeatChips(t *testing.T) {
 	clickText(t, tt, "$ git diff")
 	if !tt.HasText("OUT-DIFF") || tt.HasText("OUT-STATUS") {
 		t.Fatalf("同一节拍应只展开一个胶囊详情: %q", tt.Texts())
+	}
+	middle, ok2 = tt.Find("$ git diff")
+	detail, okDetail := tt.Find("OUT-DIFF")
+	last, ok3 = tt.Find("$ git log")
+	if !ok2 || !okDetail || !ok3 || middle.Y >= detail.Y || detail.Y >= last.Y {
+		t.Fatalf("详情应位于对应胶囊与下一胶囊之间: middle=%+v detail=%+v last=%+v", middle, detail, last)
 	}
 
 	// 再点一次收起
@@ -2433,6 +2446,11 @@ func TestTimelineRows_ToolGroupRunningPreview(t *testing.T) {
 		}
 	}
 
+	preview, ok := tt.Find("a3.go")
+	if !ok {
+		t.Fatal("找不到预览胶囊")
+	}
+
 	// 用户展开后以用户的选择为准：完整列出 5 条工具行
 	clickText(t, tt, "读取")
 	if _, ok := tt.Find("收起"); !ok {
@@ -2443,6 +2461,10 @@ func TestTimelineRows_ToolGroupRunningPreview(t *testing.T) {
 		if !tt.HasText(name) {
 			t.Fatalf("展开后应列出 %s: %q", name, tt.Texts())
 		}
+	}
+	expanded, ok := tt.Find("a3.go")
+	if !ok || preview.X != expanded.X {
+		t.Fatalf("预览和展开胶囊应使用相同缩进: preview=%+v expanded=%+v", preview, expanded)
 	}
 
 	// 再点一次收起，回到折叠预览
