@@ -21,10 +21,6 @@ type AppUpdateStatus struct {
 	Installable bool
 }
 
-type appUpdateInstallClient interface {
-	InstallUpdate(ctx context.Context, progress func(float64)) error
-}
-
 // appUpdateClient 由 internal/app 的 Client 实现；未实现时关于页隐藏检查更新入口，
 // 版本号回退显示 dev。
 type appUpdateClient interface {
@@ -212,44 +208,6 @@ func startUpdateCheck(st *SettingsState) {
 	st.invalidate()
 
 	go runAppUpdateCheck(st, client)
-}
-
-// runAppUpdateInstall 同步安装更新并刷新进度。
-func runAppUpdateInstall(st *SettingsState, client appUpdateInstallClient) {
-	err := client.InstallUpdate(context.Background(), func(progress float64) {
-		globalAboutState.mu.Lock()
-		globalAboutState.progress = progress
-		globalAboutState.mu.Unlock()
-		if st != nil {
-			st.invalidate()
-		}
-	})
-	globalAboutState.mu.Lock()
-	globalAboutState.installing = false
-	if err != nil {
-		globalAboutState.errMsg = err.Error()
-	}
-	globalAboutState.mu.Unlock()
-	if st != nil {
-		st.invalidate()
-	}
-}
-
-// startAppUpdateInstall 在后台安装更新。
-func startAppUpdateInstall(st *SettingsState, client appUpdateInstallClient) {
-	globalAboutState.mu.Lock()
-	if globalAboutState.installing {
-		globalAboutState.mu.Unlock()
-		return
-	}
-	globalAboutState.installing = true
-	globalAboutState.progress = 0
-	globalAboutState.errMsg = ""
-	globalAboutState.mu.Unlock()
-	if st != nil {
-		st.invalidate()
-	}
-	go runAppUpdateInstall(st, client)
 }
 
 // openExternalURL 用系统默认应用（浏览器）打开外链。
