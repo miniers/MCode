@@ -197,8 +197,18 @@ var pageGeneral = settingsPage{
 						return fmt.Sprintf("%d 个", len(shortcutDefaults()))
 					}, "shortcuts"),
 				},
-				{ID: "row-general-about", Control: customFullWidth(renderAboutFooter)},
 			},
+		},
+		{
+			ID:    "general.backup",
+			Title: "备份与恢复",
+			Rows: []setting{
+				{ID: "row-general-backup", Title: "备份…", Control: custom(renderBackupControl)},
+				{ID: "row-general-restore", Title: "恢复…", Control: custom(renderRestoreControl)},
+			},
+		},
+		{
+			Rows: []setting{{ID: "row-general-about", Control: customFullWidth(renderAboutFooter)}},
 		},
 	},
 }

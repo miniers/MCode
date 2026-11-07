@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -131,7 +132,69 @@ func (s *chatState) hasThreadUnread(th Thread) bool {
 }
 
 // renderSidebar 渲染左侧边栏，实现 Liquid Glass 视觉。
+var projectPathMissing = func(path string) bool {
+	info, err := os.Stat(path)
+	return err != nil || !info.IsDir()
+}
+
+func refreshProjectPathStatus(s *chatState) {
+	s.mu.Lock()
+	paths := make(map[string]string, len(s.projects))
+	for _, p := range s.projects {
+		paths[p.ID] = p.Path
+	}
+	active := s.windowActive.Load()
+	changed := len(paths) != len(s.projectPathsChecked) || s.projectPathsChecked == nil
+	if !changed {
+		for id, path := range paths {
+			if old, ok := s.projectPathsChecked[id]; !ok || old != path {
+				changed = true
+				break
+			}
+		}
+	}
+	refresh := changed || (active && !s.projectPathsWasActive)
+	s.projectPathsWasActive = active
+	if !refresh {
+		s.mu.Unlock()
+		return
+	}
+	s.projectPathsChecked = paths
+	s.projectPathCheckSeq++
+	seq := s.projectPathCheckSeq
+	s.mu.Unlock()
+	go func() {
+		missing := make(map[string]bool, len(paths))
+		for id, path := range paths {
+			missing[id] = projectPathMissing(path)
+		}
+		s.mu.Lock()
+		if s.projectPathCheckSeq != seq || s.closed {
+			s.mu.Unlock()
+			return
+		}
+		s.projectPathsMissing = missing
+		s.mu.Unlock()
+		s.invalidate()
+	}()
+}
+
 func renderSidebar(c *ui.Context, s *chatState) {
+	if win := s.currentWindow(); win != nil {
+		s.mu.Lock()
+		install := !s.projectPathFocusHook
+		s.projectPathFocusHook = true
+		s.mu.Unlock()
+		if install {
+			win.OnFocus(func() {
+				s.mu.Lock()
+				s.projectPathsChecked = nil
+				s.mu.Unlock()
+				refreshProjectPathStatus(s)
+			})
+		}
+	}
+	refreshProjectPathStatus(s)
 	// 状态分组闩锁按帧工作：先清空本帧的悬停标记，侧栏渲染结束后再固化
 	// 「指针是否还在列表内」，并在指针刚离开、还有会话待归位时再请求一帧完成归位。
 	// defer 也覆盖搜索无结果等提前返回的分支。
@@ -154,6 +217,10 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	s.mu.Lock()
 	projects := make([]Project, len(s.projects))
 	copy(projects, s.projects)
+	missingPaths := make(map[string]bool, len(s.projectPathsMissing))
+	for id, missing := range s.projectPathsMissing {
+		missingPaths[id] = missing
+	}
 
 	providers := make([]ProviderInfo, len(s.providers))
 	copy(providers, s.providers)
@@ -615,7 +682,9 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						Label(projToggleLabel)
 
 					// 标题区悬停显示项目绝对路径
-					if pVal.Path != "" {
+					if missingPaths[pVal.ID] {
+						titleArea.Tooltip("路径失效 · " + pVal.Path)
+					} else if pVal.Path != "" {
 						titleArea.Tooltip(pVal.Path)
 					}
 
@@ -634,6 +703,9 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						projectActive := isProjectActive(s, pVal.ID)
 						iconColor := secondaryText
 						nameColor := primaryText
+						if missingPaths[pVal.ID] {
+							nameColor = secondaryText
+						}
 						if !projectActive {
 							iconColor = secondaryText.Alpha(0.5)
 							nameColor = secondaryText.Alpha(0.5)

@@ -14,22 +14,22 @@ import (
 )
 
 var (
-	ErrWrongPassword = errors.New("wrong password")
+	ErrWrongPassword      = errors.New("wrong password")
 	ErrUnsupportedVersion = errors.New("unsupported version")
-	ErrInvalidArchive = errors.New("invalid archive")
+	ErrInvalidArchive     = errors.New("invalid archive")
 )
 
 type Header struct {
-	Version uint16
-	Time uint32
+	Version   uint16
+	Time      uint32
 	MemoryKiB uint32
-	Threads uint8
-	Salt [16]byte
+	Threads   uint8
+	Salt      [16]byte
 }
 
 const (
 	frameHeaderSize = 51
-	frameChunkSize = 64 * 1024
+	frameChunkSize  = 64 * 1024
 )
 
 // frameTestParams is nil in production; tests can override the key derivation cost.

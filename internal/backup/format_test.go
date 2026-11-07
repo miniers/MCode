@@ -76,9 +76,9 @@ func TestFormatTampering(t *testing.T) {
 	data := frameEncryptTest(t, bytes.Repeat([]byte{7}, 200*1024))
 	frameSize := 5 + frameChunkSize + 16
 	for _, tc := range []struct {
-		name string
+		name   string
 		offset int
-		want error
+		want   error
 	}{
 		{"header", 35, ErrWrongPassword},
 		{"first", frameHeaderSize + 5, ErrWrongPassword},
@@ -130,9 +130,9 @@ func TestFormatHeaderValidation(t *testing.T) {
 	frameSetup(t)
 	data := frameEncryptTest(t, nil)
 	for _, tc := range []struct {
-		name string
+		name   string
 		change func([]byte)
-		want error
+		want   error
 	}{
 		{"magic", func(b []byte) { b[0] ^= 1 }, ErrInvalidArchive},
 		{"version", func(b []byte) { binary.BigEndian.PutUint16(b[8:10], 2) }, ErrUnsupportedVersion},

@@ -255,11 +255,16 @@ type chatState struct {
 	servicesMu sync.RWMutex
 	services   ui.Services
 
-	projects         []Project
-	threadsByProj    map[string][]Thread // 每个项目的会话列表
-	collapsedProj    map[string]bool     // 组折叠状态（保存在内存中，true 为折叠）
-	threads          []Thread            // 全部会话的平铺视图，按时间倒序
-	selectedThreadID string
+	projects              []Project
+	projectPathsChecked   map[string]string
+	projectPathsMissing   map[string]bool
+	projectPathCheckSeq   uint64
+	projectPathsWasActive bool
+	projectPathFocusHook  bool
+	threadsByProj         map[string][]Thread // 每个项目的会话列表
+	collapsedProj         map[string]bool     // 组折叠状态（保存在内存中，true 为折叠）
+	threads               []Thread            // 全部会话的平铺视图，按时间倒序
+	selectedThreadID      string
 	// beeBusyFrame 非 nil 时表示 renderSidebar 本帧已算好的「名下还有子代理在跑的主会话 ID」集合，
 	// 侧栏每帧对每个会话多次判定忙碌，逐次全表扫描在几千个会话时是 O(N²)。只在 UI 线程读写。
 	beeBusyFrame map[string]bool

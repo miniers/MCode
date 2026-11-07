@@ -51,6 +51,7 @@ func chatHeaderLeadingInset(sidebarVisibleProgress float32) float32 {
 // renderChat 渲染右侧主会话区。
 // 标题栏左边距按本帧的侧边栏显示进度插值。
 func renderChat(c *ui.Context, s *chatState) {
+	renderBackupStartupResult(c, s)
 	// 先记录本帧聊天区可用宽度：按比例档的内容宽度要靠它换算（侧边栏与右侧分栏都要扣掉）。
 	updateChatPaneWidth(c, s)
 
