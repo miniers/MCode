@@ -468,10 +468,12 @@ func draftThreadMentionLabel(title string) string {
 
 // 输入卡片尺寸常量。
 const (
-	composerTextMinHeight         float32 = 44 // token-exempt: 输入区规定的最小高度
-	composerActionBtnSize         float32 = ControlMD
-	composerControlGap                    = Space2
-	composerContextRingDiameter   float32 = 18
+	composerTextMinHeight float32 = 44 // token-exempt: 输入区规定的最小高度
+	composerActionBtnSize float32 = ControlMD
+	composerControlGap            = Space2
+	// 右下角控件（模式切换、上下文圆环、发送）共用的图标视觉尺寸
+	composerControlIconSize       float32 = IconMD
+	composerContextRingDiameter           = composerControlIconSize
 	composerContextMeterImageSize         = composerContextRingDiameter * 24 / 20.5 // SVG 外径 20.5，画布宽 24
 	composerDockPadBottom         float32 = 10                                      // 有消息时卡片距窗口底部
 	composerEmbeddedPadBottom     float32 = 8                                       // 浮动面板/子代理窗口内的输入框底距
@@ -1261,17 +1263,17 @@ func renderComposer(c *ui.Context, s *chatState) {
 func composerSendIconFor(state sendDraftState) (*ui.SVG, float32) {
 	switch state {
 	case sendStateStop:
-		return IconStopFilled(), 9
+		return IconStopFilled(), 11
 	case sendStateQueue:
-		return iconClock, 13
+		return iconClock, composerControlIconSize
 	case sendStateSteer, sendStateInject:
-		return iconSteer, 13
+		return iconSteer, composerControlIconSize
 	case sendStateContinue:
-		return iconPlayFilled, 12
+		return iconPlayFilled, composerControlIconSize - 1
 	case sendStateSaveEdit:
-		return IconCheck(), 13
+		return IconCheck(), composerControlIconSize
 	default: // sendStateSend
-		return IconSend(), 13
+		return IconSend(), composerControlIconSize
 	}
 }
 
@@ -1412,7 +1414,7 @@ func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disab
 		composerHoverBg(c, btn, hovered)
 	}
 	btn.Children(func() {
-		ui.Icon(c, interactionModeIcon(mode)).Size(IconSM, IconSM).TextColor(textColor)
+		ui.Icon(c, interactionModeIcon(mode)).Size(composerControlIconSize, composerControlIconSize).TextColor(textColor)
 	})
 }
 
