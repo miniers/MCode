@@ -29,6 +29,18 @@ MCode 要求 macOS 14.0 及以上版本和 Apple 芯片。发布页只有 arm64 
 4. 将 MCode 拖入「应用程序」文件夹。
 5. 打开 MCode。
 
+### 1.1 让 AI agent 代为安装
+
+可以让本机的 AI agent（例如 Claude Code、Codex）完成安装和配置。
+
+把下面这段话发给 agent：
+
+```text
+阅读 https://raw.githubusercontent.com/miniers/MCode/main/docs/agent-install.md ，按其中的步骤在这台 Mac 上安装和配置 MCode。
+```
+
+智能体登录和 API Key 必须由你自己完成。agent 会在需要时提示你。
+
 ## 2. 首次启动引导
 
 全新安装后首次打开 MCode 时，会显示引导。引导包含以下步骤：
