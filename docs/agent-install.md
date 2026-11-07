@@ -19,7 +19,7 @@
 
 ## 第 1 步：检查环境
 
-#### macOS
+### macOS
 
 1. 检查 macOS 版本。
 
@@ -43,7 +43,7 @@
    DATA="${MCODE_DATA:-$HOME/.mcode}"
    ```
 
-#### Windows
+### Windows
 
 1. 检查处理器架构。
 
@@ -61,7 +61,7 @@
 
 ## 第 2 步：安装 MCode
 
-#### macOS
+### macOS
 
 1. 退出正在运行的 MCode。MCode 未运行时，忽略此命令的错误。
 
@@ -114,7 +114,7 @@
 
    再次运行 `spctl -a -vv /Applications/MCode.app` 检查。
 
-#### Windows
+### Windows
 
 1. 检查 MCode 是否运行。
 
@@ -159,7 +159,7 @@
 
 1. 询问用户要安装哪些智能体。可选的智能体为 Claude、Codex、Antigravity（`agy`）和 pi。用户必须至少选择一个。推荐同时安装 pi。pi 是 MCode 推荐的子代理引擎。
 
-#### macOS
+### macOS
 
 2. 用户选择 Claude、Codex 或 pi 时，检查 Node.js 和 npm。
 
@@ -211,7 +211,7 @@
 
    可执行文件不在这些目录时，记下绝对路径。在汇报中请用户到 MCode 设置的「模型与供应商」填写「可执行文件路径」。
 
-#### Windows
+### Windows
 
 2. 用户选择 Claude、Codex 或 pi 时，检查 Node.js 和 npm。
 
@@ -247,7 +247,7 @@
 
    可执行文件不在这些目录且不在 `PATH` 中时，记下绝对路径。在汇报中请用户到 MCode 设置的「模型与供应商」填写「可执行文件路径」。
 
-#### 两个平台
+### 两个平台
 
 6. 请用户完成登录。Claude 用户在终端运行 `claude`，然后输入 `/login`。Antigravity 用户在终端运行 `agy`，然后选择 Google 登录。其他智能体的用户在终端运行对应命令后按提示登录。
 
@@ -255,7 +255,7 @@
 
 用户不使用 Magpie 网关时，跳过第 4 步和第 5 步，直接执行第 6 步。首次打开 MCode 时显示引导。请用户在引导中点「只用直连」。
 
-#### macOS
+### macOS
 
 1. 安装 Magpie。项目地址：https://github.com/yetone/magpie。
 
@@ -277,7 +277,7 @@
 
    返回 JSON 的 `data` 数组中，每项的 `id` 是模型 ID。请求失败时，请用户打开 Magpie 应用后重试。返回空列表时，回到第 2 小步。
 
-#### Windows
+### Windows
 
 1. 从 https://github.com/yetone/magpie/releases/latest 下载并打开 Magpie。Magpie 在 Windows 上没有安装脚本。
 
@@ -299,7 +299,7 @@
 
    结果的 `data` 中，每项的 `id` 是模型 ID。请求失败时，请用户打开 Magpie 应用后重试。返回空列表时，回到第 2 小步。
 
-#### 两个平台
+### 两个平台
 
 4. 记下网关密钥。Magpie README 的本机网关示例使用 `magpie` 作为密钥。用户给出其他密钥时，使用用户的密钥。
 
@@ -307,173 +307,162 @@
 
 ## 第 5 步：写入 MCode 配置
 
-写入前，退出 MCode。
+写入前，退出 MCode。macOS 运行 `osascript -e 'quit app "MCode"'`。MCode 未运行时，忽略此命令的错误。Windows 按第 2 步的 Windows 小节退出。
 
-#### macOS
+### 5.1 创建数据目录
+
+**macOS**
 
 ```sh
-osascript -e 'quit app "MCode"'
+mkdir -p "$DATA"
 ```
 
-MCode 未运行时，忽略此命令的错误。
+**Windows**
 
-1. 创建数据目录。
+```powershell
+New-Item -ItemType Directory -Force $DATA
+```
 
-   ```sh
-   mkdir -p "$DATA"
-   ```
+### 5.2 备份 config.json
 
-2. `config.json` 已存在时，备份文件。
+`config.json` 已存在时，备份文件。
 
-   ```sh
-   cp "$DATA/config.json" "$DATA/config.json.agent-bak"
-   ```
+**macOS**
 
-   读出 `version` 字段。`version` 大于 9 时，停止。告诉用户：本文档不支持该版本。
+```sh
+cp "$DATA/config.json" "$DATA/config.json.agent-bak"
+```
 
-#### Windows
+**Windows**
 
-写入前，按第 2 步退出 MCode。
+```powershell
+Copy-Item "$DATA\config.json" "$DATA\config.json.agent-bak"
+```
 
-1. 创建数据目录。
+读出 `version` 字段。`version` 大于 9 时，停止。告诉用户：本文档不支持该版本。
 
-   ```powershell
-   New-Item -ItemType Directory -Force $DATA
-   ```
+### 5.3 合并配置
 
-2. `config.json` 已存在时，备份文件。
+合并以下结构到数据目录中的 `config.json`。文件不存在时，新建为该结构。缺少的字段由 MCode 使用默认值。只列出用户实际安装的智能体。
 
-   ```powershell
-   Copy-Item "$DATA\config.json" "$DATA\config.json.agent-bak"
-   ```
+`providers.custom` 已有 `magpie` 为 `true` 的条目时，复用该条目的 `id`。不得新增条目。所有 `endpointID` 必须与复用的 `id` 一致。
 
-   读出 `version` 字段。`version` 大于 9 时，停止。告诉用户：本文档不支持该版本。
+```json
+{
+  "version": 9,
+  "providers": {
+    "magpieRoutingVersion": 1,
+    "custom": [
+      {"id": "magpie", "name": "Magpie", "baseURL": "http://127.0.0.1:3425/v1", "model": "", "enabled": true, "magpie": true}
+    ],
+    "magpieAgents": {
+      "claude": {"mode": "inject", "selections": [{"endpointID": "magpie", "models": ["<模型 ID>"]}]},
+      "codex": {"mode": "inject", "selections": [{"endpointID": "magpie", "models": ["<模型 ID>"]}]},
+      "pi": {"mode": "inject", "selections": [{"endpointID": "magpie", "models": ["<模型 ID>"]}]}
+    }
+  }
+}
+```
 
-#### 两个平台
+| 字段 | 取值 | 含义 |
+| :--- | :--- | :--- |
+| `version` | `9` | 配置格式版本 |
+| `providers.magpieRoutingVersion` | `1` | 必须写入。否则，MCode 的一次性迁移会把 Codex 的 `inject` 改成 `off`。 |
+| `providers.custom[].magpie` | `true` | 表示这是 Magpie 网关。 |
+| `magpieAgents.<智能体>.mode` | `off`、`inject`、`global` | 对应界面「直连」「仅 mcode」「全局」。 |
 
-3. 合并以下结构到数据目录中的 `config.json`。文件不存在时，新建为该结构。缺少的字段由 MCode 使用默认值。只列出用户实际安装的智能体。
+**警告：**不得写入 `global`。该模式需要 MCode 改写智能体的全局配置文件，只写 `config.json` 不会执行这一步。用户需要「全局」时，在汇报中请用户到 MCode 设置的「Magpie」页切换。
 
-   `providers.custom` 已有 `magpie` 为 `true` 的条目时，复用该条目的 `id`。不得新增条目。所有 `endpointID` 必须与复用的 `id` 一致。
+**macOS**
 
-   ```json
-   {
-     "version": 9,
-     "providers": {
-       "magpieRoutingVersion": 1,
-       "custom": [
-         {"id": "magpie", "name": "Magpie", "baseURL": "http://127.0.0.1:3425/v1", "model": "", "enabled": true, "magpie": true}
-       ],
-       "magpieAgents": {
-         "claude": {"mode": "inject", "selections": [{"endpointID": "magpie", "models": ["<模型 ID>"]}]},
-         "codex": {"mode": "inject", "selections": [{"endpointID": "magpie", "models": ["<模型 ID>"]}]},
-         "pi": {"mode": "inject", "selections": [{"endpointID": "magpie", "models": ["<模型 ID>"]}]}
-       }
-     }
-   }
-   ```
+有 `jq`时，使用 `jq` 合并。没有 `jq` 时，使用 `python3 -I` 读写 JSON。合并后，运行以下任一命令检查格式。
 
-   | 字段 | 取值 | 含义 |
-   | :--- | :--- | :--- |
-   | `version` | `9` | 配置格式版本 |
-   | `providers.magpieRoutingVersion` | `1` | 必须写入。否则，MCode 的一次性迁移会把 Codex 的 `inject` 改成 `off`。 |
-   | `providers.custom[].magpie` | `true` | 表示这是 Magpie 网关。 |
-   | `magpieAgents.<智能体>.mode` | `off`、`inject`、`global` | 对应界面「直连」「仅 mcode」「全局」。 |
+  ```sh
+  jq . "$DATA/config.json"
+  ```
 
-   **警告：**不得写入 `global`。该模式需要 MCode 改写智能体的全局配置文件，只写 `config.json` 不会执行这一步。用户需要「全局」时，在汇报中请用户到 MCode 设置的「Magpie」页切换。
+  ```sh
+  python3 -I -m json.tool "$DATA/config.json"
+  ```
 
-#### macOS
+**Windows**
 
-   有 `jq` 时，使用 `jq` 合并。没有 `jq` 时，使用 `python3 -I` 读写 JSON。合并后，运行以下任一命令检查格式。
+文件已存在时，使用 `Get-Content -Raw` 读取文件，再使用 `ConvertFrom-Json` 转换为对象。文件不存在时，将上述 JSON 结构转换为对象。修改对象后，使用 `ConvertTo-Json -Depth 20` 生成文本。`ConvertTo-Json` 默认只展开 2 层，会截断 `selections`。将文件路径放入 `$path`，将生成的文本放入 `$json`，使用执行规则中的 `WriteAllText` 写入文件。
 
-   ```sh
-   jq . "$DATA/config.json"
-   ```
+```powershell
+Get-Content -Raw "$DATA\config.json" | ConvertFrom-Json
+```
 
-   ```sh
-   python3 -I -m json.tool "$DATA/config.json"
-   ```
+检查命令不得报错。
 
-#### Windows
+### 5.4 写入网关密钥
 
-   文件已存在时，使用 `Get-Content -Raw` 读取文件，再使用 `ConvertFrom-Json` 转换为对象。文件不存在时，将上述 JSON 结构转换为对象。修改对象后，使用 `ConvertTo-Json -Depth 20` 生成文本。`ConvertTo-Json` 默认只展开 2 层，会截断 `selections`。将文件路径放入 `$path`，将生成的文本放入 `$json`，使用执行规则中的 `WriteAllText` 写入文件。
+**macOS**
 
-   ```powershell
-   Get-Content -Raw "$DATA\config.json" | ConvertFrom-Json
-   ```
+将网关密钥写入钥匙串。账户名中的 `magpie` 必须与上一步的 `id` 一致。请用户输入网关密钥并运行命令。
 
-   检查命令不得报错。
+```sh
+security add-generic-password -U -s mcode -a providers.custom.magpie.apiKey -w '<网关密钥>'
+```
 
-#### macOS
+检查钥匙串。账户名中的 `magpie` 必须与上一步的 `id` 一致。
 
-4. 将网关密钥写入钥匙串。账户名中的 `magpie` 必须与上一步的 `id` 一致。请用户输入网关密钥并运行命令。
+```sh
+security find-generic-password -s mcode -a providers.custom.magpie.apiKey -w
+```
 
-   ```sh
-   security add-generic-password -U -s mcode -a providers.custom.magpie.apiKey -w '<网关密钥>'
-   ```
+MCode 从钥匙串读取网关密钥。`config.json` 中不存密钥。
 
-   检查钥匙串。账户名中的 `magpie` 必须与上一步的 `id` 一致。
+**Windows**
 
-   ```sh
-   security find-generic-password -s mcode -a providers.custom.magpie.apiKey -w
-   ```
+agent 不写入网关密钥。MCode 在 Windows 上把密钥存在凭据管理器。在第 6 步请用户在 MCode 界面填写。
 
-   MCode 从钥匙串读取网关密钥。`config.json` 中不存密钥。
+### 5.5 跳过首次启动引导
 
-#### Windows
+完成首次启动引导的设置。`ui-state.json` 不存在时，不需要操作。`config.json` 已存在时，MCode 不显示引导。`ui-state.json` 已存在时，先备份文件，再把 `onboarding` 字段设为 `"completed"`。保留其他字段。修改后检查 JSON 格式。
 
-4. agent 不写入网关密钥。MCode 在 Windows 上把密钥存在凭据管理器。在第 6 步请用户在 MCode 界面填写。
+**macOS**
 
-5. 完成首次启动引导的设置。`"$DATA\ui-state.json"` 不存在时，不需要操作。`config.json` 已存在时，MCode 不显示引导。`ui-state.json` 已存在时，先备份文件，再把 `onboarding` 字段设为 `"completed"`。保留其他字段。修改后检查 JSON 格式。
+```sh
+cp "$DATA/ui-state.json" "$DATA/ui-state.json.agent-bak"
+```
 
-   ```powershell
-   Copy-Item "$DATA\ui-state.json" "$DATA\ui-state.json.agent-bak"
-   $path = "$DATA\ui-state.json"
-   $state = Get-Content -Raw $path | ConvertFrom-Json
-   $state | Add-Member -NotePropertyName onboarding -NotePropertyValue 'completed' -Force
-   $json = $state | ConvertTo-Json -Depth 20
-   [System.IO.File]::WriteAllText($path, $json, (New-Object System.Text.UTF8Encoding $false))
-   Get-Content -Raw $path | ConvertFrom-Json
-   ```
+```sh
+python3 -I -m json.tool "$DATA/ui-state.json"
+```
 
-#### macOS
+**Windows**
 
-5. 完成首次启动引导的设置。`"$DATA/ui-state.json"` 不存在时，不需要操作。`config.json` 已存在时，MCode 不显示引导。`ui-state.json` 已存在时，先备份文件，再把 `onboarding` 字段设为 `"completed"`。保留其他字段。修改后检查 JSON 格式。
-
-   ```sh
-   cp "$DATA/ui-state.json" "$DATA/ui-state.json.agent-bak"
-   ```
-
-   ```sh
-   python3 -I -m json.tool "$DATA/ui-state.json"
-   ```
+```powershell
+Copy-Item "$DATA\ui-state.json" "$DATA\ui-state.json.agent-bak"
+$path = "$DATA\ui-state.json"
+$state = Get-Content -Raw $path | ConvertFrom-Json
+$state | Add-Member -NotePropertyName onboarding -NotePropertyValue 'completed' -Force
+$json = $state | ConvertTo-Json -Depth 20
+[System.IO.File]::WriteAllText($path, $json, (New-Object System.Text.UTF8Encoding $false))
+Get-Content -Raw $path | ConvertFrom-Json
+```
 
 ## 第 6 步：启动与确认
 
-#### macOS
-
 1. 启动 MCode。
+
+   **macOS**
 
    ```sh
    open -a MCode
    ```
 
-2. 使用 Magpie 网关时，请用户打开设置（⌘,）的「Magpie」页。
-
-#### Windows
-
-1. 启动 MCode。
+   **Windows**
 
    ```powershell
    Start-Process "$env:LOCALAPPDATA\Programs\MCode\MCode.exe"
    ```
 
-2. 使用 Magpie 网关时，请用户打开设置（Ctrl+,）的「Magpie」页。请用户打开名为 Magpie 的网关，在「密钥（API Key）」填写网关密钥并保存。
-
-#### 两个平台
-
-使用 Magpie 网关时，请用户确认状态显示「已连接 · N 个模型」。
-
-3. 显示「连接失败：」或「未设置 API Key」时，检查第 4 步第 3 小步和第 5 步第 4 小步。
+2. 使用 Magpie 网关时，请用户打开设置的「Magpie」页。macOS 快捷键为 ⌘,。Windows 快捷键为 Ctrl+,。
+3. Windows 上，请用户打开名为 Magpie 的网关，在「密钥（API Key）」填写网关密钥并保存。
+4. 请用户确认状态显示「已连接 · N 个模型」。
+5. 显示「连接失败：」时，检查第 4 步第 3 小步。显示「未设置 API Key」时，macOS 检查 5.4 小步，Windows 检查本步第 3 小步。
 
 ## 汇报模板
 
