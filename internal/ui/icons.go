@@ -396,8 +396,6 @@ func IconByName(name string) *ui.SVG {
 		return iconPackage
 	case "fold-vertical":
 		return iconFoldVertical
-	case "list-checks":
-		return iconListChecks
 	case "user-round-check":
 		return iconUserRoundCheck
 	case "highlighter":
