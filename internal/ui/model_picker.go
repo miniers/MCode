@@ -1001,8 +1001,10 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 				Disabled(p.Disabled).
 				Tooltip(p.Tooltip).
 				Padding(triggerPadY, Space3).
-				Radius(RadiusXL).
-				Margin(0, Space2, 0, 0)
+				Radius(RadiusXL)
+			if p.KeyPrefix != "composer-" {
+				trigger.Margin(0, Space2, 0, 0)
+			}
 			composerHoverBg(c, trigger, state.MenuOpen || trigger.Hovered())
 			if p.Disabled {
 				trigger.Tooltip("操作进行中，暂不可修改模型设置")

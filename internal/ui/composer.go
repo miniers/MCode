@@ -469,8 +469,11 @@ func draftThreadMentionLabel(title string) string {
 // 输入卡片尺寸常量。
 const (
 	composerTextMinHeight     float32 = 44 // token-exempt: 输入区规定的最小高度
-	composerActionBtnSize     float32 = ControlMD
-	composerDockPadBottom     float32 = 10 // 有消息时卡片距窗口底部
+	composerActionBtnSize              float32 = ControlMD
+	composerControlGap                         = Space2
+	composerContextRingDiameter        float32 = 18
+	composerContextMeterImageSize              = composerContextRingDiameter * 24 / 20.5 // SVG 外径 20.5，画布宽 24
+	composerDockPadBottom              float32 = 10 // 有消息时卡片距窗口底部
 	composerEmbeddedPadBottom float32 = 8  // 浮动面板/子代理窗口内的输入框底距
 	// composerQueueScrollMaxHeight 是排队列表展开后的滚动高度，约 3 行。
 	composerQueueScrollMaxHeight float32 = 132
@@ -1093,7 +1096,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 					ui.Spacer(c)
 
 					// 右侧控制按钮组
-					ui.Row(c.Key("composer-controls")).AlignItems(ui.Center).Shrink(0).Gap(Space2).Children(func() {
+					ui.Row(c.Key("composer-controls")).AlignItems(ui.Center).Shrink(0).Gap(composerControlGap).Children(func() {
 						if currentThread != nil {
 							renderInteractionModeToggle(c, s, interactionMode, prefsSaving || sending, buttonRadius)
 							renderModelSelector(c, s, currentThread, providers, newThreadProvider, hasMessages, bottomRow.Bounds().W)
@@ -1393,7 +1396,6 @@ func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disab
 		Tooltip(title+" · ⌘⇧M").
 		Size(composerActionBtnSize, composerActionBtnSize).
 		Radius(buttonRadius).
-		Margin(0, 0, 0, Space2).
 		OnClick(func() {
 			s.toggleInteractionMode()
 		})
@@ -2517,7 +2519,7 @@ func contextUsageTooltip(used, limit int64) string {
 	return fmt.Sprintf("已用 %s / 上限 %s tokens", formatTokens(used), formatTokens(limit))
 }
 
-// makeContextMeterSVG 生成用于绘制上下文用量圆环的矢量图（直径 15，含背景浅色圆环与根据百分比截取的前景圆弧）。
+// makeContextMeterSVG 生成包含背景圆环与进度圆弧的矢量图。
 // dark 参数用于保证在深色背景下底环和进度弧均清晰明亮。
 // contextMeterSVGCache 缓存已解析的上下文用量圆环（键为外观与进度），上限 64 条后整表清空。
 // 圆环每帧在每个 composer 里都画一次，进度以 0.01 周长为精度（与 dasharray 的两位小数一致），
@@ -2660,7 +2662,7 @@ func renderContextMeter(c *ui.Context, s *chatState, currentThread *Thread) {
 	meter := ui.ButtonBase(c.Key("composer-context-meter")).
 		Label("上下文用量").
 		Tooltip(tooltip).
-		Size(IconMD, IconMD).
+		Size(composerActionBtnSize, composerActionBtnSize).
 		Radius(RadiusMD).
 		OnClick(func() {
 			s.composerView.usageOpen = !s.composerView.usageOpen
@@ -2669,7 +2671,7 @@ func renderContextMeter(c *ui.Context, s *chatState, currentThread *Thread) {
 
 	meter.Children(func() {
 		ui.Image(c, makeContextMeterSVG(isDark(c), fraction, isWarning)).
-			Size(IconMD, IconMD).
+			Size(composerContextMeterImageSize, composerContextMeterImageSize).
 			Fit(ui.Contain)
 	})
 	appPopover(c.Key("composer-usage-popover"), meter, &s.composerView.usageOpen, func() {

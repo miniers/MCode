@@ -24,6 +24,18 @@ func TestComposerCardConcentric(t *testing.T) {
 	}
 }
 
+func TestComposerControlSpacingAndContextRing(t *testing.T) {
+	if composerControlGap != Space2 {
+		t.Fatalf("底栏控件间距 = %v, want %v", composerControlGap, Space2)
+	}
+	if ratio := composerContextRingDiameter / composerActionBtnSize; ratio < 0.60 || ratio > 0.65 {
+		t.Fatalf("上下文圆环直径与按钮高度之比 = %v, want 0.60–0.65", ratio)
+	}
+	if diameter := composerContextMeterImageSize * 20.5 / 24; diameter < composerContextRingDiameter-0.01 || diameter > composerContextRingDiameter+0.01 {
+		t.Fatalf("上下文圆环实际直径 = %v, want %v", diameter, composerContextRingDiameter)
+	}
+}
+
 func TestComposerWidths(t *testing.T) {
 	for _, docked := range []bool{false, true} {
 		s := newChatState(NewFakeClient())
