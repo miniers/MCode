@@ -6,17 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
-	"mcode/internal/procattr"
 	"mcode/internal/providers/agy/accounts"
 )
 
@@ -952,8 +948,6 @@ func providerRowBin(st *SettingsState, id string) string {
 	return bin
 }
 
-var providerTerminalGOOS = runtime.GOOS
-
 // providerTerminalCommand 返回供应商终端动作对应的命令；不支持的动作返回 ok=false。
 // 更新优先用后端按安装渠道动态生成的命令（ProviderVersionInfo.UpdateCommand），
 // 它跟着二进制的真实安装方式走，不只限 claude/codex/copilot。
@@ -1076,78 +1070,6 @@ func providerConfiguredBin(st *SettingsState, id string) string {
 		return strings.TrimSpace(st.providerRows.settings[id].Bin)
 	}
 	return ""
-}
-
-func providerInstallScript(goos, cmd string) string {
-	if goos != "windows" {
-		return "#!/bin/zsh -l\n" + cmd + "\n"
-	}
-	if strings.HasPrefix(strings.TrimSpace(cmd), "npm ") || strings.TrimSpace(cmd) == "npm" {
-		return `if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
-    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
-    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-        Write-Host '需要先安装 Node.js：https://nodejs.org'
-        exit 1
-    }
-}
-` + cmd + "\n"
-	}
-	return cmd + "\n"
-}
-
-func launchProviderTerminalAction(st *SettingsState, id, action string) {
-	cmd, ok := providerTerminalCommand(st, id, action)
-	if !ok {
-		return
-	}
-
-	// 失败写回行的更新提示：否则点「在终端登录/安装/更新」没反应也没有任何解释。
-	fail := func(err error) {
-		st.mu.Lock()
-		if st.providerRows.updateMsg == nil {
-			st.providerRows.updateMsg = make(map[string]string)
-		}
-		st.providerRows.updateMsg[id] = "打开终端失败：" + err.Error()
-		st.mu.Unlock()
-		st.invalidate()
-	}
-
-	go func() {
-		dir := filepath.Join(os.TempDir(), "mcode-login")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			fail(err)
-			return
-		}
-		// darwin/linux 写 .command 交给终端执行；windows 写 .ps1 由新窗口的 powershell 执行。
-		ext := ".command"
-		if runtime.GOOS == "windows" {
-			ext = ".ps1"
-		}
-		scriptPath := filepath.Join(dir, fmt.Sprintf("%s-%s%s", action, id, ext))
-		content := providerInstallScript(runtime.GOOS, cmd)
-		if runtime.GOOS == "windows" {
-			content = "\ufeff" + content
-		}
-		if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
-			fail(err)
-			return
-		}
-		switch runtime.GOOS {
-		case "windows":
-			if err := procattr.HideWindow(exec.Command("cmd", "/c", "start", "", "powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", scriptPath)).Run(); err != nil {
-				fail(err)
-			}
-		case "darwin":
-			if err := exec.Command("open", scriptPath).Run(); err != nil {
-				fail(err)
-			}
-		default:
-			if err := mygo.Shell.OpenPath(scriptPath); err != nil {
-				fail(err)
-			}
-		}
-	}()
 }
 
 func (st *SettingsState) checkProviderUpdate(id string) {
