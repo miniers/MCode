@@ -55,6 +55,7 @@ MCode 是一款 AI 编码桌面客户端，用一个窗口管理多个 AI coding
 
 | 文档路径 | 说明 |
 | :--- | :--- |
+| [docs/user-guide.md](docs/user-guide.md) | 新用户使用引导：安装、配置智能体、对接 Magpie 网关 |
 | [docs/dev/README.md](docs/dev/README.md) | 开发文档：各子系统的功能、实现方式和代码入口 |
 | [docs/remote-control.schema.json](docs/remote-control.schema.json) | 远程控制协议的机器可读契约（JSON-RPC 2.0） |
 | [docs/remote-control-protocol.md](docs/remote-control-protocol.md) | 远程控制协议说明，含 Web Push 离线推送 |
