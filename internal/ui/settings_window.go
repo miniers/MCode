@@ -17,13 +17,18 @@ type settingsWindowEntry struct {
 
 var settingsWindowMu sync.Mutex
 var settingsWindow *settingsWindowEntry
-var settingsWindowOpener = openSettingsWindowNative
+// settingsWindowOpener 为空时走原生窗口；测试替换为无窗口实现。声明处不赋值，避免初始化循环。
+var settingsWindowOpener func(owner *chatState, page string) *mygo.Window
 
 func openSettingsWindow(owner *chatState, page string) *mygo.Window {
 	if owner == nil || getChatSettings(owner) == nil {
 		return nil
 	}
-	return settingsWindowOpener(owner, page)
+	opener := settingsWindowOpener
+	if opener == nil {
+		opener = openSettingsWindowNative
+	}
+	return opener(owner, page)
 }
 
 // openSettingsWindowHeadless 供没有主事件循环的测试使用。
