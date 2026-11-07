@@ -139,7 +139,7 @@ else
     if [[ ${#AI_CMD[@]} -eq 0 ]] || ! command -v "${AI_CMD[0]}" >/dev/null 2>&1; then
         echo '提示: 未找到 AI 命令，使用提交标题草稿' >&2
     else
-        echo "正在用 $AI_AGENT（${AI_MODEL:-默认模型}）生成更新内容…" >&2
+        echo "正在用 ${AI_CMD[0]}（${AI_MODEL:-默认模型}）生成更新内容…" >&2
         PROMPT="你正在为 MCode（面向 AI 编程代理的 macOS 桌面应用）版本 $NEXT 撰写发布说明。根据以下提交和文件统计，用 Markdown 撰写面向用户的中文亮点。按 ### 新功能、### 改进、### 修复 分组，省略空分组；每条用一句短句，总计最多 8 条；合并相关提交；省略测试、重构、CI、文档、发布杂务和内部细节。不要版本标题、前言或结束语，只输出 Markdown。
 
 $(head -c 60000 "$AI_INPUT_TEMP")"
