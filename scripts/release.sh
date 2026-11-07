@@ -2,7 +2,7 @@
 # 本地创建并推送发布标签。
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
 usage() {
     echo '用法: scripts/release.sh [patch|minor|major|版本号] [--dry-run] [-h|--help]'

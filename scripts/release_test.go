@@ -104,9 +104,10 @@ func TestReleasePreconditionsAndDryRun(t *testing.T) {
 		name string
 		args []string
 		dirty, tag, dry bool
+		want string
 	}{
-		{name: "工作区不干净", dirty: true},
-		{name: "标签已存在", tag: true},
+		{name: "工作区不干净", dirty: true, want: "工作区不干净"},
+		{name: "标签已存在", tag: true, want: "本地标签 v0.2.10 已存在"},
 		{name: "试运行", args: []string{"--dry-run"}, dry: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -128,6 +129,9 @@ func TestReleasePreconditionsAndDryRun(t *testing.T) {
 			out, err := runRelease(t, dir, tc.args...)
 			if (err == nil) != tc.dry {
 				t.Fatalf("运行结果不符合预期: %v\n%s", err, out)
+			}
+			if tc.want != "" && !strings.Contains(out, tc.want) {
+				t.Fatalf("输出不包含预期信息 %q: %s", tc.want, out)
 			}
 			after, err := os.ReadFile(filepath.Join(dir, "mygo.json"))
 			if err != nil {
