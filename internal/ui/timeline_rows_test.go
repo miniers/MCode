@@ -385,6 +385,12 @@ func TestTimelineRows_ToolBeatChips(t *testing.T) {
 	if !ok2 || !okDetail || !ok3 || middle.Y >= detail.Y || detail.Y >= last.Y {
 		t.Fatalf("详情应位于对应胶囊与下一胶囊之间: middle=%+v detail=%+v last=%+v", middle, detail, last)
 	}
+	if detail.W <= 0 {
+		t.Fatalf("详情文本宽度应大于零: detail=%+v", detail)
+	}
+	if detail.X-middle.X >= toolBeatPadLeft+2*Space4 {
+		t.Fatalf("详情不应双重缩进: middle=%+v detail=%+v", middle, detail)
+	}
 
 	// 再点一次收起
 	clickText(t, tt, "$ git diff")

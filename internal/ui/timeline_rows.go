@@ -6073,13 +6073,18 @@ func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID s
 			}
 			if len(beatTools) > 0 {
 				ui.Column(c.Key("tool-beat-chips-"+item.id)).
+					FillWidth().
 					Gap(Space1).
 					AlignItems(ui.Start).
-					Padding(0, 0, 0, toolBeatPadLeft).
 					Children(func() {
 						opened := false
 						for _, toolMsg := range beatTools {
-							renderToolChip(c, s, toolMsg, beatTools)
+							ui.Row(c.Key("tool-beat-chip-row-"+toolMsg.ID)).
+								Padding(0, 0, 0, toolBeatPadLeft).
+								AlignItems(ui.Center).
+								Children(func() {
+									renderToolChip(c, s, toolMsg, beatTools)
+								})
 							if !opened && s.toolMessageExpanded(toolMsg) {
 								renderToolDetail(c, s, toolMsg)
 								opened = true
