@@ -710,17 +710,20 @@ func (c *Client) KillRunningCommand(ctx context.Context, threadID, messageID str
 	return c.backend.KillRunningCommand(ctx, threadID, messageID)
 }
 
-// 后端接入后台任务接口后替换此占位错误。
-var errBackgroundTaskUnsupported = errors.New("后台任务日志与停止暂不可用")
-
 // BackgroundTaskLog 获取指定后台任务的日志。
 func (c *Client) BackgroundTaskLog(ctx context.Context, threadID, messageID string) (string, bool, error) {
-	return "", false, errBackgroundTaskUnsupported
+	if c.backend == nil {
+		return "", false, errors.New("backend 不可用")
+	}
+	return c.backend.BackgroundTaskLog(ctx, threadID, messageID)
 }
 
 // StopBackgroundTask 停止指定后台任务。
 func (c *Client) StopBackgroundTask(ctx context.Context, threadID, messageID string) (bool, error) {
-	return false, errBackgroundTaskUnsupported
+	if c.backend == nil {
+		return false, errors.New("backend 不可用")
+	}
+	return c.backend.StopBackgroundTask(ctx, threadID, messageID)
 }
 
 // SplitSession 分割会话：在时间线末尾写一条分割线，从下一条消息起发给模型的上下文不再带

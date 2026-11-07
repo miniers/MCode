@@ -26,6 +26,7 @@ type composerViewState struct {
 	backgroundTaskStopping map[string]bool // 正在停止的消息。
 	backgroundTaskStopped map[string]time.Time // 已停止消息的动画起始时间。
 	backgroundTaskScroll ui.ScrollState // 日志滚动位置。
+	backgroundTaskScrollOwner string // 当前或最后展开的日志所属消息。
 	backgroundTaskScrolledLog string // 上次滚动到底部时的日志。
 	downloadsOpen        bool
 	usageOpen            bool

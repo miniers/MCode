@@ -301,6 +301,10 @@
     {
       "$ref": "#/$defs/RemoteThreadsKillRunningCommandResponse"
     },
+    { "$ref": "#/$defs/RemoteThreadsBackgroundTaskLogRequest" },
+    { "$ref": "#/$defs/RemoteThreadsBackgroundTaskLogResponse" },
+    { "$ref": "#/$defs/RemoteThreadsStopBackgroundTaskRequest" },
+    { "$ref": "#/$defs/RemoteThreadsStopBackgroundTaskResponse" },
     {
       "$ref": "#/$defs/RemoteProvidersPersonasRequest"
     },
@@ -6937,6 +6941,54 @@
       ],
       "additionalProperties": false
     },
+    "RemoteThreadsBackgroundTaskLogParams": {
+      "type": "object",
+      "properties": { "threadID": { "$ref": "#/$defs/UUID" }, "messageID": { "$ref": "#/$defs/UUID" } },
+      "required": ["threadID", "messageID"],
+      "additionalProperties": false
+    },
+    "RemoteThreadsBackgroundTaskLogResult": {
+      "type": "object",
+      "properties": { "text": { "type": "string" }, "available": { "type": "boolean" } },
+      "required": ["text", "available"],
+      "additionalProperties": false
+    },
+    "RemoteThreadsBackgroundTaskLogRequest": {
+      "type": "object",
+      "properties": { "jsonrpc": { "const": "2.0" }, "method": { "const": "threads.backgroundTaskLog" }, "params": { "$ref": "#/$defs/RemoteThreadsBackgroundTaskLogParams" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "method", "params", "id"],
+      "additionalProperties": false
+    },
+    "RemoteThreadsBackgroundTaskLogResponse": {
+      "type": "object",
+      "properties": { "jsonrpc": { "const": "2.0" }, "result": { "$ref": "#/$defs/RemoteThreadsBackgroundTaskLogResult" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "result", "id"],
+      "additionalProperties": false
+    },
+    "RemoteThreadsStopBackgroundTaskParams": {
+      "type": "object",
+      "properties": { "threadID": { "$ref": "#/$defs/UUID" }, "messageID": { "$ref": "#/$defs/UUID" } },
+      "required": ["threadID", "messageID"],
+      "additionalProperties": false
+    },
+    "RemoteThreadsStopBackgroundTaskResult": {
+      "type": "object",
+      "properties": { "stopped": { "type": "boolean" } },
+      "required": ["stopped"],
+      "additionalProperties": false
+    },
+    "RemoteThreadsStopBackgroundTaskRequest": {
+      "type": "object",
+      "properties": { "jsonrpc": { "const": "2.0" }, "method": { "const": "threads.stopBackgroundTask" }, "params": { "$ref": "#/$defs/RemoteThreadsStopBackgroundTaskParams" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "method", "params", "id"],
+      "additionalProperties": false
+    },
+    "RemoteThreadsStopBackgroundTaskResponse": {
+      "type": "object",
+      "properties": { "jsonrpc": { "const": "2.0" }, "result": { "$ref": "#/$defs/RemoteThreadsStopBackgroundTaskResult" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "result", "id"],
+      "additionalProperties": false
+    },
     "RemotePersona": {
       "type": "object",
       "properties": {
@@ -10592,6 +10644,8 @@
           {
             "$ref": "#/$defs/RemoteThreadsKillRunningCommandRequest"
           },
+          { "$ref": "#/$defs/RemoteThreadsBackgroundTaskLogRequest" },
+          { "$ref": "#/$defs/RemoteThreadsStopBackgroundTaskRequest" },
           {
             "$ref": "#/$defs/RemoteProvidersPersonasRequest"
           },
@@ -10961,6 +11015,8 @@
           {
             "$ref": "#/$defs/RemoteThreadsKillRunningCommandResponse"
           },
+          { "$ref": "#/$defs/RemoteThreadsBackgroundTaskLogResponse" },
+          { "$ref": "#/$defs/RemoteThreadsStopBackgroundTaskResponse" },
           {
             "$ref": "#/$defs/RemoteProvidersPersonasResponse"
           },

@@ -63,10 +63,14 @@ func TestBackgroundTaskExpandAndStop(t *testing.T) {
 		calls := append([]string(nil), client.backgroundTaskLogCalls...)
 		client.mu.Unlock()
 		if len(calls) > 0 {
-			if calls[0] != "t1/bg1" { t.Fatalf("日志请求目标 = %v", calls) }
+			if calls[0] != "t1/bg1" {
+				t.Fatalf("日志请求目标 = %v", calls)
+			}
 			break
 		}
-		if time.Now().After(deadline) { t.Fatal("未请求后台任务日志") }
+		if time.Now().After(deadline) {
+			t.Fatal("未请求后台任务日志")
+		}
 		time.Sleep(time.Millisecond)
 	}
 	clickText(t, tt, "npm run build")
@@ -74,7 +78,9 @@ func TestBackgroundTaskExpandAndStop(t *testing.T) {
 	s.mu.Lock()
 	expanded := s.composerView.backgroundTaskExpanded
 	s.mu.Unlock()
-	if expanded != "" { t.Fatalf("再次点击应收起，实际 %q", expanded) }
+	if expanded != "" {
+		t.Fatalf("再次点击应收起，实际 %q", expanded)
+	}
 	client.mu.Lock()
 	before := len(client.backgroundTaskLogCalls)
 	client.mu.Unlock()
@@ -85,12 +91,14 @@ func TestBackgroundTaskExpandAndStop(t *testing.T) {
 	client.mu.Lock()
 	after := len(client.backgroundTaskLogCalls)
 	client.mu.Unlock()
-	if after != before { t.Fatal("收起后不应继续请求日志") }
-	row, ok := tt.Find("npm run build")
-	if !ok { t.Fatal("找不到任务行") }
-	tt.Move(row.X+row.W/2, row.Y+row.H/2)
+	if after != before {
+		t.Fatal("收起后不应继续请求日志")
+	}
+	tt.Move(0, 0)
 	tt.Frame()
-	if _, ok := tt.Find("停止"); !ok { t.Fatal("任务行悬停时应显示停止按钮") }
+	if _, ok := tt.Find("停止"); !ok {
+		t.Fatal("任务行未悬停时应显示停止按钮")
+	}
 	clickText(t, tt, "停止")
 	tt.Frame()
 	deadline = time.Now().Add(time.Second)
@@ -99,10 +107,14 @@ func TestBackgroundTaskExpandAndStop(t *testing.T) {
 		calls := append([]string(nil), client.stopBackgroundTaskCalls...)
 		client.mu.Unlock()
 		if len(calls) > 0 {
-			if calls[0] != "t1/bg1" { t.Fatalf("停止请求目标 = %v", calls) }
+			if calls[0] != "t1/bg1" {
+				t.Fatalf("停止请求目标 = %v", calls)
+			}
 			break
 		}
-		if time.Now().After(deadline) { t.Fatal("未请求停止后台任务") }
+		if time.Now().After(deadline) {
+			t.Fatal("未请求停止后台任务")
+		}
 		time.Sleep(time.Millisecond)
 	}
 	for {
@@ -110,18 +122,64 @@ func TestBackgroundTaskExpandAndStop(t *testing.T) {
 		toast := s.toastMessage
 		expanded = s.composerView.backgroundTaskExpanded
 		s.mu.Unlock()
-		if toast != "" { break }
-		if time.Now().After(deadline) { t.Fatal("停止失败未提示") }
+		if toast != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("停止失败未提示")
+		}
 		time.Sleep(time.Millisecond)
 	}
-	if expanded != "" { t.Fatal("点击停止不应展开任务") }
+	if expanded != "" {
+		t.Fatal("点击停止不应展开任务")
+	}
 	tt.Frame()
-	if _, ok := tt.Find("npm run build"); !ok { t.Fatal("停止失败应保留任务行") }
-	command, ok := tt.Find("echo command")
-	if !ok { t.Fatal("找不到命令行") }
-	tt.Move(command.X+command.W/2, command.Y+command.H/2)
+	if _, ok := tt.Find("npm run build"); !ok {
+		t.Fatal("停止失败应保留任务行")
+	}
+	commandOnly := ui.NewTester(func(c *ui.Context) {
+		renderBackgroundTasksPanel(c, s, "commands", backgroundTasksItem{threadID: "t1", commands: data.commands}, nil)
+	}, 800, 500)
+	commandOnly.Frame()
+	command, ok := commandOnly.Find("echo command")
+	if !ok {
+		t.Fatal("找不到命令行")
+	}
+	commandOnly.Move(command.X+command.W/2, command.Y+command.H/2)
+	commandOnly.Frame()
+	if _, ok := commandOnly.Find("停止"); ok {
+		t.Fatal("命令行不应有停止按钮")
+	}
+}
+
+// TestBackgroundTaskSingleLogScroll 验证切换任务时只有当前任务绑定日志滚动句柄。
+func TestBackgroundTaskSingleLogScroll(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = "t1"
+	s.composerView.backgroundTasksOpen = true
+	data := backgroundTasksItem{threadID: "t1", tasks: []Message{
+		backgroundTasksTestCommandLine("bg1", 1, "background", "first task"),
+		backgroundTasksTestCommandLine("bg2", 1, "background", "second task"),
+	}}
+	tt := ui.NewTester(func(c *ui.Context) { renderBackgroundTasksPanel(c, s, "tasks", data, nil) }, 800, 500)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
 	tt.Frame()
-	if _, ok := tt.Find("停止"); ok { t.Fatal("命令行不应有停止按钮") }
+	clickText(t, tt, "first task")
+	tt.Frame()
+	if _, ok := tt.Find("后台任务日志 bg1"); !ok {
+		t.Fatal("展开的任务应有日志滚动区")
+	}
+	if _, ok := tt.Find("后台任务日志 bg2"); ok {
+		t.Fatal("收起的任务不应有日志滚动区")
+	}
+	clickText(t, tt, "second task")
+	tt.Frame()
+	if _, ok := tt.Find("后台任务日志 bg1"); ok {
+		t.Fatal("切换任务后旧任务不应占用日志滚动句柄")
+	}
+	if _, ok := tt.Find("后台任务日志 bg2"); !ok {
+		t.Fatal("切换后应显示新任务的日志滚动区")
+	}
 }
 
 // TestBackgroundRunningCommands 验证后台命令口径：

@@ -5531,6 +5531,214 @@ func (b *MemoryBackend) KillRunningCommand(ctx context.Context, threadID, messag
 	return killed, nil
 }
 
+const (
+	backgroundTaskLogMaxBytes = 64 * 1024
+	backgroundTaskLogMaxLines = 20
+)
+
+var (
+	backgroundTaskIDPattern = regexp.MustCompile(`Command running in background with ID:\s*([^\s.]+)`)
+	backgroundTaskPathPattern = regexp.MustCompile(`Output is being written to:\s*(\S+)`)
+	backgroundTaskFilePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+\.output$`)
+)
+
+type backgroundTaskStopper interface {
+	StopBackgroundTask(ctx context.Context, threadID, taskID string) error
+}
+
+func backgroundTaskDetails(text string) (string, string) {
+	var taskID, path string
+	if match := backgroundTaskIDPattern.FindStringSubmatch(text); len(match) > 1 {
+		taskID = match[1]
+	}
+	if match := backgroundTaskPathPattern.FindStringSubmatch(text); len(match) > 1 {
+		path = strings.TrimRight(match[1], ".")
+	}
+	return taskID, path
+}
+
+// backgroundTaskMessageLocked 查找后台任务消息，调用方持有 b.mu。
+func (b *MemoryBackend) backgroundTaskMessageLocked(threadID, messageID string) (*memoryThread, int, error) {
+	td, ok := b.threads[threadID]
+	if !ok {
+		return nil, -1, &wire.RPCError{Code: wire.ErrCodeResourceNotFound, Message: "会话不存在"}
+	}
+	if err := b.ensureMessagesLocked(td, threadID); err != nil {
+		return nil, -1, err
+	}
+	b.ensureMessagesLoadedLocked(td)
+	for i := range td.messages {
+		if td.messages[i].ID == messageID {
+			return td, i, nil
+		}
+	}
+	return nil, -1, &wire.RPCError{Code: wire.ErrCodeResourceNotFound, Message: "消息不存在"}
+}
+
+// BackgroundTaskLog 读取后台任务日志的末尾。
+func (b *MemoryBackend) BackgroundTaskLog(ctx context.Context, threadID, messageID string) (string, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	b.mu.Lock()
+	td, idx, err := b.backgroundTaskMessageLocked(threadID, messageID)
+	var text string
+	if err == nil && td.messages[idx].ToolStatus != nil && *td.messages[idx].ToolStatus == "background" {
+		text = td.messages[idx].Text
+	}
+	b.mu.Unlock()
+	if err != nil {
+		return "", false, err
+	}
+	_, path := backgroundTaskDetails(text)
+	if !filepath.IsAbs(path) {
+		return "", false, nil
+	}
+	path = filepath.Clean(path)
+	if filepath.Base(filepath.Dir(path)) != "tasks" || !backgroundTaskFilePattern.MatchString(filepath.Base(path)) {
+		return "", false, nil
+	}
+	validParent := false
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if strings.HasPrefix(part, "claude-") {
+			validParent = true
+			break
+		}
+	}
+	if !validParent {
+		return "", false, nil
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", true, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if !info.Mode().IsRegular() {
+		return "", false, nil
+	}
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", true, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	defer f.Close()
+	openedInfo, err := f.Stat()
+	if err != nil {
+		return "", false, err
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		return "", false, nil
+	}
+	offset := openedInfo.Size() - backgroundTaskLogMaxBytes
+	if offset < 0 {
+		offset = 0
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return "", false, err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, backgroundTaskLogMaxBytes))
+	if err != nil {
+		return "", false, err
+	}
+	if openedInfo.Size() > backgroundTaskLogMaxBytes {
+		if newline := bytes.IndexByte(data, '\n'); newline >= 0 {
+			data = data[newline+1:]
+		} else {
+			data = nil
+		}
+	}
+	lines := strings.Split(string(data), "\n")
+	end := len(lines)
+	if end > 0 && lines[end-1] == "" {
+		end--
+	}
+	if end > backgroundTaskLogMaxLines {
+		lines = lines[end-backgroundTaskLogMaxLines:]
+	}
+	return strings.Join(lines, "\n"), true, nil
+}
+
+// finishBackgroundTaskLocked 回写状态并使后台计数失效，调用方持有 b.mu。
+func finishBackgroundTaskLocked(td *memoryThread, idx int, status, now string) {
+	td.messages[idx].ToolStatus = &status
+	td.messages[idx].ToolCompletedAt = &now
+	td.bgCount.invalidate()
+}
+
+// StopBackgroundTask 请求 provider 停止任务并回写工具消息。
+func (b *MemoryBackend) StopBackgroundTask(ctx context.Context, threadID, messageID string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	b.mu.Lock()
+	td, idx, err := b.backgroundTaskMessageLocked(threadID, messageID)
+	if err != nil {
+		b.mu.Unlock()
+		return false, err
+	}
+	msg := td.messages[idx]
+	if msg.ToolStatus == nil || *msg.ToolStatus != "background" {
+		b.mu.Unlock()
+		return false, errors.New("任务未在后台运行")
+	}
+	taskID, _ := backgroundTaskDetails(msg.Text)
+	if taskID == "" {
+		for id, toolID := range td.backgroundTaskTools {
+			if td.backgroundTools[toolID] == messageID {
+				taskID = id
+				break
+			}
+		}
+	}
+	stopper, ok := b.threadHarnessLocked(td.summary.Provider).(backgroundTaskStopper)
+	b.mu.Unlock()
+	if taskID == "" {
+		return false, errors.New("找不到后台任务 ID")
+	}
+	if !ok {
+		return false, errors.New("当前 provider 不支持停止后台任务")
+	}
+	if err := stopper.StopBackgroundTask(ctx, threadID, taskID); err != nil {
+		return false, err
+	}
+	b.mu.Lock()
+	td, idx, err = b.backgroundTaskMessageLocked(threadID, messageID)
+	if err != nil {
+		b.mu.Unlock()
+		return false, err
+	}
+	if td.messages[idx].ToolStatus == nil || *td.messages[idx].ToolStatus != "background" {
+		b.mu.Unlock()
+		return true, nil
+	}
+	now := formatTime(b.nowLocked())
+	finishBackgroundTaskLocked(td, idx, "stopped", now)
+	for toolID, id := range td.backgroundTools {
+		if id == messageID {
+			delete(td.backgroundTools, toolID)
+			delete(td.backgroundPending, toolID)
+			for id, taskToolID := range td.backgroundTaskTools {
+				if taskToolID == toolID {
+					delete(td.backgroundTaskTools, id)
+				}
+			}
+		}
+	}
+	td.summary.UpdatedAt = now
+	msg = td.messages[idx]
+	messages := []wire.ThreadMessage{msg}
+	b.enrichTurnMessagesLocked(td, messages)
+	summary := b.summaryForPublishLocked(td)
+	b.mu.Unlock()
+	b.persistMessages(threadID, messages)
+	b.hub.Publish(threadID, messages, nil, summary)
+	return true, nil
+}
+
 // killRunningCommandGrace 是 SIGTERM 到 SIGKILL 之间的宽限期。
 const killRunningCommandGrace = 3 * time.Second
 
@@ -7064,10 +7272,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					status = "failed"
 					td.messages[idx].Text += "\n[后台任务结束：" + e.TaskStatus + "]"
 				}
-				td.messages[idx].ToolStatus = &status
-				completedAt := now
-				td.messages[idx].ToolCompletedAt = &completedAt
-				td.bgCount.invalidate()
+				finishBackgroundTaskLocked(td, idx, status, now)
 				delete(td.backgroundTools, e.ToolID)
 				delete(td.backgroundPending, e.ToolID)
 				msgToPublish = []wire.ThreadMessage{td.messages[idx]}

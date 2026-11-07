@@ -566,6 +566,29 @@ type KillRunningCommandResult struct {
 	Killed int `json:"killed"`
 }
 
+// BackgroundTaskLogParams 对应 threads.backgroundTaskLog 请求参数。
+type BackgroundTaskLogParams struct {
+	ThreadID  string `json:"threadID"`
+	MessageID string `json:"messageID"`
+}
+
+// BackgroundTaskLogResult 对应 threads.backgroundTaskLog 成功结果。
+type BackgroundTaskLogResult struct {
+	Text      string `json:"text"`
+	Available bool   `json:"available"`
+}
+
+// StopBackgroundTaskParams 对应 threads.stopBackgroundTask 请求参数。
+type StopBackgroundTaskParams struct {
+	ThreadID  string `json:"threadID"`
+	MessageID string `json:"messageID"`
+}
+
+// StopBackgroundTaskResult 对应 threads.stopBackgroundTask 成功结果。
+type StopBackgroundTaskResult struct {
+	Stopped bool `json:"stopped"`
+}
+
 // --- 服务端通知载荷 ---
 
 type ThreadEventPayload struct {

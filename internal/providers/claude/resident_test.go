@@ -203,6 +203,9 @@ func (st *fakeResidentState) handle(frame []byte) bool {
 			_, _ = out.WriteString(fakeInterruptedResult + "\n")
 			return false
 		}
+		if parsed.Request.Subtype == "stop_task" && st.name == "resident_stop_silent" {
+			return false
+		}
 		_, _ = out.WriteString(fakeControlResponse(parsed.RequestID, st.name != "resident_reject_control") + "\n")
 	}
 	return false
@@ -334,6 +337,79 @@ func runCancelAfter(h *Harness, turn harness.Turn, n int) ([]harness.Event, erro
 		}
 	})
 	return events, err
+}
+
+func TestResident_StopBackgroundTask(t *testing.T) {
+	fixture := fixtureAbs(t, "basic.jsonl")
+	for _, tc := range []struct {
+		name   string
+		mode   string
+		reason string
+	}{
+		{name: "success", mode: "resident"},
+		{name: "error", mode: "resident_reject_control", reason: "rejected by fake"},
+		{name: "timeout", mode: "resident_stop_silent", reason: "context deadline exceeded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			framesPath := filepath.Join(dir, "frames.log")
+			h := New(Options{Binary: os.Args[0], IdleTTL: time.Minute})
+			defer h.Close()
+			h.SetUnsolicitedTurnHandler(func(string) {})
+			turn := residentTurn(tc.mode+":"+fixture, filepath.Join(dir, "starts.log"), dir)
+			turn.Env = append(turn.Env, fakeFramesEnv+"="+framesPath)
+			if err := h.Run(context.Background(), turn, func(harness.Event) {}); err != nil {
+				t.Fatalf("启动常驻进程失败: %v", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			err := h.StopBackgroundTask(ctx, residentTestThreadID, "task-1")
+			if tc.reason == "" && err != nil {
+				t.Fatalf("停止后台任务失败: %v", err)
+			}
+			if tc.reason != "" && (err == nil || !strings.Contains(err.Error(), tc.reason)) {
+				t.Fatalf("期望错误包含 %q，实际: %v", tc.reason, err)
+			}
+			data, err := os.ReadFile(framesPath)
+			if err != nil {
+				t.Fatalf("读取控制帧失败: %v", err)
+			}
+			parts := strings.SplitN(strings.TrimSpace(string(data)), "\t", 2)
+			if len(parts) != 2 || parts[0] != "stop_task" {
+				t.Fatalf("控制帧不正确: %s", data)
+			}
+			var frame struct {
+				Type string `json:"type"`
+				Request struct {
+					Subtype string `json:"subtype"`
+					TaskID string `json:"task_id"`
+				} `json:"request"`
+			}
+			if err := json.Unmarshal([]byte(parts[1]), &frame); err != nil || frame.Type != "control_request" || frame.Request.Subtype != "stop_task" || frame.Request.TaskID != "task-1" {
+				t.Fatalf("停止任务请求不正确: %s, %v", data, err)
+			}
+			if h.HasUnsolicitedOutput(residentTestThreadID) {
+				t.Fatal("控制应答不应进入自发输出")
+			}
+			h.mu.Lock()
+			p := h.residents[residentTestThreadID]
+			h.mu.Unlock()
+			p.mu.Lock()
+			waiters := len(p.controlWaiters)
+			p.mu.Unlock()
+			if waiters != 0 {
+				t.Fatalf("控制应答等待者未清理: %d", waiters)
+			}
+		})
+	}
+}
+
+func TestResident_StopBackgroundTaskMissingProcess(t *testing.T) {
+	h := New(Options{Binary: os.Args[0], IdleTTL: time.Minute})
+	defer h.Close()
+	if err := h.StopBackgroundTask(context.Background(), residentTestThreadID, "task-1"); err == nil || !strings.Contains(err.Error(), "后台任务所在的 claude 进程已退出") {
+		t.Fatalf("缺少常驻进程时应返回退出错误: %v", err)
+	}
 }
 
 func TestResident_ReusesProcessWithinThread(t *testing.T) {

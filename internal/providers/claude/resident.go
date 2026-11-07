@@ -64,6 +64,8 @@ const (
 	unsolicitedBacklogLimit = 10000
 	// gracefulCloseWait 是关 stdin 之后等 CLI 自行退出的时长，超时按进程组 SIGKILL。
 	gracefulCloseWait = 2 * time.Second
+	// stopTaskTimeout 是等待后台任务停止应答的最长时间。
+	stopTaskTimeout = 5 * time.Second
 	// approvalURLPlaceholder 与 approvalTokenPlaceholder 是计算复用指纹时顶替审批端点真实
 	// URL 与令牌的占位符：真实值每个进程都会重新生成，不能进指纹。
 	approvalURLPlaceholder   = "http://127.0.0.1:0/mcp"
@@ -274,6 +276,56 @@ func (h *Harness) HasUnsolicitedOutput(threadID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return !p.dead && (p.unsolicited || len(p.backlog) > 0 || p.unsolicitedDone)
+}
+
+// StopBackgroundTask 请求停止指定常驻进程中的后台任务。
+func (h *Harness) StopBackgroundTask(ctx context.Context, threadID, taskID string) error {
+	if threadID == "" || taskID == "" {
+		return errors.New("线程 ID 和后台任务 ID 不能为空")
+	}
+	h.mu.Lock()
+	p := h.residents[threadID]
+	if p == nil {
+		h.mu.Unlock()
+		return errors.New("后台任务所在的 claude 进程已退出")
+	}
+	p.mu.Lock()
+	if p.dead {
+		p.mu.Unlock()
+		h.mu.Unlock()
+		return errors.New("后台任务所在的 claude 进程已退出")
+	}
+	id := fmt.Sprintf("mcode-stop_task-%d", controlSeq.Add(1))
+	waiter := make(chan controlResult, 1)
+	if p.controlWaiters == nil {
+		p.controlWaiters = make(map[string]chan controlResult)
+	}
+	p.controlWaiters[id] = waiter
+	p.mu.Unlock()
+	h.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		delete(p.controlWaiters, id)
+		p.mu.Unlock()
+	}()
+	if err := p.sendControlWithID(id, "stop_task", map[string]any{"task_id": taskID}); err != nil {
+		return fmt.Errorf("发送停止后台任务请求: %w", err)
+	}
+	timer := time.NewTimer(stopTaskTimeout)
+	defer timer.Stop()
+	select {
+	case result := <-waiter:
+		if result.success {
+			return nil
+		}
+		return fmt.Errorf("停止后台任务失败: %s", result.reason)
+	case <-p.exited:
+		return errors.New("后台任务所在的 claude 进程已退出")
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return errors.New("等待停止后台任务应答超时")
+	}
 }
 
 // acquireAttached 取出 attach 轮要接的常驻进程：只看会话表里的现有进程，没有进程、已死、正忙
@@ -1274,6 +1326,11 @@ type stdinUserMessage struct {
 // controlSeq 为控制帧生成不重复的 request_id。
 var controlSeq atomic.Uint64
 
+type controlResult struct {
+	success bool
+	reason  string
+}
+
 // residentProc 是一个驻留的 `claude -p --input-format stream-json` 子进程。
 type residentProc struct {
 	threadID string
@@ -1309,6 +1366,7 @@ type residentProc struct {
 	idle      *time.Timer
 	gen       uint64
 	sink      *lineSink
+	controlWaiters map[string]chan controlResult
 	// bgTasks 是 CLI 侧仍在跑的后台任务数：system/task_started 加一，system/task_notification 减一。
 	// 大于零时不能回收或重建进程，否则后台任务会连同它的输出一起丢掉。
 	bgTasks int
@@ -1350,6 +1408,7 @@ func (p *residentProc) readLoop(onExit func()) {
 
 	p.mu.Lock()
 	p.dead = true
+	p.controlWaiters = nil
 	sink := p.sink
 	p.sink = nil
 	p.mu.Unlock()
@@ -1427,6 +1486,22 @@ func parseStdoutFrame(line []byte) (typ, subtype string) {
 // 启动期 busy 为真且尚未 attach 时，system/init 不是自发轮次，不能触发通知；
 // 本轮 result 已被消费后则按空闲状态处理，后台任务计数始终有效。
 func (p *residentProc) deliver(line []byte) {
+	if bytes.Contains(line, []byte(`"control_response"`)) {
+		id, success, reason, isResp := parseControlResponse(line)
+		if isResp {
+			p.mu.Lock()
+			waiter := p.controlWaiters[id]
+			delete(p.controlWaiters, id)
+			p.mu.Unlock()
+			if waiter != nil {
+				select {
+				case waiter <- controlResult{success: success, reason: reason}:
+				default:
+				}
+				return
+			}
+		}
+	}
 	typ, subtype := parseStdoutFrame(line)
 	candidate := typ == "system" && (subtype == "task_notification" || subtype == "init")
 	// 只有候选帧才去取回调快照：避免每一行 stdout 都去抢 harness 的表锁。
@@ -1628,12 +1703,15 @@ func (p *residentProc) sendUserFrameWithUUID(content any, uuid string) error {
 // sendControl 写入一帧控制请求并返回它的 request_id，CLI 会回一行同 id 的 control_response。
 func (p *residentProc) sendControl(subtype string, fields map[string]any) (string, error) {
 	id := fmt.Sprintf("mcode-%s-%d", subtype, controlSeq.Add(1))
+	return id, p.sendControlWithID(id, subtype, fields)
+}
+
+func (p *residentProc) sendControlWithID(id, subtype string, fields map[string]any) error {
 	request := map[string]any{"subtype": subtype}
 	for k, v := range fields {
 		request[k] = v
 	}
-	err := p.sendFrame(map[string]any{"type": "control_request", "request_id": id, "request": request})
-	return id, err
+	return p.sendFrame(map[string]any{"type": "control_request", "request_id": id, "request": request})
 }
 
 // sendInterrupt 写入打断控制帧：CLI 回一行 control_response，被打断的那一轮补一个 result。

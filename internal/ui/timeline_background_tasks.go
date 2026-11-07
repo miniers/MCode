@@ -17,6 +17,10 @@ const (
 	backgroundTasksTooltipSuffix = "列出 provider 托管的后台任务、回合结束后仍在运行的命令与运行中的子智能体"
 	// backgroundTasksMaxRows 是浮层最多列出的条目数：再多会撑高浮层，其余用一行「还有 N 个」概括。
 	backgroundTasksMaxRows = 5
+	// backgroundTaskLogMaxLines 限制日志区最多显示的行数。
+	backgroundTaskLogMaxLines = 8
+	// backgroundTaskLogLineHeight 是日志文字的行高倍数。
+	backgroundTaskLogLineHeight = 1.4
 	// backgroundWaitShimmerLabel 是时间线等待条扫光的无障碍名，供测试与调试定位这条装饰层。
 	backgroundWaitShimmerLabel = "等待后台任务扫光"
 )
@@ -439,6 +443,10 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 	s.mu.Lock()
 	v := &s.composerView
 	expanded := v.backgroundTaskExpanded == m.ID
+	if expanded {
+		v.backgroundTaskScrollOwner = m.ID
+	}
+	scrollOwner := v.backgroundTaskScrollOwner == m.ID && (expanded || v.backgroundTaskExpanded == "")
 	log := ""
 	if v.backgroundTaskLogID == m.ID {
 		log = v.backgroundTaskLog
@@ -458,58 +466,80 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 	}
 	row := ui.Column(c.Key(rowKey)).FillWidth().Clip()
 	target := float32(1)
-	if stopped { target = 0 }
+	if stopped {
+		target = 0
+	}
 	fade := row.AnimateTo("stop", target, ui.Animation{Duration: animateDuration(c, DurFast), Ease: ui.EaseOut})
 	row.Opacity(fade)
-	if stopped {
-		row.Height(ControlMD * fade)
-	}
 	row.Children(func() {
-		btn := ui.ButtonBase(c.Key(rowKey+"/button")).FillWidth().Height(ControlMD).
-			Padding(0, Space3).Radius(RadiusMD).Gap(Space3).AlignItems(ui.Center).
-			Justify(ui.Start).Cursor(ui.CursorPointer).Label(backgroundTaskDisplayTitle(m))
-		if btn.Hovered() { btn.Background(ThemeHover(c).Alpha(0.5)) }
-		if btn.Clicked() {
-			s.mu.Lock()
-			v := &s.composerView
-			if v.backgroundTaskExpanded == m.ID { v.backgroundTaskExpanded = "" } else { v.backgroundTaskExpanded = m.ID }
-			v.backgroundTaskGeneration++
-			v.backgroundTaskLogNext = time.Time{}
-			s.mu.Unlock()
-			s.invalidate()
-		}
-		btn.Children(func() {
-			ui.Row(c.Key(rowKey+"/icon")).Size(18, 18).Radius(RadiusXS).
-				Background(ThemeHover(c).Alpha(0.6)).Justify(ui.Center).AlignItems(ui.Center).
-				Children(func() { ui.Icon(c, IconTerminal()).Size(10, 10).TextColor(ThemeSecondaryText(c)) })
-			ui.Row(c.Key(rowKey+"/title")).Grow(1).Shrink(1).Clip().AlignItems(ui.Center).Children(func() {
-				ui.Text(c, backgroundTaskDisplayTitle(m)).FontSize(scaledFont(TypeFootnote)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine()
-			})
-			if duration, ok := toolBackgroundRunDuration(c, m); ok {
-				ui.Text(c, duration).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine()
+		ui.Row(c.Key(rowKey + "/header")).FillWidth().Height(ControlMD).AlignItems(ui.Center).Children(func() {
+			btn := ui.ButtonBase(c.Key(rowKey+"/button")).Grow(1).Shrink(1).Height(ControlMD).
+				Padding(0, Space3).Radius(RadiusMD).Gap(Space3).AlignItems(ui.Center).
+				Justify(ui.Start).Cursor(ui.CursorPointer).Label(backgroundTaskDisplayTitle(m))
+			if btn.Hovered() {
+				btn.Background(ThemeHover(c).Alpha(0.5))
 			}
-			if canStop && (btn.Hovered() || stopping) {
+			if btn.Clicked() {
+				s.mu.Lock()
+				v := &s.composerView
+				if v.backgroundTaskExpanded == m.ID {
+					v.backgroundTaskExpanded = ""
+				} else {
+					v.backgroundTaskExpanded = m.ID
+					v.backgroundTaskScrollOwner = m.ID
+				}
+				v.backgroundTaskGeneration++
+				v.backgroundTaskLogNext = time.Time{}
+				s.mu.Unlock()
+				s.invalidate()
+			}
+			btn.Children(func() {
+				ui.Row(c.Key(rowKey+"/icon")).Size(18, 18).Radius(RadiusXS).
+					Background(ThemeHover(c).Alpha(0.6)).Justify(ui.Center).AlignItems(ui.Center).
+					Children(func() { ui.Icon(c, IconTerminal()).Size(10, 10).TextColor(ThemeSecondaryText(c)) })
+				ui.Row(c.Key(rowKey + "/title")).Grow(1).Shrink(1).Clip().AlignItems(ui.Center).Children(func() {
+					ui.Text(c, backgroundTaskDisplayTitle(m)).FontSize(scaledFont(TypeFootnote)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine()
+				})
+				if duration, ok := toolBackgroundRunDuration(c, m); ok {
+					ui.Text(c, duration).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine()
+				}
+			})
+			if canStop {
 				stop := ui.ButtonBase(c.Key(rowKey+"/stop")).Size(18, 18).Label("停止").Tooltip("停止").Cursor(ui.CursorPointer)
-				if stop.Clicked() && !stopping { stopBackgroundTask(s, threadID, m.ID) }
+				if stopping {
+					stop.Opacity(0.5)
+				}
+				if stop.Clicked() && !stopping {
+					stopBackgroundTask(s, threadID, m.ID)
+				}
 				stop.Children(func() { ui.Icon(c, IconStopFilled()).Size(10, 10).TextColor(ThemeSecondaryText(c)) })
 			}
 		})
-		if log == "" { log = "暂无输出" }
+		if log == "" {
+			log = "暂无输出"
+		}
 		lines := float32(strings.Count(log, "\n") + 1)
-		if lines > 8 { lines = 8 }
+		if lines > backgroundTaskLogMaxLines {
+			lines = backgroundTaskLogMaxLines
+		}
 		height := float32(0)
-		if expanded { height = lines * scaledFont(TypeCaption) * 1.4 + Space2 }
-		wrap := ui.Column(c.Key(rowKey+"/log-wrap")).FillWidth().Clip()
-		wrap.Height(wrap.AnimateTo("expand", height, ui.Animation{Duration: animateDuration(c, DurBase), Ease: ui.EaseOut}))
+		if expanded {
+			height = lines*scaledFont(TypeCaption)*backgroundTaskLogLineHeight + Space2
+		}
+		wrap := ui.Column(c.Key(rowKey + "/log-wrap")).FillWidth().Clip()
+		animatedHeight := wrap.AnimateTo("expand", height, ui.Animation{Duration: animateDuration(c, DurBase), Ease: ui.EaseOut})
+		wrap.Height(animatedHeight)
 		wrap.Children(func() {
-			if v.backgroundTaskScrolledLog != log {
-				v.backgroundTaskScroll.Y = math.MaxFloat32
-				v.backgroundTaskScrolledLog = log
-			}
-			ui.Scroll(c.Key(rowKey+"/log")).FillWidth().MaxHeight(8 * scaledFont(TypeCaption) * 1.4).
-				TrackScroll(&v.backgroundTaskScroll).Children(func() {
-					ui.Text(c, log).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).LineHeight(1.4).TextColor(ThemeSecondaryText(c)).Selectable()
+			if scrollOwner && (expanded || animatedHeight > 0.5) {
+				if v.backgroundTaskScrolledLog != log {
+					v.backgroundTaskScroll.Y = math.MaxFloat32
+					v.backgroundTaskScrolledLog = log
+				}
+				ui.Scroll(c.Key(rowKey + "/log")).FillWidth().Label("后台任务日志 " + m.ID).MaxHeight(backgroundTaskLogMaxLines * scaledFont(TypeCaption) * backgroundTaskLogLineHeight).
+					TrackScroll(&v.backgroundTaskScroll).Children(func() {
+					ui.Text(c, log).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).LineHeight(backgroundTaskLogLineHeight).TextColor(ThemeSecondaryText(c)).Selectable()
 				})
+			}
 		})
 	})
 }

@@ -1022,6 +1022,40 @@ func (d *Dispatcher) handleSingle(ctx context.Context, c Conn, raw []byte) *wire
 		}
 		return replySuccess(wire.KillRunningCommandResult{Killed: killed})
 
+	case "threads.backgroundTaskLog":
+		var p wire.BackgroundTaskLogParams
+		if err := decodeStrict(env.Params, &p); err != nil || !isValidUUID(p.ThreadID) || !isValidUUID(p.MessageID) {
+			return replyErr(wire.InvalidParams, "Invalid background task log params")
+		}
+		reader, ok := d.backend.(interface {
+			BackgroundTaskLog(context.Context, string, string) (string, bool, error)
+		})
+		if !ok {
+			return replyErr(wire.MethodNotFound, "Method not implemented")
+		}
+		text, available, err := reader.BackgroundTaskLog(ctx, p.ThreadID, p.MessageID)
+		if err != nil {
+			return replyWithBackendErr(err)
+		}
+		return replySuccess(wire.BackgroundTaskLogResult{Text: text, Available: available})
+
+	case "threads.stopBackgroundTask":
+		var p wire.StopBackgroundTaskParams
+		if err := decodeStrict(env.Params, &p); err != nil || !isValidUUID(p.ThreadID) || !isValidUUID(p.MessageID) {
+			return replyErr(wire.InvalidParams, "Invalid stop background task params")
+		}
+		stopper, ok := d.backend.(interface {
+			StopBackgroundTask(context.Context, string, string) (bool, error)
+		})
+		if !ok {
+			return replyErr(wire.MethodNotFound, "Method not implemented")
+		}
+		stopped, err := stopper.StopBackgroundTask(ctx, p.ThreadID, p.MessageID)
+		if err != nil {
+			return replyWithBackendErr(err)
+		}
+		return replySuccess(wire.StopBackgroundTaskResult{Stopped: stopped})
+
 	case "threads.queue.edit":
 		var p wire.QueueEditParams
 		if err := decodeStrict(env.Params, &p); err != nil || !isValidUUID(p.ThreadID) ||
