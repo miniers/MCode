@@ -387,25 +387,16 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 }
 
 // renderSettingsSection 渲染设置页的分节：标题在卡片外，内容整体包进 SectionCard。
-// 标题吸在详情滚动区顶部，下一节到来时被推到上一节之外，如 CSS 的 position: sticky。
-// 标题外面的 Row 铺满列宽并带窗口底色，滚过的内容才不会从标题底下透出来；
-// 标题行上下各留 Space1，再把列间距缩掉同样的量，标题与卡片之间的视觉间距保持不变。
+// 标题不做吸顶：详情区的行定位（ScrollIntoView）会把目标行对到滚动区顶边，
+// 吸顶标题会盖住它对不齐的那一段，而 mygo 没有 scroll-padding 之类的避让机制。
 func renderSettingsSection(c *ui.Context, key string, title string, content func()) {
-	ui.Column(c.Key(key)).Gap(settingsSectionTitleGap - Space1).Children(func() {
+	ui.Column(c.Key(key)).Gap(settingsSectionTitleGap).Children(func() {
 		if title != "" {
-			ui.Row(c.Key(key+"-title")).
-				FillWidth().
-				Padding(Space1, 0, Space1, 0).
-				Background(ThemeWindowBg(c)).
-				Sticky().
-				Top(0).
-				Children(func() {
-					ui.Text(c, title).
-						FontSize(TypeCaption).
-						FontWeight(500).
-						TextColor(ThemeTertiaryText(c)).
-						Margin(0, 0, 0, settingsRowPadX)
-				})
+			ui.Text(c, title).
+				FontSize(TypeCaption).
+				FontWeight(500).
+				TextColor(ThemeTertiaryText(c)).
+				Margin(0, 0, 0, settingsRowPadX)
 		}
 		SectionCard(c, key+"-card", "", content).Label("设置卡片 " + key)
 	})
