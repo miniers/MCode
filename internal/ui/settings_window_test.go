@@ -1,6 +1,22 @@
 package mcodeui
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+)
+
+func TestSettingsWindowInlineRendersInTests(t *testing.T) {
+	resetSettingsWindowForTest()
+	t.Cleanup(resetSettingsWindowForTest)
+	tt := ui.NewTester(Root(NewFakeClient(), WithSettings(settingsTestDir(t), nil)), 1000, 3000)
+
+	waitFor(t, tt, func() bool { return tt.HasText("设置") })
+	if err := tt.Click("设置"); err != nil {
+		t.Fatalf("点击设置失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("通用") })
+}
 
 func TestSettingsWindowHeadlessOpenDoesNotBlock(t *testing.T) {
 	resetSettingsWindowForTest()

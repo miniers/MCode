@@ -74,6 +74,39 @@ func TestOnboardingResume(t *testing.T) {
 	}
 }
 
+// TestOnboardingIgnoresOtherSettingsWindow 验证其他窗口的设置不影响当前引导。
+func TestOnboardingIgnoresOtherSettingsWindow(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	st := NewSettingsState(t.TempDir(), nil, s)
+	setChatSettings(s, st)
+	settingsWindowMu.Lock()
+	settingsWindow = &settingsWindowEntry{state: &SettingsState{open: true}}
+	settingsWindowMu.Unlock()
+	t.Cleanup(resetSettingsWindowForTest)
+
+	u := onboardingState(s)
+	u.open, u.step = true, onboardingWelcome
+	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
+	if !tt.HasText("欢迎使用 mcode") {
+		t.Fatalf("其他窗口的设置不应隐藏引导：%q", tt.Texts())
+	}
+
+	u.step, u.suspendedForSettings = onboardingPi, true
+	st.mu.Lock()
+	st.open = true
+	st.mu.Unlock()
+	if onboardingResume(s, st) {
+		t.Fatal("本窗口设置打开时引导应隐藏")
+	}
+	st.mu.Lock()
+	st.open = false
+	st.mu.Unlock()
+	if !onboardingResume(s, st) || u.step != onboardingPi || u.suspendedForSettings {
+		t.Fatal("本窗口设置关闭后应恢复原步骤")
+	}
+}
+
 // TestOnboardingSummaryAndPrerequisites 验证新手引导的对应行为。
 func TestOnboardingSummaryAndPrerequisites(t *testing.T) {
 	magpie, pi := onboardingSummaryRoute(onboardingDirect, "未连接", "未安装")

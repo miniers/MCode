@@ -1272,8 +1272,7 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 			})
 
 		// 导航列表纵向滚动，命中项在页名下缩进列出。
-		const settingsNavVerticalPadding = 0
-		ui.Scroll(c.Key("settings-nav-scroll")).Grow(1).Padding(settingsNavVerticalPadding, ListInset).Children(func() {
+		ui.Scroll(c.Key("settings-nav-scroll")).Grow(1).Padding(settingsVerticalPadding, ListInset).Children(func() {
 			for _, item := range visible {
 				renderSettingsNavItem(c, st, item, hitsByPage[item.id])
 			}
@@ -1488,6 +1487,8 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 
 }
 
+const settingsVerticalPadding = 0
+
 // renderSettingsWindow 绘制设置窗口及其子弹窗。
 func renderSettingsWindow(c *ui.Context, st *SettingsState) {
 	if st == nil || !st.IsOpen() {
@@ -1500,7 +1501,7 @@ func renderSettingsWindow(c *ui.Context, st *SettingsState) {
 	width, _ := c.Size()
 	ui.Column(c.Key("settings-window-root")).Label("设置").Fill().Background(ThemeWindowBg(c)).Children(func() {
 		ui.Row(c.Key("settings-window-titlebar")).FillWidth().Height(HeaderHeight).DragWindow().
-			Padding(0, titleBarTrailingInset(c), 0, titleBarLeadingInset(c))
+			Padding(settingsVerticalPadding, titleBarTrailingInset(c), settingsVerticalPadding, titleBarLeadingInset(c))
 		ui.Row(c.Key("settings-dialog-body")).FillWidth().Grow(1).MinHeight(0).Children(func() {
 			ui.Column(c.Key("settings-dialog-nav")).Width(min(float32(220), width*0.35)).FillHeight().Children(func() {
 				renderSettingsNav(c, st)

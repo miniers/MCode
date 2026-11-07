@@ -17,6 +17,10 @@ type settingsWindowEntry struct {
 
 var settingsWindowMu sync.Mutex
 var settingsWindow *settingsWindowEntry
+
+// 没有主事件循环的测试把设置内容内联渲染到所属聊天窗口根部，生产环境始终为 false。
+var settingsWindowInline bool
+
 // settingsWindowOpener 为空时走原生窗口；测试替换为无窗口实现。声明处不赋值，避免初始化循环。
 var settingsWindowOpener func(owner *chatState, page string) *mygo.Window
 
@@ -55,6 +59,17 @@ func openSettingsWindowHeadless(owner *chatState, page string) *mygo.Window {
 		st.openLegacySettingsSheet(page)
 	}
 	return nil
+}
+
+func inlineSettingsWindowState(owner *chatState) *SettingsState {
+	settingsWindowMu.Lock()
+	defer settingsWindowMu.Unlock()
+	entry := settingsWindow
+	if !settingsWindowInline || entry == nil || entry.win != nil ||
+		(!entry.visitors[owner] && entry.owner != owner) || entry.state == nil || !entry.state.IsOpen() {
+		return nil
+	}
+	return entry.state
 }
 
 func resetSettingsWindowForTest() {

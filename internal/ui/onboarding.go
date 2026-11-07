@@ -183,7 +183,7 @@ func onboardingResume(s *chatState, st *SettingsState) bool {
 	if u == nil {
 		return false
 	}
-	settingsOpen := currentSettingsWindowState() != nil || (st != nil && st.IsOpen())
+	settingsOpen := st != nil && st.IsOpen()
 	u.mu.Lock()
 	resume := u.open && u.suspendedForSettings && !settingsOpen
 	if resume {
