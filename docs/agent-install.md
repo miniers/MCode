@@ -5,7 +5,7 @@
 - 本文档的读者是 AI agent。agent 必须按顺序执行每一步。agent 必须运行每步的检查命令。
 - 检查失败时，agent 必须停止。agent 必须把原始输出告诉用户。
 - agent 不得替用户输入密码、API Key 或账号登录。需要这些信息时，停下来请用户提供或操作。API Key 必须由用户输入。
-- 修改 MCode 的数据目录前，必须先退出 MCode。MCode 运行时不监听 `config.json`。MCode 退出时会用内存中的配置覆盖外部修改。
+- 修改 MCode 的数据目录前，必须先退出 MCode。MCode 运行时不重新读取外部修改的 `config.json`。
 - 已有的配置文件必须合并，不得整体覆盖。修改前必须备份。
 - 完成后，按最后一节的模板向用户汇报。
 
@@ -86,7 +86,7 @@
 
    再次运行 `spctl -a -vv /Applications/MCode.app` 检查。
 
-**警告：**第 5 小步完成前，不得打开 MCode。首次打开会创建引导状态，后续写入的配置不会跳过首次启动引导。
+**警告：**使用 Magpie 网关时，第 5 步完成前，不得打开 MCode。首次打开会创建引导状态，后续写入的配置不会跳过首次启动引导。
 
 ## 第 3 步：安装智能体
 
@@ -146,7 +146,7 @@
 
 ## 第 4 步：安装 Magpie 网关
 
-用户不使用 Magpie 网关时，跳过本步。在第 5 步只做「首次启动引导」一项。
+用户不使用 Magpie 网关时，跳过第 4 步和第 5 步，直接执行第 6 步。首次打开 MCode 时显示引导。请用户在引导中点「只用直连」。
 
 1. 安装 Magpie。项目地址：https://github.com/yetone/magpie。
 
@@ -222,7 +222,7 @@ MCode 未运行时，忽略此命令的错误。
    | `version` | `9` | 配置格式版本 |
    | `providers.magpieRoutingVersion` | `1` | 必须写入。否则，MCode 的一次性迁移会把 Codex 的 `inject` 改成 `off`。 |
    | `providers.custom[].magpie` | `true` | 表示这是 Magpie 网关。 |
-   | `magpieAgents.<智能体>.mode` | `off`、`inject`、`global` | 对应界面「直连」「仅 mcode」「全局」。不得写入 `global`：该模式需要 MCode 改写智能体的全局配置文件，只写 `config.json` 不会执行这一步。 |
+   | `magpieAgents.<智能体>.mode` | `off`、`inject`、`global` | 对应界面「直连」「仅 mcode」「全局」。 |
 
    **警告：**不得写入 `global`。该模式需要 MCode 改写智能体的全局配置文件，只写 `config.json` 不会执行这一步。用户需要「全局」时，在汇报中请用户到 MCode 设置的「Magpie」页切换。
 
