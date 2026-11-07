@@ -51,6 +51,7 @@ import (
 
 // Client 实现 mcodeui.Client 接口，基于进程内的 remote.MemoryBackend 进行适配。
 type Client struct {
+	updateChecker  *UpdateChecker
 	backend        *remote.MemoryBackend
 	git            *git.Runner
 	oauth          *mcp.OAuthManager

@@ -1,6 +1,11 @@
 package mcodeui
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // runtimeModeTitle 把权限档位翻成中文：readonly 显示「只读」，空值回退「自动」，
 // 未知档位不把原始英文模式名回显给用户。
@@ -16,6 +21,36 @@ func TestRuntimeModeTitle(t *testing.T) {
 	} {
 		if got := runtimeModeTitle(tc.mode); got != tc.want {
 			t.Fatalf("runtimeModeTitle(%q) = %q，期望 %q", tc.mode, got, tc.want)
+		}
+	}
+}
+
+func TestInteractionModeToggleIconAndTooltip(t *testing.T) {
+	for _, width := range []int{600, 320} {
+		for _, tc := range []struct{ mode, title string }{
+			{"build", "构建"},
+			{"plan", "计划"},
+		} {
+			t.Run(composerChinTierName(width)+tc.title, func(t *testing.T) {
+				s := newChatState(NewFakeClient())
+				t.Cleanup(s.close)
+				_, radius := composerShellRadii(false)
+				tt := ui.NewTester(func(c *ui.Context) {
+					renderInteractionModeToggle(c, s, tc.mode, false, radius)
+				}, width, 400)
+				if tt.HasText("构建") || tt.HasText("计划") {
+					t.Fatalf("模式按钮不应显示文字: %v", tt.Texts())
+				}
+				bounds, found := tt.Find(tc.title)
+				if !found {
+					t.Fatalf("找不到模式按钮 %s", tc.title)
+				}
+				tt.Move(bounds.X+bounds.W/2, bounds.Y+bounds.H/2)
+				tt.Advance(time.Second)
+				if want := tc.title + " · ⌘⇧M"; !tt.HasText(want) {
+					t.Fatalf("缺少提示 %q: %v", want, tt.Texts())
+				}
+			})
 		}
 	}
 }

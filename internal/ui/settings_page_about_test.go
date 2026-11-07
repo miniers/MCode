@@ -16,7 +16,10 @@ type fakeUpdateClient struct {
 	status  AppUpdateStatus
 	err     error
 	calls   int
+	latest  AppUpdateStatus
 }
+
+func (f *fakeUpdateClient) LatestUpdate() AppUpdateStatus { return f.latest }
 
 func (f *fakeUpdateClient) CheckForUpdate(ctx context.Context) (AppUpdateStatus, error) {
 	f.calls++
@@ -144,6 +147,43 @@ func TestSettingsPageAbout_VersionRowLoadsOnce(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("版本号只应在数据入口取一次，实际 %d 次", calls)
+	}
+}
+
+func TestSettingsAbout_BackgroundUpdate(t *testing.T) {
+	resetAboutPageStateForTest()
+	fc := &fakeUpdateClient{FakeClient: NewFakeClient(), version: "1.0.0", latest: AppUpdateStatus{Latest: "1.1.0", URL: "https://example.com", Available: true}}
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fc))
+	tt := ui.NewTester(func(c *ui.Context) { renderPageGeneral(c, st) }, 1000, 4000)
+	waitFor(t, tt, func() bool {
+		return tt.HasText("发现新版本 v1.1.0") && tt.HasText("前往下载页") && tt.HasText("自动检查更新")
+	})
+	if fc.calls != 0 {
+		t.Fatal("后台结果不应触发手动检查")
+	}
+	if !updateAvailable(fc) || updateAvailable(NewFakeClient()) {
+		t.Fatal("更新提示状态不正确")
+	}
+	fc.latest.Available = false
+	if updateAvailable(fc) {
+		t.Fatal("没有新版本时不应显示提示")
+	}
+}
+
+func TestSettingsNavUpdateDot(t *testing.T) {
+	fc := &fakeUpdateClient{FakeClient: NewFakeClient()}
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fc))
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderSettingsNavItem(c, st, settingsNavDef{id: "general", title: "通用", icon: IconSettings()}, nil)
+	}, 400, 100)
+	tt.Frame()
+	if _, ok := tt.Find("settings-nav-update-dot"); ok {
+		t.Fatal("没有新版本时不应显示圆点")
+	}
+	fc.latest.Available = true
+	tt.Frame()
+	if _, ok := tt.Find("settings-nav-update-dot"); !ok {
+		t.Fatal("发现新版本时应显示圆点")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/config"
 )
 
 // AppUpdateStatus 描述一次更新检查的结果。
@@ -24,6 +25,28 @@ type AppUpdateStatus struct {
 type appUpdateClient interface {
 	CheckForUpdate(ctx context.Context) (AppUpdateStatus, error)
 	AppVersion() string
+}
+
+// appUpdateLatestClient 提供后台最近一次更新检查结果。
+type appUpdateLatestClient interface {
+	LatestUpdate() AppUpdateStatus
+}
+
+func updateAvailable(client any) bool {
+	latest, ok := client.(appUpdateLatestClient)
+	return ok && latest.LatestUpdate().Available
+}
+
+func renderUpdateDot(c *ui.Context, key string, appearing bool) ui.Element {
+	dot := renderUnreadDot(c, key)
+	progress := float32(1)
+	if !reduceMotion(c) {
+		if appearing {
+			dot.Jump("update-dot", 0)
+		}
+		progress = dot.AnimateTo("update-dot", 1, ui.Animation{Duration: animateDuration(c, DurFast), Ease: motionEaseStandard})
+	}
+	return dot.Scale(progress, progress).Opacity(progress)
 }
 
 // appDiagnosticsClient 由 internal/app 的 Client 实现；未实现时关于页隐藏诊断导出入口。
@@ -96,6 +119,17 @@ var aboutVersionLoader = func(client appUpdateClient) string { return client.App
 // loadAboutPageData 是关于页唯一的数据入口：第一帧取一次版本号与可用能力，
 // 之后渲染只读快照，重复渲染不会再调用客户端。
 func loadAboutPageData(st *SettingsState) {
+	if client, ok := archiveClient(st).(appUpdateLatestClient); ok {
+		status := client.LatestUpdate()
+		if status.Available {
+			globalAboutState.mu.Lock()
+			if !globalAboutState.checking && !globalAboutState.done {
+				globalAboutState.status = status
+				globalAboutState.done = true
+			}
+			globalAboutState.mu.Unlock()
+		}
+	}
 	globalAboutState.mu.Lock()
 	if globalAboutState.loaded {
 		globalAboutState.mu.Unlock()
@@ -190,6 +224,7 @@ func renderPageAbout(c *ui.Context, st *SettingsState) { renderPageGeneral(c, st
 var aboutFooterRows = []setting{
 	{ID: "row-about-version", Title: "版本号", Control: custom(renderAboutVersionValue)},
 	{ID: "row-about-update", Title: "检查更新", Control: custom(renderAboutUpdateControls)},
+	{ID: "row-about-auto-update", Title: "自动检查更新", Control: toggle(ptr(func(c *config.Config) **bool { return &c.AutoCheckUpdate }, true))},
 	{ID: "row-about-diag", Title: "导出诊断日志", Control: custom(renderAboutDiagnosticsControls)},
 	{ID: "row-about-datadir", Title: "数据目录", Control: custom(renderAboutDataDirValue)},
 }
@@ -197,7 +232,7 @@ var aboutFooterRows = []setting{
 // aboutFooterRowVisible 报告一行在当前能力快照下是否出现。
 func aboutFooterRowVisible(id string, hasUpdate, hasDiag bool) bool {
 	switch id {
-	case "row-about-update":
+	case "row-about-update", "row-about-auto-update":
 		return hasUpdate
 	case "row-about-diag":
 		return hasDiag
@@ -210,6 +245,8 @@ func aboutRowDivider(id string) string {
 	switch id {
 	case "row-about-update":
 		return "div-about-update"
+	case "row-about-auto-update":
+		return "div-about-auto-update"
 	case "row-about-diag":
 		return "div-about-diag"
 	case "row-about-datadir":

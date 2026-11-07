@@ -415,24 +415,30 @@ func boolPtr(b bool) *bool {
 
 // Config 对应 <data>/config.json。敏感项（API key 等）不在此处存储。
 type Config struct {
-	Version       int                 `json:"version"`
-	Session       SessionConfig       `json:"session"`
-	Models        ModelsConfig        `json:"models"`
-	Providers     ProvidersConfig     `json:"providers"`
-	Orchestration OrchestrationConfig `json:"orchestration"`
-	Memory        MemoryConfig        `json:"memory"`
-	Startup       StartupConfig       `json:"startup"`
-	Notifications NotificationsConfig `json:"notifications"`
-	Permissions   PermissionsConfig   `json:"permissions"`
-	Appearance    AppearanceConfig    `json:"appearance"`
-	Workbench     WorkbenchConfig     `json:"workbench"`
-	QuickReplies  []QuickReply        `json:"quick_replies,omitempty"` // 输入框上方的快捷回复按钮，空表示不显示
-	Shortcuts     ShortcutsConfig     `json:"shortcuts"`
-	Remote        RemoteConfig        `json:"remote"`
-	SourceControl SourceControlConfig `json:"source_control"`
-	Archive       ArchiveConfig       `json:"archive"`
-	Retention     RetentionConfig     `json:"retention,omitempty"` // 数据保留任务开关，默认全开
-	Automation    AutomationConfig    `json:"automation,omitempty"`
+	AutoCheckUpdate *bool               `json:"autoCheckUpdate,omitempty"` // 自动检查应用更新，nil 视为开启
+	Version         int                 `json:"version"`
+	Session         SessionConfig       `json:"session"`
+	Models          ModelsConfig        `json:"models"`
+	Providers       ProvidersConfig     `json:"providers"`
+	Orchestration   OrchestrationConfig `json:"orchestration"`
+	Memory          MemoryConfig        `json:"memory"`
+	Startup         StartupConfig       `json:"startup"`
+	Notifications   NotificationsConfig `json:"notifications"`
+	Permissions     PermissionsConfig   `json:"permissions"`
+	Appearance      AppearanceConfig    `json:"appearance"`
+	Workbench       WorkbenchConfig     `json:"workbench"`
+	QuickReplies    []QuickReply        `json:"quick_replies,omitempty"` // 输入框上方的快捷回复按钮，空表示不显示
+	Shortcuts       ShortcutsConfig     `json:"shortcuts"`
+	Remote          RemoteConfig        `json:"remote"`
+	SourceControl   SourceControlConfig `json:"source_control"`
+	Archive         ArchiveConfig       `json:"archive"`
+	Retention       RetentionConfig     `json:"retention,omitempty"` // 数据保留任务开关，默认全开
+	Automation      AutomationConfig    `json:"automation,omitempty"`
+}
+
+// AutoCheckUpdateEnabled 返回是否自动检查应用更新，nil 视为开启。
+func (c Config) AutoCheckUpdateEnabled() bool {
+	return c.AutoCheckUpdate == nil || *c.AutoCheckUpdate
 }
 
 // AutomationConfig 自动化后台行为设置。

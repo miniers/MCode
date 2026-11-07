@@ -18,7 +18,6 @@ type composerViewState struct {
 	backgroundTasksOpen  bool // 后台任务胶囊的浮层是否打开
 	downloadsOpen        bool
 	usageOpen            bool
-	moreOpen             bool
 	quotaOpen            bool                          // 额度弹层是否打开
 	quotaShowRemaining   bool                          // 额度弹窗百分比显示剩余（默认 false 显示已用）
 	quotaPopoverProvider string                        // 额度弹层当前锚定的 provider（关闭时清空）
@@ -1096,12 +1095,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 					// 右侧控制按钮组
 					ui.Row(c.Key("composer-controls")).AlignItems(ui.Center).Shrink(0).Gap(Space2).Children(func() {
 						if currentThread != nil {
-							if tier != composerChinNarrow {
-								renderInteractionModeToggle(c, s, interactionMode, prefsSaving || sending, tier)
-							}
+							renderInteractionModeToggle(c, s, interactionMode, prefsSaving || sending, buttonRadius)
 							renderModelSelector(c, s, currentThread, providers, newThreadProvider, hasMessages, bottomRow.Bounds().W)
 							renderContextMeter(c, s, currentThread)
-							renderComposerMore(c, s, currentThread, tier, prefsSaving || sending)
 						}
 
 						// 5 态主操作按钮：Key 固定（不随状态变），按钮元素跨状态保持同一身份，
@@ -1378,8 +1374,8 @@ func composerWaitingPlaceholder(base string, waiting bool) string {
 	return base
 }
 
-// renderInteractionModeToggle 渲染 Build/Plan 切换胶囊：Build 为灰色胶囊，Plan 为紫色高亮胶囊。
-func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disabled bool, tier composerChinSize) {
+// renderInteractionModeToggle 渲染构建/计划模式切换按钮。
+func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disabled bool, buttonRadius float32) {
 	title := "构建"
 	if mode == "plan" {
 		title = "计划"
@@ -1387,10 +1383,9 @@ func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disab
 	btn := ui.ButtonBase(c.Key("composer-interaction-toggle")).
 		Label(title).
 		Disabled(disabled).
-		Tooltip("切换构建/计划模式 (⌘⇧M)").
-		Height(ControlSM).
-		Padding(0, Space3).
-		Radius(RadiusPill).
+		Tooltip(title+" · ⌘⇧M").
+		Size(composerActionBtnSize, composerActionBtnSize).
+		Radius(buttonRadius).
 		Margin(0, 0, 0, Space2).
 		OnClick(func() {
 			s.toggleInteractionMode()
@@ -1408,17 +1403,11 @@ func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disab
 		composerHoverBg(c, btn, hovered)
 	}
 	btn.Children(func() {
-		if tier >= composerChinIcons {
-			icon := "hammer"
-			if mode == "plan" {
-				icon = "list"
-			}
-			ui.Icon(c, IconByName(icon)).Size(IconSM, IconSM).TextColor(textColor)
-			return
+		icon := "hammer"
+		if mode == "plan" {
+			icon = "list"
 		}
-		ui.Text(c, title).
-			FontSize(TypeFootnote).
-			TextColor(textColor)
+		ui.Icon(c, IconByName(icon)).Size(IconSM, IconSM).TextColor(textColor)
 	})
 }
 
@@ -2718,81 +2707,4 @@ func composerChinTier(width float32) composerChinSize {
 	default:
 		return composerChinNarrow
 	}
-}
-
-func renderComposerMore(c *ui.Context, s *chatState, th *Thread, tier composerChinSize, disabled bool) {
-	if tier != composerChinNarrow {
-		return
-	}
-	btn := ui.ButtonBase(c.Key("composer-more")).Label("更多操作").
-		Size(composerActionBtnSize, composerActionBtnSize).
-		OnClick(func() { s.composerView.moreOpen = !s.composerView.moreOpen })
-	composerHoverBg(c, btn, s.composerView.moreOpen || btn.Hovered())
-	btn.Children(func() {
-		ui.Icon(c, IconMoreHorizontal()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-	})
-	appPopover(c.Key("composer-more-popover"), btn, &s.composerView.moreOpen, nil, func() {
-		popoverCard(c, ui.Column(c.Key("composer-more-card"))).Padding(Space2).Children(func() {
-			renderComposerMenuOption(c, "composer-more-mode", "切换模式", disabled, func() {
-				s.composerView.moreOpen = false
-				s.toggleInteractionMode()
-			})
-			renderComposerMenuOption(c, "composer-more-effort", "算力", disabled, func() {
-				s.composerView.moreOpen = false
-				picker := composerModelPickerState
-				if s.embeddedBee {
-					picker = s.embeddedPicker
-				}
-				picker.MenuOpen = true
-			})
-		})
-	})
-}
-
-// composerMoreMenuIcon 给 ⋯ 菜单每一项配左侧图标；渲染与测试共用同一张映射表。
-func composerMoreMenuIcon(key string) *ui.SVG {
-	switch key {
-	case "composer-more-mode":
-		return IconWrench()
-	case "composer-more-effort":
-		return IconZap()
-	default:
-		return IconMoreHorizontal()
-	}
-}
-
-// renderComposerMenuOption 是 ⋯ 菜单的选项行：排版与 renderGitMenuOption 一致，
-// 左侧固定一个图标；禁用时图标和文字一起变暗。
-func renderComposerMenuOption(c *ui.Context, key, label string, disabled bool, onClick func()) {
-	txtColor := ThemePrimaryText(c)
-	opt := ui.ButtonBase(c.Key(key)).
-		Label(label).
-		Padding(Space2, Space3).
-		Radius(RadiusSM).
-		FillWidth().
-		Justify(ui.Start).
-		AlignItems(ui.Center)
-	if disabled {
-		txtColor = ThemeSecondaryText(c)
-		opt.Disabled(true)
-	} else {
-		if opt.Hovered() {
-			opt.Background(ThemeHover(c))
-		}
-		opt.OnClick(onClick)
-	}
-	opt.Children(func() {
-		ui.Row(c.Key(key + "-row")).
-			Gap(Space3).
-			AlignItems(ui.Center).
-			Grow(1).
-			Children(func() {
-				ui.Icon(c, composerMoreMenuIcon(key)).Size(IconSM, IconSM).TextColor(txtColor)
-				ui.Text(c, label).
-					FontSize(TypeBody).
-					TextColor(txtColor).
-					Grow(1).
-					SingleLine()
-			})
-	})
 }

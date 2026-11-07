@@ -9,6 +9,18 @@ import (
 	"testing"
 )
 
+func TestClientLatestUpdate(t *testing.T) {
+	client := &Client{}
+	if got := client.LatestUpdate(); got.Latest != "" || got.Available {
+		t.Fatalf("尚未检查时应返回零值: %+v", got)
+	}
+	client.updateChecker = &UpdateChecker{latest: UpdateInfo{Latest: "9.0.0", URL: "https://example.com", Available: true}}
+	got := client.LatestUpdate()
+	if !got.Available || got.Latest != "9.0.0" || got.URL != "https://example.com" {
+		t.Fatalf("后台检查结果不匹配: %+v", got)
+	}
+}
+
 // TestClientCheckForUpdate 覆盖「有新版本 / 已是最新 / 未配置更新源」三种情况。
 // 使用 httptest 本地服务，不访问真实网络。
 func TestClientCheckForUpdate(t *testing.T) {

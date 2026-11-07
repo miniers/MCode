@@ -1690,7 +1690,6 @@ func renderComposerQuotaStrip(c *ui.Context, s *chatState, th *Thread, tiers ...
 						Gap(Space2).
 						AlignItems(ui.Center).
 						Children(func() {
-							renderProviderIconColor(c, th.Provider, IconSM, ThemeSecondaryText(c))
 							ui.Icon(c, IconOctagonAlert()).
 								Size(usageStripSmallSize, usageStripSmallSize).
 								TextColor(usageStatusColor(c, stripStatus))
@@ -1704,7 +1703,10 @@ func renderComposerQuotaStrip(c *ui.Context, s *chatState, th *Thread, tiers ...
 						Gap(Space2).
 						AlignItems(ui.Center).
 						Children(func() {
-							renderProviderIconColor(c, th.Provider, IconSM, ThemeSecondaryText(c))
+							if tier >= composerChinIcons {
+								renderComposerQuotaRing(c, "loading", &quotaRingWindow{}, nil)
+								return
+							}
 							renderRunningGlyph(c, "quota-loading", usageStripSmallSize, ThemeSecondaryText(c))
 							ui.Text(c, "加载中…").
 								FontSize(FontSizeProjectName).
@@ -1736,14 +1738,13 @@ func renderComposerQuotaStrip(c *ui.Context, s *chatState, th *Thread, tiers ...
 					}
 					rendered := false
 					for _, plan := range plans {
-						if !renderComposerQuotaProviderGroup(c, s, th, plan, rendered, tier) {
+						if !renderComposerQuotaProviderGroup(c, s, th, plan, rendered, tier, len(plans) > 1) {
 							continue
 						}
 						rendered = true
 					}
 					if !rendered {
 						// 有窗口但都无法映射成短标签时，不能再显示「加载中…」。
-						renderProviderIconColor(c, th.Provider, IconSM, ThemeSecondaryText(c))
 						ui.Text(c, "暂无额度数据").
 							FontSize(FontSizeProjectName).
 							FontWeight(500).
@@ -1774,7 +1775,7 @@ func quotaStripGroupTooltip(name string, plan quotaStripPlan) string {
 // 以及组间的 secondary 色竖线（竖线属于组外，不可点击）。不是第一组时前置竖线。
 // 组内顺序：供应商图标，然后每个窗口「短标签 + 迷你进度条 + 已用百分比」。
 // 没有可展示的窗口时返回 false。
-func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, plan quotaStripPlan, separated bool, tier composerChinSize) bool {
+func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, plan quotaStripPlan, separated bool, tier composerChinSize, showProvider bool) bool {
 	windows := plan.windows
 	// 账户未知时 windows 为空（quotaAccountWindows 不再回退第一组），这组仍要渲染，
 	// 只是把读数换成「额度未知」，不能整组消失。
@@ -1890,6 +1891,14 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 
 	groupOpen := s.composerView.quotaOpen && s.composerView.quotaPopoverProvider == provider
 	groupTooltip := quotaStripGroupTooltip(s.providerDisplayName(provider), plan)
+	outer, inner := quotaRingWindows(provider, windows)
+	if tier >= composerChinIcons && outer != nil {
+		parts := []string{fmt.Sprintf("%s %d%%", outer.label, int(math.Round(outer.used)))}
+		if inner != nil {
+			parts = append(parts, fmt.Sprintf("%s %d%%", inner.label, int(math.Round(inner.used))))
+		}
+		groupTooltip = strings.Join(parts, " · ")
+	}
 	group := ui.ButtonBase(c.Key("composer-quota-provider-"+keySuffix)).
 		Label("额度 "+provider).
 		Tooltip(groupTooltip).
@@ -1916,8 +1925,10 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 			Gap(Space2).
 			AlignItems(ui.Center).
 			Children(func() {
-				if tier < composerChinIcons {
-					renderProviderIconColor(c, provider, IconSM, ThemeSecondaryText(c))
+				if showProvider {
+					ui.Box(c.Key("composer-quota-provider-icon-" + keySuffix)).
+						Label("composer-quota-provider-icon-" + keySuffix).
+						Children(func() { renderProviderIconColor(c, provider, IconSM, ThemeSecondaryText(c)) })
 				}
 				if unknownAccount {
 					ui.Text(c, "额度未知").
@@ -1925,6 +1936,19 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 						FontWeight(500).
 						TextColor(ThemeSecondaryText(c)).
 						SingleLine()
+					return
+				}
+				if tier >= composerChinIcons && outer != nil {
+					renderComposerQuotaRing(c, keySuffix, outer, inner)
+					if tier == composerChinIcons {
+						used := outer.used
+						if inner != nil && inner.used > used {
+							used = inner.used
+						}
+						ui.Text(c, fmt.Sprintf("%d%%", int(math.Round(used)))).
+							FontFeatures("tnum").FontSize(FontSizeProjectName).FontWeight(500).
+							TextColor(ThemeSecondaryText(c)).SingleLine()
+					}
 					return
 				}
 				for _, r := range readouts {

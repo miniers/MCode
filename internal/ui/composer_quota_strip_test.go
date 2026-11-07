@@ -281,10 +281,18 @@ func TestRenderComposerQuotaStrip_SwarmOffHidesBeeGroup(t *testing.T) {
 
 	if tt := render(); !tt.HasText("11%") || tt.HasText("77%") {
 		t.Fatalf("swarm off: want only lead quota, texts: %q", tt.Texts())
+	} else if _, ok := tt.Find("composer-quota-provider-icon-claude"); ok {
+		t.Fatal("单供应商不应显示图标")
 	}
 	setSwarmEnabledForTest(s, true)
 	if tt := render(); !tt.HasText("11%") || !tt.HasText("77%") {
 		t.Fatalf("swarm on: want lead and bee quota, texts: %q", tt.Texts())
+	} else {
+		for _, provider := range []string{"claude", "codex"} {
+			if _, ok := tt.Find("composer-quota-provider-icon-" + provider); !ok {
+				t.Fatalf("多供应商缺少 %s 图标", provider)
+			}
+		}
 	}
 }
 

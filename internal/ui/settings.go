@@ -73,6 +73,7 @@ func setChatSettings(s *chatState, st *SettingsState) {
 
 // SettingsState 维护桌面端设置面板的交互状态。
 type SettingsState struct {
+	updateDotVisible bool
 	// modelsPage 在各模型页面节之间共享状态。
 	modelsPage *modelsPageState
 	// magpieMatrixSearch 是 Magpie 页模型矩阵的搜索词，切换页面时保留。
@@ -1314,6 +1315,13 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 			tElem.FontWeight(600).TextColor(ThemePrimaryText(c))
 		} else {
 			tElem.TextColor(ThemeSecondaryText(c))
+		}
+		if item.id == "general" {
+			available := updateAvailable(archiveClient(st))
+			if available {
+				renderUpdateDot(c, "settings-nav-update-dot", !st.updateDotVisible)
+			}
+			st.updateDotVisible = available
 		}
 	})
 

@@ -141,6 +141,7 @@ func settingsLegacyItems() []settingsItem {
 		{ID: "row-about-version", Page: "general", Section: "关于 MCode", Title: "版本号", Aliases: []string{"构建"}},
 		{ID: "row-about-datadir", Page: "general", Section: "关于 MCode", Title: "数据目录", Aliases: []string{"目录", "路径", "存储"}},
 		{ID: "row-about-update", Page: "general", Section: "关于 MCode", Title: "检查更新", Aliases: []string{"更新", "新版本"}},
+		{ID: "row-about-auto-update", Page: "general", Section: "关于 MCode", Title: "自动检查更新", Aliases: []string{"更新", "新版本"}},
 		{ID: "row-about-diag", Page: "general", Section: "关于 MCode", Title: "导出诊断日志", Aliases: []string{"日志", "诊断", "反馈"}},
 
 		// ---- MCP 旧搜索入口 ----

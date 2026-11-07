@@ -976,11 +976,6 @@ func Open(opts Options) (*App, error) {
 	remote.DefaultTitleRegenerator = func(ctx context.Context, threadID string) (string, error) {
 		return RegenerateTitle(ctx, backend, opts.DataDir, threadID)
 	}
-	if UpdateFeedURL != "" {
-		updater := &UpdateChecker{FeedURL: UpdateFeedURL, CurrentVersion: AppVersion}
-		updater.Start(context.Background(), 6*time.Hour)
-	}
-
 	codexBin := opts.CodexBin
 	if codexBin == "" {
 		codexBin = cfg.Providers.Codex.Bin
@@ -1230,6 +1225,17 @@ func Open(opts Options) (*App, error) {
 	}
 
 	client := NewClient(backend)
+	client.updateChecker = &UpdateChecker{
+		FeedURL: UpdateFeedURL, CurrentVersion: AppVersion,
+		Enabled: func() bool {
+			loaded, err := config.Load(opts.DataDir)
+			return err == nil && loaded.AutoCheckUpdateEnabled()
+		},
+		OnChecked: client.notifyConfigChanged,
+	}
+	if cfg.AutoCheckUpdateEnabled() {
+		client.updateChecker.Start(context.Background(), 6*time.Hour)
+	}
 	// 待处理事件（收件箱）：会话、看板、自动化、bee 四类事件源都在这里接入，
 	// 界面层用 client.(mcodeui.AttentionClient) 读取，未实现该接口时不显示收件箱。
 	attentionSvc = attention.New(dbStore, attention.Options{})

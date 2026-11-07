@@ -17,6 +17,7 @@ const kanbanBadgeRefreshInterval = 30 * time.Second
 type sidebarFooterState struct {
 	addProjectOpen bool
 	moreMenuOpen   bool
+	updateVisible  bool
 
 	kanbanReviewCount int
 	kanbanFetchedAt   time.Time
@@ -120,15 +121,22 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 
 			// 设置入口图标按钮
 			if st := getChatSettings(s); st != nil {
-				IconButton(c, IconButtonProps{
-					Key:     "sidebar-settings-btn",
-					Icon:    IconSettings(),
-					Size:    ControlSM,
-					Variant: ButtonGhost,
-					Label:   "设置",
-					OnClick: func() {
-						st.Open()
-					},
+				ui.Row(c.Key("sidebar-settings-wrapper")).Children(func() {
+					IconButton(c, IconButtonProps{
+						Key:     "sidebar-settings-btn",
+						Icon:    IconSettings(),
+						Size:    ControlSM,
+						Variant: ButtonGhost,
+						Label:   "设置",
+						OnClick: func() {
+							st.Open()
+						},
+					})
+					available := updateAvailable(s.client)
+					if available {
+						renderUpdateDot(c, "sidebar-settings-update-dot", !fs.updateVisible).Attach(ui.AnchorTopRight, ui.AnchorCenter)
+					}
+					fs.updateVisible = available
 				})
 			}
 

@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// UpdateFeedURL 是 GitHub releases/latest 接口地址；为空时不启动检查、不发网络请求。
-var UpdateFeedURL = ""
+// UpdateFeedURL 是 GitHub releases/latest 接口地址，可通过 -ldflags -X 覆盖；为空时不检查。
+var UpdateFeedURL = "https://api.github.com/repos/miniers/MCode/releases/latest"
 
 // AppVersion 当前应用版本，可在构建时通过 -ldflags -X 覆盖。
 var AppVersion = "dev"
@@ -72,6 +72,8 @@ type UpdateChecker struct {
 	FeedURL        string
 	CurrentVersion string
 	Now            func() time.Time
+	Enabled        func() bool
+	OnChecked      func()
 
 	mu        sync.Mutex
 	latest    UpdateInfo
@@ -149,8 +151,15 @@ func (u *UpdateChecker) Start(ctx context.Context, interval time.Duration) {
 				return
 			case <-time.After(delay):
 			}
-			if info, err := u.Check(ctx); err == nil && info.Available {
-				log.Printf("update available: %s (%s)", info.Latest, info.URL)
+			if u.Enabled == nil || u.Enabled() {
+				if info, err := u.Check(ctx); err == nil {
+					if info.Available {
+						log.Printf("update available: %s (%s)", info.Latest, info.URL)
+					}
+					if u.OnChecked != nil {
+						u.OnChecked()
+					}
+				}
 			}
 			delay = interval
 		}

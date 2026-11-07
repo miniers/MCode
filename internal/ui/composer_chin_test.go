@@ -86,11 +86,19 @@ func TestComposerChinQuotaReadouts(t *testing.T) {
 			tt := ui.NewTester(func(c *ui.Context) {
 				renderComposerQuotaStrip(c, s, th, composerChinTier(float32(width)))
 			}, width, 400)
-			if !tt.HasText("58%") {
+			if width >= 384 && !tt.HasText("58%") {
 				t.Fatalf("额度读数不可见: %v", tt.Texts())
 			}
-			if width < 384 && tt.HasText("42%") {
-				t.Fatalf("最窄档只应显示最高用量: %v", tt.Texts())
+			if width < 384 && (tt.HasText("42%") || tt.HasText("58%")) {
+				t.Fatalf("最窄档不应显示百分比: %v", tt.Texts())
+			}
+			if width < 480 {
+				if _, ok := tt.Find("composer-quota-ring-agy"); !ok {
+					t.Fatal("窄档缺少额度圆环")
+				}
+				if width >= 384 && tt.HasText("42%") {
+					t.Fatalf("图标档只应显示最高用量: %v", tt.Texts())
+				}
 			}
 		})
 	}
@@ -124,32 +132,6 @@ func TestComposerChinContextMeterAlwaysVisible(t *testing.T) {
 	}
 }
 
-func TestComposerChinNarrowMore(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	s := newChatState(NewFakeClient())
-	t.Cleanup(s.close)
-	composerModelPickerState.Reset()
-	t.Cleanup(composerModelPickerState.Reset)
-	th := &Thread{ID: "t1", Provider: "agy"}
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderComposerMore(c, s, th, composerChinNarrow, false)
-	}, 320, 400)
-	if err := tt.Click("更多操作"); err != nil {
-		t.Fatal(err)
-	}
-	for _, label := range []string{"切换模式", "算力"} {
-		if _, ok := tt.Find(label); !ok {
-			t.Fatalf("菜单缺少 %s: %v", label, tt.Texts())
-		}
-	}
-	if err := tt.Click("算力"); err != nil {
-		t.Fatal(err)
-	}
-	if !composerModelPickerState.MenuOpen {
-		t.Fatal("算力入口未打开模型面板")
-	}
-}
-
 func TestComposerChinNonNarrowHasContextMeterWithoutMore(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
@@ -158,11 +140,7 @@ func TestComposerChinNonNarrowHasContextMeterWithoutMore(t *testing.T) {
 	for _, tier := range []composerChinSize{composerChinFull, composerChinNoShortcut, composerChinIcons} {
 		tt := ui.NewTester(func(c *ui.Context) {
 			renderContextMeter(c, s, th)
-			renderComposerMore(c, s, th, tier, false)
 		}, 600, 400)
-		if _, found := tt.Find("更多操作"); found {
-			t.Errorf("档位 %v 不应显示更多操作", tier)
-		}
 		if _, found := tt.Find("上下文用量"); !found {
 			t.Errorf("档位 %v 低用量时应显示圆环", tier)
 		}
