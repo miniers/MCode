@@ -38,7 +38,7 @@ func updateAvailable(client any) bool {
 }
 
 func renderUpdateDot(c *ui.Context, key string, appearing bool) ui.Element {
-	dot := renderUnreadDot(c, key)
+	dot := renderUnreadDot(c, key).Label("有新版本")
 	progress := float32(1)
 	if !reduceMotion(c) {
 		if appearing {
@@ -119,16 +119,13 @@ var aboutVersionLoader = func(client appUpdateClient) string { return client.App
 // loadAboutPageData 是关于页唯一的数据入口：第一帧取一次版本号与可用能力，
 // 之后渲染只读快照，重复渲染不会再调用客户端。
 func loadAboutPageData(st *SettingsState) {
-	if client, ok := archiveClient(st).(appUpdateLatestClient); ok {
-		status := client.LatestUpdate()
-		if status.Available {
-			globalAboutState.mu.Lock()
-			if !globalAboutState.checking && !globalAboutState.done {
-				globalAboutState.status = status
-				globalAboutState.done = true
-			}
-			globalAboutState.mu.Unlock()
+	if status, ok := latestUpdateStatus(archiveClient(st)); ok && status.Available {
+		globalAboutState.mu.Lock()
+		if !globalAboutState.checking && !globalAboutState.done {
+			globalAboutState.status = status
+			globalAboutState.done = true
 		}
+		globalAboutState.mu.Unlock()
 	}
 	globalAboutState.mu.Lock()
 	if globalAboutState.loaded {

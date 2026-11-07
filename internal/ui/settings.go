@@ -685,6 +685,14 @@ func applyConfigDiff(dst, next reflect.Value) {
 	}
 }
 
+func latestUpdateStatus(client any) (AppUpdateStatus, bool) {
+	latest, ok := client.(appUpdateLatestClient)
+	if !ok {
+		return AppUpdateStatus{}, false
+	}
+	return latest.LatestUpdate(), true
+}
+
 type settingsNavDef struct {
 	id       string
 	title    string

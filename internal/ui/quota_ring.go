@@ -97,8 +97,8 @@ func quotaRingWindows(provider string, windows []ProviderQuotaWindow) (outer, in
 	return
 }
 
-func renderComposerQuotaRing(c *ui.Context, key string, outer, inner *quotaRingWindow) {
-	host := ui.Box(c.Key("composer-quota-ring-"+key)).Label("composer-quota-ring-"+key).Size(IconMD, IconMD)
+func renderComposerQuotaRing(c *ui.Context, key, label string, outer, inner *quotaRingWindow) {
+	host := ui.Box(c.Key("composer-quota-ring-"+key)).Label(label).Size(IconMD, IconMD)
 	var outerValue, innerValue float32
 	if outer != nil {
 		outerValue = float32(outer.used / 100)

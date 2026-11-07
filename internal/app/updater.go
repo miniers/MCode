@@ -137,6 +137,22 @@ func (u *UpdateChecker) Latest() UpdateInfo {
 	return u.latest
 }
 
+func (u *UpdateChecker) checkIfEnabled(ctx context.Context) {
+	if u.Enabled != nil && !u.Enabled() {
+		return
+	}
+	info, err := u.Check(ctx)
+	if err != nil {
+		return
+	}
+	if info.Available {
+		log.Printf("update available: %s (%s)", info.Latest, info.URL)
+	}
+	if u.OnChecked != nil {
+		u.OnChecked()
+	}
+}
+
 // Start 在后台定时检查：首次延迟 1 分钟，之后每 interval 一次，ctx 取消后退出。
 // FeedURL 为空时直接返回，不发任何请求。
 func (u *UpdateChecker) Start(ctx context.Context, interval time.Duration) {
@@ -151,16 +167,7 @@ func (u *UpdateChecker) Start(ctx context.Context, interval time.Duration) {
 				return
 			case <-time.After(delay):
 			}
-			if u.Enabled == nil || u.Enabled() {
-				if info, err := u.Check(ctx); err == nil {
-					if info.Available {
-						log.Printf("update available: %s (%s)", info.Latest, info.URL)
-					}
-					if u.OnChecked != nil {
-						u.OnChecked()
-					}
-				}
-			}
+			u.checkIfEnabled(ctx)
 			delay = interval
 		}
 	}()

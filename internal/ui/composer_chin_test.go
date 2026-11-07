@@ -93,8 +93,8 @@ func TestComposerChinQuotaReadouts(t *testing.T) {
 				t.Fatalf("最窄档不应显示百分比: %v", tt.Texts())
 			}
 			if width < 480 {
-				if _, ok := tt.Find("composer-quota-ring-agy"); !ok {
-					t.Fatal("窄档缺少额度圆环")
+				if _, ok := tt.Find("5h 42% · 周 58%"); !ok {
+					t.Fatal("窄档圆环的无障碍标签应与组 tooltip 一致")
 				}
 				if width >= 384 && tt.HasText("42%") {
 					t.Fatalf("图标档只应显示最高用量: %v", tt.Texts())

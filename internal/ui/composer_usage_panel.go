@@ -1704,7 +1704,7 @@ func renderComposerQuotaStrip(c *ui.Context, s *chatState, th *Thread, tiers ...
 						AlignItems(ui.Center).
 						Children(func() {
 							if tier >= composerChinIcons {
-								renderComposerQuotaRing(c, "loading", &quotaRingWindow{}, nil)
+								renderComposerQuotaRing(c, "loading", "额度", &quotaRingWindow{}, nil)
 								return
 							}
 							renderRunningGlyph(c, "quota-loading", usageStripSmallSize, ThemeSecondaryText(c))
@@ -1927,7 +1927,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 			Children(func() {
 				if showProvider {
 					ui.Box(c.Key("composer-quota-provider-icon-" + keySuffix)).
-						Label("composer-quota-provider-icon-" + keySuffix).
+						Label(s.providerDisplayName(provider)).
 						Children(func() { renderProviderIconColor(c, provider, IconSM, ThemeSecondaryText(c)) })
 				}
 				if unknownAccount {
@@ -1939,7 +1939,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 					return
 				}
 				if tier >= composerChinIcons && outer != nil {
-					renderComposerQuotaRing(c, keySuffix, outer, inner)
+					renderComposerQuotaRing(c, keySuffix, groupTooltip, outer, inner)
 					if tier == composerChinIcons {
 						used := outer.used
 						if inner != nil && inner.used > used {

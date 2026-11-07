@@ -38,12 +38,12 @@ func TestInteractionModeToggleIconAndTooltip(t *testing.T) {
 				tt := ui.NewTester(func(c *ui.Context) {
 					renderInteractionModeToggle(c, s, tc.mode, false, radius)
 				}, width, 400)
-				if tt.HasText("构建") || tt.HasText("计划") {
-					t.Fatalf("模式按钮不应显示文字: %v", tt.Texts())
-				}
 				bounds, found := tt.Find(tc.title)
 				if !found {
 					t.Fatalf("找不到模式按钮 %s", tc.title)
+				}
+				if bounds.W != composerActionBtnSize || bounds.H != composerActionBtnSize {
+					t.Fatalf("模式按钮应为方形图标按钮，bounds=%+v", bounds)
 				}
 				tt.Move(bounds.X+bounds.W/2, bounds.Y+bounds.H/2)
 				tt.Advance(time.Second)

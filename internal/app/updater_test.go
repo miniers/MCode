@@ -30,6 +30,36 @@ func TestCompareSemver(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckerEnabled(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{"tag_name":"v1.2.0","html_url":"https://example.com/r","prerelease":false}`))
+	}))
+	defer srv.Close()
+
+	enabled := false
+	var checked atomic.Int32
+	u := &UpdateChecker{
+		Client:         srv.Client(),
+		FeedURL:        srv.URL,
+		CurrentVersion: "1.1.0",
+		Enabled:        func() bool { return enabled },
+		OnChecked:      func() { checked.Add(1) },
+	}
+
+	u.checkIfEnabled(context.Background())
+	if requests.Load() != 0 || checked.Load() != 0 {
+		t.Fatalf("disabled checker: requests=%d checked=%d", requests.Load(), checked.Load())
+	}
+
+	enabled = true
+	u.checkIfEnabled(context.Background())
+	if requests.Load() != 1 || checked.Load() != 1 {
+		t.Fatalf("enabled checker: requests=%d checked=%d", requests.Load(), checked.Load())
+	}
+}
+
 func TestUpdateCheckerCheck(t *testing.T) {
 	var body atomic.Value
 	body.Store(`{"tag_name":"v1.2.0","html_url":"https://example.com/r","prerelease":false}`)

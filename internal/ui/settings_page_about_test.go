@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -182,8 +183,28 @@ func TestSettingsNavUpdateDot(t *testing.T) {
 	}
 	fc.latest.Available = true
 	tt.Frame()
-	if _, ok := tt.Find("settings-nav-update-dot"); !ok {
+	tt.Advance(200 * time.Millisecond)
+	if _, ok := tt.Find("有新版本"); !ok {
 		t.Fatal("发现新版本时应显示圆点")
+	}
+}
+
+func TestSidebarSettingsUpdateDot(t *testing.T) {
+	fc := &fakeUpdateClient{FakeClient: NewFakeClient()}
+	chat := newChatState(fc)
+	st := NewSettingsState(settingsTestDir(t), nil, chat)
+	setChatSettings(chat, st)
+	tt := ui.NewTester(func(c *ui.Context) { renderSidebarBottomBar(c, chat) }, 400, 100)
+
+	tt.Frame()
+	if _, ok := tt.Find("有新版本"); ok {
+		t.Fatal("没有新版本时侧栏设置按钮不应显示圆点")
+	}
+	fc.latest.Available = true
+	tt.Frame()
+	tt.Advance(200 * time.Millisecond)
+	if _, ok := tt.Find("有新版本"); !ok {
+		t.Fatal("发现新版本时侧栏设置按钮应显示圆点")
 	}
 }
 

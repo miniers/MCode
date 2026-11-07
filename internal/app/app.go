@@ -1233,9 +1233,7 @@ func Open(opts Options) (*App, error) {
 		},
 		OnChecked: client.notifyConfigChanged,
 	}
-	if cfg.AutoCheckUpdateEnabled() {
-		client.updateChecker.Start(context.Background(), 6*time.Hour)
-	}
+	client.updateChecker.Start(context.Background(), 6*time.Hour)
 	// 待处理事件（收件箱）：会话、看板、自动化、bee 四类事件源都在这里接入，
 	// 界面层用 client.(mcodeui.AttentionClient) 读取，未实现该接口时不显示收件箱。
 	attentionSvc = attention.New(dbStore, attention.Options{})
