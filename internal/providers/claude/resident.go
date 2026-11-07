@@ -1361,11 +1361,11 @@ type residentProc struct {
 	dead      bool
 	busy      bool
 	// drained 表示本轮消费者已收到结束本轮的 result，不再读 sink。
-	drained   bool
-	lastUsed  time.Time
-	idle      *time.Timer
-	gen       uint64
-	sink      *lineSink
+	drained        bool
+	lastUsed       time.Time
+	idle           *time.Timer
+	gen            uint64
+	sink           *lineSink
 	controlWaiters map[string]chan controlResult
 	// bgTasks 是 CLI 侧仍在跑的后台任务数：system/task_started 加一，system/task_notification 减一。
 	// 大于零时不能回收或重建进程，否则后台任务会连同它的输出一起丢掉。

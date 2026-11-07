@@ -379,10 +379,10 @@ func TestResident_StopBackgroundTask(t *testing.T) {
 				t.Fatalf("控制帧不正确: %s", data)
 			}
 			var frame struct {
-				Type string `json:"type"`
+				Type    string `json:"type"`
 				Request struct {
 					Subtype string `json:"subtype"`
-					TaskID string `json:"task_id"`
+					TaskID  string `json:"task_id"`
 				} `json:"request"`
 			}
 			if err := json.Unmarshal([]byte(parts[1]), &frame); err != nil || frame.Type != "control_request" || frame.Request.Subtype != "stop_task" || frame.Request.TaskID != "task-1" {

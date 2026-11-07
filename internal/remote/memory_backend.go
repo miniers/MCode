@@ -5537,7 +5537,7 @@ const (
 )
 
 var (
-	backgroundTaskIDPattern = regexp.MustCompile(`Command running in background with ID:\s*([^\s.]+)`)
+	backgroundTaskIDPattern   = regexp.MustCompile(`Command running in background with ID:\s*([^\s.]+)`)
 	backgroundTaskPathPattern = regexp.MustCompile(`Output is being written to:\s*(\S+)`)
 	backgroundTaskFilePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+\.output$`)
 )

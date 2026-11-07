@@ -14,32 +14,32 @@ import (
 
 // composerViewState 维护 Composer 的轻量 UI 视图状态（仅在 UI 线程访问）。
 type composerViewState struct {
-	planPillOpen         bool // 待办进度胶囊的弹层是否打开
-	backgroundTasksOpen  bool // 后台任务胶囊的浮层是否打开
-	backgroundTaskExpanded string // 当前展开的消息 ID。
-	backgroundTaskThread string // 后台任务浮层所属会话。
-	backgroundTaskLog string // 最近一次获取的日志。
-	backgroundTaskLogID string // 日志所属消息 ID。
-	backgroundTaskLogPending bool // 是否有日志请求在途。
-	backgroundTaskLogNext time.Time // 下一次日志请求时间。
-	backgroundTaskGeneration uint64 // 展开状态变更时递增，用于丢弃过期回包。
-	backgroundTaskStopping map[string]bool // 正在停止的消息。
-	backgroundTaskStopped map[string]time.Time // 已停止消息的动画起始时间。
-	backgroundTaskScroll ui.ScrollState // 日志滚动位置。
-	backgroundTaskScrollOwner string // 当前或最后展开的日志所属消息。
-	backgroundTaskScrolledLog string // 上次滚动到底部时的日志。
-	downloadsOpen        bool
-	usageOpen            bool
-	quotaOpen            bool                          // 额度弹层是否打开
-	quotaShowRemaining   bool                          // 额度弹窗百分比显示剩余（默认 false 显示已用）
-	quotaPopoverProvider string                        // 额度弹层当前锚定的 provider（关闭时清空）
-	history              composerHistoryState          // 方向键历史导航状态
-	lastThreadID         string                        // 上一帧的选中会话，用于切换会话时重置历史导航
-	dockThreadID         string                        // 上一帧 Hero/Docked 判定所属的会话
-	dockDocked           bool                          // 上一帧是否停靠（仅当 dockThreadID 与当前会话一致时有效）
-	quotaLastSeen        map[string]quotaUsageSnapshot // 按 provider+账户记录上一次观察到的已用百分比
-	quotaChangedAt       map[string]time.Time          // 按账户记录额度最近一次变动的时间
-	activeQuotaAccount   map[string]string             // 后端 Active 标记给出的在用账户（按 provider）
+	planPillOpen              bool                 // 待办进度胶囊的弹层是否打开
+	backgroundTasksOpen       bool                 // 后台任务胶囊的浮层是否打开
+	backgroundTaskExpanded    string               // 当前展开的消息 ID。
+	backgroundTaskThread      string               // 后台任务浮层所属会话。
+	backgroundTaskLog         string               // 最近一次获取的日志。
+	backgroundTaskLogID       string               // 日志所属消息 ID。
+	backgroundTaskLogPending  bool                 // 是否有日志请求在途。
+	backgroundTaskLogNext     time.Time            // 下一次日志请求时间。
+	backgroundTaskGeneration  uint64               // 展开状态变更时递增，用于丢弃过期回包。
+	backgroundTaskStopping    map[string]bool      // 正在停止的消息。
+	backgroundTaskStopped     map[string]time.Time // 已停止消息的动画起始时间。
+	backgroundTaskScroll      ui.ScrollState       // 日志滚动位置。
+	backgroundTaskScrollOwner string               // 当前或最后展开的日志所属消息。
+	backgroundTaskScrolledLog string               // 上次滚动到底部时的日志。
+	downloadsOpen             bool
+	usageOpen                 bool
+	quotaOpen                 bool                          // 额度弹层是否打开
+	quotaShowRemaining        bool                          // 额度弹窗百分比显示剩余（默认 false 显示已用）
+	quotaPopoverProvider      string                        // 额度弹层当前锚定的 provider（关闭时清空）
+	history                   composerHistoryState          // 方向键历史导航状态
+	lastThreadID              string                        // 上一帧的选中会话，用于切换会话时重置历史导航
+	dockThreadID              string                        // 上一帧 Hero/Docked 判定所属的会话
+	dockDocked                bool                          // 上一帧是否停靠（仅当 dockThreadID 与当前会话一致时有效）
+	quotaLastSeen             map[string]quotaUsageSnapshot // 按 provider+账户记录上一次观察到的已用百分比
+	quotaChangedAt            map[string]time.Time          // 按账户记录额度最近一次变动的时间
+	activeQuotaAccount        map[string]string             // 后端 Active 标记给出的在用账户（按 provider）
 	// sendIconState 是发送按钮上一帧的图标状态，sendIconPrevState 是切换前的状态：
 	// 两者不同且淡入进度未走完时，旧图标继续淡出、新图标淡入。
 	sendIconState     sendDraftState
