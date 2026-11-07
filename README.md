@@ -77,6 +77,8 @@ MCode 是一款 AI 编码桌面客户端，用一个窗口管理多个 AI coding
 
 运行 `scripts/release.sh [patch|minor|major|版本号]`；推送的标签会触发 `.github/workflows/release.yml` 构建并发布版本，已安装的应用从该版本更新。
 
+如果推送标签未触发工作流，运行 `gh workflow run release.yml --ref v<版本号>`。
+
 首次配置：`gh secret set MYGO_UPDATER_PRIVATE_KEY < ~/.config/mcode/mygo-update.key`。可选签名密钥：`MACOS_CERTIFICATE`、`MACOS_CERTIFICATE_PASSWORD`、`MACOS_SIGN_IDENTITY`、`APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_PASSWORD`。
 
 ## 编排（主代理 / 子代理）

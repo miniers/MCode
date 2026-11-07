@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,7 +22,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: 检查版本
-        run: test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
+        run: |
+          if [ "$GITHUB_REF_TYPE" != tag ]; then echo '::error::手动运行时必须选择 v* 标签作为 ref。'; exit 1; fi
+          test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
 
       - uses: actions/setup-go@v7
         with:
