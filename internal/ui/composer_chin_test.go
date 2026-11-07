@@ -6,7 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-func hasExactText(tt *ui.Tester, want string) bool {
+func hasExactQuotaText(tt *ui.Tester, want string) bool {
 	for _, text := range tt.Texts() {
 		if text == want {
 			return true
@@ -74,7 +74,7 @@ func TestComposerChinTierForEmbedded(t *testing.T) {
 		renderComposerQuotaStrip(c, s, th, composerChinTierFor(s, 400))
 	}, 400, 400)
 	for _, want := range []string{"42%", "58%"} {
-		if !hasExactText(tt, want) {
+		if !hasExactQuotaText(tt, want) {
 			t.Fatalf("浮窗额度条应显示 %s: %v", want, tt.Texts())
 		}
 	}
@@ -95,17 +95,17 @@ func TestComposerChinQuotaReadouts(t *testing.T) {
 			tt := ui.NewTester(func(c *ui.Context) {
 				renderComposerQuotaStrip(c, s, th, composerChinTier(float32(width)))
 			}, width, 400)
-			if width >= 384 && !hasExactText(tt, "58%") {
+			if width >= 384 && !hasExactQuotaText(tt, "58%") {
 				t.Fatalf("额度读数不可见: %v", tt.Texts())
 			}
-			if width < 384 && (hasExactText(tt, "42%") || hasExactText(tt, "58%")) {
+			if width < 384 && (hasExactQuotaText(tt, "42%") || hasExactQuotaText(tt, "58%")) {
 				t.Fatalf("最窄档不应显示百分比: %v", tt.Texts())
 			}
 			if width < 480 {
 				if _, ok := tt.Find("5h 42% · 周 58%"); !ok {
 					t.Fatal("窄档圆环的无障碍标签应与组 tooltip 一致")
 				}
-				if width >= 384 && hasExactText(tt, "42%") {
+				if width >= 384 && hasExactQuotaText(tt, "42%") {
 					t.Fatalf("图标档只应显示最高用量: %v", tt.Texts())
 				}
 			}
