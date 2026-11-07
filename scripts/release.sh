@@ -4,8 +4,31 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
+load_dotenv() {
+    local line key value
+    [[ -f "$ROOT_DIR/.env" ]] || return 0
+    while IFS= read -r line || [[ -n $line ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        if [[ "$line" =~ ^export[[:space:]]+ ]]; then
+            line="${line#"${BASH_REMATCH[0]}"}"
+        fi
+        [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        if [[ ${#value} -ge 2 ]] && { [[ "$value" == \"*\" ]] || [[ "$value" == \'*\' ]]; }; then
+            value="${value:1:${#value}-2}"
+        fi
+        if [[ ! -n "${!key+x}" ]]; then
+            export "$key=$value"
+        fi
+    done < "$ROOT_DIR/.env"
+}
+load_dotenv
+
 usage() {
     echo '用法: scripts/release.sh [patch|minor|major|版本号] [--notes 文件] [--dry-run] [-h|--help]'
+    echo '在 .env 中使用 MCODE_RELEASE_AGENT 和 MCODE_RELEASE_MODEL 配置本地 agent。'
 }
 
 VERSION_ARG=""
@@ -30,6 +53,14 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 VERSION_ARG="${VERSION_ARG:-patch}"
+AI_AGENT="${MCODE_RELEASE_AGENT:-claude}"
+AI_MODEL="${MCODE_RELEASE_MODEL:-}"
+if [[ -z "$NOTES_FILE" && -z "${MCODE_RELEASE_NOTES_CMD:-}" ]]; then
+    case "$AI_AGENT" in
+        claude|codex|pi) ;;
+        *) echo '错误: 不支持的 MCODE_RELEASE_AGENT（可选 claude、codex、pi）' >&2; exit 1 ;;
+    esac
+fi
 cd "$ROOT_DIR"
 [[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "$ROOT_DIR" ]] || { echo '错误: 脚本必须位于仓库根目录下的 scripts 中' >&2; exit 1; }
 [[ "$(git branch --show-current)" == main ]] || { echo '错误: 必须在 main 分支发布' >&2; exit 1; }
@@ -66,7 +97,10 @@ fi
 TEMP_FILE=""
 NOTES_TEMP=""
 CHANGELOG_TEMP=""
-trap 'rm -f "$TEMP_FILE" "$NOTES_TEMP" "$CHANGELOG_TEMP"' EXIT
+AI_INPUT_TEMP=""
+AI_OUTPUT_TEMP=""
+AI_LAST_TEMP=""
+trap 'rm -f "$TEMP_FILE" "$NOTES_TEMP" "$CHANGELOG_TEMP" "$AI_INPUT_TEMP" "$AI_OUTPUT_TEMP" "$AI_LAST_TEMP"' EXIT
 NOTES_TEMP="$(mktemp "${TMPDIR:-/tmp}/mcode-notes.XXXXXX")"
 if [[ -n "$NOTES_FILE" ]]; then
     cp "$NOTES_FILE" "$NOTES_TEMP"
@@ -80,8 +114,66 @@ else
         tolower($0) ~ /^(chore|test|tests|docs|ci|style|build)(\(.*\))?!?: / { next }
         { sub(/^[[:alnum:]_-]+(\([^)]*\))?!?: /, ""); print "- " $0 }
     ' > "$NOTES_TEMP"
+    AI_INPUT_TEMP="$(mktemp "${TMPDIR:-/tmp}/mcode-ai-input.XXXXXX")"
+    AI_OUTPUT_TEMP="$(mktemp "${TMPDIR:-/tmp}/mcode-ai-output.XXXXXX")"
+    if [[ -n "$PREVIOUS_TAG" ]]; then
+        git log "$PREVIOUS_TAG..HEAD" --no-merges --format='- %s%n%b' > "$AI_INPUT_TEMP"
+        printf '\n改动文件统计:\n' >> "$AI_INPUT_TEMP"
+        git diff --stat "$PREVIOUS_TAG..HEAD" >> "$AI_INPUT_TEMP"
+    else
+        git log HEAD --no-merges --format='- %s%n%b' > "$AI_INPUT_TEMP"
+    fi
+    if [[ -n "${MCODE_RELEASE_NOTES_CMD:-}" ]]; then
+        read -r -a AI_CMD <<< "$MCODE_RELEASE_NOTES_CMD"
+    else
+        case "$AI_AGENT" in
+            claude) AI_CMD=(claude -p); [[ -z "$AI_MODEL" ]] || AI_CMD+=(--model "$AI_MODEL") ;;
+            pi) AI_CMD=(pi -p --no-session --no-tools); [[ -z "$AI_MODEL" ]] || AI_CMD+=(--model "$AI_MODEL") ;;
+            codex)
+                AI_LAST_TEMP="$(mktemp "${TMPDIR:-/tmp}/mcode-ai-last.XXXXXX")"
+                AI_CMD=(codex exec --skip-git-repo-check --output-last-message "$AI_LAST_TEMP")
+                [[ -z "$AI_MODEL" ]] || AI_CMD+=(-m "$AI_MODEL")
+                ;;
+        esac
+    fi
+    if [[ ${#AI_CMD[@]} -eq 0 ]] || ! command -v "${AI_CMD[0]}" >/dev/null 2>&1; then
+        echo '提示: 未找到 AI 命令，使用提交标题草稿' >&2
+    else
+        echo "正在用 $AI_AGENT（${AI_MODEL:-默认模型}）生成更新内容…" >&2
+        PROMPT="你正在为 MCode（面向 AI 编程代理的 macOS 桌面应用）版本 $NEXT 撰写发布说明。根据以下提交和文件统计，用 Markdown 撰写面向用户的中文亮点。按 ### 新功能、### 改进、### 修复 分组，省略空分组；每条用一句短句，总计最多 8 条；合并相关提交；省略测试、重构、CI、文档、发布杂务和内部细节。不要版本标题、前言或结束语，只输出 Markdown。
+
+$(head -c 60000 "$AI_INPUT_TEMP")"
+        if perl -e 'alarm shift; exec @ARGV' 180 "${AI_CMD[@]}" "$PROMPT" </dev/null > "$AI_OUTPUT_TEMP"; then
+            AI_NOTES="$(awk '
+                BEGIN { fence = sprintf("%c%c%c", 96, 96, 96) "[[:alnum:]_+-]*$" }
+                $0 ~ "^" fence || /^## / || /^# / { next }
+                /^[[:space:]]*$/ { if (started) blanks = blanks "\n"; next }
+                { if (started) printf "%s", blanks; print; started = 1; blanks = "" }
+            ' "${AI_LAST_TEMP:-$AI_OUTPUT_TEMP}")"
+        else
+            AI_NOTES=""
+        fi
+        if [[ -n "$AI_NOTES" ]]; then
+            printf '%s\n' "$AI_NOTES" > "$NOTES_TEMP"
+        else
+            echo '警告: AI 生成失败，改用提交标题草稿' >&2
+        fi
+    fi
     if [[ -t 0 && -t 1 ]]; then
-        "${VISUAL:-${EDITOR:-vi}}" "$NOTES_TEMP"
+        while true; do
+            printf '更新内容:\n'
+            cat "$NOTES_TEMP"
+            printf '确认使用？[Y/e/n]: '
+            if ! IFS= read -r answer; then
+                echo '已取消'
+                exit 0
+            fi
+            case "$answer" in
+                ''|y|Y) break ;;
+                e|E) "${VISUAL:-${EDITOR:-vi}}" "$NOTES_TEMP" ;;
+                n|N) echo '已取消'; exit 0 ;;
+            esac
+        done
     fi
 fi
 NOTES="$(awk '

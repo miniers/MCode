@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -54,11 +55,142 @@ func releaseRepo(t *testing.T) (string, string) {
 
 func runRelease(t *testing.T, dir string, args ...string) (string, error) {
 	t.Helper()
+	return runReleaseWithAI(t, dir, "false", args...)
+}
+
+func runReleaseWithAI(t *testing.T, dir, ai string, args ...string) (string, error) {
+	t.Helper()
+	return runReleaseWithEnv(t, dir, []string{"MCODE_RELEASE_NOTES_CMD=" + ai}, args...)
+}
+
+func runReleaseWithEnv(t *testing.T, dir string, extra []string, args ...string) (string, error) {
+	t.Helper()
 	cmd := exec.Command("bash", append([]string{filepath.Join(dir, "scripts", "release.sh")}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0")
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "MCODE_RELEASE_NOTES_CMD=") && !strings.HasPrefix(entry, "MCODE_RELEASE_AGENT=") && !strings.HasPrefix(entry, "MCODE_RELEASE_MODEL=") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	cmd.Env = append(cmd.Env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(cmd.Env, extra...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+func fakeReleaseAI(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-ai")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestReleaseAINotes(t *testing.T) {
+	dir, _ := releaseRepo(t)
+	input := filepath.Join(t.TempDir(), "input")
+	ai := fakeReleaseAI(t, "for arg do :; done\nprintf '%s' \"$arg\" > "+strconv.Quote(input)+"\nprintf '%s\\n' '```markdown' '### 新功能' '- AI 生成的说明' '## 标题' '```'")
+	if out, err := runReleaseWithAI(t, dir, ai); err != nil {
+		t.Fatalf("发布失败: %v\n%s", err, out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "## 0.2.10\n\n### 新功能\n- AI 生成的说明") || strings.Contains(string(data), "```") || strings.Contains(string(data), "## 标题") {
+		t.Fatalf("AI 更新日志不符合预期: %s", data)
+	}
+	captured, err := os.ReadFile(input)
+	if err != nil || !strings.Contains(string(captured), "初始提交") || !strings.Contains(string(captured), "0.2.10") {
+		t.Fatalf("AI 输入不符合预期: %s, %v", captured, err)
+	}
+}
+
+func TestReleaseAIEmptyFallback(t *testing.T) {
+	dir, _ := releaseRepo(t)
+	ai := fakeReleaseAI(t, "exit 0")
+	out, err := runReleaseWithAI(t, dir, ai)
+	if err != nil {
+		t.Fatalf("发布失败: %v\n%s", err, out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
+	if err != nil || !strings.Contains(string(data), "- 初始提交") || !strings.Contains(out, "警告") {
+		t.Fatalf("回退不符合预期: %s, %s, %v", data, out, err)
+	}
+}
+
+func TestReleaseNotesFileSkipsAI(t *testing.T) {
+	dir, _ := releaseRepo(t)
+	marker := filepath.Join(t.TempDir(), "marker")
+	ai := fakeReleaseAI(t, "touch "+strconv.Quote(marker))
+	notes := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(notes, []byte("- 指定说明\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runReleaseWithAI(t, dir, ai, "--notes", notes); err != nil {
+		t.Fatalf("发布失败: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("不应调用 AI: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CHANGELOG.md"))
+	if err != nil || !strings.Contains(string(data), "- 指定说明") {
+		t.Fatalf("指定说明不符合预期: %s, %v", data, err)
+	}
+}
+
+func TestReleaseAIDryRun(t *testing.T) {
+	dir, _ := releaseRepo(t)
+	before := releaseGit(t, dir, "rev-parse", "HEAD")
+	ai := fakeReleaseAI(t, "printf '%s\\n' '- AI 生成的说明'")
+	out, err := runReleaseWithAI(t, dir, ai, "--dry-run")
+	if err != nil || !strings.Contains(out, "- AI 生成的说明") {
+		t.Fatalf("试运行不符合预期: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "CHANGELOG.md")); !os.IsNotExist(err) {
+		t.Fatalf("试运行不应创建更新日志: %v", err)
+	}
+	if before != releaseGit(t, dir, "rev-parse", "HEAD") {
+		t.Fatal("试运行不应创建提交")
+	}
+}
+
+func TestReleaseDotenv(t *testing.T) {
+	for _, override := range []bool{false, true} {
+		t.Run(strconv.FormatBool(override), func(t *testing.T) {
+			dir, _ := releaseRepo(t)
+			ai := fakeReleaseAI(t, "printf '%s\\n' '- 环境文件说明'")
+			if err := os.WriteFile(filepath.Join(dir, ".git", "info", "exclude"), []byte(".env\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MCODE_RELEASE_NOTES_CMD="+ai+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var env []string
+			want := "- 环境文件说明"
+			if override {
+				env = []string{"MCODE_RELEASE_NOTES_CMD=false"}
+				want = "- 初始提交"
+			}
+			out, err := runReleaseWithEnv(t, dir, env, "--dry-run")
+			if err != nil || !strings.Contains(out, want) {
+				t.Fatalf("环境配置不符合预期: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestReleaseUnsupportedAgent(t *testing.T) {
+	dir, _ := releaseRepo(t)
+	before := releaseGit(t, dir, "rev-parse", "HEAD")
+	out, err := runReleaseWithEnv(t, dir, []string{"MCODE_RELEASE_AGENT=foo"})
+	if err == nil || !strings.Contains(out, "MCODE_RELEASE_AGENT") {
+		t.Fatalf("应拒绝不支持的 agent: %v\n%s", err, out)
+	}
+	if before != releaseGit(t, dir, "rev-parse", "HEAD") || releaseGit(t, dir, "status", "--porcelain") != "" {
+		t.Fatal("不支持的 agent 不应修改仓库")
+	}
 }
 
 func TestReleaseVersions(t *testing.T) {
