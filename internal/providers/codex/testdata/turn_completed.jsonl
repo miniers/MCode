@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"th_1","turnId":"turn_1","tokenUsage":{"total":{"inputTokens":120,"outputTokens":45,"cachedInputTokens":30,"reasoningOutputTokens":10,"totalTokens":165},"last":{"inputTokens":120,"outputTokens":45,"cachedInputTokens":30,"reasoningOutputTokens":10,"totalTokens":165}}}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"th_1","turn":{"id":"turn_1","items":[],"status":"completed","startedAt":1000,"completedAt":1010,"durationMs":10000}}}

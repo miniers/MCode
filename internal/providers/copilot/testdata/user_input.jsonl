@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":11,"method":"userInput.request","params":{"sessionId":"sid-1","question":"Which file?","choices":["a.txt","b.txt"],"allowFreeform":true}}

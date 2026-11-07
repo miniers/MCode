@@ -1,0 +1,1 @@
+{"type":"extension_ui_request","id":"req-1","method":"select","params":{"title":"mcode-gate {\"kind\":\"command\",\"toolName\":\"bash\",\"input\":{\"command\":\"ls -la\"},\"toolCallId\":\"tc1\"}","options":["Approve","Deny"]}}

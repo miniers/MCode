@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"sess-123"}
+{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant"}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello "}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"world!"}}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Hello world!"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Done","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":2}}

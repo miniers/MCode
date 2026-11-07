@@ -1,0 +1,3 @@
+{"type":"event","event":{"type":"run_start","sessionId":"cli-sess-9"}}
+{"type":"event","event":{"type":"text_delta","delta":"正在做"}}
+{"type":"event","event":{"type":"interrupted"}}

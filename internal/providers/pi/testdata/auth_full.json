@@ -1,0 +1,19 @@
+{
+  "anthropic": {
+    "type": "oauth",
+    "access": "anthropic-test-token",
+    "refresh": "anthropic-test-refresh",
+    "expires": 4102444800000
+  },
+  "google": {
+    "type": "oauth",
+    "access": "google-test-token",
+    "expires": 4102444800000
+  },
+  "openai-codex": {
+    "type": "oauth",
+    "access": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF90ZXN0XzEyMyJ9LCJleHAiOjE3OTIzNDg4MDB9.signature-not-checked",
+    "expires": 4102444800000
+  },
+  "some-api-key": "sk-not-oauth"
+}

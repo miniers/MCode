@@ -1,0 +1,15 @@
+{
+  "subscription_type": "pro",
+  "five_hour": {
+    "utilization": 5.5,
+    "resets_at": "2026-10-18T20:00:00Z"
+  },
+  "seven_day": {
+    "utilization": 22.25
+  },
+  "limits": [],
+  "extra_usage": {
+    "is_enabled": false,
+    "utilization": 9.0
+  }
+}

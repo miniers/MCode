@@ -1,0 +1,6 @@
+{
+  "credits": {"monthlyCredits": 3, "purchasedCredits": 0, "freeCredits": 0, "belowThreshold": false},
+  "windowLimits": {
+    "fiveHour": {"used": 1, "resetAt": 0}
+  }
+}

@@ -1,0 +1,33 @@
+/* 发送/停止图标形变（W-16）：两个图标常驻并叠放在同一格子里，
+   切换时只改透明度与 45° 旋转，160ms 交叉过渡，避免形状硬切。 */
+.send-morph {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+
+.send-morph__icon {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transform: rotate(45deg);
+  transition:
+    opacity 160ms cubic-bezier(.2, .8, .2, 1),
+    transform 160ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.send-morph[data-state='send'] .send-morph__icon--send,
+.send-morph[data-state='stop'] .send-morph__icon--stop {
+  opacity: 1;
+  transform: rotate(0deg);
+}
+
+/* 减少动态效果：只保留透明度切换，不做旋转。 */
+@media (prefers-reduced-motion: reduce) {
+  .send-morph .send-morph__icon,
+  .send-morph[data-state='send'] .send-morph__icon--send,
+  .send-morph[data-state='stop'] .send-morph__icon--stop {
+    transform: none;
+    transition-property: opacity;
+  }
+}

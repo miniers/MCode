@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"cmd_2","type":"commandExecution","command":"make","status":"inProgress"}}}
+{"jsonrpc":"2.0","method":"error","params":{"threadId":"th_1","turnId":"turn_1","error":{"message":"stream disconnected"},"willRetry":false}}
+{"jsonrpc":"2.0","method":"turn/failed","params":{"threadId":"th_1","turnId":"turn_1","error":{"message":"stream disconnected"}}}

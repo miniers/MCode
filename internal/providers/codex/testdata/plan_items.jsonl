@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"plan_1","type":"plan","text":""}}}
+{"jsonrpc":"2.0","method":"item/plan/delta","params":{"threadId":"th_1","turnId":"turn_1","itemId":"plan_1","delta":"1. 读代码\n"}}
+{"jsonrpc":"2.0","method":"item/plan/delta","params":{"threadId":"th_1","turnId":"turn_1","itemId":"plan_1","delta":"2. 改代码"}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"plan_1","type":"plan","text":"1. 读代码\n2. 改代码\n3. 跑测试"}}}
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"plan_2","type":"plan","text":""}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"plan_2","type":"plan","text":"没有流式增量的计划全文"}}}

@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"th_1","turnId":"turn_1","itemId":"msg_1","delta":"Hello "}}
+{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"th_1","turnId":"turn_1","itemId":"msg_1","delta":"world"}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"th_1","turnId":"turn_1","completedAtMs":1000,"item":{"id":"msg_1","type":"agentMessage","text":"Hello world, extra!"}}}

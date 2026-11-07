@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","id":101,"method":"item/commandExecution/requestApproval","params":{"threadId":"th_1","turnId":"turn_1","itemId":"cmd_appr_1","command":"git status","reason":"inspect repository status","startedAtMs":1000}}
+{"jsonrpc":"2.0","id":102,"method":"item/fileChange/requestApproval","params":{"threadId":"th_1","turnId":"turn_1","itemId":"fc_appr_1","grantRoot":"/home/user/project","reason":"write code files","startedAtMs":1005}}
+{"jsonrpc":"2.0","id":103,"method":"applyPatchApproval","params":{"conversationId":"th_1","callId":"patch_1","grantRoot":"/tmp","reason":"patch file"}}
+{"jsonrpc":"2.0","id":104,"method":"execCommandApproval","params":{"conversationId":"th_1","callId":"exec_1","command":["echo","hello"],"reason":"say hello"}}

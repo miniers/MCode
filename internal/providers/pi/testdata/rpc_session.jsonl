@@ -1,0 +1,6 @@
+{"type":"response","id":"__STATE_ID__","command":"get_state","success":true,"data":{"sessionFile":"/tmp/pi-agent/sessions/session-resumed.json"}}
+{"type":"message_start","message":{"role":"assistant","id":"m1"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"接着上次的进度继续。"}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"接着上次的进度继续。"}],"usage":{"totalTokens":64},"stopReason":"end_turn"}}
+{"type":"agent_end","willRetry":false}
+{"type":"agent_settled"}

@@ -1,0 +1,61 @@
+{
+  "reports": [
+    {
+      "provider": "anthropic",
+      "fetchedAt": 1792320000000,
+      "planType": "max",
+      "metadata": {"email": "miniers@example.com", "accountId": "acct-1"},
+      "limits": [
+        {
+          "id": "five_hour",
+          "label": "Claude 5-hour limit",
+          "status": "ok",
+          "window": {"durationMs": 18000000, "resetsAt": 1792348800000},
+          "amount": {"unit": "percent", "used": 12.5, "limit": 100}
+        },
+        {
+          "id": "weekly_opus",
+          "status": "ok",
+          "scope": {"modelId": "claude-opus-4-6"},
+          "window": {"durationMs": 604800000, "resetsAt": 1792000000000},
+          "amount": {"unit": "tokens", "used": 20000, "limit": 80000}
+        },
+        {
+          "id": "extra",
+          "label": "Extra usage",
+          "status": "exhausted",
+          "window": {},
+          "amount": {"unit": "usd"}
+        }
+      ]
+    },
+    {
+      "provider": "openai-codex",
+      "metadata": {"accountId": "acct-2"},
+      "limits": [
+        {
+          "id": "primary",
+          "window": {"durationMs": 18000000, "resetsAt": 1792411200000},
+          "amount": {"remainingFraction": 0.75}
+        }
+      ]
+    },
+    {
+      "provider": "zai",
+      "fetchedAt": 1792300000000,
+      "metadata": {"email": "miniers@example.com"},
+      "limits": [
+        {
+          "id": "coding",
+          "window": {"durationMs": 18000000},
+          "amount": {"usedFraction": 0.5}
+        }
+      ]
+    },
+    {
+      "provider": "github-copilot",
+      "metadata": {"accountId": "acct-3"},
+      "limits": []
+    }
+  ]
+}

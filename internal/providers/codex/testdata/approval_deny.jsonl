@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":201,"method":"item/commandExecution/requestApproval","params":{"threadId":"th_1","turnId":"turn_1","itemId":"cmd_deny_1","command":"rm -rf /","reason":"clean disk","startedAtMs":2000}}
+{"jsonrpc":"2.0","id":202,"method":"item/fileChange/requestApproval","params":{"threadId":"th_1","turnId":"turn_1","itemId":"fc_deny_1","grantRoot":"/etc","reason":"overwrite hosts","startedAtMs":2005}}

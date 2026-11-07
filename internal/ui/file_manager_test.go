@@ -1,0 +1,302 @@
+package mcodeui
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/config"
+)
+
+// fileManagerTestTree 构造测试用的目录树：根目录含一个文件、一个子目录和一个受保护文件，
+// 子目录 sub 含一个文件。
+func fileManagerTestTree() map[string][]FileEntry {
+	return map[string][]FileEntry{
+		"": {
+			{Name: "a.txt", Path: "a.txt", Size: 5},
+			{Name: "sub", Path: "sub", IsDir: true},
+			{Name: "secret.env", Path: "secret.env", Size: 12, Protected: true},
+		},
+		"sub": {
+			{Name: "b.go", Path: "sub/b.go", Size: 2048},
+		},
+	}
+}
+
+// fileManagerSnapshot 取面板状态的只读快照（目录、条目数、当前激活的 tab 路径）。
+func fileManagerSnapshot(s *chatState) (dir string, entries int, active string) {
+	st := getFileManagerState(s)
+	if st == nil {
+		return "", 0, ""
+	}
+	fileManagerMu.Lock()
+	defer fileManagerMu.Unlock()
+	return st.dir, len(st.entries), st.active
+}
+
+// fileManagerTabPaths 取面板当前所有 tab 的路径（按打开顺序）。
+func fileManagerTabPaths(s *chatState) []string {
+	st := getFileManagerState(s)
+	if st == nil {
+		return nil
+	}
+	fileManagerMu.Lock()
+	defer fileManagerMu.Unlock()
+	paths := make([]string, 0, len(st.tabs))
+	for _, tab := range st.tabs {
+		paths = append(paths, tab.path)
+	}
+	return paths
+}
+
+// fileManagerTabText 取某个 tab 已加载的预览文本。代码预览改成编辑器自绘后不再进
+// UI 的可查文字，测试改为直接等面板状态里的内容。
+func fileManagerTabText(s *chatState, path string) string {
+	st := getFileManagerState(s)
+	if st == nil {
+		return ""
+	}
+	fileManagerMu.Lock()
+	defer fileManagerMu.Unlock()
+	tab := st.findTabLocked(path)
+	if tab == nil {
+		return ""
+	}
+	return tab.content
+}
+
+// waitForFileManagerText 等待某个 tab 的预览文本加载到期望值。
+func waitForFileManagerText(t *testing.T, tt *ui.Tester, s *chatState, path, want string) {
+	t.Helper()
+	waitFor(t, tt, func() bool { return fileManagerTabText(s, path) == want })
+}
+
+// openFileManagerForTest 启动界面、设置工作目录与目录树并点开文件面板。
+func openFileManagerForTest(t *testing.T) (*FakeClient, *chatState, *ui.Tester) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	fake := NewFakeClient()
+	fake.SetThreadWorkDir("/tmp/mcode-file-manager-test")
+	fake.SetFileTree(fileManagerTestTree())
+	fake.SetFileContents(map[string]FileContent{
+		"a.txt": {Path: "a.txt", Kind: "text", Text: "hello", TotalSize: 5},
+	})
+	s, root := buildRoot(fake)
+	tt := ui.NewTester(root, 1200, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+
+	if err := tt.Click("文件 ⇧⌘F"); err != nil {
+		t.Fatalf("click files button failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return isFileManagerOpen(s) })
+	return fake, s, tt
+}
+
+// 头部文件按钮打开面板，关闭按钮收起面板。
+func TestFileManagerToggle(t *testing.T) {
+	_, s, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("根目录") })
+
+	if err := tt.Click("关闭文件面板"); err != nil {
+		t.Fatalf("click close button failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return !isFileManagerOpen(s) })
+}
+
+// 打开面板即列出工作目录根目录的条目。
+func TestFileManagerListRoot(t *testing.T) {
+	_, s, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") && tt.HasText("sub") })
+
+	dir, entries, _ := fileManagerSnapshot(s)
+	if dir != "" {
+		t.Fatalf("初始目录应为根目录，得到 %q", dir)
+	}
+	if entries != 3 {
+		t.Fatalf("根目录应有 3 个条目，得到 %d", entries)
+	}
+}
+
+// 点目录进入子目录，点面包屑「根目录」回到根目录。
+func TestFileManagerNavigateAndBreadcrumb(t *testing.T) {
+	_, s, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("sub") })
+
+	if err := tt.Click("sub"); err != nil {
+		t.Fatalf("click sub dir failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("b.go") })
+
+	// 面包屑里出现子目录名，点「根目录」回到上层。
+	if err := tt.Click("根目录"); err != nil {
+		t.Fatalf("click root crumb failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	if dir, _, _ := fileManagerSnapshot(s); dir != "" {
+		t.Fatalf("面包屑返回后应回到根目录，得到 %q", dir)
+	}
+}
+
+// 搜索框输入后走 SearchFiles，结果行显示相对路径；清空后回到目录列表。
+func TestFileManagerSearch(t *testing.T) {
+	fake, _, tt := openFileManagerForTest(t)
+	fake.SetFiles([]FileMatch{{Name: "beta.go", Path: "src/beta.go"}})
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	if err := tt.Click("搜索文件"); err != nil {
+		t.Fatalf("click search input failed: %v", err)
+	}
+	tt.Type("beta")
+
+	waitFor(t, tt, func() bool { return tt.HasText("src/beta.go") })
+
+	if err := tt.Click("清除搜索"); err != nil {
+		t.Fatalf("click clear search failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+}
+
+// 点文件读取文本预览，「引用到输入框」把相对路径追加到 composer 草稿。
+func TestFileManagerPreviewTextAndMention(t *testing.T) {
+	_, s, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	if err := tt.Click("a.txt"); err != nil {
+		t.Fatalf("click file row failed: %v", err)
+	}
+	waitForFileManagerText(t, tt, s, "a.txt", "hello")
+
+	if err := tt.Click("引用到输入框"); err != nil {
+		t.Fatalf("click mention button failed: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.draft == "@a.txt "
+	})
+
+	// 返回按钮回到目录列表。
+	if err := tt.Click("返回目录"); err != nil {
+		t.Fatalf("click back button failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("sub") })
+}
+
+// 预览视图里的关闭按钮（标签栏最右侧）收起文件面板。
+func TestFileManagerPreviewCloseButton(t *testing.T) {
+	_, s, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	if err := tt.Click("a.txt"); err != nil {
+		t.Fatalf("click file row failed: %v", err)
+	}
+	waitForFileManagerText(t, tt, s, "a.txt", "hello")
+
+	if err := tt.Click("关闭文件面板"); err != nil {
+		t.Fatalf("click preview close button failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return !isFileManagerOpen(s) })
+}
+
+// 预览字号跟随设置里的编辑器字号，未设置回退默认值，越界时被夹到上下限。
+func TestFileManagerPreviewFontSize(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured int
+		want       float32
+	}{
+		{"跟随设置", 16, 16},
+		{"未设置回退默认", 0, float32(config.DefaultEditorFontSize)},
+		{"超过上限被夹取", config.MaxEditorFontSize + 5, float32(config.MaxEditorFontSize)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newChatState(nil)
+			settings := NewSettingsState(settingsTestDir(t), nil, s)
+			settings.cfg.Workbench.EditorFontSize = tc.configured
+			setChatSettings(s, settings)
+			if got := fileManagerPreviewFontSize(s); got != tc.want {
+				t.Errorf("EditorFontSize=%d 时预览字号 = %v, want %v", tc.configured, got, tc.want)
+			}
+		})
+	}
+}
+
+// 读取失败时面板内显示错误行，不弹窗。
+func TestFileManagerPreviewError(t *testing.T) {
+	fake, s, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	fake.SetFilesError(errors.New("读取文件失败"))
+	if err := tt.Click("a.txt"); err != nil {
+		t.Fatalf("click file row failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("无法读取") })
+	waitFor(t, tt, func() bool { return tt.HasText("读取文件失败") })
+
+	if _, _, active := fileManagerSnapshot(s); active != "a.txt" {
+		t.Fatalf("读取失败后仍应停在文件视图，得到 %q", active)
+	}
+}
+
+// 受保护条目点击无效：不进入目录、不打开文件。
+func TestFileManagerProtectedEntryIgnoresClick(t *testing.T) {
+	_, s, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("secret.env") })
+
+	if err := tt.Click("secret.env"); err != nil {
+		t.Fatalf("click protected row failed: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		tt.Frame()
+	}
+	if _, _, active := fileManagerSnapshot(s); active != "" {
+		t.Fatalf("受保护条目不应打开预览，得到 %q", active)
+	}
+}
+
+// 目录条目被截断时显示截断提示。
+func TestFileManagerTruncatedNotice(t *testing.T) {
+	_, s, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	if st := getFileManagerState(s); st != nil {
+		fileManagerMu.Lock()
+		st.truncated = true
+		fileManagerMu.Unlock()
+	}
+	s.invalidate()
+
+	waitFor(t, tt, func() bool { return tt.HasText("目录条目已截断（仅显示前 1000 个条目）") })
+}
+
+// 打开改动面板或网页预览面板会关闭文件面板；改动与预览也互斥（互斥统一走 closeOtherSidePanes，
+// 细节用例见 side_pane_test.go）。
+func TestFileManagerClosedByOtherPanels(t *testing.T) {
+	_, s, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	s.toggleDiffPanel()
+	waitFor(t, tt, func() bool { return !isFileManagerOpen(s) })
+
+	// 再次打开文件面板后切到预览，文件面板同样关闭。
+	toggleFileManager(s)
+	waitFor(t, tt, func() bool { return isFileManagerOpen(s) })
+
+	togglePreview(s)
+	waitFor(t, tt, func() bool { return !isFileManagerOpen(s) })
+
+	// 预览打开时打开改动面板：预览被关掉（旧实现里二者可以同时为真，预览赢、改动被静默隐藏）。
+	s.toggleDiffPanel()
+	waitFor(t, tt, func() bool {
+		previewMu.Lock()
+		defer previewMu.Unlock()
+		st := previewStates[s]
+		return st == nil || !st.visible
+	})
+	if !getDiffPanelState(s).IsOpen() {
+		t.Fatal("打开改动面板后它应处于展开状态")
+	}
+}

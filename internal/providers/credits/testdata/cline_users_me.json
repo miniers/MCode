@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "data": {
+    "id": "user-123",
+    "organizations": [
+      { "organizationId": "org-old", "active": false },
+      { "organizationId": "org-9", "active": true }
+    ]
+  }
+}

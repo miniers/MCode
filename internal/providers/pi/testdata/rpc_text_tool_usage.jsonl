@@ -1,0 +1,13 @@
+{"type":"response","id":"__STATE_ID__","command":"get_state","success":true,"data":{"sessionFile":"/tmp/pi-agent/sessions/session-1.json","sessionId":"sess-1","model":{"id":"openrouter/anthropic/claude-sonnet-4","contextWindow":200000}}}
+{"type":"message_start","message":{"role":"assistant","id":"m1"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"让我先看文件。"}}
+{"type":"message_update","usage":{"input":120,"output":8,"cacheRead":40,"cacheWrite":0,"totalTokens":168}}
+{"type":"tool_execution_start","toolCallId":"tc1","toolName":"bash","args":{"command":"ls -la"}}
+{"type":"tool_execution_update","toolCallId":"tc1","partialResult":{"content":[{"type":"text","text":"total 0"}]}}
+{"type":"tool_execution_end","toolCallId":"tc1","result":{"content":[{"type":"text","text":"main.go\n"}],"details":{"exitCode":0}},"isError":false}
+{"type":"message_start","message":{"role":"assistant","id":"m2"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"该动手了"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"找到 main.go。"}}
+{"type":"message_end","message":{"role":"assistant","usage":{"inputTokens":150,"outputTokens":20,"cacheReadTokens":40,"cacheWriteTokens":10},"stopReason":"end_turn"}}
+{"type":"agent_end","willRetry":false}
+{"type":"agent_settled"}

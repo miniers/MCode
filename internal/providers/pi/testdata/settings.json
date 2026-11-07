@@ -1,0 +1,7 @@
+{
+  "defaultThinkingLevel": "high",
+  "modelThinkingLevels": {
+    "gateway/low-high-max": "max",
+    "gateway/plain": "minimal"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "quotaSnapshots": {
+    "premium_interactions": {
+      "entitlementRequests": 300,
+      "usedRequests": 75,
+      "remainingPercentage": 75,
+      "isUnlimitedEntitlement": false,
+      "resetDate": "2026-11-01"
+    },
+    "chat": {
+      "entitlementRequests": 100,
+      "usedRequests": 40,
+      "isUnlimitedEntitlement": false,
+      "resetDate": "2026-11-01T00:00:00Z"
+    },
+    "completions": {
+      "entitlementRequests": 2000,
+      "usedRequests": 0,
+      "remainingPercentage": 100,
+      "isUnlimitedEntitlement": false,
+      "resetDate": "2026-11-01T00:00:00.500Z"
+    }
+  },
+  "copilot_plan": "individual"
+}

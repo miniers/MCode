@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"cmd_1","type":"commandExecution","command":"go test ./...","status":"inProgress"}}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"th_1","turn":{"id":"turn_1","items":[],"status":"failed","error":{"message":"sandbox denied"}}}}

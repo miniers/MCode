@@ -1,0 +1,655 @@
+package mcodeui
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+)
+
+// sidePaneTestState 构造一个带工作目录的 chatState，供三个右侧面板的互斥与优先级用例使用。
+func sidePaneTestState(t *testing.T) *chatState {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	fake := NewFakeClient()
+	fake.SetThreadWorkDir("/tmp/mcode-side-pane-test")
+	fake.SetFileTree(fileManagerTestTree())
+	fake.SetFileContents(map[string]FileContent{
+		"a.txt": {Path: "a.txt", Kind: "text", Text: "hello", TotalSize: 5},
+	})
+	s := newChatState(fake)
+	s.mu.Lock()
+	s.projects = []Project{{ID: "p1", Name: "mcode-test", Path: "/tmp/mcode-side-pane-test"}}
+	s.threads = []Thread{{ID: "t1", ProjectID: "p1", Title: "测试会话1"}}
+	s.selectedThreadID = "t1"
+	s.mu.Unlock()
+	return s
+}
+
+// paneOpenFlags 读取三个面板的展开状态（各自锁内读，避免与渲染并发时读到半更新状态）。
+func paneOpenFlags(s *chatState) (file, preview, diff bool) {
+	fileManagerMu.Lock()
+	file = fileManagerPaneOpen(s)
+	fileManagerMu.Unlock()
+	previewMu.Lock()
+	preview = previewPaneOpen(s)
+	previewMu.Unlock()
+	diffPanelMu.Lock()
+	diff = diffPaneOpen(s)
+	diffPanelMu.Unlock()
+	return file, preview, diff
+}
+
+// 打开任意一个面板都应关掉另外两个，包括改动与预览之间（旧实现里这两个可以同时为真）。
+func TestSidePaneMutualExclusion(t *testing.T) {
+	cases := []struct {
+		name string
+		open func(s *chatState)
+		want string
+	}{
+		{"file", toggleFileManager, sidePaneFileID},
+		{"preview", togglePreview, sidePanePreviewID},
+		{"diff", func(s *chatState) { s.toggleDiffPanel() }, sidePaneDiffID},
+	}
+	// 每个用例都从“另一个面板已打开”开始，覆盖所有有向组合。
+	for _, from := range cases {
+		for _, to := range cases {
+			if from.name == to.name {
+				continue
+			}
+			t.Run(from.name+"->"+to.name, func(t *testing.T) {
+				s := sidePaneTestState(t)
+				defer s.close()
+				from.open(s)
+				to.open(s)
+
+				file, preview, diff := paneOpenFlags(s)
+				got := map[string]bool{sidePaneFileID: file, sidePanePreviewID: preview, sidePaneDiffID: diff}
+				if !got[to.want] {
+					t.Fatalf("打开 %s 后它应为打开状态, got %+v", to.want, got)
+				}
+				if got[from.name] {
+					t.Fatalf("打开 %s 后 %s 应被关闭, got %+v", to.name, from.name, got)
+				}
+			})
+		}
+	}
+}
+
+// 状态被外部直接置为同时打开时，渲染只取优先级最高的一个：file > preview > diff。
+func TestActiveSidePanePriority(t *testing.T) {
+	s := sidePaneTestState(t)
+	defer s.close()
+
+	if p := activeSidePane(s); p != nil {
+		t.Fatalf("没有面板打开时应返回 nil, got %q", p.id)
+	}
+
+	getFileManagerState(s)
+	fileManagerMu.Lock()
+	fileManagerStates[s].open = true
+	fileManagerMu.Unlock()
+	getPreviewState(s)
+	previewMu.Lock()
+	previewStates[s].visible = true
+	previewMu.Unlock()
+	getDiffPanelState(s)
+	diffPanelMu.Lock()
+	diffPanelStates[s].open = true
+	diffPanelMu.Unlock()
+
+	if p := activeSidePane(s); p == nil || p.id != sidePaneFileID {
+		t.Fatalf("三者同时打开时应取文件管理面板, got %+v", p)
+	}
+
+	fileManagerMu.Lock()
+	fileManagerStates[s].open = false
+	fileManagerMu.Unlock()
+	if p := activeSidePane(s); p == nil || p.id != sidePanePreviewID {
+		t.Fatalf("文件关闭后应取预览面板, got %+v", p)
+	}
+
+	previewMu.Lock()
+	previewStates[s].visible = false
+	previewMu.Unlock()
+	if p := activeSidePane(s); p == nil || p.id != sidePaneDiffID {
+		t.Fatalf("预览关闭后应取改动面板, got %+v", p)
+	}
+}
+
+// 宽度夹取：小于最小值回落到默认宽度，大于最大值取上限，范围内保持原值。
+func TestSidePaneWidthClamp(t *testing.T) {
+	s := sidePaneTestState(t)
+	defer s.close()
+
+	if getFileManagerState(s) == nil {
+		t.Fatal("expected file manager state")
+	}
+	cases := []struct {
+		name string
+		in   float32
+		want float32
+	}{
+		{"低于最小", FileManagerPanelMinWidth - 20, FileManagerPanelDefaultWidth},
+		{"高于最大", FileManagerPanelMaxWidth + 200, FileManagerPanelMaxWidth},
+		{"区间内", FileManagerPanelMinWidth + 40, FileManagerPanelMinWidth + 40},
+	}
+	p := sidePaneByID(sidePaneFileID)
+	if p == nil {
+		t.Fatal("注册表里缺少文件管理面板")
+	}
+	for _, tc := range cases {
+		fileManagerMu.Lock()
+		fileManagerStates[s].width = tc.in
+		fileManagerMu.Unlock()
+
+		ptr := p.widthPointer(s)
+		if ptr == nil {
+			t.Fatalf("%s: widthPointer 返回 nil", tc.name)
+		}
+		if *ptr != tc.want {
+			t.Fatalf("%s: 夹取后宽度 = %v, want %v", tc.name, *ptr, tc.want)
+		}
+	}
+
+	// 状态不存在时不应新建，直接返回 nil。
+	empty := &chatState{}
+	if ptr := p.widthPointer(empty); ptr != nil {
+		t.Fatalf("没有面板状态时应返回 nil, got %v", *ptr)
+	}
+	fileManagerMu.Lock()
+	_, created := fileManagerStates[empty]
+	fileManagerMu.Unlock()
+	if created {
+		t.Fatal("widthPointer 不应新建面板状态")
+	}
+}
+
+// sidePaneByID 按 ID 取注册表中的面板。
+func sidePaneByID(id string) *sidePane {
+	for i := range sidePanes {
+		if sidePanes[i].id == id {
+			return &sidePanes[i]
+		}
+	}
+	return nil
+}
+
+// 宽度偏好往返：写盘时带上 side_pane_widths，读回后首次创建面板状态即生效。
+func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
+	dataDir := settingsTestDir(t)
+	t.Setenv("MCODE_DATA", dataDir)
+	t.Setenv("HOME", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+
+	s := newChatState(NewFakeClient())
+	defer s.close()
+	WithUIStatePersistence()(s)
+
+	getFileManagerState(s)
+	fileManagerMu.Lock()
+	fileManagerStates[s].width = 500
+	fileManagerMu.Unlock()
+	getPreviewState(s)
+	previewMu.Lock()
+	previewStates[s].width = 620
+	previewMu.Unlock()
+
+	persistUIState(s)
+	waitUIStateWrites()
+
+	file, ok := loadUIStateFile()
+	if !ok {
+		t.Fatal("ui-state.json 应已写入")
+	}
+	if got := file.SidePaneWidths[sidePaneFileID]; got != 500 {
+		t.Fatalf("side_pane_widths.file = %v, want 500", got)
+	}
+	if got := file.SidePaneWidths[sidePanePreviewID]; got != 620 {
+		t.Fatalf("side_pane_widths.preview = %v, want 620", got)
+	}
+	if _, ok := file.SidePaneWidths[sidePaneDiffID]; ok {
+		t.Fatal("从未创建状态的改动面板不应写入宽度")
+	}
+
+	// JSON 往返：字段名固定为 side_pane_widths。
+	data, err := json.Marshal(UIState{SidePaneWidths: map[string]float32{sidePaneDiffID: 360}})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var back UIState
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if back.SidePaneWidths[sidePaneDiffID] != 360 {
+		t.Fatalf("side_pane_widths 往返丢失: %s", string(data))
+	}
+
+	// 恢复：新窗口拿到偏好后，首次创建状态就用偏好宽度（越界时夹到该面板上限）。
+	restored := loadUIState()
+	other := newChatState(NewFakeClient())
+	defer other.close()
+	applyUIState(other, restored)
+	dp := getDiffPanelState(other)
+	diffPanelMu.Lock()
+	diffWidth := dp.width
+	diffPanelMu.Unlock()
+	if diffWidth != DiffPanelDefaultWidth {
+		t.Fatalf("没有偏好时改动面板应使用默认宽度 %v, got %v", DiffPanelDefaultWidth, diffWidth)
+	}
+	fm := getFileManagerState(other)
+	fileManagerMu.Lock()
+	fileWidth := fm.width
+	fileManagerMu.Unlock()
+	if fileWidth != 500 {
+		t.Fatalf("恢复后文件面板应使用偏好宽度 500, got %v", fileWidth)
+	}
+
+	// 偏好越界时按优先级夹到最大宽度。
+	outOfRange := newChatState(NewFakeClient())
+	defer outOfRange.close()
+	setSidePaneWidthPreferences(outOfRange, map[string]float32{sidePanePreviewID: PreviewPanelMaxWidth + 300})
+	pv := getPreviewState(outOfRange)
+	previewMu.Lock()
+	previewWidth := pv.width
+	previewMu.Unlock()
+	if previewWidth != PreviewPanelMaxWidth {
+		t.Fatalf("越界偏好应夹到 %v, got %v", PreviewPanelMaxWidth, previewWidth)
+	}
+}
+
+// 关窗后三个面板状态都不再残留（含此前漏删的 fileManagerStates）。
+func TestWindowCloseReleasesSidePaneStates(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	_ = getFileManagerState(s)
+	_ = getPreviewState(s)
+	_ = getDiffPanelState(s)
+	setSidePaneWidthPreferences(s, map[string]float32{sidePaneFileID: 400})
+
+	s.close()
+
+	fileManagerMu.Lock()
+	_, fileLeft := fileManagerStates[s]
+	fileManagerMu.Unlock()
+	if fileLeft {
+		t.Fatal("关窗后 fileManagerStates 不应残留")
+	}
+	previewMu.Lock()
+	_, previewLeft := previewStates[s]
+	previewMu.Unlock()
+	if previewLeft {
+		t.Fatal("关窗后 previewStates 不应残留")
+	}
+	diffPanelMu.Lock()
+	_, diffLeft := diffPanelStates[s]
+	diffPanelMu.Unlock()
+	if diffLeft {
+		t.Fatal("关窗后 diffPanelStates 不应残留")
+	}
+	sidePanePrefsMu.Lock()
+	_, prefLeft := sidePanePrefs[s]
+	sidePanePrefsMu.Unlock()
+	if prefLeft {
+		t.Fatal("关窗后侧栏宽度偏好不应残留")
+	}
+}
+
+// 未开启持久化的窗口拖拽分栏不写盘（沿用 WithUIStatePersistence 的开关语义）。
+func TestSidePaneWidthPersistSkippedWithoutPersistence(t *testing.T) {
+	dataDir := settingsTestDir(t)
+	t.Setenv("MCODE_DATA", dataDir)
+	t.Setenv("HOME", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+
+	s := newChatState(NewFakeClient())
+	defer s.close()
+	getFileManagerState(s)
+	persistUIState(s)
+	waitUIStateWrites()
+
+	if _, ok := loadUIStateFile(); ok {
+		t.Fatal("未开启 WithUIStatePersistence 的窗口不应写盘")
+	}
+}
+
+// 保证注册表覆盖三个面板且顺序即优先级。
+func TestSidePanesRegistryOrder(t *testing.T) {
+	want := []string{sidePaneFileID, sidePanePreviewID, sidePaneDiffID}
+	if len(sidePanes) != len(want) {
+		t.Fatalf("注册表应包含 %d 个面板, got %d", len(want), len(sidePanes))
+	}
+	for i, id := range want {
+		if sidePanes[i].id != id {
+			t.Fatalf("第 %d 个面板 = %q, want %q", i, sidePanes[i].id, id)
+		}
+		if sidePanes[i].splitKey == "" || sidePanes[i].render == nil || sidePanes[i].close == nil {
+			t.Fatalf("面板 %q 缺少 splitKey/close/render", id)
+		}
+	}
+	// 预览面板的关闭沿用旧语义：未打开时不调 closePreview（不销毁 WebView），
+	// 只确保状态存在并保持不可见。
+	pv := sidePaneByID(sidePanePreviewID)
+	empty := &chatState{}
+	pv.close(empty)
+	previewMu.Lock()
+	stEmpty := previewStates[empty]
+	delete(previewStates, empty)
+	previewMu.Unlock()
+	if stEmpty != nil && stEmpty.visible {
+		t.Fatal("关闭未打开的预览面板后不应变为可见")
+	}
+}
+
+// 注册表里每个面板都要带齐开关入口的注册信息，且动作 id 必须在快捷键表里找得到，
+// 否则菜单 Accelerator 会退化成 fallback、快捷键也触发不到该面板。
+func TestSidePaneEntryPointRegistry(t *testing.T) {
+	shortcutIDs := make(map[string]bool)
+	for _, sc := range shortcutDefaults() {
+		shortcutIDs[sc.id] = true
+	}
+	for i := range sidePanes {
+		p := &sidePanes[i]
+		if p.actionID == "" || p.menuLabel == "" || p.menuAccel == "" ||
+			p.paletteID == "" || p.paletteTitle == "" || p.toggle == nil {
+			t.Fatalf("面板 %q 的开关入口注册信息不完整: %+v", p.id, p)
+		}
+		if !shortcutIDs[p.actionID] {
+			t.Fatalf("面板 %q 的 actionID %q 不在 shortcutDefaults 中", p.id, p.actionID)
+		}
+		if _, _, ok := shortcutBindingFor(p.actionID); !ok {
+			t.Fatalf("面板 %q 的 actionID %q 没有有效绑定", p.id, p.actionID)
+		}
+	}
+}
+
+// sidePaneByAction 命中三个动作 id，未知 id 返回 nil。
+func TestSidePaneByAction(t *testing.T) {
+	cases := map[string]string{
+		"toggle-file-manager": sidePaneFileID,
+		"toggle-preview":      sidePanePreviewID,
+		"toggle-diff":         sidePaneDiffID,
+	}
+	for actionID, wantID := range cases {
+		p := sidePaneByAction(actionID)
+		if p == nil {
+			t.Fatalf("sidePaneByAction(%q) 返回 nil", actionID)
+		}
+		if p.id != wantID {
+			t.Fatalf("sidePaneByAction(%q).id = %q, want %q", actionID, p.id, wantID)
+		}
+	}
+	if p := sidePaneByAction(""); p != nil {
+		t.Fatalf("sidePaneByAction(\"\") 应返回 nil, got %q", p.id)
+	}
+	if p := sidePaneByAction("toggle-quantum"); p != nil {
+		t.Fatalf("未知动作 id 应返回 nil, got %q", p.id)
+	}
+}
+
+// 注册表生成的命令面板项数量与 id/标题/kind 必须与注册表一致，且 run 真的能开关面板。
+func TestSidePanePaletteItems(t *testing.T) {
+	items := sidePanePaletteItems()
+	if len(items) != len(sidePanes) {
+		t.Fatalf("命令面板项应有 %d 条, got %d", len(sidePanes), len(items))
+	}
+	s := sidePaneTestState(t)
+	defer s.close()
+
+	for i := range sidePanes {
+		p := &sidePanes[i]
+		it := items[i]
+		if it.id != p.paletteID || it.title != p.paletteTitle || it.kind != "command" {
+			t.Fatalf("第 %d 条命令面板项 = {%q %q %q}, want {%q %q command}",
+				i, it.id, it.title, it.kind, p.paletteID, p.paletteTitle)
+		}
+		if it.run == nil {
+			t.Fatalf("命令面板项 %q 缺少 run", it.id)
+		}
+		it.run(s)
+		if got := activeSidePane(s); got == nil || got.id != p.id {
+			t.Fatalf("执行命令面板项 %q 后应打开面板 %q, got %+v", it.id, p.id, got)
+		}
+	}
+}
+
+// 注册表生成的菜单项数量与标签、点击派发的动作 id 都要与注册表一致。
+func TestSidePaneMenuItems(t *testing.T) {
+	items := sidePaneMenuItems()
+	if len(items) != len(sidePanes) {
+		t.Fatalf("菜单项应有 %d 条, got %d", len(sidePanes), len(items))
+	}
+	for i := range sidePanes {
+		p := &sidePanes[i]
+		it := items[i]
+		if it.Label != p.menuLabel {
+			t.Fatalf("第 %d 个菜单项标签 = %q, want %q", i, it.Label, p.menuLabel)
+		}
+		if it.Accelerator == "" || it.Click == nil {
+			t.Fatalf("菜单项 %q 缺少 Accelerator 或 Click", it.Label)
+		}
+	}
+}
+
+// --- 分栏拖拽手柄（任务 D）---
+
+// sidePaneSplitTestWidth/Height 是分栏测试窗口的尺寸，足够放下 420 DIP 的默认面板宽度。
+const (
+	sidePaneSplitTestWidth  float32 = 1000
+	sidePaneSplitTestHeight float32 = 700
+)
+
+// stubSidePanePanelRender 把注册表里某个面板的渲染换成占位文本，避免分栏测试依赖真实面板内容。
+// sidePanes 是包级注册表，测试串行执行，收尾时还原。
+func stubSidePanePanelRender(t *testing.T, id string) {
+	t.Helper()
+	p := sidePaneByID(id)
+	if p == nil {
+		t.Fatalf("注册表里缺少面板 %q", id)
+	}
+	orig := p.render
+	p.render = func(c *ui.Context, s *chatState) {
+		ui.Text(c, "面板占位")
+	}
+	t.Cleanup(func() { p.render = orig })
+}
+
+// newSidePaneSplitTester 建一个只渲染分栏的 headless 窗口：主区与面板都是占位文本。
+// 视图里不建任何会自己请求帧的东西（例如带 AfterInput 的滚动容器），否则
+// AnimateTo 会被 ReduceMotion 直接跳到目标值，高亮线看不到淡入。
+func newSidePaneSplitTester(t *testing.T, s *chatState) *ui.Tester {
+	t.Helper()
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderSidePaneSplit(c, s, func() { ui.Text(c, "会话主区") })
+	}, int(sidePaneSplitTestWidth), int(sidePaneSplitTestHeight))
+	tt.Frame()
+	return tt
+}
+
+// openFilePaneForTest 直接把文件管理面板置为展开（不走 toggleFileManager 的目录加载），
+// 返回展开时的面板宽度。
+func openFilePaneForTest(t *testing.T, s *chatState) float32 {
+	t.Helper()
+	if getFileManagerState(s) == nil {
+		t.Fatal("文件管理面板状态应可创建")
+	}
+	fileManagerMu.Lock()
+	defer fileManagerMu.Unlock()
+	fileManagerStates[s].open = true
+	return fileManagerStates[s].width
+}
+
+// sidePaneHandlePoint 用无障碍标签找到分栏手柄，返回它的中心点。
+func sidePaneHandlePoint(t *testing.T, tt *ui.Tester) (float32, float32) {
+	t.Helper()
+	r, ok := tt.Find(sidePaneHandleLabel)
+	if !ok {
+		t.Fatalf("找不到分栏手柄, texts=%v", tt.Texts())
+	}
+	return r.X + r.W/2, r.Y + r.H/2
+}
+
+// 高亮线的目标值只由「是否拖动」「悬停时长」决定：不足 motionHoverDelay 保持 0。
+func TestSidePaneHandleInkTarget_Schedule(t *testing.T) {
+	cases := []struct {
+		name     string
+		hovered  bool
+		dragging bool
+		elapsed  time.Duration
+		want     float32
+	}{
+		{"未悬停", false, false, 0, 0},
+		{"悬停不足一半时间", true, false, motionHoverDelay / 2, 0},
+		{"悬停 149ms", true, false, motionHoverDelay - time.Millisecond, 0},
+		{"悬停满 150ms", true, false, motionHoverDelay, sidePaneHandleInkAlpha},
+		{"停更久", true, false, 10 * motionHoverDelay, sidePaneHandleInkAlpha},
+		{"拖动中（指针已经离开手柄）", false, true, 0, sidePaneHandleInkAlpha},
+	}
+	for _, tc := range cases {
+		if got := sidePaneHandleInkTarget(tc.hovered, tc.dragging, tc.elapsed); got != tc.want {
+			t.Errorf("%s: sidePaneHandleInkTarget(%v, %v, %v) = %v, want %v",
+				tc.name, tc.hovered, tc.dragging, tc.elapsed, got, tc.want)
+		}
+	}
+}
+
+// 拖动位移的符号：手柄往左拖（dx 为负）面板变宽，宽度不会变负。
+func TestSidePaneDraggedWidth_Signs(t *testing.T) {
+	if got := sidePaneDraggedWidth(420, -40); got != 460 {
+		t.Errorf("手柄左移 40 应加宽到 460, got %v", got)
+	}
+	if got := sidePaneDraggedWidth(420, 40); got != 380 {
+		t.Errorf("手柄右移 40 应收窄到 380, got %v", got)
+	}
+	if got := sidePaneDraggedWidth(30, 100); got != 0 {
+		t.Errorf("宽度不应变负, got %v", got)
+	}
+}
+
+// 松手判定：窄于最小宽度的一半收起并复位，否则夹取到 [最小, 最大]；正好一半不收起。
+func TestSidePaneReleasedWidth_CollapseAndClamp(t *testing.T) {
+	const (
+		minW = FileManagerPanelMinWidth
+		defW = FileManagerPanelDefaultWidth
+		maxW = FileManagerPanelMaxWidth
+	)
+	if w, collapsed := sidePaneReleasedWidth(minW*0.5-1, minW, defW, maxW); !collapsed || w != defW {
+		t.Errorf("过窄松手应收起并复位到 %v, got %v collapsed=%v", defW, w, collapsed)
+	}
+	if w, collapsed := sidePaneReleasedWidth(minW*0.5, minW, defW, maxW); collapsed || w != minW {
+		t.Errorf("正好一半不应收起，夹到最小宽度 %v, got %v collapsed=%v", minW, w, collapsed)
+	}
+	if w, collapsed := sidePaneReleasedWidth(minW+10, minW, defW, maxW); collapsed || w != minW+10 {
+		t.Errorf("区间内宽度应保持 %v, got %v collapsed=%v", minW+10, w, collapsed)
+	}
+	if w, collapsed := sidePaneReleasedWidth(maxW+100, minW, defW, maxW); collapsed || w != maxW {
+		t.Errorf("超上限应夹到 %v, got %v collapsed=%v", maxW, w, collapsed)
+	}
+}
+
+// 悬停不足 motionHoverDelay 不出高亮线，满 150ms 后出现，移开后淡出消失。
+func TestSidePaneSplit_HandleHighlightsAfterDelay(t *testing.T) {
+	resetSidePaneHandlesForTest()
+	s := sidePaneTestState(t)
+	defer s.close()
+	stubSidePanePanelRender(t, sidePaneFileID)
+	openFilePaneForTest(t, s)
+
+	tt := newSidePaneSplitTester(t, s)
+	hx, hy := sidePaneHandlePoint(t, tt)
+	if _, ok := tt.Find(sidePaneHandleHighlightLabel); ok {
+		t.Fatal("未悬停时不应有高亮线")
+	}
+
+	tt.Move(hx, hy)
+	if _, ok := tt.Find(sidePaneHandleHighlightLabel); ok {
+		t.Fatal("刚移入手柄时不应有高亮线")
+	}
+	tt.Advance(motionHoverDelay / 2)
+	if _, ok := tt.Find(sidePaneHandleHighlightLabel); ok {
+		t.Fatalf("悬停 %v 仍不足 150ms，不应有高亮线", motionHoverDelay/2)
+	}
+	tt.Advance(motionHoverDelay)
+	tt.Advance(motionFast)
+	if _, ok := tt.Find(sidePaneHandleHighlightLabel); !ok {
+		t.Fatalf("悬停满 150ms 后应出现高亮线, texts=%v", tt.Texts())
+	}
+
+	tt.Move(hx-200, hy)
+	tt.Advance(2 * motionFast)
+	tt.Frame()
+	if _, ok := tt.Find(sidePaneHandleHighlightLabel); ok {
+		t.Fatal("移开后高亮线应淡出消失")
+	}
+}
+
+// 拖到最小宽度一半以下松手：面板收起，宽度复位到默认值。
+func TestSidePaneSplit_AutoCollapsesWhenTooNarrow(t *testing.T) {
+	resetSidePaneHandlesForTest()
+	s := sidePaneTestState(t)
+	defer s.close()
+	stubSidePanePanelRender(t, sidePaneFileID)
+	start := openFilePaneForTest(t, s)
+
+	tt := newSidePaneSplitTester(t, s)
+	hx, hy := sidePaneHandlePoint(t, tt)
+
+	tt.Press(hx, hy)
+	// 分三次往右拖，把 420 DIP 的面板压到 80 DIP（< 220/2）。
+	tt.Move(hx+150, hy)
+	tt.Move(hx+300, hy)
+	tt.Move(hx+340, hy)
+	file, _, _ := paneOpenFlags(s)
+	if !file {
+		t.Fatal("拖动过程中面板不应提前收起")
+	}
+	tt.Release(hx+340, hy)
+
+	file, _, _ = paneOpenFlags(s)
+	if file {
+		t.Fatal("压到最小宽度一半以下松手后面板应收起")
+	}
+	fileManagerMu.Lock()
+	width := fileManagerStates[s].width
+	fileManagerMu.Unlock()
+	if width != start {
+		t.Fatalf("收起后宽度应复位到默认值 %v, got %v", start, width)
+	}
+}
+
+// 拖动 40 DIP 后面板变宽 40，且松手时宽度被写进 ui-state.json。
+func TestSidePaneSplit_DragPersistsWidth(t *testing.T) {
+	dataDir := settingsTestDir(t)
+	t.Setenv("MCODE_DATA", dataDir)
+	t.Cleanup(waitUIStateWrites)
+
+	resetSidePaneHandlesForTest()
+	s := sidePaneTestState(t)
+	defer s.close()
+	WithUIStatePersistence()(s)
+	stubSidePanePanelRender(t, sidePaneFileID)
+	start := openFilePaneForTest(t, s)
+
+	tt := newSidePaneSplitTester(t, s)
+	hx, hy := sidePaneHandlePoint(t, tt)
+
+	tt.Press(hx, hy)
+	tt.Move(hx-40, hy) // 手柄左移 40：面板加宽 40
+	tt.Release(hx-40, hy)
+
+	fileManagerMu.Lock()
+	width := fileManagerStates[s].width
+	fileManagerMu.Unlock()
+	if width != start+40 {
+		t.Fatalf("拖动 40 DIP 后面板宽度应为 %v, got %v", start+40, width)
+	}
+
+	waitUIStateWrites()
+	file, ok := loadUIStateFile()
+	if !ok {
+		t.Fatal("ui-state.json 应已写入")
+	}
+	if got := file.SidePaneWidths[sidePaneFileID]; got != start+40 {
+		t.Fatalf("落盘的面板宽度 = %v, want %v", got, start+40)
+	}
+}

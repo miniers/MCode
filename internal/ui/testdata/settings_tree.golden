@@ -1,0 +1,248 @@
+# settings tree
+page appearance
+section appearance.theme 主题与排版
+row row-theme 主题
+row row-text-scale 文字大小
+row row-conversation-density 界面密度
+row row-content-width 内容宽度
+row row-content-width-percent 比例宽度
+row row-sidebar-compact 紧凑侧边栏
+section appearance.fonts 字体与字号
+row row-code-font 代码字体
+row row-code-font-size 代码字号
+row row-terminal-font-size 终端字号
+row row-editor-font-size 编辑器字号
+page conversation
+section conversation.reply 回复与思考
+row row-show-reasoning 显示思考过程
+row row-auto-collapse-reasoning 自动折叠思考过程
+row row-concise-replies 简洁 AI 回复
+section conversation.messages 消息与排队
+row row-quick-replies 快捷回复
+row row-queue-while-running 运行中排队消息
+row row-insert-into-running-turn 新消息插入当前回合
+row row-composer-send-key 发送消息快捷键
+row row-pin-sent-message 发送后置顶消息
+row row-auto-continue-after-limit 用尽限额后自动继续
+section conversation.finish 完成与提醒
+row row-thread-finish-action 会话完成动作
+section conversation.retention 保留与归档
+row row-auto-dormant-days 无消息多少天后自动休眠
+row row-archive 已归档会话
+row row-confirm-delete 删除会话前确认
+section advanced.conversation 高级
+row row-ask-compact-before-resume 恢复旧会话前询问压缩
+row row-bee-message-retention 压缩 30 天前的子代理消息
+page extensions
+section skills.list 技能
+row block-skills 
+section mcp.custom MCP 服务
+row block-mcp-custom 
+row row-mcp-fold-tools 折叠大量工具
+page general
+section general.permissions 权限
+row row-mode 默认权限
+section general.notifications 通知与提示音
+row row-notify 完成后通知
+row row-notify-foreground 前台也发送通知
+row row-notify-approval 待审批时通知
+row row-finish-sound 完成提示音
+row row-chime-attention 需要介入时提示音
+row row-dormant-sound 会话休眠提示音
+row row-notify-stalled 会话卡住时提醒
+row row-stalled-minutes 多久算卡住
+section general.startup 启动与托盘
+row row-tray 菜单栏图标
+row row-tray-quota 菜单栏显示额度百分比
+row row-quit-action 关闭窗口时
+row row-automation-prevent-sleep 保持唤醒
+section general.shortcuts 快捷键
+row row-global-shortcut 全局快捷键
+row row-shortcuts-all 全部快捷键
+row row-general-about 
+page magpie
+section sec-magpie-gateways 网关
+row row-magpie-gateways 
+row row-magpie-personas 人设
+section sec-magpie-agents 智能体
+row row-magpie-agent-claude Claude
+row row-magpie-agent-codex Codex
+row row-magpie-agent-pi pi
+section sec-magpie-models 模型
+row row-magpie-model-picker-visible 在模型选择器中显示
+row row-magpie-model-matrix 
+page models
+section sec-models-pinned 收藏模型
+row row-models-pinned 
+row row-models-add 
+section sec-providers 供应商
+row row-providers-list 
+page nowledge
+section nowledge.memory 记忆
+row row-memory-backend 记忆后端
+row row-nowledge-inject-working-memory 新会话注入 Working Memory
+row row-nowledge-bee-recall 派发子代理时附带相关记忆
+row row-nowledge-sync-threads 同步会话到 Nowledge
+section nowledge.spaces 项目记忆空间
+row row-nowledge-project-spaces 
+section advanced.memory 高级
+row row-nowledge-inject-memory-tools-note 向新会话说明记忆工具用法
+row row-nowledge-working-memory-budget 工作记忆预算
+row row-nowledge-sync-helper-threads 同步编排子代理会话
+row row-nowledge-sync-automation-threads 同步自动化运行会话
+page remote
+section remote.status 服务状态
+row row-remote-enabled 启用远程控制服务
+row row-remote-status 运行状态
+row row-remote-error 服务错误
+section remote.devices 设备
+row row-remote-pair 添加设备
+row row-remote-pairing 
+row row-remote-devices 
+section remote.network 网络
+row row-remote-entry 入口地址
+row row-remote-port 监听端口
+row row-remote-hosts 额外允许的访问域名
+section remote.tailscale Tailscale
+row row-remote-tailscale-enabled 通过 Tailscale 访问
+row row-remote-tailscale-state 连接状态
+row row-remote-tailscale-login 授权链接
+row row-remote-tailscale-entry HTTPS 入口
+row row-remote-tailscale-whois 最近连接
+row row-remote-tailscale-error Tailscale 错误
+row row-remote-tailscale-hostname 节点名称
+row row-remote-tailscale-reset 重置节点
+section remote.tls 自定义域名 HTTPS
+row row-remote-tls-enabled 启用 HTTPS
+row row-remote-tls-domain 域名
+row row-remote-tls-port HTTPS 端口
+row row-remote-tls-token Cloudflare API 令牌
+row row-remote-tls-entry HTTPS 入口
+row row-remote-tls-status 证书状态
+row row-remote-tls-actions 证书操作
+section remote.push 手机推送
+row row-remote-push-enabled 应用关闭时也推送
+row row-remote-push-subscriptions 已订阅设备
+page sourceControl
+section sourceControl.commit 提交信息生成
+row row-sc-generate-commit-msg 自动生成提交信息
+row row-sc-commit-instructions 提交信息附加说明
+row row-sc-commit-model 生成提交信息与会话标题的模型
+section sourceControl.worktrees 工作区与工作树
+row row-sc-default-workspace-mode 默认工作区模式
+row row-sc-auto-cleanup-delete 删除会话时自动清理工作树
+row row-sc-auto-cleanup-merged 自动清理已合并的工作树
+row row-sc-worktree-cleanup Worktree 清理
+section advanced.sourceControl 高级
+row row-sc-init-submodules 新建工作树时初始化子模块
+row row-sc-clone-ignored 新建工作树时克隆依赖目录
+row row-sc-clone-ignored-patterns 复制的目录名单
+page swarm
+section swarm.main 
+row row-swarm-enabled 启用编排
+section swarm.pairs 模型配对
+row block-swarm-pairs 
+section swarm.tiers 子代理档位
+row block-swarm-tiers 
+section swarm.bees 子代理
+row row-swarm-workspace-mode 工作空间模式
+row row-swarm-retry-failed 失败时自动重试
+row row-swarm-auto-clear-finished 自动清理已完成子代理
+row row-swarm-auto-hides-idle-bees 侧边栏自动隐藏空闲子代理
+row row-swarm-shows-bee-details 显示子代理详细步骤
+row row-swarm-auto-pops-bees 自动弹出子代理面板
+row row-swarm-archives-codex-bees Codex 子会话历史
+section swarm.messages 消息流向
+row row-swarm-auto-delegate 自动委托
+row row-swarm-lead-plans-only 主代理只规划
+row row-swarm-send-to-bees 消息直接交给子代理
+row row-swarm-auto-forward-question 无人回答时转给主代理
+section swarm.models 子代理默认模型
+row row-swarm-default-model 默认提供方与模型
+section swarm.done 子代理完成时
+row block-swarm-review 
+row row-swarm-auto-merge 自动合并
+row row-swarm-auto-push 自动推送
+section swarm.steward 总管
+row row-steward-open 总管
+section advanced.orchestration 高级
+row row-swarm-max-bees 并发上限
+row row-swarm-max-rounds 最多派发轮次
+row row-swarm-bee-timeout 子代理运行超时
+row row-swarm-request-timeout 请求总时长预算
+row row-swarm-review-max-lines 自动通过行数上限
+page workbench
+section workbench.context 项目文档
+row row-context-guidance 注入项目说明
+row row-context-doc- 注入文档
+section workbench.kanban 看板与任务
+row row-kanban-default-view 默认视图
+row row-tasks-auto-merge-worktree 验收后自动合并工作树
+row row-kanban-auto-review 完成后自动转为 Review
+row row-kanban-run-in-worktree 在独立工作树中执行
+row row-kanban-mcp-tools 注册看板 MCP 工具
+row row-kanban-entry-ordinary 普通会话暴露单一入口
+row row-kanban-auto-start-on-create 创建后自动启动
+row row-kanban-auto-rescue-stuck 卡死任务自动救援
+row row-kanban-stuck-nudge-timeout 无活动提醒
+row row-kanban-stuck-interrupt-timeout 无活动中断
+section workbench.terminal 终端
+row row-terminal-shell 默认终端
+section workbench.preview Web 预览
+row row-browser-start-url 起始地址
+row row-browser-console-capture 捕获控制台输出
+section workbench.editor 编辑器与文件树
+row row-editor-auto-save 自动保存
+section workbench.openIn 
+row row-workbench-open-in 打开方式
+section advanced.workbench 高级
+row row-context-inject-budget 注入字符上限
+row row-terminal-scrollback-lines 回滚行数
+row row-browser-quick-ports 快捷端口
+sheet mcp-detail MCP 服务
+sheet mcp-add 添加服务
+sheet quick-replies 快捷回复
+sheet archive 已归档会话
+sheet magpie-gateway Magpie 网关
+sheet magpie-personas 人设
+sheet open-in 打开方式
+sheet provider 供应商
+section sec-agy-login 添加账号
+row row-agy-browser-login 浏览器授权登录
+section sec-agy-routing 调度
+row sec-agy-routing-sink 冷却账号
+row sec-agy-auto-warmup 到期自动预热
+section sec-agy-strategy 调度策略
+row sec-agy-routing-strategy 调度策略
+section sec-agy-affinity 会话保持模式
+row sec-agy-routing-affinity 会话保持模式
+section sec-agy-advanced-login 
+row row-agy-terminal-login 终端登录（备用）
+sheet provider-add 添加供应商
+sheet shortcuts 快捷键
+sheet steward 总管
+section sec-steward-main 总管
+row row-steward-name 昵称
+row row-steward-avatar 头像
+row row-steward-enabled 启用总管
+row row-steward-session 总管会话
+row row-steward-auto-collapse-reasoning 自动折叠思考过程
+row row-steward-disabled-hint 尚未启用
+section sec-steward-model 模型
+row row-steward-model 总管模型
+row row-steward-model-plan 方案模型
+section sec-steward-quiet 安静时段
+row row-steward-quiet-enabled 启用安静时段
+row row-steward-quiet-range 时间范围
+section sec-steward-daily-report 日报
+row row-steward-daily-report 日报
+row row-steward-daily-report-at 日报时间
+section sec-steward-score 建议计分
+row block-steward-score 
+row row-steward-score-window 统计范围
+section sec-steward-passthrough 话题直通
+row row-steward-passthrough 话题事件直通
+section sec-steward-advanced 高级
+row row-steward-home-dir 记忆与状态目录
+row row-steward-wake-limit 每天主动提醒上限
+sheet worktree Worktree 清理

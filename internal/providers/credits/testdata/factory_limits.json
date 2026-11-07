@@ -1,0 +1,14 @@
+{
+  "extraUsageBalanceCents": 500,
+  "limits": {
+    "standard": {
+      "fiveHour": { "usedPercent": 12.5, "windowEnd": "2026-10-18T17:00:00Z" },
+      "weekly": { "usedPercent": 40, "windowEnd": "2026-10-24T00:00:00Z" },
+      "monthly": { "usedPercent": 80, "windowEnd": "2026-09-01T00:00:00Z" }
+    },
+    "core": {
+      "fiveHour": { "usedPercent": 0, "windowEnd": "2026-10-18T17:00:00Z" },
+      "weekly": { "usedPercent": 60, "windowEnd": "2026-10-24T00:00:00Z" }
+    }
+  }
+}

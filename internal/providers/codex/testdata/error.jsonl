@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"error","params":{"message":"fatal internal error in codex"}}
+{"jsonrpc":"2.0","method":"turn/failed","params":{"threadId":"th_1","turnId":"turn_1","error":{"message":"network connection closed prematurely"}}}

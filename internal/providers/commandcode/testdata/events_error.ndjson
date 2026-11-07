@@ -1,0 +1,5 @@
+{"type":"event","event":{"type":"run_start","sessionId":"cli-sess-3"}}
+{"type":"event","event":{"type":"message_start"}}
+{"type":"event","event":{"type":"text_delta","delta":"开始处理"}}
+{"type":"event","event":{"type":"run_error","error":"rate limit exceeded"}}
+{"type":"result","subtype":"error","stopReason":"error","error":{"message":"rate limit exceeded"},"sessionId":"cli-sess-3"}

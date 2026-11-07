@@ -1,0 +1,43 @@
+/dist/
+/build/
+build.noindex/
+/mcode
+# 构建产物：go build 直接落在 cmd 目录下的二进制不应入库
+/cmd/mcode/mcode
+/cmd/mcode-server/mcode-server
+*.test
+.DS_Store
+internal/webassets/dist/*
+!internal/webassets/dist/.gitkeep
+/.mygo/dev/
+/.mygo/
+/cmd/mcode/.mygo/dev/
+
+# 密钥与证书：*.key 已覆盖原先的 mygo-update.key（按文件名匹配，不限层级）
+*.key
+*.pem
+*.p12
+
+# 环境变量文件；示例文件必须入库，故在 .env.* 之后反向豁免
+.env
+.env.*
+!.env.example
+
+# 安装包（发布产物落在 /dist/，个人打包落在 build.noindex/personal，两者已被上面的目录规则覆盖）
+*.dmg
+*.pkg
+
+# mcode 在仓库根生成的本地上下文目录
+/.mcode/
+
+# 文档截图与评审证据已移到仓库外的 ../mcode-assets，防止再次入库
+/docs/assets/
+/docs/review-assets/
+/docs/30-parity/evidence/
+
+# 本地调研/对标文档，不入库
+/docs/synara-*
+/docs/t3code-*
+/docs/t3code-parts/
+/docs/t3code-ste-parts/
+/docs/tailscale-*

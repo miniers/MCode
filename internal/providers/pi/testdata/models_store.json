@@ -1,0 +1,24 @@
+{
+  "gateway": {
+    "models": [
+      {
+        "id": "low-high-max",
+        "provider": "gateway",
+        "reasoning": true,
+        "thinkingLevelMap": {
+          "off": null,
+          "minimal": null,
+          "low": "low",
+          "medium": null,
+          "high": "high",
+          "max": "max"
+        }
+      },
+      {
+        "id": "fetched-only",
+        "provider": "gateway",
+        "reasoning": false
+      }
+    ]
+  }
+}

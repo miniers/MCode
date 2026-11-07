@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#fcfcfc" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="mcode 远程控制与任务审查移动看板" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="mcode 看板" />
+
+    <link rel="icon" type="image/svg+xml" href="./remote-icon.svg" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
+    <link rel="manifest" href="./remote-manifest.webmanifest" />
+
+    <style>
+      /* 首帧占位：remote-app.css 还没生效时也给出与主题一致的底色，深色主题冷启动不再先白一下。
+         兜底值与 web/src/index.css 的 --screen / --foreground-muted 保持一致。 */
+      html, body { background: var(--screen, #fcfcfc); }
+      html.dark, html.dark body { background: var(--screen, #0a0a0a); }
+      #boot-placeholder { margin: 0; padding: 48px 24px; font: 14px/1.6 -apple-system, sans-serif; color: var(--foreground-muted, #6f6f79); text-align: center; }
+      html.dark #boot-placeholder { color: var(--foreground-muted, #838383); }
+    </style>
+    <script>
+      // 首帧主题：判定规则与 web/src/services/storage.ts 的 THEME_KEY / getStoredTheme 保持一致。
+      // CSP 的 sha256 由 internal/remote/server.go 的 inlineScriptHashes 按返回的 HTML 实时计算，改本脚本无需手动同步 hash。
+      (function () {
+        try {
+          var KEY = 'mcode_remote_theme_preference';
+          var theme = 'system';
+          try {
+            var stored = window.localStorage.getItem(KEY);
+            if (stored === 'light' || stored === 'dark' || stored === 'system') theme = stored;
+          } catch (e) {}
+          var prefersDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var isDark = theme === 'dark' || (theme === 'system' && prefersDark);
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+          } else {
+            root.classList.remove('dark');
+          }
+          if (theme !== 'system') {
+            // 显式选了主题：把两条按系统媒体查询切换的 theme-color 收敛成同一个值；
+            // 跟随系统时保留 media 属性，交给浏览器按系统偏好选择。
+            var metas = document.querySelectorAll('meta[name="theme-color"]');
+            for (var i = 0; i < metas.length; i++) {
+              metas[i].setAttribute('content', isDark ? '#0a0a0a' : '#fcfcfc');
+              metas[i].removeAttribute('media');
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script src="./remote-boot.js"></script>
+    <title>mcode 移动看板</title>
+  </head>
+  <body>
+    <div id="root"><p id="boot-placeholder">正在加载 mcode…<br />如果一直停在这里，说明页面脚本没有加载成功。</p></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

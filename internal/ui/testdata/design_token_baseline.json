@@ -1,0 +1,1846 @@
+{
+  "version": 1,
+  "files": {
+    "internal/ui/ai_worktree.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/app_menu.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/approval.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/attention_client.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/attention_inbox.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/auto_dormant.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/automation.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/automation_runs_ui.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/chat.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/chat_anchor.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/chat_find.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/chat_header.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/chat_header_tools.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/client.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_attach.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_capsules.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_changes_tab.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_complete.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_continue.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_dock.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_downloads.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_drafts.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_drop_overlay.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_history.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_mcp_menu.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_paste.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_plan_pill.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_queue.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_queue_recall.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_quick_replies.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_send_key.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_send_state.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_skills.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/composer_usage_panel.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/confirm_dialog.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/content_width.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/context_panel.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/context_panel_views.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/density.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/diff_panel.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/diff_rows.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/editor_line_open.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/effort_slider.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/file_manager.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/file_manager_code_view.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/file_manager_menu.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/file_manager_ops.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/file_manager_shortcut.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/file_manager_tabs.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/file_manager_tabs_view.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/file_ops_client.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/foreground_reporter.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/git_form_windows_ui.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/git_pr_ui.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/git_stash_ui.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/github_clone.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/icons.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/image_gallery.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/image_preview.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/inline_path_link.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/kanban.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/kanban_modal.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/kanban_sheets.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/local_file_link.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/magpie_model_panel.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/memory_panel.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/memory_panel_views.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/message_media.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/mini_editor.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/modal_drag.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/model.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/model_capsule_view.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/model_picker.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/model_picker_anim.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/model_picker_popover.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/motion.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/palette.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/palette_message_search.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/pending_thread.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/plan_reader.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/popover.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/preview.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/preview_annotate.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/project_activation.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/quota_bar.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/quota_style.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/revert_dialog.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/rolling_number.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/root.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/scripts_sheet.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/scroll_contain.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/scroll_follow.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/session_stats_popover.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_agent_magpie.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_agy.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_archive_worktrees.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_controls.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_extra.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_hosts.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_index.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_magpie_data.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_magpie_hub.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_mcp_controls.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_models_data.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_about.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_advanced.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_appearance.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_archive.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_conversation.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_extensions.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_general.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_magpie.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_mcp.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_mcp_cache.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_mcp_catalog.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_models.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_nowledge.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_open_in.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_providers_agents.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_quick_replies.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_remote.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_skills.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_source_control.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_steward.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_swarm.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_page_workbench.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_pi_magpie.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_plan_limits.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_providers.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_remote.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_remote_tailscale.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_remote_tls.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_reset.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_sheet_conversation.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_sheet_magpie.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_sheet_open_in.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_sheet_providers.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_sheet_shortcuts.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_sheet_skills.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_sheet_steward.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_sheet_workbench.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_status.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_swarm_data.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_swarm_presets.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_swarm_tiers.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_tray_quota.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_tree.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/settings_visual.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/shell_layout.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/shortcut_help.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/shortcuts.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/side_pane.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_activity.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_bees.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_bulk.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_edge_handle.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_footer.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_hover_card.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_state_groups.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_steward.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_thread_sync.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/sidebar_turn_done.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/startup_loading_window.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/steward_client.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/steward_decision_bar.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/steward_split.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/steward_timeline.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/steward_topic_card.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/steward_topic_types.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/steward_topics.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/suggestion_score.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_bee_floats.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_bee_glow.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_bee_window.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_dispatch_placeholder.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_embedded.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_mentions.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_mode_menu.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_model_capsule.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_pair_quicksave.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_panel_layout.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_question_banner.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_report_full.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_report_markdown.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_resume_ui.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_status.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_tier_style.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/swarm_timeline_capsule.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/table_popup.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/tasks_window.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/terminal.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/terminal_font.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/terminal_links.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/terminal_persist.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/texmath.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/text_scale.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/thread_export.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/thread_mention.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_answered_question.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_background_tasks.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_banner.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_diff.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_error_retry.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_error_row.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_incremental.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_mention.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_menu.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_minimap.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_more_menu.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_rows.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_skeleton.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_tool_output.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/timeline_unread.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/titlebar_inset.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/tool_display.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/tool_output_dialog.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/tool_parse_cache.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/tray_quota_panel.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/turn_files_card.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/turn_finished_info.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/ui_state.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/usage_pace.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/usage_status.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/web_tokens.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/windows.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    },
+    "internal/ui/workspace.go": {
+      "colors": 0,
+      "font_sizes": 0,
+      "radii": 0,
+      "paddings": 0,
+      "heights": 0,
+      "raw_white": 0
+    }
+  },
+  "exempt_total": 5
+}

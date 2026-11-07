@@ -1,0 +1,1 @@
+{"cline-pass":{"models":{"deepseek-v4.1-flash":{"id":"deepseek-v4.1-flash","name":"DeepSeek V4.1 Flash","cost":{"input":0.15,"output":0.6},"limit":{"context":1000000}},"glm-5.3":{"id":"glm-5.3","name":"GLM-5.3","cost":{"input":0.6,"output":2.2},"limit":{"context":200000}}}},"openai":{"models":{}}}

@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","startedAtMs":1000,"item":{"id":"cmd_1","type":"commandExecution","command":"go test ./...","status":"in_progress"}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"th_1","turnId":"turn_1","completedAtMs":1100,"item":{"id":"cmd_1","type":"commandExecution","command":"go test ./...","status":"completed","exitCode":0,"aggregatedOutput":"PASS\nok\tmcode/internal/providers/codex\t0.123s"}}}

@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"sess-err"}
+{"type":"result","subtype":"error","is_error":true,"result":"rate limit exceeded","stop_reason":"error","usage":{"input_tokens":12,"output_tokens":0,"cache_read_input_tokens":0}}

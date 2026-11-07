@@ -1,0 +1,7 @@
+{"jsonrpc":"2.0","method":"session.event","params":{"sessionId":"sid-1","event":{"type":"assistant.turn_start","data":{"turnId":"t1"}}}}
+{"jsonrpc":"2.0","method":"session.event","params":{"sessionId":"sid-1","event":{"type":"assistant.message_delta","data":{"messageId":"m1","deltaContent":"Hello"}}}}
+{"jsonrpc":"2.0","method":"session.event","params":{"sessionId":"sid-1","event":{"type":"assistant.message","data":{"messageId":"m1","content":"Hello world"}}}}
+{"jsonrpc":"2.0","method":"session.event","params":{"sessionId":"sid-1","event":{"type":"tool.execution_start","data":{"toolCallId":"c1","toolName":"bash","arguments":{"command":"ls -la"}}}}}
+{"jsonrpc":"2.0","method":"session.event","params":{"sessionId":"sid-1","event":{"type":"tool.execution_complete","data":{"toolCallId":"c1","success":true,"result":{"detailedContent":"ok"}}}}}
+{"jsonrpc":"2.0","method":"session.event","params":{"sessionId":"sid-1","event":{"type":"assistant.usage","data":{"messageId":"m1","inputTokens":10,"outputTokens":5,"cachedTokens":2}}}}
+{"jsonrpc":"2.0","method":"session.event","params":{"sessionId":"sid-1","event":{"type":"session.idle","data":{"aborted":false}}}}

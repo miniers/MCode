@@ -1,0 +1,12 @@
+{"type":"event","event":{"type":"run_start","sessionId":"cli-sess-1"}}
+{"type":"event","event":{"type":"message_start"}}
+{"type":"event","event":{"type":"thinking_start"}}
+{"type":"event","event":{"type":"thinking_delta","delta":"先看一下"}}
+{"type":"event","event":{"type":"thinking_end","text":"先看一下"}}
+{"type":"event","event":{"type":"text_delta","delta":"你好"}}
+{"type":"event","event":{"type":"text_delta","delta":"，世界"}}
+{"type":"event","event":{"type":"message_end","content":[{"type":"text","text":"你好，世界"}]}}
+{"type":"event","event":{"type":"tool_queued","toolCallId":"tc-1","toolName":"shell_command","input":{"command":"ls -la"}}}
+{"type":"event","event":{"type":"tool_completed","toolCallId":"tc-1","result":[{"type":"text","text":"main.go"}]}}
+{"type":"event","event":{"type":"model_request_end","model":"claude-sonnet-5","usage":{"inputTokens":1200,"outputTokens":340,"cacheReadInputTokens":800}}}
+{"type":"result","subtype":"success","stopReason":"end_turn","sessionId":"cli-sess-1"}

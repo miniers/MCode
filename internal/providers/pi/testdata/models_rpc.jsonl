@@ -1,0 +1,4 @@
+{"type":"event","event":"ready"}
+{"id":"models","data":{"models":[{"provider":"gateway","id":"low-high-max","name":"Gateway Low/High/Max","reasoning":true,"thinkingLevelMap":{"off":"off","minimal":"minimal","low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"provider":"gateway","id":"plain","name":"Gateway Plain","reasoning":true},{"provider":"cline-pass","id":"cline-pass/glm-5.3","name":"GLM-5.3"},{"provider":"gateway","id":"no-name"}]}}
+{"id":"state","data":{"model":{"provider":"gateway","id":"gateway/plain"}}}
+{"id":"other","data":{}}

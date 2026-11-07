@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"mcp_1","type":"mcpToolCall","server":"fs","tool":"read","status":"inProgress"}}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"th_1","turn":{"id":"turn_1","items":[],"status":"interrupted"}}}

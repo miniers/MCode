@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"rev_1","type":"enteredReviewMode","review":"审阅 PR 123"}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"rev_1","type":"enteredReviewMode","review":"审阅 PR 123"}}}
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"rev_2","type":"exitedReviewMode","review":""}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"rev_2","type":"exitedReviewMode","review":"审阅结论：两处风险"}}}
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"cc_1","type":"contextCompaction"}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"th_1","turnId":"turn_1","item":{"id":"cc_1","type":"contextCompaction"}}}

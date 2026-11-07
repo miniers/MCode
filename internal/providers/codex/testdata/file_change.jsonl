@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"th_1","turnId":"turn_1","startedAtMs":1000,"item":{"id":"fc_1","type":"fileChange","status":"in_progress"}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"th_1","turnId":"turn_1","completedAtMs":1050,"item":{"id":"fc_1","type":"fileChange","status":"completed","changes":[{"path":"main.go","diff":"@@ -1 +1 @@\n-package old\n+package main\n","kind":"modified"},{"path":"config.json","diff":"@@ -0,0 +1 @@\n+{}\n","kind":"added"}]}}}

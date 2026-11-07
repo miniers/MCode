@@ -1,0 +1,12 @@
+{
+  "authInfo": {
+    "host": "github.com",
+    "login": "octocat",
+    "authType": "oauth",
+    "copilotUser": {
+      "access_type_sku": "no_access",
+      "chat_enabled": false,
+      "copilot_plan": "business"
+    }
+  }
+}

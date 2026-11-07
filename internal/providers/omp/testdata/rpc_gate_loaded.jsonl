@@ -1,0 +1,5 @@
+{"type":"response","id":"__COMMANDS_ID__","success":true,"data":{"commands":[{"name":"mcode-gate","description":"mcode's tool gate"},{"name":"help","description":"List commands"}]}}
+{"type":"response","id":"__STATE_ID__","command":"get_state","success":true,"data":{"sessionFile":"/tmp/omp-agent/sessions/gated.json"}}
+{"type":"message_start","message":{"role":"assistant","id":"m1"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"门禁已加载。"}}
+{"type":"prompt_result","id":"__PROMPT_ID__","status":"completed"}

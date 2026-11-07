@@ -1,0 +1,17 @@
+{
+  "name": "MCode",
+  "identifier": "com.miniers.mcode",
+  "version": "0.2.7",
+  "icon": "resources/icon.png",
+  "main": "./cmd/mcode",
+  "macos": {
+    "minimumSystemVersion": "14.0",
+    "entitlements": "resources/mcode.entitlements",
+    "infoPlist": {
+      "NSAppleEventsUsageDescription": "MCode 需要发送 Apple 事件来控制其他应用并读取它们的返回结果。"
+    },
+    "notarize": {
+      "keychainProfile": "mcode-notary"
+    }
+  }
+}

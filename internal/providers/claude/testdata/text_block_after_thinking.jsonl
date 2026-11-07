@@ -1,0 +1,21 @@
+{"type":"system","subtype":"init","session_id":"sess-fixture"}
+{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_fixture_1","type":"message","role":"assistant"}}}
+{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"需要先搜索天气。"}}}
+{"type":"assistant","message":{"id":"msg_fixture_1","content":[{"type":"thinking","thinking":"需要先搜索天气。"}]}}
+{"type":"stream_event","event":{"type":"content_block_stop","index":0}}
+{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_fixture","name":"WebSearch","input":{}}}}
+{"type":"stream_event","event":{"type":"content_block_stop","index":1}}
+{"type":"assistant","message":{"id":"msg_fixture_1","content":[{"type":"tool_use","id":"toolu_fixture","name":"WebSearch","input":{"query":"东京 明天 天气"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_fixture","content":"搜索结果（已省略）","is_error":false}]}}
+{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_fixture_2","type":"message","role":"assistant"}}}
+{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"整理结果。"}}}
+{"type":"assistant","message":{"id":"msg_fixture_2","content":[{"type":"thinking","thinking":"整理结果。"}]}}
+{"type":"stream_event","event":{"type":"content_block_stop","index":0}}
+{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"明天东京晴，"}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"最高气温 22 度。"}}}
+{"type":"assistant","message":{"id":"msg_fixture_2","content":[{"type":"text","text":"明天东京晴，最高气温 22 度。"}]}}
+{"type":"stream_event","event":{"type":"content_block_stop","index":1}}
+{"type":"result","subtype":"success","is_error":false,"result":"明天东京晴，最高气温 22 度。","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":2}}

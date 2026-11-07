@@ -1,0 +1,22 @@
+{
+  "lastUsedProvider": "cline",
+  "providers": {
+    "cline": {
+      "settings": {
+        "baseUrl": "{{BASE}}",
+        "auth": {
+          "accessToken": "cline-access-token",
+          "refreshToken": "cline-refresh-token"
+        }
+      }
+    },
+    "cline-pass": {
+      "settings": {
+        "baseUrl": "{{BASE}}",
+        "auth": {
+          "accessToken": "cline-pass-access-token"
+        }
+      }
+    }
+  }
+}

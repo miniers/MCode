@@ -1,0 +1,133 @@
+/* 此文件由 internal/ui/web_tokens.go 生成，请勿手改。
+   更新命令：UPDATE_WEB_TOKENS=1 go test ./internal/ui -run TestWebTokensInSync */
+
+:root {
+  /* 表面 */
+  --mc-surface-canvas: #F5F5F3;
+  --mc-surface-main: #FAFAF9;
+  --mc-surface-card: #FFFFFF;
+  --mc-surface-raised: #FFFFFF;
+  --mc-surface-popover: #FFFFFF;
+
+  /* 文字 */
+  --mc-text-primary: rgba(0, 0, 0, 0.851);
+  --mc-text-secondary: rgba(0, 0, 0, 0.6);
+  --mc-text-tertiary: rgba(0, 0, 0, 0.38);
+
+  /* 叠加 */
+  --mc-overlay-hover: rgba(0, 0, 0, 0.051);
+  --mc-overlay-selected: rgba(0, 0, 0, 0.102);
+  --mc-overlay-pressed: rgba(0, 0, 0, 0.141);
+  --mc-hairline: rgba(0, 0, 0, 0.102);
+
+  /* 描边 */
+  --mc-border: rgba(0, 0, 0, 0.141);
+  --mc-border-strong: rgba(0, 0, 0, 0.22);
+
+  /* 强调 */
+  --mc-accent: #007AFF;
+  --mc-accent-hover: rgba(0, 110, 230, 0.984);
+  --mc-accent-pressed: rgba(0, 100, 209, 0.973);
+  --mc-accent-subtle: rgba(0, 122, 255, 0.122);
+  --mc-on-accent: #FFFFFF;
+
+  /* 语义 */
+  --mc-danger: #FF3B30;
+  --mc-warning: #FF9500;
+  --mc-success: #28CD41;
+  --mc-caution: #C9A227;
+  --mc-plan: #AF52DE;
+
+  /* 阴影 */
+  --mc-elev-popover: 0 2px 6px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.12);
+  --mc-elev-dialog: 0 2px 8px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.16);
+  --mc-elev-float: 0 2px 8px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.16);
+  --mc-scrim: 0.35;
+
+  /* 间距 */
+  --mc-space-1: 4px;
+  --mc-space-2: 6px;
+  --mc-space-3: 8px;
+  --mc-space-4: 12px;
+  --mc-space-5: 16px;
+  --mc-space-6: 20px;
+  --mc-space-7: 24px;
+  --mc-space-8: 32px;
+  --mc-control-xs: 20px;
+  --mc-control-sm: 24px;
+  --mc-control-md: 28px;
+  --mc-control-lg: 32px;
+  --mc-icon-sm: 14px;
+  --mc-icon-md: 16px;
+  --mc-icon-lg: 20px;
+  --mc-row: 28px;
+  --mc-row-compact: 24px;
+
+  /* 圆角 */
+  --mc-radius-xs: 4px;
+  --mc-radius-sm: 6px;
+  --mc-radius-md: 8px;
+  --mc-radius-lg: 12px;
+  --mc-radius-xl: 14px;
+  --mc-radius-pill: 999px;
+
+  /* 字号 */
+  --mc-font-caption: 11px;
+  --mc-font-footnote: 12px;
+  --mc-font-body: 13px;
+  --mc-font-prose: 14px;
+  --mc-font-heading: 13px;
+  --mc-font-title: 15px;
+  --mc-font-page-title: 17px;
+  --mc-font-code: 12px;
+
+  /* 时长 */
+  --mc-dur-fast: 90ms;
+  --mc-dur-snap: 140ms;
+  --mc-dur-base: 200ms;
+  --mc-dur-sheet: 280ms;
+  --mc-dur-slow: 420ms;
+}
+
+:root.dark {
+  /* 表面 */
+  --mc-surface-canvas: #141414;
+  --mc-surface-main: #1C1C1C;
+  --mc-surface-card: #1F1F1F;
+  --mc-surface-raised: #242424;
+  --mc-surface-popover: #2B2B2B;
+
+  /* 文字 */
+  --mc-text-primary: rgba(255, 255, 255, 0.851);
+  --mc-text-secondary: rgba(255, 255, 255, 0.6);
+  --mc-text-tertiary: rgba(255, 255, 255, 0.38);
+
+  /* 叠加 */
+  --mc-overlay-hover: rgba(255, 255, 255, 0.051);
+  --mc-overlay-selected: rgba(255, 255, 255, 0.102);
+  --mc-overlay-pressed: rgba(255, 255, 255, 0.141);
+  --mc-hairline: rgba(255, 255, 255, 0.102);
+
+  /* 描边 */
+  --mc-border: rgba(255, 255, 255, 0.141);
+  --mc-border-strong: rgba(255, 255, 255, 0.22);
+
+  /* 强调 */
+  --mc-accent: #0A84FF;
+  --mc-accent-hover: rgba(35, 144, 255, 0.984);
+  --mc-accent-pressed: rgba(54, 154, 255, 0.973);
+  --mc-accent-subtle: rgba(10, 132, 255, 0.122);
+  --mc-on-accent: #FFFFFF;
+
+  /* 语义 */
+  --mc-danger: #FF453A;
+  --mc-warning: #FF9F0A;
+  --mc-success: #30D158;
+  --mc-caution: #E8C15A;
+  --mc-plan: #BF5AF2;
+
+  /* 阴影 */
+  --mc-elev-popover: 0 2px 6px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.32);
+  --mc-elev-dialog: 0 2px 8px rgba(0, 0, 0, 0.2), 0 12px 32px rgba(0, 0, 0, 0.427);
+  --mc-elev-float: 0 2px 8px rgba(0, 0, 0, 0.2), 0 12px 32px rgba(0, 0, 0, 0.427);
+}

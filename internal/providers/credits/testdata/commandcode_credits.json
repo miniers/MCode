@@ -1,0 +1,8 @@
+{
+  "credits": {
+    "monthlyCredits": 10.0,
+    "purchasedCredits": 5.0,
+    "freeCredits": 1.5,
+    "belowThreshold": false
+  }
+}

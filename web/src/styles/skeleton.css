@@ -1,0 +1,129 @@
+/* 懒加载骨架屏（W-12）：按真实内容的行高与气泡宽度绘制，加载完成时整屏不跳。
+   颜色取主题变量 --foreground-muted 再降不透明度，浅色/深色主题用同一套规则。 */
+
+.mc-skeleton {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  /* 前 120ms 保持透明再 150ms 淡入，快速加载时不闪一下。 */
+  opacity: 0;
+  animation: mc-skeleton-fade-in 150ms ease-out 120ms both;
+}
+
+/* 骨架本身不显示文字，只留给读屏器播报加载状态。 */
+.mc-skeleton-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.mc-skeleton-block {
+  /* 兜底色：不支持 color-mix 的浏览器回退到原先的 --border。 */
+  background-color: var(--border);
+  background-color: color-mix(in srgb, var(--foreground-muted) 22%, transparent);
+  animation: mc-skeleton-breathe 1.4s ease-in-out infinite;
+}
+
+/* 列表：4 行会话行，每行 76px，左侧 40px 圆形头像位，右侧标题 60% / 副标题 40%。 */
+.mc-skeleton--list {
+  gap: 0;
+  padding: 8px 16px;
+}
+
+.mc-skeleton-row {
+  display: flex;
+  flex: 0 0 76px;
+  align-items: center;
+  gap: 12px;
+  height: 76px;
+}
+
+.mc-skeleton-avatar {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.mc-skeleton-lines {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mc-skeleton-line {
+  height: 14px;
+  border-radius: 7px;
+}
+
+.mc-skeleton-line--sub {
+  height: 12px;
+  border-radius: 6px;
+}
+
+/* 会话：3 组气泡，用户右对齐 55%，助手左对齐 80% 两行，再一个用户 40%。 */
+.mc-skeleton--thread {
+  gap: 14px;
+  padding: 16px;
+}
+
+.mc-skeleton-bubble {
+  border-radius: 20px;
+}
+
+.mc-skeleton-bubble--user {
+  min-height: 44px;
+  align-self: flex-end;
+}
+
+.mc-skeleton-bubble--assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 12px 14px;
+  border-radius: 20px;
+  background-color: color-mix(in srgb, var(--foreground-muted) 10%, transparent);
+}
+
+@keyframes mc-skeleton-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes mc-skeleton-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-skeleton {
+    opacity: 1;
+    animation: none;
+  }
+
+  .mc-skeleton-block {
+    opacity: 0.7;
+    animation: none;
+  }
+}

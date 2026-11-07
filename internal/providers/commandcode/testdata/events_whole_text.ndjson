@@ -1,0 +1,10 @@
+{"type":"event","event":{"type":"run_start","sessionId":"cli-sess-2"}}
+{"type":"event","event":{"type":"message_start"}}
+{"type":"event","event":{"type":"thinking_start"}}
+{"type":"event","event":{"type":"thinking_end","text":"整段思考"}}
+{"type":"event","event":{"type":"message_end","content":[{"type":"text","text":"整段回复"}]}}
+{"type":"event","event":{"type":"tool_queued","toolCallId":"tc-2","toolName":"write_file","input":{"file_path":"src/main.go","content":"package main"}}}
+{"type":"event","event":{"type":"tool_errored","toolCallId":"tc-2","error":{"message":"磁盘已满"}}}
+{"type":"event","event":{"type":"tool_queued","toolCallId":"tc-3","toolName":"shell_command","input":{"command":"rm -rf build"}}}
+{"type":"event","event":{"type":"tool_hook_blocked","toolCallId":"tc-3","hookOutput":"用户拒绝了这次调用"}}
+{"type":"result","subtype":"success","stopReason":"end_turn","sessionId":"cli-sess-2"}

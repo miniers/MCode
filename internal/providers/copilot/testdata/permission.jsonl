@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"session.event","params":{"sessionId":"sid-1","event":{"type":"permission.requested","data":{"requestId":"perm-1","permissionRequest":{"toolCallId":"c9","kind":"shell","fullCommandText":"rm -rf /tmp/x","intention":"cleanup"},"promptRequest":{}}}}}
