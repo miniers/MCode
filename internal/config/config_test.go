@@ -28,8 +28,8 @@ func TestHideMagpieModelsInPickerDefaultAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "hideMagpieModelsInPicker") {
-		t.Fatalf("缺省字段不应序列化: %s", data)
+	if !strings.Contains(string(data), `"hideMagpieModelsInPicker":false`) {
+		t.Fatalf("false 字段应序列化: %s", data)
 	}
 	cfg.HideMagpieModelsInPicker = true
 	data, err = json.Marshal(cfg)
@@ -1635,7 +1635,7 @@ func TestSessionPinSentMessageEnabled(t *testing.T) {
 		cfg  SessionConfig
 		want bool
 	}{
-		{"未设置视为开启", SessionConfig{}, true},
+		{"未设置视为关闭", SessionConfig{}, false},
 		{"显式开启", SessionConfig{PinSentMessage: &on}, true},
 		{"显式关闭", SessionConfig{PinSentMessage: &off}, false},
 	}
@@ -1678,17 +1678,17 @@ func TestLoadOldConfigWithoutNewSectionsGetsDefaults(t *testing.T) {
 	if !cfg.Orchestration.AutoDelegateEnabled() {
 		t.Errorf("expected Swarm.AutoDelegateEnabled() true, got false")
 	}
-	if cfg.Orchestration.MaxBees != 0 {
-		t.Errorf("expected Swarm.MaxBees 0, got %d", cfg.Orchestration.MaxBees)
+	if cfg.Orchestration.MaxBees != 4 {
+		t.Errorf("expected Swarm.MaxBees 4, got %d", cfg.Orchestration.MaxBees)
 	}
 	if cfg.Orchestration.WorkspaceMode != WorkspaceModeWorktree {
 		t.Errorf("expected Swarm.WorkspaceMode %q, got %q", WorkspaceModeWorktree, cfg.Orchestration.WorkspaceMode)
 	}
-	if cfg.Orchestration.RetryFailed {
-		t.Errorf("expected Swarm.RetryFailed false, got true")
+	if !cfg.Orchestration.RetryFailed {
+		t.Errorf("expected Swarm.RetryFailed true, got false")
 	}
-	if cfg.Orchestration.AutoMerge {
-		t.Errorf("expected Swarm.AutoMerge false, got true")
+	if !cfg.Orchestration.AutoMerge {
+		t.Errorf("expected Swarm.AutoMerge true, got false")
 	}
 	if cfg.Orchestration.DefaultProvider != "" {
 		t.Errorf("expected empty Swarm.DefaultProvider, got %q", cfg.Orchestration.DefaultProvider)
@@ -1777,14 +1777,14 @@ func TestLoadOldConfigWithoutNewSectionsGetsDefaults(t *testing.T) {
 	if !cfg.Session.AutoCollapseReasoningEnabled() {
 		t.Errorf("expected General.AutoCollapseReasoningEnabled() true, got false")
 	}
-	if !cfg.Session.PinSentMessageEnabled() {
-		t.Errorf("expected General.PinSentMessageEnabled() true, got false")
+	if cfg.Session.PinSentMessageEnabled() {
+		t.Errorf("expected General.PinSentMessageEnabled() false, got true")
 	}
-	if !cfg.Session.ConciseReplies() {
-		t.Errorf("expected General.ConciseReplies() true, got false")
+	if cfg.Session.ConciseReplies() {
+		t.Errorf("expected General.ConciseReplies() false, got true")
 	}
-	if cfg.Session.QueueWhileRunning {
-		t.Errorf("expected General.QueueWhileRunning false, got true")
+	if !cfg.Session.QueueWhileRunning {
+		t.Errorf("expected General.QueueWhileRunning true, got false")
 	}
 	if cfg.Startup.QuitAction != QuitActionQuit {
 		t.Errorf("expected General.QuitAction %q, got %q", QuitActionQuit, cfg.Startup.QuitAction)
@@ -2014,11 +2014,11 @@ func TestAppearanceContentWidthPercent(t *testing.T) {
 	}
 }
 
-// Swarm 派发轮次上限：默认不限制，按 orchestration.max_rounds 读写，Normalize 把负值归零、超出 100 截断。
+// Swarm 派发轮次上限：默认 10，按 orchestration.max_rounds 读写，Normalize 把负值归零、超出 100 截断。
 func TestSwarmMaxRounds(t *testing.T) {
 	cfg := Defaults()
-	if cfg.Orchestration.MaxRounds != 0 {
-		t.Fatalf("expected Swarm.MaxRounds default 0, got %d", cfg.Orchestration.MaxRounds)
+	if cfg.Orchestration.MaxRounds != 10 {
+		t.Fatalf("expected Swarm.MaxRounds default 10, got %d", cfg.Orchestration.MaxRounds)
 	}
 
 	loaded := Defaults()

@@ -691,27 +691,27 @@ var pageSwarm = settingsPage{
 			{
 				ID: "row-swarm-retry-failed", Title: "失败时自动重试", Lock: "swarm-retry-failed",
 				Aliases: []string{"子代理遇到异常失败时自动重试一次"},
-				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.RetryFailed }, false)),
+				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.RetryFailed }, true)),
 			},
 			{
 				ID: "row-swarm-auto-clear-finished", Title: "自动清理已完成子代理", Lock: "swarm-auto-clear-finished",
 				Aliases: []string{"面板只留进行中的子代理"},
-				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoClearFinished }, false)),
+				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoClearFinished }, true)),
 			},
 			{
 				ID: "row-swarm-auto-hides-idle-bees", Title: "侧边栏自动隐藏空闲子代理", Lock: "swarm-auto-hides-idle-bees",
 				Aliases: []string{"空闲子代理收起，点开侧边栏可展开"},
-				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoHidesIdleBees }, false)),
+				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoHidesIdleBees }, true)),
 			},
 			{
 				ID: "row-swarm-shows-bee-details", Title: "显示子代理详细步骤",
 				Aliases: []string{"关闭时只显示进度，开启时显示每个执行步骤"},
-				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.ShowsBeeDetails }, false)),
+				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.ShowsBeeDetails }, true)),
 			},
 			{
 				ID: "row-swarm-auto-pops-bees", Title: "自动弹出子代理面板",
 				Aliases: []string{"关闭时集中显示，开启时为空间允许的子代理分别显示面板"},
-				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoPopsBees }, false)),
+				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoPopsBees }, true)),
 			},
 			{
 				ID: "row-swarm-archives-codex-bees", Title: "Codex 子会话历史", Lock: "swarm-archives-codex-bees",
@@ -743,7 +743,7 @@ var pageSwarm = settingsPage{
 			{
 				ID: "row-swarm-lead-plans-only", Title: "主代理只规划", Lock: "swarm-lead-plans-only",
 				Aliases: []string{"开启后主代理只负责规划和审查，所有改动都派给子代理（每个线程可单独切换）"},
-				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.LeadPlansOnly }, false)),
+				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.LeadPlansOnly }, true)),
 				Enabled: func(st *SettingsState) bool {
 					return !(st.cfg.Orchestration.AlwaysBees && !st.cfg.Orchestration.LeadPlansOnly)
 				},
@@ -774,8 +774,8 @@ var pageSwarm = settingsPage{
 			},
 			{
 				ID: "row-swarm-auto-merge", Title: "自动合并", Lock: "swarm-auto-merge",
-				Aliases: []string{"默认关闭；全部完成后合并到当前分支并清理副本"},
-				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoMerge }, false)),
+				Aliases: []string{"默认开启；全部完成后合并到当前分支并清理副本"},
+				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoMerge }, true)),
 			},
 			{
 				ID: "row-swarm-auto-push", Title: "自动推送", Lock: "swarm-auto-push",

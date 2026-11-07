@@ -57,12 +57,12 @@ var advancedOrchestration = settingsSection{
 		{
 			ID: "row-swarm-max-bees", Title: "并发上限", Lock: "swarm-max-bees",
 			Aliases: []string{"子代理", "并发", "默认", "自动"},
-			Control: number(val(func(c *config.Config) *int { return &c.Orchestration.MaxBees }, 0), "", config.MinSwarmMaxBees, config.MaxSwarmMaxBees),
+			Control: number(val(func(c *config.Config) *int { return &c.Orchestration.MaxBees }, 4), "", config.MinSwarmMaxBees, config.MaxSwarmMaxBees),
 		},
 		{
 			ID: "row-swarm-max-rounds", Title: "最多派发轮次",
 			Aliases: []string{"子代理", "派发", "默认", "不限"},
-			Control: swarmNumberControl{numberControl: number(val(func(c *config.Config) *int { return &c.Orchestration.MaxRounds }, 0), "轮", config.MinSwarmMaxRounds, config.MaxSwarmMaxRounds), display: func(v int) int { return max(0, v) }},
+			Control: swarmNumberControl{numberControl: number(val(func(c *config.Config) *int { return &c.Orchestration.MaxRounds }, 10), "轮", config.MinSwarmMaxRounds, config.MaxSwarmMaxRounds), display: func(v int) int { return max(0, v) }},
 		},
 		{
 			ID: "row-swarm-bee-timeout", Title: "子代理运行超时", Lock: "swarm-bee-timeout",

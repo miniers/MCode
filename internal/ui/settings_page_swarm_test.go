@@ -132,8 +132,9 @@ func TestSwarmAutoMergeAndAutoPush_Independent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
+	st.cfg.Orchestration.AutoMerge = false
 
-	// 新配置默认均为 false
+	// 从均关闭的状态验证两个开关独立
 	if st.cfg.Orchestration.AutoMerge {
 		t.Fatalf("expected AutoMerge to be false by default")
 	}
@@ -240,6 +241,8 @@ func TestSwarmSettings_ConflictingMessageModesCanBeDisabled(t *testing.T) {
 func TestSwarmSettings_AdditionalControlsPersist(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.cfg.Orchestration.ShowsBeeDetails = false
+	st.cfg.Orchestration.AutoPopsBees = false
 	tt := newSwarmPageTester(st)
 	for _, label := range []string{"切换显示子代理详细步骤", "切换自动弹出子代理面板", "自动归档"} {
 		if err := tt.Click(label); err != nil {
@@ -256,6 +259,7 @@ func TestSwarmSettings_AdditionalControlsPersist(t *testing.T) {
 func TestSwarmSettings_AutoForwardQuestionDelay(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.cfg.Orchestration.AutoForwardQuestionSeconds = 0
 	// 转交行位于消息流向分组的末尾。
 	var messages settingsSection
 	for _, section := range pageSwarm.Sections {
@@ -304,8 +308,8 @@ func TestSwarmSettings_MaxRoundsRow(t *testing.T) {
 	}
 	tt.Command("selectAll")
 	tt.Command("copy")
-	if got := tt.Clipboard(); got != "0" {
-		t.Fatalf("default max rounds = %q, want 0", got)
+	if got := tt.Clipboard(); got != "10" {
+		t.Fatalf("default max rounds = %q, want 10", got)
 	}
 
 	st.cfg.Orchestration.MaxRounds = 7
@@ -383,7 +387,7 @@ func TestSwarmSettings_LockedAutoActions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if st.cfg.Orchestration.AutoMerge || st.cfg.Orchestration.AutoPush {
+	if !st.cfg.Orchestration.AutoMerge || st.cfg.Orchestration.AutoPush {
 		t.Fatal("locked auto actions must not change")
 	}
 }

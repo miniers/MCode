@@ -60,7 +60,7 @@ var pageConversation = settingsPage{
 					ID:      "row-concise-replies",
 					Title:   "简洁 AI 回复",
 					Aliases: []string{"简洁", "精简", "回复", "提示词", "注释", "concise", "verbose"},
-					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Session.ConciseRepliesEnabled }, true)),
+					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Session.ConciseRepliesEnabled }, false)),
 				},
 			},
 		},
@@ -80,13 +80,13 @@ var pageConversation = settingsPage{
 					ID:      "row-queue-while-running",
 					Title:   "运行中排队消息",
 					Aliases: []string{"排队", "队列", "回车", "中断", "轮次", "queue"},
-					Control: toggle(val(func(c *config.Config) *bool { return &c.Session.QueueWhileRunning }, false)),
+					Control: toggle(val(func(c *config.Config) *bool { return &c.Session.QueueWhileRunning }, true)),
 				},
 				{
 					ID:      "row-insert-into-running-turn",
 					Title:   "新消息插入当前回合",
 					Aliases: []string{"排队", "插入", "回合", "注入", "服务商", "insert", "turn"},
-					Control: toggle(val(func(c *config.Config) *bool { return &c.Session.InsertIntoRunningTurn }, false)),
+					Control: toggle(val(func(c *config.Config) *bool { return &c.Session.InsertIntoRunningTurn }, true)),
 				},
 				{
 					ID:      "row-composer-send-key",
@@ -104,7 +104,7 @@ var pageConversation = settingsPage{
 					ID:      "row-pin-sent-message",
 					Title:   "发送后置顶消息",
 					Aliases: []string{"置顶", "滚动", "发送", "时间线", "跟随", "pin"},
-					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Session.PinSentMessage }, true)),
+					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Session.PinSentMessage }, false)),
 				},
 				{
 					ID:      "row-auto-continue-after-limit",

@@ -2539,14 +2539,14 @@ func (s *chatState) queueWhileRunningEnabled() bool {
 	dataDir := resolveDataDirFallback()
 	if dataDir == "" {
 		s.mu.Lock()
-		s.queueWhileRunningCache = false
+		s.queueWhileRunningCache = true
 		s.queueWhileRunningCachedAt = time.Now()
 		s.mu.Unlock()
-		return false
+		return true
 	}
 
 	cfg, err := config.Load(dataDir)
-	enabled := false
+	enabled := true
 	if err == nil {
 		enabled = cfg.Session.QueueWhileRunning
 	}
@@ -2583,14 +2583,14 @@ func (s *chatState) insertIntoRunningTurnEnabled() bool {
 	dataDir := resolveDataDirFallback()
 	if dataDir == "" {
 		s.mu.Lock()
-		s.insertIntoRunningTurnCache = false
+		s.insertIntoRunningTurnCache = true
 		s.insertIntoRunningTurnCachedAt = time.Now()
 		s.mu.Unlock()
-		return false
+		return true
 	}
 
 	cfg, err := config.Load(dataDir)
-	enabled := false
+	enabled := true
 	if err == nil {
 		enabled = cfg.Session.InsertIntoRunningTurn
 	}

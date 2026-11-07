@@ -121,8 +121,11 @@ func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
 		byID[s.ID] = s
 	}
 
-	// 新 Provider 默认全部关闭；ACP droid/cline/cursor/opencode/grok/devin 在配置缺省时视为启用。
-	for _, id := range []string{"copilot", "pi", "omp", "commandcode", "deepseek", "zai", "meta"} {
+	// Pi 默认开启；ACP droid/cline/cursor/opencode/grok/devin 在配置缺省时视为启用。
+	if !byID["pi"].Enabled {
+		t.Error("pi 应默认开启")
+	}
+	for _, id := range []string{"copilot", "omp", "commandcode", "deepseek", "zai", "meta"} {
 		if byID[id].Enabled {
 			t.Errorf("%s 应默认关闭", id)
 		}

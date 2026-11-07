@@ -11,8 +11,8 @@ import (
 
 // 打开安静时段开关时的默认时间。
 const (
-	stewardQuietDefaultStart = "23:00"
-	stewardQuietDefaultEnd   = "08:00"
+	stewardQuietDefaultStart = "00:00"
+	stewardQuietDefaultEnd   = "06:00"
 )
 
 // stewardQuietClockOptions 返回安静时段的可选时刻：一天内的整点与半点。

@@ -90,8 +90,8 @@ func TestMagpieModelPickerVisibilityToggle(t *testing.T) {
 	st.providerRows.available = map[string]bool{"claude": true, "codex": true, "pi": true}
 	st.providerRows.loaded = true
 	st.mu.Unlock()
-	if !control.b.value(&st.cfg) {
-		t.Fatal("默认应显示 Magpie 模型")
+	if control.b.value(&st.cfg) {
+		t.Fatal("默认应隐藏 Magpie 模型")
 	}
 	waitMagpie(t, tt, func() bool { return tt.HasText("在模型选择器中显示") && tt.HasText("网关没有返回模型") })
 	st.mu.Lock()
@@ -107,8 +107,8 @@ func TestMagpieModelPickerVisibilityToggle(t *testing.T) {
 	if err := tt.Click("切换在模型选择器中显示"); err != nil {
 		t.Fatal(err)
 	}
-	if !st.cfg.Providers.HideMagpieModelsInPicker || control.b.value(&st.cfg) {
-		t.Fatal("关闭开关后应隐藏模型")
+	if st.cfg.Providers.HideMagpieModelsInPicker || !control.b.value(&st.cfg) {
+		t.Fatal("开启开关后应显示模型")
 	}
 	tt.Frame()
 	if !tt.HasText("网关没有返回模型") {

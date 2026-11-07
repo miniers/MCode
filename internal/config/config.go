@@ -151,7 +151,7 @@ const (
 	MaxSwarmMaxRounds = 100
 
 	// Swarm Bee 运行超时（分钟）默认值及范围。
-	DefaultSwarmBeeTimeoutMinutes = 40
+	DefaultSwarmBeeTimeoutMinutes = 60
 	MinSwarmBeeTimeoutMinutes     = 5
 	MaxSwarmBeeTimeoutMinutes     = 120
 
@@ -462,10 +462,10 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 type SessionConfig struct {
 	ShowReasoning          *bool  `json:"show_reasoning,omitempty"`            // 显示思考过程，nil 视为开启
 	AutoCollapseReasoning  *bool  `json:"auto_collapse_reasoning,omitempty"`   // 思考内容自动折叠，nil 视为开启
-	PinSentMessage         *bool  `json:"pin_sent_message,omitempty"`          // 发送后把消息置顶到时间线顶部，nil 视为开启
-	ConciseRepliesEnabled  *bool  `json:"concise_replies_enabled,omitempty"`   // 简洁回复引导，nil 视为开启
-	QueueWhileRunning      bool   `json:"queue_while_running"`                 // 运行中插入消息，默认 false
-	InsertIntoRunningTurn  bool   `json:"insert_into_running_turn"`            // 运行中的消息插入当前回合（Provider 支持中途注入时），不支持则排队；默认 false
+	PinSentMessage         *bool  `json:"pin_sent_message,omitempty"`          // 发送后把消息置顶到时间线顶部，nil 视为关闭
+	ConciseRepliesEnabled  *bool  `json:"concise_replies_enabled,omitempty"`   // 简洁回复引导，nil 视为关闭
+	QueueWhileRunning      bool   `json:"queue_while_running"`                 // 运行中插入消息，默认 true
+	InsertIntoRunningTurn  bool   `json:"insert_into_running_turn"`            // 运行中的消息插入当前回合（Provider 支持中途注入时），不支持则排队；默认 true
 	AutoContinueAfterLimit bool   `json:"auto_continue_after_limit"`           // 额度用尽后自动等待续跑，默认 false
 	AskCompactBeforeResume *bool  `json:"ask_compact_before_resume,omitempty"` // 恢复旧会话前询问压缩上下文，nil 视为开启
 	ThreadFinishAction     string `json:"thread_finish_action"`                // 会话完成动作：dormant | archive，默认 dormant
@@ -612,18 +612,18 @@ func (s SessionConfig) AutoCollapseReasoningEnabled() bool {
 	return *s.AutoCollapseReasoning
 }
 
-// PinSentMessageEnabled 返回发送后是否把消息置顶到时间线顶部，nil 时默认开启。
+// PinSentMessageEnabled 返回发送后是否把消息置顶到时间线顶部，nil 时默认关闭。
 func (s SessionConfig) PinSentMessageEnabled() bool {
 	if s.PinSentMessage == nil {
-		return true
+		return false
 	}
 	return *s.PinSentMessage
 }
 
-// ConciseReplies 返回是否启用简洁回复引导，nil 时默认开启。
+// ConciseReplies 返回是否启用简洁回复引导，nil 时默认关闭。
 func (s SessionConfig) ConciseReplies() bool {
 	if s.ConciseRepliesEnabled == nil {
-		return true
+		return false
 	}
 	return *s.ConciseRepliesEnabled
 }
@@ -671,11 +671,11 @@ type OrchestrationConfig struct {
 	AutoDelegate          *bool  `json:"auto_delegate,omitempty"`           // 自动委托开关，nil 视为开启
 	MaxBees               int    `json:"max_bees"`                          // 最大并发子代理（bee）数，1..8，0 表示不限
 	MaxRounds             int    `json:"max_rounds"`                        // 主会话最多可调起子代理的轮次，0 表示不限制，上限 100
-	BeeTimeoutMinutes     int    `json:"bee_timeout_minutes,omitempty"`     // 子代理运行超时（分钟），0 表示使用默认值 40
+	BeeTimeoutMinutes     int    `json:"bee_timeout_minutes,omitempty"`     // 子代理运行超时（分钟），0 表示使用默认值 60
 	RequestTimeoutMinutes int    `json:"request_timeout_minutes,omitempty"` // 单次用户请求的编排总时长预算（分钟），0 表示默认 180，范围 30 到 720
 	WorkspaceMode         string `json:"workspace_mode"`                    // 子代理工作区模式：worktree | shared，默认 worktree
-	RetryFailed           bool   `json:"retry_failed"`                      // 失败自动重试，默认 false
-	AutoMerge             bool   `json:"auto_merge"`                        // 「自动合并」：仅本地提交/squash 合并并清理 worktree，不做远端操作，默认 false
+	RetryFailed           bool   `json:"retry_failed"`                      // 失败自动重试，默认 true
+	AutoMerge             bool   `json:"auto_merge"`                        // 「自动合并」：仅本地提交/squash 合并并清理 worktree，不做远端操作，默认 true
 	// 合并前审查：ReviewMode 取 off | ai | human；三个模型字段空表示自动选择最便宜的可用审查模型。
 	// ReviewMaxChangedLines 故意不带 omitempty：0 表示关闭行数规则，必须能落盘并读回；
 	// 旧配置缺字段时由 Load 的 Defaults() 预填为 40。
@@ -695,16 +695,16 @@ type OrchestrationConfig struct {
 	Tiers                 []SwarmTier `json:"tiers,omitempty"`          // 档位定义列表
 	DefaultTier           string      `json:"default_tier,omitempty"`   // 默认档位 ID
 	AlwaysBees            bool        `json:"always_bees"`              // 所有用户消息一律直接派给子代理，默认 false
-	LeadPlansOnly         bool        `json:"lead_plans_only"`          // 主代理仅规划不改写文件，默认 false
-	AutoClearFinished     bool        `json:"auto_clear_finished"`      // 自动从面板清理已完成子代理，默认 false
-	AutoHidesIdleBees     bool        `json:"auto_hides_idle_bees"`     // 侧边栏自动隐藏空闲子代理，默认 false
-	ShowsBeeDetails       bool        `json:"shows_bee_details"`        // 显示子代理详细信息，默认 false
-	AutoPopsBees          bool        `json:"auto_pops_bees"`           // 自动弹出子代理窗口，默认 false
+	LeadPlansOnly         bool        `json:"lead_plans_only"`          // 主代理仅规划不改写文件，默认 true
+	AutoClearFinished     bool        `json:"auto_clear_finished"`      // 自动从面板清理已完成子代理，默认 true
+	AutoHidesIdleBees     bool        `json:"auto_hides_idle_bees"`     // 侧边栏自动隐藏空闲子代理，默认 true
+	ShowsBeeDetails       bool        `json:"shows_bee_details"`        // 显示子代理详细信息，默认 true
+	AutoPopsBees          bool        `json:"auto_pops_bees"`           // 自动弹出子代理窗口，默认 true
 	PanelWidth            float32     `json:"panel_width,omitempty"`    // 浮动面板拖拽设定的宽度（pt），0 表示自动
 	PanelHeight           float32     `json:"panel_height,omitempty"`   // 浮动面板拖拽设定的高度（pt），0 表示自动
 	ArchivesCodexBees     bool        `json:"archives_codex_bees"`      // Codex 子会话完成后自动归档，默认 false
-	// AutoForwardQuestionSeconds 子线程提问超过该秒数无人回答时自动交给主线程，0 表示关闭（默认）。
-	AutoForwardQuestionSeconds int `json:"auto_forward_question_seconds,omitempty"`
+	// AutoForwardQuestionSeconds 子线程提问超过该秒数无人回答时自动交给主线程，0 表示关闭，默认 180。
+	AutoForwardQuestionSeconds int `json:"auto_forward_question_seconds"`
 	// DelegateTool 开启后，主代理除 ```swarm 块外还能用 swarm_delegate 工具派发子代理，默认 false。
 	DelegateTool bool `json:"delegate_tool,omitempty"`
 	// Steward 总管配置。
@@ -1242,8 +1242,8 @@ func (m MemoryConfig) SpaceFor(projectPath string) string {
 type StewardConfig struct {
 	Enabled        bool   `json:"enabled"`                   // 是否启用总管，默认 true
 	EnabledChoice  bool   `json:"enabled_choice,omitempty"`  // 用户在设置页亲手切换过启用开关后置 true，此后迁移不再改 enabled
-	Name           string `json:"name,omitempty"`            // 总管的昵称，可留空；留空时界面只显示「总管」
-	Avatar         string `json:"avatar,omitempty"`          // 头像：一个 emoji 或一个字，空表示用昵称首字，无昵称用「总」
+	Name           string `json:"name"`                      // 总管的昵称，可留空；留空时界面只显示「总管」
+	Avatar         string `json:"avatar"`                    // 头像：一个 emoji 或一个字，空表示用昵称首字，无昵称用「总」
 	Provider       string `json:"provider"`                  // 总管使用的提供方，空表示跟随 Models.Provider
 	Model          string `json:"model"`                     // 总管使用的模型，空表示该提供方的默认模型
 	Effort         string `json:"effort,omitempty"`          // 推理强度，空表示模型默认
@@ -1252,8 +1252,8 @@ type StewardConfig struct {
 	PlanEffort     string `json:"plan_effort,omitempty"`     // 出方案用的推理强度，空表示沿用 deep 档的模型
 	DailyWakeLimit int    `json:"daily_wake_limit"`          // 每天最多唤醒次数，0 或负数视为默认 30
 	HomeDir        string `json:"home_dir,omitempty"`        // 总管主目录，空表示数据目录下的 steward 子目录
-	QuietStart     string `json:"quiet_start,omitempty"`     // 安静时段开始，HH:MM 本地时间，空表示关闭
-	QuietEnd       string `json:"quiet_end,omitempty"`       // 安静时段结束，HH:MM 本地时间，空表示关闭；可早于开始表示跨午夜
+	QuietStart     string `json:"quiet_start"`               // 安静时段开始，HH:MM 本地时间，空表示关闭
+	QuietEnd       string `json:"quiet_end"`                 // 安静时段结束，HH:MM 本地时间，空表示关闭；可早于开始表示跨午夜
 	DailyReport    bool   `json:"daily_report,omitempty"`    // 是否每天发一份今日要点，默认关
 	DailyReportAt  string `json:"daily_report_at,omitempty"` // 日报时间，HH:MM 本地时间，空表示 18:00
 	// EventPolicies 按事件类型覆盖唤醒策略，取值 wake（立刻唤醒）、patrol（不立刻唤醒，留给兜底巡检）；
@@ -1434,7 +1434,7 @@ type ProvidersConfig struct {
 	// MagpieAgents 按 agent id 存 magpie 的设置：模式与每个端点勾选的模型；
 	// 旧的 CustomEndpointConfig.PiModels 由 Normalize 双向镜像进 agents["pi"]。
 	MagpieAgents             map[string]MagpieAgentConfig `json:"magpieAgents,omitempty"`
-	HideMagpieModelsInPicker bool                         `json:"hideMagpieModelsInPicker,omitempty"`
+	HideMagpieModelsInPicker bool                         `json:"hideMagpieModelsInPicker"`
 	// MagpieRoutingVersion 是 Magpie 路由一次性迁移的版本号。
 	MagpieRoutingVersion int                    `json:"magpieRoutingVersion,omitempty"`
 	Custom               []CustomEndpointConfig `json:"custom,omitempty"`
@@ -2176,10 +2176,10 @@ func Defaults() Config {
 		Session: SessionConfig{
 			ShowReasoning:          boolPtr(true),
 			AutoCollapseReasoning:  boolPtr(true),
-			PinSentMessage:         boolPtr(true),
-			ConciseRepliesEnabled:  boolPtr(true),
-			QueueWhileRunning:      false,
-			InsertIntoRunningTurn:  false,
+			PinSentMessage:         boolPtr(false),
+			ConciseRepliesEnabled:  boolPtr(false),
+			QueueWhileRunning:      true,
+			InsertIntoRunningTurn:  true,
 			AutoContinueAfterLimit: false,
 			AskCompactBeforeResume: boolPtr(true),
 			ThreadFinishAction:     FinishActionDormant,
@@ -2223,6 +2223,8 @@ func Defaults() Config {
 			Codex:  ProviderConfig{Enabled: true, Bin: ""},
 			Agy:    ProviderConfig{Enabled: true, Bin: ""},
 			OpenAI: OpenAIConfig{Enabled: true},
+			Pi: ProviderConfig{Enabled: true, Bin: ""},
+			HideMagpieModelsInPicker: true,
 		},
 		Remote: RemoteConfig{
 			Enabled:       false,
@@ -2246,12 +2248,19 @@ func Defaults() Config {
 		Orchestration: OrchestrationConfig{
 			Enabled:               boolPtr(true),
 			AutoDelegate:          boolPtr(true),
-			MaxBees:               0,
+			MaxBees:               4,
+			MaxRounds:             10,
 			BeeTimeoutMinutes:     DefaultSwarmBeeTimeoutMinutes,
 			RequestTimeoutMinutes: DefaultSwarmRequestTimeoutMinutes,
 			WorkspaceMode:         WorkspaceModeWorktree,
-			RetryFailed:           false,
-			AutoMerge:             false,
+			RetryFailed:           true,
+			AutoMerge:             true,
+			LeadPlansOnly:         true,
+			AutoClearFinished:     true,
+			AutoHidesIdleBees:     true,
+			ShowsBeeDetails:       true,
+			AutoPopsBees:          true,
+			AutoForwardQuestionSeconds: 180,
 			ReviewMode:            ReviewModeOff,
 			ReviewCheckCommand:    "",
 			ReviewMaxChangedLines: DefaultReviewMaxChangedLines,
@@ -2261,6 +2270,10 @@ func Defaults() Config {
 			DefaultTier:           DefaultSwarmTierID,
 			Steward: StewardConfig{
 				Enabled:        true,
+				Name:           "MoCo",
+				Avatar:         "🤖",
+				QuietStart:     "00:00",
+				QuietEnd:       "06:00",
 				Provider:       "",
 				Model:          "",
 				Effort:         "",

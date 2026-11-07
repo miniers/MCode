@@ -24,8 +24,8 @@ func TestModelDefaults(t *testing.T) {
 	if !cfg.Session.SkillsInjectPromptEnabled() {
 		t.Errorf("expected Session.SkillsInjectPromptEnabled() true, got false")
 	}
-	if cfg.Orchestration.AutoMerge {
-		t.Errorf("expected Orchestration.AutoMerge false, got true")
+	if !cfg.Orchestration.AutoMerge {
+		t.Errorf("expected Orchestration.AutoMerge true, got false")
 	}
 	if cfg.Orchestration.AutoPush {
 		t.Errorf("expected Swarm.AutoPush false, got true")
@@ -33,20 +33,20 @@ func TestModelDefaults(t *testing.T) {
 	if cfg.Orchestration.AlwaysBees {
 		t.Errorf("expected Swarm.AlwaysBees false, got true")
 	}
-	if cfg.Orchestration.LeadPlansOnly {
-		t.Errorf("expected Swarm.LeadPlansOnly false, got true")
+	if !cfg.Orchestration.LeadPlansOnly {
+		t.Errorf("expected Swarm.LeadPlansOnly true, got false")
 	}
-	if cfg.Orchestration.AutoClearFinished {
-		t.Errorf("expected Swarm.AutoClearFinished false, got true")
+	if !cfg.Orchestration.AutoClearFinished {
+		t.Errorf("expected Swarm.AutoClearFinished true, got false")
 	}
-	if cfg.Orchestration.AutoHidesIdleBees {
-		t.Errorf("expected Swarm.AutoHidesIdleBees false, got true")
+	if !cfg.Orchestration.AutoHidesIdleBees {
+		t.Errorf("expected Swarm.AutoHidesIdleBees true, got false")
 	}
-	if cfg.Orchestration.ShowsBeeDetails {
-		t.Errorf("expected Swarm.ShowsBeeDetails false, got true")
+	if !cfg.Orchestration.ShowsBeeDetails {
+		t.Errorf("expected Swarm.ShowsBeeDetails true, got false")
 	}
-	if cfg.Orchestration.AutoPopsBees {
-		t.Errorf("expected Swarm.AutoPopsBees false, got true")
+	if !cfg.Orchestration.AutoPopsBees {
+		t.Errorf("expected Swarm.AutoPopsBees true, got false")
 	}
 	if cfg.Orchestration.ArchivesCodexBees {
 		t.Errorf("expected Swarm.ArchivesCodexBees false, got true")

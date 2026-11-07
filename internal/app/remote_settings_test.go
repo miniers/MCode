@@ -242,7 +242,7 @@ func TestRemoteSettingsSetStewardEnabledChoosesExplicitly(t *testing.T) {
 	}
 }
 
-// session.pin_sent_message：默认开启，写入 false 后落盘，快照与配置文件都读到 false。
+// session.pin_sent_message：默认关闭，写入 false 后落盘，快照与配置文件都读到 false。
 func TestRemoteSettingsSessionPinSentMessage(t *testing.T) {
 	client := newRemoteSettingsTestClient(t, nil)
 	svc := remoteSettingsService{client: client}
@@ -251,8 +251,8 @@ func TestRemoteSettingsSessionPinSentMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取失败: %v", err)
 	}
-	if string(snapshot.Values[remote.SettingsKeySessionPinSentMessage]) != `true` {
-		t.Fatalf("默认值 = %s, 期望 true", snapshot.Values[remote.SettingsKeySessionPinSentMessage])
+	if string(snapshot.Values[remote.SettingsKeySessionPinSentMessage]) != `false` {
+		t.Fatalf("默认值 = %s, 期望 false", snapshot.Values[remote.SettingsKeySessionPinSentMessage])
 	}
 
 	written, err := svc.Set(context.Background(), remoteSettingsValues(t, map[string]any{
@@ -281,14 +281,14 @@ func TestRemoteSettingsOrchestrationAndStewardKeys(t *testing.T) {
 	}
 	wantDefaults := map[string]any{
 		remote.SettingsKeyOrchestrationWorkspaceMode:      config.WorkspaceModeWorktree,
-		remote.SettingsKeyOrchestrationMaxRounds:          0,
-		remote.SettingsKeyOrchestrationRetryFailed:        false,
-		remote.SettingsKeyOrchestrationAutoClearFinished:  false,
+		remote.SettingsKeyOrchestrationMaxRounds:          10,
+		remote.SettingsKeyOrchestrationRetryFailed:        true,
+		remote.SettingsKeyOrchestrationAutoClearFinished:  true,
 		remote.SettingsKeyOrchestrationReviewMode:         config.ReviewModeOff,
-		remote.SettingsKeyOrchestrationAutoMerge:          false,
+		remote.SettingsKeyOrchestrationAutoMerge:          true,
 		remote.SettingsKeyOrchestrationAutoPush:           false,
-		remote.SettingsKeyOrchestrationAutoForwardSeconds: 0,
-		remote.SettingsKeyStewardAvatar:                   "",
+		remote.SettingsKeyOrchestrationAutoForwardSeconds: 180,
+		remote.SettingsKeyStewardAvatar:                   "🤖",
 	}
 	for key, want := range wantDefaults {
 		raw, ok := snapshot.Values[key]

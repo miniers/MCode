@@ -1921,7 +1921,7 @@ func isAutoCollapseReasoningEnabled(s *chatState) bool {
 	return reasoningAutoCollapse(st.cfg, isSteward)
 }
 
-// isPinSentMessageEnabled 检查当前配置中是否开启了发送后置顶消息（取不到配置时视为开启）。
+// isPinSentMessageEnabled 检查当前配置中是否开启了发送后置顶消息（取不到配置时视为关闭）。
 // 它会锁设置状态的锁，必须在 s.mu 之外调用。
 func isPinSentMessageEnabled(s *chatState) bool {
 	if st := getChatSettings(s); st != nil {
@@ -1929,7 +1929,7 @@ func isPinSentMessageEnabled(s *chatState) bool {
 		defer st.mu.Unlock()
 		return st.cfg.Session.PinSentMessageEnabled()
 	}
-	return true
+	return false
 }
 
 // timelineItemTopGap 返回时间线第 i 项上方的间距，保留组头和等待行的特殊布局。

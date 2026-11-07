@@ -12,10 +12,11 @@ import (
 // 点击翻转内存里的字段，并把新值写进 config.json。
 // 定位用开关的 Label 文本（mygo 的 Tester.Click 按显示文本或 Label 匹配，不认组件 key）。
 
-// TestSwarmSwitchRetryFailedPersists 覆盖「失败时自动重试」：默认关闭，点一下开启并落盘。
+// TestSwarmSwitchRetryFailedPersists 覆盖「失败时自动重试」：从关闭切换到开启并落盘。
 func TestSwarmSwitchRetryFailedPersists(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.cfg.Orchestration.RetryFailed = false
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Width(1100).Children(func() { renderPageSwarm(c, st) })
 	}, 1200, 7000)
@@ -39,10 +40,11 @@ func TestSwarmSwitchRetryFailedPersists(t *testing.T) {
 	}
 }
 
-// TestSwarmSwitchAutoMergePersists 覆盖「自动合并」：默认关闭，点一下开启并落盘。
+// TestSwarmSwitchAutoMergePersists 覆盖「自动合并」：从关闭切换到开启并落盘。
 func TestSwarmSwitchAutoMergePersists(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.cfg.Orchestration.AutoMerge = false
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Width(1100).Children(func() { renderPageSwarm(c, st) })
 	}, 1200, 7000)
@@ -69,11 +71,13 @@ func TestSwarmSwitchAutoMergePersists(t *testing.T) {
 	}
 }
 
-// TestSwarmSwitchShowsBeeDetailsPersists 覆盖「显示子代理详细步骤」：默认关闭，点一下开启并落盘，
+// TestSwarmSwitchShowsBeeDetailsPersists 覆盖「显示子代理详细步骤」：从关闭切换到开启并落盘，
 // 同时不能连带改动相邻的「自动弹出子代理面板」。
 func TestSwarmSwitchShowsBeeDetailsPersists(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.cfg.Orchestration.ShowsBeeDetails = false
+	st.cfg.Orchestration.AutoPopsBees = false
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Width(1100).Children(func() { renderPageSwarm(c, st) })
 	}, 1200, 7000)
