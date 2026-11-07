@@ -141,14 +141,14 @@ func TestMagpieInstalledAgentSections(t *testing.T) {
 				}
 			} else {
 				tt.Frame()
-				for _, text := range []string{"智能体", "模型", "在模型选择器中显示", "网关没有返回模型"} {
-					if tt.HasText(text) {
+				for _, text := range []string{"智能体", "模型", "在模型选择器中显示", "网关没有返回模型", "sec-magpie-agents", "sec-magpie-models"} {
+					if countExactText(tt.Texts(), text) > 0 {
 						t.Fatalf("没有已安装智能体时不应显示 %q: %v", text, tt.Texts())
 					}
 				}
 			}
 			for _, text := range []string{"Claude", "pi", "Claude 路由", "pi 路由", "切换 Claude 测试模型", "切换 pi 测试模型"} {
-				if tt.HasText(text) {
+				if countExactText(tt.Texts(), text) > 0 {
 					t.Fatalf("未安装的智能体不应显示 %q: %v", text, tt.Texts())
 				}
 			}
