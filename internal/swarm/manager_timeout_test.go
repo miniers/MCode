@@ -12,18 +12,18 @@ import (
 	"mcode/internal/kanban"
 )
 
-// TestSwarmBeeTimeoutConfigDefaults 验证配置默认值为 40，以及缺少该字段的旧配置被视为 40。
+// TestSwarmBeeTimeoutConfigDefaults 验证配置默认值，以及缺少该字段的旧配置使用默认值。
 func TestSwarmBeeTimeoutConfigDefaults(t *testing.T) {
-	// 1. Defaults 默认值为 40 分钟
+	// 1. Defaults 使用配置的默认超时时间。
 	def := config.Defaults()
-	if def.Orchestration.BeeTimeoutMinutes != 40 {
-		t.Fatalf("config.Defaults().Orchestration.BeeTimeoutMinutes 应为 40，实际 %d", def.Orchestration.BeeTimeoutMinutes)
+	if def.Orchestration.BeeTimeoutMinutes != config.DefaultSwarmBeeTimeoutMinutes {
+		t.Fatalf("config.Defaults().Orchestration.BeeTimeoutMinutes 应为 %d，实际 %d", config.DefaultSwarmBeeTimeoutMinutes, def.Orchestration.BeeTimeoutMinutes)
 	}
-	if d := def.Orchestration.BeeTimeoutDuration(); d != 40*time.Minute {
-		t.Fatalf("BeeTimeoutDuration() 应为 40m，实际 %v", d)
+	if d := def.Orchestration.BeeTimeoutDuration(); d != config.DefaultSwarmBeeTimeoutMinutes*time.Minute {
+		t.Fatalf("BeeTimeoutDuration() 应为 %v，实际 %v", config.DefaultSwarmBeeTimeoutMinutes*time.Minute, d)
 	}
 
-	// 2. 配置 JSON 中缺少 swarmBeeTimeoutMinutes 字段时，Normalize 后应得到 40
+	// 2. 配置 JSON 中缺少 swarmBeeTimeoutMinutes 字段时，Normalize 后应得到默认值。
 	rawLegacyJSON := []byte(`{
 		"orchestration": {
 			"max_bees": 2,
@@ -38,16 +38,16 @@ func TestSwarmBeeTimeoutConfigDefaults(t *testing.T) {
 	if cfg.Orchestration.BeeTimeoutMinutes != 0 {
 		t.Fatalf("裸反序列化零值应为 0，实际 %d", cfg.Orchestration.BeeTimeoutMinutes)
 	}
-	// 经过 Normalize 规范化后应视为 40
+	// 经过 Normalize 规范化后应使用默认值。
 	norm := config.Normalize(cfg)
-	if norm.Orchestration.BeeTimeoutMinutes != 40 {
-		t.Fatalf("Normalize 后缺少超时的旧配置应视为 40，实际 %d", norm.Orchestration.BeeTimeoutMinutes)
+	if norm.Orchestration.BeeTimeoutMinutes != config.DefaultSwarmBeeTimeoutMinutes {
+		t.Fatalf("Normalize 后缺少超时的旧配置应为 %d，实际 %d", config.DefaultSwarmBeeTimeoutMinutes, norm.Orchestration.BeeTimeoutMinutes)
 	}
 
-	// 3. 显式设置为 0 时 BeeTimeoutDuration 也回退到 40 分钟
+	// 3. 显式设置为 0 时 BeeTimeoutDuration 也回退到默认值。
 	var zeroCfg config.OrchestrationConfig
-	if d := zeroCfg.BeeTimeoutDuration(); d != 40*time.Minute {
-		t.Fatalf("零值 OrchestrationConfig 的 BeeTimeoutDuration() 应为 40m，实际 %v", d)
+	if d := zeroCfg.BeeTimeoutDuration(); d != config.DefaultSwarmBeeTimeoutMinutes*time.Minute {
+		t.Fatalf("零值 OrchestrationConfig 的 BeeTimeoutDuration() 应为 %v，实际 %v", config.DefaultSwarmBeeTimeoutMinutes*time.Minute, d)
 	}
 }
 

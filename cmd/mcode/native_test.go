@@ -376,13 +376,14 @@ func (r *stewardNotifyRecorder) waitLast(t *testing.T, wantTitle, wantBody strin
 // 多条按时间倒序汇总、最多列三条，超过 30 分钟的条目丢弃，清空后重新计数。
 func TestStewardNotificationSummary(t *testing.T) {
 	dataDir := t.TempDir()
-	if err := config.Save(dataDir, config.Defaults()); err != nil {
+	cfg := config.Defaults()
+	if err := config.Save(dataDir, cfg); err != nil {
 		t.Fatal(err)
 	}
 	clock := time.Date(2026, 10, 30, 10, 0, 0, 0, time.Local)
 	foreground := false
 	rec := &stewardNotifyRecorder{}
-	send, reset := ownerNotificationSender(dataDir, config.Defaults(), rec.notify, func() bool { return foreground }, func() time.Time { return clock })
+	send, reset := ownerNotificationSender(dataDir, cfg, rec.notify, func() bool { return foreground }, func() time.Time { return clock })
 
 	// 单条：照旧发原标题与正文。
 	send("汇报一", "第一条正文\n第二行", "")
@@ -391,16 +392,16 @@ func TestStewardNotificationSummary(t *testing.T) {
 	// 两条：标题带总数，正文按时间倒序并只取首行。
 	clock = clock.Add(time.Minute)
 	send("汇报二", "第二条正文", "")
-	rec.waitLast(t, config.DefaultStewardName+" · 2 条新消息", "汇报二：第二条正文\n汇报一：第一条正文")
+	rec.waitLast(t, cfg.Orchestration.Steward.DisplayName()+" · 2 条新消息", "汇报二：第二条正文\n汇报一：第一条正文")
 
 	// 超过三条：只列最近三条，再加一行剩余数量。
 	for _, item := range []stewardSentNotification{{"汇报三", "第三条正文"}, {"汇报四", "第四条正文"}, {"汇报五", "第五条正文"}} {
 		clock = clock.Add(time.Minute)
 		send(item.title, item.body, "")
 	}
-	got := rec.waitLast(t, config.DefaultStewardName+" · 5 条新消息", "汇报五：第五条正文\n汇报四：第四条正文\n汇报三：第三条正文\n另有 2 条")
+	got := rec.waitLast(t, cfg.Orchestration.Steward.DisplayName()+" · 5 条新消息", "汇报五：第五条正文\n汇报四：第四条正文\n汇报三：第三条正文\n另有 2 条")
 	// 最后留下的必须是最新的五条汇总，不能被旧的四条汇总顶掉。
-	if old := config.DefaultStewardName + " · 4 条新消息"; got.title == old {
+	if old := cfg.Orchestration.Steward.DisplayName() + " · 4 条新消息"; got.title == old {
 		t.Fatalf("最后一条通知是旧汇总 %q", got.title)
 	}
 
@@ -412,7 +413,7 @@ func TestStewardNotificationSummary(t *testing.T) {
 	if got := rec.count(); got != before {
 		t.Fatalf("前台抑制的通知不应发送，已发 %d 条，抑制前 %d 条", got, before)
 	}
-	if last, ok := rec.last(); !ok || last.title != config.DefaultStewardName+" · 5 条新消息" {
+	if last, ok := rec.last(); !ok || last.title != cfg.Orchestration.Steward.DisplayName()+" · 5 条新消息" {
 		t.Fatalf("前台抑制不应改动最后的横幅: %+v", last)
 	}
 	foreground = false
@@ -425,7 +426,7 @@ func TestStewardNotificationSummary(t *testing.T) {
 	// 超过 30 分钟的条目在下次发送时丢弃。
 	clock = clock.Add(20 * time.Minute)
 	send("汇报八", "第八条正文", "")
-	rec.waitLast(t, config.DefaultStewardName+" · 2 条新消息", "汇报八：第八条正文\n汇报七：第七条正文")
+	rec.waitLast(t, cfg.Orchestration.Steward.DisplayName()+" · 2 条新消息", "汇报八：第八条正文\n汇报七：第七条正文")
 	clock = clock.Add(31 * time.Minute)
 	send("汇报九", "第九条正文", "")
 	rec.waitLast(t, "汇报九", "第九条正文")
@@ -435,18 +436,19 @@ func TestStewardNotificationSummary(t *testing.T) {
 // 汇总：每条通知各在自己的 goroutine 里发，序号更小的旧汇总不能在新横幅之后落到通知中心。
 func TestStewardNotificationSummaryOrder(t *testing.T) {
 	dataDir := t.TempDir()
-	if err := config.Save(dataDir, config.Defaults()); err != nil {
+	cfg := config.Defaults()
+	if err := config.Save(dataDir, cfg); err != nil {
 		t.Fatal(err)
 	}
 	clock := time.Date(2026, 10, 30, 10, 0, 0, 0, time.Local)
 	rec := &stewardNotifyRecorder{}
-	send, _ := ownerNotificationSender(dataDir, config.Defaults(), rec.notify, func() bool { return false }, func() time.Time { return clock })
+	send, _ := ownerNotificationSender(dataDir, cfg, rec.notify, func() bool { return false }, func() time.Time { return clock })
 
 	const total = 12
 	for i := 1; i <= total; i++ {
 		send(fmt.Sprintf("汇报%d", i), fmt.Sprintf("第%d条正文", i), "")
 	}
-	wantTitle := fmt.Sprintf("%s · %d 条新消息", config.DefaultStewardName, total)
+	wantTitle := fmt.Sprintf("%s · %d 条新消息", cfg.Orchestration.Steward.DisplayName(), total)
 	got := rec.waitLast(t, wantTitle, "汇报12：第12条正文\n汇报11：第11条正文\n汇报10：第10条正文\n另有 9 条")
 	if got.title != wantTitle {
 		t.Fatalf("最后一条通知标题 = %q, 期望 %q", got.title, wantTitle)

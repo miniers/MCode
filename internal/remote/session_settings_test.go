@@ -43,7 +43,12 @@ func TestSessionSettings_ConciseRepliesInjection(t *testing.T) {
 	}
 	backend.RegisterHarness(mock)
 
-	// 1. 默认状态（未配置或 ConciseRepliesEnabled 为 nil / true）：应该注入 ConciseRepliesPrompt
+	// 1. 显式开启时，应该注入 ConciseRepliesPrompt。
+	backend.SetGeneralSettingsFunc(func() config.Config {
+		return config.Config{Session: config.SessionConfig{
+			ConciseRepliesEnabled: testBoolPtr(true),
+		}}
+	})
 	thID := "thread-concise-replies-1"
 	backend.AddThread(wire.ThreadSummary{
 		ID:       thID,
