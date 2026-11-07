@@ -494,13 +494,15 @@ func TestShouldShowAssistantActions(t *testing.T) {
 	cases := []struct {
 		id        string
 		streaming bool
+		revealed  bool
 		want      bool
 	}{
-		{"a1", false, false}, // 同轮里后面还有一条助手回复
-		{"a2", false, true},  // 本轮的最终回复
-		{"a2", true, false},  // 流式中不显示
-		{"a3", false, true},  // 下一轮的最后一条回复
-		{"a4", false, false}, // 正文只有空白
+		{"a1", false, true, false},  // 同轮里后面还有一条助手回复
+		{"a2", false, true, true},   // 本轮的最终回复
+		{"a2", true, true, false},   // 流式中不显示
+		{"a2", false, false, false}, // 正文还没完全显示
+		{"a3", false, true, true},   // 下一轮的最后一条回复
+		{"a4", false, true, false},  // 正文只有空白
 	}
 	for _, tc := range cases {
 		var msg Message
@@ -511,8 +513,8 @@ func TestShouldShowAssistantActions(t *testing.T) {
 			}
 		}
 		isLast := lastAssistant[msg.TurnIndex] == msg.ID
-		if got := shouldShowAssistantActions(msg, tc.streaming, isLast); got != tc.want {
-			t.Errorf("shouldShowAssistantActions(%s, streaming=%v, isLast=%v) = %v, want %v", tc.id, tc.streaming, isLast, got, tc.want)
+		if got := shouldShowAssistantActions(msg, tc.streaming, isLast, tc.revealed); got != tc.want {
+			t.Errorf("shouldShowAssistantActions(%s, streaming=%v, isLast=%v, revealed=%v) = %v, want %v", tc.id, tc.streaming, isLast, tc.revealed, got, tc.want)
 		}
 	}
 }
@@ -2992,7 +2994,7 @@ func TestAssistantHeaderOmitsModelName(t *testing.T) {
 	s.selectedThreadID = "thread"
 	s.threads = []Thread{{ID: "thread", Provider: "openai", Model: "unique-model-name"}}
 	s.messages = []Message{m}
-	tt := ui.NewTester(func(c *ui.Context) { renderAssistantHeader(c, s, m) }, 800, 600)
+	tt := ui.NewTester(func(c *ui.Context) { renderAssistantHeader(c, s, m, true) }, 800, 600)
 	if tt.HasText("unique-model-name") {
 		t.Fatal("助手元信息行不应显示模型名")
 	}
@@ -3044,5 +3046,87 @@ func TestRenderToolDetail_ReadKeepsHead(t *testing.T) {
 	}
 	if tt.HasText("LINE-40") {
 		t.Fatalf("读文件预览不应显示末尾的行: %q", tt.Texts())
+	}
+}
+
+// TestTimelineRows_ExpandKeepsClickedRowInPlace 验证跟随末尾的列表里展开最后一条消息的折叠时，
+// 被点的那一行留在原位：下一帧不再被拉回末尾（HoldPlace）。
+func TestTimelineRows_ExpandKeepsClickedRowInPlace(t *testing.T) {
+	var msgs []Message
+	for i := 0; i < 40; i++ {
+		msgs = append(msgs, Message{ID: fmt.Sprintf("u%02d", i), Role: "user", Text: fmt.Sprintf("消息-%02d", i), TurnIndex: i + 1, IsFinal: true})
+	}
+	msgs = append(msgs, Message{ID: "t1", Role: "tool", Text: "ls -la\nTOOL-DETAIL-BODY", TurnIndex: 41})
+	tt := newTimelineTester(t, msgs, "ls -la")
+
+	before, ok := tt.Find("ls -la")
+	if !ok {
+		t.Fatalf("最后一条工具行应在视口内")
+	}
+	clickText(t, tt, "ls -la")
+	if !tt.HasText("TOOL-DETAIL-BODY") {
+		t.Fatalf("点击后应展开工具详情")
+	}
+	after, ok := tt.Find("ls -la")
+	if !ok {
+		t.Fatalf("展开后工具行跑出视口")
+	}
+	if math.Abs(float64(after.Y-before.Y)) > 1 {
+		t.Fatalf("展开后胶囊行从 Y=%.1f 移到 Y=%.1f，列表被拉回末尾", float64(before.Y), float64(after.Y))
+	}
+}
+
+// TestAssistantHeaderFirstFrameForHistoryMessage 验证打开历史会话时，未流式输出过的最终回复
+// 第一帧就显示时间，不会晚一帧出现造成跳动。
+func TestAssistantHeaderFirstFrameForHistoryMessage(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	m := Message{ID: "a-history", Role: "assistant", Text: "历史回复", TurnIndex: 1, IsFinal: true}
+	s.selectedThreadID = "thread"
+	s.threads = []Thread{{ID: "thread", Provider: "claude", UpdatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.Local)}}
+	s.messages = []Message{m}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderAssistantMessage(c, s, m, "", "", true, false, TokenUsage{}, 0, false)
+	}, 800, 600)
+	if !tt.HasText("03:04") {
+		t.Fatalf("历史消息首帧就应显示时间: %q", tt.Texts())
+	}
+}
+
+// TestAssistantRevealGate 验证本会话里流式输出过的消息要等正文完全显示后才露出时间与操作栏，
+// 而没流式过的消息直接视为已显示。
+func TestAssistantRevealGate(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	m := Message{ID: "a-stream", Role: "assistant", Text: "流式回复", TurnIndex: 1, IsFinal: true}
+	s.selectedThreadID = "thread"
+	s.threads = []Thread{{ID: "thread", Provider: "claude", UpdatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.Local)}}
+	s.messages = []Message{m}
+
+	if !s.assistantRevealed(m.ID) {
+		t.Fatalf("没有流式输出过的消息应视为已完全显示")
+	}
+	// 以流式状态渲染过、正文还没显示完：时间与操作栏都不出现。
+	s.markAssistantRevealed(m.ID, true, false)
+	if s.assistantRevealed(m.ID) {
+		t.Fatalf("流式正文未完全显示时不应算已显示")
+	}
+	if shouldShowAssistantActions(m, false, true, s.assistantRevealed(m.ID)) {
+		t.Fatalf("正文未完全显示时不应显示操作栏")
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderAssistantHeader(c, s, m, s.assistantRevealed(m.ID))
+	}, 800, 600)
+	if tt.HasText("03:04") {
+		t.Fatalf("正文未完全显示时不应显示时间: %q", tt.Texts())
+	}
+
+	// 标记为已完全显示后，下一帧补上时间。
+	s.markAssistantRevealed(m.ID, true, true)
+	if !s.assistantRevealed(m.ID) {
+		t.Fatalf("标记为完全显示后应算已显示")
+	}
+	tt.Frame()
+	if !tt.HasText("03:04") {
+		t.Fatalf("完全显示后应补上时间: %q", tt.Texts())
 	}
 }

@@ -612,7 +612,7 @@ func renderApprovalCard(c *ui.Context, s *chatState, approval Approval, respondi
 								Selectable().
 								Children(func() {
 									for idx, file := range files {
-										renderInlineToolDiffFile(c, "approval-"+id, idx, file)
+										renderInlineToolDiffFile(c, s, "approval-"+id, idx, file)
 									}
 								})
 						})

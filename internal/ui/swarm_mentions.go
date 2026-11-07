@@ -711,13 +711,13 @@ func countLeadingHashes(trimmed string) int {
 	return n
 }
 
-// renderAssistantContentWithMentions 为助手回复正文渲染 Markdown 与 Swarm Bee 提及富文本。
-func renderAssistantContentWithMentions(c *ui.Context, s *chatState, m Message, isStreamingNow bool, lastLiveID string) {
+// renderAssistantContentWithMentions 为助手回复正文渲染 Markdown 与 Swarm Bee 提及富文本，
+// 返回正文这一帧是否已完全显示（markdown.Revealed），供上层决定何时露出时间与操作栏。
+func renderAssistantContentWithMentions(c *ui.Context, s *chatState, m Message, isStreamingNow bool, lastLiveID string) bool {
 	bees := getSwarmBeesForChat(s)
 	// 若无已派出 bee，或正文中未提及任何 bee，完全走原有 markdown 渲染
 	if len(bees) == 0 || len(s.swarmMentionMatches(m.Text)) == 0 {
-		renderAssistantMarkdownDefault(c, s, m, isStreamingNow, lastLiveID)
-		return
+		return renderAssistantMarkdownDefault(c, s, m, isStreamingNow, lastLiveID)
 	}
 
 	// 按块渲染：代码块与不含 bee 名字的块交给 Markdown（标题、列表、表格、链接照常渲染），
@@ -725,13 +725,16 @@ func renderAssistantContentWithMentions(c *ui.Context, s *chatState, m Message, 
 	// 流式只会在末尾追加新块，已有块的 key 不变，避免整段重建闪烁。
 	blocks := splitMentionBlocks(m.Text, bees)
 	if len(blocks) == 0 {
-		renderAssistantMarkdownDefault(c, s, m, isStreamingNow, lastLiveID)
-		return
+		return renderAssistantMarkdownDefault(c, s, m, isStreamingNow, lastLiveID)
 	}
+	// 只有走 Markdown 的块带揭示动画：所有块都显示完才算整条正文已完全显示。
+	revealed := true
 	for blockIdx, block := range blocks {
 		blockKey := fmt.Sprintf("mention-block-%s-%d", m.ID, blockIdx)
 		if block.kind == mentionBlockCode || !block.hasBee {
-			markdown.View(c.Key(blockKey), block.text, &s.mdStaticOpts)
+			if !markdown.Revealed(markdown.View(c.Key(blockKey), block.text, &s.mdStaticOpts)) {
+				revealed = false
+			}
 			continue
 		}
 		renderMentionBlock(c, s, blockKey, block.text)
@@ -743,6 +746,7 @@ func renderAssistantContentWithMentions(c *ui.Context, s *chatState, m Message, 
 			FontSize(scaledFont(13)).
 			TextColor(ThemePrimaryText(c))
 	}
+	return revealed
 }
 
 // renderMentionBlock 渲染含 bee 提及的块：逐行做「正文+bee 名字」行内混排。
@@ -861,12 +865,11 @@ func renderMentionText(c *ui.Context, key, text string, size float32, weight int
 // renderLiveMarkdown 渲染正在流式输出的正文：需要逐字揭示时走 markdown.Stream，
 // 否则（打开会话时已有的正文、视图重建后已显示过的正文）整段显示，不重播打字机动画。
 // takeStreamReveal 会推进基线，每帧每条消息只调用一次。
-func renderLiveMarkdown(c *ui.Context, s *chatState, m Message, o *markdown.Options) {
+func renderLiveMarkdown(c *ui.Context, s *chatState, m Message, o *markdown.Options) bool {
 	if s.takeStreamReveal(m) {
-		markdown.Stream(c, m.Text, o)
-		return
+		return markdown.Revealed(markdown.Stream(c, m.Text, o))
 	}
-	markdown.View(c, m.Text, o)
+	return markdown.Revealed(markdown.View(c, m.Text, o))
 }
 
 // renderAssistantMarkdownDefault 执行原本的 Markdown 渲染，分三种情况：
@@ -877,20 +880,18 @@ func renderLiveMarkdown(c *ui.Context, s *chatState, m Message, o *markdown.Opti
 //
 // 四处文本都包一层 findHighlightSource：查找条打开且本条命中时它会在源码层注入 <mark>，
 // 查找条关闭时原样返回、不扫描（字级高亮的来源见 chat_find.go）。
-func renderAssistantMarkdownDefault(c *ui.Context, s *chatState, m Message, isStreamingNow bool, lastLiveID string) {
+func renderAssistantMarkdownDefault(c *ui.Context, s *chatState, m Message, isStreamingNow bool, lastLiveID string) bool {
 	if isStreamingNow {
 		// takeStreamReveal 会推进基线，每帧只调用一次。
 		if s.takeStreamReveal(m) {
-			markdown.Stream(c, findHighlightSource(s, m.ID, m.Text+streamingCursor), &s.mdOpts)
-			return
+			return markdown.Revealed(markdown.Stream(c, findHighlightSource(s, m.ID, m.Text+streamingCursor), &s.mdOpts))
 		}
-		markdown.View(c, findHighlightSource(s, m.ID, m.Text+streamingCursor), &s.mdStaticOpts)
-		return
+		return markdown.Revealed(markdown.View(c, findHighlightSource(s, m.ID, m.Text+streamingCursor), &s.mdStaticOpts))
 	}
 	switch {
 	case lastLiveID != "" && m.ID == lastLiveID:
-		markdown.View(c, findHighlightSource(s, m.ID, linkifyMessageText(s, m.Text)), &s.mdOpts)
+		return markdown.Revealed(markdown.View(c, findHighlightSource(s, m.ID, linkifyMessageText(s, m.Text)), &s.mdOpts))
 	default:
-		markdown.View(c, findHighlightSource(s, m.ID, linkifyMessageText(s, m.Text)), &s.mdStaticOpts)
+		return markdown.Revealed(markdown.View(c, findHighlightSource(s, m.ID, linkifyMessageText(s, m.Text)), &s.mdStaticOpts))
 	}
 }

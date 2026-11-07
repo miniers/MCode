@@ -236,50 +236,11 @@ func toggleUserMessageExpanded(s *chatState, msgID string) {
 	}
 	userMsgExpandedMu.Lock()
 	userMsgExpanded[msgID] = !userMsgExpanded[msgID]
-	expanding := userMsgExpanded[msgID]
 	userMsgExpandedMu.Unlock()
-	// 收起后气泡一下变短，顶端可能已经滚出视野：下一帧把气泡顶部拉回来。
-	if !expanding {
-		requestUserMessageScroll(msgID)
-	}
 	if s != nil {
+		s.holdChatPlace()
 		s.invalidate()
 	}
-}
-
-// pendingScrollUserMsgID 记录下一次渲染要把哪个用户消息滚回视野顶部（收起长消息时设置），
-// 并带上设置时刻：超过 pendingScrollUserMsgTTL 就作废，避免消息行没渲染时标记一直留着、
-// 下次滚回来又莫名跳一下。
-var (
-	pendingScrollUserMsgMu sync.Mutex
-	pendingScrollUserMsgID string
-	pendingScrollUserMsgAt time.Time
-)
-
-// pendingScrollUserMsgTTL 是滚动请求的有效期，正常下一帧就会消费掉。
-const pendingScrollUserMsgTTL = 500 * time.Millisecond
-
-// requestUserMessageScroll 请求下一帧把该用户消息滚回视野顶部。
-func requestUserMessageScroll(msgID string) {
-	pendingScrollUserMsgMu.Lock()
-	pendingScrollUserMsgID = msgID
-	pendingScrollUserMsgAt = time.Now()
-	pendingScrollUserMsgMu.Unlock()
-}
-
-// consumeUserMessageScroll 取走滚动请求：只有标记正好是这条消息、且没过期时才返回 true，并清掉标记。
-func consumeUserMessageScroll(msgID string) bool {
-	pendingScrollUserMsgMu.Lock()
-	defer pendingScrollUserMsgMu.Unlock()
-	if pendingScrollUserMsgID == "" || pendingScrollUserMsgID != msgID {
-		return false
-	}
-	if time.Since(pendingScrollUserMsgAt) > pendingScrollUserMsgTTL {
-		pendingScrollUserMsgID = ""
-		return false
-	}
-	pendingScrollUserMsgID = ""
-	return true
 }
 
 // isImageMedia 判断媒体是否为图片。
@@ -563,10 +524,6 @@ func renderUserMessage(c *ui.Context, s *chatState, m Message) ui.Element {
 	}
 
 	row := ui.Row(c.Key("msg-user-" + m.ID)).FillWidth().Justify(ui.End).ContextMenu(messageContextMenu(c, s, m))
-	// 只在点收起后的那一帧调用，每帧调用会把用户自己滚出去的位置一直拽回来。
-	if consumeUserMessageScroll(m.ID) {
-		row.ScrollIntoView()
-	}
 	// 整行 hover：指针停在这个消息行上（气泡、附件或操作栏）都算
 	rowHovered := row.Hovered()
 
@@ -2260,6 +2217,7 @@ func renderResolvedPlanCard(c *ui.Context, s *chatState, plan resolvedPlan) {
 							}
 							s.collapsedPlans[id] = !collapsed
 							s.mu.Unlock()
+							s.holdChatPlace()
 							s.invalidate()
 						}).
 						Children(func() {
@@ -2846,9 +2804,9 @@ func renderContextCompactedDivider(c *ui.Context, m Message) ui.Element {
 }
 
 // shouldShowAssistantActions 判断助手回复是否渲染 hover 操作栏：只有本回合最后一条助手回复、
-// 非流式且正文非空时才渲染；同轮中间的回复只保留正文与右键菜单。
-func shouldShowAssistantActions(m Message, isStreaming, isLastAssistant bool) bool {
-	return isLastAssistant && !isStreaming && strings.TrimSpace(m.Text) != ""
+// 非流式、正文非空且已完全显示时才渲染；同轮中间的回复只保留正文与右键菜单。
+func shouldShowAssistantActions(m Message, isStreaming, isLastAssistant, revealed bool) bool {
+	return isLastAssistant && !isStreaming && revealed && strings.TrimSpace(m.Text) != ""
 }
 
 // messageActionBarVisible 判断消息操作栏此刻是否显示：指针停在消息行上，或复制对勾反馈仍在
@@ -2922,6 +2880,8 @@ func renderAssistantMessage(c *ui.Context, s *chatState, m Message, liveID, last
 	m.Text = s.stripSwarmFenceCached(m)
 	ensureCodeBlockContainer(s)
 	isStreamingNow := liveID != "" && m.ID == liveID
+	// 读上一帧记下的完全显示状态：头部与操作栏跟正文同帧渲染，晚一帧补上可以接受。
+	revealed := s.assistantRevealed(m.ID)
 	// 流式中先不播；IsFinal 一置位就算完成态，即便 liveID 还没切走也补播一次。
 	enter := s.beginMessageEnter(m, isStreamingNow && !m.IsFinal, c.Now())
 
@@ -2931,13 +2891,15 @@ func renderAssistantMessage(c *ui.Context, s *chatState, m Message, liveID, last
 
 	col.Children(func() {
 		// 最终回复上方的元信息行：模型图标、模型名、耗时与时间戳
-		renderAssistantHeader(c, s, m)
+		renderAssistantHeader(c, s, m, revealed)
 
-		renderAssistantContentWithMentions(c, s, m, isStreamingNow, lastLiveID)
+		contentRevealed := renderAssistantContentWithMentions(c, s, m, isStreamingNow, lastLiveID)
+		// 本会话里流式输出过的消息先记下「以流式状态渲染过」，正文显示完才露出时间与操作栏。
+		s.markAssistantRevealed(m.ID, isStreamingNow || lastLiveID != "" && m.ID == lastLiveID, contentRevealed)
 
 		// 助手回复下方淡色小图标操作栏（复制、分支、回报父会话、更多）：默认隐藏，hover 才显示。
 		// 隐藏时只把不透明度置零，占位高度照旧，hover 时布局不跳动。
-		if shouldShowAssistantActions(m, isStreamingNow, isLastAssistant) {
+		if shouldShowAssistantActions(m, isStreamingNow, isLastAssistant, revealed) {
 			copyKey := "copy-btn-" + m.ID
 			bar := ui.Row(c.Key("msg-actions-"+m.ID)).
 				AlignItems(ui.Center).
@@ -3107,9 +3069,10 @@ func assistantMetaSource(s *chatState, m Message) (provider, model string, at ti
 	return th.Provider, model, at
 }
 
-// renderAssistantHeader 渲染助手最终回复上方的供应商图标与时间戳。
-func renderAssistantHeader(c *ui.Context, s *chatState, m Message) {
-	if !m.IsFinal {
+// renderAssistantHeader 渲染助手最终回复上方的供应商图标与时间戳：正文完全显示后才出现，
+// 不在打字动画进行中途弹出来。
+func renderAssistantHeader(c *ui.Context, s *chatState, m Message, revealed bool) {
+	if !m.IsFinal || !revealed {
 		return
 	}
 	provider, _, at := assistantMetaSource(s, m)
@@ -3876,6 +3839,7 @@ func (s *chatState) toggleTodoCard(msgID string, open bool) {
 	s.expandedTool[todoCardKey(msgID)] = open
 	s.expandedRev++
 	s.mu.Unlock()
+	s.holdChatPlace()
 	s.invalidate()
 }
 
@@ -4269,6 +4233,7 @@ func (s *chatState) toggleToolChip(m Message, beatTools []Message) {
 	s.expandedTool[m.ID] = open
 	s.expandedRev++
 	s.mu.Unlock()
+	s.holdChatPlace()
 
 	// 编辑类工具：展开胶囊时直接显示这次调用的改动，收起时一并关掉
 	// （走 toggleToolDiff 以复用它在重新展开时清掉失败缓存的逻辑）。
@@ -4293,6 +4258,7 @@ func (s *chatState) hideToolDetail(m Message) {
 	}
 	s.expandedRev++
 	s.mu.Unlock()
+	s.holdChatPlace()
 	s.invalidate()
 }
 
@@ -4813,6 +4779,7 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 								s.expandedTool[foldKey] = true
 								s.expandedRev++
 								s.mu.Unlock()
+								s.holdChatPlace()
 								s.invalidate()
 							}})
 						}
@@ -5781,6 +5748,7 @@ func (s *chatState) setToolGroupOpen(groupID string, open bool) {
 	s.expandedTool[groupID] = open
 	s.expandedRev++
 	s.mu.Unlock()
+	s.holdChatPlace()
 	s.invalidate()
 }
 

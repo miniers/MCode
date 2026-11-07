@@ -86,6 +86,7 @@ func toggleErrorDetail(s *chatState, m Message) {
 	key := errorDetailKey(m.ID)
 	s.expandedTool[key] = !s.expandedTool[key]
 	s.mu.Unlock()
+	s.holdChatPlace()
 	s.invalidate()
 }
 

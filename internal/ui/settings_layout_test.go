@@ -121,3 +121,52 @@ func TestSettingsLayout_PageTitleSmallerThanLegacyTitle(t *testing.T) {
 		t.Fatalf("页面标题行高 %.1f，应当小于 20 号字的行高 %.1f", title.H, legacy.H)
 	}
 }
+
+// TestSettingsLayout_SectionTitleSticky 校验详情滚动时当前分节标题吸在滚动区顶边：
+// 标题行带 Space1 上内边距，吸顶时标题文字的纵坐标就是这段内边距；
+// 此时前一节标题已被推出去，滚到下一节后本节标题又让位给下一节。
+func TestSettingsLayout_SectionTitleSticky(t *testing.T) {
+	const width, height = 720, 320
+	tt := newSettingsDetailOnlyTester(t, "general", width, height)
+
+	if r, ok := tt.Find("权限"); !ok || r.Y <= Space1 {
+		t.Fatalf("初始状态下第一节标题应在顶部之下：%+v, %v", r, ok)
+	}
+
+	// 逐段滚动，直到「通知与提示音」吸住、再被「启动与托盘」推出。
+	stuck := false
+	for range 800 {
+		tt.Scroll(10, height/2, 0, 24)
+		tt.Frame()
+		cur, ok := tt.Find("通知与提示音")
+		if !ok {
+			t.Fatalf("找不到当前分节标题：%v", tt.Texts())
+		}
+		if !stuck {
+			if cur.Y != Space1 {
+				continue
+			}
+			prev, ok := tt.Find("权限")
+			if !ok {
+				t.Fatalf("找不到前一节标题：%v", tt.Texts())
+			}
+			if prev.Y >= 0 {
+				t.Fatalf("当前分节标题吸顶时，前一节标题仍在顶部：%+v", prev)
+			}
+			stuck = true
+			continue
+		}
+		next, ok := tt.Find("启动与托盘")
+		if !ok {
+			t.Fatalf("找不到下一节标题：%v", tt.Texts())
+		}
+		if next.Y != Space1 {
+			continue
+		}
+		if cur.Y >= 0 {
+			t.Fatalf("下一节标题吸顶后，当前节标题没有让位：%+v", cur)
+		}
+		return
+	}
+	t.Fatal("滚到内容底部也没有出现吸顶的分节标题")
+}

@@ -141,6 +141,7 @@ func (s *chatState) toggleTurnFilesCard(msgID string) {
 	s.expandedTool[key] = !s.expandedTool[key]
 	s.expandedRev++
 	s.mu.Unlock()
+	s.holdChatPlace()
 	s.invalidate()
 }
 

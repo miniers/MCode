@@ -66,7 +66,7 @@ func TestInlineToolDiffLineLimitAndBinary(t *testing.T) {
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() {
-			renderInlineToolDiffFile(c, "m1", 0, git.FileDiff{
+			renderInlineToolDiffFile(c, nil, "m1", 0, git.FileDiff{
 				NewPath: "large.go", Hunks: []git.Hunk{{Lines: lines}},
 			})
 		})
@@ -75,7 +75,7 @@ func TestInlineToolDiffLineLimitAndBinary(t *testing.T) {
 		t.Fatal("单文件 diff 未按 200 行限制显示")
 	}
 	binary := ui.NewTester(func(c *ui.Context) {
-		renderInlineToolDiffFile(c, "m2", 0, git.FileDiff{OldPath: "old.bin", Status: "deleted", Binary: true})
+		renderInlineToolDiffFile(c, nil, "m2", 0, git.FileDiff{OldPath: "old.bin", Status: "deleted", Binary: true})
 	}, 1000, 700)
 	if !binary.HasText("old.bin") || !binary.HasText("二进制文件") {
 		t.Fatal("二进制删除应显示原路径及文件类型提示")
@@ -189,7 +189,7 @@ func TestInlineDiffFourDigitLineNumbers(t *testing.T) {
 		{Kind: '-', OldNo: 1234, Text: "old"},
 		{Kind: '+', NewNo: 5678, Text: "new"},
 	}}}}
-	tt := ui.NewTester(func(c *ui.Context) { renderInlineToolDiffFile(c, "number-test", 0, file) }, 800, 600)
+	tt := ui.NewTester(func(c *ui.Context) { renderInlineToolDiffFile(c, nil, "number-test", 0, file) }, 800, 600)
 	oldRect, oldOK := tt.Find("1234")
 	newRect, newOK := tt.Find("5678")
 	if !oldOK || !newOK || oldRect.W != toolDiffLineNumberWidth || newRect.W != toolDiffLineNumberWidth {

@@ -154,33 +154,40 @@ func TestLocalFileLinkContextMenu(t *testing.T) {
 	if err := os.WriteFile(file, []byte("第一行\n第二行\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	src := "[报告](" + file + ")\n\n普通文字\n"
-	o := &markdown.Options{}
-	installLocalFileLinkHook(o, &chatState{})
-	tt := ui.NewTester(func(c *ui.Context) {
-		markdown.View(c, src, o)
-	}, 900, 400)
+	// 真实消息里两种写法都会出现：绝对路径与 file:// URL。
+	for _, dest := range []string{file, "file://" + file} {
+		t.Run(dest, func(t *testing.T) {
+			// 链接文字不能是整段文字：Tester.RightClick 取第一个文字相同的元素，
+			// 段落文字与链接文字相同时会点到段落的宽标签上，落点在链接外。
+			src := "附件见 [报告](" + dest + ")，请查收。\n\n普通文字\n"
+			o := &markdown.Options{}
+			installLocalFileLinkHook(o, &chatState{})
+			tt := ui.NewTester(func(c *ui.Context) {
+				markdown.View(c, src, o)
+			}, 900, 400)
 
-	if err := tt.RightClick("报告"); err != nil {
-		t.Fatalf("右键链接失败: %v", err)
-	}
-	tt.Frame()
-	menu := tt.Menu()
-	for _, want := range []string{"在访达中显示", "复制路径"} {
-		if !slices.Contains(menu, want) {
-			t.Fatalf("链接菜单缺少 %q: %v", want, menu)
-		}
-	}
-	tt.CloseMenu()
+			if err := tt.RightClick("报告"); err != nil {
+				t.Fatalf("右键链接失败: %v", err)
+			}
+			tt.Frame()
+			menu := tt.Menu()
+			for _, want := range []string{"在访达中显示", "复制路径"} {
+				if !slices.Contains(menu, want) {
+					t.Fatalf("链接菜单缺少 %q: %v", want, menu)
+				}
+			}
+			tt.CloseMenu()
 
-	if err := tt.RightClick("普通文字"); err != nil {
-		t.Fatalf("右键普通文字失败: %v", err)
-	}
-	tt.Frame()
-	menu = tt.Menu()
-	for _, item := range menu {
-		if item == "在访达中显示" || item == "复制路径" {
-			t.Fatalf("普通文字不应弹出文件菜单: %v", menu)
-		}
+			if err := tt.RightClick("普通文字"); err != nil {
+				t.Fatalf("右键普通文字失败: %v", err)
+			}
+			tt.Frame()
+			menu = tt.Menu()
+			for _, item := range menu {
+				if item == "在访达中显示" || item == "复制路径" {
+					t.Fatalf("普通文字不应弹出文件菜单: %v", menu)
+				}
+			}
+		})
 	}
 }

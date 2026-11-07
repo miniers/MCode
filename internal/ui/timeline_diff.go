@@ -54,13 +54,14 @@ func toolDiffFoldSnapshot() map[string]bool {
 }
 
 // toggleToolDiffFold 切换某段被折叠上下文的展开状态。
-func toggleToolDiffFold(c *ui.Context, key string) {
+func toggleToolDiffFold(c *ui.Context, s *chatState, key string) {
 	toolDiffFoldMu.Lock()
 	if toolDiffFoldState == nil {
 		toolDiffFoldState = make(map[string]bool)
 	}
 	toolDiffFoldState[key] = !toolDiffFoldState[key]
 	toolDiffFoldMu.Unlock()
+	s.holdChatPlace()
 	c.Invalidate()
 }
 
@@ -519,6 +520,7 @@ func (s *chatState) toggleToolDiff(m Message) {
 		}
 	}
 	s.mu.Unlock()
+	s.holdChatPlace()
 	s.invalidate()
 }
 
@@ -725,7 +727,7 @@ func renderInlineToolDiff(c *ui.Context, s *chatState, m Message) {
 				if idx < len(data.stats) {
 					stats = data.stats[idx]
 				}
-				renderInlineToolDiffFileData(c, m.ID, idx, file, stats, func(hunkIdx int) []toolDiffDisplayLine {
+				renderInlineToolDiffFileData(c, s, m.ID, idx, file, stats, func(hunkIdx int) []toolDiffDisplayLine {
 					return data.display[toolDiffHunkCacheKey(idx, hunkIdx)]
 				})
 			}
@@ -738,9 +740,9 @@ func renderInlineToolDiff(c *ui.Context, s *chatState, m Message) {
 }
 
 // renderInlineToolDiffFile 按当前折叠状态现算统计与显示行，供未接入缓存的调用方使用。
-func renderInlineToolDiffFile(c *ui.Context, msgID string, fileIdx int, file git.FileDiff) {
+func renderInlineToolDiffFile(c *ui.Context, s *chatState, msgID string, fileIdx int, file git.FileDiff) {
 	folds := toolDiffFoldSnapshot()
-	renderInlineToolDiffFileData(c, msgID, fileIdx, file, toolDiffFileStatsFor(file), func(hunkIdx int) []toolDiffDisplayLine {
+	renderInlineToolDiffFileData(c, s, msgID, fileIdx, file, toolDiffFileStatsFor(file), func(hunkIdx int) []toolDiffDisplayLine {
 		if hunkIdx >= len(file.Hunks) {
 			return nil
 		}
@@ -753,7 +755,7 @@ func renderInlineToolDiffFile(c *ui.Context, msgID string, fileIdx int, file git
 
 // renderInlineToolDiffFileData 渲染单个文件：一行路径与 +N/-M，下面逐行显示 hunk，行样式与改动面板一致。
 // stats 为预先算好的增删统计，hunkLines 返回某个 hunk 的显示行，两者由调用方从缓存取出。
-func renderInlineToolDiffFileData(c *ui.Context, msgID string, fileIdx int, file git.FileDiff, stats toolDiffFileStats, hunkLines func(hunkIdx int) []toolDiffDisplayLine) {
+func renderInlineToolDiffFileData(c *ui.Context, s *chatState, msgID string, fileIdx int, file git.FileDiff, stats toolDiffFileStats, hunkLines func(hunkIdx int) []toolDiffDisplayLine) {
 	filePath := file.NewPath
 	if file.Status == "deleted" || filePath == "" {
 		filePath = file.OldPath
@@ -846,7 +848,7 @@ func renderInlineToolDiffFileData(c *ui.Context, msgID string, fileIdx int, file
 									Cursor(ui.CursorPointer).
 									Label(foldText).
 									OnClick(func() {
-										toggleToolDiffFold(c, foldKey)
+										toggleToolDiffFold(c, s, foldKey)
 									}).
 									Children(func() {
 										ui.Text(c, foldText).

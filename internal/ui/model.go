@@ -446,6 +446,11 @@ type chatState struct {
 	editGeneration        uint64
 	expandedReasoning     map[string]bool
 	expandedTool          map[string]bool
+	// 助手正文是否已完全显示的登记表（由 s.mu 保护）：revealedMsgs 按消息 ID 记录本帧
+	// markdown.Revealed 的结果；streamedRevealMsgs 记录本会话里以流式状态渲染过的消息，
+	// 只有它们才等正文显示完再露出时间与操作栏，打开历史会话时已有的消息不受影响。
+	revealedMsgs       map[string]bool
+	streamedRevealMsgs map[string]struct{}
 	// 消息入场动画的登记表（由 s.mu 保护）：seenMsgIDs 记录已判定过的消息，避免重绘时反复播放；
 	// streamedMsgIDs 记录流式过程中出现过的消息，等它进入完成态再补播一次。
 	seenMsgIDs     map[string]struct{}
@@ -566,6 +571,8 @@ func newChatState(client Client) *chatState {
 		bulkRangeDays:       7,
 		expandedReasoning:   make(map[string]bool),
 		expandedTool:        make(map[string]bool),
+		revealedMsgs:        make(map[string]bool),
+		streamedRevealMsgs:  make(map[string]struct{}),
 		seenMsgIDs:          make(map[string]struct{}),
 		streamedMsgIDs:      make(map[string]struct{}),
 		timelineUnread:      timelineUnreadState{anchors: make(map[string]timelineUnreadAnchor)},
@@ -1283,6 +1290,8 @@ func (s *chatState) selectThread(threadID string) {
 	s.seenMsgIDs = make(map[string]struct{})
 	s.streamedMsgIDs = make(map[string]struct{})
 	s.revealProgress = nil
+	s.revealedMsgs = make(map[string]bool)
+	s.streamedRevealMsgs = make(map[string]struct{})
 	s.toolDiff = toolDiffState{generation: s.toolDiff.generation + 1}
 	s.approvals = nil
 	// 切换会话时关掉计划阅读弹窗：它引用的待批请求或历史计划都属于上一个会话。
@@ -2351,7 +2360,52 @@ func (s *chatState) toggleReasoning(msgID string) {
 	s.mu.Lock()
 	s.expandedReasoning[msgID] = !s.expandedReasoning[msgID]
 	s.mu.Unlock()
+	s.holdChatPlace()
 	s.invalidate()
+}
+
+// holdChatPlace 让下一帧列表保持原位、不再跟随末尾：展开或收起最后一条消息里的折叠时，
+// 被点的那一行留在指针下面（FollowEnd 不变，列表回到末尾后照旧跟随）。
+func (s *chatState) holdChatPlace() {
+	if s == nil {
+		return
+	}
+	s.chatListState.HoldPlace()
+}
+
+// markAssistantRevealed 记录助手正文这一帧是否已完全显示；streaming 为真时记下这条消息
+// 曾在流式状态下渲染过。标记从 false 变成 true 时请求重绘，让时间与操作栏补上来。
+func (s *chatState) markAssistantRevealed(msgID string, streaming, revealed bool) {
+	if s == nil || msgID == "" {
+		return
+	}
+	s.mu.Lock()
+	if streaming {
+		if len(s.streamedRevealMsgs) >= messageEnterCap {
+			s.streamedRevealMsgs = make(map[string]struct{})
+		}
+		s.streamedRevealMsgs[msgID] = struct{}{}
+	}
+	previous := s.revealedMsgs[msgID]
+	s.revealedMsgs[msgID] = revealed
+	s.mu.Unlock()
+	if revealed && !previous {
+		s.invalidate()
+	}
+}
+
+// assistantRevealed 返回助手正文是否已完全显示：没在本会话里流式输出过的消息一律视为
+// 已显示，打开历史会话时时间和标题照旧第一帧就出现。
+func (s *chatState) assistantRevealed(msgID string) bool {
+	if s == nil || msgID == "" {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, streamed := s.streamedRevealMsgs[msgID]; !streamed {
+		return true
+	}
+	return s.revealedMsgs[msgID]
 }
 
 func (s *chatState) toggleTool(msgID string) {
