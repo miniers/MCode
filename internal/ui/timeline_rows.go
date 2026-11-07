@@ -6072,7 +6072,7 @@ func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID s
 				renderToolBeatReasoning(c, s, item.msg, liveID)
 			}
 			if len(beatTools) > 0 {
-				ui.Column(c.Key("tool-beat-chips-"+item.id)).
+				ui.Column(c.Key("tool-beat-chips-" + item.id)).
 					FillWidth().
 					Gap(Space1).
 					AlignItems(ui.Start).

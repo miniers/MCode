@@ -344,6 +344,16 @@ func TestTimelineRows_ToolGroupToggle(t *testing.T) {
 	}
 }
 
+// findContaining 查找包含指定内容的完整文本节点。
+func findContaining(tt *ui.Tester, sub string) (ui.Rect, bool) {
+	for _, text := range tt.Texts() {
+		if strings.Contains(text, sub) {
+			return tt.Find(text)
+		}
+	}
+	return ui.Rect{}, false
+}
+
 // TestTimelineRows_ToolBeatChips 验证展开后的工具组里动作胶囊竖排，点开胶囊在其下方展开详情，
 // 且同一节拍同一时刻只展开一个。
 func TestTimelineRows_ToolBeatChips(t *testing.T) {
@@ -380,7 +390,7 @@ func TestTimelineRows_ToolBeatChips(t *testing.T) {
 		t.Fatalf("同一节拍应只展开一个胶囊详情: %q", tt.Texts())
 	}
 	middle, ok2 = tt.Find("$ git diff")
-	detail, okDetail := tt.Find("OUT-DIFF")
+	detail, okDetail := findContaining(tt, "OUT-DIFF")
 	last, ok3 = tt.Find("$ git log")
 	if !ok2 || !okDetail || !ok3 || middle.Y >= detail.Y || detail.Y >= last.Y {
 		t.Fatalf("详情应位于对应胶囊与下一胶囊之间: middle=%+v detail=%+v last=%+v", middle, detail, last)
