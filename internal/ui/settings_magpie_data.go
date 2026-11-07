@@ -174,12 +174,12 @@ func renderMagpieGatewayListRow(c *ui.Context, st *SettingsState, gw CustomEndpo
 		row.OnClick(onOpen)
 	}
 	row.Children(func() {
-		ui.Column(c.Key("content-magpie-gateway-"+gw.ID)).FillWidth().Gap(Space1).Children(func() {
-			ui.Row(c.Key("head-magpie-gateway-"+gw.ID)).FillWidth().AlignItems(ui.Center).Gap(Space4).Children(func() {
-				ui.Column(c.Key("name-magpie-gateway-"+gw.ID)).Grow(1).Children(func() {
+		ui.Column(c.Key("content-magpie-gateway-" + gw.ID)).FillWidth().Gap(Space1).Children(func() {
+			ui.Row(c.Key("head-magpie-gateway-" + gw.ID)).FillWidth().AlignItems(ui.Center).Gap(Space4).Children(func() {
+				ui.Column(c.Key("name-magpie-gateway-" + gw.ID)).Grow(1).Children(func() {
 					ui.Text(c, gw.Name).FontSize(TypeBody).TextColor(ThemePrimaryText(c)).SingleLine()
 				})
-				ui.Row(c.Key("actions-magpie-gateway-"+gw.ID)).Shrink(0).AlignItems(ui.Center).Gap(Space4).Children(func() {
+				ui.Row(c.Key("actions-magpie-gateway-" + gw.ID)).Shrink(0).AlignItems(ui.Center).Gap(Space4).Children(func() {
 					renderMagpieHubStatusPill(c, "pill-magpie-gateway-"+gw.ID, pill)
 					ui.Icon(c.Key("chevron-magpie-gateway-"+gw.ID), IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 				})

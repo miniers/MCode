@@ -173,3 +173,26 @@ func TestOnboardingStepRenderSmoke(t *testing.T) {
 		s.close()
 	}
 }
+
+// TestOnboardingSuspendKeepsSuspendedWithoutWindow 验证无窗口时引导保持挂起。
+func TestOnboardingSuspendKeepsSuspendedWithoutWindow(t *testing.T) {
+	t.Cleanup(resetSettingsWindowForTest)
+	resetSettingsWindowForTest()
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	st := NewSettingsState(t.TempDir(), nil, s)
+	setChatSettings(s, st)
+
+	onboardingSuspend(s, "general", false)
+
+	u := onboardingState(s)
+	u.mu.Lock()
+	suspended := u.suspendedForSettings
+	u.mu.Unlock()
+	if !suspended {
+		t.Fatal("无窗口时引导应保持挂起")
+	}
+	if currentSettingsWindowState() != getChatSettings(s) {
+		t.Fatal("当前设置状态应属于该会话")
+	}
+}

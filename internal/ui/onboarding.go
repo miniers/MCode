@@ -160,13 +160,14 @@ func onboardingSuspend(s *chatState, page string, gateway bool) {
 	u.mu.Lock()
 	u.suspendedForSettings = true
 	u.mu.Unlock()
-	if openSettingsWindow(s, page) == nil {
+	openSettingsWindow(s, page)
+	st = currentSettingsWindowState()
+	if st == nil {
 		u.mu.Lock()
 		u.suspendedForSettings = false
 		u.mu.Unlock()
 		return
 	}
-	st = currentSettingsWindowState()
 	if gateway && st != nil {
 		gateways, _ := magpieGateways(st)
 		if len(gateways) > 0 {

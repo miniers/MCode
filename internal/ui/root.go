@@ -386,8 +386,8 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			if st := inlineSettingsWindowState(state); st != nil {
 				ui.Box(c.Key("settings-inline-window")).Absolute().Left(0).Top(0).Right(0).Bottom(0).
 					Background(ThemeWindowBg(c)).Children(func() {
-						renderSettingsWindow(c, st)
-					})
+					renderSettingsWindow(c, st)
+				})
 			}
 
 			// 任务看板与新建任务 / 新建目标弹窗挂在根层，覆盖侧边栏与主区
