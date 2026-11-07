@@ -32,6 +32,7 @@ type Result struct {
 	RollbackDir       string
 	SecretFailures    []SecretFailure
 	InvalidProjectIDs []string
+	Error             string `json:"error,omitempty"`
 }
 
 // Inspect reads only the outer header; it does not authenticate the archive.

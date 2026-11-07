@@ -59,6 +59,9 @@ row row-automation-prevent-sleep 保持唤醒
 section general.shortcuts 快捷键
 row row-global-shortcut 全局快捷键
 row row-shortcuts-all 全部快捷键
+section general.backup 备份与恢复
+row row-general-backup 备份
+row row-general-restore 恢复
 row row-general-about 
 page magpie
 section sec-magpie-gateways 网关

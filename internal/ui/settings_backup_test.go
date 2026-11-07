@@ -52,7 +52,7 @@ func TestBackupSectionAndPasswords(t *testing.T) {
 		if section.ID != "general.backup" {
 			continue
 		}
-		if section.Title != "备份与恢复" || len(section.Rows) != 2 || section.Rows[0].ID != "row-general-backup" || section.Rows[1].ID != "row-general-restore" {
+		if section.Title != "备份与恢复" || len(section.Rows) != 2 || section.Rows[0].ID != "row-general-backup" || section.Rows[0].Title != "备份" || section.Rows[1].ID != "row-general-restore" || section.Rows[1].Title != "恢复" {
 			t.Fatalf("备份区块不正确: %+v", section)
 		}
 		if backupPasswordValid("backup", "abc", "def") || backupPasswordValid("backup", "", "") || !backupPasswordValid("backup", "abc", "abc") {
@@ -208,34 +208,36 @@ func TestBackupResultDisplaysAccounts(t *testing.T) {
 func TestBackupStartupResult(t *testing.T) {
 	oldTakeResult := backupTakeResult
 	backupResultUI.mu.Lock()
-	oldFailures := backupResultUI.failures
+	oldFailures, oldErrorText := backupResultUI.failures, backupResultUI.errorText
 	backupResultUI.mu.Unlock()
 	t.Cleanup(func() {
 		backupTakeResult = oldTakeResult
 		backupResultOnce = sync.Once{}
 		backupResultUI.mu.Lock()
-		backupResultUI.failures = oldFailures
+		backupResultUI.failures, backupResultUI.errorText = oldFailures, oldErrorText
 		backupResultUI.mu.Unlock()
 	})
 
 	for _, tc := range []struct {
-		name     string
-		failures []backup.SecretFailure
+		name      string
+		failures  []backup.SecretFailure
+		errorText string
 	}{
-		{"failures", []backup.SecretFailure{{Service: "service-a", Account: "account-a", Reason: "failed"}, {Service: "service-b", Account: "account-b", Reason: "failed"}}},
-		{"empty", nil},
+		{"failures", []backup.SecretFailure{{Service: "service-a", Account: "account-a", Reason: "failed"}, {Service: "service-b", Account: "account-b", Reason: "failed"}}, ""},
+		{"error", nil, "x"},
+		{"empty", nil, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backupResultOnce = sync.Once{}
 			backupResultUI.mu.Lock()
-			backupResultUI.failures = nil
+			backupResultUI.failures, backupResultUI.errorText = nil, ""
 			backupResultUI.mu.Unlock()
 			release := make(chan struct{})
 			taken := make(chan struct{})
 			backupTakeResult = func(string) (backup.Result, error) {
 				<-release
 				close(taken)
-				return backup.Result{SecretFailures: tc.failures}, nil
+				return backup.Result{SecretFailures: tc.failures, Error: tc.errorText}, nil
 			}
 			s := newChatState(nil)
 			tester := ui.NewTester(func(c *ui.Context) { renderBackupStartupResult(c, s) }, 400, 200)
@@ -245,10 +247,11 @@ func TestBackupStartupResult(t *testing.T) {
 			for {
 				backupResultUI.mu.Lock()
 				failures := append([]backup.SecretFailure(nil), backupResultUI.failures...)
+				errorText := backupResultUI.errorText
 				backupResultUI.mu.Unlock()
 				select {
 				case <-taken:
-					if len(failures) == len(tc.failures) {
+					if len(failures) == len(tc.failures) && errorText == tc.errorText {
 						details := backupFailureDetails(failures)
 						for i, failure := range tc.failures {
 							if failures[i] != failure || !strings.Contains(details[i], failure.Service) || !strings.Contains(details[i], failure.Account) || strings.Contains(strings.ToLower(details[i]), "value") {

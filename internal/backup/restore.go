@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"mcode/internal/config"
+	"mcode/internal/native/keyring"
 	"mcode/internal/store"
 )
 
@@ -385,7 +386,79 @@ func bkNoSymlink(root, relative string) error {
 	return nil
 }
 
+func bkRollback(dataDir string, journal bkJournal) error {
+	for i := len(journal.Entries) - 1; i >= 0; i-- {
+		e := journal.Entries[i]
+		if err := bkNoSymlink(dataDir, e.Path); err != nil {
+			return err
+		}
+		target := filepath.Join(dataDir, filepath.FromSlash(e.Path))
+		old := filepath.Join(journal.RollbackDir, filepath.FromSlash(e.Path))
+		if e.Installed || (e.Moved && !e.Existed) {
+			if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		if e.Existed && e.Moved {
+			if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			if err := os.Rename(old, target); err != nil {
+				return err
+			}
+			if err := bkSyncDir(filepath.Dir(old)); err != nil {
+				return err
+			}
+		}
+		if e.Moved || e.Installed {
+			if err := bkSyncDir(filepath.Dir(target)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	if err := bkSyncDir(dataDir); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(filepath.Join(dataDir, "restore-pending")); err != nil {
+		return err
+	}
+	return bkSyncDir(dataDir)
+}
+
+func bkRestoreFailure(dataDir string, journal *bkJournal, cause error) (Result, error) {
+	if journal != nil {
+		if err := bkRollback(dataDir, *journal); err != nil {
+			return Result{}, errors.Join(cause, err)
+		}
+	} else if err := os.RemoveAll(filepath.Join(dataDir, "restore-pending")); err != nil {
+		return Result{}, errors.Join(cause, err)
+	}
+	result := Result{Error: "恢复失败，已还原：" + cause.Error()}
+	if err := bkAtomicJSON(filepath.Join(dataDir, "restore-result.json"), result); err != nil {
+		return Result{}, errors.Join(cause, err)
+	}
+	return result, nil
+}
+
 func ApplyPending(dataDir string) (Result, error) {
+	var journal bkJournal
+	result, err := bkApplyPending(dataDir, &journal)
+	if err == nil {
+		return result, nil
+	}
+	if journal.RollbackDir == "" {
+		journalErr := bkReadJSON(filepath.Join(dataDir, "restore-pending", "journal.json"), &journal)
+		if journalErr != nil && !errors.Is(journalErr, os.ErrNotExist) {
+			return Result{}, errors.Join(err, journalErr)
+		}
+	}
+	if journal.RollbackDir == "" {
+		return bkRestoreFailure(dataDir, nil, err)
+	}
+	return bkRestoreFailure(dataDir, &journal, err)
+}
+
+func bkApplyPending(dataDir string, journal *bkJournal) (Result, error) {
 	var result Result
 	pending := filepath.Join(dataDir, "restore-pending")
 	if _, err := os.Stat(filepath.Join(pending, "confirmed")); errors.Is(err, os.ErrNotExist) {
@@ -398,10 +471,9 @@ func ApplyPending(dataDir string) (Result, error) {
 		return result, err
 	}
 	journalPath := filepath.Join(pending, "journal.json")
-	var journal bkJournal
-	err := bkReadJSON(journalPath, &journal)
+	err := bkReadJSON(journalPath, journal)
 	if errors.Is(err, os.ErrNotExist) {
-		journal = bkJournal{RestoreID: manifest.RestoreID, History: manifest.IncludeHistory, RollbackDir: filepath.Join(dataDir, "pre-restore-"+time.Now().Format("20060102-150405.000000000"))}
+		*journal = bkJournal{RestoreID: manifest.RestoreID, History: manifest.IncludeHistory, RollbackDir: filepath.Join(dataDir, "pre-restore-"+time.Now().Format("20060102-150405.000000000"))}
 		var preview Result
 		if e := bkReadJSON(filepath.Join(pending, "preview.json"), &preview); e != nil {
 			return result, e
@@ -475,6 +547,7 @@ func ApplyPending(dataDir string) (Result, error) {
 					if err = os.Rename(target, old); err != nil {
 						return result, err
 					}
+					e.Moved = true
 					if err = bkSyncDir(filepath.Dir(target)); err != nil {
 						return result, err
 					}
@@ -484,6 +557,7 @@ func ApplyPending(dataDir string) (Result, error) {
 				} else if statErr != nil {
 					return result, statErr
 				}
+				e.Moved = true
 				if err = os.Chmod(old, 0600); err != nil {
 					return result, err
 				}
@@ -499,6 +573,7 @@ func ApplyPending(dataDir string) (Result, error) {
 			}
 		}
 		if !e.Installed {
+			e.Installed = true
 			source := filepath.Join(pending, "files", filepath.FromSlash(e.Path))
 			if e.Path == "mcode.db" {
 				source = filepath.Join(pending, "db", "mcode.db")
@@ -550,27 +625,40 @@ func CompletePending(ctx context.Context, dataDir string, s *store.Store) (Resul
 	if !journal.Applied {
 		return result, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	var secrets []bkSecret
+	if err := bkReadJSON(filepath.Join(pending, "secrets.json"), &secrets); err != nil {
+		return bkRestoreFailure(dataDir, &journal, err)
+	}
 	if !journal.History {
 		db := filepath.Join(pending, "db", "mcode.db")
 		if _, err := os.Stat(db); err == nil {
 			if err = s.MergeBackup(ctx, db, journal.RestoreID); err != nil {
-				return result, err
+				if ctx.Err() != nil {
+					return result, ctx.Err()
+				}
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return result, err
+				}
+				return bkRestoreFailure(dataDir, &journal, err)
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return result, err
+			return bkRestoreFailure(dataDir, &journal, err)
 		}
 	}
 	result = Result{Applied: true, RollbackDir: journal.RollbackDir, InvalidProjectIDs: journal.InvalidProjectIDs}
-	var secrets []bkSecret
-	if err := bkReadJSON(filepath.Join(pending, "secrets.json"), &secrets); err != nil {
-		return Result{}, err
-	}
 	for _, secret := range secrets {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
 		if err := SecretStoreFor(secret.Service).Set(secret.Account, secret.Value); err != nil {
-			result.SecretFailures = append(result.SecretFailures, SecretFailure{Service: secret.Service, Account: secret.Account, Reason: fmt.Sprintf("%T", err)})
+			reason := "写入失败"
+			if errors.Is(err, keyring.ErrUnsupported) {
+				reason = "系统凭据库不可用"
+			}
+			result.SecretFailures = append(result.SecretFailures, SecretFailure{Service: secret.Service, Account: secret.Account, Reason: reason})
 		}
 	}
 	if err := bkAtomicJSON(filepath.Join(dataDir, "restore-result.json"), result); err != nil {

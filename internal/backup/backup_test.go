@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"mcode/internal/config"
+	"mcode/internal/native/keyring"
 	"mcode/internal/store"
 )
 
@@ -196,18 +197,22 @@ func TestBackupSecretSetFailureAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	bkApplyHook = func() error { return errors.New("interrupted") }
-	if _, err := ApplyPending(dst); err == nil {
-		t.Fatal("expected interruption")
+	if result, err := ApplyPending(dst); err != nil || result.Error == "" {
+		t.Fatalf("expected rollback: %+v %v", result, err)
 	}
 	bkApplyHook = nil
+	bkStage(t, dst, archive)
+	if err := ConfirmPending(dst); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ApplyPending(dst); err != nil {
 		t.Fatal(err)
 	}
-	stores["mcode"] = bkFailStore{SecretStore: config.NewMemorySecretStore(), setErr: errors.New("failed")}
+	stores["mcode"] = bkFailStore{SecretStore: config.NewMemorySecretStore(), setErr: keyring.ErrUnsupported}
 	s := bkOpen(t, dst)
 	defer s.Close()
 	result, err := CompletePending(context.Background(), dst, s)
-	if err != nil || len(result.SecretFailures) != 1 {
+	if err != nil || len(result.SecretFailures) != 1 || result.SecretFailures[0].Reason != "系统凭据库不可用" {
 		t.Fatalf("failures: %+v %v", result, err)
 	}
 	data, err := os.ReadFile(filepath.Join(dst, "ui-state.json"))
@@ -215,6 +220,93 @@ func TestBackupSecretSetFailureAndResume(t *testing.T) {
 		t.Fatalf("restored: %s %v", data, err)
 	}
 }
+func TestApplyPendingRollsBackInstalledFiles(t *testing.T) {
+	bkSetup(t)
+	src, dst := t.TempDir(), t.TempDir()
+	bkWrite(t, src, "config.json", `{"version":9,"theme":"new"}`)
+	bkWrite(t, src, "ui-state.json", "new")
+	bkWrite(t, dst, "config.json", `{"version":9,"theme":"old"}`)
+	archive := bkCreate(t, src, false)
+	bkStage(t, dst, archive)
+	if err := ConfirmPending(dst); err != nil {
+		t.Fatal(err)
+	}
+	bkApplyHook = func() error {
+		var journal bkJournal
+		if err := bkReadJSON(filepath.Join(dst, "restore-pending", "journal.json"), &journal); err != nil {
+			return err
+		}
+		installed := map[string]bool{}
+		for _, e := range journal.Entries {
+			installed[e.Path] = e.Installed
+		}
+		if installed["config.json"] && installed["ui-state.json"] {
+			return errors.New("interrupted")
+		}
+		return nil
+	}
+	result, err := ApplyPending(dst)
+	if err != nil || result.Error == "" {
+		t.Fatalf("apply: %+v %v", result, err)
+	}
+	data, err := os.ReadFile(filepath.Join(dst, "config.json"))
+	if err != nil || string(data) != `{"version":9,"theme":"old"}` {
+		t.Fatalf("config: %s %v", data, err)
+	}
+	for _, name := range []string{"ui-state.json", "restore-pending"} {
+		if _, err := os.Stat(filepath.Join(dst, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s still exists: %v", name, err)
+		}
+	}
+	if saved, err := TakeResult(dst); err != nil || saved.Error != result.Error {
+		t.Fatalf("result: %+v %v", saved, err)
+	}
+}
+
+func TestCompletePendingRollsBackMergeFailure(t *testing.T) {
+	bkSetup(t)
+	ctx := context.Background()
+	src, dst := t.TempDir(), t.TempDir()
+	source := bkOpen(t, src)
+	bkThread(t, source, "source", src)
+	if err := source.Close(); err != nil {
+		t.Fatal(err)
+	}
+	target := bkOpen(t, dst)
+	bkThread(t, target, "target", dst)
+	if err := target.Close(); err != nil {
+		t.Fatal(err)
+	}
+	bkWrite(t, src, "config.json", `{"version":9,"theme":"new"}`)
+	bkWrite(t, dst, "config.json", `{"version":9,"theme":"old"}`)
+	archive := bkCreate(t, src, false)
+	bkStage(t, dst, archive)
+	if err := ConfirmPending(dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyPending(dst); err != nil {
+		t.Fatal(err)
+	}
+	bkWrite(t, dst, "restore-pending/db/mcode.db", "corrupt")
+	target = bkOpen(t, dst)
+	defer target.Close()
+	result, err := CompletePending(ctx, dst, target)
+	if err != nil || result.Error == "" {
+		t.Fatalf("complete: %+v %v", result, err)
+	}
+	threads, err := target.ListThreads(ctx, "target", false)
+	if err != nil || len(threads) != 1 {
+		t.Fatalf("threads: %+v %v", threads, err)
+	}
+	data, err := os.ReadFile(filepath.Join(dst, "config.json"))
+	if err != nil || string(data) != `{"version":9,"theme":"old"}` {
+		t.Fatalf("config: %s %v", data, err)
+	}
+	if saved, err := TakeResult(dst); err != nil || saved.Error != result.Error {
+		t.Fatalf("result: %+v %v", saved, err)
+	}
+}
+
 func TestBackupMaliciousArchives(t *testing.T) {
 	bkSetup(t)
 	for _, tc := range []struct {

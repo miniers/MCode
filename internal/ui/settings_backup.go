@@ -29,8 +29,9 @@ var (
 
 var backupResultOnce sync.Once
 var backupResultUI struct {
-	mu       sync.Mutex
-	failures []backup.SecretFailure
+	mu        sync.Mutex
+	failures  []backup.SecretFailure
+	errorText string
 }
 
 func renderBackupStartupResult(c *ui.Context, s *chatState) {
@@ -41,25 +42,31 @@ func renderBackupStartupResult(c *ui.Context, s *chatState) {
 		}
 		go func() {
 			result, err := backupTakeResult(dir)
-			if err != nil || len(result.SecretFailures) == 0 {
+			if err != nil || (result.Error == "" && len(result.SecretFailures) == 0) {
 				return
 			}
 			backupResultUI.mu.Lock()
 			backupResultUI.failures = result.SecretFailures
+			backupResultUI.errorText = result.Error
 			backupResultUI.mu.Unlock()
 			s.invalidate()
 		}()
 	})
 	backupResultUI.mu.Lock()
 	failures := append([]backup.SecretFailure(nil), backupResultUI.failures...)
+	errorText := backupResultUI.errorText
 	backupResultUI.mu.Unlock()
-	if len(failures) == 0 {
+	if errorText == "" && len(failures) == 0 {
 		return
 	}
-	detail := backupFailureDetails(failures)
-	RenderConfirmDialog(c, ConfirmDialog{Key: "backup-result", Open: true, Tone: ConfirmNotice, Title: "部分密钥未恢复", Detail: detail, ConfirmLabel: "好", OnConfirm: func() {
+	title, detail := "部分密钥未恢复", backupFailureDetails(failures)
+	if errorText != "" {
+		title, detail = "恢复失败，已还原", []string{errorText}
+	}
+	RenderConfirmDialog(c, ConfirmDialog{Key: "backup-result", Open: true, Tone: ConfirmNotice, Title: title, Detail: detail, ConfirmLabel: "好", OnConfirm: func() {
 		backupResultUI.mu.Lock()
 		backupResultUI.failures = nil
+		backupResultUI.errorText = ""
 		backupResultUI.mu.Unlock()
 		s.invalidate()
 	}})
@@ -265,14 +272,14 @@ func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
 	open := true
 	modalDragModal(c, "backup-password", &open, func() {
 		ui.Column(c.Key("backup-password-card")).Width(400).Background(ThemeSurface(c)).BorderColor(ThemeBorder(c)).BorderWidth(1).Radius(RadiusLG).Padding(Space5).Gap(Space4).Children(func() {
-			title := "备份"
+			title := "设置备份密码"
 			if mode == "restore" {
-				title = "恢复"
+				title = "输入备份密码"
 			}
 			modalDragHandle(c, "backup-password", ui.Row(c.Key("backup-password-title")).FillWidth().Children(func() { ui.Text(c, title).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c)) }))
-			TextField(c, TextFieldProps{Key: "backup-password-input", Value: &backupUI.password, Label: "密码", Placeholder: "密码", Password: true, FillWidth: true, AutoFocus: true})
+			TextField(c, TextFieldProps{Key: "backup-password-input", Value: &backupUI.password, Placeholder: "密码", Password: true, FillWidth: true, AutoFocus: true})
 			if mode == "backup" {
-				TextField(c, TextFieldProps{Key: "backup-password-repeat", Value: &backupUI.repeat, Label: "确认密码", Placeholder: "确认密码", Password: true, FillWidth: true})
+				TextField(c, TextFieldProps{Key: "backup-password-repeat", Value: &backupUI.repeat, Placeholder: "确认密码", Password: true, FillWidth: true})
 				ui.Row(c.Key("backup-history-row")).FillWidth().AlignItems(ui.Center).Children(func() {
 					ui.Text(c, "包含会话历史").Grow(1).TextColor(ThemePrimaryText(c))
 					Switch(c, "backup-history", &backupUI.history, "包含会话历史", nil)
