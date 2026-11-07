@@ -278,8 +278,8 @@ function commandTouchesControlPlane(cmd) {
   return false;
 }
 
-// matchesEnvFile 匹配文件名是 .env 或 .env.<x>（但 .env.example、.env.sample、.env.template 除外）。
-function matchesEnvFile(text) {
+// matchesEnvFile 匹配敏感 .env 文件；传入项目目录时只匹配项目外的路径。
+function matchesEnvFile(text, projectDir) {
   if (typeof text !== "string" || !text) return false;
   const envRegex = /(?:^|[\\/\s"'`=])\.env(?:\.([^\s\\/'"`=;:,&|]+))?(?=[\\/\s"'`=;:,&|]|$)/g;
   let m;
@@ -288,13 +288,19 @@ function matchesEnvFile(text) {
     if (ext === "example" || ext === "sample" || ext === "template") {
       continue;
     }
+    if (projectDir) {
+      const envIndex = m.index + m[0].indexOf(".env");
+      const prefix = text.slice(0, envIndex).match(/[^\s"'`=;:,&|]*$/)?.[0] || "";
+      const token = prefix + m[0].slice(m[0].indexOf(".env"));
+      if (!token.startsWith("~") && isInsideOrEqual(path.resolve(projectDir, token), projectDir)) continue;
+    }
     return true;
   }
   return false;
 }
 
 // touchesCredential 识别凭证路径及敏感凭据文件。
-function touchesCredential(text) {
+function touchesCredential(text, projectDir) {
   if (typeof text !== "string" || !text) return false;
   const home = os.homedir();
   const rawTargets = [
@@ -330,7 +336,7 @@ function touchesCredential(text) {
   }
 
   // .env 或 .env.<x>（排除 .env.example、.env.sample、.env.template）
-  if (matchesEnvFile(text)) {
+  if (matchesEnvFile(text, projectDir)) {
     return true;
   }
 
@@ -338,7 +344,7 @@ function touchesCredential(text) {
 }
 
 // toolTouchesCredential 检查只读工具路径类入参（path、pattern、glob 等字段）是否命中凭证。
-function toolTouchesCredential(input) {
+function toolTouchesCredential(input, projectDir) {
   if (!input || typeof input !== "object") return false;
   for (const [key, val] of Object.entries(input)) {
     if (typeof val === "string") {
@@ -350,7 +356,7 @@ function toolTouchesCredential(input) {
         lower.includes("file") ||
         lower.includes("dir")
       ) {
-        if (touchesCredential(val)) return true;
+        if (touchesCredential(val, projectDir)) return true;
       }
     }
   }
@@ -358,7 +364,8 @@ function toolTouchesCredential(input) {
 }
 
 // checkSensitive 判定本次调用是否属于凭证读取或控制面写入。
-function checkSensitive(event, kind) {
+function checkSensitive(event, kind, gate, cwd) {
+  const projectDir = gate.runtimeMode === "fullAccess" ? path.resolve(cwd) : undefined;
   // 控制面写入防护
   if (kind === "fileChange") {
     const target = event.input?.path || event.input?.file_path;
@@ -376,19 +383,19 @@ function checkSensitive(event, kind) {
 
   // 凭证路径识别
   if (LOOK_ONLY_TOOLS.has(event.toolName)) {
-    if (toolTouchesCredential(event.input)) {
+    if (toolTouchesCredential(event.input, projectDir)) {
       return "credential";
     }
   }
   if (kind === "command") {
     const cmd = event.input?.command;
-    if (typeof cmd === "string" && touchesCredential(cmd)) {
+    if (typeof cmd === "string" && touchesCredential(cmd, projectDir)) {
       return "credential";
     }
   }
   if (kind === "fileChange") {
     const target = event.input?.path || event.input?.file_path;
-    if (typeof target === "string" && touchesCredential(target)) {
+    if (typeof target === "string" && touchesCredential(target, projectDir)) {
       return "credential";
     }
   }
@@ -708,7 +715,8 @@ export default async function (pi) {
 
     const kind = kindOf(event.toolName);
     const gate = loadTurnGate();
-    const sensitive = checkSensitive(event, kind);
+    const cwd = typeof ctx?.cwd === "string" && ctx.cwd ? ctx.cwd : process.cwd();
+    const sensitive = checkSensitive(event, kind, gate, cwd);
     const verdict = verdictWithoutAsking(gate, event, kind, sensitive);
     if (verdict === "allow") return;
     if (verdict) return verdict;

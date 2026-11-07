@@ -132,6 +132,8 @@ func TestApprovalCardTitleByKind(t *testing.T) {
 		a    Approval
 		want string
 	}{
+		{Approval{Kind: ApprovalKindCommand, Title: "bash", Reason: "credential"}, "读取凭证 · bash"},
+		{Approval{Kind: ApprovalKindFileChange, Title: "write", Reason: "controlPlane"}, "改动 mcode 数据 · write"},
 		{Approval{Kind: ApprovalKindCommand, Title: "Bash"}, "执行命令 · Bash"},
 		{Approval{Kind: ApprovalKindCommand}, "执行命令"},
 		{Approval{Kind: ApprovalKindFileChange, Title: "/a/b.go"}, "修改文件"},

@@ -130,6 +130,10 @@ func TestGateTS_Behavior(t *testing.T) {
 		t.Fatalf("初始化 gate 文件失败: %v", err)
 	}
 	workDir := t.TempDir()
+	projectDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("无法获取项目目录: %v", err)
+	}
 	// vision 参数用例要用一个真实存在的桥文件：只有文件存在才会加 -e。
 	bridgeFile := filepath.Join(t.TempDir(), "mcode-magpie-bridge.ts")
 	if err := os.WriteFile(bridgeFile, []byte("// magpie bridge\n"), 0o644); err != nil {
@@ -137,6 +141,20 @@ func TestGateTS_Behavior(t *testing.T) {
 	}
 
 	cases := []gateTestCase{
+		// fullAccess 只放行项目内的 .env，其他凭证和控制面写入仍须询问。
+		{ID: "env_source_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "bash", Input: map[string]any{"command": "cd " + projectDir + " && source .env 2>/dev/null; security find-identity -v -p codesigning"}},
+		{ID: "env_local_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "bash", Input: map[string]any{"command": "cat ./.env.local"}},
+		{ID: "env_read_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "read", Input: map[string]any{"path": filepath.Join(projectDir, ".env")}},
+		{ID: "env_write_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "write", Input: map[string]any{"path": ".env", "content": "x"}},
+		{ID: "env_ssh_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "bash", Input: map[string]any{"command": "cat ~/.ssh/id_rsa"}},
+		{ID: "env_absolute_outside_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "bash", Input: map[string]any{"command": "cat /tmp/elsewhere/.env"}},
+		{ID: "env_relative_outside_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "bash", Input: map[string]any{"command": "cat ../x/.env"}},
+		{ID: "env_mixed_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "bash", Input: map[string]any{"command": "cat .env ../x/.env"}},
+		{ID: "env_read_outside_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "read", Input: map[string]any{"path": "../x/.env"}},
+		{ID: "env_write_outside_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "write", Input: map[string]any{"path": "../x/.env", "content": "x"}},
+		{ID: "env_source_auto", Gate: map[string]any{"runtimeMode": "auto"}, ToolName: "bash", Input: map[string]any{"command": "source .env"}},
+		{ID: "env_control_full", Gate: map[string]any{"runtimeMode": "fullAccess"}, ToolName: "write", Input: map[string]any{"path": gateFile, "content": "{}"}},
+
 		// a. 在 fullAccess 下，write 一个普通路径，以及 bash 执行 make build，都直接放行。
 		{
 			ID:       "a_write",
@@ -615,6 +633,22 @@ func TestGateTS_Behavior(t *testing.T) {
 	}
 
 	results, registeredTools := runGateDriver(t, nodePath, driverPath, gatePath, homeDir, gateFile, cases)
+
+	t.Run("fullAccess_project_env", func(t *testing.T) {
+		for _, id := range []string{"env_source_full", "env_local_full", "env_read_full", "env_write_full"} {
+			if res := results[id]; res.Result != "allow" || res.Sensitive != "" {
+				t.Errorf("%s 应放行，得到 result=%q sensitive=%q", id, res.Result, res.Sensitive)
+			}
+		}
+		for _, id := range []string{"env_ssh_full", "env_absolute_outside_full", "env_relative_outside_full", "env_mixed_full", "env_read_outside_full", "env_write_outside_full", "env_source_auto"} {
+			if res := results[id]; res.Result != "ask" || res.Sensitive != "credential" {
+				t.Errorf("%s 应询问凭证，得到 result=%q sensitive=%q", id, res.Result, res.Sensitive)
+			}
+		}
+		if res := results["env_control_full"]; res.Result != "ask" || res.Sensitive != "controlPlane" {
+			t.Errorf("控制面写入应询问，得到 result=%q sensitive=%q", res.Result, res.Sensitive)
+		}
+	})
 
 	t.Run("a_fullAccess_write_and_bash_allow", func(t *testing.T) {
 		resWrite := results["a_write"]

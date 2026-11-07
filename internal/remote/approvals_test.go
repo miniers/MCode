@@ -1260,7 +1260,7 @@ func TestInferRequestKind_CommitAndPermissions(t *testing.T) {
 func TestRequestOptions_CommitExcludesAllowAlways(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	opts := requestOptions(harness.RequestKindCommit)
+	opts := requestOptions(harness.RequestKindCommit, harness.ApprovalRequest{})
 	for _, opt := range opts {
 		if opt.ID == "allow_always" || opt.Role == "approveAlways" {
 			t.Errorf("requestOptions(Commit) must not include allow_always option, got: %+v", opt)
@@ -1270,7 +1270,7 @@ func TestRequestOptions_CommitExcludesAllowAlways(t *testing.T) {
 		t.Errorf("expected 2 options for Commit, got %d: %+v", len(opts), opts)
 	}
 
-	permOpts := requestOptions(harness.RequestKindPermissions)
+	permOpts := requestOptions(harness.RequestKindPermissions, harness.ApprovalRequest{})
 	hasAlways := false
 	for _, opt := range permOpts {
 		if opt.ID == "allow_always" {
@@ -1642,8 +1642,7 @@ func TestIsSafeReadOnlyCommand(t *testing.T) {
 	}
 }
 
-// TestAlwaysAllowKey 覆盖会话级放行记账键：命令类工具按「工具名 + 完整命令」记账，
-// 其它工具仍按工具名记账，取不到命令文本时不记账。
+// TestAlwaysAllowKey 覆盖命令前缀和工具名记账，取不到命令文本时不记账。
 func TestAlwaysAllowKey(t *testing.T) {
 	ls := harness.ApprovalRequest{ToolName: "Bash", Input: json.RawMessage(`{"command":"ls -la"}`), Summary: `Bash {"command":"ls -la"}`}
 	rm := harness.ApprovalRequest{ToolName: "Bash", Input: json.RawMessage(`{"command":"rm -rf /tmp/x"}`), Summary: `Bash {"command":"rm -rf /tmp/x"}`}
@@ -1656,7 +1655,7 @@ func TestAlwaysAllowKey(t *testing.T) {
 		t.Error("不同命令不应共用同一个会话级放行键")
 	}
 	// 只给出 Summary（部分 provider 只把命令写进摘要）时仍按命令区分。
-	if got := alwaysAllowKey(harness.RequestKindCommand, harness.ApprovalRequest{ToolName: "bash", Summary: "pwd"}); got != "bash\x00pwd" {
+	if got := alwaysAllowKey(harness.RequestKindCommand, harness.ApprovalRequest{ToolName: "bash", Summary: "pwd"}); got != "bash\x00prefix\x00pwd" {
 		t.Errorf("Summary 回退的记账键不符: %q", got)
 	}
 	// 取不到命令文本时不记账，避免退化成整类 shell 免审批。
@@ -2097,6 +2096,86 @@ func TestStewardMainThreadAsksForReadTool(t *testing.T) {
 	if !probe.pendingSeen {
 		t.Fatal("总管的会话的只读文件工具应进入审批")
 	}
+}
+
+func TestCommandAllowPrefixes(t *testing.T) {
+	allowed := map[string]bool{"bash\x00prefix\x00go test": true}
+	for _, tc := range []struct { command string; want bool }{
+		{"go test ./internal/...", true},
+		{"cd x && go test ./...", true},
+		{"go build ./...", false},
+		{"go test ./... && rm -rf y", false},
+		{"go test $(echo x)", false},
+	} {
+		req := harness.ApprovalRequest{ToolName: "bash", Summary: tc.command}
+		if got := commandPrefixesAllowed(harness.RequestKindCommand, req, func(key string) bool { return allowed[key] }); got != tc.want {
+			t.Errorf("%q: got %v, want %v", tc.command, got, tc.want)
+		}
+	}
+	for _, tc := range []struct { command, prefix string }{
+		{"go test ./...", "go test"}, {"make build", "make build"}, {"ls -la", "ls"},
+		{"bash -c x", ""}, {"python x.py", ""}, {"X=y go test", ""},
+		{"go test >out", ""}, {"go test 2>&1", "go test"}, {"go test >/dev/null", "go test"},
+	} {
+		if got := commandAllowPrefix(tc.command); got != tc.prefix { t.Errorf("%q: got %q, want %q", tc.command, got, tc.prefix) }
+		if tc.prefix == "" {
+			req := harness.ApprovalRequest{ToolName: "bash", Summary: tc.command}
+			if got := alwaysAllowKey(harness.RequestKindCommand, req); got != "bash\x00"+tc.command { t.Errorf("完整键 = %q", got) }
+		}
+	}
+}
+
+func TestCommandPrefixAndLegacyIntegration(t *testing.T) {
+	dataDir, projectDir := t.TempDir(), t.TempDir()
+	t.Cleanup(func() { forgetAlwaysAllowStore(dataDir) })
+	threadID := "00000000-0000-0000-0000-0000000000e2"
+	backend := newAlwaysAllowProjectBackend(t, dataDir, projectDir, threadID)
+	legacy := alwaysAllowBashRequest("python x.py")
+	if err := alwaysAllowStoreFor(dataDir).Add(projectDir, fullAllowKey(harness.RequestKindCommand, legacy)); err != nil { t.Fatal(err) }
+	commands := []string{"go test ./...", "go test ./internal/...", "cd x && go test ./...", "python x.py", "go build", "go test ./... && rm -rf y", "go test $(echo x)"}
+	backend.SetHarness(&mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		for _, command := range commands { _, _ = turn.Approver.Approve(ctx, alwaysAllowBashRequest(command)) }
+		return nil
+	}}, projectDir, harness.ModeAgent)
+	changed := startAlwaysAllowTurn(t, backend, threadID, "00000000-0000-0000-0000-000000000e02")
+	for i := 0; i < 4; i++ {
+		pending := waitPendingApproval(t, changed)
+		option := "deny"
+		if i == 0 { option = "allow_always" }
+		if _, err := backend.RespondRequest(context.Background(), wire.RequestsRespondParams{ThreadID: threadID, RunID: pending.RunID, RequestID: pending.RequestID, OptionID: &option}); err != nil { t.Fatal(err) }
+	}
+	waitThreadIdle(t, backend, context.Background(), threadID)
+}
+
+func TestSensitiveApprovalAlwaysPrompts(t *testing.T) {
+	dataDir, projectDir := t.TempDir(), t.TempDir()
+	t.Cleanup(func() { forgetAlwaysAllowStore(dataDir) })
+	threadID := "00000000-0000-0000-0000-0000000000e1"
+	backend := newAlwaysAllowProjectBackend(t, dataDir, projectDir, threadID)
+	req := alwaysAllowBashRequest("go test ./...")
+	req.Sensitive = "credential"
+	if err := alwaysAllowStoreFor(dataDir).Add(projectDir, fullAllowKey(harness.RequestKindCommand, req)); err != nil { t.Fatal(err) }
+	backend.SetHarness(&mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		_, _ = turn.Approver.Approve(ctx, req)
+		_, _ = turn.Approver.Approve(ctx, req)
+		return nil
+	}}, projectDir, harness.ModeAgent)
+	changed := startAlwaysAllowTurn(t, backend, threadID, "00000000-0000-0000-0000-000000000e01")
+	for i := 0; i < 2; i++ {
+		pending := waitPendingApproval(t, changed)
+		if pending.Reason == nil || *pending.Reason != "credential" || len(pending.Options) != 2 || pending.Options[0].ID != "allow" || pending.Options[1].ID != "deny" { t.Fatalf("敏感请求错误: %+v", pending) }
+		option := "allow"
+		if _, err := backend.RespondRequest(context.Background(), wire.RequestsRespondParams{ThreadID: threadID, RunID: pending.RunID, RequestID: pending.RequestID, OptionID: &option}); err != nil { t.Fatal(err) }
+	}
+	waitThreadIdle(t, backend, context.Background(), threadID)
+	if keys := backend.ListAlwaysAllowed(projectDir); len(keys) != 1 || keys[0] != fullAllowKey(harness.RequestKindCommand, req) { t.Fatalf("敏感请求不应记账: %v", keys) }
+}
+
+func TestProjectAllowOptions(t *testing.T) {
+	options := requestOptions(harness.RequestKindCommand, harness.ApprovalRequest{Summary: "go test ./..."})
+	if options[1].Title != "在此项目始终允许 go test" { t.Fatal(options) }
+	options = requestOptions(harness.RequestKindPermissions, harness.ApprovalRequest{})
+	if options[1].Title != "本会话始终允许" { t.Fatal(options) }
 }
 
 // TestStewardMainThreadStillAsksForWriteTool 覆盖总管的会话的写工具：Edit 与 Write 仍走审批。

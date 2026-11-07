@@ -73,6 +73,7 @@ func approvalFromGate(gate *gatePayload) harness.ApprovalRequest {
 		ToolName: name,
 		Input:    gate.Input,
 		Kind:     kind,
+		Sensitive: gate.Sensitive,
 	}
 	// 摘要取行内标题：命令取 command，文件变更取 path，只读工具优先取路径或模式。
 	switch kind {
@@ -86,14 +87,6 @@ func approvalFromGate(gate *gatePayload) harness.ApprovalRequest {
 				req.Summary = s
 				break
 			}
-		}
-	}
-	if gate.Sensitive != "" {
-		tag := "[" + gate.Sensitive + "]"
-		if req.Summary == "" {
-			req.Summary = tag + " " + name
-		} else {
-			req.Summary = tag + " " + req.Summary
 		}
 	}
 	return req

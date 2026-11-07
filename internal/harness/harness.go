@@ -140,6 +140,8 @@ type ApprovalRequest struct {
 	ToolName string
 	Input    json.RawMessage
 	Summary  string
+	// Sensitive 非空表示凭证读取（credential）或控制面写入（controlPlane），只能逐次允许。
+	Sensitive string
 	// Kind 为空时由审批方按工具名推断。
 	Kind      RequestKind
 	Questions []Question

@@ -198,7 +198,7 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 	// 只读 shell 命令（ls、grep、wc 等）不改动任何东西，直接放行。
 	// 判定必须用输入里的真实命令：Summary 是 provider 拼接出的展示串（如 `Bash {"command":…}`），取首词必然判否。
 	if (td.isHelper || td.parentThreadID != "") && td.summary.RuntimeMode == string(harness.ModeReadOnly) {
-		if kind == harness.RequestKindCommand && isSafeReadOnlyCommand(approvalCommand(req)) {
+		if req.Sensitive == "" && kind == harness.RequestKindCommand && isSafeReadOnlyCommand(approvalCommand(req)) {
 			a.b.mu.Unlock()
 			return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
 		}
@@ -214,21 +214,22 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 	// 总管的会话调用内置 MCP 服务器上的工具直接放行：这些工具在只读档下本会被一律拒绝，
 	// 而内置服务器已按白名单裁剪过（只留总管专属工具与既有只读工具），越权调用会被它拒绝。
 	// 写文件、执行命令与第三方 MCP 服务器的工具都不命中这条豁免。
-	if stewardTool && kind == harness.RequestKindTool {
+	if req.Sensitive == "" && stewardTool && kind == harness.RequestKindTool {
 		a.b.mu.Unlock()
 		return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
 	}
 
-	// 检查当前线程是否已处于始终允许名单中（命令类工具按「工具名 + 完整命令」匹配）；
-	// 会话内存名单之外再查按项目持久化的名单，命中后同项目的新会话、重启后的会话都不再弹审批。
-	if allowKey := alwaysAllowKey(kind, req); !interactive && allowKey != "" &&
-		(td.alwaysAllow[allowKey] || (project != "" && store.Allowed(project, allowKey))) {
+	// 先匹配完整键，再匹配命令前缀；持久名单按项目生效。
+	allowed := func(key string) bool {
+		return key != "" && (td.alwaysAllow[key] || (project != "" && store.Allowed(project, key)))
+	}
+	if req.Sensitive == "" && !interactive && (allowed(fullAllowKey(kind, req)) || commandPrefixesAllowed(kind, req, allowed)) {
 		a.b.mu.Unlock()
 		return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
 	}
 
 	// MCP 工具命中免审批策略时直接放行，不再打扰用户
-	if !interactive && kind == harness.RequestKindTool && mcpToolAutoApproved(a.b.dataDir, req.ToolName) {
+	if req.Sensitive == "" && !interactive && kind == harness.RequestKindTool && mcpToolAutoApproved(a.b.dataDir, req.ToolName) {
 		a.b.mu.Unlock()
 		return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
 	}
@@ -377,6 +378,10 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 			turnID = newUUID()
 		}
 
+		var reason *string
+		if req.Sensitive != "" {
+			reason = &req.Sensitive
+		}
 		remoteReq := wire.RemoteRequest{
 			ThreadID:  a.threadID,
 			TurnID:    &turnID,
@@ -386,8 +391,8 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 			Title:     title,
 			Detail:    detail,
 			Diff:      diffPtr,
-			Reason:    nil,
-			Options:   requestOptions(kind),
+			Reason:    reason,
+			Options:   requestOptions(kind, req),
 			Questions: questionsToWire(req.Questions),
 		}
 
@@ -413,8 +418,11 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 		createdAsk = &created
 	}
 
-	// 会话级放行的记账键在这里统一算好：交付确认路径（RespondRequest）只拿得到 pendingRequest。
-	pr.allowKey = alwaysAllowKey(kind, req)
+	// 交付确认路径只拿得到 pendingRequest，敏感请求不记账。
+	pr.allowKey = ""
+	if req.Sensitive == "" {
+		pr.allowKey = alwaysAllowKey(kind, req)
+	}
 
 	td.summary.HasPendingRequest = true
 	td.summary.Attention = "approval"
@@ -767,9 +775,8 @@ func approvalCommand(req harness.ApprovalRequest) string {
 	return strings.TrimSpace(req.Summary)
 }
 
-// alwaysAllowKey 生成「本会话始终允许」的记账键：命令类工具按「工具名 + 完整命令」记账，
-// 一次勾选只放行同一条命令；其它工具仍按工具名记账。
-func alwaysAllowKey(kind harness.RequestKind, req harness.ApprovalRequest) string {
+// fullAllowKey 保留旧版完整命令键，供兼容匹配及无法提取前缀时使用。
+func fullAllowKey(kind harness.RequestKind, req harness.ApprovalRequest) string {
 	if kind != harness.RequestKindCommand {
 		return req.ToolName
 	}
@@ -779,6 +786,73 @@ func alwaysAllowKey(kind harness.RequestKind, req harness.ApprovalRequest) strin
 		return ""
 	}
 	return req.ToolName + "\x00" + command
+}
+
+var commandPrefixArg = regexp.MustCompile(`^[a-z][a-z0-9:_-]*$`)
+var commandProgram = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$`)
+var commandAssignment = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*=`)
+var commandNullRedirect = regexp.MustCompile(`(^|[[:space:]])(2>&1|2?>[[:space:]]*/dev/null)([[:space:]]|$)`)
+
+// commandSegments 仅接受可以安全按简单命令段解析的语法。
+func commandSegments(command string) []string {
+	if strings.ContainsAny(command, "\n\r`'\"\\$(){}") || strings.Contains(command, "<<") {
+		return nil
+	}
+	for {
+		next := commandNullRedirect.ReplaceAllString(command, "$1$3")
+		if next == command { break }
+		command = next
+	}
+	if strings.ContainsAny(command, "<>") { return nil }
+	command = strings.NewReplacer("&&", "\n", "||", "\n", "|", "\n", ";", "\n").Replace(command)
+	if strings.Contains(command, "&") { return nil }
+	var segments []string
+	for _, part := range strings.Split(command, "\n") {
+		fields := strings.Fields(part)
+		if len(fields) == 0 { return nil }
+		if fields[0] == "cd" { continue }
+		segments = append(segments, part)
+	}
+	return segments
+}
+
+func commandSegmentPrefix(segment string) string {
+	fields := strings.Fields(segment)
+	if len(fields) == 0 || commandAssignment.MatchString(fields[0]) { return "" }
+	name := filepath.Base(fields[0])
+	switch name {
+	case "sh", "bash", "zsh", "fish", "python", "python3", "node", "ruby", "perl", "php", "deno", "eval", "exec", "sudo", "su", "env", "xargs", "rm", "curl", "wget", "ssh", "scp", "dd", "chmod", "chown", "osascript", "security", "open":
+		return ""
+	}
+	if !commandProgram.MatchString(name) { return "" }
+	if len(fields) > 1 && commandPrefixArg.MatchString(fields[1]) { return name + " " + fields[1] }
+	return name
+}
+
+func commandAllowPrefix(command string) string {
+	segments := commandSegments(command)
+	if len(segments) != 1 { return "" }
+	return commandSegmentPrefix(segments[0])
+}
+
+func alwaysAllowKey(kind harness.RequestKind, req harness.ApprovalRequest) string {
+	if kind == harness.RequestKindCommand {
+		if prefix := commandAllowPrefix(approvalCommand(req)); prefix != "" {
+			return req.ToolName + "\x00prefix\x00" + prefix
+		}
+	}
+	return fullAllowKey(kind, req)
+}
+
+func commandPrefixesAllowed(kind harness.RequestKind, req harness.ApprovalRequest, allowed func(string) bool) bool {
+	if kind != harness.RequestKindCommand { return false }
+	segments := commandSegments(approvalCommand(req))
+	if len(segments) == 0 { return false }
+	for _, segment := range segments {
+		prefix := commandSegmentPrefix(segment)
+		if prefix == "" || !allowed(req.ToolName + "\x00prefix\x00" + prefix) { return false }
+	}
+	return true
 }
 
 // alwaysAllowStore 返回与该后端数据目录绑定的持久化「始终允许」存储；调用方不能持有 b.mu。
@@ -998,7 +1072,10 @@ func inputField(input json.RawMessage, key string) string {
 }
 
 // requestOptions 按请求种类生成可选操作。
-func requestOptions(kind harness.RequestKind) []wire.RemoteRequestOption {
+func requestOptions(kind harness.RequestKind, req harness.ApprovalRequest) []wire.RemoteRequestOption {
+	if req.Sensitive != "" {
+		return []wire.RemoteRequestOption{{ID: "allow", Title: "允许", Role: "approve"}, {ID: "deny", Title: "拒绝", Role: "decline"}}
+	}
 	switch kind {
 	case harness.RequestKindPlan:
 		return []wire.RemoteRequestOption{
@@ -1019,9 +1096,13 @@ func requestOptions(kind harness.RequestKind) []wire.RemoteRequestOption {
 	case harness.RequestKindQuestion:
 		return []wire.RemoteRequestOption{}
 	default:
+		title := "在此项目始终允许"
+		if kind == harness.RequestKindCommand {
+			if prefix := commandAllowPrefix(approvalCommand(req)); prefix != "" { title += " " + prefix }
+		}
 		return []wire.RemoteRequestOption{
 			{ID: "allow", Title: "允许", Role: "approve"},
-			{ID: "allow_always", Title: "本会话始终允许", Role: "approveAlways"},
+			{ID: "allow_always", Title: title, Role: "approveAlways"},
 			{ID: "deny", Title: "拒绝", Role: "decline"},
 		}
 	}

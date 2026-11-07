@@ -21,7 +21,7 @@ type alwaysAllowFile struct {
 }
 
 // alwaysAllowStore 把审批的「始终允许」按项目持久化到 mcode 数据目录，使同一项目目录下的放行结论
-// 跨会话、跨重启保留。记账键沿用 alwaysAllowKey 的结果（命令类工具含完整命令），
+// 跨会话、跨重启保留。命令类工具按可记账前缀或完整命令生成键，
 // 只写 mcode 自己的数据目录，不写 .claude 目录或用户的 Claude 配置。
 type alwaysAllowStore struct {
 	mu      sync.Mutex

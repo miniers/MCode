@@ -190,6 +190,12 @@ func joinApprovalTitle(prefix, name string) string {
 
 // approvalCardTitle 按审批类型返回卡片标题；Kind 为空或未知时沿用 Title。
 func approvalCardTitle(a Approval) string {
+	switch a.Reason {
+	case "credential":
+		return joinApprovalTitle("读取凭证", a.Title)
+	case "controlPlane":
+		return joinApprovalTitle("改动 mcode 数据", a.Title)
+	}
 	switch a.Kind {
 	case ApprovalKindCommand:
 		return joinApprovalTitle("执行命令", a.Title)

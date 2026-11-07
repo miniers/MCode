@@ -69,7 +69,7 @@ export const AlwaysAllowedSection: React.FC<AlwaysAllowedSectionProps> = ({ proj
               className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2"
             >
               <span className="min-w-0 flex-1 break-all font-mono text-mc-footnote leading-5 text-[var(--foreground)]">
-                {key}
+                {key.includes('\0prefix\0') ? key.replace('\0prefix\0', ' · ') + ' …' : key}
               </span>
               <button
                 type="button"

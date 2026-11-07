@@ -51,8 +51,8 @@ func TestApprovalFromGate_SensitiveSummary(t *testing.T) {
 			t.Fatal("解析失败")
 		}
 		req := approvalFromGate(gate)
-		if !strings.HasPrefix(req.Summary, "[credential]") {
-			t.Fatalf("Summary 应以 [credential] 开头，得到 %q", req.Summary)
+		if req.Sensitive != "credential" {
+			t.Fatalf("Sensitive = %q", req.Sensitive)
 		}
 		if !strings.Contains(req.Summary, "cat ~/.ssh/id_rsa") {
 			t.Fatalf("Summary 应包含原命令，得到 %q", req.Summary)
@@ -66,8 +66,8 @@ func TestApprovalFromGate_SensitiveSummary(t *testing.T) {
 			t.Fatal("解析失败")
 		}
 		req := approvalFromGate(gate)
-		if !strings.HasPrefix(req.Summary, "[controlPlane]") {
-			t.Fatalf("Summary 应以 [controlPlane] 开头，得到 %q", req.Summary)
+		if req.Sensitive != "controlPlane" {
+			t.Fatalf("Sensitive = %q", req.Sensitive)
 		}
 		if !strings.Contains(req.Summary, "/tmp/mcode-gate-1.json") {
 			t.Fatalf("Summary 应包含目标路径，得到 %q", req.Summary)
@@ -84,8 +84,8 @@ func TestApprovalFromGate_SensitiveSummary(t *testing.T) {
 		if req.Kind != harness.RequestKindTool {
 			t.Fatalf("Kind 期望 tool，得到 %q", req.Kind)
 		}
-		if req.Summary != "[credential] ~/.pi/agent/auth.json" {
-			t.Fatalf("Summary 期望 [credential] ~/.pi/agent/auth.json，得到 %q", req.Summary)
+		if req.Summary != "~/.pi/agent/auth.json" || req.Sensitive != "credential" {
+			t.Fatalf("Summary = %q, Sensitive = %q", req.Summary, req.Sensitive)
 		}
 	})
 
