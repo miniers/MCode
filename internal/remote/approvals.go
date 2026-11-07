@@ -16,6 +16,7 @@ import (
 	"mcode/internal/agentconf"
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
+	storepkg "mcode/internal/store"
 )
 
 type approvalResponse struct {
@@ -316,7 +317,7 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 
 	var pr *pendingRequest
 	var requestID string
-	// createdAsk 在锁内备好新卡的留痕素材，解锁后才异步写库，避免持锁做 I/O。
+	// createdAsk 在锁内备好新卡的留痕素材，并在解锁前登记异步插入。
 	var createdAsk *wire.RemoteRequest
 
 	if candidate != nil {
@@ -348,7 +349,21 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 
 		var title *string
 		titleText := req.ToolName
-		if kind == harness.RequestKindFileChange {
+		if kind == harness.RequestKindQuestion {
+			titleText = "提问"
+			if len(req.Questions) > 0 {
+				question := req.Questions[0]
+				if header := strings.TrimSpace(question.Header); header != "" {
+					titleText = header
+				} else if prompt := strings.TrimSpace(question.Prompt); prompt != "" {
+					runes := []rune(prompt)
+					if len(runes) > 24 {
+						prompt = string(runes[:24]) + "…"
+					}
+					titleText = prompt
+				}
+			}
+		} else if kind == harness.RequestKindFileChange {
 			for _, key := range []string{"file_path", "path", "notebook_path"} {
 				if path := inputField(req.Input, key); path != "" {
 					titleText = path
@@ -434,12 +449,11 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 	for _, p := range td.pending {
 		allPending = append(allPending, p.req)
 	}
-	a.b.mu.Unlock()
-
-	// 新卡登记成功后才写留痕（复用既有卡片的路径不重复写），失败只记日志。
+	// 在解锁前登记插入信号，防止其他撤卡路径先发起结算。
 	if createdAsk != nil {
 		traceAskCreated(a.b, a.threadID, derefString(createdAsk.TurnID), *createdAsk)
 	}
+	a.b.mu.Unlock()
 
 	// 推送摘要与待处理请求通知（锁外进行）
 	a.b.hub.Publish(a.threadID, nil, nil, summarySnapshot)
@@ -489,12 +503,17 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 		}
 	}
 
-	// 收到答复：异步把留痕行结算为 settled。取消不写（卡片仍可能被撤卡），撤卡由 withdrawPendingLocked 负责。
+	// 收到答复或取消时异步结算留痕；撤卡由 withdrawPendingLocked 负责。
 	if !canceled && !withdrawn {
 		traceAskSettled(a.b, requestID, askResolution(kind, resp))
 	} else if canceled {
 		// 轮次取消：建议计分记为未答复。撤卡已在撤卡路径结算过，靠 outcome='pending' 条件避免双写。
 		traceSuggestionUnanswered(a.b, requestID, "canceled")
+		noticeThreadID := ""
+		if kind == harness.RequestKindQuestion {
+			noticeThreadID = a.threadID
+		}
+		traceAskSettleWithNotice(a.b, requestID, storepkg.PendingAskExpired, askResolutionCallerCancelled, noticeThreadID)
 	}
 
 	// 计划结论广播给同轮次挂上来的重复请求，让它们用同一份答复收尾。

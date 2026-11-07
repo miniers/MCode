@@ -13,6 +13,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
+	"mcode/internal/store"
 )
 
 func TestApprovals_AllowAndChangedNotification(t *testing.T) {
@@ -480,6 +481,101 @@ func TestApprovals_ContextCanceled(t *testing.T) {
 	}
 	if len(listRes.Requests) != 0 {
 		t.Errorf("expected 0 pending requests after cancel, got %d", len(listRes.Requests))
+	}
+}
+
+func TestApprovals_QuestionContextCanceledTrace(t *testing.T) {
+	syncPendingAskTrace(t)
+	backend, dbPath := newAskTraceBackend(t)
+	ctx := context.Background()
+	threadID := "00000000-0000-0000-0000-000000000076"
+	backend.AddProject(wire.ProjectSummary{ID: "p-cancel-question", Name: "取消", Path: t.TempDir()})
+	backend.AddThread(wire.ThreadSummary{ID: threadID, ProjectID: "p-cancel-question", Title: "取消提问"}, nil)
+	cancelCh := make(chan context.CancelFunc, 1)
+	resultCh := make(chan error, 1)
+	backend.SetHarness(&mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		subCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		cancelCh <- cancel
+		_, err := turn.Approver.(harness.Interactor).Interact(subCtx, harness.ApprovalRequest{
+			ToolName: "AskUserQuestion", Kind: harness.RequestKindQuestion,
+			Questions: []harness.Question{{ID: "q1", Prompt: "选什么？"}},
+		})
+		resultCh <- err
+		return nil
+	}}, "/workspace", harness.ModeAgent)
+	conn := newMockStreamConn()
+	changed := make(chan wire.RequestsChangedParams, 8)
+	conn.notifyFn = func(method string, params any) error {
+		if method == "requests.changed" {
+			changed <- params.(wire.RequestsChangedParams)
+		}
+		return nil
+	}
+	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: threadID, Text: "提问", ActionID: newUUID()}); err != nil {
+		t.Fatal(err)
+	}
+	request := waitFirstCard(t, changed)
+	cancel := <-cancelCh
+	cancel()
+	select {
+	case err := <-resultCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("取消错误 = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待取消超时")
+	}
+	list, err := backend.ListRequests(ctx, threadID)
+	if err != nil || len(list.Requests) != 0 {
+		t.Fatalf("取消后列表 = %+v，错误 = %v", list, err)
+	}
+	row := readAskTrace(t, dbPath, request.RequestID)
+	if row.state != store.PendingAskExpired || row.resolution != askResolutionCallerCancelled {
+		t.Fatalf("留痕状态 = %q/%q", row.state, row.resolution)
+	}
+	want := []string{"提问已取消，未收到回答。"}
+	if got := infoNoticeTexts(t, backend, threadID); !reflect.DeepEqual(got, want) {
+		t.Fatalf("取消提示 = %q", got)
+	}
+	backend.reconcileBoot(ctx, backend.store)
+	if got := infoNoticeTexts(t, backend, threadID); !reflect.DeepEqual(got, want) {
+		t.Fatalf("启动对账后提示 = %q", got)
+	}
+}
+
+func TestApprovals_QuestionTitle(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		questions []harness.Question
+		want      string
+	}{
+		{"header", []harness.Question{{Header: "  选择方案  ", Prompt: "问题"}}, "选择方案"},
+		{"prompt", []harness.Question{{Prompt: "一二三四五六七八九十一二三四五六七八九十一二三四五"}}, "一二三四五六七八九十一二三四五六七八九十一二三四…"},
+		{"fallback", []harness.Question{{Header: " ", Prompt: " "}}, "提问"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			backend, req, result := startInteract(t, newUUID(), newUUID(), harness.ApprovalRequest{
+				ToolName: "AskUserQuestion", Kind: harness.RequestKindQuestion, Questions: tc.questions,
+			})
+			if req.Title == nil || *req.Title != tc.want {
+				t.Fatalf("标题 = %v，期望 %q", req.Title, tc.want)
+			}
+			skip := true
+			if _, err := backend.RespondRequest(context.Background(), wire.RequestsRespondParams{
+				ThreadID: req.ThreadID, RunID: req.RunID, RequestID: req.RequestID, Skip: &skip,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-result:
+			case <-time.After(2 * time.Second):
+				t.Fatal("等待交互结束超时")
+			}
+		})
 	}
 }
 

@@ -43,18 +43,29 @@ func (s *Store) InsertPendingAsk(ctx context.Context, ask PendingAsk) error {
 // SettlePendingAsk 把仍为 pending 的行结算为 state、写 resolution 与 settled_at。
 // 只更新 pending 行（先到者决定终态）：行不存在或已终态时返回 nil，重复调用幂等。
 func (s *Store) SettlePendingAsk(ctx context.Context, requestID, state, resolution string) error {
+	_, err := s.SettlePendingAskChanged(ctx, requestID, state, resolution)
+	return err
+}
+
+// SettlePendingAskChanged 返回是否将一行从 pending 转为终态。
+func (s *Store) SettlePendingAskChanged(ctx context.Context, requestID, state, resolution string) (bool, error) {
 	switch state {
 	case PendingAskSettled, PendingAskWithdrawn, PendingAskExpired:
 	default:
-		return fmt.Errorf("settle pending ask %s: invalid terminal state %q", requestID, state)
+		return false, fmt.Errorf("settle pending ask %s: invalid terminal state %q", requestID, state)
 	}
-	if _, err := s.db.ExecContext(ctx, `
+	result, err := s.db.ExecContext(ctx, `
 	UPDATE pending_asks SET state = ?, resolution = ?, settled_at = ?
 	WHERE request_id = ? AND state = ?
-	`, state, resolution, formatTime(time.Now().UTC()), requestID, PendingAskPending); err != nil {
-		return fmt.Errorf("settle pending ask %s: %w", requestID, err)
+	`, state, resolution, formatTime(time.Now().UTC()), requestID, PendingAskPending)
+	if err != nil {
+		return false, fmt.Errorf("settle pending ask %s: %w", requestID, err)
 	}
-	return nil
+	count, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("settle pending ask %s rows affected: %w", requestID, err)
+	}
+	return count > 0, nil
 }
 
 // ExpirePendingAsks 在同一事务内把全部 pending 行一次性转为 expired，并返回被转换的行

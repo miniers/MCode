@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"mcode/internal/harness"
@@ -15,9 +16,13 @@ const pendingAskTraceTimeout = 5 * time.Second
 
 // 提问卡在留痕里的 resolution：答复不带选项 ID，只区分"答了"和"跳过了"。
 const (
-	askResolutionAnswered = "answered"
-	askResolutionSkipped  = "skipped"
+	askResolutionAnswered        = "answered"
+	askResolutionSkipped         = "skipped"
+	askResolutionCallerCancelled = "caller_cancelled"
 )
+
+// 登记插入信号后才对外暴露卡片，让结算任务能等待插入完成。
+var pendingAskInsertions sync.Map
 
 // pendingAskTraceRun 决定留痕写库的执行方式：默认丢给独立 goroutine，调用方完全不等待；
 // 测试里替换成同步执行，用 channel 驱动断言，不靠 sleep。
@@ -45,7 +50,13 @@ func traceAskCreated(b *MemoryBackend, threadID, turnID string, req wire.RemoteR
 		Title:     derefString(req.Title),
 		State:     store.PendingAskPending,
 	}
+	done := make(chan struct{})
+	pendingAskInsertions.Store(ask.RequestID, done)
 	pendingAskTraceRun(func() {
+		defer func() {
+			close(done)
+			pendingAskInsertions.Delete(ask.RequestID)
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), pendingAskTraceTimeout)
 		defer cancel()
 		if err := s.InsertPendingAsk(ctx, ask); err != nil {
@@ -67,6 +78,10 @@ func traceAskWithdrawn(b *MemoryBackend, requestID string, reason withdrawReason
 
 // traceAskSettle 是 settled/withdrawn 共用的异步结算实现；store 未挂载时空操作。
 func traceAskSettle(b *MemoryBackend, requestID, state, resolution string) {
+	traceAskSettleWithNotice(b, requestID, state, resolution, "")
+}
+
+func traceAskSettleWithNotice(b *MemoryBackend, requestID, state, resolution, threadID string) {
 	if b == nil || requestID == "" {
 		return
 	}
@@ -74,12 +89,25 @@ func traceAskSettle(b *MemoryBackend, requestID, state, resolution string) {
 	if s == nil {
 		return
 	}
+	insertion, _ := pendingAskInsertions.Load(requestID)
 	pendingAskTraceRun(func() {
-		// 超时上下文在真正执行时创建，避免排队等待把预算吃完。
+		if insertion != nil {
+			select {
+			case <-insertion.(chan struct{}):
+			case <-time.After(pendingAskTraceTimeout):
+				log.Printf("trace pending ask %s wait for insert timed out", requestID)
+				return
+			}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), pendingAskTraceTimeout)
 		defer cancel()
-		if err := s.SettlePendingAsk(ctx, requestID, state, resolution); err != nil {
+		changed, err := s.SettlePendingAskChanged(ctx, requestID, state, resolution)
+		if err != nil {
 			log.Printf("trace pending ask %s settle %s: %v", requestID, state, err)
+		} else if changed && threadID != "" {
+			if err := b.appendSystemNotice(threadID, "提问已取消，未收到回答。"); err != nil {
+				logBootNoticeError("cancelled ask", threadID, err)
+			}
 		}
 	})
 }

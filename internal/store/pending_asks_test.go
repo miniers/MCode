@@ -176,6 +176,23 @@ func TestSettlePendingAskIdempotentOnTerminalRow(t *testing.T) {
 	}
 }
 
+func TestSettlePendingAskChanged(t *testing.T) {
+	s, threadID := newAskDeliveryTestStore(t)
+	ctx := context.Background()
+	if err := s.InsertPendingAsk(ctx, PendingAsk{RequestID: "r1", ThreadID: threadID, Kind: "question"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id   string
+		want bool
+	}{{"r1", true}, {"r1", false}, {"missing", false}} {
+		changed, err := s.SettlePendingAskChanged(ctx, tc.id, PendingAskExpired, "caller_cancelled")
+		if err != nil || changed != tc.want {
+			t.Fatalf("结算 %s: changed=%v, err=%v，期望 %v", tc.id, changed, err, tc.want)
+		}
+	}
+}
+
 // TestPendingAskCascadeOnThreadDelete 会话删除后留痕行随 threads 级联删除，避免指向不存在会话。
 func TestPendingAskCascadeOnThreadDelete(t *testing.T) {
 	s, threadID := newAskDeliveryTestStore(t)

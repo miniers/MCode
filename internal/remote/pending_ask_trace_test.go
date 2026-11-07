@@ -284,6 +284,42 @@ func TestPendingAskTraceWithdrawnOnArchive(t *testing.T) {
 	}
 }
 
+func TestPendingAskTraceSettleRunsBeforeInsert(t *testing.T) {
+	backend, dbPath := newAskTraceBackend(t)
+	threadID := "00000000-0000-0000-0000-000000001401"
+	backend.AddProject(wire.ProjectSummary{ID: "p-trace-order", Name: "顺序", Path: t.TempDir()})
+	backend.AddThread(wire.ThreadSummary{ID: threadID, ProjectID: "p-trace-order", Title: "顺序"}, nil)
+
+	prev := pendingAskTraceRun
+	var tasks []func()
+	pendingAskTraceRun = func(fn func()) { tasks = append(tasks, fn) }
+	defer func() { pendingAskTraceRun = prev }()
+	req := wire.RemoteRequest{RequestID: "trace-order", Kind: string(harness.RequestKindQuestion)}
+	traceAskCreated(backend, threadID, "", req)
+	traceAskSettled(backend, req.RequestID, askResolutionAnswered)
+	if len(tasks) != 2 {
+		t.Fatalf("任务数 = %d，期望 2", len(tasks))
+	}
+	started := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		close(started)
+		tasks[1]()
+		close(finished)
+	}()
+	<-started
+	tasks[0]()
+	select {
+	case <-finished:
+	case <-time.After(2 * time.Second):
+		t.Fatal("结算等待超时")
+	}
+	row := readAskTrace(t, dbPath, req.RequestID)
+	if row.state != store.PendingAskSettled || row.resolution != askResolutionAnswered {
+		t.Fatalf("留痕状态 = %q/%q", row.state, row.resolution)
+	}
+}
+
 // 未挂 store 的后端（测试与本地内存模式）上留痕全是空操作：不 panic，答复与撤卡行为不变。
 func TestPendingAskTraceWithoutStore(t *testing.T) {
 	syncPendingAskTrace(t)
