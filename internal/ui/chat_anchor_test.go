@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/config"
 )
 
 // advanceAnchorClock 推进一帧测试时钟，让底部垫高动画（ui.Smooth）往前走一步。
@@ -290,7 +292,13 @@ func TestChatAnchorPinsSentMessage(t *testing.T) {
 	fake.SetMessages("t1", msgs)
 
 	var s *chatState
-	tt := ui.NewTester(Root(fake, func(cs *chatState) { s = cs }), 1000, 700)
+	tt := ui.NewTester(Root(fake, func(cs *chatState) {
+		s = cs
+		cfg := config.Defaults()
+		pin := true
+		cfg.Session.PinSentMessage = &pin
+		setChatSettings(cs, &SettingsState{cfg: cfg})
+	}), 1000, 700)
 	waitFor(t, tt, func() bool { return s != nil && tt.HasText("回答12") })
 
 	if !s.chatListState.FollowEnd {

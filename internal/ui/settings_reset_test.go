@@ -22,7 +22,7 @@ func TestResetPreferenceFields(t *testing.T) {
 
 	// 标量与三态指针：都应回到默认值。
 	dst.Session.ShowReasoning = settingsResetBoolPtr(false)
-	dst.Session.QueueWhileRunning = true
+	dst.Session.QueueWhileRunning = !def.Session.QueueWhileRunning
 	dst.Session.ComposerSendKey = config.ComposerSendKeyShiftEnter
 	dst.Notifications.ChimeWhenAttentionNeeded = nil
 
@@ -162,7 +162,7 @@ func TestSettingsReset_CancelKeepsConfig(t *testing.T) {
 	openSettingsAdvancedPage(t, tt, st, "conversation")
 	waitFor(t, tt, func() bool { return tt.HasText("恢复本页默认") })
 
-	st.cfg.Session.QueueWhileRunning = true
+	st.cfg.Session.QueueWhileRunning = !config.Defaults().Session.QueueWhileRunning
 	tt.Frame()
 
 	openSettingsResetDialog(t, tt, st, "conversation")
@@ -171,7 +171,7 @@ func TestSettingsReset_CancelKeepsConfig(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool { return st.resetPendingPage == "" })
 
-	if !st.cfg.Session.QueueWhileRunning {
+	if st.cfg.Session.QueueWhileRunning == config.Defaults().Session.QueueWhileRunning {
 		t.Fatal("取消确认后会话页设置不应被重置")
 	}
 	if tt.HasText("恢复默认") {

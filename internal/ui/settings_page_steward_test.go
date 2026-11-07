@@ -10,6 +10,13 @@ import (
 	"mcode/internal/config"
 )
 
+func clearStewardTestDefaults(st *SettingsState) {
+	st.cfg.Orchestration.Steward.Name = ""
+	st.cfg.Orchestration.Steward.Avatar = ""
+	st.cfg.Orchestration.Steward.QuietStart = ""
+	st.cfg.Orchestration.Steward.QuietEnd = ""
+}
+
 func newStewardSettingsTester(t *testing.T, st *SettingsState, _ bool) *ui.Tester {
 	t.Helper()
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -186,6 +193,7 @@ func TestStewardSettings_QuietHours(t *testing.T) {
 	s := newChatState(fake)
 
 	st := NewSettingsState(settingsTestDir(t), nil, s)
+	clearStewardTestDefaults(st)
 	st.cfg.Orchestration.Steward.Enabled = true
 
 	tt := newStewardSettingsTester(t, st, false)
@@ -269,6 +277,7 @@ func TestStewardSettings_OpenSessionRow(t *testing.T) {
 func TestStewardSettings_NameAndAvatar(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	st := NewSettingsState(settingsTestDir(t), nil, s)
+	clearStewardTestDefaults(st)
 	st.cfg.Orchestration.Steward.Enabled = true
 
 	tt := newStewardSettingsTester(t, st, false)
@@ -297,6 +306,7 @@ func TestStewardSettings_NameAndAvatar(t *testing.T) {
 func TestStewardSettings_DailyReport(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	st := NewSettingsState(settingsTestDir(t), nil, s)
+	clearStewardTestDefaults(st)
 	st.cfg.Orchestration.Steward.Enabled = true
 
 	tt := newStewardSettingsTester(t, st, false)

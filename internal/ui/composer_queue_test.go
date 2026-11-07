@@ -557,8 +557,10 @@ func TestComposer_IdleReturnSends(t *testing.T) {
 func TestComposer_RunningCmdReturnEnqueues(t *testing.T) {
 	fake := NewFakeClient()
 	tt := ui.NewTester(Root(fake, func(s *chatState) {
-		s.queueWhileRunningCache = true
-		s.queueWhileRunningCachedAt = time.Now()
+		cfg := config.Defaults()
+		cfg.Session.QueueWhileRunning = true
+		cfg.Session.InsertIntoRunningTurn = false
+		setChatSettings(s, &SettingsState{cfg: cfg})
 	}), 1000, 700)
 
 	waitFor(t, tt, func() bool {

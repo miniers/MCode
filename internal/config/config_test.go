@@ -2946,11 +2946,11 @@ func TestStewardConfigDefaultsAndNormalize(t *testing.T) {
 	if got := def.WakeLimit(); got != DefaultStewardDailyWakeLimit {
 		t.Errorf("默认 WakeLimit() = %d，想要 %d", got, DefaultStewardDailyWakeLimit)
 	}
-	if def.Name != "" || def.Avatar != "" {
-		t.Errorf("总管默认 name/avatar 应为空，got name=%q avatar=%q", def.Name, def.Avatar)
+	if def.Name != "MoCo" || def.Avatar != "🤖" {
+		t.Errorf("总管默认 name/avatar 不正确，got name=%q avatar=%q", def.Name, def.Avatar)
 	}
-	if got := def.DisplayName(); got != DefaultStewardName {
-		t.Errorf("默认 DisplayName() = %q，想要 %q", got, DefaultStewardName)
+	if got := def.DisplayName(); got != "MoCo" {
+		t.Errorf("默认 DisplayName() = %q，想要 MoCo", got)
 	}
 	if got := def.ResolvedHomeDir("/data"); got != filepath.Join("/data", "steward") {
 		t.Errorf("默认 ResolvedHomeDir() = %q，想要 /data/steward", got)
