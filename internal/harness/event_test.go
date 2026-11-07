@@ -101,7 +101,17 @@ func TestEventValidate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "background task end missing tool id",
+			name:    "background task end with task id only",
+			event:   Event{Type: EventBackgroundTaskEnd, TaskID: "task-1"},
+			wantErr: false,
+		},
+		{
+			name:    "background task end with tool id only",
+			event:   Event{Type: EventBackgroundTaskEnd, ToolID: "toolu_1"},
+			wantErr: false,
+		},
+		{
+			name:    "background task end missing tool id and task id",
 			event:   Event{Type: EventBackgroundTaskEnd, TaskStatus: "completed"},
 			wantErr: true,
 		},

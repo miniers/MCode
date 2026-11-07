@@ -41,7 +41,7 @@ const (
 	EventBackgroundTaskStart EventType = "background_task_start"
 
 	// EventBackgroundTaskEnd 表示 provider 托管的后台任务已经结束（claude 的 task_notification 帧）。
-	// ToolID 仍是发起它的工具调用，TaskStatus 原样带上 provider 上报的结束状态（completed、failed 等）。
+	// 可以只带 TaskID，由远端按 task id 回查发起它的工具；TaskStatus 原样带上 provider 上报的结束状态。
 	EventBackgroundTaskEnd EventType = "background_task_end"
 )
 
@@ -142,10 +142,13 @@ func (e Event) Validate() error {
 		if e.ToolID == "" {
 			return errors.New("event tool_end: tool_id is required")
 		}
-	case EventBackgroundTaskStart, EventBackgroundTaskEnd:
-		// 两者都靠发起它的工具调用关联时间线条目。
+	case EventBackgroundTaskStart:
 		if e.ToolID == "" {
 			return fmt.Errorf("event %s: tool_id is required", e.Type)
+		}
+	case EventBackgroundTaskEnd:
+		if e.ToolID == "" && e.TaskID == "" {
+			return errors.New("event background_task_end: tool_id or task_id is required")
 		}
 	case EventFileChange:
 		if e.Path == "" {
