@@ -20,18 +20,13 @@ func settingsRevealInDetail(t *testing.T, tt *ui.Tester, label string) {
 		if !ok {
 			t.Fatalf("找不到设置详情列: %v", tt.Texts())
 		}
-		viewport := detail
-		if card, found := tt.Find("设置"); found {
-			if card.W < detail.W {
-				window := tt.Image().Bounds()
-				height := min(float32(680), float32(window.Dy())-80)
-				card = ui.Rect{X: 0, Y: (float32(window.Dy()) - height) / 2, W: float32(window.Dx()), H: height}
-			}
-			viewport.X = max(detail.X, card.X)
-			viewport.Y = card.Y
-			viewport.W = min(detail.X+detail.W, card.X+card.W) - viewport.X
-			viewport.H = card.H
+		window := tt.Image().Bounds()
+		viewport := ui.Rect{
+			X: max(detail.X, float32(window.Min.X)),
+			Y: max(detail.Y, float32(window.Min.Y)),
 		}
+		viewport.W = max(0, min(detail.X+detail.W, float32(window.Max.X))-viewport.X)
+		viewport.H = max(0, min(detail.Y+detail.H, float32(window.Max.Y))-viewport.Y)
 		for _, text := range tt.Texts() {
 			if strings.HasPrefix(text, "设置面板 ") {
 				if sheet, found := tt.Find(text); found {
