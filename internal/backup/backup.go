@@ -2,7 +2,13 @@ package backup
 
 import (
 	"os"
+
+	"mcode/internal/config"
 )
+
+var SecretStoreFor = func(service string) config.SecretStore {
+	return config.NewSecretStore(service)
+}
 
 type CreateOptions struct {
 	DataDir        string

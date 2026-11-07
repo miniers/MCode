@@ -18,6 +18,7 @@ import (
 	"mcode/internal/agentconf"
 	"mcode/internal/attention"
 	"mcode/internal/automation"
+	"mcode/internal/backup"
 	"mcode/internal/config"
 	"mcode/internal/git"
 	"mcode/internal/harness"
@@ -341,6 +342,10 @@ func Open(opts Options) (*App, error) {
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
 
+	if _, err := backup.ApplyPending(opts.DataDir); err != nil {
+		return nil, fmt.Errorf("apply pending restore: %w", err)
+	}
+
 	// 配置在打开数据库之前先读：claude 二进制路径要尽早确定，登录检测才能和后面的
 	// 数据库打开、swarm 恢复等启动步骤并行；此处还没有需要清理的资源，读配置失败直接返回。
 	cfg, err := config.Load(opts.DataDir)
@@ -384,6 +389,10 @@ func Open(opts Options) (*App, error) {
 		return nil, fmt.Errorf("open sqlite store at %s: %w", dbPath, err)
 	}
 	startuptrace.Mark("store opened")
+	if _, err := backup.CompletePending(context.Background(), opts.DataDir, dbStore); err != nil {
+		_ = dbStore.Close()
+		return nil, fmt.Errorf("complete pending restore: %w", err)
+	}
 	// 一次性把库切到增量 auto_vacuum，让以后删除/压缩消息能真正归还磁盘空间；失败只记日志，不中断启动。
 	if converted, err := dbStore.EnsureIncrementalAutoVacuum(context.Background()); err != nil {
 		log.Printf("store: 启用增量 vacuum 失败: %v", err)
