@@ -36,7 +36,7 @@ MCode 要求 macOS 14.0 及以上版本和 Apple 芯片。发布页只有 arm64 
 把下面这段话发给 agent：
 
 ```text
-阅读 https://raw.githubusercontent.com/miniers/MCode/main/docs/agent-install.md ，按其中的步骤在这台 Mac 上安装和配置 MCode。
+阅读 https://raw.githubusercontent.com/miniers/MCode/main/docs/agent-install.md ，按其中的步骤在这台电脑上安装和配置 MCode。
 ```
 
 智能体登录和 API Key 必须由你自己完成。agent 会在需要时提示你。
