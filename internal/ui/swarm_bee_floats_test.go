@@ -231,13 +231,15 @@ func TestRenderSwarmBeeFloats_AutoPopsSplitsPanels(t *testing.T) {
 	}
 }
 
-// TestRenderSwarmBeeFloats_DetailsShowsTimeline 验证“显示子代理详细步骤”开启时面板显示对话而非进度视图。
-func TestRenderSwarmBeeFloats_DetailsShowsTimeline(t *testing.T) {
+// TestRenderSwarmBeeFloats_ShowsTimeline 验证面板显示对话时间线。
+func TestRenderSwarmBeeFloats_ShowsTimeline(t *testing.T) {
 	s := newFloatTestState(t)
-	withFloatSettings(t, s, func(st *SettingsState) { st.cfg.Orchestration.ShowsBeeDetails = true })
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderSwarmBeeFloats(c, s)
 	}, 1600, 900)
+	if _, ok := tt.Find("swarm-progress"); ok {
+		t.Fatal("面板不应包含进度视图")
+	}
 	if tt.HasText("任务目标: 实现浮窗卡片") {
 		t.Fatal("对话视图不应再显示进度视图的任务目标条")
 	}

@@ -720,7 +720,6 @@ type OrchestrationConfig struct {
 	LeadPlansOnly         bool        `json:"lead_plans_only"`          // 主代理仅规划不改写文件，默认 true
 	AutoClearFinished     bool        `json:"auto_clear_finished"`      // 自动从面板清理已完成子代理，默认 true
 	AutoHidesIdleBees     bool        `json:"auto_hides_idle_bees"`     // 侧边栏自动隐藏空闲子代理，默认 true
-	ShowsBeeDetails       bool        `json:"shows_bee_details"`        // 显示子代理详细信息，默认 true
 	AutoPopsBees          bool        `json:"auto_pops_bees"`           // 自动弹出子代理窗口，默认 true
 	PanelWidth            float32     `json:"panel_width,omitempty"`    // 浮动面板拖拽设定的宽度（pt），0 表示自动
 	PanelHeight           float32     `json:"panel_height,omitempty"`   // 浮动面板拖拽设定的高度（pt），0 表示自动
@@ -2281,7 +2280,6 @@ func Defaults() Config {
 			LeadPlansOnly:              true,
 			AutoClearFinished:          true,
 			AutoHidesIdleBees:          true,
-			ShowsBeeDetails:            true,
 			AutoPopsBees:               true,
 			AutoForwardQuestionSeconds: 180,
 			ReviewMode:                 ReviewModeOff,

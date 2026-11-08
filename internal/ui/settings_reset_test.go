@@ -193,7 +193,7 @@ func TestSettingsResetTree_SwarmKeepsLists(t *testing.T) {
 	st.cfg.Orchestration.Tiers = []config.SwarmTier{{ID: "tier-mine", Name: "我的档位"}}
 	st.cfg.Orchestration.Steward.EnabledChoice = true
 	// 选一个树里实现了 reset 且未锁定的开关，用来确认重置确实执行过。
-	st.cfg.Orchestration.ShowsBeeDetails = false
+	st.cfg.Orchestration.AutoPopsBees = false
 	tt.Frame()
 
 	openSettingsResetDialog(t, tt, st, "swarm")
@@ -205,8 +205,8 @@ func TestSettingsResetTree_SwarmKeepsLists(t *testing.T) {
 	if len(st.cfg.Orchestration.Tiers) != 1 || st.cfg.Orchestration.Tiers[0].ID != "tier-mine" {
 		t.Fatalf("编排页重置不应改动档位，实际 %#v", st.cfg.Orchestration.Tiers)
 	}
-	if !st.cfg.Orchestration.ShowsBeeDetails {
-		t.Fatal("ShowsBeeDetails 应随编排页重置回到默认 true")
+	if !st.cfg.Orchestration.AutoPopsBees {
+		t.Fatal("AutoPopsBees 应随编排页重置回到默认 true")
 	}
 	if !st.cfg.Orchestration.Steward.EnabledChoice {
 		t.Fatal("迁移标记 EnabledChoice 必须保留，否则后续迁移会改写总管开关")

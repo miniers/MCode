@@ -12,7 +12,7 @@ func testBees(n int) []SwarmBee {
 }
 
 func TestPanelLayoutWidthAndSides(t *testing.T) {
-	wide := panelLayout{paneW: 1400, paneH: 900, composerAreaH: 100, stackDepth: 1, compact: true}
+	wide := panelLayout{paneW: 1400, paneH: 900, composerAreaH: 100, stackDepth: 1}
 	if got := wide.width(); got != panelDefaultWidth {
 		t.Fatalf("width = %v, want %v", got, panelDefaultWidth)
 	}
@@ -23,7 +23,7 @@ func TestPanelLayoutWidthAndSides(t *testing.T) {
 		t.Fatalf("composerReserve = %v", got)
 	}
 
-	narrow := panelLayout{paneW: 700, paneH: 900, composerAreaH: 100, stackDepth: 1, compact: true}
+	narrow := panelLayout{paneW: 700, paneH: 900, composerAreaH: 100, stackDepth: 1}
 	if narrow.sitsBesideComposer() {
 		t.Fatalf("700 宽主区域放不下并排的聊天框")
 	}
@@ -43,15 +43,11 @@ func TestPanelLayoutWidthAndSides(t *testing.T) {
 }
 
 func TestPanelLayoutHeight(t *testing.T) {
-	l := panelLayout{paneW: 1400, paneH: 900, composerAreaH: 100, stackDepth: 1, compact: true}
-	if got := l.height(); got != panelCompactHeight {
-		t.Fatalf("进度条模式默认高度 = %v, want %v", got, panelCompactHeight)
-	}
-	l.compact = false
+	l := panelLayout{paneW: 1400, paneH: 900, composerAreaH: 100, stackDepth: 1}
 	if got := l.height(); got != 450 {
 		t.Fatalf("对话模式默认高度 = %v, want 450（主区域高度的一半）", got)
 	}
-	// 拖拽设定的高度在两种模式下都生效，并受可用高度限制。
+	// 拖拽设定的高度生效，并受可用高度限制。
 	l.prefH = 600
 	if got := l.height(); got != 600 {
 		t.Fatalf("height = %v, want 600", got)
@@ -83,14 +79,14 @@ func TestPanelLayoutFitted(t *testing.T) {
 }
 
 func TestPanelDockedOriginBottomTrailing(t *testing.T) {
-	l := panelLayout{paneW: 1400, paneH: 900, composerAreaH: 100, stackDepth: 1, compact: true}
+	l := panelLayout{paneW: 1400, paneH: 900, composerAreaH: 100, stackDepth: 1}
 	reserve := panelReserve{trailing: l.composerReserve()}
 	got := l.dockedOrigin(cornerBottomTrailing, reserve)
 	// 内容列在 0..976 里居中，宽 768：左缘 104，面板贴在它右侧 panelSideGap。
 	if got.x != 104+768+panelSideGap {
 		t.Fatalf("x = %v", got.x)
 	}
-	if got.y != 900-panelBottomMargin-panelCompactHeight {
+	if got.y != 900-panelBottomMargin-l.height() {
 		t.Fatalf("y = %v，面板应与聊天框底边对齐", got.y)
 	}
 	top := l.dockedOrigin(cornerTopTrailing, reserve)
@@ -99,12 +95,12 @@ func TestPanelDockedOriginBottomTrailing(t *testing.T) {
 	}
 
 	// 窄主区域：面板停在聊天框上方的同侧边缘。
-	narrow := panelLayout{paneW: 700, paneH: 900, composerAreaH: 120, stackDepth: 1, compact: true}
+	narrow := panelLayout{paneW: 700, paneH: 900, composerAreaH: 120, stackDepth: 1}
 	n := narrow.dockedOrigin(cornerBottomTrailing, panelReserve{})
 	if n.x != 700-panelSideMargin-panelDefaultWidth {
 		t.Fatalf("窄屏 x = %v", n.x)
 	}
-	if n.y != 900-(120+panelGap)-panelCompactHeight {
+	if n.y != 900-(120+panelGap)-narrow.height() {
 		t.Fatalf("窄屏 y = %v，应停在聊天框上方", n.y)
 	}
 }
@@ -238,9 +234,9 @@ func TestComputeSwarmSceneAutoPopsEachBeeGetsPanel(t *testing.T) {
 // 而是放到团队这一侧的对角（团队在右下时就是右上）。
 func TestComputeSwarmSceneFourthPanelGoesToTeamSideTop(t *testing.T) {
 	bees := testBees(4)
-	// paneH 900 时每侧自然槽位是 2：左侧放两个，第四个只能放团队这一侧。
+	// paneH 700 时每侧自然槽位是 2：左侧放两个，第四个只能放团队这一侧。
 	sc := computeSwarmScene(sceneInput{
-		paneW: 1400, paneH: 900, composerAreaH: 100,
+		paneW: 1400, paneH: 700, composerAreaH: 100,
 		bees: bees, autoPops: true, showsTeam: true, teamDock: cornerBottomTrailing,
 	})
 	for _, h := range bees[1:3] {
@@ -318,7 +314,7 @@ func TestPanelDockCornerKeepsWithinSlack(t *testing.T) {
 func TestReorderedPanelsSwapsOnFullSide(t *testing.T) {
 	bees := testBees(3)
 	in := sceneInput{
-		paneW: 1400, paneH: 900, composerAreaH: 100,
+		paneW: 1400, paneH: 700, composerAreaH: 100,
 		bees: bees, autoPops: true, showsTeam: true, teamDock: cornerBottomTrailing,
 	}
 	sc := computeSwarmScene(in)

@@ -137,7 +137,7 @@ func beeWindowStripInsets(goos string, bar ui.TitleBar) (leading, trailing float
 }
 
 // renderBeeWindow 渲染子代理独立窗口：顶栏（红绿灯留白 + 人设图标 + 名称 + 状态 + 时长）、
-// 主体（详细步骤开关决定对话或进度视图）与底部输入框。
+// 主体对话时间线与底部输入框。
 func renderBeeWindow(c *ui.Context, parent *chatState, beeID string, child *chatState) {
 	applyAppTheme(c)
 	// 窗口自己的渲染服务：invalidate 要重绘本窗口，而不是父窗口。
@@ -146,7 +146,7 @@ func renderBeeWindow(c *ui.Context, parent *chatState, beeID string, child *chat
 	child.initialized = true
 	child.mu.Unlock()
 
-	// 状态、时长与“显示子代理详细步骤”开关都不是本窗口的事件驱动，但只有还在变化时才需要按秒取下一帧：
+	// 状态和时长不是本窗口的事件驱动，但只有还在变化时才需要按秒取下一帧：
 	// 未找到 bee 时保留每秒一次的重试（等它出现在 Swarm 状态里跟上），bee 未结束（运行中、在等用户
 	// 回答/审批、待人工合并）或它的子会话仍在运行时继续跟随；进入终态且子会话空闲后不再排定时器，
 	// 窗口不再无谓地每秒整窗重建。
@@ -163,8 +163,6 @@ func renderBeeWindow(c *ui.Context, parent *chatState, beeID string, child *chat
 	if !found || !swarmBeeDormant(bee, swarmBeeWaiting(parent, bee)) || childRunning || background > 0 {
 		c.After(time.Second)
 	}
-
-	details, _, _, _ := swarmFloatPrefs(parent)
 
 	ui.Column(c.Key("bee-window-root")).Fill().Background(ThemeWindowBg(c)).Clip().Gap(0).Children(func() {
 		stripLeading, stripTrailing := beeWindowStripInsets(titleBarGOOS, c.TitleBar())
@@ -209,10 +207,8 @@ func renderBeeWindow(c *ui.Context, parent *chatState, beeID string, child *chat
 					Children(func() {
 						ui.Text(c, "子代理已结束或不存在").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
 					})
-			case details:
-				renderBeeTimeline(c, child, bee)
 			default:
-				renderBeeProgress(c, child, bee)
+				renderBeeTimeline(c, child, bee)
 			}
 		})
 

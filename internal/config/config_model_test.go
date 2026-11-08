@@ -42,9 +42,6 @@ func TestModelDefaults(t *testing.T) {
 	if !cfg.Orchestration.AutoHidesIdleBees {
 		t.Errorf("expected Swarm.AutoHidesIdleBees true, got false")
 	}
-	if !cfg.Orchestration.ShowsBeeDetails {
-		t.Errorf("expected Swarm.ShowsBeeDetails true, got false")
-	}
 	if !cfg.Orchestration.AutoPopsBees {
 		t.Errorf("expected Swarm.AutoPopsBees true, got false")
 	}

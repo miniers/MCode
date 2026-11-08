@@ -704,11 +704,6 @@ var pageSwarm = settingsPage{
 				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoHidesIdleBees }, true)),
 			},
 			{
-				ID: "row-swarm-shows-bee-details", Title: "显示子代理详细步骤",
-				Aliases: []string{"关闭时只显示进度，开启时显示每个执行步骤"},
-				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.ShowsBeeDetails }, true)),
-			},
-			{
 				ID: "row-swarm-auto-pops-bees", Title: "自动弹出子代理面板",
 				Aliases: []string{"关闭时集中显示，开启时为空间允许的子代理分别显示面板"},
 				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoPopsBees }, true)),

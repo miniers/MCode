@@ -241,16 +241,15 @@ func TestSwarmSettings_ConflictingMessageModesCanBeDisabled(t *testing.T) {
 func TestSwarmSettings_AdditionalControlsPersist(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
-	st.cfg.Orchestration.ShowsBeeDetails = false
 	st.cfg.Orchestration.AutoPopsBees = false
 	tt := newSwarmPageTester(st)
-	for _, label := range []string{"切换显示子代理详细步骤", "切换自动弹出子代理面板", "自动归档"} {
+	for _, label := range []string{"切换自动弹出子代理面板", "自动归档"} {
 		if err := tt.Click(label); err != nil {
 			t.Fatal(err)
 		}
 	}
 	loaded, err := config.Load(st.dataDir)
-	if err != nil || !loaded.Orchestration.ShowsBeeDetails || !loaded.Orchestration.AutoPopsBees || !loaded.Orchestration.ArchivesCodexBees {
+	if err != nil || !loaded.Orchestration.AutoPopsBees || !loaded.Orchestration.ArchivesCodexBees {
 		t.Fatalf("additional Swarm controls must persist: %+v, %v", loaded.Orchestration, err)
 	}
 }

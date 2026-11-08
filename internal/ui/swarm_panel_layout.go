@@ -25,8 +25,6 @@ const (
 	panelMinComposerWidth float32 = 360
 	// panelCornerSlack 是面板中心越过中线多远才换角，避免停在中线上的面板来回闪。
 	panelCornerSlack float32 = 56
-	// panelCompactHeight 是进度条模式（只有任务与进度条，不显示对话）的默认高度。
-	panelCompactHeight float32 = 280
 	// panelTopInset 使面板顶端与会话标题栏底边对齐。
 	panelTopInset float32 = HeaderHeight
 	// panelMaxStackSlots 是每侧最多可放的面板槽数。
@@ -103,8 +101,6 @@ type panelLayout struct {
 	stackDepth int
 	// prefW/prefH 是用户拖拽设定的尺寸，0 表示自动。
 	prefW, prefH float32
-	// compact 表示面板显示进度条而非对话，自动高度更矮。
-	compact bool
 }
 
 func (l panelLayout) width() float32 {
@@ -155,8 +151,6 @@ func (l panelLayout) height() float32 {
 	switch {
 	case l.prefH > 0:
 		ideal = l.prefH
-	case l.compact:
-		ideal = panelCompactHeight
 	default:
 		ideal = min(520, max(300, l.paneH*0.5))
 	}
@@ -339,8 +333,6 @@ type sceneInput struct {
 	prefW, prefH float32
 	// bees 是主会话当前所有子代理，按派出顺序。
 	bees []SwarmBee
-	// showsDetails 为 true 时面板显示对话，否则显示进度条（更矮）。
-	showsDetails bool
 	// autoPops 为 true 时，第一个之后的每个子代理在空间允许时有自己的面板。
 	autoPops bool
 	// showsTeam 为 false 表示团队面板被用户关闭。
@@ -405,16 +397,11 @@ func (sc swarmScene) lockedSide(excluding panelID) (panelSide, bool) {
 func computeSwarmScene(in sceneInput) swarmScene {
 	measured := in.paneW > 0 && in.paneH > 0
 	showsTeam := in.showsTeam && (len(in.bees) > 0 || in.forcesTeam) && measured
-	compact := !in.showsDetails
-
-	single := panelLayout{paneW: in.paneW, paneH: in.paneH, composerAreaH: in.composerAreaH, contentMaxW: in.contentMaxW, stackDepth: 1, prefW: in.prefW, prefH: in.prefH, compact: compact}
+	single := panelLayout{paneW: in.paneW, paneH: in.paneH, composerAreaH: in.composerAreaH, contentMaxW: in.contentMaxW, stackDepth: 1, prefW: in.prefW, prefH: in.prefH}
 	fitsBoth := single.fitsBothSides()
 
 	// 每侧最多放几个面板：按它们缩到最小时的高度计，至多三个。
 	smallest := panelMinHeight
-	if compact {
-		smallest = panelCompactHeight
-	}
 	if in.prefH > 0 {
 		smallest = min(smallest, max(panelMinHeight, in.prefH))
 	}
@@ -586,7 +573,7 @@ func computeSwarmScene(in sceneInput) swarmScene {
 		}
 	}
 
-	layout := panelLayout{paneW: in.paneW, paneH: in.paneH, composerAreaH: in.composerAreaH, contentMaxW: in.contentMaxW, stackDepth: stackDepth, prefW: in.prefW, prefH: in.prefH, compact: compact}
+	layout := panelLayout{paneW: in.paneW, paneH: in.paneH, composerAreaH: in.composerAreaH, contentMaxW: in.contentMaxW, stackDepth: stackDepth, prefW: in.prefW, prefH: in.prefH}
 	var reserve panelReserve
 	if sidesUsed[panelSideLeading] {
 		reserve.leading = layout.composerReserve()

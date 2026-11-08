@@ -608,7 +608,6 @@ func TestMigrateV2ToV3RenamesKeys(t *testing.T) {
 			"always_heads":                  true,
 			"review_heads":                  true,
 			"auto_hides_idle_heads":         true,
-			"shows_head_details":            true,
 			"auto_pops_heads":               true,
 			"archives_codex_heads":          true,
 			"tempers_head_effort":           false,
@@ -643,7 +642,6 @@ func TestMigrateV2ToV3RenamesKeys(t *testing.T) {
 		"always_bees":                   true,
 		"review_bees":                   true,
 		"auto_hides_idle_bees":          true,
-		"shows_bee_details":             true,
 		"auto_pops_bees":                true,
 		"archives_codex_bees":           true,
 		"tempers_bee_effort":            false,
@@ -664,7 +662,7 @@ func TestMigrateV2ToV3RenamesKeys(t *testing.T) {
 	}
 	for _, oldKey := range []string{
 		"max_heads", "queue_heads", "always_heads", "review_heads",
-		"auto_hides_idle_heads", "shows_head_details", "auto_pops_heads",
+		"auto_hides_idle_heads", "auto_pops_heads",
 		"archives_codex_heads", "tempers_head_effort", "hydra_max_rounds",
 		"hydraHeadTimeoutMinutes", "hydraRequestTimeoutMinutes",
 	} {

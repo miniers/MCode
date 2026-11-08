@@ -69,7 +69,6 @@ func v8SampleV7() map[string]any {
 			"lead_plans_only":               true,
 			"auto_clear_finished":           true,
 			"auto_hides_idle_bees":          true,
-			"shows_bee_details":             true,
 			"auto_pops_bees":                true,
 			"panel_width":                   420.0,
 			"panel_height":                  260.0,

@@ -11,7 +11,7 @@ func TestSessionOrchestrationDefaultsAndDisabledRoundTrip(t *testing.T) {
 		t.Fatalf("提供方默认值不正确: %+v", cfg.Providers)
 	}
 	o := cfg.Orchestration
-	if o.MaxBees != 4 || o.MaxRounds != 10 || o.BeeTimeoutMinutes != 60 || !o.RetryFailed || !o.AutoMerge || !o.LeadPlansOnly || !o.AutoClearFinished || !o.AutoHidesIdleBees || !o.ShowsBeeDetails || !o.AutoPopsBees || o.AutoForwardQuestionSeconds != 180 {
+	if o.MaxBees != 4 || o.MaxRounds != 10 || o.BeeTimeoutMinutes != 60 || !o.RetryFailed || !o.AutoMerge || !o.LeadPlansOnly || !o.AutoClearFinished || !o.AutoHidesIdleBees || !o.AutoPopsBees || o.AutoForwardQuestionSeconds != 180 {
 		t.Fatalf("编排默认值不正确: %+v", o)
 	}
 	if o.Steward.Name != "MoCo" || o.Steward.Avatar != "🤖" || o.Steward.QuietStart != "00:00" || o.Steward.QuietEnd != "06:00" {

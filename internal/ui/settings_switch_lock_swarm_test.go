@@ -70,36 +70,3 @@ func TestSwarmSwitchAutoMergePersists(t *testing.T) {
 		t.Fatalf("只因切换自动合并就被连带动了自动推送: %+v", saved.Orchestration)
 	}
 }
-
-// TestSwarmSwitchShowsBeeDetailsPersists 覆盖「显示子代理详细步骤」：从关闭切换到开启并落盘，
-// 同时不能连带改动相邻的「自动弹出子代理面板」。
-func TestSwarmSwitchShowsBeeDetailsPersists(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	st := NewSettingsState(settingsTestDir(t), nil, nil)
-	st.cfg.Orchestration.ShowsBeeDetails = false
-	st.cfg.Orchestration.AutoPopsBees = false
-	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c).Width(1100).Children(func() { renderPageSwarm(c, st) })
-	}, 1200, 7000)
-	tt.Frame()
-
-	if st.cfg.Orchestration.ShowsBeeDetails {
-		t.Fatalf("显示子代理详细步骤应默认关闭")
-	}
-	if err := tt.Click("切换显示子代理详细步骤"); err != nil {
-		t.Fatalf("点击显示子代理详细步骤开关失败: %v", err)
-	}
-	waitFor(t, tt, func() bool { return st.cfg.Orchestration.ShowsBeeDetails })
-	settingsSaveWriters.Wait()
-
-	saved, err := config.Load(st.dataDir)
-	if err != nil {
-		t.Fatalf("读取已保存的配置失败: %v", err)
-	}
-	if !saved.Orchestration.ShowsBeeDetails {
-		t.Fatalf("开启显示子代理详细步骤后未写入 config.json: %+v", saved.Orchestration)
-	}
-	if saved.Orchestration.AutoPopsBees {
-		t.Fatalf("只因切换显示子代理详细步骤就被连带动了自动弹出子代理面板: %+v", saved.Orchestration)
-	}
-}

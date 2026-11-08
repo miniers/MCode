@@ -47,7 +47,6 @@ var swarmSectionKeyMoves = [][2]string{
 	{"always_heads", "always_bees"},
 	{"review_heads", "review_bees"},
 	{"auto_hides_idle_heads", "auto_hides_idle_bees"},
-	{"shows_head_details", "shows_bee_details"},
 	{"auto_pops_heads", "auto_pops_bees"},
 	{"archives_codex_heads", "archives_codex_bees"},
 	{"tempers_head_effort", "tempers_bee_effort"},

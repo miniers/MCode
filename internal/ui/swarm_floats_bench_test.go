@@ -13,7 +13,7 @@ import (
 // 子代理浮窗多时的性能基准。
 //
 // 场景对齐用户反馈的极端情况：主会话派出 30 个子代理（4 个运行中、其余已完成并带长汇报），
-// 打开“显示子代理详细步骤”与“自动分散展示”，4 个浮窗同时可见，
+// 打开“自动分散展示”，4 个浮窗同时可见，
 // 每个运行中的子代理各有约 200 条消息（长 Markdown 正文、推理与工具调用）。
 // 静止渲染基准测一帧的耗时与分配；流式增量基准模拟 4 个 bee 交替追加增量，
 // 每次增量都走一遍真实的会话更新路径并重绘一帧。
@@ -196,7 +196,6 @@ func newSwarmFloatsBenchState(b *testing.B) *swarmFloatsBenchState {
 
 	s, view := buildRoot(fake)
 	st := NewSettingsState(b.TempDir(), nil, s)
-	st.cfg.Orchestration.ShowsBeeDetails = true
 	st.cfg.Orchestration.AutoPopsBees = true
 	setChatSettings(s, st)
 

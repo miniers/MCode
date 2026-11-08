@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown"
 )
 
 // 子代理浮动面板。
@@ -614,7 +613,7 @@ func revealSwarmFloatForBee(leadID, threadID string) {
 
 // swarmAutoPopsFor 返回当前生效的“自动分散展示”状态：内存覆盖优先，其次读设置。
 func swarmAutoPopsFor(s *chatState, leadID string) bool {
-	_, autoPops, _, _ := swarmFloatPrefs(s)
+	autoPops, _, _ := swarmFloatPrefs(s)
 	swarmFloatMu.Lock()
 	override, ok := swarmAutoPopsOverride[leadID]
 	swarmFloatMu.Unlock()
@@ -682,13 +681,13 @@ type swarmFloatFrame struct {
 	stackOrder []panelID
 }
 
-// swarmFloatPrefs 读取设置里与面板有关的项：显示详细步骤、自动弹出，以及拖拽设定的尺寸。
-func swarmFloatPrefs(s *chatState) (details, autoPops bool, prefW, prefH float32) {
+// swarmFloatPrefs 读取自动弹出设置和拖拽设定的尺寸。
+func swarmFloatPrefs(s *chatState) (autoPops bool, prefW, prefH float32) {
 	if st := getChatSettings(s); st != nil {
 		h := st.cfg.Orchestration
-		return h.ShowsBeeDetails, h.AutoPopsBees, h.PanelWidth, h.PanelHeight
+		return h.AutoPopsBees, h.PanelWidth, h.PanelHeight
 	}
-	return false, false, 0, 0
+	return false, 0, 0
 }
 
 // swarmFloatFrameFor 由窗口尺寸、侧边栏与右侧分栏状态、面板状态算出本帧的面板场景；
@@ -724,7 +723,7 @@ func swarmFloatFrameFor(c *ui.Context, s *chatState) swarmFloatFrame {
 	f.leadID = leadID
 	f.bees = bees
 	showsTeam := forced || !isSwarmFloatPanelDismissed(f.leadID, bees)
-	details, autoPops, prefW, prefH := swarmFloatPrefs(s)
+	autoPops, prefW, prefH := swarmFloatPrefs(s)
 	swarmFloatMu.Lock()
 	if override, ok := swarmAutoPopsOverride[f.leadID]; ok {
 		autoPops = override
@@ -755,7 +754,6 @@ func swarmFloatFrameFor(c *ui.Context, s *chatState) swarmFloatFrame {
 		prefW:         prefW,
 		prefH:         prefH,
 		bees:          bees,
-		showsDetails:  details,
 		autoPops:      autoPops,
 		showsTeam:     showsTeam,
 		forcesTeam:    forced,
@@ -819,7 +817,7 @@ func renderSwarmBeeFloats(c *ui.Context, s *chatState) {
 	}
 }
 
-// renderSwarmPanelCard 渲染一个面板：顶栏、主体（进度或对话）、嵌入的输入框与缩放抓手。
+// renderSwarmPanelCard 渲染一个面板：顶栏、对话、嵌入的输入框与缩放抓手。
 // 没有子代理时只可能是用户强制显示的空团队面板：顶栏写“编排”，主体是居中的空态，没有输入框。
 func renderSwarmPanelCard(c *ui.Context, s *chatState, f swarmFloatFrame, id panelID, bees []SwarmBee) {
 	slot, ok := f.scene.slots[id]
@@ -888,16 +886,11 @@ func renderSwarmPanelCard(c *ui.Context, s *chatState, f swarmFloatFrame, id pan
 			return
 		}
 		child := beeChatState(s, *cur)
-		details, _, _, _ := swarmFloatPrefs(s)
 		renderSwarmPanelStrip(c, s, f, id, key, rest, *cur, bees, child)
 		// 以子代理 ID 为键的容器：切换所选子代理时，输入框与列表的内部状态不串到另一个子代理。
 		ui.Column(c.Key("swarm-bee-" + cur.ThreadID)).Grow(1).MinHeight(0).FillWidth().Children(func() {
 			ui.Column(c.Key("swarm-body")).Grow(1).MinHeight(0).FillWidth().Clip().Children(func() {
-				if details {
-					renderBeeTimeline(c, child, *cur)
-				} else {
-					renderBeeProgress(c, child, *cur)
-				}
+				renderBeeTimeline(c, child, *cur)
 			})
 			// 子线程的提问与审批卡片停靠在嵌入输入框的正上方。
 			renderApproval(c, child)
@@ -1351,96 +1344,6 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 	})
 }
 
-// beeStepWeight 把一条消息归类为进度条上的一格：高度表示改动程度（查阅 < 命令 < 编辑 < 回复）。
-func beeStepWeight(m Message) (float32, bool) {
-	switch m.Role {
-	case "assistant":
-		if m.Kind == "reasoning" {
-			return 0, false
-		}
-		return 1, true
-	case "tool":
-		name := strings.ToLower(m.ToolName + " " + m.Text)
-		switch {
-		case strings.Contains(name, "edit"), strings.Contains(name, "write"), strings.Contains(name, "patch"):
-			return 0.85, true
-		case strings.Contains(name, "bash"), strings.Contains(name, "command"), strings.Contains(name, "shell"), strings.Contains(name, "run"):
-			return 0.65, true
-		default:
-			return 0.45, true
-		}
-	}
-	return 0, false
-}
-
-// renderBeeProgress 渲染面板的进度视图（“显示子代理详细步骤”关闭时）：任务、步骤进度条与计数。
-func renderBeeProgress(c *ui.Context, child *chatState, bee SwarmBee) {
-	child.mu.Lock()
-	var weights []float32
-	for _, m := range child.messages {
-		if w, ok := beeStepWeight(m); ok {
-			weights = append(weights, w)
-		}
-	}
-	child.mu.Unlock()
-	const maxBars = 60
-	if len(weights) > maxBars {
-		weights = weights[len(weights)-maxBars:]
-	}
-
-	ui.Column(c.Key("swarm-progress")).Grow(1).FillWidth().Padding(Space1, Space4, Space3, Space4).Gap(Space4).Children(func() {
-		if bee.Task != "" {
-			ui.Column(c.Key("swarm-progress-task")).FillWidth().Padding(Space2, Space3).Radius(RadiusSM).Background(ThemeHover(c).Alpha(0.3)).Children(func() {
-				ui.Text(c, "任务目标: "+bee.Task).FontSize(TypeFootnote).TextColor(ThemePrimaryText(c).Alpha(0.88))
-			})
-		}
-
-		const staveH float32 = 44
-		ui.Row(c.Key("swarm-progress-stave")).FillWidth().Height(staveH).AlignItems(ui.End).Gap(Space0).Children(func() {
-			for i, w := range weights {
-				col := ThemeSecondaryText(c).Alpha(0.5)
-				switch w {
-				case 1:
-					col = ThemeSuccess(c)
-				case 0.85:
-					col = ThemeWarning(c)
-				case 0.65:
-					col = ThemeAccent(c)
-				}
-				ui.Box(c.Key("swarm-bar-" + strconv.Itoa(i))).Width(Space1).Height(staveH * w).Radius(RadiusXS).Background(col)
-			}
-		})
-
-		ui.Row(c.Key("swarm-progress-activity")).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
-			if bee.Status == "running" {
-				renderRunningGlyph(c, "bee-float-run-progress-"+bee.ThreadID, 10, ThemeAccent(c))
-			} else {
-				ui.Icon(c, IconCircleDot()).Size(11, 11).TextColor(ThemeSecondaryText(c))
-			}
-			act := strings.TrimSpace(bee.Activity)
-			if act == "" {
-				act = "正在执行任务…"
-				if bee.Status != "running" {
-					act = swarmStatusLabel(bee.Status)
-				}
-			}
-			ui.Text(c, act).FontSize(TypeFootnote).FontWeight(500).TextColor(ThemeSecondaryText(c)).Grow(1)
-		})
-
-		if bee.ToolCalls > 0 || bee.Tokens > 0 {
-			ui.Text(c, fmt.Sprintf("%d 次调用 · %s tokens", bee.ToolCalls, formatTokens(int64(bee.Tokens)))).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
-		}
-
-		if bee.Summary != "" {
-			ui.Column(c.Key("swarm-progress-summary")).FillWidth().Padding(Space3).Radius(RadiusMD).Background(ThemeHover(c).Alpha(0.35)).BorderWidth(1).BorderColor(ThemeBorder(c)).Gap(Space1).Children(func() {
-				ui.Text(c, "工作汇报").FontSize(TypeCaption).FontWeight(600).TextColor(ThemeAccent(c))
-				// 汇报正文按 Markdown 渲染（静态整段呈现，字号与原正文一致，自带选区复制）。
-				markdown.View(c, bee.Summary, swarmReportMarkdownOptions(c, child, TypeFootnote))
-			})
-		}
-	})
-}
-
 // beeTimelineViewKey 标识子代理时间线视图的本地状态：视图被销毁重建后它会回到初始值。
 type beeTimelineViewKey struct{}
 
@@ -1452,7 +1355,7 @@ func beeViewGeneration(c *ui.Context, view ui.Element) int {
 	return *gen
 }
 
-// renderBeeTimeline 渲染面板的对话视图（“显示子代理详细步骤”开启时）：复用主会话的时间线行渲染。
+// renderBeeTimeline 渲染面板的对话视图，复用主会话的时间线行渲染。
 func renderBeeTimeline(c *ui.Context, s *chatState, bee SwarmBee) {
 	ensureChatMarkdown(c, s)
 
