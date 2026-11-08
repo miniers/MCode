@@ -373,6 +373,7 @@ type ThreadUpdateParams struct {
 	RuntimeMode *string `json:"runtimeMode,omitempty"`
 	Provider    *string `json:"provider,omitempty"`
 	Model       *string `json:"model,omitempty"`
+	Effort      *string `json:"effort,omitempty"`
 }
 
 // ThreadUpdateResult 对应 threads.update 成功结果

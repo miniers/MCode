@@ -95,17 +95,19 @@ export interface ModelPickerPanelProps {
   notice?: React.ReactNode;
   /** 打开面板时自动聚焦搜索框 */
   autoFocusSearch?: boolean;
+  allowedProviderID?: string;
 }
 
 interface PanelRowProps {
   row: PickerRow;
   selected: boolean;
+  allowedProviderID?: string;
   onSelect: (providerID: string, modelID: string) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void;
 }
 
 /** 选择器单行：整行可点，右侧显示上下文窗口与选中标记。 */
-const PanelRow: React.FC<PanelRowProps> = ({ row, selected, onSelect, onKeyDown }) => {
+const PanelRow: React.FC<PanelRowProps> = ({ row, selected, allowedProviderID, onSelect, onKeyDown }) => {
   const context = formatContextLimit(row.model.contextLimit);
   const meta = [row.subtitle, row.reason].filter((part): part is string => Boolean(part)).join(' · ');
 
@@ -115,7 +117,7 @@ const PanelRow: React.FC<PanelRowProps> = ({ row, selected, onSelect, onKeyDown 
       data-picker-row="true"
       data-picker-provider={row.provider.id}
       data-picker-model={row.model.id}
-      disabled={row.disabled}
+      disabled={row.disabled || Boolean(allowedProviderID && row.provider.id !== allowedProviderID)}
       onClick={() => onSelect(row.provider.id, row.model.id)}
       onKeyDown={onKeyDown}
       className="flex w-full items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-left transition-colors enabled:hover:bg-[var(--user-bubble)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40 disabled:opacity-40"
@@ -184,6 +186,7 @@ export const ModelPickerPanel: React.FC<ModelPickerPanelProps> = ({
   onSelect,
   header,
   notice,
+  allowedProviderID,
   autoFocusSearch = false
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -276,6 +279,7 @@ export const ModelPickerPanel: React.FC<ModelPickerPanelProps> = ({
           <PanelHeading>当前</PanelHeading>
           <PanelRow
             row={sections.current}
+            allowedProviderID={allowedProviderID}
             selected={sections.current.key === selectedKey}
             onSelect={onSelect}
             onKeyDown={handleRowKeyDown}
@@ -292,6 +296,7 @@ export const ModelPickerPanel: React.FC<ModelPickerPanelProps> = ({
             <PanelRow
               key={row.key}
               row={row}
+              allowedProviderID={allowedProviderID}
               selected={row.key === selectedKey}
               onSelect={onSelect}
               onKeyDown={handleRowKeyDown}
@@ -359,6 +364,7 @@ export const ModelPickerPanel: React.FC<ModelPickerPanelProps> = ({
                       <PanelRow
                         key={row.key}
                         row={row}
+                        allowedProviderID={allowedProviderID}
                         selected={row.key === selectedKey}
                         onSelect={onSelect}
                         onKeyDown={handleRowKeyDown}
@@ -371,6 +377,7 @@ export const ModelPickerPanel: React.FC<ModelPickerPanelProps> = ({
                       <PanelRow
                         key={row.key}
                         row={row}
+                        allowedProviderID={allowedProviderID}
                         selected={row.key === selectedKey}
                         onSelect={onSelect}
                         onKeyDown={handleRowKeyDown}

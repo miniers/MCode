@@ -1093,6 +1093,85 @@ func TestMemoryBackend_TurnIndexSemanticConsecutiveTurns(t *testing.T) {
 	}
 }
 
+func TestMemoryBackend_UpdateThreadRunningOptions(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name     string
+		provider string
+		model    string
+		effort   string
+		invalid  bool
+	}{
+		{name: "effort", effort: "high"},
+		{name: "invalid effort", effort: "invalid", invalid: true},
+		{name: "model", model: DefaultModel("codex")},
+		{name: "provider", provider: "claude", invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hub := NewStreamHub(StreamHubOptions{})
+			defer hub.Close()
+			backend := NewMemoryBackend(hub)
+			defer backend.Close()
+			st, err := store.Open(filepath.Join(t.TempDir(), "thread.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			if err := backend.AttachStore(ctx, st); err != nil {
+				t.Fatal(err)
+			}
+			backend.AddProject(wire.ProjectSummary{ID: "p1", Name: "Project", Path: t.TempDir()})
+			created, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			backend.mu.Lock()
+			backend.threads[created.ThreadID].summary.IsRunning = true
+			backend.threads[created.ThreadID].summary.Provider = "codex"
+			backend.threads[created.ThreadID].summary.Model = nil
+			backend.mu.Unlock()
+			params := wire.ThreadUpdateParams{ThreadID: created.ThreadID}
+			if tc.provider != "" {
+				params.Provider = &tc.provider
+			}
+			if tc.model != "" {
+				params.Model = &tc.model
+			}
+			if tc.effort != "" {
+				params.Effort = &tc.effort
+			}
+			var changed wire.ThreadsChanged
+			backend.SetThreadsChangedHook(func(event wire.ThreadsChanged) { changed = event })
+			result, err := backend.UpdateThread(ctx, params)
+			if tc.invalid {
+				var rpcErr *wire.RPCError
+				if !errors.As(err, &rpcErr) || rpcErr.Code != wire.InvalidParams {
+					t.Fatalf("expected InvalidParams, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.model != "" && derefString(result.Thread.Model) != tc.model {
+				t.Fatalf("model = %v", result.Thread.Model)
+			}
+			if tc.effort != "" {
+				if derefString(result.Thread.Effort) != tc.effort {
+					t.Fatalf("effort = %v", result.Thread.Effort)
+				}
+				stored, err := st.GetThread(ctx, created.ThreadID)
+				if err != nil || stored.Effort != tc.effort {
+					t.Fatalf("stored effort = %q, error = %v", stored.Effort, err)
+				}
+			}
+			if len(changed.Threads) != 1 || changed.Threads[0].ID != created.ThreadID {
+				t.Fatalf("threads.changed = %+v", changed)
+			}
+		})
+	}
+}
+
 func TestMemoryBackend_UpdateThreadPinnedAndArchived(t *testing.T) {
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{})

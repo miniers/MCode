@@ -715,6 +715,9 @@ export type RemoteThreadsUpdateParams = {
   archived?: boolean;
   read?: boolean;
   title?: string;
+  provider?: string;
+  model?: string;
+  effort?: string;
 };
 
 export type RemoteThreadsUpdateResult = {

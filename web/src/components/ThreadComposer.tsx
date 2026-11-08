@@ -147,6 +147,8 @@ export interface ThreadComposerProps {
   composerOptions?: RemoteComposerOptions;
   providers?: RemoteProviderListWithCatalog;
   composerOptionsDisabled?: boolean;
+  modelOptionsDisabled?: boolean;
+  runningProviderID?: string;
   composerOptionsMessage?: string | null;
   attachmentsSupported?: boolean;
   /** 单条消息附件数量上限；省略时按旧宿主行为使用 4 */
@@ -659,6 +661,8 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   composerOptions,
   providers = [] as RemoteProviderListWithCatalog,
   composerOptionsDisabled = false,
+  modelOptionsDisabled = composerOptionsDisabled,
+  runningProviderID,
   composerOptionsMessage,
   attachmentsSupported = false,
   attachmentLimit,
@@ -1879,7 +1883,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
               <button
                 type="button"
                 ref={modelPillRef}
-                disabled={composerOptionsDisabled}
+                disabled={modelOptionsDisabled}
                 onClick={() => {
                   setModelQuery('');
                   setModelSheetPage('summary');
@@ -2406,6 +2410,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                         selectedKey={
                           activePair || !provider || !model ? null : `${provider.id}/${model.id}`
                         }
+                        allowedProviderID={runningProviderID}
                         onSelect={(providerID, modelID) => {
                           selectProviderAndModel(providerID, modelID);
                           setModelSheetPage('summary');

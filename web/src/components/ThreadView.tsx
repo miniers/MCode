@@ -357,6 +357,9 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const composerOptionsDirtyRef = useRef(false);
   // 记忆写入以 ref 保存的当前选择为准，避免回调拿到过期值
   const composerOptionsRef = useRef(composerOptions);
+  const modelUpdatePendingRef = useRef<string | null>(null);
+  const composerThreadIDRef = useRef(thread.id);
+  composerThreadIDRef.current = thread.id;
   composerOptionsRef.current = composerOptions;
   const rememberSelectionSupported = Boolean(capabilities?.methods.includes('providers.rememberSelection'));
 
@@ -381,6 +384,46 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     },
     [latestSummary.projectID, rememberSelection]
   );
+  const updateRunningComposerOptions = useCallback((next: RemoteComposerOptions) => {
+    const previous = composerOptionsRef.current;
+    if (!latestSummary.isRunning) {
+      updateComposerOptions(next);
+      return;
+    }
+    if (next.provider !== previous.provider && next.provider && next.provider !== latestSummary.provider) {
+      setSendError('运行中无法更换 Agent');
+      return;
+    }
+    const modelChanged = next.model !== previous.model;
+    const effortChanged = next.effort !== previous.effort;
+    if (!modelChanged && !effortChanged) {
+      updateComposerOptions(next);
+      return;
+    }
+    if (modelUpdatePendingRef.current === thread.id) return;
+    modelUpdatePendingRef.current = thread.id;
+    const wasDirty = composerOptionsDirtyRef.current;
+    updateComposerOptions(next);
+    const changes = modelChanged ? { model: next.model } : { effort: next.effort ?? '' };
+    void updateThread(thread.id, changes).then((summary) => {
+      if (composerThreadIDRef.current !== thread.id) return;
+      const current = composerOptionsRef.current;
+      const resolved = { ...current, provider: summary.provider, model: summary.model ?? undefined, effort: summary.effort ?? undefined };
+      composerOptionsRef.current = resolved;
+      setComposerOptions(resolved);
+      composerOptionsDirtyRef.current = current !== next;
+    }).catch((error: unknown) => {
+      if (composerThreadIDRef.current !== thread.id) return;
+      const current = composerOptionsRef.current;
+      const reverted = { ...current, provider: previous.provider, model: previous.model, effort: previous.effort };
+      composerOptionsRef.current = reverted;
+      setComposerOptions(reverted);
+      composerOptionsDirtyRef.current = wasDirty || current !== next;
+      setSendError(error instanceof Error ? error.message : '更新模型失败');
+    }).finally(() => {
+      if (modelUpdatePendingRef.current === thread.id) modelUpdatePendingRef.current = null;
+    });
+  }, [latestSummary.isRunning, latestSummary.provider, thread.id, updateComposerOptions, updateThread]);
   // 宿主摘要变化（Mac 上改了模型/权限/编排等）时同步输入区；用户改过则以用户选择为准
   useEffect(() => {
     if (composerOptionsDirtyRef.current) return;
@@ -3551,6 +3594,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
               composerOptions={composerOptionsSupported ? composerOptions : undefined}
               providers={providers}
               composerOptionsDisabled={latestSummary.isRunning || isSending || Boolean(unresolvedSendAction)}
+              modelOptionsDisabled={isSending || Boolean(unresolvedSendAction)}
+              runningProviderID={latestSummary.isRunning ? latestSummary.provider : undefined}
               composerOptionsMessage={composerOptionsSupported
                 ? providersLoading
                   ? '正在读取 Provider 目录…'
@@ -3560,7 +3605,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
                 : '当前宿主未声明 composer options，将使用 Mac 默认设置。'}
               attachmentsSupported={attachmentsSupported}
               attachmentLimit={attachmentLimit}
-              onComposerOptionsChange={composerOptionsSupported ? updateComposerOptions : undefined}
+              onComposerOptionsChange={composerOptionsSupported ? updateRunningComposerOptions : undefined}
               swarmEnabled={swarmState?.isBee ? undefined : swarmShownOn}
               swarmToggleDisabled={
                 !swarmAvailable || isTogglingSwarm || (swarmLoading && swarmState === null)

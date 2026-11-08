@@ -4275,6 +4275,9 @@ func (b *MemoryBackend) createThread(ctx context.Context, params wire.ThreadCrea
 
 // UpdateThread 更新指定会话的属性（支持 runtimeMode、title、provider、model），并通过 StreamHub 推送更新。
 func (b *MemoryBackend) UpdateThread(ctx context.Context, params wire.ThreadUpdateParams) (wire.ThreadUpdateResult, error) {
+	if params.Effort != nil && !isValidEffort(*params.Effort) {
+		return wire.ThreadUpdateResult{}, &wire.RPCError{Code: wire.InvalidParams, Message: fmt.Sprintf("invalid effort %q", *params.Effort)}
+	}
 	if params.RuntimeMode != nil && !isValidRuntimeMode(*params.RuntimeMode) {
 		return wire.ThreadUpdateResult{}, &wire.RPCError{
 			Code:    wire.InvalidParams,
@@ -4349,6 +4352,13 @@ func (b *MemoryBackend) UpdateThread(ctx context.Context, params wire.ThreadUpda
 	} else if providerChanged {
 		targetModel = DefaultModel(targetProvider)
 		modelChanged = true
+	}
+	effortChanged := params.Effort != nil && *params.Effort != derefString(td.summary.Effort)
+	if effortChanged && b.store != nil {
+		if err := b.store.UpdateThreadComposerPrefs(ctx, params.ThreadID, td.summary.InteractionMode, *params.Effort, derefString(td.summary.SwarmBeesProvider), derefString(td.summary.SwarmBeesModel), derefString(td.summary.SwarmBeesEffort), td.summary.Persona); err != nil {
+			b.mu.Unlock()
+			return wire.ThreadUpdateResult{}, err
+		}
 	}
 
 	var (
@@ -4515,9 +4525,12 @@ func (b *MemoryBackend) UpdateThread(ctx context.Context, params wire.ThreadUpda
 		m := targetModel
 		td.summary.Model = &m
 	}
+	if effortChanged {
+		td.summary.Effort = optionalString(*params.Effort)
+	}
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if titleChanged || runtimeModeChanged || providerChanged || modelChanged || pinnedChanged || archivedChanged || dormantChanged || unreadChanged {
+	if titleChanged || runtimeModeChanged || providerChanged || modelChanged || effortChanged || pinnedChanged || archivedChanged || dormantChanged || unreadChanged {
 		td.summary.UpdatedAt = now
 	}
 
