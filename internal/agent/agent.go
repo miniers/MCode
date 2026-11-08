@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"mcode/internal/agent/gate"
@@ -281,28 +282,84 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			}
 			return nil
 		}
-		for i, call := range response.Message.ToolCalls {
+		for i := 0; i < len(response.Message.ToolCalls); {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			emit(harness.Event{Type: harness.EventToolStart, ToolID: call.ID, ToolName: call.Name, Input: call.Arguments})
-			var result tools.Result
-			if invalid[i] {
-				result = tools.Result{Text: "Invalid or incomplete tool arguments", IsError: true}
-			} else {
-				result = runTool(ctx, opts, call)
+			call := response.Message.ToolCalls[i]
+			var batch []toolRun
+			if !invalid[i] {
+				if tool, verdict := resolveTool(opts, call); tool != nil && tool.ReadOnly && verdict.Action == gate.Allow {
+					batch = append(batch, toolRun{call: call, tool: tool, verdict: verdict})
+					for j := i + 1; j < len(response.Message.ToolCalls) && !invalid[j]; j++ {
+						next := response.Message.ToolCalls[j]
+						tool, verdict := resolveTool(opts, next)
+						if tool == nil || !tool.ReadOnly || verdict.Action != gate.Allow {
+							break
+						}
+						batch = append(batch, toolRun{call: next, tool: tool, verdict: verdict})
+					}
+				}
 			}
+			// 单个调用、非只读调用、需要审批的调用和无效调用都保持串行。
+			if len(batch) < 2 {
+				emit(harness.Event{Type: harness.EventToolStart, ToolID: call.ID, ToolName: call.Name, Input: call.Arguments})
+				var result tools.Result
+				if invalid[i] {
+					result = tools.Result{Text: "Invalid or incomplete tool arguments", IsError: true}
+				} else {
+					result = runTool(ctx, opts, call)
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if err := appendMessage(toolMessage(call.ID, result.Text, result.IsError)); err != nil {
+					return fail(err)
+				}
+				pending = pending[1:]
+				emit(harness.Event{Type: harness.EventToolEnd, ToolID: call.ID, ToolName: call.Name, Output: result.Text, IsError: result.IsError})
+				if result.Change != nil {
+					emit(harness.Event{Type: harness.EventFileChange, Path: result.Change.Path, Patch: result.Change.Patch})
+				}
+				i++
+				continue
+			}
+			for _, item := range batch {
+				emit(harness.Event{Type: harness.EventToolStart, ToolID: item.call.ID, ToolName: item.call.Name, Input: item.call.Arguments})
+			}
+			results := make([]tools.Result, len(batch))
+			sem := make(chan struct{}, maxParallelTools)
+			var wg sync.WaitGroup
+			for index, item := range batch {
+				wg.Add(1)
+				go func(index int, item toolRun) {
+					defer wg.Done()
+					defer func() {
+						if r := recover(); r != nil {
+							results[index] = tools.Result{Text: fmt.Sprintf("tool panicked: %v", r), IsError: true}
+						}
+					}()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					results[index] = executeTool(ctx, opts, item.call, item.tool, item.verdict)
+				}(index, item)
+			}
+			wg.Wait()
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if err := appendMessage(toolMessage(call.ID, result.Text, result.IsError)); err != nil {
-				return fail(err)
+			for index, item := range batch {
+				result := results[index]
+				if err := appendMessage(toolMessage(item.call.ID, result.Text, result.IsError)); err != nil {
+					return fail(err)
+				}
+				pending = pending[1:]
+				emit(harness.Event{Type: harness.EventToolEnd, ToolID: item.call.ID, ToolName: item.call.Name, Output: result.Text, IsError: result.IsError})
+				if result.Change != nil {
+					emit(harness.Event{Type: harness.EventFileChange, Path: result.Change.Path, Patch: result.Change.Patch})
+				}
 			}
-			pending = pending[1:]
-			emit(harness.Event{Type: harness.EventToolEnd, ToolID: call.ID, ToolName: call.Name, Output: result.Text, IsError: result.IsError})
-			if result.Change != nil {
-				emit(harness.Event{Type: harness.EventFileChange, Path: result.Change.Path, Patch: result.Change.Patch})
-			}
+			i += len(batch)
 		}
 	}
 	err := fmt.Errorf("agent: maximum rounds reached (%d)", opts.MaxRounds)
@@ -326,7 +383,17 @@ func retryable(err error) bool {
 	return errors.As(err, &netErr)
 }
 
-func runTool(ctx context.Context, opts Options, call llm.ToolCall) tools.Result {
+const maxParallelTools = 8
+
+// toolRun 是一次已经解析好工具和门禁判定的调用。
+type toolRun struct {
+	call    llm.ToolCall
+	tool    *tools.Tool
+	verdict gate.Verdict
+}
+
+// resolveTool 查找工具并计算门禁决定。
+func resolveTool(opts Options, call llm.ToolCall) (*tools.Tool, gate.Verdict) {
 	var tool *tools.Tool
 	for i := range opts.Tools {
 		if opts.Tools[i].Name == call.Name {
@@ -335,9 +402,17 @@ func runTool(ctx context.Context, opts Options, call llm.ToolCall) tools.Result 
 		}
 	}
 	if tool == nil {
-		return tools.Result{Text: "Unknown tool: " + call.Name, IsError: true}
+		return nil, gate.Verdict{}
 	}
 	verdict := gate.Check(gate.Input{Mode: opts.Mode, Plan: opts.Plan, ToolName: call.Name, ToolID: call.ID, Args: call.Arguments, WorkDir: opts.Env.WorkDir, AdditionalDirs: opts.Env.AdditionalDirs})
+	return tool, verdict
+}
+
+// executeTool 处理 Deny/Ask 并执行工具。
+func executeTool(ctx context.Context, opts Options, call llm.ToolCall, tool *tools.Tool, verdict gate.Verdict) tools.Result {
+	if tool == nil {
+		return tools.Result{Text: "Unknown tool: " + call.Name, IsError: true}
+	}
 	if verdict.Action == gate.Deny {
 		return tools.Result{Text: verdict.Reason, IsError: true}
 	}
@@ -373,4 +448,9 @@ func runTool(ctx context.Context, opts Options, call llm.ToolCall) tools.Result 
 		return tools.Result{Text: err.Error(), IsError: true}
 	}
 	return result
+}
+
+func runTool(ctx context.Context, opts Options, call llm.ToolCall) tools.Result {
+	tool, verdict := resolveTool(opts, call)
+	return executeTool(ctx, opts, call, tool, verdict)
 }

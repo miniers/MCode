@@ -6,7 +6,9 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"mcode/internal/agent/gate"
 	"mcode/internal/agent/llm"
@@ -376,5 +378,96 @@ func TestAskUserQuestion(t *testing.T) {
 	}
 	if len(approver.requests) != 1 || approver.requests[0].Kind != harness.RequestKindQuestion || len(approver.requests[0].Questions[0].Choices) != 2 {
 		t.Fatalf("requests = %+v", approver.requests)
+	}
+}
+
+func readOnlyTestTool(name string) tools.Tool {
+	tool := testTool(name)
+	tool.ReadOnly = true
+	return tool
+}
+
+func TestParallelReadOnlyToolCalls(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	calls := []llm.ToolCall{call("1", "read", `{"n":1}`), call("2", "read", `{"n":2}`), call("3", "read", `{"n":3}`)}
+	client := &scriptClient{steps: []scriptStep{{response: reply("tool_use", calls...)}, {response: reply("stop")}}}
+	var barrier sync.WaitGroup
+	barrier.Add(len(calls))
+	tool := readOnlyTestTool("read")
+	tool.Run = func(_ context.Context, _ tools.Env, args json.RawMessage) (tools.Result, error) {
+		barrier.Done()
+		barrier.Wait()
+		return tools.Result{Text: string(args)}, nil
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(context.Background(), Options{Client: client, Store: store, SessionID: "parallel", Tools: []tools.Tool{tool}, Mode: harness.ModeFullAccess}, "hello", nil)
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("parallel read-only tool calls did not run concurrently")
+	}
+	messages := loadMessages(t, store, "parallel")
+	if len(messages) != 6 {
+		t.Fatalf("messages = %+v", messages)
+	}
+	for i, c := range calls {
+		message := messages[2+i]
+		if message.Role != "tool" || message.ToolCallID != c.ID || message.IsError || message.Content[0].Text != string(c.Arguments) {
+			t.Fatalf("tool message %d = %+v, want call %s", i, message, c.ID)
+		}
+	}
+}
+
+func TestMixedToolCallsPreserveOrder(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	calls := []llm.ToolCall{call("1", "read", `{}`), call("2", "write", `{}`), call("3", "grep", `{}`)}
+	client := &scriptClient{steps: []scriptStep{{response: reply("tool_use", calls...)}, {response: reply("stop")}}}
+	opts := Options{Client: client, Store: store, SessionID: "mixed", Mode: harness.ModeFullAccess, Tools: []tools.Tool{readOnlyTestTool("read"), testTool("write"), readOnlyTestTool("grep")}}
+	if err := Run(context.Background(), opts, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	messages := loadMessages(t, store, "mixed")
+	if len(messages) != 6 {
+		t.Fatalf("messages = %+v", messages)
+	}
+	for i, c := range calls {
+		message := messages[2+i]
+		if message.Role != "tool" || message.ToolCallID != c.ID || message.IsError || message.Content[0].Text != "result" {
+			t.Fatalf("tool message %d = %+v, want call %s", i, message, c.ID)
+		}
+	}
+}
+
+func TestParallelToolPanicIsRecovered(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	calls := []llm.ToolCall{call("1", "read", `{}`), call("2", "read", `{"panic":true}`), call("3", "read", `{}`)}
+	client := &scriptClient{steps: []scriptStep{{response: reply("tool_use", calls...)}, {response: reply("stop")}}}
+	tool := readOnlyTestTool("read")
+	tool.Run = func(_ context.Context, _ tools.Env, args json.RawMessage) (tools.Result, error) {
+		if strings.Contains(string(args), "panic") {
+			panic("boom")
+		}
+		return tools.Result{Text: "result"}, nil
+	}
+	opts := Options{Client: client, Store: store, SessionID: "panic", Mode: harness.ModeFullAccess, Tools: []tools.Tool{tool}}
+	if err := Run(context.Background(), opts, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	messages := loadMessages(t, store, "panic")
+	if len(messages) != 6 {
+		t.Fatalf("messages = %+v", messages)
+	}
+	if messages[3].ToolCallID != "2" || !messages[3].IsError || !strings.Contains(messages[3].Content[0].Text, "tool panicked") {
+		t.Fatalf("panicked message = %+v", messages[3])
+	}
+	for _, i := range []int{2, 4} {
+		if messages[i].IsError || messages[i].Content[0].Text != "result" {
+			t.Fatalf("message %d = %+v", i, messages[i])
+		}
 	}
 }

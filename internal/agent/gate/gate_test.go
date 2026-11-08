@@ -4,6 +4,7 @@ package gate
 import (
 	"encoding/json"
 	"math"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -117,6 +118,44 @@ func TestCheck(t *testing.T) {
 				t.Errorf("得到 %+v，期望 action=%s sensitive=%s", got, tc.action, tc.sensitive)
 			}
 		})
+	}
+}
+
+// TestWorkDirInsideControlPlane 覆盖子代理副本位于 ~/.mcode 内时的控制面判断。
+func TestWorkDirInsideControlPlane(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proj := filepath.Join(home, ".mcode", "wt", "proj")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(mode harness.PermissionMode, tool, field, value, workDir string) Verdict {
+		raw, _ := json.Marshal(map[string]any{field: value})
+		return Check(Input{Mode: mode, ToolName: tool, Args: raw, WorkDir: workDir})
+	}
+	got := run(harness.ModeAutoAcceptEdits, "write", "path", filepath.Join(proj, "a.go"), proj)
+	if got.Action != Allow || got.Request.Sensitive != "" {
+		t.Fatalf("副本内写入 = %+v", got)
+	}
+	cfg := filepath.Join(home, ".mcode", "config.json")
+	if got := run(harness.ModeFullAccess, "write", "path", cfg, proj); got.Request.Sensitive != "controlPlane" {
+		t.Fatalf("写 config 敏感标记 = %q", got.Request.Sensitive)
+	}
+	if got := run(harness.ModeAuto, "bash", "command", "cat > "+filepath.Join(proj, "a.go"), proj); got.Request.Sensitive != "" {
+		t.Fatalf("重定向命令敏感标记 = %q", got.Request.Sensitive)
+	}
+	if got := run(harness.ModeAuto, "bash", "command", "rm "+cfg, proj); got.Request.Sensitive != "controlPlane" {
+		t.Fatalf("删除 config 敏感标记 = %q", got.Request.Sensitive)
+	}
+	if got := run(harness.ModeSupervised, "write", "path", filepath.Join(proj, "package.json"), proj); got.Request.Sensitive != "" {
+		t.Fatalf("package.json 敏感标记 = %q", got.Request.Sensitive)
+	}
+	plain := t.TempDir()
+	if got := run(harness.ModeAutoAcceptEdits, "write", "path", filepath.Join(plain, "a.go"), plain); got.Action != Allow || got.Request.Sensitive != "" {
+		t.Fatalf("普通目录写入 = %+v", got)
+	}
+	if got := run(harness.ModeFullAccess, "write", "path", cfg, plain); got.Request.Sensitive != "controlPlane" {
+		t.Fatalf("普通目录写控制面敏感标记 = %q", got.Request.Sensitive)
 	}
 }
 

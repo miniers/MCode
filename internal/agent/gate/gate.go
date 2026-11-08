@@ -355,9 +355,72 @@ func controlPaths(in Input) []string {
 	return out
 }
 
+// insideControlPlaneWorkDir 判断 WorkDir 是否严格位于某个控制面目录之内（不等于目录本身）。
+// swarm 子代理副本与 bee worktree 都放在 ~/.mcode 下，此时副本自身的文件不属于控制面。
+func insideControlPlaneWorkDir(in Input, dirs []string) bool {
+	wd := absolute(in.WorkDir, ".")
+	if wd == "" || wd == string(filepath.Separator) {
+		return false
+	}
+	real := realNearest(wd)
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		if wd != d && within(wd, d) {
+			return true
+		}
+		if real != d && within(real, d) {
+			return true
+		}
+	}
+	return false
+}
+
+// stripWorkDir 把文本中出现的 WorkDir 路径替换成 "."，让只引用副本自身的命令不再命中控制面。
+func stripWorkDir(text string, roots ...string) string {
+	for _, root := range roots {
+		if root == "" || root == "." || root == string(filepath.Separator) {
+			continue
+		}
+		var b strings.Builder
+		for {
+			idx := strings.Index(text, root)
+			if idx < 0 {
+				b.WriteString(text)
+				break
+			}
+			tail := idx + len(root)
+			if idx > 0 && isPathByte(text[idx-1]) || tail < len(text) && isPathByte(text[tail]) {
+				// 只是一段更长路径的前缀，原样保留后再继续找。
+				b.WriteString(text[:tail])
+				text = text[tail:]
+				continue
+			}
+			b.WriteString(text[:idx])
+			b.WriteString(".")
+			text = text[tail:]
+		}
+		text = b.String()
+	}
+	return text
+}
+
+// isPathByte 判断字节是否属于路径中的文件名字符。
+func isPathByte(c byte) bool {
+	return c == '_' || c == '.' || c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
 // checkSensitive 对应 TS 的 checkSensitive、isControlPlanePath 和 commandTouchesControlPlane。
 func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, command string) string {
 	dirs := controlPaths(in)
+	wd := absolute(in.WorkDir, ".")
+	realWD := realNearest(wd)
+	inside := insideControlPlaneWorkDir(in, dirs)
+	var insideRoots []string
+	if inside {
+		insideRoots = []string{wd, realWD}
+	}
 	get := func(key string) string {
 		return argString(args, key)
 	}
@@ -379,15 +442,23 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 		}
 		a := absolute(in.WorkDir, p)
 		real := realNearest(a)
-		for _, d := range dirs {
-			if within(a, d) || within(real, d) {
-				return "controlPlane"
+		// 控制面内的副本写自己的文件不算控制面；副本外的 ~/.mcode 路径照旧拦截。
+		if !(inside && (within(a, wd) || within(real, wd) || within(a, realWD) || within(real, realWD))) {
+			for _, d := range dirs {
+				if within(a, d) || within(real, d) {
+					return "controlPlane"
+				}
 			}
 		}
 	}
 	if kind == harness.RequestKindCommand && !onlyReads(command) {
+		probe := command
+		if inside {
+			// 先把副本自身路径折叠成 "."，只引用副本的命令不再误判。
+			probe = stripWorkDir(probe, insideRoots...)
+		}
 		for _, d := range dirs {
-			if strings.Contains(command, d) {
+			if strings.Contains(probe, d) {
 				return "controlPlane"
 			}
 		}
@@ -405,13 +476,13 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 			}
 			k = strings.ToLower(k)
 			if strings.Contains(k, "path") || strings.Contains(k, "pattern") || strings.Contains(k, "glob") || strings.Contains(k, "file") || strings.Contains(k, "dir") {
-				if credential(s, project) {
+				if credential(s, project, insideRoots) {
 					return "credential"
 				}
 			}
 		}
 	}
-	if kind == harness.RequestKindCommand && credential(command, project) || (kind == harness.RequestKindFileChange || kind == harness.RequestKindTool) && credential(target, project) {
+	if kind == harness.RequestKindCommand && credential(command, project, insideRoots) || (kind == harness.RequestKindFileChange || kind == harness.RequestKindTool) && credential(target, project, insideRoots) {
 		return "credential"
 	}
 	return ""
@@ -446,7 +517,8 @@ func mcodeConfigJSON(text, home string) bool {
 }
 
 // credential 对应 TS 的 touchesCredential 和 matchesEnvFile。
-func credential(text, project string) bool {
+// insideRoots 是位于控制面内的工作目录，其中的 JSON 不算 mcode 配置。
+func credential(text, project string, insideRoots []string) bool {
 	home, _ := os.UserHomeDir()
 	for _, s := range []string{"~/.ssh/", "/.ssh/", "id_rsa", "id_ed25519", "~/.aws/", "~/.config/gcloud", "~/.docker/config.json", "~/.kube/config", "~/.netrc", "~/.pi/agent/auth.json", "~/.mcode/config.json", "~/.ssh", "~/.aws"} {
 		if strings.Contains(text, s) {
@@ -457,7 +529,7 @@ func credential(text, project string) bool {
 		}
 	}
 	// mcode 数据目录下的 JSON 都是控制面配置（always_allow.json、config.json、mcp.json 等）。
-	if mcodeConfigJSON(text, home) {
+	if mcodeConfigJSON(stripWorkDir(text, insideRoots...), home) {
 		return true
 	}
 	if procEnviron.MatchString(text) {
