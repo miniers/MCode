@@ -143,6 +143,9 @@ func buildPaletteItems(s *chatState) []paletteItem {
 				if getChatSettings(cs) == nil {
 					return
 				}
+				if versions := changelogVersions(); len(versions) > 0 {
+					aboutChangelogExpanded[versions[0].Version] = true
+				}
 				openSettingsWindow(cs, "about")
 				if st := currentSettingsWindowState(); st != nil {
 					st.focusSettingsItem(settingsItemHit{Item: settingsItem{ID: "row-about-changelog", Page: "about"}})

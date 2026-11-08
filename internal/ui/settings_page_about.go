@@ -231,9 +231,45 @@ func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageAbout) }
 
 func renderPageAbout(c *ui.Context, st *SettingsState) { renderSettingsTreePage(c, st, pageAbout) }
 
+var aboutChangelogExpanded = map[string]bool{}
+
 func renderAboutChangelog(c *ui.Context, st *SettingsState) {
-	ui.Column(c.Key("about-changelog-content")).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Children(func() {
-		markdown.View(c.Key("about-changelog-markdown"), changelogBody(), swarmReportMarkdownOptions(c, st.chat, TypeBody))
+	ui.Column(c.Key("about-changelog-content")).FillWidth().Children(func() {
+		for _, version := range changelogVersions() {
+			expanded := aboutChangelogExpanded[version.Version]
+			header := ui.ButtonBase(c.Key("about-changelog-header-" + version.Version)).
+				Label("about-changelog-header-" + version.Version).
+				Padding(settingsRowPadY, settingsRowPadX).
+				Radius(RadiusLG)
+			if header.Hovered() {
+				header.Background(ThemeHover(c))
+			} else {
+				header.Background(ui.Transparent)
+			}
+			header.OnClick(func() {
+				aboutChangelogExpanded[version.Version] = !expanded
+				st.invalidate()
+			})
+			header.Children(func() {
+				ui.Row(c.Key("about-changelog-row-" + version.Version)).
+					Grow(1).
+					AlignItems(ui.Center).
+					Justify(ui.SpaceBetween).
+					Children(func() {
+						ui.Text(c, version.Version).FontSize(TypeProse).TextColor(ThemePrimaryText(c))
+						icon := IconChevronRight()
+						if expanded {
+							icon = IconChevronDown()
+						}
+						ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+					})
+			})
+			if expanded {
+				ui.Column(c.Key("about-changelog-body-" + version.Version)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Children(func() {
+					markdown.View(c.Key("about-changelog-markdown-"+version.Version), version.Body, swarmReportMarkdownOptions(c, st.chat, TypeBody))
+				})
+			}
+		}
 	})
 }
 
