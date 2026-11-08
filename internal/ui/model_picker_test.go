@@ -804,14 +804,34 @@ func TestRenderModelList_ProviderCatalogNotice(t *testing.T) {
 	}
 }
 
-// 内置 mcode 分组只在当前这一侧本身就选了 mcode 时出现。
-func TestFilterLegacyMcodeProviders(t *testing.T) {
-	providers := []ProviderInfo{{ID: "mcode"}, {ID: "claude"}}
-	if got := filterLegacyMcodeProviders(providers, "mcode"); len(got) != 2 {
-		t.Fatalf("mcode 会话应保留 mcode 分组：%+v", got)
+func TestMoveMcodeProviderLast(t *testing.T) {
+	cases := []struct {
+		name  string
+		input []string
+		want  []string
+	}{
+		{name: "开头", input: []string{"mcode", "claude", "codex"}, want: []string{"claude", "codex", "mcode"}},
+		{name: "中间", input: []string{"claude", "mcode", "codex"}, want: []string{"claude", "codex", "mcode"}},
+		{name: "没有 mcode", input: []string{"claude", "codex"}, want: []string{"claude", "codex"}},
 	}
-	got := filterLegacyMcodeProviders(providers, "claude")
-	if len(got) != 1 || got[0].ID != "claude" {
-		t.Fatalf("其他会话不应出现 mcode 分组：%+v", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			providers := make([]ProviderInfo, len(tc.input))
+			for i, id := range tc.input {
+				providers[i].ID = id
+			}
+			got := moveMcodeProviderLast(providers)
+			if len(got) != len(tc.want) {
+				t.Fatalf("分组数量 = %d，期望 %d", len(got), len(tc.want))
+			}
+			for i, provider := range got {
+				if provider.ID != tc.want[i] {
+					t.Fatalf("排序结果 = %+v，期望 %v", got, tc.want)
+				}
+				if providers[i].ID != tc.input[i] {
+					t.Fatalf("入参被修改：%+v", providers)
+				}
+			}
+		})
 	}
 }
