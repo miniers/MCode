@@ -384,3 +384,53 @@ func TestSteerLandsAfterFinalDrain(t *testing.T) {
 	}
 	t.Fatalf("Steer() 返回 nil，但插话没有进入模型请求：%+v", client.requests)
 }
+
+// panicOnceClient 第一次请求时 panic，之后正常回答，用于验证兜底后 Harness 仍可复用。
+type panicOnceClient struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *panicOnceClient) Stream(context.Context, llm.Request, func(llm.Delta)) (*llm.Response, error) {
+	c.mu.Lock()
+	c.calls++
+	call := c.calls
+	c.mu.Unlock()
+	if call == 1 {
+		panic("stream exploded")
+	}
+	return answer(), nil
+}
+
+func TestRunRecoversStreamPanic(t *testing.T) {
+	h := harnessFor(&panicOnceClient{}, Options{})
+	err := h.Run(context.Background(), harness.Turn{SessionID: "panicked", Prompt: "hello"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "内置引擎内部错误") || !strings.Contains(err.Error(), "stream exploded") {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if steerErr := h.Steer(context.Background(), "panicked", "text"); !errors.Is(steerErr, harness.ErrNotRunning) {
+		t.Fatalf("panic 之后 Steer() error = %v", steerErr)
+	}
+	if err := h.Run(context.Background(), harness.Turn{SessionID: "after-panic", Prompt: "again"}, nil); err != nil {
+		t.Fatalf("panic 之后重新 Run() error = %v", err)
+	}
+}
+
+func TestRunRecoversToolPanic(t *testing.T) {
+	client := &fakeClient{responses: []*llm.Response{toolCall("explode", "call-1", `{}`), answer()}}
+	h := harnessFor(client, Options{ExtraTools: func(context.Context, harness.Turn) []tools.Tool {
+		return []tools.Tool{{Name: "explode", Description: "panic on purpose", Run: func(context.Context, tools.Env, json.RawMessage) (tools.Result, error) {
+			panic("tool exploded")
+		}}}
+	}})
+	err := h.Run(context.Background(), harness.Turn{SessionID: "tool-panicked", Prompt: "go", Mode: harness.ModeFullAccess}, nil)
+	if err == nil || !strings.Contains(err.Error(), "内置引擎内部错误") || !strings.Contains(err.Error(), "tool exploded") {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if steerErr := h.Steer(context.Background(), "tool-panicked", "text"); !errors.Is(steerErr, harness.ErrNotRunning) {
+		t.Fatalf("panic 之后 Steer() error = %v", steerErr)
+	}
+	if err := h.Run(context.Background(), harness.Turn{Prompt: "again", Mode: harness.ModeFullAccess}, nil); err != nil {
+		t.Fatalf("panic 之后重新 Run() error = %v", err)
+	}
+}

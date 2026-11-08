@@ -93,7 +93,9 @@ func TestMagpieModelPickerVisibilityToggle(t *testing.T) {
 	if control.b.value(&st.cfg) {
 		t.Fatal("默认应隐藏 Magpie 模型")
 	}
-	waitMagpie(t, tt, func() bool { return tt.HasText("在模型选择器中显示") && tt.HasText("网关没有返回模型") })
+	waitMagpie(t, tt, func() bool {
+		return tt.HasText("在模型选择器中显示") && tt.HasText("网关没有返回模型")
+	})
 	st.mu.Lock()
 	st.agentMagpieFor("codex").loading = true
 	st.mu.Unlock()

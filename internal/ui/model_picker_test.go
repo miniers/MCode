@@ -20,7 +20,7 @@ func TestModelPickerHideMagpieModels(t *testing.T) {
 	}
 	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{
 		"claude": {Mode: config.MagpieModeGlobal, Selections: []config.MagpieSelection{{EndpointID: "magpie", Models: []string{"shared"}}}},
-		"codex": {Mode: config.MagpieModeGlobal, Selections: []config.MagpieSelection{{EndpointID: "second", Models: []string{"shared"}}}},
+		"codex":  {Mode: config.MagpieModeGlobal, Selections: []config.MagpieSelection{{EndpointID: "second", Models: []string{"shared"}}}},
 	}
 	targets := magpieinject.Targets(cfg, nil, nil)
 	if len(targets) != 2 {
