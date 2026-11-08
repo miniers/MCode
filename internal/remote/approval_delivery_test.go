@@ -427,6 +427,17 @@ func TestApprovalDelivery_Retry_Success(t *testing.T) {
 		t.Fatalf("expected 1 request with DeliveryError after first attempt, got %+v", listAfterFirst)
 	}
 
+	// 送达失败后 Provider 会再次 Approve 重新登记同一个请求。等这次重新登记的通知到了再重试，
+	// 否则答复会抢在 Provider 重新进入等待之前被判为 stale（卡片被删除）。
+	// 失败分支自己也推一条通知，所以读到两条即可确定重新登记已经发生。
+	for i := 0; i < 2; i++ {
+		select {
+		case <-changedCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for retry re-registration")
+		}
+	}
+
 	// 第二次答复（重试）：预期成功
 	res, err := backend.RespondRequest(ctx, wire.RequestsRespondParams{
 		ThreadID:  threadID,

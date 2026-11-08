@@ -40,6 +40,9 @@ type Options struct {
 	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析前的完整模型串；
 	// 可以为 nil，返回 0 表示未知。
 	ContextWindow func(model string) int
+	// MaxTokens 返回每个模型请求的输出上限（tokens），参数是解析前的完整模型串；
+	// 可以为 nil，返回 0 表示交给 llm 层按模型取默认值。
+	MaxTokens func(model string) int
 	// CostUSD 返回本轮费用（美元），参数是解析前的完整模型串与本轮用量；
 	// 返回假表示不填费用。可以为 nil。
 	CostUSD func(model string, usage harness.Usage) (float64, bool)
@@ -209,6 +212,10 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
 		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, ContextWindow: contextWindow,
 		Emit: runEmit,
+	}
+	if h.opts.MaxTokens != nil {
+		// 复用解析前的完整模型串，与 ContextWindow 的取值方式一致。
+		agentOpts.MaxTokens = func(string) int { return h.opts.MaxTokens(model) }
 	}
 	prompt := turn.Prompt
 	// 把线程的进程登记回调带进工具上下文，上层据此终止当前命令。

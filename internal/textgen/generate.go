@@ -20,12 +20,15 @@ import (
 )
 
 // CheapestModel 返回指定 provider 最便宜的已知模型名称（依据 internal/remote/models.go 的静态列表）。
+// mcode 返回占位模型 default，由内置引擎按设置解析成默认模型。
 func CheapestModel(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "claude":
 		return "haiku"
 	case "codex":
 		return "gpt-5.4-mini"
+	case "mcode":
+		return "default"
 	case "memory":
 		return "echo"
 	default:

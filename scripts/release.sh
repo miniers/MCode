@@ -167,7 +167,9 @@ $(head -c 60000 "$AI_INPUT_TEMP")"
             answer=""; c=""; rest=""
             for ((s=CONFIRM_SECONDS; s>0; s--)); do
                 printf '\r确认使用？[Y/e/n]（%d 秒后自动确认）: \033[K' "$s"
-                if IFS= read -r -n 1 -t 1 c; then
+                rc=0
+                IFS= read -r -n 1 -t 1 c || rc=$?
+                if (( rc == 0 )); then
                     if [[ "$c" == $'\004' ]]; then
                         echo '已取消'
                         exit 0
@@ -180,6 +182,12 @@ $(head -c 60000 "$AI_INPUT_TEMP")"
                         answer="$c$rest"
                     fi
                     break
+                elif (( rc > 128 )); then
+                    continue
+                else
+                    # EOF（Ctrl-D）：read 返回失败且没有读到字符，按取消处理。
+                    echo '已取消'
+                    exit 0
                 fi
             done
             if (( s == 0 )); then

@@ -9,6 +9,7 @@ import (
 
 	"mcode/internal/agent/llm"
 	"mcode/internal/agent/session"
+	"mcode/internal/agent/tools"
 	"mcode/internal/harness"
 )
 
@@ -94,25 +95,29 @@ func TestAutoCompactionFailureStopsRetrying(t *testing.T) {
 		{response: reply("tool_use", call("1", "read", `{}`))},
 		{response: reply("stop")},
 	}}
-	var failures int
+	var errorEvents int
 	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "compact-fail", ContextWindow: 12000, Tools: []tools.Tool{testTool("read")}, Emit: func(event harness.Event) {
-		if event.Type == harness.EventError && strings.Contains(event.Err, "compaction failed") {
-			failures++
+		if event.Type == harness.EventError {
+			errorEvents++
 		}
 	}}, "continue", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failures != 1 {
-		t.Fatalf("compaction failures = %d, want 1", failures)
+	if errorEvents != 0 {
+		t.Fatalf("error events = %d, want 0", errorEvents)
+	}
+	var summaryRequests int
+	for _, request := range client.requests {
+		if request.System == summaryInstruction {
+			summaryRequests++
+		}
+	}
+	if summaryRequests != 1 {
+		t.Fatalf("summary requests = %d, want 1", summaryRequests)
 	}
 	if len(client.requests) != 3 {
 		t.Fatalf("requests = %d, want 3", len(client.requests))
-	}
-	for _, request := range client.requests[1:] {
-		if request.System == summaryInstruction {
-			t.Fatalf("unexpected summary request: %+v", request)
-		}
 	}
 }
 

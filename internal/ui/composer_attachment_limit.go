@@ -2,18 +2,20 @@ package mcodeui
 
 import (
 	"sync"
-	"time"
 
 	"mcode/internal/config"
 )
 
 var (
-	composerAttachmentLimitMu       sync.Mutex
-	composerAttachmentLimitCache    int
-	composerAttachmentLimitCachedAt time.Time
+	composerAttachmentLimitMu     sync.Mutex
+	composerAttachmentLimitCache  int
+	composerAttachmentLimitCached bool
+	// composerAttachmentLimitLoad 包成变量，测试可以替换它统计读盘次数。
+	composerAttachmentLimitLoad = config.Load
 )
 
-// attachmentLimit 优先读取当前设置，否则缓存持久化配置两秒。
+// attachmentLimit 优先读取当前设置，否则首次读取持久化配置后一直复用。
+// 附件上限的变更会随设置面板写回内存配置；没有设置面板时不需要再读盘。
 func (s *chatState) attachmentLimit() int {
 	if s == nil {
 		return config.DefaultComposerAttachmentLimit
@@ -24,22 +26,18 @@ func (s *chatState) attachmentLimit() int {
 		return st.cfg.Session.AttachmentLimit()
 	}
 	composerAttachmentLimitMu.Lock()
-	if !composerAttachmentLimitCachedAt.IsZero() && time.Since(composerAttachmentLimitCachedAt) < 2*time.Second {
-		limit := composerAttachmentLimitCache
-		composerAttachmentLimitMu.Unlock()
-		return limit
+	defer composerAttachmentLimitMu.Unlock()
+	if composerAttachmentLimitCached {
+		return composerAttachmentLimitCache
 	}
-	composerAttachmentLimitMu.Unlock()
 
 	limit := config.DefaultComposerAttachmentLimit
 	if dataDir := resolveDataDirFallback(); dataDir != "" {
-		if cfg, err := config.Load(dataDir); err == nil {
+		if cfg, err := composerAttachmentLimitLoad(dataDir); err == nil {
 			limit = cfg.Session.AttachmentLimit()
 		}
 	}
-	composerAttachmentLimitMu.Lock()
 	composerAttachmentLimitCache = limit
-	composerAttachmentLimitCachedAt = time.Now()
-	composerAttachmentLimitMu.Unlock()
+	composerAttachmentLimitCached = true
 	return limit
 }

@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -31,6 +32,28 @@ func updateButtonText(installable bool) string {
 	return "下载"
 }
 
+var (
+	whatsNewPersistMu sync.Mutex
+	// whatsNewPersisted 记录每个数据目录已触发写盘的最新版本，避免渲染路径每帧重复起 goroutine。
+	whatsNewPersisted = make(map[string]string)
+)
+
+// persistLastSeenVersion 在后台写入 LastSeenVersion。同一个版本只触发一次，
+// 写盘不阻塞渲染线程；即使写盘失败也不在下一帧重试，避免渲染循环反复读盘。
+func persistLastSeenVersion(st *SettingsState, version string) {
+	if st == nil || version == "" {
+		return
+	}
+	whatsNewPersistMu.Lock()
+	if whatsNewPersisted[st.dataDir] == version {
+		whatsNewPersistMu.Unlock()
+		return
+	}
+	whatsNewPersisted[st.dataDir] = version
+	whatsNewPersistMu.Unlock()
+	go st.updateAndSave(func(cfg *config.Config) { cfg.LastSeenVersion = version })
+}
+
 func initWhatsNew(s *chatState, st *SettingsState, fs *sidebarFooterState) {
 	if fs.whatsNewChecked {
 		return
@@ -47,7 +70,7 @@ func initWhatsNew(s *chatState, st *SettingsState, fs *sidebarFooterState) {
 	section := changelogSection(version)
 	show, persist := shouldShowWhatsNew(version, lastSeen, section)
 	if persist {
-		st.updateAndSave(func(cfg *config.Config) { cfg.LastSeenVersion = version })
+		persistLastSeenVersion(st, version)
 	}
 	if show {
 		fs.whatsNewVersion = version
@@ -58,7 +81,7 @@ func initWhatsNew(s *chatState, st *SettingsState, fs *sidebarFooterState) {
 
 func renderUpdateCapsule(c *ui.Context, s *chatState, st *SettingsState, fs *sidebarFooterState, status AppUpdateStatus) {
 	btn := ui.ButtonBase(c.Key("sidebar-update-capsule")).
-		Label("有新版本 " + status.Latest).
+		Label("有新版本 "+status.Latest).
 		Radius(RadiusSM).
 		Padding(Space1, Space2).
 		Background(ThemeAccentSubtle(c))

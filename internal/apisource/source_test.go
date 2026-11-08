@@ -252,6 +252,23 @@ func TestResolveAnthropicEnv(t *testing.T) {
 	}
 }
 
+func TestResolveAnthropicDisabled(t *testing.T) {
+	stubEnv(t, nil)
+	secrets := config.NewMemorySecretStore()
+	if err := secrets.Set(anthropicAPIKeyAccount, "key"); err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	cfg := config.Config{Providers: config.ProvidersConfig{Anthropic: config.AnthropicConfig{Enabled: &off}}}
+	if _, ok := findSource(Resolve(cfg, secrets), "anthropic"); ok {
+		t.Fatal("配置关闭后不应返回 Anthropic 来源")
+	}
+	cfg.Providers.Anthropic.Enabled = nil
+	if _, ok := findSource(Resolve(cfg, secrets), "anthropic"); !ok {
+		t.Fatal("Enabled 为 nil 时应启用 Anthropic 来源")
+	}
+}
+
 func TestResolveCustomEndpoints(t *testing.T) {
 	stubEnv(t, map[string]string{"OPENAI_API_KEY": "env-key"})
 	secrets := config.NewMemorySecretStore()

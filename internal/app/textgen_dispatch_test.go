@@ -17,6 +17,7 @@ import (
 	"mcode/internal/providers/claude"
 	"mcode/internal/providers/codex"
 	"mcode/internal/providers/pi"
+	"mcode/internal/textgen"
 )
 
 // textgenFakeSecrets 是仅用于文本生成测试的凭据存储，只对一个账号返回密钥。
@@ -271,6 +272,33 @@ func TestResolveOpenAICompatibleMagpieCustomEndpoint(t *testing.T) {
 	}
 	if target.model != "mm" {
 		t.Errorf("model = %q，期望 %q", target.model, "mm")
+	}
+}
+
+// TestCLITextgenAvailableConfiguredBin 验证配置的 Bin 不存在时不再视为可用。
+func TestCLITextgenAvailableConfiguredBin(t *testing.T) {
+	restore := textgen.SetLookPathForTest(func(string) (string, error) { return "", os.ErrNotExist })
+	defer restore()
+	dir := t.TempDir()
+	cfg := config.Config{}
+	cfg.Providers.Claude.Bin = filepath.Join(dir, "missing-claude")
+	if cliTextgenAvailable(cfg, "claude") {
+		t.Fatal("不存在的 Bin 不应视为可用")
+	}
+	existing := filepath.Join(dir, "claude")
+	if err := os.WriteFile(existing, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Providers.Claude.Bin = existing
+	if !cliTextgenAvailable(cfg, "claude") {
+		t.Fatal("存在的 Bin 应视为可用")
+	}
+
+	restorePath := textgen.SetLookPathForTest(func(string) (string, error) { return "/usr/bin/claude", nil })
+	defer restorePath()
+	cfg.Providers.Claude.Bin = ""
+	if !cliTextgenAvailable(cfg, "claude") {
+		t.Fatal("Bin 为空时应在 PATH 中找到")
 	}
 }
 

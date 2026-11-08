@@ -542,6 +542,10 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 			}
 		})
 	})
+	if stopped {
+		// 停止时展开已收起，行高就是 ControlMD；淡出同时把行高收到 0，避免动画结束后删行时列表跳一下。
+		row.Height(fade * ControlMD)
+	}
 }
 
 // renderBackgroundBeeRow 渲染后台任务浮层里的一个运行中子智能体：人设图标、名字、当前活动、右侧时长与右箭头。

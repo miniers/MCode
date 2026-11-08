@@ -176,9 +176,13 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 	interactive := kind == harness.RequestKindPlan || kind == harness.RequestKindQuestion
 
 	// 其他 provider 不填 Sensitive：按真实输入与工作目录补算一次。
+	// 只有命令、文件改动与工具请求参与敏感判定；计划与提问由用户逐次答复，不补算。
 	// 配置读取、工作目录与路径解析都要在进入主锁前完成。
-	autoForwardQuestion := kind == harness.RequestKindQuestion && a.b.autoForwardQuestionEnabled()
-	if req.Sensitive == "" {
+	autoForwardQuestion := false
+	if kind == harness.RequestKindQuestion && a.b.threadIsSubagent(a.threadID) {
+		autoForwardQuestion = a.b.autoForwardQuestionEnabled()
+	}
+	if req.Sensitive == "" && sensitiveFallbackKind(kind) {
 		req.Sensitive = gate.SensitiveFor(kind, req.ToolName, req.Input, approvalCommand(req), a.b.approvalWorkDir(a.threadID))
 	}
 
@@ -932,6 +936,29 @@ func commandPrefixesAllowed(kind harness.RequestKind, req harness.ApprovalReques
 		}
 	}
 	return true
+}
+
+// sensitiveFallbackKind 报告哪些请求需要按真实输入补算敏感标记。
+// 计划与提问必须由用户逐次答复，不参与敏感自动拒绝，因此不做补算。
+func sensitiveFallbackKind(kind harness.RequestKind) bool {
+	switch kind {
+	case harness.RequestKindCommand, harness.RequestKindFileChange, harness.RequestKindTool:
+		return true
+	default:
+		return false
+	}
+}
+
+// threadIsSubagent 报告会话是否是无人值守的子代理（Swarm helper 或带父会话的子会话）。
+// 只用于判断是否需要读取自动转交配置，调用方不能持有 b.mu。
+func (b *MemoryBackend) threadIsSubagent(threadID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	td, ok := b.threads[threadID]
+	if !ok {
+		return false
+	}
+	return td.isHelper || td.parentThreadID != ""
 }
 
 // autoForwardQuestionEnabled 报告子线程提问是否应进入自动转交流程，而不是固定答复。

@@ -108,11 +108,10 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 		s.Bin = cfg.Providers.Copilot.Bin
 		s.UpdateMonitor = cfg.Providers.Copilot.UpdateMonitorEnabled()
 	case "anthropic":
-		// Anthropic 来源没有开关，新旧任一个 Key 账号有值即可用。
-		if _, ok := findAPISource(apisource.Resolve(cfg, secrets), anthropicEngineKind); ok {
-			s.HasAPIKey = true
-			s.Enabled = true
-		}
+		// Anthropic 来源同时看配置开关与 Key：没有 Key 时仍显示为关闭。
+		hasKey := hasProviderSecret(secrets, providerSettingSecretAccount(spec.id)) || hasProviderSecret(secrets, mcodeAnthropicAPIKeyAccount)
+		s.HasAPIKey = hasKey
+		s.Enabled = cfg.Providers.Anthropic.IsEnabled() && hasKey
 	case "pi":
 		s.Enabled = cfg.Providers.Pi.Enabled
 		s.Bin = cfg.Providers.Pi.Bin
@@ -162,7 +161,7 @@ func applyProviderSetting(cfg *config.Config, id string, s mcodeui.ProviderSetti
 		cfg.Providers.Copilot.Bin = strings.TrimSpace(s.Bin)
 		cfg.Providers.Copilot.UpdateMonitor = updateMonitorPtr(s.UpdateMonitor)
 	case "anthropic":
-		// Anthropic 来源的启用状态由 API Key 决定，没有需要写入配置的字段。
+		cfg.Providers.Anthropic.Enabled = updateMonitorPtr(s.Enabled)
 	case "pi":
 		cfg.Providers.Pi.Enabled = s.Enabled
 		cfg.Providers.Pi.Bin = strings.TrimSpace(s.Bin)

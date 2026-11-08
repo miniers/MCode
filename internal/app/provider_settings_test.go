@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/remote"
@@ -399,6 +400,41 @@ func TestSaveProviderSetting_AnthropicAPIKey(t *testing.T) {
 	}
 	if client.backend.RegisteredHarness("anthropic") != nil {
 		t.Fatal("无 Key 时应注销 anthropic harness")
+	}
+}
+
+func TestSaveProviderSetting_AnthropicDisable(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	client, dataDir, secrets := newProviderSettingsClient(t)
+	ctx := context.Background()
+	if err := secrets.Set("anthropic.apiKey", "sk-ant-test"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "anthropic", Enabled: true}, ""); err != nil {
+		t.Fatalf("SaveProviderSetting(anthropic enable) failed: %v", err)
+	}
+	saved, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "anthropic", Enabled: false}, "")
+	if err != nil {
+		t.Fatalf("SaveProviderSetting(anthropic disable) failed: %v", err)
+	}
+	if saved.Enabled || !saved.HasAPIKey {
+		t.Fatalf("关闭后设置 = %+v", saved)
+	}
+	cfg, err := config.Load(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Providers.Anthropic.IsEnabled() {
+		t.Fatal("关闭后配置应保持关闭")
+	}
+	for _, src := range apisource.Resolve(cfg, secrets) {
+		if src.Kind == "anthropic" {
+			t.Fatal("关闭后 Resolve 不应返回 Anthropic 来源")
+		}
+	}
+	if client.backend.RegisteredHarness("anthropic") != nil {
+		t.Fatal("关闭后应注销 anthropic harness")
 	}
 }
 

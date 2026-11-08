@@ -1022,7 +1022,17 @@ const HomeSearch: React.FC<{
     };
     updatePosition();
     window.addEventListener('resize', updatePosition);
-    return () => window.removeEventListener('resize', updatePosition);
+    // 顶栏宽度变化（侧栏拖拽、窗口分屏）时 resize 不一定触发，顶栏与锚点父容器的尺寸变化都要重算。
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updatePosition) : null;
+    if (observer) {
+      observer.observe(header);
+      const anchor = buttonRef.current?.parentElement;
+      if (anchor) observer.observe(anchor);
+    }
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      observer?.disconnect();
+    };
   }, [expanded, header]);
 
   useEffect(() => {

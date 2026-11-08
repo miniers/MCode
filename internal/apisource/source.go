@@ -117,7 +117,7 @@ func Resolve(cfg config.Config, secrets config.SecretStore) []Source {
 			res = append(res, customSource(ep))
 		}
 	}
-	if src, ok := anthropicSource(secrets); ok {
+	if src, ok := anthropicSource(cfg, secrets); ok {
 		res = append(res, src)
 	}
 	if src, ok := openaiSource(cfg); ok {
@@ -185,9 +185,21 @@ func openaiSource(cfg config.Config) (Source, bool) {
 	}, true
 }
 
-// anthropicSource 生成 Anthropic 来源：没有开关，凭据可用时即启用。
+// AnthropicAPIKey 返回 Anthropic API Key：账号按新名、旧名顺序尝试，
+// 都没有时读 ANTHROPIC_API_KEY。旧名只读不写。
+func AnthropicAPIKey(secrets config.SecretStore) string {
+	return (Source{
+		APIKeyAccounts: []string{anthropicAPIKeyAccount, anthropicLegacyAPIKeyAccount},
+		APIKeyEnv:      anthropicAPIKeyEnv,
+	}).APIKey(secrets)
+}
+
+// anthropicSource 生成 Anthropic 来源：配置没有关闭且凭据可用时启用。
 // 账号按新名、旧名顺序尝试，旧名只读不写。
-func anthropicSource(secrets config.SecretStore) (Source, bool) {
+func anthropicSource(cfg config.Config, secrets config.SecretStore) (Source, bool) {
+	if !cfg.Providers.Anthropic.IsEnabled() {
+		return Source{}, false
+	}
 	src := Source{
 		Kind:           anthropicKind,
 		Label:          anthropicLabel,

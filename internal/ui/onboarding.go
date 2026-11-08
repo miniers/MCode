@@ -452,7 +452,7 @@ func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step o
 			}{
 				{"统一路由", "一个网关接入多家模型", IconNetwork()},
 				{"额度与人设", "菜单栏看额度，随时切人设", IconChartBar()},
-				{"pi 子代理", "编排子代理跑在 pi 上", IconSwarm()},
+				{"子代理", "编排子代理由内置引擎运行", IconSwarm()},
 			}
 			for i, card := range cards {
 				el := ui.Column(c.Key(card.title)).Grow(1).Padding(Space3).Gap(Space2).Radius(RadiusMD).Background(ThemeSurfaceCard(c))
@@ -464,7 +464,7 @@ func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step o
 				})
 			}
 		})
-		ui.Text(c, "mcode 与 Magpie 网关、pi 智能体深度整合。推荐连接 Magpie：一个网关统一调用多个模型，菜单栏显示 Magpie 额度，可以切换人设，子代理也能跑在 pi 上。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, "mcode 与 Magpie 网关深度整合。推荐连接 Magpie：一个网关统一调用多个模型，菜单栏显示 Magpie 额度，可以切换人设。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
 		ui.Text(c, "也可以只用 Claude、Codex 或 agy 直连。跳过后，Magpie 人设、Magpie 额度和网关模型路由不可用，以后可以随时在设置里补上。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
 	case onboardingAgents:
 		ui.Text(c, "装好任意一个就能开始。安装会在系统终端里进行，完成后回来点「重新检测」。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))

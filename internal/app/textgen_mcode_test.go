@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"mcode/internal/config"
-	"mcode/internal/magpieinject"
 	"mcode/internal/textgen"
 )
 
@@ -80,6 +79,10 @@ func TestMcodeGenerateTextDefaultModel(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {
+		DefaultEndpointID: "edge",
+		DefaultModel:      "plain-model",
+	}}
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
 
 	for _, model := range []string{"", "default"} {
@@ -90,7 +93,7 @@ func TestMcodeGenerateTextDefaultModel(t *testing.T) {
 		if out != "会话标题" {
 			t.Fatalf("模型 %q 的输出 = %q", model, out)
 		}
-		if body["model"] != magpieinject.DefaultModel().ID {
+		if body["model"] != "plain-model" {
 			t.Fatalf("模型 %q 请求的模型 = %v", model, body["model"])
 		}
 		if _, ok := body["reasoning_effort"]; ok {
@@ -140,6 +143,10 @@ func TestGenerateTextWithoutCLIFallsBackToMcode(t *testing.T) {
 	defer server.Close()
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
 	cfg.Providers.Mcode.Enabled = true
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {
+		DefaultEndpointID: "edge",
+		DefaultModel:      "plain-model",
+	}}
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
 
 	// provider 为空时默认按 claude 处理，与 claude / codex 走同一条回退规则。
@@ -151,7 +158,7 @@ func TestGenerateTextWithoutCLIFallsBackToMcode(t *testing.T) {
 		if out != "会话标题" {
 			t.Fatalf("provider %q 的输出 = %q", provider, out)
 		}
-		if body["model"] != magpieinject.DefaultModel().ID {
+		if body["model"] != "plain-model" {
 			t.Fatalf("provider %q 请求的模型 = %v，期望 mcode 默认模型", provider, body["model"])
 		}
 	}
@@ -169,6 +176,10 @@ func TestGenerateTextThirdLayerFallsBackToMcode(t *testing.T) {
 	defer server.Close()
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
 	cfg.Providers.Mcode.Enabled = true
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {
+		DefaultEndpointID: "edge",
+		DefaultModel:      "plain-model",
+	}}
 	cfg.Providers.Claude.Bin = "/nonexistent/claude"
 	cfg.Providers.Codex.Bin = "/nonexistent/codex"
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})

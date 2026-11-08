@@ -22,6 +22,24 @@ export interface ToolDiffFile {
 /** 单个文件最多渲染的 diff 行数，超出部分只提示已截断（与桌面端 toolDiffMaxLines 一致）。 */
 const MAX_DIFF_LINES = 200;
 
+/** 展开后首屏最多渲染的行数，避免几万行 diff 一次塞进移动端 DOM。 */
+const EXPANDED_DIFF_LINE_LIMIT = 2000;
+
+/** 返回当前实际渲染的 diff 行；展开超过上限时只给前 2000 行和剩余行数。 */
+export function toolDiffVisibleLines(
+  file: ToolDiffFile,
+  expanded: boolean,
+  showAll: boolean
+): { lines: ToolDiffLine[]; hidden: number } {
+  if (!expanded) return { lines: file.lines, hidden: 0 };
+  const full = file.fullLines ?? file.lines;
+  if (showAll || full.length <= EXPANDED_DIFF_LINE_LIMIT) return { lines: full, hidden: 0 };
+  return {
+    lines: full.slice(0, EXPANDED_DIFF_LINE_LIMIT),
+    hidden: full.length - EXPANDED_DIFF_LINE_LIMIT
+  };
+}
+
 // 算作文件修改的工具名（已转小写并去掉 _ - .），与桌面端 fileEditToolNames 对齐。
 const FILE_EDIT_TOOL_NAMES = new Set([
   'edit',
@@ -241,8 +259,10 @@ const LINE_MARK: Record<ToolDiffLine['type'], string> = {
 
 const ToolEntryDiffFile: React.FC<{ file: ToolDiffFile }> = ({ file }) => {
   const [expanded, setExpanded] = React.useState(false);
-  const lines = expanded ? (file.fullLines ?? file.lines) : file.lines;
-  const remaining = (file.fullLines?.length ?? 0) - file.lines.length;
+  const [showAll, setShowAll] = React.useState(false);
+  const fullLines = file.fullLines ?? file.lines;
+  const { lines, hidden } = toolDiffVisibleLines(file, expanded, showAll);
+  const remaining = fullLines.length - file.lines.length;
   return (
       <div
         className="min-w-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)]"
@@ -268,6 +288,11 @@ const ToolEntryDiffFile: React.FC<{ file: ToolDiffFile }> = ({ file }) => {
               </span>
             </div>
           ))}
+          {expanded && hidden > 0 && (
+            <button type="button" onClick={() => setShowAll(true)} className="px-2 py-1 text-xs text-[var(--primary)] hover:underline">
+              +{hidden} 行
+            </button>
+          )}
           {!expanded && remaining > 0 && (
             <button type="button" onClick={() => setExpanded(true)} className="px-2 py-1 text-xs text-[var(--primary)] hover:underline">
               显示其余 {remaining} 行

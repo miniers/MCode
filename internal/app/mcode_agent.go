@@ -14,6 +14,7 @@ import (
 	"mcode/internal/agent/prompt"
 	"mcode/internal/agent/tools"
 	"mcode/internal/agentconf"
+	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/magpieinject"
@@ -24,7 +25,7 @@ import (
 	"mcode/internal/textgen"
 )
 
-// mcodeAnthropicAPIKeyAccount 是 Anthropic API Key 的凭据账号名。
+// mcodeAnthropicAPIKeyAccount 是旧版 Anthropic API Key 的凭据账号名，只读不写。
 const mcodeAnthropicAPIKeyAccount = "mcode.anthropicApiKey"
 
 // mcodeAgentRuntime 保存 mcode 运行时使用的数据目录与凭据存储。
@@ -84,18 +85,51 @@ func registerMcodeTextGenerator(cfg config.Config, secrets config.SecretStore) {
 }
 
 // mcodeAnthropicKey 返回 SecretStore 或环境变量中的 Anthropic API Key。
+// 解析规则与 apisource.Resolve 一致：先读新账号 anthropic.apiKey，再读旧账号，最后读环境变量。
 func mcodeAnthropicKey(secrets config.SecretStore) string {
-	if secrets != nil {
-		if key, err := secrets.Get(mcodeAnthropicAPIKeyAccount); err == nil && strings.TrimSpace(key) != "" {
-			return strings.TrimSpace(key)
-		}
-	}
-	return strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
+	return apisource.AnthropicAPIKey(secrets)
 }
 
 // mcodeTargets 返回 mcode 当前可用的 Magpie 端点。
 func mcodeTargets(cfg config.Config, secrets config.SecretStore) []magpieinject.Target {
 	return magpieinject.Targets(cfg, secrets, nil)
+}
+
+// mcodeDefaultModel 返回 mcode 未指定模型时使用的完整模型 ID。
+// 优先用 mcode 设置里手动指定的默认模型；没有时取 Magpie 模型目录缓存里的第一个模型。
+func mcodeDefaultModel(cfg config.Config, secrets config.SecretStore) (string, error) {
+	targets := mcodeTargets(cfg, secrets)
+	setting := config.MagpieAgentSetting(cfg, config.ProviderMcode)
+	if modelID := strings.TrimSpace(setting.DefaultModel); modelID != "" {
+		endpointID := strings.TrimSpace(setting.DefaultEndpointID)
+		for _, target := range targets {
+			if target.APIKey == "" || (endpointID != "" && target.Endpoint != endpointID) {
+				continue
+			}
+			return target.ProviderID + "/" + modelID, nil
+		}
+		return "", fmt.Errorf("默认模型 %s 的 Magpie 端点不可用", modelID)
+	}
+	hasKey := false
+	for _, target := range targets {
+		if target.APIKey == "" {
+			continue
+		}
+		hasKey = true
+		models, hit := magpie.CachedModels(target.BaseURL, target.APIKey)
+		if !hit {
+			continue
+		}
+		for _, model := range models {
+			if id := strings.TrimSpace(model.ID); id != "" {
+				return target.ProviderID + "/" + id, nil
+			}
+		}
+	}
+	if hasKey {
+		return "", fmt.Errorf("没有可用的默认模型，请先在 Magpie 模型目录里选择默认模型")
+	}
+	return "", fmt.Errorf("没有配置可用的 Magpie 端点，请在设置中连接 Magpie")
 }
 
 // resolveMcodeClient 根据模型 ID 解析对应的上游客户端。
@@ -107,13 +141,11 @@ func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model, af
 	}
 	targets := mcodeTargets(cfg, secrets)
 	if model == "" {
-		for _, target := range targets {
-			if target.APIKey != "" {
-				client, modelID := magpieClient(target, affinityKey, magpieinject.DefaultModel().ID, nil)
-				return client, modelID, nil
-			}
+		resolved, err := mcodeDefaultModel(cfg, secrets)
+		if err != nil {
+			return nil, "", err
 		}
-		return nil, "", fmt.Errorf("没有配置可用的 Magpie 端点，请在设置中连接 Magpie")
+		model = resolved
 	}
 	if target, modelID, ok := magpieinject.ProviderOf(model, targets); ok {
 		if target.APIKey == "" {
@@ -123,6 +155,9 @@ func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model, af
 		return client, modelID, nil
 	}
 	if strings.HasPrefix(model, "anthropic/") {
+		if !cfg.Providers.Anthropic.IsEnabled() {
+			return nil, "", fmt.Errorf("Anthropic 已在设置中关闭")
+		}
 		key := mcodeAnthropicKey(secrets)
 		if key == "" {
 			return nil, "", fmt.Errorf("未配置 Anthropic API Key")
@@ -209,6 +244,22 @@ func mcodeContextWindow(cfg config.Config, secrets config.SecretStore, model str
 	return magpieinject.DefaultModel().ContextWindow
 }
 
+// mcodeMaxTokens 返回模型的输出上限：anthropic/ 前缀交给 llm 层默认值；Magpie 模型
+// 按网关缓存里的元数据取值，取不到返回 0 也交给 llm 层默认值。
+func mcodeMaxTokens(cfg config.Config, secrets config.SecretStore, model string) int {
+	if strings.HasPrefix(model, "anthropic/") {
+		return 0
+	}
+	target, modelID, ok := magpieinject.ProviderOf(model, mcodeTargets(cfg, secrets))
+	if !ok {
+		return 0
+	}
+	if cached, hit := magpie.CachedModel(target.BaseURL, target.APIKey, modelID); hit {
+		return cached.MaxTokens
+	}
+	return 0
+}
+
 // mcodeEngineOptions 返回内置引擎与具体来源无关的公共选项。
 // API Key 类来源与 mcode 本身共用同一个会话存储目录：会话 ID 由引擎随机生成，
 // 不同来源之间不会互相覆盖。
@@ -250,6 +301,10 @@ func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir st
 	opts.ContextWindow = func(model string) int {
 		current := mcodeCurrentConfig(cfg, secrets)
 		return mcodeContextWindow(current, mcodeCurrentSecrets(secrets), model)
+	}
+	opts.MaxTokens = func(model string) int {
+		current := mcodeCurrentConfig(cfg, secrets)
+		return mcodeMaxTokens(current, mcodeCurrentSecrets(secrets), model)
 	}
 	opts.CostUSD = func(model string, usage harness.Usage) (float64, bool) {
 		current := mcodeCurrentConfig(cfg, secrets)
@@ -330,7 +385,7 @@ func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.
 		}
 		rows[0].IsDefault = true
 	}
-	if mcodeAnthropicKey(secrets) != "" {
+	if cfg.Providers.Anthropic.IsEnabled() && mcodeAnthropicKey(secrets) != "" {
 		for _, row := range []wire.ProviderModel{
 			{ID: "anthropic/claude-opus-5-5", Name: "Claude Opus 5.5"},
 			{ID: "anthropic/claude-sonnet-5-5", Name: "Claude Sonnet 5.5"},

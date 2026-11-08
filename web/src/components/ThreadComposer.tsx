@@ -84,6 +84,15 @@ export function modelSheetPageOnEscape(page: ModelSheetPage): ModelSheetPage | n
   return page === 'summary' ? null : 'summary';
 }
 
+/** 拖拽意图：命中 Files 就先拦浏览器默认行为，附件可用才接收文件。 */
+export function fileDragIntent(types: Iterable<string>, attachmentsAvailable: boolean): {
+  preventDefault: boolean;
+  acceptsFiles: boolean;
+} {
+  const hasFiles = Array.from(types).includes('Files');
+  return { preventDefault: hasFiles, acceptsFiles: hasFiles && attachmentsAvailable };
+}
+
 /**
  * 主操作按钮的图标形变（W-16）：发送箭头与停止方块同时渲染、叠放在同一格子里，
  * 由 data-state 决定谁可见，切换时用透明度 + 45° 旋转交叉过渡。
@@ -1626,14 +1635,18 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
           }
         }}
         onDragEnter={(event) => {
-          if (!attachmentsAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return;
+          const intent = fileDragIntent(event.dataTransfer.types, attachmentsAvailable);
+          if (!intent.preventDefault) return;
           event.preventDefault();
+          if (!intent.acceptsFiles) return;
           dragDepthRef.current += 1;
           setIsDraggingFiles(true);
         }}
         onDragOver={(event) => {
-          if (!attachmentsAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return;
+          const intent = fileDragIntent(event.dataTransfer.types, attachmentsAvailable);
+          if (!intent.preventDefault) return;
           event.preventDefault();
+          if (!intent.acceptsFiles) return;
           event.dataTransfer.dropEffect = 'copy';
         }}
         onDragLeave={(event) => {
@@ -1642,8 +1655,10 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
           if (dragDepthRef.current === 0) setIsDraggingFiles(false);
         }}
         onDrop={(event) => {
-          if (!attachmentsAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return;
+          const intent = fileDragIntent(event.dataTransfer.types, attachmentsAvailable);
+          if (!intent.preventDefault) return;
           event.preventDefault();
+          if (!intent.acceptsFiles) return;
           dragDepthRef.current = 0;
           setIsDraggingFiles(false);
           handlePickedAttachments(event.dataTransfer.files);

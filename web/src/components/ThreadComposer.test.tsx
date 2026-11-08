@@ -8,6 +8,7 @@ import {
   AttachmentPreviewOverlay,
   ComposerAttachButton,
   ComposerAttachmentStrip,
+  fileDragIntent,
   ThreadComposer,
   modelSheetPageOnEscape
 } from './ThreadComposer';
@@ -146,3 +147,12 @@ assertExcludes(readyComposerHtml, 'aria-live="polite"><div class="floating-statu
 assertEqual(modelSheetPageOnEscape('lead'), 'summary', '主代理页 Esc 的目标页');
 assertEqual(modelSheetPageOnEscape('bees'), 'summary', '子代理页 Esc 的目标页');
 assertEqual(modelSheetPageOnEscape('summary'), null, '摘要页 Esc 的结果（null 表示关浮层）');
+
+// ---- fileDragIntent：附件不可用时也要先识别文件拖拽，拦下浏览器默认打开行为 ----
+const unavailableDrag = fileDragIntent(['Files'], false);
+assertEqual(unavailableDrag.preventDefault, true, '附件不可用时仍拦截文件拖拽的默认行为');
+assertEqual(unavailableDrag.acceptsFiles, false, '附件不可用时不接收文件');
+const availableDrag = fileDragIntent(['Files'], true);
+assertEqual(availableDrag.preventDefault, true, '附件可用时拦截文件拖拽的默认行为');
+assertEqual(availableDrag.acceptsFiles, true, '附件可用时接收文件');
+assertEqual(fileDragIntent(['text/plain'], true).preventDefault, false, '纯文本拖拽不拦截默认行为');

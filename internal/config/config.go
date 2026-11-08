@@ -1453,6 +1453,7 @@ type ProvidersConfig struct {
 	CommandCode ProviderConfig                  `json:"commandcode"`
 	ACP         map[string]ProviderConfig       `json:"acp,omitempty"`
 	OpenAI      OpenAIConfig                    `json:"openai"`
+	Anthropic   AnthropicConfig                 `json:"anthropic,omitempty"`
 	Presets     map[string]PresetProviderConfig `json:"presets,omitempty"`
 	// MagpieAgents 按 agent id 存 magpie 的设置：模式与每个端点勾选的模型；
 	// 旧的 CustomEndpointConfig.PiModels 由 Normalize 双向镜像进 agents["pi"]。
@@ -1918,6 +1919,17 @@ type OpenAIConfig struct {
 	Enabled bool   `json:"enabled"`
 	BaseURL string `json:"baseURL"`
 	Model   string `json:"model"`
+}
+
+// AnthropicConfig 是 Anthropic API 来源的设置。
+type AnthropicConfig struct {
+	// Enabled 关闭时不再返回 Anthropic 来源；nil 表示启用，兼容旧配置。
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// IsEnabled 报告 Anthropic 来源是否启用：未设置视为启用。
+func (c AnthropicConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // ProviderConfig 单个 Provider 的设置。

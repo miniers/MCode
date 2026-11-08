@@ -238,18 +238,25 @@ func cliTextgenOptions(cfg config.Config, secrets config.SecretStore, provider, 
 }
 
 // cliTextgenAvailable 判断一次性文本生成用的 CLI 是否可用：
-// PATH 中能找到，或用户显式配置了 bin 路径。
+// PATH 中能找到，或用户显式配置了存在的 bin 文件。配置的 bin 不存在时按未配置处理。
 func cliTextgenAvailable(cfg config.Config, provider string) bool {
 	if textgen.AvailableProvider(provider) {
 		return true
 	}
+	var bin string
 	switch provider {
 	case "claude":
-		return strings.TrimSpace(cfg.Providers.Claude.Bin) != ""
+		bin = strings.TrimSpace(cfg.Providers.Claude.Bin)
 	case "codex":
-		return strings.TrimSpace(cfg.Providers.Codex.Bin) != ""
+		bin = strings.TrimSpace(cfg.Providers.Codex.Bin)
+	default:
+		return false
 	}
-	return false
+	if bin == "" {
+		return false
+	}
+	_, err := os.Stat(bin)
+	return err == nil
 }
 
 // generateText 按层次选择一次性文本生成后端：

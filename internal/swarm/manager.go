@@ -2894,7 +2894,7 @@ func (m *Manager) checkReports(ctx context.Context) {
 				continue
 			}
 			m.mu.Lock()
-			if lead := m.leads[r.leadThreadID]; lead != nil {
+			if lead := m.leads[r.leadThreadID]; lead != nil && !lead.stoppedByUser {
 				for i := range lead.bees {
 					if r.beeIDs[lead.bees[i].ThreadID] {
 						lead.bees[i].Reported = true

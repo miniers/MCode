@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strings"
 	"time"
@@ -178,7 +179,8 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			// 压缩是为后续调用腾出空间；失败时保留原上下文继续，让模型调用自己给出结论。
 			if _, err := compactNow(); err != nil {
 				autoCompact = false
-				emit(harness.Event{Type: harness.EventError, Err: "agent: context compaction failed: " + err.Error()})
+				// 压缩失败不是致命错误：记日志后继续，由模型调用自己给出结论。
+				log.Printf("agent: context compaction failed: %v", err)
 			}
 		}
 		if _, err := appendSteers(); err != nil {

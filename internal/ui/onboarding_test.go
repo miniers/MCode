@@ -155,10 +155,10 @@ func TestOnboardingStepRenderSmoke(t *testing.T) {
 		texts   []string
 		reduced bool
 	}{
-		{onboardingWelcome, []string{"Magpie", "pi", "统一路由", "额度与人设", "pi 子代理"}, false},
+		{onboardingWelcome, []string{"Magpie", "统一路由", "额度与人设", "子代理"}, false},
 		{onboardingAgents, []string{"选择你的智能体"}, false},
 		{onboardingFinish, []string{"准备好了"}, false},
-		{onboardingWelcome, []string{"Magpie", "pi"}, true},
+		{onboardingWelcome, []string{"Magpie"}, true},
 	} {
 		s := newChatState(NewFakeClient())
 		u := onboardingState(s)

@@ -176,6 +176,7 @@ func TestReleaseConfirmCountdown(t *testing.T) {
 	}{
 		{name: "自动确认", seconds: "1", want: []string{"秒后自动确认", "已自动确认", "git tag -a v0.2.10 -m v0.2.10"}},
 		{name: "输入取消", seconds: "30", input: "n\n", want: []string{"已取消"}, absent: []string{"已自动确认", "git tag -a"}},
+		{name: "EOF 取消", seconds: "30", input: "\x04", want: []string{"已取消"}, absent: []string{"已自动确认", "git tag -a"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir, _ := releaseRepo(t)

@@ -131,16 +131,60 @@ func TestMcodeUsageCost(t *testing.T) {
 func TestMcodeResolveClientDefaultPlaceholder(t *testing.T) {
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {
+		DefaultEndpointID: "edge",
+		DefaultModel:      "configured-model",
+	}}
 
-	// 模型目录为空时界面显示的占位模型 default（含大小写与空白变化）应落到默认模型。
+	// 模型目录为空时界面显示的占位模型 default（含大小写与空白变化）应落到设置里的默认模型。
 	for _, model := range []string{"", "default", " DEFAULT "} {
 		client, modelID, err := resolveMcodeClient(cfg, secrets, model, "")
 		if err != nil {
 			t.Fatalf("模型 %q：%v", model, err)
 		}
-		if client == nil || modelID != magpieinject.DefaultModel().ID {
-			t.Fatalf("模型 %q 解析为 %q，期望 %q", model, modelID, magpieinject.DefaultModel().ID)
+		if client == nil || modelID != "configured-model" {
+			t.Fatalf("模型 %q 解析为 %q，期望 configured-model", model, modelID)
 		}
+	}
+}
+
+func TestMcodeResolveClientDefaultFromModelCache(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":[{"id":"cached-first"},{"id":"cached-second"}]}`)
+	}))
+	defer server.Close()
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL + "/v1"})
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+	if _, err := magpie.FetchModels(context.Background(), server.URL+"/v1", "gateway-key"); err != nil {
+		t.Fatalf("填充模型缓存失败: %v", err)
+	}
+	_, modelID, err := resolveMcodeClient(cfg, secrets, "", "")
+	if err != nil || modelID != "magpie-mcode/cached-first" {
+		t.Fatalf("默认模型 = %q, %v", modelID, err)
+	}
+}
+
+func TestMcodeResolveClientDefaultWithoutConfigOrCache(t *testing.T) {
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+	if _, _, err := resolveMcodeClient(cfg, secrets, "", ""); err == nil || !strings.Contains(err.Error(), "默认模型") {
+		t.Fatalf("缺少默认模型时应报错，got %v", err)
+	}
+}
+
+func TestMcodeAnthropicKeyAccountPrecedence(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "env-key")
+	onlyNew := mcodeTestSecrets(map[string]string{"anthropic.apiKey": "new-key"})
+	if got := mcodeAnthropicKey(onlyNew); got != "new-key" {
+		t.Fatalf("只有新账号时 Key = %q", got)
+	}
+	both := mcodeTestSecrets(map[string]string{"anthropic.apiKey": "new-key", mcodeAnthropicAPIKeyAccount: "legacy-key"})
+	if got := mcodeAnthropicKey(both); got != "new-key" {
+		t.Fatalf("新旧账号都有时 Key = %q", got)
 	}
 }
 
@@ -240,9 +284,8 @@ func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	}
 	cfg = mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
 	secrets = mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
-	_, model, err = resolveMcodeClient(cfg, secrets, "", "")
-	if err != nil || model != magpieinject.DefaultModel().ID {
-		t.Fatalf("empty model = %q, %v", model, err)
+	if _, _, err = resolveMcodeClient(cfg, secrets, "", ""); err == nil || !strings.Contains(err.Error(), "默认模型") {
+		t.Fatalf("空模型没有默认值时应报错，got %v", err)
 	}
 }
 
@@ -396,6 +439,31 @@ func TestMcodeCurrentConfigLoadFailureUsesFallback(t *testing.T) {
 	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
 	if got := mcodeCurrentConfig(fallback, nil); got.Providers.Pi.Bin != "fallback-pi" {
 		t.Fatalf("config load failure lost fallback: %+v", got.Providers.Pi)
+	}
+}
+
+func TestMcodeMaxTokens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":[{"id":"plain-model","max_output_tokens":64000}]}`)
+	}))
+	t.Cleanup(server.Close)
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL + "/v1"})
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+	if _, err := magpie.FetchModels(context.Background(), server.URL+"/v1", "gateway-key"); err != nil {
+		t.Fatalf("填充模型缓存失败: %v", err)
+	}
+	if got := mcodeMaxTokens(cfg, secrets, "magpie-mcode/plain-model"); got != 64000 {
+		t.Fatalf("MaxTokens = %d, want 64000", got)
+	}
+	if got := mcodeMaxTokens(cfg, secrets, "magpie-mcode/no-cache"); got != 0 {
+		t.Fatalf("缓存未命中的 MaxTokens = %d, want 0", got)
+	}
+	if got := mcodeMaxTokens(cfg, secrets, "anthropic/claude-sonnet-5-5"); got != 0 {
+		t.Fatalf("Anthropic 的 MaxTokens = %d, want 0", got)
 	}
 }
 

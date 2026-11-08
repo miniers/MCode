@@ -20,6 +20,9 @@ func TestCheapestModel(t *testing.T) {
 	if got := CheapestModel("memory"); got != "echo" {
 		t.Errorf("CheapestModel(memory) = %q, want %q", got, "echo")
 	}
+	if got := CheapestModel("mcode"); got != "default" {
+		t.Errorf("CheapestModel(mcode) = %q, want %q", got, "default")
+	}
 	if got := CheapestModel("unknown"); got != "" {
 		t.Errorf("CheapestModel(unknown) = %q, want empty", got)
 	}
