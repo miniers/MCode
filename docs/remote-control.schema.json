@@ -905,6 +905,12 @@
     {
       "$ref": "#/$defs/RemoteProjectsChangedNotification"
     },
+    { "$ref": "#/$defs/AppUpdateGetRequest" },
+    { "$ref": "#/$defs/AppUpdateGetResponse" },
+    { "$ref": "#/$defs/AppUpdateCheckRequest" },
+    { "$ref": "#/$defs/AppUpdateCheckResponse" },
+    { "$ref": "#/$defs/AppUpdateInstallRequest" },
+    { "$ref": "#/$defs/AppUpdateInstallResponse" },
     {
       "$ref": "#/$defs/SessionDevicesListRequest"
     },
@@ -1818,6 +1824,55 @@
         "id"
       ],
       "additionalProperties": false
+    },
+    "AppUpdateParams": {
+      "type": "object", "description": "更新方法的空参数", "properties": {}, "additionalProperties": false
+    },
+    "AppUpdateStatus": {
+      "type": "object", "description": "桌面端更新状态和发布说明",
+      "properties": {
+        "current": { "type": "string", "description": "当前版本" },
+        "latest": { "type": "string", "description": "最新版本" },
+        "available": { "type": "boolean", "description": "是否有新版本" },
+        "installable": { "type": "boolean", "description": "是否可以安装" },
+        "url": { "type": "string", "description": "更新页面地址" },
+        "notes": { "type": "string", "description": "发布说明" }
+      },
+      "required": ["current", "available", "installable"], "additionalProperties": false
+    },
+    "AppUpdateInstallResult": {
+      "type": "object", "description": "安装请求已受理", "properties": { "started": { "type": "boolean" } },
+      "required": ["started"], "additionalProperties": false
+    },
+    "AppUpdateGetRequest": {
+      "type": "object", "description": "读取最近一次更新状态",
+      "properties": { "jsonrpc": { "const": "2.0" }, "method": { "const": "app.update.get" }, "params": { "$ref": "#/$defs/AppUpdateParams" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "method", "params", "id"], "additionalProperties": false
+    },
+    "AppUpdateGetResponse": {
+      "type": "object", "description": "最近一次更新状态",
+      "properties": { "jsonrpc": { "const": "2.0" }, "result": { "$ref": "#/$defs/AppUpdateStatus" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "result", "id"], "additionalProperties": false
+    },
+    "AppUpdateCheckRequest": {
+      "type": "object", "description": "联网检查更新",
+      "properties": { "jsonrpc": { "const": "2.0" }, "method": { "const": "app.update.check" }, "params": { "$ref": "#/$defs/AppUpdateParams" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "method", "params", "id"], "additionalProperties": false
+    },
+    "AppUpdateCheckResponse": {
+      "type": "object", "description": "最新检查结果",
+      "properties": { "jsonrpc": { "const": "2.0" }, "result": { "$ref": "#/$defs/AppUpdateStatus" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "result", "id"], "additionalProperties": false
+    },
+    "AppUpdateInstallRequest": {
+      "type": "object", "description": "安装更新并重启桌面端",
+      "properties": { "jsonrpc": { "const": "2.0" }, "method": { "const": "app.update.install" }, "params": { "$ref": "#/$defs/AppUpdateParams" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "method", "params", "id"], "additionalProperties": false
+    },
+    "AppUpdateInstallResponse": {
+      "type": "object", "description": "安装受理结果",
+      "properties": { "jsonrpc": { "const": "2.0" }, "result": { "$ref": "#/$defs/AppUpdateInstallResult" }, "id": { "$ref": "#/$defs/JSONRPCId" } },
+      "required": ["jsonrpc", "result", "id"], "additionalProperties": false
     },
     "SessionDevicesListParams": {
       "type": "object",
@@ -10889,6 +10944,9 @@
           {
             "$ref": "#/$defs/RemoteMCPServersListRequest"
           },
+          { "$ref": "#/$defs/AppUpdateGetRequest" },
+          { "$ref": "#/$defs/AppUpdateCheckRequest" },
+          { "$ref": "#/$defs/AppUpdateInstallRequest" },
           {
             "$ref": "#/$defs/SessionDevicesListRequest"
           },
@@ -11260,6 +11318,9 @@
           {
             "$ref": "#/$defs/RemoteMCPServersListResponse"
           },
+          { "$ref": "#/$defs/AppUpdateGetResponse" },
+          { "$ref": "#/$defs/AppUpdateCheckResponse" },
+          { "$ref": "#/$defs/AppUpdateInstallResponse" },
           {
             "$ref": "#/$defs/SessionDevicesListResponse"
           },

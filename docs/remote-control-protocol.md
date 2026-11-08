@@ -61,6 +61,9 @@
 - `steward.topics.delete`：删除话题。
 - `steward.topics.tasks.review`：采纳或驳回单个任务，`revision` 用于拒绝过期写入。
 - `steward.changed`：通知，载荷只有 `projectID`，空串表示所有项目都变了，客户端据此拉取最新总管状态。
+- `app.update.get`：参数为 `{}`，返回最近一次更新状态及发布说明，不联网；参数错误返回 `InvalidParams`，服务未注入返回 `MethodNotFound`。
+- `app.update.check`：参数为 `{}`，联网检查并返回更新状态及发布说明；参数错误返回 `InvalidParams`，服务未注入返回 `MethodNotFound`，检查失败返回内部错误。
+- `app.update.install`：参数为 `{}`，受理后返回 `{ "started": true }`，安装会重启桌面端并断开远程连接；参数错误或没有可安装更新返回 `InvalidParams`，服务未注入返回 `MethodNotFound`。
 - `settings.get`：返回设置值快照、可写键白名单和快捷回复。
 - `settings.set`：写入一行键值，任一键不在白名单或值非法时整体拒绝。
 - `settings.changed`：通知，载荷只带变化的键。
