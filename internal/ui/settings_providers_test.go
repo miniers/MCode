@@ -548,13 +548,13 @@ func TestSettingsProviders_PresetSectionInSettingsPage(t *testing.T) {
 	fake := NewFakeClient()
 	fake.mu.Lock()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "deepseek", Name: "DeepSeek", Kind: "api", DefaultModel: "deepseek-chat"},
+		{ID: "deepseek", Name: "DeepSeek", Kind: "api", DefaultModel: "deepseek-chat", DefaultBaseURL: "https://api.deepseek.com"},
 	}
 	fake.mu.Unlock()
 
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
 	st.presets.loaded = true
-	st.presets.items = []ProviderSetting{{ID: "deepseek", Name: "DeepSeek", Kind: "api", DefaultModel: "deepseek-chat"}}
+	st.presets.items = []ProviderSetting{{ID: "deepseek", Name: "DeepSeek", Kind: "api", DefaultModel: "deepseek-chat", DefaultBaseURL: "https://api.deepseek.com"}}
 	openProviderSheet(st, "preset", "deepseek")
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c.Key("preset-sheet-test")).Children(func() { renderProviderSheetBody(c, st) })
@@ -814,7 +814,7 @@ func TestSettingsProviders_RowDescriptionsReplacedByPlaceholders(t *testing.T) {
 
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	st.presets.loaded = true
-	st.presets.items = []ProviderSetting{{ID: "deepseek", Name: "DeepSeek", Kind: "api"}}
+	st.presets.items = []ProviderSetting{{ID: "deepseek", Name: "DeepSeek", Kind: "api", DefaultBaseURL: "https://api.deepseek.com"}}
 	st.endpoints.loaded = true
 	ep := CustomEndpoint{ID: "ep", Name: "端点", BaseURL: "https://example.com/v1"}
 	st.endpoints.endpoints = []CustomEndpoint{ep}

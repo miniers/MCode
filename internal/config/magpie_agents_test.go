@@ -417,3 +417,58 @@ func TestPiLastSelectionDoesNotReturnAfterLoad(t *testing.T) {
 		t.Errorf("旧 piModels 未清空: %+v", got)
 	}
 }
+
+// 内置引擎没有自己的勾选时沿用 pi 的勾选与默认模型。
+func TestMagpieAgentSettingMcodeFallsBackToPi(t *testing.T) {
+	cfg := Normalize(magpieAgentsTestConfig("jp", []string{"a", "b"}))
+	SetMagpieAgentDefault(&cfg, ProviderPi, "jp", "b")
+
+	mcode := MagpieAgentSetting(cfg, ProviderMcode)
+	want := []MagpieSelection{{EndpointID: "jp", Models: []string{"a", "b"}}}
+	if !reflect.DeepEqual(mcode.Selections, want) {
+		t.Fatalf("mcode 的勾选 = %+v，想要沿用 pi 的 %+v", mcode.Selections, want)
+	}
+	if mcode.DefaultEndpointID != "jp" || mcode.DefaultModel != "b" {
+		t.Fatalf("mcode 的默认模型 = %q/%q，想要沿用 pi", mcode.DefaultEndpointID, mcode.DefaultModel)
+	}
+	if mcode.Mode != MagpieModeInject {
+		t.Fatalf("mcode 的模式 = %q，想要 inject", mcode.Mode)
+	}
+}
+
+// mcode 键存在时只管自己的数据：勾选清空后也不能回退到 pi。
+func TestMagpieAgentSettingMcodeEmptySelectionDoesNotFallBack(t *testing.T) {
+	cfg := Normalize(magpieAgentsTestConfig("jp", []string{"a"}))
+	SetMagpieAgentModels(&cfg, ProviderMcode, "jp", nil)
+
+	if _, ok := cfg.Providers.MagpieAgents[ProviderMcode]; !ok {
+		t.Fatal("清空勾选后 mcode 键不应被删除")
+	}
+	cfg = Normalize(cfg)
+	if _, ok := cfg.Providers.MagpieAgents[ProviderMcode]; !ok {
+		t.Fatal("Normalize 后 mcode 键不应被删除")
+	}
+	if got := MagpieAgentSetting(cfg, ProviderMcode).Selections; len(got) != 0 {
+		t.Fatalf("mcode 的勾选 = %+v，想要空", got)
+	}
+	if got := MagpieAgentSetting(cfg, ProviderPi).Selections; len(got) != 1 {
+		t.Fatalf("pi 的勾选被影响 = %+v", got)
+	}
+}
+
+// mcode 的写入不镜像到 piModels，也不改变 pi 的勾选。
+func TestSetMagpieAgentModelsMcodeDoesNotMirrorPiModels(t *testing.T) {
+	cfg := Normalize(magpieAgentsTestConfig("jp", []string{"a"}))
+	SetMagpieAgentModels(&cfg, ProviderMcode, "jp", []string{"b", "c"})
+
+	if got := cfg.Providers.Custom[0].PiModels; !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("piModels = %+v，想要 [a]", got)
+	}
+	if got := MagpieAgentSetting(cfg, ProviderPi).Selections; len(got) != 1 || !reflect.DeepEqual(got[0].Models, []string{"a"}) {
+		t.Fatalf("pi 的勾选 = %+v", got)
+	}
+	want := []MagpieSelection{{EndpointID: "jp", Models: []string{"b", "c"}}}
+	if got := MagpieAgentSetting(cfg, ProviderMcode).Selections; !reflect.DeepEqual(got, want) {
+		t.Fatalf("mcode 的勾选 = %+v，想要 %+v", got, want)
+	}
+}

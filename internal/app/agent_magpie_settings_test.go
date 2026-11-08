@@ -186,6 +186,77 @@ func TestAgentMagpieOffRoundTrip(t *testing.T) {
 	}
 }
 
+// 内置引擎列没有模式设置，只读写自己的勾选；清空后不回退到 pi。
+func TestAgentMagpieMcodeSelectionRoundTrip(t *testing.T) {
+	srv := agentMagpieModelsServer(t, "sonnet-model", "opus-model")
+	env := newAgentMagpieTestEnv(t, srv.URL)
+	ctx := context.Background()
+
+	if err := env.client.SetAgentMagpieModels(ctx, config.ProviderPi, "jp", []string{"opus-model"}); err != nil {
+		t.Fatal(err)
+	}
+	// 第一次读取沿用 pi 的勾选。
+	got, err := env.client.AgentMagpie(ctx, config.ProviderMcode)
+	if err != nil || len(got.Endpoints) != 1 || !reflect.DeepEqual(got.Endpoints[0].Selected, []string{"opus-model"}) {
+		t.Fatalf("mcode 初始设置 = %+v，错误 = %v", got, err)
+	}
+	if got.Mode != "inject" || got.Global.Supported {
+		t.Fatalf("mcode 模式 = %q，global = %v", got.Mode, got.Global.Supported)
+	}
+
+	if err := env.client.SetAgentMagpieModels(ctx, config.ProviderMcode, "jp", []string{"opus-model", "sonnet-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.client.SetAgentMagpieDefaultModel(ctx, config.ProviderMcode, "jp", "sonnet-model"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = env.client.AgentMagpie(ctx, config.ProviderMcode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Endpoints[0].Selected, []string{"opus-model", "sonnet-model"}) || got.DefaultEndpointID != "jp" || got.DefaultModel != "sonnet-model" {
+		t.Fatalf("mcode 读取设置 = %+v", got)
+	}
+	piSetting := config.MagpieAgentSetting(mustLoadAgentMagpieConfig(t, env.dataDir), config.ProviderPi)
+	if !reflect.DeepEqual(piSetting.Selections, []config.MagpieSelection{{EndpointID: "jp", Models: []string{"opus-model"}}}) {
+		t.Fatalf("pi 的勾选被影响 = %+v", piSetting.Selections)
+	}
+	if got := mustLoadAgentMagpieConfig(t, env.dataDir).Providers.Custom[0].PiModels; !reflect.DeepEqual(got, []string{"opus-model"}) {
+		t.Fatalf("mcode 的写入被镜像到 piModels = %+v", got)
+	}
+
+	if err := env.client.SetAgentMagpieMode(ctx, config.ProviderMcode, "off"); err == nil || !strings.Contains(err.Error(), "内置引擎没有模式设置") {
+		t.Fatalf("mcode 设置模式错误 = %v", err)
+	}
+	if err := env.client.AgentMagpieGlobalAction(ctx, config.ProviderMcode, "keep"); err == nil || !strings.Contains(err.Error(), "内置引擎没有模式设置") {
+		t.Fatalf("mcode 全局操作错误 = %v", err)
+	}
+
+	// 清空勾选后 mcode 键保留，不回到 pi 的勾选。
+	if err := env.client.SetAgentMagpieModels(ctx, config.ProviderMcode, "jp", nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = env.client.AgentMagpie(ctx, config.ProviderMcode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Endpoints[0].Selected) != 0 {
+		t.Fatalf("清空后 mcode 的勾选 = %+v", got.Endpoints[0].Selected)
+	}
+	if _, ok := mustLoadAgentMagpieConfig(t, env.dataDir).Providers.MagpieAgents[config.ProviderMcode]; !ok {
+		t.Fatal("清空后 mcode 键不应被删除")
+	}
+}
+
+func mustLoadAgentMagpieConfig(t *testing.T, dataDir string) config.Config {
+	t.Helper()
+	cfg, err := config.Load(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
 func TestAgentMagpieOffGlobalRestore(t *testing.T) {
 	srv := agentMagpieModelsServer(t, "model", "other")
 	for _, scenario := range []string{"restore", "failure", "keep", "no-reapply"} {

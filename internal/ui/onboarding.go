@@ -502,13 +502,11 @@ func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step o
 			status := onboardingProviderStatus(st, id)
 			onboardingSummaryRow(c, i, providerDisplayName(id), status.Summary, status.Ready)
 		}
-		magpie, connected := onboardingMagpieStatus(st)
 		onboardingSummaryRow(c, 3, "Magpie", onboardingSummaryRoute(route, magpie), connected)
 	}
 }
 
 // onboardingSummaryRow 渲染完成页中的单条状态。
-// onboardingSummaryRow 处理新手引导中的对应流程。
 func onboardingSummaryRow(c *ui.Context, index int, name, status string, ready bool) {
 	row := ui.Row(c.Key("onboarding-summary-" + name)).Gap(Space2).AlignItems(ui.Center)
 	onboardingEntry(c, row, index)

@@ -1065,7 +1065,7 @@ func apiProviderSheetStateFor(st *SettingsState, kind, id string) (apiProviderSh
 // apiProviderRowIcon 返回 API 供应商行图标；Anthropic 与 Claude 是同一品牌，沿用它的图标。
 func apiProviderRowIcon(id string) *ui.SVG {
 	if id == "anthropic" {
-		return IconProviderClaude()
+		return ProviderIcon("claude")
 	}
 	return ProviderIcon(id)
 }

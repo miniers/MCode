@@ -8,7 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// matrixTestState 构造已加载端点与三个智能体设置的设置状态，避免矩阵数据触发异步加载。
+// matrixTestState 构造已加载端点与各智能体设置的设置状态，避免矩阵数据触发异步加载。
 func matrixTestState(t *testing.T, fake *FakeClient, gateways []CustomEndpoint, settings map[string]AgentMagpieSetting) *SettingsState {
 	t.Helper()
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&routeTestClient{FakeClient: fake}))
@@ -294,6 +294,8 @@ func TestMagpieMatrixDefaultBadge(t *testing.T) {
 		{[]string{"claude", "pi"}, "Claude · pi 默认"},
 		{[]string{"pi", "pi"}, "pi 默认"},
 		{[]string{"codex", "claude"}, "Codex · Claude 默认"},
+		{[]string{"mcode"}, "mcode 默认"},
+		{[]string{"claude", "mcode"}, "Claude · mcode 默认"},
 	}
 	for _, tc := range cases {
 		if got := magpieMatrixDefaultBadge(tc.agents); got != tc.want {
@@ -302,7 +304,7 @@ func TestMagpieMatrixDefaultBadge(t *testing.T) {
 	}
 }
 
-// TestMagpieMatrixColumnGeometry 覆盖：表头与三列勾选框共用固定列宽且中心对齐，
+// TestMagpieMatrixColumnGeometry 覆盖：表头与各列勾选框共用固定列宽且中心对齐，
 // 「默认」胶囊不会改变勾选框位置。
 func TestMagpieMatrixColumnGeometry(t *testing.T) {
 	models := []PiMagpieModel{
@@ -318,6 +320,7 @@ func TestMagpieMatrixColumnGeometry(t *testing.T) {
 		"claude": {Agent: "claude", Mode: "inject", DefaultEndpointID: "gw-a", DefaultModel: "gpt-default", Endpoints: endpoints()},
 		"codex":  {Agent: "codex", Mode: "inject", Endpoints: []PiMagpieEndpoint{{ID: "gw-a", Name: "甲网关", Models: models}}},
 		"pi":     {Agent: "pi", Mode: "inject", DefaultEndpointID: "gw-a", DefaultModel: "gpt-default", Endpoints: endpoints()},
+		"mcode":  {Agent: "mcode", Mode: "off", Endpoints: []PiMagpieEndpoint{{ID: "gw-a", Name: "甲网关", Models: models}}},
 	})
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderSettingsTreeSetting(c, st, setting{ID: "row-magpie-model-matrix", Control: customFullWidth(renderMagpieModelMatrix)})
@@ -326,26 +329,26 @@ func TestMagpieMatrixColumnGeometry(t *testing.T) {
 
 	centers := make(map[string]float32, len(magpieMatrixAgents))
 	for _, agent := range magpieMatrixAgents {
-		rect, ok := tt.Find(magpieAgentTitle(agent))
+		rect, ok := tt.Find(magpieMatrixAgentTitle(agent))
 		if !ok {
-			t.Fatalf("缺少表头 %s", magpieAgentTitle(agent))
+			t.Fatalf("缺少表头 %s", magpieMatrixAgentTitle(agent))
 		}
 		centers[agent] = rect.X + rect.W/2
 	}
 	for i := 1; i < len(magpieMatrixAgents); i++ {
 		prev, cur := magpieMatrixAgents[i-1], magpieMatrixAgents[i]
 		if gap := centers[cur] - centers[prev]; math.Abs(float64(gap-(magpieMatrixColWidth+Space2))) > 0.5 {
-			t.Errorf("%s 与 %s 表头中心距 = %v，期望 %v", magpieAgentTitle(cur), magpieAgentTitle(prev), gap, magpieMatrixColWidth+Space2)
+			t.Errorf("%s 与 %s 表头中心距 = %v，期望 %v", magpieMatrixAgentTitle(cur), magpieMatrixAgentTitle(prev), gap, magpieMatrixColWidth+Space2)
 		}
 	}
 	for _, agent := range magpieMatrixAgents {
 		for _, model := range models {
-			rect, ok := tt.Find("切换 " + magpieAgentTitle(agent) + " " + model.Name)
+			rect, ok := tt.Find("切换 " + magpieMatrixAgentTitle(agent) + " " + model.Name)
 			if !ok {
-				t.Fatalf("缺少 %s 的勾选框 %s", magpieAgentTitle(agent), model.Name)
+				t.Fatalf("缺少 %s 的勾选框 %s", magpieMatrixAgentTitle(agent), model.Name)
 			}
 			if center := rect.X + rect.W/2; math.Abs(float64(center-centers[agent])) > 0.5 {
-				t.Errorf("%s %s 勾选框中心 = %v，表头中心 = %v", magpieAgentTitle(agent), model.Name, center, centers[agent])
+				t.Errorf("%s %s 勾选框中心 = %v，表头中心 = %v", magpieMatrixAgentTitle(agent), model.Name, center, centers[agent])
 			}
 		}
 	}
@@ -366,13 +369,13 @@ func TestMagpieMatrixErrorLines(t *testing.T) {
 	}{
 		{
 			name: "全部相同",
-			errs: map[string]string{"claude": "未设置 API Key", "codex": "未设置 API Key", "pi": "未设置 API Key"},
+			errs: map[string]string{"claude": "未设置 API Key", "codex": "未设置 API Key", "pi": "未设置 API Key", "mcode": "未设置 API Key"},
 			want: []string{"未设置 API Key"},
 		},
 		{
 			name: "部分相同",
-			errs: map[string]string{"claude": "未设置 API Key", "codex": "连接超时", "pi": "未设置 API Key"},
-			want: []string{"Claude、pi：未设置 API Key", "Codex：连接超时"},
+			errs: map[string]string{"claude": "未设置 API Key", "codex": "连接超时", "pi": "未设置 API Key", "mcode": "连接超时"},
+			want: []string{"Claude、pi：未设置 API Key", "Codex、mcode：连接超时"},
 		},
 		{
 			name: "全部为空",
@@ -403,7 +406,7 @@ func TestMagpieMatrixErrorLines(t *testing.T) {
 	}
 }
 
-// TestRenderMagpieModelMatrix_DedupEndpointError 覆盖：三个 agent 同一个端点错误只显示一行。
+// TestRenderMagpieModelMatrix_DedupEndpointError 覆盖：各 agent 同一个端点错误只显示一行。
 func TestRenderMagpieModelMatrix_DedupEndpointError(t *testing.T) {
 	fake := NewFakeClient()
 	gateways := []CustomEndpoint{{ID: "gw-a", Name: "甲网关", Magpie: true, Enabled: true, HasAPIKey: true}}
@@ -418,5 +421,136 @@ func TestRenderMagpieModelMatrix_DedupEndpointError(t *testing.T) {
 	tt.Frame()
 	if count := countExactText(tt.Texts(), "未设置 API Key"); count != 1 {
 		t.Fatalf("相同错误应只显示一行，实际 %d 行: %v", count, tt.Texts())
+	}
+}
+
+// TestMagpieMatrixAgents_AlwaysIncludesMcode 覆盖：其它智能体都未安装时，内置引擎仍有自己的列。
+func TestMagpieMatrixAgents_AlwaysIncludesMcode(t *testing.T) {
+	models := []PiMagpieModel{{ID: "model-a", Name: "模型 A"}}
+	fake := NewFakeClient()
+	gateways := []CustomEndpoint{{ID: "gw-a", Name: "甲网关", Magpie: true, Enabled: true, HasAPIKey: true}}
+	st := matrixTestState(t, fake, gateways, map[string]AgentMagpieSetting{
+		"claude": {Agent: "claude", Mode: "off"},
+		"codex":  {Agent: "codex", Mode: "off"},
+		"pi":     {Agent: "pi", Mode: "off"},
+		"mcode":  {Agent: "mcode", Mode: "off", Endpoints: []PiMagpieEndpoint{{ID: "gw-a", Name: "甲网关", Models: models}}},
+	})
+	st.mu.Lock()
+	st.providerRows.available = map[string]bool{"claude": false, "codex": false, "pi": false}
+	st.mu.Unlock()
+	if agents := magpieInstalledAgents(st); len(agents) != 1 || agents[0] != magpieBuiltinAgent {
+		t.Fatalf("未安装其它智能体时的列 = %v", agents)
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderSettingsTreeSetting(c, st, setting{ID: "row-magpie-model-matrix", Control: customFullWidth(renderMagpieModelMatrix)})
+	}, 1000, 2000)
+	tt.Frame()
+	if _, ok := tt.Find(magpieBuiltinAgent); !ok {
+		t.Fatalf("缺少 mcode 表头: %v", tt.Texts())
+	}
+	if _, ok := tt.Find("切换 mcode 模型 A"); !ok {
+		t.Fatalf("缺少 mcode 勾选框: %v", tt.Texts())
+	}
+	if countExactText(tt.Texts(), magpieAgentTitle("claude")) > 0 {
+		t.Fatalf("未安装的 claude 不应有列: %v", tt.Texts())
+	}
+}
+
+// TestMagpieMatrixMcode_OffModeStillCheckable 覆盖：mcode 没有模式，Mode 为 off 时勾选框仍可用，
+// 勾选以 agent 为 mcode 保存。
+func TestMagpieMatrixMcode_OffModeStillCheckable(t *testing.T) {
+	models := []PiMagpieModel{{ID: "model-a", Name: "模型 A"}}
+	fake := NewFakeClient()
+	gateways := []CustomEndpoint{{ID: "gw-a", Name: "甲网关", Magpie: true, Enabled: true, HasAPIKey: true}}
+	st := matrixTestState(t, fake, gateways, map[string]AgentMagpieSetting{
+		"claude": {Agent: "claude", Mode: "inject"},
+		"codex":  {Agent: "codex", Mode: "inject"},
+		"pi":     {Agent: "pi", Mode: "inject"},
+		"mcode":  {Agent: "mcode", Mode: "off", Endpoints: []PiMagpieEndpoint{{ID: "gw-a", Name: "甲网关", Models: models}}},
+	})
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderSettingsTreeSetting(c, st, setting{ID: "row-magpie-model-matrix", Control: customFullWidth(renderMagpieModelMatrix)})
+	}, 1000, 2000)
+	tt.Frame()
+	access, ok := tt.Access("切换 mcode 模型 A")
+	if !ok {
+		t.Fatalf("找不到 mcode 勾选框: %v", tt.Texts())
+	}
+	if access.Disabled {
+		t.Fatal("Mode 为 off 时 mcode 勾选框不应禁用")
+	}
+	if err := tt.Click("切换 mcode 模型 A"); err != nil {
+		t.Fatalf("点击 mcode 勾选框: %v", err)
+	}
+	var calls []setAgentMagpieModelsCall
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tt.Frame()
+		calls = fake.SetAgentMagpieModelsCalls()
+		if len(calls) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("保存调用次数 = %d: %+v", len(calls), calls)
+	}
+	if calls[0].Agent != magpieBuiltinAgent || calls[0].EndpointID != "gw-a" || len(calls[0].ModelIDs) != 1 || calls[0].ModelIDs[0] != "model-a" {
+		t.Fatalf("保存参数 = %+v", calls[0])
+	}
+}
+
+// TestSaveMagpieMatrixFamily_Mcode 覆盖：家族批量勾选对内置引擎生效。
+func TestSaveMagpieMatrixFamily_Mcode(t *testing.T) {
+	models := []PiMagpieModel{
+		{ID: "claude-sonnet", Name: "Claude Sonnet"},
+		{ID: "claude-opus", Name: "Claude Opus"},
+		{ID: "gpt-5", Name: "GPT-5"},
+	}
+	fake := NewFakeClient()
+	gateways := []CustomEndpoint{{ID: "gw-a", Name: "甲网关", Magpie: true, Enabled: true, HasAPIKey: true}}
+	st := matrixTestState(t, fake, gateways, map[string]AgentMagpieSetting{
+		"claude": {Agent: "claude", Mode: "inject"},
+		"codex":  {Agent: "codex", Mode: "inject"},
+		"pi":     {Agent: "pi", Mode: "inject"},
+		"mcode":  {Agent: "mcode", Mode: "off", Endpoints: []PiMagpieEndpoint{{ID: "gw-a", Name: "甲网关", Models: models, Selected: []string{"claude-sonnet"}}}},
+	})
+	data := magpieMatrixData(st, "")
+	if len(data) != 1 {
+		t.Fatalf("网关数 = %d", len(data))
+	}
+	var family magpieMatrixFamily
+	for _, candidate := range data[0].families {
+		if candidate.title == "Claude" {
+			family = candidate
+			break
+		}
+	}
+	if family.title != "Claude" || len(family.models) != 2 {
+		t.Fatalf("Claude 家族 = %+v", family)
+	}
+	saveMagpieMatrixFamily(st, magpieBuiltinAgent, data[0], family, true, "")
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(fake.SetAgentMagpieModelsCalls()) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	calls := fake.SetAgentMagpieModelsCalls()
+	if len(calls) != 1 {
+		t.Fatalf("保存调用次数 = %d: %+v", len(calls), calls)
+	}
+	if calls[0].Agent != magpieBuiltinAgent || calls[0].EndpointID != "gw-a" {
+		t.Fatalf("保存参数 = %+v", calls[0])
+	}
+	got := make(map[string]bool)
+	for _, id := range calls[0].ModelIDs {
+		got[id] = true
+	}
+	if len(got) != 2 || !got["claude-sonnet"] || !got["claude-opus"] || got["gpt-5"] {
+		t.Fatalf("保存的模型 = %v", calls[0].ModelIDs)
 	}
 }

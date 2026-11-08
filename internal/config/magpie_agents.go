@@ -52,7 +52,19 @@ func MagpieAgentSupportsInject(agent string) bool {
 
 // MagpieAgentSetting 返回某 agent 的 magpie 设置；空模式按 agent 的默认模式处理。
 // 返回值是副本，调用方修改它不会影响配置。
+// 内置引擎（mcode）没有模式概念：键存在时只用自己的勾选与默认模型，键不存在时沿用
+// pi 的勾选，让老用户第一次就看到与 pi 相同的列表。模式固定报告为 inject，避免
+// 调用方把它当成关闭而忽略勾选。
 func MagpieAgentSetting(cfg Config, agent string) MagpieAgentConfig {
+	if agent == ProviderMcode {
+		setting, ok := cfg.Providers.MagpieAgents[ProviderMcode]
+		if !ok {
+			setting = cfg.Providers.MagpieAgents[ProviderPi]
+		}
+		setting.Mode = MagpieModeInject
+		setting.Selections = copyMagpieSelections(setting.Selections)
+		return setting
+	}
 	setting := cfg.Providers.MagpieAgents[agent]
 	setting.Mode = normalizeMagpieMode(agent, setting.Mode, len(setting.Selections) > 0)
 	setting.Selections = copyMagpieSelections(setting.Selections)
@@ -317,6 +329,11 @@ func mirrorPiModels(cfg *Config, endpointID string, models []string) {
 // 不算空：勾选被清空后还要保留默认值，用户重新勾选时自动恢复。
 func cleanupMagpieAgents(cfg *Config) {
 	for agent, setting := range cfg.Providers.MagpieAgents {
+		// 内置引擎没有模式开关：键本身表示用户已为 mcode 单独勾选过，勾选清空后也要
+		// 保留，否则读取时会回退到 pi 的勾选。
+		if agent == ProviderMcode {
+			continue
+		}
 		if setting.Mode == MagpieModeOff && len(setting.Selections) == 0 &&
 			setting.DefaultEndpointID == "" && setting.DefaultModel == "" {
 			delete(cfg.Providers.MagpieAgents, agent)

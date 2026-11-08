@@ -246,7 +246,7 @@ func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	}
 }
 
-func TestMcodeModelCatalogUsesAllCachedGatewayModels(t *testing.T) {
+func TestMcodeModelCatalogUsesMcodeSelection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
@@ -259,10 +259,6 @@ func TestMcodeModelCatalogUsesAllCachedGatewayModels(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: server.URL + "/v1"})
-	// pi 只勾了一个模型，内置引擎的目录不受影响。
-	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderPi: {
-		Selections: []config.MagpieSelection{{EndpointID: "edge", Models: []string{"claude-sonnet-4.5"}}},
-	}}
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gw-key"})
 	if _, err := magpie.FetchModels(context.Background(), server.URL+"/v1", "gw-key"); err != nil {
 		t.Fatalf("填充模型缓存失败: %v", err)
@@ -272,7 +268,23 @@ func TestMcodeModelCatalogUsesAllCachedGatewayModels(t *testing.T) {
 		t.Fatalf("targets = %#v", targets)
 	}
 	prefix := targets[0].ProviderID
+
+	// 没有 mcode 勾选时沿用 pi 的勾选。
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderPi: {
+		Selections: []config.MagpieSelection{{EndpointID: "edge", Models: []string{"claude-sonnet-4.5"}}},
+	}}
 	got := mcodeModelsForConfig(cfg, secrets)
+	if len(got) != 1 || got[0].ID != prefix+"/claude-sonnet-4.5" || !got[0].IsDefault {
+		t.Fatalf("沿用 pi 的目录 = %#v", got)
+	}
+
+	// 有 mcode 勾选时只显示勾选的模型，默认模型排在最前。
+	cfg.Providers.MagpieAgents[config.ProviderMcode] = config.MagpieAgentConfig{
+		Selections:        []config.MagpieSelection{{EndpointID: "edge", Models: []string{"plain-model", "claude-sonnet-4.5"}}},
+		DefaultEndpointID: "edge",
+		DefaultModel:      "claude-sonnet-4.5",
+	}
+	got = mcodeModelsForConfig(cfg, secrets)
 	if len(got) != 2 {
 		t.Fatalf("catalog = %#v", got)
 	}
@@ -325,11 +337,25 @@ func TestMcodeModelCatalogDefaultsOnCacheMiss(t *testing.T) {
 	cfg := mcodeTestConfig(
 		config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: edge.URL + "/v1"},
 		config.CustomEndpointConfig{ID: "other", Name: "Other", Enabled: true, Magpie: true, BaseURL: other.URL + "/v1"},
+		config.CustomEndpointConfig{ID: "unused", Name: "Unused", Enabled: true, Magpie: true, BaseURL: other.URL + "/v1"},
 	)
-	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "edge-key"})
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {
+		Selections:        []config.MagpieSelection{{EndpointID: "edge", Models: []string{"plain-model", "other-model"}}},
+		DefaultEndpointID: "edge",
+		DefaultModel:      "plain-model",
+	}}
+	secrets := mcodeTestSecrets(map[string]string{
+		config.CustomEndpointSecretAccount("edge"):   "edge-key",
+		config.CustomEndpointSecretAccount("other"):  "other-key",
+		config.CustomEndpointSecretAccount("unused"): "unused-key",
+	})
 	got := mcodeModelsForConfig(cfg, secrets)
-	if len(got) != 1 || got[0].ID != "edge/"+magpieinject.DefaultModel().ID || !got[0].IsDefault {
+	// unused 端点一个都没勾选，不出行。
+	if len(got) != 2 || got[0].ID != "edge/plain-model" || got[1].ID != "edge/other-model" {
 		t.Fatalf("缓存未命中的目录 = %#v", got)
+	}
+	if !got[0].IsDefault || got[1].IsDefault {
+		t.Fatalf("默认标记 = %#v", got)
 	}
 	if strings.Join(got[0].Efforts, ",") != "low,medium,high,xhigh,max" {
 		t.Fatalf("缺元数据时的档位 = %v", got[0].Efforts)

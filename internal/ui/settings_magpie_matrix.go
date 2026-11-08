@@ -7,12 +7,21 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// magpieBuiltinAgent 是内置引擎的 agent id：矩阵列始终存在且始终可勾选，
+// 没有安装状态，也没有 inject、global、off 的模式区分。
+const magpieBuiltinAgent = "mcode"
+
 // magpieMatrixAgents 是模型矩阵的列顺序：按智能体名逐列展示勾选状态。
-var magpieMatrixAgents = []string{"claude", "codex", "pi"}
+var magpieMatrixAgents = []string{"claude", "codex", "pi", magpieBuiltinAgent}
 
 func magpieInstalledAgents(st *SettingsState) []string {
-	var agents []string
+	agents := make([]string, 0, len(magpieMatrixAgents))
 	for _, agent := range magpieMatrixAgents {
+		// 内置引擎不来自供应商列表，providerStatusFor 对它的结果不可靠，固定保留。
+		if agent == magpieBuiltinAgent {
+			agents = append(agents, agent)
+			continue
+		}
 		st.mu.Lock()
 		_, known := st.providerRows.available[agent]
 		st.mu.Unlock()
@@ -24,8 +33,17 @@ func magpieInstalledAgents(st *SettingsState) []string {
 	return agents
 }
 
+// magpieMatrixAgentTitle 返回矩阵列头与无障碍名用的 agent 名：
+// 内置引擎直接用小写 id，其余沿用 Magpie 页的行标题。
+func magpieMatrixAgentTitle(agent string) string {
+	if agent == magpieBuiltinAgent {
+		return magpieBuiltinAgent
+	}
+	return magpieAgentTitle(agent)
+}
+
 // magpieMatrixColWidth 是每个智能体列的固定宽度：表头、家族批量勾选与模型行共用，
-// 保证三列勾选框严格竖直对齐。
+// 保证各列勾选框严格竖直对齐。
 const magpieMatrixColWidth float32 = 72
 
 // magpieMatrixModel 是矩阵里的一行：模型本身与各 agent 是否勾选。
@@ -190,7 +208,7 @@ func magpieMatrixDefaultBadge(agents []string) string {
 			continue
 		}
 		seen[agent] = true
-		names = append(names, magpieAgentTitle(agent))
+		names = append(names, magpieMatrixAgentTitle(agent))
 	}
 	return strings.Join(names, " · ") + " 默认"
 }
@@ -219,7 +237,7 @@ func magpieMatrixErrorLines(agents []string, errs map[string]string) []string {
 		if _, ok := groups[text]; !ok {
 			order = append(order, text)
 		}
-		groups[text] = append(groups[text], magpieAgentTitle(agent))
+		groups[text] = append(groups[text], magpieMatrixAgentTitle(agent))
 	}
 	lines := make([]string, 0, len(order))
 	for _, text := range order {
@@ -250,7 +268,7 @@ func retryMagpieMatrixAgent(st *SettingsState, agent string) {
 	st.loadAgentMagpie(agent)
 }
 
-// renderMagpieModelMatrix 画 Magpie 页的模型矩阵：搜索框、每个网关的模型家族与三列勾选。
+// renderMagpieModelMatrix 画 Magpie 页的模型矩阵：搜索框、每个网关的模型家族与逐列勾选。
 func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 	st.mu.Lock()
 	query := &st.magpieMatrixSearch
@@ -334,7 +352,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 					SingleLine()
 				for _, agent := range agents {
 					magpieMatrixCell(c, "magpie-matrix-head-"+agent, func() {
-						ui.Text(c, magpieAgentTitle(agent)).
+						ui.Text(c, magpieMatrixAgentTitle(agent)).
 							FontSize(TypeFootnote).
 							FontWeight(600).
 							TextColor(ThemeSecondaryText(c)).
@@ -432,7 +450,7 @@ func renderMagpieMatrixFamily(c *ui.Context, st *SettingsState, gateway magpieMa
 						if total == 0 {
 							return
 						}
-						label := "批量切换 " + magpieAgentTitle(agent) + " " + family.title
+						label := "批量切换 " + magpieMatrixAgentTitle(agent) + " " + family.title
 						if mixed {
 							label += "（部分选中）"
 						}
@@ -508,7 +526,7 @@ func renderMagpieMatrixFamily(c *ui.Context, st *SettingsState, gateway magpieMa
 						st.mu.Unlock()
 						value := row.selected[agent]
 						box := ui.Checkbox(c.Key("magpie-checkbox-"+gateway.id+"-"+row.model.ID+"-"+agent), &value, "").
-							Label("切换 " + magpieAgentTitle(agent) + " " + row.model.Name)
+							Label("切换 " + magpieMatrixAgentTitle(agent) + " " + row.model.Name)
 						if saving {
 							box.Disabled(true)
 						}

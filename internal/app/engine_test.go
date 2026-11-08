@@ -204,6 +204,47 @@ func TestSourceEngineMagpieAffinity(t *testing.T) {
 	}
 }
 
+// TestSourceEngineMagpieUsesMcodeSelection 校验 Magpie 来源的模型目录与默认模型
+// 都跟着 Magpie 页为 mcode 勾选的模型走。
+func TestSourceEngineMagpieUsesMcodeSelection(t *testing.T) {
+	var requests []engineTestRequest
+	server := newEngineTestServer(t, &requests)
+
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("magpie"): "gateway-key"})
+	ep := config.CustomEndpointConfig{
+		ID: "magpie", Name: "Magpie", BaseURL: server.URL, Magpie: true, Enabled: true,
+	}
+	dataDir := t.TempDir()
+	writeEngineTestConfig(t, dataDir, ep)
+	if err := config.Update(dataDir, func(latest *config.Config) error {
+		config.SetMagpieAgentModels(latest, config.ProviderMcode, "magpie", []string{"plain-model", "other-model"})
+		config.SetMagpieAgentDefault(latest, config.ProviderMcode, "magpie", "other-model")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	h := newCustomEndpointHarness(ep, secrets, dataDir, providerMCP{})
+	if got, want := strings.Join(h.(interface{ ModelIDs() []string }).ModelIDs(), ","), "other-model,plain-model"; got != want {
+		t.Fatalf("ModelIDs = %q, want %q", got, want)
+	}
+	// 空模型跟随 mcode 勾选：默认模型排在最前。
+	if reply := runEngineTurn(t, h, "", "thread-1"); reply != "ok" {
+		t.Fatalf("reply = %q, want ok", reply)
+	}
+	if len(requests) != 1 || requests[0].Model != "other-model" {
+		t.Fatalf("默认模型请求 = %+v", requests)
+	}
+	// 没勾选的模型照样能发请求：老会话不受模型目录影响。
+	requests = nil
+	if reply := runEngineTurn(t, h, "plain-model", "thread-2"); reply != "ok" {
+		t.Fatalf("reply = %q, want ok", reply)
+	}
+	if len(requests) != 1 || requests[0].Model != "plain-model" {
+		t.Fatalf("显式模型请求 = %+v", requests)
+	}
+}
+
 // anthropicMessagesSSE 是 Anthropic Messages 接口的最小事件流。
 const anthropicMessagesSSE = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n" +
 	"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n" +
@@ -347,10 +388,11 @@ func TestSourceEngineDisabledSource(t *testing.T) {
 }
 
 func TestSourceEngineDefaultModel(t *testing.T) {
-	if got := sourceEngineDefaultModel(apisource.Source{DefaultModel: " deepseek-flash "}, harness.Kind("deepseek"), nil); got != "deepseek-flash" {
+	cfg := config.Defaults()
+	if got := sourceEngineDefaultModel(apisource.Source{DefaultModel: " deepseek-flash "}, harness.Kind("deepseek"), cfg, nil); got != "deepseek-flash" {
 		t.Fatalf("来源默认模型 = %q", got)
 	}
-	if got := sourceEngineDefaultModel(apisource.Source{BaseURL: "https://gateway.example/v1"}, harness.Kind("openai"), nil); got != "gpt-4o" {
+	if got := sourceEngineDefaultModel(apisource.Source{BaseURL: "https://gateway.example/v1"}, harness.Kind("openai"), cfg, nil); got != "gpt-4o" {
 		t.Fatalf("官方 OpenAI 默认模型 = %q, want gpt-4o", got)
 	}
 }

@@ -616,6 +616,9 @@ func (c *Client) SetAgentMagpieMode(ctx context.Context, agent, mode string) err
 	if agent == "" {
 		return errors.New("agent 不能为空")
 	}
+	if agent == config.ProviderMcode {
+		return errors.New("内置引擎没有模式设置")
+	}
 	if mode != string(config.MagpieModeInject) && mode != string(config.MagpieModeGlobal) && mode != string(config.MagpieModeOff) {
 		return fmt.Errorf("未知的 magpie 模式 %q", mode)
 	}
@@ -689,6 +692,9 @@ func (c *Client) AgentMagpieGlobalAction(ctx context.Context, agent, action stri
 	action = strings.TrimSpace(action)
 	if agent == "" {
 		return errors.New("agent 不能为空")
+	}
+	if agent == config.ProviderMcode {
+		return errors.New("内置引擎没有模式设置")
 	}
 
 	c.providersMu.Lock()

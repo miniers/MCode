@@ -141,9 +141,15 @@ func TestMagpieInstalledAgentSections(t *testing.T) {
 				}
 			} else {
 				tt.Frame()
-				for _, text := range []string{"智能体", "模型", "在模型选择器中显示", "网关没有返回模型", "sec-magpie-agents", "sec-magpie-models"} {
+				// 内置引擎始终有一列，模型分组与矩阵不随 CLI 智能体的安装状态消失。
+				for _, text := range []string{"智能体", "sec-magpie-agents"} {
 					if countExactText(tt.Texts(), text) > 0 {
-						t.Fatalf("没有已安装智能体时不应显示 %q: %v", text, tt.Texts())
+						t.Fatalf("没有已安装的 CLI 智能体时不应显示 %q: %v", text, tt.Texts())
+					}
+				}
+				for _, text := range []string{"模型", "在模型选择器中显示", "mcode"} {
+					if countExactText(tt.Texts(), text) < 1 {
+						t.Fatalf("应显示 %q: %v", text, tt.Texts())
 					}
 				}
 			}

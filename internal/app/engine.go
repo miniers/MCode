@@ -41,6 +41,12 @@ func newSourceEngineHarness(legacy harness.Harness, cfg config.Config, secrets c
 	if models, ok := legacy.(interface{ ModelIDs() []string }); ok {
 		opts.ModelIDs = models.ModelIDs
 	}
+	// Magpie 来源的模型目录跟着 Magpie 页为 mcode 勾选的模型走；每次调用都读最新配置。
+	if source, ok := findAPISource(apisource.Resolve(cfg, secrets), kind); ok && source.Magpie {
+		if endpointID := sourceMagpieEndpointID(cfg, kind); endpointID != "" {
+			opts.ModelIDs = func() []string { return mcodeEndpointModelIDs(cfg, endpointID) }
+		}
+	}
 	if refresh, ok := legacy.(interface {
 		RefreshModels(context.Context) error
 	}); ok {
@@ -71,7 +77,7 @@ func resolveSourceClient(kind harness.Kind, legacy harness.Harness, cfg config.C
 	}
 	modelID := strings.TrimSpace(model)
 	if modelID == "" || strings.EqualFold(modelID, "default") {
-		modelID = sourceEngineDefaultModel(source, kind, legacy)
+		modelID = sourceEngineDefaultModel(source, kind, current, legacy)
 	}
 	if modelID == "" {
 		return nil, "", fmt.Errorf("来源 %s 未配置默认模型", kind)
@@ -133,10 +139,39 @@ func findAPISource(sources []apisource.Source, kind harness.Kind) (apisource.Sou
 	return apisource.Source{}, false
 }
 
+// sourceMagpieEndpointID 返回 Magpie 来源对应的自定义端点 ID：
+// 预设端点 magpie..magpie4 的 ID 就是 kind，其余端点是 custom-<id>。
+func sourceMagpieEndpointID(cfg config.Config, kind harness.Kind) string {
+	for _, endpoint := range cfg.Providers.Custom {
+		if endpoint.Magpie && config.CustomEndpointProviderKind(endpoint) == string(kind) {
+			return endpoint.ID
+		}
+	}
+	return ""
+}
+
+// mcodeEndpointModelIDs 返回某 Magpie 端点在最新配置里为内置引擎勾选的模型，
+// 默认模型排在最前；没有勾选时返回空列表。
+func mcodeEndpointModelIDs(cfg config.Config, endpointID string) []string {
+	setting := config.MagpieAgentSetting(mcodeCurrentConfig(cfg, nil), config.ProviderMcode)
+	return mcodeSelectionModels(setting, endpointID)
+}
+
 // sourceEngineDefaultModel 复刻旧循环选择默认模型的规则：先取来源配置的默认模型；
 // 官方 OpenAI 端点回退到 gpt-4o；其余来源取模型目录的第一项，目录为空时
 // 同步刷新一次（与旧循环 modelIDsForRun 一致），刷新失败就返回空。
-func sourceEngineDefaultModel(source apisource.Source, kind harness.Kind, legacy harness.Harness) string {
+// Magpie 来源没有自己的默认模型配置，直接用 mcode 勾选列表的第一项。
+func sourceEngineDefaultModel(source apisource.Source, kind harness.Kind, cfg config.Config, legacy harness.Harness) string {
+	if source.Magpie {
+		endpointID := sourceMagpieEndpointID(cfg, kind)
+		if endpointID == "" {
+			return ""
+		}
+		if ids := mcodeEndpointModelIDs(cfg, endpointID); len(ids) > 0 {
+			return ids[0]
+		}
+		return ""
+	}
 	if model := strings.TrimSpace(source.DefaultModel); model != "" {
 		return model
 	}
