@@ -283,7 +283,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 							Effort:   leadEffort,
 							Fast:     uiSt.draft.LeadFastMode,
 						}
-						renderSwarmModelCapsuleEx(c, st, "swarm-pair-lead-capsule", "swarm-draft-lead-"+popKey, leadSel, "选择模型", "选择主代理模型", true, func(next ModelSelection) {
+						renderSwarmModelCapsuleEx(c, st, "swarm-pair-lead-capsule", "swarm-draft-lead-"+popKey, leadSel, "选择模型", "选择主代理模型", func(next ModelSelection) {
 							uiSt.draft.LeadProvider = next.Provider
 							uiSt.draft.LeadModel = next.Model
 							if next.Effort != "" {
@@ -321,7 +321,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 							AlignItems(ui.Center).
 							Gap(Space1).
 							Children(func() {
-								renderSwarmModelCapsuleEx(c, st, "swarm-pair-worker-capsule", "swarm-draft-worker-"+popKey, workerSel, "与主代理相同", "选择子代理模型", true, func(next ModelSelection) {
+								renderSwarmModelCapsuleEx(c, st, "swarm-pair-worker-capsule", "swarm-draft-worker-"+popKey, workerSel, "与主代理相同", "选择子代理模型", func(next ModelSelection) {
 									uiSt.draft.WorkerProvider = next.Provider
 									uiSt.draft.WorkerModel = next.Model
 									if next.Effort != "" {
@@ -410,7 +410,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 											AlignItems(ui.Center).
 											Gap(Space1).
 											Children(func() {
-												renderSwarmModelCapsuleEx(c, st, "swarm-pair-tier-capsule-"+tier.ID, "tier-map-"+tier.ID+"-"+popKey, tierSel, emptyLabel, "选择"+tierName+"档模型", true, func(next ModelSelection) {
+												renderSwarmModelCapsuleEx(c, st, "swarm-pair-tier-capsule-"+tier.ID, "tier-map-"+tier.ID+"-"+popKey, tierSel, emptyLabel, "选择"+tierName+"档模型", func(next ModelSelection) {
 													f := next.Fast
 													if uiSt.draft.BeeTiers == nil {
 														uiSt.draft.BeeTiers = make(map[string]config.SwarmTierOverride)

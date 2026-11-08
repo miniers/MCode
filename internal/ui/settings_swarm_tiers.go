@@ -330,7 +330,7 @@ func renderSwarmTierEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmT
 						AlignItems(ui.Center).
 						Gap(Space3).
 						Children(func() {
-							renderSwarmModelCapsuleEx(c, st, "swarm-tier-model-capsule", "tier-model-"+popKey, tierSel, "跟随会话子代理模型", "选择档位模型", true, func(next ModelSelection) {
+							renderSwarmModelCapsuleEx(c, st, "swarm-tier-model-capsule", "tier-model-"+popKey, tierSel, "跟随会话子代理模型", "选择档位模型", func(next ModelSelection) {
 								uiSt.draft.Provider = next.Provider
 								uiSt.draft.Model = next.Model
 								uiSt.draft.Effort = next.Effort

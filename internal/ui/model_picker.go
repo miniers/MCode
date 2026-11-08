@@ -112,7 +112,6 @@ type ModelPickerProps struct {
 	TriggerLabel   string // 触发按钮的无障碍名，同一界面有多个胶囊时用来区分；为空时使用“选择模型”
 	Compact        bool   // 胶囊只显示供应商图标与箭头，完整文案放进提示，供浮动面板这类窄处使用
 	Inline         bool   // 只渲染推理强度卡片（供设置页在自有弹层内复用），不渲染触发胶囊与 Popover
-	Expand         bool   // 原位展开：点击胶囊后在其下方展开面板，不使用 Popover，供已经身处弹层内的调用方使用
 
 	QuotaUsed            func(providerID string) (float64, bool) // 读取 provider 配额用量（可选）
 	OnPickModel          func(side ModelPickerSide, prov ProviderInfo, m ModelInfo)
@@ -1187,77 +1186,59 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 				renderSingleLine()
 			})
 
-			if !p.Expand {
-				// 面板锚点：始终按触发胶囊的 Bounds 定位——面板水平居中于胶囊，箭头则对准胶囊中心
-				// （见下方 DrawOver：用胶囊中心的绝对 x 减去面板左边缘得到偏移，再限制在圆角内）。
-				// 读不到 Bounds 时 PopoverBase 自身的居中兜底会让箭头保持正中。
-				anchor := trigger
+			// 面板锚点：始终按触发胶囊的 Bounds 定位——面板水平居中于胶囊，箭头则对准胶囊中心
+			// （见下方 DrawOver：用胶囊中心的绝对 x 减去面板左边缘得到偏移，再限制在圆角内）。
+			// 读不到 Bounds 时 PopoverBase 自身的居中兜底会让箭头保持正中。
+			anchor := trigger
 
-				ui.PopoverBase(c.Key(p.KeyPrefix+"model-popover"), anchor, &state.MenuOpen, func(panel ui.Element) {
-					panelBg := modelPickerPanelBg
-					borderColor := ColorBorderDark
-					// 面板是固定深色面（与 effort_slider.go 共用 modelPickerPanelBg），阴影取
-					// 固定深色面一致的 ElevDialog，不再写死一档 rgba 阴影。
-					panel = applyElevation(c, panel, ElevDialog)
-					panel.AttachTo(anchor, ui.AnchorTop, ui.AnchorBottom).
-						Margin(0, 0, Space3, 0).
-						Radius(modelPickerPanelRadius).
-						Background(panelBg).
-						Border(1, borderColor).
-						DrawOver(func(painter *ui.Painter, r ui.Rect) {
-							// 底部箭头指向锚点（模型胶囊）的水平中心：用锚点 Bounds 的中心与面板左边缘的差值
-							// 算出偏移，并限制在面板圆角区域之内，避免箭头压到圆角上。
-							anchorBounds := anchor.Bounds()
-							tipOffset := r.W / 2
-							if anchorBounds.W > 0 {
-								tipOffset = anchorBounds.X + anchorBounds.W/2 - r.X
-							}
-							// 面板圆角 22、箭头半宽 7，再留 4 的安全边距：箭头尖端始终落在圆角之外。
-							const arrowInset = float32(33)
-							if r.W > arrowInset*2 {
-								tipOffset = min(max(tipOffset, arrowInset), r.W-arrowInset)
-							}
-							tipX := r.X + tipOffset
-							baseY := r.Y + r.H
-							var arrow ui.Path
-							arrow.MoveTo(tipX-7, baseY-1)
-							arrow.LineTo(tipX, baseY+6)
-							arrow.LineTo(tipX+7, baseY-1)
-							arrow.Close()
-							painter.FillPath(&arrow, panelBg)
+			ui.PopoverBase(c.Key(p.KeyPrefix+"model-popover"), anchor, &state.MenuOpen, func(panel ui.Element) {
+				panelBg := modelPickerPanelBg
+				borderColor := ColorBorderDark
+				// 面板是固定深色面（与 effort_slider.go 共用 modelPickerPanelBg），阴影取
+				// 固定深色面一致的 ElevDialog，不再写死一档 rgba 阴影。
+				panel = applyElevation(c, panel, ElevDialog)
+				panel.AttachTo(anchor, ui.AnchorTop, ui.AnchorBottom).
+					Margin(0, 0, Space3, 0).
+					Radius(modelPickerPanelRadius).
+					Background(panelBg).
+					Border(1, borderColor).
+					DrawOver(func(painter *ui.Painter, r ui.Rect) {
+						// 底部箭头指向锚点（模型胶囊）的水平中心：用锚点 Bounds 的中心与面板左边缘的差值
+						// 算出偏移，并限制在面板圆角区域之内，避免箭头压到圆角上。
+						anchorBounds := anchor.Bounds()
+						tipOffset := r.W / 2
+						if anchorBounds.W > 0 {
+							tipOffset = anchorBounds.X + anchorBounds.W/2 - r.X
+						}
+						// 面板圆角 22、箭头半宽 7，再留 4 的安全边距：箭头尖端始终落在圆角之外。
+						const arrowInset = float32(33)
+						if r.W > arrowInset*2 {
+							tipOffset = min(max(tipOffset, arrowInset), r.W-arrowInset)
+						}
+						tipX := r.X + tipOffset
+						baseY := r.Y + r.H
+						var arrow ui.Path
+						arrow.MoveTo(tipX-7, baseY-1)
+						arrow.LineTo(tipX, baseY+6)
+						arrow.LineTo(tipX+7, baseY-1)
+						arrow.Close()
+						painter.FillPath(&arrow, panelBg)
 
-							var stroke ui.Path
-							stroke.MoveTo(tipX-7, baseY-1)
-							stroke.LineTo(tipX, baseY+6)
-							stroke.LineTo(tipX+7, baseY-1)
-							painter.StrokePath(&stroke, 1, borderColor)
+						var stroke ui.Path
+						stroke.MoveTo(tipX-7, baseY-1)
+						stroke.LineTo(tipX, baseY+6)
+						stroke.LineTo(tipX+7, baseY-1)
+						painter.StrokePath(&stroke, 1, borderColor)
 
-							painter.Line(tipX-6, baseY, tipX+6, baseY, 2, panelBg)
-						})
-
-					renderModelPickerMenuBody(c, p, state)
-				})
-			}
-		})
-	}
-
-	if p.Expand {
-		ui.Column(c.Key(p.KeyPrefix + "model-expand-wrap")).Children(func() {
-			renderSelectorRow()
-			if state.MenuOpen {
-				ui.Box(c.Key(p.KeyPrefix+"model-expand-panel")).
-					Margin(Space2, 0, 0, 0).
-					Radius(RadiusLG).
-					Border(1, ColorBorderDark).
-					Background(modelPickerPanelBg).
-					Children(func() {
-						renderModelPickerMenuBody(c, p, state)
+						painter.Line(tipX-6, baseY, tipX+6, baseY, 2, panelBg)
 					})
-			}
+
+				renderModelPickerMenuBody(c, p, state)
+			})
 		})
-	} else {
-		renderSelectorRow()
 	}
+
+	renderSelectorRow()
 }
 
 // modelPickerPanelBg 是模型面板的底色；Swarm 开关的镂空环内侧也用它盖住彩虹底。
