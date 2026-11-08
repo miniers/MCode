@@ -6,7 +6,7 @@
 
 ### 任务状态
 
-`TaskStatus`：`todo`、`in_progress`、`needs_approval`、`review`、`done`、`rejected`。合法转移由 `CanTransition` 决定。
+`TaskStatus`：`todo`、`in_progress`、`needs_approval`、`review`、`done`、`waiting`、`failed`、`cancelled`。`rejected` 作为旧数据别名读成 `cancelled`。合法转移由 `CanTransition` 决定。
 
 看板显示列 `DisplayColumn`：`todo`、`in_progress`、`needs_you`、`review`、`done`。显示列由任务状态派生（`derive.go`），不是一一对应。
 
@@ -31,7 +31,7 @@
 
 - `ensureDependenciesDone` 校验前置依赖，未就绪的任务不能启动。已完成依赖的信息会注入启动提示词。
 - 驳回时附带的反馈让任务退回 `todo`，重启时写入执行提示词。
-- 打回次数只增不减，accept 不清零，总管用它判断是否升级为打断级通知。
+- 打回次数只增不减，accept 不清零。
 - `RecoverOrphanTasks` 在启动时恢复孤儿任务。
 
 ### 目标
@@ -44,7 +44,7 @@
 2. 进入 `plan_review`，用户确认后 `StartGoal`。
 3. `GoalScheduler` 按依赖和并发限制启动任务。
 4. 规划完成后，计划会话转为目标的协调员。`CoordinatorPreface` 在每次提示词前注入目标状态、进度、任务清单和 MCP 协调规则。
-5. 任务待验收时，`internal/app/goal_review_wake.go` 先跑 `[命令]`，再唤醒总管或话题会话验收。
+5. 任务待验收时进入 `review`，由用户验收；含 `[命令]` 或 `[你验]` 的任务不能自动接受。
 
 目标不存在、仍在规划、规划失败或已取消时，`CoordinatorPreface` 返回空字符串。
 
@@ -55,10 +55,10 @@
 | 标签 | 含义 |
 |---|---|
 | `[命令]` | 宿主在任务 worktree 里执行。命令写在第一对反引号之间 |
-| `[审阅]` | 总管读改动和相关文件后判断 |
+| `[审阅]` | 需要阅读改动后判断 |
 | `[你验]` | 必须问用户 |
 
-`planner.go` 要求规划时原样保留标签。`acceptance.go` 只解析 `[命令]`，限制：单条命令 5 分钟，合计 15 分钟，输出保留末尾 4KB。总管的处理流程见 [05-steward-attention.md](05-steward-attention.md#任务验收)。
+`planner.go` 要求规划时原样保留标签。`acceptance.go` 只解析 `[命令]`，限制：单条命令 5 分钟，合计 15 分钟，输出保留末尾 4KB。执行结果与决策卡见 [05-steward-attention.md](05-steward-attention.md)。
 
 ### 工具和 UI
 

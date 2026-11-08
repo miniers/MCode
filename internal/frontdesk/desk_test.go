@@ -189,6 +189,26 @@ func TestBareDecision(t *testing.T) {
 		t.Fatal(f.events)
 	}
 }
+
+func TestSnapshotRecentAnswerHint(t *testing.T) {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	current := now
+	f := &fake{}
+	d := Desk{Tasks: f, Decisions: f, Now: func() time.Time { return current }}
+	if err := d.HandleMessage(context.Background(), Inbound{Text: "D-0001 B"}); err != nil {
+		t.Fatal(err)
+	}
+	snap := d.snapshot(context.Background(), Inbound{})
+	if snap.Answered != "D-0001" || !strings.Contains(snap.Text, "刚答过 D-0001，这条可能是在改答") {
+		t.Fatalf("五分钟内快照未提示改答: %+v", snap)
+	}
+	current = now.Add(5*time.Minute + time.Second)
+	snap = d.snapshot(context.Background(), Inbound{})
+	if snap.Answered != "" || strings.Contains(snap.Text, "刚答过") {
+		t.Fatalf("超过五分钟仍提示改答: %+v", snap)
+	}
+}
+
 func TestQueue(t *testing.T) {
 	f := &fake{}
 	d := Desk{Decisions: f}

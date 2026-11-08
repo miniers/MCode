@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
+
+const decisionReanswerWindow = 5 * time.Minute
 
 const systemPrompt = `你是主会话的前台，每条用户消息单独处理一次。
 用一句白话回复，不寒暄，不说“好的我来”之类的套话；不需要回复时返回空文本。
@@ -25,7 +28,15 @@ func truncate(s string, n int) string {
 func (d *Desk) snapshot(ctx context.Context, in Inbound) Snapshot {
 	var s Snapshot
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n当前时间：%s\n", systemPrompt, d.now().Format("2006-01-02 15:04:05 MST"))
+	now := d.now()
+	fmt.Fprintf(&b, "%s\n当前时间：%s\n", systemPrompt, now.Format("2006-01-02 15:04:05 MST"))
+	d.mu.Lock()
+	recentAnswerID, recentAnswerAt := d.recentAnswerID, d.recentAnswerAt
+	d.mu.Unlock()
+	if recentAnswerID != "" && now.Sub(recentAnswerAt) <= decisionReanswerWindow {
+		s.Answered = recentAnswerID
+		fmt.Fprintf(&b, "刚答过 %s，这条可能是在改答\n", recentAnswerID)
+	}
 	if d.Tasks != nil {
 		if tasks, err := d.Tasks.ListTasks(ctx, ""); err == nil {
 			var active, done strings.Builder

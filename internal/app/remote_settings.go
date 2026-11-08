@@ -157,7 +157,6 @@ func settingsSnapshotFromConfig(cfg config.Config) (wire.SettingsSnapshot, error
 		remote.SettingsKeyStewardQuietEnd:                    cfg.Orchestration.Steward.QuietEnd,
 		remote.SettingsKeyStewardEnabled:                     cfg.Orchestration.Steward.Enabled,
 		remote.SettingsKeyStewardCLIFallback:                 cfg.Orchestration.Steward.CLIFallback,
-		remote.SettingsKeyStewardAutoCollapseReasoning:       cfg.Orchestration.Steward.AutoCollapseReasoningEnabled(),
 	}
 	out := make(map[string]json.RawMessage, len(values))
 	for key, value := range values {
@@ -616,14 +615,6 @@ func applySettingsValue(cfg *config.Config, key string, raw json.RawMessage) err
 		cfg.Orchestration.Steward.CLIFallback = value
 		return nil
 
-	case remote.SettingsKeyStewardAutoCollapseReasoning:
-		value, err := decodeSettingsBool(key, raw)
-		if err != nil {
-			return err
-		}
-		// 对外的生效值与开关相反：读 true 表示折叠开着，对应 AutoCollapseReasoningOff 为 false。
-		cfg.Orchestration.Steward.AutoCollapseReasoningOff = !value
-		return nil
 	}
 	// handler 已经拦过白名单，走到这里说明两边白名单不同步。
 	return remote.ExtInvalidParams("Invalid params: '" + key + "' is not a writable setting")

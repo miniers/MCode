@@ -668,7 +668,7 @@ func TestSettingsSwarm_TreeSectionsAndAdvanced(t *testing.T) {
 					t.Fatalf("高级行出现在错误分节 %s: %s", section.ID, row.ID)
 				}
 				delete(ids, row.ID)
-			} else if row.ID == "row-steward-home-dir" || row.ID == "row-steward-wake-limit" {
+			} else if row.ID == "row-steward-home-dir" {
 				t.Fatalf("总管高级行出现在编排页: %s", row.ID)
 			}
 		}

@@ -7,7 +7,7 @@
 | 文件 | 内容 |
 |---|---|
 | `server.go`、`registry.go` | 内置服务和工具注册表（`Registry.Register`） |
-| `tools_*.go` | 按域拆分的工具实现：看板、自动化、项目文档、记忆、总管、编排 |
+| `tools_*.go` | 按域拆分的工具实现：看板、自动化、项目文档、记忆、编排 |
 | `proxy.go` | 按会话路由；`filterDisabledTools` 应用工具策略；工具过多时折叠成 `call_tool` |
 | `hub.go` | 上游连接和空闲回收 |
 | `oauth.go` | 上游 OAuth，令牌存 keyring（服务名 `mcode.mcp-oauth`） |
@@ -33,13 +33,11 @@
 | 自动化 | `automation`（入口）、`automation_cancel`、`automation_create`、`automation_list`、`automation_report_result`、`automation_run_now`、`automation_update` |
 | 会话 | `thread_fetch_messages`、`thread_interrupt`、`thread_search`、`thread_send_message` |
 | 编排 | `swarm_delegate`、`swarm_report_get` |
-| 总管 | 总管专属（`stewardToolNames`）：`attention_list`、`attention_resolve`、`thread_status`、`notify_owner`、`approval_suggest`、`steward_open_topic`、`steward_projects_list`、`plan_request`、`steward_assign_task`、`steward_ledger_get`、`steward_ledger_update` |
-| 话题 | 话题会话专属（`stewardTopicToolNames`）：`steward_update_brief`、`steward_start_goal`。总管主会话看不到这两个 |
 | 项目文档 | `context_list_documents`、`context_read_document` |
 | 记忆 | `memory`（入口）、`memory_get`、`memory_propose`、`memory_search`、`memory_forget` |
 | 代理 | `call_tool` |
 
-普通会话只看到入口工具 `kanban`、`automation`、`memory`，用 `action` 调用族内操作（`action=help` 查看清单）；类型化工具只给看板线程、总管/话题会话与无会话作用域的共享端点。入口只负责改写调用，参数校验、能力裁剪、幂等与写串行化仍按内部工具名执行。
+普通会话只看到入口工具 `kanban`、`automation`、`memory`，用 `action` 调用族内操作（`action=help` 查看清单）；类型化工具只给看板线程与无会话作用域的共享端点。入口只负责改写调用，参数校验、能力裁剪、幂等与写串行化仍按内部工具名执行。
 
 ## 技能和外部配置（agentconf）
 
@@ -102,4 +100,3 @@ UI：`internal/ui/memory_panel*.go`、`internal/ui/settings_page_nowledge.go`；
 
 - 新增内置工具：实现放对应的 `tools_*.go`，用 `Registry.Register` 注册，并检查工具是否需要出现在 `policy` 提示词里。
 - 工具涉及写操作时要考虑 `idempotency.go`。
-- 总管专用工具要加入 `internal/mcp/tools_steward.go` 的 `stewardToolNames`，话题专用的加入 `stewardTopicToolNames`。否则普通会话也能看到和调用。

@@ -20,8 +20,9 @@
 | `hydra_leads` | 编排状态（旧名） | `swarm.go` |
 | `swarm_reports` | 子代理汇报存档 | `swarm_reports.go` |
 | `attention_events` | 提醒事件 | `attention.go` |
+| `steward_decisions` | 决策卡 | `steward_decisions.go` |
 | `memory_proposals` | 记忆提议 | `memory_proposals.go` |
-| `app_settings` | 键值设置（如 `steward.topics`） | `settings.go` |
+| `app_settings` | 键值设置（如 `steward.feed_thread_id`） | `settings.go` |
 
 `thread_notes`、`pinned_messages` 已删除。消息搜索在 `message_search.go`，回合撤回在 `recall.go`。
 

@@ -19,7 +19,7 @@
 ## 发送链路
 
 ```
-SendMessage / SendSwarmReport / SendHostEvent / SendStewardWake
+SendMessage / SendSwarmReport / SendHostEvent
   → sendMessage
   → startTurnLocked（空闲时开回合，运行中转排队或 steer）
   → launchTurnRun
@@ -34,16 +34,16 @@ SendMessage / SendSwarmReport / SendHostEvent / SendStewardWake
 | `SendMessage` | 用户消息 |
 | `SendSwarmReport` | 子代理汇报。会话忙时按 priority 排队，之后开新一轮 |
 | `SendHostEvent` | 行为同 `SendSwarmReport`，落库的消息 `Kind=host_event`，客户端显示成事件通知 |
-| `SendStewardWake` | 唤醒总管，`Kind=steward_wake`，客户端隐藏正文 |
+
+`SendMessage` 命中前台 feed 时交给 `StewardDesk.Enqueue`，由 `internal/frontdesk` 处理，不启动 Provider 回合。
 
 ## `runHarness` 要点
 
 - 原生 `/compact` 不加任何装饰，直接送达 Provider。
 - 人设前缀只进 `Turn.Prompt`，不进用户看到的消息。
 - 首轮 guidance：项目 Context 加技能目录。子代理使用精简目录。
-- `SetFirstTurnExtra`：首轮追加内容（总管移交提示）。
-- `stewardAdditionalDirs`：总管可访问的额外目录。
-- `SessionRotator`：会话换新的钩子，总管主会话和话题使用。
+- `SetFirstTurnExtra`：首轮追加内容（普通会话的「可以交给总管」提示）。
+- `SessionRotator`：会话换新的钩子。
 
 修改这个函数前，先确认改动不会影响 `/compact` 的原样送达和 `Transient` 回合。
 
@@ -103,7 +103,7 @@ Provider 通过 `emit` 发 `harness.Event`，`runHarness` 处理后写消息并�
 
 宿主给 Provider 的固定提示词统一由 `internal/harness/policy` 渲染：
 
-- `policy.Render` 按固定顺序输出段落：`SwarmLead`、`SwarmTiers`、`SwarmLimits`、`SwarmRoster`、`Kanban`、`Steward`、`ProjectContext`、`Automation`。
+- `policy.Render` 按固定顺序输出段落：`SwarmLead`、`SwarmTiers`、`SwarmLimits`、`SwarmRoster`、`Kanban`、`ProjectContext`、`Automation`。
 - 输出带 `<mcode_harness_policy version=.../>` 标记。文案或顺序变化时要递增 `policy.Version`。
 
 `internal/remote/runtime_prompts.go` 的预算：
@@ -119,7 +119,7 @@ Provider 通过 `emit` 发 `harness.Event`，`runHarness` 处理后写消息并�
 
 ## 会话分割
 
-`RequestSplit` 在时间线末尾追加一条 `split_session` 分割线。从下一条消息起，Provider 只看到分割线之后的历史，账本、话题索引这类交接内容照常带上。分割线本身是持久标记，重启后状态一致；已处于待分割状态时幂等返回。
+`RequestSplit` 在时间线末尾追加一条 `split_session` 分割线。从下一条消息起，Provider 只看到分割线之后的历史。分割线本身是持久标记，重启后状态一致；已处于待分割状态时幂等返回。
 
 `internal/remote/session_rotation.go` 定义换新钩子。`SessionRotationInfo.Manual` 为真表示用户主动分割，钩子应无条件同意，并给出分割版前言。
 
@@ -133,7 +133,7 @@ Provider 通过 `emit` 发 `harness.Event`，`runHarness` 处理后写消息并�
 
 `internal/remote/session_alerts.go` 的 `SessionAlertDetector` 产生 `approval`、`done`、`failed`、`stalled`、`quota` 五类提醒。`stalled` 每 30 秒查一次，24 小时内最多 3 次。
 
-检测器有多个独立实例：`internal/remote/webpush.go`（Web Push）、`internal/app/attention_wiring.go`（收件箱）、`internal/app/steward_wiring.go`（总管自身的提醒）。
+检测器有多个独立实例：`internal/remote/webpush.go`（Web Push）、`internal/app/attention_wiring.go`（收件箱）。
 
 ## 斜杠命令
 

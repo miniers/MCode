@@ -8,7 +8,7 @@
 |---|---|
 | `root.go` | `buildRoot`，整体布局和侧栏过渡 |
 | `windows.go` | `OpenThreadWindow`、`OpenNewThreadWindow`、`ActivateThread`、`OpenMiniEditor` |
-| `client.go` | `Client` 接口和 UI 数据类型；可选接口 `AttentionClient`、`StewardClient`、`StewardTopicsClient`、`ForegroundThreadReporter` |
+| `client.go` | `Client` 接口和 UI 数据类型；可选接口 `AttentionClient`、`StewardClient`、`ForegroundThreadReporter` |
 | `model.go` | `chatState`（`s.mu` 保护）、`UpsertMessages` |
 | `theme.go`、`motion.go`、`text_scale.go` | 主题、动效 token、字号缩放 `scaledFont` |
 | `ui_state.go` | `ui-state.json`：侧栏宽度（200 到 420pt）、隐藏状态、终端高度、各分栏宽度 |
@@ -66,7 +66,7 @@
 | 编排面板 | `swarm*.go` |
 | 看板 | `kanban*.go`、`tasks_window.go` |
 | 自动化 | `automation*.go` |
-| 总管和收件箱 | `steward_*.go`、`sidebar_steward.go`、`attention_inbox.go` |
+| 总管会话和收件箱 | `steward_*.go`、`sidebar_steward.go`、`attention_inbox.go` |
 | 命令面板（⌘K） | `palette.go`、`palette_message_search.go` |
 | 快捷键 | `shortcuts.go`（`shortcutDefaults`，可在设置覆盖） |
 | 应用菜单 | `app_menu.go` |

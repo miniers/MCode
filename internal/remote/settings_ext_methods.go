@@ -67,7 +67,6 @@ const (
 	SettingsKeyStewardQuietEnd                    = "steward.quiet_end"
 	SettingsKeyStewardEnabled                     = "steward.enabled"
 	SettingsKeyStewardCLIFallback                 = "steward.cli_fallback"
-	SettingsKeyStewardAutoCollapseReasoning       = "steward.auto_collapse_reasoning"
 )
 
 // SettingsWritableKeys 是 settings.set 接受的键，顺序与 docs/superpowers/plans/2026-11-01-web-parity.md
@@ -115,7 +114,6 @@ var SettingsWritableKeys = []string{
 	SettingsKeyStewardQuietEnd,
 	SettingsKeyStewardEnabled,
 	SettingsKeyStewardCLIFallback,
-	SettingsKeyStewardAutoCollapseReasoning,
 }
 
 // IsSettingsWritableKey 返回 key 是否在白名单内。

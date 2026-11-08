@@ -5,18 +5,30 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"mcode/internal/store"
 )
 
-// AnswerDecision 关闭决策卡，并将答案追加到关联任务。
-// 先更新任务再关卡：任务更新失败时卡片仍是 open，可以再次回答。
+const decisionReanswerWindow = 5 * time.Minute
+
+// AnswerDecision 回答决策卡，并将答案追加到关联任务。
+// 已答卡在五分钟内允许改答，其他已关闭状态不能再答。
 func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (store.StewardDecision, error) {
 	d, err := s.opts.Store.GetStewardDecision(ctx, id)
 	if err != nil {
 		return d, err
 	}
-	if d.Status != store.DecisionStatusOpen {
+	now := s.nowTime()
+	reanswer := false
+	switch d.Status {
+	case store.DecisionStatusOpen:
+	case store.DecisionStatusAnswered:
+		if d.AnsweredAt == nil || now.Sub(*d.AnsweredAt) > decisionReanswerWindow {
+			return d, store.ErrDecisionClosed
+		}
+		reanswer = true
+	default:
 		return d, store.ErrDecisionClosed
 	}
 	defer func() {
@@ -32,7 +44,11 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		if err != nil {
 			return d, err
 		}
-		task.Notes = strings.TrimSpace(task.Notes + "\n\n" + fmt.Sprintf("决策 %s：%s → %s", d.ID, d.Question, answer))
+		line := fmt.Sprintf("决策 %s：%s → %s", d.ID, d.Question, answer)
+		if reanswer {
+			line = fmt.Sprintf("决策 %s：改答为 %s", d.ID, answer)
+		}
+		task.Notes = strings.TrimSpace(task.Notes + "\n\n" + line)
 		switch TaskStatus(task.Status) {
 		case TaskStatusNeedsApproval:
 			if meta.DecisionID == d.ID {
@@ -51,7 +67,12 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		}
 	}
 
-	answered, err := s.opts.Store.AnswerStewardDecision(ctx, id, answer, by, s.nowTime())
+	var answered store.StewardDecision
+	if reanswer {
+		answered, err = s.opts.Store.ReanswerStewardDecision(ctx, id, answer, by, now)
+	} else {
+		answered, err = s.opts.Store.AnswerStewardDecision(ctx, id, answer, by, now)
+	}
 	if err != nil {
 		if errors.Is(err, store.ErrDecisionClosed) {
 			// 并发重复回答：任务更新已经完成，不回滚，直接报告卡片已关闭。

@@ -36,7 +36,7 @@ MCode 是一个 AI 编码桌面客户端，在一个窗口里管理多个 AI 编
   │          │          │           │          │
 harness    store      swarm       kanban     automation
   │                     │           │
-providers             git         steward（经 app 接线）
+providers             git         frontdesk（经 app 接线）
 ```
 
 `internal/app` 是唯一知道所有子系统的包，子系统之间尽量不直接依赖，靠 `app` 注入回调和接口接线。这也是 `Set*Func`、`registerRemoteWiring` 这类写法很多的原因。
@@ -58,7 +58,6 @@ providers             git         steward（经 app 接线）
 | `internal/git` | 6300 | Git 操作、检查点、worktree、PR |
 | `internal/store` | 5400 | SQLite 持久化 |
 | `internal/kanban` | 4000 | 看板、目标、规划、验收 |
-| `internal/steward` | 3600 | 总管运行时 |
 | `internal/config` | 3500 | 配置和密钥 |
 | `internal/agentconf` | 3300 | 扫描各工具的技能和 MCP 配置 |
 | `internal/projctx` | 2800 | 项目文档、guidance、技能索引 |
@@ -66,6 +65,7 @@ providers             git         steward（经 app 接线）
 | `internal/harness` | 900 | Provider 抽象和提示词 `policy` |
 | `internal/nmem`、`internal/memspace` | 1100 | Nowledge Mem 客户端和空间解析 |
 | `internal/textgen` | 700 | 标题、提交信息、分支名生成 |
+| `internal/frontdesk` | 700 | 总管前台：消息处理与上下文快照 |
 | `internal/native` | 700 | 通知、快捷键、提示音、托盘、keyring |
 | `internal/procs` | 500 | 按会话定位并终止命令子进程树 |
 | `internal/modelsdev` | 400 | models.dev 快照和缓存 |
@@ -108,17 +108,17 @@ UI 要用的数据由 `internal/app/convert.go` 这类转换函数从 `wire` 类
 7. MCP OAuth、Hub、Proxy，nmem 客户端，内置 MCP Server（`mcp.New`）。
 8. 向 Provider 注入 builtin、external、blocked MCP（`providerMCP`）。
 9. 迁移旧 magpie 端点和 swarm profiles。
-10. `wireSwarmWithModes` 或 `prefaceDecorator` 安装提示词装饰器，`SetFirstTurnExtra` 安装总管移交提示。
+10. `wireSwarmWithModes` 或 `prefaceDecorator` 安装提示词装饰器，`SetFirstTurnExtra` 安装普通会话的「可以交给总管」提示。
 11. 一批 `backend.SetXxxFunc`，`wireAutoTitle`，更新检查。
 12. 构造 harness：`SetHarness`、`RegisterHarness`、`registerExtraProviders`。
 13. automation Service 和防休眠 `SleepGuard`（20s）。
 14. 首次启动种演示项目（`demo_seeded`）。
 15. `NewClient`、attention、`NewRemoteService`，注入 Pi Magpie、额度读取、人设等配置，按配置启动远程服务。
-16. `wireSteward`、`wireGoalReviewWake`、`wireRemoteExtensions`。
+16. `wireFrontdesk`、`wireRemoteExtensions`。
 
 ### 关闭顺序
 
-`App.Close` 依次关闭：总管 → 验收唤醒 → attention 接线 → mcpProxy → mcpHub → mcp → automationSleep → automation → scheduler → kanban → swarmPipeline → swarm → remote → hub → backend → store。
+`App.Close` 依次关闭：bee 消息保留 → 旧收件箱迁移 → attention 接线 → quota → mcpProxy → mcpHub → mcp → automationSleep → automation → scheduler → kanban → swarmPipeline → swarm → remote → hub → backend → store。
 
 新增后台组件时，要放到它依赖的组件之前关闭。
 

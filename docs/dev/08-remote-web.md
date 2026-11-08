@@ -63,11 +63,12 @@
 | `always_allow_methods.go` | `requests.alwaysAllowed.list`、`revoke` |
 | `settings_ext_methods.go` | `settings.get`、`set` |
 | `swarm_ext_methods.go` | `threads.swarm.dismissInterrupted`、`interrupted`、`report`、`resume`、`retryBee` |
-| `steward_topics.go` | `steward.open`、`steward.topics.*` |
+| `steward_topics.go` | `steward.open` |
+| `steward_decisions.go` | `steward.decisions.list` |
 | `mcp_ext_methods.go` | `mcp.servers.list` |
 | `project_ext_methods.go` | `projects.add`、`projects.validatePath` |
 
-服务端通知：`attention.changed`、`automations.changed`、`memory.proposals.changed`、`projects.changed`、`settings.changed`、`steward.changed`。
+服务端通知：`attention.changed`、`automations.changed`、`memory.proposals.changed`、`projects.changed`、`settings.changed`。
 
 ### 能力协商
 
@@ -113,7 +114,7 @@ Web 端的处理在 `web/src/context/remoteThreadSubscription.ts`：缓冲、按
 
 路由：`home`、`board`、`settings/<page>`、`new/<projectID>`、`thread/<id>`（子视图 `agents`、`review`、`git`、`files`、`scripts`）、`task`、`goal`。
 
-主要组件都在 `web/src/components/`：`ThreadView`、`ThreadTimeline`、`ThreadComposer`、`ThreadList`、`ThreadDraftView`、`KanbanBoard`、`TaskDetailModal`、`Swarm*`、`Steward*`、`Automation*`、`Git*`、`FileBrowserSheet`、`ScriptsSheet`、`SettingsForm`、`AttentionSheet`、`MemoryProposalsSheet`、`Header`。
+主要组件都在 `web/src/components/`：`ThreadView`、`ThreadTimeline`、`ThreadComposer`、`ThreadList`、`ThreadDraftView`、`KanbanBoard`、`TaskDetailModal`、`Swarm*`、`Automation*`、`Git*`、`FileBrowserSheet`、`ScriptsSheet`、`SettingsForm`、`AttentionSheet`、`MemoryProposalsSheet`、`Header`。总管入口在 `ThreadList.tsx`。
 
 ### 构建
 

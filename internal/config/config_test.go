@@ -2949,17 +2949,14 @@ func TestGeneralStalledAlertSettings(t *testing.T) {
 	}
 }
 
-// 33. StewardConfig：默认值、唤醒上限夹值与主目录回退。
+// StewardConfig 默认值、身份归一与主目录回退。
 func TestStewardConfigDefaultsAndNormalize(t *testing.T) {
 	def := Defaults().Orchestration.Steward
 	if !def.Enabled {
 		t.Error("总管默认应为开启")
 	}
-	if def.Provider != "" || def.Model != "" || def.Effort != "" || def.HomeDir != "" {
-		t.Errorf("总管默认 provider/model/effort/home_dir 应为空，got %+v", def)
-	}
-	if got := def.WakeLimit(); got != DefaultStewardDailyWakeLimit {
-		t.Errorf("默认 WakeLimit() = %d，想要 %d", got, DefaultStewardDailyWakeLimit)
+	if def.Provider != "" || def.Model != "" || def.HomeDir != "" {
+		t.Errorf("总管默认 provider/model/home_dir 应为空，got %+v", def)
 	}
 	if def.Name != "MoCo" || def.Avatar != "🤖" {
 		t.Errorf("总管默认 name/avatar 不正确，got name=%q avatar=%q", def.Name, def.Avatar)
@@ -2974,29 +2971,10 @@ func TestStewardConfigDefaultsAndNormalize(t *testing.T) {
 		t.Errorf("自定义 ResolvedHomeDir() = %q，想要 /custom", got)
 	}
 
-	// 0 与负数唤醒上限走默认；超过上限夹到 200。
 	cfg := Defaults()
-	cfg.Orchestration.Steward.DailyWakeLimit = 0
-	cfg = Normalize(cfg)
-	if got := cfg.Orchestration.Steward.WakeLimit(); got != DefaultStewardDailyWakeLimit {
-		t.Errorf("唤醒上限 0 归一后 WakeLimit() = %d，想要 %d", got, DefaultStewardDailyWakeLimit)
-	}
-
-	cfg = Defaults()
-	cfg.Orchestration.Steward.DailyWakeLimit = -3
-	cfg = Normalize(cfg)
-	if got := cfg.Orchestration.Steward.WakeLimit(); got != DefaultStewardDailyWakeLimit {
-		t.Errorf("负唤醒上限归一后 WakeLimit() = %d，想要 %d", got, DefaultStewardDailyWakeLimit)
-	}
-
-	cfg = Defaults()
-	cfg.Orchestration.Steward.DailyWakeLimit = 9999
 	cfg.Orchestration.Steward.Provider = " claude "
 	cfg.Orchestration.Steward.Model = " opus "
 	cfg = Normalize(cfg)
-	if got := cfg.Orchestration.Steward.WakeLimit(); got != MaxStewardDailyWakeLimit {
-		t.Errorf("超限唤醒上限归一后 WakeLimit() = %d，想要 %d", got, MaxStewardDailyWakeLimit)
-	}
 	if cfg.Orchestration.Steward.Provider != "claude" || cfg.Orchestration.Steward.Model != "opus" {
 		t.Errorf("provider/model 未去空白：%+v", cfg.Orchestration.Steward)
 	}
@@ -3016,44 +2994,6 @@ func TestStewardConfigDefaultsAndNormalize(t *testing.T) {
 	cfg = Normalize(cfg)
 	if got := cfg.Orchestration.Steward.DisplayName(); got != "小助" {
 		t.Errorf("自定义名字归一后 DisplayName() = %q，想要 小助", got)
-	}
-}
-
-// StewardConfig 方案模型三字段：首尾空白被去掉，保存再加载往返一致；全为空时不写进文件。
-func TestStewardPlanModelRoundtrip(t *testing.T) {
-	dir := t.TempDir()
-
-	cfg := Defaults()
-	cfg.Orchestration.Steward.Enabled = true
-	cfg.Orchestration.Steward.PlanProvider = "  claude  "
-	cfg.Orchestration.Steward.PlanModel = " opus "
-	cfg.Orchestration.Steward.PlanEffort = " high "
-	if err := Save(dir, cfg); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-
-	loaded, err := Load(dir)
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-	if loaded.Orchestration.Steward.PlanProvider != "claude" || loaded.Orchestration.Steward.PlanModel != "opus" || loaded.Orchestration.Steward.PlanEffort != "high" {
-		t.Errorf("方案模型三字段往返不一致：%+v", loaded.Orchestration.Steward)
-	}
-
-	// 三个字段全空时不应出现在序列化结果里。
-	empty := Defaults()
-	empty.Orchestration.Steward.Enabled = true
-	if err := Save(dir, empty); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-	data, err := os.ReadFile(ConfigPath(dir))
-	if err != nil {
-		t.Fatalf("read saved config failed: %v", err)
-	}
-	for _, key := range []string{"plan_provider", "plan_model", "plan_effort"} {
-		if strings.Contains(string(data), key) {
-			t.Errorf("方案模型全为空时不应序列化 %q", key)
-		}
 	}
 }
 
@@ -3170,11 +3110,65 @@ func TestStewardLegacyConfigWithoutKey(t *testing.T) {
 	if !cfg.Orchestration.Steward.Enabled {
 		t.Error("旧配置无 steward 键时应按默认值开启总管")
 	}
-	if got := cfg.Orchestration.Steward.WakeLimit(); got != DefaultStewardDailyWakeLimit {
-		t.Errorf("旧配置无 steward 键时 WakeLimit() = %d，想要 %d", got, DefaultStewardDailyWakeLimit)
-	}
 	if cfg.Orchestration.MaxBees != 2 {
 		t.Errorf("旧配置其余字段应照常加载，Swarm.MaxBees = %d", cfg.Orchestration.MaxBees)
+	}
+}
+
+func TestLoadConfigIgnoresRemovedStewardKeys(t *testing.T) {
+	dir := t.TempDir()
+	legacy := []byte(`{
+		"version": 9,
+		"orchestration": {"steward": {
+			"enabled": true,
+			"enabled_choice": true,
+			"name": "前台",
+			"cli_fallback": true,
+			"daily_wake_limit": 30,
+			"daily_report": true,
+			"daily_report_at": "18:00",
+			"event_policies": {"automation_finished": "patrol"},
+			"rotate_idle_minutes": 60,
+			"rotate_context_tokens": 120000,
+			"passthrough_off": true,
+			"auto_collapse_reasoning_off": true,
+			"effort": "high",
+			"plan_provider": "claude",
+			"plan_model": "opus",
+			"plan_effort": "high"
+		}}
+	}`)
+	if err := os.WriteFile(ConfigPath(dir), legacy, 0o600); err != nil {
+		t.Fatalf("写入旧配置失败: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("加载带旧设置键的配置失败: %v", err)
+	}
+	if !cfg.Orchestration.Steward.Enabled || !cfg.Orchestration.Steward.EnabledChoice ||
+		cfg.Orchestration.Steward.Name != "前台" || !cfg.Orchestration.Steward.CLIFallback {
+		t.Fatalf("保留的前台设置未正常加载: %+v", cfg.Orchestration.Steward)
+	}
+	if err := Save(dir, cfg); err != nil {
+		t.Fatalf("保存配置失败: %v", err)
+	}
+
+	saved, err := os.ReadFile(ConfigPath(dir))
+	if err != nil {
+		t.Fatalf("读取保存后的配置失败: %v", err)
+	}
+	for _, key := range []string{
+		"daily_wake_limit", "daily_report", "daily_report_at", "event_policies",
+		"rotate_idle_minutes", "rotate_context_tokens", "passthrough_off",
+		"auto_collapse_reasoning_off", "effort", "plan_provider", "plan_model", "plan_effort",
+	} {
+		if strings.Contains(string(saved), `"`+key+`"`) {
+			t.Errorf("保存后仍包含已删除配置键 %q: %s", key, saved)
+		}
+	}
+	if _, err := Load(dir); err != nil {
+		t.Fatalf("再次加载保存后的配置失败: %v", err)
 	}
 }
 
@@ -3321,90 +3315,6 @@ func TestStewardQuietNormalize(t *testing.T) {
 	}
 }
 
-// 38. DailyReportClock：DailyReportAt 为空或非法时回落到 18:00。
-func TestStewardDailyReportClock(t *testing.T) {
-	cases := []struct {
-		in           string
-		wantH, wantM int
-	}{
-		{"", 18, 0},
-		{"   ", 18, 0},
-		{"09:05", 9, 5},
-		{" 22:15 ", 22, 15},
-		{"00:00", 0, 0},
-		{"25:00", 18, 0},
-		{"ab:cd", 18, 0},
-	}
-	for _, c := range cases {
-		cfg := StewardConfig{DailyReportAt: c.in}
-		h, m := cfg.DailyReportClock()
-		if h != c.wantH || m != c.wantM {
-			t.Errorf("DailyReportClock(%q) = (%d, %d)，想要 (%d, %d)", c.in, h, m, c.wantH, c.wantM)
-		}
-	}
-}
-
-// EventPolicy：默认表里只有 automation_finished 留给巡检，其余类型立即唤醒；
-// 配置值优先（忽略大小写与首尾空白），非法值或空值回退默认表。
-func TestStewardEventPolicy(t *testing.T) {
-	cases := []struct {
-		name string
-		cfg  StewardConfig
-		kind string
-		want string
-	}{
-		{"默认自动化完成走巡检", StewardConfig{}, "automation_finished", StewardEventPatrol},
-		{"默认任务无进展立即唤醒", StewardConfig{}, "thread_no_progress", StewardEventWake},
-		{"默认会话失败立即唤醒", StewardConfig{}, "thread_failed", StewardEventWake},
-		{"默认未知类型立即唤醒", StewardConfig{}, "unknown_kind", StewardEventWake},
-		{"覆盖改为立即唤醒", StewardConfig{EventPolicies: map[string]string{"automation_finished": "wake"}}, "automation_finished", StewardEventWake},
-		{"配置忽略时回退默认", StewardConfig{EventPolicies: map[string]string{"thread_failed": "ignore"}}, "thread_failed", StewardEventWake},
-		{"大小写与空白", StewardConfig{EventPolicies: map[string]string{"thread_failed": "  PaTrOl  "}}, "thread_failed", StewardEventPatrol},
-		{"非法值回退默认", StewardConfig{EventPolicies: map[string]string{"thread_failed": "loud"}}, "thread_failed", StewardEventWake},
-		{"非法值回退默认表", StewardConfig{EventPolicies: map[string]string{"automation_finished": "loud"}}, "automation_finished", StewardEventPatrol},
-		{"空值回退默认", StewardConfig{EventPolicies: map[string]string{"thread_failed": "   "}}, "thread_failed", StewardEventWake},
-	}
-	for _, c := range cases {
-		if got := c.cfg.EventPolicy(c.kind); got != c.want {
-			t.Errorf("%s: EventPolicy(%q) = %q，想要 %q", c.name, c.kind, got, c.want)
-		}
-	}
-}
-
-// Passthrough：默认开启直通，只有显式置 PassthroughOff 才关闭；JSON 往返不丢字段。
-func TestStewardConfigPassthroughDefault(t *testing.T) {
-	if !(StewardConfig{}).Passthrough() {
-		t.Fatal("零值配置应默认开启直通")
-	}
-	if (StewardConfig{PassthroughOff: true}).Passthrough() {
-		t.Fatal("PassthroughOff 为 true 时应关闭直通")
-	}
-
-	raw, err := json.Marshal(StewardConfig{PassthroughOff: true})
-	if err != nil {
-		t.Fatalf("序列化失败: %v", err)
-	}
-	if !strings.Contains(string(raw), `"passthrough_off":true`) {
-		t.Fatalf("序列化结果缺少 passthrough_off: %s", raw)
-	}
-	var back StewardConfig
-	if err := json.Unmarshal(raw, &back); err != nil {
-		t.Fatalf("反序列化失败: %v", err)
-	}
-	if !back.PassthroughOff || back.Passthrough() {
-		t.Fatalf("JSON 往返后字段不一致: %+v", back)
-	}
-
-	// 默认值序列化时不写这个字段，老配置文件不需要迁移。
-	raw, err = json.Marshal(StewardConfig{})
-	if err != nil {
-		t.Fatalf("序列化默认配置失败: %v", err)
-	}
-	if strings.Contains(string(raw), "passthrough_off") {
-		t.Fatalf("默认配置不应写出 passthrough_off: %s", raw)
-	}
-}
-
 // NoProgressAfter：零值与负数都回退默认 45 分钟，显式配置生效，开关关闭时返回 0。
 func TestStewardNoProgressAfterDefault(t *testing.T) {
 	for _, minutes := range []int{0, -5} {
@@ -3426,32 +3336,6 @@ func TestStewardNoProgressAfterOff(t *testing.T) {
 	cfg := StewardConfig{NoProgressMinutes: 20, NoProgressOff: true}
 	if got := cfg.NoProgressAfter(); got != 0 {
 		t.Fatalf("关闭看门狗应返回 0，实际为 %v", got)
-	}
-}
-
-// 总管独立的「自动折叠思考过程」开关：零值默认开启，显式关掉才为 false，
-// 且与其他会话的 Session.AutoCollapseReasoning 取值无关。
-func TestStewardAutoCollapseReasoningEnabled(t *testing.T) {
-	cases := []struct {
-		name       string
-		stewardOff bool
-		session    *bool
-		want       bool
-	}{
-		{name: "零值默认开启", stewardOff: false, session: nil, want: true},
-		{name: "显式关掉", stewardOff: true, session: nil, want: false},
-		{name: "通用开关关掉不影响总管", stewardOff: false, session: boolPtr(false), want: true},
-		{name: "通用开关开着也不改变总管", stewardOff: true, session: boolPtr(true), want: false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := Defaults()
-			cfg.Orchestration.Steward.AutoCollapseReasoningOff = tc.stewardOff
-			cfg.Session.AutoCollapseReasoning = tc.session
-			if got := cfg.Orchestration.Steward.AutoCollapseReasoningEnabled(); got != tc.want {
-				t.Fatalf("AutoCollapseReasoningEnabled = %v, 期望 %v", got, tc.want)
-			}
-		})
 	}
 }
 

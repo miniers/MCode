@@ -162,6 +162,22 @@ func (s *Store) AnswerStewardDecision(ctx context.Context, id, answer, by string
 	return d, err
 }
 
+// ReanswerStewardDecision 在五分钟改答窗口内更新已答决策卡的答案。
+func (s *Store) ReanswerStewardDecision(ctx context.Context, id, answer, by string, at time.Time) (StewardDecision, error) {
+	d, err := scanStewardDecision(s.db.QueryRowContext(ctx, `UPDATE steward_decisions
+		SET answer = ?, answered_by = ?, answered_at = ?, updated_at = ?
+		WHERE id = ? AND status = ? RETURNING `+decisionColumns,
+		answer, by, formatTime(at), formatTime(at), id, DecisionStatusAnswered))
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = s.GetStewardDecision(ctx, id)
+		if err != nil {
+			return StewardDecision{}, err
+		}
+		return StewardDecision{}, ErrDecisionClosed
+	}
+	return d, err
+}
+
 func (s *Store) SupersedeOpenDecisionsForTask(ctx context.Context, taskID string) error {
 	if taskID == "" {
 		return nil

@@ -193,11 +193,6 @@ const (
 
 	// 总管的默认名字，用户没设昵称时用它。
 	DefaultStewardName = "总管"
-
-	// 总管（Steward）默认每日唤醒上限与取值范围。
-	DefaultStewardDailyWakeLimit = 30
-	MinStewardDailyWakeLimit     = 1
-	MaxStewardDailyWakeLimit     = 200
 )
 
 // TextScaleLevels 是「文字大小」的可选档位（百分比）：
@@ -1258,46 +1253,23 @@ func (m MemoryConfig) SpaceFor(projectPath string) string {
 	return strings.TrimSpace(m.SpaceOverrides[projectPath])
 }
 
-// StewardConfig 总管（常驻驻留会话）配置。
-// 总管在会话卡住、出错、额度用尽、看板任务失败、自动化失败等事件发生时被唤醒，
-// 先看一遍再向用户汇报；它只用这里指定的模型，每次唤醒都会消耗额度。
+// StewardConfig 前台设置。
 type StewardConfig struct {
-	CLIFallback    bool   `json:"cli_fallback,omitempty"`
-	Enabled        bool   `json:"enabled"`                   // 是否启用总管，默认 true
-	EnabledChoice  bool   `json:"enabled_choice,omitempty"`  // 用户在设置页亲手切换过启用开关后置 true，此后迁移不再改 enabled
-	Name           string `json:"name"`                      // 总管的昵称，可留空；留空时界面只显示「总管」
-	Avatar         string `json:"avatar"`                    // 头像：一个 emoji 或一个字，空表示用昵称首字，无昵称用「总」
-	Provider       string `json:"provider"`                  // 总管使用的提供方，空表示跟随 Models.Provider
-	Model          string `json:"model"`                     // 总管使用的模型，空表示该提供方的默认模型
-	Effort         string `json:"effort,omitempty"`          // 推理强度，空表示模型默认
-	PlanProvider   string `json:"plan_provider,omitempty"`   // 出方案用的提供方，空表示沿用 deep 档的模型
-	PlanModel      string `json:"plan_model,omitempty"`      // 出方案用的模型，空表示沿用 deep 档的模型
-	PlanEffort     string `json:"plan_effort,omitempty"`     // 出方案用的推理强度，空表示沿用 deep 档的模型
-	DailyWakeLimit int    `json:"daily_wake_limit"`          // 每天最多唤醒次数，0 或负数视为默认 30
-	HomeDir        string `json:"home_dir,omitempty"`        // 总管主目录，空表示数据目录下的 steward 子目录
-	QuietStart     string `json:"quiet_start"`               // 安静时段开始，HH:MM 本地时间，空表示关闭
-	QuietEnd       string `json:"quiet_end"`                 // 安静时段结束，HH:MM 本地时间，空表示关闭；可早于开始表示跨午夜
-	DailyReport    bool   `json:"daily_report,omitempty"`    // 是否每天发一份今日要点，默认关
-	DailyReportAt  string `json:"daily_report_at,omitempty"` // 日报时间，HH:MM 本地时间，空表示 18:00
-	// EventPolicies 按事件类型覆盖唤醒策略，取值 wake（立刻唤醒）、patrol（不立刻唤醒，留给兜底巡检）；
-	// 为空或其他取值一律回退默认。
-	EventPolicies map[string]string `json:"event_policies,omitempty"`
-
-	// 主会话换新的两个阈值：空闲够久或上下文够大时，下一轮丢掉旧会话另开一条。
-	RotateIdleMinutes   int   `json:"rotate_idle_minutes,omitempty"`   // 主会话空闲多少分钟后换新会话，0 或负数表示关闭空闲换新
-	RotateContextTokens int64 `json:"rotate_context_tokens,omitempty"` // 上下文达到多少 token 时换新会话，0 或负数表示默认 120000
+	CLIFallback   bool   `json:"cli_fallback,omitempty"`
+	Enabled       bool   `json:"enabled"`                  // 是否启用总管，默认 true
+	EnabledChoice bool   `json:"enabled_choice,omitempty"` // 用户在设置页亲手切换过启用开关后置 true，此后迁移不再改 enabled
+	Name          string `json:"name"`                     // 总管的昵称，可留空；留空时界面只显示「总管」
+	Avatar        string `json:"avatar"`                   // 头像：一个 emoji 或一个字，空表示用昵称首字，无昵称用「总」
+	Provider      string `json:"provider"`                 // 总管使用的提供方，空表示跟随 Models.Provider
+	Model         string `json:"model"`                    // 总管使用的模型，空表示该提供方的默认模型
+	HomeDir       string `json:"home_dir,omitempty"`       // 总管主目录，空表示数据目录下的 steward 子目录
+	QuietStart    string `json:"quiet_start"`              // 安静时段开始，HH:MM 本地时间，空表示关闭
+	QuietEnd      string `json:"quiet_end"`                // 安静时段结束，HH:MM 本地时间，空表示关闭；可早于开始表示跨午夜
 
 	// NoProgressMinutes 是无进展看门狗阈值（分钟），0 或负数视为默认 45。
 	NoProgressMinutes int `json:"no_progress_minutes,omitempty"`
 	// NoProgressOff 关闭无进展看门狗，零值 false 表示开启。
 	NoProgressOff bool `json:"no_progress_off,omitempty"`
-
-	// PassthroughOff 关闭「属于话题的事件直通给话题会话」，零值 false 表示默认直通。
-	PassthroughOff bool `json:"passthrough_off,omitempty"`
-
-	// AutoCollapseReasoningOff 关闭总管会话的「自动折叠思考过程」，零值 false 表示默认折叠。
-	// 它只管总管会话，与其他会话的 Session.AutoCollapseReasoning 互不影响。
-	AutoCollapseReasoningOff bool `json:"auto_collapse_reasoning_off,omitempty"`
 }
 
 // Nickname 返回用户给总管起的昵称：去掉首尾空白后可能为空。
@@ -1370,57 +1342,6 @@ func (s StewardConfig) QuietWindow(now time.Time) (inQuiet bool, end time.Time) 
 		return true, endOn(0)
 	}
 	return false, time.Time{}
-}
-
-// DailyReportClock 返回日报的钟点：DailyReportAt 为空或非法时回落到 18:00。
-func (s StewardConfig) DailyReportClock() (hour, minute int) {
-	if minutes, ok := ParseClock(s.DailyReportAt); ok {
-		return minutes / 60, minutes % 60
-	}
-	return 18, 0
-}
-
-// WakeLimit 返回每天最多唤醒次数；0 或负数返回默认 30。
-func (s StewardConfig) WakeLimit() int {
-	if s.DailyWakeLimit <= 0 {
-		return DefaultStewardDailyWakeLimit
-	}
-	return s.DailyWakeLimit
-}
-
-// Passthrough 报告是否把属于话题的事件直通给话题会话；默认开，只有显式关掉才为 false。
-func (s StewardConfig) Passthrough() bool { return !s.PassthroughOff }
-
-// AutoCollapseReasoningEnabled 报告总管会话是否自动折叠思考过程；默认开，只有显式关掉才为 false。
-// 它只看总管自己的开关，与 Session.AutoCollapseReasoning 无关。
-func (s StewardConfig) AutoCollapseReasoningEnabled() bool {
-	return !s.AutoCollapseReasoningOff
-}
-
-// 总管按事件类型唤醒的策略取值。
-const (
-	StewardEventWake   = "wake"   // 立刻唤醒总管
-	StewardEventPatrol = "patrol" // 不立刻唤醒，留给兜底巡检
-)
-
-// defaultStewardEventPolicies 是未配置 event_policies 时的默认唤醒策略：
-// 自动化正常完成不需要立刻处理，留给兜底巡检；其余类型全部立刻唤醒。
-var defaultStewardEventPolicies = map[string]string{
-	"automation_finished": StewardEventPatrol,
-	"thread_no_progress":  StewardEventWake,
-}
-
-// EventPolicy 返回某类事件的唤醒策略：EventPolicies 里的合法配置（去首尾空白并转小写后）优先，
-// 配置为空或取值非法时查默认表，默认表未列出的类型一律 wake。
-func (s StewardConfig) EventPolicy(kind string) string {
-	policy := strings.ToLower(strings.TrimSpace(s.EventPolicies[kind]))
-	if policy == StewardEventWake || policy == StewardEventPatrol {
-		return policy
-	}
-	if policy, ok := defaultStewardEventPolicies[kind]; ok {
-		return policy
-	}
-	return StewardEventWake
 }
 
 // NoProgressAfter 返回无进展看门狗阈值；NoProgressOff 为真时返回 0 表示关闭。
@@ -1721,8 +1642,7 @@ func Normalize(cfg Config) Config {
 	cfg.Orchestration.DefaultModel = strings.TrimSpace(cfg.Orchestration.DefaultModel)
 	cfg.Orchestration.DefaultEffort = strings.TrimSpace(cfg.Orchestration.DefaultEffort)
 
-	// 总管：名字去空白、头像只留前两个 rune；provider/model/effort 空串即继承，
-	// 权限档归一，唤醒上限夹到范围内。
+	// 总管：名字去空白、头像只留前两个 rune；provider/model 空串即继承。
 	cfg.Orchestration.Steward.Name = strings.TrimSpace(cfg.Orchestration.Steward.Name)
 	// 头像允许「一个 emoji 或一个字」：组合 emoji 由两个 rune 组成，所以保留前 2 个 rune。
 	cfg.Orchestration.Steward.Avatar = strings.TrimSpace(cfg.Orchestration.Steward.Avatar)
@@ -1731,16 +1651,7 @@ func Normalize(cfg Config) Config {
 	}
 	cfg.Orchestration.Steward.Provider = strings.TrimSpace(cfg.Orchestration.Steward.Provider)
 	cfg.Orchestration.Steward.Model = strings.TrimSpace(cfg.Orchestration.Steward.Model)
-	cfg.Orchestration.Steward.Effort = strings.TrimSpace(cfg.Orchestration.Steward.Effort)
-	cfg.Orchestration.Steward.PlanProvider = strings.TrimSpace(cfg.Orchestration.Steward.PlanProvider)
-	cfg.Orchestration.Steward.PlanModel = strings.TrimSpace(cfg.Orchestration.Steward.PlanModel)
-	cfg.Orchestration.Steward.PlanEffort = strings.TrimSpace(cfg.Orchestration.Steward.PlanEffort)
 	cfg.Orchestration.Steward.HomeDir = strings.TrimSpace(cfg.Orchestration.Steward.HomeDir)
-	if cfg.Orchestration.Steward.DailyWakeLimit <= 0 {
-		cfg.Orchestration.Steward.DailyWakeLimit = DefaultStewardDailyWakeLimit
-	} else if cfg.Orchestration.Steward.DailyWakeLimit > MaxStewardDailyWakeLimit {
-		cfg.Orchestration.Steward.DailyWakeLimit = MaxStewardDailyWakeLimit
-	}
 	// 安静时段：任一非法或首尾相等即视为关闭并清空，合法时规范成 HH:MM。
 	qs, okStart := ParseClock(cfg.Orchestration.Steward.QuietStart)
 	qe, okEnd := ParseClock(cfg.Orchestration.Steward.QuietEnd)
@@ -1750,7 +1661,6 @@ func Normalize(cfg Config) Config {
 		cfg.Orchestration.Steward.QuietStart = fmt.Sprintf("%02d:%02d", qs/60, qs%60)
 		cfg.Orchestration.Steward.QuietEnd = fmt.Sprintf("%02d:%02d", qe/60, qe%60)
 	}
-	cfg.Orchestration.Steward.DailyReportAt = strings.TrimSpace(cfg.Orchestration.Steward.DailyReportAt)
 
 	if cfg.Workbench.StuckNudgeTimeout <= 0 {
 		cfg.Workbench.StuckNudgeTimeout = DefaultStuckNudgeTimeout
@@ -2306,16 +2216,14 @@ func Defaults() Config {
 			Tiers:                      DefaultSwarmTiers(),
 			DefaultTier:                DefaultSwarmTierID,
 			Steward: StewardConfig{
-				Enabled:        true,
-				Name:           "MoCo",
-				Avatar:         "🤖",
-				QuietStart:     "00:00",
-				QuietEnd:       "06:00",
-				Provider:       "",
-				Model:          "",
-				Effort:         "",
-				DailyWakeLimit: DefaultStewardDailyWakeLimit,
-				HomeDir:        "",
+				Enabled:    true,
+				Name:       "MoCo",
+				Avatar:     "🤖",
+				QuietStart: "00:00",
+				QuietEnd:   "06:00",
+				Provider:   "",
+				Model:      "",
+				HomeDir:    "",
 			},
 		},
 		Workbench: WorkbenchConfig{

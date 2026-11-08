@@ -431,45 +431,6 @@ func TestRemoteSettingsGetSnapshotCoversWhitelist(t *testing.T) {
 	}
 }
 
-// steward.auto_collapse_reasoning：总管自己的思考折叠开关，默认读到 true；
-// 写入 false 后落盘为 AutoCollapseReasoningOff=true，且不影响通用会话的同名开关。
-func TestRemoteSettingsStewardAutoCollapseReasoning(t *testing.T) {
-	client := newRemoteSettingsTestClient(t, func(cfg *config.Config) {
-		// 通用会话的折叠关掉，总管必须照自己的开关走。
-		off := false
-		cfg.Session.AutoCollapseReasoning = &off
-	})
-	svc := remoteSettingsService{client: client}
-
-	snapshot, err := svc.Get(context.Background())
-	if err != nil {
-		t.Fatalf("读取失败: %v", err)
-	}
-	if string(snapshot.Values[remote.SettingsKeyStewardAutoCollapseReasoning]) != `true` {
-		t.Fatalf("默认值 = %s, 期望 true", snapshot.Values[remote.SettingsKeyStewardAutoCollapseReasoning])
-	}
-
-	written, err := svc.Set(context.Background(), remoteSettingsValues(t, map[string]any{
-		remote.SettingsKeyStewardAutoCollapseReasoning: false,
-	}))
-	if err != nil {
-		t.Fatalf("写入失败: %v", err)
-	}
-	cfg := loadRemoteSettingsTestConfig(t, client.dataDir)
-	if !cfg.Orchestration.Steward.AutoCollapseReasoningOff {
-		t.Fatalf("写入 false 后 auto_collapse_reasoning_off 应为 true")
-	}
-	if cfg.Orchestration.Steward.AutoCollapseReasoningEnabled() {
-		t.Fatalf("写入 false 后总管折叠应为关闭")
-	}
-	if cfg.Session.AutoCollapseReasoningEnabled() {
-		t.Fatalf("通用会话的折叠开关不应被改动")
-	}
-	if string(written.Values[remote.SettingsKeyStewardAutoCollapseReasoning]) != `false` {
-		t.Fatalf("快照 = %s, 期望 false", written.Values[remote.SettingsKeyStewardAutoCollapseReasoning])
-	}
-}
-
 // 检查命令按 trim 后的值落盘，超过 500 字节拒绝且不影响已存值。
 func TestRemoteSettingsReviewCheckCommand(t *testing.T) {
 	client := newRemoteSettingsTestClient(t, nil)

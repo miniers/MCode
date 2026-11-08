@@ -56,23 +56,25 @@ type Generator func(context.Context, textgen.Options, string) (string, error)
 
 // Desk 处理主会话的前台消息。
 type Desk struct {
-	Client      llm.Client
-	Model       string
-	Tools       *Toolbox
-	Feed        FeedStore
-	Tasks       TaskService
-	Decisions   DecisionService
-	Memory      MemoryService
-	Projects    ProjectService
-	ProjectPath string
-	Now         func() time.Time
-	MaxRounds   int
-	CLIFallback bool
-	Generator   Generator
-	CLIOptions  textgen.Options
-	mu          sync.Mutex
-	queue       []Inbound
-	running     bool
+	Client         llm.Client
+	Model          string
+	Tools          *Toolbox
+	Feed           FeedStore
+	Tasks          TaskService
+	Decisions      DecisionService
+	Memory         MemoryService
+	Projects       ProjectService
+	ProjectPath    string
+	Now            func() time.Time
+	MaxRounds      int
+	CLIFallback    bool
+	Generator      Generator
+	CLIOptions     textgen.Options
+	mu             sync.Mutex
+	queue          []Inbound
+	running        bool
+	recentAnswerID string
+	recentAnswerAt time.Time
 }
 
 // Inbound 描述一条收到的消息。
@@ -98,13 +100,25 @@ func (d *Desk) now() time.Time {
 	return time.Now()
 }
 
+func (d *Desk) answerDecision(ctx context.Context, id, answer, by string) error {
+	if d.Decisions == nil {
+		return errors.New("决策服务不可用")
+	}
+	if err := d.Decisions.AnswerDecision(ctx, id, answer, by); err != nil {
+		return err
+	}
+	at := d.now()
+	d.mu.Lock()
+	d.recentAnswerID = id
+	d.recentAnswerAt = at
+	d.mu.Unlock()
+	return nil
+}
+
 // HandleMessage 同步处理一条消息。
 func (d *Desk) HandleMessage(ctx context.Context, in Inbound) error {
 	if m := decisionPattern.FindStringSubmatch(in.Text); m != nil {
-		if d.Decisions == nil {
-			return errors.New("决策服务不可用")
-		}
-		return d.Decisions.AnswerDecision(ctx, m[1], m[2], "frontdesk")
+		return d.answerDecision(ctx, m[1], m[2], "frontdesk")
 	}
 	snap := d.snapshot(ctx, in)
 	return d.loop(ctx, in, snap)

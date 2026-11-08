@@ -1018,8 +1018,6 @@ func buildTimelineItemsFiltered(messages []Message, exp map[string]bool, liveGro
 		})
 		i++
 	}
-	// 唤醒消息之后一路没有再出现可见条目（例如刚被唤醒、模型还没动静）：标记无处可打，直接丢弃。
-	attachWake()
 	return items
 }
 

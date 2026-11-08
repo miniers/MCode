@@ -207,15 +207,6 @@ func TestStewardSettings_NameAndAvatar(t *testing.T) {
 func TestStewardSettings_MovedRows(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	st.cfg.Orchestration.Steward.Enabled = true
-	for _, sections := range [][]settingsSection{stewardSections(nil), stewardSections(st)} {
-		for _, sec := range sections {
-			for _, row := range sec.Rows {
-				if row.ID == "row-steward-model-plan" || row.ID == "row-steward-wake-limit" {
-					t.Fatalf("失效设置行 %s 仍存在", row.ID)
-				}
-			}
-		}
-	}
 	foundHome := false
 	for _, sec := range stewardSections(st) {
 		for _, row := range sec.Rows {

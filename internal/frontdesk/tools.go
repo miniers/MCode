@@ -103,7 +103,7 @@ func NewToolbox(d *Desk) *Toolbox {
 	add("remember", "记住用户要求", true, []string{"content"}, nil, memory(false))
 	add("edit_memory", "修改记忆", true, []string{"id", "content"}, nil, memory(true))
 	add("answer_decision", "回答决策卡", true, []string{"id", "answer"}, nil, func(c context.Context, a map[string]string) (any, error) {
-		return nil, d.Decisions.AnswerDecision(c, a["id"], a["answer"], "frontdesk")
+		return nil, d.answerDecision(c, a["id"], a["answer"], "frontdesk")
 	})
 	return t
 }

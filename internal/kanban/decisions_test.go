@@ -58,14 +58,53 @@ func TestAnswerDecision(t *testing.T) {
 			if tc.status == "waiting" && (meta.WaitKind != "" || meta.WakeAt != "" || meta.WaitCheck != "" || meta.WaitBase != "" || meta.Wakes != 0) {
 				t.Fatalf("等待元数据: %+v", meta)
 			}
-			if _, err := svc.AnswerDecision(ctx, d.ID, "停下", "user:desktop"); !errors.Is(err, store.ErrDecisionClosed) {
-				t.Fatalf("重复答卡: %v", err)
+			reanswered, err := svc.AnswerDecision(ctx, d.ID, "停下", "user:desktop")
+			if err != nil || reanswered.Answer != "停下" {
+				t.Fatalf("窗口内改答: %+v, %v", reanswered, err)
 			}
 			again, err := db.GetTask(ctx, task.ID)
-			if err != nil || !reflect.DeepEqual(got, again) {
-				t.Fatalf("重复答卡修改了任务: %+v, %v", again, err)
+			if err != nil || !strings.Contains(again.Notes, "决策 D-0001：改答为 停下") || reflect.DeepEqual(got, again) {
+				t.Fatalf("改答未记录到任务: %+v, %v", again, err)
 			}
 		})
+	}
+}
+
+func TestAnswerDecisionReanswerWindow(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	current := now
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, func() time.Time { return current })
+	if err := db.CreateTask(ctx, store.Task{ID: "task-reanswer", Title: "任务", Status: string(TaskStatusInProgress), Meta: EncodeTaskMeta(TaskMeta{})}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-reanswer", Question: "继续吗"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AnswerDecision(ctx, d.ID, "A", "user"); err != nil {
+		t.Fatal(err)
+	}
+	current = now.Add(time.Minute)
+	answered, err := svc.AnswerDecision(ctx, d.ID, "B", "user")
+	if err != nil || answered.Answer != "B" || answered.AnsweredAt == nil || !answered.AnsweredAt.Equal(current) {
+		t.Fatalf("五分钟内改答: %+v, %v", answered, err)
+	}
+	task, err := db.GetTask(ctx, "task-reanswer")
+	if err != nil || task.Status != string(TaskStatusInProgress) || !strings.Contains(task.Notes, "决策 "+d.ID+"：改答为 B") {
+		t.Fatalf("改答任务记录: %+v, %v", task, err)
+	}
+	current = now.Add(6 * time.Minute)
+	if _, err := svc.AnswerDecision(ctx, d.ID, "C", "user"); !errors.Is(err, store.ErrDecisionClosed) {
+		t.Fatalf("窗口外改答: %v", err)
+	}
+
+	ignored, err := db.CreateStewardDecision(ctx, store.StewardDecision{Status: store.DecisionStatusIgnored})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AnswerDecision(ctx, ignored.ID, "B", "user"); !errors.Is(err, store.ErrDecisionClosed) {
+		t.Fatalf("ignored 卡改答: %v", err)
 	}
 }
 
