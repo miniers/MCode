@@ -17,6 +17,8 @@ import (
 type Env struct {
 	WorkDir        string
 	AdditionalDirs []string
+	// ReadOnlyDirs 是只读类工具额外放行的目录（如技能目录），写类工具不放行。
+	ReadOnlyDirs   []string
 	Sandbox        harness.Sandbox
 	Mode           harness.PermissionMode
 	ExtraEnv       []string
@@ -79,7 +81,7 @@ func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 	if e := ctx.Err(); e != nil {
 		return Result{}, e
 	}
-	p, e := resolve(env, a.Path)
+	p, e := resolveRead(env, a.Path)
 	if e != nil {
 		return failure(e)
 	}
@@ -246,7 +248,7 @@ func listDir(ctx context.Context, env Env, raw json.RawMessage) (Result, error) 
 	if e := ctx.Err(); e != nil {
 		return Result{}, e
 	}
-	p, e := resolve(env, a.Path)
+	p, e := resolveRead(env, a.Path)
 	if e != nil {
 		return failure(e)
 	}

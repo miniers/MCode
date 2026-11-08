@@ -34,6 +34,14 @@ func canonical(path string) (string, error) {
 }
 
 func resolve(env Env, path string) (string, error) {
+	return resolveWithRoots(env, path, nil)
+}
+
+func resolveRead(env Env, path string) (string, error) {
+	return resolveWithRoots(env, path, env.ReadOnlyDirs)
+}
+
+func resolveWithRoots(env Env, path string, extraRoots []string) (string, error) {
 	if env.WorkDir == "" {
 		return "", fmt.Errorf("work directory is required")
 	}
@@ -47,7 +55,9 @@ func resolve(env Env, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, root := range append([]string{env.WorkDir}, env.AdditionalDirs...) {
+	roots := append([]string{env.WorkDir}, env.AdditionalDirs...)
+	roots = append(roots, extraRoots...)
+	for _, root := range roots {
 		base, e := canonical(root)
 		if e != nil {
 			continue

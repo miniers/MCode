@@ -53,7 +53,7 @@ func globMatch(pattern, path string) (bool, error) {
 	return expr.MatchString(path), nil
 }
 func candidates(ctx context.Context, env Env, root string) ([]string, error) {
-	work, e := resolve(env, ".")
+	work, e := resolveRead(env, ".")
 	if e != nil {
 		return nil, e
 	}
@@ -82,7 +82,7 @@ func candidates(ctx context.Context, env Env, root string) ([]string, error) {
 			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				continue
 			}
-			resolved, err := resolve(env, p)
+			resolved, err := resolveRead(env, p)
 			if err != nil {
 				continue
 			}
@@ -105,7 +105,7 @@ func candidates(ctx context.Context, env Env, root string) ([]string, error) {
 				}
 				return nil
 			}
-			if _, err := resolve(env, p); err != nil {
+			if _, err := resolveRead(env, p); err != nil {
 				return nil
 			}
 			info, err := os.Stat(p)
@@ -146,7 +146,7 @@ func openText(safe string) ([]byte, *os.File, bool) {
 }
 
 func fileText(env Env, p string) (string, bool) {
-	safe, e := resolve(env, p)
+	safe, e := resolveRead(env, p)
 	if e != nil {
 		return "", false
 	}
@@ -164,7 +164,7 @@ func fileText(env Env, p string) (string, bool) {
 
 // isTextFile 只读取文件头，用于 find 过滤二进制文件。
 func isTextFile(env Env, p string) bool {
-	safe, e := resolve(env, p)
+	safe, e := resolveRead(env, p)
 	if e != nil {
 		return false
 	}
@@ -188,7 +188,7 @@ func findFiles(ctx context.Context, env Env, raw json.RawMessage) (Result, error
 	if a.Limit == 0 {
 		a.Limit = 1000
 	}
-	root, e := resolve(env, a.Path)
+	root, e := resolveRead(env, a.Path)
 	if e != nil {
 		return failure(e)
 	}
@@ -254,7 +254,7 @@ func grepFiles(ctx context.Context, env Env, raw json.RawMessage) (Result, error
 	if e != nil {
 		return failure(e)
 	}
-	root, e := resolve(env, a.Path)
+	root, e := resolveRead(env, a.Path)
 	if e != nil {
 		return failure(e)
 	}
