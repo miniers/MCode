@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import type { PickerRow, PickerSections } from '../utils/modelIndex';
+import { isImeComposing } from '../utils/ime';
 import { CheckCircleIcon, ChevronRightIcon, SearchIcon } from './Icons';
 
 export interface EffortTrackProps {
@@ -220,7 +221,7 @@ export const ModelPickerPanel: React.FC<ModelPickerPanelProps> = ({
 
   const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     // 中文输入法组字时方向键/回车交给输入法，不抢键盘。
-    if (event.nativeEvent.isComposing) return;
+    if (isImeComposing(event)) return;
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       enabledRows()[0]?.focus();

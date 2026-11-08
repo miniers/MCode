@@ -16,6 +16,7 @@ export interface ToolDiffFile {
   deletions: number;
   lines: ToolDiffLine[];
   truncated: boolean;
+  fullLines?: ToolDiffLine[];
 }
 
 /** 单个文件最多渲染的 diff 行数，超出部分只提示已截断（与桌面端 toolDiffMaxLines 一致）。 */
@@ -109,7 +110,8 @@ function buildFile(id: string, path: string, lines: ToolDiffLine[]): ToolDiffFil
     additions,
     deletions,
     lines: truncated ? lines.slice(0, MAX_DIFF_LINES) : lines,
-    truncated
+    truncated,
+    fullLines: truncated ? lines : undefined
   };
 }
 
@@ -237,11 +239,12 @@ const LINE_MARK: Record<ToolDiffLine['type'], string> = {
   hunk: ''
 };
 
-export const ToolEntryDiff: React.FC<{ files: ToolDiffFile[] }> = ({ files }) => (
-  <div className="space-y-2 min-w-0">
-    {files.map((file) => (
+const ToolEntryDiffFile: React.FC<{ file: ToolDiffFile }> = ({ file }) => {
+  const [expanded, setExpanded] = React.useState(false);
+  const lines = expanded ? (file.fullLines ?? file.lines) : file.lines;
+  const remaining = (file.fullLines?.length ?? 0) - file.lines.length;
+  return (
       <div
-        key={file.id}
         className="min-w-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)]"
       >
         <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-2 py-1 text-mc-caption">
@@ -254,7 +257,7 @@ export const ToolEntryDiff: React.FC<{ files: ToolDiffFile[] }> = ({ files }) =>
           </span>
         </div>
         <div className="max-h-[280px] overflow-auto py-1">
-          {file.lines.map((line, index) => (
+          {lines.map((line, index) => (
             <div
               key={`${file.id}-${index}`}
               className={`flex items-start gap-1 px-2 py-0.5 font-mono text-mc-caption leading-[16px] ${LINE_CLASS[line.type]}`}
@@ -265,14 +268,24 @@ export const ToolEntryDiff: React.FC<{ files: ToolDiffFile[] }> = ({ files }) =>
               </span>
             </div>
           ))}
-          {file.truncated && (
+          {!expanded && remaining > 0 && (
+            <button type="button" onClick={() => setExpanded(true)} className="px-2 py-1 text-xs text-[var(--primary)] hover:underline">
+              显示其余 {remaining} 行
+            </button>
+          )}
+          {file.truncated && !file.fullLines && (
             <p className="px-2 py-1 text-mc-caption text-[var(--warning-foreground)]">
               改动过多，仅显示前 {MAX_DIFF_LINES} 行
             </p>
           )}
         </div>
       </div>
-    ))}
+  );
+};
+
+export const ToolEntryDiff: React.FC<{ files: ToolDiffFile[] }> = ({ files }) => (
+  <div className="space-y-2 min-w-0">
+    {files.map((file) => <ToolEntryDiffFile key={file.id} file={file} />)}
   </div>
 );
 

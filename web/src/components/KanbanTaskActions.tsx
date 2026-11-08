@@ -2,6 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import type { TaskItem } from '../types/contract';
+import { isImeComposing } from '../utils/ime';
 import { ArrowPathIcon, PlusIcon, XMarkIcon } from './Icons';
 
 /** 与桌面端救援菜单一致：进行中或带注意力标记的卡片才提供救援入口。 */
@@ -166,7 +167,7 @@ export const KanbanQuickAdd: React.FC<KanbanQuickAddProps> = ({ onSubmit }) => {
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
-              if (event.nativeEvent.isComposing) return;
+              if (isImeComposing(event)) return;
               event.preventDefault();
               void submit();
             }

@@ -1,7 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
-import { LayoutIcon, XMarkIcon } from './Icons';
+import { CheckCircleIcon, LayoutIcon, XMarkIcon } from './Icons';
 import { MarkdownImage } from './MarkdownImage';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -48,45 +48,69 @@ function mentionSafeUrlTransform(url: string): string {
   return isThreadMentionHref(url) || /^file:/i.test(url) ? url : defaultUrlTransform(url);
 }
 
-export const CodeBlock = React.memo(function CodeBlock({ content, language }: { content: string; language: string }) {
+export const CodeBlock = React.memo(function CodeBlock({ content, language, children }: { content: string; language: string; children?: React.ReactNode }) {
   // 冷门语言的语法包是首次遇到才下载的：注册完成会推进版本号，这里据此重新高亮
-  const languageVersion = React.useSyncExternalStore(subscribeHighlightLanguages, getHighlightLanguagesVersion);
+  const languageVersion = React.useSyncExternalStore(subscribeHighlightLanguages, getHighlightLanguagesVersion, getHighlightLanguagesVersion);
   const html = React.useMemo(() => highlightCode(content, language), [content, language, languageVersion]);
   // 横向溢出时给滚动容器写 --fade-left/--fade-right，窄屏由 overflow-fade.css 做边缘遮罩。
   const scrollerRef = React.useRef<HTMLPreElement>(null);
   useOverflowFade(scrollerRef);
+  const [copied, setCopied] = React.useState(false);
+  const copyTimerRef = React.useRef<number | null>(null);
+  const copyAttemptRef = React.useRef(0);
+
+  React.useEffect(() => () => {
+    copyAttemptRef.current += 1;
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+  }, []);
+
+  const handleCopy = async () => {
+    const attempt = ++copyAttemptRef.current;
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+    setCopied(false);
+    if (!navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(content);
+      if (copyAttemptRef.current !== attempt) return;
+      setCopied(true);
+      copyTimerRef.current = window.setTimeout(() => {
+        copyTimerRef.current = null;
+        setCopied(false);
+      }, 1500);
+    } catch {
+      // 复制失败时保持复制图标。
+    }
+  };
 
   return (
-    <div className="min-w-0 max-w-full overflow-x-auto rounded-xl">
+    <div className="group relative min-w-0 max-w-full rounded-xl">
       <pre
         ref={scrollerRef}
-        className="overflow-fade p-3 rounded-xl bg-[var(--user-bubble)] border border-[var(--border)] text-[var(--foreground)] text-mc-footnote leading-relaxed font-mono overflow-x-auto whitespace-pre select-text"
+        className="overflow-fade p-3 pr-14 rounded-xl bg-[var(--user-bubble)] border border-[var(--border)] text-[var(--foreground)] text-mc-footnote leading-relaxed font-mono overflow-x-auto whitespace-pre select-text"
       >
-        {html !== null ? (
+        {children ?? (html !== null ? (
           // highlight.js escapes the source text, so the HTML only contains its own span tags.
           <code className="hljs-code" dangerouslySetInnerHTML={{ __html: html }} />
         ) : (
           content
-        )}
+        ))}
       </pre>
+      <button
+        type="button"
+        onClick={() => void handleCopy()}
+        aria-label={copied ? '已复制' : '复制代码'}
+        className="absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground-muted)] opacity-60 transition-opacity duration-mc-fast motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+      >
+        {copied ? <CheckCircleIcon className="h-4 w-4" /> : (
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <rect x="8" y="8" width="11" height="11" rx="2" />
+            <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+          </svg>
+        )}
+      </button>
     </div>
   );
 });
-
-function HighlightedFallbackCode({ children }: { children: React.ReactNode }) {
-  const scrollerRef = React.useRef<HTMLPreElement>(null);
-  useOverflowFade(scrollerRef);
-  return (
-    <div className="min-w-0 max-w-full overflow-x-auto rounded-xl">
-      <pre
-        ref={scrollerRef}
-        className="overflow-fade p-3 rounded-xl bg-[var(--user-bubble)] border border-[var(--border)] text-[var(--foreground)] text-mc-footnote leading-relaxed font-mono overflow-x-auto whitespace-pre select-text"
-      >
-        {children}
-      </pre>
-    </div>
-  );
-}
 
 export function SwarmBlock({ content }: { content: string; language: string }) {
   const entries = parseSwarmEntries(content);
@@ -460,7 +484,7 @@ const components: Components = {
     // 代码块命中：CodeBlock 走 highlight.js 的 innerHTML，mark 塞不进去，这里退回纯文本渲染让高亮看得见；
     // 没有命中时仍走原来的语法着色，行为不变。
     if (codeNode && hasMarkDescendant(codeNode)) {
-      return <HighlightedFallbackCode>{children}</HighlightedFallbackCode>;
+      return <CodeBlock content={text} language={language}>{children}</CodeBlock>;
     }
     return <CodeBlock content={text} language={language} />;
   },

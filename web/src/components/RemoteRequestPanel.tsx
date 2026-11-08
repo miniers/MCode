@@ -60,6 +60,20 @@ export function pickActiveRequestId(
   return requests.length > 0 ? requests[0].requestID : null;
 }
 
+export function approvalShortcut(
+  event: Pick<KeyboardEvent, 'key' | 'defaultPrevented' | 'repeat' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'isComposing' | 'keyCode'>,
+  targetTag: string,
+  isContentEditable: boolean,
+  hasOtherDialog: boolean
+): 'allow' | 'reject' | null {
+  if (event.defaultPrevented || event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey ||
+      event.isComposing || event.keyCode === 229 || isContentEditable || hasOtherDialog ||
+      ['input', 'textarea', 'select'].includes(targetTag.toLowerCase())) return null;
+  if (event.key === 'Enter') return 'allow';
+  if (event.key === 'Escape') return 'reject';
+  return null;
+}
+
 /** 键盘弹起判定：全站唯一来源是 main.tsx 写在 documentElement 上的 data-keyboard-open */
 function useKeyboardOpen(): boolean {
   const [keyboardOpen, setKeyboardOpen] = useState(
@@ -198,6 +212,30 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
       setBusyRequestID(null);
     }
   };
+
+  useEffect(() => {
+    const request = requests.find((candidate) => candidate.requestID === activeRequestID);
+    if (!request || (request.kind !== 'command' && request.kind !== 'fileChange')) return;
+    const allow = request.options.filter((option) => option.role === 'approve');
+    const reject = request.options.filter((option) => option.role === 'decline');
+    if (allow.length !== 1 || reject.length !== 1) return;
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target instanceof Element ? event.target : null;
+      const editable = target instanceof HTMLElement && target.isContentEditable;
+      const control = target?.closest('input, textarea, select');
+      const panel = scrollAreaRef.current;
+      const hasOtherDialog = Array.from(document.querySelectorAll('[role="dialog"]')).some(
+        (dialog) => !panel?.contains(dialog) && !dialog.contains(panel)
+      );
+      const action = approvalShortcut(event, control?.tagName ?? target?.tagName ?? '', editable, hasOtherDialog);
+      if (!action) return;
+      event.preventDefault();
+      void submit(request, { optionID: action === 'allow' ? allow[0].id : reject[0].id });
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  });
 
   const toggleQuestion = (requestID: string, questionID: string): void => {
     setOpenQuestionKeys((previous) => ({ ...previous, [requestID]: previous[requestID] === questionID ? '' : questionID }));

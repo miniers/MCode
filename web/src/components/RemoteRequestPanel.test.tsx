@@ -1,6 +1,6 @@
 // web/ 目前没有测试运行器（package.json 里没有 vitest/jest，scripts/check.sh 只跑 tsc --noEmit），
 // 所以这里不引入任何测试框架与 node 内置模块：断言失败直接抛 Error，接入运行器后本文件即可直接执行。
-import { pickActiveRequestId } from './RemoteRequestPanel';
+import { approvalShortcut, pickActiveRequestId } from './RemoteRequestPanel';
 
 interface PickCase {
   name: string;
@@ -24,4 +24,33 @@ for (const testCase of cases) {
   if (actual !== testCase.expected) {
     throw new Error(`期望「${testCase.name}」得到 ${String(testCase.expected)}，实际为 ${String(actual)}`);
   }
+}
+
+const keyEvent = {
+  key: 'Enter', defaultPrevented: false, repeat: false, metaKey: false, ctrlKey: false,
+  altKey: false, shiftKey: false, isComposing: false, keyCode: 13
+};
+const shortcutCases: Array<{
+  event: typeof keyEvent;
+  tag?: string;
+  editable?: boolean;
+  dialog?: boolean;
+  expected: 'allow' | 'reject' | null;
+}> = [
+  { event: keyEvent, expected: 'allow' },
+  { event: { ...keyEvent, key: 'Escape' }, expected: 'reject' },
+  ...(['metaKey', 'ctrlKey', 'altKey', 'shiftKey'] as const).map((key) => ({
+    event: { ...keyEvent, [key]: true }, expected: null
+  })),
+  { event: { ...keyEvent, defaultPrevented: true }, expected: null },
+  { event: { ...keyEvent, repeat: true }, expected: null },
+  { event: { ...keyEvent, isComposing: true }, expected: null },
+  { event: { ...keyEvent, keyCode: 229 }, expected: null },
+  { event: keyEvent, tag: 'TEXTAREA', expected: null },
+  { event: keyEvent, editable: true, expected: null },
+  { event: keyEvent, dialog: true, expected: null }
+];
+for (const testCase of shortcutCases) {
+  const actual = approvalShortcut(testCase.event, testCase.tag ?? 'DIV', testCase.editable ?? false, testCase.dialog ?? false);
+  if (actual !== testCase.expected) throw new Error(`快捷键结果错误：期望 ${String(testCase.expected)}，实际 ${String(actual)}`);
 }

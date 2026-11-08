@@ -2,6 +2,7 @@
 
 import React, { useCallback, useImperativeHandle, useRef } from 'react';
 import { SheetFrame } from '../sheet/SheetFrame';
+import { isImeComposing } from '../../utils/ime';
 import { MenuSheetHeader } from './menu/MenuSheetHeader';
 import type { ThreadMenuPageHandle } from './menu/menuPages';
 
@@ -65,7 +66,7 @@ export const SaveTaskBody = React.forwardRef<ThreadMenuPageHandle, SaveTaskBodyP
             disabled={isSavingTask}
             className="w-full min-h-[42px] px-3 rounded-xl border border-[var(--input-border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) void handleSubmitSaveTask();
+              if (event.key === 'Enter' && !isImeComposing(event)) void handleSubmitSaveTask();
               if (event.key === 'Escape' && !isSavingTask) handleCancel();
             }}
           />

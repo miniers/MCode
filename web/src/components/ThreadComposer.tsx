@@ -34,6 +34,7 @@ import {
 } from '../utils/slashCommands';
 import type { CommandScope, SuggestionItem, TriggerQueryInfo } from '../utils/slashCommands';
 import { modelDisplayName } from '../utils/modelLabel';
+import { isImeComposing } from '../utils/ime';
 import {
   caretOnFirstLine,
   caretOnLastLine,
@@ -724,6 +725,8 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   const [tierError, setTierError] = useState<string | null>(null);
   const [tierNotice, setTierNotice] = useState<string | null>(null);
   const [attachNotice, setAttachNotice] = useState<string | null>(null);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const dragDepthRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // 方向键历史导航状态（对应 internal/ui/composer_history.go:7 的 composerHistoryState）
@@ -1317,7 +1320,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   useEffect(() => {
     if (activeSheet === null) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.isComposing) return;
+      if (event.key !== 'Escape' || isImeComposing(event)) return;
       if (activeSheet === 'model-effort') {
         const next = modelSheetPageOnEscape(modelSheetPage);
         if (next !== null) {
@@ -1590,6 +1593,13 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   // 运行中且没有草稿/附件时，「主按钮」本身就是停止键；否则主按钮是发送键，
   // 运行中再在旁边显示一个独立的停止键（与改版前的布局一致）。
   const primaryActionStops = Boolean(isRunning && !draft.trim() && attachments.length === 0);
+  const attachmentsAvailable = attachmentsSupported && !isUploadingAttachment && attachments.length < 4;
+  useEffect(() => {
+    if (!attachmentsAvailable) {
+      dragDepthRef.current = 0;
+      setIsDraggingFiles(false);
+    }
+  }, [attachmentsAvailable]);
 
   return (
     <div
@@ -1615,7 +1625,30 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             sendWithExpandedPaste(onSend);
           }
         }}
-        className="rounded-3xl bg-[var(--composer-surface)] border border-[var(--input-border)] backdrop-blur-md p-2.5 shadow-sm min-w-0 relative"
+        onDragEnter={(event) => {
+          if (!attachmentsAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return;
+          event.preventDefault();
+          dragDepthRef.current += 1;
+          setIsDraggingFiles(true);
+        }}
+        onDragOver={(event) => {
+          if (!attachmentsAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDragLeave={(event) => {
+          if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+          if (dragDepthRef.current === 0) setIsDraggingFiles(false);
+        }}
+        onDrop={(event) => {
+          if (!attachmentsAvailable || !Array.from(event.dataTransfer.types).includes('Files')) return;
+          event.preventDefault();
+          dragDepthRef.current = 0;
+          setIsDraggingFiles(false);
+          onAddAttachments(event.dataTransfer.files);
+        }}
+        className={`rounded-3xl bg-[var(--composer-surface)] border ${isDraggingFiles && attachmentsAvailable ? 'border-[var(--primary)]' : 'border-[var(--input-border)]'} backdrop-blur-md p-2.5 shadow-sm min-w-0 relative`}
       >
         {/* @ 文件 / 斜杠命令 / $ 技能 / # 模型 补全建议弹层 */}
         {showSuggestions && triggerInfo && (
@@ -1659,9 +1692,16 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             checkTrigger(value, cursor);
           }}
           onPaste={(event) => {
-            // 粘贴图片或文件仍走浏览器默认行为（附件由宿主的拖放/选取入口处理）
+            // 附件可用时将粘贴的文件交给上传入口。
             const clipboard = event.clipboardData;
-            if (!clipboard || clipboard.files.length > 0) return;
+            if (!clipboard) return;
+            if (clipboard.files.length > 0) {
+              if (attachmentsAvailable) {
+                event.preventDefault();
+                onAddAttachments(clipboard.files);
+              }
+              return;
+            }
             const pasted = clipboard.getData('text/plain');
             if (!pasted || !isLongPastedText(pasted)) return;
             event.preventDefault();
@@ -1696,7 +1736,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             checkTrigger(draft, cursor);
           }}
           onKeyDown={(event) => {
-            if (showSuggestions && suggestionItems.length > 0 && !event.nativeEvent.isComposing) {
+            if (showSuggestions && suggestionItems.length > 0 && !isImeComposing(event)) {
               if (event.key === 'ArrowDown') {
                 event.preventDefault();
                 setSelectedSuggestionIndex((suggestionIndex + 1) % suggestionItems.length);
@@ -1721,7 +1761,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             // 方向键历史导航：首行 ↑ 翻更旧、末行 ↓ 翻更新（对应 internal/ui/composer.go:832）。
             // 补全菜单打开时方向键已在上面归菜单，这里只在无修饰键、无选区、有历史时生效。
             if (
-              !event.nativeEvent.isComposing &&
+              !isImeComposing(event) &&
               !event.shiftKey &&
               !event.altKey &&
               !event.metaKey &&
@@ -1750,7 +1790,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
               }
             }
             // Esc 退出历史导航并恢复进入导航前的草稿（对应 internal/ui/composer.go:857）
-            if (event.key === 'Escape' && !event.nativeEvent.isComposing && historyState.index !== 0) {
+            if (event.key === 'Escape' && !isImeComposing(event) && historyState.index !== 0) {
               const restored = composerHistoryRestore(historyState);
               if (restored) {
                 event.preventDefault();
@@ -1760,7 +1800,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                 return;
               }
             }
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !isImeComposing(event)) {
               event.preventDefault();
               if (!sendDisabled) sendWithExpandedPaste(onSend);
             }
@@ -1778,7 +1818,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             {/* Attach File Pill：任意文件都可添加，图片由宿主压缩后上传 */}
             {attachmentsSupported && (
               <ComposerAttachButton
-                disabled={isUploadingAttachment || attachments.length >= 4}
+                disabled={!attachmentsAvailable}
                 title={imagesUnsupported ? '添加附件（当前模型不支持图片）' : '添加附件'}
                 onPicked={handlePickedAttachments}
               />
