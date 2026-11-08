@@ -11,12 +11,16 @@ import (
 
 func shellCommand(command string) (string, []string) {
 	name := "/bin/bash"
-	if _, err := os.Stat(name); err != nil { name = "/bin/sh" }
+	if _, err := os.Stat(name); err != nil {
+		name = "/bin/sh"
+	}
 	return name, []string{"-c", command}
 }
 
 func setProcessGroup(cmd *exec.Cmd) {
-	if cmd.SysProcAttr == nil { cmd.SysProcAttr = &syscall.SysProcAttr{} }
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
 	cmd.SysProcAttr.Setpgid = true
 }
 
