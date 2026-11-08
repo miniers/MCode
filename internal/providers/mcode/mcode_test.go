@@ -250,6 +250,49 @@ func TestContextWindowReachesUsage(t *testing.T) {
 	}
 }
 
+func TestCostUSDReachesUsage(t *testing.T) {
+	client := &fakeClient{responses: []*llm.Response{answer()}}
+	var gotModel string
+	h := harnessFor(client, Options{CostUSD: func(model string, _ harness.Usage) (float64, bool) {
+		gotModel = model
+		return 0.25, true
+	}})
+	var usage *harness.Usage
+	err := h.Run(context.Background(), harness.Turn{Model: "magpie-jp/claude-sonnet-5-5"}, func(event harness.Event) {
+		if event.Type == harness.EventUsage {
+			usage = event.Usage
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotModel != "magpie-jp/claude-sonnet-5-5" || usage == nil || usage.CostUSD != 0.25 {
+		t.Fatalf("model=%q usage=%+v", gotModel, usage)
+	}
+}
+
+func TestCostUSDLeftEmptyWithoutPrice(t *testing.T) {
+	for name, cost := range map[string]func(string, harness.Usage) (float64, bool){
+		"nil":     nil,
+		"decline": func(string, harness.Usage) (float64, bool) { return 0, false },
+	} {
+		client := &fakeClient{responses: []*llm.Response{answer()}}
+		h := harnessFor(client, Options{CostUSD: cost})
+		var usage *harness.Usage
+		err := h.Run(context.Background(), harness.Turn{Model: "magpie-jp/plain-model"}, func(event harness.Event) {
+			if event.Type == harness.EventUsage {
+				usage = event.Usage
+			}
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if usage == nil || usage.CostUSD != 0 {
+			t.Fatalf("%s: usage = %+v", name, usage)
+		}
+	}
+}
+
 func TestSteerInjectsIntoRunningSession(t *testing.T) {
 	client := &blockingClient{started: make(chan struct{}), release: make(chan struct{})}
 	h := harnessFor(client, Options{})

@@ -839,3 +839,21 @@ func TestSettingsProviders_RowDescriptionsReplacedByPlaceholders(t *testing.T) {
 		}
 	}
 }
+
+// 只有带默认端点的 OpenAI 兼容预设才需要 BaseURL 与默认模型，原生协议预设只保存 API Key。
+func TestAPIProviderNeedsEndpointFields(t *testing.T) {
+	st := &SettingsState{}
+	st.presets.items = []ProviderSetting{
+		{ID: "deepseek", Kind: "api", DefaultBaseURL: "https://api.deepseek.com"},
+		{ID: "anthropic", Kind: "api"},
+	}
+	if !apiProviderNeedsEndpointFields(st, "preset", "deepseek") {
+		t.Fatal("带默认端点的预设应显示 BaseURL 与默认模型")
+	}
+	if apiProviderNeedsEndpointFields(st, "preset", "anthropic") {
+		t.Fatal("原生协议预设不应显示 BaseURL 与默认模型")
+	}
+	if !apiProviderNeedsEndpointFields(st, "custom", "ep") {
+		t.Fatal("自定义端点始终需要 BaseURL 与默认模型")
+	}
+}

@@ -1974,6 +1974,10 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 	if cfg.Providers.Mcode.Enabled {
 		backend.RegisterHarness(buildMcodeHarness(cfg, secrets, dataDir, mcpInjection))
 	}
+	// Anthropic 来源没有开关：凭据可用（含 ANTHROPIC_API_KEY）时注册。
+	if _, ok := currentAnthropicSource(cfg, secrets); ok {
+		backend.RegisterHarness(newAnthropicEngineHarness(cfg, secrets, dataDir, mcpInjection))
+	}
 	registerMcodeTextGenerator(cfg, secrets)
 
 	for _, ep := range cfg.Providers.Custom {

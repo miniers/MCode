@@ -18,7 +18,6 @@ import (
 	"mcode/internal/config"
 	"mcode/internal/magpiecfg"
 	"mcode/internal/magpieinject"
-	"mcode/internal/providers/codex"
 	"mcode/internal/providers/magpie"
 	"mcode/internal/providers/pi"
 	"mcode/internal/remote"
@@ -375,51 +374,16 @@ func (c *Client) piMagpieQuotaReadingFor(ctx context.Context, providerID string)
 		return piMagpieQuotaReading{}, nil
 	}
 
-	quotaCtx, cancel := context.WithTimeout(ctx, piMagpieFetchTimeout)
-	defer cancel()
-	windows, err := magpie.ReadQuotas(quotaCtx, target.baseURL, target.apiKey)
+	// 会话落盘的 provider 会话 ID 由装配层注入的解析函数给出。
+	sessionID := ""
+	if threadID := mcodeui.QuotaThread(ctx); threadID != "" && c.agySessionForThread != nil {
+		sessionID = c.agySessionForThread(ctx, threadID)
+	}
+	windows, err := c.readMagpieQuotaWindows(ctx, target.baseURL, target.apiKey, "pi", sessionID)
 	if err != nil {
 		return piMagpieQuotaReading{}, err
 	}
-	// trace 记录会话实际应答的账号；本机端点读 trace，远程端点读 usage/requests 兜底。
-	// 会话落盘的 provider 会话 ID 由装配层注入的解析函数给出。
-	tracker := c.sessionTracker()
-	tracker.noteSource(target.baseURL, target.apiKey)
-	route, hasRoute := sessionRoute{}, false
-	if threadID := mcodeui.QuotaThread(ctx); threadID != "" && c.agySessionForThread != nil {
-		sessionID := c.agySessionForThread(ctx, threadID)
-		// 弹层可能被反复打开，fresh=false 时先看缓存，再用 10 秒节流控制远程读取。
-		route, hasRoute = tracker.routeFor(ctx, target.baseURL, target.apiKey, "pi", sessionID, false)
-	}
-	out := make([]mcodeui.ProviderQuotaWindow, 0, len(windows))
-	for _, w := range windows {
-		out = append(out, mcodeui.ProviderQuotaWindow{
-			ID:           w.ID,
-			Period:       w.Period,
-			Label:        w.Label,
-			UsedPercent:  w.UsedPercent,
-			ResetsAt:     w.ResetsAt,
-			Account:      w.Account,
-			Source:       codex.QuotaSourceMagpie,
-			Provider:     w.Provider,
-			User:         w.User,
-			Kind:         w.Kind,
-			Plan:         w.Plan,
-			Alias:        w.Alias,
-			Last:         w.Last,
-			LastServedAt: w.LastServedAt,
-			ReadAt:       w.ReadAt,
-			Display:      w.Display,
-			Text:         w.Text,
-			Unlimited:    w.Unlimited,
-			Balance:      w.Balance,
-			Unit:         w.Unit,
-		})
-	}
-	// 只有本会话的 trace 路由对得上 provider 与账号时才算在用；同一 provider 的
-	// 其它账号、以及查不到映射时都不标。
-	markRouteActive(out, route, hasRoute)
-	return piMagpieQuotaReading{Name: target.endpoint.Name, Windows: out, Found: true}, nil
+	return piMagpieQuotaReading{Name: target.endpoint.Name, Windows: windows, Found: true}, nil
 }
 
 // piMagpieQuota 读取某个 Magpie 端点的额度窗口。providerID 是 pi:<pi provider id> 里的

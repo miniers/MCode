@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"mcode/internal/config"
 )
 
 // TestOnboardingSteps 验证新手引导的对应行为。
@@ -14,7 +13,7 @@ func TestOnboardingSteps(t *testing.T) {
 		route onboardingRoute
 		steps []onboardingStep
 	}{
-		{onboardingRecommended, []onboardingStep{onboardingWelcome, onboardingAgents, onboardingMagpie, onboardingBuiltin, onboardingFinish}},
+		{onboardingRecommended, []onboardingStep{onboardingWelcome, onboardingAgents, onboardingMagpie, onboardingFinish}},
 		{onboardingDirect, []onboardingStep{onboardingWelcome, onboardingAgents, onboardingFinish}},
 	} {
 		for i, step := range tc.steps {
@@ -59,7 +58,7 @@ func TestOnboardingResume(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, s)
 	u := onboardingState(s)
 	u.open = true
-	u.step = onboardingBuiltin
+	u.step = onboardingMagpie
 	u.suspendedForSettings = true
 	st.mu.Lock()
 	st.open = true
@@ -70,7 +69,7 @@ func TestOnboardingResume(t *testing.T) {
 	st.mu.Lock()
 	st.open = false
 	st.mu.Unlock()
-	if !onboardingResume(s, st) || u.step != onboardingBuiltin || u.suspendedForSettings {
+	if !onboardingResume(s, st) || u.step != onboardingMagpie || u.suspendedForSettings {
 		t.Fatal("关闭设置后应恢复原步骤")
 	}
 }
@@ -93,7 +92,7 @@ func TestOnboardingIgnoresOtherSettingsWindow(t *testing.T) {
 		t.Fatalf("其他窗口的设置不应隐藏引导：%q", tt.Texts())
 	}
 
-	u.step, u.suspendedForSettings = onboardingBuiltin, true
+	u.step, u.suspendedForSettings = onboardingMagpie, true
 	st.mu.Lock()
 	st.open = true
 	st.mu.Unlock()
@@ -103,16 +102,18 @@ func TestOnboardingIgnoresOtherSettingsWindow(t *testing.T) {
 	st.mu.Lock()
 	st.open = false
 	st.mu.Unlock()
-	if !onboardingResume(s, st) || u.step != onboardingBuiltin || u.suspendedForSettings {
+	if !onboardingResume(s, st) || u.step != onboardingMagpie || u.suspendedForSettings {
 		t.Fatal("本窗口设置关闭后应恢复原步骤")
 	}
 }
 
 // TestOnboardingSummaryAndPrerequisites 验证新手引导的对应行为。
 func TestOnboardingSummaryAndPrerequisites(t *testing.T) {
-	magpie, pi := onboardingSummaryRoute(onboardingDirect, "未连接", "未安装")
-	if magpie != "已跳过" || pi != "已跳过" {
+	if got := onboardingSummaryRoute(onboardingDirect, "未连接"); got != "已跳过" {
 		t.Fatal("直连路线应显示跳过")
+	}
+	if got := onboardingSummaryRoute(onboardingRecommended, "已连接"); got != "已连接" {
+		t.Fatal("推荐路线应沿用 Magpie 状态")
 	}
 	if !onboardingInstallDisabled("claude", true, false, false) || onboardingInstallDisabled("agy", false, false, false) {
 		t.Fatal("安装前置条件错误")
@@ -198,8 +199,8 @@ func TestOnboardingSuspendKeepsSuspendedWithoutWindow(t *testing.T) {
 	}
 }
 
-// TestOnboardingBuiltinStep 验证推荐路径展示内置 mcode，且不要求 Node 或 npm。
-func TestOnboardingBuiltinStep(t *testing.T) {
+// TestOnboardingMagpieStep 验证推荐路径到连接 Magpie 后直接进入完成页，不再要求选模型。
+func TestOnboardingMagpieStep(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	st := NewSettingsState(settingsTestDir(t), nil, s)
@@ -210,23 +211,18 @@ func TestOnboardingBuiltinStep(t *testing.T) {
 	st.mu.Unlock()
 
 	u := onboardingState(s)
-	u.open, u.step = true, onboardingBuiltin
-	u.mu.Lock()
-	u.nodeOK, u.npmOK, u.probing = false, false, false
-	u.mu.Unlock()
+	u.open, u.step = true, onboardingMagpie
 	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
-	for _, text := range []string{"为 mcode 选择模型", "mcode", "已安装", "先连接 Magpie"} {
-		if !tt.HasText(text) {
-			t.Fatalf("未找到 %q：%q", text, tt.Texts())
-		}
+	if !tt.HasText("连接 Magpie") {
+		t.Fatalf("未找到标题：%q", tt.Texts())
 	}
-	if tt.HasText("Pi") || tt.HasText("需要先安装 Node.js") {
-		t.Fatalf("不应再要求安装 pi 或 Node：%q", tt.Texts())
+	if tt.HasText("为 mcode 选择模型") || tt.HasText("选择模型") {
+		t.Fatalf("不应再有选模型这一步：%q", tt.Texts())
 	}
 }
 
-// TestOnboardingFinishReadyWithMcode 验证推荐路径只需 Magpie 已连接并选好模型，不要求 pi。
-func TestOnboardingFinishReadyWithMcode(t *testing.T) {
+// TestOnboardingFinishReadyWithMagpie 验证推荐路径只要 Magpie 已连接就就绪，不要求勾选模型或安装 pi。
+func TestOnboardingFinishReadyWithMagpie(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	st := NewSettingsState(settingsTestDir(t), nil, s)
@@ -241,20 +237,21 @@ func TestOnboardingFinishReadyWithMcode(t *testing.T) {
 	if !providerRowNotInstalled(st, "pi") {
 		t.Fatal("测试前提：pi 应判定为未安装")
 	}
-	st.cfgMu.Lock()
-	config.SetMagpieAgentModels(&st.cfg, "pi", "gw", []string{"auto/model"})
-	st.cfgMu.Unlock()
 	_, connected := onboardingMagpieStatus(st)
 	if !connected {
 		t.Fatal("测试前提：Magpie 应已连接")
 	}
 	if !onboardingFinishReady(onboardingRecommended, st, connected) {
-		t.Fatal("Magpie 已连接且已选模型时应就绪")
+		t.Fatal("Magpie 已连接时应就绪，无需勾选模型")
 	}
-	st.cfgMu.Lock()
-	config.SetMagpieAgentModels(&st.cfg, "pi", "gw", nil)
-	st.cfgMu.Unlock()
+	st.mu.Lock()
+	st.endpoints.endpoints = []CustomEndpoint{{ID: "gw", Magpie: true, Enabled: true}}
+	st.mu.Unlock()
+	_, connected = onboardingMagpieStatus(st)
+	if connected {
+		t.Fatal("测试前提：缺少 API Key 时 Magpie 应未连接")
+	}
 	if onboardingFinishReady(onboardingRecommended, st, connected) {
-		t.Fatal("未选择模型时不应就绪")
+		t.Fatal("Magpie 未连接时不应就绪")
 	}
 }

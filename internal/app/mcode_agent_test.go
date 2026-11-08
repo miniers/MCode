@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"mcode/internal/agent/llm"
 	"mcode/internal/config"
+	"mcode/internal/harness"
 	"mcode/internal/magpieinject"
 	"mcode/internal/providers/magpie"
 )
@@ -42,8 +44,8 @@ func TestMcodeResolveClientMagpieRequest(t *testing.T) {
 	defer server.Close()
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
-	client, model, err := resolveMcodeClient(cfg, secrets, "magpie-mcode/claude-sonnet", "thread-1")
-	if err != nil || model != "claude-sonnet" {
+	client, model, err := resolveMcodeClient(cfg, secrets, "magpie-mcode/plain-model", "thread-1")
+	if err != nil || model != "plain-model" {
 		t.Fatalf("resolve = %q, %v", model, err)
 	}
 	_, err = client.Stream(context.Background(), llm.Request{Model: model, Messages: []llm.Message{{Role: "user", Content: []llm.Part{{Type: "text", Text: "hello"}}}}}, nil)
@@ -55,6 +57,74 @@ func TestMcodeResolveClientMagpieRequest(t *testing.T) {
 	}
 	if affinity != "thread-1" || clientRequest != "thread-1" || session != "thread-1" {
 		t.Fatalf("session affinity = %q %q %q", affinity, clientRequest, session)
+	}
+}
+
+func TestMcodeResolveClientMagpieClaudeMessages(t *testing.T) {
+	var path, apiKey, auth, affinity, clientRequest, session string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			io.WriteString(w, `{"data":[]}`)
+			return
+		}
+		path, apiKey, auth = r.URL.Path, r.Header.Get("x-api-key"), r.Header.Get("Authorization")
+		affinity = r.Header.Get("x-session-affinity")
+		clientRequest = r.Header.Get("x-client-request-id")
+		session = r.Header.Get("session_id")
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, anthropicMessagesSSE)
+	}))
+	defer server.Close()
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+	client, model, err := resolveMcodeClient(cfg, secrets, "magpie-mcode/claude-sonnet", "thread-1")
+	if err != nil || model != "claude-sonnet" {
+		t.Fatalf("resolve = %q, %v", model, err)
+	}
+	_, err = client.Stream(context.Background(), llm.Request{Model: model, Messages: []llm.Message{{Role: "user", Content: []llm.Part{{Type: "text", Text: "hello"}}}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/v1/messages" || apiKey != "gateway-key" || auth != "" {
+		t.Fatalf("request = %q, x-api-key %q, Authorization %q", path, apiKey, auth)
+	}
+	if affinity != "thread-1" || clientRequest != "thread-1" || session != "thread-1" {
+		t.Fatalf("session affinity = %q %q %q", affinity, clientRequest, session)
+	}
+}
+
+func TestMcodeUsageCost(t *testing.T) {
+	models := `{"data":[` +
+		`{"id":"plain-model","magpie_price":{"input":3,"output":15,"cache_read":0.3,"cache_write":3.75}},` +
+		`{"id":"no-price"}]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, models)
+	}))
+	defer server.Close()
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL + "/v1"})
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+	if _, err := magpie.FetchModels(context.Background(), server.URL+"/v1", "gateway-key"); err != nil {
+		t.Fatalf("填充模型缓存失败: %v", err)
+	}
+	// 未缓存输入 1、缓存读取 10、输出 5：(1*3 + 10*0.3 + 5*15) / 1e6。
+	cost, ok := mcodeUsageCost(cfg, secrets, "magpie-mcode/plain-model", harness.Usage{InputTokens: 11, OutputTokens: 5, CachedTokens: 10})
+	if !ok || math.Abs(cost-0.000081) > 1e-12 {
+		t.Fatalf("cost = %v, %v", cost, ok)
+	}
+	// 空模型没有可计价的模型 ID，不填费用。
+	if _, ok := mcodeUsageCost(cfg, secrets, "", harness.Usage{InputTokens: 1000}); ok {
+		t.Fatal("空模型不应返回费用")
+	}
+	if _, ok := mcodeUsageCost(cfg, secrets, "magpie-mcode/no-price", harness.Usage{InputTokens: 1}); ok {
+		t.Fatal("无价格的模型不应返回费用")
+	}
+	if _, ok := mcodeUsageCost(cfg, secrets, "anthropic/claude-sonnet-5-5", harness.Usage{InputTokens: 1}); ok {
+		t.Fatal("非 Magpie 模型不应返回费用")
 	}
 }
 
@@ -184,7 +254,7 @@ func TestMcodeModelCatalogUsesAllCachedGatewayModels(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"data":[
-			{"id":"claude-sonnet-4.5","magpie_label":"Claude Sonnet 4.5 · Anthropic","reasoning":true,"supported_reasoning_levels":[{"effort":"minimal"},{"effort":"low"},{"effort":"high"},{"effort":"max"}],"context_window":400000},
+			{"id":"claude-sonnet-4.5","magpie_label":"Claude Sonnet 4.5 · Anthropic","reasoning":true,"supported_reasoning_levels":[{"effort":"minimal"},{"effort":"low"},{"effort":"high"},{"effort":"max"}],"context_window":400000,"magpie_price":{"input":3,"output":15,"cache_read":0.3,"cache_write":3.75}},
 			{"id":"plain-model","display_name":"Plain Model","reasoning":false,"context_window":128000}]}`)
 	}))
 	t.Cleanup(server.Close)
@@ -223,6 +293,12 @@ func TestMcodeModelCatalogUsesAllCachedGatewayModels(t *testing.T) {
 	}
 	if !got[0].IsDefault || got[1].IsDefault {
 		t.Fatalf("默认标记 = %#v", got)
+	}
+	if got[0].Cost == nil || got[0].Cost.Input != 3 || got[0].Cost.Output != 15 || got[0].Cost.CacheRead != 0.3 || got[0].Cost.CacheWrite != 3.75 {
+		t.Fatalf("网关价格 = %#v", got[0].Cost)
+	}
+	if got[1].Cost != nil {
+		t.Fatalf("没有价格的目录行 = %#v", got[1].Cost)
 	}
 	// 目录行 ID 能被请求解析到同一个端点。
 	_, modelID, err := resolveMcodeClient(cfg, secrets, got[1].ID, "")

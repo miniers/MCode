@@ -355,7 +355,8 @@ func TestRenderUsagePanel_Credits(t *testing.T) {
 	}
 }
 
-// threadQuotaProvider 决定额度 key：pi 线程按模型第一段（pi provider id）折算成 magpie 端点 key。
+// threadQuotaProvider 决定额度 key：pi 与 mcode 线程按模型第一段折算成 magpie 端点 key，
+// magpie 与 magpie2…magpie4 端点会话本身就以 provider 命名。
 func TestThreadQuotaProvider(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -378,6 +379,15 @@ func TestThreadQuotaProvider(t *testing.T) {
 			th:   &Thread{Provider: "pi", Model: "magpie-us/auto"},
 			want: "pi:magpie-us",
 		},
+		{name: "mcode 无斜杠模型", th: &Thread{Provider: "mcode", Model: "default"}, want: "mcode"},
+		{name: "mcode 空模型", th: &Thread{Provider: "mcode"}, want: "mcode"},
+		{
+			name: "mcode 带斜杠模型",
+			th:   &Thread{Provider: "mcode", Model: "magpie-jp/auto/deepseek-v4.1-flash"},
+			want: "mcode:magpie-jp",
+		},
+		{name: "magpie 端点 provider", th: &Thread{Provider: "magpie", Model: "gpt-5"}, want: "magpie"},
+		{name: "magpie2 端点 provider", th: &Thread{Provider: "magpie2", Model: "claude"}, want: "magpie2"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

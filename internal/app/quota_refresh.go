@@ -34,19 +34,27 @@ func markRouteActive(windows []mcodeui.ProviderQuotaWindow, route sessionRoute, 
 }
 
 // RefreshThreadQuota 让 Magpie 网关只重读指定会话实际应答账号的额度卡片。
-// provider 是额度 key：pi:<pi provider id>、claude 或 codex；其它提供方、直连提供方、
-// 找不到端点、会话没有 trace 路由或路由缺账号时都不发请求，也不猜账号；同一
-// 「端点 + provider + user」30 秒内只刷新一次，与网关服务端的去重窗口一致。
+// provider 是额度 key：pi:<pi provider id>、mcode:<端点 provider id>、magpie 与
+// magpie2…magpie4、claude 或 codex；其它提供方、直连提供方、找不到端点、会话没有
+// trace 路由或路由缺账号时都不发请求，也不猜账号；同一「端点 + provider + user」
+// 30 秒内只刷新一次，与网关服务端的去重窗口一致。
 func (c *Client) RefreshThreadQuota(ctx context.Context, threadID, provider string) error {
 	if c == nil {
 		return nil
 	}
 	provider = strings.TrimSpace(provider)
 	threadID = strings.TrimSpace(threadID)
-	if threadID == "" || c.agySessionForThread == nil {
+	// 内置引擎的会话键就是线程 ID，不需要落盘的 provider 会话 ID。
+	if threadID == "" || (c.agySessionForThread == nil && !engineQuotaKey(provider)) {
 		return nil
 	}
 	switch {
+	case engineQuotaKey(provider):
+		endpoint, found := c.engineQuotaEndpointForKey(provider)
+		if !found {
+			return nil
+		}
+		return c.refreshRouteSession(ctx, endpoint.baseURL, endpoint.apiKey, "", threadID)
 	case strings.HasPrefix(provider, "pi:"):
 		providerID := strings.TrimSpace(strings.TrimPrefix(provider, "pi:"))
 		if providerID == "" {
@@ -78,6 +86,12 @@ func (c *Client) RefreshThreadQuota(ctx context.Context, threadID, provider stri
 // 账号。agent 是 pi、claude 或 codex；查不到路由或路由缺账号时什么都不做。
 func (c *Client) refreshRouteAccount(ctx context.Context, baseURL, token, agent, threadID string) error {
 	sessionID := strings.TrimSpace(c.agySessionForThread(ctx, threadID))
+	return c.refreshRouteSession(ctx, baseURL, token, agent, sessionID)
+}
+
+// refreshRouteSession 是刷新单个账号的主体：sessionID 直接是 Magpie trace 里的会话键
+// （pi、claude、codex 是落盘的 provider 会话 ID，内置引擎是线程 ID）。
+func (c *Client) refreshRouteSession(ctx context.Context, baseURL, token, agent, sessionID string) error {
 	if sessionID == "" {
 		return nil
 	}

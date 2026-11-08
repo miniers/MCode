@@ -36,14 +36,15 @@ func TestMcodeGenerateTextViaDispatch(t *testing.T) {
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
 
-	out, err := generateText(context.Background(), cfg, secrets, config.ProviderMcode, "magpie-mcode/claude-sonnet", "high", "给这段对话起标题")
+	// 非 Claude 模型保留 OpenAI chat completions 的超时与 effort 透传。
+	out, err := generateText(context.Background(), cfg, secrets, config.ProviderMcode, "magpie-mcode/plain-model", "high", "给这段对话起标题")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out != "会话标题" {
 		t.Fatalf("输出 = %q，期望 %q", out, "会话标题")
 	}
-	if path != "/chat/completions" || auth != "Bearer gateway-key" || body["model"] != "claude-sonnet" {
+	if path != "/chat/completions" || auth != "Bearer gateway-key" || body["model"] != "plain-model" {
 		t.Fatalf("请求 = %q %q %v", path, auth, body["model"])
 	}
 	if affinity != "" {

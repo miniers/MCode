@@ -55,6 +55,9 @@ func newSourceEngineHarness(legacy harness.Harness, cfg config.Config, secrets c
 	opts.ContextWindow = func(model string) int {
 		return sourceEngineContextWindow(kind, cfg, secrets, model)
 	}
+	opts.CostUSD = func(model string, usage harness.Usage) (float64, bool) {
+		return sourceUsageCost(kind, cfg, secrets, model, usage)
+	}
 	return providermcode.New(opts)
 }
 
@@ -76,9 +79,8 @@ func resolveSourceClient(kind harness.Kind, legacy harness.Harness, cfg config.C
 	key := source.APIKey(store)
 	if source.Magpie {
 		target := magpieinject.Target{BaseURL: source.BaseURL, APIKey: key, ProviderID: source.Kind}
-		clientCfg := mcodeMagpieConfig(target, affinityKey, modelID)
-		clientCfg.Effort = engineReasoningEffort(source.BaseURL)
-		return llm.NewOpenAI(clientCfg), modelID, nil
+		client, modelID := magpieClient(target, affinityKey, modelID, engineReasoningEffort(source.BaseURL))
+		return client, modelID, nil
 	}
 	return llm.NewOpenAI(llm.OpenAIConfig{
 		BaseURL:       source.BaseURL,
@@ -87,6 +89,38 @@ func resolveSourceClient(kind harness.Kind, legacy harness.Harness, cfg config.C
 		EchoReasoning: isDeepSeekModel(modelID),
 		Effort:        engineReasoningEffort(source.BaseURL),
 	}), modelID, nil
+}
+
+// sourceUsageCost 算 Magpie 来源本轮的费用：来源本身是网关，模型串不带端点前缀；
+// 非 Magpie 来源不填费用。
+func sourceUsageCost(kind harness.Kind, cfg config.Config, secrets config.SecretStore, model string, usage harness.Usage) (float64, bool) {
+	current := mcodeCurrentConfig(cfg, secrets)
+	store := mcodeCurrentSecrets(secrets)
+	source, ok := findAPISource(apisource.Resolve(current, store), kind)
+	if !ok || !source.Magpie {
+		return 0, false
+	}
+	target := magpieinject.Target{BaseURL: source.BaseURL, APIKey: source.APIKey(store), ProviderID: source.Kind}
+	return magpieUsageCost(target, model, usage)
+}
+
+// magpieUsageCost 用网关模型目录缓存的单价算费用：目录里没有这个模型或没有价格时返回 false。
+// harness.Usage 的 InputTokens 已包含缓存的 token，CachedTokens 是读与写的合计；
+// 两者无法拆分，统一按缓存读取价计，与界面按参考价估算会话费用的回退一致。
+func magpieUsageCost(target magpieinject.Target, modelID string, usage harness.Usage) (float64, bool) {
+	cached, ok := magpie.CachedModel(target.BaseURL, target.APIKey, modelID)
+	if !ok || cached.Cost == nil {
+		return 0, false
+	}
+	input := usage.InputTokens - usage.CachedTokens
+	if input < 0 {
+		input = 0
+	}
+	cacheRead := usage.CachedTokens
+	if cached.Cost.CacheRead <= 0 {
+		input, cacheRead = input+cacheRead, 0
+	}
+	return cached.Cost.USD(input, usage.OutputTokens, cacheRead, 0), true
 }
 
 // findAPISource 按 provider kind 找到当前启用的来源。

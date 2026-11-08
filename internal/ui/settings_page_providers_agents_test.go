@@ -15,25 +15,22 @@ import (
 	"mcode/internal/providers/agy/accounts"
 )
 
-func TestMcodeProviderIdentityAndOrdering(t *testing.T) {
+// 内置 mcode 只为已有 mcode 会话保留：名称还在，供应商列表与状态判定不再为它特判。
+func TestMcodeProviderFilteredFromList(t *testing.T) {
 	if got := providerDisplayName("mcode"); got != "mcode" {
 		t.Fatalf("providerDisplayName(mcode) = %q", got)
 	}
-	mcodeIndex, piIndex := -1, -1
-	for i, id := range cliProviderIDs {
-		switch id {
-		case "mcode":
-			mcodeIndex = i
-		case "pi":
-			piIndex = i
+	st := &SettingsState{providerRows: providerRowsState{cliIDs: []string{"mcode", "pi"}}}
+	if providerConfigured(st, "mcode") || providerStatusFor(st, "mcode").Ready {
+		t.Fatal("内置 mcode 不应再被视为已安装")
+	}
+	if _, ok := providerTerminalCommand(st, "mcode", "install"); ok {
+		t.Fatal("内置 mcode 不应再有安装命令")
+	}
+	for _, e := range cliProviderListEntries(st, nil) {
+		if e.ID == "mcode" {
+			t.Fatalf("供应商列表不应包含 mcode：%+v", e)
 		}
-	}
-	if mcodeIndex < 0 || piIndex < 0 || mcodeIndex >= piIndex {
-		t.Fatalf("cliProviderIDs 中 mcode 必须在 pi 之前：%v", cliProviderIDs)
-	}
-	st := &SettingsState{}
-	if !providerConfigured(st, "mcode") || !providerStatusFor(st, "mcode").Ready {
-		t.Fatal("内置 mcode 应始终视为已安装")
 	}
 }
 
@@ -530,8 +527,8 @@ func TestProviders_CLIRowsLoadSettingsAndCredits(t *testing.T) {
 	}
 }
 
-// mcode 以 Kind=cli 下发：进入 cliIDs 与供应商列表，面板只有账号节与 Anthropic API Key 行。
-func TestProviders_McodeShownAsCLIRow(t *testing.T) {
+// 内置 mcode 不再作为供应商出现：即使后端仍以 Kind=cli 下发也要过滤掉。
+func TestProviders_McodeHiddenFromList(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	fake := NewFakeClient()
@@ -544,38 +541,50 @@ func TestProviders_McodeShownAsCLIRow(t *testing.T) {
 	cliIDs := append([]string(nil), st.providerRows.cliIDs...)
 	_, hasSetting := st.providerRows.settings["mcode"]
 	st.mu.Unlock()
-	if len(cliIDs) != 1 || cliIDs[0] != "mcode" || !hasSetting {
-		t.Fatalf("mcode 应作为 CLI 行进入供应商列表，cliIDs=%v hasSetting=%v", cliIDs, hasSetting)
+	if len(cliIDs) != 0 || hasSetting {
+		t.Fatalf("mcode 不应进入 CLI 供应商列表，cliIDs=%v hasSetting=%v", cliIDs, hasSetting)
 	}
-
-	sections := cliProviderSheetSections(st, "mcode", nil)
-	if len(sections) != 1 || sections[0].ID != "sec-provider-account" {
-		t.Fatalf("mcode 面板应只有账号节，got %+v", sections)
-	}
-
-	openProviderSheet(st, "cli", "mcode")
-	panel := ui.NewTester(func(c *ui.Context) { renderCLIProviderSheetSections(c, st, "mcode", nil) }, 1000, 4000)
-	panel.Frame()
-	if !panel.HasText("Anthropic API Key") || panel.HasText("可执行文件路径") || panel.HasText("监控更新") {
-		t.Fatalf("mcode 面板应只有 Anthropic API Key 配置行：%v", panel.Texts())
+	for _, e := range append(cliProviderListEntries(st, nil), apiProviderListEntries(st)...) {
+		if e.ID == "mcode" {
+			t.Fatalf("供应商列表不应包含 mcode：%+v", e)
+		}
 	}
 }
 
-// mcode 面板的 API Key 提交走 SaveProviderSetting，保存后清空草稿，输入框回到「已保存」占位状态。
-func TestProviders_McodeSavesAnthropicAPIKey(t *testing.T) {
+// Anthropic 是普通 API 行：只显示 API Key，保存后进入已配置状态。
+func TestProviders_AnthropicAPIKeyOnly(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "mcode", Name: "mcode", Kind: "cli", Enabled: true},
+		{ID: "anthropic", Name: "Anthropic", Kind: "api"},
 	}
-	_, st := openProvidersPageTest(t, fake)
-	openProviderSheet(st, "cli", "mcode")
-	panel := ui.NewTester(func(c *ui.Context) { renderCLIProviderSheetSections(c, st, "mcode", nil) }, 1000, 4000)
+	page, st := openProvidersPageTest(t, fake)
+	waitFor(t, page, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return st.presets.loaded
+	})
+
+	found := false
+	for _, e := range apiProviderListEntries(st) {
+		if e.ID == "anthropic" {
+			found = e.Kind == "preset"
+		}
+	}
+	if !found {
+		t.Fatalf("anthropic 应作为普通 API 行列出")
+	}
+
+	openProviderSheet(st, "preset", "anthropic")
+	panel := ui.NewTester(func(c *ui.Context) { renderAPIProviderSheetSections(c, st, "preset", "anthropic") }, 1000, 1200)
 	panel.Frame()
+	if !panel.HasText("密钥（API Key）") || panel.HasText("接口地址（BaseURL）") || panel.HasText("默认模型") {
+		t.Fatalf("anthropic 面板应只有 API Key 行：%v", panel.Texts())
+	}
 
 	st.mu.Lock()
-	st.providerRows.keyDraft["mcode"] = "sk-ant-ui"
+	st.presets.apiKeyDraft = "sk-ant-ui"
 	st.mu.Unlock()
 	panel.Frame()
 	clickWhenSettled(t, panel, "保存")
@@ -593,19 +602,13 @@ func TestProviders_McodeSavesAnthropicAPIKey(t *testing.T) {
 	waitFor(t, panel, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return st.providerRows.settings["mcode"].HasAPIKey && st.providerRows.keyDraft["mcode"] == ""
+		for _, item := range st.presets.items {
+			if item.ID == "anthropic" {
+				return item.HasAPIKey
+			}
+		}
+		return false
 	})
-	panel.Frame()
-	// 已保存状态只以输入框占位文案表达（与 Magpie 网关、API 预设一致），占位文案不进 Texts()，直接断言占位逻辑。
-	if got := providerAPIKeyPlaceholder(true); got != "已保存" {
-		t.Fatalf("已保存 Key 后的占位文案 = %q，want 已保存", got)
-	}
-	if got := providerAPIKeyPlaceholder(false); got != "" {
-		t.Fatalf("未保存 Key 不应出现占位文案，got %q", got)
-	}
-	if !panel.HasText("Anthropic API Key") {
-		t.Fatalf("mcode 面板应保留 Anthropic API Key 行：%v", panel.Texts())
-	}
 }
 
 // (g2) 已启用的 API 预设也查余额，未启用的不查，重复 ID 只查一次。

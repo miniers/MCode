@@ -50,8 +50,6 @@ type providerRowsState struct {
 	saving   map[string]bool            // 保存中（禁用该行控件）
 	// visionDraft 是 pi 「视觉模型」输入框草稿（其他 Provider 不用）。
 	visionDraft map[string]string
-	// keyDraft 是「API Key」输入框草稿（目前只有 mcode 用）。
-	keyDraft map[string]string
 
 	// showUninstalled 表示「未安装」分组是否展开；默认折叠成一行，搜索时强制展开。
 	showUninstalled bool
@@ -391,7 +389,8 @@ func (st *SettingsState) loadProviderRows() {
 		var cliIDs []string
 		if errSettings == nil {
 			for _, s := range settingsList {
-				if s.Kind != "cli" {
+				// 内置 mcode 引擎不再作为供应商出现，只为老 mcode 会话保留。
+				if s.Kind != "cli" || s.ID == "mcode" {
 					continue
 				}
 				cliSettings[s.ID] = s
@@ -407,9 +406,6 @@ func (st *SettingsState) loadProviderRows() {
 		credits := make(map[string]ProviderCredits)
 
 		for _, id := range append([]string{"claude", "codex"}, cliIDs...) {
-			if id == "mcode" {
-				continue
-			}
 			// 已安装版本始终探测并展示（一次本地 --version）；更新监控只影响远程 latest 的
 			// 检查，由 checkProviderUpdate 按需触发。
 			ver, errVer := client.ProviderVersion(ctx, id)
@@ -526,9 +522,6 @@ func (st *SettingsState) loadProviderRows() {
 		if st.providerRows.updateMsg == nil {
 			st.providerRows.updateMsg = make(map[string]string)
 		}
-		if st.providerRows.keyDraft == nil {
-			st.providerRows.keyDraft = make(map[string]string)
-		}
 		st.mu.Unlock()
 
 		// 写回缓存，供下次打开页面时立即渲染（agy 账号快照由 loadAgy 写入，这里不动）。
@@ -555,9 +548,6 @@ func (st *SettingsState) loadProviderRows() {
 }
 
 func providerConfigured(st *SettingsState, id string) bool {
-	if id == "mcode" {
-		return true
-	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if id == "agy" {
@@ -596,7 +586,8 @@ func cliProviderListEntries(st *SettingsState, lib *modelsLibraryView) []provide
 	var entries []providerListEntry
 	seen := make(map[string]bool)
 	for _, id := range orderedProviderIDs(st) {
-		if seen[id] {
+		// 内置 mcode 引擎只为老 mcode 会话保留，不再作为供应商列出。
+		if seen[id] || id == "mcode" {
 			continue
 		}
 		seen[id] = true
@@ -885,9 +876,6 @@ func providerLoginSuffix(state string) string {
 
 // providerStatusFor 从 SettingsState 收集状态快照并推导摘要。
 func providerStatusFor(st *SettingsState, id string) providerRowStatus {
-	if id == "mcode" {
-		return providerRowStatus{Ready: true, Summary: "已安装"}
-	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	in := providerStatusInput{
@@ -968,9 +956,6 @@ func providerRowBin(st *SettingsState, id string) string {
 // 更新优先用后端按安装渠道动态生成的命令（ProviderVersionInfo.UpdateCommand），
 // 它跟着二进制的真实安装方式走，不只限 claude/codex/copilot。
 func providerTerminalCommand(st *SettingsState, id, action string) (string, bool) {
-	if id == "mcode" {
-		return "", false
-	}
 	if action == "update" {
 		if cmd := providerUpdateCommand(st, id); cmd != "" {
 			return cmd, true
@@ -1190,10 +1175,6 @@ func saveProviderRowSettingWithKey(st *SettingsState, id, apiKey string, mutate 
 			if st.providerRows.visionDraft != nil && strings.TrimSpace(st.providerRows.visionDraft[id]) == strings.TrimSpace(s.PiVisionModel) {
 				st.providerRows.visionDraft[id] = saved.PiVisionModel
 			}
-			// Key 保存成功后清空草稿，顺带回到「已保存」状态。
-			if apiKey != "" && st.providerRows.keyDraft != nil && strings.TrimSpace(st.providerRows.keyDraft[id]) == strings.TrimSpace(apiKey) {
-				st.providerRows.keyDraft[id] = ""
-			}
 		}
 		st.mu.Unlock()
 		if err == nil && enabledChanged {
@@ -1220,22 +1201,6 @@ func saveProviderRowBin(st *SettingsState, id string) {
 	st.mu.Unlock()
 
 	saveProviderRowSetting(st, id, func(s *ProviderSetting) { s.Bin = draft })
-}
-
-// saveProviderRowAPIKey 提交「API Key」草稿（目前只有 mcode 用）；空草稿不保存。
-func saveProviderRowAPIKey(st *SettingsState, id string) {
-	st.mu.Lock()
-	if st.providerRows.keyDraft == nil {
-		st.providerRows.keyDraft = make(map[string]string)
-	}
-	key := strings.TrimSpace(st.providerRows.keyDraft[id])
-	st.providerRows.keyDraft[id] = key
-	st.mu.Unlock()
-	if key == "" {
-		return
-	}
-
-	saveProviderRowSettingWithKey(st, id, key, func(*ProviderSetting) {})
 }
 
 // saveProviderRowVision 提交 pi 「视觉模型」草稿（其他 Provider 不用）。
@@ -1268,7 +1233,11 @@ func providerAuthFromIndex(index int) string {
 }
 
 // renderProviderRowIcon 渲染供应商行首彩色图标；无彩色资源时回落到单色 ProviderIcon。
+// Anthropic 与 Claude 是同一品牌，沿用 Claude 的彩色图标。
 func renderProviderRowIcon(c *ui.Context, id string, size float32) {
+	if id == "anthropic" {
+		id = "claude"
+	}
 	renderProviderIconColor(c, id, size, ThemeSecondaryText(c))
 }
 
@@ -1348,15 +1317,6 @@ func renderProviderBalancePanel(c *ui.Context, st *SettingsState, id string) {
 	}
 }
 
-// providerAPIKeyPlaceholder 返回内置 mcode 的 Anthropic API Key 输入框占位文案：
-// 已保存 Key 时提示「已保存」，留空即保留已存 Key。
-func providerAPIKeyPlaceholder(hasSavedKey bool) string {
-	if hasSavedKey {
-		return "已保存"
-	}
-	return ""
-}
-
 // renderProviderCLIExpanded 渲染 CLI harness 展开区：启用开关、可执行文件路径、
 // 更新监控、版本信息、droid 认证方式与 Copilot 登录引导；pi 额外有长缓存与视觉模型两项。
 // locked 为真时写配置的控件一律禁用，只读展示照常渲染。
@@ -1369,10 +1329,6 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 	binValue := ""
 	if st.providerRows.binDraft != nil {
 		binValue = st.providerRows.binDraft[id]
-	}
-	keyValue := ""
-	if st.providerRows.keyDraft != nil {
-		keyValue = st.providerRows.keyDraft[id]
 	}
 	visionValue := ""
 	if st.providerRows.visionDraft != nil {
@@ -1400,71 +1356,6 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 	st.mu.Unlock()
 
 	name := providerRowName(st, id)
-
-	// 内置 mcode 只有一个凭据配置：Anthropic API Key；不展示可执行文件、版本与更新监控。
-	if id == "mcode" {
-		if !accountSection {
-			return
-		}
-		renderSettingRow(c, "row-provider-anthropic-key", "Anthropic API Key", func() {
-			ui.Row(c.Key("provider-anthropic-key-controls-" + id)).
-				AlignItems(ui.Center).
-				Gap(Space3).
-				Children(func() {
-					TextField(c, TextFieldProps{
-						Key:         "input-provider-anthropic-key-" + id,
-						Value:       &keyValue,
-						Label:       "Anthropic API Key " + name,
-						Placeholder: providerAPIKeyPlaceholder(provSetting.HasAPIKey),
-						Width:       280,
-						Password:    true,
-						Disabled:    locked,
-						ReadOnly:    locked,
-						OnChange: func(text string) {
-							st.mu.Lock()
-							if st.providerRows.keyDraft == nil {
-								st.providerRows.keyDraft = make(map[string]string)
-							}
-							st.providerRows.keyDraft[id] = text
-							st.mu.Unlock()
-						},
-						OnSubmit: func(string) {
-							if !saving && !locked {
-								saveProviderRowAPIKey(st, id)
-							}
-						},
-					})
-
-					saveBtn := ui.ButtonBase(c.Key("btn-provider-anthropic-key-save-"+id)).
-						Label("保存").
-						Disabled(saving || locked).
-						Radius(RadiusSM).
-						Padding(settingsPillPadX, Space4).
-						Background(ThemeHover(c))
-					if saveBtn.Hovered() {
-						saveBtn.Background(ThemeOverlay(c, 0.15))
-					}
-					if saveBtn.Clicked() && !saving && !locked {
-						saveProviderRowAPIKey(st, id)
-					}
-					saveBtn.Children(func() {
-						ui.Text(c, "保存").
-							FontSize(TypeBody).
-							TextColor(ThemeAccent(c))
-					})
-				})
-		})
-		if saveErr != "" {
-			ui.Row(c.Key("row-provider-save-err-"+id)).
-				Padding(Space0, settingsRowPadX).
-				Children(func() {
-					ui.Text(c, saveErr).
-						FontSize(TypeFootnote).
-						TextColor(ThemeDanger(c))
-				})
-		}
-		return
-	}
 
 	if !accountSection {
 		// ACP 类 Provider（droid/cline/cursor/opencode/grok/devin）的配置改动需要重启生效
@@ -1844,7 +1735,7 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 	}
 
 	sections := make([]providerSheetSection, 0, 3)
-	if providerHasAccountTab(st, id, view) || id == "droid" || id == "copilot" || id == "mcode" {
+	if providerHasAccountTab(st, id, view) || id == "droid" || id == "copilot" {
 		sections = append(sections, providerSheetSection{
 			ID:    "sec-provider-account",
 			Title: "账号",
@@ -1932,7 +1823,7 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 			},
 		})
 	}
-	if id != "agy" && id != "mcode" {
+	if id != "agy" {
 		sections = append(sections, providerSheetSection{
 			ID:       "sec-provider-cli",
 			Title:    "命令行",

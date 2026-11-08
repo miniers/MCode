@@ -164,15 +164,17 @@ func chatQuotaCacheKey(s *chatState, provider string) string {
 
 // threadQuotaProvider 返回会话对应的额度 key：
 // pi 线程的模型 ID 形如「magpie-jp/auto/deepseek-v4.1-flash」（第一段是 pi provider id），
-// 额度按 magpie 端点区分，所以取第一段并加「pi:」前缀；其余情况沿用会话 provider。
+// 内置引擎的 mcode 线程同样把 Magpie 端点编进模型串（「magpie-jp/auto」），额度都按
+// magpie 端点区分，所以取第一段并加「pi:」或「mcode:」前缀；Magpie 端点自身的 provider
+// （magpie、magpie2…magpie4）本身就是 key。其余情况沿用会话 provider。
 func threadQuotaProvider(th *Thread) string {
 	if th == nil {
 		return ""
 	}
-	if th.Provider == "pi" {
+	if th.Provider == "pi" || th.Provider == "mcode" {
 		if model := strings.TrimSpace(th.Model); model != "" {
 			if head, _, ok := strings.Cut(model, "/"); ok && head != "" {
-				return "pi:" + head
+				return th.Provider + ":" + head
 			}
 		}
 	}

@@ -10,7 +10,6 @@ import (
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/remote"
-	"mcode/internal/textgen"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -104,6 +103,7 @@ func newProviderSettingsClient(t *testing.T) (*Client, string, config.SecretStor
 }
 
 func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	client, _, _ := newProviderSettingsClient(t)
 
 	list, err := client.ProviderSettings(context.Background())
@@ -112,9 +112,9 @@ func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
 	}
 
 	wantIDs := []string{
-		"copilot", "mcode", "pi", "omp", "commandcode", "droid", "cline",
+		"copilot", "pi", "omp", "commandcode", "droid", "cline",
 		"cursor", "opencode", "grok", "devin",
-		"deepseek", "zai", "meta",
+		"anthropic", "deepseek", "zai", "meta",
 	}
 	gotIDs := make([]string, 0, len(list))
 	for _, s := range list {
@@ -129,12 +129,13 @@ func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
 		byID[s.ID] = s
 	}
 
-	// Pi 与 mcode 默认开启；ACP droid/cline/cursor/opencode/grok/devin 在配置缺省时视为启用。
+	// Pi 默认开启；ACP droid/cline/cursor/opencode/grok/devin 在配置缺省时视为启用。
 	if !byID["pi"].Enabled {
 		t.Error("pi 应默认开启")
 	}
-	if !byID["mcode"].Enabled || byID["mcode"].Kind != "cli" || byID["mcode"].Bin != "" {
-		t.Errorf("mcode 设置不匹配: %+v", byID["mcode"])
+	// Anthropic 是独立 API 来源：没有 Key 时关闭，旧 mcode 不再出现在设置列表里。
+	if byID["anthropic"].Kind != "api" || byID["anthropic"].Enabled || byID["anthropic"].HasAPIKey {
+		t.Errorf("anthropic 设置不匹配: %+v", byID["anthropic"])
 	}
 	for _, id := range []string{"copilot", "omp", "commandcode", "deepseek", "zai", "meta"} {
 		if byID[id].Enabled {
@@ -356,83 +357,48 @@ func TestSaveProviderSetting_WritesConfigAndSecrets(t *testing.T) {
 	}
 }
 
-func TestSaveProviderSetting_McodeRegistersAndUnregisters(t *testing.T) {
-	client, _, _ := newProviderSettingsClient(t)
-	ctx := context.Background()
-	t.Cleanup(func() { textgen.RegisterGenerator("mcode", nil) })
-
-	if _, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: true}, ""); err != nil {
-		t.Fatalf("enable mcode: %v", err)
-	}
-	if client.backend.RegisteredHarness("mcode") == nil {
-		t.Fatal("enabled mcode should register its harness")
-	}
-	if !textgen.SupportsProvider("mcode") {
-		t.Fatal("启用 mcode 后应注册 textgen 生成器")
-	}
-	if _, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: false}, ""); err != nil {
-		t.Fatalf("disable mcode: %v", err)
-	}
-	if client.backend.RegisteredHarness("mcode") != nil {
-		t.Fatal("disabled mcode should unregister its harness")
-	}
-	if textgen.SupportsProvider("mcode") {
-		t.Fatal("停用 mcode 后应注销 textgen 生成器")
-	}
-}
-
-// mcode 以 Kind=cli 下发，Enabled 取自 cfg.Providers.Mcode.Enabled。
-func TestProviderSettings_McodeKindAndEnabled(t *testing.T) {
-	client, dataDir, _ := newProviderSettingsClient(t)
-	if err := config.Update(dataDir, func(cfg *config.Config) error {
-		cfg.Providers.Mcode.Enabled = false
-		return nil
-	}); err != nil {
-		t.Fatalf("disable mcode: %v", err)
-	}
-
-	list, err := client.ProviderSettings(context.Background())
-	if err != nil {
-		t.Fatalf("ProviderSettings failed: %v", err)
-	}
-	for _, s := range list {
-		if s.ID != "mcode" {
-			continue
-		}
-		if s.Kind != "cli" {
-			t.Fatalf("mcode 的 Kind 应为 cli，got %q", s.Kind)
-		}
-		if s.Enabled {
-			t.Fatal("配置关闭 mcode 后 Enabled 应为 false")
-		}
-		return
-	}
-	t.Fatal("ProviderSettings 缺少 mcode")
-}
-
-// mcode 的 Anthropic API Key 写入 mcode.anthropicApiKey，回读 HasAPIKey；空 Key 保留已存值。
-func TestSaveProviderSetting_McodeAnthropicAPIKey(t *testing.T) {
+// Anthropic 是独立 API 来源：Key 写入 anthropic.apiKey，保存后立即热更新 harness。
+func TestSaveProviderSetting_AnthropicAPIKey(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	client, _, secrets := newProviderSettingsClient(t)
 	ctx := context.Background()
 
-	saved, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: true}, "sk-ant-test")
+	saved, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "anthropic", Enabled: true}, "sk-ant-test")
 	if err != nil {
-		t.Fatalf("SaveProviderSetting(mcode) failed: %v", err)
+		t.Fatalf("SaveProviderSetting(anthropic) failed: %v", err)
 	}
-	if !saved.HasAPIKey || saved.Kind != "cli" {
-		t.Fatalf("保存后的 mcode 设置不匹配: %+v", saved)
+	if !saved.HasAPIKey || !saved.Enabled || saved.Kind != "api" {
+		t.Fatalf("保存后的 anthropic 设置不匹配: %+v", saved)
 	}
-	if key, err := secrets.Get(mcodeAnthropicAPIKeyAccount); err != nil || key != "sk-ant-test" {
-		t.Fatalf("secrets 中的 mcode Key 不匹配: val=%q, err=%v", key, err)
+	if key, err := secrets.Get("anthropic.apiKey"); err != nil || key != "sk-ant-test" {
+		t.Fatalf("secrets 中的 anthropic Key 不匹配: val=%q, err=%v", key, err)
+	}
+	if client.backend.RegisteredHarness("anthropic") == nil {
+		t.Fatal("保存 Key 后应注册 anthropic harness")
 	}
 
-	// 再次保存且 apiKey 为空：保留已存 Key，HasAPIKey 回填。
-	saved, err = client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: true}, "")
+	// 再次保存且 apiKey 为空：保留已存 Key。
+	saved, err = client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "anthropic", Enabled: true}, "")
 	if err != nil {
-		t.Fatalf("SaveProviderSetting(mcode) with empty key failed: %v", err)
+		t.Fatalf("SaveProviderSetting(anthropic) with empty key failed: %v", err)
 	}
 	if !saved.HasAPIKey {
 		t.Fatal("apiKey 为空时应保留已存 Key（HasAPIKey=true）")
+	}
+
+	// 清掉 Key 后再保存：来源不可用，harness 注销。
+	if err := secrets.Delete("anthropic.apiKey"); err != nil {
+		t.Fatalf("delete anthropic key: %v", err)
+	}
+	saved, err = client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "anthropic"}, "")
+	if err != nil {
+		t.Fatalf("SaveProviderSetting(anthropic) without key failed: %v", err)
+	}
+	if saved.HasAPIKey || saved.Enabled {
+		t.Fatalf("无 Key 时应不可用: %+v", saved)
+	}
+	if client.backend.RegisteredHarness("anthropic") != nil {
+		t.Fatal("无 Key 时应注销 anthropic harness")
 	}
 }
 

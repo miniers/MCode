@@ -163,6 +163,22 @@ func filterModelPickerMagpie(providers []ProviderInfo, f modelPickerMagpieFilter
 	return filtered
 }
 
+// filterLegacyMcodeProviders 隐藏内置 mcode 的 provider 分组：它只为已有 mcode 会话保留，
+// 当前这一侧（会话、子代理或档位）选的就是 mcode 时才显示。
+func filterLegacyMcodeProviders(providers []ProviderInfo, selected string) []ProviderInfo {
+	if selected == "mcode" {
+		return providers
+	}
+	filtered := make([]ProviderInfo, 0, len(providers))
+	for _, provider := range providers {
+		if provider.ID == "mcode" {
+			continue
+		}
+		filtered = append(filtered, provider)
+	}
+	return filtered
+}
+
 // modelPickerStates 保存调用方未持有状态时组件内部按 key 分配的状态。
 var (
 	modelPickerStatesMu sync.Mutex
@@ -1908,6 +1924,17 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 	if state == nil {
 		state = modelPickerStateFor(p.KeyPrefix + p.ScopeKey)
 	}
+	// 内置 mcode 引擎只为已有 mcode 会话保留：当前这一侧本身就是 mcode 时才显示它的分组。
+	selectedProvider := modelPickerSideInfo(p, side).Selection.Provider
+	if side == ModelPickerSideBees && state.TierEditing != "" {
+		for _, tier := range p.Tiers {
+			if tier.ID == state.TierEditing {
+				selectedProvider, _, _, _ = effectiveTierModel(tier, p.PairTierOverrides, p.TierOverrides)
+				break
+			}
+		}
+	}
+	providers = filterLegacyMcodeProviders(providers, selectedProvider)
 	query := state.searchQuery
 	searching := strings.TrimSpace(query) != ""
 	// 有搜索词时强制按 Agent 分组展示，让一级精选页也能搜到全部 provider 的模型。

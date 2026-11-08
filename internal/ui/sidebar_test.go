@@ -718,3 +718,18 @@ func TestSidebarSearchClearButton(t *testing.T) {
 		return !ok && tt.HasText("可清除的会话")
 	})
 }
+
+// newThreadProvider 跳过内置 mcode：它只为已有 mcode 会话保留。
+func TestDefaultNewThreadProviderSkipsMcode(t *testing.T) {
+	providers := []ProviderInfo{
+		{ID: "mcode", Available: true},
+		{ID: "claude"},
+		{ID: "codex", Available: true},
+	}
+	if got := defaultNewThreadProvider(providers); got != "codex" {
+		t.Fatalf("默认 provider = %q，want codex", got)
+	}
+	if got := defaultNewThreadProvider([]ProviderInfo{{ID: "mcode", Available: true}}); got != "" {
+		t.Fatalf("只剩 mcode 时默认 provider = %q，want 空", got)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,13 +14,15 @@ import (
 	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
+	"mcode/internal/providers/magpie"
 	"mcode/internal/providers/openai"
 )
 
-// engineTestRequest 记录一次 /chat/completions 请求的关键字段。
+// engineTestRequest 记录一次 /chat/completions 或 /v1/messages 请求的关键字段。
 type engineTestRequest struct {
 	Path     string
 	Auth     string
+	APIKey   string
 	Model    string
 	Affinity string
 	ClientID string
@@ -44,6 +47,7 @@ func newEngineTestServer(t *testing.T, requests *[]engineTestRequest) *httptest.
 		*requests = append(*requests, engineTestRequest{
 			Path:     r.URL.Path,
 			Auth:     r.Header.Get("Authorization"),
+			APIKey:   r.Header.Get("x-api-key"),
 			Model:    body.Model,
 			Affinity: r.Header.Get("x-session-affinity"),
 			ClientID: r.Header.Get("x-client-request-id"),
@@ -182,18 +186,121 @@ func TestSourceEngineMagpieAffinity(t *testing.T) {
 	if got := string(h.Kind()); got != "magpie" {
 		t.Fatalf("Kind = %q, want magpie", got)
 	}
-	if reply := runEngineTurn(t, h, "claude-sonnet", "thread-42"); reply != "ok" {
+	if reply := runEngineTurn(t, h, "plain-model", "thread-42"); reply != "ok" {
 		t.Fatalf("reply = %q, want ok", reply)
 	}
 	if len(requests) != 1 {
 		t.Fatalf("请求 %d 次，want 1", len(requests))
 	}
 	req := requests[0]
+	if req.Path != "/chat/completions" {
+		t.Fatalf("非 Claude 模型请求路径 = %q", req.Path)
+	}
 	if req.Auth != "Bearer gateway-key" {
 		t.Fatalf("Authorization = %q", req.Auth)
 	}
 	if req.Affinity != "thread-42" || req.ClientID != "thread-42" || req.Session != "thread-42" {
 		t.Fatalf("会话亲和头 = %q %q %q", req.Affinity, req.ClientID, req.Session)
+	}
+}
+
+// anthropicMessagesSSE 是 Anthropic Messages 接口的最小事件流。
+const anthropicMessagesSSE = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n" +
+	"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n" +
+	"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n" +
+	"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+func TestSourceEngineMagpieClaudeUsesMessages(t *testing.T) {
+	var mu sync.Mutex
+	var requests []engineTestRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			io.WriteString(w, `{"data":[]}`)
+			return
+		}
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		requests = append(requests, engineTestRequest{
+			Path:     r.URL.Path,
+			Auth:     r.Header.Get("Authorization"),
+			APIKey:   r.Header.Get("x-api-key"),
+			Model:    body.Model,
+			Affinity: r.Header.Get("x-session-affinity"),
+			ClientID: r.Header.Get("x-client-request-id"),
+			Session:  r.Header.Get("session_id"),
+		})
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, anthropicMessagesSSE)
+	}))
+	t.Cleanup(server.Close)
+
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("magpie"): "gateway-key"})
+	ep := config.CustomEndpointConfig{
+		ID: "magpie", Name: "Magpie", BaseURL: server.URL + "/v1", Magpie: true, Enabled: true,
+	}
+	dataDir := t.TempDir()
+	writeEngineTestConfig(t, dataDir, ep)
+	h := newCustomEndpointHarness(ep, secrets, dataDir, providerMCP{})
+	if reply := runEngineTurn(t, h, "claude-sonnet-5-5", "thread-9"); reply != "ok" {
+		t.Fatalf("reply = %q, want ok", reply)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("请求 %d 次，want 1", len(requests))
+	}
+	req := requests[0]
+	if req.Path != "/v1/messages" || req.Model != "claude-sonnet-5-5" {
+		t.Fatalf("Claude 请求 = %+v", req)
+	}
+	if req.APIKey != "gateway-key" || req.Auth != "" {
+		t.Fatalf("鉴权 = x-api-key %q，Authorization %q", req.APIKey, req.Auth)
+	}
+	if req.Affinity != "thread-9" || req.ClientID != "thread-9" || req.Session != "thread-9" {
+		t.Fatalf("会话亲和头 = %q %q %q", req.Affinity, req.ClientID, req.Session)
+	}
+}
+
+func TestSourceEngineMagpieCostUSD(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"data":[{"id":"plain-model","magpie_price":{"input":3,"output":15,"cache_read":0.3,"cache_write":3.75}}]}`)
+		case "/v1/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"id":"c1","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("magpie"): "gateway-key"})
+	ep := config.CustomEndpointConfig{
+		ID: "magpie", Name: "Magpie", BaseURL: server.URL + "/v1", Magpie: true, Enabled: true,
+	}
+	dataDir := t.TempDir()
+	writeEngineTestConfig(t, dataDir, ep)
+	if _, err := magpie.FetchModels(context.Background(), server.URL+"/v1", "gateway-key"); err != nil {
+		t.Fatalf("填充模型缓存失败: %v", err)
+	}
+	h := newCustomEndpointHarness(ep, secrets, dataDir, providerMCP{})
+	var cost float64
+	var seen bool
+	err := h.Run(context.Background(), harness.Turn{Prompt: "hi", WorkDir: t.TempDir(), Model: "plain-model"}, func(ev harness.Event) {
+		if ev.Type == harness.EventUsage && ev.Usage != nil {
+			seen = true
+			cost = ev.Usage.CostUSD
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !seen || math.Abs(cost-0.00045) > 1e-9 {
+		t.Fatalf("usage = %v, cost = %v", seen, cost)
 	}
 }
 

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/providers/acp"
 	"mcode/internal/providers/openai"
-	"mcode/internal/remote"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -24,10 +24,10 @@ type providerSettingSpec struct {
 }
 
 // providerSettingSpecs 是设置页 Provider 列表的固定顺序。
-// ACP Agent（droid/cline/cursor/opencode/grok/devin）与 CLI 家族（含内置 mcode）按 Kind=cli，OpenAI 兼容预设按 Kind=api。
+// ACP Agent（droid/cline/cursor/opencode/grok/devin）与 CLI 家族按 Kind=cli，
+// Anthropic 与 OpenAI 兼容预设按 Kind=api。
 var providerSettingSpecs = []providerSettingSpec{
 	{id: "copilot", name: "GitHub Copilot", kind: "cli"},
-	{id: "mcode", name: "mcode", kind: "cli"},
 	{id: "pi", name: "Pi", kind: "cli"},
 	{id: "omp", name: "Omp", kind: "cli"},
 	{id: "commandcode", name: "Command Code", kind: "cli"},
@@ -37,6 +37,7 @@ var providerSettingSpecs = []providerSettingSpec{
 	{id: "opencode", name: "OpenCode", kind: "cli"},
 	{id: "grok", name: "Grok", kind: "cli"},
 	{id: "devin", name: "Devin", kind: "cli"},
+	{id: "anthropic", name: "Anthropic", kind: "api"},
 	{id: "deepseek", name: "DeepSeek", kind: "api"},
 	{id: "zai", name: "Z.ai", kind: "api"},
 	{id: "meta", name: "Meta", kind: "api"},
@@ -66,8 +67,8 @@ func providerSettingSecretAccount(id string) string {
 	if id == "droid" {
 		return droidAPIKeyAccount
 	}
-	if id == "mcode" {
-		return mcodeAnthropicAPIKeyAccount
+	if id == "anthropic" {
+		return "anthropic.apiKey"
 	}
 	if preset, ok := openai.PresetByID(id); ok {
 		return preset.APIKeyAccount
@@ -106,9 +107,12 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 		s.Enabled = cfg.Providers.Copilot.Enabled
 		s.Bin = cfg.Providers.Copilot.Bin
 		s.UpdateMonitor = cfg.Providers.Copilot.UpdateMonitorEnabled()
-	case "mcode":
-		s.Enabled = cfg.Providers.Mcode.Enabled
-		s.HasAPIKey = hasProviderSecret(secrets, mcodeAnthropicAPIKeyAccount)
+	case "anthropic":
+		// Anthropic 来源没有开关，新旧任一个 Key 账号有值即可用。
+		if _, ok := findAPISource(apisource.Resolve(cfg, secrets), anthropicEngineKind); ok {
+			s.HasAPIKey = true
+			s.Enabled = true
+		}
 	case "pi":
 		s.Enabled = cfg.Providers.Pi.Enabled
 		s.Bin = cfg.Providers.Pi.Bin
@@ -157,8 +161,8 @@ func applyProviderSetting(cfg *config.Config, id string, s mcodeui.ProviderSetti
 		cfg.Providers.Copilot.Enabled = s.Enabled
 		cfg.Providers.Copilot.Bin = strings.TrimSpace(s.Bin)
 		cfg.Providers.Copilot.UpdateMonitor = updateMonitorPtr(s.UpdateMonitor)
-	case "mcode":
-		cfg.Providers.Mcode.Enabled = s.Enabled
+	case "anthropic":
+		// Anthropic 来源的启用状态由 API Key 决定，没有需要写入配置的字段。
 	case "pi":
 		cfg.Providers.Pi.Enabled = s.Enabled
 		cfg.Providers.Pi.Bin = strings.TrimSpace(s.Bin)
@@ -273,22 +277,14 @@ func (c *Client) SaveProviderSetting(ctx context.Context, s mcodeui.ProviderSett
 	// 此处只写配置，启用/停用与 Bin、Auth 变更均需重启后生效。
 	if c.backend != nil && !providerSettingIsACP(spec.id) {
 		c.releaseReplacedHarness(spec.id)
-		if spec.id == "mcode" {
-			if cfg.Providers.Mcode.Enabled {
-				c.backend.RegisterHarness(buildMcodeHarness(cfg, c.secrets, c.dataDir, c.mcp))
-			} else {
-				setMcodeAgentRuntime(c.dataDir, c.secrets)
-				remote.SetMcodeModels(mcodeModelCatalog)
+		if spec.id == "anthropic" {
+			// 先注销后重建：保存了新 Key 时按最新来源重新注册，没有 Key 时保持注销。
+			if _, ok := findAPISource(apisource.Resolve(cfg, c.secrets), anthropicEngineKind); ok {
+				c.backend.RegisterHarness(newAnthropicEngineHarness(cfg, c.secrets, c.dataDir, c.mcp))
 			}
 		} else if h, ok := buildProviderHarness(cfg, c.secrets, spec.id, c.mcp); ok {
 			c.backend.RegisterHarness(h)
 		}
-	}
-
-	// mcode 的 textgen 生成器同样跟随开关热更新：停用后立即注销，
-	// 避免 swarm 审查等调用方继续尝试 mcode；启用时重新注册，无需重启。
-	if spec.id == "mcode" {
-		registerMcodeTextGenerator(cfg, c.secrets)
 	}
 
 	return buildProviderSetting(cfg, c.secrets, spec), nil

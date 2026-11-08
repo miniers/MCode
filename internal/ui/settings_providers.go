@@ -232,15 +232,7 @@ func refreshCustomEndpointProviders(st *SettingsState, client Client) {
 		}
 	}
 	if !found {
-		chat.newThreadProvider = ""
-		for _, p := range providers {
-			if chat.newThreadProvider == "" || p.Available {
-				chat.newThreadProvider = p.ID
-			}
-			if p.Available {
-				break
-			}
-		}
+		chat.newThreadProvider = defaultNewThreadProvider(providers)
 	}
 	chat.mu.Unlock()
 }
@@ -1070,9 +1062,34 @@ func apiProviderSheetStateFor(st *SettingsState, kind, id string) (apiProviderSh
 	return state, true
 }
 
-// apiProviderSheetSections 返回 API 供应商面板的两节；渲染时重新取快照，保证与底栏一致。
+// apiProviderRowIcon 返回 API 供应商行图标；Anthropic 与 Claude 是同一品牌，沿用它的图标。
+func apiProviderRowIcon(id string) *ui.SVG {
+	if id == "anthropic" {
+		return IconProviderClaude()
+	}
+	return ProviderIcon(id)
+}
+
+// apiProviderNeedsEndpointFields 判断 API 供应商是否需要 BaseURL 与默认模型输入：
+// 只有带默认端点的 OpenAI 兼容预设需要；原生协议预设（如 Anthropic）只保存 API Key。
+func apiProviderNeedsEndpointFields(st *SettingsState, kind, id string) bool {
+	if kind == "custom" {
+		return true
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for _, item := range st.presets.items {
+		if item.ID == id {
+			return strings.TrimSpace(item.DefaultBaseURL) != "" || strings.TrimSpace(item.BaseURL) != ""
+		}
+	}
+	return true
+}
+
+// apiProviderSheetSections 返回 API 供应商面板的分节；渲染时重新取快照，保证与底栏一致。
 func apiProviderSheetSections(st *SettingsState, kind, id string) []providerSheetSection {
-	return []providerSheetSection{
+	needsEndpoint := apiProviderNeedsEndpointFields(st, kind, id)
+	sections := []providerSheetSection{
 		{
 			ID:    "sec-provider-account",
 			Title: "账号",
@@ -1093,9 +1110,11 @@ func apiProviderSheetSections(st *SettingsState, kind, id string) []providerShee
 							providerDraftInput(c, st, "input-ep-sheet-apikey", "端点 API Key", "留空则保留已保存的 Key", state.key, true, func(v string) { st.endpoints.editAPIKey = v })
 						})
 					} else {
-						renderSettingRow(c, "row-preset-form-baseurl", "接口地址（BaseURL）", func() {
-							providerDraftInput(c, st, "input-preset-sheet-baseurl", "预设 BaseURL", providerDefaultPlaceholder(state.provider.DefaultBaseURL), state.base, false, func(v string) { st.presets.baseURLDraft = v })
-						})
+						if needsEndpoint {
+							renderSettingRow(c, "row-preset-form-baseurl", "接口地址（BaseURL）", func() {
+								providerDraftInput(c, st, "input-preset-sheet-baseurl", "预设 BaseURL", providerDefaultPlaceholder(state.provider.DefaultBaseURL), state.base, false, func(v string) { st.presets.baseURLDraft = v })
+							})
+						}
 						renderSettingRow(c, "row-preset-form-apikey", "密钥（API Key）", func() {
 							providerDraftInput(c, st, "input-preset-sheet-apikey", "预设 API Key", "留空则保留已保存的 Key", state.key, true, func(v string) { st.presets.apiKeyDraft = v })
 						})
@@ -1109,28 +1128,31 @@ func apiProviderSheetSections(st *SettingsState, kind, id string) []providerShee
 				})
 			},
 		},
-		{
-			ID:    "sec-provider-models",
-			Title: "模型",
-			Render: func(c *ui.Context, st *SettingsState) {
-				state, ok := apiProviderSheetStateFor(st, kind, id)
-				if !ok {
-					return
-				}
-				renderSettingsSection(c, "sec-provider-models", "", func() {
-					if kind == "custom" {
-						renderSettingRow(c, "row-ep-form-model", "默认模型", func() {
-							providerDraftInput(c, st, "input-ep-sheet-model", "端点默认模型", "默认模型", state.model, false, func(v string) { st.endpoints.editModel = v })
-						})
-					} else {
-						renderSettingRow(c, "row-preset-form-model", "默认模型", func() {
-							providerDraftInput(c, st, "input-preset-sheet-model", "预设默认模型", providerDefaultPlaceholder(state.provider.DefaultModel), state.model, false, func(v string) { st.presets.modelDraft = v })
-						})
-					}
-				})
-			},
-		},
 	}
+	if !needsEndpoint {
+		return sections
+	}
+	return append(sections, providerSheetSection{
+		ID:    "sec-provider-models",
+		Title: "模型",
+		Render: func(c *ui.Context, st *SettingsState) {
+			state, ok := apiProviderSheetStateFor(st, kind, id)
+			if !ok {
+				return
+			}
+			renderSettingsSection(c, "sec-provider-models", "", func() {
+				if kind == "custom" {
+					renderSettingRow(c, "row-ep-form-model", "默认模型", func() {
+						providerDraftInput(c, st, "input-ep-sheet-model", "端点默认模型", "默认模型", state.model, false, func(v string) { st.endpoints.editModel = v })
+					})
+				} else {
+					renderSettingRow(c, "row-preset-form-model", "默认模型", func() {
+						providerDraftInput(c, st, "input-preset-sheet-model", "预设默认模型", providerDefaultPlaceholder(state.provider.DefaultModel), state.model, false, func(v string) { st.presets.modelDraft = v })
+					})
+				}
+			})
+		},
+	})
 }
 
 func renderAPIProviderSheetFooter(c *ui.Context, st *SettingsState, kind, id string) {
@@ -1593,7 +1615,7 @@ func renderProviderAPIKeyRow(c *ui.Context, key, id, name string, pEnabled, hasA
 				Gap(Space4).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Icon(c, ProviderIcon(id)).
+					ui.Icon(c, apiProviderRowIcon(id)).
 						Size(IconMD, IconMD).
 						TextColor(ThemeSecondaryText(c))
 					ui.Column(c.Key(key + "-texts")).
@@ -1773,19 +1795,20 @@ func renderPresetProviderRow(c *ui.Context, st *SettingsState, p ProviderSetting
 				TextColor(ThemePrimaryText(c))
 		})
 
-	// 1. BaseURL（占位符为默认值，留空表示用默认）
-	renderSettingRow(c, "row-preset-form-baseurl", "接口地址（BaseURL）", func() {
-		providerDraftInput(c, st, "input-preset-baseurl", "预设 BaseURL", providerDefaultPlaceholder(p.DefaultBaseURL), st.presets.baseURLDraft, false, func(v string) { st.presets.baseURLDraft = v })
-	})
+	// 1. BaseURL 与默认模型：只有 OpenAI 兼容预设需要，原生协议预设只保存 API Key。
+	if apiProviderNeedsEndpointFields(st, "preset", p.ID) {
+		renderSettingRow(c, "row-preset-form-baseurl", "接口地址（BaseURL）", func() {
+			providerDraftInput(c, st, "input-preset-baseurl", "预设 BaseURL", providerDefaultPlaceholder(p.DefaultBaseURL), st.presets.baseURLDraft, false, func(v string) { st.presets.baseURLDraft = v })
+		})
 
-	renderSettingsDivider(c, "div-preset-form-1")
+		renderSettingsDivider(c, "div-preset-form-1")
 
-	// 2. 默认模型（占位符为默认值，留空表示用默认）
-	renderSettingRow(c, "row-preset-form-model", "默认模型", func() {
-		providerDraftInput(c, st, "input-preset-model", "预设默认模型", providerDefaultPlaceholder(p.DefaultModel), st.presets.modelDraft, false, func(v string) { st.presets.modelDraft = v })
-	})
+		renderSettingRow(c, "row-preset-form-model", "默认模型", func() {
+			providerDraftInput(c, st, "input-preset-model", "预设默认模型", providerDefaultPlaceholder(p.DefaultModel), st.presets.modelDraft, false, func(v string) { st.presets.modelDraft = v })
+		})
 
-	renderSettingsDivider(c, "div-preset-form-2")
+		renderSettingsDivider(c, "div-preset-form-2")
+	}
 
 	// 3. API Key（留空则保留已保存的 Key）
 	renderSettingRow(c, "row-preset-form-apikey", "密钥（API Key）", func() {

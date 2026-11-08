@@ -22,6 +22,21 @@ var (
 	sidebarSearch = make(map[*chatState]*string)
 )
 
+// defaultNewThreadProvider 选新建会话的默认供应商：优先可用项，并跳过只为老会话保留的内置 mcode。
+func defaultNewThreadProvider(providers []ProviderInfo) string {
+	for _, p := range providers {
+		if p.Available && p.ID != "mcode" {
+			return p.ID
+		}
+	}
+	for _, p := range providers {
+		if p.ID != "mcode" {
+			return p.ID
+		}
+	}
+	return ""
+}
+
 func getSearchQuery(s *chatState) *string {
 	sidebarMu.Lock()
 	defer sidebarMu.Unlock()
@@ -242,15 +257,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	selectedID := s.selectedThreadID
 
 	if s.newThreadProvider == "" {
-		for _, p := range s.providers {
-			if p.Available {
-				s.newThreadProvider = p.ID
-				break
-			}
-		}
-		if s.newThreadProvider == "" && len(s.providers) > 0 {
-			s.newThreadProvider = s.providers[0].ID
-		}
+		s.newThreadProvider = defaultNewThreadProvider(s.providers)
 	}
 	s.mu.Unlock()
 
@@ -748,15 +755,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						OnClick: func() {
 							s.mu.Lock()
 							if s.newThreadProvider == "" {
-								for _, p := range s.providers {
-									if p.Available {
-										s.newThreadProvider = p.ID
-										break
-									}
-								}
-								if s.newThreadProvider == "" && len(s.providers) > 0 {
-									s.newThreadProvider = s.providers[0].ID
-								}
+								s.newThreadProvider = defaultNewThreadProvider(s.providers)
 							}
 							s.mu.Unlock()
 							s.closeWorkspace()

@@ -4906,6 +4906,10 @@ func (c *Client) RefreshProviderQuota(ctx context.Context, provider string) erro
 		}
 		return nil
 	}
+	// 内置引擎会话（mcode:<provider id>、magpie、magpie2…）同样经 Magpie 端点取额度。
+	if engineQuotaKey(provider) {
+		return c.refreshEngineQuota(ctx, provider)
+	}
 	providerID, ok := strings.CutPrefix(provider, "pi:")
 	if !ok || strings.TrimSpace(providerID) == "" {
 		return nil
@@ -4933,6 +4937,11 @@ func (c *Client) ProviderQuota(ctx context.Context, provider string) ([]mcodeui.
 	// Magpie 端点时才读得到额度，其余（线程用的是 pi 自带的 provider）按未实现处理。
 	if strings.HasPrefix(provider, "pi:") {
 		return c.piMagpieQuota(ctx, strings.TrimPrefix(provider, "pi:"))
+	}
+	if engineQuotaKey(provider) {
+		// 跑在 Magpie 上的内置引擎会话：mcode 的 <端点 provider id>/<模型 ID> 与
+		// magpie、magpie2…magpie4 端点都与 pi 走同一份额度读取与「在用」标记。
+		return c.engineQuotaWindows(ctx, provider)
 	}
 	if provider == "codex" {
 		// 额度来源由 Codex 自己的有效配置决定（可能直连，也可能经 Magpie 网关），

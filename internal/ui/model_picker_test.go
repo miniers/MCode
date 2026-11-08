@@ -803,3 +803,15 @@ func TestRenderModelList_ProviderCatalogNotice(t *testing.T) {
 		t.Fatalf("未传 OnRefreshCatalog 时不应画重新探测按钮: %v", noButton.Texts())
 	}
 }
+
+// 内置 mcode 分组只在当前这一侧本身就选了 mcode 时出现。
+func TestFilterLegacyMcodeProviders(t *testing.T) {
+	providers := []ProviderInfo{{ID: "mcode"}, {ID: "claude"}}
+	if got := filterLegacyMcodeProviders(providers, "mcode"); len(got) != 2 {
+		t.Fatalf("mcode 会话应保留 mcode 分组：%+v", got)
+	}
+	got := filterLegacyMcodeProviders(providers, "claude")
+	if len(got) != 1 || got[0].ID != "claude" {
+		t.Fatalf("其他会话不应出现 mcode 分组：%+v", got)
+	}
+}

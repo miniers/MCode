@@ -40,6 +40,9 @@ type Options struct {
 	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析前的完整模型串；
 	// 可以为 nil，返回 0 表示未知。
 	ContextWindow func(model string) int
+	// CostUSD 返回本轮费用（美元），参数是解析前的完整模型串与本轮用量；
+	// 返回假表示不填费用。可以为 nil。
+	CostUSD func(model string, usage harness.Usage) (float64, bool)
 }
 
 // Harness 驱动内置 coding agent。
@@ -188,6 +191,14 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		if event.Type == harness.EventSession && event.SessionID != "" && event.SessionID != sessionID {
 			h.registerRun(event.SessionID, run)
 			sessionID = event.SessionID
+		}
+		// 费用只能在上报前写上：复制一份 Usage，不改 agent 内部持有的对象。
+		if event.Type == harness.EventUsage && event.Usage != nil && h.opts.CostUSD != nil {
+			if cost, ok := h.opts.CostUSD(model, *event.Usage); ok {
+				usage := *event.Usage
+				usage.CostUSD = cost
+				event.Usage = &usage
+			}
 		}
 		emitEvent(emit, event)
 	}

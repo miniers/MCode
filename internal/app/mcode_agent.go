@@ -109,8 +109,8 @@ func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model, af
 	if model == "" {
 		for _, target := range targets {
 			if target.APIKey != "" {
-				modelID := magpieinject.DefaultModel().ID
-				return llm.NewOpenAI(mcodeMagpieConfig(target, affinityKey, modelID)), modelID, nil
+				client, modelID := magpieClient(target, affinityKey, magpieinject.DefaultModel().ID, nil)
+				return client, modelID, nil
 			}
 		}
 		return nil, "", fmt.Errorf("没有配置可用的 Magpie 端点，请在设置中连接 Magpie")
@@ -119,7 +119,8 @@ func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model, af
 		if target.APIKey == "" {
 			return nil, "", fmt.Errorf("Magpie 端点 %s 没有 API Key", target.ProviderID)
 		}
-		return llm.NewOpenAI(mcodeMagpieConfig(target, affinityKey, modelID)), modelID, nil
+		client, modelID := magpieClient(target, affinityKey, modelID, nil)
+		return client, modelID, nil
 	}
 	if strings.HasPrefix(model, "anthropic/") {
 		key := mcodeAnthropicKey(secrets)
@@ -140,16 +141,48 @@ func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model, af
 // 会话亲和头让网关把同一会话路由到同一上游账号，提高缓存命中率；
 // DeepSeek 系模型按 id 声明 reasoning_content 回传方言。
 func mcodeMagpieConfig(target magpieinject.Target, affinityKey, modelID string) llm.OpenAIConfig {
-	cfg := llm.OpenAIConfig{BaseURL: target.BaseURL, APIKey: target.APIKey, EchoReasoning: isDeepSeekModel(modelID)}
-	if affinityKey != "" {
-		// 与 pi 的 openai 会话亲和格式一致：session_id、x-client-request-id、x-session-affinity。
-		cfg.Headers = map[string]string{
-			"session_id":          affinityKey,
-			"x-client-request-id": affinityKey,
-			"x-session-affinity":  affinityKey,
-		}
+	return llm.OpenAIConfig{
+		BaseURL:       target.BaseURL,
+		APIKey:        target.APIKey,
+		Headers:       mcodeAffinityHeaders(affinityKey),
+		EchoReasoning: isDeepSeekModel(modelID),
 	}
-	return cfg
+}
+
+// mcodeAffinityHeaders 返回 Magpie 的会话亲和头：与 pi 的 openai 会话亲和格式一致，
+// 使用 session_id、x-client-request-id、x-session-affinity；affinityKey 为空时不带。
+func mcodeAffinityHeaders(affinityKey string) map[string]string {
+	if affinityKey == "" {
+		return nil
+	}
+	return map[string]string{
+		"session_id":          affinityKey,
+		"x-client-request-id": affinityKey,
+		"x-session-affinity":  affinityKey,
+	}
+}
+
+// isClaudeModel 判断模型是否属于 Claude 家族：模型 ID 小写后包含 claude 即为真。
+func isClaudeModel(modelID string) bool {
+	return strings.Contains(strings.ToLower(modelID), "claude")
+}
+
+// magpieClient 为 Magpie 网关上的模型选择请求协议：Claude 家族走 Anthropic Messages，
+// 保留 thinking 签名、prompt caching 与 tool_use 的原样语义；其余模型走 chat completions。
+// Anthropic 请求的 thinking 由 Request.Effort 控制，effort 只作用于 OpenAI 兼容请求。
+func magpieClient(target magpieinject.Target, affinityKey, modelID string, effort func(model, effort string) (string, bool)) (llm.Client, string) {
+	if isClaudeModel(modelID) {
+		// NewAnthropic 会在根地址后补 /v1/messages，这里先换成与 claude CLI 相同的根地址。
+		clientCfg := llm.AnthropicConfig{
+			BaseURL: magpieinject.AnthropicBaseURL(target.BaseURL),
+			APIKey:  target.APIKey,
+			Headers: mcodeAffinityHeaders(affinityKey),
+		}
+		return llm.NewAnthropic(clientCfg), modelID
+	}
+	cfg := mcodeMagpieConfig(target, affinityKey, modelID)
+	cfg.Effort = effort
+	return llm.NewOpenAI(cfg), modelID
 }
 
 // isDeepSeekModel 判断模型 ID 是否属于 DeepSeek 系，规则与 Magpie 桥的 isDeepSeekModel 一致。
@@ -218,6 +251,10 @@ func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir st
 		current := mcodeCurrentConfig(cfg, secrets)
 		return mcodeContextWindow(current, mcodeCurrentSecrets(secrets), model)
 	}
+	opts.CostUSD = func(model string, usage harness.Usage) (float64, bool) {
+		current := mcodeCurrentConfig(cfg, secrets)
+		return mcodeUsageCost(current, mcodeCurrentSecrets(secrets), model, usage)
+	}
 	return providermcode.New(opts)
 }
 
@@ -260,6 +297,7 @@ func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.
 				Efforts:      mcodeEfforts(model),
 				ContextLimit: model.ContextWindow,
 				IsDefault:    len(rows) == 0,
+				Cost:         magpieModelCost(model),
 			})
 		}
 	}
@@ -277,6 +315,29 @@ func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.
 		}
 	}
 	return rows
+}
+
+// magpieModelCost 把网关模型的价格转成目录行价格；网关没有报价格时返回 nil。
+func magpieModelCost(model magpie.Model) *wire.ModelCost {
+	if model.Cost == nil {
+		return nil
+	}
+	return &wire.ModelCost{
+		Input:      model.Cost.Input,
+		Output:     model.Cost.Output,
+		CacheRead:  model.Cost.CacheRead,
+		CacheWrite: model.Cost.CacheWrite,
+	}
+}
+
+// mcodeUsageCost 按网关模型目录的价格算本轮费用：模型串按端点前缀解析，
+// 非 Magpie 模型、目录里没有这个模型或没有价格时返回 false。
+func mcodeUsageCost(cfg config.Config, secrets config.SecretStore, model string, usage harness.Usage) (float64, bool) {
+	target, modelID, ok := magpieinject.ProviderOf(strings.TrimSpace(model), mcodeTargets(cfg, secrets))
+	if !ok {
+		return 0, false
+	}
+	return magpieUsageCost(target, modelID, usage)
 }
 
 // mcodeEfforts 返回内置引擎可用的思考档位：网关给了档位就按 mcode 后端过滤，
