@@ -394,6 +394,10 @@ func (s *Service) applyExecutorResult(ctx context.Context, t *store.Task, res Ex
 	}
 	meta.ResultStatus, meta.Summary = string(res.Status), res.Summary
 	switch res.Status {
+	case ResultDone, ResultFailed, ResultNeedsDecision, ResultDelegated:
+		meta.GateOverride = ""
+	}
+	switch res.Status {
 	case ResultFailed:
 		t.Status = string(TaskStatusFailed)
 		t.LastFailureReason = &res.Summary

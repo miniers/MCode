@@ -54,6 +54,10 @@ const stewardSilentMarker = "[[静默]]"
 // 时间线里不产生行，也不渲染成「宿主转来」卡片。
 const stewardWakeKind = "steward_wake"
 
+const stewardReplyKind = "steward_reply"
+const stewardDecisionKind = "steward_decision"
+const stewardDecisionAnswerKind = "steward_decision_answer"
+
 // hostEventKind 是宿主转来事件的 Kind：任务会话里仍然渲染成卡片，但同样不算用户开口。
 const hostEventKind = "host_event"
 
@@ -78,6 +82,9 @@ func isHiddenTriggerKind(kind string) bool {
 // 以及整轮正文只有静默标记的助手回复。判断必须在构建 items 这一层做，
 // 不能靠渲染返回空元素——每行外面还有一层带内边距的 Row，空元素会留下空白。
 func isHiddenTimelineMessage(m Message) bool {
+	if m.Kind == stewardDecisionAnswerKind {
+		return true
+	}
 	if m.Role == "user" {
 		return m.Kind == stewardWakeKind
 	}
@@ -2739,6 +2746,12 @@ func renderHostEventCard(c *ui.Context, s *chatState, m Message) ui.Element {
 // renderMessageItem 渲染单条时间线消息。
 func renderMessageItem(c *ui.Context, s *chatState, m Message, liveID, lastLiveID string, isLastAssistant bool, hasUsage bool, turnUsage TokenUsage, turnDur time.Duration, suppressTurnEnd bool) ui.Element {
 	switch {
+	case m.Kind == stewardReplyKind:
+		return renderStewardReply(c, s, m)
+	case m.Kind == stewardDecisionKind:
+		return renderStewardDecisionCard(c, s, m)
+	case m.Kind == stewardDecisionAnswerKind:
+		return ui.Element{}
 	case m.Role == "user" && m.Kind == hostEventKind:
 		return renderHostEventCard(c, s, m)
 

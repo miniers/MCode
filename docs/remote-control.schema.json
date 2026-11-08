@@ -747,6 +747,12 @@
       "$ref": "#/$defs/RemoteStewardTopicsListResponse"
     },
     {
+      "$ref": "#/$defs/RemoteStewardDecisionsListRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteStewardDecisionsListResponse"
+    },
+    {
       "$ref": "#/$defs/RemoteStewardOpenRequest"
     },
     {
@@ -10890,6 +10896,9 @@
             "$ref": "#/$defs/RemoteStewardTopicsListRequest"
           },
           {
+            "$ref": "#/$defs/RemoteStewardDecisionsListRequest"
+          },
+          {
             "$ref": "#/$defs/RemoteStewardOpenRequest"
           },
           {
@@ -11262,6 +11271,9 @@
           },
           {
             "$ref": "#/$defs/RemoteStewardTopicsListResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteStewardDecisionsListResponse"
           },
           {
             "$ref": "#/$defs/RemoteStewardOpenResponse"
@@ -14497,6 +14509,70 @@
         "tasksDone",
         "tasksTotal"
       ],
+      "additionalProperties": false
+    },
+    "RemoteStewardDecisionOption": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "required": ["key", "text"],
+      "additionalProperties": false
+    },
+    "RemoteStewardDecision": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "taskID": { "type": "string" },
+        "threadID": { "type": "string" },
+        "question": { "type": "string" },
+        "options": { "type": "array", "items": { "$ref": "#/$defs/RemoteStewardDecisionOption" } },
+        "recommended": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "answered", "ignored", "superseded"] },
+        "answer": { "type": "string" },
+        "answeredBy": { "type": "string" },
+        "answeredAt": { "anyOf": [{ "$ref": "#/$defs/ISO8601DateTime" }, { "type": "null" }] },
+        "createdAt": { "$ref": "#/$defs/ISO8601DateTime" }
+      },
+      "required": ["id", "taskID", "threadID", "question", "options", "recommended", "status", "answer", "answeredBy", "answeredAt", "createdAt"],
+      "additionalProperties": false
+    },
+    "RemoteStewardDecisionsListParams": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["", "open", "answered", "ignored", "superseded"] },
+        "limit": { "type": "integer", "minimum": 0, "default": 50, "description": "零或缺省时为 50，超过 200 时按 200 处理" }
+      },
+      "additionalProperties": false
+    },
+    "RemoteStewardDecisionsListResult": {
+      "type": "object",
+      "properties": {
+        "decisions": { "type": "array", "items": { "$ref": "#/$defs/RemoteStewardDecision" } }
+      },
+      "required": ["decisions"],
+      "additionalProperties": false
+    },
+    "RemoteStewardDecisionsListRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "steward.decisions.list" },
+        "params": { "$ref": "#/$defs/RemoteStewardDecisionsListParams" },
+        "id": { "$ref": "#/$defs/JSONRPCId" }
+      },
+      "required": ["jsonrpc", "method", "params", "id"],
+      "additionalProperties": false
+    },
+    "RemoteStewardDecisionsListResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "result": { "$ref": "#/$defs/RemoteStewardDecisionsListResult" },
+        "id": { "$ref": "#/$defs/JSONRPCId" }
+      },
+      "required": ["jsonrpc", "result", "id"],
       "additionalProperties": false
     },
     "RemoteStewardTopicsListParams": {

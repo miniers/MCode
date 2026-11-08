@@ -4534,3 +4534,44 @@ export type RemoteMemoryProposalsAcceptParams = {
   type?: string;
   importance?: number;
 };
+
+export type RemoteStewardDecisionOption = {
+  key: string;
+  text: string;
+};
+
+export type RemoteStewardDecision = {
+  id: string;
+  taskID: string;
+  threadID: string;
+  question: string;
+  options: Array<RemoteStewardDecisionOption>;
+  recommended: string;
+  status: "open" | "answered" | "ignored" | "superseded";
+  answer: string;
+  answeredBy: string;
+  answeredAt: ISO8601DateTime | null;
+  createdAt: ISO8601DateTime;
+};
+
+export type RemoteStewardDecisionsListParams = {
+  status?: "" | "open" | "answered" | "ignored" | "superseded";
+  limit?: number;
+};
+
+export type RemoteStewardDecisionsListResult = {
+  decisions: Array<RemoteStewardDecision>;
+};
+
+export type RemoteStewardDecisionsListRequest = {
+  jsonrpc: "2.0";
+  method: "steward.decisions.list";
+  params: RemoteStewardDecisionsListParams;
+  id: JSONRPCId;
+};
+
+export type RemoteStewardDecisionsListResponse = {
+  jsonrpc: "2.0";
+  result: RemoteStewardDecisionsListResult;
+  id: JSONRPCId;
+};
