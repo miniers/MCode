@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/config"
 )
 
 // waitRecallAllQueued 通过包级钩子等待「全部退回编辑」的后台 goroutine 结束，
@@ -162,24 +164,24 @@ func TestMergeQueuedDraftText(t *testing.T) {
 }
 
 func TestQueuedRecallBlockedReason(t *testing.T) {
-	if got := queuedRecallBlockedReason(nil, 0, true); got != "没有可退回的排队消息" {
+	if got := queuedRecallBlockedReason(nil, 0, true, config.DefaultComposerAttachmentLimit); got != "没有可退回的排队消息" {
 		t.Fatalf("空队列原因 = %q", got)
 	}
-	if got := queuedRecallBlockedReason([]QueuedFollowUp{{ID: "s", System: true}}, 0, true); got != "没有可退回的排队消息" {
+	if got := queuedRecallBlockedReason([]QueuedFollowUp{{ID: "s", System: true}}, 0, true, config.DefaultComposerAttachmentLimit); got != "没有可退回的排队消息" {
 		t.Fatalf("只有系统消息原因 = %q", got)
 	}
-	if got := queuedRecallBlockedReason([]QueuedFollowUp{{ID: "q", Text: "x", AttachmentCount: 1}}, 0, false); got != "当前客户端不支持退回带附件的排队消息" {
+	if got := queuedRecallBlockedReason([]QueuedFollowUp{{ID: "q", Text: "x", AttachmentCount: 1}}, 0, false, config.DefaultComposerAttachmentLimit); got != "当前客户端不支持退回带附件的排队消息" {
 		t.Fatalf("不支持附件原因 = %q", got)
 	}
-	if got := queuedRecallBlockedReason([]QueuedFollowUp{{ID: "q", Text: "x"}}, 0, false); got != "" {
+	if got := queuedRecallBlockedReason([]QueuedFollowUp{{ID: "q", Text: "x"}}, 0, false, config.DefaultComposerAttachmentLimit); got != "" {
 		t.Fatalf("无附件的条目不应因客户端不支持附件被阻断，got %q", got)
 	}
-	// 上限跟随 maxAttachments 常量，不写死具体数字。
-	over := []QueuedFollowUp{{ID: "q", Text: "x", AttachmentCount: maxAttachments}}
-	if got := queuedRecallBlockedReason(over, 1, true); got == "" {
+	// 上限跟随默认配置。
+	over := []QueuedFollowUp{{ID: "q", Text: "x", AttachmentCount: config.DefaultComposerAttachmentLimit}}
+	if got := queuedRecallBlockedReason(over, 1, true, config.DefaultComposerAttachmentLimit); got == "" {
 		t.Fatal("超过附件上限时应给出原因")
 	}
-	if got := queuedRecallBlockedReason(over, 0, true); got != "" {
+	if got := queuedRecallBlockedReason(over, 0, true, config.DefaultComposerAttachmentLimit); got != "" {
 		t.Fatalf("恰好达到上限时应允许退回，got %q", got)
 	}
 }

@@ -51,7 +51,7 @@ func getComposerPolishState(s *chatState) *composerPolishState {
 	return st
 }
 
-// setComposerFileDragOver 记录本帧输入卡是否处于文件拖拽悬停状态。
+// setComposerFileDragOver 记录本帧聊天区是否处于文件拖拽悬停状态。
 func setComposerFileDragOver(s *chatState, over bool) {
 	st := getComposerPolishState(s)
 	if st == nil {
@@ -62,7 +62,7 @@ func setComposerFileDragOver(s *chatState, over bool) {
 	st.fileDragOver = over
 }
 
-// composerFileDragOver 返回上一帧输入卡的文件拖拽悬停状态。
+// composerFileDragOver 返回聊天区的文件拖拽悬停状态。
 func composerFileDragOver(s *chatState) bool {
 	st := getComposerPolishState(s)
 	if st == nil {
@@ -134,7 +134,7 @@ const (
 )
 
 // renderComposerDropOverlay 在时间线与输入区整块区域上方铺拖拽提示层。
-// 覆盖层不接收指针（PassThrough + IgnoreInput），文件拖放仍由输入卡自己处理；
+// 覆盖层不接收指针（PassThrough + IgnoreInput），文件拖放由聊天区整体处理；
 // mygo 没有虚线描边，这里用 2pt 实线 accent 描边替代。
 func renderComposerDropOverlay(c *ui.Context, s *chatState) {
 	target := float32(0)
@@ -153,7 +153,7 @@ func renderComposerDropOverlay(c *ui.Context, s *chatState) {
 		Border(composerDropOverlayBorder, ThemeAccent(c).Alpha(composerDropOverlayBorderA)).
 		Justify(ui.Center).
 		AlignItems(ui.Center).
-		// 整层包括药丸都不接收指针：拖放事件仍由下面的输入卡处理。
+		// 整层包括药丸都不接收指针：拖放事件由聊天区整体处理。
 		PassThrough().
 		IgnoreInput(true)
 

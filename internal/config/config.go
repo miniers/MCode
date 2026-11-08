@@ -183,6 +183,9 @@ const (
 
 	// DefaultStalledAlertMinutes 是会话卡住提醒的默认无进展阈值（分钟）。
 	DefaultStalledAlertMinutes = 10
+	// DefaultComposerAttachmentLimit 和 MaxComposerAttachmentLimit 分别是附件数量的默认值和最大值。
+	DefaultComposerAttachmentLimit = 10
+	MaxComposerAttachmentLimit = 20
 
 	// DefaultNoProgressMinutes 是会话或 bee 连续无文件改动、无看板变化的默认阈值（分钟）。
 	DefaultNoProgressMinutes = 45
@@ -475,6 +478,7 @@ type SessionConfig struct {
 	AutoContinueAfterLimit bool   `json:"auto_continue_after_limit"`           // 额度用尽后自动等待续跑，默认 false
 	AskCompactBeforeResume *bool  `json:"ask_compact_before_resume,omitempty"` // 恢复旧会话前询问压缩上下文，nil 视为开启
 	ThreadFinishAction     string `json:"thread_finish_action"`                // 会话完成动作：dormant | archive，默认 dormant
+	ComposerAttachmentLimit int `json:"composer_attachment_limit,omitempty"` // 单条消息附件数量上限，0 或负数视为默认 10，范围 1..20
 	ComposerSendKey        string `json:"composer_send_key,omitempty"`         // 发送消息快捷键：enter | shift_enter，默认 enter（Enter 发送，Shift+Enter 换行）
 	SkillsInjectsPrompt    *bool  `json:"skills_injects_prompt,omitempty"`     // 技能规则注入提示词，nil 视为开启
 }
@@ -548,6 +552,17 @@ func (s SessionConfig) SkillsInjectPromptEnabled() bool {
 		return true
 	}
 	return *s.SkillsInjectsPrompt
+}
+
+// AttachmentLimit 返回单条消息的附件数量上限。
+func (s SessionConfig) AttachmentLimit() int {
+	if s.ComposerAttachmentLimit <= 0 {
+		return DefaultComposerAttachmentLimit
+	}
+	if s.ComposerAttachmentLimit > MaxComposerAttachmentLimit {
+		return MaxComposerAttachmentLimit
+	}
+	return s.ComposerAttachmentLimit
 }
 
 // ChimeOnAttention 返回需要用户介入时是否播放提示音，nil 时默认开启。
@@ -2190,6 +2205,7 @@ func Defaults() Config {
 			AskCompactBeforeResume: boolPtr(true),
 			ThreadFinishAction:     FinishActionDormant,
 			ComposerSendKey:        ComposerSendKeyEnter,
+			ComposerAttachmentLimit: DefaultComposerAttachmentLimit,
 		},
 		Notifications: NotificationsConfig{
 			NotifyWhenFinished:       true,

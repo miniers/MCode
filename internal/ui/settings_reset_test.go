@@ -24,6 +24,7 @@ func TestResetPreferenceFields(t *testing.T) {
 	dst.Session.ShowReasoning = settingsResetBoolPtr(false)
 	dst.Session.QueueWhileRunning = !def.Session.QueueWhileRunning
 	dst.Session.ComposerSendKey = config.ComposerSendKeyShiftEnter
+	dst.Session.ComposerAttachmentLimit = 2
 	dst.Notifications.ChimeWhenAttentionNeeded = nil
 
 	// 嵌套结构体（总管）里的标量要递归重置。
@@ -50,6 +51,9 @@ func TestResetPreferenceFields(t *testing.T) {
 	}
 	if dst.Session.ComposerSendKey != def.Session.ComposerSendKey {
 		t.Fatalf("ComposerSendKey 应重置为 %v，实际 %v", def.Session.ComposerSendKey, dst.Session.ComposerSendKey)
+	}
+	if dst.Session.ComposerAttachmentLimit != def.Session.ComposerAttachmentLimit {
+		t.Fatalf("ComposerAttachmentLimit 应重置为 %v，实际 %v", def.Session.ComposerAttachmentLimit, dst.Session.ComposerAttachmentLimit)
 	}
 	if p := dst.Notifications.ChimeWhenAttentionNeeded; p == nil || !*p {
 		t.Fatalf("指针字段为 nil 时应写入默认值，实际 %v", p)

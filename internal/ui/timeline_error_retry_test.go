@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/config"
 )
 
 // TestErrorRetryTargetFor 验证重试目标取错误之前最近一条用户消息的正文与附件：
@@ -123,21 +125,22 @@ func TestErrorRetryMediaCandidates(t *testing.T) {
 		return out
 	}
 
-	if got := errorRetryMediaCandidates(nil); len(got) != 0 {
+	limit := config.DefaultComposerAttachmentLimit
+	if got := errorRetryMediaCandidates(nil, limit); len(got) != 0 {
 		t.Fatalf("空列表应返回空，got %d 个", len(got))
 	}
-	if got := errorRetryMediaCandidates(makeMedia(2)); len(got) != 2 {
+	if got := errorRetryMediaCandidates(makeMedia(2), limit); len(got) != 2 {
 		t.Fatalf("未超过上限应原样返回，got %d 个", len(got))
 	}
-	if got := errorRetryMediaCandidates(makeMedia(maxAttachments)); len(got) != maxAttachments {
+	if got := errorRetryMediaCandidates(makeMedia(limit), limit); len(got) != limit {
 		t.Fatalf("正好上限应保留全部，got %d 个", len(got))
 	}
-	got := errorRetryMediaCandidates(makeMedia(maxAttachments + 2))
-	if len(got) != maxAttachments {
-		t.Fatalf("超过上限应截断到 %d 个，got %d 个", maxAttachments, len(got))
+	got := errorRetryMediaCandidates(makeMedia(limit+2), limit)
+	if len(got) != limit {
+		t.Fatalf("超过上限应截断到 %d 个，got %d 个", limit, len(got))
 	}
-	if got[maxAttachments-1].ID != makeMedia(maxAttachments)[maxAttachments-1].ID {
-		t.Fatalf("截断应保留前面的附件，got 最后一个 %q", got[maxAttachments-1].ID)
+	if got[limit-1].ID != makeMedia(limit)[limit-1].ID {
+		t.Fatalf("截断应保留前面的附件，got 最后一个 %q", got[limit-1].ID)
 	}
 }
 

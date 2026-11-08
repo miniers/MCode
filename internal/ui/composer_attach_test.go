@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/config"
 )
 
 // 场景 1：正常添加图片与非图片附件并成功异步上传回填 ID。
@@ -202,33 +204,37 @@ func TestAttachment_ExceedMaxSize(t *testing.T) {
 	}
 }
 
-// 场景 4：附件总数达到 4 个后，第 5 个附件被拒绝并出现 notice。
+// 场景 4：达到配置的附件数量上限后，继续添加会被拒绝。
 func TestAttachment_ExceedMaxCount(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fake := NewFakeClient()
 	s := newChatState(fake)
+	cfg := config.Defaults()
+	cfg.Session.ComposerAttachmentLimit = 2
+	setChatSettings(s, &SettingsState{cfg: cfg})
+	t.Cleanup(func() { setChatSettings(s, nil) })
 
 	data := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
-	for i := 1; i <= maxAttachments; i++ {
+	for i := 1; i <= 2; i++ {
 		ok := s.addAttachment("p.png", "image/png", data)
 		if !ok {
 			t.Fatalf("expected attachment %d to succeed", i)
 		}
 	}
 
-	// 添加第 5 个应被拒绝
+	// 添加第 3 个应被拒绝。
 	ok := s.addAttachment("p5.png", "image/png", data)
 	if ok {
-		t.Fatalf("expected 5th attachment to be rejected")
+		t.Fatalf("expected 3rd attachment to be rejected")
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.attachments) != maxAttachments {
-		t.Fatalf("expected %d attachments, got %d", maxAttachments, len(s.attachments))
+	if len(s.attachments) != 2 {
+		t.Fatalf("expected 2 attachments, got %d", len(s.attachments))
 	}
 	notice := s.attachmentNotice()
-	if !strings.Contains(notice, "4") && !strings.Contains(notice, "上限") {
+	if !strings.Contains(notice, "2 个") {
 		t.Fatalf("expected attachment notice mentioning max count, got %q", notice)
 	}
 	if !strings.Contains(notice, "p5.png") {
@@ -399,8 +405,10 @@ func TestAttachment_HandlePaste(t *testing.T) {
 	swapClipboard := func(t *testing.T, fn clipboardReaderFunc) {
 		t.Helper()
 		old := clipboardReader
-		t.Cleanup(func() { clipboardReader = old })
+		oldFiles := clipboardFilesReader
+		t.Cleanup(func() { clipboardReader = old; clipboardFilesReader = oldFiles })
 		clipboardReader = fn
+		clipboardFilesReader = func() ([]string, error) { _, _, _, _, paths := fn(); return paths, nil }
 	}
 
 	// 复制文件：粘贴回调拿到的文本就是文件路径，应作为附件加入并吞掉粘贴
@@ -447,6 +455,31 @@ func TestAttachment_HandlePaste(t *testing.T) {
 		s := newChatState(NewFakeClient())
 		if took := s.handlePaste("hello"); took {
 			t.Fatalf("expected plain text paste not to be taken")
+		}
+	})
+
+	t.Run("image with text inserts text", func(t *testing.T) {
+		swapClipboard(t, func() (bool, string, string, []byte, []string) {
+			return true, "pasted-image.png", "image/png", []byte{1}, nil
+		})
+		s := newChatState(NewFakeClient())
+		if s.handlePaste("hello") || len(s.attachments) != 0 {
+			t.Fatal("有文本时应插入文本，不添加图片")
+		}
+	})
+
+	t.Run("jpeg becomes attachment", func(t *testing.T) {
+		swapClipboard(t, func() (bool, string, string, []byte, []string) {
+			return true, "pasted-image.jpg", "image/jpeg", []byte{0xff, 0xd8, 0xff}, nil
+		})
+		s := newChatState(NewFakeClient())
+		if !s.handlePaste("") {
+			t.Fatal("图片应作为附件")
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if len(s.attachments) != 1 || s.attachments[0].Name != "pasted-image.jpg" || s.attachments[0].MimeType != "image/jpeg" {
+			t.Fatalf("JPEG 附件不正确: %+v", s.attachments)
 		}
 	})
 
@@ -720,7 +753,7 @@ func TestAttachment_AddFiles_ScanLimit(t *testing.T) {
 
 	s := newChatState(NewFakeClient())
 	s.addAttachmentFiles([]string{tmpDir})
-	waitAttachmentFiles(t, s, maxAttachments, "500")
+	waitAttachmentFiles(t, s, config.DefaultComposerAttachmentLimit, "500")
 	notice := s.attachmentNotice()
 	if !strings.Contains(notice, "只处理前") {
 		t.Fatalf("expected truncation notice, got %q", notice)

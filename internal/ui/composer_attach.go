@@ -22,7 +22,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 	"golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
@@ -31,7 +30,6 @@ import (
 const (
 	maxAttachmentBytes      = 20 * 1024 * 1024 // 单文件上限 20MB
 	maxTotalAttachmentBytes = 50 * 1024 * 1024 // 附件总大小上限 50MB
-	maxAttachments          = 4                // 附件数量上限 4 个
 )
 
 const (
@@ -409,10 +407,11 @@ func (s *chatState) addAttachment(name, mime string, data []byte) bool {
 		return false
 	}
 
+	limit := s.attachmentLimit()
 	s.mu.Lock()
-	if len(s.attachments) >= maxAttachments {
+	if len(s.attachments) >= limit {
 		s.mu.Unlock()
-		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：超过最多 4 个附件上限", name))
+		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：超过最多 %d 个附件上限", name, limit))
 		return false
 	}
 
@@ -559,8 +558,9 @@ func (sc *attachmentScan) walk(p string) {
 
 // addAttachmentFiles 读取外部文件并批量添加为附件（支持目录递归展开并跳过隐藏文件）。
 // 本函数只在 UI 线程做受上限约束的目录枚举；读盘与解码（含 TIFF 转码、缩略图生成）
-// 交给 readAttachmentFiles 在后台协程完成，避免拖拽/粘贴时同步读最多 4×20MB 卡住界面。
+// 交给 readAttachmentFiles 在后台协程完成，避免拖拽/粘贴时同步读文件卡住界面。
 func (s *chatState) addAttachmentFiles(paths []string) {
+	limit := s.attachmentLimit()
 	var allFiles []string
 	var rejected []rejectedAttachment
 
@@ -582,7 +582,7 @@ func (s *chatState) addAttachmentFiles(paths []string) {
 	currentCount := len(s.attachments)
 	s.mu.Unlock()
 
-	room := maxAttachments - currentCount
+	room := limit - currentCount
 	if room < 0 {
 		room = 0
 	}
@@ -591,7 +591,7 @@ func (s *chatState) addAttachmentFiles(paths []string) {
 	if len(allFiles) > room {
 		rejected = append(rejected, rejectedAttachment{
 			name:   fmt.Sprintf("另有 %d 个文件", len(allFiles)-room),
-			reason: "超过最多 4 个附件上限",
+			reason: fmt.Sprintf("超过最多 %d 个附件上限", limit),
 		})
 		allFiles = allFiles[:room]
 	}
@@ -604,6 +604,7 @@ func (s *chatState) addAttachmentFiles(paths []string) {
 
 // readAttachmentFiles 在后台读取并解码候选文件，逐个加入附件；结束后提示被拒绝的文件。
 func (s *chatState) readAttachmentFiles(paths []string, rejected []rejectedAttachment) {
+	limit := s.attachmentLimit()
 	for _, p := range paths {
 		f, err := os.Open(p)
 		if err != nil {
@@ -651,9 +652,9 @@ func (s *chatState) readAttachmentFiles(paths []string, rejected []rejectedAttac
 		}
 
 		s.mu.Lock()
-		if len(s.attachments) >= maxAttachments {
+		if len(s.attachments) >= limit {
 			s.mu.Unlock()
-			rejected = append(rejected, rejectedAttachment{name: name, reason: "超过最多 4 个附件上限"})
+			rejected = append(rejected, rejectedAttachment{name: name, reason: fmt.Sprintf("超过最多 %d 个附件上限", limit)})
 			continue
 		}
 
@@ -705,29 +706,25 @@ func defaultClipboardReader() (bool, string, string, []byte, []string) {
 
 	formats := mygo.Clipboard.Formats()
 
-	// 检查标准 PNG 格式
-	for _, f := range formats {
-		if f == transfer.PNG || string(f) == "image/png" {
-			data, err := mygo.Clipboard.ReadFormat(transfer.PNG)
-			if err == nil && len(data) > 0 {
-				return true, "pasted-image.png", "image/png", data, nil
+	for _, candidate := range []struct{ mime, ext string }{
+		{"image/png", ".png"}, {"image/jpeg", ".jpg"},
+		{"image/gif", ".gif"}, {"image/webp", ".webp"},
+	} {
+		for _, f := range formats {
+			if string(f) == candidate.mime {
+				data, err := mygo.Clipboard.ReadFormat(f)
+				if err == nil && len(data) > 0 {
+					return true, "pasted-image" + candidate.ext, candidate.mime, data, nil
+				}
 			}
 		}
 	}
-
-	// 检查 TIFF 格式（如 macOS 截图粘贴）并转换为 PNG
 	for _, f := range formats {
-		if string(f) == "public.tiff" || string(f) == "image/tiff" {
-			data, err := mygo.Clipboard.ReadFormat(f)
-			if err == nil && len(data) > 0 {
-				img, err := tiff.Decode(bytes.NewReader(data))
-				if err == nil {
-					var buf bytes.Buffer
-					if err := png.Encode(&buf, img); err == nil {
-						return true, "pasted-image.png", "image/png", buf.Bytes(), nil
-					}
-				}
+		if strings.HasPrefix(string(f), "image/") {
+			if data := mygo.Clipboard.ReadImage(); len(data) > 0 {
+				return true, "pasted-image.png", "image/png", data, nil
 			}
+			break
 		}
 	}
 
@@ -737,6 +734,7 @@ func defaultClipboardReader() (bool, string, string, []byte, []string) {
 
 // clipboardReader 是可被测试替换的包级剪贴板读取函数。
 var clipboardReader clipboardReaderFunc = defaultClipboardReader
+var clipboardFilesReader = mygo.Clipboard.ReadFiles
 
 // tryPasteImage 尝试从剪贴板读取文件路径或图片数据并添加为附件。
 func (s *chatState) tryPasteImage() bool {
@@ -777,13 +775,10 @@ func isPastedFilePath(text string, filePaths []string) bool {
 // 纯文本里算长文本的不直接插入（会把输入框撑爆），只登记一个占位符并吞掉粘贴，
 // 由下一帧按光标位置插入占位符；短文本仍交给输入框正常插入并返回 false。
 func (s *chatState) handlePaste(text string) bool {
-	hasAttach, _, _, _, filePaths := clipboardReader()
-	if !hasAttach {
-		return s.pasteLongText(text)
-	}
-	if len(filePaths) > 0 {
-		if isPastedFilePath(text, filePaths) {
-			return s.tryPasteImage()
+	if strings.TrimSpace(text) != "" {
+		if filePaths, err := clipboardFilesReader(); err == nil && isPastedFilePath(text, filePaths) {
+			s.addAttachmentFiles(filePaths)
+			return true
 		}
 		return s.pasteLongText(text)
 	}

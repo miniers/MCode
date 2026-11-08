@@ -238,6 +238,10 @@ func renderChat(c *ui.Context, s *chatState) {
 
 		// 消息列表与输入框布局（两侧为停靠的子代理面板让出宽度，聊天内容在剩余空间里居中）
 		chatBody := ui.Column(c.Key("chat-body-container")).Grow(1).MinHeight(0).FillWidth()
+		setComposerFileDragOver(s, chatBody.FileDragOver())
+		if dropped := chatBody.DroppedFiles(); len(dropped) > 0 {
+			s.addAttachmentFiles(dropped)
+		}
 		chatBody.Padding(0,
 			chatBody.AnimateWith("swarm-reserve-trailing", swarmReserve.trailing, animateDuration(c, swarmRestDuration), ui.EaseOut),
 			0,

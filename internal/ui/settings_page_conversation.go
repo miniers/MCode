@@ -101,6 +101,12 @@ var pageConversation = settingsPage{
 					),
 				},
 				{
+					ID:      "row-composer-attachment-limit",
+					Title:   "附件数量上限",
+					Aliases: []string{"附件", "图片", "文件", "数量", "上限", "attachment"},
+					Control: number(val(func(c *config.Config) *int { return &c.Session.ComposerAttachmentLimit }, config.DefaultComposerAttachmentLimit), "个", 1, config.MaxComposerAttachmentLimit),
+				},
+				{
 					ID:      "row-pin-sent-message",
 					Title:   "发送后置顶消息",
 					Aliases: []string{"置顶", "滚动", "发送", "时间线", "跟随", "pin"},

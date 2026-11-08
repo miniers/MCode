@@ -43,11 +43,11 @@ func errorRetryTargetFor(messages []Message, errorID string) errorRetryTarget {
 }
 
 // errorRetryMediaCandidates 返回本次重试要重新上传的附件：超过单条消息附件上限的部分直接截掉。
-func errorRetryMediaCandidates(media []MessageMedia) []MessageMedia {
-	if len(media) <= maxAttachments {
+func errorRetryMediaCandidates(media []MessageMedia, limit int) []MessageMedia {
+	if len(media) <= limit {
 		return media
 	}
-	return media[:maxAttachments]
+	return media[:limit]
 }
 
 // errorRetryMediaFits 判断取回的原图能否重新上传：空内容或超过单文件 20MiB 上限都不行。

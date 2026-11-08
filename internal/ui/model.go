@@ -3055,7 +3055,8 @@ func (s *chatState) recallAllQueued() {
 	if tid == "" {
 		return
 	}
-	if reason := queuedRecallBlockedReason(items, currentAttachments, supportsAttachments); reason != "" {
+	limit := s.attachmentLimit()
+	if reason := queuedRecallBlockedReason(items, currentAttachments, supportsAttachments, limit); reason != "" {
 		s.setToast(reason)
 		return
 	}
@@ -3099,10 +3100,10 @@ func (s *chatState) recallAllQueued() {
 			}
 			// 先确认附件放得下，再从队列移除，避免删了消息却无法呈现附件。
 			s.mu.Lock()
-			fits := len(s.attachments)+len(recalledAttachments)+len(itemAttachments) <= maxAttachments
+			fits := len(s.attachments)+len(recalledAttachments)+len(itemAttachments) <= limit
 			s.mu.Unlock()
 			if !fits {
-				s.setToast(fmt.Sprintf("退回后附件将超过 %d 个上限", maxAttachments))
+				s.setToast(fmt.Sprintf("退回后附件将超过 %d 个上限", limit))
 				failed = true
 				break
 			}

@@ -16,6 +16,17 @@ import (
 	"mcode/internal/harness"
 )
 
+func TestSessionAttachmentLimit(t *testing.T) {
+	for _, tc := range []struct{ input, want int }{
+		{0, DefaultComposerAttachmentLimit}, {-1, DefaultComposerAttachmentLimit},
+		{5, 5}, {99, MaxComposerAttachmentLimit},
+	} {
+		if got := (SessionConfig{ComposerAttachmentLimit: tc.input}).AttachmentLimit(); got != tc.want {
+			t.Errorf("AttachmentLimit(%d) = %d, want %d", tc.input, got, tc.want)
+		}
+	}
+}
+
 func TestHideMagpieModelsInPickerDefaultAndRoundTrip(t *testing.T) {
 	var cfg ProvidersConfig
 	if err := json.Unmarshal([]byte(`{}`), &cfg); err != nil {

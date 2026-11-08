@@ -744,7 +744,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 			// 快捷回复行：只在配置了快捷回复、会话已开始、输入框空闲且草稿为空时出现。
 			renderQuickReplies(c, s)
 
-			// 悬浮卡片主体支持外部文件拖入。
+			// 悬浮卡片主体。
 			card := ui.Column(c.Key("composer-card")).
 				Label("消息输入框").
 				Radius(cardRadius).
@@ -775,14 +775,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 				card.MinHeight(minH)
 			}
 
-			// D-9：拖拽时输入卡保持 1pt 普通描边，整块提示交给上方的覆盖层
-			// （composer_drop_overlay.go），避免输入卡自己再叠一圈 accent 边框。
-			setComposerFileDragOver(s, card.FileDragOver())
+			// D-9：聊天区整体接收拖放，输入卡保持普通描边，提示由覆盖层显示。
 			card.Border(Hairline, ThemeBorder(c))
-
-			if dropped := card.DroppedFiles(); len(dropped) > 0 {
-				s.addAttachmentFiles(dropped)
-			}
 
 			card.Children(func() {
 				// 卡片顶部不再堆提示行：运行中提示、编辑排队消息提示都并入输入框占位符或底栏胶囊。

@@ -38,7 +38,7 @@ func mergeQueuedDraftText(draft string, texts []string) string {
 
 // queuedRecallBlockedReason 判断「全部退回编辑」是否被阻断，返回给用户看的原因；空串表示可以执行。
 // 只统计非系统条目：系统消息既不退回也不计入附件上限。
-func queuedRecallBlockedReason(items []QueuedFollowUp, currentAttachments int, supportsAttachments bool) string {
+func queuedRecallBlockedReason(items []QueuedFollowUp, currentAttachments int, supportsAttachments bool, limit int) string {
 	recallable := 0
 	attachmentCount := 0
 	for _, item := range items {
@@ -54,8 +54,8 @@ func queuedRecallBlockedReason(items []QueuedFollowUp, currentAttachments int, s
 	if attachmentCount > 0 && !supportsAttachments {
 		return "当前客户端不支持退回带附件的排队消息"
 	}
-	if currentAttachments+attachmentCount > maxAttachments {
-		return fmt.Sprintf("退回后附件将超过 %d 个上限", maxAttachments)
+	if currentAttachments+attachmentCount > limit {
+		return fmt.Sprintf("退回后附件将超过 %d 个上限", limit)
 	}
 	return ""
 }

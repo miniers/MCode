@@ -1,6 +1,8 @@
 package mcodeui
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,6 +105,32 @@ func TestComposerDropOverlayPillFollowsDragState(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		return !tt.HasText("松开以添加附件")
 	})
+}
+
+// TestChatBodyReceivesFileDrops 检查聊天区整体接收文件拖放，输入卡不再单独注册。
+func TestChatBodyReceivesFileDrops(t *testing.T) {
+	chat, err := os.ReadFile("chat.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`setComposerFileDragOver(s, chatBody.FileDragOver())`,
+		`if dropped := chatBody.DroppedFiles(); len(dropped) > 0 {`,
+		`s.addAttachmentFiles(dropped)`,
+	} {
+		if !strings.Contains(string(chat), want) {
+			t.Errorf("聊天区缺少拖放处理 %q", want)
+		}
+	}
+	composer, err := os.ReadFile("composer.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unwanted := range []string{`card.FileDragOver()`, `card.DroppedFiles()`} {
+		if strings.Contains(string(composer), unwanted) {
+			t.Errorf("输入卡不应注册拖放 %q", unwanted)
+		}
+	}
 }
 
 // TestShouldShowTimelineSkeleton 表驱动覆盖 D-18 的显示条件。
