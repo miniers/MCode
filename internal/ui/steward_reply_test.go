@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -10,11 +11,16 @@ import (
 // 不落入普通助手消息的头部与操作栏。
 func TestRenderStewardReplyPlainLine(t *testing.T) {
 	const text = "我会盯着这件事，有结果再告诉你"
-	s := &chatState{}
-	msg := Message{ID: "sr1", Role: "assistant", Kind: stewardReplyKind, Text: text}
+	s := newChatState(NewFakeClient())
+	msg := Message{ID: "sr1", Role: "assistant", Kind: stewardReplyKind, Text: text, IsFinal: true}
+	s.selectedThreadID = "thread"
+	s.threads = []Thread{{ID: "thread", Provider: "claude", UpdatedAt: time.Date(2024, 1, 2, 3, 4, 5, 0, time.Local)}}
+	s.messages = []Message{msg}
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c.Key("steward-reply-test-col")).Width(timelineContentMaxWidth(s)).Children(func() {
-			renderMessageItem(c, s, msg, "", "", false, false, TokenUsage{}, 0, false)
+			// 容器的 key 只是身份，不是 Tester.Find 的查找标签；给整行补一个测试用 label。
+			row := renderMessageItem(c, s, msg, "", "", true, false, TokenUsage{}, 0, false)
+			row.Label("steward-reply-" + msg.ID)
 		})
 	}, 800, 200)
 
@@ -24,10 +30,11 @@ func TestRenderStewardReplyPlainLine(t *testing.T) {
 	if _, ok := tt.Find("steward-reply-sr1"); !ok {
 		t.Fatalf("未找到 steward_reply 行，当前文本：%v", tt.Texts())
 	}
-	if _, ok := tt.Find("msg-meta-sr1"); ok {
+	// 上面按普通助手路径传入 IsFinal 与 isLastAssistant，若落错分支就会渲染头部时间与操作栏。
+	if tt.HasText("03:04") {
 		t.Fatal("steward_reply 不应出现助手头部元信息")
 	}
-	if _, ok := tt.Find("msg-actions-sr1"); ok {
+	if _, ok := tt.Find("复制"); ok {
 		t.Fatal("steward_reply 不应出现消息操作栏")
 	}
 }

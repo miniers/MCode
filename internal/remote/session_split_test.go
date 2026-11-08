@@ -2,7 +2,6 @@ package remote
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"sync"

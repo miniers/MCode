@@ -34,6 +34,6 @@ func frontdeskHandoffSection(dataDir, threadID string) string {
 		}
 	}
 	return fmt.Sprintf(`## 可以交给总管
-需要跨会话长期跟进、按固定节奏定时做、或要同时派给多个子代理的事，建议用户用 ⇧⌘T 或命令面板里的「交给总管」移交给「%s」。
-移交时把已知现象、相关文件和验收要求说清楚。`, cfg.Orchestration.Steward.Label())
+需要跨会话长期跟进、按固定节奏定时做、或要同时派给多个子代理的事，建议用户按 ⇧⌘T 或在命令面板里选「打开%s」，在主会话里交给「%s」。
+移交时把已知现象、相关文件和验收要求说清楚。`, cfg.Orchestration.Steward.Label(), cfg.Orchestration.Steward.Label())
 }

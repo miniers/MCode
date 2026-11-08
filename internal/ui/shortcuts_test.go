@@ -548,7 +548,7 @@ func TestRegisteredShortcutsDefaultSet(t *testing.T) {
 	}
 }
 
-// TestStewardStartTopicShortcut 新增的「交给总管」快捷键：默认键 ⇧⌘T（⌘⇧S 已被休眠会话占用），
+// TestStewardStartTopicShortcut 新增的「打开总管」快捷键：默认键 ⇧⌘T（⌘⇧S 已被休眠会话占用），
 // 分组与会话类一致、参与注册与匹配，且不与既有绑定冲突。
 func TestStewardStartTopicShortcut(t *testing.T) {
 	setShortcutOverrides(nil)
@@ -568,8 +568,8 @@ func TestStewardStartTopicShortcut(t *testing.T) {
 	if !def.bound || !def.registered || !def.customizable {
 		t.Fatalf("steward-start-topic 应参与绑定、注册且可自定义，实际 %+v", *def)
 	}
-	if def.title != "交给总管" || def.group != "会话" {
-		t.Fatalf("标题/分组应为「交给总管」/「会话」，实际 %q/%q", def.title, def.group)
+	if def.title != "打开总管" || def.group != "会话" {
+		t.Fatalf("标题/分组应为「打开总管」/「会话」，实际 %q/%q", def.title, def.group)
 	}
 	if def.mods != ui.Cmd|ui.Shift || def.key != ui.KeyT {
 		t.Fatalf("默认绑定应为 ⇧⌘T，实际 mods=%v key=%v", def.mods, def.key)
