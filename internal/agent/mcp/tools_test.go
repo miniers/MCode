@@ -249,6 +249,33 @@ func TestToolsDiscoversInParallel(t *testing.T) {
 	}
 }
 
+func TestToolsPrunesStaleDiscoveryEntries(t *testing.T) {
+	resetDiscoveryCache()
+	t.Cleanup(resetDiscoveryCache)
+	server := httptest.NewServer(mcpDiscoveryHandler(nil))
+	defer server.Close()
+	now := time.Now()
+	discoveryMu.Lock()
+	discoveryCache["stale-success"] = discoveryEntry{loaded: &loadedServer{}, fetched: now.Add(-time.Hour)}
+	discoveryCache["stale-failure"] = discoveryEntry{loaded: &loadedServer{err: fmt.Errorf("boom")}, fetched: now.Add(-time.Minute)}
+	discoveryMu.Unlock()
+	Tools(context.Background(), []Server{{Name: "ext", URL: server.URL}})
+	discoveryMu.Lock()
+	defer discoveryMu.Unlock()
+	if _, ok := discoveryCache["stale-success"]; ok {
+		t.Fatal("stale success entry was not pruned")
+	}
+	if _, ok := discoveryCache["stale-failure"]; ok {
+		t.Fatal("stale failure entry was not pruned")
+	}
+	if len(discoveryCache) != 1 {
+		t.Fatalf("expected only the new entry, got %d", len(discoveryCache))
+	}
+	if _, ok := discoveryCache[discoveryKey(Server{URL: server.URL})]; !ok {
+		t.Fatal("new entry missing from cache")
+	}
+}
+
 func TestToolsCachesFailure(t *testing.T) {
 	resetDiscoveryCache()
 	oldTTL := failureTTL

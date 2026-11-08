@@ -2,7 +2,7 @@
 // 对应桌面关于页 internal/ui/settings_page_about.go 的「版本号 / 当前构建版本」，
 // Web 端支持检查更新，不支持导出诊断。
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRemote } from '../../context/RemoteContext';
 import { isAppUpdateMethodNotFound, useRemoteAppUpdateApi, type RemoteAppUpdateApi } from '../../context/remoteAppUpdateApi';
 import type { AppUpdateStatus } from '../../types/generated';
@@ -30,59 +30,83 @@ export const AboutSection: React.FC = () => {
   return <AboutSectionView api={api} appVersionText={appVersionText} webBuildID={webBuildID} schemaVersion={schemaVersion} />;
 };
 
-export const AboutSectionView: React.FC<{
-  api: RemoteAppUpdateApi;
+/** 更新区的全部状态：抽成纯数据，展示与交互都能脱离组件单独验证。 */
+export type AboutUpdateState = {
+  status: AppUpdateStatus | null;
+  unsupported: boolean;
+  checked: boolean;
+  busy: boolean;
+  installing: boolean;
+  error: string;
+};
+
+export const initialAboutUpdateState: AboutUpdateState = {
+  status: null,
+  unsupported: false,
+  checked: false,
+  busy: false,
+  installing: false,
+  error: ''
+};
+
+/** 状态写入器；与 useState 的函数式更新语义一致（在旧值上打补丁）。 */
+export type AboutUpdatePatch = (patch: Partial<AboutUpdateState>) => void;
+
+/** 读取宿主的更新状态；cancelled 用于组件卸载后丢弃结果。 */
+export async function loadAboutUpdate(
+  api: RemoteAppUpdateApi,
+  update: AboutUpdatePatch,
+  cancelled: () => boolean = () => false
+): Promise<void> {
+  update({ unsupported: false, status: null, checked: false, error: '' });
+  try {
+    const result = await api.get();
+    if (!cancelled()) update({ status: result });
+  } catch (err) {
+    if (cancelled()) return;
+    if (isAppUpdateMethodNotFound(err)) update({ unsupported: true });
+    else update({ error: '读取更新状态失败' });
+  }
+}
+
+/** 检查 / 更新 / 下载的唯一入口：只读写传入的状态，不依赖 React。 */
+export async function runAboutUpdateAction(
+  api: RemoteAppUpdateApi,
+  state: AboutUpdateState,
+  update: AboutUpdatePatch
+): Promise<void> {
+  if (state.busy || state.installing) return;
+  if (state.status?.available && !state.status.installable) {
+    if (state.status.url) window.open(state.status.url, '_blank');
+    return;
+  }
+  update({ busy: true, error: '' });
+  try {
+    if (state.status?.available && state.status.installable) {
+      const result = await api.install();
+      if (result.started) update({ installing: true });
+      else update({ error: '更新启动失败' });
+    } else {
+      const next = await api.check();
+      update({ status: next, checked: true });
+    }
+  } catch (err) {
+    if (isAppUpdateMethodNotFound(err)) update({ unsupported: true });
+    else update({ error: state.status?.available ? '更新失败' : '检查失败' });
+  } finally {
+    update({ busy: false });
+  }
+}
+
+/** 纯展示层：只按传入的状态渲染。 */
+export const AboutSectionContent: React.FC<{
+  state: AboutUpdateState;
   appVersionText: string;
   webBuildID: string;
   schemaVersion: string;
-}> = ({ api, appVersionText, webBuildID, schemaVersion }) => {
-  const [status, setStatus] = useState<AppUpdateStatus | null>(null);
-  const [unsupported, setUnsupported] = useState(false);
-  const [checked, setChecked] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [installing, setInstalling] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    setUnsupported(false);
-    setStatus(null);
-    setChecked(false);
-    setError('');
-    api.get().then((result) => {
-      if (!cancelled) setStatus(result);
-    }).catch((err: unknown) => {
-      if (cancelled) return;
-      if (isAppUpdateMethodNotFound(err)) setUnsupported(true);
-      else setError('读取更新状态失败');
-    });
-    return () => { cancelled = true; };
-  }, [api]);
-
-  const handleAction = async () => {
-    if (busy || installing) return;
-    if (status?.available && !status.installable) {
-      if (status.url) window.open(status.url, '_blank');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      if (status?.available && status.installable) {
-        const result = await api.install();
-        if (result.started) setInstalling(true);
-        else setError('更新启动失败');
-      } else {
-        setStatus(await api.check());
-        setChecked(true);
-      }
-    } catch (err) {
-      if (isAppUpdateMethodNotFound(err)) setUnsupported(true);
-      else setError(status?.available ? '更新失败' : '检查失败');
-    } finally {
-      setBusy(false);
-    }
-  };
+  onAction: () => void;
+}> = ({ state, appVersionText, webBuildID, schemaVersion, onAction }) => {
+  const { status, unsupported, checked, busy, installing, error } = state;
 
   return (
     <SettingsSection title="关于 MCode">
@@ -105,7 +129,7 @@ export const AboutSectionView: React.FC<{
                 <button
                   type="button"
                   className="secondary-button settings-inline-button"
-                  onClick={() => void handleAction()}
+                  onClick={onAction}
                   disabled={busy || installing || Boolean(status?.available && !status.installable && !status.url)}
                 >
                   {installing ? '正在更新…' : status?.available ? (status.installable ? '更新' : '下载') : '检查'}
@@ -133,5 +157,33 @@ export const AboutSectionView: React.FC<{
         control={<span className={valueClass}>{schemaVersion || '未知'}</span>}
       />
     </SettingsSection>
+  );
+};
+
+export const AboutSectionView: React.FC<{
+  api: RemoteAppUpdateApi;
+  appVersionText: string;
+  webBuildID: string;
+  schemaVersion: string;
+}> = ({ api, appVersionText, webBuildID, schemaVersion }) => {
+  const [state, setState] = useState<AboutUpdateState>(initialAboutUpdateState);
+  const update = useCallback<AboutUpdatePatch>((patch) => {
+    setState((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadAboutUpdate(api, update, () => cancelled);
+    return () => { cancelled = true; };
+  }, [api, update]);
+
+  return (
+    <AboutSectionContent
+      state={state}
+      appVersionText={appVersionText}
+      webBuildID={webBuildID}
+      schemaVersion={schemaVersion}
+      onAction={() => void runAboutUpdateAction(api, state, update)}
+    />
   );
 };

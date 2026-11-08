@@ -109,9 +109,25 @@ func discoverServer(ctx context.Context, server Server) *loadedServer {
 	cancel()
 	loaded.err = err
 	discoveryMu.Lock()
-	discoveryCache[key] = discoveryEntry{loaded: loaded, fetched: time.Now()}
+	now = time.Now()
+	pruneDiscoveryCacheLocked(now)
+	discoveryCache[key] = discoveryEntry{loaded: loaded, fetched: now}
 	discoveryMu.Unlock()
 	return loaded
+}
+
+// pruneDiscoveryCacheLocked 删除已过期的发现缓存条目，避免键长期累积。
+// 调用方必须持有 discoveryMu。
+func pruneDiscoveryCacheLocked(now time.Time) {
+	for key, entry := range discoveryCache {
+		ttl := discoveryTTL
+		if entry.loaded != nil && entry.loaded.err != nil {
+			ttl = failureTTL
+		}
+		if now.Sub(entry.fetched) >= ttl {
+			delete(discoveryCache, key)
+		}
+	}
 }
 
 // invalidateClient 在会话失效时删除对应缓存，下一轮重新发现。

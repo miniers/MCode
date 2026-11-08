@@ -1,19 +1,47 @@
-// 在 DOM 环境中渲染真实组件，用替身模拟宿主的更新接口。
-import { act } from 'react-dom/test-utils';
-import { createRoot } from 'react-dom/client';
+// 同 ComposerQuotaBar.test.tsx：web/ 没有测试运行器，不用 DOM。
+// 展示用 renderToStaticMarkup 渲染纯展示层，交互直接调用抽出的纯函数，断言 api 计数与状态变化。
+import { renderToStaticMarkup } from 'react-dom/server';
 import type { RemoteAppUpdateApi } from '../../context/remoteAppUpdateApi';
 import { RpcError } from '../../services/rpc';
 import type { AppUpdateStatus } from '../../types/generated';
-import { AboutSectionView } from './AboutSection';
+import {
+  AboutSectionContent,
+  initialAboutUpdateState,
+  loadAboutUpdate,
+  runAboutUpdateAction,
+  type AboutUpdateState
+} from './AboutSection';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function assertIncludes(markup: string, needle: string, message: string): void {
+  assert(markup.includes(needle), `${message}（实际为：${markup}）`);
+}
+
+function assertExcludes(markup: string, needle: string, message: string): void {
+  assert(!markup.includes(needle), message);
+}
+
+function render(state: AboutUpdateState): string {
+  return renderToStaticMarkup(
+    <AboutSectionContent
+      state={state}
+      appVersionText="0.2.12"
+      webBuildID="dev"
+      schemaVersion="1"
+      onAction={() => {}}
+    />
+  );
+}
+
+/** 与 useState 的函数式更新一致：在旧状态上打补丁。 */
+function merged(state: AboutUpdateState, patch: Partial<AboutUpdateState>): AboutUpdateState {
+  return { ...state, ...patch };
+}
+
 async function run(): Promise<void> {
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = createRoot(container);
   const current: AppUpdateStatus = { current: '0.2.12', available: false, installable: false };
   const update: AppUpdateStatus = {
     current: '0.2.12', latest: '0.2.13', available: true, installable: true, notes: '发布说明'
@@ -26,41 +54,40 @@ async function run(): Promise<void> {
     install: async () => { installs += 1; return { started: true }; }
   };
 
-  let mountID = 0;
-  async function mount(next: RemoteAppUpdateApi): Promise<void> {
-    mountID += 1;
-    await act(async () => {
-      root.render(<AboutSectionView key={mountID} api={next} appVersionText="0.2.12" webBuildID="dev" schemaVersion="1" />);
-    });
-  }
-  async function click(label: string): Promise<void> {
-    const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === label);
-    assert(button, `未找到按钮：${label}`);
-    await act(async () => { button.click(); });
-  }
+  // ---- 旧宿主：get 报方法不存在时整行隐藏 ----
+  let oldHost = initialAboutUpdateState;
+  await loadAboutUpdate(
+    { ...api, get: async () => { throw new RpcError(-32601, 'Method not found'); } },
+    (patch) => { oldHost = merged(oldHost, patch); }
+  );
+  assert(oldHost.unsupported, '旧宿主应标记为不支持');
+  assertExcludes(render(oldHost), '检查更新', '旧宿主不应显示更新行');
 
-  try {
-    await mount({ ...api, get: async () => { throw new RpcError(-32601, 'Method not found'); } });
-    assert(!container.textContent?.includes('检查更新'), '旧宿主不应显示更新行');
+  // ---- 有新版本：显示版本号与发布说明 ----
+  let fresh = initialAboutUpdateState;
+  await loadAboutUpdate({ ...api, get: async () => update }, (patch) => { fresh = merged(fresh, patch); });
+  const freshMarkup = render(fresh);
+  assertIncludes(freshMarkup, '0.2.13', '应显示新版本号');
+  assertIncludes(freshMarkup, '发布说明', '应显示发布说明');
 
-    await mount({ ...api, get: async () => update });
-    assert(container.textContent?.includes('0.2.13'), '应显示新版本号');
-    assert(container.textContent?.includes('发布说明'), '应显示发布说明');
-    await click('更新');
-    assert(installs === 1, '更新按钮应调用 install');
-    assert(container.textContent?.includes('正在更新…'), '应显示更新中');
+  // ---- 点「更新」：调用 install，进入更新中 ----
+  let installing = merged(initialAboutUpdateState, { status: update });
+  await runAboutUpdateAction(api, installing, (patch) => { installing = merged(installing, patch); });
+  assert(installs === 1, '更新按钮应调用 install');
+  assert(installing.installing, '更新启动后应进入更新中');
+  assertIncludes(render(installing), '正在更新…', '应显示更新中');
 
-    await mount(api);
-    await click('检查');
-    assert(checks === 1, '检查按钮应调用 check');
-    assert(container.textContent?.includes('已是最新'), '检查后应显示已是最新');
+  // ---- 点「检查」：调用 check，显示已是最新 ----
+  let checked = merged(initialAboutUpdateState, { status: current });
+  await runAboutUpdateAction(api, checked, (patch) => { checked = merged(checked, patch); });
+  assert(checks === 1, '检查按钮应调用 check');
+  assertIncludes(render(checked), '已是最新', '检查后应显示已是最新');
 
-    await mount({ ...api, get: async () => ({ ...update, installable: false, url: 'https://example.com' }) });
-    assert(Array.from(container.querySelectorAll('button')).some((item) => item.textContent === '下载'), '不可安装时应显示下载');
-  } finally {
-    await act(async () => { root.unmount(); });
-    container.remove();
-  }
+  // ---- 不可安装但给了下载地址：按钮变成「下载」----
+  const downloadable = merged(initialAboutUpdateState, {
+    status: { ...update, installable: false, url: 'https://example.com' }
+  });
+  assertIncludes(render(downloadable), '下载', '不可安装时应显示下载');
 }
 
 void run();
