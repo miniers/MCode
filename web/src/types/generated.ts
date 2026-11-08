@@ -64,6 +64,9 @@ export type Task = {
   attemptCount: number;
   rejectCount?: number;
   lastFailureReason: string | null;
+  resultSummary?: string | null;
+  waitKind?: string | null;
+  wakeAt?: string | null;
   revision: number;
 };
 

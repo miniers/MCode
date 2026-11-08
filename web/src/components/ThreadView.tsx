@@ -53,6 +53,7 @@ import { QueuedFollowUpSection } from './thread/QueuedFollowUpSection';
 import { ContinueTurnPill } from './thread/ContinueTurnPill';
 import { QuestionMinimap, buildQuestionMinimapData } from './thread/QuestionMinimap';
 import { TodoProgressPill } from './thread/TodoProgressPill';
+import { taskContextDetail } from './taskContext';
 import {
   isUnresolvedAction,
   linkedTaskColumnLabel,
@@ -754,6 +755,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const linkedTask = latestSummary.taskID
     ? board?.tasks.find((task) => task.id === latestSummary.taskID) ?? null
     : null;
+  const linkedTaskDetail = linkedTask ? taskContextDetail(linkedTask) : '';
   const linkedGoal = linkedTask?.goalID
     ? board?.goals.find((goal) => goal.id === linkedTask.goalID) ?? null
     : latestSummary.goalID
@@ -2899,6 +2901,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
                   任务：{linkedTask.title}
                 </a>
                 <span className="thread-status shrink-0">{linkedTaskColumnLabel(linkedTask.displayColumn)}</span>
+                {linkedTaskDetail && <span className="min-w-0 truncate text-[var(--foreground-muted)]">{linkedTaskDetail}</span>}
               </>
             ) : (
               <span className="min-w-0 flex-1" />

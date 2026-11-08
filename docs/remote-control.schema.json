@@ -1239,6 +1239,15 @@
             "null"
           ]
         },
+        "resultSummary": {
+          "type": ["string", "null"]
+        },
+        "waitKind": {
+          "type": ["string", "null"]
+        },
+        "wakeAt": {
+          "type": ["string", "null"]
+        },
         "revision": {
           "type": "integer",
           "minimum": 0

@@ -74,18 +74,21 @@ func openStewardTask(s *chatState, result stewardResult) {
 	s.stewardTask = stewardTaskSnapshot{ID: result.Task, Status: result.Status, ResultSummary: result.Summary}
 	s.mu.Unlock()
 	s.selectThread(result.Thread)
+}
 
+func loadStewardTaskForThread(s *chatState, threadID string) {
 	go func() {
 		board, err := s.client.KanbanBoard(context.Background(), "")
 		if err != nil {
 			return
 		}
 		for _, task := range board.Tasks {
-			if task.ID != result.Task {
+			if task.ThreadID != threadID {
 				continue
 			}
 			s.mu.Lock()
-			if s.selectedThreadID == result.Thread && s.stewardTaskThreadID == result.Thread {
+			if !s.closed && s.selectedThreadID == threadID {
+				s.stewardTaskThreadID = threadID
 				s.stewardTask = stewardTaskSnapshot{
 					ID:            task.ID,
 					Status:        task.Status,

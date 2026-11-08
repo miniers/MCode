@@ -112,6 +112,9 @@ type KanbanTask struct {
 	AttemptCount       int      `json:"attemptCount"`
 	RejectCount        int      `json:"rejectCount,omitempty"`
 	LastFailureReason  *string  `json:"lastFailureReason"`
+	ResultSummary      string   `json:"resultSummary,omitempty"`
+	WaitKind           string   `json:"waitKind,omitempty"`
+	WakeAt             string   `json:"wakeAt,omitempty"`
 	Revision           int      `json:"revision"`
 }
 

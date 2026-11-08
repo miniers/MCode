@@ -64,6 +64,10 @@ func (d *Dispatcher) NotifyKanbanChanged() {
 func taskViewToWire(tv kanban.TaskView) wire.KanbanTask {
 	t := tv.Task
 	derived := tv.Derived
+	meta, err := kanban.ParseTaskMeta(t.Meta)
+	if err != nil {
+		meta = kanban.TaskMeta{}
+	}
 
 	dependsOn := t.DependsOn
 	if dependsOn == nil {
@@ -101,6 +105,9 @@ func taskViewToWire(tv kanban.TaskView) wire.KanbanTask {
 		AttemptCount:       t.AttemptCount,
 		RejectCount:        t.RejectCount,
 		LastFailureReason:  t.LastFailureReason,
+		ResultSummary:      meta.Summary,
+		WaitKind:           meta.WaitKind,
+		WakeAt:             meta.WakeAt,
 		Revision:           t.Revision,
 	}
 }

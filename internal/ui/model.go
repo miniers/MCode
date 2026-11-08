@@ -1370,6 +1370,9 @@ func (s *chatState) selectThread(threadID string) {
 	if threadID == "" {
 		return
 	}
+	if threadID != s.stewardThreadID() {
+		loadStewardTaskForThread(s, threadID)
+	}
 
 	go func(tid string) {
 		ctx := context.Background()
