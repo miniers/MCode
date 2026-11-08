@@ -699,6 +699,71 @@ func TestComposerRefreshProvidersForcesRefreshOnce(t *testing.T) {
 	t.Fatal("强制刷新未更新会话目录")
 }
 
+func TestApplyProviderCatalogUpdatesWhileSettingsLocked(t *testing.T) {
+	chat := newChatState(NewFakeClient())
+	st := NewSettingsState(settingsTestDir(t), nil, chat)
+	updated := []ProviderInfo{{ID: "claude"}}
+	locked, release := make(chan struct{}), make(chan struct{})
+	go func() {
+		st.mu.Lock()
+		close(locked)
+		<-release
+		st.mu.Unlock()
+	}()
+	<-locked
+	var releaseOnce sync.Once
+	unlockSettings := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unlockSettings()
+
+	done := make(chan bool, 1)
+	go func() { done <- chat.applyProviderCatalog(1, updated, st) }()
+	observed := make(chan struct{})
+	go func() {
+		for {
+			chat.mu.Lock()
+			match := reflect.DeepEqual(chat.providers, updated)
+			chat.mu.Unlock()
+			if match {
+				close(observed)
+				return
+			}
+			select {
+			case <-release:
+				return
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}()
+	select {
+	case <-observed:
+	case <-time.After(time.Second):
+		t.Fatal("设置锁被持有时会话目录未更新")
+	}
+	select {
+	case <-done:
+		t.Fatal("设置锁被持有时目录更新不应完成")
+	default:
+	}
+	unlockSettings()
+	select {
+	case applied := <-done:
+		if !applied {
+			t.Fatal("目录更新应成功")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("释放设置锁后目录更新未完成")
+	}
+	st.mu.Lock()
+	version := st.modelCatalogVersion
+	st.mu.Unlock()
+	if version != 1 {
+		t.Fatalf("目录版本应递增一次，got %d", version)
+	}
+	if chat.applyProviderCatalog(0, nil, st) {
+		t.Fatal("旧序号目录不应被应用")
+	}
+}
+
 func TestBackgroundCatalogUpdateInvalidatesSettingsSnapshot(t *testing.T) {
 	fake := NewFakeClient()
 	updated := []ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "opus", Name: "Opus"}}}}

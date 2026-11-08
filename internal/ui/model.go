@@ -807,25 +807,19 @@ func (s *chatState) nextProviderCatalogRequest() uint64 {
 }
 
 // applyProviderCatalog 忽略比已应用结果更早发起的请求，并同步作废设置页快照。
+// 两把锁不嵌套持有。
 func (s *chatState) applyProviderCatalog(seq uint64, providers []ProviderInfo, st *SettingsState) bool {
-	if st != nil {
-		st.mu.Lock()
-	}
 	s.mu.Lock()
 	if s.closed || seq < s.catalogAppliedSeq {
 		s.mu.Unlock()
-		if st != nil {
-			st.mu.Unlock()
-		}
 		return false
 	}
 	s.catalogAppliedSeq = seq
 	s.providers = providers
-	if st != nil {
-		st.modelCatalogVersion++
-	}
 	s.mu.Unlock()
 	if st != nil {
+		st.mu.Lock()
+		st.modelCatalogVersion++
 		st.mu.Unlock()
 	}
 	s.invalidate()
