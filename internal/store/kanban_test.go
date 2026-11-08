@@ -76,6 +76,9 @@ func TestTaskCRUDAndJSON(t *testing.T) {
 	if got.Revision != 1 {
 		t.Fatalf("期望初始 revision 为 1，实际为 %d", got.Revision)
 	}
+	if got.Meta != "{}" {
+		t.Fatalf("默认 meta = %q", got.Meta)
+	}
 	if len(got.DependsOn) != 2 || got.DependsOn[0] != "dep-a" || got.DependsOn[1] != "dep-b" {
 		t.Fatalf("DependsOn 往返反序列化错误: %+v", got.DependsOn)
 	}
@@ -134,12 +137,17 @@ func TestTaskCAS(t *testing.T) {
 	// 成功更新：expectedRevision = 1
 	task.Title = "测试 CAS - 已更新"
 	task.Status = "in_progress"
+	task.Meta = `{"origin":"owner"}`
 	updated, err := s.UpdateTask(ctx, task, 1)
 	if err != nil {
 		t.Fatalf("CAS 更新期望成功，实际失败: %v", err)
 	}
 	if updated.Revision != 2 {
 		t.Fatalf("期望 revision 自增为 2，实际为 %d", updated.Revision)
+	}
+	reloaded, err := s.GetTask(ctx, task.ID)
+	if err != nil || reloaded.Meta != task.Meta {
+		t.Fatalf("meta 未正确保存: %+v, %v", reloaded, err)
 	}
 
 	// 用旧 revision 更新应触发冲突

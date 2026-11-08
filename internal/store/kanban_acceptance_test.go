@@ -171,7 +171,7 @@ func TestKanbanAcceptanceMigrationFromOldDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("升级后读取旧任务失败: %v", err)
 	}
-	if task.AcceptanceCriteria != "" || task.RejectCount != 0 {
+	if task.AcceptanceCriteria != "" || task.RejectCount != 0 || task.Meta != "{}" {
 		t.Fatalf("旧任务新列默认值不正确: %+v", task)
 	}
 	task.AcceptanceCriteria = "- [命令] `echo ok`"

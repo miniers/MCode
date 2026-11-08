@@ -116,6 +116,9 @@ type CreateTaskInput struct {
 	Title     string
 	Notes     *string
 	ThreadID  *string
+	Origin    string
+	Provider  string
+	Model     string
 	// DependsOn 为前置任务 ID 列表，依赖未完成的任务不可启动。
 	DependsOn []string
 }
@@ -365,6 +368,7 @@ func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (store.Tas
 		Status:    string(TaskStatusTodo),
 		Priority:  string(PriorityNone),
 		DependsOn: deps,
+		Meta:      EncodeTaskMeta(TaskMeta{Origin: in.Origin, Provider: in.Provider, Model: in.Model}),
 	}
 
 	changed := false

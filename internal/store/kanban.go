@@ -31,6 +31,7 @@ type Task struct {
 	RejectCount        int       `json:"reject_count"`
 	LastFailureReason  *string   `json:"last_failure_reason"`
 	LastActivityText   *string   `json:"last_activity_text"`
+	Meta               string    `json:"meta"`
 	Revision           int       `json:"revision"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
@@ -107,6 +108,9 @@ func createTask(ctx context.Context, t Task, exec func(context.Context, string, 
 	if t.Priority == "" {
 		t.Priority = "none"
 	}
+	if t.Meta == "" {
+		t.Meta = "{}"
+	}
 	t.Revision = 1
 
 	dependsOnBytes, err := json.Marshal(t.DependsOn)
@@ -125,8 +129,8 @@ func createTask(ctx context.Context, t Task, exec func(context.Context, string, 
 		depends_on, title, notes, acceptance_criteria, status, priority, is_draft, goal_prompt,
 		review_summary, review_feedback, review_status,
 		attempt_count, reject_count, last_failure_reason, last_activity_text,
-		revision, created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		revision, created_at, updated_at, meta
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err = exec(ctx, query,
 		t.ID,
@@ -152,6 +156,7 @@ func createTask(ctx context.Context, t Task, exec func(context.Context, string, 
 		t.Revision,
 		formatTime(t.CreatedAt),
 		formatTime(t.UpdatedAt),
+		t.Meta,
 	)
 	if err != nil {
 		return fmt.Errorf("create task %s: %w", t.ID, err)
@@ -167,7 +172,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 		depends_on, title, notes, acceptance_criteria, status, priority, is_draft, goal_prompt,
 		review_summary, review_feedback, review_status,
 		attempt_count, reject_count, last_failure_reason, last_activity_text,
-		revision, created_at, updated_at
+		revision, created_at, updated_at, meta
 	FROM tasks
 	WHERE id = ?
 	`
@@ -198,6 +203,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 		&t.Revision,
 		&createdAtStr,
 		&updatedAtStr,
+		&t.Meta,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -230,7 +236,7 @@ func (s *Store) ListTasks(ctx context.Context, projectID string) ([]Task, error)
 		depends_on, title, notes, acceptance_criteria, status, priority, is_draft, goal_prompt,
 		review_summary, review_feedback, review_status,
 		attempt_count, reject_count, last_failure_reason, last_activity_text,
-		revision, created_at, updated_at
+		revision, created_at, updated_at, meta
 	FROM tasks
 	`
 	var args []any
@@ -275,6 +281,7 @@ func (s *Store) ListTasks(ctx context.Context, projectID string) ([]Task, error)
 			&t.Revision,
 			&createdAtStr,
 			&updatedAtStr,
+			&t.Meta,
 		); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
@@ -304,6 +311,9 @@ func (s *Store) ListTasks(ctx context.Context, projectID string) ([]Task, error)
 func (s *Store) UpdateTask(ctx context.Context, t Task, expectedRevision int) (Task, error) {
 	now := time.Now().UTC()
 	t.UpdatedAt = now
+	if t.Meta == "" {
+		t.Meta = "{}"
+	}
 
 	dependsOnBytes, err := json.Marshal(t.DependsOn)
 	if err != nil || string(dependsOnBytes) == "null" {
@@ -336,6 +346,7 @@ func (s *Store) UpdateTask(ctx context.Context, t Task, expectedRevision int) (T
 		reject_count = ?,
 		last_failure_reason = ?,
 		last_activity_text = ?,
+		meta = ?,
 		revision = revision + 1,
 		updated_at = ?
 	WHERE id = ? AND revision = ?
@@ -362,6 +373,7 @@ func (s *Store) UpdateTask(ctx context.Context, t Task, expectedRevision int) (T
 		t.RejectCount,
 		t.LastFailureReason,
 		t.LastActivityText,
+		t.Meta,
 		formatTime(t.UpdatedAt),
 		t.ID,
 		expectedRevision,

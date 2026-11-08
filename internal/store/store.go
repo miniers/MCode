@@ -517,6 +517,26 @@ var migrations = []string{
 	// 每轮逐次模型请求的速度样本（JSON 数组文本），供重启后用量面板继续展示单次请求速度；
 	// 旧库该列默认空串，表示没有样本，界面回退到整轮耗时口径。
 	`ALTER TABLE turn_usage ADD COLUMN requests_json TEXT NOT NULL DEFAULT '';`,
+	`ALTER TABLE tasks ADD COLUMN meta TEXT NOT NULL DEFAULT '{}';`,
+	`
+	CREATE TABLE IF NOT EXISTS steward_decisions (
+		id TEXT PRIMARY KEY,
+		task_id TEXT NOT NULL DEFAULT '',
+		thread_id TEXT NOT NULL DEFAULT '',
+		question TEXT NOT NULL DEFAULT '',
+		context TEXT NOT NULL DEFAULT '',
+		options_json TEXT NOT NULL DEFAULT '[]',
+		recommended TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'open',
+		answer TEXT NOT NULL DEFAULT '',
+		answered_by TEXT NOT NULL DEFAULT '',
+		answered_at TEXT,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_steward_decisions_task ON steward_decisions(task_id);
+	CREATE INDEX IF NOT EXISTS idx_steward_decisions_status ON steward_decisions(status);
+	`,
 }
 
 // Store 封装 SQLite 数据库操作。
