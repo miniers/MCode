@@ -70,6 +70,11 @@ import {
 } from './Icons';
 import '../styles/send-morph.css';
 
+// 按下时保持输入框焦点，避免键盘收起引起布局移位导致点击落空。
+function keepComposerFocus(event: React.MouseEvent): void {
+  event.preventDefault();
+}
+
 /** 模型浮层的两级页面：一级是摘要，二级是主代理 / 子代理的模型列表。 */
 export type ModelSheetPage = 'summary' | 'lead' | 'bees';
 
@@ -1881,6 +1886,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             {onInterruptAndSend && draft.trim().length > 0 && isRunning && !queuesLocalCommand && (
               <button
                 type="button"
+                onMouseDown={keepComposerFocus}
                 onClick={() => {
                   if (onInterruptAndSend) sendWithExpandedPaste(onInterruptAndSend);
                 }}
@@ -1898,6 +1904,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                   否则 React 会重建 DOM，形变过渡就会丢。 */}
               <button
                 type="button"
+                onMouseDown={keepComposerFocus}
                 onClick={onStop}
                 disabled={stopDisabled}
                 aria-label="停止"
@@ -1910,6 +1917,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
               </button>
               <button
                 type={primaryActionStops ? 'button' : 'submit'}
+                onMouseDown={keepComposerFocus}
                 onClick={primaryActionStops ? onStop : undefined}
                 disabled={primaryActionStops ? stopDisabled : sendDisabled || isExpandingMentions}
                 aria-label={primaryActionStops ? '停止' : isRunning ? queueSendLabel : submitLabel}
