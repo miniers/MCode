@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"math"
+	"reflect"
 	"testing"
 	"time"
 
@@ -421,6 +422,32 @@ func TestRenderMagpieModelMatrix_DedupEndpointError(t *testing.T) {
 	tt.Frame()
 	if count := countExactText(tt.Texts(), "未设置 API Key"); count != 1 {
 		t.Fatalf("相同错误应只显示一行，实际 %d 行: %v", count, tt.Texts())
+	}
+}
+
+// TestMagpieInstalledAgents_EnabledProviders 覆盖关闭供应商和完整列顺序。
+func TestMagpieInstalledAgents_EnabledProviders(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		claudeEnabled bool
+		piEnabled     bool
+		want          []string
+	}{
+		{name: "关闭 pi", claudeEnabled: true, piEnabled: false, want: []string{"claude", "codex", "mcode"}},
+		{name: "关闭 claude", claudeEnabled: false, piEnabled: true, want: []string{"codex", "pi", "mcode"}},
+		{name: "全部启用", claudeEnabled: true, piEnabled: true, want: []string{"claude", "codex", "pi", "mcode"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := matrixTestState(t, NewFakeClient(), nil, nil)
+			st.mu.Lock()
+			st.cfg.Providers.Claude.Enabled = tc.claudeEnabled
+			st.cfg.Providers.Codex.Enabled = true
+			st.providerRows.settings = map[string]ProviderSetting{"pi": {ID: "pi", Enabled: tc.piEnabled}}
+			st.mu.Unlock()
+			if got := magpieInstalledAgents(st); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("智能体列 = %v，期望 %v", got, tc.want)
+			}
+		})
 	}
 }
 

@@ -416,8 +416,12 @@ func (s *SettingsState) Open() {
 	s.remote.statusLoaded = false
 	// 设备列表也每次都重读：web 端可能已通过 session.renameDevice 改过名称。
 	s.remote.devicesLoaded = false
+	loadMagpieProviders := s.currentPage == "magpie"
 	s.mu.Unlock()
 
+	if loadMagpieProviders {
+		s.loadProviderRows()
+	}
 	s.invalidate()
 }
 
@@ -955,6 +959,9 @@ func (s *SettingsState) switchSettingsPageLocked(id string) bool {
 	}
 	if s.currentPage != target && target == "models" {
 		s.endpoints.loaded = false
+		loadProviders = true
+	}
+	if s.currentPage != target && target == "magpie" {
 		loadProviders = true
 	}
 	if s.currentPage != target {

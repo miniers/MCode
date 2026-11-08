@@ -15,11 +15,23 @@ const magpieBuiltinAgent = "mcode"
 var magpieMatrixAgents = []string{"claude", "codex", "pi", magpieBuiltinAgent}
 
 func magpieInstalledAgents(st *SettingsState) []string {
+	st.mu.Lock()
+	cfg := st.cfg
+	providerRows := make(map[string]ProviderSetting, len(st.providerRows.settings))
+	for id, row := range st.providerRows.settings {
+		providerRows[id] = row
+	}
+	st.mu.Unlock()
+	enabled := providerEnabledMap(cfg, providerRows, nil)
+
 	agents := make([]string, 0, len(magpieMatrixAgents))
 	for _, agent := range magpieMatrixAgents {
 		// 内置引擎不来自供应商列表，providerStatusFor 对它的结果不可靠，固定保留。
 		if agent == magpieBuiltinAgent {
 			agents = append(agents, agent)
+			continue
+		}
+		if providerDisabled(enabled, agent) {
 			continue
 		}
 		st.mu.Lock()
