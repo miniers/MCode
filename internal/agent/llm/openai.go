@@ -24,6 +24,9 @@ type OpenAIConfig struct {
 	// EchoReasoning 为 true 时在 assistant 消息上回传 reasoning_content，
 	// DeepSeek 系思考模型的工具轮次需要它。
 	EchoReasoning bool
+	// Effort 可定制 reasoning_effort 的取值：返回假表示不发送 effort，为 nil 时使用内置规则。
+	// 钩子返回的值原样写入 reasoning_effort，不再归一化，便于网关透传 xhigh、max。
+	Effort func(model, effort string) (string, bool)
 }
 
 type openAIClient struct{ cfg OpenAIConfig }
@@ -104,12 +107,49 @@ func sortedToolCalls(acc map[int]*toolCallAccumulator) []ToolCall {
 	return result
 }
 
-func requestBody(req Request, echoReasoning bool) map[string]any {
+// chatCompletionsURL 构造 Chat Completions 地址：
+// BaseURL 已经指向 /chat/completions 时直接使用，避免重复拼接路径。
+func chatCompletionsURL(baseURL string) string {
+	u := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if strings.HasSuffix(u, "/chat/completions") {
+		return u
+	}
+	return u + "/chat/completions"
+}
+
+// defaultEffort 是内置的推理强度规则：
+// deepseek-reasoner 不接受 reasoning_effort；off 不下发；
+// minimal 归一到 low，xhigh 与 max 归一到 high，其余原样。
+func defaultEffort(model, effort string) (string, bool) {
+	if effort == "" || effort == "off" || strings.Contains(strings.ToLower(model), "deepseek-reasoner") {
+		return "", false
+	}
+	if effort == "minimal" {
+		effort = "low"
+	}
+	if effort == "xhigh" || effort == "max" {
+		effort = "high"
+	}
+	return effort, true
+}
+
+// resolveEffort 优先使用配置的钩子，未配置时走内置规则。
+func (c *openAIClient) resolveEffort(model, effort string) (string, bool) {
+	if c.cfg.Effort != nil {
+		return c.cfg.Effort(model, effort)
+	}
+	return defaultEffort(model, effort)
+}
+
+func requestBody(req Request, echoReasoning bool, resolveEffort func(model, effort string) (string, bool)) map[string]any {
 	messages := make([]any, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, map[string]any{"role": "system", "content": req.System})
 	}
-	deepseek := strings.Contains(strings.ToLower(req.Model), "deepseek")
+	lowerModel := strings.ToLower(req.Model)
+	deepseek := strings.Contains(lowerModel, "deepseek")
+	// deepseek-reasoner 既不接受 reasoning_effort，也不接受 thinking。
+	reasoner := strings.Contains(lowerModel, "deepseek-reasoner")
 	for _, msg := range req.Messages {
 		m := map[string]any{"role": msg.Role}
 		var text strings.Builder
@@ -165,11 +205,12 @@ func requestBody(req Request, echoReasoning bool) map[string]any {
 			tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Parameters}})
 		}
 		body["tools"] = tools
+		body["tool_choice"] = "auto"
 	}
 	if req.MaxTokens > 0 {
 		body["max_tokens"] = req.MaxTokens
 	}
-	if deepseek {
+	if deepseek && !reasoner {
 		// 对应 Magpie 桥的 thinkingFormat 与 assistant reasoning_content 方言。
 		if req.Effort != "" {
 			typ := "enabled"
@@ -179,25 +220,23 @@ func requestBody(req Request, echoReasoning bool) map[string]any {
 			body["thinking"] = map[string]string{"type": typ}
 		}
 	}
-	if req.Effort != "" && req.Effort != "off" {
-		effort := req.Effort
-		if effort == "minimal" {
-			effort = "low"
+	if req.Effort != "" {
+		if resolveEffort == nil {
+			resolveEffort = defaultEffort
 		}
-		if effort == "xhigh" || effort == "max" {
-			effort = "high"
+		if effort, ok := resolveEffort(req.Model, req.Effort); ok && effort != "" {
+			body["reasoning_effort"] = effort
 		}
-		body["reasoning_effort"] = effort
 	}
 	return body
 }
 
 func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Delta)) (*Response, error) {
-	encoded, err := json.Marshal(requestBody(req, c.cfg.EchoReasoning))
+	encoded, err := json.Marshal(requestBody(req, c.cfg.EchoReasoning, c.resolveEffort))
 	if err != nil {
 		return nil, fmt.Errorf("openai: encode request: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.cfg.BaseURL, "/")+"/chat/completions", bytes.NewReader(encoded))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsURL(c.cfg.BaseURL), bytes.NewReader(encoded))
 	if err != nil {
 		return nil, err
 	}

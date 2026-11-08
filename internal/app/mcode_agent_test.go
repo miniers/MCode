@@ -176,40 +176,90 @@ func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	}
 }
 
-func TestMcodeModelCatalogUsesPiSelections(t *testing.T) {
-	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
-	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderPi: {Selections: []config.MagpieSelection{{EndpointID: "edge", Models: []string{"model-a", "model-b"}}}}}
-	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+func TestMcodeModelCatalogUsesAllCachedGatewayModels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[
+			{"id":"claude-sonnet-4.5","magpie_label":"Claude Sonnet 4.5 · Anthropic","reasoning":true,"supported_reasoning_levels":[{"effort":"minimal"},{"effort":"low"},{"effort":"high"},{"effort":"max"}],"context_window":400000},
+			{"id":"plain-model","display_name":"Plain Model","reasoning":false,"context_window":128000}]}`)
+	}))
+	t.Cleanup(server.Close)
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: server.URL + "/v1"})
+	// pi 只勾了一个模型，内置引擎的目录不受影响。
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderPi: {
+		Selections: []config.MagpieSelection{{EndpointID: "edge", Models: []string{"claude-sonnet-4.5"}}},
+	}}
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gw-key"})
+	if _, err := magpie.FetchModels(context.Background(), server.URL+"/v1", "gw-key"); err != nil {
+		t.Fatalf("填充模型缓存失败: %v", err)
+	}
+	targets := mcodeTargets(cfg, secrets)
+	if len(targets) != 1 {
+		t.Fatalf("targets = %#v", targets)
+	}
+	prefix := targets[0].ProviderID
 	got := mcodeModelsForConfig(cfg, secrets)
-	piTargets := piMagpieTargets(cfg, secrets)
-	if len(piTargets) != 1 || len(got) != 2 || got[0].ID != piTargets[0].providerID+"/model-a" ||
-		got[0].Name != magpie.ShortName(magpie.Model{ID: "model-a"}) || got[1].ID != piTargets[0].providerID+"/model-b" {
-		t.Fatalf("Pi-compatible catalog = %#v", got)
+	if len(got) != 2 {
+		t.Fatalf("catalog = %#v", got)
+	}
+	if got[0].ID != prefix+"/claude-sonnet-4.5" || got[1].ID != prefix+"/plain-model" {
+		t.Fatalf("模型 ID = %q, %q", got[0].ID, got[1].ID)
+	}
+	if got[0].Name != "Claude Sonnet 4.5" || got[1].Name != "Plain Model" {
+		t.Fatalf("模型名 = %q, %q", got[0].Name, got[1].Name)
+	}
+	if got[0].ContextLimit != 400000 || got[1].ContextLimit != 128000 {
+		t.Fatalf("上下文窗口 = %d, %d", got[0].ContextLimit, got[1].ContextLimit)
+	}
+	if strings.Join(got[0].Efforts, ",") != "low,high,max" {
+		t.Fatalf("网关档位过滤 = %v", got[0].Efforts)
+	}
+	if len(got[1].Efforts) != 0 {
+		t.Fatalf("无推理模型的档位 = %v", got[1].Efforts)
 	}
 	if !got[0].IsDefault || got[1].IsDefault {
-		t.Fatalf("default flags = %#v", got)
+		t.Fatalf("默认标记 = %#v", got)
 	}
-	secrets = mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key", mcodeAnthropicAPIKeyAccount: "anthropic-key"})
+	// 目录行 ID 能被请求解析到同一个端点。
+	_, modelID, err := resolveMcodeClient(cfg, secrets, got[1].ID, "")
+	if err != nil || modelID != "plain-model" {
+		t.Fatalf("解析目录行 = %q, %v", modelID, err)
+	}
+	// Anthropic 行照旧排在 Magpie 行之后。
+	secrets = mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gw-key", mcodeAnthropicAPIKeyAccount: "anthropic-key"})
 	got = mcodeModelsForConfig(cfg, secrets)
 	if len(got) != 5 || got[2].ID != "anthropic/claude-opus-5-5" || got[4].ID != "anthropic/claude-haiku-5-5" {
 		t.Fatalf("Anthropic catalog = %#v", got)
 	}
 }
 
-func TestMcodeModelCatalogDefaultsPerKeyedEndpoint(t *testing.T) {
+func TestMcodeModelCatalogDefaultsOnCacheMiss(t *testing.T) {
+	edge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"data":[{"id":"edge-model"}]}`)
+	}))
+	t.Cleanup(edge.Close)
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"data":[{"id":"other-model"}]}`)
+	}))
+	t.Cleanup(other.Close)
 	cfg := mcodeTestConfig(
-		config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: "https://edge.example/v1"},
-		config.CustomEndpointConfig{ID: "other", Name: "Other", Enabled: true, Magpie: true, BaseURL: "https://other.example/v1"},
+		config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: edge.URL + "/v1"},
+		config.CustomEndpointConfig{ID: "other", Name: "Other", Enabled: true, Magpie: true, BaseURL: other.URL + "/v1"},
 	)
-	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "edge-key", config.CustomEndpointSecretAccount("other"): "other-key"})
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "edge-key"})
 	got := mcodeModelsForConfig(cfg, secrets)
-	if len(got) != 2 || got[0].ID != "edge/"+magpieinject.DefaultModel().ID || got[1].ID != "other/"+magpieinject.DefaultModel().ID || !got[0].IsDefault {
-		t.Fatalf("default catalog = %#v", got)
+	if len(got) != 1 || got[0].ID != "edge/"+magpieinject.DefaultModel().ID || !got[0].IsDefault {
+		t.Fatalf("缓存未命中的目录 = %#v", got)
 	}
-	secrets = mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "edge-key"})
-	got = mcodeModelsForConfig(cfg, secrets)
-	if len(got) != 1 || got[0].ID != "edge/"+magpieinject.DefaultModel().ID {
-		t.Fatalf("catalog should include only endpoints with keys: %#v", got)
+	if strings.Join(got[0].Efforts, ",") != "low,medium,high,xhigh,max" {
+		t.Fatalf("缺元数据时的档位 = %v", got[0].Efforts)
+	}
+	if got[0].ContextLimit != magpieinject.DefaultModel().ContextWindow {
+		t.Fatalf("缺元数据时的窗口 = %d", got[0].ContextLimit)
 	}
 }
 
@@ -258,18 +308,15 @@ func TestMcodeContextWindow(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "jp", Name: "Magpie JP", Enabled: true, Magpie: true, BaseURL: server.URL + "/v1"})
-	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderPi: {
-		Selections: []config.MagpieSelection{{EndpointID: "jp", Models: []string{"claude-sonnet-4.5", "no-metadata"}}},
-	}}
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("jp"): "gw-key"})
 	if _, err := magpie.FetchModels(context.Background(), server.URL+"/v1", "gw-key"); err != nil {
 		t.Fatalf("填充模型缓存失败: %v", err)
 	}
-	targets := piMagpieAllTargets(cfg, secrets)
+	targets := mcodeTargets(cfg, secrets)
 	if len(targets) != 1 {
 		t.Fatalf("targets = %#v", targets)
 	}
-	prefix := targets[0].providerID
+	prefix := targets[0].ProviderID
 	if got := mcodeContextWindow(cfg, secrets, prefix+"/claude-sonnet-4.5"); got != 1000000 {
 		t.Fatalf("网关元数据的窗口 = %d", got)
 	}

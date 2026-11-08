@@ -342,6 +342,18 @@ func CachedModel(baseURL, apiKey, id string) (Model, bool) {
 	return Model{}, false
 }
 
+// CachedModels 从模型列表缓存里取整份列表，不会发网络请求：缓存未命中或缓存的是
+// 失败记录时返回 nil 与 false。返回的是副本，调用方可以随意改动。
+func CachedModels(baseURL, apiKey string) ([]Model, bool) {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	key := strings.TrimSpace(apiKey)
+	models, cachedErr, ok := cachedModels(base+"\x00"+key, time.Now())
+	if !ok || cachedErr != nil {
+		return nil, false
+	}
+	return models, true
+}
+
 // cachedModels 返回未过期的缓存，没有则返回 false。命中的是失败缓存时
 // models 为 nil、err 为上次的错误，调用方直接把它还给调用方。
 func cachedModels(key string, now time.Time) ([]Model, error, bool) {

@@ -182,3 +182,137 @@ func TestIsContextOverflow(t *testing.T) {
 		t.Fatal("false positive")
 	}
 }
+
+// recordedRequest 是测试服务端收到的一次请求。
+type recordedRequest struct {
+	path string
+	body map[string]any
+}
+
+// recordServer 启动记录请求路径与 JSON 请求体的服务端，返回读取最后一次请求的闭包。
+func recordServer(t *testing.T) (*httptest.Server, func() recordedRequest) {
+	t.Helper()
+	var recorded recordedRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorded.path = r.URL.Path
+		// 每次请求都新建 map，避免 json 解码把上一次请求的字段合并进来。
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		recorded.body = body
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	t.Cleanup(server.Close)
+	return server, func() recordedRequest { return recorded }
+}
+
+func TestOpenAIChatCompletionsURL(t *testing.T) {
+	server, recorded := recordServer(t)
+	for _, tc := range []struct{ name, base, path string }{
+		{"base", server.URL, "/chat/completions"},
+		{"versioned", server.URL + "/v1", "/v1/chat/completions"},
+		{"chat", server.URL + "/chat/completions", "/chat/completions"},
+		{"chat-slash", server.URL + "/chat/completions/", "/chat/completions"},
+		{"versioned-chat", server.URL + "/v1/chat/completions", "/v1/chat/completions"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := NewOpenAI(OpenAIConfig{BaseURL: tc.base})
+			if _, err := client.Stream(context.Background(), Request{Model: "test"}, nil); err != nil {
+				t.Fatal(err)
+			}
+			if got := recorded().path; got != tc.path {
+				t.Fatalf("path: %q", got)
+			}
+		})
+	}
+}
+
+func TestOpenAIToolChoice(t *testing.T) {
+	server, recorded := recordServer(t)
+	tools := []ToolSpec{{Name: "run", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	for _, tc := range []struct {
+		name  string
+		tools []ToolSpec
+		want  string
+	}{
+		{"with-tools", tools, "auto"},
+		{"without-tools", nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := NewOpenAI(OpenAIConfig{BaseURL: server.URL})
+			if _, err := client.Stream(context.Background(), Request{Model: "test", Tools: tc.tools}, nil); err != nil {
+				t.Fatal(err)
+			}
+			body := recorded().body
+			choice, ok := body["tool_choice"]
+			if tc.want == "" {
+				if ok {
+					t.Fatalf("tool_choice should be omitted: %+v", body)
+				}
+				return
+			}
+			if !ok || choice != tc.want {
+				t.Fatalf("tool_choice: %+v", body)
+			}
+			if body["tools"] == nil {
+				t.Fatalf("tools should be present: %+v", body)
+			}
+		})
+	}
+}
+
+func TestOpenAIReasoningEffort(t *testing.T) {
+	server, recorded := recordServer(t)
+	for _, tc := range []struct {
+		name     string
+		model    string
+		effort   string
+		hook     func(model, effort string) (string, bool)
+		want     string
+		thinking bool
+	}{
+		{"default-xhigh", "test", "xhigh", nil, "high", false},
+		{"default-minimal", "test", "minimal", nil, "low", false},
+		{"default-off", "test", "off", nil, "", false},
+		{"deepseek-thinking", "deepseek-chat", "high", nil, "high", true},
+		{"deepseek-reasoner", "deepseek-reasoner", "high", nil, "", false},
+		{"hook-max", "test", "max", func(string, string) (string, bool) { return "max", true }, "max", false},
+		{"hook-skip", "test", "high", func(string, string) (string, bool) { return "", false }, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := NewOpenAI(OpenAIConfig{BaseURL: server.URL, Effort: tc.hook})
+			if _, err := client.Stream(context.Background(), Request{Model: tc.model, Effort: tc.effort}, nil); err != nil {
+				t.Fatal(err)
+			}
+			body := recorded().body
+			effort, ok := body["reasoning_effort"]
+			if tc.want == "" {
+				if ok {
+					t.Fatalf("reasoning_effort should be omitted: %+v", body)
+				}
+			} else if !ok || effort != tc.want {
+				t.Fatalf("reasoning_effort: %+v", body)
+			}
+			if _, ok := body["thinking"]; ok != tc.thinking {
+				t.Fatalf("thinking: %+v", body)
+			}
+		})
+	}
+}
+
+func TestOpenAIEffortHookArgs(t *testing.T) {
+	server, _ := recordServer(t)
+	var gotModel, gotEffort string
+	client := NewOpenAI(OpenAIConfig{BaseURL: server.URL, Effort: func(model, effort string) (string, bool) {
+		gotModel, gotEffort = model, effort
+		return effort, true
+	}})
+	if _, err := client.Stream(context.Background(), Request{Model: "gateway/model", Effort: "xhigh"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if gotModel != "gateway/model" || gotEffort != "xhigh" {
+		t.Fatalf("hook args: %q %q", gotModel, gotEffort)
+	}
+}

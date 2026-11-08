@@ -222,6 +222,61 @@ func TestFetchModelsLevels(t *testing.T) {
 	}
 }
 
+// TestCachedModels 校验 CachedModels 只读缓存：FetchModels 成功后能拿到同样的列表，
+// 没拉过的端点和失败缓存都返回 false，且不发请求。
+func TestCachedModels(t *testing.T) {
+	resetModelsCache(t)
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		io.WriteString(w, `{"object":"list","data":[{"id":"cline/gpt-x","context_window":300000},{"id":"cline/plain"}]}`)
+	}))
+	defer srv.Close()
+
+	base := srv.URL + "/v1"
+	if _, ok := CachedModels(base, "key-list"); ok {
+		t.Fatal("没拉过时 CachedModels 应当未命中")
+	}
+	want, err := FetchModels(context.Background(), base, "key-list")
+	if err != nil {
+		t.Fatalf("FetchModels: %v", err)
+	}
+	got, ok := CachedModels(base, "key-list")
+	if !ok || len(got) != len(want) {
+		t.Fatalf("CachedModels = %v,%v，想要 %v,true", got, ok, want)
+	}
+	for i := range want {
+		if got[i].ID != want[i].ID || got[i].ContextWindow != want[i].ContextWindow {
+			t.Fatalf("第 %d 个模型 = %+v，想要 %+v", i, got[i], want[i])
+		}
+	}
+	// 改返回值不污染缓存。
+	got[0].ID = "changed"
+	again, ok := CachedModels(base, "key-list")
+	if !ok || again[0].ID != "cline/gpt-x" {
+		t.Fatalf("再次 CachedModels = %v,%v", again, ok)
+	}
+	if n := atomic.LoadInt32(&hits); n != 1 {
+		t.Errorf("请求次数 = %d，想要 1（CachedModels 不发请求）", n)
+	}
+
+	// 失败缓存与没拉过的端点都返回 false。
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, `{"error":"boom"}`)
+	}))
+	defer bad.Close()
+	if _, err := FetchModels(context.Background(), bad.URL+"/v1", "key-list"); err == nil {
+		t.Fatal("失败端点应当返回错误")
+	}
+	if _, ok := CachedModels(bad.URL+"/v1", "key-list"); ok {
+		t.Error("失败缓存应当未命中")
+	}
+	if _, ok := CachedModels(srv.URL+"/other/v1", "key-list"); ok {
+		t.Error("没拉过的端点应当未命中")
+	}
+}
+
 func TestFetchModelsErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

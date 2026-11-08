@@ -6503,6 +6503,13 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 	}
 	sessionID := td.sessionID
 	needsHandoff := td.needsHandoff
+	// 会话文件已丢失时（例如本地会话被清理），把可见历史交接进本轮提示词，避免模型失去上下文。
+	// 只影响本轮，不写回线程状态；实现者本轮重建会话后，下一轮就不会再交接。
+	if !needsHandoff && sessionID != "" {
+		if checker, ok := h.(harness.SessionChecker); ok && !checker.SessionExists(sessionID) {
+			needsHandoff = true
+		}
+	}
 	// C-ST-07：本轮启动前确保历史消息在内存中（已归档的空闲会话可能已被淘汰）。
 	if err := b.ensureMessagesLocked(td, threadID); err != nil {
 		log.Printf("ensure messages for thread %s error: %v", threadID, err)

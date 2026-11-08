@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -161,8 +160,8 @@ func isDeepSeekModel(model string) bool {
 // mcodeAnthropicContextWindow 是 anthropic/ 前缀模型的上下文窗口（tokens）。
 const mcodeAnthropicContextWindow = 200000
 
-// mcodeContextWindow 返回模型的上下文窗口：anthropic/ 前缀固定 200000；Magpie 模型按
-// pi 勾选查找，网关缓存里有元数据就用它，否则用 pi 注入的默认窗口；查不到返回 0。
+// mcodeContextWindow 返回模型的上下文窗口：anthropic/ 前缀固定 200000；Magpie 模型
+// 按网关缓存里的元数据取值，缓存里没有这个模型时用默认窗口；解析不到端点返回 0。
 func mcodeContextWindow(cfg config.Config, secrets config.SecretStore, model string) int {
 	if strings.HasPrefix(model, "anthropic/") {
 		return mcodeAnthropicContextWindow
@@ -171,16 +170,10 @@ func mcodeContextWindow(cfg config.Config, secrets config.SecretStore, model str
 	if !ok {
 		return 0
 	}
-	for _, piTarget := range piMagpieAllTargets(cfg, secrets) {
-		if piTarget.providerID != target.ProviderID || !slices.Contains(piTarget.models, modelID) {
-			continue
-		}
-		if cached, hit := magpie.CachedModel(piTarget.baseURL, piTarget.apiKey, modelID); hit && cached.ContextWindow > 0 {
-			return cached.ContextWindow
-		}
-		return magpieinject.DefaultModel().ContextWindow
+	if cached, hit := magpie.CachedModel(target.BaseURL, target.APIKey, modelID); hit && cached.ContextWindow > 0 {
+		return cached.ContextWindow
 	}
-	return 0
+	return magpieinject.DefaultModel().ContextWindow
 }
 
 // buildMcodeHarness 构造内置 mcode agent harness。
@@ -238,31 +231,27 @@ func mcodeModelCatalog() []wire.ProviderModel {
 	return mcodeModelsForConfig(cfg, secrets)
 }
 
-// mcodeModelsForConfig 生成与 pi 共用模型 ID 和名称规则的模型目录。
+// mcodeModelsForConfig 用内置引擎实际可用的 Magpie 端点生成模型目录，不依赖 pi 的勾选。
+// 行 ID 是 target.ProviderID + 模型 ID，与 resolveMcodeClient 的解析规则一致。
 func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.ProviderModel {
-	targets := piMagpieAllTargets(cfg, secrets)
-	selected := false
-	for _, target := range targets {
-		if len(target.models) > 0 {
-			selected = true
-			break
-		}
-	}
 	rows := make([]wire.ProviderModel, 0)
-	for _, target := range targets {
-		if target.apiKey == "" {
+	for _, target := range mcodeTargets(cfg, secrets) {
+		if target.APIKey == "" {
 			continue
 		}
-		ids := target.models
-		if !selected {
-			ids = []string{magpieinject.DefaultModel().ID}
+		models, hit := magpie.CachedModels(target.BaseURL, target.APIKey)
+		if !hit {
+			// 缓存没拉过时先在后台预热，本次用默认模型一行兜底，下次打开就有全部模型。
+			warmMagpieModels(target)
+			models = []magpie.Model{magpieinject.DefaultModel()}
 		}
-		for _, id := range ids {
+		for _, model := range models {
 			rows = append(rows, wire.ProviderModel{
-				ID:        target.providerID + "/" + id,
-				Name:      magpie.ShortName(magpie.Model{ID: id}),
-				Efforts:   []string{"low", "medium", "high", "xhigh", "max"},
-				IsDefault: len(rows) == 0,
+				ID:           target.ProviderID + "/" + model.ID,
+				Name:         magpie.ShortName(model),
+				Efforts:      mcodeEfforts(model),
+				ContextLimit: model.ContextWindow,
+				IsDefault:    len(rows) == 0,
 			})
 		}
 	}
@@ -280,6 +269,18 @@ func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.
 		}
 	}
 	return rows
+}
+
+// mcodeEfforts 返回内置引擎可用的思考档位：网关给了档位就按 mcode 后端过滤，
+// 没有档位且不是推理模型时不填，只有元数据缺失时沿用五档默认值。
+func mcodeEfforts(model magpie.Model) []string {
+	if len(model.Levels) > 0 {
+		return magpieEffortsFor(config.ProviderMcode, model.Levels)
+	}
+	if !model.Reasoning {
+		return nil
+	}
+	return []string{"low", "medium", "high", "xhigh", "max"}
 }
 
 // mcodeSkills 返回仅来自全局与项目目录的已启用技能。

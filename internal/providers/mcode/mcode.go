@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -19,6 +21,16 @@ import (
 
 // Options 配置内置 agent harness。
 type Options struct {
+	// Kind 是 provider 种类标识；为空时使用 mcode。
+	Kind harness.Kind
+	// DisplayName 是展示给用户的名称；为空时回落到 Kind。
+	DisplayName string
+	// ModelIDs 返回该来源当前可选的模型；为空时表示没有额外模型。
+	ModelIDs func() []string
+	// RefreshModels 刷新模型目录；为空时不做任何事。
+	RefreshModels func(context.Context) error
+	// Available 报告该来源是否可用，不可用时给出原因；为空表示始终可用。
+	Available     func() (bool, string)
 	StoreDir      string
 	ResolveClient func(model string, affinityKey string) (client llm.Client, modelID string, err error)
 	SystemPrompt  func(turn harness.Turn, toolNames []string) string
@@ -78,14 +90,31 @@ func (r *activeRun) closeAndTake() []string {
 
 // New 创建内置 agent harness。
 func New(opts Options) *Harness {
+	if opts.Kind == "" {
+		opts.Kind = harness.Kind("mcode")
+	}
 	return &Harness{opts: opts, gates: make(map[string]*gate.Session), runs: make(map[string]*activeRun)}
 }
 
 // Kind 返回 provider 种类。
-func (*Harness) Kind() harness.Kind { return harness.Kind("mcode") }
+func (h *Harness) Kind() harness.Kind {
+	if h.opts.Kind != "" {
+		return h.opts.Kind
+	}
+	return harness.Kind("mcode")
+}
 
 // Run 执行一轮内置 agent 对话。
-func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.Event)) (retErr error) {
+	// 引擎在进程内运行，也作为 swarm bee 的运行时并发执行，任何 panic 都会带崩整个进程。
+	// 这里先注册、后执行（defer 后进先出），排在注销 activeRun 之后，panic 时注销仍然会跑。
+	// recover 里不再 emit，避免 emit 自身出错时二次 panic；remote 按普通的 Run 错误结束本轮。
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("内置引擎 panic：%v\n%s", recovered, debug.Stack())
+			retErr = fmt.Errorf("内置引擎内部错误：%v", recovered)
+		}
+	}()
 	model := turn.Model
 	if model == "" {
 		model = h.opts.DefaultModel
