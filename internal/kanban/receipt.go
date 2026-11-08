@@ -393,6 +393,7 @@ func (s *Service) applyExecutorResult(ctx context.Context, t *store.Task, res Ex
 		return err
 	}
 	meta.ResultStatus, meta.Summary = string(res.Status), res.Summary
+	meta.NoChange = res.Status == ResultDone && res.NoChange
 	switch res.Status {
 	case ResultDone, ResultFailed, ResultNeedsDecision, ResultDelegated:
 		meta.GateOverride = ""

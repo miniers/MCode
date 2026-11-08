@@ -109,7 +109,7 @@ type App struct {
 	// 它返回哨兵错误 ErrOwnerNotifySuppressed 表示通知被前台或安静时段抑制、没有弹出。
 	ownerNotify func(title, body, threadID string) error
 	notifyMu    sync.RWMutex
-	// dataDir 是 mcode 数据目录，验收唤醒器每次从这里现读日报与安静时段配置。
+	// dataDir 是 mcode 数据目录。
 	dataDir string
 	// retention 是 bee 消息保留任务的后台调度器：启动 2 分钟后跑第一次，之后每 24 小时一次。
 	retention *messageRetentionScheduler
@@ -165,7 +165,7 @@ func (a *App) RecoveredStoreBackupPath() string {
 	return a.store.RecoveredBackupPath()
 }
 
-// Close 关闭应用资源，关闭顺序为 总管 -> 验收唤醒 -> bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close。
+// Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close。
 func (a *App) Close() error {
 	// bee 消息保留会写库，必须等它退出后再关闭 store。
 	if a.retention != nil {
@@ -1369,10 +1369,8 @@ func Open(opts Options) (*App, error) {
 	// 所以放在 App 实例构造之后；总管自己的会话随后被排除在待处理事件之外。
 	wireFrontdesk(appInstance, opts.DataDir)
 
-	// 验收唤醒：总管与看板都就绪后订阅看板变化，任务进入验收时在话题会话里接着处理。
-
 	// bee 消息保留：后台每天压缩一次已结束满 30 天的 bee 会话消息。
-	// 开关每次现读配置（照验收唤醒器读日报配置的做法），读不到配置时跳过，不动数据。
+	// 开关每次现读配置，读不到配置时跳过，不动数据。
 	if dbStore != nil {
 		appInstance.retention = startMessageRetentionScheduler(
 			func(ctx context.Context) error {

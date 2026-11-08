@@ -3,8 +3,11 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"time"
 
+	"mcode/internal/remote/wire"
 	"mcode/internal/store"
 )
 
@@ -35,6 +38,51 @@ type stewardDecisionsListResult struct {
 
 func init() {
 	RegisterMethod(stewardDecisionsListMethod, handleStewardDecisionsList)
+	RegisterMethod("steward.decisions.answer", handleStewardDecisionsAnswer)
+}
+
+// AnswerStewardDecision 将回答交给当前前台。
+func (b *MemoryBackend) AnswerStewardDecision(ctx context.Context, id, answer, by string) error {
+	b.mu.Lock()
+	desk := b.stewardDesk
+	b.mu.Unlock()
+	receiver, ok := desk.(interface {
+		AnswerStewardDecision(context.Context, string, string, string) error
+	})
+	if !ok {
+		return ExtNotImplemented()
+	}
+	return receiver.AnswerStewardDecision(ctx, id, answer, by)
+}
+
+func handleStewardDecisionsAnswer(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
+	var p struct {
+		ID     string `json:"id"`
+		Answer string `json:"answer"`
+	}
+	if err := decodeExtParams(params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ID) == "" || strings.TrimSpace(p.Answer) == "" {
+		return nil, ExtInvalidParams("Invalid params: 'id' and 'answer' are required")
+	}
+	backend, ok := d.backend.(*MemoryBackend)
+	if !ok || backend == nil {
+		return nil, ExtNotImplemented()
+	}
+	if err := backend.AnswerStewardDecision(ctx, p.ID, p.Answer, "remote"); err != nil {
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			return nil, &ExtError{Code: wire.ErrCodeResourceNotFound, Message: "Resource not found"}
+		case errors.Is(err, store.ErrDecisionClosed):
+			return nil, &ExtError{Code: wire.ErrCodeOperationRejected, Message: err.Error()}
+		default:
+			return nil, err
+		}
+	}
+	return struct {
+		OK bool `json:"ok"`
+	}{OK: true}, nil
 }
 
 func handleStewardDecisionsList(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {

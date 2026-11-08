@@ -95,7 +95,7 @@ func NewAgentPlanner(d SessionDriver, p ProjectResolver) *AgentPlanner {
 }
 
 // Plan 启动规划会话并轮询执行结果，将模型返回的 JSON 解析为 PlanResult。
-// 目标已有 PlanThreadID 时（总管先开话题再规划，或带 feedback 的重规划）在该会话上追加一轮；
+// 目标已有 PlanThreadID 时（或带 feedback 的重规划）在该会话上追加一轮；
 // 没有时首次规划以 plan 模式启动独立会话。规划成功后把会话切回 build 模式复用为协调员。
 func (a *AgentPlanner) Plan(ctx context.Context, goal store.Goal, feedback string) (PlanResult, error) {
 	if a.Driver == nil {

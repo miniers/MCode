@@ -281,7 +281,7 @@ func buildPaletteItems(s *chatState) []paletteItem {
 	return items
 }
 
-// stewardPaletteItems 生成总管入口候选条目：打开总管，以及把当前需求交给总管。
+// stewardPaletteItems 生成总管入口候选条目：打开总管。
 func stewardPaletteItems(s *chatState) []paletteItem {
 	if s == nil {
 		return nil
@@ -292,26 +292,15 @@ func stewardPaletteItems(s *chatState) []paletteItem {
 
 	nickname, _ := s.stewardIdentity()
 	name := stewardName(nickname)
-	open := paletteItem{
+	return []paletteItem{{
 		id:       "cmd-open-steward",
 		kind:     "command",
 		title:    "打开" + name,
-		subtitle: "接着上次聊的继续说",
 		keywords: "总管 默默 steward 会话",
 		run: func(cs *chatState) {
 			cs.openStewardThread()
 		},
-	}
-	return append([]paletteItem{open}, paletteItem{
-		id:       "cmd-steward-start-topic",
-		kind:     "command",
-		title:    "交给" + name,
-		subtitle: "在总管会话中说明需求",
-		keywords: "总管 默默 交给 steward",
-		run: func(cs *chatState) {
-			cs.openStewardThread()
-		},
-	})
+	}}
 }
 
 func matchSubsequence(target []rune, pattern []rune) bool {

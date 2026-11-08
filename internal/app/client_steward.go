@@ -10,6 +10,14 @@ import (
 
 var _ mcodeui.StewardClient = (*Client)(nil)
 
+// AnswerStewardDecision 回答总管决策卡。
+func (c *Client) AnswerStewardDecision(ctx context.Context, id, answer string) error {
+	if c == nil || c.backend == nil {
+		return errors.New("前台不可用")
+	}
+	return c.backend.AnswerStewardDecision(ctx, id, answer, "owner")
+}
+
 // StewardOpenDecisionCount 返回当前未答总管决策卡数量。
 // 客户端尚未挂载存储时按空列表处理，避免侧栏因为启动顺序报错。
 func (c *Client) StewardOpenDecisionCount(ctx context.Context) (int, error) {

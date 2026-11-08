@@ -30,7 +30,6 @@ const (
 	modalDragRevert            = "modal-drag-revert"
 	modalDragRenameThread      = "modal-drag-rename-thread"
 	modalDragDeleteThread      = "modal-drag-delete-thread"
-	modalDragDeleteTopic       = "modal-drag-delete-topic"
 	modalDragRemoveProject     = "modal-drag-remove-project"
 	modalDragWorktreeManage    = "modal-drag-worktree-manage"
 	modalDragWorktreeMove      = "modal-drag-worktree-move"

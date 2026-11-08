@@ -1139,7 +1139,7 @@ func (s *Service) RecoverOrphanTasks(ctx context.Context) (int, error) {
 type CreateGoalOptions struct {
 	ProjectID string
 	Prompt    string
-	// PlanThreadID 非空时直接作为目标的规划会话：首次规划就在该会话里做（总管先开话题再规划）。
+	// PlanThreadID 非空时直接作为目标的规划会话。
 	PlanThreadID string
 	// Owner 为目标创建者标记，steward 表示由总管创建，空串表示普通目标。
 	Owner string
@@ -1612,7 +1612,7 @@ func (s *Service) runPlan(goal store.Goal, retainedTaskIDs []string, feedback st
 			latest.Status = string(GoalStatusRunning)
 		}
 		latest.PlanSummary = &res.Summary
-		// 总管先开话题再规划时 PlanThreadID 已指向该话题，保留原会话不回写成规划返回的会话。
+		// 已有规划会话时保留原会话，不回写成规划返回的会话。
 		if latest.PlanThreadID == nil || strings.TrimSpace(*latest.PlanThreadID) == "" {
 			latest.PlanThreadID = &res.ThreadID
 		}

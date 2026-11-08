@@ -31,11 +31,10 @@ const (
 	attentionKanbanDebounce = time.Second
 	// automationNoticeSummaryLimit 是自动化完成通知正文的最大字数，系统通知展示不了长文本。
 	automationNoticeSummaryLimit = 120
-	// hostNoticeTitleMaxRunes 是宿主自拼通知标题的最大字数，与总管 notify_owner 的标题上限
-	// 保持一致：通知是 IM 式短消息，标题过长在系统通知里会被直接截掉。
+	// hostNoticeTitleMaxRunes 是宿主自拼通知标题的最大字数：通知是 IM 式短消息，
+	// 标题过长在系统通知里会被直接截掉。
 	hostNoticeTitleMaxRunes = 40
-	// hostNoticeBodyMaxRunes 是宿主自拼通知正文的最大字数，同样与总管 notify_owner 的
-	// 正文上限保持一致，避免报错详情把整条通知撑成一大段。
+	// hostNoticeBodyMaxRunes 是宿主自拼通知正文的最大字数，避免报错详情把整条通知撑成一大段。
 	hostNoticeBodyMaxRunes = 200
 )
 
@@ -873,7 +872,7 @@ func automationSuccessNotice(def automation.Definition, run store.AutomationRun)
 
 // truncateHostNotice 按字数把文本压成一行并截断到不超过 limit，超出时用省略号占最后一位。
 // 与 truncateNoticeText 的区别是截断后的长度（含省略号）也不超过 limit，
-// 这样宿主自拼的通知标题与正文能和总管 notify_owner 的上限严格对齐。
+// 确保系统通知不会截掉省略号。
 func truncateHostNotice(text string, limit int) string {
 	text = strings.Join(strings.Fields(text), " ")
 	runes := []rune(text)

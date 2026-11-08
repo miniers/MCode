@@ -641,14 +641,6 @@
       "heights": 0,
       "raw_white": 0
     },
-    "internal/ui/plan_reader.go": {
-      "colors": 0,
-      "font_sizes": 0,
-      "radii": 0,
-      "paddings": 0,
-      "heights": 0,
-      "raw_white": 0
-    },
     "internal/ui/popover.go": {
       "colors": 0,
       "font_sizes": 0,
@@ -1337,14 +1329,6 @@
       "heights": 0,
       "raw_white": 0
     },
-    "internal/ui/steward_decision_bar.go": {
-      "colors": 0,
-      "font_sizes": 0,
-      "radii": 0,
-      "paddings": 0,
-      "heights": 0,
-      "raw_white": 0
-    },
     "internal/ui/steward_split.go": {
       "colors": 0,
       "font_sizes": 0,
@@ -1354,38 +1338,6 @@
       "raw_white": 0
     },
     "internal/ui/steward_timeline.go": {
-      "colors": 0,
-      "font_sizes": 0,
-      "radii": 0,
-      "paddings": 0,
-      "heights": 0,
-      "raw_white": 0
-    },
-    "internal/ui/steward_topic_card.go": {
-      "colors": 0,
-      "font_sizes": 0,
-      "radii": 0,
-      "paddings": 0,
-      "heights": 0,
-      "raw_white": 0
-    },
-    "internal/ui/steward_topic_types.go": {
-      "colors": 0,
-      "font_sizes": 0,
-      "radii": 0,
-      "paddings": 0,
-      "heights": 0,
-      "raw_white": 0
-    },
-    "internal/ui/steward_topics.go": {
-      "colors": 0,
-      "font_sizes": 0,
-      "radii": 0,
-      "paddings": 0,
-      "heights": 0,
-      "raw_white": 0
-    },
-    "internal/ui/suggestion_score.go": {
       "colors": 0,
       "font_sizes": 0,
       "radii": 0,

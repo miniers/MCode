@@ -96,7 +96,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 	if curPID != "" && (ks.projectID != curPID || !ks.initialized) {
 		kanbanMu.Lock()
 		if ks.projectID != curPID {
-			// 重建时保留已弹出的审查目标：话题卡片可能刚指定了一个新项目里的目标，
+			// 重建时保留已弹出的审查目标：可能刚指定了一个新项目里的目标，
 			// 这里一丢就再也不会自动打开（planReviewSeen 已经把它标记成看过）。
 			*ks = kanbanState{watchStop: ks.watchStop, loadID: ks.loadID, detailLoadID: ks.detailLoadID, planReviewSeen: ks.planReviewSeen, planReviewGoalID: ks.planReviewGoalID, viewMode: ks.viewMode, searchText: ks.searchText, overview: ks.overview, selecting: ks.selecting}
 		}

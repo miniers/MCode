@@ -425,6 +425,7 @@ func (r *Registry) registerKanbanTools(s *Server) {
 			"type": "object",
 			"properties": map[string]any{
 				"status":         map[string]any{"type": "string", "enum": []string{"done", "failed", "waiting", "delegated", "needs_decision"}},
+				"no_change":      map[string]any{"type": "boolean", "description": "例行检查且没有任何变化时为 true"},
 				"waiting_on":     map[string]any{"type": "string"},
 				"wait_kind":      map[string]any{"type": "string", "enum": []string{"human", "machine"}},
 				"wait_minutes":   map[string]any{"type": "integer"},

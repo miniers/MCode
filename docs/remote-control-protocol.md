@@ -54,8 +54,7 @@
 
 - `steward.open`：打开全局总管前台 feed，`projectID` 表示入口来源，结果为 `{ "threadID" }`。
 - `steward.decisions.list`：列出决策卡。
-
-回答决策卡是向主会话发送「D-编号 选项」消息，不是单独的方法。
+- `steward.decisions.answer`：回答决策卡，参数为 `id` 和 `answer`。
 - `app.update.get`：参数为 `{}`，返回最近一次更新状态及发布说明，不联网；参数错误返回 `InvalidParams`，服务未注入返回 `MethodNotFound`。
 - `app.update.check`：参数为 `{}`，联网检查并返回更新状态及发布说明；参数错误返回 `InvalidParams`，服务未注入返回 `MethodNotFound`，检查失败返回内部错误。
 - `app.update.install`：参数为 `{}`，受理后返回 `{ "started": true }`，安装会重启桌面端并断开远程连接；参数错误或没有可安装更新返回 `InvalidParams`，服务未注入返回 `MethodNotFound`。

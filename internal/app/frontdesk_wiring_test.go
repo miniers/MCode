@@ -185,6 +185,13 @@ func TestFrontdeskResultRouting(t *testing.T) {
 	a := &App{store: db, backend: backend, ownerNotify: func(_, body, _ string) error { pushes++; pushBodies = append(pushBodies, body); return nil }}
 	handle := frontdeskResultHandler(a, dir)
 	owner := store.Task{ID: "owner", Title: "任务", Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner"})}
+	unchanged := owner
+	unchanged.Meta = kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner", NoChange: true})
+	handle(ctx, unchanged, kanban.ExecutorResult{Status: kanban.ResultDone, Summary: "无变化", NoChange: true})
+	messages, _, err := db.ListMessages(ctx, feedID, 0, 10)
+	if err != nil || len(messages) != 0 || pushes != 0 {
+		t.Fatalf("无变化时不应发送消息或推送：消息 %d，推送 %d，错误 %v", len(messages), pushes, err)
+	}
 	handle(ctx, owner, kanban.ExecutorResult{Status: kanban.ResultDone, Summary: "完成"})
 	if pushes != 1 {
 		t.Fatalf("主任务推送次数 = %d", pushes)
@@ -204,7 +211,7 @@ func TestFrontdeskResultRouting(t *testing.T) {
 	owner.Meta = kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner", DecisionID: decision.ID})
 	handle(ctx, owner, kanban.ExecutorResult{Status: kanban.ResultNeedsDecision, Question: decision.Question})
 	handle(ctx, owner, kanban.ExecutorResult{Status: kanban.ResultWaiting})
-	messages, _, err := db.ListMessages(ctx, feedID, 0, 10)
+	messages, _, err = db.ListMessages(ctx, feedID, 0, 10)
 	if err != nil || len(messages) != 3 {
 		t.Fatalf("消息数量错误: %+v %v", messages, err)
 	}

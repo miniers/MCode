@@ -1385,6 +1385,7 @@ interface TimelineEntryProps {
   onOpenFile?: (path: string) => boolean;
   decisionAnswers: Record<string, string>;
   onSendStewardMessage?: (text: string) => void | Promise<unknown>;
+  onAnswerStewardDecision?: (id: string, answer: string) => void | Promise<unknown>;
   onOpenThread?: (threadID: string) => void;
 }
 
@@ -1668,6 +1669,7 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
     onOpenFile,
     decisionAnswers,
     onSendStewardMessage,
+    onAnswerStewardDecision,
     onOpenThread
   } = props;
   // 长按菜单（W-3）：只对窄屏、有正文的用户消息生效；长按成立先给中档触感。
@@ -1968,6 +1970,7 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
           message={message}
           answer={decisionAnswers[decision.id]}
           onSend={onSendStewardMessage}
+          onAnswer={onAnswerStewardDecision}
         />
       );
     }
@@ -2566,6 +2569,7 @@ interface ThreadTimelineProps {
   isSteward?: boolean;
   /** 总管决策卡选择/忽略时发送一条普通用户消息。 */
   onSendStewardMessage?: (text: string) => void | Promise<unknown>;
+  onAnswerStewardDecision?: (id: string, answer: string) => void | Promise<unknown>;
   /** 总管结果卡的「打开任务」跳转。 */
   onOpenThread?: (threadID: string) => void;
 }
@@ -2628,6 +2632,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
   runningBees,
   decisionAnswers,
   onSendStewardMessage,
+  onAnswerStewardDecision,
   onOpenThread
 }) => {
   const [minuteTick, setMinuteTick] = React.useState(0);
@@ -2776,6 +2781,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
           onContinue={onContinue}
           decisionAnswers={decisionAnswers}
           onSendStewardMessage={onSendStewardMessage}
+          onAnswerStewardDecision={onAnswerStewardDecision}
           onOpenThread={onOpenThread}
         />
       </div>
@@ -2869,6 +2875,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
   isSteward = false,
   onOpenFile,
   onSendStewardMessage,
+  onAnswerStewardDecision,
   onOpenThread
 }) => {
   const autoCollapse = useAutoCollapseReasoning();
@@ -3079,6 +3086,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
         runningBees={runningBees}
           decisionAnswers={decisionAnswers}
           onSendStewardMessage={onSendStewardMessage}
+          onAnswerStewardDecision={onAnswerStewardDecision}
           onOpenThread={onOpenThread}
       />
     );
@@ -3139,6 +3147,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
           onContinue={onContinue}
            decisionAnswers={decisionAnswers}
            onSendStewardMessage={onSendStewardMessage}
+           onAnswerStewardDecision={onAnswerStewardDecision}
            onOpenThread={onOpenThread}
         />
       </div>

@@ -3488,7 +3488,7 @@ func (s *chatState) confirmDelete() {
 }
 
 // forgetDeletedThread 清掉被删会话在本地的痕迹：它是当前会话时退回空状态、
-// 停掉订阅，再从项目树与会话列表里移除它。话题浮层删除话题后也走这里。
+// 停掉订阅，再从项目树与会话列表里移除它。
 // 自己拿 s.mu，调用时不要持有它。
 func (s *chatState) forgetDeletedThread(id string) {
 	s.mu.Lock()

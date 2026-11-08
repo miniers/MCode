@@ -100,6 +100,11 @@ func (d *Desk) now() time.Time {
 	return time.Now()
 }
 
+// AnswerDecision 回答决策卡并记录最近一次回答。
+func (d *Desk) AnswerDecision(ctx context.Context, id, answer, by string) error {
+	return d.answerDecision(ctx, id, answer, by)
+}
+
 func (d *Desk) answerDecision(ctx context.Context, id, answer, by string) error {
 	if d.Decisions == nil {
 		return errors.New("决策服务不可用")

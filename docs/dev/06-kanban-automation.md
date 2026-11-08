@@ -6,7 +6,7 @@
 
 ### 任务状态
 
-`TaskStatus`：`todo`、`in_progress`、`needs_approval`、`review`、`done`、`waiting`、`failed`、`cancelled`。`rejected` 作为旧数据别名读成 `cancelled`。合法转移由 `CanTransition` 决定。
+`TaskStatus`：`todo`、`in_progress`、`needs_approval`、`review`、`done`、`waiting`、`failed`、`cancelled`。`rejected` 是独立状态，显示在需要你处理的列。合法转移由 `CanTransition` 决定。
 
 看板显示列 `DisplayColumn`：`todo`、`in_progress`、`needs_you`、`review`、`done`。显示列由任务状态派生（`derive.go`），不是一一对应。
 

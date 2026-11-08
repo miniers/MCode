@@ -77,20 +77,6 @@ func historyAfterLastSplit(history []wire.ThreadMessage) []wire.ThreadMessage {
 // preamble 放在新会话本轮 Prompt 的最前面。
 type SessionRotator func(ctx context.Context, info SessionRotationInfo) (rotate bool, preamble string)
 
-// SplitCounts 是分割线文案里附带的交接摘要计数。
-type SplitCounts struct {
-	Ledger  int
-	Topics  int
-	Pending int
-}
-
-// SplitCounter 在用户点击分割时统计本会话将带走的长期信息条数；返回 false 表示不附带计数。
-// 实现只做本地读取、不调模型：桌面与 Web 的点击都在等它返回。
-type SplitCounter func(ctx context.Context, threadID string) (SplitCounts, bool)
-
-// splitCountsTimeout 是计数钩子的时限，与换新前言 2 秒的预算一致；测试可调小。
-var splitCountsTimeout = 2 * time.Second
-
 // sessionRotatorTimeout 是单次询问换新钩子的时限，超时视为不换新；测试可调小。
 var sessionRotatorTimeout = 2 * time.Second
 
@@ -107,65 +93,6 @@ func (b *MemoryBackend) SetSessionRotator(fn SessionRotator) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.sessionRotator = fn
-}
-
-// SetSplitCounter 注入分割线计数钩子：用户点击分割时在锁外调一次，把三个数字写进分割线
-// 消息的第二行；nil 表示只写基础文案。
-func (b *MemoryBackend) SetSplitCounter(fn SplitCounter) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.splitCounter = fn
-}
-
-// splitCounts 在锁外调一次计数钩子；未注入、超时、panic 或钩子自己报失败都返回 ok=false。
-// 钩子会读库，持 b.mu 会把流式写入卡住；而计数不参与任何一致性判定，早算晚算都不影响幂等。
-func (b *MemoryBackend) splitCounts(threadID string) (SplitCounts, bool) {
-	b.mu.Lock()
-	fn := b.splitCounter
-	b.mu.Unlock()
-	if fn == nil {
-		return SplitCounts{}, false
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), splitCountsTimeout)
-	defer cancel()
-
-	type result struct {
-		counts SplitCounts
-		ok     bool
-	}
-	done := make(chan result, 1)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("split counter panic for thread %s: %v", threadID, r)
-				done <- result{}
-			}
-		}()
-		counts, ok := fn(ctx, threadID)
-		done <- result{counts: counts, ok: ok}
-	}()
-
-	select {
-	case r := <-done:
-		// 时限已过才到的答复同样作废，避免与超时分支竞争出不同结果。
-		if ctx.Err() != nil {
-			return SplitCounts{}, false
-		}
-		return r.counts, r.ok
-	case <-ctx.Done():
-		log.Printf("split counter for thread %s gave no answer: %v", threadID, ctx.Err())
-		return SplitCounts{}, false
-	}
-}
-
-// splitSessionTextWithCounts 拼分割线文案：首行沿用 splitSessionText，第二行写「已带走」。
-// ok 为 false 时原样返回基础文案，分割线保持一行。
-func splitSessionTextWithCounts(c SplitCounts, ok bool) string {
-	if !ok {
-		return splitSessionText
-	}
-	return fmt.Sprintf("%s\n已带走：账本 %d 条、话题 %d 个、待处理 %d 条", splitSessionText, c.Ledger, c.Topics, c.Pending)
 }
 
 // sessionRotationInfoLocked 汇总询问钩子用的会话现状：Idle 以本轮之前最后一条消息的时间

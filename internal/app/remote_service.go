@@ -211,7 +211,7 @@ func (s *RemoteService) stopAttentionWatchLocked() {
 	}
 }
 
-// SendOwnerPush 向已订阅的离线设备发一条给用户的网页推送，供总管 notify_owner 使用。
+// SendOwnerPush 向已订阅的离线设备发一条给用户的网页推送。
 // 推送服务未启用或没有任何订阅时返回 false；否则异步发送并返回 true。
 func (s *RemoteService) SendOwnerPush(title, body, threadID string) bool {
 	s.mu.Lock()

@@ -131,7 +131,7 @@ func TestSidebarHidesStewardProject(t *testing.T) {
 	if tt.HasText("总管会话") {
 		t.Fatalf("总管会话本身不应在项目树里重复列出，当前文本: %q", tt.Texts())
 	}
-	// 侧栏只过滤本地副本：s.projects 仍保留总管项目，供话题卡翻项目名。
+	// 侧栏只过滤本地副本：s.projects 仍保留总管项目。
 	state.mu.Lock()
 	kept := len(state.projects)
 	state.mu.Unlock()

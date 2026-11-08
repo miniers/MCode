@@ -1,10 +1,59 @@
 package mcodeui
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+type answerChannelClient struct {
+	*FakeClient
+	answers chan string
+}
+
+func (c *answerChannelClient) AnswerStewardDecision(_ context.Context, id, answer string) error {
+	c.answers <- id + " " + answer
+	return nil
+}
+
+type legacyAnswerClient struct {
+	*FakeClient
+	sent chan string
+}
+
+func (c *legacyAnswerClient) Send(_ context.Context, _ string, text string) (bool, error) {
+	c.sent <- text
+	return true, nil
+}
+
+func TestStewardDecisionAnswerChannel(t *testing.T) {
+	client := &answerChannelClient{FakeClient: NewFakeClient(), answers: make(chan string, 1)}
+	s := newChatState(client)
+	s.answerStewardDecision("D-0001", "A")
+	select {
+	case got := <-client.answers:
+		if got != "D-0001 A" || client.SendCalls() != 0 {
+			t.Fatalf("回答通道错误: %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("未调用回答接口")
+	}
+
+	legacy := &legacyAnswerClient{FakeClient: NewFakeClient(), sent: make(chan string, 1)}
+	old := newChatState(legacy)
+	old.selectedThreadID = "t1"
+	old.answerStewardDecision("D-0001", "忽略")
+	select {
+	case got := <-legacy.sent:
+		if got != "D-0001 忽略" {
+			t.Fatalf("旧通道错误: %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("未发送旧版回答")
+	}
+}
 
 func TestParseStewardDecision(t *testing.T) {
 	decision, ok := parseStewardDecision(`{"id":"D-0001","task":"T-1","question":"选择？","options":[{"key":"A","text":"方案一"}],"recommended":"A"}`)

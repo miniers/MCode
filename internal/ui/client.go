@@ -1032,8 +1032,8 @@ type Client interface {
 	// Interrupt 中断当前正在运行的这一轮，没有在运行时什么也不做；alreadyStopped 为 true 表示后端确认无运行轮次。
 	Interrupt(ctx context.Context, threadID string) (alreadyStopped bool, err error)
 	// SplitSession 在指定会话里插一条分割线：成功表示后端已追加一条 system 消息（Kind 为
-	// split_session），从下一条消息起发给模型的上下文不再包含分割线以上的历史，账本与话题
-	// 等长期信息照常带上。失败时错误消息已经是中文，可直接展示给用户
+	// split_session），从下一条消息起发给模型的上下文不再包含分割线以上的历史。
+	// 失败时错误消息已经是中文，可直接展示给用户
 	// （例如「这一轮还在进行，等它结束再分割」「会话还没有内容，不需要分割」）。
 	SplitSession(ctx context.Context, threadID string) error
 	// KillRunningCommand 只终止该工具消息对应的正在运行的命令子进程，不中断本轮；

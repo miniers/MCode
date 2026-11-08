@@ -2,7 +2,8 @@ import {
   decisionReplyText,
   latestDecisionAnswers,
   parseStewardDecision,
-  parseStewardResult
+  parseStewardResult,
+  sendDecisionAnswer
 } from './StewardMessages';
 
 function assertEqual<T>(actual: T, expected: T, label: string): void {
@@ -42,3 +43,8 @@ const answers = latestDecisionAnswers([
 assertEqual(answers['D-0001'], 'B', 'latest answer only accepts system/user');
 assertEqual(decisionReplyText('D-0001', 'A'), 'D-0001 A', 'decision option reply');
 assertEqual(decisionReplyText('D-0001', '忽略'), 'D-0001 忽略', 'decision ignore reply');
+let channel = '';
+sendDecisionAnswer('D-0001', 'A', (id, answer) => { channel = `${id}:${answer}`; }, () => { channel = 'message'; });
+assertEqual(channel, 'D-0001:A', 'dedicated answer channel');
+sendDecisionAnswer('D-0001', '忽略', undefined, (text) => { channel = text; });
+assertEqual(channel, 'D-0001 忽略', 'legacy answer channel');

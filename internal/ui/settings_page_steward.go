@@ -178,7 +178,7 @@ func stewardQuietSection(st *SettingsState) settingsSection {
 	sec := settingsSection{ID: "sec-steward-quiet", Title: "安静时段", Rows: []setting{{
 		ID:      "row-steward-quiet-enabled",
 		Title:   "启用安静时段",
-		Aliases: []string{"总管", "免打扰", "提醒", "日报"},
+		Aliases: []string{"总管", "免打扰", "提醒"},
 		Control: toggleFunc(
 			func(st *SettingsState) (bool, bool) { return stewardQuietOn(st), false },
 			func(st *SettingsState, on bool) {

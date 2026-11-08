@@ -20,6 +20,7 @@ const (
 type ExecutorResult struct {
 	Status         ResultStatus     `json:"status"`
 	Summary        string           `json:"summary"`
+	NoChange       bool             `json:"no_change,omitempty"`
 	WaitingOn      string           `json:"waiting_on,omitempty"`
 	WaitKind       string           `json:"wait_kind,omitempty"`
 	WaitMinutes    int              `json:"wait_minutes,omitempty"`
@@ -46,6 +47,9 @@ type Followup struct {
 }
 
 func (r ExecutorResult) Validate() error {
+	if r.NoChange && r.Status != ResultDone {
+		return fmt.Errorf("no_change 仅允许用于 done 状态")
+	}
 	switch r.Status {
 	case ResultDone, ResultFailed:
 	case ResultWaiting:

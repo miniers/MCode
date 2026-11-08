@@ -13,7 +13,7 @@ import { Type } from "typebox";
 const LOOK_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "mcode_mcp_list", "ask_user_question", "todo_write", "vision"]);
 
 // mcode 自带 MCP 工具的前缀（见 mcp_bridge.ts）：这些工具的权限由 mcode MCP 服务端按权限档
-// 自己校验，计划模式下门禁不再当成写操作拦下——总管话题会话就靠它们写任务书、开工。
+// 自己校验，计划模式下门禁不再当成写操作拦下。
 const BUILTIN_MCP_TOOL_PREFIX = "mcp__mcode__";
 
 // 防止命令挂死，让这一轮一直卡住。

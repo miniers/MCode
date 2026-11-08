@@ -49,8 +49,8 @@ func shortcutDefaults() []appShortcut {
 		// ⌘↓ 与上一/下一会话同键不同修饰键，不与既有绑定冲突；待处理收件箱用未被占用的 ⇧⌘I。
 		{id: "jump-to-latest", title: "跳到最新", group: "会话", keys: "⌘↓", mods: ui.Cmd, key: ui.KeyDown, bound: true, customizable: true, registered: true},
 		{id: "open-attention-inbox", title: "打开待处理收件箱", group: "会话", keys: "⇧⌘I", mods: ui.Cmd | ui.Shift, key: ui.KeyI, bound: true, customizable: true, registered: true},
-		// ⌘⇧S 已被休眠会话占用，交给总管改用 ⇧⌘T。
-		{id: "steward-start-topic", title: "交给总管", group: "会话", keys: "⇧⌘T", mods: ui.Cmd | ui.Shift, key: ui.KeyT, bound: true, customizable: true, registered: true},
+		// ⌘⇧S 已被休眠会话占用，打开总管改用 ⇧⌘T。
+		{id: "steward-start-topic", title: "打开总管", group: "会话", keys: "⇧⌘T", mods: ui.Cmd | ui.Shift, key: ui.KeyT, bound: true, customizable: true, registered: true},
 		{id: "forward-thread", title: "转发到新会话", group: "会话", keys: "⇧⌘D", mods: ui.Cmd | ui.Shift, key: ui.KeyD, bound: true, customizable: true, registered: true},
 		{id: "run-script", title: "运行脚本", group: "会话", keys: "⌥⌘R", mods: ui.Cmd | ui.Alt, key: ui.KeyR, bound: true, customizable: true, registered: true},
 		{id: "select-thread-1-9", title: "直达第 N 个会话", group: "会话", keys: "⌘1…9"},

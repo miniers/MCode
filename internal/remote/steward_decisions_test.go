@@ -11,6 +11,50 @@ import (
 	"mcode/internal/store"
 )
 
+type decisionAnswerDesk struct {
+	id, answer, by string
+	err            error
+}
+
+func (*decisionAnswerDesk) IsFeed(string) bool               { return true }
+func (*decisionAnswerDesk) Enqueue(string, string, []string) {}
+func (d *decisionAnswerDesk) AnswerStewardDecision(_ context.Context, id, answer, by string) error {
+	d.id, d.answer, d.by = id, answer, by
+	return d.err
+}
+
+func TestStewardDecisionAnswer(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+	d, _ := newMemoryExtTestDispatcher(t, b)
+	params := json.RawMessage(`{"id":"D-0001","answer":"A"}`)
+	_, err := handleStewardDecisionsAnswer(context.Background(), d, nil, params)
+	if e, ok := err.(*ExtError); !ok || e.Code != wire.MethodNotFound {
+		t.Fatalf("未接前台: %v", err)
+	}
+	desk := &decisionAnswerDesk{}
+	b.SetStewardDesk(desk)
+	result, err := handleStewardDecisionsAnswer(context.Background(), d, nil, params)
+	if err != nil || result == nil || desk.id != "D-0001" || desk.answer != "A" || desk.by != "remote" {
+		t.Fatalf("回答未送达: %+v %v %+v", result, err, desk)
+	}
+	for _, tc := range []struct {
+		err  error
+		code int
+	}{
+		{store.ErrDecisionClosed, wire.ErrCodeOperationRejected},
+		{store.ErrNotFound, wire.ErrCodeResourceNotFound},
+	} {
+		desk.err = tc.err
+		_, err = handleStewardDecisionsAnswer(context.Background(), d, nil, params)
+		if e, ok := err.(*ExtError); !ok || e.Code != tc.code {
+			t.Fatalf("错误映射 %v: %v", tc.err, err)
+		}
+	}
+}
+
 func TestStewardDecisionsListRPC(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(filepath.Join(t.TempDir(), "decisions.db"))

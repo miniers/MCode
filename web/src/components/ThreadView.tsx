@@ -36,6 +36,7 @@ import {
   workRecordExpandedMap
 } from './ThreadTimeline';
 import type { CopyVariant, MessageMenuActions, ThreadMessage } from './ThreadTimeline';
+import { useRemoteStewardApi } from '../context/remoteStewardApi';
 import { backgroundWaitCount, composerPlaceholderFor } from '../utils/backgroundWait';
 import { resumeRetryDelay } from '../utils/resumeRefresh';
 import { lastCodeBlock, toPlainText } from '../utils/markdown';
@@ -196,6 +197,7 @@ function readThreadDraft(threadID: string): string | undefined {
 const POLL_INTERVAL_MS = 2500;
 
 export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview, filePath, jumpRequest }) => {
+  const { supportsAnswer, answerDecision } = useRemoteStewardApi();
   const {
     getThreadHistory,
     board,
@@ -3133,6 +3135,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
             bottomPadding={sendAnchor.bottomPadding}
             isSteward={isStewardThread}
             onSendStewardMessage={handleSend}
+            onAnswerStewardDecision={supportsAnswer ? answerDecision : undefined}
             onOpenThread={replaceThreadByID}
           />
 

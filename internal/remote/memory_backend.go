@@ -278,8 +278,6 @@ type MemoryBackend struct {
 	promptDecorator     func(threadID, prompt string) string
 	// sessionRotator 在续接 provider 会话的轮次开始前判定是否换新会话；nil 表示从不换新。
 	sessionRotator SessionRotator
-	// splitCounter 在用户点击分割时统计将带走的条数；nil 表示分割线只写基础文案。
-	splitCounter SplitCounter
 	// nowledge 是宿主注入的 Nowledge Mem 客户端；nil 表示不启用任何 Nowledge 功能
 	// （首轮 Working Memory 注入与会话同步），此时不发任何网络请求。
 	nowledge            *nmem.Client
@@ -1731,12 +1729,10 @@ func (b *MemoryBackend) publishSystemMessage(threadID string, msg wire.ThreadMes
 }
 
 // RequestSplit 请求分割会话：在时间线末尾追加一条分割线（split_session），
-// 从下一条消息起 provider 只看到分割线之后的历史，交接内容（账本、话题索引等）照常带上。
+// 从下一条消息起 provider 只看到分割线之后的历史。
 // 分割线本身就是持久标记，重启后状态一致；已经处于待分割状态时幂等返回 nil。
 func (b *MemoryBackend) RequestSplit(threadID string) error {
 	nowTime := time.Now().UTC()
-	// 计数在锁外算：钩子会读库，持锁会把流式写入卡住；算早算晚不影响下面的幂等判定。
-	counts, countsOK := b.splitCounts(threadID)
 
 	b.mu.Lock()
 	td, ok := b.threads[threadID]
@@ -1769,7 +1765,7 @@ func (b *MemoryBackend) RequestSplit(threadID string) error {
 		b.mu.Unlock()
 		return nil
 	}
-	msg, currentSummary := b.appendSystemMessageLocked(td, splitSessionKind, splitSessionTextWithCounts(counts, countsOK), nowTime)
+	msg, currentSummary := b.appendSystemMessageLocked(td, splitSessionKind, splitSessionText, nowTime)
 	b.mu.Unlock()
 
 	b.publishSystemMessage(threadID, msg, currentSummary, nowTime)

@@ -91,7 +91,6 @@ Provider 的契约测试放在各自的包里（如 `internal/providers/codex`�
 |---|---|---|
 | Hydra | Swarm | 表 `hydra_leads`，列 `hydra_pair_id`、`hydra_mode`；`[Hydra]` 汇报前缀兼容；`hydra-worktrees` 目录 |
 | head | bee | 列 `heads_json`、`head_tiers`；会话模式旧值 `alwaysHeads` 归一化为 `alwaysBees` |
-| 默默 | 总管 | 设计文档文件名 `momo-*`。代码标识符一直是 `steward` |
 | `general.swarm_*` | `orchestration.*` | 仅 `internal/config/migrate.go` |
 
 ## 已知差异

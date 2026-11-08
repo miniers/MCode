@@ -291,7 +291,7 @@ func TestCreateGoalWithOptions(t *testing.T) {
 
 	goal, err := svc.CreateGoalWithOptions(ctx, CreateGoalOptions{
 		ProjectID:    "proj-1",
-		Prompt:       "总管开话题后创建的目标",
+		Prompt:       "已有规划会话的目标",
 		PlanThreadID: " thread-steward ",
 		Owner:        "steward",
 		Policy:       map[string]any{"maxAttempts": 5},

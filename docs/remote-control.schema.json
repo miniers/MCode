@@ -746,6 +746,8 @@
     {
       "$ref": "#/$defs/RemoteStewardDecisionsListResponse"
     },
+    { "$ref": "#/$defs/RemoteStewardDecisionsAnswerRequest" },
+    { "$ref": "#/$defs/RemoteStewardDecisionsAnswerResponse" },
     {
       "$ref": "#/$defs/RemoteStewardOpenRequest"
     },
@@ -1045,7 +1047,11 @@
         "swarm_task",
         "question_answer",
         "host_event",
-        "steward_wake"
+        "steward_wake",
+        "steward_reply",
+        "steward_decision",
+        "steward_decision_answer",
+        "steward_result"
       ]
     },
     "RemoteTurnStatus": {
@@ -10862,6 +10868,7 @@
           {
             "$ref": "#/$defs/RemoteStewardDecisionsListRequest"
           },
+          { "$ref": "#/$defs/RemoteStewardDecisionsAnswerRequest" },
           {
             "$ref": "#/$defs/RemoteStewardOpenRequest"
           },
@@ -11218,6 +11225,7 @@
           {
             "$ref": "#/$defs/RemoteStewardDecisionsListResponse"
           },
+          { "$ref": "#/$defs/RemoteStewardDecisionsAnswerResponse" },
           {
             "$ref": "#/$defs/RemoteStewardOpenResponse"
           },
@@ -14386,6 +14394,42 @@
         "createdAt": { "$ref": "#/$defs/ISO8601DateTime" }
       },
       "required": ["id", "taskID", "threadID", "question", "options", "recommended", "status", "answer", "answeredBy", "answeredAt", "createdAt"],
+      "additionalProperties": false
+    },
+    "RemoteStewardDecisionsAnswerParams": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "answer": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "answer"],
+      "additionalProperties": false
+    },
+    "RemoteStewardDecisionsAnswerResult": {
+      "type": "object",
+      "properties": { "ok": { "const": true } },
+      "required": ["ok"],
+      "additionalProperties": false
+    },
+    "RemoteStewardDecisionsAnswerRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "steward.decisions.answer" },
+        "params": { "$ref": "#/$defs/RemoteStewardDecisionsAnswerParams" },
+        "id": { "$ref": "#/$defs/JSONRPCId" }
+      },
+      "required": ["jsonrpc", "method", "params", "id"],
+      "additionalProperties": false
+    },
+    "RemoteStewardDecisionsAnswerResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "result": { "$ref": "#/$defs/RemoteStewardDecisionsAnswerResult" },
+        "id": { "$ref": "#/$defs/JSONRPCId" }
+      },
+      "required": ["jsonrpc", "result", "id"],
       "additionalProperties": false
     },
     "RemoteStewardDecisionsListParams": {

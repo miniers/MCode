@@ -50,6 +50,10 @@ type stewardDecisionCountClient interface {
 	StewardOpenDecisionCount(ctx context.Context) (int, error)
 }
 
+type stewardDecisionAnswerClient interface {
+	AnswerStewardDecision(context.Context, string, string) error
+}
+
 // stewardIdentityClient 是总管身份的可选客户端能力：昵称与头像字符都可改。
 // 按契约它返回昵称原文（可为空）与头像原文（可为空），兜底由界面这里做。
 type stewardIdentityClient interface {
@@ -96,6 +100,7 @@ type stewardOpenState struct {
 	decisionCount        int
 	decisionCountAt      time.Time
 	decisionCountLoading bool
+	decisionErrors       map[string]string
 }
 
 var (

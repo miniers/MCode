@@ -209,6 +209,17 @@ func TestSnapshotRecentAnswerHint(t *testing.T) {
 	}
 }
 
+func TestAnswerDecisionRecordsRecentAnswer(t *testing.T) {
+	f := &fake{}
+	d := Desk{Tasks: f, Decisions: f}
+	if err := d.AnswerDecision(context.Background(), "D-0001", "A", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if snap := d.snapshot(context.Background(), Inbound{}); !strings.Contains(snap.Text, "刚答过 D-0001") {
+		t.Fatalf("快照未提示最近回答: %+v", snap)
+	}
+}
+
 func TestQueue(t *testing.T) {
 	f := &fake{}
 	d := Desk{Decisions: f}

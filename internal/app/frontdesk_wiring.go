@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"mcode/internal/agent/llm"
-	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/frontdesk"
 	"mcode/internal/kanban"
@@ -62,7 +61,7 @@ func (c frontdeskClient) Stream(ctx context.Context, req llm.Request, delta func
 		return nil, err
 	}
 	secrets := config.NewSecretStore("mcode")
-	src, model, err := frontdesk.SelectSource(apisource.Resolve(cfg, secrets), secrets, cfg.Orchestration.Steward.Provider, cfg.Orchestration.Steward.Model)
+	src, model, err := frontdesk.SelectSource(frontdeskSources(cfg, secrets), secrets, cfg.Orchestration.Steward.Provider, cfg.Orchestration.Steward.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +180,7 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 		switch result.Status {
 		case kanban.ResultDone:
 			if meta.NoChange {
+				log.Printf("任务 %s 例行检查无变化: %s", task.ID, result.Summary)
 				return
 			}
 			kind = "steward_result"

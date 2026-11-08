@@ -150,7 +150,6 @@ var shadowBaseline = map[string]int{
 	"elevation.go":              1, // 阴影令牌定义文件，applyElevation 逐层调用
 	"memory_panel_views.go":     1,
 	"model_picker.go":           2,
-	"plan_reader.go":            1,
 	"popover.go":                2,
 	"scripts_sheet.go":          1,
 	"settings_page_models.go":   1,
@@ -159,7 +158,6 @@ var shadowBaseline = map[string]int{
 	"settings_swarm_tiers.go":   1,
 	"settings_tree.go":          1, // 设置面板外层（DialogBase 浮层）
 	"sidebar_bulk.go":           1,
-	"steward_topic_card.go":     2,
 	"swarm.go":                  1,
 	"swarm_bee_floats.go":       3,
 	"swarm_timeline_capsule.go": 1,

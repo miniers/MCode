@@ -1305,7 +1305,7 @@ func (d *Dispatcher) handleSingle(ctx context.Context, c Conn, raw []byte) *wire
 				}
 			}
 		}
-		// 网页端直接答复：来源记为 remote；确认总管建议走 ConfirmApprovalSuggestion，会再覆盖为 confirm。
+		// 网页端直接答复：来源记为 remote。
 		ctx = WithAnswerSource(ctx, AnswerSourceRemote)
 		res, err := d.backend.RespondRequest(ctx, p)
 		if err != nil {

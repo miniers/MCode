@@ -2,7 +2,6 @@ package kanban
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,7 +21,6 @@ type coordinatorDriver struct {
 	defaultState SessionState
 	modes        []string
 	modeThreads  []string
-	promoted     []string
 }
 
 func newCoordinatorDriver() *coordinatorDriver {
@@ -55,21 +53,6 @@ func (d *coordinatorDriver) SetInteractionMode(ctx context.Context, threadID, mo
 	d.modes = append(d.modes, mode)
 	d.modeThreads = append(d.modeThreads, threadID)
 	return nil
-}
-
-// PromoteReadOnlySession 记录被升档的会话，不修改其他状态。
-func (d *coordinatorDriver) PromoteReadOnlySession(ctx context.Context, threadID string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.promoted = append(d.promoted, threadID)
-	return nil
-}
-
-// promotedThreads 在锁内复制被升档的会话列表。
-func (d *coordinatorDriver) promotedThreads() []string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return append([]string(nil), d.promoted...)
 }
 
 // snapshot 在锁内复制已记录内容，避免测试读取共享状态。
@@ -231,142 +214,3 @@ func TestIsTaskWorktreeDir(t *testing.T) {
 		t.Fatal("未配置 WorktreeDir 时应为 false")
 	}
 }
-
-// setupPromoteService 构造带驱动的看板服务，用于验证话题会话升档。
-func setupPromoteService(t *testing.T, driver SessionDriver) (*Service, *store.Store) {
-	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-
-	s, err := store.Open(filepath.Join(t.TempDir(), "promote.db"))
-	if err != nil {
-		t.Fatalf("打开测试数据库失败: %v", err)
-	}
-	t.Cleanup(func() { s.Close() })
-
-	svc := NewService(Options{
-		Store:    s,
-		Projects: &mockProjects{dir: t.TempDir()},
-		Driver:   driver,
-	})
-	t.Cleanup(func() { svc.Close() })
-	return svc, s
-}
-
-// createPromoteGoal 直接在存储里造一个 plan_review 状态的目标，避免触发后台规划。
-func createPromoteGoal(t *testing.T, s *store.Store, owner string, planThreadID *string) store.Goal {
-	t.Helper()
-	goal := store.Goal{
-		ID:           "goal-" + uuid.NewString(),
-		ProjectID:    "proj-1",
-		Title:        "总管话题目标标题",
-		Prompt:       "总管话题目标提示词",
-		ContentHash:  "hash-" + uuid.NewString(),
-		Status:       string(GoalStatusPlanReview),
-		Owner:        owner,
-		Policy:       map[string]any{},
-		Progress:     GoalProgress(nil),
-		PlanThreadID: planThreadID,
-	}
-	if err := s.CreateGoal(context.Background(), goal); err != nil {
-		t.Fatalf("创建目标失败: %v", err)
-	}
-	// 重新读取，让 Revision 与存储层写入的一致，避免 StartGoal 报乐观锁冲突。
-	stored, err := s.GetGoal(context.Background(), goal.ID)
-	if err != nil {
-		t.Fatalf("读取目标失败: %v", err)
-	}
-	return stored
-}
-
-// 目标开工不会更改规划会话的权限档。
-func TestStartGoalKeepsSessionPermissions(t *testing.T) {
-	cases := []struct {
-		name         string
-		owner        string
-		planThreadID *string
-		wantPromote  bool
-	}{
-		{name: "总管目标不升档", owner: goalOwnerSteward, planThreadID: strPtr("plan-thread-" + uuid.NewString()), wantPromote: false},
-		{name: "普通目标不升档", owner: "", planThreadID: strPtr("plan-thread-" + uuid.NewString()), wantPromote: false},
-		{name: "无规划会话不升档", owner: goalOwnerSteward, planThreadID: nil, wantPromote: false},
-		{name: "空白规划会话不升档", owner: goalOwnerSteward, planThreadID: strPtr("   "), wantPromote: false},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
-			driver := newCoordinatorDriver()
-			svc, s := setupPromoteService(t, driver)
-
-			goal := createPromoteGoal(t, s, tc.owner, tc.planThreadID)
-			started, err := svc.StartGoal(ctx, goal.ID, goal.Revision)
-			if err != nil {
-				t.Fatalf("StartGoal 失败: %v", err)
-			}
-			if started.Status != string(GoalStatusRunning) {
-				t.Fatalf("开工后状态应为 running，实际: %q", started.Status)
-			}
-
-			promoted := driver.promotedThreads()
-			if tc.wantPromote {
-				if len(promoted) != 1 || promoted[0] != strings.TrimSpace(*tc.planThreadID) {
-					t.Fatalf("期望升档规划会话，实际: %v", promoted)
-				}
-				return
-			}
-			if len(promoted) != 0 {
-				t.Fatalf("不应升档，实际: %v", promoted)
-			}
-		})
-	}
-}
-
-// 暂停后重复开工也不会更改规划会话的权限档。
-func TestStartGoalDoesNotPromoteAfterResume(t *testing.T) {
-	ctx := context.Background()
-	driver := &failingPromoterDriver{coordinatorDriver: newCoordinatorDriver()}
-	svc, s := setupPromoteService(t, driver)
-
-	threadID := "plan-thread-" + uuid.NewString()
-	goal := createPromoteGoal(t, s, goalOwnerSteward, &threadID)
-
-	started, err := svc.StartGoal(ctx, goal.ID, goal.Revision)
-	if err != nil {
-		t.Fatalf("升档失败不应让开工失败: %v", err)
-	}
-	if started.Status != string(GoalStatusRunning) {
-		t.Fatalf("开工后状态应为 running，实际: %q", started.Status)
-	}
-
-	paused, err := svc.PauseGoal(ctx, started.ID, started.Revision)
-	if err != nil {
-		t.Fatalf("PauseGoal 失败: %v", err)
-	}
-	if _, err := svc.StartGoal(ctx, paused.ID, paused.Revision); err != nil {
-		t.Fatalf("恢复开工失败: %v", err)
-	}
-	if calls := driver.calls(); calls != 0 {
-		t.Fatalf("开工不应尝试升档，实际: %d", calls)
-	}
-}
-
-// failingPromoterDriver 让升档始终失败，用于验证开工不受影响。
-type failingPromoterDriver struct {
-	*coordinatorDriver
-}
-
-func (d *failingPromoterDriver) PromoteReadOnlySession(ctx context.Context, threadID string) error {
-	// 先记录调用再返回错误，calls() 依赖 d.promoted 统计尝试次数。
-	d.mu.Lock()
-	d.promoted = append(d.promoted, threadID)
-	d.mu.Unlock()
-	return errTestPromoteFailed
-}
-
-func (d *failingPromoterDriver) calls() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return len(d.promoted)
-}
-
-var errTestPromoteFailed = errors.New("升级权限档失败")

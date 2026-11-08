@@ -721,7 +721,7 @@ func (c *Client) StopBackgroundTask(ctx context.Context, threadID, messageID str
 }
 
 // SplitSession 分割会话：在时间线末尾写一条分割线，从下一条消息起发给模型的上下文不再带
-// 分割线以上的历史，交接内容（账本、话题索引等）照常带上。已处于待分割状态时幂等成功。
+// 分割线以上的历史。已处于待分割状态时幂等成功。
 func (c *Client) SplitSession(ctx context.Context, threadID string) error {
 	if c.backend == nil {
 		return errors.New("backend 不可用")
