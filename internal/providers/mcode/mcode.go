@@ -35,8 +35,6 @@ type Options struct {
 	ResolveClient func(model string, affinityKey string) (client llm.Client, modelID string, err error)
 	SystemPrompt  func(turn harness.Turn, toolNames []string) string
 	ExtraTools    func(ctx context.Context, turn harness.Turn) []tools.Tool
-	// ReadOnlyDirs 返回本轮只读工具额外允许访问的目录；可以为 nil。
-	ReadOnlyDirs func(turn harness.Turn) []string
 	DefaultModel string
 	MaxRounds    int
 	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析前的完整模型串；
@@ -210,13 +208,10 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	defer func() { h.unregisterRun(sessionID) }()
 	agentOpts := agent.Options{
 		Client: client, Model: modelID, Effort: turn.Effort, System: system, Tools: toolset,
-		Env:  tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, Sandbox: turn.Sandbox, Mode: turn.Mode, ExtraEnv: extraEnv},
+		Env:  tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, ReadOnlyDirs: turn.ReadOnlyDirs, Sandbox: turn.Sandbox, Mode: turn.Mode, ExtraEnv: extraEnv},
 		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
 		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, ContextWindow: contextWindow,
 		Emit: runEmit,
-	}
-	if h.opts.ReadOnlyDirs != nil {
-		agentOpts.Env.ReadOnlyDirs = h.opts.ReadOnlyDirs(turn)
 	}
 	if h.opts.MaxTokens != nil {
 		// 复用解析前的完整模型串，与 ContextWindow 的取值方式一致。

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"mcode/internal/harness"
 )
 
 // TestResolveWorkDirPathWithAdditionalDirs 覆盖附加目录白名单：附加目录内的绝对路径放行且 rel
@@ -75,4 +77,30 @@ func TestResolveWorkDirPathWithAdditionalDirs(t *testing.T) {
 			t.Fatal("经符号链接导出附加目录的路径应被拒绝")
 		}
 	})
+}
+
+func TestReadRootsReadOnlyDirs(t *testing.T) {
+	workDir := t.TempDir()
+	additional := t.TempDir()
+	readonly := t.TempDir()
+	file := filepath.Join(readonly, "file.txt")
+	if err := os.WriteFile(file, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	backing := make([]string, 1, 2)
+	backing[0] = additional
+	turn := harness.Turn{WorkDir: workDir, AdditionalDirs: backing, ReadOnlyDirs: []string{readonly}}
+	target, _, err := resolveWorkDirPath(workDir, file, readRoots(turn)...)
+	if err != nil {
+		t.Fatalf("只读目录读取被拒绝: %v", err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "content" {
+		t.Fatalf("读取内容 = %q, error = %v", data, err)
+	}
+	if _, _, err := resolveWorkDirPath(workDir, file, turn.AdditionalDirs...); err == nil {
+		t.Fatal("只读目录写入应被拒绝")
+	}
+	if backing[:cap(backing)][1] != "" {
+		t.Fatal("读取目录修改了附加目录的底层数组")
+	}
 }

@@ -6766,6 +6766,8 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 	turnStartedAt := b.now()
 	// attach 只在第一次尝试里生效：那段输出已经读走，重试不该再当 attach 轮。
 	firstAttempt := true
+	home, _ := os.UserHomeDir()
+	readOnlyDirs := projctx.SkillReadDirs(workDir, home)
 	for {
 		if runCtx.Err() != nil {
 			break
@@ -6785,6 +6787,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			Prompt:          harnessTurnPrompt(compactOnly, personaPrefix, currPrompt),
 			WorkDir:         workDir,
 			AdditionalDirs:  additionalDirs,
+			ReadOnlyDirs:    readOnlyDirs,
 			SessionID:       currSessionID,
 			Model:           model,
 			Mode:            turnMode,

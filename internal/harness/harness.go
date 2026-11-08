@@ -83,6 +83,8 @@ type Turn struct {
 	// AdditionalDirs 是工作目录之外额外允许访问的绝对目录（总管会话填已注册项目目录），
 	// 普通会话为空：provider 把它映射成自己的附加目录参数，进程工作目录仍是 WorkDir。
 	AdditionalDirs []string
+	// ReadOnlyDirs 是只允许读取、不允许写入的额外目录（如技能目录）。
+	ReadOnlyDirs []string
 
 	SessionID string // 非空表示恢复会话
 	Model     string

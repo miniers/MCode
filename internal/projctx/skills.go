@@ -246,6 +246,33 @@ func formatSkillsIndexWithLimit(skills []SkillInfo, maxRunes int) string {
 	return strings.Join(lines, "\n")
 }
 
+// SkillReadDirs 与注入给模型的技能清单同源，覆盖技能目录或 SKILL.md 是符号链接的情况。
+func SkillReadDirs(projectPath, home string) []string {
+	var dirs []string
+	seen := make(map[string]bool)
+	add := func(dir string) {
+		dir = filepath.Clean(dir)
+		if !seen[dir] {
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+	}
+	if strings.TrimSpace(home) != "" {
+		for _, root := range globalSkillRoots {
+			if path, err := filepath.Abs(filepath.Join(home, root)); err == nil {
+				add(path)
+			}
+		}
+	}
+	for _, skill := range DiscoverSkills(projectPath, home) {
+		add(filepath.Dir(skill.Path))
+		if resolved, err := filepath.EvalSymlinks(skill.Path); err == nil {
+			add(filepath.Dir(resolved))
+		}
+	}
+	return dirs
+}
+
 // DiscoverSkills 返回全局与项目级技能清单：项目级优先、同名覆盖全局，各自按名称升序。
 func DiscoverSkills(projectPath, home string) []SkillInfo {
 	var global []SkillInfo

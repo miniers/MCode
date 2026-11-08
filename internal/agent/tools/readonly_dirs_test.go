@@ -55,3 +55,34 @@ func TestReadOnlyDirs(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveExpandsTilde(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	workDir := t.TempDir()
+	put(t, filepath.Join(home, "file.txt"), "home content\n")
+	env := Env{WorkDir: workDir, ReadOnlyDirs: []string{home}}
+	args := map[string]any{"path": "~/file.txt"}
+
+	result := runTool(t, env, "read", args)
+	if result.IsError || !strings.Contains(result.Text, "home content") {
+		t.Fatalf("home read: %+v", result)
+	}
+
+	withoutReadOnly := env
+	withoutReadOnly.ReadOnlyDirs = nil
+	result = runTool(t, withoutReadOnly, "read", args)
+	if !result.IsError || !strings.Contains(result.Text, "outside allowed directories") {
+		t.Fatalf("outside read: %+v", result)
+	}
+
+	tildeDir := filepath.Join(workDir, "~")
+	if err := os.Mkdir(tildeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(tildeDir, "file.txt"), "work content\n")
+	result = runTool(t, env, "read", args)
+	if result.IsError || !strings.Contains(result.Text, "home content") || strings.Contains(result.Text, "work content") {
+		t.Fatalf("home read with work directory collision: %+v", result)
+	}
+}

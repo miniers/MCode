@@ -201,6 +201,13 @@ func buildEnv(base []string, workDir string, extraOpts []string, extraTurn []str
 	return env
 }
 
+// readRoots 合并可读目录，避免修改附加目录的底层数组。
+func readRoots(turn harness.Turn) []string {
+	roots := make([]string, 0, len(turn.AdditionalDirs)+len(turn.ReadOnlyDirs))
+	roots = append(roots, turn.AdditionalDirs...)
+	return append(roots, turn.ReadOnlyDirs...)
+}
+
 // resolveWorkDirPath 将 Agent 请求的相对或绝对路径解析为工作目录（或附加目录）内的绝对路径。
 // 越出白名单（含 ".."、指向目录外的绝对路径，以及经符号链接逃出）一律拒绝。
 // 相对路径只相对 workDir 解析；extraDirs 是工作目录之外额外放开的绝对目录。
@@ -460,7 +467,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 			if err := json.Unmarshal(params, &p); err != nil {
 				return nil, err
 			}
-			target, _, err := resolveWorkDirPath(turn.WorkDir, p.Path, turn.AdditionalDirs...)
+			target, _, err := resolveWorkDirPath(turn.WorkDir, p.Path, readRoots(turn)...)
 			if err != nil {
 				return nil, err
 			}

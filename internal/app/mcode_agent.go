@@ -280,19 +280,6 @@ func mcodeEngineOptions(secrets config.SecretStore, dataDir string, mcpInjection
 				ToolNames: toolNames, Skills: mcodeSkills(home, turn.WorkDir, dataDir), Now: time.Now(),
 			})
 		},
-		ReadOnlyDirs: func(turn harness.Turn) []string {
-			home, _ := os.UserHomeDir()
-			var dirs []string
-			seen := make(map[string]bool)
-			for _, skill := range mcodeSkills(home, turn.WorkDir, dataDir) {
-				dir := filepath.Dir(skill.Path)
-				if !seen[dir] {
-					seen[dir] = true
-					dirs = append(dirs, dir)
-				}
-			}
-			return dirs
-		},
 		ExtraTools: func(ctx context.Context, turn harness.Turn) []tools.Tool {
 			var external []harness.MCPEndpoint
 			if mcpInjection.External != nil {

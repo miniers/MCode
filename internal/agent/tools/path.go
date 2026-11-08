@@ -48,6 +48,12 @@ func resolveWithRoots(env Env, path string, extraRoots []string) (string, error)
 	if path == "" {
 		path = "."
 	}
+	// 将用户目录简写展开，避免误解析为工作目录下的相对路径。
+	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~"+string(filepath.Separator)) {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = home + path[1:]
+		}
+	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(env.WorkDir, path)
 	}
