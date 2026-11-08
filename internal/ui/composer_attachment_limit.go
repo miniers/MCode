@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	composerAttachmentLimitMu sync.Mutex
-	composerAttachmentLimitCache int
+	composerAttachmentLimitMu       sync.Mutex
+	composerAttachmentLimitCache    int
 	composerAttachmentLimitCachedAt time.Time
 )
 

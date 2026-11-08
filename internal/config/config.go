@@ -185,7 +185,7 @@ const (
 	DefaultStalledAlertMinutes = 10
 	// DefaultComposerAttachmentLimit 和 MaxComposerAttachmentLimit 分别是附件数量的默认值和最大值。
 	DefaultComposerAttachmentLimit = 10
-	MaxComposerAttachmentLimit = 20
+	MaxComposerAttachmentLimit     = 20
 
 	// DefaultNoProgressMinutes 是会话或 bee 连续无文件改动、无看板变化的默认阈值（分钟）。
 	DefaultNoProgressMinutes = 45
@@ -470,18 +470,18 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 
 // SessionConfig 会话行为设置。
 type SessionConfig struct {
-	ShowReasoning          *bool  `json:"show_reasoning,omitempty"`            // 显示思考过程，nil 视为开启
-	AutoCollapseReasoning  *bool  `json:"auto_collapse_reasoning,omitempty"`   // 思考内容自动折叠，nil 视为开启
-	PinSentMessage         *bool  `json:"pin_sent_message,omitempty"`          // 发送后把消息置顶到时间线顶部，nil 视为关闭
-	ConciseRepliesEnabled  *bool  `json:"concise_replies_enabled,omitempty"`   // 简洁回复引导，nil 视为关闭
-	QueueWhileRunning      bool   `json:"queue_while_running"`                 // 运行中插入消息，默认 true
-	InsertIntoRunningTurn  bool   `json:"insert_into_running_turn"`            // 运行中的消息插入当前回合（Provider 支持中途注入时），不支持则排队；默认 true
-	AutoContinueAfterLimit bool   `json:"auto_continue_after_limit"`           // 额度用尽后自动等待续跑，默认 false
-	AskCompactBeforeResume *bool  `json:"ask_compact_before_resume,omitempty"` // 恢复旧会话前询问压缩上下文，nil 视为开启
-	ThreadFinishAction     string `json:"thread_finish_action"`                // 会话完成动作：dormant | archive，默认 dormant
-	ComposerAttachmentLimit int `json:"composer_attachment_limit,omitempty"` // 单条消息附件数量上限，0 或负数视为默认 10，范围 1..20
-	ComposerSendKey        string `json:"composer_send_key,omitempty"`         // 发送消息快捷键：enter | shift_enter，默认 enter（Enter 发送，Shift+Enter 换行）
-	SkillsInjectsPrompt    *bool  `json:"skills_injects_prompt,omitempty"`     // 技能规则注入提示词，nil 视为开启
+	ShowReasoning           *bool  `json:"show_reasoning,omitempty"`            // 显示思考过程，nil 视为开启
+	AutoCollapseReasoning   *bool  `json:"auto_collapse_reasoning,omitempty"`   // 思考内容自动折叠，nil 视为开启
+	PinSentMessage          *bool  `json:"pin_sent_message,omitempty"`          // 发送后把消息置顶到时间线顶部，nil 视为关闭
+	ConciseRepliesEnabled   *bool  `json:"concise_replies_enabled,omitempty"`   // 简洁回复引导，nil 视为关闭
+	QueueWhileRunning       bool   `json:"queue_while_running"`                 // 运行中插入消息，默认 true
+	InsertIntoRunningTurn   bool   `json:"insert_into_running_turn"`            // 运行中的消息插入当前回合（Provider 支持中途注入时），不支持则排队；默认 true
+	AutoContinueAfterLimit  bool   `json:"auto_continue_after_limit"`           // 额度用尽后自动等待续跑，默认 false
+	AskCompactBeforeResume  *bool  `json:"ask_compact_before_resume,omitempty"` // 恢复旧会话前询问压缩上下文，nil 视为开启
+	ThreadFinishAction      string `json:"thread_finish_action"`                // 会话完成动作：dormant | archive，默认 dormant
+	ComposerAttachmentLimit int    `json:"composer_attachment_limit,omitempty"` // 单条消息附件数量上限，0 或负数视为默认 10，范围 1..20
+	ComposerSendKey         string `json:"composer_send_key,omitempty"`         // 发送消息快捷键：enter | shift_enter，默认 enter（Enter 发送，Shift+Enter 换行）
+	SkillsInjectsPrompt     *bool  `json:"skills_injects_prompt,omitempty"`     // 技能规则注入提示词，nil 视为开启
 }
 
 // PermissionsConfig 权限设置。
@@ -2196,16 +2196,16 @@ func Defaults() Config {
 	return Config{
 		Version: Version,
 		Session: SessionConfig{
-			ShowReasoning:          boolPtr(true),
-			AutoCollapseReasoning:  boolPtr(true),
-			PinSentMessage:         boolPtr(false),
-			ConciseRepliesEnabled:  boolPtr(false),
-			QueueWhileRunning:      true,
-			InsertIntoRunningTurn:  true,
-			AutoContinueAfterLimit: false,
-			AskCompactBeforeResume: boolPtr(true),
-			ThreadFinishAction:     FinishActionDormant,
-			ComposerSendKey:        ComposerSendKeyEnter,
+			ShowReasoning:           boolPtr(true),
+			AutoCollapseReasoning:   boolPtr(true),
+			PinSentMessage:          boolPtr(false),
+			ConciseRepliesEnabled:   boolPtr(false),
+			QueueWhileRunning:       true,
+			InsertIntoRunningTurn:   true,
+			AutoContinueAfterLimit:  false,
+			AskCompactBeforeResume:  boolPtr(true),
+			ThreadFinishAction:      FinishActionDormant,
+			ComposerSendKey:         ComposerSendKeyEnter,
 			ComposerAttachmentLimit: DefaultComposerAttachmentLimit,
 		},
 		Notifications: NotificationsConfig{
