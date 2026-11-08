@@ -2134,6 +2134,53 @@ func (s *chatState) sendMessage(text string) {
 	}()
 }
 
+// sendTextOnly 在后台 goroutine 中向当前会话发送纯文本，不读取也不清空输入框草稿与附件。
+// 决策卡的回答走这条路径：它不应消耗用户正在编辑的草稿，也不应带上待发送的附件。
+func (s *chatState) sendTextOnly(text string) {
+	s.mu.Lock()
+	if s.isPendingThreadLocked(s.selectedThreadID) {
+		s.mu.Unlock()
+		// 待创建会话还没有后端会话：先建会话，成功后接着把这条消息发出去。
+		s.createPendingThread(func(string) { s.sendTextOnly(text) })
+		return
+	}
+	tid := s.selectedThreadID
+	if s.sending || s.sentDraft != nil || tid == "" || s.composerPrefsSaving[tid] {
+		s.mu.Unlock()
+		return
+	}
+	if strings.TrimSpace(text) == "" {
+		s.mu.Unlock()
+		return
+	}
+	s.sending = true
+	s.scrollToEnd = true
+	s.armChatAnchor(tid)
+	s.mu.Unlock()
+
+	go func() {
+		ctx := context.Background()
+		delegated, err := s.client.Send(ctx, tid, text)
+		s.mu.Lock()
+		s.sending = false
+		if err == nil {
+			delete(s.interrupted, tid)
+			// 消息已送达：本地立即记下发送时间并重排侧边栏。
+			s.markThreadUserMessageLocked(tid, time.Now())
+			if !delegated {
+				s.markThreadRunningOptimisticallyLocked(tid)
+			}
+		} else {
+			// 发送失败：回滚乐观运行中标记，避免界面一直停在“回复中”。
+			s.clearThreadRunningOptimisticallyLocked(tid, true)
+			s.disarmComposerDockPromote(tid)
+			s.toastMessage = "发送消息失败: " + err.Error()
+		}
+		s.mu.Unlock()
+		s.invalidate()
+	}()
+}
+
 // threadTitleByID 返回会话标题，会话不存在时返回空字符串；expandThreadMentions 会回退到引用文本本身。
 func (s *chatState) threadTitleByID(id string) string {
 	s.mu.Lock()

@@ -69,6 +69,34 @@ func TestAnswerDecision(t *testing.T) {
 	}
 }
 
+// TestAnswerDecisionTaskUpdateFailureKeepsCardOpen 验证任务更新失败时卡片仍是 open，修好后可以再次回答。
+func TestAnswerDecisionTaskUpdateFailureKeepsCardOpen(t *testing.T) {
+	ctx := context.Background()
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-1", Question: "继续吗"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AnswerDecision(ctx, d.ID, "继续", "user:desktop"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("任务不存在时应更新失败: %v", err)
+	}
+	open, err := db.GetStewardDecision(ctx, d.ID)
+	if err != nil || open.Status != store.DecisionStatusOpen {
+		t.Fatalf("任务更新失败后卡片应保持 open: %+v, %v", open, err)
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "task-1", Title: "任务", Status: "in_progress", Meta: EncodeTaskMeta(TaskMeta{})}); err != nil {
+		t.Fatal(err)
+	}
+	answered, err := svc.AnswerDecision(ctx, d.ID, "继续", "user:desktop")
+	if err != nil || answered.Status != store.DecisionStatusAnswered {
+		t.Fatalf("再次回答: %+v, %v", answered, err)
+	}
+	got, err := db.GetTask(ctx, "task-1")
+	if err != nil || !strings.Contains(got.Notes, "决策 "+d.ID+"：继续吗 → 继续") {
+		t.Fatalf("任务: %+v, %v", got, err)
+	}
+}
+
 func TestExecutorResultGateOverride(t *testing.T) {
 	for _, tc := range []struct {
 		status ResultStatus

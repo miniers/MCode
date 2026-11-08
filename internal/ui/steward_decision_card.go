@@ -68,6 +68,20 @@ func stewardDecisionShortcut(key ui.Key, options []stewardDecisionOption) (strin
 
 func stewardDecisionMessage(id, answer string) string { return id + " " + answer }
 
+// stewardDecisionDraft 把决策编号前缀加到草稿前面：草稿为空时只留前缀，
+// 已带同一前缀时不重复添加，并保留用户原有内容。
+func stewardDecisionDraft(draft, id string) string {
+	prefix := id + " "
+	trimmed := strings.TrimSpace(draft)
+	if trimmed == "" {
+		return prefix
+	}
+	if strings.HasPrefix(trimmed, prefix) || trimmed == id {
+		return draft
+	}
+	return prefix + draft
+}
+
 func lastInteractiveStewardDecision(messages []Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]
@@ -98,7 +112,7 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 	if !answered && draftEmpty && lastInteractiveStewardDecision(messages) == m.ID {
 		for key := ui.Key1; key <= ui.Key9; key++ {
 			if answer, valid := stewardDecisionShortcut(key, decision.Options); valid && c.Shortcut(0, key) {
-				s.sendMessage(stewardDecisionMessage(decision.ID, answer))
+				s.sendTextOnly(stewardDecisionMessage(decision.ID, answer))
 			}
 		}
 	}
@@ -125,30 +139,32 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 		for _, option := range decision.Options {
 			option := option
 			label := option.Key + " " + option.Text
-			btn := ui.ButtonBase(c.Key("steward-decision-option-" + m.ID + "-" + option.Key)).
+			btn := ui.ButtonBase(c.Key("steward-decision-option-"+m.ID+"-"+option.Key)).
 				Label(label).FillWidth().Padding(Space2, Space3).Radius(RadiusSM).
 				Border(Hairline, ThemeBorder(c)).OnClick(func() {
-					s.sendMessage(stewardDecisionMessage(decision.ID, option.Key))
-				})
+				s.sendTextOnly(stewardDecisionMessage(decision.ID, option.Key))
+			})
 			pressed := float32(0)
-			if btn.Pressed() { pressed = 1 }
+			if btn.Pressed() {
+				pressed = 1
+			}
 			press := btn.AnimateTo("press", pressed, ui.Animation{Duration: animateDuration(c, DurFast)})
 			btn.Background(ThemeSurface(c).Mix(ThemeHover(c), press)).Children(func() {
 				ui.Row(c.Key("steward-decision-option-row-" + m.ID + "-" + option.Key)).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, label).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1)
 					if option.Key == decision.Recommended {
-						renderRecommendedBadge(c, "steward-decision-recommended-" + m.ID + "-" + option.Key)
+						renderRecommendedBadge(c, "steward-decision-recommended-"+m.ID+"-"+option.Key)
 					}
 				})
 			})
 		}
 		ui.Row(c.Key("steward-decision-actions-" + m.ID)).Gap(Space2).Children(func() {
 			Button(c, ButtonProps{Key: "steward-decision-ignore-" + m.ID, Text: "忽略", Variant: ButtonSecondary, Size: ControlMD, OnClick: func() {
-				s.sendMessage(stewardDecisionMessage(decision.ID, "忽略"))
+				s.sendTextOnly(stewardDecisionMessage(decision.ID, "忽略"))
 			}})
 			Button(c, ButtonProps{Key: "steward-decision-other-" + m.ID, Text: "其他指示", Variant: ButtonSecondary, Size: ControlMD, OnClick: func() {
 				s.mu.Lock()
-				s.draft = decision.ID + " "
+				s.draft = stewardDecisionDraft(s.draft, decision.ID)
 				s.composerFocusRequest = true
 				s.completionCaretToEnd = true
 				s.mu.Unlock()

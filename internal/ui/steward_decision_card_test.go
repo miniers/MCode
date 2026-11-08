@@ -21,9 +21,9 @@ func TestParseStewardDecision(t *testing.T) {
 func TestStewardDecisionResult(t *testing.T) {
 	decision := stewardDecision{ID: "D-0001", Options: []stewardDecisionOption{{Key: "A", Text: "方案一"}}}
 	cases := []struct {
-		name string
+		name     string
 		messages []Message
-		text string
+		text     string
 		answered bool
 	}{
 		{"未回答", nil, "", false},
@@ -45,7 +45,11 @@ func TestStewardDecisionResult(t *testing.T) {
 
 func TestStewardDecisionShortcutAndMessage(t *testing.T) {
 	options := []stewardDecisionOption{{Key: "A"}, {Key: "B"}}
-	for _, tc := range []struct { key ui.Key; answer string; ok bool }{
+	for _, tc := range []struct {
+		key    ui.Key
+		answer string
+		ok     bool
+	}{
 		{ui.Key1, "A", true}, {ui.Key2, "B", true}, {ui.Key3, "", false}, {ui.Key9, "", false}, {ui.KeyEnter, "", false},
 	} {
 		answer, ok := stewardDecisionShortcut(tc.key, options)
@@ -55,6 +59,26 @@ func TestStewardDecisionShortcutAndMessage(t *testing.T) {
 	}
 	if got := stewardDecisionMessage("D-0001", "A"); got != "D-0001 A" {
 		t.Fatalf("发送内容: %q", got)
+	}
+}
+
+func TestStewardDecisionDraft(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		draft string
+		want  string
+	}{
+		{"空草稿", "", "D-0001 "},
+		{"空白草稿", "  ", "D-0001 "},
+		{"非空草稿", "再等等", "D-0001 再等等"},
+		{"已带前缀", "D-0001 再等等", "D-0001 再等等"},
+		{"只有编号", "D-0001", "D-0001"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stewardDecisionDraft(tc.draft, "D-0001"); got != tc.want {
+				t.Fatalf("得到 %q", got)
+			}
+		})
 	}
 }
 
