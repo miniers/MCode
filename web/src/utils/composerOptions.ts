@@ -1,5 +1,18 @@
 import type { RemoteComposerOptions, RemoteThreadSummary } from '../types/contract';
 
+export function runningThreadUpdateChanges(
+  previous: RemoteComposerOptions,
+  next: RemoteComposerOptions
+): { model?: string; effort?: string } | null {
+  const changes: { model?: string; effort?: string } = {};
+  const modelChanged = previous.model !== next.model;
+  if (modelChanged && next.model) changes.model = next.model;
+  if (previous.effort !== next.effort && !(modelChanged && next.effort === undefined)) {
+    changes.effort = next.effort ?? '';
+  }
+  return Object.keys(changes).length ? changes : null;
+}
+
 /** 会话当前的输入区选择，来自宿主下发的摘要（草稿页用 providers.list 的 draft）。 */
 export function summaryComposerOptions(summary: RemoteThreadSummary): RemoteComposerOptions {
   return {

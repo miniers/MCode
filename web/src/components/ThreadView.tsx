@@ -71,7 +71,7 @@ import { RevertTurnSheet } from './thread/RevertTurnSheet';
 import { EditMessageSheet } from './thread/EditMessageSheet';
 import type { RuntimeCompactSuggestionParams } from '../types/generated';
 import { clearThreadDraft, loadThreadDraft, saveThreadDraft } from '../services/draftStorage';
-import { changedComposerOptions, rememberParamsForChange, summaryComposerOptions } from '../utils/composerOptions';
+import { changedComposerOptions, rememberParamsForChange, runningThreadUpdateChanges, summaryComposerOptions } from '../utils/composerOptions';
 import type { ComposerSelectionMemoryParams } from '../utils/composerOptions';
 import { localCommandName, parseDelegation } from '../utils/slashCommands';
 import { composerHistoryEntries } from '../utils/composerHistory';
@@ -357,7 +357,6 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const composerOptionsDirtyRef = useRef(false);
   // 记忆写入以 ref 保存的当前选择为准，避免回调拿到过期值
   const composerOptionsRef = useRef(composerOptions);
-  const modelUpdatePendingRef = useRef<string | null>(null);
   const composerThreadIDRef = useRef(thread.id);
   composerThreadIDRef.current = thread.id;
   composerOptionsRef.current = composerOptions;
@@ -394,34 +393,27 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       setSendError('运行中无法更换 Agent');
       return;
     }
-    const modelChanged = next.model !== previous.model;
-    const effortChanged = next.effort !== previous.effort;
-    if (!modelChanged && !effortChanged) {
-      updateComposerOptions(next);
-      return;
-    }
-    if (modelUpdatePendingRef.current === thread.id) return;
-    modelUpdatePendingRef.current = thread.id;
+    const changes = runningThreadUpdateChanges(previous, next);
     const wasDirty = composerOptionsDirtyRef.current;
     updateComposerOptions(next);
-    const changes = modelChanged ? { model: next.model } : { effort: next.effort ?? '' };
+    if (!changes) return;
     void updateThread(thread.id, changes).then((summary) => {
-      if (composerThreadIDRef.current !== thread.id) return;
+      if (composerThreadIDRef.current !== thread.id || composerOptionsRef.current !== next) return;
       const current = composerOptionsRef.current;
       const resolved = { ...current, provider: summary.provider, model: summary.model ?? undefined, effort: summary.effort ?? undefined };
       composerOptionsRef.current = resolved;
       setComposerOptions(resolved);
-      composerOptionsDirtyRef.current = current !== next;
+      composerOptionsDirtyRef.current = false;
     }).catch((error: unknown) => {
       if (composerThreadIDRef.current !== thread.id) return;
       const current = composerOptionsRef.current;
-      const reverted = { ...current, provider: previous.provider, model: previous.model, effort: previous.effort };
-      composerOptionsRef.current = reverted;
-      setComposerOptions(reverted);
-      composerOptionsDirtyRef.current = wasDirty || current !== next;
+      if (current === next) {
+        const reverted = { ...current, provider: previous.provider, model: previous.model, effort: previous.effort };
+        composerOptionsRef.current = reverted;
+        setComposerOptions(reverted);
+        composerOptionsDirtyRef.current = wasDirty;
+      }
       setSendError(error instanceof Error ? error.message : '更新模型失败');
-    }).finally(() => {
-      if (modelUpdatePendingRef.current === thread.id) modelUpdatePendingRef.current = null;
     });
   }, [latestSummary.isRunning, latestSummary.provider, thread.id, updateComposerOptions, updateThread]);
   // 宿主摘要变化（Mac 上改了模型/权限/编排等）时同步输入区；用户改过则以用户选择为准
