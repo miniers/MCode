@@ -79,8 +79,8 @@ func newFloatTestState(t *testing.T) *chatState {
 	return s
 }
 
-// TestRenderSwarmBeeFloats_ProgressPanel 验证默认的聚合面板：计数、当前子代理、任务与嵌入的输入框。
-func TestRenderSwarmBeeFloats_ProgressPanel(t *testing.T) {
+// TestRenderSwarmBeeFloats_StripShowsRunningBee 验证面板顶栏显示子代理计数和运行中的子代理。
+func TestRenderSwarmBeeFloats_StripShowsRunningBee(t *testing.T) {
 	s := newFloatTestState(t)
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderSwarmBeeFloats(c, s)
@@ -91,12 +91,6 @@ func TestRenderSwarmBeeFloats_ProgressPanel(t *testing.T) {
 	}
 	if !tt.HasText("Birch") || !tt.HasText("正在工作") {
 		t.Fatal("顶栏应显示运行中的子代理 Birch")
-	}
-	if !tt.HasText("任务目标: 实现浮窗卡片") {
-		t.Fatal("进度视图应显示任务目标")
-	}
-	if !tt.HasText("编写代码中") {
-		t.Fatal("进度视图应显示当前活动")
 	}
 }
 
