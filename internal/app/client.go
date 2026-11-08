@@ -120,12 +120,6 @@ type Client struct {
 
 	attention *attention.Service
 
-	// steward 是总管运行时，界面据此报告并打开总管的会话；未接线时为 nil。
-	steward stewardThreadRuntime
-
-	// suggestions 保存总管给出的审批建议，用户确认或请求消失后清除。
-	suggestions approvalSuggestionStore
-
 	// foregroundMu 保护 foregroundThread：界面每帧上报当前前台会话，总管读取它判断该会话是否正被人看着。
 	foregroundMu     sync.Mutex
 	foregroundThread string
@@ -770,9 +764,6 @@ func (c *Client) Respond(ctx context.Context, a mcodeui.Approval, optionID strin
 		RequestID: a.RequestID,
 		OptionID:  optID,
 	})
-	if err == nil && c.suggestions.remove(a.ThreadID, a.RequestID) {
-		c.suggestions.notify()
-	}
 	return err
 }
 
@@ -1698,6 +1689,8 @@ func (c *Client) ReviewTask(ctx context.Context, taskID, decision, feedback stri
 	c.recordRejectPreference(ctx, task, decision, feedback)
 	return KanbanTaskToUI(task, kanban.Derived{}), nil
 }
+
+const goalOwnerSteward = "steward"
 
 // recordRejectPreference 在用户亲手打回总管创建的目标下的任务时，把打回理由记成一条
 // 待用户确认的记忆提议，让总管下次少犯同样的错；失败只记日志，不影响评审结果。

@@ -8,8 +8,7 @@ import (
 	"mcode/internal/remote/wire"
 )
 
-// TestMemoryBackend_StewardMarkerSummary 验证会话摘要带出 isSteward：只有钩子认下的主会话为 true，
-// helper 子会话即使钩子返回 true 也为 false，未注入钩子时一律 false。
+// TestMemoryBackend_StewardMarkerSummary 验证只有前台会话带有总管标记。
 func TestMemoryBackend_StewardMarkerSummary(t *testing.T) {
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()
@@ -27,14 +26,10 @@ func TestMemoryBackend_StewardMarkerSummary(t *testing.T) {
 	// 未注入钩子：所有会话都不是总管主会话。
 	assertStewardMarker(t, backend, map[string]bool{stewardID: false, otherID: false, beeID: false})
 
-	// 钩子只认 stewardID；helper 子会话即使同 ID 命中也要压成 false。
-	backend.SetStewardPredicate(func(threadID string) bool {
-		return threadID == stewardID || threadID == beeID
-	})
+	backend.stewardFeedID = stewardID
 	assertStewardMarker(t, backend, map[string]bool{stewardID: true, otherID: false, beeID: false})
 
-	// 钩子换成只认 otherID 时，标记跟着换。
-	backend.SetStewardPredicate(func(threadID string) bool { return threadID == otherID })
+	backend.stewardFeedID = otherID
 	assertStewardMarker(t, backend, map[string]bool{stewardID: false, otherID: true, beeID: false})
 }
 

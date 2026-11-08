@@ -8,6 +8,8 @@ const message = (id: string, role: string, at: string, extra: Partial<ThreadMess
 });
 const start = '2026-11-06T08:00:00.000Z';
 const end = '2026-11-06T08:00:10.000Z';
+const historicalWake = message('wake', 'user', start, { kind: 'steward_wake', text: '历史唤醒' });
+assertEqual(buildTimelineItems([historicalWake]).length, 0, 'historical wake stays hidden');
 const pageOnly = message('tool', 'tool', '2026-11-06T08:00:09.000Z', { kind: 'tool', toolStatus: 'completed', toolCompletedAt: '2026-11-06T08:00:40.000Z', turnStartedAt: start, turnCompletedAt: end, turnStatus: 'completed' });
 const projected = buildTimelineItems([pageOnly]).find((item) => item.type === 'turnFinished');
 if (!projected || projected.type !== 'turnFinished') throw new Error('Expected finished-turn projection');

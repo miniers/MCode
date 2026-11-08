@@ -94,42 +94,6 @@ func TestSendHostEventMarksKind(t *testing.T) {
 	}
 }
 
-// SendStewardWake 落库的用户消息 Kind 应为 steward_wake，客户端据此把它当隐藏的系统输入。
-func TestSendStewardWakeMarksKind(t *testing.T) {
-	ctx := context.Background()
-	b := newStewardEventBackend(t)
-
-	threadID, err := b.StartSession(ctx, kanban.SessionRequest{
-		ProjectID: "p1", WorkDir: t.TempDir(), Title: "总管",
-	})
-	if err != nil {
-		t.Fatalf("建会话失败: %v", err)
-	}
-	waitThreadIdle(t, b, ctx, threadID)
-
-	if err := b.SendStewardWake(ctx, threadID, "巡检：还有 1 条待处理事件"); err != nil {
-		t.Fatalf("SendStewardWake 失败: %v", err)
-	}
-	waitThreadIdle(t, b, ctx, threadID)
-
-	var wakes int
-	for _, msg := range threadMessages(t, b, threadID) {
-		if msg.Role != "user" {
-			continue
-		}
-		wakes++
-		if msg.Kind == nil || *msg.Kind != threadMessageKindStewardWake {
-			t.Fatalf("唤醒消息的 Kind 应为 %q，得到 %v", threadMessageKindStewardWake, msg.Kind)
-		}
-		if !strings.Contains(msg.Text, "巡检") {
-			t.Fatalf("唤醒消息正文不对: %q", msg.Text)
-		}
-	}
-	if wakes != 1 {
-		t.Fatalf("应落库 1 条唤醒消息，实际 %d 条", wakes)
-	}
-}
-
 // AppendAssistantMessage 写入的是可见的最终助手回复，没有 Kind（不是事件也不是通知）。
 func TestAppendAssistantMessageIsFinalReply(t *testing.T) {
 	ctx := context.Background()

@@ -330,19 +330,15 @@ export const SETTINGS_ITEMS: SettingsItemDef[] = [
     page: 'steward',
     section: '总管',
     title: '启用总管',
-    desc: '开启后由它在后台盯会话和看板',
     aliases: ['总管', '默默'],
     settingsKey: 'steward.enabled'
   },
-  // 总管会话自己的自动折叠开关：宿主没给这个键时该项不显示
   {
-    id: 'row-steward-auto-collapse-reasoning',
+    id: 'row-steward-cli-fallback',
     page: 'steward',
     section: '总管',
-    title: '自动折叠思考过程',
-    desc: '总管会话的思考默认收成一行，关闭则保持展开；不影响其他会话',
-    aliases: ['总管', '折叠', '思考'],
-    settingsKey: 'steward.auto_collapse_reasoning'
+    title: '没有 API Key 时用本机 CLI',
+    settingsKey: 'steward.cli_fallback'
   },
   {
     id: 'row-steward-name',

@@ -1028,7 +1028,10 @@
         "needs_approval",
         "review",
         "done",
-        "rejected"
+        "rejected",
+        "waiting",
+        "failed",
+        "cancelled"
       ]
     },
     "TaskPriority": {

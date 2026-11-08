@@ -1,8 +1,7 @@
 package app
 
 // 本文件把桌面端的待处理收件箱接到远程扩展方法上（internal/remote/attention_ext_methods.go）：
-// attention.list / attention.resolve / attention.confirmSuggestion 只依赖这里注入的 "attention" 服务。
-// 列表里的审批建议来自总管（approval_suggest），确认时再按建议答复请求。
+// attention.list / attention.resolve 使用这里注入的 "attention" 服务。
 // attention.changed 推送不在这里，见 RemoteService.SetAttentionWatcher。
 
 import (
@@ -10,10 +9,8 @@ import (
 	"errors"
 	"time"
 
-	"mcode/internal/attention"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
-	mcodeui "mcode/internal/ui"
 )
 
 // attentionResolvedByRemote 是网页端手动消解时记录的消解者；attention 包没有对应常量。
@@ -38,7 +35,6 @@ func init() {
 }
 
 // List 按项目列出事件（按创建时间倒序）；IncludeResolved 为假时只列未处理事件。
-// 等待审批的事件会带上总管的建议，用户确认后走 ConfirmSuggestion。
 func (x remoteAttentionExt) List(ctx context.Context, params wire.AttentionExtListParams) (wire.AttentionExtListResult, error) {
 	svc := x.client.attentionService()
 	if svc == nil {
@@ -53,14 +49,9 @@ func (x remoteAttentionExt) List(ctx context.Context, params wire.AttentionExtLi
 	if err != nil {
 		return wire.AttentionExtListResult{}, err
 	}
-	suggestions := x.client.pendingApprovalSuggestions(ctx)
 	items := make([]wire.AttentionExtItem, 0, len(events))
 	for _, ev := range events {
-		item := attentionEventToWire(ev)
-		if ev.Kind == string(attention.KindThreadApproval) {
-			item.Suggestions = attentionSuggestionsToWire(suggestions[ev.ThreadID])
-		}
-		items = append(items, item)
+		items = append(items, attentionEventToWire(ev))
 	}
 	return wire.AttentionExtListResult{Items: items}, nil
 }
@@ -74,9 +65,9 @@ func (x remoteAttentionExt) Resolve(ctx context.Context, id string) error {
 	return svc.Resolve(ctx, id, attentionResolvedByRemote)
 }
 
-// ConfirmSuggestion 用户确认总管的审批建议：后端校验建议仍然存在且未被更新后才答复请求。
+// ConfirmSuggestion 保留远程接口兼容，审批建议已下线。
 func (x remoteAttentionExt) ConfirmSuggestion(ctx context.Context, threadID, requestID, optionID string) error {
-	return x.client.ConfirmApprovalSuggestion(ctx, threadID, requestID, optionID)
+	return errors.New("审批建议已下线")
 }
 
 // UnresolvedCount 返回未处理事件条数，口径与 List 一致（总管启用时只算需要用户亲手处理的类型）。
@@ -106,24 +97,4 @@ func attentionEventToWire(ev store.AttentionEvent) wire.AttentionExtItem {
 		item.ResolvedAt = &resolved
 	}
 	return item
-}
-
-// attentionSuggestionsToWire 把总管的建议转成协议类型；
-// 详情不截断，用户要能看到完整的请求内容，没有建议时返回 nil（字段随之省略）。
-func attentionSuggestionsToWire(suggestions []mcodeui.AttentionSuggestion) []wire.AttentionExtSuggestion {
-	if len(suggestions) == 0 {
-		return nil
-	}
-	out := make([]wire.AttentionExtSuggestion, 0, len(suggestions))
-	for _, sug := range suggestions {
-		out = append(out, wire.AttentionExtSuggestion{
-			RequestID: sug.Approval.RequestID,
-			Kind:      sug.Approval.Kind,
-			Title:     sug.Approval.Title,
-			Detail:    sug.Approval.Detail,
-			OptionID:  sug.OptionID,
-			Reason:    sug.Reason,
-		})
-	}
-	return out
 }

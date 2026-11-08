@@ -33,9 +33,7 @@ var ErrInterruptUnsupported = errors.New("kanban: session driver does not suppor
 // ErrDependenciesNotDone 表示任务的前置依赖尚未全部完成，不能启动。
 var ErrDependenciesNotDone = errors.New("kanban: prerequisites are not done")
 
-// goalOwnerSteward 是总管创建话题目标时写入的 Owner 标记，看板据此认出「总管的话题」。
-// 必须与 steward.TopicGoalOwner 保持一致：kanban 不能 import steward，
-// internal/app/goal_review_wake.go 与 internal/mcp/tools_kanban.go 也是各自定义同一常量。
+// goalOwnerSteward 与新前台创建目标时写入的 Owner "steward" 一致。
 const goalOwnerSteward = "steward"
 
 // planningGoalStaleAfter 是 planning 状态目标的兜底超时：规划协程只活在进程内，
@@ -1234,10 +1232,8 @@ func (s *Service) CreateGoalWithOptions(ctx context.Context, opts CreateGoalOpti
 // StartGoal 将目标从 plan_review 或 paused 转换为 running 状态。
 func (s *Service) StartGoal(ctx context.Context, goalID string, expectedRevision int) (store.Goal, error) {
 	changed := false
-	var started store.Goal
 	defer func() {
 		if changed {
-			s.promoteTopicSession(ctx, started)
 			s.notifyChange()
 		}
 	}()
@@ -1263,33 +1259,7 @@ func (s *Service) StartGoal(ctx context.Context, goalID string, expectedRevision
 	}
 	s.revision.Add(1)
 	changed = true
-	started = updated
 	return updated, nil
-}
-
-// promoteTopicSession 把总管话题的规划会话从只读档升到 auto。
-// 话题会话以只读档创建，开工后要改代码，不升档每条命令都要审批；
-// 这里放在开工而不是规划结束时，是因为计划待审时用户还没拍板。
-// 调用方必须已释放 s.mu：驱动会回调看板，持锁调用易死锁。
-// 升档失败只记日志，不影响开工。
-func (s *Service) promoteTopicSession(ctx context.Context, goal store.Goal) {
-	if goal.Owner != goalOwnerSteward || goal.PlanThreadID == nil {
-		return
-	}
-	threadID := strings.TrimSpace(*goal.PlanThreadID)
-	if threadID == "" {
-		return
-	}
-	if s.opts.Driver == nil {
-		return
-	}
-	promoter, ok := s.opts.Driver.(ReadOnlySessionPromoter)
-	if !ok {
-		return
-	}
-	if err := promoter.PromoteReadOnlySession(ctx, threadID); err != nil {
-		log.Printf("kanban: 升级话题会话 %s 权限档失败: %v", threadID, err)
-	}
 }
 
 // PauseGoal 将 running 状态的目标置为 paused。

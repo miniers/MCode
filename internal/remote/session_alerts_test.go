@@ -151,40 +151,6 @@ func TestSessionAlertDetector_Done(t *testing.T) {
 	}
 }
 
-// TestSessionAlertDetector_LastTurnSilent 验证静默只抑制完成提醒，失败和额度提醒保持不变。
-func TestSessionAlertDetector_LastTurnSilent(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		silent    bool
-		attention string
-		errorText string
-		wantAlert bool
-		wantKind  SessionAlertKind
-	}{
-		{name: "silent", silent: true},
-		{name: "failed", silent: true, attention: "failed", wantAlert: true, wantKind: SessionAlertFailed},
-		{name: "quota", silent: true, attention: "failed", errorText: "usage limit exceeded", wantAlert: true, wantKind: SessionAlertQuota},
-		{name: "ordinary", wantAlert: true, wantKind: SessionAlertDone},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			d := NewSessionAlertDetector()
-			summary := wire.ThreadSummary{ID: "thread-1", Title: "总管", IsRunning: true}
-			d.Observe(summary.ID, "thread.summary", summary)
-			summary.IsRunning = false
-			summary.LastTurnSilent = tc.silent
-			summary.Attention = tc.attention
-			summary.LastErrorText = tc.errorText
-			alert, ok := d.Observe(summary.ID, "thread.summary", summary)
-			if ok != tc.wantAlert {
-				t.Fatalf("alert = %+v, ok = %v, want ok = %v", alert, ok, tc.wantAlert)
-			}
-			if ok && alert.Kind != tc.wantKind {
-				t.Errorf("alert kind = %s, want %s", alert.Kind, tc.wantKind)
-			}
-		})
-	}
-}
-
 // TestSessionAlertDetector_IgnoresHelperThreadDone 验证子线程结束时不发提醒，主线程正常提醒。
 func TestSessionAlertDetector_IgnoresHelperThreadDone(t *testing.T) {
 	d := NewSessionAlertDetector()

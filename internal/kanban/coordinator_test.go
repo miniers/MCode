@@ -278,15 +278,15 @@ func createPromoteGoal(t *testing.T, s *store.Store, owner string, planThreadID 
 	return stored
 }
 
-// 只有总管话题目标在开工时把规划会话从只读档升到 auto，普通目标不动。
-func TestStartGoalPromotesStewardTopicSession(t *testing.T) {
+// 目标开工不会更改规划会话的权限档。
+func TestStartGoalKeepsSessionPermissions(t *testing.T) {
 	cases := []struct {
 		name         string
 		owner        string
 		planThreadID *string
 		wantPromote  bool
 	}{
-		{name: "总管话题目标升档", owner: goalOwnerSteward, planThreadID: strPtr("plan-thread-" + uuid.NewString()), wantPromote: true},
+		{name: "总管目标不升档", owner: goalOwnerSteward, planThreadID: strPtr("plan-thread-" + uuid.NewString()), wantPromote: false},
 		{name: "普通目标不升档", owner: "", planThreadID: strPtr("plan-thread-" + uuid.NewString()), wantPromote: false},
 		{name: "无规划会话不升档", owner: goalOwnerSteward, planThreadID: nil, wantPromote: false},
 		{name: "空白规划会话不升档", owner: goalOwnerSteward, planThreadID: strPtr("   "), wantPromote: false},
@@ -321,8 +321,8 @@ func TestStartGoalPromotesStewardTopicSession(t *testing.T) {
 	}
 }
 
-// 升档失败只记日志，不能让开工失败；暂停后重复开工再次升档是安全的。
-func TestStartGoalPromotionFailureKeepsGoalRunning(t *testing.T) {
+// 暂停后重复开工也不会更改规划会话的权限档。
+func TestStartGoalDoesNotPromoteAfterResume(t *testing.T) {
 	ctx := context.Background()
 	driver := &failingPromoterDriver{coordinatorDriver: newCoordinatorDriver()}
 	svc, s := setupPromoteService(t, driver)
@@ -345,8 +345,8 @@ func TestStartGoalPromotionFailureKeepsGoalRunning(t *testing.T) {
 	if _, err := svc.StartGoal(ctx, paused.ID, paused.Revision); err != nil {
 		t.Fatalf("恢复开工失败: %v", err)
 	}
-	if calls := driver.calls(); calls != 2 {
-		t.Fatalf("每次开工都应尝试升档一次，实际: %d", calls)
+	if calls := driver.calls(); calls != 0 {
+		t.Fatalf("开工不应尝试升档，实际: %d", calls)
 	}
 }
 

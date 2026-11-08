@@ -232,10 +232,6 @@ func (d *SessionAlertDetector) Observe(threadID, method string, params any) (Ses
 					}
 				}
 			}
-			// 静默回合无需完成提醒，失败和额度提醒仍照常发送。
-			if kind == SessionAlertDone && summary.LastTurnSilent {
-				return SessionAlert{}, false
-			}
 			return SessionAlert{
 				Kind:     kind,
 				ThreadID: threadID,

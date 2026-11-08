@@ -52,14 +52,9 @@ func (c *Client) ListAttention(ctx context.Context, limit int) ([]mcodeui.Attent
 	if err != nil {
 		return nil, err
 	}
-	suggestions := c.pendingApprovalSuggestions(ctx)
 	items := make([]mcodeui.AttentionItem, 0, len(events))
 	for _, ev := range events {
-		item := attentionEventToUI(ev)
-		if ev.Kind == string(attention.KindThreadApproval) {
-			item.Suggestions = suggestions[ev.ThreadID]
-		}
-		items = append(items, item)
+		items = append(items, attentionEventToUI(ev))
 	}
 	return items, nil
 }
@@ -82,7 +77,7 @@ func (c *Client) AttentionUnresolvedCount(ctx context.Context) (int, error) {
 	return svc.UnresolvedCountByKinds(ctx, c.attentionKinds())
 }
 
-// WatchAttention 订阅待处理事件变更：新增、自动消解、手动消解以及总管审批建议的增减都会回调 onChange。
+// WatchAttention 订阅待处理事件变更。
 func (c *Client) WatchAttention(onChange func()) (stop func()) {
 	svc := c.attentionService()
 	if svc == nil || onChange == nil {
@@ -91,10 +86,8 @@ func (c *Client) WatchAttention(onChange func()) (stop func()) {
 	stopEvents := svc.Watch(func(attention.Event) {
 		onChange()
 	})
-	stopSuggestions := c.suggestions.watch(onChange)
 	return func() {
 		stopEvents()
-		stopSuggestions()
 	}
 }
 

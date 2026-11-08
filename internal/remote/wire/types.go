@@ -2,9 +2,6 @@ package wire
 
 import "encoding/json"
 
-// StewardSilentMarker 是总管无事需要告知用户时的最终回复标记。
-const StewardSilentMarker = "[[静默]]"
-
 // --- 会话与设备配对 ---
 
 // SessionPairParams 对应 session.pair 请求参数
@@ -301,10 +298,8 @@ type ThreadSummary struct {
 	IsProvisional     bool    `json:"isProvisional,omitempty"`
 	ParentThreadID    *string `json:"parentThreadID,omitempty"`
 	IsHelper          bool    `json:"isHelper,omitempty"`
-	// IsSteward 是否为总管主会话；由宿主注入的判定计算，不落盘。
+	// IsSteward 是否为总管前台 feed 会话，不落盘。
 	IsSteward bool `json:"isSteward,omitempty"`
-	// LastTurnSilent 最近一轮正常结束且最终回复恰为静默标记，宿主据此跳过完成提醒，不落盘。
-	LastTurnSilent bool `json:"lastTurnSilent,omitempty"`
 	// ForkedFromThreadID / ForkedFromMessageID 记录会话由哪个会话的哪条消息分叉（fork）而来，
 	// 约定：ForkedFromThreadID 非空且 ForkedFromMessageID 为空，就表示转发会话；两个都非空表示分支会话；
 	// 两个都为空表示不是分叉会话；源会话删除后仍保留。

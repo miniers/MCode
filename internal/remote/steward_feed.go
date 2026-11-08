@@ -22,6 +22,28 @@ func (b *MemoryBackend) SetStewardDesk(desk StewardDesk) {
 	b.mu.Unlock()
 }
 
+// StewardFeedThreadID 返回已缓存的前台会话 ID；首次读取时从设置恢复。
+func (b *MemoryBackend) StewardFeedThreadID() string {
+	b.mu.Lock()
+	id, st, loaded := b.stewardFeedID, b.store, b.stewardFeedLoaded
+	b.mu.Unlock()
+	if loaded || st == nil {
+		return id
+	}
+	id, _, err := st.GetSetting(context.Background(), "steward.feed_thread_id")
+	if err != nil {
+		return ""
+	}
+	b.mu.Lock()
+	if !b.stewardFeedLoaded {
+		b.stewardFeedID = id
+		b.stewardFeedLoaded = true
+	}
+	id = b.stewardFeedID
+	b.mu.Unlock()
+	return id
+}
+
 // EnsureStewardFeedThread 创建或复用不启动 provider 的总管会话。
 func (b *MemoryBackend) EnsureStewardFeedThread(ctx context.Context, projectID string) (string, error) {
 	b.stewardFeedMu.Lock()
@@ -35,6 +57,10 @@ func (b *MemoryBackend) EnsureStewardFeedThread(ctx context.Context, projectID s
 	}
 	if id != "" {
 		if _, err := b.store.GetThread(ctx, id); err == nil {
+			b.mu.Lock()
+			b.stewardFeedID = id
+			b.stewardFeedLoaded = true
+			b.mu.Unlock()
 			return id, nil
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return "", err
@@ -51,6 +77,10 @@ func (b *MemoryBackend) EnsureStewardFeedThread(ctx context.Context, projectID s
 	if err := b.store.SetSetting(ctx, "steward.feed_thread_id", summary.ID); err != nil {
 		return "", err
 	}
+	b.mu.Lock()
+	b.stewardFeedID = summary.ID
+	b.stewardFeedLoaded = true
+	b.mu.Unlock()
 	return summary.ID, nil
 }
 

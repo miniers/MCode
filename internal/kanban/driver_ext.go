@@ -12,11 +12,6 @@ type SessionInterrupter interface {
 	InterruptSession(ctx context.Context, threadID string) error
 }
 
-// ReadOnlySessionPromoter 由驱动可选实现：把仍处只读档的会话升到 auto；其他档位是用户选过的，保持不变。
-type ReadOnlySessionPromoter interface {
-	PromoteReadOnlySession(ctx context.Context, threadID string) error
-}
-
 // SessionUsageReader 由驱动可选实现，用于读取子会话的累计用量并写进编排记录。
 // tokens 为会话累计的输入+输出 token（与界面会话用量同口径），toolCalls 为工具调用次数。
 type SessionUsageReader interface {

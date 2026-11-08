@@ -424,17 +424,17 @@ func (r *Registry) registerKanbanTools(s *Server) {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"status": map[string]any{"type": "string", "enum": []string{"done", "failed", "waiting", "delegated", "needs_decision"}},
-				"waiting_on": map[string]any{"type": "string"},
-				"wait_kind": map[string]any{"type": "string", "enum": []string{"human", "machine"}},
-				"wait_minutes": map[string]any{"type": "integer"},
-				"wait_check": map[string]any{"type": "string"},
-				"question": map[string]any{"type": "string"},
+				"status":         map[string]any{"type": "string", "enum": []string{"done", "failed", "waiting", "delegated", "needs_decision"}},
+				"waiting_on":     map[string]any{"type": "string"},
+				"wait_kind":      map[string]any{"type": "string", "enum": []string{"human", "machine"}},
+				"wait_minutes":   map[string]any{"type": "integer"},
+				"wait_check":     map[string]any{"type": "string"},
+				"question":       map[string]any{"type": "string"},
 				"recommendation": map[string]any{"type": "string"},
-				"options": map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type":"string"}, "text": map[string]any{"type":"string"}}, "required": []string{"key", "text"}}},
-				"followups": map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type":"string"}, "body": map[string]any{"type":"string"}, "project": map[string]any{"type":"string"}, "priority": map[string]any{"type":"string"}, "agent": map[string]any{"type":"string"}}, "required": []string{"title"}}},
-				"lessons": map[string]any{"type":"array", "items": map[string]any{"type":"string"}},
-				"attachments": map[string]any{"type":"array", "items": map[string]any{"type":"string"}},
+				"options":        map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type": "string"}, "text": map[string]any{"type": "string"}}, "required": []string{"key", "text"}}},
+				"followups":      map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string"}, "body": map[string]any{"type": "string"}, "project": map[string]any{"type": "string"}, "priority": map[string]any{"type": "string"}, "agent": map[string]any{"type": "string"}}, "required": []string{"title"}}},
+				"lessons":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"attachments":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				"task_id": map[string]any{
 					"type":        "string",
 					"description": "UUID of the task this conversation is executing.",
@@ -1182,7 +1182,7 @@ func goalReviewGuard(tc ToolContext, task store.Task, decision kanban.ReviewDeci
 	default:
 		return nil
 	}
-	res := toolError(CodeForbidden, reason+"需要先问用户：用 notify_owner 说明情况，等用户决定。", false,
+	res := toolError(CodeForbidden, reason+"需要向用户说明情况并等待明确确认。", false,
 		"Ask the user first; once they agree, repeat the call with user_confirmed=true.")
 	return &res
 }
@@ -1436,9 +1436,15 @@ func handleKanbanSubmitResult(tc ToolContext, args map[string]any) ToolResult {
 	if status != "" {
 		data, marshalErr := json.Marshal(args)
 		var res kanban.ExecutorResult
-		if marshalErr != nil { return toolError(CodeInvalidArguments, marshalErr.Error(), false) }
-		if err := json.Unmarshal(data, &res); err != nil { return toolError(CodeInvalidArguments, err.Error(), false) }
-		if err := res.Validate(); err != nil { return toolError(CodeInvalidArguments, err.Error(), false) }
+		if marshalErr != nil {
+			return toolError(CodeInvalidArguments, marshalErr.Error(), false)
+		}
+		if err := json.Unmarshal(data, &res); err != nil {
+			return toolError(CodeInvalidArguments, err.Error(), false)
+		}
+		if err := res.Validate(); err != nil {
+			return toolError(CodeInvalidArguments, err.Error(), false)
+		}
 		err = tc.Server.opts.Kanban.SubmitExecutorResult(tc.Context, task.ID, callerThreadID, res)
 	} else {
 		err = tc.Server.opts.Kanban.SubmitTaskResult(tc.Context, task.ID, callerThreadID, outcome, summary)

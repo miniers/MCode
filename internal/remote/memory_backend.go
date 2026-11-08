@@ -53,10 +53,6 @@ const threadMessageKindHostEvent = "host_event"
 // 不会写进 Provider（该轮不发用户帧），带编排通知前缀以便客户端与日志里看出这是事件而非用户输入。
 const unsolicitedTurnText = swarm.NoticePrefix + "后台任务已结束，模型继续处理。"
 
-// threadMessageKindStewardWake 是总管被新情况唤醒时那条用户消息的 Kind：唤醒触发，客户端不显示。
-// 与 host_event 的区别只在客户端处理，落库与投递行为完全一致。
-const threadMessageKindStewardWake = "steward_wake"
-
 // contextCompactedKind 是「上下文已压缩」边界消息的 Kind（取值与 internal/ui 侧一致）：
 // provider 压缩过上下文后落一条独立系统消息，时间线渲染成一行独立边界，不进回合折叠。
 const contextCompactedKind = "context_compacted"
@@ -229,19 +225,21 @@ func (td *memoryThread) setIdleLocked() {
 
 // MemoryBackend 提供纯内存实现的 Backend 接口，供测试与本地开发模拟。
 type MemoryBackend struct {
-	mu             sync.Mutex
-	stewardFeedMu  sync.Mutex
-	stewardDesk    StewardDesk
-	queuePersistMu sync.Mutex
-	turnPersistMu  sync.Mutex
-	wg             sync.WaitGroup
-	hub            *StreamHub
-	projects       map[string]wire.ProjectSummary
-	threads        map[string]*memoryThread
-	usage          map[string]map[int]harness.Usage
-	actionThreads  map[string]string
-	actions        *actionLedger
-	store          *store.Store
+	mu                sync.Mutex
+	stewardFeedMu     sync.Mutex
+	stewardFeedID     string
+	stewardFeedLoaded bool
+	stewardDesk       StewardDesk
+	queuePersistMu    sync.Mutex
+	turnPersistMu     sync.Mutex
+	wg                sync.WaitGroup
+	hub               *StreamHub
+	projects          map[string]wire.ProjectSummary
+	threads           map[string]*memoryThread
+	usage             map[string]map[int]harness.Usage
+	actionThreads     map[string]string
+	actions           *actionLedger
+	store             *store.Store
 
 	// scriptRuns 保存最近的脚本运行结果，只在内存里供 scripts.runStatus 查询，不写回会话时间线。
 	scriptRuns scriptRunStore
@@ -271,8 +269,6 @@ type MemoryBackend struct {
 	swarmInheritFunc func(fromThreadID, toThreadID string)
 	// swarmBusyFor 判断主会话名下是否仍有子线程活动或待投递的回报，供 summary.SwarmBusy 使用。
 	swarmBusyFor func(threadID string) bool
-	// stewardFor 判断会话是否是总管主会话，供 summary.IsSteward 使用。
-	stewardFor func(threadID string) bool
 	// revertBusyCheck 判断该工作区是否有别的占用（如正在合并改动的子代理），
 	// 非空返回值就是拒绝撤销的原因；nil 表示不做额外检查。
 	revertBusyCheck func(threadID, root string) string
@@ -532,21 +528,13 @@ func (b *MemoryBackend) swarmBusyLocked(td *memoryThread) bool {
 	return b.swarmBusyFor(td.summary.ID)
 }
 
-// SetStewardPredicate 设置总管主会话判定函数：返回 true 表示该会话就是总管主会话，
-// 摘要里的 IsSteward 随之带出，供前端权威地认出总管行，而不必比对标题。
-func (b *MemoryBackend) SetStewardPredicate(isSteward func(threadID string) bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.stewardFor = isSteward
-}
-
 // stewardLocked 计算会话的总管标记：helper 子会话或有父会话时恒为 false。
-// 调用方需持有 b.mu；钩子在持锁期间被调用，不得回调本 backend。
+// 调用方需持有 b.mu。
 func (b *MemoryBackend) stewardLocked(td *memoryThread) bool {
-	if td == nil || td.isHelper || td.parentThreadID != "" || b.stewardFor == nil {
+	if td == nil || td.isHelper || td.parentThreadID != "" || b.stewardFeedID == "" {
 		return false
 	}
-	return b.stewardFor(td.summary.ID)
+	return b.stewardFeedID == td.summary.ID
 }
 
 // summaryForPublishLocked 返回用于推送与回调的会话摘要副本：
@@ -3043,16 +3031,6 @@ func (b *MemoryBackend) SendHostEvent(ctx context.Context, threadID, text string
 	return err
 }
 
-// SendStewardWake 向总管会话投递一条唤醒触发：行为与 SendHostEvent 一致（忙碌时排队，
-// 随后开新一轮模型回合），只把落库并广播的那条用户消息 Kind 换成 steward_wake，
-// 让客户端把它当隐藏的系统输入，不渲染成用户消息或宿主事件卡片。
-func (b *MemoryBackend) SendStewardWake(ctx context.Context, threadID, text string) error {
-	_, err := b.sendMessage(ctx, wire.SendMessageParams{
-		ThreadID: threadID, Text: text, WhenRunning: "queue",
-	}, true, threadMessageKindStewardWake)
-	return err
-}
-
 func (b *MemoryBackend) sendMessage(ctx context.Context, params wire.SendMessageParams, priority bool, userKind ...string) (wire.SendMessageResult, error) {
 	// userKind 指定落库的用户消息 Kind（如 host_event）；为空表示普通用户消息。
 	kind := ""
@@ -3662,7 +3640,6 @@ func (b *MemoryBackend) startTurnLocked(td *memoryThread, text string, kind ...s
 	}
 
 	td.summary.IsRunning = true
-	td.summary.LastTurnSilent = false
 	td.phase = phaseStarting
 	// 新的一轮开始：清掉上一轮的出错标记，避免结束后仍被当作失败。
 	if td.summary.Attention == "failed" {
@@ -6330,7 +6307,6 @@ func (b *MemoryBackend) finishTurnEarly(td *memoryThread, threadID, turnID strin
 		td.runCancel = nil
 	}
 	td.runTurnID = ""
-	td.summary.LastTurnSilent = false
 	td.summary.LastActivityText = nil
 	td.summary.UpdatedAt = b.nowLocked().Format(time.RFC3339Nano)
 	td.setIdleLocked()
@@ -6431,61 +6407,6 @@ func truncateLastErrorText(text string) string {
 		return text
 	}
 	return string(runes[:maxLastErrorTextRunes])
-}
-
-// stewardAdditionalDirs 返回总管主会话与总管话题会话的附加目录：全部已注册项目的路径
-// （Clean 后去重、排除工作目录自身、排序）。普通会话返回 nil。只读设置与项目表，不做目录扫描。
-// 存储读取不持 b.mu，调用点必须在主锁之外。
-func (b *MemoryBackend) stewardAdditionalDirs(ctx context.Context, threadID, workDir string) []string {
-	if b == nil {
-		return nil
-	}
-	// 主会话直接命中；不是主会话时再看话题表，两个入口的存储读取都带超时。
-	isSteward := b.stewardMainThread(ctx, threadID)
-	if !isSteward {
-		st := b.Store()
-		if st == nil {
-			return nil
-		}
-		lookupCtx, cancel := context.WithTimeout(ctx, stewardToolLookupTimeout)
-		defer cancel()
-		isSteward = stewardTopicThread(lookupCtx, st, threadID)
-	}
-	if !isSteward {
-		return nil
-	}
-
-	b.mu.Lock()
-	dirs := make([]string, 0, len(b.projects))
-	for _, proj := range b.projects {
-		if strings.TrimSpace(proj.Path) == "" {
-			continue
-		}
-		dirs = append(dirs, filepath.Clean(proj.Path))
-	}
-	b.mu.Unlock()
-	if len(dirs) == 0 {
-		return nil
-	}
-
-	sort.Strings(dirs)
-	self := ""
-	if strings.TrimSpace(workDir) != "" {
-		self = filepath.Clean(workDir)
-	}
-	seen := make(map[string]bool, len(dirs))
-	out := dirs[:0]
-	for _, dir := range dirs {
-		if dir == self || seen[dir] {
-			continue
-		}
-		seen[dir] = true
-		out = append(out, dir)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 // interactionModeOverride/effortOverride 非空时覆盖会话偏好，仅作用于本轮。
@@ -6633,7 +6554,6 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 
 	// 总管主会话与话题会话把已注册项目目录当附加目录，普通会话为空。
 	// 函数自己读项目表，必须在主锁之外算。
-	additionalDirs := b.stewardAdditionalDirs(runCtx, threadID, workDir)
 
 	// 钩子会读设置，必须在锁外调用；超时或 panic 一律视为不换新。
 	rotated := false
@@ -6808,7 +6728,6 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			ThreadID:         threadID,
 			Prompt:           harnessTurnPrompt(compactOnly, personaPrefix, currPrompt),
 			WorkDir:          workDir,
-			AdditionalDirs:   additionalDirs,
 			ReadOnlyDirs:     readOnlyDirs,
 			SessionID:        currSessionID,
 			Model:            model,
@@ -7766,7 +7685,6 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 				break
 			}
 		}
-		td.summary.LastTurnSilent = isNormal && strings.TrimSpace(hookLastAssistantText) == wire.StewardSilentMarker
 		finalSummary = b.summaryForPublishLocked(td)
 
 		hookProjectID = td.summary.ProjectID
@@ -8246,16 +8164,11 @@ func (b *MemoryBackend) RespondRequest(ctx context.Context, params wire.Requests
 	pr.awaitingAck = confirmsDelivery
 	pr.respondedAt = time.Now()
 	pr.handled = true
-	// 建议计分：锁内只做值拷贝，写库放到解锁之后，避免持 b.mu 写 SQLite。
-	score := stewardScoreForResponse(pr.req, pr.toolName, params.RequestID, optID, AnswerSourceOf(ctx))
 	done, providerCtx := pr.done, pr.ctx
 	timeout := b.approvalDeliveryTimeout
 
 	locked = false
 	b.mu.Unlock()
-
-	// 尽力而为：没有总管建议的请求影响 0 行，不改变下面的送达等待与返回路径。
-	traceSuggestionAnswered(b, score)
 
 	var timeoutCh chan struct{}
 	if confirmsDelivery {

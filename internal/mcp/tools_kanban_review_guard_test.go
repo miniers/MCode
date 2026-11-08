@@ -120,7 +120,7 @@ func TestGoalReviewGuard(t *testing.T) {
 			if !guard.IsError {
 				t.Fatalf("拦截结果应为错误结果: %+v", guard)
 			}
-			if !strings.Contains(guard.Text, "notify_owner") || !strings.Contains(guard.Text, "需要先问用户") {
+			if !strings.Contains(guard.Text, "向用户说明情况") || !strings.Contains(guard.Text, "等待明确确认") {
 				t.Fatalf("拦截说明缺少询问用户的指令: %s", guard.Text)
 			}
 			if !strings.Contains(guard.Text, "user_confirmed") {

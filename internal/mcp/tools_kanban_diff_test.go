@@ -97,7 +97,7 @@ func TestKanbanTaskDiffRequiresTaskID(t *testing.T) {
 	srv, st, _ := setupDiffTestMCP(t)
 	registerThread(t, st, "thread-ordinary", "proj-test-1")
 
-	text, isError := callStewardTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{})
+	text, isError := callThreadTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{})
 	if !isError {
 		t.Fatalf("缺少 task_id 时应报错: %q", text)
 	}
@@ -106,7 +106,7 @@ func TestKanbanTaskDiffRequiresTaskID(t *testing.T) {
 	}
 
 	// 任务不存在时给 not_found，而不是误报“没有代码变更”。
-	stText, stError := callStewardTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": "no-such-task"})
+	stText, stError := callThreadTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": "no-such-task"})
 	if !stError {
 		t.Fatalf("不存在的任务应报错: %q", stText)
 	}
@@ -122,7 +122,7 @@ func TestKanbanTaskDiffReturnsWorktreeChanges(t *testing.T) {
 	repo := initDiffWorktree(t, worktreeDir, "task-1", "line1\nline2\n")
 	writeDiffFile(t, repo, "line1\nline3\n")
 
-	text, isError := callStewardTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": " task-1 "})
+	text, isError := callThreadTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": " task-1 "})
 	if isError {
 		t.Fatalf("读取 diff 失败: %q", text)
 	}
@@ -139,7 +139,7 @@ func TestKanbanTaskDiffEmptyWhenNoChanges(t *testing.T) {
 	registerThread(t, st, "thread-ordinary", "proj-test-1")
 	// 1. 任务没有 worktree。
 	createDiffTask(t, st, "task-noworktree")
-	text, isError := callStewardTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": "task-noworktree"})
+	text, isError := callThreadTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": "task-noworktree"})
 	if isError || text != "该任务没有代码变更" {
 		t.Fatalf("没有 worktree 时应返回空变更文案: %q error=%v", text, isError)
 	}
@@ -147,7 +147,7 @@ func TestKanbanTaskDiffEmptyWhenNoChanges(t *testing.T) {
 	// 2. worktree 干净，没有未提交改动。
 	createDiffTask(t, st, "task-clean")
 	initDiffWorktree(t, worktreeDir, "task-clean", "line1\n")
-	text, isError = callStewardTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": "task-clean"})
+	text, isError = callThreadTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": "task-clean"})
 	if isError || text != "该任务没有代码变更" {
 		t.Fatalf("worktree 无改动时应返回空变更文案: %q error=%v", text, isError)
 	}
@@ -162,7 +162,7 @@ func TestKanbanTaskDiffTruncatesLargeDiff(t *testing.T) {
 	repo := initDiffWorktree(t, worktreeDir, "task-large", "seed\n")
 	writeDiffFile(t, repo, strings.Repeat("中文行中文行中文行\n", 12000))
 
-	text, isError := callStewardTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": "task-large"})
+	text, isError := callThreadTool(t, srv, "thread-ordinary", "kanban_task_diff", map[string]any{"task_id": "task-large"})
 	if isError {
 		t.Fatalf("读取大 diff 失败: %q", text)
 	}
@@ -215,12 +215,10 @@ func TestKanbanTaskDiffVisibleToRoles(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("创建评审任务失败: %v", err)
 	}
-	for _, threadID := range []string{planThread, reviewThread, "thread-ordinary", "steward-1"} {
+	for _, threadID := range []string{planThread, reviewThread, "thread-ordinary"} {
 		registerThread(t, st, threadID, projectID)
 	}
-	srv.SetSteward(newStewardTestHooks(nil, nil, nil))
-
-	for _, threadID := range []string{planThread, reviewThread, "steward-1"} {
+	for _, threadID := range []string{planThread, reviewThread} {
 		if !threadToolNames(t, srv, threadID)[kanbanTaskDiffToolName] {
 			t.Fatalf("%s 会话应列出 %s", threadID, kanbanTaskDiffToolName)
 		}

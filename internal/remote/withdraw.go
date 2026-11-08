@@ -55,8 +55,6 @@ func (b *MemoryBackend) withdrawPendingLocked(td *memoryThread, reason withdrawR
 		// 留痕结算与撤卡同频：默认实现只投递到独立 goroutine，不会在持锁路径上写库。
 		// 已答复等送达确认的卡片不走这里（上面 continue），它已经结算为 settled。
 		traceAskWithdrawn(b, id, reason)
-		// 建议计分：撤下来的卡片若还有总管建议，记为未答复并带上撤卡入口。
-		traceSuggestionUnanswered(b, id, string(reason))
 		withdrawn = append(withdrawn, pr.req)
 		delete(td.pending, id)
 	}

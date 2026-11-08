@@ -28,13 +28,6 @@ func (b *MemoryBackend) reconcileBoot(ctx context.Context, s *store.Store) {
 	if err != nil {
 		log.Printf("boot reconcile expire pending asks error: %v", err)
 	}
-	// 遗留卡片对应的总管建议也一并结算为未答复，原因与卡片失效一致。
-	// 失败只记日志：统计数据的结算不该阻断启动。
-	for _, ask := range asks {
-		if err := s.MarkStewardScoreUnanswered(ctx, ask.RequestID, bootAskResolution); err != nil {
-			log.Printf("boot reconcile mark steward score %s unanswered error: %v", ask.RequestID, err)
-		}
-	}
 	deliveries, err := s.SettleInterruptedDeliveries(ctx)
 	if err != nil {
 		log.Printf("boot reconcile settle interrupted deliveries error: %v", err)

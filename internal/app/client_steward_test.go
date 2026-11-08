@@ -11,44 +11,6 @@ import (
 	"mcode/internal/store"
 )
 
-// fakeStewardRuntime 是 stewardThreadRuntime 的测试替身：记录 Ensure 调用次数，
-// 并按预设返回会话 ID 与错误。
-type fakeStewardRuntime struct {
-	threadID  string
-	ensureID  string
-	ensureErr error
-	ensureN   int
-	// ensureCtxErr 记录 Ensure 收到的 ctx 是否已带截止时间，用来验证调用方限了时。
-	ensureHasDeadline bool
-}
-
-func (f *fakeStewardRuntime) ThreadID() string {
-	return f.threadID
-}
-
-func (f *fakeStewardRuntime) Ensure(ctx context.Context) (string, error) {
-	f.ensureN++
-	_, f.ensureHasDeadline = ctx.Deadline()
-	if f.ensureErr != nil {
-		return "", f.ensureErr
-	}
-	f.threadID = f.ensureID
-	return f.ensureID, nil
-}
-
-// TestClientStewardThreadID 覆盖总管会话 ID 的两种情况：未接线与已接线。
-func TestClientStewardThreadID(t *testing.T) {
-	client := &Client{}
-	if got := client.StewardThreadID(); got != "" {
-		t.Fatalf("未接线时应为空串，实际 %q", got)
-	}
-	rt := &fakeStewardRuntime{threadID: "steward-1"}
-	client.SetSteward(rt)
-	if got := client.StewardThreadID(); got != "steward-1" {
-		t.Fatalf("期望 steward-1，实际 %q", got)
-	}
-}
-
 // TestClientOpenStewardThreadNotWired 覆盖未接线时报错，而不是静默返回空 ID。
 func TestClientOpenStewardThreadNotWired(t *testing.T) {
 	client := &Client{}
@@ -92,6 +54,9 @@ func TestClientOpenStewardThreadEnsures(t *testing.T) {
 	if err != nil || stored != id {
 		t.Fatalf("会话设置错误: %q %v", stored, err)
 	}
+	if got := client.StewardThreadID(); got != id {
+		t.Fatalf("会话 ID = %q，期望 %q", got, id)
+	}
 	if _, err := db.GetThread(ctx, id); err != nil {
 		t.Fatal(err)
 	}
@@ -103,9 +68,7 @@ func TestClientOpenStewardThreadEnsures(t *testing.T) {
 
 // TestClientOpenStewardThreadDisabled 覆盖未启用：Ensure 返回空串且不报错时给出提示性错误。
 func TestClientOpenStewardThreadDisabled(t *testing.T) {
-	rt := &fakeStewardRuntime{}
 	client := &Client{}
-	client.SetSteward(rt)
 	id, err := client.OpenStewardThread(context.Background())
 	if err == nil {
 		t.Fatalf("未启用时应报错，实际返回 %q", id)
@@ -154,15 +117,5 @@ func TestClientStewardIdentity(t *testing.T) {
 	name, avatar = (&Client{dataDir: dataDir}).StewardIdentity()
 	if name != "" || avatar != "" {
 		t.Fatalf("昵称留空时应返回空昵称与空头像，实际 name=%q avatar=%q", name, avatar)
-	}
-}
-
-// TestClientStewardWakesTodayNotEnabled 覆盖未启用总管（未接线、配置也读不到）时拿不到今日次数：
-// 设置页据此不显示「今天已提醒…还剩…」这一句。
-func TestClientStewardWakesTodayNotEnabled(t *testing.T) {
-	client := &Client{}
-	used, limit, ok := client.StewardWakesToday()
-	if ok || used != 0 || limit != 0 {
-		t.Fatalf("未启用时应为 false 且计数为 0，实际 used=%d limit=%d ok=%v", used, limit, ok)
 	}
 }

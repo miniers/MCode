@@ -55,7 +55,7 @@ import {
   toolSegmentPreviewText
 } from './timeline/toolSegments';
 import { TimelineErrorActions } from './thread/TimelineErrorActions';
-import { reasoningHeadline, reasoningHeaderTitle, stewardWakeReason } from './timeline/stewardTimeline';
+import { reasoningHeaderTitle } from './timeline/stewardTimeline';
 import {
   SwarmReportFullText,
   parseSwarmReportArchiveFields,
@@ -112,19 +112,6 @@ export interface WorkRecordItem {
   turnStartedAt?: string;
   turnCompletedAt?: string;
   entries: ThreadMessage[];
-  /** 总管会话的组头文案：运行中是最新一句思考，结束后是唤醒原因或首句思考 */
-  stewardTitle?: string;
-}
-
-/** 连续多个静默回合合并成的一行「后台巡视」：records 是这些回合各自的工作记录。 */
-export interface StewardSilentItem {
-  type: 'stewardSilent';
-  /** 首轮 turnID，同时用作展开状态与虚拟列表 key */
-  key: string;
-  rounds: number;
-  /** 最后一轮统计条的结束时间，用来显示巡视时刻 */
-  lastEndedAt?: string;
-  records: WorkRecordItem[];
 }
 
 export type TimelineItem =
@@ -140,8 +127,7 @@ export type TimelineItem =
       stats: TurnFinishedStats;
       /** 本回合改动的文件：渲染在统计条下方，空数组时不渲染卡片 */
       files: TurnEditedFile[];
-    }
-  | StewardSilentItem;
+    };
 
 /** 条目在虚拟列表与高亮定位里使用的稳定 key。 */
 function timelineItemKey(item: TimelineItem): string {
@@ -150,8 +136,6 @@ function timelineItemKey(item: TimelineItem): string {
       return `work-${item.turnID}`;
     case 'turnFinished':
       return `turn-finished-${item.turnID}`;
-    case 'stewardSilent':
-      return `silent-${item.key}`;
     default:
       return item.message.id;
   }
@@ -161,9 +145,6 @@ function timelineItemKey(item: TimelineItem): string {
 function timelineItemContainsMessage(item: TimelineItem, messageID: string): boolean {
   if (item.type === 'message') return item.message.id === messageID;
   if (item.type === 'workRecord') return item.entries.some((entry) => entry.id === messageID);
-  if (item.type === 'stewardSilent') {
-    return item.records.some((record) => record.entries.some((entry) => entry.id === messageID));
-  }
   return false;
 }
 
@@ -361,9 +342,6 @@ export function useAutoCollapseReasoning(): boolean {
 export function workRecordExpanded(threadID: string, turnID: string, autoCollapse: boolean): boolean {
   return workRecordExpandedMap.get(`${threadID}:${turnID}`) ?? !autoCollapse;
 }
-
-/** 静默回合合并条在开合状态表里的 key 前缀：避免和真实 turnID 撞键。 */
-export const SILENT_WORK_RECORD_PREFIX = 'silent:';
 
 /**
  * 把「未显式设置过」的回合先按当前默认开合状态写入模块级 map，再交给调用方的切换函数：
@@ -775,67 +753,10 @@ export function mergeLatestHistoryPage(
   };
 }
 
-interface StewardWakeIndex {
-  byTurnID: Map<string, ThreadMessage>;
-  byTurnIndex: Map<number, ThreadMessage>;
-}
-
-/** 总管唤醒消息索引：有 turnID 的按 turnID 存，老消息没有 turnID 时退回 turnIndex 匹配。 */
-function buildStewardWakeIndex(messages: ThreadMessage[]): StewardWakeIndex {
-  const byTurnID = new Map<string, ThreadMessage>();
-  const byTurnIndex = new Map<number, ThreadMessage>();
-  for (const message of messages) {
-    if (message.role !== 'user' || message.kind !== 'steward_wake') continue;
-    if (message.turnID) {
-      if (!byTurnID.has(message.turnID)) byTurnID.set(message.turnID, message);
-      continue;
-    }
-    if (!byTurnIndex.has(message.turnIndex)) byTurnIndex.set(message.turnIndex, message);
-  }
-  return { byTurnID, byTurnIndex };
-}
-
-/** 找某个回合对应的唤醒消息：turnID 优先，没有 turnID 的唤醒才按 turnIndex 兜底。 */
-function wakeOf(
-  index: StewardWakeIndex,
-  turnID: string | undefined,
-  turnIndex: number
-): ThreadMessage | undefined {
-  if (turnID) {
-    const hit = index.byTurnID.get(turnID);
-    if (hit) return hit;
-  }
-  return index.byTurnIndex.get(turnIndex);
-}
-
-/**
- * 总管回合的工作记录组头文案：运行中显示最新一句思考（「思考中 · …」），
- * 结束后优先显示唤醒原因，没有唤醒原因就退回第一条思考的首句。
- */
-function stewardWorkTitle(
-  entries: ThreadMessage[],
-  turnStatus: TurnStatus | undefined,
-  wake: ThreadMessage | undefined
-): string | undefined {
-  const thinking = entries.filter((entry) => isThinkingEntry(entry) && (entry.text ?? '').trim() !== '');
-  if (turnStatus === 'running') {
-    const last = thinking[thinking.length - 1];
-    const headline = last ? reasoningHeadline(last.text ?? '', true) : '';
-    return headline === '' ? undefined : `思考中 · ${headline}`;
-  }
-  const reason = wake ? stewardWakeReason(wake.text ?? '') : '';
-  if (reason !== '') return reason;
-  const headline = thinking.length > 0 ? reasoningHeadline(thinking[0].text ?? '', false) : '';
-  return headline === '' ? undefined : headline;
-}
-
 export function buildTimelineItems(
   messages: ThreadMessage[],
-  options?: { isSteward?: boolean }
+  _options?: { isSteward?: boolean }
 ): TimelineItem[] {
-  const isSteward = options?.isSteward === true;
-  // 唤醒消息在构建层被过滤掉，所以标记要从原始 messages 里收集
-  const wakeIndex = buildStewardWakeIndex(messages);
   const finalAssistantTexts = new Set(
     messages
       .filter((message) =>
@@ -918,10 +839,6 @@ export function buildTimelineItems(
         const entries = workEntriesByTurn.get(message.turnID) ?? [];
         if (entries.length > 0) {
           const turnStatus = turnStatusByTurn.get(message.turnID);
-          // 组头文案只在总管会话里换成更有信息量的说法，其它会话保持原样
-          const stewardTitle = isSteward
-            ? stewardWorkTitle(entries, turnStatus, wakeOf(wakeIndex, message.turnID, message.turnIndex))
-            : undefined;
           items.push({
             type: 'workRecord',
             turnID: message.turnID,
@@ -929,8 +846,7 @@ export function buildTimelineItems(
             turnStatus,
             turnStartedAt: turnTimes.get(message.turnID)?.start,
             turnCompletedAt: turnTimes.get(message.turnID)?.end,
-            entries,
-            stewardTitle
+            entries
           });
         }
       }
@@ -986,64 +902,7 @@ export function buildTimelineItems(
     items.splice(finished.index + 1, 0, finished.item);
   }
 
-  // 静默回合：总管被唤醒、跑完、没有任何助手正文。它只留下一条工作记录和统计条，合并后一行就够
-  const assistantBodyTurns = new Set(
-    visibleMessages
-      .filter(
-        (message) =>
-          (message.kind === 'assistant' || (!message.kind && message.role === 'assistant')) &&
-          (message.text ?? '').trim() !== '' &&
-          Boolean(message.turnID)
-      )
-      .map((message) => message.turnID)
-  );
-  const isSilentRecord = (candidate: TimelineItem | undefined): candidate is WorkRecordItem => {
-    if (!candidate || candidate.type !== 'workRecord') return false;
-    if (turnStatusByTurn.get(candidate.turnID) !== 'completed') return false;
-    if (assistantBodyTurns.has(candidate.turnID)) return false;
-    return Boolean(wakeOf(wakeIndex, candidate.turnID, candidate.turnIndex));
-  };
-
-  // 一轮静默回合 = 一条工作记录加紧随其后同 turnID 的统计条；连续多轮并成一条，中间夹别的条目就断开
-  const merged: TimelineItem[] = [];
-  let cursor = 0;
-  while (cursor < items.length) {
-    const record = items[cursor];
-    const finished = items[cursor + 1];
-    if (
-      !isSilentRecord(record) ||
-      !finished ||
-      finished.type !== 'turnFinished' ||
-      finished.turnID !== record.turnID
-    ) {
-      merged.push(record);
-      cursor += 1;
-      continue;
-    }
-    const records: WorkRecordItem[] = [];
-    let lastEndedAt: string | undefined;
-    while (cursor < items.length) {
-      const candidate = items[cursor];
-      const end = items[cursor + 1];
-      if (!isSilentRecord(candidate) || !end || end.type !== 'turnFinished' || end.turnID !== candidate.turnID) {
-        break;
-      }
-      records.push(candidate);
-      lastEndedAt = end.stats.endedAt;
-      cursor += 2;
-    }
-    const first = records[0];
-    if (!first) break;
-    merged.push({
-      type: 'stewardSilent',
-      key: first.turnID,
-      rounds: records.length,
-      lastEndedAt,
-      records
-    });
-  }
-
-  return merged;
+  return items;
 }
 
 function roleLabel(role: string): string {
@@ -1516,13 +1375,6 @@ function lastVisibleMessageID(items: TimelineItem[]): string | null {
     if (item.type === 'workRecord' && item.entries.length > 0) {
       return item.entries[item.entries.length - 1].id;
     }
-    // 静默回合合并条里最后一条记录的最后一条，同样是用户能看到的最后一条
-    if (item.type === 'stewardSilent') {
-      const lastRecord = item.records[item.records.length - 1];
-      if (lastRecord && lastRecord.entries.length > 0) {
-        return lastRecord.entries[lastRecord.entries.length - 1].id;
-      }
-    }
   }
   return null;
 }
@@ -1552,18 +1404,8 @@ function sameTimelineItem(left: TimelineItem, right: TimelineItem): boolean {
       left.turnStatus === right.turnStatus &&
       left.turnStartedAt === right.turnStartedAt &&
       left.turnCompletedAt === right.turnCompletedAt &&
-      left.stewardTitle === right.stewardTitle &&
       left.entries.length === right.entries.length &&
       left.entries.every((entry, index) => entry === right.entries[index])
-    );
-  }
-  if (left.type === 'stewardSilent' && right.type === 'stewardSilent') {
-    return (
-      left.key === right.key &&
-      left.rounds === right.rounds &&
-      left.lastEndedAt === right.lastEndedAt &&
-      left.records.length === right.records.length &&
-      left.records.every((record, index) => sameTimelineItem(record, right.records[index]))
     );
   }
   if (left.type === 'turnFinished' && right.type === 'turnFinished') {
@@ -1579,19 +1421,6 @@ function sameTimelineItem(left: TimelineItem, right: TimelineItem): boolean {
   }
   return false;
 }
-
-/** 静默回合合并条上的巡视时刻：本地时间 HH:MM，时间无效时返回空串（不显示时刻）。 */
-function stewardSilentClock(endedAt?: string): string {
-  if (!endedAt) return '';
-  const date = new Date(endedAt);
-  if (Number.isNaN(date.getTime())) return '';
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  return `${hours}:${minutes}`;
-}
-
-// 静默回合展开区里的工作记录：标题点击是空操作，避免把内层再折起来
-const ignoreTurnToggle = (_turnID: string): void => {};
 
 interface PlanMessageCardProps {
   message: ThreadMessage;
@@ -1860,63 +1689,6 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
     );
   }
 
-  if (item.type === 'stewardSilent') {
-    // 开合状态与工作记录同一套 map，用 silent: 前缀避免和真实 turnID 撞键
-    const silentTurnID = `${SILENT_WORK_RECORD_PREFIX}${item.key}`;
-    const isExpanded = expanded;
-    const endedAt = stewardSilentClock(item.lastEndedAt);
-    const failed = item.records.some((record) => workRecordHasFailure(record.entries));
-    return (
-      <div
-        key={timelineItemKey(item)}
-        className="mb-4 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 space-y-2 min-w-0"
-      >
-        <button
-          type="button"
-          data-work-record-id={silentTurnID}
-          onClick={() => onToggleWorkRecord(silentTurnID)}
-          aria-expanded={isExpanded}
-          aria-label={isExpanded ? '收起后台巡视记录' : '展开后台巡视记录'}
-          className="w-full flex items-center justify-between gap-2 text-left min-h-[38px] rounded-xl px-1 hover:bg-[var(--card-alt,var(--card))] transition"
-        >
-          <div className="flex items-center gap-2 min-w-0 text-mc-body text-[var(--foreground-muted)]">
-            <span className="shrink-0">
-              <CheckCircleIcon className="w-4 h-4 text-[var(--primary)]" />
-            </span>
-            <span className="font-medium truncate">
-              {`后台巡视 ${item.rounds} 次，无需处理${endedAt ? ` · ${endedAt}` : ''}`}
-            </span>
-            {failed && (
-              <span className="shrink-0 text-[var(--danger-foreground)]" title="工具执行失败">
-                <ExclamationTriangleIcon className="w-3.5 h-3.5" />
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0 text-[var(--foreground-muted)] text-mc-footnote">
-            <ChevronRightIcon
-              className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
-            />
-          </div>
-        </button>
-
-        {isExpanded && (
-          <div className="relative pt-2 border-t border-[var(--border)] space-y-2 min-w-0">
-            {item.records.map((record) => (
-              <TimelineEntry
-                {...props}
-                key={record.turnID}
-                item={record}
-                expanded
-                onToggleWorkRecord={ignoreTurnToggle}
-                highlighted={false}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
   if (item.type === 'workRecord') {
     const isExpanded = expanded;
     const workHeaderLabel = turnWorkHeaderLabel(item.entries, workRecordRunning, workRecordNowMs, item.turnStartedAt, item.turnCompletedAt);
@@ -1968,11 +1740,8 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
                 shimmerHeader ? 'animate-pulse motion-reduce:animate-none' : ''
               }`}
             >
-              {item.stewardTitle ?? workHeaderLabel}
+              {workHeaderLabel}
             </span>
-            {item.stewardTitle && (
-              <span className="text-mc-footnote opacity-70 shrink-0 truncate">{workHeaderLabel}</span>
-            )}
             {workRecordHasFailure(item.entries) && (
               <span className="shrink-0 text-[var(--danger-foreground)]" title="工具执行失败">
                 <ExclamationTriangleIcon className="w-3.5 h-3.5" />
@@ -2896,14 +2665,9 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
     const key = timelineItemKey(item);
     const highlighted = highlightedKey === key;
     const flashing = flashKey === key;
-    // 搜索定位或会话内查找命中静默回合里的某条记录时，先把它撑开
-    const focusID = focusMessageID ?? activeFindMessageID ?? '';
     const expanded =
       item.type === 'workRecord'
         ? workRecordExpanded(threadID, item.turnID, autoCollapse)
-        : item.type === 'stewardSilent'
-        ? workRecordExpanded(threadID, SILENT_WORK_RECORD_PREFIX + item.key, autoCollapse) ||
-          (focusID !== '' && timelineItemContainsMessage(item, focusID))
         : item.type === 'message'
         ? Boolean(expandedIds[item.message.id])
         : false;
@@ -3248,14 +3012,9 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
   const renderEntry = (item: TimelineItem) => {
     const key = timelineItemKey(item);
     const highlighted = highlightedKey === key;
-    // 搜索定位或会话内查找命中静默回合里的某条记录时，先把它撑开
-    const focusID = focusMessageID ?? activeFindMessageID ?? '';
     const expanded =
       item.type === 'workRecord'
         ? workRecordExpanded(threadID, item.turnID, autoCollapse)
-        : item.type === 'stewardSilent'
-        ? workRecordExpanded(threadID, SILENT_WORK_RECORD_PREFIX + item.key, autoCollapse) ||
-          (focusID !== '' && timelineItemContainsMessage(item, focusID))
         : item.type === 'message'
         ? Boolean(expandedIds[item.message.id])
         : false;

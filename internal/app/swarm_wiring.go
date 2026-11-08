@@ -1066,7 +1066,7 @@ func wireSwarmWithPreface(ctx context.Context, mgr *swarm.Manager, backend *remo
 // （本函数只在启用分支内使用），看板、总管身份段、项目上下文与自动化目前没有可用的独立开关，恒为 true；
 // 各段内容是否为空仍由原模块自行判定，空段由 policy.Render 跳过。
 func hostPolicyCaps() policy.Capabilities {
-	return policy.Capabilities{Swarm: true, Kanban: true, Steward: true, Context: true, Automation: true}
+	return policy.Capabilities{Swarm: true, Kanban: true, Context: true, Automation: true}
 }
 
 // swarmStaticPolicy 保存主代理策略与档位说明等静态文本，用于判断通知轮次规则是否发生变化。
@@ -1124,28 +1124,13 @@ func (t *swarmLeadPolicyTracker) RenderSections(threadID string, isNotice bool, 
 	}
 }
 
-// stewardPolicySources 是可选的总管相关段落来源：identity 返回会话的总管身份段
-// （总管与话题会话，其他会话为空串）。函数可以为 nil。
-type stewardPolicySources struct {
-	identity func(threadID string) string
-}
-
 // wireSwarmWithModes 是编排接线的主体：modeResolver 返回会话当前生效的工作模式
-// （swarm.Mode* 常量，已按会话级覆盖与全局设置解析）；steward 可选，提供总管身份段
-// （为空串时等同于未接线），每一轮都注入，包括通知轮次与未开启编排的会话。
+// （swarm.Mode* 常量，已按会话级覆盖与全局设置解析）。
 //
 // mcpSrv 非空时把 swarm_delegate 工具接到派发器上；工具只对开启了 Swarm.DelegateTool 的主会话可见。
-func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote.MemoryBackend, mcpSrv *mcp.Server, preface func(threadID string) string, modeResolver func(threadID string) string, steward ...stewardPolicySources) {
+func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote.MemoryBackend, mcpSrv *mcp.Server, preface func(threadID string) string, modeResolver func(threadID string) string) {
 	if mgr == nil || backend == nil {
 		return
-	}
-
-	// stewardPolicy 返回该会话的总管身份段；未传入解析器时恒为空（该会话不是总管）。
-	stewardPolicy := func(threadID string) string {
-		if len(steward) == 0 || steward[0].identity == nil {
-			return ""
-		}
-		return steward[0].identity(threadID)
 	}
 
 	// 派发 bee 前按当前设置检索相关长期记忆，附加到 bee 提示词末尾。
@@ -1255,8 +1240,6 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 				tiers := swarm.TierPromptSection(mgr.Settings().Tiers, mgr.Settings().DefaultTier, mgr.TierPreview(threadID))
 				limits := swarm.LimitsPromptSection(mgr.RequestLimits(threadID, maxRounds()))
 				sections := tracker.RenderSections(threadID, swarm.IsNotice(prompt), plansOnly, leadPolicy, tiers, limits)
-				// 总管身份段每轮都带，且不参与通知轮次的静态段去重（上面只去重策略与档位文本）。
-				sections.Steward = stewardPolicy(threadID)
 				// 在跑 bee 清单同样每轮都带、同样不参与静态段去重：bee 的进度一直在变，
 				// 去重会让主代理看不到谁还在跑，从而把同一件事又派一遍。
 				state := mgr.State(threadID)
@@ -1268,13 +1251,13 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 				return block + "\n\n---\n\n" + prompt
 			}
 		}
-		// 未开启编排的主线程（也不是 bee）：默认禁用原生子代理工具，总管身份段仍要带上。
+		// 未开启编排的主线程（也不是 bee）：默认禁用原生子代理工具。
 		if !swarm.IsNotice(prompt) {
 			if _, isBee := mgr.BeeOwner(threadID); !isBee {
-				return prependStewardPolicy(stewardPolicy(threadID), swarm.NativeSubagentRule+"\n\n---\n\n"+prompt)
+				return swarm.NativeSubagentRule + "\n\n---\n\n" + prompt
 			}
 		}
-		return prependStewardPolicy(stewardPolicy(threadID), prompt)
+		return prompt
 	}))
 
 	backend.SetAssistantStreamHook(func(threadID, projectID string, reset bool, delta string) {
@@ -1443,16 +1426,6 @@ func beeLabel(mgr *swarm.Manager, leadThreadID, beeThreadID string) string {
 		}
 	}
 	return beeThreadID
-}
-
-// prependStewardPolicy 把总管身份段渲染成独立的宿主规则块前置到 prompt 上；
-// 身份段为空（不是总管会话）时原样返回，不留下孤立的版本标记。
-func prependStewardPolicy(identity, prompt string) string {
-	if identity == "" {
-		return prompt
-	}
-	block := policy.Render(policy.Capabilities{Steward: true}, policy.Sections{Steward: identity})
-	return block + "\n\n---\n\n" + prompt
 }
 
 // prefaceDecorator 把协调员 preface 前置到 decorate 的结果之上：

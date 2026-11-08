@@ -1981,6 +1981,41 @@ func TestApprovals_ChildQuestionAutoForwarded(t *testing.T) {
 
 // TestApprovals_OrdinaryThreadStillPromptsInAutoMode 覆盖普通（非子代理）线程：
 // auto 档下的命令审批仍然分发到前端并挂起等待答复。
+type approvalProbe struct {
+	decision    harness.Decision
+	pendingSeen bool
+}
+
+func probeApproval(t *testing.T, backend *MemoryBackend, threadID string, mode harness.PermissionMode, req harness.ApprovalRequest, timeout time.Duration) approvalProbe {
+	t.Helper()
+	ctx := context.Background()
+	var probe approvalProbe
+	backend.SetHarness(&mockHarness{runFunc: func(runCtx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		approveCtx, cancel := context.WithTimeout(runCtx, timeout)
+		defer cancel()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			probe.decision, _ = turn.Approver.Approve(approveCtx, req)
+		}()
+		for i := 0; i < 40; i++ {
+			if res, err := backend.ListRequests(runCtx, threadID); err == nil && len(res.Requests) > 0 {
+				probe.pendingSeen = true
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		<-done
+		return nil
+	}}, "/workspace", mode)
+	backend.AddThread(wire.ThreadSummary{ID: threadID, Title: "审批"}, nil)
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: threadID, Text: "测试", ActionID: newUUID()}); err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+	waitThreadIdle(t, backend, ctx, threadID)
+	return probe
+}
+
 func TestApprovals_OrdinaryThreadStillPromptsInAutoMode(t *testing.T) {
 	threadID := "00000000-0000-0000-0000-00000000008e"
 	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
@@ -2526,46 +2561,6 @@ func TestShouldPersistAlwaysAllow(t *testing.T) {
 	}
 }
 
-// TestStewardMainThreadAsksForReadOnlyCommand 覆盖总管的会话不再有只读命令豁免：
-// 总管改为跟随全局默认权限档后，安全只读命令与普通会话一致，照样弹审批。
-func TestStewardMainThreadAsksForReadOnlyCommand(t *testing.T) {
-	backend := newStewardTestBackend(t, stewardTestThreadID)
-	probe := probeApproval(t, backend, stewardTestThreadID, harness.ModeReadOnly, harness.ApprovalRequest{
-		ToolID:   "call_steward_read_cmd_001",
-		ToolName: "Bash",
-		Input:    json.RawMessage(`{"command":"ls"}`),
-		Summary:  `Bash {"command":"ls"}`,
-		Kind:     harness.RequestKindCommand,
-	}, 150*time.Millisecond)
-
-	if probe.decision == harness.DecisionAllow {
-		t.Fatal("总管的会话的安全只读命令不应再直接放行")
-	}
-	if !probe.pendingSeen {
-		t.Fatal("总管的会话的安全只读命令应进入审批")
-	}
-}
-
-// TestStewardMainThreadAsksForReadTool 覆盖总管的会话不再有只读文件工具豁免：
-// Read 这类只读文件工具与普通会话一致，照样弹审批。
-func TestStewardMainThreadAsksForReadTool(t *testing.T) {
-	backend := newStewardTestBackend(t, stewardTestThreadID)
-	probe := probeApproval(t, backend, stewardTestThreadID, harness.ModeReadOnly, harness.ApprovalRequest{
-		ToolID:   "call_steward_read_001",
-		ToolName: "Read",
-		Input:    json.RawMessage(`{"file_path":"/workspace/main.go"}`),
-		Summary:  `Read {"file_path":"/workspace/main.go"}`,
-		Kind:     harness.RequestKindTool,
-	}, 150*time.Millisecond)
-
-	if probe.decision == harness.DecisionAllow {
-		t.Fatal("总管的会话的只读文件工具不应再直接放行")
-	}
-	if !probe.pendingSeen {
-		t.Fatal("总管的会话的只读文件工具应进入审批")
-	}
-}
-
 func TestCommandAllowPrefixes(t *testing.T) {
 	allowed := map[string]bool{"bash\x00prefix\x00go test": true}
 	for _, tc := range []struct {
@@ -2670,77 +2665,5 @@ func TestProjectAllowOptions(t *testing.T) {
 	options = requestOptions(harness.RequestKindPermissions, harness.ApprovalRequest{})
 	if options[1].Title != "本会话始终允许" {
 		t.Fatal(options)
-	}
-}
-
-// TestStewardMainThreadStillAsksForWriteTool 覆盖总管的会话的写工具：Edit 与 Write 仍走审批。
-func TestStewardMainThreadStillAsksForWriteTool(t *testing.T) {
-	cases := []struct {
-		name     string
-		toolName string
-		kind     harness.RequestKind
-		input    string
-	}{
-		{name: "Edit", toolName: "Edit", kind: harness.RequestKindFileChange, input: `{"file_path":"/workspace/main.go","old_string":"a","new_string":"b"}`},
-		{name: "Write", toolName: "Write", kind: harness.RequestKindTool, input: `{"file_path":"/workspace/main.go","content":"x"}`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			backend := newStewardTestBackend(t, stewardTestThreadID)
-			probe := probeApproval(t, backend, stewardTestThreadID, harness.ModeReadOnly, harness.ApprovalRequest{
-				ToolID:   "call_steward_write_" + tc.name,
-				ToolName: tc.toolName,
-				Input:    json.RawMessage(tc.input),
-				Summary:  tc.toolName + " /workspace/main.go",
-				Kind:     tc.kind,
-			}, 150*time.Millisecond)
-
-			if probe.decision == harness.DecisionAllow {
-				t.Fatalf("%s 不应直接放行", tc.name)
-			}
-			if !probe.pendingSeen {
-				t.Fatalf("%s 应仍然走审批", tc.name)
-			}
-		})
-	}
-}
-
-// TestTopicThreadNotExemptFromReadCommand 覆盖话题会话：话题会话只拿内置 MCP 工具豁免，
-// 只读命令仍按原流程走审批。
-func TestTopicThreadNotExemptFromReadCommand(t *testing.T) {
-	backend := newStewardTestBackend(t, stewardTestThreadID)
-	setTopicThreads(t, backend, topicTestThreadID)
-	probe := probeApproval(t, backend, topicTestThreadID, harness.ModeReadOnly, harness.ApprovalRequest{
-		ToolID:   "call_topic_read_cmd_001",
-		ToolName: "Bash",
-		Input:    json.RawMessage(`{"command":"git log --oneline -5"}`),
-		Summary:  `Bash {"command":"git log --oneline -5"}`,
-		Kind:     harness.RequestKindCommand,
-	}, 150*time.Millisecond)
-
-	if probe.decision == harness.DecisionAllow {
-		t.Fatal("话题会话的只读命令不应直接放行")
-	}
-	if !probe.pendingSeen {
-		t.Fatal("话题会话的只读命令应仍然走审批")
-	}
-}
-
-// TestOrdinaryThreadNotExemptFromReadCommand 覆盖普通会话：总管的会话的只读豁免不外溢。
-func TestOrdinaryThreadNotExemptFromReadCommand(t *testing.T) {
-	backend := newStewardTestBackend(t, stewardTestThreadID)
-	probe := probeApproval(t, backend, regularTestThreadID, harness.ModeReadOnly, harness.ApprovalRequest{
-		ToolID:   "call_regular_read_cmd_001",
-		ToolName: "Bash",
-		Input:    json.RawMessage(`{"command":"git log --oneline -5"}`),
-		Summary:  `Bash {"command":"git log --oneline -5"}`,
-		Kind:     harness.RequestKindCommand,
-	}, 150*time.Millisecond)
-
-	if probe.decision == harness.DecisionAllow {
-		t.Fatal("普通会话的只读命令不应直接放行")
-	}
-	if !probe.pendingSeen {
-		t.Fatal("普通会话的只读命令应仍然走审批")
 	}
 }

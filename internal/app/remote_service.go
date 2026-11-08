@@ -58,10 +58,6 @@ type RemoteService struct {
 	attentionWatch     func(onChange func()) (stop func())
 	attentionCount     func(ctx context.Context) (int, error)
 	attentionWatchStop func()
-	// stewardWatch 订阅总管话题与看板变更（桌面端的 Client.WatchStewardTopics），
-	// 回调经 stewardChangeDebouncer 合并后广播 steward.changed。
-	stewardWatch     func(onChange func()) (stop func())
-	stewardWatchStop func()
 
 	tlsMgr        *remote.TLSManager
 	tlsSrv        *remote.Server
@@ -215,50 +211,6 @@ func (s *RemoteService) stopAttentionWatchLocked() {
 	}
 }
 
-// SetStewardWatcher 注入总管话题变更订阅函数，供 Dispatcher 向 web 端推送 steward.changed；
-// 远程服务已在运行时立即订阅。订阅回调不带项目，因此推送的 projectID 为空，表示「全部项目」。
-func (s *RemoteService) SetStewardWatcher(watch func(onChange func()) (stop func())) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.stewardWatch = watch
-	if s.dispatcher != nil {
-		s.startStewardWatchLocked()
-	}
-}
-
-// startStewardWatchLocked 起一次总管话题订阅，回调经去抖后按当前 Dispatcher 广播；调用方需持有 s.mu。
-func (s *RemoteService) startStewardWatchLocked() {
-	s.stopStewardWatchLocked()
-	if s.stewardWatch == nil {
-		return
-	}
-	// 话题与看板变化经常成串到达，去抖器把一串变化合并成一条通知。
-	debouncer := newStewardChangeDebouncer(stewardChangedDebounce, func() {
-		s.mu.Lock()
-		dispatcher := s.dispatcher
-		s.mu.Unlock()
-		if dispatcher != nil {
-			dispatcher.NotifyStewardChanged("")
-		}
-	})
-	stop := s.stewardWatch(debouncer.trigger)
-	s.stewardWatchStop = func() {
-		if stop != nil {
-			stop()
-		}
-		debouncer.stop()
-	}
-}
-
-// stopStewardWatchLocked 释放当前的总管话题订阅；调用方需持有 s.mu。
-func (s *RemoteService) stopStewardWatchLocked() {
-	stop := s.stewardWatchStop
-	s.stewardWatchStop = nil
-	if stop != nil {
-		stop()
-	}
-}
-
 // SendOwnerPush 向已订阅的离线设备发一条给用户的网页推送，供总管 notify_owner 使用。
 // 推送服务未启用或没有任何订阅时返回 false；否则异步发送并返回 true。
 func (s *RemoteService) SendOwnerPush(title, body, threadID string) bool {
@@ -343,7 +295,6 @@ func (s *RemoteService) Start(listen string, extraHosts []string) error {
 	}
 	s.startSwarmWatchLocked()
 	s.startAttentionWatchLocked()
-	s.startStewardWatchLocked()
 	if s.backend != nil {
 		s.backend.SetAttachmentsDispatcher(dispatcher)
 	}
@@ -446,7 +397,6 @@ func (s *RemoteService) Stop(ctx context.Context) error {
 	s.sleepGuard = nil
 	s.stopSwarmWatchLocked()
 	s.stopAttentionWatchLocked()
-	s.stopStewardWatchLocked()
 	s.tlsMgr = nil
 	s.tlsSrv = nil
 	s.tlsLn = nil

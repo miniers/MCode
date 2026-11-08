@@ -476,13 +476,6 @@ func handleAutomationCreate(tc ToolContext, args map[string]any) ToolResult {
 	if guard := automationWriteGuard(tc); guard != nil {
 		return *guard
 	}
-	// 总管会话里 automation_create 是动作工具：总管未启用时按动作工具的权限错误返回，
-	// 普通会话不经过这里，行为与原来一致。
-	if stewardUsable(tc.Server.stewardHooks(), tc.Context) {
-		if _, guard := stewardActionGuard(tc, stewardAutomationCreateToolName); guard != nil {
-			return *guard
-		}
-	}
 	autoSvc := tc.Server.getAutomation()
 	if autoSvc == nil {
 		return toolError(CodeInternal, "Automation service is unavailable", false)
@@ -830,5 +823,4 @@ var automationFamily = &toolFamily{
 	capability:  CapAutomation,
 	description: "自动化入口：创建、查看、修改、取消本项目的定时自动化，以及结算某次运行的结果。先调用 action=help 查看可用操作及其参数，再用 action 加上 args 调用目标操作。",
 	overview:    "自动化操作入口：先用 action=help 查看操作，再用 action 加 args 调用。",
-	exclude:     map[string]bool{stewardAutomationRunNowToolName: true},
 }

@@ -62,7 +62,6 @@ func newRegistry(s *Server) *Registry {
 	r.registerSwarmTools(s)
 	r.registerSwarmReportTools(s)
 	r.registerMemoryTools(s)
-	r.registerStewardTools(s)
 	return r
 }
 

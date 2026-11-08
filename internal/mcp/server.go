@@ -87,9 +87,6 @@ type Server struct {
 	swarmMu sync.RWMutex
 	swarm   *SwarmHooks
 
-	stewardMu sync.RWMutex
-	steward   *StewardHooks
-
 	idempotency *IdempotencyCache
 	registry    *Registry
 }
@@ -539,15 +536,6 @@ func (s *Server) handleToolCall(w http.ResponseWriter, r *http.Request, reqID *j
 		return
 	}
 
-	// 总管的会话只允许调用 tools/list 里对它可见的工具：观察类工具、动作工具与既有只读工具；
-	// 话题会话另有一套白名单（话题工具、只读工具与话题可用的看板工具）。
-	// 白名单以外的工具仍被注册，但按未知工具拒绝，避免绕过 filterToolsForThread 的裁剪直接写数据。
-	// 动作工具在权限档不足时虽然隐藏，但能调进来，由 handler 返回可读的权限错误。
-	if allowed, scoped := stewardScopedCallAllowed(s.stewardHooks(), r.Context(), toolName); scoped && !allowed {
-		s.writeToolResult(w, reqID, toolError(CodeNotFound, fmt.Sprintf("Unknown tool: %s", rawName), false))
-		return
-	}
-
 	project, err := s.resolveProject(r)
 	if err != nil {
 		s.writeToolResult(w, reqID, toolError(CodeNotFound, "无法确定当前项目", false))
@@ -577,8 +565,7 @@ func (s *Server) handleToolCall(w http.ResponseWriter, r *http.Request, reqID *j
 	}
 
 	// project_id 只允许指向当前会话所属项目，避免工具跨项目写入。
-	// 总管的 attention_list 与 thread_status 要跨项目分诊，因此对它们不做这项限制。
-	if rawProject, ok := args["project_id"]; ok && !(stewardCrossProjectTools[toolName] && s.stewardAvailable(r.Context())) {
+	if rawProject, ok := args["project_id"]; ok {
 		projectID, isString := rawProject.(string)
 		if !isString || strings.TrimSpace(projectID) != project.ID {
 			s.writeToolResult(w, reqID, toolError(CodeInvalidArguments, "project_id must match the current conversation project.", false))
@@ -680,25 +667,11 @@ var (
 )
 
 // filterToolsForThread 按会话角色裁剪 tools/list 结果：普通会话只留族入口工具，
-// 看板线程只留该角色需要的类型化看板工具，总管只留其专属工具与既有只读工具。
+// 看板线程只留该角色需要的类型化看板工具。
 // 普通会话要看任务 diff、跑自动化或检索记忆时经入口工具的对应 action 调用，因此类型化工具仍全部隐藏。
-// 共享端点（无会话作用域）只隐藏入口工具与总管专属工具、保留全部类型化工具
+// 共享端点（无会话作用域）只隐藏入口工具、保留全部类型化工具
 // （调用仍可转发），非看板工具（context_*）一律不受影响。
 func (s *Server) filterToolsForThread(r *http.Request, tools []ToolDefinition) []ToolDefinition {
-	// 总管是常驻的分诊会话：只留观察类工具、权限档允许时的动作工具与既有只读工具，
-	// 看板与自动化的写工具一律不给。钩子只取一次，可用性判定与裁剪用同一个指针。
-	hooks := s.stewardHooks()
-	if stewardUsable(hooks, r.Context()) {
-		return filterStewardTools(hooks, tools)
-	}
-	// 话题会话是总管为一条需求开的专用会话：只给话题工具、话题只读工具与本角色需要的看板工具。
-	// 它既不该拿总管的分诊工具，也不该拿普通会话的看板入口工具。
-	if stewardTopicUsable(hooks, r.Context()) {
-		return filterTopicTools(hooks, tools, s.topicPlanRole(r))
-	}
-	// 总管专属工具只对总管的会话可见：普通会话、看板线程与无会话作用域的共享端点都看不到。
-	tools = excludeStewardTools(tools)
-
 	if scopeThreadID(r.Context()) == "" {
 		out := make([]ToolDefinition, 0, len(tools))
 		for _, tool := range tools {
@@ -753,17 +726,6 @@ func (s *Server) filterToolsForThread(r *http.Request, tools []ToolDefinition) [
 		out = append(out, tool)
 	}
 	return out
-}
-
-// topicPlanRole 报告话题会话是否已经进入计划角色：建目标后 Goal.PlanThreadID 就指向它。
-// 解析失败按“还没建目标”处理，此时只给只读看板工具，最差的结果是多问用户一次。
-func (s *Server) topicPlanRole(r *http.Request) bool {
-	project, err := s.resolveProject(r)
-	if err != nil {
-		return false
-	}
-	role, _ := s.threadRole(r.Context(), project.ID)
-	return role == threadRolePlan
 }
 
 // filterUnconfiguredMemoryTools 在 tools/list 中过滤未配置回调的记忆工具，并为 `memory` 入口

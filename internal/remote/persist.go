@@ -475,10 +475,13 @@ func (b *MemoryBackend) AttachStore(ctx context.Context, s *store.Store) error {
 
 	b.mu.Lock()
 	b.store = s
+	b.stewardFeedID = ""
+	b.stewardFeedLoaded = false
 	b.projects = loadedProjects
 	b.threads = loadedThreads
 	b.usage = loadedUsage
 	b.mu.Unlock()
+	b.StewardFeedThreadID()
 
 	// 启动对账：上次进程遗留的待答卡片标失效、停在途中的投递标 unknown，各写一条时间线提示。
 	// 必须在 store 与内存线程表挂载之后调用：提示走 appendSystemNotice，依赖 b.threads 定位会话。

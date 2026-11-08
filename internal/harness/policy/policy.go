@@ -27,8 +27,6 @@ type Capabilities struct {
 	Context bool
 	// Automation 表示自动化相关规则可注入。
 	Automation bool
-	// Steward 表示总管的身份与职责规则可注入。
-	Steward bool
 }
 
 // Sections 承载各段已渲染好的提示词文本；空串表示该段不输出。
@@ -44,8 +42,6 @@ type Sections struct {
 	SwarmRoster string
 	// Kanban 是看板协调员上下文（kanban.Service.CoordinatorPreface）。
 	Kanban string
-	// Steward 是总管身份与职责段（steward.IdentitySection 产出），排在 Kanban 之后。
-	Steward string
 	// ProjectContext 是项目 Context 指导词（projctx.BuildGuidance* 产出的 <project_context> 块）。
 	ProjectContext string
 	// Automation 是自动化相关规则段。
@@ -53,7 +49,7 @@ type Sections struct {
 }
 
 // Render 按固定顺序拼接已启用的段，并在首行输出版本标记。
-// 顺序为 SwarmLead、SwarmTiers、SwarmLimits、SwarmRoster、Kanban、Steward、ProjectContext、Automation，与原拼装处「策略 → 档位 → 上限」一致，其余段固定排在后面。
+// 顺序为 SwarmLead、SwarmTiers、SwarmLimits、SwarmRoster、Kanban、ProjectContext、Automation。
 // 所有段都为空或都被能力开关关闭时返回空串，不输出孤立的版本标记。
 func Render(caps Capabilities, sections Sections) string {
 	parts := make([]string, 0, 8)
@@ -68,7 +64,6 @@ func Render(caps Capabilities, sections Sections) string {
 	appendSection(caps.Swarm, sections.SwarmLimits)
 	appendSection(caps.Swarm, sections.SwarmRoster)
 	appendSection(caps.Kanban, sections.Kanban)
-	appendSection(caps.Steward, sections.Steward)
 	appendSection(caps.Context, sections.ProjectContext)
 	appendSection(caps.Automation, sections.Automation)
 	if len(parts) == 0 {

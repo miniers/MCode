@@ -190,9 +190,6 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 	// 存储实例可能首次从磁盘加载，项目键要做符号链接解析，都不能在持有 b.mu 时进行。
 	store := a.b.alwaysAllowStore()
 	project := a.b.alwaysAllowProjectKey(a.threadID)
-	// 总管的会话的内置 MCP 工具免审批：同样要在主锁之前算好，存储读取不能持锁进行。
-	// 只认「总管的会话 + 内置 mcode 服务器」这一种组合，白名单由内置服务器自己拦截。
-	stewardTool := a.b.stewardBuiltinMCPTool(ctx, a.threadID, req.ToolName)
 
 	a.b.mu.Lock()
 	td, ok := a.b.threads[a.threadID]
@@ -250,14 +247,6 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 			a.b.mu.Unlock()
 			return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
 		}
-	}
-
-	// 总管的会话调用内置 MCP 服务器上的工具直接放行：这些工具在只读档下本会被一律拒绝，
-	// 而内置服务器已按白名单裁剪过（只留总管专属工具与既有只读工具），越权调用会被它拒绝。
-	// 写文件、执行命令与第三方 MCP 服务器的工具都不命中这条豁免。
-	if req.Sensitive == "" && stewardTool && kind == harness.RequestKindTool {
-		a.b.mu.Unlock()
-		return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
 	}
 
 	// 先匹配完整键，再匹配命令前缀；持久名单按项目生效。
@@ -547,8 +536,7 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 	if !canceled && !withdrawn {
 		traceAskSettled(a.b, requestID, askResolution(kind, resp))
 	} else if canceled {
-		// 轮次取消：建议计分记为未答复。撤卡已在撤卡路径结算过，靠 outcome='pending' 条件避免双写。
-		traceSuggestionUnanswered(a.b, requestID, "canceled")
+		// 轮次取消时结算待答卡片。
 		noticeThreadID := ""
 		if kind == harness.RequestKindQuestion {
 			noticeThreadID = a.threadID

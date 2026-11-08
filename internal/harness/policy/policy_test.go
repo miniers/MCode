@@ -35,7 +35,7 @@ func TestVersionIsBumped(t *testing.T) {
 
 // 空段必须被跳过，不能留下多余的分隔空行。
 func TestRenderSkipsEmptySections(t *testing.T) {
-	got := Render(Capabilities{Swarm: true, Kanban: true, Context: true, Automation: true, Steward: true}, Sections{
+	got := Render(Capabilities{Swarm: true, Kanban: true, Context: true, Automation: true}, Sections{
 		SwarmLead:   "lead",
 		SwarmLimits: "limits",
 	})
@@ -56,12 +56,11 @@ func TestRenderDropsDisabledCapabilities(t *testing.T) {
 		SwarmLimits:    "limits",
 		SwarmRoster:    "roster",
 		Kanban:         "kanban",
-		Steward:        "steward",
 		ProjectContext: "context",
 		Automation:     "automation",
 	}
 	got := Render(Capabilities{Swarm: true}, sections)
-	for _, unwanted := range []string{"kanban", "steward", "context", "automation"} {
+	for _, unwanted := range []string{"kanban", "context", "automation"} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("能力关闭的段被输出: %q in %q", unwanted, got)
 		}
@@ -83,19 +82,18 @@ func TestRenderDropsDisabledCapabilities(t *testing.T) {
 }
 
 // 段顺序固定：与调用方传入顺序无关，始终按 SwarmLead、SwarmTiers、SwarmLimits、
-// SwarmRoster、Kanban、Steward、ProjectContext、Automation 排列。
+// SwarmRoster、Kanban、ProjectContext、Automation 排列。
 func TestRenderKeepsFixedOrder(t *testing.T) {
-	got := Render(Capabilities{Swarm: true, Kanban: true, Context: true, Automation: true, Steward: true}, Sections{
+	got := Render(Capabilities{Swarm: true, Kanban: true, Context: true, Automation: true}, Sections{
 		Automation:     "8",
 		ProjectContext: "7",
-		Steward:        "6",
 		Kanban:         "5",
 		SwarmRoster:    "4",
 		SwarmLimits:    "3",
 		SwarmTiers:     "2",
 		SwarmLead:      "1",
 	})
-	want := Marker + "\n\n1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7\n\n8"
+	want := Marker + "\n\n1\n\n2\n\n3\n\n4\n\n5\n\n7\n\n8"
 	if got != want {
 		t.Fatalf("段顺序不符合预期:\ngot:  %q\nwant: %q", got, want)
 	}
@@ -103,7 +101,7 @@ func TestRenderKeepsFixedOrder(t *testing.T) {
 
 // 无任何宿主规则时不输出孤立标记。
 func TestRenderEmptyInput(t *testing.T) {
-	if got := Render(Capabilities{Swarm: true, Kanban: true, Context: true, Automation: true, Steward: true}, Sections{}); got != "" {
+	if got := Render(Capabilities{Swarm: true, Kanban: true, Context: true, Automation: true}, Sections{}); got != "" {
 		t.Fatalf("无内容时应返回空串，got %q", got)
 	}
 }

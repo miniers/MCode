@@ -43,7 +43,6 @@ import (
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
 	"mcode/internal/startuptrace"
-	"mcode/internal/steward"
 	"mcode/internal/store"
 	"mcode/internal/swarm"
 	mcodeui "mcode/internal/ui"
@@ -106,15 +105,12 @@ type App struct {
 	// attention 是待处理事件（收件箱）服务，attentionSrc 是四类事件源的接线。
 	attention    *attention.Service
 	attentionSrc *attentionWiring
-	// steward 是总管运行时，ownerNotify 是向用户发桌面通知的实现（由桌面端接入）。
+	// ownerNotify 是向用户发桌面通知的实现（由桌面端接入）。
 	// 它返回哨兵错误 ErrOwnerNotifySuppressed 表示通知被前台或安静时段抑制、没有弹出。
-	steward     *steward.Runtime
 	ownerNotify func(title, body, threadID string) error
 	notifyMu    sync.RWMutex
 	// dataDir 是 mcode 数据目录，验收唤醒器每次从这里现读日报与安静时段配置。
 	dataDir string
-	// goalWake 是验收唤醒器：总管创建的目标出现待验收、被打回等情况时唤醒话题会话。
-	goalWake *goalReviewWaker
 	// retention 是 bee 消息保留任务的后台调度器：启动 2 分钟后跑第一次，之后每 24 小时一次。
 	retention *messageRetentionScheduler
 	// automationSleep 是自动化防休眠守卫：有自动化运行中或即将到期时阻止电脑休眠。
@@ -150,11 +146,6 @@ func (a *App) SetAttentionIgnoreThread(fn func(threadID string) bool) {
 	a.attentionSrc.SetIgnoreThread(fn)
 }
 
-// Steward 获取总管运行时实例；未接线时为 nil。
-func (a *App) Steward() *steward.Runtime {
-	return a.steward
-}
-
 // Swarm 获取 Swarm 管理器实例。
 func (a *App) Swarm() *swarm.Manager {
 	return a.swarm
@@ -176,12 +167,6 @@ func (a *App) RecoveredStoreBackupPath() string {
 
 // Close 关闭应用资源，关闭顺序为 总管 -> 验收唤醒 -> bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close。
 func (a *App) Close() error {
-	if a.steward != nil {
-		a.steward.Stop()
-	}
-	if a.goalWake != nil {
-		a.goalWake.Stop()
-	}
 	// bee 消息保留会写库，必须等它退出后再关闭 store。
 	if a.retention != nil {
 		a.retention.Stop()
@@ -630,13 +615,7 @@ func Open(opts Options) (*App, error) {
 	// 构造阶段为空时回调也不会出现空指针。
 	var attentionSvc *attention.Service
 	var attentionSrc *attentionWiring
-	// stewardRT 在 App 实例与 MCP 服务都就绪之后才创建，cleanup 通过它停止总管运行时。
-	var stewardRT *steward.Runtime
-
 	cleanup := func() {
-		if stewardRT != nil {
-			stewardRT.Stop()
-		}
 		if attentionSrc != nil {
 			attentionSrc.Stop()
 		}
@@ -874,36 +853,28 @@ func Open(opts Options) (*App, error) {
 	}
 	if swarmMgr == nil {
 		// Swarm 未接线（缺少 git）时不会走 wireSwarm，单独安装只做 preface 前置的装饰器；
-		// 看板段与总管身份段同样经 harness/policy 渲染，前缀始终带版本标记。
-		// 通知轮次不追加 preface，所以装饰器在通知轮次单独前置总管身份段，保证每一轮都带上。
+		// 看板段经 harness/policy 渲染，前缀始终带版本标记。
 		backend.SetPromptDecorator(prefaceDecorator(func(threadID string) string {
 			return policy.Render(hostPolicyCaps(), policy.Sections{
-				Kanban:  kanbanPreface(threadID),
-				Steward: stewardIdentitySection(stewardRT, threadID),
+				Kanban: kanbanPreface(threadID),
 			})
-		}, func(threadID, prompt string) string {
-			if !swarm.IsNotice(prompt) {
-				return prompt
-			}
-			return prependStewardPolicy(stewardIdentitySection(stewardRT, threadID), prompt)
-		}))
+		}, nil))
 	} else {
-		wireSwarmWithModes(context.Background(), swarmMgr, backend, mcpSrv, kanbanPreface, swarmModeResolver,
-			stewardPolicySources{
-				identity: func(threadID string) string { return stewardIdentitySection(stewardRT, threadID) },
-			})
+		wireSwarmWithModes(context.Background(), swarmMgr, backend, mcpSrv, kanbanPreface, swarmModeResolver)
 	}
 
 	// 普通会话的「可以交给总管」提示只在首轮注入一次，挂在已有的首轮指导词机制上，
-	// 不再每轮前置，避免随历史累积与每轮读磁盘。bee 会话不带；总管、话题会话
-	// 与总管未启用时由 stewardHandoffSection 返回空串。
+	// 不再每轮前置，避免随历史累积与每轮读磁盘。bee 和前台会话不带。
 	backend.SetFirstTurnExtra(func(threadID string) string {
 		if swarmMgr != nil {
 			if _, isBee := swarmMgr.BeeOwner(threadID); isBee {
 				return ""
 			}
 		}
-		return stewardHandoffSection(stewardRT, opts.DataDir, threadID)
+		if id, _, err := dbStore.GetSetting(context.Background(), "steward.feed_thread_id"); err == nil && id == threadID {
+			return ""
+		}
+		return frontdeskHandoffSection(opts.DataDir, threadID)
 	})
 
 	// Nowledge Mem 接入：客户端已在上方创建，拿到后首轮 Working Memory 注入与会话同步才生效。

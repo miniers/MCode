@@ -395,64 +395,6 @@ func waitThreadIdle(t *testing.T, backend *MemoryBackend, ctx context.Context, t
 	return wire.ThreadSummary{}
 }
 
-// TestMemoryBackend_LastTurnSilent 验证正常收尾时发布的摘要标记最终静默回复。
-func TestMemoryBackend_LastTurnSilent(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		reply  string
-		silent bool
-	}{
-		{name: "silent", reply: " \n" + wire.StewardSilentMarker + "\t ", silent: true},
-		{name: "ordinary", reply: "处理完成"},
-		{name: "marker-in-reply", reply: "说明 " + wire.StewardSilentMarker},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
-			defer hub.Close()
-			backend := NewMemoryBackend(hub)
-			defer backend.Close()
-			backend.SetHarness(&mockHarness{
-				runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
-					emit(harness.Event{Type: harness.EventText, Text: tc.reply})
-					emit(harness.Event{Type: harness.EventDone})
-					return nil
-				},
-			}, "/workspace/project", harness.ModeAgent)
-
-			ctx := context.Background()
-			threadID := "00000000-0000-0000-0000-000000000022"
-			backend.AddThread(wire.ThreadSummary{ID: threadID, Title: "总管"}, nil)
-			conn := newMockStreamConn()
-			if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
-				t.Fatalf("Subscribe failed: %v", err)
-			}
-			if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
-				ThreadID: threadID,
-				Text:     "检查事件",
-				ActionID: "00000000-0000-0000-0000-000000000202",
-			}); err != nil {
-				t.Fatalf("SendMessage failed: %v", err)
-			}
-
-			deadline := time.Now().Add(3 * time.Second)
-			for time.Now().Before(deadline) {
-				events := conn.getEvents()
-				if len(events) > 0 {
-					summary := events[len(events)-1].Payload.Thread
-					if !summary.IsRunning {
-						if summary.LastTurnSilent != tc.silent {
-							t.Errorf("published LastTurnSilent = %v, want %v", summary.LastTurnSilent, tc.silent)
-						}
-						return
-					}
-				}
-				time.Sleep(20 * time.Millisecond)
-			}
-			t.Fatal("timed out waiting for published idle summary")
-		})
-	}
-}
-
 func TestMemoryBackend_HarnessEventFlow(t *testing.T) {
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()
