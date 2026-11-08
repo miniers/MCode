@@ -82,6 +82,12 @@ const ACTIVE_PAGE_STEP = 10;
 // 已休眠会话的本地分页步长，与服务端分页互不干扰。
 const DORMANT_PAGE_STEP = 25;
 
+export function threadRowSurfaceClass(isSelected?: boolean): string {
+  return isSelected
+    ? 'bg-screen bg-[linear-gradient(var(--mc-overlay-selected),var(--mc-overlay-selected))]'
+    : 'bg-screen';
+}
+
 interface ThreadListProps {
   selectedThreadID?: string | null;
   headerActionsSlot?: HTMLElement | null;
@@ -228,7 +234,7 @@ const ArchivedThreadRow = React.memo(function ArchivedThreadRow({
   const rowStatusLabel = threadRowStatusAriaLabel(thread);
   return (
     <div className="thread-row-wrap">
-      <div className={`relative z-10 flex min-h-[52px] items-center gap-2 ${isSelected ? 'bg-[var(--mc-overlay-selected)]' : 'bg-screen'} gutter-x`}>
+      <div className={`relative z-10 flex min-h-[52px] items-center gap-2 ${threadRowSurfaceClass(isSelected)} gutter-x`}>
         <button
           type="button"
           aria-current={isSelected ? 'true' : undefined}
@@ -573,7 +579,7 @@ const ThreadRow = React.memo(function ThreadRow({
         tabIndex={0}
         aria-label={`打开会话 ${thread.title || '未命名会话'}${rowStatusLabel ? `，${rowStatusLabel}` : ''}`}
         aria-current={isSelected ? 'true' : undefined}
-        className={`relative z-10 min-h-[76px] ${isSelected ? 'bg-[var(--mc-overlay-selected)]' : 'bg-screen'} gutter-x py-2.5 transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
+        className={`relative z-10 min-h-[76px] ${threadRowSurfaceClass(isSelected)} gutter-x py-2.5 transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
         style={{
           transform: `translateX(${offset}px)`,
           transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(.22,1,.36,1)'
@@ -791,7 +797,7 @@ const DormantThreadRow = React.memo(function DormantThreadRow({
         tabIndex={0}
         aria-label={`打开已休眠会话 ${thread.title || '未命名会话'}${rowStatusLabel ? `，${rowStatusLabel}` : ''}`}
         aria-current={isSelected ? 'true' : undefined}
-        className={`relative z-10 flex h-[44px] min-h-[44px] items-center justify-between gap-2 ${isSelected ? 'bg-[var(--mc-overlay-selected)]' : 'bg-screen'} gutter-x transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
+        className={`relative z-10 flex h-[44px] min-h-[44px] items-center justify-between gap-2 ${threadRowSurfaceClass(isSelected)} gutter-x transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
         style={{
           transform: `translateX(${offset}px)`,
           transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(.22,1,.36,1)'
