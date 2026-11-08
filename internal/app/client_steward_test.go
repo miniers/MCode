@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
-	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"mcode/internal/config"
+	"mcode/internal/remote"
+	"mcode/internal/store"
 )
 
 // fakeStewardRuntime 是 stewardThreadRuntime 的测试替身：记录 Ensure 调用次数，
@@ -59,40 +61,43 @@ func TestClientOpenStewardThreadNotWired(t *testing.T) {
 	}
 }
 
-// TestClientOpenStewardThreadExisting 覆盖已有会话时直接返回，且不去建会话。
-func TestClientOpenStewardThreadExisting(t *testing.T) {
-	rt := &fakeStewardRuntime{threadID: "steward-1"}
-	client := &Client{}
-	client.SetSteward(rt)
-	id, err := client.OpenStewardThread(context.Background())
-	if err != nil {
-		t.Fatalf("已有会话不应报错: %v", err)
-	}
-	if id != "steward-1" {
-		t.Fatalf("期望 steward-1，实际 %q", id)
-	}
-	if rt.ensureN != 0 {
-		t.Fatalf("已有会话时不应调用 Ensure，实际调用 %d 次", rt.ensureN)
-	}
-}
-
-// TestClientOpenStewardThreadEnsures 覆盖没有会话时现建一次，带上限时上下文并返回新 ID。
 func TestClientOpenStewardThreadEnsures(t *testing.T) {
-	rt := &fakeStewardRuntime{ensureID: "steward-new"}
-	client := &Client{}
-	client.SetSteward(rt)
-	id, err := client.OpenStewardThread(context.Background())
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Models.Provider = "claude"
+	cfg.Orchestration.Steward.Enabled = true
+	cfg.Orchestration.Steward.HomeDir = filepath.Join(dir, "home")
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(dir, "test.db"))
 	if err != nil {
-		t.Fatalf("建会话不应报错: %v", err)
+		t.Fatal(err)
 	}
-	if id != "steward-new" {
-		t.Fatalf("期望 steward-new，实际 %q", id)
+	defer db.Close()
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	defer hub.Close()
+	backend := remote.NewMemoryBackend(hub)
+	defer backend.Close()
+	if err := backend.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
 	}
-	if rt.ensureN != 1 {
-		t.Fatalf("应调用 Ensure 一次，实际 %d 次", rt.ensureN)
+	client := &Client{dataDir: dir, backend: backend}
+	id, err := client.OpenStewardThread(ctx)
+	if err != nil || id == "" {
+		t.Fatalf("创建会话失败: %q %v", id, err)
 	}
-	if !rt.ensureHasDeadline {
-		t.Fatal("Ensure 应收到带截止时间的上下文")
+	stored, _, err := db.GetSetting(ctx, "steward.feed_thread_id")
+	if err != nil || stored != id {
+		t.Fatalf("会话设置错误: %q %v", stored, err)
+	}
+	if _, err := db.GetThread(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	again, err := client.OpenStewardThread(ctx)
+	if err != nil || again != id {
+		t.Fatalf("重复打开结果错误: %q %v", again, err)
 	}
 }
 
@@ -110,21 +115,13 @@ func TestClientOpenStewardThreadDisabled(t *testing.T) {
 	}
 }
 
-// TestClientOpenStewardThreadEnsureError 覆盖 Ensure 出错：错误要包一层，便于界面区分场景。
 func TestClientOpenStewardThreadEnsureError(t *testing.T) {
-	boom := errors.New("启动 CLI 失败")
-	rt := &fakeStewardRuntime{ensureErr: boom}
-	client := &Client{}
-	client.SetSteward(rt)
+	client := newRemoteSettingsTestClient(t, func(cfg *config.Config) {
+		cfg.Orchestration.Steward.Enabled = true
+	})
 	id, err := client.OpenStewardThread(context.Background())
-	if err == nil {
-		t.Fatalf("Ensure 出错时应报错，实际返回 %q", id)
-	}
-	if !errors.Is(err, boom) {
-		t.Fatalf("应保留原始错误，实际 %q", err.Error())
-	}
-	if !strings.Contains(err.Error(), "准备总管会话失败") {
-		t.Fatalf("错误应说明准备会话失败，实际 %q", err.Error())
+	if err == nil || id != "" || !strings.Contains(err.Error(), "会话后端未接入") {
+		t.Fatalf("缺少后端时应报错: %q %v", id, err)
 	}
 }
 

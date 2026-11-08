@@ -232,6 +232,7 @@ section sec-steward-main 总管
 row row-steward-name 昵称
 row row-steward-avatar 头像
 row row-steward-enabled 启用总管
+row row-steward-cli-fallback 没有 API Key 时用本机 CLI
 row row-steward-session 总管会话
 row row-steward-auto-collapse-reasoning 自动折叠思考过程
 row row-steward-disabled-hint 尚未启用

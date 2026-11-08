@@ -242,6 +242,27 @@ func TestRemoteSettingsSetStewardEnabledChoosesExplicitly(t *testing.T) {
 	}
 }
 
+func TestRemoteSettingsStewardCLIFallbackRoundTrip(t *testing.T) {
+	client := newRemoteSettingsTestClient(t, func(cfg *config.Config) {
+		cfg.Orchestration.Steward.EnabledChoice = false
+		cfg.Orchestration.Steward.CLIFallback = false
+	})
+	svc := remoteSettingsService{client: client}
+	if _, err := svc.Set(context.Background(), remoteSettingsValues(t, map[string]any{
+		remote.SettingsKeyStewardCLIFallback: true,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadRemoteSettingsTestConfig(t, client.dataDir)
+	if !cfg.Orchestration.Steward.CLIFallback || cfg.Orchestration.Steward.EnabledChoice {
+		t.Fatalf("写入后的总管配置不正确: %+v", cfg.Orchestration.Steward)
+	}
+	snapshot, err := svc.Get(context.Background())
+	if err != nil || string(snapshot.Values[remote.SettingsKeyStewardCLIFallback]) != "true" {
+		t.Fatalf("读回失败: %+v %v", snapshot.Values, err)
+	}
+}
+
 // session.pin_sent_message：默认关闭，写入 false 后落盘，快照与配置文件都读到 false。
 func TestRemoteSettingsSessionPinSentMessage(t *testing.T) {
 	client := newRemoteSettingsTestClient(t, nil)

@@ -330,6 +330,8 @@ func TestStewardSettings_DailyReport(t *testing.T) {
 		t.Fatalf("日报默认应关闭")
 	}
 
+	// 前面的开关行把日报挤到视口外，先滚到底再点。
+	tt.Scroll(500, 2000, 0, 1e6)
 	if err := tt.Click("切换日报"); err != nil {
 		t.Fatalf("打开日报失败: %v", err)
 	}

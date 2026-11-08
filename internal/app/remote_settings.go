@@ -156,6 +156,7 @@ func settingsSnapshotFromConfig(cfg config.Config) (wire.SettingsSnapshot, error
 		remote.SettingsKeyStewardQuietStart:                  cfg.Orchestration.Steward.QuietStart,
 		remote.SettingsKeyStewardQuietEnd:                    cfg.Orchestration.Steward.QuietEnd,
 		remote.SettingsKeyStewardEnabled:                     cfg.Orchestration.Steward.Enabled,
+		remote.SettingsKeyStewardCLIFallback:                 cfg.Orchestration.Steward.CLIFallback,
 		remote.SettingsKeyStewardAutoCollapseReasoning:       cfg.Orchestration.Steward.AutoCollapseReasoningEnabled(),
 	}
 	out := make(map[string]json.RawMessage, len(values))
@@ -605,6 +606,14 @@ func applySettingsValue(cfg *config.Config, key string, raw json.RawMessage) err
 		cfg.Orchestration.Steward.Enabled = value
 		// 与桌面开关一致：用户亲手切过之后置 true，后续迁移不再改 enabled。
 		cfg.Orchestration.Steward.EnabledChoice = true
+		return nil
+
+	case remote.SettingsKeyStewardCLIFallback:
+		value, err := decodeSettingsBool(key, raw)
+		if err != nil {
+			return err
+		}
+		cfg.Orchestration.Steward.CLIFallback = value
 		return nil
 
 	case remote.SettingsKeyStewardAutoCollapseReasoning:
