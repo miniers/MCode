@@ -35,8 +35,8 @@ type Options struct {
 	ResolveClient func(model string, affinityKey string) (client llm.Client, modelID string, err error)
 	SystemPrompt  func(turn harness.Turn, toolNames []string) string
 	ExtraTools    func(ctx context.Context, turn harness.Turn) []tools.Tool
-	DefaultModel string
-	MaxRounds    int
+	DefaultModel  string
+	MaxRounds     int
 	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析前的完整模型串；
 	// 可以为 nil，返回 0 表示未知。
 	ContextWindow func(model string) int
