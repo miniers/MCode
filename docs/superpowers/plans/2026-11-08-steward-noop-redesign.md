@@ -1,6 +1,6 @@
 # 总管全面转向 noop 模式（以内置引擎为底座）
 
-状态：待实施
+状态：已拍板，待实施
 适用仓库：`/Users/liukai/code/github/mcode`
 参考实现：`/Users/liukai/code/github/noop`（只读）
 前置计划：`docs/superpowers/plans/2026-11-08-unified-api-engine.md`
@@ -107,7 +107,7 @@ watchdog / scheduler 消费结果
 
 ### 3.2 前台循环的 Go 类型与函数签名草案
 
-新包：`internal/frontdesk`。不导入 `internal/mcp`，这样 `internal/mcp` 可以反过来复用它的工具定义而不形成循环。旧 `internal/steward` 在阶段 5 删除。
+新包：`internal/frontdesk`。不导入 `internal/mcp`，这样 `internal/mcp` 可以反过来复用它的工具定义而不形成循环。旧 `internal/steward` 在阶段 4 删除。
 
 ```go
 package frontdesk
@@ -144,7 +144,7 @@ func (d *Desk) HandleMessage(ctx context.Context, in Inbound) error
 func (d *Desk) Enqueue(in Inbound) // 单 worker 串行，保证同一 feed 的消息按到达顺序处理
 func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error
 
-func (d *Desk) stream(ctx context.Context, req llm.Request, post func(string)) (*llm.Response, string, error)
+func (d *Desk) stream(ctx context.Context, req llm.Request) (*llm.Response, string, error)
 func (d *Desk) executeReads(ctx context.Context, calls []llm.ToolCall) []llm.Message
 func (d *Desk) executeWrites(ctx context.Context, calls []llm.ToolCall) []llm.Message
 
@@ -169,14 +169,14 @@ type LoopError struct {
 `loop` 的精确语义：
 
 1. 第 0 轮前把 `Snapshot.Text` 作为 system 消息、用户原话作为 user 消息。
-2. 每轮调用 `Client.Stream`，把 `delta.Text` 直接给 `post` 做流式灰字；`delta.Reasoning` 丢弃。
+2. 每轮调用 `Client.Stream`，完整收集 `delta.Text`；`delta.Reasoning` 丢弃。
 3. 从 `response.Message.ToolCalls` 分类：`Read`、`Write`、`Unknown`、`Invalid`（JSON 参数无法解析或必填缺失）。
-4. 只要出现 `Read`、`Unknown`、`Invalid` 中任意一种：执行读工具；把未知工具和参数错误作为 tool 结果；把所有写工具作为「尚未执行，需要的话再发一次」的 tool 结果；本轮不执行写操作；继续下一轮。
+4. 只要出现 `Read`、`Unknown`、`Invalid` 中任意一种：丢弃本轮文本，执行读工具；把未知工具和参数错误作为 tool 结果；把所有写工具作为「尚未执行，需要的话再发一次」的 tool 结果；本轮不执行写操作；继续下一轮。
 5. 没有上述三类、只有写工具，或没有任何工具调用：这是干净轮。先把本轮 `/assistant` 文本用 `Feed.AppendAssistant(threadID, KindStewardReply, text)` 落库并推送；文本为空则不落消息。然后按顺序执行写工具，每个写工具的结果只记日志，不改变已经发出的回复。
 6. 达到 `MaxRounds` 仍没有干净轮：记一条 `frontdesk` 日志，吞掉本轮（不落回复、不执行写调用），并按第 7 条走模型失败兜底。
-7. `Client.Stream` 返回错误（无来源、鉴权失败、超时、上下文溢出且无法恢复）：不重试超过一次；直接走「模型不可用」兜底，把消息静默变成任务或追加到最近任务。
+7. `Client.Stream` 返回错误（无来源、鉴权失败、超时、上下文溢出且无法恢复）：不重试超过一次；按第 3.9 节尝试 CLI 降级，否则把消息静默变成任务或追加到最近任务。
 
-`post` 只在回复是最终文字时调用；工具轮里的文字如果只是过程说明，不会在干净轮前落库。这样保证「先回复后写」只发生一次。
+每轮文本只在判定为干净轮后作为一行灰字落库并推送；其他轮次的文本全部丢弃，保证「先回复后写」只发生一次。
 
 ### 3.3 任务模型：扩展现有看板任务，不新建任务模型
 
@@ -323,7 +323,7 @@ type StewardDecision struct {
 - 点卡片按钮：桌面 `Client.AnswerStewardDecision(ctx, id, key)` → 远程 `steward.decisions.answer` → `frontdesk.AnswerDecision`。
 - 键盘 1-9：复用 `internal/ui/approval.go:92` `func approvalShortcutAction(` 的按键判定，但目标换成决策卡；1-9 映射到选项下标。
 - 通知按钮：`PushPayload` 已有 `RequestID` 与 `Answers` 字段，`internal/remote/webpush.go:292` `RequestID string`、`internal/remote/webpush.go:298` `Answers []PushAnswerOption`；service worker 把按钮点击转成 `steward.decisions.answer`。
-- 手打 `D-0001 A`：`MemoryBackend.SendMessage` 进入前台前先匹配 `^\s*(D-\d{4})\b`；命中直接回答，不调用模型。参考 `noop src/server.ts:293` `const ID = /^\s*([DLP]-[A-Z]?\d{4})\b[\s:：,，\-]*([\s\S]*)$/;`。
+- 手打 `D-0001 A`：`MemoryBackend.SendMessage` 进入前台前先匹配 `^\s*(D-\d{4,})\b`；命中直接回答，不调用模型。参考 `noop src/server.ts:293` `const ID = /^\s*([DLP]-[A-Z]?\d{4})\b[\s:：,，\-]*([\s\S]*)$/;`。
 - 通知点开：带 `ref=D-0001` 定位到卡片。
 
 5 分钟内的改口：`Desk` 在内存里记 `lastAnswer map[string]lastAnswer{ID, At}`。5 分钟内的新消息没有写 ID 时，快照里带一行「刚答过 D-0001，这条可能是在改答」；前台判断后调用 `answer_decision` 改答，原卡保持已答记录并追加一行「已改答为 …」。超过 5 分钟不改，按新工作处理。
@@ -416,21 +416,20 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 
 **API Key 来源**：与统一 API 引擎一致，keyring 账号 `anthropic.apiKey`、`openai.apiKey`、各预设的账号名，最后回退环境变量；见 `internal/apisource/source.go:79`。设置页复用「API Key」分组和「Magpie」页，不再为总管单独维护 provider/model 两套。
 
-**无 API 来源、只有 Claude/Codex 订阅 CLI 时的退路**：
+**CLI 降级**：
 
-| 方案 | 做法 | 优点 | 代价 | 结论 |
-|---|---|---|---|---|
-| A. 静默变任务 | 模型不可用时把消息按 `create_task` 落成任务；短消息且 10 分钟内最近有任务则 `amend_task` | 不丢消息、不回套话、无需新增依赖；任务照样能干活 | 前台不能回答「现在在跑什么」这类状态问题 | **推荐默认** |
-| B. `internal/textgen` 一次性 CLI + JSON 信封 | 用 `internal/textgen.GenerateWithOptions`（`internal/textgen/generate.go:69`）跑 Claude/Codex，一次返回 `{"calls":[...],"reply":"..."}` | 保留聊天感，能回答状态问题 | 一次调用不能多轮读工具；与「原生工具调用」目标冲突；Claude/Codex 输出格式要分别适配 | 可选降级，只在用户显式开启时 |
-| C. 强制要求 API Key | 没 API 来源就不启用总管 | 行为最可预测 | 只用订阅的用户失去总管 | 不推荐 |
-
-推荐：默认 A；设置页提供「没有 API Key 时改用本机 CLI 做一次性回答」开关，默认关闭。这样既守住「不回套话、不丢消息」，又不把两种循环语义混在一起。此问题列入待用户拍板。
+- 设置 `steward.cli_fallback` 为布尔值，默认 `false`；设置页增加开关，不写说明副文案。
+- 没有可用 `apisource` 来源，或 `Client.Stream` 鉴权、网络失败时，若开关开启，则通过注入的接口调用 `internal/textgen/generate.go` 的 `GenerateWithOptions`，使用 `CheapestModel` 做单次调用；输入使用与第 3.2 节相同的快照文本及用户原话。
+- 输出只允许一个 JSON 对象：`{"reply":"...","calls":[{"tool":"create_task","args":{}}]}`。`reply` 必须是字符串，`calls` 必须是数组；每项包含 `tool` 与 `args`。只允许写工具 `create_task`、`amend_task`、`remember`、`answer_decision`，没有读轮次；状态类问题只能用快照内容回答。
+- 解析成功后先将非空 `reply` 作为灰字落库并推送，再按顺序执行 `calls`；未知工具、读工具名或参数错误的项丢弃并记日志。
+- 开关关闭、CLI 不可用、调用失败或 JSON 解析失败时，静默变任务：短消息且 10 分钟内有最近任务则追加，否则新建任务。
+- 新增 `internal/frontdesk/cli_fallback.go`，通过接口注入 textgen，便于测试。测试覆盖：开关关闭不调用 CLI；JSON 正常时先回复后写；JSON 损坏时变任务；读工具名在 `calls` 中被丢弃。
 
 ---
 
 ## 四、分阶段实施
 
-每个阶段都可以单独发布、单独回退。阶段 0、1 与统一 API 引擎计划无关，可先做；阶段 2 起依赖统一 API 引擎计划阶段 2 的 `internal/apisource`。阶段 5 之前保留 `orchestration.steward.mode`：`classic`（默认，走旧实现）与 `noop`（新前台）。阶段 5 把默认切成 `noop`，阶段 6 删除旧实现。
+阶段 0、1 与统一 API 引擎计划无关，可先做；阶段 2 起依赖统一 API 引擎计划阶段 2 的 `internal/apisource`。先完成不接前台的底座、前台包和决策后端，再在阶段 4 一次切换；回退靠版本回退。
 
 ### 阶段 0：任务元数据与决策卡存储（可并行 A）
 
@@ -493,9 +492,9 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 
 **回退**：回退 `internal/kanban` 与 `internal/mcp/tools_kanban.go`；`meta` 列保留但旧代码不读。
 
-### 阶段 2：前台环、工具面、消息钩子（依赖统一 API 引擎阶段 2）
+### 阶段 2：前台包本体（依赖统一 API 引擎阶段 2）
 
-**目标**：主会话里的每条消息走新前台：短模型调用、读工具、写工具、灰字回复、模型失败变任务。
+**目标**：完成前台循环、工具面与降级，不接入 app 与 `MemoryBackend`，只用假 `llm.Client` 测试。
 
 **依赖**：阶段 0、阶段 1；统一 API 引擎计划的阶段 2 必须已提供 `internal/apisource` 与 `llm.Client` 构建。若该阶段尚未合入，可以基于当前仓库已有的 `internal/apisource` 开发，但发布必须等统一计划阶段 2 合入，避免建在随后会被替换的接线上（`docs/superpowers/plans/2026-11-08-unified-api-engine.md` 的「任务 2.1 来源描述层」与「任务 2.2 引擎按来源构建」）。不要依赖将被删除的 `internal/providers/openai` 或 `internal/providers/mcode` 完整 Harness。
 
@@ -506,17 +505,13 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 3. 新增 `internal/frontdesk/tools.go`：唯一一份工具定义与 `Toolbox`。读：`get_status`、`list_tasks`、`get_task`、`list_decisions`、`read_conversation`、`read_memory`、`search`、`list_projects`。写：`create_task`、`amend_task`、`cancel_task`、`set_priority`、`reassign_task`、`remember`、`edit_memory`、`answer_decision`。每个工具带 `Write` 布尔。mcode 没有 noop 那样的 agent 名册，`reassign_task` 的参数是 `provider` 与 `model`（只对未开始或等待中的任务生效），不是 agent 名。工具描述参考 `noop cloud/src/tools.ts:228` `export const TOOLS: Tool[] = [`。
 4. 新增 `internal/frontdesk/exec.go`：实现第 3.2 节循环。`MaxRounds` 必须硬编码默认 4，参考 `noop src/brain.ts:165` `const MAX_ROUNDS = 4;`。
 5. 新增 `internal/frontdesk/client.go` 与 `internal/frontdesk/model.go`：按第 3.9 节选来源与模型；失败返回 `ErrNoModel`。
-6. 新增 `internal/frontdesk/fallback.go`：模型失败时，短消息（<=40 字符、单行）且最近 10 分钟有任务 → `amend_task`；否则 `create_task`，标题取第一行前 80 字符。参考 `noop src/brain.ts:320` `export function followUpTarget(text: string, events: { from: string; ts: string; ref?: string }[], now = Date.now()): string | undefined {` 与 `noop src/cli.ts:836` 的 `} catch (err) {`。
-7. 新增 `internal/frontdesk/memory.go` 与 `internal/app/frontdesk_memory.go`，按第 3.8 节。
-8. 新增 `internal/app/frontdesk_wiring.go`：构造 `frontdesk.Desk`，从 `config.Load` + `apisource.Resolve` 现读来源，不缓存 Key。
-9. `internal/app/app.go:1399` `stewardRT = wireSteward(appInstance, opts.DataDir)` 改为按 `steward.mode` 二选一：`classic` 保留旧接线，`noop` 构造 `frontdesk.Desk` 并调用 `backend.SetStewardDesk(desk)`。
-10. `internal/remote/memory_backend.go:2876` `func (b *MemoryBackend) SendMessage(ctx context.Context, params wire.SendMessageParams) (wire.SendMessageResult, error) {` 开头加钩子：`if b.stewardDesk != nil && b.stewardDesk.IsFeed(params.ThreadID) { return b.acceptStewardMessage(ctx, params) }`。`acceptStewardMessage` 在 app 层追加用户消息、把消息投进前台的串行队列，并立即返回受理结果；钩子必须在 `/compact`、`/plan` 与 provider 启动之前。
-11. `internal/remote/memory_backend.go` 新增 `SetStewardDesk`、`EnsureStewardFeedThread`、`AppendAssistantKind`、`AppendUserMessage`。feed 线程用普通 `threads` 行，`provider="steward"`，`title=总管`，不创建执行会话；`EnsureStewardFeedThread` 在不存在时通过 store 直接插入，不调用 `createThread`（`internal/remote/memory_backend.go:3981`）。
-12. 新增 `internal/frontdesk/desk_test.go`：用假 `llm.Client` 测第 3.2 节 7 条语义。
+6. 新增 `internal/frontdesk/fallback.go`：模型失败时，短消息（<=40 字符、单行）且最近 10 分钟有任务 → `amend_task`；否则 `create_task`，标题取第一行前 80 字符。参考 `noop src/brain.ts:320` `export function followUpTarget(text: string, events: { from: string; ts: string; ref?: string }[], now = Date.now()): string | undefined {` 与 `noop src/cli.ts:836` 的 `} catch (err) {`。新增 `internal/frontdesk/cli_fallback.go`，按第 3.9 节通过接口注入 textgen，支持可选 CLI 降级与最终静默变任务。
+7. 新增 `internal/frontdesk/memory.go` 的记忆接口，按第 3.8 节；app 层实现留到阶段 4。
+8. 新增 `internal/frontdesk/desk_test.go`：用假 `llm.Client` 测第 3.2 节 7 条语义，并用假 textgen 测 CLI 降级。
 
-**可并行**：步骤 1、2、3、4 在同一个包里按类型→快照→工具→循环推进，不能并行；步骤 5、6、7 可并行；步骤 8–11 在 1–7 之后；步骤 12 最后。
+**可并行**：步骤 1、2、3、4 按类型→快照→工具→循环推进；步骤 5、6、7 可并行；步骤 8 随接口完成后编写。
 
-**删除**：无（旧总管仍可用）。
+**删除**：无。
 
 **测试（行为，全部用假 `llm.Client`）**：
 - 第一轮返回 1 个读工具，第二轮返回文字：模型被调用 2 次，读结果作为 tool 消息喂回，文字只在干净轮落库。
@@ -527,20 +522,15 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 - 参数 JSON 无效或必填缺失：算 `Invalid`，不执行写，喂回错误。
 - `create_task` 成功后 `amend_task` 同一任务能追加；`cancel_task` 能取消子任务。
 - `answer_decision` 写卡后任务回 `todo`，`meta.gate_override` 只在这次运行存在。
+- CLI 开关关闭时不调用；正常 JSON 先回复后写；损坏 JSON 静默变任务；读工具名被丢弃并记日志。
 
-**协议**：本阶段不改 schema。桌面/网页仍通过 `threads.sendMessage` 发到 feed 线程，历史与订阅复用现有会话通道。
+**协议**：本阶段不改 schema。
 
-**验收（dev 版本，用户手动）**：
-1. 在设置里配好一个 API Key 来源，打开「总管」主会话，输入「现在在跑什么」：看到一条单行灰字回答；刷新后仍在。
-2. 输入「把登录页的错误提示改清楚」：主会话出现一句灰字「交给…」，看板出现任务并开始跑；任务页面能看到请求与对话。
-3. 把 API Key 临时清空再发一句话：消息不丢，变成任务或追加到最近任务，没有「我无法回答」之类套话。
-4. 前台回复没有头像、没有气泡、没有未读圆点；执行者结果仍是普通消息。
+**验收**：前台包单测通过；dev 端到端验证在阶段 4 切换后进行。
 
-**回退**：把 `steward.mode` 改回 `classic`，旧实现照常；`frontdesk` 包不影响其他路径。
+### 阶段 3：决策卡后端与硬锁（依赖阶段 2）
 
-### 阶段 3：决策卡、裸答复归一、硬锁（可并行 C，依赖阶段 2）
-
-**目标**：执行者的 `needs_decision` 变成可点的卡；所有回答方式归一；危险动作硬锁。
+**目标**：完成决策回答与远程协议；硬锁立即对现有看板任务生效，不依赖前台接线。
 
 **依赖**：阶段 0、1、2。
 
@@ -550,9 +540,6 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 2. 新增 `internal/frontdesk/snapshot` 的 `Answered` 字段：5 分钟内刚答过的 `D-xxxx` 写进快照。
 3. 新增 `internal/app/steward_decisions.go`：`Client.AnswerStewardDecision`、`Client.ListStewardDecisions`，并注册远程方法。
 4. 新增 `internal/remote/steward_decisions.go`：`steward.decisions.list`、`steward.decisions.answer`；`steward.changed` 载荷增加可选 `decisionID`。
-5. 新增 `internal/ui/steward_decision_card.go`：渲染编号、问题、选项按钮、推荐标记、「忽略」、「其他指示」；按键映射复用 `internal/ui/approval.go:92` `func approvalShortcutAction(` 的思路，但使用决策卡数据。只读态显示已答/已忽略。
-6. `internal/ui/timeline_rows.go:2766` `case m.Role == "system":` 增加 `kind=steward_decision` 与 `kind=steward_decision_answer` 的分支；卡片不是系统消息的小字，而是独立卡片。
-7. `internal/remote/webpush.go:292` `RequestID string` 与 `internal/remote/webpush.go:298` `Answers []PushAnswerOption` 接到决策卡：通知按钮的 answer 通过 `steward.decisions.answer` 回传。只在 `needs_decision` 创建时推送一次。
 8. 新增 `internal/agent/gate/lock.go`：硬锁清单与 `CheckHardLock`。
 9. `internal/agent/gate/gate.go:131` `func Check(in Input) Verdict {` 增加 `HardLockOverride`；命中硬锁返回 `Deny`，理由包含决策卡编号。
 10. `internal/harness/harness.go:68` `type Turn struct {` 增加 `DeniedPatterns []string`；`internal/providers/claude/claude.go:154` 合并到 `--disallowed-tools`。
@@ -560,52 +547,50 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 12. `internal/kanban/service.go:471` `StartTask` 启动前把 `meta.gate_override` 传进运行环境；结果落库后清空。
 13. 测试：新增 `internal/frontdesk/decision_test.go`、`internal/agent/gate/lock_test.go`、`internal/providers/claude/hardlock_test.go`、`internal/remote/hardlock_approver_test.go`。
 
-**可并行**：步骤 1–2 与步骤 5–7 可并行（消息渲染与决策卡渲染互不依赖）；步骤 3–4 共享决策存储；步骤 8–13 是硬锁，按 gate→provider→approver→任务启动顺序串行。
+**可并行**：步骤 1–4 的决策后端与步骤 8–12 的硬锁可并行；硬锁按 gate→provider→approver→任务启动顺序推进，步骤 13 随实现完成。
 
-**删除**：`internal/ui/steward_decision_bar.go` 在阶段 5 删除；本阶段保留旧模式使用。
+**删除**：无；旧 UI 在阶段 4 删除。
 
 **测试（行为）**：
-- 点按钮、按 1-9、手打 `D-0001 A`、通知按钮四条路径最终都调用一次 `AnswerDecision`，且只关闭一次卡。
+- 远程回答调用一次 `AnswerDecision`，且只关闭一次卡；按钮、键盘、裸答复和通知路径在阶段 4 验证。
 - 已答卡再点无效；5 分钟内第二句「其实选 B」改答，卡片记录两次答案。
 - `gh pr merge 12` 在无 override 时被 `gate.Check` 拒绝；有 `D-0001` override 时放行一次；任务结束后再跑又被拒绝。
 - Claude 启动参数包含 `Bash(gh pr merge:*)`；Codex 的审批请求被 `hardLockApprover` 拒绝并留下一条系统消息。
-- 决策卡消息不含「需要你决定：」前缀。
 
 **协议**：
-- `docs/remote-control.schema.json` 新增 `$defs`：`RemoteStewardDecisionsListParams`、`RemoteStewardDecisionsListResult`、`RemoteStewardDecision`、`RemoteStewardDecisionsAnswerParams`、`RemoteStewardDecisionsAnswerResult`、对应 request/response；`RemoteStewardChangedParams` 增加 `decisionID`（可选）。删除阶段 5 再处理话题 defs。
+- `docs/remote-control.schema.json` 新增 `$defs`：`RemoteStewardDecisionsListParams`、`RemoteStewardDecisionsListResult`、`RemoteStewardDecision`、`RemoteStewardDecisionsAnswerParams`、`RemoteStewardDecisionsAnswerResult`、对应 request/response；`RemoteStewardChangedParams` 增加 `decisionID`（可选）。话题 defs 在阶段 4 删除。
 - `docs/remote-control-protocol.md` 的方法清单增加 `steward.decisions.list`、`steward.decisions.answer`，说明 `steward.changed` 可能带 `decisionID`。
 
-**验收（dev 版本）**：
-1. 让任务返回 `needs_decision`，主会话出现 `D-0001` 卡片，选项带推荐标记。
-2. 点 A：卡变只读，任务回到待办并继续。
-3. 用键盘 1-9 和手打 `D-0001 B` 各测一次。
-4. 让任务尝试 `gh pr merge`：没有卡时命令被拒绝；答卡允许后只成功一次。
-5. 5 分钟内发「改成 B」：卡片记录改答。
+**验收（dev 版本）**：现有看板任务尝试 `gh pr merge` 时被硬锁拒绝；决策后端与协议通过对应测试。
 
-**回退**：`steward.mode=classic`；新表与新 RPC 保留但不用。
+### 阶段 4：一次切换前台、界面与旧数据
 
-### 阶段 4：界面收口（可并行 D，依赖阶段 2）
+**目标**：一次完成新前台接线、界面、迁移与旧总管删除。
 
-**目标**：前台灰字、任务页面、主会话像收件箱；去掉旧总管的界面噪音。
-
-**依赖**：阶段 2；决策卡部分依赖阶段 3。
+**依赖**：阶段 0、1、2、3。
 
 **文件与步骤**：
+
+1. 新增 `internal/app/frontdesk_wiring.go`：构造 `frontdesk.Desk`，从 `config.Load` + `apisource.Resolve` 现读来源，不缓存 Key；新增 `internal/app/frontdesk_memory.go`，按第 3.8 节实现记忆接口。`internal/app/app.go:1399` `stewardRT = wireSteward(appInstance, opts.DataDir)` 直接替换为构造 `frontdesk.Desk` 并调用 `backend.SetStewardDesk(desk)`；`internal/app/app.go:154` `func (a *App) Steward() *steward.Runtime {` 改为返回 `*frontdesk.Desk` 或删除。
+2. `internal/remote/memory_backend.go:2876` `func (b *MemoryBackend) SendMessage(ctx context.Context, params wire.SendMessageParams) (wire.SendMessageResult, error) {` 开头加钩子：`if b.stewardDesk != nil && b.stewardDesk.IsFeed(params.ThreadID) { return b.acceptStewardMessage(ctx, params) }`。`acceptStewardMessage` 在 app 层追加用户消息、把消息投进前台串行队列，并立即返回受理结果；钩子必须在 `/compact`、`/plan` 与 provider 启动之前。
+3. `internal/remote/memory_backend.go` 新增 `SetStewardDesk`、`EnsureStewardFeedThread`、`AppendAssistantKind`、`AppendUserMessage`。feed 线程用普通 `threads` 行，`provider="steward"`，`title=总管`，不创建执行会话；`EnsureStewardFeedThread` 在不存在时通过 store 直接插入，不调用 `createThread`（`internal/remote/memory_backend.go:3981`）。
+4. 新增 `internal/store/frontdesk_migration.go`，切换版本启动时幂等迁移：旧主会话重命名为「总管 · 归档」，`steward.thread_id` 写入 `steward.archived_thread_id`，新 feed 线程 ID 写入 `steward.feed_thread_id`；旧键备份到 `steward.legacy_backup` 一行 JSON，保留一个版本，旧账本与话题不再读取。
+5. 新增 `internal/ui/steward_decision_card.go`：渲染编号、问题、选项按钮、推荐标记、「忽略」、「其他指示」；按键映射复用 `internal/ui/approval.go:92` `func approvalShortcutAction(` 的思路，只读态显示已答/已忽略。`internal/ui/timeline_rows.go:2766` `case m.Role == "system":` 增加 `kind=steward_decision` 与 `kind=steward_decision_answer` 分支。`internal/remote/webpush.go:292` `RequestID string` 与 `internal/remote/webpush.go:298` `Answers []PushAnswerOption` 接到决策卡，通知按钮通过 `steward.decisions.answer` 回传；只在 `needs_decision` 创建时推送一次。
+
+界面步骤：
 
 1. `internal/ui/timeline_rows.go:48` 附近新增 `stewardReplyKind = "steward_reply"` 与 `stewardResultKind = "steward_result"`。`isHiddenTimelineMessage` 不变；新增分支：`steward_reply` 渲染成单行灰字，无头像、无气泡、无消息操作按钮；`steward_result` 渲染成普通助手消息，带任务链接。
 2. `internal/ui/timeline_rows.go:2766` `case m.Role == "system":` 的 `steward_decision` 分支接阶段 3 的卡片。
 3. 未读计算：在消息被标记未读的路径里跳过 `kind=steward_reply`；服务端 `HasUnread` 也不因前台灰字置位（在 `internal/remote/memory_backend.go` 追加灰字的方法里不调用未读置位逻辑）。
 4. 新增 `internal/ui/steward_task_page.go`：任务页面顶部只显示标题、状态、结果摘要；正文复用现有会话时间线；输入框发到任务线程，不经过前台。
 5. `internal/ui/sidebar_steward.go:17` 重做侧栏：只保留「总管」一行与未处理决策数；删除唤醒次数、未启用副文案、话题卡。
-6. `internal/ui/settings_page_steward.go:67` 重做分节：启用、昵称、头像、前台模型、安静时段；删除唤醒上限、日报、直通、换新、事件策略、自动折叠思考。
-7. 删除 `internal/ui/steward_timeline.go`、`internal/ui/steward_decision_bar.go`、`internal/ui/steward_topic_card.go`、`internal/ui/steward_topics.go`、`internal/ui/steward_topic_types.go`、`internal/ui/steward_split.go` 的引用（文件在阶段 5 删）。
+6. `internal/ui/settings_page_steward.go:67` 重做分节：启用、昵称、头像、前台模型、安静时段与 `steward.cli_fallback` 开关，不写说明副文案；删除唤醒上限、日报、直通、换新、事件策略、自动折叠思考。
+7. 删除 `internal/ui/steward_timeline.go`、`internal/ui/steward_decision_bar.go`、`internal/ui/steward_topic_card.go`、`internal/ui/steward_topics.go`、`internal/ui/steward_topic_types.go`、`internal/ui/steward_split.go` 及其引用。
 8. `internal/ui/client.go:222` `type Message struct {` 不变，`Kind` 已能承载新值；更新 `web/src/types/generated.ts` 的消息 kind 与决策类型。
 9. `web/src/context/remoteStewardApi.ts:17` 增加决策方法；`web/src/components/Steward*` 替换成决策卡与任务页。
 10. 测试：`internal/ui/steward_reply_test.go`、`steward_decision_card_test.go`、`steward_task_page_test.go`、`web` 侧类型检查。
 
-**可并行**：步骤 1–3 与步骤 5–6 可并行；步骤 4 依赖 1–3；步骤 7–9 在界面新组件稳定后做；步骤 10 最后。
-
-**删除**：旧总管时间线形态、置顶条、话题卡在阶段 5 随旧代码删除；本阶段只停止引用。
+**可并行**：接线步骤 1–3、迁移步骤 4、决策卡步骤 5 可并行开发；界面步骤 1–3 与 5–6 可并行，界面步骤 4 依赖 1–3；旧运行时与 MCP 删除可并行，最终接线、迁移、UI、旧代码与协议删除必须一同切换验证。
 
 **测试（行为）**：
 - `steward_reply` 不渲染头像/气泡，不进入未读统计。
@@ -613,26 +598,8 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 - 决策卡在只读态不可再提交。
 - 设置页没有唤醒次数、直通、换新、日报等行。
 
-**协议**：本阶段只改 `docs/remote-control.schema.json` 的 UI 相关 defs（消息 kind 枚举、决策卡类型），不改方法。
+**删除旧总管的步骤**：
 
-**验收（dev 版本）**：
-1. 主会话里前台回复是灰字，执行者结果是普通消息。
-2. 任务卡片点开是独立页面，能看到请求、对话、结果、进度。
-3. 侧栏「总管」不再显示唤醒次数；未处理决策有角标。
-4. 设置页只剩五项左右。
-
-**回退**：`steward.mode=classic`；新 UI 组件不引用旧路径。
-
-### 阶段 5：切换默认并删除旧总管（依赖阶段 2、3、4）
-
-**目标**：让 noop 模式成为默认，删除旧运行时与所有旧测试。
-
-**依赖**：阶段 2、3、4 在 dev 版本验收通过。
-
-**文件与步骤**：
-
-1. `internal/config/config.go:1264` `type StewardConfig struct {` 增加 `Mode string \`json:"mode,omitempty"\``，默认 `classic`；`config.Load` 在阶段 5 把空值补成 `noop`。保留 `Classic` 读取一个版本用于回退。
-2. `internal/app/app.go:1399` 删除 `wireSteward` 分支；只保留 `frontdesk.Desk` 接线。`internal/app/app.go:154` `func (a *App) Steward() *steward.Runtime {` 改为返回 `*frontdesk.Desk` 或删除。
 3. 删除 `internal/steward/` 下非测试文件：`steward.go`、`hooks.go`、`ledger.go`、`passthrough.go`、`prompt.go`、`receipt.go`、`rename.go`、`rotation.go`、`topic_scope.go`、`topics.go`、`wake.go`、`actions.go`。
 4. 删除对应测试：`internal/steward/*_test.go` 全部。
 5. 删除 `internal/app/steward_wiring.go`、`steward_actions.go`、`steward_assign.go`、`steward_plan.go`、`steward_suggestions.go`、`steward_suggestion_stats.go`、`goal_review_wake.go` 中总管唤醒分支；保留 `internal/app/progress_watchdog.go` 与 attention 接线。
@@ -640,12 +607,10 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 7. 删除 `internal/mcp/tools_steward.go` 的旧专属工具与 `StewardHooks`；保留 `internal/mcp` 对新 `frontdesk` 工具定义的注册。`internal/mcp/server.go:90` `stewardMu sync.RWMutex` 与 `SetSteward` 删除。
 8. 删除 `internal/ui/steward_client.go` 的话题接口；`internal/ui/steward_*.go` 只留新组件。
 9. 删除 `internal/remote/steward_topics.go` 与 schema 里 `steward.topics.*` 全部 defs；`docs/remote-control-protocol.md:56`、`:57`、`:58`、`:59`、`:60`、`:61`、`:62` 的 topic 方法删除。
-10. 删除 `internal/store/steward_scores.go` 的写入路径与 `steward_approval_scores` 表（或保留表停写一个版本；推荐保留表，阶段 6 再删）。
-11. 更新 `internal/config/config.go:1285`、`internal/config/config.go:1286`、`internal/config/config.go:1294`、`internal/config/config.go:1295`、`internal/config/config.go:1297`、`internal/config/config.go:1299` 的旧字段：删除 `RotateIdleMinutes`、`RotateContextTokens`、`PassthroughOff`、`AutoCollapseReasoningOff`、`DailyReport`、`DailyReportAt`、`EventPolicies`；`DailyWakeLimit` 只在新模式关闭。
+10. 删除 `internal/store/steward_scores.go` 的写入路径，`steward_approval_scores` 表保留只读一个版本，供历史统计与 judge 使用。
+11. 更新 `internal/config/config.go:1285`、`internal/config/config.go:1286`、`internal/config/config.go:1294`、`internal/config/config.go:1295`、`internal/config/config.go:1297`、`internal/config/config.go:1299` 的旧字段：删除 `RotateIdleMinutes`、`RotateContextTokens`、`PassthroughOff`、`AutoCollapseReasoningOff`、`DailyReport`、`DailyReportAt`、`EventPolicies`、`DailyWakeLimit`；增加默认关闭的 `steward.cli_fallback`。
 12. 全仓 `grep -rn "steward_wake\|notify_owner\|plan_request\|steward_assign_task\|steward_open_topic\|steward.ledger\|steward.topics"` 清零（历史文档与 changelog 除外）。
 13. 测试：删除旧测试；新增 `internal/app/frontdesk_wiring_test.go`、`internal/mcp/frontdesk_tools_test.go`、`internal/remote/steward_feed_test.go`。
-
-**可并行**：步骤 3–4（删除旧运行时）与步骤 7（删除旧 MCP）可并行；步骤 5–6（删除 app 接线）必须在它们之后；步骤 8–10（UI 与协议）在步骤 7 之后；步骤 11–13 最后。
 
 **删除**：上表全部旧部件。
 
@@ -654,21 +619,22 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 - 旧话题会话仍能在普通会话列表打开，但不再出现在总管入口。
 - 全仓编译通过，旧符号无引用。
 
-**协议**：`docs/remote-control.schema.json` 删除 `steward.topics.*` 与话题类型；`steward.open` 的 `threadID` 语义改为 feed 线程；新增 `steward.feed` 可选方法返回 feed 线程 ID。
+**协议**：`docs/remote-control.schema.json` 更新消息 kind 与决策卡类型，删除 `steward.topics.*` 与话题类型；`steward.open` 的 `threadID` 语义改为 feed 线程；新增 `steward.feed` 可选方法返回 feed 线程 ID。
 
 **验收（dev 版本）**：
-1. 首次启动：侧栏出现新「总管」，打开是主会话 feed，不是模型会话。
-2. 旧总管会话在列表里以「总管 · 归档」存在，可打开查看历史。
-3. 旧话题不再出现在总管入口；看板里原有目标与任务不受影响。
-4. 设置页没有旧字段。
+1. 配置 API Key 后询问状态、交代任务、说「谢谢」、请求记忆；确认灰字、任务和记忆正确，刷新后回复仍在。
+2. 清空 API Key 并关闭 CLI 开关，确认消息静默变任务；打开开关验证可用 CLI 的回答和写入，CLI 不可用或输出损坏时仍静默变任务。
+3. 验证灰字无头像、气泡与未读圆点；执行者结果可打开任务页面，页面输入只进任务；侧栏显示决策数，设置页包含 CLI 开关且无旧字段。
+4. 让任务返回 `needs_decision`，分别通过按钮、键盘、裸答复、通知回答；确认卡片只关闭一次，5 分钟内改答有记录；硬锁在答卡后只放行一次。
+5. 首次启动确认新总管为 feed，旧总管显示「总管 · 归档」且历史可读；旧话题不再显示在入口，原看板目标与任务仍可打开，旧键已备份。
 
-**回退**：把 `steward.mode` 设为 `classic` 并回退代码到阶段 4；旧代码在阶段 5 删除后需用版本回退，因此阶段 5 应作为独立发布。
+**回退**：回退到切换前版本；归档与备份保留一个版本。
 
-### 阶段 6：文档、迁移与清理（可并行 E）
+### 阶段 5：文档重写与旧表、旧键清理
 
-**目标**：文档与新行为一致，旧数据有明确去处，旧表与旧键清理。
+**目标**：文档与新行为一致；归档保留一个版本后清理旧表、旧键。
 
-**依赖**：阶段 5。
+**依赖**：阶段 4；清理须等归档保留满一个版本。
 
 **文件与步骤**：
 
@@ -676,24 +642,22 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 2. 更新 `docs/dev/01-architecture.md:61` 的包表、`docs/dev/02-session-runtime.md:37` 的 `SendStewardWake`、`docs/dev/06-kanban-automation.md:47` 的验收流程、`docs/dev/07-mcp-context-memory.md:36` 的总管工具表、`docs/dev/09-desktop-ui.md:69` 的 UI 文件表、`docs/dev/10-store-config.md:24` 的设置键、`docs/dev/11-dev-guide.md:94` 的「默默」别名、`docs/dev/README.md:17`、`docs/dev/README.md:35`。
 3. 更新 `docs/user-guide.md:297` 的总管章节：只写「按 ⇧⌘T 打开总管，把工作交给它；需要拍板的事会变成卡片」。
 4. 更新 `docs/remote-control-protocol.md:55` 的方法清单与 `docs/remote-control.schema.json` 的 defs。
-5. 数据迁移脚本：新增 `internal/store/frontdesk_migration.go`，在阶段 6 启动时执行一次：`steward.thread_id` 写入 `steward.archived_thread_id`；新 feed 线程 ID 写入 `steward.feed_thread_id`；旧 `steward.ledger`/`steward.topics` 原样保留，不读。
-6. 删除 `steward.decision_seq` 以外的旧设置键（阶段 6 后）：`steward.wake_day`、`steward.wake_count`、`steward.last_wake_at`、`steward.wake_limit_notice.*`。旧键先备份到 `steward.legacy_backup` 一行 JSON，保留一个版本。
-7. 删除 `steward_approval_scores` 表或保留只读；推荐保留只读用于历史统计，停止写入。
+5. 迁移在阶段 4 完成；归档保留满一个版本后，清理 `steward.ledger`、`steward.topics` 与 `steward.legacy_backup` 等旧键。
+6. 删除 `steward.decision_seq` 以外的旧设置键：`steward.wake_day`、`steward.wake_count`、`steward.last_wake_at`、`steward.wake_limit_notice.*`；阶段 4 已备份，保留满一个版本后清理备份。
+7. `steward_approval_scores` 表保留只读用于历史统计，停止写入；其他无用旧表在保留满一个版本后清理。
 8. 更新 `README.md` 能力列表（若提到总管）与 `CHANGELOG.md`。
 
-**可并行**：步骤 1–4（文档）与步骤 5–7（迁移）可并行；步骤 8 最后做一次全仓校对。
+**可并行**：步骤 1–4（文档）与步骤 5–7（到期清理）的准备可并行；步骤 8 最后做一次全仓校对。
 
 **测试**：迁移幂等；旧键迁移后新键存在；`grep` 文档无旧常量引用。
 
 **验收**：文档中的链接可跳转；`steward.decisions.*` 在协议文档与 schema 中一致。
 
-**回退**：文档回退不影响运行；迁移脚本可重复执行。
+### 阶段 6（可选）：judge、渐进放权、空闲菜单、supervisor
 
-### 阶段 7（可选）：judge、渐进放权、空闲菜单、supervisor
+**目标**：在新总管稳定后增加「自动答有先例的卡」与「空闲时给下一步菜单」。
 
-**目标**：在 noop 模式稳定后增加「自动答有先例的卡」与「空闲时给下一步菜单」。
-
-**依赖**：阶段 3、5、6。
+**依赖**：阶段 3、4、5。
 
 **文件与步骤**：
 
@@ -713,10 +677,10 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 
 ### 并行关系
 
-- 阶段 0 与阶段 1 可并行，但阶段 1 依赖阶段 0 的 `meta` 列。
-- 阶段 2 依赖阶段 0/1 与统一 API 引擎阶段 2；阶段 3 依赖阶段 2；阶段 4 可与阶段 3 并行（决策卡 UI 除外）。
-- 阶段 5 必须等 2/3/4 验收；阶段 6 可与阶段 5 的代码清理并行写文档。
-- 阶段 7 独立，最后做。
+- 阶段 0 先完成；阶段 1 依赖阶段 0。
+- 阶段 2 依赖阶段 0/1 与统一 API 引擎阶段 2；阶段 3 依赖阶段 2，决策后端和硬锁可并行。
+- 阶段 4 等阶段 2/3 完成后一次切换；接线、迁移、界面和删除旧实现可并行开发，一同验收。
+- 阶段 5 在阶段 4 后重写文档，旧表和旧键保留满一个版本后清理；阶段 6 可选，最后做。
 
 ---
 
@@ -730,15 +694,15 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 4. 旧建议统计保留表但停止写入；设置页的准确率分节删除。
 5. 新任务从升级后开始带 `meta`；旧任务 `meta` 为 `{}`，`Origin` 视为 `routine`（不推送），用户可手动重开。
 
-具体迁移：
+阶段 4 执行迁移与备份；阶段 5 在保留满一个版本后清理旧键和无用旧表。具体迁移：
 
 | 数据 | 位置 | 处理 |
 |---|---|---|
 | 总管主会话 | `steward.thread_id`（`internal/steward/steward.go:34` 附近） | 读到后写入 `steward.archived_thread_id`，标题改为「总管 · 归档」；新 feed ID 写 `steward.feed_thread_id`。 |
 | 账本 | `steward.ledger`（`internal/steward/ledger.go:21`） | 不读，不删；备份到 `steward.legacy_backup`。 |
 | 话题 | `steward.topics`（`internal/steward/topics.go:23`） | 不读，不删；话题会话与 Goal 原样保留。 |
-| 唤醒计数 | `steward.wake_day`、`steward.wake_count`、`steward.last_wake_at`（`internal/steward/steward.go:34` 附近） | 备份后删除。 |
-| 唤醒上限提示去重 | `steward.wake_limit_notice.*` | 备份后删除。 |
+| 唤醒计数 | `steward.wake_day`、`steward.wake_count`、`steward.last_wake_at`（`internal/steward/steward.go:34` 附近） | 阶段 4 备份，阶段 5 清理。 |
+| 唤醒上限提示去重 | `steward.wake_limit_notice.*` | 阶段 4 备份，阶段 5 清理。 |
 | 审批建议计分 | `steward_approval_scores`（`internal/store/store.go:496`） | 保留只读，停止写入。 |
 | 旧配置 | `internal/config/config.go:1264` | 保留 `enabled`、`name`、`avatar`、`provider`、`model`、`quiet_start`、`quiet_end`；删除其余旧字段。`provider`/`model` 新语义是前台来源与模型。 |
 | 旧任务 | `tasks` 表 | 加 `meta='{}'`；`status=rejected` 读时映射为 `cancelled`。 |
@@ -789,47 +753,19 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
     - 新增：决策卡类型、feed 线程、消息 kind 枚举。
 14. `README.md` 与 `CHANGELOG.md`
     - 删除：总管是常驻同事、唤醒与账本的描述。
-    - 新增：noop 模式的一句话说明与迁移说明。
+    - 新增：新总管的一句话说明与迁移说明。
 
 ---
 
-## 七、待用户拍板的问题
+## 七、已拍板的决定
 
-1. **没有任何 API 来源、只有 Claude/Codex 订阅 CLI 时怎么办？**
-   - A（推荐）：静默把消息变成任务或追加到最近任务，不回复套话。
-   - B：允许 `internal/textgen` 一次性 CLI + JSON 信封做降级回答，默认关闭。
-   - C：没有 API Key 就不启用总管。
-   后果：A 最稳但不回答状态问题；B 保留聊天感但多一套循环语义；C 最简单但失去功能。
-
-2. **任务模型怎么落？**
-   - A（推荐）：扩展现有看板 `tasks`，加 `meta` JSON 列。
-   - B：新建 `steward_tasks` 精简表，与看板任务双写。
-   - C：完全独立的新任务系统。
-   后果：A 改动最小、复用调度与 worktree；B 干净但双写易漂移；C 工作量最大且与看板割裂。
-
-3. **前台默认模型怎么选？**
-   - A（推荐）：按 `apisource.Resolve` 顺序取第一个有 Key 的来源，再选 `haiku|mini|flash|deepseek-chat` 里最便宜的。
-   - B：固定 Anthropic `claude-haiku-5-5`，没有 Anthropic Key 就退 A。
-   - C：必须由用户在设置里手选，不自动。
-   后果：A 最省事；B 质量稳定但依赖单一来源；C 可控但首次使用多一步。
-
-4. **旧总管数据保留多久？**
-   - A（推荐）：旧主会话归档、旧账本/话题原样保留，一个版本后清理。
-   - B：升级时直接删除旧会话与旧键。
-   - C：把旧账本迁移成记忆或任务。
-   后果：A 可回退、用户有安全感；B 干净但不可逆；C 信息最完整但迁移复杂、容易把过程记录当长期知识。
-
-5. **硬锁在 Codex / ACP 这类没有逐命令禁列表的 provider 上怎么处理？**
-   - A（推荐）：审批请求层强制拒绝；无法拦截的任务强制 `ModeSupervised`，只准备不执行。
-   - B：只在提示词里要求执行者别做，靠模型自觉。
-   - C：这些 provider 不允许接需要硬锁的任务。
-   后果：A 安全且可用；B 最省事但不可靠；C 最安全但缩小可用范围。
-
-6. **决策卡是否推送？**
-   - A（推荐）：只有 `needs_decision` 和 owner 直接交代的失败推送；其余只留一行。
-   - B：所有卡片都推送。
-   - C：完全不推送，只在主会话显示。
-   后果：A 不打扰；B 容易打断；C 可能漏掉需要拍板的事。
+1. **Q1：可选 CLI 降级，默认关闭。** 后果：CLI 不可用或解析失败时静默变任务。
+2. **Q2：扩展现有看板 `tasks`，增加 `meta` 列。** 后果：复用现有调度与 worktree。
+3. **Q3：前台模型自动选。** 后果：按第 3.9 节选择来源与便宜快的模型。
+4. **Q4：旧数据归档保留一个版本。** 后果：旧主会话可查看，旧键备份后再清理。
+5. **Q5：Codex / ACP 硬锁在审批层拦截。** 后果：无法拦截时强制 `ModeSupervised`，只准备不执行。
+6. **Q6：按方案 A 推送。** 后果：`needs_decision` 与 owner 直接交代的任务按第 3.4 节规则推送，其余不推送。
+7. **Q7：直接替换，不保留模式开关；回退靠版本回退。** 后果：阶段 4 一次切换并删除旧实现。
 
 ---
 
@@ -845,7 +781,7 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 6. **等待命令执行风险**：`wait_check` 是执行者给的 shell 命令。缓解：只允许只读命令；用 `gate.Check` 的 `onlyReadsCommand` 逻辑先判定；60 秒超时；不通过就转决策卡。
 7. **硬锁绕过**：外部 CLI 的原生命令可能不经过 mcode 审批。缓解：Claude 用 `--disallowed-tools`；Codex/ACP 在审批层拒绝，无法拦截则强制 `ModeSupervised`；不在前台工具面暴露危险能力；所有 unlock 只对一次运行有效。
 8. **旧数据丢失**：迁移只加列、不删表；旧键先备份。详见第五节。
-9. **界面噪音**：容易加回副标题和说明文字。约束：前台灰字只有一句话；任务页面只显示标题、状态、结果摘要；设置页只留五项。
+9. **界面噪音**：容易加回副标题和说明文字。约束：前台灰字只有一句话；任务页面只显示标题、状态、结果摘要；设置页只保留必要设置和 CLI 降级开关。
 
 ### 每阶段在 dev 版本的手动验证
 
@@ -862,43 +798,29 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 5. 让任务返回 `failed`，观察任务进入失败，不会卡在进行中。
 
 **阶段 2**
-1. 在设置里配好一个 API Key 来源，打开总管主会话，输入「现在在跑什么」。看到灰字回答；刷新后仍在。
-2. 输入「把登录页的错误提示改清楚」。看到一句灰字与一个看板任务；任务页面有请求与执行者对话。
-3. 把 API Key 清空，再发「帮我看看登录页」。消息不丢，变成任务或追加到最近任务，没有套话。
-4. 发「谢谢」。前台不创建任务，只回一句或什么也不回。
-5. 发「记住以后提交信息都用中文」。检查记忆收件箱或长期记忆，确认写入。
+前台包尚未接线；使用假 `llm.Client` 和假 textgen 完成单测，端到端手动验证放到阶段 4。
 
 **阶段 3**
-1. 让任务返回 `needs_decision`，问题「现在合并吗？」，选项 A 合并 / B 先不合并，推荐 A。主会话出现 `D-0001` 卡。
-2. 点 A，卡变只读，任务回待办。再点一次无效。
-3. 再建一张卡，用键盘按 2，确认选 B。
-4. 再建一张卡，在输入框手打 `D-0001 A`，确认卡变只读。
-5. 5 分钟内发「其实选 B」，确认卡片记录改答。
-6. 让任务尝试 `gh pr merge`，确认被拒绝；答卡后再试，确认只放行一次。
+1. 让现有看板任务尝试 `gh pr merge`，确认硬锁拒绝。
+2. 验证决策远程方法与审批层拦截；界面回答与一次性解锁在阶段 4 验证。
 
 **阶段 4**
-1. 主会话里确认前台回复是单行灰字，无头像、无气泡、未读圆点不增加。
-2. 执行者结果仍是普通消息，点击打开任务页面。
-3. 任务页面只显示标题、状态、结果摘要与对话；输入框发消息只进任务，不经过前台。
-4. 侧栏总管一行，未处理决策有角标；设置页只有启用、昵称、头像、前台模型、安静时段。
+按第四节阶段 4 的统一 dev 手动验证清单，验证前台、CLI 降级、决策卡、硬锁、界面与旧数据迁移。
 
 **阶段 5**
-1. 首次启动后确认新总管是 feed，旧总管显示为「总管 · 归档」，历史可读。
-2. 旧话题不再出现在总管入口；看板原目标与任务仍可打开。
-3. 全仓 `grep` 旧工具名无结果（文档的迁移说明除外）。
-4. 关掉网络后发消息，确认仍落任务，不崩溃。
-
-**阶段 6**
 1. 打开 `docs/dev/05-steward-attention.md`，确认没有 `[[静默]]`、账本、话题、唤醒。
 2. 打开协议文档与 schema，确认 `steward.decisions.list` 有 request/response，`steward.topics.*` 已删除。
-3. 升级一个旧数据目录，确认旧键备份、新键存在、旧会话归档。
+3. 确认旧键与旧表在保留满一个版本后才清理。
+
+**阶段 6**
+可选实施后，确认 judge 影子一致率可见、没有越权自动答卡，空闲菜单不重复。
 
 ---
 
 ## 附：与统一 API 引擎计划的先后依赖与衔接点
 
-1. **先决条件**：统一 API 引擎计划阶段 2 的 `internal/apisource`（`internal/apisource/source.go:25` `type Source struct {`、`internal/apisource/source.go:112` `func Resolve(cfg config.Config, secrets config.SecretStore) []Source {`）必须先落地。本计划阶段 2 才接前台；阶段 0/1 不受影响。
+1. **先决条件**：统一 API 引擎计划阶段 2 的 `internal/apisource`（`internal/apisource/source.go:25` `type Source struct {`、`internal/apisource/source.go:112` `func Resolve(cfg config.Config, secrets config.SecretStore) []Source {`）必须先落地。本计划阶段 2 开发前台包，阶段 4 接线；阶段 0/1 不受影响。
 2. **稳定接口**：前台只依赖 `internal/agent/llm.Client`（`internal/agent/llm/types.go:77` `type Client interface {`）、`llm.Message`（`internal/agent/llm/types.go:11` `type Message struct {`）、`llm.ToolSpec`（`internal/agent/llm/types.go:37` `type ToolSpec struct {`）、`llm.Request`（`internal/agent/llm/types.go:44` `type Request struct {`）、`llm.Response`（`internal/agent/llm/types.go:62` `type Response struct {`）和 `apisource.Source`。不依赖 `internal/providers/openai`（统一计划阶段 6 删除）、不依赖 `internal/providers/mcode` 的完整 Harness（`internal/providers/mcode/mcode.go:121` `func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.Event)) (retErr error) {` 带会话持久化、压缩、bash，前台不用）。
 3. **客户端构造**：用 `llm.NewOpenAI`（`internal/agent/llm/openai.go:35`）与 `llm.NewAnthropic`（`internal/agent/llm/anthropic.go:26`），Key 用 `Source.APIKey`（`internal/apisource/source.go:79`）。这样统一计划后续把来源目录与请求统一到同一份 `[]Source` 后，前台自动跟随，不需要改代码。
 4. **不要建在将被删除的代码上**：不调用 `resolveMcodeClient`（`internal/app/mcode_agent.go:137`）作为长期接口；可以在阶段 2 开发期用一个临时适配器，但必须在统一计划阶段 2 落地后删除，最终只保留 `apisource` 路径。不调用 `mcodeDefaultModel`（`internal/app/mcode_agent.go:100`）作为模型选择器。
-5. **发布顺序**：统一计划阶段 1/2 发布 → 本计划阶段 0/1（可并行）→ 阶段 2 → 3/4 → 阶段 5 → 阶段 6。若统一计划阶段 6 先删旧包，本计划阶段 2 必须已经结束，否则前台会编译失败。
+5. **发布顺序**：本计划阶段 0 → 阶段 1；统一计划阶段 1/2 发布后 → 本计划阶段 2 → 阶段 3 → 阶段 4 一次切换 → 阶段 5 文档与保留一个版本后的清理 → 阶段 6（可选）。若统一计划阶段 6 先删旧包，本计划阶段 2 必须已经结束，否则前台会编译失败。
