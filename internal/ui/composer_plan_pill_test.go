@@ -1,6 +1,9 @@
 package mcodeui
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // todoToolMsg 构造一条待办工具消息（TodoWrite 的正文格式与时间线里的真实消息一致）。
 func todoToolMsg(id, input string) Message {
@@ -14,6 +17,55 @@ func claudeTaskMsg(name, input, output string) Message {
 		text += "\n" + output
 	}
 	return Message{Role: "tool", Kind: "tool", Text: text, ToolName: name, ToolInput: input, ToolStatus: "completed"}
+}
+
+func TestCollapseTodoMessages(t *testing.T) {
+	plan := func(id string) Message {
+		m := todoToolMsg(id, `{"plan":[{"step":"做事","status":"pending"}]}`)
+		m.ToolName = "update_plan"
+		return m
+	}
+	t.Run("每轮保留最新整份清单", func(t *testing.T) {
+		msgs := []Message{{Role: "user", ID: "u1"}, plan("p1"), plan("p2"), plan("p3"),
+			{Role: "assistant", ID: "a1", Text: "完成"}, {Role: "user", ID: "u2"}, plan("p4"), plan("p5")}
+		original := append([]Message(nil), msgs...)
+		got := collapseTodoMessages(msgs)
+		want := []Message{msgs[0], msgs[3], msgs[4], msgs[5], msgs[7]}
+		if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(msgs, original) {
+			t.Fatalf("过滤结果或入参不符: got=%+v 原始=%+v", got, msgs)
+		}
+	})
+	t.Run("Claude 任务跨轮聚合", func(t *testing.T) {
+		msgs := []Message{{Role: "user", ID: "u1"},
+			claudeTaskMsg("TaskCreate", `{"subject":"一"}`, "Task #1 created"),
+			claudeTaskMsg("taskcreate", `{"subject":"二"}`, "Task #2 created"),
+			claudeTaskMsg("TaskCreate", `{"subject":"三"}`, "Task #3 created"),
+			claudeTaskMsg("TaskUpdate", `{"taskId":"1","status":"completed"}`, ""),
+			{Role: "user", ID: "u2"},
+			claudeTaskMsg("taskupdate", `{"taskId":"2","status":"in_progress"}`, "")}
+		msgs[4].ID, msgs[6].ID = "t1", "t2"
+		original := append([]Message(nil), msgs...)
+		got := collapseTodoMessages(msgs)
+		if len(got) != 4 || got[1].ID != "t1" || got[3].ID != "t2" || !reflect.DeepEqual(msgs, original) {
+			t.Fatalf("过滤结果或入参不符: %+v", got)
+		}
+		for i, want := range [][]todoItem{
+			{{Text: "一", Status: "completed"}, {Text: "二", Status: "pending"}, {Text: "三", Status: "pending"}},
+			{{Text: "一", Status: "completed"}, {Text: "二", Status: "in_progress"}, {Text: "三", Status: "pending"}},
+		} {
+			items, ok := parseTodoItems(got[1+i*2].ToolInput)
+			if !ok || !reflect.DeepEqual(items, want) {
+				t.Fatalf("第 %d 轮清单 = %+v", i+1, items)
+			}
+		}
+	})
+	t.Run("两类待办互不影响", func(t *testing.T) {
+		msgs := []Message{plan("p1"), claudeTaskMsg("TaskCreate", `{"subject":"一"}`, ""), plan("p2"), claudeTaskMsg("TaskUpdate", `{"taskId":"1","status":"completed"}`, "")}
+		got := collapseTodoMessages(msgs)
+		if len(got) != 2 || got[0].ID != "p2" {
+			t.Fatalf("过滤结果 = %+v", got)
+		}
+	})
 }
 
 func TestPlanPill_ClaudeTasks(t *testing.T) {

@@ -5,6 +5,29 @@ import (
 	"testing"
 )
 
+func TestTimelineIncrementalCollapseTodo(t *testing.T) {
+	s := &chatState{}
+	first := todoToolMsg("p1", `{"plan":[{"step":"一","status":"pending"}]}`)
+	second := todoToolMsg("p2", `{"plan":[{"step":"二","status":"pending"}]}`)
+	first.ToolName, second.ToolName = "update_plan", "update_plan"
+	msgs := []Message{{Role: "user", ID: "u"}, first}
+	helperBuildAndAssertIncremental(t, s, "t", msgs, nil, "首次待办")
+	msgs = append(msgs, second)
+	helperBuildAndAssertIncremental(t, s, "t", msgs, nil, "更新待办")
+	if len(s.timelineCacheItems) != 2 || s.timelineCacheItems[1].msg.ID != "p2" {
+		t.Fatalf("旧待办仍在时间线中: %+v", s.timelineCacheItems)
+	}
+}
+
+func TestTimelineTodoFingerprintSameLength(t *testing.T) {
+	first := todoToolMsg("p", `{"todos":[{"content":"a","status":"pending"}]}`)
+	second := first
+	second.ToolInput = `{"todos":[{"content":"b","status":"pending"}]}`
+	if makeMessageFingerprint(first) == makeMessageFingerprint(second) {
+		t.Fatal("同长度待办变更没有更新指纹")
+	}
+}
+
 func TestTimelineIncrementalTurnTimingFingerprint(t *testing.T) {
 	base := Message{ID: "m", TurnID: "t"}
 	for _, changed := range []Message{

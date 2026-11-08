@@ -25,7 +25,7 @@ type gatePayload struct {
 }
 
 // readOnlyGateTools 是门禁扩展直接放行的工具（只看不写，与 mcode-gate.ts 的 readOnly 表一致）。
-var readOnlyGateTools = map[string]bool{"read": true, "grep": true, "find": true, "ls": true, "mcode_mcp_list": true, "ask_user_question": true, "vision": true}
+var readOnlyGateTools = map[string]bool{"read": true, "grep": true, "find": true, "ls": true, "mcode_mcp_list": true, "ask_user_question": true, "todo_write": true, "vision": true}
 
 // builtinMCPToolPrefix 是 mcode 自带 MCP 工具的名字前缀（见 mcp_bridge.ts）；它们的权限由 MCP
 // 服务端自己校验，计划模式下不算写操作（与 mcode-gate.ts 的 BUILTIN_MCP_TOOL_PREFIX 一致）。

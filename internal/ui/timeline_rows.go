@@ -909,6 +909,10 @@ func buildTimelineItemsLive(messages []Message, exp map[string]bool, liveGroupID
 // buildTimelineItemsOpts 是 buildTimelineItemsLive 的完整实现。groupsOpenByDefault 是用户在未
 // 显式设置开合时工具组的默认值：关闭自动折叠思考时传 true，让思考与工具组成的组保持展开。
 func buildTimelineItemsOpts(messages []Message, exp map[string]bool, liveGroupID string, groupsOpenByDefault bool) []timelineItem {
+	return buildTimelineItemsFiltered(collapseTodoMessages(messages), exp, liveGroupID, groupsOpenByDefault)
+}
+
+func buildTimelineItemsFiltered(messages []Message, exp map[string]bool, liveGroupID string, groupsOpenByDefault bool) []timelineItem {
 	var items []timelineItem
 	// 隐藏的唤醒消息本身不产生条目，但唤醒标记要打到它之后的第一个条目上：
 	// wakeStart 是这条消息落地时 items 的长度，条目长高了就把标记打在新条目上再清除。

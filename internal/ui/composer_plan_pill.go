@@ -54,63 +54,127 @@ func isTodoToolMessage(m Message) bool {
 
 var claudeTaskIDPattern = regexp.MustCompile(`Task #([0-9]+)`)
 
-// claudeTaskPlan 按创建顺序聚合 Claude 的增量任务消息。
-func claudeTaskPlan(msgs []Message) ([]todoItem, int) {
-	var items []todoItem
-	var ids []string
-	last, created := -1, 0
-	for i, m := range msgs {
-		if !isTodoToolMessage(m) {
+type claudeTaskAccumulator struct {
+	items   []todoItem
+	ids     []string
+	created int
+}
+
+func (a *claudeTaskAccumulator) add(m Message) bool {
+	if !isTodoToolMessage(m) {
+		return false
+	}
+	create := strings.EqualFold(m.ToolName, "TaskCreate")
+	if !create && !strings.EqualFold(m.ToolName, "TaskUpdate") {
+		return false
+	}
+	var input struct {
+		TaskID  string  `json:"taskId"`
+		Subject *string `json:"subject"`
+		Status  string  `json:"status"`
+	}
+	if json.Unmarshal([]byte(m.ToolInput), &input) != nil {
+		return true
+	}
+	if create {
+		a.created++
+		id := strconv.Itoa(a.created)
+		if _, output, ok := strings.Cut(m.Text, "\n"); ok {
+			if match := claudeTaskIDPattern.FindStringSubmatch(output); match != nil {
+				id = match[1]
+			}
+		}
+		text := ""
+		if input.Subject != nil {
+			text = *input.Subject
+		}
+		a.ids = append(a.ids, id)
+		a.items = append(a.items, todoItem{Text: text, Status: "pending"})
+		return true
+	}
+	for j, id := range a.ids {
+		if id != input.TaskID {
 			continue
 		}
-		create := strings.EqualFold(m.ToolName, "TaskCreate")
-		if !create && !strings.EqualFold(m.ToolName, "TaskUpdate") {
-			continue
-		}
-		last = i
-		var input struct {
-			TaskID  string  `json:"taskId"`
-			Subject *string `json:"subject"`
-			Status  string  `json:"status"`
-		}
-		if json.Unmarshal([]byte(m.ToolInput), &input) != nil {
-			continue
-		}
-		if create {
-			created++
-			id := strconv.Itoa(created)
-			if _, output, ok := strings.Cut(m.Text, "\n"); ok {
-				if match := claudeTaskIDPattern.FindStringSubmatch(output); match != nil {
-					id = match[1]
-				}
-			}
-			text := ""
-			if input.Subject != nil {
-				text = *input.Subject
-			}
-			ids = append(ids, id)
-			items = append(items, todoItem{Text: text, Status: "pending"})
-			continue
-		}
-		for j, id := range ids {
-			if id != input.TaskID {
-				continue
-			}
-			if strings.EqualFold(strings.TrimSpace(input.Status), "deleted") {
-				ids = append(ids[:j], ids[j+1:]...)
-				items = append(items[:j], items[j+1:]...)
-				break
-			}
-			if input.Subject != nil {
-				items[j].Text = *input.Subject
-			}
-			if input.Status != "" {
-				items[j].Status = normalizeTodoStatus(input.Status)
-			}
+		if strings.EqualFold(strings.TrimSpace(input.Status), "deleted") {
+			a.ids = append(a.ids[:j], a.ids[j+1:]...)
+			a.items = append(a.items[:j], a.items[j+1:]...)
 			break
 		}
+		if input.Subject != nil {
+			a.items[j].Text = *input.Subject
+		}
+		if input.Status != "" {
+			a.items[j].Status = normalizeTodoStatus(input.Status)
+		}
+		break
 	}
-	return items, last
+	return true
+}
+
+// claudeTaskPlan 按创建顺序聚合 Claude 的增量任务消息。
+func claudeTaskPlan(msgs []Message) ([]todoItem, int) {
+	var tasks claudeTaskAccumulator
+	last := -1
+	for i, m := range msgs {
+		if tasks.add(m) {
+			last = i
+		}
+	}
+	return tasks.items, last
+}
+
+// collapseTodoMessages 保留每轮各类待办的最后一条，Claude 任务跨轮累计。
+func collapseTodoMessages(messages []Message) []Message {
+	result := make([]Message, 0, len(messages))
+	keep := make([]bool, 0, len(messages))
+	var tasks claudeTaskAccumulator
+	lastPlan, lastTask := -1, -1
+	flushTask := func() {
+		if lastTask < 0 {
+			return
+		}
+		if len(tasks.items) == 0 {
+			keep[lastTask] = false
+			return
+		}
+		todos := make([]map[string]string, 0, len(tasks.items))
+		for _, item := range tasks.items {
+			todos = append(todos, map[string]string{"content": item.Text, "status": item.Status})
+		}
+		input, _ := json.Marshal(map[string]any{"todos": todos})
+		result[lastTask].ToolInput = string(input)
+	}
+	for _, m := range messages {
+		if m.Role == "user" {
+			flushTask()
+			lastPlan, lastTask = -1, -1
+		}
+		result = append(result, m)
+		keep = append(keep, true)
+		idx := len(result) - 1
+		if tasks.add(m) {
+			if lastTask >= 0 {
+				keep[lastTask] = false
+			}
+			lastTask = idx
+		} else if isTodoToolMessage(m) {
+			if _, ok := todoItemsFromMessage(m); ok {
+				if lastPlan >= 0 {
+					keep[lastPlan] = false
+				}
+				lastPlan = idx
+			}
+		}
+	}
+	flushTask()
+	filtered := make([]Message, 0, len(result))
+	for i, m := range result {
+		if keep[i] {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
 }
 
 // latestTodoPlan 返回最新的整份清单或增量任务聚合结果及其下标。

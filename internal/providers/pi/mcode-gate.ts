@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 
 // pi 内置的只看不写工具（Go 侧 extension.go 的 readOnlyGateTools 须与此一致）。
-const LOOK_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "mcode_mcp_list", "ask_user_question", "vision"]);
+const LOOK_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "mcode_mcp_list", "ask_user_question", "todo_write", "vision"]);
 
 // mcode 自带 MCP 工具的前缀（见 mcp_bridge.ts）：这些工具的权限由 mcode MCP 服务端按权限档
 // 自己校验，计划模式下门禁不再当成写操作拦下——总管话题会话就靠它们写任务书、开工。
@@ -627,6 +627,28 @@ export default async function (pi) {
       const text = typeof answer === "string" && answer.trim() ? answer : "The user did not answer.";
       return {
         content: [{ type: "text", text }],
+        details: {},
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "todo_write",
+    label: "Todo list",
+    description:
+      "Plan and track progress on multi-step tasks. Pass the complete list on every call; it replaces the previous list. " +
+      "Only one item may be in_progress at a time. Mark each item completed as soon as it is done. " +
+      "Do not use this tool for simple one- or two-step tasks.",
+    parameters: Type.Object({
+      todos: Type.Array(Type.Object({
+        content: Type.String({ description: "The task to complete." }),
+        status: Type.Union([Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("completed")]),
+      })),
+    }),
+    async execute(_toolCallId, params) {
+      const completed = params.todos.filter((todo) => todo.status === "completed").length;
+      return {
+        content: [{ type: "text", text: `Todos updated: ${completed}/${params.todos.length} completed` }],
         details: {},
       };
     },

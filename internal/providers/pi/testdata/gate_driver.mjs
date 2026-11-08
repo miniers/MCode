@@ -61,6 +61,8 @@ if (!typeboxFound) {
   String: (opts) => ({ type: "string", ...opts }),
   Optional: (schema) => ({ ...schema, optional: true }),
   Array: (items, opts) => ({ type: "array", items, ...opts }),
+  Union: (items) => ({ anyOf: items }),
+  Literal: (value) => ({ const: value }),
   Unsafe: (schema) => schema,
 };
 `

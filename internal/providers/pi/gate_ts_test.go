@@ -372,6 +372,19 @@ func TestGateTS_Behavior(t *testing.T) {
 			Input:    map[string]any{"question": "Proceed with deployment?"},
 		},
 
+		{
+			ID:       "todo_write_supervised",
+			Gate:     map[string]any{"runtimeMode": "supervised"},
+			ToolName: "todo_write",
+			Input:    map[string]any{"todos": []any{map[string]any{"content": "第一步", "status": "in_progress"}}},
+		},
+		{
+			ID:       "todo_write_plan",
+			Gate:     map[string]any{"interactionMode": "plan", "runtimeMode": "supervised"},
+			ToolName: "todo_write",
+			Input:    map[string]any{"todos": []any{map[string]any{"content": "第一步", "status": "pending"}}},
+		},
+
 		// l. finalReport 为 true 时 ask_user_question 仍被拦截
 		{
 			ID:       "l_ask_user_question_final_report",
@@ -812,9 +825,11 @@ func TestGateTS_Behavior(t *testing.T) {
 		}
 	})
 
-	t.Run("registered_tools_contains_ask_user_question", func(t *testing.T) {
-		if !slices.Contains(registeredTools, "ask_user_question") {
-			t.Errorf("扩展应注册 ask_user_question 工具，实际注册列表: %v", registeredTools)
+	t.Run("registered_tools_contains_custom_tools", func(t *testing.T) {
+		for _, name := range []string{"ask_user_question", "todo_write"} {
+			if !slices.Contains(registeredTools, name) {
+				t.Errorf("扩展应注册 %s 工具，实际注册列表: %v", name, registeredTools)
+			}
 		}
 	})
 
@@ -1003,6 +1018,14 @@ func TestGateTS_Behavior(t *testing.T) {
 			t.Errorf("supervised 下调用 ask_user_question 应直接放行，得到 result=%q", res.Result)
 		}
 	})
+
+	for _, id := range []string{"todo_write_supervised", "todo_write_plan"} {
+		t.Run(id, func(t *testing.T) {
+			if res := results[id]; res.Result != "allow" {
+				t.Errorf("%s 应直接放行，得到 result=%q", id, res.Result)
+			}
+		})
+	}
 
 	t.Run("l_final_report_ask_user_question_block", func(t *testing.T) {
 		res := results["l_ask_user_question_final_report"]

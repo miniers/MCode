@@ -16,12 +16,17 @@ type messageFingerprint struct {
 	isFinal         bool
 	toolStatus      string
 	toolInputLen    int
+	todoInput       string
 	toolName        string
 	toolCompletedAt string
 }
 
 // makeMessageFingerprint 为单条消息生成变更指纹。
 func makeMessageFingerprint(m Message) messageFingerprint {
+	var todoInput string
+	if _, ok := todoItemsFromMessage(m); ok {
+		todoInput = m.ToolInput
+	}
 	return messageFingerprint{
 		id:              m.ID,
 		role:            m.Role,
@@ -35,6 +40,7 @@ func makeMessageFingerprint(m Message) messageFingerprint {
 		isFinal:         m.IsFinal,
 		toolStatus:      m.ToolStatus,
 		toolInputLen:    len(m.ToolInput),
+		todoInput:       todoInput,
 		toolName:        m.ToolName,
 		toolCompletedAt: m.ToolCompletedAt,
 	}
@@ -94,6 +100,7 @@ func timelineSettingsChanged(s *chatState) bool {
 // 「自动折叠思考内容」开关决定）。
 // 关闭自动折叠思考时工具组默认展开：这一默认值随开关变化，所以也纳入缓存快照。
 func (s *chatState) rebuildTimelineIncremental(threadID string, messages []Message, expanded map[string]bool, liveGroupID ...string) ([]timelineItem, []messageFingerprint) {
+	messages = collapseTodoMessages(messages)
 	var liveID string
 	if len(liveGroupID) > 0 {
 		liveID = liveGroupID[0]
@@ -113,7 +120,7 @@ func (s *chatState) rebuildTimelineIncremental(threadID string, messages []Messa
 		len(s.timelineSnapshotMsgs) > len(messages) ||
 		s.timelineSnapshotGroupsOpen != groupsOpen ||
 		hasExpandedChanged(s.timelineSnapshotExpanded, expanded) {
-		items := buildTimelineItemsOpts(messages, expanded, liveID, groupsOpen)
+		items := buildTimelineItemsFiltered(messages, expanded, liveID, groupsOpen)
 		// 全量重建是折叠的唯一出口：增量、全量与测试黄金结果都过这里，两边才能逐项相等。
 		items = applyTurnWorkFold(s, threadID, items)
 		s.timelineSnapshotGroupsOpen = groupsOpen
@@ -181,7 +188,7 @@ func (s *chatState) rebuildTimelineIncremental(threadID string, messages []Messa
 
 	// 对 safeMsgStart 之后的后缀消息生成新 items
 	suffixMessages := messages[safeMsgStart:]
-	suffixItems := buildTimelineItemsOpts(suffixMessages, expanded, liveID, groupsOpen)
+	suffixItems := buildTimelineItemsFiltered(suffixMessages, expanded, liveID, groupsOpen)
 	for i := range suffixItems {
 		suffixItems[i].msgIndex += safeMsgStart
 	}

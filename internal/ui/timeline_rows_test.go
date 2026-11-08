@@ -1053,6 +1053,19 @@ func TestToolGroupSummary(t *testing.T) {
 	}
 }
 
+func TestBuildTimelineItemsCollapsesTodo(t *testing.T) {
+	first := todoToolMsg("p1", `{"plan":[{"step":"一","status":"pending"}]}`)
+	second := todoToolMsg("p2", `{"plan":[{"step":"二","status":"completed"}]}`)
+	first.ToolName, second.ToolName = "update_plan", "update_plan"
+	items := buildTimelineItems([]Message{{Role: "user", ID: "u"}, first, second})
+	if len(items) != 2 || items[1].msg.ID != "p2" {
+		t.Fatalf("时间线条目 = %+v", items)
+	}
+	if todos, ok := todoItemsFromMessage(items[1].msg); !ok || len(todos) != 1 || todos[0].Text != "二" {
+		t.Fatalf("待办清单 = %+v", todos)
+	}
+}
+
 // wantTimelineItem 描述 buildTimelineItems 期望生成的一个时间线项。
 type wantTimelineItem struct {
 	kind          timelineItemKind

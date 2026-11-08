@@ -170,7 +170,7 @@ func TestAnswerGate_SensitiveHandling(t *testing.T) {
 }
 
 func TestReadOnlyGateTools_AskUserQuestion(t *testing.T) {
-	for _, name := range []string{"ask_user_question", "vision"} {
+	for _, name := range []string{"ask_user_question", "todo_write", "vision"} {
 		if !readOnlyGateTools[name] {
 			t.Fatalf("readOnlyGateTools 应包含 %s", name)
 		}
