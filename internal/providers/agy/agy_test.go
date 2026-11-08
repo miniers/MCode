@@ -1193,6 +1193,13 @@ func TestAgy_DeniedActionWithoutOutputProducesError(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error when action is denied without output, got nil")
 			}
+			if mode == "denied_action_nonzero_exit" {
+				// 非零退出时错误由 waitErr 主导，原文不带 resultErr。
+				if !strings.Contains(err.Error(), "process exited") {
+					t.Errorf("expected error to mention 'process exited', got %v", err)
+				}
+				return
+			}
 			if !strings.Contains(err.Error(), "action denied") {
 				t.Errorf("expected error to mention 'action denied', got %v", err)
 			}
