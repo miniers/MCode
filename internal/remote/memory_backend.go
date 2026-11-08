@@ -7418,6 +7418,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			// 2. Provider 进程非预期退出自愈 (recoverCrashedCodexTurn)
 			if !crashedRetried && isProviderCrashError(candidateErr) && runCtx.Err() == nil {
 				crashedRetried = true
+				log.Printf("provider crash recovery: thread=%s turn=%s provider=%s model=%q session_present=%t run_error=%t error_kind=%q err=%q", threadID, turnID, h.Kind(), turn.Model, currSessionID != "", runErr != nil, candidateErrKind, RedactSecrets(candidateErr))
 
 				// extra 记录本次需要单独补发到新会话的转发上下文（仅当重跑提示里还没有它时）。
 				var extra string

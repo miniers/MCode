@@ -1,9 +1,11 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,6 +82,93 @@ func TestRuntimeRegression_AuthErrorIsNotCrash(t *testing.T) {
 	waitThreadIdle(t, b, context.Background(), id)
 	if calls.Load() != 1 {
 		t.Fatal("authentication failure was retried as a process crash")
+	}
+}
+
+func TestRuntimeRegression_ProviderExitRetriesOnceWithHistory(t *testing.T) {
+	var calls atomic.Int32
+	turns := make(chan harness.Turn, 2)
+	h := &customRunHarness{kind: "agy", runFn: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		turns <- turn
+		if calls.Add(1) == 1 {
+			return errors.New("agy process exited with error: signal: killed")
+		}
+		emit(harness.Event{Type: harness.EventText, Text: "666"})
+		return nil
+	}}
+	b := runtimeBackend(t, h)
+	id := runtimeThread(b)
+	if _, err := b.SendMessage(context.Background(), wire.SendMessageParams{ThreadID: id, Text: "retry after provider exit"}); err != nil {
+		t.Fatal(err)
+	}
+	thread := waitThreadIdle(t, b, context.Background(), id)
+	if calls.Load() != 2 {
+		t.Fatalf("got %d Run calls, want 2", calls.Load())
+	}
+	first, second := <-turns, <-turns
+	if second.SessionID != "" {
+		t.Fatalf("second retry used provider session %q", second.SessionID)
+	}
+	if !strings.Contains(second.Prompt, "retry after provider exit") || first.Prompt == "" {
+		t.Fatalf("retry did not retain the original history: first=%q second=%q", first.Prompt, second.Prompt)
+	}
+	if thread.IsRunning {
+		t.Fatal("provider crash recovery left the thread running")
+	}
+
+	history, err := b.ThreadHistory(context.Background(), wire.HistoryParams{ThreadID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notice := "Provider 进程意外退出，已用本地历史重建上下文"
+	noticeCount := 0
+	completed := false
+	for _, msg := range history.Messages {
+		if msg.Text == notice {
+			noticeCount++
+		}
+		if strings.Contains(msg.Text, "666") && msg.TurnStatus != nil && *msg.TurnStatus == "completed" {
+			completed = true
+		}
+	}
+	if noticeCount != 1 {
+		t.Fatalf("got %d provider crash notices, want 1", noticeCount)
+	}
+	if !completed {
+		t.Fatal("final recovered turn was not completed")
+	}
+}
+
+func TestRuntimeRegression_ProviderCrashRecoveryLogsCause(t *testing.T) {
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previousWriter) })
+
+	const secret = "sk-test-secret-123456"
+	var calls atomic.Int32
+	h := &customRunHarness{kind: "agy", runFn: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		if calls.Add(1) == 1 {
+			return errors.New("agy process exited with error: signal: killed; Authorization: Bearer " + secret)
+		}
+		emit(harness.Event{Type: harness.EventText, Text: "recovered"})
+		return nil
+	}}
+	b := runtimeBackend(t, h)
+	id := runtimeThread(b)
+	if _, err := b.SendMessage(context.Background(), wire.SendMessageParams{ThreadID: id, Text: "log provider crash"}); err != nil {
+		t.Fatal(err)
+	}
+	waitThreadIdle(t, b, context.Background(), id)
+
+	got := logs.String()
+	for _, want := range []string{"provider crash recovery", "thread=" + id, "provider=agy", "signal: killed"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("crash recovery log missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, secret) {
+		t.Fatalf("crash recovery log leaked bearer token: %s", got)
 	}
 }
 

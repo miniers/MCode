@@ -20,6 +20,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
 	"mcode/internal/providers/loginenv"
+	"mcode/internal/redact"
 )
 
 var _ harness.Harness = (*Harness)(nil)
@@ -937,6 +938,13 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 			}
 		}
 		combinedErr := strings.TrimSpace(rawErrStr + "\n" + stderrStr)
+		if waitErr != nil || resultErr != "" {
+			log.Printf("agy: turn exit thread=%s conversation=%s done=%t result_error=%q wait_error=%q stderr=%q", turn.ThreadID, conversationID, doneEmitted, redact.Secrets(resultErr), redact.Secrets(fmt.Sprint(waitErr)), redact.Secrets(stderrStr))
+		}
+		// 协议已给出 SUCCESS/WAITING 终态时，收尾阶段的非零退出不算本轮失败。
+		if waitErr != nil && doneEmitted && resultErr == "" {
+			return nil
+		}
 
 		if waitErr != nil || resultErr != "" {
 			retrySuffix := ""

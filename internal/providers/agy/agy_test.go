@@ -40,6 +40,7 @@ func TestResolveBinaryLocalFallback(t *testing.T) {
 }
 
 const fakeAgyEnv = "MCODE_TEST_FAKE_AGY"
+const fakeAgyStatusEnv = "MCODE_TEST_FAKE_AGY_STATUS"
 
 type fakeInvocationRecord struct {
 	Args  []string `json:"args"`
@@ -283,6 +284,55 @@ func runFakeAgy(mode string) {
 		})
 		os.Exit(1)
 
+	case "success_nonzero_exit":
+		status := os.Getenv(fakeAgyStatusEnv)
+		if status == "" {
+			status = "SUCCESS"
+		}
+		writeMsg(map[string]any{
+			"event":           "init",
+			"conversation_id": "success-nonzero-conv",
+		})
+		writeMsg(map[string]any{
+			"event": "result",
+			"result": map[string]any{
+				"status":          status,
+				"conversation_id": "success-nonzero-conv",
+				"response":        "666",
+			},
+		})
+		os.Exit(1)
+
+	case "failure_nonzero_exit":
+		writeMsg(map[string]any{
+			"event":           "init",
+			"conversation_id": "failure-nonzero-conv",
+		})
+		writeMsg(map[string]any{
+			"event": "result",
+			"result": map[string]any{
+				"status":          "ERROR",
+				"conversation_id": "failure-nonzero-conv",
+				"error":           "mock failure",
+			},
+		})
+		os.Exit(1)
+
+	case "body_nonzero_exit":
+		writeMsg(map[string]any{
+			"event":           "init",
+			"conversation_id": "body-nonzero-conv",
+		})
+		writeMsg(map[string]any{
+			"event": "step_update",
+			"step_update": map[string]any{
+				"step_index": 0,
+				"step_type":  "agent_response",
+				"text_delta": "body without terminal result",
+			},
+		})
+		os.Exit(1)
+
 	case "lingering":
 		// 模拟真实 agy（1.4.0 实测）：stream-json 模式下输出 result 后不会自行退出，
 		// 而是继续等待 stdin 的下一轮输入，直到 stdin 关闭（EOF）才退出。
@@ -326,6 +376,24 @@ func runFakeAgy(mode string) {
 		})
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		os.Exit(0)
+
+	case "denied_action_nonzero_exit":
+		writeMsg(map[string]any{
+			"event":           "init",
+			"conversation_id": "denied-nonzero-conv",
+		})
+		writeMsg(map[string]any{
+			"event": "result",
+			"result": map[string]any{
+				"status":          "SUCCESS",
+				"conversation_id": "denied-nonzero-conv",
+				"response":        "",
+				"denied_actions": []map[string]any{
+					{"action": "command", "display_name": "RunCommand"},
+				},
+			},
+		})
+		os.Exit(1)
 
 	case "duplicate_result":
 		// 正文既流式给过，result.response 又原样给一遍：不应重复发送。
@@ -1113,19 +1181,113 @@ func TestAgy_DeniedActionWithoutOutputProducesError(t *testing.T) {
 	}
 
 	h := New(Options{Binary: exe})
+	for _, mode := range []string{"denied_action", "denied_action_nonzero_exit"} {
+		t.Run(mode, func(t *testing.T) {
+			turn := harness.Turn{
+				Prompt: "Test denied",
+				Mode:   harness.ModeReadOnly,
+				Env:    []string{fakeAgyEnv + "=" + mode},
+			}
 
-	turn := harness.Turn{
-		Prompt: "Test denied",
-		Mode:   harness.ModeReadOnly,
-		Env:    []string{fakeAgyEnv + "=denied_action"},
+			err = h.Run(context.Background(), turn, nil)
+			if err == nil {
+				t.Fatalf("expected error when action is denied without output, got nil")
+			}
+			if !strings.Contains(err.Error(), "action denied") {
+				t.Errorf("expected error to mention 'action denied', got %v", err)
+			}
+		})
+	}
+}
+
+// 成功终态已经发出后，agy 收尾阶段的非零退出不应覆盖正文和完成事件。
+func TestAgy_SuccessResultSurvivesNonzeroExit(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
 	}
 
-	err = h.Run(context.Background(), turn, nil)
-	if err == nil {
-		t.Fatalf("expected error when action is denied without output, got nil")
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{name: "SUCCESS", status: "SUCCESS"},
+		{name: "WAITING", status: "WAITING"},
 	}
-	if !strings.Contains(err.Error(), "action denied") {
-		t.Errorf("expected error to mention 'action denied', got %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := New(Options{Binary: exe})
+			turn := harness.Turn{
+				Prompt: "success result with nonzero exit",
+				Mode:   harness.ModeSupervised,
+				Env: []string{
+					fakeAgyEnv + "=success_nonzero_exit",
+					fakeAgyStatusEnv + "=" + tc.status,
+				},
+			}
+			var events []harness.Event
+			err := h.Run(context.Background(), turn, func(e harness.Event) {
+				events = append(events, e)
+			})
+			if err != nil {
+				t.Fatalf("Run failed: %v", err)
+			}
+
+			var body strings.Builder
+			var doneCount, errorCount int
+			for _, e := range events {
+				switch e.Type {
+				case harness.EventText:
+					body.WriteString(e.Text)
+				case harness.EventDone:
+					doneCount++
+				case harness.EventError:
+					errorCount++
+				}
+			}
+			if got := body.String(); got != "666" {
+				t.Errorf("body = %q, want %q", got, "666")
+			}
+			if doneCount != 1 {
+				t.Errorf("EventDone count = %d, want 1; events: %+v", doneCount, events)
+			}
+			if errorCount != 0 {
+				t.Errorf("EventError count = %d, want 0; events: %+v", errorCount, events)
+			}
+		})
+	}
+}
+
+// ERROR 终态和没有成功终态的正文都不能掩盖非零退出。
+func TestAgy_FailedResultStillReturnsExitError(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{name: "ERROR result", mode: "failure_nonzero_exit"},
+		{name: "body without terminal result", mode: "body_nonzero_exit"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := New(Options{Binary: exe})
+			turn := harness.Turn{
+				Prompt: "failed result with nonzero exit",
+				Mode:   harness.ModeSupervised,
+				Env:    []string{fakeAgyEnv + "=" + tc.mode},
+			}
+			err := h.Run(context.Background(), turn, nil)
+			if err == nil {
+				t.Fatal("expected nonzero exit error, got nil")
+			}
+			if !strings.Contains(err.Error(), "process exited") {
+				t.Errorf("error = %v, want process exited", err)
+			}
+		})
 	}
 }
 
