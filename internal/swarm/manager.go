@@ -72,6 +72,8 @@ type leadState struct {
 	// reportsHeld 表示 lead 最近一轮被用户中断、汇报暂扣到用户下一句话时取 true。
 	// 只存在内存里，不持久化，重启后由下一次 checkReports 重新算出来。
 	reportsHeld bool
+	// stoppedByUser 在用户停止全部子代理后为 true，期间不投递汇报、不回调 OnBeesIdle，直到主会话再次运行或派发新 bee。
+	stoppedByUser bool
 	// heldQueue 保存重启后从持久化记录里恢复出来、等待用户决定是否续跑的排队条目。
 	// 它们不进入 m.queue，因此不会被 processQueue 自动派发；只有 ResumeInterrupted 才会放出。
 	heldQueue []queuedBee
@@ -1443,6 +1445,9 @@ func (m *Manager) dispatch(ctx context.Context, req DispatchRequest) ([]Bee, err
 		lead.projectID = req.ProjectID
 		lead.leadWorkDir = req.LeadWorkDir
 	}
+	if len(req.Bees) > 0 {
+		lead.stoppedByUser = false
+	}
 	lead.dispatching = true
 	indices := make([]int, len(req.Bees))
 	for i, spec := range req.Bees {
@@ -2744,12 +2749,16 @@ func (m *Manager) checkReports(ctx context.Context) {
 	// idleLeads 收集 lead 空闲（无排队、无正在派发）的 lead，供 OnBeesIdle 推进排队汇报；
 	// bees 已被清空的 lead 同样要回调，否则滞留在队列里的汇报永远放不出来。
 	var idleLeads []string
+	var stoppedLeads []string
 
 	// 检查每个 lead 是否有已结束但未汇报的 bee；只要还在派发、还有排队任务或还有 bee
 	// 在跑，整批就都算「仍在工作中」，等全部落定后再一次性汇报，避免局部汇报抢跑。
 	reviewEnabled := m.reviewEnabled()
 	m.mu.Lock()
 	for leadID, lead := range m.leads {
+		if lead.stoppedByUser {
+			stoppedLeads = append(stoppedLeads, leadID)
+		}
 		hasRunning := lead.dispatching
 		if !hasRunning {
 			for _, q := range m.queue {
@@ -2816,19 +2825,32 @@ func (m *Manager) checkReports(ctx context.Context) {
 		st, ok := m.leadSessionState(ctx, r.leadThreadID)
 		probes[r.leadThreadID] = leadProbe{state: st, ok: ok, held: ok && st.Interrupted}
 	}
+	for _, leadID := range stoppedLeads {
+		if _, ok := probes[leadID]; !ok {
+			st, ok := m.leadSessionState(ctx, leadID)
+			probes[leadID] = leadProbe{state: st, ok: ok, held: ok && st.Interrupted}
+		}
+	}
 	var changedLeads []string
+	stoppedByUser := make(map[string]bool)
 	m.mu.Lock()
 	for leadID, lead := range m.leads {
 		if p, ok := probes[leadID]; ok {
-			if lead.reportsHeld != p.held {
-				lead.reportsHeld = p.held
+			if lead.stoppedByUser && p.ok && p.state.Running {
+				lead.stoppedByUser = false
+			}
+			stoppedByUser[leadID] = lead.stoppedByUser
+			held := p.held || lead.stoppedByUser
+			if lead.reportsHeld != held {
+				lead.reportsHeld = held
 				changedLeads = append(changedLeads, leadID)
 			}
 			continue
 		}
 		// 不在本批汇报里的 lead（bees 已全部汇报或已清空）必须把暂扣标记复位，
 		// 否则下一个 tick 新起的 bee 会一直被当成暂扣而漏报忙态。
-		if lead.reportsHeld {
+		stoppedByUser[leadID] = lead.stoppedByUser
+		if lead.reportsHeld && !lead.stoppedByUser {
 			lead.reportsHeld = false
 			changedLeads = append(changedLeads, leadID)
 		}
@@ -2842,6 +2864,9 @@ func (m *Manager) checkReports(ctx context.Context) {
 	sent := make(map[string]bool)
 	if m.opts.OnReport != nil {
 		for _, r := range reportsToSend {
+			if stoppedByUser[r.leadThreadID] {
+				continue
+			}
 			// 主会话自身还在执行时不投递汇报：投递方只会把汇报排进主会话的跟进队列并返回成功，
 			// 而队列只在「正常结束且没有进行中的 bee」的那一轮末尾才派发，那一轮早已结束，
 			// 汇报就会永久滞留在队列里，bee 却已被标记为已汇报、不再重发。
@@ -2892,6 +2917,9 @@ func (m *Manager) checkReports(ctx context.Context) {
 	// 被用户停掉的那一轮同样不回调：否则 Lead 会被自动续跑起来。
 	if m.opts.OnBeesIdle != nil {
 		for _, leadID := range idleLeads {
+			if stoppedByUser[leadID] {
+				continue
+			}
 			if st, ok := m.leadSessionState(ctx, leadID); ok && st.Interrupted {
 				continue
 			}
@@ -4268,6 +4296,7 @@ func (m *Manager) StopAll(ctx context.Context, leadThreadID string) error {
 	for i := range lead.bees {
 		if lead.bees[i].Status == StatusRunning {
 			lead.bees[i].Status = StatusStopped
+			lead.bees[i].Reported = true
 			lead.bees[i].FinishedAt = &now
 			lead.bees[i].MergeWaitSince = nil
 			runningIDs = append(runningIDs, lead.bees[i].ThreadID)
@@ -4289,6 +4318,10 @@ func (m *Manager) StopAll(ctx context.Context, leadThreadID string) error {
 		}
 		m.queue = filteredQueue
 	}
+	if len(runningIDs) > 0 || clearedQueued > 0 {
+		lead.stoppedByUser = true
+		lead.reportsHeld = true
+	}
 	m.mu.Unlock()
 
 	if len(runningIDs) == 0 && clearedQueued == 0 {
@@ -4305,6 +4338,7 @@ func (m *Manager) StopAll(ctx context.Context, leadThreadID string) error {
 		log.Printf("swarm: stop all cleared %d queued bee(s) for lead %s", clearedQueued, leadThreadID)
 	}
 
+	m.persistLead(leadThreadID)
 	m.notifyChange(leadThreadID)
 	m.processQueue(ctx)
 	return nil

@@ -2494,6 +2494,13 @@ func (s *chatState) stopCurrent(tryRecall bool) {
 	s.stopping = true
 	s.stoppingSince = time.Now()
 	tid := s.selectedThreadID
+	swarmBusy := false
+	for _, th := range s.threads {
+		if th.ID == tid {
+			swarmBusy = th.SwarmBusy
+			break
+		}
+	}
 	seq := s.watchSeq
 	recall := tryRecall && canRecallTurn(s.messages)
 	s.scheduleStoppingTimeoutLocked(s.stoppingSince)
@@ -2501,6 +2508,18 @@ func (s *chatState) stopCurrent(tryRecall bool) {
 	s.invalidate()
 
 	go func() {
+		if swarmBusy {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := s.client.StopAllSwarmBees(ctx, tid)
+			cancel()
+			if err != nil {
+				s.mu.Lock()
+				s.toastMessage = "停止子代理失败: " + err.Error()
+				s.mu.Unlock()
+			} else {
+				s.refreshSwarm()
+			}
+		}
 		ctx := context.Background()
 		var prompt string
 		var err error
