@@ -86,6 +86,11 @@ func TestCheck(t *testing.T) {
 		{"y_bash_auto_write_redirect", harness.ModeAuto, false, false, "bash", "command", "ls > out.txt", Ask, ""},
 		{"y_bash_plan_devnull", "", true, false, "bash", "command", "rg foo 2>/dev/null", Allow, ""},
 		{"z_bash_readonly_grep_allow", harness.ModeReadOnly, false, false, "bash", "command", "grep -n foo bar.txt", Allow, ""},
+		{"z_bash_readonly_case_insensitive_rm_ask", harness.ModeReadOnly, false, false, "bash", "Command", "rm -rf build", Ask, ""},
+		{"z_bash_plan_case_insensitive_rm_deny", "", true, false, "bash", "Command", "rm -rf build", Deny, ""},
+		{"z_bash_auto_tree_output_ask", harness.ModeAuto, false, false, "bash", "command", "tree -o out.txt internal", Ask, ""},
+		{"z_bash_auto_tree_long_output_ask", harness.ModeAuto, false, false, "bash", "command", "tree --output=out.txt internal", Ask, ""},
+		{"z_write_mcode_always_allow", harness.ModeFullAccess, false, false, "write", "path", filepath.Join(home, ".mcode/always_allow.json"), Ask, "controlPlane"},
 		{"z_bash_readonly_rm_ask", harness.ModeReadOnly, false, false, "bash", "command", "rm a.txt", Ask, ""},
 		{"z_bash_supervised_grep_ask", harness.ModeSupervised, false, false, "bash", "command", "grep -n foo bar.txt", Ask, ""},
 		{"z_bash_auto_cd_and_ls", harness.ModeAuto, false, false, "bash", "command", "cd internal && ls", Allow, ""},
@@ -113,13 +118,30 @@ func TestCheck(t *testing.T) {
 	}
 }
 
+func TestSensitiveFor(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// Claude 风格的 read 请求使用 file_path 键，且不带 Sensitive 标记。
+	got := SensitiveFor(harness.RequestKindTool, "Read", json.RawMessage(`{"file_path":"~/.ssh/id_rsa"}`), "", "")
+	if got != "credential" {
+		t.Fatalf("敏感标记 = %q，期望 credential", got)
+	}
+	// Claude 的写工具同样使用 file_path 键。
+	if got := SensitiveFor(harness.RequestKindFileChange, "Write", json.RawMessage(`{"file_path":"~/.ssh/id_rsa"}`), "", ""); got != "credential" {
+		t.Fatalf("写工具敏感标记 = %q，期望 credential", got)
+	}
+	// 命令补算也要能识别凭证读取。
+	if got := SensitiveFor(harness.RequestKindCommand, "Bash", json.RawMessage(`{"command":"cat ~/.ssh/id_rsa"}`), "cat ~/.ssh/id_rsa", ""); got != "credential" {
+		t.Fatalf("命令敏感标记 = %q，期望 credential", got)
+	}
+}
+
 func TestOnlyReads(t *testing.T) {
 	for _, tc := range []struct {
 		command string
 		want    bool
 	}{
 		{"ls", true}, {"git status", true}, {"cat a", true}, {"ls > out", false}, {"cat a | tee b", false}, {"rm a", false}, {"git push", false},
-		{"find . -delete", false}, {"find . -exec rm {} \\;", false}, {"rg --pre=sh x", false}, {"sort -o out in", false}, {"git branch -D x", false}, {"git diff --output=out", false}, {"git worktree list", true}, {"git branch --list", true}, {"echo 'a; b'", true}, {"echo x 2>/dev/null", true}, {"cat a 2>&1 | head", true}, {"echo $(rm a)", false}, {"echo x & rm a", false},
+		{"find . -delete", false}, {"find . -exec rm {} \\;", false}, {"rg --pre=sh x", false}, {"sort -o out in", false}, {"tree -o out.txt .", false}, {"tree --output=out.txt .", false}, {"tree -L 2 .", true}, {"git branch -D x", false}, {"git diff --output=out", false}, {"git worktree list", true}, {"git branch --list", true}, {"echo 'a; b'", true}, {"echo x 2>/dev/null", true}, {"cat a 2>&1 | head", true}, {"echo $(rm a)", false}, {"echo x & rm a", false},
 	} {
 		if got := onlyReads(tc.command); got != tc.want {
 			t.Errorf("%q 得到 %v，期望 %v", tc.command, got, tc.want)

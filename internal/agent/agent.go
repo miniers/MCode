@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -32,6 +33,8 @@ type Options struct {
 	MaxRounds int
 	// ContextWindow 是模型上下文窗口的 token 数，为 0 时使用默认值。
 	ContextWindow int
+	// MaxTokens 返回每个模型请求的输出上限；为 nil 或返回 0 时由 llm 层按模型取默认值。
+	MaxTokens func(model string) int
 	// Steer 取出并清空待处理的插话文本，每条作为一条 user 消息追加；可以为 nil。
 	Steer func() []string
 	Emit  func(harness.Event)
@@ -155,19 +158,28 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		return result, nil
 	}
 	request := llm.Request{Model: opts.Model, Effort: opts.Effort, System: opts.System}
+	if opts.MaxTokens != nil {
+		request.MaxTokens = opts.MaxTokens(opts.Model)
+	}
 	if opts.Plan {
 		request.System += "\n\n" + gate.PlanModePrompt()
 	}
 	for _, tool := range opts.Tools {
 		request.Tools = append(request.Tools, llm.ToolSpec{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
+	// autoCompact 在本轮自动压缩失败后关闭，避免每次进入循环都重复请求摘要模型；
+	// 上下文溢出触发的压缩重试不受它影响。
+	autoCompact := true
 	for round := 0; round < opts.MaxRounds; round++ {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if estimateContextTokens(messages, contextTokens, contextMeasured) > window-reserveTokens {
-			// 压缩是为后续调用腾出空间，失败时保留原上下文继续，让模型调用自己给出结论。
-			_, _ = compactNow()
+		if autoCompact && estimateContextTokens(messages, contextTokens, contextMeasured) > compactThreshold(window) {
+			// 压缩是为后续调用腾出空间；失败时保留原上下文继续，让模型调用自己给出结论。
+			if _, err := compactNow(); err != nil {
+				autoCompact = false
+				emit(harness.Event{Type: harness.EventError, Err: "agent: context compaction failed: " + err.Error()})
+			}
 		}
 		if _, err := appendSteers(); err != nil {
 			return fail(err)
@@ -207,6 +219,9 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 				continue
 			}
 			if attempt == 3 || !retryable(err) {
+				if streamed.Len() > 0 {
+					emit(harness.Event{Type: harness.EventTextRetract, Text: streamed.String()})
+				}
 				break
 			}
 			if streamed.Len() > 0 {
@@ -250,7 +265,9 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		}
 		contextMeasured = len(messages)
 		pending = append([]llm.ToolCall(nil), response.Message.ToolCalls...)
-		if stopReason != "tool_use" && !(stopReason == "length" && len(invalid) > 0) {
+		// 网关可能返回 finish_reason=stop 却带 tool_calls：只要响应里有工具调用就执行，
+		// 否则会留下没有结果的孤立 tool_call。length 且参数残缺的分支保持原样。
+		if len(response.Message.ToolCalls) == 0 && !(stopReason == "length" && len(invalid) > 0) {
 			pending = nil
 			// 模型已经给出最终回复：此时补到的新插话要继续跑一轮，不提前结束本轮。
 			steered, err := appendSteers()
@@ -296,6 +313,9 @@ func toolMessage(id, text string, isError bool) llm.Message {
 }
 
 func retryable(err error) bool {
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
 	var apiErr *llm.APIError
 	if errors.As(err, &apiErr) {
 		return apiErr.Retryable

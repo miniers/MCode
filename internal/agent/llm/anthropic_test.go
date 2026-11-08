@@ -107,6 +107,69 @@ func TestAnthropicRequest(t *testing.T) {
 	}
 }
 
+func TestDefaultAnthropicMaxTokens(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		want  int
+	}{
+		{"claude-3-opus-20240229", 4096},
+		{"anthropic/claude-3-sonnet-20240229", 4096},
+		{"claude-3-haiku-20240307", 4096},
+		{"claude-3-5-sonnet-20241022", 8192},
+		{"anthropic/claude-3-5-haiku-20241022", 8192},
+		{"claude-sonnet-4-5", 32000},
+		{"test", 32000},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			if got := defaultAnthropicMaxTokens(tc.model); got != tc.want {
+				t.Fatalf("got %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAnthropicDefaultMaxTokensInRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["max_tokens"] != float64(8192) {
+			t.Errorf("max_tokens: %+v", body["max_tokens"])
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+	_, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL}).Stream(context.Background(), Request{Model: "anthropic/claude-3-5-sonnet-20241022"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnthropicTruncatedStreamRetryable(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"eof", "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"x\"}}\n\n"},
+		{"invalid-json", "data: {bad}\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+			_, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL}).Stream(context.Background(), Request{Model: "test"}, nil)
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || !apiErr.Retryable {
+				t.Fatalf("error: %v", err)
+			}
+		})
+	}
+}
+
 func TestAnthropicErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

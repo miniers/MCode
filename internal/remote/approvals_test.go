@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
@@ -1801,6 +1802,180 @@ func TestApprovals_HelperThreadAutoApprovesUnattended(t *testing.T) {
 	}
 	if requestNotified {
 		t.Error("子代理审批不应向前端推送 requests.changed")
+	}
+}
+
+// TestApprovals_ChildThreadSensitiveFallback 覆盖未填 Sensitive 的子会话请求：
+// 只有 parentThreadID、isHelper=false 时也按输入补算，凭证读取自动拒绝，普通只读命令放行。
+func TestApprovals_ChildThreadSensitiveFallback(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+
+	ctx := context.Background()
+	threadID := "00000000-0000-0000-0000-00000000008f"
+	backend.AddThread(wire.ThreadSummary{ID: threadID, Title: "Child Thread", RuntimeMode: "auto"}, nil)
+	backend.SetThreadRelation(threadID, "00000000-0000-0000-0000-000000000001", false)
+
+	var (
+		credResp harness.ApprovalResponse
+		credErr  error
+		safeResp harness.ApprovalResponse
+		safeErr  error
+	)
+	doneCh := make(chan struct{})
+	mock := &mockHarness{
+		runFunc: func(runCtx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+			defer close(doneCh)
+			ia, ok := turn.Approver.(harness.Interactor)
+			if !ok {
+				t.Error("turn approver should implement harness.Interactor")
+				return nil
+			}
+			credResp, credErr = ia.Interact(runCtx, harness.ApprovalRequest{
+				ToolID:   "call_child_credential",
+				ToolName: "Bash",
+				Kind:     harness.RequestKindCommand,
+				Input:    json.RawMessage(`{"command":"cat ~/.ssh/id_rsa"}`),
+			})
+			safeResp, safeErr = ia.Interact(runCtx, harness.ApprovalRequest{
+				ToolID:   "call_child_safe",
+				ToolName: "Bash",
+				Kind:     harness.RequestKindCommand,
+				Input:    json.RawMessage(`{"command":"ls"}`),
+			})
+			return nil
+		},
+	}
+	backend.SetHarness(mock, t.TempDir(), harness.ModeAuto)
+
+	conn := newMockStreamConn()
+	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+		ThreadID: threadID,
+		Text:     "执行任务",
+		ActionID: "00000000-0000-0000-0000-0000000008f1",
+	}); err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("turn execution timed out")
+	}
+
+	if credErr != nil {
+		t.Fatalf("凭证读取 Interact 不应返回错误: %v", credErr)
+	}
+	if credResp.Decision != harness.DecisionDeny {
+		t.Errorf("子会话读取凭证应被自动拒绝，得到 %v", credResp.Decision)
+	}
+	if !strings.Contains(credResp.Feedback, "敏感操作") {
+		t.Errorf("凭证拒绝应带敏感说明，得到 %q", credResp.Feedback)
+	}
+	if safeErr != nil {
+		t.Fatalf("普通命令 Interact 不应返回错误: %v", safeErr)
+	}
+	if safeResp.Decision != harness.DecisionAllow {
+		t.Errorf("子会话普通只读命令应自动放行，得到 %v", safeResp.Decision)
+	}
+}
+
+// TestApprovals_ChildQuestionAutoForwarded 覆盖 AutoForwardQuestionSeconds>0：
+// 子代理提问不返回固定答复，而是进入正常的挂起流程等待自动转交主线程。
+func TestApprovals_ChildQuestionAutoForwarded(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := config.Update(dataDir, func(cfg *config.Config) error {
+		cfg.Orchestration.AutoForwardQuestionSeconds = 30
+		return nil
+	}); err != nil {
+		t.Fatalf("写入配置失败: %v", err)
+	}
+	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	backend.SetDataDir(dataDir)
+	defer backend.Close()
+
+	ctx := context.Background()
+	threadID := "00000000-0000-0000-0000-000000000090"
+	backend.AddThread(wire.ThreadSummary{ID: threadID, Title: "Child Question", RuntimeMode: "auto"}, nil)
+	backend.SetThreadRelation(threadID, "00000000-0000-0000-0000-000000000001", true)
+
+	var (
+		questionResp harness.ApprovalResponse
+		questionErr  error
+		pendingSeen  bool
+	)
+	doneCh := make(chan struct{})
+	mock := &mockHarness{
+		runFunc: func(runCtx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+			defer close(doneCh)
+			ia, ok := turn.Approver.(harness.Interactor)
+			if !ok {
+				t.Error("turn approver should implement harness.Interactor")
+				return nil
+			}
+			approveCtx, cancel := context.WithTimeout(runCtx, 200*time.Millisecond)
+			defer cancel()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				questionResp, questionErr = ia.Interact(approveCtx, harness.ApprovalRequest{
+					ToolID:   "call_child_question_forward",
+					ToolName: "AskUserQuestion",
+					Kind:     harness.RequestKindQuestion,
+					Questions: []harness.Question{{
+						ID:     "q1",
+						Prompt: "用哪个方案？",
+					}},
+				})
+			}()
+			for i := 0; i < 40; i++ {
+				if res, err := backend.ListRequests(runCtx, threadID); err == nil && len(res.Requests) > 0 {
+					pendingSeen = true
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			<-done
+			return nil
+		},
+	}
+	backend.SetHarness(mock, t.TempDir(), harness.ModeAuto)
+
+	conn := newMockStreamConn()
+	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+		ThreadID: threadID,
+		Text:     "执行任务",
+		ActionID: "00000000-0000-0000-0000-0000000000901",
+	}); err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("turn execution timed out")
+	}
+
+	if !pendingSeen {
+		t.Fatal("自动转交开启时子代理提问应挂起为待处理请求")
+	}
+	if questionErr == nil {
+		t.Fatal("自动转交开启时不应立即返回固定答复")
+	}
+	wantFixed := "子代理无人值守，没有人回答提问，请自行判断后继续"
+	if answers := questionResp.Answers["q1"]; len(answers) == 1 && answers[0] == wantFixed {
+		t.Fatalf("不应返回固定答复: %v", answers)
 	}
 }
 

@@ -139,7 +139,8 @@ func editFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 			return failure(fmt.Sprintf("edit %d: oldText occurred %d times", i+1, len(found)))
 		}
 		replacement := edit.NewText
-		if strings.Contains(original, "\r\n") {
+		crlf := strings.Contains(original, "\r\n") && !strings.Contains(strings.ReplaceAll(original, "\r\n", ""), "\n")
+		if crlf {
 			replacement = strings.ReplaceAll(strings.ReplaceAll(replacement, "\r\n", "\n"), "\n", "\r\n")
 		} else {
 			replacement = strings.ReplaceAll(replacement, "\r\n", "\n")

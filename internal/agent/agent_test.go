@@ -232,6 +232,47 @@ func TestIncompleteToolArguments(t *testing.T) {
 	}
 }
 
+func TestToolCallsWithStopReasonAreExecuted(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	client := &scriptClient{steps: []scriptStep{{response: reply("stop", call("1", "read", `{}`))}, {response: reply("stop")}}}
+	executed := 0
+	tool := testTool("read")
+	run := tool.Run
+	tool.Run = func(ctx context.Context, env tools.Env, args json.RawMessage) (tools.Result, error) {
+		executed++
+		return run(ctx, env, args)
+	}
+	if err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "stop-calls", Tools: []tools.Tool{tool}}, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if executed != 1 {
+		t.Fatalf("executed = %d, want 1", executed)
+	}
+	messages := loadMessages(t, store, "stop-calls")
+	if len(messages) != 4 || messages[2].Role != "tool" || messages[2].ToolCallID != "1" {
+		t.Fatalf("messages = %+v", messages)
+	}
+	if len(client.requests) != 2 || len(client.requests[1].Messages) != 3 || client.requests[1].Messages[2].Role != "tool" {
+		t.Fatalf("requests = %+v", client.requests)
+	}
+}
+
+func TestMaxTokensFromOptions(t *testing.T) {
+	client := &scriptClient{steps: []scriptStep{{response: reply("stop")}}}
+	err := Run(context.Background(), Options{Client: client, Model: "test", MaxTokens: func(model string) int {
+		if model != "test" {
+			t.Fatalf("model = %q", model)
+		}
+		return 4096
+	}}, "hello", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.requests[0].MaxTokens != 4096 {
+		t.Fatalf("max tokens = %d, want 4096", client.requests[0].MaxTokens)
+	}
+}
+
 func TestUsageAccumulation(t *testing.T) {
 	first := reply("tool_use", call("1", "read", `{}`))
 	first.Usage = llm.Usage{Input: 10, Output: 2, CacheRead: 3, CacheWrite: 4}

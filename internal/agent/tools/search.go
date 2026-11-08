@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -15,17 +16,18 @@ import (
 	"time"
 )
 
-func globMatch(pattern, path string) bool {
+func globMatch(pattern, path string) (bool, error) {
 	pattern = filepath.ToSlash(pattern)
 	path = filepath.ToSlash(path)
 	var re strings.Builder
 	re.WriteByte('^')
-	for i := 0; i < len(pattern); i++ {
-		switch pattern[i] {
+	runes := []rune(pattern)
+	for i := 0; i < len(runes); i++ {
+		switch runes[i] {
 		case '*':
-			if i+1 < len(pattern) && pattern[i+1] == '*' {
+			if i+1 < len(runes) && runes[i+1] == '*' {
 				i++
-				if i+1 < len(pattern) && pattern[i+1] == '/' {
+				if i+1 < len(runes) && runes[i+1] == '/' {
 					i++
 					re.WriteString("(?:.*/)?")
 				} else {
@@ -37,15 +39,18 @@ func globMatch(pattern, path string) bool {
 		case '?':
 			re.WriteString("[^/]")
 		default:
-			re.WriteString(regexp.QuoteMeta(string(pattern[i])))
+			re.WriteString(regexp.QuoteMeta(string(runes[i])))
 		}
 	}
 	re.WriteByte('$')
-	ok, _ := regexp.MatchString(re.String(), path)
-	if !ok && !strings.Contains(pattern, "/") {
-		ok, _ = regexp.MatchString(re.String(), filepath.Base(path))
+	expr, err := regexp.Compile(re.String())
+	if err != nil {
+		return false, err
 	}
-	return ok
+	if !expr.MatchString(path) && !strings.Contains(pattern, "/") {
+		return expr.MatchString(filepath.Base(path)), nil
+	}
+	return expr.MatchString(path), nil
 }
 func candidates(ctx context.Context, env Env, root string) ([]string, error) {
 	work, e := resolve(env, ".")
@@ -116,23 +121,58 @@ func candidates(ctx context.Context, env Env, root string) ([]string, error) {
 	sort.Strings(files)
 	return files, nil
 }
+
+// maxFileTextBytes 是文本搜索允许读取的单个文件大小上限。
+var maxFileTextBytes int64 = 10 << 20
+
+// openText 只读取文件头 8KB 判断是否为二进制，并返回已打开的文件。
+func openText(safe string) ([]byte, *os.File, bool) {
+	info, e := os.Stat(safe)
+	if e != nil || info.Size() > maxFileTextBytes {
+		return nil, nil, false
+	}
+	f, e := os.Open(safe)
+	if e != nil {
+		return nil, nil, false
+	}
+	prefix := make([]byte, 8192)
+	n, _ := io.ReadFull(f, prefix)
+	prefix = prefix[:n]
+	if bytes.IndexByte(prefix, 0) >= 0 {
+		f.Close()
+		return nil, nil, false
+	}
+	return prefix, f, true
+}
+
 func fileText(env Env, p string) (string, bool) {
 	safe, e := resolve(env, p)
 	if e != nil {
 		return "", false
 	}
-	b, e := os.ReadFile(safe)
+	prefix, f, ok := openText(safe)
+	if !ok {
+		return "", false
+	}
+	defer f.Close()
+	rest, e := io.ReadAll(f)
 	if e != nil {
 		return "", false
 	}
-	prefix := b
-	if len(prefix) > 8192 {
-		prefix = prefix[:8192]
+	return string(prefix) + string(rest), true
+}
+
+// isTextFile 只读取文件头，用于 find 过滤二进制文件。
+func isTextFile(env Env, p string) bool {
+	safe, e := resolve(env, p)
+	if e != nil {
+		return false
 	}
-	if bytes.IndexByte(prefix, 0) >= 0 {
-		return "", false
+	_, f, ok := openText(safe)
+	if f != nil {
+		f.Close()
 	}
-	return string(b), true
+	return ok
 }
 func findFiles(ctx context.Context, env Env, raw json.RawMessage) (Result, error) {
 	var a struct {
@@ -166,10 +206,17 @@ func findFiles(ctx context.Context, env Env, raw json.RawMessage) (Result, error
 			return Result{}, e
 		}
 		rel, e := filepath.Rel(root, p)
-		if e != nil || !globMatch(a.Pattern, rel) {
+		if e != nil {
 			continue
 		}
-		if _, ok := fileText(env, p); !ok {
+		match, e := globMatch(a.Pattern, rel)
+		if e != nil {
+			return failure(e)
+		}
+		if !match {
+			continue
+		}
+		if !isTextFile(env, p) {
 			continue
 		}
 		if n == a.Limit {
@@ -226,8 +273,17 @@ func grepFiles(ctx context.Context, env Env, raw json.RawMessage) (Result, error
 			return Result{}, e
 		}
 		rel, e := filepath.Rel(root, p)
-		if e != nil || a.Glob != "" && !globMatch(a.Glob, rel) {
+		if e != nil {
 			continue
+		}
+		if a.Glob != "" {
+			match, err := globMatch(a.Glob, rel)
+			if err != nil {
+				return failure(err)
+			}
+			if !match {
+				continue
+			}
 		}
 		text, ok := fileText(env, p)
 		if !ok {

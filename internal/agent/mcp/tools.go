@@ -297,7 +297,7 @@ func invoke(client *Client, ctx context.Context, name string, raw json.RawMessag
 			parts = append(parts, "["+typ+" content]")
 		}
 	}
-	return tools.Result{Text: strings.Join(parts, "\n"), IsError: result.IsError}, nil
+	return tools.Result{Text: tools.Truncate(strings.Join(parts, "\n"), "Output truncated."), IsError: result.IsError}, nil
 }
 
 // toolInfo 生成模型可读取的 MCP 工具详情 JSON。

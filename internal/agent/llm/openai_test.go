@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpenAIStream(t *testing.T) {
@@ -169,6 +170,42 @@ func TestOpenAIMissingToolCallID(t *testing.T) {
 	}
 	if decoded, err := hex.DecodeString(strings.TrimPrefix(id, "call_")); err != nil || len(decoded) != 16 {
 		t.Fatalf("ID: %q", id)
+	}
+}
+
+func TestOpenAIStreamErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"eof", "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"}}]}\n\n"},
+		{"invalid-json", "data: {bad}\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+			_, err := NewOpenAI(OpenAIConfig{BaseURL: server.URL}).Stream(context.Background(), Request{Model: "test"}, nil)
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || !apiErr.Retryable {
+				t.Fatalf("error: %v", err)
+			}
+		})
+	}
+}
+
+func TestDefaultHTTPClientResponseHeaderTimeout(t *testing.T) {
+	transport, ok := defaultHTTPClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport: %T", defaultHTTPClient.Transport)
+	}
+	if transport.ResponseHeaderTimeout != 2*time.Minute {
+		t.Fatalf("ResponseHeaderTimeout: %v", transport.ResponseHeaderTimeout)
+	}
+	if defaultHTTPClient.Timeout != 0 {
+		t.Fatalf("Client.Timeout should be 0, got %v", defaultHTTPClient.Timeout)
 	}
 }
 

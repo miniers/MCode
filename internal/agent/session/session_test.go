@@ -52,6 +52,28 @@ func TestLoadPartialLastLine(t *testing.T) {
 	}
 }
 
+func TestLoadSkipsInvalidLines(t *testing.T) {
+	dir := t.TempDir()
+	data := "{\"a\":1}\nnot json\n{\"b\":2}\n"
+	if err := os.WriteFile(filepath.Join(dir, "test.jsonl"), []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := NewStore(dir).Load("test")
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("entries=%q err=%v", entries, err)
+	}
+}
+
+func TestLoadAllInvalidLinesFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "test.jsonl"), []byte("bad\nworse\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(dir).Load("test"); err == nil {
+		t.Fatal("全部记录损坏时应报错")
+	}
+}
+
 func TestInvalidID(t *testing.T) {
 	store := NewStore(t.TempDir())
 	for _, id := range []string{"", "../escape", "a/b", "a.b", "空"} {

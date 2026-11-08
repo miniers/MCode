@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -39,7 +40,12 @@ func ContextFiles(opts Options) []ContextFile {
 			if err != nil || !info.Mode().IsRegular() {
 				continue
 			}
-			data, err := os.ReadFile(path)
+			f, err := os.Open(path)
+			if err != nil {
+				continue
+			}
+			data, err := io.ReadAll(io.LimitReader(f, maxContextFileBytes+1))
+			f.Close()
 			if err != nil {
 				continue
 			}

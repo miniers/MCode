@@ -45,6 +45,12 @@ type compactionResult struct {
 	Usage llm.Usage
 }
 
+// compactThreshold 返回触发自动压缩的上下文 token 数。
+// 预留输出余量，但窗口较小时最多只留四分之一，避免阈值变成负数后每轮都压缩。
+func compactThreshold(window int) int {
+	return window - min(reserveTokens, window/4)
+}
+
 // historyFromEntries 按文件顺序重建会话消息。
 // compaction entry 把此前的消息替换成摘要加其后的保留消息，后写的压缩边界自然覆盖早先的。
 func historyFromEntries(entries []json.RawMessage) []llm.Message {
@@ -76,7 +82,53 @@ func historyFromEntries(entries []json.RawMessage) []llm.Message {
 			messages = append([]llm.Message{summaryMessage(entry.Summary)}, messages[entry.KeepFrom:]...)
 		}
 	}
-	return messages
+	return repairToolPairs(messages)
+}
+
+// repairToolPairs 修补残缺的工具调用配对：
+// 为缺少结果的 assistant 工具调用补一条错误结果，并丢掉找不到对应调用的孤立 tool 消息。
+func repairToolPairs(messages []llm.Message) []llm.Message {
+	repaired := make([]llm.Message, 0, len(messages))
+	for i := 0; i < len(messages); i++ {
+		message := messages[i]
+		if message.Role != "assistant" || len(message.ToolCalls) == 0 {
+			// 前面没有工具调用的 tool 消息是孤立结果，丢掉。
+			if message.Role == "tool" {
+				continue
+			}
+			repaired = append(repaired, message)
+			continue
+		}
+		repaired = append(repaired, message)
+		expected := make(map[string]bool, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			expected[call.ID] = true
+		}
+		answered := make(map[string]bool, len(message.ToolCalls))
+		var rest []llm.Message
+		j := i + 1
+		// 工具结果只属于紧接着的 assistant 消息，直到下一条 assistant 为止。
+		for ; j < len(messages) && messages[j].Role != "assistant"; j++ {
+			next := messages[j]
+			if next.Role != "tool" {
+				rest = append(rest, next)
+				continue
+			}
+			if !expected[next.ToolCallID] || answered[next.ToolCallID] {
+				continue
+			}
+			answered[next.ToolCallID] = true
+			repaired = append(repaired, next)
+		}
+		for _, call := range message.ToolCalls {
+			if !answered[call.ID] {
+				repaired = append(repaired, toolMessage(call.ID, "Tool call was interrupted.", true))
+			}
+		}
+		repaired = append(repaired, rest...)
+		i = j - 1
+	}
+	return repaired
 }
 
 // estimateContextTokens 估算当前上下文大小：以最近一次响应的用量为基线，之后追加的消息按字符数估算。

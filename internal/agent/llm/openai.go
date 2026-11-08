@@ -249,7 +249,7 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 	}
 	client := c.cfg.HTTPClient
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultHTTPClient
 	}
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
@@ -275,7 +275,11 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 	consume := func(data []byte, nonstream bool) error {
 		var payload chatPayload
 		if err := json.Unmarshal(data, &payload); err != nil {
-			return fmt.Errorf("openai: invalid response: %w", err)
+			if nonstream {
+				return fmt.Errorf("openai: invalid response: %w", err)
+			}
+			// 流式模式下单个事件解析失败通常是传输被截断，交给 agent 重试。
+			return &APIError{Body: "openai: invalid stream event: " + err.Error(), Retryable: true}
 		}
 		if len(payload.Error) > 0 && string(payload.Error) != "null" {
 			return &APIError{Body: string(payload.Error)}
@@ -351,8 +355,12 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
 				}
-				if readErr == io.EOF && finished {
-					break
+				if readErr == io.EOF {
+					if finished {
+						break
+					}
+					// 既没有 finish_reason 也没有 [DONE]，这一轮被截断了。
+					return nil, &APIError{Body: "openai: stream ended unexpectedly", Retryable: true}
 				}
 				return nil, &APIError{Body: readErr.Error(), Retryable: true}
 			}

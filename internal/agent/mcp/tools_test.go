@@ -138,3 +138,34 @@ func TestNoExternalGateway(t *testing.T) {
 		t.Fatalf("expected no tools, got %#v", got)
 	}
 }
+
+func TestBuiltinResultTruncated(t *testing.T) {
+	big := strings.Repeat("x", 100*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		var result any
+		switch req.Method {
+		case "initialize":
+			result = map[string]any{"protocolVersion": protocolVersion}
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case "tools/list":
+			result = map[string]any{"tools": []any{map[string]any{"name": "big", "inputSchema": map[string]any{"type": "object"}}}}
+		case "tools/call":
+			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": big}}}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
+	}))
+	defer server.Close()
+	all := Tools(context.Background(), []Server{{Name: "svc", URL: server.URL, Builtin: true}})
+	if len(all) != 1 {
+		t.Fatalf("expected one builtin tool, got %d", len(all))
+	}
+	result, err := all[0].Run(context.Background(), tools.Env{}, json.RawMessage(`{}`))
+	if err != nil || result.IsError || !strings.Contains(result.Text, "Output truncated.") || len(result.Text) >= len(big) {
+		t.Fatalf("text length=%d err=%v", len(result.Text), err)
+	}
+}

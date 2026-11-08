@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -53,6 +54,21 @@ func TestTimeoutStopsBackgroundProcess(t *testing.T) {
 	time.Sleep(1200 * time.Millisecond)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("后台进程仍在运行，marker 状态：%v", err)
+	}
+}
+
+func TestTimeoutWithDetachedChild(t *testing.T) {
+	unixOnly(t)
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("setsid 不可用")
+	}
+	start := time.Now()
+	result, err := Run(context.Background(), Options{Command: "setsid sleep 30 &", Timeout: 100 * time.Millisecond}, nil)
+	if err != nil || !result.TimedOut {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("脱离进程组的子进程占着管道时返回过慢：%v", elapsed)
 	}
 }
 

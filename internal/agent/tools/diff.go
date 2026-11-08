@@ -14,7 +14,12 @@ func diffLines(s string) []string {
 	if s == "" {
 		return nil
 	}
-	return strings.SplitAfter(s, "\n")
+	lines := strings.SplitAfter(s, "\n")
+	// SplitAfter 会在末尾多出一个空串，去掉它，避免把空串当成真实的一行。
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 func unifiedDiff(path, old, updated string) string {
 	if old == updated {

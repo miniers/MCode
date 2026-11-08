@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -13,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"mcode/internal/agent/gate"
 	"mcode/internal/agentconf"
+	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	storepkg "mcode/internal/store"
@@ -172,6 +175,13 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 	// 计划与提问必须由用户逐次答复，不受始终允许名单影响
 	interactive := kind == harness.RequestKindPlan || kind == harness.RequestKindQuestion
 
+	// 其他 provider 不填 Sensitive：按真实输入与工作目录补算一次。
+	// 配置读取、工作目录与路径解析都要在进入主锁前完成。
+	autoForwardQuestion := kind == harness.RequestKindQuestion && a.b.autoForwardQuestionEnabled()
+	if req.Sensitive == "" {
+		req.Sensitive = gate.SensitiveFor(kind, req.ToolName, req.Input, approvalCommand(req), a.b.approvalWorkDir(a.threadID))
+	}
+
 	// 持久化的「始终允许」按数据目录全局一份、按项目键分桶。两者都要在进入主锁前取好：
 	// 存储实例可能首次从磁盘加载，项目键要做符号链接解析，都不能在持有 b.mu 时进行。
 	store := a.b.alwaysAllowStore()
@@ -213,7 +223,8 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 	}
 
 	// 子代理（Swarm bee）无人值守：审批请求挂起会永久卡住本轮，前端也不会有人来答复。
-	// 非敏感操作直接放行，改动落在独立 worktree，合并时还会按档位过滤；提问则给出固定答复。
+	// 非敏感操作直接放行，改动落在独立 worktree，合并时还会按档位过滤；
+	// 提问在未开启自动转交时给出固定答复，开启后交给正常挂起流程等待转交主线程。
 	if td.isHelper || td.parentThreadID != "" {
 		if req.Sensitive != "" {
 			a.b.mu.Unlock()
@@ -222,7 +233,7 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 				Feedback: "子代理无人值守，敏感操作已自动拒绝，请换一种不涉及该路径的做法",
 			}, nil
 		}
-		if kind == harness.RequestKindQuestion {
+		if kind == harness.RequestKindQuestion && !autoForwardQuestion {
 			// 用允许加答案代替拒绝，避免 provider 把拒绝当作本轮中断；答案为模型可读的固定说明。
 			answers := make(map[string][]string, len(req.Questions))
 			for _, q := range req.Questions {
@@ -231,8 +242,10 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 			a.b.mu.Unlock()
 			return harness.ApprovalResponse{Decision: harness.DecisionAllow, Answers: answers}, nil
 		}
-		a.b.mu.Unlock()
-		return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
+		if kind != harness.RequestKindQuestion {
+			a.b.mu.Unlock()
+			return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
+		}
 	}
 
 	// 总管的会话调用内置 MCP 服务器上的工具直接放行：这些工具在只读档下本会被一律拒绝，
@@ -919,6 +932,34 @@ func commandPrefixesAllowed(kind harness.RequestKind, req harness.ApprovalReques
 		}
 	}
 	return true
+}
+
+// autoForwardQuestionEnabled 报告子线程提问是否应进入自动转交流程，而不是固定答复。
+// 配置读取在调用方进入主锁之前完成。
+func (b *MemoryBackend) autoForwardQuestionEnabled() bool {
+	b.mu.Lock()
+	dataDir := b.dataDir
+	b.mu.Unlock()
+	if dataDir == "" {
+		return false
+	}
+	cfg, err := config.Load(dataDir)
+	if err != nil {
+		return false
+	}
+	config.ApplyEnv(&cfg, os.LookupEnv)
+	return cfg.Orchestration.AutoForwardQuestionDelay() > 0
+}
+
+// approvalWorkDir 返回会话实际运行的工作目录，供进入主锁前补算敏感标记。
+func (b *MemoryBackend) approvalWorkDir(threadID string) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	td, ok := b.threads[threadID]
+	if !ok {
+		return ""
+	}
+	return b.turnWorkDirLocked(td)
 }
 
 // alwaysAllowStore 返回与该后端数据目录绑定的持久化「始终允许」存储；调用方不能持有 b.mu。

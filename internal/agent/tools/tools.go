@@ -1,9 +1,11 @@
 package tools
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,37 +85,110 @@ func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
 		return Result{Text: "Image file; binary content is not displayed."}, nil
 	}
-	b, e := os.ReadFile(p)
+	f, e := os.Open(p)
 	if e != nil {
 		return failure(e)
 	}
-	lines := strings.SplitAfter(string(b), "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
+	defer f.Close()
 	if a.Offset == 0 {
 		a.Offset = 1
 	}
 	start := a.Offset - 1
-	if start > len(lines) {
-		start = len(lines)
-	}
-	end := len(lines)
-	if a.Limit > 0 && start+a.Limit < end {
-		end = start + a.Limit
-	}
+	reader := bufio.NewReaderSize(f, 32*1024)
+	lineNo := 0
+	lineCount := 0
 	var out strings.Builder
-	for i := start; i < end; i++ {
-		fmt.Fprintf(&out, "%d: %s", i+1, lines[i])
-		if !strings.HasSuffix(lines[i], "\n") {
+	truncated := false
+	lineLimitReached := false
+	for {
+		lineNo++
+		inRange := lineNo > start && (a.Limit == 0 || lineNo-start <= a.Limit)
+		wrotePrefix := false
+		hadData, newline, readErr := readLineChunks(reader, func(piece []byte) bool {
+			if !inRange {
+				return true
+			}
+			if !wrotePrefix {
+				fmt.Fprintf(&out, "%d: ", lineNo)
+				wrotePrefix = true
+			}
+			room := maxOutputBytes - out.Len()
+			if room <= 0 {
+				truncated = true
+				return false
+			}
+			if len(piece) > room {
+				out.Write(piece[:room])
+				truncated = true
+				return false
+			}
+			out.Write(piece)
+			return true
+		})
+		if readErr != nil {
+			return failure(readErr)
+		}
+		if !hadData && !newline {
+			break
+		}
+		if inRange && !newline && out.Len() < maxOutputBytes {
 			out.WriteByte('\n')
 		}
+		if truncated {
+			break
+		}
+		if inRange {
+			lineCount++
+		}
+		if a.Limit > 0 && lineNo-start >= a.Limit {
+			break
+		}
+		if lineCount >= maxOutputLines {
+			lineLimitReached = true
+			break
+		}
 	}
-	s := truncate(out.String(), "Output truncated; use offset to continue reading.")
-	if end < len(lines) {
-		s += fmt.Sprintf("\nMore lines available; use offset %d to continue reading.", end+1)
+	if lineLimitReached {
+		// 只有后续确实还有内容时才提示输出被截断。
+		if _, err := reader.Peek(1); err == nil {
+			truncated = true
+		}
+	}
+	s := out.String()
+	if truncated {
+		s += "\nOutput truncated; use offset to continue reading."
+	}
+	// limit 窗口之外还有内容时提示继续读取。
+	if a.Limit > 0 {
+		if _, err := reader.Peek(1); err == nil {
+			s += fmt.Sprintf("\nMore lines available; use offset %d to continue reading.", lineNo+1)
+		}
 	}
 	return Result{Text: s}, nil
+}
+
+// readLineChunks 按块读取一行，避免一次把超长行读入内存。
+// write 返回 false 时提前停止读取。
+func readLineChunks(reader *bufio.Reader, write func([]byte) bool) (hadData, newline bool, err error) {
+	for {
+		piece, readErr := reader.ReadSlice('\n')
+		if len(piece) > 0 {
+			hadData = true
+			if write != nil && !write(piece) {
+				return hadData, false, nil
+			}
+		}
+		if readErr == bufio.ErrBufferFull {
+			continue
+		}
+		if readErr == io.EOF {
+			return hadData, false, nil
+		}
+		if readErr != nil {
+			return hadData, false, readErr
+		}
+		return hadData, true, nil
+	}
 }
 func writeFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error) {
 	var a struct {

@@ -27,10 +27,29 @@ func NewAnthropic(cfg AnthropicConfig) Client {
 	return &anthropicClient{cfg: cfg}
 }
 
+// defaultAnthropicMaxTokens 按模型返回默认输出上限。
+// 老模型（claude-3-opus / sonnet / haiku）上限是 4096，
+// claude-3-5 系列是 8192，其余新模型用 32000；超出上限会让请求直接 400。
+func defaultAnthropicMaxTokens(model string) int {
+	name := strings.ToLower(model)
+	// 去掉 anthropic/ 这类 provider 前缀。
+	if idx := strings.LastIndexByte(name, '/'); idx >= 0 {
+		name = name[idx+1:]
+	}
+	switch {
+	case strings.HasPrefix(name, "claude-3-opus"), strings.HasPrefix(name, "claude-3-sonnet"), strings.HasPrefix(name, "claude-3-haiku"):
+		return 4096
+	case strings.HasPrefix(name, "claude-3-5-"):
+		return 8192
+	default:
+		return 32000
+	}
+}
+
 func anthropicRequestBody(req Request) (map[string]any, error) {
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
-		maxTokens = 32000
+		maxTokens = defaultAnthropicMaxTokens(req.Model)
 	}
 	body := map[string]any{"model": req.Model, "stream": true}
 	if req.System != "" {
@@ -172,7 +191,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 	}
 	client := c.cfg.HTTPClient
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultHTTPClient
 	}
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
@@ -197,7 +216,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 	}
 	result := &Response{Message: Message{Role: "assistant"}, StopReason: "stop"}
 	calls := map[int]*toolCallAccumulator{}
-	finished := false
+	stopped := false
 	reader := newSSEReader(httpResp.Body)
 	for {
 		event, readErr := reader.readEvent()
@@ -205,9 +224,14 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			if readErr == io.EOF && finished {
-				break
+			if readErr == io.EOF {
+				// 缺少 message_stop 说明流被截断，不能当作正常结束。
+				if stopped {
+					break
+				}
+				return nil, &APIError{Body: "anthropic: stream ended unexpectedly", Retryable: true}
 			}
+			// 中途断网等读取错误同样值得重试。
 			return nil, &APIError{Body: readErr.Error(), Retryable: true}
 		}
 		if event.Data == "" {
@@ -215,7 +239,8 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 		}
 		var payload anthropicEvent
 		if err := json.Unmarshal([]byte(event.Data), &payload); err != nil {
-			return nil, fmt.Errorf("anthropic: invalid response: %w", err)
+			// 流式事件解析失败通常是传输被截断，交给 agent 重试。
+			return nil, &APIError{Body: "anthropic: invalid stream event: " + err.Error(), Retryable: true}
 		}
 		eventType := payload.Type
 		if eventType == "" {
@@ -276,9 +301,8 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 			case "max_tokens":
 				result.StopReason = "length"
 			}
-			finished = true
 		case "message_stop":
-			finished = true
+			stopped = true
 		case "error":
 			return nil, &APIError{Body: payload.Error.Type + ": " + payload.Error.Message, Retryable: payload.Error.Type == "overloaded_error" || payload.Error.Type == "rate_limit_error"}
 		}

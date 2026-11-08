@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -44,6 +45,77 @@ func compactionEntries(t *testing.T, store *session.Store, id string) []compacti
 	return found
 }
 
+func TestCompactThreshold(t *testing.T) {
+	for _, tc := range []struct{ window, want int }{
+		{8192, 6144},
+		{200000, 183616},
+		{4096, 3072},
+	} {
+		if got := compactThreshold(tc.window); got != tc.want {
+			t.Fatalf("compactThreshold(%d) = %d, want %d", tc.window, got, tc.want)
+		}
+	}
+}
+
+func TestRepairToolPairs(t *testing.T) {
+	messages := []llm.Message{
+		textMessage("user", "start"),
+		toolMessage("stale", "old result", false),
+		{Role: "assistant", ToolCalls: []llm.ToolCall{call("1", "read", `{}`), call("2", "read", `{}`)}},
+		toolMessage("1", "ok", false),
+		{Role: "assistant", ToolCalls: []llm.ToolCall{call("3", "read", `{}`)}},
+		toolMessage("3", "ok", false),
+		toolMessage("gone", "orphan", true),
+	}
+	repaired := repairToolPairs(messages)
+	if len(repaired) != 6 {
+		t.Fatalf("repaired = %+v", repaired)
+	}
+	if repaired[0].Role != "user" || repaired[1].Role != "assistant" || repaired[2].ToolCallID != "1" {
+		t.Fatalf("repaired = %+v", repaired)
+	}
+	interrupted := repaired[3]
+	if interrupted.Role != "tool" || interrupted.ToolCallID != "2" || !interrupted.IsError || interrupted.Content[0].Text != "Tool call was interrupted." {
+		t.Fatalf("interrupted = %+v", interrupted)
+	}
+	if repaired[4].Role != "assistant" || repaired[5].ToolCallID != "3" {
+		t.Fatalf("repaired = %+v", repaired)
+	}
+}
+
+func TestAutoCompactionFailureStopsRetrying(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	appendHistory(t, store, "compact-fail",
+		textMessage("user", strings.Repeat("a", 40000)),
+		textMessage("assistant", "done"),
+	)
+	client := &scriptClient{steps: []scriptStep{
+		{err: errors.New("summary unavailable")},
+		{response: reply("tool_use", call("1", "read", `{}`))},
+		{response: reply("stop")},
+	}}
+	var failures int
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "compact-fail", ContextWindow: 12000, Tools: []tools.Tool{testTool("read")}, Emit: func(event harness.Event) {
+		if event.Type == harness.EventError && strings.Contains(event.Err, "compaction failed") {
+			failures++
+		}
+	}}, "continue", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failures != 1 {
+		t.Fatalf("compaction failures = %d, want 1", failures)
+	}
+	if len(client.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(client.requests))
+	}
+	for _, request := range client.requests[1:] {
+		if request.System == summaryInstruction {
+			t.Fatalf("unexpected summary request: %+v", request)
+		}
+	}
+}
+
 func TestCompactionBeforeRequest(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	appendHistory(t, store, "compact",
@@ -52,7 +124,7 @@ func TestCompactionBeforeRequest(t *testing.T) {
 	)
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("earlier work summary")}, {response: reply("stop")}}}
 	var compactions []harness.Event
-	err := Run(context.Background(), Options{Client: client, Model: "test", Store: store, SessionID: "compact", ContextWindow: 21000, Emit: func(event harness.Event) {
+	err := Run(context.Background(), Options{Client: client, Model: "test", Store: store, SessionID: "compact", ContextWindow: 12000, Emit: func(event harness.Event) {
 		if event.Type == harness.EventContextCompacted {
 			compactions = append(compactions, event)
 		}
@@ -90,7 +162,7 @@ func TestCompactionKeepsToolPairs(t *testing.T) {
 		textMessage("assistant", strings.Repeat("b", 100000)),
 	)
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}, {response: reply("stop")}}}
-	if err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "tools", ContextWindow: 21000}, "continue", nil); err != nil {
+	if err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "tools", ContextWindow: 12000}, "continue", nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(client.requests) != 2 {
@@ -114,7 +186,7 @@ func TestCompactionKeepsToolPairs(t *testing.T) {
 func TestCompactionSkippedWithoutCut(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	client := &scriptClient{steps: []scriptStep{{response: reply("stop")}}}
-	if err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "nocut", ContextWindow: 17000}, strings.Repeat("a", 40000), nil); err != nil {
+	if err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "nocut", ContextWindow: 8000}, strings.Repeat("a", 40000), nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(client.requests) != 1 {
@@ -184,7 +256,7 @@ func TestCompactionUsageCountsTowardTurn(t *testing.T) {
 	final.Usage = llm.Usage{Input: 1, Output: 2}
 	client := &scriptClient{steps: []scriptStep{{response: summary}, {response: final}}}
 	var usage *harness.Usage
-	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "usage", ContextWindow: 21000, Emit: func(event harness.Event) {
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "usage", ContextWindow: 12000, Emit: func(event harness.Event) {
 		if event.Type == harness.EventUsage {
 			usage = event.Usage
 		}
@@ -204,7 +276,7 @@ func TestReloadUsesSummary(t *testing.T) {
 		textMessage("assistant", "done"),
 	)
 	first := &scriptClient{steps: []scriptStep{{response: summaryResponse("first summary")}, {response: reply("stop")}}}
-	if err := Run(context.Background(), Options{Client: first, Store: store, SessionID: "reload", ContextWindow: 21000}, "first prompt", nil); err != nil {
+	if err := Run(context.Background(), Options{Client: first, Store: store, SessionID: "reload", ContextWindow: 12000}, "first prompt", nil); err != nil {
 		t.Fatal(err)
 	}
 	second := &scriptClient{steps: []scriptStep{{response: reply("stop")}}}
@@ -222,11 +294,11 @@ func TestMultipleCompactionsKeepLatest(t *testing.T) {
 	appendHistory(t, store, "multi", textMessage("user", strings.Repeat("a", 40000)))
 	oldSummary := "old summary " + strings.Repeat("old detail ", 5000)
 	first := &scriptClient{steps: []scriptStep{{response: summaryResponse(oldSummary)}, {response: reply("stop")}}}
-	if err := Run(context.Background(), Options{Client: first, Store: store, SessionID: "multi", ContextWindow: 21000}, "first prompt", nil); err != nil {
+	if err := Run(context.Background(), Options{Client: first, Store: store, SessionID: "multi", ContextWindow: 12000}, "first prompt", nil); err != nil {
 		t.Fatal(err)
 	}
 	second := &scriptClient{steps: []scriptStep{{response: summaryResponse("new summary")}, {response: reply("stop")}}}
-	if err := Run(context.Background(), Options{Client: second, Store: store, SessionID: "multi", ContextWindow: 21000}, "second prompt", nil); err != nil {
+	if err := Run(context.Background(), Options{Client: second, Store: store, SessionID: "multi", ContextWindow: 12000}, "second prompt", nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(second.requests) != 2 {

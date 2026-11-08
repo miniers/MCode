@@ -106,13 +106,31 @@ func IsLookOnly(name string) bool {
 	return false
 }
 
+// argString 按键名取字符串参数。先精确匹配；匹配不到时退回大小写不敏感匹配，
+// 因为部分 provider 用 struct 解析参数，encoding/json 的键名匹配不区分大小写。
+func argString(args map[string]any, key string) string {
+	if value, ok := args[key]; ok {
+		if s, ok := value.(string); ok {
+			return s
+		}
+	}
+	for k, value := range args {
+		if !strings.EqualFold(k, key) {
+			continue
+		}
+		if s, ok := value.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 // Check 对应 TS 的 kindOf、checkSensitive 和 verdictWithoutAsking。
 func Check(in Input) Verdict {
 	var args map[string]any
 	_ = json.Unmarshal(in.Args, &args)
 	str := func(key string) string {
-		value, _ := args[key].(string)
-		return value
+		return argString(args, key)
 	}
 	kind := harness.RequestKindTool
 	if in.ToolName == "bash" {
@@ -169,6 +187,13 @@ func Check(in Input) Verdict {
 		}
 	}
 	return Verdict{Action: Ask, Request: req, SessionKey: key}
+}
+
+// SensitiveFor 为外部 provider 的审批请求补算敏感标记；返回值同 checkSensitive。
+func SensitiveFor(kind harness.RequestKind, toolName string, input json.RawMessage, command string, workDir string) string {
+	var args map[string]any
+	_ = json.Unmarshal(input, &args)
+	return checkSensitive(Input{ToolName: toolName, WorkDir: workDir}, args, kind, command)
 }
 
 var nullRedirect = regexp.MustCompile(`\d*&?>>?\s*/dev/null([\s;|&]|$)`)
@@ -260,9 +285,9 @@ func onlyReads(command string) bool {
 		if !strings.Contains(safe, " "+p+" ") {
 			return false
 		}
-		// 拒绝 rg、sort 和 find 中可执行命令或写文件的参数。
+		// 拒绝 rg、sort、tree 和 find 中可执行命令或写文件的参数。
 		for _, a := range t[1:] {
-			if p == "rg" && (a == "--pre" || strings.HasPrefix(a, "--pre=")) || p == "sort" && (strings.HasPrefix(a, "-o") || strings.HasPrefix(a, "--output")) || p == "find" && strings.Contains(find, " "+a+" ") {
+			if p == "rg" && (a == "--pre" || strings.HasPrefix(a, "--pre=")) || p == "sort" && (strings.HasPrefix(a, "-o") || strings.HasPrefix(a, "--output")) || p == "tree" && (strings.HasPrefix(a, "-o") || strings.HasPrefix(a, "--output")) || p == "find" && strings.Contains(find, " "+a+" ") {
 				return false
 			}
 		}
@@ -313,7 +338,7 @@ func controlPaths(in Input) []string {
 	home, _ := os.UserHomeDir()
 	dirs := append([]string(nil), in.ControlPlanePaths...)
 	if home != "" {
-		dirs = append(dirs, filepath.Join(home, ".pi", "agent"))
+		dirs = append(dirs, filepath.Join(home, ".pi", "agent"), filepath.Join(home, ".mcode"))
 	}
 	var out []string
 	for _, d := range dirs {
@@ -333,12 +358,14 @@ func controlPaths(in Input) []string {
 func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, command string) string {
 	dirs := controlPaths(in)
 	get := func(key string) string {
-		value, _ := args[key].(string)
-		return value
+		return argString(args, key)
 	}
-	target := get("path")
-	if target == "" {
-		target = get("file_path")
+	// 不同 provider 的路径键名不一致，逐个尝试后再判定。
+	target := ""
+	for _, key := range []string{"path", "file_path", "filePath", "notebook_path"} {
+		if target = get(key); target != "" {
+			break
+		}
 	}
 	// 控制面写入优先于凭证判断，且解析不存在目标的父目录符号链接。
 	if kind == harness.RequestKindFileChange && strings.TrimSpace(target) != "" {
@@ -383,7 +410,7 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 			}
 		}
 	}
-	if kind == harness.RequestKindCommand && credential(command, project) || kind == harness.RequestKindFileChange && credential(target, project) {
+	if kind == harness.RequestKindCommand && credential(command, project) || (kind == harness.RequestKindFileChange || kind == harness.RequestKindTool) && credential(target, project) {
 		return "credential"
 	}
 	return ""
@@ -392,16 +419,45 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 var procEnviron = regexp.MustCompile(`/proc/(self|[0-9]+)/environ\b`)
 var envFile = regexp.MustCompile(`(^|[\\/\s"'` + "`" + `=])\.env(\.[^\s\\/'"` + "`" + `=;:,&|]+)?`)
 
+// mcodeConfigJSON 判断 text 是否指向 mcode 数据目录下的 JSON 配置文件。
+func mcodeConfigJSON(text, home string) bool {
+	roots := []string{"~/.mcode/"}
+	if home != "" {
+		roots = append(roots, filepath.Join(home, ".mcode")+string(filepath.Separator))
+	}
+	for _, root := range roots {
+		for rest := text; ; {
+			idx := strings.Index(rest, root)
+			if idx < 0 {
+				break
+			}
+			rest = rest[idx+len(root):]
+			name := rest
+			if end := strings.IndexAny(name, " \t\r\n\"'`=;:,&|/\\"); end >= 0 {
+				name = name[:end]
+			}
+			if strings.HasSuffix(strings.ToLower(name), ".json") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // credential 对应 TS 的 touchesCredential 和 matchesEnvFile。
 func credential(text, project string) bool {
 	home, _ := os.UserHomeDir()
-	for _, s := range []string{"~/.ssh/", "/.ssh/", "id_rsa", "id_ed25519", "~/.aws/", "~/.config/gcloud", "~/.docker/config.json", "~/.kube/config", "~/.netrc", "~/.pi/agent/auth.json", "~/.ssh", "~/.aws"} {
+	for _, s := range []string{"~/.ssh/", "/.ssh/", "id_rsa", "id_ed25519", "~/.aws/", "~/.config/gcloud", "~/.docker/config.json", "~/.kube/config", "~/.netrc", "~/.pi/agent/auth.json", "~/.mcode/config.json", "~/.ssh", "~/.aws"} {
 		if strings.Contains(text, s) {
 			return true
 		}
 		if home != "" && strings.HasPrefix(s, "~/") && strings.Contains(text, filepath.Join(home, s[2:])) {
 			return true
 		}
+	}
+	// mcode 数据目录下的 JSON 都是控制面配置（always_allow.json、config.json、mcp.json 等）。
+	if mcodeConfigJSON(text, home) {
+		return true
 	}
 	if procEnviron.MatchString(text) {
 		return true

@@ -2,6 +2,7 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -83,29 +84,26 @@ func (s *Store) Load(id string) ([]json.RawMessage, error) {
 	defer f.Close()
 	reader := bufio.NewReader(f)
 	var entries []json.RawMessage
+	sawInvalid := false
 	for {
 		line, readErr := reader.ReadBytes('\n')
 		if readErr != nil && readErr != io.EOF {
 			return nil, readErr
 		}
-		if len(line) > 0 {
-			if !json.Valid(line) {
-				if readErr == io.EOF {
-					break
-				}
-				// 末行即使带换行符，也可能是在崩溃时留下的无效 JSON。
-				if _, err := reader.Peek(1); err == io.EOF {
-					break
-				} else if err != nil {
-					return nil, err
-				}
-				return nil, fmt.Errorf("invalid JSON in session %q", id)
+		if len(bytes.TrimSpace(line)) > 0 {
+			if json.Valid(line) {
+				entries = append(entries, json.RawMessage(line))
+			} else {
+				// 跳过损坏的行，保留会话中其余有效记录。
+				sawInvalid = true
 			}
-			entries = append(entries, json.RawMessage(line))
 		}
 		if readErr == io.EOF {
 			break
 		}
+	}
+	if len(entries) == 0 && sawInvalid {
+		return nil, fmt.Errorf("invalid JSON in session %q", id)
 	}
 	return entries, nil
 }
