@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -87,10 +88,33 @@ const handshakeRequest = `{"type":"control_request","request_id":"handshake","re
 // handshakeTimeout 是一次握手的总超时。
 const handshakeTimeout = 20 * time.Second
 
-var modelCache = &modelcache.Cache[Model]{}
+var (
+	catalogMu     sync.RWMutex
+	catalogBinary string
+	modelCache    = &modelcache.Cache[Model]{}
+)
+
+// SetCatalogBinary 更新自动探测使用的 CLI，路径变化时丢弃旧目录与失败退避。
+func SetCatalogBinary(binary string) {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	if catalogBinary != binary {
+		catalogBinary = binary
+		modelCache = &modelcache.Cache[Model]{}
+	}
+}
 
 // catalogFetch 是后台探测入口；单独抽成变量便于测试替换，避免真的启动本机 CLI。
-var catalogFetch = fetchModels
+var catalogFetch = func(ctx context.Context) ([]Model, error) {
+	models, err := fetchModels(ctx)
+	if err != nil {
+		log.Printf("claude: 模型目录探测失败: %v", err)
+	}
+	return models, err
+}
+
+var catalogEnviron = loginenv.Environ
+var catalogFetchWithBinary = fetchModelsWithBinary
 
 // catalogSnapshot 是 CatalogNotice 读取探测状态的入口；单独抽成变量便于测试注入。
 var catalogSnapshot = CachedCatalog
@@ -115,7 +139,9 @@ func cachedLoginPresent() bool {
 
 // CachedCatalog 返回模型目录与最近一次探测状态；尚未拿到时在后台启动一次握手。
 func CachedCatalog() modelcache.Snapshot[Model] {
+	catalogMu.RLock()
 	snap := modelCache.Peek(catalogFetch)
+	catalogMu.RUnlock()
 	if len(snap.Models) > 0 {
 		// 首次拿到目录时打点：启动路径只读缓存，握手在后台跑。
 		startuptrace.Mark("providers: claude models ready")
@@ -133,13 +159,17 @@ func CachedModels() []Model {
 // 返回的函数用于恢复原状态。仅供测试使用：同进程里其他用例可能已经写入缓存或触发真实探测，
 // 不重置时读到的目录会随执行顺序变化。
 func ResetCatalogCacheForTest() func() {
-	prevCache, prevFetch := modelCache, catalogFetch
+	catalogMu.Lock()
+	prevCache, prevFetch, prevBinary := modelCache, catalogFetch, catalogBinary
 	modelCache = &modelcache.Cache[Model]{}
 	catalogFetch = func(context.Context) ([]Model, error) {
 		return nil, errors.Join(modelcache.ErrNotInstalled, errors.New("测试环境已禁用模型探测"))
 	}
+	catalogMu.Unlock()
 	return func() {
-		modelCache, catalogFetch = prevCache, prevFetch
+		catalogMu.Lock()
+		modelCache, catalogFetch, catalogBinary = prevCache, prevFetch, prevBinary
+		catalogMu.Unlock()
 	}
 }
 
@@ -155,7 +185,7 @@ func CatalogNotice() string {
 	if errors.Is(snap.Err, modelcache.ErrNotInstalled) {
 		return "未安装 Claude Code CLI"
 	}
-	if snap.Err != nil && !loginPresent() {
+	if snap.Err != nil && !UsesThirdPartyAPI(catalogEnviron()) && !loginPresent() {
 		return "未登录 Claude Code"
 	}
 	return "探测 Claude Code 模型失败"
@@ -163,14 +193,23 @@ func CatalogNotice() string {
 
 // RefreshModels 强制重新读取 Claude CLI 的模型目录。
 func RefreshModels(ctx context.Context, binary string) error {
-	return modelCache.Refresh(ctx, func(ctx context.Context) ([]Model, error) {
+	catalogMu.RLock()
+	cache := modelCache
+	catalogMu.RUnlock()
+	return cache.Refresh(ctx, func(ctx context.Context) ([]Model, error) {
 		return fetchModelsWithBinary(ctx, binary)
 	})
 }
 
 // fetchModels 起一个一次性 CLI 进程做 initialize 握手，读出它报告的模型目录。
 func fetchModels(ctx context.Context) ([]Model, error) {
-	return fetchModelsWithBinary(ctx, DefaultBinary)
+	catalogMu.RLock()
+	binary := catalogBinary
+	catalogMu.RUnlock()
+	if binary == "" {
+		binary = DefaultBinary
+	}
+	return catalogFetchWithBinary(ctx, binary)
 }
 
 func fetchModelsWithBinary(ctx context.Context, binary string) ([]Model, error) {

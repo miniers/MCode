@@ -17,9 +17,7 @@ func TestReadPlanLimitsThirdPartyAPI(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"env":{"ANTHROPIC_API_KEY":"example"}}`), 0600); err != nil {
-		t.Fatal(err)
-	}
+	setPlanLimitsEnv(t, []string{"ANTHROPIC_API_KEY=example"})
 	ResetPlanLimitsCache()
 	t.Cleanup(ResetPlanLimitsCache)
 	_, err := ReadPlanLimits(context.Background())
@@ -137,10 +135,18 @@ func TestParsePlanLimits_MissingFieldsAndMalformed(t *testing.T) {
 	}
 }
 
+func setPlanLimitsEnv(t *testing.T, env []string) {
+	t.Helper()
+	original := planLimitsEnv
+	planLimitsEnv = func() []string { return env }
+	t.Cleanup(func() { planLimitsEnv = original })
+}
+
 // isolateGatewayEnv 清空网关相关环境变量，避免宿主机的 ANTHROPIC 配置
 // 让无凭据路径意外请求真实网关。
 func isolateGatewayEnv(t *testing.T) {
 	t.Helper()
+	setPlanLimitsEnv(t, nil)
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")

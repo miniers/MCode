@@ -285,7 +285,7 @@ func probeClaudeBinary(claudeBin string) (lookPathErr, authErr error) {
 	// 检测子进程使用与真正启动 CLI 相同的登录环境（loginenv 首次调用执行登录 Shell 后缓存）；
 	// 配了 API key / 网关令牌 / Bedrock / Vertex 时本地不需要 claude.ai 登录，跳过检测。
 	claudeEnv := claudeProbeLoginEnv()
-	if claude.AuthNotRequired(claudeEnv) {
+	if claude.UsesThirdPartyAPI(claudeEnv) {
 		return nil, nil
 	}
 	// AuthProbeBudget 从真正开始检测时计时，与原来的同步实现一致。
@@ -304,7 +304,7 @@ func probeClaudeBinary(claudeBin string) (lookPathErr, authErr error) {
 // 否则在 AuthProbeBudget 内查一次登录态，只有「已上报且已登录」才算命中。
 func claudeProbeFastPathLoggedIn(claudeBin string) bool {
 	env := claudeProbeProcessEnv()
-	if claude.AuthNotRequired(env) {
+	if claude.UsesThirdPartyAPI(env) {
 		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), claude.AuthProbeBudget)

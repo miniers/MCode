@@ -33,7 +33,7 @@ var (
 // 不起子进程；检测未上报（超时、命令不存在、输出非 JSON）返回 unknown，由调用方保持原摘要。
 func claudeLoginState(ctx context.Context, binary string) string {
 	env := claudeAuthEnv()
-	if claude.AuthNotRequired(env) {
+	if claude.UsesThirdPartyAPI(env) {
 		return mcodeui.ProviderLoginStateNotRequired
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, claudeLoginProbeBudget)

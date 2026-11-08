@@ -116,6 +116,9 @@ type Harness struct {
 
 // New 创建一个新的 Claude Harness 实例。
 func New(opts Options) *Harness {
+	if opts.Binary != "" {
+		SetCatalogBinary(opts.Binary)
+	}
 	return &Harness{opts: opts, residents: make(map[string]*residentProc)}
 }
 

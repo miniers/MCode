@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,6 +59,9 @@ var PlanLimitsURL = "https://api.anthropic.com/api/oauth/usage"
 // planLimitsHTTPClient 执行用量请求，测试中可替换。
 var planLimitsHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
+// planLimitsEnv 读取登录环境，测试中可替换。
+var planLimitsEnv = loginenv.Environ
+
 // securityExecutable 读取 macOS 钥匙串的 security 可执行文件路径，测试中可替换。
 var securityExecutable = "/usr/bin/security"
 
@@ -103,7 +107,7 @@ func ReadPlanLimits(ctx context.Context) (PlanLimits, error) {
 		return clonePlanLimits(gatewayLimits), nil
 	}
 
-	env := append(loginenv.Environ(), "CLAUDE_CONFIG_DIR="+configDirectory())
+	env := append(slices.Clone(planLimitsEnv()), "CLAUDE_CONFIG_DIR="+configDirectory())
 	if UsesThirdPartyAPI(env) {
 		return PlanLimits{}, fmt.Errorf("claude: 第三方 API 不支持额度查询")
 	}

@@ -660,6 +660,80 @@ func (c modelsRefreshTestClient) Providers(ctx context.Context) ([]ProviderInfo,
 	return c.Client.Providers(ctx)
 }
 
+func TestComposerRefreshProvidersForcesRefreshOnce(t *testing.T) {
+	fake := NewFakeClient()
+	started, release := make(chan struct{}), make(chan struct{})
+	var refreshCalls, providerCalls atomic.Int32
+	updated := []ProviderInfo{{ID: "claude", Models: []ModelInfo{{ID: "opus"}}}}
+	client := modelsRefreshTestClient{
+		Client: fake,
+		refresh: func(context.Context) ([]ProviderInfo, error) {
+			refreshCalls.Add(1)
+			close(started)
+			<-release
+			return updated, nil
+		},
+		providers: func(context.Context) ([]ProviderInfo, error) {
+			providerCalls.Add(1)
+			return nil, nil
+		},
+	}
+	chat := newChatState(client)
+	chat.refreshProviders()
+	<-started
+	chat.refreshProviders()
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		chat.mu.Lock()
+		got := append([]ProviderInfo(nil), chat.providers...)
+		chat.mu.Unlock()
+		if reflect.DeepEqual(got, updated) {
+			if refreshCalls.Load() != 1 || providerCalls.Load() != 0 {
+				t.Fatalf("强制刷新次数 %d，缓存读取次数 %d", refreshCalls.Load(), providerCalls.Load())
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("强制刷新未更新会话目录")
+}
+
+func TestBackgroundCatalogUpdateInvalidatesSettingsSnapshot(t *testing.T) {
+	fake := NewFakeClient()
+	updated := []ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "opus", Name: "Opus"}}}}
+	fake.SetProviders(updated)
+	chat := newChatState(fake)
+	st := NewSettingsState(settingsTestDir(t), nil, chat)
+	setChatSettings(chat, st)
+	t.Cleanup(func() { setChatSettings(chat, nil) })
+	ps := modelsPageStateOf(st)
+	ps.seeded = true
+	ps.providers = []ProviderInfo{{ID: "claude", Name: "Claude", Available: true}}
+	ps.pins = []ModelPin{{Provider: "claude", ModelID: "saved"}}
+	ps.load = make(chan modelsPageLoadResult, 1)
+	ps.loadSince = time.Now()
+	ps.loadCatalogOnly = true
+	ps.load <- modelsPageLoadResult{providers: ps.providers}
+	if _, ok := chat.reloadProviderCatalog(); !ok {
+		t.Fatal("后台目录读取失败")
+	}
+	st.mu.Lock()
+	version := st.modelCatalogVersion
+	st.mu.Unlock()
+	if version == 0 {
+		t.Fatal("后台目录更新应递增版本")
+	}
+	tt := ui.NewTester(func(c *ui.Context) { modelsPageLibrary(c, st) }, 1000, 1000)
+	tt.Frame()
+	if !reflect.DeepEqual(ps.providers, updated) {
+		t.Fatalf("设置页应使用新目录且忽略旧异步结果: %+v", ps.providers)
+	}
+	if len(ps.pins) != 1 || ps.pins[0].ModelID != "saved" {
+		t.Fatal("更新目录不应改变收藏")
+	}
+}
+
 func TestSettingsModelsRefreshUpdatesCatalogAndPreservesPins(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		t.Run(fmt.Sprintf("partial_failure_%t", fail), func(t *testing.T) {

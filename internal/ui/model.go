@@ -496,6 +496,9 @@ type chatState struct {
 	sentDraft   *string
 
 	providers           []ProviderInfo
+	catalogRequestSeq   uint64
+	catalogAppliedSeq   uint64
+	catalogRefreshing   bool
 	newThreadProvider   string
 	pendingThread       *pendingThreadState // 待创建会话（点新建后、首个输入前），nil 表示没有；受 s.mu 保护
 	selectedProviderIdx int
@@ -770,26 +773,79 @@ var providerCatalogRetryDelays = []time.Duration{5 * time.Second, 15 * time.Seco
 // 改成包级变量便于测试调整（例如改成 0 或调大）。
 var providerAvailabilityRecheckDelay = 2 * time.Second
 
-// refreshProviders 在后台重新拉取供应商列表并替换缓存，不重置 newThreadProvider 等选择状态。
+// refreshProviders 只在用户主动操作时强制刷新，重复点击不会启动多个刷新。
 func (s *chatState) refreshProviders() {
-	go s.reloadProviderCatalog()
+	s.mu.Lock()
+	if s.closed || s.catalogRefreshing {
+		s.mu.Unlock()
+		return
+	}
+	s.catalogRefreshing = true
+	s.catalogRequestSeq++
+	seq := s.catalogRequestSeq
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.catalogRefreshing = false
+			s.mu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), modelsRefreshTimeout)
+		defer cancel()
+		providers, err := s.client.RefreshProviders(ctx)
+		if err == nil || providers != nil {
+			s.applyProviderCatalog(seq, providers, getChatSettings(s))
+		}
+	}()
 }
 
-// reloadProviderCatalog 同步拉取供应商列表并在 s.mu 下替换缓存，返回最新列表。
-// 拉取失败或界面已关闭时沿用旧缓存并返回 false。
-func (s *chatState) reloadProviderCatalog() ([]ProviderInfo, bool) {
-	providers, err := s.client.Providers(context.Background())
-	if err != nil {
-		return nil, false
+func (s *chatState) nextProviderCatalogRequest() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.catalogRequestSeq++
+	return s.catalogRequestSeq
+}
+
+// applyProviderCatalog 忽略比已应用结果更早发起的请求，并同步作废设置页快照。
+func (s *chatState) applyProviderCatalog(seq uint64, providers []ProviderInfo, st *SettingsState) bool {
+	if st != nil {
+		st.mu.Lock()
 	}
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || seq < s.catalogAppliedSeq {
+		s.mu.Unlock()
+		if st != nil {
+			st.mu.Unlock()
+		}
+		return false
+	}
+	s.catalogAppliedSeq = seq
+	s.providers = providers
+	if st != nil {
+		st.modelCatalogVersion++
+	}
+	s.mu.Unlock()
+	if st != nil {
+		st.mu.Unlock()
+	}
+	s.invalidate()
+	return true
+}
+
+// reloadProviderCatalog 读取缓存，供后台补拉使用。
+func (s *chatState) reloadProviderCatalog() ([]ProviderInfo, bool) {
+	s.mu.Lock()
+	if s.catalogRefreshing {
 		s.mu.Unlock()
 		return nil, false
 	}
-	s.providers = providers
+	s.catalogRequestSeq++
+	seq := s.catalogRequestSeq
 	s.mu.Unlock()
-	s.invalidate()
+	providers, err := s.client.Providers(context.Background())
+	if err != nil || !s.applyProviderCatalog(seq, providers, getChatSettings(s)) {
+		return nil, false
+	}
 	return providers, true
 }
 
@@ -824,6 +880,12 @@ func (s *chatState) refreshProviderCatalogUntilReady(providers []ProviderInfo) {
 			}
 			latest, ok := s.reloadProviderCatalog()
 			if !ok {
+				s.mu.Lock()
+				refreshing := s.catalogRefreshing
+				s.mu.Unlock()
+				if refreshing {
+					continue
+				}
 				return
 			}
 			providers = latest
@@ -913,9 +975,10 @@ func (s *chatState) loadProjects() {
 
 		// providers 只影响默认 Agent 与模型列表，项目/会话列表并不依赖它，
 		// 所以放到独立 goroutine 里与后面的拉取并行，避免侧边栏首帧多等几百毫秒。
+		seq := s.nextProviderCatalogRequest()
 		go func() {
 			providers, pErr := s.client.Providers(ctx)
-			if pErr == nil {
+			if pErr == nil && s.applyProviderCatalog(seq, providers, getChatSettings(s)) {
 				var available []ProviderInfo
 				for _, p := range providers {
 					if p.Available {
@@ -923,7 +986,6 @@ func (s *chatState) loadProjects() {
 					}
 				}
 				s.mu.Lock()
-				s.providers = providers
 				needProvider := s.newThreadProvider == ""
 				s.mu.Unlock()
 				if needProvider {

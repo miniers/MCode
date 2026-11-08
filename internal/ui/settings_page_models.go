@@ -87,19 +87,15 @@ func (st *SettingsState) refreshModels() {
 	st.modelsRefreshErr = ""
 	st.mu.Unlock()
 	st.invalidate()
+	seq := chat.nextProviderCatalogRequest()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), modelsRefreshTimeout)
 		defer cancel()
 		providers, err := chat.client.RefreshProviders(ctx)
 		if providers != nil {
-			chat.mu.Lock()
-			chat.providers = providers
-			chat.mu.Unlock()
+			chat.applyProviderCatalog(seq, providers, st)
 		}
 		st.mu.Lock()
-		if providers != nil {
-			st.modelCatalogVersion++
-		}
 		st.modelsRefreshing = false
 		st.modelsRefreshDone = true
 		if err != nil {

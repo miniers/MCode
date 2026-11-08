@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"mcode/internal/providers/claude"
@@ -85,6 +87,20 @@ func TestClaudeLoginStateStatuses(t *testing.T) {
 				t.Fatalf("应执行一次检测，probes=%d", probes)
 			}
 		})
+	}
+}
+
+func TestClaudeLoginStateSettingsAPIKey(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"env":{"ANTHROPIC_AUTH_TOKEN":"x"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stubClaudeAuth(t, []string{"CLAUDE_CONFIG_DIR=" + dir}, func(context.Context, string, []string) (claude.AuthStatus, bool) {
+		t.Fatal("配置了第三方 API，不应检测登录态")
+		return claude.AuthStatus{}, false
+	})
+	if got := claudeLoginState(context.Background(), "claude"); got != mcodeui.ProviderLoginStateNotRequired {
+		t.Fatalf("claudeLoginState = %q, want %q", got, mcodeui.ProviderLoginStateNotRequired)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"mcode/internal/providers/claude"
@@ -78,6 +79,31 @@ func TestProbeClaudeBinaryFastPathLoggedIn(t *testing.T) {
 	}
 	if *readCalls != 0 {
 		t.Fatalf("快路径命中时不应走无缓存检测，readCalls=%d", *readCalls)
+	}
+}
+
+func TestProbeClaudeBinarySettingsAPIKey(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"env":{"ANTHROPIC_AUTH_TOKEN":"x"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"CLAUDE_CONFIG_DIR=" + dir}
+	loginEnvCalls, readCalls := stubClaudeProbe(t, env, env,
+		func(context.Context, string, []string) (claude.AuthStatus, bool) {
+			t.Fatal("配置了第三方 API，不应检测登录态")
+			return claude.AuthStatus{}, false
+		},
+		func(context.Context, string, []string) (claude.AuthStatus, bool) {
+			t.Fatal("配置了第三方 API，不应复核登录态")
+			return claude.AuthStatus{}, false
+		},
+	)
+	lookPathErr, authErr := probeClaudeBinary(testClaudeBin(t))
+	if lookPathErr != nil || authErr != nil {
+		t.Fatalf("probeClaudeBinary = (%v, %v), want (nil, nil)", lookPathErr, authErr)
+	}
+	if *loginEnvCalls != 0 || *readCalls != 0 {
+		t.Fatalf("不应读取登录环境或复核登录态，loginEnvCalls=%d readCalls=%d", *loginEnvCalls, *readCalls)
 	}
 }
 

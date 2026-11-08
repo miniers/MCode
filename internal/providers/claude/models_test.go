@@ -3,6 +3,8 @@ package claude
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -167,6 +169,58 @@ func TestFetchModelsWithBinaryNotInstalled(t *testing.T) {
 	}
 }
 
+func TestFetchModelsUsesCatalogBinary(t *testing.T) {
+	restore := ResetCatalogCacheForTest()
+	t.Cleanup(restore)
+	oldFetch := catalogFetchWithBinary
+	t.Cleanup(func() { catalogFetchWithBinary = oldFetch })
+	var gotBinary string
+	catalogFetchWithBinary = func(_ context.Context, binary string) ([]Model, error) {
+		gotBinary = binary
+		return []Model{{ID: "test"}}, nil
+	}
+	SetCatalogBinary("/custom/claude")
+	oldCache := modelCache
+	if _, err := fetchModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gotBinary != "/custom/claude" {
+		t.Errorf("binary = %q, want /custom/claude", gotBinary)
+	}
+	SetCatalogBinary("/other/claude")
+	if modelCache == oldCache {
+		t.Error("更换 CLI 路径后应重置模型目录缓存")
+	}
+	SetCatalogBinary("")
+	if _, err := fetchModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gotBinary != DefaultBinary {
+		t.Errorf("binary = %q, want %q", gotBinary, DefaultBinary)
+	}
+}
+
+func TestCatalogNoticeThirdPartySettings(t *testing.T) {
+	restore := ResetCatalogCacheForTest()
+	t.Cleanup(restore)
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	for _, key := range authSkipKeys {
+		t.Setenv(key, "")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"env":{"ANTHROPIC_BASE_URL":"https://example.com","ANTHROPIC_AUTH_TOKEN":"test-token"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldEnviron := catalogEnviron
+	catalogEnviron = os.Environ
+	t.Cleanup(func() { catalogEnviron = oldEnviron })
+	withCatalogSnapshot(t, modelcache.Snapshot[Model]{Err: errors.New("handshake failed")})
+	withLoginPresent(t, false)
+	if got := CatalogNotice(); got != "探测 Claude Code 模型失败" {
+		t.Errorf("CatalogNotice() = %q, want 探测 Claude Code 模型失败", got)
+	}
+}
+
 func withCatalogSnapshot(t *testing.T, snap modelcache.Snapshot[Model]) {
 	t.Helper()
 	old := catalogSnapshot
@@ -182,6 +236,13 @@ func withLoginPresent(t *testing.T, present bool) {
 }
 
 func TestCatalogNotice(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, key := range authSkipKeys {
+		t.Setenv(key, "")
+	}
+	oldEnviron := catalogEnviron
+	catalogEnviron = os.Environ
+	t.Cleanup(func() { catalogEnviron = oldEnviron })
 	notInstalled := errors.Join(modelcache.ErrNotInstalled, errors.New("lookpath failed"))
 	cases := []struct {
 		name  string
