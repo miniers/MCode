@@ -822,6 +822,9 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 			}
 		case harness.EventError:
 			resultErrored = true
+			if e.ErrKind == harness.ErrKindAuthRequired && UsesThirdPartyAPI(p.cmd.Env) {
+				e.ErrKind = harness.ErrKindAPIKeyRejected
+			}
 		case harness.EventDone:
 			errored := resultErrored
 			resultErrored = false

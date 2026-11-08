@@ -101,6 +101,8 @@ type Event struct {
 const (
 	// ErrKindAuthRequired 未登录或凭证失效，需要用户在终端重新登录（claude /login）。
 	ErrKindAuthRequired = "auth_required"
+	// ErrKindAPIKeyRejected 第三方 API / API key 被上游拒绝（401/403），需要检查 key，而不是 claude /login。
+	ErrKindAPIKeyRejected = "api_key_rejected"
 	// ErrKindRateLimited 触发限流（HTTP 429 或 overloaded），稍后重发即可。
 	ErrKindRateLimited = "rate_limited"
 	// ErrKindContextExhausted 提示词或上下文超出模型窗口，需要压缩或裁剪。

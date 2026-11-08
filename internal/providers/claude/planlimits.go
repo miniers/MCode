@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"mcode/internal/procattr"
+	"mcode/internal/providers/loginenv"
 )
 
 // PlanLimits 包含 Claude 账号的订阅方案与额度窗口。
@@ -100,6 +101,11 @@ func ReadPlanLimits(ctx context.Context) (PlanLimits, error) {
 		cachedPlanLimits = gatewayLimits
 		cachedPlanLimitsAt = time.Now()
 		return clonePlanLimits(gatewayLimits), nil
+	}
+
+	env := append(loginenv.Environ(), "CLAUDE_CONFIG_DIR="+configDirectory())
+	if UsesThirdPartyAPI(env) {
+		return PlanLimits{}, fmt.Errorf("claude: 第三方 API 不支持额度查询")
 	}
 
 	login, err := readLogin()

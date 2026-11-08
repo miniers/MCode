@@ -72,6 +72,23 @@ func TestParseAuthStatus(t *testing.T) {
 	}
 }
 
+func TestUsesThirdPartyAPI(t *testing.T) {
+	dir := t.TempDir()
+	env := []string{"CLAUDE_CONFIG_DIR=" + dir}
+	if UsesThirdPartyAPI(env) {
+		t.Fatal("空配置不应被识别为第三方 API")
+	}
+	if !UsesThirdPartyAPI(append(env, "ANTHROPIC_API_KEY=example")) {
+		t.Fatal("环境变量中的 API key 应被识别")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"env":{"ANTHROPIC_AUTH_TOKEN":"example"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !UsesThirdPartyAPI(env) {
+		t.Fatal("settings.json 中的令牌应被识别")
+	}
+}
+
 func TestAuthNotRequired(t *testing.T) {
 	tests := []struct {
 		name string

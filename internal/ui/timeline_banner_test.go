@@ -87,6 +87,7 @@ func TestClassifyMessageNoticeErrKind(t *testing.T) {
 		want    providerNoticeKind
 	}{
 		{"未登录（原文无关键词）", Message{Text: "出错：process exited unexpectedly", ErrKind: errKindAuthRequired}, providerNoticeAuth},
+		{"API key 被拒绝", Message{Text: "401", ErrKind: errKindAPIKeyRejected}, providerNoticeAuth},
 		{"限流（原文写的是额度）", Message{Text: "额度已用完", ErrKind: errKindRateLimited}, providerNoticeRateLimit},
 		{"上下文已满（原文无关键词）", Message{Text: "出错：prompt is too long", ErrKind: errKindContextExhausted}, providerNoticeContext},
 		{"只有关键词", Message{Text: "Rate limit exceeded, resets in 45m"}, providerNoticeRateLimit},
@@ -121,6 +122,7 @@ func TestProviderNoticeActionHint(t *testing.T) {
 	}{
 		{"未分类未登录沿用设置页提示", providerNoticeAuth, "", "前往 设置 → Agent 登录 重新登录后再发送。"},
 		{"后端判出未登录走终端指引", providerNoticeAuth, errKindAuthRequired, "请在终端运行 claude /login 重新登录后再发送。"},
+		{"API key 被拒绝", providerNoticeAuth, errKindAPIKeyRejected, "API Key 无效或已过期，请到 设置 → 模型与供应商 → Claude 检查。"},
 		{"上下文已满", providerNoticeContext, errKindContextExhausted, "上下文已满，请新建会话或使用 /compact 后再发送。"},
 		{"限流无指引", providerNoticeRateLimit, errKindRateLimited, ""},
 		{"额度无指引", providerNoticeQuota, "", ""},

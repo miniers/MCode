@@ -26,6 +26,7 @@ const (
 // 与 internal/harness 的 ErrKind* 常量取值一致；ui 不依赖 harness 包，这里按字符串对齐。
 const (
 	errKindAuthRequired     = "auth_required"
+	errKindAPIKeyRejected   = "api_key_rejected"
 	errKindRateLimited      = "rate_limited"
 	errKindContextExhausted = "context_exhausted"
 )
@@ -197,7 +198,7 @@ func classifyProviderNotice(text string) (providerNoticeKind, string) {
 // （max_turns、cancelled、api_error）与空串返回 providerNoticeNone，继续按原文关键词识别。
 func providerNoticeKindFromErrKind(errKind string) providerNoticeKind {
 	switch errKind {
-	case errKindAuthRequired:
+	case errKindAuthRequired, errKindAPIKeyRejected:
 		return providerNoticeAuth
 	case errKindRateLimited:
 		return providerNoticeRateLimit
@@ -236,6 +237,9 @@ func providerNoticeTitle(kind providerNoticeKind) string {
 func providerNoticeActionHint(kind providerNoticeKind, errKind string) string {
 	switch kind {
 	case providerNoticeAuth:
+		if errKind == errKindAPIKeyRejected {
+			return "API Key 无效或已过期，请到 设置 → 模型与供应商 → Claude 检查。"
+		}
 		// 后端判出未登录时，Claude CLI 的凭证要在终端刷新，设置页的登录入口帮不上忙。
 		if errKind == errKindAuthRequired {
 			return "请在终端运行 claude /login 重新登录后再发送。"

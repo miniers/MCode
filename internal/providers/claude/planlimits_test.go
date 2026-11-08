@@ -11,6 +11,26 @@ import (
 	"time"
 )
 
+func TestReadPlanLimitsThirdPartyAPI(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"env":{"ANTHROPIC_API_KEY":"example"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ResetPlanLimitsCache()
+	t.Cleanup(ResetPlanLimitsCache)
+	_, err := ReadPlanLimits(context.Background())
+	if err == nil || err.Error() != "claude: 第三方 API 不支持额度查询" {
+		t.Fatalf("第三方 API 额度错误 = %v", err)
+	}
+	if !cachedPlanLimitsAt.IsZero() {
+		t.Fatal("第三方 API 的错误不应缓存")
+	}
+}
+
 func TestParsePlanLimits_LimitsArray(t *testing.T) {
 	raw := []byte(`{
 		"limits": [

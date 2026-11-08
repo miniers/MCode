@@ -655,6 +655,12 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 	defer h.procs.Clear(turn.ThreadID, agentPID)
 
 	p := newParser()
+	parserEmit := func(e harness.Event) {
+		if e.Type == harness.EventError && e.ErrKind == harness.ErrKindAuthRequired && UsesThirdPartyAPI(cmd.Env) {
+			e.ErrKind = harness.ErrKindAPIKeyRejected
+		}
+		emit(e)
+	}
 	reader := bufio.NewReader(stdout)
 
 	// 输出看门狗：启动后 firstOutputTimeout 内没有任何输出，或此后 stallTimeout 内没有新输出，
@@ -684,7 +690,7 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 			trimmed := bytes.TrimSpace(line)
 			if len(trimmed) > 0 {
 				sawOutput = true
-				_ = p.handleLine(trimmed, emit)
+				_ = p.handleLine(trimmed, parserEmit)
 				// 有新输出：静默计时重置。收到 result 后 CLI 应立刻退出，只留短兜底等残留子进程释放管道。
 				if p.sawResult {
 					watchdog.Reset(resultDrainTimeout)

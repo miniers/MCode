@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -117,6 +118,31 @@ func AuthNotRequired(env []string) bool {
 	}
 	for _, key := range authSkipKeys {
 		if authEnvValue(env, key) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// UsesThirdPartyAPI 判断进程环境或 Claude 配置中是否设置了第三方 API 凭据。
+func UsesThirdPartyAPI(env []string) bool {
+	if env == nil {
+		env = os.Environ()
+	}
+	if AuthNotRequired(env) {
+		return true
+	}
+	configDir := strings.TrimSpace(authEnvValue(env, "CLAUDE_CONFIG_DIR"))
+	if configDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return false
+		}
+		configDir = filepath.Join(home, ".claude")
+	}
+	settings := readSettingsEnv(configDir)
+	for _, key := range authSkipKeys {
+		if settings[key] != "" {
 			return true
 		}
 	}

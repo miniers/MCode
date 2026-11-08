@@ -21,6 +21,7 @@ func TestUsageStatusForErrorKinds(t *testing.T) {
 		{name: "未登录 401", errText: "HTTP 401 Unauthorized", want: usageStateNeedsAuth, contains: "登录"},
 		{name: "不支持", errText: "provider does not support quota", want: usageStateUnsupported, contains: "不支持"},
 		{name: "不支持中文", errText: "该后端未实现额度接口", want: usageStateUnsupported, contains: "不支持"},
+		{name: "Claude 第三方 API", errText: "claude: 第三方 API 不支持额度查询", want: usageStateUnsupported, contains: "不支持"},
 		{name: "普通出错", errText: "connection reset by peer", want: usageStateError, contains: "connection reset by peer"},
 	}
 
