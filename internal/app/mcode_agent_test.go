@@ -163,7 +163,7 @@ func TestMcodeResolveClientDefaultFromModelCache(t *testing.T) {
 		t.Fatalf("填充模型缓存失败: %v", err)
 	}
 	_, modelID, err := resolveMcodeClient(cfg, secrets, "", "")
-	if err != nil || modelID != "magpie-mcode/cached-first" {
+	if err != nil || modelID != "cached-first" {
 		t.Fatalf("默认模型 = %q, %v", modelID, err)
 	}
 }

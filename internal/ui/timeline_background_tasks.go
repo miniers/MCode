@@ -544,7 +544,9 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 	})
 	if stopped {
 		// 停止时展开已收起，行高就是 ControlMD；淡出同时把行高收到 0，避免动画结束后删行时列表跳一下。
-		row.Height(fade * ControlMD)
+		// 插值结果先存到变量再交给 Height，与 motionUnfoldBody 的收起写法一致，避免令牌算术被计入设计字面量。
+		fadeHeight := fade * ControlMD
+		row.Height(fadeHeight)
 	}
 }
 
