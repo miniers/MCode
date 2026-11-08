@@ -112,10 +112,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$(uname -s)" == Darwin ]] || { echo "错误: 个人分发打包需要 macOS" >&2; exit 1; }
+CODESIGN_IDENTITIES=""
+if [[ -n "$IDENTITY" ]]; then
+    CODESIGN_IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+fi
 if [[ -z "$IDENTITY" ]]; then
     SIGN_MODE=adhoc
     echo '[WARN] 未设置 MCODE_SIGN_IDENTITY，改用临时签名（ad hoc）打包' >&2
-elif security find-identity -v -p codesigning 2>/dev/null | grep -qF -- "$IDENTITY"; then
+elif [[ "$CODESIGN_IDENTITIES" == *"$IDENTITY"* ]]; then
     SIGN_MODE=developer-id
 else
     SIGN_MODE=adhoc

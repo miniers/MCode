@@ -108,6 +108,17 @@ func TestPackagePersonalAdHocWhenIdentityNotFound(t *testing.T) {
 	}
 }
 
+func TestPackagePersonalIdentityMatchesLiterally(t *testing.T) {
+	identity := "Developer ID Application: Test*"
+	cmd := packagePersonalDotenvCommand(t, &identity, false, `  1) ABCDEF "Developer ID Application: Test (ABC123)"`)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	_ = cmd.Run()
+	if !strings.Contains(stderr.String(), "钥匙串中找不到签名身份") {
+		t.Fatalf("缺少身份不存在的警告:\n%s", stderr.String())
+	}
+}
+
 func TestPackagePersonalWindows(t *testing.T) {
 	script, err := filepath.Abs("package_personal.sh")
 	if err != nil {
