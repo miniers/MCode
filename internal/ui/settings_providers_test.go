@@ -278,6 +278,57 @@ func TestSettingsProviders_RefreshSelector(t *testing.T) {
 	}
 }
 
+type orderedCatalogClient struct {
+	*FakeClient
+	requests chan chan []ProviderInfo
+}
+
+func (c *orderedCatalogClient) Providers(ctx context.Context) ([]ProviderInfo, error) {
+	reply := make(chan []ProviderInfo, 1)
+	select {
+	case c.requests <- reply:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	select {
+	case providers := <-reply:
+		return providers, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func TestRefreshCustomEndpointProvidersIgnoresOlderCatalog(t *testing.T) {
+	client := &orderedCatalogClient{FakeClient: NewFakeClient(), requests: make(chan chan []ProviderInfo, 2)}
+	chat := &chatState{client: client, newThreadProvider: "deleted"}
+	st := NewSettingsState(settingsTestDir(t), nil, chat)
+	done := make(chan struct{}, 2)
+	go func() { refreshCustomEndpointProviders(st, client); done <- struct{}{} }()
+	var older chan []ProviderInfo
+	select {
+	case older = <-client.requests:
+	case <-time.After(3 * time.Second):
+		t.Fatal("旧目录请求未发起")
+	}
+	go func() { refreshCustomEndpointProviders(st, client); done <- struct{}{} }()
+	var newer chan []ProviderInfo
+	select {
+	case newer = <-client.requests:
+	case <-time.After(3 * time.Second):
+		older <- nil
+		t.Fatal("新目录请求未发起")
+	}
+	newer <- []ProviderInfo{{ID: "new", Available: true, Models: []ModelInfo{{ID: "new-model"}}}}
+	<-done
+	older <- []ProviderInfo{{ID: "old", Available: true, Models: []ModelInfo{{ID: "old-model"}}}}
+	<-done
+	chat.mu.Lock()
+	defer chat.mu.Unlock()
+	if len(chat.providers) != 1 || chat.providers[0].ID != "new" || len(chat.providers[0].Models) != 1 || chat.providers[0].Models[0].ID != "new-model" || chat.newThreadProvider != "new" {
+		t.Fatalf("旧目录覆盖了新目录或新线程选择: %+v，%q", chat.providers, chat.newThreadProvider)
+	}
+}
+
 func TestSettingsProviders_OtherSettingsPreserveEndpoints(t *testing.T) {
 	dir := t.TempDir()
 	st := NewSettingsState(dir, nil, nil)

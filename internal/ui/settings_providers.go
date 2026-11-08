@@ -212,27 +212,27 @@ func (st *SettingsState) customEndpointsClient() Client {
 
 // refreshCustomEndpointProviders 同步会话选择器缓存，避免保存端点后必须重启应用。
 func refreshCustomEndpointProviders(st *SettingsState, client Client) {
-	providers, err := client.Providers(context.Background())
-	if err != nil {
-		return
-	}
 	st.mu.Lock()
 	chat := st.chat
 	st.mu.Unlock()
 	if chat == nil {
 		return
 	}
+	seq := chat.nextProviderCatalogRequest()
+	providers, err := client.Providers(context.Background())
+	if err != nil || !chat.applyProviderCatalog(seq, providers, st) {
+		return
+	}
 	chat.mu.Lock()
-	chat.providers = providers
 	found := false
-	for _, p := range providers {
+	for _, p := range chat.providers {
 		if p.ID == chat.newThreadProvider {
 			found = true
 			break
 		}
 	}
 	if !found {
-		chat.newThreadProvider = defaultNewThreadProvider(providers)
+		chat.newThreadProvider = defaultNewThreadProvider(chat.providers)
 	}
 	chat.mu.Unlock()
 }
@@ -301,7 +301,9 @@ func saveCustomEndpoint(st *SettingsState) {
 		}
 
 		list, lErr := client.CustomEndpoints(context.Background())
-		refreshCustomEndpointProviders(st, client)
+		if !saved.Magpie {
+			refreshCustomEndpointProviders(st, client)
+		}
 
 		st.mu.Lock()
 		st.endpoints.saving = false
@@ -315,10 +317,10 @@ func saveCustomEndpoint(st *SettingsState) {
 		}
 		st.mu.Unlock()
 		if saved.Magpie {
-			st.loadPiMagpieEndpoints()
-			markMagpieHubClaudeStale(st)
+			refreshMagpieGatewaySnapshots(st, client)
+		} else {
+			st.refreshModels()
 		}
-		st.refreshModels()
 		st.invalidate()
 	}()
 }
@@ -358,7 +360,9 @@ func deleteCustomEndpoint(st *SettingsState, id string) {
 		}
 
 		list, lErr := client.CustomEndpoints(context.Background())
-		refreshCustomEndpointProviders(st, client)
+		if !wasMagpie {
+			refreshCustomEndpointProviders(st, client)
+		}
 
 		st.mu.Lock()
 		st.endpoints.deletingID = ""
@@ -375,9 +379,7 @@ func deleteCustomEndpoint(st *SettingsState, id string) {
 		}
 		st.mu.Unlock()
 		if wasMagpie {
-			// 网关列表与 claude 快照都依赖端点集合，删除后重新读取。
-			st.loadPiMagpieEndpoints()
-			markMagpieHubClaudeStale(st)
+			refreshMagpieGatewaySnapshots(st, client)
 		}
 		st.invalidate()
 	}()
@@ -426,7 +428,9 @@ func toggleCustomEndpointEnabled(st *SettingsState, ep CustomEndpoint, enabled b
 		}
 
 		list, lErr := client.CustomEndpoints(context.Background())
-		refreshCustomEndpointProviders(st, client)
+		if !ep.Magpie {
+			refreshCustomEndpointProviders(st, client)
+		}
 
 		st.mu.Lock()
 		st.endpoints.toggling = false
@@ -439,9 +443,7 @@ func toggleCustomEndpointEnabled(st *SettingsState, ep CustomEndpoint, enabled b
 		}
 		st.mu.Unlock()
 		if ep.Magpie {
-			// 启用状态决定 pi/claude 能不能用这个网关，重新读取两份快照。
-			st.loadPiMagpieEndpoints()
-			markMagpieHubClaudeStale(st)
+			refreshMagpieGatewaySnapshots(st, client)
 		}
 		st.invalidate()
 	}()

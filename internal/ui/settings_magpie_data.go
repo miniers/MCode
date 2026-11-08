@@ -7,6 +7,17 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// refreshMagpieGatewaySnapshots 刷新网关变更影响的快照和模型目录。
+func refreshMagpieGatewaySnapshots(st *SettingsState, client Client) {
+	st.loadPiMagpieEndpoints()
+	for _, agent := range magpieMatrixAgents {
+		st.reloadAgentMagpie(agent)
+	}
+	markMagpieHubClaudeStale(st)
+	refreshCatalogAfterPiMagpieSave(st, client)
+	st.refreshModels()
+}
+
 func magpieGateways(st *SettingsState) (gateways []CustomEndpoint, loaded bool) {
 	st.mu.Lock()
 	loaded = st.endpoints.loaded && !st.endpoints.loading && st.endpoints.err == ""

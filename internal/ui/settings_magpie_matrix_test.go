@@ -37,6 +37,125 @@ func matrixRows(gateways []magpieMatrixGateway) []magpieMatrixModel {
 	return rows
 }
 
+func setGatewaySnapshotFixture(fake *FakeClient, endpoints []PiMagpieEndpoint) {
+	fake.SetPiMagpieEndpoints(endpoints)
+	for _, agent := range magpieMatrixAgents {
+		fake.SetAgentMagpie(AgentMagpieSetting{Agent: agent, Endpoints: endpoints})
+	}
+}
+
+func waitGatewaySnapshots(t *testing.T, st *SettingsState, want []PiMagpieEndpoint) {
+	t.Helper()
+	tt := ui.NewTester(func(c *ui.Context) {}, 100, 100)
+	waitMagpie(t, tt, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		if st.endpoints.saving || st.endpoints.toggling || st.endpoints.deletingID != "" || st.piMagpie.loading || !reflect.DeepEqual(st.piMagpie.endpoints, want) {
+			return false
+		}
+		for _, agent := range magpieMatrixAgents {
+			state := st.agentMagpieFor(agent)
+			if state.loading || !state.loaded || len(state.setting.Endpoints) != len(want) {
+				return false
+			}
+			for i := range want {
+				if state.setting.Endpoints[i].ID != want[i].ID || !reflect.DeepEqual(state.setting.Endpoints[i].Models, want[i].Models) {
+					return false
+				}
+			}
+		}
+		return true
+	})
+}
+
+func TestMagpieGatewaySaveRefreshesLoadedMatrix(t *testing.T) {
+	delays := piMagpieCatalogRefreshDelays
+	piMagpieCatalogRefreshDelays = nil
+	t.Cleanup(func() { piMagpieCatalogRefreshDelays = delays })
+	for _, edit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "新增", true: "编辑"}[edit], func(t *testing.T) {
+			fake := NewFakeClient()
+			gateway := CustomEndpoint{ID: "ep1", Name: "网关", BaseURL: "https://example.com", Magpie: true, Enabled: true, HasAPIKey: true}
+			var gateways []CustomEndpoint
+			if edit {
+				gateways = []CustomEndpoint{gateway}
+				fake.customEndpoints = gateways
+			}
+			st := matrixTestState(t, fake, gateways, nil)
+			models := []PiMagpieModel{{ID: "model-1"}, {ID: "model-2"}, {ID: "model-3"}, {ID: "model-4"}, {ID: "model-5"}, {ID: "model-6"}, {ID: "model-7"}}
+			want := []PiMagpieEndpoint{{ID: gateway.ID, Models: models}}
+			setGatewaySnapshotFixture(fake, want)
+			fake.SetProviders([]ProviderInfo{{ID: "provider", Available: true}})
+			st.mu.Lock()
+			if edit {
+				openCustomEndpointForm(st, &gateway, endpointFormScopeMagpie)
+			} else {
+				openCustomEndpointForm(st, nil, endpointFormScopeMagpie)
+				st.endpoints.editName = gateway.Name
+				st.endpoints.editBaseURL = gateway.BaseURL
+				st.endpoints.editAPIKey = "key"
+			}
+			st.mu.Unlock()
+			saveCustomEndpoint(st)
+			waitGatewaySnapshots(t, st, want)
+			if rows := matrixRows(magpieMatrixData(st, "")); len(rows) != 7 {
+				t.Fatalf("矩阵模型数 = %d，期望 7", len(rows))
+			}
+			tt := ui.NewTester(func(c *ui.Context) {
+				renderSettingsTreeSetting(c, st, setting{ID: "row-magpie-model-matrix", Control: customFullWidth(renderMagpieModelMatrix)})
+			}, 1000, 2000)
+			tt.Frame()
+			if tt.HasText("网关没有返回模型") {
+				t.Fatal("刷新后不应显示空态")
+			}
+		})
+	}
+}
+
+func TestMagpieGatewayMutationRefreshesLoadedMatrix(t *testing.T) {
+	delays := piMagpieCatalogRefreshDelays
+	piMagpieCatalogRefreshDelays = nil
+	t.Cleanup(func() { piMagpieCatalogRefreshDelays = delays })
+	for _, action := range []string{"edit", "delete", "disable", "enable"} {
+		t.Run(action, func(t *testing.T) {
+			fake := NewFakeClient()
+			gateway := CustomEndpoint{ID: "gw", Name: "网关", BaseURL: "https://example.com", Magpie: true, Enabled: action != "enable", HasAPIKey: true}
+			fake.customEndpoints = []CustomEndpoint{gateway}
+			old := []PiMagpieEndpoint{{ID: "gw", Models: []PiMagpieModel{{ID: "old"}}}}
+			settings := make(map[string]AgentMagpieSetting)
+			for _, agent := range magpieMatrixAgents {
+				settings[agent] = AgentMagpieSetting{Agent: agent, Endpoints: old}
+			}
+			st := matrixTestState(t, fake, []CustomEndpoint{gateway}, settings)
+			st.piMagpie.endpoints = old
+			want := []PiMagpieEndpoint{}
+			if action == "edit" || action == "enable" {
+				want = []PiMagpieEndpoint{{ID: "gw", Models: []PiMagpieModel{{ID: "new"}}}}
+			}
+			setGatewaySnapshotFixture(fake, want)
+			switch action {
+			case "edit":
+				st.mu.Lock()
+				openCustomEndpointForm(st, &gateway, endpointFormScopeMagpie)
+				st.endpoints.editBaseURL = "https://new.example.com"
+				st.mu.Unlock()
+				saveCustomEndpoint(st)
+			case "delete":
+				deleteCustomEndpoint(st, gateway.ID)
+			case "disable":
+				toggleCustomEndpointEnabled(st, gateway, false)
+			case "enable":
+				toggleCustomEndpointEnabled(st, gateway, true)
+			}
+			waitGatewaySnapshots(t, st, want)
+			rows := matrixRows(magpieMatrixData(st, ""))
+			if len(rows) != len(want) || len(rows) > 0 && rows[0].model.ID != "new" {
+				t.Fatalf("刷新后的矩阵 = %+v", rows)
+			}
+		})
+	}
+}
+
 // findMatrixRow 返回指定模型 ID 的行。
 func findMatrixRow(t *testing.T, gateways []magpieMatrixGateway, modelID string) magpieMatrixModel {
 	t.Helper()
