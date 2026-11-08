@@ -198,13 +198,6 @@ export interface ThreadComposerProps {
    */
   hasMessages?: boolean;
   /**
-   * 传入时在输入框右侧渲染「分割」按钮；只有总管会话、已有消息、宿主支持该方法时由 ThreadView 传入。
-   * 对应桌面 internal/ui/steward_split.go 的 splitSessionView.Show。
-   */
-  onSplitSession?: () => void;
-  /** 这一轮还没结束、正在请求或已断线：按钮保留但禁用。 */
-  splitSessionDisabled?: boolean;
-  /**
    * 本会话按时间顺序排列的用户消息文本（来自会话消息，过滤交给调用方或 composerHistoryEntries）。
    * 不传或为空时不启用方向键历史导航；ThreadView 还没接线，接线时传当前会话历史。
    */
@@ -691,8 +684,6 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   quotaScope,
   swarmBeeTiers,
   hasMessages = true,
-  onSplitSession,
-  splitSessionDisabled = false,
   historyEntries
 }: ThreadComposerProps, ref) {
   const {
@@ -1942,19 +1933,6 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
 
           {/* Right side actions: Interrupt & Send or Stop / Send button */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* 总管会话的分割入口：放在右侧组里离发送键最近，避免被左侧可滚动胶囊行挤出屏幕 */}
-            {onSplitSession && (
-              <button
-                type="button"
-                onClick={onSplitSession}
-                disabled={splitSessionDisabled}
-                aria-label="分割会话"
-                title={splitSessionDisabled ? '等这一轮结束再分割' : '分割会话：下一条消息不再带上面的历史'}
-                className="h-[30px] rounded-full px-2.5 text-mc-caption font-medium border border-[var(--border)] bg-[var(--card)] text-[var(--foreground-muted)] hover:text-[var(--foreground)] hover:bg-[var(--card-alt,var(--card))] disabled:opacity-40 active:scale-95 transition"
-              >
-                分割
-              </button>
-            )}
             {onInterruptAndSend && draft.trim().length > 0 && isRunning && !queuesLocalCommand && (
               <button
                 type="button"

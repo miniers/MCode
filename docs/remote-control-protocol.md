@@ -52,16 +52,8 @@
 
 下列方法只列出「做什么」；参数与结果的字段以 `docs/remote-control.schema.json` 中的 `$defs` 为准（命名规则见「capabilities 与 schema」）。
 
-- `steward.open`：打开该项目的总管主会话（没有就新建），结果为 `{ "threadID" }`。
-- `steward.topics.list`：列出话题与阶段，`projectID` 为空时返回所有项目的话题。
+- `steward.open`：打开全局总管前台 feed，`projectID` 表示入口来源，结果为 `{ "threadID" }`。
 - `steward.decisions.list`：列出决策卡。
-- `steward.topics.start`：新建一个话题并开始规划，返回新话题的 `threadID`。
-- `steward.topics.replan`：按 `projectID` 与 `threadID` 重新发起话题规划。
-- `steward.topics.confirm`：确认话题规划，进入执行。
-- `steward.topics.close`：关闭话题。
-- `steward.topics.delete`：删除话题。
-- `steward.topics.tasks.review`：采纳或驳回单个任务，`revision` 用于拒绝过期写入。
-- `steward.changed`：通知，载荷只有 `projectID`，空串表示所有项目都变了，客户端据此拉取最新总管状态。
 
 回答决策卡是向主会话发送「D-编号 选项」消息，不是单独的方法。
 - `app.update.get`：参数为 `{}`，返回最近一次更新状态及发布说明，不联网；参数错误返回 `InvalidParams`，服务未注入返回 `MethodNotFound`。

@@ -19,8 +19,7 @@ import { useRemoteSettingsApi } from '../context/remoteSettingsApi';
 import {
   getStoredAutoCollapse,
   parsePairingInput,
-  setStoredAutoCollapse,
-  setStoredStewardAutoCollapse
+  setStoredAutoCollapse
 } from '../services/storage';
 import type { RemoteThreadSummary } from '../types/contract';
 import {
@@ -209,13 +208,6 @@ export const Header: React.FC<HeaderProps> = ({
     setStoredAutoCollapse(remoteAutoCollapse);
     setAutoCollapse(remoteAutoCollapse);
   }, [remoteAutoCollapse]);
-  // 总管会话的自动折叠由 steward.auto_collapse_reasoning 单独管，这里只把远端值同步回
-  // 本地偏好，供总管时间线读取；老宿主没有这个键时保持本地默认（开启）。
-  const remoteStewardAutoCollapse = settingsApi.snapshot?.values['steward.auto_collapse_reasoning'];
-  useEffect(() => {
-    if (typeof remoteStewardAutoCollapse !== 'boolean') return;
-    setStoredStewardAutoCollapse(remoteStewardAutoCollapse);
-  }, [remoteStewardAutoCollapse]);
   // 每次打开设置面板重拉一次，补上断线期间错过的 settings.changed。
   const reloadSettings = settingsApi.reload;
   useEffect(() => {

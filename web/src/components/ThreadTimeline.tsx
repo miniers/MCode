@@ -63,9 +63,7 @@ import {
 } from './timeline/SwarmReportFullText';
 import {
   AUTO_COLLAPSE_CHANGED_EVENT,
-  STEWARD_AUTO_COLLAPSE_CHANGED_EVENT,
-  getStoredAutoCollapse,
-  getStoredStewardAutoCollapse
+  getStoredAutoCollapse
 } from '../services/storage';
 
 export const COLLAPSE_THRESHOLD = 4000;
@@ -348,25 +346,15 @@ export const STEWARD_SILENT_MARKER = '[[静默]]';
 /**
  * 「自动折叠思考过程」偏好的订阅 hook：写偏好时 storage 会派发自定义事件，
  * 时间线据此立即重算默认开合状态，不需要重载页面。
- * 总管会话只看总管专用偏好，其他会话只看通用偏好，两者互不影响；
- * 两套偏好都各自订阅并初始化，切换会话时无需等 effect 就能拿到正确值。
  */
-export function useAutoCollapseReasoning(isSteward = false): boolean {
+export function useAutoCollapseReasoning(): boolean {
   const [autoCollapse, setAutoCollapse] = React.useState<boolean>(() => getStoredAutoCollapse());
-  const [stewardAutoCollapse, setStewardAutoCollapse] = React.useState<boolean>(() =>
-    getStoredStewardAutoCollapse()
-  );
   React.useEffect(() => {
     const handle = () => setAutoCollapse(getStoredAutoCollapse());
     window.addEventListener(AUTO_COLLAPSE_CHANGED_EVENT, handle);
     return () => window.removeEventListener(AUTO_COLLAPSE_CHANGED_EVENT, handle);
   }, []);
-  React.useEffect(() => {
-    const handle = () => setStewardAutoCollapse(getStoredStewardAutoCollapse());
-    window.addEventListener(STEWARD_AUTO_COLLAPSE_CHANGED_EVENT, handle);
-    return () => window.removeEventListener(STEWARD_AUTO_COLLAPSE_CHANGED_EVENT, handle);
-  }, []);
-  return isSteward ? stewardAutoCollapse : autoCollapse;
+  return autoCollapse;
 }
 
 /** 回合折叠项的实际开合状态：用户显式设置过就以设置为准，否则关闭自动折叠时默认展开。 */
@@ -2753,7 +2741,7 @@ interface ThreadTimelineProps {
   scrollRef?: { current: HTMLDivElement | null };
   /** 发送后锚定期间在时间线底部垫出的空白（px）：锚点消息要能停在视口顶部，默认 0 */
   bottomPadding?: number;
-  /** 是否总管会话：决定自动折叠思考过程读哪一套偏好，缺省按普通会话处理 */
+  /** 是否为总管会话。 */
   isSteward?: boolean;
 }
 
@@ -2809,7 +2797,6 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
   isRunning,
   onContinue,
   bottomPadding = 0,
-  isSteward = false,
   onOpenFile,
   backgroundCommands,
   runningBees
@@ -2820,7 +2807,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
     return () => window.clearInterval(timer);
   }, []);
 
-  const autoCollapse = useAutoCollapseReasoning(isSteward);
+  const autoCollapse = useAutoCollapseReasoning();
   const { toggleWorkRecord } = useWorkRecordHandlers(threadID, autoCollapse, onToggleWorkRecord);
   // 时间线最后一条可见消息：错误卡片的自动重试只认它
   const lastMessageID = React.useMemo(() => lastVisibleMessageID(items), [items]);
@@ -3055,7 +3042,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
   isSteward = false,
   onOpenFile
 }) => {
-  const autoCollapse = useAutoCollapseReasoning(isSteward);
+  const autoCollapse = useAutoCollapseReasoning();
   const { toggleWorkRecord } = useWorkRecordHandlers(threadID, autoCollapse, onToggleWorkRecord);
 
   // 回合内各段（连续工具调用）的开合：按段内首条消息的稳定 key 记，流式更新时不会丢

@@ -1,13 +1,4 @@
-// 总管会话的时间线辅助判定：唤醒原因、思考摘要、待决策提示。全部是纯函数，渲染层只消费结果。
-
-/** 与 ThreadMessage 对齐的最小消息形状：只声明这里用到的字段，避免和 ThreadTimeline 互相引用。 */
-export interface StewardTimelineMessage {
-  id: string;
-  role: string;
-  kind?: string;
-  text?: string;
-  isFinalResponse?: boolean;
-}
+// 时间线辅助判定：唤醒原因与思考摘要。
 
 /** 唤醒正文里的事件行：由 internal/steward/wake.go 的 buildWakeMessage 生成，形如「1. 事件 ev-1（看板任务失败）」。 */
 const WAKE_EVENT_LINE = /^\s*\d+\.\s*事件\s+\S+\s*（([^）]*)）/;
@@ -22,8 +13,6 @@ const WAKE_PATROL_PREFIX = '兜底巡检';
 const WAKE_REASON_MAX = 24;
 /** 思考摘要的长度上限。 */
 const HEADLINE_MAX = 60;
-/** 总管请用户拍板时正文的首行前缀。 */
-export const STEWARD_DECISION_PREFIX = '需要你决定：';
 
 /** 按字符（而不是 UTF-16 码元）截断，超出补省略号。 */
 function clip(text: string, max: number): string {
@@ -98,38 +87,3 @@ export function reasoningHeaderTitle(text: string, streaming: boolean): string {
   return headline === '' ? label : `${label} · ${headline}`;
 }
 
-/** 正文里第一个非空行（保留原始缩进，后面再按需剥离标记）。 */
-function firstNonEmptyLine(text: string): string | null {
-  for (const line of text.split('\n')) {
-    if (line.trim() !== '') return line;
-  }
-  return null;
-}
-
-/**
- * 总管最后一条答复是不是在请用户拍板：从后往前找，遇到用户自己说的话就停（说明这条已经翻篇）。
- * 只有最终答复、且首行是「需要你决定：xxx」才算，title 为冒号后的内容。
- */
-export function stewardPendingDecision(
-  messages: readonly StewardTimelineMessage[]
-): { id: string; title: string } | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role === 'user') {
-      // 唤醒与宿主事件虽以用户角色落库，但不是用户在说话
-      if (message.kind === 'steward_wake' || message.kind === 'host_event') continue;
-      return null;
-    }
-    const isAssistant = message.kind === 'assistant' || (!message.kind && message.role === 'assistant');
-    if (!isAssistant || !message.isFinalResponse) continue;
-
-    const line = firstNonEmptyLine(message.text ?? '');
-    if (line === null) continue;
-    const head = line.replace(/^[\s*#]+/, '');
-    if (!head.startsWith(STEWARD_DECISION_PREFIX)) continue;
-    const title = head.slice(STEWARD_DECISION_PREFIX.length).replace(/\*\*/g, '').trim();
-    if (title === '') continue;
-    return { id: message.id, title };
-  }
-  return null;
-}

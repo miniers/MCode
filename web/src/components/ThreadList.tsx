@@ -33,12 +33,8 @@ import { useProjectAutomations } from '../context/remoteAutomationApi';
 import { useAttentionInbox } from '../context/remoteAttentionApi';
 import {
   stewardActionErrorText,
-  useRemoteStewardApi,
-  useStewardChangeVersion,
-  type RemoteStewardTopic
+  useRemoteStewardApi
 } from '../context/remoteStewardApi';
-import { StewardTopicRow, splitStewardTopics, type StewardTopicActionID } from './StewardTopicRow';
-import type { StewardReviewTask } from './StewardTopicSheet';
 import {
   threadRowStatus,
   threadRowStatusAriaLabel,
@@ -50,17 +46,11 @@ import { LazyBoundary } from './LazyFallback';
 import { visibleFilterChips, type ThreadFilter } from '../utils/homeFilterChips';
 import { readHomeQuery, shouldCollapseOnBlur, writeHomeQuery } from '../utils/homeSearch';
 
-// 自动化、主管专题与发起专题三个弹层都只在用户点开时才渲染，首屏用不到，做成懒加载。
+// 自动化弹层只在用户点开时渲染。
 // BulkThreadsSheet 不懒加载：同一模块里的 useBulkThreadsApi 在列表主体里同步使用，
 // 保留那份导入就会把整个模块拉回主包。
 const AutomationSheet = React.lazy(() =>
   import('./AutomationSheet').then((module) => ({ default: module.AutomationSheet }))
-);
-const StewardTopicSheet = React.lazy(() =>
-  import('./StewardTopicSheet').then((module) => ({ default: module.StewardTopicSheet }))
-);
-const StewardStartTopicSheet = React.lazy(() =>
-  import('./StewardTopicSheet').then((module) => ({ default: module.StewardStartTopicSheet }))
 );
 
 // 筛选 chip 的中文名，空态标题与 chip 文案保持一致。
@@ -266,30 +256,6 @@ function ThreadSectionHeading({ title }: { title: string }) {
   );
 }
 
-// 话题阶段文字：running 直接给出目标下的完成进度，drafting 按是否还有待定问题区分。
-function stewardTopicPhaseLabel(topic: RemoteStewardTopic): string {
-  switch (topic.phase) {
-    case 'drafting':
-      return topic.openQuestions > 0 ? `追问中 · ${topic.openQuestions} 个问题` : '任务书待确认';
-    case 'planning':
-      return '规划中';
-    case 'plan_failed':
-      return '规划失败';
-    case 'plan_review':
-      return '审计划中';
-    case 'running':
-      return `执行中 ${topic.tasksDone}/${topic.tasksTotal}`;
-    case 'paused':
-      return '已暂停';
-    case 'completed':
-      return '待结项';
-    case 'cancelled':
-      return '已取消';
-    default:
-      return topic.phase;
-  }
-}
-
 // 跳转目标可能还没加载到列表里（搜索结果、自动化运行记录等，甚至属于其它项目）：
 // App 只用 id 路由，这里补一份最小摘要占位，避免为了跳转先去拉全量列表。
 function threadSummaryStub(
@@ -336,7 +302,7 @@ function messageHitThreadStub(hit: RemoteMessageSearchHit, projectID: string): R
   return threadSummaryStub(hit.threadID, projectID, hit.threadTitle, hit.createdAt);
 }
 
-// 总管固定行：放在当前项目区最上面，点了打开总管主会话，右侧「⋯」是它的菜单（「交给它」入口）。
+// 总管固定行：放在当前项目区最上面，点了打开总管主会话。
 // 行上没有归档 / 置顶等会话操作（桌面端的总管行同样只是一行入口），徽标口径同 internal/ui/sidebar_steward.go：
 // 显示待处理收件箱里未处理的事项数。只有在选中项目且宿主声明 steward.open 时才会挂载，不会多出轮询。
 const StewardFixedRow = React.memo(function StewardFixedRow({
@@ -345,9 +311,7 @@ const StewardFixedRow = React.memo(function StewardFixedRow({
   avatar,
   opening,
   running,
-  canStart,
-  onOpen,
-  onMenu
+  onOpen
 }: {
   projectID: string;
   label: string;
@@ -356,9 +320,7 @@ const StewardFixedRow = React.memo(function StewardFixedRow({
   opening: boolean;
   /** 总管会话正在回复：只转圈，仍允许点开。 */
   running: boolean;
-  canStart: boolean;
   onOpen: () => void;
-  onMenu: () => void;
 }) {
   const busy = opening || running;
   const openLabel = opening
@@ -393,17 +355,6 @@ const StewardFixedRow = React.memo(function StewardFixedRow({
             </span>
           )}
         </button>
-        {canStart && (
-          <button
-            type="button"
-            className="icon-button min-h-[44px] min-w-[44px] shrink-0"
-            onClick={onMenu}
-            aria-label="总管菜单"
-            title="交给它"
-          >
-            <EllipsisHorizontalIcon className="h-4 w-4" />
-          </button>
-        )}
       </div>
     </section>
   );
@@ -1168,7 +1119,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
   const [messageHits, setMessageHits] = useState<RemoteMessageSearchHit[]>([]);
   const [messageHitsLoading, setMessageHitsLoading] = useState(false);
   const [messageHitsError, setMessageHitsError] = useState<string | null>(null);
-  // 总管：话题列表与写操作都走 steward.* 方法，宿主没声明的方法对应入口不显示。
+  // 宿主支持时显示总管入口。
   const stewardApi = useRemoteStewardApi();
   // 称呼与头像以设置为准：昵称留空显示「总管」，头像留空取昵称首字（无昵称时「总」）。
   // 宿主没声明 settings.get 时快照为空，自然落到默认称呼。
@@ -1179,19 +1130,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
   const stewardCustomAvatar = typeof stewardAvatarValue === 'string' ? stewardAvatarValue : '';
   const stewardDisplayLabel = stewardLabel(stewardNickname);
   const stewardDisplayAvatar = stewardAvatarText(stewardNickname, stewardCustomAvatar);
-  const [stewardTopics, setStewardTopics] = useState<RemoteStewardTopic[]>([]);
-  const [stewardTopicsOpen, setStewardTopicsOpen] = useState(true);
-  // 历史折叠区（已结项 / 已取消的话题）默认收起，对齐桌面端 renderSidebarStewardHistoryRow。
-  const [stewardHistoryOpen, setStewardHistoryOpen] = useState(false);
-  const [stewardSheetTopic, setStewardSheetTopic] = useState<RemoteStewardTopic | null>(null);
-  const [stewardStartOpen, setStewardStartOpen] = useState(false);
-  const [stewardStartBusy, setStewardStartBusy] = useState(false);
-  const [stewardStartError, setStewardStartError] = useState<string | null>(null);
   const [stewardOpenBusy, setStewardOpenBusy] = useState(false);
-  // 话题列表加载失败的原因；失败时保留上一次的话题，只在列表上方留一句可重试的提示。
-  const [stewardTopicsError, setStewardTopicsError] = useState<string | null>(null);
-  // 动作成功后主动重拉一次；宿主的 steward.changed 推送也会把版本号推前进。
-  const [stewardReloadToken, setStewardReloadToken] = useState(0);
 
   const bulkApi = useBulkThreadsApi();
   // 自动化面板入口只在宿主声明 automations.list 且已选项目时出现；未读数直接复用列表 hook。
@@ -1202,54 +1141,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
 
   const projectName = projects.find((project) => project.id === projectID)?.name;
   const isConnected = connectionState === 'connected';
-  const { supportsTopics, supportsOpen, supportsStart, supportsConfirm, supportsReplan, supportsClose, supportsDelete, supportsReviewTask, listTopics } = stewardApi;
-  // 宿主在任何一端改了话题（新建、验收、结项、删除）都会推 steward.changed，版本号前进即重拉。
-  const stewardChangedVersion = useStewardChangeVersion(projectID ?? null, supportsTopics && isConnected);
-
-  // 连接可用时按当前项目拉取话题；失败时保留上一次的话题并记下原因，不影响会话列表。
-  useEffect(() => {
-    if (!supportsTopics || !isConnected) {
-      setStewardTopics([]);
-      setStewardTopicsError(null);
-      return;
-    }
-    let cancelled = false;
-    void listTopics(projectID ?? undefined)
-      .then((items) => {
-        if (cancelled) return;
-        setStewardTopics(items);
-        setStewardTopicsError(null);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setStewardTopicsError(
-          error instanceof Error && error.message ? error.message : '话题列表没加载出来'
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [supportsTopics, listTopics, projectID, isConnected, stewardChangedVersion, stewardReloadToken]);
-
-  const reloadStewardTopics = useCallback(() => {
-    setStewardReloadToken((token) => token + 1);
-  }, []);
-
-  const { active: activeStewardTopics, history: stewardHistoryTopics } = useMemo(
-    () => splitStewardTopics(stewardTopics),
-    [stewardTopics]
-  );
-
-  const openStewardTopicThread = useCallback(
-    (topic: RemoteStewardTopic) => {
-      // 话题会话已在列表里时用手上的真实摘要，否则补一份最小占位。
-      const known = threads.find((thread) => thread.id === topic.threadID);
-      onSelectThread(
-        known ?? threadSummaryStub(topic.threadID, topic.projectID, topic.title, topic.updatedAt)
-      );
-    },
-    [onSelectThread, threads]
-  );
+  const { supportsOpen } = stewardApi;
 
   // 总管固定行：打开总管主会话（没有就由宿主新建），再按会话 ID 跳到它。
   const handleOpenSteward = useCallback(async () => {
@@ -1270,65 +1162,6 @@ export const ThreadList: React.FC<ThreadListProps> = ({
     }
   }, [projectID, supportsOpen, stewardOpenBusy, stewardApi, onSelectThread, threads, stewardDisplayLabel]);
 
-  // 「交给它」：写一句需求就开一个新话题。本机先拦一次空需求，宿主也会再校验。
-  const handleStewardStartTopic = useCallback(
-    async (request: string) => {
-      if (!projectID || stewardStartBusy) return;
-      setStewardStartBusy(true);
-      setStewardStartError(null);
-      try {
-        await stewardApi.startTopic(projectID, request);
-        setStewardStartOpen(false);
-        reloadStewardTopics();
-      } catch (error) {
-        setStewardStartError(stewardActionErrorText(error, '交办失败，请稍后重试'));
-      } finally {
-        setStewardStartBusy(false);
-      }
-    },
-    [projectID, stewardStartBusy, stewardApi, reloadStewardTopics]
-  );
-
-  // 话题动作：失败直接把错误抛给面板，由面板展示与保持打开。
-  const handleStewardTopicAction = useCallback(
-    async (action: StewardTopicActionID) => {
-      const topic = stewardSheetTopic;
-      if (!topic) throw new Error('话题已关闭');
-      switch (action) {
-        case 'confirm':
-          await stewardApi.confirmTopic(topic.projectID, topic.threadID);
-          break;
-        case 'replan':
-          await stewardApi.replanTopic(topic.projectID, topic.threadID);
-          break;
-        case 'close':
-          await stewardApi.closeTopic(topic.projectID, topic.threadID);
-          break;
-        case 'delete':
-          await stewardApi.deleteTopic(topic.projectID, topic.threadID);
-          break;
-      }
-      reloadStewardTopics();
-    },
-    [stewardSheetTopic, stewardApi, reloadStewardTopics]
-  );
-
-  const handleStewardReviewTask = useCallback(
-    async (review: StewardReviewTask, decision: 'accept' | 'reject', feedback?: string) => {
-      const topic = stewardSheetTopic;
-      if (!topic) throw new Error('话题已关闭');
-      await stewardApi.reviewTask({
-        projectID: topic.projectID,
-        threadID: topic.threadID,
-        taskID: review.id,
-        decision,
-        feedback,
-        revision: review.revision
-      });
-      reloadStewardTopics();
-    },
-    [stewardSheetTopic, stewardApi, reloadStewardTopics]
-  );
   const canCreate = Boolean(
     capabilities?.methods.includes('threads.create') &&
     capabilities.methods.includes('threads.actionStatus')
@@ -1723,9 +1556,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
             avatar={stewardDisplayAvatar}
             opening={stewardOpenBusy}
             running={stewardRunning}
-            canStart={supportsStart}
             onOpen={() => void handleOpenSteward()}
-            onMenu={() => setStewardStartOpen(true)}
           />
         )}
         {messageSearchSupported && messageNeedle.length > 1 && (
@@ -1765,95 +1596,6 @@ export const ThreadList: React.FC<ThreadListProps> = ({
                   </li>
                 ))}
               </ul>
-            )}
-          </section>
-        )}
-        {filter !== 'archived' && !messageNeedle && (stewardTopicsError !== null || activeStewardTopics.length > 0 || stewardHistoryTopics.length > 0) && (
-          <section className="gutter-x pt-3 pb-1" aria-label="总管的话题">
-            {stewardTopicsError !== null && (
-              <div className="flex items-center gap-2 pb-1 text-xs text-muted">
-                <span className="min-w-0 truncate" title={stewardTopicsError}>
-                  话题列表没加载出来
-                </span>
-                <button
-                  type="button"
-                  className="inline-alert__action"
-                  aria-label="重试加载总管的话题"
-                  onClick={reloadStewardTopics}
-                >
-                  重试
-                </button>
-              </div>
-            )}
-            {activeStewardTopics.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setStewardTopicsOpen((value) => !value)}
-                  aria-expanded={stewardTopicsOpen}
-                  aria-label={stewardTopicsOpen ? '收起总管的话题' : '展开总管的话题'}
-                  className="flex w-full items-center gap-2 pb-1 text-left text-label font-medium text-muted"
-                >
-                  <ChevronDownIcon
-                    className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
-                      stewardTopicsOpen ? '' : '-rotate-90'
-                    }`}
-                  />
-                  <span className="shrink-0">总管的话题</span>
-                  <span className="shrink-0 text-mc-caption">{activeStewardTopics.length}</span>
-                  <span className="h-px flex-1 bg-border-subtle" aria-hidden="true" />
-                </button>
-                {stewardTopicsOpen && (
-                  <ul className="space-y-1">
-                    {activeStewardTopics.map((topic) => (
-                      <li key={topic.threadID}>
-                        <StewardTopicRow
-                          topic={topic}
-                          phaseLabel={stewardTopicPhaseLabel(topic)}
-                          projectName={!projectID ? projects.find((project) => project.id === topic.projectID)?.name : undefined}
-                          onOpen={openStewardTopicThread}
-                          onMore={setStewardSheetTopic}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-            {stewardHistoryTopics.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setStewardHistoryOpen((value) => !value)}
-                  aria-expanded={stewardHistoryOpen}
-                  aria-label={stewardHistoryOpen ? '收起总管话题历史' : '展开总管话题历史'}
-                  className="mt-1 flex w-full items-center gap-2 pb-1 text-left text-label font-medium text-muted"
-                >
-                  <ChevronDownIcon
-                    className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
-                      stewardHistoryOpen ? '' : '-rotate-90'
-                    }`}
-                  />
-                  <span className="shrink-0">历史</span>
-                  <span className="shrink-0 text-mc-caption">{stewardHistoryTopics.length}</span>
-                  <span className="h-px flex-1 bg-border-subtle" aria-hidden="true" />
-                </button>
-                {stewardHistoryOpen && (
-                  <ul className="space-y-1">
-                    {stewardHistoryTopics.map((topic) => (
-                      <li key={topic.threadID}>
-                        <StewardTopicRow
-                          topic={topic}
-                          phaseLabel={stewardTopicPhaseLabel(topic)}
-                          projectName={!projectID ? projects.find((project) => project.id === topic.projectID)?.name : undefined}
-                          onOpen={openStewardTopicThread}
-                          onMore={setStewardSheetTopic}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
             )}
           </section>
         )}
@@ -2082,40 +1824,6 @@ export const ThreadList: React.FC<ThreadListProps> = ({
         />
       )}
 
-      {stewardSheetTopic && (
-        <LazyBoundary label="正在加载专题…">
-          <StewardTopicSheet
-            topic={stewardSheetTopic}
-            phaseLabel={stewardTopicPhaseLabel(stewardSheetTopic)}
-            projectName={projects.find((project) => project.id === stewardSheetTopic.projectID)?.name}
-            caps={{
-              confirm: supportsConfirm,
-              replan: supportsReplan,
-              close: supportsClose,
-              delete: supportsDelete
-            }}
-            canReviewTask={supportsReviewTask}
-            onClose={() => setStewardSheetTopic(null)}
-            onRunAction={handleStewardTopicAction}
-            onReviewTask={handleStewardReviewTask}
-          />
-        </LazyBoundary>
-      )}
-
-      {stewardStartOpen && projectID && (
-        <LazyBoundary label="正在加载发起表单…">
-          <StewardStartTopicSheet
-            projectName={projectName}
-            busy={stewardStartBusy}
-            error={stewardStartError}
-            onClose={() => {
-              setStewardStartOpen(false);
-              setStewardStartError(null);
-            }}
-            onSubmit={handleStewardStartTopic}
-          />
-        </LazyBoundary>
-      )}
     </div>
   );
 };

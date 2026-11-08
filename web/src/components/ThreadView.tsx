@@ -10,7 +10,7 @@ import {
   RemoteComposerOptions
 } from '../types/contract';
 import { useRemote } from '../context/RemoteContext';
-import { makeActionID, isThreadBusy, mergeThreadSummary } from '../context/remoteGuards';
+import { makeActionID, mergeThreadSummary } from '../context/remoteGuards';
 import { isPreviewableImageFile } from '../context/remoteImages';
 import { RpcError } from '../services/rpc';
 import type {
@@ -49,7 +49,6 @@ import { ThreadViewHeader } from './thread/ThreadViewHeader';
 import { menuBaseForRoute } from './thread/menu/menuRouteOpen';
 import type { ThreadMenuPage, ThreadMenuPageHandle, ThreadMenuPageSpec } from './thread/menu/menuPages';
 import type { SaveTaskBodyProps } from './thread/SaveTaskForm';
-import { stewardPendingDecision } from './timeline/stewardTimeline';
 import { QueuedFollowUpSection } from './thread/QueuedFollowUpSection';
 import { ContinueTurnPill } from './thread/ContinueTurnPill';
 import { QuestionMinimap, buildQuestionMinimapData } from './thread/QuestionMinimap';
@@ -80,7 +79,6 @@ import type { FindMatch } from '../utils/findHighlight';
 import { isErrorMessage } from '../utils/continuation';
 import { stripReferencedThreadBlock } from '../utils/threadMention';
 import { useTurnElapsedSeconds } from '../hooks/useTurnElapsedSeconds';
-import { splitSessionViewFor, useRemoteSplitApi } from '../context/remoteSplitApi';
 import { countUnreadMessages, createUnreadAnchor, formatUnreadCount } from '../utils/unreadCount';
 import { createFrameCoalescer } from '../utils/frameCoalescer';
 import type { UnreadAnchor } from '../utils/unreadCount';
@@ -279,10 +277,6 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const [findQuery, setFindQuery] = useState('');
   const [findCaseSensitive, setFindCaseSensitive] = useState(false);
   const [findCursor, setFindCursor] = useState(0);
-  // 总管决策条：用户关掉过的答复 id；点击标题时用一个短命的 id 借用时间线的定位能力
-  const [dismissedDecisionIDs, setDismissedDecisionIDs] = useState<Set<string>>(() => new Set());
-  const [decisionFocusID, setDecisionFocusID] = useState<string | null>(null);
-  const decisionFocusTimerRef = useRef<number | null>(null);
   // 用户在本端点了停止且已成功：继续胶囊据此显示「上一轮已中断」，新一轮开始或再次发送时清除
   const [locallyInterrupted, setLocallyInterrupted] = useState(false);
   const [interruptAndSendState, setInterruptAndSendState] = useState<'idle' | 'sending'>('idle');
@@ -592,12 +586,6 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     return () => observer.disconnect();
   }, [recomputeActiveExpanded, thread.id]);
   // 决策条的跳转 id 约 300ms 后被清空，卸载时把未触发的定时器一起清掉
-  useEffect(
-    () => () => {
-      if (decisionFocusTimerRef.current !== null) window.clearTimeout(decisionFocusTimerRef.current);
-    },
-    []
-  );
   // 发送后锚定期间置为 true：贴底跟随据此暂停，锚定解除后恢复（见 thread/useSendAnchor.ts）
   const messagesRef = useRef<ThreadMessage[]>([]);
   const frameCoalescerRef = useRef<ReturnType<typeof createFrameCoalescer> | null>(null);
@@ -2119,58 +2107,11 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       setRequestPanelFlashNonce((previous) => previous + 1);
     }
   }, [jumpRequest, messages.length, requestSnapshot]);
-  // 总管最后一条答复在请用户拍板时，时间线上方常驻一条决策条
-  const pendingDecision = useMemo(
-    () => (isStewardThread ? stewardPendingDecision(messages) : null),
-    [isStewardThread, messages]
-  );
-  const dismissDecision = useCallback((messageID: string) => {
-    setDismissedDecisionIDs((previous) => {
-      const next = new Set(previous);
-      next.add(messageID);
-      return next;
-    });
-  }, []);
-  const jumpToDecision = useCallback((messageID: string) => {
-    setDecisionFocusID(messageID);
-    if (decisionFocusTimerRef.current !== null) window.clearTimeout(decisionFocusTimerRef.current);
-    // 300ms 后清空：focusMessageID 变化才会重新触发定位，清空后重复点击仍能再滚一次
-    decisionFocusTimerRef.current = window.setTimeout(() => {
-      decisionFocusTimerRef.current = null;
-      setDecisionFocusID(null);
-    }, 300);
-  }, []);
   // 快捷回复只在会话确实有可见消息时出现：口径与时间线一致，滤掉总管唤醒与不产生行的静默回复
   const hasVisibleMessages = useMemo(
     () => messages.some((message) => !isHiddenTimelineMessage(message)),
     [messages]
   );
-  // 总管会话的分割入口：显示与禁用规则与桌面 splitSessionViewFor 一致，
-  // 断线时同样禁用（桌面是本地进程内调用，Web 断线点击必然失败）。
-  const { supported: splitSupported, splitSession } = useRemoteSplitApi();
-  const splitView = useMemo(
-    () =>
-      splitSessionViewFor({
-        isSteward: isStewardThread,
-        hasMessages: hasVisibleMessages,
-        busy: isSending || isThreadBusy(latestSummary) || !isConnected
-      }),
-    [isStewardThread, hasVisibleMessages, isSending, latestSummary, isConnected]
-  );
-  const handleSplitSession = useCallback(async () => {
-    if (!splitSupported || !splitView.show || splitView.disabled) return;
-    setThreadActionError(null);
-    try {
-      await splitSession(thread.id);
-      if (!mountedRef.current) return;
-      setCommandNotice({ kind: 'local', text: '已分割，下一条消息不再带上面的历史' });
-      // 分割线是宿主新增的一条消息，订阅不一定推过来，主动重拉最新一页让它立刻出现。
-      void loadPage(null, false);
-    } catch (err) {
-      // 宿主已经把错误翻成中文原文（运行中 / 空会话 / 线程不存在），原样显示
-      if (mountedRef.current) setThreadActionError(err instanceof Error ? err.message : '分割会话失败');
-    }
-  }, [splitSupported, splitView.show, splitView.disabled, splitSession, thread.id, loadPage]);
   // 输入框方向键历史：按时间顺序的用户消息原文（空草稿按 ↑ 翻上一条）
   // 对应 internal/ui/composer_history.go:15 的 composerHistoryEntries
   const composerHistoryEntryList = useMemo(() => composerHistoryEntries(messages), [messages]);
@@ -2186,8 +2127,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   // 关键词、大小写开关或会话变化后游标可能越界，取值时直接夹到 [0, total-1]
   const findCursorIndex = findHits.length === 0 ? 0 : Math.min(Math.max(findCursor, 0), findHits.length - 1);
   const findFocusMessageID = findOpen && findHits.length > 0 ? findHits[findCursorIndex].messageID : null;
-  // 决策条跳转与查找共用同一套定位：查找命中优先，否则用决策条临时设定的 id
-  const focusMessageID = findFocusMessageID ?? decisionFocusID;
+  const focusMessageID = findFocusMessageID;
   // 交给时间线定位并加亮的那一处命中（同一条消息内的第 occurrence 处）
   const activeFindMatch =
     findOpen && findHits.length > 0
@@ -3049,32 +2989,6 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
         >
         {/* 宽屏下正文限宽并居中，与底部输入区同列；滚动条仍贴窗口最右侧 */}
         <div ref={contentRef} className="space-y-3 w-full max-w-[880px] mx-auto">
-          {/* 总管决策条：需要用户拍板的答复常驻在顶部，点标题跳过去，也可以手动关掉 */}
-          {pendingDecision && !dismissedDecisionIDs.has(pendingDecision.id) && (
-            <div
-              role="status"
-              className="sticky top-0 z-20 flex items-center gap-2 rounded-xl border border-[var(--warning-foreground)] bg-[var(--card)] px-3 py-2 shadow-sm"
-            >
-              <ExclamationTriangleIcon className="w-4 h-4 shrink-0 text-[var(--warning-foreground)]" />
-              <span className="shrink-0 text-mc-footnote font-semibold text-[var(--warning-foreground)]">需要你决定</span>
-              <button
-                type="button"
-                onClick={() => jumpToDecision(pendingDecision.id)}
-                title={pendingDecision.title}
-                className="min-w-0 flex-1 truncate text-left text-mc-body text-[var(--foreground)] hover:underline"
-              >
-                {pendingDecision.title}
-              </button>
-              <button
-                type="button"
-                aria-label="关闭"
-                onClick={() => dismissDecision(pendingDecision.id)}
-                className="shrink-0 grid place-items-center w-6 h-6 rounded-md text-[var(--foreground-muted)] hover:bg-[var(--user-bubble)] transition"
-              >
-                <XMarkIcon className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
           {/* 分叉来源：细线夹着来源会话标题，可点击跳回源会话 */}
           {forkedFromThreadID && (
             <div className="flex items-center gap-2 pb-1 text-mc-caption text-[var(--foreground-muted)]">
@@ -3577,8 +3491,6 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
               isPolling={isPolling}
               sendDisabled={sendDisabled}
               hasMessages={hasVisibleMessages}
-              onSplitSession={splitSupported && splitView.show ? handleSplitSession : undefined}
-              splitSessionDisabled={splitView.disabled}
               attachments={attachments}
               attachmentPreviews={attachmentPreviews}
               isUploadingAttachment={isUploadingAttachment}

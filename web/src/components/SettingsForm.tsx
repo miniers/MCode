@@ -730,15 +730,14 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
           error={errors['steward.enabled']}
           onChange={(next) => void commit('steward.enabled', next)}
         />
-        {hasKey('steward.auto_collapse_reasoning') && (
+        {hasKey('steward.cli_fallback') && (
           <ToggleField
-            itemID="row-steward-auto-collapse-reasoning"
-            label="自动折叠思考过程"
-            note="总管会话的思考默认收成一行，关闭则保持展开；不影响其他会话"
-            checked={asBool(values['steward.auto_collapse_reasoning'], true)}
+            itemID="row-steward-cli-fallback"
+            label="没有 API Key 时用本机 CLI"
+            checked={asBool(values['steward.cli_fallback'])}
             disabled={busy}
-            error={errors['steward.auto_collapse_reasoning']}
-            onChange={(next) => void commit('steward.auto_collapse_reasoning', next)}
+            error={errors['steward.cli_fallback']}
+            onChange={(next) => void commit('steward.cli_fallback', next)}
           />
         )}
         <DraftField

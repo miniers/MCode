@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"mcode/internal/agent/llm"
 	"mcode/internal/apisource"
@@ -106,7 +107,12 @@ func (r frontdeskReceiver) Enqueue(id, text string, images []string) {
 	r.desk.Enqueue(frontdesk.Inbound{ThreadID: id, Text: text, Images: parts})
 }
 
-func (a *App) notifyFrontdesk(title, body, thread string) error {
+func (a *App) notifyFrontdesk(dataDir, title, body, thread string) error {
+	if cfg, err := config.Load(dataDir); err == nil {
+		if quiet, _ := cfg.Orchestration.Steward.QuietWindow(time.Now()); quiet {
+			return nil
+		}
+	}
 	a.notifyMu.RLock()
 	fn := a.ownerNotify
 	a.notifyMu.RUnlock()
@@ -137,13 +143,16 @@ func wireFrontdesk(a *App, dataDir string) {
 		cfg = config.Defaults()
 	}
 	home := cfg.Orchestration.Steward.ResolvedHomeDir(dataDir)
-	projectID, err := ensureFrontdeskProject(ctx, a.backend, home)
-	if err != nil {
-		log.Printf("前台创建项目失败: %v", err)
-	}
-	if projectID != "" {
-		if _, err := a.backend.EnsureStewardFeedThread(ctx, projectID); err != nil {
-			log.Printf("前台创建会话失败: %v", err)
+	var projectID string
+	if cfg.Orchestration.Steward.Enabled {
+		projectID, err = ensureFrontdeskProject(ctx, a.backend, home)
+		if err != nil {
+			log.Printf("前台创建项目失败: %v", err)
+		}
+		if projectID != "" {
+			if _, err := a.backend.EnsureStewardFeedThread(ctx, projectID); err != nil {
+				log.Printf("前台创建会话失败: %v", err)
+			}
 		}
 	}
 	services := &frontdeskServices{store: a.store, backend: a.backend, kanban: a.kanban, homeID: projectID, homePath: home}
@@ -213,7 +222,7 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 			if result.Status == kanban.ResultNeedsDecision {
 				body = result.Question
 			}
-			if err := a.notifyFrontdesk(task.Title, body, feedID); err != nil {
+			if err := a.notifyFrontdesk(dataDir, task.Title, body, feedID); err != nil {
 				log.Printf("前台推送失败: %v", err)
 			}
 		}

@@ -9,7 +9,6 @@ const DEVICE_LABEL_KEY = 'mcode_remote_device_label';
 const THEME_KEY = 'mcode_remote_theme_preference';
 const HAPTICS_KEY = 'mcode_remote_haptics';
 const AUTO_COLLAPSE_KEY = 'mcode_remote_auto_collapse_reasoning';
-const STEWARD_AUTO_COLLAPSE_KEY = 'mcode_remote_steward_auto_collapse_reasoning';
 const ENVIRONMENT_STATE_KEY = 'mcode_remote_environment_state_v1';
 const PAIR_TOKEN_PATTERN = /^(?:[0-9a-fA-F]{64}|[0-9]{6})$/;
 
@@ -348,30 +347,3 @@ export function setStoredAutoCollapse(enabled: boolean): void {
   window.dispatchEvent(new CustomEvent<boolean>(AUTO_COLLAPSE_CHANGED_EVENT, { detail: enabled }));
 }
 
-/**
- * 「总管会话自动折叠思考过程」偏好：只作用于总管会话，默认开启。
- * 与通用的自动折叠偏好完全独立，两套存储、两套事件互不影响。
- */
-export const STEWARD_AUTO_COLLAPSE_CHANGED_EVENT = 'mcode:steward-auto-collapse-changed';
-
-export function getStoredStewardAutoCollapse(): boolean {
-  if (typeof window === 'undefined') return true;
-  try {
-    const val = window.localStorage.getItem(STEWARD_AUTO_COLLAPSE_KEY);
-    if (val === 'true') return true;
-    if (val === 'false') return false;
-  } catch {
-    // 忽略
-  }
-  return true;
-}
-
-export function setStoredStewardAutoCollapse(enabled: boolean): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(STEWARD_AUTO_COLLAPSE_KEY, enabled ? 'true' : 'false');
-  } catch {
-    // 忽略
-  }
-  window.dispatchEvent(new CustomEvent<boolean>(STEWARD_AUTO_COLLAPSE_CHANGED_EVENT, { detail: enabled }));
-}

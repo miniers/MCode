@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"mcode/internal/agent/llm"
 	"mcode/internal/config"
@@ -97,6 +98,41 @@ func TestFrontdeskReceiverEnabledAtRuntime(t *testing.T) {
 	}
 }
 
+func TestWireFrontdeskDisabledDoesNotCreateProject(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	disableStewardForTest(t, dir)
+	db, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	defer hub.Close()
+	backend := remote.NewMemoryBackend(hub)
+	defer backend.Close()
+	if err := backend.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	backend.AddProject(wire.ProjectSummary{ID: "project", Name: "项目", Path: filepath.Join(dir, "project")})
+	before, err := backend.ListProjects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wireFrontdesk(&App{store: db, backend: backend, kanban: kanban.NewService(kanban.Options{})}, dir)
+	after, err := backend.ListProjects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Projects) != len(before.Projects) {
+		t.Fatalf("未启用总管时项目数变化：%d → %d", len(before.Projects), len(after.Projects))
+	}
+	feedID, _, err := db.GetSetting(ctx, "steward.feed_thread_id")
+	if err != nil || feedID != "" {
+		t.Fatalf("未启用总管时不应创建会话：%q，%v", feedID, err)
+	}
+}
+
 func TestFrontdeskClientNoModel(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Defaults()
@@ -121,6 +157,8 @@ func TestFrontdeskResultRouting(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Models.Provider = "claude"
 	cfg.Orchestration.Steward.Enabled = true
+	cfg.Orchestration.Steward.QuietStart = ""
+	cfg.Orchestration.Steward.QuietEnd = ""
 	if err := config.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -175,5 +213,43 @@ func TestFrontdeskResultRouting(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(messages[2].Text), &payload); err != nil || payload.ID != decision.ID || payload.Question != decision.Question || len(payload.Options) != 2 {
 		t.Fatalf("决策内容错误: %+v %v", payload, err)
+	}
+}
+
+func TestFrontdeskQuietWindowKeepsResult(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Orchestration.Steward.Enabled = true
+	now := time.Now()
+	cfg.Orchestration.Steward.QuietStart = now.Add(-time.Hour).Format("15:04")
+	cfg.Orchestration.Steward.QuietEnd = now.Add(time.Hour).Format("15:04")
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	defer hub.Close()
+	backend := remote.NewMemoryBackend(hub)
+	defer backend.Close()
+	if err := backend.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	backend.AddProject(wire.ProjectSummary{ID: "home", Name: "总管", Path: filepath.Join(dir, "home")})
+	feedID, err := backend.EnsureStewardFeedThread(ctx, "home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pushes := 0
+	a := &App{store: db, backend: backend, ownerNotify: func(_, _, _ string) error { pushes++; return nil }}
+	task := store.Task{ID: "owner", Title: "任务", Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner"})}
+	frontdeskResultHandler(a, dir)(ctx, task, kanban.ExecutorResult{Status: kanban.ResultDone, Summary: "完成"})
+	messages, _, err := db.ListMessages(ctx, feedID, 0, 10)
+	if err != nil || len(messages) != 1 || pushes != 0 {
+		t.Fatalf("安静时段应保存结果且不推送：消息 %d，推送 %d，错误 %v", len(messages), pushes, err)
 	}
 }
