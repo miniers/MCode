@@ -2943,7 +2943,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
   // 一次遍历把汇报配到发起胶囊上：只在这里算一次，胶囊自身不再扫时间线
   const swarmReportIndex = React.useMemo(() => buildSwarmReportIndex(items), [items]);
   const decisionAnswers = React.useMemo(
-    () => latestDecisionAnswers(items.flatMap((item) => item.type === 'message' ? [item.message] : item.entries)),
+    () => latestDecisionAnswers(items.flatMap((item) => item.type === 'message' ? [item.message] : item.type === 'workRecord' ? item.entries : [])),
     [items]
   );
   // 汇报全并进发起胶囊的消息整行跳过，虚拟列表的 count 与索引都基于这份可见列表
