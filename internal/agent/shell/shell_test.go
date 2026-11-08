@@ -167,3 +167,48 @@ func TestRunWithoutTrackerIsUnchanged(t *testing.T) {
 		t.Fatal("空的 ctx 不应携带进程回调")
 	}
 }
+
+func TestCleanupOldShellLogs(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mcode-shell")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldLog := filepath.Join(dir, "mcode-shell-old.log")
+	newLog := filepath.Join(dir, "mcode-shell-new.log")
+	for _, path := range []string{oldLog, newLog} {
+		if err := os.WriteFile(path, []byte("output"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldTime := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(oldLog, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	cleanupOldShellLogs(dir)
+	if _, err := os.Stat(oldLog); !os.IsNotExist(err) {
+		t.Fatalf("旧日志未被删除：%v", err)
+	}
+	if _, err := os.Stat(newLog); err != nil {
+		t.Fatalf("新日志被误删：%v", err)
+	}
+}
+
+func TestRunWritesFullOutputInShellDir(t *testing.T) {
+	unixOnly(t)
+	root := t.TempDir()
+	previous := shellTempDir
+	shellTempDir = func() string { return root }
+	defer func() { shellTempDir = previous }()
+	result, err := Run(context.Background(), Options{Command: "i=0; while [ $i -lt 3000 ]; do echo line-$i; i=$((i+1)); done; echo END-MARKER"}, nil)
+	if err != nil || result.FullOutputPath == "" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	defer os.Remove(result.FullOutputPath)
+	wantDir := filepath.Join(root, "mcode-shell")
+	if filepath.Dir(result.FullOutputPath) != wantDir {
+		t.Fatalf("完整输出目录=%q want=%q", filepath.Dir(result.FullOutputPath), wantDir)
+	}
+	if info, err := os.Stat(wantDir); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("目录权限异常：%v %v", info, err)
+	}
+}

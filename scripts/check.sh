@@ -79,4 +79,11 @@ else
     echo "web/node_modules 不存在，跳过前端类型检查"
 fi
 
+echo "==> 前端测试"
+if [[ -d web/node_modules ]]; then
+    (cd web && npm test --silent)
+else
+    echo "web/node_modules 不存在，跳过前端测试"
+fi
+
 echo "全部检查通过"

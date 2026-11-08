@@ -16,7 +16,7 @@ import { useRemoteStatic } from '../context/RemoteContext';
 import { isPreviewableImageFile } from '../context/remoteImages';
 import type { RemoteThreadAction } from '../context/RemoteContext';
 import { ChevronRightIcon, ExclamationTriangleIcon, XMarkIcon } from './Icons';
-import { ThreadComposer } from './ThreadComposer';
+import { ThreadComposer, composerAttachmentLimit } from './ThreadComposer';
 
 interface ThreadDraftViewProps {
   project: RemoteProjectSummary;
@@ -113,6 +113,7 @@ export const ThreadDraftView: React.FC<ThreadDraftViewProps> = ({ project, onBac
     capabilities?.features?.includes('threads.attachments') &&
     capabilities.methods.includes('attachments.upload')
   );
+  const attachmentLimit = composerAttachmentLimit(capabilities?.attachmentLimit);
   const canCreate = Boolean(
     capabilities?.methods.includes('threads.create') && capabilities.methods.includes('threads.actionStatus')
   );
@@ -270,8 +271,8 @@ export const ThreadDraftView: React.FC<ThreadDraftViewProps> = ({ project, onBac
   const handleAddAttachments = useCallback(async (files: FileList | null) => {
     if (!attachmentsSupported || !files || files.length === 0 || isUploadingAttachment) return;
     const incoming = Array.from(files);
-    if (attachmentsRef.current.length + incoming.length > 4) {
-      setAttachmentError('每条消息最多添加 4 个附件');
+    if (attachmentsRef.current.length + incoming.length > attachmentLimit) {
+      setAttachmentError(`每条消息最多添加 ${attachmentLimit} 个附件`);
       return;
     }
     setAttachmentError(null);
@@ -295,7 +296,7 @@ export const ThreadDraftView: React.FC<ThreadDraftViewProps> = ({ project, onBac
     } finally {
       setIsUploadingAttachment(false);
     }
-  }, [attachmentsSupported, isUploadingAttachment, releaseAttachmentPreviews, setAttachmentPreview, uploadAttachment]);
+  }, [attachmentLimit, attachmentsSupported, isUploadingAttachment, releaseAttachmentPreviews, setAttachmentPreview, uploadAttachment]);
 
   const removeAttachment = useCallback((attachmentID: string) => {
     setAttachments((previous) => previous.filter((attachment) => attachment.attachmentID !== attachmentID));
@@ -508,6 +509,7 @@ export const ThreadDraftView: React.FC<ThreadDraftViewProps> = ({ project, onBac
         composerOptionsDisabled={isSubmitting || Boolean(createdThreadID)}
         composerOptionsMessage={!composerOptionsSupported ? '当前宿主未声明 composer options，将使用 Mac 默认设置。' : null}
         attachmentsSupported={attachmentsSupported}
+        attachmentLimit={attachmentLimit}
         onComposerOptionsChange={composerOptionsSupported ? updateComposerOptions : undefined}
         swarmEnabled={composerOptions.swarmEnabled ?? false}
         swarmToggleDisabled={isSubmitting || Boolean(createdThreadID)}

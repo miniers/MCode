@@ -139,7 +139,11 @@ type progressSnapshot struct {
 type Manager struct {
 	opts Options
 
-	mu               sync.Mutex
+	mu sync.Mutex
+	// deliverMu 把「检查 stoppedByUser」与汇报/空闲投递串起来：StopAll 先拿它再翻转标记，
+	// 因此停止要么等当前投递完成，要么先于检查生效让投递被跳过。
+	// 锁顺序固定为先 deliverMu 再 mu；持 mu 时不得获取 deliverMu。
+	deliverMu        sync.Mutex
 	dispatchMu       sync.Mutex
 	persistMu        sync.Mutex
 	leads            map[string]*leadState
@@ -2882,14 +2886,19 @@ func (m *Manager) checkReports(ctx context.Context) {
 			}
 			// 先存档全文再拼汇报：汇报里的超长总结会被截断，主代理和界面都靠存档取回全文。
 			m.archiveReports(ctx, r.leadThreadID, r.bees)
+			// 先拿 deliverMu 再读 stoppedByUser：StopAll 同样先拿 deliverMu 再翻转标记，
+			// 因此停止要么等这次投递完成，要么先于检查生效让本次跳过。
+			m.deliverMu.Lock()
 			m.mu.Lock()
 			lead := m.leads[r.leadThreadID]
 			stopped := lead != nil && lead.stoppedByUser
 			m.mu.Unlock()
 			if stopped {
+				m.deliverMu.Unlock()
 				continue
 			}
 			if err := m.opts.OnReport(r.leadThreadID, BuildReport(r.bees)); err != nil {
+				m.deliverMu.Unlock()
 				log.Printf("swarm: report to %s failed: %v", r.leadThreadID, err)
 				continue
 			}
@@ -2902,6 +2911,7 @@ func (m *Manager) checkReports(ctx context.Context) {
 				}
 			}
 			m.mu.Unlock()
+			m.deliverMu.Unlock()
 			m.persistLead(r.leadThreadID)
 			if !sent[r.leadThreadID] {
 				sent[r.leadThreadID] = true
@@ -2930,14 +2940,18 @@ func (m *Manager) checkReports(ctx context.Context) {
 			if st, ok := m.leadSessionState(ctx, leadID); ok && st.Interrupted {
 				continue
 			}
+			// 与汇报投递同样先拿 deliverMu：StopAll 生效后不再回调，避免把 Lead 自动续跑。
+			m.deliverMu.Lock()
 			m.mu.Lock()
 			lead := m.leads[leadID]
 			stopped := lead != nil && lead.stoppedByUser
 			m.mu.Unlock()
 			if stopped {
+				m.deliverMu.Unlock()
 				continue
 			}
 			m.opts.OnBeesIdle(ctx, leadID)
+			m.deliverMu.Unlock()
 		}
 	}
 	for _, leadID := range sentLeads {
@@ -4299,10 +4313,14 @@ func (m *Manager) StopBee(ctx context.Context, leadThreadID, beeThreadID string)
 
 // StopAll 停止指定主会话下的所有处于 running 状态的子会话。
 func (m *Manager) StopAll(ctx context.Context, leadThreadID string) error {
+	// 先拿 deliverMu 再拿 m.mu：与 checkReports 的投递顺序一致，停止要么等正在进行的
+	// 投递返回，要么先于投递检查生效。持 m.mu 时不得再获取 deliverMu。
+	m.deliverMu.Lock()
 	m.mu.Lock()
 	lead, ok := m.leads[leadThreadID]
 	if !ok {
 		m.mu.Unlock()
+		m.deliverMu.Unlock()
 		return ErrLeadNotFound
 	}
 	now := m.now()
@@ -4342,6 +4360,7 @@ func (m *Manager) StopAll(ctx context.Context, leadThreadID string) error {
 		lead.reportsHeld = true
 	}
 	m.mu.Unlock()
+	m.deliverMu.Unlock()
 
 	if len(runningIDs) == 0 && clearedQueued == 0 && !hasUnreported {
 		return nil

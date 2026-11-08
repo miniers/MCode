@@ -3102,6 +3102,11 @@
         "appVersion": {
           "type": "string",
           "description": "宿主应用版本（与桌面端「关于」页同源）；不提供版本的宿主（如 cmd/mcode-server）省略该字段"
+        },
+        "attachmentLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "单条消息附件数量上限；省略时客户端按 4 处理（兼容旧宿主）"
         }
       },
       "required": [

@@ -6,7 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"mcode/internal/agent/tools"
 )
@@ -37,24 +40,122 @@ type toolInfoArgs struct {
 	Tool string `json:"tool"`
 }
 
+// 发现缓存控制重复握手；测试可调小这两个变量。
+var (
+	discoveryTTL = 5 * time.Minute
+	failureTTL   = 30 * time.Second
+
+	discoveryMu    sync.Mutex
+	discoveryCache = map[string]discoveryEntry{}
+)
+
+type discoveryEntry struct {
+	loaded  *loadedServer
+	fetched time.Time
+}
+
+// discoveryKey 由 URL、Token 与排序后的 Headers 生成缓存键，保证 map 顺序不影响命中。
+func discoveryKey(server Server) string {
+	keys := make([]string, 0, len(server.Headers))
+	for key := range server.Headers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var builder strings.Builder
+	builder.WriteString(server.URL)
+	builder.WriteByte('\n')
+	builder.WriteString(server.Token)
+	for _, key := range keys {
+		builder.WriteByte('\n')
+		builder.WriteString(key)
+		builder.WriteByte('=')
+		builder.WriteString(server.Headers[key])
+	}
+	return builder.String()
+}
+
+// resetDiscoveryCache 仅供测试清空包级缓存。
+func resetDiscoveryCache() {
+	discoveryMu.Lock()
+	discoveryCache = map[string]discoveryEntry{}
+	discoveryMu.Unlock()
+}
+
+// discoverServer 读取缓存或执行一次发现；失败结果按更短的 TTL 缓存。
+func discoverServer(ctx context.Context, server Server) *loadedServer {
+	key := discoveryKey(server)
+	now := time.Now()
+	discoveryMu.Lock()
+	entry, ok := discoveryCache[key]
+	discoveryMu.Unlock()
+	if ok && entry.loaded != nil {
+		ttl := discoveryTTL
+		if entry.loaded.err != nil {
+			ttl = failureTTL
+		}
+		if now.Sub(entry.fetched) < ttl {
+			// 浅拷贝后替换服务描述，同一端点的不同别名共享发现结果。
+			cached := *entry.loaded
+			cached.server = server
+			return &cached
+		}
+	}
+	loaded := &loadedServer{server: server, client: &Client{URL: server.URL, Token: server.Token, Headers: server.Headers}}
+	discoverCtx, cancel := context.WithTimeout(ctx, discoverTimeout)
+	err := loaded.client.Initialize(discoverCtx)
+	if err == nil {
+		loaded.tools, err = loaded.client.ListTools(discoverCtx)
+	}
+	cancel()
+	loaded.err = err
+	discoveryMu.Lock()
+	discoveryCache[key] = discoveryEntry{loaded: loaded, fetched: time.Now()}
+	discoveryMu.Unlock()
+	return loaded
+}
+
+// invalidateClient 在会话失效时删除对应缓存，下一轮重新发现。
+func invalidateClient(client *Client) {
+	discoveryMu.Lock()
+	defer discoveryMu.Unlock()
+	for key, entry := range discoveryCache {
+		if entry.loaded != nil && entry.loaded.client == client {
+			delete(discoveryCache, key)
+		}
+	}
+}
+
+// sessionExpired 判断错误是否表示 MCP 会话已失效。
+func sessionExpired(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "http 404") || strings.Contains(message, "session")
+}
+
 // Tools 发现并转换 MCP 工具。内置服务工具直接暴露，外部服务只暴露 list/call 网关。
 func Tools(ctx context.Context, servers []Server) []tools.Tool {
-	var builtins []tools.Tool
-	var external []*loadedServer
-	for _, server := range servers {
+	loadedServers := make([]*loadedServer, len(servers))
+	var wg sync.WaitGroup
+	for index, server := range servers {
 		if strings.TrimSpace(server.Name) == "" || strings.TrimSpace(server.URL) == "" {
 			continue
 		}
-		loaded := &loadedServer{server: server, client: &Client{URL: server.URL, Token: server.Token, Headers: server.Headers}}
-		discoverCtx, cancel := context.WithTimeout(ctx, discoverTimeout)
-		err := loaded.client.Initialize(discoverCtx)
-		if err == nil {
-			loaded.tools, err = loaded.client.ListTools(discoverCtx)
-		}
-		cancel()
-		if err != nil {
+		wg.Add(1)
+		go func(index int, server Server) {
+			defer wg.Done()
+			loadedServers[index] = discoverServer(ctx, server)
+		}(index, server)
+	}
+	wg.Wait()
+	var builtins []tools.Tool
+	var external []*loadedServer
+	for _, loaded := range loadedServers {
+		if loaded == nil || loaded.err != nil {
 			continue
 		}
+		server := loaded.server
 		if server.Builtin {
 			for _, descriptor := range loaded.tools {
 				name := strings.TrimSpace(descriptor.Name)
@@ -273,6 +374,9 @@ func invoke(client *Client, ctx context.Context, name string, raw json.RawMessag
 	}
 	response, err := client.CallTool(callCtx, name, args)
 	if err != nil {
+		if sessionExpired(err) {
+			invalidateClient(client)
+		}
 		return tools.Result{Text: "Error: " + err.Error(), IsError: true}, nil
 	}
 	var result struct {

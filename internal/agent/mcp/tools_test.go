@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"mcode/internal/agent/tools"
 	"mcode/internal/harness"
@@ -167,5 +169,148 @@ func TestBuiltinResultTruncated(t *testing.T) {
 	result, err := all[0].Run(context.Background(), tools.Env{}, json.RawMessage(`{}`))
 	if err != nil || result.IsError || !strings.Contains(result.Text, "Output truncated.") || len(result.Text) >= len(big) {
 		t.Fatalf("text length=%d err=%v", len(result.Text), err)
+	}
+}
+
+// writeRPCResult 返回一个简单的 JSON-RPC 响应。
+func writeRPCResult(w http.ResponseWriter, req rpcRequest, result any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
+}
+
+// mcpDiscoveryHandler 构造只暴露一个工具的假 MCP 端点。
+func mcpDiscoveryHandler(onInitialize func()) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req rpcRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		switch req.Method {
+		case "initialize":
+			if onInitialize != nil {
+				onInitialize()
+			}
+			writeRPCResult(w, req, map[string]any{"protocolVersion": protocolVersion})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			writeRPCResult(w, req, map[string]any{"tools": []any{map[string]any{"name": "do", "inputSchema": map[string]any{"type": "object"}}}})
+		case "tools/call":
+			writeRPCResult(w, req, map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}})
+		}
+	}
+}
+
+func TestToolsCachesDiscovery(t *testing.T) {
+	resetDiscoveryCache()
+	t.Cleanup(resetDiscoveryCache)
+	var initializes int32
+	server := httptest.NewServer(mcpDiscoveryHandler(func() { atomic.AddInt32(&initializes, 1) }))
+	defer server.Close()
+	servers := []Server{{Name: "ext", URL: server.URL}}
+	for i := 0; i < 2; i++ {
+		if all := Tools(context.Background(), servers); len(all) != 2 {
+			t.Fatalf("call %d: expected two gateway tools, got %d", i, len(all))
+		}
+	}
+	if got := atomic.LoadInt32(&initializes); got != 1 {
+		t.Fatalf("expected one initialize, got %d", got)
+	}
+}
+
+func TestToolsRediscoverAfterTTL(t *testing.T) {
+	resetDiscoveryCache()
+	oldTTL := discoveryTTL
+	discoveryTTL = 0
+	t.Cleanup(func() {
+		discoveryTTL = oldTTL
+		resetDiscoveryCache()
+	})
+	var initializes int32
+	server := httptest.NewServer(mcpDiscoveryHandler(func() { atomic.AddInt32(&initializes, 1) }))
+	defer server.Close()
+	servers := []Server{{Name: "ext", URL: server.URL}}
+	Tools(context.Background(), servers)
+	Tools(context.Background(), servers)
+	if got := atomic.LoadInt32(&initializes); got != 2 {
+		t.Fatalf("expected rediscovery, got %d initializes", got)
+	}
+}
+
+func TestToolsDiscoversInParallel(t *testing.T) {
+	resetDiscoveryCache()
+	t.Cleanup(resetDiscoveryCache)
+	first := httptest.NewServer(mcpDiscoveryHandler(func() { time.Sleep(300 * time.Millisecond) }))
+	defer first.Close()
+	second := httptest.NewServer(mcpDiscoveryHandler(func() { time.Sleep(300 * time.Millisecond) }))
+	defer second.Close()
+	start := time.Now()
+	Tools(context.Background(), []Server{{Name: "a", URL: first.URL}, {Name: "b", URL: second.URL}})
+	if elapsed := time.Since(start); elapsed >= 500*time.Millisecond {
+		t.Fatalf("parallel discovery took too long: %v", elapsed)
+	}
+}
+
+func TestToolsCachesFailure(t *testing.T) {
+	resetDiscoveryCache()
+	oldTTL := failureTTL
+	failureTTL = time.Hour
+	t.Cleanup(func() {
+		failureTTL = oldTTL
+		resetDiscoveryCache()
+	})
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	servers := []Server{{Name: "ext", URL: server.URL}}
+	Tools(context.Background(), servers)
+	Tools(context.Background(), servers)
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("expected cached failure, got %d requests", got)
+	}
+}
+
+func TestToolsRediscoverAfterSessionError(t *testing.T) {
+	resetDiscoveryCache()
+	t.Cleanup(resetDiscoveryCache)
+	var initializes int32
+	var expired atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		switch req.Method {
+		case "initialize":
+			atomic.AddInt32(&initializes, 1)
+			writeRPCResult(w, req, map[string]any{"protocolVersion": protocolVersion})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			writeRPCResult(w, req, map[string]any{"tools": []any{map[string]any{"name": "do", "inputSchema": map[string]any{"type": "object"}}}})
+		case "tools/call":
+			if expired.Load() {
+				http.Error(w, "session expired", http.StatusNotFound)
+				return
+			}
+			writeRPCResult(w, req, map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}})
+		}
+	}))
+	defer server.Close()
+	servers := []Server{{Name: "svc", URL: server.URL, Builtin: true}}
+	all := Tools(context.Background(), servers)
+	if len(all) != 1 {
+		t.Fatalf("expected one builtin tool, got %d", len(all))
+	}
+	if _, err := all[0].Run(context.Background(), tools.Env{}, json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	expired.Store(true)
+	result, err := all[0].Run(context.Background(), tools.Env{}, json.RawMessage(`{}`))
+	if err != nil || !result.IsError {
+		t.Fatalf("expected session error, got %#v, %v", result, err)
+	}
+	Tools(context.Background(), servers)
+	if got := atomic.LoadInt32(&initializes); got != 2 {
+		t.Fatalf("expected rediscovery after session error, got %d initializes", got)
 	}
 }

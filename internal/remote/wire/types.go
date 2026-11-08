@@ -77,6 +77,8 @@ type Capabilities struct {
 	WebBuildID      string   `json:"webBuildID"`
 	ActionJournalID string   `json:"actionJournalID,omitempty"`
 	AppVersion      string   `json:"appVersion,omitempty"`
+	// AttachmentLimit 是单条消息附件数量上限；省略时客户端按 4 处理（兼容旧宿主）。
+	AttachmentLimit int `json:"attachmentLimit,omitempty"`
 }
 
 // --- 看板与任务 ---

@@ -2210,6 +2210,23 @@ func (b *MemoryBackend) AddThread(t wire.ThreadSummary, messages []wire.ThreadMe
 	}
 }
 
+// attachmentLimit 返回桌面端配置的单条消息附件上限；读不到配置时按默认值处理。
+// 调用方不能在持有 b.mu 时调用本函数。
+func (b *MemoryBackend) attachmentLimit() int {
+	b.mu.Lock()
+	dataDir := b.dataDir
+	b.mu.Unlock()
+	if dataDir == "" {
+		return config.DefaultComposerAttachmentLimit
+	}
+	cfg, err := config.Load(dataDir)
+	if err != nil {
+		return config.DefaultComposerAttachmentLimit
+	}
+	config.ApplyEnv(&cfg, os.LookupEnv)
+	return cfg.Session.AttachmentLimit()
+}
+
 // Capabilities 返回当前远程服务的能力声明。
 func (b *MemoryBackend) Capabilities(ctx context.Context) (wire.Capabilities, error) {
 	buildID := webassets.BuildID()
@@ -2223,6 +2240,7 @@ func (b *MemoryBackend) Capabilities(ctx context.Context) (wire.Capabilities, er
 		WebBuildID:      buildID,
 		ActionJournalID: b.actionJournalID,
 		AppVersion:      b.AppVersion(),
+		AttachmentLimit: b.attachmentLimit(),
 	}, nil
 }
 

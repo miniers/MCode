@@ -71,6 +71,15 @@ import {
 } from './Icons';
 import '../styles/send-morph.css';
 
+/**
+ * 附件数量上限：宿主未声明 attachmentLimit 时按旧版约定的 4 处理；
+ * 非正整数视为非法，同样退回 4。
+ */
+export function composerAttachmentLimit(limit?: number): number {
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1) return 4;
+  return limit;
+}
+
 // 按下时保持输入框焦点，避免键盘收起引起布局移位导致点击落空。
 function keepComposerFocus(event: React.MouseEvent): void {
   event.preventDefault();
@@ -140,6 +149,8 @@ export interface ThreadComposerProps {
   composerOptionsDisabled?: boolean;
   composerOptionsMessage?: string | null;
   attachmentsSupported?: boolean;
+  /** 单条消息附件数量上限；省略时按旧宿主行为使用 4 */
+  attachmentLimit?: number;
   onComposerOptionsChange?: (options: RemoteComposerOptions) => void;
   onInterruptAndSend?: () => void;
   interruptAndSendDisabled?: boolean;
@@ -650,6 +661,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   composerOptionsDisabled = false,
   composerOptionsMessage,
   attachmentsSupported = false,
+  attachmentLimit,
   onComposerOptionsChange,
   onInterruptAndSend,
   interruptAndSendDisabled = false,
@@ -1602,7 +1614,8 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   // 运行中且没有草稿/附件时，「主按钮」本身就是停止键；否则主按钮是发送键，
   // 运行中再在旁边显示一个独立的停止键（与改版前的布局一致）。
   const primaryActionStops = Boolean(isRunning && !draft.trim() && attachments.length === 0);
-  const attachmentsAvailable = attachmentsSupported && !isUploadingAttachment && attachments.length < 4;
+  const attachmentsAvailable =
+    attachmentsSupported && !isUploadingAttachment && attachments.length < composerAttachmentLimit(attachmentLimit);
   useEffect(() => {
     if (!attachmentsAvailable) {
       dragDepthRef.current = 0;

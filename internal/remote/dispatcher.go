@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"mcode/internal/config"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
 )
@@ -40,6 +41,17 @@ type Dispatcher struct {
 	threadChangesMu       sync.Mutex
 	threadSnapshots       map[string]string
 	stopThreadObserver    func()
+}
+
+// attachmentLimit 返回后端配置的单条消息附件上限；拿不到时退回桌面端最大值，
+// 保证远程端不会比桌面端更严。
+func (d *Dispatcher) attachmentLimit() int {
+	if provider, ok := d.backend.(interface{ attachmentLimit() int }); ok {
+		if limit := provider.attachmentLimit(); limit > 0 {
+			return limit
+		}
+	}
+	return config.MaxComposerAttachmentLimit
 }
 
 // VAPIDSubjectFor 生成 VAPID 的 sub 声明：有 TLS 域名时用 https://域名，
@@ -938,8 +950,8 @@ func (d *Dispatcher) handleSingle(ctx context.Context, c Conn, raw []byte) *wire
 		if p.WhenRunning != "" && p.WhenRunning != "queue" {
 			return replyErr(wire.InvalidParams, "Invalid params: 'whenRunning' must be \"queue\"")
 		}
-		if len(p.Attachments) > 4 {
-			return replyErr(wire.InvalidParams, "Invalid params: 'attachments' must contain at most 4 items")
+		if limit := d.attachmentLimit(); len(p.Attachments) > limit {
+			return replyErr(wire.InvalidParams, "Invalid params: 'attachments' must contain at most "+strconv.Itoa(limit)+" items")
 		}
 		for _, att := range p.Attachments {
 			if !isValidUUID(att) {

@@ -40,7 +40,7 @@ import { backgroundWaitCount, composerPlaceholderFor } from '../utils/background
 import { resumeRetryDelay } from '../utils/resumeRefresh';
 import { lastCodeBlock, toPlainText } from '../utils/markdown';
 import { modelDisplayName } from '../utils/modelLabel';
-import { ThreadComposer } from './ThreadComposer';
+import { ThreadComposer, composerAttachmentLimit } from './ThreadComposer';
 import type { ThreadComposerHandle } from './ThreadComposer';
 import { LazyBoundary } from './LazyFallback';
 import { useThreadSwarm, isSwarmCapabilitySupported } from '../context/remoteSwarm';
@@ -699,6 +699,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const attachmentsSupported = Boolean(
     capabilities?.features?.includes('threads.attachments') && capabilities.methods.includes('attachments.upload')
   );
+  const attachmentLimit = composerAttachmentLimit(capabilities?.attachmentLimit);
   // `/` 命令、本地命令与 `#模型` 委派的结果变体都由 threads.commands 管
   const commandsSupported = Boolean(
     capabilities?.features?.includes('threads.commands') && capabilities.methods.includes('threads.commands')
@@ -1246,8 +1247,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const handleAddAttachments = useCallback(async (files: FileList | null) => {
     if (!attachmentsSupported || !files || files.length === 0 || isUploadingAttachment) return;
     const incoming = Array.from(files);
-    if (attachmentsRef.current.length + incoming.length > 4) {
-      setAttachmentError('每条消息最多添加 4 个附件');
+    if (attachmentsRef.current.length + incoming.length > attachmentLimit) {
+      setAttachmentError(`每条消息最多添加 ${attachmentLimit} 个附件`);
       return;
     }
 
@@ -1273,7 +1274,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     } finally {
       setIsUploadingAttachment(false);
     }
-  }, [attachmentsSupported, isUploadingAttachment, releaseAttachmentPreviews, setAttachmentPreview, uploadAttachment]);
+  }, [attachmentLimit, attachmentsSupported, isUploadingAttachment, releaseAttachmentPreviews, setAttachmentPreview, uploadAttachment]);
 
   const removeAttachment = useCallback((attachmentID: string) => {
     setAttachments((previous) => previous.filter((attachment) => attachment.attachmentID !== attachmentID));
@@ -3558,6 +3559,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
                   : null
                 : '当前宿主未声明 composer options，将使用 Mac 默认设置。'}
               attachmentsSupported={attachmentsSupported}
+              attachmentLimit={attachmentLimit}
               onComposerOptionsChange={composerOptionsSupported ? updateComposerOptions : undefined}
               swarmEnabled={swarmState?.isBee ? undefined : swarmShownOn}
               swarmToggleDisabled={

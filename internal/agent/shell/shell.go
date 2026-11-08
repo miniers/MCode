@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sync"
 	"time"
 
 	"mcode/internal/harness"
@@ -33,6 +35,42 @@ type Result struct {
 
 const maxOutputBytes = 50 * 1024
 const maxOutputLines = 2000
+
+// shellTempDir 是临时文件根目录，测试可替换。
+var shellTempDir = os.TempDir
+
+// shellLogMaxAge 是清理旧 shell 日志的阈值。
+var shellLogMaxAge = 24 * time.Hour
+
+var shellLogCleanupOnce sync.Once
+
+// shellLogDir 返回 shell 日志专用子目录。
+func shellLogDir() string {
+	return filepath.Join(shellTempDir(), "mcode-shell")
+}
+
+// cleanupOldShellLogs 删除超过 shellLogMaxAge 的 shell 日志。
+func cleanupOldShellLogs(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-shellLogMaxAge)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		matched, err := filepath.Match("mcode-shell-*.log", entry.Name())
+		if err != nil || !matched {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, entry.Name()))
+	}
+}
 
 // processTracker 保存调用方关心的子进程生命周期回调。
 type processTracker struct {
@@ -79,7 +117,13 @@ func (w *outputWriter) Write(p []byte) (int, error) {
 	}
 	w.tail = append(w.tail, p...)
 	if w.file == nil && (len(w.tail) > maxOutputBytes || lineCount(w.tail) > maxOutputLines) {
-		f, err := os.CreateTemp("", "mcode-shell-*.log")
+		dir := shellLogDir()
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			w.err = err
+			return 0, err
+		}
+		shellLogCleanupOnce.Do(func() { go cleanupOldShellLogs(dir) })
+		f, err := os.CreateTemp(dir, "mcode-shell-*.log")
 		if err != nil {
 			w.err = err
 			return 0, err

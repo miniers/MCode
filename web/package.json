@@ -7,7 +7,8 @@
     "dev": "vite",
     "generate:contract": "node scripts/generate-contract.mjs",
     "build": "npm run generate:contract && tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node scripts/run-tests.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.15",

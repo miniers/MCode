@@ -637,6 +637,7 @@ export type RemoteCapabilityDeclaration = {
   webBuildID: string;
   actionJournalID?: string;
   appVersion?: string;
+  attachmentLimit?: number;
 };
 
 export type RemoteProjectsListResult = {
