@@ -647,7 +647,7 @@ func readySwarmPairs(pairs []SwarmPair, providers []ProviderInfo, pins []ModelPi
 // isCLICatalogProvider 判断 provider 的目录是否来自 CLI 动态列出或自定义端点。
 func isCLICatalogProvider(provider string) bool {
 	switch provider {
-	case "commandcode", "cline", "pi", "omp", "copilot", "droid":
+	case "commandcode", "cline", "mcode", "pi", "omp", "copilot", "droid":
 		return true
 	}
 	return strings.HasPrefix(provider, "custom-")

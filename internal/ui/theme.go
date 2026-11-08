@@ -486,7 +486,7 @@ func effortBrandColor(provider string) ui.Color {
 		return ui.Hex("#0082FB")
 	case "cursor", "opencode", "opencode go", "opencodego", "opencode zen", "zen",
 		"copilot", "github", "commandcode", "command code", "cmd",
-		"pi", "mu", "omp", "zai", "z.ai", "glm", "grok", "devin", "cline", "droid":
+		"mcode", "pi", "mu", "omp", "zai", "z.ai", "glm", "grok", "devin", "cline", "droid":
 		return ui.RGB(255, 255, 255)
 	default:
 		return ColorAccentDark

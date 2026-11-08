@@ -76,7 +76,7 @@ const (
 )
 
 // cliProviderIDs 是 CLI harness 的静态 ID 列表，用于名称、图标与默认可执行文件名的回退。
-var cliProviderIDs = []string{"copilot", "pi", "omp", "commandcode", "droid", "cline", "cursor", "opencode", "grok", "devin"}
+var cliProviderIDs = []string{"copilot", "mcode", "pi", "omp", "commandcode", "droid", "cline", "cursor", "opencode", "grok", "devin"}
 
 // providerRowsLoadTimeout 是供应商行单次刷新的上限：超时后放弃等待并允许重新进入页面重试，
 // 避免任一调用挂住时行永远停在「检查中」。
@@ -302,6 +302,8 @@ func providerDisplayName(id string) string {
 		return "ZAI"
 	case "copilot":
 		return "GitHub Copilot"
+	case "mcode":
+		return "mcode"
 	case "pi":
 		return "Pi"
 	case "omp":
@@ -403,6 +405,9 @@ func (st *SettingsState) loadProviderRows() {
 		credits := make(map[string]ProviderCredits)
 
 		for _, id := range append([]string{"claude", "codex"}, cliIDs...) {
+			if id == "mcode" {
+				continue
+			}
 			// 已安装版本始终探测并展示（一次本地 --version）；更新监控只影响远程 latest 的
 			// 检查，由 checkProviderUpdate 按需触发。
 			ver, errVer := client.ProviderVersion(ctx, id)
@@ -545,6 +550,9 @@ func (st *SettingsState) loadProviderRows() {
 }
 
 func providerConfigured(st *SettingsState, id string) bool {
+	if id == "mcode" {
+		return true
+	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if id == "agy" {
@@ -872,6 +880,9 @@ func providerLoginSuffix(state string) string {
 
 // providerStatusFor 从 SettingsState 收集状态快照并推导摘要。
 func providerStatusFor(st *SettingsState, id string) providerRowStatus {
+	if id == "mcode" {
+		return providerRowStatus{Ready: true, Summary: "已安装"}
+	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	in := providerStatusInput{
@@ -952,6 +963,9 @@ func providerRowBin(st *SettingsState, id string) string {
 // 更新优先用后端按安装渠道动态生成的命令（ProviderVersionInfo.UpdateCommand），
 // 它跟着二进制的真实安装方式走，不只限 claude/codex/copilot。
 func providerTerminalCommand(st *SettingsState, id, action string) (string, bool) {
+	if id == "mcode" {
+		return "", false
+	}
 	if action == "update" {
 		if cmd := providerUpdateCommand(st, id); cmd != "" {
 			return cmd, true
@@ -1308,6 +1322,9 @@ func renderProviderBalancePanel(c *ui.Context, st *SettingsState, id string) {
 // 更新监控、版本信息、droid 认证方式与 Copilot 登录引导；pi 额外有长缓存与视觉模型两项。
 // locked 为真时写配置的控件一律禁用，只读展示照常渲染。
 func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, accountSection bool, locked bool) {
+	if id == "mcode" {
+		return
+	}
 	st.mu.Lock()
 	var provSetting ProviderSetting
 	if st.providerRows.settings != nil {

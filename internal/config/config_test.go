@@ -2643,13 +2643,19 @@ func TestValidateWorkbenchContextAndKanbanFields(t *testing.T) {
 // 只有真正未知的 ID 才报错。
 func TestValidateAcceptsSelectableProviders(t *testing.T) {
 	cfg := Defaults()
+	if !cfg.Providers.Mcode.Enabled {
+		t.Fatal("mcode 应默认启用")
+	}
+	if !IsKnownProvider(cfg, ProviderMcode) {
+		t.Fatal("mcode 应为已知 provider")
+	}
 	cfg.Providers.ACP = map[string]ProviderConfig{"cursor": {Enabled: true}}
 	cfg.Providers.Presets = map[string]PresetProviderConfig{"deepseek": {Enabled: true}}
 	cfg.Providers.Custom = []CustomEndpointConfig{{ID: "local", Name: "Local", Enabled: true}}
 
 	ids := []string{
 		ProviderClaude, ProviderCodex, ProviderAgy, ProviderMemory,
-		ProviderCopilot, ProviderPi, ProviderOmp, ProviderCommandCode,
+		ProviderCopilot, ProviderPi, ProviderMcode, ProviderOmp, ProviderCommandCode,
 		"cline", "cursor", "droid",
 		"deepseek",
 		CustomEndpointProviderKind(cfg.Providers.Custom[0]),

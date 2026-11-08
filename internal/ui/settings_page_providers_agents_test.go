@@ -15,6 +15,28 @@ import (
 	"mcode/internal/providers/agy/accounts"
 )
 
+func TestMcodeProviderIdentityAndOrdering(t *testing.T) {
+	if got := providerDisplayName("mcode"); got != "mcode" {
+		t.Fatalf("providerDisplayName(mcode) = %q", got)
+	}
+	mcodeIndex, piIndex := -1, -1
+	for i, id := range cliProviderIDs {
+		switch id {
+		case "mcode":
+			mcodeIndex = i
+		case "pi":
+			piIndex = i
+		}
+	}
+	if mcodeIndex < 0 || piIndex < 0 || mcodeIndex >= piIndex {
+		t.Fatalf("cliProviderIDs 中 mcode 必须在 pi 之前：%v", cliProviderIDs)
+	}
+	st := &SettingsState{}
+	if !providerConfigured(st, "mcode") || !providerStatusFor(st, "mcode").Ready {
+		t.Fatal("内置 mcode 应始终视为已安装")
+	}
+}
+
 func TestProviderTerminalCommandsAndInstallActions(t *testing.T) {
 	st := &SettingsState{}
 	agyInstall := "curl -fsSL https://antigravity.google/cli/install.sh | bash"
@@ -29,6 +51,8 @@ func TestProviderTerminalCommandsAndInstallActions(t *testing.T) {
 	}{
 		{"claude", "install", claudeInstall, true},
 		{"codex", "install", "npm install -g @openai/codex", true},
+		{"mcode", "install", "", false},
+		{"mcode", "update", "", false},
 		{"pi", "install", "npm install -g @earendil-works/pi-coding-agent", true},
 		{"pi", "login", "", false},
 		{"agy", "install", agyInstall, true},
@@ -558,15 +582,16 @@ func TestProviders_OrderedProviderIDsIncludeCLI(t *testing.T) {
 		versions: map[string]ProviderVersionInfo{
 			"codex": {Installed: "1.0"},
 		},
-		cliIDs: []string{"pi", "copilot"},
+		cliIDs: []string{"mcode", "pi", "copilot"},
 		settings: map[string]ProviderSetting{
+			"mcode":   {ID: "mcode", Name: "mcode", Kind: "cli", UpdateMonitor: true},
 			"pi":      {ID: "pi", Name: "Pi", Kind: "cli", UpdateMonitor: true},
 			"copilot": {ID: "copilot", Name: "GitHub Copilot", Kind: "cli", UpdateMonitor: true},
 		},
 	}
 
 	ordered := orderedProviderIDs(st)
-	expected := []string{"codex", "claude", "agy", "pi", "copilot"}
+	expected := []string{"codex", "claude", "agy", "mcode", "pi", "copilot"}
 	if len(ordered) != len(expected) {
 		t.Fatalf("expected len %d, got %d: %v", len(expected), len(ordered), ordered)
 	}

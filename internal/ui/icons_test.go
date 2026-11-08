@@ -17,6 +17,7 @@ func TestProviderIcon_ResolutionAndFallback(t *testing.T) {
 		{providerID: "agy"},
 		{providerID: "antigravity"},
 		{providerID: "copilot"},
+		{providerID: "mcode", wantBrain: true},
 		{providerID: "pi"},
 		{providerID: "mu"},
 		{providerID: "omp"},

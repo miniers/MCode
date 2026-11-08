@@ -1903,10 +1903,10 @@ func buildProviderHarness(cfg config.Config, secrets config.SecretStore, id stri
 }
 
 // buildExtraHarnesses 按配置构造除 ACP 与 agy 之外的全部额外 Provider harness 列表。
-// 顺序固定：copilot、pi、omp、commandcode，然后是 deepseek、zai、meta；
+// 顺序固定：copilot、pi、mcode、omp、commandcode，然后是 deepseek、zai、meta；
 // Magpie 现由自定义端点注册。
 func buildExtraHarnesses(cfg config.Config, secrets config.SecretStore, mcpInjection providerMCP) []harness.Harness {
-	ids := []string{"copilot", "pi", "omp", "commandcode", "deepseek", "zai", "meta"}
+	ids := []string{"copilot", "pi", "mcode", "omp", "commandcode", "deepseek", "zai", "meta"}
 
 	var res []harness.Harness
 	for _, id := range ids {
@@ -1969,6 +1969,9 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 
 	for _, h := range buildExtraHarnesses(cfg, secrets, mcpInjection) {
 		backend.RegisterHarness(h)
+	}
+	if cfg.Providers.Mcode.Enabled {
+		backend.RegisterHarness(buildMcodeHarness(cfg, secrets, dataDir, mcpInjection))
 	}
 
 	for _, ep := range cfg.Providers.Custom {

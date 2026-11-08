@@ -91,6 +91,7 @@ func claudeMagpieRouteBaseURL(cfg config.Config, target magpieinject.Target) str
 var magpieEffortBackends = map[string]map[string]bool{
 	config.ProviderClaude: {"low": true, "medium": true, "high": true, "xhigh": true, "max": true},
 	config.ProviderPi:     {"low": true, "medium": true, "high": true, "xhigh": true, "max": true},
+	config.ProviderMcode:  {"low": true, "medium": true, "high": true, "xhigh": true, "max": true},
 	config.ProviderCodex:  {"low": true, "medium": true, "high": true, "xhigh": true},
 }
 

@@ -600,6 +600,11 @@ func nativeProviderModels(provider string) []wire.ProviderModel {
 			res[i] = wire.ProviderModel{ID: m.ID, Name: m.Name, Detail: optionalString(m.Detail), IsDefault: m.Default, Secondary: m.Secondary}
 		}
 		return res
+	case "mcode":
+		if models := mcodeModels(); len(models) > 0 {
+			return models
+		}
+		return []wire.ProviderModel{placeholderModel()}
 	case "pi", "omp", "copilot", "droid":
 		// 账号可用的模型目录由 CLI 在后台读取；读到之前保持占位行。
 		if cached := cliCatalogModels(provider); len(cached) > 0 {

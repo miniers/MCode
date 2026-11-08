@@ -14,6 +14,8 @@ func onboardingNeedsNode(providerID string) bool {
 	switch providerID {
 	case "claude", "codex", "pi":
 		return true
+	case "mcode":
+		return false
 	default:
 		return false
 	}

@@ -43,6 +43,7 @@ const (
 	// CLI 家族中具名字段的 Provider。
 	ProviderCopilot     = "copilot"
 	ProviderPi          = "pi"
+	ProviderMcode       = "mcode"
 	ProviderOmp         = "omp"
 	ProviderCommandCode = "commandcode"
 
@@ -1447,6 +1448,7 @@ type ProvidersConfig struct {
 	Agy         ProviderConfig                  `json:"agy"`
 	Copilot     ProviderConfig                  `json:"copilot"`
 	Pi          ProviderConfig                  `json:"pi"`
+	Mcode       ProviderConfig                  `json:"mcode"`
 	Omp         ProviderConfig                  `json:"omp"`
 	CommandCode ProviderConfig                  `json:"commandcode"`
 	ACP         map[string]ProviderConfig       `json:"acp,omitempty"`
@@ -2246,6 +2248,7 @@ func Defaults() Config {
 			Agy:                      ProviderConfig{Enabled: true, Bin: ""},
 			OpenAI:                   OpenAIConfig{Enabled: true},
 			Pi:                       ProviderConfig{Enabled: true, Bin: ""},
+			Mcode:                    ProviderConfig{Enabled: true, Bin: ""},
 			HideMagpieModelsInPicker: true,
 		},
 		Remote: RemoteConfig{
@@ -2347,7 +2350,7 @@ var tierIDRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 // ACP Agent ID 与 internal/providers/acp.Agents() 保持一致，预设 ID 与 internal/providers/openai.PresetByID 一致。
 var builtinProviderIDs = []string{
 	ProviderClaude, ProviderCodex, ProviderAgy, ProviderMemory,
-	ProviderCopilot, ProviderPi, ProviderOmp, ProviderCommandCode,
+	ProviderCopilot, ProviderPi, ProviderMcode, ProviderOmp, ProviderCommandCode,
 	"cline", "cursor", "opencode", "grok", "devin", "droid",
 	"openai", "deepseek", "zai", "meta",
 }

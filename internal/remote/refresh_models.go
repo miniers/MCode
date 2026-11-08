@@ -40,6 +40,8 @@ func (b *MemoryBackend) RefreshProviderModels(ctx context.Context) error {
 		}
 		var refresh func(context.Context) error
 		switch id {
+		case "mcode":
+			refresh = func(context.Context) error { return nil }
 		case "claude":
 			refresh = func(ctx context.Context) error { return claude.RefreshModels(ctx, binary) }
 		case "codex":

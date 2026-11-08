@@ -37,7 +37,7 @@ func TestOnboardingNeedsNode(t *testing.T) {
 		id   string
 		want bool
 	}{
-		{"claude", true}, {"codex", true}, {"pi", true}, {"agy", false}, {"other", false},
+		{"claude", true}, {"codex", true}, {"pi", true}, {"mcode", false}, {"agy", false}, {"other", false},
 	} {
 		if got := onboardingNeedsNode(tc.id); got != tc.want {
 			t.Errorf("onboardingNeedsNode(%q) = %v，期望 %v", tc.id, got, tc.want)

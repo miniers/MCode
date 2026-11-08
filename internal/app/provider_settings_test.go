@@ -48,7 +48,7 @@ func TestBuildExtraHarnesses_EnabledKinds(t *testing.T) {
 	}
 
 	got := harnessKinds(buildExtraHarnesses(cfg, config.NewMemorySecretStore(), providerMCP{}))
-	want := []string{"copilot", "pi", "omp", "commandcode", "deepseek"}
+	want := []string{"copilot", "pi", "mcode", "omp", "commandcode", "deepseek"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("harness Kind 集合不匹配: got %v, want %v", got, want)
 	}
@@ -104,7 +104,7 @@ func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
 	}
 
 	wantIDs := []string{
-		"copilot", "pi", "omp", "commandcode", "droid", "cline",
+		"copilot", "mcode", "pi", "omp", "commandcode", "droid", "cline",
 		"cursor", "opencode", "grok", "devin",
 		"deepseek", "zai", "meta",
 	}
@@ -121,9 +121,12 @@ func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
 		byID[s.ID] = s
 	}
 
-	// Pi 默认开启；ACP droid/cline/cursor/opencode/grok/devin 在配置缺省时视为启用。
+	// Pi 与 mcode 默认开启；ACP droid/cline/cursor/opencode/grok/devin 在配置缺省时视为启用。
 	if !byID["pi"].Enabled {
 		t.Error("pi 应默认开启")
+	}
+	if !byID["mcode"].Enabled || byID["mcode"].Kind == "cli" || byID["mcode"].Bin != "" {
+		t.Errorf("mcode 设置不匹配: %+v", byID["mcode"])
 	}
 	for _, id := range []string{"copilot", "omp", "commandcode", "deepseek", "zai", "meta"} {
 		if byID[id].Enabled {

@@ -26,6 +26,7 @@ type providerSettingSpec struct {
 // ACP Agent（droid/cline/cursor/opencode/grok/devin）与 CLI 家族按 Kind=cli，OpenAI 兼容预设按 Kind=api。
 var providerSettingSpecs = []providerSettingSpec{
 	{id: "copilot", name: "GitHub Copilot", kind: "cli"},
+	{id: "mcode", name: "mcode", kind: "native"},
 	{id: "pi", name: "Pi", kind: "cli"},
 	{id: "omp", name: "Omp", kind: "cli"},
 	{id: "commandcode", name: "Command Code", kind: "cli"},
@@ -101,6 +102,8 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 		s.Enabled = cfg.Providers.Copilot.Enabled
 		s.Bin = cfg.Providers.Copilot.Bin
 		s.UpdateMonitor = cfg.Providers.Copilot.UpdateMonitorEnabled()
+	case "mcode":
+		s.Enabled = cfg.Providers.Mcode.Enabled
 	case "pi":
 		s.Enabled = cfg.Providers.Pi.Enabled
 		s.Bin = cfg.Providers.Pi.Bin
@@ -149,6 +152,8 @@ func applyProviderSetting(cfg *config.Config, id string, s mcodeui.ProviderSetti
 		cfg.Providers.Copilot.Enabled = s.Enabled
 		cfg.Providers.Copilot.Bin = strings.TrimSpace(s.Bin)
 		cfg.Providers.Copilot.UpdateMonitor = updateMonitorPtr(s.UpdateMonitor)
+	case "mcode":
+		cfg.Providers.Mcode.Enabled = s.Enabled
 	case "pi":
 		cfg.Providers.Pi.Enabled = s.Enabled
 		cfg.Providers.Pi.Bin = strings.TrimSpace(s.Bin)
@@ -263,7 +268,13 @@ func (c *Client) SaveProviderSetting(ctx context.Context, s mcodeui.ProviderSett
 	// 此处只写配置，启用/停用与 Bin、Auth 变更均需重启后生效。
 	if c.backend != nil && !providerSettingIsACP(spec.id) {
 		c.releaseReplacedHarness(spec.id)
-		if h, ok := buildProviderHarness(cfg, c.secrets, spec.id, c.mcp); ok {
+		if spec.id == "mcode" {
+			setMcodeAgentRuntime(c.dataDir, c.secrets)
+			remote.SetMcodeModels(mcodeModelCatalog)
+			if cfg.Providers.Mcode.Enabled {
+				c.backend.RegisterHarness(buildMcodeHarness(cfg, c.secrets, c.dataDir, c.mcp))
+			}
+		} else if h, ok := buildProviderHarness(cfg, c.secrets, spec.id, c.mcp); ok {
 			c.backend.RegisterHarness(h)
 		}
 	}

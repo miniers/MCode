@@ -794,6 +794,8 @@ func ProviderIcon(id string) *ui.SVG {
 		return iconProviderAntigravity
 	case "copilot":
 		return iconProviderCopilot
+	case "mcode":
+		return iconBrain
 	case "pi", "mu":
 		return iconProviderPi
 	case "omp":

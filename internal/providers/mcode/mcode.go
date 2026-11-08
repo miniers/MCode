@@ -100,7 +100,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	extraEnv := append(append([]string(nil), turn.Env...), harness.NonInteractiveEnv()...)
 	return agent.Run(ctx, agent.Options{
 		Client: client, Model: modelID, Effort: turn.Effort, System: system, Tools: toolset,
-		Env: tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, Sandbox: turn.Sandbox, Mode: turn.Mode, ExtraEnv: extraEnv},
+		Env:  tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, Sandbox: turn.Sandbox, Mode: turn.Mode, ExtraEnv: extraEnv},
 		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
 		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, Emit: emit,
 	}, turn.Prompt, images)
