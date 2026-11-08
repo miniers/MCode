@@ -108,6 +108,7 @@ export interface SendAnchorOptions {
   suspendedRef: { current: boolean };
   /** 是否启用发送后置顶（对应 session.pin_sent_message，默认开启） */
   enabled?: boolean;
+  onAnchorMissing?: (messageID: string) => void;
 }
 
 export interface SendAnchorControls {
@@ -128,6 +129,7 @@ export function useSendAnchor({
   endPin,
   resumePin,
   suspendedRef,
+  onAnchorMissing,
   enabled = true
 }: SendAnchorOptions): SendAnchorControls {
   const [holding, setHolding] = useState(false);
@@ -144,6 +146,8 @@ export function useSendAnchor({
   const messagesRef = useRef<readonly AnchorMessage[]>(messages);
   const endPinRef = useRef(endPin);
   const resumePinRef = useRef(resumePin);
+  const onAnchorMissingRef = useRef(onAnchorMissing);
+  const missingRequestedIDRef = useRef<string | null>(null);
   const scrollRefStable = scrollRef;
   // 这次锚定是否已经用平滑滚动做过第一次校正（每次锚定只用一次，之后即时校正兜底）
   const smoothUsedRef = useRef(false);
@@ -152,6 +156,7 @@ export function useSendAnchor({
   const enabledRef = useRef(enabled);
   endPinRef.current = endPin;
   resumePinRef.current = resumePin;
+  onAnchorMissingRef.current = onAnchorMissing;
   enabledRef.current = enabled;
 
   const cancelTick = useCallback(() => {
@@ -171,6 +176,7 @@ export function useSendAnchor({
       pendingRef.current = false;
       baselineRef.current = null;
       anchorIDRef.current = null;
+      missingRequestedIDRef.current = null;
       triesRef.current = 0;
       paddingRef.current = 0;
       smoothRef.current = null;
@@ -197,6 +203,10 @@ export function useSendAnchor({
       if (!suspendedRef.current || !container || !anchorID) return;
       const node = findAnchorNode(container, anchorID);
       if (!node) {
+        if (missingRequestedIDRef.current !== anchorID) {
+          missingRequestedIDRef.current = anchorID;
+          onAnchorMissingRef.current?.(anchorID);
+        }
         // 条目还没渲染出来（虚拟列表尚未绘制，或这条消息不产生时间线行）：下一帧再试
         if (triesRef.current >= ANCHOR_PIN_TRIES) {
           releaseRef.current(true);
@@ -261,6 +271,7 @@ export function useSendAnchor({
       suspendedRef.current = true;
       endPinRef.current();
       anchorIDRef.current = anchorID;
+      missingRequestedIDRef.current = null;
       pendingRef.current = false;
       triesRef.current = 0;
       smoothRef.current = null;

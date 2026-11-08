@@ -1,12 +1,13 @@
 // 跟进队列（输入区上方）：按 bundleID 分组的编辑组 / 撤回组 / 立即发送，以及插入到当前轮次、上移、下移。
 // 数据来自宿主的 threads.queue.* 快照与队列变更事件；RPC 由组件自己从 useRemote 取，接线只传少量 props。
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useRemote } from '../../context/RemoteContext';
 import { steerThreadQueue } from '../../context/remoteQueueApi';
 import type { RemoteFollowUp } from '../../types/contract';
 import { queueGroupID } from './threadHelpers';
+import { followUpScrollTop } from './queuedFollowUpScroll';
 
 /** 能在轮次执行中安全插话的 provider，取值与桌面端 internal/ui/composer_queue.go 的 steerableProviders 一致。 */
 const STEERABLE_PROVIDERS = ['claude', 'codex', 'omp', 'pi'];
@@ -23,6 +24,7 @@ export interface QueuedFollowUpSectionProps {
   threadID: string;
   /** 队列快照里的扁平顺序；分组与上移下移都以它为准。 */
   followUps: ReadonlyArray<RemoteFollowUp>;
+  revealRequest?: { followUpID: string; nonce: number } | null;
   /** 会话是否正在运行：只有运行中才提供「插入到当前轮次」。 */
   isRunning: boolean;
   /** 会话 provider，用于判断是否支持中途插话。 */
@@ -36,6 +38,7 @@ export interface QueuedFollowUpSectionProps {
 export const QueuedFollowUpSection: React.FC<QueuedFollowUpSectionProps> = ({
   threadID,
   followUps,
+  revealRequest,
   isRunning,
   provider,
   composerDraft,
@@ -70,6 +73,24 @@ export const QueuedFollowUpSection: React.FC<QueuedFollowUpSectionProps> = ({
   // 队列条目编辑租借（begin/save/cancel）；不声明时沿用 threads.queue.update
   const queueEditSupported = Boolean(capabilities?.methods.includes('threads.queue.edit'));
   const moveSupported = Boolean(capabilities?.methods.includes('threads.queue.move'));
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const revealedNonceRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (!revealRequest || revealedNonceRef.current === revealRequest.nonce) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    const item = Array.from(container.querySelectorAll<HTMLElement>('[data-follow-up-id]'))
+      .find((node) => node.dataset.followUpId === revealRequest.followUpID);
+    if (!item) return;
+    const rect = item.getBoundingClientRect();
+    const top = followUpScrollTop(container, {
+      offsetTop: rect.top - container.getBoundingClientRect().top + container.scrollTop,
+      height: rect.height
+    });
+    if (top !== null) container.scrollTop = top;
+    revealedNonceRef.current = revealRequest.nonce;
+  }, [revealRequest, followUps, queueSupported]);
 
   const groups = useMemo(() => {
     const grouped = new Map<string, RemoteFollowUp[]>();
@@ -259,6 +280,7 @@ export const QueuedFollowUpSection: React.FC<QueuedFollowUpSectionProps> = ({
 
   return (
     <section
+      ref={scrollRef}
       className="shrink-0 max-h-[30dvh] overflow-y-auto border-t border-[var(--border)] bg-[var(--card-alt,var(--card))] px-4 py-2.5"
       aria-label="跟进队列"
     >
@@ -336,7 +358,7 @@ export const QueuedFollowUpSection: React.FC<QueuedFollowUpSectionProps> = ({
                   const isFirst = index === 0;
                   const isLast = index !== undefined && index === followUps.length - 1;
                   return (
-                    <div key={followUp.id} className="flex items-center gap-2">
+                    <div key={followUp.id} data-follow-up-id={followUp.id} className="flex items-center gap-2">
                       {editing ? (
                         <input
                           value={editDrafts[followUp.id] ?? followUp.text}

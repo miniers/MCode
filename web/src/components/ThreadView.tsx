@@ -571,6 +571,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     sendAnchorHoldRef
   );
   const pinSentMessage = usePinSentMessage();
+  const anchorMissingRef = useRef<(messageID: string) => void>(() => {});
+  const [queueRevealRequest, setQueueRevealRequest] = useState<{ followUpID: string; nonce: number } | null>(null);
   const sendAnchor = useSendAnchor({
     threadID: thread.id,
     messages,
@@ -578,6 +580,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     endPin,
     resumePin,
     suspendedRef: sendAnchorHoldRef,
+    onAnchorMissing: (messageID) => anchorMissingRef.current(messageID),
     enabled: pinSentMessage
   });
   const { arm: armSendAnchor, release: releaseSendAnchor } = sendAnchor;
@@ -1924,14 +1927,17 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       // 记草稿原文：清理草稿时的兜底比对（draftRef.current === action.text）依赖它
       sendAttemptRef.current.set(action.actionID, { text: draftText, version: submittedVersion });
       if (action.state === 'accepted') {
+        if (action.queued && action.followUpID) {
+          const followUpID = action.followUpID;
+          setQueueRevealRequest((previous) => ({ followUpID, nonce: (previous?.nonce ?? 0) + 1 }));
+        }
         composerOptionsDirtyRef.current = false;
         clearSubmittedDraft(action);
         beginPolling(action.turnID ?? null);
         return true;
       }
-      // 未确认发送成功：撤掉锚定窗口，不要等一条可能不会出现的用户消息
-      if (params.whenRunning !== 'queue') releaseSendAnchor(true);
       if (action.state === 'failed') {
+        releaseSendAnchor(true);
         setSendError(action.error || '发送失败，草稿已保留');
       }
       return false;
@@ -2014,6 +2020,9 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     nonce: number;
     flash?: boolean;
   } | null>(null);
+  anchorMissingRef.current = (messageID) => {
+    setScrollJumpRequest((previous) => ({ messageID, nonce: (previous?.nonce ?? 0) + 1, flash: false }));
+  };
   const jumpToQuestion = useCallback((messageID: string) => {
     setScrollJumpRequest((previous) => ({ messageID, nonce: (previous?.nonce ?? 0) + 1 }));
   }, []);
@@ -2191,10 +2200,9 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
         if (action.state === 'accepted') {
           setLocallyInterrupted(false);
           beginPolling(action.turnID ?? null);
-        } else {
-          // 与普通发送一致：未确认发送成功就撤掉锚定窗口
+        } else if (action.state === 'failed') {
           releaseSendAnchor(true);
-          if (action.state === 'failed') setSendError(action.error || '继续失败，请稍后重试');
+          setSendError(action.error || '继续失败，请稍后重试');
         }
       } catch (err) {
         releaseSendAnchor(true);
@@ -3239,6 +3247,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
               key={thread.id}
               threadID={thread.id}
               followUps={queueSnapshot?.followUps ?? []}
+              revealRequest={queueRevealRequest}
               isRunning={latestSummary.isRunning}
               provider={latestSummary.provider}
               composerDraft={queueComposerDraft}
