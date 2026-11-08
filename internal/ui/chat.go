@@ -242,10 +242,11 @@ func renderChat(c *ui.Context, s *chatState) {
 		if dropped := chatBody.DroppedFiles(); len(dropped) > 0 {
 			s.addAttachmentFiles(dropped)
 		}
+		// 让位宽度变化是整列位移，用略长于浮窗退场的时长，浮窗淡完后时间线再落定。
 		chatBody.Padding(0,
-			chatBody.AnimateWith("swarm-reserve-trailing", swarmReserve.trailing, animateDuration(c, swarmRestDuration), ui.EaseOut),
+			chatBody.AnimateWith("swarm-reserve-trailing", swarmReserve.trailing, animateDuration(c, DurSheet), motionEaseStandard),
 			0,
-			chatBody.AnimateWith("swarm-reserve-leading", swarmReserve.leading, animateDuration(c, swarmRestDuration), ui.EaseOut))
+			chatBody.AnimateWith("swarm-reserve-leading", swarmReserve.leading, animateDuration(c, DurSheet), motionEaseStandard))
 		chatBody.Children(func() {
 			// 总管话题：任务书卡片固定在时间线上方，随会话切换。
 			renderStewardTopicCard(c, s, selectedID)

@@ -879,6 +879,14 @@ func renderSwarmPanelCard(c *ui.Context, s *chatState, f swarmFloatFrame, id pan
 		// mygo 的 Shadow 可以叠加：保留原有投影，再补一圈人设色发光。
 		card.Shadow(0, 0, 22, 2, swarmDoneGlowColor(curName, 0.6))
 	}
+	// 收起或关闭时轻微下沉并淡出，不再瞬间消失。必须显式写 Colors: true：
+	// 三项全不设时 mygo 会同时做位置与尺寸插值，和下面 AnimateWith 的停靠滑动、拖拽缩放打架。
+	// 减少动效时 mygo 只原地淡出、不位移。
+	card.Transition(ui.ElementTransition{
+		Duration: DurBase,
+		Colors:   true,
+		Exit:     &ui.Motion{Y: motionRiseOffset * 2, Opacity: 0, Scale: 0.98},
+	})
 	card.Children(func() {
 		if len(bees) == 0 || cur == nil {
 			renderSwarmEmptyTeamPanel(c, s, f)
