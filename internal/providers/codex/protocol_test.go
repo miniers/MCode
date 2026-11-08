@@ -767,6 +767,56 @@ func TestReviewModeAndCompactionItems(t *testing.T) {
 	}
 }
 
+// TestTurnPlanUpdated 验证计划更新映射为独立的完整工具调用。
+func TestTurnPlanUpdated(t *testing.T) {
+	h := NewProtocolHandler(harness.Turn{})
+	var events []harness.Event
+	emit := func(e harness.Event) { events = append(events, e) }
+	line := []byte(`{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"threadId":"th_1","turnId":"turn_1","explanation":"计划说明","plan":[{"step":"第一步","status":"inProgress"},{"step":"第二步","status":"pending"}]}}`)
+	for i := 0; i < 2; i++ {
+		if _, err := h.HandleLine(context.Background(), line, emit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(events) != 4 {
+		t.Fatalf("期望两对工具事件，实际 %+v", events)
+	}
+	for i := 0; i < len(events); i += 2 {
+		start, end := events[i], events[i+1]
+		if start.Type != harness.EventToolStart || end.Type != harness.EventToolEnd || start.ToolName != "update_plan" || end.ToolName != "update_plan" || start.ToolID == "" || start.ToolID != end.ToolID {
+			t.Fatalf("工具事件不匹配：%+v %+v", start, end)
+		}
+		var input struct {
+			Explanation string `json:"explanation"`
+			Plan        []struct {
+				Step   string `json:"step"`
+				Status string `json:"status"`
+			} `json:"plan"`
+		}
+		if err := json.Unmarshal(start.Input, &input); err != nil {
+			t.Fatal(err)
+		}
+		if input.Explanation != "计划说明" || len(input.Plan) != 2 || input.Plan[0].Step != "第一步" || input.Plan[0].Status != "inProgress" || input.Plan[1].Step != "第二步" || input.Plan[1].Status != "pending" {
+			t.Fatalf("计划输入不匹配：%+v", input)
+		}
+	}
+	if events[0].ToolID == events[2].ToolID {
+		t.Fatalf("同一轮的计划更新应使用不同的工具 ID：%q", events[0].ToolID)
+	}
+}
+
+func TestTurnPlanUpdatedEmpty(t *testing.T) {
+	h := NewProtocolHandler(harness.Turn{})
+	var events []harness.Event
+	line := []byte(`{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"turnId":"turn_1","plan":[]}}`)
+	if _, err := h.HandleLine(context.Background(), line, func(e harness.Event) { events = append(events, e) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("空计划不应发出事件：%+v", events)
+	}
+}
+
 // TestThreadCompactedEmitsContextCompacted 验证 thread/compacted 不再被当成「有意忽略」，
 // 而是映射成一条上下文压缩事件：token 数未知留 0，也不算未处理通知。
 func TestThreadCompactedEmitsContextCompacted(t *testing.T) {

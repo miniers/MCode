@@ -1372,6 +1372,12 @@ func TestParseTodoItems(t *testing.T) {
 			ok:   true,
 		},
 		{
+			name: "Codex 计划驼峰状态",
+			in:   `{"plan":[{"step":"执行中","status":"inProgress"},{"step":"等待","status":"pending"}],"explanation":"计划说明"}`,
+			want: []todoItem{{Text: "执行中", Status: "in_progress"}, {Text: "等待", Status: "pending"}},
+			ok:   true,
+		},
+		{
 			name: "JSON 之后还有工具输出",
 			in:   "TodoWrite {\"todos\":[{\"content\":\"只有一项\",\"status\":\"pending\"}]}\n已更新 1 项",
 			want: []todoItem{{Text: "只有一项", Status: "pending"}},

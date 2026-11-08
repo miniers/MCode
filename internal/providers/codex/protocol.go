@@ -83,6 +83,7 @@ type ProtocolHandler struct {
 	usageBaseSet      bool
 	loggedUnknown     map[string]struct{}
 	turnDone          bool
+	planUpdateCount   uint64
 
 	// 每个 ProtocolHandler 只服务一轮，请求计时和样本列表随本轮创建、随本轮丢弃。
 	requestClock  harness.RequestClock
@@ -215,6 +216,36 @@ func (h *ProtocolHandler) HandleNotification(msg *JSONRPCMessage, emit func(harn
 			})
 		}
 
+	case "turn/plan/updated":
+		var p struct {
+			TurnID      string `json:"turnId"`
+			Explanation string `json:"explanation"`
+			Plan        []struct {
+				Step   string `json:"step"`
+				Status string `json:"status"`
+			} `json:"plan"`
+		}
+		if err := json.Unmarshal(msg.Params, &p); err != nil || len(p.Plan) == 0 {
+			return
+		}
+		input, err := json.Marshal(struct {
+			Plan        any    `json:"plan"`
+			Explanation string `json:"explanation"`
+		}{Plan: p.Plan, Explanation: p.Explanation})
+		if err != nil {
+			return
+		}
+		h.mu.Lock()
+		h.planUpdateCount++
+		toolID := fmt.Sprintf("plan-%s-%d", p.TurnID, h.planUpdateCount)
+		h.mu.Unlock()
+		_ = harness.Emit(emit, harness.Event{
+			Type: harness.EventToolStart, ToolID: toolID, ToolName: "update_plan", Input: input,
+		})
+		_ = harness.Emit(emit, harness.Event{
+			Type: harness.EventToolEnd, ToolID: toolID, ToolName: "update_plan",
+		})
+
 	case "thread/tokenUsage/updated":
 		h.handleTokenUsage(msg.Params, emit)
 
@@ -259,7 +290,7 @@ func (h *ProtocolHandler) HandleNotification(msg *JSONRPCMessage, emit func(harn
 	case "turn/started", "thread/started", "thread/status/changed", "thread/name/updated",
 		"account/rateLimits/updated", "warning", "configWarning",
 		"item/commandExecution/outputDelta", "item/fileChange/outputDelta",
-		"turn/diff/updated", "turn/plan/updated":
+		"turn/diff/updated":
 		// 已知但本层有意忽略：不映射事件，也不算未处理通知。
 		// outputDelta 类待接入；turn/diff/updated 是整轮聚合 diff，改动已由 item 级事件覆盖，不发事件。
 
