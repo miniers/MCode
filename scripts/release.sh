@@ -55,6 +55,7 @@ done
 VERSION_ARG="${VERSION_ARG:-patch}"
 AI_AGENT="${MCODE_RELEASE_AGENT:-claude}"
 AI_MODEL="${MCODE_RELEASE_MODEL:-}"
+CONFIRM_SECONDS="${MCODE_RELEASE_CONFIRM_SECONDS:-60}"
 if [[ -z "$NOTES_FILE" && -z "${MCODE_RELEASE_NOTES_CMD:-}" ]]; then
     case "$AI_AGENT" in
         claude|codex|pi) ;;
@@ -163,10 +164,29 @@ $(head -c 60000 "$AI_INPUT_TEMP")"
         while true; do
             printf '更新内容:\n'
             cat "$NOTES_TEMP"
-            printf '确认使用？[Y/e/n]: '
-            if ! IFS= read -r answer; then
-                echo '已取消'
-                exit 0
+            answer=""; c=""; rest=""
+            for ((s=CONFIRM_SECONDS; s>0; s--)); do
+                printf '\r确认使用？[Y/e/n]（%d 秒后自动确认）: \033[K' "$s"
+                if IFS= read -r -n 1 -t 1 c; then
+                    if [[ -n "$c" ]]; then
+                        if ! IFS= read -r rest; then
+                            echo '已取消'
+                            exit 0
+                        fi
+                        answer="$c$rest"
+                    fi
+                    break
+                else
+                    status=$?
+                    if (( status <= 128 )); then
+                        echo '已取消'
+                        exit 0
+                    fi
+                fi
+            done
+            if (( s == 0 )); then
+                printf '\n已自动确认\n'
+                break
             fi
             case "$answer" in
                 ''|y|Y) break ;;

@@ -1,12 +1,15 @@
 package scripts_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func releaseGit(t *testing.T, dir string, args ...string) string {
@@ -153,6 +156,41 @@ func TestReleaseAIDryRun(t *testing.T) {
 	}
 	if before != releaseGit(t, dir, "rev-parse", "HEAD") {
 		t.Fatal("试运行不应创建提交")
+	}
+}
+
+func TestReleaseConfirmCountdown(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("仅在 macOS 上使用 script 测试终端")
+	}
+	if _, err := exec.LookPath("script"); err != nil {
+		t.Skip("未安装 script")
+	}
+	dir, _ := releaseRepo(t)
+	ai := fakeReleaseAI(t, "printf '%s\\n' '- AI 生成的说明'")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "script", "-q", "/dev/null", "bash", "scripts/release.sh", "--dry-run")
+	cmd.Dir = dir
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "MCODE_RELEASE_NOTES_CMD=") && !strings.HasPrefix(entry, "MCODE_RELEASE_AGENT=") && !strings.HasPrefix(entry, "MCODE_RELEASE_MODEL=") && !strings.HasPrefix(entry, "MCODE_RELEASE_CONFIRM_SECONDS=") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	cmd.Env = append(cmd.Env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "MCODE_RELEASE_NOTES_CMD="+ai, "MCODE_RELEASE_CONFIRM_SECONDS=1")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdin.Close()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("试运行失败: %v\n%s", err, out)
+	}
+	for _, want := range []string{"秒后自动确认", "已自动确认", "git tag -a v0.2.10 -m v0.2.10"} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("试运行输出缺少 %q: %s", want, out)
+		}
 	}
 }
 
