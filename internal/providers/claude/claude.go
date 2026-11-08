@@ -397,6 +397,10 @@ func buildEnv(base []string, workDir string, extra []string) []string {
 	if !hasEnvKey(env, "CLAUDE_CODE_SUBAGENT_MODEL=") {
 		env = append(env, "CLAUDE_CODE_SUBAGENT_MODEL=haiku")
 	}
+	// 让模型使用 TaskCreate/TaskUpdate 记录待办，界面据此显示待办进度。
+	if !hasEnvKey(env, "CLAUDE_CODE_ENABLE_TODO_TOOLS=") {
+		env = append(env, "CLAUDE_CODE_ENABLE_TODO_TOOLS=1")
+	}
 	env = append(env, extra...)
 	return env
 }

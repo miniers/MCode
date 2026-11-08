@@ -1,7 +1,11 @@
 package mcodeui
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -48,11 +52,71 @@ func isTodoToolMessage(m Message) bool {
 	return m.Role == "tool" || m.Kind == "tool"
 }
 
-// latestTodoPlan 返回消息列表里最新一条待办工具消息解析出的待办清单及其下标；
-// 没有待办消息时返回 nil 与 -1。后到的待办消息整份覆盖先前的清单，不合并。
-// 与 renderSingleToolItem 一致：优先取结构化输入，其次取正文（正文带着工具名前缀）。
+var claudeTaskIDPattern = regexp.MustCompile(`Task #([0-9]+)`)
+
+// claudeTaskPlan 按创建顺序聚合 Claude 的增量任务消息。
+func claudeTaskPlan(msgs []Message) ([]todoItem, int) {
+	var items []todoItem
+	var ids []string
+	last, created := -1, 0
+	for i, m := range msgs {
+		if !isTodoToolMessage(m) {
+			continue
+		}
+		create := strings.EqualFold(m.ToolName, "TaskCreate")
+		if !create && !strings.EqualFold(m.ToolName, "TaskUpdate") {
+			continue
+		}
+		last = i
+		var input struct {
+			TaskID  string  `json:"taskId"`
+			Subject *string `json:"subject"`
+			Status  string  `json:"status"`
+		}
+		if json.Unmarshal([]byte(m.ToolInput), &input) != nil {
+			continue
+		}
+		if create {
+			created++
+			id := strconv.Itoa(created)
+			if _, output, ok := strings.Cut(m.Text, "\n"); ok {
+				if match := claudeTaskIDPattern.FindStringSubmatch(output); match != nil {
+					id = match[1]
+				}
+			}
+			text := ""
+			if input.Subject != nil {
+				text = *input.Subject
+			}
+			ids = append(ids, id)
+			items = append(items, todoItem{Text: text, Status: "pending"})
+			continue
+		}
+		for j, id := range ids {
+			if id != input.TaskID {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(input.Status), "deleted") {
+				ids = append(ids[:j], ids[j+1:]...)
+				items = append(items[:j], items[j+1:]...)
+				break
+			}
+			if input.Subject != nil {
+				items[j].Text = *input.Subject
+			}
+			if input.Status != "" {
+				items[j].Status = normalizeTodoStatus(input.Status)
+			}
+			break
+		}
+	}
+	return items, last
+}
+
+// latestTodoPlan 返回最新的整份清单或增量任务聚合结果及其下标。
 func latestTodoPlan(msgs []Message) ([]todoItem, int) {
-	for i := len(msgs) - 1; i >= 0; i-- {
+	tasks, taskIndex := claudeTaskPlan(msgs)
+	for i := len(msgs) - 1; i > taskIndex; i-- {
 		m := msgs[i]
 		if !isTodoToolMessage(m) {
 			continue
@@ -61,7 +125,7 @@ func latestTodoPlan(msgs []Message) ([]todoItem, int) {
 			return items, i
 		}
 	}
-	return nil, -1
+	return tasks, taskIndex
 }
 
 // todoPlanProgress 统计待办清单的已完成数与总项数。
