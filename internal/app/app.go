@@ -1396,10 +1396,9 @@ func Open(opts Options) (*App, error) {
 
 	// 总管接线：待处理事件服务与 MCP 服务都已就绪，钩子直接引用 App 的通知方法，
 	// 所以放在 App 实例构造之后；总管自己的会话随后被排除在待处理事件之外。
-	stewardRT = wireSteward(appInstance, opts.DataDir)
+	wireFrontdesk(appInstance, opts.DataDir)
 
 	// 验收唤醒：总管与看板都就绪后订阅看板变化，任务进入验收时在话题会话里接着处理。
-	appInstance.goalWake = wireGoalReviewWake(appInstance, stewardRT)
 
 	// bee 消息保留：后台每天压缩一次已结束满 30 天的 bee 会话消息。
 	// 开关每次现读配置（照验收唤醒器读日报配置的做法），读不到配置时跳过，不动数据。

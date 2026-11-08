@@ -62,6 +62,7 @@ func TestStewardSettings_SectionsAndKeys(t *testing.T) {
 		"昵称",
 		"头像",
 		"启用总管",
+		"没有 API Key 时用本机 CLI",
 		"总管模型",
 		"记忆与状态目录", filepath.Join(dataDir, "steward"),
 	} {
@@ -130,6 +131,18 @@ func TestStewardSettings_DisabledHint(t *testing.T) {
 		}
 	}
 	assertNoStewardWord(t, tt, "唤醒")
+}
+
+func TestStewardSettings_CLIFallbackToggle(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+	st.cfg.Orchestration.Steward.CLIFallback = false
+	tt := newStewardSettingsTester(t, st, false)
+	if err := tt.Click("切换没有 API Key 时用本机 CLI"); err != nil {
+		t.Fatalf("切换 CLI 降级开关失败: %v", err)
+	}
+	if !st.cfg.Orchestration.Steward.CLIFallback {
+		t.Fatal("CLI 降级开关应打开")
+	}
 }
 
 // TestStewardSettings_EnabledToggleWritesChoice 验证切换启用开关后写入 EnabledChoice，

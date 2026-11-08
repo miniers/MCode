@@ -66,6 +66,7 @@ const (
 	SettingsKeyStewardQuietStart                  = "steward.quiet_start"
 	SettingsKeyStewardQuietEnd                    = "steward.quiet_end"
 	SettingsKeyStewardEnabled                     = "steward.enabled"
+	SettingsKeyStewardCLIFallback                 = "steward.cli_fallback"
 	SettingsKeyStewardAutoCollapseReasoning       = "steward.auto_collapse_reasoning"
 )
 
@@ -113,6 +114,7 @@ var SettingsWritableKeys = []string{
 	SettingsKeyStewardQuietStart,
 	SettingsKeyStewardQuietEnd,
 	SettingsKeyStewardEnabled,
+	SettingsKeyStewardCLIFallback,
 	SettingsKeyStewardAutoCollapseReasoning,
 }
 

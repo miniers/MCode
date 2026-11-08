@@ -230,6 +230,8 @@ func (td *memoryThread) setIdleLocked() {
 // MemoryBackend 提供纯内存实现的 Backend 接口，供测试与本地开发模拟。
 type MemoryBackend struct {
 	mu             sync.Mutex
+	stewardFeedMu  sync.Mutex
+	stewardDesk    StewardDesk
 	queuePersistMu sync.Mutex
 	turnPersistMu  sync.Mutex
 	wg             sync.WaitGroup
@@ -2874,6 +2876,12 @@ func (b *MemoryBackend) SetThreadRelation(threadID, parentThreadID string, isHel
 
 // SendMessage 接收用户消息并启动后台模拟回复。
 func (b *MemoryBackend) SendMessage(ctx context.Context, params wire.SendMessageParams) (wire.SendMessageResult, error) {
+	b.mu.Lock()
+	desk := b.stewardDesk
+	b.mu.Unlock()
+	if desk != nil && desk.IsFeed(params.ThreadID) {
+		return b.acceptStewardMessage(ctx, params, desk)
+	}
 	b.cancelAutoContinue(params.ThreadID)
 	// C-TH-02/03: 临时线程发消息时转为正式线程
 	_ = b.retainThreadInternal(ctx, params.ThreadID)

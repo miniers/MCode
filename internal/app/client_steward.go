@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -119,24 +118,15 @@ func (c *Client) StewardIdentity() (name, avatar string) {
 // 否则现建一次：首次建会话要走一轮完整的 CLI 首轮启动，可能耗时几十秒，
 // 所以按 stewardEnsureTimeout 限时，避免界面一直等下去。
 func (c *Client) OpenStewardThread(ctx context.Context) (string, error) {
-	rt := c.stewardRuntime()
-	if rt == nil {
-		return "", errors.New("总管未接入")
-	}
-	if id := rt.ThreadID(); id != "" {
-		return id, nil
-	}
-	ensureCtx, cancel := context.WithTimeout(ctx, stewardEnsureTimeout)
-	defer cancel()
-	threadID, err := rt.Ensure(ensureCtx)
-	if err != nil {
-		return "", fmt.Errorf("准备总管会话失败: %w", err)
-	}
-	// 未启用时 Ensure 按约定返回空串且不报错，界面要据此提示用户去设置里开启。
-	if threadID == "" {
+	cfg, ok := c.loadConfig()
+	if !ok || !cfg.Orchestration.Steward.Enabled {
 		return "", errors.New("总管未启用，请先在设置 → 总管中启用")
 	}
-	return threadID, nil
+	projectID, err := ensureFrontdeskProject(ctx, c.backend, cfg.Orchestration.Steward.ResolvedHomeDir(c.effectiveDataDir()))
+	if err != nil {
+		return "", err
+	}
+	return c.backend.EnsureStewardFeedThread(ctx, projectID)
 }
 
 // stewardTopicRuntimeOf 取注入运行时的话题能力；未接线或运行时还不支持话题时返回 nil。

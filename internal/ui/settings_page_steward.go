@@ -127,6 +127,8 @@ func stewardMainSection(st *SettingsState) settingsSection {
 				// 侧栏的启用状态是带短缓存的，改完开关立刻让它重读，不必等缓存过期。
 				invalidateStewardEnabledState(st.chat)
 			})},
+		{ID: "row-steward-cli-fallback", Title: "没有 API Key 时用本机 CLI", Control: toggle(
+			val(func(cfg *config.Config) *bool { return &cfg.Orchestration.Steward.CLIFallback }, false))},
 	}}
 
 	// 总管会话入口：启用且客户端支持时给一行，点了先关设置面板再跳到会话。
