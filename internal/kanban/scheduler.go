@@ -292,6 +292,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			}
 			t.LastActivityText = &text
 			if up, err := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
+				g.svc.notifyResult(ctx, up, decision.result)
 				tasks[i] = up
 				goalChanged = true
 				if autoAcceptNow {

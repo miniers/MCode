@@ -1262,6 +1262,7 @@ func (m MemoryConfig) SpaceFor(projectPath string) string {
 // 总管在会话卡住、出错、额度用尽、看板任务失败、自动化失败等事件发生时被唤醒，
 // 先看一遍再向用户汇报；它只用这里指定的模型，每次唤醒都会消耗额度。
 type StewardConfig struct {
+	CLIFallback    bool   `json:"cli_fallback,omitempty"`
 	Enabled        bool   `json:"enabled"`                   // 是否启用总管，默认 true
 	EnabledChoice  bool   `json:"enabled_choice,omitempty"`  // 用户在设置页亲手切换过启用开关后置 true，此后迁移不再改 enabled
 	Name           string `json:"name"`                      // 总管的昵称，可留空；留空时界面只显示「总管」

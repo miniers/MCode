@@ -178,6 +178,7 @@ type Service struct {
 	revision     atomic.Int64
 	cbMu         sync.Mutex
 	onChange     func()
+	onResult     func(context.Context, store.Task, ExecutorResult)
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
@@ -186,6 +187,27 @@ type Service struct {
 	optimistic   map[string]time.Time
 	// receipts 保存执行会话的回执、追问与求助状态，由独立互斥锁保护
 	receipts receiptState
+}
+
+// SetOnResult 设置执行结果落库后的回调。
+func (s *Service) SetOnResult(fn func(context.Context, store.Task, ExecutorResult)) {
+	s.cbMu.Lock()
+	s.onResult = fn
+	s.cbMu.Unlock()
+}
+
+func (s *Service) notifyResult(ctx context.Context, task store.Task, res ExecutorResult) {
+	s.cbMu.Lock()
+	fn := s.onResult
+	s.cbMu.Unlock()
+	if fn != nil {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("kanban: 结果回调异常: %v", r)
+			}
+		}()
+		fn(ctx, task, res)
+	}
 }
 
 // NewService 创建看板服务实例。如果 Planner 未提供，则默认使用 AgentPlanner。

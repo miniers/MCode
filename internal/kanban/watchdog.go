@@ -258,11 +258,15 @@ func (w *Watchdog) Check(ctx context.Context) error {
 				}
 				t.LastActivityText = &text
 				w.svc.mu.Lock()
-				if _, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
+				up, updateErr := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision)
+				if updateErr == nil {
 					w.svc.revision.Add(1)
 					changed = true
 				}
 				w.svc.mu.Unlock()
+				if updateErr == nil {
+					w.svc.notifyResult(ctx, up, decision.result)
+				}
 			}
 			continue
 		}

@@ -79,15 +79,20 @@ func (s *Service) CheckWaits(ctx context.Context, now time.Time) error {
 			}
 		}
 		t.Meta = EncodeTaskMeta(meta)
+		var res ExecutorResult
 		if question != "" {
-			res := ExecutorResult{Status: ResultNeedsDecision, Summary: meta.Summary, Question: question, Options: []DecisionOption{{Key: "A", Text: "继续等"}, {Key: "B", Text: "停下"}}, Recommendation: "A"}
+			res = ExecutorResult{Status: ResultNeedsDecision, Summary: meta.Summary, Question: question, Options: []DecisionOption{{Key: "A", Text: "继续等"}, {Key: "B", Text: "停下"}}, Recommendation: "A"}
 			if err := s.applyExecutorResult(ctx, &t, res, now); err != nil {
 				return err
 			}
 			s.markReceiptBlocked(t.ID)
 		}
-		if _, err := s.opts.Store.UpdateTask(ctx, t, t.Revision); err != nil {
+		updated, err := s.opts.Store.UpdateTask(ctx, t, t.Revision)
+		if err != nil {
 			return err
+		}
+		if res.Status != "" {
+			s.notifyResult(ctx, updated, res)
 		}
 		s.revision.Add(1)
 		s.notifyChange()
