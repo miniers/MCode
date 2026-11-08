@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"os"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -84,7 +84,8 @@ func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	if err != nil || model != "model-x" {
 		t.Fatalf("endpoint precedence = %q, %v", model, err)
 	}
-	if _, ok := magpieinject.ProviderOf("anthropic/model-x", magpieinject.Targets(cfg, secrets, nil)); !ok {
+	target, modelID, ok := magpieinject.ProviderOf("anthropic/model-x", magpieinject.Targets(cfg, secrets, nil))
+	if !ok || target.ProviderID != "anthropic" || modelID != "model-x" {
 		t.Fatal("Magpie target should match")
 	}
 	cfg = mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})

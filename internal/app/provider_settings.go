@@ -8,8 +8,8 @@ import (
 
 	"mcode/internal/config"
 	"mcode/internal/providers/acp"
-	"mcode/internal/remote"
 	"mcode/internal/providers/openai"
+	"mcode/internal/remote"
 	mcodeui "mcode/internal/ui"
 )
 

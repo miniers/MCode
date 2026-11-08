@@ -188,9 +188,9 @@ func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.
 		}
 		for _, id := range ids {
 			rows = append(rows, wire.ProviderModel{
-				ID: target.providerID + "/" + id,
-				Name: magpie.ShortName(magpie.Model{ID: id}),
-				Efforts: []string{"low", "medium", "high", "xhigh", "max"},
+				ID:        target.providerID + "/" + id,
+				Name:      magpie.ShortName(magpie.Model{ID: id}),
+				Efforts:   []string{"low", "medium", "high", "xhigh", "max"},
 				IsDefault: len(rows) == 0,
 			})
 		}
