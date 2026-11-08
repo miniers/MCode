@@ -25,6 +25,8 @@ import { setPendingBadge } from './services/pushNotifications';
 import { loadThreadDraftView, loadThreadView, prefetchThreadViews } from './utils/lazyThreadViews';
 import { parseThreadRoute } from './utils/threadRoute';
 import { clearHomeQuery } from './utils/homeSearch';
+import { useIsWideSheet } from './components/thread/menu/useIsWideSheet';
+import { usesSplitLayout, threadOpenMode } from './utils/splitLayout';
 
 // 会话页会把时间线、输入框、markdown 与 highlight.js 一起带进来，首屏只加载会话列表，
 // 所以 ThreadView / ThreadDraftView 改为按需加载；连接可用后在空闲时预取，打开基本不用等。
@@ -181,7 +183,8 @@ function useHashRoute(): [
         setRoute(next);
       };
       // 同时只跑一次过场：上一段还没结束就直接换页，避免动画叠在一起。
-      if (options?.skipTransition || transitionRef.current || shouldSkipNavTransition(prev, next)) {
+      if (options?.skipTransition || transitionRef.current || shouldSkipNavTransition(prev, next) ||
+          (window.matchMedia?.('(min-width: 900px)').matches && usesSplitLayout(true, prev.kind) && usesSplitLayout(true, next.kind))) {
         apply();
         return;
       }
@@ -376,6 +379,9 @@ const AppContent: React.FC = () => {
     reconnect
   } = useRemote();
   const [route, navigate, goBack, replaceHash] = useHashRoute();
+  const isWide = useIsWideSheet();
+  const split = usesSplitLayout(isWide, route.kind);
+  const threadNavigationOptions = threadOpenMode(isWide, route.kind) === 'replace' ? { replace: true } : undefined;
   const requestedThreadIDRef = useRef<string | null>(null);
   // 推送点开的一次性定位请求：nonce 让同一目标被再次点开时也能重新定位。
   const [threadJump, setThreadJump] = useState<{
@@ -416,7 +422,7 @@ const AppContent: React.FC = () => {
   const closeCreateSheet = useCallback(() => setCreateKind(null), []);
   useSheetDrag(createSheetRef, createSheetHandleRef, closeCreateSheet, createKind === 'thread');
   useEdgeSwipeBack({
-    enabled: !isHomeOrBoard && !showPairingScreen,
+    enabled: !isHomeOrBoard && !showPairingScreen && !split,
     onCommit: () => goBack(boardRoute ? '#/board' : '#/', { skipTransition: true })
   });
 
@@ -459,15 +465,15 @@ const AppContent: React.FC = () => {
     // 先刷新列表再跳转：项目页按 ID 找项目，列表还没更新会停在加载态。
     void loadProjects()
       .catch(() => undefined)
-      .then(() => navigate(`#/new/${encodeURIComponent(projectID)}`));
+      .then(() => navigate(`#/new/${encodeURIComponent(projectID)}`, threadNavigationOptions));
   };
 
   const handleNewThread = () => {
     prefetchThreadViews();
     if (selectedProjectID) {
-      navigate(`#/new/${encodeURIComponent(selectedProjectID)}`);
+      navigate(`#/new/${encodeURIComponent(selectedProjectID)}`, threadNavigationOptions);
     } else if (projects.length === 1) {
-      navigate(`#/new/${encodeURIComponent(projects[0].id)}`);
+      navigate(`#/new/${encodeURIComponent(projects[0].id)}`, threadNavigationOptions);
     } else {
       setCreateProjectID(projects[0]?.id ?? '');
       setCreateKind('thread');
@@ -629,110 +635,74 @@ const AppContent: React.FC = () => {
 
   if (showPairingScreen) return <PairingScreen />;
 
+  let detailPane: React.ReactNode = null;
   if (route.kind === 'thread') {
-    const jumpRequest =
-      threadJump && threadJump.threadID === route.threadID
-        ? { messageID: threadJump.messageID, requestID: threadJump.requestID, nonce: threadJump.nonce }
-        : null;
-    if (currentThread?.id !== route.threadID) {
-      const canGetThread = capabilities?.methods.includes('threads.get');
-      const openingError = canGetThread
-        ? connectionState !== 'connected' ? '未连接到 Mac' : openThreadError
-        : null;
-      const disconnected = connectionState !== 'connected';
-      const reconnecting = connectionState === 'connecting' || connectionState === 'reconnecting';
-      // 断线时给出明确文案与重连入口；重连进行中按钮置灰，避免重复发起。
-      const openingStatusText = disconnected
-        ? reconnecting
-          ? connectionMessage || '正在重连…'
-          : canGetThread ? '未连接到 Mac' : connectionMessage || '正在打开会话…'
-        : openingError || (canGetThread ? '正在打开会话…' : connectionMessage || '正在打开会话…');
-      if (currentThread && canGetThread && !openingError) {
-        return (
-          <div className="app-shell mobile-page">
-            {buildNotice}
-            <LazyBoundary variant="screen" label="正在加载会话…" skeleton="thread">
-              <MarkdownImageProvider threadID={currentThread?.id ?? null}>
-                <ThreadView
-                  thread={currentThread}
-                  onBack={() => goBack('#/')}
-                  subview={route.subview}
-                  filePath={route.filePath}
-                  jumpRequest={jumpRequest}
-                />
-              </MarkdownImageProvider>
-            </LazyBoundary>
-          </div>
-        );
-      }
-      return (
-        <div className="app-shell mobile-page">
-          {buildNotice}
-          <div className="empty-state" role="status">
-            {(disconnected ? reconnecting || !canGetThread : !openingError) && <span className="loading-spinner" />}
-            <span>{openingStatusText}</span>
-            {disconnected && (
-              <button type="button" className="primary-button" disabled={reconnecting} onClick={() => reconnect()}>
-                重新连接
-              </button>
-            )}
-            {!disconnected && canGetThread && openingError && (
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => {
-                  requestedThreadIDRef.current = route.threadID;
-                  void openThreadByID(route.threadID);
-                }}
-              >
-                重试
-              </button>
-            )}
-            <button type="button" className="secondary-button" onClick={() => goBack('#/')}>返回会话列表</button>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="app-shell mobile-page">
-        {buildNotice}
+    const jumpRequest = threadJump && threadJump.threadID === route.threadID
+      ? { messageID: threadJump.messageID, requestID: threadJump.requestID, nonce: threadJump.nonce }
+      : null;
+    const canGetThread = capabilities?.methods.includes('threads.get');
+    const openingError = canGetThread ? connectionState !== 'connected' ? '未连接到 Mac' : openThreadError : null;
+    const disconnected = connectionState !== 'connected';
+    const reconnecting = connectionState === 'connecting' || connectionState === 'reconnecting';
+    const openingStatusText = disconnected
+      ? reconnecting ? connectionMessage || '正在重连…' : canGetThread ? '未连接到 Mac' : connectionMessage || '正在打开会话…'
+      : openingError || (canGetThread ? '正在打开会话…' : connectionMessage || '正在打开会话…');
+    if (currentThread && (currentThread.id === route.threadID || (canGetThread && !openingError))) {
+      detailPane = (
         <LazyBoundary variant="screen" label="正在加载会话…" skeleton="thread">
-          <MarkdownImageProvider threadID={currentThread?.id ?? null}>
+          <MarkdownImageProvider threadID={currentThread.id}>
             <ThreadView
+              key={split ? currentThread.id : undefined}
               thread={currentThread}
-              onBack={() => goBack('#/')}
+              onBack={split ? undefined : () => goBack('#/')}
               subview={route.subview}
               filePath={route.filePath}
               jumpRequest={jumpRequest}
             />
           </MarkdownImageProvider>
         </LazyBoundary>
+      );
+    } else {
+      const threadID = route.threadID;
+      detailPane = (
+        <div className="empty-state" role="status">
+          {(disconnected ? reconnecting || !canGetThread : !openingError) && <span className="loading-spinner" />}
+          <span>{openingStatusText}</span>
+          {disconnected && (
+            <button type="button" className="primary-button" disabled={reconnecting} onClick={() => reconnect()}>
+              重新连接
+            </button>
+          )}
+          {!disconnected && canGetThread && openingError && (
+            <button type="button" className="primary-button" onClick={() => {
+              requestedThreadIDRef.current = threadID;
+              void openThreadByID(threadID);
+            }}>重试</button>
+          )}
+          {!split && <button type="button" className="secondary-button" onClick={() => goBack('#/')}>返回会话列表</button>}
+        </div>
+      );
+    }
+  } else if (route.kind === 'draft') {
+    const project = projects.find((candidate) => candidate.id === route.projectID);
+    detailPane = project ? (
+      <LazyBoundary variant="screen" label="正在加载新会话…" skeleton="thread">
+        <ThreadDraftView
+          project={project}
+          onBack={split ? undefined : () => goBack('#/')}
+          onOpenThread={(threadID) => navigate(`#/t/${encodeURIComponent(threadID)}`, { replace: true })}
+        />
+      </LazyBoundary>
+    ) : (
+      <div className="empty-state" role="status">
+        <span className="loading-spinner" />
+        <span>{connectionMessage || '正在读取项目…'}</span>
+        {!split && <button type="button" className="secondary-button" onClick={() => goBack('#/')}>返回会话列表</button>}
       </div>
     );
   }
-
-  if (route.kind === 'draft') {
-    const project = projects.find((candidate) => candidate.id === route.projectID);
-    return (
-      <div className="app-shell mobile-page">
-        {buildNotice}
-        {project ? (
-          <LazyBoundary variant="screen" label="正在加载新会话…" skeleton="thread">
-            <ThreadDraftView
-              project={project}
-              onBack={() => goBack('#/')}
-              onOpenThread={(threadID) => navigate(`#/t/${encodeURIComponent(threadID)}`, { replace: true })}
-            />
-          </LazyBoundary>
-        ) : (
-          <div className="empty-state" role="status">
-            <span className="loading-spinner" />
-            <span>{connectionMessage || '正在读取项目…'}</span>
-            <button type="button" className="secondary-button" onClick={() => goBack('#/')}>返回会话列表</button>
-          </div>
-        )}
-      </div>
-    );
+  if (!split && (route.kind === 'thread' || route.kind === 'draft')) {
+    return <div className="app-shell mobile-page">{buildNotice}{detailPane}</div>;
   }
 
   const boardScreen = (
@@ -754,21 +724,22 @@ const AppContent: React.FC = () => {
         headerActionsSlot={headerActionsSlot}
         headerLeadingSlot={headerLeadingSlot}
         projectID={selectedProjectID}
+        selectedThreadID={split && route.kind === 'thread' ? route.threadID : null}
         onSelectThread={(thread) => {
           // 点会话行时立即预取，不等空闲回调。
           prefetchThreadViews();
-          navigate(`#/t/${encodeURIComponent(thread.id)}`);
+          navigate(`#/t/${encodeURIComponent(thread.id)}`, threadNavigationOptions);
         }}
         onCreateDraft={(projectID) => {
           prefetchThreadViews();
-          navigate(`#/new/${encodeURIComponent(projectID)}`);
+          navigate(`#/new/${encodeURIComponent(projectID)}`, threadNavigationOptions);
         }}
       />
     </>
   );
 
-  return (
-    <div className="app-shell">
+  const sidebar = (
+    <>
       <Header
         actionsSlotRef={setHeaderActionsSlot}
         leadingSlotRef={setHeaderLeadingSlot}
@@ -791,11 +762,11 @@ const AppContent: React.FC = () => {
         onCloseSettings={() => goBack('#/')}
       />
       {buildNotice}
-      <main className={`app-main${settingsOpen ? '' : ' mobile-page'}`}>
+      <main className={`app-main${split || settingsOpen ? '' : ' mobile-page'}`}>
         {boardRoute ? boardScreen : sessionsScreen}
       </main>
 
-      {isHomeOrBoard && (
+      {(isHomeOrBoard || split) && (
         <>
           <button
             type="button"
@@ -809,13 +780,13 @@ const AppContent: React.FC = () => {
           </button>
           {fabMenuOpen && (
             <div
-              className="fixed inset-0 z-30"
+              className={split ? 'absolute inset-0 z-30' : 'fixed inset-0 z-30'}
               onClick={() => setFabMenuOpen(false)}
             >
               <div
-                className="fixed z-40 min-w-44 overflow-hidden rounded-2xl border border-border bg-card p-1.5 shadow-2xl animate-fadeIn"
+                className={`${split ? 'absolute' : 'fixed'} z-40 min-w-44 overflow-hidden rounded-2xl border border-border bg-card p-1.5 shadow-2xl animate-fadeIn`}
                 style={{
-                  right: 'max(1rem, calc(1rem + var(--sar)))',
+                  right: split ? '16px' : 'max(1rem, calc(1rem + var(--sar)))',
                   bottom: 'calc(env(safe-area-inset-bottom, 0px) + 5rem)'
                 }}
                 onClick={(event) => event.stopPropagation()}
@@ -875,6 +846,17 @@ const AppContent: React.FC = () => {
         </>
       )}
 
+    </>
+  );
+
+  return (
+    <div className={split ? 'app-shell split-shell' : 'app-shell'}>
+      {split ? (
+        <>
+          <aside className="split-sidebar">{sidebar}</aside>
+          <section className="split-detail">{detailPane}</section>
+        </>
+      ) : sidebar}
       {createKind === 'thread' && (
         <div className="sheet-layer" role="presentation" onMouseDown={() => setCreateKind(null)}>
           <section ref={createSheetRef} className="create-sheet" role="dialog" aria-modal="true" aria-labelledby="create-thread-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -907,7 +889,7 @@ const AppContent: React.FC = () => {
               onClick={() => {
                 const targetProjectID = createProjectID;
                 setCreateKind(null);
-                navigate(`#/new/${encodeURIComponent(targetProjectID)}`);
+                navigate(`#/new/${encodeURIComponent(targetProjectID)}`, threadNavigationOptions);
               }}
               disabled={!createProjectID}
             >

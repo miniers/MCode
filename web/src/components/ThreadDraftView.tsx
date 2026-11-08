@@ -20,7 +20,7 @@ import { ThreadComposer } from './ThreadComposer';
 
 interface ThreadDraftViewProps {
   project: RemoteProjectSummary;
-  onBack: () => void;
+  onBack?: () => void;
   onOpenThread: (threadID: string) => void;
 }
 
@@ -424,14 +424,16 @@ export const ThreadDraftView: React.FC<ThreadDraftViewProps> = ({ project, onBac
           paddingRight: 'max(0.75rem, calc(0.75rem + var(--sar)))'
         }}
       >
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="返回会话列表"
-          className="min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-xl text-[var(--foreground-muted)] hover:text-[var(--foreground)] hover:bg-[var(--card-alt,var(--card))] transition"
-        >
-          <ChevronRightIcon className="h-5 w-5 rotate-180" />
-        </button>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="返回会话列表"
+            className="min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-xl text-[var(--foreground-muted)] hover:text-[var(--foreground)] hover:bg-[var(--card-alt,var(--card))] transition"
+          >
+            <ChevronRightIcon className="h-5 w-5 rotate-180" />
+          </button>
+        )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[16px] font-semibold text-[var(--foreground)]">新会话草稿</div>
           <div className="truncate text-xs text-[var(--foreground-muted)]">{currentProject.name}</div>

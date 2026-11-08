@@ -9,7 +9,7 @@ import { backgroundWaitCount, backgroundWaitStatusText } from '../../utils/backg
 import { ThreadChangeStats } from './ThreadChangeStats';
 
 export interface ThreadViewHeaderProps {
-  onBack: () => void;
+  onBack?: () => void;
   latestSummary: RemoteThreadSummary;
   subtitle: string;
   showFloatingStatus: boolean;
@@ -85,15 +85,17 @@ export const ThreadViewHeader = React.memo(function ThreadViewHeader({
         paddingRight: 'max(0.75rem, calc(0.75rem + var(--sar)))'
       }}
     >
-      <button
-        type="button"
-        onClick={onBack}
-        aria-label="返回会话列表"
-        className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center gap-0.5 -ml-1.5 px-2 rounded-xl text-xs font-medium text-[var(--foreground)] hover:bg-[var(--user-bubble)] transition active:scale-95"
-      >
-        <ChevronRightIcon className="w-4 h-4 rotate-180" />
-        <span>会话</span>
-      </button>
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="返回会话列表"
+          className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center gap-0.5 -ml-1.5 px-2 rounded-xl text-xs font-medium text-[var(--foreground)] hover:bg-[var(--user-bubble)] transition active:scale-95"
+        >
+          <ChevronRightIcon className="w-4 h-4 rotate-180" />
+          <span>会话</span>
+        </button>
+      )}
       <div className="min-w-0 flex-1">
         <div className="text-[16px] sm:text-mc-page-title font-semibold text-[var(--foreground)] truncate leading-tight">
           {latestSummary.title || '未命名会话'}

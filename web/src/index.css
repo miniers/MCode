@@ -473,6 +473,14 @@ html[data-keyboard-open] .settings-sheet.model-sheet { padding-bottom: 0; }
   .settings-shell--wide .settings-shell-content { padding: 0 4px 8px 4px; }
 }
 
+@media (min-width: 900px) {
+  .split-shell { flex-direction: row; }
+  .split-sidebar { position: relative; display: flex; width: 360px; min-width: 0; flex: 0 0 360px; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+  .split-detail { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; background: var(--screen); }
+  .split-sidebar .home-list { width: 100%; }
+  .split-sidebar .fab-button { position: absolute; right: 16px; bottom: calc(var(--sab) + 16px); }
+}
+
 /* 宽屏菜单：depth===1 用无遮罩 popover，depth>1 用右侧栏；两态内部共用页面栈。 */
 @media (min-width: 900px) {
   .menu-side-layer { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .34); animation: fade-in .15s ease-out; }

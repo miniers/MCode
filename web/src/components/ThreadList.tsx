@@ -83,6 +83,7 @@ const ACTIVE_PAGE_STEP = 10;
 const DORMANT_PAGE_STEP = 25;
 
 interface ThreadListProps {
+  selectedThreadID?: string | null;
   headerActionsSlot?: HTMLElement | null;
   headerLeadingSlot?: HTMLElement | null;
   projectID: string | null;
@@ -91,6 +92,7 @@ interface ThreadListProps {
 }
 
 interface ThreadRowProps {
+  isSelected?: boolean;
   thread: RemoteThreadSummary;
   projectName?: string;
   projectScoped: boolean;
@@ -104,6 +106,7 @@ interface ThreadRowProps {
 }
 
 interface DormantThreadRowProps {
+  isSelected?: boolean;
   thread: RemoteThreadSummary;
   projectName?: string;
   onOpen: (thread: RemoteThreadSummary) => void;
@@ -207,12 +210,14 @@ function matchesFilter(thread: RemoteThreadSummary, filter: ThreadFilter): boole
 
 // 行组件加 React.memo：列表刷新时未变化的会话在 mergeThreadSummary 里保持原引用，行本身不必重渲染。
 const ArchivedThreadRow = React.memo(function ArchivedThreadRow({
+  isSelected,
   thread,
   projectName,
   onOpen,
   onMenu,
   showTrailingDivider = true
 }: {
+  isSelected?: boolean;
   thread: RemoteThreadSummary;
   projectName?: string;
   onOpen: (thread: RemoteThreadSummary) => void;
@@ -223,9 +228,10 @@ const ArchivedThreadRow = React.memo(function ArchivedThreadRow({
   const rowStatusLabel = threadRowStatusAriaLabel(thread);
   return (
     <div className="thread-row-wrap">
-      <div className="relative z-10 flex min-h-[52px] items-center gap-2 bg-screen gutter-x">
+      <div className={`relative z-10 flex min-h-[52px] items-center gap-2 ${isSelected ? 'bg-[var(--mc-overlay-selected)]' : 'bg-screen'} gutter-x`}>
         <button
           type="button"
+          aria-current={isSelected ? 'true' : undefined}
           aria-label={`打开已归档会话 ${thread.title || '未命名会话'}${rowStatusLabel ? `，${rowStatusLabel}` : ''}`}
           className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left"
           onClick={() => onOpen(thread)}
@@ -420,6 +426,7 @@ function MessageHitSnippet({ text, needle }: { text: string; needle: string }) {
 }
 
 const ThreadRow = React.memo(function ThreadRow({
+  isSelected,
   thread,
   projectName,
   onOpen,
@@ -565,7 +572,8 @@ const ThreadRow = React.memo(function ThreadRow({
         role="button"
         tabIndex={0}
         aria-label={`打开会话 ${thread.title || '未命名会话'}${rowStatusLabel ? `，${rowStatusLabel}` : ''}`}
-        className={`relative z-10 min-h-[76px] bg-screen gutter-x py-2.5 transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
+        aria-current={isSelected ? 'true' : undefined}
+        className={`relative z-10 min-h-[76px] ${isSelected ? 'bg-[var(--mc-overlay-selected)]' : 'bg-screen'} gutter-x py-2.5 transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
         style={{
           transform: `translateX(${offset}px)`,
           transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(.22,1,.36,1)'
@@ -644,6 +652,7 @@ const ThreadRow = React.memo(function ThreadRow({
 });
 
 const DormantThreadRow = React.memo(function DormantThreadRow({
+  isSelected,
   thread,
   projectName,
   onOpen,
@@ -781,7 +790,8 @@ const DormantThreadRow = React.memo(function DormantThreadRow({
         role="button"
         tabIndex={0}
         aria-label={`打开已休眠会话 ${thread.title || '未命名会话'}${rowStatusLabel ? `，${rowStatusLabel}` : ''}`}
-        className={`relative z-10 flex h-[44px] min-h-[44px] items-center justify-between gap-2 bg-screen gutter-x transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
+        aria-current={isSelected ? 'true' : undefined}
+        className={`relative z-10 flex h-[44px] min-h-[44px] items-center justify-between gap-2 ${isSelected ? 'bg-[var(--mc-overlay-selected)]' : 'bg-screen'} gutter-x transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
         style={{
           transform: `translateX(${offset}px)`,
           transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(.22,1,.36,1)'
@@ -1073,6 +1083,7 @@ const HomeSearch: React.FC<{
 };
 
 export const ThreadList: React.FC<ThreadListProps> = ({
+  selectedThreadID,
   headerActionsSlot,
   headerLeadingSlot,
   projectID,
@@ -1854,6 +1865,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
                   <ArchivedThreadRow
                     key={thread.id}
                     thread={thread}
+                    isSelected={thread.id === selectedThreadID}
                     projectName={!projectID ? projects.find((project) => project.id === thread.projectID)?.name : undefined}
                     onOpen={handleOpen}
                     onMenu={setMenuThread}
@@ -1886,6 +1898,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
                   <DormantThreadRow
                     key={thread.id}
                     thread={thread}
+                    isSelected={thread.id === selectedThreadID}
                     projectName={!projectID ? projects.find((project) => project.id === thread.projectID)?.name : undefined}
                     onOpen={handleOpen}
                     onMenu={setMenuThread}
@@ -1913,6 +1926,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
                       <ThreadRow
                         key={thread.id}
                         thread={thread}
+                        isSelected={thread.id === selectedThreadID}
                         projectName={!projectID ? projects.find((project) => project.id === thread.projectID)?.name : undefined}
                         projectScoped={Boolean(projectID)}
                         onOpen={handleOpen}
@@ -1948,6 +1962,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
                           <DormantThreadRow
                             key={thread.id}
                             thread={thread}
+                            isSelected={thread.id === selectedThreadID}
                             projectName={!projectID ? projects.find((project) => project.id === thread.projectID)?.name : undefined}
                             onOpen={handleOpen}
                             onMenu={setMenuThread}

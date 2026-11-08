@@ -169,7 +169,7 @@ const ThreadFindBar = lazy(() =>
 
 interface ThreadViewProps {
   thread: RemoteThreadSummary;
-  onBack: () => void;
+  onBack?: () => void;
   subview?: 'agents' | 'review' | 'git' | 'files' | 'scripts' | null;
   filePath?: string;
   /** 推送点开时的一次性定位：messageID 定位消息，requestID 定位审批面板；nonce 变化即重新执行 */
