@@ -34,6 +34,32 @@ type Result struct {
 const maxOutputBytes = 50 * 1024
 const maxOutputLines = 2000
 
+// processTracker 保存调用方关心的子进程生命周期回调。
+type processTracker struct {
+	onStart func(pid int)
+	onExit  func(pid int)
+}
+
+type processTrackerKey struct{}
+
+// WithProcessTracker 返回携带进程回调的 ctx：Run 在子进程启动成功后调用 onStart，
+// 子进程退出后调用 onExit；ctx 未携带回调时 Run 不做任何通知。
+func WithProcessTracker(ctx context.Context, onStart func(pid int), onExit func(pid int)) context.Context {
+	if ctx == nil || (onStart == nil && onExit == nil) {
+		return ctx
+	}
+	return context.WithValue(ctx, processTrackerKey{}, &processTracker{onStart: onStart, onExit: onExit})
+}
+
+// trackerFrom 取出 ctx 携带的进程回调，没有时返回 nil。
+func trackerFrom(ctx context.Context) *processTracker {
+	if ctx == nil {
+		return nil
+	}
+	tracker, _ := ctx.Value(processTrackerKey{}).(*processTracker)
+	return tracker
+}
+
 type outputWriter struct {
 	tail     []byte
 	file     *os.File
@@ -123,6 +149,15 @@ func Run(ctx context.Context, opts Options, onOutput func(chunk string)) (Result
 	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return result, err
+	}
+	if tracker := trackerFrom(ctx); tracker != nil {
+		pid := cmd.Process.Pid
+		if tracker.onStart != nil {
+			tracker.onStart(pid)
+		}
+		if tracker.onExit != nil {
+			defer tracker.onExit(pid)
+		}
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()

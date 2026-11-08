@@ -3,9 +3,14 @@ package mcode
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os/exec"
 	"reflect"
+	"runtime"
 	"testing"
+	"time"
 
+	"mcode/internal/agent/llm"
 	"mcode/internal/agent/session"
 	"mcode/internal/harness"
 )
@@ -94,5 +99,83 @@ func TestSessionExistsWithoutStore(t *testing.T) {
 	h := New(Options{})
 	if !h.SessionExists("missing") {
 		t.Fatal("SessionExists(missing) = false, want true when no store is configured")
+	}
+}
+
+// TestProcessRootPIDsTrackRunningCommand 验证引擎会话能定位正在运行的 bash 子进程：
+// 命令运行期间 ProcessRootPIDs 非空，对该进程组发 SIGKILL 后本轮正常结束且登记被注销。
+func TestProcessRootPIDsTrackRunningCommand(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		t.Skip("需要 Unix 进程组")
+	}
+	client := &fakeClient{responses: []*llm.Response{
+		toolCall("bash", "call-1", `{"command":"sleep 30"}`), answer(),
+	}}
+	h := harnessFor(client, Options{})
+	turn := harness.Turn{ThreadID: "tracked-thread", Prompt: "go", Mode: harness.ModeFullAccess, WorkDir: t.TempDir()}
+	done := make(chan error, 1)
+	go func() { done <- h.Run(context.Background(), turn, nil) }()
+
+	var pid int
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if pids := h.ProcessRootPIDs("tracked-thread"); len(pids) > 0 {
+			pid = pids[0]
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if pid <= 0 {
+		t.Fatal("命令运行期间没有登记 PID")
+	}
+	killGroup := func() error {
+		return exec.Command("/bin/sh", "-c", fmt.Sprintf("kill -KILL -- -%d", pid)).Run()
+	}
+	defer func() { _ = killGroup() }()
+	if err := killGroup(); err != nil {
+		t.Fatalf("终止进程组 %d 失败：%v", pid, err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("命令被终止后本轮应正常结束，Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("命令被终止后本轮没有结束")
+	}
+	if pids := h.ProcessRootPIDs("tracked-thread"); len(pids) != 0 {
+		t.Fatalf("本轮结束后仍登记 PID：%v", pids)
+	}
+}
+
+// TestEvictThreadReleasesGateAndPIDs 验证回收后进程登记被清空，「本会话允许」的记忆也会被清除。
+func TestEvictThreadReleasesGateAndPIDs(t *testing.T) {
+	client := &fakeClient{responses: []*llm.Response{
+		toolCall("bash", "one", `{"command":"touch created"}`), answer(),
+		toolCall("bash", "two", `{"command":"touch created"}`), answer(),
+	}}
+	approver := &allowingInteractor{}
+	h := harnessFor(client, Options{})
+	turn := harness.Turn{ThreadID: "evict-thread", WorkDir: t.TempDir(), Mode: harness.ModeSupervised, Approver: approver}
+	if err := h.Run(context.Background(), turn, nil); err != nil {
+		t.Fatal(err)
+	}
+	if approver.calls != 1 {
+		t.Fatalf("approval requests = %d, want 1", approver.calls)
+	}
+	h.trackProcess("evict-thread", 424242)
+	if pids := h.ProcessRootPIDs("evict-thread"); len(pids) != 1 || pids[0] != 424242 {
+		t.Fatalf("登记的 PID = %v", pids)
+	}
+	h.EvictThread("evict-thread")
+	if pids := h.ProcessRootPIDs("evict-thread"); len(pids) != 0 {
+		t.Fatalf("回收后仍登记 PID：%v", pids)
+	}
+	if err := h.Run(context.Background(), turn, nil); err != nil {
+		t.Fatal(err)
+	}
+	if approver.calls != 2 {
+		t.Fatalf("回收后 approval requests = %d, want 2", approver.calls)
 	}
 }

@@ -319,7 +319,7 @@ func TestCustomEndpoints_ChatCompletionsDialogue(t *testing.T) {
 		BaseURL: server.URL,
 		Model:   ep.Model,
 		Enabled: true,
-	}, secrets, providerMCP{})
+	}, secrets, dataDir, providerMCP{})
 
 	var textParts []string
 	var done bool

@@ -62,12 +62,21 @@ const (
 // piLevels 是 pi 支持的思考档位，与 pi 的 EXTENDED_THINKING_LEVELS 一致。
 var piLevels = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
 
-// Cost 是模型的调用价格，字段与 pi 的 models.json 同名字段一致。
+// Cost 是模型的调用价格，单价为 USD / 百万 token（与网关的 magpie_price
+// 以及 pi 的 models.json 一致），字段与 pi 的 models.json 同名字段一致。
 type Cost struct {
 	Input      float64 `json:"input"`
 	Output     float64 `json:"output"`
 	CacheRead  float64 `json:"cacheRead"`
 	CacheWrite float64 `json:"cacheWrite"`
+}
+
+// USD 按各类 token 数算出调用费用（美元）。单价是每百万 token，
+// 四项乘积相加后除以 1_000_000。input 是未命中缓存的输入 token，
+// 不包含 cacheRead 与 cacheWrite；单价为 0 的部分不计费。
+func (c Cost) USD(input, output, cacheRead, cacheWrite int64) float64 {
+	return (float64(input)*c.Input + float64(output)*c.Output +
+		float64(cacheRead)*c.CacheRead + float64(cacheWrite)*c.CacheWrite) / 1_000_000
 }
 
 // Model 是 magpie 的一个模型，字段与 pi 的 models.json 模型条目一一对应。
@@ -264,8 +273,8 @@ func piInputs(modes *modalities) []string {
 }
 
 // FetchModels 读取 magpie 的模型目录，成功结果按 baseURL + apiKey 缓存 5 分钟，
-// 失败结果缓存 30 秒，避免端点故障时反复请求。
-// 返回的切片是副本，调用方可以随意改动。
+// 失败结果缓存 30 秒，避免端点故障时反复请求。请求固定带价格头（常量），
+// 不影响缓存键。返回的切片是副本，调用方可以随意改动。
 func FetchModels(ctx context.Context, baseURL, apiKey string) ([]Model, error) {
 	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	key := strings.TrimSpace(apiKey)
@@ -286,6 +295,8 @@ func FetchModels(ctx context.Context, baseURL, apiKey string) ([]Model, error) {
 		return nil, fmt.Errorf("magpie: 创建模型列表请求失败: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	// 网关只检查该头非空，值无含义；与 magpie 自己的客户端一样用 1。
+	req.Header.Set("X-Magpie-Prices", "1")
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}

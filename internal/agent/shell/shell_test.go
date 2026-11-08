@@ -104,3 +104,50 @@ func TestRunStreamsOutput(t *testing.T) {
 		t.Fatalf("chunks=%q result=%+v err=%v", chunks, result, err)
 	}
 }
+
+func TestProcessTrackerReportsLifecycle(t *testing.T) {
+	unixOnly(t)
+	var started, exited []int
+	ctx := WithProcessTracker(context.Background(),
+		func(pid int) { started = append(started, pid) },
+		func(pid int) { exited = append(exited, pid) },
+	)
+	result, err := Run(ctx, Options{Command: "echo tracked"}, nil)
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(started) != 1 || started[0] <= 0 {
+		t.Fatalf("onStart = %v", started)
+	}
+	if len(exited) != 1 || exited[0] != started[0] {
+		t.Fatalf("onExit = %v, onStart = %v", exited, started)
+	}
+}
+
+func TestProcessTrackerReportsCancelledCommand(t *testing.T) {
+	unixOnly(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	timer := time.AfterFunc(100*time.Millisecond, cancel)
+	defer timer.Stop()
+	defer cancel()
+	var exited []int
+	ctx = WithProcessTracker(ctx, nil, func(pid int) { exited = append(exited, pid) })
+	result, err := Run(ctx, Options{Command: "sleep 30"}, nil)
+	if err != nil || !result.Cancelled {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(exited) != 1 || exited[0] <= 0 {
+		t.Fatalf("onExit = %v", exited)
+	}
+}
+
+func TestRunWithoutTrackerIsUnchanged(t *testing.T) {
+	unixOnly(t)
+	result, err := Run(context.Background(), Options{Command: "echo plain"}, nil)
+	if err != nil || result.ExitCode != 0 || strings.TrimSpace(result.Output) != "plain" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if trackerFrom(context.Background()) != nil {
+		t.Fatal("空的 ctx 不应携带进程回调")
+	}
+}

@@ -1899,7 +1899,7 @@ func buildProviderHarness(cfg config.Config, secrets config.SecretStore, id stri
 	}
 	opts.BuiltinMCP = mcpInjection.Builtin
 	opts.ExternalMCP = mcpInjection.External
-	return openai.New(opts), true
+	return newSourceEngineHarness(openai.New(opts), cfg, secrets, mcodeRuntimeDataDir(), mcpInjection), true
 }
 
 // buildExtraHarnesses 按配置构造除 ACP 与 agy 之外的全部额外 Provider harness 列表。
@@ -1955,7 +1955,7 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 	}
 
 	if cfg.Providers.OpenAI.Enabled {
-		backend.RegisterHarness(openai.New(openai.Options{
+		legacy := openai.New(openai.Options{
 			BaseURL: cfg.Providers.OpenAI.BaseURL,
 			Model:   cfg.Providers.OpenAI.Model,
 			// 环境变量只作兜底：装进 APIKey 会压过用户在钥匙串里配置的 key。
@@ -1964,7 +1964,8 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 			Secrets:        secrets,
 			BuiltinMCP:     mcpInjection.Builtin,
 			ExternalMCP:    mcpInjection.External,
-		}))
+		})
+		backend.RegisterHarness(newSourceEngineHarness(legacy, cfg, secrets, dataDir, mcpInjection))
 	}
 
 	for _, h := range buildExtraHarnesses(cfg, secrets, mcpInjection) {
@@ -1977,7 +1978,7 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 
 	for _, ep := range cfg.Providers.Custom {
 		if ep.Enabled {
-			backend.RegisterHarness(newCustomEndpointHarness(ep, secrets, mcpInjection))
+			backend.RegisterHarness(newCustomEndpointHarness(ep, secrets, dataDir, mcpInjection))
 		}
 	}
 

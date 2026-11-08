@@ -48,6 +48,8 @@ type Harness struct {
 	mu    sync.Mutex
 	gates map[string]*gate.Session
 	runs  map[string]*activeRun
+	// pids 记录各线程当前正在运行的命令进程，供 ProcessRootPIDs 定位命令子进程树。
+	pids map[string]map[int]bool
 }
 
 // activeRun 是一次正在执行的会话，pending 保存尚未注入的插话文本。
@@ -93,7 +95,12 @@ func New(opts Options) *Harness {
 	if opts.Kind == "" {
 		opts.Kind = harness.Kind("mcode")
 	}
-	return &Harness{opts: opts, gates: make(map[string]*gate.Session), runs: make(map[string]*activeRun)}
+	return &Harness{
+		opts:  opts,
+		gates: make(map[string]*gate.Session),
+		runs:  make(map[string]*activeRun),
+		pids:  make(map[string]map[int]bool),
+	}
 }
 
 // Kind 返回 provider 种类。
@@ -193,9 +200,11 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		Emit: runEmit,
 	}
 	prompt := turn.Prompt
+	// 把线程的进程登记回调带进工具上下文，上层据此终止当前命令。
+	runCtx := h.withProcessTracker(ctx, turn.ThreadID)
 	for {
 		agentOpts.Steer = run.drain
-		runErr := agent.Run(ctx, agentOpts, prompt, images)
+		runErr := agent.Run(runCtx, agentOpts, prompt, images)
 		if runErr != nil || ctx.Err() != nil {
 			// 出错或被取消时不再续跑，剩余插话随队列关闭退回调用方排队。
 			run.closeAndTake()

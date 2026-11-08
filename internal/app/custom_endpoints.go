@@ -45,10 +45,10 @@ func normalizePersonaWebURL(raw string) (string, error) {
 	return strings.TrimRight(u.String(), "/"), nil
 }
 
-// newCustomEndpointHarness 为自定义端点构造适配的 OpenAI 兼容 Harness 实例。
+// newCustomEndpointHarness 为自定义端点构造由内置引擎驱动的 Harness 实例。
 // 自定义端点不读 OPENAI_API_KEY 作为兜底密钥：否则内置 OpenAI 的官方密钥会被发给第三方端点。
-func newCustomEndpointHarness(ep config.CustomEndpointConfig, secrets config.SecretStore, mcpInjection providerMCP) harness.Harness {
-	return openai.New(openai.Options{
+func newCustomEndpointHarness(ep config.CustomEndpointConfig, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
+	legacy := openai.New(openai.Options{
 		Kind:          harness.Kind(config.CustomEndpointProviderKind(ep)),
 		DisplayName:   ep.Name,
 		BaseURL:       ep.BaseURL,
@@ -58,6 +58,10 @@ func newCustomEndpointHarness(ep config.CustomEndpointConfig, secrets config.Sec
 		BuiltinMCP:    mcpInjection.Builtin,
 		ExternalMCP:   mcpInjection.External,
 	})
+	// dataDir 不可读时仍要能解析到这个端点，所以兜底配置里带上它本身。
+	fallback := config.Config{}
+	fallback.Providers.Custom = []config.CustomEndpointConfig{ep}
+	return newSourceEngineHarness(legacy, fallback, secrets, dataDir, mcpInjection)
 }
 
 // SetProviderStore 设置自定义端点所需的配置文件目录与凭据存储。
@@ -276,7 +280,7 @@ func (c *Client) SaveCustomEndpoint(ctx context.Context, ep mcodeui.CustomEndpoi
 
 	if ep.Enabled {
 		if c.backend != nil {
-			c.backend.RegisterHarness(newCustomEndpointHarness(epCfg, c.secrets, c.mcp))
+			c.backend.RegisterHarness(newCustomEndpointHarness(epCfg, c.secrets, c.dataDir, c.mcp))
 		}
 	} else {
 		if c.backend != nil {

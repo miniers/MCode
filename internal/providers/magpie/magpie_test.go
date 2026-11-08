@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -155,6 +156,76 @@ func TestFetchModels(t *testing.T) {
 	}
 	if n := atomic.LoadInt32(&hits); n != 1 {
 		t.Errorf("请求次数 = %d，想要 1（缓存）", n)
+	}
+}
+
+// TestFetchModelsPrices 校验请求带 X-Magpie-Prices，带价的模型行解析成 Cost，
+// 不报价时 Cost 为 nil。
+func TestFetchModelsPrices(t *testing.T) {
+	resetModelsCache(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Magpie-Prices"); got != "1" {
+			t.Errorf("X-Magpie-Prices = %q，想要 1", got)
+		}
+		io.WriteString(w, `{"object":"list","data":[
+			{"id":"a/priced","magpie_price":{"input":3,"output":12,"cache_read":0.3,"cache_write":3.75}},
+			{"id":"a/free","magpie_price":{"input":0,"output":0,"cache_read":0,"cache_write":0}},
+			{"id":"a/plain"}]}`)
+	}))
+	defer srv.Close()
+
+	models, err := FetchModels(context.Background(), srv.URL+"/v1", "gw-key")
+	if err != nil {
+		t.Fatalf("FetchModels: %v", err)
+	}
+	if len(models) != 3 {
+		t.Fatalf("模型数 = %d，想要 3", len(models))
+	}
+	want := Cost{Input: 3, Output: 12, CacheRead: 0.3, CacheWrite: 3.75}
+	if got := models[0].Cost; got == nil || *got != want {
+		t.Errorf("Cost = %+v，想要 %+v", got, want)
+	}
+	// 网关报价 0 表示确实免费，与未知价格（nil）区分。
+	if got := models[1].Cost; got == nil || *got != (Cost{}) {
+		t.Errorf("零价 Cost = %+v，想要零值而非 nil", got)
+	}
+	if got := models[2].Cost; got != nil {
+		t.Errorf("未报价 Cost = %+v，想要 nil", got)
+	}
+}
+
+func TestCostUSD(t *testing.T) {
+	tests := []struct {
+		name                                 string
+		cost                                 Cost
+		input, output, cacheRead, cacheWrite int64
+		want                                 float64
+	}{
+		{name: "全部为 0"},
+		{
+			name: "只有输入和输出",
+			cost: Cost{Input: 3, Output: 15}, input: 1_000_000, output: 200_000,
+			want: 6,
+		},
+		{
+			name:  "带缓存读写",
+			cost:  Cost{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75},
+			input: 1000, output: 500, cacheRead: 100_000, cacheWrite: 20_000,
+			want: 0.1155,
+		},
+		{
+			name: "单价为 0 的部分不计费",
+			cost: Cost{Input: 2}, input: 1_000_000, cacheRead: 500_000,
+			want: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cost.USD(tt.input, tt.output, tt.cacheRead, tt.cacheWrite)
+			if math.Abs(got-tt.want) > 1e-12 {
+				t.Errorf("USD = %v，想要 %v", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -176,25 +176,18 @@ func mcodeContextWindow(cfg config.Config, secrets config.SecretStore, model str
 	return magpieinject.DefaultModel().ContextWindow
 }
 
-// buildMcodeHarness 构造内置 mcode agent harness。
-func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
+// mcodeEngineOptions 返回内置引擎与具体来源无关的公共选项。
+// API Key 类来源与 mcode 本身共用同一个会话存储目录：会话 ID 由引擎随机生成，
+// 不同来源之间不会互相覆盖。
+func mcodeEngineOptions(secrets config.SecretStore, dataDir string, mcpInjection providerMCP) providermcode.Options {
 	storeDir := ""
 	if dataDir != "" {
 		storeDir = filepath.Join(dataDir, "mcode", "sessions")
 	}
 	setMcodeAgentRuntime(dataDir, secrets)
-	remote.SetMcodeModels(mcodeModelCatalog)
-	return providermcode.New(providermcode.Options{
+	return providermcode.Options{
 		StoreDir:  storeDir,
 		MaxRounds: 0,
-		ResolveClient: func(model, affinityKey string) (llm.Client, string, error) {
-			current := mcodeCurrentConfig(cfg, secrets)
-			return resolveMcodeClient(current, mcodeCurrentSecrets(secrets), model, affinityKey)
-		},
-		ContextWindow: func(model string) int {
-			current := mcodeCurrentConfig(cfg, secrets)
-			return mcodeContextWindow(current, mcodeCurrentSecrets(secrets), model)
-		},
 		SystemPrompt: func(turn harness.Turn, toolNames []string) string {
 			home, _ := os.UserHomeDir()
 			return prompt.Build(prompt.Options{
@@ -210,7 +203,22 @@ func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir st
 			}
 			return mcp.Tools(ctx, mcp.Servers(turn, mcpInjection.Builtin, external))
 		},
-	})
+	}
+}
+
+// buildMcodeHarness 构造内置 mcode agent harness。
+func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
+	opts := mcodeEngineOptions(secrets, dataDir, mcpInjection)
+	remote.SetMcodeModels(mcodeModelCatalog)
+	opts.ResolveClient = func(model, affinityKey string) (llm.Client, string, error) {
+		current := mcodeCurrentConfig(cfg, secrets)
+		return resolveMcodeClient(current, mcodeCurrentSecrets(secrets), model, affinityKey)
+	}
+	opts.ContextWindow = func(model string) int {
+		current := mcodeCurrentConfig(cfg, secrets)
+		return mcodeContextWindow(current, mcodeCurrentSecrets(secrets), model)
+	}
+	return providermcode.New(opts)
 }
 
 // mcodeModelCatalog 从最新配置生成远程模型目录。
