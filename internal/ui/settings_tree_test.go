@@ -47,33 +47,33 @@ func TestSettingsBind_PtrValInverted(t *testing.T) {
 		t.Fatalf("reset 后指针应为 nil，实际 %#v", cfg.Archive.SidebarAutoDormantDays)
 	}
 
-	passthroughOff := val(func(c *config.Config) *bool { return &c.Orchestration.Steward.PassthroughOff }, false)
-	passthroughOff.write(&cfg, true)
-	if !cfg.Orchestration.Steward.PassthroughOff {
+	notifyWhenFinished := val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenFinished }, true)
+	notifyWhenFinished.write(&cfg, false)
+	if cfg.Notifications.NotifyWhenFinished {
 		t.Fatalf("值字段 write 后应为 true")
 	}
-	passthroughOff.reset(&cfg)
-	if cfg.Orchestration.Steward.PassthroughOff {
-		t.Fatalf("值字段 reset 后应写回默认值 false")
+	notifyWhenFinished.reset(&cfg)
+	if !cfg.Notifications.NotifyWhenFinished {
+		t.Fatalf("值字段 reset 后应写回默认值 true")
 	}
 
-	passthrough := inverted(val(func(c *config.Config) *bool { return &c.Orchestration.Steward.PassthroughOff }, false))
-	if got := passthrough.value(&cfg); got != true {
+	notifyWhenForeground := inverted(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenFinished }, true))
+	if got := notifyWhenForeground.value(&cfg); got != false {
 		t.Fatalf("反向绑定读值应为 true，实际 %v", got)
 	}
-	passthrough.write(&cfg, false)
-	if !cfg.Orchestration.Steward.PassthroughOff {
-		t.Fatalf("反向绑定写 false 应把字段写成 true")
+	notifyWhenForeground.write(&cfg, true)
+	if !cfg.Notifications.NotifyWhenFinished {
+		t.Fatalf("反向绑定写 true 应把字段写成 false")
 	}
-	if got := passthrough.value(&cfg); got != false {
+	if got := notifyWhenForeground.value(&cfg); got != false {
 		t.Fatalf("反向绑定写后读回应为 false，实际 %v", got)
 	}
-	passthrough.reset(&cfg)
-	if cfg.Orchestration.Steward.PassthroughOff {
-		t.Fatalf("反向绑定 reset 应把字段写回默认值 false")
+	notifyWhenForeground.reset(&cfg)
+	if !cfg.Notifications.NotifyWhenFinished {
+		t.Fatalf("反向绑定 reset 应把字段写回默认值 true")
 	}
-	if got := passthrough.value(&cfg); got != true {
-		t.Fatalf("反向绑定 reset 后读回应为 true，实际 %v", got)
+	if got := notifyWhenForeground.value(&cfg); got != false {
+		t.Fatalf("反向绑定 reset 后读回应为 false，实际 %v", got)
 	}
 }
 
@@ -296,16 +296,16 @@ func TestSettingsTree_ResetSkipsHiddenRows(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), map[string]bool{"locked": true}, newChatState(NewFakeClient()))
 	st.cfg.Notifications.NotifyWhenFinished = false
 	st.cfg.Notifications.NotifyWhenForeground = false
-	st.cfg.Orchestration.Steward.PassthroughOff = false
+	st.cfg.Notifications.NotifyWhenFinished = true
 	page := settingsPage{Sections: []settingsSection{{Rows: []setting{
 		{ID: "visible", Control: toggle(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenFinished }, true))},
 		{ID: "hidden", Visible: func(st *SettingsState) bool { st.cfgMu.Lock(); defer st.cfgMu.Unlock(); return false }, Control: toggle(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenForeground }, true))},
-		{ID: "locked", Lock: "locked", Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.Steward.PassthroughOff }, true))},
+		{ID: "locked", Lock: "locked", Control: toggle(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenFinished }, true))},
 	}}, {Visible: func(*SettingsState) bool { return false }, Rows: []setting{
 		{ID: "hidden-section", Control: toggle(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenForeground }, true))},
 	}}}}
 	resetSettingsTreePage(st, page)
-	if !st.cfg.Notifications.NotifyWhenFinished || st.cfg.Notifications.NotifyWhenForeground || st.cfg.Orchestration.Steward.PassthroughOff {
+	if !st.cfg.Notifications.NotifyWhenFinished || st.cfg.Notifications.NotifyWhenForeground {
 		t.Fatal("重置应只改变可见且未锁定的行")
 	}
 }

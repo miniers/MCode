@@ -38,7 +38,7 @@ func renderSidebarStewardSection(c *ui.Context, s *chatState) {
 // settingsPageSteward 是总管设置所在的页 id：与 settingsIndexItems 里 row-steward-enabled 的 Page 一致。
 const settingsPageSteward = "swarm"
 
-// renderSidebarStewardDisabledRow 渲染总管未启用时的置灰行：头像、标签与小字「去开启」，
+// renderSidebarStewardDisabledRow 渲染总管未启用时的置灰行：头像与标签，
 // 点行不建会话，直接打开设置面板并定位到「启用总管」那一行。
 func renderSidebarStewardDisabledRow(c *ui.Context, s *chatState) {
 	nickname, avatar := s.stewardIdentity()
@@ -67,10 +67,6 @@ func renderSidebarStewardDisabledRow(c *ui.Context, s *chatState) {
 			FontSize(scaledFont(FontSizeThreadTitle)).
 			TextColor(ThemeSecondaryText(c)).
 			Grow(1).
-			SingleLine()
-		ui.Text(c, "去开启").
-			FontSize(scaledFont(TypeCaption)).
-			TextColor(ThemeSecondaryText(c)).
 			SingleLine()
 	})
 }
@@ -205,15 +201,11 @@ func renderSidebarStewardRow(c *ui.Context, s *chatState, threadID string) {
 		})
 	}
 
-	// 总管行下面缩进列出它的各个话题；客户端不支持时整块不渲染。
-	renderSidebarStewardTopics(c, s)
 }
 
-// withoutStewardThread 从侧栏的三份副本里去掉总管会话、它所在的项目，以及所有话题会话：
-// 总管与它的话题已经在顶部固定段里，项目树与动态视图都不再重复列出它们。
-// 话题只摘会话，项目本身保留。
+// withoutStewardThread 从侧栏的三份副本里去掉总管 feed 会话及其项目。
 // 入参都是 renderSidebar 复制出来的副本，不会改到 s.projects / s.threads。
-func withoutStewardThread(stewardThread string, topicThreads map[string]bool, projects []Project, threads []Thread, threadsByProj map[string][]Thread) ([]Project, []Thread, map[string][]Thread) {
+func withoutStewardThread(stewardThread string, projects []Project, threads []Thread, threadsByProj map[string][]Thread) ([]Project, []Thread, map[string][]Thread) {
 	hidden := func(threadID string) bool {
 		if threadID == "" {
 			return false
@@ -221,7 +213,7 @@ func withoutStewardThread(stewardThread string, topicThreads map[string]bool, pr
 		if stewardThread != "" && threadID == stewardThread {
 			return true
 		}
-		return topicThreads[threadID]
+		return false
 	}
 
 	if projectID := stewardProjectIDForThread(stewardThread, threads, threadsByProj); projectID != "" {
@@ -235,7 +227,7 @@ func withoutStewardThread(stewardThread string, topicThreads map[string]bool, pr
 			keptThreads = append(keptThreads, th)
 		}
 	}
-	// 分组表里的总管会话与话题会话也一并摘掉：项目被删时整组已删，剩下的组各自过滤。
+	// 分组表里的总管会话也一并摘掉：项目被删时整组已删，剩下的组各自过滤。
 	for pid, list := range threadsByProj {
 		keptList := list[:0]
 		for _, th := range list {
@@ -272,8 +264,7 @@ func stewardProjectIDForThread(stewardThread string, threads []Thread, threadsBy
 	return ""
 }
 
-// stewardProjectID 返回总管主目录对应项目的 ID：客户端不支持总管、或总管会话还没建好时返回空串。
-// 项目选择器用它把总管项目从选项里剔除，s.projects 本身不动（话题卡还要用它翻项目名）。
+// stewardProjectID 返回总管 feed 所在项目的 ID，供侧栏和项目选择器过滤固定入口。
 func (s *chatState) stewardProjectID() string {
 	if s == nil {
 		return ""

@@ -111,42 +111,6 @@ func detectCompletion(draft string) (kind completionKind, start int, query strin
 	return completionNone, 0, ""
 }
 
-// localSlashCommands 是界面自己执行、后端命令目录里没有的命令，补全候选要把它们并进去，
-// 否则用户只能靠记忆手打（/split 只在总管会话里真正生效，详见 runLocalSlashCommand）。
-var localSlashCommands = []SlashCommand{
-	{Name: "split", Detail: "分割会话（仅总管）", IsBuiltIn: true},
-}
-
-// stewardOnlyLocalSlashCommands 记录只在总管会话里列出的本地命令：普通会话里选了也只会弹
-// 「分割目前只对总管会话开放」，不如干脆不给这个候选。
-var stewardOnlyLocalSlashCommands = map[string]bool{"split": true}
-
-// withLocalSlashCommands 把本地命令并进后端返回的目录，同名的以后端为准，避免重复候选。
-// isSteward 表示当前会话是不是总管会话，为 false 时跳过 stewardOnlyLocalSlashCommands 里的命令。
-func withLocalSlashCommands(cmds []SlashCommand, isSteward bool) []SlashCommand {
-	if len(localSlashCommands) == 0 {
-		return cmds
-	}
-	out := make([]SlashCommand, 0, len(cmds)+len(localSlashCommands))
-	out = append(out, cmds...)
-	for _, local := range localSlashCommands {
-		if stewardOnlyLocalSlashCommands[local.Name] && !isSteward {
-			continue
-		}
-		seen := false
-		for _, cmd := range cmds {
-			if cmd.Name == local.Name {
-				seen = true
-				break
-			}
-		}
-		if !seen {
-			out = append(out, local)
-		}
-	}
-	return out
-}
-
 // filterCommands 根据 query 对斜杠指令做大小写不敏感过滤，并按匹配优先级排序：
 // 名称前缀 > 别名前缀 > 名称包含 > 别名包含 > Detail 包含 > 名称子序列（query 字符按顺序出现在名称里），
 // 同分保持传入顺序，最多返回 limit 条；query 为空时保持原顺序截断。
@@ -554,7 +518,7 @@ func (s *chatState) updateCompletion(threadID string) {
 	if kind == completionSlash {
 		if cmds, cached := s.commandsCache[threadID]; cached {
 			if changed || !s.completionLoaded {
-				s.completionItems = slashCommandsToItems(filterCommands(withLocalSlashCommands(cmds, stewardSelected(s, threadID)), query, 8), query)
+				s.completionItems = slashCommandsToItems(filterCommands(cmds, query, 8), query)
 				s.completionLoaded = true
 			}
 			s.mu.Unlock()
@@ -622,7 +586,7 @@ func (s *chatState) updateCompletion(threadID string) {
 		var cmds []SlashCommand
 		if kind == completionSlash {
 			cmds, err = s.client.Commands(context.Background(), threadID)
-			items = slashCommandsToItems(filterCommands(withLocalSlashCommands(cmds, stewardSelected(s, threadID)), query, 8), query)
+			items = slashCommandsToItems(filterCommands(cmds, query, 8), query)
 		} else {
 			var matches []FileMatch
 			matches, err = s.client.SearchFiles(context.Background(), threadID, effective)
@@ -925,7 +889,7 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 func isNoArgLocalSlashCommand(insert string) bool {
 	cmd := strings.TrimSpace(insert)
 	switch cmd {
-	case "/mode", "/model", "/effort", "/fast", "/pair", "/clear", "/copy", "/split":
+	case "/mode", "/model", "/effort", "/fast", "/pair", "/clear", "/copy":
 		return true
 	default:
 		return false
@@ -933,7 +897,7 @@ func isNoArgLocalSlashCommand(insert string) bool {
 }
 
 // runLocalSlashCommand 尝试拦截并本地执行斜杠命令。
-// 草稿去掉首尾空白后，若第一个 token 是 /mode、/model、/effort、/fast、/pair、/export、/clear、/copy、/split 之一，
+// 草稿去掉首尾空白后，若第一个 token 是 /mode、/model、/effort、/fast、/pair、/export、/clear、/copy 之一，
 // 就在本地执行对应操作、清空草稿并返回 true；未匹配则返回 false，plan、compact 和 provider 命令仍作为文本发给后端。
 func (s *chatState) runLocalSlashCommand(threadID, draft string) bool {
 	if s == nil {
@@ -1068,23 +1032,6 @@ func (s *chatState) runLocalSlashCommand(threadID, draft string) bool {
 	case "/clear":
 		s.createNewThread()
 		s.clearDraftAndCompletion()
-		return true
-
-	case "/split":
-		// 分割目前只对总管会话开放：普通会话里只提示，不把文本发给后端。
-		s.mu.Lock()
-		tid := threadID
-		if tid == "" {
-			tid = s.selectedThreadID
-		}
-		s.mu.Unlock()
-		if tid == "" || tid != s.stewardThreadID() {
-			s.setToast("分割目前只对总管会话开放")
-			s.clearDraftAndCompletion()
-			return true
-		}
-		s.clearDraftAndCompletion()
-		splitStewardSession(s, tid)
 		return true
 
 	default:

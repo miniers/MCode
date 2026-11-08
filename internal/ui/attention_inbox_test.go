@@ -433,54 +433,6 @@ func TestAttentionInboxBeeFailedGroupTitle(t *testing.T) {
 	}
 }
 
-// 总管建议只展示请求内容与理由，点「确认允许」才答复请求，且确认后建议立即消失。
-func TestAttentionInboxConfirmSuggestion(t *testing.T) {
-	item := attentionItem("a1", "thread_approval", "thread", "t1", "会话1等审批", time.Minute)
-	item.Suggestions = []AttentionSuggestion{{
-		Approval: Approval{ThreadID: "t1", RequestID: "r1", Title: "执行命令", Detail: "go test ./...", Kind: ApprovalKindCommand},
-		OptionID: "allow",
-		Reason:   "只跑测试",
-	}}
-	fake := newAttentionFakeClient(item)
-	state, view := buildRoot(fake)
-	t.Cleanup(state.close)
-	tt := ui.NewTester(view, 1000, 700)
-
-	waitFor(t, tt, func() bool { return tt.HasText("待处理 1 条") })
-	if err := tt.Click("待处理"); err != nil {
-		t.Fatalf("点击入口失败: %v", err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("总管建议允许：执行命令") })
-	for _, want := range []string{"go test ./...", "理由：只跑测试", "确认允许"} {
-		if !tt.HasText(want) {
-			t.Fatalf("建议缺少文本 %q，当前文本: %q", want, tt.Texts())
-		}
-	}
-	if calls := fake.respondCallsForTest(); len(calls) != 0 {
-		t.Fatalf("确认前不应答复请求: %+v", calls)
-	}
-
-	if err := tt.Click("确认允许"); err != nil {
-		t.Fatalf("点击确认失败: %v", err)
-	}
-	waitFor(t, tt, func() bool { return len(fake.respondCallsForTest()) == 1 })
-	call := fake.respondCallsForTest()[0]
-	if call.Approval.RequestID != "r1" || call.OptionID != "allow" {
-		t.Fatalf("答复内容不对: %+v", call)
-	}
-	waitFor(t, tt, func() bool { return !tt.HasText("确认允许") })
-	if !tt.HasText("会话1等审批") {
-		t.Fatalf("事件本身应保留，直到后端消解，当前文本: %q", tt.Texts())
-	}
-}
-
-// respondCallsForTest 在锁内读取 Respond 调用记录。
-func (f *FakeClient) respondCallsForTest() []respondCall {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]respondCall(nil), f.respondCalls...)
-}
-
 // 总管会话已存在时，收件箱浮层标题行给出跳转入口：点击跳到该会话并收起浮层，
 // 不发起新的创建。
 func TestAttentionInboxStewardEntry(t *testing.T) {

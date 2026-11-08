@@ -54,9 +54,12 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   todo: '待办',
   in_progress: '进行中',
   needs_approval: '等你',
+  waiting: '等待中',
   review: '待审',
   done: '完成',
-  rejected: '失败'
+  rejected: '失败',
+  failed: '失败',
+  cancelled: '已取消'
 };
 
 function taskStatusLabel(status: string): string {

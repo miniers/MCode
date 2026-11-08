@@ -2596,23 +2596,6 @@ func TestTimelineTurnFilesCard(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("改动文件") })
 }
 
-// TestStewardSilentMarkerValue 锁住静默标记与唤醒 Kind 的字面量：后端提示词里写的是同一个字面量，
-// 界面侧改了文案隐藏逻辑就会失效。
-func TestStewardSilentMarkerValue(t *testing.T) {
-	if stewardSilentMarker != "[[静默]]" {
-		t.Fatalf("stewardSilentMarker = %q, want %q", stewardSilentMarker, "[[静默]]")
-	}
-	if stewardWakeKind != "steward_wake" {
-		t.Fatalf("stewardWakeKind = %q, want %q", stewardWakeKind, "steward_wake")
-	}
-	if !isHiddenTriggerKind(stewardWakeKind) || !isHiddenTriggerKind(hostEventKind) {
-		t.Fatalf("宿主事件与总管唤醒都应算隐藏触发")
-	}
-	if isHiddenTriggerKind("") || isHiddenTriggerKind("text") {
-		t.Fatalf("用户自己发的消息不应算隐藏触发")
-	}
-}
-
 // TestTimelineRows_SkipsStewardWakeMessage 验证总管唤醒消息不产生时间线行，全量与增量两条路径一致。
 func TestTimelineRows_SkipsStewardWakeMessage(t *testing.T) {
 	msgs := []Message{

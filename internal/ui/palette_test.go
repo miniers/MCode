@@ -394,57 +394,8 @@ func paletteItemsHaveID(items []paletteItem, id string) bool {
 	return paletteItemByID(items, id) != nil
 }
 
-// TestPaletteStewardStartTopic 有项目且客户端支持话题接口时，命令面板出现「交给…」，
-// 搜「总管」「默默」「交给」「话题」都能命中，选中后按当前项目打开新建话题对话框。
-func TestPaletteStewardStartTopic(t *testing.T) {
-	fake := newStewardTopicsFake()
-	state := newChatState(fake)
-	state.mu.Lock()
-	state.projects = []Project{{ID: "p1", Name: "mcode-test", Path: "/path/to/test"}}
-	state.mu.Unlock()
-
-	items := buildPaletteItems(state)
-	item := paletteItemByID(items, "cmd-steward-start-topic")
-	if item == nil {
-		t.Fatalf("有项目时应出现「交给总管」条目，实际 %+v", items)
-	}
-	if item.title != "交给总管" {
-		t.Errorf("条目标题应为「交给总管」，实际 %q", item.title)
-	}
-	if item.subtitle != "把一件事交给总管跟进" {
-		t.Errorf("条目副标题应为「把一件事交给总管跟进」，实际 %q", item.subtitle)
-	}
-	if item.run == nil {
-		t.Fatal("条目应带执行函数")
-	}
-
-	for _, query := range []string{"总管", "默默", "交给", "话题"} {
-		if matched := filterPaletteItems(items, query); !paletteItemsHaveID(matched, "cmd-steward-start-topic") {
-			t.Errorf("搜 %q 应命中「交给总管」，实际 %+v", query, matched)
-		}
-	}
-
-	item.run(state)
-	st := getStewardTopicsState(state)
-	st.mu.Lock()
-	open, projectID, projectName := st.startOpen, st.startProjectID, st.startProjectName
-	st.mu.Unlock()
-	if !open {
-		t.Fatal("选中「交给总管」应打开新建话题对话框")
-	}
-	if projectID != "p1" || projectName != "mcode-test" {
-		t.Fatalf("对话框项目应为 p1/mcode-test，实际 %q/%q", projectID, projectName)
-	}
-}
-
-// TestPaletteStewardEntriesHiddenWithoutProject 没有项目时不出现「交给…」；
-// 客户端不支持总管能力时，连「打开…」也不出现。
+// TestPaletteStewardEntriesHiddenWithoutClient 客户端不支持总管能力时不出现打开入口。
 func TestPaletteStewardEntriesHiddenWithoutProject(t *testing.T) {
-	state := newChatState(newStewardTopicsFake())
-	if items := buildPaletteItems(state); paletteItemsHaveID(items, "cmd-steward-start-topic") {
-		t.Fatalf("没有项目时不应出现「交给总管」，实际 %+v", items)
-	}
-
 	plain := newChatState(NewFakeClient())
 	if items := buildPaletteItems(plain); paletteItemsHaveID(items, "cmd-open-steward") {
 		t.Fatalf("客户端不支持总管时不应出现「打开总管」，实际 %+v", items)
@@ -453,7 +404,7 @@ func TestPaletteStewardEntriesHiddenWithoutProject(t *testing.T) {
 
 // TestPaletteOpenStewardUsesNickname 「打开…」条目跟着昵称走，昵称为空时回落到「总管」。
 func TestPaletteOpenStewardUsesNickname(t *testing.T) {
-	fake := newStewardTopicsFake()
+	fake := newStewardFakeClient("t1")
 	fake.name = "小明"
 	state := newChatState(fake)
 

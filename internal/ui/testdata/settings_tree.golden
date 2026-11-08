@@ -233,24 +233,11 @@ row row-steward-name 昵称
 row row-steward-avatar 头像
 row row-steward-enabled 启用总管
 row row-steward-cli-fallback 没有 API Key 时用本机 CLI
-row row-steward-session 总管会话
-row row-steward-auto-collapse-reasoning 自动折叠思考过程
-row row-steward-disabled-hint 尚未启用
 section sec-steward-model 模型
-row row-steward-model 总管模型
-row row-steward-model-plan 方案模型
+row row-steward-model 前台模型
 section sec-steward-quiet 安静时段
 row row-steward-quiet-enabled 启用安静时段
 row row-steward-quiet-range 时间范围
-section sec-steward-daily-report 日报
-row row-steward-daily-report 日报
-row row-steward-daily-report-at 日报时间
-section sec-steward-score 建议计分
-row block-steward-score 
-row row-steward-score-window 统计范围
-section sec-steward-passthrough 话题直通
-row row-steward-passthrough 话题事件直通
 section sec-steward-advanced 高级
-row row-steward-home-dir 记忆与状态目录
-row row-steward-wake-limit 每天主动提醒上限
+row row-steward-home-dir 主目录
 sheet worktree Worktree 清理

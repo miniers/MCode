@@ -103,3 +103,23 @@ func TestChatStateStewardProjectID(t *testing.T) {
 		t.Fatalf("查询总管项目不应修改状态，实际: projects=%+v threads=%+v", withSteward.projects, withSteward.threads)
 	}
 }
+
+// withoutStewardThread 仅从项目与会话副本中移除 feed 会话及其项目。
+func TestWithoutStewardThreadFiltersFeedOnly(t *testing.T) {
+	projects := []Project{{ID: "p1"}, {ID: "p2"}}
+	threads := []Thread{{ID: "feed", ProjectID: "p2"}, {ID: "topic", ProjectID: "p1"}, {ID: "plain", ProjectID: "p1"}}
+	byProject := map[string][]Thread{
+		"p1": {{ID: "topic", ProjectID: "p1"}, {ID: "plain", ProjectID: "p1"}},
+		"p2": {{ID: "feed", ProjectID: "p2"}},
+	}
+	gotProjects, gotThreads, gotByProject := withoutStewardThread("feed", projects, threads, byProject)
+	if len(gotProjects) != 1 || gotProjects[0].ID != "p1" {
+		t.Fatalf("应仅移除 feed 项目，得到 %+v", gotProjects)
+	}
+	if len(gotThreads) != 2 || gotThreads[0].ID != "topic" || gotThreads[1].ID != "plain" {
+		t.Fatalf("应保留其他线程，包括旧 topic 线程，得到 %+v", gotThreads)
+	}
+	if len(gotByProject["p1"]) != 2 || gotByProject["p2"] != nil {
+		t.Fatalf("分组应仅移除 feed 项目，得到 %+v", gotByProject)
+	}
+}

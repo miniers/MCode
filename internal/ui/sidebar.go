@@ -261,15 +261,11 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	}
 	s.mu.Unlock()
 
-	// 总管已经在侧栏顶部单独成段：它的会话与所在项目不再在项目树、动态视图里重复出现。
-	// 话题会话也只在总管段里列出，项目树与动态视图同样不再重复显示它们（项目本身保留）。
+	// 总管 feed 已经在侧栏顶部单独成段：它的会话与所在项目不再在项目树、动态视图里重复出现。
 	// 这里只过滤本地副本，不改 s.projects / s.threads 本身。
-	s.refreshStewardTopics()
-	s.ensureStewardTopicsWatch()
 	stewardThread := s.stewardThreadID()
-	topicThreads := s.stewardTopicThreadIDs()
-	if stewardThread != "" || len(topicThreads) > 0 {
-		projects, threads, threadsByProj = withoutStewardThread(stewardThread, topicThreads, projects, threads, threadsByProj)
+	if stewardThread != "" {
+		projects, threads, threadsByProj = withoutStewardThread(stewardThread, projects, threads, threadsByProj)
 	}
 
 	// 按保存的项目顺序渲染，未在顺序中的项目按原顺序追加到末尾。
@@ -530,13 +526,6 @@ func renderSidebar(c *ui.Context, s *chatState) {
 					}
 					if m.Item("Worktree 管理…").Chosen() {
 						s.openWorktreeManage(pVal.ID, pVal.Path)
-					}
-					// 交给总管：把这件事直接开成总管的一个话题，项目已经带好。
-					if _, ok := s.stewardTopicsClient(); ok {
-						nickname, _ := s.stewardIdentity()
-						if m.Item("交给" + stewardName(nickname)).Chosen() {
-							s.openStewardStartTopicDialog(pVal.ID, pVal.Name)
-						}
 					}
 					// 外部应用唤起：默认编辑器取打开方式列表首位可用应用，终端读 General.TerminalShell。
 					if m.Item("在默认编辑器中打开").Chosen() {
@@ -1359,20 +1348,6 @@ func (s *chatState) projectPathByID(projectID string) string {
 	return ""
 }
 
-// stewardTopicProjectTarget 返回「交给{昵称}」入口要用的当前项目：项目 ID 与显示名。
-// 项目取自工作区当前聚焦的项目（与看板、自动化取法一致，最终回落到当前会话所属项目或第一个项目），
-// 一个项目都没有时两个都返回空串。项目右键菜单那条入口直接用被点的那一行，不经过这里。
-func (s *chatState) stewardTopicProjectTarget() (string, string) {
-	if s == nil {
-		return "", ""
-	}
-	projectID := s.currentWorkspaceProjectID()
-	if projectID == "" {
-		return "", ""
-	}
-	return projectID, projectNameFor(s, projectID)
-}
-
 // threadContextMenu 返回会话行的上下文菜单构建函数：右键菜单与悬停时的「更多操作」按钮共用，
 // 保证两条入口的菜单项完全一致。
 func threadContextMenu(c *ui.Context, s *chatState, projectID string, thVal Thread) func(*ui.Menu) {
@@ -1490,8 +1465,6 @@ func renderSidebarModals(c *ui.Context, s *chatState) {
 	renderRemoveProjectModal(c, s)
 	renderWorktreeManageModal(c, s)
 	renderWorktreeMoveModal(c, s)
-	// 总管话题的两个弹窗：交给总管 / 打回任务。挂在根层，不被侧栏与主区裁切。
-	renderStewardTopicOverlays(c, s)
 }
 
 func renderRenameThreadModal(c *ui.Context, s *chatState) {

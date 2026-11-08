@@ -281,9 +281,7 @@ func buildPaletteItems(s *chatState) []paletteItem {
 	return items
 }
 
-// stewardPaletteItems 生成总管相关的候选条目：
-// 「打开{昵称}」只要客户端支持总管能力就出现；「交给{昵称}」还要求当前有项目、
-// 且客户端支持话题接口，参数与项目右键菜单取同一对（项目 ID 与项目名）。
+// stewardPaletteItems 生成总管入口候选条目：打开总管，以及把当前需求交给总管。
 func stewardPaletteItems(s *chatState) []paletteItem {
 	if s == nil {
 		return nil
@@ -294,7 +292,7 @@ func stewardPaletteItems(s *chatState) []paletteItem {
 
 	nickname, _ := s.stewardIdentity()
 	name := stewardName(nickname)
-	items := []paletteItem{{
+	open := paletteItem{
 		id:       "cmd-open-steward",
 		kind:     "command",
 		title:    "打开" + name,
@@ -303,23 +301,15 @@ func stewardPaletteItems(s *chatState) []paletteItem {
 		run: func(cs *chatState) {
 			cs.openStewardThread()
 		},
-	}}
-
-	projectID, projectName := s.stewardTopicProjectTarget()
-	if projectID == "" {
-		return items
 	}
-	if _, ok := s.stewardTopicsClient(); !ok {
-		return items
-	}
-	return append(items, paletteItem{
+	return append([]paletteItem{open}, paletteItem{
 		id:       "cmd-steward-start-topic",
 		kind:     "command",
 		title:    "交给" + name,
-		subtitle: "把一件事交给总管跟进",
-		keywords: "总管 默默 交给 话题",
+		subtitle: "在总管会话中说明需求",
+		keywords: "总管 默默 交给 steward",
 		run: func(cs *chatState) {
-			cs.openStewardStartTopicDialog(projectID, projectName)
+			cs.openStewardThread()
 		},
 	})
 }

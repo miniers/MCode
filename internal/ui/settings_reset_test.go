@@ -29,7 +29,7 @@ func TestResetPreferenceFields(t *testing.T) {
 
 	// 嵌套结构体（总管）里的标量要递归重置。
 	dst.Orchestration.Steward.Enabled = false
-	dst.Orchestration.Steward.DailyWakeLimit = 99
+	dst.Orchestration.Steward.QuietEnd = "23:00"
 
 	// 跳过名单：迁移标记与用户目录、目录名单都保留。
 	dst.Orchestration.Steward.EnabledChoice = true
@@ -62,9 +62,9 @@ func TestResetPreferenceFields(t *testing.T) {
 	if !dst.Orchestration.Steward.Enabled {
 		t.Fatal("嵌套的 Steward.Enabled 未递归重置为默认 true")
 	}
-	if dst.Orchestration.Steward.DailyWakeLimit != def.Orchestration.Steward.DailyWakeLimit {
-		t.Fatalf("嵌套的 Steward.DailyWakeLimit 应重置为 %d，实际 %d",
-			def.Orchestration.Steward.DailyWakeLimit, dst.Orchestration.Steward.DailyWakeLimit)
+	if dst.Orchestration.Steward.QuietEnd != def.Orchestration.Steward.QuietEnd {
+		t.Fatalf("嵌套的 Steward.QuietEnd 应重置为 %q，实际 %q",
+			def.Orchestration.Steward.QuietEnd, dst.Orchestration.Steward.QuietEnd)
 	}
 
 	if !dst.Orchestration.Steward.EnabledChoice {

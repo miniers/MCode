@@ -10,8 +10,9 @@ import (
 // 空的总管会话不说「要构建什么？」：标题用名字打招呼，副标题说清它能干什么。
 // 普通会话保持原来的构建标语。
 func TestStewardEmptyThreadPrompt(t *testing.T) {
+	const stewardMainThreadID = "steward-main"
 	now := time.Now()
-	fake := newStewardFakeClient(stewardTopicsMainThreadID)
+	fake := newStewardFakeClient(stewardMainThreadID)
 	fake.SetProjectsAndThreads(
 		[]Project{
 			{ID: "p-home", Name: "总管的家", Path: "/path/home"},
@@ -19,7 +20,7 @@ func TestStewardEmptyThreadPrompt(t *testing.T) {
 		},
 		map[string][]Thread{
 			// 总管会话更新更近，启动时默认选中它。
-			"p-home": {{ID: stewardTopicsMainThreadID, ProjectID: "p-home", Title: "总管会话", UpdatedAt: now}},
+			"p-home": {{ID: stewardMainThreadID, ProjectID: "p-home", Title: "总管会话", UpdatedAt: now}},
 			"p1":     {{ID: "t-plain", ProjectID: "p1", Title: "普通会话", UpdatedAt: now.Add(-time.Hour)}},
 		},
 	)
@@ -28,7 +29,7 @@ func TestStewardEmptyThreadPrompt(t *testing.T) {
 	tt := ui.NewTester(view, 1000, 900)
 
 	waitFor(t, tt, func() bool {
-		return selectedThreadForTest(state) == stewardTopicsMainThreadID && tt.HasText("在这儿")
+		return selectedThreadForTest(state) == stewardMainThreadID && tt.HasText("在这儿")
 	})
 	if !tt.HasText("总管在这儿") {
 		t.Fatalf("空的总管会话应显示「总管在这儿」，当前文本: %q", tt.Texts())

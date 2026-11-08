@@ -232,40 +232,10 @@ func TestStewardOpenRevealsWhenSidebarCollapsed(t *testing.T) {
 	}
 }
 
-// 客户端不实现可选接口时：今日提醒次数按拿不到处理，启用状态按未知处理，
-// 界面据此保持原来的兜底渲染，不会凭空画未启用入口。
+// 客户端不实现启用接口时按未知处理，界面不凭空画未启用入口。
 func TestStewardOptionalClientsAbsent(t *testing.T) {
 	s := newChatState(newStewardFakeClient(""))
-	if _, _, ok := s.stewardWakesToday(); ok {
-		t.Fatal("客户端不支持今日提醒次数时应为 false")
-	}
 	if _, known := s.stewardEnabledState(); known {
 		t.Fatal("客户端不报告启用状态时应为未知")
-	}
-}
-
-// stewardWakesFakeClient 给可选接口的读取路径一个会报数、也会报未启用的替身。
-type stewardWakesFakeClient struct {
-	*stewardFakeClient
-	enabled     bool
-	used, limit int
-	ok          bool
-}
-
-func (f *stewardWakesFakeClient) StewardEnabled() bool { return f.enabled }
-
-func (f *stewardWakesFakeClient) StewardWakesToday() (int, int, bool) {
-	return f.used, f.limit, f.ok
-}
-
-// 客户端报告未启用时，今日提醒次数与启用状态都按未启用处理。
-func TestStewardWakesTodayDisabled(t *testing.T) {
-	fake := &stewardWakesFakeClient{stewardFakeClient: newStewardFakeClient(""), enabled: false, limit: 5}
-	s := newChatState(fake)
-	if _, _, ok := s.stewardWakesToday(); ok {
-		t.Fatal("未启用时应为 false")
-	}
-	if enabled, known := s.stewardEnabledState(); !known || enabled {
-		t.Fatalf("应报告未知/未启用，实际 enabled=%v known=%v", enabled, known)
 	}
 }

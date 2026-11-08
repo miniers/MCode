@@ -864,38 +864,6 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 					}
 				})
 
-			if view := splitSessionViewFor(s, th); view.Show {
-				color := ThemePrimaryText(c)
-				button := ui.ButtonBase(c.Key("composer-usage-split")).
-					Label("拆分会话").
-					FillWidth().
-					Padding(Space2, Space3).
-					Radius(RadiusSM).
-					Justify(ui.Start).
-					AlignItems(ui.Center)
-				if view.Disabled {
-					color = ThemeSecondaryText(c)
-					button.Disabled(true).Tooltip("等这一轮结束再拆分")
-				} else {
-					if button.Hovered() {
-						button.Background(ThemeHover(c))
-					}
-					button.OnClick(func() {
-						s.composerView.usageOpen = false
-						splitStewardSession(s, th.ID)
-					})
-				}
-				button.Children(func() {
-					ui.Row(c.Key("composer-usage-split-row")).Gap(Space3).AlignItems(ui.Center).Children(func() {
-						ui.Icon(c, IconColumns3()).Size(IconSM, IconSM).TextColor(color)
-						ui.Column(c.Key("composer-usage-split-text")).Gap(Space1).Children(func() {
-							ui.Text(c, "拆分会话").FontSize(TypeBody).TextColor(color)
-							ui.Text(c, "把当前会话拆成新会话，释放上下文").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
-						})
-					})
-				})
-			}
-
 			// 预付费余额：仅当 provider 支持余额接口时出现（如 DeepSeek、Z.ai）。
 			s.loadComposerCreditsForProvider(threadProvider, false)
 			if credits, ok := getChatCreditsForProvider(s, threadProvider); ok {

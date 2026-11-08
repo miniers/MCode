@@ -1,7 +1,6 @@
 package mcodeui
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -98,29 +97,11 @@ var stewardAdvancedSection = settingsSection{
 	Title: "高级",
 	Rows: []setting{
 		{
-			ID: "row-steward-home-dir", Title: "记忆与状态目录",
+			ID: "row-steward-home-dir", Title: "主目录",
 			Aliases: []string{"总管", "存储", "目录", "默认"},
 			Control: custom(func(c *ui.Context, st *SettingsState) {
 				ui.Text(c, st.cfg.Orchestration.Steward.ResolvedHomeDir(st.dataDir)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
 			}),
-		},
-		{
-			ID: "row-steward-wake-limit", Title: "每天主动提醒上限",
-			Aliases: []string{"总管", "提醒", "默认"},
-			Control: swarmNumberControl{numberControl: number(val(func(c *config.Config) *int { return &c.Orchestration.Steward.DailyWakeLimit }, config.DefaultStewardDailyWakeLimit), "次/天", config.MinStewardDailyWakeLimit, config.MaxStewardDailyWakeLimit), display: func(v int) int {
-				if v <= 0 {
-					return config.DefaultStewardDailyWakeLimit
-				}
-				return v
-			}},
-			Enabled: func(st *SettingsState) bool { return st.cfg.Orchestration.Steward.Enabled },
-			Status: func(st *SettingsState, _ bool) string {
-				used, limit, ok := stewardWakesTodayCached(st)
-				if !ok {
-					return ""
-				}
-				return fmt.Sprintf("今天已提醒 %d 次，还剩 %d 次", used, max(0, limit-used))
-			},
 		},
 	},
 }

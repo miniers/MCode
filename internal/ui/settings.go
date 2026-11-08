@@ -183,17 +183,6 @@ type SettingsState struct {
 	modelsRefreshDone   bool
 	modelsRefreshErr    string
 
-	// stewardWake 是本实例的今日提醒次数缓存（自己带锁）：读计数要走存储与运行时锁，
-	// 渲染路径只读这份缓存，过期后由后台 goroutine 刷新，不阻塞渲染。
-	stewardWake stewardWakeTodayState
-
-	// stewardScore 是本实例的建议计分缓存（自己带锁）：与今日提醒次数一样，
-	// 渲染路径只读缓存，过期后由后台 goroutine 刷新，不阻塞渲染。
-	stewardScore stewardScoreCache
-	// stewardScoreWindow 是建议计分「统计范围」下拉框的取值（all/recent），
-	// 空串按 all 处理；只存在内存里，不需要持久化。
-	stewardScoreWindow string
-
 	// reviewCheckLoaded 表示当前项目的检查命令已从项目配置读入内存。
 	reviewCheckLoaded bool
 	// reviewCheckProjectDir 是上次加载检查命令的项目目录，切换项目时据此重载。

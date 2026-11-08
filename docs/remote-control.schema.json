@@ -741,12 +741,6 @@
       "$ref": "#/$defs/RemoteAttentionConfirmSuggestionResponse"
     },
     {
-      "$ref": "#/$defs/RemoteStewardTopicsListRequest"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsListResponse"
-    },
-    {
       "$ref": "#/$defs/RemoteStewardDecisionsListRequest"
     },
     {
@@ -757,42 +751,6 @@
     },
     {
       "$ref": "#/$defs/RemoteStewardOpenResponse"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsStartRequest"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsStartResponse"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsReplanRequest"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsReplanResponse"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsConfirmRequest"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsConfirmResponse"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsCloseRequest"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsCloseResponse"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsDeleteRequest"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsDeleteResponse"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsTasksReviewRequest"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardTopicsTasksReviewResponse"
     },
     {
       "$ref": "#/$defs/RemoteAutomationsListRequest"
@@ -901,9 +859,6 @@
     },
     {
       "$ref": "#/$defs/RemoteAutomationsChangedNotification"
-    },
-    {
-      "$ref": "#/$defs/RemoteStewardChangedNotification"
     },
     {
       "$ref": "#/$defs/RemoteSettingsChangedNotification"
@@ -10896,31 +10851,10 @@
             "$ref": "#/$defs/RemoteAttentionConfirmSuggestionRequest"
           },
           {
-            "$ref": "#/$defs/RemoteStewardTopicsListRequest"
-          },
-          {
             "$ref": "#/$defs/RemoteStewardDecisionsListRequest"
           },
           {
             "$ref": "#/$defs/RemoteStewardOpenRequest"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsStartRequest"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsReplanRequest"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsConfirmRequest"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsCloseRequest"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsDeleteRequest"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsTasksReviewRequest"
           },
           {
             "$ref": "#/$defs/RemoteAutomationsListRequest"
@@ -11273,31 +11207,10 @@
             "$ref": "#/$defs/RemoteAttentionConfirmSuggestionResponse"
           },
           {
-            "$ref": "#/$defs/RemoteStewardTopicsListResponse"
-          },
-          {
             "$ref": "#/$defs/RemoteStewardDecisionsListResponse"
           },
           {
             "$ref": "#/$defs/RemoteStewardOpenResponse"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsStartResponse"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsReplanResponse"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsConfirmResponse"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsCloseResponse"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsDeleteResponse"
-          },
-          {
-            "$ref": "#/$defs/RemoteStewardTopicsTasksReviewResponse"
           },
           {
             "$ref": "#/$defs/RemoteAutomationsListResponse"
@@ -14439,81 +14352,6 @@
       ],
       "additionalProperties": false
     },
-    "RemoteStewardTopic": {
-      "type": "object",
-      "properties": {
-        "threadID": {
-          "$ref": "#/$defs/UUID",
-          "description": "话题会话 id，也是话题的唯一标识"
-        },
-        "projectID": {
-          "$ref": "#/$defs/UUID",
-          "description": "话题所属项目 id"
-        },
-        "title": {
-          "type": "string",
-          "description": "话题标题"
-        },
-        "brief": {
-          "type": "string",
-          "description": "任务书全文（markdown）；未生成时为空字符串"
-        },
-        "openQuestions": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "任务书里还没定下来的问题条数"
-        },
-        "goalID": {
-          "type": "string",
-          "description": "确认开工后创建的目标 id；空字符串表示还没有目标"
-        },
-        "closed": {
-          "type": "boolean",
-          "description": "话题是否已结项"
-        },
-        "updatedAt": {
-          "$ref": "#/$defs/ISO8601DateTime"
-        },
-        "phase": {
-          "type": "string",
-          "enum": [
-            "drafting",
-            "planning",
-            "plan_failed",
-            "plan_review",
-            "running",
-            "paused",
-            "completed",
-            "cancelled"
-          ],
-          "description": "由目标状态推出的话题阶段；没有目标时为 drafting"
-        },
-        "tasksDone": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "目标下已完成的任务数；没有目标时为 0"
-        },
-        "tasksTotal": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "目标下的任务总数；没有目标时为 0"
-        }
-      },
-      "required": [
-        "threadID",
-        "projectID",
-        "title",
-        "brief",
-        "openQuestions",
-        "goalID",
-        "closed",
-        "updatedAt",
-        "phase",
-        "tasksDone",
-        "tasksTotal"
-      ],
-      "additionalProperties": false
-    },
     "RemoteStewardDecisionOption": {
       "type": "object",
       "properties": {
@@ -14576,76 +14414,6 @@
         "id": { "$ref": "#/$defs/JSONRPCId" }
       },
       "required": ["jsonrpc", "result", "id"],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsListParams": {
-      "type": "object",
-      "properties": {
-        "projectID": {
-          "$ref": "#/$defs/UUID",
-          "description": "只看该项目的话题；缺省表示全部项目"
-        }
-      },
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsListResult": {
-      "type": "object",
-      "properties": {
-        "topics": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/RemoteStewardTopic"
-          },
-          "description": "话题列表，最近改动的排在前面"
-        }
-      },
-      "required": [
-        "topics"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsListRequest": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "method": {
-          "const": "steward.topics.list"
-        },
-        "params": {
-          "$ref": "#/$defs/RemoteStewardTopicsListParams"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "method",
-        "params",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsListResponse": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "result": {
-          "$ref": "#/$defs/RemoteStewardTopicsListResult"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "result",
-        "id"
-      ],
       "additionalProperties": false
     },
     "RemoteStewardOpenParams": {
@@ -14718,478 +14486,32 @@
       ],
       "additionalProperties": false
     },
-    "RemoteStewardTopicsStartParams": {
-      "type": "object",
-      "properties": {
-        "projectID": {
-          "$ref": "#/$defs/UUID"
-        },
-        "threadID": {
-          "$ref": "#/$defs/UUID",
-          "description": "提出需求的会话，可为空；非空时必须是该项目下的总管话题"
-        },
-        "request": {
-          "type": "string",
-          "description": "用户需求原文"
-        }
-      },
-      "required": [
-        "projectID",
-        "request"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsStartResult": {
-      "type": "object",
-      "properties": {
-        "threadID": {
-          "$ref": "#/$defs/UUID"
-        },
-        "queued": {
-          "type": "boolean",
-          "description": "true 表示需求只被受理、还需排队投递；当前话题由桌面端同步创建，恒为 false"
-        }
-      },
-      "required": [
-        "threadID",
-        "queued"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsStartRequest": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "method": {
-          "const": "steward.topics.start"
-        },
-        "params": {
-          "$ref": "#/$defs/RemoteStewardTopicsStartParams"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "method",
-        "params",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsStartResponse": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "result": {
-          "$ref": "#/$defs/RemoteStewardTopicsStartResult"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "result",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsReplanParams": {
-      "type": "object",
-      "description": "steward.topics.replan 请求参数",
-      "properties": {
-        "projectID": {
-          "$ref": "#/$defs/UUID"
-        },
-        "threadID": {
-          "$ref": "#/$defs/UUID"
-        }
-      },
-      "required": [
-        "projectID",
-        "threadID"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsReplanResult": {
-      "type": "object",
-      "description": "成功时返回空对象",
-      "properties": {},
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsReplanRequest": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "method": {
-          "const": "steward.topics.replan"
-        },
-        "params": {
-          "$ref": "#/$defs/RemoteStewardTopicsReplanParams"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "method",
-        "params",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsReplanResponse": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "result": {
-          "$ref": "#/$defs/RemoteStewardTopicsReplanResult"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "result",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsConfirmParams": {
-      "type": "object",
-      "description": "steward.topics.confirm 请求参数",
-      "properties": {
-        "projectID": {
-          "$ref": "#/$defs/UUID"
-        },
-        "threadID": {
-          "$ref": "#/$defs/UUID"
-        }
-      },
-      "required": [
-        "projectID",
-        "threadID"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsConfirmResult": {
-      "type": "object",
-      "description": "成功时返回空对象",
-      "properties": {},
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsConfirmRequest": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "method": {
-          "const": "steward.topics.confirm"
-        },
-        "params": {
-          "$ref": "#/$defs/RemoteStewardTopicsConfirmParams"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "method",
-        "params",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsConfirmResponse": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "result": {
-          "$ref": "#/$defs/RemoteStewardTopicsConfirmResult"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "result",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsCloseParams": {
-      "type": "object",
-      "description": "steward.topics.close 请求参数",
-      "properties": {
-        "projectID": {
-          "$ref": "#/$defs/UUID"
-        },
-        "threadID": {
-          "$ref": "#/$defs/UUID"
-        }
-      },
-      "required": [
-        "projectID",
-        "threadID"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsCloseResult": {
-      "type": "object",
-      "description": "成功时返回空对象",
-      "properties": {},
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsCloseRequest": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "method": {
-          "const": "steward.topics.close"
-        },
-        "params": {
-          "$ref": "#/$defs/RemoteStewardTopicsCloseParams"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "method",
-        "params",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsCloseResponse": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "result": {
-          "$ref": "#/$defs/RemoteStewardTopicsCloseResult"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "result",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsDeleteParams": {
-      "type": "object",
-      "description": "steward.topics.delete 请求参数",
-      "properties": {
-        "projectID": {
-          "$ref": "#/$defs/UUID"
-        },
-        "threadID": {
-          "$ref": "#/$defs/UUID"
-        }
-      },
-      "required": [
-        "projectID",
-        "threadID"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsDeleteResult": {
-      "type": "object",
-      "description": "成功时返回空对象",
-      "properties": {},
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsDeleteRequest": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "method": {
-          "const": "steward.topics.delete"
-        },
-        "params": {
-          "$ref": "#/$defs/RemoteStewardTopicsDeleteParams"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "method",
-        "params",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsDeleteResponse": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "result": {
-          "$ref": "#/$defs/RemoteStewardTopicsDeleteResult"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "result",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsTasksReviewParams": {
-      "type": "object",
-      "description": "steward.topics.tasks.review 请求参数",
-      "properties": {
-        "projectID": {
-          "$ref": "#/$defs/UUID"
-        },
-        "threadID": {
-          "$ref": "#/$defs/UUID"
-        },
-        "taskID": {
-          "$ref": "#/$defs/UUID"
-        },
-        "decision": {
-          "type": "string",
-          "enum": [
-            "accept",
-            "reject"
-          ]
-        },
-        "feedback": {
-          "type": "string",
-          "description": "打回理由；decision 为 reject 时必填"
-        },
-        "revision": {
-          "type": "integer",
-          "description": "客户端看到的任务修订号，用于乐观锁；与后端不一致时返回版本冲突"
-        }
-      },
-      "required": [
-        "projectID",
-        "threadID",
-        "taskID",
-        "decision",
-        "revision"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsTasksReviewResult": {
-      "type": "object",
-      "description": "成功时返回空对象",
-      "properties": {},
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsTasksReviewRequest": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "method": {
-          "const": "steward.topics.tasks.review"
-        },
-        "params": {
-          "$ref": "#/$defs/RemoteStewardTopicsTasksReviewParams"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "method",
-        "params",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardTopicsTasksReviewResponse": {
-      "type": "object",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "result": {
-          "$ref": "#/$defs/RemoteStewardTopicsTasksReviewResult"
-        },
-        "id": {
-          "$ref": "#/$defs/JSONRPCId"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "result",
-        "id"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardChangedParams": {
-      "type": "object",
-      "description": "steward.changed 通知载荷；projectID 为空字符串表示全部项目",
-      "properties": {
-        "projectID": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "projectID"
-      ],
-      "additionalProperties": false
-    },
-    "RemoteStewardChangedNotification": {
-      "type": "object",
-      "description": "总管或话题发生变化后由宿主广播",
-      "properties": {
-        "jsonrpc": {
-          "const": "2.0"
-        },
-        "method": {
-          "const": "steward.changed"
-        },
-        "params": {
-          "$ref": "#/$defs/RemoteStewardChangedParams"
-        }
-      },
-      "required": [
-        "jsonrpc",
-        "method",
-        "params"
-      ],
-      "additionalProperties": false
-    },
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     "RemoteSessionDevicesChangedParams": {
       "type": "object",
       "description": "session.devices.changed 通知载荷；收到后重新拉一次 session.devices.list",

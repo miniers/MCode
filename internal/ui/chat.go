@@ -248,10 +248,6 @@ func renderChat(c *ui.Context, s *chatState) {
 			0,
 			chatBody.AnimateWith("swarm-reserve-leading", swarmReserve.leading, animateDuration(c, DurSheet), motionEaseStandard))
 		chatBody.Children(func() {
-			// 总管话题：任务书卡片固定在时间线上方，随会话切换。
-			renderStewardTopicCard(c, s, selectedID)
-			// 总管最新一轮还没被回应的决策：置顶条紧跟话题卡，点一下跳到那条消息。
-			renderStewardDecisionBar(c, s, selectedID, messages)
 			// Hero 判定与输入框停靠共用 composerThreadEmpty：两处口径一致，
 			// 才不会出现「输入框已停靠到底部、引导屏还占着中间」的错位。
 			hero := composerThreadEmpty(len(messages), len(curResolvedPlans), len(curAnsweredQuestions))

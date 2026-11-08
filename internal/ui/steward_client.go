@@ -44,13 +44,6 @@ type stewardEnabledClient interface {
 	StewardEnabled() bool
 }
 
-// stewardWakesClient 是今日主动提醒次数的可选客户端能力：设置页在提醒上限后面补一句
-// 「今天已提醒 X 次，还剩 Y 次」，旧客户端或测试替身不实现时不显示这一句。
-type stewardWakesClient interface {
-	// StewardWakesToday 返回今天已主动提醒的次数、每日上限；拿不到时为 false。
-	StewardWakesToday() (used, limit int, ok bool)
-}
-
 // stewardIdentityClient 是总管身份的可选客户端能力：昵称与头像字符都可改。
 // 按契约它返回昵称原文（可为空）与头像原文（可为空），兜底由界面这里做。
 type stewardIdentityClient interface {
@@ -163,18 +156,6 @@ func invalidateStewardEnabledState(s *chatState) {
 	st.mu.Lock()
 	st.enabledAt = time.Time{}
 	st.mu.Unlock()
-}
-
-// stewardWakesToday 返回今天已提醒次数与每日上限；客户端不支持或数据拿不到时 ok 为 false。
-func (s *chatState) stewardWakesToday() (used, limit int, ok bool) {
-	if s == nil || s.client == nil {
-		return 0, 0, false
-	}
-	c, supported := s.client.(stewardWakesClient)
-	if !supported {
-		return 0, 0, false
-	}
-	return c.StewardWakesToday()
 }
 
 // stewardThreadID 返回当前总管会话 ID，客户端不支持时返回空串。

@@ -316,13 +316,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				case "open-attention-inbox":
 					state.toggleAttentionInbox()
 				case "steward-start-topic":
-					// 与项目右键菜单、命令面板共用 openStewardStartTopicDialog，项目参数也取同一对。
-					if projectID, projectName := state.stewardTopicProjectTarget(); projectID != "" {
-						state.openStewardStartTopicDialog(projectID, projectName)
-					} else {
-						nickname, _ := state.stewardIdentity()
-						state.setToast("先选一个项目，再交给" + stewardName(nickname))
-					}
+					state.openStewardThread()
 				case "add-project":
 					state.promptAddProject()
 				case "close-file-tab":

@@ -626,7 +626,6 @@ func kanbanProjectMenu(c *ui.Context, s *chatState, projectID string, onSelect f
 	s.mu.Lock()
 	projects := append([]Project(nil), s.projects...)
 	s.mu.Unlock()
-	projects = withoutStewardProject(s.stewardProjectID(), projects)
 	opts := kanbanProjectListOptions(projects)
 
 	name := "全部项目"
@@ -789,10 +788,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 		Padding(Space5).
 		Gap(Space3).
 		Children(func() {
-			// 0. 从「审查计划」切过来的返回条：点一下回到原来的会话与视图。
-			renderStewardPlanReviewReturnBar(c, s)
-
-			// 0.1 多选模式的选择工具条：已选数量、限制说明、清除与退出。
+			// 0. 多选模式的选择工具条：已选数量、限制说明、清除与退出。
 			if p.selecting {
 				renderKanbanSelectionBar(c, s, ks)
 			}

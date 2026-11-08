@@ -397,30 +397,6 @@ func attentionInsertItem(list []AttentionItem, index int, item AttentionItem) []
 	return list
 }
 
-// confirmAttentionSuggestion 执行用户确认的总管建议：本地先摘掉这条建议避免重复提交，
-// 答复走与审批卡片相同的 respondApproval，失败时由它提示，下次刷新再把建议带回来。
-func (s *chatState) confirmAttentionSuggestion(itemID string, sug AttentionSuggestion) {
-	st := getAttentionInboxState(s)
-	if st == nil {
-		return
-	}
-	st.mu.Lock()
-	for i := range st.items {
-		if st.items[i].ID != itemID {
-			continue
-		}
-		kept := make([]AttentionSuggestion, 0, len(st.items[i].Suggestions))
-		for _, other := range st.items[i].Suggestions {
-			if other.Approval.RequestID != sug.Approval.RequestID {
-				kept = append(kept, other)
-			}
-		}
-		st.items[i].Suggestions = kept
-	}
-	st.mu.Unlock()
-	s.respondApproval(sug.Approval, sug.OptionID)
-}
-
 // openAttentionItem 按事件所属对象跳转：会话直接切换，看板与自动化打开任务窗口。
 // 跳转不自动标记已处理，用户处理完再手动点「标记已处理」。
 func (s *chatState) openAttentionItem(item AttentionItem) {
@@ -672,57 +648,7 @@ func renderAttentionInboxGroup(c *ui.Context, s *chatState, key, title string, i
 		})
 	for _, item := range items {
 		renderAttentionInboxItem(c, s, item)
-		for _, sug := range item.Suggestions {
-			renderAttentionSuggestion(c, s, item.ID, sug)
-		}
 	}
-}
-
-// renderAttentionSuggestion 渲染总管对一条待审批请求的建议：请求内容与理由写全，
-// 用户看清要批准什么后再点确认；只有点了确认才真正答复请求。
-func renderAttentionSuggestion(c *ui.Context, s *chatState, itemID string, sug AttentionSuggestion) {
-	verb := "拒绝"
-	if sug.OptionID == "allow" {
-		verb = "允许"
-	}
-	key := "attention-suggestion-" + itemID + "-" + sug.Approval.RequestID
-	nickname, _ := s.stewardIdentity()
-	ui.Row(c.Key(key)).
-		FillWidth().
-		Padding(Space0, Space2, Space2, Space4).
-		Gap(Space3).
-		AlignItems(ui.Center).
-		Children(func() {
-			ui.Column(c.Key(key + "-text")).
-				Gap(Space0).
-				Grow(1).
-				Children(func() {
-					ui.Text(c, stewardName(nickname)+"建议"+verb+"："+sug.Approval.Title).
-						FontSize(scaledFont(TypeCaption)).
-						FontWeight(500).
-						TextColor(ThemePrimaryText(c)).
-						MaxLines(2)
-					if sug.Approval.Detail != "" {
-						ui.Text(c, sug.Approval.Detail).
-							FontSize(scaledFont(TypeCaption)).
-							TextColor(ThemeSecondaryText(c)).
-							MaxLines(4)
-					}
-					if sug.Reason != "" {
-						ui.Text(c, "理由："+sug.Reason).
-							FontSize(scaledFont(TypeCaption)).
-							TextColor(ThemeSecondaryText(c)).
-							MaxLines(3)
-					}
-				})
-			Button(c.Key(key+"-confirm"), ButtonOpts{
-				Text:    "确认" + verb,
-				Label:   "确认" + verb + " " + sug.Approval.Title,
-				Size:    ControlXS,
-				Variant: ButtonSecondary,
-				OnClick: func() { s.confirmAttentionSuggestion(itemID, sug) },
-			})
-		})
 }
 
 // renderAttentionInboxItem 渲染一条事件：标题、单行详情与相对时间，右侧是「标记已处理」。

@@ -21,18 +21,6 @@ type AttentionItem struct {
 	Detail   string
 	// CreatedAt 是事件落库时间，列表按它倒序。
 	CreatedAt time.Time
-	// Suggestions 是总管对该会话待审批请求的建议，只有等待审批的事件才可能非空。
-	Suggestions []AttentionSuggestion
-}
-
-// AttentionSuggestion 是总管对一条待审批请求的建议：只展示给用户，用户确认后才真正执行。
-type AttentionSuggestion struct {
-	// Approval 是被建议的请求，确认时原样交给 Client.Respond。
-	Approval Approval
-	// OptionID 是建议的答复，allow 或 deny。
-	OptionID string
-	// Reason 是总管给出的理由。
-	Reason string
 }
 
 // AttentionClient 是待处理事件（收件箱）的读取接口。界面层用类型断言

@@ -844,14 +844,6 @@ type timelineItem struct {
 	capsuleSpan swarmCapsuleTurnSpan
 	// forkFromThreadID 是 fork 来源条指向的源会话 ID（只有来源条用它）。
 	forkFromThreadID string
-	// wakeMsgID、wakeText 是这条条目之前那条隐藏唤醒消息的 ID 与正文，只打在唤醒消息之后的第一个条目上：
-	// 回合折叠项靠它们认定「这一轮是总管被唤醒后跑的」，折叠项的 ID 也从唤醒消息 ID 来。
-	wakeMsgID string
-	wakeText  string
-	// wakeReason 是折叠组头显示的唤醒原因（只有回合折叠项用它）。
-	wakeReason string
-	// silentRounds 是静默回合合并后的巡视次数：大于 0 表示这是「后台巡视 N 次，无需处理」的折叠项。
-	silentRounds int
 }
 
 // isReasoningMessage 判断消息是否为思考过程消息。
@@ -921,44 +913,11 @@ func buildTimelineItemsOpts(messages []Message, exp map[string]bool, liveGroupID
 
 func buildTimelineItemsFiltered(messages []Message, exp map[string]bool, liveGroupID string, groupsOpenByDefault bool) []timelineItem {
 	var items []timelineItem
-	// 隐藏的唤醒消息本身不产生条目，但唤醒标记要打到它之后的第一个条目上：
-	// wakeStart 是这条消息落地时 items 的长度，条目长高了就把标记打在新条目上再清除。
-	var wakeMsgID, wakeText string
-	wakeTurn, wakeStart := 0, 0
-	wakePending := false
-	attachWake := func() {
-		if !wakePending {
-			return
-		}
-		if len(items) <= wakeStart {
-			// 唤醒消息之后还没有产生任何条目：标记先留着，等第一个条目落地。
-			return
-		}
-		// 只认同一回合里的第一个新条目：唤醒消息之后若先到了别的回合的消息，标记就作废，不跨回合乱打。
-		if items[wakeStart].turnIndex == wakeTurn {
-			items[wakeStart].wakeMsgID = wakeMsgID
-			items[wakeStart].wakeText = wakeText
-		}
-		wakeMsgID, wakeText = "", ""
-		wakePending = false
-	}
 	n := len(messages)
 	for i := 0; i < n; {
 		m := messages[i]
-		// 每轮先结算上一个唤醒标记：此时条目已经落地，若拖到后面，标记可能被这条隐藏消息
-		// 或下一条唤醒消息覆盖，导致上一轮的标记丢失。
-		attachWake()
-		if m.Role == "user" && m.Kind == stewardWakeKind {
-			// 唤醒消息在时间线上不可见（它只是提示模型「你被叫醒了」），这里只记下待打的标记。
-			wakeMsgID, wakeText = m.ID, m.Text
-			wakeTurn = m.TurnIndex
-			wakeStart = len(items)
-			wakePending = true
-			i++
-			continue
-		}
 		if isHiddenTimelineMessage(m) {
-			// 隐藏触发与静默轮次在构建层直接跳过：全量与增量都走这个循环，两条路径结果一致。
+			// 隐藏触发与历史静默消息在构建层直接跳过。
 			i++
 			continue
 		}
@@ -1151,7 +1110,6 @@ func itemHoldsTurnEnd(item timelineItem, lastAssistantPerTurn map[int]string) bo
 		return item.isLast && containsMessageID(item.tools, id)
 	case timelineItemTurnWork:
 		// 回合折叠项不承载完成块：最终答复留在折叠项之外，完成块跟在它后面。
-		// 静默回合（silentRounds>0）根本没有答复，同样不挂完成块。
 		return false
 	default:
 		return false
@@ -1257,27 +1215,17 @@ type timelineTurnWorkFold struct {
 }
 
 // findTurnWorkFold 在同一个回合的条目里找出可折叠的一段，并检查全部放行条件：
-// 普通回合条目以用户消息开头、有非空的最终助手正文、正文之前至少有一条活动条目；
-// 被唤醒的回合没有可见的用户消息，改以带唤醒标记的活动条目开头（foldStart=0）；
-// 两种回合都要求不在运行中、不含查找命中或待跳转目标、还没有折叠过。
+// 回合条目以用户消息开头、有非空的最终助手正文、正文之前至少有一条活动条目；
+// 回合要求不在运行中、不含查找命中或待跳转目标、还没有折叠过。
 // lastAssistant 是「回合号 -> 该回合最后一条助手消息 ID」，与渲染时的回合完成块同源。
 func findTurnWorkFold(segment []timelineItem, lastAssistant map[int]string, runningTurn int, skipIDs map[string]bool) (timelineTurnWorkFold, bool) {
-	// foldStart 是折叠区的起点：普通回合首行是可见的用户消息，留着它；
-	// 唤醒回合首行就是工作过程，折叠区从 0 开始，长度门槛也相应少一条。
 	foldStart := 1
 	head := segment[0]
-	if head.wakeMsgID != "" && head.kind != timelineItemTurnWork {
-		foldStart = 0
-		if len(segment) < 2 {
-			return timelineTurnWorkFold{}, false
-		}
-	} else {
-		if len(segment) < 3 {
-			return timelineTurnWorkFold{}, false
-		}
-		if head.kind != timelineItemSingle || head.msg.Role != "user" {
-			return timelineTurnWorkFold{}, false
-		}
+	if len(segment) < 3 {
+		return timelineTurnWorkFold{}, false
+	}
+	if head.kind != timelineItemSingle || head.msg.Role != "user" {
+		return timelineTurnWorkFold{}, false
 	}
 	turn := head.turnIndex
 	// 运行中的回合不折叠：还在写的内容随时会变长，折叠起来反而让人猜不到进度。
@@ -1328,7 +1276,7 @@ func findTurnWorkFold(segment []timelineItem, lastAssistant map[int]string, runn
 
 // buildTurnWorkItem 把折叠区里的条目拼成回合折叠项：工具组按当前开合状态重建节拍（折叠区内默认展开），
 // 展开折叠区后就能看到每一条命令；组头耗时取回合首尾时间，存在失败工具时置组头警示。
-// 折叠区铺到段尾（静默回合）时没有答复可用：不读 segment[answerIdx]，耗时留空。
+// 折叠区只覆盖最终答复之前的工作过程。
 func buildTurnWorkItem(s *chatState, threadID string, segment []timelineItem, fold timelineTurnWorkFold) timelineItem {
 	region := segment[fold.foldStart:fold.answerIdx]
 	head := segment[0]
@@ -1396,22 +1344,11 @@ func buildTurnWorkItem(s *chatState, threadID string, segment []timelineItem, fo
 		finishedAt = region[len(region)-1].finishedAt
 	}
 
-	// 被唤醒的回合没有可见的用户消息，折叠项的 ID 改从唤醒消息来：同一个回合反复重建时 ID 依然不变。
-	id := turnWorkFoldID(head.msg.ID)
-	wakeReason := ""
-	if head.wakeMsgID != "" {
-		id = turnWorkFoldID(head.wakeMsgID)
-		wakeReason = stewardWakeReason(head.wakeText)
-	}
-
 	return timelineItem{
 		kind:          timelineItemTurnWork,
-		id:            id,
+		id:            turnWorkFoldID(head.msg.ID),
 		threadID:      threadID,
 		turnIndex:     head.turnIndex,
-		wakeMsgID:     head.wakeMsgID,
-		wakeText:      head.wakeText,
-		wakeReason:    wakeReason,
 		tools:         msgs,
 		workItems:     work,
 		workElapsed:   elapsed,
@@ -1470,40 +1407,6 @@ func turnWorkLastAnswers(items []timelineItem) map[int]string {
 		answers[it.turnIndex] = it.msg.ID
 	}
 	return answers
-}
-
-// findStewardSilentRound 判断这一段是不是总管的静默回合：被唤醒后只思考和调工具，最后用 [[静默]] 收尾，
-// 没有给用户看的答复（[[静默]] 本身在构建层就被隐藏了）。这种回合值得收起：它的思考与工具行
-// 只是「后台跑了一轮」的过程，留下来只会把时间线铺满。
-// 条件：以带唤醒标记的活动条目开头、不在运行中、本回合没有可见答复、整段都是活动条目、没有查找命中。
-func findStewardSilentRound(segment []timelineItem, lastAssistant map[int]string, runningTurn int, skipIDs map[string]bool) bool {
-	if len(segment) == 0 {
-		return false
-	}
-	head := segment[0]
-	if head.wakeMsgID == "" || head.kind == timelineItemTurnWork {
-		// 普通回合以用户消息开头；已经折过的回合保持原样（折叠必须幂等）。
-		return false
-	}
-	if head.turnIndex == runningTurn {
-		// 运行中的回合不折叠：可能马上就有答复，也可能还要继续干活。
-		return false
-	}
-	if lastAssistant[head.turnIndex] != "" {
-		// 有答复的回合留给 findTurnWorkFold：答复要留在折叠项外面让人看见。
-		return false
-	}
-	for _, it := range segment {
-		if !itemIsActivity(it) {
-			// 夹了助手正文或其它行（例如中途说话）：这不是纯巡视，照旧逐条展示。
-			return false
-		}
-		if itemTouchesIDs(it, skipIDs) {
-			// 搜索命中或待跳转目标不能被收进折叠区。
-			return false
-		}
-	}
-	return true
 }
 
 // isSplitSessionItem 判断条目的是不是分割线消息：分割线是界面上的界线，
@@ -1631,29 +1534,6 @@ func applyTurnWorkFold(s *chatState, threadID string, items []timelineItem) []ti
 		isRunningTurn := runningTurn >= 0 && items[i].turnIndex == runningTurn
 		// 上一帧的运行态头先摊回过程条目：运行中的回合要按最新消息重建，结束的回合要正常折叠。
 		segment = inlineRunningTurnHeader(segment)
-		if findStewardSilentRound(segment, lastAssistant, runningTurn, skipIDs) {
-			// 静默回合先于带答复的回合折叠处理：它没有答复，findTurnWorkFold 本来就不会收它。
-			silent := buildTurnWorkItem(s, threadID, segment, timelineTurnWorkFold{foldStart: 0, answerIdx: len(segment)})
-			silent.silentRounds = 1
-			if n := len(out); n > 0 && out[n-1].silentRounds > 0 {
-				// 相邻的两次巡视并成一项：ID 与 msgIndex 留首轮的，其余取最新一轮，与全量重建
-				// 逐轮合并的结果一致；增量复用已合并项再接新一轮也得到同样的值。
-				merged := out[n-1]
-				merged.workItems = append(append([]timelineItem(nil), merged.workItems...), silent.workItems...)
-				merged.tools = append(append([]Message(nil), merged.tools...), silent.tools...)
-				merged.silentRounds += silent.silentRounds
-				merged.workAttention = merged.workAttention || silent.workAttention
-				merged.msgLastIndex = silent.msgLastIndex
-				merged.finishedAt = silent.finishedAt
-				// turnIndex 跟着最新一轮走：渲染时按它找回合完成块，而静默回合本来就没有完成块。
-				merged.turnIndex = silent.turnIndex
-				out[n-1] = merged
-			} else {
-				out = append(out, silent)
-			}
-			i = end
-			continue
-		}
 		if isRunningTurn {
 			// 运行中的回合不折叠整段，只在用户消息之后放一行计时头，收住已经跑过的过程消息。
 			// 已经出现的答复或中途正文留在头外，仍在生成的文字不能被藏起来。
@@ -1870,23 +1750,15 @@ func isShowReasoningEnabled(s *chatState) bool {
 	return true
 }
 
-// isAutoCollapseReasoningEnabled 检查思考内容是否自动折叠（取不到配置时视为开启）。
-// 总管会话取它自己独立的开关，其他会话取 Session.AutoCollapseReasoning，两者互不影响。
-// 它在内部分别短持 s.mu（读当前选中的会话）与设置自己的锁，两级锁不嵌套；
-// 因此必须在 s.mu 之外调用。
+// isAutoCollapseReasoningEnabled 检查通用会话设置中的思考自动折叠开关。
 func isAutoCollapseReasoningEnabled(s *chatState) bool {
 	st := getChatSettings(s)
 	if st == nil {
 		return true
 	}
-	var threadID string
-	s.mu.Lock()
-	threadID = s.selectedThreadID
-	s.mu.Unlock()
-	isSteward := stewardSelected(s, threadID)
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return reasoningAutoCollapse(st.cfg, isSteward)
+	return st.cfg.Session.AutoCollapseReasoningEnabled()
 }
 
 // isPinSentMessageEnabled 检查当前配置中是否开启了发送后置顶消息（取不到配置时视为关闭）。
@@ -3175,7 +3047,6 @@ func reasoningMarkdownOptionsAt(c *ui.Context, s *chatState, baseSize float32) *
 // renderReasoningMessage 渲染单行可折叠的思考行（按 2.3 节）：默认折叠，流式时展开并显示「思考中…」，
 // 展开图标带 90 度旋转动画，正文按助手正文的 Markdown 方式渲染，字号小、颜色为次要文本色。
 // 关闭「自动折叠思考内容」开关后，非流式的思考行默认展开，由用户点击自行收起。
-// 总管会话里思考一律收成单行摘要（见 stewardCompactReasoning）：流式也不自动展开，展开只看用户点击。
 func renderReasoningMessage(c *ui.Context, s *chatState, m Message, liveID string, isLastAssistant bool, hasUsage bool, turnUsage TokenUsage, turnDur time.Duration) ui.Element {
 	s.mu.Lock()
 	userOpen := s.expandedReasoning[m.ID]
@@ -3184,38 +3055,28 @@ func renderReasoningMessage(c *ui.Context, s *chatState, m Message, liveID strin
 	open := userOpen
 	isLive := liveID != "" && m.ID == liveID
 	autoCollapse := isAutoCollapseReasoningEnabled(s)
-	// 总管会话的思考一律收成单行：展开与否只看用户点击，流式中不自动展开，结束后也不自动收起。
-	compact := stewardCompactReasoning(s)
+	// 关闭自动折叠时默认展开，用户点击后翻转。
+	if !autoCollapse && !isLive {
+		open = !userOpen
+	}
 
-	if compact {
-		open = userOpen
+	if isLive {
+		reasoningWasLiveMu.Lock()
+		reasoningWasLive[m.ID] = true
+		reasoningWasLiveMu.Unlock()
+		open = true
 	} else {
-		// 关闭自动折叠时默认展开，用户点击后翻转：此模式下 expandedReasoning[m.ID] 为 true 表示
-		// 「用户手动收起」，所以展开状态取反。
-		if !autoCollapse && !isLive {
-			open = !userOpen
+		// 刚结束流式输出的那一帧：用户正在往上翻时先保持展开，别把视线跳走。
+		atEnd := s != nil && s.chatListState.AtEnd()
+		atBottom := !shouldShowJumpToLatest(atEnd, -1)
+		reasoningWasLiveMu.Lock()
+		hold, forget := reasoningHoldOpen(reasoningWasLive[m.ID], autoCollapse, atBottom)
+		if forget {
+			delete(reasoningWasLive, m.ID)
 		}
-
-		if isLive {
-			reasoningWasLiveMu.Lock()
-			reasoningWasLive[m.ID] = true
-			reasoningWasLiveMu.Unlock()
+		reasoningWasLiveMu.Unlock()
+		if hold {
 			open = true
-		} else {
-			// 刚结束流式输出的那一帧：用户正在往上翻时先保持展开，别把视线跳走；
-			// 回到底部（或关掉了自动折叠）就收起。这里不再写 expandedReasoning，
-			// 否则会把「保持展开」记成用户的点击，思考就永远收不起来了。
-			atEnd := s != nil && s.chatListState.AtEnd()
-			atBottom := !shouldShowJumpToLatest(atEnd, -1)
-			reasoningWasLiveMu.Lock()
-			hold, forget := reasoningHoldOpen(reasoningWasLive[m.ID], autoCollapse, atBottom)
-			if forget {
-				delete(reasoningWasLive, m.ID)
-			}
-			reasoningWasLiveMu.Unlock()
-			if hold {
-				open = true
-			}
 		}
 	}
 
@@ -5527,11 +5388,6 @@ func renderToolGroupItem(c *ui.Context, s *chatState, tools []Message, groupID s
 				stamp.Opacity(stamp.AnimateTo("tool-group-time-reveal", reveal, ui.Animation{Duration: animateDuration(c, motionFast), Ease: motionEaseStandard}))
 			}
 		})
-		// 运行中且折叠时，总管会话先在组头下方补一行「思考中 · 最近的思考开头」：
-		// 那里收成单行，不展开也能看出它在想什么。
-		if running && !open && stewardCompactReasoning(s) {
-			renderToolGroupReasoningHint(c, tools, groupID)
-		}
 		// 运行中且折叠时，组头下方给最近几条工具行做只读预览；组跑完或展开后不再渲染。
 		if running && !open {
 			renderToolGroupPreview(c, s, tools, groupID)
@@ -5787,9 +5643,6 @@ func runningTurnHeaderLabel(item timelineItem, now time.Time) string {
 // turnWorkHeaderLabel 返回回合折叠项组头的完整文字：
 // 静默回合只说巡视了几次、不需要处理；其余回合只留用时，唤醒原因与计数移到 Tooltip。
 func turnWorkHeaderLabel(item timelineItem, counts toolGroupCounts) string {
-	if item.silentRounds > 0 {
-		return stewardSilentHeaderText(item.silentRounds, item.finishedAt)
-	}
 	return turnWorkHeaderText(counts, item.workElapsed)
 }
 
@@ -5799,9 +5652,6 @@ func turnWorkHeaderAccessLabel(item timelineItem, open bool) string {
 	action := "点按展开"
 	if open {
 		action = "点按收起"
-	}
-	if item.silentRounds > 0 {
-		return stewardSilentHeaderText(item.silentRounds, item.finishedAt) + "，" + action
 	}
 	if item.workElapsed != "" {
 		return "工具调用，用时 " + item.workElapsed + "，" + action
@@ -5819,9 +5669,6 @@ func turnWorkHeaderTooltip(s *chatState, item timelineItem, counts toolGroupCoun
 		return "本回合" + turnHeaderRunningLabel(now.Sub(item.workStartedAt))
 	}
 	parts := make([]string, 0, 2)
-	if item.wakeReason != "" {
-		parts = append(parts, item.wakeReason)
-	}
 	if summary := toolGroupSummaryText(counts); summary != "" {
 		parts = append(parts, summary)
 	}
@@ -5892,11 +5739,6 @@ func turnWorkElapsedParts(elapsed string) (secs int, rest string, ok bool) {
 // renderTurnWorkHeaderText 渲染折叠组头的摘要文字：结束态只显示用时，组头的计数与完成明细
 // 已经移到 Tooltip 与展开体尾部，这里不再需要滚动数字。
 func renderTurnWorkHeaderText(c *ui.Context, item timelineItem, counts toolGroupCounts, color ui.Color) {
-	if item.silentRounds > 0 {
-		// 静默回合既没有答复也没有耗时：组头只说明巡视了几次、什么时候结束。
-		ui.Text(c, stewardSilentHeaderText(item.silentRounds, item.finishedAt)).FontSize(scaledFont(TypeBody)).TextColor(color)
-		return
-	}
 	ui.Text(c, turnWorkHeaderText(counts, item.workElapsed)).FontSize(scaledFont(TypeBody)).TextColor(color).SingleLine()
 }
 
@@ -5945,14 +5787,8 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 		headerText = runningTurnHeaderLabel(item, c.Now())
 	}
 	btnLabel := "展开本回合的工作过程"
-	if item.silentRounds > 0 {
-		btnLabel = "展开后台巡视过程"
-	}
 	if open {
 		btnLabel = "收起本回合的工作过程"
-		if item.silentRounds > 0 {
-			btnLabel = "收起后台巡视过程"
-		}
 	}
 	chevronTarget := float32(0)
 	if open {
@@ -6045,7 +5881,7 @@ func turnEndMessageFor(s *chatState, turnIndex int) Message {
 // renderTurnWorkFooter 在展开体末尾画一行回合完成详情：复用独立完成行的文字与结束时刻，
 // 这样收进折叠头的信息（模型、工具数、改动、token、速度、结束时间）一条都不少。
 func renderTurnWorkFooter(c *ui.Context, s *chatState, item timelineItem, usage TokenUsage, hasUsage bool) {
-	if item.workRunning || item.silentRounds > 0 {
+	if item.workRunning {
 		return
 	}
 	// 历史回合可能没有用量记录：用量为空时 formatTurnFinishedBlockTextWithInfo 会退回
