@@ -1348,6 +1348,15 @@ func renderProviderBalancePanel(c *ui.Context, st *SettingsState, id string) {
 	}
 }
 
+// providerAPIKeyPlaceholder 返回内置 mcode 的 Anthropic API Key 输入框占位文案：
+// 已保存 Key 时提示「已保存」，留空即保留已存 Key。
+func providerAPIKeyPlaceholder(hasSavedKey bool) string {
+	if hasSavedKey {
+		return "已保存"
+	}
+	return ""
+}
+
 // renderProviderCLIExpanded 渲染 CLI harness 展开区：启用开关、可执行文件路径、
 // 更新监控、版本信息、droid 认证方式与 Copilot 登录引导；pi 额外有长缓存与视觉模型两项。
 // locked 为真时写配置的控件一律禁用，只读展示照常渲染。
@@ -1397,10 +1406,6 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 		if !accountSection {
 			return
 		}
-		keyPlaceholder := ""
-		if provSetting.HasAPIKey {
-			keyPlaceholder = "已保存"
-		}
 		renderSettingRow(c, "row-provider-anthropic-key", "Anthropic API Key", func() {
 			ui.Row(c.Key("provider-anthropic-key-controls-" + id)).
 				AlignItems(ui.Center).
@@ -1410,7 +1415,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 						Key:         "input-provider-anthropic-key-" + id,
 						Value:       &keyValue,
 						Label:       "Anthropic API Key " + name,
-						Placeholder: keyPlaceholder,
+						Placeholder: providerAPIKeyPlaceholder(provSetting.HasAPIKey),
 						Width:       280,
 						Password:    true,
 						Disabled:    locked,
@@ -1450,8 +1455,8 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 				})
 		})
 		if saveErr != "" {
-			ui.Row(c.Key("row-provider-save-err-" + id)).
-				Padding(0, settingsRowPadX).
+			ui.Row(c.Key("row-provider-save-err-"+id)).
+				Padding(Space0, settingsRowPadX).
 				Children(func() {
 					ui.Text(c, saveErr).
 						FontSize(TypeFootnote).

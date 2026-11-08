@@ -251,6 +251,81 @@ func TestUsageAccumulation(t *testing.T) {
 	}
 }
 
+func TestUsageReportsContextWindow(t *testing.T) {
+	client := &scriptClient{steps: []scriptStep{{response: reply("stop")}}}
+	var usage *harness.Usage
+	if err := Run(context.Background(), Options{Client: client, ContextWindow: 321000, Emit: func(event harness.Event) {
+		if event.Type == harness.EventUsage {
+			usage = event.Usage
+		}
+	}}, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if usage == nil || usage.ContextWindow != 321000 {
+		t.Fatalf("usage = %+v", usage)
+	}
+}
+
+func TestSteerInjectedBeforeRequest(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	client := &scriptClient{steps: []scriptStep{
+		{response: reply("tool_use", call("1", "read", `{}`))},
+		{response: reply("stop")},
+	}}
+	pending := []string{"change course"}
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "steer", Tools: []tools.Tool{testTool("read")}, Steer: func() []string {
+		texts := pending
+		pending = nil
+		return texts
+	}}, "start", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, request := range client.requests {
+		count := 0
+		for _, message := range request.Messages {
+			if message.Role == "user" && len(message.Content) == 1 && message.Content[0].Text == "change course" {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("request %d 中的插话消息数 = %d，想要 1", i, count)
+		}
+	}
+	messages := loadMessages(t, store, "steer")
+	found := false
+	for _, message := range messages {
+		if message.Role == "user" && message.Content[0].Text == "change course" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("持久化的消息里没有插话：%+v", messages)
+	}
+}
+
+func TestSteerAfterFinalReplyContinuesTurn(t *testing.T) {
+	client := &scriptClient{steps: []scriptStep{{response: reply("stop")}, {response: reply("stop")}}}
+	calls := 0
+	err := Run(context.Background(), Options{Client: client, SessionID: "steer-final", Steer: func() []string {
+		calls++
+		if calls == 2 {
+			return []string{"one more thing"}
+		}
+		return nil
+	}}, "start", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+	last := client.requests[1].Messages
+	if len(last) != 3 || last[2].Role != "user" || last[2].Content[0].Text != "one more thing" {
+		t.Fatalf("第二次请求 = %+v", last)
+	}
+}
+
 func TestAskUserQuestion(t *testing.T) {
 	approver := &testApprover{response: harness.ApprovalResponse{Answers: map[string][]string{"question": {"yes"}}}}
 	builtin := BuiltinTools(approver)

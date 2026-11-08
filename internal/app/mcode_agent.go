@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -137,6 +138,31 @@ func isDeepSeekModel(model string) bool {
 	return strings.Contains(strings.ToLower(model), "deepseek")
 }
 
+// mcodeAnthropicContextWindow 是 anthropic/ 前缀模型的上下文窗口（tokens）。
+const mcodeAnthropicContextWindow = 200000
+
+// mcodeContextWindow 返回模型的上下文窗口：anthropic/ 前缀固定 200000；Magpie 模型按
+// pi 勾选查找，网关缓存里有元数据就用它，否则用 pi 注入的默认窗口；查不到返回 0。
+func mcodeContextWindow(cfg config.Config, secrets config.SecretStore, model string) int {
+	if strings.HasPrefix(model, "anthropic/") {
+		return mcodeAnthropicContextWindow
+	}
+	target, modelID, ok := magpieinject.ProviderOf(model, mcodeTargets(cfg, secrets))
+	if !ok {
+		return 0
+	}
+	for _, piTarget := range piMagpieAllTargets(cfg, secrets) {
+		if piTarget.providerID != target.ProviderID || !slices.Contains(piTarget.models, modelID) {
+			continue
+		}
+		if cached, hit := magpie.CachedModel(piTarget.baseURL, piTarget.apiKey, modelID); hit && cached.ContextWindow > 0 {
+			return cached.ContextWindow
+		}
+		return magpieinject.DefaultModel().ContextWindow
+	}
+	return 0
+}
+
 // buildMcodeHarness 构造内置 mcode agent harness。
 func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
 	storeDir := ""
@@ -151,6 +177,10 @@ func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir st
 		ResolveClient: func(model, affinityKey string) (llm.Client, string, error) {
 			current := mcodeCurrentConfig(cfg, secrets)
 			return resolveMcodeClient(current, mcodeCurrentSecrets(secrets), model, affinityKey)
+		},
+		ContextWindow: func(model string) int {
+			current := mcodeCurrentConfig(cfg, secrets)
+			return mcodeContextWindow(current, mcodeCurrentSecrets(secrets), model)
 		},
 		SystemPrompt: func(turn harness.Turn, toolNames []string) string {
 			home, _ := os.UserHomeDir()

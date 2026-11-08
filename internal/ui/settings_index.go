@@ -95,6 +95,7 @@ func settingsLegacyItems() []settingsItem {
 		{ID: "row-provider-pi-cache", Page: "models", Sheet: "provider", Section: "供应商", Title: "长缓存", Aliases: []string{"pi", "缓存", "PI_CACHE_RETENTION"}},
 		{ID: "row-provider-pi-vision", Page: "models", Sheet: "provider", Section: "供应商", Title: "视觉模型", Aliases: []string{"pi", "图片"}},
 		{ID: "row-provider-version", Page: "models", Sheet: "provider", Section: "供应商", Title: "版本信息", Aliases: []string{"供应商", "版本"}},
+		{ID: "row-provider-anthropic-key", Page: "models", Sheet: "provider", Section: "供应商", Title: "Anthropic API Key", Aliases: []string{"mcode", "Anthropic", "API Key"}},
 		{ID: "row-provider-auth", Page: "models", Sheet: "provider", Section: "供应商", Title: "认证方式", Aliases: []string{"供应商", "登录"}},
 		{ID: "row-provider-magpie", Page: "models", Sheet: "provider", Section: "模型", Title: "Magpie 接入", Aliases: []string{"供应商", "Magpie", "路由"}},
 		{ID: "row-provider-balance-breakdown", Page: "models", Sheet: "provider", Section: "供应商", Title: "明细", Aliases: []string{"供应商", "余额", "额度"}},

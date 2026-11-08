@@ -561,7 +561,7 @@ func TestProviders_McodeShownAsCLIRow(t *testing.T) {
 	}
 }
 
-// mcode 面板的 API Key 提交走 SaveProviderSetting，保存后清空草稿并显示已保存状态。
+// mcode 面板的 API Key 提交走 SaveProviderSetting，保存后清空草稿，输入框回到「已保存」占位状态。
 func TestProviders_McodeSavesAnthropicAPIKey(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -596,8 +596,15 @@ func TestProviders_McodeSavesAnthropicAPIKey(t *testing.T) {
 		return st.providerRows.settings["mcode"].HasAPIKey && st.providerRows.keyDraft["mcode"] == ""
 	})
 	panel.Frame()
-	if !panel.HasText("已保存") {
-		t.Fatalf("已保存 Key 后应显示占位状态：%v", panel.Texts())
+	// 已保存状态只以输入框占位文案表达（与 Magpie 网关、API 预设一致），占位文案不进 Texts()，直接断言占位逻辑。
+	if got := providerAPIKeyPlaceholder(true); got != "已保存" {
+		t.Fatalf("已保存 Key 后的占位文案 = %q，want 已保存", got)
+	}
+	if got := providerAPIKeyPlaceholder(false); got != "" {
+		t.Fatalf("未保存 Key 不应出现占位文案，got %q", got)
+	}
+	if !panel.HasText("Anthropic API Key") {
+		t.Fatalf("mcode 面板应保留 Anthropic API Key 行：%v", panel.Texts())
 	}
 }
 

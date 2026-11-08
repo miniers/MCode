@@ -32,7 +32,9 @@ type Options struct {
 	MaxRounds int
 	// ContextWindow 是模型上下文窗口的 token 数，为 0 时使用默认值。
 	ContextWindow int
-	Emit          func(harness.Event)
+	// Steer 取出并清空待处理的插话文本，每条作为一条 user 消息追加；可以为 nil。
+	Steer func() []string
+	Emit  func(harness.Event)
 }
 
 type messageEntry struct {
@@ -74,6 +76,24 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		messages = append(messages, message)
 		return nil
 	}
+	// appendSteers 把待处理的插话按 user 消息追加并返回条数。
+	appendSteers := func() (int, error) {
+		if opts.Steer == nil {
+			return 0, nil
+		}
+		count := 0
+		for _, text := range opts.Steer() {
+			text = strings.TrimSpace(text)
+			if text == "" {
+				continue
+			}
+			if err := appendMessage(llm.Message{Role: "user", Content: []llm.Part{{Type: "text", Text: text}}}); err != nil {
+				return count, err
+			}
+			count++
+		}
+		return count, nil
+	}
 	emit(harness.Event{Type: harness.EventSession, SessionID: id})
 	defer func() {
 		if ctx.Err() != nil {
@@ -92,6 +112,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		emit(harness.Event{Type: harness.EventUsage, Usage: &usage})
 		emit(harness.Event{Type: harness.EventDone, StopReason: stopReason})
 	}()
+	usage.ContextWindow = int64(window)
 	fail := func(err error) error {
 		emit(harness.Event{Type: harness.EventError, Err: err.Error()})
 		return err
@@ -128,6 +149,9 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		messages = result.Messages
 		contextTokens = result.After
 		contextMeasured = len(messages)
+		usage.InputTokens += int64(result.Usage.Input + result.Usage.CacheRead + result.Usage.CacheWrite)
+		usage.OutputTokens += int64(result.Usage.Output)
+		usage.CachedTokens += int64(result.Usage.CacheRead + result.Usage.CacheWrite)
 		return result, nil
 	}
 	request := llm.Request{Model: opts.Model, Effort: opts.Effort, System: opts.System}
@@ -144,6 +168,9 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		if estimateContextTokens(messages, contextTokens, contextMeasured) > window-reserveTokens {
 			// 压缩是为后续调用腾出空间，失败时保留原上下文继续，让模型调用自己给出结论。
 			_, _ = compactNow()
+		}
+		if _, err := appendSteers(); err != nil {
+			return fail(err)
 		}
 		request.Messages = append([]llm.Message(nil), messages...)
 		var response *llm.Response
@@ -225,6 +252,14 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		pending = append([]llm.ToolCall(nil), response.Message.ToolCalls...)
 		if stopReason != "tool_use" && !(stopReason == "length" && len(invalid) > 0) {
 			pending = nil
+			// 模型已经给出最终回复：此时补到的新插话要继续跑一轮，不提前结束本轮。
+			steered, err := appendSteers()
+			if err != nil {
+				return fail(err)
+			}
+			if steered > 0 {
+				continue
+			}
 			return nil
 		}
 		for i, call := range response.Message.ToolCalls {

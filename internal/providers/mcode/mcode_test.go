@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"mcode/internal/agent/llm"
@@ -200,5 +201,102 @@ func TestTurnEnvAndPlanArePassedThrough(t *testing.T) {
 	}
 	if client.requests[0].Tools[0].Name != "read" || !strings.Contains(system, "bash") || !strings.Contains(client.requests[0].System, "Plan mode is on") {
 		t.Fatal("expected tools, prompt callback and plan mode to be applied")
+	}
+}
+
+// blockingClient 在第一次请求时阻塞，供测试在轮次运行中调用 Steer。
+type blockingClient struct {
+	mu       sync.Mutex
+	requests []llm.Request
+	started  chan struct{}
+	release  chan struct{}
+}
+
+func (c *blockingClient) Stream(ctx context.Context, request llm.Request, _ func(llm.Delta)) (*llm.Response, error) {
+	c.mu.Lock()
+	c.requests = append(c.requests, request)
+	count := len(c.requests)
+	c.mu.Unlock()
+	if count > 1 {
+		return answer(), nil
+	}
+	close(c.started)
+	select {
+	case <-c.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return toolCall("read", "call-1", `{}`), nil
+}
+
+func TestContextWindowReachesUsage(t *testing.T) {
+	client := &fakeClient{responses: []*llm.Response{answer()}}
+	var resolved string
+	h := harnessFor(client, Options{ContextWindow: func(model string) int {
+		resolved = model
+		return 321000
+	}})
+	var usage *harness.Usage
+	err := h.Run(context.Background(), harness.Turn{Model: "magpie-jp/auto/gpt-6.1-terra"}, func(event harness.Event) {
+		if event.Type == harness.EventUsage {
+			usage = event.Usage
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != "magpie-jp/auto/gpt-6.1-terra" || usage == nil || usage.ContextWindow != 321000 {
+		t.Fatalf("resolved=%q usage=%+v", resolved, usage)
+	}
+}
+
+func TestSteerInjectsIntoRunningSession(t *testing.T) {
+	client := &blockingClient{started: make(chan struct{}), release: make(chan struct{})}
+	h := harnessFor(client, Options{})
+	done := make(chan error, 1)
+	go func() {
+		done <- h.Run(context.Background(), harness.Turn{SessionID: "live", Prompt: "start"}, nil)
+	}()
+	<-client.started
+	if err := h.Steer(context.Background(), "live", "please check the tests"); err != nil {
+		t.Fatalf("Steer() error = %v", err)
+	}
+	close(client.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if len(client.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requests))
+	}
+	steered := false
+	for _, message := range client.requests[1].Messages {
+		if message.Role == "user" && len(message.Content) == 1 && message.Content[0].Text == "please check the tests" {
+			steered = true
+		}
+	}
+	if !steered {
+		t.Fatalf("第二次请求 = %+v", client.requests[1].Messages)
+	}
+}
+
+func TestSteerNotRunning(t *testing.T) {
+	client := &fakeClient{responses: []*llm.Response{answer()}}
+	h := harnessFor(client, Options{})
+	if err := h.Steer(context.Background(), "missing", "text"); !errors.Is(err, harness.ErrNotRunning) {
+		t.Fatalf("未运行会话的 Steer() error = %v", err)
+	}
+	if err := h.Steer(context.Background(), "", "text"); !errors.Is(err, harness.ErrNotRunning) {
+		t.Fatalf("空会话 ID 的 Steer() error = %v", err)
+	}
+	if err := h.Steer(context.Background(), "missing", "  "); err != nil {
+		t.Fatalf("空文本的 Steer() error = %v", err)
+	}
+	if err := h.Run(context.Background(), harness.Turn{SessionID: "live"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Steer(context.Background(), "live", "text"); !errors.Is(err, harness.ErrNotRunning) {
+		t.Fatalf("已结束会话的 Steer() error = %v", err)
 	}
 }

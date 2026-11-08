@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"mcode/internal/agent"
@@ -24,6 +25,9 @@ type Options struct {
 	ExtraTools    func(ctx context.Context, turn harness.Turn) []tools.Tool
 	DefaultModel  string
 	MaxRounds     int
+	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析前的完整模型串；
+	// 可以为 nil，返回 0 表示未知。
+	ContextWindow func(model string) int
 }
 
 // Harness 驱动内置 coding agent。
@@ -31,11 +35,32 @@ type Harness struct {
 	opts  Options
 	mu    sync.Mutex
 	gates map[string]*gate.Session
+	runs  map[string]*activeRun
+}
+
+// activeRun 是一次正在执行的会话，pending 保存尚未注入的插话文本。
+type activeRun struct {
+	mu      sync.Mutex
+	pending []string
+}
+
+func (r *activeRun) enqueue(text string) {
+	r.mu.Lock()
+	r.pending = append(r.pending, text)
+	r.mu.Unlock()
+}
+
+func (r *activeRun) drain() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	texts := r.pending
+	r.pending = nil
+	return texts
 }
 
 // New 创建内置 agent harness。
 func New(opts Options) *Harness {
-	return &Harness{opts: opts, gates: make(map[string]*gate.Session)}
+	return &Harness{opts: opts, gates: make(map[string]*gate.Session), runs: make(map[string]*activeRun)}
 }
 
 // Kind 返回 provider 种类。
@@ -49,6 +74,10 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	}
 	if h.opts.ResolveClient == nil {
 		return modelError(emit, fmt.Errorf("未配置模型解析器，无法连接模型 %q", model))
+	}
+	contextWindow := 0
+	if h.opts.ContextWindow != nil {
+		contextWindow = h.opts.ContextWindow(model)
 	}
 	client, modelID, err := h.opts.ResolveClient(model, affinityKey(turn))
 	if err != nil {
@@ -98,12 +127,63 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		store = session.NewStore(h.opts.StoreDir)
 	}
 	extraEnv := append(append([]string(nil), turn.Env...), harness.NonInteractiveEnv()...)
+	// 会话 ID 由 agent.Run 生成，只能从它发出的事件里拿到真实值后登记，Steer 才能找到本轮。
+	run := &activeRun{}
+	var sessionID string
+	runEmit := func(event harness.Event) {
+		if event.Type == harness.EventSession && event.SessionID != "" && event.SessionID != sessionID {
+			h.registerRun(event.SessionID, run)
+			sessionID = event.SessionID
+		}
+		emitEvent(emit, event)
+	}
+	defer func() { h.unregisterRun(sessionID) }()
 	return agent.Run(ctx, agent.Options{
 		Client: client, Model: modelID, Effort: turn.Effort, System: system, Tools: toolset,
 		Env:  tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, Sandbox: turn.Sandbox, Mode: turn.Mode, ExtraEnv: extraEnv},
 		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
-		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, Emit: emit,
+		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, ContextWindow: contextWindow,
+		Steer: run.drain, Emit: runEmit,
 	}, turn.Prompt, images)
+}
+
+// Steer 向正在执行的会话追加一段插话，下一次模型调用前作为 user 消息注入。
+// 找不到对应会话时返回 harness.ErrNotRunning；空文本直接忽略。
+func (h *Harness) Steer(ctx context.Context, sessionID string, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	h.mu.Lock()
+	run := h.runs[sessionID]
+	h.mu.Unlock()
+	if sessionID == "" || run == nil {
+		return harness.ErrNotRunning
+	}
+	run.enqueue(text)
+	return nil
+}
+
+// registerRun 登记正在执行的会话，供 Steer 找到它的待处理队列。
+func (h *Harness) registerRun(sessionID string, run *activeRun) {
+	if sessionID == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.runs == nil {
+		h.runs = make(map[string]*activeRun)
+	}
+	h.runs[sessionID] = run
+}
+
+// unregisterRun 注销已结束的会话。
+func (h *Harness) unregisterRun(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.runs, sessionID)
 }
 
 // affinityKey 返回会话亲和键：优先线程 ID，未分配线程时退回会话 ID。
@@ -140,3 +220,4 @@ func emitEvent(emit func(harness.Event), event harness.Event) {
 }
 
 var _ harness.Harness = (*Harness)(nil)
+var _ harness.Steerer = (*Harness)(nil)

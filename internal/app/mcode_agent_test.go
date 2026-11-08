@@ -230,3 +230,43 @@ func TestMcodeCurrentConfigLoadFailureUsesFallback(t *testing.T) {
 		t.Fatalf("config load failure lost fallback: %+v", got.Providers.Pi)
 	}
 }
+
+func TestMcodeContextWindow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"id":"claude-sonnet-4.5","name":"Claude Sonnet 4.5","context_window":1000000}]}`)
+	}))
+	t.Cleanup(server.Close)
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "jp", Name: "Magpie JP", Enabled: true, Magpie: true, BaseURL: server.URL + "/v1"})
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderPi: {
+		Selections: []config.MagpieSelection{{EndpointID: "jp", Models: []string{"claude-sonnet-4.5", "no-metadata"}}},
+	}}
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("jp"): "gw-key"})
+	if _, err := magpie.FetchModels(context.Background(), server.URL+"/v1", "gw-key"); err != nil {
+		t.Fatalf("填充模型缓存失败: %v", err)
+	}
+	targets := piMagpieAllTargets(cfg, secrets)
+	if len(targets) != 1 {
+		t.Fatalf("targets = %#v", targets)
+	}
+	prefix := targets[0].providerID
+	if got := mcodeContextWindow(cfg, secrets, prefix+"/claude-sonnet-4.5"); got != 1000000 {
+		t.Fatalf("网关元数据的窗口 = %d", got)
+	}
+	if got := mcodeContextWindow(cfg, secrets, prefix+"/no-metadata"); got != magpieinject.DefaultModel().ContextWindow {
+		t.Fatalf("缺少元数据的窗口 = %d", got)
+	}
+	if got := mcodeContextWindow(cfg, secrets, "anthropic/claude-sonnet-5-5"); got != mcodeAnthropicContextWindow {
+		t.Fatalf("Anthropic 的窗口 = %d", got)
+	}
+	if got := mcodeContextWindow(cfg, secrets, "ghost/model"); got != 0 {
+		t.Fatalf("未知模型的窗口 = %d", got)
+	}
+	if got := mcodeContextWindow(cfg, secrets, ""); got != 0 {
+		t.Fatalf("空模型的窗口 = %d", got)
+	}
+}

@@ -41,6 +41,8 @@ type compactionResult struct {
 	Entry    compactionEntry
 	Before   int
 	After    int
+	// Usage 是总结请求本身的用量，调用方并入本轮累计用量。
+	Usage llm.Usage
 }
 
 // historyFromEntries 按文件顺序重建会话消息。
@@ -177,7 +179,6 @@ func compactMessages(ctx context.Context, client llm.Client, model string, messa
 		return nil, nil
 	}
 	before := tokensForMessages(messages)
-	emit(harness.Event{Type: harness.EventContextCompacted, CompactTokensBefore: int64(before)})
 	request := llm.Request{Model: model, System: summaryInstruction, Messages: append([]llm.Message(nil), messages[:cut]...)}
 	response, err := client.Stream(ctx, request, func(llm.Delta) {})
 	if err != nil {
@@ -198,6 +199,7 @@ func compactMessages(ctx context.Context, client llm.Client, model string, messa
 		Entry:    compactionEntry{Type: compactionEntryType, Summary: summary, KeepFrom: cut},
 		Before:   before,
 		After:    after,
+		Usage:    response.Usage,
 	}, nil
 }
 

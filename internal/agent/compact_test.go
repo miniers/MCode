@@ -71,7 +71,7 @@ func TestCompactionBeforeRequest(t *testing.T) {
 	if len(messages) != 2 || !isSummaryMessage(messages[0]) || !strings.Contains(messages[0].Content[0].Text, "earlier work summary") || messages[1].Content[0].Text != "continue" {
 		t.Fatalf("messages = %+v", messages)
 	}
-	if len(compactions) != 2 || compactions[0].CompactTokensBefore == 0 || compactions[0].CompactTokensAfter != 0 || compactions[1].CompactTokensAfter == 0 {
+	if len(compactions) != 1 || compactions[0].CompactTokensBefore == 0 || compactions[0].CompactTokensAfter == 0 {
 		t.Fatalf("compaction events = %+v", compactions)
 	}
 	entries := compactionEntries(t, store, "compact")
@@ -149,8 +149,8 @@ func TestOverflowCompactsAndRetries(t *testing.T) {
 	if client.requests[1].System != summaryInstruction || !isSummaryMessage(client.requests[2].Messages[0]) {
 		t.Fatalf("requests = %+v", client.requests)
 	}
-	if compactions != 2 {
-		t.Fatalf("compactions = %d, want 2", compactions)
+	if compactions != 1 {
+		t.Fatalf("compactions = %d, want 1", compactions)
 	}
 }
 
@@ -169,6 +169,31 @@ func TestOverflowTwiceReturnsError(t *testing.T) {
 	}
 	if len(client.requests) != 3 {
 		t.Fatalf("requests = %d, want 3", len(client.requests))
+	}
+}
+
+func TestCompactionUsageCountsTowardTurn(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	appendHistory(t, store, "usage",
+		textMessage("user", strings.Repeat("a", 40000)),
+		textMessage("assistant", "done"),
+	)
+	summary := summaryResponse("earlier work summary")
+	summary.Usage = llm.Usage{Input: 100, Output: 10, CacheRead: 20, CacheWrite: 30}
+	final := reply("stop")
+	final.Usage = llm.Usage{Input: 1, Output: 2}
+	client := &scriptClient{steps: []scriptStep{{response: summary}, {response: final}}}
+	var usage *harness.Usage
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "usage", ContextWindow: 21000, Emit: func(event harness.Event) {
+		if event.Type == harness.EventUsage {
+			usage = event.Usage
+		}
+	}}, "continue", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage == nil || usage.InputTokens != 151 || usage.OutputTokens != 12 || usage.CachedTokens != 50 {
+		t.Fatalf("usage = %+v", usage)
 	}
 }
 
