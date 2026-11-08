@@ -50,7 +50,7 @@ func TestSettingsBind_PtrValInverted(t *testing.T) {
 	notifyWhenFinished := val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenFinished }, true)
 	notifyWhenFinished.write(&cfg, false)
 	if cfg.Notifications.NotifyWhenFinished {
-		t.Fatalf("值字段 write 后应为 true")
+		t.Fatalf("值字段 write 后应为 false")
 	}
 	notifyWhenFinished.reset(&cfg)
 	if !cfg.Notifications.NotifyWhenFinished {
@@ -59,14 +59,14 @@ func TestSettingsBind_PtrValInverted(t *testing.T) {
 
 	notifyWhenForeground := inverted(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenFinished }, true))
 	if got := notifyWhenForeground.value(&cfg); got != false {
-		t.Fatalf("反向绑定读值应为 true，实际 %v", got)
+		t.Fatalf("反向绑定读值应为 false，实际 %v", got)
 	}
 	notifyWhenForeground.write(&cfg, true)
-	if !cfg.Notifications.NotifyWhenFinished {
+	if cfg.Notifications.NotifyWhenFinished {
 		t.Fatalf("反向绑定写 true 应把字段写成 false")
 	}
-	if got := notifyWhenForeground.value(&cfg); got != false {
-		t.Fatalf("反向绑定写后读回应为 false，实际 %v", got)
+	if got := notifyWhenForeground.value(&cfg); got != true {
+		t.Fatalf("反向绑定写后读回应为 true，实际 %v", got)
 	}
 	notifyWhenForeground.reset(&cfg)
 	if !cfg.Notifications.NotifyWhenFinished {

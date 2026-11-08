@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"mcode/internal/config"
 	"mcode/internal/remote"
@@ -117,5 +118,46 @@ func TestClientStewardIdentity(t *testing.T) {
 	name, avatar = (&Client{dataDir: dataDir}).StewardIdentity()
 	if name != "" || avatar != "" {
 		t.Fatalf("昵称留空时应返回空昵称与空头像，实际 name=%q avatar=%q", name, avatar)
+	}
+}
+
+func TestClientStewardOpenDecisionCount(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	t.Cleanup(hub.Close)
+	backend := remote.NewMemoryBackend(hub)
+	t.Cleanup(backend.Close)
+	if err := backend.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	for i, status := range []string{store.DecisionStatusOpen, store.DecisionStatusOpen, store.DecisionStatusAnswered} {
+		decision := store.StewardDecision{
+			ThreadID: "steward-feed",
+			Question: "问题 " + string(rune('1'+i)),
+			Status:   status,
+		}
+		if status == store.DecisionStatusAnswered {
+			decision.Answer = "已回答"
+			answeredAt := time.Now().UTC()
+			decision.AnsweredAt = &answeredAt
+		}
+		if _, err := db.CreateStewardDecision(ctx, decision); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := (&Client{backend: backend}).StewardOpenDecisionCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 2 {
+		t.Fatalf("未答决策卡数量 = %d，期望 2", got)
 	}
 }

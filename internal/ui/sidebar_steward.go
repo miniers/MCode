@@ -122,20 +122,9 @@ func stewardSelected(s *chatState, threadID string) bool {
 func renderSidebarStewardRow(c *ui.Context, s *chatState, threadID string) {
 	nickname, avatar := s.stewardIdentity()
 
-	// 待处理数据与「待处理」行同源：同一份数量、同一套订阅与同一张浮层，
-	// 合并成一行后不需要第二套状态。
-	var st *attentionInboxState
-	count := 0
-	if _, ok := s.attentionClient(); ok {
-		s.refreshAttentionInbox()
-		s.ensureAttentionWatch()
-		st = getAttentionInboxState(s)
-		if st != nil {
-			st.mu.Lock()
-			count = st.count
-			st.mu.Unlock()
-		}
-	}
+	// 决策数在后台按最小间隔刷新，渲染线程只读缓存，不同步查库。
+	s.refreshStewardDecisionCount()
+	decisionCount, decisionCountSupported := s.stewardDecisionCount()
 
 	s.mu.Lock()
 	isSelected := s.selectedThreadID == threadID
@@ -144,7 +133,6 @@ func renderSidebarStewardRow(c *ui.Context, s *chatState, threadID string) {
 	// 总管这一轮是否还在跑：与普通会话行同一判据（自己运行中、子线程排队、子代理未结束）。
 	busy := s.stewardRowBusy(threadID)
 
-	popoverOpen := st != nil && st.open
 	label := stewardLabel(nickname)
 	row := ui.Row(c.Key("sidebar-steward")).
 		MinHeight(HeightThreadRow).
@@ -155,7 +143,7 @@ func renderSidebarStewardRow(c *ui.Context, s *chatState, threadID string) {
 		Radius(RowCornerRadius).
 		Label(label)
 
-	if isSelected || popoverOpen {
+	if isSelected {
 		row.Background(ThemeSelected(c))
 	} else if row.Hovered() {
 		row.Background(ThemeHover(c))
@@ -182,25 +170,10 @@ func renderSidebarStewardRow(c *ui.Context, s *chatState, threadID string) {
 				Background(ThemeAccent(c)).
 				Margin(0, Space0, 0, Space0)
 		}
-		// 徽标本身就是按钮：只切换待处理浮层，不抢行走的「打开会话」。
-		if count > 0 {
-			renderAttentionCountBadge(c, "sidebar-steward-attention", count).
-				OnClick(func() {
-					st.open = !st.open
-					s.invalidate()
-				})
+		if decisionCountSupported && decisionCount > 0 {
+			renderAttentionCountBadge(c, "sidebar-steward-decisions", decisionCount)
 		}
 	})
-
-	// 浮层沿用原来的 key 与渲染函数，只是锚点从「待处理」行换成了总管行。
-	if st != nil {
-		appPopover(c.Key("sidebar-attention-inbox-popover"), row, &st.open, func() {
-			st.open = false
-		}, func() {
-			renderAttentionInboxPopover(c, s)
-		})
-	}
-
 }
 
 // withoutStewardThread 从侧栏的三份副本里去掉总管 feed 会话及其项目。

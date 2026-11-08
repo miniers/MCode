@@ -44,6 +44,12 @@ type stewardEnabledClient interface {
 	StewardEnabled() bool
 }
 
+// stewardDecisionCountClient 是总管未答决策卡数量的可选客户端能力。
+// 旧客户端不实现时，侧栏不显示决策徽标。
+type stewardDecisionCountClient interface {
+	StewardOpenDecisionCount(ctx context.Context) (int, error)
+}
+
 // stewardIdentityClient 是总管身份的可选客户端能力：昵称与头像字符都可改。
 // 按契约它返回昵称原文（可为空）与头像原文（可为空），兜底由界面这里做。
 type stewardIdentityClient interface {
@@ -74,6 +80,9 @@ func (s *chatState) stewardIdentity() (string, string) {
 // 而客户端的实现可能要去磁盘读配置，不能每帧都读一次。
 const stewardEnabledCacheTTL = 2 * time.Second
 
+// stewardDecisionCountRefresh 是总管决策数的最小刷新间隔，避免渲染帧重复查库。
+const stewardDecisionCountRefresh = time.Second
+
 // stewardOpenState 是一个 chatState 上的总管会话开合状态。
 // creating 防止重复点击并发创建多个会话；pending 是后台创建成功后等待 UI 线程消费的会话 ID。
 type stewardOpenState struct {
@@ -81,9 +90,12 @@ type stewardOpenState struct {
 	creating bool
 	pending  string
 	// 启用状态的短缓存：enabledAt 为零值表示还没取过。
-	enabledAt    time.Time
-	enabled      bool
-	enabledKnown bool
+	enabledAt            time.Time
+	enabled              bool
+	enabledKnown         bool
+	decisionCount        int
+	decisionCountAt      time.Time
+	decisionCountLoading bool
 }
 
 var (
@@ -166,6 +178,61 @@ func (s *chatState) stewardThreadID() string {
 		return ""
 	}
 	return c.StewardThreadID()
+}
+
+// refreshStewardDecisionCount 异步刷新未答决策卡数。渲染路径只负责按间隔发起一次查询，
+// 查询完成后让界面重绘，因此不会在每帧同步访问存储。
+func (s *chatState) refreshStewardDecisionCount() {
+	if s == nil || s.client == nil {
+		return
+	}
+	c, ok := s.client.(stewardDecisionCountClient)
+	if !ok {
+		return
+	}
+	st := getStewardOpenState(s)
+	if st == nil {
+		return
+	}
+	st.mu.Lock()
+	if st.decisionCountLoading || (!st.decisionCountAt.IsZero() && time.Since(st.decisionCountAt) < stewardDecisionCountRefresh) {
+		st.mu.Unlock()
+		return
+	}
+	st.decisionCountLoading = true
+	st.mu.Unlock()
+
+	go func() {
+		count, err := c.StewardOpenDecisionCount(context.Background())
+		st.mu.Lock()
+		st.decisionCountLoading = false
+		st.decisionCountAt = time.Now()
+		if err == nil {
+			if count < 0 {
+				count = 0
+			}
+			st.decisionCount = count
+		}
+		st.mu.Unlock()
+		s.invalidate()
+	}()
+}
+
+// stewardDecisionCount 返回缓存的未答决策卡数与接口支持状态。
+func (s *chatState) stewardDecisionCount() (int, bool) {
+	if s == nil || s.client == nil {
+		return 0, false
+	}
+	if _, ok := s.client.(stewardDecisionCountClient); !ok {
+		return 0, false
+	}
+	st := getStewardOpenState(s)
+	if st == nil {
+		return 0, true
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.decisionCount, true
 }
 
 // openStewardThread 打开总管会话：会话已存在时直接跳过去；还没有时先在后台创建，

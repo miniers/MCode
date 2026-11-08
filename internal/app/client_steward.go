@@ -10,6 +10,19 @@ import (
 
 var _ mcodeui.StewardClient = (*Client)(nil)
 
+// StewardOpenDecisionCount 返回当前未答总管决策卡数量。
+// 客户端尚未挂载存储时按空列表处理，避免侧栏因为启动顺序报错。
+func (c *Client) StewardOpenDecisionCount(ctx context.Context) (int, error) {
+	if c == nil || c.backend == nil || c.backend.Store() == nil {
+		return 0, nil
+	}
+	decisions, err := c.backend.Store().ListStewardDecisions(ctx, "open", 200)
+	if err != nil {
+		return 0, err
+	}
+	return len(decisions), nil
+}
+
 // StewardThreadID 返回已保存的前台会话 ID。
 func (c *Client) StewardThreadID() string {
 	if c.backend == nil || c.backend.Store() == nil {

@@ -94,7 +94,8 @@ func TestAnswerDecisionReanswerWindow(t *testing.T) {
 	if err != nil || task.Status != string(TaskStatusInProgress) || !strings.Contains(task.Notes, "决策 "+d.ID+"：改答为 B") {
 		t.Fatalf("改答任务记录: %+v, %v", task, err)
 	}
-	current = now.Add(6 * time.Minute)
+	// 改答窗口从最后一次回答起算，这里已超过五分钟。
+	current = now.Add(time.Minute + 5*time.Minute + time.Second)
 	if _, err := svc.AnswerDecision(ctx, d.ID, "C", "user"); !errors.Is(err, store.ErrDecisionClosed) {
 		t.Fatalf("窗口外改答: %v", err)
 	}

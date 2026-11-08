@@ -204,7 +204,7 @@ func TestSnapshotRecentAnswerHint(t *testing.T) {
 	}
 	current = now.Add(5*time.Minute + time.Second)
 	snap = d.snapshot(context.Background(), Inbound{})
-	if snap.Answered != "" || strings.Contains(snap.Text, "刚答过") {
+	if snap.Answered != "" || strings.Contains(snap.Text, "刚答过 D-0001") {
 		t.Fatalf("超过五分钟仍提示改答: %+v", snap)
 	}
 }

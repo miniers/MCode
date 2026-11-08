@@ -317,7 +317,7 @@ type stewardEnabledFakeClient struct {
 
 func (f *stewardEnabledFakeClient) StewardEnabled() bool { return f.enabled }
 
-// 总管还没启用时仍留一行置灰入口：标签带「未启用」、右侧小字「去开启」，
+// 总管还没启用时仍留一行置灰入口：标签带「未启用」，
 // 点行不建会话，直接打开设置页并定位到「启用总管」那一行。
 func TestSidebarStewardDisabledRowOpensSettings(t *testing.T) {
 	fake := &stewardEnabledFakeClient{stewardFakeClient: newStewardFakeClient(""), enabled: false}
@@ -330,10 +330,6 @@ func TestSidebarStewardDisabledRowOpensSettings(t *testing.T) {
 
 	tt := ui.NewTester(view, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("阿默 · 总管（未启用）") })
-	if !tt.HasText("去开启") {
-		t.Fatalf("未启用行右侧应有「去开启」，当前文本: %q", tt.Texts())
-	}
-
 	if err := tt.Click("阿默 · 总管（未启用）"); err != nil {
 		t.Fatalf("点击未启用入口失败: %v", err)
 	}

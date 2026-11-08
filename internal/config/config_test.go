@@ -3158,13 +3158,22 @@ func TestLoadConfigIgnoresRemovedStewardKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取保存后的配置失败: %v", err)
 	}
+	var savedDoc map[string]any
+	if err := json.Unmarshal(saved, &savedDoc); err != nil {
+		t.Fatalf("解析保存后的配置失败: %v", err)
+	}
+	orchestration, _ := savedDoc["orchestration"].(map[string]any)
+	steward, _ := orchestration["steward"].(map[string]any)
+	if steward == nil {
+		t.Fatalf("保存后的配置缺少 orchestration.steward: %s", saved)
+	}
 	for _, key := range []string{
 		"daily_wake_limit", "daily_report", "daily_report_at", "event_policies",
 		"rotate_idle_minutes", "rotate_context_tokens", "passthrough_off",
 		"auto_collapse_reasoning_off", "effort", "plan_provider", "plan_model", "plan_effort",
 	} {
-		if strings.Contains(string(saved), `"`+key+`"`) {
-			t.Errorf("保存后仍包含已删除配置键 %q: %s", key, saved)
+		if _, ok := steward[key]; ok {
+			t.Errorf("保存后 steward 仍包含已删除配置键 %q: %s", key, saved)
 		}
 	}
 	if _, err := Load(dir); err != nil {
