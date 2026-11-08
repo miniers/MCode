@@ -251,7 +251,7 @@ func parseAdd(lines []string, i, end int) (string, int, error) {
 }
 
 func parseUpdate(lines []string, i, end int) (Op, int, error) {
-	var op Op
+	op := Op{Kind: Update}
 	if i < end {
 		line := strings.TrimSpace(lines[i])
 		if strings.HasPrefix(line, "*** Move to:") {
