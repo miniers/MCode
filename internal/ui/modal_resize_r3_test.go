@@ -14,7 +14,6 @@ func TestTextDialogs_Resize(t *testing.T) {
 		render func(*ui.Context, *chatState)
 	}{
 		{"output", toolOutputDialogKey, "tool-output-dialog-card", func(s *chatState) { s.toolOutputDialog = &toolOutputDialogState{title: "输出", text: strings.Repeat("长输出\n", 100)} }, renderToolOutputDialog},
-		{"plan", modalDragPlanReader, "plan-reader-card", func(s *chatState) { s.approvals = append(s.approvals, Approval{RequestID: "resize-plan", Kind: ApprovalKindPlan, Detail: strings.Repeat("计划内容\n", 100)}); s.planReaderOpen = true; s.planReaderTarget = "resize-plan" }, renderPlanReaderModal},
 		{"shortcuts", shortcutHelpKey, "shortcut-help-card", func(s *chatState) { s.toggleShortcutHelp() }, renderShortcutHelp},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

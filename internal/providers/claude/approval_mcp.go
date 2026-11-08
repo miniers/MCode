@@ -29,6 +29,8 @@ type approvalServer struct {
 	// 而 HTTP 处理协程可能并发读取它。
 	mu       sync.RWMutex
 	approver harness.Approver
+	// planExitMode 是计划获批后要切到的权限模式（本轮运行模式）；空表示不切换。
+	planExitMode string
 }
 
 // setApprover 替换本轮使用的审批方；传 nil 表示这一轮没有审批方（审批请求一律拒绝）。
@@ -36,6 +38,20 @@ func (s *approvalServer) setApprover(approver harness.Approver) {
 	s.mu.Lock()
 	s.approver = approver
 	s.mu.Unlock()
+}
+
+// setPlanExitMode 设置计划获批后要切到的权限模式。
+func (s *approvalServer) setPlanExitMode(mode string) {
+	s.mu.Lock()
+	s.planExitMode = mode
+	s.mu.Unlock()
+}
+
+// currentPlanExitMode 返回计划获批后要切到的权限模式。
+func (s *approvalServer) currentPlanExitMode() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.planExitMode
 }
 
 // currentApprover 返回当前这一轮的审批方。
@@ -375,7 +391,7 @@ func (s *approvalServer) handleApproveCall(w http.ResponseWriter, r *http.Reques
 		}
 	case approvalReq.Kind == harness.RequestKindPlan:
 		if resp.Decision == harness.DecisionAllow {
-			payloadJSON = allowPayload(inputMsg)
+			payloadJSON = planAllowPayload(inputMsg, s.currentPlanExitMode())
 		} else {
 			msg := "用户驳回了计划"
 			if resp.Feedback != "" {
@@ -399,6 +415,19 @@ func (s *approvalServer) handleApproveCall(w http.ResponseWriter, r *http.Reques
 	}
 	writeErr := s.writeRPCResponse(w, reqID, callResult, nil)
 	harness.AckDelivery(approver, approvalReq, writeErr)
+}
+
+// planAllowPayload 构造计划获批的放行结果。CLI 退出 plan 后默认落回 default 权限模式，
+// 后续每个工具调用都会再走审批；带上 setMode 让它切到用户选的运行模式（如完全批准）。
+func planAllowPayload(input json.RawMessage, exitMode string) []byte {
+	payload := map[string]any{"behavior": "allow", "updatedInput": input}
+	if exitMode != "" {
+		payload["updatedPermissions"] = []map[string]string{
+			{"type": "setMode", "mode": exitMode, "destination": "session"},
+		}
+	}
+	b, _ := json.Marshal(payload)
+	return b
 }
 
 // parseClaudeQuestions 解析 AskUserQuestion 输入中的 questions 数组，题目 ID 取题目文本，为空时取下标。

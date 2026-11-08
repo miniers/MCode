@@ -37,12 +37,6 @@ func (s *chatState) beginPendingThread(projectID string, opts NewThreadOptions, 
 		s.setToast("新建会话失败: 项目不能为空")
 		return
 	}
-	// 交互模式按项目记忆：该项目上次用过 Plan 就沿用，没有记录时用 build。
-	// 读盘在持锁之前完成（loadProjectModelSelection 不用 s.mu）。
-	interactionMode := "build"
-	if proj, ok := loadProjectModelSelection(projectID); ok && strings.TrimSpace(proj.InteractionMode) != "" {
-		interactionMode = proj.InteractionMode
-	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -61,7 +55,7 @@ func (s *chatState) beginPendingThread(projectID string, opts NewThreadOptions, 
 			BeesModel:       opts.BeesModel,
 			BeesEffort:      opts.BeesEffort,
 			FastMode:        opts.Fast,
-			InteractionMode: interactionMode,
+			InteractionMode: "build", // Plan 只在当前会话生效，新建会话一律从 build 开始
 		},
 	}
 	// 点击“新建会话”时指针按下会把焦点从输入框移走，而 mygo 的 AutoFocus 只在元素首次出现的那一帧生效；

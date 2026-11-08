@@ -232,6 +232,31 @@ func TestUserInputRequestAnswered(t *testing.T) {
 	}
 }
 
+// TestExitPlanModeRestoresRunMode 验证计划获批后先把权限模式切回用户所选档位，再放行。
+func TestExitPlanModeRestoresRunMode(t *testing.T) {
+	proc, recorded := newRecordingProc(t)
+	proc.permissionMode = "manual"
+	interactor := &mockInteractor{response: harness.ApprovalResponse{Decision: harness.DecisionAllow}}
+	turn := harness.Turn{ID: "turn-1", SessionID: "sid-1", Mode: harness.ModeReadOnly, InteractionMode: "plan", PlanExitMode: harness.ModeFullAccess, Approver: interactor}
+
+	h := newEventHandler(proc, turn, nil, context.Background())
+	res, err := h.handleServerRequest("exitPlanMode.request", json.RawMessage(`{"planContent":"# 计划"}`))
+	if err != nil {
+		t.Fatalf("handleServerRequest 失败: %v", err)
+	}
+	if answer, _ := res.(map[string]any); answer["approved"] != true {
+		t.Fatalf("应放行计划: %v", res)
+	}
+	select {
+	case call := <-recorded:
+		if call.Method != "session.permissions.setMode" || call.Params["mode"] != "allow-all" {
+			t.Fatalf("应切回 allow-all，实际 %+v", call)
+		}
+	default:
+		t.Fatal("计划获批后没有切换权限模式")
+	}
+}
+
 // TestRollbackSendsRewindCalls 用假进程验证原生回滚走 listRewindPoints + rewind。
 func TestRollbackSendsRewindCalls(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")

@@ -793,8 +793,8 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 	defer func() { h.release(p, keep) }()
 
 	// 审批方随轮次更换：HTTP 处理协程在轮内读取它，轮结束置空（nil 时保持既有的“一律拒绝”行为）。
-	p.setApprover(turn.Approver)
-	defer p.setApprover(nil)
+	p.setApprover(turn.Approver, planExitModeFor(turn))
+	defer p.setApprover(nil, "")
 
 	// 复用的进程不会再发 system/init，这里补一次会话事件，保证上层照旧拿到会话 id。
 	if reused {
@@ -1818,10 +1818,11 @@ func (p *residentProc) hasPendingSteers() bool {
 	return len(p.pendingSteers) > 0
 }
 
-// setApprover 替换本轮使用的审批方；常驻进程的审批服务覆盖多轮，轮与轮之间没有审批方。
-func (p *residentProc) setApprover(approver harness.Approver) {
+// setApprover 替换本轮使用的审批方与计划获批后的权限模式；常驻进程的审批服务覆盖多轮，轮与轮之间没有审批方。
+func (p *residentProc) setApprover(approver harness.Approver, planExitMode string) {
 	if p.approval != nil {
 		p.approval.setApprover(approver)
+		p.approval.setPlanExitMode(planExitMode)
 	}
 }
 

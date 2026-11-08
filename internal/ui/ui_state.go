@@ -65,15 +65,13 @@ type uiStateFile struct {
 	ProjectModels map[string]ProjectModelSelection `json:"project_models,omitempty"`
 }
 
-// ProjectModelSelection 是某个项目下记住的模型与交互模式选择。
+// ProjectModelSelection 是某个项目下记住的模型选择。
 // Provider 与 Model 都为空表示该项目还没有记录过模型，新建会话时退回全局记忆。
 type ProjectModelSelection struct {
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
 	Effort   string `json:"effort,omitempty"`
 	Fast     bool   `json:"fast,omitempty"`
-	// InteractionMode 是该项目上次使用的 Build/Plan 模式；空表示没有记录。
-	InteractionMode string `json:"interaction_mode,omitempty"`
 }
 
 // LastSwarmSelection 记录 Swarm 开关与执行侧选择；两项分别记录，nil 表示该项从未设置过（沿用默认）。
@@ -499,7 +497,7 @@ func loadProjectModelSelection(projectID string) (ProjectModelSelection, bool) {
 	if !ok {
 		return ProjectModelSelection{}, false
 	}
-	if sel.Provider == "" && sel.Model == "" && sel.InteractionMode == "" {
+	if sel.Provider == "" && sel.Model == "" {
 		return ProjectModelSelection{}, false
 	}
 	return sel, true
@@ -514,14 +512,6 @@ func saveProjectModelSelection(projectID string, sel ModelSelection) {
 	updateProjectModelSelection(projectID, func(p *ProjectModelSelection) {
 		p.Provider, p.Model, p.Effort, p.Fast = sel.Provider, sel.Model, sel.Effort, sel.Fast
 	})
-}
-
-// saveProjectInteractionMode 记录项目下上次使用的 Build/Plan 模式，保留已记录的模型选择。
-func saveProjectInteractionMode(projectID, mode string) {
-	if mode = strings.TrimSpace(mode); mode == "" {
-		return
-	}
-	updateProjectModelSelection(projectID, func(p *ProjectModelSelection) { p.InteractionMode = mode })
 }
 
 // updateProjectModelSelection 在锁内按项目桶更新选择并标脏，再交给统一的写者落盘。

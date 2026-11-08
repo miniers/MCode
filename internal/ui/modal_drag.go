@@ -39,7 +39,6 @@ const (
 	modalDragContextCreate     = "modal-drag-context-create"
 	modalDragContextDiscard    = "modal-drag-context-discard"
 	modalDragContextPanel      = "modal-drag-context-panel"
-	modalDragPlanReader        = "modal-drag-plan-reader"
 	modalDragKanbanPlanReview  = "modal-drag-kanban-plan-review"
 	modalDragKanbanGoalOutputs = "modal-drag-kanban-goal-outputs"
 	modalDragKanbanTaskDetail  = "modal-drag-kanban-task-detail"

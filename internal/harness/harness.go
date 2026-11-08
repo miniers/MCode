@@ -92,10 +92,11 @@ type Turn struct {
 	Env       []string
 	Images    []string // 本地图片绝对路径
 
-	InteractionMode string // "build" 或 "plan"，空等同 build
-	Effort          string // low/medium/high，空表示供应商默认
-	FastMode        bool   // 快速模式，按各供应商规则映射，false 表示供应商默认
-	SpeedTier       string // 快速模式下的速率档位 ID，空表示由供应商按模型默认快速档位
+	InteractionMode string         // "build" 或 "plan"，空等同 build
+	PlanExitMode    PermissionMode // Plan 回合里计划获批后切到的运行模式（用户选的档位）；非 Plan 回合为空
+	Effort          string         // low/medium/high，空表示供应商默认
+	FastMode        bool           // 快速模式，按各供应商规则映射，false 表示供应商默认
+	SpeedTier       string         // 快速模式下的速率档位 ID，空表示由供应商按模型默认快速档位
 
 	// Transient 表示辅助会话（如 Swarm bee）：一般跑完就不再来回对话，驱动没必要为它保留常驻进程。
 	Transient bool

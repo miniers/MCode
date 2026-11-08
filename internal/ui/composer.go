@@ -1732,13 +1732,7 @@ func (s *chatState) toggleInteractionMode() {
 		} else {
 			p.InteractionMode = "plan"
 		}
-	}, "切换 Build/Plan 模式失败", func(next ComposerPrefs) {
-		// 保存成功后把模式记到会话所属项目的桶里，下次在该项目新建会话直接沿用。
-		s.mu.Lock()
-		projectID := s.projectIDForRememberLocked(threadID)
-		s.mu.Unlock()
-		saveProjectInteractionMode(projectID, next.InteractionMode)
-	})
+	}, "切换 Build/Plan 模式失败", nil)
 }
 
 // runtimeModeOption 定义单个运行权限档位的元数据。

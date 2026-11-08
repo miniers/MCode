@@ -749,6 +749,10 @@ func (h *eventHandler) answerExitPlanMode(params json.RawMessage) map[string]any
 	}
 
 	if approved {
+		// Plan 回合的权限是只读档（manual）：先切回用户所选档位，否则这一轮剩下的操作会逐个审批。
+		if h.turn.PlanExitMode != "" && h.proc != nil {
+			h.proc.setPermissionMode(h.ctx, permissionModeName(h.turn.PlanExitMode))
+		}
 		return map[string]any{"approved": true, "selectedAction": "interactive"}
 	}
 	return map[string]any{"approved": false, "feedback": feedback}

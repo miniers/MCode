@@ -646,28 +646,7 @@ func (p *sessionProc) applyModes(ctx context.Context, turn harness.Turn) {
 		return
 	}
 
-	wanted := permissionModeName(turn.Mode)
-	p.stateMu.Lock()
-	current := p.permissionMode
-	p.stateMu.Unlock()
-	if wanted != current {
-		var res struct {
-			Mode string `json:"mode"`
-		}
-		if err := p.call(ctx, "session.permissions.setMode", map[string]any{
-			"sessionId": sessionID,
-			"mode":      wanted,
-			"source":    "rpc",
-		}, &res); err == nil {
-			got := res.Mode
-			if got == "" {
-				got = wanted
-			}
-			p.stateMu.Lock()
-			p.permissionMode = got
-			p.stateMu.Unlock()
-		}
-	}
+	p.setPermissionMode(ctx, permissionModeName(turn.Mode))
 
 	interaction := "interactive"
 	if turn.InteractionMode == "plan" {
@@ -685,6 +664,36 @@ func (p *sessionProc) applyModes(ctx context.Context, turn harness.Turn) {
 			p.interactionMode = interaction
 			p.stateMu.Unlock()
 		}
+	}
+}
+
+// setPermissionMode 下发运行时权限模式，与当前记录相同时跳过。
+func (p *sessionProc) setPermissionMode(ctx context.Context, wanted string) {
+	sessionID := p.currentSessionID()
+	if sessionID == "" {
+		return
+	}
+	p.stateMu.Lock()
+	current := p.permissionMode
+	p.stateMu.Unlock()
+	if wanted == current {
+		return
+	}
+	var res struct {
+		Mode string `json:"mode"`
+	}
+	if err := p.call(ctx, "session.permissions.setMode", map[string]any{
+		"sessionId": sessionID,
+		"mode":      wanted,
+		"source":    "rpc",
+	}, &res); err == nil {
+		got := res.Mode
+		if got == "" {
+			got = wanted
+		}
+		p.stateMu.Lock()
+		p.permissionMode = got
+		p.stateMu.Unlock()
 	}
 }
 

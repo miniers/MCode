@@ -592,9 +592,13 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 
 			var selectedID string
 			if planExit {
-				// 批准时按运行时权限选 Droid 的高档自动执行选项，驳回固定 cancel。
+				// 批准时按用户所选档位选 Droid 的高档自动执行选项（Plan 回合的 Mode 是只读），驳回固定 cancel。
 				if decision == harness.DecisionAllow {
-					selectedID = DroidPlanExitApprovalID(string(turn.Mode), optionIDs)
+					runMode := turn.Mode
+					if turn.PlanExitMode != "" {
+						runMode = turn.PlanExitMode
+					}
+					selectedID = DroidPlanExitApprovalID(string(runMode), optionIDs)
 				} else {
 					selectedID = droidCancelOption
 				}

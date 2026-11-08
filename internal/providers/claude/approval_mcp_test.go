@@ -593,6 +593,27 @@ func TestApprovalServer_ExitPlanMode(t *testing.T) {
 		if payload["behavior"] != "allow" || updated["plan"] != "# 计划\n1. 改代码" {
 			t.Errorf("unexpected payload: %+v", payload)
 		}
+		if _, ok := payload["updatedPermissions"]; ok {
+			t.Errorf("未设置运行模式时不该切换权限模式: %+v", payload)
+		}
+	})
+
+	t.Run("批准后切到运行模式", func(t *testing.T) {
+		fake := &fakeInteractor{resp: harness.ApprovalResponse{Decision: harness.DecisionAllow}}
+		server, cleanup := newTestApprovalServer(t, fake)
+		defer cleanup()
+		// 与后端一致：Plan 回合的 Mode 是只读，用户选的档位在 PlanExitMode。
+		server.setPlanExitMode(planExitModeFor(harness.Turn{Mode: harness.ModeReadOnly, InteractionMode: "plan", PlanExitMode: harness.ModeFullAccess}))
+
+		payload := callApproveTool(t, server, "ExitPlanMode", input)
+		perms, _ := payload["updatedPermissions"].([]any)
+		if len(perms) != 1 {
+			t.Fatalf("应带一条 setMode: %+v", payload)
+		}
+		p, _ := perms[0].(map[string]any)
+		if p["type"] != "setMode" || p["mode"] != "bypassPermissions" || p["destination"] != "session" {
+			t.Errorf("unexpected updatedPermissions: %+v", p)
+		}
 	})
 
 	t.Run("驳回带反馈", func(t *testing.T) {

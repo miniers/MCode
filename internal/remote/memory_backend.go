@@ -6536,7 +6536,10 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 	if ok && td.summary.Model != nil {
 		model = *td.summary.Model
 	}
+	// Plan 回合按只读跑，但记下用户选的档位：计划获批后 provider 要切回它，否则这一轮剩下的操作会逐个审批。
+	var planExitMode harness.PermissionMode
 	if interactionMode == "plan" {
+		planExitMode = turnMode
 		turnMode = harness.ModeReadOnly
 	}
 	var continuationText string
@@ -6750,6 +6753,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			Approver:        &threadApprover{b: b, threadID: threadID, turnID: turnID, sessionEpoch: recordedEpoch, confirmsDelivery: confirmsDelivery},
 			Images:          imagePaths,
 			InteractionMode: interactionMode,
+			PlanExitMode:    planExitMode,
 			Effort:          effort,
 			FastMode:        fastMode,
 			SpeedTier:       speedTier,

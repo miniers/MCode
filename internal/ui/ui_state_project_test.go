@@ -82,46 +82,19 @@ func TestProjectModelSelectionFallsBackToGlobal(t *testing.T) {
 	if got := resolveModelPickerSelectionForProject(providers, ModelSelection{}, "p1", nil); got.Provider != "codex" || got.Model != "o3" {
 		t.Fatalf("应按项目记录恢复，got %+v", got)
 	}
-
-	// 只记过交互模式的项目，仍然退回全局模型记忆。
-	saveProjectInteractionMode("p2", "plan")
-	if got := resolveModelPickerSelectionForProject(providers, ModelSelection{}, "p2", nil); got.Model != "sonnet" {
-		t.Fatalf("只记过交互模式时应退回全局记忆，got %+v", got)
-	}
-	if sel, ok := loadProjectModelSelection("p2"); !ok || sel.InteractionMode != "plan" || sel.Provider != "" {
-		t.Fatalf("p2 应只记录交互模式，got %+v ok=%v", sel, ok)
-	}
 }
 
-// TestPendingThreadUsesProjectInteractionMode 验证新建会话的交互模式按项目记忆，没有记录时用 build。
-func TestPendingThreadUsesProjectInteractionMode(t *testing.T) {
+// TestPendingThreadStartsInBuildMode 验证 Plan 只在当前会话生效：新建会话一律从 build 开始。
+func TestPendingThreadStartsInBuildMode(t *testing.T) {
 	resetProjectModelState(t)
 	_, state := newPendingTestState(t)
 	t.Cleanup(state.close)
 
-	saveProjectInteractionMode("p1", "plan")
 	state.createThread("p1")
-
 	state.mu.Lock()
 	pending := state.pendingThread
 	state.mu.Unlock()
-	if pending == nil {
-		t.Fatal("应进入待创建会话")
-	}
-	if got := pending.Thread.InteractionMode; got != "plan" {
-		t.Fatalf("应沿用项目上次的 plan 模式，got %q", got)
-	}
-
-	// 另一个没记录过的项目回落到 build。
-	state.mu.Lock()
-	state.projects = append(state.projects, Project{ID: "p2", Name: "Proj2"})
-	state.threadsByProj["p2"] = nil
-	state.mu.Unlock()
-	state.createThread("p2")
-	state.mu.Lock()
-	pending = state.pendingThread
-	state.mu.Unlock()
 	if pending == nil || pending.Thread.InteractionMode != "build" {
-		t.Fatalf("没有项目记录时应回落到 build，got %+v", pending)
+		t.Fatalf("新建会话应从 build 开始，got %+v", pending)
 	}
 }

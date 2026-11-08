@@ -372,14 +372,10 @@ func pendingApprovalByID(s *chatState, requestID string) (Approval, bool) {
 }
 
 // renderApproval 渲染当前会话待处理的审批卡片，停靠在输入框正上方，宽度与输入框对齐。
-// 计划「阅读全文」大弹窗也挂在这里：它只在聊天会话里出现，随审批卡片一同渲染即可，
-// 不必改根部挂载点。
 func renderApproval(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
 	}
-	// 弹窗先于卡片渲染：它是覆盖层，外观与卡片无关；提前渲染也能让快捷键门控看到最新状态。
-	renderPlanReaderModal(c, s)
 	s.mu.Lock()
 	if len(s.approvals) == 0 {
 		s.mu.Unlock()
@@ -392,13 +388,10 @@ func renderApproval(c *ui.Context, s *chatState) {
 	composerFocused := s.composerFocused
 	composerHasDraft := strings.TrimSpace(s.draft) != ""
 	otherFocused := s.questionOtherFocused
-	// 计划阅读弹窗打开时，卡片上的快捷键必须让位：Esc 只能关弹窗，绝不能驳回计划。
-	readerOpen := s.planReaderOpen
 	s.mu.Unlock()
 
-	// 快捷键仅对最上面一张卡片生效，且仅在 !responding 时生效；
-	// 计划阅读弹窗打开时数字键、Enter、Esc 都归弹窗，卡片一个都不接。
-	if len(approvals) > 0 && !responding && !readerOpen {
+	// 快捷键仅对最上面一张卡片生效，且仅在 !responding 时生效。
+	if len(approvals) > 0 && !responding {
 		top := approvals[0]
 		var questionAllAnswered bool
 		var curChoicesCount int
@@ -483,14 +476,10 @@ func renderApproval(c *ui.Context, s *chatState) {
 	}
 
 	// ⌘Return 批准第一个可批准的审批；不满足 cmdReturnApprovalTarget 时不注册，把按键留给 composer。
-	// 阅读弹窗打开时不在这里注册：⌘Return 归弹窗的覆盖层（批准正在读的那份计划并关窗），
-	// 否则历史计划弹窗里按 ⌘Return 会误批准另一张待批卡片。
-	if !readerOpen {
-		if target, ok := cmdReturnApprovalTarget(approvals, responding, composerFocused); ok {
-			if c.Shortcut(ui.Cmd, ui.KeyEnter) {
-				if optID := findApprovalOption(target, "approve"); optID != "" {
-					s.respondApproval(target, optID)
-				}
+	if target, ok := cmdReturnApprovalTarget(approvals, responding, composerFocused); ok {
+		if c.Shortcut(ui.Cmd, ui.KeyEnter) {
+			if optID := findApprovalOption(target, "approve"); optID != "" {
+				s.respondApproval(target, optID)
 			}
 		}
 	}
@@ -889,27 +878,7 @@ func renderPlanCopyButton(c *ui.Context, key, planText string) {
 		})
 }
 
-// renderPlanDetailBody 渲染计划正文 Markdown 区域。
-func renderPlanDetailBody(c *ui.Context, key, planText string, maxLines int) {
-	if planText == "" {
-		return
-	}
-	plan := planText
-	ui.Column(c.Key(key + "-wrapper")).Children(func() {
-		ui.TextArea(c.Key(key), &plan).
-			ReadOnly(true).
-			Lines(1, maxLines).
-			FontSize(TypeBody).
-			LineHeight(1.4).
-			Padding(Space3, Space3).
-			Radius(RadiusMD).
-			Background(ThemeHover(c)).
-			Border(Hairline, ThemeBorder(c))
-	})
-}
-
-// renderPlanCard 渲染计划摘要卡：大纲 + 少量正文预览 + “阅读全文 / 驳回 / 批准计划”。
-// 计划正文往往很长，摘要卡只给骨架，全文交给“阅读全文”打开的阅读大弹窗。
+// renderPlanCard 渲染计划卡：Markdown 正文在限高滚动区里就地阅读，底部为“驳回 / 批准计划”。
 func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding bool) {
 	id := approval.RequestID
 	s.mu.Lock()
@@ -917,6 +886,7 @@ func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding b
 	declining := draft.declining
 	s.mu.Unlock()
 
+	_, winH := c.Size()
 	accent := ThemeAccent(c)
 	ui.Column(c.Key("approval-"+id)).
 		Radius(RadiusLG).
@@ -936,10 +906,7 @@ func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding b
 				renderPlanCopyButton(c, "plan-copy-"+id, approval.Detail)
 			})
 
-			// 大纲：计划正文里的 Markdown 标题，最多 8 条
-			renderPlanOutline(c, "plan-outline-"+id, planOutline(approval.Detail, planOutlineMaxItems))
-			// 正文预览：只给开头几行，完整内容点“阅读全文”
-			renderPlanDetailBody(c, "plan-detail-"+id, planPreviewLines(approval.Detail, planPreviewMaxLines), planPreviewMaxLines)
+			renderPlanMarkdown(c, s, "plan-body-"+id, approval.Detail, max(planBodyMinHeight, winH*planBodyHeightRatio))
 			renderApprovalReason(c, approval)
 
 			if declining {
@@ -972,9 +939,6 @@ func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding b
 					})
 					return
 				}
-				renderApprovalButton(c, "plan-read-"+id, "阅读全文", "阅读计划全文", false, false, func() {
-					s.openPlanReader(id)
-				})
 				renderApprovalButton(c, "plan-decline-"+id, "驳回", "驳回计划 (Esc)", false, responding, func() {
 					s.mu.Lock()
 					draft.declining = true

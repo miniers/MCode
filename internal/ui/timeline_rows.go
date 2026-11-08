@@ -2164,7 +2164,7 @@ func renderSessionUsageRow(c *ui.Context, s *chatState, threadID, key string) {
 }
 
 // renderResolvedPlanCard 渲染已裁决的计划静态历史态卡片：标头为绿色药丸 Approved 或灰色药丸 Dismissed。
-// 默认折叠，只露一行头部；展开后给大纲 + 少量正文预览，全文交给同一个阅读大弹窗。
+// 默认折叠，只露一行头部；展开后整篇 Markdown 铺开。
 func renderResolvedPlanCard(c *ui.Context, s *chatState, plan resolvedPlan) {
 	id := plan.ID
 	if id == "" {
@@ -2230,15 +2230,8 @@ func renderResolvedPlanCard(c *ui.Context, s *chatState, plan resolvedPlan) {
 				}
 			})
 
-			if !collapsed && plan.Plan != "" {
-				renderPlanOutline(c, "resolved-plan-outline-"+id, planOutline(plan.Plan, planOutlineMaxItems))
-				renderPlanDetailBody(c, "resolved-plan-body-"+id, planPreviewLines(plan.Plan, planPreviewMaxLines), planPreviewMaxLines)
-				ui.Row(c.Key("resolved-plan-actions-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-					ui.Spacer(c)
-					renderApprovalButton(c, "resolved-plan-read-"+id, "阅读全文", "阅读计划全文", false, false, func() {
-						s.openPlanReader(id)
-					})
-				})
+			if !collapsed {
+				renderPlanMarkdown(c, s, "resolved-plan-body-"+id, plan.Plan, 0)
 			}
 		})
 }

@@ -171,8 +171,9 @@ func buildArgs(turn harness.Turn, extra ...string) []string {
 	}
 
 	perm := permissionModeFor(turn)
-	// fullAccess 需要该标记才会在 headless（-p）下跳过权限确认，只传 --permission-mode 不够。
-	if turn.Mode == harness.ModeFullAccess {
+	// fullAccess 需要该标记才会在 headless（-p）下跳过权限确认，只传 --permission-mode 不够；
+	// Plan 回合获批后要切到 bypassPermissions，启动时也得带上，否则 CLI 拒绝切换。
+	if turn.Mode == harness.ModeFullAccess || turn.PlanExitMode == harness.ModeFullAccess {
 		args = append(args, "--allow-dangerously-skip-permissions")
 	}
 	args = append(args, "--permission-mode", perm)
@@ -296,6 +297,19 @@ func permissionModeFor(turn harness.Turn) string {
 		}
 	}
 	return perm
+}
+
+// planExitModeFor 返回计划获批后要切到的权限模式：用户所选运行档位对应的值；
+// 不是 Plan 回合或档位本身就是只读时返回空，不切换。
+func planExitModeFor(turn harness.Turn) string {
+	if turn.PlanExitMode == "" {
+		return ""
+	}
+	turn.Mode, turn.InteractionMode = turn.PlanExitMode, ""
+	if perm := permissionModeFor(turn); perm != "plan" {
+		return perm
+	}
+	return ""
 }
 
 // autoModeModelLabel 把空模型名换成目录里的默认模型名，仅用于日志可读性。
@@ -565,6 +579,7 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 			return fmt.Errorf("claude: start approval server: %w", err)
 		}
 		defer srv.close()
+		srv.setPlanExitMode(planExitModeFor(turn))
 		approvalURL = srv.url()
 		approvalToken = srv.token()
 	}

@@ -703,10 +703,10 @@ func planApproval() Approval {
 
 func TestPlanCardApprove(t *testing.T) {
 	fake, tt := newApprovalTester(t, []Approval{planApproval()})
-	// 摘要卡：状态胶囊、大纲、正文预览与三个底部按钮都应同屏可见。
+	// 计划卡：状态胶囊、Markdown 正文与底部按钮都应同屏可见。
 	waitFor(t, tt, func() bool {
-		return tt.HasText("待实施") && tt.HasText("整体思路") &&
-			tt.HasText("阅读全文") && tt.HasText("驳回") && tt.HasText("批准计划")
+		return tt.HasText("待实施") && tt.HasText("整体思路") && tt.HasText("预计跑通全部 UI 测试。") &&
+			tt.HasText("驳回") && tt.HasText("批准计划") && !tt.HasText("阅读全文")
 	})
 	if err := tt.Click("批准计划"); err != nil {
 		t.Fatalf("click '批准计划' failed: %v", err)
@@ -734,27 +734,6 @@ func TestPlanCardDeclineWithFeedback(t *testing.T) {
 		call, ok := fake.LastRespondAnswers()
 		return ok && call.OptionID == "deny" && !call.Skip && reflect.DeepEqual(call.Answers, want)
 	})
-}
-
-// TestPlanReaderModalOpensAndEscapeCloses 覆盖「阅读全文」大弹窗：打开后能看到全文操作栏，
-// Esc 只关弹窗，计划仍然待批。
-func TestPlanReaderModalOpensAndEscapeCloses(t *testing.T) {
-	fake, tt := newApprovalTester(t, []Approval{planApproval()})
-	waitFor(t, tt, func() bool { return tt.HasText("阅读全文") })
-	if err := tt.Click("阅读全文"); err != nil {
-		t.Fatalf("click '阅读全文' failed: %v", err)
-	}
-	// 弹窗里有自己的批准按钮与底部操作栏。
-	waitFor(t, tt, func() bool { return tt.HasText("批准计划") && tt.HasText("关闭") })
-
-	tt.Key(0, ui.KeyEscape)
-	waitFor(t, tt, func() bool {
-		// 弹窗关闭：底部操作栏的「关闭」消失，摘要卡仍在。
-		return !tt.HasText("关闭") && tt.HasText("待实施") && tt.HasText("阅读全文")
-	})
-	if got := fake.LastRespondOptionID(); got != "" {
-		t.Fatalf("Esc 只应关闭弹窗，不得裁决计划，got option %q", got)
-	}
 }
 
 func TestApprovalShortcutAction(t *testing.T) {

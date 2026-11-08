@@ -357,8 +357,6 @@ type chatState struct {
 	resolvedPlans        map[string][]resolvedPlan     // 按 threadID 记录已裁决的计划历史态
 	answeredQuestions    map[string][]answeredQuestion // 按 threadID 记录已回答的提问历史态
 	collapsedPlans       map[string]bool               // 计划历史态卡片正文折叠状态（key 为 resolvedPlan.ID）
-	planReaderOpen       bool                          // 计划「阅读全文」大弹窗是否打开
-	planReaderTarget     string                        // 弹窗正文来源：待批请求 RequestID 或历史计划 resolvedPlan.ID
 	stopping             bool
 	stoppingSince        time.Time // 进入停止态的时刻，用于兜底超时判定
 	watchStop            func()
@@ -1350,9 +1348,6 @@ func (s *chatState) selectThread(threadID string) {
 	s.streamedRevealMsgs = make(map[string]struct{})
 	s.toolDiff = toolDiffState{generation: s.toolDiff.generation + 1}
 	s.approvals = nil
-	// 切换会话时关掉计划阅读弹窗：它引用的待批请求或历史计划都属于上一个会话。
-	s.planReaderOpen = false
-	s.planReaderTarget = ""
 	s.threadUsage = ThreadUsage{}
 	s.lastLiveID = ""
 	s.stopping = false
