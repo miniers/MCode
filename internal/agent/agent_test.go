@@ -121,6 +121,36 @@ func TestTextAndToolConversation(t *testing.T) {
 	}
 }
 
+func TestToolChangesEmitFileChangeEvents(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	client := &scriptClient{steps: []scriptStep{
+		{response: reply("tool_use", call("1", "write", `{}`))},
+		{response: reply("stop")},
+	}}
+	tool := testTool("write")
+	tool.Run = func(context.Context, tools.Env, json.RawMessage) (tools.Result, error) {
+		return tools.Result{Text: "done", Changes: []tools.FileChange{
+			{Path: "a.go", Patch: "-old\n+new\n"},
+			{Path: "b.go", Patch: "-x\n+y\n"},
+		}}, nil
+	}
+	var changes []harness.Event
+	opts := Options{Client: client, Store: store, SessionID: "changes", Mode: harness.ModeFullAccess, Tools: []tools.Tool{tool}, Emit: func(event harness.Event) {
+		if event.Type == harness.EventFileChange {
+			changes = append(changes, event)
+		}
+	}}
+	if err := Run(context.Background(), opts, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 2 || changes[0].Path != "a.go" || changes[1].Path != "b.go" {
+		t.Fatalf("changes = %+v", changes)
+	}
+	if changes[0].Patch != "-old\n+new\n" {
+		t.Fatalf("patch = %q", changes[0].Patch)
+	}
+}
+
 func TestGateDecisions(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

@@ -318,9 +318,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 				}
 				pending = pending[1:]
 				emit(harness.Event{Type: harness.EventToolEnd, ToolID: call.ID, ToolName: call.Name, Output: result.Text, IsError: result.IsError})
-				if result.Change != nil {
-					emit(harness.Event{Type: harness.EventFileChange, Path: result.Change.Path, Patch: result.Change.Patch})
-				}
+				emitChanges(emit, result)
 				i++
 				continue
 			}
@@ -355,9 +353,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 				}
 				pending = pending[1:]
 				emit(harness.Event{Type: harness.EventToolEnd, ToolID: item.call.ID, ToolName: item.call.Name, Output: result.Text, IsError: result.IsError})
-				if result.Change != nil {
-					emit(harness.Event{Type: harness.EventFileChange, Path: result.Change.Path, Patch: result.Change.Patch})
-				}
+				emitChanges(emit, result)
 			}
 			i += len(batch)
 		}
@@ -365,6 +361,19 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	err := fmt.Errorf("agent: maximum rounds reached (%d)", opts.MaxRounds)
 	emit(harness.Event{Type: harness.EventError, Err: err.Error(), ErrKind: harness.ErrKindMaxTurns})
 	return err
+}
+
+// emitChanges 为一组文件变更逐个发送 EventFileChange；没有逐文件变更时发送单条 Change。
+func emitChanges(emit func(harness.Event), result tools.Result) {
+	if len(result.Changes) > 0 {
+		for _, change := range result.Changes {
+			emit(harness.Event{Type: harness.EventFileChange, Path: change.Path, Patch: change.Patch})
+		}
+		return
+	}
+	if result.Change != nil {
+		emit(harness.Event{Type: harness.EventFileChange, Path: result.Change.Path, Patch: result.Change.Patch})
+	}
 }
 
 func toolMessage(id, text string, isError bool) llm.Message {

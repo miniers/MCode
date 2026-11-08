@@ -144,7 +144,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		return modelError(emit, fmt.Errorf("无法解析模型 %q：%w", model, err))
 	}
 
-	toolset := tools.CodingTools()
+	toolset := tools.CodingToolsFor(modelID)
 	toolset = append(toolset, agent.BuiltinTools(turn.Approver)...)
 	seen := make(map[string]bool, len(toolset))
 	for _, tool := range toolset {

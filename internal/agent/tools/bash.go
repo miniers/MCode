@@ -46,7 +46,33 @@ func KillBashTool() Tool {
 // CodingTools 返回内置 coding agent 所需的工具。
 func CodingTools() []Tool {
 	files := FileTools()
-	return []Tool{files[0], BashTool(), BashOutputTool(), KillBashTool(), files[2], files[1], files[5], files[4], files[3]}
+	return []Tool{files[0], BashTool(), BashOutputTool(), KillBashTool(), files[2], files[1], files[5], files[4], files[3], WebFetchTool()}
+}
+
+// CodingToolsFor 返回 coding agent 工具；使用 apply_patch 的模型把 edit 替换为 apply_patch。
+func CodingToolsFor(model string) []Tool {
+	toolset := CodingTools()
+	if !usesApplyPatch(model) {
+		return toolset
+	}
+	for i, tool := range toolset {
+		if tool.Name == "edit" {
+			toolset[i] = ApplyPatchTool()
+			break
+		}
+	}
+	return toolset
+}
+
+// usesApplyPatch 判断模型是否使用 apply_patch 而不是 edit。
+func usesApplyPatch(model string) bool {
+	name := model
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.ToLower(name)
+	return strings.HasPrefix(name, "gpt-") || strings.Contains(name, "codex") ||
+		strings.HasPrefix(name, "o3") || strings.HasPrefix(name, "o4")
 }
 
 // runBash 运行命令并将退出状态附加到输出。

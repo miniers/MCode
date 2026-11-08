@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,5 +224,56 @@ func TestSession(t *testing.T) {
 	s.Remember("one")
 	if !s.Allowed("one") || s.Allowed("two") {
 		t.Fatal("会话授权范围错误")
+	}
+}
+
+// TestCheckApplyPatch 覆盖 apply_patch 的多文件敏感判断与模式放行。
+func TestCheckApplyPatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	work := t.TempDir()
+	run := func(mode harness.PermissionMode, plan bool, input string) Verdict {
+		raw, _ := json.Marshal(map[string]any{"input": input})
+		return Check(Input{Mode: mode, Plan: plan, ToolName: "apply_patch", Args: raw, WorkDir: work})
+	}
+	patchText := "*** Begin Patch\n*** Add File: a.go\n+x\n*** Update File: b.go\n@@\n-x\n+y\n*** End Patch"
+	if got := run(harness.ModeAutoAcceptEdits, false, patchText); got.Action != Allow {
+		t.Fatalf("AutoAcceptEdits 得到 %+v", got)
+	}
+	got := run(harness.ModeSupervised, false, patchText)
+	if got.Action != Ask || got.Request.Kind != harness.RequestKindFileChange || !strings.Contains(got.Request.Summary, "a.go") || !strings.Contains(got.Request.Summary, "b.go") {
+		t.Fatalf("Supervised 得到 %+v", got)
+	}
+	cfgPatch := "*** Begin Patch\n*** Update File: " + filepath.Join(home, ".mcode", "config.json") + "\n@@\n-x\n+y\n*** End Patch"
+	if got := run(harness.ModeSupervised, false, cfgPatch); got.Request.Sensitive != "controlPlane" {
+		t.Fatalf("控制面敏感标记 = %q", got.Request.Sensitive)
+	}
+	envPatch := "*** Begin Patch\n*** Add File: " + "." + "env" + "\n+TOKEN=1\n*** End Patch"
+	if got := run(harness.ModeAuto, false, envPatch); got.Request.Sensitive != "credential" {
+		t.Fatalf("凭证敏感标记 = %q", got.Request.Sensitive)
+	}
+	if got := run("", true, patchText); got.Action != Deny {
+		t.Fatalf("计划模式得到 %+v", got)
+	}
+}
+
+// TestCheckWebFetch 覆盖 web_fetch 按只读命令的放行规则。
+func TestCheckWebFetch(t *testing.T) {
+	work := t.TempDir()
+	raw, _ := json.Marshal(map[string]any{"url": "https://example.com", "maxChars": 1000})
+	run := func(mode harness.PermissionMode, plan bool) Verdict {
+		return Check(Input{Mode: mode, Plan: plan, ToolName: "web_fetch", Args: raw, WorkDir: work})
+	}
+	for _, mode := range []harness.PermissionMode{harness.ModeAuto, harness.ModeReadOnly} {
+		if got := run(mode, false); got.Action != Allow {
+			t.Fatalf("%s 得到 %+v", mode, got)
+		}
+	}
+	if got := run("", true); got.Action != Allow {
+		t.Fatalf("计划模式得到 %+v", got)
+	}
+	got := run(harness.ModeSupervised, false)
+	if got.Action != Ask || got.Request.Kind != harness.RequestKindTool || got.Request.Summary != "https://example.com" {
+		t.Fatalf("Supervised 得到 %+v", got)
 	}
 }

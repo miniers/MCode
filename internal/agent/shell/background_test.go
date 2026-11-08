@@ -94,3 +94,44 @@ func TestBackgroundTrackerLifecycle(t *testing.T) {
 		t.Fatalf("text=%q running=%v exitCode=%d err=%v", text, running, exitCode, err)
 	}
 }
+
+func backgroundJobExists(id string) bool {
+	backgroundMu.Lock()
+	defer backgroundMu.Unlock()
+	_, ok := backgroundJobs[id]
+	return ok
+}
+
+func TestBackgroundStartPrunesReadJobs(t *testing.T) {
+	oldID, _, err := Start(context.Background(), Options{Command: "echo drained"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitBackground(t, func() bool {
+		backgroundMu.Lock()
+		job := backgroundJobs[oldID]
+		backgroundMu.Unlock()
+		return job != nil && !job.isRunning()
+	})
+	// 已退出但未被读取的任务保留，避免读取时拿到 unknown job。
+	nextID, _, err := Start(context.Background(), Options{Command: "echo next"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Kill(nextID)
+	if !backgroundJobExists(oldID) {
+		t.Fatal("未读取的已退出任务应保留")
+	}
+	if text, running, exitCode, err := Output(oldID); err != nil || running || exitCode != 0 || !strings.Contains(text, "drained") {
+		t.Fatalf("text=%q running=%v exitCode=%d err=%v", text, running, exitCode, err)
+	}
+	// 输出读完后，下一次 Start 清理旧任务。
+	thirdID, _, err := Start(context.Background(), Options{Command: "echo third"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Kill(thirdID)
+	if backgroundJobExists(oldID) {
+		t.Fatal("已读完输出的任务应在 Start 时清理")
+	}
+}

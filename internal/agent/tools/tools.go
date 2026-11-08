@@ -34,6 +34,8 @@ type Result struct {
 	Text    string
 	IsError bool
 	Change  *FileChange
+	// Changes 是一次修改多个文件时的逐文件变更；非空时取代 Change。
+	Changes []FileChange
 }
 
 // Tool 描述工具的参数和执行函数。

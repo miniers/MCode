@@ -184,18 +184,17 @@ func applyPatch(ctx context.Context, env Env, raw json.RawMessage) (Result, erro
 		}
 	}
 
-	var diffs strings.Builder
+	changes := make([]FileChange, 0, len(results))
 	for i, r := range results {
 		p := targets[i].path
 		if r.MoveTo != "" {
-			diffs.WriteString(unifiedDiff(p, r.Original, ""))
-			diffs.WriteString(unifiedDiff(targets[i].move, "", r.Updated))
+			changes = append(changes, FileChange{
+				Path:  targets[i].move,
+				Patch: unifiedDiff(p, r.Original, "") + unifiedDiff(targets[i].move, "", r.Updated),
+			})
 			continue
 		}
-		diffs.WriteString(unifiedDiff(p, r.Original, r.Updated))
+		changes = append(changes, FileChange{Path: p, Patch: unifiedDiff(p, r.Original, r.Updated)})
 	}
-	return Result{
-		Text:   text.String(),
-		Change: &FileChange{Path: targets[0].path, Patch: diffs.String()},
-	}, nil
+	return Result{Text: text.String(), Changes: changes}, nil
 }

@@ -35,6 +35,8 @@ type backgroundJob struct {
 	dropped  int64 // 已从缓冲区头部丢弃的字节数
 	running  bool
 	exitCode int
+	// reapable 在任务退出且 output 已读完全部剩余输出后置位。
+	reapable bool
 }
 
 // Write 追加输出，只保留最后 maxBackgroundOutput 字节。
@@ -64,6 +66,9 @@ func (j *backgroundJob) output() (string, bool, int) {
 	}
 	text := string(j.buf[start:])
 	j.read = j.dropped + int64(len(j.buf))
+	if !j.running && j.read == j.dropped+int64(len(j.buf)) {
+		j.reapable = true
+	}
 	if truncated {
 		text = droppedNotice + text
 	}
@@ -74,6 +79,13 @@ func (j *backgroundJob) isRunning() bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.running
+}
+
+// isReapable 报告任务已退出且输出已读完，可以从任务表中移除。
+func (j *backgroundJob) isReapable() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.reapable
 }
 
 var (
@@ -131,6 +143,11 @@ func Start(ctx context.Context, opts Options) (string, int, error) {
 	setProcessGroup(cmd)
 
 	backgroundMu.Lock()
+	for id, job := range backgroundJobs {
+		if job.isReapable() {
+			delete(backgroundJobs, id)
+		}
+	}
 	if backgroundCount() >= maxBackgroundJobs {
 		backgroundMu.Unlock()
 		_ = stdin.Close()

@@ -79,8 +79,8 @@ func TestContextSizeLimits(t *testing.T) {
 func TestBuildPromptContents(t *testing.T) {
 	work := t.TempDir()
 	now := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
-	prompt := Build(Options{WorkDir: work, ToolNames: []string{"read", "bash", "edit", "write", "grep", "find", "ls", "ask_user_question", "todo_write", "unknown"}, Now: now, OS: "test-os"})
-	for _, expected := range []string{work, "2026-11-08", "test-os", "- read:", "- bash:", "- edit:", "- write:", "- grep:", "- find:", "- ls:", "- ask_user_question:", "- todo_write:"} {
+	prompt := Build(Options{WorkDir: work, ToolNames: []string{"read", "bash", "edit", "write", "grep", "find", "ls", "ask_user_question", "todo_write", "apply_patch", "web_fetch", "bash_output", "kill_bash", "unknown"}, Now: now, OS: "test-os"})
+	for _, expected := range []string{work, "2026-11-08", "test-os", "- read:", "- bash:", "- edit:", "- write:", "- grep:", "- find:", "- ls:", "- ask_user_question:", "- todo_write:", "- apply_patch: Change files with a patch in the apply_patch format.", "- web_fetch: Fetch a web page when the task needs docs or information from the web.", "- bash_output: Read new output from a background command.", "- kill_bash: Stop background commands you started once they are no longer needed."} {
 		if !strings.Contains(prompt, expected) {
 			t.Errorf("prompt missing %q", expected)
 		}
@@ -91,5 +91,29 @@ func TestBuildPromptContents(t *testing.T) {
 	partial := Build(Options{ToolNames: []string{"read", "unknown"}, Now: now})
 	if strings.Contains(partial, "- unknown:") || !strings.Contains(partial, "- read:") {
 		t.Fatalf("tool list did not filter to available tools: %s", partial)
+	}
+}
+
+func TestBuildPromptChangeToolGuidance(t *testing.T) {
+	now := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	withEdit := Build(Options{ToolNames: []string{"edit", "apply_patch"}, Now: now})
+	if !strings.Contains(withEdit, "- Use edit for precise changes to existing files.") {
+		t.Fatalf("edit guidance missing: %s", withEdit)
+	}
+	if strings.Contains(withEdit, "- Use apply_patch for changes to existing files.") {
+		t.Fatalf("edit guidance should take precedence: %s", withEdit)
+	}
+	withPatch := Build(Options{ToolNames: []string{"apply_patch"}, Now: now})
+	if !strings.Contains(withPatch, "- Use apply_patch for changes to existing files.") {
+		t.Fatalf("apply_patch guidance missing: %s", withPatch)
+	}
+	if strings.Contains(withPatch, "- Use edit for precise changes to existing files.") {
+		t.Fatalf("edit guidance should be replaced: %s", withPatch)
+	}
+	withoutChangeTool := Build(Options{ToolNames: []string{"read"}, Now: now})
+	for _, line := range []string{"- Use edit for precise changes to existing files.", "- Use apply_patch for changes to existing files."} {
+		if strings.Contains(withoutChangeTool, line) {
+			t.Fatalf("unexpected change guidance %q: %s", line, withoutChangeTool)
+		}
 	}
 }

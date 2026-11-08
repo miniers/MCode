@@ -86,8 +86,24 @@ func TestApplyPatchToolFiles(t *testing.T) {
 			t.Fatalf("output %q missing %q", result.Text, want)
 		}
 	}
-	if result.Change == nil || result.Change.Path == "" || !strings.Contains(result.Change.Patch, "--- a/") {
-		t.Fatalf("change = %+v", result.Change)
+	if result.Change != nil {
+		t.Fatalf("change = %+v, want per-file changes", result.Change)
+	}
+	wantChanges := map[string]bool{
+		filepath.Join(root, "sub/new.txt"): false,
+		filepath.Join(root, "a.txt"):       false,
+		filepath.Join(root, "moved.txt"):   false,
+		filepath.Join(root, "del.txt"):     false,
+	}
+	if len(result.Changes) != len(wantChanges) {
+		t.Fatalf("changes = %+v", result.Changes)
+	}
+	for _, change := range result.Changes {
+		seen, ok := wantChanges[change.Path]
+		if !ok || seen || !strings.Contains(change.Patch, "--- a/") {
+			t.Fatalf("change = %+v", change)
+		}
+		wantChanges[change.Path] = true
 	}
 	if lines := strings.Count(ApplyPatchTool().Description, "\n") + 1; lines > 10 {
 		t.Fatalf("description has %d lines", lines)
@@ -144,5 +160,36 @@ func TestApplyPatchToolOutside(t *testing.T) {
 	}
 	if _, err := os.Stat(moved); !os.IsNotExist(err) {
 		t.Fatalf("outside move target was written: %v", err)
+	}
+}
+
+func TestApplyPatchToolMultipleChanges(t *testing.T) {
+	root := t.TempDir()
+	writePatchFile(t, filepath.Join(root, "a.txt"), "old\n")
+	writePatchFile(t, filepath.Join(root, "b.txt"), "old\n")
+	input := `*** Begin Patch
+*** Update File: a.txt
+@@
+-old
++new
+*** Update File: b.txt
+@@
+-old
++new
+*** End Patch`
+	result := runApplyPatch(t, root, input)
+	if result.IsError {
+		t.Fatal(result.Text)
+	}
+	if len(result.Changes) != 2 || result.Change != nil {
+		t.Fatalf("changes = %+v change = %+v", result.Changes, result.Change)
+	}
+	if result.Changes[0].Path != filepath.Join(root, "a.txt") || result.Changes[1].Path != filepath.Join(root, "b.txt") {
+		t.Fatalf("changes = %+v", result.Changes)
+	}
+	for _, change := range result.Changes {
+		if !strings.Contains(change.Patch, "-old") || !strings.Contains(change.Patch, "+new") {
+			t.Fatalf("patch = %q", change.Patch)
+		}
 	}
 }

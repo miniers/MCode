@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"mcode/internal/agent/patch"
 	"mcode/internal/harness"
 )
 
@@ -136,16 +137,21 @@ func Check(in Input) Verdict {
 	kind := harness.RequestKindTool
 	if in.ToolName == "bash" {
 		kind = harness.RequestKindCommand
-	} else if in.ToolName == "write" || in.ToolName == "edit" {
+	} else if in.ToolName == "write" || in.ToolName == "edit" || in.ToolName == "apply_patch" {
 		kind = harness.RequestKindFileChange
 	}
 	command := str("command")
+	webFetch := in.ToolName == "web_fetch"
+	var patchPaths []string
+	if in.ToolName == "apply_patch" {
+		patchPaths, _ = patch.Paths(str("input"))
+	}
 	sensitive := checkSensitive(in, args, kind, command)
 	// 最终报告阶段禁用全部工具；对应 verdictWithoutAsking。
 	if in.FinalReport {
 		return Verdict{Action: Deny, Reason: "Blocked by mcode: this turn is only for the final report, so tools are off."}
 	}
-	reads := IsLookOnly(in.ToolName) || kind == harness.RequestKindCommand && onlyReads(command)
+	reads := IsLookOnly(in.ToolName) || kind == harness.RequestKindCommand && onlyReads(command) || webFetch
 	// 计划模式允许无敏感内容的调研，内置 MCP 交给常规规则。
 	if in.Plan {
 		if reads {
@@ -158,15 +164,19 @@ func Check(in Input) Verdict {
 	}
 	// 敏感调用总要询问，其余按模式决定放行。
 	if sensitive == "" {
-		if IsLookOnly(in.ToolName) || in.Mode == harness.ModeFullAccess || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits) && kind == harness.RequestKindFileChange || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) && kind == harness.RequestKindCommand && onlyReads(command) {
+		if IsLookOnly(in.ToolName) || in.Mode == harness.ModeFullAccess || webFetch && (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits) && kind == harness.RequestKindFileChange || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) && kind == harness.RequestKindCommand && onlyReads(command) {
 			return Verdict{Action: Allow}
 		}
 	}
 	summary := ""
-	switch kind {
-	case harness.RequestKindCommand:
+	switch {
+	case in.ToolName == "apply_patch":
+		summary = strings.Join(patchPaths, ", ")
+	case webFetch:
+		summary = str("url")
+	case kind == harness.RequestKindCommand:
 		summary = str("command")
-	case harness.RequestKindFileChange:
+	case kind == harness.RequestKindFileChange:
 		summary = str("path")
 	default:
 		for _, k := range []string{"path", "pattern", "glob"} {
@@ -431,23 +441,17 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 			break
 		}
 	}
+	// apply_patch 会同时改动多个文件，逐个路径检查。
+	var patchTargets []string
+	if in.ToolName == "apply_patch" {
+		patchTargets, _ = patch.Paths(argString(args, "input"))
+	}
+	writeTargets := append([]string{target}, patchTargets...)
 	// 控制面写入优先于凭证判断，且解析不存在目标的父目录符号链接。
-	if kind == harness.RequestKindFileChange && strings.TrimSpace(target) != "" {
-		p := strings.TrimSpace(target)
-		home, _ := os.UserHomeDir()
-		if p == "~" {
-			p = home
-		} else if strings.HasPrefix(p, "~/") {
-			p = filepath.Join(home, p[2:])
-		}
-		a := absolute(in.WorkDir, p)
-		real := realNearest(a)
-		// 控制面内的副本写自己的文件不算控制面；副本外的 ~/.mcode 路径照旧拦截。
-		if !(inside && (within(a, wd) || within(real, wd) || within(a, realWD) || within(real, realWD))) {
-			for _, d := range dirs {
-				if within(a, d) || within(real, d) {
-					return "controlPlane"
-				}
+	if kind == harness.RequestKindFileChange {
+		for _, t := range writeTargets {
+			if controlPlaneTarget(in, dirs, inside, wd, realWD, t) {
+				return "controlPlane"
 			}
 		}
 	}
@@ -485,7 +489,40 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 	if kind == harness.RequestKindCommand && credential(command, project, insideRoots) || (kind == harness.RequestKindFileChange || kind == harness.RequestKindTool) && credential(target, project, insideRoots) {
 		return "credential"
 	}
+	if in.ToolName == "apply_patch" {
+		for _, t := range patchTargets {
+			if credential(t, project, insideRoots) {
+				return "credential"
+			}
+		}
+	}
 	return ""
+}
+
+// controlPlaneTarget 判断单个写入目标是否落在控制面目录内。
+// 位于控制面内的副本写自己的文件不算控制面；副本外的 ~/.mcode 路径照旧拦截。
+func controlPlaneTarget(in Input, dirs []string, inside bool, wd, realWD, target string) bool {
+	p := strings.TrimSpace(target)
+	if p == "" {
+		return false
+	}
+	home, _ := os.UserHomeDir()
+	if p == "~" {
+		p = home
+	} else if strings.HasPrefix(p, "~/") {
+		p = filepath.Join(home, p[2:])
+	}
+	a := absolute(in.WorkDir, p)
+	real := realNearest(a)
+	if inside && (within(a, wd) || within(real, wd) || within(a, realWD) || within(real, realWD)) {
+		return false
+	}
+	for _, d := range dirs {
+		if within(a, d) || within(real, d) {
+			return true
+		}
+	}
+	return false
 }
 
 var procEnviron = regexp.MustCompile(`/proc/(self|[0-9]+)/environ\b`)

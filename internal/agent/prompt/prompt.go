@@ -29,7 +29,7 @@ type Skill struct {
 
 var toolGuidance = map[string]string{
 	"read":              "Read files before changing them; use it to inspect relevant code.",
-	"bash":              "Run bounded commands; avoid destructive actions unless requested.",
+	"bash":              "Run bounded commands; set run_in_background for servers and watchers; avoid destructive actions unless requested.",
 	"edit":              "Make precise changes to existing files using exact text replacements.",
 	"write":             "Create new files or completely rewrite a file only when needed.",
 	"grep":              "Search file contents for relevant patterns.",
@@ -37,19 +37,39 @@ var toolGuidance = map[string]string{
 	"ls":                "Inspect directory contents.",
 	"ask_user_question": "Ask only when a decision or required information blocks progress.",
 	"todo_write":        "Track progress on multi-step tasks.",
+	"apply_patch":       "Change files with a patch in the apply_patch format.",
+	"web_fetch":         "Fetch a web page when the task needs docs or information from the web.",
+	"bash_output":       "Read new output from a background command.",
+	"kill_bash":         "Stop background commands you started once they are no longer needed.",
+}
+
+// hasTool 报告工具列表中是否包含指定工具。
+func hasTool(names []string, target string) bool {
+	for _, name := range names {
+		if name == target {
+			return true
+		}
+	}
+	return false
 }
 
 // Build 根据可用工具、上下文和环境组装系统提示词。
 func Build(opts Options) string {
 	var sections []string
-	sections = append(sections, `You are a coding assistant. Help users inspect files, run commands, and modify code.
-
-Work principles:
-- Keep the solution simple and focused.
-- Read relevant files before changing them.
-- Use edit for precise changes to existing files.
-- Do not invent file paths or claim unverified results.
-- When finished, briefly summarize the changes and any incomplete work.`)
+	principles := []string{
+		"- Keep the solution simple and focused.",
+		"- Read relevant files before changing them.",
+	}
+	if hasTool(opts.ToolNames, "edit") {
+		principles = append(principles, "- Use edit for precise changes to existing files.")
+	} else if hasTool(opts.ToolNames, "apply_patch") {
+		principles = append(principles, "- Use apply_patch for changes to existing files.")
+	}
+	principles = append(principles,
+		"- Do not invent file paths or claim unverified results.",
+		"- When finished, briefly summarize the changes and any incomplete work.",
+	)
+	sections = append(sections, "You are a coding assistant. Help users inspect files, run commands, and modify code.\n\nWork principles:\n"+strings.Join(principles, "\n"))
 
 	known := make(map[string]bool, len(opts.ToolNames))
 	var tools []string
