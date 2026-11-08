@@ -3,14 +3,14 @@
 #
 #   scripts/package_personal.sh [--clean] [--dmg] [--windows] [--relaunch|--no-relaunch]
 #
-# 个人分发：用 Developer ID 签名、不做公证，构建产物安装到 /Applications。
+# 个人分发：有证书时用 Developer ID 签名，否则用临时签名；不做公证，安装到 /Applications。
 # --windows（或 WINDOWS=1）在同一次构建里额外打包 windows/amd64，产物不签名，不安装。
 # 每次运行都会先构建 web 前端（npm run build），再把 mygo.json 里的 version 的 patch 加 1（0.1.0 -> 0.1.1）。
 # MyGo 没有独立的 build 号字段（CFBundleVersion 直接取 version），因此只递增 version。
 # --clean（或 CLEAN=1）构建前清空输出目录；--dmg（或 DMG=1）额外交付安装镜像；
 # --relaunch（默认，等同 RELAUNCH=1）安装后退出并重新启动应用；--no-relaunch（或 RELAUNCH=0）不重启。
 # 重启由 scripts/relaunch_app.sh 在脱离会话的后台进程里完成，所以在 MCode 内置终端或“运行脚本”菜单里运行本脚本时也能完成重启。
-# 需要 macOS，并用环境变量 MCODE_SIGN_IDENTITY 指定 Developer ID Application 签名身份。
+# 需要 macOS；可用环境变量 MCODE_SIGN_IDENTITY 指定 Developer ID Application 签名身份。
 # 也可以写在项目根目录的 .env 中，环境变量优先。
 set -euo pipefail
 
@@ -64,13 +64,13 @@ usage() {
   -h, --help    显示此帮助信息
 
 说明: 每次运行都会先构建 web 前端（npm run build）再打包，随后递增 mygo.json
-      里的 version（patch +1），产物以 Developer ID 签名但不公证，安装到 ${TARGET}。
+      里的 version（patch +1），有证书时用 Developer ID 签名，否则用临时签名；不公证，安装到 ${TARGET}。
       安装后默认会重启应用，重启由一个脱离会话的后台进程完成，因此在 MCode 内置
       终端或“运行脚本”菜单里运行时也能重启成功；用 --no-relaunch 可以关掉。
       Windows 产物不签名、不安装；未安装 makensis 时只产出 exe，不生成安装程序
       （可用 brew install makensis 安装）。
 环境变量:
-  MCODE_SIGN_IDENTITY（必填，Developer ID Application 签名身份，可写在项目根目录 .env 中）
+  MCODE_SIGN_IDENTITY（可选，Developer ID Application 签名身份，可写在项目根目录 .env 中；未设置或钥匙串中找不到时用临时签名）
   MCODE_REFRESH_SNAPSHOT=1 时联网刷新 models.dev 能力快照（默认使用已提交的快照）；
   刷新后请检查 internal/modelsdev/snapshot.json 的 diff 再提交。
 每个阶段失败（含构建失败）时会把 mygo.json 的版本号还原到运行前的值。
@@ -112,7 +112,18 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$(uname -s)" == Darwin ]] || { echo "错误: 个人分发打包需要 macOS" >&2; exit 1; }
-[[ -n "$IDENTITY" ]] || { echo '错误: 请设置 MCODE_SIGN_IDENTITY（环境变量或项目根目录 .env）为 Developer ID Application 签名身份，例如 "Developer ID Application: Your Name (TEAMID)"' >&2; exit 1; }
+if [[ -z "$IDENTITY" ]]; then
+    SIGN_MODE=adhoc
+    echo '[WARN] 未设置 MCODE_SIGN_IDENTITY，改用临时签名（ad hoc）打包' >&2
+elif security find-identity -v -p codesigning 2>/dev/null | grep -qF -- "$IDENTITY"; then
+    SIGN_MODE=developer-id
+else
+    SIGN_MODE=adhoc
+    echo "[WARN] 钥匙串中找不到签名身份 \"$IDENTITY\"，改用临时签名（ad hoc）打包" >&2
+fi
+if [[ "$SIGN_MODE" == adhoc ]]; then
+    IDENTITY="-"
+fi
 
 cd "$ROOT"
 
@@ -195,7 +206,12 @@ if [[ $WINDOWS -eq 1 ]]; then
     BUILD_PLATFORMS="$PLATFORM,$WINDOWS_PLATFORM"
 fi
 
-step "构建 $APP_NAME ${VERSION}（${BUILD_PLATFORMS}，Developer ID 签名，不公证）"
+if [[ "$SIGN_MODE" == developer-id ]]; then
+    SIGN_LABEL="Developer ID 签名"
+else
+    SIGN_LABEL="临时签名"
+fi
+step "构建 $APP_NAME ${VERSION}（${BUILD_PLATFORMS}，${SIGN_LABEL}，不公证）"
 BUILD_ARGS=(
     "build"
     "-platform" "$BUILD_PLATFORMS"
@@ -310,7 +326,9 @@ if [[ $DMG -eq 1 ]]; then
     DMG_PATH="$BUILD/$APP_NAME-$VERSION.dmg"
     mv "${DMGS[0]}" "$DMG_PATH"
     hdiutil verify "$DMG_PATH"
-    codesign --verify --strict "$DMG_PATH"
+    if [[ "$SIGN_MODE" == developer-id ]]; then
+        codesign --verify --strict "$DMG_PATH"
+    fi
     printf 'DMG: %s\n' "$DMG_PATH"
 fi
 

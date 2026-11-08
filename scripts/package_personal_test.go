@@ -24,43 +24,17 @@ func TestPackagePersonalHelp(t *testing.T) {
 	}
 }
 
-func TestPackagePersonalRequiresIdentity(t *testing.T) {
-	script, err := filepath.Abs("package_personal.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	mygoJSON := filepath.Join(filepath.Dir(script), "..", "mygo.json")
-	before, err := os.ReadFile(mygoJSON)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin := filepath.Join(t.TempDir(), "bin")
-	if err := os.Mkdir(bin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "uname"), []byte("#!/bin/bash\necho Darwin\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command("bash", script, "--no-relaunch")
-	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "MCODE_SIGN_IDENTITY=")
+func TestPackagePersonalAdHocWithoutIdentity(t *testing.T) {
+	cmd := packagePersonalDotenvCommand(t, nil, false, "")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err == nil {
-		t.Fatal("预期缺少签名身份时失败")
-	}
-	if !strings.Contains(stderr.String(), "MCODE_SIGN_IDENTITY") {
-		t.Fatalf("missing MCODE_SIGN_IDENTITY in:\n%s", stderr.String())
-	}
-	after, err := os.ReadFile(mygoJSON)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(before, after) {
-		t.Fatal("缺少签名身份时 mygo.json 被修改")
+	_ = cmd.Run()
+	if !strings.Contains(stderr.String(), "未设置 MCODE_SIGN_IDENTITY，改用临时签名") || strings.Contains(stderr.String(), "请设置 MCODE_SIGN_IDENTITY") {
+		t.Fatalf("缺少临时签名警告或仍有旧错误:\n%s", stderr.String())
 	}
 }
 
-func packagePersonalDotenvCommand(t *testing.T, identity *string) *exec.Cmd {
+func packagePersonalDotenvCommand(t *testing.T, identity *string, dotenv bool, securityOutput string) *exec.Cmd {
 	t.Helper()
 	script, err := os.ReadFile("package_personal.sh")
 	if err != nil {
@@ -78,10 +52,15 @@ func packagePersonalDotenvCommand(t *testing.T, identity *string) *exec.Cmd {
 	if err := os.WriteFile(copyPath, script, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("export MCODE_SIGN_IDENTITY=\"Developer ID Application: Test (ABC123)\"\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if dotenv {
+		if err := os.WriteFile(filepath.Join(root, ".env"), []byte("export MCODE_SIGN_IDENTITY=\"Developer ID Application: Test (ABC123)\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(bin, "uname"), []byte("#!/bin/bash\necho Darwin\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "security"), []byte("#!/bin/bash\nprintf '%s\\n' '"+securityOutput+"'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("bash", copyPath, "--no-relaunch")
@@ -99,25 +78,33 @@ func packagePersonalDotenvCommand(t *testing.T, identity *string) *exec.Cmd {
 }
 
 func TestPackagePersonalLoadsDotenv(t *testing.T) {
-	cmd := packagePersonalDotenvCommand(t, nil)
+	cmd := packagePersonalDotenvCommand(t, nil, true, `  1) ABCDEF "Developer ID Application: Test (ABC123)"`)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	_ = cmd.Run()
-	if strings.Contains(stderr.String(), "请设置 MCODE_SIGN_IDENTITY") {
+	if strings.Contains(stderr.String(), "改用临时签名") {
 		t.Fatalf("未读取 .env 中的签名身份:\n%s", stderr.String())
 	}
 }
 
 func TestPackagePersonalEnvOverridesDotenv(t *testing.T) {
 	identity := ""
-	cmd := packagePersonalDotenvCommand(t, &identity)
+	cmd := packagePersonalDotenvCommand(t, &identity, true, `  1) ABCDEF "Developer ID Application: Test (ABC123)"`)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err == nil {
-		t.Fatal("预期空的环境变量导致失败")
-	}
-	if !strings.Contains(stderr.String(), "请设置 MCODE_SIGN_IDENTITY") {
+	_ = cmd.Run()
+	if !strings.Contains(stderr.String(), "未设置 MCODE_SIGN_IDENTITY") {
 		t.Fatalf("空环境变量未覆盖 .env:\n%s", stderr.String())
+	}
+}
+
+func TestPackagePersonalAdHocWhenIdentityNotFound(t *testing.T) {
+	cmd := packagePersonalDotenvCommand(t, nil, true, "")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	_ = cmd.Run()
+	if !strings.Contains(stderr.String(), "钥匙串中找不到签名身份") {
+		t.Fatalf("缺少身份不存在的警告:\n%s", stderr.String())
 	}
 }
 
