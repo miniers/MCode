@@ -23,20 +23,24 @@ import (
 	"mcode/internal/remote/wire"
 )
 
+// mcodeAnthropicAPIKeyAccount 是 Anthropic API Key 的凭据账号名。
 const mcodeAnthropicAPIKeyAccount = "mcode.anthropicApiKey"
 
+// mcodeAgentRuntime 保存 mcode 运行时使用的数据目录与凭据存储。
 var mcodeAgentRuntime = struct {
 	sync.RWMutex
 	dataDir string
 	secrets config.SecretStore
 }{}
 
+// setMcodeAgentRuntime 更新 mcode 运行时的数据目录与凭据存储。
 func setMcodeAgentRuntime(dataDir string, secrets config.SecretStore) {
 	mcodeAgentRuntime.Lock()
 	mcodeAgentRuntime.dataDir, mcodeAgentRuntime.secrets = dataDir, secrets
 	mcodeAgentRuntime.Unlock()
 }
 
+// mcodeCurrentConfig 返回最新配置，读取失败时保留调用方配置。
 func mcodeCurrentConfig(fallback config.Config, secrets config.SecretStore) config.Config {
 	mcodeAgentRuntime.RLock()
 	dir := mcodeAgentRuntime.dataDir
@@ -49,11 +53,22 @@ func mcodeCurrentConfig(fallback config.Config, secrets config.SecretStore) conf
 			config.ApplyEnv(&current, os.LookupEnv)
 			return current
 		}
-		return config.Defaults()
+		return fallback
 	}
 	return fallback
 }
 
+// mcodeCurrentSecrets 返回运行时凭据存储，未设置时使用调用方提供的存储。
+func mcodeCurrentSecrets(fallback config.SecretStore) config.SecretStore {
+	mcodeAgentRuntime.RLock()
+	defer mcodeAgentRuntime.RUnlock()
+	if mcodeAgentRuntime.secrets != nil {
+		return mcodeAgentRuntime.secrets
+	}
+	return fallback
+}
+
+// mcodeAnthropicKey 返回 SecretStore 或环境变量中的 Anthropic API Key。
 func mcodeAnthropicKey(secrets config.SecretStore) string {
 	if secrets != nil {
 		if key, err := secrets.Get(mcodeAnthropicAPIKeyAccount); err == nil && strings.TrimSpace(key) != "" {
@@ -63,16 +78,19 @@ func mcodeAnthropicKey(secrets config.SecretStore) string {
 	return strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
 }
 
+// mcodeTargets 返回 mcode 当前可用的 Magpie 端点。
 func mcodeTargets(cfg config.Config, secrets config.SecretStore) []magpieinject.Target {
 	return magpieinject.Targets(cfg, secrets, nil)
 }
 
+// resolveMcodeClient 根据模型 ID 解析对应的上游客户端。
 func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model string) (llm.Client, string, error) {
 	targets := mcodeTargets(cfg, secrets)
 	if model == "" {
 		for _, target := range targets {
 			if target.APIKey != "" {
-				return llm.NewOpenAI(llm.OpenAIConfig{BaseURL: target.BaseURL, APIKey: target.APIKey}), magpieinject.DefaultModel().ID, nil
+				client := llm.NewOpenAI(llm.OpenAIConfig{BaseURL: target.BaseURL, APIKey: target.APIKey})
+				return client, magpieinject.DefaultModel().ID, nil
 			}
 		}
 		return nil, "", fmt.Errorf("没有配置可用的 Magpie 端点，请在设置中连接 Magpie")
@@ -92,11 +110,13 @@ func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model str
 		if baseURL == "" {
 			baseURL = "https://api.anthropic.com"
 		}
-		return llm.NewAnthropic(llm.AnthropicConfig{BaseURL: baseURL, APIKey: key}), strings.TrimPrefix(model, "anthropic/"), nil
+		client := llm.NewAnthropic(llm.AnthropicConfig{BaseURL: baseURL, APIKey: key})
+		return client, strings.TrimPrefix(model, "anthropic/"), nil
 	}
 	return nil, "", fmt.Errorf("没有找到模型 %s 对应的 Magpie 端点，请在设置中连接 Magpie", model)
 }
 
+// buildMcodeHarness 构造内置 mcode agent harness。
 func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
 	storeDir := ""
 	if dataDir != "" {
@@ -105,33 +125,19 @@ func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir st
 	setMcodeAgentRuntime(dataDir, secrets)
 	remote.SetMcodeModels(mcodeModelCatalog)
 	return providermcode.New(providermcode.Options{
-		StoreDir:     storeDir,
-		DefaultModel: "",
-		MaxRounds:    20,
+		StoreDir:  storeDir,
+		MaxRounds: 0,
 		ResolveClient: func(model string) (llm.Client, string, error) {
 			current := mcodeCurrentConfig(cfg, secrets)
-			currentSecrets := secrets
-			mcodeAgentRuntime.RLock()
-			if mcodeAgentRuntime.secrets != nil {
-				currentSecrets = mcodeAgentRuntime.secrets
-			}
-			mcodeAgentRuntime.RUnlock()
-			return resolveMcodeClient(current, currentSecrets, model)
+			return resolveMcodeClient(current, mcodeCurrentSecrets(secrets), model)
 		},
 		SystemPrompt: func(turn harness.Turn, toolNames []string) string {
 			home, _ := os.UserHomeDir()
-			absWorkDir, _ := filepath.Abs(turn.WorkDir)
-			skills, _ := agentconf.ScanSkills(agentconf.Options{Home: home, ProjectDir: absWorkDir, DataDir: dataDir})
-			var promptSkills []prompt.Skill
-			globalRoot := filepath.Join(home, ".agents", "skills")
-			projectRoot := filepath.Join(absWorkDir, ".agents", "skills")
-			for _, skill := range skills {
-				path := filepath.Clean(skill.Path)
-				if (strings.HasPrefix(path, globalRoot+string(os.PathSeparator)) || strings.HasPrefix(path, projectRoot+string(os.PathSeparator))) && skill.Enabled {
-					promptSkills = append(promptSkills, prompt.Skill{Name: skill.Name, Description: skill.Description, Path: path})
-				}
-			}
-			return prompt.Build(prompt.Options{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, HomeDir: home, GlobalDir: filepath.Join(home, ".agents"), ToolNames: toolNames, Skills: promptSkills, Now: time.Now(), OS: ""})
+			return prompt.Build(prompt.Options{
+				WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs,
+				HomeDir: home, GlobalDir: filepath.Join(home, ".agents"),
+				ToolNames: toolNames, Skills: mcodeSkills(home, turn.WorkDir, dataDir), Now: time.Now(),
+			})
 		},
 		ExtraTools: func(ctx context.Context, turn harness.Turn) []tools.Tool {
 			var external []harness.MCPEndpoint
@@ -143,33 +149,50 @@ func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir st
 	})
 }
 
+// mcodeModelCatalog 从最新配置生成远程模型目录。
 func mcodeModelCatalog() []wire.ProviderModel {
 	mcodeAgentRuntime.RLock()
 	dir, secrets := mcodeAgentRuntime.dataDir, mcodeAgentRuntime.secrets
 	mcodeAgentRuntime.RUnlock()
-	cfg := config.Config{}
 	if dir != "" {
-		cfg, _ = config.Load(dir)
+		cfg, err := config.Load(dir)
+		if err != nil {
+			return nil
+		}
+		config.ApplyEnv(&cfg, os.LookupEnv)
+		return mcodeModelsForConfig(cfg, secrets)
 	}
+	cfg := config.Defaults()
 	config.ApplyEnv(&cfg, os.LookupEnv)
 	return mcodeModelsForConfig(cfg, secrets)
 }
 
+// mcodeModelsForConfig 生成与 pi 共用模型 ID 和名称规则的模型目录。
 func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.ProviderModel {
-	setting := config.MagpieAgentSetting(cfg, config.ProviderMcode)
-	targets := magpieinject.Targets(cfg, secrets, setting.Selections)
+	targets := piMagpieAllTargets(cfg, secrets)
+	selected := false
+	for _, target := range targets {
+		if len(target.models) > 0 {
+			selected = true
+			break
+		}
+	}
 	rows := make([]wire.ProviderModel, 0)
 	for _, target := range targets {
-		if target.APIKey == "" {
+		if target.apiKey == "" {
 			continue
 		}
-		for _, selection := range setting.Selections {
-			if selection.EndpointID != target.Endpoint {
-				continue
-			}
-			for _, id := range selection.Models {
-				rows = append(rows, wire.ProviderModel{ID: target.ProviderID + "/" + id, Name: magpie.ShortName(magpie.Model{ID: id}), Efforts: []string{"low", "medium", "high", "xhigh", "max"}, IsDefault: len(rows) == 0})
-			}
+		ids := target.models
+		if !selected {
+			ids = []string{magpieinject.DefaultModel().ID}
+		}
+		for _, id := range ids {
+			rows = append(rows, wire.ProviderModel{
+				ID: target.providerID + "/" + id,
+				Name: magpie.ShortName(magpie.Model{ID: id}),
+				Efforts: []string{"low", "medium", "high", "xhigh", "max"},
+				IsDefault: len(rows) == 0,
+			})
 		}
 	}
 	if mcodeAnthropicKey(secrets) != "" {
@@ -186,4 +209,21 @@ func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.
 		}
 	}
 	return rows
+}
+
+// mcodeSkills 返回仅来自全局与项目目录的已启用技能。
+func mcodeSkills(home, workDir, dataDir string) []prompt.Skill {
+	absWorkDir, _ := filepath.Abs(workDir)
+	skills, _ := agentconf.ScanSkills(agentconf.Options{Home: home, ProjectDir: absWorkDir, DataDir: dataDir})
+	globalRoot := filepath.Join(home, ".agents", "skills")
+	projectRoot := filepath.Join(absWorkDir, ".agents", "skills")
+	var result []prompt.Skill
+	for _, skill := range skills {
+		path := filepath.Clean(skill.Path)
+		if skill.Enabled && (strings.HasPrefix(path, globalRoot+string(os.PathSeparator)) ||
+			strings.HasPrefix(path, projectRoot+string(os.PathSeparator))) {
+			result = append(result, prompt.Skill{Name: skill.Name, Description: skill.Description, Path: path})
+		}
+	}
+	return result
 }

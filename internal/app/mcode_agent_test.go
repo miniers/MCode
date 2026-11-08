@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"mcode/internal/agent/llm"
 	"mcode/internal/config"
 	"mcode/internal/magpieinject"
+	"mcode/internal/providers/magpie"
 )
 
 func mcodeTestConfig(endpoints ...config.CustomEndpointConfig) config.Config {
@@ -93,28 +95,73 @@ func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	}
 }
 
-func TestMcodeModelCatalogAnthropicConditional(t *testing.T) {
+func TestMcodeModelCatalogUsesPiSelections(t *testing.T) {
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
-	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {Selections: []config.MagpieSelection{{EndpointID: "edge", Models: []string{"model-a"}}}}}
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderPi: {Selections: []config.MagpieSelection{{EndpointID: "edge", Models: []string{"model-a", "model-b"}}}}}
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
 	got := mcodeModelsForConfig(cfg, secrets)
-	if len(got) != 1 || got[0].ID != "edge/model-a" {
-		t.Fatalf("Magpie catalog = %#v", got)
+	piTargets := piMagpieTargets(cfg, secrets)
+	if len(piTargets) != 1 || len(got) != 2 || got[0].ID != piTargets[0].providerID+"/model-a" ||
+		got[0].Name != magpie.ShortName(magpie.Model{ID: "model-a"}) || got[1].ID != piTargets[0].providerID+"/model-b" {
+		t.Fatalf("Pi-compatible catalog = %#v", got)
 	}
-	if !got[0].IsDefault {
-		t.Fatal("first row should be default")
+	if !got[0].IsDefault || got[1].IsDefault {
+		t.Fatalf("default flags = %#v", got)
 	}
 	secrets = mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key", mcodeAnthropicAPIKeyAccount: "anthropic-key"})
 	got = mcodeModelsForConfig(cfg, secrets)
-	if len(got) != 4 || got[1].ID != "anthropic/claude-opus-5-5" || got[3].ID != "anthropic/claude-haiku-5-5" {
+	if len(got) != 5 || got[2].ID != "anthropic/claude-opus-5-5" || got[4].ID != "anthropic/claude-haiku-5-5" {
 		t.Fatalf("Anthropic catalog = %#v", got)
 	}
 }
 
-func TestMcodeModelCatalogNoAnthropicKey(t *testing.T) {
+func TestMcodeModelCatalogDefaultsPerKeyedEndpoint(t *testing.T) {
+	cfg := mcodeTestConfig(
+		config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: "https://edge.example/v1"},
+		config.CustomEndpointConfig{ID: "other", Name: "Other", Enabled: true, Magpie: true, BaseURL: "https://other.example/v1"},
+	)
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "edge-key", config.CustomEndpointSecretAccount("other"): "other-key"})
+	got := mcodeModelsForConfig(cfg, secrets)
+	if len(got) != 2 || got[0].ID != "edge/"+magpieinject.DefaultModel().ID || got[1].ID != "other/"+magpieinject.DefaultModel().ID || !got[0].IsDefault {
+		t.Fatalf("default catalog = %#v", got)
+	}
+	secrets = mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "edge-key"})
+	got = mcodeModelsForConfig(cfg, secrets)
+	if len(got) != 1 || got[0].ID != "edge/"+magpieinject.DefaultModel().ID {
+		t.Fatalf("catalog should include only endpoints with keys: %#v", got)
+	}
+}
+
+func TestMcodeModelCatalogAnthropicRequiresKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	cfg := config.Defaults()
 	if got := mcodeModelsForConfig(cfg, mcodeTestSecrets(nil)); len(got) != 0 {
 		t.Fatalf("catalog without key = %#v", got)
+	}
+}
+
+func TestMcodeModelCatalogLoadFailureReturnsNil(t *testing.T) {
+	invalidPath := t.TempDir() + "/not-a-directory"
+	if err := os.WriteFile(invalidPath, []byte("file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	setMcodeAgentRuntime(invalidPath, nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
+	if got := mcodeModelCatalog(); got != nil {
+		t.Fatalf("catalog after config load failure = %#v, want nil", got)
+	}
+}
+
+func TestMcodeCurrentConfigLoadFailureUsesFallback(t *testing.T) {
+	fallback := config.Defaults()
+	fallback.Providers.Pi.Bin = "fallback-pi"
+	invalidPath := t.TempDir() + "/not-a-directory"
+	if err := os.WriteFile(invalidPath, []byte("file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	setMcodeAgentRuntime(invalidPath, nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
+	if got := mcodeCurrentConfig(fallback, nil); got.Providers.Pi.Bin != "fallback-pi" {
+		t.Fatalf("config load failure lost fallback: %+v", got.Providers.Pi)
 	}
 }

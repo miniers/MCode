@@ -348,6 +348,24 @@ func TestSaveProviderSetting_WritesConfigAndSecrets(t *testing.T) {
 	}
 }
 
+func TestSaveProviderSetting_McodeRegistersAndUnregisters(t *testing.T) {
+	client, _, _ := newProviderSettingsClient(t)
+	ctx := context.Background()
+
+	if _, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: true}, ""); err != nil {
+		t.Fatalf("enable mcode: %v", err)
+	}
+	if client.backend.RegisteredHarness("mcode") == nil {
+		t.Fatal("enabled mcode should register its harness")
+	}
+	if _, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: false}, ""); err != nil {
+		t.Fatalf("disable mcode: %v", err)
+	}
+	if client.backend.RegisteredHarness("mcode") != nil {
+		t.Fatal("disabled mcode should unregister its harness")
+	}
+}
+
 func TestSaveProviderSetting_UnknownID(t *testing.T) {
 	client, _, _ := newProviderSettingsClient(t)
 	if _, err := client.SaveProviderSetting(context.Background(), mcodeui.ProviderSetting{ID: "unknown"}, ""); err == nil {

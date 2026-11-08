@@ -8,6 +8,7 @@ import (
 
 	"mcode/internal/config"
 	"mcode/internal/providers/acp"
+	"mcode/internal/remote"
 	"mcode/internal/providers/openai"
 	mcodeui "mcode/internal/ui"
 )
@@ -269,10 +270,11 @@ func (c *Client) SaveProviderSetting(ctx context.Context, s mcodeui.ProviderSett
 	if c.backend != nil && !providerSettingIsACP(spec.id) {
 		c.releaseReplacedHarness(spec.id)
 		if spec.id == "mcode" {
-			setMcodeAgentRuntime(c.dataDir, c.secrets)
-			remote.SetMcodeModels(mcodeModelCatalog)
 			if cfg.Providers.Mcode.Enabled {
 				c.backend.RegisterHarness(buildMcodeHarness(cfg, c.secrets, c.dataDir, c.mcp))
+			} else {
+				setMcodeAgentRuntime(c.dataDir, c.secrets)
+				remote.SetMcodeModels(mcodeModelCatalog)
 			}
 		} else if h, ok := buildProviderHarness(cfg, c.secrets, spec.id, c.mcp); ok {
 			c.backend.RegisterHarness(h)
