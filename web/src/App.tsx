@@ -387,6 +387,7 @@ const AppContent: React.FC = () => {
   const previousRouteKindRef = useRef(route.kind);
   const previousConnectionStateRef = useRef(connectionState);
   const [pageBuildID] = useState(getPageBuildID);
+  const [headerActionsSlot, setHeaderActionsSlot] = useState<HTMLDivElement | null>(null);
 
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
   const [createKind, setCreateKind] = useState<'task' | 'goal' | 'thread' | null>(null);
@@ -748,6 +749,7 @@ const AppContent: React.FC = () => {
       <SecureEntryHint />
       <PushEnableHint />
       <ThreadList
+        headerActionsSlot={headerActionsSlot}
         projectID={selectedProjectID}
         onSelectThread={(thread) => {
           // 点会话行时立即预取，不等空闲回调。
@@ -765,6 +767,7 @@ const AppContent: React.FC = () => {
   return (
     <div className="app-shell">
       <Header
+        actionsSlotRef={setHeaderActionsSlot}
         activeView={activeView}
         onSwitchView={(view) => navigate(view === 'board' ? '#/board' : '#/', { replace: true })}
         settingsOpen={settingsOpen}

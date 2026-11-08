@@ -145,6 +145,7 @@ html[data-mobile-direction] .settings-sheet { animation: none; }
 .scope-menu__title { font-weight: 600; }
 .scope-menu__meta { margin-top: 2px; color: var(--foreground-muted); font-size: 12px; }
 .scope-menu__check { width: 18px; color: var(--primary); font-weight: 700; text-align: center; }
+.scope-menu--end { left: auto; right: 0; width: min(220px, calc(100vw - 24px)); }
 
 .connection-capsule { display: inline-flex; max-width: 120px; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid var(--border); border-radius: 999px; color: var(--foreground-muted); font-size: 11px; font-weight: 650; white-space: nowrap; }
 .connection-capsule__dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }

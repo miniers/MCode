@@ -1,6 +1,7 @@
 // 移动首页会话列表：按宿主 section/orderKey 投影，交互动作同时提供可见按钮。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { RemoteThreadSummary } from '../types/contract';
 import { useRemote } from '../context/RemoteContext';
 import { useRemoteCall } from '../context/useRemoteCall';
@@ -19,7 +20,6 @@ import {
   ExclamationTriangleIcon,
   MessageIcon,
   PinIcon,
-  PlayIcon,
   PlusIcon,
   SearchIcon,
   XMarkIcon
@@ -47,6 +47,7 @@ import {
 import { stewardAvatarText, stewardLabel } from '../utils/stewardIdentity';
 import { useRemoteSettingsApi } from '../context/remoteSettingsApi';
 import { LazyBoundary } from './LazyFallback';
+import { visibleFilterChips, type ThreadFilter } from '../utils/homeFilterChips';
 
 // 自动化、主管专题与发起专题三个弹层都只在用户点开时才渲染，首屏用不到，做成懒加载。
 // BulkThreadsSheet 不懒加载：同一模块里的 useBulkThreadsApi 在列表主体里同步使用，
@@ -60,8 +61,6 @@ const StewardTopicSheet = React.lazy(() =>
 const StewardStartTopicSheet = React.lazy(() =>
   import('./StewardTopicSheet').then((module) => ({ default: module.StewardStartTopicSheet }))
 );
-
-type ThreadFilter = 'all' | 'attention' | 'running' | 'failed' | 'dormant' | 'archived';
 
 // 筛选 chip 的中文名，空态标题与 chip 文案保持一致。
 const FILTER_LABELS: Record<ThreadFilter, string> = {
@@ -83,6 +82,7 @@ const ACTIVE_PAGE_STEP = 10;
 const DORMANT_PAGE_STEP = 25;
 
 interface ThreadListProps {
+  headerActionsSlot?: HTMLElement | null;
   projectID: string | null;
   onSelectThread: (thread: RemoteThreadSummary) => void;
   onCreateDraft: (projectID: string) => void;
@@ -851,6 +851,75 @@ function FilterChip({
   );
 }
 
+function HomeMoreMenu({
+  automationAvailable,
+  automationUnreadTotal,
+  canBulkOrganize,
+  filter,
+  onAutomation,
+  onBulkOrganize,
+  onFilterChange
+}: {
+  automationAvailable: boolean;
+  automationUnreadTotal: number;
+  canBulkOrganize: boolean;
+  filter: ThreadFilter;
+  onAutomation: () => void;
+  onBulkOrganize: () => void;
+  onFilterChange: (filter: ThreadFilter) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button type="button" className="icon-button relative" aria-label="更多" title="更多" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <EllipsisHorizontalIcon className="h-4 w-4" />
+        {automationUnreadTotal > 0 && <span className="absolute right-0 top-0 h-2 w-2 rounded-full bg-[var(--primary)]" aria-hidden="true" />}
+      </button>
+      {open && (
+        <div className="scope-menu scope-menu--end animate-fadeIn" role="menu">
+          {automationAvailable && (
+            <button type="button" className="scope-menu__item" role="menuitem" onClick={() => { setOpen(false); onAutomation(); }}>
+              <span className="scope-menu__title">自动化</span>
+              {automationUnreadTotal > 0 && (
+                <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-mc-caption font-bold leading-none text-white" aria-label={`${automationUnreadTotal} 条未读运行记录`}>
+                  {automationUnreadTotal > 99 ? '99+' : automationUnreadTotal}
+                </span>
+              )}
+            </button>
+          )}
+          {canBulkOrganize && (
+            <button type="button" className="scope-menu__item" role="menuitem" onClick={() => { setOpen(false); onBulkOrganize(); }}>
+              <span className="scope-menu__title">整理</span>
+            </button>
+          )}
+          <button type="button" className="scope-menu__item" role="menuitemradio" aria-checked={filter === 'archived'} onClick={() => { setOpen(false); onFilterChange(filter === 'archived' ? 'all' : 'archived'); }}>
+            <span className="scope-menu__title">已归档</span>
+            {filter === 'archived' && <span className="scope-menu__check">✓</span>}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 底部哨兵：滚到距列表底部约 200px 时自动加载下一页。
 // 内容不够长、哨兵仍停在视口内时，revision 变化会重建观察器继续触发下一页；
 // 若同一 revision 下反复触发（服务端没有返回新数据），最多重试 SENTINEL_MAX_RETRY 次后停手，避免空转。
@@ -913,6 +982,7 @@ const LoadMoreSentinel: React.FC<LoadMoreSentinelProps> = ({
 };
 
 export const ThreadList: React.FC<ThreadListProps> = ({
+  headerActionsSlot,
   projectID,
   onSelectThread,
   onCreateDraft,
@@ -1462,6 +1532,18 @@ export const ThreadList: React.FC<ThreadListProps> = ({
 
   return (
     <div className="home-list">
+      {headerActionsSlot && createPortal(
+        <HomeMoreMenu
+          automationAvailable={Boolean(automationSupported && projectID)}
+          automationUnreadTotal={automationUnreadTotal}
+          canBulkOrganize={canBulkOrganize}
+          filter={filter}
+          onAutomation={() => setAutomationOpen(true)}
+          onBulkOrganize={() => setBulkOpen(true)}
+          onFilterChange={setFilter}
+        />,
+        headerActionsSlot
+      )}
       <div className="home-toolbar">
         <div className="flex items-center gap-2">
           <div className="search-field min-w-0 flex-1">
@@ -1481,46 +1563,19 @@ export const ThreadList: React.FC<ThreadListProps> = ({
               </button>
             )}
           </div>
-          {automationSupported && projectID && (
-            <button
-              type="button"
-              className="secondary-button shrink-0 px-3 text-xs"
-              onClick={() => setAutomationOpen(true)}
-              aria-label="自动化与运行记录"
-              title="自动化与运行记录"
-            >
-              <PlayIcon className="h-4 w-4" />
-              自动化
-              {automationUnreadTotal > 0 && (
-                <span
-                  className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-mc-caption font-bold leading-none text-white"
-                  aria-label={`${automationUnreadTotal} 条未读运行记录`}
-                >
-                  {automationUnreadTotal > 99 ? '99+' : automationUnreadTotal}
-                </span>
-              )}
-            </button>
-          )}
-          {canBulkOrganize && (
-            <button
-              type="button"
-              className="secondary-button shrink-0 px-3 text-xs"
-              onClick={() => setBulkOpen(true)}
-              aria-label="批量整理会话"
-              title="批量整理会话"
-            >
-              <EllipsisHorizontalIcon className="h-4 w-4" />整理
-            </button>
-          )}
         </div>
-        <div className="filter-row" role="toolbar" aria-label="会话筛选">
-          <FilterChip label="全部" count={scopedThreads.length} selected={filter === 'all'} onClick={() => setFilter('all')} />
-          <FilterChip label="等你" count={counts.attention} selected={filter === 'attention'} onClick={() => setFilter('attention')} tone="filter-chip--warning" />
-          <FilterChip label="运行中" count={counts.running} selected={filter === 'running'} onClick={() => setFilter('running')} tone="filter-chip--running" />
-          <FilterChip label="失败" count={counts.failed} selected={filter === 'failed'} onClick={() => setFilter('failed')} tone="filter-chip--danger" />
-          <FilterChip label="已休眠" count={counts.dormant} selected={filter === 'dormant'} onClick={() => setFilter('dormant')} />
-          <FilterChip label="已归档" count={archivedLoaded ? archivedThreads.length : undefined} selected={filter === 'archived'} onClick={() => setFilter('archived')} />
-        </div>
+        {(() => {
+          const chips = visibleFilterChips(filter, counts);
+          return chips.length > 0 && (
+            <div className="filter-row" role="toolbar" aria-label="会话筛选">
+              {chips.includes('all') && <FilterChip label="全部" count={scopedThreads.length} selected={filter === 'all'} onClick={() => setFilter('all')} />}
+              {chips.includes('attention') && <FilterChip label="等你" count={counts.attention} selected={filter === 'attention'} onClick={() => setFilter('attention')} tone="filter-chip--warning" />}
+              {chips.includes('running') && <FilterChip label="运行中" count={counts.running} selected={filter === 'running'} onClick={() => setFilter('running')} tone="filter-chip--running" />}
+              {chips.includes('failed') && <FilterChip label="失败" count={counts.failed} selected={filter === 'failed'} onClick={() => setFilter('failed')} tone="filter-chip--danger" />}
+              {chips.includes('archived') && <FilterChip label="已归档" count={archivedLoaded ? archivedThreads.length : undefined} selected={filter === 'archived'} onClick={() => setFilter('archived')} />}
+            </div>
+          );
+        })()}
       </div>
 
       {bulkNotice && (

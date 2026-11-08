@@ -76,6 +76,7 @@ function issuedPairingToken(value: string): string | null {
 }
 
 interface HeaderProps {
+  actionsSlotRef?: (el: HTMLDivElement | null) => void;
   activeView?: HomeView;
   onSwitchView?: (view: HomeView) => void;
   settingsOpen: boolean;
@@ -161,6 +162,7 @@ const AttentionSettingsRow: React.FC<AttentionSettingsRowProps> = ({ projectID, 
 };
 
 export const Header: React.FC<HeaderProps> = ({
+  actionsSlotRef,
   activeView = 'sessions',
   onSwitchView,
   settingsOpen,
@@ -539,6 +541,7 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </button>
             )}
+            <div ref={actionsSlotRef} className="contents" />
             <button
               type="button"
               onClick={() => {
