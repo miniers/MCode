@@ -2,6 +2,7 @@ package kanban
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,7 +20,7 @@ const (
 
 const (
 	// TaskReceiptPrompt 是执行会话停止却没有提交回执时发送的追问文案。
-	TaskReceiptPrompt = "这一轮还没有提交任务结果。请调用 kanban_submit_result：完成了就 outcome=done 并写清改了什么、验收是否通过；做不下去就 outcome=blocked 并写清卡在哪、需要谁决定。不要重做已完成的部分。"
+	TaskReceiptPrompt = "这一轮还没有提交任务结果。请调用 kanban_submit_result，status 选择 done、failed、waiting、delegated 或 needs_decision，并填写对应结果。不要重做已完成的部分。"
 	// receiptAskGrace 是两次追问之间、以及最后一次追问到升级人工之间的最短间隔。
 	receiptAskGrace = 60 * time.Second
 	// receiptMaxAsks 是为了拿到回执最多追问的次数，超过后交由人工确认。
@@ -38,6 +39,7 @@ type TaskReceipt struct {
 	Outcome  string
 	Summary  string
 	At       time.Time
+	Result   ExecutorResult
 }
 
 // receiptAsk 记录某张卡片已追问回执的次数与最近一次时间。
@@ -101,25 +103,39 @@ func clipReceiptText(text string) string {
 // SubmitTaskResult 接收任务执行会话提交的结果回执，供 watchdog 与调度器决定任务去向。
 // 只有任务当前的执行会话可以提交，且 outcome 必须是 done 或 blocked。
 func (s *Service) SubmitTaskResult(ctx context.Context, taskID, callerThreadID, outcome, summary string) error {
+	res := ExecutorResult{Summary: strings.TrimSpace(summary)}
+	switch strings.TrimSpace(outcome) {
+	case ReceiptOutcomeDone:
+		res.Status = ResultDone
+	case ReceiptOutcomeBlocked:
+		res.Status = ResultNeedsDecision
+		res.Question = res.Summary
+		res.Options = []DecisionOption{{Key: "A", Text: "继续"}, {Key: "B", Text: "停下"}}
+		res.Recommendation = "A"
+	default:
+		return fmt.Errorf("%w: 无效的 outcome", ErrInvalidTransition)
+	}
+	return s.SubmitExecutorResult(ctx, taskID, callerThreadID, res)
+}
+
+func (s *Service) SubmitExecutorResult(ctx context.Context, taskID, callerThreadID string, res ExecutorResult) error {
 	if s == nil || s.opts.Store == nil {
 		return errors.New("kanban: 看板服务不可用")
 	}
 
 	taskID = strings.TrimSpace(taskID)
 	callerThreadID = strings.TrimSpace(callerThreadID)
-	outcome = strings.TrimSpace(outcome)
-	summary = strings.TrimSpace(summary)
+	res.Summary = strings.TrimSpace(res.Summary)
+	res.clampWaitMinutes()
 
 	if taskID == "" {
 		return fmt.Errorf("%w: task_id 不能为空", ErrInvalidTransition)
 	}
-	if outcome != ReceiptOutcomeDone && outcome != ReceiptOutcomeBlocked {
-		return fmt.Errorf("%w: outcome 只能是 %q 或 %q", ErrInvalidTransition, ReceiptOutcomeDone, ReceiptOutcomeBlocked)
-	}
-	if summary == "" {
+	if err := res.Validate(); err != nil { return fmt.Errorf("%w: %v", ErrInvalidTransition, err) }
+	if res.Summary == "" {
 		return fmt.Errorf("%w: summary 不能为空", ErrInvalidTransition)
 	}
-	summary = clipReceiptText(summary)
+	res.Summary = clipReceiptText(res.Summary)
 
 	task, err := s.opts.Store.GetTask(ctx, taskID)
 	if err != nil {
@@ -137,8 +153,9 @@ func (s *Service) SubmitTaskResult(ctx context.Context, taskID, callerThreadID, 
 	rs.init()
 	rs.receipts[taskID] = TaskReceipt{
 		ThreadID: callerThreadID,
-		Outcome:  outcome,
-		Summary:  summary,
+		Outcome:  string(res.Status),
+		Summary:  res.Summary,
+		Result:   res,
 		At:       s.nowTime(),
 	}
 	// 新回执替代上一轮留给调度器的完成摘要
@@ -294,6 +311,7 @@ type finishDecision struct {
 	kind        finishKind
 	summary     string
 	fromReceipt bool
+	result      ExecutorResult
 }
 
 // taskOpenForReceipt 重读任务，确认这张卡片仍在执行中或等人处理，
@@ -327,10 +345,10 @@ func (s *Service) lastAssistantText(ctx context.Context, t store.Task) string {
 // 回执工具（hostToolsUnavailable）都保持旧行为，其余情况先追问两次，仍无回执再升级给人工。
 func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Time, hostToolsUnavailable bool) finishDecision {
 	if receipt, ok := s.takeReceipt(t.ID, threadIDOf(t)); ok {
-		if receipt.Outcome == ReceiptOutcomeBlocked {
-			return finishDecision{kind: finishBlocked, summary: receipt.Summary, fromReceipt: true}
+		if receipt.Result.Status == ResultNeedsDecision {
+			return finishDecision{kind: finishBlocked, summary: receipt.Summary, fromReceipt: true, result: receipt.Result}
 		}
-		return finishDecision{kind: finishDone, summary: receipt.Summary, fromReceipt: true}
+		return finishDecision{kind: finishDone, summary: receipt.Summary, fromReceipt: true, result: receipt.Result}
 	}
 
 	// watchdog 已经消费了完成回执并留给调度器自动接受，这里直接复用它的摘要
@@ -361,4 +379,44 @@ func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Tim
 	default:
 		return finishDecision{kind: finishWait}
 	}
+}
+
+// applyExecutorResult 将回执写入任务；完成状态由调用方继续按既有评审策略处理。
+func (s *Service) applyExecutorResult(ctx context.Context, t *store.Task, res ExecutorResult, now time.Time) error {
+	if res.Status == "" { return nil }
+	meta, err := ParseTaskMeta(t.Meta)
+	if err != nil { return err }
+	meta.ResultStatus, meta.Summary = string(res.Status), res.Summary
+	switch res.Status {
+	case ResultFailed:
+		t.Status = string(TaskStatusFailed)
+		t.LastFailureReason = &res.Summary
+	case ResultWaiting:
+		res.clampWaitMinutes()
+		t.Status = string(TaskStatusWaiting)
+		meta.WaitKind, meta.WaitCheck, meta.Wakes = res.WaitKind, res.WaitCheck, 0
+		meta.WakeAt = now.Add(time.Duration(res.WaitMinutes) * time.Minute).Format(time.RFC3339)
+		if res.WaitingOn != "" { meta.Summary = res.WaitingOn }
+	case ResultDelegated:
+		for _, f := range res.Followups {
+			child, err := s.createChildTask(ctx, *t, f)
+			if err != nil { return err }
+			meta.Children = append(meta.Children, child.ID)
+		}
+		t.Status, meta.WaitKind = string(TaskStatusWaiting), "children"
+	case ResultNeedsDecision:
+		if meta.DecisionID != "" {
+			d, err := s.opts.Store.GetStewardDecision(ctx, meta.DecisionID)
+			if err != nil && !errors.Is(err, store.ErrNotFound) { return err }
+			if err == nil && d.Status == store.DecisionStatusOpen { t.Status = string(TaskStatusNeedsApproval); t.Meta = EncodeTaskMeta(meta); return nil }
+		}
+		options, err := json.Marshal(res.Options)
+		if err != nil { return err }
+		d, err := s.opts.Store.CreateStewardDecision(ctx, store.StewardDecision{TaskID: t.ID, ThreadID: threadIDOf(*t), Question: res.Question, OptionsJSON: string(options), Recommended: res.Recommendation})
+		if err != nil { return err }
+		meta.DecisionID = d.ID
+		t.Status = string(TaskStatusNeedsApproval)
+	}
+	t.Meta = EncodeTaskMeta(meta)
+	return nil
 }

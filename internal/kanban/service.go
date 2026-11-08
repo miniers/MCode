@@ -410,6 +410,20 @@ func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (store.Tas
 	return created, nil
 }
 
+func (s *Service) createChildTask(ctx context.Context, parent store.Task, f Followup) (store.Task, error) {
+	priority := Priority(f.Priority)
+	if !priority.Valid() { priority = PriorityNone }
+	t := store.Task{ID: uuid.NewString(), ProjectID: parent.ProjectID, GoalID: parent.GoalID, GoalPrompt: parent.GoalPrompt, Title: f.Title, Notes: f.Body, Status: string(TaskStatusTodo), Priority: string(priority), DependsOn: []string{}, Meta: EncodeTaskMeta(TaskMeta{Origin: "delegated", ParentID: parent.ID})}
+	var err error
+	if parent.GoalID != nil && *parent.GoalID != "" {
+		goal, e := s.opts.Store.GetGoal(ctx, *parent.GoalID)
+		if e != nil { return store.Task{}, e }
+		err = s.opts.Store.CreateGoalTask(ctx, t, goal.Revision)
+	} else { err = s.opts.Store.CreateTask(ctx, t) }
+	if err != nil { return store.Task{}, err }
+	return s.opts.Store.GetTask(ctx, t.ID)
+}
+
 // MoveTask 移动任务状态，校验状态合法性及 CAS 乐观版本号。
 func (s *Service) MoveTask(ctx context.Context, taskID string, status TaskStatus, expectedRevision int) (store.Task, error) {
 	if !status.Valid() {
@@ -663,7 +677,7 @@ func buildStartPrompt(task store.Task, deps []store.Task, branchName string, inW
 	}
 	b.WriteString("\n\n## Board Rules\n- 需要人工确认时让卡片停在 Needs You（待你处理）等待用户处理，不要自行把卡片移出该列。")
 	b.WriteString("\n- 不要绕过人工评审直接把卡片结算为 Done，验收结论由用户给出。")
-	b.WriteString("\n\n## 结束方式\n完成或无法继续时必须调用 kanban_submit_result（outcome=done|blocked，summary 一两句写清改了什么、验收是否通过，或卡在哪、需要谁决定），这是这条任务唯一的正常结束方式；直接停下会被当成没有提交结果。")
+	b.WriteString("\n\n## 结束方式\n结束时必须调用 kanban_submit_result，status 选择 done、failed、waiting、delegated 或 needs_decision，并填写对应结果。")
 	return b.String()
 }
 

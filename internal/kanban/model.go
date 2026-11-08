@@ -10,13 +10,16 @@ const (
 	TaskStatusReview        TaskStatus = "review"
 	TaskStatusDone          TaskStatus = "done"
 	TaskStatusRejected      TaskStatus = "rejected"
+	TaskStatusWaiting       TaskStatus = "waiting"
+	TaskStatusFailed        TaskStatus = "failed"
+	TaskStatusCancelled     TaskStatus = "cancelled"
 )
 
 // Valid 校验 TaskStatus 是否有效。
 func (s TaskStatus) Valid() bool {
 	switch s {
 	case TaskStatusTodo, TaskStatusInProgress, TaskStatusNeedsApproval,
-		TaskStatusReview, TaskStatusDone, TaskStatusRejected:
+		TaskStatusReview, TaskStatusDone, TaskStatusRejected, TaskStatusWaiting, TaskStatusFailed, TaskStatusCancelled:
 		return true
 	default:
 		return false
@@ -112,21 +115,21 @@ func CanTransition(from, to TaskStatus) bool {
 	switch from {
 	case TaskStatusTodo:
 		switch to {
-		case TaskStatusInProgress, TaskStatusDone, TaskStatusRejected, TaskStatusReview:
+		case TaskStatusInProgress, TaskStatusDone, TaskStatusRejected, TaskStatusReview, TaskStatusCancelled:
 			return true
 		default:
 			return false
 		}
 	case TaskStatusInProgress:
 		switch to {
-		case TaskStatusTodo, TaskStatusNeedsApproval, TaskStatusReview, TaskStatusDone, TaskStatusRejected:
+		case TaskStatusTodo, TaskStatusNeedsApproval, TaskStatusReview, TaskStatusDone, TaskStatusRejected, TaskStatusWaiting, TaskStatusFailed, TaskStatusCancelled:
 			return true
 		default:
 			return false
 		}
 	case TaskStatusNeedsApproval:
 		switch to {
-		case TaskStatusTodo, TaskStatusInProgress, TaskStatusReview, TaskStatusDone, TaskStatusRejected:
+		case TaskStatusTodo, TaskStatusInProgress, TaskStatusReview, TaskStatusDone, TaskStatusRejected, TaskStatusCancelled, TaskStatusWaiting, TaskStatusFailed:
 			return true
 		default:
 			return false
@@ -138,6 +141,10 @@ func CanTransition(from, to TaskStatus) bool {
 		default:
 			return false
 		}
+	case TaskStatusWaiting:
+		return to == TaskStatusTodo || to == TaskStatusCancelled || to == TaskStatusNeedsApproval
+	case TaskStatusFailed, TaskStatusCancelled:
+		return to == TaskStatusTodo
 	case TaskStatusDone:
 		return to == TaskStatusTodo
 	case TaskStatusRejected:

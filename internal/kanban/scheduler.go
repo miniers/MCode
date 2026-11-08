@@ -104,6 +104,8 @@ func (g *GoalScheduler) Stop() {
 func (g *GoalScheduler) Tick(ctx context.Context) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.svc.CheckWaits(ctx, g.svc.nowTime()); err != nil { log.Printf("kanban: 检查等待失败: %v", err) }
+	if err := g.svc.WakeParents(ctx); err != nil { log.Printf("kanban: 唤醒父任务失败: %v", err) }
 
 	goals, err := g.svc.opts.Store.ListGoals(ctx, "")
 	if err != nil {
@@ -245,6 +247,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			if decision.kind == finishWait {
 				continue
 			}
+			if err := g.svc.applyExecutorResult(ctx, &t, decision.result, now); err != nil { return err }
 			text := decision.summary
 			autoAcceptNow := false
 			switch decision.kind {
@@ -261,6 +264,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 				text = receiptEscalatedText
 				g.svc.markReceiptBlocked(t.ID)
 			default:
+				if decision.result.Status != "" && decision.result.Status != ResultDone { break }
 				// 完成：按目标策略自动接受、送审，两个开关都关闭时交给人工处理。
 				// 含 [命令] 或 [你验] 的验收标准必须先走验收，自动接受不生效。
 				autoAcceptNow = autoAccept && !hasGatedAcceptance(t)
@@ -309,7 +313,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			}
 		}
 
-		// (b) 占用槽位数（in_progress、needs_approval 与活跃审查中的 review 任务）< maxConcurrency 时，按顺序挑依赖都已 done 或 skipped 的 todo 任务调用内部启动逻辑
+	// (b) 只统计执行中的任务，按顺序启动依赖已完成的待办任务。
 		inProgressCount := occupiedSlots(tasks, reviewActiveFn)
 
 		if inProgressCount < maxConcurrency {
@@ -399,14 +403,11 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 }
 
 // occupiedSlots 统计当前占用并发槽位的任务数。
-// in_progress 与 needs_approval（等待审批的任务仍然占着会话）计入；
-// review 且 isReviewActive 返回 true 时也计入。
+// 只统计 in_progress，等待和评审不占执行槽。
 func occupiedSlots(tasks []store.Task, isReviewActive func(string) bool) int {
 	count := 0
 	for _, t := range tasks {
-		if t.Status == string(TaskStatusInProgress) || t.Status == string(TaskStatusNeedsApproval) {
-			count++
-		} else if t.Status == string(TaskStatusReview) && isReviewActive != nil && isReviewActive(t.ID) {
+		if t.Status == string(TaskStatusInProgress) {
 			count++
 		}
 	}

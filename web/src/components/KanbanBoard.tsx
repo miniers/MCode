@@ -105,13 +105,15 @@ function goalStatusLabel(status: string): string {
 }
 
 function taskStateLabel(task: TaskItem): string {
-  if (task.lastFailureReason || task.status === 'rejected') return '失败';
+  if (task.status === 'waiting') return '等待中';
+  if (task.status === 'cancelled') return '已取消';
+  if (task.lastFailureReason || task.status === 'rejected' || task.status === 'failed') return '失败';
   if (task.blocked) return `等待 ${Math.max(task.dependsOn.length, 1)} 项`;
   return COLUMN_LABELS[task.displayColumn] ?? '未知状态';
 }
 
 function taskStateClass(task: TaskItem): string {
-  if (task.lastFailureReason || task.status === 'rejected') return 'thread-status thread-status--danger';
+  if (task.lastFailureReason || task.status === 'rejected' || task.status === 'failed') return 'thread-status thread-status--danger';
   if (task.blocked || task.displayColumn === 'needs_you') return 'thread-status thread-status--warning';
   if (task.displayColumn === 'review') return 'thread-status thread-status--primary';
   if (task.displayColumn === 'in_progress') return 'thread-status thread-status--running';

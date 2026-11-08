@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"mcode/internal/agent/gate"
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
 	"mcode/internal/providers/loginenv"
@@ -146,12 +147,17 @@ const nativeSubagentTools = "Agent,Task"
 
 // buildArgs 组装调用 Claude 命令行所需的参数列表。
 func buildArgs(turn harness.Turn, extra ...string) []string {
+	disallowed := nativeSubagentTools
+	// 看板任务执行会话在未解锁时把危险命令直接交给 CLI 拦截，避免模型绕开审批。
+	if turn.HardLocked && strings.TrimSpace(turn.HardLockOverride) == "" {
+		disallowed += "," + strings.Join(gate.ClaudeDeniedPatterns(), ",")
+	}
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
-		"--disallowed-tools", nativeSubagentTools,
+		"--disallowed-tools", disallowed,
 	}
 
 	// "default" 表示交给 CLI 自己的默认模型，此时不传 --model。

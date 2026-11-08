@@ -33,6 +33,9 @@ type Options struct {
 	Store     *session.Store
 	SessionID string
 	MaxRounds int
+	// HardLocked 与 HardLockOverride 来自看板任务执行会话，直接传给 gate.Input。
+	HardLocked       bool
+	HardLockOverride string
 	// ContextWindow 是模型上下文窗口的 token 数，为 0 时使用默认值。
 	ContextWindow int
 	// MaxTokens 返回每个模型请求的输出上限；为 nil 或返回 0 时由 llm 层按模型取默认值。
@@ -413,7 +416,7 @@ func resolveTool(opts Options, call llm.ToolCall) (*tools.Tool, gate.Verdict) {
 	if tool == nil {
 		return nil, gate.Verdict{}
 	}
-	verdict := gate.Check(gate.Input{Mode: opts.Mode, Plan: opts.Plan, ToolName: call.Name, ToolID: call.ID, Args: call.Arguments, WorkDir: opts.Env.WorkDir, AdditionalDirs: opts.Env.AdditionalDirs})
+	verdict := gate.Check(gate.Input{Mode: opts.Mode, Plan: opts.Plan, HardLocked: opts.HardLocked, HardLockOverride: opts.HardLockOverride, ToolName: call.Name, ToolID: call.ID, Args: call.Arguments, WorkDir: opts.Env.WorkDir, AdditionalDirs: opts.Env.AdditionalDirs})
 	return tool, verdict
 }
 

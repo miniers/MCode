@@ -1740,6 +1740,12 @@ func goalOutputSummary(task KanbanTask) string {
 // goalOutputStatusLabel 将任务状态映射为界面文案，未知状态原样返回。
 func goalOutputStatusLabel(status string) string {
 	switch status {
+	case "waiting":
+		return "等待中"
+	case "failed":
+		return "失败"
+	case "cancelled":
+		return "已取消"
 	case "todo":
 		return "待办"
 	case "in_progress":
@@ -2028,6 +2034,12 @@ func filterKanbanTasks(tasks []KanbanTask, query string) []KanbanTask {
 // kanbanStatusLabel 返回任务状态的界面文案，未知状态原样返回。
 func kanbanStatusLabel(status string) string {
 	switch status {
+	case "waiting":
+		return "等待中"
+	case "failed":
+		return "失败"
+	case "cancelled":
+		return "已取消"
 	case "todo":
 		return "待办"
 	case "in_progress":
@@ -2286,15 +2298,15 @@ func kanbanStatusColor(c *ui.Context, col string) ui.Color {
 	switch col {
 	case "todo":
 		return ThemeAccent(c)
-	case "in_progress":
+	case "in_progress", "waiting":
 		return ThemeWarning(c)
 	case "needs_you":
 		return ThemePlan(c)
 	case "review":
 		return ThemeCaution(c)
-	case "done":
+	case "done", "cancelled":
 		return ThemeSuccess(c)
-	case "rejected":
+	case "rejected", "failed":
 		return ThemeDanger(c)
 	default:
 		return ThemeSecondaryText(c)

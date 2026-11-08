@@ -1192,6 +1192,14 @@ func renderKanbanOverviewCard(c *ui.Context, s *chatState, project Project, task
 
 // kanbanStatusBadge 返回任务状态徽标的文案，未知状态返回空串。
 func kanbanStatusBadge(task KanbanTask) string {
+	switch task.Status {
+	case "waiting":
+		return "等待中"
+	case "failed":
+		return "失败"
+	case "cancelled":
+		return "已取消"
+	}
 	switch kanbanDisplayColumn(task) {
 	case "todo":
 		return "待办"

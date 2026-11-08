@@ -37,6 +37,12 @@ export function goalOutputSummary(task: TaskItem): string {
 // goalOutputStatusLabel 将任务状态映射为界面文案，未知状态原样返回。
 export function goalOutputStatusLabel(status: string): string {
   switch (status) {
+    case 'waiting':
+      return '等待中';
+    case 'failed':
+      return '失败';
+    case 'cancelled':
+      return '已取消';
     case 'todo':
       return '待办';
     case 'in_progress':

@@ -94,6 +94,11 @@ type Turn struct {
 	Env       []string
 	Images    []string // 本地图片绝对路径
 
+	// HardLocked 表示本轮是看板任务执行会话，危险命令需要用户先答决策卡。
+	HardLocked bool
+	// HardLockOverride 非空表示任务已获一次性解锁，只对本次运行有效。
+	HardLockOverride string
+
 	InteractionMode string         // "build" 或 "plan"，空等同 build
 	PlanExitMode    PermissionMode // Plan 回合里计划获批后切到的运行模式（用户选的档位）；非 Plan 回合为空
 	Effort          string         // low/medium/high，空表示供应商默认

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -142,7 +143,7 @@ func (r *Registry) registerKanbanTools(s *Server) {
 				},
 				"status": map[string]any{
 					"type":        "string",
-					"enum":        []string{"todo", "in_progress", "needs_approval", "review", "done", "rejected"},
+					"enum":        []string{"todo", "in_progress", "needs_approval", "review", "done", "rejected", "waiting", "failed", "cancelled"},
 					"description": "Optional status filter.",
 				},
 			},
@@ -419,10 +420,21 @@ func (r *Registry) registerKanbanTools(s *Server) {
 
 	r.Register(ToolDefinition{
 		Name:        "kanban_submit_result",
-		Description: "Hand in the result of the task this conversation is executing, before the turn ends. outcome=done means the work is finished and ready for review; outcome=blocked means you cannot continue and someone has to decide. summary is one or two sentences the user reads on the card. This is the normal way for an executing conversation to finish its turn.",
+		Description: "提交任务结果：status 为 done、failed、waiting、delegated 或 needs_decision。",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
+				"status": map[string]any{"type": "string", "enum": []string{"done", "failed", "waiting", "delegated", "needs_decision"}},
+				"waiting_on": map[string]any{"type": "string"},
+				"wait_kind": map[string]any{"type": "string", "enum": []string{"human", "machine"}},
+				"wait_minutes": map[string]any{"type": "integer"},
+				"wait_check": map[string]any{"type": "string"},
+				"question": map[string]any{"type": "string"},
+				"recommendation": map[string]any{"type": "string"},
+				"options": map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type":"string"}, "text": map[string]any{"type":"string"}}, "required": []string{"key", "text"}}},
+				"followups": map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type":"string"}, "body": map[string]any{"type":"string"}, "project": map[string]any{"type":"string"}, "priority": map[string]any{"type":"string"}, "agent": map[string]any{"type":"string"}}, "required": []string{"title"}}},
+				"lessons": map[string]any{"type":"array", "items": map[string]any{"type":"string"}},
+				"attachments": map[string]any{"type":"array", "items": map[string]any{"type":"string"}},
 				"task_id": map[string]any{
 					"type":        "string",
 					"description": "UUID of the task this conversation is executing.",
@@ -445,7 +457,7 @@ func (r *Registry) registerKanbanTools(s *Server) {
 					"description": "Alias of request_id.",
 				},
 			},
-			"required":             []string{"task_id", "outcome", "summary"},
+			"required":             []string{"task_id", "summary"},
 			"additionalProperties": false,
 		},
 		IsWrite:    true,
@@ -1396,8 +1408,9 @@ func handleKanbanSubmitResult(tc ToolContext, args map[string]any) ToolResult {
 		return toolError(CodeInvalidArguments, "Missing required argument: 'task_id'.", false)
 	}
 	taskID = strings.TrimSpace(taskID)
-	outcome, ok := args["outcome"].(string)
-	if !ok || strings.TrimSpace(outcome) == "" {
+	outcome, _ := args["outcome"].(string)
+	status, _ := args["status"].(string)
+	if strings.TrimSpace(status) == "" && strings.TrimSpace(outcome) == "" {
 		return toolError(CodeInvalidArguments, "Missing required argument: 'outcome'.", false)
 	}
 	summary, ok := args["summary"].(string)
@@ -1420,7 +1433,17 @@ func handleKanbanSubmitResult(tc ToolContext, args map[string]any) ToolResult {
 	}
 
 	callerThreadID := scopeThreadID(tc.Context)
-	if err := tc.Server.opts.Kanban.SubmitTaskResult(tc.Context, task.ID, callerThreadID, outcome, summary); err != nil {
+	if status != "" {
+		data, marshalErr := json.Marshal(args)
+		var res kanban.ExecutorResult
+		if marshalErr != nil { return toolError(CodeInvalidArguments, marshalErr.Error(), false) }
+		if err := json.Unmarshal(data, &res); err != nil { return toolError(CodeInvalidArguments, err.Error(), false) }
+		if err := res.Validate(); err != nil { return toolError(CodeInvalidArguments, err.Error(), false) }
+		err = tc.Server.opts.Kanban.SubmitExecutorResult(tc.Context, task.ID, callerThreadID, res)
+	} else {
+		err = tc.Server.opts.Kanban.SubmitTaskResult(tc.Context, task.ID, callerThreadID, outcome, summary)
+	}
+	if err != nil {
 		return kanbanServiceError("Cannot submit the task result", err)
 	}
 
@@ -1428,6 +1451,7 @@ func handleKanbanSubmitResult(tc ToolContext, args map[string]any) ToolResult {
 		"success":   true,
 		"task_id":   task.ID,
 		"outcome":   strings.TrimSpace(outcome),
+		"status":    strings.TrimSpace(status),
 		"thread_id": callerThreadID,
 	})
 }

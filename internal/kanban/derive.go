@@ -65,7 +65,7 @@ func deriveAttentionFlags(task store.Task, rt RuntimeState) ([]string, bool) {
 	flags := make([]string, 0)
 
 	// 1. 失败状态（线程失败或任务被驳回）
-	if rt.ThreadFailed || task.Status == string(TaskStatusRejected) {
+	if rt.ThreadFailed || task.Status == string(TaskStatusRejected) || task.Status == string(TaskStatusFailed) {
 		flags = append(flags, AttentionFlagFailed)
 	}
 
@@ -125,6 +125,12 @@ func deriveAttentionFlags(task store.Task, rt RuntimeState) ([]string, bool) {
 
 // deriveDisplayColumn 映射任务至看板 5 列。
 func deriveDisplayColumn(task store.Task, flags []string, isHardStuck bool, isOptimistic bool) DisplayColumn {
+	if task.Status == string(TaskStatusFailed) {
+		return DisplayColumnTodo
+	}
+	if task.Status == string(TaskStatusCancelled) {
+		return DisplayColumnDone
+	}
 	// Needs You 具有最高优先级：失败、待用户审批/输入、严重卡死均提升至 Needs You
 	if contains(flags, AttentionFlagFailed) ||
 		contains(flags, AttentionFlagAwaitingApproval) ||
@@ -141,7 +147,7 @@ func deriveDisplayColumn(task store.Task, flags []string, isHardStuck bool, isOp
 		return DisplayColumnDone
 	}
 
-	if task.Status == string(TaskStatusInProgress) || (isOptimistic && task.Status == string(TaskStatusTodo)) {
+	if task.Status == string(TaskStatusInProgress) || task.Status == string(TaskStatusWaiting) || (isOptimistic && task.Status == string(TaskStatusTodo)) {
 		return DisplayColumnInProgress
 	}
 

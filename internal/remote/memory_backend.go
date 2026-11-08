@@ -6768,6 +6768,15 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 	firstAttempt := true
 	home, _ := os.UserHomeDir()
 	readOnlyDirs := projctx.SkillReadDirs(workDir, home)
+	// 只有看板任务的执行线程（tasks.thread_id 等于当前线程）才加硬锁；普通交互会话不受影响。
+	hardLocked := false
+	hardLockOverride := ""
+	if b.store != nil {
+		if task, err := b.store.TaskByThreadID(runCtx, threadID); err == nil {
+			hardLocked = true
+			hardLockOverride = taskGateOverride(task.Meta)
+		}
+	}
 	for {
 		if runCtx.Err() != nil {
 			break
@@ -6781,24 +6790,31 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 		env := harness.NonInteractiveEnv()
 		env = append(env, b.turnMemoryEnv(workDir)...)
 
+		approver := harness.Approver(&threadApprover{b: b, threadID: threadID, turnID: turnID, sessionEpoch: recordedEpoch, confirmsDelivery: confirmsDelivery})
+		if hardLocked {
+			approver = &hardLockApprover{inner: approver, b: b, threadID: threadID, hardLocked: hardLocked, override: hardLockOverride}
+		}
+
 		turn := harness.Turn{
-			ID:              turnID,
-			ThreadID:        threadID,
-			Prompt:          harnessTurnPrompt(compactOnly, personaPrefix, currPrompt),
-			WorkDir:         workDir,
-			AdditionalDirs:  additionalDirs,
-			ReadOnlyDirs:    readOnlyDirs,
-			SessionID:       currSessionID,
-			Model:           model,
-			Mode:            turnMode,
-			Approver:        &threadApprover{b: b, threadID: threadID, turnID: turnID, sessionEpoch: recordedEpoch, confirmsDelivery: confirmsDelivery},
-			Images:          imagePaths,
-			InteractionMode: interactionMode,
-			PlanExitMode:    planExitMode,
-			Effort:          effort,
-			FastMode:        fastMode,
-			SpeedTier:       speedTier,
-			Transient:       transient,
+			ID:               turnID,
+			ThreadID:         threadID,
+			Prompt:           harnessTurnPrompt(compactOnly, personaPrefix, currPrompt),
+			WorkDir:          workDir,
+			AdditionalDirs:   additionalDirs,
+			ReadOnlyDirs:     readOnlyDirs,
+			SessionID:        currSessionID,
+			Model:            model,
+			Mode:             turnMode,
+			HardLocked:       hardLocked,
+			HardLockOverride: hardLockOverride,
+			Approver:         approver,
+			Images:           imagePaths,
+			InteractionMode:  interactionMode,
+			PlanExitMode:     planExitMode,
+			Effort:           effort,
+			FastMode:         fastMode,
+			SpeedTier:        speedTier,
+			Transient:        transient,
 			// 让 CLI 派生的命令在非交互环境下失败而不是等待 stdin、编辑器或分页器。
 			// 同时按项目目录注入 Nowledge Mem 的 NMEM_SPACE（仅当同名空间已存在，本地记忆后端跳过），
 			// 避免各项目记忆混在 Default。

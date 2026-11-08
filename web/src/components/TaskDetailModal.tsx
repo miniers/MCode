@@ -317,7 +317,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     }
   };
 
-  const availableMoveTargets: TaskStatus[] = task.status === 'review' || task.status === 'rejected'
+  const availableMoveTargets: TaskStatus[] = task.status === 'review' || task.status === 'rejected' || task.status === 'waiting' || task.status === 'failed' || task.status === 'cancelled'
     ? ['todo']
     : (['todo', 'review', 'done'] as TaskStatus[]).filter((status) => status !== task.status);
 

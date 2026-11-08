@@ -277,3 +277,32 @@ func TestCheckWebFetch(t *testing.T) {
 		t.Fatalf("Supervised 得到 %+v", got)
 	}
 }
+
+// TestCheckHardLock 覆盖看板任务执行会话的危险命令硬锁。
+func TestCheckHardLock(t *testing.T) {
+	args, _ := json.Marshal(map[string]any{"command": "gh pr merge 12"})
+	run := func(locked bool, override string) Verdict {
+		return Check(Input{
+			Mode:             harness.ModeFullAccess,
+			ToolName:         "bash",
+			Args:             args,
+			HardLocked:       locked,
+			HardLockOverride: override,
+		})
+	}
+
+	got := run(true, "")
+	if got.Action != Deny {
+		t.Fatalf("HardLocked 时 gh pr merge 应被拒绝，实际 %+v", got)
+	}
+	if !strings.Contains(got.Reason, "危险操作已锁定，需要用户答决策卡后解锁") {
+		t.Fatalf("拒绝理由不匹配: %q", got.Reason)
+	}
+
+	if got := run(false, ""); got.Action != Allow {
+		t.Fatalf("未锁定时行为应保持不变，实际 %+v", got)
+	}
+	if got := run(true, "D-42"); got.Action != Allow {
+		t.Fatalf("带 override 时应放行，实际 %+v", got)
+	}
+}

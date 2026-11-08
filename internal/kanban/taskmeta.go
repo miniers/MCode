@@ -12,6 +12,7 @@ type TaskMeta struct {
 	ParentID     string   `json:"parent,omitempty"`
 	Children     []string `json:"children,omitempty"`
 	ResultStatus string   `json:"result_status,omitempty"`
+	Summary      string   `json:"summary,omitempty"`
 	WaitKind     string   `json:"wait_kind,omitempty"`
 	WakeAt       string   `json:"wake_at,omitempty"`
 	WaitCheck    string   `json:"wait_check,omitempty"`

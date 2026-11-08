@@ -27,6 +27,10 @@ type Input struct {
 	AdditionalDirs []string
 	// ControlPlanePaths 包含调用方需要保护的额外控制面文件或目录。
 	ControlPlanePaths []string
+	// HardLocked 表示当前线程是看板任务执行会话，危险命令需要用户先答决策卡。
+	HardLocked bool
+	// HardLockOverride 非空表示任务已获一次性解锁，只对本次运行有效。
+	HardLockOverride string
 }
 
 // Action 表示门禁决定，对应 TS 的 verdictWithoutAsking。
@@ -141,6 +145,12 @@ func Check(in Input) Verdict {
 		kind = harness.RequestKindFileChange
 	}
 	command := str("command")
+	// 硬锁只作用于看板任务的 bash 类调用；普通交互会话 HardLocked 为 false，行为不变。
+	if in.HardLocked && in.ToolName == "bash" {
+		if lock, hit := CheckHardLock(command, in.HardLockOverride); hit {
+			return Verdict{Action: Deny, Reason: "危险操作已锁定，需要用户答决策卡后解锁：" + lock.Reason}
+		}
+	}
 	webFetch := in.ToolName == "web_fetch"
 	var patchPaths []string
 	if in.ToolName == "apply_patch" {

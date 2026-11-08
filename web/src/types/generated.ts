@@ -4,7 +4,7 @@ export type UUID = string;
 
 export type ISO8601DateTime = string;
 
-export type TaskStatus = "todo" | "in_progress" | "needs_approval" | "review" | "done" | "rejected";
+export type TaskStatus = "todo" | "in_progress" | "needs_approval" | "review" | "done" | "rejected" | "waiting" | "failed" | "cancelled";
 
 export type TaskPriority = "urgent" | "high" | "medium" | "low" | "none";
 

@@ -209,7 +209,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	agentOpts := agent.Options{
 		Client: client, Model: modelID, Effort: turn.Effort, System: system, Tools: toolset,
 		Env:  tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, ReadOnlyDirs: turn.ReadOnlyDirs, Sandbox: turn.Sandbox, Mode: turn.Mode, ExtraEnv: extraEnv},
-		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
+		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", HardLocked: turn.HardLocked, HardLockOverride: turn.HardLockOverride, Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
 		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, ContextWindow: contextWindow,
 		Emit: runEmit,
 	}
