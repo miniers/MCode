@@ -30,10 +30,10 @@ func onboardingPulse(c *ui.Context, el ui.Element, alternate bool) float32 {
 	return el.Keyframes("pulse", []ui.Keyframe{{Value: 0}, {At: animateDuration(c, motionSweep), Value: 1, Ease: ui.Linear}}, ui.KeyframeOptions{Repeat: ui.RepeatForever, Alternate: alternate})
 }
 
-// renderOnboardingHero 展示引导首页的三个连接节点。
+// renderOnboardingHero 展示引导首页的两个连接节点。
 func renderOnboardingHero(c *ui.Context) {
 	ui.Row(c.Key("onboarding-illustration")).FillWidth().AlignItems(ui.Center).Children(func() {
-		for i, label := range []string{"mcode", "Magpie", "pi"} {
+		for i, label := range []string{"mcode", "Magpie"} {
 			if i > 0 {
 				line := ui.Box(c.Key("onboarding-link-" + label)).Grow(1).Height(onboardingLinkHeight).Background(ThemeBorder(c))
 				line.Children(func() {
@@ -47,8 +47,8 @@ func renderOnboardingHero(c *ui.Context) {
 				node := ui.Row(c.Key("onboarding-node-icon-" + label)).Width(onboardingNodeSize).Height(onboardingNodeSize).Radius(RadiusPill).AlignItems(ui.Center).Justify(ui.Center)
 				glow := onboardingPulse(c, node, true)
 				node.Background(ThemeAccent(c).Alpha(0.08+0.1*glow)).Border(Hairline, ThemeAccent(c).Alpha(0.25+0.3*glow)).Children(func() {
-					if label == "pi" {
-						renderProviderRowIcon(c, "pi", IconMD)
+					if label == "mcode" {
+						renderProviderRowIcon(c, "mcode", IconMD)
 					} else if label == "Magpie" {
 						ui.Icon(c, IconNetwork()).Size(IconMD, IconMD).TextColor(ThemeAccent(c))
 					} else {

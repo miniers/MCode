@@ -42,17 +42,35 @@ type Harness struct {
 type activeRun struct {
 	mu      sync.Mutex
 	pending []string
+	// closed 表示这一轮已经收尾，之后到达的插话要退回给调用方排队。
+	closed bool
 }
 
-func (r *activeRun) enqueue(text string) {
+// enqueue 追加一段插话；队列已关闭时返回 false，表示本轮不再接收。
+func (r *activeRun) enqueue(text string) bool {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return false
+	}
 	r.pending = append(r.pending, text)
-	r.mu.Unlock()
+	return true
 }
 
 func (r *activeRun) drain() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	texts := r.pending
+	r.pending = nil
+	return texts
+}
+
+// closeAndTake 关闭队列，并在同一把锁下取出剩余文本。
+// 关闭后 enqueue 返回 false，插话不会再落进一个没人处理的队列。
+func (r *activeRun) closeAndTake() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.closed = true
 	texts := r.pending
 	r.pending = nil
 	return texts
@@ -138,13 +156,38 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		emitEvent(emit, event)
 	}
 	defer func() { h.unregisterRun(sessionID) }()
-	return agent.Run(ctx, agent.Options{
+	agentOpts := agent.Options{
 		Client: client, Model: modelID, Effort: turn.Effort, System: system, Tools: toolset,
 		Env:  tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, Sandbox: turn.Sandbox, Mode: turn.Mode, ExtraEnv: extraEnv},
 		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
 		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, ContextWindow: contextWindow,
-		Steer: run.drain, Emit: runEmit,
-	}, turn.Prompt, images)
+		Emit: runEmit,
+	}
+	prompt := turn.Prompt
+	for {
+		agentOpts.Steer = run.drain
+		runErr := agent.Run(ctx, agentOpts, prompt, images)
+		if runErr != nil || ctx.Err() != nil {
+			// 出错或被取消时不再续跑，剩余插话随队列关闭退回调用方排队。
+			run.closeAndTake()
+			if runErr == nil {
+				runErr = ctx.Err()
+			}
+			return runErr
+		}
+		leftovers := run.closeAndTake()
+		if len(leftovers) == 0 {
+			return nil
+		}
+		// 最后一次 drain 之后仍有插话落到收尾窗口：重新打开队列并续跑同一轮。
+		run = &activeRun{}
+		if sessionID != "" {
+			agentOpts.SessionID = sessionID
+			h.registerRun(sessionID, run)
+		}
+		prompt = strings.Join(leftovers, "\n\n")
+		images = nil
+	}
 }
 
 // Steer 向正在执行的会话追加一段插话，下一次模型调用前作为 user 消息注入。
@@ -159,7 +202,9 @@ func (h *Harness) Steer(ctx context.Context, sessionID string, text string) erro
 	if sessionID == "" || run == nil {
 		return harness.ErrNotRunning
 	}
-	run.enqueue(text)
+	if !run.enqueue(text) {
+		return harness.ErrNotRunning
+	}
 	return nil
 }
 

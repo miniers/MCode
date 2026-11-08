@@ -25,7 +25,7 @@ const (
 	onboardingWelcome onboardingStep = iota
 	onboardingAgents
 	onboardingMagpie
-	onboardingPi
+	onboardingBuiltin
 	onboardingFinish
 )
 
@@ -266,11 +266,28 @@ func onboardingProviderStatus(st *SettingsState, id string) providerRowStatus {
 }
 
 // onboardingSummaryRoute 处理新手引导中的对应流程。
-func onboardingSummaryRoute(route onboardingRoute, magpie, pi string) (string, string) {
+func onboardingSummaryRoute(route onboardingRoute, magpie, agent string) (string, string) {
 	if route == onboardingDirect {
 		return "已跳过", "已跳过"
 	}
-	return magpie, pi
+	return magpie, agent
+}
+
+// onboardingFinishReady 判断完成页是否显示就绪：推荐路径看 Magpie 连接与内置 mcode 共用的模型勾选，
+// 直连路径看任一 CLI 是否可用。
+func onboardingFinishReady(route onboardingRoute, st *SettingsState, connected bool) bool {
+	if st == nil {
+		return false
+	}
+	if route == onboardingRecommended {
+		return connected && onboardingModelSelected(st)
+	}
+	for _, id := range []string{"claude", "codex", "agy"} {
+		if onboardingProviderStatus(st, id).Ready {
+			return true
+		}
+	}
+	return false
 }
 
 // onboardingStatusTone 处理新手引导中的对应流程。
@@ -422,7 +439,7 @@ func renderOnboardingDialog(c *ui.Context, s *chatState) {
 					default:
 						onboardingButton(c, "onboarding-refresh", "重新检测", false, func() { refreshOnboarding(s) })
 						label := "继续"
-						if step == onboardingMagpie || step == onboardingPi {
+						if step == onboardingMagpie || step == onboardingBuiltin {
 							label = "跳过"
 						}
 						onboardingButton(c, "onboarding-next", label, true, func() { onboardingSetStep(s, onboardingNextStep(route, step)) })
@@ -438,7 +455,7 @@ func renderOnboardingDialog(c *ui.Context, s *chatState) {
 
 // renderOnboardingStep 处理新手引导中的对应流程。
 func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step onboardingStep, route onboardingRoute) {
-	titles := [...]string{"欢迎使用 mcode", "选择你的智能体", "连接 Magpie", "安装 pi 并选择模型", "准备好了"}
+	titles := [...]string{"欢迎使用 mcode", "选择你的智能体", "连接 Magpie", "为 mcode 选择模型", "准备好了"}
 	ui.Text(c, titles[step]).FontSize(TypePageTitle).TextColor(ThemePrimaryText(c))
 	switch step {
 	case onboardingWelcome:
@@ -462,7 +479,7 @@ func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step o
 				})
 			}
 		})
-		ui.Text(c, "mcode 与 Magpie 网关、pi 智能体深度整合。推荐连接 Magpie 并安装 pi：一个网关统一调用多个模型，菜单栏显示 Magpie 额度，可以切换人设，子代理也能跑在 pi 上。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, "mcode 与 Magpie 网关、pi 智能体深度整合。推荐连接 Magpie 并为 mcode 选择模型：一个网关统一调用多个模型，菜单栏显示 Magpie 额度，可以切换人设，子代理也能跑在 pi 上。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
 		ui.Text(c, "也可以只用 Claude、Codex 或 agy 直连。跳过后，Magpie 人设、Magpie 额度和网关模型路由不可用，以后可以随时在设置里补上。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
 	case onboardingAgents:
 		ui.Text(c, "装好任意一个就能开始。安装会在系统终端里进行，完成后回来点「重新检测」。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
@@ -481,9 +498,8 @@ func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step o
 			ui.Box(c).Grow(1)
 			onboardingButton(c, "onboarding-magpie-settings", "打开 Magpie 设置", false, func() { onboardingSuspend(s, "magpie", true) })
 		})
-	case onboardingPi:
-		ui.Text(c, "pi 是 mcode 推荐的子代理引擎，Magpie 里勾选的模型会自动注入 pi，不改你的 ~/.pi 配置。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
-		onboardingProviderRow(c, s, st, "pi", 0)
+	case onboardingBuiltin:
+		onboardingProviderRow(c, s, st, "mcode", 0)
 		_, connected := onboardingMagpieStatus(st)
 		ui.Row(c).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
 			text := "先连接 Magpie"
@@ -502,15 +518,7 @@ func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step o
 		})
 	case onboardingFinish:
 		_, connected := onboardingMagpieStatus(st)
-		ready := false
-		for _, id := range []string{"claude", "codex", "agy"} {
-			if onboardingProviderStatus(st, id).Ready {
-				ready = true
-			}
-		}
-		if route == onboardingRecommended {
-			ready = ready && connected && st != nil && !providerRowNotInstalled(st, "pi") && onboardingProviderStatus(st, "pi").Summary != "检查中" && onboardingModelSelected(st)
-		}
+		ready := onboardingFinishReady(route, st, connected)
 		if ready {
 			ui.Box(c.Key("onboarding-celebration-wrap")).Width(onboardingCelebrationSize).Height(onboardingCelebrationSize).Children(func() {
 				if !reduceMotion(c) {
@@ -528,10 +536,10 @@ func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step o
 			onboardingSummaryRow(c, i, providerDisplayName(id), status.Summary, status.Ready)
 		}
 		magpie, connected := onboardingMagpieStatus(st)
-		pi := onboardingProviderStatus(st, "pi")
-		magpie, piSummary := onboardingSummaryRoute(route, magpie, pi.Summary)
+		agent := onboardingProviderStatus(st, "mcode")
+		magpie, agentSummary := onboardingSummaryRoute(route, magpie, agent.Summary)
 		onboardingSummaryRow(c, 3, "Magpie", magpie, connected)
-		onboardingSummaryRow(c, 4, "pi", piSummary, pi.Ready)
+		onboardingSummaryRow(c, 4, "mcode", agentSummary, agent.Ready)
 	}
 }
 

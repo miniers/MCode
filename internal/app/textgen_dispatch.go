@@ -264,6 +264,11 @@ func generateText(ctx context.Context, cfg config.Config, secrets config.SecretS
 		return textgen.GenerateWithOptions(ctx, textgen.Options{Provider: lower, Model: model, Effort: effort}, prompt)
 	}
 
+	// 内置 mcode provider 直接用内部模型客户端，不走 CLI、memory 或 OpenAI 兼容端点。
+	if lower == config.ProviderMcode {
+		return mcodeGenerateText(ctx, cfg, secrets, model, effort, prompt)
+	}
+
 	// 第二层：OpenAI 兼容端点走 chat/completions。
 	// 这里传原始大小写的 provider，因为自定义端点 ID 可能含大写字母。
 	if target, ok := resolveOpenAICompatible(cfg, secrets, raw, model); ok {

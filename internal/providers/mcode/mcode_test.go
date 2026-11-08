@@ -300,3 +300,44 @@ func TestSteerNotRunning(t *testing.T) {
 		t.Fatalf("已结束会话的 Steer() error = %v", err)
 	}
 }
+
+// TestSteerLandsAfterFinalDrain 验证插话正好落在最后一次 drain 之后时不会被悄悄丢掉：
+// 要么 Steer 明确返回 ErrNotRunning，要么这段文本进入续跑的模型请求。
+// EventDone 在最后一次 drain 之后发出，正好卡在收尾窗口里。
+func TestSteerLandsAfterFinalDrain(t *testing.T) {
+	client := &fakeClient{responses: []*llm.Response{answer(), answer()}}
+	h := harnessFor(client, Options{})
+	var (
+		steered  bool
+		steerErr error
+	)
+	err := h.Run(context.Background(), harness.Turn{SessionID: "late", Prompt: "start"}, func(event harness.Event) {
+		if event.Type != harness.EventDone || steered {
+			return
+		}
+		steered = true
+		steerErr = h.Steer(context.Background(), "late", "later")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !steered {
+		t.Fatal("回调没有触发插话")
+	}
+	if steerErr != nil {
+		if !errors.Is(steerErr, harness.ErrNotRunning) {
+			t.Fatalf("Steer() error = %v", steerErr)
+		}
+		return
+	}
+	for _, request := range client.requests[1:] {
+		for _, message := range request.Messages {
+			for _, part := range message.Content {
+				if part.Text == "later" {
+					return
+				}
+			}
+		}
+	}
+	t.Fatalf("Steer() 返回 nil，但插话没有进入模型请求：%+v", client.requests)
+}
