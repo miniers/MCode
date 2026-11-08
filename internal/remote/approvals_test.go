@@ -1632,6 +1632,203 @@ func TestApprovals_ReadOnlyHelperAllowsSafeReadOnlyCommand(t *testing.T) {
 	}
 }
 
+// TestApprovals_HelperThreadAutoApprovesUnattended 覆盖无人值守的 Swarm bee：
+// 非敏感审批（命令、文件改动、计划）自动放行，敏感操作自动拒绝，提问得到固定答复，
+// 全程不产生前端待处理请求。
+func TestApprovals_HelperThreadAutoApprovesUnattended(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+
+	ctx := context.Background()
+	threadID := "00000000-0000-0000-0000-00000000008c"
+	backend.AddThread(wire.ThreadSummary{
+		ID:          threadID,
+		Title:       "Auto Bee Thread",
+		RuntimeMode: "auto",
+	}, nil)
+	backend.SetThreadRelation(threadID, "00000000-0000-0000-0000-000000000001", true)
+
+	var (
+		commandResp   harness.ApprovalResponse
+		commandErr    error
+		fileResp      harness.ApprovalResponse
+		fileErr       error
+		planResp      harness.ApprovalResponse
+		planErr       error
+		sensitiveResp harness.ApprovalResponse
+		sensitiveErr  error
+		questionResp  harness.ApprovalResponse
+		questionErr   error
+		pendingSeen   bool
+	)
+
+	doneCh := make(chan struct{})
+	mock := &mockHarness{
+		runFunc: func(runCtx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+			defer close(doneCh)
+			ia, ok := turn.Approver.(harness.Interactor)
+			if !ok {
+				t.Error("turn approver should implement harness.Interactor")
+				return nil
+			}
+			checkPending := func() {
+				res, err := backend.ListRequests(runCtx, threadID)
+				if err != nil {
+					t.Errorf("ListRequests: %v", err)
+					return
+				}
+				if len(res.Requests) > 0 {
+					pendingSeen = true
+				}
+			}
+
+			commandResp, commandErr = ia.Interact(runCtx, harness.ApprovalRequest{
+				ToolID:   "call_bee_auto_command",
+				ToolName: "bash",
+				Kind:     harness.RequestKindCommand,
+				Input:    json.RawMessage(`{"command":"go test ./..."}`),
+				Summary:  `Bash {"command":"go test ./..."}`,
+			})
+			checkPending()
+
+			fileResp, fileErr = ia.Interact(runCtx, harness.ApprovalRequest{
+				ToolID:   "call_bee_auto_file",
+				ToolName: "write",
+				Kind:     harness.RequestKindFileChange,
+				Input:    json.RawMessage(`{"path":"/workspace/main.go"}`),
+				Summary:  "/workspace/main.go",
+			})
+			checkPending()
+
+			planResp, planErr = ia.Interact(runCtx, harness.ApprovalRequest{
+				ToolID:   "call_bee_auto_plan",
+				ToolName: "ExitPlanMode",
+				Kind:     harness.RequestKindPlan,
+				Plan:     "先改 A，再改 B",
+			})
+			checkPending()
+
+			sensitiveResp, sensitiveErr = ia.Interact(runCtx, harness.ApprovalRequest{
+				ToolID:    "call_bee_auto_sensitive",
+				ToolName:  "bash",
+				Kind:      harness.RequestKindCommand,
+				Sensitive: "credential",
+				Input:     json.RawMessage(`{"command":"cat ~/.ssh/id_rsa"}`),
+			})
+			checkPending()
+
+			questionResp, questionErr = ia.Interact(runCtx, harness.ApprovalRequest{
+				ToolID:   "call_bee_auto_question",
+				ToolName: "AskUserQuestion",
+				Kind:     harness.RequestKindQuestion,
+				Questions: []harness.Question{{
+					ID:     "q1",
+					Prompt: "用哪个方案？",
+					Choices: []harness.QuestionChoice{
+						{Label: "A"},
+						{Label: "B"},
+					},
+				}},
+			})
+			checkPending()
+			return nil
+		},
+	}
+	backend.SetHarness(mock, "/workspace", harness.ModeAuto)
+
+	conn := newMockStreamConn()
+	var requestNotified bool
+	conn.notifyFn = func(method string, params any) error {
+		if method == "requests.changed" {
+			requestNotified = true
+		}
+		return nil
+	}
+	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+		ThreadID: threadID,
+		Text:     "执行任务",
+		ActionID: "00000000-0000-0000-0000-00000000008d",
+	}); err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("turn execution timed out")
+	}
+
+	for name, err := range map[string]error{
+		"command":   commandErr,
+		"file":      fileErr,
+		"plan":      planErr,
+		"sensitive": sensitiveErr,
+		"question":  questionErr,
+	} {
+		if err != nil {
+			t.Fatalf("%s Interact 不应返回错误: %v", name, err)
+		}
+	}
+	if commandResp.Decision != harness.DecisionAllow {
+		t.Errorf("子代理命令应自动放行，得到 %v", commandResp.Decision)
+	}
+	if fileResp.Decision != harness.DecisionAllow {
+		t.Errorf("子代理文件改动应自动放行，得到 %v", fileResp.Decision)
+	}
+	if planResp.Decision != harness.DecisionAllow {
+		t.Errorf("子代理计划应自动放行，得到 %v", planResp.Decision)
+	}
+	if sensitiveResp.Decision != harness.DecisionDeny {
+		t.Errorf("子代理敏感操作应被拒绝，得到 %v", sensitiveResp.Decision)
+	}
+	if !strings.Contains(sensitiveResp.Feedback, "敏感操作") {
+		t.Errorf("敏感操作拒绝应带说明，得到 %q", sensitiveResp.Feedback)
+	}
+	if questionResp.Decision != harness.DecisionAllow {
+		t.Errorf("子代理提问应直接答复，得到 %v", questionResp.Decision)
+	}
+	wantAnswer := "子代理无人值守，没有人回答提问，请自行判断后继续"
+	if answers := questionResp.Answers["q1"]; len(answers) != 1 || answers[0] != wantAnswer {
+		t.Errorf("子代理提问答复应为 %q，得到 %v", wantAnswer, questionResp.Answers)
+	}
+	if pendingSeen {
+		t.Error("子代理审批不应产生前端待处理请求")
+	}
+	if requestNotified {
+		t.Error("子代理审批不应向前端推送 requests.changed")
+	}
+}
+
+// TestApprovals_OrdinaryThreadStillPromptsInAutoMode 覆盖普通（非子代理）线程：
+// auto 档下的命令审批仍然分发到前端并挂起等待答复。
+func TestApprovals_OrdinaryThreadStillPromptsInAutoMode(t *testing.T) {
+	threadID := "00000000-0000-0000-0000-00000000008e"
+	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+
+	probe := probeApproval(t, backend, threadID, harness.ModeAuto, harness.ApprovalRequest{
+		ToolID:   "call_ordinary_auto_command",
+		ToolName: "Bash",
+		Input:    json.RawMessage(`{"command":"go test ./..."}`),
+		Summary:  `Bash {"command":"go test ./..."}`,
+		Kind:     harness.RequestKindCommand,
+	}, 150*time.Millisecond)
+
+	if probe.decision == harness.DecisionAllow {
+		t.Fatal("普通线程的命令审批不应自动放行")
+	}
+	if !probe.pendingSeen {
+		t.Fatal("普通线程的命令审批应仍然分发到前端")
+	}
+}
+
 // TestIsSafeReadOnlyCommand 覆盖安全只读命令判定的放行与拒绝边界。
 func TestIsSafeReadOnlyCommand(t *testing.T) {
 	allowed := []string{

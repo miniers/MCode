@@ -212,6 +212,29 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 		}
 	}
 
+	// 子代理（Swarm bee）无人值守：审批请求挂起会永久卡住本轮，前端也不会有人来答复。
+	// 非敏感操作直接放行，改动落在独立 worktree，合并时还会按档位过滤；提问则给出固定答复。
+	if td.isHelper || td.parentThreadID != "" {
+		if req.Sensitive != "" {
+			a.b.mu.Unlock()
+			return harness.ApprovalResponse{
+				Decision: harness.DecisionDeny,
+				Feedback: "子代理无人值守，敏感操作已自动拒绝，请换一种不涉及该路径的做法",
+			}, nil
+		}
+		if kind == harness.RequestKindQuestion {
+			// 用允许加答案代替拒绝，避免 provider 把拒绝当作本轮中断；答案为模型可读的固定说明。
+			answers := make(map[string][]string, len(req.Questions))
+			for _, q := range req.Questions {
+				answers[q.ID] = []string{"子代理无人值守，没有人回答提问，请自行判断后继续"}
+			}
+			a.b.mu.Unlock()
+			return harness.ApprovalResponse{Decision: harness.DecisionAllow, Answers: answers}, nil
+		}
+		a.b.mu.Unlock()
+		return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
+	}
+
 	// 总管的会话调用内置 MCP 服务器上的工具直接放行：这些工具在只读档下本会被一律拒绝，
 	// 而内置服务器已按白名单裁剪过（只留总管专属工具与既有只读工具），越权调用会被它拒绝。
 	// 写文件、执行命令与第三方 MCP 服务器的工具都不命中这条豁免。
