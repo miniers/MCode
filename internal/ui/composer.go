@@ -1957,20 +1957,12 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 		// 子代理的输入框只选单个模型，展开状态也用自己的一份，不与主输入框联动。
 		pickerMode, pickerState = ModelPickerSimple, s.embeddedPicker
 	}
-	var magpieFilter modelPickerMagpieFilter
-	if st := getChatSettings(s); st != nil {
-		st.cfgMu.Lock()
-		magpieFilter = newModelPickerMagpieFilter(st.cfg)
-		st.cfgMu.Unlock()
-	}
 	// 模型目录为空时，选择器里提供「重新探测」按钮：重新拉取供应商目录。
-	renderModelPicker(c, ModelPickerProps{
+	renderModelPicker(c, modelPickerCatalogFor(s).apply(ModelPickerProps{
 		Mode:              pickerMode,
 		KeyPrefix:         "composer-",
 		ScopeKey:          threadID,
 		State:             pickerState,
-		Providers:         providers,
-		MagpieFilter:      magpieFilter,
 		Selection:         leadSelection,
 		Bees:              beesSelection,
 		SwarmOn:           swarmOn,
@@ -1978,8 +1970,6 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 		Disabled:          prefsSaving,
 		LeadDisabled:      prefsSaving || s.modelPreferenceBusy(leadPin),
 		BeesDisabled:      prefsSaving || s.modelPreferenceBusy(beesPin),
-		Pins:              pinnedModelPins(s),
-		ProviderEnabled:   providerEnabledState(s),
 		Pairs:             pairs,
 		PairID:            currentThread.PairID,
 		MaxBees:           swarmMaxBees(s),
@@ -1987,13 +1977,9 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 		TierOverrides:     tierOverrides,
 		PairTierOverrides: pairTierOverrides,
 		CapsuleLabel:      capsuleLabel,
-		OnRefreshCatalog:  s.refreshProviders,
 		HideBeeName:       rowWidth > 0 && rowWidth < composerBeeNameMinWidth,
 		NoEffortSignal:    composerChinTierFor(s, rowWidth) == composerChinNarrow,
 		Tooltip:           modelTooltip,
-		QuotaUsed: func(providerID string) (float64, bool) {
-			return getProviderQuotaUsed(s, providerID)
-		},
 		OnPickModel: func(side ModelPickerSide, prov ProviderInfo, m ModelInfo) {
 			if side == ModelPickerSideLead {
 				// 新模型配了默认强度就记它，否则沿用旧强度；不支持就记空强度。
@@ -2158,7 +2144,7 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 			}
 		},
 		Invalidate: s.invalidate,
-	})
+	}))
 }
 
 // rememberModelSelection 记录最近一次在模型选择组件中确认的选择，供新建会话与组件初始化复用。

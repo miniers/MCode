@@ -83,14 +83,14 @@ var pageSourceControl = settingsPage{
 					Aliases: []string{"模型", "model", "utility", "会话标题", "提交"},
 					Control: resettableCustomControl{
 						renderFn: func(c *ui.Context, st *SettingsState, s setting) {
-							providers := sourceControlProviders(st)
+							catalog := settingsModelPickerCatalog(st)
+							providers := catalog.Providers
 							sel := modelSelectionFromConfig(st.cfg.SourceControl.CommitMessageModel)
 							sel = resolveModelPickerSelection(providers, sel)
-							renderModelPicker(c, ModelPickerProps{
+							renderModelPicker(c, catalog.apply(ModelPickerProps{
 								Mode:         ModelPickerSimple,
 								KeyPrefix:    "sc-commit-",
 								ScopeKey:     "sc-commit",
-								Providers:    providers,
 								Selection:    sel,
 								CapsuleLabel: modelShortDisplayName(providers, sel.Provider, sel.Model),
 								Tooltip:      modelCapsuleFullNameTip("生成提交信息与会话标题的模型", providers, sel),
@@ -107,7 +107,7 @@ var pageSourceControl = settingsPage{
 									saveCommitMessageModel(st, ModelSelection{Provider: sel.Provider, Model: sel.Model})
 								},
 								Invalidate: st.invalidate,
-							})
+							}))
 						},
 						resetFn: func(cfg *config.Config) {
 							cfg.SourceControl.CommitMessageModel = config.ModelSelectionConfig{}
@@ -290,28 +290,6 @@ func saveCommitMessageModel(st *SettingsState, sel ModelSelection) {
 	st.mu.Unlock()
 	st.save()
 	st.invalidate()
-}
-
-// sourceControlProviders 返回「提交信息 / 会话标题生成模型」可选的 provider 目录；尚未加载时回退到内置列表。
-func sourceControlProviders(st *SettingsState) []ProviderInfo {
-	st.mu.Lock()
-	chat := st.chat
-	st.mu.Unlock()
-
-	var providers []ProviderInfo
-	if chat != nil {
-		chat.mu.Lock()
-		providers = append([]ProviderInfo(nil), chat.providers...)
-		chat.mu.Unlock()
-	}
-	if len(providers) == 0 {
-		providers = []ProviderInfo{
-			{ID: config.ProviderClaude, Name: "Claude"},
-			{ID: config.ProviderCodex, Name: "Codex"},
-			{ID: config.ProviderAgy, Name: "agy"},
-		}
-	}
-	return providers
 }
 
 // renderSourceControlAdvancedSections 保留给旧分发分支引用；版本控制页已由页面树接管，进阶项在 advancedSourceControl。

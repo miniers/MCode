@@ -2075,7 +2075,8 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 
 											// 模型与权限：只在每次运行新建会话时生效，心跳模式沿用原会话设置
 											heartbeat := as.runMode == "heartbeat"
-											providers := append([]ProviderInfo(nil), s.providers...)
+											catalog := modelPickerCatalogFor(s)
+											providers := catalog.Providers
 											ui.Row(c.Key("form-run-settings-row")).
 												FillWidth().
 												Wrap().
@@ -2105,11 +2106,10 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 															if !followsDefault {
 																tooltip = modelCapsuleFullNameTip(tooltip, providers, resolved)
 															}
-															renderModelPicker(c, ModelPickerProps{
+															renderModelPicker(c, catalog.apply(ModelPickerProps{
 																Mode:           ModelPickerSimple,
 																KeyPrefix:      "automation-model-",
 																ScopeKey:       "automation-model-" + as.selectedID,
-																Providers:      providers,
 																Selection:      resolved,
 																CapsuleLabel:   capsule,
 																NoEffortSignal: followsDefault,
@@ -2139,7 +2139,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 																	s.invalidate()
 																},
 																Invalidate: s.invalidate,
-															})
+															}))
 														})
 
 													// 权限：空值表示跟随默认

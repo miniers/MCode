@@ -50,7 +50,7 @@ func newSwarmCapsuleTester(t *testing.T) (*SettingsState, *ui.Tester) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		provs := swarmSettingsProviders(st)
+		provs := settingsModelPickerCatalog(st).Providers
 		hasModels := false
 		for _, p := range provs {
 			if len(p.Models) > 0 {

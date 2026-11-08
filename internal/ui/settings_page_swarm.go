@@ -31,35 +31,6 @@ func getSwarmUIState(st *SettingsState) *swarmPairsUIState {
 	return st.swarmPage
 }
 
-// swarmSettingsProviders 获取当前可用的 Provider 列表，若无则使用默认 fallback 列表。
-func swarmSettingsProviders(st *SettingsState) []ProviderInfo {
-	if st == nil {
-		return []ProviderInfo{
-			{ID: config.ProviderClaude, Name: "Claude"},
-			{ID: config.ProviderCodex, Name: "Codex"},
-			{ID: config.ProviderAgy, Name: "agy"},
-		}
-	}
-	st.mu.Lock()
-	chat := st.chat
-	st.mu.Unlock()
-
-	var providers []ProviderInfo
-	if chat != nil {
-		chat.mu.Lock()
-		providers = append([]ProviderInfo(nil), chat.providers...)
-		chat.mu.Unlock()
-	}
-	if len(providers) == 0 {
-		providers = []ProviderInfo{
-			{ID: config.ProviderClaude, Name: "Claude"},
-			{ID: config.ProviderCodex, Name: "Codex"},
-			{ID: config.ProviderAgy, Name: "agy"},
-		}
-	}
-	return providers
-}
-
 // cloneSwarmPair 深拷贝草稿配对：BeeTiers 是 map、两个 Effort 是指针，
 // 浅拷贝会让编辑器的改动直接写进运行态配置，点「取消」也已经在 cfg 里改了档位映射（S-094）。
 func cloneSwarmPair(p config.SwarmPair) config.SwarmPair {
@@ -822,7 +793,7 @@ func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageSwarm) }
 func renderPageSwarm(c *ui.Context, st *SettingsState) { renderSettingsTreePage(c, st, pageSwarm) }
 
 func renderSwarmPairsBody(c *ui.Context, st *SettingsState) {
-	providers := swarmSettingsProviders(st)
+	providers := settingsModelPickerCatalog(st).Providers
 	uiSt := getSwarmUIState(st)
 
 	// 顶部说明文字与操作按钮
@@ -897,7 +868,7 @@ func renderSwarmPairsBody(c *ui.Context, st *SettingsState) {
 }
 
 func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
-	providers := swarmSettingsProviders(st)
+	providers := settingsModelPickerCatalog(st).Providers
 	uiSt := getSwarmTiersUIState(st)
 
 	// 顶部说明行与操作

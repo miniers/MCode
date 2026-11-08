@@ -586,7 +586,7 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 // renderSwarmTiersSection 渲染 Bee 档位管理区块，支持档位列表、默认档选择、增删改与建议上限预警。
 func renderSwarmTiersSection(c *ui.Context, st *SettingsState) {
 	renderSettingsSection(c, "sec-swarm-tiers", "子代理档位", func() {
-		providers := swarmSettingsProviders(st)
+		providers := settingsModelPickerCatalog(st).Providers
 		uiSt := getSwarmTiersUIState(st)
 
 		// 顶部说明行与操作

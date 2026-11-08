@@ -21,7 +21,8 @@ func renderSwarmModelCapsule(c *ui.Context, st *SettingsState, key string, sel M
 // renderSwarmModelCapsuleEx 与 renderSwarmModelCapsule 相同，但把元素键与状态作用域分开：
 // 弹层内的胶囊会随弹层一起移动，键用固定名称来保持跨帧一致，指针命中的位置却随之改变。
 func renderSwarmModelCapsuleEx(c *ui.Context, st *SettingsState, key, scopeKey string, sel ModelSelection, emptyLabel, triggerLabel string, expand bool, onChange func(ModelSelection)) {
-	providers := swarmSettingsProviders(st)
+	catalog := settingsModelPickerCatalog(st)
+	providers := catalog.Providers
 
 	keyPrefix := key
 	if !strings.HasSuffix(keyPrefix, "-") {
@@ -60,12 +61,11 @@ func renderSwarmModelCapsuleEx(c *ui.Context, st *SettingsState, key, scopeKey s
 		disabled = true
 	}
 
-	renderModelPicker(c, ModelPickerProps{
+	renderModelPicker(c, catalog.apply(ModelPickerProps{
 		Mode:           ModelPickerSimple,
 		KeyPrefix:      keyPrefix,
 		ScopeKey:       scopeKey,
 		State:          state,
-		Providers:      providers,
 		Selection:      sel,
 		CapsuleLabel:   capsuleLabel,
 		Tooltip:        capsuleTooltip,
@@ -116,5 +116,5 @@ func renderSwarmModelCapsuleEx(c *ui.Context, st *SettingsState, key, scopeKey s
 			}
 		},
 		Invalidate: invalidate,
-	})
+	}))
 }
