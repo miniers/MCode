@@ -2882,6 +2882,13 @@ func (m *Manager) checkReports(ctx context.Context) {
 			}
 			// 先存档全文再拼汇报：汇报里的超长总结会被截断，主代理和界面都靠存档取回全文。
 			m.archiveReports(ctx, r.leadThreadID, r.bees)
+			m.mu.Lock()
+			lead := m.leads[r.leadThreadID]
+			stopped := lead != nil && lead.stoppedByUser
+			m.mu.Unlock()
+			if stopped {
+				continue
+			}
 			if err := m.opts.OnReport(r.leadThreadID, BuildReport(r.bees)); err != nil {
 				log.Printf("swarm: report to %s failed: %v", r.leadThreadID, err)
 				continue
@@ -2921,6 +2928,13 @@ func (m *Manager) checkReports(ctx context.Context) {
 				continue
 			}
 			if st, ok := m.leadSessionState(ctx, leadID); ok && st.Interrupted {
+				continue
+			}
+			m.mu.Lock()
+			lead := m.leads[leadID]
+			stopped := lead != nil && lead.stoppedByUser
+			m.mu.Unlock()
+			if stopped {
 				continue
 			}
 			m.opts.OnBeesIdle(ctx, leadID)
@@ -4293,7 +4307,12 @@ func (m *Manager) StopAll(ctx context.Context, leadThreadID string) error {
 	}
 	now := m.now()
 	var runningIDs []string
+	hasUnreported := false
 	for i := range lead.bees {
+		bee := &lead.bees[i]
+		if !bee.Reported && (bee.Status == StatusCompleted || bee.Status == StatusFailed || bee.Status == StatusStopped) {
+			hasUnreported = true
+		}
 		if lead.bees[i].Status == StatusRunning {
 			lead.bees[i].Status = StatusStopped
 			lead.bees[i].Reported = true
@@ -4318,13 +4337,13 @@ func (m *Manager) StopAll(ctx context.Context, leadThreadID string) error {
 		}
 		m.queue = filteredQueue
 	}
-	if len(runningIDs) > 0 || clearedQueued > 0 {
+	if len(runningIDs) > 0 || clearedQueued > 0 || hasUnreported {
 		lead.stoppedByUser = true
 		lead.reportsHeld = true
 	}
 	m.mu.Unlock()
 
-	if len(runningIDs) == 0 && clearedQueued == 0 {
+	if len(runningIDs) == 0 && clearedQueued == 0 && !hasUnreported {
 		return nil
 	}
 

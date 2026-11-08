@@ -71,6 +71,35 @@ func TestStopAllHoldsCompletedReportUntilLeadRuns(t *testing.T) {
 	}
 }
 
+func TestStopAllHoldsUnreportedCompletedBee(t *testing.T) {
+	ctx := context.Background()
+	runner, _ := initTestRepo(t)
+	driver := newFakeDriver()
+	reports, idle := 0, 0
+	mgr := NewManager(Options{
+		Git:        runner,
+		Driver:     driver,
+		OnReport:   func(string, string) error { reports++; return nil },
+		OnBeesIdle: func(context.Context, string) { idle++ },
+	})
+	leadID := "lead-stop-all-completed"
+	mgr.leads[leadID] = &leadState{leadThreadID: leadID, bees: []Bee{{ThreadID: "bee-completed", Status: StatusCompleted}}}
+	driver.setSessionState(leadID, kanban.SessionState{})
+
+	if err := mgr.StopAll(ctx, leadID); err != nil {
+		t.Fatal(err)
+	}
+	mgr.Tick(ctx)
+	if reports != 0 || idle != 0 || mgr.State(leadID).Bees[0].Reported || mgr.Busy(leadID) {
+		t.Fatalf("停止后应暂扣汇报且不保持忙态: reports=%d idle=%d busy=%v", reports, idle, mgr.Busy(leadID))
+	}
+	driver.setSessionState(leadID, kanban.SessionState{Running: true})
+	mgr.Tick(ctx)
+	if mgr.leads[leadID].stoppedByUser {
+		t.Fatal("主会话运行时应解除暂扣")
+	}
+}
+
 func TestStopAllNewDispatchResumesReports(t *testing.T) {
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
