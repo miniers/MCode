@@ -1599,8 +1599,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
         onDraftChange={onDraftChange}
         onFocusComposer={focusComposer}
       />
-      {/* 表单、提示行与额度条共用一个定位容器：额度条绝对定位贴在这个容器的下边缘，
-          异步到达或消失都不改变输入区高度。 */}
+      {/* 提示行和额度条都悬浮在表单外，不占文档流。 */}
       <div className="relative">
       <form
         onSubmit={(event) => {
@@ -1927,19 +1926,21 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
         </div>
       </form>
       {(sendBlockedReason || isPolling || composerOptionsMessage || queuesLocalCommand || attachNotice) && (
-        <div className="px-2 pt-1 text-mc-footnote leading-4" aria-live="polite">
-          {attachNotice && <p className="text-[var(--foreground-muted)]">{attachNotice}</p>}
-          {queuesLocalCommand && !sendBlockedReason && (
-            <p className="text-[var(--foreground-muted)]">本地命令将排队，本轮结束后执行。</p>
-          )}
-          {sendBlockedReason && <p className="text-[var(--foreground-muted)]">{sendBlockedReason}</p>}
-          {!sendBlockedReason && isPolling && (
-            <p className="text-[var(--foreground-muted)]">正在同步最新会话状态...</p>
-          )}
-          {composerOptionsMessage && <p className="text-[var(--foreground-muted)]">{composerOptionsMessage}</p>}
+        <div className="absolute left-0 right-0 bottom-full mb-2 z-20 flex justify-center pointer-events-none" aria-live="polite">
+          <div className="floating-status__pill flex-col">
+            {attachNotice && <p>{attachNotice}</p>}
+            {queuesLocalCommand && !sendBlockedReason && (
+              <p>本地命令将排队，本轮结束后执行。</p>
+            )}
+            {sendBlockedReason && <p>{sendBlockedReason}</p>}
+            {!sendBlockedReason && isPolling && (
+              <p>正在同步最新会话状态...</p>
+            )}
+            {composerOptionsMessage && <p>{composerOptionsMessage}</p>}
+          </div>
         </div>
       )}
-      {/* 额度条排在提示行之后并悬浮，落在输入区底部留白里，不占文档流。 */}
+      {/* 额度条悬浮在输入区底部留白里，提示行悬浮在输入卡片上方，均不占文档流。 */}
       {quotaScope && <ComposerQuotaBar scope={quotaScope} isRunning={isRunning} floating />}
       </div>
 

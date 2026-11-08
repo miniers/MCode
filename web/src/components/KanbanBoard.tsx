@@ -990,11 +990,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   return (
     <div className="home-list min-h-0 flex-1">
       {(isSyncing || !isConnected) && (
-        <div className={`inline-alert ${isConnected ? 'inline-alert--warning' : 'inline-alert--danger'}`} role="status">
-          <span className="flex min-w-0 items-center gap-2">
+        <div className="floating-status" role="status">
+          <div className={`floating-status__pill ${isConnected ? 'floating-status__pill--warning' : 'floating-status__pill--danger'}`}>
             <ExclamationTriangleIcon className="h-4 w-4 shrink-0" />
             {isConnected ? '正在同步最新看板，写入操作暂时禁用。' : (connectionMessage || '连接已断开，看板当前只读。')}
-          </span>
+          </div>
         </div>
       )}
       {goalActionError && (

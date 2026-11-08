@@ -350,10 +350,15 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {isBusy && <span className="text-xs text-status-running">{actionLoadingText || '处理中…'}</span>}
         </div>
       )}>
+        {(isDisconnected || isSyncing) && (
+          <div className="floating-status" role="status">
+            <div className={`floating-status__pill${isDisconnected ? ' floating-status__pill--warning' : ''}`}>
+              {isDisconnected ? <><ExclamationTriangleIcon className="h-4 w-4 shrink-0" /><span>当前连接已断开，写入操作已禁用。</span></> : <><span className="loading-spinner loading-spinner--small shrink-0" /><span>正在同步最新状态，请稍候再操作。</span></>}
+            </div>
+          </div>
+        )}
         <div className="space-y-5 min-w-0 max-w-full w-full overflow-x-hidden">
           {errorMessage && <div className="inline-alert inline-alert--danger min-w-0 break-words" role="alert"><ExclamationTriangleIcon className="h-4 w-4 shrink-0" /><span className="min-w-0 break-words [overflow-wrap:anywhere]">{errorMessage}</span></div>}
-          {isDisconnected && <div className="inline-alert inline-alert--warning min-w-0 break-words" role="status"><ExclamationTriangleIcon className="h-4 w-4 shrink-0" /><span>当前连接已断开，写入操作已禁用。</span></div>}
-          {isSyncing && <div className="inline-alert min-w-0 break-words" role="status"><span className="loading-spinner loading-spinner--small shrink-0" /><span>正在同步最新状态，请稍候再操作。</span></div>}
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted min-w-0">
             <span className="thread-status">{taskStatusLabel(task.status)}</span>

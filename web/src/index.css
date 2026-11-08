@@ -219,6 +219,13 @@ html[data-mobile-direction] .settings-sheet { animation: none; }
 .inline-alert--danger { border-color: color-mix(in srgb, var(--danger-foreground) 35%, var(--border)); color: var(--danger-foreground); }
 .inline-alert__action { flex: 0 0 auto; color: var(--primary); font-size: 12px; font-weight: 650; white-space: nowrap; }
 
+.floating-status { position: sticky; top: 8px; height: 0; overflow: visible; z-index: 20; display: flex; align-items: flex-start; justify-content: center; pointer-events: none; }
+.floating-status__pill { pointer-events: auto; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 24px); padding: 5px 11px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); backdrop-filter: blur(12px); color: var(--foreground-muted); font-size: 12px; line-height: 17px; box-shadow: 0 2px 8px rgba(0, 0, 0, .08); animation: floating-status-in .15s ease-out; }
+.floating-status__pill--warning { border-color: color-mix(in srgb, var(--warning-foreground) 30%, var(--border)); color: var(--warning-foreground); }
+.floating-status__pill--danger { border-color: color-mix(in srgb, var(--danger-foreground) 35%, var(--border)); color: var(--danger-foreground); }
+@keyframes floating-status-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .floating-status__pill { animation: none; } }
+
 /* 脚本运行结果面板：等宽输出、限高可滚动，配色复用状态变量 */
 .script-run { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
 .script-run--running { border-color: color-mix(in srgb, var(--status-running) 30%, var(--border)); }

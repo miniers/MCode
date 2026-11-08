@@ -3,10 +3,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { RemoteAttachmentUploadResult } from '../types/contract';
 import { isPreviewableImageFile } from '../context/remoteImages';
+import { RemoteProvider } from '../context/RemoteContext';
 import {
   AttachmentPreviewOverlay,
   ComposerAttachButton,
   ComposerAttachmentStrip,
+  ThreadComposer,
   modelSheetPageOnEscape
 } from './ThreadComposer';
 
@@ -112,8 +114,34 @@ const attachDisabledHtml = renderToStaticMarkup(
 );
 assertIncludes(attachDisabledHtml, 'disabled=""');
 
+// ---- 输入框状态提示：浮在卡片上方，不占文档流 ----
+const composerProps = {
+  draft: '',
+  isSending: false,
+  sendError: null,
+  isPolling: false,
+  sendDisabled: false,
+  attachments: [],
+  isUploadingAttachment: false,
+  submitLabel: '发送',
+  onDraftChange: () => {},
+  onAddAttachments: () => {},
+  onRemoveAttachment: () => {},
+  onSend: () => {}
+};
+const blockedComposerHtml = renderToStaticMarkup(
+  <RemoteProvider><ThreadComposer {...composerProps} sendBlockedReason="正在同步最新状态，请稍候" /></RemoteProvider>
+);
+assertIncludes(blockedComposerHtml, '正在同步最新状态，请稍候');
+if (!/<div class="[^"]*\babsolute\b[^"]*" aria-live="polite"><div class="floating-status__pill[^\"]*"><p>正在同步最新状态，请稍候<\/p>/.test(blockedComposerHtml)) {
+  throw new Error('发送受阻提示应位于绝对定位的浮层内');
+}
+const readyComposerHtml = renderToStaticMarkup(
+  <RemoteProvider><ThreadComposer {...composerProps} sendBlockedReason={null} /></RemoteProvider>
+);
+assertExcludes(readyComposerHtml, 'aria-live="polite"><div class="floating-status__pill');
+
 // ---- 模型浮层两级导航：Esc 退级 ----
-// 整个 ThreadComposer 需要 RemoteProvider 上下文，静态渲染拿不到，这里只测抽出来的纯函数。
 // Esc：二级页先退回摘要页，摘要页才关整个浮层。
 assertEqual(modelSheetPageOnEscape('lead'), 'summary', '主代理页 Esc 的目标页');
 assertEqual(modelSheetPageOnEscape('bees'), 'summary', '子代理页 Esc 的目标页');
