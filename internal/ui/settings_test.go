@@ -12,7 +12,7 @@ import (
 	"mcode/internal/config"
 )
 
-// 测试用例 1：点击齿轮设置按钮后进入设置面板，能看到 11 个页面名且按顺序排列。
+// 测试用例 1：点击齿轮设置按钮后进入设置面板，页面名按顺序排列。
 func TestSettings_EnterAndPageList(t *testing.T) {
 	fake := NewFakeClient()
 	dataDir := settingsTestDir(t)
@@ -27,7 +27,7 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 	}
 
 	expectedTitles := []string{
-		"Magpie", "通用", "外观", "会话", "模型与供应商", "编排", "扩展", "工作台", "版本控制", "记忆", "远程控制",
+		"Magpie", "通用", "外观", "远程控制", "模型与供应商", "会话", "编排", "扩展", "记忆", "工作台", "版本控制", "关于",
 	}
 	pages := settingsPages()
 	if len(pages) != len(expectedTitles) {
@@ -521,14 +521,15 @@ func TestSettings_TextEditDebouncedSave(t *testing.T) {
 
 // TestSettingsPages_NewStructure 验证导航顺序。
 func TestSettingsPages_NewStructure(t *testing.T) {
-	expected := []string{"magpie", "general", "appearance", "conversation", "models", "swarm", "extensions", "workbench", "sourceControl", "nowledge", "remote"}
+	expected := []string{"magpie", "general", "appearance", "remote", "models", "conversation", "swarm", "extensions", "nowledge", "workbench", "sourceControl", "about"}
+	groups := []string{"", "应用", "应用", "应用", "代理", "代理", "代理", "代理", "代理", "工作区", "工作区", ""}
 	pages := settingsPages()
 	if len(pages) != len(expected) {
 		t.Fatalf("导航应为 %d 页，实际 %d 页", len(expected), len(pages))
 	}
 	for i, id := range expected {
-		if pages[i].id != id {
-			t.Fatalf("导航第 %d 项应为 %s，实际 %s", i+1, id, pages[i].id)
+		if pages[i].id != id || pages[i].group != groups[i] {
+			t.Fatalf("导航第 %d 项应为 %s/%s，实际 %s/%s", i+1, id, groups[i], pages[i].id, pages[i].group)
 		}
 	}
 }

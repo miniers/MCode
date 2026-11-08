@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -19,8 +20,10 @@ func TestPackagePersonalHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error=%v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "--windows") {
-		t.Fatalf("missing --windows in help:\n%s", output)
+	for _, option := range []string{"--windows", "--bump"} {
+		if !strings.Contains(string(output), option) {
+			t.Fatalf("missing %s in help:\n%s", option, output)
+		}
 	}
 }
 
@@ -65,7 +68,7 @@ func packagePersonalDotenvCommand(t *testing.T, identity *string, dotenv bool, s
 	}
 	cmd := exec.Command("bash", copyPath, "--no-relaunch")
 	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "MCODE_SIGN_IDENTITY=") && !strings.HasPrefix(entry, "MCODE_REFRESH_SNAPSHOT=") && !strings.HasPrefix(entry, "PATH=") && !strings.HasPrefix(entry, "CLEAN=") {
+		if !strings.HasPrefix(entry, "MCODE_SIGN_IDENTITY=") && !strings.HasPrefix(entry, "MCODE_REFRESH_SNAPSHOT=") && !strings.HasPrefix(entry, "PATH=") && !strings.HasPrefix(entry, "CLEAN=") && !strings.HasPrefix(entry, "BUMP=") {
 			cmd.Env = append(cmd.Env, entry)
 		}
 	}
@@ -75,6 +78,69 @@ func packagePersonalDotenvCommand(t *testing.T, identity *string, dotenv bool, s
 	}
 	// 假项目根没有 web，脚本在进入该目录时失败，不会联网或安装到 /Applications。
 	return cmd
+}
+
+func TestPackagePersonalVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		arg  string
+		env  string
+		want string
+	}{
+		{name: "默认", want: "0.1.0"},
+		{name: "参数", arg: "--bump", want: "0.1.1"},
+		{name: "环境变量", env: "BUMP=1", want: "0.1.1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := packagePersonalDotenvCommand(t, nil, false, "")
+			root := filepath.Dir(filepath.Dir(cmd.Args[1]))
+			if err := os.MkdirAll(filepath.Join(root, "web", "node_modules"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			original := "{\n  \"version\": \"0.1.0\"\n}\n"
+			if err := os.WriteFile(filepath.Join(root, "mygo.json"), []byte(original), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			stubs := map[string]string{
+				"npm": "#!/bin/bash\nexit 0\n",
+				// 在构建阶段记录版本，然后失败以避免安装应用。
+				"go": "#!/bin/bash\ncp mygo.json observed.json\nexit 1\n",
+			}
+			if runtime.GOOS == "linux" {
+				// GNU sed 的原地编辑参数与 macOS 不同。
+				stubs["sed"] = "#!/bin/bash\nif [[ $1 == -i ]]; then shift 2; exec /usr/bin/sed -i \"$@\"; fi\nexec /usr/bin/sed \"$@\"\n"
+			}
+			for name, content := range stubs {
+				if err := os.WriteFile(filepath.Join(root, "bin", name), []byte(content), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.arg != "" {
+				cmd.Args = append(cmd.Args, tc.arg)
+			}
+			if tc.env != "" {
+				cmd.Env = append(cmd.Env, tc.env)
+			}
+			output, err := cmd.CombinedOutput()
+			if err == nil {
+				t.Fatal("预期构建桩失败")
+			}
+			observed, err := os.ReadFile(filepath.Join(root, "observed.json"))
+			if err != nil {
+				t.Fatalf("未到达构建阶段: %v\n%s", err, output)
+			}
+			if !strings.Contains(string(observed), `"version": "`+tc.want+`"`) {
+				t.Fatalf("构建时版本不正确: %s", observed)
+			}
+			after, err := os.ReadFile(filepath.Join(root, "mygo.json"))
+			if err != nil || string(after) != original {
+				t.Fatalf("失败后版本未恢复: %s, %v", after, err)
+			}
+			if tc.want == "0.1.0" && strings.Contains(string(output), "已还原 mygo.json 的版本号") {
+				t.Fatalf("默认运行不应报告版本还原: %s", output)
+			}
+		})
+	}
 }
 
 func TestPackagePersonalLoadsDotenv(t *testing.T) {

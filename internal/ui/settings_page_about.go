@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 	"mcode/internal/config"
 )
 
@@ -218,8 +219,23 @@ func openExternalURL(url string) {
 	_ = mygo.Shell.OpenExternal(url)
 }
 
-// renderPageAbout 保留旧路由入口。
-func renderPageAbout(c *ui.Context, st *SettingsState) { renderPageGeneral(c, st) }
+var pageAbout = settingsPage{
+	ID: "about", Title: "关于", Icon: IconInfo(),
+	Sections: []settingsSection{
+		{ID: "about.app", Title: "关于 MCode", Rows: []setting{{ID: "row-about-app", Control: customFullWidth(renderAboutFooter)}}},
+		{ID: "about.changelog", Title: "更新日志", Rows: []setting{{ID: "row-about-changelog", Control: customFullWidth(renderAboutChangelog)}}},
+	},
+}
+
+func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageAbout) }
+
+func renderPageAbout(c *ui.Context, st *SettingsState) { renderSettingsTreePage(c, st, pageAbout) }
+
+func renderAboutChangelog(c *ui.Context, st *SettingsState) {
+	ui.Column(c.Key("about-changelog-content")).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Children(func() {
+		markdown.View(c.Key("about-changelog-markdown"), changelogBody(), swarmReportMarkdownOptions(c, st.chat, TypeBody))
+	})
+}
 
 // aboutFooterRows 是关于页底部的四行声明：版本号与数据目录常驻，
 // 「检查更新」「导出诊断日志」只在客户端支持对应能力时出现。

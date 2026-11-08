@@ -46,7 +46,7 @@ func TestAboutInstallUpdate(t *testing.T) {
 		latest: AppUpdateStatus{Latest: "2.0.0", URL: "https://example.com", Available: true, Installable: true},
 	}}
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fc))
-	tt := ui.NewTester(func(c *ui.Context) { renderPageGeneral(c, st) }, 1000, 4000)
+	tt := ui.NewTester(func(c *ui.Context) { renderPageAbout(c, st) }, 1000, 4000)
 	waitFor(t, tt, func() bool { return tt.HasText("更新并重启") })
 	if _, ok := tt.Find("btn-about-install-update"); !ok || tt.HasText("前往下载页") {
 		t.Fatal("可安装更新应显示更新按钮而不是下载页")
@@ -182,7 +182,7 @@ func TestSettingsPageAbout_VersionRowLoadsOnce(t *testing.T) {
 
 	fc := &fakeUpdateClient{FakeClient: NewFakeClient(), version: "3.2.1"}
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fc))
-	tt := ui.NewTester(func(c *ui.Context) { renderPageGeneral(c, st) }, 1000, 4000)
+	tt := ui.NewTester(func(c *ui.Context) { renderPageAbout(c, st) }, 1000, 4000)
 
 	waitFor(t, tt, func() bool { return tt.HasText("版本号") && tt.HasText("3.2.1") })
 	for i := 0; i < 3; i++ {
@@ -200,7 +200,7 @@ func TestSettingsAbout_BackgroundUpdate(t *testing.T) {
 	resetAboutPageStateForTest()
 	fc := &fakeUpdateClient{FakeClient: NewFakeClient(), version: "1.0.0", latest: AppUpdateStatus{Latest: "1.1.0", URL: "https://example.com", Available: true}}
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fc))
-	tt := ui.NewTester(func(c *ui.Context) { renderPageGeneral(c, st) }, 1000, 4000)
+	tt := ui.NewTester(func(c *ui.Context) { renderPageAbout(c, st) }, 1000, 4000)
 	waitFor(t, tt, func() bool {
 		return tt.HasText("发现新版本 v1.1.0") && tt.HasText("前往下载页") && tt.HasText("自动检查更新")
 	})
@@ -220,7 +220,7 @@ func TestSettingsNavUpdateDot(t *testing.T) {
 	fc := &fakeUpdateClient{FakeClient: NewFakeClient()}
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fc))
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderSettingsNavItem(c, st, settingsNavDef{id: "general", title: "通用", icon: IconSettings()}, nil)
+		renderSettingsNavItem(c, st, settingsNavDef{id: "about", title: "关于", icon: IconInfo()}, nil)
 	}, 400, 100)
 	tt.Frame()
 	if _, ok := tt.Find("settings-nav-update-dot"); ok {
@@ -262,7 +262,7 @@ func TestSettingsAbout_CheckUpdateRow(t *testing.T) {
 		status:     AppUpdateStatus{Current: "1.2.3", Latest: "1.2.4", URL: "https://example.com/dl", Available: true},
 	}
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fc))
-	tt := ui.NewTester(func(c *ui.Context) { renderPageGeneral(c, st) }, 1000, 4000)
+	tt := ui.NewTester(func(c *ui.Context) { renderPageAbout(c, st) }, 1000, 4000)
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("1.2.3") && tt.HasText("检查更新")

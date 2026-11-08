@@ -24,6 +24,14 @@ func (c *Client) LatestUpdate() mcodeui.AppUpdateStatus {
 	return mcodeui.AppUpdateStatus{Current: AppVersion, Latest: info.Latest, URL: info.URL, Available: info.Available, Installable: info.Installable}
 }
 
+// UpdateNotes 返回最近一次检查结果中的发布说明。
+func (c *Client) UpdateNotes() string {
+	if c == nil || c.updateChecker == nil {
+		return ""
+	}
+	return c.updateChecker.Latest().Notes
+}
+
 // CheckForUpdate 复用 updater.go 的 UpdateChecker 检查是否有新版本。
 // 未配置更新源且原生更新不可用时返回错误「未配置更新源」。
 func (c *Client) CheckForUpdate(ctx context.Context) (mcodeui.AppUpdateStatus, error) {

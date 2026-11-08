@@ -205,7 +205,6 @@ var pageGeneral = settingsPage{
 						return fmt.Sprintf("%d 个", len(shortcutDefaults()))
 					}, "shortcuts"),
 				},
-				{ID: "row-general-about", Control: customFullWidth(renderAboutFooter)},
 			},
 		},
 	},

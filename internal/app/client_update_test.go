@@ -31,6 +31,21 @@ func TestClientNativeUpdateInstall(t *testing.T) {
 	}
 }
 
+func TestClientUpdateNotes(t *testing.T) {
+	var client *Client
+	if got := client.UpdateNotes(); got != "" {
+		t.Fatalf("空客户端不应返回发布说明: %q", got)
+	}
+	client = &Client{}
+	if got := client.UpdateNotes(); got != "" {
+		t.Fatalf("缺少检查器时不应返回发布说明: %q", got)
+	}
+	client.updateChecker = &UpdateChecker{latest: UpdateInfo{Notes: "# 更新"}}
+	if got := client.UpdateNotes(); got != "# 更新" {
+		t.Fatalf("发布说明错误: %q", got)
+	}
+}
+
 func TestClientLatestUpdate(t *testing.T) {
 	client := &Client{}
 	if got := client.LatestUpdate(); got.Latest != "" || got.Available {

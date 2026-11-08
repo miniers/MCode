@@ -1,12 +1,13 @@
 #!/bin/bash
 # mcode 个人分发打包脚本
 #
-#   scripts/package_personal.sh [--clean] [--dmg] [--windows] [--relaunch|--no-relaunch]
+#   scripts/package_personal.sh [--clean] [--dmg] [--windows] [--bump] [--relaunch|--no-relaunch]
 #
 # 个人分发：有证书时用 Developer ID 签名，否则用临时签名；不做公证，安装到 /Applications。
 # --windows（或 WINDOWS=1）在同一次构建里额外打包 windows/amd64，产物不签名，不安装。
-# 每次运行都会先构建 web 前端（npm run build），再把 mygo.json 里的 version 的 patch 加 1（0.1.0 -> 0.1.1）。
-# MyGo 没有独立的 build 号字段（CFBundleVersion 直接取 version），因此只递增 version。
+# 每次运行都会先构建 web 前端（npm run build）；默认沿用 mygo.json 的 version。
+# --bump（或 BUMP=1）时将 patch 加 1（0.1.0 -> 0.1.1）。
+# MyGo 没有独立的 build 号字段（CFBundleVersion 直接取 version）。
 # --clean（或 CLEAN=1）构建前清空输出目录；--dmg（或 DMG=1）额外交付安装镜像；
 # --relaunch（默认，等同 RELAUNCH=1）安装后退出并重新启动应用；--no-relaunch（或 RELAUNCH=0）不重启。
 # 重启由 scripts/relaunch_app.sh 在脱离会话的后台进程里完成，所以在 MCode 内置终端或“运行脚本”菜单里运行本脚本时也能完成重启。
@@ -44,6 +45,7 @@ BUILD="$ROOT/build.noindex/personal"
 TARGET="/Applications/$APP_NAME.app"
 PLATFORM="darwin/arm64"
 CLEAN="${CLEAN:-0}"
+BUMP="${BUMP:-0}"
 DMG="${DMG:-0}"
 RELAUNCH="${RELAUNCH:-1}"
 WINDOWS="${WINDOWS:-0}"
@@ -57,14 +59,16 @@ usage() {
 
 选项:
   --clean       构建前清空输出目录（等同 CLEAN=1）
+  --bump        打包前把 mygo.json 的 version patch 加 1（等同 BUMP=1，默认不递增）
   --dmg         额外交付已签名、已校验的 DMG（等同 DMG=1）
   --windows     额外打包 Windows（windows/amd64）可执行文件与安装程序（等同 WINDOWS=1，默认不打包）
   --relaunch    安装后退出并重新启动应用（默认，等同 RELAUNCH=1）
   --no-relaunch 安装后不重新启动应用（等同 RELAUNCH=0）
   -h, --help    显示此帮助信息
 
-说明: 每次运行都会先构建 web 前端（npm run build）再打包，随后递增 mygo.json
-      里的 version（patch +1），有证书时用 Developer ID 签名，否则用临时签名；不公证，安装到 ${TARGET}。
+说明: 每次运行都会先构建 web 前端（npm run build）再打包，默认沿用 mygo.json 的 version；
+      仅在 --bump 或 BUMP=1 时递增 version（patch +1）。有证书时用 Developer ID 签名，
+      否则用临时签名；不公证，安装到 ${TARGET}。
       安装后默认会重启应用，重启由一个脱离会话的后台进程完成，因此在 MCode 内置
       终端或“运行脚本”菜单里运行时也能重启成功；用 --no-relaunch 可以关掉。
       Windows 产物不签名、不安装；未安装 makensis 时只产出 exe，不生成安装程序
@@ -73,12 +77,16 @@ usage() {
   MCODE_SIGN_IDENTITY（可选，Developer ID Application 签名身份，可写在项目根目录 .env 中；未设置或钥匙串中找不到时用临时签名）
   MCODE_REFRESH_SNAPSHOT=1 时联网刷新 models.dev 能力快照（默认使用已提交的快照）；
   刷新后请检查 internal/modelsdev/snapshot.json 的 diff 再提交。
-每个阶段失败（含构建失败）时会把 mygo.json 的版本号还原到运行前的值。
+使用 --bump 或 BUMP=1 时，安装完成前若失败，会把 mygo.json 的版本号还原到运行前的值。
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --bump)
+            BUMP=1
+            shift
+            ;;
         --clean)
             CLEAN=1
             shift
@@ -158,11 +166,14 @@ fi
 (cd "$ROOT/web" && npm run build)
 
 VERSION="$(sed -nE 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' mygo.json | head -1)"
+[[ -n "$VERSION" ]] || { echo "错误: 无法从 mygo.json 读取 version" >&2; exit 1; }
 
-# 版本号要写回受版本控制的 mygo.json，构建失败就会留下脏改动；
-# 先备份，脚本非零退出时拷回，正常结束只删备份。
-MYGO_JSON_BACKUP="$(mktemp "${TMPDIR:-/tmp}/mcode-mygo-XXXXXX.json")"
-cp mygo.json "$MYGO_JSON_BACKUP"
+# 仅递增版本时备份，避免构建失败留下脏改动。
+MYGO_JSON_BACKUP=""
+if [[ "$BUMP" == 1 ]]; then
+    MYGO_JSON_BACKUP="$(mktemp "${TMPDIR:-/tmp}/mcode-mygo-XXXXXX.json")"
+    cp mygo.json "$MYGO_JSON_BACKUP"
+fi
 
 restore_mygo_json() {
     if [[ -f "$MYGO_JSON_BACKUP" ]]; then
@@ -188,10 +199,6 @@ trap on_exit EXIT
 
 bump_version() {
     local next
-    if [[ -z "$VERSION" ]]; then
-        echo "错误: 无法从 mygo.json 读取 version" >&2
-        exit 1
-    fi
     if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
         next="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$(( BASH_REMATCH[3] + 1 ))"
     else
@@ -203,7 +210,9 @@ bump_version() {
     VERSION="$next"
 }
 
-bump_version
+if [[ "$BUMP" == 1 ]]; then
+    bump_version
+fi
 
 BUILD_PLATFORMS="$PLATFORM"
 if [[ $WINDOWS -eq 1 ]]; then

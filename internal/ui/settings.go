@@ -712,6 +712,7 @@ func latestUpdateStatus(client any) (AppUpdateStatus, bool) {
 type settingsNavDef struct {
 	id       string
 	title    string
+	group    string
 	icon     *ui.SVG
 	keywords []string
 }
@@ -730,6 +731,7 @@ func settingsPages() []settingsNavDef {
 		{
 			id:    "general",
 			title: "通用",
+			group: "应用",
 			icon:  IconSettings(),
 			keywords: []string{
 				"permissions", "notifications", "startup", "tray", "quit", "token", "tokens",
@@ -737,12 +739,12 @@ func settingsPages() []settingsNavDef {
 				"cumulative", "sound", "chime", "icon", "icons", "emoji", "symbol", "symbols",
 				"project mark", "权限", "通知", "提示音", "托盘", "启动", "退出",
 				"keyboard", "keys", "快捷键", "按键",
-				"version", "license", "关于", "版本",
 			},
 		},
 		{
 			id:    "appearance",
 			title: "外观",
+			group: "应用",
 			icon:  IconPalette(),
 			keywords: []string{
 				"appearance", "theme", "transparency", "transparent", "opacity", "glass",
@@ -753,21 +755,22 @@ func settingsPages() []settingsNavDef {
 			},
 		},
 		{
-			id:    "conversation",
-			title: "会话",
-			icon:  IconMessageSquarePlus(),
+			id:    "remote",
+			title: "远程控制",
+			group: "应用",
+			icon:  IconSmartphone(),
 			keywords: []string{
-				"conversation", "session", "chat", "thread", "reasoning", "thinking",
-				"compact", "concise", "concise-replies", "verbose", "comments", "replies",
-				"queue", "insert", "finish", "finished", "done", "dormant",
-				"confirm", "会话", "对话", "思考", "排队", "压缩", "限额", "完成", "删除",
-				"quick", "reply", "replies", "canned", "snippet", "template", "快捷回复", "常用语", "短语",
-				"archived", "restore", "归档", "恢复",
+				"remote", "mobile", "phone", "kanban", "pair", "qr", "qrcode", "lan",
+				"device", "devices", "rename", "revoke", "restart", "port", "access",
+				"tls", "https", "cert", "certificate", "domain", "cloudflare", "token",
+				"远程", "手机", "看板", "移动端", "配对", "二维码", "局域网",
+				"设备", "重命名", "撤销", "重启", "端口", "入口", "证书", "域名", "令牌", "安全",
 			},
 		},
 		{
 			id:    "models",
 			title: "模型与供应商",
+			group: "代理",
 			icon:  IconSlidersHorizontal(),
 			keywords: []string{
 				"model", "effort", "reasoning", "fast", "slider", "picker", "providers", "provider",
@@ -780,8 +783,23 @@ func settingsPages() []settingsNavDef {
 			},
 		},
 		{
+			id:    "conversation",
+			title: "会话",
+			group: "代理",
+			icon:  IconMessageSquarePlus(),
+			keywords: []string{
+				"conversation", "session", "chat", "thread", "reasoning", "thinking",
+				"compact", "concise", "concise-replies", "verbose", "comments", "replies",
+				"queue", "insert", "finish", "finished", "done", "dormant",
+				"confirm", "会话", "对话", "思考", "排队", "压缩", "限额", "完成", "删除",
+				"quick", "reply", "replies", "canned", "snippet", "template", "快捷回复", "常用语", "短语",
+				"archived", "restore", "归档", "恢复",
+			},
+		},
+		{
 			id:    "swarm",
 			title: "编排",
+			group: "代理",
 			icon:  IconSwarm(),
 			keywords: []string{
 				"swarm", "hydra", "bees", "heads", "subagents", "sub-agents", "agents", "team",
@@ -795,6 +813,7 @@ func settingsPages() []settingsNavDef {
 		{
 			id:    "extensions",
 			title: "扩展",
+			group: "代理",
 			icon:  IconSparkles(),
 			keywords: []string{
 				"skills", "skill.md", "prompts", "rules", "instructions", "custom skills", "workflows", "技能",
@@ -805,9 +824,11 @@ func settingsPages() []settingsNavDef {
 				"记忆", "上下文",
 			},
 		},
+		{id: "nowledge", title: "记忆", group: "代理", icon: pageNowledge.Icon, keywords: pageNowledge.Keywords},
 		{
 			id:    "workbench",
 			title: "工作台",
+			group: "工作区",
 			icon:  IconLayoutDashboard(),
 			keywords: []string{
 				"workbench", "kanban", "board", "task", "tasks", "editor", "browser",
@@ -822,20 +843,8 @@ func settingsPages() []settingsNavDef {
 				"版本控制", "仓库", "分支",
 			},
 		},
-		{id: "sourceControl", title: "版本控制", icon: pageSourceControl.Icon, keywords: pageSourceControl.Keywords},
-		{id: "nowledge", title: "记忆", icon: pageNowledge.Icon, keywords: pageNowledge.Keywords},
-		{
-			id:    "remote",
-			title: "远程控制",
-			icon:  IconSmartphone(),
-			keywords: []string{
-				"remote", "mobile", "phone", "kanban", "pair", "qr", "qrcode", "lan",
-				"device", "devices", "rename", "revoke", "restart", "port", "access",
-				"tls", "https", "cert", "certificate", "domain", "cloudflare", "token",
-				"远程", "手机", "看板", "移动端", "配对", "二维码", "局域网",
-				"设备", "重命名", "撤销", "重启", "端口", "入口", "证书", "域名", "令牌", "安全",
-			},
-		},
+		{id: "sourceControl", title: "版本控制", group: "工作区", icon: pageSourceControl.Icon, keywords: pageSourceControl.Keywords},
+		{id: "about", title: "关于", icon: IconInfo(), keywords: []string{"version", "license", "关于", "版本", "update", "changelog", "更新", "更新日志", "检查更新", "诊断", "数据目录"}},
 	}
 }
 
@@ -850,7 +859,7 @@ func normalizeSettingsPageID(id string) string {
 		return "workbench"
 	case "quickReplies", "archive":
 		return "conversation"
-	case "shortcuts", "about", "advanced":
+	case "shortcuts", "advanced":
 		return "general"
 	case "skills", "mcp":
 		return "extensions"
@@ -1273,7 +1282,17 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 
 		// 导航列表纵向滚动，命中项在页名下缩进列出。
 		ui.Scroll(c.Key("settings-nav-scroll")).Grow(1).Padding(settingsVerticalPadding, ListInset).Children(func() {
-			for _, item := range visible {
+			previousGroup := ""
+			for i, item := range visible {
+				if item.group != previousGroup || (item.id == "about" && i > 0) {
+					if i > 0 && visible[i-1].id != "magpie" {
+						ui.Box(c.Key("settings-nav-group-gap-" + item.id)).Height(Space3)
+					}
+					if item.group != "" {
+						ui.Text(c, item.group).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).Padding(0, Space3)
+					}
+				}
+				previousGroup = item.group
 				renderSettingsNavItem(c, st, item, hitsByPage[item.id])
 			}
 			if len(visible) == 0 {
@@ -1340,7 +1359,7 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 		} else {
 			tElem.TextColor(ThemeSecondaryText(c))
 		}
-		if item.id == "general" {
+		if item.id == "about" {
 			available := updateAvailable(archiveClient(st))
 			if available {
 				renderUpdateDot(c, "settings-nav-update-dot", !st.updateDotVisible)

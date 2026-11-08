@@ -9,7 +9,7 @@ func TestNormalizeSettingsPageID(t *testing.T) {
 	cases := map[string]string{
 		"providers": "models", "steward": "swarm", "openIn": "workbench",
 		"quickReplies": "conversation", "sourceControl": "sourceControl", "archive": "conversation",
-		"shortcuts": "general", "about": "general", "skills": "extensions",
+		"shortcuts": "general", "about": "about", "skills": "extensions",
 		"mcp": "extensions", "nowledge": "nowledge",
 		"general": "general", "appearance": "appearance", "conversation": "conversation",
 		"models": "models", "swarm": "swarm", "extensions": "extensions",

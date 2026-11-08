@@ -26,6 +26,7 @@ type UpdateInfo struct {
 	URL         string
 	Available   bool
 	Installable bool
+	Notes       string // 发布说明正文，已去掉 --- 之后的安装提示。
 }
 
 type installableUpdate interface {
@@ -108,7 +109,7 @@ func (u *UpdateChecker) Check(ctx context.Context) (UpdateInfo, error) {
 		info := UpdateInfo{}
 		if update != nil {
 			version = strings.TrimPrefix(version, "v")
-			info = UpdateInfo{Latest: version, URL: "https://github.com/miniers/MCode/releases/tag/v" + version, Available: true, Installable: true}
+			info = UpdateInfo{Latest: version, URL: "https://github.com/miniers/MCode/releases/tag/v" + version, Available: true, Installable: true, Notes: u.fetchReleaseNotes(ctx, version)}
 		}
 		now := time.Now
 		if u.Now != nil {
@@ -144,6 +145,7 @@ func (u *UpdateChecker) Check(ctx context.Context) (UpdateInfo, error) {
 	var rel struct {
 		TagName    string `json:"tag_name"`
 		HTMLURL    string `json:"html_url"`
+		Body       string `json:"body"`
 		Prerelease bool   `json:"prerelease"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
@@ -161,6 +163,9 @@ func (u *UpdateChecker) Check(ctx context.Context) (UpdateInfo, error) {
 			URL:       rel.HTMLURL,
 			Available: CompareSemver(rel.TagName, u.CurrentVersion) > 0,
 		}
+		if info.Available {
+			info.Notes = releaseNotesFromBody(rel.Body)
+		}
 	}
 	u.mu.Lock()
 	u.latest = info
@@ -168,6 +173,49 @@ func (u *UpdateChecker) Check(ctx context.Context) (UpdateInfo, error) {
 	u.checkedAt = now()
 	u.mu.Unlock()
 	return info, nil
+}
+
+func releaseNotesFromBody(body string) string {
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			lines = lines[:i]
+			break
+		}
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func (u *UpdateChecker) fetchReleaseNotes(ctx context.Context, version string) string {
+	const suffix = "/releases/latest"
+	if !strings.HasSuffix(u.FeedURL, suffix) {
+		return ""
+	}
+	url := strings.TrimSuffix(u.FeedURL, suffix) + "/releases/tags/v" + strings.TrimPrefix(version, "v")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	client := u.Client
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return ""
+	}
+	var rel struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return ""
+	}
+	return releaseNotesFromBody(rel.Body)
 }
 
 // Install 安装待处理的更新并重启应用。

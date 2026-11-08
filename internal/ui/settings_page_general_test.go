@@ -76,7 +76,11 @@ func TestSettingsGeneral_AboutFooter(t *testing.T) {
 	t.Cleanup(resetAboutPageStateForTest)
 	client := &generalAboutClient{&fakeUpdateClient{FakeClient: NewFakeClient(), version: "9.8.7"}}
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(client))
-	tt := ui.NewTester(func(c *ui.Context) { renderPageGeneral(c, st) }, 1000, 3000)
+	general := ui.NewTester(func(c *ui.Context) { renderPageGeneral(c, st) }, 1000, 3000)
+	if general.HasText("版本号") || general.HasText("检查更新") {
+		t.Fatal("通用页不应显示关于信息")
+	}
+	tt := ui.NewTester(func(c *ui.Context) { renderPageAbout(c, st) }, 1000, 3000)
 	for _, text := range []string{"9.8.7", "数据目录", "导出诊断日志"} {
 		if n := countText(tt, text); n != 1 {
 			t.Fatalf("%q 出现 %d 次", text, n)

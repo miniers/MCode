@@ -18,6 +18,23 @@ import (
 	"mcode/internal/mcp"
 )
 
+func TestSettingsSearchAbout(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&fakeUpdateClient{FakeClient: NewFakeClient()}))
+	for _, query := range []string{"版本号", "检查更新"} {
+		var found bool
+		for _, hit := range matchSettingsItems(query) {
+			if hit.Item.Title == query && hit.Item.Page == "about" {
+				st.focusSettingsItem(hit)
+				found = st.currentPage == "about"
+				break
+			}
+		}
+		if !found {
+			t.Errorf("搜索 %q 未定位到关于页", query)
+		}
+	}
+}
+
 func TestMCP_LegacySearchTargets(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	server := agentconf.MCPServer{Agent: "custom", Scope: "project", Name: "example"}

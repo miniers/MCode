@@ -138,11 +138,11 @@ func settingsLegacyItems() []settingsItem {
 		{ID: "block-archive-worktrees", Page: "conversation", Sheet: "archive", Section: "Worktree 清理", Title: "工作树清理", Aliases: []string{"工作树", "清理", "worktree", "分支"}, Block: true},
 
 		// ---- 关于 ----
-		{ID: "row-about-version", Page: "general", Section: "关于 MCode", Title: "版本号", Aliases: []string{"构建"}},
-		{ID: "row-about-datadir", Page: "general", Section: "关于 MCode", Title: "数据目录", Aliases: []string{"目录", "路径", "存储"}},
-		{ID: "row-about-update", Page: "general", Section: "关于 MCode", Title: "检查更新", Aliases: []string{"更新", "新版本"}},
-		{ID: "row-about-auto-update", Page: "general", Section: "关于 MCode", Title: "自动检查更新", Aliases: []string{"更新", "新版本"}},
-		{ID: "row-about-diag", Page: "general", Section: "关于 MCode", Title: "导出诊断日志", Aliases: []string{"日志", "诊断", "反馈"}},
+		{ID: "row-about-version", Page: "about", Section: "关于 MCode", Title: "版本号", Aliases: []string{"构建"}},
+		{ID: "row-about-datadir", Page: "about", Section: "关于 MCode", Title: "数据目录", Aliases: []string{"目录", "路径", "存储"}},
+		{ID: "row-about-update", Page: "about", Section: "关于 MCode", Title: "检查更新", Aliases: []string{"更新", "新版本"}},
+		{ID: "row-about-auto-update", Page: "about", Section: "关于 MCode", Title: "自动检查更新", Aliases: []string{"更新", "新版本"}},
+		{ID: "row-about-diag", Page: "about", Section: "关于 MCode", Title: "导出诊断日志", Aliases: []string{"日志", "诊断", "反馈"}},
 
 		// ---- MCP 旧搜索入口 ----
 		{ID: "block-mcp-catalog", Page: "extensions", Section: "MCP 服务", Title: "MCP 预设", Aliases: mcpCatalogSearchAliases(), Block: true},

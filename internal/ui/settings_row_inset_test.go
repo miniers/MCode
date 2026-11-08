@@ -205,16 +205,16 @@ func TestSettingsRowInset_MCPCustomLoading(t *testing.T) {
 	assertSettingsRowInset(t, "MCP 扫描状态", loading, card)
 }
 
-// TestSettingsRowInset_AboutFooter 覆盖通用页底部「版本号」等常驻声明行。
+// TestSettingsRowInset_AboutFooter 覆盖关于页的常驻声明行。
 func TestSettingsRowInset_AboutFooter(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
-	st.selectSettingsPage("general")
+	st.selectSettingsPage("about")
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsDetail(c, st) }, 1000, 4000)
 	tt.Frame()
 
-	card, ok := tt.Find("设置卡片 general.shortcuts")
+	card, ok := tt.Find("设置卡片 about.app")
 	if !ok {
-		t.Fatalf("缺少快捷键卡片：%v", tt.Texts())
+		t.Fatalf("缺少关于卡片：%v", tt.Texts())
 	}
 	version, ok := tt.Find("版本号")
 	if !ok {
