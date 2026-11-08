@@ -1,6 +1,7 @@
 package scripts_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -166,31 +167,64 @@ func TestReleaseConfirmCountdown(t *testing.T) {
 	if _, err := exec.LookPath("script"); err != nil {
 		t.Skip("未安装 script")
 	}
-	dir, _ := releaseRepo(t)
-	ai := fakeReleaseAI(t, "printf '%s\\n' '- AI 生成的说明'")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "script", "-q", "/dev/null", "bash", "scripts/release.sh", "--dry-run")
-	cmd.Dir = dir
-	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "MCODE_RELEASE_NOTES_CMD=") && !strings.HasPrefix(entry, "MCODE_RELEASE_AGENT=") && !strings.HasPrefix(entry, "MCODE_RELEASE_MODEL=") && !strings.HasPrefix(entry, "MCODE_RELEASE_CONFIRM_SECONDS=") {
-			cmd.Env = append(cmd.Env, entry)
-		}
-	}
-	cmd.Env = append(cmd.Env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "MCODE_RELEASE_NOTES_CMD="+ai, "MCODE_RELEASE_CONFIRM_SECONDS=1")
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stdin.Close()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("试运行失败: %v\n%s", err, out)
-	}
-	for _, want := range []string{"秒后自动确认", "已自动确认", "git tag -a v0.2.10 -m v0.2.10"} {
-		if !strings.Contains(string(out), want) {
-			t.Fatalf("试运行输出缺少 %q: %s", want, out)
-		}
+	for _, tc := range []struct {
+		name    string
+		seconds string
+		input   string
+		want    []string
+		absent  []string
+	}{
+		{name: "自动确认", seconds: "1", want: []string{"秒后自动确认", "已自动确认", "git tag -a v0.2.10 -m v0.2.10"}},
+		{name: "输入取消", seconds: "30", input: "n\n", want: []string{"已取消"}, absent: []string{"已自动确认", "git tag -a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, _ := releaseRepo(t)
+			ai := fakeReleaseAI(t, "printf '%s\\n' '- AI 生成的说明'")
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "script", "-q", "/dev/null", "bash", "scripts/release.sh", "--dry-run")
+			cmd.Dir = dir
+			for _, entry := range os.Environ() {
+				if !strings.HasPrefix(entry, "MCODE_RELEASE_NOTES_CMD=") && !strings.HasPrefix(entry, "MCODE_RELEASE_AGENT=") && !strings.HasPrefix(entry, "MCODE_RELEASE_MODEL=") && !strings.HasPrefix(entry, "MCODE_RELEASE_CONFIRM_SECONDS=") {
+					cmd.Env = append(cmd.Env, entry)
+				}
+			}
+			cmd.Env = append(cmd.Env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "MCODE_RELEASE_NOTES_CMD="+ai, "MCODE_RELEASE_CONFIRM_SECONDS="+tc.seconds)
+			stdin, err := cmd.StdinPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stdin.Close()
+			var out bytes.Buffer
+			cmd.Stdout = &out
+			cmd.Stderr = &out
+			start := time.Now()
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			if tc.input != "" {
+				time.Sleep(time.Second)
+				if _, err := stdin.Write([]byte(tc.input)); err != nil {
+					t.Errorf("输入失败: %v", err)
+				}
+			}
+			if err := cmd.Wait(); err != nil {
+				t.Fatalf("试运行失败: %v\n%s", err, out.String())
+			}
+			if tc.input != "" && time.Since(start) >= 15*time.Second {
+				t.Fatalf("取消耗时过长: %v", time.Since(start))
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(out.String(), want) {
+					t.Fatalf("试运行输出缺少 %q: %s", want, out.String())
+				}
+			}
+			for _, absent := range tc.absent {
+				if strings.Contains(out.String(), absent) {
+					t.Fatalf("试运行输出不应包含 %q: %s", absent, out.String())
+				}
+			}
+		})
 	}
 }
 
