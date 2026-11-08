@@ -1973,6 +1973,7 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 	if cfg.Providers.Mcode.Enabled {
 		backend.RegisterHarness(buildMcodeHarness(cfg, secrets, dataDir, mcpInjection))
 	}
+	registerMcodeTextGenerator(cfg, secrets)
 
 	for _, ep := range cfg.Providers.Custom {
 		if ep.Enabled {

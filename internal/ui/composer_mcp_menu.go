@@ -100,6 +100,7 @@ var threadMCPProviders = map[string]bool{
 	"codex":       true,
 	"commandcode": true,
 	"copilot":     true,
+	"mcode":       true,
 	"openai":      true,
 	"pi":          true,
 }

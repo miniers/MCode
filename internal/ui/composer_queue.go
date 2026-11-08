@@ -10,6 +10,7 @@ import (
 var steerableProviders = map[string]bool{
 	"claude": true,
 	"codex":  true,
+	"mcode":  true,
 	"omp":    true,
 	"pi":     true,
 }

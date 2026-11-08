@@ -58,6 +58,22 @@ func TestMcodeResolveClientMagpieRequest(t *testing.T) {
 	}
 }
 
+func TestMcodeResolveClientDefaultPlaceholder(t *testing.T) {
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+
+	// 模型目录为空时界面显示的占位模型 default（含大小写与空白变化）应落到默认模型。
+	for _, model := range []string{"", "default", " DEFAULT "} {
+		client, modelID, err := resolveMcodeClient(cfg, secrets, model, "")
+		if err != nil {
+			t.Fatalf("模型 %q：%v", model, err)
+		}
+		if client == nil || modelID != magpieinject.DefaultModel().ID {
+			t.Fatalf("模型 %q 解析为 %q，期望 %q", model, modelID, magpieinject.DefaultModel().ID)
+		}
+	}
+}
+
 func TestMcodeResolveClientAnthropicSkipsAffinityHeaders(t *testing.T) {
 	var affinity, clientRequest, session string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

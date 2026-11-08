@@ -189,8 +189,10 @@ var contextLimitFallbacks = []struct {
 }
 
 // providerContextLimits 是模型名完全匹配不上时的 provider 默认窗口：
-// 聚合型 CLI（pi/omp/mu）与 Copilot 的模型名由上游决定，统一给保守的 200K。
+// 聚合型 CLI（pi/omp/mu）与 Copilot 的模型名由上游决定，统一给保守的 200K；
+// 内置 mcode agent 的默认窗口是 128K。
 var providerContextLimits = map[string]int{
+	"mcode":    128_000,
 	"pi":       200_000,
 	"omp":      200_000,
 	"mu":       200_000,

@@ -19,7 +19,11 @@ var providerCLI = map[string]string{
 // SupportsProvider 判断 provider 是否被 GenerateWithOptions 支持。
 // memory 是供测试使用的回显 provider，项目内也算支持，但不会进入审查的生产回退顺序。
 func SupportsProvider(provider string) bool {
-	switch normalizeProvider(provider) {
+	name := normalizeProvider(provider)
+	if _, ok := registeredGenerator(name); ok {
+		return true
+	}
+	switch name {
 	case "claude", "codex", "pi", "memory":
 		return true
 	default:
@@ -29,8 +33,13 @@ func SupportsProvider(provider string) bool {
 
 // AvailableProvider 判断 provider 的 CLI 是否能在登录环境的 PATH 中找到。
 // 这里不能复用 resolveCLI：它查不到时会原样返回 bin，无法区分「未安装」。
+// 已注册的外部 provider（如 mcode）由程序内部实现，不需要查 PATH。
 func AvailableProvider(provider string) bool {
-	bin, ok := providerCLI[normalizeProvider(provider)]
+	name := normalizeProvider(provider)
+	if _, ok := registeredGenerator(name); ok {
+		return true
+	}
+	bin, ok := providerCLI[name]
 	if !ok {
 		return false
 	}
@@ -38,11 +47,19 @@ func AvailableProvider(provider string) bool {
 	return err == nil && path != ""
 }
 
+// SetLookPathForTest 替换 CLI 查找函数并返回恢复原状的回调。仅供测试使用。
+func SetLookPathForTest(fn func(string) (string, error)) (restore func()) {
+	orig := lookPath
+	lookPath = fn
+	return func() { lookPath = orig }
+}
+
 // ReviewProviderOrder 返回审查时尝试 provider 的顺序：
-// explicit 受支持时排第一，随后按 claude、codex、pi 的顺序补上其余 provider，并去重。
+// explicit 受支持时排第一，随后按 claude、codex、pi 的顺序补上其余 provider，
+// 最后接上已注册的外部 provider（按名称排序），并去重。
 // memory 等测试用 provider 不进入结果；不支持或无法使用的 explicit 会被忽略。
 // pi 没有 CheapestModel，调用方必须显式给出 model，否则 pi 不会进入结果，
-// 避免把其他 provider 的模型名误传给 pi。
+// 避免把其他 provider 的模型名误传给 pi；已注册的 provider 不受此限制。
 func ReviewProviderOrder(explicit, model string) []string {
 	hasModel := strings.TrimSpace(model) != ""
 	usable := func(provider string) bool {
@@ -50,13 +67,15 @@ func ReviewProviderOrder(explicit, model string) []string {
 			return false
 		}
 		if provider == "pi" && !hasModel {
-			return false
+			if _, ok := registeredGenerator(provider); !ok {
+				return false
+			}
 		}
 		return true
 	}
 
-	order := make([]string, 0, 3)
-	seen := make(map[string]bool, 3)
+	order := make([]string, 0, 4)
+	seen := make(map[string]bool, 4)
 	add := func(provider string) {
 		if provider == "" || seen[provider] || !usable(provider) {
 			return
@@ -67,6 +86,9 @@ func ReviewProviderOrder(explicit, model string) []string {
 
 	add(normalizeProvider(explicit))
 	for _, provider := range []string{"claude", "codex", "pi"} {
+		add(provider)
+	}
+	for _, provider := range registeredProviders() {
 		add(provider)
 	}
 	return order

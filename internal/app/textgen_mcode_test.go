@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 
 	"mcode/internal/config"
 	"mcode/internal/magpieinject"
+	"mcode/internal/textgen"
 )
 
 // mcodeTextgenStream 返回一段 OpenAI 流式 SSE，内容是两段文本。
@@ -110,5 +112,112 @@ func TestMcodeGenerateTextWithoutEndpoint(t *testing.T) {
 	_, err := mcodeGenerateText(context.Background(), config.Defaults(), nil, "", "", "给这段对话起标题")
 	if err == nil || !strings.Contains(err.Error(), "没有配置可用的 Magpie 端点") {
 		t.Fatalf("未配置端点错误 = %v", err)
+	}
+}
+
+// withoutCLI 模拟没装 claude、codex、pi 的环境。
+func withoutCLI(t *testing.T) {
+	t.Helper()
+	restore := textgen.SetLookPathForTest(func(string) (string, error) {
+		return "", errors.New("not found")
+	})
+	t.Cleanup(restore)
+}
+
+func TestGenerateTextWithoutCLIFallsBackToMcode(t *testing.T) {
+	withoutCLI(t)
+	var body map[string]any
+	hits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, mcodeTextgenStream)
+	}))
+	defer server.Close()
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
+	cfg.Providers.Mcode.Enabled = true
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+
+	// provider 为空时默认按 claude 处理，与 claude / codex 走同一条回退规则。
+	for _, provider := range []string{"claude", "codex", ""} {
+		out, err := generateText(context.Background(), cfg, secrets, provider, "", "", "给这段对话起标题")
+		if err != nil {
+			t.Fatalf("provider %q：%v", provider, err)
+		}
+		if out != "会话标题" {
+			t.Fatalf("provider %q 的输出 = %q", provider, out)
+		}
+		if body["model"] != magpieinject.DefaultModel().ID {
+			t.Fatalf("provider %q 请求的模型 = %v，期望 mcode 默认模型", provider, body["model"])
+		}
+	}
+	if hits != 3 {
+		t.Fatalf("mcode 请求次数 = %d，期望 3", hits)
+	}
+}
+
+func TestGenerateTextThirdLayerFallsBackToMcode(t *testing.T) {
+	withoutCLI(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, mcodeTextgenStream)
+	}))
+	defer server.Close()
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
+	cfg.Providers.Mcode.Enabled = true
+	cfg.Providers.Claude.Bin = "/nonexistent/claude"
+	cfg.Providers.Codex.Bin = "/nonexistent/codex"
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+
+	out, err := generateText(context.Background(), cfg, secrets, "custom-unknown", "", "", "给这段对话起标题")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "会话标题" {
+		t.Fatalf("输出 = %q", out)
+	}
+}
+
+func TestGenerateTextWithoutMcodeKeepsCLIError(t *testing.T) {
+	withoutCLI(t)
+	hits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, mcodeTextgenStream)
+	}))
+	defer server.Close()
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
+	cfg.Providers.Mcode.Enabled = false
+	cfg.Providers.Claude.Bin = "/nonexistent/claude"
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+
+	_, err := generateText(context.Background(), cfg, secrets, "claude", "", "", "给这段对话起标题")
+	if err == nil {
+		t.Fatalf("mcode 停用时不应回退到 mcode")
+	}
+	if hits != 0 {
+		t.Fatalf("mcode 停用时不应请求 Magpie，实际 %d 次", hits)
+	}
+}
+
+func TestGenerateTextAllFallbacksFailIncludesErrors(t *testing.T) {
+	withoutCLI(t)
+	cfg := mcodeTestConfig()
+	cfg.Providers.Mcode.Enabled = true
+	cfg.Providers.Claude.Bin = "/nonexistent/claude"
+	cfg.Providers.Codex.Bin = "/nonexistent/codex"
+
+	_, err := generateText(context.Background(), cfg, nil, "custom-unknown", "", "", "给这段对话起标题")
+	if err == nil {
+		t.Fatal("三个后端都失败时应返回错误")
+	}
+	for _, want := range []string{"claude / codex / mcode 也失败", "/nonexistent/claude", "/nonexistent/codex", "没有配置可用的 Magpie 端点"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("错误 %q 缺少 %q", err, want)
+		}
 	}
 }

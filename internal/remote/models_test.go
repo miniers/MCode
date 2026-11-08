@@ -373,3 +373,14 @@ func TestProviderModelsTrimDisplayNameSuffix(t *testing.T) {
 		t.Errorf("说明字段不应被裁剪，got %v", got.Detail)
 	}
 }
+
+// TestFallbackContextLimitMcode 校验 mcode 的兜底窗口按内置 agent 的默认 128K 下发，
+// 且模型名能匹配到具体关键字时仍以关键字为准。
+func TestFallbackContextLimitMcode(t *testing.T) {
+	if got := fallbackContextLimit("mcode", "unknown-model"); got != 128_000 {
+		t.Fatalf("mcode 默认窗口 = %d，想要 128000", got)
+	}
+	if got := fallbackContextLimit("mcode", "provider/claude-sonnet-5-5"); got != 200_000 {
+		t.Fatalf("具体模型关键字应优先，got %d", got)
+	}
+}

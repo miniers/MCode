@@ -117,3 +117,26 @@ func TestComposerMCPMenu_UnsupportedProviderIsNoted(t *testing.T) {
 		t.Fatal("不支持的 Agent 不应打开勾选页")
 	}
 }
+
+// TestProviderSupportsThreadMCP 校验按会话启停外部 MCP 的能力表：
+// mcode 的 ExtraTools 会读 Thread.MCPDisabled，pi 的端点前缀先归一后再查表。
+func TestProviderSupportsThreadMCP(t *testing.T) {
+	cases := []struct {
+		provider string
+		want     bool
+	}{
+		{"claude", true},
+		{"mcode", true},
+		{"pi", true},
+		{"pi:auto", true},
+		{"omp", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.provider, func(t *testing.T) {
+			if got := providerSupportsThreadMCP(tc.provider); got != tc.want {
+				t.Fatalf("providerSupportsThreadMCP(%q) = %v，想要 %v", tc.provider, got, tc.want)
+			}
+		})
+	}
+}

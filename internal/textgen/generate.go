@@ -76,6 +76,11 @@ func GenerateWithOptions(ctx context.Context, opts Options, prompt string) (stri
 	effort := strings.TrimSpace(opts.Effort)
 	bin := opts.BinaryPath
 
+	// 已注册的外部 provider（如内置 mcode）直接走注册函数，不查 CLI。
+	if fn, ok := registeredGenerator(prov); ok {
+		return fn(ctx, resolvedModel, effort, prompt)
+	}
+
 	switch prov {
 	case "claude":
 		if bin == "" {

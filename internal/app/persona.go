@@ -40,8 +40,8 @@ type personaSource struct {
 }
 
 // personaSourceFor 返回 provider/model 对应 Magpie 端点的人设来源。
-// provider 是 Magpie 自定义端点的 kind 时按端点比对；provider 为 pi 时模型 ID 的第一段
-// 是 pi provider id（见 internal/ui/composer_usage_panel.go 的 threadQuotaProvider），
+// provider 是 Magpie 自定义端点的 kind 时按端点比对；provider 为 pi 或 mcode 时模型 ID 的第一段
+// 是 provider id（见 internal/ui/composer_usage_panel.go 的 threadQuotaProvider），
 // 与端点分配的 providerID 比对。其余情况（非 Magpie、端点未启用、映射不到）返回 false。
 // providerID 的派生与 piMagpieTargets 一致，同一份配置得到的 id 才对得上。
 func personaSourceFor(cfg config.Config, provider, model string) (personaSource, bool) {
@@ -88,10 +88,11 @@ func magpieEndpointBaseURL(rawBaseURL string) string {
 	return strings.TrimRight(baseURL, "/")
 }
 
-// piProviderIDFromModel 判断 provider 是否指向 pi，并给出模型 ID 的第一段。
-// 只有 provider 为 pi 或 pi:<provider id> 时第二个返回值才为 true。
+// piProviderIDFromModel 判断 provider 是否指向 pi 或内置 mcode，并给出模型 ID 的第一段。
+// 只有 provider 为 pi、mcode 或 pi:<provider id> 时第二个返回值才为 true。
+// mcode 与 pi 共用模型串格式（Magpie 的 provider id + "/" + 模型 ID），因此同一套解析适用。
 func piProviderIDFromModel(provider, model string) (string, bool) {
-	if provider != "pi" && !strings.HasPrefix(provider, "pi:") {
+	if provider != "pi" && provider != "mcode" && !strings.HasPrefix(provider, "pi:") {
 		return "", false
 	}
 	if head, _, ok := strings.Cut(strings.TrimSpace(model), "/"); ok && head != "" {

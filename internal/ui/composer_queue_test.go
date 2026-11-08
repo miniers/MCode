@@ -994,3 +994,28 @@ func TestComposer_SwarmBusyKeepsRunningState(t *testing.T) {
 		return ok
 	})
 }
+
+// TestProviderSupportsSteer 校验中途插话能力表与各 provider 的实际实现一致：
+// mcode 实现 harness.Steerer，pi 的端点前缀先归一后再查表。
+func TestProviderSupportsSteer(t *testing.T) {
+	cases := []struct {
+		provider string
+		want     bool
+	}{
+		{"claude", true},
+		{"codex", true},
+		{"mcode", true},
+		{"omp", true},
+		{"pi", true},
+		{"pi:auto", true},
+		{"acp", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.provider, func(t *testing.T) {
+			if got := providerSupportsSteer(tc.provider); got != tc.want {
+				t.Fatalf("providerSupportsSteer(%q) = %v，想要 %v", tc.provider, got, tc.want)
+			}
+		})
+	}
+}

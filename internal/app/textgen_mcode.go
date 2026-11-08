@@ -10,10 +10,10 @@ import (
 
 // mcodeGenerateText 用内置 mcode provider 的模型完成一次性文本生成。
 // 模型按 resolveMcodeClient 的规则解析到 Magpie 端点或 Anthropic；空值与 "default"
-// 表示用默认 Magpie 模型。请求只带一条 user 消息、不带工具，effort 原样透传；
+// 的归一化也在 resolveMcodeClient 内完成。请求只带一条 user 消息、不带工具，effort 原样透传；
 // 返回最终 assistant 消息里的纯文本，去掉首尾空白。
 func mcodeGenerateText(ctx context.Context, cfg config.Config, secrets config.SecretStore, model, effort, prompt string) (string, error) {
-	client, modelID, err := resolveMcodeClient(cfg, secrets, textgenModelOverride(model), "")
+	client, modelID, err := resolveMcodeClient(cfg, secrets, model, "")
 	if err != nil {
 		return "", err
 	}

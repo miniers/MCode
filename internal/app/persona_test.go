@@ -193,6 +193,14 @@ func TestPersonaSourceFor(t *testing.T) {
 			found:    true,
 		},
 		{
+			// mcode 与 pi 共用模型串格式，同一份解析同样适用。
+			name:     "mcode 线程按模型首段命中",
+			provider: "mcode",
+			model:    piProviderID + "/auto/deepseek-v4",
+			want:     "http://127.0.0.1:3425/v1",
+			found:    true,
+		},
+		{
 			name:     "pi 线程按 pi:<provider id> 命中",
 			provider: "pi:" + piProviderID,
 			want:     "http://127.0.0.1:3425/v1",

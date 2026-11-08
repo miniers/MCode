@@ -237,8 +237,23 @@ func cliTextgenOptions(cfg config.Config, secrets config.SecretStore, provider, 
 	return opts, nil
 }
 
+// cliTextgenAvailable 判断一次性文本生成用的 CLI 是否可用：
+// PATH 中能找到，或用户显式配置了 bin 路径。
+func cliTextgenAvailable(cfg config.Config, provider string) bool {
+	if textgen.AvailableProvider(provider) {
+		return true
+	}
+	switch provider {
+	case "claude":
+		return strings.TrimSpace(cfg.Providers.Claude.Bin) != ""
+	case "codex":
+		return strings.TrimSpace(cfg.Providers.Codex.Bin) != ""
+	}
+	return false
+}
+
 // generateText 按层次选择一次性文本生成后端：
-// 本地 CLI / memory → OpenAI 兼容端点 → 回退 claude、codex。
+// 本地 CLI / memory → OpenAI 兼容端点 → 回退 claude、codex、mcode。
 // effort 为推理强度，为空时交给各后端默认值。
 func generateText(ctx context.Context, cfg config.Config, secrets config.SecretStore, provider, model, effort, prompt string) (string, error) {
 	raw := strings.TrimSpace(provider)
@@ -246,6 +261,7 @@ func generateText(ctx context.Context, cfg config.Config, secrets config.SecretS
 	if lower == "" {
 		lower = "claude"
 	}
+	mcodeEnabled := cfg.Providers.Mcode.Enabled
 
 	// pi 额外需要 Magpie 桥注入，单独走一项组装选项的分支。
 	if lower == "pi" {
@@ -254,6 +270,10 @@ func generateText(ctx context.Context, cfg config.Config, secrets config.SecretS
 
 	// 第一层：本地 CLI 与 memory 直接走 textgen.Generate。
 	if lower == "claude" || lower == "codex" {
+		// CLI 没装时不传 claude 或 codex 的模型名，直接交给内置 mcode 的默认模型。
+		if mcodeEnabled && !cliTextgenAvailable(cfg, lower) {
+			return mcodeGenerateText(ctx, cfg, secrets, "", effort, prompt)
+		}
 		opts, err := cliTextgenOptions(cfg, secrets, lower, model, effort)
 		if err != nil {
 			return "", err
@@ -283,7 +303,7 @@ func generateText(ctx context.Context, cfg config.Config, secrets config.SecretS
 		}, prompt)
 	}
 
-	// 第三层：回退到自动引擎顺序，先 claude 后 codex。
+	// 第三层：回退到自动引擎顺序，先 claude、codex，最后内置 mcode。
 	out, errClaude := textgen.GenerateWithOptions(ctx, textgen.Options{Provider: "claude", Effort: effort, BinaryPath: cfg.Providers.Claude.Bin}, prompt)
 	if errClaude == nil {
 		return out, nil
@@ -291,6 +311,16 @@ func generateText(ctx context.Context, cfg config.Config, secrets config.SecretS
 	out, errCodex := textgen.GenerateWithOptions(ctx, textgen.Options{Provider: "codex", Effort: effort, BinaryPath: cfg.Providers.Codex.Bin}, prompt)
 	if errCodex == nil {
 		return out, nil
+	}
+	var errMcode error
+	if mcodeEnabled {
+		out, errMcode = mcodeGenerateText(ctx, cfg, secrets, "", effort, prompt)
+		if errMcode == nil {
+			return out, nil
+		}
+	}
+	if errMcode != nil {
+		return "", fmt.Errorf("%s 不支持一次性文本生成，回退 claude / codex / mcode 也失败：%v；%v；%v", raw, errClaude, errCodex, errMcode)
 	}
 	return "", fmt.Errorf("%s 不支持一次性文本生成，回退 claude / codex 也失败：%v；%v", raw, errClaude, errCodex)
 }

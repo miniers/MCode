@@ -22,6 +22,7 @@ import (
 	providermcode "mcode/internal/providers/mcode"
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
+	"mcode/internal/textgen"
 )
 
 // mcodeAnthropicAPIKeyAccount 是 Anthropic API Key 的凭据账号名。
@@ -69,6 +70,20 @@ func mcodeCurrentSecrets(fallback config.SecretStore) config.SecretStore {
 	return fallback
 }
 
+// registerMcodeTextGenerator 把内置 mcode 注册为 textgen 的外部生成器，
+// 让 swarm 审查等不依赖 app 包的调用方也能用 mcode 完成一次性文本生成。
+// 每次调用都重新读取最新配置与凭据；mcode 停用时注销，避免误用。
+func registerMcodeTextGenerator(cfg config.Config, secrets config.SecretStore) {
+	if !cfg.Providers.Mcode.Enabled {
+		textgen.RegisterGenerator(config.ProviderMcode, nil)
+		return
+	}
+	textgen.RegisterGenerator(config.ProviderMcode, func(ctx context.Context, model, effort, prompt string) (string, error) {
+		current := mcodeCurrentConfig(cfg, secrets)
+		return mcodeGenerateText(ctx, current, mcodeCurrentSecrets(secrets), model, effort, prompt)
+	})
+}
+
 // mcodeAnthropicKey 返回 SecretStore 或环境变量中的 Anthropic API Key。
 func mcodeAnthropicKey(secrets config.SecretStore) string {
 	if secrets != nil {
@@ -85,7 +100,12 @@ func mcodeTargets(cfg config.Config, secrets config.SecretStore) []magpieinject.
 }
 
 // resolveMcodeClient 根据模型 ID 解析对应的上游客户端。
+// 模型目录为空时界面会显示占位模型 default，这里统一当成空串（默认 Magpie 模型）。
 func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model, affinityKey string) (llm.Client, string, error) {
+	model = strings.TrimSpace(model)
+	if strings.EqualFold(model, "default") {
+		model = ""
+	}
 	targets := mcodeTargets(cfg, secrets)
 	if model == "" {
 		for _, target := range targets {
