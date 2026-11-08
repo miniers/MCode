@@ -131,7 +131,9 @@ func (s *Service) SubmitExecutorResult(ctx context.Context, taskID, callerThread
 	if taskID == "" {
 		return fmt.Errorf("%w: task_id 不能为空", ErrInvalidTransition)
 	}
-	if err := res.Validate(); err != nil { return fmt.Errorf("%w: %v", ErrInvalidTransition, err) }
+	if err := res.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidTransition, err)
+	}
 	if res.Summary == "" {
 		return fmt.Errorf("%w: summary 不能为空", ErrInvalidTransition)
 	}
@@ -383,9 +385,13 @@ func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Tim
 
 // applyExecutorResult 将回执写入任务；完成状态由调用方继续按既有评审策略处理。
 func (s *Service) applyExecutorResult(ctx context.Context, t *store.Task, res ExecutorResult, now time.Time) error {
-	if res.Status == "" { return nil }
+	if res.Status == "" {
+		return nil
+	}
 	meta, err := ParseTaskMeta(t.Meta)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	meta.ResultStatus, meta.Summary = string(res.Status), res.Summary
 	switch res.Status {
 	case ResultFailed:
@@ -396,24 +402,38 @@ func (s *Service) applyExecutorResult(ctx context.Context, t *store.Task, res Ex
 		t.Status = string(TaskStatusWaiting)
 		meta.WaitKind, meta.WaitCheck, meta.Wakes = res.WaitKind, res.WaitCheck, 0
 		meta.WakeAt = now.Add(time.Duration(res.WaitMinutes) * time.Minute).Format(time.RFC3339)
-		if res.WaitingOn != "" { meta.Summary = res.WaitingOn }
+		if res.WaitingOn != "" {
+			meta.Summary = res.WaitingOn
+		}
 	case ResultDelegated:
 		for _, f := range res.Followups {
 			child, err := s.createChildTask(ctx, *t, f)
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			meta.Children = append(meta.Children, child.ID)
 		}
 		t.Status, meta.WaitKind = string(TaskStatusWaiting), "children"
 	case ResultNeedsDecision:
 		if meta.DecisionID != "" {
 			d, err := s.opts.Store.GetStewardDecision(ctx, meta.DecisionID)
-			if err != nil && !errors.Is(err, store.ErrNotFound) { return err }
-			if err == nil && d.Status == store.DecisionStatusOpen { t.Status = string(TaskStatusNeedsApproval); t.Meta = EncodeTaskMeta(meta); return nil }
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+			if err == nil && d.Status == store.DecisionStatusOpen {
+				t.Status = string(TaskStatusNeedsApproval)
+				t.Meta = EncodeTaskMeta(meta)
+				return nil
+			}
 		}
 		options, err := json.Marshal(res.Options)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		d, err := s.opts.Store.CreateStewardDecision(ctx, store.StewardDecision{TaskID: t.ID, ThreadID: threadIDOf(*t), Question: res.Question, OptionsJSON: string(options), Recommended: res.Recommendation})
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		meta.DecisionID = d.ID
 		t.Status = string(TaskStatusNeedsApproval)
 	}

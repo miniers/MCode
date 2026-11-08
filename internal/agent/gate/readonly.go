@@ -6,6 +6,8 @@ import "strings"
 func IsReadOnlyCommand(cmd string) bool {
 	cmd = strings.TrimSpace(cmd)
 	// 禁止 shell 展开或转义改变检查过的命令与参数。
-	if strings.ContainsAny(cmd, "$\\'\"*?[") { return false }
+	if strings.ContainsAny(cmd, "$\\'\"*?[") {
+		return false
+	}
 	return cmd == "true" || cmd == "false" || cmd != "" && onlyReads(cmd)
 }

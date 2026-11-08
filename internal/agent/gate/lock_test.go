@@ -17,6 +17,10 @@ func TestCheckHardLockDefaults(t *testing.T) {
 		{"git push --force-with-lease origin feature", "push-force"},
 		{"git push origin main", "push-main"},
 		{"git push origin master", "push-main"},
+		{"git push --tags", "push-tags"},
+		{"git push origin --tags", "push-tags"},
+		{"git push --follow-tags", "push-tags"},
+		{"cd repo && git push origin --follow-tags; echo done", "push-tags"},
 		{"git tag v1 && git push origin v1", "tag-push"},
 		{"npm publish", "publish"},
 		{"bun publish", "publish"},
@@ -50,7 +54,9 @@ func TestCheckHardLockAllowsSafeCommands(t *testing.T) {
 		"git push origin feature-x",
 		"git status",
 		"npm test",
-		"git push --tags",
+		"git tag -l",
+		"git tag v1",
+		"git push origin feature --tags-extra",
 		"rm -rf /tmp/build",
 		"gh pr view 12",
 	} {
@@ -76,5 +82,17 @@ func TestClaudeDeniedPatterns(t *testing.T) {
 	}
 	if !slices.Contains(patterns, "Bash(git push --force:*)") {
 		t.Fatalf("缺少强制推送模式: %v", patterns)
+	}
+	for _, pattern := range []string{
+		"Bash(git push --tags:*)",
+		"Bash(git push origin --tags:*)",
+		"Bash(git push --follow-tags:*)",
+	} {
+		if !slices.Contains(patterns, pattern) {
+			t.Fatalf("缺少标签推送模式 %q: %v", pattern, patterns)
+		}
+	}
+	if slices.Contains(patterns, "Bash(git tag:*)") {
+		t.Fatalf("不应禁止本地标签操作: %v", patterns)
 	}
 }

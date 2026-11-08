@@ -26,6 +26,18 @@ func TestBuildArgsHardLock(t *testing.T) {
 	if !strings.Contains(locked, "Bash(gh pr merge:*)") {
 		t.Fatalf("硬锁模式下应包含 gh pr merge 模式: %q", locked)
 	}
+	for _, pattern := range []string{
+		"Bash(git push --tags:*)",
+		"Bash(git push origin --tags:*)",
+		"Bash(git push --follow-tags:*)",
+	} {
+		if !strings.Contains(locked, pattern) {
+			t.Fatalf("硬锁模式下缺少标签推送模式 %q: %q", pattern, locked)
+		}
+	}
+	if strings.Contains(locked, "Bash(git tag:*)") {
+		t.Fatalf("硬锁模式下不应禁止本地标签操作: %q", locked)
+	}
 
 	unlocked := disallowedValue(t, buildArgs(harness.Turn{}))
 	if strings.Contains(unlocked, "Bash(gh pr merge:*)") {

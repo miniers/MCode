@@ -196,6 +196,8 @@ func TestOccupiedSlotsAndTickGoal(t *testing.T) {
 	tasks := []store.Task{
 		{ID: "t-prog", Status: string(TaskStatusInProgress)},
 		{ID: "t-appr", Status: string(TaskStatusNeedsApproval)},
+		{ID: "t-decision", Status: string(TaskStatusNeedsApproval), Meta: `{"decision_id":"D-0001"}`},
+		{ID: "t-waiting", Status: string(TaskStatusWaiting)},
 		{ID: reviewActiveTaskID, Status: string(TaskStatusReview)},
 		{ID: "t-rev-inactive", Status: string(TaskStatusReview)},
 		{ID: "t-todo", Status: string(TaskStatusTodo)},

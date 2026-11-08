@@ -412,15 +412,23 @@ func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (store.Tas
 
 func (s *Service) createChildTask(ctx context.Context, parent store.Task, f Followup) (store.Task, error) {
 	priority := Priority(f.Priority)
-	if !priority.Valid() { priority = PriorityNone }
+	if !priority.Valid() {
+		priority = PriorityNone
+	}
 	t := store.Task{ID: uuid.NewString(), ProjectID: parent.ProjectID, GoalID: parent.GoalID, GoalPrompt: parent.GoalPrompt, Title: f.Title, Notes: f.Body, Status: string(TaskStatusTodo), Priority: string(priority), DependsOn: []string{}, Meta: EncodeTaskMeta(TaskMeta{Origin: "delegated", ParentID: parent.ID})}
 	var err error
 	if parent.GoalID != nil && *parent.GoalID != "" {
 		goal, e := s.opts.Store.GetGoal(ctx, *parent.GoalID)
-		if e != nil { return store.Task{}, e }
+		if e != nil {
+			return store.Task{}, e
+		}
 		err = s.opts.Store.CreateGoalTask(ctx, t, goal.Revision)
-	} else { err = s.opts.Store.CreateTask(ctx, t) }
-	if err != nil { return store.Task{}, err }
+	} else {
+		err = s.opts.Store.CreateTask(ctx, t)
+	}
+	if err != nil {
+		return store.Task{}, err
+	}
 	return s.opts.Store.GetTask(ctx, t.ID)
 }
 

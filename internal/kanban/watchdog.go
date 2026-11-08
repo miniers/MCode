@@ -216,7 +216,9 @@ func (w *Watchdog) Check(ctx context.Context) error {
 				if decision.kind == finishWait {
 					continue
 				}
-				if err := w.svc.applyExecutorResult(ctx, &t, decision.result, now); err != nil { continue }
+				if err := w.svc.applyExecutorResult(ctx, &t, decision.result, now); err != nil {
+					continue
+				}
 				text := decision.summary
 				switch decision.kind {
 				case finishBlocked:
@@ -232,7 +234,9 @@ func (w *Watchdog) Check(ctx context.Context) error {
 					text = receiptEscalatedText
 					w.svc.markReceiptBlocked(t.ID)
 				default:
-					if decision.result.Status != "" && decision.result.Status != ResultDone { break }
+					if decision.result.Status != "" && decision.result.Status != ResultDone {
+						break
+					}
 					switch {
 					case autoReview:
 						if CanTransition(TaskStatus(t.Status), TaskStatusReview) {

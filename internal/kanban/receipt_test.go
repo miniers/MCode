@@ -82,21 +82,39 @@ func TestExecutorResultFailedAndDecision(t *testing.T) {
 			ctx := context.Background()
 			driver := newPokeDriver()
 			svc, db, wd, _ := setupReceiptTestService(t, driver, true, true, nil)
-			task, err := svc.CreateTask(ctx, CreateTaskInput{ProjectID:"p", Title:"任务"})
-			if err != nil || task.ThreadID == nil { t.Fatalf("创建任务 %v", err) }
-			res := ExecutorResult{Status:status, Summary:"结果", Question:"继续吗", Options:[]DecisionOption{{Key:"A", Text:"继续"}, {Key:"B", Text:"停下"}}}
-			for i := 0; i < 2; i++ {
-				if i > 0 && status == ResultFailed { break }
-				if err := svc.SubmitExecutorResult(ctx, task.ID, *task.ThreadID, res); err != nil { t.Fatal(err) }
-				driver.setThreadState(*task.ThreadID, SessionState{})
-				if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+			task, err := svc.CreateTask(ctx, CreateTaskInput{ProjectID: "p", Title: "任务"})
+			if err != nil || task.ThreadID == nil {
+				t.Fatalf("创建任务 %v", err)
 			}
-			latest, err := db.GetTask(ctx, task.ID); if err != nil { t.Fatal(err) }
-			meta, err := ParseTaskMeta(latest.Meta); if err != nil { t.Fatal(err) }
-			if status == ResultFailed && (latest.Status != "failed" || meta.Summary != "结果") { t.Fatalf("失败状态 %#v", latest) }
+			res := ExecutorResult{Status: status, Summary: "结果", Question: "继续吗", Options: []DecisionOption{{Key: "A", Text: "继续"}, {Key: "B", Text: "停下"}}}
+			for i := 0; i < 2; i++ {
+				if i > 0 && status == ResultFailed {
+					break
+				}
+				if err := svc.SubmitExecutorResult(ctx, task.ID, *task.ThreadID, res); err != nil {
+					t.Fatal(err)
+				}
+				driver.setThreadState(*task.ThreadID, SessionState{})
+				if err := wd.Check(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			latest, err := db.GetTask(ctx, task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta, err := ParseTaskMeta(latest.Meta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status == ResultFailed && (latest.Status != "failed" || meta.Summary != "结果") {
+				t.Fatalf("失败状态 %#v", latest)
+			}
 			if status == ResultNeedsDecision {
 				decisions, err := db.ListStewardDecisions(ctx, "", 0)
-				if err != nil || latest.Status != "needs_approval" || len(decisions) != 1 || meta.DecisionID != "D-0001" { t.Fatalf("决策状态 %#v %#v %v", latest, decisions, err) }
+				if err != nil || latest.Status != "needs_approval" || len(decisions) != 1 || meta.DecisionID != "D-0001" {
+					t.Fatalf("决策状态 %#v %#v %v", latest, decisions, err)
+				}
 			}
 		})
 	}

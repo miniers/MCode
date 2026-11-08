@@ -609,6 +609,14 @@ func mapPermissionMode(mode harness.PermissionMode) (sandbox string, approvalPol
 	}
 }
 
+func hardLockedPermission(mode harness.PermissionMode, hardLocked bool, override string) (sandbox, approval string) {
+	sandbox, approval = mapPermissionMode(mode)
+	if hardLocked && strings.TrimSpace(override) == "" && sandbox == "danger-full-access" {
+		return "workspace-write", "on-request"
+	}
+	return sandbox, approval
+}
+
 // acquireProcess 从进程池里取一个可用的常驻 app-server 进程并标记为 busy；池中没有可用进程时新起一个。
 // 取用规则：在 (workDir, sandbox, 路由指纹) 相同、存活且空闲的进程中，优先选已缓存 turn.SessionID 的那个，
 // 其次选任意一个；取用时顺手把已死的进程移出池并回收。
@@ -1216,12 +1224,16 @@ func (h *Harness) runTurnAttempt(ctx context.Context, turn harness.Turn, route *
 	client := proc.client
 
 	// 准备会话线程：已缓存线程可直接进入 turn/start
-	sandbox, approvalPolicy := mapPermissionMode(turn.Mode)
+	sandbox, approvalPolicy := hardLockedPermission(turn.Mode, turn.HardLocked, turn.HardLockOverride)
+	cacheMode := turn.Mode
+	if turn.Mode == harness.ModeFullAccess && sandbox == "workspace-write" {
+		cacheMode = harness.ModeAuto
+	}
 	threadID := turn.SessionID
 
 	proc.cachedMu.Lock()
 	cachedMode, alreadyCached := proc.cachedThreads[threadID]
-	alreadyCached = alreadyCached && cachedMode == turn.Mode
+	alreadyCached = alreadyCached && cachedMode == cacheMode
 	proc.cachedMu.Unlock()
 
 	if threadID == "" || !alreadyCached {
@@ -1251,7 +1263,7 @@ func (h *Harness) runTurnAttempt(ctx context.Context, turn harness.Turn, route *
 		}
 		if threadID != "" {
 			proc.cachedMu.Lock()
-			proc.cachedThreads[threadID] = turn.Mode
+			proc.cachedThreads[threadID] = cacheMode
 			proc.cachedMu.Unlock()
 		}
 	}

@@ -909,6 +909,32 @@ func TestMapPermissionMode(t *testing.T) {
 	}
 }
 
+func TestHardLockedPermission(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     harness.PermissionMode
+		locked   bool
+		override string
+		sandbox  string
+		approval string
+	}{
+		{"locked full access", harness.ModeFullAccess, true, "", "workspace-write", "on-request"},
+		{"blank override", harness.ModeFullAccess, true, "  ", "workspace-write", "on-request"},
+		{"override", harness.ModeFullAccess, true, "D-42", "danger-full-access", "never"},
+		{"unlocked", harness.ModeFullAccess, false, "", "danger-full-access", "never"},
+		{"auto", harness.ModeAuto, true, "", "workspace-write", "on-request"},
+		{"supervised", harness.ModeSupervised, true, "", "read-only", "untrusted"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sandbox, approval := hardLockedPermission(tc.mode, tc.locked, tc.override)
+			if sandbox != tc.sandbox || approval != tc.approval {
+				t.Fatalf("权限 = (%q, %q), want (%q, %q)", sandbox, approval, tc.sandbox, tc.approval)
+			}
+		})
+	}
+}
+
 type mockSandbox struct {
 	cmdFunc func(ctx context.Context) *exec.Cmd
 }

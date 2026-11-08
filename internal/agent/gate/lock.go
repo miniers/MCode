@@ -27,6 +27,11 @@ var defaultHardLocks = []HardLock{
 		pattern: regexp.MustCompile(`(?m)(?:^|[\n;&|])\s*git\s+push\b[^\n;&|]*(?:--force-with-lease\b|--force\b|(?:^|\s)-[a-zA-Z]*f[a-zA-Z]*(?:\s|$))`),
 	},
 	{
+		ID:      "push-tags",
+		Reason:  "推送标签",
+		pattern: regexp.MustCompile(`(?m)(?:^|[\n;&|])\s*git\s+push\b[^\n;&|]*\s--(?:tags|follow-tags)(?:\s|$|[;&|])`),
+	},
+	{
 		ID:      "push-main",
 		Reason:  "推送到 main 或 master",
 		pattern: regexp.MustCompile(`(?m)(?:^|[\n;&|])\s*git\s+push\b[^\n;&|]*\s(?:main|master)(?:\s|$)`),
@@ -96,7 +101,9 @@ func ClaudeDeniedPatterns() []string {
 		"Bash(git push master:*)",
 		"Bash(git push origin main:*)",
 		"Bash(git push origin master:*)",
-		"Bash(git tag:*)",
+		"Bash(git push --tags:*)",
+		"Bash(git push origin --tags:*)",
+		"Bash(git push --follow-tags:*)",
 		"Bash(npm publish:*)",
 		"Bash(bun publish:*)",
 		"Bash(cargo publish:*)",
