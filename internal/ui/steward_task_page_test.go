@@ -1,0 +1,71 @@
+package mcodeui
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+)
+
+func TestParseStewardResult(t *testing.T) {
+	result, ok := parseStewardResult(`{"task":"task-1","thread":"thread-1","title":"整理任务","summary":"已完成","status":"done"}`)
+	if !ok || result.Task != "task-1" || result.Thread != "thread-1" || result.Status != "done" {
+		t.Fatalf("解析结果错误: %+v, %v", result, ok)
+	}
+	for _, text := range []string{"旧的纯文本结果", `{"task":"task-1","title":"缺少状态","summary":"结果"}`, `{"task":"task-1","thread":"thread-1","title":"错误状态","summary":"结果","status":"waiting"}`} {
+		if _, ok := parseStewardResult(text); ok {
+			t.Fatalf("无效结果不应解析成功: %q", text)
+		}
+	}
+}
+
+func TestStewardTaskResultOpensThreadAndShowsBand(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetProjectsAndThreads([]Project{{ID: "p1", Name: "项目"}}, map[string][]Thread{
+		"p1": {
+			{ID: "feed", ProjectID: "p1", Title: "总管"},
+			{ID: "task-thread", ProjectID: "p1", Title: "任务线程"},
+			{ID: "other", ProjectID: "p1", Title: "其他线程"},
+		},
+	})
+	resultText, _ := json.Marshal(stewardResult{Task: "task-1", Thread: "task-thread", Title: "整理任务", Summary: "已完成", Status: "done"})
+	fake.SetMessages("feed", []Message{{ID: "result-1", Role: "assistant", Kind: stewardResultKind, Text: string(resultText), TurnIndex: 1, IsFinal: true}})
+	fake.SetMessages("task-thread", nil)
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{ID: "task-1", Status: "waiting", ResultSummary: "等待文件", WaitKind: "machine", WakeAt: time.Now().Add(time.Hour).Format(time.RFC3339)}}})
+
+	state, view := buildRoot(fake, WithInitialThread("feed"))
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("打开任务") })
+	if err := tt.Click("打开任务"); err != nil {
+		t.Fatalf("点击打开任务失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return selectedThreadForTest(state) == "task-thread" && tt.HasText("等待中") })
+	if !tt.HasText("等待文件") {
+		t.Fatalf("任务信息带缺少结果摘要: %q", tt.Texts())
+	}
+
+	state.selectThread("other")
+	for i := 0; i < 3; i++ {
+		tt.Frame()
+	}
+	if tt.HasText("等待文件") || tt.HasText("等待中") {
+		t.Fatalf("切换线程后任务信息带仍存在: %q", tt.Texts())
+	}
+}
+
+func TestStewardResultPlainTextFallback(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetProjectsAndThreads([]Project{{ID: "p1", Name: "项目"}}, map[string][]Thread{
+		"p1": {{ID: "feed", ProjectID: "p1", Title: "总管"}},
+	})
+	fake.SetMessages("feed", []Message{{ID: "result-1", Role: "assistant", Kind: stewardResultKind, Text: "旧的纯文本结果", TurnIndex: 1, IsFinal: true}})
+	state, view := buildRoot(fake, WithInitialThread("feed"))
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("旧的纯文本结果") })
+	if tt.HasText("打开任务") {
+		t.Fatal("旧纯文本结果不应显示打开任务按钮")
+	}
+}

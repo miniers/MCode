@@ -65,6 +65,14 @@ import {
   AUTO_COLLAPSE_CHANGED_EVENT,
   getStoredAutoCollapse
 } from '../services/storage';
+import {
+  StewardDecisionCard,
+  StewardReply,
+  StewardResultMessage,
+  latestDecisionAnswers,
+  parseStewardDecision,
+  parseStewardResult
+} from './timeline/StewardMessages';
 
 export const COLLAPSE_THRESHOLD = 4000;
 export const COLLAPSE_PREVIEW_LENGTH = 4000;
@@ -85,11 +93,15 @@ export type MessageKind =
   | 'swarm_report'
   | 'swarm_task'
   | 'host_event'
-  | 'steward_wake';
+  | 'steward_wake'
+  | 'steward_reply'
+  | 'steward_decision'
+  | 'steward_decision_answer'
+  | 'steward_result';
 
 export type TurnStatus = 'running' | 'completed' | 'interrupted' | 'failed';
 
-export type ThreadMessage = RemoteThreadMessage & {
+export type ThreadMessage = Omit<RemoteThreadMessage, 'kind'> & {
   turnID?: string;
   kind?: MessageKind;
   turnStatus?: TurnStatus;
@@ -382,6 +394,15 @@ export function isHiddenTimelineMessage(message: ThreadMessage): boolean {
   // Web 消息没有 isFinal 字段，用「回合仍在运行且不是最终答复」代表尚未定稿。
   const streaming = !message.isFinalResponse && message.turnStatus === 'running';
   return streaming && text.length > 0 && STEWARD_SILENT_MARKER.startsWith(text);
+}
+
+function isAssistantMessage(message: ThreadMessage): boolean {
+  if (message.kind === 'assistant' || (!message.kind && message.role === 'assistant')) return true;
+  return message.role === 'assistant' && (
+    message.kind === 'steward_reply' ||
+    message.kind === 'steward_decision' ||
+    message.kind === 'steward_result'
+  );
 }
 
 /** 是否是思考行（与桌面端 isReasoningMessage/countToolGroupCategories 的口径一致）。 */
@@ -761,7 +782,7 @@ export function buildTimelineItems(
     messages
       .filter((message) =>
         message.isFinalResponse &&
-        (message.kind === 'assistant' || (!message.kind && message.role === 'assistant')) &&
+        isAssistantMessage(message) &&
         message.text.trim().length > 0
       )
       .map((message) => `${message.turnID ?? message.turnIndex}:${message.text.trim()}`)
@@ -770,7 +791,7 @@ export function buildTimelineItems(
   const visibleMessages = messages
     .filter((message) => !isHiddenTimelineMessage(message))
     .filter((message) => {
-      const isAssistant = message.kind === 'assistant' || (!message.kind && message.role === 'assistant');
+      const isAssistant = isAssistantMessage(message);
       if (!isAssistant || message.isFinalResponse || message.text.trim().length === 0) return true;
       return !finalAssistantTexts.has(`${message.turnID ?? message.turnIndex}:${message.text.trim()}`);
     });
@@ -1011,7 +1032,7 @@ function messageCardClass(message: ThreadMessage): string {
 
 function messageLayoutClass(message: ThreadMessage): string {
   const isUser = message.kind === 'user' || message.role === 'user';
-  const isAssistant = message.kind === 'assistant' || (!message.kind && message.role === 'assistant');
+  const isAssistant = isAssistantMessage(message);
   if (isUser) return 'ml-auto max-w-[85%] rounded-[20px] p-3.5';
   if (isAssistant) return 'max-w-full border-0 p-0';
   return 'rounded-2xl border p-3.5';
@@ -1234,7 +1255,7 @@ export type ActiveFindMatch = Pick<FindMatch, 'messageID' | 'occurrence'>;
 /** 长消息折叠判定用的正文：助手消息先剥离末尾的派单围栏（与 TimelineEntry 里的 bodyText 同源） */
 function messageBodyText(message: ThreadMessage): string {
   const fullText = message.text || '';
-  const isAssistant = message.kind === 'assistant' || (!message.kind && message.role === 'assistant');
+  const isAssistant = isAssistantMessage(message);
   const split = isAssistant ? splitSwarmFence(fullText) : null;
   return split ? split.body : fullText;
 }
@@ -1362,6 +1383,9 @@ interface TimelineEntryProps {
    * 返回 false 或未传时点击文件改为行内展开本回合差量。
    */
   onOpenFile?: (path: string) => boolean;
+  decisionAnswers: Record<string, string>;
+  onSendStewardMessage?: (text: string) => void | Promise<unknown>;
+  onOpenThread?: (threadID: string) => void;
 }
 
 /**
@@ -1641,7 +1665,10 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
     lastMessageID,
     isRunning = false,
     onContinue,
-    onOpenFile
+    onOpenFile,
+    decisionAnswers,
+    onSendStewardMessage,
+    onOpenThread
   } = props;
   // 长按菜单（W-3）：只对窄屏、有正文的用户消息生效；长按成立先给中档触感。
   const narrowScreen = useIsNarrowScreen();
@@ -1927,6 +1954,31 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
 
   const message = item.message;
 
+  // 总管协议消息必须在普通助手分支之前处理；解析失败则继续落到下面的原文渲染。
+  if (message.kind === 'steward_decision_answer') return null;
+  if (message.kind === 'steward_reply' && message.role === 'assistant') {
+    return <StewardReply key={message.id} message={message} />;
+  }
+  if (message.kind === 'steward_decision' && message.role === 'assistant') {
+    const decision = parseStewardDecision(message.text);
+    if (decision) {
+      return (
+        <StewardDecisionCard
+          key={message.id}
+          message={message}
+          answer={decisionAnswers[decision.id]}
+          onSend={onSendStewardMessage}
+        />
+      );
+    }
+  }
+  if (message.kind === 'steward_result' && message.role === 'assistant') {
+    const result = parseStewardResult(message.text);
+    if (result) {
+      return <StewardResultMessage key={message.id} message={message} onOpenThread={onOpenThread} />;
+    }
+  }
+
   if (message.kind === 'swarm_report') {
     const isExpanded = expanded;
 
@@ -2033,7 +2085,7 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
 
   const fullText = message.text || '';
   const isUser = message.kind === 'user' || message.role === 'user';
-  const isAssistant = message.kind === 'assistant' || (!message.kind && message.role === 'assistant');
+  const isAssistant = isAssistantMessage(message);
   // 派单块总在回复末尾，且常常超出折叠上限：先剥离再对正文做折叠判断
   const swarmSplit = isAssistant ? splitSwarmFence(fullText) : null;
   const bodyText = swarmSplit ? swarmSplit.body : fullText;
@@ -2512,6 +2564,10 @@ interface ThreadTimelineProps {
   bottomPadding?: number;
   /** 是否为总管会话。 */
   isSteward?: boolean;
+  /** 总管决策卡选择/忽略时发送一条普通用户消息。 */
+  onSendStewardMessage?: (text: string) => void | Promise<unknown>;
+  /** 总管结果卡的「打开任务」跳转。 */
+  onOpenThread?: (threadID: string) => void;
 }
 
 interface VirtualTimelineProps extends ThreadTimelineProps {
@@ -2531,6 +2587,7 @@ interface VirtualTimelineProps extends ThreadTimelineProps {
   /** B7 时间线末尾的后台任务清单：由 ThreadTimeline 统一筛好传进来 */
   backgroundCommands: BackgroundTaskCommand[];
   runningBees: RemoteSwarmBee[];
+  decisionAnswers: Record<string, string>;
 }
 
 const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
@@ -2568,7 +2625,10 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
   bottomPadding = 0,
   onOpenFile,
   backgroundCommands,
-  runningBees
+  runningBees,
+  decisionAnswers,
+  onSendStewardMessage,
+  onOpenThread
 }) => {
   const [minuteTick, setMinuteTick] = React.useState(0);
   React.useEffect(() => {
@@ -2714,6 +2774,9 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
           isRunning={isRunning}
           onOpenFile={onOpenFile}
           onContinue={onContinue}
+          decisionAnswers={decisionAnswers}
+          onSendStewardMessage={onSendStewardMessage}
+          onOpenThread={onOpenThread}
         />
       </div>
     );
@@ -2804,7 +2867,9 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
   onContinue,
   bottomPadding = 0,
   isSteward = false,
-  onOpenFile
+  onOpenFile,
+  onSendStewardMessage,
+  onOpenThread
 }) => {
   const autoCollapse = useAutoCollapseReasoning();
   const { toggleWorkRecord } = useWorkRecordHandlers(threadID, autoCollapse, onToggleWorkRecord);
@@ -2877,9 +2942,16 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
 
   // 一次遍历把汇报配到发起胶囊上：只在这里算一次，胶囊自身不再扫时间线
   const swarmReportIndex = React.useMemo(() => buildSwarmReportIndex(items), [items]);
+  const decisionAnswers = React.useMemo(
+    () => latestDecisionAnswers(items.flatMap((item) => item.type === 'message' ? [item.message] : item.entries)),
+    [items]
+  );
   // 汇报全并进发起胶囊的消息整行跳过，虚拟列表的 count 与索引都基于这份可见列表
   const visibleItems = React.useMemo(
-    () => items.filter((item) => !isMergedSwarmReportRow(item, swarmReportIndex)),
+    () => items.filter((item) =>
+      item.type !== 'message' ||
+      (item.message.kind !== 'steward_decision_answer' && !isMergedSwarmReportRow(item, swarmReportIndex))
+    ),
     [items, swarmReportIndex]
   );
   // 时间线最后一条可见消息（已跳过隐藏消息与并进胶囊的汇报行）
@@ -3005,6 +3077,9 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
         isSteward={isSteward}
         backgroundCommands={backgroundCommands}
         runningBees={runningBees}
+          decisionAnswers={decisionAnswers}
+          onSendStewardMessage={onSendStewardMessage}
+          onOpenThread={onOpenThread}
       />
     );
   }
@@ -3062,6 +3137,9 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
           isRunning={isRunning}
           onOpenFile={onOpenFile}
           onContinue={onContinue}
+           decisionAnswers={decisionAnswers}
+           onSendStewardMessage={onSendStewardMessage}
+           onOpenThread={onOpenThread}
         />
       </div>
     );

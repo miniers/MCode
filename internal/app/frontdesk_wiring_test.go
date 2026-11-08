@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,12 +181,16 @@ func TestFrontdeskResultRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	pushes := 0
-	a := &App{store: db, backend: backend, ownerNotify: func(_, _, _ string) error { pushes++; return nil }}
+	var pushBodies []string
+	a := &App{store: db, backend: backend, ownerNotify: func(_, body, _ string) error { pushes++; pushBodies = append(pushBodies, body); return nil }}
 	handle := frontdeskResultHandler(a, dir)
 	owner := store.Task{ID: "owner", Title: "任务", Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner"})}
 	handle(ctx, owner, kanban.ExecutorResult{Status: kanban.ResultDone, Summary: "完成"})
 	if pushes != 1 {
 		t.Fatalf("主任务推送次数 = %d", pushes)
+	}
+	if len(pushBodies) != 1 || strings.HasPrefix(strings.TrimSpace(pushBodies[0]), "{") {
+		t.Fatalf("结果推送正文不应为 JSON：%q", pushBodies)
 	}
 	child := store.Task{ID: "child", Title: "子任务", Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner", ParentID: "owner"})}
 	handle(ctx, child, kanban.ExecutorResult{Status: kanban.ResultDone, Summary: "完成"})
@@ -206,12 +211,24 @@ func TestFrontdeskResultRouting(t *testing.T) {
 	if messages[0].Kind != "steward_result" || messages[1].Kind != "steward_result" || messages[2].Kind != "steward_decision" || pushes != 2 {
 		t.Fatalf("分流错误: %+v，推送 %d 次", messages, pushes)
 	}
+	var resultPayload struct {
+		Task    string `json:"task"`
+		Thread  string `json:"thread"`
+		Title   string `json:"title"`
+		Summary string `json:"summary"`
+		Status  string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(messages[0].Text), &resultPayload); err != nil || resultPayload.Task != owner.ID || resultPayload.Title != owner.Title || resultPayload.Summary != "完成" || resultPayload.Status != "done" {
+		t.Fatalf("结果内容错误: %+v %v", resultPayload, err)
+	}
 	var payload struct {
 		ID       string   `json:"id"`
+		TaskID   string   `json:"task_id"`
+		Thread   string   `json:"thread"`
 		Question string   `json:"question"`
 		Options  []string `json:"options"`
 	}
-	if err := json.Unmarshal([]byte(messages[2].Text), &payload); err != nil || payload.ID != decision.ID || payload.Question != decision.Question || len(payload.Options) != 2 {
+	if err := json.Unmarshal([]byte(messages[2].Text), &payload); err != nil || payload.ID != decision.ID || payload.TaskID != decision.TaskID || payload.Thread != decision.ThreadID || payload.Question != decision.Question || len(payload.Options) != 2 {
 		t.Fatalf("决策内容错误: %+v %v", payload, err)
 	}
 }

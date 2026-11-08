@@ -3129,6 +3129,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
             onOpenFile={filesSupported ? handleOpenTimelineFile : undefined}
             bottomPadding={sendAnchor.bottomPadding}
             isSteward={isStewardThread}
+            onSendStewardMessage={handleSend}
+            onOpenThread={replaceThreadByID}
           />
 
         </div>

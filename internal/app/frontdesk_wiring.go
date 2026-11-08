@@ -174,13 +174,22 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 		}
 		owner := meta.Origin == "owner" && meta.ParentID == ""
 		kind, text, push := "", "", false
+		threadID := ""
+		if task.ThreadID != nil {
+			threadID = *task.ThreadID
+		}
 		switch result.Status {
 		case kanban.ResultDone:
 			if meta.NoChange {
 				return
 			}
 			kind = "steward_result"
-			text = fmt.Sprintf("%s：%s", task.Title, result.Summary)
+			payload, err := json.Marshal(map[string]any{"task": task.ID, "thread": threadID, "title": task.Title, "summary": result.Summary, "status": "done"})
+			if err != nil {
+				log.Printf("前台编码结果失败: %v", err)
+				return
+			}
+			text = string(payload)
 			push = owner
 		case kanban.ResultFailed:
 			if !owner {
@@ -188,7 +197,12 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 				return
 			}
 			kind = "steward_result"
-			text = fmt.Sprintf("%s 没能完成：%s", task.Title, result.Summary)
+			payload, err := json.Marshal(map[string]any{"task": task.ID, "thread": threadID, "title": task.Title, "summary": result.Summary, "status": "failed"})
+			if err != nil {
+				log.Printf("前台编码结果失败: %v", err)
+				return
+			}
+			text = string(payload)
 			push = true
 		case kanban.ResultNeedsDecision:
 			decision, err := a.store.GetStewardDecision(ctx, meta.DecisionID)
@@ -197,7 +211,7 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 				return
 			}
 			var options json.RawMessage = []byte(decision.OptionsJSON)
-			payload, err := json.Marshal(map[string]any{"id": decision.ID, "task": task.Title, "question": decision.Question, "options": options, "recommended": decision.Recommended})
+			payload, err := json.Marshal(map[string]any{"id": decision.ID, "task": task.Title, "task_id": decision.TaskID, "thread": decision.ThreadID, "question": decision.Question, "options": options, "recommended": decision.Recommended})
 			if err != nil {
 				log.Printf("前台编码决策失败: %v", err)
 				return
@@ -219,7 +233,12 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 		}
 		if push {
 			body := text
-			if result.Status == kanban.ResultNeedsDecision {
+			switch result.Status {
+			case kanban.ResultDone:
+				body = fmt.Sprintf("%s：%s", task.Title, result.Summary)
+			case kanban.ResultFailed:
+				body = fmt.Sprintf("%s 没能完成：%s", task.Title, result.Summary)
+			case kanban.ResultNeedsDecision:
 				body = result.Question
 			}
 			if err := a.notifyFrontdesk(dataDir, task.Title, body, feedID); err != nil {

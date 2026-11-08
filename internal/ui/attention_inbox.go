@@ -436,14 +436,14 @@ func groupAttentionItems(items []AttentionItem) map[string][]AttentionItem {
 	return groups
 }
 
-// renderAttentionCountBadge 渲染未处理数量胶囊，样式沿用侧栏未读角标；count <= 0 时不渲染。
+// renderAttentionCountBadge 渲染数量胶囊，label 是徽标的可访问性标签；count <= 0 时不渲染。
 // 返回徽标元素，调用方可以再给它挂点击（总管段里的徽标就是弹浮层的按钮）。
-func renderAttentionCountBadge(c *ui.Context, key string, count int) ui.Element {
+func renderAttentionCountBadge(c *ui.Context, key, label string, count int) ui.Element {
 	if count <= 0 {
 		return ui.Element{}
 	}
 	return ui.Row(c.Key(key)).
-		Label(fmt.Sprintf("待处理 %d 条", count)).
+		Label(label).
 		Padding(Space0, Space2).
 		Radius(RadiusMD).
 		AlignItems(ui.Center).
@@ -501,7 +501,7 @@ func renderAttentionInboxEntry(c *ui.Context, s *chatState) {
 			TextColor(ThemePrimaryText(c).Alpha(0.92)).
 			Grow(1).
 			SingleLine()
-		renderAttentionCountBadge(c, "sidebar-attention-inbox-count", count)
+		renderAttentionCountBadge(c, "sidebar-attention-inbox-count", fmt.Sprintf("待处理 %d 条", count), count)
 	})
 
 	appPopover(c.Key("sidebar-attention-inbox-popover"), row, &st.open, func() {

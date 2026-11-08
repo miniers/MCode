@@ -1,0 +1,164 @@
+package mcodeui
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+)
+
+type stewardResult struct {
+	Task    string `json:"task"`
+	Thread  string `json:"thread"`
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	Status  string `json:"status"`
+}
+
+// stewardTaskSnapshot 是任务页信息带所需的最小看板快照。
+type stewardTaskSnapshot struct {
+	ID            string
+	Status        string
+	ResultSummary string
+	WaitKind      string
+	WakeAt        string
+}
+
+func parseStewardResult(text string) (stewardResult, bool) {
+	var result stewardResult
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		return stewardResult{}, false
+	}
+	if result.Task == "" || result.Title == "" || (result.Status != "done" && result.Status != "failed") {
+		return stewardResult{}, false
+	}
+	return result, true
+}
+
+func renderStewardResult(c *ui.Context, s *chatState, m Message, liveID, lastLiveID string, isLastAssistant, hasUsage bool, turnUsage TokenUsage, turnDur time.Duration, suppressTurnEnd bool) ui.Element {
+	result, ok := parseStewardResult(m.Text)
+	if !ok {
+		return renderAssistantMessage(c, s, m, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, turnDur, suppressTurnEnd)
+	}
+
+	text := result.Title + "：" + result.Summary
+	if result.Status == "failed" {
+		text = result.Title + " 没能完成：" + result.Summary
+	}
+	m.Text = text
+	return ui.Column(c.Key("steward-result-" + m.ID)).
+		FillWidth().MaxWidth(timelineContentMaxWidth(s)).AlignSelf(ui.Center).
+		Children(func() {
+			renderAssistantMessage(c, s, m, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, turnDur, suppressTurnEnd)
+			if result.Thread != "" {
+				ui.Row(c.Key("steward-result-actions-"+m.ID)).Margin(2, 0, 0, 0).Children(func() {
+					Button(c.Key("steward-result-open-"+m.ID), ButtonOpts{
+						Text:    "打开任务",
+						Variant: ButtonSecondary,
+						Size:    ControlMD,
+						OnClick: func() { openStewardTask(s, result) },
+					})
+				})
+			}
+		})
+}
+
+func openStewardTask(s *chatState, result stewardResult) {
+	if s == nil || result.Thread == "" || result.Task == "" {
+		return
+	}
+	s.mu.Lock()
+	s.stewardTaskThreadID = result.Thread
+	s.stewardTask = stewardTaskSnapshot{ID: result.Task, Status: result.Status, ResultSummary: result.Summary}
+	s.mu.Unlock()
+	s.selectThread(result.Thread)
+
+	go func() {
+		board, err := s.client.KanbanBoard(context.Background(), "")
+		if err != nil {
+			return
+		}
+		for _, task := range board.Tasks {
+			if task.ID != result.Task {
+				continue
+			}
+			s.mu.Lock()
+			if s.selectedThreadID == result.Thread && s.stewardTaskThreadID == result.Thread {
+				s.stewardTask = stewardTaskSnapshot{
+					ID:            task.ID,
+					Status:        task.Status,
+					ResultSummary: task.ResultSummary,
+					WaitKind:      task.WaitKind,
+					WakeAt:        task.WakeAt,
+				}
+			}
+			s.mu.Unlock()
+			s.invalidate()
+			return
+		}
+	}()
+}
+
+func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	if selectedID == "" || selectedID != s.stewardTaskThreadID {
+		s.mu.Unlock()
+		return
+	}
+	snapshot := s.stewardTask
+	s.mu.Unlock()
+
+	task := KanbanTask{ID: snapshot.ID, Status: snapshot.Status, Column: snapshot.Status}
+	label := kanbanStatusBadge(task)
+	if label == "" {
+		label = snapshot.Status
+	}
+	reason := strings.TrimSpace(snapshot.ResultSummary)
+	if snapshot.Status == "waiting" {
+		if reason == "" {
+			switch snapshot.WaitKind {
+			case "human":
+				reason = "等待你的决定"
+			case "machine":
+				reason = "等待条件满足"
+			case "children":
+				reason = "等待子任务"
+			default:
+				reason = "等待中"
+			}
+		}
+		if at := stewardWakeLocalTime(snapshot.WakeAt); at != "" {
+			reason += " · " + at
+		}
+	}
+	if reason == "" {
+		reason = "—"
+	}
+
+	band := ui.Row(c.Key("steward-task-band-"+snapshot.ID)).
+		FillWidth().MaxWidth(timelineContentMaxWidth(s)).AlignSelf(ui.Center).
+		AlignItems(ui.Center).Gap(Space3).Padding(Space2, Space3).
+		Radius(RadiusSM).Background(ThemeHover(c))
+	alpha := band.AnimateTo("enter", 1, ui.Animation{Duration: animateDuration(c, DurBase), Ease: motionEaseStandard})
+	band.Opacity(alpha).Children(func() {
+		kanbanToneBadge(c, "steward-task-status-"+snapshot.ID, label, kanbanStatusColor(c, snapshot.Status))
+		ui.Text(c, reason).Grow(1).MinWidth(0).SingleLine().Ellipsis("…").
+			FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+	})
+}
+
+func stewardWakeLocalTime(value string) string {
+	if value == "" {
+		return ""
+	}
+	at, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return ""
+	}
+	return at.Local().Format("2006-01-02 15:04")
+}

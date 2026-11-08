@@ -363,6 +363,7 @@ type KanbanTask struct {
 	Blocked, CanStart, CanMove, CanReview                                   bool
 	AttentionFlags                                                          []string
 	LastFailureReason, LastActivity, ReviewSummary                          string
+	ResultSummary, WaitKind, WakeAt                                         string
 	AttemptCount, Revision                                                  int
 	UpdatedAt                                                               time.Time
 }

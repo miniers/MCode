@@ -17,7 +17,7 @@ func TestTextScaleOnlyChatAndSidebar(t *testing.T) {
 		"sidebar.go": true, "sidebar_activity.go": true, "sidebar_bees.go": true,
 		"sidebar_footer.go": true, "sidebar_hover_card.go": true, "sidebar_state_groups.go": true,
 		"sidebar_steward.go": true, "sidebar_bulk.go": true,
-		"steward_decision_card.go": true, "steward_reply.go": true,
+		"steward_decision_card.go": true, "steward_reply.go": true, "steward_task_page.go": true,
 		"steward_split.go": true, "steward_timeline.go": true,
 		"swarm_dispatch_placeholder.go": true, "swarm_mentions.go": true,
 		"swarm_report_markdown.go": true, "swarm_timeline_capsule.go": true, "text_scale.go": true,

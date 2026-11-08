@@ -265,6 +265,8 @@ type chatState struct {
 	collapsedProj         map[string]bool     // 组折叠状态（保存在内存中，true 为折叠）
 	threads               []Thread            // 全部会话的平铺视图，按时间倒序
 	selectedThreadID      string
+	stewardTaskThreadID   string
+	stewardTask           stewardTaskSnapshot
 	// beeBusyFrame 非 nil 时表示 renderSidebar 本帧已算好的「名下还有子代理在跑的主会话 ID」集合，
 	// 侧栏每帧对每个会话多次判定忙碌，逐次全表扫描在几千个会话时是 O(N²)。只在 UI 线程读写。
 	beeBusyFrame map[string]bool
@@ -1313,6 +1315,10 @@ func (s *chatState) selectThread(threadID string) {
 		s.watchStop = nil
 	}
 	s.selectedThreadID = threadID
+	if threadID != s.stewardTaskThreadID {
+		s.stewardTaskThreadID = ""
+		s.stewardTask = stewardTaskSnapshot{}
+	}
 	// 打开会话即视为已查看：撤掉侧栏上的完成小红点与红色标题。
 	s.clearTurnFinishedLocked(threadID)
 	if threadID != "" {

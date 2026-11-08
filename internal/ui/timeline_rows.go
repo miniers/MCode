@@ -57,6 +57,7 @@ const stewardWakeKind = "steward_wake"
 const stewardReplyKind = "steward_reply"
 const stewardDecisionKind = "steward_decision"
 const stewardDecisionAnswerKind = "steward_decision_answer"
+const stewardResultKind = "steward_result"
 
 // hostEventKind 是宿主转来事件的 Kind：任务会话里仍然渲染成卡片，但同样不算用户开口。
 const hostEventKind = "host_event"
@@ -2622,6 +2623,8 @@ func renderMessageItem(c *ui.Context, s *chatState, m Message, liveID, lastLiveI
 		return renderStewardDecisionCard(c, s, m)
 	case m.Kind == stewardDecisionAnswerKind:
 		return ui.Element{}
+	case m.Kind == stewardResultKind:
+		return renderStewardResult(c, s, m, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, turnDur, suppressTurnEnd)
 	case m.Role == "user" && m.Kind == hostEventKind:
 		return renderHostEventCard(c, s, m)
 

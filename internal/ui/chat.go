@@ -160,6 +160,7 @@ func renderChat(c *ui.Context, s *chatState) {
 	ui.Column(c.Key("chat-main")).Grow(1).FillHeight().Children(func() {
 		// 会话头部：显示会话标题与项目动作
 		renderChatHeader(c, s, selectedID, curUsage, sidebarVisibleProgress(s))
+		renderStewardTaskBand(c, s, selectedID)
 
 		// 子代理面板停靠在聊天列两侧：先算出它们让出的宽度，再渲染面板
 		swarmReserve := swarmFloatReserve(c, s)
