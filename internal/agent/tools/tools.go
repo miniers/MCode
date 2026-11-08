@@ -18,11 +18,11 @@ type Env struct {
 	WorkDir        string
 	AdditionalDirs []string
 	// ReadOnlyDirs 是只读类工具额外放行的目录（如技能目录），写类工具不放行。
-	ReadOnlyDirs   []string
-	Sandbox        harness.Sandbox
-	Mode           harness.PermissionMode
-	ExtraEnv       []string
-	OnOutput       func(chunk string)
+	ReadOnlyDirs []string
+	Sandbox      harness.Sandbox
+	Mode         harness.PermissionMode
+	ExtraEnv     []string
+	OnOutput     func(chunk string)
 }
 
 // FileChange 描述文件修改及其差异。

@@ -36,9 +36,9 @@ type Options struct {
 	SystemPrompt  func(turn harness.Turn, toolNames []string) string
 	ExtraTools    func(ctx context.Context, turn harness.Turn) []tools.Tool
 	// ReadOnlyDirs 返回本轮只读工具额外允许访问的目录；可以为 nil。
-	ReadOnlyDirs  func(turn harness.Turn) []string
-	DefaultModel  string
-	MaxRounds     int
+	ReadOnlyDirs func(turn harness.Turn) []string
+	DefaultModel string
+	MaxRounds    int
 	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析前的完整模型串；
 	// 可以为 nil，返回 0 表示未知。
 	ContextWindow func(model string) int
