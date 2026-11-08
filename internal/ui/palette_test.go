@@ -7,6 +7,25 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func TestPaletteUpdateCommands(t *testing.T) {
+	items := buildPaletteItems(&chatState{})
+	want := map[string]string{
+		"cmd-check-update": "检查更新",
+		"cmd-changelog":    "更新日志",
+	}
+	for _, item := range items {
+		if title, ok := want[item.id]; ok && (item.title != title || item.kind != "command" || item.run == nil) {
+			t.Errorf("命令 %q 的标题、类型或执行函数不正确", item.id)
+		}
+	}
+	for _, item := range filterPaletteItems(items, "更新") {
+		delete(want, item.id)
+	}
+	for id := range want {
+		t.Errorf("搜索更新未命中命令 %q", id)
+	}
+}
+
 // 测试 filterPaletteItems：空查询保持原序、前缀 > 子串 > 模糊、未匹配剔除、大小写不敏感、中文匹配。
 func TestFilterPaletteItems(t *testing.T) {
 	items := []paletteItem{

@@ -17,7 +17,12 @@ const kanbanBadgeRefreshInterval = 30 * time.Second
 type sidebarFooterState struct {
 	addProjectOpen bool
 	moreMenuOpen   bool
-	updateVisible  bool
+	updateVisible   bool
+	updateOpen      bool
+	whatsNewOpen    bool
+	whatsNewChecked bool
+	whatsNewVersion string
+	whatsNewSection string
 
 	kanbanReviewCount int
 	kanbanFetchedAt   time.Time
@@ -120,24 +125,28 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 			})
 
 			// 设置入口图标按钮
-			if getChatSettings(s) != nil {
-				ui.Row(c.Key("sidebar-settings-wrapper")).Children(func() {
-					IconButton(c, IconButtonProps{
-						Key:     "sidebar-settings-btn",
-						Icon:    IconSettings(),
-						Size:    ControlSM,
-						Variant: ButtonGhost,
-						Label:   "设置",
-						OnClick: func() {
-							openSettingsWindow(s, "")
-						},
-					})
-					available := updateAvailable(s.client)
-					if available {
-						renderUpdateDot(c, "sidebar-settings-update-dot", !fs.updateVisible).Attach(ui.AnchorTopRight, ui.AnchorCenter)
-					}
-					fs.updateVisible = available
+			if st := getChatSettings(s); st != nil {
+				initWhatsNew(s, st, fs)
+				settingsBtn := IconButton(c, IconButtonProps{
+					Key:     "sidebar-settings-btn",
+					Icon:    IconSettings(),
+					Size:    ControlSM,
+					Variant: ButtonGhost,
+					Label:   "设置",
+					OnClick: func() {
+						openSettingsWindow(s, "")
+					},
 				})
+				appPopoverAbove(c.Key("sidebar-whats-new-popover"), settingsBtn, &fs.whatsNewOpen, nil, func() {
+					renderUpdatePopover(c, s, st, "已更新到 "+fs.whatsNewVersion, fs.whatsNewSection, nil)
+				})
+				status, _ := latestUpdateStatus(s.client)
+				if status.Available {
+					renderUpdateCapsule(c, s, st, fs, status)
+				} else {
+					fs.updateOpen = false
+				}
+				fs.updateVisible = status.Available
 			}
 
 			// 更多操作图标按钮：点击展开更多菜单

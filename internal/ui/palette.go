@@ -122,6 +122,34 @@ func buildPaletteItems(s *chatState) []paletteItem {
 			},
 		},
 		paletteItem{
+			id:    "cmd-check-update",
+			kind:  "command",
+			title: "检查更新",
+			run: func(cs *chatState) {
+				if getChatSettings(cs) == nil {
+					return
+				}
+				openSettingsWindow(cs, "about")
+				if st := currentSettingsWindowState(); st != nil {
+					startUpdateCheck(st)
+				}
+			},
+		},
+		paletteItem{
+			id:    "cmd-changelog",
+			kind:  "command",
+			title: "更新日志",
+			run: func(cs *chatState) {
+				if getChatSettings(cs) == nil {
+					return
+				}
+				openSettingsWindow(cs, "about")
+				if st := currentSettingsWindowState(); st != nil {
+					st.focusSettingsItem(settingsItemHit{Item: settingsItem{ID: "row-about-changelog", Page: "about"}})
+				}
+			},
+		},
+		paletteItem{
 			id:    "cmd-open-tasks",
 			kind:  "command",
 			title: "打开任务",

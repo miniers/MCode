@@ -1289,7 +1289,7 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 						ui.Box(c.Key("settings-nav-group-gap-" + item.id)).Height(Space3)
 					}
 					if item.group != "" {
-						ui.Text(c, item.group).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).Padding(0, Space3)
+						ui.Text(c, item.group).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).PaddingX(Space3)
 					}
 				}
 				previousGroup = item.group

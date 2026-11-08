@@ -1,4 +1,9 @@
 # settings tree
+page about
+section about.app 关于 MCode
+row row-about-app 
+section about.changelog 更新日志
+row row-about-changelog 
 page appearance
 section appearance.theme 主题与排版
 row row-theme 主题
@@ -62,7 +67,6 @@ row row-general-restore 恢复
 section general.shortcuts 快捷键
 row row-global-shortcut 全局快捷键
 row row-shortcuts-all 全部快捷键
-row row-general-about 
 page magpie
 section sec-magpie-gateways 网关
 row row-magpie-gateways 

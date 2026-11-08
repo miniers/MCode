@@ -419,6 +419,7 @@ func boolPtr(b bool) *bool {
 // Config 对应 <data>/config.json。敏感项（API key 等）不在此处存储。
 type Config struct {
 	AutoCheckUpdate *bool               `json:"autoCheckUpdate,omitempty"` // 自动检查应用更新，nil 视为开启
+	LastSeenVersion string              `json:"lastSeenVersion,omitempty"` // 上次查看的应用版本
 	Version         int                 `json:"version"`
 	Session         SessionConfig       `json:"session"`
 	Models          ModelsConfig        `json:"models"`
