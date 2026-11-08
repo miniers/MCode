@@ -39,7 +39,7 @@ func toolCall(name, id, args string) *llm.Response {
 }
 
 func harnessFor(client llm.Client, opts Options) *Harness {
-	opts.ResolveClient = func(model string) (llm.Client, string, error) { return client, model, nil }
+	opts.ResolveClient = func(model, _ string) (llm.Client, string, error) { return client, model, nil }
 	return New(opts)
 }
 
@@ -51,7 +51,7 @@ func TestKind(t *testing.T) {
 
 func TestResolveErrorEmitsErrorAndDone(t *testing.T) {
 	wantErr := errors.New("model not found")
-	h := New(Options{ResolveClient: func(string) (llm.Client, string, error) { return nil, "", wantErr }})
+	h := New(Options{ResolveClient: func(string, string) (llm.Client, string, error) { return nil, "", wantErr }})
 	var events []harness.Event
 	err := h.Run(context.Background(), harness.Turn{Model: "missing"}, func(event harness.Event) { events = append(events, event) })
 	if !errors.Is(err, wantErr) {
@@ -65,7 +65,7 @@ func TestResolveErrorEmitsErrorAndDone(t *testing.T) {
 func TestDefaultModel(t *testing.T) {
 	client := &fakeClient{responses: []*llm.Response{answer()}}
 	var resolved string
-	h := New(Options{DefaultModel: "default-model", ResolveClient: func(model string) (llm.Client, string, error) {
+	h := New(Options{DefaultModel: "default-model", ResolveClient: func(model, _ string) (llm.Client, string, error) {
 		resolved = model
 		return client, "upstream-model", nil
 	}})
@@ -74,6 +74,28 @@ func TestDefaultModel(t *testing.T) {
 	}
 	if resolved != "default-model" || client.requests[0].Model != "upstream-model" {
 		t.Fatalf("resolved=%q request model=%q", resolved, client.requests[0].Model)
+	}
+}
+
+func TestResolveClientAffinityKey(t *testing.T) {
+	var affinityKey string
+	h := New(Options{ResolveClient: func(model, key string) (llm.Client, string, error) {
+		affinityKey = key
+		return &fakeClient{responses: []*llm.Response{answer()}}, model, nil
+	}})
+	turn := harness.Turn{ThreadID: "thread", SessionID: "session"}
+	if err := h.Run(context.Background(), turn, nil); err != nil {
+		t.Fatal(err)
+	}
+	if affinityKey != "thread" {
+		t.Fatalf("affinity key = %q, want thread", affinityKey)
+	}
+	turn.ThreadID = ""
+	if err := h.Run(context.Background(), turn, nil); err != nil {
+		t.Fatal(err)
+	}
+	if affinityKey != "session" {
+		t.Fatalf("affinity key without thread = %q, want session", affinityKey)
 	}
 }
 

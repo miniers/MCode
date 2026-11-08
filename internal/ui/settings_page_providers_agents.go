@@ -50,6 +50,8 @@ type providerRowsState struct {
 	saving   map[string]bool            // 保存中（禁用该行控件）
 	// visionDraft 是 pi 「视觉模型」输入框草稿（其他 Provider 不用）。
 	visionDraft map[string]string
+	// keyDraft 是「API Key」输入框草稿（目前只有 mcode 用）。
+	keyDraft map[string]string
 
 	// showUninstalled 表示「未安装」分组是否展开；默认折叠成一行，搜索时强制展开。
 	showUninstalled bool
@@ -523,6 +525,9 @@ func (st *SettingsState) loadProviderRows() {
 		}
 		if st.providerRows.updateMsg == nil {
 			st.providerRows.updateMsg = make(map[string]string)
+		}
+		if st.providerRows.keyDraft == nil {
+			st.providerRows.keyDraft = make(map[string]string)
 		}
 		st.mu.Unlock()
 
@@ -1136,6 +1141,11 @@ func (st *SettingsState) checkProviderUpdate(id string) {
 // saveProviderRowSetting 异步保存单个 CLI harness 设置（apiKey 传空表示保留已存 Key）。
 // mutate 在加锁状态下修改设置副本，保存成功后写回 settings，失败写入 saveErr。
 func saveProviderRowSetting(st *SettingsState, id string, mutate func(s *ProviderSetting)) {
+	saveProviderRowSettingWithKey(st, id, "", mutate)
+}
+
+// saveProviderRowSettingWithKey 与 saveProviderRowSetting 相同，并同时保存非空的 API Key。
+func saveProviderRowSettingWithKey(st *SettingsState, id, apiKey string, mutate func(s *ProviderSetting)) {
 	client := st.agyClient()
 	if client == nil {
 		return
@@ -1166,7 +1176,7 @@ func saveProviderRowSetting(st *SettingsState, id string, mutate func(s *Provide
 	st.invalidate()
 
 	go func() {
-		saved, err := client.SaveProviderSetting(context.Background(), s, "")
+		saved, err := client.SaveProviderSetting(context.Background(), s, apiKey)
 		st.mu.Lock()
 		st.providerRows.saving[id] = false
 		if err != nil {
@@ -1179,6 +1189,10 @@ func saveProviderRowSetting(st *SettingsState, id string, mutate func(s *Provide
 			}
 			if st.providerRows.visionDraft != nil && strings.TrimSpace(st.providerRows.visionDraft[id]) == strings.TrimSpace(s.PiVisionModel) {
 				st.providerRows.visionDraft[id] = saved.PiVisionModel
+			}
+			// Key 保存成功后清空草稿，顺带回到「已保存」状态。
+			if apiKey != "" && st.providerRows.keyDraft != nil && strings.TrimSpace(st.providerRows.keyDraft[id]) == strings.TrimSpace(apiKey) {
+				st.providerRows.keyDraft[id] = ""
 			}
 		}
 		st.mu.Unlock()
@@ -1206,6 +1220,22 @@ func saveProviderRowBin(st *SettingsState, id string) {
 	st.mu.Unlock()
 
 	saveProviderRowSetting(st, id, func(s *ProviderSetting) { s.Bin = draft })
+}
+
+// saveProviderRowAPIKey 提交「API Key」草稿（目前只有 mcode 用）；空草稿不保存。
+func saveProviderRowAPIKey(st *SettingsState, id string) {
+	st.mu.Lock()
+	if st.providerRows.keyDraft == nil {
+		st.providerRows.keyDraft = make(map[string]string)
+	}
+	key := strings.TrimSpace(st.providerRows.keyDraft[id])
+	st.providerRows.keyDraft[id] = key
+	st.mu.Unlock()
+	if key == "" {
+		return
+	}
+
+	saveProviderRowSettingWithKey(st, id, key, func(*ProviderSetting) {})
 }
 
 // saveProviderRowVision 提交 pi 「视觉模型」草稿（其他 Provider 不用）。
@@ -1322,9 +1352,6 @@ func renderProviderBalancePanel(c *ui.Context, st *SettingsState, id string) {
 // 更新监控、版本信息、droid 认证方式与 Copilot 登录引导；pi 额外有长缓存与视觉模型两项。
 // locked 为真时写配置的控件一律禁用，只读展示照常渲染。
 func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, accountSection bool, locked bool) {
-	if id == "mcode" {
-		return
-	}
 	st.mu.Lock()
 	var provSetting ProviderSetting
 	if st.providerRows.settings != nil {
@@ -1333,6 +1360,10 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 	binValue := ""
 	if st.providerRows.binDraft != nil {
 		binValue = st.providerRows.binDraft[id]
+	}
+	keyValue := ""
+	if st.providerRows.keyDraft != nil {
+		keyValue = st.providerRows.keyDraft[id]
 	}
 	visionValue := ""
 	if st.providerRows.visionDraft != nil {
@@ -1360,6 +1391,75 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 	st.mu.Unlock()
 
 	name := providerRowName(st, id)
+
+	// 内置 mcode 只有一个凭据配置：Anthropic API Key；不展示可执行文件、版本与更新监控。
+	if id == "mcode" {
+		if !accountSection {
+			return
+		}
+		keyPlaceholder := ""
+		if provSetting.HasAPIKey {
+			keyPlaceholder = "已保存"
+		}
+		renderSettingRow(c, "row-provider-anthropic-key", "Anthropic API Key", func() {
+			ui.Row(c.Key("provider-anthropic-key-controls-" + id)).
+				AlignItems(ui.Center).
+				Gap(Space3).
+				Children(func() {
+					TextField(c, TextFieldProps{
+						Key:         "input-provider-anthropic-key-" + id,
+						Value:       &keyValue,
+						Label:       "Anthropic API Key " + name,
+						Placeholder: keyPlaceholder,
+						Width:       280,
+						Password:    true,
+						Disabled:    locked,
+						ReadOnly:    locked,
+						OnChange: func(text string) {
+							st.mu.Lock()
+							if st.providerRows.keyDraft == nil {
+								st.providerRows.keyDraft = make(map[string]string)
+							}
+							st.providerRows.keyDraft[id] = text
+							st.mu.Unlock()
+						},
+						OnSubmit: func(string) {
+							if !saving && !locked {
+								saveProviderRowAPIKey(st, id)
+							}
+						},
+					})
+
+					saveBtn := ui.ButtonBase(c.Key("btn-provider-anthropic-key-save-"+id)).
+						Label("保存").
+						Disabled(saving || locked).
+						Radius(RadiusSM).
+						Padding(settingsPillPadX, Space4).
+						Background(ThemeHover(c))
+					if saveBtn.Hovered() {
+						saveBtn.Background(ThemeOverlay(c, 0.15))
+					}
+					if saveBtn.Clicked() && !saving && !locked {
+						saveProviderRowAPIKey(st, id)
+					}
+					saveBtn.Children(func() {
+						ui.Text(c, "保存").
+							FontSize(TypeBody).
+							TextColor(ThemeAccent(c))
+					})
+				})
+		})
+		if saveErr != "" {
+			ui.Row(c.Key("row-provider-save-err-" + id)).
+				Padding(0, settingsRowPadX).
+				Children(func() {
+					ui.Text(c, saveErr).
+						FontSize(TypeFootnote).
+						TextColor(ThemeDanger(c))
+				})
+		}
+		return
+	}
 
 	if !accountSection {
 		// ACP 类 Provider（droid/cline/cursor/opencode/grok/devin）的配置改动需要重启生效
@@ -1739,7 +1839,7 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 	}
 
 	sections := make([]providerSheetSection, 0, 3)
-	if providerHasAccountTab(st, id, view) || id == "droid" || id == "copilot" {
+	if providerHasAccountTab(st, id, view) || id == "droid" || id == "copilot" || id == "mcode" {
 		sections = append(sections, providerSheetSection{
 			ID:    "sec-provider-account",
 			Title: "账号",
@@ -1827,7 +1927,7 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 			},
 		})
 	}
-	if id != "agy" {
+	if id != "agy" && id != "mcode" {
 		sections = append(sections, providerSheetSection{
 			ID:       "sec-provider-cli",
 			Title:    "命令行",

@@ -19,7 +19,7 @@ import (
 // Options 配置内置 agent harness。
 type Options struct {
 	StoreDir      string
-	ResolveClient func(model string) (client llm.Client, modelID string, err error)
+	ResolveClient func(model string, affinityKey string) (client llm.Client, modelID string, err error)
 	SystemPrompt  func(turn harness.Turn, toolNames []string) string
 	ExtraTools    func(ctx context.Context, turn harness.Turn) []tools.Tool
 	DefaultModel  string
@@ -50,7 +50,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	if h.opts.ResolveClient == nil {
 		return modelError(emit, fmt.Errorf("未配置模型解析器，无法连接模型 %q", model))
 	}
-	client, modelID, err := h.opts.ResolveClient(model)
+	client, modelID, err := h.opts.ResolveClient(model, affinityKey(turn))
 	if err != nil {
 		return modelError(emit, fmt.Errorf("无法解析模型 %q：%w", model, err))
 	}
@@ -104,6 +104,14 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
 		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, Emit: emit,
 	}, turn.Prompt, images)
+}
+
+// affinityKey 返回会话亲和键：优先线程 ID，未分配线程时退回会话 ID。
+func affinityKey(turn harness.Turn) string {
+	if turn.ThreadID != "" {
+		return turn.ThreadID
+	}
+	return turn.SessionID
 }
 
 func (h *Harness) gateFor(threadID string) *gate.Session {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,15 +31,18 @@ func mcodeTestSecrets(values map[string]string) config.SecretStore {
 }
 
 func TestMcodeResolveClientMagpieRequest(t *testing.T) {
-	var path, auth string
+	var path, auth, affinity, clientRequest, session string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path, auth = r.URL.Path, r.Header.Get("Authorization")
+		affinity = r.Header.Get("x-session-affinity")
+		clientRequest = r.Header.Get("x-client-request-id")
+		session = r.Header.Get("session_id")
 		io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
 	}))
 	defer server.Close()
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
-	client, model, err := resolveMcodeClient(cfg, secrets, "magpie-mcode/claude-sonnet")
+	client, model, err := resolveMcodeClient(cfg, secrets, "magpie-mcode/claude-sonnet", "thread-1")
 	if err != nil || model != "claude-sonnet" {
 		t.Fatalf("resolve = %q, %v", model, err)
 	}
@@ -49,12 +53,72 @@ func TestMcodeResolveClientMagpieRequest(t *testing.T) {
 	if path != "/chat/completions" || auth != "Bearer gateway-key" {
 		t.Fatalf("request = %q %q", path, auth)
 	}
+	if affinity != "thread-1" || clientRequest != "thread-1" || session != "thread-1" {
+		t.Fatalf("session affinity = %q %q %q", affinity, clientRequest, session)
+	}
+}
+
+func TestMcodeResolveClientAnthropicSkipsAffinityHeaders(t *testing.T) {
+	var affinity, clientRequest, session string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		affinity = r.Header.Get("x-session-affinity")
+		clientRequest = r.Header.Get("x-client-request-id")
+		session = r.Header.Get("session_id")
+		io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n")
+		io.WriteString(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n")
+		io.WriteString(w, "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n")
+		io.WriteString(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_BASE_URL", server.URL)
+	cfg := config.Defaults()
+	store := mcodeTestSecrets(map[string]string{mcodeAnthropicAPIKeyAccount: "secret-key"})
+	client, model, err := resolveMcodeClient(cfg, store, "anthropic/claude-sonnet-5-5", "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Stream(context.Background(), llm.Request{Model: model, Messages: []llm.Message{{Role: "user", Content: []llm.Part{{Type: "text", Text: "hello"}}}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if affinity != "" || clientRequest != "" || session != "" {
+		t.Fatalf("Anthropic request carried session affinity: %q %q %q", affinity, clientRequest, session)
+	}
+}
+
+func TestMcodeResolveClientEchoesDeepSeekReasoning(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode: %v", err)
+		}
+		io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer server.Close()
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
+	client, model, err := resolveMcodeClient(cfg, secrets, "magpie-mcode/DeepSeek-V3", "thread-1")
+	if err != nil || model != "DeepSeek-V3" {
+		t.Fatalf("resolve = %q, %v", model, err)
+	}
+	_, err = client.Stream(context.Background(), llm.Request{Model: model, Messages: []llm.Message{
+		{Role: "user", Content: []llm.Part{{Type: "text", Text: "hello"}}},
+		{Role: "assistant", Reasoning: "先想", ToolCalls: []llm.ToolCall{{ID: "call1", Name: "run", Arguments: json.RawMessage(`{}`)}}},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := body["messages"].([]any)
+	assistant := messages[1].(map[string]any)
+	if assistant["reasoning_content"] != "先想" {
+		t.Fatalf("assistant reasoning = %+v", assistant)
+	}
 }
 
 func TestMcodeResolveClientAnthropicAndErrors(t *testing.T) {
 	cfg := config.Defaults()
 	store := mcodeTestSecrets(map[string]string{mcodeAnthropicAPIKeyAccount: "secret-key"})
-	client, model, err := resolveMcodeClient(cfg, store, "anthropic/claude-sonnet-5-5")
+	client, model, err := resolveMcodeClient(cfg, store, "anthropic/claude-sonnet-5-5", "")
 	if err != nil || model != "claude-sonnet-5-5" {
 		t.Fatalf("secret key resolve = %q, %v", model, err)
 	}
@@ -65,14 +129,14 @@ func TestMcodeResolveClientAnthropicAndErrors(t *testing.T) {
 	}
 	store = mcodeTestSecrets(nil)
 	t.Setenv("ANTHROPIC_API_KEY", "environment-key")
-	if _, _, err := resolveMcodeClient(cfg, store, "anthropic/claude-opus-5-5"); err != nil {
+	if _, _, err := resolveMcodeClient(cfg, store, "anthropic/claude-opus-5-5", ""); err != nil {
 		t.Fatalf("environment fallback: %v", err)
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	if _, _, err := resolveMcodeClient(cfg, store, "anthropic/claude-opus-5-5"); err == nil || !strings.Contains(err.Error(), "未配置 Anthropic API Key") {
+	if _, _, err := resolveMcodeClient(cfg, store, "anthropic/claude-opus-5-5", ""); err == nil || !strings.Contains(err.Error(), "未配置 Anthropic API Key") {
 		t.Fatalf("missing key error = %v", err)
 	}
-	if _, _, err := resolveMcodeClient(cfg, store, "unknown/model"); err == nil || !strings.Contains(err.Error(), "Magpie 端点") {
+	if _, _, err := resolveMcodeClient(cfg, store, "unknown/model", ""); err == nil || !strings.Contains(err.Error(), "Magpie 端点") {
 		t.Fatalf("unknown provider error = %v", err)
 	}
 }
@@ -80,7 +144,7 @@ func TestMcodeResolveClientAnthropicAndErrors(t *testing.T) {
 func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "anthropic", Name: "Anthropic", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("anthropic"): "gateway-key"})
-	_, model, err := resolveMcodeClient(cfg, secrets, "anthropic/model-x")
+	_, model, err := resolveMcodeClient(cfg, secrets, "anthropic/model-x", "")
 	if err != nil || model != "model-x" {
 		t.Fatalf("endpoint precedence = %q, %v", model, err)
 	}
@@ -90,7 +154,7 @@ func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	}
 	cfg = mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
 	secrets = mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
-	_, model, err = resolveMcodeClient(cfg, secrets, "")
+	_, model, err = resolveMcodeClient(cfg, secrets, "", "")
 	if err != nil || model != magpieinject.DefaultModel().ID {
 		t.Fatalf("empty model = %q, %v", model, err)
 	}

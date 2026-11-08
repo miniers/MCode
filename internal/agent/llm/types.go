@@ -69,6 +69,8 @@ type Response struct {
 type Delta struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	// Reasoning 是思考增量的原文；Type 为 "reasoning" 时与 Text 相同。
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 // Client 定义流式模型调用接口。

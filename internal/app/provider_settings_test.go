@@ -132,7 +132,7 @@ func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
 	if !byID["pi"].Enabled {
 		t.Error("pi 应默认开启")
 	}
-	if !byID["mcode"].Enabled || byID["mcode"].Kind == "cli" || byID["mcode"].Bin != "" {
+	if !byID["mcode"].Enabled || byID["mcode"].Kind != "cli" || byID["mcode"].Bin != "" {
 		t.Errorf("mcode 设置不匹配: %+v", byID["mcode"])
 	}
 	for _, id := range []string{"copilot", "omp", "commandcode", "deepseek", "zai", "meta"} {
@@ -370,6 +370,61 @@ func TestSaveProviderSetting_McodeRegistersAndUnregisters(t *testing.T) {
 	}
 	if client.backend.RegisteredHarness("mcode") != nil {
 		t.Fatal("disabled mcode should unregister its harness")
+	}
+}
+
+// mcode 以 Kind=cli 下发，Enabled 取自 cfg.Providers.Mcode.Enabled。
+func TestProviderSettings_McodeKindAndEnabled(t *testing.T) {
+	client, dataDir, _ := newProviderSettingsClient(t)
+	if err := config.Update(dataDir, func(cfg *config.Config) error {
+		cfg.Providers.Mcode.Enabled = false
+		return nil
+	}); err != nil {
+		t.Fatalf("disable mcode: %v", err)
+	}
+
+	list, err := client.ProviderSettings(context.Background())
+	if err != nil {
+		t.Fatalf("ProviderSettings failed: %v", err)
+	}
+	for _, s := range list {
+		if s.ID != "mcode" {
+			continue
+		}
+		if s.Kind != "cli" {
+			t.Fatalf("mcode 的 Kind 应为 cli，got %q", s.Kind)
+		}
+		if s.Enabled {
+			t.Fatal("配置关闭 mcode 后 Enabled 应为 false")
+		}
+		return
+	}
+	t.Fatal("ProviderSettings 缺少 mcode")
+}
+
+// mcode 的 Anthropic API Key 写入 mcode.anthropicApiKey，回读 HasAPIKey；空 Key 保留已存值。
+func TestSaveProviderSetting_McodeAnthropicAPIKey(t *testing.T) {
+	client, _, secrets := newProviderSettingsClient(t)
+	ctx := context.Background()
+
+	saved, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: true}, "sk-ant-test")
+	if err != nil {
+		t.Fatalf("SaveProviderSetting(mcode) failed: %v", err)
+	}
+	if !saved.HasAPIKey || saved.Kind != "cli" {
+		t.Fatalf("保存后的 mcode 设置不匹配: %+v", saved)
+	}
+	if key, err := secrets.Get(mcodeAnthropicAPIKeyAccount); err != nil || key != "sk-ant-test" {
+		t.Fatalf("secrets 中的 mcode Key 不匹配: val=%q, err=%v", key, err)
+	}
+
+	// 再次保存且 apiKey 为空：保留已存 Key，HasAPIKey 回填。
+	saved, err = client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: true}, "")
+	if err != nil {
+		t.Fatalf("SaveProviderSetting(mcode) with empty key failed: %v", err)
+	}
+	if !saved.HasAPIKey {
+		t.Fatal("apiKey 为空时应保留已存 Key（HasAPIKey=true）")
 	}
 }
 

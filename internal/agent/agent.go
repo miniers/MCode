@@ -30,7 +30,9 @@ type Options struct {
 	Store     *session.Store
 	SessionID string
 	MaxRounds int
-	Emit      func(harness.Event)
+	// ContextWindow 是模型上下文窗口的 token 数，为 0 时使用默认值。
+	ContextWindow int
+	Emit          func(harness.Event)
 }
 
 type messageEntry struct {
@@ -50,7 +52,13 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	if opts.MaxRounds <= 0 {
 		opts.MaxRounds = 200
 	}
+	window := opts.ContextWindow
+	if window <= 0 {
+		window = defaultContextWindow
+	}
 	var messages []llm.Message
+	// contextTokens/contextMeasured 记录最近一次用量对应的上下文大小和消息数量，之后的消息按字符估算。
+	var contextTokens, contextMeasured int
 	var pending []llm.ToolCall
 	var usage harness.Usage
 	var stopReason string
@@ -93,12 +101,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		if err != nil {
 			return fail(err)
 		}
-		for _, raw := range entries {
-			var entry messageEntry
-			if json.Unmarshal(raw, &entry) == nil && entry.Type == "message" && (entry.Message.Role == "user" || entry.Message.Role == "assistant" || entry.Message.Role == "tool") {
-				messages = append(messages, entry.Message)
-			}
-		}
+		messages = historyFromEntries(entries)
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -112,6 +115,21 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	if opts.Client == nil {
 		return fail(errors.New("agent: llm client is required"))
 	}
+	compactNow := func() (*compactionResult, error) {
+		result, err := compactMessages(ctx, opts.Client, opts.Model, messages, emit)
+		if err != nil || result == nil {
+			return nil, err
+		}
+		if opts.Store != nil {
+			if err := opts.Store.Append(id, result.Entry); err != nil {
+				return nil, err
+			}
+		}
+		messages = result.Messages
+		contextTokens = result.After
+		contextMeasured = len(messages)
+		return result, nil
+	}
 	request := llm.Request{Model: opts.Model, Effort: opts.Effort, System: opts.System}
 	if opts.Plan {
 		request.System += "\n\n" + gate.PlanModePrompt()
@@ -123,10 +141,16 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if estimateContextTokens(messages, contextTokens, contextMeasured) > window-reserveTokens {
+			// 压缩是为后续调用腾出空间，失败时保留原上下文继续，让模型调用自己给出结论。
+			_, _ = compactNow()
+		}
 		request.Messages = append([]llm.Message(nil), messages...)
 		var response *llm.Response
 		var err error
-		for attempt := 0; ; attempt++ {
+		// 本轮内最多因上下文溢出压缩重试一次，再溢出就返回原始错误。
+		overflowRetried := false
+		for attempt := 0; ; {
 			var streamed strings.Builder
 			response, err = opts.Client.Stream(ctx, request, func(delta llm.Delta) {
 				if delta.Text == "" {
@@ -140,7 +164,22 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 					emit(harness.Event{Type: harness.EventReasoning, Text: delta.Text})
 				}
 			})
-			if err == nil || ctx.Err() != nil || attempt == 3 || !retryable(err) {
+			if err == nil || ctx.Err() != nil {
+				break
+			}
+			if llm.IsContextOverflow(err) && !overflowRetried {
+				overflowRetried = true
+				if streamed.Len() > 0 {
+					emit(harness.Event{Type: harness.EventTextRetract, Text: streamed.String()})
+				}
+				result, compactErr := compactNow()
+				if compactErr != nil || result == nil {
+					break
+				}
+				request.Messages = append([]llm.Message(nil), messages...)
+				continue
+			}
+			if attempt == 3 || !retryable(err) {
 				break
 			}
 			if streamed.Len() > 0 {
@@ -153,6 +192,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 				return ctx.Err()
 			case <-timer.C:
 			}
+			attempt++
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -177,6 +217,11 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		if err := appendMessage(response.Message); err != nil {
 			return fail(err)
 		}
+		contextTokens = response.Usage.Input + response.Usage.CacheRead + response.Usage.CacheWrite + response.Usage.Output
+		if estimate := tokensForMessages(messages); estimate > contextTokens {
+			contextTokens = estimate
+		}
+		contextMeasured = len(messages)
 		pending = append([]llm.ToolCall(nil), response.Message.ToolCalls...)
 		if stopReason != "tool_use" && !(stopReason == "length" && len(invalid) > 0) {
 			pending = nil

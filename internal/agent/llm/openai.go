@@ -21,6 +21,9 @@ type OpenAIConfig struct {
 	// Headers 可设置 Magpie 的会话亲和请求头。
 	Headers    map[string]string
 	HTTPClient *http.Client
+	// EchoReasoning 为 true 时在 assistant 消息上回传 reasoning_content，
+	// DeepSeek 系思考模型的工具轮次需要它。
+	EchoReasoning bool
 }
 
 type openAIClient struct{ cfg OpenAIConfig }
@@ -101,7 +104,7 @@ func sortedToolCalls(acc map[int]*toolCallAccumulator) []ToolCall {
 	return result
 }
 
-func requestBody(req Request) map[string]any {
+func requestBody(req Request, echoReasoning bool) map[string]any {
 	messages := make([]any, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, map[string]any{"role": "system", "content": req.System})
@@ -139,7 +142,7 @@ func requestBody(req Request) map[string]any {
 			m["content"] = nil
 		}
 		if msg.Role == "assistant" {
-			if deepseek && (msg.Reasoning != "" || len(msg.ToolCalls) > 0) {
+			if echoReasoning {
 				m["reasoning_content"] = msg.Reasoning
 			}
 			if len(msg.ToolCalls) > 0 {
@@ -190,7 +193,7 @@ func requestBody(req Request) map[string]any {
 }
 
 func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Delta)) (*Response, error) {
-	encoded, err := json.Marshal(requestBody(req))
+	encoded, err := json.Marshal(requestBody(req, c.cfg.EchoReasoning))
 	if err != nil {
 		return nil, fmt.Errorf("openai: encode request: %w", err)
 	}
@@ -268,7 +271,7 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 			if reasoning != "" {
 				result.Message.Reasoning += reasoning
 				if onDelta != nil {
-					onDelta(Delta{Type: "reasoning", Text: reasoning})
+					onDelta(Delta{Type: "reasoning", Text: reasoning, Reasoning: reasoning})
 				}
 			}
 			feedToolCalls(acc, d.ToolCalls)

@@ -84,13 +84,13 @@ func mcodeTargets(cfg config.Config, secrets config.SecretStore) []magpieinject.
 }
 
 // resolveMcodeClient 根据模型 ID 解析对应的上游客户端。
-func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model string) (llm.Client, string, error) {
+func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model, affinityKey string) (llm.Client, string, error) {
 	targets := mcodeTargets(cfg, secrets)
 	if model == "" {
 		for _, target := range targets {
 			if target.APIKey != "" {
-				client := llm.NewOpenAI(llm.OpenAIConfig{BaseURL: target.BaseURL, APIKey: target.APIKey})
-				return client, magpieinject.DefaultModel().ID, nil
+				modelID := magpieinject.DefaultModel().ID
+				return llm.NewOpenAI(mcodeMagpieConfig(target, affinityKey, modelID)), modelID, nil
 			}
 		}
 		return nil, "", fmt.Errorf("没有配置可用的 Magpie 端点，请在设置中连接 Magpie")
@@ -99,7 +99,7 @@ func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model str
 		if target.APIKey == "" {
 			return nil, "", fmt.Errorf("Magpie 端点 %s 没有 API Key", target.ProviderID)
 		}
-		return llm.NewOpenAI(llm.OpenAIConfig{BaseURL: target.BaseURL, APIKey: target.APIKey}), modelID, nil
+		return llm.NewOpenAI(mcodeMagpieConfig(target, affinityKey, modelID)), modelID, nil
 	}
 	if strings.HasPrefix(model, "anthropic/") {
 		key := mcodeAnthropicKey(secrets)
@@ -116,6 +116,27 @@ func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model str
 	return nil, "", fmt.Errorf("没有找到模型 %s 对应的 Magpie 端点，请在设置中连接 Magpie", model)
 }
 
+// mcodeMagpieConfig 构造 Magpie 网关客户端配置。
+// 会话亲和头让网关把同一会话路由到同一上游账号，提高缓存命中率；
+// DeepSeek 系模型按 id 声明 reasoning_content 回传方言。
+func mcodeMagpieConfig(target magpieinject.Target, affinityKey, modelID string) llm.OpenAIConfig {
+	cfg := llm.OpenAIConfig{BaseURL: target.BaseURL, APIKey: target.APIKey, EchoReasoning: isDeepSeekModel(modelID)}
+	if affinityKey != "" {
+		// 与 pi 的 openai 会话亲和格式一致：session_id、x-client-request-id、x-session-affinity。
+		cfg.Headers = map[string]string{
+			"session_id":          affinityKey,
+			"x-client-request-id": affinityKey,
+			"x-session-affinity":  affinityKey,
+		}
+	}
+	return cfg
+}
+
+// isDeepSeekModel 判断模型 ID 是否属于 DeepSeek 系，规则与 Magpie 桥的 isDeepSeekModel 一致。
+func isDeepSeekModel(model string) bool {
+	return strings.Contains(strings.ToLower(model), "deepseek")
+}
+
 // buildMcodeHarness 构造内置 mcode agent harness。
 func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
 	storeDir := ""
@@ -127,9 +148,9 @@ func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir st
 	return providermcode.New(providermcode.Options{
 		StoreDir:  storeDir,
 		MaxRounds: 0,
-		ResolveClient: func(model string) (llm.Client, string, error) {
+		ResolveClient: func(model, affinityKey string) (llm.Client, string, error) {
 			current := mcodeCurrentConfig(cfg, secrets)
-			return resolveMcodeClient(current, mcodeCurrentSecrets(secrets), model)
+			return resolveMcodeClient(current, mcodeCurrentSecrets(secrets), model, affinityKey)
 		},
 		SystemPrompt: func(turn harness.Turn, toolNames []string) string {
 			home, _ := os.UserHomeDir()

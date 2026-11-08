@@ -530,6 +530,77 @@ func TestProviders_CLIRowsLoadSettingsAndCredits(t *testing.T) {
 	}
 }
 
+// mcode 以 Kind=cli 下发：进入 cliIDs 与供应商列表，面板只有账号节与 Anthropic API Key 行。
+func TestProviders_McodeShownAsCLIRow(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	fake := NewFakeClient()
+	fake.providerSettings = []ProviderSetting{
+		{ID: "mcode", Name: "mcode", Kind: "cli", Enabled: true},
+	}
+	_, st := openProvidersPageTest(t, fake)
+
+	st.mu.Lock()
+	cliIDs := append([]string(nil), st.providerRows.cliIDs...)
+	_, hasSetting := st.providerRows.settings["mcode"]
+	st.mu.Unlock()
+	if len(cliIDs) != 1 || cliIDs[0] != "mcode" || !hasSetting {
+		t.Fatalf("mcode 应作为 CLI 行进入供应商列表，cliIDs=%v hasSetting=%v", cliIDs, hasSetting)
+	}
+
+	sections := cliProviderSheetSections(st, "mcode", nil)
+	if len(sections) != 1 || sections[0].ID != "sec-provider-account" {
+		t.Fatalf("mcode 面板应只有账号节，got %+v", sections)
+	}
+
+	openProviderSheet(st, "cli", "mcode")
+	panel := ui.NewTester(func(c *ui.Context) { renderCLIProviderSheetSections(c, st, "mcode", nil) }, 1000, 4000)
+	panel.Frame()
+	if !panel.HasText("Anthropic API Key") || panel.HasText("可执行文件路径") || panel.HasText("监控更新") {
+		t.Fatalf("mcode 面板应只有 Anthropic API Key 配置行：%v", panel.Texts())
+	}
+}
+
+// mcode 面板的 API Key 提交走 SaveProviderSetting，保存后清空草稿并显示已保存状态。
+func TestProviders_McodeSavesAnthropicAPIKey(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	fake := NewFakeClient()
+	fake.providerSettings = []ProviderSetting{
+		{ID: "mcode", Name: "mcode", Kind: "cli", Enabled: true},
+	}
+	_, st := openProvidersPageTest(t, fake)
+	openProviderSheet(st, "cli", "mcode")
+	panel := ui.NewTester(func(c *ui.Context) { renderCLIProviderSheetSections(c, st, "mcode", nil) }, 1000, 4000)
+	panel.Frame()
+
+	st.mu.Lock()
+	st.providerRows.keyDraft["mcode"] = "sk-ant-ui"
+	st.mu.Unlock()
+	panel.Frame()
+	clickWhenSettled(t, panel, "保存")
+	waitFor(t, panel, func() bool {
+		fake.mu.Lock()
+		keys := append([]string(nil), fake.saveProviderSettingKeys...)
+		fake.mu.Unlock()
+		for _, key := range keys {
+			if key == "sk-ant-ui" {
+				return true
+			}
+		}
+		return false
+	})
+	waitFor(t, panel, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return st.providerRows.settings["mcode"].HasAPIKey && st.providerRows.keyDraft["mcode"] == ""
+	})
+	panel.Frame()
+	if !panel.HasText("已保存") {
+		t.Fatalf("已保存 Key 后应显示占位状态：%v", panel.Texts())
+	}
+}
+
 // (g2) 已启用的 API 预设也查余额，未启用的不查，重复 ID 只查一次。
 func TestProviders_APIPresetCredits(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

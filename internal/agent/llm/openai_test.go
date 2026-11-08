@@ -30,7 +30,7 @@ func TestOpenAIStream(t *testing.T) {
 	if len(response.Message.Content) != 1 || response.Message.Content[0].Text != "你好" || response.Message.Reasoning != "想法" {
 		t.Fatalf("message: %+v", response.Message)
 	}
-	if len(deltas) != 4 || deltas[0] != (Delta{Type: "text", Text: "你"}) || deltas[1] != (Delta{Type: "reasoning", Text: "想"}) || deltas[3].Text != "法" {
+	if len(deltas) != 4 || deltas[0] != (Delta{Type: "text", Text: "你"}) || deltas[1] != (Delta{Type: "reasoning", Text: "想", Reasoning: "想"}) || deltas[3] != (Delta{Type: "reasoning", Text: "法", Reasoning: "法"}) {
 		t.Fatalf("deltas: %+v", deltas)
 	}
 	calls := response.Message.ToolCalls
@@ -109,6 +109,45 @@ func TestOpenAIRequest(t *testing.T) {
 	}, Tools: []ToolSpec{{Name: "run", Parameters: json.RawMessage(`{"type":"object"}`)}}}, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOpenAIRequestReasoningEcho(t *testing.T) {
+	for _, echo := range []bool{true, false} {
+		t.Run(fmt.Sprintf("echo=%t", echo), func(t *testing.T) {
+			var body map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("decode: %v", err)
+				}
+				fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+			}))
+			defer server.Close()
+			client := NewOpenAI(OpenAIConfig{BaseURL: server.URL, EchoReasoning: echo})
+			// 模型名不带 deepseek，验证回传只由 EchoReasoning 决定。
+			_, err := client.Stream(context.Background(), Request{Model: "test", Messages: []Message{
+				{Role: "assistant", Content: []Part{{Type: "text", Text: "done"}}, Reasoning: "先想"},
+				{Role: "assistant", ToolCalls: []ToolCall{{ID: "call1", Name: "run", Arguments: json.RawMessage(`{}`)}}},
+			}}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			messages := body["messages"].([]any)
+			first := messages[0].(map[string]any)
+			second := messages[1].(map[string]any)
+			if echo {
+				if first["reasoning_content"] != "先想" || second["reasoning_content"] != "" {
+					t.Fatalf("echoed messages: %+v", messages)
+				}
+				return
+			}
+			if _, ok := first["reasoning_content"]; ok {
+				t.Fatalf("reasoning_content should be omitted: %+v", first)
+			}
+			if _, ok := second["reasoning_content"]; ok {
+				t.Fatalf("reasoning_content should be omitted: %+v", second)
+			}
+		})
 	}
 }
 

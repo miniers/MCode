@@ -24,10 +24,10 @@ type providerSettingSpec struct {
 }
 
 // providerSettingSpecs 是设置页 Provider 列表的固定顺序。
-// ACP Agent（droid/cline/cursor/opencode/grok/devin）与 CLI 家族按 Kind=cli，OpenAI 兼容预设按 Kind=api。
+// ACP Agent（droid/cline/cursor/opencode/grok/devin）与 CLI 家族（含内置 mcode）按 Kind=cli，OpenAI 兼容预设按 Kind=api。
 var providerSettingSpecs = []providerSettingSpec{
 	{id: "copilot", name: "GitHub Copilot", kind: "cli"},
-	{id: "mcode", name: "mcode", kind: "native"},
+	{id: "mcode", name: "mcode", kind: "cli"},
 	{id: "pi", name: "Pi", kind: "cli"},
 	{id: "omp", name: "Omp", kind: "cli"},
 	{id: "commandcode", name: "Command Code", kind: "cli"},
@@ -65,6 +65,9 @@ func providerSettingIsACP(id string) bool {
 func providerSettingSecretAccount(id string) string {
 	if id == "droid" {
 		return droidAPIKeyAccount
+	}
+	if id == "mcode" {
+		return mcodeAnthropicAPIKeyAccount
 	}
 	if preset, ok := openai.PresetByID(id); ok {
 		return preset.APIKeyAccount
@@ -105,6 +108,7 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 		s.UpdateMonitor = cfg.Providers.Copilot.UpdateMonitorEnabled()
 	case "mcode":
 		s.Enabled = cfg.Providers.Mcode.Enabled
+		s.HasAPIKey = hasProviderSecret(secrets, mcodeAnthropicAPIKeyAccount)
 	case "pi":
 		s.Enabled = cfg.Providers.Pi.Enabled
 		s.Bin = cfg.Providers.Pi.Bin
