@@ -102,6 +102,8 @@ func TestCheck(t *testing.T) {
 		{"z_bash_auto_quoted_semicolon_ask", harness.ModeAuto, false, false, "bash", "command", `grep "a; rm b" f; rm c`, Ask, ""},
 		{"z_bash_auto_unterminated_quote_ask", harness.ModeAuto, false, false, "bash", "command", `grep "unterminated f`, Ask, ""},
 		{"z_bash_auto_cd_and_rm_ask", harness.ModeAuto, false, false, "bash", "command", "cd x && rm y", Ask, ""},
+		{"bash_output_supervised", harness.ModeSupervised, false, false, "bash_output", "id", "bg1", Allow, ""},
+		{"kill_bash_supervised", harness.ModeSupervised, false, false, "kill_bash", "id", "bg1", Allow, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
