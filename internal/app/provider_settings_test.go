@@ -48,9 +48,16 @@ func TestBuildExtraHarnesses_EnabledKinds(t *testing.T) {
 	}
 
 	got := harnessKinds(buildExtraHarnesses(cfg, config.NewMemorySecretStore(), providerMCP{}))
-	want := []string{"copilot", "pi", "mcode", "omp", "commandcode", "deepseek"}
+	want := []string{"copilot", "pi", "omp", "commandcode", "deepseek"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("harness Kind 集合不匹配: got %v, want %v", got, want)
+	}
+}
+
+func TestBuildMcodeHarness_Kind(t *testing.T) {
+	h := buildMcodeHarness(config.Config{}, config.NewMemorySecretStore(), t.TempDir(), providerMCP{})
+	if got := string(h.Kind()); got != "mcode" {
+		t.Fatalf("buildMcodeHarness Kind 不匹配: got %q, want %q", got, "mcode")
 	}
 }
 
