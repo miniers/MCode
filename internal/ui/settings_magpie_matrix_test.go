@@ -376,7 +376,7 @@ func TestMagpieMatrixErrorLines(t *testing.T) {
 		{
 			name: "部分相同",
 			errs: map[string]string{"claude": "未设置 API Key", "codex": "连接超时", "pi": "未设置 API Key", "mcode": "连接超时"},
-			want: []string{"Claude、pi：未设置 API Key", "Codex、mcode：连接超时"},
+			want: []string{"mcode、Codex：连接超时", "Claude、pi：未设置 API Key"},
 		},
 		{
 			name: "全部为空",
@@ -433,9 +433,9 @@ func TestMagpieInstalledAgents_EnabledProviders(t *testing.T) {
 		piEnabled     bool
 		want          []string
 	}{
-		{name: "关闭 pi", claudeEnabled: true, piEnabled: false, want: []string{"claude", "codex", "mcode"}},
-		{name: "关闭 claude", claudeEnabled: false, piEnabled: true, want: []string{"codex", "pi", "mcode"}},
-		{name: "全部启用", claudeEnabled: true, piEnabled: true, want: []string{"claude", "codex", "pi", "mcode"}},
+		{name: "关闭 pi", claudeEnabled: true, piEnabled: false, want: []string{"mcode", "claude", "codex"}},
+		{name: "关闭 claude", claudeEnabled: false, piEnabled: true, want: []string{"mcode", "codex", "pi"}},
+		{name: "全部启用", claudeEnabled: true, piEnabled: true, want: []string{"mcode", "claude", "codex", "pi"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := matrixTestState(t, NewFakeClient(), nil, nil)

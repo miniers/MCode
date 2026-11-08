@@ -11,8 +11,8 @@ import (
 // 没有安装状态，也没有 inject、global、off 的模式区分。
 const magpieBuiltinAgent = "mcode"
 
-// magpieMatrixAgents 是模型矩阵的列顺序：按智能体名逐列展示勾选状态。
-var magpieMatrixAgents = []string{"claude", "codex", "pi", magpieBuiltinAgent}
+// magpieMatrixAgents 是模型矩阵的列顺序：内置引擎固定在第一列。
+var magpieMatrixAgents = []string{magpieBuiltinAgent, "claude", "codex", "pi"}
 
 func magpieInstalledAgents(st *SettingsState) []string {
 	st.mu.Lock()
