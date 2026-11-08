@@ -581,6 +581,10 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     enabled: pinSentMessage
   });
   const { arm: armSendAnchor, release: releaseSendAnchor } = sendAnchor;
+  const revealSentMessage = useCallback(() => {
+    if (pinSentMessage) armSendAnchor();
+    else resumePin();
+  }, [armSendAnchor, pinSentMessage, resumePin]);
   const pendingHistoryScrollRef = useRef<{ scrollHeight: number; scrollTop: number; key: string | null; offset: number } | null>(null);
   const historySyncFrameRef = useRef(0);
   const pendingWorkRecordScrollRef = useRef<{ threadID: string; turnID: string } | null>(null);
@@ -1843,6 +1847,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       : makeActionID();
     let accepted = false;
     try {
+      revealSentMessage();
       const result = await interruptAndSendThread(thread.id, text, attachmentIDs, actionID);
       pendingInterruptSendRef.current = null;
       clearDraftIfUnchanged(draftText, submittedVersion);
@@ -1850,6 +1855,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       void refreshThread(thread.id);
       accepted = true;
     } catch (err) {
+      releaseSendAnchor(true);
       if (err instanceof RpcError) {
         pendingInterruptSendRef.current = null;
         setInterruptError(err.message || '中断并发送失败，草稿已保留');
@@ -1861,7 +1867,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       setInterruptAndSendState('idle');
     }
     return accepted;
-  }, [activeTurnID, attachmentsSupported, beginPolling, clearDraftIfUnchanged, commandsSupported, interruptAndSendState, interruptAndSendSupported, interruptAndSendThread, isConnected, isUploadingAttachment, latestSummary.hasPendingRequest, latestSummary.isRunning, refreshThread, thread.id]);
+  }, [activeTurnID, attachmentsSupported, beginPolling, clearDraftIfUnchanged, commandsSupported, interruptAndSendState, interruptAndSendSupported, interruptAndSendThread, isConnected, isUploadingAttachment, latestSummary.hasPendingRequest, latestSummary.isRunning, refreshThread, releaseSendAnchor, revealSentMessage, thread.id]);
 
   const handleSend = useCallback(async (overrideText?: string): Promise<boolean> => {
     // 草稿原文：清理草稿、乐观消息、失败恢复都以它为准；overrideText 只用于真正发出去的文本
@@ -1912,7 +1918,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       }
       if (attachmentsSupported) params.attachments = submittedAttachments.map((attachment) => attachment.attachmentID);
       // 真正发出才锚定：排队等本轮结束的消息不会马上出现在时间线里，不设锚点
-      if (params.whenRunning !== 'queue') armSendAnchor();
+      if (params.whenRunning !== 'queue') revealSentMessage();
       const action = await sendThreadMessage(thread.id, submittedText, params);
       if (!mountedRef.current) return true;
       // 记草稿原文：清理草稿时的兜底比对（draftRef.current === action.text）依赖它
@@ -1922,14 +1928,15 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
         clearSubmittedDraft(action);
         beginPolling(action.turnID ?? null);
         return true;
-      } else if (action.state === 'failed') {
-        // 没发出去：撤掉锚定窗口，不要等一条永远不会出现的用户消息
-        releaseSendAnchor();
+      }
+      // 未确认发送成功：撤掉锚定窗口，不要等一条可能不会出现的用户消息
+      if (params.whenRunning !== 'queue') releaseSendAnchor(true);
+      if (action.state === 'failed') {
         setSendError(action.error || '发送失败，草稿已保留');
       }
       return false;
     } catch (err) {
-      releaseSendAnchor();
+      releaseSendAnchor(true);
       if (mountedRef.current) setSendError(err instanceof Error ? err.message : '发送消息失败，草稿已保留');
       return false;
     } finally {
@@ -1937,7 +1944,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       if (mountedRef.current) setIsSending(false);
     }
   }, [
-    armSendAnchor,
+    revealSentMessage,
+    releaseSendAnchor,
     beginPolling,
     canSend,
     clearDraftIfUnchanged,
@@ -2177,19 +2185,19 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
           if (Object.keys(options).length > 0) params.options = options;
         }
         // 继续胶囊/错误重试也是一次用户主动发送：同样在发出前建锚定窗口
-        armSendAnchor();
+        revealSentMessage();
         const action = await sendThreadMessage(thread.id, text, params);
         if (!mountedRef.current) return;
         if (action.state === 'accepted') {
           setLocallyInterrupted(false);
           beginPolling(action.turnID ?? null);
-        } else if (action.state === 'failed') {
-          // 与普通发送一致：没发出去就撤掉锚定窗口
-          releaseSendAnchor();
-          setSendError(action.error || '继续失败，请稍后重试');
+        } else {
+          // 与普通发送一致：未确认发送成功就撤掉锚定窗口
+          releaseSendAnchor(true);
+          if (action.state === 'failed') setSendError(action.error || '继续失败，请稍后重试');
         }
       } catch (err) {
-        releaseSendAnchor();
+        releaseSendAnchor(true);
         if (mountedRef.current) {
           setSendError(err instanceof Error ? err.message : '继续失败，请稍后重试');
         }
@@ -2199,7 +2207,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       }
     },
     [
-      armSendAnchor,
+      revealSentMessage,
       beginPolling,
       composerOptions,
       composerOptionsSupported,

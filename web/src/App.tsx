@@ -24,6 +24,7 @@ import { parsePairingInput } from './services/storage';
 import { setPendingBadge } from './services/pushNotifications';
 import { loadThreadDraftView, loadThreadView, prefetchThreadViews } from './utils/lazyThreadViews';
 import { parseThreadRoute } from './utils/threadRoute';
+import { clearHomeQuery } from './utils/homeSearch';
 
 // 会话页会把时间线、输入框、markdown 与 highlight.js 一起带进来，首屏只加载会话列表，
 // 所以 ThreadView / ThreadDraftView 改为按需加载；连接可用后在空闲时预取，打开基本不用等。
@@ -388,6 +389,7 @@ const AppContent: React.FC = () => {
   const previousConnectionStateRef = useRef(connectionState);
   const [pageBuildID] = useState(getPageBuildID);
   const [headerActionsSlot, setHeaderActionsSlot] = useState<HTMLDivElement | null>(null);
+  const [headerLeadingSlot, setHeaderLeadingSlot] = useState<HTMLDivElement | null>(null);
 
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
   const [createKind, setCreateKind] = useState<'task' | 'goal' | 'thread' | null>(null);
@@ -750,6 +752,7 @@ const AppContent: React.FC = () => {
       <PushEnableHint />
       <ThreadList
         headerActionsSlot={headerActionsSlot}
+        headerLeadingSlot={headerLeadingSlot}
         projectID={selectedProjectID}
         onSelectThread={(thread) => {
           // 点会话行时立即预取，不等空闲回调。
@@ -768,8 +771,14 @@ const AppContent: React.FC = () => {
     <div className="app-shell">
       <Header
         actionsSlotRef={setHeaderActionsSlot}
+        leadingSlotRef={setHeaderLeadingSlot}
         activeView={activeView}
-        onSwitchView={(view) => navigate(view === 'board' ? '#/board' : '#/', { replace: true })}
+        onSwitchView={(view) => {
+          if (view === 'board') {
+            try { clearHomeQuery(window.sessionStorage); } catch { /* 存储不可用时忽略。 */ }
+          }
+          navigate(view === 'board' ? '#/board' : '#/', { replace: true });
+        }}
         settingsOpen={settingsOpen}
         settingsPageID={settingsPageID}
         onSettingsPageChange={(pageID) => {

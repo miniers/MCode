@@ -1,7 +1,7 @@
 // 移动首页会话列表：按宿主 section/orderKey 投影，交互动作同时提供可见按钮。
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal, flushSync } from 'react-dom';
 import type { RemoteThreadSummary } from '../types/contract';
 import { useRemote } from '../context/RemoteContext';
 import { useRemoteCall } from '../context/useRemoteCall';
@@ -48,6 +48,7 @@ import { stewardAvatarText, stewardLabel } from '../utils/stewardIdentity';
 import { useRemoteSettingsApi } from '../context/remoteSettingsApi';
 import { LazyBoundary } from './LazyFallback';
 import { visibleFilterChips, type ThreadFilter } from '../utils/homeFilterChips';
+import { readHomeQuery, shouldCollapseOnBlur, writeHomeQuery } from '../utils/homeSearch';
 
 // 自动化、主管专题与发起专题三个弹层都只在用户点开时才渲染，首屏用不到，做成懒加载。
 // BulkThreadsSheet 不懒加载：同一模块里的 useBulkThreadsApi 在列表主体里同步使用，
@@ -83,6 +84,7 @@ const DORMANT_PAGE_STEP = 25;
 
 interface ThreadListProps {
   headerActionsSlot?: HTMLElement | null;
+  headerLeadingSlot?: HTMLElement | null;
   projectID: string | null;
   onSelectThread: (thread: RemoteThreadSummary) => void;
   onCreateDraft: (projectID: string) => void;
@@ -981,8 +983,98 @@ const LoadMoreSentinel: React.FC<LoadMoreSentinelProps> = ({
   );
 };
 
+const HomeSearch: React.FC<{
+  query: string;
+  onQueryChange: (query: string) => void;
+  listScrollRef: React.RefObject<HTMLDivElement>;
+  header: Element;
+}> = ({ query, onQueryChange, listScrollRef, header }) => {
+  const [expanded, setExpanded] = useState(() => query.trim() !== '');
+  const [position, setPosition] = useState({ left: 0, right: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useLayoutEffect(() => {
+    if (!expanded) return;
+    const updatePosition = () => {
+      const button = buttonRef.current;
+      if (!button) return;
+      setPosition({
+        left: button.getBoundingClientRect().left - header.getBoundingClientRect().left,
+        right: parseFloat(window.getComputedStyle(header).paddingRight) || 0
+      });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    return () => window.removeEventListener('resize', updatePosition);
+  }, [expanded, header]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const container = listScrollRef.current;
+    const onScroll = () => {
+      if (shouldCollapseOnBlur(query)) {
+        setExpanded(false);
+        inputRef.current?.blur();
+      }
+    };
+    container?.addEventListener('scroll', onScroll);
+    return () => container?.removeEventListener('scroll', onScroll);
+  }, [expanded, listScrollRef, query]);
+
+  const clear = () => {
+    onQueryChange('');
+    setExpanded(false);
+    inputRef.current?.blur();
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="icon-button"
+        aria-label="搜索会话"
+        aria-expanded={expanded}
+        onClick={() => {
+          flushSync(() => setExpanded(true));
+          inputRef.current?.focus();
+        }}
+      >
+        <SearchIcon className="h-4 w-4" />
+      </button>
+      {createPortal(
+        <div className="header-search" data-open={expanded} aria-hidden={!expanded} style={position}>
+          <SearchIcon className="h-4 w-4 shrink-0 text-muted" />
+          <input
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            onBlur={() => { if (shouldCollapseOnBlur(query)) setExpanded(false); }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+              if (event.key === 'Escape') clear();
+            }}
+            placeholder="搜索会话"
+            aria-label="搜索会话标题"
+            enterKeyHint="search"
+            autoComplete="off"
+            tabIndex={expanded ? 0 : -1}
+          />
+          <button type="button" className="search-field__clear" aria-label="清除搜索" tabIndex={expanded ? 0 : -1} onMouseDown={(event) => event.preventDefault()} onClick={clear}>
+            <XMarkIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>,
+        header
+      )}
+    </>
+  );
+};
+
 export const ThreadList: React.FC<ThreadListProps> = ({
   headerActionsSlot,
+  headerLeadingSlot,
   projectID,
   onSelectThread,
   onCreateDraft,
@@ -1005,7 +1097,12 @@ export const ThreadList: React.FC<ThreadListProps> = ({
     environmentID
   } = useRemote();
 
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(() => {
+    try { return typeof window === 'undefined' ? '' : readHomeQuery(window.sessionStorage); } catch { return ''; }
+  });
+  useEffect(() => {
+    try { writeHomeQuery(window.sessionStorage, query); } catch { /* 存储不可用时忽略。 */ }
+  }, [query]);
   const [filter, setFilter] = useState<ThreadFilter>('all');
   const [openRowID, setOpenRowID] = useState<string | null>(null);
   const [dormantExpanded, setDormantExpanded] = useState(false);
@@ -1544,39 +1641,22 @@ export const ThreadList: React.FC<ThreadListProps> = ({
         />,
         headerActionsSlot
       )}
-      <div className="home-toolbar">
-        <div className="flex items-center gap-2">
-          <div className="search-field min-w-0 flex-1">
-            <SearchIcon className="h-4 w-4 shrink-0 text-muted" />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索会话"
-              aria-label="搜索会话标题"
-              enterKeyHint="search"
-              autoComplete="off"
-            />
-            {query && (
-              <button type="button" className="search-field__clear" onClick={() => setQuery('')} aria-label="清除搜索">
-                <XMarkIcon className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-        {(() => {
+      {headerLeadingSlot && headerLeadingSlot.closest('.app-header__inner') && createPortal(
+        <HomeSearch query={query} onQueryChange={setQuery} listScrollRef={scrollRef} header={headerLeadingSlot.closest('.app-header__inner')!} />,
+        headerLeadingSlot
+      )}
+      {(() => {
           const chips = visibleFilterChips(filter, counts);
           return chips.length > 0 && (
-            <div className="filter-row" role="toolbar" aria-label="会话筛选">
+            <div className="home-toolbar"><div className="filter-row" role="toolbar" aria-label="会话筛选">
               {chips.includes('all') && <FilterChip label="全部" count={scopedThreads.length} selected={filter === 'all'} onClick={() => setFilter('all')} />}
               {chips.includes('attention') && <FilterChip label="等你" count={counts.attention} selected={filter === 'attention'} onClick={() => setFilter('attention')} tone="filter-chip--warning" />}
               {chips.includes('running') && <FilterChip label="运行中" count={counts.running} selected={filter === 'running'} onClick={() => setFilter('running')} tone="filter-chip--running" />}
               {chips.includes('failed') && <FilterChip label="失败" count={counts.failed} selected={filter === 'failed'} onClick={() => setFilter('failed')} tone="filter-chip--danger" />}
               {chips.includes('archived') && <FilterChip label="已归档" count={archivedLoaded ? archivedThreads.length : undefined} selected={filter === 'archived'} onClick={() => setFilter('archived')} />}
-            </div>
+            </div></div>
           );
         })()}
-      </div>
 
       {bulkNotice && (
         <div className="inline-alert" role="status" aria-live="polite">

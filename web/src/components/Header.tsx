@@ -77,6 +77,7 @@ function issuedPairingToken(value: string): string | null {
 
 interface HeaderProps {
   actionsSlotRef?: (el: HTMLDivElement | null) => void;
+  leadingSlotRef?: (el: HTMLDivElement | null) => void;
   activeView?: HomeView;
   onSwitchView?: (view: HomeView) => void;
   settingsOpen: boolean;
@@ -163,6 +164,7 @@ const AttentionSettingsRow: React.FC<AttentionSettingsRowProps> = ({ projectID, 
 
 export const Header: React.FC<HeaderProps> = ({
   actionsSlotRef,
+  leadingSlotRef,
   activeView = 'sessions',
   onSwitchView,
   settingsOpen,
@@ -492,6 +494,7 @@ export const Header: React.FC<HeaderProps> = ({
                 })}
               </div>
             )}
+            <div ref={leadingSlotRef} className="ml-auto flex shrink-0 items-center" />
           </div>
 
           <div className="flex items-center justify-center min-w-0">
