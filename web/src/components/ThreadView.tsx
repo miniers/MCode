@@ -1807,9 +1807,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
 
   // 撤回本轮：收回最近一轮尚未产生回复的提示词，并放回输入框（草稿非空时不覆盖）
   const handleRecallTurn = useCallback(async () => {
-    const last = messagesRef.current[messagesRef.current.length - 1];
-    if (!recallSupported || !isConnected || isRecalling || !last ||
-      !(last.kind === 'user' || (!last.kind && last.role === 'user'))) return;
+    if (!recallSupported || !isConnected || isRecalling) return;
     setRecallConfirmOpen(false);
     setIsTakingBack(true);
     setThreadActionError(null);

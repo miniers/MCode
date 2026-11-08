@@ -35,6 +35,7 @@ const shortcutCases: Array<{
   tag?: string;
   editable?: boolean;
   dialog?: boolean;
+  interactive?: boolean;
   expected: 'allow' | 'reject' | null;
 }> = [
   { event: keyEvent, expected: 'allow' },
@@ -47,10 +48,12 @@ const shortcutCases: Array<{
   { event: { ...keyEvent, isComposing: true }, expected: null },
   { event: { ...keyEvent, keyCode: 229 }, expected: null },
   { event: keyEvent, tag: 'TEXTAREA', expected: null },
+  { event: keyEvent, tag: 'BUTTON', interactive: true, expected: null },
+  { event: { ...keyEvent, key: 'Escape' }, tag: 'BUTTON', interactive: true, expected: null },
   { event: keyEvent, editable: true, expected: null },
   { event: keyEvent, dialog: true, expected: null }
 ];
 for (const testCase of shortcutCases) {
-  const actual = approvalShortcut(testCase.event, testCase.tag ?? 'DIV', testCase.editable ?? false, testCase.dialog ?? false);
+  const actual = approvalShortcut(testCase.event, testCase.tag ?? 'DIV', testCase.editable ?? false, testCase.dialog ?? false, testCase.interactive ?? false);
   if (actual !== testCase.expected) throw new Error(`快捷键结果错误：期望 ${String(testCase.expected)}，实际 ${String(actual)}`);
 }

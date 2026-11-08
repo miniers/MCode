@@ -64,10 +64,11 @@ export function approvalShortcut(
   event: Pick<KeyboardEvent, 'key' | 'defaultPrevented' | 'repeat' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'isComposing' | 'keyCode'>,
   targetTag: string,
   isContentEditable: boolean,
-  hasOtherDialog: boolean
+  hasOtherDialog: boolean,
+  isInteractiveTarget: boolean
 ): 'allow' | 'reject' | null {
   if (event.defaultPrevented || event.repeat || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey ||
-      event.isComposing || event.keyCode === 229 || isContentEditable || hasOtherDialog ||
+      event.isComposing || event.keyCode === 229 || isContentEditable || hasOtherDialog || isInteractiveTarget ||
       ['input', 'textarea', 'select'].includes(targetTag.toLowerCase())) return null;
   if (event.key === 'Enter') return 'allow';
   if (event.key === 'Escape') return 'reject';
@@ -223,12 +224,12 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
     const onKeyDown = (event: KeyboardEvent): void => {
       const target = event.target instanceof Element ? event.target : null;
       const editable = target instanceof HTMLElement && target.isContentEditable;
-      const control = target?.closest('input, textarea, select');
+      const control = target?.closest('input, textarea, select, button, a[href], summary, [role="button"], [role="menuitem"], [role="option"], [role="tab"], [role="checkbox"], [role="radio"], [role="switch"]');
       const panel = scrollAreaRef.current;
       const hasOtherDialog = Array.from(document.querySelectorAll('[role="dialog"]')).some(
         (dialog) => !panel?.contains(dialog) && !dialog.contains(panel)
       );
-      const action = approvalShortcut(event, control?.tagName ?? target?.tagName ?? '', editable, hasOtherDialog);
+      const action = approvalShortcut(event, control?.tagName ?? target?.tagName ?? '', editable, hasOtherDialog, !!control);
       if (!action) return;
       event.preventDefault();
       void submit(request, { optionID: action === 'allow' ? allow[0].id : reject[0].id });

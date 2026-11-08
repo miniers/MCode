@@ -1646,7 +1646,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
           event.preventDefault();
           dragDepthRef.current = 0;
           setIsDraggingFiles(false);
-          onAddAttachments(event.dataTransfer.files);
+          handlePickedAttachments(event.dataTransfer.files);
         }}
         className={`rounded-3xl bg-[var(--composer-surface)] border ${isDraggingFiles && attachmentsAvailable ? 'border-[var(--primary)]' : 'border-[var(--input-border)]'} backdrop-blur-md p-2.5 shadow-sm min-w-0 relative`}
       >
@@ -1698,7 +1698,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             if (clipboard.files.length > 0) {
               if (attachmentsAvailable) {
                 event.preventDefault();
-                onAddAttachments(clipboard.files);
+                handlePickedAttachments(clipboard.files);
               }
               return;
             }
