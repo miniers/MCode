@@ -43,6 +43,10 @@ func readPatchFile(t *testing.T, path string) string {
 
 func TestApplyPatchToolFiles(t *testing.T) {
 	root := t.TempDir()
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	writePatchFile(t, filepath.Join(root, "a.txt"), "one\ntwo\n")
 	writePatchFile(t, filepath.Join(root, "b.txt"), "old\n")
 	writePatchFile(t, filepath.Join(root, "del.txt"), "gone\n")
@@ -90,10 +94,10 @@ func TestApplyPatchToolFiles(t *testing.T) {
 		t.Fatalf("change = %+v, want per-file changes", result.Change)
 	}
 	wantChanges := map[string]bool{
-		filepath.Join(root, "sub/new.txt"): false,
-		filepath.Join(root, "a.txt"):       false,
-		filepath.Join(root, "moved.txt"):   false,
-		filepath.Join(root, "del.txt"):     false,
+		filepath.Join(realRoot, "sub/new.txt"): false,
+		filepath.Join(realRoot, "a.txt"):       false,
+		filepath.Join(realRoot, "moved.txt"):   false,
+		filepath.Join(realRoot, "del.txt"):     false,
 	}
 	if len(result.Changes) != len(wantChanges) {
 		t.Fatalf("changes = %+v", result.Changes)
@@ -165,6 +169,10 @@ func TestApplyPatchToolOutside(t *testing.T) {
 
 func TestApplyPatchToolMultipleChanges(t *testing.T) {
 	root := t.TempDir()
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	writePatchFile(t, filepath.Join(root, "a.txt"), "old\n")
 	writePatchFile(t, filepath.Join(root, "b.txt"), "old\n")
 	input := `*** Begin Patch
@@ -184,7 +192,7 @@ func TestApplyPatchToolMultipleChanges(t *testing.T) {
 	if len(result.Changes) != 2 || result.Change != nil {
 		t.Fatalf("changes = %+v change = %+v", result.Changes, result.Change)
 	}
-	if result.Changes[0].Path != filepath.Join(root, "a.txt") || result.Changes[1].Path != filepath.Join(root, "b.txt") {
+	if result.Changes[0].Path != filepath.Join(realRoot, "a.txt") || result.Changes[1].Path != filepath.Join(realRoot, "b.txt") {
 		t.Fatalf("changes = %+v", result.Changes)
 	}
 	for _, change := range result.Changes {
