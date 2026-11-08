@@ -10,6 +10,7 @@ import (
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/remote"
+	"mcode/internal/textgen"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -358,6 +359,7 @@ func TestSaveProviderSetting_WritesConfigAndSecrets(t *testing.T) {
 func TestSaveProviderSetting_McodeRegistersAndUnregisters(t *testing.T) {
 	client, _, _ := newProviderSettingsClient(t)
 	ctx := context.Background()
+	t.Cleanup(func() { textgen.RegisterGenerator("mcode", nil) })
 
 	if _, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: true}, ""); err != nil {
 		t.Fatalf("enable mcode: %v", err)
@@ -365,11 +367,17 @@ func TestSaveProviderSetting_McodeRegistersAndUnregisters(t *testing.T) {
 	if client.backend.RegisteredHarness("mcode") == nil {
 		t.Fatal("enabled mcode should register its harness")
 	}
+	if !textgen.SupportsProvider("mcode") {
+		t.Fatal("启用 mcode 后应注册 textgen 生成器")
+	}
 	if _, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{ID: "mcode", Enabled: false}, ""); err != nil {
 		t.Fatalf("disable mcode: %v", err)
 	}
 	if client.backend.RegisteredHarness("mcode") != nil {
 		t.Fatal("disabled mcode should unregister its harness")
+	}
+	if textgen.SupportsProvider("mcode") {
+		t.Fatal("停用 mcode 后应注销 textgen 生成器")
 	}
 }
 

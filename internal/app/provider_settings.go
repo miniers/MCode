@@ -285,5 +285,11 @@ func (c *Client) SaveProviderSetting(ctx context.Context, s mcodeui.ProviderSett
 		}
 	}
 
+	// mcode 的 textgen 生成器同样跟随开关热更新：停用后立即注销，
+	// 避免 swarm 审查等调用方继续尝试 mcode；启用时重新注册，无需重启。
+	if spec.id == "mcode" {
+		registerMcodeTextGenerator(cfg, c.secrets)
+	}
+
 	return buildProviderSetting(cfg, c.secrets, spec), nil
 }
