@@ -27,6 +27,7 @@ row row-quick-replies 快捷回复
 row row-queue-while-running 运行中排队消息
 row row-insert-into-running-turn 新消息插入当前回合
 row row-composer-send-key 发送消息快捷键
+row row-composer-attachment-limit 附件数量上限
 row row-pin-sent-message 发送后置顶消息
 row row-auto-continue-after-limit 用尽限额后自动继续
 section conversation.finish 完成与提醒

@@ -234,7 +234,7 @@ func TestSettingsNavUpdateDot(t *testing.T) {
 	}
 }
 
-func TestSidebarSettingsUpdateDot(t *testing.T) {
+func TestSidebarUpdateCapsule(t *testing.T) {
 	fc := &fakeUpdateClient{FakeClient: NewFakeClient()}
 	chat := newChatState(fc)
 	st := NewSettingsState(settingsTestDir(t), nil, chat)
@@ -242,14 +242,15 @@ func TestSidebarSettingsUpdateDot(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { renderSidebarBottomBar(c, chat) }, 400, 100)
 
 	tt.Frame()
-	if _, ok := tt.Find("有新版本"); ok {
-		t.Fatal("没有新版本时侧栏设置按钮不应显示圆点")
+	if _, ok := tt.Find("有新版本 9.9.9"); ok {
+		t.Fatal("没有新版本时侧栏设置按钮不应显示版本胶囊")
 	}
 	fc.latest.Available = true
+	fc.latest.Latest = "9.9.9"
 	tt.Frame()
 	tt.Advance(200 * time.Millisecond)
-	if _, ok := tt.Find("有新版本"); !ok {
-		t.Fatal("发现新版本时侧栏设置按钮应显示圆点")
+	if _, ok := tt.Find("有新版本 9.9.9"); !ok {
+		t.Fatal("发现新版本时侧栏设置按钮应显示版本胶囊")
 	}
 }
 

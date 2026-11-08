@@ -93,7 +93,7 @@ func renderUpdatePopover(c *ui.Context, s *chatState, st *SettingsState, title, 
 		Padding(Space4).
 		Gap(Space3).
 		Children(func() {
-			ui.Text(c, title).FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+			ui.Text(c, title).FontSize(TypeBody).FontWeight(600).TextColor(ThemePrimaryText(c))
 			if strings.TrimSpace(notes) != "" {
 				ui.Scroll(c.Key("update-popover-notes")).FillWidth().MaxHeight(320).Children(func() {
 					markdown.View(c.Key("update-popover-markdown"), notes, swarmReportMarkdownOptions(c, s, TypeBody))
