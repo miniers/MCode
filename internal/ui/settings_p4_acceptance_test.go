@@ -82,9 +82,8 @@ func TestSettingsModels_ProviderListOrder(t *testing.T) {
 	if !tt.HasText("未安装") {
 		t.Fatalf("未安装的 CLI 应出现在列表里并标注未安装: %v", texts)
 	}
-	// 启用组在前，同组内按名称排序：启用组是 A P4 preset、Codex；
-	// 停用组按名称排是 Antigravity、Claude、Pi、Z P4 custom（agy 没有账号也没有凭证，算未启用）。
-	order := []string{"A P4 preset", providerDisplayName("codex"), providerDisplayName("agy"), providerDisplayName("claude"), "Pi", "Z P4 custom"}
+	// 智能体和 API Key 分组各自按启用状态、名称排序。
+	order := []string{"智能体", providerDisplayName("codex"), providerDisplayName("agy"), providerDisplayName("claude"), "Pi", "API Key", "A P4 preset", "Z P4 custom"}
 	for i := 1; i < len(order); i++ {
 		prev, ok := positions[order[i-1]]
 		if !ok {

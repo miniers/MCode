@@ -76,7 +76,7 @@ const (
 )
 
 // cliProviderIDs 是 CLI harness 的静态 ID 列表，用于名称、图标与默认可执行文件名的回退。
-var cliProviderIDs = []string{"copilot", "mcode", "pi", "omp", "commandcode", "droid", "cline", "cursor", "opencode", "grok", "devin"}
+var cliProviderIDs = []string{"copilot", "pi", "omp", "commandcode", "droid", "cline", "cursor", "opencode", "grok", "devin"}
 
 // providerRowsLoadTimeout 是供应商行单次刷新的上限：超时后放弃等待并允许重新进入页面重试，
 // 避免任一调用挂住时行永远停在「检查中」。
@@ -298,12 +298,18 @@ func providerDisplayName(id string) string {
 		return "Claude"
 	case "agy":
 		return "Antigravity"
+	case "anthropic":
+		return "Anthropic"
+	case "deepseek":
+		return "DeepSeek"
 	case "zai", "z.ai":
-		return "ZAI"
+		return "Z.ai"
+	case "meta":
+		return "Meta"
+	case "openai":
+		return "OpenAI"
 	case "copilot":
 		return "GitHub Copilot"
-	case "mcode":
-		return "mcode"
 	case "pi":
 		return "Pi"
 	case "omp":
@@ -331,6 +337,21 @@ func providerDisplayName(id string) string {
 func providerRowName(st *SettingsState, id string) string {
 	st.mu.Lock()
 	name := ""
+	for _, endpoint := range st.endpoints.endpoints {
+		if endpoint.ID == id {
+			name = strings.TrimSpace(endpoint.Name)
+			break
+		}
+	}
+	if name != "" {
+		st.mu.Unlock()
+		return name
+	}
+	switch id {
+	case "anthropic", "deepseek", "zai", "z.ai", "meta", "openai":
+		st.mu.Unlock()
+		return providerDisplayName(id)
+	}
 	if st.providerRows.settings != nil {
 		name = strings.TrimSpace(st.providerRows.settings[id].Name)
 	}
@@ -1233,11 +1254,7 @@ func providerAuthFromIndex(index int) string {
 }
 
 // renderProviderRowIcon 渲染供应商行首彩色图标；无彩色资源时回落到单色 ProviderIcon。
-// Anthropic 与 Claude 是同一品牌，沿用 Claude 的彩色图标。
 func renderProviderRowIcon(c *ui.Context, id string, size float32) {
-	if id == "anthropic" {
-		id = "claude"
-	}
 	renderProviderIconColor(c, id, size, ThemeSecondaryText(c))
 }
 
@@ -1639,61 +1656,78 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 	if load {
 		st.loadProviderRows()
 	}
-	entries := append(cliProviderListEntries(st, lib), apiProviderListEntries(st)...)
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].Enabled != entries[j].Enabled {
-			return entries[i].Enabled
+	agents := cliProviderListEntries(st, lib)
+	api := apiProviderListEntries(st)
+	for i := range api {
+		if api[i].Kind == "preset" {
+			switch api[i].ID {
+			case "anthropic", "deepseek", "zai", "z.ai", "meta", "openai":
+				api[i].Name = providerRowName(st, api[i].ID)
+			}
 		}
-		return entries[i].Name < entries[j].Name
-	})
+	}
+	for _, entries := range [][]providerListEntry{agents, api} {
+		sort.SliceStable(entries, func(i, j int) bool {
+			if entries[i].Enabled != entries[j].Enabled {
+				return entries[i].Enabled
+			}
+			return entries[i].Name < entries[j].Name
+		})
+	}
 	if loadErr != "" {
 		ui.Text(c, loadErr).FontSize(TypeFootnote).TextColor(ThemeDanger(c)).Margin(Space2, settingsRowPadX)
 	}
-	for i, entry := range entries {
-		if i > 0 || loadErr != "" {
-			renderSettingsDivider(c, fmt.Sprintf("div-provider-list-%d", i))
-		}
-		e := entry
-		rowKey := "provider-row-" + e.Kind + "-" + e.ID
-		row := applySettingsRowFocus(c, ui.Row(c.Key(rowKey)).
-			Label(e.Name).Padding(Space3, settingsRowPadX).MinHeight(settingsRowMinHeight).AlignItems(ui.Center).Gap(Space4).FillWidth(), rowKey)
-		if row.Hovered() {
-			row.Background(ThemeHover(c))
-		}
-		childClicked := false
-		row.Children(func() {
-			renderProviderRowIcon(c, e.ID, 16)
-			ui.Text(c, e.Name).FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
-			ui.Box(c.Key("provider-list-spacer-" + e.Kind + "-" + e.ID)).Grow(1)
-			ui.Text(c, e.Status).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
-			if e.Kind == "cli" {
-				if route, known := magpieAgentRouteValue(st, e.ID); known && (route == "仅 mcode" || route == "全局") {
-					ui.Text(c, "路由 · Magpie").FontSize(TypeCaption).TextColor(ThemeAccent(c))
+	for groupIndex, group := range []struct {
+		title   string
+		entries []providerListEntry
+	}{{"智能体", agents}, {"API Key", api}} {
+		renderSkillGroupTitle(c, group.title)
+		for i, entry := range group.entries {
+			if i > 0 {
+				renderSettingsDivider(c, fmt.Sprintf("div-provider-list-%d-%d", groupIndex, i))
+			}
+			e := entry
+			rowKey := "provider-row-" + e.Kind + "-" + e.ID
+			row := applySettingsRowFocus(c, ui.Row(c.Key(rowKey)).
+				Label(e.Name).Padding(Space3, settingsRowPadX).MinHeight(settingsRowMinHeight).AlignItems(ui.Center).Gap(Space4).FillWidth(), rowKey)
+			if row.Hovered() {
+				row.Background(ThemeHover(c))
+			}
+			childClicked := false
+			row.Children(func() {
+				renderProviderRowIcon(c, e.ID, 16)
+				ui.Text(c, e.Name).FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
+				ui.Box(c.Key("provider-list-spacer-" + e.Kind + "-" + e.ID)).Grow(1)
+				ui.Text(c, e.Status).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+				if e.Kind == "cli" {
+					if route, known := magpieAgentRouteValue(st, e.ID); known && (route == "仅 mcode" || route == "全局") {
+						ui.Text(c, "路由 · Magpie").FontSize(TypeCaption).TextColor(ThemeAccent(c))
+					}
 				}
-			}
-			if e.Locked {
-				ui.Text(c, "锁定").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
-			}
-			if e.CanToggle {
-				value := e.Enabled
 				if e.Locked {
-					SwitchDisabled(c, "sw-provider-list-"+e.Kind+"-"+e.ID, value, "启用 "+e.Name)
-				} else {
-					Switch(c, "sw-provider-list-"+e.Kind+"-"+e.ID, &value, "启用 "+e.Name, func(on bool) {
-						childClicked = true
-						if e.Toggle != nil {
-							e.Toggle(on)
-						}
-					})
+					ui.Text(c, "锁定").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
 				}
+				if e.CanToggle {
+					value := e.Enabled
+					if e.Locked {
+						SwitchDisabled(c, "sw-provider-list-"+e.Kind+"-"+e.ID, value, "启用 "+e.Name)
+					} else {
+						Switch(c, "sw-provider-list-"+e.Kind+"-"+e.ID, &value, "启用 "+e.Name, func(on bool) {
+							childClicked = true
+							if e.Toggle != nil {
+								e.Toggle(on)
+							}
+						})
+					}
+				}
+				ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+			})
+			if row.Clicked() && !childClicked {
+				openProviderSheet(st, e.Kind, e.ID)
 			}
-			ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-		})
-		if row.Clicked() && !childClicked {
-			openProviderSheet(st, e.Kind, e.ID)
 		}
 	}
-	if len(entries) > 0 || loadErr != "" {
+	if len(agents)+len(api) > 0 || loadErr != "" {
 		renderSettingsDivider(c, "div-provider-add")
 	}
 	row := ui.Row(c.Key("row-provider-add")).Label("添加供应商").Padding(Space3, settingsRowPadX).MinHeight(settingsRowMinHeight).AlignItems(ui.Center).FillWidth()

@@ -923,7 +923,14 @@ func providerIconKey(id string) string {
 		return "pi"
 	case "openai":
 		return "codex"
+	case "anthropic":
+		return "claude"
+	case "magpie", "magpie1", "magpie2", "magpie3", "magpie4":
+		return "magpie"
 	default:
+		if strings.HasPrefix(k, "magpie-") {
+			return "magpie"
+		}
 		if _, ok := colorProviderIcons[k]; !ok {
 			if prefix, _, hasDash := strings.Cut(k, "-"); hasDash {
 				if _, okPrefix := colorProviderIcons[prefix]; okPrefix {
