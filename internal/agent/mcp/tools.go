@@ -102,11 +102,11 @@ func discoverServer(ctx context.Context, server Server) *loadedServer {
 	}
 	loaded := &loadedServer{server: server, client: &Client{URL: server.URL, Token: server.Token, Headers: server.Headers}}
 	discoverCtx, cancel := context.WithTimeout(ctx, discoverTimeout)
+	defer cancel()
 	err := loaded.client.Initialize(discoverCtx)
 	if err == nil {
 		loaded.tools, err = loaded.client.ListTools(discoverCtx)
 	}
-	cancel()
 	loaded.err = err
 	discoveryMu.Lock()
 	now = time.Now()
@@ -150,6 +150,15 @@ func sessionExpired(err error) bool {
 	return strings.Contains(message, "http 404") || strings.Contains(message, "session")
 }
 
+func discoverSafely(ctx context.Context, server Server) (loaded *loadedServer) {
+	defer func() {
+		if v := recover(); v != nil {
+			loaded = &loadedServer{server: server, err: fmt.Errorf("MCP 发现 panic: %v", v)}
+		}
+	}()
+	return discoverServer(ctx, server)
+}
+
 // Tools 发现并转换 MCP 工具。内置服务工具直接暴露，外部服务只暴露 list/call 网关。
 func Tools(ctx context.Context, servers []Server) []tools.Tool {
 	loadedServers := make([]*loadedServer, len(servers))
@@ -161,7 +170,7 @@ func Tools(ctx context.Context, servers []Server) []tools.Tool {
 		wg.Add(1)
 		go func(index int, server Server) {
 			defer wg.Done()
-			loadedServers[index] = discoverServer(ctx, server)
+			loadedServers[index] = discoverSafely(ctx, server)
 		}(index, server)
 	}
 	wg.Wait()

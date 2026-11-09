@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/apisource"
 )
 
 // swarmEmptySelection 判断模型选择是否为空（未指定具体模型）。
@@ -24,8 +25,16 @@ func renderSwarmModelCapsuleEx(c *ui.Context, st *SettingsState, key, scopeKey s
 	renderSwarmModelCapsuleCatalog(c, st, key, scopeKey, sel, emptyLabel, triggerLabel, onChange, settingsModelPickerCatalog(st), false)
 }
 
+func normalizeSwarmSelection(st *SettingsState, sel ModelSelection) ModelSelection {
+	if st != nil {
+		sel.Provider, sel.Model, _ = apisource.NormalizeBeeModel(st.cfg, nil, sel.Provider, sel.Model)
+	}
+	return sel
+}
+
 func renderSwarmModelCapsuleCatalog(c *ui.Context, st *SettingsState, key, scopeKey string, sel ModelSelection, emptyLabel, triggerLabel string, onChange func(ModelSelection), catalog modelPickerCatalog, noEffort bool) {
 	providers := catalog.Providers
+	sel = normalizeSwarmSelection(st, sel)
 
 	keyPrefix := key
 	if !strings.HasSuffix(keyPrefix, "-") {

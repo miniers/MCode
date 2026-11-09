@@ -12,8 +12,49 @@ import (
 
 	"mcode/internal/agent/llm"
 	"mcode/internal/agent/session"
+	"mcode/internal/agent/shell"
 	"mcode/internal/harness"
 )
+
+func TestRunBackgroundCleanup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("需要 Unix shell")
+	}
+	for _, tc := range []struct {
+		name                                     string
+		transient, cancel, panicRun, wantRunning bool
+	}{
+		{name: "普通轮次", wantRunning: true},
+		{name: "一次性轮次", transient: true},
+		{name: "取消", cancel: true},
+		{name: "panic", panicRun: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := harnessFor(&fakeClient{responses: []*llm.Response{answer()}}, Options{})
+			if tc.panicRun {
+				h.opts.ResolveClient = func(string, string) (llm.Client, string, error) { panic("模拟错误") }
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			id, _, err := shell.Start(h.withProcessTracker(ctx, tc.name), shell.Options{Command: "sleep 30"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer shell.Kill(id)
+			if tc.cancel {
+				cancel()
+			}
+			_ = h.Run(ctx, harness.Turn{ThreadID: tc.name, Transient: tc.transient}, nil)
+			_, running, _, err := shell.OutputOwner(tc.name, id)
+			if err != nil || running != tc.wantRunning {
+				t.Fatalf("running=%v err=%v", running, err)
+			}
+			if !tc.wantRunning && len(h.ProcessRootPIDs(tc.name)) != 0 {
+				t.Fatal("进程未注销")
+			}
+		})
+	}
+}
 
 // TestNewDefaults 验证空 Options 下外壳的默认行为与改造前一致。
 func TestNewDefaults(t *testing.T) {

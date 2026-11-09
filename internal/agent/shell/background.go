@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -23,7 +24,8 @@ const (
 
 // backgroundJob 保存后台任务的进程、输出和运行状态。
 type backgroundJob struct {
-	cmd *exec.Cmd
+	cmd   *exec.Cmd
+	owner string
 	// done 接收 cmd.Wait 的结果，供 stopProcess 复用。
 	done chan error
 	// killMu 保证同一任务不会并发终止。
@@ -138,7 +140,7 @@ func Start(ctx context.Context, opts Options) (string, int, error) {
 		return "", 0, err
 	}
 	cmd.Stdin = stdin
-	job := &backgroundJob{cmd: cmd, done: make(chan error, 1), exitCode: -1, running: true}
+	job := &backgroundJob{cmd: cmd, owner: OwnerFrom(ctx), done: make(chan error, 1), exitCode: -1, running: true}
 	cmd.Stdout, cmd.Stderr = job, job
 	setProcessGroup(cmd)
 
@@ -175,21 +177,37 @@ func Start(ctx context.Context, opts Options) (string, int, error) {
 		tracker.onStart(pid)
 	}
 	go func() {
-		err := cmd.Wait()
+		var err error
 		exitCode := -1
+		defer func() {
+			if v := recover(); v != nil {
+				err = fmt.Errorf("后台任务 panic: %v", v)
+				log.Print(err)
+				_, _ = job.Write([]byte(err.Error() + "\n"))
+			}
+			if tracker := trackerFrom(ctx); tracker != nil && tracker.onExit != nil {
+				if callbackErr := callbackError(func() { tracker.onExit(pid) }); callbackErr != nil {
+					log.Print(callbackErr)
+					_, _ = job.Write([]byte(callbackErr.Error() + "\n"))
+					exitCode = -1
+				}
+			}
+			if cleanup != nil {
+				if callbackErr := callbackError(cleanup); callbackErr != nil {
+					log.Print(callbackErr)
+					_, _ = job.Write([]byte(callbackErr.Error() + "\n"))
+					exitCode = -1
+				}
+			}
+			job.mu.Lock()
+			job.running = false
+			job.exitCode = exitCode
+			job.mu.Unlock()
+			job.done <- err
+		}()
+		err = waitCommand(cmd)
 		if cmd.ProcessState != nil {
 			exitCode = cmd.ProcessState.ExitCode()
-		}
-		job.mu.Lock()
-		job.running = false
-		job.exitCode = exitCode
-		job.mu.Unlock()
-		job.done <- err
-		if tracker := trackerFrom(ctx); tracker != nil && tracker.onExit != nil {
-			tracker.onExit(pid)
-		}
-		if cleanup != nil {
-			cleanup()
 		}
 	}()
 	return id, pid, nil
@@ -197,10 +215,19 @@ func Start(ctx context.Context, opts Options) (string, int, error) {
 
 // Output 返回任务自上次读取之后的新输出、是否仍在运行以及退出码。
 func Output(id string) (string, bool, int, error) {
+	return output(id, "", false)
+}
+
+// OutputOwner 只读取指定拥有者的任务。
+func OutputOwner(owner, id string) (string, bool, int, error) {
+	return output(id, owner, true)
+}
+
+func output(id, owner string, checkOwner bool) (string, bool, int, error) {
 	backgroundMu.Lock()
 	job := backgroundJobs[id]
 	backgroundMu.Unlock()
-	if job == nil {
+	if job == nil || checkOwner && job.owner != owner {
 		return "", false, -1, fmt.Errorf("unknown background job %q", id)
 	}
 	text, running, exitCode := job.output()
@@ -209,10 +236,19 @@ func Output(id string) (string, bool, int, error) {
 
 // Kill 终止任务所在的进程组：先 SIGTERM，2 秒后 SIGKILL。
 func Kill(id string) error {
+	return kill(id, "", false)
+}
+
+// KillOwned 只停止指定拥有者的任务。
+func KillOwned(owner, id string) error {
+	return kill(id, owner, true)
+}
+
+func kill(id, owner string, checkOwner bool) error {
 	backgroundMu.Lock()
 	job := backgroundJobs[id]
 	backgroundMu.Unlock()
-	if job == nil {
+	if job == nil || checkOwner && job.owner != owner {
 		return fmt.Errorf("unknown background job %q", id)
 	}
 	job.killMu.Lock()
@@ -227,4 +263,24 @@ func Kill(id string) error {
 		return err
 	}
 	return nil
+}
+
+// KillOwner 停止拥有者的全部后台任务；空拥有者不触发批量清理。
+func KillOwner(owner string) {
+	if owner == "" {
+		return
+	}
+	backgroundMu.Lock()
+	var ids []string
+	for id, job := range backgroundJobs {
+		if job.owner == owner {
+			ids = append(ids, id)
+		}
+	}
+	backgroundMu.Unlock()
+	for _, id := range ids {
+		if err := KillOwned(owner, id); err != nil {
+			log.Print(err)
+		}
+	}
 }

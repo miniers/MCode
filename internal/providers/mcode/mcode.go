@@ -15,6 +15,7 @@ import (
 	"mcode/internal/agent/gate"
 	"mcode/internal/agent/llm"
 	"mcode/internal/agent/session"
+	"mcode/internal/agent/shell"
 	"mcode/internal/agent/tools"
 	"mcode/internal/harness"
 )
@@ -128,7 +129,11 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	// 这里先注册、后执行（defer 后进先出），排在注销 activeRun 之后，panic 时注销仍然会跑。
 	// recover 里不再 emit，避免 emit 自身出错时二次 panic；remote 按普通的 Run 错误结束本轮。
 	defer func() {
-		if recovered := recover(); recovered != nil {
+		recovered := recover()
+		if recovered != nil || ctx.Err() != nil || turn.Transient {
+			shell.KillOwner(turn.ThreadID)
+		}
+		if recovered != nil {
 			log.Printf("内置引擎 panic：%v\n%s", recovered, debug.Stack())
 			retErr = fmt.Errorf("内置引擎内部错误：%v", recovered)
 		}

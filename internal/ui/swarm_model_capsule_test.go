@@ -5,8 +5,25 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/apisource"
 	"mcode/internal/config"
 )
+
+func TestSwarmLegacySelectionShowsSource(t *testing.T) {
+	cfg := config.Config{Providers: config.ProvidersConfig{Custom: []config.CustomEndpointConfig{
+		{ID: "jp", Name: "日本来源", Enabled: true, Magpie: true},
+	}}}
+	st := &SettingsState{cfg: cfg}
+	target := apisource.MagpieTargets(cfg, nil)[0]
+	sel := normalizeSwarmSelection(st, ModelSelection{Provider: "mcode", Model: target.ProviderID + "/auto/model"})
+	providers := []ProviderInfo{{ID: "custom-jp", Name: "日本来源", Models: []ModelInfo{{ID: "auto/model", Name: "model"}}}}
+	if sel.Provider != "custom-jp" || sel.Model != "auto/model" {
+		t.Fatalf("selection = %+v", sel)
+	}
+	if got := modelProviderDisplayName(providers, sel.Provider); got != "日本来源" {
+		t.Fatalf("display = %q", got)
+	}
+}
 
 // newSwarmCapsuleTester 构造带有 Mock 供应商及可用模型数据的 SettingsState 与 ui.Tester。
 func newSwarmCapsuleTester(t *testing.T) (*SettingsState, *ui.Tester) {

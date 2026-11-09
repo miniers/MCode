@@ -4,9 +4,12 @@ package shell
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/harness"
 )
 
 func waitBackground(t *testing.T, check func() bool) {
@@ -47,6 +50,62 @@ func TestBackgroundOutputAndKill(t *testing.T) {
 		_, running, _, _ := Output(id)
 		return !running
 	})
+}
+
+func TestBackgroundOwnerIsolation(t *testing.T) {
+	a := WithOwner(context.Background(), "test-owner-a")
+	b := WithOwner(context.Background(), "test-owner-b")
+	idA, _, err := Start(a, Options{Command: "sleep 30"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Kill(idA)
+	idB, _, err := Start(b, Options{Command: "sleep 30"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer Kill(idB)
+	if _, _, _, err := OutputOwner("test-owner-a", idB); err == nil {
+		t.Fatal("跨线程读取成功")
+	}
+	if err := KillOwned("test-owner-a", idB); err == nil {
+		t.Fatal("跨线程停止成功")
+	}
+	finished := make(chan struct{})
+	go func() { KillOwner("test-owner-a"); KillOwner("test-owner-a"); close(finished) }()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("停止超时")
+	}
+	if _, running, _, _ := Output(idA); running {
+		t.Fatal("A 仍在运行")
+	}
+	if _, running, _, _ := Output(idB); !running {
+		t.Fatal("B 被停止")
+	}
+}
+
+func TestBackgroundExitCallbackPanic(t *testing.T) {
+	ctx := WithProcessTracker(context.Background(), nil, func(int) { panic("退出回调失败") })
+	id, _, err := Start(ctx, Options{Command: "echo ok", Sandbox: panicCleanupSandbox{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	waitBackground(t, func() bool { out, running, _, _ := Output(id); text += out; return !running })
+	if !strings.Contains(text, "退出回调失败") || !strings.Contains(text, "清理失败") {
+		t.Fatalf("输出=%q", text)
+	}
+	if err := Kill(id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type panicCleanupSandbox struct{}
+
+func (panicCleanupSandbox) Command(_ context.Context, _ string, _ harness.PermissionMode, name string, args ...string) (*exec.Cmd, func(), error) {
+	return exec.Command(name, args...), func() { panic("清理失败") }, nil
 }
 
 func TestBackgroundSurvivesContextCancel(t *testing.T) {

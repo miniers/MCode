@@ -107,12 +107,12 @@ func TestCheck(t *testing.T) {
 		{"y_bash_auto_write_redirect", harness.ModeAuto, false, false, "bash", "command", "ls > out.txt", Ask, ""},
 		{"y_bash_plan_devnull", "", true, false, "bash", "command", "rg foo 2>/dev/null", Allow, ""},
 		{"z_bash_readonly_grep_allow", harness.ModeReadOnly, false, false, "bash", "command", "grep -n foo bar.txt", Allow, ""},
-		{"z_bash_readonly_case_insensitive_rm_ask", harness.ModeReadOnly, false, false, "bash", "Command", "rm -rf build", Ask, ""},
+		{"z_bash_readonly_case_insensitive_rm_deny", harness.ModeReadOnly, false, false, "bash", "Command", "rm -rf build", Deny, ""},
 		{"z_bash_plan_case_insensitive_rm_deny", "", true, false, "bash", "Command", "rm -rf build", Deny, ""},
 		{"z_bash_auto_tree_output_ask", harness.ModeAuto, false, false, "bash", "command", "tree -o out.txt internal", Ask, ""},
 		{"z_bash_auto_tree_long_output_ask", harness.ModeAuto, false, false, "bash", "command", "tree --output=out.txt internal", Ask, ""},
 		{"z_write_mcode_always_allow", harness.ModeFullAccess, false, false, "write", "path", filepath.Join(home, ".mcode/always_allow.json"), Ask, "controlPlane"},
-		{"z_bash_readonly_rm_ask", harness.ModeReadOnly, false, false, "bash", "command", "rm a.txt", Ask, ""},
+		{"z_bash_readonly_rm_deny", harness.ModeReadOnly, false, false, "bash", "command", "rm a.txt", Deny, ""},
 		{"z_bash_supervised_grep_ask", harness.ModeSupervised, false, false, "bash", "command", "grep -n foo bar.txt", Ask, ""},
 		{"z_bash_auto_cd_and_ls", harness.ModeAuto, false, false, "bash", "command", "cd internal && ls", Allow, ""},
 		{"z_bash_auto_git_ls_files", harness.ModeAuto, false, false, "bash", "command", "git ls-files dist", Allow, ""},
@@ -243,6 +243,62 @@ func TestSession(t *testing.T) {
 	s.Remember("one")
 	if !s.Allowed("one") || s.Allowed("two") {
 		t.Fatal("会话授权范围错误")
+	}
+}
+
+func TestReadOnlyGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	work := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		mode harness.PermissionMode
+		tool string
+		args string
+		hint bool
+		want Action
+	}{
+		{"write", harness.ModeReadOnly, "write", `{"path":"a"}`, false, Deny},
+		{"edit", harness.ModeReadOnly, "edit", `{"path":"a"}`, false, Deny},
+		{"patch", harness.ModeReadOnly, "apply_patch", `{"input":""}`, false, Deny},
+		{"rm", harness.ModeReadOnly, "bash", `{"command":"rm -rf x"}`, false, Deny},
+		{"redirect", harness.ModeReadOnly, "bash", `{"command":"echo a > f"}`, false, Deny},
+		{"unknown mcp", harness.ModeReadOnly, "mcp__other__tool", `{}`, false, Deny},
+		{"read", harness.ModeReadOnly, "read", `{"path":"a"}`, false, Allow},
+		{"list", harness.ModeReadOnly, "list_files", `{}`, false, Allow},
+		{"search", harness.ModeReadOnly, "search_text", `{}`, false, Allow},
+		{"ls", harness.ModeReadOnly, "bash", `{"command":"ls"}`, false, Allow},
+		{"git status", harness.ModeReadOnly, "bash", `{"command":"git status"}`, false, Allow},
+		{"fetch", harness.ModeReadOnly, "web_fetch", `{"url":"https://example.com"}`, false, Allow},
+		{"readonly mcp", harness.ModeReadOnly, "mcp__other__tool", `{}`, true, Allow},
+		{"sensitive read", harness.ModeReadOnly, "read", `{"path":".env"}`, false, Ask},
+		{"sensitive readonly mcp", harness.ModeReadOnly, "mcp__other__tool", `{"path":".env"}`, true, Ask},
+		{"auto write", harness.ModeAuto, "write", `{"path":"a"}`, false, Allow},
+		{"auto bash write", harness.ModeAuto, "bash", `{"command":"rm -rf x"}`, false, Ask},
+		{"auto mcp hint", harness.ModeAuto, "mcp__other__tool", `{}`, true, Ask},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Check(Input{Mode: tc.mode, ToolName: tc.tool, Args: json.RawMessage(tc.args), ReadOnlyHint: tc.hint, WorkDir: work})
+			if got.Action != tc.want {
+				t.Fatalf("得到 %+v，期望 %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadOnlyRejectsRememberedWrite(t *testing.T) {
+	in := Input{Mode: harness.ModeSupervised, ToolName: "write", Args: json.RawMessage(`{"path":"a"}`), WorkDir: t.TempDir()}
+	verdict := Check(in)
+	if verdict.Action != Ask || verdict.SessionKey == "" {
+		t.Fatalf("写调用应先请求授权：%+v", verdict)
+	}
+	var session Session
+	session.Remember(verdict.SessionKey)
+	if !session.Allowed(verdict.SessionKey) {
+		t.Fatal("会话授权未记住")
+	}
+	in.Mode = harness.ModeReadOnly
+	if got := Check(in); got.Action != Deny {
+		t.Fatalf("只读模式应拒绝已授权的写调用：%+v", got)
 	}
 }
 

@@ -384,6 +384,8 @@ type LeadRuntimeSource interface {
 
 // ThreadContext 包含主会话的上下文信息，供派发解析档位与模型使用。
 type ThreadContext struct {
+	Provider string
+	Model    string
 	// UserMessage 为主会话最近一条真实用户输入，非 [编排] 汇报消息。
 	UserMessage string
 	// PairID 为主会话当前选中的配对 ID。
@@ -402,10 +404,12 @@ type ThreadContext struct {
 
 // Options 包含编排管理器运行所需的依赖与配置项。
 type Options struct {
-	Git         *git.Runner
-	Driver      kanban.SessionDriver
-	StopSession func(ctx context.Context, threadID string) error
-	WorktreeDir string
+	NormalizeBee     func(provider, model string) (string, string)
+	DefaultBeeSource func(lead ThreadContext) (provider, model string, err error)
+	Git              *git.Runner
+	Driver           kanban.SessionDriver
+	StopSession      func(ctx context.Context, threadID string) error
+	WorktreeDir      string
 	// ProfilesPath 是子代理 Profile 定义文件路径；为空时默认取
 	// filepath.Join(filepath.Dir(WorktreeDir), ProfilesFileName)，即 <DataDir>/hydra-profiles.json
 	// （该文件名是旧版遗留命名，仅用于导入旧数据）。

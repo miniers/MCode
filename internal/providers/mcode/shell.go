@@ -94,7 +94,7 @@ func (h *Harness) withProcessTracker(ctx context.Context, threadID string) conte
 	if threadID == "" {
 		return ctx
 	}
-	return shell.WithProcessTracker(ctx,
+	return shell.WithProcessTracker(shell.WithOwner(ctx, threadID),
 		func(pid int) { h.trackProcess(threadID, pid) },
 		func(pid int) { h.untrackProcess(threadID, pid) },
 	)

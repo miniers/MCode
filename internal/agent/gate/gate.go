@@ -17,12 +17,14 @@ import (
 
 // Input 保存一次工具调用的门禁输入，对应 TS 的 gate、event 和 cwd。
 type Input struct {
-	Mode           harness.PermissionMode
-	Plan           bool
-	FinalReport    bool
-	ToolName       string
-	ToolID         string
-	Args           json.RawMessage
+	Mode        harness.PermissionMode
+	Plan        bool
+	FinalReport bool
+	ToolName    string
+	ToolID      string
+	Args        json.RawMessage
+	// ReadOnlyHint 由已解析的工具描述的 ReadOnly 提供，不来自模型参数。
+	ReadOnlyHint   bool
 	WorkDir        string
 	AdditionalDirs []string
 	// ControlPlanePaths 包含调用方需要保护的额外控制面文件或目录。
@@ -172,9 +174,12 @@ func Check(in Input) Verdict {
 			return Verdict{Action: Deny, Reason: "Blocked by mcode: plan mode only allows reading."}
 		}
 	}
+	if in.Mode == harness.ModeReadOnly && !reads && !in.ReadOnlyHint {
+		return Verdict{Action: Deny, Reason: "只读模式不允许修改：" + in.ToolName}
+	}
 	// 敏感调用总要询问，其余按模式决定放行。
 	if sensitive == "" {
-		if IsLookOnly(in.ToolName) || in.Mode == harness.ModeFullAccess || webFetch && (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits) && kind == harness.RequestKindFileChange || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) && kind == harness.RequestKindCommand && onlyReads(command) {
+		if IsLookOnly(in.ToolName) || in.Mode == harness.ModeReadOnly && in.ReadOnlyHint || in.Mode == harness.ModeFullAccess || webFetch && (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits) && kind == harness.RequestKindFileChange || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) && kind == harness.RequestKindCommand && onlyReads(command) {
 			return Verdict{Action: Allow}
 		}
 	}

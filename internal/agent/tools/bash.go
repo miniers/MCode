@@ -137,7 +137,7 @@ func runBashOutput(ctx context.Context, env Env, raw json.RawMessage) (Result, e
 	if args.ID == "" {
 		return failure("id is required")
 	}
-	text, running, exitCode, err := shell.Output(args.ID)
+	text, running, exitCode, err := shell.OutputOwner(shell.OwnerFrom(ctx), args.ID)
 	if err != nil {
 		return failure(err)
 	}
@@ -162,7 +162,7 @@ func runKillBash(ctx context.Context, env Env, raw json.RawMessage) (Result, err
 	if args.ID == "" {
 		return failure("id is required")
 	}
-	if err := shell.Kill(args.ID); err != nil {
+	if err := shell.KillOwned(shell.OwnerFrom(ctx), args.ID); err != nil {
 		return failure(err)
 	}
 	return Result{Text: "Stopped background job " + args.ID + "."}, nil

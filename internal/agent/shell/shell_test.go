@@ -30,6 +30,16 @@ func TestRunOutputAndExit(t *testing.T) {
 	}
 }
 
+func TestOutputCallbackPanic(t *testing.T) {
+	unixOnly(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := Run(ctx, Options{Command: "echo hello"}, func(string) { panic("输出失败") })
+	if err == nil || !strings.Contains(err.Error(), "输出失败") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestRunTimeoutKillsChildren(t *testing.T) {
 	unixOnly(t)
 	start := time.Now()

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"mcode/internal/agentconf"
+	"mcode/internal/apisource"
 	"mcode/internal/attention"
 	"mcode/internal/automation"
 	"mcode/internal/backup"
@@ -434,9 +435,33 @@ func Open(opts Options) (*App, error) {
 			Git:       swarmGitRunner,
 			Driver:    backend,
 			ReadPaths: backend.ThreadReadPaths,
+			NormalizeBee: func(provider, model string) (string, string) {
+				cfg, err := config.Load(opts.DataDir)
+				if err != nil {
+					return provider, model
+				}
+				config.ApplyEnv(&cfg, os.LookupEnv)
+				provider, model, _ = apisource.NormalizeBeeModel(cfg, config.NewSecretStore("mcode"), provider, model)
+				return provider, model
+			},
+			DefaultBeeSource: func(lead swarm.ThreadContext) (string, string, error) {
+				cfg, err := config.Load(opts.DataDir)
+				if err != nil {
+					return "", "", err
+				}
+				config.ApplyEnv(&cfg, os.LookupEnv)
+				return defaultBeeSource(cfg, config.NewSecretStore("mcode"), lead)
+			},
 			ThreadContext: func(leadThreadID string) swarm.ThreadContext {
 				msg, pairID, tiers, beeProvider, beeModel, beeEffort := backend.SwarmThreadContext(leadThreadID)
-				return swarmThreadContextFrom(msg, pairID, tiers, beeProvider, beeModel, beeEffort, backend.SwarmProviderEnabled)
+				tc := swarmThreadContextFrom(msg, pairID, tiers, beeProvider, beeModel, beeEffort, backend.SwarmProviderEnabled)
+				if lead, err := backend.GetThread(context.Background(), leadThreadID); err == nil {
+					tc.Provider = lead.Provider
+					if lead.Model != nil {
+						tc.Model = *lead.Model
+					}
+				}
+				return tc
 			},
 			StopSession:        func(ctx context.Context, id string) error { _, err := backend.InterruptCurrent(ctx, id); return err },
 			WorktreeDir:        filepath.Join(opts.DataDir, "swarm-worktrees"),

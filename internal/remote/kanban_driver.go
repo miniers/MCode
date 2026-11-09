@@ -85,6 +85,9 @@ func (b *MemoryBackend) StartSession(ctx context.Context, req kanban.SessionRequ
 		return "", err
 	}
 	threadID := res.ThreadID
+	if req.LeadThreadID != "" {
+		b.SetThreadRelation(threadID, req.LeadThreadID, true)
+	}
 	if req.LeadThreadID != "" || req.InteractionMode != "" || req.Effort != "" {
 		if _, err := b.SetThreadComposerPrefs(ctx, threadID, prefs); err != nil {
 			return "", err

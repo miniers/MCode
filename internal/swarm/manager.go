@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"mcode/internal/git"
+	"mcode/internal/harness"
 	"mcode/internal/kanban"
 	"mcode/internal/procattr"
 	"mcode/internal/providers/loginenv"
@@ -343,6 +344,7 @@ func (m *Manager) TierPreview(leadThreadID string) map[string]ResolvedTier {
 	out := make(map[string]ResolvedTier, len(st.Tiers))
 	for _, t := range st.Tiers {
 		cfg, _ := ResolveBeeConfig(ResolveInput{
+			NormalizeBee:       m.opts.NormalizeBee,
 			Delegation:         Delegation{Tier: t.ID},
 			Profiles:           profiles,
 			Pairs:              st.Pairs,
@@ -355,26 +357,44 @@ func (m *Manager) TierPreview(leadThreadID string) map[string]ResolvedTier {
 			SessionBeeModel:    tc.BeeModel,
 			SessionBeeEffort:   tc.BeeEffort,
 		})
-		provider, model, effort := resolveBeeRuntime(cfg.Provider, cfg.Model, cfg.Effort, st)
+		provider, model, effort, _ := m.effectiveBeeRuntime(cfg.Provider, cfg.Model, cfg.Effort, st, tc)
 		out[t.ID] = ResolvedTier{Provider: provider, Model: model, Effort: effort}
 	}
 	return out
 }
 
 // resolveBeeRuntime 按设置里的默认值补齐一次派发的 provider/model/effort：
-// provider、model 为空时分别回退到默认 Provider、默认 Model；effort 为空且这次实际用的
+// provider 为空时回退到默认 Provider，model 也为空时使用默认 Model；effort 为空且这次实际用的
 // 就是默认 Provider 与 Model 时回退到默认 Effort。真实派发与档位预览共用这一套规则。
 func resolveBeeRuntime(provider, model, effort string, settings Settings) (string, string, string) {
 	if provider == "" {
 		provider = settings.DefaultProvider
-	}
-	if model == "" {
-		model = settings.DefaultModel
+		if model == "" {
+			model = settings.DefaultModel
+		}
 	}
 	if effort == "" && provider == settings.DefaultProvider && model == settings.DefaultModel {
 		effort = settings.DefaultEffort
 	}
 	return provider, model, effort
+}
+
+func (m *Manager) effectiveBeeRuntime(provider, model, effort string, settings Settings, tc ThreadContext) (string, string, string, error) {
+	provider, model, effort = resolveBeeRuntime(provider, model, effort, settings)
+	if m.opts.NormalizeBee != nil {
+		provider, model = m.opts.NormalizeBee(provider, model)
+	}
+	if provider == "" && m.opts.DefaultBeeSource != nil {
+		p, defaultModel, err := m.opts.DefaultBeeSource(tc)
+		if err != nil {
+			return "", "", effort, err
+		}
+		provider = p
+		if model == "" {
+			model = defaultModel
+		}
+	}
+	return provider, model, effort, nil
 }
 
 // QueueLength 返回当前正在排队的 bee 数量。
@@ -1127,6 +1147,15 @@ func (m *Manager) getBaseCommit(ctx context.Context, dir, leadPrefix string) (st
 }
 
 func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID, beeWorkDir string, spec BeeSpec, index int, leadPrefix string) (Bee, error) {
+	var tc ThreadContext
+	if m.opts.ThreadContext != nil {
+		tc = m.opts.ThreadContext(leadThreadID)
+	}
+	settings := m.Settings()
+	provider, model, effort, err := m.effectiveBeeRuntime(spec.Provider, spec.Model, spec.Effort, settings, tc)
+	if err != nil {
+		return Bee{}, err
+	}
 	var shadowRepo bool
 	var sharedNoGit bool
 	var sharedNoGitReason string
@@ -1160,7 +1189,6 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 		}
 	}
 
-	settings := m.Settings()
 	// 写入白名单不为空的 bee 与只读 bee 一样不能走共享工作区，否则无法过滤白名单外的改动。
 	isShared := (settings.WorkspaceMode == "shared" && !spec.ReadOnly && len(spec.WritePaths) == 0) || sharedNoGit
 
@@ -1207,24 +1235,22 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 	// 解析 bee 实际使用的提供方与模型：派发指令没有指定时回退到设置里的默认值。
 	// 推理强度：派发指令与配对/档位都没指定，且这次实际用的就是默认 provider 和 model 时，
 	// 回退到设置里的默认推理强度；配对与档位已有的优先级不变。规则与 TierPreview 共用。
-	provider, model, effort := resolveBeeRuntime(spec.Provider, spec.Model, spec.Effort, settings)
-
 	sessionReq := kanban.SessionRequest{
 		LeadThreadID: leadThreadID,
 		ProjectID:    beeProjectID,
 		WorkDir:      sessionWorkDir,
 		Title:        spec.Name,
 		Prompt:       spec.Prompt,
-		// 只传 spec 自身的覆盖值，不传 settings 默认值，保持既有行为。
-		Provider: spec.Provider,
-		Model:    spec.Model,
-		Effort:   effort,
-		FastMode: spec.FastMode,
+		Provider:     provider,
+		Model:        model,
+		Effort:       effort,
+		FastMode:     spec.FastMode,
 		// 宿主指定的权限模式优先；为空时照旧继承主线程的运行模式。
 		RuntimeMode: spec.RuntimeMode,
 	}
-	// 只读档子线程与其他子线程同样继承主线程运行模式（无人值守的子线程
-	// 不能卡在审批上），只读约束由提示词加完成后的 ReadOnlyViolation 检查保证。
+	if spec.ReadOnly {
+		sessionReq.RuntimeMode = string(harness.ModeReadOnly)
+	}
 
 	if !isShared {
 		m.mu.Lock()
@@ -1281,7 +1307,7 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 		Tier:              spec.Tier,
 		ReadOnly:          spec.ReadOnly,
 		WritePaths:        append([]string(nil), spec.WritePaths...),
-		RuntimeMode:       spec.RuntimeMode,
+		RuntimeMode:       sessionReq.RuntimeMode,
 		DirectModel:       spec.DirectModel,
 		FastMode:          spec.FastMode,
 		WorktreePath:      wtPath,
@@ -1661,6 +1687,7 @@ func (m *Manager) planEntry(ctx context.Context, leadThreadID string, d Delegati
 		profiles = nil
 	}
 	cfg, resolveNotices := ResolveBeeConfig(ResolveInput{
+		NormalizeBee:    m.opts.NormalizeBee,
 		Delegation:      d,
 		Profiles:        profiles,
 		Pairs:           m.Settings().Pairs,
@@ -1679,18 +1706,17 @@ func (m *Manager) planEntry(ctx context.Context, leadThreadID string, d Delegati
 
 	// 宿主代码给的覆盖项在档位解析之后生效：只覆盖非空字段，DirectModel 保持原值。
 	if host != nil {
-		if host.Provider != "" {
-			cfg.Provider = host.Provider
+		provider, model := host.Provider, host.Model
+		if m.opts.NormalizeBee != nil {
+			provider, model = m.opts.NormalizeBee(provider, model)
 		}
-		if host.Model != "" {
-			cfg.Model = host.Model
-		}
-		if host.Effort != "" {
-			cfg.Effort = host.Effort
-		}
+		applyBeeFields(&cfg, provider, model, host.Effort)
 		if len(host.WritePaths) > 0 {
 			cfg.WritePaths = append([]string(nil), host.WritePaths...)
 		}
+	}
+	if m.opts.NormalizeBee != nil {
+		cfg.Provider, cfg.Model = m.opts.NormalizeBee(cfg.Provider, cfg.Model)
 	}
 
 	// 只有声明了 skills 的 bee 才追加技能提示块；Delegation.Prompt 保持不变（流式派发的去重键依赖它）。

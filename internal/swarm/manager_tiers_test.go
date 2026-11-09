@@ -11,6 +11,34 @@ import (
 	"mcode/internal/kanban"
 )
 
+func TestBeePreviewMatchesSessionAndReadOnly(t *testing.T) {
+	driver := newFakeDriver()
+	var request kanban.SessionRequest
+	driver.onStart = func(req kanban.SessionRequest) { request = req }
+	mgr := NewManager(Options{
+		Driver:           driver,
+		DefaultBeeSource: func(ThreadContext) (string, string, error) { return "custom-jp", "auto/model", nil },
+	})
+	mgr.SetSettingsFunc(func() Settings {
+		return Settings{Enabled: true, AutoDelegate: true, Tiers: []Tier{{ID: "read", ReadOnly: true}}}
+	})
+	preview := mgr.TierPreview("lead")["read"]
+	bee, err := mgr.startSingleBee(context.Background(), "lead", "project", t.TempDir(), BeeSpec{ReadOnly: true}, 1, "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Provider != preview.Provider || request.Model != preview.Model || bee.Provider != preview.Provider || bee.Model != preview.Model {
+		t.Fatalf("preview=%+v request=%+v bee=%+v", preview, request, bee)
+	}
+	if request.RuntimeMode != "readonly" {
+		t.Fatalf("RuntimeMode = %q", request.RuntimeMode)
+	}
+	p, model, _, err := mgr.effectiveBeeRuntime("pi", "", "", Settings{DefaultModel: "other"}, ThreadContext{})
+	if err != nil || p != "pi" || model != "" {
+		t.Fatalf("显式 pi 来源被覆盖：%q %q %v", p, model, err)
+	}
+}
+
 // 测试 ThreadContext 在 manager 派发链路中的注入（配对覆盖与用户消息指定模型授权）。
 func TestManager_ThreadContext_Wiring(t *testing.T) {
 	ctx := context.Background()

@@ -97,6 +97,7 @@ type BeeConfig struct {
 
 // ResolveInput 是解析一次 bee 派发所需的全部输入。
 type ResolveInput struct {
+	NormalizeBee    func(provider, model string) (string, string)
 	Delegation      Delegation
 	Profiles        []BeeProfile
 	Pairs           []Pair
@@ -117,6 +118,12 @@ type ResolveInput struct {
 // （非空才覆盖），返回最终配置以及给 Lead 的中文提示。这里不套用任何全局默认 Provider。
 func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 	var cfg BeeConfig
+	apply := func(provider, model, effort string) {
+		if in.NormalizeBee != nil {
+			provider, model = in.NormalizeBee(provider, model)
+		}
+		applyBeeFields(&cfg, provider, model, effort)
+	}
 	var notes []string
 	d := in.Delegation
 
@@ -131,7 +138,7 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 
 	// b. 匹配档位或降级匹配 legacy Profile
 	if tier, ok := FindTier(in.Tiers, ref); ok {
-		applyBeeFields(&cfg, tier.Provider, tier.Model, tier.Effort)
+		apply(tier.Provider, tier.Model, tier.Effort)
 		cfg.FastMode = tier.FastMode
 		if tier.SystemPrompt != "" {
 			cfg.SystemPrompt = tier.SystemPrompt
@@ -141,7 +148,7 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 		cfg.Tier = tier.ID
 	} else if ref != "" {
 		if p, ok := FindProfile(in.Profiles, ref); ok {
-			applyBeeFields(&cfg, p.Provider, p.Model, p.Effort)
+			apply(p.Provider, p.Model, p.Effort)
 			cfg.SystemPrompt = p.SystemPrompt
 			cfg.Profile = p.Name
 		} else if len(in.Tiers) == 0 {
@@ -149,7 +156,7 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 		} else {
 			notes = append(notes, fmt.Sprintf("未找到档位 %q，已按默认档位 %q 派发", ref, in.DefaultTier))
 			if defTier, ok := FindTier(in.Tiers, in.DefaultTier); ok {
-				applyBeeFields(&cfg, defTier.Provider, defTier.Model, defTier.Effort)
+				apply(defTier.Provider, defTier.Model, defTier.Effort)
 				cfg.FastMode = defTier.FastMode
 				if defTier.SystemPrompt != "" {
 					cfg.SystemPrompt = defTier.SystemPrompt
@@ -165,11 +172,11 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 	// 配对/线程覆盖与委派明确授权的直属模型仍在后面覆盖。
 	sessionApplied := false
 	if in.SessionBeeModel != "" {
-		applyBeeFields(&cfg, in.SessionBeeProvider, in.SessionBeeModel, in.SessionBeeEffort)
+		apply(in.SessionBeeProvider, in.SessionBeeModel, in.SessionBeeEffort)
 		sessionApplied = true
 	} else if in.SessionBeeEffort != "" {
 		// 只选了强度没选模型时，仅沿用档位模型覆盖强度，不算会话模型生效。
-		applyBeeFields(&cfg, "", "", in.SessionBeeEffort)
+		apply("", "", in.SessionBeeEffort)
 	}
 
 	// c. Pair 覆盖（针对当前 lead 线程配对）
@@ -178,7 +185,7 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 			cfg.PairID = p.ID
 			if p.BeeTiers != nil && cfg.Tier != "" {
 				if ov, exists := p.BeeTiers[cfg.Tier]; exists {
-					applyBeeFields(&cfg, ov.Provider, ov.Model, ov.Effort)
+					apply(ov.Provider, ov.Model, ov.Effort)
 					if ov.FastMode != nil {
 						cfg.FastMode = *ov.FastMode
 					}
@@ -190,7 +197,7 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 	// d. Thread 覆盖
 	if in.ThreadOverrides != nil && cfg.Tier != "" {
 		if ov, exists := in.ThreadOverrides[cfg.Tier]; exists {
-			applyBeeFields(&cfg, ov.Provider, ov.Model, ov.Effort)
+			apply(ov.Provider, ov.Model, ov.Effort)
 			if ov.FastMode != nil {
 				cfg.FastMode = *ov.FastMode
 			}
@@ -205,16 +212,16 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 				cfg.DirectModel = true
 				if p.BeeTiers != nil && cfg.Tier != "" {
 					if ov, exists := p.BeeTiers[cfg.Tier]; exists {
-						applyBeeFields(&cfg, ov.Provider, ov.Model, ov.Effort)
+						apply(ov.Provider, ov.Model, ov.Effort)
 						if ov.FastMode != nil {
 							cfg.FastMode = *ov.FastMode
 						}
 					} else {
-						applyBeeFields(&cfg, p.BeeProvider, p.BeeModel, p.BeeEffort)
+						apply(p.BeeProvider, p.BeeModel, p.BeeEffort)
 						cfg.FastMode = p.BeeFastMode
 					}
 				} else {
-					applyBeeFields(&cfg, p.BeeProvider, p.BeeModel, p.BeeEffort)
+					apply(p.BeeProvider, p.BeeModel, p.BeeEffort)
 					cfg.FastMode = p.BeeFastMode
 				}
 			} else {
@@ -227,7 +234,7 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 
 	if d.Provider != "" || d.Model != "" {
 		if AuthorizeDirectModel(in.UserMessage, d.Provider, d.Model, in.ProviderEnabled) {
-			applyBeeFields(&cfg, d.Provider, d.Model, "")
+			apply(d.Provider, d.Model, "")
 			cfg.DirectModel = true
 		} else {
 			target := d.Model

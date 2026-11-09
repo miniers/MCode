@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,6 +80,41 @@ type processTracker struct {
 }
 
 type processTrackerKey struct{}
+type ownerKey struct{}
+
+// WithOwner 将后台任务拥有者传入上下文。
+func WithOwner(ctx context.Context, owner string) context.Context {
+	return context.WithValue(ctx, ownerKey{}, owner)
+}
+
+// OwnerFrom 返回上下文中的后台任务拥有者。
+func OwnerFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	owner, _ := ctx.Value(ownerKey{}).(string)
+	return owner
+}
+
+// callbackError 将回调 panic 转换为可报告的错误。
+func callbackError(fn func()) (err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = fmt.Errorf("shell 回调 panic: %v", v)
+		}
+	}()
+	fn()
+	return nil
+}
+
+func waitCommand(cmd *exec.Cmd) (err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = fmt.Errorf("shell 等待进程 panic: %v", v)
+		}
+	}()
+	return cmd.Wait()
+}
 
 // WithProcessTracker 返回携带进程回调的 ctx：Run 在子进程启动成功后调用 onStart，
 // 子进程退出后调用 onExit；ctx 未携带回调时 Run 不做任何通知。
@@ -107,7 +143,10 @@ type outputWriter struct {
 
 func (w *outputWriter) Write(p []byte) (int, error) {
 	if w.onOutput != nil {
-		w.onOutput(string(p))
+		if err := callbackError(func() { w.onOutput(string(p)) }); err != nil {
+			w.err = err
+			return 0, err
+		}
 	}
 	if w.file != nil {
 		if _, err := w.file.Write(p); err != nil {
@@ -122,7 +161,13 @@ func (w *outputWriter) Write(p []byte) (int, error) {
 			w.err = err
 			return 0, err
 		}
-		shellLogCleanupOnce.Do(func() { go cleanupOldShellLogs(dir) })
+		shellLogCleanupOnce.Do(func() {
+			go func() {
+				if err := callbackError(func() { cleanupOldShellLogs(dir) }); err != nil {
+					log.Print(err)
+				}
+			}()
+		})
 		f, err := os.CreateTemp(dir, "mcode-shell-*.log")
 		if err != nil {
 			w.err = err
@@ -169,7 +214,11 @@ func Run(ctx context.Context, opts Options, onOutput func(chunk string)) (Result
 		var err error
 		cmd, cleanup, err = opts.Sandbox.Command(context.WithoutCancel(ctx), opts.WorkDir, opts.Mode, name, args...)
 		if cleanup != nil {
-			defer cleanup()
+			defer func() {
+				if err := callbackError(cleanup); err != nil {
+					log.Print(err)
+				}
+			}()
 		}
 		if err != nil {
 			return result, err
@@ -206,7 +255,7 @@ func Run(ctx context.Context, opts Options, onOutput func(chunk string)) (Result
 		}
 	}
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	go func() { done <- waitCommand(cmd) }()
 	var timeout <-chan time.Time
 	var timer *time.Timer
 	if opts.Timeout > 0 {
