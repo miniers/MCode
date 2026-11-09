@@ -121,6 +121,23 @@ func buildPaletteItems(s *chatState) []paletteItem {
 				openSettingsWindow(cs, "")
 			},
 		},
+	)
+	for _, page := range settingsPages() {
+		if page.id == "about" {
+			continue
+		}
+		pageID := page.id
+		items = append(items, paletteItem{
+			id:       "cmd-settings-" + pageID,
+			kind:     "command",
+			title:    "设置：" + page.title,
+			keywords: "设置 settings " + page.title + " " + strings.Join(page.keywords, " "),
+			run: func(cs *chatState) {
+				openSettingsWindow(cs, pageID)
+			},
+		})
+	}
+	items = append(items,
 		paletteItem{
 			id:    "cmd-check-update",
 			kind:  "command",

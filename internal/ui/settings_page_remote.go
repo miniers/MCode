@@ -15,7 +15,7 @@ func remoteServiceRunning(status RemoteStatus) bool {
 }
 
 // pageRemote 是「远程控制」页：服务、配对、局域网入口、Tailscale、HTTPS 与手机推送。
-// 停服后只留服务、配对与设备三类常驻区块，其余区块由各自的 Visible 收起。
+// 停服后服务状态、设备、网络与 Tailscale 节点配置常驻，运行态区块与行由各自的 Visible 收起。
 var pageRemote = settingsPage{
 	ID:       "remote",
 	Title:    "远程控制",

@@ -68,6 +68,10 @@ func setupNative(hub *remote.StreamHub, client *app.Client, dataDir string, cfg 
 		var err error
 		tray, err = native.NewTray(native.TrayOptions{
 			OnShowWindow: showWindow,
+			OnOpenSettings: func() {
+				showWindow()
+				mcodeui.DispatchMenuAction("open-settings", 0)
+			},
 			OnLeftClick: func() {
 				if panel != nil {
 					panel.Toggle()

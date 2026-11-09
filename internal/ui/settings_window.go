@@ -35,6 +35,24 @@ func openSettingsWindow(owner *chatState, page string) *mygo.Window {
 	return opener(owner, page)
 }
 
+func openSettingsAt(owner *chatState, itemID string) {
+	for _, item := range settingsItems() {
+		if item.ID != itemID {
+			continue
+		}
+		openSettingsWindow(owner, item.Page)
+		st := currentSettingsWindowState()
+		if st == nil {
+			st = getChatSettings(owner)
+		}
+		if st != nil {
+			st.focusSettingsItem(settingsItemHit{Item: item})
+		}
+		return
+	}
+	openSettingsWindow(owner, itemID)
+}
+
 // openSettingsWindowHeadless 供没有主事件循环的测试使用。
 func openSettingsWindowHeadless(owner *chatState, page string) *mygo.Window {
 	st := getChatSettings(owner)

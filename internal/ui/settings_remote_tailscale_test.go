@@ -23,7 +23,7 @@ func TestRemoteTailscale_MergedRows(t *testing.T) {
 			t.Errorf("Tailscale 行 = %v，期望 %v", got, want)
 		}
 	}
-	check()
+	check("row-remote-tailscale-hostname", "row-remote-tailscale-reset")
 	if got := remoteTailscaleResetStatus(st, false); got != "需先启动远程控制服务" {
 		t.Errorf("服务关闭时重置状态 = %q", got)
 	}
@@ -41,18 +41,19 @@ func TestRemoteTailscale_MergedRows(t *testing.T) {
 	check("row-remote-tailscale-enabled", "row-remote-tailscale-error", "row-remote-tailscale-hostname", "row-remote-tailscale-reset")
 }
 
-func TestSettingsRemoteTailscale_NodeVisibility(t *testing.T) {
+// TestSettingsRemoteTailscale_NodeAlwaysVisible 覆盖：节点名称与重置节点是常驻配置，
+// 停服且未启用 Tailscale 时也要显示，节点名称可在启用前预先填写。
+func TestSettingsRemoteTailscale_NodeAlwaysVisible(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		running bool
 		enabled bool
 		failure string
-		visible bool
 	}{
-		{"停服且未启用", false, false, "", false},
-		{"停服但已启用", false, true, "", true},
-		{"服务运行中", true, false, "", true},
-		{"停服但有错误", false, false, "连接失败", true},
+		{"停服且未启用", false, false, ""},
+		{"停服但已启用", false, true, ""},
+		{"服务运行中", true, false, ""},
+		{"停服但有错误", false, false, "连接失败"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := NewSettingsState(settingsTestDir(t), nil, nil)
@@ -64,8 +65,8 @@ func TestSettingsRemoteTailscale_NodeVisibility(t *testing.T) {
 			tt := ui.NewTester(func(c *ui.Context) { renderPageRemote(c, st) }, 1000, 3000)
 			tt.Frame()
 			for _, title := range []string{"节点名称", "重置节点"} {
-				if got := tt.HasText(title); got != tc.visible {
-					t.Errorf("%q 可见 = %v，期望 %v", title, got, tc.visible)
+				if !tt.HasText(title) {
+					t.Errorf("%q 应始终可见", title)
 				}
 			}
 		})

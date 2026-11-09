@@ -1047,8 +1047,29 @@ resolved:
 	if !settingsItemVisible(s, hit.Item) {
 		return
 	}
+	providerID := settingsItemProviderSheet(hit.Item.ID)
+	if hit.Item.Sheet == "provider" && providerID == "" {
+		closeSettingsSheet(s)
+		hit.Item = settingsItem{ID: "row-providers-list", Page: "models"}
+	}
+	if strings.HasPrefix(hit.Item.ID, "row-ep-form-") && hit.Item.Sheet == "provider-add" {
+		hit.Item.ID = "row-provider-add-" + strings.TrimPrefix(hit.Item.ID, "row-ep-form-")
+	}
+	if hit.Item.Block {
+		hit.Item.ID = ""
+	}
 	s.mu.Lock()
 	loadProviders := s.switchSettingsPageLocked(hit.Item.Page)
+	if hit.Item.Sheet == "provider-add" {
+		switch {
+		case strings.HasPrefix(hit.Item.ID, "row-provider-add-cli-"):
+			s.presets.addType = 0
+		case strings.HasPrefix(hit.Item.ID, "row-provider-add-preset-"), hit.Item.ID == "row-provider-add-custom":
+			s.presets.addType = 1
+		case hit.Item.ID != "row-provider-add-type":
+			s.presets.addType = 2
+		}
+	}
 	s.jumpToItemID = hit.Item.ID
 	s.highlightItemID = hit.Item.ID
 	s.highlightStartedAt = time.Now()
@@ -1056,7 +1077,6 @@ resolved:
 	if hit.Item.Advanced {
 		s.setSettingsAdvancedOpenLocked(normalizeSettingsPageID(hit.Item.Page), true)
 	}
-	providerID := settingsItemProviderSheet(hit.Item.ID)
 	if providerID != "" {
 		s.providerRows.currentProvider = providerID
 		s.providerRows.currentProviderKind = "cli"
@@ -1094,6 +1114,10 @@ func (s *SettingsState) focusSettingsItemSheet(item settingsItem) {
 		}
 	}
 	if sheet != "" {
+		if sheet == "magpie-gateway" {
+			openMagpieGatewaySheet(s, "")
+			return
+		}
 		openSettingsSheet(s, sheet, item.ID)
 	}
 }
@@ -1111,14 +1135,26 @@ func (s *SettingsState) syncSettingsRowFocus() {
 	s.mu.Unlock()
 
 	settingsRowFocus.jumpID = jumpID
+	settingsRowFocus.dynamicJump = false
+	if jumpID != "" {
+		for _, item := range settingsItems() {
+			if item.ID == jumpID && item.Dynamic {
+				settingsRowFocus.dynamicJump = true
+				break
+			}
+		}
+	}
 	// 高亮项变了才换脉冲序号：同一项再次命中要重播，停留在同一项时保持当前进度。
 	if settingsRowFocus.highlightID != highlightID {
 		settingsRowFocus.pulseSeq++
 	}
 	settingsRowFocus.highlightID = highlightID
 	// 行渲染器完成一次性滚动后回调，把待跳转标记清掉，避免每帧都把用户拉回那一行。
-	settingsRowFocus.onJump = func() {
+	settingsRowFocus.onJump = func(key string) {
 		s.mu.Lock()
+		if settingsRowFocus.dynamicJump && s.highlightItemID == s.jumpToItemID {
+			s.highlightItemID = key
+		}
 		s.jumpToItemID = ""
 		s.mu.Unlock()
 	}

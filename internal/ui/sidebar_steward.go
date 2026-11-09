@@ -72,20 +72,7 @@ func renderSidebarStewardDisabledRow(c *ui.Context, s *chatState) {
 // openStewardSettings 打开设置面板并定位到「启用总管」那一行：
 // 切页、滚动与高亮都复用逐项搜索的 focusSettingsItem，免得另造一套定位逻辑。
 func openStewardSettings(s *chatState) {
-	openSettingsWindow(s, "steward")
-	st := currentSettingsWindowState()
-	if st == nil {
-		st = getChatSettings(s)
-	}
-	if st == nil {
-		return
-	}
-	for _, item := range settingsItems() {
-		if item.ID == "row-steward-enabled" {
-			st.focusSettingsItem(settingsItemHit{Item: item})
-			return
-		}
-	}
+	openSettingsAt(s, "row-steward-enabled")
 }
 
 // stewardThreadUnread 是总管行的未读判断：hasThreadUnread 收的是会话本身，

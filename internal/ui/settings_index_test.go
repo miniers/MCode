@@ -316,6 +316,10 @@ func TestSettingsIndex_CoversEveryRow(t *testing.T) {
 		if call.composite {
 			continue
 		}
+		// 旧收藏模型渲染函数不再接入页面树，空状态不应作为搜索入口。
+		if call.key == "row-models-none" {
+			continue
+		}
 		if !call.keyConcat {
 			if _, ok := byID[call.key]; !ok {
 				t.Errorf("%s:%d 的行 key %q 未登记在 settingsItems()", call.file, call.line, call.key)

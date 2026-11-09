@@ -11,7 +11,8 @@ import (
 
 // TrayOptions 配置系统托盘行为。
 type TrayOptions struct {
-	OnShowWindow func()
+	OnShowWindow   func()
+	OnOpenSettings func()
 	// OnLeftClick 非 nil 时左键点击图标调用它，原生菜单改为右键弹出。
 	OnLeftClick func()
 	OnQuit      func()
@@ -28,7 +29,7 @@ type Tray struct {
 
 // NewTray 创建菜单栏托盘图标。
 // 图标为 macOS 模板图（IconIsTemplate）。
-// 菜单项包含："显示窗口"、禁用的状态项 "正在运行 N 个会话"、分隔线、"退出 MCode"。
+// 菜单项包含："显示窗口"、可选的"设置…"、禁用的状态项、分隔线、"退出 MCode"。
 func NewTray(opts TrayOptions) (*Tray, error) {
 	icon := trayIconPNG
 	tip := "正在运行 0 个会话"
@@ -127,7 +128,7 @@ func (t *Tray) Destroy() {
 }
 
 func makeTrayMenu(opts TrayOptions, n int) *mygo.Menu {
-	return mygo.NewMenu([]*mygo.MenuItem{
+	items := []*mygo.MenuItem{
 		{
 			Label: "显示窗口",
 			Click: func(item *mygo.MenuItem, win *mygo.Window) {
@@ -136,12 +137,22 @@ func makeTrayMenu(opts TrayOptions, n int) *mygo.Menu {
 				}
 			},
 		},
-		{
+	}
+	if opts.OnOpenSettings != nil {
+		items = append(items, &mygo.MenuItem{
+			Label: "设置…",
+			Click: func(item *mygo.MenuItem, win *mygo.Window) {
+				opts.OnOpenSettings()
+			},
+		})
+	}
+	items = append(items,
+		&mygo.MenuItem{
 			Label:    fmt.Sprintf("正在运行 %d 个会话", n),
 			Disabled: true,
 		},
 		mygo.Separator(),
-		{
+		&mygo.MenuItem{
 			Label: "退出 MCode",
 			Click: func(item *mygo.MenuItem, win *mygo.Window) {
 				if opts.OnQuit != nil {
@@ -149,7 +160,8 @@ func makeTrayMenu(opts TrayOptions, n int) *mygo.Menu {
 				}
 			},
 		},
-	})
+	)
+	return mygo.NewMenu(items)
 }
 
 // MyGo 会把托盘图缩放到 18pt 高，因此用 36x36 的 @2x 图。

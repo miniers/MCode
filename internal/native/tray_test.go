@@ -50,3 +50,21 @@ func TestTrayMenu(t *testing.T) {
 		t.Fatal("点击『退出 MCode』应调用 OnQuit")
 	}
 }
+
+func TestTrayMenuSettings(t *testing.T) {
+	for _, item := range makeTrayMenu(TrayOptions{}, 0).Items() {
+		if item.Label == "设置…" {
+			t.Fatal("没有设置回调时不应显示设置菜单")
+		}
+	}
+
+	called := false
+	items := makeTrayMenu(TrayOptions{OnOpenSettings: func() { called = true }}, 0).Items()
+	if len(items) < 2 || items[0].Label != "显示窗口" || items[1].Label != "设置…" || items[1].Click == nil {
+		t.Fatal("设置菜单应位于显示窗口之后并带有回调")
+	}
+	items[1].Click(items[1], nil)
+	if !called {
+		t.Fatal("点击设置菜单应调用 OnOpenSettings")
+	}
+}

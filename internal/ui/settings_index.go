@@ -74,6 +74,7 @@ func settingsLegacyItems() []settingsItem {
 		// ---- 编排：档位（列表区） ----
 
 		// ---- Magpie：网关面板 ----
+		{ID: "sheet-magpie-gateway", Page: "magpie", Sheet: "magpie-gateway", Title: "Magpie 网关", Aliases: []string{"magpie", "网关"}, Block: true},
 		{ID: "row-magpie-gateway-enabled", Page: "magpie", Sheet: "magpie-gateway", Section: "网关", Title: "启用", Aliases: []string{"magpie", "网关"}},
 		{ID: "row-magpie-gateway-operations", Page: "magpie", Sheet: "magpie-gateway", Section: "网关", Title: "操作", Aliases: []string{"magpie", "网关"}},
 		{ID: "row-magpie-gateway-name", Page: "magpie", Sheet: "magpie-gateway", Section: "网关", Title: "名称", Aliases: []string{"magpie", "网关"}},
@@ -111,8 +112,6 @@ func settingsLegacyItems() []settingsItem {
 		{ID: "row-provider-add-preset-", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "预设供应商", Aliases: []string{"供应商", "预设"}, Dynamic: true},
 		{ID: "row-provider-add-custom", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "自定义端点", Aliases: []string{"供应商", "自定义", "端点"}},
 
-		// ---- 模型与供应商：你的模型 ----
-		{ID: "row-models-none", Page: "models", Section: "你的模型", Title: "尚未选择模型", Aliases: []string{"模型", "模型选择器"}},
 		// ---- 模型与供应商：供应商账号（按供应商循环的模板行） ----
 		{ID: "row-provider-copilot-account", Page: "models", Section: "供应商账号", Title: "GitHub Copilot 登录", Aliases: []string{"供应商", "登录"}},
 		{ID: "row-provider-copilot-login", Page: "models", Section: "供应商账号", Title: "GitHub Copilot 登录", Aliases: []string{"供应商", "登录"}},
@@ -120,14 +119,14 @@ func settingsLegacyItems() []settingsItem {
 		{ID: "row-claude-bin", Page: "models", Sheet: "provider", Section: "命令行", Title: "Claude 可执行文件路径", Aliases: []string{"可执行文件路径", "供应商"}},
 		{ID: "row-codex-bin", Page: "models", Sheet: "provider", Section: "命令行", Title: "Codex 可执行文件路径", Aliases: []string{"可执行文件路径", "供应商"}},
 		// ---- 模型与供应商：自定义 Endpoints / 本地网关 ----
-		{ID: "row-ep-form-name", Page: "models", Section: "自定义 Endpoints / 本地网关", Title: "名称", Aliases: []string{"网关", "endpoint", "名字"}},
-		{ID: "row-ep-form-baseurl", Page: "models", Section: "自定义 Endpoints / 本地网关", Title: "接口地址（BaseURL）", Aliases: []string{"网关", "endpoint", "host"}},
-		{ID: "row-ep-form-model", Page: "models", Section: "自定义 Endpoints / 本地网关", Title: "默认模型", Aliases: []string{"网关", "透传", "model"}},
-		{ID: "row-ep-form-apikey", Page: "models", Section: "自定义 Endpoints / 本地网关", Title: "密钥（API Key）", Aliases: []string{"网关", "密钥"}},
+		{ID: "row-ep-form-name", Page: "models", Sheet: "provider-add", Section: "自定义 Endpoints / 本地网关", Title: "名称", Aliases: []string{"网关", "endpoint", "名字"}},
+		{ID: "row-ep-form-baseurl", Page: "models", Sheet: "provider-add", Section: "自定义 Endpoints / 本地网关", Title: "接口地址（BaseURL）", Aliases: []string{"网关", "endpoint", "host"}},
+		{ID: "row-ep-form-model", Page: "models", Sheet: "provider-add", Section: "自定义 Endpoints / 本地网关", Title: "默认模型", Aliases: []string{"网关", "透传", "model"}},
+		{ID: "row-ep-form-apikey", Page: "models", Sheet: "provider-add", Section: "自定义 Endpoints / 本地网关", Title: "密钥（API Key）", Aliases: []string{"网关", "密钥"}},
 		// ---- 模型与供应商：API 供应商 ----
-		{ID: "row-preset-form-baseurl", Page: "models", Section: "API 供应商", Title: "接口地址（BaseURL）", Aliases: []string{"供应商", "默认值"}},
-		{ID: "row-preset-form-model", Page: "models", Section: "API 供应商", Title: "默认模型", Aliases: []string{"供应商", "默认值"}},
-		{ID: "row-preset-form-apikey", Page: "models", Section: "API 供应商", Title: "密钥（API Key）", Aliases: []string{"供应商", "密钥", "key"}},
+		{ID: "row-preset-form-baseurl", Page: "models", Sheet: "provider", Section: "API 供应商", Title: "接口地址（BaseURL）", Aliases: []string{"供应商", "默认值"}},
+		{ID: "row-preset-form-model", Page: "models", Sheet: "provider", Section: "API 供应商", Title: "默认模型", Aliases: []string{"供应商", "默认值"}},
+		{ID: "row-preset-form-apikey", Page: "models", Sheet: "provider", Section: "API 供应商", Title: "密钥（API Key）", Aliases: []string{"供应商", "密钥", "key"}},
 
 		// ---- 快捷键：各功能快捷键（按功能循环的模板行） ----
 		{ID: "row-shortcut-", Page: "general", Sheet: "shortcuts", Section: "各功能快捷键", Title: "功能快捷键", Aliases: []string{"快捷键", "热键", "按键"}, Dynamic: true},
@@ -136,7 +135,7 @@ func settingsLegacyItems() []settingsItem {
 		// ---- 归档：已归档会话（按会话循环的模板行） ----
 		{ID: "row-archive-", Page: "conversation", Sheet: "archive", Section: "已归档会话", Title: "已归档会话", Aliases: []string{"归档"}, Dynamic: true},
 		// ---- 归档：Worktree 清理（列表区） ----
-		{ID: "block-archive-worktrees", Page: "conversation", Sheet: "archive", Section: "Worktree 清理", Title: "工作树清理", Aliases: []string{"工作树", "清理", "worktree", "分支"}, Block: true},
+		{ID: "block-archive-worktrees", Page: "sourceControl", Sheet: "worktree", Section: "工作区与工作树", Title: "Worktree 清理", Aliases: []string{"工作树清理", "工作树", "清理", "worktree", "分支"}, Block: true},
 
 		// ---- 关于 ----
 		{ID: "row-about-version", Page: "about", Section: "关于 MCode", Title: "版本号", Aliases: []string{"构建"}},
@@ -146,14 +145,14 @@ func settingsLegacyItems() []settingsItem {
 		{ID: "row-about-diag", Page: "about", Section: "关于 MCode", Title: "导出诊断日志", Aliases: []string{"日志", "诊断", "反馈"}},
 
 		// ---- MCP 旧搜索入口 ----
-		{ID: "block-mcp-catalog", Page: "extensions", Section: "MCP 服务", Title: "MCP 预设", Aliases: mcpCatalogSearchAliases(), Block: true},
+		{ID: "block-mcp-catalog", Page: "extensions", Sheet: "mcp-add", Section: "MCP 服务", Title: "MCP 预设", Aliases: mcpCatalogSearchAliases(), Block: true},
 		// ---- MCP：新会话默认（按服务循环的模板行） ----
 		{ID: "row-mcp-newthread-", Page: "extensions", Section: "新会话默认", Title: "新会话默认启用的 MCP 服务", Aliases: []string{"mcp", "新会话", "默认", "新建会话"}, Dynamic: true},
 	}
 }
 
 func mcpCatalogSearchAliases() []string {
-	aliases := []string{"mcp", "预设", "添加"}
+	aliases := []string{"mcp", "预设", "添加", "添加服务"}
 	for _, entry := range cachedMCPCatalog().entries {
 		aliases = append(aliases, entry.haystack...)
 	}

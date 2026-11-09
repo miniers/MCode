@@ -416,12 +416,13 @@ func renderSettingsDivider(c *ui.Context, key string) {
 var settingsRowFocus struct {
 	jumpID      string
 	highlightID string
+	dynamicJump bool
 	// pulseSeq 是高亮脉冲的序号：每次高亮项变化都递增，拼进 Keyframes 的 key 让同一项
 	// 再次命中时从头重播，而不是停在上一轮的末值。
 	pulseSeq uint64
 	// onJump 在完成一次性滚动后被调用，用来把 SettingsState.jumpToItemID 清空，避免每帧
 	// 都把用户拉回那一行。
-	onJump func()
+	onJump func(string)
 }
 
 const (
@@ -474,6 +475,10 @@ func applySettingsRowFocus(c *ui.Context, row ui.Element, key string) ui.Element
 	if key == "" {
 		return row
 	}
+	jump := settingsRowFocus.jumpID != "" && (key == settingsRowFocus.jumpID || settingsRowFocus.dynamicJump && strings.HasPrefix(key, settingsRowFocus.jumpID))
+	if jump && settingsRowFocus.dynamicJump && settingsRowFocus.highlightID == settingsRowFocus.jumpID {
+		settingsRowFocus.highlightID = key
+	}
 	if settingsRowFocus.highlightID != "" && key == settingsRowFocus.highlightID {
 		pulse := row.Keyframes(fmt.Sprintf("settings-search-pulse-%d", settingsRowFocus.pulseSeq), settingsSearchPulseKeyframes())
 		paint := settingsRowHighlightPaintFor(key, settingsRowFocus.highlightID, pulse)
@@ -482,11 +487,11 @@ func applySettingsRowFocus(c *ui.Context, row ui.Element, key string) ui.Element
 			row = row.Background(ThemeSelected(c))
 		}
 	}
-	if settingsRowFocus.jumpID != "" && key == settingsRowFocus.jumpID {
+	if jump {
 		row = row.ScrollIntoView()
 		settingsRowFocus.jumpID = ""
 		if onJump := settingsRowFocus.onJump; onJump != nil {
-			onJump()
+			onJump(key)
 		}
 	}
 	return row
