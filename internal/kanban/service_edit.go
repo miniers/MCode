@@ -23,6 +23,7 @@ var ErrHashMismatch = errors.New("kanban: goal content hash mismatch")
 type UpdateTaskInput struct {
 	TaskID           string
 	ExpectedRevision int
+	Replacement      *store.Task
 	Title            *string
 	Notes            *string
 	NotesAppend      *string
@@ -70,6 +71,12 @@ func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (store.Tas
 	if in.ExpectedRevision > 0 && task.Revision != in.ExpectedRevision {
 		return store.Task{}, store.ErrRevisionConflict
 	}
+	if in.Replacement != nil {
+		if in.Replacement.ID != task.ID || in.Replacement.Revision != task.Revision {
+			return store.Task{}, store.ErrRevisionConflict
+		}
+		task = *in.Replacement
+	}
 
 	if in.Title != nil && strings.TrimSpace(*in.Title) != "" {
 		task.Title = strings.TrimSpace(*in.Title)
@@ -103,6 +110,30 @@ func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (store.Tas
 	s.revision.Add(1)
 	changed = true
 	return updated, nil
+}
+
+// SetTaskPriority 更新任务优先级并通知看板。
+func (s *Service) SetTaskPriority(ctx context.Context, taskID string, priority Priority, revision int) (store.Task, error) {
+	if !priority.Valid() {
+		return store.Task{}, ErrInvalidTransition
+	}
+	s.mu.Lock()
+	task, err := s.opts.Store.GetTask(ctx, taskID)
+	if err == nil && task.Revision != revision {
+		err = store.ErrRevisionConflict
+	}
+	if err == nil {
+		task.Priority = string(priority)
+		task, err = s.opts.Store.UpdateTask(ctx, task, revision)
+		if err == nil {
+			s.revision.Add(1)
+		}
+	}
+	s.mu.Unlock()
+	if err == nil {
+		s.notifyChange()
+	}
+	return task, err
 }
 
 // DeleteTask 拒绝删除仍有执行中会话的任务，并按 revision 删除任务及级联关联。

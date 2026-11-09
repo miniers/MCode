@@ -20,16 +20,13 @@ func renderSidebarStewardSection(c *ui.Context, s *chatState) {
 		renderAttentionInboxEntry(c, s)
 		return
 	}
+	if enabled, known := s.stewardEnabledState(); known && !enabled {
+		renderSidebarStewardDisabledRow(c, s)
+		renderAttentionInboxEntry(c, s)
+		return
+	}
 	threadID := s.stewardThreadID()
 	if threadID == "" {
-		// 客户端支持总管、但配置里还没启用时，留一行置灰入口，让用户一键去开启；
-		// 会话正在创建（已知启用）的情况保持原样，不闪一行「未启用」。
-		if enabled, known := s.stewardEnabledState(); known && !enabled {
-			renderSidebarStewardDisabledRow(c, s)
-			// 待处理入口原本就由这一段兜底渲染，总管未启用时仍要可达，不能一起消失。
-			renderAttentionInboxEntry(c, s)
-			return
-		}
 		renderAttentionInboxEntry(c, s)
 		return
 	}

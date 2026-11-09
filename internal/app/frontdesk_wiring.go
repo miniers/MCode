@@ -155,7 +155,14 @@ func wireFrontdesk(a *App, dataDir string) {
 		}
 	}
 	services := &frontdeskServices{store: a.store, backend: a.backend, kanban: a.kanban, homeID: projectID, homePath: home}
-	desk := &frontdesk.Desk{Client: frontdeskClient{dataDir: dataDir}, Feed: services, Tasks: services, Decisions: services, Memory: newFrontdeskMemory(a.store, dataDir), Projects: services, ProjectPath: home, CLIFallback: cfg.Orchestration.Steward.CLIFallback, Generator: textgen.GenerateWithOptions, CLIOptions: textgen.Options{Provider: cfg.Orchestration.Steward.Provider}}
+	desk := &frontdesk.Desk{Client: frontdeskClient{dataDir: dataDir}, Feed: services, Tasks: services, Decisions: services, Memory: newFrontdeskMemory(a.store, dataDir), Projects: services, ProjectPath: home, Generator: textgen.GenerateWithOptions, Settings: func() (bool, string) {
+		current, err := config.Load(dataDir)
+		if err != nil {
+			log.Printf("前台读取配置失败: %v", err)
+			return false, ""
+		}
+		return current.Orchestration.Steward.CLIFallback, current.Orchestration.Steward.Provider
+	}}
 	a.backend.SetStewardDesk(frontdeskReceiver{store: a.store, dataDir: dataDir, desk: desk})
 	a.kanban.SetOnResult(frontdeskResultHandler(a, dataDir))
 }

@@ -282,7 +282,28 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 			return &APIError{Body: "openai: invalid stream event: " + err.Error(), Retryable: true}
 		}
 		if len(payload.Error) > 0 && string(payload.Error) != "null" {
-			return &APIError{Body: string(payload.Error)}
+			var detail struct {
+				Code json.RawMessage `json:"code"`
+				Type string          `json:"type"`
+			}
+			_ = json.Unmarshal(payload.Error, &detail)
+			code := strings.Trim(string(detail.Code), `"`)
+			status := 0
+			switch {
+			case code == "429" || code == "rate_limit_exceeded" || code == "rate_limit_error" || detail.Type == "rate_limit_error":
+				status = 429
+			case code == "529" || code == "overloaded_error" || detail.Type == "overloaded_error":
+				status = 529
+			case code == "500" || code == "server_error" || detail.Type == "server_error":
+				status = 500
+			case code == "502":
+				status = 502
+			case code == "503":
+				status = 503
+			case code == "504":
+				status = 504
+			}
+			return &APIError{Status: status, Body: string(payload.Error), Retryable: status != 0}
 		}
 		if nonstream && len(payload.Choices) == 0 {
 			return fmt.Errorf("openai: response has no choices")

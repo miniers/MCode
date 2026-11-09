@@ -295,6 +295,13 @@ func mcodeEngineOptions(secrets config.SecretStore, dataDir string, mcpInjection
 func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
 	opts := mcodeEngineOptions(secrets, dataDir, mcpInjection)
 	remote.SetMcodeModels(mcodeModelCatalog)
+	opts.QualifyModel = func(model string) string {
+		current := mcodeCurrentConfig(cfg, secrets)
+		if resolved, err := mcodeDefaultModel(current, mcodeCurrentSecrets(secrets)); err == nil {
+			return resolved
+		}
+		return model
+	}
 	opts.ResolveClient = func(model, affinityKey string) (llm.Client, string, error) {
 		current := mcodeCurrentConfig(cfg, secrets)
 		return resolveMcodeClient(current, mcodeCurrentSecrets(secrets), model, affinityKey)

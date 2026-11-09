@@ -121,9 +121,9 @@ func collectTextgenCandidates(ctx context.Context, cfg config.Config, secrets co
 					break
 				}
 			}
-		} else if len(source.Models) == 0 {
+		} else {
 			ids = sourceModelCache.models(source, source.APIKey(secrets))
-			if len(ids) == 0 {
+			if len(ids) == 0 && len(source.Models) == 0 {
 				_ = sourceModelCache.refresh(ctx, source, source.APIKey(secrets))
 				ids = sourceModelCache.models(source, source.APIKey(secrets))
 			}
@@ -167,7 +167,7 @@ func collectTextgenCandidates(ctx context.Context, cfg config.Config, secrets co
 			if !known {
 				_, inReference := refs[strings.ToLower(id)]
 				knownStatic := false
-				for _, staticID := range source.Models {
+				for _, staticID := range append(append([]string(nil), source.Models...), ids...) {
 					if strings.EqualFold(id, staticID) {
 						knownStatic = true
 						break

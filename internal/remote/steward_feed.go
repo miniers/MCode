@@ -147,12 +147,12 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 	unread := role != "user" && kind != "steward_reply" && kind != "steward_decision_answer" && !(role == "system" && kind == "steward_result")
 	if unread {
 		td.summary.HasUnread = true
-		if err := b.store.SetThreadUnread(ctx, threadID, td.summary.HasUnread); err != nil {
-			log.Printf("总管未读状态持久化失败: %v", err)
-		}
 	}
 	summary := b.summaryForPublishLocked(td)
 	b.mu.Unlock()
+	if unread {
+		b.persistThreadUnread(threadID, true)
+	}
 	if err := b.store.TouchThread(ctx, threadID, now); err != nil {
 		log.Printf("总管会话时间持久化失败: %v", err)
 	}
@@ -166,6 +166,12 @@ func (b *MemoryBackend) acceptStewardMessage(ctx context.Context, params wire.Se
 	}
 	msg, paths, err := b.appendStewardMessage(ctx, params.ThreadID, "user", "", params.Text, params.Attachments)
 	if err != nil {
+		if params.ActionID != "" {
+			b.actions.record(wire.ActionStatusResult{
+				ActionID: params.ActionID, State: wire.ActionStateFailed, ThreadID: &params.ThreadID,
+				Error: &wire.ActionError{Code: wire.InternalError, Message: err.Error()},
+			})
+		}
 		return wire.SendMessageResult{}, err
 	}
 	if params.ActionID != "" {

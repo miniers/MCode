@@ -21,6 +21,7 @@ import (
 )
 
 var serverMagpieWarm sync.Map
+var serverMagpieFetch = magpie.FetchModels
 
 func warmServerMagpie(baseURL, key string) {
 	if key == "" {
@@ -39,7 +40,7 @@ func warmServerMagpie(baseURL, key string) {
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, _ = magpie.FetchModels(ctx, baseURL, key)
+		_, _ = serverMagpieFetch(ctx, baseURL, key)
 	}()
 }
 

@@ -16,6 +16,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/magpieinject"
 	"mcode/internal/providers/magpie"
+	"mcode/internal/remote"
 )
 
 func mcodeTestConfig(endpoints ...config.CustomEndpointConfig) config.Config {
@@ -145,6 +146,32 @@ func TestMcodeResolveClientDefaultPlaceholder(t *testing.T) {
 		if client == nil || modelID != "configured-model" {
 			t.Fatalf("模型 %q 解析为 %q，期望 configured-model", model, modelID)
 		}
+	}
+}
+
+func TestMcodeHarnessQualifiedMetadata(t *testing.T) {
+	setMcodeAgentRuntime("", nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil); remote.SetMcodeModels(nil) })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/messages" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			io.WriteString(w, anthropicMessagesSSE)
+			return
+		}
+		io.WriteString(w, `{"id":"c1","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1}}`)
+	}))
+	defer server.Close()
+	t.Setenv("ANTHROPIC_BASE_URL", server.URL)
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Enabled: true, Magpie: true, BaseURL: server.URL})
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {DefaultEndpointID: "edge", DefaultModel: "plain-model"}}
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key", "anthropic.apiKey": "anthropic-key"})
+	h := buildMcodeHarness(cfg, secrets, "", providerMCP{})
+	for _, tc := range []struct { model string; want int }{{"", magpieinject.DefaultModel().ContextWindow}, {"anthropic/claude-test", 200000}} {
+		var window int
+		err := h.Run(context.Background(), harness.Turn{Model: tc.model, Prompt: "hi", WorkDir: t.TempDir()}, func(event harness.Event) {
+			if event.Type == harness.EventUsage && event.Usage != nil { window = event.Usage.ContextWindow }
+		})
+		if err != nil || window != tc.want || window == 0 { t.Fatalf("模型 %q: 窗口 %d，错误 %v", tc.model, window, err) }
 	}
 }
 

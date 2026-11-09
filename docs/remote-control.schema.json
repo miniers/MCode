@@ -14400,7 +14400,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "answer": { "type": "string", "minLength": 1 }
+        "answer": { "type": "string", "minLength": 1, "maxLength": 65536 }
       },
       "required": ["id", "answer"],
       "additionalProperties": false

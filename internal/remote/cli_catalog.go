@@ -3,6 +3,8 @@ package remote
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -59,7 +61,7 @@ func (c *cliCatalog) snapshot() []wire.ProviderModel {
 }
 
 func (c *cliCatalog) refresh(fetch func(context.Context) ([]wire.ProviderModel, error), gen uint64) {
-	models, err := fetch(context.Background())
+	models, err := safeCatalogFetch(context.Background(), fetch)
 	c.mu.Lock()
 	if c.gen != gen {
 		// 拉取期间目录被作废（例如注入的 Magpie 模型变了）：这批结果来自旧配置，
@@ -82,6 +84,16 @@ func (c *cliCatalog) refresh(fetch func(context.Context) ([]wire.ProviderModel, 
 		c.models, c.fetchedAt, c.failedAt = models, time.Now(), time.Time{}
 	}
 	c.mu.Unlock()
+}
+
+func safeCatalogFetch(ctx context.Context, fetch func(context.Context) ([]wire.ProviderModel, error)) (models []wire.ProviderModel, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("获取模型目录 panic：%v", r)
+			log.Print(err)
+		}
+	}()
+	return fetch(ctx)
 }
 
 // invalidate 让下一次读取重新拉取：清掉时间戳、作废在途结果，并立即起一次后台拉取，
@@ -110,7 +122,7 @@ func (c *cliCatalog) reload(ctx context.Context, fetch func(context.Context) ([]
 	gen := c.gen
 	c.fetching, c.fetchGen = true, gen
 	c.mu.Unlock()
-	models, err := fetch(ctx)
+	models, err := safeCatalogFetch(ctx, fetch)
 	if err == nil {
 		err = ctx.Err()
 	}

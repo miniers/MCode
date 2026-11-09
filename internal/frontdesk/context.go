@@ -59,7 +59,6 @@ func (d *Desk) snapshot(ctx context.Context, in Inbound) Snapshot {
 				}
 				if na < 40 {
 					fmt.Fprintf(&active, "%s %s %s\n", t.ID, t.Status, truncate(t.Title, 160))
-					s.OpenTaskIDs = append(s.OpenTaskIDs, t.ID)
 					na++
 				}
 			}
@@ -73,7 +72,6 @@ func (d *Desk) snapshot(ctx context.Context, in Inbound) Snapshot {
 				if i >= 15 {
 					break
 				}
-				s.OpenDecisionIDs = append(s.OpenDecisionIDs, c.ID)
 				fmt.Fprintf(&x, "%s %s\n", c.ID, truncate(c.Question, 200))
 			}
 			fmt.Fprintf(&b, "待决策：\n%s", truncate(x.String(), 3000))

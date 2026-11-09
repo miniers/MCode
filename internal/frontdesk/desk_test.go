@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -46,6 +47,7 @@ type fake struct {
 	createErr error
 	amendErr error
 	getErr error
+	recentErr error
 }
 
 func (f *fake) event(s string) {
@@ -83,7 +85,7 @@ func (f *fake) RecentTask(_ context.Context, thread string) (store.Task, time.Ti
 	if f.recentThread != "" && f.recentThread != thread {
 		return store.Task{}, time.Time{}, nil
 	}
-	return f.recent, f.recentAt, nil
+	return f.recent, f.recentAt, f.recentErr
 }
 func (f *fake) ListDecisions(context.Context, string, int) ([]store.StewardDecision, error) {
 	return nil, nil
@@ -198,6 +200,32 @@ func TestFallback(t *testing.T) {
 		t.Fatal(f.events)
 	}
 }
+func TestFallbackRecentTaskErrors(t *testing.T) {
+	storageErr := errors.New("存储失败")
+	for _, tc := range []struct { err, wantErr error; want []string }{
+		{storageErr, storageErr, nil},
+		{fmt.Errorf("查询: %w", store.ErrNotFound), nil, []string{"create:工作:owner"}},
+	} {
+		f := &fake{recentErr: tc.err}
+		err := (&Desk{Tasks: f}).fallback(context.Background(), Inbound{Text: "工作"}, Snapshot{})
+		if !errors.Is(err, tc.wantErr) || !reflect.DeepEqual(f.events, tc.want) { t.Fatal(err, f.events) }
+	}
+}
+
+func TestCLIFallbackSettingsChange(t *testing.T) {
+	f := &fake{}
+	enabled := false
+	var providers []string
+	d := Desk{Tasks: f, Settings: func() (bool, string) { return enabled, "codex" }, Generator: func(_ context.Context, opts textgen.Options, _ string) (string, error) {
+		providers = append(providers, opts.Provider)
+		return `{"reply":"","calls":[]}`, nil
+	}}
+	if err := d.fallback(context.Background(), Inbound{Text: "第一轮"}, Snapshot{}); err != nil { t.Fatal(err) }
+	enabled = true
+	if err := d.fallback(context.Background(), Inbound{Text: "第二轮"}, Snapshot{}); err != nil { t.Fatal(err) }
+	if !reflect.DeepEqual(f.events, []string{"create:第一轮:owner"}) || !reflect.DeepEqual(providers, []string{"codex"}) { t.Fatal(f.events, providers) }
+}
+
 func TestCLI(t *testing.T) {
 	for _, tc := range []struct {
 		name, out string
@@ -501,18 +529,6 @@ func TestSelectSourceLegacyAndPrefixedModel(t *testing.T) {
 		src, model, err := SelectSource(sources, nil, tc.provider, tc.model)
 		if err != nil || src.Kind != "magpie" || model != tc.want {
 			t.Errorf("provider %q，来源 %q，模型 %q，错误 %v", tc.provider, src.Kind, model, err)
-		}
-	}
-}
-
-func TestErrorSummaryJSON(t *testing.T) {
-	for _, tc := range []struct{ input, want string }{
-		{`llm: API error (status 404): {"error":{"type":"not_found","message":"magpie knows no model example"}}`, "magpie knows no model example"},
-		{`API error: {"message":" top\n level "}`, "top level"},
-		{`API error: {broken`, "API error: {broken"},
-	} {
-		if got := errorSummary(errors.New(tc.input)); got != tc.want {
-			t.Errorf("摘要 %q，期望 %q", got, tc.want)
 		}
 	}
 }

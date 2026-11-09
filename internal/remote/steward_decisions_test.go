@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,35 @@ import (
 type decisionAnswerDesk struct {
 	id, answer, by string
 	err            error
+}
+
+func TestStewardDecisionAnswerDispatcher(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+	desk := &decisionAnswerDesk{}
+	b.SetStewardDesk(desk)
+	d, _ := newMemoryExtTestDispatcher(t, b)
+	conn := &fakeConn{info: ClientInfo{Authenticated: true, DeviceID: "d-1"}}
+	request := `{"jsonrpc":"2.0","method":"steward.decisions.answer","params":{"id":"D-0001","answer":"A"},"id":1}`
+	resp := callExtension(t, d, conn, request)
+	if resp.Error != nil || desk.answer != "A" { t.Fatalf("答卡失败: %+v", resp.Error) }
+	resp = callExtension(t, d, &fakeConn{}, request)
+	if resp.Error == nil || resp.Error.Code != wire.ErrCodeUnauthorized { t.Fatalf("未认证未拒绝: %+v", resp.Error) }
+	resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","method":"capabilities.get","params":{},"id":2}`)
+	if resp.Error != nil { t.Fatal(resp.Error) }
+	raw, err := json.Marshal(resp.Result)
+	if err != nil { t.Fatal(err) }
+	var caps wire.Capabilities
+	if err := json.Unmarshal(raw, &caps); err != nil { t.Fatal(err) }
+	found := false
+	for _, method := range caps.Methods { if method == "steward.decisions.answer" { found = true } }
+	if !found { t.Fatal("capabilities 缺少答卡方法") }
+	params, err := json.Marshal(map[string]string{"id": "D-0001", "answer": strings.Repeat("a", maxStewardAnswerBytes+1)})
+	if err != nil { t.Fatal(err) }
+	resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","method":"steward.decisions.answer","params":`+string(params)+`,"id":3}`)
+	if resp.Error == nil || resp.Error.Code != wire.InvalidParams { t.Fatalf("超长回答未拒绝: %+v", resp.Error) }
 }
 
 func (*decisionAnswerDesk) IsFeed(string) bool               { return true }

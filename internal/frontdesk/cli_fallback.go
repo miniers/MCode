@@ -10,8 +10,7 @@ import (
 	"mcode/internal/textgen"
 )
 
-func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot) (bool, error) {
-	opts := d.CLIOptions
+func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot, opts textgen.Options) (bool, error) {
 	provider := opts.Provider
 	if provider == "" {
 		provider = "claude"

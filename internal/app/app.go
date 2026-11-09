@@ -1895,10 +1895,10 @@ func buildProviderHarness(cfg config.Config, secrets config.SecretStore, id stri
 }
 
 // buildExtraHarnesses 按配置构造除 ACP 与 agy 之外的全部额外 Provider harness 列表。
-// 顺序固定：copilot、pi、mcode、omp、commandcode，然后是 deepseek、zai、meta；
+// 顺序固定：copilot、pi、omp、commandcode，然后是 deepseek、zai、meta；
 // Magpie 现由自定义端点注册。
 func buildExtraHarnesses(cfg config.Config, secrets config.SecretStore, mcpInjection providerMCP) []harness.Harness {
-	ids := []string{"copilot", "pi", "mcode", "omp", "commandcode", "deepseek", "zai", "meta"}
+	ids := []string{"copilot", "pi", "omp", "commandcode", "deepseek", "zai", "meta"}
 
 	var res []harness.Harness
 	for _, id := range ids {
@@ -2033,7 +2033,7 @@ func swarmThreadContextFrom(msg, pairID, tiersJSON, beeProvider, beeModel, beeEf
 // 编排开关受全局总开关约束，工作区模式沿用设置里的新会话默认值。
 func remoteDraftDefaults(c config.Config) wire.ComposerDraftDefaults {
 	provider := strings.TrimSpace(c.Models.Provider)
-	if !c.Models.ProviderSelected {
+	if !c.Models.ProviderSelected || strings.EqualFold(provider, config.ProviderMcode) {
 		provider = ""
 	}
 	model, effort := "", ""
@@ -2100,6 +2100,9 @@ func rememberRemoteSelection(p wire.ProvidersRememberSelectionParams) {
 
 // draftProviderEnabled 判断 provider 是否在设置里启用；没有启用状态信息的 provider 视为启用。
 func draftProviderEnabled(enabled map[string]bool, provider string) bool {
+	if strings.EqualFold(strings.TrimSpace(provider), config.ProviderMcode) {
+		return false
+	}
 	on, known := enabled[provider]
 	return !known || on
 }

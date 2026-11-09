@@ -270,6 +270,24 @@ func TestResolvedModelMetadataForEmptyModel(t *testing.T) {
 	}
 }
 
+func TestQualifiedModelMetadata(t *testing.T) {
+	for _, model := range []string{"", "default", "anthropic/claude"} {
+		client := &fakeClient{responses: []*llm.Response{answer()}}
+		var got string
+		h := New(Options{
+			QualifyModel: func(string) string { return "magpie/model" },
+			ResolveClient: func(string, string) (llm.Client, string, error) { return client, "model", nil },
+			ContextWindow: func(model string) int { got = model; return 200000 },
+		})
+		if err := h.Run(context.Background(), harness.Turn{Model: model}, nil); err != nil {
+			t.Fatal(err)
+		}
+		want := "magpie/model"
+		if model != "" && model != "default" { want = model }
+		if got != want { t.Fatalf("模型 %q：得到 %q，期望 %q", model, got, want) }
+	}
+}
+
 func TestCostUSDReachesUsage(t *testing.T) {
 	client := &fakeClient{responses: []*llm.Response{answer()}}
 	var gotModel string

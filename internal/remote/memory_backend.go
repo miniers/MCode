@@ -6557,7 +6557,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 		b.resetThreadModel(threadID, model)
 	}
 
-	// 总管主会话与话题会话把已注册项目目录当附加目录，普通会话为空。
+	// 会话换新钩子在主锁之外执行。
 	// 函数自己读项目表，必须在主锁之外算。
 
 	// 钩子会读设置，必须在锁外调用；超时或 panic 一律视为不换新。

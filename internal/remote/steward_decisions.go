@@ -12,6 +12,7 @@ import (
 )
 
 const stewardDecisionsListMethod = "steward.decisions.list"
+const maxStewardAnswerBytes = 64 * 1024
 
 type stewardDecisionOption struct {
 	Key  string `json:"key"`
@@ -65,6 +66,9 @@ func handleStewardDecisionsAnswer(ctx context.Context, d *Dispatcher, c Conn, pa
 	}
 	if strings.TrimSpace(p.ID) == "" || strings.TrimSpace(p.Answer) == "" {
 		return nil, ExtInvalidParams("Invalid params: 'id' and 'answer' are required")
+	}
+	if len(p.Answer) > maxStewardAnswerBytes {
+		return nil, ExtInvalidParams("Invalid params: 'answer' exceeds 64 KiB")
 	}
 	backend, ok := d.backend.(*MemoryBackend)
 	if !ok || backend == nil {

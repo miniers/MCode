@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -148,6 +149,13 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 		_, err = s.backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: *t.ThreadID, Text: text})
 		return err
 	}
+	if t.Status == "review" {
+		review := t
+		review.ThreadID = t.ReviewThreadID
+		if s.kanban.TaskExecuting(ctx, review) {
+			return errors.New("任务正在评审，请稍后再改")
+		}
+	}
 	if t.Notes != "" {
 		t.Notes += "\n"
 	}
@@ -179,7 +187,7 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 	default:
 		return fmt.Errorf("不能追加任务状态 %s", t.Status)
 	}
-	_, err = s.store.UpdateTask(ctx, t, t.Revision)
+	_, err = s.kanban.UpdateTask(ctx, kanban.UpdateTaskInput{TaskID: t.ID, ExpectedRevision: t.Revision, Replacement: &t})
 	return err
 }
 func (s *frontdeskServices) CancelTask(ctx context.Context, id string) error {
@@ -199,8 +207,7 @@ func (s *frontdeskServices) SetPriority(ctx context.Context, id, priority string
 	if e != nil {
 		return e
 	}
-	t.Priority = priority
-	_, e = s.store.UpdateTask(ctx, t, t.Revision)
+	_, e = s.kanban.SetTaskPriority(ctx, id, p, t.Revision)
 	return e
 }
 func (s *frontdeskServices) ReassignTask(ctx context.Context, id, provider, model string) error {
@@ -276,13 +283,18 @@ func (s *frontdeskServices) AnswerDecision(ctx context.Context, id, answer, by s
 	}
 	payload, e := json.Marshal(map[string]string{"id": d.ID, "answer": d.Answer})
 	if e != nil {
-		return e
+		log.Printf("前台编码决策答案失败: %v", e)
+		return nil
 	}
 	feedID, _, err := s.store.GetSetting(ctx, "steward.feed_thread_id")
 	if err != nil {
-		return err
+		log.Printf("前台读取会话失败: %v", err)
+		return nil
 	}
-	return s.backend.AppendStewardMessage(ctx, feedID, "system", "steward_decision_answer", string(payload))
+	if err := s.backend.AppendStewardMessage(ctx, feedID, "system", "steward_decision_answer", string(payload)); err != nil {
+		log.Printf("前台写入决策答案失败: %v", err)
+	}
+	return nil
 }
 func (s *frontdeskServices) AppendAssistant(ctx context.Context, thread, kind, text string) error {
 	return s.backend.AppendStewardMessage(ctx, thread, "assistant", kind, text)
@@ -297,6 +309,19 @@ func (s *frontdeskServices) Recent(ctx context.Context, thread string, limit int
 	}
 	out := make([]llm.Message, 0, len(messages))
 	for _, m := range messages {
+		if m.Role == "system" && (m.Kind == "steward_result" || m.Kind == "steward_decision_answer") {
+			text := "任务结果：" + strings.Join(strings.Fields(m.Text), " ")
+			if m.Kind == "steward_decision_answer" {
+				var answer struct { ID, Answer string }
+				if json.Unmarshal([]byte(m.Text), &answer) == nil && answer.ID != "" {
+					text = "决策 " + answer.ID + " 已答：" + strings.Join(strings.Fields(answer.Answer), " ")
+				} else {
+					text = "决策已答：" + strings.Join(strings.Fields(m.Text), " ")
+				}
+			}
+			out = append(out, llm.Message{Role: "system", Content: []llm.Part{{Type: "text", Text: text}}})
+			continue
+		}
 		if m.Role == "user" || m.Role == "assistant" {
 			out = append(out, llm.Message{Role: m.Role, Content: []llm.Part{{Type: "text", Text: m.Text}}})
 		}

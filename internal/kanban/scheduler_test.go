@@ -236,6 +236,80 @@ func TestStewardQueuePrunesOldTerminalTasks(t *testing.T) {
 	}
 }
 
+func TestStewardQueueKeepsTasksWithRunningSessions(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	_, db, _, scheduler := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+	execution, review, stopped := "execution", "review", "stopped"
+	old := now.Add(-8 * 24 * time.Hour)
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "steward", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
+		store.Task{ID: "running-execution", Status: "done", ThreadID: &execution, UpdatedAt: old},
+		store.Task{ID: "running-review", Status: "done", ReviewThreadID: &review, UpdatedAt: old},
+		store.Task{ID: "stopped", Status: "done", ThreadID: &stopped, UpdatedAt: old})
+	driver.setThreadState(execution, SessionState{Running: true})
+	driver.setThreadState(review, SessionState{Running: true})
+	driver.setThreadState(stopped, SessionState{})
+	decision, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "running-execution", Question: "继续？"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scheduler.Tick(ctx)
+
+	for _, id := range []string{"running-execution", "running-review"} {
+		if _, err := db.GetTask(ctx, id); err != nil {
+			t.Errorf("运行会话的任务 %s 应保留: %v", id, err)
+		}
+	}
+	if _, err := db.GetTask(ctx, "stopped"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("会话已停止的任务应删除: %v", err)
+	}
+	decision, err = db.GetStewardDecision(ctx, decision.ID)
+	if err != nil || decision.Status != store.DecisionStatusOpen {
+		t.Errorf("保留任务的决策卡应保持开放: %+v, %v", decision, err)
+	}
+}
+
+func TestStewardSessionFailureSummary(t *testing.T) {
+	for _, source := range []string{"scheduler", "watchdog"} {
+		for _, reason := range []string{"", "构建失败", strings.Repeat("错", 301)} {
+			t.Run(fmt.Sprintf("%s/%d", source, len([]rune(reason))), func(t *testing.T) {
+				ctx := context.Background()
+				driver := newPokeDriver()
+				svc, db, watchdog, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+				thread := "executor"
+				seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward, Policy: map[string]any{"maxAttempts": 1}},
+					store.Task{ID: "t", Status: "in_progress", ThreadID: &thread, AttemptCount: 1, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner"})})
+				driver.setThreadState(thread, SessionState{Failed: true, FailureReason: reason})
+				var result ExecutorResult
+				svc.SetOnResult(func(_ context.Context, _ store.Task, res ExecutorResult) { result = res })
+				if source == "scheduler" {
+					scheduler.Tick(ctx)
+				} else if err := watchdog.Check(ctx); err != nil {
+					t.Fatal(err)
+				}
+				want := "执行会话运行失败"
+				if reason != "" {
+					if len([]rune(reason)) > 300 {
+						want += "：" + strings.Repeat("错", 299) + "…"
+					} else {
+						want += "：" + reason
+					}
+				}
+				task, err := db.GetTask(ctx, "t")
+				if err != nil || result.Summary != want || task.LastFailureReason == nil || *task.LastFailureReason != want {
+					t.Fatalf("回执或失败原因错误: %+v, %+v, %v", result, task, err)
+				}
+				meta, err := ParseTaskMeta(task.Meta)
+				if err != nil || meta.Summary != want {
+					t.Fatalf("任务回执摘要错误: %+v, %v", meta, err)
+				}
+			})
+		}
+	}
+}
+
 func TestGoalSchedulerStewardOwnerStartFailureBudget(t *testing.T) {
 	ctx := context.Background()
 	svc, db, mock, scheduler := setupSchedulerTestService(t, true)

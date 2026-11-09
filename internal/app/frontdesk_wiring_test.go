@@ -51,7 +51,7 @@ func TestFrontdeskTaskAndMigration(t *testing.T) {
 	if err != nil || id != "old" {
 		t.Fatalf("归档设置失败: %q %v", id, err)
 	}
-	svc := &frontdeskServices{store: db, backend: backend, homeID: "home"}
+	svc := &frontdeskServices{store: db, backend: backend, kanban: kanban.NewService(kanban.Options{Store: db}), homeID: "home"}
 	if err := db.CreateGoal(ctx, store.Goal{ID: "ordinary", ProjectID: "project", Title: "总管", Status: "running"}); err != nil {
 		t.Fatal(err)
 	}
@@ -416,6 +416,42 @@ func TestFrontdeskAmendReviewTaskReopens(t *testing.T) {
 	if after.ID != task.ID || after.Status != "todo" || after.ThreadID != nil {
 		t.Fatalf("review 任务重开结果错误: %+v", after)
 	}
+}
+
+type frontdeskReviewDriver struct { running bool }
+
+func (d *frontdeskReviewDriver) StartSession(context.Context, kanban.SessionRequest) (string, error) { return "", nil }
+func (d *frontdeskReviewDriver) SessionState(context.Context, string) (kanban.SessionState, error) {
+	return kanban.SessionState{Running: d.running}, nil
+}
+
+func TestFrontdeskAmendActiveReview(t *testing.T) {
+	ctx := context.Background()
+	db, _, svc := newFrontdeskAdapterFixture(t)
+	driver := &frontdeskReviewDriver{running: true}
+	svc.kanban = kanban.NewService(kanban.Options{Store: db, Driver: driver})
+	reviewID := "review-thread"
+	task := createFrontdeskTask(t, db, store.Task{ID: "review-active", Title: "评审", Status: "review", Notes: "原文", ReviewThreadID: &reviewID})
+	if err := svc.AmendTask(ctx, task.ID, "追加"); err == nil || err.Error() != "任务正在评审，请稍后再改" { t.Fatal(err) }
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil || after.Status != "review" || after.Notes != "原文" || after.ReviewThreadID == nil { t.Fatal(after, err) }
+	driver.running = false
+	changes := 0
+	svc.kanban.SetOnChange(func() { changes++ })
+	if err := svc.AmendTask(ctx, task.ID, "追加"); err != nil { t.Fatal(err) }
+	after, err = db.GetTask(ctx, task.ID)
+	if err != nil || after.Status != "todo" || after.ReviewThreadID != nil || changes != 1 { t.Fatal(after, changes, err) }
+}
+
+func TestFrontdeskSetPriorityNotifies(t *testing.T) {
+	ctx := context.Background()
+	db, _, svc := newFrontdeskAdapterFixture(t)
+	task := createFrontdeskTask(t, db, store.Task{ID: "priority", Title: "优先级", Status: "todo"})
+	changes := 0
+	svc.kanban.SetOnChange(func() { changes++ })
+	if err := svc.SetPriority(ctx, task.ID, "high"); err != nil { t.Fatal(err) }
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil || after.Priority != "high" || changes != 1 { t.Fatal(after, changes, err) }
 }
 
 func TestFrontdeskAmendNeedsApprovalWithoutDecisionSendsMessage(t *testing.T) {

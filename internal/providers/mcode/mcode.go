@@ -36,19 +36,20 @@ type Options struct {
 	ConfirmsApprovalDelivery *bool
 	StoreDir                 string
 	ResolveClient            func(model string, affinityKey string) (client llm.Client, modelID string, err error)
+	QualifyModel             func(model string) string
 	SystemPrompt             func(turn harness.Turn, toolNames []string) string
 	ExtraTools               func(ctx context.Context, turn harness.Turn) []tools.Tool
 	DefaultModel             string
 	MaxRounds                int
-	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析后的模型 ID；
+	// ContextWindow 返回模型的上下文窗口（tokens）；
 	// 可以为 nil，返回 0 表示未知。
 	ContextWindow func(model string) int
-	// MaxTokens 返回每个模型请求的输出上限（tokens），参数是解析后的模型 ID；
+	// MaxTokens 返回每个模型请求的输出上限（tokens）；
 	// 可以为 nil，返回 0 表示交给 llm 层按模型取默认值。
 	MaxTokens func(model string) int
 	// AcceptsImages 的参数是解析前的完整模型串；为 nil 或返回真时照常附带图片。
 	AcceptsImages func(model string) bool
-	// CostUSD 返回本轮费用（美元），参数是解析后的模型 ID 与本轮用量；
+	// CostUSD 返回本轮费用（美元），参数是模型引用与本轮用量；
 	// 返回假表示不填费用。可以为 nil。
 	CostUSD func(model string, usage harness.Usage) (float64, bool)
 }
@@ -148,6 +149,9 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	if model == "" {
 		model = h.opts.DefaultModel
 	}
+	if h.opts.QualifyModel != nil && (strings.TrimSpace(model) == "" || strings.EqualFold(strings.TrimSpace(model), "default")) {
+		model = h.opts.QualifyModel(model)
+	}
 	if h.opts.ResolveClient == nil {
 		return modelError(emit, fmt.Errorf("未配置模型解析器，无法连接模型 %q", model))
 	}
@@ -155,9 +159,13 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	if err != nil {
 		return modelError(emit, fmt.Errorf("无法解析模型 %q：%w", model, err))
 	}
+	metaModel := strings.TrimSpace(model)
+	if metaModel == "" || strings.EqualFold(metaModel, "default") {
+		metaModel = modelID
+	}
 	contextWindow := 0
 	if h.opts.ContextWindow != nil {
-		contextWindow = h.opts.ContextWindow(modelID)
+		contextWindow = h.opts.ContextWindow(metaModel)
 	}
 
 	toolset := tools.CodingToolsFor(modelID)
@@ -185,7 +193,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 
 	prompt := turn.Prompt
 	var images []llm.Part
-	if len(turn.Images) > 0 && h.opts.AcceptsImages != nil && !h.opts.AcceptsImages(model) {
+	if len(turn.Images) > 0 && h.opts.AcceptsImages != nil && !h.opts.AcceptsImages(metaModel) {
 		prompt += fmt.Sprintf("\n（当前模型不支持图片，已忽略 %d 张附图）", len(turn.Images))
 	} else {
 		images = make([]llm.Part, 0, len(turn.Images))
@@ -219,7 +227,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		}
 		// 费用只能在上报前写上：复制一份 Usage，不改 agent 内部持有的对象。
 		if event.Type == harness.EventUsage && event.Usage != nil && h.opts.CostUSD != nil {
-			if cost, ok := h.opts.CostUSD(modelID, *event.Usage); ok {
+			if cost, ok := h.opts.CostUSD(metaModel, *event.Usage); ok {
 				usage := *event.Usage
 				usage.CostUSD = cost
 				event.Usage = &usage
@@ -236,7 +244,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		Emit: runEmit,
 	}
 	if h.opts.MaxTokens != nil {
-		agentOpts.MaxTokens = func(string) int { return h.opts.MaxTokens(modelID) }
+		agentOpts.MaxTokens = func(string) int { return h.opts.MaxTokens(metaModel) }
 	}
 	// 把线程的进程登记回调带进工具上下文，上层据此终止当前命令。
 	runCtx := h.withProcessTracker(ctx, turn.ThreadID)

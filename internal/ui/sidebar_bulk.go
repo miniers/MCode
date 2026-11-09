@@ -405,6 +405,7 @@ func (s *chatState) bulkArchive(projectID string, threadIDs []string) {
 		s.bumpThreadsRuntimeLocked()
 		if targetMap[s.selectedThreadID] {
 			s.selectedThreadID = ""
+			stopStewardTaskWatchLocked(s)
 		}
 		s.lastBulk = &lastBulkInfo{
 			projectID: projectID,
@@ -452,6 +453,7 @@ func (s *chatState) archiveThreadWithUndo(projectID, threadID string) {
 		s.bumpThreadsRuntimeLocked()
 		if s.selectedThreadID == threadID {
 			s.selectedThreadID = ""
+			stopStewardTaskWatchLocked(s)
 			s.messages = nil
 			s.messagesRev++
 			s.approvals = nil

@@ -326,6 +326,15 @@ type stewardEnabledFakeClient struct {
 
 func (f *stewardEnabledFakeClient) StewardEnabled() bool { return f.enabled }
 
+func TestSidebarStewardDisabledWithExistingThread(t *testing.T) {
+	fake := &stewardEnabledFakeClient{stewardFakeClient: newStewardFakeClient("existing"), enabled: false}
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("总管（未启用）") })
+	if fake.openCalls() != 0 { t.Fatal("停用时不应打开会话") }
+}
+
 // 总管还没启用时仍留一行置灰入口：标签带「未启用」，
 // 点行不建会话，直接打开设置页并定位到「启用总管」那一行。
 func TestSidebarStewardDisabledRowOpensSettings(t *testing.T) {

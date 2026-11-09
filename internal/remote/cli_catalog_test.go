@@ -11,6 +11,18 @@ import (
 	"mcode/internal/remote/wire"
 )
 
+func TestCLICatalogPanicClearsFetching(t *testing.T) {
+	var catalog cliCatalog
+	bad := func(context.Context) ([]wire.ProviderModel, error) { panic("fetch") }
+	catalog.fetching = true
+	catalog.refresh(bad, 0)
+	if catalog.fetching { t.Fatal("后台拉取状态未清除") }
+	if err := catalog.reload(context.Background(), bad); err == nil || catalog.fetching { t.Fatal("同步刷新未清除状态") }
+	if err := catalog.reload(context.Background(), func(context.Context) ([]wire.ProviderModel, error) {
+		return []wire.ProviderModel{{ID: "ok"}}, nil
+	}); err != nil { t.Fatal(err) }
+}
+
 func TestCLICatalogReloadKeepsLatestAndPreservesOnFailure(t *testing.T) {
 	var catalog cliCatalog
 	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})

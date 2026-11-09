@@ -3,7 +3,8 @@ import {
   latestDecisionAnswers,
   parseStewardDecision,
   parseStewardResult,
-  sendDecisionAnswer
+  sendDecisionAnswer,
+  submitDecisionAnswer
 } from './StewardMessages';
 
 function assertEqual<T>(actual: T, expected: T, label: string): void {
@@ -48,3 +49,18 @@ sendDecisionAnswer('D-0001', 'A', (id, answer) => { channel = `${id}:${answer}`;
 assertEqual(channel, 'D-0001:A', 'dedicated answer channel');
 sendDecisionAnswer('D-0001', '忽略', undefined, (text) => { channel = text; });
 assertEqual(channel, 'D-0001 忽略', 'legacy answer channel');
+
+const submitting = { current: false };
+let calls = 0;
+let fail = true;
+const submit = () => submitDecisionAnswer(submitting, false, () => {
+  calls++;
+  if (fail) throw new Error('失败');
+}, () => {}, () => {}, () => {});
+const first = submit();
+assertEqual(submit(), undefined, 'double click blocked');
+await first;
+assertEqual(calls, 1, 'one answer on double click');
+fail = false;
+await submit();
+assertEqual(calls, 2, 'retry after failure');

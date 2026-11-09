@@ -12,8 +12,31 @@ import (
 	"time"
 
 	"mcode/internal/config"
+	"mcode/internal/magpieinject"
 	"mcode/internal/providers/magpie"
 )
+
+func TestWarmMagpieModelsRecoversPanic(t *testing.T) {
+	previous := warmMagpieFetch
+	t.Cleanup(func() { warmMagpieFetch = previous })
+	called := make(chan struct{}, 2)
+	warmMagpieFetch = func(context.Context, string, string) ([]magpie.Model, error) { called <- struct{}{}; panic("fetch") }
+	target := magpieinject.Target{BaseURL: "panic-app", APIKey: "panic-key"}
+	key := target.BaseURL + "\x00" + target.APIKey
+	for i := 0; i < 2; i++ {
+		warmMagpieModels(target)
+		select { case <-called: case <-time.After(time.Second): t.Fatal("预热未执行") }
+		deadline := time.Now().Add(time.Second)
+		for {
+			magpieWarm.Lock()
+			running := magpieWarm.inFlight[key]
+			magpieWarm.Unlock()
+			if !running { break }
+			if time.Now().After(deadline) { t.Fatal("预热状态未清除") }
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
 
 // agentMagpieTestEndpoint 返回一个启用的 Magpie 端点，BaseURL 故意带末尾斜杠，
 // 用来验证路由保留配置原值、注入时才归一化。

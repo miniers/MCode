@@ -4,13 +4,54 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 
 	"mcode/internal/agent/llm"
 	"mcode/internal/apisource"
+	"mcode/internal/config"
 	"mcode/internal/remote/wire"
 )
+
+func TestFallbackMergesStaticAndCachedModels(t *testing.T) {
+	previous := sourceModelCache
+	sourceModelCache = newAPISourceModelCache()
+	t.Cleanup(func() { sourceModelCache = previous })
+	sourceModelCache.fetch = func(context.Context, *http.Client, apisource.Source, string) ([]string, error) {
+		return []string{"deepseek-chat", "deepseek-new"}, nil
+	}
+	cfg := config.Defaults()
+	cfg.Providers.Presets = map[string]config.PresetProviderConfig{"deepseek": {Enabled: true}}
+	secrets := mcodeTestSecrets(map[string]string{"deepseek.apiKey": "test"})
+	source, ok := findAPISource(apisource.Resolve(cfg, secrets), "deepseek")
+	if !ok || len(source.Models) == 0 { t.Fatal("缺少静态模型") }
+	if err := sourceModelCache.refresh(context.Background(), source, source.APIKey(secrets)); err != nil { t.Fatal(err) }
+	candidates := collectTextgenCandidates(context.Background(), cfg, secrets, "deepseek")
+	count := 0
+	for _, candidate := range candidates { if candidate.model == "deepseek-new" { count++ } }
+	if count != 1 { t.Fatalf("缓存模型出现 %d 次", count) }
+}
+
+func TestFallbackAfterAnthropicStreamError(t *testing.T) {
+	for _, kind := range []string{"rate_limit_error", "overloaded_error"} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(w, "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":%q,\"message\":\"busy\"}}\n\n", kind)
+		}))
+		primary := textgenCandidate{source: apisource.Source{Kind: "one"}, model: "claude-opus"}
+		backup := textgenCandidate{source: apisource.Source{Kind: "two"}, model: "claude-sonnet"}
+		calls := 0
+		out, err := executeTextgenFallback(context.Background(), primary, func() []textgenCandidate { return []textgenCandidate{backup} }, func(ctx context.Context, candidate textgenCandidate) (string, error) {
+			calls++
+			if calls == 2 { return "ok", nil }
+			_, err := llm.NewAnthropic(llm.AnthropicConfig{BaseURL: server.URL}).Stream(ctx, llm.Request{Model: candidate.model}, nil)
+			return "", err
+		})
+		server.Close()
+		if err != nil || out != "ok" || calls != 2 { t.Fatalf("%s: %q %v，调用 %d 次", kind, out, err, calls) }
+	}
+}
 
 func TestFallbackCandidateOrdering(t *testing.T) {
 	price := func(input, output float64) *wire.ModelCost { return &wire.ModelCost{Input: input, Output: output} }

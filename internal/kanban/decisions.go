@@ -12,6 +12,8 @@ import (
 
 const decisionReanswerWindow = 5 * time.Minute
 
+var ErrDecisionLocked = errors.New("任务已开始执行，不能改答")
+
 // AnswerDecision 回答决策卡，并将答案追加到关联任务。
 // 已答卡在五分钟内允许改答，其他已关闭状态不能再答。
 func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (store.StewardDecision, error) {
@@ -43,7 +45,6 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 	default:
 		return d, store.ErrDecisionClosed
 	}
-	changed = true
 	if d.TaskID != "" {
 		task, err := s.opts.Store.GetTask(ctx, d.TaskID)
 		if err != nil {
@@ -52,6 +53,10 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		switch TaskStatus(task.Status) {
 		case TaskStatusDone, TaskStatusFailed, TaskStatusCancelled:
 			return d, store.ErrDecisionClosed
+		case TaskStatusInProgress, TaskStatusReview:
+			if reanswer {
+				return d, ErrDecisionLocked
+			}
 		}
 		meta, err := ParseTaskMeta(task.Meta)
 		if err != nil {
@@ -76,6 +81,7 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		if _, err := s.opts.Store.UpdateTask(ctx, task, task.Revision); err != nil {
 			return d, err
 		}
+		changed = true
 	}
 
 	var answered store.StewardDecision
@@ -91,6 +97,7 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		}
 		return d, err
 	}
+	changed = true
 	return answered, nil
 }
 

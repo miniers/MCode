@@ -71,20 +71,9 @@ func (h *Harness) SessionExists(sessionID string) bool {
 	return session.NewStore(h.opts.StoreDir).Exists(sessionID)
 }
 
-// sessionKindMatches 保留旧无前缀 ID，同时拒绝其他已知来源的前缀。
+// sessionKindMatches 保留旧无前缀 ID，同时拒绝其他来源的前缀。
 func (h *Harness) sessionKindMatches(id string) bool {
-	if strings.HasPrefix(id, string(h.Kind())+"_") {
-		return true
-	}
-	prefix, _, found := strings.Cut(id, "_")
-	if !found {
-		return true
-	}
-	switch prefix {
-	case "mcode", "openai", "anthropic", "deepseek", "zai", "meta", "magpie", "magpie2", "magpie3", "magpie4":
-		return false
-	}
-	return !strings.HasPrefix(prefix, "custom-")
+	return !strings.Contains(id, "_") || strings.HasPrefix(id, string(h.Kind())+"_")
 }
 
 var _ harness.SessionChecker = (*Harness)(nil)

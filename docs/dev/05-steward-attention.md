@@ -20,7 +20,7 @@
 
 用满 4 轮仍没有干净轮，或模型调用出错，不重试，走静默兜底：单行且不超过 40 字、最近 10 分钟有任务时追加到该任务，否则用第一行前 80 字新建任务。
 
-`steward.cli_fallback` 默认关闭。开启且没有可用 API 来源或模型鉴权、网络失败时，用最便宜的 CLI 模型做一次调用；输出只接受 `{"reply":"...","calls":[{"tool":"create_task","args":{}}]}`，只允许 `create_task`、`amend_task`、`remember`、`answer_decision` 四个写工具，没有读轮次。CLI 不可用、开关关闭或 JSON 解析失败时，同样静默变任务。
+`steward.cli_fallback` 默认关闭。开启且没有可用 API 来源或模型鉴权、网络失败时，用最便宜的 CLI 模型做一次调用；输出只接受 `{"reply":"...","calls":[{"tool":"create_task","args":{}}]}`，只允许 `create_task`、`amend_task`、`cancel_task`、`set_priority`、`reassign_task`、`remember`、`edit_memory`、`answer_decision` 八个写工具，没有读轮次。CLI 不可用、开关关闭或 JSON 解析失败时，同样静默变任务。
 
 ## 上下文快照
 
@@ -146,6 +146,6 @@
 - `internal/remote/hardlock_approver.go`：在审批层拒绝命中硬锁的命令，override 取自任务 meta。
 - `internal/remote/steward_decisions.go`：远程方法 `steward.decisions.list`。
 - `internal/ui/steward_decision_card.go`：决策卡渲染、只读态、数字快捷键与「其他指示」预填。
-- `internal/ui/steward_reply.go`：前台回复渲染成单行灰字。
+- `internal/ui/steward_reply.go`：前台回复渲染成可选择的正文。
 - `internal/remote/steward_feed.go`：feed 线程的远程读写。
 - `internal/app/frontdesk_wiring.go`：构造 `Desk`、读取模型来源并接到 `MemoryBackend`。

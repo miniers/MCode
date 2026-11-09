@@ -121,6 +121,8 @@ var magpieWarm = struct {
 	inFlight map[string]bool
 }{inFlight: map[string]bool{}}
 
+var warmMagpieFetch = magpie.FetchModels
+
 // warmMagpieModels 在后台拉一次模型目录，让下次打开模型选择器时能读到档位。
 // 同一端点同时只跑一个请求；失败交给 magpie 包的失败缓存处理，这里不重试也不上报。
 func warmMagpieModels(target magpieinject.Target) {
@@ -134,13 +136,16 @@ func warmMagpieModels(target magpieinject.Target) {
 	magpieWarm.Unlock()
 	go func() {
 		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Magpie 模型目录预热 panic：%v", r)
+			}
 			magpieWarm.Lock()
 			delete(magpieWarm.inFlight, key)
 			magpieWarm.Unlock()
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, _ = magpie.FetchModels(ctx, target.BaseURL, target.APIKey)
+		_, _ = warmMagpieFetch(ctx, target.BaseURL, target.APIKey)
 	}()
 }
 

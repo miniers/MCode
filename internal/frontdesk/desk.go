@@ -78,6 +78,7 @@ type Desk struct {
 	Now            func() time.Time
 	MaxRounds      int
 	CLIFallback    bool
+	Settings       func() (cliFallback bool, provider string)
 	Generator      Generator
 	CLIOptions     textgen.Options
 	mu             sync.Mutex
@@ -96,9 +97,8 @@ type Inbound struct {
 
 // Snapshot 保存前台调用使用的上下文。
 type Snapshot struct {
-	Text                         string
-	OpenTaskIDs, OpenDecisionIDs []string
-	Answered                     string
+	Text     string
+	Answered string
 }
 
 var decisionPattern = regexp.MustCompile(`(?s)^\s*(D-\d{4,})\b[\s:：,，\-]*(.*)$`)

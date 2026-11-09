@@ -2,7 +2,6 @@ package frontdesk
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"strings"
@@ -10,29 +9,6 @@ import (
 
 	"mcode/internal/store"
 )
-
-func errorSummary(err error) string {
-	if errors.Is(err, ErrNoModel) {
-		return "没有可用模型，可在主会话选择模型"
-	}
-	text := err.Error()
-	if start := strings.IndexByte(text, '{'); start >= 0 {
-		var body struct {
-			Error struct {
-				Message string `json:"message"`
-			} `json:"error"`
-			Message string `json:"message"`
-		}
-		if json.NewDecoder(strings.NewReader(text[start:])).Decode(&body) == nil {
-			if body.Error.Message != "" {
-				text = body.Error.Message
-			} else if body.Message != "" {
-				text = body.Message
-			}
-		}
-	}
-	return truncate(strings.Join(strings.Fields(text), " "), 60)
-}
 
 func (d *Desk) reply(ctx context.Context, threadID, text string) {
 	if d.Feed == nil {
@@ -45,8 +21,12 @@ func (d *Desk) reply(ctx context.Context, threadID, text string) {
 }
 
 func (d *Desk) tryCLIFallback(ctx context.Context, in Inbound, snap Snapshot) (bool, error) {
-	if d.CLIFallback && d.Generator != nil {
-		return d.cliFallback(ctx, in, snap)
+	enabled, opts := d.CLIFallback, d.CLIOptions
+	if d.Settings != nil {
+		enabled, opts.Provider = d.Settings()
+	}
+	if enabled && d.Generator != nil {
+		return d.cliFallback(ctx, in, snap, opts)
 	}
 	return false, nil
 }
@@ -76,6 +56,9 @@ func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons 
 	}
 	if taskID == "" && !strings.ContainsAny(in.Text, "\r\n") && len([]rune(in.Text)) <= 40 {
 		task, mentionedAt, err := d.Tasks.RecentTask(ctx, in.ThreadID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
 		now := d.now()
 		if err == nil && task.ID != "" && !mentionedAt.After(now) && now.Sub(mentionedAt) <= 10*time.Minute {
 			taskID = task.ID

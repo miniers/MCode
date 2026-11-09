@@ -8,6 +8,24 @@ import (
 	"mcode/internal/config"
 )
 
+func TestArchiveStopsStewardTaskWatch(t *testing.T) {
+	for _, bulk := range []bool{false, true} {
+		t.Run(map[bool]string{false: "单条", true: "批量"}[bulk], func(t *testing.T) {
+			fake := &stewardTaskWatchClient{FakeClient: NewFakeClient()}
+			fake.SetProjectsAndThreads([]Project{{ID: "p1", Name: "项目"}}, map[string][]Thread{
+				"p1": {{ID: "t1", ProjectID: "p1", Title: "任务线程"}},
+			})
+			fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{ID: "task-1", ThreadID: "t1", Status: "waiting", ResultSummary: "原状态"}}})
+			s, view := buildRoot(fake, WithInitialThread("t1"))
+			t.Cleanup(s.close)
+			tt := ui.NewTester(view, 1000, 700)
+			waitFor(t, tt, func() bool { return tt.HasText("原状态") && fake.KanbanBoardCalls() >= 2 })
+			if bulk { s.bulkArchive("p1", []string{"t1"}) } else { s.archiveThreadWithUndo("p1", "t1") }
+			waitFor(t, tt, func() bool { return fake.stopCount() == 1 })
+		})
+	}
+}
+
 // TestSidebarBulk_MarkAllAsRead 测试项目右键菜单在有未读会话时显示「全部标记为已读」，点击后调用 BulkMarkRead。
 func TestSidebarBulk_MarkAllAsRead(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

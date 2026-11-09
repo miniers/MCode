@@ -172,12 +172,9 @@ func resolveSourceClient(kind harness.Kind, cfg config.Config, secrets config.Se
 		client, modelID := magpieClient(target, affinityKey, modelID, engineReasoningEffort(source.BaseURL))
 		return client, modelID, nil
 	}
-	return llm.NewOpenAI(llm.OpenAIConfig{
-		BaseURL:       source.BaseURL,
-		APIKey:        key,
-		Headers:       source.Headers,
-		EchoReasoning: isDeepSeekModel(modelID),
-		Effort:        engineReasoningEffort(source.BaseURL),
+	return apisource.NewClient(source, key, modelID, apisource.ClientOptions{
+		Headers: source.Headers,
+		Effort:  engineReasoningEffort(source.BaseURL),
 	}), modelID, nil
 }
 
@@ -223,11 +220,10 @@ func findAPISource(sources []apisource.Source, kind harness.Kind) (apisource.Sou
 	return apisource.Source{}, false
 }
 
-// sourceEngineDefaultModel 复刻旧循环选择默认模型的规则：先取来源配置的默认模型；
-// 官方 OpenAI 端点回退到 gpt-4o；其余来源取模型目录的第一项，目录为空时
-// 同步刷新一次（与旧循环 modelIDsForRun 一致），刷新失败就返回空。
+// sourceEngineDefaultModel 优先使用配置的默认模型；官方 OpenAI 端点回退到 gpt-4o。
+// 其余来源取模型目录的第一项，目录为空时同步刷新一次。
 func sourceEngineDefaultModel(source apisource.Source, kind harness.Kind, secrets config.SecretStore) string {
-	if model := strings.TrimSpace(source.DefaultModel); model != "" {
+	if model := strings.TrimSpace(source.DefaultModel); model != "" && !strings.EqualFold(model, "default") {
 		return model
 	}
 	if isOfficialOpenAIEndpoint(kind, source.BaseURL) {

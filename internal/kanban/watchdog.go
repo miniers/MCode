@@ -212,7 +212,7 @@ func (w *Watchdog) Check(ctx context.Context) error {
 			if st.Failed {
 				if w.svc.isStewardOwnerTask(ctx, t) {
 					log.Printf("kanban: 任务 %s 执行失败: %s", t.ID, st.FailureReason)
-					res := ExecutorResult{Status: ResultFailed, Summary: "执行会话运行失败"}
+					res := ExecutorResult{Status: ResultFailed, Summary: sessionFailureSummary(st.FailureReason)}
 					if err := w.svc.applyExecutorResult(ctx, &t, res, now); err != nil {
 						continue
 					}

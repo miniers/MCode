@@ -11,17 +11,6 @@ import (
 	"mcode/internal/agent/llm"
 )
 
-// LoopError 描述前台循环中的错误。
-type LoopError struct {
-	Round int
-	Err   error
-}
-
-// Error 返回包含轮次的错误信息。
-func (e *LoopError) Error() string { return fmt.Sprintf("frontdesk 第 %d 轮：%v", e.Round, e.Err) }
-
-// Unwrap 返回原始错误。
-func (e *LoopError) Unwrap() error { return e.Err }
 func (d *Desk) toolbox() *Toolbox {
 	if d.Tools != nil {
 		return d.Tools

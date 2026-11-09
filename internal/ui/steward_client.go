@@ -33,7 +33,6 @@ type StewardClient interface {
 	// StewardThreadID 返回当前总管会话 ID；还没有创建或未启用总管时返回空串。
 	StewardThreadID() string
 	// OpenStewardThread 确保总管会话存在并返回其 ID；未启用总管时返回错误。
-	// 首次创建可能耗时几十秒，调用方应在后台 goroutine 里执行。
 	OpenStewardThread(ctx context.Context) (string, error)
 }
 

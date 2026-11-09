@@ -315,7 +315,14 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 		case "message_stop":
 			stopped = true
 		case "error":
-			return nil, &APIError{Body: payload.Error.Type + ": " + payload.Error.Message, Retryable: payload.Error.Type == "overloaded_error" || payload.Error.Type == "rate_limit_error"}
+			status := 0
+			switch payload.Error.Type {
+			case "rate_limit_error":
+				status = 429
+			case "overloaded_error":
+				status = 529
+			}
+			return nil, &APIError{Status: status, Body: payload.Error.Type + ": " + payload.Error.Message, Retryable: status != 0}
 		}
 	}
 	if ctx.Err() != nil {

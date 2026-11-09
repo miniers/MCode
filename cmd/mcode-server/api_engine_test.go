@@ -1,16 +1,37 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"mcode/internal/config"
+	"mcode/internal/providers/magpie"
 	providermcode "mcode/internal/providers/mcode"
 	"mcode/internal/remote"
 )
+
+func TestWarmServerMagpieRecoversPanic(t *testing.T) {
+	previous := serverMagpieFetch
+	t.Cleanup(func() { serverMagpieFetch = previous })
+	called := make(chan struct{}, 2)
+	serverMagpieFetch = func(context.Context, string, string) ([]magpie.Model, error) { called <- struct{}{}; panic("fetch") }
+	const url, key = "panic-server", "panic-key"
+	for i := 0; i < 2; i++ {
+		warmServerMagpie(url, key)
+		select { case <-called: case <-time.After(time.Second): t.Fatal("预热未执行") }
+		deadline := time.Now().Add(time.Second)
+		for {
+			if _, running := serverMagpieWarm.Load(url + "\x00" + key); !running { break }
+			if time.Now().After(deadline) { t.Fatal("预热状态未清除") }
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
 
 func TestRegisterAPIEngines(t *testing.T) {
 	dir := t.TempDir()

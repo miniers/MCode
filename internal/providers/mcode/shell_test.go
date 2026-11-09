@@ -16,6 +16,15 @@ import (
 	"mcode/internal/harness"
 )
 
+func TestSessionKindMatchesUnknownPrefix(t *testing.T) {
+	h := New(Options{Kind: "mcode"})
+	for id, want := range map[string]bool{"openrouter_xxx": false, "mcode_xxx": true, session.NewID(): true} {
+		if got := h.sessionKindMatches(id); got != want {
+			t.Errorf("会话 %q: 得到 %v，期望 %v", id, got, want)
+		}
+	}
+}
+
 func TestRunBackgroundCleanup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("需要 Unix shell")

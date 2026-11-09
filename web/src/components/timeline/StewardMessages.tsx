@@ -111,6 +111,22 @@ export function sendDecisionAnswer(
   return onSend?.(decisionReplyText(id, answer));
 }
 
+export function submitDecisionAnswer(
+  submitting: { current: boolean },
+  answered: boolean,
+  send: () => void | Promise<unknown>,
+  onSuccess: () => void,
+  onError: (error: unknown) => void,
+  onFinally: () => void
+): Promise<void> | undefined {
+  if (submitting.current || answered) return;
+  submitting.current = true;
+  return Promise.resolve().then(send).then(onSuccess).catch((error: unknown) => {
+    submitting.current = false;
+    onError(error);
+  }).finally(onFinally);
+}
+
 export interface StewardReplyProps {
   message: Pick<ThreadMessage, 'text'>;
 }
@@ -140,13 +156,13 @@ export const StewardDecisionCard: React.FC<StewardDecisionCardProps> = ({ messag
   const selectedOption = decision.options.find((option) => option.key === selected);
   const send = (key: string) => {
     if (submittingRef.current || answered || (!onSend && !onAnswer)) return;
-    submittingRef.current = true;
     setSubmitting(true);
     setError('');
-    void Promise.resolve().then(() => sendDecisionAnswer(decision.id, key, onAnswer, onSend))
-      .then(() => setSubmitted(key))
-      .catch((err: unknown) => { submittingRef.current = false; setError(err instanceof Error ? err.message : '回答失败'); })
-      .finally(() => setSubmitting(false));
+    void submitDecisionAnswer(submittingRef, answered,
+      () => sendDecisionAnswer(decision.id, key, onAnswer, onSend),
+      () => setSubmitted(key),
+      (err) => setError(err instanceof Error ? err.message : '回答失败'),
+      () => setSubmitting(false));
   };
 
   return (

@@ -170,8 +170,7 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 		})
 }
 
-// stewardQuietSection 是「安静时段」分节：这段时间总管不主动找你，
-// 事件留到结束后汇总；时段打开后才显示具体时间范围。
+// stewardQuietSection 在启用安静时段后显示具体时间范围。
 func stewardQuietSection(st *SettingsState) settingsSection {
 	sec := settingsSection{ID: "sec-steward-quiet", Title: "安静时段", Rows: []setting{{
 		ID:      "row-steward-quiet-enabled",

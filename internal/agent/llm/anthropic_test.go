@@ -219,3 +219,17 @@ func TestAnthropicErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestAnthropicStreamErrorStatus(t *testing.T) {
+	for kind, status := range map[string]int{"rate_limit_error": 429, "overloaded_error": 529} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(w, "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":%q,\"message\":\"busy\"}}\n\n", kind)
+		}))
+		_, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL}).Stream(context.Background(), Request{}, nil)
+		server.Close()
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || apiErr.Status != status || !apiErr.Retryable {
+			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+}

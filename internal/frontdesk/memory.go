@@ -20,5 +20,4 @@ type MemoryService interface {
 	Get(ctx context.Context, projectPath, id string) (MemoryHit, error)
 	Propose(ctx context.Context, req ProposeRequest) (ProposeResult, error)
 	Commit(ctx context.Context, id string) (ProposeResult, error)
-	Forget(ctx context.Context, projectPath, id string) (bool, error)
 }

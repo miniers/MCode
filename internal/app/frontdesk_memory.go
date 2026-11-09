@@ -15,7 +15,6 @@ import (
 type frontdeskMemoryBackend interface {
 	search(context.Context, string, nmem.SearchQuery) ([]nmem.Memory, error)
 	get(context.Context, string, string) (nmem.Memory, error)
-	forget(context.Context, string, string) (bool, error)
 	commit(context.Context, string) (store.MemoryProposal, string, error)
 }
 type frontdeskMemory struct {
@@ -56,12 +55,6 @@ func (m frontdeskMemory) Get(ctx context.Context, path, id string) (frontdesk.Me
 	}
 	h, err := m.backend.get(ctx, path, id)
 	return frontdesk.MemoryHit{ID: h.ID, Title: h.Title, Content: h.Content}, err
-}
-func (m frontdeskMemory) Forget(ctx context.Context, path, id string) (bool, error) {
-	if m.backend == nil {
-		return false, errFrontdeskMemoryUnavailable
-	}
-	return m.backend.forget(ctx, path, id)
 }
 func (m frontdeskMemory) Commit(ctx context.Context, id string) (frontdesk.ProposeResult, error) {
 	if m.backend == nil {

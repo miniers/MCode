@@ -15,6 +15,16 @@ import (
 // stewardTaskRetention 是总管终态任务的保留期限。
 const stewardTaskRetention = 7 * 24 * time.Hour
 
+const failureReasonMaxRunes = 300
+
+func sessionFailureSummary(reason string) string {
+	const summary = "执行会话运行失败"
+	if reason == "" {
+		return summary
+	}
+	return summary + "：" + clipPromptRunes(reason, failureReasonMaxRunes)
+}
+
 // GoalScheduler 负责定期调度并推进看板中正在运行的目标任务。
 type GoalScheduler struct {
 	svc      *Service
@@ -207,12 +217,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 						kept = append(kept, t)
 						continue
 					}
-					if err := g.svc.opts.Store.SupersedeOpenDecisionsForTask(ctx, t.ID); err != nil {
-						log.Printf("kanban: 关闭总管任务 %s 的决策卡失败: %v", t.ID, err)
-						kept = append(kept, t)
-						continue
-					}
-					if err := g.svc.opts.Store.DeleteTask(ctx, t.ID, t.Revision); err != nil {
+					if err := g.svc.DeleteTask(ctx, t.ID, t.Revision); err != nil {
 						log.Printf("kanban: 清理总管任务 %s 失败: %v", t.ID, err)
 					} else {
 						goalChanged = true
@@ -327,7 +332,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			}
 			if isStewardOwnerIn(goal, t) {
 				log.Printf("kanban: 任务 %s 执行失败: %s", t.ID, st.FailureReason)
-				res := ExecutorResult{Status: ResultFailed, Summary: "执行会话运行失败"}
+				res := ExecutorResult{Status: ResultFailed, Summary: sessionFailureSummary(st.FailureReason)}
 				if err := g.svc.applyExecutorResult(ctx, &t, res, now); err != nil {
 					return err
 				}

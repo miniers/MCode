@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"mcode/internal/agent/llm"
 	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
@@ -92,6 +93,7 @@ func runEngineTurn(t *testing.T, h harness.Harness, model, threadID string) stri
 }
 
 func TestSourceEnginePreset(t *testing.T) {
+	t.Cleanup(func() { remote.SetAPICatalog("deepseek", nil); setMcodeAgentRuntime("", nil) })
 	var requests []engineTestRequest
 	server := newEngineTestServer(t, &requests)
 
@@ -147,6 +149,7 @@ func writeEngineTestConfig(t *testing.T, dataDir string, ep config.CustomEndpoin
 }
 
 func TestSourceEngineCustomEndpoint(t *testing.T) {
+	t.Cleanup(func() { remote.SetAPICatalog("custom-mock", nil); setMcodeAgentRuntime("", nil) })
 	var requests []engineTestRequest
 	server := newEngineTestServer(t, &requests)
 
@@ -188,6 +191,7 @@ func TestSourceEngineCustomEndpointColdDefault(t *testing.T) {
 }
 
 func TestSourceEngineMagpieAffinity(t *testing.T) {
+	t.Cleanup(func() { remote.SetAPICatalog("magpie", nil); setMcodeAgentRuntime("", nil) })
 	var requests []engineTestRequest
 	server := newEngineTestServer(t, &requests)
 
@@ -221,6 +225,7 @@ func TestSourceEngineMagpieAffinity(t *testing.T) {
 
 // Magpie 未勾选模型时仍使用端点的完整目录和显式默认模型。
 func TestSourceEngineMagpieFullCatalog(t *testing.T) {
+	t.Cleanup(func() { remote.SetAPICatalog("magpie", nil); setMcodeAgentRuntime("", nil) })
 	var requests []engineTestRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/models" {
@@ -370,6 +375,7 @@ const anthropicMessagesSSE = "event: message_start\ndata: {\"type\":\"message_st
 	"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
 
 func TestSourceEngineMagpieClaudeUsesMessages(t *testing.T) {
+	t.Cleanup(func() { remote.SetAPICatalog("magpie", nil); setMcodeAgentRuntime("", nil) })
 	var mu sync.Mutex
 	var requests []engineTestRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -423,6 +429,7 @@ func TestSourceEngineMagpieClaudeUsesMessages(t *testing.T) {
 }
 
 func TestSourceEngineMagpieCostUSD(t *testing.T) {
+	t.Cleanup(func() { remote.SetAPICatalog("magpie", nil); setMcodeAgentRuntime("", nil) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/models":
@@ -544,6 +551,7 @@ func TestSourceEngineMagpieModelCapabilities(t *testing.T) {
 }
 
 func TestSourceEngineUsesRotatedSecret(t *testing.T) {
+	t.Cleanup(func() { remote.SetAPICatalog("deepseek", nil); setMcodeAgentRuntime("", nil) })
 	var requests []engineTestRequest
 	server := newEngineTestServer(t, &requests)
 
@@ -578,6 +586,37 @@ func TestSourceEngineDisabledSource(t *testing.T) {
 	_, _, err := resolveSourceClient(harness.Kind("deepseek"), cfg, secrets, "deepseek-chat", "")
 	if err == nil || !strings.Contains(err.Error(), "未启用或已删除") {
 		t.Fatalf("err = %v, want 来源未启用或已删除", err)
+	}
+}
+
+func TestSourceEngineDefaultPlaceholder(t *testing.T) {
+	source := apisource.Source{DefaultModel: " DEFAULT ", Models: []string{"first"}}
+	if got := sourceEngineDefaultModel(source, "openai", config.NewMemorySecretStore()); got != "gpt-4o" {
+		t.Fatalf("默认模型 = %q", got)
+	}
+}
+
+func TestSourceEngineAnthropicProtocol(t *testing.T) {
+	setMcodeAgentRuntime("", nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
+	var path, key string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, key = r.URL.Path, r.Header.Get("x-api-key")
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, anthropicMessagesSSE)
+	}))
+	defer server.Close()
+	t.Setenv("ANTHROPIC_BASE_URL", server.URL)
+	secrets := mcodeTestSecrets(map[string]string{"anthropic.apiKey": "anthropic-key"})
+	client, model, err := resolveSourceClient("anthropic", config.Defaults(), secrets, "claude-test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Stream(context.Background(), llm.Request{Model: model}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/v1/messages" || key != "anthropic-key" {
+		t.Fatalf("路径 = %q，密钥 = %q", path, key)
 	}
 }
 

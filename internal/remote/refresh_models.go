@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -113,6 +114,14 @@ func (b *MemoryBackend) RefreshProviderModels(ctx context.Context) error {
 		wg.Add(1)
 		go func(name string, refresh func(context.Context) error) {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("供应商 %s 刷新模型 panic：%v", name, r)
+					mu.Lock()
+					failed = append(failed, name)
+					mu.Unlock()
+				}
+			}()
 			if err := refresh(ctx); err != nil {
 				mu.Lock()
 				failed = append(failed, name)

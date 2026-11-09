@@ -13,6 +13,19 @@ import (
 	"time"
 )
 
+func TestOpenAIStreamErrorStatus(t *testing.T) {
+	for body, status := range map[string]int{`{"type":"rate_limit_error"}`: 429, `{"code":529}`: 529, `{"code":"server_error"}`: 500} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprintf(w, "data: {\"error\":%s}\n\n", body)
+		}))
+		_, err := NewOpenAI(OpenAIConfig{BaseURL: server.URL}).Stream(context.Background(), Request{}, nil)
+		server.Close()
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || apiErr.Status != status || !apiErr.Retryable { t.Fatalf("%s: %v", body, err) }
+	}
+}
+
 func TestOpenAIStream(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

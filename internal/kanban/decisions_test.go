@@ -19,6 +19,7 @@ func TestAnswerDecision(t *testing.T) {
 		{"needs_approval", "todo"},
 		{"waiting", "todo"},
 		{"in_progress", "in_progress"},
+		{"review", "review"},
 	} {
 		t.Run(tc.status, func(t *testing.T) {
 			ctx := context.Background()
@@ -56,6 +57,20 @@ func TestAnswerDecision(t *testing.T) {
 				t.Fatalf("等待元数据: %+v", meta)
 			}
 			reanswered, err := svc.AnswerDecision(ctx, d.ID, "停下", "user:desktop")
+			if tc.status == "in_progress" || tc.status == "review" {
+				if !errors.Is(err, ErrDecisionLocked) {
+					t.Fatalf("执行中改答应被拒绝: %v", err)
+				}
+				decision, err := db.GetStewardDecision(ctx, d.ID)
+				if err != nil || decision.Answer != "继续" {
+					t.Fatalf("原答案应保持不变: %+v, %v", decision, err)
+				}
+				again, err := db.GetTask(ctx, task.ID)
+				if err != nil || !reflect.DeepEqual(got, again) {
+					t.Fatalf("任务应保持不变: %+v, %v", again, err)
+				}
+				return
+			}
 			if err != nil || reanswered.Answer != "停下" {
 				t.Fatalf("窗口内改答: %+v, %v", reanswered, err)
 			}
@@ -72,7 +87,7 @@ func TestAnswerDecisionReanswerWindow(t *testing.T) {
 	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 	current := now
 	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, func() time.Time { return current })
-	if err := db.CreateTask(ctx, store.Task{ID: "task-reanswer", Title: "任务", Status: string(TaskStatusInProgress), Meta: EncodeTaskMeta(TaskMeta{})}); err != nil {
+	if err := db.CreateTask(ctx, store.Task{ID: "task-reanswer", Title: "任务", Status: string(TaskStatusTodo), Meta: EncodeTaskMeta(TaskMeta{})}); err != nil {
 		t.Fatal(err)
 	}
 	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-reanswer", Question: "继续吗"})
@@ -88,7 +103,7 @@ func TestAnswerDecisionReanswerWindow(t *testing.T) {
 		t.Fatalf("五分钟内改答: %+v, %v", answered, err)
 	}
 	task, err := db.GetTask(ctx, "task-reanswer")
-	if err != nil || task.Status != string(TaskStatusInProgress) || !strings.Contains(task.Notes, "决策 "+d.ID+"：改答为 B") {
+	if err != nil || task.Status != string(TaskStatusTodo) || !strings.Contains(task.Notes, "决策 "+d.ID+"：改答为 B") {
 		t.Fatalf("改答任务记录: %+v, %v", task, err)
 	}
 	// 改答窗口从最后一次回答起算，这里已超过五分钟。
