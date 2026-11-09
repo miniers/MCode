@@ -13,7 +13,7 @@ func TestSettingsNav_MagpieEntry(t *testing.T) {
 		status    string
 	}{
 		{"未连接", false, "连接 Magpie"},
-		{"已连接", true, "Magpie · 已连接"},
+		{"已连接", true, "Magpie"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())

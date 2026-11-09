@@ -1,11 +1,38 @@
 package mcodeui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
 )
+
+func TestSettingsNavGroupHeadersAndMagpieDot(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fake := NewFakeClient()
+	fake.customEndpoints = []CustomEndpoint{{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true, HasAPIKey: true}}
+	fake.SetPiMagpieEndpoints([]PiMagpieEndpoint{{ID: "gw"}})
+	s := newChatState(&routeTestClient{FakeClient: fake})
+	t.Cleanup(s.close)
+	st := NewSettingsState(settingsTestDir(t), nil, s)
+	st.open = true
+	tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 900, 1400)
+	waitMagpie(t, tt, func() bool {
+		_, ok := tt.Find("settings-nav-" + "magpie-dot")
+		return ok
+	})
+	for _, group := range []string{"应用", "代理", "工作区"} {
+		if _, ok := tt.Find("settings-nav-" + "group-" + group); !ok {
+			t.Fatalf("未找到导航分组 %s", group)
+		}
+	}
+	for _, text := range tt.Texts() {
+		if strings.Contains(text, "Magpie") && strings.Contains(text, "·") {
+			t.Fatalf("Magpie 导航文字不应含状态后缀: %q", text)
+		}
+	}
+}
 
 func TestSettingsNavTitleFontSize(t *testing.T) {
 	if settingsNavTitleFontSize < TypeBody || settingsNavTitleFontSize <= TypeFootnote {

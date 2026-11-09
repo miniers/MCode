@@ -1266,7 +1266,7 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 		ui.Row(c.Key("settings-nav-drag-handle")).Height(Space5).Shrink(0).DragWindow()
 		// 按页面名和设置项过滤导航。
 		ui.Row(c.Key("settings-nav-search-wrap")).
-			Padding(0, ListInset, Space3, ListInset).
+			Padding(0, ListInset, Space4, ListInset).
 			Children(func() {
 				SearchField(c, TextFieldProps{
 					Key:         "settings-nav-search-input",
@@ -1285,11 +1285,13 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 			previousGroup := ""
 			for i, item := range visible {
 				if item.group != previousGroup || (item.id == "about" && i > 0) {
-					if i > 0 && visible[i-1].id != "magpie" {
-						ui.Box(c.Key("settings-nav-group-gap-" + item.id)).Height(Space3)
+					if i > 0 {
+						ui.Box(c.Key("settings-nav-" + "group-gap-" + item.id)).Height(Space5)
 					}
 					if item.group != "" {
-						ui.Text(c, item.group).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).PaddingX(Space3)
+						ui.Row(c.Key("settings-nav-group-" + item.group)).Height(ControlSM).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
+							ui.Text(c.Key("settings-nav-"+"group-"+item.group), item.group).FontSize(TypeCaption).FontWeight(500).TextColor(ThemeTertiaryText(c)).SingleLine()
+						})
 					}
 				}
 				previousGroup = item.group
@@ -1324,10 +1326,20 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 		AlignItems(ui.Center).
 		Label(item.title)
 
+	hoverTarget, selTarget := float32(0), float32(0)
 	if isSelected {
-		row.Background(ThemeSelected(c))
+		selTarget = 1
 	} else if row.Hovered() {
-		row.Background(ThemeHover(c))
+		hoverTarget = 1
+	}
+	hover := row.AnimateTo("settings-nav-hover", hoverTarget, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap})
+	sel := row.AnimateTo("settings-nav-sel", selTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseSnap})
+	if isSelected {
+		hover = 0
+	}
+	if hover > 0 || sel > 0 {
+		bg := ui.Transparent.Mix(ThemeHover(c), hover).Mix(ThemeSelected(c), sel)
+		row.Background(bg)
 	}
 
 	if row.Clicked() {
@@ -1335,19 +1347,20 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 	}
 
 	row.Children(func() {
-		iconColor := ThemeSecondaryText(c)
+		iconColor := ThemeTertiaryText(c)
 		if isSelected {
 			iconColor = ThemeAccent(c)
 		}
 		ui.Icon(c, item.icon).Size(IconMD, IconMD).TextColor(iconColor)
 
 		title := item.title
+		connected := false
 		if item.id == "magpie" {
 			st.mu.Lock()
 			loadFailed := st.endpoints.loaded && st.endpoints.err != ""
 			st.mu.Unlock()
 			if !loadFailed {
-				title = magpieNavStatus(st)
+				title, connected = magpieNavStatus(st)
 			}
 		}
 		tElem := ui.Text(c, title).
@@ -1355,9 +1368,14 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 			SingleLine().
 			Grow(1)
 		if isSelected {
-			tElem.FontWeight(600).TextColor(ThemePrimaryText(c))
+			tElem.FontWeight(500).TextColor(ThemePrimaryText(c))
 		} else {
 			tElem.TextColor(ThemeSecondaryText(c))
+		}
+		if connected {
+			ui.Box(c.Key("settings-nav-" + "magpie-dot")).Size(Space2, Space2).Children(func() {
+				ui.Box(c.Key("settings-nav-magpie-dot")).Size(Space2, Space2).Radius(Space2 / 2).Background(ThemeSuccess(c)).Label("已连接")
+			})
 		}
 		if item.id == "about" {
 			available := updateAvailable(archiveClient(st))
@@ -1370,9 +1388,6 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 
 	// 页名下缩进列出命中项（最多 5 条），标题后附小号灰字的分节名。
 	renderSettingsNavHits(c, st, hits)
-	if item.id == "magpie" {
-		ui.Box(c.Key("settings-nav-magpie-gap")).Height(Space3)
-	}
 }
 
 // renderSettingsDetail 渲染设置面板右侧详情展示区，内容列最大宽度 720、窗口更窄时自适应。

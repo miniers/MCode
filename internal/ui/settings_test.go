@@ -40,7 +40,7 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		// Magpie 入口显示的是连接状态文字（Magpie / 连接 Magpie / Magpie · 已连接），
+		// Magpie 入口显示 Magpie 或连接 Magpie，已连接时显示圆点，
 		// 导航行本身按 Label("Magpie") 定位。
 		if _, ok := tt.Find("Magpie"); !ok {
 			return false

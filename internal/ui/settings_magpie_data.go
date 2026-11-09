@@ -81,15 +81,15 @@ func magpieConnected(st *SettingsState) (connected bool, known bool) {
 	return false, !unknown
 }
 
-func magpieNavStatus(st *SettingsState) string {
+func magpieNavStatus(st *SettingsState) (string, bool) {
 	connected, known := magpieConnected(st)
 	if !known {
-		return "Magpie"
+		return "Magpie", false
 	}
 	if connected {
-		return "Magpie · 已连接"
+		return "Magpie", true
 	}
-	return "连接 Magpie"
+	return "连接 Magpie", false
 }
 
 func magpieModelSource(st *SettingsState, agent, modelID string) (endpointID string, ok bool) {
