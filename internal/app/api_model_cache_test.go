@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"mcode/internal/apisource"
+	"mcode/internal/config"
+	"mcode/internal/harness"
 )
 
 func TestAPISourceModelCacheExpiryAndFailure(t *testing.T) {
@@ -107,5 +109,58 @@ func TestAPISourceModelCacheConcurrentAndIdentity(t *testing.T) {
 	defer mu.Unlock()
 	if oldCalls != 1 {
 		t.Fatalf("同一身份并发请求未合并：%d", oldCalls)
+	}
+}
+
+func TestSourceAvailabilityFirstReadAndBackgroundCheck(t *testing.T) {
+	dir := t.TempDir()
+	secrets := config.NewMemorySecretStore()
+	setMcodeAgentRuntime(dir, secrets)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
+
+	cfg := config.Defaults()
+	cfg.Providers.Presets = map[string]config.PresetProviderConfig{
+		"deepseek": {Enabled: true},
+	}
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.Set("deepseek.apiKey", "sk-test"); err != nil {
+		t.Fatal(err)
+	}
+
+	waitChecked := func(t *testing.T, a *sourceAvailability) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			a.mu.Lock()
+			checked := !a.checked.IsZero()
+			a.mu.Unlock()
+			if checked {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("后台检查未在 2 秒内完成")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	disabled := &sourceAvailability{}
+	if ok, reason := disabled.get(harness.Kind("custom-missing"), cfg, secrets); !ok || reason != "" {
+		t.Fatalf("首次读取 = %v, %q，期望按可用处理", ok, reason)
+	}
+	waitChecked(t, disabled)
+	if ok, reason := disabled.get(harness.Kind("custom-missing"), cfg, secrets); ok || reason == "" {
+		t.Fatalf("未启用来源 = %v, %q，期望不可用且有原因", ok, reason)
+	}
+
+	enabled := &sourceAvailability{}
+	if ok, reason := enabled.get(harness.Kind("deepseek"), cfg, secrets); !ok || reason != "" {
+		t.Fatalf("首次读取 = %v, %q，期望按可用处理", ok, reason)
+	}
+	waitChecked(t, enabled)
+	if ok, reason := enabled.get(harness.Kind("deepseek"), cfg, secrets); !ok || reason != "" {
+		t.Fatalf("已启用来源 = %v, %q，期望可用", ok, reason)
 	}
 }

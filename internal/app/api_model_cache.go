@@ -139,7 +139,8 @@ func (a *sourceAvailability) get(kind harness.Kind, cfg config.Config, secrets c
 		}()
 	}
 	if a.checked.IsZero() {
-		return false, "正在检查 API Key"
+		// 首次读取先按可用处理，避免启动时整列来源闪成不可用；后台检查完成后由下一次读取纠正。
+		return true, ""
 	}
 	return a.available, a.reason
 }

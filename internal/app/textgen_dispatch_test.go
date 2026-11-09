@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"mcode/internal/agent/llm"
+	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/providers/claude"
 	"mcode/internal/providers/codex"
@@ -134,8 +136,8 @@ func TestGenerateTextCustomEndpoint(t *testing.T) {
 			t.Errorf("解析请求体失败: %v", err)
 		}
 		gotModel = body.Model
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":" hi "}}]}`))
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\" hi \"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
 	}))
 	defer srv.Close()
 
@@ -237,8 +239,8 @@ func TestTextgenModelSelection(t *testing.T) {
 	}
 }
 
-// TestResolveOpenAICompatibleDisabled 验证未启用的自定义端点不会被当作可用端点。
-func TestResolveOpenAICompatibleDisabled(t *testing.T) {
+// TestResolveTextgenSourceDisabled 验证未启用的自定义端点返回错误。
+func TestResolveTextgenSourceDisabled(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Providers.Custom = []config.CustomEndpointConfig{{
 		ID:      "x",
@@ -247,13 +249,13 @@ func TestResolveOpenAICompatibleDisabled(t *testing.T) {
 		Enabled: false,
 	}}
 
-	if _, ok := resolveOpenAICompatible(cfg, nil, config.CustomEndpointKind("x"), ""); ok {
-		t.Fatal("未启用的自定义端点不应返回 ok")
+	if _, ok, err := resolveTextgenSource(cfg, nil, config.CustomEndpointKind("x")); !ok || err == nil {
+		t.Fatal("未启用的自定义端点应返回错误")
 	}
 }
 
-// TestResolveOpenAICompatibleMagpieCustomEndpoint 验证 Magpie 槽位以自定义端点注册且无预设条目时仍能解析。
-func TestResolveOpenAICompatibleMagpieCustomEndpoint(t *testing.T) {
+// TestResolveTextgenSourceMagpie 验证 Magpie 自定义端点解析。
+func TestResolveTextgenSourceMagpie(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Providers.Custom = []config.CustomEndpointConfig{{
 		ID:      "magpie",
@@ -263,15 +265,87 @@ func TestResolveOpenAICompatibleMagpieCustomEndpoint(t *testing.T) {
 		Magpie:  true,
 	}}
 
-	target, ok := resolveOpenAICompatible(cfg, nil, "magpie", "")
-	if !ok {
+	target, ok, err := resolveTextgenSource(cfg, nil, "magpie")
+	if !ok || err != nil {
 		t.Fatal("Magpie 自定义端点应返回 ok")
 	}
-	if target.baseURL != "http://127.0.0.1:9/v1" {
-		t.Errorf("baseURL = %q，期望 %q", target.baseURL, "http://127.0.0.1:9/v1")
+	if target.BaseURL != "http://127.0.0.1:9/v1" {
+		t.Errorf("baseURL = %q，期望 %q", target.BaseURL, "http://127.0.0.1:9/v1")
 	}
-	if target.model != "mm" {
-		t.Errorf("model = %q，期望 %q", target.model, "mm")
+	if target.DefaultModel != "mm" {
+		t.Errorf("model = %q，期望 %q", target.DefaultModel, "mm")
+	}
+}
+
+func TestGenerateTextAPISources(t *testing.T) {
+	var path, auth, apiKey, extra string
+	var body map[string]any
+	status := http.StatusOK
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, auth, apiKey, extra = r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("x-api-key"), r.Header.Get("X-Test-Preset")
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"error":{"message":"limited"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if strings.HasSuffix(path, "/messages") {
+			_, _ = w.Write([]byte("data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" hi \"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n"))
+		} else {
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\" hi \"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+		}
+	}))
+	defer server.Close()
+	cfg := config.Defaults()
+	cfg.Providers.Custom = []config.CustomEndpointConfig{{ID: "x", Enabled: true, BaseURL: server.URL + "/v1/chat/completions", Model: "custom-model"}, {ID: "magpie", Enabled: true, Magpie: true, BaseURL: server.URL + "/v1"}}
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("magpie"): "mag-key", "anthropic.apiKey": "anth-key", "deepseek.apiKey": "deep-key"})
+	for _, model := range []string{"", "default"} {
+		out, err := generateText(context.Background(), cfg, nil, strings.ToUpper(config.CustomEndpointKind("x")), model, "", "p")
+		if err != nil || out != "hi" || path != "/v1/chat/completions" || body["model"] != "custom-model" || auth != "" {
+			t.Fatalf("自定义端点: %q %v %q %v %q", out, err, path, body, auth)
+		}
+	}
+	t.Setenv("ANTHROPIC_BASE_URL", server.URL)
+	out, err := generateText(context.Background(), cfg, secrets, "anthropic", "claude-test", "", "p")
+	if err != nil || out != "hi" || path != "/v1/messages" || apiKey != "anth-key" {
+		t.Fatalf("Anthropic: %q %v %q %q", out, err, path, apiKey)
+	}
+	out, err = generateText(context.Background(), cfg, secrets, "magpie", "claude-test", "", "p")
+	if err != nil || out != "hi" || path != "/v1/messages" || auth != "Bearer mag-key" {
+		t.Fatalf("Magpie: %q %v %q %q", out, err, path, auth)
+	}
+	oldHeaders := apisource.DeepSeek.ExtraHeaders
+	apisource.DeepSeek.ExtraHeaders = map[string]string{"X-Test-Preset": "preset"}
+	t.Cleanup(func() { apisource.DeepSeek.ExtraHeaders = oldHeaders })
+	if cfg.Providers.Presets == nil {
+		cfg.Providers.Presets = make(map[string]config.PresetProviderConfig)
+	}
+	pc := cfg.Providers.Presets["deepseek"]
+	pc.Enabled, pc.BaseURL = true, server.URL
+	cfg.Providers.Presets["deepseek"] = pc
+	out, err = generateText(context.Background(), cfg, secrets, "deepseek", "deepseek-reasoner", "high", "p")
+	if err != nil || out != "hi" || extra != "preset" {
+		t.Fatalf("预设: %q %v %q", out, err, extra)
+	}
+	if _, ok := body["reasoning_effort"]; ok {
+		t.Fatalf("DeepSeek reasoner 不应发送档位: %v", body)
+	}
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	if _, err := generateText(context.Background(), cfg, nil, "deepseek", "model", "", "p"); err == nil {
+		t.Fatal("缺少密钥应报错")
+	}
+	cfg.Providers.Custom[0].Enabled = false
+	if _, err := generateText(context.Background(), cfg, nil, config.CustomEndpointKind("x"), "model", "", "p"); err == nil {
+		t.Fatal("停用来源应报错")
+	}
+	status = http.StatusTooManyRequests
+	_, err = generateText(context.Background(), cfg, secrets, "deepseek", "model", "", "p")
+	var apiErr *llm.APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != 429 {
+		t.Fatalf("429 错误 = %v", err)
 	}
 }
 

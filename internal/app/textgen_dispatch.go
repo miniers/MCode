@@ -5,18 +5,17 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"mcode/internal/apisource"
 	"mcode/internal/config"
+	"mcode/internal/harness"
 	"mcode/internal/providers/claude"
 	"mcode/internal/providers/codex"
 	"mcode/internal/providers/magpie"
-	"mcode/internal/providers/openai"
 	"mcode/internal/providers/pi"
 	"mcode/internal/textgen"
 )
-
-// textgenOpenAIDefaultBaseURL 是 openai provider 未配置 BaseURL 时的默认地址。
-const textgenOpenAIDefaultBaseURL = "https://api.openai.com/v1"
 
 // textgenBin 返回 CLI 型 provider 使用的可执行文件路径，未知 provider 返回空串。
 // 配置了 Bin 时直接用它；未配置时按 provider 的默认命令名在登录 shell 的 PATH
@@ -54,13 +53,6 @@ func findProviderBinary(name string) string {
 	return ""
 }
 
-// openAICompatTarget 描述一次 OpenAI 兼容 chat/completions 调用所需的连接信息。
-type openAICompatTarget struct {
-	baseURL string
-	apiKey  string
-	model   string
-}
-
 // textgenModelOverride 返回调用方指定的模型名；为空或 "default" 时表示未指定。
 func textgenModelOverride(model string) string {
 	model = strings.TrimSpace(model)
@@ -70,80 +62,19 @@ func textgenModelOverride(model string) string {
 	return model
 }
 
-// firstNonEmpty 返回第一个 TrimSpace 后非空的字符串。
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if s := strings.TrimSpace(v); s != "" {
-			return s
+// resolveTextgenSource 区分未知来源与已停用的 API 来源。
+func resolveTextgenSource(cfg config.Config, secrets config.SecretStore, provider string) (apisource.Source, bool, error) {
+	for _, source := range apisource.Resolve(cfg, secrets) {
+		if strings.EqualFold(source.Kind, provider) {
+			return source, true, nil
 		}
 	}
-	return ""
-}
-
-// secretValue 从凭据存储读取密钥；存储为空、账号为空或读取失败时返回空串。
-func secretValue(secrets config.SecretStore, account string) string {
-	account = strings.TrimSpace(account)
-	if secrets == nil || account == "" {
-		return ""
-	}
-	val, err := secrets.Get(account)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(val)
-}
-
-// resolveOpenAICompatible 判断 provider 是否指向可用的 OpenAI 兼容端点
-// （openai、已启用的预设、已启用的自定义端点），并解析出地址、密钥与模型。
-// 未启用或无法识别时返回 false。provider 需保留原始大小写，自定义端点 ID 可能含大写。
-func resolveOpenAICompatible(cfg config.Config, secrets config.SecretStore, provider, model string) (openAICompatTarget, bool) {
-	provider = strings.TrimSpace(provider)
-	if provider == "" {
-		return openAICompatTarget{}, false
-	}
-	// 模型优先级：调用方指定 > 配置中的模型 > 预设默认模型。
-	overrideModel := textgenModelOverride(model)
-
-	if strings.EqualFold(provider, "openai") {
-		if !cfg.Providers.OpenAI.Enabled {
-			return openAICompatTarget{}, false
-		}
-		return openAICompatTarget{
-			baseURL: firstNonEmpty(cfg.Providers.OpenAI.BaseURL, textgenOpenAIDefaultBaseURL),
-			apiKey:  firstNonEmpty(secretValue(secrets, "openai.apiKey"), os.Getenv("OPENAI_API_KEY")),
-			model:   firstNonEmpty(overrideModel, cfg.Providers.OpenAI.Model),
-		}, true
-	}
-
-	// 内置预设：deepseek、zai、meta 与 Magpie 槽位。
-	// Magpie 槽位 ID 现已注册为自定义端点，预设未启用时继续匹配自定义端点。
-	if preset, ok := openai.PresetByID(provider); ok {
-		if pc, ok := cfg.Providers.Presets[provider]; ok && pc.Enabled {
-			opts := openai.PresetOptions(preset, secrets, pc.BaseURL, pc.CodingPlan)
-			return openAICompatTarget{
-				baseURL: strings.TrimSpace(opts.BaseURL),
-				apiKey:  firstNonEmpty(secretValue(secrets, opts.APIKeyAccount), opts.APIKey, opts.FallbackAPIKey),
-				model:   firstNonEmpty(overrideModel, pc.Model, opts.Model),
-			}, true
+	for _, kind := range apisource.Kinds(cfg) {
+		if strings.EqualFold(kind, provider) {
+			return apisource.Source{}, true, fmt.Errorf("来源 %s 未启用或缺少 API Key", provider)
 		}
 	}
-
-	// 自定义端点：按注册的 Provider Kind 匹配；只用自定义端点自己的密钥，不回退 OPENAI_API_KEY。
-	for _, ep := range config.NormalizeCustomEndpoints(cfg.Providers.Custom) {
-		if !strings.EqualFold(config.CustomEndpointProviderKind(ep), provider) {
-			continue
-		}
-		if !ep.Enabled {
-			return openAICompatTarget{}, false
-		}
-		return openAICompatTarget{
-			baseURL: strings.TrimSpace(ep.BaseURL),
-			apiKey:  secretValue(secrets, config.CustomEndpointSecretAccount(ep.ID)),
-			model:   firstNonEmpty(overrideModel, ep.Model),
-		}, true
-	}
-
-	return openAICompatTarget{}, false
+	return apisource.Source{}, false, nil
 }
 
 // textgenModelSelection 返回一次性文本生成（Git 提交信息、会话标题）共用的模型选择。
@@ -296,18 +227,40 @@ func generateText(ctx context.Context, cfg config.Config, secrets config.SecretS
 		return mcodeGenerateText(ctx, cfg, secrets, model, effort, prompt)
 	}
 
-	// 第二层：OpenAI 兼容端点走 chat/completions。
-	// 这里传原始大小写的 provider，因为自定义端点 ID 可能含大写字母。
-	if target, ok := resolveOpenAICompatible(cfg, secrets, raw, model); ok {
-		if target.model == "" {
-			return "", fmt.Errorf("%s 未配置模型，无法进行一次性文本生成", raw)
+	// 第二层：API 来源使用对应协议的无工具流式请求。
+	if source, ok, err := resolveTextgenSource(cfg, secrets, raw); ok {
+		if err != nil {
+			return "", err
 		}
-		return textgen.GenerateOpenAICompatibleWithOptions(ctx, textgen.OpenAICompatibleOptions{
-			BaseURL: target.baseURL,
-			APIKey:  target.apiKey,
-			Model:   target.model,
-			Effort:  effort,
-		}, prompt)
+		key := source.APIKey(secrets)
+		optionalKey := false
+		for _, ep := range cfg.Providers.Custom {
+			if !ep.Magpie && strings.EqualFold(config.CustomEndpointProviderKind(ep), source.Kind) {
+				optionalKey = true
+				break
+			}
+		}
+		if key == "" && !optionalKey {
+			return "", fmt.Errorf("来源 %s 缺少 API Key", raw)
+		}
+		modelID := textgenModelOverride(model)
+		if modelID == "" {
+			if source.Magpie {
+				_, modelID, err = resolveSourceClient(harness.Kind(source.Kind), cfg, secrets, "", "")
+				if err != nil {
+					return "", err
+				}
+			} else {
+				modelID = sourceEngineDefaultModel(source, harness.Kind(source.Kind), secrets)
+			}
+		}
+		if modelID == "" {
+			return "", fmt.Errorf("来源 %s 未配置默认模型", raw)
+		}
+		client := apisource.NewClient(source, key, modelID, apisource.ClientOptions{Effort: engineReasoningEffort(source.BaseURL)})
+		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return streamOnce(requestCtx, client, modelID, effort, prompt)
 	}
 
 	// 第三层：回退到自动引擎顺序，先 claude、codex，最后内置 mcode。

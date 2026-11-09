@@ -17,6 +17,11 @@ func mcodeGenerateText(ctx context.Context, cfg config.Config, secrets config.Se
 	if err != nil {
 		return "", err
 	}
+	return streamOnce(ctx, client, modelID, effort, prompt)
+}
+
+// streamOnce 发送无工具的单次请求并拼接文本。
+func streamOnce(ctx context.Context, client llm.Client, modelID, effort, prompt string) (string, error) {
 	resp, err := client.Stream(ctx, llm.Request{
 		Model:  modelID,
 		Effort: strings.TrimSpace(effort),
