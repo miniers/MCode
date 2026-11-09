@@ -18,7 +18,7 @@ func TestKanbanNewTaskCancelDoesNotSubmit(t *testing.T) {
 	ks.newTaskTitle = "未保存的任务"
 	tt := ui.NewTester(func(c *ui.Context) { renderKanbanNewTaskSheet(c, s) }, 1000, 800)
 	tt.Frame()
-	if err := tt.Click("kanban-new-task-cancel"); err != nil {
+	if err := tt.Click("取消"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()

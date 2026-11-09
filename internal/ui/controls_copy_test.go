@@ -52,11 +52,19 @@ func TestCopyButtonClick(t *testing.T) {
 			if values != 0 || copies != 0 {
 				t.Fatal("点击前调用了回调")
 			}
+			before := tester.Clipboard()
 			if err := tester.Click("复制按钮"); err != nil {
 				t.Fatal(err)
 			}
 			if values != tc.want || copies != tc.want {
 				t.Fatalf("Value 调用 %d 次，OnCopy 调用 %d 次，期望 %d 次", values, copies, tc.want)
+			}
+			wantClipboard := before
+			if tc.want == 1 {
+				wantClipboard = "内容"
+			}
+			if got := tester.Clipboard(); got != wantClipboard {
+				t.Fatalf("剪贴板 = %q，期望 %q", got, wantClipboard)
 			}
 		})
 	}

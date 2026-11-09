@@ -42,4 +42,3 @@ func TestBannerTonesAndAction(t *testing.T) {
 		t.Fatalf("操作回调次数=%d", clicked)
 	}
 }
-

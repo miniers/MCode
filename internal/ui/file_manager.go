@@ -191,6 +191,7 @@ func (s *chatState) loadFileManagerDir(threadID, dir string) {
 		st.splitSide = ""
 		// 弹窗里的目标和 tab 都属于旧会话，一并丢掉。
 		st.ops = fileManagerOpsDialog{}
+		modalDragReset(modalDragFileManagerOp)
 	}
 	// 搜索状态与目录绑定：换目录时清空搜索词，避免列表与搜索结果错位。
 	st.query = ""

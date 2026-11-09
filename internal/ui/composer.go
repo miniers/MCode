@@ -266,7 +266,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 										}
 
 										// 行首六点手柄：唯一可拖拽的部分。
-										renderQueueGrip(c, item, sortableScope)
+										renderQueueGrip(c, s, item, sortableScope)
 
 										// 意图标签：区分普通排队与「本意插入但被降级成排队」。
 										if label := queuedIntentLabel(item); label != "" {

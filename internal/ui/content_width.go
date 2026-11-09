@@ -34,11 +34,7 @@ const (
 	userBubbleFullMin   float32 = 600
 )
 
-func bubbleMaxWidthFor(columnWidth float32, setting string, percent int, padX float32) float32 {
-	if setting == config.ContentWidthFull {
-		bubble := min(userBubbleMaxWidthFull, contentColumnWidth(columnWidth, percent, padX)*userBubbleFullRatio)
-		return max(bubble, userBubbleFullMin)
-	}
+func bubbleMaxWidthFor(columnWidth float32) float32 {
 	return columnWidth * userBubbleRatio
 }
 
@@ -61,12 +57,12 @@ func userBubbleMaxWidth(s *chatState) float32 {
 	setting, percent, padX := contentWidthPrefs(s)
 	switch setting {
 	case config.ContentWidthWide:
-		return bubbleMaxWidthFor(timelineContentMaxWidthWide, setting, percent, padX)
+		return bubbleMaxWidthFor(timelineContentMaxWidthWide)
 	case config.ContentWidthFull:
 		bubble := min(userBubbleMaxWidthFull, contentColumnWidth(chatPaneWidth(s), percent, padX)*userBubbleFullRatio)
 		return max(bubble, userBubbleFullMin)
 	}
-	return bubbleMaxWidthFor(timelineContentMaxWidthStandard, setting, percent, padX)
+	return bubbleMaxWidthFor(timelineContentMaxWidthStandard)
 }
 
 // contentColumnWidth 返回内容列自身的可视宽度（不含左右 padding）。

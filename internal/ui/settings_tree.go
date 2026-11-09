@@ -351,7 +351,9 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 		c.Invalidate()
 	}
 	if currentID, _ := settingsTreeSheetState(st); !open || currentID != sh.ID {
-		modalDragReset(key)
+		if currentID != sh.ID {
+			modalDragReset(key)
+		}
 		settingsSheetMeasureMu.Lock()
 		delete(settingsSheetMeasures, sh.ID)
 		settingsSheetMeasureMu.Unlock()

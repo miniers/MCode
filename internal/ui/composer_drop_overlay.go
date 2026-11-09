@@ -18,6 +18,7 @@ type composerPolishState struct {
 	queueExpanded map[string]bool
 	// queueDropBefore 按被拖拽项记住最近悬停行的落点（插到哪个 ID 之前）。
 	queueDropBefore map[string]string
+	queueDragging   map[string]bool
 }
 
 var (
@@ -45,6 +46,7 @@ func getComposerPolishState(s *chatState) *composerPolishState {
 		st = &composerPolishState{
 			queueExpanded:   make(map[string]bool),
 			queueDropBefore: make(map[string]string),
+			queueDragging:   make(map[string]bool),
 		}
 		composerPolishStates[s] = st
 	}
@@ -121,6 +123,23 @@ func queueDropBeforeFor(s *chatState, draggedID string) string {
 	return st.queueDropBefore[draggedID]
 }
 
+func setQueueDragging(s *chatState, draggedID string, dragging bool) {
+	st := getComposerPolishState(s)
+	if st == nil || draggedID == "" {
+		return
+	}
+	composerPolishMu.Lock()
+	defer composerPolishMu.Unlock()
+	if dragging {
+		if !st.queueDragging[draggedID] {
+			delete(st.queueDropBefore, draggedID)
+		}
+		st.queueDragging[draggedID] = true
+	} else {
+		delete(st.queueDragging, draggedID)
+	}
+}
+
 // 拖拽覆盖层的几何与配色（D-9）。
 const (
 	composerDropOverlayInset      float32 = 8
@@ -184,7 +203,7 @@ func renderComposerDropOverlay(c *ui.Context, s *chatState) {
 }
 
 // renderQueueGrip 是排队行首的六点拖拽手柄，只有手柄是拖拽源。
-func renderQueueGrip(c *ui.Context, item QueuedFollowUp, scope string) {
+func renderQueueGrip(c *ui.Context, s *chatState, item QueuedFollowUp, scope string) {
 	grip := ui.Row(c.Key("composer-queue-grip-" + item.ID)).
 		Width(Space4).
 		Height(ControlKbd).
@@ -193,6 +212,7 @@ func renderQueueGrip(c *ui.Context, item QueuedFollowUp, scope string) {
 		Cursor(ui.CursorPointer).
 		Tooltip("拖动调整排队顺序")
 	SortableSource(grip, scope, item.ID)
+	setQueueDragging(s, item.ID, grip.Dragging())
 	grip.Children(func() {
 		ui.Icon(c, iconQueueGrip).
 			Size(IconSM, IconSM).

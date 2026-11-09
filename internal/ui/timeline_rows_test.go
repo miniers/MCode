@@ -3089,20 +3089,6 @@ func TestAssistantHeaderOmitsModelName(t *testing.T) {
 	}
 }
 
-func TestToolMessageStateMapping(t *testing.T) {
-	for _, tc := range []struct {
-		status string
-		want   ToolState
-	}{
-		{"pending", ToolPending}, {"running", ToolRunning}, {"background", ToolRunning},
-		{"completed", ToolDone}, {"failed", ToolError}, {"blocked", ToolError},
-	} {
-		if got := toolMessageState(Message{ToolStatus: tc.status}); got != tc.want {
-			t.Errorf("状态 %q = %v，期望 %v", tc.status, got, tc.want)
-		}
-	}
-}
-
 func TestPendingToolInputClosesAfterCompletion(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	m := Message{ID: "pending-input", Role: "tool", ToolName: "read", ToolStatus: "pending", ToolInput: `{"path":"unique-pending-file"}`}

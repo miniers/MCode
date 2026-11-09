@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -47,6 +48,59 @@ func TestSortableNativeDrop(t *testing.T) {
 			tt.Frame()
 			if !reflect.DeepEqual(moves, tc.want) {
 				t.Fatalf("移动 = %v，期望 %v", moves, tc.want)
+			}
+		})
+	}
+}
+
+func TestSortableQueueWindowScopes(t *testing.T) {
+	first, second := &chatState{}, &chatState{}
+	scopeA := fmt.Sprintf("%p/thread/queue", first)
+	scopeB := fmt.Sprintf("%p/thread/queue", second)
+	for _, tc := range []struct {
+		name, source, target string
+		want                 string
+	}{
+		{"窗口一到窗口二", scopeA, scopeB, ""},
+		{"窗口二到窗口一", scopeB, scopeA, ""},
+		{"同窗口容器", scopeA, scopeA, "a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var overOnDrop, dropped string
+			var crossScopeOver bool
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Column(c).Children(func() {
+					source := ui.Row(c).Label("拖拽源").Width(200).Height(50)
+					SortableSource(source, tc.source, "a")
+					target := ui.Row(c).Label("队列容器").Width(200).Height(50)
+					over, id := SortableTarget(target, tc.target, "")
+					if tc.source != tc.target && over != "" {
+						crossScopeOver = true
+					}
+					if id != "" {
+						overOnDrop, dropped = over, id
+					}
+				})
+			}, 300, 200)
+			from, ok := tt.Find("拖拽源")
+			if !ok {
+				t.Fatal("缺少拖拽源")
+			}
+			to, ok := tt.Find("队列容器")
+			if !ok {
+				t.Fatal("缺少队列容器")
+			}
+			x, y := from.X+from.W/2, from.Y+from.H/2
+			tx, ty := to.X+to.W/2, to.Y+to.H/2
+			tt.Press(x, y)
+			for step := 1; step <= 4; step++ {
+				fraction := float32(step) / 4
+				tt.Move(x+(tx-x)*fraction, y+(ty-y)*fraction)
+			}
+			tt.Release(tx, ty)
+			tt.Frame()
+			if dropped != tc.want || overOnDrop != "" || crossScopeOver {
+				t.Fatalf("容器落点 over=%q，drop=%q，跨域悬停=%v，期望 drop=%q", overOnDrop, dropped, crossScopeOver, tc.want)
 			}
 		})
 	}

@@ -91,6 +91,7 @@ func settingsLegacyItems() []settingsItem {
 
 		// ---- 模型与供应商：供应商面板 ----
 		{ID: "row-provider-balance", Page: "models", Sheet: "provider", Section: "供应商", Title: "余额", Aliases: []string{"供应商", "额度"}},
+		{ID: "row-provider-tray-quota", Page: "models", Sheet: "provider", Section: "供应商", Title: "菜单栏额度", Aliases: []string{"供应商", "额度", "菜单栏", "托盘", "quota"}},
 		{ID: "row-provider-bin", Page: "models", Sheet: "provider", Section: "供应商", Title: "可执行文件路径", Aliases: []string{"供应商", "路径"}},
 		{ID: "row-provider-update-monitor", Page: "models", Sheet: "provider", Section: "供应商", Title: "监控更新", Aliases: []string{"供应商", "更新"}},
 		{ID: "row-provider-pi-cache", Page: "models", Sheet: "provider", Section: "供应商", Title: "长缓存", Aliases: []string{"pi", "缓存", "PI_CACHE_RETENTION"}},

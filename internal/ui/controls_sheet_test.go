@@ -40,3 +40,15 @@ func TestSheetDismissAndBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestSheetReduceMotionDoesNotScheduleFrames(t *testing.T) {
+	open := true
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		Sheet(c, SheetProps{Key: "sheet-reduce-motion", Label: "测试卡片", Open: &open, Width: 300, Height: 200}, nil)
+	}, 400, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	t.Cleanup(func() { modalDragReset("sheet-reduce-motion") })
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("减少动效时仍有待播放帧")
+	}
+}
