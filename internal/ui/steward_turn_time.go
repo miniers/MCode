@@ -7,6 +7,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// insertTurnTimeRows 在每个回合第一条承载消息的条目（单条消息、工具组、工具节拍、回合折叠项、汇报行）
+// 之前插入一条日期时间分隔行，每个回合只插一次，其它条目原样保留；只用于总管会话。
 func insertTurnTimeRows(items []timelineItem) []timelineItem {
 	out := make([]timelineItem, 0, len(items))
 	seen := make(map[int]bool)
@@ -23,6 +25,8 @@ func insertTurnTimeRows(items []timelineItem) []timelineItem {
 	return out
 }
 
+// turnTimeLabel 按本地时区把回合起始时间格式化成「今天 15:04」「昨天 15:04」
+// 「1月2日 15:04」或「2006年1月2日 15:04」，零值返回空串。
 func turnTimeLabel(at, now time.Time) string {
 	if at.IsZero() {
 		return ""
@@ -42,6 +46,7 @@ func turnTimeLabel(at, now time.Time) string {
 	}
 }
 
+// renderTurnTimeRow 渲染居中的日期时间小字，时间取本回合起始时间，拿不到时不画。
 func renderTurnTimeRow(c *ui.Context, s *chatState, item timelineItem) {
 	label := turnTimeLabel(turnStartTimeFor(s, item.turnIndex), time.Now())
 	if label == "" {
