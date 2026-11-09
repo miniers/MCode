@@ -298,7 +298,7 @@ func buildPaletteItems(s *chatState) []paletteItem {
 	return items
 }
 
-// stewardPaletteItems 生成总管会话与设置入口候选条目。
+// stewardPaletteItems 生成总管会话入口候选条目。
 func stewardPaletteItems(s *chatState) []paletteItem {
 	if s == nil {
 		return nil
@@ -316,14 +316,6 @@ func stewardPaletteItems(s *chatState) []paletteItem {
 		keywords: "总管 默默 steward 会话",
 		run: func(cs *chatState) {
 			cs.openStewardThread()
-		},
-	}, {
-		id:       "cmd-steward-settings",
-		kind:     "command",
-		title:    name + "设置",
-		keywords: "总管 默默 steward moco 设置 settings 昵称 头像 安静时段 免打扰 看门狗",
-		run: func(cs *chatState) {
-			openSettingsWindow(cs, "steward")
 		},
 	}}
 }

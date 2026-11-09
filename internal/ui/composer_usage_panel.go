@@ -880,7 +880,7 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 			if quotaLoading {
 				ui.Text(c, "正在加载额度…").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
 			} else {
-				renderUsageStatusLine(c, chatUsageStatus(s, quotaProvider, usagePanelNow()), TypeFootnote)
+				renderUsageStatusLine(c, chatUsageStatus(s, quotaProvider, usagePanelNow()), TypeFootnote, usageSettingsTarget{s, threadProvider})
 			}
 
 			quotaWindows := getChatQuotaWindows(s, th)
@@ -2351,6 +2351,10 @@ func composerQuotaPopoverMaxHeight(c *ui.Context, anchor ui.Element) float32 {
 // 额度列表。弹层由额度条里被点击的 provider 组锚定，因此只展示这一个 provider 的额度。
 // maxHeight 大于 0 时面板与列表都不超过它，供应商再多也不会长出窗口。
 func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provider string, maxHeight float32) {
+	settingsProvider := provider
+	if th != nil && (strings.HasPrefix(provider, "pi:") || strings.HasPrefix(provider, "mcode:")) {
+		settingsProvider = th.Provider
+	}
 	// 卡片外观（圆角、边框、Popover 阴影、背景）由外层 PopoverCard 统一提供，这里只排内容。
 	// 面板保留上下内边距，水平内边距由各行和列表提供；字号不随全局字号缩放。
 	panel := ui.Column(c.Key("composer-quota-popover-panel")).
@@ -2435,7 +2439,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 			if errText != "" {
 				// 有旧数据时列表照常展示，但刷新失败要看得见。
 				ui.Row(c.Key("composer-quota-popover-refresh-error")).FillWidth().Padding(0, Space4).Children(func() {
-					renderUsageStatusLine(c, usageStatusFor(errText, nil, time.Time{}, usagePanelNow()), FontSizeCallout)
+					renderUsageStatusLine(c, usageStatusFor(errText, nil, time.Time{}, usagePanelNow()), FontSizeCallout, usageSettingsTarget{s, settingsProvider})
 				})
 			}
 			// 标题行固定在面板顶部，账户列表放进滚动容器：窗口矮或供应商多时只滚列
@@ -2475,7 +2479,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 				status = usageStatusFor(quotaErr, nil, time.Time{}, usagePanelNow())
 			}
 			ui.Row(c.Key("composer-quota-popover-error")).FillWidth().Padding(0, Space4).Children(func() {
-				renderUsageStatusLine(c, status, FontSizeCallout)
+				renderUsageStatusLine(c, status, FontSizeCallout, usageSettingsTarget{s, settingsProvider})
 			})
 		case loading:
 			ui.Row(c.Key("composer-quota-popover-loading")).

@@ -56,19 +56,24 @@ func TestStewardPaletteSettingsEntry(t *testing.T) {
 	state, _ := buildRoot(fake)
 	t.Cleanup(state.close)
 	page := recordStewardSettingsPage(t, state)
-	for _, item := range stewardPaletteItems(state) {
+	for _, item := range buildPaletteItems(state) {
 		if item.id == "cmd-steward-settings" {
-			if item.kind != "command" || item.title != "阿默设置" || item.run == nil {
+			t.Fatal("不应存在重复的总管设置命令")
+		}
+		if item.id == "cmd-settings-steward" {
+			if item.kind != "command" || item.run == nil {
 				t.Fatalf("总管设置命令不正确：%+v", item)
 			}
 			item.run(state)
 			if *page != "steward" {
 				t.Fatalf("应打开总管设置，实际页面 %q", *page)
 			}
-			return
+			continue
 		}
 	}
-	t.Fatal("缺少总管设置命令")
+	if *page != "steward" {
+		t.Fatal("缺少总管设置命令")
+	}
 }
 
 func TestStewardHeaderSettingsEntry(t *testing.T) {

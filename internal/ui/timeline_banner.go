@@ -238,17 +238,21 @@ func providerNoticeActionHint(kind providerNoticeKind, errKind string) string {
 	switch kind {
 	case providerNoticeAuth:
 		if errKind == errKindAPIKeyRejected {
-			return "API Key 无效或已过期，请到 设置 → 模型与供应商 → Claude 检查。"
+			return "API Key 无效或已过期。"
 		}
 		// 后端判出未登录时，Claude CLI 的凭证要在终端刷新，设置页的登录入口帮不上忙。
 		if errKind == errKindAuthRequired {
 			return "请在终端运行 claude /login 重新登录后再发送。"
 		}
-		return "前往 设置 → Agent 登录 重新登录后再发送。"
+		return "登录已失效。"
 	case providerNoticeContext:
 		return "上下文已满，请新建会话或使用 /compact 后再发送。"
 	}
 	return ""
+}
+
+func providerNoticeOpensSettings(kind providerNoticeKind, errKind string) bool {
+	return kind == providerNoticeAuth && errKind != errKindAuthRequired
 }
 
 // providerNoticeStyle 返回横幅的图标与主色：限流用警告色、额度耗尽用危险色、
@@ -302,6 +306,17 @@ func renderProviderNoticeBanner(c *ui.Context, s *chatState, m Message, kind pro
 					ui.Text(c, hint).
 						FontSize(scaledFont(TypeFootnote)).
 						TextColor(fg.Alpha(0.85))
+				}
+				if s != nil && providerNoticeOpensSettings(kind, m.ErrKind) {
+					providerID := s.threadProvider(selectedThreadIDSnapshot(s))
+					Button(c, ButtonOpts{
+						Key:     "provider-banner-settings-" + m.ID,
+						Text:    "打开供应商设置",
+						Variant: ButtonSecondary,
+						Size:    ControlSM,
+						Label:   "打开供应商设置",
+						OnClick: func() { openProviderSettings(s, providerID) },
+					})
 				}
 				if kind == providerNoticeRateLimit || kind == providerNoticeQuota {
 					renderCapacityAutoRetry(c, s, m, fg)

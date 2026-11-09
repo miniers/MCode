@@ -35,6 +35,7 @@ func openSettingsWindow(owner *chatState, page string) *mygo.Window {
 	return opener(owner, page)
 }
 
+// openSettingsAt 按设置项 ID 打开并定位高亮，找不到条目时按页面 ID 打开。
 func openSettingsAt(owner *chatState, itemID string) {
 	for _, item := range settingsItems() {
 		if item.ID != itemID {
@@ -51,6 +52,41 @@ func openSettingsAt(owner *chatState, itemID string) {
 		return
 	}
 	openSettingsWindow(owner, itemID)
+}
+
+// openProviderSettings 打开模型与供应商页面，并在指定供应商时打开其面板。
+func openProviderSettings(owner *chatState, providerID string) {
+	if owner == nil || getChatSettings(owner) == nil {
+		return
+	}
+	openSettingsWindow(owner, "models")
+	st := currentSettingsWindowState()
+	if st == nil {
+		st = getChatSettings(owner)
+	}
+	if st == nil {
+		return
+	}
+	if providerID == "" {
+		closeSettingsSheet(st)
+		return
+	}
+	kind := "cli"
+	st.mu.Lock()
+	for _, preset := range st.presets.items {
+		if preset.ID == providerID && preset.Kind == "api" {
+			kind = "preset"
+			break
+		}
+	}
+	for _, endpoint := range st.endpoints.endpoints {
+		if endpoint.ID == providerID && !endpoint.Magpie {
+			kind = "custom"
+			break
+		}
+	}
+	st.mu.Unlock()
+	openProviderSheet(st, kind, providerID)
 }
 
 // openSettingsWindowHeadless 供没有主事件循环的测试使用。

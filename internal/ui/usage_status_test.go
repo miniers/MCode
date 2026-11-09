@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // 场景 1：错误文本能分辨未登录、不支持与普通出错；未登录给出可执行指引。
@@ -17,7 +19,7 @@ func TestUsageStatusForErrorKinds(t *testing.T) {
 		want     usageState
 		contains string
 	}{
-		{name: "未登录中文", errText: "未登录，请先登录", want: usageStateNeedsAuth, contains: "请先登录该 Agent 账号：设置 → 模型与供应商"},
+		{name: "未登录中文", errText: "未登录，请先登录", want: usageStateNeedsAuth, contains: "请先登录该 Agent 账号"},
 		{name: "未登录 401", errText: "HTTP 401 Unauthorized", want: usageStateNeedsAuth, contains: "登录"},
 		{name: "不支持", errText: "provider does not support quota", want: usageStateUnsupported, contains: "不支持"},
 		{name: "不支持中文", errText: "该后端未实现额度接口", want: usageStateUnsupported, contains: "不支持"},
@@ -36,6 +38,29 @@ func TestUsageStatusForErrorKinds(t *testing.T) {
 		if st.Stale() {
 			t.Fatalf("%s：有错误时不应判为过期", tt.name)
 		}
+	}
+}
+
+func TestUsageStatusSettingsButton(t *testing.T) {
+	resetSettingsWindowForTest()
+	t.Cleanup(resetSettingsWindowForTest)
+	owner := newChatState(NewFakeClient())
+	t.Cleanup(owner.close)
+	st := NewSettingsState(settingsTestDir(t), nil, owner)
+	setChatSettings(owner, st)
+	status := usageStatusFor("401 Unauthorized", nil, time.Time{}, time.Now())
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderUsageStatusLine(c, status, TypeFootnote, usageSettingsTarget{owner, "claude"})
+	}, 600, 300)
+	waitFor(t, tt, func() bool { _, ok := tt.Find("打开供应商设置"); return ok })
+	if err := tt.Click("打开供应商设置"); err != nil {
+		t.Fatalf("点击供应商设置失败：%v", err)
+	}
+	st.mu.Lock()
+	page, sheet, provider := st.currentPage, st.openSheet, st.providerRows.currentProvider
+	st.mu.Unlock()
+	if page != "models" || sheet != "provider" || provider != "claude" {
+		t.Fatalf("供应商设置错误：页面 %q，面板 %q，供应商 %q", page, sheet, provider)
 	}
 }
 

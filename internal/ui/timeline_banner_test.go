@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // TestClassifyProviderNotice 覆盖三类供应商提示的分类与未命中情形。
@@ -119,20 +121,50 @@ func TestProviderNoticeActionHint(t *testing.T) {
 		kind    providerNoticeKind
 		errKind string
 		want    string
+		opens   bool
 	}{
-		{"未分类未登录沿用设置页提示", providerNoticeAuth, "", "前往 设置 → Agent 登录 重新登录后再发送。"},
-		{"后端判出未登录走终端指引", providerNoticeAuth, errKindAuthRequired, "请在终端运行 claude /login 重新登录后再发送。"},
-		{"API key 被拒绝", providerNoticeAuth, errKindAPIKeyRejected, "API Key 无效或已过期，请到 设置 → 模型与供应商 → Claude 检查。"},
-		{"上下文已满", providerNoticeContext, errKindContextExhausted, "上下文已满，请新建会话或使用 /compact 后再发送。"},
-		{"限流无指引", providerNoticeRateLimit, errKindRateLimited, ""},
-		{"额度无指引", providerNoticeQuota, "", ""},
+		{"未分类未登录", providerNoticeAuth, "", "登录已失效。", true},
+		{"后端判出未登录走终端指引", providerNoticeAuth, errKindAuthRequired, "请在终端运行 claude /login 重新登录后再发送。", false},
+		{"API key 被拒绝", providerNoticeAuth, errKindAPIKeyRejected, "API Key 无效或已过期。", true},
+		{"上下文已满", providerNoticeContext, errKindContextExhausted, "上下文已满，请新建会话或使用 /compact 后再发送。", false},
+		{"限流无指引", providerNoticeRateLimit, errKindRateLimited, "", false},
+		{"额度无指引", providerNoticeQuota, "", "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := providerNoticeActionHint(tc.kind, tc.errKind); got != tc.want {
 				t.Fatalf("providerNoticeActionHint(%v, %q) = %q, want %q", tc.kind, tc.errKind, got, tc.want)
 			}
+			if got := providerNoticeOpensSettings(tc.kind, tc.errKind); got != tc.opens {
+				t.Fatalf("providerNoticeOpensSettings(%v, %q) = %v, want %v", tc.kind, tc.errKind, got, tc.opens)
+			}
 		})
+	}
+}
+
+func TestProviderNoticeSettingsButton(t *testing.T) {
+	resetSettingsWindowForTest()
+	t.Cleanup(resetSettingsWindowForTest)
+	owner := newChatState(NewFakeClient())
+	t.Cleanup(owner.close)
+	st := NewSettingsState(settingsTestDir(t), nil, owner)
+	setChatSettings(owner, st)
+	owner.mu.Lock()
+	owner.selectedThreadID = "t1"
+	owner.threads = []Thread{{ID: "t1", Provider: "claude"}}
+	owner.mu.Unlock()
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderProviderNoticeBanner(c, owner, Message{ID: "e1", Text: "401", ErrKind: errKindAPIKeyRejected}, providerNoticeAuth, "")
+	}, 600, 300)
+	waitFor(t, tt, func() bool { _, ok := tt.Find("打开供应商设置"); return ok })
+	if err := tt.Click("打开供应商设置"); err != nil {
+		t.Fatalf("点击供应商设置失败：%v", err)
+	}
+	st.mu.Lock()
+	page, sheet, provider := st.currentPage, st.openSheet, st.providerRows.currentProvider
+	st.mu.Unlock()
+	if page != "models" || sheet != "provider" || provider != "claude" {
+		t.Fatalf("供应商设置错误：页面 %q，面板 %q，供应商 %q", page, sheet, provider)
 	}
 }
 

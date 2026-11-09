@@ -30,6 +30,31 @@ func TestOpenSettingsAt(t *testing.T) {
 	}
 }
 
+func TestOpenProviderSettings(t *testing.T) {
+	resetSettingsWindowForTest()
+	t.Cleanup(resetSettingsWindowForTest)
+	owner := newChatState(NewFakeClient())
+	t.Cleanup(owner.close)
+	st := NewSettingsState(settingsTestDir(t), nil, owner)
+	setChatSettings(owner, st)
+
+	openProviderSettings(owner, "claude")
+	st.mu.Lock()
+	page, sheet, kind, provider := st.currentPage, st.openSheet, st.providerRows.currentProviderKind, st.providerRows.currentProvider
+	st.mu.Unlock()
+	if !st.IsOpen() || page != "models" || sheet != "provider" || kind != "cli" || provider != "claude" {
+		t.Fatalf("供应商设置错误：打开 %v，页面 %q，面板 %q，类型 %q，供应商 %q", st.IsOpen(), page, sheet, kind, provider)
+	}
+
+	openProviderSettings(owner, "")
+	st.mu.Lock()
+	page, sheet = st.currentPage, st.openSheet
+	st.mu.Unlock()
+	if page != "models" || sheet != "" {
+		t.Fatalf("空供应商应只打开模型页面：页面 %q，面板 %q", page, sheet)
+	}
+}
+
 func TestSettingsPagePaletteCommands(t *testing.T) {
 	resetSettingsWindowForTest()
 	t.Cleanup(resetSettingsWindowForTest)

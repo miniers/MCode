@@ -28,7 +28,7 @@ const usageStaleAfter = 15 * time.Minute
 
 const (
 	// usageAuthHint 是未登录时给出的可执行指引。
-	usageAuthHint = "请先登录该 Agent 账号：设置 → 模型与供应商"
+	usageAuthHint = "请先登录该 Agent 账号"
 	// usageUnsupportedHint 是不支持额度查询时的说明。
 	usageUnsupportedHint = "该 Agent 不支持额度查询"
 	// usageStaleSuffix 是追加在数据行尾的过期提示。
@@ -188,18 +188,39 @@ func chatUsageStatus(s *chatState, provider string, now time.Time) usageStatus {
 	return usageStatusFor(errText, windows, refreshedAt, now)
 }
 
-// renderUsageStatusLine 渲染状态说明行：未登录/不支持用次要灰，出错用警告色并保留原错误原文；
-// 正常与过期状态不渲染说明行（过期由调用方在数据行尾追加 usageStaleSuffix）。
-func renderUsageStatusLine(c *ui.Context, st usageStatus, fontSize float32) {
+type usageSettingsTarget struct {
+	owner    *chatState
+	provider string
+}
+
+// renderUsageStatusLine 渲染状态说明行，额度浮窗可附带供应商设置入口。
+func renderUsageStatusLine(c *ui.Context, st usageStatus, fontSize float32, targets ...usageSettingsTarget) {
 	message := strings.TrimSpace(st.Message)
 	if message == "" {
 		return
 	}
 	switch st.State {
 	case usageStateNeedsAuth, usageStateUnsupported:
-		ui.Text(c, message).
-			FontSize(fontSize).
-			TextColor(ThemeSecondaryText(c))
+		if st.State != usageStateNeedsAuth || len(targets) == 0 || targets[0].owner == nil {
+			ui.Text(c, message).
+				FontSize(fontSize).
+				TextColor(ThemeSecondaryText(c))
+			return
+		}
+		ui.Column(c.Key("usage-status-line")).Gap(Space1).Children(func() {
+			ui.Text(c, message).
+				FontSize(fontSize).
+				TextColor(ThemeSecondaryText(c))
+			target := targets[0]
+			Button(c, ButtonOpts{
+				Key:     "usage-status-settings",
+				Text:    "打开供应商设置",
+				Variant: ButtonSecondary,
+				Size:    ControlSM,
+				Label:   "打开供应商设置",
+				OnClick: func() { openProviderSettings(target.owner, target.provider) },
+			})
+		})
 	case usageStateError:
 		ui.Text(c, message).
 			FontSize(fontSize).
