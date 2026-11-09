@@ -751,19 +751,9 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					})
 
 					// 关闭按钮
-					closeBtn := ui.ButtonBase(c.Key("preview-close-btn")).
-						Tooltip("关闭预览").
-						Label("关闭预览").
-						Radius(RadiusXS).
-						Padding(Space1, Space2)
-					if closeBtn.Hovered() {
-						closeBtn.Background(ThemeHover(c))
-					}
-					if closeBtn.Clicked() {
-						closePreview(s)
-					}
-					closeBtn.Children(func() {
-						ui.Icon(c, IconX()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+					IconButton(c, IconButtonProps{
+						Key: "preview-close-btn", Icon: IconX(), Label: "关闭预览", Tooltip: "关闭预览",
+						Size: ControlXS, Variant: ButtonGhost, OnClick: func() { closePreview(s) },
 					})
 				})
 

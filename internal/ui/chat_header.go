@@ -847,7 +847,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 		hs.branchMenuOpen = false
 	}, func() {
 		_, height := c.Size()
-		popoverCardShadow(popoverCard(c, ui.Column(c.Key("chat-header-git-menu")).
+		popoverCard(c, ui.Column(c.Key("chat-header-git-menu")).
 			Padding(Space1).
 			Width(gitMenuWidth).
 			Children(func() {
@@ -1009,7 +1009,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 								}
 							})
 					})
-			})))
+			}))
 	})
 }
 

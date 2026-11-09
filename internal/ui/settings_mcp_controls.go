@@ -802,20 +802,11 @@ func renderMCPServerRow(
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
 
-						copyBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-auth-copy")).
-							Radius(RadiusSM).
-							Padding(Space0, Space2)
-						if copyBtn.Hovered() {
-							copyBtn.Background(ThemeHover(c))
-						}
-						if copyBtn.Clicked() {
-							c.WriteClipboard(authLink)
-							markMCPAuthURLCopied(st, uiSt, serverID, c.Now())
-						}
-						copyBtn.Children(func() {
-							ui.Text(c, mcpAuthURLCopyLabel(c, uiSt, serverID, "复制链接", "已复制")).
-								FontSize(TypeCaption).
-								TextColor(ThemeAccent(c))
+						label := mcpAuthURLCopyLabel(c, uiSt, serverID, "复制链接", "已复制")
+						CopyButton(c, CopyButtonProps{
+							Key: mcpKey + "-btn-auth-copy", Text: label, Mode: CopyText, Copied: label == "已复制",
+							Value:  func() string { return authLink },
+							OnCopy: func() { markMCPAuthURLCopied(st, uiSt, serverID, c.Now()) },
 						})
 					})
 			}
@@ -842,20 +833,11 @@ func renderMCPServerRow(
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
 
-						copyBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-device-copy")).
-							Radius(RadiusSM).
-							Padding(Space0, Space2)
-						if copyBtn.Hovered() {
-							copyBtn.Background(ThemeHover(c))
-						}
-						if copyBtn.Clicked() {
-							c.WriteClipboard(userCode)
-							markMCPAuthURLCopied(st, uiSt, serverID+"#device", c.Now())
-						}
-						copyBtn.Children(func() {
-							ui.Text(c, mcpAuthURLCopyLabel(c, uiSt, serverID+"#device", "复制验证码", "已复制")).
-								FontSize(TypeCaption).
-								TextColor(ThemeAccent(c))
+						label := mcpAuthURLCopyLabel(c, uiSt, serverID+"#device", "复制验证码", "已复制")
+						CopyButton(c, CopyButtonProps{
+							Key: mcpKey + "-btn-device-copy", Text: label, Mode: CopyText, Copied: label == "已复制",
+							Value:  func() string { return userCode },
+							OnCopy: func() { markMCPAuthURLCopied(st, uiSt, serverID+"#device", c.Now()) },
 						})
 					})
 			}

@@ -152,28 +152,10 @@ func renderStartupLoading(c *ui.Context, done, total int64) {
 				})
 
 			// 进度条：高 6、圆角 3，轨道是低透明度主文本色，填充用强调色。
-			ui.Row(c.Key("startup-loading-bar")).
-				FillWidth().
-				Height(Space2).
-				Radius(RadiusPill).
-				MarginY(12).
-				Background(ThemeOverlay(c, 0.1)).
-				Clip().
-				Children(func() {
-					if ratio > 0 {
-						ui.Box(c.Key("startup-loading-bar-fill")).
-							FillHeight().
-							Width(0).
-							Grow(ratio).
-							Radius(RadiusPill).
-							Background(ThemeAccent(c))
-					}
-					if rest := 1 - ratio; rest > 0 {
-						ui.Box(c.Key("startup-loading-bar-rest")).
-							Width(0).
-							Grow(rest)
-					}
-				})
+			ProgressBar(c, ProgressBarProps{
+				Key: "startup-loading-bar", Label: "启动进度", Ratio: ratio, Height: Space2,
+				Track: ThemeOverlay(c, 0.1), Fill: ThemeAccent(c),
+			}).MarginY(12).Clip()
 
 			ui.Text(c, startupProgressLabel(done, total)).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
 		})

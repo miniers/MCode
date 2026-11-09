@@ -2,14 +2,6 @@ package mcodeui
 
 import "github.com/egoist/mygo/ui"
 
-// popoverCardShadowY / popoverCardShadowBlur 是弹出卡片阴影的垂直偏移与模糊半径。
-// 它们取自统一的 ElevPopover，供没有 *ui.Context、拿不到 applyElevation 的调用方直接使用，
-// 避免阴影数值散落在各个浮层里。
-var (
-	popoverCardShadowY    = ElevPopover[1].Y
-	popoverCardShadowBlur = ElevPopover[1].Blur
-)
-
 // popoverCardShadow 给已有的弹出层卡片补上统一的外阴影。
 // 该入口没有 *ui.Context（调用方在构建元素时拿不到），无法按深浅主题调整透明度，
 // 只按 ElevPopover 的层叠透明度叠加；能拿到 c 时请改用 popoverCard 或 applyElevation。

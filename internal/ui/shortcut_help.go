@@ -176,106 +176,90 @@ func renderShortcutHelp(c *ui.Context, s *chatState) {
 	windowWidth, windowHeight := c.Size()
 	width, height := modalResizeSize(shortcutHelpKey, shortcutHelpWidth, shortcutHelpHeight, 360, 240, windowWidth, windowHeight)
 
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.Color{}.Alpha(ScrimOpacity))
-		modalDragPanel(c, shortcutHelpKey, panel)
-		list := appShortcuts()
-		panel.Children(func() {
-			card := ui.Column(c.Key("shortcut-help-card")).
-				Label("shortcut-help-card").
-				Width(width).
-				Height(height).
-				Radius(RadiusLG).
-				Background(ThemeWindowBg(c)).
-				Border(Hairline, ThemeBorder(c)).
-				Children(func() {
-					modalDragHandle(c, shortcutHelpKey, ui.Row(c.Key("shortcut-help-header")).
-						FillWidth().
-						Height(shortcutHelpHeaderHeight).
-						Padding(0, Space5).
-						Gap(Space3).
-						AlignItems(ui.Center).
-						BorderWidth(0, 0, Hairline, 0).
-						BorderColor(ThemeBorder(c)).
-						Children(func() {
-							ui.Text(c, "键盘快捷键").
-								FontSize(TypeTitle).
-								FontWeight(600).
-								TextColor(ThemePrimaryText(c))
-							ui.Box(c.Key("shortcut-help-header-spacer")).Grow(1)
-							ui.Text(c, "Esc 关闭").
-								FontSize(TypeCaption).
-								TextColor(ThemeSecondaryText(c))
-						}))
+	list := appShortcuts()
+	Sheet(c, SheetProps{Key: shortcutHelpKey, CardKey: "shortcut-help-card", Label: "shortcut-help-card", Open: &open, Width: width, Height: height}, func() {
+		modalDragHandle(c, shortcutHelpKey, ui.Row(c.Key("shortcut-help-header")).
+			FillWidth().
+			Height(shortcutHelpHeaderHeight).
+			Padding(0, Space5).
+			Gap(Space3).
+			AlignItems(ui.Center).
+			BorderWidth(0, 0, Hairline, 0).
+			BorderColor(ThemeBorder(c)).
+			Children(func() {
+				ui.Text(c, "键盘快捷键").
+					FontSize(TypeTitle).
+					FontWeight(600).
+					TextColor(ThemePrimaryText(c))
+				ui.Box(c.Key("shortcut-help-header-spacer")).Grow(1)
+				ui.Text(c, "Esc 关闭").
+					FontSize(TypeCaption).
+					TextColor(ThemeSecondaryText(c))
+			}))
 
-					ui.Column(c.Key("shortcut-help-body")).
-						FillWidth().
-						Grow(1).
-						Padding(Space5, Space5).
-						Gap(Space3).
-						Children(func() {
-							in := ui.TextInput(c.Key("shortcut-help-search"), st.query).
-								Label("搜索快捷键").
-								Placeholder("搜索快捷键").
-								FontSize(TypeBody)
-							if st.focusPending {
-								in.Focus()
-								st.focusPending = false
-							}
-
-							groups := filterShortcutHelpGroups(shortcutHelpGroups(list), *st.query)
-							if len(groups) == 0 {
-								ui.Text(c, "没有匹配的快捷键").
-									FontSize(TypeFootnote).
-									TextColor(ThemeSecondaryText(c))
-								return
-							}
-							conflicts := shortcutConflicts(effectiveShortcutBindings())
-							ui.Scroll(c.Key("shortcut-help-scroll")).
-								FillWidth().
-								Grow(1).
-								Children(func() {
-									ui.Column(c.Key("shortcut-help-groups")).
-										FillWidth().
-										Gap(Space3).
-										Children(func() {
-											for _, grp := range groups {
-												renderShortcutHelpGroup(c, grp, conflicts)
-											}
-										})
-								})
-						})
-
-					ui.Row(c.Key("shortcut-help-footer")).
-						FillWidth().
-						Height(shortcutHelpHeaderHeight).
-						Padding(0, Space5).
-						Gap(Space3).
-						AlignItems(ui.Center).
-						BorderWidth(Hairline, 0, 0, 0).
-						BorderColor(ThemeBorder(c)).
-						Children(func() {
-							ui.Text(c, fmt.Sprintf("共 %d 项", len(list))).
-								FontSize(TypeCaption).
-								TextColor(ThemeSecondaryText(c))
-							// 没有设置状态时（如精简窗口/测试未注入设置）不渲染按钮，避免点了没反应。
-							if getChatSettings(s) != nil {
-								ui.Box(c.Key("shortcut-help-footer-spacer")).Grow(1)
-								Button(c.Key("shortcut-help-open-settings"), ButtonOpts{
-									Text:    "在设置中编辑",
-									Label:   "在设置中编辑快捷键",
-									Variant: ButtonSecondary,
-									OnClick: func() {
-										s.closeShortcutHelp()
-										openSettingsWindow(s, "shortcuts")
-									},
-								})
-							}
-						})
-					modalResizeGrips(c, shortcutHelpKey, width, height)
+		ui.Column(c.Key("shortcut-help-body")).
+			FillWidth().
+			Grow(1).
+			Padding(Space5, Space5).
+			Gap(Space3).
+			Children(func() {
+				SearchField(c, TextFieldProps{
+					Key: "shortcut-help-search", Value: st.query,
+					Label: "搜索快捷键", Placeholder: "搜索快捷键", FillWidth: true,
+					Focused: st.focusPending,
 				})
-			popoverCardShadow(card)
-		})
+				st.focusPending = false
+
+				groups := filterShortcutHelpGroups(shortcutHelpGroups(list), *st.query)
+				if len(groups) == 0 {
+					ui.Text(c, "没有匹配的快捷键").
+						FontSize(TypeFootnote).
+						TextColor(ThemeSecondaryText(c))
+					return
+				}
+				conflicts := shortcutConflicts(effectiveShortcutBindings())
+				ui.Scroll(c.Key("shortcut-help-scroll")).
+					FillWidth().
+					Grow(1).
+					Children(func() {
+						ui.Column(c.Key("shortcut-help-groups")).
+							FillWidth().
+							Gap(Space3).
+							Children(func() {
+								for _, grp := range groups {
+									renderShortcutHelpGroup(c, grp, conflicts)
+								}
+							})
+					})
+			})
+
+		ui.Row(c.Key("shortcut-help-footer")).
+			FillWidth().
+			Height(shortcutHelpHeaderHeight).
+			Padding(0, Space5).
+			Gap(Space3).
+			AlignItems(ui.Center).
+			BorderWidth(Hairline, 0, 0, 0).
+			BorderColor(ThemeBorder(c)).
+			Children(func() {
+				ui.Text(c, fmt.Sprintf("共 %d 项", len(list))).
+					FontSize(TypeCaption).
+					TextColor(ThemeSecondaryText(c))
+				// 没有设置状态时（如精简窗口/测试未注入设置）不渲染按钮，避免点了没反应。
+				if getChatSettings(s) != nil {
+					ui.Box(c.Key("shortcut-help-footer-spacer")).Grow(1)
+					Button(c.Key("shortcut-help-open-settings"), ButtonOpts{
+						Text:    "在设置中编辑",
+						Label:   "在设置中编辑快捷键",
+						Variant: ButtonSecondary,
+						OnClick: func() {
+							s.closeShortcutHelp()
+							openSettingsWindow(s, "shortcuts")
+						},
+					})
+				}
+			})
+		modalResizeGrips(c, shortcutHelpKey, width, height)
 	})
 
 	if !open {

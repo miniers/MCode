@@ -1223,7 +1223,7 @@ func persistSwarmPanelSize(s *chatState, leadID string, size panelSize) {
 // 以及聚合与分散的临时切换和清理已结束。
 // 面板自身不透明（与 Git 下拉菜单同一套圆角、描边与阴影），不依赖 PopoverBase 的透明底。
 func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee, currentID string, running int, open *bool) {
-	card := popoverCardShadow(popoverCard(c, ui.Column(c.Key("swarm-bees-menu-col")).FillWidth().Padding(Space2).Gap(Space1)))
+	card := popoverCard(c, ui.Column(c.Key("swarm-bees-menu-col")).FillWidth().Padding(Space2).Gap(Space1))
 	card.Children(func() {
 		for _, h := range bees {
 			bee := h
@@ -1615,29 +1615,14 @@ func renderSwarmGlyph(c *ui.Context, keyPrefix string, h SwarmBee, size float32)
 	persona := findSwarmPersona(h.Name)
 	icon := safePersonaIcon(persona.Asset)
 
-	ui.Box(c.Key(keyPrefix+"-glyph-container")).
-		Size(size, size).
-		Radius(size / 2).
-		Background(persona.Color.Alpha(0.18)).
-		BorderWidth(1.2).
-		BorderColor(persona.Color.Alpha(0.55)).
-		Justify(ui.Center).
-		AlignItems(ui.Center).
-		Children(func() {
-			if icon != nil {
-				ui.Icon(c, icon).
-					Size(size*0.72, size*0.72).
-					TextColor(persona.Color)
-			} else {
-				runes := []rune(strings.TrimSpace(h.Name))
-				char := ""
-				if len(runes) > 0 {
-					char = string(runes[0])
-				}
-				ui.Text(c, char).
-					FontSize(size * 0.45).
-					FontWeight(600).
-					TextColor(persona.Color)
-			}
-		})
+	Avatar(c, AvatarProps{
+		Key:        keyPrefix + "-glyph-container",
+		Name:       h.Name,
+		Icon:       icon,
+		Size:       size,
+		FontSize:   size * 0.45,
+		Foreground: persona.Color,
+		Background: persona.Color.Alpha(0.18),
+		Border:     persona.Color.Alpha(0.55),
+	})
 }

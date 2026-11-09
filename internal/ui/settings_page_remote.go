@@ -434,24 +434,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c))
 
-						btnCopyCode := ui.ButtonBase(c.Key("btn-remote-copy-code")).
-							Label("复制配对码").
-							Tooltip("复制配对码").
-							Padding(Space1, settingsCompactPadX).
-							Radius(RadiusSM).
-							Background(ThemeHover(c))
-						stylePairingButton(c, btnCopyCode, false)
-						if btnCopyCode.Clicked() {
-							copyAt := c.Now()
-							c.WriteClipboard(pairing.ShortCode)
-							markRemoteCopied(st, "btn-remote-copy-code", copyAt)
-							copiedKey, copiedAt = "btn-remote-copy-code", copyAt
-						}
-						btnCopyCode.Children(func() {
-							ui.Text(c, pairingCopyLabel(c, "btn-remote-copy-code", "复制配对码", "已复制配对码", copiedKey, copiedAt)).
-								FontSize(TypeFootnote).
-								TextColor(ThemeAccent(c))
-						})
+						renderRemoteCopyButton(c, st, "btn-remote-copy-code", "复制配对码", "已复制配对码", "复制配对码", pairing.ShortCode, copiedKey, copiedAt)
 					})
 
 				if !pairing.ExpiresAt.IsZero() {
@@ -543,47 +526,13 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 						})
 
 						if targetURL != "" {
-							btnCopyLink := ui.ButtonBase(c.Key("btn-remote-copy-link")).
-								Label("复制配对链接").
-								Tooltip("复制配对链接").
-								Padding(Space1, settingsCompactPadX).
-								Radius(RadiusSM).
-								Background(ThemeHover(c))
-							stylePairingButton(c, btnCopyLink, false)
-							if btnCopyLink.Clicked() {
-								copyAt := c.Now()
-								c.WriteClipboard(targetURL)
-								markRemoteCopied(st, "btn-remote-copy-link", copyAt)
-								copiedKey, copiedAt = "btn-remote-copy-link", copyAt
-							}
-							btnCopyLink.Children(func() {
-								ui.Text(c, pairingCopyLabel(c, "btn-remote-copy-link", "复制配对链接", "已复制链接", copiedKey, copiedAt)).
-									FontSize(TypeFootnote).
-									TextColor(ThemeAccent(c))
-							})
+							renderRemoteCopyButton(c, st, "btn-remote-copy-link", "复制配对链接", "已复制链接", "复制配对链接", targetURL, copiedKey, copiedAt)
 						} else {
 							disabledCopyButton(c, "btn-remote-copy-link", "复制配对链接")
 						}
 
 						if pairing.LANPairingURL != "" {
-							btnCopyLAN := ui.ButtonBase(c.Key("btn-remote-copy-lan-link")).
-								Label("复制局域网链接").
-								Tooltip("复制局域网配对链接").
-								Padding(Space1, settingsCompactPadX).
-								Radius(RadiusSM).
-								Background(ThemeHover(c))
-							stylePairingButton(c, btnCopyLAN, false)
-							if btnCopyLAN.Clicked() {
-								copyAt := c.Now()
-								c.WriteClipboard(pairing.LANPairingURL)
-								markRemoteCopied(st, "btn-remote-copy-lan-link", copyAt)
-								copiedKey, copiedAt = "btn-remote-copy-lan-link", copyAt
-							}
-							btnCopyLAN.Children(func() {
-								ui.Text(c, pairingCopyLabel(c, "btn-remote-copy-lan-link", "复制局域网链接", "已复制局域网链接", copiedKey, copiedAt)).
-									FontSize(TypeFootnote).
-									TextColor(ThemeAccent(c))
-							})
+							renderRemoteCopyButton(c, st, "btn-remote-copy-lan-link", "复制局域网链接", "已复制局域网链接", "复制局域网配对链接", pairing.LANPairingURL, copiedKey, copiedAt)
 						} else {
 							disabledCopyButton(c, "btn-remote-copy-lan-link", "复制局域网链接")
 						}

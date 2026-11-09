@@ -590,23 +590,7 @@ func (remoteTailscaleLoginControl) render(c *ui.Context, st *SettingsState, s se
 			ui.Text(c, "打开授权页").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
 		})
 
-		copyKey := "btn-remote-tailscale-login-copy"
-		copyBtn := ui.ButtonBase(c.Key(copyKey)).
-			Label("复制链接").
-			Tooltip("复制授权链接").
-			Radius(RadiusSM).
-			Padding(Space1, settingsCompactPadX).
-			Background(ThemeHover(c))
-		if copyBtn.Clicked() {
-			copyAt := c.Now()
-			c.WriteClipboard(authURL)
-			markRemoteCopied(st, copyKey, copyAt)
-			copiedKey, copiedAt = copyKey, copyAt
-		}
-		copyBtn.Children(func() {
-			label := pairingCopyLabel(c, copyKey, "复制链接", "已复制链接", copiedKey, copiedAt)
-			ui.Text(c, label).FontSize(TypeFootnote).TextColor(ThemeAccent(c))
-		})
+		renderRemoteCopyButton(c, st, "btn-remote-tailscale-login-copy", "复制链接", "已复制链接", "复制授权链接", authURL, copiedKey, copiedAt)
 	})
 }
 

@@ -119,7 +119,7 @@ func renderSwarmModeMenu(c *ui.Context, s *chatState, th Thread) {
 // open 指向所属弹出层的开合状态，选中后置为 false 关闭菜单。
 func renderSwarmModeMenuContent(c *ui.Context, s *chatState, threadID string, open *bool) {
 	current := swarmModeOptionFor(s.threadSwarmMode(threadID))
-	popoverCardShadow(popoverCard(c, ui.Column(c.Key("chat-header-swarm-mode-menu"))).
+	popoverCard(c, ui.Column(c.Key("chat-header-swarm-mode-menu")).
 		Gap(Space0).
 		Padding(Space2).
 		MinWidth(240)).

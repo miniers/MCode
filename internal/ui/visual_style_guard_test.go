@@ -95,25 +95,12 @@ func g(c *ui.Context) ui.Color { return ThemeDanger(c) }
 // 未列出的文件出现 Shadow 即失败：阴影只属于浮层/弹窗/浮窗卡片，普通控件加阴影会让卡片外多一圈脏边。
 // 注意：popoverCardShadow(...) 是统一的外阴影辅助函数，不是 Shadow 方法调用，不计入本表。
 var shadowBaseline = map[string]int{
-	"context_panel_views.go":    1,
 	"controls_button.go":        2, // 焦点环：零模糊 spread 描边，不是投影
 	"elevation.go":              1, // 阴影令牌定义文件，applyElevation 逐层调用
-	"memory_panel_views.go":     1,
-	"model_picker.go":           2,
-	"popover.go":                2,
-	"scripts_sheet.go":          1,
-	"settings_page_models.go":   1,
+	"popover.go":                1,
 	"settings_page_swarm.go":    1,
 	"settings_swarm_presets.go": 1,
-	"settings_swarm_tiers.go":   1,
-	"settings_tree.go":          1, // 设置面板外层（DialogBase 浮层）
-	"sidebar_bulk.go":           1,
-	"swarm.go":                  1,
-	"swarm_bee_floats.go":       3,
-	"swarm_timeline_capsule.go": 1,
-	"table_popup.go":            1,
-	"terminal.go":               1,
-	"timeline_mention.go":       1,
+	"swarm_bee_floats.go":       2,
 }
 
 // shadowViolations 返回 dir 下所有违规的 Shadow 调用：文件未登记，或调用数超过该文件上限。

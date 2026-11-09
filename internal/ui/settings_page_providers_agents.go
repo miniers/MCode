@@ -1926,28 +1926,15 @@ func renderProviderTrayQuotaRowLocked(c *ui.Context, st *SettingsState, id strin
 	st.mu.Lock()
 	shown := trayQuotaShown(st.cfg, id)
 	st.mu.Unlock()
-	ui.Row(c.Key("row-provider-tray-quota")).
-		FillWidth().
-		Padding(settingsRowPadY, settingsRowPadX).
-		AlignItems(ui.Center).
-		Gap(Space4).
-		Children(func() {
-			ui.Column(c.Key("provider-tray-quota-label-" + id)).
-				Grow(1).
-				Children(func() {
-					ui.Text(c, "菜单栏额度").
-						FontSize(TypeBody).
-						TextColor(ThemePrimaryText(c))
-				})
-			// 可见文字由左侧那行提供；这里只给开关一个描述动作的无障碍标签。
-			if locked {
-				SwitchDisabled(c, "sw-tray-quota-"+id, shown, "在菜单栏显示额度").Shrink(0)
-			} else {
-				Switch(c, "sw-tray-quota-"+id, &shown, "在菜单栏显示额度", func(on bool) {
-					setTrayQuotaShown(st, id, on)
-				}).Shrink(0)
-			}
-		})
+	renderSettingRow(c, "row-provider-tray-quota", "菜单栏额度", func() {
+		if locked {
+			SwitchDisabled(c, "sw-tray-quota-"+id, shown, "在菜单栏显示额度").Shrink(0)
+		} else {
+			Switch(c, "sw-tray-quota-"+id, &shown, "在菜单栏显示额度", func(on bool) {
+				setTrayQuotaShown(st, id, on)
+			}).Shrink(0)
+		}
+	})
 }
 
 // renderProviderQuotaPanel 渲染 claude/codex 的限额面板（Codex 经 Magpie 时按账号分组）。

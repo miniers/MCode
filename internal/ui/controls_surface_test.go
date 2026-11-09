@@ -43,15 +43,3 @@ func TestBannerTonesAndAction(t *testing.T) {
 	}
 }
 
-func TestTooltipText(t *testing.T) {
-	for _, tc := range []struct{ text, shortcut, want string }{
-		{"保存", "⌘S", "保存 ⌘S"},
-		{"保存", "", "保存"},
-		{"", "⌘S", "⌘S"},
-		{"", "", ""},
-	} {
-		if got := tooltipText(tc.text, tc.shortcut); got != tc.want {
-			t.Errorf("tooltipText(%q, %q) = %q，期望 %q", tc.text, tc.shortcut, got, tc.want)
-		}
-	}
-}

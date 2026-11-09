@@ -1,10 +1,6 @@
 package mcodeui
 
-import (
-	"strings"
-
-	"github.com/egoist/mygo/ui"
-)
+import "github.com/egoist/mygo/ui"
 
 // SectionCard 渲染设置分组及其内容。
 func SectionCard(c *ui.Context, key any, title string, body func()) ui.Element {
@@ -31,7 +27,6 @@ type BannerProps struct {
 	Text     string
 	Action   string
 	OnAction func()
-	OnClose  func()
 }
 
 type bannerPalette struct{ info, warning, danger, success ui.Color }
@@ -67,17 +62,5 @@ func Banner(c *ui.Context, p BannerProps) ui.Element {
 		if p.Action != "" {
 			Button(c, ButtonOpts{Text: p.Action, Variant: ButtonGhost, Size: ControlSM, OnClick: p.OnAction})
 		}
-		if p.OnClose != nil {
-			IconButton(c, IconButtonProps{Icon: IconX(), Label: "关闭", Variant: ButtonGhost, Size: ControlSM, OnClick: p.OnClose})
-		}
 	})
-}
-
-func tooltipText(text, shortcut string) string {
-	return strings.TrimSpace(strings.TrimSpace(text) + " " + strings.TrimSpace(shortcut))
-}
-
-// Tooltip 统一原生提示文字和快捷键的拼接方式。
-func Tooltip(el ui.Element, text string, shortcut string) ui.Element {
-	return el.Tooltip(tooltipText(text, shortcut))
 }

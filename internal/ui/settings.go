@@ -1312,7 +1312,7 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 					}
 					if item.group != "" {
 						ui.Row(c.Key("settings-nav-group-" + item.group)).Height(ControlSM).AlignItems(ui.Center).PaddingX(Space3).Children(func() {
-							ui.Text(c, item.group).FontSize(TypeCaption).FontWeight(500).TextColor(ThemeTertiaryText(c)).SingleLine()
+							SectionHeading(c, nil, item.group).SingleLine()
 						})
 					}
 				}
@@ -1493,17 +1493,11 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 										TextColor(ThemeAccent(c))
 								})
 							}
-							closeBtn := ui.ButtonBase(c.Key("settings-dialog-close")).
-								Label("关闭设置").Tooltip("关闭设置").Radius(RadiusSM).Padding(Space1, Space2).Shrink(0)
-							if closeBtn.Hovered() {
-								closeBtn.Background(ThemeHover(c))
-							}
-							if closeBtn.Clicked() {
-								closeSettingsWindowForOwner(st.chat)
-							}
-							closeBtn.Children(func() {
-								ui.Icon(c, IconX()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-							})
+							IconButton(c, IconButtonProps{
+								Key: "settings-dialog-close", Icon: IconX(), Label: "关闭设置", Tooltip: "关闭设置",
+								Size: ControlXS, Variant: ButtonGhost,
+								OnClick: func() { closeSettingsWindowForOwner(st.chat) },
+							}).Shrink(0)
 						})
 
 					if st.errorMessage != "" {

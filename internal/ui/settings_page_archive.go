@@ -627,22 +627,7 @@ func renderPageArchive(c *ui.Context, st *SettingsState) {
 		}
 
 		if len(view.threads) == 0 {
-			ui.Column(c.Key("row-archive-empty")).
-				Padding(Space7, Space5).
-				Gap(Space3).
-				AlignItems(ui.Center).
-				Children(func() {
-					ui.Icon(c, IconArchive()).
-						Size(ControlMD, ControlMD).
-						TextColor(ThemeSecondaryText(c))
-
-					ui.Text(c, "暂无已归档会话").
-						FontSize(TypeProse).
-						FontWeight(500).
-						TextColor(ThemeSecondaryText(c)).
-						SingleLine()
-
-				})
+			EmptyState(c, EmptyStateProps{Key: "row-archive-empty", Icon: IconArchive(), Title: "暂无已归档会话"}).Padding(Space7, Space5)
 			return
 		}
 

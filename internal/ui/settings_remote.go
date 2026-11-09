@@ -1130,32 +1130,9 @@ func (remoteEntryControl) render(c *ui.Context, st *SettingsState, s setting) {
 				// 没有局域网地址时不提供可复制入口，避免复制出打不开的 loopback 地址。
 				return
 			}
-			btn := ui.ButtonBase(c.Key("btn-copy-entry")).
-				Label("复制入口地址").
-				Tooltip("复制入口地址").
-				Padding(Space1, Space3).
-				Radius(RadiusXS).
-				Background(ThemeHover(c)).
-				OnClick(func() {
-					c.WriteClipboard(entryURL)
-				})
-			btn.Children(func() {
-				ui.Text(c, "复制").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
-			})
+			CopyButton(c, CopyButtonProps{Key: "btn-copy-entry", Label: "复制入口地址", Tooltip: "复制入口地址", Text: "复制", Mode: CopyText, Value: func() string { return entryURL }})
 			if remoteAddressChanged(status, currentLAN) {
-				newURL := remoteURLString("http", currentLAN, entryPort)
-				newBtn := ui.ButtonBase(c.Key("btn-copy-new-entry")).
-					Label("复制新入口地址").
-					Tooltip("复制新入口地址").
-					Padding(Space1, Space3).
-					Radius(RadiusXS).
-					Background(ThemeHover(c)).
-					OnClick(func() {
-						c.WriteClipboard(newURL)
-					})
-				newBtn.Children(func() {
-					ui.Text(c, "复制新入口地址").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
-				})
+				CopyButton(c, CopyButtonProps{Key: "btn-copy-new-entry", Label: "复制新入口地址", Tooltip: "复制新入口地址", Text: "复制新入口地址", Mode: CopyText, Value: func() string { return remoteURLString("http", currentLAN, entryPort) }})
 			}
 		})
 }

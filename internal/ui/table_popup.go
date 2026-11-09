@@ -17,13 +17,12 @@ import (
 //   - 浮窗挂在根视图（与图片大图浮层同层），不受消息列表裁切，标题栏可拖动、三处抓手可缩放。
 
 // tablePopupMinWidth、tablePopupMinHeight 是面板的最小尺寸，tablePopupInset 是面板离窗口边缘
-// 至少保留的间距；其余依次是卡片圆角、标题行高度、缩放抓手的粗细与留白、右下角抓手与
+// 至少保留的间距；其余依次是标题行高度、缩放抓手的粗细与留白、右下角抓手与
 // 「展开」按钮的边长及其悬停提示。
 const (
 	tablePopupMinWidth      = 360
 	tablePopupMinHeight     = 200
 	tablePopupInset         = 20
-	tablePopupRadius        = 10
 	tablePopupHeaderHeight  = 34
 	tablePopupExpandSize    = 22
 	tablePopupExpandTooltip = "在浮窗中查看表格"
@@ -330,52 +329,22 @@ func renderTablePopupOverlay(c *ui.Context, s *chatState) {
 	width, height := modalResizeSize(modalDragTablePopup, defaultW, defaultH, minW, minH, winW, winH)
 
 	open := true
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		// 半透明遮罩铺满窗口；点击遮罩与 Esc 由 DialogBase 写回 open。
-		backdrop.
-			Absolute().
-			Left(0).
-			Top(0).
-			Right(0).
-			Bottom(0).
-			Center().
-			Background(ui.Color{}.Alpha(ScrimOpacity))
-
-		// panel 本身不加外观，尺寸与外观都交给内层唯一的圆角卡片。
-		panel.Key("table-popup-panel").
-			Label("table-popup-panel").
-			Width(width).
-			Height(height).
-			Padding(0).
-			Gap(0)
-		modalDragPanel(c, modalDragTablePopup, panel)
-
-		card := ui.Column(c.Key("table-popup-card")).
-			Label("table-popup-card").
-			Fill().
-			Radius(tablePopupRadius).
-			Background(ThemeWindowBg(c)).
-			BorderWidth(Hairline).
-			BorderColor(ThemeBorder(c))
-		applyElevation(c, card, ElevDialog).
-			Gap(0).
+	Sheet(c, SheetProps{Key: modalDragTablePopup, PanelKey: "table-popup-panel", PanelLabel: "table-popup-panel", CardKey: "table-popup-card", Label: "table-popup-card", Open: &open, Width: width, Height: height}, func() {
+		renderTablePopupHeader(c, s, st)
+		ui.Scroll(c.Key("table-popup-body")).
+			FillWidth().
+			Grow(1).
+			Padding(Space2, Space3).
 			Children(func() {
-				renderTablePopupHeader(c, s, st)
-				ui.Scroll(c.Key("table-popup-body")).
+				// 表格内部已有横向滚动，外层只补纵向滚动；选择交给这一层容器。
+				ui.Column(c.Key("table-popup-body-content")).
 					FillWidth().
-					Grow(1).
-					Padding(Space2, Space3).
+					Selectable().
 					Children(func() {
-						// 表格内部已有横向滚动，外层只补纵向滚动；选择交给这一层容器。
-						ui.Column(c.Key("table-popup-body-content")).
-							FillWidth().
-							Selectable().
-							Children(func() {
-								markdown.View(c, st.src, st.opts)
-							})
+						markdown.View(c, st.src, st.opts)
 					})
-				modalResizeGripsMin(c, modalDragTablePopup, width, height, minW, minH)
 			})
+		modalResizeGripsMin(c, modalDragTablePopup, width, height, minW, minH)
 	})
 	// DialogBase 已经把遮罩点击与 Esc 写回 open，这里据此关闭。
 	if !open {
@@ -418,23 +387,10 @@ func renderTablePopupHeader(c *ui.Context, s *chatState, st *tablePopupState) {
 				}
 			},
 		})
-		closeBtn := ui.ButtonBase(c.Key("table-popup-close")).
-			Width(ControlXS).
-			Height(ControlXS).
-			Radius(RadiusXS).
-			AlignItems(ui.Center).
-			Justify(ui.Center).
-			Cursor(ui.CursorPointer).
-			Label("关闭").
-			Tooltip("关闭")
-		if closeBtn.Hovered() {
-			closeBtn.Background(ThemeHover(c))
-		}
-		closeBtn.Children(func() {
-			ui.Icon(c, IconX()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-		})
-		closeBtn.OnClick(func() {
-			closeTablePopup(s, st.key)
+		IconButton(c, IconButtonProps{
+			Key: "table-popup-close", Icon: IconX(), Label: "关闭", Tooltip: "关闭",
+			Size: ControlXS, Variant: ButtonGhost,
+			OnClick: func() { closeTablePopup(s, st.key) },
 		})
 	})
 	// 标题行当拖拽把手：按在关闭按钮上的指针由按钮接管，不会拖动窗口。

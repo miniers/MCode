@@ -278,18 +278,7 @@ func (remoteTLSEntryControl) render(c *ui.Context, st *SettingsState, s setting)
 	}
 	ui.Row(c.Key("row-remote-tls-entry-control")).Gap(Space3).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, startedURL).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).SingleLine()
-		btn := ui.ButtonBase(c.Key("btn-copy-tls-entry")).
-			Label("复制 HTTPS 入口").
-			Tooltip("复制 HTTPS 入口").
-			Padding(settingsBadgePadY, Space3).
-			Radius(RadiusXS).
-			Background(ThemeHover(c)).
-			OnClick(func() {
-				c.WriteClipboard(startedURL)
-			})
-		btn.Children(func() {
-			ui.Text(c, "复制").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
-		})
+		CopyButton(c, CopyButtonProps{Key: "btn-copy-tls-entry", Label: "复制 HTTPS 入口", Tooltip: "复制 HTTPS 入口", Text: "复制", Mode: CopyText, Value: func() string { return startedURL }})
 	})
 }
 

@@ -389,7 +389,7 @@ func renderMCPSelectionPanel(c *ui.Context, s *chatState, threadID string, onBac
 			})
 	})
 
-	popoverCardShadow(popoverCard(c, panel))
+	popoverCard(c, panel)
 }
 
 // renderMCPSelectionRow 渲染单个 MCP 服务器的勾选行。
