@@ -44,9 +44,20 @@ func (h *Harness) Available() (bool, string) {
 	return h.opts.Available()
 }
 
-// ConfirmsApprovalDelivery 返回 true：引擎在工具执行前同步等待 Approve/Interact 的答复，
-// 拿到答复后经 harness.AckDelivery 回报送达结果，因此审批方可以等待送达确认。
-func (h *Harness) ConfirmsApprovalDelivery() bool { return true }
+// PreserveSessionsFrom 在注册新实例时共享状态，旧实例进行中的轮次继续使用同一把锁和同一份 map。
+func (h *Harness) PreserveSessionsFrom(previous harness.Harness) {
+	if old, ok := previous.(*Harness); ok && old != nil && old != h {
+		h.mu = old.mu
+		h.gates = old.gates
+		h.runs = old.runs
+		h.pids = old.pids
+	}
+}
+
+// ConfirmsApprovalDelivery 报告是否确认审批答复送达，默认开启。
+func (h *Harness) ConfirmsApprovalDelivery() bool {
+	return h.opts.ConfirmsApprovalDelivery == nil || *h.opts.ConfirmsApprovalDelivery
+}
 
 // SessionExists 判断某个会话的上下文是否还在。会话目录未配置时无法判断，按仍在处理。
 func (h *Harness) SessionExists(sessionID string) bool {

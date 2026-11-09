@@ -42,6 +42,7 @@ func TestNewDefaults(t *testing.T) {
 func TestOptionsOverrides(t *testing.T) {
 	models := []string{"a", "b"}
 	var refreshed int
+	confirms := false
 	h := New(Options{
 		Kind:        harness.Kind("mygo"),
 		DisplayName: "MyGo",
@@ -50,7 +51,8 @@ func TestOptionsOverrides(t *testing.T) {
 			refreshed++
 			return nil
 		},
-		Available: func() (bool, string) { return false, "未登录" },
+		Available:                func() (bool, string) { return false, "未登录" },
+		ConfirmsApprovalDelivery: &confirms,
 	})
 	if got := h.Kind(); got != harness.Kind("mygo") {
 		t.Fatalf("Kind() = %q, want mygo", got)
@@ -66,6 +68,52 @@ func TestOptionsOverrides(t *testing.T) {
 	}
 	if available, reason := h.Available(); available || reason != "未登录" {
 		t.Fatalf("Available() = %v, %q", available, reason)
+	}
+	if h.ConfirmsApprovalDelivery() {
+		t.Fatal("ConfirmsApprovalDelivery() = true, want false")
+	}
+}
+
+func TestPreserveSessionsFrom(t *testing.T) {
+	old := New(Options{})
+	session := old.gateFor("thread")
+	run := &activeRun{}
+	old.registerRun("session", run)
+	old.trackProcess("thread", 123)
+	h := New(Options{})
+	h.PreserveSessionsFrom(old)
+	if h.mu != old.mu || h.gates["thread"] != session || h.runs["session"] != run {
+		t.Fatal("新实例未共享旧实例的锁、会话门禁和运行状态")
+	}
+	h.untrackProcess("thread", 123)
+	if len(old.ProcessRootPIDs("thread")) != 0 {
+		t.Fatal("新旧实例未共享进程记录")
+	}
+	h.gateFor("new-thread")
+	if old.gates["new-thread"] != h.gates["new-thread"] {
+		t.Fatal("新旧实例未共享会话门禁表")
+	}
+	h.unregisterRun("session")
+	if old.runs["session"] != nil {
+		t.Fatal("新旧实例未共享运行状态表")
+	}
+}
+
+type otherHarness struct{ harness.Harness }
+
+func TestPreserveSessionsFromIgnoresInvalidPrevious(t *testing.T) {
+	h := New(Options{})
+	session := h.gateFor("thread")
+	run := &activeRun{}
+	h.registerRun("session", run)
+	h.trackProcess("thread", 123)
+	mu := h.mu
+	var nilHarness *Harness
+	for _, previous := range []harness.Harness{nil, nilHarness, otherHarness{}, h} {
+		h.PreserveSessionsFrom(previous)
+		if h.mu != mu || h.gates["thread"] != session || h.runs["session"] != run || !h.pids["thread"][123] {
+			t.Fatal("无效的旧实例改变了状态")
+		}
 	}
 }
 

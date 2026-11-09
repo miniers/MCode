@@ -102,7 +102,7 @@ func TestSourceEnginePreset(t *testing.T) {
 	if !ok {
 		t.Fatal("deepseek preset not found")
 	}
-	legacyOpts := preset.Options(secrets, server.URL, false)
+	legacyOpts := openai.PresetOptions(preset, secrets, server.URL, false)
 	legacyOpts.Model = "deepseek-flash"
 	legacy := openai.New(legacyOpts)
 
@@ -355,7 +355,7 @@ func TestSourceEngineUsesRotatedSecret(t *testing.T) {
 	}
 	secrets := mcodeTestSecrets(map[string]string{"deepseek.apiKey": "sk-old"})
 	preset, _ := openai.PresetByID("deepseek")
-	h := newSourceEngineHarness(openai.New(preset.Options(secrets, server.URL, false)), cfg, secrets, "", providerMCP{})
+	h := newSourceEngineHarness(openai.New(openai.PresetOptions(preset, secrets, server.URL, false)), cfg, secrets, "", providerMCP{})
 
 	runEngineTurn(t, h, "deepseek-chat", "")
 	if len(requests) != 1 || requests[0].Auth != "Bearer sk-old" {
@@ -377,7 +377,7 @@ func TestSourceEngineDisabledSource(t *testing.T) {
 	}
 	secrets := mcodeTestSecrets(map[string]string{"deepseek.apiKey": "sk"})
 	preset, _ := openai.PresetByID("deepseek")
-	legacy := openai.New(preset.Options(secrets, "", false))
+	legacy := openai.New(openai.PresetOptions(preset, secrets, "", false))
 
 	// 与 runtime 读盘结果一致：同一个 map 里改成停用后立即生效。
 	cfg.Providers.Presets["deepseek"] = config.PresetProviderConfig{Enabled: false}

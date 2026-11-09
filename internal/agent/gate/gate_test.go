@@ -13,6 +13,25 @@ import (
 	"mcode/internal/harness"
 )
 
+func TestIsLookOnlyNamedTools(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want bool
+	}{
+		{"list_files", true},
+		{"search_text", true},
+		{"write", false},
+		{"edit", false},
+		{"bash", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsLookOnly(tc.name); got != tc.want {
+				t.Errorf("IsLookOnly(%q) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCheck(t *testing.T) {
 	work := t.TempDir()
 	home := t.TempDir()

@@ -30,13 +30,15 @@ type Options struct {
 	// RefreshModels 刷新模型目录；为空时不做任何事。
 	RefreshModels func(context.Context) error
 	// Available 报告该来源是否可用，不可用时给出原因；为空表示始终可用。
-	Available     func() (bool, string)
-	StoreDir      string
-	ResolveClient func(model string, affinityKey string) (client llm.Client, modelID string, err error)
-	SystemPrompt  func(turn harness.Turn, toolNames []string) string
-	ExtraTools    func(ctx context.Context, turn harness.Turn) []tools.Tool
-	DefaultModel  string
-	MaxRounds     int
+	Available func() (bool, string)
+	// ConfirmsApprovalDelivery 控制是否确认审批答复送达；nil 表示默认开启。
+	ConfirmsApprovalDelivery *bool
+	StoreDir                 string
+	ResolveClient            func(model string, affinityKey string) (client llm.Client, modelID string, err error)
+	SystemPrompt             func(turn harness.Turn, toolNames []string) string
+	ExtraTools               func(ctx context.Context, turn harness.Turn) []tools.Tool
+	DefaultModel             string
+	MaxRounds                int
 	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析前的完整模型串；
 	// 可以为 nil，返回 0 表示未知。
 	ContextWindow func(model string) int
@@ -51,7 +53,7 @@ type Options struct {
 // Harness 驱动内置 coding agent。
 type Harness struct {
 	opts  Options
-	mu    sync.Mutex
+	mu    *sync.Mutex
 	gates map[string]*gate.Session
 	runs  map[string]*activeRun
 	// pids 记录各线程当前正在运行的命令进程，供 ProcessRootPIDs 定位命令子进程树。
@@ -103,6 +105,7 @@ func New(opts Options) *Harness {
 	}
 	return &Harness{
 		opts:  opts,
+		mu:    &sync.Mutex{},
 		gates: make(map[string]*gate.Session),
 		runs:  make(map[string]*activeRun),
 		pids:  make(map[string]map[int]bool),

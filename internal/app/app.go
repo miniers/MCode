@@ -1861,7 +1861,7 @@ func buildProviderHarness(cfg config.Config, secrets config.SecretStore, id stri
 	if !ok {
 		return nil, false
 	}
-	opts := preset.Options(secrets, pc.BaseURL, pc.CodingPlan)
+	opts := openai.PresetOptions(preset, secrets, pc.BaseURL, pc.CodingPlan)
 	if model := strings.TrimSpace(pc.Model); model != "" {
 		opts.Model = model
 	}

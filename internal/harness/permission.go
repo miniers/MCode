@@ -133,6 +133,10 @@ func onlyReadsCommand(command string) bool {
 
 // Decide 根据权限模式、预设规则列表、工具属性裁决是否放行、拒绝或请求审批。
 func Decide(mode PermissionMode, rules []Rule, toolName string, arg string, readOnlyTool bool) Decision {
+	switch toolName {
+	case "read", "read_file", "list_files", "search_text", "grep", "find", "ls":
+		readOnlyTool = true
+	}
 	// ModeReadOnly 下对非只读工具始终拒绝，优先于任何规则或模式默认设置
 	if mode == ModeReadOnly && !readOnlyTool {
 		return DecisionDeny
@@ -193,7 +197,7 @@ func Decide(mode PermissionMode, rules []Rule, toolName string, arg string, read
 		}
 		return DecisionAsk
 	case ModeAutoAcceptEdits, ModeAuto:
-		if readOnlyTool || toolName == "write_file" || toolName == "edit_file" ||
+		if readOnlyTool || toolName == "write" || toolName == "edit" || toolName == "write_file" || toolName == "edit_file" ||
 			((toolName == "bash" || toolName == "shell_command" || toolName == "run_command") && onlyReadsCommand(arg)) {
 			return DecisionAllow
 		}

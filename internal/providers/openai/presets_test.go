@@ -83,7 +83,7 @@ func TestPresetOptions(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "sk-env-deepseek")
 	secrets := config.NewMemorySecretStore()
 
-	opts := DeepSeek.Options(secrets, "", false)
+	opts := PresetOptions(DeepSeek, secrets, "", false)
 	if opts.Kind != harness.Kind("deepseek") || opts.DisplayName != "DeepSeek" {
 		t.Errorf("kind/display mismatch: %+v", opts)
 	}
@@ -107,7 +107,7 @@ func TestPresetOptions(t *testing.T) {
 	}
 
 	// 显式 override 与 coding plan 生效
-	zaiOpts := Zai.Options(secrets, "https://proxy.example/v1", true)
+	zaiOpts := PresetOptions(Zai, secrets, "https://proxy.example/v1", true)
 	if zaiOpts.BaseURL != "https://proxy.example/v1" {
 		t.Errorf("zai override base URL = %q", zaiOpts.BaseURL)
 	}
@@ -117,11 +117,11 @@ func TestPresetOptions(t *testing.T) {
 
 	// Magpie 无默认模型与 env 回退（第一个槽位除外）
 	mp, _ := Magpie(1)
-	if got := mp.Options(secrets, "", false); got.Model != "" || got.FallbackAPIKey != "" {
+	if got := PresetOptions(mp, secrets, "", false); got.Model != "" || got.FallbackAPIKey != "" {
 		t.Errorf("magpie1 options = %+v", got)
 	}
 	mp2, _ := Magpie(2)
-	if got := mp2.Options(secrets, "", false); got.APIKeyAccount != "magpie2.apiKey" {
+	if got := PresetOptions(mp2, secrets, "", false); got.APIKeyAccount != "magpie2.apiKey" {
 		t.Errorf("magpie2 account = %q", got.APIKeyAccount)
 	}
 }

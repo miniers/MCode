@@ -92,7 +92,7 @@ func mcodeAnthropicKey(secrets config.SecretStore) string {
 
 // mcodeTargets 返回 mcode 当前可用的 Magpie 端点。
 func mcodeTargets(cfg config.Config, secrets config.SecretStore) []magpieinject.Target {
-	return magpieinject.Targets(cfg, secrets, nil)
+	return apisource.MagpieTargets(cfg, secrets)
 }
 
 // mcodeDefaultModel 返回 mcode 未指定模型时使用的完整模型 ID。

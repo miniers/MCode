@@ -322,6 +322,8 @@ func TestDecideAuto(t *testing.T) {
 			tool, arg string
 			want      Decision
 		}{
+			{"write", "a.go", DecisionAllow},
+			{"edit", "a.go", DecisionAllow},
 			{"write_file", "a.go", DecisionAllow},
 			{"edit_file", "a.go", DecisionAllow},
 			{"bash", "ls", DecisionAllow},
@@ -336,6 +338,30 @@ func TestDecideAuto(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestDecideNamedToolsSupervised(t *testing.T) {
+	for _, tc := range []struct {
+		tool string
+		want Decision
+	}{
+		{"read", DecisionAllow},
+		{"read_file", DecisionAllow},
+		{"list_files", DecisionAllow},
+		{"search_text", DecisionAllow},
+		{"grep", DecisionAllow},
+		{"find", DecisionAllow},
+		{"ls", DecisionAllow},
+		{"write", DecisionAsk},
+		{"write_file", DecisionAsk},
+		{"edit_file", DecisionAsk},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			if got := Decide(ModeSupervised, nil, tc.tool, "", false); got != tc.want {
+				t.Errorf("Decide() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

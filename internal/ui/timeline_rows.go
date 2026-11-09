@@ -4853,7 +4853,17 @@ func toolNameKey(name string) string {
 	if idx := strings.LastIndexAny(key, "./:"); idx != -1 {
 		key = key[idx+1:]
 	}
-	return toolNameKeyStripper.Replace(key)
+	key = toolNameKeyStripper.Replace(key)
+	switch key {
+	case "readfile":
+		return "read"
+	case "writefile":
+		return "write"
+	case "editfile":
+		return "edit"
+	default:
+		return key
+	}
 }
 
 // classifyToolCategory 按工具名归类，供工具组摘要统计使用。
@@ -5191,6 +5201,11 @@ func toolCallLineRange(fields map[string]any) string {
 // 只从工具输入里取字段，不回显原始 JSON；字段名不区分大小写。
 func toolCallTitle(m Message) (verb, target, detail string) {
 	name := strings.TrimSpace(toolMessageName(m))
+	originalName := name
+	switch name {
+	case "read_file", "write_file", "edit_file":
+		name = toolNameKey(name)
+	}
 	fields := toolCallFields(m)
 
 	switch classifyToolCategory(name) {
@@ -5225,7 +5240,7 @@ func toolCallTitle(m Message) (verb, target, detail string) {
 	if value := toolCallFirstStringValue(fields); value != "" {
 		return name, value, ""
 	}
-	return name, toolCallTextRemainder(m, name), ""
+	return name, toolCallTextRemainder(m, originalName), ""
 }
 
 // toolCallVerbTense 把工具行动词改成与当前状态一致的时态：运行中用「正在读取」「正在运行」，

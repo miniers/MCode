@@ -106,7 +106,7 @@ func PlanModePrompt() string {
 // bash_output 只读；kill_bash 只停止本引擎自己启动的后台任务，不改变外部状态。
 func IsLookOnly(name string) bool {
 	switch name {
-	case "read", "grep", "find", "ls", "mcode_mcp_list", "ask_user_question", "todo_write", "vision", "bash_output", "kill_bash":
+	case "read", "list_files", "search_text", "grep", "find", "ls", "mcode_mcp_list", "ask_user_question", "todo_write", "vision", "bash_output", "kill_bash":
 		return true
 	}
 	return false

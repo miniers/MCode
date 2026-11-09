@@ -119,7 +119,7 @@ func resolveOpenAICompatible(cfg config.Config, secrets config.SecretStore, prov
 	// Magpie 槽位 ID 现已注册为自定义端点，预设未启用时继续匹配自定义端点。
 	if preset, ok := openai.PresetByID(provider); ok {
 		if pc, ok := cfg.Providers.Presets[provider]; ok && pc.Enabled {
-			opts := preset.Options(secrets, pc.BaseURL, pc.CodingPlan)
+			opts := openai.PresetOptions(preset, secrets, pc.BaseURL, pc.CodingPlan)
 			return openAICompatTarget{
 				baseURL: strings.TrimSpace(opts.BaseURL),
 				apiKey:  firstNonEmpty(secretValue(secrets, opts.APIKeyAccount), opts.APIKey, opts.FallbackAPIKey),

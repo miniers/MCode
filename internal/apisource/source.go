@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"mcode/internal/config"
-	"mcode/internal/providers/openai"
 )
 
 // Protocol 是 API 来源使用的请求协议。
@@ -162,7 +161,7 @@ func presetSource(cfg config.Config, id string) (Source, bool) {
 	if !ok || !pc.Enabled {
 		return Source{}, false
 	}
-	preset, ok := openai.PresetByID(id)
+	preset, ok := PresetByID(id)
 	if !ok {
 		return Source{}, false
 	}
