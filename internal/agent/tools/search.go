@@ -52,6 +52,7 @@ func globMatch(pattern, path string) (bool, error) {
 	}
 	return expr.MatchString(path), nil
 }
+
 var gitSearchTimeout = 10 * time.Second
 
 func candidates(ctx context.Context, env Env, root string) ([]string, error) {

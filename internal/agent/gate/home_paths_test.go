@@ -9,7 +9,9 @@ import (
 )
 
 func TestHomeControlAndCredentials(t *testing.T) {
-	if home, _ := os.UserHomeDir(); home == "" { t.Skip("没有主目录") }
+	if home, _ := os.UserHomeDir(); home == "" {
+		t.Skip("没有主目录")
+	}
 	for _, tc := range []struct{ command, want string }{
 		{"rm -rf ~/.mcode", "controlPlane"},
 		{"rm -rf $HOME/.mcode", "controlPlane"},
@@ -31,8 +33,12 @@ func TestHomeControlAndCredentials(t *testing.T) {
 		t.Run(tc.command, func(t *testing.T) {
 			args, _ := json.Marshal(map[string]string{"command": tc.command})
 			got := Check(Input{ToolName: "bash", Args: args, WorkDir: t.TempDir(), Mode: harness.ModeFullAccess})
-			if got.Request.Sensitive != tc.want { t.Fatalf("敏感类型 = %q，预期 %q", got.Request.Sensitive, tc.want) }
-			if tc.command == "ls -l ~/.mcode" && got.Action != Allow { t.Fatalf("动作 = %q，预期放行", got.Action) }
+			if got.Request.Sensitive != tc.want {
+				t.Fatalf("敏感类型 = %q，预期 %q", got.Request.Sensitive, tc.want)
+			}
+			if tc.command == "ls -l ~/.mcode" && got.Action != Allow {
+				t.Fatalf("动作 = %q，预期放行", got.Action)
+			}
 		})
 	}
 }

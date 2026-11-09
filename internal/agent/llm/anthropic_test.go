@@ -162,7 +162,7 @@ func TestAnthropicRequest(t *testing.T) {
 
 func TestDefaultAnthropicMaxTokens(t *testing.T) {
 	for _, tc := range []struct {
-		model    string
+		model string
 		want  int
 	}{
 		{"claude-3-opus-20240229", 4096},
@@ -263,7 +263,7 @@ func TestAnthropicStreamErrorStatus(t *testing.T) {
 
 func TestAnthropicAdaptiveThinking(t *testing.T) {
 	for _, tc := range []struct {
-		model string
+		model    string
 		adaptive bool
 	}{
 		{"auto/claude-opus-5-5[1m]", true},

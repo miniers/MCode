@@ -189,7 +189,9 @@ func Tools(ctx context.Context, servers []Server) []tools.Tool {
 				}
 				schema, invalid := validatedSchema(descriptor.InputSchema)
 				description := descriptor.Description
-				if invalid { description += " 原始参数结构无效，已忽略。" }
+				if invalid {
+					description += " 原始参数结构无效，已忽略。"
+				}
 				builtins = append(builtins, makeTool(
 					safeName("mcp__"+server.Name+"__"+name),
 					description,
@@ -454,7 +456,9 @@ func toolInfo(server string, descriptor ToolDescriptor) string {
 		description = descriptor.Name
 	}
 	schema, invalid := validatedSchema(descriptor.InputSchema)
-	if invalid { description += " 原始参数结构无效，已忽略。" }
+	if invalid {
+		description += " 原始参数结构无效，已忽略。"
+	}
 	data, _ := json.MarshalIndent(map[string]any{
 		"server":      server,
 		"tool":        descriptor.Name,

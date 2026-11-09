@@ -31,14 +31,14 @@ type backgroundJob struct {
 	// killMu 保证同一任务不会并发终止。
 	killMu sync.Mutex
 
-	mu       sync.Mutex
-	buf      []byte
-	read     int64 // 已读取到的绝对偏移
-	dropped  int64 // 已从缓冲区头部丢弃的字节数
-	running  bool
-	exitCode int
+	mu         sync.Mutex
+	buf        []byte
+	read       int64 // 已读取到的绝对偏移
+	dropped    int64 // 已从缓冲区头部丢弃的字节数
+	running    bool
+	exitCode   int
 	finishedAt time.Time
-	timedOut bool
+	timedOut   bool
 	// reapable 在任务退出且 output 已读完全部剩余输出后置位。
 	reapable bool
 }
@@ -93,9 +93,9 @@ func (j *backgroundJob) isReapable() bool {
 }
 
 var (
-	backgroundMu   sync.Mutex
-	backgroundJobs = map[string]*backgroundJob{}
-	backgroundSeq  int
+	backgroundMu     sync.Mutex
+	backgroundJobs   = map[string]*backgroundJob{}
+	backgroundSeq    int
 	backgroundMaxAge = 10 * time.Minute
 )
 

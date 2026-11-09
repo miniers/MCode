@@ -24,10 +24,10 @@ type Client struct {
 	Headers    map[string]string
 	HTTPClient *http.Client
 
-	mu        sync.Mutex
+	mu         sync.Mutex
 	recoveryMu sync.Mutex
-	sessionID string
-	nextID    int64
+	sessionID  string
+	nextID     int64
 }
 
 type rpcRequest struct {
