@@ -3,6 +3,7 @@ package frontdesk
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -30,6 +31,51 @@ func timeoutReceive[T any](t *testing.T, ch <-chan T) T {
 		t.Fatal("等待消息超时")
 		var zero T
 		return zero
+	}
+}
+
+func TestMessageWorkerCopiesExportedFields(t *testing.T) {
+	originalFeed, workerFeed := &timeoutFeed{}, &timeoutFeed{}
+	d := &Desk{
+		Feed:           originalFeed,
+		Model:          "model",
+		MaxRounds:      3,
+		ProjectPath:    "/project",
+		Settings:       func() (bool, string) { return true, "provider" },
+		Automations:    &fakeAutomationService{},
+		queue:          []Inbound{{Text: "queued"}},
+		running:        true,
+		recentAnswerID: "D-0001",
+		recentAnswerAt: time.Unix(123, 0),
+		handle:         func(context.Context, Inbound) error { return nil },
+	}
+	worker := d.messageWorker(workerFeed)
+	src, dst := reflect.ValueOf(d).Elem(), reflect.ValueOf(worker).Elem()
+	for i := 0; i < src.NumField(); i++ {
+		field := src.Type().Field(i)
+		if !field.IsExported() || field.Name == "Feed" {
+			continue
+		}
+		if field.Type.Kind() == reflect.Func {
+			if src.Field(i).Pointer() != dst.Field(i).Pointer() {
+				t.Errorf("字段 %s 未复制", field.Name)
+			}
+		} else if !reflect.DeepEqual(src.Field(i).Interface(), dst.Field(i).Interface()) {
+			t.Errorf("字段 %s 未复制", field.Name)
+		}
+	}
+	if worker.Feed != workerFeed {
+		t.Error("未使用消息专用 Feed")
+	}
+	if worker.queue != nil || worker.running || worker.handle != nil {
+		t.Error("复制了队列状态")
+	}
+	if worker.recentAnswerID != d.recentAnswerID || !worker.recentAnswerAt.Equal(d.recentAnswerAt) {
+		t.Error("未复制最近的回答")
+	}
+	d.Feed = nil
+	if d.messageWorker(workerFeed).Feed != nil {
+		t.Error("原 Feed 为空时不应设置消息专用 Feed")
 	}
 }
 

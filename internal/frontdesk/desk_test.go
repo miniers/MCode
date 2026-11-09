@@ -815,7 +815,7 @@ func TestQueueRecoversAndContinues(t *testing.T) {
 	f.mu.Lock()
 	events := append([]string(nil), f.events...)
 	f.mu.Unlock()
-	if !reflect.DeepEqual(events, []string{"busy:true", "busy:false", "reply:任务未能保存，请重试", "busy:true", "answer:D-0002:B", "busy:false"}) {
+	if !reflect.DeepEqual(events, []string{"busy:true", "reply:任务未能保存，请重试", "busy:false", "busy:true", "answer:D-0002:B", "busy:false"}) {
 		t.Fatal(events)
 	}
 	deadline := time.After(time.Second)

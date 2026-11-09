@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -165,6 +166,24 @@ func (d *Desk) HandleMessage(ctx context.Context, in Inbound) error {
 	return d.loop(ctx, in, snap)
 }
 
+func (d *Desk) messageWorker(feed FeedStore) *Desk {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	worker := &Desk{}
+	src, dst := reflect.ValueOf(d).Elem(), reflect.ValueOf(worker).Elem()
+	// 使用反射让新增的导出字段自动随消息复制。
+	for i := 0; i < src.NumField(); i++ {
+		if src.Type().Field(i).IsExported() {
+			dst.Field(i).Set(src.Field(i))
+		}
+	}
+	worker.recentAnswerID, worker.recentAnswerAt = d.recentAnswerID, d.recentAnswerAt
+	if d.Feed != nil {
+		worker.Feed = feed
+	}
+	return worker
+}
+
 // Enqueue 按入队顺序异步处理消息。
 func (d *Desk) Enqueue(in Inbound) {
 	d.mu.Lock()
@@ -201,12 +220,7 @@ func (d *Desk) Enqueue(in Inbound) {
 				defer cancel()
 				// 每条消息使用独立的回复入口，超时后拒绝迟到的写入。
 				feed := &messageFeed{FeedStore: d.Feed}
-				d.mu.Lock()
-				worker := &Desk{Client: d.Client, Model: d.Model, Tools: d.Tools, Feed: feed, Tasks: d.Tasks, Decisions: d.Decisions, Memory: d.Memory, Projects: d.Projects, Automations: d.Automations, ProjectPath: d.ProjectPath, Now: d.Now, MaxRounds: d.MaxRounds, CLIFallback: d.CLIFallback, Settings: d.Settings, Generator: d.Generator, CLIOptions: d.CLIOptions, recentAnswerID: d.recentAnswerID, recentAnswerAt: d.recentAnswerAt}
-				if d.Feed == nil {
-					worker.Feed = nil
-				}
-				d.mu.Unlock()
+				worker := d.messageWorker(feed)
 				done := make(chan error, 1)
 				go func() {
 					defer func() {
