@@ -6235,7 +6235,10 @@ func isTransientNetworkError(text string) bool {
 
 func isProviderCrashError(text string) bool {
 	text = strings.ToLower(text)
-	for _, marker := range []string{"signal: segmentation fault", "signal: killed", "process exited", "app-server exited", "codex turn incomplete", "process closed connection unexpectedly", "sigsegv", "out of memory"} {
+	if strings.Contains(text, "api error") || strings.Contains(text, "api 错误") || strings.Contains(text, "http ") || strings.Contains(text, "http/") || strings.Contains(text, "status ") || strings.Contains(text, "status:") {
+		return false
+	}
+	for _, marker := range []string{"signal: ", "process exited", "app-server exited", "codex turn incomplete", "process closed connection unexpectedly"} {
 		if strings.Contains(text, marker) {
 			return true
 		}

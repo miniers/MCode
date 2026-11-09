@@ -69,6 +69,8 @@ func stewardDecisionShortcut(key ui.Key, options []stewardDecisionOption) (strin
 
 func stewardDecisionMessage(id, answer string) string { return id + " " + answer }
 
+const stewardDecisionSubmitting = "\x00submitting"
+
 func (s *chatState) answerStewardDecision(id, answer string) {
 	client, ok := s.client.(stewardDecisionAnswerClient)
 	if !ok {
@@ -77,17 +79,24 @@ func (s *chatState) answerStewardDecision(id, answer string) {
 	}
 	st := getStewardOpenState(s)
 	st.mu.Lock()
-	delete(st.decisionErrors, id)
+	if st.decisionErrors == nil {
+		st.decisionErrors = make(map[string]string)
+	}
+	if st.decisionErrors[id] == stewardDecisionSubmitting {
+		st.mu.Unlock()
+		return
+	}
+	st.decisionErrors[id] = stewardDecisionSubmitting
 	st.mu.Unlock()
 	go func() {
-		if err := client.AnswerStewardDecision(context.Background(), id, answer); err != nil {
-			st.mu.Lock()
-			if st.decisionErrors == nil {
-				st.decisionErrors = make(map[string]string)
-			}
+		err := client.AnswerStewardDecision(context.Background(), id, answer)
+		st.mu.Lock()
+		if err != nil {
 			st.decisionErrors[id] = err.Error()
-			st.mu.Unlock()
+		} else {
+			delete(st.decisionErrors, id)
 		}
+		st.mu.Unlock()
 		s.invalidate()
 	}()
 }
@@ -137,6 +146,9 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 	st.mu.Lock()
 	answerError := st.decisionErrors[decision.ID]
 	st.mu.Unlock()
+	if answerError == stewardDecisionSubmitting {
+		answerError = ""
+	}
 	if !answered && draftEmpty && lastInteractiveStewardDecision(messages) == m.ID {
 		for key := ui.Key1; key <= ui.Key9; key++ {
 			if answer, valid := stewardDecisionShortcut(key, decision.Options); valid && c.Shortcut(0, key) {

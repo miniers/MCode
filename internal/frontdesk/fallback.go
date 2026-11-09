@@ -55,7 +55,13 @@ func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons 
 	if ok, err := d.tryCLIFallback(ctx, in, snap); ok || err != nil {
 		return err
 	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if d.Tasks == nil {
+		if len(reasons) > 0 && errors.Is(reasons[0], errModelUnavailable) {
+			return reasons[0]
+		}
 		return errors.New("frontdesk: 任务服务不可用")
 	}
 	taskID := in.ReplyTo
@@ -64,7 +70,8 @@ func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons 
 			if !errors.Is(err, store.ErrNotFound) {
 				return err
 			}
-			taskID = ""
+			d.reply(ctx, in.ThreadID, "这个任务已删除")
+			return nil
 		}
 	}
 	if taskID == "" && !strings.ContainsAny(in.Text, "\r\n") && len([]rune(in.Text)) <= 40 {

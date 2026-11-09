@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,11 @@ func warmServerMagpie(baseURL, key string) {
 	}
 	go func() {
 		defer serverMagpieWarm.Delete(cacheKey)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("模型目录预热 panic：%v", r)
+			}
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_, _ = magpie.FetchModels(ctx, baseURL, key)

@@ -130,14 +130,23 @@ export interface StewardDecisionCardProps {
 
 export const StewardDecisionCard: React.FC<StewardDecisionCardProps> = ({ message, answer, onSend, onAnswer }) => {
   const [error, setError] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+  const [submitted, setSubmitted] = React.useState<string>();
+  const submittingRef = React.useRef(false);
   const decision = parseStewardDecision(message.text);
   if (!decision) return null;
-  const answered = answer !== undefined;
-  const selectedOption = decision.options.find((option) => option.key === answer);
+  const selected = answer ?? submitted;
+  const answered = selected !== undefined;
+  const selectedOption = decision.options.find((option) => option.key === selected);
   const send = (key: string) => {
+    if (submittingRef.current || answered || (!onSend && !onAnswer)) return;
+    submittingRef.current = true;
+    setSubmitting(true);
     setError('');
     void Promise.resolve().then(() => sendDecisionAnswer(decision.id, key, onAnswer, onSend))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : '回答失败'));
+      .then(() => setSubmitted(key))
+      .catch((err: unknown) => { submittingRef.current = false; setError(err instanceof Error ? err.message : '回答失败'); })
+      .finally(() => setSubmitting(false));
   };
 
   return (
@@ -148,7 +157,7 @@ export const StewardDecisionCard: React.FC<StewardDecisionCardProps> = ({ messag
       </div>
       {answered ? (
         <p className="text-sm text-[var(--foreground-muted)]">
-          {answer === '忽略' ? '已忽略' : `已选 ${answer}${selectedOption ? ` · ${selectedOption.text}` : ''}`}
+          {selected === '忽略' ? '已忽略' : `已选 ${selected}${selectedOption ? ` · ${selectedOption.text}` : ''}`}
         </p>
       ) : (
         <div className="flex min-w-0 flex-col gap-2">
@@ -156,7 +165,7 @@ export const StewardDecisionCard: React.FC<StewardDecisionCardProps> = ({ messag
             <button
               key={option.key}
               type="button"
-              disabled={!onSend && !onAnswer}
+              disabled={submitting || (!onSend && !onAnswer)}
               onClick={() => send(option.key)}
               className="flex min-h-[40px] min-w-0 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 text-left text-sm text-[var(--foreground)] transition motion-reduce:transition-none hover:bg-[var(--card-alt,var(--card))] active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -168,7 +177,7 @@ export const StewardDecisionCard: React.FC<StewardDecisionCardProps> = ({ messag
           ))}
           <button
             type="button"
-            disabled={!onSend && !onAnswer}
+            disabled={submitting || (!onSend && !onAnswer)}
             onClick={() => send('忽略')}
             className="mt-1 min-h-[32px] self-start rounded-lg px-2.5 text-sm text-[var(--foreground-muted)] transition motion-reduce:transition-none hover:bg-[var(--card-alt,var(--card))] disabled:cursor-not-allowed disabled:opacity-60"
           >

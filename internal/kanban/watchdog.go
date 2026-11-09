@@ -165,6 +165,12 @@ func (w *Watchdog) Check(ctx context.Context) error {
 			delete(w.lastActivity, t.ID)
 			delete(w.lastProgress, t.ID)
 			w.svc.mu.Lock()
+			if t.Status == string(TaskStatusNeedsApproval) {
+				if err := w.svc.closeTaskDecisions(ctx, &t); err != nil {
+					w.svc.mu.Unlock()
+					continue
+				}
+			}
 			if CanTransition(TaskStatus(t.Status), TaskStatusTodo) {
 				t.Status = string(TaskStatusTodo)
 			}

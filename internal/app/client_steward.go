@@ -36,11 +36,7 @@ func (c *Client) StewardThreadID() string {
 	if c.backend == nil || c.backend.Store() == nil {
 		return ""
 	}
-	id, _, err := c.backend.Store().GetSetting(context.Background(), "steward.feed_thread_id")
-	if err != nil {
-		return ""
-	}
-	return id
+	return c.backend.StewardFeedThreadID()
 }
 
 func (c *Client) StewardEnabled() bool {

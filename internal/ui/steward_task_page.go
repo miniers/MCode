@@ -22,6 +22,7 @@ type stewardResult struct {
 type stewardTaskSnapshot struct {
 	ID            string
 	Status        string
+	Column        string
 	ResultSummary string
 	WaitKind      string
 	WakeAt        string
@@ -98,6 +99,7 @@ func loadStewardTaskForThread(s *chatState, threadID string) {
 				s.stewardTask = stewardTaskSnapshot{
 					ID:            task.ID,
 					Status:        task.Status,
+					Column:        task.Column,
 					ResultSummary: task.ResultSummary,
 					WaitKind:      task.WaitKind,
 					WakeAt:        task.WakeAt,
@@ -122,7 +124,10 @@ func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
 	snapshot := s.stewardTask
 	s.mu.Unlock()
 
-	task := KanbanTask{ID: snapshot.ID, Status: snapshot.Status, Column: snapshot.Status}
+	task := KanbanTask{ID: snapshot.ID, Status: snapshot.Status, Column: snapshot.Column}
+	if task.Status == "needs_approval" && task.Column == "" {
+		task.Column = "needs_you"
+	}
 	label := kanbanStatusBadge(task)
 	if label == "" {
 		label = snapshot.Status
@@ -145,10 +150,6 @@ func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
 			reason += " · " + at
 		}
 	}
-	if reason == "" {
-		reason = "—"
-	}
-
 	band := ui.Row(c.Key("steward-task-band-"+snapshot.ID)).
 		FillWidth().MaxWidth(timelineContentMaxWidth(s)).AlignSelf(ui.Center).
 		AlignItems(ui.Center).Gap(Space3).Padding(Space2, Space3).
@@ -156,8 +157,10 @@ func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
 	alpha := band.AnimateTo("enter", 1, ui.Animation{Duration: animateDuration(c, DurBase), Ease: motionEaseStandard})
 	band.Opacity(alpha).Children(func() {
 		kanbanToneBadge(c, "steward-task-status-"+snapshot.ID, label, kanbanStatusColor(c, snapshot.Status))
-		ui.Text(c, reason).Grow(1).MinWidth(0).SingleLine().Ellipsis("…").
-			FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+		if reason != "" {
+			ui.Text(c, reason).Grow(1).MinWidth(0).SingleLine().Ellipsis("…").
+				FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+		}
 	})
 }
 

@@ -18,9 +18,6 @@ func TestAnswerDecision(t *testing.T) {
 	}{
 		{"needs_approval", "todo"},
 		{"waiting", "todo"},
-		{"done", "todo"},
-		{"failed", "todo"},
-		{"cancelled", "todo"},
 		{"in_progress", "in_progress"},
 	} {
 		t.Run(tc.status, func(t *testing.T) {

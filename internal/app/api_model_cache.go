@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -67,18 +68,26 @@ func (c *apiSourceModelCache) models(source apisource.Source, key string) []stri
 func (c *apiSourceModelCache) fetchEntry(ctx context.Context, e *apiModelEntry, flight *apiModelFlight, source apisource.Source, key string) {
 	ctx, cancel := context.WithTimeout(ctx, apiModelRequestTimeout)
 	defer cancel()
-	ids, err := c.fetch(ctx, apiModelHTTPClient, source, key)
-	c.mu.Lock()
-	if err == nil {
-		e.ids = append([]string(nil), ids...)
-		e.expires = c.now().Add(5 * time.Minute)
-	} else {
-		e.expires = c.now().Add(30 * time.Second)
-	}
-	flight.err = err
-	e.flight = nil
-	close(flight.done)
-	c.mu.Unlock()
+	var ids []string
+	var err error
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("获取模型目录 panic：%v", r)
+			log.Print(err)
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		defer close(flight.done)
+		if err == nil {
+			e.ids = append([]string(nil), ids...)
+			e.expires = c.now().Add(5 * time.Minute)
+		} else {
+			e.expires = c.now().Add(30 * time.Second)
+		}
+		flight.err = err
+		e.flight = nil
+	}()
+	ids, err = c.fetch(ctx, apiModelHTTPClient, source, key)
 }
 
 func (c *apiSourceModelCache) refresh(ctx context.Context, source apisource.Source, key string) error {
@@ -120,6 +129,17 @@ func (a *sourceAvailability) get(kind harness.Kind, cfg config.Config, secrets c
 	if !a.running && time.Since(a.checked) >= time.Minute {
 		a.running = true
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("来源可用性检查 panic：%v", r)
+					a.mu.Lock()
+					a.running = false
+					a.checked = time.Now()
+					a.available = false
+					a.reason = "来源可用性检查失败"
+					a.mu.Unlock()
+				}
+			}()
 			current := mcodeCurrentConfig(cfg, secrets)
 			store := mcodeCurrentSecrets(secrets)
 			source, ok := findAPISource(apisource.Resolve(current, store), kind)

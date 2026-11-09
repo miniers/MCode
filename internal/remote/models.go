@@ -425,6 +425,9 @@ func placeholderModel() wire.ProviderModel {
 
 func providerModelsBase(provider string) []wire.ProviderModel {
 	if rows, registered := apiCatalog(provider); registered {
+		if provider == "openai" && len(rows) == 0 {
+			return nativeProviderModels(provider)
+		}
 		return rows
 	}
 	if preset, ok := apisource.PresetByID(provider); ok && len(preset.Models) > 0 {

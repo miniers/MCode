@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,10 @@ import (
 
 // KindStewardReply 标识前台回复消息。
 const KindStewardReply = "steward_reply"
+
+const messageTimeout = 3 * time.Minute
+
+var errModelUnavailable = errors.New("前台模型不可用")
 
 // FeedStore 提供主会话消息读写。
 type FeedStore interface {
@@ -111,6 +116,9 @@ func (d *Desk) AnswerDecision(ctx context.Context, id, answer, by string) error 
 }
 
 func (d *Desk) answerDecision(ctx context.Context, id, answer, by string) error {
+	if strings.TrimSpace(answer) == "" {
+		return errors.New("请给出答案")
+	}
 	if d.Decisions == nil {
 		return errors.New("决策服务不可用")
 	}
@@ -128,6 +136,10 @@ func (d *Desk) answerDecision(ctx context.Context, id, answer, by string) error 
 // HandleMessage 同步处理一条消息。
 func (d *Desk) HandleMessage(ctx context.Context, in Inbound) error {
 	if m := decisionPattern.FindStringSubmatch(in.Text); m != nil {
+		if strings.TrimSpace(m[2]) == "" {
+			d.reply(ctx, in.ThreadID, "请给出答案")
+			return nil
+		}
 		return d.answerDecision(ctx, m[1], m[2], "frontdesk")
 	}
 	snap := d.snapshot(ctx, in)
@@ -156,14 +168,27 @@ func (d *Desk) Enqueue(in Inbound) {
 			d.queue = d.queue[1:]
 			d.mu.Unlock()
 			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("frontdesk: 处理消息 panic：%v", r)
+						d.reply(context.Background(), next.ThreadID, "任务未能保存，请重试")
+					}
+				}()
 				if feed, ok := d.Feed.(BusyFeed); ok {
 					feed.SetBusy(next.ThreadID, true)
 					defer feed.SetBusy(next.ThreadID, false)
 				}
-				ctx := context.Background()
+				ctx, cancel := context.WithTimeout(context.Background(), messageTimeout)
+				defer cancel()
 				if err := d.HandleMessage(ctx, next); err != nil {
 					log.Printf("frontdesk: %v", err)
-					d.reply(ctx, next.ThreadID, "任务未能保存，请重试")
+					message := "任务未能保存，请重试"
+					if errors.Is(err, context.DeadlineExceeded) {
+						message = "处理超时，请重试"
+					} else if errors.Is(err, errModelUnavailable) {
+						message = "模型暂时不可用，请重试"
+					}
+					d.reply(context.Background(), next.ThreadID, message)
 				}
 			}()
 		}

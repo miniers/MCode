@@ -40,15 +40,15 @@ type Options struct {
 	ExtraTools               func(ctx context.Context, turn harness.Turn) []tools.Tool
 	DefaultModel             string
 	MaxRounds                int
-	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析前的完整模型串；
+	// ContextWindow 返回模型的上下文窗口（tokens），参数是解析后的模型 ID；
 	// 可以为 nil，返回 0 表示未知。
 	ContextWindow func(model string) int
-	// MaxTokens 返回每个模型请求的输出上限（tokens），参数是解析前的完整模型串；
+	// MaxTokens 返回每个模型请求的输出上限（tokens），参数是解析后的模型 ID；
 	// 可以为 nil，返回 0 表示交给 llm 层按模型取默认值。
 	MaxTokens func(model string) int
 	// AcceptsImages 的参数是解析前的完整模型串；为 nil 或返回真时照常附带图片。
 	AcceptsImages func(model string) bool
-	// CostUSD 返回本轮费用（美元），参数是解析前的完整模型串与本轮用量；
+	// CostUSD 返回本轮费用（美元），参数是解析后的模型 ID 与本轮用量；
 	// 返回假表示不填费用。可以为 nil。
 	CostUSD func(model string, usage harness.Usage) (float64, bool)
 }
@@ -151,13 +151,13 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	if h.opts.ResolveClient == nil {
 		return modelError(emit, fmt.Errorf("未配置模型解析器，无法连接模型 %q", model))
 	}
-	contextWindow := 0
-	if h.opts.ContextWindow != nil {
-		contextWindow = h.opts.ContextWindow(model)
-	}
 	client, modelID, err := h.opts.ResolveClient(model, affinityKey(turn))
 	if err != nil {
 		return modelError(emit, fmt.Errorf("无法解析模型 %q：%w", model, err))
+	}
+	contextWindow := 0
+	if h.opts.ContextWindow != nil {
+		contextWindow = h.opts.ContextWindow(modelID)
 	}
 
 	toolset := tools.CodingToolsFor(modelID)
@@ -219,7 +219,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		}
 		// 费用只能在上报前写上：复制一份 Usage，不改 agent 内部持有的对象。
 		if event.Type == harness.EventUsage && event.Usage != nil && h.opts.CostUSD != nil {
-			if cost, ok := h.opts.CostUSD(model, *event.Usage); ok {
+			if cost, ok := h.opts.CostUSD(modelID, *event.Usage); ok {
 				usage := *event.Usage
 				usage.CostUSD = cost
 				event.Usage = &usage
@@ -236,8 +236,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		Emit: runEmit,
 	}
 	if h.opts.MaxTokens != nil {
-		// 复用解析前的完整模型串，与 ContextWindow 的取值方式一致。
-		agentOpts.MaxTokens = func(string) int { return h.opts.MaxTokens(model) }
+		agentOpts.MaxTokens = func(string) int { return h.opts.MaxTokens(modelID) }
 	}
 	// 把线程的进程登记回调带进工具上下文，上层据此终止当前命令。
 	runCtx := h.withProcessTracker(ctx, turn.ThreadID)

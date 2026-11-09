@@ -209,7 +209,7 @@ func TestCLI(t *testing.T) {
 		{"正常", `{"reply":"收到","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, true, []string{"reply:收到", "create:任务:owner"}, 1},
 		{"损坏", "{", true, []string{"create:工作:owner"}, 1},
 		{"丢弃读", `{"reply":"收到","calls":[{"tool":"list_tasks","args":{}}]}`, true, []string{"create:工作:owner"}, 1},
-		{"空答", `{"reply":"","calls":[]}`, true, []string{"create:工作:owner"}, 1},
+		{"空答", `{"reply":"","calls":[]}`, true, nil, 1},
 		{"空答写入", `{"reply":"","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, true, []string{"create:任务:owner"}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -546,12 +546,12 @@ func TestModelFailureMissingReplyTask(t *testing.T) {
 	if err := d.loop(context.Background(), Inbound{ReplyTo: "missing", Text: "工作"}, Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.events, []string{"create:工作:owner"}) {
+	if !reflect.DeepEqual(f.events, []string{"reply:这个任务已删除"}) {
 		t.Fatal(f.events)
 	}
 }
 
-func TestModelFailureCLIEmptyFallsBack(t *testing.T) {
+func TestModelFailureCLIEmptyIsNoop(t *testing.T) {
 	f := &fake{}
 	d := Desk{Client: &scripted{err: errors.New("401")}, Feed: f, Tasks: f, CLIFallback: true, Generator: func(context.Context, textgen.Options, string) (string, error) {
 		return `{"reply":"","calls":[]}`, nil
@@ -559,7 +559,7 @@ func TestModelFailureCLIEmptyFallsBack(t *testing.T) {
 	if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.events, []string{"create:工作:owner"}) {
+	if len(f.events) != 0 {
 		t.Fatal(f.events)
 	}
 }
@@ -571,7 +571,7 @@ func TestFallbackAssociation(t *testing.T) {
 		getErr error
 	}{
 		{"显式任务优先且可重开", "feed", "done", "长补充\n第二行", "amend:done:长补充\n第二行", nil},
-		{"已清理任务匹配最近任务", "feed", "missing", "继续", "amend:recent:继续", store.ErrNotFound},
+		{"已清理任务提示删除", "feed", "missing", "继续", "reply:这个任务已删除", store.ErrNotFound},
 		{"失效目标返回错误", "feed", "missing", "继续", "", errors.New("not found")},
 		{"跨会话不关联", "other", "", "继续", "create:继续:owner", nil},
 	} {
@@ -680,5 +680,192 @@ func TestSelectSourceSkipsKeyedSourceWithoutModel(t *testing.T) {
 	src, model, err := SelectSource(sources, nil, "", "")
 	if err != nil || src.Kind != "ready" || model != "mini" {
 		t.Fatalf("来源 %s，模型 %s，错误 %v", src.Kind, model, err)
+	}
+}
+
+type committingMemory struct {
+	requests []ProposeRequest
+	commits  int
+}
+
+func (m *committingMemory) Search(context.Context, string, string, int) ([]MemoryHit, error) {
+	return nil, nil
+}
+func (m *committingMemory) Get(context.Context, string, string) (MemoryHit, error) {
+	return MemoryHit{}, nil
+}
+func (m *committingMemory) Forget(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+func (m *committingMemory) Propose(ctx context.Context, req ProposeRequest) (ProposeResult, error) {
+	m.requests = append(m.requests, req)
+	if req.UserRequested {
+		return m.Commit(ctx, "proposal")
+	}
+	return ProposeResult{ID: "proposal"}, nil
+}
+func (m *committingMemory) Commit(context.Context, string) (ProposeResult, error) {
+	m.commits++
+	return ProposeResult{ID: "proposal", Status: "committed"}, nil
+}
+
+func TestMemoryToolsCommitOnce(t *testing.T) {
+	for _, tc := range []struct{ name, args, target string }{
+		{"remember", `{"content":"偏好"}`, ""},
+		{"edit_memory", `{"id":"memory","content":"新偏好"}`, "memory"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &committingMemory{}
+			tool, _ := NewToolbox(&Desk{Memory: m, ProjectPath: "project"}).Get(tc.name)
+			result, err := tool.Run(context.Background(), json.RawMessage(tc.args))
+			if err != nil || m.commits != 1 || len(m.requests) != 1 || !m.requests[0].UserRequested || m.requests[0].TargetMemoryID != tc.target || m.requests[0].ProjectPath != "project" || result != (ProposeResult{ID: "proposal", Status: "committed"}) {
+				t.Fatal(result, err, m.commits, m.requests)
+			}
+		})
+	}
+}
+
+func TestDecisionRequiresAnswer(t *testing.T) {
+	f := &fake{}
+	d := Desk{Feed: f, Decisions: f}
+	for _, text := range []string{"D-0001", "D-0001 :  \t"} {
+		if err := d.HandleMessage(context.Background(), Inbound{Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tool, _ := NewToolbox(&d).Get("answer_decision")
+	for _, args := range []string{`{"id":"D-0001","answer":"   "}`, `{"id":"D-0001"}`} {
+		if _, err := tool.Run(context.Background(), json.RawMessage(args)); err == nil || err.Error() != "请给出答案" {
+			t.Fatal(err)
+		}
+	}
+	if err := d.AnswerDecision(context.Background(), "D-0001", " ", "owner"); err == nil || err.Error() != "请给出答案" {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.events, []string{"reply:请给出答案", "reply:请给出答案"}) {
+		t.Fatal(f.events)
+	}
+}
+
+type queueFeed struct {
+	*fake
+	done chan struct{}
+}
+
+func (f *queueFeed) SetBusy(_ string, busy bool) {
+	if busy {
+		f.event("busy:true")
+	} else {
+		f.event("busy:false")
+		f.done <- struct{}{}
+	}
+}
+
+type panicDecision struct{ *fake }
+
+func (p *panicDecision) AnswerDecision(ctx context.Context, id, answer, by string) error {
+	if id == "D-0001" {
+		panic("处理失败")
+	}
+	return p.fake.AnswerDecision(ctx, id, answer, by)
+}
+
+func TestQueueRecoversAndContinues(t *testing.T) {
+	f := &queueFeed{fake: &fake{}, done: make(chan struct{}, 2)}
+	d := Desk{Feed: f, Decisions: &panicDecision{fake: f.fake}}
+	d.Enqueue(Inbound{Text: "D-0001 A"})
+	d.Enqueue(Inbound{Text: "D-0002 B"})
+	for i := 0; i < 2; i++ {
+		select {
+		case <-f.done:
+		case <-time.After(time.Second):
+			t.Fatal("队列未继续处理")
+		}
+	}
+	f.mu.Lock()
+	events := append([]string(nil), f.events...)
+	f.mu.Unlock()
+	if !reflect.DeepEqual(events, []string{"busy:true", "busy:false", "reply:任务未能保存，请重试", "busy:true", "answer:D-0002:B", "busy:false"}) {
+		t.Fatal(events)
+	}
+	deadline := time.After(time.Second)
+	for {
+		d.mu.Lock()
+		running := d.running
+		d.mu.Unlock()
+		if !running {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("队列运行状态未重置")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
+type deadlineClient struct{ deadline chan time.Duration }
+
+func (c *deadlineClient) Stream(ctx context.Context, _ llm.Request, _ func(llm.Delta)) (*llm.Response, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		c.deadline <- 0
+	} else {
+		c.deadline <- time.Until(deadline)
+	}
+	return response(), nil
+}
+
+func TestQueueSetsMessageDeadline(t *testing.T) {
+	f := &busyFake{fake: &fake{}, done: make(chan struct{})}
+	client := &deadlineClient{deadline: make(chan time.Duration, 1)}
+	d := Desk{Feed: f, Client: client}
+	d.Enqueue(Inbound{Text: "工作"})
+	select {
+	case remaining := <-client.deadline:
+		if remaining <= 0 || remaining > messageTimeout {
+			t.Fatalf("处理期限：%v", remaining)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("未调用模型")
+	}
+	select {
+	case <-f.done:
+	case <-time.After(time.Second):
+		t.Fatal("处理未完成")
+	}
+}
+
+func TestQueueErrorMessages(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		client llm.Client
+		tasks  bool
+		err    error
+		want   string
+	}{
+		{"保存失败", nil, true, errors.New("写入失败"), "任务未能保存，请重试"},
+		{"处理超时", &scripted{err: context.DeadlineExceeded}, true, nil, "处理超时，请重试"},
+		{"模型失败且无法兜底", &scripted{err: errors.New("模型失败")}, false, nil, "模型暂时不可用，请重试"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &busyFake{fake: &fake{createErr: tc.err}, done: make(chan struct{})}
+			d := Desk{Feed: f, Client: tc.client}
+			if tc.tasks {
+				d.Tasks = f
+			}
+			d.Enqueue(Inbound{Text: "工作"})
+			select {
+			case <-f.done:
+			case <-time.After(time.Second):
+				t.Fatal("处理超时")
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if len(f.events) < 2 || f.events[len(f.events)-2] != "reply:"+tc.want || f.events[len(f.events)-1] != "busy:false" {
+				t.Fatal(f.events)
+			}
+		})
 	}
 }

@@ -250,6 +250,26 @@ func TestContextWindowReachesUsage(t *testing.T) {
 	}
 }
 
+func TestResolvedModelMetadataForEmptyModel(t *testing.T) {
+	client := &fakeClient{responses: []*llm.Response{answer()}}
+	var contextModel, maxModel, costModel string
+	h := New(Options{
+		ResolveClient: func(string, string) (llm.Client, string, error) { return client, "resolved-model", nil },
+		ContextWindow: func(model string) int { contextModel = model; return 321000 },
+		MaxTokens: func(model string) int { maxModel = model; return 4096 },
+		CostUSD: func(model string, _ harness.Usage) (float64, bool) { costModel = model; return 0.25, true },
+	})
+	var usage *harness.Usage
+	if err := h.Run(context.Background(), harness.Turn{}, func(event harness.Event) {
+		if event.Type == harness.EventUsage { usage = event.Usage }
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if contextModel != "resolved-model" || maxModel != "resolved-model" || costModel != "resolved-model" || usage == nil || usage.ContextWindow != 321000 || usage.CostUSD != 0.25 {
+		t.Fatalf("context=%q max=%q cost=%q usage=%+v", contextModel, maxModel, costModel, usage)
+	}
+}
+
 func TestCostUSDReachesUsage(t *testing.T) {
 	client := &fakeClient{responses: []*llm.Response{answer()}}
 	var gotModel string

@@ -15,6 +15,18 @@ const decisionReanswerWindow = 5 * time.Minute
 // AnswerDecision 回答决策卡，并将答案追加到关联任务。
 // 已答卡在五分钟内允许改答，其他已关闭状态不能再答。
 func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (store.StewardDecision, error) {
+	if strings.TrimSpace(answer) == "" {
+		return store.StewardDecision{}, ErrInvalidTransition
+	}
+	changed := false
+	defer func() {
+		if changed {
+			s.revision.Add(1)
+			s.notifyChange()
+		}
+	}()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	d, err := s.opts.Store.GetStewardDecision(ctx, id)
 	if err != nil {
 		return d, err
@@ -31,14 +43,15 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 	default:
 		return d, store.ErrDecisionClosed
 	}
-	defer func() {
-		s.revision.Add(1)
-		s.notifyChange()
-	}()
+	changed = true
 	if d.TaskID != "" {
 		task, err := s.opts.Store.GetTask(ctx, d.TaskID)
 		if err != nil {
 			return d, err
+		}
+		switch TaskStatus(task.Status) {
+		case TaskStatusDone, TaskStatusFailed, TaskStatusCancelled:
+			return d, store.ErrDecisionClosed
 		}
 		meta, err := ParseTaskMeta(task.Meta)
 		if err != nil {
@@ -58,8 +71,6 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		case TaskStatusWaiting:
 			task.Status = string(TaskStatusTodo)
 			meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
-		case TaskStatusDone, TaskStatusFailed, TaskStatusCancelled:
-			task.Status = string(TaskStatusTodo)
 		}
 		task.Meta = EncodeTaskMeta(meta)
 		if _, err := s.opts.Store.UpdateTask(ctx, task, task.Revision); err != nil {
@@ -81,4 +92,17 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		return d, err
 	}
 	return answered, nil
+}
+
+func (s *Service) closeTaskDecisions(ctx context.Context, task *store.Task) error {
+	meta, err := ParseTaskMeta(task.Meta)
+	if err != nil {
+		return err
+	}
+	if err := s.opts.Store.SupersedeOpenDecisionsForTask(ctx, task.ID); err != nil {
+		return err
+	}
+	meta.DecisionID = ""
+	task.Meta = EncodeTaskMeta(meta)
+	return nil
 }

@@ -1143,6 +1143,14 @@ export const ThreadList: React.FC<ThreadListProps> = ({
   const isConnected = connectionState === 'connected';
   const { supportsOpen } = stewardApi;
 
+  const handleOpen = useCallback((thread: RemoteThreadSummary) => {
+    setOpenRowID(null);
+    if (thread.hasUnread) {
+      void updateThread(thread.id, { read: true }).catch(() => undefined);
+    }
+    onSelectThread(thread);
+  }, [onSelectThread, updateThread]);
+
   // 总管固定行：打开总管主会话（没有就由宿主新建），再按会话 ID 跳到它。
   const handleOpenSteward = useCallback(async () => {
     if (!projectID || !supportsOpen || stewardOpenBusy) return;
@@ -1152,15 +1160,15 @@ export const ThreadList: React.FC<ThreadListProps> = ({
       const threadID = await stewardApi.openSteward(projectID);
       if (!threadID) throw new Error('宿主没有返回总管会话');
       const known = threads.find((thread) => thread.id === threadID);
-      onSelectThread(
-        known ?? threadSummaryStub(threadID, projectID, stewardDisplayLabel, new Date().toISOString())
+      handleOpen(
+        known ?? { ...threadSummaryStub(threadID, projectID, stewardDisplayLabel, new Date().toISOString()), hasUnread: true }
       );
     } catch (error) {
       setActionError(stewardActionErrorText(error, '打开总管会话失败'));
     } finally {
       setStewardOpenBusy(false);
     }
-  }, [projectID, supportsOpen, stewardOpenBusy, stewardApi, onSelectThread, threads, stewardDisplayLabel]);
+  }, [projectID, supportsOpen, stewardOpenBusy, stewardApi, handleOpen, threads, stewardDisplayLabel]);
 
   const canCreate = Boolean(
     capabilities?.methods.includes('threads.create') &&
@@ -1404,14 +1412,6 @@ export const ThreadList: React.FC<ThreadListProps> = ({
     // 与主列表一致：全部项目范围按用户最后一条消息时间倒序。
     return projectID ? rows : sortByActivityDesc(rows);
   }, [archivedThreads, projectID, query]);
-
-  const handleOpen = useCallback((thread: RemoteThreadSummary) => {
-    setOpenRowID(null);
-    if (thread.hasUnread) {
-      void updateThread(thread.id, { read: true }).catch(() => undefined);
-    }
-    onSelectThread(thread);
-  }, [onSelectThread, updateThread]);
 
   const handleOpenMessageHit = useCallback(
     (hit: RemoteMessageSearchHit) => {

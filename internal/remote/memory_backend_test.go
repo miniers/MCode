@@ -14,6 +14,24 @@ import (
 	"mcode/internal/store"
 )
 
+func TestIsProviderCrashError(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want bool
+	}{
+		{"API 错误 500: out of memory", false},
+		{"llm: API error (status 500): process exited", false},
+		{"HTTP 500: signal: killed", false},
+		{"out of memory", false},
+		{"signal: killed", true},
+		{"agy process exited with error: signal: killed", true},
+	} {
+		if got := isProviderCrashError(tc.text); got != tc.want {
+			t.Errorf("isProviderCrashError(%q) = %v，期望 %v", tc.text, got, tc.want)
+		}
+	}
+}
+
 func TestTurnTimingProjectionAndHistory(t *testing.T) {
 	started := time.Date(2026, 11, 6, 1, 2, 3, 4_000_000, time.UTC)
 	completed := started.Add(time.Second)

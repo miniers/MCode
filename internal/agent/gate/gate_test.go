@@ -202,6 +202,7 @@ func TestOnlyReads(t *testing.T) {
 		want    bool
 	}{
 		{"ls", true}, {"git status", true}, {"cat a", true}, {"ls > out", false}, {"cat a | tee b", false}, {"rm a", false}, {"git push", false},
+		{"uniq a b", false}, {"sort --compress-program=sh x", false}, {"sort --compress-program sh x", false}, {"sort -T /tmp x", false}, {"sort -nT /tmp x", false}, {"sort --temporary-directory=/tmp x", false}, {"sort file", true}, {"grep x file", true},
 		{"find . -delete", false}, {"find . -exec rm {} \\;", false}, {"rg --pre=sh x", false}, {"sort -o out in", false}, {"tree -o out.txt .", false}, {"tree --output=out.txt .", false}, {"tree -L 2 .", true}, {"git branch -D x", false}, {"git diff --output=out", false}, {"git worktree list", true}, {"git branch --list", true}, {"echo 'a; b'", true}, {"echo x 2>/dev/null", true}, {"cat a 2>&1 | head", true}, {"echo $(rm a)", false}, {"echo x & rm a", false},
 	} {
 		if got := onlyReads(tc.command); got != tc.want {

@@ -148,6 +148,45 @@ func (s *Service) DeleteTask(ctx context.Context, taskID string, expectedRevisio
 			return ErrInvalidTransition
 		}
 	}
+	tasks, err := s.opts.Store.ListTasks(ctx, "")
+	if err != nil {
+		return err
+	}
+	for _, other := range tasks {
+		if other.ID == taskID {
+			continue
+		}
+		modified := false
+		deps := make([]string, 0, len(other.DependsOn))
+		for _, id := range other.DependsOn {
+			if id == taskID {
+				modified = true
+			} else {
+				deps = append(deps, id)
+			}
+		}
+		meta, err := ParseTaskMeta(other.Meta)
+		if err != nil {
+			return err
+		}
+		children := make([]string, 0, len(meta.Children))
+		for _, id := range meta.Children {
+			if id == taskID {
+				modified = true
+			} else {
+				children = append(children, id)
+			}
+		}
+		if modified {
+			other.DependsOn, meta.Children = deps, children
+			other.Meta = EncodeTaskMeta(meta)
+			if _, err := s.opts.Store.UpdateTask(ctx, other, other.Revision); err != nil {
+				return err
+			}
+			s.revision.Add(1)
+			changed = true
+		}
+	}
 	// goal_tasks 由外键级联清理，删除自身也必须执行 CAS。
 	if err := s.opts.Store.SupersedeOpenDecisionsForTask(ctx, taskID); err != nil {
 		return err

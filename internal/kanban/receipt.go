@@ -424,6 +424,11 @@ func (s *Service) applyExecutorResult(ctx context.Context, t *store.Task, res Ex
 	if res.Status == "" {
 		return nil
 	}
+	if res.Status == ResultDone || res.Status == ResultFailed {
+		if err := s.closeTaskDecisions(ctx, t); err != nil {
+			return err
+		}
+	}
 	meta, err := ParseTaskMeta(t.Meta)
 	if err != nil {
 		return err

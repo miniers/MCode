@@ -276,7 +276,7 @@ func onlyReads(command string) bool {
 		return false
 	}
 	pieces = append(pieces, text[start:])
-	safe := " ls cat head tail wc grep rg find tree du stat file pwd echo which sort uniq diff cd "
+	safe := " ls cat head tail wc grep rg find tree du stat file pwd echo which sort diff cd "
 	git := " status log diff show blame branch ls-files "
 	branch := " -a -r -v -vv --list --all --remotes --show-current --verbose --contains --merged --no-merged "
 	find := " -delete -exec -execdir -ok -okdir -fprint -fprint0 -fprintf -fls "
@@ -313,7 +313,8 @@ func onlyReads(command string) bool {
 		}
 		// 拒绝 rg、sort、tree 和 find 中可执行命令或写文件的参数。
 		for _, a := range t[1:] {
-			if p == "rg" && (a == "--pre" || strings.HasPrefix(a, "--pre=")) || p == "sort" && (strings.HasPrefix(a, "-o") || strings.HasPrefix(a, "--output")) || p == "tree" && (strings.HasPrefix(a, "-o") || strings.HasPrefix(a, "--output")) || p == "find" && strings.Contains(find, " "+a+" ") {
+			sortShortWrite := p == "sort" && strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a[1:], "oT")
+			if p == "rg" && (a == "--pre" || strings.HasPrefix(a, "--pre=")) || p == "sort" && (sortShortWrite || strings.HasPrefix(a, "--output") || strings.HasPrefix(a, "--temporary-directory") || strings.HasPrefix(a, "--compress-program")) || p == "tree" && (strings.HasPrefix(a, "-o") || strings.HasPrefix(a, "--output")) || p == "find" && strings.Contains(find, " "+a+" ") {
 				return false
 			}
 		}

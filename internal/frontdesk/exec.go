@@ -3,6 +3,7 @@ package frontdesk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -63,11 +64,17 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 	for i := 0; i < rounds; i++ {
 		resp, text, err := d.stream(ctx, req)
 		if err != nil || resp == nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
 			if err == nil {
 				err = fmt.Errorf("模型返回空响应")
 			}
 			log.Printf("frontdesk: 模型失败：%v", err)
-			return d.fallback(ctx, in, snap, err)
+			return d.fallback(ctx, in, snap, fmt.Errorf("%w: %w", errModelUnavailable, err))
 		}
 		dirty := false
 		for _, call := range resp.Message.ToolCalls {

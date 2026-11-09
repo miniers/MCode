@@ -3,6 +3,7 @@ package kanban
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -231,15 +232,23 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 	for i, t := range tasks {
 		if t.Status == string(TaskStatusReview) && isStewardOwnerIn(goal, t) {
 			meta, err := ParseTaskMeta(t.Meta)
-			if err != nil || meta.DecisionID != "" || g.svc.isReviewActive(ctx, t) || (g.svc.opts.IsReviewActive != nil && g.svc.opts.IsReviewActive(t.ID)) {
+			if err != nil || g.svc.isReviewActive(ctx, t) {
 				continue
+			}
+			if meta.DecisionID != "" {
+				d, err := g.svc.opts.Store.GetStewardDecision(ctx, meta.DecisionID)
+				if err != nil && !errors.Is(err, store.ErrNotFound) || err == nil && d.Status == store.DecisionStatusOpen {
+					continue
+				}
+				meta.DecisionID = ""
+				t.Meta = EncodeTaskMeta(meta)
 			}
 			if t.ReviewThreadID != nil && *t.ReviewThreadID != "" {
 				if g.svc.opts.Driver == nil {
 					continue
 				}
 				st, err := g.svc.opts.Driver.SessionState(ctx, *t.ReviewThreadID)
-				if err != nil || st.Running || st.AwaitingApproval || st.AwaitingInput {
+				if err != nil && !errors.Is(err, store.ErrNotFound) || st.Running || st.AwaitingApproval || st.AwaitingInput {
 					continue
 				}
 			}
@@ -248,7 +257,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 					continue
 				}
 				st, err := g.svc.opts.Driver.SessionState(ctx, *t.ThreadID)
-				if err != nil || st.Running || st.AwaitingApproval || st.AwaitingInput {
+				if err != nil && !errors.Is(err, store.ErrNotFound) || st.Running || st.AwaitingApproval || st.AwaitingInput {
 					continue
 				}
 			}
@@ -297,6 +306,9 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 		// 会话已恢复运行：把任务从 needs_approval 改回 in_progress
 		if st.Running {
 			if t.Status == string(TaskStatusNeedsApproval) {
+				if err := g.svc.closeTaskDecisions(ctx, &t); err != nil {
+					return err
+				}
 				t.Status = string(TaskStatusInProgress)
 				// 用户已经回复，执行会话重新跑起来，解除求助标记
 				g.svc.clearReceiptBlocked(t.ID)
@@ -308,6 +320,11 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			continue
 		}
 		if st.Failed {
+			if t.Status == string(TaskStatusNeedsApproval) {
+				if err := g.svc.closeTaskDecisions(ctx, &t); err != nil {
+					return err
+				}
+			}
 			if isStewardOwnerIn(goal, t) {
 				log.Printf("kanban: 任务 %s 执行失败: %s", t.ID, st.FailureReason)
 				res := ExecutorResult{Status: ResultFailed, Summary: "执行会话运行失败"}

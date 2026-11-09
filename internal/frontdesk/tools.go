@@ -93,11 +93,7 @@ func NewToolbox(d *Desk) *Toolbox {
 			if edit {
 				req.TargetMemoryID = a["id"]
 			}
-			p, err := d.Memory.Propose(c, req)
-			if err != nil {
-				return p, err
-			}
-			return d.Memory.Commit(c, p.ID)
+			return d.Memory.Propose(c, req)
 		}
 	}
 	add("remember", "记住用户要求", true, []string{"content"}, nil, memory(false))
@@ -163,6 +159,9 @@ func validate(t Tool, raw json.RawMessage) (map[string]string, error) {
 	}
 	for _, k := range schema.Required {
 		if strings.TrimSpace(args[k]) == "" {
+			if t.Name == "answer_decision" && k == "answer" {
+				return nil, errors.New("请给出答案")
+			}
 			return nil, fmt.Errorf("%w：缺少 %s", ErrInvalidArguments, k)
 		}
 	}

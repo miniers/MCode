@@ -13,6 +13,36 @@ type answerChannelClient struct {
 	answers chan string
 }
 
+type blockingDecisionClient struct {
+	*FakeClient
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingDecisionClient) AnswerStewardDecision(_ context.Context, _, _ string) error {
+	c.entered <- struct{}{}
+	<-c.release
+	return nil
+}
+
+func TestStewardDecisionIgnoresDuplicateSubmission(t *testing.T) {
+	client := &blockingDecisionClient{FakeClient: NewFakeClient(), entered: make(chan struct{}, 2), release: make(chan struct{})}
+	s := newChatState(client)
+	s.answerStewardDecision("D-1", "A")
+	select {
+	case <-client.entered:
+	case <-time.After(time.Second):
+		t.Fatal("提交未开始")
+	}
+	s.answerStewardDecision("D-1", "B")
+	select {
+	case <-client.entered:
+		t.Fatal("提交中再次调用了回答接口")
+	default:
+	}
+	close(client.release)
+}
+
 func (c *answerChannelClient) AnswerStewardDecision(_ context.Context, id, answer string) error {
 	c.answers <- id + " " + answer
 	return nil

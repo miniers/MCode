@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,61 @@ func TestAPISourceModelCacheExpiryAndFailure(t *testing.T) {
 	if calls != 3 {
 		t.Fatalf("请求数 = %d", calls)
 	}
+}
+
+func TestAPISourceModelCachePanicUnblocksWaiters(t *testing.T) {
+	c := newAPISourceModelCache()
+	started, release := make(chan struct{}), make(chan struct{})
+	c.fetch = func(context.Context, *http.Client, apisource.Source, string) ([]string, error) {
+		close(started)
+		<-release
+		panic("fetch failed")
+	}
+	source := apisource.Source{Kind: "panic"}
+	c.models(source, "key")
+	<-started
+	c.mu.Lock()
+	flight := c.entries[apiModelKey(source, "key")].flight
+	c.mu.Unlock()
+	result := make(chan error, 1)
+	go func() { <-flight.done; result <- flight.err }()
+	close(release)
+	select {
+	case err := <-result:
+		if err == nil || !strings.Contains(err.Error(), "panic") {
+			t.Fatalf("刷新错误 = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("等待模型目录超时")
+	}
+}
+
+type panicSecretStore struct{ config.SecretStore }
+
+func (panicSecretStore) Get(string) (string, error) { panic("secret store failed") }
+
+func TestSourceAvailabilityRecoversPanic(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	setMcodeAgentRuntime("", nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
+	cfg := config.Defaults()
+	cfg.Providers.Presets = map[string]config.PresetProviderConfig{"deepseek": {Enabled: true}}
+	a := &sourceAvailability{}
+	a.get(harness.Kind("deepseek"), cfg, panicSecretStore{})
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		a.mu.Lock()
+		checked, running, available, reason := !a.checked.IsZero(), a.running, a.available, a.reason
+		a.mu.Unlock()
+		if checked {
+			if running || available || reason == "" {
+				t.Fatalf("检查状态：running=%v available=%v reason=%q", running, available, reason)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("后台检查未结束")
 }
 
 func TestAPISourceModelCacheConcurrentAndIdentity(t *testing.T) {

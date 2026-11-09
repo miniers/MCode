@@ -109,6 +109,11 @@ func TestStewardOwnerReviewResolution(t *testing.T) {
 			thread := "steward-review"
 			seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g-steward-review", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
 				store.Task{ID: "t-steward-review", Title: "任务", Status: string(TaskStatusReview), ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner", ResultStatus: string(tc.result), DecisionID: tc.decisionID})})
+			if tc.decisionID != "" {
+				if _, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "t-steward-review", Question: "继续？"}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			driver.setThreadState(thread, SessionState{Running: tc.running})
 
 			scheduler.Tick(ctx)

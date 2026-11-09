@@ -562,6 +562,7 @@ func Open(opts Options) (*App, error) {
 		Store:       dbStore,
 		Git:         gitRunner,
 		Driver:      backend,
+		StopSession: func(ctx context.Context, id string) error { _, err := backend.InterruptCurrent(ctx, id); return err },
 		Projects:    backend,
 		WorktreeDir: filepath.Join(opts.DataDir, "worktrees"),
 		DataDir:     opts.DataDir,

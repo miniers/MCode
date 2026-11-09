@@ -139,6 +139,7 @@ type Options struct {
 	Store       *store.Store
 	Git         *git.Runner
 	Driver      SessionDriver
+	StopSession func(ctx context.Context, threadID string) error
 	Projects    ProjectResolver
 	Planner     Planner
 	WorktreeDir string
@@ -479,6 +480,16 @@ func (s *Service) MoveTask(ctx context.Context, taskID string, status TaskStatus
 		return store.Task{}, ErrInvalidTransition
 	}
 
+	if status == TaskStatusCancelled && task.Status == string(TaskStatusInProgress) && task.ThreadID != nil && *task.ThreadID != "" && s.opts.StopSession != nil {
+		if err := s.opts.StopSession(ctx, *task.ThreadID); err != nil {
+			return store.Task{}, err
+		}
+	}
+	if (task.Status == string(TaskStatusNeedsApproval) && status != TaskStatusNeedsApproval) || status == TaskStatusDone || status == TaskStatusFailed || status == TaskStatusCancelled {
+		if err := s.closeTaskDecisions(ctx, &task); err != nil {
+			return store.Task{}, err
+		}
+	}
 	task.Status = string(status)
 	updated, err := s.opts.Store.UpdateTask(ctx, task, expectedRevision)
 	if err != nil {

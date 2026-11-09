@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"mcode/internal/remote/wire"
@@ -91,6 +92,8 @@ func (b *MemoryBackend) AppendStewardMessage(ctx context.Context, threadID, role
 }
 
 func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role, kind, text string, attachments []string) (wire.ThreadMessage, []string, error) {
+	b.stewardFeedMu.Lock()
+	defer b.stewardFeedMu.Unlock()
 	b.mu.Lock()
 	td, ok := b.threads[threadID]
 	if !ok {
@@ -120,13 +123,15 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 		b.mu.Unlock()
 		return wire.ThreadMessage{}, nil, errors.New("会话存储未接入")
 	}
+	b.mu.Unlock()
 	saved, err := b.store.AppendMessage(ctx, messageToStore(threadID, msg))
 	if err != nil {
-		b.mu.Unlock()
+		log.Printf("总管消息持久化失败: %v", err)
 		return wire.ThreadMessage{}, nil, err
 	}
 	seq := int(saved.Seq)
 	msg.Seq = &seq
+	b.mu.Lock()
 	td.messages = append(td.messages, msg)
 	td.persisted[msg.ID] = true
 	td.summary.UpdatedAt = msg.CreatedAt
@@ -136,11 +141,17 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 	unread := role != "user" && kind != "steward_reply" && kind != "steward_decision_answer" && !(role == "system" && kind == "steward_result")
 	if unread {
 		td.summary.HasUnread = true
-		_ = b.store.SetThreadUnread(ctx, threadID, true)
 	}
 	summary := b.summaryForPublishLocked(td)
 	b.mu.Unlock()
-	_ = b.store.TouchThread(ctx, threadID, now)
+	if unread {
+		if err := b.store.SetThreadUnread(ctx, threadID, true); err != nil {
+			log.Printf("总管未读状态持久化失败: %v", err)
+		}
+	}
+	if err := b.store.TouchThread(ctx, threadID, now); err != nil {
+		log.Printf("总管会话时间持久化失败: %v", err)
+	}
 	b.hub.Publish(threadID, []wire.ThreadMessage{msg}, nil, summary)
 	return msg, paths, nil
 }

@@ -58,6 +58,15 @@ func TestClientOpenStewardThreadEnsures(t *testing.T) {
 	if got := client.StewardThreadID(); got != id {
 		t.Fatalf("会话 ID = %q，期望 %q", got, id)
 	}
+	if err := db.SetSetting(ctx, "steward.feed_thread_id", "changed"); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.StewardThreadID(); got != id {
+		t.Fatalf("第二次读取应使用缓存，得到 %q", got)
+	}
+	if err := db.SetSetting(ctx, "steward.feed_thread_id", id); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.GetThread(ctx, id); err != nil {
 		t.Fatal(err)
 	}

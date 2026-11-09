@@ -24,6 +24,18 @@ func TestProviderModelsReturnsIndependentCapabilities(t *testing.T) {
 	}
 }
 
+func TestOpenAIEmptyRegisteredCatalogUsesSeed(t *testing.T) {
+	SetAPICatalog("openai", func() []wire.ProviderModel { return nil })
+	t.Cleanup(func() { SetAPICatalog("openai", nil) })
+	models := ProviderModels("openai")
+	for _, model := range models {
+		if model.ID == "gpt-4o" {
+			return
+		}
+	}
+	t.Fatalf("OpenAI 起始目录缺少运行默认模型：%+v", models)
+}
+
 // 非 claude/codex 的 Provider 也要给出可选模型目录，否则模型面板整列为空。
 func TestProviderModelsCoverDeclaredProviders(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

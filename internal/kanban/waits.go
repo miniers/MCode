@@ -121,7 +121,7 @@ func (s *Service) WakeParents(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if meta.WaitKind != "children" || len(meta.Children) == 0 {
+		if meta.WaitKind != "children" {
 			continue
 		}
 		lines := []string{"子任务结果"}
