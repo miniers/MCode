@@ -78,6 +78,7 @@ func newSourceEngineHarness(kind harness.Kind, cfg config.Config, secrets config
 		return err
 	}
 	availability := &sourceAvailability{}
+	availability.start(kind, cfg, secrets)
 	opts.Available = func() (bool, string) { return availability.get(kind, cfg, secrets) }
 	opts.ResolveClient = func(ctx context.Context, model, affinityKey string) (llm.Client, string, error) {
 		return resolveSourceClient(ctx, kind, cfg, secrets, model, affinityKey)

@@ -68,6 +68,11 @@ func NewToolbox(d *Desk) *Toolbox {
 	add("create_task", "创建任务", true, []string{"title"}, []string{"body", "project_id", "priority", "provider", "model"}, func(c context.Context, a map[string]string) (any, error) {
 		return d.Tasks.CreateTask(c, CreateTaskInput{Title: a["title"], Body: a["body"], ProjectID: a["project_id"], Priority: a["priority"], Provider: a["provider"], Model: a["model"], Origin: "owner"})
 	})
+	if d.Automations != nil {
+		add("create_automation", "创建定时任务：按固定节奏独立运行，不经过总管。schedule 格式为 interval:秒数、daily:HH:mm、weekdays:HH:mm、weekly:星期数字,HH:mm（0 为周日）或 cron:表达式。", true, []string{"project_id", "name", "prompt", "schedule"}, nil, func(c context.Context, a map[string]string) (any, error) {
+			return d.Automations.CreateAutomation(c, AutomationInput{ProjectID: a["project_id"], Name: a["name"], Prompt: a["prompt"], Schedule: a["schedule"]})
+		})
+	}
 	add("amend_task", "追加任务消息", true, []string{"task_id", "text"}, nil, func(c context.Context, a map[string]string) (any, error) {
 		return nil, d.Tasks.AmendTask(c, a["task_id"], a["text"])
 	})

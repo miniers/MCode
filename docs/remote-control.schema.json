@@ -14443,9 +14443,10 @@
     "RemoteStewardDecisionsListResult": {
       "type": "object",
       "properties": {
-        "decisions": { "type": "array", "items": { "$ref": "#/$defs/RemoteStewardDecision" } }
+        "decisions": { "type": "array", "items": { "$ref": "#/$defs/RemoteStewardDecision" } },
+        "total": { "type": "integer", "minimum": 0 }
       },
-      "required": ["decisions"],
+      "required": ["decisions", "total"],
       "additionalProperties": false
     },
     "RemoteStewardDecisionsListRequest": {

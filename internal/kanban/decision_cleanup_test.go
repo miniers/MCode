@@ -137,6 +137,10 @@ func TestDeleteTaskRemovesReferences(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	decision, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "dependency", Question: "继续？"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"dependency", "child", "only-child"} {
 		task, err := db.GetTask(ctx, id)
 		if err != nil {
@@ -145,6 +149,10 @@ func TestDeleteTaskRemovesReferences(t *testing.T) {
 		if err := svc.DeleteTask(ctx, id, task.Revision); err != nil {
 			t.Fatal(err)
 		}
+	}
+	decision, err = db.GetStewardDecision(ctx, decision.ID)
+	if err != nil || decision.Status != store.DecisionStatusSuperseded {
+		t.Fatalf("决策卡应作废: %+v, %v", decision, err)
 	}
 	dependent, err := db.GetTask(ctx, "dependent")
 	if err != nil || len(dependent.DependsOn) != 0 {

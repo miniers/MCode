@@ -3693,6 +3693,7 @@ export type RemoteStewardDecisionsListParams = {
 
 export type RemoteStewardDecisionsListResult = {
   decisions: Array<RemoteStewardDecision>;
+  total: number;
 };
 
 export type RemoteStewardDecisionsListRequest = {

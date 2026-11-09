@@ -12,7 +12,7 @@ export async function loadOpenDecisionCount(call: UseRemoteCallResult['call']): 
   const params: RemoteStewardDecisionsListParams = { status: 'open', limit: 200 };
   try {
     const result = await call<RemoteStewardDecisionsListResult>(REMOTE_STEWARD_DECISIONS_LIST_METHOD, params);
-    return result.decisions.filter((decision) => decision.status === 'open').length;
+    return typeof result.total === 'number' ? result.total : result.decisions.filter((decision) => decision.status === 'open').length;
   } catch (error) {
     if (error instanceof RpcError && error.code === -32601) return null;
     throw error;

@@ -14,5 +14,7 @@ const call: UseRemoteCallResult['call'] = async <T>(method: string, params?: unk
   return { decisions: [decision('open'), decision('answered'), decision('ignored'), decision('superseded'), decision('open')] } as T;
 };
 if (await loadOpenDecisionCount(call) !== 2) throw new Error('只应统计 open 决策');
+const withTotal: UseRemoteCallResult['call'] = async <T>(): Promise<T> => ({ decisions: [decision('open')], total: 300 }) as T;
+if (await loadOpenDecisionCount(withTotal) !== 300) throw new Error('应优先使用总数');
 const unsupported: UseRemoteCallResult['call'] = async () => { throw new RpcError(-32601, 'Method not found'); };
 if (await loadOpenDecisionCount(unsupported) !== null) throw new Error('方法不存在时应返回不支持');

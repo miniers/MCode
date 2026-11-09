@@ -163,6 +163,9 @@ func wireFrontdesk(a *App, dataDir string) {
 		}
 		return current.Orchestration.Steward.CLIFallback, current.Orchestration.Steward.Provider
 	}}
+	if a.automation != nil {
+		desk.Automations = frontdeskAutomation{service: a.automation, store: a.store}
+	}
 	a.backend.SetStewardDesk(frontdeskReceiver{store: a.store, dataDir: dataDir, desk: desk})
 	a.kanban.SetOnResult(frontdeskResultHandler(a, dataDir))
 }

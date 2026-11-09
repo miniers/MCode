@@ -179,10 +179,14 @@ func (s *Store) ReanswerStewardDecision(ctx context.Context, id, answer, by stri
 }
 
 func (s *Store) SupersedeOpenDecisionsForTask(ctx context.Context, taskID string) error {
+	return supersedeOpenDecisionsForTask(ctx, s.db.ExecContext, taskID)
+}
+
+func supersedeOpenDecisionsForTask(ctx context.Context, exec func(context.Context, string, ...any) (sql.Result, error), taskID string) error {
 	if taskID == "" {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE steward_decisions SET status = ?, updated_at = ? WHERE task_id = ? AND status = ?`,
+	_, err := exec(ctx, `UPDATE steward_decisions SET status = ?, updated_at = ? WHERE task_id = ? AND status = ?`,
 		DecisionStatusSuperseded, formatTime(time.Now().UTC()), taskID, DecisionStatusOpen)
 	return err
 }

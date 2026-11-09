@@ -17,7 +17,8 @@ import (
 // KindStewardReply 标识前台回复消息。
 const KindStewardReply = "steward_reply"
 
-const messageTimeout = 3 * time.Minute
+var messageTimeout = 3 * time.Minute
+var messageGrace = 10 * time.Second
 
 var errModelUnavailable = errors.New("前台模型不可用")
 
@@ -74,6 +75,7 @@ type Desk struct {
 	Decisions      DecisionService
 	Memory         MemoryService
 	Projects       ProjectService
+	Automations    AutomationService
 	ProjectPath    string
 	Now            func() time.Time
 	MaxRounds      int
@@ -86,6 +88,23 @@ type Desk struct {
 	running        bool
 	recentAnswerID string
 	recentAnswerAt time.Time
+	handle         func(context.Context, Inbound) error
+}
+
+type messageFeed struct {
+	FeedStore
+	mu     sync.Mutex
+	closed bool
+}
+
+func (f *messageFeed) AppendAssistant(ctx context.Context, threadID, kind, text string) error {
+	f.mu.Lock()
+	if f.closed {
+		f.mu.Unlock()
+		return context.DeadlineExceeded
+	}
+	f.mu.Unlock()
+	return f.FeedStore.AppendAssistant(ctx, threadID, kind, text)
 }
 
 // Inbound 描述一条收到的消息。
@@ -180,7 +199,53 @@ func (d *Desk) Enqueue(in Inbound) {
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), messageTimeout)
 				defer cancel()
-				if err := d.HandleMessage(ctx, next); err != nil {
+				// 每条消息使用独立的回复入口，超时后拒绝迟到的写入。
+				feed := &messageFeed{FeedStore: d.Feed}
+				d.mu.Lock()
+				worker := &Desk{Client: d.Client, Model: d.Model, Tools: d.Tools, Feed: feed, Tasks: d.Tasks, Decisions: d.Decisions, Memory: d.Memory, Projects: d.Projects, Automations: d.Automations, ProjectPath: d.ProjectPath, Now: d.Now, MaxRounds: d.MaxRounds, CLIFallback: d.CLIFallback, Settings: d.Settings, Generator: d.Generator, CLIOptions: d.CLIOptions, recentAnswerID: d.recentAnswerID, recentAnswerAt: d.recentAnswerAt}
+				if d.Feed == nil {
+					worker.Feed = nil
+				}
+				d.mu.Unlock()
+				done := make(chan error, 1)
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("frontdesk: 处理消息 panic：%v", r)
+							done <- errors.New("处理消息异常")
+						}
+					}()
+					if d.handle != nil {
+						done <- d.handle(ctx, next)
+					} else {
+						done <- worker.HandleMessage(ctx, next)
+					}
+				}()
+				var err error
+				select {
+				case err = <-done:
+				case <-ctx.Done():
+					timer := time.NewTimer(messageGrace)
+					select {
+					case err = <-done:
+						timer.Stop()
+					case <-timer.C:
+						feed.mu.Lock()
+						feed.closed = true
+						feed.mu.Unlock()
+						log.Printf("frontdesk: 处理消息超时，放弃等待")
+						d.reply(context.Background(), next.ThreadID, "处理超时，请重试")
+						return
+					}
+				}
+				worker.mu.Lock()
+				d.mu.Lock()
+				if worker.recentAnswerAt.After(d.recentAnswerAt) {
+					d.recentAnswerID, d.recentAnswerAt = worker.recentAnswerID, worker.recentAnswerAt
+				}
+				d.mu.Unlock()
+				worker.mu.Unlock()
+				if err != nil {
 					log.Printf("frontdesk: %v", err)
 					message := "任务未能保存，请重试"
 					if errors.Is(err, context.DeadlineExceeded) {

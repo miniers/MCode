@@ -115,51 +115,79 @@ func (c *apiSourceModelCache) refresh(ctx context.Context, source apisource.Sour
 }
 
 // sourceAvailability 在后台探测凭据，避免列表读取等待钥匙串。
+var firstAvailabilityWait = 300 * time.Millisecond
+
 type sourceAvailability struct {
 	mu        sync.Mutex
 	checked   time.Time
 	running   bool
+	done      chan struct{}
 	available bool
 	reason    string
+	probe     func() (bool, string)
 }
 
-func (a *sourceAvailability) get(kind harness.Kind, cfg config.Config, secrets config.SecretStore) (bool, string) {
+func (a *sourceAvailability) start(kind harness.Kind, cfg config.Config, secrets config.SecretStore) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if !a.running && time.Since(a.checked) >= time.Minute {
 		a.running = true
+		a.done = make(chan struct{})
+		done := a.done
 		go func() {
 			defer func() {
+				a.mu.Lock()
+				defer a.mu.Unlock()
 				if r := recover(); r != nil {
 					log.Printf("来源可用性检查 panic：%v", r)
-					a.mu.Lock()
-					a.running = false
 					a.checked = time.Now()
 					a.available = false
 					a.reason = "来源可用性检查失败"
-					a.mu.Unlock()
 				}
+				a.running = false
+				close(done)
 			}()
-			current := mcodeCurrentConfig(cfg, secrets)
-			store := mcodeCurrentSecrets(secrets)
-			source, ok := findAPISource(apisource.Resolve(current, store), kind)
-			usable := ok && beeSourceUsable(source, store)
+			var usable bool
 			reason := ""
-			if !ok {
-				reason = fmt.Sprintf("来源 %s 未启用或已删除", kind)
-			} else if !usable {
-				reason = "未配置 API Key"
+			if a.probe != nil {
+				usable, reason = a.probe()
+			} else {
+				current := mcodeCurrentConfig(cfg, secrets)
+				store := mcodeCurrentSecrets(secrets)
+				source, ok := findAPISource(apisource.Resolve(current, store), kind)
+				usable = ok && beeSourceUsable(source, store)
+				if !ok {
+					reason = fmt.Sprintf("来源 %s 未启用或已删除", kind)
+				} else if !usable {
+					reason = "未配置 API Key"
+				}
 			}
 			a.mu.Lock()
 			a.available = usable
 			a.reason = reason
 			a.checked = time.Now()
-			a.running = false
 			a.mu.Unlock()
 		}()
 	}
+}
+
+func (a *sourceAvailability) get(kind harness.Kind, cfg config.Config, secrets config.SecretStore) (bool, string) {
+	a.start(kind, cfg, secrets)
+	a.mu.Lock()
 	if a.checked.IsZero() {
-		// 首次读取先按可用处理，避免启动时整列来源闪成不可用；后台检查完成后由下一次读取纠正。
+		done := a.done
+		a.mu.Unlock()
+		timer := time.NewTimer(firstAvailabilityWait)
+		select {
+		case <-done:
+		case <-timer.C:
+		}
+		timer.Stop()
+		a.mu.Lock()
+	}
+	defer a.mu.Unlock()
+	if a.checked.IsZero() {
+		// 检查超时后先按可用处理，避免启动时整列来源闪成不可用；后台检查完成后由下一次读取纠正。
 		return true, ""
 	}
 	return a.available, a.reason

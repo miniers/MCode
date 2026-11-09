@@ -56,13 +56,26 @@ func TestStewardDecisionAnswerDispatcher(t *testing.T) {
 	if !found {
 		t.Fatal("capabilities 缺少答卡方法")
 	}
-	params, err := json.Marshal(map[string]string{"id": "D-0001", "answer": strings.Repeat("a", maxStewardAnswerBytes+1)})
+	params, err := json.Marshal(map[string]string{"id": "D-0001", "answer": strings.Repeat("a", maxStewardAnswerRunes+1)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","method":"steward.decisions.answer","params":`+string(params)+`,"id":3}`)
 	if resp.Error == nil || resp.Error.Code != wire.InvalidParams {
 		t.Fatalf("超长回答未拒绝: %+v", resp.Error)
+	}
+	for _, n := range []int{maxStewardAnswerRunes, maxStewardAnswerRunes + 1} {
+		params, err := json.Marshal(map[string]string{"id": "D-0001", "answer": strings.Repeat("汉", n)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := callExtension(t, d, conn, `{"jsonrpc":"2.0","method":"steward.decisions.answer","params":`+string(params)+`,"id":4}`)
+		if n == maxStewardAnswerRunes && (resp.Error != nil || desk.answer != strings.Repeat("汉", n)) {
+			t.Fatalf("有效长度回答未接受: %+v", resp.Error)
+		}
+		if n > maxStewardAnswerRunes && (resp.Error == nil || resp.Error.Code != wire.InvalidParams) {
+			t.Fatalf("超长回答未拒绝: %+v", resp.Error)
+		}
 	}
 }
 
@@ -117,6 +130,7 @@ func TestStewardDecisionsListRPC(t *testing.T) {
 		{Question: "一", OptionsJSON: `[{"key":"A","text":"选项"}]`, CreatedAt: answeredAt},
 		{Question: "二", OptionsJSON: `无效`, CreatedAt: answeredAt.Add(time.Second)},
 		{Question: "三", Status: store.DecisionStatusAnswered, Answer: "A", AnsweredAt: &answeredAt, CreatedAt: answeredAt.Add(2 * time.Second)},
+		{Question: "四", CreatedAt: answeredAt.Add(-time.Second)},
 	} {
 		if _, err := st.CreateStewardDecision(ctx, decision); err != nil {
 			t.Fatal(err)
@@ -148,11 +162,15 @@ func TestStewardDecisionsListRPC(t *testing.T) {
 		return result
 	}
 	open := call(`{"status":"open"}`).Decisions
-	if len(open) != 2 || len(open[1].Options) != 1 || open[1].Options[0].Key != "A" || open[1].Options[0].Text != "选项" {
+	if len(open) != 3 || len(open[1].Options) != 1 || open[1].Options[0].Key != "A" || open[1].Options[0].Text != "选项" {
 		t.Fatalf("unexpected open decisions: %+v", open)
 	}
 	if open[0].Options == nil || len(open[0].Options) != 0 || open[0].AnsweredAt != nil {
 		t.Fatalf("unexpected malformed options or answeredAt: %+v", open[0])
+	}
+	openLimited := call(`{"status":"open","limit":1}`)
+	if len(openLimited.Decisions) != 1 || openLimited.Total != 3 {
+		t.Fatalf("unexpected open total: %+v", openLimited)
 	}
 	limited := call(`{"limit":1}`).Decisions
 	if len(limited) != 1 || limited[0].AnsweredAt == nil || *limited[0].AnsweredAt != "2026-11-08T10:00:00Z" {

@@ -203,9 +203,7 @@ func TestSourceAvailabilityFirstReadAndBackgroundCheck(t *testing.T) {
 	}
 
 	disabled := &sourceAvailability{}
-	if ok, reason := disabled.get(harness.Kind("custom-missing"), cfg, secrets); !ok || reason != "" {
-		t.Fatalf("首次读取 = %v, %q，期望按可用处理", ok, reason)
-	}
+	disabled.get(harness.Kind("custom-missing"), cfg, secrets)
 	waitChecked(t, disabled)
 	if ok, reason := disabled.get(harness.Kind("custom-missing"), cfg, secrets); ok || reason == "" {
 		t.Fatalf("未启用来源 = %v, %q，期望不可用且有原因", ok, reason)

@@ -206,6 +206,7 @@ func (s *Service) DeleteTask(ctx context.Context, taskID string, expectedRevisio
 	if err != nil {
 		return err
 	}
+	var updates []store.Task
 	for _, other := range tasks {
 		if other.ID == taskID {
 			continue
@@ -234,18 +235,11 @@ func (s *Service) DeleteTask(ctx context.Context, taskID string, expectedRevisio
 		if modified {
 			other.DependsOn, meta.Children = deps, children
 			other.Meta = EncodeTaskMeta(meta)
-			if _, err := s.opts.Store.UpdateTask(ctx, other, other.Revision); err != nil {
-				return err
-			}
-			s.revision.Add(1)
-			changed = true
+			updates = append(updates, other)
 		}
 	}
 	// goal_tasks 由外键级联清理，删除自身也必须执行 CAS。
-	if err := s.opts.Store.SupersedeOpenDecisionsForTask(ctx, taskID); err != nil {
-		return err
-	}
-	if err := s.opts.Store.DeleteTask(ctx, taskID, task.Revision); err != nil {
+	if err := s.opts.Store.DeleteTaskCascade(ctx, taskID, task.Revision, updates); err != nil {
 		return err
 	}
 

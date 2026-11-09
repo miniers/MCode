@@ -309,6 +309,15 @@ func (s *Store) ListTasks(ctx context.Context, projectID string) ([]Task, error)
 // UpdateTask 执行 CAS 乐观并发更新。
 // 更新成功时版本号自增 1 并返回新记录。受影响行数为 0 时检查是否存在：不存在返回 ErrNotFound，存在则返回 ErrRevisionConflict。
 func (s *Store) UpdateTask(ctx context.Context, t Task, expectedRevision int) (Task, error) {
+	return updateTask(ctx, s.db, t, expectedRevision)
+}
+
+type taskExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func updateTask(ctx context.Context, db taskExecutor, t Task, expectedRevision int) (Task, error) {
 	now := time.Now().UTC()
 	t.UpdatedAt = now
 	if t.Meta == "" {
@@ -353,7 +362,7 @@ func (s *Store) UpdateTask(ctx context.Context, t Task, expectedRevision int) (T
 	RETURNING created_at
 	`
 	var createdAt string
-	err = s.db.QueryRowContext(ctx, query,
+	err = db.QueryRowContext(ctx, query,
 		t.ProjectID,
 		t.ThreadID,
 		t.ReviewThreadID,
@@ -384,7 +393,7 @@ func (s *Store) UpdateTask(ctx context.Context, t Task, expectedRevision int) (T
 
 	if errors.Is(err, sql.ErrNoRows) {
 		var exists int
-		err := s.db.QueryRowContext(ctx, "SELECT 1 FROM tasks WHERE id = ?", t.ID).Scan(&exists)
+		err := db.QueryRowContext(ctx, "SELECT 1 FROM tasks WHERE id = ?", t.ID).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, ErrNotFound
 		}
@@ -402,6 +411,43 @@ func (s *Store) UpdateTask(ctx context.Context, t Task, expectedRevision int) (T
 	}
 	t.Revision = expectedRevision + 1
 	return t, nil
+}
+
+// DeleteTaskCascade 在同一事务中清理引用、关闭决策卡并删除任务。
+func (s *Store) DeleteTaskCascade(ctx context.Context, taskID string, expectedRevision int, updates []Task) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, task := range updates {
+		if _, err := updateTask(ctx, tx, task, task.Revision); err != nil {
+			return err
+		}
+	}
+	if err := supersedeOpenDecisionsForTask(ctx, tx.ExecContext, taskID); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, "DELETE FROM tasks WHERE id = ? AND revision = ?", taskID, expectedRevision)
+	if err != nil {
+		return fmt.Errorf("delete task %s: %w", taskID, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		var exists int
+		err := tx.QueryRowContext(ctx, "SELECT 1 FROM tasks WHERE id = ?", taskID).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("check task existence %s: %w", taskID, err)
+		}
+		return ErrRevisionConflict
+	}
+	return tx.Commit()
 }
 
 // DeleteTask 根据 ID 删除任务。若任务不存在返回 ErrNotFound。

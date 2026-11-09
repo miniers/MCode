@@ -6,13 +6,14 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
 )
 
 const stewardDecisionsListMethod = "steward.decisions.list"
-const maxStewardAnswerBytes = 64 * 1024
+const maxStewardAnswerRunes = 65536
 
 type stewardDecisionOption struct {
 	Key  string `json:"key"`
@@ -35,6 +36,7 @@ type remoteStewardDecision struct {
 
 type stewardDecisionsListResult struct {
 	Decisions []remoteStewardDecision `json:"decisions"`
+	Total     int                     `json:"total"`
 }
 
 func init() {
@@ -67,8 +69,8 @@ func handleStewardDecisionsAnswer(ctx context.Context, d *Dispatcher, c Conn, pa
 	if strings.TrimSpace(p.ID) == "" || strings.TrimSpace(p.Answer) == "" {
 		return nil, ExtInvalidParams("Invalid params: 'id' and 'answer' are required")
 	}
-	if len(p.Answer) > maxStewardAnswerBytes {
-		return nil, ExtInvalidParams("Invalid params: 'answer' exceeds 64 KiB")
+	if utf8.RuneCountInString(p.Answer) > maxStewardAnswerRunes {
+		return nil, ExtInvalidParams("Invalid params: 'answer' exceeds 65536 characters")
 	}
 	backend, ok := d.backend.(*MemoryBackend)
 	if !ok || backend == nil {
@@ -118,6 +120,11 @@ func handleStewardDecisionsList(ctx context.Context, d *Dispatcher, c Conn, para
 	st := backend.Store()
 	if st == nil {
 		return result, nil
+	}
+	var err error
+	result.Total, err = st.CountStewardDecisions(ctx, p.Status)
+	if err != nil {
+		return nil, err
 	}
 	decisions, err := st.ListStewardDecisions(ctx, p.Status, p.Limit)
 	if err != nil {
