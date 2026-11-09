@@ -1406,7 +1406,6 @@ type presetProvidersState struct {
 	loaded      bool
 	loading     bool
 	items       []ProviderSetting
-	err         string
 
 	// 表单状态
 	editingID    string
@@ -1440,7 +1439,6 @@ func loadPresetProviders(st *SettingsState) {
 		return
 	}
 	st.presets.loading = true
-	st.presets.err = ""
 	st.mu.Unlock()
 	st.invalidate()
 
@@ -1449,10 +1447,7 @@ func loadPresetProviders(st *SettingsState) {
 		st.mu.Lock()
 		st.presets.loading = false
 		st.presets.loaded = true
-		if err != nil {
-			st.presets.err = err.Error()
-		} else {
-			st.presets.err = ""
+		if err == nil {
 			st.presets.items = presetProviderItems(list)
 		}
 		st.mu.Unlock()
@@ -1501,10 +1496,7 @@ func savePresetProvider(st *SettingsState, s ProviderSetting, apiKey string) {
 		st.presets.modelDraft = ""
 		st.presets.apiKeyDraft = ""
 		st.presets.saveErr = ""
-		if lErr != nil {
-			st.presets.err = lErr.Error()
-		} else {
-			st.presets.err = ""
+		if lErr == nil {
 			st.presets.items = presetProviderItems(list)
 			st.presets.loaded = true
 		}
@@ -1526,7 +1518,6 @@ func togglePresetProviderEnabled(st *SettingsState, s ProviderSetting, enabled b
 		st.mu.Unlock()
 		return
 	}
-	st.presets.err = ""
 	for i, item := range st.presets.items {
 		if item.ID == s.ID {
 			st.presets.items[i].Enabled = enabled
@@ -1540,7 +1531,6 @@ func togglePresetProviderEnabled(st *SettingsState, s ProviderSetting, enabled b
 		_, err := client.SaveProviderSetting(context.Background(), s, "")
 		if err != nil {
 			st.mu.Lock()
-			st.presets.err = err.Error()
 			for i, item := range st.presets.items {
 				if item.ID == s.ID {
 					st.presets.items[i].Enabled = !enabled
@@ -1556,125 +1546,13 @@ func togglePresetProviderEnabled(st *SettingsState, s ProviderSetting, enabled b
 		refreshCustomEndpointProviders(st, client)
 
 		st.mu.Lock()
-		if lErr != nil {
-			st.presets.err = lErr.Error()
-		} else {
-			st.presets.err = ""
+		if lErr == nil {
 			st.presets.items = presetProviderItems(list)
 			st.presets.loaded = true
 		}
 		st.mu.Unlock()
 		st.invalidate()
 	}()
-}
-
-// renderPresetProviders 渲染「API 供应商」预设区域：每行一个预设供应商，可编辑 BaseURL、模型与 API Key。
-func renderPresetProviders(c *ui.Context, st *SettingsState) {
-	st.mu.Lock()
-	loaded := st.presets.loaded
-	loading := st.presets.loading
-	items := make([]ProviderSetting, len(st.presets.items))
-	copy(items, st.presets.items)
-	errText := st.presets.err
-	editingID := st.presets.editingID
-	saving := st.presets.saving
-	saveErr := st.presets.saveErr
-	st.mu.Unlock()
-
-	// 首次渲染且未加载时触发加载
-	if !loaded && !loading {
-		loadPresetProviders(st)
-	}
-
-	renderSettingsSection(c, "sec-preset-providers", "API 供应商", func() {
-		// 客户端全局错误显示在区块内
-		if errText != "" {
-			ui.Row(c.Key("preset-providers-err-row")).
-				Padding(Space4, Space5).
-				Children(func() {
-					ui.Text(c, errText).
-						FontSize(TypeBody).
-						TextColor(ThemeDanger(c))
-				})
-			renderSettingsDivider(c, "div-preset-providers-err")
-		}
-
-		if len(items) == 0 {
-			ui.Row(c.Key("preset-providers-empty-row")).
-				Padding(Space4, Space5).
-				Children(func() {
-					text := "暂无预设供应商"
-					if loading || !loaded {
-						text = "正在加载供应商…"
-					}
-					ui.Text(c, text).
-						FontSize(TypeBody).
-						TextColor(ThemeSecondaryText(c))
-				})
-			return
-		}
-
-		for i, item := range items {
-			if i > 0 {
-				renderSettingsDivider(c, fmt.Sprintf("div-preset-provider-%d", i))
-			}
-			renderPresetProviderRow(c, st, item, editingID == item.ID, saving, saveErr)
-		}
-	})
-}
-
-// renderProviderAPIKeyRow 渲染 API Key 型 Provider 的行头部：左侧图标 + 名称 + 一行状态摘要，
-// 右侧固定列宽的启用开关与操作区（编辑按钮等由 controls 提供），与 CLI 型行保持列对齐。
-func renderProviderAPIKeyRow(c *ui.Context, key, id, name string, pEnabled, hasAPIKey, disabled bool, toggle func(enabled bool), controls func()) {
-	status := providerStatusSummary(providerStatusInput{Kind: providerKindAPIKey, HasAPIKey: hasAPIKey})
-	summaryColor := ThemeSecondaryText(c)
-	if !status.Ready {
-		summaryColor = ThemeWarning(c)
-	}
-	ui.Row(c.Key(key)).
-		Padding(Space4, Space5).
-		Gap(Space5).
-		AlignItems(ui.Center).
-		Children(func() {
-			ui.Row(c.Key(key + "-info")).
-				Grow(1).
-				MinWidth(160).
-				Gap(Space4).
-				AlignItems(ui.Center).
-				Children(func() {
-					ui.Icon(c, apiProviderRowIcon(id)).
-						Size(IconMD, IconMD).
-						TextColor(ThemeSecondaryText(c))
-					ui.Column(c.Key(key + "-texts")).
-						Gap(Space1).
-						Children(func() {
-							ui.Text(c, name).
-								FontSize(TypeProse).
-								FontWeight(500).
-								TextColor(ThemePrimaryText(c)).
-								SingleLine()
-							ui.Text(c, providerSubtitleText(status)).
-								FontSize(TypeFootnote).
-								TextColor(summaryColor).
-								SingleLine()
-						})
-				})
-
-			ui.Box(c.Key(key + "-switch-slot")).
-				Width(providerSwitchSlotWidth).
-				AlignItems(ui.Center).
-				Children(func() {
-					toggleFunc(
-						func(*SettingsState) (bool, bool) { return pEnabled, false },
-						func(_ *SettingsState, on bool) { toggle(on) },
-					).withDisabled(func(*SettingsState) bool { return disabled }).render(c, nil, setting{ID: key, Title: name})
-				})
-
-			ui.Row(c.Key(key + "-actions")).
-				AlignItems(ui.Center).
-				Gap(Space4).
-				Children(controls)
-		})
 }
 
 // renderCustomEndpointRow 渲染单个自定义端点的行头部：左侧图标 + 名称 + 一行状态摘要
@@ -1749,168 +1627,5 @@ func renderCustomEndpointRow(c *ui.Context, key, id, name string, ep CustomEndpo
 				AlignItems(ui.Center).
 				Gap(Space4).
 				Children(controls)
-		})
-}
-
-// renderPresetProviderRow 渲染单个预设供应商行；editing 为真时在该行下展开编辑表单。
-func renderPresetProviderRow(c *ui.Context, st *SettingsState, p ProviderSetting, editing, saving bool, saveErr string) {
-	pVal := p
-	// API Key 草稿同自定义端点：保存成功的协程会清空它，输入框绑局部变量再写回。
-	st.mu.Lock()
-	keyDraft := st.presets.apiKeyDraft
-	st.mu.Unlock()
-	renderProviderAPIKeyRow(c, "row-preset-provider-"+pVal.ID, pVal.ID, pVal.Name, pVal.Enabled, presetProviderHasAPIKey(pVal), saving,
-		func(enabled bool) { togglePresetProviderEnabled(st, pVal, enabled) },
-		func() {
-			if pVal.ID == "zai" {
-				ui.Row(c.Key("provider-tray-quota-zai")).
-					AlignItems(ui.Center).
-					Gap(Space1).
-					Children(func() {
-						ui.Text(c, "菜单栏额度").
-							FontSize(TypeCaption).
-							TextColor(ThemeSecondaryText(c))
-						toggleFunc(
-							func(*SettingsState) (bool, bool) { return trayQuotaShown(st.cfg, "zai"), false },
-							func(st *SettingsState, shown bool) { setTrayQuotaShown(st, "zai", shown) },
-						).render(c, st, setting{ID: "tray-quota-zai", Title: "菜单栏额度"})
-					})
-			}
-
-			// 编辑按钮：展开行内表单并预填当前 BaseURL 与模型
-			editBtn := ui.ButtonBase(c.Key("btn-edit-preset-"+pVal.ID)).
-				Label("编辑 "+pVal.Name).
-				Disabled(saving).
-				Radius(RadiusSM).
-				Padding(Space1, Space4).
-				Background(ThemeHover(c))
-			if editBtn.Hovered() {
-				editBtn.Background(ThemeOverlay(c, 0.15))
-			}
-			if editBtn.Clicked() {
-				st.mu.Lock()
-				st.presets.editingID = pVal.ID
-				st.presets.baseURLDraft = pVal.BaseURL
-				st.presets.modelDraft = pVal.Model
-				st.presets.apiKeyDraft = ""
-				st.presets.saveErr = ""
-				st.mu.Unlock()
-				st.invalidate()
-			}
-			editBtn.Children(func() {
-				ui.Text(c, "编辑").
-					FontSize(TypeFootnote).
-					TextColor(ThemeAccent(c))
-			})
-		})
-
-	// 余额：后端支持预付费余额的预设供应商（如 DeepSeek、Z.ai）在行下方展示余额与额度窗口。
-	renderProviderBalancePanel(c, st, pVal.ID)
-
-	if !editing {
-		return
-	}
-
-	renderSettingsDivider(c, "div-preset-provider-form-"+p.ID)
-
-	ui.Row(c.Key("row-preset-form-title")).
-		Padding(Space4, Space5, Space1, Space5).
-		Children(func() {
-			ui.Text(c, "编辑 "+p.Name).
-				FontSize(TypeProse).
-				FontWeight(600).
-				TextColor(ThemePrimaryText(c))
-		})
-
-	// 1. BaseURL 与默认模型：只有 OpenAI 兼容预设需要，原生协议预设只保存 API Key。
-	if apiProviderNeedsEndpointFields(st, "preset", p.ID) {
-		renderSettingRow(c, "row-preset-form-baseurl", "接口地址（BaseURL）", func() {
-			providerDraftInput(c, st, "input-preset-baseurl", "预设 BaseURL", providerDefaultPlaceholder(p.DefaultBaseURL), st.presets.baseURLDraft, false, func(v string) { st.presets.baseURLDraft = v })
-		})
-
-		renderSettingsDivider(c, "div-preset-form-1")
-
-		renderSettingRow(c, "row-preset-form-model", "默认模型", func() {
-			providerDraftInput(c, st, "input-preset-model", "预设默认模型", providerDefaultPlaceholder(p.DefaultModel), st.presets.modelDraft, false, func(v string) { st.presets.modelDraft = v })
-		})
-
-		renderSettingsDivider(c, "div-preset-form-2")
-	}
-
-	// 3. API Key（留空则保留已保存的 Key）
-	renderSettingRow(c, "row-preset-form-apikey", "密钥（API Key）", func() {
-		providerDraftInput(c, st, "input-preset-apikey", "预设 API Key", "留空则保留已保存的 Key", keyDraft, true, func(v string) { st.presets.apiKeyDraft = v })
-	})
-
-	// 保存错误
-	if saveErr != "" {
-		renderSettingsDivider(c, "div-preset-form-save-err")
-		ui.Row(c.Key("row-preset-form-save-err")).
-			Padding(Space3, Space5).
-			Children(func() {
-				ui.Text(c, saveErr).
-					FontSize(TypeFootnote).
-					TextColor(ThemeDanger(c))
-			})
-	}
-
-	renderSettingsDivider(c, "div-preset-form-actions")
-
-	// 操作按钮栏：“保存”“取消”
-	ui.Row(c.Key("row-preset-form-buttons")).
-		Padding(Space4, Space5).
-		Gap(Space4).
-		Children(func() {
-			// 保存按钮
-			saveBtnText := "保存"
-			if saving {
-				saveBtnText = "保存中…"
-			}
-			saveBtn := ui.ButtonBase(c.Key("btn-preset-save")).
-				Label(saveBtnText).
-				Radius(RadiusSM).
-				Padding(Space2, Space4).
-				Background(ThemeAccent(c)).
-				Disabled(saving)
-			if !saving && saveBtn.Hovered() {
-				saveBtn.Background(ThemeAccent(c).Alpha(0.85))
-			}
-			if !saving && saveBtn.Clicked() {
-				st.mu.Lock()
-				apiKey := st.presets.apiKeyDraft
-				st.mu.Unlock()
-				savePresetProvider(st, p, apiKey)
-			}
-			saveBtn.Children(func() {
-				ui.Text(c, saveBtnText).
-					FontSize(TypeBody).
-					TextColor(ThemeOnAccent(c))
-			})
-
-			// 取消按钮
-			cancelBtn := ui.ButtonBase(c.Key("btn-preset-cancel")).
-				Label("取消").
-				Radius(RadiusSM).
-				Padding(Space2, Space4).
-				Background(ThemeHover(c)).
-				Disabled(saving)
-			if cancelBtn.Hovered() {
-				cancelBtn.Background(ThemeOverlay(c, 0.15))
-			}
-			if cancelBtn.Clicked() {
-				st.mu.Lock()
-				st.presets.editingID = ""
-				st.presets.baseURLDraft = ""
-				st.presets.modelDraft = ""
-				st.presets.apiKeyDraft = ""
-				st.presets.saveErr = ""
-				st.mu.Unlock()
-				st.invalidate()
-			}
-			cancelBtn.Children(func() {
-				ui.Text(c, "取消").
-					FontSize(TypeBody).
-					TextColor(ThemeSecondaryText(c))
-			})
 		})
 }

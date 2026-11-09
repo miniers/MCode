@@ -35,6 +35,7 @@ func TestComposerRunningStewardDoesNotShowStop(t *testing.T) {
 			tt.Frame()
 			if got := tt.HasText("停止"); got != tc.wantStop {
 				t.Fatalf("停止按钮 = %v，期望 %v: %q", got, tc.wantStop, tt.Texts())
+			}
 		})
 	}
 }

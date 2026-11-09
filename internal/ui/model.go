@@ -267,6 +267,8 @@ type chatState struct {
 	selectedThreadID      string
 	stewardTaskThreadID   string
 	stewardTask           stewardTaskSnapshot
+	stewardTaskWatchStop  func()
+	stewardTaskLoadSeq    uint64
 	// beeBusyFrame 非 nil 时表示 renderSidebar 本帧已算好的「名下还有子代理在跑的主会话 ID」集合，
 	// 侧栏每帧对每个会话多次判定忙碌，逐次全表扫描在几千个会话时是 O(N²)。只在 UI 线程读写。
 	beeBusyFrame map[string]bool
@@ -1304,6 +1306,7 @@ func (s *chatState) selectThread(threadID string) {
 	}
 	if oldThreadID != threadID {
 		s.stashDraftLocked(oldThreadID, oldText, oldAtts)
+		stopStewardTaskWatchLocked(s)
 	}
 	s.watchSeq++
 	seq := s.watchSeq
@@ -3472,6 +3475,7 @@ func (s *chatState) archiveThread(id string) {
 		s.mu.Lock()
 		if s.selectedThreadID == id {
 			s.selectedThreadID = ""
+			stopStewardTaskWatchLocked(s)
 			s.messages = nil
 			s.messagesRev++
 			s.approvals = nil
@@ -3550,6 +3554,7 @@ func (s *chatState) forgetDeletedThread(id string) {
 	s.mu.Lock()
 	if s.selectedThreadID == id {
 		s.selectedThreadID = ""
+		stopStewardTaskWatchLocked(s)
 		s.messages = nil
 		s.messagesRev++
 		s.approvals = nil
@@ -3628,6 +3633,7 @@ func (s *chatState) confirmRemoveProject() {
 			for _, th := range threads {
 				if th.ID == s.selectedThreadID {
 					s.selectedThreadID = ""
+					stopStewardTaskWatchLocked(s)
 					s.messages = nil
 					s.messagesRev++
 					s.approvals = nil

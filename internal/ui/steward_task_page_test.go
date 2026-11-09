@@ -2,11 +2,34 @@ package mcodeui
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+type stewardTaskWatchClient struct {
+	*FakeClient
+	mu    sync.Mutex
+	stops int
+}
+
+func (f *stewardTaskWatchClient) WatchKanban(onChange func()) func() {
+	stop := f.FakeClient.WatchKanban(onChange)
+	return func() {
+		stop()
+		f.mu.Lock()
+		f.stops++
+		f.mu.Unlock()
+	}
+}
+
+func (f *stewardTaskWatchClient) stopCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stops
+}
 
 func TestParseStewardResult(t *testing.T) {
 	result, ok := parseStewardResult(`{"task":"task-1","thread":"thread-1","title":"整理任务","summary":"已完成","status":"done"}`)
@@ -31,21 +54,25 @@ func TestStewardTaskBandApprovalStatus(t *testing.T) {
 }
 
 func TestStewardTaskBandRefreshesOnKanbanChange(t *testing.T) {
-	fake := NewFakeClient()
+	fake := &stewardTaskWatchClient{FakeClient: NewFakeClient()}
+	fake.SetProjectsAndThreads([]Project{{ID: "p1", Name: "项目"}}, map[string][]Thread{
+		"p1": {{ID: "t1", ProjectID: "p1", Title: "任务线程"}, {ID: "t2", ProjectID: "p1", Title: "其他线程"}},
+	})
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{ID: "task-1", ThreadID: "t1", Status: "waiting", ResultSummary: "原状态"}}})
-	s := newChatState(fake)
+	s, view := buildRoot(fake, WithInitialThread("t1"))
 	t.Cleanup(s.close)
-	s.selectedThreadID = "t1"
-	s.stewardTaskThreadID = "t1"
-	s.stewardTask = stewardTaskSnapshot{ID: "task-1", Status: "waiting", ResultSummary: "原状态"}
-	s.startKanbanWatch("p1")
-	t.Cleanup(func() { stopKanbanWatch(s) })
-	tt := ui.NewTester(func(c *ui.Context) { renderStewardTaskBand(c, s, "t1") }, 800, 300)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("原状态") && fake.KanbanBoardCalls() >= 2 })
+	calls := fake.KanbanBoardCalls()
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{ID: "task-1", ThreadID: "t1", Status: "done", ResultSummary: "新状态"}}})
 	fake.TriggerKanbanChange()
-	waitFor(t, tt, func() bool { return tt.HasText("新状态") })
+	waitFor(t, tt, func() bool { return tt.HasText("新状态") && fake.KanbanBoardCalls() > calls })
 	if tt.HasText("原状态") {
 		t.Fatalf("任务信息带未更新: %q", tt.Texts())
+	}
+	s.selectThread("t2")
+	if got := fake.stopCount(); got != 1 {
+		t.Fatalf("切换会话后停止订阅次数 = %d，期望 1", got)
 	}
 }
 

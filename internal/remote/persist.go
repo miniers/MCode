@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"mcode/internal/harness"
@@ -935,10 +936,23 @@ func (b *MemoryBackend) persistThreadProvider(threadID, provider string) {
 	}
 }
 
+var unreadPersistLocks sync.Map
+
 // persistThreadUnread 把指定会话的未读状态写穿到 store。
 func (b *MemoryBackend) persistThreadUnread(threadID string, hasUnread bool) {
+	lock, _ := unreadPersistLocks.LoadOrStore(threadID, &sync.Mutex{})
+	mu := lock.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
 	b.mu.Lock()
 	s := b.store
+	td := b.threads[threadID]
+	if td == nil {
+		b.mu.Unlock()
+		return
+	}
+	hasUnread = td.summary.HasUnread
 	b.mu.Unlock()
 	if s == nil {
 		return

@@ -83,7 +83,30 @@ func openStewardTask(s *chatState, result stewardResult) {
 	s.selectThread(result.Thread)
 }
 
+// stopStewardTaskWatchLocked 调用方必须持有 s.mu。
+func stopStewardTaskWatchLocked(s *chatState) {
+	s.stewardTaskLoadSeq++
+	if s.stewardTaskWatchStop != nil {
+		s.stewardTaskWatchStop()
+		s.stewardTaskWatchStop = nil
+	}
+}
+
+func stopStewardTaskWatch(s *chatState) {
+	s.mu.Lock()
+	stopStewardTaskWatchLocked(s)
+	s.mu.Unlock()
+}
+
 func loadStewardTaskForThread(s *chatState, threadID string) {
+	s.mu.Lock()
+	if s.closed || s.selectedThreadID != threadID {
+		s.mu.Unlock()
+		return
+	}
+	s.stewardTaskLoadSeq++
+	seq := s.stewardTaskLoadSeq
+	s.mu.Unlock()
 	go func() {
 		board, err := s.client.KanbanBoard(context.Background(), "")
 		if err != nil {
@@ -94,7 +117,8 @@ func loadStewardTaskForThread(s *chatState, threadID string) {
 				continue
 			}
 			s.mu.Lock()
-			if !s.closed && s.selectedThreadID == threadID {
+			started := false
+			if !s.closed && s.selectedThreadID == threadID && s.stewardTaskLoadSeq == seq {
 				s.stewardTaskThreadID = threadID
 				s.stewardTask = stewardTaskSnapshot{
 					ID:            task.ID,
@@ -104,11 +128,34 @@ func loadStewardTaskForThread(s *chatState, threadID string) {
 					WaitKind:      task.WaitKind,
 					WakeAt:        task.WakeAt,
 				}
+				if s.stewardTaskWatchStop == nil {
+					s.stewardTaskWatchStop = s.client.WatchKanban(func() {
+						s.mu.Lock()
+						showing := !s.closed && s.selectedThreadID == threadID && s.stewardTaskThreadID == threadID
+						s.mu.Unlock()
+						if showing {
+							loadStewardTaskForThread(s, threadID)
+						}
+					})
+					started = true
+				}
 			}
 			s.mu.Unlock()
 			s.invalidate()
+			if started {
+				// 补拉订阅建立前可能发生的变更。
+				loadStewardTaskForThread(s, threadID)
+			}
 			return
 		}
+		s.mu.Lock()
+		if !s.closed && s.selectedThreadID == threadID && s.stewardTaskLoadSeq == seq && s.stewardTaskThreadID == threadID {
+			s.stewardTaskThreadID = ""
+			s.stewardTask = stewardTaskSnapshot{}
+			stopStewardTaskWatchLocked(s)
+		}
+		s.mu.Unlock()
+		s.invalidate()
 	}()
 }
 
