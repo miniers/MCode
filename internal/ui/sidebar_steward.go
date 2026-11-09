@@ -324,10 +324,13 @@ func renderStewardSectionAvatarBusy(c *ui.Context, key, avatar string, color ui.
 				Attach(ui.AnchorTopRight, ui.AnchorTopRight).
 				Draw(func(p *ui.Painter, r ui.Rect) {
 					// 1000ms 一轮、120ms 一帧：只重绘这颗点，与点阵图标的省帧口径一致。
-					const period, frame = 1000, 120
-					ms := int(p.Now().UnixMilli() % period)
-					p.After(time.Duration(frame-ms%frame) * time.Millisecond)
-					alpha := 0.35 + 0.65*(1-float32(ms)/period)
+					alpha := float32(1)
+					if !reduceMotion(c) {
+						const period, frame = 1000, 120
+						ms := int(p.Now().UnixMilli() % period)
+						p.After(time.Duration(frame-ms%frame) * time.Millisecond)
+						alpha = 0.35 + 0.65*(1-float32(ms)/period)
+					}
 					p.Fill(r, ringColor, 4.5)
 					p.Fill(ui.Rect{X: r.X + 1.5, Y: r.Y + 1.5, W: 6, H: 6}, color.Alpha(alpha), 3)
 				})

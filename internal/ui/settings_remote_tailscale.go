@@ -265,7 +265,7 @@ func renderRemoteCopyButton(c *ui.Context, st *SettingsState, key, label, copied
 	CopyButton(c, CopyButtonProps{
 		Key: key, Label: label, Tooltip: tooltip, Text: shown, Mode: CopyText,
 		Copied: copiedKey == key && !copiedAt.IsZero() && c.Now().Sub(copiedAt) < 1500*time.Millisecond,
-		Value: func() string { return value },
+		Value:  func() string { return value },
 		OnCopy: func() {
 			markRemoteCopied(st, key, c.Now())
 			st.invalidate()

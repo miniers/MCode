@@ -97,10 +97,10 @@ func TestMotionSystemPresetFields(t *testing.T) {
 			t.Error("弹簧预设与约定不符")
 		}
 		cases := []struct {
-			name string
-			got ui.ElementTransition
+			name           string
+			got            ui.ElementTransition
 			duration, exit time.Duration
-			enter, leave ui.Motion
+			enter, leave   ui.Motion
 		}{
 			{"popover", motionPopover(c, -4), DurBase, DurFast, ui.Motion{Y: -4, Scale: 0.98}, ui.Motion{Y: -4, Scale: 0.99}},
 			{"dialog", motionDialog(c), 0, DurSnap, ui.Motion{Y: 4, Scale: 0.98}, ui.Motion{Y: 4, Scale: 0.99}},

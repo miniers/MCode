@@ -37,4 +37,3 @@ func TestPopoverCardClosedDoesNotRender(t *testing.T) {
 		t.Fatalf("关闭的浮层渲染了 %d 次", rendered)
 	}
 }
-

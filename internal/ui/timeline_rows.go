@@ -416,7 +416,7 @@ func renderUserMessageImagePlaceholder(c *ui.Context, s *chatState, m Message, i
 		Label(name).
 		Tooltip(name).
 		Children(func() {
-			ui.Spinner(c).Size(18, 18).TextColor(ThemeSecondaryText(c))
+			LoadingIndicator(c, nil, "", 18, ThemeSecondaryText(c))
 		})
 }
 
@@ -495,14 +495,11 @@ func (s *chatState) beginMessageEnter(m Message, streaming bool, now time.Time) 
 }
 
 // animateMessageEnter 给消息行挂入场动画：Y 方向从 messageEnterShift 上落到 0、透明度从 0 淡入到 1。
-func animateMessageEnter(el ui.Element, msgID string, play bool) ui.Element {
+func animateMessageEnter(c *ui.Context, el ui.Element, msgID string, play bool) ui.Element {
 	if !play {
 		return el
 	}
-	k := el.Keyframes("msg-enter-"+msgID, []ui.Keyframe{
-		{Value: 0},
-		{At: motionUnfold, Value: 1, Ease: motionEaseStandard},
-	})
+	k := motionEnter(c, el, "msg-enter-"+msgID, 0)
 	return el.Translate(0, (1-k)*messageEnterShift).Opacity(k)
 }
 
@@ -615,7 +612,7 @@ func renderUserMessage(c *ui.Context, s *chatState, m Message) ui.Element {
 		})
 	})
 
-	return animateMessageEnter(row, m.ID, enter)
+	return animateMessageEnter(c, row, m.ID, enter)
 }
 
 // renderUserMessageToggle 渲染用户气泡内右下角的展开/收起胶囊：
@@ -2898,7 +2895,7 @@ func renderAssistantMessage(c *ui.Context, s *chatState, m Message, liveID, last
 		}
 	})
 
-	return animateMessageEnter(col, m.ID, enter)
+	return animateMessageEnter(c, col, m.ID, enter)
 }
 
 // ensureCodeBlockContainer 为助手正文的 Markdown 代码块安装带语言标题栏与复制按钮的容器（只安装一次）。
@@ -4452,11 +4449,7 @@ func renderToolChipStatus(c *ui.Context, m Message) {
 	}
 	switch shape {
 	case toolMarkerSpinner:
-		if !reduceMotion(c) {
-			ui.Spinner(c).Size(IconSM, IconSM).TextColor(color)
-			break
-		}
-		fallthrough
+		LoadingIndicator(c, nil, "", IconSM, color)
 	case toolMarkerHollow:
 		ui.Box(c).Size(IconSM, IconSM).Radius(RadiusPill).Border(Space1/4, color)
 	case toolMarkerCheck:

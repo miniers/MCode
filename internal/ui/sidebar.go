@@ -2044,7 +2044,7 @@ func renderWorktreeManageModal(c *ui.Context, s *chatState) {
 						Gap(Space2).
 						AlignItems(ui.Center).
 						Children(func() {
-							ui.Spinner(c).Size(12, 12).TextColor(ThemeAccent(c))
+							LoadingIndicator(c, nil, "", IconSM, ThemeAccent(c))
 							ui.Text(c, "扫描中…").
 								FontSize(scaledFont(TypeBody)).
 								TextColor(ThemeSecondaryText(c))

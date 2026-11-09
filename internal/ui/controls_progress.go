@@ -29,7 +29,7 @@ func ProgressBar(c *ui.Context, p ProgressBarProps) ui.Element {
 	ratio = max(0, min(1, track.AnimateTo("progress-ratio", ratio, ui.Animation{Duration: DurBase, Ease: EaseOut})))
 	return track.Children(func() {
 		if ratio > 0 {
-			ui.Box(c).Label(p.Label+" 填充").Height(p.Height).Radius(RadiusPill).
+			ui.Box(c).Label(p.Label + " 填充").Height(p.Height).Radius(RadiusPill).
 				Grow(ratio).Background(p.Fill)
 		}
 		if ratio < 1 {

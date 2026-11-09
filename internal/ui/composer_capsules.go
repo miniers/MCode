@@ -79,7 +79,7 @@ func renderComposerCapsule(c *ui.Context, s *chatState, capsule composerCapsule)
 		Height(composerCapsuleHeight).
 		Radius(composerCapsuleRadius).
 		Padding(0, Space3).
-		Transition(ui.ElementTransition{Colors: true, Duration: motionFast})
+		Transition(motionFeedback(c))
 	// 实时状态胶囊用强调色描边，普通胶囊用通用描边。
 	if capsule.Live {
 		btn.Border(Hairline, ThemeAccent(c))
@@ -129,8 +129,11 @@ func renderComposerCapsule(c *ui.Context, s *chatState, capsule composerCapsule)
 // renderComposerCapsuleLiveDot 渲染实时状态胶囊前导的脉动圆点：透明度沿用派发占位胶囊的低频三角波，
 // 每周期请求 8 次重绘，表达「进行中」；胶囊消失后本函数不再运行，动画也就自然停下。
 func renderComposerCapsuleLiveDot(c *ui.Context, capsule composerCapsule) {
-	pulse := swarmDispatchPulseAlpha(c.Now())
-	c.After(swarmDispatchPulsePeriod / swarmDispatchPulseSteps)
+	pulse := 1.0
+	if !reduceMotion(c) {
+		pulse = swarmDispatchPulseAlpha(c.Now())
+		c.After(swarmDispatchPulsePeriod / swarmDispatchPulseSteps)
+	}
 	ui.Box(c.Key(capsule.Key+"-live-dot")).
 		Size(composerCapsuleLiveDotSize, composerCapsuleLiveDotSize).
 		Radius(RadiusPill).

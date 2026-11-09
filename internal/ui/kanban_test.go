@@ -1278,6 +1278,11 @@ func TestKanbanHeaderProjectMenuClamped(t *testing.T) {
 		menu, ok = tt.Find("kanban-project-picker")
 		return ok && menu.W > 0
 	})
+	tt.Advance(DurBase + 50*time.Millisecond)
+	menu, ok = tt.Find("kanban-project-picker")
+	if !ok {
+		t.Fatal("header project menu missing after animation")
+	}
 	if menu.Y < btn.Y+btn.H {
 		t.Fatalf("菜单应锚定在按钮下方：btn=%+v menu=%+v", btn, menu)
 	}

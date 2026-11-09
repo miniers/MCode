@@ -25,7 +25,7 @@ func LoadingIndicator(c *ui.Context, key any, text string, size float32, colors 
 				dot.Label("加载中")
 			}
 			dot.Children(func() {
-				ui.Box(c).Size(size/3, size/3).Radius(size/6).Background(staticColor)
+				ui.Box(c).Size(size/3, size/3).Radius(size / 6).Background(staticColor)
 			})
 		} else {
 			ui.Spinner(c).Size(size, size).TextColor(color).Label("加载中")

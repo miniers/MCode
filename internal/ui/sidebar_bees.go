@@ -479,20 +479,27 @@ func renderRunningGlyph(c *ui.Context, key string, size float32, color ui.Color)
 		Draw(func(p *ui.Painter, r ui.Rect) {
 			// 步长 200ms（6 帧一圈 1.2s）：只重绘该图形，比 ui.Spinner 的 75ms 整窗重绘省很多。
 			const grid, period, frame = 3, 1200, 200
-			ms := int(p.Now().UnixMilli() % period)
-			p.After(time.Duration(frame-ms%frame) * time.Millisecond)
+			reduced := reduceMotion(c)
+			ms := 0
+			if !reduced {
+				ms = int(p.Now().UnixMilli() % period)
+				p.After(time.Duration(frame-ms%frame) * time.Millisecond)
+			}
 			cell := r.W / grid
 			dot := cell * 0.62
 			for row := 0; row < grid; row++ {
 				for col := 0; col < grid; col++ {
 					// 对角线序号 0..4 映射到一圈内的相位，亮点之后逐渐衰减。
-					at := float32(row+col) / float32(2*(grid-1))
-					phase := float32(ms)/period - at
-					phase -= float32(int(phase))
-					if phase < 0 {
-						phase++
+					alpha := float32(1)
+					if !reduced {
+						at := float32(row+col) / float32(2*(grid-1))
+						phase := float32(ms)/period - at
+						phase -= float32(int(phase))
+						if phase < 0 {
+							phase++
+						}
+						alpha = 0.25 + 0.75*(1-phase)
 					}
-					alpha := 0.25 + 0.75*(1-phase)
 					x := r.X + float32(col)*cell + (cell-dot)/2
 					y := r.Y + float32(row)*cell + (cell-dot)/2
 					p.Fill(ui.Rect{X: x, Y: y, W: dot, H: dot}, color.Alpha(alpha), dot*0.25)

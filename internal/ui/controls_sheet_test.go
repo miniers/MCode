@@ -21,12 +21,22 @@ func TestSheetDismissAndBounds(t *testing.T) {
 			if !ok || card.W > 400 || card.H > 300 || card.X < 0 || card.Y < 0 || card.X+card.W > 400 || card.Y+card.H > 300 {
 				t.Fatalf("卡片超出窗口：%+v，找到=%v", card, ok)
 			}
-			if err := tt.Click("卡片内容"); err != nil { t.Fatal(err) }
+			if err := tt.Click("卡片内容"); err != nil {
+				t.Fatal(err)
+			}
 			tt.Frame()
-			if !open { t.Fatal("点击卡片内部关闭了弹窗") }
-			if escape { tt.Key(0, ui.KeyEscape) } else { tt.ClickAt(1, 1) }
+			if !open {
+				t.Fatal("点击卡片内部关闭了弹窗")
+			}
+			if escape {
+				tt.Key(0, ui.KeyEscape)
+			} else {
+				tt.ClickAt(1, 1)
+			}
 			tt.Frame()
-			if open { t.Fatal("弹窗未关闭") }
+			if open {
+				t.Fatal("弹窗未关闭")
+			}
 		})
 	}
 }

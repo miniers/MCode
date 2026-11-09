@@ -260,91 +260,91 @@ func renderScriptsSheet(c *ui.Context, s *chatState) {
 	note := scriptsSheetValidation(rows)
 	Sheet(c, SheetProps{Key: modalDragScriptsSheet, PanelKey: "scripts-sheet", PanelLabel: "scripts-sheet", CardKey: "scripts-sheet-card", Label: "scripts-sheet-card", Open: &open, Width: width, Height: height}, func() {
 		ui.Column(c).FillWidth().Grow(1).Padding(Space6).Gap(Space4).Children(func() {
-				// 标题行同时是弹窗的拖拽把手。
-				modalDragHandle(c, modalDragScriptsSheet, ui.Row(c.Key("scripts-sheet-header")).
-					FillWidth().
-					AlignItems(ui.Center).
-					Children(func() {
-						ui.Column(c.Key("scripts-sheet-header-text")).Gap(Space0).Grow(1).Children(func() {
-							ui.Text(c, "项目脚本").
-								FontSize(TypeTitle).
-								FontWeight(600).
-								TextColor(ThemePrimaryText(c))
-						})
-						Button(c.Key("scripts-sheet-header-cancel"), ButtonOpts{
-							Text:  "取消",
-							Label: "取消脚本编辑",
-							OnClick: func() {
-								closeScriptsSheet(s)
-							},
-							Variant: ButtonSecondary,
-						})
-					}))
-
-				if loading {
-					ui.Text(c, "正在加载项目脚本…").
-						FontSize(TypeFootnote).
-						TextColor(ThemeSecondaryText(c))
-				} else if len(rows) == 0 {
-					ui.Text(c, "还没有脚本，点「添加脚本」新建一个。").
-						FontSize(TypeFootnote).
-						TextColor(ThemeSecondaryText(c))
-				}
-
-				ui.Scroll(c.Key("scripts-sheet-scroll")).
-					FillWidth().
-					Grow(1).
-					MinHeight(0).
-					Children(func() {
-						ui.Column(c.Key("scripts-sheet-list")).
-							FillWidth().
-							Gap(Space3).
-							Children(func() {
-								for i, row := range rows {
-									renderScriptsSheetRow(c, s, i, row)
-								}
-							})
+			// 标题行同时是弹窗的拖拽把手。
+			modalDragHandle(c, modalDragScriptsSheet, ui.Row(c.Key("scripts-sheet-header")).
+				FillWidth().
+				AlignItems(ui.Center).
+				Children(func() {
+					ui.Column(c.Key("scripts-sheet-header-text")).Gap(Space0).Grow(1).Children(func() {
+						ui.Text(c, "项目脚本").
+							FontSize(TypeTitle).
+							FontWeight(600).
+							TextColor(ThemePrimaryText(c))
 					})
-
-				if errText != "" {
-					ui.Text(c, errText).
-						FontSize(TypeFootnote).
-						TextColor(ThemeDanger(c))
-				} else if note != "" {
-					ui.Text(c, note).
-						FontSize(TypeFootnote).
-						TextColor(ThemeSecondaryText(c))
-				}
-
-				ui.Row(c.Key("scripts-sheet-footer")).
-					FillWidth().
-					AlignItems(ui.Center).
-					Gap(Space3).
-					Children(func() {
-						Button(c.Key("scripts-sheet-add"), ButtonOpts{
-							Icon:  IconPlus(),
-							Text:  "添加脚本",
-							Label: "添加脚本",
-							OnClick: func() {
-								addScriptsSheetRow(s)
-							},
-							Variant: ButtonSecondary,
-						})
-						ui.Box(c.Key("scripts-sheet-footer-spacer")).Grow(1)
-						saveText := "保存"
-						if saving {
-							saveText = "保存中…"
-						}
-						Button(c.Key("scripts-sheet-save"), ButtonOpts{
-							Text:     saveText,
-							Label:    "保存脚本",
-							Disabled: saving || loading || (len(rows) > 0 && note != ""),
-							OnClick: func() {
-								saveScriptsSheet(s)
-							},
-							Variant: ButtonPrimary,
-						})
+					Button(c.Key("scripts-sheet-header-cancel"), ButtonOpts{
+						Text:  "取消",
+						Label: "取消脚本编辑",
+						OnClick: func() {
+							closeScriptsSheet(s)
+						},
+						Variant: ButtonSecondary,
 					})
+				}))
+
+			if loading {
+				ui.Text(c, "正在加载项目脚本…").
+					FontSize(TypeFootnote).
+					TextColor(ThemeSecondaryText(c))
+			} else if len(rows) == 0 {
+				ui.Text(c, "还没有脚本，点「添加脚本」新建一个。").
+					FontSize(TypeFootnote).
+					TextColor(ThemeSecondaryText(c))
+			}
+
+			ui.Scroll(c.Key("scripts-sheet-scroll")).
+				FillWidth().
+				Grow(1).
+				MinHeight(0).
+				Children(func() {
+					ui.Column(c.Key("scripts-sheet-list")).
+						FillWidth().
+						Gap(Space3).
+						Children(func() {
+							for i, row := range rows {
+								renderScriptsSheetRow(c, s, i, row)
+							}
+						})
+				})
+
+			if errText != "" {
+				ui.Text(c, errText).
+					FontSize(TypeFootnote).
+					TextColor(ThemeDanger(c))
+			} else if note != "" {
+				ui.Text(c, note).
+					FontSize(TypeFootnote).
+					TextColor(ThemeSecondaryText(c))
+			}
+
+			ui.Row(c.Key("scripts-sheet-footer")).
+				FillWidth().
+				AlignItems(ui.Center).
+				Gap(Space3).
+				Children(func() {
+					Button(c.Key("scripts-sheet-add"), ButtonOpts{
+						Icon:  IconPlus(),
+						Text:  "添加脚本",
+						Label: "添加脚本",
+						OnClick: func() {
+							addScriptsSheetRow(s)
+						},
+						Variant: ButtonSecondary,
+					})
+					ui.Box(c.Key("scripts-sheet-footer-spacer")).Grow(1)
+					saveText := "保存"
+					if saving {
+						saveText = "保存中…"
+					}
+					Button(c.Key("scripts-sheet-save"), ButtonOpts{
+						Text:     saveText,
+						Label:    "保存脚本",
+						Disabled: saving || loading || (len(rows) > 0 && note != ""),
+						OnClick: func() {
+							saveScriptsSheet(s)
+						},
+						Variant: ButtonPrimary,
+					})
+				})
 		})
 		modalResizeGrips(c, modalDragScriptsSheet, width, height)
 	})

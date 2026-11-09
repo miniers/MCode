@@ -1096,6 +1096,7 @@ func renderImageAttachmentCard(c *ui.Context, s *chatState, a composerAttachment
 	}
 
 	card := ui.Row(c.Key("composer-attach-" + a.LocalID)).
+		Transition(motionListItem(c)).
 		Width(composerAttachThumbSize).
 		Height(composerAttachThumbSize).
 		Radius(RadiusMD).
@@ -1155,13 +1156,6 @@ func renderImageAttachmentCard(c *ui.Context, s *chatState, a composerAttachment
 		reveal := card.Hovered() || card.FocusWithin()
 		renderAttachmentRemoveButton(c, s, a, sending, true, reveal)
 	})
-
-	// 入场：附件首次出现时从 95% 缩放与全透明过渡到原尺寸；以附件 ID 为键，Keyframes 只播一次。
-	k := card.Keyframes("composer-attach-enter-"+a.LocalID, []ui.Keyframe{
-		{Value: 0},
-		{At: motionPop, Value: 1, Ease: motionEaseStandard},
-	})
-	card.Scale(0.95+0.05*k, 0.95+0.05*k).Opacity(k)
 }
 
 // openComposerAttachmentPreview 打开附件缩略图的放大浮层：
@@ -1243,11 +1237,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 			// 附件 token 估算超限提示（实时计算，非临时通知，与拒绝提示同样式）
 			if tokenNotice != "" {
 				ui.Row(c.Key("composer-attachment-token-notice")).
-					Transition(ui.ElementTransition{
-						Duration: 160 * time.Millisecond,
-						Enter:    &ui.Motion{Opacity: 0},
-						Exit:     &ui.Motion{Opacity: 0},
-					}).
+					Transition(motionListItem(c)).
 					Gap(Space2).
 					Padding(Space0, Space3, Space0, Space3).
 					Radius(RadiusLG).
@@ -1263,12 +1253,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 			// 超限或类型错误提示横幅（居于胶囊行上方，4秒过期后自动消失）
 			if notice != "" {
 				ui.Row(c.Key("composer-attachment-notice")).
-					// 超限提示淡入淡出，不再瞬间出现和消失。
-					Transition(ui.ElementTransition{
-						Duration: 160 * time.Millisecond,
-						Enter:    &ui.Motion{Opacity: 0},
-						Exit:     &ui.Motion{Opacity: 0},
-					}).
+					Transition(motionListItem(c)).
 					Gap(Space2).
 					Padding(Space0, Space3, Space0, Space3).
 					Radius(RadiusLG).
@@ -1300,6 +1285,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 							}
 
 							ui.Row(c.Key("composer-attach-"+a.LocalID)).
+								Transition(motionListItem(c)).
 								Gap(Space2).
 								Padding(Space0, Space3, Space0, Space3).
 								Radius(RadiusLG).
@@ -1308,7 +1294,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 								AlignItems(ui.Center).
 								Children(func() {
 									if a.Uploading {
-										ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+										LoadingIndicator(c, nil, "", IconSM, ThemeSecondaryText(c))
 									}
 
 									ui.Icon(c, IconFile()).Size(IconSM, IconSM).TextColor(catCol)

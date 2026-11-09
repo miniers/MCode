@@ -294,38 +294,38 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 				}))
 
 			ui.Scroll(c.Key("kanban-new-task-scroll")).FillWidth().Grow(1).Children(func() {
-			ui.Column(c.Key("kanban-new-task-fields")).FillWidth().Gap(Space5).Children(func() {
-			// 任务标题（可留空，由备注自动生成标题）
-			ui.Column(c.Key("kanban-new-task-title-field")).FillWidth().Gap(Space2).Children(func() {
-				kanbanSheetLabel(c, "任务标题", "任务标题")
-				ui.TextInput(c.Key("kanban-new-task-title"), &ks.newTaskTitle).
-					Label("kanban-new-task-title").
-					Placeholder("可选：留空则用备注自动生成标题").
-					FillWidth().
-					AutoFocus()
-			})
+				ui.Column(c.Key("kanban-new-task-fields")).FillWidth().Gap(Space5).Children(func() {
+					// 任务标题（可留空，由备注自动生成标题）
+					ui.Column(c.Key("kanban-new-task-title-field")).FillWidth().Gap(Space2).Children(func() {
+						kanbanSheetLabel(c, "任务标题", "任务标题")
+						ui.TextInput(c.Key("kanban-new-task-title"), &ks.newTaskTitle).
+							Label("kanban-new-task-title").
+							Placeholder("可选：留空则用备注自动生成标题").
+							FillWidth().
+							AutoFocus()
+					})
 
-			// 项目
-			ui.Column(c.Key("kanban-new-task-project-field")).FillWidth().Gap(Space2).Children(func() {
-				kanbanSheetLabel(c, "项目", "项目")
-				kanbanSheetProjectPicker(c, s, projectID, func(id string) {
-					kanbanMu.Lock()
-					ks.projectID = id
-					kanbanMu.Unlock()
-					s.invalidate()
+					// 项目
+					ui.Column(c.Key("kanban-new-task-project-field")).FillWidth().Gap(Space2).Children(func() {
+						kanbanSheetLabel(c, "项目", "项目")
+						kanbanSheetProjectPicker(c, s, projectID, func(id string) {
+							kanbanMu.Lock()
+							ks.projectID = id
+							kanbanMu.Unlock()
+							s.invalidate()
+						})
+					})
+
+					// 需求与备注（多行）
+					ui.Column(c.Key("kanban-new-task-notes-field")).FillWidth().Gap(Space2).Children(func() {
+						kanbanSheetLabel(c, "需求与备注", "需求与备注")
+						ui.TextArea(c.Key("kanban-new-task-notes"), &ks.newTaskNotes).
+							Label("kanban-new-task-notes").
+							Lines(4, 6).
+							FillWidth()
+					})
+
 				})
-			})
-
-			// 需求与备注（多行）
-			ui.Column(c.Key("kanban-new-task-notes-field")).FillWidth().Gap(Space2).Children(func() {
-				kanbanSheetLabel(c, "需求与备注", "需求与备注")
-				ui.TextArea(c.Key("kanban-new-task-notes"), &ks.newTaskNotes).
-					Label("kanban-new-task-notes").
-					Lines(4, 6).
-					FillWidth()
-			})
-
-			})
 			})
 			// 底部：保存任务
 			ui.Row(c.Key("kanban-new-task-footer")).
@@ -444,55 +444,55 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 				}))
 
 			ui.Scroll(c.Key("kanban-new-goal-scroll")).FillWidth().Grow(1).Children(func() {
-			ui.Column(c.Key("kanban-new-goal-fields")).FillWidth().Gap(Space5).Children(func() {
-			// Prompt 输入卡：多行输入 + 底部工具栏（项目选择）
-			ui.Column(c.Key("kanban-new-goal-prompt-card")).
-				FillWidth().
-				Radius(RadiusXL).
-				Background(ThemeOverlay(c, 0.04)).
-				BorderWidth(1).
-				BorderColor(ThemeOverlay(c, 0.10)).
-				Gap(0).
-				Children(func() {
-					ui.TextArea(c.Key("kanban-new-goal-prompt"), &ks.newGoalPrompt).
-						Label("kanban-new-goal-prompt").
-						Placeholder("例如：为设置页加上深色模式，并补上测试").
-						FontSize(TypeProse).
-						Lines(5, 9).
+				ui.Column(c.Key("kanban-new-goal-fields")).FillWidth().Gap(Space5).Children(func() {
+					// Prompt 输入卡：多行输入 + 底部工具栏（项目选择）
+					ui.Column(c.Key("kanban-new-goal-prompt-card")).
 						FillWidth().
-						AutoFocus()
-					ui.Row(c.Key("kanban-new-goal-toolbar")).
-						FillWidth().
-						Padding(Space3, Space3).
-						BorderWidth(1, 0, 0, 0).
-						BorderColor(ThemeOverlay(c, 0.06)).
-						AlignItems(ui.Center).
+						Radius(RadiusXL).
+						Background(ThemeOverlay(c, 0.04)).
+						BorderWidth(1).
+						BorderColor(ThemeOverlay(c, 0.10)).
+						Gap(0).
 						Children(func() {
-							ui.Column(c.Key("kanban-new-goal-project")).Width(220).Children(func() {
-								kanbanSheetProjectPicker(c, s, projectID, func(id string) {
-									kanbanMu.Lock()
-									ks.projectID = id
-									kanbanMu.Unlock()
-									s.invalidate()
+							ui.TextArea(c.Key("kanban-new-goal-prompt"), &ks.newGoalPrompt).
+								Label("kanban-new-goal-prompt").
+								Placeholder("例如：为设置页加上深色模式，并补上测试").
+								FontSize(TypeProse).
+								Lines(5, 9).
+								FillWidth().
+								AutoFocus()
+							ui.Row(c.Key("kanban-new-goal-toolbar")).
+								FillWidth().
+								Padding(Space3, Space3).
+								BorderWidth(1, 0, 0, 0).
+								BorderColor(ThemeOverlay(c, 0.06)).
+								AlignItems(ui.Center).
+								Children(func() {
+									ui.Column(c.Key("kanban-new-goal-project")).Width(220).Children(func() {
+										kanbanSheetProjectPicker(c, s, projectID, func(id string) {
+											kanbanMu.Lock()
+											ks.projectID = id
+											kanbanMu.Unlock()
+											s.invalidate()
+										})
+									})
 								})
-							})
 						})
-				})
 
-			// 选项行：展示默认策略（预审阅计划、结束后自动接受）
-			ui.Row(c.Key("kanban-new-goal-options")).
-				FillWidth().
-				Wrap().
-				Gap(Space3).
-				Children(func() {
-					kanbanGoalOptionPill(c, "kanban-new-goal-preview", "预览计划", true)
-					kanbanGoalOptionPill(c, "kanban-new-goal-auto-accept", "自动接受", true)
-					kanbanGoalOptionPill(c, "kanban-new-goal-worktree", "Worktree", false)
-					kanbanGoalOptionPill(c, "kanban-new-goal-concurrency", "串行执行", false)
-					kanbanGoalOptionPill(c, "kanban-new-goal-manual-review", "手动审查", false)
-				})
+					// 选项行：展示默认策略（预审阅计划、结束后自动接受）
+					ui.Row(c.Key("kanban-new-goal-options")).
+						FillWidth().
+						Wrap().
+						Gap(Space3).
+						Children(func() {
+							kanbanGoalOptionPill(c, "kanban-new-goal-preview", "预览计划", true)
+							kanbanGoalOptionPill(c, "kanban-new-goal-auto-accept", "自动接受", true)
+							kanbanGoalOptionPill(c, "kanban-new-goal-worktree", "Worktree", false)
+							kanbanGoalOptionPill(c, "kanban-new-goal-concurrency", "串行执行", false)
+							kanbanGoalOptionPill(c, "kanban-new-goal-manual-review", "手动审查", false)
+						})
 
-			})
+				})
 			})
 			// 底部：说明 + 规划目标
 			ui.Row(c.Key("kanban-new-goal-footer")).

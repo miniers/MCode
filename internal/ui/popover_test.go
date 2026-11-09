@@ -91,8 +91,8 @@ func TestPopoverRiseDirectionFollowsPlacement(t *testing.T) {
 
 func TestAnchoredPopoverPlacementAndWidth(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		align PopoverAlign
+		name                      string
+		align                     PopoverAlign
 		width, minWidth, maxWidth float32
 	}{
 		{"下方左对齐与最小宽度", BelowStart, 40, 100, 180},
@@ -114,19 +114,27 @@ func TestAnchoredPopoverPlacementAndWidth(t *testing.T) {
 			tt.Frame()
 			tt.Advance(motionPop + 60*time.Millisecond)
 			anchor, ok := tt.Find("锚点")
-			if !ok { t.Fatal("未找到锚点") }
+			if !ok {
+				t.Fatal("未找到锚点")
+			}
 			panel, ok := tt.Find("浮层面板")
-			if !ok { t.Fatal("未找到浮层面板") }
+			if !ok {
+				t.Fatal("未找到浮层面板")
+			}
 			if panel.W < tc.minWidth || panel.W > tc.maxWidth || panel.H > 90 {
 				t.Fatalf("浮层尺寸超出限制：%+v", panel)
 			}
 			if tc.align == AboveStart || tc.align == AboveEnd {
-				if panel.Y+panel.H > anchor.Y { t.Fatalf("浮层不在锚点上方：%+v %+v", anchor, panel) }
+				if panel.Y+panel.H > anchor.Y {
+					t.Fatalf("浮层不在锚点上方：%+v %+v", anchor, panel)
+				}
 			} else if panel.Y < anchor.Y+anchor.H {
 				t.Fatalf("浮层不在锚点下方：%+v %+v", anchor, panel)
 			}
 			if tc.align == BelowEnd || tc.align == AboveEnd {
-				if math.Abs(float64(panel.X+panel.W-anchor.X-anchor.W)) > 1 { t.Fatalf("浮层未右对齐：%+v %+v", anchor, panel) }
+				if math.Abs(float64(panel.X+panel.W-anchor.X-anchor.W)) > 1 {
+					t.Fatalf("浮层未右对齐：%+v %+v", anchor, panel)
+				}
 			} else if math.Abs(float64(panel.X-anchor.X)) > 1 {
 				t.Fatalf("浮层未左对齐：%+v %+v", anchor, panel)
 			}
@@ -145,12 +153,20 @@ func TestAnchoredPopoverDismiss(t *testing.T) {
 				})
 			}, 400, 300)
 			tt.Frame()
-			if escape { tt.Key(0, ui.KeyEscape) } else { tt.ClickAt(350, 250) }
+			if escape {
+				tt.Key(0, ui.KeyEscape)
+			} else {
+				tt.ClickAt(350, 250)
+			}
 			tt.Frame()
-			if open || dismissed != 1 { t.Fatalf("open=%v，关闭回调=%d", open, dismissed) }
+			if open || dismissed != 1 {
+				t.Fatalf("open=%v，关闭回调=%d", open, dismissed)
+			}
 			before := rendered
 			tt.Frame()
-			if rendered != before || dismissed != 1 { t.Fatalf("关闭后仍渲染或重复回调：渲染=%d，回调=%d", rendered-before, dismissed) }
+			if rendered != before || dismissed != 1 {
+				t.Fatalf("关闭后仍渲染或重复回调：渲染=%d，回调=%d", rendered-before, dismissed)
+			}
 		})
 	}
 }

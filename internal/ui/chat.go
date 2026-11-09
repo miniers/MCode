@@ -271,11 +271,11 @@ func renderChat(c *ui.Context, s *chatState) {
 				// 它会在旧位置停留，直到过渡停止那一帧才瞬移到位，中途盖住「提交」按钮并截走点击。
 				// 只开 Colors 后只剩颜色通道与 Exit 淡出（Exit 走独立的 animateExits，不受这三项影响），
 				// 不做位置和尺寸动画，布局一变就直接落在新位置。
-				heroCol.Transition(ui.ElementTransition{
+				heroCol.Transition(motionTransition(c, ui.ElementTransition{
 					Duration: composerHeroExitDuration,
 					Colors:   true,
 					Exit:     &ui.Motion{Opacity: 0},
-				})
+				}))
 				heroCol.Children(func() {
 					// 转发/分叉出来的新会话还没有消息：改为展示来源引导卡片，不再显示通用的新会话引导。
 					if !renderContinuationStartCard(c, s, selectedID) {
@@ -307,11 +307,11 @@ func renderChat(c *ui.Context, s *chatState) {
 				// 切会话、打开已有消息的会话时时间线本来就在且没有过渡在跑，不会重播淡入。
 				// Colors: true 让时间线只跟颜色通道，后续布局变化不做位置动画。
 				if dockDec.Promote || timeline.Transitioning() {
-					timeline.Transition(ui.ElementTransition{
+					timeline.Transition(motionTransition(c, ui.ElementTransition{
 						Duration: composerHeroExitDuration,
 						Colors:   true,
 						Enter:    &ui.Motion{Opacity: 0},
-					})
+					}))
 				}
 				timeline.Children(func() {
 					// 锚定期间在列表底部垫出一屏空白，刚发出的消息才能停在视口顶部：

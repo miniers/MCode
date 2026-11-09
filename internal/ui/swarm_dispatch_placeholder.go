@@ -163,8 +163,11 @@ func renderSwarmDispatchPlaceholder(c *ui.Context, key string, view swarmDispatc
 		// 呼吸动画改由低频定时重建驱动：按帧时间算三角波透明度并量化成 8 档，每周期请求 8 次重绘，
 		// 不再用框架动画帧（那会按屏幕刷新率、最高 120Hz 整窗重建）。占位消失后本函数不再运行，
 		// 定时器也就自然停下。
-		pulse := swarmDispatchPulseAlpha(c.Now())
-		c.After(swarmDispatchPulsePeriod / swarmDispatchPulseSteps)
+		pulse := 1.0
+		if !reduceMotion(c) {
+			pulse = swarmDispatchPulseAlpha(c.Now())
+			c.After(swarmDispatchPulsePeriod / swarmDispatchPulseSteps)
+		}
 		pill.Children(func() {
 			ui.Box(c.Key(key+"-dot")).
 				Size(Space2, Space2).

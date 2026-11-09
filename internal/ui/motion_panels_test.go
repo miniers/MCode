@@ -11,7 +11,7 @@ import (
 func TestMotionPanelsQuotaBounds(t *testing.T) {
 	color := ui.Color{R: 1, G: 2, B: 3, A: 255}
 	for _, tc := range []struct {
-		outer, inner float64
+		outer, inner         float64
 		wantOuter, wantInner float64
 	}{
 		{0, 1, 0, 1},
@@ -128,10 +128,10 @@ func TestMotionPanelsSwarmReduced(t *testing.T) {
 	}()
 	layout := panelLayout{paneW: 800, paneH: 600}
 	frame := swarmFloatFrame{leadID: lead, scene: swarmScene{
-		layout: layout,
-		slots: map[panelID]panelSlot{teamPanelID: {corner: cornerTopLeading}},
+		layout:      layout,
+		slots:       map[panelID]panelSlot{teamPanelID: {corner: cornerTopLeading}},
 		slotsOnSide: map[panelSide]int{panelSideLeading: 1},
-		docks: newPanelDocks(layout, panelReserve{}),
+		docks:       newPanelDocks(layout, panelReserve{}),
 	}}
 	show := true
 	s := &chatState{}

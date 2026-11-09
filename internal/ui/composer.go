@@ -708,12 +708,12 @@ func renderComposer(c *ui.Context, s *chatState) {
 	if !s.embeddedBee {
 		switch {
 		case promote || container.Transitioning():
-			container.Transition(ui.ElementTransition{
+			container.Transition(motionTransition(c, ui.ElementTransition{
 				Position:  true,
 				Animation: &composerDockTravelAnimation,
-			})
+			}))
 		case !docked:
-			container.Transition(ui.ElementTransition{Colors: true})
+			container.Transition(motionFeedback(c))
 		}
 	}
 	// 记住本帧布局，供下一帧判断「是不是切换帧」。
@@ -1215,7 +1215,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 							Disabled(sendBtnDisabled).
 							Size(composerActionBtnSize, composerActionBtnSize).
 							Radius(buttonRadius).
-							Transition(ui.ElementTransition{Colors: true, Duration: motionFast})
+							Transition(motionFeedback(c))
 						if iconChanged {
 							// 把淡入进度拉回起点，下一帧起按 90ms ease-out 插值到 1。
 							btn.Jump(composerSendIconFadeKey, 0)
@@ -1226,7 +1226,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 						})
 						var prevIcon *ui.SVG
 						var prevIconSize float32
-						if iconFade < 1 {
+						if iconFade < 1 && !reduceMotion(c) {
 							// 淡入就没结束：旧图标继续在同一个位置淡出。
 							prevIcon, prevIconSize = composerSendIconFor(s.composerView.sendIconPrevState)
 						}

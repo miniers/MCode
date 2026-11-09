@@ -15,10 +15,7 @@ const (
 
 // onboardingEntry 为列表项提供交错淡入和升起效果。
 func onboardingEntry(c *ui.Context, el ui.Element, index int) {
-	if reduceMotion(c) {
-		return
-	}
-	k := el.Keyframes("entry", []ui.Keyframe{{Value: 0}, {At: animateDuration(c, DurBase), Value: 1, Ease: motionEaseStandard}}, ui.KeyframeOptions{Delay: staggerDelayFor(c, index, DurFast)})
+	k := motionEnter(c, el, "entry", index)
 	el.Translate(0, (1-k)*motionRiseOffset).Opacity(k)
 }
 
@@ -26,6 +23,9 @@ func onboardingEntry(c *ui.Context, el ui.Element, index int) {
 func onboardingPulse(c *ui.Context, el ui.Element, alternate bool) float32 {
 	if reduceMotion(c) {
 		return 0
+	}
+	if !alternate {
+		return motionLoop(c, el, "pulse", motionSweep, ui.Linear)
 	}
 	return el.Keyframes("pulse", []ui.Keyframe{{Value: 0}, {At: animateDuration(c, motionSweep), Value: 1, Ease: ui.Linear}}, ui.KeyframeOptions{Repeat: ui.RepeatForever, Alternate: alternate})
 }

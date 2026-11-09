@@ -316,8 +316,12 @@ func renderComposerPlanPill(c *ui.Context, s *chatState, threadID string) {
 					Fit(ui.Contain)
 				if view.Running {
 					// 运行中才呼吸：沿用派发占位胶囊的低频三角波，每周期请求 8 次重绘。
-					ring.Opacity(float32(swarmDispatchPulseAlpha(c.Now())))
-					c.After(swarmDispatchPulsePeriod / swarmDispatchPulseSteps)
+					if !reduceMotion(c) {
+						ring.Opacity(float32(swarmDispatchPulseAlpha(c.Now())))
+						c.After(swarmDispatchPulsePeriod / swarmDispatchPulseSteps)
+					} else {
+						ring.Opacity(1)
+					}
 				} else {
 					ring.Opacity(0.9)
 				}

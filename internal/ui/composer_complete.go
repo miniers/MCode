@@ -1284,24 +1284,30 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 		// 面板挂在窗口 overlay 根上，分屏时多个输入框各有一个；key 必须带上输入框实例标识，
 		// 否则两个面板会在同一父节点下撞 key（two elements under one parent have the key）。
 		col := ui.Column(c.Key(fmt.Sprintf("composer-complete-menu-%p", s)))
-		p := col.Animate("open", target, animateDuration(c, 220*time.Millisecond))
+		p := target
+		if reduceMotion(c) {
+			col.Jump("open", target)
+		} else {
+			p = col.Animate("open", target, 220*time.Millisecond)
+		}
 		if !visible && p <= 0.01 {
 			s.mu.Lock()
 			s.completionSnap = nil
 			s.mu.Unlock()
 			return
 		}
-		slide := col.Keyframes("composer-complete-slide", []ui.Keyframe{
-			{At: 0, Value: 12},
-			{At: 180 * time.Millisecond, Value: 0, Ease: ui.EaseOut},
-		}, ui.KeyframeOptions{Run: run})
+		slide := float32(0)
+		if !reduceMotion(c) {
+			slide = col.Keyframes("composer-complete-slide", []ui.Keyframe{
+				{At: 0, Value: 12},
+				{At: 180 * time.Millisecond, Value: 0, Ease: ui.EaseOut},
+			}, ui.KeyframeOptions{Run: run})
+		}
+		transition := motionPopover(c, -6)
+		// 关闭由高度和透明度进度负责，不能叠加退出快照。
+		transition.Exit = nil
 		col.AttachTo(card, ui.AnchorTopLeft, ui.AnchorBottomLeft).Width(width).Margin(Space2, 0, Space2, 0).
-			Transition(ui.ElementTransition{
-				Duration: 220 * time.Millisecond,
-				// 只让颜色走过渡：位置与尺寸已由 Animate 逐帧驱动，再叠加过渡会让浮层滞后于卡片，关闭时越过输入框。
-				Colors: true,
-				Enter:  &ui.Motion{Y: -6, Opacity: 0},
-			}).
+			Transition(transition).
 			Translate(slide, 0).
 			// 透明度按平方衰减，收起时先于高度消失，不会在贴近输入框时仍可见。
 			Opacity(p*p).

@@ -607,7 +607,7 @@ func backgroundTasksBeeLabel(name string) string {
 }
 
 // renderShimmerTitle 在标题上扫过一道浅色高光，提示内容仍在运行。running 为假或用户要求减少动效时
-// 直接调用 fn，不注册任何 Keyframes；运行中才由框架逐帧推进这一个元素，不轮询、不重建整条时间线。
+// 直接调用 fn，不注册循环；运行中才由框架逐帧推进这一个元素，不轮询、不重建整条时间线。
 // key 与 bandLabel 由调用方给出：前者保证同页多个微光元素互不冲突，后者供测试定位扫光条。
 func renderShimmerTitle(c *ui.Context, key, bandLabel string, running bool, fn func() ui.Element) ui.Element {
 	if !running || reduceMotion(c) {
@@ -620,11 +620,8 @@ func renderShimmerTitle(c *ui.Context, key, bandLabel string, running bool, fn f
 		if width <= 0 {
 			return
 		}
-		// 一个 motionSweep 周期从左走到右，RepeatForever 反复播放；只在运行中出现。
-		k := title.Keyframes(key+"/shimmer-pos", []ui.Keyframe{
-			{Value: 0},
-			{At: motionSweep, Value: 1, Ease: ui.Linear},
-		}, ui.KeyframeOptions{Repeat: ui.RepeatForever})
+		// 一个 motionSweep 周期从左走到右；只在运行中出现。
+		k := motionLoop(c, title, key+"/shimmer-pos", motionSweep, ui.Linear)
 		x := k*(width+2*toolVerbShimmerWidth) - toolVerbShimmerWidth
 		// 三段渐变：中间是扫光，两头透明，扫过时像一道高光从文字上滑过。
 		tint := ThemeAccent(c).Alpha(0.22)

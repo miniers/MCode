@@ -65,8 +65,8 @@ func TestSidebarSortableSearchFilter(t *testing.T) {
 	t.Cleanup(state.close)
 	tt := ui.NewTester(view, 1000, 700)
 	waitFor(t, tt, func() bool {
-		_, first := tt.Find("proj-header-p1")
-		_, second := tt.Find("proj-header-p2")
+		_, first := tt.Find("共同项目一")
+		_, second := tt.Find("共同项目二")
 		return first && second
 	})
 	drag := func(source, target string) {
@@ -92,14 +92,14 @@ func TestSidebarSortableSearchFilter(t *testing.T) {
 	*getSearchQuery(state) = "共同项目"
 	state.invalidate()
 	tt.Frame()
-	drag("proj-header-p2", "proj-header-p1")
+	drag("共同项目二", "共同项目一")
 	if order := sidebarProjectOrder(state); len(order) != 0 {
 		t.Fatalf("搜索期间不应排序：%v", order)
 	}
 	*getSearchQuery(state) = ""
 	state.invalidate()
 	tt.Frame()
-	drag("proj-header-p2", "proj-header-p1")
+	drag("共同项目二", "共同项目一")
 	if order := sidebarProjectOrder(state); !reflect.DeepEqual(order, []string{"p2", "p1"}) {
 		t.Fatalf("拖动后的项目顺序 = %v", order)
 	}

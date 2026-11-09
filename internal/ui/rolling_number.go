@@ -147,16 +147,7 @@ func rollingNumber(c *ui.Context, key string, value int) ui.Element {
 func rollingDigitCell(c *ui.Context, key string, idx int, from, to byte, dir float32, changed bool, lineH float32) (cell, in, out ui.Element, k float32) {
 	cell = ui.Box(c.Key(key + "/digit/" + strconv.Itoa(idx)))
 	rolling := from != 0 && from != to
-	// 减少动效：不播滚动，直接显示终值（只退出进入的字符，离场字符也不再建节点）。
-	k, fade := float32(1), float32(1)
-	if !reduceMotion(c) {
-		if changed && rolling {
-			cell.Jump("roll", 0)
-			cell.Jump("fade", 0)
-		}
-		k = cell.AnimateTo("roll", 1, ui.Animation{Duration: animateDuration(c, motionRoll), Ease: motionEaseEmphasis})
-		fade = cell.AnimateTo("fade", 1, ui.Animation{Duration: animateDuration(c, motionRollFade), Ease: ui.Linear})
-	}
+	k, fade := motionNumberProgress(c, cell, changed && rolling)
 	if lineH > 0 {
 		cell.Height(lineH).ClipY()
 	}

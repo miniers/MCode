@@ -293,10 +293,11 @@ func renderMCPSelectionPanel(c *ui.Context, s *chatState, threadID string, onBac
 		Width(360).
 		Padding(Space4).
 		Gap(Space3).
-		Transition(ui.ElementTransition{
+		Transition(motionTransition(c, ui.ElementTransition{
 			Duration: mcpMenuSlideDuration,
+			Colors:   true,
 			Enter:    &ui.Motion{X: 8, Opacity: 0},
-		})
+		}))
 
 	panel.Children(func() {
 		// 标题栏：返回按钮 + 标题

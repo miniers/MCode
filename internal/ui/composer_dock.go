@@ -3,16 +3,12 @@ package mcodeui
 import (
 	"sync"
 	"time"
-
-	"github.com/egoist/mygo/ui"
 )
 
 // composerDockTravelAnimation 是 Hero→Docked 输入框位移动画。
 // 行程约半个窗口高（几百 pt），250ms 会显得抢；弹簧 420ms、Bounce 0 不回弹，
 // 落到底部时速度自然衰减，不会在停靠位弹一下。
-var composerDockTravelAnimation = ui.Animation{
-	Spring: ui.SpringOptions{Duration: 420 * time.Millisecond, Bounce: 0},
-}
+var composerDockTravelAnimation = springGentle
 
 // composerHeroExitDuration 是引导块淡出、时间线淡入的时长：比位移短，
 // 让「旧内容退场」比「输入框落位」先结束，视觉上有个先淡后定的顺序。

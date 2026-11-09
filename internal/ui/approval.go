@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -501,12 +500,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 	batch := batchApprovals(approvals)
 	ui.Row(c.Key("approval-container")).Justify(ui.Center).Padding(0, Space6, Space3, Space6).Children(func() {
 		ui.Column(c.Key("approval-stack")).Grow(1).MaxWidth(composerDockMaxWidth).Gap(Space4).
-			// 卡片出现时淡入、自下而上 12pt 并轻微放大就位；消失时反向收起。
-			Transition(ui.ElementTransition{
-				Duration: 260 * time.Millisecond,
-				Enter:    &ui.Motion{Y: 12, Opacity: 0, Scale: 0.96},
-				Exit:     &ui.Motion{Y: 12, Opacity: 0, Scale: 0.96},
-			}).
+			Transition(motionListItem(c)).
 			Children(func() {
 				if len(batch) >= 2 {
 					ui.Row(c.Key("approval-batch-row")).AlignItems(ui.Center).Children(func() {

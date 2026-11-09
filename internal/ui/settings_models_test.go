@@ -1154,6 +1154,7 @@ func TestSettings_ModelsPage_DragGesture(t *testing.T) {
 	x, y := handle.X+handle.W/2, handle.Y+handle.H/2
 	tt.Press(x, y)
 	tt.Move(x, y+118)
+	tt.Advance(DurSlow)
 	moved, _ := tt.Find("Claude First")
 	shifted, _ := tt.Find("Claude Second")
 	if moved.Y <= body.Y+100 || shifted.Y >= neighbor.Y {

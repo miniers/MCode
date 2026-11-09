@@ -358,10 +358,15 @@ func renderOnboardingDialog(c *ui.Context, s *chatState) {
 		animateOpen := u.animateOpen
 		u.animateOpen = false
 		u.mu.Unlock()
-		if animateOpen {
+		if animateOpen && !reduceMotion(c) {
 			card.Jump("onboarding-open", 0)
 		}
-		pop := card.AnimateTo("onboarding-open", 1, ui.Animation{Duration: animateDuration(c, DurSheet), Ease: EaseOvershoot})
+		pop := float32(1)
+		if reduceMotion(c) {
+			card.Jump("onboarding-open", 1)
+		} else {
+			pop = card.AnimateTo("onboarding-open", 1, springSnappy)
+		}
 		card.Scale(0.96+0.04*pop, 0.96+0.04*pop).Opacity(pop)
 		panel.Children(func() {
 			card.Children(func() {
@@ -389,11 +394,18 @@ func renderOnboardingDialog(c *ui.Context, s *chatState) {
 							u.direction = 1
 						}
 						u.animatedStep = step
-						body.Jump("step", 0)
+						if !reduceMotion(c) {
+							body.Jump("step", 0)
+						}
 					}
 					dir := u.direction
 					u.mu.Unlock()
-					progress := body.AnimateTo("step", 1, ui.Animation{Duration: animateDuration(c, DurSheet), Ease: motionEaseEmphasis})
+					progress := float32(1)
+					if reduceMotion(c) {
+						body.Jump("step", 1)
+					} else {
+						progress = body.AnimateTo("step", 1, springGentle)
+					}
 					body.Translate(dir*(1-progress)*24, 0).Opacity(progress).Children(func() { renderOnboardingStep(c, s, st, step, route) })
 				})
 				if saveError != "" {
@@ -494,7 +506,12 @@ func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step o
 					ring.Scale(1+0.8*k, 1+0.8*k).Opacity(1 - k)
 				}
 				check := ui.Row(c.Key("onboarding-celebration")).Width(onboardingNodeSize).Height(onboardingNodeSize).Radius(RadiusPill).Background(ThemeAccent(c).Alpha(0.12)).AlignItems(ui.Center).Justify(ui.Center)
-				pop := check.AnimateTo("celebration", 1, ui.Animation{Duration: animateDuration(c, DurSheet), Ease: EaseOvershoot})
+				pop := float32(1)
+				if reduceMotion(c) {
+					check.Jump("celebration", 1)
+				} else {
+					pop = check.AnimateTo("celebration", 1, springSnappy)
+				}
 				check.Scale(pop, pop).Opacity(pop).Children(func() { ui.Icon(c, IconCheck()).Size(IconLG, IconLG).TextColor(ThemeAccent(c)) })
 			})
 		}

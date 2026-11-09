@@ -1349,14 +1349,15 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 														FontSize(TypeFootnote).
 														TextColor(textColor)
 
-													IconButton(c, IconButtonProps{
-														Key:   fmt.Sprintf("terminal-tab-close-%d", tb.id),
-														Icon:  IconX(),
-														Label: "关闭标签",
-																OnClick: func() { closeClicked = true },
-																Variant: ButtonGhost,
-															})
-														})
+													if IconButton(c, IconButtonProps{
+														Key:     fmt.Sprintf("terminal-tab-close-%d", tb.id),
+														Icon:    IconX(),
+														Label:   "关闭标签",
+														Variant: ButtonGhost,
+													}).Clicked() {
+														closeClicked = true
+													}
+												})
 										})
 										if closeClicked {
 											closeTerminalTab(s, st, threadID, tb.id)
