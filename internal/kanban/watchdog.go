@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -203,6 +204,24 @@ func (w *Watchdog) Check(ctx context.Context) error {
 			delete(w.lastProgress, t.ID)
 
 			if st.Failed {
+				if w.svc.isStewardOwnerTask(ctx, t) {
+					log.Printf("kanban: 任务 %s 执行失败: %s", t.ID, st.FailureReason)
+					res := ExecutorResult{Status: ResultFailed, Summary: "执行会话运行失败"}
+					if err := w.svc.applyExecutorResult(ctx, &t, res, now); err != nil {
+						continue
+					}
+					w.svc.mu.Lock()
+					up, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision)
+					if err == nil {
+						w.svc.revision.Add(1)
+						changed = true
+					}
+					w.svc.mu.Unlock()
+					if err == nil && up.Status == string(TaskStatusFailed) {
+						w.svc.notifyResult(ctx, up, res)
+					}
+					continue
+				}
 				t.LastFailureReason = &st.FailureReason
 				w.svc.mu.Lock()
 				if _, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
@@ -237,6 +256,10 @@ func (w *Watchdog) Check(ctx context.Context) error {
 					if decision.result.Status != "" && decision.result.Status != ResultDone {
 						break
 					}
+					if w.svc.isStewardOwnerTask(ctx, t) {
+						t.Status = string(TaskStatusDone)
+						break
+					}
 					switch {
 					case autoReview:
 						if CanTransition(TaskStatus(t.Status), TaskStatusReview) {
@@ -264,7 +287,7 @@ func (w *Watchdog) Check(ctx context.Context) error {
 					changed = true
 				}
 				w.svc.mu.Unlock()
-				if updateErr == nil {
+				if updateErr == nil && !(up.Status == string(TaskStatusTodo) && decision.result.Status == ResultFailed) {
 					w.svc.notifyResult(ctx, up, decision.result)
 				}
 			}

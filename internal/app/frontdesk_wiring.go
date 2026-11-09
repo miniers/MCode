@@ -172,19 +172,23 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 			return
 		}
 		owner := meta.Origin == "owner" && meta.ParentID == ""
-		kind, text, push := "", "", false
+		kind, text, role, push := "", "", "assistant", false
 		threadID := ""
 		if task.ThreadID != nil {
 			threadID = *task.ThreadID
 		}
 		switch result.Status {
 		case kanban.ResultDone:
-			if meta.NoChange {
+			if meta.NoChange && !owner {
 				log.Printf("任务 %s 例行检查无变化: %s", task.ID, result.Summary)
 				return
 			}
 			kind = "steward_result"
-			payload, err := json.Marshal(map[string]any{"task": task.ID, "thread": threadID, "title": task.Title, "summary": result.Summary, "status": "done"})
+			if !owner {
+				role, text = "system", task.Title+"\n"+result.Summary
+				break
+			}
+			payload, err := json.Marshal(map[string]any{"task": task.ID, "thread": threadID, "title": task.Title, "summary": result.Summary, "status": "done", "owner": true})
 			if err != nil {
 				log.Printf("前台编码结果失败: %v", err)
 				return
@@ -192,17 +196,12 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 			text = string(payload)
 			push = owner
 		case kanban.ResultFailed:
-			if !owner {
+			if !owner || task.Status != string(kanban.TaskStatusFailed) {
 				log.Printf("任务 %s 失败: %s", task.ID, result.Summary)
 				return
 			}
 			kind = "steward_result"
-			payload, err := json.Marshal(map[string]any{"task": task.ID, "thread": threadID, "title": task.Title, "summary": result.Summary, "status": "failed"})
-			if err != nil {
-				log.Printf("前台编码结果失败: %v", err)
-				return
-			}
-			text = string(payload)
+			text = fmt.Sprintf("没能完成「%s」：%s", task.Title, result.Summary)
 			push = true
 		case kanban.ResultNeedsDecision:
 			decision, err := a.store.GetStewardDecision(ctx, meta.DecisionID)
@@ -227,7 +226,7 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 			log.Printf("前台读取会话失败: %v", err)
 			return
 		}
-		if err := a.backend.AppendStewardMessage(ctx, feedID, "assistant", kind, text); err != nil {
+		if err := a.backend.AppendStewardMessage(ctx, feedID, role, kind, text); err != nil {
 			log.Printf("前台写入结果失败: %v", err)
 			return
 		}
@@ -235,9 +234,9 @@ func frontdeskResultHandler(a *App, dataDir string) func(context.Context, store.
 			body := text
 			switch result.Status {
 			case kanban.ResultDone:
-				body = fmt.Sprintf("%s：%s", task.Title, result.Summary)
+				body = result.Summary
 			case kanban.ResultFailed:
-				body = fmt.Sprintf("%s 没能完成：%s", task.Title, result.Summary)
+				body = text
 			case kanban.ResultNeedsDecision:
 				body = result.Question
 			}

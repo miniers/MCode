@@ -15,6 +15,7 @@ type stewardResult struct {
 	Title   string `json:"title"`
 	Summary string `json:"summary"`
 	Status  string `json:"status"`
+	Owner   bool   `json:"owner,omitempty"`
 }
 
 // stewardTaskSnapshot 是任务页信息带所需的最小看板快照。
@@ -38,6 +39,9 @@ func parseStewardResult(text string) (stewardResult, bool) {
 }
 
 func renderStewardResult(c *ui.Context, s *chatState, m Message, liveID, lastLiveID string, isLastAssistant, hasUsage bool, turnUsage TokenUsage, turnDur time.Duration, suppressTurnEnd bool) ui.Element {
+	if m.Role == "system" {
+		return renderSystemMessage(c, s, m)
+	}
 	result, ok := parseStewardResult(m.Text)
 	if !ok {
 		return renderAssistantMessage(c, s, m, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, turnDur, suppressTurnEnd)
@@ -45,7 +49,9 @@ func renderStewardResult(c *ui.Context, s *chatState, m Message, liveID, lastLiv
 
 	text := result.Title + "：" + result.Summary
 	if result.Status == "failed" {
-		text = result.Title + " 没能完成：" + result.Summary
+		text = "没能完成「" + result.Title + "」：" + result.Summary
+	} else if result.Owner {
+		text = result.Summary
 	}
 	m.Text = text
 	return ui.Column(c.Key("steward-result-" + m.ID)).

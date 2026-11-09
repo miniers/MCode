@@ -243,14 +243,18 @@ func TestRunAcceptanceCommandsTotalTimeout(t *testing.T) {
 
 func TestBuildStartPromptAcceptanceCriteria(t *testing.T) {
 	criteria := "- [命令] `go test ./...`\n- [审阅] 看 diff"
-	prompt := buildStartPrompt(store.Task{Title: "任务", AcceptanceCriteria: criteria}, nil, "branch", false)
+	prompt := buildStartPrompt(store.Task{Title: "任务", AcceptanceCriteria: criteria}, nil, "branch", false, false)
 	if !strings.Contains(prompt, "## Acceptance Criteria") {
 		t.Fatalf("缺少验收标准段: %s", prompt)
 	}
 	if !strings.Contains(prompt, criteria) {
 		t.Fatalf("验收标准内容未拼进提示词: %s", prompt)
 	}
-	plain := buildStartPrompt(store.Task{Title: "任务"}, nil, "branch", false)
+	plain := buildStartPrompt(store.Task{Title: "任务"}, nil, "branch", false, false)
+	steward := buildStartPrompt(store.Task{Title: "任务"}, nil, "branch", false, true)
+	if !strings.Contains(steward, "summary 会原样发给交代这项工作的用户") || strings.Contains(steward, "验收结论由用户给出") {
+		t.Fatalf("总管提示词不正确: %s", steward)
+	}
 	if strings.Contains(plain, "## Acceptance Criteria") {
 		t.Fatalf("无验收标准时不应拼该段: %s", plain)
 	}

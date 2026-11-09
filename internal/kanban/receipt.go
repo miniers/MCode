@@ -91,6 +91,24 @@ func threadIDOf(t store.Task) string {
 	return *t.ThreadID
 }
 
+func isStewardQueue(goal store.Goal) bool {
+	return goal.Owner == goalOwnerSteward && goal.Title == "总管" && (goal.PlanThreadID == nil || *goal.PlanThreadID == "")
+}
+
+func (s *Service) stewardOwnerGoal(ctx context.Context, t store.Task) (store.Goal, bool) {
+	meta, err := ParseTaskMeta(t.Meta)
+	if err != nil || meta.Origin != "owner" || t.GoalID == nil || *t.GoalID == "" || s.opts.Store == nil {
+		return store.Goal{}, false
+	}
+	goal, err := s.opts.Store.GetGoal(ctx, *t.GoalID)
+	return goal, err == nil && goal.Owner == goalOwnerSteward && goal.Title == "总管"
+}
+
+func (s *Service) isStewardOwnerTask(ctx context.Context, t store.Task) bool {
+	_, ok := s.stewardOwnerGoal(ctx, t)
+	return ok
+}
+
 // clipReceiptText 按 rune 截断文本，保证卡片活动文本与回执摘要不会过长。
 func clipReceiptText(text string) string {
 	runes := []rune(text)
@@ -361,7 +379,15 @@ func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Tim
 	messenger, supportsFollowUp := s.opts.Driver.(SessionMessenger)
 	// 会话里调不到回执工具时追问没有意义（Agent 拿不到 kanban_submit_result），按旧行为直接完成。
 	if s.opts.Driver == nil || !supportsFollowUp || messenger == nil || hostToolsUnavailable {
-		return finishDecision{kind: finishDone, summary: s.lastAssistantText(ctx, t)}
+		summary := strings.TrimSpace(s.lastAssistantText(ctx, t))
+		if s.isStewardOwnerTask(ctx, t) {
+			status := ResultDone
+			if summary == "" {
+				status, summary = ResultFailed, "执行会话未提交结果"
+			}
+			return finishDecision{kind: finishDone, summary: summary, result: ExecutorResult{Status: status, Summary: summary}}
+		}
+		return finishDecision{kind: finishDone, summary: summary}
 	}
 
 	// 追问前重读任务：另一路巡视可能在同一轮里刚把这张卡片收尾，避免给已结束的会话补发追问
@@ -377,6 +403,10 @@ func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Tim
 		}
 		return finishDecision{kind: finishWait}
 	case receiptAskEscalate:
+		if s.isStewardOwnerTask(ctx, t) {
+			summary := "执行会话两次追问后仍未提交结果"
+			return finishDecision{kind: finishDone, summary: summary, result: ExecutorResult{Status: ResultFailed, Summary: summary}}
+		}
 		return finishDecision{kind: finishEscalate}
 	default:
 		return finishDecision{kind: finishWait}
@@ -402,6 +432,9 @@ func (s *Service) applyExecutorResult(ctx context.Context, t *store.Task, res Ex
 	case ResultFailed:
 		t.Status = string(TaskStatusFailed)
 		t.LastFailureReason = &res.Summary
+		if goal, ok := s.stewardOwnerGoal(ctx, *t); ok && t.AttemptCount < getPolicyInt(goal.Policy, "maxAttempts", 2) {
+			t.Status = string(TaskStatusTodo)
+		}
 	case ResultWaiting:
 		res.clampWaitMinutes()
 		t.Status = string(TaskStatusWaiting)

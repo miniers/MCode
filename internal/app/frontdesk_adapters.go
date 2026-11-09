@@ -88,7 +88,7 @@ func (s *frontdeskServices) CreateTask(ctx context.Context, in frontdesk.CreateT
 	}
 	var goal store.Goal
 	for _, g := range goals {
-		if g.Title == "总管" && g.Status == "running" {
+		if g.Title == "总管" && g.Owner == "steward" && (g.Status == "running" || g.Status == "paused" || g.Status == "completed") {
 			goal = g
 			break
 		}
@@ -99,6 +99,13 @@ func (s *frontdeskServices) CreateTask(ctx context.Context, in frontdesk.CreateT
 			return store.Task{}, err
 		}
 		goal, err = s.store.GetGoal(ctx, goal.ID)
+		if err != nil {
+			return store.Task{}, err
+		}
+	}
+	if goal.Status == "completed" {
+		goal.Status = "running"
+		goal, err = s.store.UpdateGoal(ctx, goal, goal.Revision)
 		if err != nil {
 			return store.Task{}, err
 		}
@@ -121,6 +128,19 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 	if err != nil {
 		return err
 	}
+	meta, err := kanban.ParseTaskMeta(t.Meta)
+	if err != nil {
+		return err
+	}
+	if meta.DecisionID != "" {
+		d, err := s.store.GetStewardDecision(ctx, meta.DecisionID)
+		if err != nil {
+			return err
+		}
+		if d.Status == store.DecisionStatusOpen {
+			return s.AnswerDecision(ctx, d.ID, text, "owner")
+		}
+	}
 	if t.Status == "in_progress" {
 		if t.ThreadID == nil {
 			return errors.New("任务没有执行会话")
@@ -133,8 +153,28 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 	}
 	t.Notes += text
 	switch t.Status {
-	case "waiting", "done", "failed", "cancelled":
+	case "waiting", "done", "failed", "cancelled", "rejected":
 		t.Status = "todo"
+		t.ThreadID, t.ReviewThreadID = nil, nil
+		t.ReviewSummary, t.ReviewFeedback, t.ReviewStatus = nil, nil, nil
+		t.LastFailureReason, t.LastActivityText = nil, nil
+		t.AttemptCount, t.RejectCount = 0, 0
+		meta.ResultStatus, meta.Summary, meta.DecisionID, meta.GateOverride = "", "", "", ""
+		meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+		meta.NoChange = false
+		t.Meta = kanban.EncodeTaskMeta(meta)
+		if t.GoalID != nil {
+			goal, err := s.store.GetGoal(ctx, *t.GoalID)
+			if err != nil {
+				return err
+			}
+			if goal.Owner == "steward" && goal.Title == "总管" && goal.Status == "completed" {
+				goal.Status = "running"
+				if _, err := s.store.UpdateGoal(ctx, goal, goal.Revision); err != nil {
+					return err
+				}
+			}
+		}
 	case "todo":
 	default:
 		return fmt.Errorf("不能追加任务状态 %s", t.Status)
@@ -174,22 +214,50 @@ func (s *frontdeskServices) ReassignTask(ctx context.Context, id, provider, mode
 	_, e = s.kanban.PatchTaskMeta(ctx, id, t.Revision, func(m *kanban.TaskMeta) { m.Provider = provider; m.Model = model })
 	return e
 }
-func (s *frontdeskServices) RecentTask(ctx context.Context) (store.Task, error) {
-	tasks, e := s.store.ListTasks(ctx, "")
-	if e != nil {
-		return store.Task{}, e
+func (s *frontdeskServices) RecentTask(ctx context.Context, threadID string) (store.Task, time.Time, error) {
+	messages, _, err := s.store.ListMessages(ctx, threadID, 0, 100)
+	if err != nil {
+		return store.Task{}, time.Time{}, err
 	}
-	var latest store.Task
-	for _, t := range tasks {
-		m, err := kanban.ParseTaskMeta(t.Meta)
-		if err == nil && m.Origin == "owner" && (latest.ID == "" || t.UpdatedAt.After(latest.UpdatedAt)) {
-			latest = t
+	tasks, err := s.store.ListTasks(ctx, "")
+	if err != nil {
+		return store.Task{}, time.Time{}, err
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Role != "assistant" && m.Role != "system" {
+			continue
+		}
+		var payload struct {
+			Task   string `json:"task"`
+			TaskID string `json:"task_id"`
+		}
+		id := ""
+		if (m.Kind == "steward_result" || m.Kind == "steward_decision") && json.Unmarshal([]byte(m.Text), &payload) == nil {
+			if m.Kind == "steward_result" {
+				id = payload.Task
+			} else {
+				id = payload.TaskID
+			}
+			if id != "" {
+				task, err := s.store.GetTask(ctx, id)
+				return task, m.CreatedAt, err
+			}
+		}
+		var match store.Task
+		for _, task := range tasks {
+			if (task.ID != "" && strings.Contains(m.Text, task.ID)) || (task.Title != "" && strings.Contains(m.Text, task.Title)) {
+				if match.ID != "" && match.ID != task.ID {
+					return store.Task{}, time.Time{}, store.ErrNotFound
+				}
+				match = task
+			}
+		}
+		if match.ID != "" {
+			return match, m.CreatedAt, nil
 		}
 	}
-	if latest.ID == "" {
-		return latest, store.ErrNotFound
-	}
-	return latest, nil
+	return store.Task{}, time.Time{}, store.ErrNotFound
 }
 func (s *frontdeskServices) ListDecisions(ctx context.Context, status string, limit int) ([]store.StewardDecision, error) {
 	return s.store.ListStewardDecisions(ctx, status, limit)

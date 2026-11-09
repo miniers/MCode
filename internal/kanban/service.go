@@ -610,7 +610,7 @@ func (s *Service) startTaskInternal(ctx context.Context, taskID string, expected
 		}
 	}
 
-	prompt := buildStartPrompt(task, deps, branchName, inWorktree)
+	prompt := buildStartPrompt(task, deps, branchName, inWorktree, s.isStewardOwnerTask(ctx, task))
 
 	if s.opts.Driver == nil {
 		return store.Task{}, errors.New("kanban: session driver is nil")
@@ -659,7 +659,7 @@ func (s *Service) runWorktreeSetup(ctx context.Context, projectID, projectRoot, 
 
 // buildStartPrompt 组装任务启动提示词：任务本身与目标、评审反馈，以及已完成依赖的上下文、
 // 上次失败原因、隔离工作区说明和看板协作约束。
-func buildStartPrompt(task store.Task, deps []store.Task, branchName string, inWorktree bool) string {
+func buildStartPrompt(task store.Task, deps []store.Task, branchName string, inWorktree, stewardOwner bool) string {
 	var b strings.Builder
 	b.WriteString(task.Title)
 	if task.Notes != "" {
@@ -704,8 +704,15 @@ func buildStartPrompt(task store.Task, deps []store.Task, branchName string, inW
 		b.WriteString("`）。不要在其中再创建新的 git worktree，所有改动直接在此工作区完成并提交。")
 	}
 	b.WriteString("\n\n## Board Rules\n- 需要人工确认时让卡片停在 Needs You（待你处理）等待用户处理，不要自行把卡片移出该列。")
-	b.WriteString("\n- 不要绕过人工评审直接把卡片结算为 Done，验收结论由用户给出。")
+	if stewardOwner {
+		b.WriteString("\n- 你是这项工作的负责人，自行决定需要哪些调查、实现和检查。完成后提交 done；确实需要用户选择时才提交 needs_decision。不要为普通完成另请验收。")
+	} else {
+		b.WriteString("\n- 不要绕过人工评审直接把卡片结算为 Done，验收结论由用户给出。")
+	}
 	b.WriteString("\n\n## 结束方式\n结束时必须调用 kanban_submit_result，status 选择 done、failed、waiting、delegated 或 needs_decision，并填写对应结果。")
+	if stewardOwner {
+		b.WriteString("\nsummary 会原样发给交代这项工作的用户。用用户的语言写一到三句，直接回答问题或说明完成了什么、查到了什么，并附有用的文件、提交、PR 或其他产出链接。不要加任务标题，不要写“已汇总给用户”“供主代理参考”“任务已完成”这类元描述，不要让用户再打开任务才能看到答案。只陈述已验证的事实；尚未运行检查、代码仍在独立分支、尚未合并或部署时要如实说明。需要用户决定时用 needs_decision，question 是不超过三十字的一个问题，并给出几个明确选项。")
+	}
 	return b.String()
 }
 

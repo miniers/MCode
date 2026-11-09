@@ -120,6 +120,52 @@ func TestExecutorResultFailedAndDecision(t *testing.T) {
 	}
 }
 
+func TestStewardOwnerFailureBudgetAndDecision(t *testing.T) {
+	for _, watchdogFirst := range []bool{false, true} {
+		t.Run(map[bool]string{false: "scheduler", true: "watchdog"}[watchdogFirst], func(t *testing.T) {
+			ctx := context.Background()
+			driver := newPokeDriver()
+			svc, db, wd, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+			thread := "executor"
+			seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward}, store.Task{ID: "t", Title: "任务", Status: "in_progress", ThreadID: &thread, AttemptCount: 1, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner"})})
+			driver.setThreadState(thread, SessionState{})
+			calls := 0
+			svc.SetOnResult(func(context.Context, store.Task, ExecutorResult) { calls++ })
+			finish := func(res ExecutorResult) {
+				t.Helper()
+				if err := svc.SubmitExecutorResult(ctx, "t", thread, res); err != nil { t.Fatal(err) }
+				if watchdogFirst { if err := wd.Check(ctx); err != nil { t.Fatal(err) } } else { scheduler.Tick(ctx) }
+			}
+			finish(ExecutorResult{Status: ResultFailed, Summary: "失败"})
+			task, _ := db.GetTask(ctx, "t")
+			if task.Status != "todo" || calls != 0 { t.Fatalf("首次失败: %+v 回调=%d", task, calls) }
+			task.Status, task.AttemptCount = "in_progress", 2
+			if _, err := db.UpdateTask(ctx, task, task.Revision); err != nil { t.Fatal(err) }
+			finish(ExecutorResult{Status: ResultFailed, Summary: "再次失败"})
+			scheduler.Tick(ctx)
+			if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+			task, _ = db.GetTask(ctx, "t")
+			goal, _ := db.GetGoal(ctx, "g")
+			if task.Status != "failed" || calls != 1 || goal.Status != "running" { t.Fatalf("最终失败: %+v 回调=%d 目标=%s", task, calls, goal.Status) }
+		})
+	}
+}
+
+func TestStewardOwnerDecisionRemainsBlocked(t *testing.T) {
+	ctx := context.Background()
+	driver := newPokeDriver()
+	svc, db, wd, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+	thread := "executor"
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward}, store.Task{ID: "t", Title: "任务", Status: "in_progress", ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner"})})
+	driver.setThreadState(thread, SessionState{})
+	res := ExecutorResult{Status: ResultNeedsDecision, Summary: "请选择", Question: "继续吗", Options: []DecisionOption{{Key: "A", Text: "继续"}, {Key: "B", Text: "停下"}}}
+	if err := svc.SubmitExecutorResult(ctx, "t", thread, res); err != nil { t.Fatal(err) }
+	if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+	scheduler.Tick(ctx)
+	task, _ := db.GetTask(ctx, "t")
+	if task.Status != "needs_approval" { t.Fatalf("决策必须等待: %+v", task) }
+}
+
 // TestReceiptMissingAsksThenEscalates 验证缺回执时先追问两次，宽限过后升级到 needs_approval 并停住。
 func TestReceiptMissingAsksThenEscalates(t *testing.T) {
 	ctx := context.Background()
@@ -547,7 +593,7 @@ func TestReceiptConsumedOnce(t *testing.T) {
 
 // TestStartPromptMentionsSubmitResult 验证执行会话的启动提示词要求调用 kanban_submit_result。
 func TestStartPromptMentionsSubmitResult(t *testing.T) {
-	prompt := buildStartPrompt(store.Task{ID: "task-prompt", Title: "提示词任务"}, nil, "kanban/task-prompt", false)
+	prompt := buildStartPrompt(store.Task{ID: "task-prompt", Title: "提示词任务"}, nil, "kanban/task-prompt", false, false)
 	if !strings.Contains(prompt, "kanban_submit_result") {
 		t.Fatalf("启动提示词应包含 kanban_submit_result，实际: %s", prompt)
 	}

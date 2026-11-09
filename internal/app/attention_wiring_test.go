@@ -303,6 +303,32 @@ func TestDiffKanbanAttention(t *testing.T) {
 	}
 }
 
+func TestStewardRetryAttention(t *testing.T) {
+	reason := "执行失败"
+	task := store.Task{ID: "task", Status: "todo", LastFailureReason: &reason, Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner"})}
+	retry := kanbanSnapshotForGoal(task, true)
+	if actions := diffKanbanAttention(nil, map[string]kanbanTaskSnapshot{task.ID: retry}); len(actions) != 0 {
+		t.Fatalf("重试不应产生失败提醒: %+v", actions)
+	}
+	task.Status = "failed"
+	failed := kanbanSnapshotForGoal(task, true)
+	if actions := diffKanbanAttention(map[string]kanbanTaskSnapshot{task.ID: retry}, map[string]kanbanTaskSnapshot{task.ID: failed}); !hasKanbanAction(actions, task.ID, attention.KindKanbanFailed, false) {
+		t.Fatalf("最终失败应产生提醒: %+v", actions)
+	}
+	task.Status = "needs_approval"
+	if actions := diffKanbanAttention(nil, map[string]kanbanTaskSnapshot{task.ID: kanbanSnapshotForGoal(task, true)}); !hasKanbanAction(actions, task.ID, attention.KindKanbanNeedsApproval, false) {
+		t.Fatalf("真实审批应保留: %+v", actions)
+	}
+	task.Status, task.LastFailureReason = "done", nil
+	if actions := diffKanbanAttention(nil, map[string]kanbanTaskSnapshot{task.ID: kanbanSnapshotForGoal(task, true)}); len(actions) != 0 {
+		t.Fatalf("完成不应产生验收提醒: %+v", actions)
+	}
+	task.Status, task.LastFailureReason = "todo", &reason
+	if actions := diffKanbanAttention(nil, map[string]kanbanTaskSnapshot{task.ID: kanbanSnapshotForGoal(task, false)}); !hasKanbanAction(actions, task.ID, attention.KindKanbanFailed, false) {
+		t.Fatalf("普通目标的失败提醒应保留: %+v", actions)
+	}
+}
+
 // hasKanbanGoalAction 判断目标动作列表里是否有指定目标与类型的动作。
 func hasKanbanGoalAction(actions []kanbanGoalAttentionAction, subjectID string, kind attention.Kind, resolve bool) bool {
 	return kanbanGoalActionIndex(actions, subjectID, kind, resolve) >= 0

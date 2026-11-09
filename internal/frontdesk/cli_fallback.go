@@ -7,7 +7,6 @@ import (
 	"log"
 	"strings"
 
-	"mcode/internal/agent/llm"
 	"mcode/internal/textgen"
 )
 
@@ -18,7 +17,7 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot) (bool
 		provider = "claude"
 	}
 	opts.Model = textgen.CheapestModel(provider)
-	prompt := snap.Text + "\n只输出 JSON 对象：{\"reply\":\"回复\",\"calls\":[{\"tool\":\"create_task\",\"args\":{}}]}。只允许 create_task、amend_task、remember、answer_decision。"
+	prompt := snap.Text + "\n只输出 JSON 对象：{\"reply\":\"回复\",\"calls\":[{\"tool\":\"create_task\",\"args\":{}}]}。只允许写工具 create_task、amend_task、cancel_task、set_priority、reassign_task、remember、edit_memory、answer_decision，不允许读工具；信息不足时不要编造。"
 	out, err := d.Generator(ctx, opts, prompt)
 	if err != nil {
 		log.Printf("frontdesk: CLI 失败：%v", err)
@@ -39,6 +38,18 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot) (bool
 	if len(raw.Reply) == 0 || string(raw.Reply) == "null" || json.Unmarshal(raw.Reply, &reply) != nil || len(raw.Calls) == 0 || string(raw.Calls) == "null" || json.Unmarshal(raw.Calls, &calls) != nil {
 		return false, nil
 	}
+	tools := d.toolbox()
+	for _, call := range calls {
+		tool, ok := tools.Get(call.Tool)
+		if !ok || !tool.Write {
+			log.Printf("frontdesk: 不允许的 CLI 工具 %s", call.Tool)
+			return false, nil
+		}
+		if _, err := validate(tool, call.Args); err != nil {
+			log.Printf("frontdesk: 无效 CLI 参数：%v", err)
+			return false, nil
+		}
+	}
 	if strings.TrimSpace(reply) != "" {
 		if d.Feed == nil {
 			return true, errors.New("frontdesk: 回复存储不可用")
@@ -47,41 +58,16 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot) (bool
 			return true, err
 		}
 	}
-	tools := d.toolbox()
-	confirmation := ""
 	var firstErr error
 	for _, call := range calls {
-		if call.Tool != "create_task" && call.Tool != "amend_task" && call.Tool != "remember" && call.Tool != "answer_decision" {
-			log.Printf("frontdesk: 丢弃 CLI 工具 %s", call.Tool)
-			continue
-		}
-		tool, ok := tools.Get(call.Tool)
-		if !ok {
-			log.Printf("frontdesk: 未知 CLI 工具 %s", call.Tool)
-			continue
-		}
-		if _, err := validate(tool, call.Args); err != nil {
-			log.Printf("frontdesk: 丢弃 CLI 参数：%v", err)
-			continue
-		}
-		value, err := tool.Run(ctx, call.Args)
+		tool, _ := tools.Get(call.Tool)
+		_, err := tool.Run(ctx, call.Args)
 		if err != nil {
 			log.Printf("frontdesk: CLI 写入失败：%v", err)
 			if firstErr == nil {
 				firstErr = err
 			}
-		} else if confirmation == "" || call.Tool == "create_task" {
-			confirmation = d.toolConfirmation(ctx, llm.ToolCall{Name: call.Tool, Arguments: call.Args}, value)
 		}
 	}
-	if strings.TrimSpace(reply) == "" {
-		if confirmation == "" && firstErr != nil {
-			confirmation = "没办成：" + errorSummary(firstErr)
-		}
-		if confirmation == "" {
-			confirmation = "没办成：模型没有返回内容"
-		}
-		d.reply(ctx, in.ThreadID, confirmation)
-	}
-	return true, nil
+	return true, firstErr
 }

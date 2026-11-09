@@ -3,6 +3,7 @@ package kanban
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +15,58 @@ import (
 type mockPlanner struct {
 	result PlanResult
 	err    error
+}
+
+func TestStewardOwnerCompletionScheduler(t *testing.T) {
+	testStewardOwnerCompletion(t, false)
+}
+
+func testStewardOwnerCompletion(t *testing.T, watchdogFirst bool) {
+	t.Helper()
+	for _, autoReview := range []bool{false, true} {
+		for _, autoAccept := range []bool{false, true} {
+			t.Run(fmt.Sprintf("review=%t/accept=%t", autoReview, autoAccept), func(t *testing.T) {
+				ctx := context.Background()
+				driver := newPokeDriver()
+				svc, db, wd, scheduler := setupReceiptTestService(t, driver, autoReview, false, nil)
+				thread := "executor"
+				seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward, Policy: map[string]any{"autoAccept": autoAccept}}, store.Task{ID: "t", Title: "任务", Status: "in_progress", ThreadID: &thread, AttemptCount: 1, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner"})})
+				driver.setThreadState(thread, SessionState{})
+				calls := 0
+				svc.SetOnResult(func(context.Context, store.Task, ExecutorResult) { calls++ })
+				if err := svc.SubmitExecutorResult(ctx, "t", thread, ExecutorResult{Status: ResultDone, Summary: "结果"}); err != nil {
+					t.Fatal(err)
+				}
+				if watchdogFirst {
+					if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+					scheduler.Tick(ctx)
+				} else {
+					scheduler.Tick(ctx)
+					if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+				}
+				scheduler.Tick(ctx)
+				if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+				task, err := db.GetTask(ctx, "t")
+				if err != nil || task.Status != "done" || calls != 1 { t.Fatalf("任务=%+v 回调=%d 错误=%v", task, calls, err) }
+				goal, err := db.GetGoal(ctx, "g")
+				if err != nil || goal.Status != "running" { t.Fatalf("目标=%+v 错误=%v", goal, err) }
+			})
+		}
+	}
+	for _, tc := range []struct{ owner, title, origin string }{{"user", "普通", "owner"}, {goalOwnerSteward, "总管", "delegated"}} {
+		t.Run(fmt.Sprintf("%s-%s", tc.title, tc.origin), func(t *testing.T) {
+			ctx := context.Background()
+			driver := newPokeDriver()
+			svc, db, wd, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+			thread := "executor"
+			seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: tc.title, Owner: tc.owner}, store.Task{ID: "t", Title: "任务", Status: "in_progress", ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{Origin: tc.origin})})
+			driver.setThreadState(thread, SessionState{})
+			if err := svc.SubmitExecutorResult(ctx, "t", thread, ExecutorResult{Status: ResultDone, Summary: "结果"}); err != nil { t.Fatal(err) }
+			if watchdogFirst { if err := wd.Check(ctx); err != nil { t.Fatal(err) } } else { scheduler.Tick(ctx) }
+			task, err := db.GetTask(ctx, "t")
+			if err != nil || task.Status != "review" { t.Fatalf("任务=%+v 错误=%v", task, err) }
+		})
+	}
 }
 
 func (m *mockPlanner) Plan(ctx context.Context, goal store.Goal, feedback string) (PlanResult, error) {

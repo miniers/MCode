@@ -41,6 +41,10 @@ type fake struct {
 	mu     sync.Mutex
 	events []string
 	recent store.Task
+	recentAt time.Time
+	recentThread string
+	createErr error
+	getErr error
 }
 
 func (f *fake) event(s string) {
@@ -57,12 +61,12 @@ func (f *fake) ListTasks(context.Context, string) ([]store.Task, error) {
 	f.event("list")
 	return nil, nil
 }
-func (f *fake) GetTask(context.Context, string) (store.Task, error) {
-	return store.Task{Status: "todo"}, nil
+func (f *fake) GetTask(_ context.Context, id string) (store.Task, error) {
+	return store.Task{ID: id, Status: "done"}, f.getErr
 }
 func (f *fake) CreateTask(_ context.Context, in CreateTaskInput) (store.Task, error) {
 	f.event("create:" + in.Title + ":" + in.Origin)
-	return store.Task{ID: "t"}, nil
+	return store.Task{ID: "t"}, f.createErr
 }
 func (f *fake) AmendTask(_ context.Context, id, text string) error {
 	f.event("amend:" + id + ":" + text)
@@ -74,7 +78,12 @@ func (f *fake) CancelTask(_ context.Context, id string) error {
 }
 func (f *fake) SetPriority(context.Context, string, string) error          { return nil }
 func (f *fake) ReassignTask(context.Context, string, string, string) error { return nil }
-func (f *fake) RecentTask(context.Context) (store.Task, error)             { return f.recent, nil }
+func (f *fake) RecentTask(_ context.Context, thread string) (store.Task, time.Time, error) {
+	if f.recentThread != "" && f.recentThread != thread {
+		return store.Task{}, time.Time{}, nil
+	}
+	return f.recent, f.recentAt, nil
+}
 func (f *fake) ListDecisions(context.Context, string, int) ([]store.StewardDecision, error) {
 	return nil, nil
 }
@@ -102,8 +111,8 @@ func TestLoop(t *testing.T) {
 		{"无效参数", []*llm.Response{response(call("create_task", `{}`)), response()}, []string{"丢弃", "修正"}, []string{"reply:修正"}, 2},
 		{"无效JSON", []*llm.Response{response(call("create_task", `{`)), response()}, []string{"丢弃", "修正"}, []string{"reply:修正"}, 2},
 		{"未知", []*llm.Response{response(call("missing", `{}`)), response()}, []string{"丢弃", "修正"}, []string{"reply:修正"}, 2},
-		{"轮数耗尽", []*llm.Response{response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`))}, []string{"丢弃", "丢弃", "丢弃", "丢弃"}, []string{"list", "list", "list", "list", "create:原话:owner", "reply:前台模型不可用：达到最大轮数 4，已建任务「原话」"}, 4},
-		{"写工具无文字", []*llm.Response{response(call("create_task", `{"title":"工作"}`))}, []string{""}, []string{"create:工作:owner", "reply:已建任务「工作」"}, 1},
+		{"轮数耗尽", []*llm.Response{response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`))}, []string{"丢弃", "丢弃", "丢弃", "丢弃"}, []string{"list", "list", "list", "list", "create:原话:owner"}, 4},
+		{"写工具无文字", []*llm.Response{response(call("create_task", `{"title":"工作"}`))}, []string{""}, []string{"create:工作:owner"}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -139,15 +148,16 @@ func TestFallback(t *testing.T) {
 	if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.requests) != 1 || !reflect.DeepEqual(f.events, []string{"reply:前台模型不可用：401"}) {
+	if len(s.requests) != 1 || !reflect.DeepEqual(f.events, []string{"create:工作:owner"}) {
 		t.Fatal(f.events)
 	}
 	f.events = nil
-	f.recent = store.Task{ID: "t", UpdatedAt: time.Now()}
+	f.recent = store.Task{ID: "t"}
+	f.recentAt = time.Now()
 	if err := d.fallback(context.Background(), Inbound{Text: "继续"}, Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.events, []string{"amend:t:继续", "reply:已补充到上一个任务"}) {
+	if !reflect.DeepEqual(f.events, []string{"amend:t:继续"}) {
 		t.Fatal(f.events)
 	}
 }
@@ -158,10 +168,12 @@ func TestCLI(t *testing.T) {
 		want      []string
 		calls     int
 	}{
-		{"关闭", "", false, []string{"create:工作:owner", "reply:已建任务「工作」"}, 0},
+		{"关闭", "", false, []string{"create:工作:owner"}, 0},
 		{"正常", `{"reply":"收到","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, true, []string{"reply:收到", "create:任务:owner"}, 1},
-		{"损坏", "{", true, []string{"create:工作:owner", "reply:已建任务「工作」"}, 1},
-		{"丢弃读", `{"reply":"收到","calls":[{"tool":"list_tasks","args":{}}]}`, true, []string{"reply:收到"}, 1},
+		{"损坏", "{", true, []string{"create:工作:owner"}, 1},
+		{"丢弃读", `{"reply":"收到","calls":[{"tool":"list_tasks","args":{}}]}`, true, []string{"create:工作:owner"}, 1},
+		{"空答", `{"reply":"","calls":[]}`, true, nil, 1},
+		{"空答写入", `{"reply":"","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, true, []string{"create:任务:owner"}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fake{}
@@ -308,21 +320,21 @@ func TestFrontdeskBehaviors(t *testing.T) {
 					t.Fatal("缺少下一轮请求")
 				}
 				msg := s.requests[1].Messages[2]
-				if !reflect.DeepEqual(f.events, []string{"reply:没办成：模型没有返回内容"}) || msg.Role != "tool" || !msg.IsError || len(msg.Content) == 0 || !strings.Contains(msg.Content[0].Text, tc.message) {
+				if len(f.events) != 0 || msg.Role != "tool" || !msg.IsError || len(msg.Content) == 0 || !strings.Contains(msg.Content[0].Text, tc.message) {
 					t.Fatalf("事件 %v，结果 %+v", f.events, msg)
 				}
 			})
 		}
 	})
 
-	t.Run("空文本的干净轮返回失败", func(t *testing.T) {
+	t.Run("空文本的干净轮允许静默回复", func(t *testing.T) {
 		f := &fake{}
 		s := &scripted{replies: []*llm.Response{response()}, texts: []string{"  "}}
 		d := Desk{Client: s, Feed: f, Tasks: f}
 		if err := d.loop(context.Background(), Inbound{}, Snapshot{}); err != nil {
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(f.events, []string{"reply:没办成：模型没有返回内容"}) {
+		if len(f.events) != 0 {
 			t.Fatal(f.events)
 		}
 	})
@@ -352,10 +364,12 @@ func TestSilentFallbackBoundaries(t *testing.T) {
 		{"超过四十字新建", strings.Repeat("字", 81), time.Minute, "create:" + strings.Repeat("字", 80) + ":owner"},
 		{"多行新建并取首行", "第一行\n第二行", time.Minute, "create:第一行:owner"},
 		{"超过十分钟新建", "继续", 10*time.Minute + time.Second, "create:继续:owner"},
+		{"未来提及无效", "继续", -time.Second, "create:继续:owner"},
+		{"CRLF 首行", " 第一行\r\n第二行", time.Minute, "create:第一行:owner"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &fake{recent: store.Task{ID: "t", UpdatedAt: now.Add(-tc.age)}}
-			d := Desk{Tasks: f, Now: func() time.Time { return now }}
+			f := &fake{recent: store.Task{ID: "t"}, recentAt: now.Add(-tc.age)}
+			d := Desk{Tasks: f, Feed: f, Now: func() time.Time { return now }}
 			if err := d.fallback(context.Background(), Inbound{Text: tc.text}, Snapshot{}); err != nil {
 				t.Fatal(err)
 			}
@@ -405,15 +419,15 @@ func (f *busyFake) SetBusy(_ string, busy bool) {
 	}
 }
 
-func TestVisibleFallbackAndBusy(t *testing.T) {
+func TestSilentFallbackAndBusy(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		client llm.Client
 		want   string
 	}{
-		{"模型失败", &scripted{err: errors.New("401\n授权失败")}, "reply:前台模型不可用：401 授权失败"},
-		{"没有模型", &scripted{err: ErrNoModel}, "reply:前台模型不可用：没有可用模型，可在主会话选择模型"},
-		{"主动兜底", nil, "reply:已建任务「工作」"},
+		{"模型失败", &scripted{err: errors.New("401\n授权失败")}, ""},
+		{"没有模型", &scripted{err: ErrNoModel}, "reply:没有可用模型，请在主会话选择模型。"},
+		{"主动兜底", nil, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &busyFake{fake: &fake{}, done: make(chan struct{})}
@@ -426,11 +440,11 @@ func TestVisibleFallbackAndBusy(t *testing.T) {
 			}
 			f.mu.Lock()
 			defer f.mu.Unlock()
-			want := []string{"busy:true", "list"}
-			if tc.client == nil {
-				want = append(want, "create:工作:owner")
+			want := []string{"busy:true", "list", "create:工作:owner"}
+			if tc.want != "" {
+				want = append(want, tc.want)
 			}
-			want = append(want, tc.want, "busy:false")
+			want = append(want, "busy:false")
 			if !reflect.DeepEqual(f.events, want) {
 				t.Fatalf("事件 %v", f.events)
 			}
@@ -472,9 +486,9 @@ func TestModelFailureCLIFallback(t *testing.T) {
 		want   []string
 	}{
 		{`{"reply":"收到","calls":[]}`, []string{"reply:收到"}},
-		{`{`, []string{"reply:前台模型不可用：401"}},
+		{`{`, []string{"amend:t:工作"}},
 	} {
-		f := &fake{recent: store.Task{ID: "t", UpdatedAt: time.Now()}}
+		f := &fake{recent: store.Task{ID: "t"}, recentAt: time.Now()}
 		d := Desk{Client: &scripted{err: errors.New("401")}, Feed: f, Tasks: f, CLIFallback: true, Generator: func(context.Context, textgen.Options, string) (string, error) {
 			return tc.output, nil
 		}}
@@ -485,6 +499,112 @@ func TestModelFailureCLIFallback(t *testing.T) {
 			t.Fatalf("事件 %v，期望 %v", f.events, tc.want)
 		}
 	}
+}
+
+func TestFallbackAssociation(t *testing.T) {
+	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, thread, replyTo, text, want string
+		getErr error
+	}{
+		{"显式任务优先且可重开", "feed", "done", "长补充\n第二行", "amend:done:长补充\n第二行", nil},
+		{"失效目标返回错误", "feed", "missing", "继续", "", errors.New("not found")},
+		{"跨会话不关联", "other", "", "继续", "create:继续:owner", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fake{recent: store.Task{ID: "recent"}, recentAt: now, recentThread: "feed", getErr: tc.getErr}
+			d := Desk{Tasks: f, Feed: f, Now: func() time.Time { return now }}
+			err := d.fallback(context.Background(), Inbound{ThreadID: tc.thread, ReplyTo: tc.replyTo, Text: tc.text}, Snapshot{})
+			if (err != nil) != (tc.getErr != nil) {
+				t.Fatal(err)
+			}
+			if tc.want == "" && len(f.events) != 0 || tc.want != "" && !reflect.DeepEqual(f.events, []string{tc.want}) {
+				t.Fatal(f.events)
+			}
+		})
+	}
+}
+
+func TestFailureFallbackAndCLIBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		client *scripted
+		generator Generator
+		want string
+	}{
+		{"404", &scripted{err: errors.New("404")}, nil, "create:工作:owner"},
+		{"空响应", &scripted{replies: []*llm.Response{nil}, texts: []string{""}}, nil, "create:工作:owner"},
+		{"CLI 超时", &scripted{err: errors.New("404")}, func(context.Context, textgen.Options, string) (string, error) { return "", context.DeadlineExceeded }, "create:工作:owner"},
+		{"整批校验", &scripted{err: errors.New("404")}, func(context.Context, textgen.Options, string) (string, error) { return `{"reply":"收到","calls":[{"tool":"create_task","args":{"title":"不执行"}},{"tool":"list_tasks","args":{}}]}`, nil }, "create:工作:owner"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fake{}
+			d := Desk{Client: tc.client, Tasks: f, Feed: f, CLIFallback: true, Generator: tc.generator}
+			if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil || !reflect.DeepEqual(f.events, []string{tc.want}) {
+				t.Fatal(err, f.events)
+			}
+		})
+	}
+	t.Run("CLI 写入失败不重复创建", func(t *testing.T) {
+		f := &fake{createErr: errors.New("写入失败")}
+		d := Desk{Tasks: f, Feed: f, CLIFallback: true, Generator: func(context.Context, textgen.Options, string) (string, error) {
+			return `{"reply":"","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, nil
+		}}
+		if err := d.fallback(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err == nil || !reflect.DeepEqual(f.events, []string{"create:任务:owner"}) {
+			t.Fatal(err, f.events)
+		}
+	})
+	t.Run("无模型时 CLI 成功不提示", func(t *testing.T) {
+		f := &fake{}
+		d := Desk{Client: &scripted{err: ErrNoModel}, Tasks: f, Feed: f, CLIFallback: true, Generator: func(context.Context, textgen.Options, string) (string, error) {
+			return `{"reply":"","calls":[]}`, nil
+		}}
+		if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil || len(f.events) != 0 {
+			t.Fatal(err, f.events)
+		}
+	})
+	t.Run("轮数耗尽追加最近提及", func(t *testing.T) {
+		now := time.Now()
+		f := &fake{recent: store.Task{ID: "t"}, recentAt: now}
+		s := &scripted{replies: []*llm.Response{response(call("list_tasks", `{}`))}, texts: []string{""}}
+		d := Desk{Client: s, Tasks: f, Feed: f, MaxRounds: 1, Now: func() time.Time { return now }}
+		if err := d.loop(context.Background(), Inbound{Text: "继续"}, Snapshot{}); err != nil || !reflect.DeepEqual(f.events, []string{"list", "amend:t:继续"}) {
+			t.Fatal(err, f.events)
+		}
+	})
+	t.Run("最大四轮且 CLI 只调用一次", func(t *testing.T) {
+		f := &fake{}
+		s := &scripted{replies: []*llm.Response{response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`))}, texts: []string{"", "", "", ""}}
+		calls := 0
+		d := Desk{Client: s, Tasks: f, Feed: f, MaxRounds: 9, CLIFallback: true, Generator: func(context.Context, textgen.Options, string) (string, error) { calls++; return "{", nil }}
+		if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil || len(s.requests) != 4 || calls != 1 || !reflect.DeepEqual(f.events, []string{"list", "list", "list", "list", "create:工作:owner"}) {
+			t.Fatal(err, calls, f.events)
+		}
+	})
+}
+
+func TestDirectAnswersAndDecisionCorrection(t *testing.T) {
+	for _, text := range []string{"你好", "现在怎么样"} {
+		t.Run(text, func(t *testing.T) {
+			f := &fake{}
+			s := &scripted{replies: []*llm.Response{response()}, texts: []string{"直接回答"}}
+			d := Desk{Client: s, Tasks: f, Feed: f}
+			if err := d.HandleMessage(context.Background(), Inbound{Text: text}); err != nil || !reflect.DeepEqual(f.events, []string{"list", "reply:直接回答"}) || !strings.Contains(s.requests[0].System, "闲聊、致谢") {
+				t.Fatal(err, f.events)
+			}
+		})
+	}
+	t.Run("最近决策改答", func(t *testing.T) {
+		f := &fake{}
+		s := &scripted{replies: []*llm.Response{response(call("answer_decision", `{"id":"D-0001","answer":"B"}`))}, texts: []string{""}}
+		d := Desk{Client: s, Tasks: f, Feed: f, Decisions: f}
+		if err := d.AnswerDecision(context.Background(), "D-0001", "A", "owner"); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.HandleMessage(context.Background(), Inbound{Text: "改成 B"}); err != nil || !strings.Contains(s.requests[0].System, "刚答过 D-0001") || !reflect.DeepEqual(f.events, []string{"answer:D-0001:A", "list", "answer:D-0001:B"}) {
+			t.Fatal(err, f.events)
+		}
+	})
 }
 
 func TestSelectSourceSkipsKeyedSourceWithoutModel(t *testing.T) {

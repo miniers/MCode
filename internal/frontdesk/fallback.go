@@ -56,32 +56,30 @@ func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons 
 	if d.Tasks == nil {
 		return errors.New("frontdesk: 任务服务不可用")
 	}
-	prefix := ""
-	if len(reasons) > 0 && reasons[0] != nil {
-		prefix = "前台模型不可用：" + errorSummary(reasons[0]) + "，"
-	}
-	if !strings.ContainsAny(in.Text, "\r\n") && len([]rune(in.Text)) <= 40 {
-		if task, err := d.Tasks.RecentTask(ctx); err == nil && task.ID != "" && !task.UpdatedAt.After(d.now()) && d.now().Sub(task.UpdatedAt) <= 10*time.Minute {
-			if err := d.Tasks.AmendTask(ctx, task.ID, in.Text); err != nil {
-				return err
-			}
-			text := "已补充到上一个任务"
-			if task.Title != "" {
-				text = "已补充到「" + task.Title + "」"
-			}
-			d.reply(ctx, in.ThreadID, prefix+text)
-			return nil
+	taskID := in.ReplyTo
+	if taskID != "" {
+		if _, err := d.Tasks.GetTask(ctx, taskID); err != nil {
+			return err
+		}
+	} else if !strings.ContainsAny(in.Text, "\r\n") && len([]rune(in.Text)) <= 40 {
+		task, mentionedAt, err := d.Tasks.RecentTask(ctx, in.ThreadID)
+		now := d.now()
+		if err == nil && task.ID != "" && !mentionedAt.After(now) && now.Sub(mentionedAt) <= 10*time.Minute {
+			taskID = task.ID
 		}
 	}
-	title := strings.TrimSpace(strings.SplitN(in.Text, "\n", 2)[0])
-	title = truncate(title, 80)
-	task, err := d.Tasks.CreateTask(ctx, CreateTaskInput{Title: title, Body: in.Text, Origin: "owner"})
-	if err != nil {
-		return err
+	if taskID != "" {
+		if err := d.Tasks.AmendTask(ctx, taskID, in.Text); err != nil {
+			return err
+		}
+	} else {
+		title := truncate(strings.TrimSpace(strings.SplitN(in.Text, "\n", 2)[0]), 80)
+		if _, err := d.Tasks.CreateTask(ctx, CreateTaskInput{Title: title, Body: in.Text, Origin: "owner"}); err != nil {
+			return err
+		}
 	}
-	if task.Title != "" {
-		title = task.Title
+	if len(reasons) > 0 && errors.Is(reasons[0], ErrNoModel) {
+		d.reply(ctx, in.ThreadID, "没有可用模型，请在主会话选择模型。")
 	}
-	d.reply(ctx, in.ThreadID, prefix+"已建任务「"+title+"」")
 	return nil
 }

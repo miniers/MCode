@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"mcode/internal/agent/llm"
-	"mcode/internal/store"
 )
 
 // LoopError 描述前台循环中的错误。
@@ -58,7 +57,7 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 	parts = append(parts, in.Images...)
 	req := llm.Request{Model: d.Model, System: snap.Text, Messages: []llm.Message{{Role: "user", Content: parts}}, Tools: tools.Specs()}
 	rounds := d.MaxRounds
-	if rounds <= 0 {
+	if rounds <= 0 || rounds > 4 {
 		rounds = 4
 	}
 	for i := 0; i < rounds; i++ {
@@ -68,11 +67,7 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 				err = fmt.Errorf("模型返回空响应")
 			}
 			log.Printf("frontdesk: 模型失败：%v", err)
-			if ok, cliErr := d.tryCLIFallback(ctx, in, snap); ok || cliErr != nil {
-				return cliErr
-			}
-			d.reply(ctx, in.ThreadID, "前台模型不可用："+errorSummary(err))
-			return nil
+			return d.fallback(ctx, in, snap, err)
 		}
 		dirty := false
 		for _, call := range resp.Message.ToolCalls {
@@ -94,30 +89,18 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 					return err
 				}
 			}
-			var confirmation string
 			var firstErr error
 			for _, call := range resp.Message.ToolCalls {
 				tool, _ := tools.Get(call.Name)
-				value, err := tool.Run(ctx, call.Arguments)
+				_, err := tool.Run(ctx, call.Arguments)
 				if err != nil {
 					log.Printf("frontdesk: 写工具 %s 失败：%v", call.Name, err)
 					if firstErr == nil {
 						firstErr = err
 					}
-				} else if confirmation == "" || call.Name == "create_task" {
-					confirmation = d.toolConfirmation(ctx, call, value)
 				}
 			}
-			if strings.TrimSpace(text) == "" {
-				if confirmation == "" && firstErr != nil {
-					confirmation = "没办成：" + errorSummary(firstErr)
-				}
-				if confirmation == "" {
-					confirmation = "没办成：模型没有返回内容"
-				}
-				d.reply(ctx, in.ThreadID, confirmation)
-			}
-			return nil
+			return firstErr
 		}
 		history := resp.Message
 		history.ToolCalls = append([]llm.ToolCall(nil), resp.Message.ToolCalls...)
@@ -148,46 +131,4 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 	}
 	log.Printf("frontdesk: 达到最大轮数 %d", rounds)
 	return d.fallback(ctx, in, snap, fmt.Errorf("达到最大轮数 %d", rounds))
-}
-
-func (d *Desk) toolConfirmation(ctx context.Context, call llm.ToolCall, value any) string {
-	var args map[string]string
-	_ = json.Unmarshal(call.Arguments, &args)
-	if call.Name == "create_task" {
-		title := args["title"]
-		if task, ok := value.(store.Task); ok && task.Title != "" {
-			title = task.Title
-		}
-		return "已建任务「" + title + "」"
-	}
-	title := ""
-	if args["task_id"] != "" && d.Tasks != nil {
-		if task, err := d.Tasks.GetTask(ctx, args["task_id"]); err == nil {
-			title = task.Title
-		}
-	}
-	if title == "" {
-		title = args["task_id"]
-	}
-	switch call.Name {
-	case "amend_task":
-		if title == "" {
-			return "已补充任务"
-		}
-		return "已补充到「" + title + "」"
-	case "cancel_task":
-		return "已取消任务「" + title + "」"
-	case "set_priority":
-		return "已调整任务「" + title + "」的优先级"
-	case "reassign_task":
-		return "已调整任务「" + title + "」的执行来源"
-	case "remember":
-		return "已记住"
-	case "edit_memory":
-		return "已修改记忆"
-	case "answer_decision":
-		return "已回答决策卡"
-	default:
-		return "已完成"
-	}
 }

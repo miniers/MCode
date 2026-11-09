@@ -133,7 +133,7 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 	if role == "user" {
 		td.summary.LastUserMessageAt = &msg.CreatedAt
 	}
-	unread := role != "user" && kind != "steward_reply" && kind != "steward_decision_answer"
+	unread := role != "user" && kind != "steward_reply" && kind != "steward_decision_answer" && !(role == "system" && kind == "steward_result")
 	if unread {
 		td.summary.HasUnread = true
 		_ = b.store.SetThreadUnread(ctx, threadID, true)

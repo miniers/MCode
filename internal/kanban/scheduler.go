@@ -184,8 +184,52 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 		now = g.svc.opts.Now()
 	}
 	for i, t := range tasks {
+		if t.Status == string(TaskStatusReview) && g.svc.isStewardOwnerTask(ctx, t) {
+			meta, err := ParseTaskMeta(t.Meta)
+			if err != nil || meta.DecisionID != "" || g.svc.isReviewActive(ctx, t) || (g.svc.opts.IsReviewActive != nil && g.svc.opts.IsReviewActive(t.ID)) {
+				continue
+			}
+			if t.ReviewThreadID != nil && *t.ReviewThreadID != "" {
+				if g.svc.opts.Driver == nil {
+					continue
+				}
+				st, err := g.svc.opts.Driver.SessionState(ctx, *t.ReviewThreadID)
+				if err != nil || st.Running || st.AwaitingApproval || st.AwaitingInput {
+					continue
+				}
+			}
+			if t.ThreadID != nil && *t.ThreadID != "" {
+				if g.svc.opts.Driver == nil {
+					continue
+				}
+				st, err := g.svc.opts.Driver.SessionState(ctx, *t.ThreadID)
+				if err != nil || st.Running || st.AwaitingApproval || st.AwaitingInput {
+					continue
+				}
+			}
+			if meta.ResultStatus == string(ResultDone) {
+				t.Status = string(TaskStatusDone)
+			} else {
+				t.Status = string(TaskStatusTodo)
+				failedThisTick[t.ID] = struct{}{}
+			}
+			if up, err := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
+				tasks[i] = up
+				goalChanged = true
+			}
+			continue
+		}
 		if (t.Status != string(TaskStatusInProgress) && t.Status != string(TaskStatusNeedsApproval)) || t.ThreadID == nil || *t.ThreadID == "" || g.svc.opts.Driver == nil {
 			continue
+		}
+		if t.Status == string(TaskStatusNeedsApproval) && g.svc.isStewardOwnerTask(ctx, t) {
+			meta, err := ParseTaskMeta(t.Meta)
+			if err == nil && meta.DecisionID != "" {
+				d, err := g.svc.opts.Store.GetStewardDecision(ctx, meta.DecisionID)
+				if err != nil || d.Status == store.DecisionStatusOpen {
+					continue
+				}
+			}
 		}
 		st, err := g.svc.opts.Driver.SessionState(ctx, *t.ThreadID)
 		if err != nil {
@@ -219,6 +263,22 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			continue
 		}
 		if st.Failed {
+			if g.svc.isStewardOwnerTask(ctx, t) {
+				log.Printf("kanban: 任务 %s 执行失败: %s", t.ID, st.FailureReason)
+				res := ExecutorResult{Status: ResultFailed, Summary: "执行会话运行失败"}
+				if err := g.svc.applyExecutorResult(ctx, &t, res, now); err != nil {
+					return err
+				}
+				if up, err := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
+					tasks[i], goalChanged = up, true
+					if up.Status == string(TaskStatusTodo) {
+						failedThisTick[up.ID] = struct{}{}
+					} else {
+						g.svc.notifyResult(ctx, up, res)
+					}
+				}
+				continue
+			}
 			t.LastFailureReason = &st.FailureReason
 			if t.AttemptCount < maxAttempts {
 				t.Status = string(TaskStatusTodo)
@@ -273,6 +333,10 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 				if decision.result.Status != "" && decision.result.Status != ResultDone {
 					break
 				}
+				if g.svc.isStewardOwnerTask(ctx, t) {
+					t.Status = string(TaskStatusDone)
+					break
+				}
 				// 完成：按目标策略自动接受、送审，两个开关都关闭时交给人工处理。
 				// 含 [命令] 或 [你验] 的验收标准必须先走验收，自动接受不生效。
 				autoAcceptNow = autoAccept && !hasGatedAcceptance(t)
@@ -292,7 +356,11 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			}
 			t.LastActivityText = &text
 			if up, err := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
-				g.svc.notifyResult(ctx, up, decision.result)
+				if up.Status == string(TaskStatusTodo) && decision.result.Status == ResultFailed {
+					failedThisTick[up.ID] = struct{}{}
+				} else {
+					g.svc.notifyResult(ctx, up, decision.result)
+				}
 				tasks[i] = up
 				goalChanged = true
 				if autoAcceptNow {
@@ -377,7 +445,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 				break
 			}
 		}
-		if allCompleted && goal.Status == string(GoalStatusRunning) {
+		if allCompleted && goal.Status == string(GoalStatusRunning) && !isStewardQueue(goal) {
 			goal.Status = string(GoalStatusCompleted)
 			summary := fmt.Sprintf("完成 %d 个任务", len(tasks))
 			goal.ResultSummary = &summary

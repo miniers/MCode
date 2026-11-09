@@ -29,7 +29,7 @@ func TestStewardTaskResultOpensThreadAndShowsBand(t *testing.T) {
 			{ID: "other", ProjectID: "p1", Title: "其他线程"},
 		},
 	})
-	resultText, _ := json.Marshal(stewardResult{Task: "task-1", Thread: "task-thread", Title: "整理任务", Summary: "已完成", Status: "done"})
+	resultText, _ := json.Marshal(stewardResult{Task: "task-1", Thread: "task-thread", Title: "整理任务", Summary: "已完成", Status: "done", Owner: true})
 	fake.SetMessages("feed", []Message{{ID: "result-1", Role: "assistant", Kind: stewardResultKind, Text: string(resultText), TurnIndex: 1, IsFinal: true}})
 	fake.SetMessages("task-thread", nil)
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{ID: "task-1", ThreadID: "task-thread", Status: "waiting", ResultSummary: "等待文件", WaitKind: "machine", WakeAt: time.Now().Add(time.Hour).Format(time.RFC3339)}}})
@@ -38,6 +38,9 @@ func TestStewardTaskResultOpensThreadAndShowsBand(t *testing.T) {
 	t.Cleanup(state.close)
 	tt := ui.NewTester(view, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("打开任务") })
+	if !tt.HasText("已完成") || tt.HasText("整理任务：已完成") {
+		t.Fatalf("用户任务结果应只显示摘要: %q", tt.Texts())
+	}
 	if err := tt.Click("打开任务"); err != nil {
 		t.Fatalf("点击打开任务失败: %v", err)
 	}
@@ -52,6 +55,31 @@ func TestStewardTaskResultOpensThreadAndShowsBand(t *testing.T) {
 	}
 	if tt.HasText("等待文件") || tt.HasText("等待中") {
 		t.Fatalf("切换线程后任务信息带仍存在: %q", tt.Texts())
+	}
+}
+
+func TestStewardResultCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		name, role, text, want string
+		system                 bool
+	}{
+		{"旧 JSON", "assistant", `{"task":"task-1","title":"整理任务","summary":"已完成","status":"done"}`, "整理任务：已完成", false},
+		{"失败", "assistant", `{"task":"task-1","title":"整理任务","summary":"缺少文件","status":"failed","owner":true}`, "没能完成「整理任务」：缺少文件", false},
+		{"系统消息", "system", "整理任务\n已完成", "整理任务\n已完成", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newChatState(NewFakeClient())
+			msg := Message{ID: "result", Role: tc.role, Kind: stewardResultKind, Text: tc.text, IsFinal: true}
+			tt := ui.NewTester(func(c *ui.Context) {
+				renderMessageItem(c, s, msg, "", "", true, false, TokenUsage{}, 0, false)
+			}, 800, 300)
+			if !tt.HasText(tc.want) {
+				t.Fatalf("结果正文不匹配: %q", tt.Texts())
+			}
+			if _, ok := tt.Find("sys-pill-result"); ok != tc.system {
+				t.Fatalf("系统消息样式不匹配: %q", tt.Texts())
+			}
+		})
 	}
 }
 

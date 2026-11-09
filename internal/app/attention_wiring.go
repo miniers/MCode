@@ -552,6 +552,18 @@ func kanbanSnapshotFromTask(task store.Task) kanbanTaskSnapshot {
 	return snapshot
 }
 
+func kanbanSnapshotForGoal(task store.Task, steward bool) kanbanTaskSnapshot {
+	snapshot := kanbanSnapshotFromTask(task)
+	meta, err := kanban.ParseTaskMeta(task.Meta)
+	if err == nil && meta.Origin == "owner" && steward {
+		switch task.Status {
+		case "todo", "in_progress", "waiting", "needs_approval", "review":
+			snapshot.FailureReason = ""
+		}
+	}
+	return snapshot
+}
+
 // kanbanActionDetail 生成看板事件的正文。
 func kanbanActionDetail(action kanbanAttentionAction) string {
 	if action.kind == attention.KindKanbanFailed {
@@ -678,13 +690,16 @@ func (w *attentionWiring) scanKanban() {
 		log.Printf("attention: 读取看板失败，跳过本轮扫描: %v", err)
 		return
 	}
-	next := make(map[string]kanbanTaskSnapshot, len(board.Tasks))
-	for _, view := range board.Tasks {
-		next[view.Task.ID] = kanbanSnapshotFromTask(view.Task)
-	}
 	nextGoals := make(map[string]kanbanGoalSnapshot, len(board.Goals))
+	stewardGoals := make(map[string]bool, len(board.Goals))
 	for _, goal := range board.Goals {
 		nextGoals[goal.ID] = kanbanGoalSnapshotFromGoal(goal)
+		stewardGoals[goal.ID] = goal.Owner == "steward"
+	}
+	next := make(map[string]kanbanTaskSnapshot, len(board.Tasks))
+	for _, view := range board.Tasks {
+		task := view.Task
+		next[task.ID] = kanbanSnapshotForGoal(task, task.GoalID != nil && stewardGoals[*task.GoalID])
 	}
 	w.mu.Lock()
 	actions := diffKanbanAttention(w.kanbanSnapshot, next)

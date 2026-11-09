@@ -39,7 +39,7 @@ type TaskService interface {
 	CancelTask(context.Context, string) error
 	SetPriority(context.Context, string, string) error
 	ReassignTask(context.Context, string, string, string) error
-	RecentTask(context.Context) (store.Task, error)
+	RecentTask(ctx context.Context, threadID string) (store.Task, time.Time, error)
 }
 
 // DecisionService 提供决策卡操作。
@@ -163,7 +163,7 @@ func (d *Desk) Enqueue(in Inbound) {
 				ctx := context.Background()
 				if err := d.HandleMessage(ctx, next); err != nil {
 					log.Printf("frontdesk: %v", err)
-					d.reply(ctx, next.ThreadID, "没办成："+errorSummary(err))
+					d.reply(ctx, next.ThreadID, "任务未能保存，请重试")
 				}
 			}()
 		}

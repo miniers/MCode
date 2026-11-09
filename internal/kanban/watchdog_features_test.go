@@ -10,6 +10,10 @@ import (
 	"mcode/internal/store"
 )
 
+func TestStewardOwnerCompletionWatchdog(t *testing.T) {
+	testStewardOwnerCompletion(t, true)
+}
+
 // setupWatchdogTestService 辅助创建用于测试自动化特性的看板服务。
 func setupWatchdogTestService(t *testing.T, autoReview, autoStart, autoRescue bool, nudgeTimeout, interruptTimeout time.Duration, nowFn func() time.Time) (*Service, *store.Store, *mockDriver, *Watchdog) {
 	t.Helper()
