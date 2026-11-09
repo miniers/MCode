@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -75,7 +78,7 @@ func TestFindCutCanStartAfterInitialUser(t *testing.T) {
 func TestCompactionTruncatesLargeToolResult(t *testing.T) {
 	messages := []llm.Message{textMessage("user", strings.Repeat("u", 50000)), {Role: "assistant", ToolCalls: []llm.ToolCall{call("id", "read", `{}`)}}, toolMessage("id", strings.Repeat("x", 10000), false), textMessage("user", "next"), textMessage("assistant", strings.Repeat("recent", 2000)), textMessage("user", "current")}
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
-	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, func(harness.Event) {}); err != nil {
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0, func(harness.Event) {}); err != nil {
 		t.Fatal(err)
 	}
 	for _, message := range client.requests[0].Messages {
@@ -102,7 +105,7 @@ func TestCompactionPreservesSummaryWhenDroppingOldMessages(t *testing.T) {
 	}
 	messages = append(messages, textMessage("assistant", strings.Repeat("recent", 4000)), textMessage("user", "continue"))
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
-	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, func(harness.Event) {}); err != nil {
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0, func(harness.Event) {}); err != nil {
 		t.Fatal(err)
 	}
 	summarized := client.requests[0].Messages
@@ -125,12 +128,27 @@ func TestCompactionPreservesSummaryWhenDroppingOldMessages(t *testing.T) {
 func TestCompactionPrependsUserBeforeAssistant(t *testing.T) {
 	messages := []llm.Message{textMessage("assistant", "earlier"), textMessage("user", "continue")}
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
-	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, func(harness.Event) {}); err != nil {
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0, func(harness.Event) {}); err != nil {
 		t.Fatal(err)
 	}
 	summarized := client.requests[0].Messages
-	if len(summarized) != 2 || summarized[0].Role != "user" || messageText(summarized[0]) != "（更早的对话已省略）" || summarized[1].Role != "assistant" {
+	if len(summarized) != 3 || summarized[0].Role != "user" || messageText(summarized[0]) != "（更早的对话已省略）" || summarized[1].Role != "assistant" || summarized[2].Role != "user" || !strings.Contains(messageText(summarized[2]), "总结以上对话") {
 		t.Fatalf("summary request = %+v", summarized)
+	}
+}
+
+func TestCompactionAppendsInstructionToUser(t *testing.T) {
+	messages := []llm.Message{textMessage("user", "old"), textMessage("assistant", "recent")}
+	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0, func(harness.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	got := client.requests[0].Messages
+	if len(got) != 1 || got[0].Role != "user" || len(got[0].Content) != 2 || !strings.Contains(messageText(got[0]), "总结以上对话") {
+		t.Fatalf("summary request = %+v", got)
+	}
+	if len(messages[0].Content) != 1 {
+		t.Fatal("original message was modified")
 	}
 }
 
@@ -214,14 +232,15 @@ func TestAutoCompactionFailureStopsRetrying(t *testing.T) {
 }
 
 func TestCompactionBeforeRequest(t *testing.T) {
-	store := session.NewStore(t.TempDir())
+	dir := t.TempDir()
+	store := session.NewStore(dir)
 	appendHistory(t, store, "compact",
 		textMessage("user", strings.Repeat("a", 40000)),
 		textMessage("assistant", "done"),
 	)
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("earlier work summary")}, {response: reply("stop")}}}
 	var compactions []harness.Event
-	err := Run(context.Background(), Options{Client: client, Model: "test", Store: store, SessionID: "compact", ContextWindow: 12000, Emit: func(event harness.Event) {
+	err := Run(context.Background(), Options{Client: client, Model: "test", System: strings.Repeat("s", 400), Tools: []tools.Tool{testTool("read")}, Store: store, SessionID: "compact", ContextWindow: 12000, Emit: func(event harness.Event) {
 		if event.Type == harness.EventContextCompacted {
 			compactions = append(compactions, event)
 		}
@@ -233,11 +252,15 @@ func TestCompactionBeforeRequest(t *testing.T) {
 		t.Fatalf("requests = %d, want 2", len(client.requests))
 	}
 	summaryRequest := client.requests[0]
-	if summaryRequest.System != summaryInstruction || len(summaryRequest.Tools) != 0 || len(summaryRequest.Messages) != 2 {
+	if summaryRequest.System != summaryInstruction || len(summaryRequest.Tools) != 0 || len(summaryRequest.Messages) != 3 {
 		t.Fatalf("summary request = %+v", summaryRequest)
 	}
 	if summaryRequest.Messages[0].Role != "user" || !strings.Contains(messageText(summaryRequest.Messages[0]), "已截断") {
 		t.Fatalf("first summary message = %+v", summaryRequest.Messages[0])
+	}
+	last := summaryRequest.Messages[len(summaryRequest.Messages)-1]
+	if last.Role != "user" || !strings.Contains(messageText(last), "总结以上对话") {
+		t.Fatalf("last summary message = %+v", last)
 	}
 	messages := client.requests[1].Messages
 	if len(messages) != 2 || !isSummaryMessage(messages[0]) || !strings.Contains(messages[0].Content[0].Text, "earlier work summary") || messages[1].Content[0].Text != "continue" {
@@ -246,9 +269,25 @@ func TestCompactionBeforeRequest(t *testing.T) {
 	if len(compactions) != 1 || compactions[0].CompactTokensBefore == 0 || compactions[0].CompactTokensAfter == 0 {
 		t.Fatalf("compaction events = %+v", compactions)
 	}
+	beforeMessages := []llm.Message{textMessage("user", strings.Repeat("a", 40000)), textMessage("assistant", "done"), textMessage("user", "continue")}
+	if compactions[0].CompactTokensBefore <= int64(tokensForMessages(beforeMessages)) {
+		t.Fatalf("compaction event lacks overhead: %+v", compactions[0])
+	}
 	entries := compactionEntries(t, store, "compact")
-	if len(entries) != 1 || entries[0].Summary != "earlier work summary" || entries[0].KeepFrom != 2 {
+	if len(entries) != 1 || entries[0].Summary != "earlier work summary" || entries[0].KeepFrom != 1 {
 		t.Fatalf("compaction entries = %+v", entries)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "compact.jsonl"))
+	if err != nil || strings.Contains(string(data), strings.Repeat("a", 100)) {
+		t.Fatalf("session retains old messages: %v", err)
+	}
+	raw, err := store.Load("compact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append(append([]llm.Message(nil), messages...), reply("stop").Message)
+	if got := historyFromEntries(raw); !reflect.DeepEqual(got, want) {
+		t.Fatalf("history = %+v, want %+v", got, want)
 	}
 }
 
@@ -376,7 +415,8 @@ func TestCompactionUsageCountsTowardTurn(t *testing.T) {
 }
 
 func TestReloadUsesSummary(t *testing.T) {
-	store := session.NewStore(t.TempDir())
+	dir := t.TempDir()
+	store := session.NewStore(dir)
 	appendHistory(t, store, "reload",
 		textMessage("user", strings.Repeat("a", 40000)),
 		textMessage("assistant", "done"),
@@ -386,7 +426,7 @@ func TestReloadUsesSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := &scriptClient{steps: []scriptStep{{response: reply("stop")}}}
-	if err := Run(context.Background(), Options{Client: second, Store: store, SessionID: "reload"}, "second prompt", nil); err != nil {
+	if err := Run(context.Background(), Options{Client: second, Store: session.NewStore(dir), SessionID: "reload"}, "second prompt", nil); err != nil {
 		t.Fatal(err)
 	}
 	messages := second.requests[0].Messages
@@ -411,10 +451,10 @@ func TestMultipleCompactionsKeepLatest(t *testing.T) {
 		t.Fatalf("requests = %d, want 2", len(second.requests))
 	}
 	summarized := second.requests[0].Messages
-	if len(summarized) != 3 || !isSummaryMessage(summarized[0]) || !strings.Contains(summarized[0].Content[0].Text, "old detail") {
+	if len(summarized) != 4 || !isSummaryMessage(summarized[0]) || !strings.Contains(summarized[0].Content[0].Text, "old detail") {
 		t.Fatalf("summarized messages = %+v", summarized)
 	}
-	if entries := compactionEntries(t, store, "multi"); len(entries) != 2 {
+	if entries := compactionEntries(t, store, "multi"); len(entries) != 1 {
 		t.Fatalf("compaction entries = %+v", entries)
 	}
 	entries, err := store.Load("multi")

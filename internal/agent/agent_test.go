@@ -403,6 +403,39 @@ func TestUsageReportsContextWindow(t *testing.T) {
 	}
 }
 
+func TestUsageUnknownContextWindow(t *testing.T) {
+	client := &scriptClient{steps: []scriptStep{{response: reply("stop")}}}
+	var usage *harness.Usage
+	if err := Run(context.Background(), Options{Client: client, Emit: func(event harness.Event) {
+		if event.Type == harness.EventUsage {
+			usage = event.Usage
+		}
+	}}, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if usage == nil || usage.ContextWindow != 0 {
+		t.Fatalf("usage = %+v", usage)
+	}
+}
+
+func TestResumeDoesNotDuplicatePrompt(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	client := &scriptClient{steps: []scriptStep{{err: errors.New("request failed")}, {response: reply("stop")}}}
+	opts := Options{Client: client, Store: store, SessionID: "retry"}
+	if err := Run(context.Background(), opts, "hello", nil); err == nil {
+		t.Fatal("expected failure")
+	}
+	if err := Run(context.Background(), opts, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := client.requests[1].Messages; len(got) != 1 || messageText(got[0]) != "hello" {
+		t.Fatalf("request messages = %+v", got)
+	}
+	if got := loadMessages(t, store, "retry"); len(got) != 2 || messageText(got[0]) != "hello" || got[1].Role != "assistant" {
+		t.Fatalf("stored messages = %+v", got)
+	}
+}
+
 func TestUsageReportsLastRequestContextTokens(t *testing.T) {
 	first := reply("tool_use", call("1", "read", `{}`))
 	first.Usage = llm.Usage{Input: 1000, CacheRead: 500, CacheWrite: 10, Output: 50}

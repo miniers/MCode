@@ -139,6 +139,53 @@ func TestApplyPatchToolAtomic(t *testing.T) {
 	}
 }
 
+func TestApplyPatchToolRollback(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "a.txt")
+	writePatchFile(t, file, "old\n")
+	if err := os.Chmod(file, 0600); err != nil {
+		t.Fatal(err)
+	}
+	writePatchFile(t, filepath.Join(root, "move.txt"), "move\n")
+	writePatchFile(t, filepath.Join(root, "delete.txt"), "delete\n")
+	input := `*** Begin Patch
+*** Update File: a.txt
+@@
+-old
++new
+*** Update File: move.txt
+*** Move to: moved.txt
+@@
+-move
++moved
+*** Delete File: delete.txt
+*** Add File: new/nested.txt
++new
+*** Add File: blocker
++block
+*** Add File: blocker/child.txt
++fail
+*** End Patch`
+	result := runApplyPatch(t, root, input)
+	if !result.IsError {
+		t.Fatal("expected error")
+	}
+	for name, want := range map[string]string{"a.txt": "old\n", "move.txt": "move\n", "delete.txt": "delete\n"} {
+		if got := readPatchFile(t, filepath.Join(root, name)); got != want {
+			t.Fatalf("%s = %q, want %q", name, got, want)
+		}
+	}
+	info, err := os.Stat(file)
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("mode = %v, error = %v", info, err)
+	}
+	for _, name := range []string{"moved.txt", "new", "blocker"} {
+		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s still exists: %v", name, err)
+		}
+	}
+}
+
 func TestApplyPatchToolOutside(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

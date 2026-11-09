@@ -31,3 +31,26 @@ func TestRetryAfterOf(t *testing.T) {
 		t.Fatal("RetryAfterOf")
 	}
 }
+
+func TestIsContextOverflowRateLimits(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"429", fmt.Errorf("wrapped: %w", &APIError{Status: 429, Body: "too many tokens"}), false},
+		{"529", &APIError{Status: 529, Body: "too many tokens"}, false},
+		{"overflow", &APIError{Status: 400, Body: "prompt is too long"}, true},
+		{"rate limit", &APIError{Status: 400, Body: "Rate limit reached for tokens per min"}, false},
+		{"tpm", errors.New("too many tokens: TPM exceeded"), false},
+		{"rpm", errors.New("too many tokens: RPM exceeded"), false},
+		{"per minute", errors.New("too many tokens per minute"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsContextOverflow(tt.err); got != tt.want {
+				t.Fatalf("IsContextOverflow(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}

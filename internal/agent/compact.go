@@ -78,6 +78,10 @@ func historyFromEntries(entries []json.RawMessage) []llm.Message {
 				continue
 			}
 			messages = repairToolPairs(messages)
+			if len(messages) == 0 && entry.KeepFrom == 1 {
+				messages = []llm.Message{summaryMessage(entry.Summary)}
+				continue
+			}
 			if entry.KeepFrom <= 0 || entry.KeepFrom >= len(messages) {
 				continue
 			}
@@ -228,12 +232,12 @@ func hasSummarizablePrefix(messages []llm.Message, cut int) bool {
 
 // compactMessages 把切点之前的消息总结成一条摘要消息。
 // 返回 nil 表示没有合法切点，调用方应保持原消息不变。
-func compactMessages(ctx context.Context, client llm.Client, model string, messages []llm.Message, window int, emit func(harness.Event)) (*compactionResult, error) {
+func compactMessages(ctx context.Context, client llm.Client, model string, messages []llm.Message, window, overhead int, emit func(harness.Event)) (*compactionResult, error) {
 	cut := findCut(messages, window)
 	if cut <= 0 {
 		return nil, nil
 	}
-	before := tokensForMessages(messages)
+	before := tokensForMessages(messages) + overhead
 	prefix := append([]llm.Message(nil), messages[:cut]...)
 	truncate := func(message *llm.Message) {
 		message.Content = append([]llm.Part(nil), message.Content...)
@@ -289,6 +293,13 @@ func compactMessages(ctx context.Context, client llm.Client, model string, messa
 	if prefix[0].Role != "user" {
 		prefix = append([]llm.Message{omitted}, prefix...)
 	}
+	instruction := llm.Part{Type: "text", Text: "请按系统提示的要求，总结以上对话，用于在新的上下文中继续工作。只输出摘要。"}
+	last := &prefix[len(prefix)-1]
+	if last.Role == "user" && last.ToolCallID == "" {
+		last.Content = append(append([]llm.Part(nil), last.Content...), instruction)
+	} else {
+		prefix = append(prefix, llm.Message{Role: "user", Content: []llm.Part{instruction}})
+	}
 	request := llm.Request{Model: model, System: summaryInstruction, Messages: prefix}
 	response, err := client.Stream(ctx, request, func(llm.Delta) {})
 	if err != nil {
@@ -302,7 +313,7 @@ func compactMessages(ctx context.Context, client llm.Client, model string, messa
 		return nil, errors.New("agent: empty compaction summary")
 	}
 	compacted := append([]llm.Message{summaryMessage(summary)}, messages[cut:]...)
-	after := tokensForMessages(compacted)
+	after := tokensForMessages(compacted) + overhead
 	emit(harness.Event{Type: harness.EventContextCompacted, CompactTokensBefore: int64(before), CompactTokensAfter: int64(after)})
 	return &compactionResult{
 		Messages: compacted,

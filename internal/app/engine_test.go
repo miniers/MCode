@@ -18,6 +18,7 @@ import (
 	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
+	"mcode/internal/magpieinject"
 	"mcode/internal/providers/magpie"
 	"mcode/internal/remote"
 )
@@ -546,6 +547,28 @@ func TestSourceEngineMagpieModelCapabilities(t *testing.T) {
 	for _, model := range []string{"", " DEFAULT "} {
 		if _, ok := magpieCachedModelFor("custom-capabilities", cfg, secrets, model); ok {
 			t.Fatalf("占位模型 %q 不应命中缓存", model)
+		}
+	}
+}
+
+func TestSourceEngineContextWindowCacheMiss(t *testing.T) {
+	setMcodeAgentRuntime("", nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
+	cfg := mcodeTestConfig(
+		config.CustomEndpointConfig{ID: "window-magpie", Enabled: true, Magpie: true, BaseURL: "https://window-miss.invalid"},
+		config.CustomEndpointConfig{ID: "window-ordinary", Enabled: true, BaseURL: "https://window-miss.invalid"},
+	)
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("window-magpie"): "window-key"})
+	for _, tc := range []struct {
+		kind harness.Kind
+		want int
+	}{
+		{"custom-window-magpie", magpieinject.DefaultModel().ContextWindow},
+		{"custom-window-ordinary", 0},
+		{"missing", 0},
+	} {
+		if got := sourceEngineContextWindow(tc.kind, cfg, secrets, "provider/uncached-model"); got != tc.want {
+			t.Errorf("%s: 窗口 = %d，期望 %d", tc.kind, got, tc.want)
 		}
 	}
 }

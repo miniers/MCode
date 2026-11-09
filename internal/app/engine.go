@@ -36,6 +36,7 @@ func mcodeRuntimeDataDir() string {
 // newSourceEngineHarness 让 API Key 类来源改由内置引擎运行。
 func newSourceEngineHarness(kind harness.Kind, cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
 	opts := mcodeEngineOptions(secrets, dataDir, mcpInjection)
+	registerShellSecrets(mcodeCurrentConfig(cfg, secrets), mcodeCurrentSecrets(secrets))
 	opts.Kind = kind
 	opts.DisplayName = string(kind)
 	if source, ok := findAPISource(apisource.Resolve(cfg, secrets), kind); ok {
@@ -311,5 +312,5 @@ func sourceEngineContextWindow(kind harness.Kind, cfg config.Config, secrets con
 			return cached.ContextWindow
 		}
 	}
-	return 0
+	return magpieinject.DefaultModel().ContextWindow
 }

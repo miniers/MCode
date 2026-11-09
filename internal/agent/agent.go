@@ -126,7 +126,9 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		emit(harness.Event{Type: harness.EventUsage, Usage: &usage})
 		emit(harness.Event{Type: harness.EventDone, StopReason: stopReason})
 	}()
-	usage.ContextWindow = int64(window)
+	if opts.ContextWindow > 0 {
+		usage.ContextWindow = int64(opts.ContextWindow)
+	}
 	fail := func(err error) error {
 		kind := ""
 		var apiErr *llm.APIError
@@ -157,20 +159,38 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	}
 	content := []llm.Part{{Type: "text", Text: prompt}}
 	content = append(content, images...)
-	if err := appendMessage(llm.Message{Role: "user", Content: content}); err != nil {
-		return fail(err)
+	duplicate := len(images) == 0 && len(messages) > 0 && isUserTurn(messages[len(messages)-1]) && messageText(messages[len(messages)-1]) == prompt
+	if duplicate {
+		for _, part := range messages[len(messages)-1].Content {
+			if part.Type != "text" {
+				duplicate = false
+				break
+			}
+		}
+	}
+	if !duplicate {
+		if err := appendMessage(llm.Message{Role: "user", Content: content}); err != nil {
+			return fail(err)
+		}
 	}
 	emit(harness.Event{Type: harness.EventTurnAccepted})
 	if opts.Client == nil {
 		return fail(errors.New("agent: llm client is required"))
 	}
+	overhead := 0
 	compactNow := func() (*compactionResult, error) {
-		result, err := compactMessages(ctx, opts.Client, opts.Model, messages, window, emit)
+		result, err := compactMessages(ctx, opts.Client, opts.Model, messages, window, overhead, emit)
 		if err != nil || result == nil {
 			return nil, err
 		}
 		if opts.Store != nil {
-			if err := opts.Store.Append(id, result.Entry); err != nil {
+			entry := result.Entry
+			entry.KeepFrom = 1
+			entries := []any{entry}
+			for _, message := range result.Messages[1:] {
+				entries = append(entries, messageEntry{Type: "message", Message: message})
+			}
+			if err := opts.Store.Rewrite(id, entries...); err != nil {
 				return nil, err
 			}
 		}
@@ -193,6 +213,11 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	for _, tool := range opts.Tools {
 		request.Tools = append(request.Tools, llm.ToolSpec{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
+	chars := len(request.System)
+	for _, tool := range request.Tools {
+		chars += len(tool.Name) + len(tool.Description) + len(tool.Parameters)
+	}
+	overhead = (chars + 3) / 4
 	// autoCompact 在本轮自动压缩失败后关闭，避免每次进入循环都重复请求摘要模型；
 	// 上下文溢出触发的压缩重试不受它影响。
 	autoCompact := true

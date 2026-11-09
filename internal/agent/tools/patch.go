@@ -82,6 +82,7 @@ func applyPatch(ctx context.Context, env Env, raw json.RawMessage) (Result, erro
 	}
 
 	contents := make(map[string]string, len(ops))
+	modes := make(map[string]os.FileMode, len(ops))
 	for _, t := range targets {
 		switch t.op.Kind {
 		case patch.Add:
@@ -96,6 +97,11 @@ func applyPatch(ctx context.Context, env Env, raw json.RawMessage) (Result, erro
 				return failure(err)
 			}
 			contents[t.op.Path] = string(data)
+			info, err := os.Stat(t.path)
+			if err != nil {
+				return failure(err)
+			}
+			modes[t.path] = info.Mode()
 		}
 		if t.move != "" {
 			if _, err := os.Stat(t.move); err == nil {
@@ -118,42 +124,84 @@ func applyPatch(ctx context.Context, env Env, raw json.RawMessage) (Result, erro
 		return failure(err)
 	}
 
+	type undoStep struct {
+		path string
+		run  func() error
+	}
+	var undo []undoStep
+	rollback := func(err error) (Result, error) {
+		var failed []string
+		for i := len(undo) - 1; i >= 0; i-- {
+			if e := undo[i].run(); e != nil {
+				failed = append(failed, undo[i].path)
+			}
+		}
+		if len(failed) > 0 {
+			return failure(fmt.Errorf("%w; rollback failed for: %s", err, strings.Join(failed, ", ")))
+		}
+		return failure(err)
+	}
+	mkdirAll := func(dir string) error {
+		var missing []string
+		for p := dir; ; p = filepath.Dir(p) {
+			if _, err := os.Stat(p); err == nil {
+				break
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			missing = append(missing, p)
+			if filepath.Dir(p) == p {
+				break
+			}
+		}
+		err := os.MkdirAll(dir, 0755)
+		for i := len(missing) - 1; i >= 0; i-- {
+			p := missing[i]
+			if info, e := os.Stat(p); e == nil && info.IsDir() {
+				undo = append(undo, undoStep{p, func() error { return os.Remove(p) }})
+			}
+		}
+		return err
+	}
 	for i, r := range results {
 		t := targets[i]
+		restore := func() error { return writeFileAtomic(t.path, []byte(contents[t.op.Path]), modes[t.path]) }
 		switch {
 		case r.Added:
-			if e := os.MkdirAll(filepath.Dir(t.path), 0755); e != nil {
-				return failure(e)
+			if e := mkdirAll(filepath.Dir(t.path)); e != nil {
+				return rollback(e)
 			}
 			if e := writeFileAtomic(t.path, []byte(r.Updated), 0644); e != nil {
-				return failure(e)
+				return rollback(e)
 			}
+			undo = append(undo, undoStep{t.path, func() error { return os.Remove(t.path) }})
 		case r.Deleted:
 			if e := os.Remove(t.path); e != nil {
-				return failure(e)
+				return rollback(e)
 			}
+			undo = append(undo, undoStep{t.path, restore})
 		default:
 			if t.move == "" && r.Updated == r.Original {
 				continue
-			}
-			info, err := os.Stat(t.path)
-			if err != nil {
-				return failure(err)
 			}
 			target := t.path
 			if t.move != "" {
 				target = t.move
 			}
-			if e := os.MkdirAll(filepath.Dir(target), 0755); e != nil {
-				return failure(e)
+			if e := mkdirAll(filepath.Dir(target)); e != nil {
+				return rollback(e)
 			}
-			if e := writeFileAtomic(target, []byte(r.Updated), info.Mode()); e != nil {
-				return failure(e)
+			if e := writeFileAtomic(target, []byte(r.Updated), modes[t.path]); e != nil {
+				return rollback(e)
 			}
 			if t.move != "" {
+				undo = append(undo, undoStep{target, func() error { return os.Remove(target) }})
 				if e := os.Remove(t.path); e != nil {
-					return failure(e)
+					return rollback(e)
 				}
+				undo = append(undo, undoStep{t.path, restore})
+			} else {
+				undo = append(undo, undoStep{t.path, restore})
 			}
 		}
 	}

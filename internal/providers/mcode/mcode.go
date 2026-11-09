@@ -56,10 +56,11 @@ type Options struct {
 
 // Harness 驱动内置 coding agent。
 type Harness struct {
-	opts  Options
-	mu    *sync.Mutex
-	gates map[string]*gate.Session
-	runs  map[string]*activeRun
+	opts          Options
+	mu            *sync.Mutex
+	gates         map[string]*gate.Session
+	runs          map[string]*activeRun
+	pendingSteers map[string][]string
 	// pids 记录各线程当前正在运行的命令进程，供 ProcessRootPIDs 定位命令子进程树。
 	pids map[string]map[int]bool
 }
@@ -142,6 +143,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	if !h.sessionKindMatches(turn.SessionID) {
 		return fmt.Errorf("会话 %q 不属于来源 %s", turn.SessionID, h.Kind())
 	}
+	hasSessionID := turn.SessionID != ""
 	if turn.SessionID == "" {
 		turn.SessionID = string(h.Kind()) + "_" + session.NewID()
 	}
@@ -192,6 +194,15 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	}
 
 	prompt := turn.Prompt
+	if hasSessionID {
+		h.mu.Lock()
+		pending := h.pendingSteers[turn.SessionID]
+		delete(h.pendingSteers, turn.SessionID)
+		h.mu.Unlock()
+		if len(pending) > 0 {
+			prompt = strings.Join(pending, "\n\n") + "\n\n" + prompt
+		}
+	}
 	var images []llm.Part
 	if len(turn.Images) > 0 && h.opts.AcceptsImages != nil && !h.opts.AcceptsImages(metaModel) {
 		prompt += fmt.Sprintf("\n（当前模型不支持图片，已忽略 %d 张附图）", len(turn.Images))
@@ -220,18 +231,27 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	// 收到会话事件后登记运行状态，Steer 才能找到本轮。
 	run := &activeRun{}
 	var sessionID string
+	var completedUsage, lastUsage harness.Usage
 	runEmit := func(event harness.Event) {
 		if event.Type == harness.EventSession && event.SessionID != "" && event.SessionID != sessionID {
 			h.registerRun(event.SessionID, run)
 			sessionID = event.SessionID
 		}
 		// 费用只能在上报前写上：复制一份 Usage，不改 agent 内部持有的对象。
-		if event.Type == harness.EventUsage && event.Usage != nil && h.opts.CostUSD != nil {
-			if cost, ok := h.opts.CostUSD(metaModel, *event.Usage); ok {
-				usage := *event.Usage
-				usage.CostUSD = cost
-				event.Usage = &usage
+		if event.Type == harness.EventUsage && event.Usage != nil {
+			usage := *event.Usage
+			if h.opts.CostUSD != nil {
+				if cost, ok := h.opts.CostUSD(metaModel, usage); ok {
+					usage.CostUSD = cost
+				}
 			}
+			usage.InputTokens += completedUsage.InputTokens
+			usage.OutputTokens += completedUsage.OutputTokens
+			usage.CachedTokens += completedUsage.CachedTokens
+			usage.CostUSD += completedUsage.CostUSD
+			usage.Requests = append(append([]harness.RequestSpeed(nil), completedUsage.Requests...), usage.Requests...)
+			lastUsage = usage
+			event.Usage = &usage
 		}
 		emitEvent(emit, event)
 	}
@@ -251,9 +271,17 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	for {
 		agentOpts.Steer = run.drain
 		runErr := agent.Run(runCtx, agentOpts, prompt, images)
+		completedUsage = lastUsage
 		if runErr != nil || ctx.Err() != nil {
-			// 出错或被取消时不再续跑，剩余插话随队列关闭退回调用方排队。
-			run.closeAndTake()
+			leftovers := run.closeAndTake()
+			if hasSessionID && len(leftovers) > 0 {
+				h.mu.Lock()
+				if h.pendingSteers == nil {
+					h.pendingSteers = make(map[string][]string)
+				}
+				h.pendingSteers[turn.SessionID] = append(h.pendingSteers[turn.SessionID], leftovers...)
+				h.mu.Unlock()
+			}
 			if runErr == nil {
 				runErr = ctx.Err()
 			}

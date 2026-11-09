@@ -26,6 +26,30 @@ func waitBackground(t *testing.T, check func() bool) {
 	t.Fatal("等待后台任务状态超时")
 }
 
+func TestBackgroundFiltersSecrets(t *testing.T) {
+	SetSecretValues([]string{"registered-secret"})
+	t.Cleanup(func() { SetSecretValues(nil) })
+	t.Setenv("FOO_SECRET", "registered-secret")
+	id, _, err := Start(context.Background(), Options{Command: "printenv FOO_SECRET", Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = Kill(id) })
+	var output string
+	var exitCode int
+	waitBackground(t, func() bool {
+		var running bool
+		var err error
+		var chunk string
+		chunk, running, exitCode, err = Output(id)
+		output += chunk
+		return err == nil && !running
+	})
+	if output != "" || exitCode != 1 {
+		t.Fatalf("输出 = %q，退出码 = %d", output, exitCode)
+	}
+}
+
 func TestBackgroundOutputAndKill(t *testing.T) {
 	id, pid, err := Start(context.Background(), Options{Command: "echo hi; sleep 30"})
 	if err != nil || id == "" || pid <= 0 {

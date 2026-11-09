@@ -8,10 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"mcode/internal/agent/llm"
+	"mcode/internal/agent/shell"
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/magpieinject"
@@ -58,6 +61,65 @@ func TestMcodeResolveClientMagpieRequest(t *testing.T) {
 	}
 	if affinity != "thread-1" || clientRequest != "thread-1" || session != "thread-1" {
 		t.Fatalf("session affinity = %q %q %q", affinity, clientRequest, session)
+	}
+}
+
+func TestMcodeResolveClientMagpieEffort(t *testing.T) {
+	var effort string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Effort string `json:"reasoning_effort"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		effort = body.Effort
+		io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer server.Close()
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "effort", Enabled: true, Magpie: true, BaseURL: server.URL})
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("effort"): "gateway-key"})
+	client, model, err := resolveMcodeClient(context.Background(), cfg, secrets, "magpie-mcode/plain-model", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"xhigh", "max"} {
+		_, err := client.Stream(context.Background(), llm.Request{Model: model, Effort: want, Messages: []llm.Message{{Role: "user", Content: []llm.Part{{Type: "text", Text: "hello"}}}}}, nil)
+		if err != nil || effort != want {
+			t.Errorf("effort = %q，期望 %q，错误 = %v", effort, want, err)
+		}
+	}
+}
+
+func TestRegisterShellSecretsRefresh(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		t.Skip("需要 Unix shell")
+	}
+	t.Cleanup(func() { shell.SetSecretValues(nil) })
+	cfg := mcodeTestConfig(
+		config.CustomEndpointConfig{ID: "secret-magpie", Enabled: true, Magpie: true, BaseURL: "https://secret.invalid"},
+		config.CustomEndpointConfig{ID: "secret-custom", Enabled: true, BaseURL: "https://custom.invalid"},
+	)
+	secrets := mcodeTestSecrets(map[string]string{
+		config.CustomEndpointSecretAccount("secret-magpie"): "magpie-secret",
+		config.CustomEndpointSecretAccount("secret-custom"): "custom-secret",
+	})
+	t.Setenv("FOO_MAGPIE", "magpie-secret")
+	t.Setenv("FOO_CUSTOM", "custom-secret")
+	registerShellSecrets(cfg, secrets)
+	result, err := shell.Run(context.Background(), shell.Options{Command: "printenv FOO_MAGPIE FOO_CUSTOM", Timeout: 5 * time.Second}, nil)
+	if err != nil || result.Output != "" {
+		t.Fatalf("过滤结果 = %+v，错误 = %v", result, err)
+	}
+	if err := secrets.Set(config.CustomEndpointSecretAccount("secret-custom"), "rotated-secret"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FOO_CUSTOM", "rotated-secret")
+	registerShellSecrets(cfg, secrets)
+	result, err = shell.Run(context.Background(), shell.Options{Command: "printenv FOO_CUSTOM", Timeout: 5 * time.Second}, nil)
+	if err != nil || result.Output != "" {
+		t.Fatalf("更新后的过滤结果 = %+v，错误 = %v", result, err)
 	}
 }
 

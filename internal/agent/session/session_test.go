@@ -42,6 +42,27 @@ func TestAppendLoad(t *testing.T) {
 	}
 }
 
+func TestRewrite(t *testing.T) {
+	store := NewStore(t.TempDir())
+	if err := store.Append("test", "old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Rewrite("test", "new", 2); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := store.Load("test")
+	if err != nil || len(entries) != 2 || strings.TrimSpace(string(entries[0])) != `"new"` || strings.TrimSpace(string(entries[1])) != `2` {
+		t.Fatalf("entries=%q err=%v", entries, err)
+	}
+	if err := store.Rewrite("test", make(chan int)); err == nil {
+		t.Fatal("expected marshal error")
+	}
+	entries, err = store.Load("test")
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("entries=%q err=%v", entries, err)
+	}
+}
+
 func TestLoadPartialLastLine(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "test.jsonl"), []byte("{\"ok\":true}\n{\"partial\":"), 0600); err != nil {

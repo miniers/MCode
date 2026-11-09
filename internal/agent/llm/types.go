@@ -115,7 +115,16 @@ func IsContextOverflow(err error) bool {
 	if err == nil {
 		return false
 	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && (apiErr.Status == 429 || apiErr.Status == 529) {
+		return false
+	}
 	text := strings.ToLower(err.Error())
+	for _, marker := range []string{"rate limit", "per minute", "per min", "tpm", "rpm"} {
+		if strings.Contains(text, marker) {
+			return false
+		}
+	}
 	for _, marker := range []string{"context_length_exceeded", "maximum context length", "prompt is too long", "too many tokens", "context window exceeded", "context length exceeded", "input is too long", "exceeds the context window", "context_window_exceeded", "prompt too long"} {
 		if strings.Contains(text, marker) {
 			return true

@@ -84,6 +84,45 @@ func (s *Store) Append(id string, entries ...any) error {
 	return closeErr
 }
 
+// Rewrite 原子替换会话中的所有条目。
+func (s *Store) Rewrite(id string, entries ...any) error {
+	path, err := s.path(id)
+	if err != nil {
+		return err
+	}
+	var data []byte
+	for _, entry := range entries {
+		b, err := json.Marshal(entry)
+		if err != nil {
+			return fmt.Errorf("marshal session entry: %w", err)
+		}
+		data = append(data, b...)
+		data = append(data, '\n')
+	}
+	storeMu.Lock()
+	defer storeMu.Unlock()
+	if err := os.MkdirAll(s.dir, 0700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(s.dir, ".session-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
+}
+
 // Load 读取会话，并忽略末尾不完整的条目。
 func (s *Store) Load(id string) ([]json.RawMessage, error) {
 	path, err := s.path(id)

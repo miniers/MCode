@@ -449,6 +449,66 @@ func TestSteerLandsAfterFinalDrain(t *testing.T) {
 	t.Fatalf("Steer() 返回 nil，但插话没有进入模型请求：%+v", client.requests)
 }
 
+func TestSteerContinuationAccumulatesUsage(t *testing.T) {
+	first, second := answer(), answer()
+	first.Usage = llm.Usage{Input: 10, Output: 3, CacheRead: 2}
+	second.Usage = llm.Usage{Input: 20, Output: 5, CacheRead: 4}
+	client := &fakeClient{responses: []*llm.Response{first, second}}
+	h := harnessFor(client, Options{CostUSD: func(_ string, usage harness.Usage) (float64, bool) {
+		return float64(usage.InputTokens), true
+	}})
+	var usage *harness.Usage
+	steered := false
+	err := h.Run(context.Background(), harness.Turn{SessionID: "usage", Prompt: "start"}, func(event harness.Event) {
+		if event.Type == harness.EventUsage {
+			usage = event.Usage
+		}
+		if event.Type == harness.EventDone && !steered {
+			steered = true
+			if err := h.Steer(context.Background(), "usage", "later"); err != nil {
+				t.Errorf("Steer() error = %v", err)
+			}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 2 || usage == nil || usage.InputTokens != 30 || usage.OutputTokens != 8 || usage.CachedTokens != 6 || usage.CostUSD != 30 || len(usage.Requests) != 2 {
+		t.Fatalf("requests=%d usage=%+v", len(client.requests), usage)
+	}
+}
+
+func TestSteerPreservedAfterRunError(t *testing.T) {
+	client := &fakeClient{}
+	h := harnessFor(client, Options{})
+	turn := harness.Turn{SessionID: "retry", Prompt: "start"}
+	steered := false
+	err := h.Run(context.Background(), turn, func(event harness.Event) {
+		if event.Type == harness.EventError && !steered {
+			steered = true
+			if err := h.Steer(context.Background(), "retry", "please remember this"); err != nil {
+				t.Errorf("Steer() error = %v", err)
+			}
+		}
+	})
+	if err == nil || !steered {
+		t.Fatalf("Run() error = %v, steered = %v", err, steered)
+	}
+	client.responses = []*llm.Response{answer()}
+	turn.Prompt = "next"
+	if err := h.Run(context.Background(), turn, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range client.requests[1].Messages {
+		for _, part := range message.Content {
+			if message.Role == "user" && part.Text == "please remember this\n\nnext" {
+				return
+			}
+		}
+	}
+	t.Fatalf("插话未送达：%+v", client.requests[1].Messages)
+}
+
 // panicOnceClient 第一次请求时 panic，之后正常回答，用于验证兜底后 Harness 仍可复用。
 type panicOnceClient struct {
 	mu    sync.Mutex

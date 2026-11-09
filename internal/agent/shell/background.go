@@ -141,7 +141,7 @@ func Start(ctx context.Context, opts Options) (string, int, error) {
 	}
 	// 命令退出后，若脱离进程组的子进程仍占用管道，最多再等待 3 秒。
 	cmd.WaitDelay = 3 * time.Second
-	cmd.Env = append(append(os.Environ(), opts.Env...), harness.NonInteractiveEnv()...)
+	cmd.Env = append(append(childEnv(os.Environ()), opts.Env...), harness.NonInteractiveEnv()...)
 	stdin, err := os.Open(os.DevNull)
 	if err != nil {
 		if cleanup != nil {

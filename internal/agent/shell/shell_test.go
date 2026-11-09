@@ -5,11 +5,60 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestChildEnv(t *testing.T) {
+	SetSecretValues([]string{"registered-secret", "registered-secret", "short", ""})
+	t.Cleanup(func() { SetSecretValues(nil) })
+	for _, tc := range []struct {
+		name  string
+		entry string
+		keep  bool
+	}{
+		{"anthropic key", "ANTHROPIC_API_KEY=value", false},
+		{"anthropic token", "ANTHROPIC_AUTH_TOKEN=value", false},
+		{"openai key", "OPENAI_API_KEY=value", false},
+		{"mcode key", "MCODE_API_KEY=value", false},
+		{"mcode token", "MCODE_AUTH_TOKEN=value", false},
+		{"registered value", "FOO_SECRET=registered-secret", false},
+		{"github token", "GITHUB_TOKEN=other-token", true},
+		{"npm token", "NPM_TOKEN=other-token", true},
+		{"short value", "FOO_SECRET=short", true},
+		{"mcode ordinary", "MCODE_MODE=value", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var want []string
+			if tc.keep {
+				want = []string{tc.entry}
+			} else {
+				want = []string{}
+			}
+			if got := childEnv([]string{tc.entry}); !reflect.DeepEqual(got, want) {
+				t.Errorf("childEnv = %v，期望 %v", got, want)
+			}
+		})
+	}
+}
+
+func TestRunFiltersSecrets(t *testing.T) {
+	unixOnly(t)
+	SetSecretValues([]string{"registered-secret"})
+	t.Cleanup(func() { SetSecretValues(nil) })
+	t.Setenv("FOO_SECRET", "registered-secret")
+	result, err := Run(context.Background(), Options{Command: "printenv FOO_SECRET", Timeout: 5 * time.Second}, nil)
+	if err != nil || result.Output != "" || result.ExitCode != 1 {
+		t.Fatalf("结果 = %+v，错误 = %v", result, err)
+	}
+	result, err = Run(context.Background(), Options{Command: "printenv FOO_SECRET", Env: []string{"FOO_SECRET=registered-secret"}, Timeout: 5 * time.Second}, nil)
+	if err != nil || strings.TrimSpace(result.Output) != "registered-secret" || result.ExitCode != 0 {
+		t.Fatalf("显式环境变量结果 = %+v，错误 = %v", result, err)
+	}
+}
 
 func unixOnly(t *testing.T) {
 	t.Helper()

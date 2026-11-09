@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,42 @@ var shellTempDir = os.TempDir
 var shellLogMaxAge = 24 * time.Hour
 
 var shellLogCleanupOnce sync.Once
+
+var secretValues = struct {
+	sync.RWMutex
+	values map[string]struct{}
+}{}
+
+// SetSecretValues 更新需要从子进程环境中过滤的密钥值。
+func SetSecretValues(values []string) {
+	unique := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if len(value) >= 8 {
+			unique[value] = struct{}{}
+		}
+	}
+	secretValues.Lock()
+	secretValues.values = unique
+	secretValues.Unlock()
+}
+
+func childEnv(base []string) []string {
+	secretValues.RLock()
+	defer secretValues.RUnlock()
+	env := make([]string, 0, len(base))
+	for _, entry := range base {
+		name, value, _ := strings.Cut(entry, "=")
+		if name == "ANTHROPIC_API_KEY" || name == "ANTHROPIC_AUTH_TOKEN" || name == "OPENAI_API_KEY" ||
+			strings.HasPrefix(name, "MCODE_") && (strings.Contains(name, "KEY") || strings.Contains(name, "TOKEN")) {
+			continue
+		}
+		if _, found := secretValues.values[value]; found {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return env
+}
 
 // shellLogDir 返回 shell 日志专用子目录。
 func shellLogDir() string {
@@ -232,7 +269,7 @@ func Run(ctx context.Context, opts Options, onOutput func(chunk string)) (Result
 	}
 	// 命令退出后，若脱离进程组的子进程仍占用管道，最多再等待 3 秒。
 	cmd.WaitDelay = 3 * time.Second
-	cmd.Env = append(append(os.Environ(), opts.Env...), harness.NonInteractiveEnv()...)
+	cmd.Env = append(append(childEnv(os.Environ()), opts.Env...), harness.NonInteractiveEnv()...)
 	stdin, err := os.Open(os.DevNull)
 	if err != nil {
 		return result, err

@@ -12,6 +12,7 @@ import (
 	"mcode/internal/agent/llm"
 	"mcode/internal/agent/mcp"
 	"mcode/internal/agent/prompt"
+	"mcode/internal/agent/shell"
 	"mcode/internal/agent/tools"
 	"mcode/internal/agentconf"
 	"mcode/internal/apisource"
@@ -151,7 +152,7 @@ func resolveMcodeClient(ctx context.Context, cfg config.Config, secrets config.S
 		if target.APIKey == "" {
 			return nil, "", fmt.Errorf("Magpie 端点 %s 没有 API Key", target.ProviderID)
 		}
-		client, modelID := magpieClient(target, affinityKey, modelID, nil)
+		client, modelID := magpieClient(target, affinityKey, modelID, engineReasoningEffort(target.BaseURL))
 		return client, modelID, nil
 	}
 	if strings.HasPrefix(model, "anthropic/") {
@@ -261,6 +262,18 @@ func mcodeMaxTokens(cfg config.Config, secrets config.SecretStore, model string)
 	return 0
 }
 
+// registerShellSecrets 刷新子进程环境中需要过滤的来源密钥。
+func registerShellSecrets(cfg config.Config, secrets config.SecretStore) {
+	var values []string
+	for _, source := range apisource.Resolve(cfg, secrets) {
+		values = append(values, source.APIKey(secrets))
+	}
+	for _, target := range apisource.MagpieTargets(cfg, secrets) {
+		values = append(values, target.APIKey)
+	}
+	shell.SetSecretValues(values)
+}
+
 // mcodeEngineOptions 返回内置引擎与具体来源无关的公共选项。
 // API Key 类来源与 mcode 本身共用同一个会话存储目录：会话 ID 由引擎随机生成，
 // 不同来源之间不会互相覆盖。
@@ -294,6 +307,7 @@ func mcodeEngineOptions(secrets config.SecretStore, dataDir string, mcpInjection
 // buildMcodeHarness 构造内置 mcode agent harness。
 func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
 	opts := mcodeEngineOptions(secrets, dataDir, mcpInjection)
+	registerShellSecrets(mcodeCurrentConfig(cfg, secrets), mcodeCurrentSecrets(secrets))
 	remote.SetMcodeModels(mcodeModelCatalog)
 	opts.QualifyModel = func(ctx context.Context, model string) string {
 		current := mcodeCurrentConfig(cfg, secrets)
