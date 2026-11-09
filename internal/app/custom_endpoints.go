@@ -15,6 +15,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/providers/magpie"
 	"mcode/internal/providers/openai"
+	"mcode/internal/remote"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -283,6 +284,7 @@ func (c *Client) SaveCustomEndpoint(ctx context.Context, ep mcodeui.CustomEndpoi
 			c.backend.RegisterHarness(newCustomEndpointHarness(epCfg, c.secrets, c.dataDir, c.mcp))
 		}
 	} else {
+		remote.SetAPICatalog(config.CustomEndpointProviderKind(epCfg), nil)
 		if c.backend != nil {
 			c.backend.UnregisterHarness(config.CustomEndpointProviderKind(epCfg))
 		}
@@ -404,8 +406,12 @@ func (c *Client) DeleteCustomEndpoint(ctx context.Context, id string) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	if c.backend != nil && removed.ID != "" {
-		c.backend.UnregisterHarness(config.CustomEndpointProviderKind(removed))
+	if removed.ID != "" {
+		kind := config.CustomEndpointProviderKind(removed)
+		remote.SetAPICatalog(kind, nil)
+		if c.backend != nil {
+			c.backend.UnregisterHarness(kind)
+		}
 	}
 	magpie.InvalidatePersonaCache(magpie.PersonaCacheKey(cleanID, removed.PersonaWebURL))
 

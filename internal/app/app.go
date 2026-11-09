@@ -1792,6 +1792,20 @@ func piSettingsDeclareSkills(agentDir, workDir string) bool {
 // omp 不接 MCP。
 func buildProviderHarness(cfg config.Config, secrets config.SecretStore, id string, mcpInjection providerMCP) (harness.Harness, bool) {
 	switch id {
+	case "openai":
+		if !cfg.Providers.OpenAI.Enabled {
+			return nil, false
+		}
+		legacy := openai.New(openai.Options{
+			BaseURL:        cfg.Providers.OpenAI.BaseURL,
+			Model:          cfg.Providers.OpenAI.Model,
+			FallbackAPIKey: os.Getenv("OPENAI_API_KEY"),
+			APIKeyAccount:  "openai.apiKey",
+			Secrets:        secrets,
+			BuiltinMCP:     mcpInjection.Builtin,
+			ExternalMCP:    mcpInjection.External,
+		})
+		return newSourceEngineHarness(legacy, cfg, secrets, mcodeRuntimeDataDir(), mcpInjection), true
 	case "copilot":
 		if !cfg.Providers.Copilot.Enabled {
 			return nil, false
@@ -1922,25 +1936,12 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 		backend.RegisterHarness(acp.New(opts))
 	}
 
-	if cfg.Providers.OpenAI.Enabled {
-		legacy := openai.New(openai.Options{
-			BaseURL: cfg.Providers.OpenAI.BaseURL,
-			Model:   cfg.Providers.OpenAI.Model,
-			// 环境变量只作兜底：装进 APIKey 会压过用户在钥匙串里配置的 key。
-			FallbackAPIKey: os.Getenv("OPENAI_API_KEY"),
-			APIKeyAccount:  "openai.apiKey",
-			Secrets:        secrets,
-			BuiltinMCP:     mcpInjection.Builtin,
-			ExternalMCP:    mcpInjection.External,
-		})
-		backend.RegisterHarness(newSourceEngineHarness(legacy, cfg, secrets, dataDir, mcpInjection))
+	if h, ok := buildProviderHarness(cfg, secrets, "openai", mcpInjection); ok {
+		backend.RegisterHarness(h)
 	}
 
 	for _, h := range buildExtraHarnesses(cfg, secrets, mcpInjection) {
 		backend.RegisterHarness(h)
-	}
-	if cfg.Providers.Mcode.Enabled {
-		backend.RegisterHarness(buildMcodeHarness(cfg, secrets, dataDir, mcpInjection))
 	}
 	// Anthropic 来源没有开关：凭据可用（含 ANTHROPIC_API_KEY）时注册。
 	if _, ok := currentAnthropicSource(cfg, secrets); ok {
@@ -1984,6 +1985,8 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 		backend.RegisterHarness(agyHarness)
 	}
 
+	// 兼容旧线程，最后注册以免覆盖其他来源的默认顺序。
+	backend.RegisterHarness(buildMcodeHarness(cfg, secrets, dataDir, mcpInjection))
 	return agyMgr, agyHarness
 }
 

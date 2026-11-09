@@ -10,6 +10,7 @@ import (
 	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
+	"mcode/internal/providers/agy/accounts"
 	"mcode/internal/remote"
 	mcodeui "mcode/internal/ui"
 )
@@ -124,7 +125,7 @@ func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
 	wantIDs := []string{
 		"copilot", "pi", "omp", "commandcode", "droid", "cline",
 		"cursor", "opencode", "grok", "devin",
-		"anthropic", "deepseek", "zai", "meta",
+		"anthropic", "openai", "deepseek", "zai", "meta",
 	}
 	gotIDs := make([]string, 0, len(list))
 	for _, s := range list {
@@ -451,5 +452,62 @@ func TestSaveProviderSetting_UnknownID(t *testing.T) {
 	client, _, _ := newProviderSettingsClient(t)
 	if _, err := client.SaveProviderSetting(context.Background(), mcodeui.ProviderSetting{ID: "unknown"}, ""); err == nil {
 		t.Fatalf("未知 ID 应返回错误")
+	}
+}
+
+func TestSaveProviderSetting_OpenAI(t *testing.T) {
+	client, dir, secrets := newProviderSettingsClient(t)
+	setMcodeAgentRuntime(dir, secrets)
+	t.Cleanup(func() { remote.SetAPICatalog("openai", nil); setMcodeAgentRuntime("", nil) })
+	saved, err := client.SaveProviderSetting(context.Background(), mcodeui.ProviderSetting{
+		ID: "openai", Enabled: true, BaseURL: "https://example.com/v1", Model: "model-test",
+	}, "test-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.Enabled || !saved.HasAPIKey || saved.BaseURL != "https://example.com/v1" || saved.Model != "model-test" {
+		t.Fatalf("保存的设置不匹配: %+v", saved)
+	}
+	cfg, err := config.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Providers.OpenAI.Enabled || cfg.Providers.OpenAI.BaseURL != saved.BaseURL || cfg.Providers.OpenAI.Model != saved.Model {
+		t.Fatalf("OpenAI 配置不匹配: %+v", cfg.Providers.OpenAI)
+	}
+	if _, ok := cfg.Providers.Presets["openai"]; ok {
+		t.Fatal("OpenAI 不应写入预设")
+	}
+	if key, err := secrets.Get("openai.apiKey"); err != nil || key != "test-key" {
+		t.Fatalf("OpenAI 密钥不匹配: %q, %v", key, err)
+	}
+	if _, ok := client.backend.RegisteredHarness("openai").(harness.SessionChecker); !ok {
+		t.Fatal("OpenAI 应注册内置引擎")
+	}
+	if _, err := client.SaveProviderSetting(context.Background(), mcodeui.ProviderSetting{ID: "openai"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if client.backend.RegisteredHarness("openai") != nil {
+		t.Fatal("关闭 OpenAI 后应注销引擎")
+	}
+}
+
+func TestRegisterExtraProviders_McodeAlias(t *testing.T) {
+	dir := t.TempDir()
+	setMcodeAgentRuntime(dir, nil)
+	previousDir := getAppDataDir()
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil); setAppDataDir(previousDir) })
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	t.Cleanup(hub.Close)
+	backend := remote.NewMemoryBackend(hub)
+	t.Cleanup(backend.Close)
+	cfg := config.Config{}
+	cfg.Providers.Copilot.Enabled = true
+	registerExtraProviders(backend, cfg, dir, accounts.Options{}, providerMCP{})
+	if backend.RegisteredHarness("mcode") == nil {
+		t.Fatal("旧开关关闭时仍应注册 mcode 别名")
+	}
+	if providers := backend.Providers(); len(providers) == 0 || providers[0] == "mcode" {
+		t.Fatalf("默认来源不能是 mcode: %v", providers)
 	}
 }

@@ -177,6 +177,34 @@ func TestCustomEndpoints_SaveDeleteLifecycle(t *testing.T) {
 	}
 }
 
+func TestCustomEndpoints_ClearCatalog(t *testing.T) {
+	for _, action := range []string{"关闭", "删除"} {
+		t.Run(action, func(t *testing.T) {
+			client, dir, secrets := newProviderSettingsClient(t)
+			setMcodeAgentRuntime(dir, secrets)
+			kind := "custom-catalog-test"
+			t.Cleanup(func() { remote.SetAPICatalog(kind, nil); setMcodeAgentRuntime("", nil) })
+			ep := mcodeui.CustomEndpoint{ID: "catalog-test", BaseURL: "https://example.com/v1", Model: "test-model", Enabled: true}
+			if _, err := client.SaveCustomEndpoint(context.Background(), ep, "", ""); err != nil {
+				t.Fatal(err)
+			}
+			// 固定回调内容，确保断言检查的是回调被清除，而非配置关闭后回调返回空值。
+			remote.SetAPICatalog(kind, func() []wire.ProviderModel { return []wire.ProviderModel{{ID: "stale"}} })
+			if action == "关闭" {
+				ep.Enabled = false
+				if _, err := client.SaveCustomEndpoint(context.Background(), ep, "", ""); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := client.DeleteCustomEndpoint(context.Background(), ep.ID); err != nil {
+				t.Fatal(err)
+			}
+			if rows := remote.ProviderModels(kind); len(rows) != 0 {
+				t.Fatalf("端点%s后目录未清除: %+v", action, rows)
+			}
+		})
+	}
+}
+
 func TestCustomEndpoints_TestCustomEndpoint(t *testing.T) {
 	client := NewClient(nil)
 	ctx := context.Background()

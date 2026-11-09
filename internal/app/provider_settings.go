@@ -38,6 +38,7 @@ var providerSettingSpecs = []providerSettingSpec{
 	{id: "grok", name: "Grok", kind: "cli"},
 	{id: "devin", name: "Devin", kind: "cli"},
 	{id: "anthropic", name: "Anthropic", kind: "api"},
+	{id: "openai", name: "OpenAI", kind: "api"},
 	{id: "deepseek", name: "DeepSeek", kind: "api"},
 	{id: "zai", name: "Z.ai", kind: "api"},
 	{id: "meta", name: "Meta", kind: "api"},
@@ -69,6 +70,9 @@ func providerSettingSecretAccount(id string) string {
 	}
 	if id == "anthropic" {
 		return "anthropic.apiKey"
+	}
+	if id == "openai" {
+		return "openai.apiKey"
 	}
 	if preset, ok := openai.PresetByID(id); ok {
 		return preset.APIKeyAccount
@@ -112,6 +116,11 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 		hasKey := hasProviderSecret(secrets, providerSettingSecretAccount(spec.id)) || hasProviderSecret(secrets, mcodeAnthropicAPIKeyAccount)
 		s.HasAPIKey = hasKey
 		s.Enabled = cfg.Providers.Anthropic.IsEnabled() && hasKey
+	case "openai":
+		s.Enabled = cfg.Providers.OpenAI.Enabled
+		s.BaseURL = cfg.Providers.OpenAI.BaseURL
+		s.Model = cfg.Providers.OpenAI.Model
+		s.HasAPIKey = hasProviderSecret(secrets, providerSettingSecretAccount(spec.id))
 	case "pi":
 		s.Enabled = cfg.Providers.Pi.Enabled
 		s.Bin = cfg.Providers.Pi.Bin
@@ -162,6 +171,10 @@ func applyProviderSetting(cfg *config.Config, id string, s mcodeui.ProviderSetti
 		cfg.Providers.Copilot.UpdateMonitor = updateMonitorPtr(s.UpdateMonitor)
 	case "anthropic":
 		cfg.Providers.Anthropic.Enabled = updateMonitorPtr(s.Enabled)
+	case "openai":
+		cfg.Providers.OpenAI.Enabled = s.Enabled
+		cfg.Providers.OpenAI.BaseURL = strings.TrimSpace(s.BaseURL)
+		cfg.Providers.OpenAI.Model = strings.TrimSpace(s.Model)
 	case "pi":
 		cfg.Providers.Pi.Enabled = s.Enabled
 		cfg.Providers.Pi.Bin = strings.TrimSpace(s.Bin)
