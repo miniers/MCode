@@ -759,6 +759,8 @@ const (
 	// timelineItemBackgroundWait 是时间线末尾的等待条：回合已结束但仍有后台任务在跑时出现，
 	// 用一行扫光文字提示会话还在等它们，点击打开输入区胶囊上已有的后台任务浮层。
 	timelineItemBackgroundWait
+	// 总管会话里每个回合开头的日期时间分隔行。
+	timelineItemTurnTime
 )
 
 // runningIndicatorItem 构造时间线末尾的“回复中”指示项：会话运行中但还没有流式输出时展示。
@@ -1667,6 +1669,9 @@ func (s *chatState) assembledTimelineItemsWithQuestions(plans []resolvedPlan, an
 	s.mu.Unlock()
 
 	items := attachPlanAndQuestionItems(base, plans, answered)
+	if sel != "" && sel == s.stewardThreadID() {
+		items = insertTurnTimeRows(items)
+	}
 
 	s.mu.Lock()
 	if s.selectedThreadID == sel && s.timelineCacheRev == baseRev && s.expandedRev == expandedRev {
@@ -1809,6 +1814,9 @@ func timelineItemTopGap(items []timelineItem, i int, _ float32) float32 {
 // 每行占满列表宽度并居中；内容列最宽由外观设置的内容宽度决定（标准 768），左右 padding 20 放在列上，不放在列表上，使滚动条留在列表右边缘。
 // topGap 是该行上方要留的间距（列表不再统一设 Gap），由 timelineItemTopGap 决定。
 func renderTimelineItem(c *ui.Context, s *chatState, item timelineItem, liveID, lastLiveID string, isLastAssistant bool, hasUsage bool, turnUsage TokenUsage, topGap float32) ui.Element {
+	if item.kind == timelineItemTurnTime && turnStartTimeFor(s, item.turnIndex).IsZero() {
+		return ui.Element{}
+	}
 	// 关闭“显示思考过程”时，单条思考行整行不渲染；节拍里只有思考、没有工具的也整行不渲染
 	// （有工具的节拍由 renderToolBeatItem 自己略过思考文字）。
 	if !isShowReasoningEnabled(s) {
@@ -1863,6 +1871,8 @@ func renderTimelineItem(c *ui.Context, s *chatState, item timelineItem, liveID, 
 		Children(func() {
 			ui.Column(c.Key("timeline-col-"+item.id)).FillWidth().MaxWidth(timelineContentMaxWidth(s)).Padding(0, colPadX).Children(func() {
 				switch item.kind {
+				case timelineItemTurnTime:
+					renderTurnTimeRow(c, s, item)
 				case timelineItemToolGroup:
 					renderToolGroupItem(c, s, item.tools, item.id, liveID, item.groupExpanded)
 				case timelineItemToolBeat:
