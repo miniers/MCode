@@ -289,7 +289,7 @@ func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	}
 }
 
-func TestMcodeModelCatalogUsesMcodeSelection(t *testing.T) {
+func TestMcodeModelCatalogUsesFullCache(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
@@ -312,16 +312,16 @@ func TestMcodeModelCatalogUsesMcodeSelection(t *testing.T) {
 	}
 	prefix := targets[0].ProviderID
 
-	// 没有 mcode 勾选时沿用 pi 的勾选。
+	// pi 的勾选不影响完整目录。
 	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderPi: {
 		Selections: []config.MagpieSelection{{EndpointID: "edge", Models: []string{"claude-sonnet-4.5"}}},
 	}}
 	got := mcodeModelsForConfig(cfg, secrets)
-	if len(got) != 1 || got[0].ID != prefix+"/claude-sonnet-4.5" || !got[0].IsDefault {
-		t.Fatalf("沿用 pi 的目录 = %#v", got)
+	if len(got) != 2 || got[0].ID != prefix+"/claude-sonnet-4.5" || !got[0].IsDefault {
+		t.Fatalf("完整目录 = %#v", got)
 	}
 
-	// 有 mcode 勾选时只显示勾选的模型，默认模型排在最前。
+	// 默认模型排在最前。
 	cfg.Providers.MagpieAgents[config.ProviderMcode] = config.MagpieAgentConfig{
 		Selections:        []config.MagpieSelection{{EndpointID: "edge", Models: []string{"plain-model", "claude-sonnet-4.5"}}},
 		DefaultEndpointID: "edge",
@@ -365,46 +365,6 @@ func TestMcodeModelCatalogUsesMcodeSelection(t *testing.T) {
 	got = mcodeModelsForConfig(cfg, secrets)
 	if len(got) != 5 || got[2].ID != "anthropic/claude-opus-5-5" || got[4].ID != "anthropic/claude-haiku-5-5" {
 		t.Fatalf("Anthropic catalog = %#v", got)
-	}
-}
-
-func TestMcodeModelCatalogDefaultsOnCacheMiss(t *testing.T) {
-	edge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"data":[{"id":"edge-model"}]}`)
-	}))
-	t.Cleanup(edge.Close)
-	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"data":[{"id":"other-model"}]}`)
-	}))
-	t.Cleanup(other.Close)
-	cfg := mcodeTestConfig(
-		config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: edge.URL + "/v1"},
-		config.CustomEndpointConfig{ID: "other", Name: "Other", Enabled: true, Magpie: true, BaseURL: other.URL + "/v1"},
-		config.CustomEndpointConfig{ID: "unused", Name: "Unused", Enabled: true, Magpie: true, BaseURL: other.URL + "/v1"},
-	)
-	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {
-		Selections:        []config.MagpieSelection{{EndpointID: "edge", Models: []string{"plain-model", "other-model"}}},
-		DefaultEndpointID: "edge",
-		DefaultModel:      "plain-model",
-	}}
-	secrets := mcodeTestSecrets(map[string]string{
-		config.CustomEndpointSecretAccount("edge"):   "edge-key",
-		config.CustomEndpointSecretAccount("other"):  "other-key",
-		config.CustomEndpointSecretAccount("unused"): "unused-key",
-	})
-	got := mcodeModelsForConfig(cfg, secrets)
-	// unused 端点一个都没勾选，不出行。
-	if len(got) != 2 || got[0].ID != "edge/plain-model" || got[1].ID != "edge/other-model" {
-		t.Fatalf("缓存未命中的目录 = %#v", got)
-	}
-	if !got[0].IsDefault || got[1].IsDefault {
-		t.Fatalf("默认标记 = %#v", got)
-	}
-	if strings.Join(got[0].Efforts, ",") != "low,medium,high,xhigh,max" {
-		t.Fatalf("缺元数据时的档位 = %v", got[0].Efforts)
-	}
-	if got[0].ContextLimit != magpieinject.DefaultModel().ContextWindow {
-		t.Fatalf("缺元数据时的窗口 = %d", got[0].ContextLimit)
 	}
 }
 

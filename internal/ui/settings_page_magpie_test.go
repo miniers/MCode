@@ -76,25 +76,18 @@ func clickMagpieRouteOption(t *testing.T, tt *ui.Tester, control ui.Rect, agent,
 	t.Fatalf("智能体 %s 没有路由 %s", agent, choice)
 }
 
-func TestMagpieModelPickerVisibilityToggle(t *testing.T) {
+func TestMagpieModelMatrix(t *testing.T) {
 	rows := pageMagpie.Sections[2].Rows
-	if len(rows) != 2 || rows[0].ID != "row-magpie-model-picker-visible" || rows[1].ID != "row-magpie-model-matrix" {
+	if len(rows) != 1 || rows[0].ID != "row-magpie-model-matrix" {
 		t.Fatalf("模型设置行错误: %#v", rows)
-	}
-	control, ok := rows[0].Control.(toggleControl)
-	if !ok {
-		t.Fatal("模型选择器可见性应使用开关")
 	}
 	tt, st, _ := magpiePageTester(t, true)
 	st.mu.Lock()
 	st.providerRows.available = map[string]bool{"claude": true, "codex": true, "pi": true}
 	st.providerRows.loaded = true
 	st.mu.Unlock()
-	if control.b.value(&st.cfg) {
-		t.Fatal("默认应隐藏 Magpie 模型")
-	}
 	waitMagpie(t, tt, func() bool {
-		return tt.HasText("在模型选择器中显示") && tt.HasText("网关没有返回模型")
+		return tt.HasText("网关没有返回模型")
 	})
 	st.mu.Lock()
 	st.agentMagpieFor("codex").loading = true
@@ -106,12 +99,6 @@ func TestMagpieModelPickerVisibilityToggle(t *testing.T) {
 	st.mu.Lock()
 	st.agentMagpieFor("codex").loading = false
 	st.mu.Unlock()
-	if err := tt.Click("切换在模型选择器中显示"); err != nil {
-		t.Fatal(err)
-	}
-	if st.cfg.Providers.HideMagpieModelsInPicker || !control.b.value(&st.cfg) {
-		t.Fatal("开启开关后应显示模型")
-	}
 	tt.Frame()
 	if !tt.HasText("网关没有返回模型") {
 		t.Fatal("关闭开关后矩阵仍应渲染")
@@ -149,7 +136,7 @@ func TestMagpieInstalledAgentSections(t *testing.T) {
 						t.Fatalf("没有已安装的 CLI 智能体时不应显示 %q: %v", text, tt.Texts())
 					}
 				}
-				for _, text := range []string{"模型", "在模型选择器中显示", "mcode"} {
+				for _, text := range []string{"模型", "mcode"} {
 					if countExactText(tt.Texts(), text) < 1 {
 						t.Fatalf("应显示 %q: %v", text, tt.Texts())
 					}
@@ -172,8 +159,8 @@ func TestMagpieModelPickerVisibilitySearchIndex(t *testing.T) {
 				count++
 			}
 		}
-		if count != 1 {
-			t.Fatalf("搜索 %q 命中 %d 次，期望 1 次", query, count)
+		if count != 0 {
+			t.Fatalf("搜索 %q 命中已删除的设置行 %d 次", query, count)
 		}
 	}
 }

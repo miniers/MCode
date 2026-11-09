@@ -8513,7 +8513,7 @@ func (b *MemoryBackend) ListProviders(ctx context.Context) (wire.ProvidersListRe
 		models := []wire.ProviderModel{}
 		if available {
 			models = ProviderModels(k)
-			if k == "openai" {
+			if k == "openai" && !hasAPICatalog(k) {
 				// 配置里指定的模型作为首选行并入目录；没有配置时保留起始目录，避免整列不可选。
 				var ids []string
 				if h, ok := harnesses[k]; ok {
@@ -8536,7 +8536,7 @@ func (b *MemoryBackend) ListProviders(ctx context.Context) (wire.ProvidersListRe
 				}
 				applyModelsDev(k, models)
 			}
-			if len(models) == 0 {
+			if len(models) == 0 && !hasAPICatalog(k) {
 				if h, ok := harnesses[k]; ok {
 					if mi, ok := h.(interface{ ModelIDs() []string }); ok {
 						for _, id := range mi.ModelIDs() {

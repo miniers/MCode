@@ -460,12 +460,12 @@ func TestSettings_ModelsPage_AddAndRemoveModel(t *testing.T) {
 	})
 }
 
-// 添加收藏浮层跟随「在模型选择器中显示」开关：关闭时整组不列出 Magpie 模型。
-func TestSettings_ModelsPage_AddPinHidesMagpieModels(t *testing.T) {
+// 添加收藏浮层始终显示独立 Magpie 端点。
+func TestSettings_ModelsPage_AddPinShowsMagpieModels(t *testing.T) {
 	for _, hide := range []bool{true, false} {
 		name := "开关打开时仍列出 Magpie 模型"
 		if hide {
-			name = "开关关闭时隐藏 Magpie 模型"
+			name = "旧隐藏配置不影响 Magpie 模型"
 		}
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
@@ -490,12 +490,6 @@ func TestSettings_ModelsPage_AddPinHidesMagpieModels(t *testing.T) {
 				t.Fatal(err)
 			}
 			waitFor(t, tt, func() bool { return tt.HasText("Sonnet") })
-			if hide {
-				if tt.HasText("MagpieA") || tt.HasText("MagpieB") {
-					t.Fatalf("隐藏开关打开时浮层仍列出 Magpie 模型: %q", tt.Texts())
-				}
-				return
-			}
 			waitFor(t, tt, func() bool { return tt.HasText("MagpieA") && tt.HasText("MagpieB") })
 		})
 	}

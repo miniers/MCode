@@ -96,10 +96,10 @@ func TestIsValidModelCLICatalogProviders(t *testing.T) {
 	}
 }
 
-// OpenAI 兼容的预设与 custom- 端点保持空目录，让 ListProviders 用配置里的模型补行；
+// 无运行时目录的 custom- 与 Magpie 端点保持空目录，让 ListProviders 用配置里的模型补行；
 // 空切片而非 nil，保证 JSON 里 models 仍是数组（schema 必填）。
 func TestProviderModelsOpenAICompatibleStayEmpty(t *testing.T) {
-	for _, provider := range []string{"custom-test", "deepseek", "zai", "meta", "magpie", "magpie2"} {
+	for _, provider := range []string{"custom-test", "magpie", "magpie2"} {
 		models := ProviderModels(provider)
 		if len(models) != 0 || models == nil {
 			t.Fatalf("%s must keep an empty array catalog, got %+v", provider, models)

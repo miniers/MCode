@@ -3,6 +3,9 @@ package remote
 import (
 	"strings"
 
+	"mcode/internal/apisource"
+	"mcode/internal/config"
+	"mcode/internal/harness"
 	"mcode/internal/modelsdev"
 	"mcode/internal/providers/claude"
 	"mcode/internal/providers/cline"
@@ -421,17 +424,30 @@ func placeholderModel() wire.ProviderModel {
 	return wire.ProviderModel{ID: placeholderModelID, Name: "默认", IsDefault: true}
 }
 
-// cliCatalogProvider 判断 provider 的目录来自 CLI 动态列出：
-// 列表随账号与 CLI 版本变化，模型名交给 CLI 自己校验。
-func cliCatalogProvider(provider string) bool {
-	switch provider {
-	case "commandcode", "cline", "pi", "omp", "copilot", "droid", "cursor", "opencode", "grok", "devin":
-		return true
-	}
-	return false
-}
-
 func providerModelsBase(provider string) []wire.ProviderModel {
+	if rows, registered := apiCatalog(provider); registered {
+		return rows
+	}
+	if preset, ok := apisource.PresetByID(provider); ok && len(preset.Models) > 0 {
+		rows := make([]wire.ProviderModel, 0, len(preset.Models))
+		for _, id := range preset.Models {
+			rows = append(rows, wire.ProviderModel{ID: id, Name: id, IsDefault: id == preset.DefaultModel})
+		}
+		return rows
+	}
+	if provider == "anthropic" {
+		secrets := config.NewMemorySecretStore()
+		_ = secrets.Set("anthropic.apiKey", "catalog")
+		for _, source := range apisource.Resolve(config.Config{}, secrets) {
+			if source.Kind == provider {
+				rows := make([]wire.ProviderModel, 0, len(source.Models))
+				for _, id := range source.Models {
+					rows = append(rows, wire.ProviderModel{ID: id, Name: id, IsDefault: id == source.DefaultModel})
+				}
+				return rows
+			}
+		}
+	}
 	base := nativeProviderModels(provider)
 	if provider != "claude" && provider != "codex" && provider != "pi" {
 		return base
@@ -603,9 +619,6 @@ func nativeProviderModels(provider string) []wire.ProviderModel {
 		}
 		return res
 	case "mcode":
-		if models := mcodeModels(); len(models) > 0 {
-			return models
-		}
 		return []wire.ProviderModel{placeholderModel()}
 	case "pi", "omp", "copilot", "droid":
 		// 账号可用的模型目录由 CLI 在后台读取；读到之前保持占位行。
@@ -671,7 +684,7 @@ func DefaultModel(provider string) string {
 // 动态列表加载后，仍兼容静态目录中的模型，避免已有线程失效。
 func IsValidModel(provider, model string) bool {
 	models := ProviderModels(provider)
-	if hasPlaceholderCatalog(models) || cliCatalogProvider(provider) {
+	if hasPlaceholderCatalog(models) || harness.IsCLICatalogProvider(provider) {
 		return model != ""
 	}
 	for _, m := range models {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/harness"
 )
 
 // ModelPickerMode 决定模型选择组件的形态。
@@ -129,53 +130,21 @@ type ModelPickerProps struct {
 	Invalidate       func()
 }
 
-type modelPickerMagpieFilter struct {
-	hide      bool
-	providers map[string]bool
+type modelPickerMagpieFilter struct{}
+
+func newModelPickerMagpieFilter(_ config.Config) modelPickerMagpieFilter {
+	return modelPickerMagpieFilter{}
 }
 
-func newModelPickerMagpieFilter(cfg config.Config) modelPickerMagpieFilter {
-	f := modelPickerMagpieFilter{hide: cfg.Providers.HideMagpieModelsInPicker}
-	if !f.hide {
-		return f
-	}
-	f.providers = make(map[string]bool)
-	for _, ep := range cfg.Providers.Custom {
-		if ep.Magpie {
-			f.providers[config.CustomEndpointProviderKind(ep)] = true
-		}
-	}
-	return f
-}
-
-func filterModelPickerMagpie(providers []ProviderInfo, f modelPickerMagpieFilter) []ProviderInfo {
-	if !f.hide {
-		return providers
-	}
+func filterModelPickerMagpie(providers []ProviderInfo, _ modelPickerMagpieFilter) []ProviderInfo {
 	filtered := make([]ProviderInfo, 0, len(providers))
 	for _, provider := range providers {
-		if f.providers[provider.ID] {
+		if provider.ID == "mcode" {
 			continue
 		}
 		filtered = append(filtered, provider)
 	}
 	return filtered
-}
-
-// moveMcodeProviderLast 将模型较多的 mcode 排在分组最后。
-func moveMcodeProviderLast(providers []ProviderInfo) []ProviderInfo {
-	ordered := make([]ProviderInfo, 0, len(providers))
-	for _, provider := range providers {
-		if provider.ID != "mcode" {
-			ordered = append(ordered, provider)
-		}
-	}
-	for _, provider := range providers {
-		if provider.ID == "mcode" {
-			ordered = append(ordered, provider)
-		}
-	}
-	return ordered
 }
 
 // modelPickerStates 保存调用方未持有状态时组件内部按 key 分配的状态。
@@ -659,15 +628,6 @@ func readySwarmPairs(pairs []SwarmPair, providers []ProviderInfo, pins []ModelPi
 	return out
 }
 
-// isCLICatalogProvider 判断 provider 的目录是否来自 CLI 动态列出或自定义端点。
-func isCLICatalogProvider(provider string) bool {
-	switch provider {
-	case "commandcode", "cline", "mcode", "pi", "omp", "copilot", "droid":
-		return true
-	}
-	return strings.HasPrefix(provider, "custom-")
-}
-
 // providerHasPlaceholderCatalog 判断 provider 目录是否为空或仅有占位模型。
 func providerHasPlaceholderCatalog(prov ProviderInfo) bool {
 	if len(prov.Models) == 0 {
@@ -687,7 +647,7 @@ func providerHasModel(prov ProviderInfo, modelID string) bool {
 			return true
 		}
 	}
-	if providerHasPlaceholderCatalog(prov) || isCLICatalogProvider(prov.ID) {
+	if providerHasPlaceholderCatalog(prov) || harness.IsCLICatalogProvider(prov.ID) {
 		return true
 	}
 	return false
@@ -1905,7 +1865,6 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 	if state == nil {
 		state = modelPickerStateFor(p.KeyPrefix + p.ScopeKey)
 	}
-	providers = moveMcodeProviderLast(providers)
 	query := state.searchQuery
 	searching := strings.TrimSpace(query) != ""
 	// 有搜索词时强制按 Agent 分组展示，让一级精选页也能搜到全部 provider 的模型。
@@ -2041,6 +2000,9 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 								}
 								renderProviderGroupHeader(c, p.KeyPrefix+"pair-group-header", "配对")
 								for idx, pair := range p.Pairs {
+									if pair.LeadProvider == "mcode" || swarmWorkerProvider(pair) == "mcode" {
+										continue
+									}
 									pair := pair
 									selected := hasCurPair && curPair.ID == pair.ID
 									onEnter := func() {

@@ -12,6 +12,7 @@ import (
 
 	"mcode/internal/providers/acp"
 	"mcode/internal/providers/omp"
+	"mcode/internal/remote/wire"
 )
 
 type refreshTestHarness struct {
@@ -19,6 +20,38 @@ type refreshTestHarness struct {
 	available bool
 	err       error
 	calls     atomic.Int32
+}
+
+func TestRefreshAPICatalogAndMcodeAlias(t *testing.T) {
+	const kind = "custom-magpie-refresh"
+	h := &refreshTestHarness{customMetaHarness: customMetaHarness{kind: kind}, available: true}
+	alias := &refreshTestHarness{customMetaHarness: customMetaHarness{kind: "mcode"}, available: true}
+	SetAPICatalog(kind, func() []wire.ProviderModel {
+		var rows []wire.ProviderModel
+		for _, id := range h.modelIDs {
+			rows = append(rows, wire.ProviderModel{ID: id, Name: id})
+		}
+		return rows
+	})
+	t.Cleanup(func() { SetAPICatalog(kind, nil) })
+	hub := NewStreamHub(StreamHubOptions{})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+	backend.RegisterHarness(h)
+	backend.RegisterHarness(alias)
+	if len(ProviderModels(kind)) != 0 {
+		t.Fatal("初始目录应为空")
+	}
+	if err := backend.RefreshProviderModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls.Load() != 1 || alias.calls.Load() != 0 {
+		t.Fatal("刷新次数错误")
+	}
+	if rows := ProviderModels(kind); len(rows) != 1 || rows[0].ID != "new-model" {
+		t.Fatalf("刷新后目录错误: %+v", rows)
+	}
 }
 
 func TestRefreshUsesConfiguredCLIBinary(t *testing.T) {

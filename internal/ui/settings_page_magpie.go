@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/egoist/mygo/ui"
-	"mcode/internal/config"
 )
 
 // magpiePageConnected 报告网关是否已连上且状态已知；未知时先按未连接处理。
@@ -72,7 +71,6 @@ var pageMagpie = settingsPage{
 			magpieAgentRouteRow("pi"),
 		}},
 		{ID: "sec-magpie-models", Title: "模型", Visible: magpiePageHasInstalledAgents, Rows: []setting{
-			{ID: "row-magpie-model-picker-visible", Title: "在模型选择器中显示", Aliases: []string{"Magpie", "模型选择器", "显示"}, Control: toggle(inverted(val(func(cfg *config.Config) *bool { return &cfg.Providers.HideMagpieModelsInPicker }, true)))},
 			{ID: "row-magpie-model-matrix", Control: customFullWidth(renderMagpieModelMatrix)},
 		}},
 	},

@@ -98,7 +98,7 @@ func mcodeTargets(cfg config.Config, secrets config.SecretStore) []magpieinject.
 // mcodeDefaultModel 返回 mcode 未指定模型时使用的完整模型 ID。
 // 优先用 mcode 设置里手动指定的默认模型；没有时取 Magpie 模型目录缓存里的第一个模型。
 func mcodeDefaultModel(cfg config.Config, secrets config.SecretStore) (string, error) {
-	targets := mcodeTargets(cfg, secrets)
+	targets := apisource.MagpieTargets(cfg, secrets)
 	setting := config.MagpieAgentSetting(cfg, config.ProviderMcode)
 	if modelID := strings.TrimSpace(setting.DefaultModel); modelID != "" {
 		endpointID := strings.TrimSpace(setting.DefaultEndpointID)
@@ -139,7 +139,7 @@ func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model, af
 	if strings.EqualFold(model, "default") {
 		model = ""
 	}
-	targets := mcodeTargets(cfg, secrets)
+	targets := apisource.MagpieTargets(cfg, secrets)
 	if model == "" {
 		resolved, err := mcodeDefaultModel(cfg, secrets)
 		if err != nil {
@@ -234,7 +234,7 @@ func mcodeContextWindow(cfg config.Config, secrets config.SecretStore, model str
 	if strings.HasPrefix(model, "anthropic/") {
 		return mcodeAnthropicContextWindow
 	}
-	target, modelID, ok := magpieinject.ProviderOf(model, mcodeTargets(cfg, secrets))
+	target, modelID, ok := magpieinject.ProviderOf(model, apisource.MagpieTargets(cfg, secrets))
 	if !ok {
 		return 0
 	}
@@ -250,7 +250,7 @@ func mcodeMaxTokens(cfg config.Config, secrets config.SecretStore, model string)
 	if strings.HasPrefix(model, "anthropic/") {
 		return 0
 	}
-	target, modelID, ok := magpieinject.ProviderOf(model, mcodeTargets(cfg, secrets))
+	target, modelID, ok := magpieinject.ProviderOf(model, apisource.MagpieTargets(cfg, secrets))
 	if !ok {
 		return 0
 	}
@@ -331,59 +331,21 @@ func mcodeModelCatalog() []wire.ProviderModel {
 	return mcodeModelsForConfig(cfg, secrets)
 }
 
-// mcodeModelsForConfig 用内置引擎实际可用的 Magpie 端点生成模型目录：只保留 Magpie 页
-// 为 mcode 勾选的模型（没有 mcode 勾选时沿用 pi 的勾选），行顺序与勾选顺序一致，
-// 手动默认模型有效时排在最前。行 ID 是 target.ProviderID + 模型 ID，与
-// resolveMcodeClient 的解析规则一致。
+// mcodeModelsForConfig 将各端点完整目录投影为旧线程使用的带前缀模型 ID。
 func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.ProviderModel {
 	setting := config.MagpieAgentSetting(cfg, config.ProviderMcode)
 	defaultEndpointID := strings.TrimSpace(setting.DefaultEndpointID)
 	defaultModelID := strings.TrimSpace(setting.DefaultModel)
-	targets := make(map[string]magpieinject.Target, len(cfg.Providers.Custom))
-	for _, target := range mcodeTargets(cfg, secrets) {
-		targets[target.Endpoint] = target
-	}
 	rows := make([]wire.ProviderModel, 0)
-	defaultRow := -1
-	seen := make(map[string]bool, len(setting.Selections))
-	for _, selection := range setting.Selections {
-		endpointID := strings.TrimSpace(selection.EndpointID)
-		if endpointID == "" || seen[endpointID] {
-			continue
-		}
-		seen[endpointID] = true
-		target, ok := targets[endpointID]
-		if !ok || target.APIKey == "" {
-			continue
-		}
-		ids := mcodeSelectionModels(setting, endpointID)
-		if len(ids) == 0 {
-			continue
-		}
-		fetched, hit := magpie.CachedModels(target.BaseURL, target.APIKey)
-		if !hit {
-			// 缓存没拉过时先在后台预热；本次仍按勾选的模型 ID 出行，元数据用默认值补。
-			warmMagpieModels(target)
-			fetched = nil
-		}
-		for _, model := range magpieinject.Selected(ids, fetched) {
-			if defaultRow < 0 && endpointID == defaultEndpointID && model.ID == defaultModelID {
-				defaultRow = len(rows)
+	defaultID := ""
+	for _, target := range apisource.MagpieTargets(cfg, secrets) {
+		for _, row := range magpieCatalogTarget(target) {
+			if defaultID == "" && (defaultEndpointID == "" || target.Endpoint == defaultEndpointID) && row.ID == defaultModelID {
+				defaultID = target.ProviderID + "/" + row.ID
 			}
-			rows = append(rows, wire.ProviderModel{
-				ID:           target.ProviderID + "/" + model.ID,
-				Name:         magpie.ShortName(model),
-				Efforts:      mcodeEfforts(model),
-				ContextLimit: model.ContextWindow,
-				Cost:         magpieModelCost(model),
-			})
+			row.ID = target.ProviderID + "/" + row.ID
+			rows = append(rows, row)
 		}
-	}
-	if len(rows) > 0 {
-		if defaultRow > 0 {
-			rows[0], rows[defaultRow] = rows[defaultRow], rows[0]
-		}
-		rows[0].IsDefault = true
 	}
 	if cfg.Providers.Anthropic.IsEnabled() && mcodeAnthropicKey(secrets) != "" {
 		for _, row := range []wire.ProviderModel{
@@ -392,13 +354,10 @@ func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.
 			{ID: "anthropic/claude-haiku-5-5", Name: "Claude Haiku 5.5"},
 		} {
 			row.Efforts = []string{"low", "medium", "high", "xhigh", "max"}
-			if len(rows) == 0 {
-				row.IsDefault = true
-			}
 			rows = append(rows, row)
 		}
 	}
-	return rows
+	return orderCatalog(rows, defaultID)
 }
 
 // mcodeSelectionModels 返回某端点在内置引擎勾选里的模型 ID，按勾选顺序去空；
@@ -451,7 +410,7 @@ func magpieModelCost(model magpie.Model) *wire.ModelCost {
 // mcodeUsageCost 按网关模型目录的价格算本轮费用：模型串按端点前缀解析，
 // 非 Magpie 模型、目录里没有这个模型或没有价格时返回 false。
 func mcodeUsageCost(cfg config.Config, secrets config.SecretStore, model string, usage harness.Usage) (float64, bool) {
-	target, modelID, ok := magpieinject.ProviderOf(strings.TrimSpace(model), mcodeTargets(cfg, secrets))
+	target, modelID, ok := magpieinject.ProviderOf(strings.TrimSpace(model), apisource.MagpieTargets(cfg, secrets))
 	if !ok {
 		return 0, false
 	}

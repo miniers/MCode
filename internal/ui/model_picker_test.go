@@ -43,13 +43,7 @@ func TestModelPickerHideMagpieModels(t *testing.T) {
 		original[i].Models = append([]ModelInfo(nil), provider.Models...)
 	}
 	got := filterModelPickerMagpie(providers, newModelPickerMagpieFilter(cfg))
-	// 独立直连 Magpie 的端点整体隐藏；pi/claude/codex 下的网关注入行全部保留。
-	want := []ProviderInfo{
-		{ID: "custom-normal", Models: []ModelInfo{{ID: "ordinary"}}},
-		{ID: "pi", Models: piModels},
-		{ID: "claude", Models: claudeModels},
-		{ID: "codex", Models: codexModels},
-	}
+	want := original
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("过滤结果 = %#v，期望 %#v", got, want)
 	}
@@ -804,14 +798,14 @@ func TestRenderModelList_ProviderCatalogNotice(t *testing.T) {
 	}
 }
 
-func TestMoveMcodeProviderLast(t *testing.T) {
+func TestModelPickerExcludesMcode(t *testing.T) {
 	cases := []struct {
 		name  string
 		input []string
 		want  []string
 	}{
-		{name: "开头", input: []string{"mcode", "claude", "codex"}, want: []string{"claude", "codex", "mcode"}},
-		{name: "中间", input: []string{"claude", "mcode", "codex"}, want: []string{"claude", "codex", "mcode"}},
+		{name: "开头", input: []string{"mcode", "claude", "codex"}, want: []string{"claude", "codex"}},
+		{name: "中间", input: []string{"claude", "mcode", "codex"}, want: []string{"claude", "codex"}},
 		{name: "没有 mcode", input: []string{"claude", "codex"}, want: []string{"claude", "codex"}},
 	}
 	for _, tc := range cases {
@@ -820,7 +814,7 @@ func TestMoveMcodeProviderLast(t *testing.T) {
 			for i, id := range tc.input {
 				providers[i].ID = id
 			}
-			got := moveMcodeProviderLast(providers)
+			got := filterModelPickerMagpie(providers, modelPickerMagpieFilter{})
 			if len(got) != len(tc.want) {
 				t.Fatalf("分组数量 = %d，期望 %d", len(got), len(tc.want))
 			}
@@ -833,5 +827,26 @@ func TestMoveMcodeProviderLast(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestModelPickerKeepsEndpointAndOldThreadLabel(t *testing.T) {
+	cfg := config.Config{}
+	cfg.Providers.HideMagpieModelsInPicker = true
+	providers := []ProviderInfo{
+		{ID: "mcode", Models: []ModelInfo{{ID: "old", Name: "旧模型"}}},
+		{ID: "custom-gw", Models: []ModelInfo{{ID: "new", Name: "网关模型"}}},
+	}
+	visible := filterModelPickerMagpie(providers, newModelPickerMagpieFilter(cfg))
+	if len(visible) != 1 || visible[0].ID != "custom-gw" {
+		t.Fatalf("候选来源错误: %+v", visible)
+	}
+	pins := []ModelPin{{Provider: "mcode", ModelID: "old"}, {Provider: "custom-gw", ModelID: "new"}}
+	entries := modelPickerPinnedEntries(pins, visible)
+	if len(entries) != 1 || entries[0].Provider.ID != "custom-gw" {
+		t.Fatalf("固定模型错误: %+v", entries)
+	}
+	if name := modelPickerDisplayName(providers, "mcode", "old"); name != "旧模型" {
+		t.Fatalf("旧线程名称错误: %s", name)
 	}
 }
