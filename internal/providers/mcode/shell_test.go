@@ -56,6 +56,56 @@ func TestRunBackgroundCleanup(t *testing.T) {
 	}
 }
 
+func TestRunCancelIsolatesBackgroundThreads(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		t.Skip("需要 Unix shell")
+	}
+	const owner, other = "run-cancel-thread", "run-cancel-other"
+	t.Cleanup(func() { shell.KillOwner(owner); shell.KillOwner(other) })
+	otherID, _, err := shell.Start(shell.WithOwner(context.Background(), other), shell.Options{Command: "sleep 30"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeClient{responses: []*llm.Response{
+		toolCall("bash", "background-call", `{"command":"sleep 30","run_in_background":true}`), answer(),
+	}}
+	h := harnessFor(client, Options{})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	turn := harness.Turn{ThreadID: owner, Prompt: "go", Mode: harness.ModeFullAccess, WorkDir: t.TempDir()}
+	result := make(chan string, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- h.Run(ctx, turn, func(event harness.Event) {
+			if event.Type == harness.EventToolEnd && event.ToolID == "background-call" {
+				result <- event.Output
+				cancel()
+			}
+		})
+	}()
+	var output string
+	select {
+	case output = <-result:
+	case <-time.After(5 * time.Second):
+		t.Fatal("后台工具调用超时")
+	}
+	var id string
+	if _, err := fmt.Sscanf(output, "Started background job %s", &id); err != nil {
+		t.Fatalf("无法读取后台任务 ID：%q：%v", output, err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("取消后 Run 未返回")
+	}
+	if _, running, _, err := shell.OutputOwner(owner, id); err != nil || running {
+		t.Errorf("当前线程任务 running=%v err=%v", running, err)
+	}
+	if _, running, _, err := shell.OutputOwner(other, otherID); err != nil || !running {
+		t.Errorf("其他线程任务 running=%v err=%v", running, err)
+	}
+}
+
 // TestNewDefaults 验证空 Options 下外壳的默认行为与改造前一致。
 func TestNewDefaults(t *testing.T) {
 	h := New(Options{})

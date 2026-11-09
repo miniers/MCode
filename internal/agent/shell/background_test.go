@@ -5,7 +5,9 @@ package shell
 import (
 	"context"
 	"os/exec"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,6 +85,78 @@ func TestBackgroundOwnerIsolation(t *testing.T) {
 	}
 	if _, running, _, _ := Output(idB); !running {
 		t.Fatal("B 被停止")
+	}
+}
+
+func TestKillOwnerIsolatesThreads(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("需要 Unix shell")
+	}
+	const ownerA, ownerB = "kill-owner-isolation-a", "kill-owner-isolation-b"
+	t.Cleanup(func() { KillOwner(ownerA); KillOwner(ownerB) })
+	idA, _, err := Start(WithOwner(context.Background(), ownerA), Options{Command: `sh -c 'trap "" TERM; echo ready; sleep 30'`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idB, _, err := Start(WithOwner(context.Background(), ownerB), Options{Command: "sleep 30"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitBackground(t, func() bool {
+		text, running, _, err := OutputOwner(ownerA, idA)
+		return err == nil && running && strings.Contains(text, "ready")
+	})
+	done := make(chan struct{})
+	go func() { KillOwner(ownerA); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("停止 A 超时")
+	}
+	waitBackground(t, func() bool {
+		_, running, _, err := OutputOwner(ownerA, idA)
+		return err == nil && !running
+	})
+	if _, running, _, err := OutputOwner(ownerB, idB); err != nil || !running {
+		t.Fatalf("B running=%v err=%v", running, err)
+	}
+	done = make(chan struct{})
+	go func() { KillOwner(ownerA); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("重复停止 A 超时")
+	}
+}
+
+func TestKillOwnerConcurrent(t *testing.T) {
+	const owner = "kill-owner-concurrent"
+	t.Cleanup(func() { KillOwner(owner) })
+	var ids []string
+	for i := 0; i < 3; i++ {
+		id, _, err := Start(WithOwner(context.Background(), owner), Options{Command: "sleep 30"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(2)
+		go func() { defer wg.Done(); KillOwner(owner) }()
+		go func(id string) { defer wg.Done(); _ = KillOwned(owner, id) }(id)
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("并发停止超时")
+	}
+	for _, id := range ids {
+		if _, running, _, err := OutputOwner(owner, id); err != nil || running {
+			t.Errorf("任务 %s running=%v err=%v", id, running, err)
+		}
 	}
 }
 

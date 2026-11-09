@@ -9,12 +9,17 @@ import (
 	"mcode/internal/swarm"
 )
 
+// 本地自定义端点可以不需要 Key。
+func beeSourceUsable(source apisource.Source, secrets config.SecretStore) bool {
+	return source.APIKey(secrets) != "" || (strings.HasPrefix(source.Kind, "custom-") && !source.Magpie)
+}
+
 // defaultBeeSource 选择主会话可用的 API 来源，或按配置顺序选择第一个可用来源。
 func defaultBeeSource(cfg config.Config, secrets config.SecretStore, lead swarm.ThreadContext) (string, string, error) {
 	provider, model, _ := apisource.NormalizeBeeModel(cfg, secrets, lead.Provider, lead.Model)
 	var first *apisource.Source
 	for _, source := range apisource.Resolve(cfg, secrets) {
-		if source.APIKey(secrets) == "" {
+		if !beeSourceUsable(source, secrets) {
 			continue
 		}
 		if first == nil {
