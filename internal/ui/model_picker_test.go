@@ -817,10 +817,8 @@ func TestModelPickerSwarmPairHeaders(t *testing.T) {
 				})
 			}, 320, 640)
 			tt.Frame()
-			for _, key := range []string{"t-pair-pair-group-header", "t-pair-pair-models-header", "t-pair-pair-row-0"} {
-				if _, ok := tt.Find(key); ok != hasPair {
-					t.Fatalf("%s 是否存在 = %v，期望 %v", key, ok, hasPair)
-				}
+			if present := tt.HasText("旧配对"); present != hasPair {
+				t.Fatalf("旧配对是否存在 = %v，期望 %v", present, hasPair)
 			}
 			for _, title := range []string{"配对", "模型"} {
 				count := 0

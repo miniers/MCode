@@ -2008,16 +2008,13 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 						Children(func() {
 							// C-HY-19：Lead 段列表顶部展示就绪的 Swarm 配对模板，点击一键套用并关闭整个弹层。
 							// 搜索时只列匹配的模型，不展示配对段。
-							if p.Mode == ModelPickerSwarm && side == ModelPickerSideLead && !searching {
+							if p.Mode == ModelPickerSwarm && side == ModelPickerSideLead && len(p.Pairs) > 0 && !searching {
 								curPair, hasCurPair := SwarmPair{}, false
 								if p.SwarmOn {
 									curPair, hasCurPair = currentSwarmPairFor(p.Pairs, p.PairID, lead.Selection.Provider, lead.Selection.Model, p.Bees.Provider, p.Bees.Model)
 								}
-								renderedPairs := 0
+								renderProviderGroupHeader(c, p.KeyPrefix+"pair-group-header", "配对")
 								for idx, pair := range p.Pairs {
-									if renderedPairs == 0 {
-										renderProviderGroupHeader(c, p.KeyPrefix+"pair-group-header", "配对")
-									}
 									pair := pair
 									selected := hasCurPair && curPair.ID == pair.ID
 									onEnter := func() {
@@ -2031,11 +2028,8 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 										}
 									}
 									renderModelListPairRow(c, p, fmt.Sprintf("%spair-row-%d", p.KeyPrefix, idx), pair, selected, onEnter)
-									renderedPairs++
 								}
-								if renderedPairs > 0 {
-									renderProviderGroupHeader(c, p.KeyPrefix+"pair-models-header", "模型")
-								}
+								renderProviderGroupHeader(c, p.KeyPrefix+"pair-models-header", "模型")
 							}
 
 							if isMoreOpen && !searching && side == ModelPickerSideBees && state != nil && state.TierEditing != "" {
