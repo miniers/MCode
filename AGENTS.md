@@ -8,8 +8,8 @@
 4. **Git 分支与推送约定**：严禁自行执行 `git push`、修改远程分支或在工作区外提交代码；所有变更需经由工作流指引并在本工作副本中完成。
 5. **弹窗与浮层外层**：自绘卡片的弹窗必须用 `ui.DialogBase`（或 `modalDragModal`），浮层用 `ui.PopoverBase`（或 `appPopover`），面板只设尺寸上限、不设外观；禁止使用 `ui.Modal` / `ui.Popover`，否则卡片外会多一圈黑边（`internal/ui/modal_style_guard_test.go` 会拦截）。
 6. **命令与后台任务闭环**：远程、网络与大范围遍历命令必须设超时或限定范围（如 `timeout 10s`、`ssh -o ConnectTimeout=5`、`find -maxdepth`）；不再需要的后台任务立即用当前 provider 的终止工具结束（agy 用 `manage_task` 的 kill，Claude 用 `KillShell` / `TaskStop`），结束回合前确认没有遗留的后台任务。
-7. **适当动效**：状态变化要让用户看得见，例如展开与收起、浮层升起、选中与焦点切换、列表增删、数字变化、加载与完成反馈。新增动效必须复用 `internal/ui/tokens.go` 里的时长 token（DurFast、DurSnap、DurBase、DurSheet、DurSlow），不写 magic number；所有 `AnimateTo` / `AnimateWith` / `Animate` 的时长都要经过 `animateDuration(c, d)`，交错入场用 `staggerDelayFor`，弹簧动画只用白名单中的 `ui.Smooth` / `ui.Snappy` / `ui.Bouncy`（`internal/ui/motion_guard_test.go` 会拦截）。时长按「越短越不打扰」选择：即时反馈用 `DurSnap` / `DurFast`，展开与浮层用 `DurBase`，只有数字滚动等确需看清的变化才用更长时长。动效只服务于状态表达，不做无意义的装饰，也不做常驻循环动画；所有动效必须尊重 `ReduceMotion` 偏好，减少动效时自动关闭。
-8. **新组件先查现成实现**：需要新 UI 组件时，先查看 CrychicUI（https://github.com/ELY-Open-Source/CrychicUI，MIT，纯 Go，基于同一个 `github.com/egoist/mygo/ui`，1500 个组件、38 个包）是否已有合适的组件。有合适的就直接复用对应包，不从头自研；没有合适的再自己开发。引入时注意：该库的 `sound` 包默认开启，必须统一关闭或接入 mcode 的提示音配置；弹窗与浮层不使用其 `overlay` 包，仍按第 5 条用 `ui.DialogBase` / `ui.PopoverBase`；其内部动效不受第 7 条的守护测试约束，接入后要在 dev 版本里确认减少动效（`ReduceMotion`）时会关闭。变更说明里要写明引入的包路径与版本。
+7. **适当动效**：状态变化要让用户看得见，例如展开与收起、浮层升起、选中与焦点切换、列表增删、数字变化、加载与完成反馈。动效优先复用 `internal/ui/motion.go` 与 `internal/ui/tokens.go` 里的预设和时长 token，可以参考 lobe-mygo（https://github.com/lobehub/lobe-mygo，MIT）`pkg/motion` 的弹簧与过渡写法。唯一硬性要求：所有动效（包括循环动画）都必须尊重 `ReduceMotion` 偏好，减少动效时关闭或直接到终点。
+8. **新组件先查现成实现**：需要新 UI 组件时，先查看 CrychicUI（https://github.com/ELY-Open-Source/CrychicUI，MIT，纯 Go，基于同一个 `github.com/egoist/mygo/ui`，1500 个组件、38 个包）是否已有合适的组件。有合适的就直接复用对应包，不从头自研；没有合适的再自己开发。引入时注意：该库的 `sound` 包默认开启，必须统一关闭或接入 mcode 的提示音配置；弹窗与浮层不使用其 `overlay` 包，仍按第 5 条用 `ui.DialogBase` / `ui.PopoverBase`；接入后要在 dev 版本里确认减少动效（`ReduceMotion`）时会关闭。变更说明里要写明引入的包路径与版本。
 
 Important:
 
