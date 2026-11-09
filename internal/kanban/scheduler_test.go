@@ -148,6 +148,54 @@ func TestStewardQueueGoalCompletionBoundary(t *testing.T) {
 	})
 }
 
+func TestStewardQueuePrunesOldTerminalTasks(t *testing.T) {
+	ctx := context.Background()
+	svc, db, _, scheduler := setupSchedulerTestService(t, true)
+	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	svc.opts.Now = func() time.Time { return now }
+	old := now.Add(-8 * 24 * time.Hour)
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "steward", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
+		store.Task{ID: "old-done", Status: string(TaskStatusDone), UpdatedAt: old},
+		store.Task{ID: "old-cancelled", Status: string(TaskStatusCancelled), UpdatedAt: old},
+		store.Task{ID: "old-failed", Status: string(TaskStatusFailed), UpdatedAt: old},
+		store.Task{ID: "old-rejected", Status: string(TaskStatusRejected), UpdatedAt: old},
+		store.Task{ID: "recent-done", Status: string(TaskStatusDone), UpdatedAt: now.Add(-24 * time.Hour)},
+		store.Task{ID: "boundary-done", Status: string(TaskStatusDone), UpdatedAt: now.Add(-stewardTaskRetention)},
+		store.Task{ID: "old-active", Status: string(TaskStatusInProgress), UpdatedAt: old})
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "normal", ProjectID: "p", Title: "普通目标", Owner: "user"},
+		store.Task{ID: "normal-done", Status: string(TaskStatusDone), UpdatedAt: old})
+
+	scheduler.Tick(ctx)
+
+	ids, err := db.ListGoalTaskIDs(ctx, "steward")
+	if err != nil {
+		t.Fatalf("获取目标任务失败: %v", err)
+	}
+	for _, id := range []string{"old-done", "old-cancelled", "old-failed", "old-rejected"} {
+		if _, err := db.GetTask(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("任务 %s 应已删除，错误: %v", id, err)
+		}
+		for _, got := range ids {
+			if got == id {
+				t.Errorf("目标仍关联已删除任务 %s", id)
+			}
+		}
+	}
+	for id, status := range map[string]TaskStatus{
+		"recent-done": TaskStatusDone, "boundary-done": TaskStatusDone,
+		"old-active": TaskStatusInProgress, "normal-done": TaskStatusDone,
+	} {
+		task, err := db.GetTask(ctx, id)
+		if err != nil || task.Status != string(status) {
+			t.Errorf("任务 %s 状态异常: %+v，错误: %v", id, task, err)
+		}
+	}
+	goal, err := db.GetGoal(ctx, "steward")
+	if err != nil || goal.Status != string(GoalStatusRunning) {
+		t.Fatalf("总管目标状态异常: %+v，错误: %v", goal, err)
+	}
+}
+
 func (m *mockPlanner) Plan(ctx context.Context, goal store.Goal, feedback string) (PlanResult, error) {
 	return m.result, m.err
 }

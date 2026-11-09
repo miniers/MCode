@@ -11,6 +11,9 @@ import (
 	"mcode/internal/store"
 )
 
+// stewardTaskRetention 是总管终态任务的保留期限。
+const stewardTaskRetention = 7 * 24 * time.Hour
+
 // GoalScheduler 负责定期调度并推进看板中正在运行的目标任务。
 type GoalScheduler struct {
 	svc      *Service
@@ -174,15 +177,33 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 	autoAccept := getPolicyBool(goal.Policy, "autoAccept", false)
 
 	goalChanged := false
+	now := time.Now()
+	if g.svc.opts.Now != nil {
+		now = g.svc.opts.Now()
+	}
+	if isStewardQueue(goal) {
+		kept := tasks[:0]
+		for _, t := range tasks {
+			switch TaskStatus(t.Status) {
+			case TaskStatusDone, TaskStatusCancelled, TaskStatusRejected, TaskStatusFailed:
+				if now.Sub(t.UpdatedAt) > stewardTaskRetention {
+					if err := g.svc.opts.Store.DeleteTask(ctx, t.ID, t.Revision); err != nil {
+						log.Printf("kanban: 清理总管任务 %s 失败: %v", t.ID, err)
+					} else {
+						goalChanged = true
+						continue
+					}
+				}
+			}
+			kept = append(kept, t)
+		}
+		tasks = kept
+	}
 	// 本次 Tick 因失败刚退回 todo 的任务，留一个 tick 的间隔再重启，
 	// 避免同一次 Tick 里立刻重新启动并清掉刚记录的失败原因。
 	failedThisTick := make(map[string]struct{})
 
 	// (a) 对 in_progress / needs_approval 且有 ThreadID 的任务查 SessionState
-	now := time.Now()
-	if g.svc.opts.Now != nil {
-		now = g.svc.opts.Now()
-	}
 	for i, t := range tasks {
 		if t.Status == string(TaskStatusReview) && g.svc.isStewardOwnerTask(ctx, t) {
 			meta, err := ParseTaskMeta(t.Meta)
