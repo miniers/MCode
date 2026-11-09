@@ -11,11 +11,13 @@ import (
 
 // piMagpieState 维护 pi 的 Magpie 端点加载与保存状态。
 type piMagpieState struct {
-	loading   bool
-	loaded    bool
-	err       string             // 最近一次加载失败信息
-	endpoints []PiMagpieEndpoint // 后端返回的 Magpie 端点快照
-	saveErr   map[string]string  // 端点 ID → 最近一次保存失败信息
+	loading        bool
+	refreshPending bool
+	generation     uint64
+	loaded         bool
+	err            string             // 最近一次加载失败信息
+	endpoints      []PiMagpieEndpoint // 后端返回的 Magpie 端点快照
+	saveErr        map[string]string  // 端点 ID → 最近一次保存失败信息
 }
 
 // loadPiMagpieEndpoints 异步拉取 Magpie 端点与已勾选模型；重复调用时保持单次在途。
@@ -26,32 +28,46 @@ func (st *SettingsState) loadPiMagpieEndpoints() {
 	}
 
 	st.mu.Lock()
+	st.piMagpie.generation++
 	if st.piMagpie.loading {
+		st.piMagpie.refreshPending = true
 		st.mu.Unlock()
 		return
 	}
 	st.piMagpie.loading = true
+	generation := st.piMagpie.generation
 	st.mu.Unlock()
 	st.invalidate()
 
 	go func() {
-		endpoints, err := client.PiMagpieEndpoints(context.Background())
+		for {
+			endpoints, err := client.PiMagpieEndpoints(context.Background())
 
-		st.mu.Lock()
-		st.piMagpie.loading = false
-		if err != nil {
-			if errors.Is(err, ErrNotImplemented) {
-				st.piMagpie.err = "暂不支持读取 Magpie 端点"
-			} else {
-				st.piMagpie.err = err.Error()
+			st.mu.Lock()
+			if generation == st.piMagpie.generation {
+				if err != nil {
+					if errors.Is(err, ErrNotImplemented) {
+						st.piMagpie.err = "暂不支持读取 Magpie 端点"
+					} else {
+						st.piMagpie.err = err.Error()
+					}
+				} else {
+					st.piMagpie.endpoints = endpoints
+					st.piMagpie.loaded = true
+					st.piMagpie.err = ""
+				}
 			}
-		} else {
-			st.piMagpie.endpoints = endpoints
-			st.piMagpie.loaded = true
-			st.piMagpie.err = ""
+			if st.piMagpie.refreshPending {
+				st.piMagpie.refreshPending = false
+				generation = st.piMagpie.generation
+				st.mu.Unlock()
+				continue
+			}
+			st.piMagpie.loading = false
+			st.mu.Unlock()
+			st.invalidate()
+			return
 		}
-		st.mu.Unlock()
-		st.invalidate()
 	}()
 }
 

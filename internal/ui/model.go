@@ -913,7 +913,7 @@ func (s *chatState) recordedProviderPreference() (string, bool) {
 // provider 被启动参数或环境变量锁定时只更新进程内默认值，不覆盖写回配置。
 func (s *chatState) rememberUsedProvider(providerID string) {
 	providerID = strings.TrimSpace(providerID)
-	if s == nil || providerID == "" || s.embeddedBee {
+	if s == nil || providerID == "" || providerID == config.ProviderMcode || s.embeddedBee {
 		// 子代理输入框里的模型切换不代表用户的默认 Agent 选择。
 		return
 	}
@@ -942,21 +942,12 @@ func (s *chatState) rememberUsedProvider(providerID string) {
 
 // initNewThreadProvider 设置新会话默认使用的 Agent：有使用记录时沿用上次使用的 Agent，
 // 首次启动（还没有使用记录）时按供应商列表顺序取第一个可用的 Agent，并记为“上次使用”。
-func (s *chatState) initNewThreadProvider(available, providers []ProviderInfo) {
-	if id, recorded := s.recordedProviderPreference(); recorded {
-		if _, ok := findProviderInfo(providers, id); ok {
-			s.mu.Lock()
-			s.newThreadProvider = id
-			s.mu.Unlock()
-			return
-		}
-	}
-	id := ""
-	if len(available) > 0 {
-		id = available[0].ID
-	} else if len(providers) > 0 {
-		id = providers[0].ID
-	}
+func (s *chatState) initNewThreadProvider(providers []ProviderInfo) {
+	preferred, _ := s.recordedProviderPreference()
+	s.mu.Lock()
+	ctx := newThreadProviderContext{threads: append([]Thread(nil), s.threads...), stewardThreadID: s.stewardThreadID(), preferred: preferred}
+	s.mu.Unlock()
+	id := defaultNewThreadProvider(providers, ctx)
 	if id != "" {
 		s.rememberUsedProvider(id)
 	}
@@ -966,12 +957,17 @@ func (s *chatState) initNewThreadProvider(available, providers []ProviderInfo) {
 func (s *chatState) loadProjects() {
 	go func() {
 		ctx := context.Background()
+		threadsLoaded := make(chan struct{})
 
 		// providers 只影响默认 Agent 与模型列表，项目/会话列表并不依赖它，
 		// 所以放到独立 goroutine 里与后面的拉取并行，避免侧边栏首帧多等几百毫秒。
 		seq := s.nextProviderCatalogRequest()
 		go func() {
 			providers, pErr := s.client.Providers(ctx)
+			<-threadsLoaded
+			s.mu.Lock()
+			needProvider := s.newThreadProvider == ""
+			s.mu.Unlock()
 			if pErr == nil && s.applyProviderCatalog(seq, providers, getChatSettings(s)) {
 				var available []ProviderInfo
 				for _, p := range providers {
@@ -979,12 +975,9 @@ func (s *chatState) loadProjects() {
 						available = append(available, p)
 					}
 				}
-				s.mu.Lock()
-				needProvider := s.newThreadProvider == ""
-				s.mu.Unlock()
 				if needProvider {
 					// 选默认 Agent 要读配置（首次启动还会写回），放在锁外避免嵌套加锁。
-					s.initNewThreadProvider(available, providers)
+					s.initNewThreadProvider(providers)
 				}
 				s.mu.Lock()
 				if len(available) > 0 {
@@ -1017,6 +1010,7 @@ func (s *chatState) loadProjects() {
 
 		projects, err := s.client.Projects(ctx)
 		if err != nil {
+			close(threadsLoaded)
 			s.setToast("获取项目失败: " + err.Error())
 			return
 		}
@@ -1050,6 +1044,7 @@ func (s *chatState) loadProjects() {
 		s.mu.Lock()
 		if s.closed {
 			s.mu.Unlock()
+			close(threadsLoaded)
 			return
 		}
 		var allThreads []Thread
@@ -1104,6 +1099,7 @@ func (s *chatState) loadProjects() {
 			}
 		}
 		s.mu.Unlock()
+		close(threadsLoaded)
 		startuptrace.Mark("sidebar data loaded")
 		s.invalidate()
 

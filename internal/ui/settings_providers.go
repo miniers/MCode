@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/apisource"
+	"mcode/internal/config"
 )
 
 // customEndpointsPageState 维护自定义 OpenAI 兼容端点页面的交互状态。
@@ -15,6 +19,7 @@ type customEndpointsPageState struct {
 	loaded    bool
 	loading   bool
 	err       string
+	failedAt  time.Time
 
 	// 表单状态
 	editing     bool
@@ -64,8 +69,9 @@ type customEndpointsPageState struct {
 
 // 表单归属：自定义 Endpoints 与 Magpie 网关共用同一套表单草稿，用 editScope 区分。
 const (
-	endpointFormScopeCustom = "custom"
-	endpointFormScopeMagpie = "magpie"
+	endpointFormScopeCustom   = "custom"
+	endpointFormScopeMagpie   = "magpie"
+	customEndpointsRetryDelay = 30 * time.Second
 )
 
 // clearCustomEndpointPersonaDrafts 清空人设来源与额度供应商草稿（含明文 web key）；调用方需持有 st.mu。
@@ -223,16 +229,17 @@ func refreshCustomEndpointProviders(st *SettingsState, client Client) {
 	if err != nil || !chat.applyProviderCatalog(seq, providers, st) {
 		return
 	}
+	preferred, _ := chat.recordedProviderPreference()
 	chat.mu.Lock()
 	found := false
 	for _, p := range chat.providers {
-		if p.ID == chat.newThreadProvider {
+		if p.ID == chat.newThreadProvider && p.Available && p.ID != config.ProviderMcode {
 			found = true
 			break
 		}
 	}
 	if !found {
-		chat.newThreadProvider = defaultNewThreadProvider(chat.providers, newThreadProviderContext{chat.threads, chat.stewardThreadID()})
+		chat.newThreadProvider = defaultNewThreadProvider(chat.providers, newThreadProviderContext{threads: chat.threads, stewardThreadID: chat.stewardThreadID(), preferred: preferred})
 	}
 	chat.mu.Unlock()
 }
@@ -244,7 +251,7 @@ func loadCustomEndpoints(st *SettingsState) {
 		return
 	}
 	st.mu.Lock()
-	if st.endpoints.loading {
+	if st.endpoints.loading || (!st.endpoints.failedAt.IsZero() && time.Since(st.endpoints.failedAt) < customEndpointsRetryDelay) {
 		st.mu.Unlock()
 		return
 	}
@@ -260,8 +267,10 @@ func loadCustomEndpoints(st *SettingsState) {
 		st.endpoints.loaded = true
 		if err != nil {
 			st.endpoints.err = err.Error()
+			st.endpoints.failedAt = time.Now()
 		} else {
 			st.endpoints.err = ""
+			st.endpoints.failedAt = time.Time{}
 			st.endpoints.endpoints = list
 		}
 		st.mu.Unlock()
@@ -310,8 +319,10 @@ func saveCustomEndpoint(st *SettingsState) {
 		closeCustomEndpointForm(st)
 		if lErr != nil {
 			st.endpoints.err = lErr.Error()
+			st.endpoints.failedAt = time.Now()
 		} else {
 			st.endpoints.err = ""
+			st.endpoints.failedAt = time.Time{}
 			st.endpoints.endpoints = list
 			st.endpoints.loaded = true
 		}
@@ -369,8 +380,10 @@ func deleteCustomEndpoint(st *SettingsState, id string) {
 		st.endpoints.deleteConfirmID = ""
 		if lErr != nil {
 			st.endpoints.err = lErr.Error()
+			st.endpoints.failedAt = time.Now()
 		} else {
 			st.endpoints.err = ""
+			st.endpoints.failedAt = time.Time{}
 			st.endpoints.endpoints = list
 			st.endpoints.loaded = true
 		}
@@ -436,8 +449,10 @@ func toggleCustomEndpointEnabled(st *SettingsState, ep CustomEndpoint, enabled b
 		st.endpoints.toggling = false
 		if lErr != nil {
 			st.endpoints.err = lErr.Error()
+			st.endpoints.failedAt = time.Now()
 		} else {
 			st.endpoints.err = ""
+			st.endpoints.failedAt = time.Time{}
 			st.endpoints.endpoints = list
 			st.endpoints.loaded = true
 		}
@@ -596,7 +611,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 	st.mu.Unlock()
 
 	// 首次渲染且未加载时触发加载
-	if !loaded && !loading {
+	if (!loaded || errText != "") && !loading {
 		loadCustomEndpoints(st)
 	}
 
@@ -903,13 +918,17 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 	})
 }
 
+func presetProviderHasAPIKey(p ProviderSetting) bool {
+	return p.HasAPIKey || (p.ID == "anthropic" && apisource.AnthropicAPIKey(nil) != "")
+}
+
 // apiProviderListEntries 返回预置和普通自定义供应商的快照。
 func apiProviderListEntries(st *SettingsState) []providerListEntry {
 	st.mu.Lock()
 	presets := append([]ProviderSetting(nil), st.presets.items...)
 	endpoints := append([]CustomEndpoint(nil), st.endpoints.endpoints...)
 	loadPresets := !st.presets.loaded && !st.presets.loading
-	loadEndpoints := !st.endpoints.loaded && !st.endpoints.loading
+	loadEndpoints := (!st.endpoints.loaded || st.endpoints.err != "") && !st.endpoints.loading
 	presetBusy := st.presets.saving
 	endpointBusy := st.endpoints.saving || st.endpoints.testing || st.endpoints.toggling || st.endpoints.deletingID != ""
 	st.mu.Unlock()
@@ -934,7 +953,7 @@ func apiProviderListEntries(st *SettingsState) []providerListEntry {
 			continue
 		}
 		p := p
-		entries = append(entries, providerListEntry{Kind: "preset", ID: p.ID, Name: p.Name, Status: status(p.Enabled, p.HasAPIKey), Enabled: p.Enabled, CanToggle: !presetBusy, Toggle: func(enabled bool) { togglePresetProviderEnabled(st, p, enabled) }})
+		entries = append(entries, providerListEntry{Kind: "preset", ID: p.ID, Name: p.Name, Status: status(p.Enabled, presetProviderHasAPIKey(p)), Enabled: p.Enabled, CanToggle: !presetBusy, Toggle: func(enabled bool) { togglePresetProviderEnabled(st, p, enabled) }})
 	}
 	for _, ep := range endpoints {
 		if ep.Magpie {
@@ -1321,7 +1340,7 @@ func renderProviderAddSheetBody(c *ui.Context, st *SettingsState, cliCandidates 
 		case 1:
 			var chosen *ProviderSetting
 			for _, item := range presets {
-				if item.Kind != "api" || item.HasAPIKey || strings.EqualFold(strings.TrimSpace(item.ID), "magpie") {
+				if item.Kind != "api" || presetProviderHasAPIKey(item) || strings.EqualFold(strings.TrimSpace(item.ID), "magpie") {
 					continue
 				}
 				p := item
@@ -1741,7 +1760,7 @@ func renderPresetProviderRow(c *ui.Context, st *SettingsState, p ProviderSetting
 	st.mu.Lock()
 	keyDraft := st.presets.apiKeyDraft
 	st.mu.Unlock()
-	renderProviderAPIKeyRow(c, "row-preset-provider-"+pVal.ID, pVal.ID, pVal.Name, pVal.Enabled, pVal.HasAPIKey, saving,
+	renderProviderAPIKeyRow(c, "row-preset-provider-"+pVal.ID, pVal.ID, pVal.Name, pVal.Enabled, presetProviderHasAPIKey(pVal), saving,
 		func(enabled bool) { togglePresetProviderEnabled(st, pVal, enabled) },
 		func() {
 			if pVal.ID == "zai" {

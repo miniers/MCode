@@ -171,7 +171,7 @@ func TestStewardReviewClosedDecisionAndMissingSession(t *testing.T) {
 			driver := newPokeDriver()
 			_, db, _, scheduler := setupReceiptTestService(t, driver, true, false, nil)
 			thread, review := "executor", "reviewer"
-			seedSchedulerGoal(t, ctx, db, store.Goal{ID: "goal", ProjectID: "p", Owner: goalOwnerSteward},
+			seedSchedulerGoal(t, ctx, db, store.Goal{ID: "goal", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
 				store.Task{ID: "task", Status: "review", ThreadID: &thread, ReviewThreadID: &review, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner", ResultStatus: string(ResultDone), DecisionID: "D-0001"})})
 			d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task", Question: "继续？"})
 			if err != nil {

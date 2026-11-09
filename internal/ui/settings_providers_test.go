@@ -35,6 +35,66 @@ func TestAPIProviderListEntries_ExcludesGateways(t *testing.T) {
 	}
 }
 
+func TestAPIProviderListEntriesAnthropicEnvironmentKey(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "environment-key")
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.presets.loaded = true
+	st.endpoints.loaded = true
+	st.presets.items = []ProviderSetting{{ID: "anthropic", Name: "Anthropic", Kind: "api", Enabled: true}}
+	entries := apiProviderListEntries(st)
+	if len(entries) != 1 || entries[0].Status != "已配置" {
+		t.Fatalf("环境变量密钥状态错误: %+v", entries)
+	}
+}
+
+type failingEndpointListClient struct {
+	*FakeClient
+	calls chan struct{}
+}
+
+func (c *failingEndpointListClient) CustomEndpoints(context.Context) ([]CustomEndpoint, error) {
+	c.calls <- struct{}{}
+	return nil, errors.New("无法加载")
+}
+
+func TestCustomEndpointsFailedLoadIsThrottled(t *testing.T) {
+	client := &failingEndpointListClient{FakeClient: NewFakeClient(), calls: make(chan struct{}, 10)}
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(client))
+	loadCustomEndpoints(st)
+	select {
+	case <-client.calls:
+	case <-time.After(time.Second):
+		t.Fatal("首次加载没有发起")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		st.mu.Lock()
+		finished := !st.endpoints.loading && !st.endpoints.failedAt.IsZero()
+		st.mu.Unlock()
+		if finished {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("首次加载没有完成")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for i := 0; i < 10; i++ {
+		loadCustomEndpoints(st)
+	}
+	st.mu.Lock()
+	loading := st.endpoints.loading
+	st.mu.Unlock()
+	if loading {
+		t.Fatal("失败后立即重复请求")
+	}
+	select {
+	case <-client.calls:
+		t.Fatal("失败后立即重复请求")
+	default:
+	}
+}
+
 func TestAPIProviderSheet_NativePresets(t *testing.T) {
 	for _, id := range []string{"anthropic", "openai"} {
 		t.Run(id, func(t *testing.T) {

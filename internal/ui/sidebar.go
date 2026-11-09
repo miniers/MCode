@@ -25,6 +25,7 @@ var (
 type newThreadProviderContext struct {
 	threads         []Thread
 	stewardThreadID string
+	preferred       string
 }
 
 // defaultNewThreadProvider 优先选择最近使用的可用供应商，跳过 mcode 和辅助会话。
@@ -38,6 +39,9 @@ func defaultNewThreadProvider(providers []ProviderInfo, contexts ...newThreadPro
 		if p.Available && p.ID != config.ProviderMcode {
 			available[p.ID] = true
 		}
+	}
+	if available[ctx.preferred] {
+		return ctx.preferred
 	}
 	var recent *Thread
 	for i := range ctx.threads {
@@ -54,11 +58,6 @@ func defaultNewThreadProvider(providers []ProviderInfo, contexts ...newThreadPro
 	}
 	for _, p := range providers {
 		if p.Available && p.ID != config.ProviderMcode {
-			return p.ID
-		}
-	}
-	for _, p := range providers {
-		if p.ID != config.ProviderMcode {
 			return p.ID
 		}
 	}
@@ -285,7 +284,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	selectedID := s.selectedThreadID
 
 	if s.newThreadProvider == "" {
-		s.newThreadProvider = defaultNewThreadProvider(s.providers, newThreadProviderContext{s.threads, s.stewardThreadID()})
+		s.newThreadProvider = defaultNewThreadProvider(s.providers, newThreadProviderContext{threads: s.threads, stewardThreadID: s.stewardThreadID()})
 	}
 	s.mu.Unlock()
 
@@ -772,7 +771,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						OnClick: func() {
 							s.mu.Lock()
 							if s.newThreadProvider == "" {
-								s.newThreadProvider = defaultNewThreadProvider(s.providers, newThreadProviderContext{s.threads, s.stewardThreadID()})
+								s.newThreadProvider = defaultNewThreadProvider(s.providers, newThreadProviderContext{threads: s.threads, stewardThreadID: s.stewardThreadID()})
 							}
 							s.mu.Unlock()
 							s.closeWorkspace()

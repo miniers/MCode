@@ -3,6 +3,8 @@ package mcodeui
 import (
 	"testing"
 	"time"
+
+	"mcode/internal/config"
 )
 
 func TestDefaultNewThreadProviderRecentThreads(t *testing.T) {
@@ -29,7 +31,7 @@ func TestDefaultNewThreadProviderRecentThreads(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := defaultNewThreadProvider(providers, newThreadProviderContext{tt.threads, tt.steward})
+			got := defaultNewThreadProvider(providers, newThreadProviderContext{threads: tt.threads, stewardThreadID: tt.steward})
 			if got != tt.want {
 				t.Fatalf("默认来源 = %q，期望 %q", got, tt.want)
 			}
@@ -37,10 +39,49 @@ func TestDefaultNewThreadProviderRecentThreads(t *testing.T) {
 	}
 }
 
+func TestInitNewThreadProviderUsesAvailablePreferenceOrRecent(t *testing.T) {
+	providers := []ProviderInfo{{ID: config.ProviderMcode, Available: true}, {ID: "first", Available: true}, {ID: "recent", Available: true}, {ID: "disabled"}}
+	for _, tc := range []struct{ preference, want string }{
+		{"disabled", "recent"},
+		{config.ProviderMcode, "recent"},
+		{"first", "first"},
+	} {
+		t.Run(tc.preference, func(t *testing.T) {
+			chat := newChatState(NewFakeClient())
+			chat.threads = []Thread{{Provider: "recent", UpdatedAt: time.Now()}}
+			st := NewSettingsState(settingsTestDir(t), nil, chat)
+			setChatSettings(chat, st)
+			st.cfg.Models.Provider = tc.preference
+			st.cfg.Models.ProviderSelected = true
+			chat.initNewThreadProvider(providers)
+			if chat.newThreadProvider != tc.want {
+				t.Fatalf("默认来源 = %q，期望 %q", chat.newThreadProvider, tc.want)
+			}
+			settingsSaveWriters.Wait()
+		})
+	}
+	if got := defaultNewThreadProvider(providers[:2]); got != "first" {
+		t.Fatalf("首项为别名时默认来源 = %q", got)
+	}
+}
+
+func TestRefreshCustomEndpointProvidersUnavailableSelection(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetProviders([]ProviderInfo{{ID: "disabled"}, {ID: "first", Available: true}, {ID: "recent", Available: true}})
+	chat := &chatState{client: fake, newThreadProvider: "disabled", threads: []Thread{{Provider: "recent", UpdatedAt: time.Now()}}}
+	st := NewSettingsState(settingsTestDir(t), nil, chat)
+	refreshCustomEndpointProviders(st, fake)
+	chat.mu.Lock()
+	defer chat.mu.Unlock()
+	if chat.newThreadProvider != "recent" {
+		t.Fatalf("刷新后默认来源 = %q", chat.newThreadProvider)
+	}
+}
+
 func TestDefaultNewThreadProviderFallback(t *testing.T) {
 	providers := []ProviderInfo{{ID: "mcode", Available: true}, {ID: "custom-x"}}
-	if got := defaultNewThreadProvider(providers); got != "custom-x" {
-		t.Fatalf("默认来源 = %q，期望 custom-x", got)
+	if got := defaultNewThreadProvider(providers); got != "" {
+		t.Fatalf("默认来源 = %q，期望为空", got)
 	}
 	if got := defaultNewThreadProvider(providers[:1]); got != "" {
 		t.Fatalf("默认来源 = %q，期望为空", got)

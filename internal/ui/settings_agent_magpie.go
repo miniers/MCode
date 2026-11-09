@@ -18,10 +18,12 @@ const (
 
 // agentMagpieState 维护某个 agent（claude 或 codex）的 Magpie 设置加载与保存状态。
 type agentMagpieState struct {
-	agent   string // 该状态归属的 agent id
-	loading bool
-	loaded  bool
-	err     string // 最近一次加载失败信息
+	agent          string // 该状态归属的 agent id
+	loading        bool
+	refreshPending bool
+	generation     uint64
+	loaded         bool
+	err            string // 最近一次加载失败信息
 
 	setting     AgentMagpieSetting // 后端返回的设置快照
 	saveErr     map[string]string  // 端点 ID → 最近一次保存失败信息
@@ -74,54 +76,62 @@ func (st *SettingsState) loadAgentMagpie(agent string) {
 
 	st.mu.Lock()
 	state := st.agentMagpieFor(agent)
+	state.generation++
 	if state.loading {
+		state.refreshPending = true
 		st.mu.Unlock()
 		return
 	}
 	state.loading = true
+	generation := state.generation
 	st.mu.Unlock()
 	st.invalidate()
 
 	go func() {
-		setting, err := client.AgentMagpie(context.Background(), agent)
+		for {
+			setting, err := client.AgentMagpie(context.Background(), agent)
 
-		st.mu.Lock()
-		state := st.agentMagpieFor(agent)
-		state.loading = false
-		if err != nil {
-			if errors.Is(err, ErrNotImplemented) {
-				state.err = "暂不支持读取 Magpie 设置"
-			} else {
-				state.err = err.Error()
+			st.mu.Lock()
+			state := st.agentMagpieFor(agent)
+			if generation == state.generation {
+				if err != nil {
+					if errors.Is(err, ErrNotImplemented) {
+						state.err = "暂不支持读取 Magpie 设置"
+					} else {
+						state.err = err.Error()
+					}
+				} else {
+					// 端点与勾选列表不跟后端返回的快照共享底层数组。
+					endpoints := make([]PiMagpieEndpoint, len(setting.Endpoints))
+					for i, ep := range setting.Endpoints {
+						ep.Models = append([]PiMagpieModel(nil), ep.Models...)
+						ep.Selected = append([]string(nil), ep.Selected...)
+						endpoints[i] = ep
+					}
+					setting.Agent = agent
+					setting.Mode = agentMagpieModeOf(setting)
+					setting.Endpoints = endpoints
+					state.setting = setting
+					state.loaded = true
+					state.err = ""
+				}
 			}
+			if state.refreshPending {
+				state.refreshPending = false
+				generation = state.generation
+				st.mu.Unlock()
+				continue
+			}
+			state.loading = false
 			st.mu.Unlock()
 			st.invalidate()
 			return
 		}
-		// 复制一份再存：端点与勾选列表不跟后端返回的快照共享底层数组。
-		endpoints := make([]PiMagpieEndpoint, len(setting.Endpoints))
-		for i, ep := range setting.Endpoints {
-			ep.Models = append([]PiMagpieModel(nil), ep.Models...)
-			ep.Selected = append([]string(nil), ep.Selected...)
-			endpoints[i] = ep
-		}
-		setting.Agent = agent
-		setting.Mode = agentMagpieModeOf(setting)
-		setting.Endpoints = endpoints
-		state.setting = setting
-		state.loaded = true
-		state.err = ""
-		st.mu.Unlock()
-		st.invalidate()
 	}()
 }
 
 // reloadAgentMagpie 保留当前缓存并重新读取指定 agent 的 magpie 设置。
 func (st *SettingsState) reloadAgentMagpie(agent string) {
-	st.mu.Lock()
-	state := st.agentMagpieFor(agent)
-	state.loading = false
-	st.mu.Unlock()
 	st.loadAgentMagpie(agent)
 }
 

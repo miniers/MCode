@@ -381,6 +381,7 @@ func (s *SettingsState) IsOpen() bool {
 func (s *SettingsState) Open() {
 	s.mu.Lock()
 	s.open = true
+	s.endpoints.failedAt = time.Time{}
 	s.currentPage = normalizeSettingsPageID(s.currentPage)
 	s.navSearch = ""
 	s.jumpToItemID = ""
@@ -941,6 +942,9 @@ func (s *SettingsState) selectSettingsPage(id string) {
 // 返回 true 表示调用方需要在解锁后重新拉取供应商与模型目录。
 func (s *SettingsState) switchSettingsPageLocked(id string) bool {
 	target := normalizeSettingsPageID(id)
+	if s.currentPage != target {
+		s.endpoints.failedAt = time.Time{}
+	}
 	loadProviders := false
 	if s.currentPage != target && target == "remote" {
 		s.remote.statusLoaded = false
