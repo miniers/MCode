@@ -1289,8 +1289,8 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 						ui.Box(c.Key("settings-nav-" + "group-gap-" + item.id)).Height(Space5)
 					}
 					if item.group != "" {
-						ui.Row(c.Key("settings-nav-group-" + item.group)).Height(ControlSM).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
-							ui.Text(c.Key("settings-nav-"+"group-"+item.group), item.group).FontSize(TypeCaption).FontWeight(500).TextColor(ThemeTertiaryText(c)).SingleLine()
+						ui.Row(c.Key("settings-nav-group-" + item.group)).Height(ControlSM).AlignItems(ui.Center).PaddingX(Space3).Children(func() {
+							ui.Text(c, item.group).FontSize(TypeCaption).FontWeight(500).TextColor(ThemeTertiaryText(c)).SingleLine()
 						})
 					}
 				}
@@ -1338,7 +1338,9 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 		hover = 0
 	}
 	if hover > 0 || sel > 0 {
-		bg := ui.Transparent.Mix(ThemeHover(c), hover).Mix(ThemeSelected(c), sel)
+		bg := ThemeHover(c)
+		bg.A = uint8(float32(bg.A)*hover + 0.5)
+		bg = bg.Mix(ThemeSelected(c), sel)
 		row.Background(bg)
 	}
 
@@ -1373,9 +1375,7 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 			tElem.TextColor(ThemeSecondaryText(c))
 		}
 		if connected {
-			ui.Box(c.Key("settings-nav-" + "magpie-dot")).Size(Space2, Space2).Children(func() {
-				ui.Box(c.Key("settings-nav-magpie-dot")).Size(Space2, Space2).Radius(Space2 / 2).Background(ThemeSuccess(c)).Label("已连接")
-			})
+			ui.Box(c.Key("settings-nav-magpie-dot")).Size(Space2, Space2).Radius(Space2 / 2).Background(ThemeSuccess(c)).Label("已连接").Shrink(0)
 		}
 		if item.id == "about" {
 			available := updateAvailable(archiveClient(st))
