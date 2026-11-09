@@ -16,6 +16,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/providers/magpie"
 	"mcode/internal/providers/openai"
+	"mcode/internal/remote"
 )
 
 // engineTestRequest 记录一次 /chat/completions 或 /v1/messages 请求的关键字段。
@@ -114,9 +115,14 @@ func TestSourceEnginePreset(t *testing.T) {
 		t.Fatalf("DisplayName = %q, want %q", got, want)
 	}
 	gotModels := h.(interface{ ModelIDs() []string }).ModelIDs()
-	wantModels := legacy.ModelIDs()
-	if len(gotModels) != len(wantModels) || len(gotModels) == 0 || gotModels[0] != wantModels[0] {
-		t.Fatalf("ModelIDs = %v, want %v", gotModels, wantModels)
+	presetSource, _ := findAPISource(apisource.Resolve(cfg, secrets), "deepseek")
+	if len(gotModels) == 0 || gotModels[0] != "deepseek-flash" {
+		t.Fatalf("ModelIDs = %v", gotModels)
+	}
+	for _, id := range presetSource.Models {
+		if !strings.Contains(","+strings.Join(gotModels, ",")+",", ","+id+",") {
+			t.Fatalf("ModelIDs 缺少预设模型 %q：%v", id, gotModels)
+		}
 	}
 
 	// 空模型与占位模型 default 都落到来源配置的默认模型。
@@ -204,31 +210,37 @@ func TestSourceEngineMagpieAffinity(t *testing.T) {
 	}
 }
 
-// TestSourceEngineMagpieUsesMcodeSelection 校验 Magpie 来源的模型目录与默认模型
-// 都跟着 Magpie 页为 mcode 勾选的模型走。
-func TestSourceEngineMagpieUsesMcodeSelection(t *testing.T) {
+// Magpie 未勾选模型时仍使用端点的完整目录和显式默认模型。
+func TestSourceEngineMagpieFullCatalog(t *testing.T) {
 	var requests []engineTestRequest
-	server := newEngineTestServer(t, &requests)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			io.WriteString(w, `{"data":[{"id":"plain-model"},{"id":"other-model"}]}`)
+			return
+		}
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		requests = append(requests, engineTestRequest{Model: body.Model})
+		io.WriteString(w, `{"id":"c1","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	t.Cleanup(server.Close)
 
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("magpie"): "gateway-key"})
 	ep := config.CustomEndpointConfig{
-		ID: "magpie", Name: "Magpie", BaseURL: server.URL, Magpie: true, Enabled: true,
+		ID: "magpie", Name: "Magpie", BaseURL: server.URL, Model: "other-model", Magpie: true, Enabled: true,
 	}
 	dataDir := t.TempDir()
 	writeEngineTestConfig(t, dataDir, ep)
-	if err := config.Update(dataDir, func(latest *config.Config) error {
-		config.SetMagpieAgentModels(latest, config.ProviderMcode, "magpie", []string{"plain-model", "other-model"})
-		config.SetMagpieAgentDefault(latest, config.ProviderMcode, "magpie", "other-model")
-		return nil
-	}); err != nil {
+	h := newCustomEndpointHarness(ep, secrets, dataDir, providerMCP{})
+	if err := h.(interface{ RefreshModels(context.Context) error }).RefreshModels(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-
-	h := newCustomEndpointHarness(ep, secrets, dataDir, providerMCP{})
 	if got, want := strings.Join(h.(interface{ ModelIDs() []string }).ModelIDs(), ","), "other-model,plain-model"; got != want {
 		t.Fatalf("ModelIDs = %q, want %q", got, want)
 	}
-	// 空模型跟随 mcode 勾选：默认模型排在最前。
+	// 空模型使用端点的显式默认模型。
 	if reply := runEngineTurn(t, h, "", "thread-1"); reply != "ok" {
 		t.Fatalf("reply = %q, want ok", reply)
 	}
@@ -242,6 +254,45 @@ func TestSourceEngineMagpieUsesMcodeSelection(t *testing.T) {
 	}
 	if len(requests) != 1 || requests[0].Model != "plain-model" {
 		t.Fatalf("显式模型请求 = %+v", requests)
+	}
+}
+
+func TestSourceEngineCatalogUsesLatestConfig(t *testing.T) {
+	dir := t.TempDir()
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("latest"): "key"})
+	ep := config.CustomEndpointConfig{ID: "latest", Name: "Latest", BaseURL: "https://example.com", Model: "first", Enabled: true}
+	writeEngineTestConfig(t, dir, ep)
+	newCustomEndpointHarness(ep, secrets, dir, providerMCP{})
+	t.Cleanup(func() { remote.SetAPICatalog("custom-latest", nil); setMcodeAgentRuntime("", nil) })
+	if rows := remote.ProviderModels("custom-latest"); len(rows) == 0 || rows[0].ID != "first" {
+		t.Fatalf("初始目录 = %v", rows)
+	}
+	ep.Model = "second"
+	writeEngineTestConfig(t, dir, ep)
+	if rows := remote.ProviderModels("custom-latest"); len(rows) == 0 || rows[0].ID != "second" {
+		t.Fatalf("更新后目录 = %v", rows)
+	}
+	ep.Enabled = false
+	writeEngineTestConfig(t, dir, ep)
+	if rows := remote.ProviderModels("custom-latest"); len(rows) != 0 {
+		t.Fatalf("停用后的目录 = %v", rows)
+	}
+}
+
+func TestSourceEngineMagpieColdDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"data":[{"id":"first"},{"id":"preferred"}]}`)
+	}))
+	t.Cleanup(server.Close)
+	dir := t.TempDir()
+	ep := config.CustomEndpointConfig{ID: "magpie", Name: "Magpie", BaseURL: server.URL, Model: "preferred", Magpie: true, Enabled: true}
+	writeEngineTestConfig(t, dir, ep)
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("magpie"): "key"})
+	newCustomEndpointHarness(ep, secrets, dir, providerMCP{})
+	t.Cleanup(func() { remote.SetAPICatalog("magpie", nil); setMcodeAgentRuntime("", nil) })
+	_, model, err := resolveSourceClient("magpie", nil, config.Defaults(), secrets, "default", "")
+	if err != nil || model != "preferred" {
+		t.Fatalf("冷缓存默认模型 = %q，错误 = %v", model, err)
 	}
 }
 

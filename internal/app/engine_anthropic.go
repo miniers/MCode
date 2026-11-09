@@ -9,6 +9,8 @@ import (
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	providermcode "mcode/internal/providers/mcode"
+	"mcode/internal/remote"
+	"mcode/internal/remote/wire"
 )
 
 // anthropicEngineKind 是 Anthropic API 来源的 Provider ID。
@@ -23,6 +25,9 @@ func newAnthropicEngineHarness(cfg config.Config, secrets config.SecretStore, da
 	opts := mcodeEngineOptions(secrets, dataDir, mcpInjection)
 	opts.Kind = anthropicEngineKind
 	opts.DisplayName = "Anthropic"
+	remote.SetAPICatalog(string(anthropicEngineKind), func() []wire.ProviderModel {
+		return apiSourceCatalog(mcodeCurrentConfig(cfg, secrets), mcodeCurrentSecrets(secrets), string(anthropicEngineKind), nil)
+	})
 	opts.ModelIDs = func() []string {
 		source, ok := currentAnthropicSource(cfg, secrets)
 		if !ok {

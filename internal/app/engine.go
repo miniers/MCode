@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"mcode/internal/agent/llm"
 	"mcode/internal/apisource"
@@ -13,6 +14,8 @@ import (
 	"mcode/internal/magpieinject"
 	"mcode/internal/providers/magpie"
 	providermcode "mcode/internal/providers/mcode"
+	"mcode/internal/remote"
+	"mcode/internal/remote/wire"
 )
 
 // openAIOfficialBaseURL 是官方 OpenAI 端点的默认地址，用于判断 reasoning_effort 的白名单。
@@ -38,19 +41,44 @@ func newSourceEngineHarness(legacy harness.Harness, cfg config.Config, secrets c
 	if named, ok := legacy.(interface{ DisplayName() string }); ok {
 		opts.DisplayName = named.DisplayName()
 	}
+	var legacyModels func() []string
 	if models, ok := legacy.(interface{ ModelIDs() []string }); ok {
-		opts.ModelIDs = models.ModelIDs
+		legacyModels = models.ModelIDs
 	}
-	// Magpie 来源的模型目录跟着 Magpie 页为 mcode 勾选的模型走；每次调用都读最新配置。
-	if source, ok := findAPISource(apisource.Resolve(cfg, secrets), kind); ok && source.Magpie {
-		if endpointID := sourceMagpieEndpointID(cfg, kind); endpointID != "" {
-			opts.ModelIDs = func() []string { return mcodeEndpointModelIDs(cfg, endpointID) }
+	catalog := func() []wire.ProviderModel {
+		current := mcodeCurrentConfig(cfg, secrets)
+		store := mcodeCurrentSecrets(secrets)
+		var ids []string
+		if legacyModels != nil {
+			ids = legacyModels()
 		}
+		return apiSourceCatalog(current, store, string(kind), ids)
+	}
+	remote.SetAPICatalog(string(kind), catalog)
+	opts.ModelIDs = func() []string {
+		rows := catalog()
+		ids := make([]string, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, row.ID)
+		}
+		return ids
 	}
 	if refresh, ok := legacy.(interface {
 		RefreshModels(context.Context) error
 	}); ok {
 		opts.RefreshModels = refresh.RefreshModels
+	}
+	if source, ok := findAPISource(apisource.Resolve(cfg, secrets), kind); ok && source.Magpie {
+		opts.RefreshModels = func(ctx context.Context) error {
+			current := mcodeCurrentConfig(cfg, secrets)
+			store := mcodeCurrentSecrets(secrets)
+			currentSource, ok := findAPISource(apisource.Resolve(current, store), kind)
+			if !ok || !currentSource.Magpie {
+				return fmt.Errorf("来源 %s 未启用或已删除", kind)
+			}
+			_, err := magpie.FetchModels(ctx, currentSource.BaseURL, currentSource.APIKey(store))
+			return err
+		}
 	}
 	if available, ok := legacy.(interface{ Available() (bool, string) }); ok {
 		opts.Available = available.Available
@@ -77,7 +105,33 @@ func resolveSourceClient(kind harness.Kind, legacy harness.Harness, cfg config.C
 	}
 	modelID := strings.TrimSpace(model)
 	if modelID == "" || strings.EqualFold(modelID, "default") {
-		modelID = sourceEngineDefaultModel(source, kind, current, legacy)
+		if source.Magpie {
+			key := source.APIKey(store)
+			models, _ := magpie.CachedModels(source.BaseURL, key)
+			if len(models) == 0 {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				var err error
+				models, err = magpie.FetchModels(ctx, source.BaseURL, key)
+				cancel()
+				if err != nil {
+					return nil, "", fmt.Errorf("来源 %s 获取模型目录失败：%w", kind, err)
+				}
+			}
+			for _, candidate := range models {
+				if candidate.ID == strings.TrimSpace(source.DefaultModel) {
+					modelID = candidate.ID
+					break
+				}
+			}
+			if modelID == "" || strings.EqualFold(modelID, "default") {
+				modelID = ""
+				if len(models) > 0 {
+					modelID = models[0].ID
+				}
+			}
+		} else {
+			modelID = sourceEngineDefaultModel(source, kind, current, legacy)
+		}
 	}
 	if modelID == "" {
 		return nil, "", fmt.Errorf("来源 %s 未配置默认模型", kind)
@@ -139,39 +193,10 @@ func findAPISource(sources []apisource.Source, kind harness.Kind) (apisource.Sou
 	return apisource.Source{}, false
 }
 
-// sourceMagpieEndpointID 返回 Magpie 来源对应的自定义端点 ID：
-// 预设端点 magpie..magpie4 的 ID 就是 kind，其余端点是 custom-<id>。
-func sourceMagpieEndpointID(cfg config.Config, kind harness.Kind) string {
-	for _, endpoint := range cfg.Providers.Custom {
-		if endpoint.Magpie && config.CustomEndpointProviderKind(endpoint) == string(kind) {
-			return endpoint.ID
-		}
-	}
-	return ""
-}
-
-// mcodeEndpointModelIDs 返回某 Magpie 端点在最新配置里为内置引擎勾选的模型，
-// 默认模型排在最前；没有勾选时返回空列表。
-func mcodeEndpointModelIDs(cfg config.Config, endpointID string) []string {
-	setting := config.MagpieAgentSetting(mcodeCurrentConfig(cfg, nil), config.ProviderMcode)
-	return mcodeSelectionModels(setting, endpointID)
-}
-
 // sourceEngineDefaultModel 复刻旧循环选择默认模型的规则：先取来源配置的默认模型；
 // 官方 OpenAI 端点回退到 gpt-4o；其余来源取模型目录的第一项，目录为空时
 // 同步刷新一次（与旧循环 modelIDsForRun 一致），刷新失败就返回空。
-// Magpie 来源没有自己的默认模型配置，直接用 mcode 勾选列表的第一项。
 func sourceEngineDefaultModel(source apisource.Source, kind harness.Kind, cfg config.Config, legacy harness.Harness) string {
-	if source.Magpie {
-		endpointID := sourceMagpieEndpointID(cfg, kind)
-		if endpointID == "" {
-			return ""
-		}
-		if ids := mcodeEndpointModelIDs(cfg, endpointID); len(ids) > 0 {
-			return ids[0]
-		}
-		return ""
-	}
 	if model := strings.TrimSpace(source.DefaultModel); model != "" {
 		return model
 	}

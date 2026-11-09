@@ -131,6 +131,12 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 			retErr = fmt.Errorf("内置引擎内部错误：%v", recovered)
 		}
 	}()
+	if !h.sessionKindMatches(turn.SessionID) {
+		return fmt.Errorf("会话 %q 不属于来源 %s", turn.SessionID, h.Kind())
+	}
+	if turn.SessionID == "" {
+		turn.SessionID = string(h.Kind()) + "_" + session.NewID()
+	}
 	model := turn.Model
 	if model == "" {
 		model = h.opts.DefaultModel
@@ -190,7 +196,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		store = session.NewStore(h.opts.StoreDir)
 	}
 	extraEnv := append(append([]string(nil), turn.Env...), harness.NonInteractiveEnv()...)
-	// 会话 ID 由 agent.Run 生成，只能从它发出的事件里拿到真实值后登记，Steer 才能找到本轮。
+	// 收到会话事件后登记运行状态，Steer 才能找到本轮。
 	run := &activeRun{}
 	var sessionID string
 	runEmit := func(event harness.Event) {
