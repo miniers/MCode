@@ -74,6 +74,26 @@ var anthropicModels = []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-h
 // presetIDs 是走内置 OpenAI 兼容预设的来源，顺序固定。
 var presetIDs = []string{"deepseek", "zai", "meta"}
 
+// Kinds 返回所有可能的 API 来源类型，不依赖启用状态或密钥。
+func Kinds(cfg config.Config) []string {
+	var kinds []string
+	for _, ep := range cfg.Providers.Custom {
+		if ep.Magpie {
+			kinds = append(kinds, customSource(ep).Kind)
+		}
+	}
+	kinds = append(kinds, anthropicKind, openaiKind)
+	for _, id := range presetIDs {
+		kinds = append(kinds, id)
+	}
+	for _, ep := range cfg.Providers.Custom {
+		if !ep.Magpie {
+			kinds = append(kinds, customSource(ep).Kind)
+		}
+	}
+	return kinds
+}
+
 // APIKey 返回当前可用的 API Key：先按 APIKeyAccounts 顺序取 keyring 中第一个
 // 非空值，都没有时读 APIKeyEnv。每次调用都实时读取。
 func (s Source) APIKey(secrets config.SecretStore) string {

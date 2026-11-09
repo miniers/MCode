@@ -21,7 +21,10 @@ func renderSwarmModelCapsule(c *ui.Context, st *SettingsState, key string, sel M
 // renderSwarmModelCapsuleEx 与 renderSwarmModelCapsule 相同，但把元素键与状态作用域分开：
 // 弹层内的胶囊会随弹层一起移动，键用固定名称来保持跨帧一致，指针命中的位置却随之改变。
 func renderSwarmModelCapsuleEx(c *ui.Context, st *SettingsState, key, scopeKey string, sel ModelSelection, emptyLabel, triggerLabel string, onChange func(ModelSelection)) {
-	catalog := settingsModelPickerCatalog(st)
+	renderSwarmModelCapsuleCatalog(c, st, key, scopeKey, sel, emptyLabel, triggerLabel, onChange, settingsModelPickerCatalog(st), false)
+}
+
+func renderSwarmModelCapsuleCatalog(c *ui.Context, st *SettingsState, key, scopeKey string, sel ModelSelection, emptyLabel, triggerLabel string, onChange func(ModelSelection), catalog modelPickerCatalog, noEffort bool) {
 	providers := catalog.Providers
 
 	keyPrefix := key
@@ -47,7 +50,7 @@ func renderSwarmModelCapsuleEx(c *ui.Context, st *SettingsState, key, scopeKey s
 	}
 
 	state := modelPickerStateFor(keyPrefix + scopeKey)
-	if state.MenuOpen && swarmEmptySelection(sel) && !state.listOpen(scopeKey, ModelPickerSideLead) {
+	if state.MenuOpen && (noEffort || swarmEmptySelection(sel)) && !state.listOpen(scopeKey, ModelPickerSideLead) {
 		state.setListOpen(scopeKey, ModelPickerSideLead, true)
 	}
 
@@ -69,7 +72,7 @@ func renderSwarmModelCapsuleEx(c *ui.Context, st *SettingsState, key, scopeKey s
 		Selection:      sel,
 		CapsuleLabel:   capsuleLabel,
 		Tooltip:        capsuleTooltip,
-		NoEffortSignal: empty,
+		NoEffortSignal: empty || noEffort,
 		TriggerLabel:   triggerLabel,
 		Disabled:       disabled,
 		OnPickModel: func(_ ModelPickerSide, prov ProviderInfo, m ModelInfo) {

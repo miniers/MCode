@@ -147,6 +147,8 @@ type memoryThread struct {
 	alwaysAllow    map[string]bool
 	runTurnID      string
 	runCancel      context.CancelFunc
+	// stewardBusy 在前台处理主会话消息期间为真，不是执行轮次。
+	stewardBusy bool
 	// runStartedAt 是本轮开始运行的时刻，「终止运行中的命令」在缺少工具消息时间时用它兜底。
 	runStartedAt time.Time
 	// deliveryTurnID/deliveryMessageID/deliveryFollowUpID 标记当前这轮由排队项出队开始：
@@ -542,10 +544,8 @@ func (b *MemoryBackend) stewardLocked(td *memoryThread) bool {
 // 调用方需持有 b.mu。
 func (b *MemoryBackend) summaryForPublishLocked(td *memoryThread) wire.ThreadSummary {
 	s := td.summary
-	// 以真实的运行实例为准刷新 IsRunning：
-	// 1. 有真实运行中轮次时（runTurnID 非空或正在取消收尾），对外报告运行中；
-	// 2. 没有真实运行实例时，对外不报告运行中，并就地纠正异常收尾残留的粘滞标记。
-	if td.runTurnID != "" || td.runCancel != nil {
+	// 有执行轮次或前台正在处理消息时报告运行中；否则纠正异常收尾残留的标记。
+	if td.runTurnID != "" || td.runCancel != nil || td.stewardBusy {
 		s.IsRunning = true
 	} else if s.IsRunning {
 		s.IsRunning = false
@@ -5260,6 +5260,10 @@ func (b *MemoryBackend) interruptLocked(td *memoryThread, turnID string) (wire.I
 			TurnID:   turnIDVal,
 			State:    wire.InterruptStateAlreadyStopped,
 		}, batch, nil
+	}
+
+	if td.stewardBusy && td.runTurnID == "" && td.runCancel == nil {
+		return wire.InterruptResult{ThreadID: td.summary.ID, State: wire.InterruptStateAlreadyStopped}, nil, nil
 	}
 
 	if turnID != "" && turnID != td.runTurnID {

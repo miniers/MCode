@@ -142,11 +142,11 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 		AlignItems(ui.Center).
 		Gap(Space1).
 		Children(func() {
-			renderSwarmModelCapsule(c, st, "steward-model", sel, "跟随通用设置", "选择前台模型", func(next ModelSelection) {
+			renderSwarmModelCapsuleCatalog(c, st, "steward-model", "steward-model", sel, "跟随通用设置", "选择前台模型", func(next ModelSelection) {
 				st.cfg.Orchestration.Steward.Provider = next.Provider
 				st.cfg.Orchestration.Steward.Model = next.Model
 				st.save()
-			})
+			}, frontdeskModelPickerCatalog(settingsModelPickerCatalog(st), st.cfg), true)
 
 			// 选过模型后可以退回「跟随通用设置」，与编排页「与主代理相同」的做法一致。
 			if !swarmEmptySelection(sel) {

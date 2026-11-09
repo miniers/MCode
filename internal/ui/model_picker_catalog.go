@@ -1,6 +1,9 @@
 package mcodeui
 
-import "mcode/internal/config"
+import (
+	"mcode/internal/apisource"
+	"mcode/internal/config"
+)
 
 type modelPickerCatalog struct {
 	Providers        []ProviderInfo
@@ -9,6 +12,21 @@ type modelPickerCatalog struct {
 	MagpieFilter     modelPickerMagpieFilter
 	QuotaUsed        func(string) (float64, bool)
 	OnRefreshCatalog func()
+}
+
+func frontdeskModelPickerCatalog(cat modelPickerCatalog, cfg config.Config) modelPickerCatalog {
+	allowed := make(map[string]bool)
+	for _, kind := range apisource.Kinds(cfg) {
+		allowed[kind] = true
+	}
+	providers := make([]ProviderInfo, 0, len(cat.Providers))
+	for _, provider := range cat.Providers {
+		if allowed[provider.ID] {
+			providers = append(providers, provider)
+		}
+	}
+	cat.Providers = providers
+	return cat
 }
 
 func (cat modelPickerCatalog) apply(p ModelPickerProps) ModelPickerProps {

@@ -42,6 +42,17 @@ func assertNoStewardWord(t *testing.T, tt *ui.Tester, forbidden string) {
 	}
 }
 
+func TestStewardSettingsModelCatalogExcludesCLI(t *testing.T) {
+	cat := modelPickerCatalog{Providers: []ProviderInfo{
+		{ID: "claude", Name: "Claude"}, {ID: "codex", Name: "Codex"},
+		{ID: "openai", Name: "OpenAI"}, {ID: "anthropic", Name: "Anthropic"},
+	}}
+	got := frontdeskModelPickerCatalog(cat, config.Config{})
+	if len(got.Providers) != 2 || got.Providers[0].ID != "openai" || got.Providers[1].ID != "anthropic" {
+		t.Fatalf("前台候选不正确: %+v", got.Providers)
+	}
+}
+
 func TestStewardSettings_SectionsAndKeys(t *testing.T) {
 	st := NewSettingsState(t.TempDir(), nil, newChatState(NewFakeClient()))
 	st.cfg.Orchestration.Steward.Enabled = true

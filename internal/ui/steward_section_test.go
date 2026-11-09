@@ -272,7 +272,7 @@ func TestStewardWakeDoesNotCountAsUserOpening(t *testing.T) {
 	}
 }
 
-// 总管会话有未读、又不是当前选中项时，名字右侧画未读点；选中后不画。
+// 打开总管会话后未读点消失，切走后收到新的结果才再次显示。
 func TestSidebarStewardRowUnreadDot(t *testing.T) {
 	now := time.Now()
 	fake := newStewardFakeClient("t9")
@@ -303,9 +303,18 @@ func TestSidebarStewardRowUnreadDot(t *testing.T) {
 		t.Fatalf("点击普通会话失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return selectedThreadForTest(state) == "t1" })
-	if _, ok := tt.Find("未读消息"); !ok {
-		t.Fatalf("总管会话有未读且未选中时应画未读点，当前文本: %q", tt.Texts())
+	if _, ok := tt.Find("未读消息"); ok {
+		t.Fatal("打开过的总管会话切走后不应画未读点")
 	}
+	state.onWatchUpdate(ThreadUpdate{
+		ThreadID: "t9",
+		Thread:   Thread{ID: "t9", ProjectID: "p2", Title: "总管会话", HasUnread: true, UpdatedAt: now.Add(time.Minute)},
+		Messages: []Message{{ID: "m-result", Role: "assistant", Kind: "steward_result"}},
+	})
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("未读消息")
+		return ok
+	})
 }
 
 // stewardEnabledFakeClient 在假客户端上补一个「总管是否启用」的报告：只有实现了这个

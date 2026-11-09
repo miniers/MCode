@@ -1323,19 +1323,22 @@ func (s *chatState) selectThread(threadID string) {
 	// 打开会话即视为已查看：撤掉侧栏上的完成小红点与红色标题。
 	s.clearTurnFinishedLocked(threadID)
 	readProjectID := ""
-	for i := range s.threads {
-		if s.threads[i].ID == threadID && s.threads[i].HasUnread {
-			readProjectID = s.threads[i].ProjectID
-			s.threads[i].HasUnread = false
+	// 主会话的消息只是结果通知，打开即算看过。
+	if threadID != "" && threadID == stewardID {
+		for i := range s.threads {
+			if s.threads[i].ID == threadID && s.threads[i].HasUnread {
+				readProjectID = s.threads[i].ProjectID
+				s.threads[i].HasUnread = false
+			}
 		}
-	}
-	for _, list := range s.threadsByProj {
-		for i := range list {
-			if list[i].ID == threadID && list[i].HasUnread {
-				if readProjectID == "" {
-					readProjectID = list[i].ProjectID
+		for _, list := range s.threadsByProj {
+			for i := range list {
+				if list[i].ID == threadID && list[i].HasUnread {
+					if readProjectID == "" {
+						readProjectID = list[i].ProjectID
+					}
+					list[i].HasUnread = false
 				}
-				list[i].HasUnread = false
 			}
 		}
 	}

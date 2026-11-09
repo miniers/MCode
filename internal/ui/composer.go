@@ -1105,7 +1105,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 
 					// 右侧控制按钮组
 					ui.Row(c.Key("composer-controls")).AlignItems(ui.Center).Shrink(0).Gap(composerControlGap).Children(func() {
-						if currentThread != nil {
+						if stewardID := s.stewardThreadID(); stewardID != "" && ((currentThread != nil && currentThread.ID == stewardID) || (currentThread == nil && selectedID == stewardID)) {
+							renderStewardComposerModel(c, s)
+						} else if currentThread != nil {
 							renderInteractionModeToggle(c, s, interactionMode, prefsSaving || sending, buttonRadius)
 							renderModelSelector(c, s, currentThread, providers, newThreadProvider, hasMessages, bottomRow.Bounds().W)
 							renderContextMeter(c, s, currentThread)

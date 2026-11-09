@@ -42,3 +42,22 @@ func TestStewardUnreadClearedOnSelectionAndNewMessage(t *testing.T) {
 	}
 	waitCalls(2)
 }
+
+func TestOrdinaryUnreadPreservedOnSelection(t *testing.T) {
+	fake := newStewardFakeClient("t9")
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	thread := Thread{ID: "t1", ProjectID: "p1", HasUnread: true}
+	s.threads = []Thread{thread}
+	s.threadsByProj = map[string][]Thread{"p1": {thread}}
+
+	s.selectThread("t1")
+	if !s.threads[0].HasUnread || !s.threadsByProj["p1"][0].HasUnread {
+		t.Fatal("打开普通会话后未读应保留")
+	}
+	// 已读调用在后台执行，留出时间确认没有意外调用。
+	time.Sleep(50 * time.Millisecond)
+	if calls := fake.BulkMarkReadCalls(); len(calls) != 0 {
+		t.Fatalf("打开普通会话不应调用 BulkMarkRead: %+v", calls)
+	}
+}

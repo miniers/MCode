@@ -37,6 +37,19 @@ func sourceKinds(sources []Source) []string {
 	return kinds
 }
 
+func TestKindsIncludesDisabledAndKeylessSources(t *testing.T) {
+	stubEnv(t, nil)
+	cfg := config.Config{Providers: config.ProvidersConfig{Custom: []config.CustomEndpointConfig{
+		{ID: "magpie", Magpie: true},
+		{ID: "other"},
+		{ID: "magpie2", Magpie: true},
+	}}}
+	want := []string{"magpie", "magpie2", "anthropic", "openai", "deepseek", "zai", "meta", "custom-other"}
+	if got := Kinds(cfg); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Kinds = %v, want %v", got, want)
+	}
+}
+
 func TestResolvePresets(t *testing.T) {
 	tests := []struct {
 		name        string
