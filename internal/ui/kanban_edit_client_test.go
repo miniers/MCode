@@ -119,6 +119,11 @@ func TestKanbanDeleteConfirmCallsClient(t *testing.T) {
 		t.Fatalf("click rescue menu failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("删除") })
+	for _, action := range []string{"nudge", "interrupt", "delete"} {
+		if _, ok := tt.Find("kanban-task-rescue-" + action + "-" + task.ID); !ok {
+			t.Fatalf("进行中任务缺少 %s 按钮", action)
+		}
+	}
 	if err := tt.Click("kanban-task-rescue-delete-" + task.ID); err != nil {
 		t.Fatalf("click delete failed: %v", err)
 	}
@@ -132,6 +137,49 @@ func TestKanbanDeleteConfirmCallsClient(t *testing.T) {
 		return len(fake.deleteCallSnapshot()) == 1 && tt.HasText("已删除任务") &&
 			fake.KanbanBoardCalls() > callsBefore
 	})
+	calls := fake.deleteCallSnapshot()
+	if calls[0].TaskID != task.ID || calls[0].Revision != task.Revision {
+		t.Fatalf("DeleteTask 调用参数 = %+v, want {TaskID:%q Revision:%d}", calls[0], task.ID, task.Revision)
+	}
+}
+
+func TestKanbanDoneTaskDeleteConfirmCallsClient(t *testing.T) {
+	fake := newKanbanEditFakeClient()
+	task := KanbanTask{
+		ID:        "task-done-delete",
+		ProjectID: "p1",
+		Title:     "已完成任务",
+		Status:    "done",
+		Column:    "done",
+		Revision:  8,
+	}
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
+
+	tt, _ := newWorkspaceTester(t, fake, "tasks")
+	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
+	if _, ok := tt.Find("kanban-task-" + task.ID + "-more"); !ok {
+		t.Fatal("已完成任务缺少更多按钮")
+	}
+	if err := tt.Click("kanban-task-" + task.ID + "-more"); err != nil {
+		t.Fatalf("click menu failed: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("kanban-task-rescue-delete-" + task.ID)
+		return ok
+	})
+	for _, action := range []string{"nudge", "interrupt"} {
+		if _, ok := tt.Find("kanban-task-rescue-" + action + "-" + task.ID); ok {
+			t.Fatalf("已完成任务不应显示 %s 按钮", action)
+		}
+	}
+	if err := tt.Click("kanban-task-rescue-delete-" + task.ID); err != nil {
+		t.Fatalf("click delete failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("确认删除该任务？此操作不可撤销") })
+	if err := tt.Click("kanban-task-delete-confirm-yes-" + task.ID); err != nil {
+		t.Fatalf("click delete confirm failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return len(fake.deleteCallSnapshot()) == 1 })
 	calls := fake.deleteCallSnapshot()
 	if calls[0].TaskID != task.ID || calls[0].Revision != task.Revision {
 		t.Fatalf("DeleteTask 调用参数 = %+v, want {TaskID:%q Revision:%d}", calls[0], task.ID, task.Revision)

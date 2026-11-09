@@ -2652,27 +2652,25 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 					}
 				}
 
-				// 卡片救援菜单：进行中或卡死的卡片提供会话救援入口
-				if task.Status == "in_progress" || len(task.AttentionFlags) > 0 {
-					Button(c.Key("kanban-task-"+task.ID+"-more"), ButtonOpts{
-						Icon:    IconChevronRight(),
-						Label:   "kanban-task-" + task.ID + "-more",
-						Size:    ControlXS,
-						Variant: ButtonSecondary,
-						OnClick: func() {
-							kanbanMu.Lock()
-							if ks.rescueMenuTaskID == task.ID {
-								ks.rescueMenuTaskID = ""
-							} else {
-								ks.rescueMenuTaskID = task.ID
-								ks.moveMenuTaskID = ""
-							}
-							ks.deleteTaskID = ""
-							kanbanMu.Unlock()
-							s.invalidate()
-						},
-					})
-				}
+				// 卡片操作菜单
+				Button(c.Key("kanban-task-"+task.ID+"-more"), ButtonOpts{
+					Icon:    IconChevronRight(),
+					Label:   "kanban-task-" + task.ID + "-more",
+					Size:    ControlXS,
+					Variant: ButtonSecondary,
+					OnClick: func() {
+						kanbanMu.Lock()
+						if ks.rescueMenuTaskID == task.ID {
+							ks.rescueMenuTaskID = ""
+						} else {
+							ks.rescueMenuTaskID = task.ID
+							ks.moveMenuTaskID = ""
+						}
+						ks.deleteTaskID = ""
+						kanbanMu.Unlock()
+						s.invalidate()
+					},
+				})
 			})
 
 		// 移动选项菜单展开
@@ -2710,6 +2708,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 
 		// 救援菜单展开：打开会话、提醒 Agent、中断并重置、删除
 		if st.rescueMenuTaskID == task.ID {
+			rescuable := task.Status == "in_progress" || len(task.AttentionFlags) > 0
 			ui.Row(c.Key("kanban-task-rescue-options-"+task.ID)).
 				Label("kanban-task-rescue-options-"+task.ID).
 				FillWidth().
@@ -2720,9 +2719,11 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 				AlignItems(ui.Center).
 				Gap(Space1).
 				Children(func() {
-					ui.Text(c, "救援:").
-						FontSize(TypeCaption).
-						TextColor(secondaryText)
+					if rescuable {
+						ui.Text(c, "救援:").
+							FontSize(TypeCaption).
+							TextColor(secondaryText)
+					}
 
 					if task.ThreadID != "" {
 						Button(c.Key("kanban-task-rescue-open-"+task.ID), ButtonOpts{
@@ -2741,28 +2742,30 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 						})
 					}
 
-					Button(c.Key("kanban-task-rescue-nudge-"+task.ID), ButtonOpts{
-						Text:    "提醒 Agent",
-						Label:   "kanban-task-rescue-nudge-" + task.ID,
-						Size:    ControlXS,
-						Variant: ButtonSecondary,
-						OnClick: func() {
-							s.nudgeTaskAgent(task)
-						},
-					})
+					if rescuable {
+						Button(c.Key("kanban-task-rescue-nudge-"+task.ID), ButtonOpts{
+							Text:    "提醒 Agent",
+							Label:   "kanban-task-rescue-nudge-" + task.ID,
+							Size:    ControlXS,
+							Variant: ButtonSecondary,
+							OnClick: func() {
+								s.nudgeTaskAgent(task)
+							},
+						})
 
-					Button(c.Key("kanban-task-rescue-interrupt-"+task.ID), ButtonOpts{
-						Text:    "中断并重置为待办",
-						Label:   "kanban-task-rescue-interrupt-" + task.ID,
-						Size:    ControlXS,
-						Variant: ButtonSecondary,
-						OnClick: func() {
-							kanbanMu.Lock()
-							ks.rescueMenuTaskID = ""
-							kanbanMu.Unlock()
-							s.interruptTaskToTodo(task)
-						},
-					})
+						Button(c.Key("kanban-task-rescue-interrupt-"+task.ID), ButtonOpts{
+							Text:    "中断并重置为待办",
+							Label:   "kanban-task-rescue-interrupt-" + task.ID,
+							Size:    ControlXS,
+							Variant: ButtonSecondary,
+							OnClick: func() {
+								kanbanMu.Lock()
+								ks.rescueMenuTaskID = ""
+								kanbanMu.Unlock()
+								s.interruptTaskToTodo(task)
+							},
+						})
+					}
 
 					Button(c.Key("kanban-task-rescue-delete-"+task.ID), ButtonOpts{
 						Text:    "删除",
