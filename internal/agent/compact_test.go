@@ -90,6 +90,50 @@ func TestCompactionTruncatesLargeToolResult(t *testing.T) {
 	t.Fatalf("summary request omitted tool result: %+v", client.requests[0].Messages)
 }
 
+func TestCompactionPreservesSummaryWhenDroppingOldMessages(t *testing.T) {
+	oldSummary := "old detail " + strings.Repeat("s", 20000)
+	messages := []llm.Message{summaryMessage(oldSummary)}
+	for i := 0; i < 30; i++ {
+		messages = append(messages,
+			textMessage("user", strings.Repeat("u", 2500)),
+			llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call("id", "read", `{}`)}},
+			toolMessage("id", strings.Repeat("t", 2500), false),
+		)
+	}
+	messages = append(messages, textMessage("assistant", strings.Repeat("recent", 4000)), textMessage("user", "continue"))
+	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, func(harness.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	summarized := client.requests[0].Messages
+	if len(summarized) >= 91 || !isSummaryMessage(summarized[0]) || !strings.Contains(messageText(summarized[0]), "old detail") || !strings.Contains(messageText(summarized[0]), "已截断") {
+		t.Fatalf("summary request did not preserve and truncate the old summary: %+v", summarized)
+	}
+	if messageText(messages[0]) != summaryPrefix+"\n\n"+oldSummary {
+		t.Fatal("compaction modified the original summary")
+	}
+	for i, message := range summarized {
+		if message.Role == "tool" && (i == 0 || len(summarized[i-1].ToolCalls) != 1 || summarized[i-1].ToolCalls[0].ID != message.ToolCallID) {
+			t.Fatalf("orphaned tool message at %d", i)
+		}
+		if len(message.ToolCalls) > 0 && (i+1 == len(summarized) || summarized[i+1].Role != "tool" || summarized[i+1].ToolCallID != message.ToolCalls[0].ID) {
+			t.Fatalf("tool call without result at %d", i)
+		}
+	}
+}
+
+func TestCompactionPrependsUserBeforeAssistant(t *testing.T) {
+	messages := []llm.Message{textMessage("assistant", "earlier"), textMessage("user", "continue")}
+	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, func(harness.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	summarized := client.requests[0].Messages
+	if len(summarized) != 2 || summarized[0].Role != "user" || messageText(summarized[0]) != "（更早的对话已省略）" || summarized[1].Role != "assistant" {
+		t.Fatalf("summary request = %+v", summarized)
+	}
+}
+
 func TestCompactionReplayRepairsBeforeKeepFrom(t *testing.T) {
 	callMessage := llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call("missing", "read", `{}`)}}
 	encode := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
@@ -192,6 +236,9 @@ func TestCompactionBeforeRequest(t *testing.T) {
 	if summaryRequest.System != summaryInstruction || len(summaryRequest.Tools) != 0 || len(summaryRequest.Messages) != 2 {
 		t.Fatalf("summary request = %+v", summaryRequest)
 	}
+	if summaryRequest.Messages[0].Role != "user" || !strings.Contains(messageText(summaryRequest.Messages[0]), "已截断") {
+		t.Fatalf("first summary message = %+v", summaryRequest.Messages[0])
+	}
 	messages := client.requests[1].Messages
 	if len(messages) != 2 || !isSummaryMessage(messages[0]) || !strings.Contains(messages[0].Content[0].Text, "earlier work summary") || messages[1].Content[0].Text != "continue" {
 		t.Fatalf("messages = %+v", messages)
@@ -232,7 +279,7 @@ func TestCompactionKeepsToolPairs(t *testing.T) {
 		t.Fatalf("summarized messages = %+v", summarized)
 	}
 	messages := client.requests[1].Messages
-	if len(messages) != 4 || !isSummaryMessage(messages[0]) || messages[1].Content[0].Text != "next step" {
+	if len(messages) != 3 || !isSummaryMessage(messages[0]) || messageText(messages[len(messages)-1]) != "continue" {
 		t.Fatalf("messages = %+v", messages)
 	}
 	for _, message := range messages[1:] {

@@ -235,28 +235,59 @@ func compactMessages(ctx context.Context, client llm.Client, model string, messa
 	}
 	before := tokensForMessages(messages)
 	prefix := append([]llm.Message(nil), messages[:cut]...)
-	for i := range prefix {
-		if prefix[i].Role != "tool" {
-			continue
-		}
-		prefix[i].Content = append([]llm.Part(nil), prefix[i].Content...)
-		for j := range prefix[i].Content {
-			part := &prefix[i].Content[j]
-			text := []rune(part.Text)
-			if part.Type == "text" && len(text) > 4000 {
-				part.Text = string(text[:2000]) + fmt.Sprintf("…（已截断 %d 字符）…", len(text)-3000) + string(text[len(text)-1000:])
+	truncate := func(message *llm.Message) {
+		message.Content = append([]llm.Part(nil), message.Content...)
+		for j := range message.Content {
+			part := &message.Content[j]
+			if part.Type == "text" {
+				text := []rune(part.Text)
+				if len(text) > 4000 {
+					part.Text = string(text[:2000]) + fmt.Sprintf("…（已截断 %d 字符）…", len(text)-3000) + string(text[len(text)-1000:])
+				}
 			}
 		}
 	}
-	for len(prefix) > 0 && tokensForMessages(prefix) > compactThreshold(window) {
-		next := 1
-		for next < len(prefix) && !isUserTurn(prefix[next]) && prefix[next].Role != "assistant" {
-			next++
+	for i := range prefix {
+		if prefix[i].Role == "tool" {
+			truncate(&prefix[i])
 		}
-		prefix = prefix[next:]
+	}
+	if tokensForMessages(prefix) > compactThreshold(window) {
+		for i := range prefix {
+			truncate(&prefix[i])
+		}
+	}
+	omitted := llm.Message{Role: "user", Content: []llm.Part{{Type: "text", Text: "（更早的对话已省略）"}}}
+	for len(prefix) > 0 {
+		tokens := tokensForMessages(prefix)
+		if prefix[0].Role != "user" {
+			tokens += tokensForMessage(omitted)
+		}
+		if tokens <= compactThreshold(window) {
+			break
+		}
+		start := 0
+		if isSummaryMessage(prefix[0]) {
+			start = 1
+		}
+		if start == len(prefix) {
+			return nil, errors.New("agent: no messages fit in compaction request")
+		}
+		next := start + 1
+		if prefix[start].Role == "assistant" && len(prefix[start].ToolCalls) > 0 {
+			for i := next; i < len(prefix) && prefix[i].Role != "assistant"; i++ {
+				if prefix[i].Role == "tool" {
+					next = i + 1
+				}
+			}
+		}
+		prefix = append(prefix[:start], prefix[next:]...)
 	}
 	if len(prefix) == 0 {
 		return nil, errors.New("agent: no messages fit in compaction request")
+	}
+	if prefix[0].Role != "user" {
+		prefix = append([]llm.Message{omitted}, prefix...)
 	}
 	request := llm.Request{Model: model, System: summaryInstruction, Messages: prefix}
 	response, err := client.Stream(ctx, request, func(llm.Delta) {})
