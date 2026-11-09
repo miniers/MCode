@@ -28,6 +28,18 @@ func turnWorkSplitToolMessages() []Message {
 // 计数与唤醒原因移到 Tooltip，不再占组头。
 const turnWorkFoldHeaderText = "过程"
 
+func TestTimelineRows_TurnWorkFoldReplacesReusedRunningHeaderWithIntermediateText(t *testing.T) {
+	msgs := turnWorkSplitToolMessages()[:6]
+	s := &chatState{threads: []Thread{{ID: "t1", IsRunning: true}}, messages: msgs}
+	running := applyTurnWorkFold(s, "t1", buildTimelineItems(msgs))
+	s.threads[0].IsRunning = false
+	got := applyTurnWorkFold(s, "t1", running)
+	want := applyTurnWorkFold(s, "t1", buildTimelineItems(msgs))
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("复用运行态头后的折叠与全量构建不同:\ngot: %+v\nwant: %+v", got, want)
+	}
+}
+
 // TestTimelineRows_TurnWorkFoldCollapsesFinishedTurn 验证一轮里的思考与工具调用被收进一个折叠项，
 // 最终正文留在折叠项之外，点开后折叠区内的内容重新出现。
 func TestTimelineRows_TurnWorkFoldCollapsesFinishedTurn(t *testing.T) {

@@ -1359,8 +1359,19 @@ func renderBeeTimeline(c *ui.Context, s *chatState, bee SwarmBee) {
 
 	s.mu.Lock()
 	selectedID := s.selectedThreadID
+	s.mu.Unlock()
+	var runningTurnKey int
+	for {
+		runningTurnKey = timelineRunningTurnKey(s, selectedID)
+		s.mu.Lock()
+		if selectedID == s.selectedThreadID {
+			break
+		}
+		selectedID = s.selectedThreadID
+		s.mu.Unlock()
+	}
 	expandedRev := s.expandedRev
-	needRebuild := s.messagesRev != s.timelineCacheRev || s.timelineCacheMsgs == nil || expandedRev != s.timelineCacheExpandedRev || selectedID != s.timelineSnapshotThreadID || groupsOpenChanged
+	needRebuild := s.messagesRev != s.timelineCacheRev || s.timelineCacheMsgs == nil || expandedRev != s.timelineCacheExpandedRev || selectedID != s.timelineSnapshotThreadID || runningTurnKey != s.timelineSnapshotRunningTurn || groupsOpenChanged
 	rev := s.messagesRev
 	var messages []Message
 	if needRebuild {
@@ -1380,6 +1391,7 @@ func renderBeeTimeline(c *ui.Context, s *chatState, bee SwarmBee) {
 		s.timelineCacheRev = rev
 		s.timelineCacheMsgs = messages
 		s.timelineCacheItems = items
+		s.timelineAssembledValid = false
 		s.timelineCacheExpandedRev = expandedRev
 		s.timelineSnapshotThreadID = selectedID
 		s.timelineSnapshotMsgs = fps

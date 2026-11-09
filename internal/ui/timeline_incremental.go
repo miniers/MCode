@@ -93,6 +93,13 @@ func timelineSettingsChanged(s *chatState) bool {
 	return !isAutoCollapseReasoningEnabled(s) != s.timelineSnapshotGroupsOpen
 }
 
+func timelineRunningTurnKey(s *chatState, threadID string) int {
+	if running, turn := s.runningTurn(threadID); running {
+		return turn
+	}
+	return -1
+}
+
 // rebuildTimelineIncremental 执行时间线增量重建。
 // 找出第一个发生变化的消息下标，从包含该下标的那一项开始重建，之前的 items 原样复用；
 // 当快照不可用、线程切换、展开状态变化或工具组默认展开值变化时退回全量重建。
@@ -100,6 +107,7 @@ func timelineSettingsChanged(s *chatState) bool {
 // 「自动折叠思考内容」开关决定）。
 // 关闭自动折叠思考时工具组默认展开：这一默认值随开关变化，所以也纳入缓存快照。
 func (s *chatState) rebuildTimelineIncremental(threadID string, messages []Message, expanded map[string]bool, liveGroupID ...string) ([]timelineItem, []messageFingerprint) {
+	runningTurn := timelineRunningTurnKey(s, threadID)
 	messages = collapseTodoMessages(messages)
 	var liveID string
 	if len(liveGroupID) > 0 {
@@ -117,12 +125,14 @@ func (s *chatState) rebuildTimelineIncremental(threadID string, messages []Messa
 	if len(s.timelineCacheItems) == 0 ||
 		len(s.timelineSnapshotMsgs) == 0 ||
 		s.timelineSnapshotThreadID != threadID ||
+		s.timelineSnapshotRunningTurn != runningTurn ||
 		len(s.timelineSnapshotMsgs) > len(messages) ||
 		s.timelineSnapshotGroupsOpen != groupsOpen ||
 		hasExpandedChanged(s.timelineSnapshotExpanded, expanded) {
 		items := buildTimelineItemsFiltered(messages, expanded, liveID, groupsOpen)
 		// 全量重建是折叠的唯一出口：增量、全量与测试黄金结果都过这里，两边才能逐项相等。
 		items = applyTurnWorkFold(s, threadID, items)
+		s.timelineSnapshotRunningTurn = runningTurn
 		s.timelineSnapshotGroupsOpen = groupsOpen
 		return items, newFps
 	}
@@ -141,6 +151,7 @@ func (s *chatState) rebuildTimelineIncremental(threadID string, messages []Messa
 		if len(s.timelineSnapshotMsgs) == len(messages) {
 			// 消息列表无任何变化，直接复用上一次的 items
 			s.timelineSnapshotGroupsOpen = groupsOpen
+			s.timelineSnapshotRunningTurn = runningTurn
 			return s.timelineCacheItems, newFps
 		}
 		// 纯末尾追加消息
@@ -195,7 +206,9 @@ func (s *chatState) rebuildTimelineIncremental(threadID string, messages []Messa
 
 	result := append(reusedItems, suffixItems...)
 	s.timelineSnapshotGroupsOpen = groupsOpen
-	return applyTurnWorkFold(s, threadID, result), newFps
+	result = applyTurnWorkFold(s, threadID, result)
+	s.timelineSnapshotRunningTurn = runningTurn
+	return result, newFps
 }
 
 // cutTimelineAt 在缓存条目里定位第一个覆盖到 msgStart 的切点，返回切点下标与（可能被拉回的）起点。

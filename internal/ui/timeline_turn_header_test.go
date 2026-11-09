@@ -387,6 +387,145 @@ func TestTimelineTurnHeader_IncrementalRunningToFinished(t *testing.T) {
 	}
 }
 
+func turnHeaderSplitMessages46s() []Message {
+	msgs := turnWorkSplitToolMessages()[:6]
+	start := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
+	msgs[0].CreatedAt = start.Format(time.RFC3339)
+	msgs[5].CreatedAt = start.Add(46 * time.Second).Format(time.RFC3339)
+	return msgs
+}
+
+func assertNoRunningTurnHeader(t *testing.T, items []timelineItem) {
+	t.Helper()
+	for _, item := range items {
+		if item.workRunning {
+			t.Fatalf("不应残留运行态头: %+v", item)
+		}
+		assertNoRunningTurnHeader(t, item.workItems)
+	}
+}
+
+func TestTimelineTurnHeader_IncrementalFinishedAfterIntermediateTextWithoutMessageChanges(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		swarm     bool
+		reasoning bool
+		batch     bool
+	}{
+		{"线程结束", false, true, false},
+		{"子代理结束", true, true, false},
+		{"纯命令", false, false, false},
+		{"答复与空闲同时到达", false, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msgs := turnHeaderSplitMessages46s()
+			if !tc.reasoning {
+				msgs = append(msgs[:1:1], msgs[2:]...)
+			}
+			s := &chatState{threads: []Thread{{ID: "t1", IsRunning: !tc.swarm, SwarmBusy: tc.swarm}}}
+			build := func(n int, label string) {
+				s.messages = msgs[:n]
+				s.messagesRev++
+				helperBuildAndAssertIncremental(t, s, "t1", s.messages, nil, label)
+			}
+			build(len(msgs)-3, "首段工具")
+			build(len(msgs)-1, "中途正文和第二段工具")
+			if !tc.batch {
+				build(len(msgs), "运行中最终答复")
+				var running, middle, secondTool, answer bool
+				for _, item := range s.timelineCacheItems {
+					running = running || item.workRunning
+					middle = middle || item.msg.ID == "amid"
+					secondTool = secondTool || item.msg.ID == "t2" || containsMessageID(item.tools, "t2")
+					answer = answer || (item.msg.ID == "a1" && item.workHeaderID == "")
+				}
+				if !running || !middle || !secondTool || !answer {
+					t.Fatalf("运行态条目不完整: %+v", s.timelineCacheItems)
+				}
+			}
+			s.threads[0].IsRunning = false
+			s.threads[0].SwarmBusy = false
+			build(len(msgs), "回合结束")
+			assertNoRunningTurnHeader(t, s.timelineCacheItems)
+			var fold timelineItem
+			var answer timelineItem
+			folds := 0
+			for _, item := range s.timelineCacheItems {
+				if item.kind == timelineItemTurnWork {
+					folds++
+					fold = item
+				}
+				if item.msg.ID == "a1" {
+					answer = item
+				}
+			}
+			middle := false
+			for _, item := range fold.workItems {
+				middle = middle || item.msg.ID == "amid"
+			}
+			if folds != 1 || !middle || !containsMessageID(fold.tools, "t1") || !containsMessageID(fold.tools, "t2") || answer.workHeaderID != fold.id || answer.msg.ID != "a1" {
+				t.Fatalf("结束态折叠结果不完整: %+v", s.timelineCacheItems)
+			}
+			if got := turnWorkHeaderText(countToolGroupCategories(fold.tools), fold.workElapsed); got != "用时 46s" {
+				t.Fatalf("结束态组头 = %q，want 用时 46s", got)
+			}
+		})
+	}
+}
+
+func TestTimelineTurnHeader_StatusOnlyFinishReplacesCachedRunningHeader(t *testing.T) {
+	for _, bumpRev := range []bool{false, true} {
+		name := "仅状态变化"
+		if bumpRev {
+			name = "空消息通知"
+		}
+		t.Run(name, func(t *testing.T) {
+			fake := NewFakeClient()
+			fake.SetProjectsAndThreads(
+				[]Project{{ID: "p1", Name: "Proj1", Path: "/workspace"}},
+				map[string][]Thread{"p1": {{ID: "t1", ProjectID: "p1", Title: "运行中", Provider: "claude", UpdatedAt: time.Now(), IsRunning: true}}},
+			)
+			fake.messages["t1"] = turnHeaderSplitMessages46s()
+			fake.SetThreadUsage("t1", ThreadUsage{Turns: map[int]TokenUsage{1: {Input: 1200, Output: 356, DurationMs: 46000}}})
+			state, view := buildRoot(fake)
+			settings := &SettingsState{}
+			autoCollapse := true
+			settings.cfg.Session.AutoCollapseReasoning = &autoCollapse
+			setChatSettings(state, settings)
+			t.Cleanup(func() { setChatSettings(state, nil) })
+			tt := ui.NewTester(view, 1000, 700)
+			waitFor(t, tt, func() bool { return tt.HasText("已处理") && tt.HasText("FOLD-ANSWER-ONE") })
+			state.mu.Lock()
+			for i := range state.threads {
+				if state.threads[i].ID == "t1" {
+					state.threads[i].IsRunning = false
+				}
+			}
+			if bumpRev {
+				state.messagesRev++
+			}
+			state.mu.Unlock()
+			state.invalidate()
+			waitFor(t, tt, func() bool { return tt.HasText("用时 46s") })
+			if tt.HasText("已处理") || !tt.HasText("FOLD-ANSWER-ONE") || tt.HasText("已完成 ·") {
+				t.Fatalf("结束态显示不正确: %v", tt.Texts())
+			}
+			tt.Advance(2 * time.Second)
+			if !tt.HasText("用时 46s") || tt.HasText("已处理") {
+				t.Fatalf("结束态计时不应继续增长: %v", tt.Texts())
+			}
+			assertNoRunningTurnHeader(t, state.timelineCacheItems)
+			assertNoRunningTurnHeader(t, state.timelineAssembledItems)
+			clickText(t, tt, "用时 46s")
+			for _, text := range []string{"MID-STATUS-TEXT", "git status", "go build ./...", "已完成 ·", "FOLD-ANSWER-ONE"} {
+				if !tt.HasText(text) {
+					t.Fatalf("展开后缺少 %q: %v", text, tt.Texts())
+				}
+			}
+		})
+	}
+}
+
 // TestTimelineBackgroundRow_ShowsLingeringCommand 验证回合结束后仍在跑的命令只留下工具行，
 // 不再在时间线末尾冒出后台任务卡片——后台项改由输入区上方的实时胶囊展示，点开胶囊才渲染浮层。
 // 胶囊正文变成「最早任务名 · 计时」，按住 Label 定位更稳。

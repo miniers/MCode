@@ -274,19 +274,20 @@ type chatState struct {
 	beeBusyFrame map[string]bool
 	// forwardInflight 记录正在转发中的源会话 ID，由 s.mu 保护。
 	// 按住快捷键或连点菜单时用来挡住第二次转发，避免同一会话建出多条新会话。
-	forwardInflight            map[string]bool
-	messages                   []Message
-	messagesRev                uint64 // 每次改写 s.messages 时递增，受 s.mu 保护
-	timelineCacheRev           uint64
-	timelineCacheMsgs          []Message
-	timelineCacheItems         []timelineItem
-	timelineCacheExpandedRev   uint64               // 展开状态缓存版本号
-	timelineSnapshotThreadID   string               // 上次时间线构建所属会话 ID
-	timelineSnapshotMsgs       []messageFingerprint // 上次时间线消息变更指纹快照
-	timelineSnapshotExpanded   map[string]bool      // 上次时间线构建时的展开状态快照
-	timelineSnapshotGroupsOpen bool                 // 上次时间线构建时工具组的默认展开值
-	expandedRev                uint64               // 展开状态变更序号（由 s.mu 保护）
-	approvals                  []Approval
+	forwardInflight             map[string]bool
+	messages                    []Message
+	messagesRev                 uint64 // 每次改写 s.messages 时递增，受 s.mu 保护
+	timelineCacheRev            uint64
+	timelineCacheMsgs           []Message
+	timelineCacheItems          []timelineItem
+	timelineCacheExpandedRev    uint64               // 展开状态缓存版本号
+	timelineSnapshotThreadID    string               // 上次时间线构建所属会话 ID
+	timelineSnapshotRunningTurn int                  // 上次构建的运行回合，空闲时为 -1
+	timelineSnapshotMsgs        []messageFingerprint // 上次时间线消息变更指纹快照
+	timelineSnapshotExpanded    map[string]bool      // 上次时间线构建时的展开状态快照
+	timelineSnapshotGroupsOpen  bool                 // 上次时间线构建时工具组的默认展开值
+	expandedRev                 uint64               // 展开状态变更序号（由 s.mu 保护）
+	approvals                   []Approval
 	// approvalsEvents 是 Watch 推送审批列表的次数，用来判断订阅后的补拉结果是否已被推送取代。
 	approvalsEvents uint64
 	threadUsage     ThreadUsage
