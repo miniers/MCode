@@ -40,7 +40,6 @@ func TestSettingsRowInset_AllBlocksAndSheets(t *testing.T) {
 		"sheet:provider":        true,
 		"sheet:provider-add":    true,
 		"sheet:shortcuts":       true,
-		"sheet:steward":         true,
 		"sheet:worktree":        true,
 	}
 	seen := map[string]bool{}
@@ -90,9 +89,6 @@ func TestSettingsRowInset_AllBlocksAndSheets(t *testing.T) {
 	for _, sheet := range settingsTreeSheets() {
 		check("sheet:" + sheet.ID)
 		sections(sheet.Sections)
-		if sheet.ID == "steward" {
-			sections(stewardSections(nil))
-		}
 	}
 }
 

@@ -7,7 +7,7 @@ import (
 
 func TestNormalizeSettingsPageID(t *testing.T) {
 	cases := map[string]string{
-		"providers": "models", "steward": "swarm", "openIn": "workbench",
+		"providers": "models", "steward": "steward", "openIn": "workbench",
 		"quickReplies": "conversation", "sourceControl": "sourceControl", "archive": "conversation",
 		"shortcuts": "general", "about": "about", "skills": "extensions",
 		"mcp": "extensions", "nowledge": "nowledge",
@@ -25,7 +25,7 @@ func TestNormalizeSettingsPageID(t *testing.T) {
 func TestSettingsLegacyPageDeepLinks(t *testing.T) {
 	for _, tc := range []struct{ id, page, sheet string }{
 		{"shortcuts", "general", "shortcuts"}, {"quickReplies", "conversation", "quick-replies"},
-		{"steward", "swarm", "steward"}, {"archive", "conversation", "archive"}, {"openIn", "workbench", "open-in"},
+		{"steward", "steward", ""}, {"archive", "conversation", "archive"}, {"openIn", "workbench", "open-in"},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
 			st := NewSettingsState(settingsTestDir(t), nil, nil)

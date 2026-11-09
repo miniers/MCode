@@ -798,11 +798,13 @@ func settingsPages() []settingsNavDef {
 			keywords: []string{
 				"swarm", "hydra", "bees", "heads", "subagents", "sub-agents", "agents", "team",
 				"orchestrator", "worker", "pair", "pairs", "parallel", "delegate", "queue",
-				"steward", "watchdog", "triage", "escalate", "dispatcher", "follow-up",
 				"stalled", "pending",
 				"规划", "并行", "编排", "主代理", "子代理",
-				"默默", "总管", "昵称", "跟进者", "总调度", "待处理", "分诊", "值守",
 			},
+		},
+		{
+			id: "steward", title: "总管", group: "代理", icon: pageSteward.Icon,
+			keywords: []string{"steward", "watchdog", "triage", "escalate", "dispatcher", "follow-up", "默默", "总管", "昵称", "跟进者", "总调度", "待处理", "分诊", "值守", "moco", "看门狗", "安静时段", "免打扰"},
 		},
 		{
 			id:    "extensions",
@@ -847,8 +849,6 @@ func normalizeSettingsPageID(id string) string {
 	switch id {
 	case "providers":
 		return "models"
-	case "steward":
-		return "swarm"
 	case "openIn":
 		return "workbench"
 	case "quickReplies", "archive":
@@ -871,8 +871,6 @@ func settingsLegacySheet(id string) string {
 		return "shortcuts"
 	case "openIn":
 		return "open-in"
-	case "steward":
-		return "steward"
 	}
 	return ""
 }

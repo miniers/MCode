@@ -19,18 +19,7 @@ func clearStewardTestDefaults(st *SettingsState) {
 
 func newStewardSettingsTester(t *testing.T, st *SettingsState, _ bool) *ui.Tester {
 	t.Helper()
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderPageSwarm(c, st)
-		renderSettingsTreeSheet(c, st, sheetSteward)
-	}, 1000, 4000)
-	label := "总管 关闭"
-	if st.cfg.Orchestration.Steward.Enabled {
-		label = "总管 开启"
-	}
-	if err := tt.Click(label); err != nil {
-		t.Fatal(err)
-	}
-	return tt
+	return ui.NewTester(func(c *ui.Context) { renderPageSteward(c, st) }, 1000, 4000)
 }
 
 func assertNoStewardWord(t *testing.T, tt *ui.Tester, forbidden string) {
@@ -78,12 +67,12 @@ func TestStewardSettingsModelLegacySelection(t *testing.T) {
 func TestStewardSettings_SectionsAndKeys(t *testing.T) {
 	st := NewSettingsState(t.TempDir(), nil, newChatState(NewFakeClient()))
 	st.cfg.Orchestration.Steward.Enabled = true
-	st.setSettingsAdvancedOpen("swarm", true)
+	st.setSettingsAdvancedOpen("steward", true)
 	tt := newStewardSettingsTester(t, st, true)
 
 	for _, text := range []string{
 		"昵称", "头像", "启用总管", "没有 API Key 时用本机 CLI", "前台模型",
-		"启用安静时段", "主目录", filepath.Join(st.dataDir, "steward"),
+		"启用安静时段", "无进展提醒", "主目录", filepath.Join(st.dataDir, "steward"),
 	} {
 		if !tt.HasText(text) {
 			t.Fatalf("总管设置页缺少文案 %q: %v", text, tt.Texts())
@@ -100,7 +89,7 @@ func TestStewardSettings_SectionsAndKeys(t *testing.T) {
 func TestStewardSettings_AdvancedAtEnd(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	st.cfg.Orchestration.Steward.Enabled = true
-	sections := stewardSections(st)
+	sections := pageSteward.Sections
 	if sections[len(sections)-1].ID != "sec-steward-advanced" {
 		t.Fatal("高级配置应位于总管面板末尾")
 	}
@@ -120,9 +109,83 @@ func TestStewardSettings_Disabled(t *testing.T) {
 	if !tt.HasText("启用总管") {
 		t.Fatalf("未启用时缺少总开关: %v", tt.Texts())
 	}
-	for _, text := range []string{"前台模型", "启用安静时段", "方案模型", "尚未启用"} {
+	for _, text := range []string{"前台模型", "启用安静时段", "无进展提醒", "方案模型", "尚未启用"} {
 		if tt.HasText(text) {
 			t.Fatalf("未启用时不应显示 %q", text)
+		}
+	}
+	if err := tt.Click("切换启用总管"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	for _, text := range []string{"前台模型", "启用安静时段", "无进展提醒"} {
+		if !tt.HasText(text) {
+			t.Fatalf("启用后缺少 %q: %v", text, tt.Texts())
+		}
+	}
+}
+
+func TestStewardSettings_NoProgress(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.cfg.Orchestration.Steward.Enabled = true
+	st.cfg.Orchestration.Steward.NoProgressOff = false
+	st.cfg.Orchestration.Steward.NoProgressMinutes = 0
+	tt := newStewardSettingsTester(t, st, false)
+	if !tt.HasText("45 分钟") {
+		t.Fatalf("默认应显示 45 分钟: %v", tt.Texts())
+	}
+	if err := tt.Click("无进展提醒"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("关闭"); err != nil {
+		t.Fatal(err)
+	}
+	if !st.cfg.Orchestration.Steward.NoProgressOff {
+		t.Fatal("选择关闭后提醒仍然开启")
+	}
+	if err := tt.Click("无进展提醒"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("30 分钟"); err != nil {
+		t.Fatal(err)
+	}
+	if st.cfg.Orchestration.Steward.NoProgressOff || st.cfg.Orchestration.Steward.NoProgressMinutes != 30 {
+		t.Fatalf("选择 30 分钟后配置不正确: %+v", st.cfg.Orchestration.Steward)
+	}
+	st.cfg.Orchestration.Steward.NoProgressMinutes = 37
+	tt.Frame()
+	if !tt.HasText("37 分钟") {
+		t.Fatalf("自定义值应显示在选择框中: %v", tt.Texts())
+	}
+}
+
+func TestStewardSettings_SearchAndFocus(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.cfg.Orchestration.Steward.Enabled = true
+	for _, query := range []string{"看门狗", "默默"} {
+		found := false
+		for _, hit := range matchVisibleSettingsItemsIn(st, query, settingsItems()) {
+			if hit.Item.Page == "steward" && hit.Item.Sheet == "" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("搜索 %q 未命中总管设置行", query)
+		}
+	}
+	st.focusSettingsItem(settingsItemHit{Item: settingsItem{ID: "row-steward-enabled", Page: "swarm"}})
+	if st.currentPage != "steward" || st.openSheet != "" {
+		t.Fatalf("总管开关定位到 %q/%q", st.currentPage, st.openSheet)
+	}
+}
+
+func TestStewardSettings_NotInSwarm(t *testing.T) {
+	for _, section := range pageSwarm.Sections {
+		for _, row := range section.Rows {
+			if row.ID == "row-steward-open" {
+				t.Fatal("编排页仍包含总管入口")
+			}
 		}
 	}
 }
@@ -152,23 +215,23 @@ func TestStewardSettings_EnabledToggleWritesChoice(t *testing.T) {
 }
 
 func TestStewardNav_Searchable(t *testing.T) {
-	var swarm *settingsNavDef
+	var steward *settingsNavDef
 	pages := settingsPages()
 	for i := range pages {
-		if pages[i].id == "swarm" {
-			swarm = &pages[i]
+		if pages[i].id == "steward" {
+			steward = &pages[i]
 		}
 	}
-	if swarm == nil || swarm.title != "编排" {
-		t.Fatalf("设置导航缺少编排页")
+	if steward == nil || steward.title != "总管" {
+		t.Fatalf("设置导航缺少总管页")
 	}
 	for _, q := range []string{"默默", "昵称", "总管", "steward"} {
-		matched := strings.Contains(strings.ToLower(swarm.title), strings.ToLower(q)) || strings.Contains(strings.ToLower(swarm.id), strings.ToLower(q))
-		for _, kw := range swarm.keywords {
+		matched := strings.Contains(strings.ToLower(steward.title), strings.ToLower(q)) || strings.Contains(strings.ToLower(steward.id), strings.ToLower(q))
+		for _, kw := range steward.keywords {
 			matched = matched || strings.Contains(strings.ToLower(kw), strings.ToLower(q))
 		}
 		if !matched {
-			t.Fatalf("设置导航搜索 %q 未命中总管关键词，关键词为 %v", q, swarm.keywords)
+			t.Fatalf("设置导航搜索 %q 未命中总管关键词，关键词为 %v", q, steward.keywords)
 		}
 	}
 }
@@ -241,7 +304,7 @@ func TestStewardSettings_MovedRows(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	st.cfg.Orchestration.Steward.Enabled = true
 	foundHome := false
-	for _, sec := range stewardSections(st) {
+	for _, sec := range pageSteward.Sections {
 		for _, row := range sec.Rows {
 			foundHome = foundHome || row.ID == "row-steward-home-dir"
 		}
@@ -251,16 +314,14 @@ func TestStewardSettings_MovedRows(t *testing.T) {
 	}
 }
 
-func TestSettingsSteward_SheetOperations(t *testing.T) {
+func TestSettingsSteward_PageOperations(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.Steward.Enabled = false
-	tt := ui.NewTester(func(c *ui.Context) { renderPageSwarm(c, st); renderSettingsTreeSheet(c, st, sheetSteward) }, 1000, 4000)
-	if err := tt.Click("总管 关闭"); err != nil {
-		t.Fatal(err)
-	}
-	if id, _ := settingsTreeSheetState(st); id != "steward" {
-		t.Fatalf("面板未打开: %s", id)
+	st.OpenPage("steward")
+	tt := ui.NewTester(func(c *ui.Context) { renderPageSteward(c, st) }, 1000, 4000)
+	if id, _ := settingsTreeSheetState(st); st.currentPage != "steward" || id != "" {
+		t.Fatalf("页面或面板不正确: %s/%s", st.currentPage, id)
 	}
 	if err := tt.Click("切换启用总管"); err != nil {
 		t.Fatal(err)

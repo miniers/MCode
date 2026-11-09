@@ -355,8 +355,6 @@ func settingsItemAliasContains(it settingsItem, q string) bool {
 // link 行可查，条目 Page 会留空，命中后切页会落到空页。
 func settingsSheetPageFallback(sheet string) string {
 	switch sheet {
-	case "steward":
-		return "swarm"
 	case "provider":
 		return "models"
 	}

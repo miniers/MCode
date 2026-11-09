@@ -2246,6 +2246,11 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 			} else {
 				renderChatHeaderAuxGroup(c, s)
 			}
+			if stewardSelected(s, selectedID) {
+				nickname, _ := s.stewardIdentity()
+				IconButton(c, IconButtonProps{Key: "chat-header-steward-settings", Icon: IconSettings(), Size: ControlMD, Variant: ButtonGhost,
+					Label: stewardName(nickname) + "设置", OnClick: func() { openSettingsWindow(s, "steward") }})
+			}
 		})
 	})
 }

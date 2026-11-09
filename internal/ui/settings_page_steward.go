@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -51,25 +52,28 @@ func stewardQuietOn(st *SettingsState) bool {
 	return st.cfg.Orchestration.Steward.QuietStart != "" && st.cfg.Orchestration.Steward.QuietEnd != ""
 }
 
-// stewardSections 拼出「总管」面板的分节：未启用时只留总开关，
-// 模型与安静时段整节隐藏，避免改了配置却以为总管已在工作。
-// st 为 nil 时按「全部行可见」拼装，供检索索引登记行 ID（索引不关心当前配置）。
-func stewardSections(st *SettingsState) []settingsSection {
-	enabled := st == nil || st.cfg.Orchestration.Steward.Enabled
-	sections := []settingsSection{stewardMainSection(st)}
-	if enabled {
-		sections = append(sections,
-			stewardModelSection,
-			stewardQuietSection(st),
-		)
-	}
-	sections = append(sections, stewardAdvancedSection)
-	return sections
+func stewardEnabled(st *SettingsState) bool { return st == nil || st.cfg.Orchestration.Steward.Enabled }
+
+var pageSteward = settingsPage{
+	ID: "steward", Title: "总管", Icon: IconBot(),
+	Sections: []settingsSection{stewardMainSection(), stewardModelSection, stewardQuietSection, stewardAdvancedSection},
 }
 
-// stewardMainSection 是第一个分节：昵称、头像、总开关与 CLI fallback。
-func stewardMainSection(st *SettingsState) settingsSection {
+// stewardMainSection 是第一个分节：总开关、昵称、头像与 CLI 降级。
+func stewardMainSection() settingsSection {
 	sec := settingsSection{ID: "sec-steward-main", Title: "总管", Rows: []setting{
+		{ID: "row-steward-enabled", Title: "启用总管", Aliases: []string{"总管", "默默", "后台", "看板"}, Control: toggleFunc(
+			func(st *SettingsState) (bool, bool) { return st.cfg.Orchestration.Steward.Enabled, false },
+			func(st *SettingsState, on bool) {
+				st.mu.Lock()
+				st.cfgMu.Lock()
+				st.cfg.Orchestration.Steward.Enabled = on
+				st.cfg.Orchestration.Steward.EnabledChoice = true
+				st.cfgMu.Unlock()
+				st.mu.Unlock()
+				st.save()
+				invalidateStewardEnabledState(st.chat)
+			})},
 		// 昵称：允许留空，留空时界面各处都显示默认名「总管」。
 		{ID: "row-steward-name", Title: "昵称", Aliases: []string{"总管", "默默", "名字"}, Control: textFunc(
 			func(st *SettingsState) (string, bool) { return st.cfg.Orchestration.Steward.Name, false },
@@ -97,20 +101,6 @@ func stewardMainSection(st *SettingsState) settingsSection {
 				st.mu.Unlock()
 				st.noteTextEdit()
 			}, "🙂")},
-		{ID: "row-steward-enabled", Title: "启用总管", Aliases: []string{"总管", "默默", "后台", "看板"}, Control: toggleFunc(
-			func(st *SettingsState) (bool, bool) { return st.cfg.Orchestration.Steward.Enabled, false },
-			func(st *SettingsState, on bool) {
-				st.mu.Lock()
-				st.cfgMu.Lock()
-				st.cfg.Orchestration.Steward.Enabled = on
-				// 记下用户亲手动过启用开关，之后的迁移不再改写 enabled。
-				st.cfg.Orchestration.Steward.EnabledChoice = true
-				st.cfgMu.Unlock()
-				st.mu.Unlock()
-				st.save()
-				// 侧栏的启用状态是带短缓存的，改完开关立刻让它重读，不必等缓存过期。
-				invalidateStewardEnabledState(st.chat)
-			})},
 		{ID: "row-steward-cli-fallback", Title: "没有 API Key 时用本机 CLI", Control: toggle(
 			val(func(cfg *config.Config) *bool { return &cfg.Orchestration.Steward.CLIFallback }, false))},
 	}}
@@ -122,6 +112,7 @@ func stewardMainSection(st *SettingsState) settingsSection {
 var stewardModelSection = settingsSection{
 	ID:    "sec-steward-model",
 	Title: "模型",
+	Visible: stewardEnabled,
 	Rows: []setting{
 		{
 			ID:      "row-steward-model",
@@ -171,8 +162,9 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 }
 
 // stewardQuietSection 在启用安静时段后显示具体时间范围。
-func stewardQuietSection(st *SettingsState) settingsSection {
-	sec := settingsSection{ID: "sec-steward-quiet", Title: "安静时段", Rows: []setting{{
+var stewardQuietSection = settingsSection{ID: "sec-steward-quiet", Title: "安静时段", Visible: stewardEnabled, Rows: []setting{
+	{ID: "row-steward-no-progress", Title: "无进展提醒", Aliases: []string{"看门狗", "watchdog", "卡住", "无进展"}, Control: custom(renderStewardNoProgress)},
+	{
 		ID:      "row-steward-quiet-enabled",
 		Title:   "启用安静时段",
 		Aliases: []string{"总管", "免打扰", "提醒"},
@@ -191,13 +183,42 @@ func stewardQuietSection(st *SettingsState) settingsSection {
 				st.cfgMu.Unlock()
 				st.mu.Unlock()
 				st.save()
-			})}}}
-	if st == nil || stewardQuietOn(st) {
-		sec.Rows = append(sec.Rows, setting{ID: "row-steward-quiet-range", Title: "时间范围",
+			})},
+		{ID: "row-steward-quiet-range", Title: "时间范围",
 			Aliases: []string{"总管", "免打扰", "本地时间", "午夜"},
-			Control: custom(renderStewardQuietRange)})
+			Visible: func(st *SettingsState) bool { return st == nil || stewardQuietOn(st) },
+			Control: custom(renderStewardQuietRange)},
+}}
+
+func renderStewardNoProgress(c *ui.Context, st *SettingsState) {
+	minutes := st.cfg.Orchestration.Steward.NoProgressMinutes
+	if minutes <= 0 {
+		minutes = config.DefaultNoProgressMinutes
 	}
-	return sec
+	minuteLabel := fmt.Sprintf("%d 分钟", minutes)
+	current := minuteLabel
+	if st.cfg.Orchestration.Steward.NoProgressOff {
+		current = "关闭"
+	}
+	options := []string{"关闭", "15 分钟", "30 分钟", "45 分钟", "60 分钟", "120 分钟"}
+	if !slices.Contains(options, minuteLabel) {
+		options = append(options, minuteLabel)
+	}
+	old := current
+	pick := ui.Select(c.Key("row-steward-no-progress-select"), &current, options).
+		Label("无进展提醒").Width(settingsFieldNarrowWidth)
+	if !pick.Changed() && current == old {
+		return
+	}
+	if current == "关闭" {
+		st.cfg.Orchestration.Steward.NoProgressOff = true
+	} else if n, err := strconv.Atoi(strings.TrimSuffix(current, " 分钟")); err == nil && n > 0 {
+		st.cfg.Orchestration.Steward.NoProgressOff = false
+		st.cfg.Orchestration.Steward.NoProgressMinutes = n
+	} else {
+		return
+	}
+	st.save()
 }
 
 // renderStewardQuietRange 画安静时段的起止时刻。
@@ -212,31 +233,10 @@ func renderStewardQuietRange(c *ui.Context, st *SettingsState) {
 		})
 }
 
-// 面板正文每帧按当前配置挑行，检索索引却要看到全部行：st 为 nil 的一份声明补进面板，
-// 索引才能收录这些行 ID（settings_page_steward.go 的 init 先于面板注册执行）。
-func init() {
-	sheetSteward.Sections = stewardSections(nil)
-	registerStewardSheetSections()
-}
+func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageSteward) }
 
-// registerStewardSheetSections 把分节同步给已登记的面板副本。
-func registerStewardSheetSections() {
-	for i := range settingsTreeSheetDefs {
-		if settingsTreeSheetDefs[i].ID == sheetSteward.ID {
-			settingsTreeSheetDefs[i].Sections = sheetSteward.Sections
-		}
-	}
-}
-
-// renderPageSteward 渲染「总管」设置面板。
+// renderPageSteward 渲染「总管」设置页。
 // 这里只负责配置（昵称、头像、模型、安静时段与主目录），不含运行逻辑。
 func renderPageSteward(c *ui.Context, st *SettingsState) {
-	ui.Column(c.Key("steward-sections-container")).Gap(settingsSectionGap).Children(func() {
-		for _, sec := range stewardSections(st) {
-			if sec.Visible != nil && !sec.Visible(st) {
-				continue
-			}
-			renderSettingsTreeSection(c, st, sec, true)
-		}
-	})
+	renderSettingsTreePage(c, st, pageSteward)
 }

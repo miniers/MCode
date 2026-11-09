@@ -241,9 +241,13 @@ func (s *chatState) stewardDecisionCount() (int, bool) {
 
 // openStewardThread 打开总管会话：会话已存在时直接跳过去；还没有时先在后台创建，
 // 创建完成后由 consumeStewardPendingThread 在渲染线程跳转（selectThread 只能在 UI 线程调用）。
-// 连续点击只会发起一次创建，其余点击直接忽略。
+// 已知总管未启用时打开设置；连续点击只会发起一次创建，其余点击直接忽略。
 func (s *chatState) openStewardThread() {
 	if _, ok := s.stewardClient(); !ok {
+		return
+	}
+	if enabled, known := s.stewardEnabledState(); known && !enabled {
+		openStewardSettings(s)
 		return
 	}
 	if id := s.stewardThreadID(); id != "" {

@@ -7,7 +7,7 @@ import (
 )
 
 func TestSettingsSheetSize(t *testing.T) {
-	for _, tc := range []struct { id string; width float32 }{{"provider", 720}, {"steward", 520}} {
+	for _, tc := range []struct { id string; width float32 }{{"provider", 720}} {
 		t.Run(tc.id, func(t *testing.T) {
 			sh, ok := settingsTreeSheetOf(tc.id)
 			if !ok { t.Fatalf("missing sheet %q", tc.id) }

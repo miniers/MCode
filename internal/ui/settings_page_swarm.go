@@ -749,12 +749,6 @@ var pageSwarm = settingsPage{
 				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoPush }, false)),
 			},
 		}},
-		{ID: "swarm.steward", Title: "总管", Rows: []setting{{ID: "row-steward-open", Title: "总管", Aliases: []string{"默默", "昵称", "跟进", "总调度", "steward", "待处理", "分诊"}, Control: link(func(st *SettingsState) string {
-			if st.cfg.Orchestration.Steward.Enabled {
-				return "开启"
-			}
-			return "关闭"
-		}, "steward")}}},
 		advancedOrchestration,
 	},
 }
