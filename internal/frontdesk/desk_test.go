@@ -44,6 +44,7 @@ type fake struct {
 	recentAt time.Time
 	recentThread string
 	createErr error
+	amendErr error
 	getErr error
 }
 
@@ -70,7 +71,7 @@ func (f *fake) CreateTask(_ context.Context, in CreateTaskInput) (store.Task, er
 }
 func (f *fake) AmendTask(_ context.Context, id, text string) error {
 	f.event("amend:" + id + ":" + text)
-	return nil
+	return f.amendErr
 }
 func (f *fake) CancelTask(_ context.Context, id string) error {
 	f.event("cancel:" + id)
@@ -141,6 +142,42 @@ func TestLoop(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleMessageWriteFailures(t *testing.T) {
+	writeErr := errors.New("写入失败")
+	for _, tc := range []struct {
+		name string
+		calls []llm.ToolCall
+		createErr error
+		wantErr error
+		want []string
+	}{
+		{"部分成功", []llm.ToolCall{call("create_task", `{"title":"任务"}`), call("amend_task", `{"task_id":"t","text":"继续"}`)}, nil, nil, []string{"list", "create:任务:owner", "amend:t:继续"}},
+		{"全部失败", []llm.ToolCall{call("create_task", `{"title":"任务"}`)}, writeErr, writeErr, []string{"list", "create:任务:owner"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fake{createErr: tc.createErr, amendErr: writeErr}
+			s := &scripted{replies: []*llm.Response{response(tc.calls...)}, texts: []string{""}}
+			d := Desk{Client: s, Feed: f, Tasks: f}
+			err := d.HandleMessage(context.Background(), Inbound{Text: "工作"})
+			if !errors.Is(err, tc.wantErr) || !reflect.DeepEqual(f.events, tc.want) {
+				t.Fatal(err, f.events)
+			}
+		})
+	}
+}
+
+func TestCLIWritePartialSuccess(t *testing.T) {
+	f := &fake{amendErr: errors.New("写入失败")}
+	d := Desk{Client: &scripted{err: errors.New("模型失败")}, Feed: f, Tasks: f, CLIFallback: true, Generator: func(context.Context, textgen.Options, string) (string, error) {
+		return `{"reply":"","calls":[{"tool":"create_task","args":{"title":"任务"}},{"tool":"amend_task","args":{"task_id":"t","text":"继续"}}]}`, nil
+	}}
+	err := d.HandleMessage(context.Background(), Inbound{Text: "工作"})
+	if err != nil || !reflect.DeepEqual(f.events, []string{"list", "create:任务:owner", "amend:t:继续"}) {
+		t.Fatal(err, f.events)
+	}
+}
+
 func TestFallback(t *testing.T) {
 	f := &fake{}
 	s := &scripted{err: errors.New("401")}

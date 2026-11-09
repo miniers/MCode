@@ -90,6 +90,7 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 				}
 			}
 			var firstErr error
+			succeeded := 0
 			for _, call := range resp.Message.ToolCalls {
 				tool, _ := tools.Get(call.Name)
 				_, err := tool.Run(ctx, call.Arguments)
@@ -98,7 +99,12 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 					if firstErr == nil {
 						firstErr = err
 					}
+				} else {
+					succeeded++
 				}
+			}
+			if succeeded > 0 {
+				return nil
 			}
 			return firstErr
 		}

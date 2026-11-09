@@ -141,7 +141,7 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 			return s.AnswerDecision(ctx, d.ID, text, "owner")
 		}
 	}
-	if t.Status == "in_progress" {
+	if t.Status == "in_progress" || t.Status == "needs_approval" {
 		if t.ThreadID == nil {
 			return errors.New("任务没有执行会话")
 		}
@@ -153,7 +153,7 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 	}
 	t.Notes += text
 	switch t.Status {
-	case "waiting", "done", "failed", "cancelled", "rejected":
+	case "waiting", "review", "done", "failed", "cancelled", "rejected":
 		t.Status = "todo"
 		t.ThreadID, t.ReviewThreadID = nil, nil
 		t.ReviewSummary, t.ReviewFeedback, t.ReviewStatus = nil, nil, nil
@@ -223,6 +223,13 @@ func (s *frontdeskServices) RecentTask(ctx context.Context, threadID string) (st
 	if err != nil {
 		return store.Task{}, time.Time{}, err
 	}
+	ownerTasks := make([]store.Task, 0, len(tasks))
+	for _, task := range tasks {
+		meta, err := kanban.ParseTaskMeta(task.Meta)
+		if err == nil && meta.Origin == "owner" {
+			ownerTasks = append(ownerTasks, task)
+		}
+	}
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]
 		if m.Role != "assistant" && m.Role != "system" {
@@ -245,7 +252,7 @@ func (s *frontdeskServices) RecentTask(ctx context.Context, threadID string) (st
 			}
 		}
 		var match store.Task
-		for _, task := range tasks {
+		for _, task := range ownerTasks {
 			if (task.ID != "" && strings.Contains(m.Text, task.ID)) || (task.Title != "" && strings.Contains(m.Text, task.Title)) {
 				if match.ID != "" && match.ID != task.ID {
 					return store.Task{}, time.Time{}, store.ErrNotFound

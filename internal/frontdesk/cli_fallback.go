@@ -65,6 +65,7 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot) (bool
 		}
 	}
 	var firstErr error
+	succeeded := 0
 	for _, call := range calls {
 		tool, _ := tools.Get(call.Tool)
 		_, err := tool.Run(ctx, call.Args)
@@ -73,7 +74,12 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot) (bool
 			if firstErr == nil {
 				firstErr = err
 			}
+		} else {
+			succeeded++
 		}
+	}
+	if succeeded > 0 {
+		return true, nil
 	}
 	return true, firstErr
 }

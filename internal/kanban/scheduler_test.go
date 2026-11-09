@@ -174,6 +174,11 @@ func TestStewardQueuePrunesOldTerminalTasks(t *testing.T) {
 	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "steward", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
 		store.Task{ID: "old-done", Status: string(TaskStatusDone), UpdatedAt: old},
 		store.Task{ID: "old-cancelled", Status: string(TaskStatusCancelled), UpdatedAt: old},
+		store.Task{ID: "old-referenced-dependency", Status: string(TaskStatusDone), UpdatedAt: old},
+		store.Task{ID: "old-referenced-child", Status: string(TaskStatusDone), UpdatedAt: old},
+		store.Task{ID: "old-decision", Status: string(TaskStatusCancelled), UpdatedAt: old},
+		store.Task{ID: "depends-on-old", Status: string(TaskStatusTodo), DependsOn: []string{"old-referenced-dependency"}},
+		store.Task{ID: "waiting-child-parent", Status: string(TaskStatusWaiting), Meta: EncodeTaskMeta(TaskMeta{Children: []string{"old-referenced-child"}})},
 		store.Task{ID: "old-failed", Status: string(TaskStatusFailed), UpdatedAt: old},
 		store.Task{ID: "old-rejected", Status: string(TaskStatusRejected), UpdatedAt: old},
 		store.Task{ID: "recent-done", Status: string(TaskStatusDone), UpdatedAt: now.Add(-24 * time.Hour)},
@@ -181,6 +186,10 @@ func TestStewardQueuePrunesOldTerminalTasks(t *testing.T) {
 		store.Task{ID: "old-active", Status: string(TaskStatusInProgress), UpdatedAt: old})
 	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "normal", ProjectID: "p", Title: "普通目标", Owner: "user"},
 		store.Task{ID: "normal-done", Status: string(TaskStatusDone), UpdatedAt: old})
+	decision, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "old-decision", Question: "继续？"})
+	if err != nil {
+		t.Fatalf("创建决策卡失败: %v", err)
+	}
 
 	scheduler.Tick(ctx)
 
@@ -188,7 +197,7 @@ func TestStewardQueuePrunesOldTerminalTasks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("获取目标任务失败: %v", err)
 	}
-	for _, id := range []string{"old-done", "old-cancelled", "old-failed", "old-rejected"} {
+	for _, id := range []string{"old-done", "old-cancelled", "old-failed", "old-rejected", "old-decision"} {
 		if _, err := db.GetTask(ctx, id); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("任务 %s 应已删除，错误: %v", id, err)
 		}
@@ -197,6 +206,15 @@ func TestStewardQueuePrunesOldTerminalTasks(t *testing.T) {
 				t.Errorf("目标仍关联已删除任务 %s", id)
 			}
 		}
+	}
+	for _, id := range []string{"old-referenced-dependency", "old-referenced-child"} {
+		if _, err := db.GetTask(ctx, id); err != nil {
+			t.Errorf("被活动任务引用的任务 %s 应保留: %v", id, err)
+		}
+	}
+	decision, err = db.GetStewardDecision(ctx, decision.ID)
+	if err != nil || decision.Status != store.DecisionStatusSuperseded {
+		t.Errorf("清理任务后决策卡应关闭: %+v，错误: %v", decision, err)
 	}
 	for id, status := range map[string]TaskStatus{
 		"recent-done": TaskStatusDone, "boundary-done": TaskStatusDone,
@@ -210,6 +228,37 @@ func TestStewardQueuePrunesOldTerminalTasks(t *testing.T) {
 	goal, err := db.GetGoal(ctx, "steward")
 	if err != nil || goal.Status != string(GoalStatusRunning) {
 		t.Fatalf("总管目标状态异常: %+v，错误: %v", goal, err)
+	}
+}
+
+func TestGoalSchedulerStewardOwnerStartFailureBudget(t *testing.T) {
+	ctx := context.Background()
+	svc, db, mock, scheduler := setupSchedulerTestService(t, true)
+	svc.opts.Driver = &failingStartDriver{mockDriver: mock, err: errors.New("session boom")}
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "owner-start-fail", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
+		store.Task{ID: "owner-start-task", Title: "owner task", Meta: EncodeTaskMeta(TaskMeta{Origin: "owner"})})
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "normal-start-fail", ProjectID: "p", Title: "普通目标", Owner: "user"},
+		store.Task{ID: "normal-start-task", Title: "normal task"})
+	calls := 0
+	svc.SetOnResult(func(context.Context, store.Task, ExecutorResult) { calls++ })
+
+	scheduler.Tick(ctx)
+	first, err := db.GetTask(ctx, "owner-start-task")
+	if err != nil || first.Status != string(TaskStatusTodo) || first.AttemptCount != 1 || calls != 0 {
+		t.Fatalf("首次启动失败状态=%+v 通知=%d 错误=%v", first, calls, err)
+	}
+	normal, err := db.GetTask(ctx, "normal-start-task")
+	if err != nil || normal.Status != string(TaskStatusTodo) {
+		t.Fatalf("普通目标启动失败应保持 todo: %+v，错误: %v", normal, err)
+	}
+	scheduler.Tick(ctx)
+	failed, err := db.GetTask(ctx, "owner-start-task")
+	if err != nil || failed.Status != string(TaskStatusFailed) || failed.AttemptCount != 2 || calls != 1 {
+		t.Fatalf("预算耗尽后状态=%+v 通知=%d 错误=%v", failed, calls, err)
+	}
+	scheduler.Tick(ctx)
+	if calls != 1 {
+		t.Fatalf("终态任务不应重复通知，通知次数=%d", calls)
 	}
 }
 

@@ -182,11 +182,35 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 		now = g.svc.opts.Now()
 	}
 	if IsStewardQueue(goal) {
+		referenced := make(map[string]struct{})
+		for _, task := range tasks {
+			switch TaskStatus(task.Status) {
+			case TaskStatusDone, TaskStatusCancelled, TaskStatusRejected, TaskStatusFailed:
+				continue
+			}
+			for _, id := range task.DependsOn {
+				referenced[id] = struct{}{}
+			}
+			if meta, err := ParseTaskMeta(task.Meta); err == nil {
+				for _, id := range meta.Children {
+					referenced[id] = struct{}{}
+				}
+			}
+		}
 		kept := tasks[:0]
 		for _, t := range tasks {
 			switch TaskStatus(t.Status) {
 			case TaskStatusDone, TaskStatusCancelled, TaskStatusRejected, TaskStatusFailed:
 				if now.Sub(t.UpdatedAt) > stewardTaskRetention {
+					if _, ok := referenced[t.ID]; ok {
+						kept = append(kept, t)
+						continue
+					}
+					if err := g.svc.opts.Store.SupersedeOpenDecisionsForTask(ctx, t.ID); err != nil {
+						log.Printf("kanban: 关闭总管任务 %s 的决策卡失败: %v", t.ID, err)
+						kept = append(kept, t)
+						continue
+					}
 					if err := g.svc.opts.Store.DeleteTask(ctx, t.ID, t.Revision); err != nil {
 						log.Printf("kanban: 清理总管任务 %s 失败: %v", t.ID, err)
 					} else {
@@ -440,6 +464,26 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 						continue
 					}
 					reason := fmt.Sprintf("启动任务失败：%v", err)
+					if isStewardOwnerIn(goal, t) {
+						t.AttemptCount++
+						res := ExecutorResult{Status: ResultFailed, Summary: "执行会话启动失败"}
+						if err := g.svc.applyExecutorResult(ctx, &t, res, now); err != nil {
+							return err
+						}
+						t.LastFailureReason = &reason
+						log.Printf("kanban: 目标 %s 调度启动任务 %s 失败: %v", goal.ID, t.ID, err)
+						if up, uerr := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); uerr == nil {
+							tasks[i] = up
+							tasksByID[t.ID] = up
+							goalChanged = true
+							if up.Status == string(TaskStatusFailed) {
+								g.svc.notifyResult(ctx, up, res)
+							} else if up.Status == string(TaskStatusTodo) {
+								failedThisTick[up.ID] = struct{}{}
+							}
+						}
+						continue
+					}
 					// 同一任务同一错误只记录一次，避免每轮调度重复写库与刷日志
 					if g.lastStartErrors[t.ID] == reason {
 						continue

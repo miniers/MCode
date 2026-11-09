@@ -401,6 +401,45 @@ func TestFrontdeskAmendInProgressTask(t *testing.T) {
 	}
 }
 
+func TestFrontdeskAmendReviewTaskReopens(t *testing.T) {
+	ctx := context.Background()
+	db, _, svc := newFrontdeskAdapterFixture(t)
+	threadID := "review-thread"
+	task := createFrontdeskTask(t, db, store.Task{ID: "review", ThreadID: &threadID, ReviewThreadID: &threadID, Title: "待审任务", Status: "review"})
+	if err := svc.AmendTask(ctx, task.ID, "补充内容"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != task.ID || after.Status != "todo" || after.ThreadID != nil {
+		t.Fatalf("review 任务重开结果错误: %+v", after)
+	}
+}
+
+func TestFrontdeskAmendNeedsApprovalWithoutDecisionSendsMessage(t *testing.T) {
+	ctx := context.Background()
+	db, backend, svc := newFrontdeskAdapterFixture(t)
+	backend.AddThread(wire.ThreadSummary{ID: "approval-run", ProjectID: "project", Title: "执行", Provider: "memory"}, nil)
+	threadID := "approval-run"
+	task := createFrontdeskTask(t, db, store.Task{ID: "approval", ThreadID: &threadID, Title: "待批准任务", Status: "needs_approval"})
+	if err := svc.AmendTask(ctx, task.ID, "补充说明"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages, _, err := db.ListMessages(ctx, threadID, 0, 10)
+	if err != nil || len(messages) == 0 || messages[len(messages)-1].Role != "user" || messages[len(messages)-1].Text != "补充说明" {
+		t.Fatalf("补充内容未送入执行会话: %+v %v", messages, err)
+	}
+	if after.ID != task.ID || after.Status != "needs_approval" {
+		t.Fatalf("待批准任务状态不应改变: %+v", after)
+	}
+}
+
 func TestFrontdeskAmendDoneTaskReopensAndRestoresGoal(t *testing.T) {
 	ctx := context.Background()
 	db, _, svc := newFrontdeskAdapterFixture(t)
@@ -506,5 +545,28 @@ func TestFrontdeskRecentTaskSources(t *testing.T) {
 	}
 	if _, _, err := svc.RecentTask(ctx, "feed-empty"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("未提及任务应返回 ErrNotFound: %v", err)
+	}
+}
+
+func TestFrontdeskRecentTaskMatchesOnlyOwnerTasks(t *testing.T) {
+	ctx := context.Background()
+	db, backend, svc := newFrontdeskAdapterFixture(t)
+	createFrontdeskTask(t, db, store.Task{ID: "other-task", Title: "测试", Status: "todo", Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "steward"})})
+	createFrontdeskTask(t, db, store.Task{ID: "owner-task", Title: "发布", Status: "todo", Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner"})})
+	backend.AddThread(wire.ThreadSummary{ID: "feed-non-owner", ProjectID: "home", Title: "非 owner", Provider: "memory"}, nil)
+	if err := backend.AppendStewardMessage(ctx, "feed-non-owner", "assistant", "", "测试通过"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.RecentTask(ctx, "feed-non-owner"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("不应匹配非 owner 任务: %v", err)
+	}
+
+	backend.AddThread(wire.ThreadSummary{ID: "feed-owner", ProjectID: "home", Title: "owner", Provider: "memory"}, nil)
+	if err := backend.AppendStewardMessage(ctx, "feed-owner", "assistant", "", "发布完成"); err != nil {
+		t.Fatal(err)
+	}
+	recent, _, err := svc.RecentTask(ctx, "feed-owner")
+	if err != nil || recent.ID != "owner-task" {
+		t.Fatalf("应匹配 owner 任务: %+v %v", recent, err)
 	}
 }

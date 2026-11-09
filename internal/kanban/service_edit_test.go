@@ -202,6 +202,10 @@ func TestServiceEdit_DeleteTask(t *testing.T) {
 	if len(taskIDs) != 1 || taskIDs[0] != draft.ID {
 		t.Fatalf("expected task in goal_tasks, got %v", taskIDs)
 	}
+	decision, err := st.CreateStewardDecision(ctx, store.StewardDecision{TaskID: draft.ID, Question: "继续？"})
+	if err != nil {
+		t.Fatalf("CreateStewardDecision failed: %v", err)
+	}
 
 	// 1. Revision 不匹配时拒绝
 	err = svc.DeleteTask(ctx, draft.ID, draft.Revision+99)
@@ -214,6 +218,10 @@ func TestServiceEdit_DeleteTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteTask failed: %v", err)
 	}
+	decision, err = st.GetStewardDecision(ctx, decision.ID)
+	if err != nil || decision.Status != store.DecisionStatusSuperseded {
+		t.Fatalf("删除任务后决策卡应关闭: %+v，错误: %v", decision, err)
+	}
 
 	// 确认从 store 彻底删除
 	_, err = st.GetTask(ctx, draft.ID)
@@ -225,6 +233,35 @@ func TestServiceEdit_DeleteTask(t *testing.T) {
 	remainingIDs, _ := st.ListGoalTaskIDs(ctx, goal.ID)
 	if len(remainingIDs) != 0 {
 		t.Errorf("expected 0 goal tasks after delete, got %v", remainingIDs)
+	}
+}
+
+type missingSessionDriver struct{ *mockDriver }
+
+func (d *missingSessionDriver) SessionState(context.Context, string) (SessionState, error) {
+	return SessionState{}, store.ErrNotFound
+}
+
+func TestServiceEdit_DeleteTaskWithMissingSession(t *testing.T) {
+	ctx := context.Background()
+	svc, st, driver := setupTestService(t)
+	svc.opts.Driver = &missingSessionDriver{mockDriver: driver}
+	threadID := "deleted-session"
+	task, err := svc.CreateTask(ctx, CreateTaskInput{ProjectID: "proj-1", Title: "Task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.ThreadID = &threadID
+	task.ReviewThreadID = strPtr("deleted-review-session")
+	task, err = st.UpdateTask(ctx, task, task.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteTask(ctx, task.ID, task.Revision); err != nil {
+		t.Fatalf("删除会话已丢失的任务失败: %v", err)
+	}
+	if _, err := st.GetTask(ctx, task.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("任务应已删除，错误: %v", err)
 	}
 }
 

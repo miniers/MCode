@@ -139,6 +139,9 @@ func (s *Service) DeleteTask(ctx context.Context, taskID string, expectedRevisio
 		}
 		state, err := s.opts.Driver.SessionState(ctx, *threadID)
 		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
 			return err
 		}
 		if state.Running || state.AwaitingApproval {
@@ -146,6 +149,9 @@ func (s *Service) DeleteTask(ctx context.Context, taskID string, expectedRevisio
 		}
 	}
 	// goal_tasks 由外键级联清理，删除自身也必须执行 CAS。
+	if err := s.opts.Store.SupersedeOpenDecisionsForTask(ctx, taskID); err != nil {
+		return err
+	}
 	if err := s.opts.Store.DeleteTask(ctx, taskID, task.Revision); err != nil {
 		return err
 	}
