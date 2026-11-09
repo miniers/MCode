@@ -684,10 +684,7 @@ func renderInlineToolDiff(c *ui.Context, s *chatState, m Message) {
 					AlignItems(ui.Center).
 					Padding(Space2, Space3).
 					Children(func() {
-						ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-						ui.Text(c, "正在读取改动…").
-							FontSize(scaledFont(TypeFootnote)).
-							TextColor(ThemeSecondaryText(c))
+						LoadingIndicator(c, nil, "正在读取改动…", IconSM)
 					})
 				return
 			case entry.err != "":

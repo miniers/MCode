@@ -692,7 +692,7 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 					}
 
 					if m.Loading {
-						ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+						LoadingIndicator(c, nil, "", IconSM, ThemeSecondaryText(c))
 					} else {
 						refreshBtn := ui.ButtonBase(c.Key("tray-quota-refresh-btn")).
 							Label("刷新").

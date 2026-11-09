@@ -394,10 +394,7 @@ func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
 				Gap(Space2).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-					ui.Text(c, "正在扫描 Worktree…").
-						FontSize(TypeBody).
-						TextColor(ThemeSecondaryText(c))
+					LoadingIndicator(c, nil, "正在扫描 Worktree…", IconSM)
 				})
 		case scanErr != "":
 			ui.Row(c.Key("archive-wt-scan-error")).
@@ -438,10 +435,7 @@ func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
 				Gap(Space2).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-					ui.Text(c, "正在清理所选 Worktree…").
-						FontSize(TypeFootnote).
-						TextColor(ThemeSecondaryText(c))
+					LoadingIndicator(c, nil, "正在清理所选 Worktree…", IconSM)
 				})
 		}
 

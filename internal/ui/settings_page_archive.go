@@ -577,10 +577,7 @@ func renderPageArchive(c *ui.Context, st *SettingsState) {
 				Gap(Space2).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-					ui.Text(c, "正在删除全部已归档会话…").
-						FontSize(TypeFootnote).
-						TextColor(ThemeSecondaryText(c))
+					LoadingIndicator(c, nil, "正在删除全部已归档会话…", IconSM)
 				})
 		}
 
@@ -604,8 +601,7 @@ func renderPageArchive(c *ui.Context, st *SettingsState) {
 					AlignItems(ui.Center).
 					Justify(ui.Center).
 					Children(func() {
-						ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-						ui.Text(c, "加载中…").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+						LoadingIndicator(c, nil, "加载中…", IconSM)
 					})
 			} else {
 				ui.Row(c.Key("row-archive-load-error")).

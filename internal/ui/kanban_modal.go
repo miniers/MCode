@@ -874,10 +874,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 					Center().
 					Gap(Space3).
 					Children(func() {
-						ui.Spinner(c).Size(IconLG, IconLG).TextColor(ThemeAccent(c))
-						ui.Text(c, "正在加载看板…").
-							FontSize(TypeBody).
-							TextColor(ThemeSecondaryText(c))
+						LoadingIndicator(c, nil, "正在加载看板…", IconLG)
 					})
 				return
 			}

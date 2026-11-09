@@ -504,7 +504,7 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 							}
 							ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
 							if snap.condensing {
-								ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+								LoadingIndicator(c, nil, "", IconSM)
 							}
 							condenseText := "AI 精简"
 							if p.TargetMemoryID != "" {
@@ -632,7 +632,7 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 						Variant: ButtonSecondary,
 					}).Shrink(0)
 					if busy {
-						ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+						LoadingIndicator(c, nil, "", IconSM)
 					}
 					Button(c.Key("memory-proposal-reject-"+p.ID), ButtonOpts{
 						Icon:     IconX(),
@@ -667,8 +667,7 @@ func renderMemorySimilarBlock(c *ui.Context, s *chatState, snap memoryPanelSnaps
 				Gap(Space2).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-					ui.Text(c, "正在检索相似记忆…").FontSize(TypeCaption).Grow(1).Shrink(1).MinWidth(0).TextColor(ThemeSecondaryText(c))
+					LoadingIndicator(c, nil, "正在检索相似记忆…", IconSM).Grow(1).Shrink(1).MinWidth(0)
 				})
 		case snap.similarErr != "":
 			ui.Text(c, snap.similarErr).FontSize(TypeCaption).FillWidth().TextColor(ThemeDanger(c))
@@ -963,8 +962,7 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 
 		if snap.searchLoading {
 			ui.Row(c.Key("memory-search-loading")).FillWidth().Padding(memoryModalPadding).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-				ui.Text(c, "正在检索…").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				LoadingIndicator(c, nil, "正在检索…", IconSM)
 			})
 			return
 		}
@@ -1046,7 +1044,7 @@ func renderMemoryItemCard(c *ui.Context, s *chatState, snap memoryPanelSnapshot,
 							TextColor(ThemeSecondaryText(c))
 					}
 					if forgetting {
-						ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+						LoadingIndicator(c, nil, "", IconSM)
 					}
 					if confirming {
 						Button(c.Key("memory-item-forget-cancel-"+item.ID), ButtonOpts{
@@ -1110,7 +1108,7 @@ func renderMemoryWorkingTab(c *ui.Context, s *chatState, snap memoryPanelSnapsho
 				Justify(ui.Center).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Spinner(c).Size(IconMD, IconMD).TextColor(ThemeAccent(c))
+					LoadingIndicator(c, nil, "", IconMD)
 				})
 			return
 		}

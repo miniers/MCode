@@ -98,7 +98,7 @@ func renderPlanLimitsView(c *ui.Context, key, planName string, limits []planLimi
 
 					if refreshing {
 						ui.Box(c.Key(key + "-header-spacer")).Grow(1)
-						ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+						LoadingIndicator(c, nil, "", IconSM, ThemeSecondaryText(c))
 					}
 				})
 

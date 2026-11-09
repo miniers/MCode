@@ -921,10 +921,7 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 			AlignItems(ui.Center).
 			Margin(ui.Auto).
 			Children(func() {
-				ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-				ui.Text(c, "正在读取文件…").
-					FontSize(TypeBody).
-					TextColor(ThemeSecondaryText(c))
+				LoadingIndicator(c, nil, "正在读取文件…", IconSM)
 			})
 		return
 	}

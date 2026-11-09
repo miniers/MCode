@@ -216,10 +216,7 @@ func renderRevertDialog(c *ui.Context, s *chatState) {
 						Gap(Space2).
 						AlignItems(ui.Center).
 						Children(func() {
-							ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-							ui.Text(c, "正在预览改动…").
-								FontSize(TypeBody).
-								TextColor(ThemeSecondaryText(c))
+							LoadingIndicator(c, nil, "正在预览改动…", IconSM)
 						})
 				case errText != "":
 					ui.Text(c, errText).

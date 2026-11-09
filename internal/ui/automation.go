@@ -1373,10 +1373,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 									Center().
 									Gap(Space2).
 									Children(func() {
-										ui.Spinner(c).Size(IconMD, IconMD).TextColor(ThemeAccent(c))
-										ui.Text(c, "正在加载自动化…").
-											FontSize(TypeFootnote).
-											TextColor(ThemeSecondaryText(c))
+										LoadingIndicator(c, nil, "正在加载自动化…", IconMD)
 									})
 								return
 							}
@@ -1530,9 +1527,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 																	Background(pillColor.Alpha(0.15)).
 																	Children(func() {
 																		if pillKind == "running" {
-																			ui.Spinner(c).
-																				Size(automationPillSpinnerSize, automationPillSpinnerSize).
-																				TextColor(pillColor)
+																			LoadingIndicator(c, nil, "", automationPillSpinnerSize, pillColor)
 																		}
 																		ui.Text(c, pillText).
 																			FontSize(TypeCaption).
@@ -1739,7 +1734,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 												Variant: ButtonSecondary,
 											})
 											if runningIDs[runID] {
-												ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+												LoadingIndicator(c, nil, "", IconSM)
 											}
 										})
 
@@ -2337,10 +2332,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 																Gap(Space2).
 																AlignItems(ui.Center).
 																Children(func() {
-																	ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-																	ui.Text(c, "正在读取运行记录…").
-																		FontSize(TypeCaption).
-																		TextColor(ThemeSecondaryText(c))
+																	LoadingIndicator(c, nil, "正在读取运行记录…", IconSM)
 																})
 														} else if runsErr != "" {
 															ui.Text(c, "加载记录失败: "+runsErr).

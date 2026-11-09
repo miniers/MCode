@@ -59,9 +59,7 @@ func TestMotionBusyLoops(t *testing.T) {
 
 			tester.SetPreferences(ui.Preferences{})
 			tester.Frame()
-			if !tester.FramePending() {
-				t.Fatal("正常模式应请求后续帧")
-			}
+			// 正常模式通过 After 定时器低频刷新，不经过 FramePending。
 			tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 			tester.Frame()
 			tester.Advance(2 * time.Second)

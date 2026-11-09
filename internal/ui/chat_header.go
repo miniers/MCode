@@ -1001,10 +1001,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 										Padding(Space2, Space3).
 										AlignItems(ui.Center).
 										Children(func() {
-											ui.Spinner(c).Size(12, 12).TextColor(ThemeAccent(c))
-											ui.Text(c, "正在切换…").
-												FontSize(TypeFootnote).
-												TextColor(ThemeSecondaryText(c))
+											LoadingIndicator(c, nil, "正在切换…", IconSM)
 										})
 								}
 								if errMsg != "" {
@@ -1213,10 +1210,7 @@ func renderGitCommitButton(c *ui.Context, s *chatState, hs *chatHeaderState, thr
 								Padding(Space2, Space3).
 								AlignItems(ui.Center).
 								Children(func() {
-									ui.Spinner(c).Size(12, 12).TextColor(ThemeAccent(c))
-									ui.Text(c, busy+"中…").
-										FontSize(TypeFootnote).
-										TextColor(ThemeSecondaryText(c))
+									LoadingIndicator(c, nil, busy+"中…", IconSM)
 								})
 						}
 						if errMsg != "" {
@@ -1467,7 +1461,7 @@ func renderGitMenuItem(c *ui.Context, key string, p gitMenuItemProps) {
 	}
 	item.Children(func() {
 		if p.Busy {
-			ui.Spinner(c).Size(14, 14).TextColor(ThemeAccent(c))
+			LoadingIndicator(c, nil, "", IconSM)
 		} else if p.Icon != nil {
 			ui.Icon(c, p.Icon).Size(16, 16).TextColor(ThemeSecondaryText(c))
 		} else {

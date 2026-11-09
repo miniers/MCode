@@ -291,7 +291,7 @@ func renderNowledgeSpaceList(c *ui.Context, st *SettingsState) {
 		}
 		if !ps.loaded {
 			// 加载中用转圈代替说明句；结果回来前不列项目行，免得先闪出错的解析结果。
-			ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)).Margin(settingsRowPadY, settingsRowPadX)
+			LoadingIndicator(c, nil, "", IconSM, ThemeSecondaryText(c)).Margin(settingsRowPadY, settingsRowPadX)
 			return
 		}
 		if len(projects) == 0 {

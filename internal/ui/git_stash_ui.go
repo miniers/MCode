@@ -290,7 +290,7 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 						TextColor(ThemePrimaryText(c))
 					ui.Spacer(c)
 					if busy != "" {
-						ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+						LoadingIndicator(c, nil, "", IconSM)
 					}
 				}))
 
@@ -300,10 +300,7 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 						Gap(Space2).
 						AlignItems(ui.Center).
 						Children(func() {
-							ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-							ui.Text(c, "正在读取贮藏列表…").
-								FontSize(TypeBody).
-								TextColor(ThemeSecondaryText(c))
+							LoadingIndicator(c, nil, "正在读取贮藏列表…", IconSM)
 						})
 				case len(entries) == 0:
 					ui.Text(c, "这个仓库还没有贮藏记录").

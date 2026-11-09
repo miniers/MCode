@@ -551,7 +551,7 @@ func (f *gitForm) viewCommit(c *ui.Context, st GitState, busy, generating, queue
 		})
 		if queuedCommit {
 			// 已排队等 AI 写完提交信息再自动提交：菊花表示仍在等待，按钮文字显示「等待提交…」。
-			ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+			LoadingIndicator(c, nil, "", IconSM)
 		}
 		Button(c, ButtonOpts{
 			Key:      "git-form-commit-submit",
@@ -625,7 +625,7 @@ func (f *gitForm) commitAIAction(c *ui.Context, disabled, generating bool) {
 	}
 	b.Children(func() {
 		if generating {
-			ui.Spinner(c).Size(gitFormAICapsuleSpinner, gitFormAICapsuleSpinner).TextColor(ThemeAccent(c))
+			LoadingIndicator(c, nil, "", gitFormAICapsuleSpinner)
 		}
 		ui.Text(c, "AI 帮我写").
 			FontSize(FontSizeCapsuleText).
@@ -891,10 +891,7 @@ func (f *gitForm) viewPullRequest(c *ui.Context, st GitState, busy bool, errMsg 
 func renderGitFormActions(c *ui.Context, busy bool, primaryLabel string, primaryDisabled bool, primaryKey string, primary, onCancel func()) {
 	FormActions(c, "git-form-actions", func() {
 		if busy {
-			ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-			ui.Text(c, "处理中…").
-				FontSize(TypeCaption).
-				TextColor(ThemeSecondaryText(c))
+			LoadingIndicator(c, nil, "处理中…", IconSM)
 		}
 		ui.Text(c, "Esc 取消").
 			FontSize(TypeCaption).

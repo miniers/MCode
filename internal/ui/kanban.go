@@ -1487,10 +1487,7 @@ func renderGoalPlanReviewModal(c *ui.Context, s *chatState) {
 										Gap(Space3).
 										Padding(Space7, Space4).
 										Children(func() {
-											ui.Spinner(c).Size(IconLG, IconLG).TextColor(ThemeAccent(c))
-											ui.Text(c, "规划中，请稍候…").
-												FontSize(TypeFootnote).
-												TextColor(ThemeSecondaryText(c))
+											LoadingIndicator(c, nil, "规划中，请稍候…", IconLG)
 										})
 								case len(goalTasks) == 0:
 									ui.Row(c.Key("kanban-plan-review-empty")).
@@ -3104,10 +3101,7 @@ func renderTaskDetail(c *ui.Context, s *chatState, ks *kanbanState) {
 													AlignItems(ui.Center).
 													Padding(Space3, 0).
 													Children(func() {
-														ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-														ui.Text(c, "正在加载日志…").
-															FontSize(TypeFootnote).
-															TextColor(ThemeSecondaryText(c))
+														LoadingIndicator(c, nil, "正在加载日志…", IconSM)
 													})
 											} else if detailErr != "" {
 												ui.Row(c.Key("kanban-task-detail-log-err")).
@@ -3180,10 +3174,7 @@ func renderTaskDetail(c *ui.Context, s *chatState, ks *kanbanState) {
 													AlignItems(ui.Center).
 													Padding(Space3, 0).
 													Children(func() {
-														ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-														ui.Text(c, "正在加载改动…").
-															FontSize(TypeFootnote).
-															TextColor(ThemeSecondaryText(c))
+														LoadingIndicator(c, nil, "正在加载改动…", IconSM)
 													})
 											} else if diffErr != "" {
 												ui.Row(c.Key("kanban-task-detail-diff-err")).

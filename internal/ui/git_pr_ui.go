@@ -328,7 +328,7 @@ func renderGitPRDialog(c *ui.Context, s *chatState) {
 							SingleLine()
 						ui.Spacer(c)
 						if listLoading || detailLoading {
-							ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+							LoadingIndicator(c, nil, "", IconSM)
 						}
 					}))
 
@@ -425,10 +425,7 @@ func renderGitPRListPane(c *ui.Context, s *chatState, prs []git.PRSummary, selec
 					Gap(Space2).
 					AlignItems(ui.Center).
 					Children(func() {
-						ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-						ui.Text(c, "正在读取 PR 列表…").
-							FontSize(TypeFootnote).
-							TextColor(ThemeSecondaryText(c))
+						LoadingIndicator(c, nil, "正在读取 PR 列表…", IconSM)
 					})
 			case errText != "" && len(prs) == 0:
 				ui.Text(c, errText).
@@ -545,10 +542,7 @@ func renderGitPRDetailPane(c *ui.Context, s *chatState, detail *git.PRDetail, se
 					Gap(Space2).
 					AlignItems(ui.Center).
 					Children(func() {
-						ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-						ui.Text(c, "正在读取 PR 详情…").
-							FontSize(TypeFootnote).
-							TextColor(ThemeSecondaryText(c))
+						LoadingIndicator(c, nil, "正在读取 PR 详情…", IconSM)
 					})
 			case errText != "" && detail == nil:
 				ui.Text(c, errText).

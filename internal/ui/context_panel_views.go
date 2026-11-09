@@ -502,7 +502,7 @@ func renderContextDocDetails(c *ui.Context, s *chatState, snap contextPanelSnaps
 			})
 
 			if snap.saving {
-				ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+				LoadingIndicator(c, nil, "", IconSM)
 			}
 
 			renderContextModeSwitch(c, s, snap.editing)
