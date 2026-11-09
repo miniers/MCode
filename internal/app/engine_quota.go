@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/providers/codex"
 	"mcode/internal/providers/magpie"
@@ -34,17 +35,20 @@ type engineQuotaEndpoint struct {
 	apiKey  string
 }
 
-// engineQuotaKey 报告额度 key 是否属于内置引擎会话（mcode:<provider id>、magpie、magpie2…）。
+// engineQuotaKey 报告额度 key 是否属于内置引擎会话（mcode:<provider id>、magpie、magpie2…或 custom-<id>）。
 func engineQuotaKey(key string) bool {
 	if providerID, ok := strings.CutPrefix(key, engineMcodeQuotaPrefix); ok {
 		return strings.TrimSpace(providerID) != ""
+	}
+	if id, ok := strings.CutPrefix(key, "custom-"); ok {
+		return strings.TrimSpace(id) != ""
 	}
 	return engineMagpieKindPattern.MatchString(key)
 }
 
 // engineQuotaEndpointForKey 按额度 key 找 Magpie 端点。mcode 的后缀就是模型串第一段
-// （端点 provider id），与 resolveMcodeClient 用同一份 mcodeTargets 映射；magpie 与
-// magpieN 直接按端点注册的 provider kind 匹配，密钥从凭据存储读取。
+// （端点 provider id），与 resolveMcodeClient 用同一份 mcodeTargets 映射；其他端点
+// 直接按注册的 provider kind 匹配，密钥从凭据存储读取。
 func (c *Client) engineQuotaEndpointForKey(key string) (engineQuotaEndpoint, bool) {
 	cfg, ok := c.loadConfig()
 	if !ok {
@@ -72,32 +76,18 @@ func engineQuotaEndpointIn(cfg config.Config, secrets config.SecretStore, key st
 		}
 		return engineQuotaEndpoint{}, false
 	}
-	if !engineMagpieKindPattern.MatchString(key) {
+	if !engineQuotaKey(key) {
 		return engineQuotaEndpoint{}, false
 	}
-	for _, ep := range cfg.Providers.Custom {
-		if config.CustomEndpointProviderKind(ep) != key {
+	for _, source := range apisource.Resolve(cfg, secrets) {
+		if source.Kind != key || !source.Magpie {
 			continue
 		}
-		apiKey := ""
-		if secrets != nil {
-			if value, err := secrets.Get(config.CustomEndpointSecretAccount(ep.ID)); err == nil {
-				apiKey = strings.TrimSpace(value)
-			}
-		}
+		apiKey := source.APIKey(secrets)
 		if apiKey == "" {
 			return engineQuotaEndpoint{}, false
 		}
-		baseURL := strings.TrimSpace(ep.BaseURL)
-		if baseURL == "" {
-			baseURL = config.DefaultMagpieBaseURL
-		}
-		if normalized, err := customEndpointBaseURL(baseURL); err == nil {
-			baseURL = normalized
-		} else {
-			baseURL = strings.TrimRight(baseURL, "/")
-		}
-		return engineQuotaEndpoint{key: key, baseURL: baseURL, apiKey: apiKey}, true
+		return engineQuotaEndpoint{key: key, baseURL: source.BaseURL, apiKey: apiKey}, true
 	}
 	return engineQuotaEndpoint{}, false
 }
@@ -160,7 +150,7 @@ func (c *Client) readMagpieQuotaWindows(ctx context.Context, baseURL, apiKey, ag
 }
 
 // engineQuotaWindows 读取引擎会话的额度窗口。key 形如 mcode:<provider id> 或 magpie 与
-// magpie2…magpie4；找不到有 key 的 Magpie 端点时按未实现处理，界面据此不显示额度。
+// magpie2…magpie4 或 custom-<id>；找不到有 key 的 Magpie 端点时按未实现处理。
 func (c *Client) engineQuotaWindows(ctx context.Context, key string) ([]mcodeui.ProviderQuotaWindow, error) {
 	endpoint, found := c.engineQuotaEndpointForKey(key)
 	if !found {

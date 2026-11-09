@@ -16,6 +16,8 @@ type AnthropicConfig struct {
 	APIKey     string
 	Headers    map[string]string
 	HTTPClient *http.Client
+	// BearerAuth 为真时用 Authorization: Bearer 发送密钥（与 Magpie 网关和 claude CLI 的 ANTHROPIC_AUTH_TOKEN 一致），否则用 x-api-key（官方 Anthropic）。
+	BearerAuth bool
 }
 
 type anthropicClient struct {
@@ -184,10 +186,19 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", c.cfg.APIKey)
+	if c.cfg.BearerAuth {
+		httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	} else {
+		httpReq.Header.Set("x-api-key", c.cfg.APIKey)
+	}
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 	for key, value := range c.cfg.Headers {
 		httpReq.Header.Set(key, value)
+	}
+	if c.cfg.BearerAuth {
+		httpReq.Header.Del("x-api-key")
+	} else {
+		httpReq.Header.Del("Authorization")
 	}
 	client := c.cfg.HTTPClient
 	if client == nil {

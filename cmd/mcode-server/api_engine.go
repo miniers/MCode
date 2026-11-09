@@ -13,7 +13,6 @@ import (
 	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
-	"mcode/internal/magpieinject"
 	"mcode/internal/providers/magpie"
 	providermcode "mcode/internal/providers/mcode"
 	"mcode/internal/remote"
@@ -179,14 +178,7 @@ func registerAPIEngines(backend *remote.MemoryBackend, cfg config.Config, secret
 				if s.Magpie && affinity != "" {
 					headers = map[string]string{"session_id": affinity, "x-client-request-id": affinity, "x-session-affinity": affinity}
 				}
-				if s.Protocol == apisource.ProtocolAnthropic || (s.Magpie && strings.Contains(strings.ToLower(model), "claude")) {
-					base := s.BaseURL
-					if s.Magpie {
-						base = magpieinject.AnthropicBaseURL(base)
-					}
-					return llm.NewAnthropic(llm.AnthropicConfig{BaseURL: base, APIKey: key, Headers: headers}), model, nil
-				}
-				return llm.NewOpenAI(llm.OpenAIConfig{BaseURL: s.BaseURL, APIKey: key, Headers: headers, EchoReasoning: strings.Contains(strings.ToLower(model), "deepseek"), Effort: serverReasoningEffort(s.BaseURL)}), model, nil
+				return apisource.NewClient(s, key, model, apisource.ClientOptions{Headers: headers, Effort: serverReasoningEffort(s.BaseURL)}), model, nil
 			},
 			ContextWindow: func(model string) int {
 				s, ok := find(kind)

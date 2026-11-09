@@ -91,10 +91,44 @@ func newSourceEngineHarness(legacy harness.Harness, cfg config.Config, secrets c
 	opts.ContextWindow = func(model string) int {
 		return sourceEngineContextWindow(kind, cfg, secrets, model)
 	}
+	opts.MaxTokens = func(model string) int {
+		cached, ok := magpieCachedModelFor(kind, cfg, secrets, model)
+		if !ok || cached.MaxTokens <= 0 {
+			return 0
+		}
+		return cached.MaxTokens
+	}
+	opts.AcceptsImages = func(model string) bool {
+		cached, ok := magpieCachedModelFor(kind, cfg, secrets, model)
+		if !ok || len(cached.Input) == 0 {
+			return true
+		}
+		for _, input := range cached.Input {
+			if input == "image" {
+				return true
+			}
+		}
+		return false
+	}
 	opts.CostUSD = func(model string, usage harness.Usage) (float64, bool) {
 		return sourceUsageCost(kind, cfg, secrets, model, usage)
 	}
 	return providermcode.New(opts)
+}
+
+// magpieCachedModelFor 按最新来源配置读取网关模型缓存。
+func magpieCachedModelFor(kind harness.Kind, cfg config.Config, secrets config.SecretStore, model string) (magpie.Model, bool) {
+	model = strings.TrimSpace(model)
+	if model == "" || strings.EqualFold(model, "default") {
+		return magpie.Model{}, false
+	}
+	current := mcodeCurrentConfig(cfg, secrets)
+	store := mcodeCurrentSecrets(secrets)
+	source, ok := findAPISource(apisource.Resolve(current, store), kind)
+	if !ok || !source.Magpie {
+		return magpie.Model{}, false
+	}
+	return magpie.CachedModel(source.BaseURL, source.APIKey(store), model)
 }
 
 // resolveSourceClient 每次调用都重新解析最新配置与凭据，保存新 Key 后无需重建 harness。

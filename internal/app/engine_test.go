@@ -7,6 +7,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -452,6 +454,86 @@ func TestSourceEngineMagpieCostUSD(t *testing.T) {
 	}
 	if !seen || math.Abs(cost-0.00045) > 1e-9 {
 		t.Fatalf("usage = %v, cost = %v", seen, cost)
+	}
+}
+
+func TestSourceEngineMagpieModelCapabilities(t *testing.T) {
+	setMcodeAgentRuntime("", nil)
+	t.Cleanup(func() {
+		setMcodeAgentRuntime("", nil)
+		remote.SetAPICatalog("custom-capabilities", nil)
+		remote.SetAPICatalog("custom-ordinary", nil)
+	})
+	var requests []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			io.WriteString(w, `{"data":[{"id":"model-a","max_output_tokens":8192,"modalities":{"input":["text"]}},{"id":"model-b","modalities":{"input":["text","image"]}}]}`)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		requests = append(requests, body)
+		io.WriteString(w, `{"id":"c1","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer server.Close()
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("capabilities"): "key", config.CustomEndpointSecretAccount("ordinary"): "key"})
+	cfg := config.Defaults()
+	cfg.Providers.Custom = []config.CustomEndpointConfig{
+		{ID: "capabilities", Enabled: true, Magpie: true, BaseURL: server.URL},
+		{ID: "ordinary", Enabled: true, BaseURL: server.URL},
+	}
+	if _, err := magpie.FetchModels(context.Background(), server.URL, "key"); err != nil {
+		t.Fatal(err)
+	}
+	image := filepath.Join(t.TempDir(), "image.png")
+	if err := os.WriteFile(image, []byte("image data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		kind      harness.Kind
+		model     string
+		wantImage bool
+		wantMax   float64
+	}{
+		{"custom-capabilities", "model-a", false, 8192},
+		{"custom-capabilities", "model-b", true, 32000},
+		{"custom-capabilities", "missing", true, 0},
+		{"custom-ordinary", "model-a", true, 0},
+	} {
+		t.Run(string(tc.kind)+"/"+tc.model, func(t *testing.T) {
+			var ep config.CustomEndpointConfig
+			for _, candidate := range cfg.Providers.Custom {
+				if "custom-"+candidate.ID == string(tc.kind) {
+					ep = candidate
+				}
+			}
+			h := newCustomEndpointHarness(ep, secrets, "", providerMCP{})
+			requests = nil
+			if err := h.Run(context.Background(), harness.Turn{Model: tc.model, Prompt: "hi", Images: []string{image}, WorkDir: t.TempDir()}, nil); err != nil {
+				t.Fatal(err)
+			}
+			if len(requests) != 1 {
+				t.Fatalf("请求数 = %d", len(requests))
+			}
+			body := requests[0]
+			encoded, err := json.Marshal(body["messages"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasImage := strings.Contains(string(encoded), "image_url")
+			max, _ := body["max_tokens"].(float64)
+			if hasImage != tc.wantImage || max != tc.wantMax {
+				t.Fatalf("图片 = %v，输出上限 = %v", hasImage, max)
+			}
+		})
+	}
+	for _, model := range []string{"", " DEFAULT "} {
+		if _, ok := magpieCachedModelFor("custom-capabilities", cfg, secrets, model); ok {
+			t.Fatalf("占位模型 %q 不应命中缓存", model)
+		}
 	}
 }
 

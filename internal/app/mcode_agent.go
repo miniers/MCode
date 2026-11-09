@@ -199,7 +199,7 @@ func mcodeAffinityHeaders(affinityKey string) map[string]string {
 
 // isClaudeModel 判断模型是否属于 Claude 家族：模型 ID 小写后包含 claude 即为真。
 func isClaudeModel(modelID string) bool {
-	return strings.Contains(strings.ToLower(modelID), "claude")
+	return apisource.IsClaudeModel(modelID)
 }
 
 // magpieClient 为 Magpie 网关上的模型选择请求协议：Claude 家族走 Anthropic Messages，
@@ -209,9 +209,10 @@ func magpieClient(target magpieinject.Target, affinityKey, modelID string, effor
 	if isClaudeModel(modelID) {
 		// NewAnthropic 会在根地址后补 /v1/messages，这里先换成与 claude CLI 相同的根地址。
 		clientCfg := llm.AnthropicConfig{
-			BaseURL: magpieinject.AnthropicBaseURL(target.BaseURL),
-			APIKey:  target.APIKey,
-			Headers: mcodeAffinityHeaders(affinityKey),
+			BaseURL:    magpieinject.AnthropicBaseURL(target.BaseURL),
+			APIKey:     target.APIKey,
+			Headers:    mcodeAffinityHeaders(affinityKey),
+			BearerAuth: true,
 		}
 		return llm.NewAnthropic(clientCfg), modelID
 	}

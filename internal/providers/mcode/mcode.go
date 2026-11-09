@@ -45,6 +45,8 @@ type Options struct {
 	// MaxTokens 返回每个模型请求的输出上限（tokens），参数是解析前的完整模型串；
 	// 可以为 nil，返回 0 表示交给 llm 层按模型取默认值。
 	MaxTokens func(model string) int
+	// AcceptsImages 的参数是解析前的完整模型串；为 nil 或返回真时照常附带图片。
+	AcceptsImages func(model string) bool
 	// CostUSD 返回本轮费用（美元），参数是解析前的完整模型串与本轮用量；
 	// 返回假表示不填费用。可以为 nil。
 	CostUSD func(model string, usage harness.Usage) (float64, bool)
@@ -176,19 +178,25 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		system = h.opts.SystemPrompt(turn, toolNames)
 	}
 
-	images := make([]llm.Part, 0, len(turn.Images))
-	for _, path := range turn.Images {
-		mimeType, ok := harness.ImageMediaType(path)
-		if !ok {
-			emitEvent(emit, harness.Event{Type: harness.EventError, Err: fmt.Sprintf("无法识别图片类型，已跳过：%s", path)})
-			continue
+	prompt := turn.Prompt
+	var images []llm.Part
+	if len(turn.Images) > 0 && h.opts.AcceptsImages != nil && !h.opts.AcceptsImages(model) {
+		prompt += fmt.Sprintf("\n（当前模型不支持图片，已忽略 %d 张附图）", len(turn.Images))
+	} else {
+		images = make([]llm.Part, 0, len(turn.Images))
+		for _, path := range turn.Images {
+			mimeType, ok := harness.ImageMediaType(path)
+			if !ok {
+				emitEvent(emit, harness.Event{Type: harness.EventError, Err: fmt.Sprintf("无法识别图片类型，已跳过：%s", path)})
+				continue
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				emitEvent(emit, harness.Event{Type: harness.EventError, Err: fmt.Sprintf("读取图片失败，已跳过 %s：%v", path, err)})
+				continue
+			}
+			images = append(images, llm.Part{Type: "image", MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(data)})
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			emitEvent(emit, harness.Event{Type: harness.EventError, Err: fmt.Sprintf("读取图片失败，已跳过 %s：%v", path, err)})
-			continue
-		}
-		images = append(images, llm.Part{Type: "image", MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(data)})
 	}
 
 	var store *session.Store
@@ -226,7 +234,6 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		// 复用解析前的完整模型串，与 ContextWindow 的取值方式一致。
 		agentOpts.MaxTokens = func(string) int { return h.opts.MaxTokens(model) }
 	}
-	prompt := turn.Prompt
 	// 把线程的进程登记回调带进工具上下文，上层据此终止当前命令。
 	runCtx := h.withProcessTracker(ctx, turn.ThreadID)
 	for {

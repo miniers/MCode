@@ -50,6 +50,32 @@ func TestAnthropicStream(t *testing.T) {
 	}
 }
 
+func TestAnthropicAuthentication(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		bearer        bool
+		authorization string
+		apiKey        string
+	}{
+		{name: "bearer", bearer: true, authorization: "Bearer key"},
+		{name: "api-key", apiKey: "key"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != tc.authorization || r.Header.Get("x-api-key") != tc.apiKey {
+					t.Errorf("authentication headers: %v", r.Header)
+				}
+				fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
+			}))
+			defer server.Close()
+			_, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL, APIKey: "key", BearerAuth: tc.bearer}).Stream(context.Background(), Request{Model: "test"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestAnthropicRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages" || r.Header.Get("x-api-key") != "key" || r.Header.Get("anthropic-version") != "2023-06-01" || r.Header.Get("X-Extra") != "value" {

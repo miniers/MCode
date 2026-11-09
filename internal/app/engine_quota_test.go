@@ -71,7 +71,7 @@ func engineQuotaTestClient(t *testing.T, endpoints []config.CustomEndpointConfig
 }
 
 // TestEngineQuotaKey 校验引擎会话的额度 key 形状：mcode 带端点前缀，magpie 与
-// magpie2…magpie4 直接用 provider 自身命名，其余都不算。
+// magpie2…magpie4 与 custom-<id> 直接用 provider 自身命名，其余都不算。
 func TestEngineQuotaKey(t *testing.T) {
 	for _, tc := range []struct {
 		key  string
@@ -86,12 +86,43 @@ func TestEngineQuotaKey(t *testing.T) {
 		{"magpie4", true},
 		{"magpie1", false},
 		{"magpie5", false},
+		{"custom-jp", true},
+		{"custom-", false},
+		{"custom-  ", false},
 		{"pi:magpie-jp", false},
 		{"agy", false},
 	} {
 		if got := engineQuotaKey(tc.key); got != tc.want {
 			t.Errorf("engineQuotaKey(%q) = %v，想要 %v", tc.key, got, tc.want)
 		}
+	}
+}
+
+func TestEngineQuotaEndpointIn(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		endpoint config.CustomEndpointConfig
+		key      string
+		apiKey   string
+		want     bool
+	}{
+		{"自定义 Magpie", config.CustomEndpointConfig{ID: "jp", BaseURL: "https://example.com/v1/", Enabled: true, Magpie: true}, "custom-jp", "gw-key", true},
+		{"普通自定义端点", config.CustomEndpointConfig{ID: "jp", BaseURL: "https://example.com/v1/", Enabled: true}, "custom-jp", "gw-key", false},
+		{"缺少密钥", config.CustomEndpointConfig{ID: "jp", BaseURL: "https://example.com/v1/", Enabled: true, Magpie: true}, "custom-jp", "", false},
+		{"旧槽位 magpie", config.CustomEndpointConfig{ID: "magpie", BaseURL: "https://example.com/v1/", Enabled: true, Magpie: true}, "magpie", "gw-key", true},
+		{"旧槽位 magpie2", config.CustomEndpointConfig{ID: "magpie2", BaseURL: "https://example.com/v1/", Enabled: true, Magpie: true}, "magpie2", "gw-key", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := magpieTestConfig(tc.endpoint)
+			secrets := magpieTestSecrets(t, map[string]string{tc.endpoint.ID: tc.apiKey})
+			got, found := engineQuotaEndpointIn(cfg, secrets, tc.key)
+			if found != tc.want {
+				t.Fatalf("found = %v，想要 %v", found, tc.want)
+			}
+			if found && (got.key != tc.key || got.baseURL != "https://example.com/v1" || got.apiKey != tc.apiKey) {
+				t.Errorf("端点 = %+v", got)
+			}
+		})
 	}
 }
 

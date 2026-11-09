@@ -24,8 +24,5 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 		return nil, "", ErrNoModel
 	}
 	key := src.APIKey(secrets)
-	if src.Protocol == apisource.ProtocolAnthropic {
-		return llm.NewAnthropic(llm.AnthropicConfig{BaseURL: src.BaseURL, APIKey: key, Headers: src.Headers}), model, nil
-	}
-	return llm.NewOpenAI(llm.OpenAIConfig{BaseURL: src.BaseURL, APIKey: key, Headers: src.Headers}), model, nil
+	return apisource.NewClient(src, key, model, apisource.ClientOptions{}), model, nil
 }
