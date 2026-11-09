@@ -35,23 +35,28 @@ func SelectSource(sources []apisource.Source, secrets config.SecretStore, provid
 	}
 	if selected < 0 {
 		for i, s := range sources {
-			if s.APIKey(secrets) != "" {
+			if s.APIKey(secrets) != "" && (strings.TrimSpace(model) != "" || strings.TrimSpace(cheapModel(s)) != "") {
 				selected = i
 				break
 			}
 		}
 	}
 	if selected < 0 {
-		selected = 0
-		if model == "" {
-			model = sources[0].DefaultModel
+		for i, s := range sources {
+			if strings.TrimSpace(model) != "" || strings.TrimSpace(cheapModel(s)) != "" {
+				selected = i
+				break
+			}
 		}
 	}
+	if selected < 0 {
+		return apisource.Source{}, "", ErrNoModel
+	}
 	src := sources[selected]
-	if model == "" {
+	if strings.TrimSpace(model) == "" {
 		model = cheapModel(src)
 	}
-	if model == "" {
+	if strings.TrimSpace(model) == "" {
 		return apisource.Source{}, "", ErrNoModel
 	}
 	return src, model, nil

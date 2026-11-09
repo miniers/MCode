@@ -57,6 +57,20 @@ func TestStewardFeed(t *testing.T) {
 	if err != nil || thread.HasUnread {
 		t.Fatalf("回复不应置未读: %+v %v", thread, err)
 	}
+	if err = b.AppendStewardMessage(ctx, id, "assistant", "steward_result", "完成"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = b.BulkMarkRead(ctx, "p", []string{id}); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := b.GetThread(ctx, id)
+	if err != nil || summary.HasUnread {
+		t.Fatalf("标记已读后内存摘要仍未读: %+v %v", summary, err)
+	}
+	thread, err = db.GetThread(ctx, id)
+	if err != nil || thread.HasUnread {
+		t.Fatalf("标记已读后存储仍未读: %+v %v", thread, err)
+	}
 	b.AddThread(wire.ThreadSummary{ID: "ordinary", ProjectID: "p", Provider: "memory"}, nil)
 	if _, err = b.SendMessage(ctx, wire.SendMessageParams{ThreadID: "ordinary", Text: "/plan"}); err != nil {
 		t.Fatal(err)

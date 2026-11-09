@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 
+	"mcode/internal/agent/llm"
 	"mcode/internal/textgen"
 )
 
@@ -47,6 +48,8 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot) (bool
 		}
 	}
 	tools := d.toolbox()
+	confirmation := ""
+	var firstErr error
 	for _, call := range calls {
 		if call.Tool != "create_task" && call.Tool != "amend_task" && call.Tool != "remember" && call.Tool != "answer_decision" {
 			log.Printf("frontdesk: 丢弃 CLI 工具 %s", call.Tool)
@@ -61,9 +64,24 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot) (bool
 			log.Printf("frontdesk: 丢弃 CLI 参数：%v", err)
 			continue
 		}
-		if _, err := tool.Run(ctx, call.Args); err != nil {
+		value, err := tool.Run(ctx, call.Args)
+		if err != nil {
 			log.Printf("frontdesk: CLI 写入失败：%v", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else if confirmation == "" || call.Tool == "create_task" {
+			confirmation = d.toolConfirmation(ctx, llm.ToolCall{Name: call.Tool, Arguments: call.Args}, value)
 		}
+	}
+	if strings.TrimSpace(reply) == "" {
+		if confirmation == "" && firstErr != nil {
+			confirmation = "没办成：" + errorSummary(firstErr)
+		}
+		if confirmation == "" {
+			confirmation = "没办成：模型没有返回内容"
+		}
+		d.reply(ctx, in.ThreadID, confirmation)
 	}
 	return true, nil
 }

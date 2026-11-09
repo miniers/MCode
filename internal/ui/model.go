@@ -1289,6 +1289,7 @@ func (s *chatState) fetchUsage(threadID string) {
 // selectThread 切换会话：先注销前一个 Watch，再加载 History、Approvals 和 Usage，最后 Watch 新会话。
 // 切换前把当前会话草稿（含排队项编辑暂存）写回草稿表，切换后回填目标会话的草稿。
 func (s *chatState) selectThread(threadID string) {
+	stewardID := s.stewardThreadID()
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -1321,6 +1322,23 @@ func (s *chatState) selectThread(threadID string) {
 	}
 	// 打开会话即视为已查看：撤掉侧栏上的完成小红点与红色标题。
 	s.clearTurnFinishedLocked(threadID)
+	readProjectID := ""
+	for i := range s.threads {
+		if s.threads[i].ID == threadID && s.threads[i].HasUnread {
+			readProjectID = s.threads[i].ProjectID
+			s.threads[i].HasUnread = false
+		}
+	}
+	for _, list := range s.threadsByProj {
+		for i := range list {
+			if list[i].ID == threadID && list[i].HasUnread {
+				if readProjectID == "" {
+					readProjectID = list[i].ProjectID
+				}
+				list[i].HasUnread = false
+			}
+		}
+	}
 	if threadID != "" {
 		// 切到真实会话即丢弃待创建会话，不在后端留下空会话。
 		s.pendingThread = nil
@@ -1360,6 +1378,16 @@ func (s *chatState) selectThread(threadID string) {
 	s.stoppingSince = time.Time{}
 	s.scrollToEnd = true
 	s.mu.Unlock()
+	if readProjectID != "" {
+		go func() {
+			if err := s.client.BulkMarkRead(context.Background(), readProjectID, []string{threadID}); err != nil {
+				s.setToast("标记已读失败: " + err.Error())
+			}
+		}()
+	}
+	if threadID != "" && threadID == stewardID {
+		time.AfterFunc(stewardDecisionCountRefresh, s.refreshStewardDecisionCount)
+	}
 	s.invalidate()
 	if oldThreadID != threadID {
 		// 草稿表发生变化，后台补一次落盘（内部自行加锁）。
@@ -1540,6 +1568,10 @@ func turnEndQuotaKey(key string) bool {
 
 // onWatchUpdate 在收到 Watch 增量更新时安全更新本地消息与会话状态，并在从运行中变为空闲时拉取最新用量。
 func (s *chatState) onWatchUpdate(update ThreadUpdate) {
+	stewardID := s.stewardThreadID()
+	readProjectID := ""
+	markRead := false
+	refreshDecision := false
 	var shouldFetchUsage bool
 	// endedQuotaKey 记录刚结束的这一轮所属会话的额度 key（pi 线程带 magpie 端点前缀，claude/codex 用提供方名）。
 	var endedQuotaKey string
@@ -1560,6 +1592,18 @@ func (s *chatState) onWatchUpdate(update ThreadUpdate) {
 		}
 	}
 	if s.selectedThreadID == update.ThreadID {
+		if update.ThreadID == stewardID && update.Thread.HasUnread {
+			markRead = true
+			update.Thread.HasUnread = false
+		}
+		if update.ThreadID == stewardID {
+			for _, msg := range update.Messages {
+				if msg.Kind == stewardDecisionAnswerKind {
+					refreshDecision = true
+					break
+				}
+			}
+		}
 		var wasRunning bool
 		for _, th := range s.threads {
 			if th.ID == update.ThreadID {
@@ -1613,6 +1657,9 @@ func (s *chatState) onWatchUpdate(update ThreadUpdate) {
 			}
 		}
 	}
+	if markRead {
+		readProjectID = pid
+	}
 	if pid != "" {
 		list := s.threadsByProj[pid]
 		found := false
@@ -1647,6 +1694,16 @@ func (s *chatState) onWatchUpdate(update ThreadUpdate) {
 	// 推送里的会话摘要带着权威的 HasPendingRequest / IsRunning，待处理请求集合必须失效。
 	s.bumpThreadsRuntimeLocked()
 	s.mu.Unlock()
+	if readProjectID != "" {
+		go func() {
+			if err := s.client.BulkMarkRead(context.Background(), readProjectID, []string{update.ThreadID}); err != nil {
+				s.setToast("标记已读失败: " + err.Error())
+			}
+		}()
+	}
+	if refreshDecision {
+		time.AfterFunc(stewardDecisionCountRefresh, s.refreshStewardDecisionCount)
+	}
 	s.invalidate()
 
 	if resyncThreadID != "" {

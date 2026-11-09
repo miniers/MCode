@@ -212,6 +212,9 @@ func (s *frontdeskServices) AnswerDecision(ctx context.Context, id, answer, by s
 func (s *frontdeskServices) AppendAssistant(ctx context.Context, thread, kind, text string) error {
 	return s.backend.AppendStewardMessage(ctx, thread, "assistant", kind, text)
 }
+func (s *frontdeskServices) SetBusy(thread string, busy bool) {
+	s.backend.SetStewardBusy(thread, busy)
+}
 func (s *frontdeskServices) Recent(ctx context.Context, thread string, limit int) ([]llm.Message, error) {
 	messages, _, err := s.store.ListMessages(ctx, thread, 0, limit)
 	if err != nil {

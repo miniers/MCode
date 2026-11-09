@@ -136,13 +136,11 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 	unread := role != "user" && kind != "steward_reply" && kind != "steward_decision_answer"
 	if unread {
 		td.summary.HasUnread = true
+		_ = b.store.SetThreadUnread(ctx, threadID, true)
 	}
 	summary := b.summaryForPublishLocked(td)
 	b.mu.Unlock()
 	_ = b.store.TouchThread(ctx, threadID, now)
-	if unread {
-		_ = b.store.SetThreadUnread(ctx, threadID, true)
-	}
 	b.hub.Publish(threadID, []wire.ThreadMessage{msg}, nil, summary)
 	return msg, paths, nil
 }

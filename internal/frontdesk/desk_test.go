@@ -102,7 +102,8 @@ func TestLoop(t *testing.T) {
 		{"无效参数", []*llm.Response{response(call("create_task", `{}`)), response()}, []string{"丢弃", "修正"}, []string{"reply:修正"}, 2},
 		{"无效JSON", []*llm.Response{response(call("create_task", `{`)), response()}, []string{"丢弃", "修正"}, []string{"reply:修正"}, 2},
 		{"未知", []*llm.Response{response(call("missing", `{}`)), response()}, []string{"丢弃", "修正"}, []string{"reply:修正"}, 2},
-		{"轮数耗尽", []*llm.Response{response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`))}, []string{"丢弃", "丢弃", "丢弃", "丢弃"}, []string{"list", "list", "list", "list", "create:原话:owner"}, 4},
+		{"轮数耗尽", []*llm.Response{response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`))}, []string{"丢弃", "丢弃", "丢弃", "丢弃"}, []string{"list", "list", "list", "list", "create:原话:owner", "reply:前台模型不可用：达到最大轮数 4，已建任务「原话」"}, 4},
+		{"写工具无文字", []*llm.Response{response(call("create_task", `{"title":"工作"}`))}, []string{""}, []string{"create:工作:owner", "reply:已建任务「工作」"}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -157,9 +158,9 @@ func TestCLI(t *testing.T) {
 		want      []string
 		calls     int
 	}{
-		{"关闭", "", false, []string{"create:工作:owner"}, 0},
+		{"关闭", "", false, []string{"create:工作:owner", "reply:已建任务「工作」"}, 0},
 		{"正常", `{"reply":"收到","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, true, []string{"reply:收到", "create:任务:owner"}, 1},
-		{"损坏", "{", true, []string{"create:工作:owner"}, 1},
+		{"损坏", "{", true, []string{"create:工作:owner", "reply:已建任务「工作」"}, 1},
 		{"丢弃读", `{"reply":"收到","calls":[{"tool":"list_tasks","args":{}}]}`, true, []string{"reply:收到"}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -307,21 +308,21 @@ func TestFrontdeskBehaviors(t *testing.T) {
 					t.Fatal("缺少下一轮请求")
 				}
 				msg := s.requests[1].Messages[2]
-				if len(f.events) != 0 || msg.Role != "tool" || !msg.IsError || len(msg.Content) == 0 || !strings.Contains(msg.Content[0].Text, tc.message) {
+				if !reflect.DeepEqual(f.events, []string{"reply:没办成：模型没有返回内容"}) || msg.Role != "tool" || !msg.IsError || len(msg.Content) == 0 || !strings.Contains(msg.Content[0].Text, tc.message) {
 					t.Fatalf("事件 %v，结果 %+v", f.events, msg)
 				}
 			})
 		}
 	})
 
-	t.Run("空文本的干净轮不落回复", func(t *testing.T) {
+	t.Run("空文本的干净轮返回失败", func(t *testing.T) {
 		f := &fake{}
 		s := &scripted{replies: []*llm.Response{response()}, texts: []string{"  "}}
 		d := Desk{Client: s, Feed: f, Tasks: f}
 		if err := d.loop(context.Background(), Inbound{}, Snapshot{}); err != nil {
 			t.Fatal(err)
 		}
-		if len(f.events) != 0 {
+		if !reflect.DeepEqual(f.events, []string{"reply:没办成：模型没有返回内容"}) {
 			t.Fatal(f.events)
 		}
 	})
@@ -388,4 +389,58 @@ func TestSelectModel(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+type busyFake struct {
+	*fake
+	done chan struct{}
+}
+
+func (f *busyFake) SetBusy(_ string, busy bool) {
+	if busy {
+		f.event("busy:true")
+	} else {
+		f.event("busy:false")
+		close(f.done)
+	}
+}
+
+func TestVisibleFallbackAndBusy(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		client llm.Client
+		want   string
+	}{
+		{"模型失败", &scripted{err: errors.New("401\n授权失败")}, "reply:前台模型不可用：401 授权失败，已建任务「工作」"},
+		{"没有模型", &scripted{err: ErrNoModel}, "reply:前台模型不可用：没有可用模型，可在主会话选择模型，已建任务「工作」"},
+		{"主动兜底", nil, "reply:已建任务「工作」"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &busyFake{fake: &fake{}, done: make(chan struct{})}
+			d := Desk{Client: tc.client, Feed: f, Tasks: f}
+			d.Enqueue(Inbound{ThreadID: "feed", Text: "工作"})
+			select {
+			case <-f.done:
+			case <-time.After(time.Second):
+				t.Fatal("处理超时")
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if want := []string{"busy:true", "list", "create:工作:owner", tc.want, "busy:false"}; !reflect.DeepEqual(f.events, want) {
+				t.Fatalf("事件 %v", f.events)
+			}
+		})
+	}
+}
+
+func TestSelectSourceSkipsKeyedSourceWithoutModel(t *testing.T) {
+	t.Setenv("FRONTDESK_TEST_KEY", "key")
+	sources := []apisource.Source{
+		{Kind: "empty", APIKeyEnv: "FRONTDESK_TEST_KEY"},
+		{Kind: "ready", APIKeyEnv: "FRONTDESK_TEST_KEY", DefaultModel: "mini"},
+	}
+	src, model, err := SelectSource(sources, nil, "", "")
+	if err != nil || src.Kind != "ready" || model != "mini" {
+		t.Fatalf("来源 %s，模型 %s，错误 %v", src.Kind, model, err)
+	}
 }

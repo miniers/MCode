@@ -22,6 +22,11 @@ type FeedStore interface {
 	Recent(context.Context, string, int) ([]llm.Message, error)
 }
 
+// BusyFeed 可选地向会话发布前台处理状态。
+type BusyFeed interface {
+	SetBusy(threadID string, busy bool)
+}
+
 // CreateTaskInput 描述前台创建的任务。
 type CreateTaskInput struct{ Title, Body, ProjectID, Priority, Provider, Model, Origin string }
 
@@ -150,9 +155,17 @@ func (d *Desk) Enqueue(in Inbound) {
 			next := d.queue[0]
 			d.queue = d.queue[1:]
 			d.mu.Unlock()
-			if err := d.HandleMessage(context.Background(), next); err != nil {
-				log.Printf("frontdesk: %v", err)
-			}
+			func() {
+				if feed, ok := d.Feed.(BusyFeed); ok {
+					feed.SetBusy(next.ThreadID, true)
+					defer feed.SetBusy(next.ThreadID, false)
+				}
+				ctx := context.Background()
+				if err := d.HandleMessage(ctx, next); err != nil {
+					log.Printf("frontdesk: %v", err)
+					d.reply(ctx, next.ThreadID, "没办成："+errorSummary(err))
+				}
+			}()
 		}
 	}()
 }
