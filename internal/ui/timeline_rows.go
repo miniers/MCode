@@ -2013,8 +2013,8 @@ func renderForwardedContextRow(c *ui.Context, s *chatState, item timelineItem) {
 			count++
 		}
 	}
-	ui.Column(c.Key(item.id+"-context")).FillWidth().Gap(turnGap).Children(func() {
-		ui.Column(c.Key(item.id+"-history")).FillWidth().Opacity(0.7).Gap(turnGap).Children(func() {
+	ui.Column(c.Key(item.id + "-context")).FillWidth().Gap(turnGap).Children(func() {
+		ui.Column(c.Key(item.id + "-history")).FillWidth().Opacity(0.7).Gap(turnGap).Children(func() {
 			expanded := s.forwardedContextExpanded(item.threadID, false)
 			if count > 0 {
 				label := fmt.Sprintf("更早 %d 条", count)
@@ -2041,7 +2041,7 @@ func renderForwardedContextRow(c *ui.Context, s *chatState, item timelineItem) {
 			}
 			if count > 0 {
 				motionUnfoldBody(c, item.id+"-earlier-body", expanded, func() {
-					ui.Column(c.Key(item.id+"-earlier-turns")).FillWidth().Gap(turnGap).Children(renderEarlier)
+					ui.Column(c.Key(item.id + "-earlier-turns")).FillWidth().Gap(turnGap).Children(renderEarlier)
 				})
 			} else {
 				renderEarlier()
@@ -2066,9 +2066,9 @@ func renderForwardedTurn(c *ui.Context, s *chatState, key string, turn forwarded
 		markdown.View(c.Key(key), turn.Text, &s.mdStaticOpts)
 	case "omitted":
 		ui.Row(c.Key(key)).FillWidth().AlignItems(ui.Center).Gap(Space3).Children(func() {
-			ui.Box(c.Key(key+"-left")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
+			ui.Box(c.Key(key + "-left")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
 			ui.Text(c, "…").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-			ui.Box(c.Key(key+"-right")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
+			ui.Box(c.Key(key + "-right")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
 		})
 	}
 }
@@ -2076,7 +2076,7 @@ func renderForwardedTurn(c *ui.Context, s *chatState, key string, turn forwarded
 func renderForwardedOriginRow(c *ui.Context, s *chatState, key string, info continuationStartInfo) {
 	label := info.Label + "「" + info.DisplayTitle + "」"
 	ui.Row(c.Key(key+"-origin-row")).FillWidth().AlignItems(ui.Center).Gap(Space3).Margin(0, 0, 10, 0).Children(func() {
-		ui.Box(c.Key(key+"-origin-left")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
+		ui.Box(c.Key(key + "-origin-left")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
 		color := ThemeSecondaryText(c)
 		if info.TargetThreadID != "" {
 			color = ThemeAccent(c)
@@ -2100,7 +2100,7 @@ func renderForwardedOriginRow(c *ui.Context, s *chatState, key string, info cont
 			}
 			btn.Children(content)
 		}
-		ui.Box(c.Key(key+"-origin-right")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
+		ui.Box(c.Key(key + "-origin-right")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
 	})
 }
 

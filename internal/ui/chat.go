@@ -251,7 +251,8 @@ func renderChat(c *ui.Context, s *chatState) {
 		chatBody.Children(func() {
 			// Hero 判定与输入框停靠共用 composerThreadEmpty：两处口径一致，
 			// 才不会出现「输入框已停靠到底部、引导屏还占着中间」的错位。
-			hero := composerThreadEmpty(len(messages), len(curResolvedPlans), len(curAnsweredQuestions)) && !s.hasForwardedContextBody(selectedID)
+			hasForwardedContext := s.hasForwardedContextBody(selectedID)
+			hero := composerThreadEmpty(len(messages), len(curResolvedPlans), len(curAnsweredQuestions)) && !hasForwardedContext
 			// dockDec 是输入框本帧的布局结论；切换帧（首条消息刚发出）时才播位移与淡入。
 			dockDec := s.composerDockDecisionFor(hero, selectedID)
 			if !dockDec.Docked {

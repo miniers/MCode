@@ -20,7 +20,7 @@ import (
 func TestParseForwardedTurns(t *testing.T) {
 	cases := []struct {
 		content string
-		want []forwardedTurn
+		want    []forwardedTurn
 	}{
 		{"User:\n第一句\n\nAssistant:\n第一答\n\nUser:\n第二句\n\nAssistant:\n第二答", []forwardedTurn{{"user", "第一句"}, {"assistant", "第一答"}, {"user", "第二句"}, {"assistant", "第二答"}}},
 		{"User:\n一\n[trimmed]\n\n[… omitted …]\n\nAssistant:\n二", []forwardedTurn{{"user", "一\n…"}, {"omitted", "[… omitted …]"}, {"assistant", "二"}}},
