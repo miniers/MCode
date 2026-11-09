@@ -109,6 +109,7 @@ func settingsLegacyItems() []settingsItem {
 		{ID: "row-provider-add-model", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "默认模型", Aliases: []string{"供应商", "模型"}},
 		{ID: "row-provider-add-cli-", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "命令行供应商", Aliases: []string{"供应商", "cli"}, Dynamic: true},
 		{ID: "row-provider-add-preset-", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "预设供应商", Aliases: []string{"供应商", "预设"}, Dynamic: true},
+		{ID: "row-provider-add-custom", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "自定义端点", Aliases: []string{"供应商", "自定义", "端点"}},
 
 		// ---- 模型与供应商：你的模型 ----
 		{ID: "row-models-none", Page: "models", Section: "你的模型", Title: "尚未选择模型", Aliases: []string{"模型", "模型选择器"}},

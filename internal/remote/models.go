@@ -11,7 +11,6 @@ import (
 	"mcode/internal/providers/cline"
 	"mcode/internal/providers/codex"
 	"mcode/internal/providers/commandcode"
-	"mcode/internal/providers/openai"
 	"mcode/internal/remote/wire"
 )
 
@@ -408,14 +407,14 @@ func hasPlaceholderCatalog(models []wire.ProviderModel) bool {
 	return true
 }
 
-// openAICompatibleProvider 判断 provider 是否由 OpenAI 兼容 harness 驱动（预设与自定义端点）。
+// openAICompatibleProvider 判断 provider 是否由 OpenAI 兼容 harness 驱动（API 来源预设与自定义端点）。
 // 它们的模型来自各自 harness 的 ModelIDs()（配置里的具体模型），保持空目录才能让
 // ListProviders 用该模型补行；返回占位行反而会顶掉配置里的模型。
 func openAICompatibleProvider(provider string) bool {
 	if strings.HasPrefix(provider, "custom-") {
 		return true
 	}
-	_, ok := openai.PresetByID(provider)
+	_, ok := apisource.PresetByID(provider)
 	return ok
 }
 

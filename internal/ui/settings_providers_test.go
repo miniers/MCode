@@ -47,9 +47,12 @@ func TestAPIProviderSheet_NativePresets(t *testing.T) {
 			}
 			openProviderSheet(st, entries[0].Kind, entries[0].ID)
 			tt := ui.NewTester(func(c *ui.Context) { renderProviderSheetBody(c, st) }, 1000, 3000)
-			for _, label := range []string{"密钥（API Key）", "接口地址（BaseURL）", "默认模型"} {
-				if !tt.HasText(label) {
-					t.Fatalf("供应商面板缺少 %q: %v", label, tt.Texts())
+			if !tt.HasText("密钥（API Key）") {
+				t.Fatalf("供应商面板缺少 API Key: %v", tt.Texts())
+			}
+			for _, label := range []string{"接口地址（BaseURL）", "默认模型"} {
+				if got, want := tt.HasText(label), id == "openai"; got != want {
+					t.Fatalf("供应商面板 %q 显示状态 = %v，期望 %v: %v", label, got, want, tt.Texts())
 				}
 			}
 		})

@@ -1387,7 +1387,7 @@ type ProvidersConfig struct {
 }
 
 // PresetProviderConfig 单个 OpenAI 兼容预设（DeepSeek、Z.ai、Meta、Magpie）的设置；
-// key 为 internal/providers/openai 的预设 ID。零值表示未启用。
+// key 为 internal/apisource 的预设 ID。零值表示未启用。
 type PresetProviderConfig struct {
 	Enabled    bool   `json:"enabled"`
 	BaseURL    string `json:"baseURL"`
@@ -2268,7 +2268,7 @@ func Defaults() Config {
 var tierIDRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 // builtinProviderIDs 是仓库内置 provider 的 ID：CLI 家族、ACP Agent 与 OpenAI 兼容预设。
-// ACP Agent ID 与 internal/providers/acp.Agents() 保持一致，预设 ID 与 internal/providers/openai.PresetByID 一致。
+// ACP Agent ID 与 internal/providers/acp.Agents() 保持一致，预设 ID 与 internal/apisource.PresetByID 一致。
 var builtinProviderIDs = []string{
 	ProviderClaude, ProviderCodex, ProviderAgy, ProviderMemory,
 	ProviderCopilot, ProviderPi, ProviderMcode, ProviderOmp, ProviderCommandCode,

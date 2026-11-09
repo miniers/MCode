@@ -232,7 +232,7 @@ func refreshCustomEndpointProviders(st *SettingsState, client Client) {
 		}
 	}
 	if !found {
-		chat.newThreadProvider = defaultNewThreadProvider(chat.providers)
+		chat.newThreadProvider = defaultNewThreadProvider(chat.providers, newThreadProviderContext{chat.threads, chat.stewardThreadID()})
 	}
 	chat.mu.Unlock()
 }
@@ -1073,9 +1073,9 @@ func apiProviderRowIcon(id string) *ui.SVG {
 }
 
 // apiProviderNeedsEndpointFields 判断 API 供应商是否需要 BaseURL 与默认模型输入：
-// Anthropic、OpenAI 和带默认端点的预设可以编辑地址与模型。
+// Anthropic 只有 API Key；OpenAI、自定义端点和带默认端点的预设可以编辑地址与模型。
 func apiProviderNeedsEndpointFields(st *SettingsState, kind, id string) bool {
-	if kind == "custom" || (kind == "preset" && (id == "anthropic" || id == "openai")) {
+	if kind == "custom" || (kind == "preset" && id == "openai") {
 		return true
 	}
 	st.mu.Lock()

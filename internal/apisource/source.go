@@ -1,5 +1,5 @@
 // Package apisource 把配置与凭据解析成统一的 API 来源描述。
-// 本包只做数据解析：不发起请求，也不依赖 app 或 remote 层。
+// 本包解析来源并提供最小的模型目录请求，不依赖 app 或 remote 层。
 package apisource
 
 import (
@@ -53,7 +53,7 @@ const (
 	openaiLabel         = "OpenAI"
 	openaiAPIKeyAccount = "openai.apiKey"
 	openaiAPIKeyEnv     = "OPENAI_API_KEY"
-	// openaiDefaultBaseURL 与 openai.New 的默认地址一致。
+	// openaiDefaultBaseURL 是 OpenAI 的默认端点。
 	openaiDefaultBaseURL = "https://api.openai.com/v1"
 
 	anthropicKind                = "anthropic"

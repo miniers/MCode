@@ -46,3 +46,20 @@ func TestDefaultNewThreadProviderFallback(t *testing.T) {
 		t.Fatalf("默认来源 = %q，期望为空", got)
 	}
 }
+
+func TestRefreshCustomEndpointProvidersUsesRecentThread(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetProviders([]ProviderInfo{{ID: "deepseek", Available: true}, {ID: "custom-x", Available: true}})
+	chat := &chatState{
+		client:            fake,
+		newThreadProvider: "deleted",
+		threads:           []Thread{{Provider: "custom-x", UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}},
+	}
+	st := NewSettingsState(settingsTestDir(t), nil, chat)
+	refreshCustomEndpointProviders(st, fake)
+	chat.mu.Lock()
+	defer chat.mu.Unlock()
+	if chat.newThreadProvider != "custom-x" {
+		t.Fatalf("刷新后默认来源 = %q，期望 custom-x", chat.newThreadProvider)
+	}
+}

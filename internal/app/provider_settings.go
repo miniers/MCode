@@ -9,7 +9,6 @@ import (
 	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/providers/acp"
-	"mcode/internal/providers/openai"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -74,7 +73,7 @@ func providerSettingSecretAccount(id string) string {
 	if id == "openai" {
 		return "openai.apiKey"
 	}
-	if preset, ok := openai.PresetByID(id); ok {
+	if preset, ok := apisource.PresetByID(id); ok {
 		return preset.APIKeyAccount
 	}
 	return ""
@@ -146,7 +145,7 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 			s.HasAPIKey = hasProviderSecret(secrets, droidAPIKeyAccount)
 		}
 	default:
-		preset, ok := openai.PresetByID(spec.id)
+		preset, ok := apisource.PresetByID(spec.id)
 		if !ok {
 			return s
 		}
