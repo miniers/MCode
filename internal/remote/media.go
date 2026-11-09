@@ -215,6 +215,9 @@ type attachmentRecord struct {
 	createdAt time.Time
 	path      string
 	queueRefs int
+	copyRefs  int
+	consumed  bool
+	copyMu    sync.Mutex
 }
 
 // attachmentStore 管理未被消息引用的暂存附件生命周期与磁盘存储。
@@ -303,7 +306,7 @@ func (s *attachmentStore) cleanupExpired() int {
 
 	var expired []string
 	for id, item := range s.items {
-		if item.queueRefs > 0 {
+		if item.queueRefs > 0 || item.copyRefs > 0 {
 			continue
 		}
 		if now.Sub(item.createdAt) >= attachmentLifetime {
@@ -401,7 +404,7 @@ func (s *attachmentStore) getLocked(id string) (*attachmentRecord, bool) {
 	if s.now != nil {
 		now = s.now()
 	}
-	if item.queueRefs == 0 && now.Sub(item.createdAt) >= attachmentLifetime {
+	if item.queueRefs == 0 && item.copyRefs == 0 && now.Sub(item.createdAt) >= attachmentLifetime {
 		_ = os.Remove(item.path)
 		delete(s.items, id)
 		return nil, false
@@ -1162,14 +1165,30 @@ func scaleImageBilinear(src image.Image, dstW, dstH int) *image.RGBA {
 }
 
 // consumeAttachmentsLocked 必须在持有 b.mu 时调用。
-// 全部文件复制成功后才释放暂存引用，避免部分失败或共享附件导致排队项丢图。
 func (b *MemoryBackend) consumeAttachmentsLocked(threadID string, attIDs []string, fromQueue bool, callerDeviceIDs ...string) ([]wire.MediaRef, []string, error) {
+	batch, err := b.prepareAttachmentsLocked(threadID, attIDs, fromQueue, callerDeviceIDs...)
+	if err != nil {
+		return nil, nil, err
+	}
+	return batch.copy()
+}
+
+type attachmentBatch struct {
+	store     *attachmentStore
+	records   []*attachmentRecord
+	counts    map[string]int
+	mediaDir  string
+	fromQueue bool
+}
+
+// prepareAttachmentsLocked 保留源文件，直到复制完成。
+func (b *MemoryBackend) prepareAttachmentsLocked(threadID string, attIDs []string, fromQueue bool, callerDeviceIDs ...string) (*attachmentBatch, error) {
 	if len(attIDs) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	if b.attachments == nil {
-		return nil, nil, &wire.RPCError{Code: wire.ErrCodeResourceNotFound, Message: "attachment store unavailable"}
+		return nil, &wire.RPCError{Code: wire.ErrCodeResourceNotFound, Message: "attachment store unavailable"}
 	}
 	baseDir := b.dataDir
 	if baseDir == "" {
@@ -1186,14 +1205,14 @@ func (b *MemoryBackend) consumeAttachmentsLocked(threadID string, attIDs []strin
 	for _, attID := range attIDs {
 		rec, ok := b.attachments.getLocked(attID)
 		if !ok {
-			return nil, nil, &wire.RPCError{
+			return nil, &wire.RPCError{
 				Code:    wire.ErrCodeResourceNotFound,
 				Message: fmt.Sprintf("attachment %s not found or expired", attID),
 			}
 		}
 		// 设备隔离：若能确定调用方设备且记录关联了设备，只允许引用本设备目录下的附件
 		if callerDeviceID != "" && rec.deviceID != "" && rec.deviceID != callerDeviceID {
-			return nil, nil, &wire.RPCError{
+			return nil, &wire.RPCError{
 				Code:    wire.ErrCodeResourceNotFound,
 				Message: fmt.Sprintf("attachment %s not found or expired", attID),
 			}
@@ -1201,7 +1220,7 @@ func (b *MemoryBackend) consumeAttachmentsLocked(threadID string, attIDs []strin
 		if callerDeviceID != "" && rec.deviceID != "" {
 			expectedSub := filepath.Join("attachments", callerDeviceID)
 			if !strings.Contains(filepath.ToSlash(rec.path), filepath.ToSlash(expectedSub)) {
-				return nil, nil, &wire.RPCError{
+				return nil, &wire.RPCError{
 					Code:    wire.ErrCodeResourceNotFound,
 					Message: fmt.Sprintf("attachment %s not found or expired", attID),
 				}
@@ -1215,21 +1234,52 @@ func (b *MemoryBackend) consumeAttachmentsLocked(threadID string, attIDs []strin
 		counts[attID]++
 	}
 
-	mediaDir := filepath.Join(baseDir, "media", threadID)
-	if err := os.MkdirAll(mediaDir, 0700); err != nil {
+	for _, rec := range records {
+		rec.copyRefs++
+	}
+	return &attachmentBatch{store: b.attachments, records: records, counts: counts, mediaDir: filepath.Join(baseDir, "media", threadID), fromQueue: fromQueue}, nil
+}
+
+func (batch *attachmentBatch) copy() ([]wire.MediaRef, []string, error) {
+	if batch == nil {
+		return nil, nil, nil
+	}
+	success := false
+	defer func() {
+		batch.store.mu.Lock()
+		defer batch.store.mu.Unlock()
+		for _, rec := range batch.records {
+			rec.copyRefs--
+			if success {
+				if batch.fromQueue {
+					rec.queueRefs -= batch.counts[rec.id]
+				}
+				if rec.queueRefs <= 0 {
+					rec.consumed = true
+				}
+			}
+			if rec.consumed && rec.queueRefs <= 0 && rec.copyRefs == 0 {
+				_ = os.Remove(rec.path)
+				delete(batch.store.items, rec.id)
+			}
+		}
+	}()
+	if err := os.MkdirAll(batch.mediaDir, 0700); err != nil {
 		return nil, nil, &wire.RPCError{
 			Code:    wire.InternalError,
 			Message: fmt.Sprintf("failed to create media directory: %v", err),
 		}
 	}
 
-	mediaRefs := make([]wire.MediaRef, 0, len(records))
-	mediaFilePaths := make([]string, 0, len(records))
+	mediaRefs := make([]wire.MediaRef, 0, len(batch.records))
+	mediaFilePaths := make([]string, 0, len(batch.records))
 
-	for _, rec := range records {
+	for _, rec := range batch.records {
 		attID := rec.id
-		dstPath := filepath.Join(mediaDir, attID+attachmentFileExt(rec.name, rec.mimeType))
+		dstPath := filepath.Join(batch.mediaDir, attID+attachmentFileExt(rec.name, rec.mimeType))
+		rec.copyMu.Lock()
 		if err := copyMediaFile(rec.path, dstPath); err != nil {
+			rec.copyMu.Unlock()
 			return nil, nil, &wire.RPCError{
 				Code:    wire.InternalError,
 				Message: fmt.Sprintf("failed to copy attachment %s: %v", attID, err),
@@ -1254,20 +1304,13 @@ func (b *MemoryBackend) consumeAttachmentsLocked(threadID string, attIDs []strin
 			}
 			_ = f.Close()
 		}
+		rec.copyMu.Unlock()
 
 		mediaRefs = append(mediaRefs, ref)
 		mediaFilePaths = append(mediaFilePaths, dstPath)
 	}
 
-	for _, rec := range records {
-		if fromQueue {
-			rec.queueRefs -= counts[rec.id]
-		}
-		if rec.queueRefs <= 0 {
-			_ = os.Remove(rec.path)
-			delete(b.attachments.items, rec.id)
-		}
-	}
+	success = true
 	return mediaRefs, mediaFilePaths, nil
 }
 

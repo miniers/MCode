@@ -462,37 +462,28 @@ func TestSettings_ModelsPage_AddAndRemoveModel(t *testing.T) {
 
 // 添加收藏浮层始终显示独立 Magpie 端点。
 func TestSettings_ModelsPage_AddPinShowsMagpieModels(t *testing.T) {
-	for _, hide := range []bool{true, false} {
-		name := "开关打开时仍列出 Magpie 模型"
-		if hide {
-			name = "旧隐藏配置不影响 Magpie 模型"
-		}
-		t.Run(name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
-			gateway := config.CustomEndpointConfig{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true}
-			providers := []ProviderInfo{
-				{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "sonnet", Name: "Sonnet"}}},
-				{ID: config.CustomEndpointProviderKind(gateway), Name: gateway.Name, Available: true, Models: []ModelInfo{
-					{ID: "magpie-a", Name: "MagpieA"},
-					{ID: "magpie-b", Name: "MagpieB"},
-				}},
-			}
-			fake := NewFakeClient()
-			fake.SetProviders(providers)
-			tt, st := modelsPageWithProvidersTester(t, fake, providers)
-			st.mu.Lock()
-			st.cfg.Providers.Custom = []config.CustomEndpointConfig{gateway}
-			st.cfg.Providers.HideMagpieModelsInPicker = hide
-			st.mu.Unlock()
-			st.invalidate()
-
-			if err := settingsClick(t, tt, "添加收藏"); err != nil {
-				t.Fatal(err)
-			}
-			waitFor(t, tt, func() bool { return tt.HasText("Sonnet") })
-			waitFor(t, tt, func() bool { return tt.HasText("MagpieA") && tt.HasText("MagpieB") })
-		})
+	t.Setenv("HOME", t.TempDir())
+	gateway := config.CustomEndpointConfig{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true}
+	providers := []ProviderInfo{
+		{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "sonnet", Name: "Sonnet"}}},
+		{ID: config.CustomEndpointProviderKind(gateway), Name: gateway.Name, Available: true, Models: []ModelInfo{
+			{ID: "magpie-a", Name: "MagpieA"},
+			{ID: "magpie-b", Name: "MagpieB"},
+		}},
 	}
+	fake := NewFakeClient()
+	fake.SetProviders(providers)
+	tt, st := modelsPageWithProvidersTester(t, fake, providers)
+	st.mu.Lock()
+	st.cfg.Providers.Custom = []config.CustomEndpointConfig{gateway}
+	st.mu.Unlock()
+	st.invalidate()
+
+	if err := settingsClick(t, tt, "添加收藏"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("Sonnet") })
+	waitFor(t, tt, func() bool { return tt.HasText("MagpieA") && tt.HasText("MagpieB") })
 }
 
 // 从收藏模型区移除模型后，页面配置与持久化列表同步更新。

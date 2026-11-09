@@ -640,6 +640,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 	trimmedDraft := strings.TrimSpace(s.draft)
 	hasContent := (trimmedDraft != "" || hasUploadedAttachment)
 	isEditingQueued := s.editingQueuedID() != ""
+	isSteward := currentThreadID != "" && currentThreadID == s.stewardThreadID()
 	canShowContinue, continueKind := shouldShowContinuePill(continueState)
 	// 有附件时继续入口也不出现：继续请求只带提示词，附件会丢。
 	if attachmentCount > 0 {
@@ -649,6 +650,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 	// 发送键由设置决定：默认 Enter 发送，也可切成 Shift+Enter 发送。
 	sendKey := s.composerSendKey()
 	sendState := runningSendDraftState(isRunning, hasContent, canContinue, s.queueWhileRunningEnabled(), s.insertIntoRunningTurnEnabled(), isEditingQueued)
+	if isSteward && sendState == sendStateStop {
+		sendState = sendStateSend
+	}
 	// 占位符只在草稿为空时显示，而此时 sendState 多为 sendStateStop；
 	// 这里按「有内容」再算一次，让运行中的占位符说明按下 Enter 后实际会执行的动作。
 	runningPlaceholderState := runningSendDraftState(isRunning, true, canContinue, s.queueWhileRunningEnabled(), s.insertIntoRunningTurnEnabled(), isEditingQueued)

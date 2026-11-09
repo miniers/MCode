@@ -275,6 +275,13 @@ func (s *chatState) startKanbanWatch(projectID string) {
 
 	stop := s.client.WatchKanban(func() {
 		s.loadKanban(projectID)
+		s.mu.Lock()
+		threadID := s.selectedThreadID
+		showingTask := threadID != "" && threadID == s.stewardTaskThreadID
+		s.mu.Unlock()
+		if showingTask {
+			loadStewardTaskForThread(s, threadID)
+		}
 	})
 
 	kanbanMu.Lock()

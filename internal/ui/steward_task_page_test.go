@@ -30,6 +30,25 @@ func TestStewardTaskBandApprovalStatus(t *testing.T) {
 	}
 }
 
+func TestStewardTaskBandRefreshesOnKanbanChange(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{ID: "task-1", ThreadID: "t1", Status: "waiting", ResultSummary: "原状态"}}})
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.selectedThreadID = "t1"
+	s.stewardTaskThreadID = "t1"
+	s.stewardTask = stewardTaskSnapshot{ID: "task-1", Status: "waiting", ResultSummary: "原状态"}
+	s.startKanbanWatch("p1")
+	t.Cleanup(func() { stopKanbanWatch(s) })
+	tt := ui.NewTester(func(c *ui.Context) { renderStewardTaskBand(c, s, "t1") }, 800, 300)
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{ID: "task-1", ThreadID: "t1", Status: "done", ResultSummary: "新状态"}}})
+	fake.TriggerKanbanChange()
+	waitFor(t, tt, func() bool { return tt.HasText("新状态") })
+	if tt.HasText("原状态") {
+		t.Fatalf("任务信息带未更新: %q", tt.Texts())
+	}
+}
+
 func TestStewardTaskResultOpensThreadAndShowsBand(t *testing.T) {
 	fake := NewFakeClient()
 	fake.SetProjectsAndThreads([]Project{{ID: "p1", Name: "项目"}}, map[string][]Thread{

@@ -361,40 +361,6 @@ func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.
 	return orderCatalog(rows, defaultID)
 }
 
-// mcodeSelectionModels 返回某端点在内置引擎勾选里的模型 ID，按勾选顺序去空；
-// 手动默认模型仍在该端点勾选里时移到最前，让模型列表第一项与默认一致。
-func mcodeSelectionModels(setting config.MagpieAgentConfig, endpointID string) []string {
-	ids := make([]string, 0)
-	for _, selection := range setting.Selections {
-		if strings.TrimSpace(selection.EndpointID) != endpointID {
-			continue
-		}
-		for _, model := range selection.Models {
-			if model = strings.TrimSpace(model); model != "" {
-				ids = append(ids, model)
-			}
-		}
-	}
-	if len(ids) == 0 || strings.TrimSpace(setting.DefaultEndpointID) != endpointID {
-		return ids
-	}
-	defaultModel := strings.TrimSpace(setting.DefaultModel)
-	for i, id := range ids {
-		if id != defaultModel {
-			continue
-		}
-		if i == 0 {
-			return ids
-		}
-		reordered := make([]string, 0, len(ids))
-		reordered = append(reordered, id)
-		reordered = append(reordered, ids[:i]...)
-		reordered = append(reordered, ids[i+1:]...)
-		return reordered
-	}
-	return ids
-}
-
 // magpieModelCost 把网关模型的价格转成目录行价格；网关没有报价格时返回 nil。
 func magpieModelCost(model magpie.Model) *wire.ModelCost {
 	if model.Cost == nil {

@@ -431,7 +431,7 @@ func legacyMagpiePresets(presets map[string]config.PresetProviderConfig) []apiso
 }
 
 // migrateLegacyMagpieEndpoints 把旧版 Magpie 预设迁移为 Magpie 自定义端点：
-// 启用状态、BaseURL 或 Model 任一有值的预设生成同 ID 的端点，密钥搬到
+// 启用状态、BaseURL、Model 或密钥任一有值的预设生成同 ID 的端点，密钥搬到
 // providers.custom.<ID>.apiKey，随后删除旧预设。cfg 会被就地更新并写回配置文件，
 // 重复执行不会产生重复条目。
 func migrateLegacyMagpieEndpoints(dataDir string, cfg *config.Config, secrets config.SecretStore) error {
@@ -454,7 +454,7 @@ func migrateLegacyMagpieEndpoints(dataDir string, cfg *config.Config, secrets co
 	}
 	for _, preset := range legacy {
 		pc := cfg.Providers.Presets[preset.ID]
-		if pc.Enabled || strings.TrimSpace(pc.BaseURL) != "" || strings.TrimSpace(pc.Model) != "" {
+		if pc.Enabled || strings.TrimSpace(pc.BaseURL) != "" || strings.TrimSpace(pc.Model) != "" || hasProviderSecret(secrets, config.CustomEndpointSecretAccount(preset.ID)) {
 			if _, ok := existing[preset.ID]; !ok {
 				cfg.Providers.Custom = append(cfg.Providers.Custom, config.CustomEndpointConfig{
 					ID:      preset.ID,

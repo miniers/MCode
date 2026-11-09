@@ -9,7 +9,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"mcode/internal/apisource"
 	"mcode/internal/config"
 )
 
@@ -919,7 +918,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 }
 
 func presetProviderHasAPIKey(p ProviderSetting) bool {
-	return p.HasAPIKey || (p.ID == "anthropic" && apisource.AnthropicAPIKey(nil) != "")
+	return p.HasAPIKey
 }
 
 // apiProviderListEntries 返回预置和普通自定义供应商的快照。

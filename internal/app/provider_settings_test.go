@@ -113,6 +113,24 @@ func newProviderSettingsClient(t *testing.T) (*Client, string, config.SecretStor
 	return client, dataDir, secrets
 }
 
+func TestProviderSettings_AnthropicEnvironmentKey(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "environment-key")
+	client, _, _ := newProviderSettingsClient(t)
+	list, err := client.ProviderSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, setting := range list {
+		if setting.ID == "anthropic" {
+			if !setting.HasAPIKey || !setting.Enabled {
+				t.Fatalf("环境变量密钥状态错误: %+v", setting)
+			}
+			return
+		}
+	}
+	t.Fatal("缺少 Anthropic 供应商")
+}
+
 func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	client, _, _ := newProviderSettingsClient(t)

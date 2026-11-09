@@ -168,6 +168,7 @@ export interface ThreadComposerProps {
   /** 输入框占位文字：会话空闲但仍在等后台任务时由调用方换成等待提示 */
   placeholder?: string;
   isRunning?: boolean;
+  isSteward?: boolean;
   onStop?: () => void;
   /** 子代理页：停止按钮走子代理停止确认流程时的可用条件 */
   stopDisabled?: boolean;
@@ -669,6 +670,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   onRemoveAttachment,
   placeholder,
   isRunning = false,
+  isSteward = false,
   onStop,
   stopDisabled = false,
   lockedModelLabel,
@@ -1608,7 +1610,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
 
   // 运行中且没有草稿/附件时，「主按钮」本身就是停止键；否则主按钮是发送键，
   // 运行中再在旁边显示一个独立的停止键（与改版前的布局一致）。
-  const primaryActionStops = Boolean(isRunning && !draft.trim() && attachments.length === 0);
+  const primaryActionStops = Boolean(isRunning && !isSteward && !draft.trim() && attachments.length === 0);
   const attachmentsAvailable =
     attachmentsSupported && !isUploadingAttachment && attachments.length < composerAttachmentLimit(attachmentLimit);
   useEffect(() => {
@@ -1636,7 +1638,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (isRunning && !draft.trim() && attachments.length === 0) {
+          if (primaryActionStops) {
             onStop?.();
           } else if (!sendDisabled) {
             sendWithExpandedPaste(onSend);
@@ -1933,7 +1935,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
 
           {/* Right side actions: Interrupt & Send or Stop / Send button */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {onInterruptAndSend && draft.trim().length > 0 && isRunning && !queuesLocalCommand && (
+            {onInterruptAndSend && draft.trim().length > 0 && isRunning && !isSteward && !queuesLocalCommand && (
               <button
                 type="button"
                 onMouseDown={keepComposerFocus}
@@ -1960,7 +1962,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                 aria-label="停止"
                 title="停止当前执行"
                 className={`w-8 h-8 rounded-full bg-[var(--danger-foreground)] text-white flex items-center justify-center shrink-0 shadow-sm active:scale-95 transition disabled:opacity-40 ${
-                  isRunning && !primaryActionStops ? '' : 'hidden'
+                  isRunning && !isSteward && !primaryActionStops ? '' : 'hidden'
                 }`}
               >
                 <PrimaryActionIcon state="stop" />
@@ -1970,8 +1972,8 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                 onMouseDown={keepComposerFocus}
                 onClick={primaryActionStops ? onStop : undefined}
                 disabled={primaryActionStops ? stopDisabled : sendDisabled || isExpandingMentions}
-                aria-label={primaryActionStops ? '停止' : isRunning ? queueSendLabel : submitLabel}
-                title={primaryActionStops ? '停止当前执行' : isRunning ? queueSendLabel : submitLabel}
+                aria-label={primaryActionStops ? '停止' : isRunning && !isSteward ? queueSendLabel : submitLabel}
+                title={primaryActionStops ? '停止当前执行' : isRunning && !isSteward ? queueSendLabel : submitLabel}
                 aria-busy={!primaryActionStops && (isSending || isExpandingMentions) ? true : undefined}
                 className={`w-8 h-8 rounded-full text-white flex items-center justify-center shrink-0 shadow-sm disabled:opacity-40 active:scale-95 transition ${
                   primaryActionStops ? 'bg-[var(--danger-foreground)]' : 'bg-[var(--primary)]'

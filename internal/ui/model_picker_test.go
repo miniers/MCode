@@ -10,9 +10,8 @@ import (
 	"mcode/internal/magpieinject"
 )
 
-func TestModelPickerHideMagpieModels(t *testing.T) {
+func TestModelPickerKeepsMagpieModels(t *testing.T) {
 	cfg := config.Config{}
-	cfg.Providers.HideMagpieModelsInPicker = true
 	cfg.Providers.Custom = []config.CustomEndpointConfig{
 		{ID: "magpie", Name: "网关", Enabled: true, Magpie: true},
 		{ID: "second", Name: "网关", Enabled: true, Magpie: true},
@@ -49,10 +48,6 @@ func TestModelPickerHideMagpieModels(t *testing.T) {
 	}
 	if !reflect.DeepEqual(providers, original) {
 		t.Fatal("过滤修改了原始模型列表")
-	}
-	cfg.Providers.HideMagpieModelsInPicker = false
-	if got := filterModelPickerMagpie(providers, newModelPickerMagpieFilter(cfg)); !reflect.DeepEqual(got, original) {
-		t.Fatal("关闭隐藏后应恢复全部模型")
 	}
 }
 
@@ -832,7 +827,6 @@ func TestModelPickerExcludesMcode(t *testing.T) {
 
 func TestModelPickerKeepsEndpointAndOldThreadLabel(t *testing.T) {
 	cfg := config.Config{}
-	cfg.Providers.HideMagpieModelsInPicker = true
 	providers := []ProviderInfo{
 		{ID: "mcode", Models: []ModelInfo{{ID: "old", Name: "旧模型"}}},
 		{ID: "custom-gw", Models: []ModelInfo{{ID: "new", Name: "网关模型"}}},

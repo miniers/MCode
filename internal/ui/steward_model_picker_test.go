@@ -84,14 +84,13 @@ func TestStewardComposerModelLegacySelection(t *testing.T) {
 	}
 }
 
-func TestStewardComposerModelMagpieWhenHiddenInOrdinaryPicker(t *testing.T) {
+func TestStewardComposerModelShowsMagpieSource(t *testing.T) {
 	s := newChatState(newStewardFakeClient(""))
 	t.Cleanup(s.close)
 	st := NewSettingsState(t.TempDir(), nil, s)
 	setChatSettings(s, st)
 	t.Cleanup(func() { setChatSettings(s, nil) })
 	ep := config.CustomEndpointConfig{ID: "432db46a", Name: "Magpie", Magpie: true, Enabled: true}
-	st.cfg.Providers.HideMagpieModelsInPicker = true
 	st.cfg.Providers.Custom = []config.CustomEndpointConfig{ep}
 	id := config.CustomEndpointProviderKind(ep)
 	s.providers = []ProviderInfo{

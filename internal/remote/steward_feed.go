@@ -105,11 +105,21 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 		return wire.ThreadMessage{}, nil, err
 	}
 	b.ensureMessagesLoadedLocked(td)
-	media, paths, err := b.consumeAttachmentsLocked(threadID, attachments, false, DeviceIDFromContext(ctx))
+	if b.store == nil {
+		b.mu.Unlock()
+		return wire.ThreadMessage{}, nil, errors.New("会话存储未接入")
+	}
+	batch, err := b.prepareAttachmentsLocked(threadID, attachments, false, DeviceIDFromContext(ctx))
 	if err != nil {
 		b.mu.Unlock()
 		return wire.ThreadMessage{}, nil, err
 	}
+	b.mu.Unlock()
+	media, paths, err := batch.copy()
+	if err != nil {
+		return wire.ThreadMessage{}, nil, err
+	}
+	b.mu.Lock()
 	now := time.Now().UTC()
 	final := role == "assistant"
 	msg := wire.ThreadMessage{ID: newUUID(), Role: role, Text: text, CreatedAt: now.Format(time.RFC3339Nano), IsFinalResponse: &final, Media: media}
@@ -118,10 +128,6 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 	}
 	if len(td.messages) > 0 {
 		msg.TurnIndex = td.messages[len(td.messages)-1].TurnIndex
-	}
-	if b.store == nil {
-		b.mu.Unlock()
-		return wire.ThreadMessage{}, nil, errors.New("会话存储未接入")
 	}
 	b.mu.Unlock()
 	saved, err := b.store.AppendMessage(ctx, messageToStore(threadID, msg))
@@ -141,14 +147,12 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 	unread := role != "user" && kind != "steward_reply" && kind != "steward_decision_answer" && !(role == "system" && kind == "steward_result")
 	if unread {
 		td.summary.HasUnread = true
-	}
-	summary := b.summaryForPublishLocked(td)
-	b.mu.Unlock()
-	if unread {
-		if err := b.store.SetThreadUnread(ctx, threadID, true); err != nil {
+		if err := b.store.SetThreadUnread(ctx, threadID, td.summary.HasUnread); err != nil {
 			log.Printf("总管未读状态持久化失败: %v", err)
 		}
 	}
+	summary := b.summaryForPublishLocked(td)
+	b.mu.Unlock()
 	if err := b.store.TouchThread(ctx, threadID, now); err != nil {
 		log.Printf("总管会话时间持久化失败: %v", err)
 	}

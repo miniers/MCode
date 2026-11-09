@@ -7,7 +7,7 @@ func TestSessionOrchestrationDefaultsAndDisabledRoundTrip(t *testing.T) {
 	if cfg.Session.PinSentMessage == nil || *cfg.Session.PinSentMessage || cfg.Session.ConciseRepliesEnabled == nil || *cfg.Session.ConciseRepliesEnabled || !cfg.Session.QueueWhileRunning || !cfg.Session.InsertIntoRunningTurn {
 		t.Fatalf("会话默认值不正确: %+v", cfg.Session)
 	}
-	if !cfg.Providers.Pi.Enabled || cfg.Providers.Pi.Bin != "" || !cfg.Providers.HideMagpieModelsInPicker {
+	if !cfg.Providers.Pi.Enabled || cfg.Providers.Pi.Bin != "" {
 		t.Fatalf("提供方默认值不正确: %+v", cfg.Providers)
 	}
 	o := cfg.Orchestration
@@ -25,7 +25,6 @@ func TestSessionOrchestrationDefaultsAndDisabledRoundTrip(t *testing.T) {
 	if err := Update(dir, func(c *Config) error {
 		c.Session.PinSentMessage = boolPtr(false)
 		c.Session.ConciseRepliesEnabled = boolPtr(false)
-		c.Providers.HideMagpieModelsInPicker = false
 		c.Orchestration.AutoForwardQuestionSeconds = 0
 		c.Orchestration.Steward.Name = ""
 		c.Orchestration.Steward.Avatar = ""
@@ -39,7 +38,7 @@ func TestSessionOrchestrationDefaultsAndDisabledRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Session.PinSentMessage == nil || *loaded.Session.PinSentMessage || loaded.Session.ConciseRepliesEnabled == nil || *loaded.Session.ConciseRepliesEnabled || loaded.Providers.HideMagpieModelsInPicker || loaded.Orchestration.AutoForwardQuestionSeconds != 0 {
+	if loaded.Session.PinSentMessage == nil || *loaded.Session.PinSentMessage || loaded.Session.ConciseRepliesEnabled == nil || *loaded.Session.ConciseRepliesEnabled || loaded.Orchestration.AutoForwardQuestionSeconds != 0 {
 		t.Fatalf("关闭设置未保持: %+v", loaded)
 	}
 	s := loaded.Orchestration.Steward

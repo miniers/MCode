@@ -130,9 +130,9 @@
 
 ## 后台事件
 
-注意力收件箱原样保留：`internal/attention` 负责事件存储、`dedupe_key` 去重和每日上限，接线在 `internal/app/attention_wiring.go`。
+注意力收件箱由 `internal/attention` 负责事件存储、`dedupe_key` 去重和每日上限，接线在 `internal/app/attention_wiring.go`。
 
-`OwnerActionKinds` 仍是会话等审批、看板待审批、看板待验收、目标规划失败四类，由用户亲手处理。其他事件由任务结果和收件箱直接处理，不触发模型调用。
+`OwnerActionKinds` 是会话等审批、看板待审批、看板待验收、目标规划失败四类，由用户亲手处理。其他事件由任务结果和收件箱直接处理，不触发模型调用。
 
 ## 关键文件
 
@@ -147,5 +147,5 @@
 - `internal/remote/steward_decisions.go`：远程方法 `steward.decisions.list`。
 - `internal/ui/steward_decision_card.go`：决策卡渲染、只读态、数字快捷键与「其他指示」预填。
 - `internal/ui/steward_reply.go`：前台回复渲染成单行灰字。
-- `internal/remote/steward_feed.go`：feed 线程的远程读写（接线中）。
-- `internal/app/frontdesk_wiring.go`：构造 `Desk`、读取模型来源并接到 `MemoryBackend`（接线中）。
+- `internal/remote/steward_feed.go`：feed 线程的远程读写。
+- `internal/app/frontdesk_wiring.go`：构造 `Desk`、读取模型来源并接到 `MemoryBackend`。

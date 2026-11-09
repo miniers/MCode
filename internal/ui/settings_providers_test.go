@@ -35,18 +35,6 @@ func TestAPIProviderListEntries_ExcludesGateways(t *testing.T) {
 	}
 }
 
-func TestAPIProviderListEntriesAnthropicEnvironmentKey(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "environment-key")
-	st := NewSettingsState(settingsTestDir(t), nil, nil)
-	st.presets.loaded = true
-	st.endpoints.loaded = true
-	st.presets.items = []ProviderSetting{{ID: "anthropic", Name: "Anthropic", Kind: "api", Enabled: true}}
-	entries := apiProviderListEntries(st)
-	if len(entries) != 1 || entries[0].Status != "已配置" {
-		t.Fatalf("环境变量密钥状态错误: %+v", entries)
-	}
-}
-
 type failingEndpointListClient struct {
 	*FakeClient
 	calls chan struct{}

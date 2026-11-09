@@ -657,6 +657,31 @@ func TestCustomEndpoints_MagpieUsesLegacyKind(t *testing.T) {
 	}
 }
 
+func TestMigrateLegacyMagpieEndpointsKeyOnly(t *testing.T) {
+	dataDir := t.TempDir()
+	secrets := config.NewMemorySecretStore()
+	cfg := config.Defaults()
+	cfg.Providers.Presets = map[string]config.PresetProviderConfig{"magpie2": {}}
+	if err := config.Save(dataDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.Set("magpie2.apiKey", "legacy-key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateLegacyMagpieEndpoints(dataDir, &cfg, secrets); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Providers.Custom) != 1 || cfg.Providers.Custom[0].ID != "magpie2" || !cfg.Providers.Custom[0].Magpie {
+		t.Fatalf("仅有密钥的预设未迁移为端点: %+v", cfg.Providers.Custom)
+	}
+	if key, err := secrets.Get(config.CustomEndpointSecretAccount("magpie2")); err != nil || key != "legacy-key" {
+		t.Fatalf("端点密钥未迁移: %q, %v", key, err)
+	}
+	if _, ok := cfg.Providers.Presets["magpie2"]; ok {
+		t.Fatal("旧预设未删除")
+	}
+}
+
 func TestMigrateLegacyMagpieEndpoints(t *testing.T) {
 	dataDir := t.TempDir()
 	secrets := config.NewMemorySecretStore()

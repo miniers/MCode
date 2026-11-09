@@ -1379,8 +1379,7 @@ type ProvidersConfig struct {
 	Presets     map[string]PresetProviderConfig `json:"presets,omitempty"`
 	// MagpieAgents 按 agent id 存 magpie 的设置：模式与每个端点勾选的模型；
 	// 旧的 CustomEndpointConfig.PiModels 由 Normalize 双向镜像进 agents["pi"]。
-	MagpieAgents             map[string]MagpieAgentConfig `json:"magpieAgents,omitempty"`
-	HideMagpieModelsInPicker bool                         `json:"hideMagpieModelsInPicker"`
+	MagpieAgents map[string]MagpieAgentConfig `json:"magpieAgents,omitempty"`
 	// MagpieRoutingVersion 是 Magpie 路由一次性迁移的版本号。
 	MagpieRoutingVersion int                    `json:"magpieRoutingVersion,omitempty"`
 	Custom               []CustomEndpointConfig `json:"custom,omitempty"`
@@ -2166,13 +2165,12 @@ func Defaults() Config {
 			TextScale:           DefaultTextScale,
 		},
 		Providers: ProvidersConfig{
-			Claude:                   ProviderConfig{Enabled: true, Bin: ""},
-			Codex:                    ProviderConfig{Enabled: true, Bin: ""},
-			Agy:                      ProviderConfig{Enabled: true, Bin: ""},
-			OpenAI:                   OpenAIConfig{Enabled: true},
-			Pi:                       ProviderConfig{Enabled: true, Bin: ""},
-			Mcode:                    ProviderConfig{Enabled: true, Bin: ""},
-			HideMagpieModelsInPicker: true,
+			Claude: ProviderConfig{Enabled: true, Bin: ""},
+			Codex:  ProviderConfig{Enabled: true, Bin: ""},
+			Agy:    ProviderConfig{Enabled: true, Bin: ""},
+			OpenAI: OpenAIConfig{Enabled: true},
+			Pi:     ProviderConfig{Enabled: true, Bin: ""},
+			Mcode:  ProviderConfig{Enabled: true, Bin: ""},
 		},
 		Remote: RemoteConfig{
 			Enabled:       false,

@@ -3,7 +3,9 @@ package remote
 import (
 	"context"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
@@ -87,5 +89,58 @@ func TestStewardFeed(t *testing.T) {
 	ordinary, err := b.GetThread(ctx, "ordinary")
 	if err != nil || ordinary.InteractionMode != "plan" {
 		t.Fatalf("普通会话未执行原有命令: %+v %v", ordinary, err)
+	}
+}
+
+func TestStewardConcurrentMarkRead(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "mcode.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	hub := NewStreamHub(StreamHubOptions{})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+	if err := b.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	b.AddProject(wire.ProjectSummary{ID: "p", Name: "项目", Path: t.TempDir()})
+	id, err := b.EnsureStewardFeedThread(ctx, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 30; i++ {
+		done := make(chan error, 1)
+		go func() { done <- b.AppendStewardMessage(ctx, id, "system", "other", "提醒") }()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			summary, err := b.GetThread(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if summary.HasUnread {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("等待未读状态超时")
+			}
+			runtime.Gosched()
+		}
+		if _, err := b.BulkMarkRead(ctx, "p", []string{id}); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		summary, err := b.GetThread(ctx, id)
+		if err != nil || summary.HasUnread {
+			t.Fatalf("内存状态不为已读: %+v %v", summary, err)
+		}
+		thread, err := db.GetThread(ctx, id)
+		if err != nil || thread.HasUnread {
+			t.Fatalf("存储状态不为已读: %+v %v", thread, err)
+		}
 	}
 }

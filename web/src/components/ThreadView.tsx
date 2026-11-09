@@ -10,6 +10,7 @@ import {
   RemoteComposerOptions
 } from '../types/contract';
 import { useRemote } from '../context/RemoteContext';
+import { useRemoteNotification } from '../context/useRemoteCall';
 import { makeActionID, mergeThreadSummary } from '../context/remoteGuards';
 import { isPreviewableImageFile } from '../context/remoteImages';
 import { RpcError } from '../services/rpc';
@@ -757,6 +758,9 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const linkedTask = latestSummary.taskID
     ? board?.tasks.find((task) => task.id === latestSummary.taskID) ?? null
     : null;
+  useRemoteNotification('kanban.taskUpdated', () => {
+    void refreshBoard().catch(() => undefined);
+  }, Boolean(latestSummary.taskID));
   const linkedTaskDetail = linkedTask ? taskContextDetail(linkedTask) : '';
   const linkedGoal = linkedTask?.goalID
     ? board?.goals.find((goal) => goal.id === linkedTask.goalID) ?? null
@@ -2275,7 +2279,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     : null;
   // 空草稿只禁用发送键，不在输入框下方占一行提示。
   const sendDisabled = Boolean(sendBlockedReason) || (draft.trim().length === 0 && attachments.length === 0);
-  const submitLabel = latestSummary.isRunning ? '排队' : '发送';
+  const submitLabel = latestSummary.isRunning && !isStewardThread ? '排队' : '发送';
   const interruptAndSendDisabled = Boolean(
     !interruptAndSendSupported ||
     !isConnected ||
@@ -3540,6 +3544,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
               historyEntries={composerHistoryEntryList}
               placeholder={composerPlaceholderFor(backgroundWaitCount(latestSummary))}
               isRunning={latestSummary.isRunning}
+              isSteward={isStewardThread}
               onStop={swarmState?.isBee ? handleOpenHelperStopConfirm : handleStopForComposer}
               stopDisabled={helperStopDisabled}
               lockedModelLabel={

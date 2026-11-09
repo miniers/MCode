@@ -112,7 +112,7 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 		s.UpdateMonitor = cfg.Providers.Copilot.UpdateMonitorEnabled()
 	case "anthropic":
 		// Anthropic 来源同时看配置开关与 Key：没有 Key 时仍显示为关闭。
-		hasKey := hasProviderSecret(secrets, providerSettingSecretAccount(spec.id)) || hasProviderSecret(secrets, mcodeAnthropicAPIKeyAccount)
+		hasKey := hasProviderSecret(secrets, providerSettingSecretAccount(spec.id)) || hasProviderSecret(secrets, mcodeAnthropicAPIKeyAccount) || apisource.AnthropicAPIKey(nil) != ""
 		s.HasAPIKey = hasKey
 		s.Enabled = cfg.Providers.Anthropic.IsEnabled() && hasKey
 	case "openai":

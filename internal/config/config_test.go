@@ -27,35 +27,6 @@ func TestSessionAttachmentLimit(t *testing.T) {
 	}
 }
 
-func TestHideMagpieModelsInPickerDefaultAndRoundTrip(t *testing.T) {
-	var cfg ProvidersConfig
-	if err := json.Unmarshal([]byte(`{}`), &cfg); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.HideMagpieModelsInPicker {
-		t.Fatal("缺省值应为 false")
-	}
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), `"hideMagpieModelsInPicker":false`) {
-		t.Fatalf("false 字段应序列化: %s", data)
-	}
-	cfg.HideMagpieModelsInPicker = true
-	data, err = json.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var restored ProvidersConfig
-	if err := json.Unmarshal(data, &restored); err != nil {
-		t.Fatal(err)
-	}
-	if !restored.HideMagpieModelsInPicker {
-		t.Fatal("序列化往返后应保持 true")
-	}
-}
-
 // 1. 文件不存在时 Load 返回 Defaults()，不报错，不创建文件。
 func TestLoadNotExist(t *testing.T) {
 	dir := t.TempDir()
