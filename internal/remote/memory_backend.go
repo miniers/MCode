@@ -8755,7 +8755,7 @@ func providerAllowsModel(p wire.Provider, model string, pins []config.ModelPin) 
 	if model == "" {
 		return true
 	}
-	if hasPlaceholderCatalog(p.Models) || cliCatalogProvider(p.ID) || strings.HasPrefix(p.ID, "custom-") {
+	if hasPlaceholderCatalog(p.Models) || harness.IsCLICatalogProvider(p.ID) || strings.HasPrefix(p.ID, "custom-") {
 		return true
 	}
 	for _, m := range p.Models {

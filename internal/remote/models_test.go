@@ -339,6 +339,18 @@ func TestProviderAllowsModelAcceptsPinnedModel(t *testing.T) {
 	}
 }
 
+// CLI 动态列目录的 provider 放行目录外的非空模型，普通 provider 仍按目录过滤。
+func TestProviderAllowsModelCLI(t *testing.T) {
+	cli := wire.Provider{ID: "pi", Models: []wire.ProviderModel{{ID: "sonnet"}}}
+	if !providerAllowsModel(cli, "mystery-model", nil) {
+		t.Fatal("CLI 目录的 provider 应放行目录外模型")
+	}
+	plain := wire.Provider{ID: "deepseek", Models: []wire.ProviderModel{{ID: "deepseek-chat"}}}
+	if providerAllowsModel(plain, "mystery-model", nil) {
+		t.Fatal("普通 provider 的目录外模型应被拒绝")
+	}
+}
+
 // 目录统一去掉显示名里「 · 」之后的附加说明，只改 Name，ID 与 Detail 保持原样。
 func TestProviderModelsTrimDisplayNameSuffix(t *testing.T) {
 	seedClaudeModelsForTest(t, "default")
