@@ -1292,32 +1292,8 @@ func TestAgentMagpieClineOnlyDirect(t *testing.T) {
 	}
 }
 
-// TestAgentMagpieClineGlobalPlan 校验 cline 计划读的是临时目录下的两份 JSON，
-// 主模型取第一条勾选。
 func TestAgentMagpieClineGlobalPlan(t *testing.T) {
-	t.Setenv("CLINE_DATA_DIR", t.TempDir())
-	srv := agentMagpieModelsServer(t, "glm-4.6", "glm-4.5")
-	cfg := config.Defaults()
-	cfg.Providers.Custom = []config.CustomEndpointConfig{
-		{ID: "jp", Name: "Magpie JP", BaseURL: srv.URL + "/v1", Enabled: true, Magpie: true},
-	}
-	config.SetMagpieAgentModels(&cfg, "cline", "jp", []string{"glm-4.6", "glm-4.5"})
-	secrets := config.NewMemorySecretStore()
-	if err := secrets.Set(config.CustomEndpointSecretAccount("jp"), "gw-key"); err != nil {
-		t.Fatalf("写入端点密钥失败: %v", err)
-	}
-
-	plan, err := globalPlan(context.Background(), cfg, secrets, "cline")
-	if err != nil {
-		t.Fatalf("globalPlan 失败: %v", err)
-	}
-	if len(plan.Files) != 2 {
-		t.Fatalf("cline 计划文件数 = %d，想要 2", len(plan.Files))
-	}
-	if filepath.Base(plan.Files[0].Path) != "providers.json" || filepath.Base(plan.Files[1].Path) != "models.json" {
-		t.Fatalf("计划路径 = %+v，想要 providers.json 与 models.json", plan.Files)
-	}
-	if plan.Files[0].Format != magpiecfg.FormatJSON || plan.Files[1].Format != magpiecfg.FormatJSON {
-		t.Errorf("cline 两份文件都应使用 JSON 格式: %+v", plan.Files)
+	if _, err := globalPlan(context.Background(), config.Config{}, nil, "cline"); err == nil {
+		t.Fatal("cline 不应支持全局配置")
 	}
 }

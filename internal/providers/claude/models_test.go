@@ -7,10 +7,53 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"mcode/internal/harness"
 	"mcode/internal/providers/modelcache"
 )
+
+func TestCachedLoginPresentExpires(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	oldNow := now
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now = func() time.Time { return clock }
+	loginPresentMu.Lock()
+	loginPresentAt = time.Time{}
+	loginPresentMu.Unlock()
+	t.Cleanup(func() {
+		now = oldNow
+		loginPresentMu.Lock()
+		loginPresentAt = time.Time{}
+		loginPresentMu.Unlock()
+	})
+	file := filepath.Join(dir, ".credentials.json")
+	if err := os.WriteFile(file, []byte(`{"claudeAiOauth":{"accessToken":"token"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !cachedLoginPresent() {
+		t.Fatal("应检测到凭据")
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if !cachedLoginPresent() {
+		t.Fatal("未过期时应使用缓存")
+	}
+	clock = clock.Add(loginPresentTTL)
+	if cachedLoginPresent() {
+		t.Fatal("过期后应重新检测")
+	}
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, ".credentials.json"), []byte(`{"claudeAiOauth":{"accessToken":"token"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", other)
+	if !cachedLoginPresent() {
+		t.Fatal("配置目录变化应立即重新检测")
+	}
+}
 
 func TestParseHandshakeModels(t *testing.T) {
 	line := []byte(`{"type":"control_response","response":{"subtype":"success","request_id":"handshake","response":{"models":[{"value":"default","displayName":"Default (recommended)","description":"Use the CLI default model","supportedEffortLevels":["low","high"],"supportsFastMode":true},{"value":"claude-opus-4-6","description":"Most capable","supportsFastMode":false},{"displayName":"没有 value 的行"}]}}}`)

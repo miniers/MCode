@@ -178,6 +178,47 @@ func TestServiceEdit_UpdateTask(t *testing.T) {
 	}
 }
 
+func TestServiceEdit_ReplaceTask(t *testing.T) {
+	ctx := context.Background()
+	svc, st, _ := setupTestService(t)
+	task, err := svc.CreateTask(ctx, CreateTaskInput{ProjectID: "proj-1", Title: "Initial"})
+	if err != nil {
+		t.Fatalf("CreateTask failed: %v", err)
+	}
+	changes := 0
+	svc.SetOnChange(func() { changes++ })
+
+	task.Title = "Updated"
+	task.Notes = "New notes"
+	updated, err := svc.ReplaceTask(ctx, task)
+	if err != nil {
+		t.Fatalf("ReplaceTask failed: %v", err)
+	}
+	stored, err := st.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask failed: %v", err)
+	}
+	if stored.Title != task.Title || stored.Notes != task.Notes || stored.Revision != updated.Revision || stored.Revision <= task.Revision {
+		t.Fatalf("unexpected stored task: %+v", stored)
+	}
+	if changes != 1 {
+		t.Fatalf("expected one notification, got %d", changes)
+	}
+
+	task.Title = "Stale"
+	_, err = svc.ReplaceTask(ctx, task)
+	if !errors.Is(err, store.ErrRevisionConflict) {
+		t.Fatalf("expected ErrRevisionConflict, got: %v", err)
+	}
+	if changes != 1 {
+		t.Fatalf("unexpected notification on conflict: %d", changes)
+	}
+	stored, err = st.GetTask(ctx, task.ID)
+	if err != nil || stored.Title != "Updated" {
+		t.Fatalf("task changed on conflict: %+v, error: %v", stored, err)
+	}
+}
+
 func TestServiceEdit_DeleteTask(t *testing.T) {
 	ctx := context.Background()
 	svc, st, _ := setupTestService(t)

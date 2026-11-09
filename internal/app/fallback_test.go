@@ -26,12 +26,22 @@ func TestFallbackMergesStaticAndCachedModels(t *testing.T) {
 	cfg.Providers.Presets = map[string]config.PresetProviderConfig{"deepseek": {Enabled: true}}
 	secrets := mcodeTestSecrets(map[string]string{"deepseek.apiKey": "test"})
 	source, ok := findAPISource(apisource.Resolve(cfg, secrets), "deepseek")
-	if !ok || len(source.Models) == 0 { t.Fatal("缺少静态模型") }
-	if err := sourceModelCache.refresh(context.Background(), source, source.APIKey(secrets)); err != nil { t.Fatal(err) }
+	if !ok || len(source.Models) == 0 {
+		t.Fatal("缺少静态模型")
+	}
+	if err := sourceModelCache.refresh(context.Background(), source, source.APIKey(secrets)); err != nil {
+		t.Fatal(err)
+	}
 	candidates := collectTextgenCandidates(context.Background(), cfg, secrets, "deepseek")
 	count := 0
-	for _, candidate := range candidates { if candidate.model == "deepseek-new" { count++ } }
-	if count != 1 { t.Fatalf("缓存模型出现 %d 次", count) }
+	for _, candidate := range candidates {
+		if candidate.model == "deepseek-new" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("缓存模型出现 %d 次", count)
+	}
 }
 
 func TestFallbackAfterAnthropicStreamError(t *testing.T) {
@@ -44,12 +54,16 @@ func TestFallbackAfterAnthropicStreamError(t *testing.T) {
 		calls := 0
 		out, err := executeTextgenFallback(context.Background(), primary, func() []textgenCandidate { return []textgenCandidate{backup} }, func(ctx context.Context, candidate textgenCandidate) (string, error) {
 			calls++
-			if calls == 2 { return "ok", nil }
+			if calls == 2 {
+				return "ok", nil
+			}
 			_, err := llm.NewAnthropic(llm.AnthropicConfig{BaseURL: server.URL}).Stream(ctx, llm.Request{Model: candidate.model}, nil)
 			return "", err
 		})
 		server.Close()
-		if err != nil || out != "ok" || calls != 2 { t.Fatalf("%s: %q %v，调用 %d 次", kind, out, err, calls) }
+		if err != nil || out != "ok" || calls != 2 {
+			t.Fatalf("%s: %q %v，调用 %d 次", kind, out, err, calls)
+		}
 	}
 }
 

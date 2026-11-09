@@ -187,7 +187,7 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 	default:
 		return fmt.Errorf("不能追加任务状态 %s", t.Status)
 	}
-	_, err = s.kanban.UpdateTask(ctx, kanban.UpdateTaskInput{TaskID: t.ID, ExpectedRevision: t.Revision, Replacement: &t})
+	_, err = s.kanban.ReplaceTask(ctx, t)
 	return err
 }
 func (s *frontdeskServices) CancelTask(ctx context.Context, id string) error {
@@ -312,7 +312,7 @@ func (s *frontdeskServices) Recent(ctx context.Context, thread string, limit int
 		if m.Role == "system" && (m.Kind == "steward_result" || m.Kind == "steward_decision_answer") {
 			text := "任务结果：" + strings.Join(strings.Fields(m.Text), " ")
 			if m.Kind == "steward_decision_answer" {
-				var answer struct { ID, Answer string }
+				var answer struct{ ID, Answer string }
 				if json.Unmarshal([]byte(m.Text), &answer) == nil && answer.ID != "" {
 					text = "决策 " + answer.ID + " 已答：" + strings.Join(strings.Fields(answer.Answer), " ")
 				} else {

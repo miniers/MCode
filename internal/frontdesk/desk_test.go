@@ -39,15 +39,15 @@ func (s *scripted) Stream(_ context.Context, r llm.Request, cb func(llm.Delta)) 
 }
 
 type fake struct {
-	mu     sync.Mutex
-	events []string
-	recent store.Task
-	recentAt time.Time
+	mu           sync.Mutex
+	events       []string
+	recent       store.Task
+	recentAt     time.Time
 	recentThread string
-	createErr error
-	amendErr error
-	getErr error
-	recentErr error
+	createErr    error
+	amendErr     error
+	getErr       error
+	recentErr    error
 }
 
 func (f *fake) event(s string) {
@@ -148,11 +148,11 @@ func TestLoop(t *testing.T) {
 func TestHandleMessageWriteFailures(t *testing.T) {
 	writeErr := errors.New("写入失败")
 	for _, tc := range []struct {
-		name string
-		calls []llm.ToolCall
+		name      string
+		calls     []llm.ToolCall
 		createErr error
-		wantErr error
-		want []string
+		wantErr   error
+		want      []string
 	}{
 		{"部分成功", []llm.ToolCall{call("create_task", `{"title":"任务"}`), call("amend_task", `{"task_id":"t","text":"继续"}`)}, nil, nil, []string{"list", "create:任务:owner", "amend:t:继续"}},
 		{"全部失败", []llm.ToolCall{call("create_task", `{"title":"任务"}`)}, writeErr, writeErr, []string{"list", "create:任务:owner"}},
@@ -202,13 +202,18 @@ func TestFallback(t *testing.T) {
 }
 func TestFallbackRecentTaskErrors(t *testing.T) {
 	storageErr := errors.New("存储失败")
-	for _, tc := range []struct { err, wantErr error; want []string }{
+	for _, tc := range []struct {
+		err, wantErr error
+		want         []string
+	}{
 		{storageErr, storageErr, nil},
 		{fmt.Errorf("查询: %w", store.ErrNotFound), nil, []string{"create:工作:owner"}},
 	} {
 		f := &fake{recentErr: tc.err}
 		err := (&Desk{Tasks: f}).fallback(context.Background(), Inbound{Text: "工作"}, Snapshot{})
-		if !errors.Is(err, tc.wantErr) || !reflect.DeepEqual(f.events, tc.want) { t.Fatal(err, f.events) }
+		if !errors.Is(err, tc.wantErr) || !reflect.DeepEqual(f.events, tc.want) {
+			t.Fatal(err, f.events)
+		}
 	}
 }
 
@@ -220,10 +225,16 @@ func TestCLIFallbackSettingsChange(t *testing.T) {
 		providers = append(providers, opts.Provider)
 		return `{"reply":"","calls":[]}`, nil
 	}}
-	if err := d.fallback(context.Background(), Inbound{Text: "第一轮"}, Snapshot{}); err != nil { t.Fatal(err) }
+	if err := d.fallback(context.Background(), Inbound{Text: "第一轮"}, Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
 	enabled = true
-	if err := d.fallback(context.Background(), Inbound{Text: "第二轮"}, Snapshot{}); err != nil { t.Fatal(err) }
-	if !reflect.DeepEqual(f.events, []string{"create:第一轮:owner"}) || !reflect.DeepEqual(providers, []string{"codex"}) { t.Fatal(f.events, providers) }
+	if err := d.fallback(context.Background(), Inbound{Text: "第二轮"}, Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.events, []string{"create:第一轮:owner"}) || !reflect.DeepEqual(providers, []string{"codex"}) {
+		t.Fatal(f.events, providers)
+	}
 }
 
 func TestCLI(t *testing.T) {
@@ -584,7 +595,7 @@ func TestFallbackAssociation(t *testing.T) {
 	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
 		name, thread, replyTo, text, want string
-		getErr error
+		getErr                            error
 	}{
 		{"显式任务优先且可重开", "feed", "done", "长补充\n第二行", "amend:done:长补充\n第二行", nil},
 		{"已清理任务提示删除", "feed", "missing", "继续", "reply:这个任务已删除", store.ErrNotFound},
@@ -607,15 +618,17 @@ func TestFallbackAssociation(t *testing.T) {
 
 func TestFailureFallbackAndCLIBoundaries(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		client *scripted
+		name      string
+		client    *scripted
 		generator Generator
-		want string
+		want      string
 	}{
 		{"404", &scripted{err: errors.New("404")}, nil, "create:工作:owner"},
 		{"空响应", &scripted{replies: []*llm.Response{nil}, texts: []string{""}}, nil, "create:工作:owner"},
 		{"CLI 超时", &scripted{err: errors.New("404")}, func(context.Context, textgen.Options, string) (string, error) { return "", context.DeadlineExceeded }, "create:工作:owner"},
-		{"整批校验", &scripted{err: errors.New("404")}, func(context.Context, textgen.Options, string) (string, error) { return `{"reply":"收到","calls":[{"tool":"create_task","args":{"title":"不执行"}},{"tool":"list_tasks","args":{}}]}`, nil }, "create:工作:owner"},
+		{"整批校验", &scripted{err: errors.New("404")}, func(context.Context, textgen.Options, string) (string, error) {
+			return `{"reply":"收到","calls":[{"tool":"create_task","args":{"title":"不执行"}},{"tool":"list_tasks","args":{}}]}`, nil
+		}, "create:工作:owner"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fake{}

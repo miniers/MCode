@@ -23,7 +23,6 @@ var ErrHashMismatch = errors.New("kanban: goal content hash mismatch")
 type UpdateTaskInput struct {
 	TaskID           string
 	ExpectedRevision int
-	Replacement      *store.Task
 	Title            *string
 	Notes            *string
 	NotesAppend      *string
@@ -71,13 +70,6 @@ func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (store.Tas
 	if in.ExpectedRevision > 0 && task.Revision != in.ExpectedRevision {
 		return store.Task{}, store.ErrRevisionConflict
 	}
-	if in.Replacement != nil {
-		if in.Replacement.ID != task.ID || in.Replacement.Revision != task.Revision {
-			return store.Task{}, store.ErrRevisionConflict
-		}
-		task = *in.Replacement
-	}
-
 	if in.Title != nil && strings.TrimSpace(*in.Title) != "" {
 		task.Title = strings.TrimSpace(*in.Title)
 	}
@@ -101,6 +93,37 @@ func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (store.Tas
 		expectedRev = in.ExpectedRevision
 	}
 	updated, err := s.opts.Store.UpdateTask(ctx, task, expectedRev)
+	if err != nil {
+		return store.Task{}, err
+	}
+	if updated.GoalID != nil && *updated.GoalID != "" {
+		s.updateGoalProgressLocked(ctx, *updated.GoalID)
+	}
+	s.revision.Add(1)
+	changed = true
+	return updated, nil
+}
+
+// ReplaceTask 用于调用方已按业务规则改好整行任务的场景。
+func (s *Service) ReplaceTask(ctx context.Context, task store.Task) (store.Task, error) {
+	changed := false
+	defer func() {
+		if changed {
+			s.notifyChange()
+		}
+	}()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current, err := s.opts.Store.GetTask(ctx, task.ID)
+	if err != nil {
+		return store.Task{}, err
+	}
+	if task.Revision != current.Revision {
+		return store.Task{}, store.ErrRevisionConflict
+	}
+	updated, err := s.opts.Store.UpdateTask(ctx, task, task.Revision)
 	if err != nil {
 		return store.Task{}, err
 	}

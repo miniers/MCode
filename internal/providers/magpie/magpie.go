@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"mcode/internal/apisource"
+	"mcode/internal/config"
 	"mcode/internal/providers/readhttp"
 )
 
@@ -472,12 +474,13 @@ func isRoutingGroup(id string) bool {
 }
 
 // ProviderID 把端点名转成 pi 的 provider id：小写，非 [a-z0-9-] 的字符换成
-// "-"，连续的 "-" 合并，去首尾 "-"；结果为空或正好是 magpie 时取
-// magpie-mcode，与 taken 冲突时依次加 -2、-3……。例：magpie_jp → magpie-jp。
+// "-"，连续的 "-" 合并，去首尾 "-"；避开内置来源，与 taken 冲突时依次加后缀。
 func ProviderID(name string, taken map[string]bool) string {
 	base := slug(name)
 	if base == "" || base == "magpie" {
 		base = "magpie-mcode"
+	} else if base == "mcode" || slices.Contains(apisource.Kinds(config.Config{}), base) {
+		base = "magpie-" + base
 	}
 	id := base
 	for i := 2; taken[id]; i++ {

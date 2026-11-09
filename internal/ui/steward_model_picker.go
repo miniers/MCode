@@ -8,7 +8,11 @@ import (
 func stewardModelSelection(cfg config.Config, catalog modelPickerCatalog) ModelSelection {
 	for _, provider := range catalog.Providers {
 		if provider.ID == cfg.Orchestration.Steward.Provider {
-			return ModelSelection{Provider: provider.ID, Model: cfg.Orchestration.Steward.Model}
+			model := cfg.Orchestration.Steward.Model
+			if !modelUsable(provider, model, nil) {
+				model = ""
+			}
+			return ModelSelection{Provider: provider.ID, Model: model}
 		}
 	}
 	return ModelSelection{}

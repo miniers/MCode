@@ -41,7 +41,7 @@ func TestRunBackgroundCleanup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := harnessFor(&fakeClient{responses: []*llm.Response{answer()}}, Options{})
 			if tc.panicRun {
-				h.opts.ResolveClient = func(string, string) (llm.Client, string, error) { panic("模拟错误") }
+				h.opts.ResolveClient = func(context.Context, string, string) (llm.Client, string, error) { panic("模拟错误") }
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

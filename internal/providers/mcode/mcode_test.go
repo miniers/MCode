@@ -40,7 +40,7 @@ func toolCall(name, id, args string) *llm.Response {
 }
 
 func harnessFor(client llm.Client, opts Options) *Harness {
-	opts.ResolveClient = func(model, _ string) (llm.Client, string, error) { return client, model, nil }
+	opts.ResolveClient = func(_ context.Context, model, _ string) (llm.Client, string, error) { return client, model, nil }
 	return New(opts)
 }
 
@@ -52,7 +52,7 @@ func TestKind(t *testing.T) {
 
 func TestResolveErrorEmitsErrorAndDone(t *testing.T) {
 	wantErr := errors.New("model not found")
-	h := New(Options{ResolveClient: func(string, string) (llm.Client, string, error) { return nil, "", wantErr }})
+	h := New(Options{ResolveClient: func(context.Context, string, string) (llm.Client, string, error) { return nil, "", wantErr }})
 	var events []harness.Event
 	err := h.Run(context.Background(), harness.Turn{Model: "missing"}, func(event harness.Event) { events = append(events, event) })
 	if !errors.Is(err, wantErr) {
@@ -66,7 +66,7 @@ func TestResolveErrorEmitsErrorAndDone(t *testing.T) {
 func TestDefaultModel(t *testing.T) {
 	client := &fakeClient{responses: []*llm.Response{answer()}}
 	var resolved string
-	h := New(Options{DefaultModel: "default-model", ResolveClient: func(model, _ string) (llm.Client, string, error) {
+	h := New(Options{DefaultModel: "default-model", ResolveClient: func(_ context.Context, model, _ string) (llm.Client, string, error) {
 		resolved = model
 		return client, "upstream-model", nil
 	}})
@@ -80,7 +80,7 @@ func TestDefaultModel(t *testing.T) {
 
 func TestResolveClientAffinityKey(t *testing.T) {
 	var affinityKey string
-	h := New(Options{ResolveClient: func(model, key string) (llm.Client, string, error) {
+	h := New(Options{ResolveClient: func(_ context.Context, model, key string) (llm.Client, string, error) {
 		affinityKey = key
 		return &fakeClient{responses: []*llm.Response{answer()}}, model, nil
 	}})
@@ -97,6 +97,24 @@ func TestResolveClientAffinityKey(t *testing.T) {
 	}
 	if affinityKey != "session" {
 		t.Fatalf("affinity key without thread = %q, want session", affinityKey)
+	}
+}
+
+func TestResolveClientReceivesRunCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	called := make(chan struct{})
+	done := make(chan error, 1)
+	h := New(Options{ResolveClient: func(ctx context.Context, _, _ string) (llm.Client, string, error) {
+		close(called)
+		<-ctx.Done()
+		return nil, "", ctx.Err()
+	}})
+	go func() { done <- h.Run(ctx, harness.Turn{}, nil) }()
+	<-called
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v", err)
 	}
 }
 
@@ -254,14 +272,18 @@ func TestResolvedModelMetadataForEmptyModel(t *testing.T) {
 	client := &fakeClient{responses: []*llm.Response{answer()}}
 	var contextModel, maxModel, costModel string
 	h := New(Options{
-		ResolveClient: func(string, string) (llm.Client, string, error) { return client, "resolved-model", nil },
+		ResolveClient: func(context.Context, string, string) (llm.Client, string, error) {
+			return client, "resolved-model", nil
+		},
 		ContextWindow: func(model string) int { contextModel = model; return 321000 },
-		MaxTokens: func(model string) int { maxModel = model; return 4096 },
-		CostUSD: func(model string, _ harness.Usage) (float64, bool) { costModel = model; return 0.25, true },
+		MaxTokens:     func(model string) int { maxModel = model; return 4096 },
+		CostUSD:       func(model string, _ harness.Usage) (float64, bool) { costModel = model; return 0.25, true },
 	})
 	var usage *harness.Usage
 	if err := h.Run(context.Background(), harness.Turn{}, func(event harness.Event) {
-		if event.Type == harness.EventUsage { usage = event.Usage }
+		if event.Type == harness.EventUsage {
+			usage = event.Usage
+		}
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -275,16 +297,20 @@ func TestQualifiedModelMetadata(t *testing.T) {
 		client := &fakeClient{responses: []*llm.Response{answer()}}
 		var got string
 		h := New(Options{
-			QualifyModel: func(string) string { return "magpie/model" },
-			ResolveClient: func(string, string) (llm.Client, string, error) { return client, "model", nil },
+			QualifyModel:  func(context.Context, string) string { return "magpie/model" },
+			ResolveClient: func(context.Context, string, string) (llm.Client, string, error) { return client, "model", nil },
 			ContextWindow: func(model string) int { got = model; return 200000 },
 		})
 		if err := h.Run(context.Background(), harness.Turn{Model: model}, nil); err != nil {
 			t.Fatal(err)
 		}
 		want := "magpie/model"
-		if model != "" && model != "default" { want = model }
-		if got != want { t.Fatalf("模型 %q：得到 %q，期望 %q", model, got, want) }
+		if model != "" && model != "default" {
+			want = model
+		}
+		if got != want {
+			t.Fatalf("模型 %q：得到 %q，期望 %q", model, got, want)
+		}
 	}
 }
 

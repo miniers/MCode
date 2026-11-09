@@ -22,7 +22,9 @@ func TestOpenAIStreamErrorStatus(t *testing.T) {
 		_, err := NewOpenAI(OpenAIConfig{BaseURL: server.URL}).Stream(context.Background(), Request{}, nil)
 		server.Close()
 		var apiErr *APIError
-		if !errors.As(err, &apiErr) || apiErr.Status != status || !apiErr.Retryable { t.Fatalf("%s: %v", body, err) }
+		if !errors.As(err, &apiErr) || apiErr.Status != status || !apiErr.Retryable {
+			t.Fatalf("%s: %v", body, err)
+		}
 	}
 }
 

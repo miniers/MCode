@@ -77,6 +77,9 @@ func SelectSource(sources []apisource.Source, secrets config.SecretStore, provid
 			}
 			candidate = rest
 		}
+		if !matched {
+			model = ""
+		}
 	}
 	if strings.TrimSpace(model) == "" {
 		model = cheapModel(src)

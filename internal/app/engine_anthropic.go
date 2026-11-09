@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -41,7 +42,7 @@ func newAnthropicEngineHarness(cfg config.Config, secrets config.SecretStore, da
 		}
 		return true, ""
 	}
-	opts.ResolveClient = func(model, affinityKey string) (llm.Client, string, error) {
+	opts.ResolveClient = func(ctx context.Context, model, affinityKey string) (llm.Client, string, error) {
 		return resolveAnthropicClient(cfg, secrets, model)
 	}
 	opts.ContextWindow = func(string) int {

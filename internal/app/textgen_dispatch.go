@@ -261,12 +261,12 @@ func generateText(ctx context.Context, cfg config.Config, secrets config.SecretS
 		modelID := textgenModelOverride(model)
 		if modelID == "" {
 			if source.Magpie {
-				_, modelID, err = resolveSourceClient(harness.Kind(source.Kind), cfg, secrets, "", "")
+				_, modelID, err = resolveSourceClient(ctx, harness.Kind(source.Kind), cfg, secrets, "", "")
 				if err != nil {
 					return "", err
 				}
 			} else {
-				modelID = sourceEngineDefaultModel(source, harness.Kind(source.Kind), secrets)
+				modelID = sourceEngineDefaultModel(ctx, source, harness.Kind(source.Kind), secrets)
 			}
 		}
 		if modelID == "" {

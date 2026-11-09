@@ -184,7 +184,7 @@ func TestSourceEngineCustomEndpointColdDefault(t *testing.T) {
 	defer server.Close()
 	cfg := config.Config{}
 	cfg.Providers.Custom = []config.CustomEndpointConfig{{ID: "cold-default", Enabled: true, BaseURL: server.URL}}
-	_, model, err := resolveSourceClient("custom-cold-default", cfg, config.NewMemorySecretStore(), "", "")
+	_, model, err := resolveSourceClient(context.Background(), "custom-cold-default", cfg, config.NewMemorySecretStore(), "", "")
 	if err != nil || model != "first-model" {
 		t.Fatalf("默认模型 = %q，错误 = %v", model, err)
 	}
@@ -304,7 +304,7 @@ func TestSourceEngineMagpieColdDefault(t *testing.T) {
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("magpie"): "key"})
 	newCustomEndpointHarness(ep, secrets, dir, providerMCP{})
 	t.Cleanup(func() { remote.SetAPICatalog("magpie", nil); setMcodeAgentRuntime("", nil) })
-	_, model, err := resolveSourceClient("magpie", config.Defaults(), secrets, "default", "")
+	_, model, err := resolveSourceClient(context.Background(), "magpie", config.Defaults(), secrets, "default", "")
 	if err != nil || model != "preferred" {
 		t.Fatalf("冷缓存默认模型 = %q，错误 = %v", model, err)
 	}
@@ -352,7 +352,7 @@ func TestSourceEngineMagpieColdDefaultFetch(t *testing.T) {
 			cfg.Providers.Custom = []config.CustomEndpointConfig{{ID: "cold", Enabled: true, Magpie: true, BaseURL: server.URL}}
 			secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("cold"): "key"})
 			start := time.Now()
-			_, model, err := resolveSourceClient("custom-cold", cfg, secrets, "default", "")
+			_, model, err := resolveSourceClient(context.Background(), "custom-cold", cfg, secrets, "default", "")
 			elapsed := time.Since(start)
 			if tc.wantError == "" {
 				if err != nil || model != tc.wantModel {
@@ -583,7 +583,7 @@ func TestSourceEngineDisabledSource(t *testing.T) {
 	secrets := mcodeTestSecrets(map[string]string{"deepseek.apiKey": "sk"})
 	// 与 runtime 读盘结果一致：同一个 map 里改成停用后立即生效。
 	cfg.Providers.Presets["deepseek"] = config.PresetProviderConfig{Enabled: false}
-	_, _, err := resolveSourceClient(harness.Kind("deepseek"), cfg, secrets, "deepseek-chat", "")
+	_, _, err := resolveSourceClient(context.Background(), harness.Kind("deepseek"), cfg, secrets, "deepseek-chat", "")
 	if err == nil || !strings.Contains(err.Error(), "未启用或已删除") {
 		t.Fatalf("err = %v, want 来源未启用或已删除", err)
 	}
@@ -591,7 +591,7 @@ func TestSourceEngineDisabledSource(t *testing.T) {
 
 func TestSourceEngineDefaultPlaceholder(t *testing.T) {
 	source := apisource.Source{DefaultModel: " DEFAULT ", Models: []string{"first"}}
-	if got := sourceEngineDefaultModel(source, "openai", config.NewMemorySecretStore()); got != "gpt-4o" {
+	if got := sourceEngineDefaultModel(context.Background(), source, "openai", config.NewMemorySecretStore()); got != "gpt-4o" {
 		t.Fatalf("默认模型 = %q", got)
 	}
 }
@@ -608,7 +608,7 @@ func TestSourceEngineAnthropicProtocol(t *testing.T) {
 	defer server.Close()
 	t.Setenv("ANTHROPIC_BASE_URL", server.URL)
 	secrets := mcodeTestSecrets(map[string]string{"anthropic.apiKey": "anthropic-key"})
-	client, model, err := resolveSourceClient("anthropic", config.Defaults(), secrets, "claude-test", "")
+	client, model, err := resolveSourceClient(context.Background(), "anthropic", config.Defaults(), secrets, "claude-test", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,10 +621,10 @@ func TestSourceEngineAnthropicProtocol(t *testing.T) {
 }
 
 func TestSourceEngineDefaultModel(t *testing.T) {
-	if got := sourceEngineDefaultModel(apisource.Source{DefaultModel: " deepseek-flash "}, harness.Kind("deepseek"), nil); got != "deepseek-flash" {
+	if got := sourceEngineDefaultModel(context.Background(), apisource.Source{DefaultModel: " deepseek-flash "}, harness.Kind("deepseek"), nil); got != "deepseek-flash" {
 		t.Fatalf("来源默认模型 = %q", got)
 	}
-	if got := sourceEngineDefaultModel(apisource.Source{BaseURL: "https://gateway.example/v1"}, harness.Kind("openai"), nil); got != "gpt-4o" {
+	if got := sourceEngineDefaultModel(context.Background(), apisource.Source{BaseURL: "https://gateway.example/v1"}, harness.Kind("openai"), nil); got != "gpt-4o" {
 		t.Fatalf("官方 OpenAI 默认模型 = %q, want gpt-4o", got)
 	}
 }

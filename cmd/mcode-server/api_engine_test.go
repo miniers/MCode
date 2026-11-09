@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"mcode/internal/config"
+	"mcode/internal/harness"
 	"mcode/internal/providers/magpie"
 	providermcode "mcode/internal/providers/mcode"
 	"mcode/internal/remote"
@@ -23,13 +26,70 @@ func TestWarmServerMagpieRecoversPanic(t *testing.T) {
 	const url, key = "panic-server", "panic-key"
 	for i := 0; i < 2; i++ {
 		warmServerMagpie(url, key)
-		select { case <-called: case <-time.After(time.Second): t.Fatal("预热未执行") }
+		select {
+		case <-called:
+		case <-time.After(time.Second):
+			t.Fatal("预热未执行")
+		}
 		deadline := time.Now().Add(time.Second)
 		for {
-			if _, running := serverMagpieWarm.Load(url + "\x00" + key); !running { break }
-			if time.Now().After(deadline) { t.Fatal("预热状态未清除") }
+			if _, running := serverMagpieWarm.Load(url + "\x00" + key); !running {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("预热状态未清除")
+			}
 			time.Sleep(time.Millisecond)
 		}
+	}
+}
+
+func TestAPIEngineDiscoversDefaultModel(t *testing.T) {
+	var modelRequests int
+	var requestedModels []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models" {
+			modelRequests++
+			_, _ = w.Write([]byte(`{"data":[{"id":"alpha"},{"id":"beta"}]}`))
+			return
+		}
+		var request struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		requestedModels = append(requestedModels, request.Model)
+		http.Error(w, "结束测试", http.StatusBadRequest)
+	}))
+	defer server.Close()
+	cfg := config.Defaults()
+	cfg.Providers.Custom = []config.CustomEndpointConfig{{ID: "discovery", Enabled: true, BaseURL: server.URL + "/v1"}}
+	backend := remote.NewMemoryBackend(remote.NewStreamHub(remote.StreamHubOptions{}))
+	defer backend.Close()
+	registerAPIEngines(backend, cfg, config.NewMemorySecretStore(), t.TempDir())
+	t.Cleanup(func() { remote.SetAPICatalog("custom-discovery", nil) })
+	h := backend.RegisteredHarness("custom-discovery").(*providermcode.Harness)
+	if ok, reason := h.Available(); !ok {
+		t.Fatalf("自定义来源不可用：%s", reason)
+	}
+	for i := 0; i < 2; i++ {
+		_ = h.Run(context.Background(), harness.Turn{Prompt: "hi", WorkDir: t.TempDir()}, nil)
+	}
+	if modelRequests != 1 || !reflect.DeepEqual(requestedModels, []string{"alpha", "alpha"}) {
+		t.Fatalf("目录请求 %d 次，模型 %v", modelRequests, requestedModels)
+	}
+}
+
+func TestAPIEngineMissingAPIKeyUnavailable(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	cfg := config.Defaults()
+	cfg.Providers.Presets = map[string]config.PresetProviderConfig{"deepseek": {Enabled: true}}
+	backend := remote.NewMemoryBackend(remote.NewStreamHub(remote.StreamHubOptions{}))
+	defer backend.Close()
+	registerAPIEngines(backend, cfg, config.NewMemorySecretStore(), t.TempDir())
+	t.Cleanup(func() { remote.SetAPICatalog("deepseek", nil) })
+	h := backend.RegisteredHarness("deepseek").(*providermcode.Harness)
+	if ok, reason := h.Available(); ok || reason == "" {
+		t.Fatalf("Available() = %v, %q", ok, reason)
 	}
 }
 

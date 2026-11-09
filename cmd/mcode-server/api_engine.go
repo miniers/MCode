@@ -72,6 +72,7 @@ func serverAPISources(cfg config.Config, secrets config.SecretStore) []apisource
 }
 
 func registerAPIEngines(backend *remote.MemoryBackend, cfg config.Config, secrets config.SecretStore, dataDir string) []string {
+	var modelCache sync.Map
 	current := func() config.Config {
 		if loaded, err := config.Load(dataDir); err == nil {
 			config.ApplyEnv(&loaded, os.LookupEnv)
@@ -116,6 +117,12 @@ func registerAPIEngines(backend *remote.MemoryBackend, cfg config.Config, secret
 			} else if s.DefaultModel != "" {
 				ids = append([]string{s.DefaultModel}, ids...)
 			}
+			if !s.Magpie {
+				cacheKey := fmt.Sprintf("%s\x00%s\x00%s\x00%v", s.Kind, s.BaseURL, s.APIKey(secrets), s.Headers)
+				if cached, ok := modelCache.Load(cacheKey); ok {
+					ids = append(ids, cached.([]string)...)
+				}
+			}
 			seen := map[string]bool{}
 			var rows []wire.ProviderModel
 			for _, id := range ids {
@@ -138,7 +145,17 @@ func registerAPIEngines(backend *remote.MemoryBackend, cfg config.Config, secret
 				}
 				return ids
 			},
-			ResolveClient: func(model, affinity string) (llm.Client, string, error) {
+			Available: func() (bool, string) {
+				s, ok := find(kind)
+				if !ok {
+					return false, "来源未启用或已删除"
+				}
+				if s.APIKey(secrets) == "" && !(strings.HasPrefix(s.Kind, "custom-") && !s.Magpie) {
+					return false, "未配置 API Key"
+				}
+				return true, ""
+			},
+			ResolveClient: func(ctx context.Context, model, affinity string) (llm.Client, string, error) {
 				s, ok := find(kind)
 				if !ok {
 					return nil, "", fmt.Errorf("来源 %s 未启用或已删除", kind)
@@ -149,7 +166,7 @@ func registerAPIEngines(backend *remote.MemoryBackend, cfg config.Config, secret
 					if s.Magpie {
 						models, _ := magpie.CachedModels(s.BaseURL, s.APIKey(secrets))
 						if len(models) == 0 {
-							ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+							ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 							var err error
 							models, err = magpie.FetchModels(ctx, s.BaseURL, s.APIKey(secrets))
 							cancel()
@@ -172,6 +189,29 @@ func registerAPIEngines(backend *remote.MemoryBackend, cfg config.Config, secret
 						}
 					} else if model == "" && kind == "openai" {
 						model = "gpt-4o"
+					} else if model == "" || strings.EqualFold(model, "default") {
+						ids := s.Models
+						cacheKey := fmt.Sprintf("%s\x00%s\x00%s\x00%v", s.Kind, s.BaseURL, s.APIKey(secrets), s.Headers)
+						if len(ids) == 0 {
+							if cached, ok := modelCache.Load(cacheKey); ok {
+								ids = cached.([]string)
+							} else {
+								fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+								var err error
+								ids, err = apisource.ListModels(fetchCtx, nil, s, s.APIKey(secrets))
+								cancel()
+								if err != nil {
+									return nil, "", fmt.Errorf("来源 %s 获取模型目录失败：%w", kind, err)
+								}
+								modelCache.Store(cacheKey, ids)
+							}
+						}
+						model = ""
+						for _, id := range ids {
+							if model = strings.TrimSpace(id); model != "" {
+								break
+							}
+						}
 					}
 				}
 				if s.Protocol == apisource.ProtocolAnthropic {

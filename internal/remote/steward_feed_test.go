@@ -73,12 +73,20 @@ func TestStewardFeed(t *testing.T) {
 	if err != nil || thread.HasUnread {
 		t.Fatalf("标记已读后存储仍未读: %+v %v", thread, err)
 	}
-	if err = b.AppendStewardMessage(ctx, id, "system", "steward_result", "任务\n完成"); err != nil { t.Fatal(err) }
+	if err = b.AppendStewardMessage(ctx, id, "system", "steward_result", "任务\n完成"); err != nil {
+		t.Fatal(err)
+	}
 	thread, err = db.GetThread(ctx, id)
-	if err != nil || thread.HasUnread { t.Fatalf("系统结果不应置未读: %+v %v", thread, err) }
-	if err = b.AppendStewardMessage(ctx, id, "system", "other", "提醒"); err != nil { t.Fatal(err) }
+	if err != nil || thread.HasUnread {
+		t.Fatalf("系统结果不应置未读: %+v %v", thread, err)
+	}
+	if err = b.AppendStewardMessage(ctx, id, "system", "other", "提醒"); err != nil {
+		t.Fatal(err)
+	}
 	thread, err = db.GetThread(ctx, id)
-	if err != nil || !thread.HasUnread { t.Fatalf("其他系统消息应置未读: %+v %v", thread, err) }
+	if err != nil || !thread.HasUnread {
+		t.Fatalf("其他系统消息应置未读: %+v %v", thread, err)
+	}
 	b.AddThread(wire.ThreadSummary{ID: "ordinary", ProjectID: "p", Provider: "memory"}, nil)
 	if _, err = b.SendMessage(ctx, wire.SendMessageParams{ThreadID: "ordinary", Text: "/plan"}); err != nil {
 		t.Fatal(err)
@@ -148,23 +156,35 @@ func TestStewardConcurrentMarkRead(t *testing.T) {
 func TestStewardUnreadInterleaved(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.Open(filepath.Join(t.TempDir(), "mcode.db"))
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer db.Close()
 	hub := NewStreamHub(StreamHubOptions{})
 	defer hub.Close()
 	b := NewMemoryBackend(hub)
 	defer b.Close()
-	if err := b.AttachStore(ctx, db); err != nil { t.Fatal(err) }
+	if err := b.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 	b.AddProject(wire.ProjectSummary{ID: "p", Name: "项目", Path: t.TempDir()})
 	id, err := b.EnsureStewardFeedThread(ctx, "p")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < 50; i++ {
 		done := make(chan error, 2)
 		go func() { done <- b.AppendStewardMessage(ctx, id, "system", "other", "提醒") }()
 		go func() { _, err := b.BulkMarkRead(ctx, "p", []string{id}); done <- err }()
-		for j := 0; j < 2; j++ { if err := <-done; err != nil { t.Fatal(err) } }
+		for j := 0; j < 2; j++ {
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+		}
 		memory, err := b.GetThread(ctx, id)
-		if err != nil { t.Fatal(err) }
+		if err != nil {
+			t.Fatal(err)
+		}
 		stored, err := db.GetThread(ctx, id)
 		if err != nil || stored.HasUnread != memory.HasUnread {
 			t.Fatalf("未读状态不一致: 内存=%v 存储=%v 错误=%v", memory.HasUnread, stored.HasUnread, err)
@@ -179,7 +199,9 @@ func TestStewardMessageFailureRecordsAction(t *testing.T) {
 	defer b.Close()
 	ctx := context.Background()
 	_, err := b.acceptStewardMessage(ctx, wire.SendMessageParams{ThreadID: "missing", ActionID: "action"}, &testStewardDesk{})
-	if err == nil { t.Fatal("预期发送失败") }
+	if err == nil {
+		t.Fatal("预期发送失败")
+	}
 	status, statusErr := b.ActionStatus(ctx, "action")
 	if statusErr != nil || status.State != wire.ActionStateFailed || status.Error == nil || status.Error.Message != err.Error() {
 		t.Fatalf("失败状态未记录: %+v %v", status, statusErr)

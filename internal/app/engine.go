@@ -79,8 +79,8 @@ func newSourceEngineHarness(kind harness.Kind, cfg config.Config, secrets config
 	}
 	availability := &sourceAvailability{}
 	opts.Available = func() (bool, string) { return availability.get(kind, cfg, secrets) }
-	opts.ResolveClient = func(model, affinityKey string) (llm.Client, string, error) {
-		return resolveSourceClient(kind, cfg, secrets, model, affinityKey)
+	opts.ResolveClient = func(ctx context.Context, model, affinityKey string) (llm.Client, string, error) {
+		return resolveSourceClient(ctx, kind, cfg, secrets, model, affinityKey)
 	}
 	opts.ContextWindow = func(model string) int {
 		return sourceEngineContextWindow(kind, cfg, secrets, model)
@@ -126,7 +126,7 @@ func magpieCachedModelFor(kind harness.Kind, cfg config.Config, secrets config.S
 }
 
 // resolveSourceClient 每次调用都重新解析最新配置与凭据，保存新 Key 后无需重建 harness。
-func resolveSourceClient(kind harness.Kind, cfg config.Config, secrets config.SecretStore, model, affinityKey string) (llm.Client, string, error) {
+func resolveSourceClient(ctx context.Context, kind harness.Kind, cfg config.Config, secrets config.SecretStore, model, affinityKey string) (llm.Client, string, error) {
 	current := mcodeCurrentConfig(cfg, secrets)
 	store := mcodeCurrentSecrets(secrets)
 	source, ok := findAPISource(apisource.Resolve(current, store), kind)
@@ -139,7 +139,7 @@ func resolveSourceClient(kind harness.Kind, cfg config.Config, secrets config.Se
 			key := source.APIKey(store)
 			models, _ := magpie.CachedModels(source.BaseURL, key)
 			if len(models) == 0 {
-				ctx, cancel := context.WithTimeout(context.Background(), magpieDefaultModelTimeout)
+				ctx, cancel := context.WithTimeout(ctx, magpieDefaultModelTimeout)
 				var err error
 				models, err = magpie.FetchModels(ctx, source.BaseURL, key)
 				cancel()
@@ -160,7 +160,7 @@ func resolveSourceClient(kind harness.Kind, cfg config.Config, secrets config.Se
 				}
 			}
 		} else {
-			modelID = sourceEngineDefaultModel(source, kind, store)
+			modelID = sourceEngineDefaultModel(ctx, source, kind, store)
 		}
 	}
 	if modelID == "" {
@@ -222,7 +222,7 @@ func findAPISource(sources []apisource.Source, kind harness.Kind) (apisource.Sou
 
 // sourceEngineDefaultModel 优先使用配置的默认模型；官方 OpenAI 端点回退到 gpt-4o。
 // 其余来源取模型目录的第一项，目录为空时同步刷新一次。
-func sourceEngineDefaultModel(source apisource.Source, kind harness.Kind, secrets config.SecretStore) string {
+func sourceEngineDefaultModel(ctx context.Context, source apisource.Source, kind harness.Kind, secrets config.SecretStore) string {
 	if model := strings.TrimSpace(source.DefaultModel); model != "" && !strings.EqualFold(model, "default") {
 		return model
 	}
@@ -233,7 +233,7 @@ func sourceEngineDefaultModel(source apisource.Source, kind harness.Kind, secret
 	ids := append([]string(nil), source.Models...)
 	ids = append(ids, sourceModelCache.models(source, key)...)
 	if len(ids) == 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), apiModelRequestTimeout)
+		ctx, cancel := context.WithTimeout(ctx, apiModelRequestTimeout)
 		_ = sourceModelCache.refresh(ctx, source, key)
 		cancel()
 		ids = sourceModelCache.models(source, key)

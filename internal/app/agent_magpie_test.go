@@ -25,14 +25,22 @@ func TestWarmMagpieModelsRecoversPanic(t *testing.T) {
 	key := target.BaseURL + "\x00" + target.APIKey
 	for i := 0; i < 2; i++ {
 		warmMagpieModels(target)
-		select { case <-called: case <-time.After(time.Second): t.Fatal("预热未执行") }
+		select {
+		case <-called:
+		case <-time.After(time.Second):
+			t.Fatal("预热未执行")
+		}
 		deadline := time.Now().Add(time.Second)
 		for {
 			magpieWarm.Lock()
 			running := magpieWarm.inFlight[key]
 			magpieWarm.Unlock()
-			if !running { break }
-			if time.Now().After(deadline) { t.Fatal("预热状态未清除") }
+			if !running {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("预热状态未清除")
+			}
 			time.Sleep(time.Millisecond)
 		}
 	}

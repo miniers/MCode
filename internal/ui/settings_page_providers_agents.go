@@ -2179,12 +2179,3 @@ func renderNativeProviderBinInput(c *ui.Context, st *SettingsState, bin *string,
 		},
 	})
 }
-
-// agentSupportsMagpieGlobal 判断供应商行是否渲染 Magpie 使用方式控件。
-func agentSupportsMagpieGlobal(id string) bool {
-	switch id {
-	case "claude", "codex", "cline":
-		return true
-	}
-	return false
-}

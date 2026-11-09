@@ -1,9 +1,23 @@
 import { useCallback, useMemo } from 'react';
-import type { RemoteStewardOpenResult } from '../types/generated';
+import type { RemoteStewardDecisionsListParams, RemoteStewardDecisionsListResult, RemoteStewardOpenResult } from '../types/generated';
+import { RpcError } from '../services/rpc';
+import type { UseRemoteCallResult } from './useRemoteCall';
 import { useRemoteCall } from './useRemoteCall';
 
 export const REMOTE_STEWARD_OPEN_METHOD = 'steward.open';
 export const REMOTE_STEWARD_ANSWER_METHOD = 'steward.decisions.answer';
+export const REMOTE_STEWARD_DECISIONS_LIST_METHOD = 'steward.decisions.list';
+
+export async function loadOpenDecisionCount(call: UseRemoteCallResult['call']): Promise<number | null> {
+  const params: RemoteStewardDecisionsListParams = { status: 'open', limit: 200 };
+  try {
+    const result = await call<RemoteStewardDecisionsListResult>(REMOTE_STEWARD_DECISIONS_LIST_METHOD, params);
+    return result.decisions.filter((decision) => decision.status === 'open').length;
+  } catch (error) {
+    if (error instanceof RpcError && error.code === -32601) return null;
+    throw error;
+  }
+}
 
 export function stewardActionErrorText(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;

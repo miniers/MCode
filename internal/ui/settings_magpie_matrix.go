@@ -271,7 +271,6 @@ func retryMagpieMatrixAgent(st *SettingsState, agent string) {
 		st.piMagpie.loaded = false
 		st.mu.Unlock()
 		st.loadPiMagpieEndpoints()
-		return
 	}
 	st.mu.Lock()
 	st.agentMagpieFor(agent).err = ""

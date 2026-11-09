@@ -35,8 +35,8 @@ type Options struct {
 	// ConfirmsApprovalDelivery 控制是否确认审批答复送达；nil 表示默认开启。
 	ConfirmsApprovalDelivery *bool
 	StoreDir                 string
-	ResolveClient            func(model string, affinityKey string) (client llm.Client, modelID string, err error)
-	QualifyModel             func(model string) string
+	ResolveClient            func(ctx context.Context, model string, affinityKey string) (client llm.Client, modelID string, err error)
+	QualifyModel             func(ctx context.Context, model string) string
 	SystemPrompt             func(turn harness.Turn, toolNames []string) string
 	ExtraTools               func(ctx context.Context, turn harness.Turn) []tools.Tool
 	DefaultModel             string
@@ -150,12 +150,12 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		model = h.opts.DefaultModel
 	}
 	if h.opts.QualifyModel != nil && (strings.TrimSpace(model) == "" || strings.EqualFold(strings.TrimSpace(model), "default")) {
-		model = h.opts.QualifyModel(model)
+		model = h.opts.QualifyModel(ctx, model)
 	}
 	if h.opts.ResolveClient == nil {
 		return modelError(emit, fmt.Errorf("未配置模型解析器，无法连接模型 %q", model))
 	}
-	client, modelID, err := h.opts.ResolveClient(model, affinityKey(turn))
+	client, modelID, err := h.opts.ResolveClient(ctx, model, affinityKey(turn))
 	if err != nil {
 		return modelError(emit, fmt.Errorf("无法解析模型 %q：%w", model, err))
 	}

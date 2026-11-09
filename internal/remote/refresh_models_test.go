@@ -22,10 +22,15 @@ type refreshTestHarness struct {
 	calls     atomic.Int32
 }
 
-type panicRefreshHarness struct { customMetaHarness; calls atomic.Int32 }
+type panicRefreshHarness struct {
+	customMetaHarness
+	calls atomic.Int32
+}
 
 func (h *panicRefreshHarness) RefreshModels(context.Context) error {
-	if h.calls.Add(1) == 1 { panic("refresh") }
+	if h.calls.Add(1) == 1 {
+		panic("refresh")
+	}
 	return nil
 }
 
@@ -36,8 +41,12 @@ func TestRefreshProviderModelsRecoversPanic(t *testing.T) {
 	defer backend.Close()
 	h := &panicRefreshHarness{customMetaHarness: customMetaHarness{kind: "custom-panic"}}
 	backend.RegisterHarness(h)
-	if err := backend.RefreshProviderModels(context.Background()); err == nil { t.Fatal("应报告刷新失败") }
-	if err := backend.RefreshProviderModels(context.Background()); err != nil || h.calls.Load() != 2 { t.Fatalf("再次刷新: %v", err) }
+	if err := backend.RefreshProviderModels(context.Background()); err == nil {
+		t.Fatal("应报告刷新失败")
+	}
+	if err := backend.RefreshProviderModels(context.Background()); err != nil || h.calls.Load() != 2 {
+		t.Fatalf("再次刷新: %v", err)
+	}
 }
 
 func TestRefreshAPICatalogAndMcodeAlias(t *testing.T) {

@@ -45,7 +45,7 @@ func TestMcodeResolveClientMagpieRequest(t *testing.T) {
 	defer server.Close()
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
-	client, model, err := resolveMcodeClient(cfg, secrets, "magpie-mcode/plain-model", "thread-1")
+	client, model, err := resolveMcodeClient(context.Background(), cfg, secrets, "magpie-mcode/plain-model", "thread-1")
 	if err != nil || model != "plain-model" {
 		t.Fatalf("resolve = %q, %v", model, err)
 	}
@@ -78,7 +78,7 @@ func TestMcodeResolveClientMagpieClaudeMessages(t *testing.T) {
 	defer server.Close()
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
-	client, model, err := resolveMcodeClient(cfg, secrets, "magpie-mcode/claude-sonnet", "thread-1")
+	client, model, err := resolveMcodeClient(context.Background(), cfg, secrets, "magpie-mcode/claude-sonnet", "thread-1")
 	if err != nil || model != "claude-sonnet" {
 		t.Fatalf("resolve = %q, %v", model, err)
 	}
@@ -139,7 +139,7 @@ func TestMcodeResolveClientDefaultPlaceholder(t *testing.T) {
 
 	// 模型目录为空时界面显示的占位模型 default（含大小写与空白变化）应落到设置里的默认模型。
 	for _, model := range []string{"", "default", " DEFAULT "} {
-		client, modelID, err := resolveMcodeClient(cfg, secrets, model, "")
+		client, modelID, err := resolveMcodeClient(context.Background(), cfg, secrets, model, "")
 		if err != nil {
 			t.Fatalf("模型 %q：%v", model, err)
 		}
@@ -163,15 +163,31 @@ func TestMcodeHarnessQualifiedMetadata(t *testing.T) {
 	defer server.Close()
 	t.Setenv("ANTHROPIC_BASE_URL", server.URL)
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Enabled: true, Magpie: true, BaseURL: server.URL})
-	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {DefaultEndpointID: "edge", DefaultModel: "plain-model"}}
-	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key", "anthropic.apiKey": "anthropic-key"})
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {
+		DefaultEndpointID: "edge",
+		DefaultModel:      "plain-model",
+	}}
+	secrets := mcodeTestSecrets(map[string]string{
+		config.CustomEndpointSecretAccount("edge"): "gateway-key",
+		"anthropic.apiKey":                         "anthropic-key",
+	})
 	h := buildMcodeHarness(cfg, secrets, "", providerMCP{})
-	for _, tc := range []struct { model string; want int }{{"", magpieinject.DefaultModel().ContextWindow}, {"anthropic/claude-test", 200000}} {
-		var window int
+	for _, tc := range []struct {
+		model string
+		want  int64
+	}{
+		{"", int64(magpieinject.DefaultModel().ContextWindow)},
+		{"anthropic/claude-test", 200000},
+	} {
+		var window int64
 		err := h.Run(context.Background(), harness.Turn{Model: tc.model, Prompt: "hi", WorkDir: t.TempDir()}, func(event harness.Event) {
-			if event.Type == harness.EventUsage && event.Usage != nil { window = event.Usage.ContextWindow }
+			if event.Type == harness.EventUsage && event.Usage != nil {
+				window = event.Usage.ContextWindow
+			}
 		})
-		if err != nil || window != tc.want || window == 0 { t.Fatalf("模型 %q: 窗口 %d，错误 %v", tc.model, window, err) }
+		if err != nil || window != tc.want || window == 0 {
+			t.Fatalf("模型 %q: 窗口 %d，错误 %v", tc.model, window, err)
+		}
 	}
 }
 
@@ -189,7 +205,7 @@ func TestMcodeResolveClientDefaultFromModelCache(t *testing.T) {
 	if _, err := magpie.FetchModels(context.Background(), server.URL+"/v1", "gateway-key"); err != nil {
 		t.Fatalf("填充模型缓存失败: %v", err)
 	}
-	_, modelID, err := resolveMcodeClient(cfg, secrets, "", "")
+	_, modelID, err := resolveMcodeClient(context.Background(), cfg, secrets, "", "")
 	if err != nil || modelID != "cached-first" {
 		t.Fatalf("默认模型 = %q, %v", modelID, err)
 	}
@@ -198,7 +214,7 @@ func TestMcodeResolveClientDefaultFromModelCache(t *testing.T) {
 func TestMcodeResolveClientDefaultWithoutConfigOrCache(t *testing.T) {
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
-	if _, _, err := resolveMcodeClient(cfg, secrets, "", ""); err == nil || !strings.Contains(err.Error(), "默认模型") {
+	if _, _, err := resolveMcodeClient(context.Background(), cfg, secrets, "", ""); err == nil || !strings.Contains(err.Error(), "默认模型") {
 		t.Fatalf("缺少默认模型时应报错，got %v", err)
 	}
 }
@@ -231,7 +247,7 @@ func TestMcodeResolveClientAnthropicSkipsAffinityHeaders(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", server.URL)
 	cfg := config.Defaults()
 	store := mcodeTestSecrets(map[string]string{mcodeAnthropicAPIKeyAccount: "secret-key"})
-	client, model, err := resolveMcodeClient(cfg, store, "anthropic/claude-sonnet-5-5", "thread-1")
+	client, model, err := resolveMcodeClient(context.Background(), cfg, store, "anthropic/claude-sonnet-5-5", "thread-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +270,7 @@ func TestMcodeResolveClientEchoesDeepSeekReasoning(t *testing.T) {
 	defer server.Close()
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: server.URL})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
-	client, model, err := resolveMcodeClient(cfg, secrets, "magpie-mcode/DeepSeek-V3", "thread-1")
+	client, model, err := resolveMcodeClient(context.Background(), cfg, secrets, "magpie-mcode/DeepSeek-V3", "thread-1")
 	if err != nil || model != "DeepSeek-V3" {
 		t.Fatalf("resolve = %q, %v", model, err)
 	}
@@ -275,7 +291,7 @@ func TestMcodeResolveClientEchoesDeepSeekReasoning(t *testing.T) {
 func TestMcodeResolveClientAnthropicAndErrors(t *testing.T) {
 	cfg := config.Defaults()
 	store := mcodeTestSecrets(map[string]string{mcodeAnthropicAPIKeyAccount: "secret-key"})
-	client, model, err := resolveMcodeClient(cfg, store, "anthropic/claude-sonnet-5-5", "")
+	client, model, err := resolveMcodeClient(context.Background(), cfg, store, "anthropic/claude-sonnet-5-5", "")
 	if err != nil || model != "claude-sonnet-5-5" {
 		t.Fatalf("secret key resolve = %q, %v", model, err)
 	}
@@ -286,14 +302,14 @@ func TestMcodeResolveClientAnthropicAndErrors(t *testing.T) {
 	}
 	store = mcodeTestSecrets(nil)
 	t.Setenv("ANTHROPIC_API_KEY", "environment-key")
-	if _, _, err := resolveMcodeClient(cfg, store, "anthropic/claude-opus-5-5", ""); err != nil {
+	if _, _, err := resolveMcodeClient(context.Background(), cfg, store, "anthropic/claude-opus-5-5", ""); err != nil {
 		t.Fatalf("environment fallback: %v", err)
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	if _, _, err := resolveMcodeClient(cfg, store, "anthropic/claude-opus-5-5", ""); err == nil || !strings.Contains(err.Error(), "未配置 Anthropic API Key") {
+	if _, _, err := resolveMcodeClient(context.Background(), cfg, store, "anthropic/claude-opus-5-5", ""); err == nil || !strings.Contains(err.Error(), "未配置 Anthropic API Key") {
 		t.Fatalf("missing key error = %v", err)
 	}
-	if _, _, err := resolveMcodeClient(cfg, store, "unknown/model", ""); err == nil || !strings.Contains(err.Error(), "Magpie 端点") {
+	if _, _, err := resolveMcodeClient(context.Background(), cfg, store, "unknown/model", ""); err == nil || !strings.Contains(err.Error(), "Magpie 端点") {
 		t.Fatalf("unknown provider error = %v", err)
 	}
 }
@@ -301,7 +317,7 @@ func TestMcodeResolveClientAnthropicAndErrors(t *testing.T) {
 func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "anthropic", Name: "Anthropic", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("anthropic"): "gateway-key"})
-	_, model, err := resolveMcodeClient(cfg, secrets, "anthropic/model-x", "")
+	_, model, err := resolveMcodeClient(context.Background(), cfg, secrets, "anthropic/model-x", "")
 	if err != nil || model != "model-x" {
 		t.Fatalf("endpoint precedence = %q, %v", model, err)
 	}
@@ -311,7 +327,7 @@ func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
 	}
 	cfg = mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
 	secrets = mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})
-	if _, _, err = resolveMcodeClient(cfg, secrets, "", ""); err == nil || !strings.Contains(err.Error(), "默认模型") {
+	if _, _, err = resolveMcodeClient(context.Background(), cfg, secrets, "", ""); err == nil || !strings.Contains(err.Error(), "默认模型") {
 		t.Fatalf("空模型没有默认值时应报错，got %v", err)
 	}
 }
@@ -383,7 +399,7 @@ func TestMcodeModelCatalogUsesFullCache(t *testing.T) {
 		t.Fatalf("没有价格的目录行 = %#v", got[1].Cost)
 	}
 	// 目录行 ID 能被请求解析到同一个端点。
-	_, modelID, err := resolveMcodeClient(cfg, secrets, got[1].ID, "")
+	_, modelID, err := resolveMcodeClient(context.Background(), cfg, secrets, got[1].ID, "")
 	if err != nil || modelID != "plain-model" {
 		t.Fatalf("解析目录行 = %q, %v", modelID, err)
 	}

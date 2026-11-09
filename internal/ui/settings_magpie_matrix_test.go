@@ -9,6 +9,27 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func TestMagpieMatrixPiRetryReloadsAgent(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetAgentMagpie(AgentMagpieSetting{Agent: "pi", Endpoints: []PiMagpieEndpoint{{ID: "retry-gateway"}}})
+	st := matrixTestState(t, fake, nil, nil)
+	st.mu.Lock()
+	st.piMagpie.err = "失败"
+	st.piMagpie.loaded = true
+	state := st.agentMagpieFor("pi")
+	state.err = "失败"
+	state.loaded = true
+	st.mu.Unlock()
+	retryMagpieMatrixAgent(st, "pi")
+	tt := ui.NewTester(func(c *ui.Context) {}, 100, 100)
+	waitMagpie(t, tt, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		state := st.agentMagpieFor("pi")
+		return state.loaded && state.err == "" && len(state.setting.Endpoints) == 1 && state.setting.Endpoints[0].ID == "retry-gateway"
+	})
+}
+
 // matrixTestState 构造已加载端点与各智能体设置的设置状态，避免矩阵数据触发异步加载。
 func matrixTestState(t *testing.T, fake *FakeClient, gateways []CustomEndpoint, settings map[string]AgentMagpieSetting) *SettingsState {
 	t.Helper()

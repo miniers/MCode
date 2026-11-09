@@ -20,7 +20,11 @@ func TestArchiveStopsStewardTaskWatch(t *testing.T) {
 			t.Cleanup(s.close)
 			tt := ui.NewTester(view, 1000, 700)
 			waitFor(t, tt, func() bool { return tt.HasText("原状态") && fake.KanbanBoardCalls() >= 2 })
-			if bulk { s.bulkArchive("p1", []string{"t1"}) } else { s.archiveThreadWithUndo("p1", "t1") }
+			if bulk {
+				s.bulkArchive("p1", []string{"t1"})
+			} else {
+				s.archiveThreadWithUndo("p1", "t1")
+			}
 			waitFor(t, tt, func() bool { return fake.stopCount() == 1 })
 		})
 	}

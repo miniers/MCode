@@ -71,18 +71,28 @@ func TestFrontdeskTaskAndMigration(t *testing.T) {
 		t.Fatalf("来源错误: %+v %v", meta, err)
 	}
 	goal.Status = "completed"
-	if _, err := db.UpdateGoal(ctx, goal, goal.Revision); err != nil { t.Fatal(err) }
+	if _, err := db.UpdateGoal(ctx, goal, goal.Revision); err != nil {
+		t.Fatal(err)
+	}
 	second, err := svc.CreateTask(ctx, frontdesk.CreateTaskInput{Title: "第二项", ProjectID: "project"})
-	if err != nil || second.GoalID == nil || *second.GoalID != goal.ID { t.Fatalf("目标复用失败: %+v %v", second, err) }
+	if err != nil || second.GoalID == nil || *second.GoalID != goal.ID {
+		t.Fatalf("目标复用失败: %+v %v", second, err)
+	}
 	goal, err = db.GetGoal(ctx, goal.ID)
-	if err != nil || goal.Status != "running" { t.Fatalf("目标未恢复: %+v %v", goal, err) }
+	if err != nil || goal.Status != "running" {
+		t.Fatalf("目标未恢复: %+v %v", goal, err)
+	}
 	failure := "失败"
 	task.Status, task.AttemptCount, task.LastFailureReason = "done", 2, &failure
 	meta.ResultStatus, meta.Summary, meta.NoChange = "done", "旧结果", true
 	task.Meta = kanban.EncodeTaskMeta(meta)
 	task, err = db.UpdateTask(ctx, task, task.Revision)
-	if err != nil { t.Fatal(err) }
-	if err := svc.AmendTask(ctx, task.ID, "继续修改"); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AmendTask(ctx, task.ID, "继续修改"); err != nil {
+		t.Fatal(err)
+	}
 	reopened, err := db.GetTask(ctx, task.ID)
 	meta, _ = kanban.ParseTaskMeta(reopened.Meta)
 	if err != nil || reopened.ID != task.ID || reopened.Status != "todo" || reopened.Notes != "原始要求\n继续修改" || reopened.AttemptCount != 0 || reopened.LastFailureReason != nil || meta.ResultStatus != "" || meta.NoChange {
@@ -90,20 +100,36 @@ func TestFrontdeskTaskAndMigration(t *testing.T) {
 	}
 	svc.kanban = kanban.NewService(kanban.Options{Store: db})
 	feedID, err := backend.EnsureStewardFeedThread(ctx, "home")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	decision, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: task.ID, Question: "选择？", OptionsJSON: `["甲","乙"]`})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	reopened.Status = "needs_approval"
 	meta.DecisionID = decision.ID
 	reopened.Meta = kanban.EncodeTaskMeta(meta)
-	if _, err := db.UpdateTask(ctx, reopened, reopened.Revision); err != nil { t.Fatal(err) }
-	if err := svc.AmendTask(ctx, task.ID, "甲"); err != nil { t.Fatal(err) }
+	if _, err := db.UpdateTask(ctx, reopened, reopened.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AmendTask(ctx, task.ID, "甲"); err != nil {
+		t.Fatal(err)
+	}
 	answered, err := db.GetStewardDecision(ctx, decision.ID)
-	if err != nil || answered.Status != store.DecisionStatusAnswered || answered.Answer != "甲" { t.Fatalf("决策未优先回答: %+v %v", answered, err) }
-	if err := backend.AppendStewardMessage(ctx, feedID, "assistant", "steward_result", `{"task":"`+second.ID+`","title":"第二项","status":"done"}`); err != nil { t.Fatal(err) }
+	if err != nil || answered.Status != store.DecisionStatusAnswered || answered.Answer != "甲" {
+		t.Fatalf("决策未优先回答: %+v %v", answered, err)
+	}
+	if err := backend.AppendStewardMessage(ctx, feedID, "assistant", "steward_result", `{"task":"`+second.ID+`","title":"第二项","status":"done"}`); err != nil {
+		t.Fatal(err)
+	}
 	recent, mentionedAt, err := svc.RecentTask(ctx, feedID)
-	if err != nil || recent.ID != second.ID || mentionedAt.IsZero() { t.Fatalf("最近提及错误: %+v %v %v", recent, mentionedAt, err) }
-	if _, _, err := svc.RecentTask(ctx, "old"); !errors.Is(err, store.ErrNotFound) { t.Fatalf("不同会话不应共享提及: %v", err) }
+	if err != nil || recent.ID != second.ID || mentionedAt.IsZero() {
+		t.Fatalf("最近提及错误: %+v %v %v", recent, mentionedAt, err)
+	}
+	if _, _, err := svc.RecentTask(ctx, "old"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("不同会话不应共享提及: %v", err)
+	}
 }
 
 func TestFrontdeskReceiverEnabledAtRuntime(t *testing.T) {
@@ -418,9 +444,11 @@ func TestFrontdeskAmendReviewTaskReopens(t *testing.T) {
 	}
 }
 
-type frontdeskReviewDriver struct { running bool }
+type frontdeskReviewDriver struct{ running bool }
 
-func (d *frontdeskReviewDriver) StartSession(context.Context, kanban.SessionRequest) (string, error) { return "", nil }
+func (d *frontdeskReviewDriver) StartSession(context.Context, kanban.SessionRequest) (string, error) {
+	return "", nil
+}
 func (d *frontdeskReviewDriver) SessionState(context.Context, string) (kanban.SessionState, error) {
 	return kanban.SessionState{Running: d.running}, nil
 }
@@ -432,15 +460,23 @@ func TestFrontdeskAmendActiveReview(t *testing.T) {
 	svc.kanban = kanban.NewService(kanban.Options{Store: db, Driver: driver})
 	reviewID := "review-thread"
 	task := createFrontdeskTask(t, db, store.Task{ID: "review-active", Title: "评审", Status: "review", Notes: "原文", ReviewThreadID: &reviewID})
-	if err := svc.AmendTask(ctx, task.ID, "追加"); err == nil || err.Error() != "任务正在评审，请稍后再改" { t.Fatal(err) }
+	if err := svc.AmendTask(ctx, task.ID, "追加"); err == nil || err.Error() != "任务正在评审，请稍后再改" {
+		t.Fatal(err)
+	}
 	after, err := db.GetTask(ctx, task.ID)
-	if err != nil || after.Status != "review" || after.Notes != "原文" || after.ReviewThreadID == nil { t.Fatal(after, err) }
+	if err != nil || after.Status != "review" || after.Notes != "原文" || after.ReviewThreadID == nil {
+		t.Fatal(after, err)
+	}
 	driver.running = false
 	changes := 0
 	svc.kanban.SetOnChange(func() { changes++ })
-	if err := svc.AmendTask(ctx, task.ID, "追加"); err != nil { t.Fatal(err) }
+	if err := svc.AmendTask(ctx, task.ID, "追加"); err != nil {
+		t.Fatal(err)
+	}
 	after, err = db.GetTask(ctx, task.ID)
-	if err != nil || after.Status != "todo" || after.ReviewThreadID != nil || changes != 1 { t.Fatal(after, changes, err) }
+	if err != nil || after.Status != "todo" || after.ReviewThreadID != nil || changes != 1 {
+		t.Fatal(after, changes, err)
+	}
 }
 
 func TestFrontdeskSetPriorityNotifies(t *testing.T) {
@@ -449,9 +485,13 @@ func TestFrontdeskSetPriorityNotifies(t *testing.T) {
 	task := createFrontdeskTask(t, db, store.Task{ID: "priority", Title: "优先级", Status: "todo"})
 	changes := 0
 	svc.kanban.SetOnChange(func() { changes++ })
-	if err := svc.SetPriority(ctx, task.ID, "high"); err != nil { t.Fatal(err) }
+	if err := svc.SetPriority(ctx, task.ID, "high"); err != nil {
+		t.Fatal(err)
+	}
 	after, err := db.GetTask(ctx, task.ID)
-	if err != nil || after.Priority != "high" || changes != 1 { t.Fatal(after, changes, err) }
+	if err != nil || after.Priority != "high" || changes != 1 {
+		t.Fatal(after, changes, err)
+	}
 }
 
 func TestFrontdeskAmendNeedsApprovalWithoutDecisionSendsMessage(t *testing.T) {

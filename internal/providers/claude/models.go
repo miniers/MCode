@@ -122,18 +122,28 @@ var catalogSnapshot = CachedCatalog
 // loginPresent 报告本机是否有 Claude Code 登录凭据；单独抽成变量便于测试替换。
 var loginPresent = cachedLoginPresent
 
+const loginPresentTTL = 30 * time.Second
+
 var (
-	loginPresentOnce  sync.Once
+	loginPresentMu    sync.Mutex
 	loginPresentValue bool
+	loginPresentAt    time.Time
+	loginPresentDir   string
+	now               = time.Now
 )
 
-// cachedLoginPresent 按进程缓存登录检测结果：readLogin 在 macOS 上可能拉起 security 子进程，
+// cachedLoginPresent 短暂缓存登录检测结果：readLogin 在 macOS 上可能拉起 security 子进程，
 // 模型选择器反复扫描时不该每次重复启动它。
 func cachedLoginPresent() bool {
-	loginPresentOnce.Do(func() {
+	loginPresentMu.Lock()
+	defer loginPresentMu.Unlock()
+	dir := configDirectory() + "\x00" + os.Getenv("HOME")
+	t := now()
+	if loginPresentAt.IsZero() || dir != loginPresentDir || t.Before(loginPresentAt) || t.Sub(loginPresentAt) >= loginPresentTTL {
 		_, err := readLogin()
 		loginPresentValue = err == nil
-	})
+		loginPresentAt, loginPresentDir = t, dir
+	}
 	return loginPresentValue
 }
 

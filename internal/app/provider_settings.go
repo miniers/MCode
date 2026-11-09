@@ -258,14 +258,22 @@ func (c *Client) SaveProviderSetting(ctx context.Context, s mcodeui.ProviderSett
 	}
 
 	trimmedKey := strings.TrimSpace(apiKey)
+	var account, oldKey string
+	var oldKeyExists bool
 	if trimmedKey != "" {
-		account := providerSettingSecretAccount(spec.id)
+		account = providerSettingSecretAccount(spec.id)
 		if account == "" {
 			return mcodeui.ProviderSetting{}, fmt.Errorf("Provider %s 不支持 API Key", spec.id)
 		}
 		if c.secrets == nil {
 			return mcodeui.ProviderSetting{}, errors.New("凭据存储不可用，无法保存 API Key")
 		}
+		var err error
+		oldKey, err = c.secrets.Get(account)
+		if err != nil && !errors.Is(err, config.ErrSecretNotFound) {
+			return mcodeui.ProviderSetting{}, fmt.Errorf("read api key from secrets: %w", err)
+		}
+		oldKeyExists = err == nil
 		if err := c.secrets.Set(account, trimmedKey); err != nil {
 			return mcodeui.ProviderSetting{}, fmt.Errorf("save api key to secrets: %w", err)
 		}
@@ -275,6 +283,15 @@ func (c *Client) SaveProviderSetting(ctx context.Context, s mcodeui.ProviderSett
 		applyProviderSetting(latest, spec.id, s)
 		return nil
 	}); err != nil {
+		if trimmedKey != "" {
+			var restoreErr error
+			if oldKeyExists {
+				restoreErr = c.secrets.Set(account, oldKey)
+			} else {
+				restoreErr = c.secrets.Delete(account)
+			}
+			err = errors.Join(err, restoreErr)
+		}
 		return mcodeui.ProviderSetting{}, fmt.Errorf("save config: %w", err)
 	}
 

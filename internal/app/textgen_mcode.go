@@ -13,7 +13,7 @@ import (
 // 的归一化也在 resolveMcodeClient 内完成。请求只带一条 user 消息、不带工具，effort 原样透传；
 // 返回最终 assistant 消息里的纯文本，去掉首尾空白。
 func mcodeGenerateText(ctx context.Context, cfg config.Config, secrets config.SecretStore, model, effort, prompt string) (string, error) {
-	client, modelID, err := resolveMcodeClient(cfg, secrets, model, "")
+	client, modelID, err := resolveMcodeClient(ctx, cfg, secrets, model, "")
 	if err != nil {
 		return "", err
 	}

@@ -542,6 +542,14 @@ func TestShortName(t *testing.T) {
 }
 
 func TestProviderID(t *testing.T) {
+	for _, name := range []string{"mcode", "anthropic", "openai", "deepseek", "zai", "meta"} {
+		if got := ProviderID(name, nil); got != "magpie-"+name {
+			t.Errorf("ProviderID(%q) = %q", name, got)
+		}
+	}
+	if got := ProviderID("Anthropic", nil); got != "magpie-anthropic" {
+		t.Errorf("ProviderID(Anthropic) = %q", got)
+	}
 	if got := ProviderID("magpie_jp", nil); got != "magpie-jp" {
 		t.Errorf("ProviderID(magpie_jp) = %q，想要 magpie-jp", got)
 	}

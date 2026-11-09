@@ -16,11 +16,17 @@ func TestCLICatalogPanicClearsFetching(t *testing.T) {
 	bad := func(context.Context) ([]wire.ProviderModel, error) { panic("fetch") }
 	catalog.fetching = true
 	catalog.refresh(bad, 0)
-	if catalog.fetching { t.Fatal("后台拉取状态未清除") }
-	if err := catalog.reload(context.Background(), bad); err == nil || catalog.fetching { t.Fatal("同步刷新未清除状态") }
+	if catalog.fetching {
+		t.Fatal("后台拉取状态未清除")
+	}
+	if err := catalog.reload(context.Background(), bad); err == nil || catalog.fetching {
+		t.Fatal("同步刷新未清除状态")
+	}
 	if err := catalog.reload(context.Background(), func(context.Context) ([]wire.ProviderModel, error) {
 		return []wire.ProviderModel{{ID: "ok"}}, nil
-	}); err != nil { t.Fatal(err) }
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCLICatalogReloadKeepsLatestAndPreservesOnFailure(t *testing.T) {

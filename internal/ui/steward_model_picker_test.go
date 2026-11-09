@@ -7,6 +7,16 @@ import (
 	"mcode/internal/config"
 )
 
+func TestStewardModelSelectionUnavailable(t *testing.T) {
+	var cfg config.Config
+	cfg.Orchestration.Steward.Provider = "openai"
+	cfg.Orchestration.Steward.Model = "removed"
+	cat := modelPickerCatalog{Providers: []ProviderInfo{{ID: "openai", Models: []ModelInfo{{ID: "available"}}}}}
+	if got := stewardModelSelection(cfg, cat); got != (ModelSelection{Provider: "openai"}) {
+		t.Fatalf("下架模型应回到自动：%+v", got)
+	}
+}
+
 func TestStewardComposerModel(t *testing.T) {
 	fake := newStewardFakeClient("")
 	fake.threadID = "steward"

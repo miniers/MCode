@@ -31,6 +31,7 @@ import {
 } from './BulkThreadsSheet';
 import { useProjectAutomations } from '../context/remoteAutomationApi';
 import { useAttentionInbox } from '../context/remoteAttentionApi';
+import { useOpenDecisionCount } from '../hooks/useOpenDecisionCount';
 import {
   stewardActionErrorText,
   useRemoteStewardApi
@@ -304,7 +305,7 @@ function messageHitThreadStub(hit: RemoteMessageSearchHit, projectID: string): R
 
 // 总管固定行：放在当前项目区最上面，点了打开总管主会话。
 // 行上没有归档 / 置顶等会话操作（桌面端的总管行同样只是一行入口），徽标口径同 internal/ui/sidebar_steward.go：
-// 显示待处理收件箱里未处理的事项数。只有在选中项目且宿主声明 steward.open 时才会挂载，不会多出轮询。
+// 显示未答决策与待处理事项数。只有在选中项目且宿主声明 steward.open 时才会挂载，不会多出轮询。
 const StewardFixedRow = React.memo(function StewardFixedRow({
   projectID,
   label,
@@ -329,6 +330,7 @@ const StewardFixedRow = React.memo(function StewardFixedRow({
       ? '打开总管会话（正在回复）'
       : '打开总管会话';
   const { unresolvedCount } = useAttentionInbox(projectID);
+  const decisionCount = useOpenDecisionCount();
   return (
     <section className="gutter-x pt-2 pb-1" aria-label="总管">
       <div className="flex min-h-[52px] w-full min-w-0 items-center gap-1">
@@ -346,6 +348,14 @@ const StewardFixedRow = React.memo(function StewardFixedRow({
             {busy ? <span className="loading-spinner loading-spinner--small" /> : avatar}
           </span>
           <span className="min-w-0 flex-1 truncate text-footnote font-medium text-foreground">{label}</span>
+          {decisionCount !== null && decisionCount > 0 && (
+            <span
+              className="shrink-0 rounded-full bg-danger px-1.5 text-mc-caption font-semibold leading-[18px] text-white"
+              aria-label={`未答决策 ${decisionCount} 张`}
+            >
+              {decisionCount > 99 ? '99+' : decisionCount}
+            </span>
+          )}
           {unresolvedCount > 0 && (
             <span
               className="shrink-0 rounded-full bg-danger px-1.5 text-mc-caption font-semibold leading-[18px] text-white"

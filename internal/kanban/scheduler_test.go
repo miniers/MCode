@@ -55,18 +55,28 @@ func testStewardOwnerCompletion(t *testing.T, watchdogFirst bool) {
 					t.Fatal(err)
 				}
 				if watchdogFirst {
-					if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+					if err := wd.Check(ctx); err != nil {
+						t.Fatal(err)
+					}
 					scheduler.Tick(ctx)
 				} else {
 					scheduler.Tick(ctx)
-					if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+					if err := wd.Check(ctx); err != nil {
+						t.Fatal(err)
+					}
 				}
 				scheduler.Tick(ctx)
-				if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+				if err := wd.Check(ctx); err != nil {
+					t.Fatal(err)
+				}
 				task, err := db.GetTask(ctx, "t")
-				if err != nil || task.Status != "done" || calls != 1 { t.Fatalf("任务=%+v 回调=%d 错误=%v", task, calls, err) }
+				if err != nil || task.Status != "done" || calls != 1 {
+					t.Fatalf("任务=%+v 回调=%d 错误=%v", task, calls, err)
+				}
 				goal, err := db.GetGoal(ctx, "g")
-				if err != nil || goal.Status != "running" { t.Fatalf("目标=%+v 错误=%v", goal, err) }
+				if err != nil || goal.Status != "running" {
+					t.Fatalf("目标=%+v 错误=%v", goal, err)
+				}
 			})
 		}
 	}
@@ -78,10 +88,20 @@ func testStewardOwnerCompletion(t *testing.T, watchdogFirst bool) {
 			thread := "executor"
 			seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: tc.title, Owner: tc.owner}, store.Task{ID: "t", Title: "任务", Status: "in_progress", ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{Origin: tc.origin})})
 			driver.setThreadState(thread, SessionState{})
-			if err := svc.SubmitExecutorResult(ctx, "t", thread, ExecutorResult{Status: ResultDone, Summary: "结果"}); err != nil { t.Fatal(err) }
-			if watchdogFirst { if err := wd.Check(ctx); err != nil { t.Fatal(err) } } else { scheduler.Tick(ctx) }
+			if err := svc.SubmitExecutorResult(ctx, "t", thread, ExecutorResult{Status: ResultDone, Summary: "结果"}); err != nil {
+				t.Fatal(err)
+			}
+			if watchdogFirst {
+				if err := wd.Check(ctx); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				scheduler.Tick(ctx)
+			}
 			task, err := db.GetTask(ctx, "t")
-			if err != nil || task.Status != "review" { t.Fatalf("任务=%+v 错误=%v", task, err) }
+			if err != nil || task.Status != "review" {
+				t.Fatalf("任务=%+v 错误=%v", task, err)
+			}
 		})
 	}
 }

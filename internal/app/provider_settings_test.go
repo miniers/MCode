@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,6 +16,35 @@ import (
 	"mcode/internal/remote"
 	mcodeui "mcode/internal/ui"
 )
+
+func TestSaveProviderSettingRestoresKeyOnConfigFailure(t *testing.T) {
+	for _, exists := range []bool{false, true} {
+		t.Run(map[bool]string{false: "不存在", true: "已有"}[exists], func(t *testing.T) {
+			client, dir, secrets := newProviderSettingsClient(t)
+			account := providerSettingSecretAccount("deepseek")
+			if exists {
+				if err := secrets.Set(account, "old"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			file := filepath.Join(dir, "not-a-directory")
+			if err := os.WriteFile(file, []byte("x"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			client.dataDir = file
+			if _, err := client.SaveProviderSetting(context.Background(), mcodeui.ProviderSetting{ID: "deepseek"}, "new"); err == nil {
+				t.Fatal("保存应失败")
+			}
+			got, err := secrets.Get(account)
+			if exists && (err != nil || got != "old") {
+				t.Fatalf("旧 Key 未恢复：%q %v", got, err)
+			}
+			if !exists && !errors.Is(err, config.ErrSecretNotFound) {
+				t.Fatalf("Key 未删除：%q %v", got, err)
+			}
+		})
+	}
+}
 
 func harnessKinds(hs []harness.Harness) []string {
 	kinds := make([]string, 0, len(hs))

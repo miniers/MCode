@@ -12,7 +12,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -133,12 +132,6 @@ func (c *Client) AgentMagpie(ctx context.Context, agent string) (mcodeui.AgentMa
 		} else {
 			global.Err = err.Error()
 		}
-	case config.ProviderCline:
-		if path, _, err := magpiecfg.ClinePaths(); err == nil {
-			global.Path = path
-		} else {
-			global.Err = err.Error()
-		}
 	case config.ProviderPi:
 		if path, _, err := magpiecfg.PiPaths(); err == nil {
 			global.Path = path
@@ -191,8 +184,6 @@ func globalPlan(ctx context.Context, cfg config.Config, secrets config.SecretSto
 		return claudeGlobalPlan(ctx, setting, targets)
 	case config.ProviderCodex:
 		return codexGlobalPlan(setting, targets)
-	case config.ProviderCline:
-		return clineGlobalPlan(ctx, setting, targets)
 	case config.ProviderPi:
 		return piGlobalPlan(ctx, setting, targets)
 	}
@@ -265,45 +256,6 @@ func codexGlobalPlan(setting config.MagpieAgentConfig, targets []magpieinject.Ta
 		BaseURL: target.BaseURL,
 		APIKey:  target.APIKey,
 		Model:   main,
-	})
-}
-
-// clineGlobalPlan 生成 cline 的 providers.json + models.json 计划。cline 与
-// claude、codex 共用选端点、选主模型的规则；provider 只能指向一个网关。
-// /v1/models 只用来补显示名与模型元数据，取不到时留零值，仍照常生成计划。
-func clineGlobalPlan(ctx context.Context, setting config.MagpieAgentConfig, targets []magpieinject.Target) (magpiecfg.Plan, error) {
-	target, _, ids, main, ok := claudeGlobalPick(setting, targets)
-	if !ok {
-		return magpiecfg.Plan{}, errors.New("请先勾选一个可用的 magpie 模型")
-	}
-	byID := make(map[string]magpie.Model, len(ids))
-	fetchCtx, cancel := context.WithTimeout(ctx, agentMagpieFetchTimeout)
-	models, err := magpie.FetchModels(fetchCtx, target.BaseURL, target.APIKey)
-	cancel()
-	if err == nil {
-		for _, m := range models {
-			if m.ID != "" {
-				byID[m.ID] = m
-			}
-		}
-	}
-	rows := make([]magpiecfg.ClineModel, 0, len(ids))
-	for _, id := range ids {
-		row := magpiecfg.ClineModel{ID: id}
-		if m, ok := byID[id]; ok {
-			row.Name = m.Name
-			row.ContextWindow = m.ContextWindow
-			row.MaxTokens = m.MaxTokens
-			row.Vision = slices.Contains(m.Input, "image")
-			row.Reasoning = m.Reasoning
-		}
-		rows = append(rows, row)
-	}
-	return magpiecfg.ClinePlan(magpiecfg.ClineOptions{
-		BaseURL: target.BaseURL,
-		APIKey:  target.APIKey,
-		Main:    main,
-		Models:  rows,
 	})
 }
 

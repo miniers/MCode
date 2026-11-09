@@ -6558,7 +6558,6 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 	}
 
 	// 会话换新钩子在主锁之外执行。
-	// 函数自己读项目表，必须在主锁之外算。
 
 	// 钩子会读设置，必须在锁外调用；超时或 panic 一律视为不换新。
 	rotated := false

@@ -97,7 +97,7 @@ func mcodeTargets(cfg config.Config, secrets config.SecretStore) []magpieinject.
 
 // mcodeDefaultModel 返回 mcode 未指定模型时使用的完整模型 ID。
 // 优先用 mcode 设置里手动指定的默认模型；没有时取 Magpie 模型目录缓存里的第一个模型。
-func mcodeDefaultModel(cfg config.Config, secrets config.SecretStore) (string, error) {
+func mcodeDefaultModel(ctx context.Context, cfg config.Config, secrets config.SecretStore) (string, error) {
 	targets := apisource.MagpieTargets(cfg, secrets)
 	setting := config.MagpieAgentSetting(cfg, config.ProviderMcode)
 	if modelID := strings.TrimSpace(setting.DefaultModel); modelID != "" {
@@ -134,14 +134,14 @@ func mcodeDefaultModel(cfg config.Config, secrets config.SecretStore) (string, e
 
 // resolveMcodeClient 根据模型 ID 解析对应的上游客户端。
 // 模型目录为空时界面会显示占位模型 default，这里统一当成空串（默认 Magpie 模型）。
-func resolveMcodeClient(cfg config.Config, secrets config.SecretStore, model, affinityKey string) (llm.Client, string, error) {
+func resolveMcodeClient(ctx context.Context, cfg config.Config, secrets config.SecretStore, model, affinityKey string) (llm.Client, string, error) {
 	model = strings.TrimSpace(model)
 	if strings.EqualFold(model, "default") {
 		model = ""
 	}
 	targets := apisource.MagpieTargets(cfg, secrets)
 	if model == "" {
-		resolved, err := mcodeDefaultModel(cfg, secrets)
+		resolved, err := mcodeDefaultModel(ctx, cfg, secrets)
 		if err != nil {
 			return nil, "", err
 		}
@@ -295,16 +295,16 @@ func mcodeEngineOptions(secrets config.SecretStore, dataDir string, mcpInjection
 func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
 	opts := mcodeEngineOptions(secrets, dataDir, mcpInjection)
 	remote.SetMcodeModels(mcodeModelCatalog)
-	opts.QualifyModel = func(model string) string {
+	opts.QualifyModel = func(ctx context.Context, model string) string {
 		current := mcodeCurrentConfig(cfg, secrets)
-		if resolved, err := mcodeDefaultModel(current, mcodeCurrentSecrets(secrets)); err == nil {
+		if resolved, err := mcodeDefaultModel(ctx, current, mcodeCurrentSecrets(secrets)); err == nil {
 			return resolved
 		}
 		return model
 	}
-	opts.ResolveClient = func(model, affinityKey string) (llm.Client, string, error) {
+	opts.ResolveClient = func(ctx context.Context, model, affinityKey string) (llm.Client, string, error) {
 		current := mcodeCurrentConfig(cfg, secrets)
-		return resolveMcodeClient(current, mcodeCurrentSecrets(secrets), model, affinityKey)
+		return resolveMcodeClient(ctx, current, mcodeCurrentSecrets(secrets), model, affinityKey)
 	}
 	opts.ContextWindow = func(model string) int {
 		current := mcodeCurrentConfig(cfg, secrets)
