@@ -26,6 +26,8 @@ func frontdeskModelPickerCatalog(cat modelPickerCatalog, cfg config.Config) mode
 		}
 	}
 	cat.Providers = providers
+	// 前台只能直接使用 API 来源，Magpie 端点是主要来源，不受普通选择器的隐藏开关影响。
+	cat.MagpieFilter = modelPickerMagpieFilter{}
 	return cat
 }
 

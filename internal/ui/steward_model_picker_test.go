@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/config"
 )
 
 func TestStewardComposerModel(t *testing.T) {
@@ -80,5 +81,43 @@ func TestStewardComposerModelLegacySelection(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("GPT Test") {
 		t.Fatalf("API 模型应显示原值: %v", tt.Texts())
+	}
+}
+
+func TestStewardComposerModelMagpieWhenHiddenInOrdinaryPicker(t *testing.T) {
+	s := newChatState(newStewardFakeClient(""))
+	t.Cleanup(s.close)
+	st := NewSettingsState(t.TempDir(), nil, s)
+	setChatSettings(s, st)
+	t.Cleanup(func() { setChatSettings(s, nil) })
+	ep := config.CustomEndpointConfig{ID: "432db46a", Name: "Magpie", Magpie: true, Enabled: true}
+	st.cfg.Providers.HideMagpieModelsInPicker = true
+	st.cfg.Providers.Custom = []config.CustomEndpointConfig{ep}
+	id := config.CustomEndpointProviderKind(ep)
+	s.providers = []ProviderInfo{
+		{ID: id, Name: "Magpie", Available: true, Models: []ModelInfo{{ID: "auto/deepseek-v4.1-flash", Name: "DeepSeek Flash"}}},
+		{ID: config.ProviderClaude, Name: "Claude", Available: true, Models: []ModelInfo{{ID: "cli-test", Name: "CLI Test"}}},
+	}
+	cat := frontdeskModelPickerCatalog(modelPickerCatalogFor(s), st.cfg)
+	if len(cat.Providers) != 1 || cat.Providers[0].ID != id {
+		t.Fatalf("前台来源不正确: %+v", cat.Providers)
+	}
+	filtered := filterModelPickerMagpie(cat.Providers, cat.MagpieFilter)
+	if len(filtered) != 1 || filtered[0].ID != id {
+		t.Fatalf("前台 Magpie 来源被隐藏: %+v", filtered)
+	}
+	tt := ui.NewTester(func(c *ui.Context) { renderStewardComposerModel(c, s) }, 1000, 700)
+	if err := tt.Click("选择前台模型"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("DeepSeek Flash") || tt.HasText("CLI Test") {
+		t.Fatalf("前台模型候选不正确: %v", tt.Texts())
+	}
+	if err := tt.Click("DeepSeek Flash"); err != nil {
+		t.Fatal(err)
+	}
+	if st.cfg.Orchestration.Steward.Provider != id || st.cfg.Orchestration.Steward.Model != "auto/deepseek-v4.1-flash" {
+		t.Fatalf("前台模型未保存: %+v", st.cfg.Orchestration.Steward)
 	}
 }
