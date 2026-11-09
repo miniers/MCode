@@ -18,7 +18,6 @@ import (
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/providers/magpie"
-	"mcode/internal/providers/openai"
 	"mcode/internal/remote"
 )
 
@@ -102,23 +101,15 @@ func TestSourceEnginePreset(t *testing.T) {
 	}
 	secrets := mcodeTestSecrets(map[string]string{"deepseek.apiKey": "sk-deepseek"})
 
-	preset, ok := openai.PresetByID("deepseek")
-	if !ok {
-		t.Fatal("deepseek preset not found")
-	}
-	legacyOpts := openai.PresetOptions(preset, secrets, server.URL, false)
-	legacyOpts.Model = "deepseek-flash"
-	legacy := openai.New(legacyOpts)
-
-	h := newSourceEngineHarness(legacy, cfg, secrets, "", providerMCP{})
+	presetSource, _ := findAPISource(apisource.Resolve(cfg, secrets), "deepseek")
+	h := newSourceEngineHarness("deepseek", cfg, secrets, "", providerMCP{})
 	if got := string(h.Kind()); got != "deepseek" {
 		t.Fatalf("Kind = %q, want deepseek", got)
 	}
-	if got, want := h.(interface{ DisplayName() string }).DisplayName(), legacy.DisplayName(); got != want {
+	if got, want := h.(interface{ DisplayName() string }).DisplayName(), presetSource.Label; got != want {
 		t.Fatalf("DisplayName = %q, want %q", got, want)
 	}
 	gotModels := h.(interface{ ModelIDs() []string }).ModelIDs()
-	presetSource, _ := findAPISource(apisource.Resolve(cfg, secrets), "deepseek")
 	if len(gotModels) == 0 || gotModels[0] != "deepseek-flash" {
 		t.Fatalf("ModelIDs = %v", gotModels)
 	}
@@ -178,6 +169,21 @@ func TestSourceEngineCustomEndpoint(t *testing.T) {
 	req := requests[0]
 	if req.Path != "/chat/completions" || req.Auth != "Bearer sk-custom" || req.Model != "mock-model" {
 		t.Fatalf("请求 = %+v", req)
+	}
+}
+
+func TestSourceEngineCustomEndpointColdDefault(t *testing.T) {
+	setMcodeAgentRuntime("", nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"data":[{"id":"first-model"}]}`)
+	}))
+	defer server.Close()
+	cfg := config.Config{}
+	cfg.Providers.Custom = []config.CustomEndpointConfig{{ID: "cold-default", Enabled: true, BaseURL: server.URL}}
+	_, model, err := resolveSourceClient("custom-cold-default", cfg, config.NewMemorySecretStore(), "", "")
+	if err != nil || model != "first-model" {
+		t.Fatalf("默认模型 = %q，错误 = %v", model, err)
 	}
 }
 
@@ -293,7 +299,7 @@ func TestSourceEngineMagpieColdDefault(t *testing.T) {
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("magpie"): "key"})
 	newCustomEndpointHarness(ep, secrets, dir, providerMCP{})
 	t.Cleanup(func() { remote.SetAPICatalog("magpie", nil); setMcodeAgentRuntime("", nil) })
-	_, model, err := resolveSourceClient("magpie", nil, config.Defaults(), secrets, "default", "")
+	_, model, err := resolveSourceClient("magpie", config.Defaults(), secrets, "default", "")
 	if err != nil || model != "preferred" {
 		t.Fatalf("冷缓存默认模型 = %q，错误 = %v", model, err)
 	}
@@ -341,7 +347,7 @@ func TestSourceEngineMagpieColdDefaultFetch(t *testing.T) {
 			cfg.Providers.Custom = []config.CustomEndpointConfig{{ID: "cold", Enabled: true, Magpie: true, BaseURL: server.URL}}
 			secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("cold"): "key"})
 			start := time.Now()
-			_, model, err := resolveSourceClient("custom-cold", nil, cfg, secrets, "default", "")
+			_, model, err := resolveSourceClient("custom-cold", cfg, secrets, "default", "")
 			elapsed := time.Since(start)
 			if tc.wantError == "" {
 				if err != nil || model != tc.wantModel {
@@ -546,8 +552,7 @@ func TestSourceEngineUsesRotatedSecret(t *testing.T) {
 		"deepseek": {Enabled: true, BaseURL: server.URL},
 	}
 	secrets := mcodeTestSecrets(map[string]string{"deepseek.apiKey": "sk-old"})
-	preset, _ := openai.PresetByID("deepseek")
-	h := newSourceEngineHarness(openai.New(openai.PresetOptions(preset, secrets, server.URL, false)), cfg, secrets, "", providerMCP{})
+	h := newSourceEngineHarness("deepseek", cfg, secrets, "", providerMCP{})
 
 	runEngineTurn(t, h, "deepseek-chat", "")
 	if len(requests) != 1 || requests[0].Auth != "Bearer sk-old" {
@@ -568,23 +573,19 @@ func TestSourceEngineDisabledSource(t *testing.T) {
 		"deepseek": {Enabled: true, BaseURL: "https://api.deepseek.com"},
 	}
 	secrets := mcodeTestSecrets(map[string]string{"deepseek.apiKey": "sk"})
-	preset, _ := openai.PresetByID("deepseek")
-	legacy := openai.New(openai.PresetOptions(preset, secrets, "", false))
-
 	// 与 runtime 读盘结果一致：同一个 map 里改成停用后立即生效。
 	cfg.Providers.Presets["deepseek"] = config.PresetProviderConfig{Enabled: false}
-	_, _, err := resolveSourceClient(harness.Kind("deepseek"), legacy, cfg, secrets, "deepseek-chat", "")
+	_, _, err := resolveSourceClient(harness.Kind("deepseek"), cfg, secrets, "deepseek-chat", "")
 	if err == nil || !strings.Contains(err.Error(), "未启用或已删除") {
 		t.Fatalf("err = %v, want 来源未启用或已删除", err)
 	}
 }
 
 func TestSourceEngineDefaultModel(t *testing.T) {
-	cfg := config.Defaults()
-	if got := sourceEngineDefaultModel(apisource.Source{DefaultModel: " deepseek-flash "}, harness.Kind("deepseek"), cfg, nil); got != "deepseek-flash" {
+	if got := sourceEngineDefaultModel(apisource.Source{DefaultModel: " deepseek-flash "}, harness.Kind("deepseek"), nil); got != "deepseek-flash" {
 		t.Fatalf("来源默认模型 = %q", got)
 	}
-	if got := sourceEngineDefaultModel(apisource.Source{BaseURL: "https://gateway.example/v1"}, harness.Kind("openai"), cfg, nil); got != "gpt-4o" {
+	if got := sourceEngineDefaultModel(apisource.Source{BaseURL: "https://gateway.example/v1"}, harness.Kind("openai"), nil); got != "gpt-4o" {
 		t.Fatalf("官方 OpenAI 默认模型 = %q, want gpt-4o", got)
 	}
 }

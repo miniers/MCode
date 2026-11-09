@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/providers/magpie"
-	"mcode/internal/providers/openai"
 	"mcode/internal/remote"
 	mcodeui "mcode/internal/ui"
 )
@@ -49,20 +49,10 @@ func normalizePersonaWebURL(raw string) (string, error) {
 // newCustomEndpointHarness 为自定义端点构造由内置引擎驱动的 Harness 实例。
 // 自定义端点不读 OPENAI_API_KEY 作为兜底密钥：否则内置 OpenAI 的官方密钥会被发给第三方端点。
 func newCustomEndpointHarness(ep config.CustomEndpointConfig, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
-	legacy := openai.New(openai.Options{
-		Kind:          harness.Kind(config.CustomEndpointProviderKind(ep)),
-		DisplayName:   ep.Name,
-		BaseURL:       ep.BaseURL,
-		Model:         ep.Model,
-		APIKeyAccount: config.CustomEndpointSecretAccount(ep.ID),
-		Secrets:       secrets,
-		BuiltinMCP:    mcpInjection.Builtin,
-		ExternalMCP:   mcpInjection.External,
-	})
 	// dataDir 不可读时仍要能解析到这个端点，所以兜底配置里带上它本身。
 	fallback := config.Config{}
 	fallback.Providers.Custom = []config.CustomEndpointConfig{ep}
-	return newSourceEngineHarness(legacy, fallback, secrets, dataDir, mcpInjection)
+	return newSourceEngineHarness(harness.Kind(config.CustomEndpointProviderKind(ep)), fallback, secrets, dataDir, mcpInjection)
 }
 
 // SetProviderStore 设置自定义端点所需的配置文件目录与凭据存储。
@@ -426,10 +416,10 @@ func restoreEndpointKey(secrets config.SecretStore, account, key string) error {
 }
 
 // legacyMagpiePresets 返回当前配置中仍存在的旧版 Magpie 预设。
-func legacyMagpiePresets(presets map[string]config.PresetProviderConfig) []openai.Preset {
-	var res []openai.Preset
+func legacyMagpiePresets(presets map[string]config.PresetProviderConfig) []apisource.Preset {
+	var res []apisource.Preset
 	for slot := 1; ; slot++ {
-		preset, ok := openai.Magpie(slot)
+		preset, ok := apisource.Magpie(slot)
 		if !ok {
 			break
 		}
@@ -488,7 +478,7 @@ func migrateLegacyMagpieEndpoints(dataDir string, cfg *config.Config, secrets co
 }
 
 // migrateLegacyMagpieSecret 把旧 Magpie 预设的密钥搬到自定义端点账号下；目标已有密钥时以目标为准。
-func migrateLegacyMagpieSecret(secrets config.SecretStore, preset openai.Preset) error {
+func migrateLegacyMagpieSecret(secrets config.SecretStore, preset apisource.Preset) error {
 	target := config.CustomEndpointSecretAccount(preset.ID)
 	targetKey, err := secrets.Get(target)
 	if err == nil && strings.TrimSpace(targetKey) != "" {

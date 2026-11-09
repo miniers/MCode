@@ -34,25 +34,19 @@ func mcodeRuntimeDataDir() string {
 }
 
 // newSourceEngineHarness 让 API Key 类来源改由内置引擎运行。
-// legacy 只提供元数据（Kind、名称、模型目录、可用性与刷新），会话执行交给内置引擎，
-// 因此这些来源同样具备 bash、会话压缩与 steer 能力；provider kind 保持不变。
-func newSourceEngineHarness(legacy harness.Harness, cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
-	kind := legacy.Kind()
+func newSourceEngineHarness(kind harness.Kind, cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
 	opts := mcodeEngineOptions(secrets, dataDir, mcpInjection)
 	opts.Kind = kind
-	if named, ok := legacy.(interface{ DisplayName() string }); ok {
-		opts.DisplayName = named.DisplayName()
-	}
-	var legacyModels func() []string
-	if models, ok := legacy.(interface{ ModelIDs() []string }); ok {
-		legacyModels = models.ModelIDs
+	opts.DisplayName = string(kind)
+	if source, ok := findAPISource(apisource.Resolve(cfg, secrets), kind); ok {
+		opts.DisplayName = source.Label
 	}
 	catalog := func() []wire.ProviderModel {
 		current := mcodeCurrentConfig(cfg, secrets)
 		store := mcodeCurrentSecrets(secrets)
 		var ids []string
-		if legacyModels != nil {
-			ids = legacyModels()
+		if source, ok := findAPISource(apisource.Resolve(current, store), kind); ok && !source.Magpie && source.Protocol != apisource.ProtocolAnthropic {
+			ids = sourceModelCache.models(source, source.APIKey(store))
 		}
 		return apiSourceCatalog(current, store, string(kind), ids)
 	}
@@ -65,28 +59,28 @@ func newSourceEngineHarness(legacy harness.Harness, cfg config.Config, secrets c
 		}
 		return ids
 	}
-	if refresh, ok := legacy.(interface {
-		RefreshModels(context.Context) error
-	}); ok {
-		opts.RefreshModels = refresh.RefreshModels
-	}
-	if source, ok := findAPISource(apisource.Resolve(cfg, secrets), kind); ok && source.Magpie {
-		opts.RefreshModels = func(ctx context.Context) error {
-			current := mcodeCurrentConfig(cfg, secrets)
-			store := mcodeCurrentSecrets(secrets)
-			currentSource, ok := findAPISource(apisource.Resolve(current, store), kind)
-			if !ok || !currentSource.Magpie {
-				return fmt.Errorf("来源 %s 未启用或已删除", kind)
-			}
-			_, err := magpie.FetchModels(ctx, currentSource.BaseURL, currentSource.APIKey(store))
-			return err
+	opts.RefreshModels = func(ctx context.Context) error {
+		current := mcodeCurrentConfig(cfg, secrets)
+		store := mcodeCurrentSecrets(secrets)
+		currentSource, ok := findAPISource(apisource.Resolve(current, store), kind)
+		if !ok {
+			return fmt.Errorf("来源 %s 未启用或已删除", kind)
 		}
+		if !currentSource.Magpie {
+			if currentSource.Protocol == apisource.ProtocolAnthropic {
+				return nil
+			}
+			return sourceModelCache.refresh(ctx, currentSource, currentSource.APIKey(store))
+		}
+		ctx, cancel := context.WithTimeout(ctx, apiModelRequestTimeout)
+		defer cancel()
+		_, err := magpie.FetchModels(ctx, currentSource.BaseURL, currentSource.APIKey(store))
+		return err
 	}
-	if available, ok := legacy.(interface{ Available() (bool, string) }); ok {
-		opts.Available = available.Available
-	}
+	availability := &sourceAvailability{}
+	opts.Available = func() (bool, string) { return availability.get(kind, cfg, secrets) }
 	opts.ResolveClient = func(model, affinityKey string) (llm.Client, string, error) {
-		return resolveSourceClient(kind, legacy, cfg, secrets, model, affinityKey)
+		return resolveSourceClient(kind, cfg, secrets, model, affinityKey)
 	}
 	opts.ContextWindow = func(model string) int {
 		return sourceEngineContextWindow(kind, cfg, secrets, model)
@@ -132,7 +126,7 @@ func magpieCachedModelFor(kind harness.Kind, cfg config.Config, secrets config.S
 }
 
 // resolveSourceClient 每次调用都重新解析最新配置与凭据，保存新 Key 后无需重建 harness。
-func resolveSourceClient(kind harness.Kind, legacy harness.Harness, cfg config.Config, secrets config.SecretStore, model, affinityKey string) (llm.Client, string, error) {
+func resolveSourceClient(kind harness.Kind, cfg config.Config, secrets config.SecretStore, model, affinityKey string) (llm.Client, string, error) {
 	current := mcodeCurrentConfig(cfg, secrets)
 	store := mcodeCurrentSecrets(secrets)
 	source, ok := findAPISource(apisource.Resolve(current, store), kind)
@@ -166,7 +160,7 @@ func resolveSourceClient(kind harness.Kind, legacy harness.Harness, cfg config.C
 				}
 			}
 		} else {
-			modelID = sourceEngineDefaultModel(source, kind, current, legacy)
+			modelID = sourceEngineDefaultModel(source, kind, store)
 		}
 	}
 	if modelID == "" {
@@ -232,25 +226,21 @@ func findAPISource(sources []apisource.Source, kind harness.Kind) (apisource.Sou
 // sourceEngineDefaultModel 复刻旧循环选择默认模型的规则：先取来源配置的默认模型；
 // 官方 OpenAI 端点回退到 gpt-4o；其余来源取模型目录的第一项，目录为空时
 // 同步刷新一次（与旧循环 modelIDsForRun 一致），刷新失败就返回空。
-func sourceEngineDefaultModel(source apisource.Source, kind harness.Kind, cfg config.Config, legacy harness.Harness) string {
+func sourceEngineDefaultModel(source apisource.Source, kind harness.Kind, secrets config.SecretStore) string {
 	if model := strings.TrimSpace(source.DefaultModel); model != "" {
 		return model
 	}
 	if isOfficialOpenAIEndpoint(kind, source.BaseURL) {
 		return "gpt-4o"
 	}
-	models, ok := legacy.(interface{ ModelIDs() []string })
-	if !ok {
-		return ""
-	}
-	ids := models.ModelIDs()
+	key := source.APIKey(secrets)
+	ids := append([]string(nil), source.Models...)
+	ids = append(ids, sourceModelCache.models(source, key)...)
 	if len(ids) == 0 {
-		if refresher, ok := legacy.(interface {
-			RefreshModels(context.Context) error
-		}); ok {
-			_ = refresher.RefreshModels(context.Background())
-			ids = models.ModelIDs()
-		}
+		ctx, cancel := context.WithTimeout(context.Background(), apiModelRequestTimeout)
+		_ = sourceModelCache.refresh(ctx, source, key)
+		cancel()
+		ids = sourceModelCache.models(source, key)
 	}
 	for _, id := range ids {
 		if id = strings.TrimSpace(id); id != "" {

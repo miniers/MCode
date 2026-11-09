@@ -11,7 +11,7 @@ import (
 )
 
 // apiSourceCatalog 返回当前启用来源的模型目录。
-func apiSourceCatalog(cfg config.Config, secrets config.SecretStore, kind string, legacyModelIDs []string) []wire.ProviderModel {
+func apiSourceCatalog(cfg config.Config, secrets config.SecretStore, kind string, fetchedModelIDs []string) []wire.ProviderModel {
 	sources := apisource.Resolve(cfg, secrets)
 	if kind == "anthropic" && cfg.Providers.Anthropic.IsEnabled() {
 		// 目录不依赖凭据；仅在目录查询中补充占位凭据，以复用来源的静态模型表。
@@ -37,7 +37,7 @@ func apiSourceCatalog(cfg config.Config, secrets config.SecretStore, kind string
 		}
 		ids := append([]string(nil), source.Models...)
 		if kind != "anthropic" {
-			ids = append(ids, legacyModelIDs...)
+			ids = append(ids, fetchedModelIDs...)
 		}
 		if id := strings.TrimSpace(source.DefaultModel); id != "" {
 			ids = append(ids, id)

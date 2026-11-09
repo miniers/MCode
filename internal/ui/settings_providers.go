@@ -1075,6 +1075,10 @@ func apiProviderRowIcon(id string) *ui.SVG {
 // apiProviderNeedsEndpointFields 判断 API 供应商是否需要 BaseURL 与默认模型输入：
 // Anthropic 只有 API Key；OpenAI、自定义端点和带默认端点的预设可以编辑地址与模型。
 func apiProviderNeedsEndpointFields(st *SettingsState, kind, id string) bool {
+	// Anthropic 只保存 API Key，后端不保存地址与模型；即使预设带默认端点也不显示这两个字段。
+	if kind == "preset" && id == "anthropic" {
+		return false
+	}
 	if kind == "custom" || (kind == "preset" && id == "openai") {
 		return true
 	}

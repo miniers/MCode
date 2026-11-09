@@ -39,7 +39,6 @@ import (
 	"mcode/internal/providers/copilot"
 	"mcode/internal/providers/loginenv"
 	"mcode/internal/providers/omp"
-	"mcode/internal/providers/openai"
 	"mcode/internal/providers/pi"
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
@@ -1821,16 +1820,7 @@ func buildProviderHarness(cfg config.Config, secrets config.SecretStore, id stri
 		if !cfg.Providers.OpenAI.Enabled {
 			return nil, false
 		}
-		legacy := openai.New(openai.Options{
-			BaseURL:        cfg.Providers.OpenAI.BaseURL,
-			Model:          cfg.Providers.OpenAI.Model,
-			FallbackAPIKey: os.Getenv("OPENAI_API_KEY"),
-			APIKeyAccount:  "openai.apiKey",
-			Secrets:        secrets,
-			BuiltinMCP:     mcpInjection.Builtin,
-			ExternalMCP:    mcpInjection.External,
-		})
-		return newSourceEngineHarness(legacy, cfg, secrets, mcodeRuntimeDataDir(), mcpInjection), true
+		return newSourceEngineHarness("openai", cfg, secrets, mcodeRuntimeDataDir(), mcpInjection), true
 	case "copilot":
 		if !cfg.Providers.Copilot.Enabled {
 			return nil, false
@@ -1896,17 +1886,11 @@ func buildProviderHarness(cfg config.Config, secrets config.SecretStore, id stri
 	if !ok || !pc.Enabled {
 		return nil, false
 	}
-	preset, ok := openai.PresetByID(id)
+	_, ok = apisource.PresetByID(id)
 	if !ok {
 		return nil, false
 	}
-	opts := openai.PresetOptions(preset, secrets, pc.BaseURL, pc.CodingPlan)
-	if model := strings.TrimSpace(pc.Model); model != "" {
-		opts.Model = model
-	}
-	opts.BuiltinMCP = mcpInjection.Builtin
-	opts.ExternalMCP = mcpInjection.External
-	return newSourceEngineHarness(openai.New(opts), cfg, secrets, mcodeRuntimeDataDir(), mcpInjection), true
+	return newSourceEngineHarness(harness.Kind(id), cfg, secrets, mcodeRuntimeDataDir(), mcpInjection), true
 }
 
 // buildExtraHarnesses 按配置构造除 ACP 与 agy 之外的全部额外 Provider harness 列表。

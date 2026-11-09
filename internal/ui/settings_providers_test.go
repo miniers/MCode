@@ -952,8 +952,18 @@ func TestAPIProviderNeedsEndpointFields(t *testing.T) {
 	if !apiProviderNeedsEndpointFields(st, "preset", "deepseek") {
 		t.Fatal("带默认端点的预设应显示 BaseURL 与默认模型")
 	}
-	if !apiProviderNeedsEndpointFields(st, "preset", "anthropic") || !apiProviderNeedsEndpointFields(st, "preset", "openai") {
-		t.Fatal("Anthropic 与 OpenAI 应显示 BaseURL 与默认模型")
+	if !apiProviderNeedsEndpointFields(st, "preset", "openai") {
+		t.Fatal("OpenAI 应显示 BaseURL 与默认模型")
+	}
+	if apiProviderNeedsEndpointFields(st, "preset", "anthropic") {
+		t.Fatal("Anthropic 只保存 API Key，不应显示 BaseURL 与默认模型")
+	}
+	st.presets.items = []ProviderSetting{
+		{ID: "deepseek", Kind: "api", DefaultBaseURL: "https://api.deepseek.com"},
+		{ID: "anthropic", Kind: "api", DefaultBaseURL: "https://api.anthropic.com"},
+	}
+	if apiProviderNeedsEndpointFields(st, "preset", "anthropic") {
+		t.Fatal("Anthropic 即使预设带默认端点也不应显示 BaseURL 与默认模型")
 	}
 	if !apiProviderNeedsEndpointFields(st, "custom", "ep") {
 		t.Fatal("自定义端点始终需要 BaseURL 与默认模型")
