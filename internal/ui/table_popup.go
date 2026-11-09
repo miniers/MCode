@@ -396,4 +396,3 @@ func renderTablePopupHeader(c *ui.Context, s *chatState, st *tablePopupState) {
 	// 标题行当拖拽把手：按在关闭按钮上的指针由按钮接管，不会拖动窗口。
 	modalDragHandle(c, modalDragTablePopup, header)
 }
-
