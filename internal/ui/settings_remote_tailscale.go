@@ -402,13 +402,15 @@ var remoteTailscaleWhoisSection = settingsSection{
 
 // remoteTailscaleNodeSection 是节点名称与重置节点；服务没跑时重置按钮不可用。
 var remoteTailscaleNodeSection = settingsSection{
-	ID:    "remote.tailscale-node",
-	Title: "Tailscale 节点",
+	ID:      "remote.tailscale-node",
+	Title:   "Tailscale 节点",
+	Visible: remoteTailscaleVisible,
 	Rows: []setting{
 		{
 			ID:      "row-remote-tailscale-hostname",
 			Title:   "节点名称",
 			Aliases: []string{"hostname", "设备名", "mcode"},
+			Visible: remoteTailscaleVisible,
 			Control: remoteTailscaleHostnameControl{},
 			Status:  remoteTailscaleHostnameStatus,
 		},
@@ -416,6 +418,7 @@ var remoteTailscaleNodeSection = settingsSection{
 			ID:      "row-remote-tailscale-reset",
 			Title:   "重置节点",
 			Aliases: []string{"重置", "退出 tailnet", "删除节点"},
+			Visible: remoteTailscaleVisible,
 			Control: remoteTailscaleResetControl{},
 			Status:  remoteTailscaleResetStatus,
 		},

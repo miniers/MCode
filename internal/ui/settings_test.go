@@ -534,6 +534,89 @@ func TestSettingsPages_NewStructure(t *testing.T) {
 	}
 }
 
+func TestSettingsPages_UniqueIcons(t *testing.T) {
+	seen := make(map[*ui.SVG]string)
+	for _, page := range settingsPages() {
+		if page.icon == nil {
+			t.Errorf("页面 %s 缺少图标", page.id)
+			continue
+		}
+		if previous, ok := seen[page.icon]; ok {
+			t.Errorf("页面 %s 和 %s 使用相同图标", previous, page.id)
+		}
+		seen[page.icon] = page.id
+	}
+}
+
+func TestSettingsPages_Keywords(t *testing.T) {
+	cases := []struct {
+		page    string
+		absent  []string
+		present []string
+	}{
+		{"general", []string{"token", "tokens", "activity", "usage", "panel", "limits", "credits", "heatmap", "daily", "weekly", "cumulative", "emoji", "symbol", "symbols", "project mark"}, []string{"permissions", "notifications", "sound", "keyboard"}},
+		{"appearance", []string{"catppuccin", "dracula", "tokyo", "nord", "gruvbox", "solarized", "github", "claude", "codex", "cursor", "matrix", "transparency", "transparent", "opacity", "glass", "accent", "tint", "wallpaper", "performance", "gpu"}, []string{"theme", "dark", "light", "font", "sidebar"}},
+		{"models", []string{"预算", "温度"}, []string{"model", "provider", "api key"}},
+		{"extensions", []string{"nowledge", "nmem", "memory", "working memory", "threads", "sync", "记忆", "notion", "linear", "figma", "supabase", "stripe", "resend", "email", "sentry", "netlify", "deploy", "hosting"}, []string{"skills", "mcp", "playwright"}},
+		{"workbench", []string{"quick", "reply", "replies", "canned", "snippet", "template", "快捷回复", "常用语", "短语", "git", "commit", "pull request", "titles", "text generation", "github", "clone", "repository", "repositories", "repo", "sign in", "token", "connect", "account", "版本控制", "仓库", "分支", "font", "size"}, []string{"kanban", "editor", "browser", "文件树"}},
+		{"sourceControl", []string{"sign in", "token", "connect", "account", "pull request", "github"}, []string{"git", "commit", "clone", "版本控制"}},
+		{"conversation", nil, []string{"quick", "reply", "快捷回复"}},
+		{"nowledge", nil, []string{"nowledge", "memory", "记忆"}},
+	}
+	pages := settingsPages()
+	for _, tc := range cases {
+		t.Run(tc.page, func(t *testing.T) {
+			var page *settingsNavDef
+			for i := range pages {
+				if pages[i].id == tc.page {
+					page = &pages[i]
+					break
+				}
+			}
+			if page == nil {
+				t.Fatal("页面不存在")
+			}
+			keywords := make(map[string]bool, len(page.keywords))
+			for _, keyword := range page.keywords {
+				keywords[keyword] = true
+			}
+			for _, keyword := range tc.absent {
+				if keywords[keyword] {
+					t.Errorf("不应包含关键词 %q", keyword)
+				}
+			}
+			for _, keyword := range tc.present {
+				if !keywords[keyword] {
+					t.Errorf("缺少关键词 %q", keyword)
+				}
+			}
+		})
+	}
+}
+
+func TestSettingsNav_SearchPageKeywords(t *testing.T) {
+	for _, tc := range []struct {
+		query, want, unwanted string
+	}{
+		{"快捷回复", "会话", "工作台"},
+		{"commit", "版本控制", "工作台"},
+		{"nmem", "记忆", "扩展"},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			st := NewSettingsState(settingsTestDir(t), nil, nil)
+			st.navSearch = tc.query
+			tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 400, 1600)
+			tt.Frame()
+			if _, ok := tt.Find(tc.want); !ok {
+				t.Errorf("搜索 %q 应显示页面 %q", tc.query, tc.want)
+			}
+			if _, ok := tt.Find(tc.unwanted); ok {
+				t.Errorf("搜索 %q 不应显示页面 %q", tc.query, tc.unwanted)
+			}
+		})
+	}
+}
+
 func TestSettingsLegacyPageAndRowLinks(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	for _, tc := range []struct{ old, page string }{{"advanced", "general"}, {"sourceControl", "sourceControl"}, {"nowledge", "nowledge"}} {

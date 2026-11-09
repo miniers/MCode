@@ -22,7 +22,7 @@ func magpiePageHasInstalledAgents(st *SettingsState) bool {
 }
 
 var pageMagpie = settingsPage{
-	ID: "magpie", Title: "Magpie", Icon: IconSettings(),
+	ID: "magpie", Title: "Magpie", Icon: IconNetwork(),
 	Sections: []settingsSection{
 		{ID: "sec-magpie-gateways", Title: "网关", Rows: []setting{{ID: "row-magpie-gateways", Control: customFullWidth(func(c *ui.Context, st *SettingsState) {
 			connected, known := magpieConnected(st)

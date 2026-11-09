@@ -144,6 +144,20 @@ section advanced.sourceControl 高级
 row row-sc-init-submodules 新建工作树时初始化子模块
 row row-sc-clone-ignored 新建工作树时克隆依赖目录
 row row-sc-clone-ignored-patterns 复制的目录名单
+page steward
+section sec-steward-main 总管
+row row-steward-enabled 启用总管
+row row-steward-name 昵称
+row row-steward-avatar 头像
+row row-steward-cli-fallback 没有 API Key 时用本机 CLI
+section sec-steward-model 模型
+row row-steward-model 前台模型
+section sec-steward-quiet 安静时段
+row row-steward-no-progress 无进展提醒
+row row-steward-quiet-enabled 启用安静时段
+row row-steward-quiet-range 时间范围
+section sec-steward-advanced 高级
+row row-steward-home-dir 主目录
 page swarm
 section swarm.main 
 row row-swarm-enabled 启用编排
@@ -169,8 +183,6 @@ section swarm.done 子代理完成时
 row block-swarm-review 
 row row-swarm-auto-merge 自动合并
 row row-swarm-auto-push 自动推送
-section swarm.steward 总管
-row row-steward-open 总管
 section advanced.orchestration 高级
 row row-swarm-max-bees 并发上限
 row row-swarm-max-rounds 最多派发轮次
@@ -226,17 +238,4 @@ section sec-agy-advanced-login
 row row-agy-terminal-login 终端登录（备用）
 sheet provider-add 添加供应商
 sheet shortcuts 快捷键
-sheet steward 总管
-section sec-steward-main 总管
-row row-steward-name 昵称
-row row-steward-avatar 头像
-row row-steward-enabled 启用总管
-row row-steward-cli-fallback 没有 API Key 时用本机 CLI
-section sec-steward-model 模型
-row row-steward-model 前台模型
-section sec-steward-quiet 安静时段
-row row-steward-quiet-enabled 启用安静时段
-row row-steward-quiet-range 时间范围
-section sec-steward-advanced 高级
-row row-steward-home-dir 主目录
 sheet worktree Worktree 清理

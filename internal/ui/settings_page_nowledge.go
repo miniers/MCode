@@ -99,7 +99,7 @@ var nowledgeSections = []settingsSection{
 var pageNowledge = settingsPage{
 	ID:       "nowledge",
 	Title:    "记忆",
-	Icon:     IconSparkles(),
+	Icon:     IconBrain(),
 	Keywords: []string{"nowledge", "nmem", "memory", "working memory", "threads", "sync", "记忆", "上下文"},
 }
 

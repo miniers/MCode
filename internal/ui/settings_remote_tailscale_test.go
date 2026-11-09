@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
 )
 
@@ -22,7 +23,7 @@ func TestRemoteTailscale_MergedRows(t *testing.T) {
 			t.Errorf("Tailscale 行 = %v，期望 %v", got, want)
 		}
 	}
-	check("row-remote-tailscale-hostname", "row-remote-tailscale-reset")
+	check()
 	if got := remoteTailscaleResetStatus(st, false); got != "需先启动远程控制服务" {
 		t.Errorf("服务关闭时重置状态 = %q", got)
 	}
@@ -38,6 +39,37 @@ func TestRemoteTailscale_MergedRows(t *testing.T) {
 	st.cfg.Remote.TailscaleOn = tailscaleBool(false)
 	st.remote.tailscaleStatus = RemoteTailscaleStatus{State: RemoteTailscaleFailed}
 	check("row-remote-tailscale-enabled", "row-remote-tailscale-error", "row-remote-tailscale-hostname", "row-remote-tailscale-reset")
+}
+
+func TestSettingsRemoteTailscale_NodeVisibility(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		running bool
+		enabled bool
+		failure string
+		visible bool
+	}{
+		{"停服且未启用", false, false, "", false},
+		{"停服但已启用", false, true, "", true},
+		{"服务运行中", true, false, "", true},
+		{"停服但有错误", false, false, "连接失败", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := NewSettingsState(settingsTestDir(t), nil, nil)
+			st.cfg.Remote.TailscaleOn = tailscaleBool(tc.enabled)
+			st.remote.tailscaleErr = tc.failure
+			if tc.running {
+				st.remote.status.State = RemoteStateRunning
+			}
+			tt := ui.NewTester(func(c *ui.Context) { renderPageRemote(c, st) }, 1000, 3000)
+			tt.Frame()
+			for _, title := range []string{"节点名称", "重置节点"} {
+				if got := tt.HasText(title); got != tc.visible {
+					t.Errorf("%q 可见 = %v，期望 %v", title, got, tc.visible)
+				}
+			}
+		})
+	}
 }
 
 // TestRemoteTailscaleStateCopy 覆盖各连接状态的文案与错误详情拼接。

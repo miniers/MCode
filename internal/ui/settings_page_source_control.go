@@ -54,8 +54,8 @@ var pageSourceControl = settingsPage{
 	Title: "版本控制",
 	Icon:  IconGitBranch(),
 	Keywords: []string{
-		"git", "commit", "pull request", "titles", "text generation", "github", "clone",
-		"repository", "repositories", "repo", "sign in", "token", "connect", "account",
+		"git", "commit", "titles", "text generation", "clone",
+		"repository", "repositories", "repo",
 		"版本控制", "仓库", "分支",
 	},
 	Sections: []settingsSection{

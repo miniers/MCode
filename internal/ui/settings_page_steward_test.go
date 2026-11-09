@@ -134,7 +134,7 @@ func TestStewardSettings_NoProgress(t *testing.T) {
 	if !tt.HasText("45 分钟") {
 		t.Fatalf("默认应显示 45 分钟: %v", tt.Texts())
 	}
-	if err := tt.Click("无进展提醒"); err != nil {
+	if err := tt.Click("45 分钟"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tt.Click("关闭"); err != nil {
@@ -143,7 +143,7 @@ func TestStewardSettings_NoProgress(t *testing.T) {
 	if !st.cfg.Orchestration.Steward.NoProgressOff {
 		t.Fatal("选择关闭后提醒仍然开启")
 	}
-	if err := tt.Click("无进展提醒"); err != nil {
+	if err := tt.Click("关闭"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tt.Click("30 分钟"); err != nil {
@@ -317,7 +317,13 @@ func TestStewardSettings_MovedRows(t *testing.T) {
 func TestSettingsSteward_PageOperations(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
-	st.cfg.Orchestration.Steward.Enabled = false
+	if err := config.Update(st.dataDir, func(cfg *config.Config) error {
+		cfg.Orchestration.Steward.Enabled = false
+		cfg.Orchestration.Steward.EnabledChoice = false
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	st.OpenPage("steward")
 	tt := ui.NewTester(func(c *ui.Context) { renderPageSteward(c, st) }, 1000, 4000)
 	if id, _ := settingsTreeSheetState(st); st.currentPage != "steward" || id != "" {
@@ -329,5 +335,12 @@ func TestSettingsSteward_PageOperations(t *testing.T) {
 	cfg, err := config.Load(st.dataDir)
 	if err != nil || !cfg.Orchestration.Steward.Enabled || !cfg.Orchestration.Steward.EnabledChoice {
 		t.Fatalf("总管开关未落盘: %+v, %v", cfg.Orchestration.Steward, err)
+	}
+	if err := tt.Click("切换启用总管"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = config.Load(st.dataDir)
+	if err != nil || cfg.Orchestration.Steward.Enabled || !cfg.Orchestration.Steward.EnabledChoice {
+		t.Fatalf("关闭总管未落盘: %+v, %v", cfg.Orchestration.Steward, err)
 	}
 }
