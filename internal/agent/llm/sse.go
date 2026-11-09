@@ -5,7 +5,60 @@ import (
 	"bytes"
 	"io"
 	"strings"
+	"sync"
+	"time"
 )
+
+type idleReader struct {
+	reader   io.Reader
+	cancel   func()
+	mu       sync.Mutex
+	timer    *time.Timer
+	deadline time.Time
+	timedOut bool
+	closed   bool
+}
+
+func newIdleReader(reader io.Reader, cancel func()) *idleReader {
+	r := &idleReader{reader: reader, cancel: cancel, deadline: time.Now().Add(streamIdleTimeout)}
+	r.timer = time.AfterFunc(streamIdleTimeout, r.expire)
+	return r
+}
+
+func (r *idleReader) expire() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return
+	}
+	if remaining := time.Until(r.deadline); remaining > 0 {
+		r.timer.Reset(remaining)
+		return
+	}
+	r.timedOut = true
+	r.cancel()
+}
+
+func (r *idleReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.mu.Lock()
+		if !r.closed && !r.timedOut {
+			r.deadline = time.Now().Add(streamIdleTimeout)
+			r.timer.Reset(streamIdleTimeout)
+		}
+		r.mu.Unlock()
+	}
+	return n, err
+}
+
+func (r *idleReader) stop() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.closed = true
+	r.timer.Stop()
+	return r.timedOut
+}
 
 // sseEvent 表示单条 SSE 事件数据。
 type sseEvent struct {

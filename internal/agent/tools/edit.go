@@ -162,7 +162,7 @@ func editFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 	if hasBOM {
 		output = bom + updated
 	}
-	if e = os.WriteFile(p, []byte(output), info.Mode()); e != nil {
+	if e = writeFileAtomic(p, []byte(output), info.Mode()); e != nil {
 		return failure(e)
 	}
 	return Result{Text: "File edited.", Change: &FileChange{Path: p, Patch: unifiedDiff(p, original, updated)}}, nil

@@ -94,6 +94,7 @@ func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 		return failure(e)
 	}
 	defer f.Close()
+	explicitOffset := a.Offset != 0
 	if a.Offset == 0 {
 		a.Offset = 1
 	}
@@ -133,6 +134,9 @@ func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 			return failure(readErr)
 		}
 		if !hadData && !newline {
+			if explicitOffset && lineNo <= a.Offset {
+				return failure(fmt.Sprintf("offset %d is beyond end of file (%d lines)", a.Offset, lineNo-1))
+			}
 			break
 		}
 		if inRange && !newline && out.Len() < maxOutputBytes {
@@ -160,7 +164,7 @@ func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 	}
 	s := out.String()
 	if truncated {
-		s += "\nOutput truncated; use offset to continue reading."
+		s += fmt.Sprintf("\nOutput truncated; continue with offset=%d", lineNo+1)
 	}
 	// limit 窗口之外还有内容时提示继续读取。
 	if a.Limit > 0 {
@@ -226,7 +230,7 @@ func writeFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error
 	} else if !os.IsNotExist(statErr) {
 		return failure(statErr)
 	}
-	if e = os.WriteFile(p, []byte(*a.Content), mode); e != nil {
+	if e = writeFileAtomic(p, []byte(*a.Content), mode); e != nil {
 		return failure(e)
 	}
 	return Result{Text: "File written.", Change: &FileChange{Path: p, Patch: unifiedDiff(p, string(old), *a.Content)}}, nil

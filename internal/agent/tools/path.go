@@ -13,6 +13,7 @@ func canonical(path string) (string, error) {
 		return "", err
 	}
 	var tail []string
+	links := 0
 	for {
 		resolved, e := filepath.EvalSymlinks(path)
 		if e == nil {
@@ -23,6 +24,23 @@ func canonical(path string) (string, error) {
 		}
 		if !os.IsNotExist(e) {
 			return "", e
+		}
+		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			links++
+			if links > 40 {
+				return "", fmt.Errorf("too many symbolic links: %s", path)
+			}
+			target, err := os.Readlink(path)
+			if err != nil {
+				return "", err
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(path), target)
+			}
+			path = target
+			continue
+		} else if err != nil && !os.IsNotExist(err) {
+			return "", err
 		}
 		parent := filepath.Dir(path)
 		if parent == path {

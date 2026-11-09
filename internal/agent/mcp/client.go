@@ -25,6 +25,7 @@ type Client struct {
 	HTTPClient *http.Client
 
 	mu        sync.Mutex
+	recoveryMu sync.Mutex
 	sessionID string
 	nextID    int64
 }
@@ -149,6 +150,12 @@ func (c *Client) notify(ctx context.Context, method string) error {
 }
 
 func (c *Client) post(ctx context.Context, body []byte) (*http.Response, error) {
+	return c.postAttempt(ctx, body, true)
+}
+
+type recoveringKey struct{}
+
+func (c *Client) postAttempt(ctx context.Context, body []byte, retry bool) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -177,7 +184,25 @@ func (c *Client) post(ctx context.Context, body []byte) (*http.Response, error) 
 	if err != nil {
 		return nil, err
 	}
-	if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" {
+	if resp.StatusCode == http.StatusNotFound && sid != "" && retry && ctx.Value(recoveringKey{}) == nil {
+		resp.Body.Close()
+		c.recoveryMu.Lock()
+		c.mu.Lock()
+		current := c.sessionID
+		if current == sid {
+			c.sessionID = ""
+		}
+		c.mu.Unlock()
+		if current == sid {
+			err = c.Initialize(context.WithValue(ctx, recoveringKey{}, true))
+		}
+		c.recoveryMu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		return c.postAttempt(ctx, body, false)
+	}
+	if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		c.mu.Lock()
 		c.sessionID = sid
 		c.mu.Unlock()

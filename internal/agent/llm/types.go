@@ -3,19 +3,30 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Message 表示一条对话消息。
 type Message struct {
-	Role               string     `json:"role"`
-	Content            []Part     `json:"content,omitempty"`
-	ToolCalls          []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID         string     `json:"tool_call_id,omitempty"`
-	IsError            bool       `json:"is_error,omitempty"`
-	Reasoning          string     `json:"reasoning,omitempty"`
-	ReasoningSignature string     `json:"reasoning_signature,omitempty"`
+	Role               string          `json:"role"`
+	Content            []Part          `json:"content,omitempty"`
+	ToolCalls          []ToolCall      `json:"tool_calls,omitempty"`
+	ToolCallID         string          `json:"tool_call_id,omitempty"`
+	IsError            bool            `json:"is_error,omitempty"`
+	Reasoning          string          `json:"reasoning,omitempty"`
+	ReasoningSignature string          `json:"reasoning_signature,omitempty"`
+	ThinkingBlocks     []ThinkingBlock `json:"thinking_blocks,omitempty"`
+}
+
+// ThinkingBlock 保存 Anthropic 返回的原始思考块。
+type ThinkingBlock struct {
+	Type      string `json:"type,omitempty"`
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
 
 // Part 表示消息中的文本或图片。
@@ -80,13 +91,23 @@ type Client interface {
 
 // APIError 描述模型服务返回的错误。
 type APIError struct {
-	Status    int    `json:"status"`
-	Body      string `json:"body"`
-	Retryable bool   `json:"retryable"`
+	Status     int           `json:"status"`
+	Body       string        `json:"body"`
+	Retryable  bool          `json:"retryable"`
+	RetryAfter time.Duration `json:"-"`
 }
 
 func (e *APIError) Error() string {
 	return fmt.Sprintf("llm: API error (status %d): %s", e.Status, e.Body)
+}
+
+// RetryAfterOf 返回服务端建议的重试等待时间。
+func RetryAfterOf(err error) time.Duration {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.RetryAfter
+	}
+	return 0
 }
 
 // IsContextOverflow 判断错误是否表示上下文超出限制。
@@ -95,7 +116,7 @@ func IsContextOverflow(err error) bool {
 		return false
 	}
 	text := strings.ToLower(err.Error())
-	for _, marker := range []string{"context_length_exceeded", "maximum context length", "prompt is too long", "too many tokens", "context window exceeded", "context length exceeded"} {
+	for _, marker := range []string{"context_length_exceeded", "maximum context length", "prompt is too long", "too many tokens", "context window exceeded", "context length exceeded", "input is too long", "exceeds the context window", "context_window_exceeded", "prompt too long"} {
 		if strings.Contains(text, marker) {
 			return true
 		}

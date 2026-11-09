@@ -309,6 +309,11 @@ func parseUpdate(lines []string, i, end int) (Op, int, error) {
 }
 
 func applyHunks(original string, hunks []Hunk) (string, error) {
+	bom := ""
+	if strings.HasPrefix(original, "\xef\xbb\xbf") {
+		bom = "\xef\xbb\xbf"
+		original = strings.TrimPrefix(original, bom)
+	}
 	lines := splitKeep(original)
 	eol := "\n"
 	if strings.Contains(original, "\r\n") {
@@ -342,9 +347,23 @@ func applyHunks(original string, hunks []Hunk) (string, error) {
 				from = search
 			}
 		}
-		at, _, ok := findHunk(lines, from, oldBlock)
+		at, mode, ok := findHunk(lines, from, oldBlock)
 		if !ok {
 			return "", fmt.Errorf("hunk not found:\n%s", strings.Join(oldBlock, "\n"))
+		}
+		if mode > 0 && len(oldBlock) > 0 {
+			for next := at + 1; next+len(oldBlock) <= len(lines); next++ {
+				match := true
+				for k, want := range oldBlock {
+					if !matches(lineText(lines[next+k]), want, mode) {
+						match = false
+						break
+					}
+				}
+				if match {
+					return "", fmt.Errorf("ambiguous hunk: context matches multiple locations when ignoring whitespace")
+				}
+			}
 		}
 		if hunk.EndOfFile && at+len(oldBlock) != len(lines) {
 			return "", fmt.Errorf("hunk not found at end of file:\n%s", strings.Join(oldBlock, "\n"))
@@ -372,7 +391,7 @@ func applyHunks(original string, hunks []Hunk) (string, error) {
 		lines = append(lines[:at:at], append(replacement, rest...)...)
 		search = at + len(replacement)
 	}
-	return strings.Join(lines, ""), nil
+	return bom + strings.Join(lines, ""), nil
 }
 
 func splitKeep(s string) []string {

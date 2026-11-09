@@ -58,6 +58,54 @@ func TestCompactThreshold(t *testing.T) {
 	}
 }
 
+func TestFindCutCanStartAfterInitialUser(t *testing.T) {
+	messages := []llm.Message{textMessage("user", "start")}
+	for i := 0; i < 40; i++ {
+		messages = append(messages, llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call("id", "read", `{}`)}, Content: []llm.Part{{Type: "text", Text: strings.Repeat("a", 1000)}}}, toolMessage("id", strings.Repeat("x", 2000), false))
+	}
+	cut := findCut(messages, 12000)
+	if cut <= 0 || messages[cut].Role != "assistant" {
+		t.Fatalf("cut = %d", cut)
+	}
+	if keep := keepRecentTokens(12000); keep > 3000 {
+		t.Fatalf("keep = %d, want <= 3000", keep)
+	}
+}
+
+func TestCompactionTruncatesLargeToolResult(t *testing.T) {
+	messages := []llm.Message{textMessage("user", strings.Repeat("u", 50000)), {Role: "assistant", ToolCalls: []llm.ToolCall{call("id", "read", `{}`)}}, toolMessage("id", strings.Repeat("x", 10000), false), textMessage("user", "next"), textMessage("assistant", strings.Repeat("recent", 2000)), textMessage("user", "current")}
+	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range client.requests[0].Messages {
+		if message.Role == "tool" {
+			text := message.Content[0].Text
+			if len([]rune(text)) >= 4000 || !strings.Contains(text, "已截断") {
+				t.Fatalf("tool result length=%d", len([]rune(text)))
+			}
+			return
+		}
+	}
+	t.Fatalf("summary request omitted tool result: %+v", client.requests[0].Messages)
+}
+
+func TestCompactionReplayRepairsBeforeKeepFrom(t *testing.T) {
+	callMessage := llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call("missing", "read", `{}`)}}
+	encode := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+	entries := []json.RawMessage{
+		encode(messageEntry{Type: "message", Message: textMessage("user", "old")}),
+		encode(messageEntry{Type: "message", Message: callMessage}),
+		encode(messageEntry{Type: "message", Message: textMessage("assistant", "after compaction")}),
+		encode(compactionEntry{Type: compactionEntryType, Summary: "summary", KeepFrom: 3}),
+		encode(messageEntry{Type: "message", Message: textMessage("assistant", "new")}),
+	}
+	got := historyFromEntries(entries)
+	if len(got) != 3 || !isSummaryMessage(got[0]) || got[1].Content[0].Text != "after compaction" || got[2].Content[0].Text != "new" {
+		t.Fatalf("history = %+v", got)
+	}
+}
+
 func TestRepairToolPairs(t *testing.T) {
 	messages := []llm.Message{
 		textMessage("user", "start"),
@@ -174,7 +222,13 @@ func TestCompactionKeepsToolPairs(t *testing.T) {
 		t.Fatalf("requests = %d, want 2", len(client.requests))
 	}
 	summarized := client.requests[0].Messages
-	if len(summarized) != 3 || len(summarized[1].ToolCalls) != 1 || summarized[2].Role != "tool" || summarized[2].ToolCallID != "call-1" {
+	paired := false
+	for i := 0; i+1 < len(summarized); i++ {
+		if len(summarized[i].ToolCalls) == 1 && summarized[i+1].Role == "tool" && summarized[i+1].ToolCallID == "call-1" {
+			paired = true
+		}
+	}
+	if !paired {
 		t.Fatalf("summarized messages = %+v", summarized)
 	}
 	messages := client.requests[1].Messages
@@ -269,7 +323,7 @@ func TestCompactionUsageCountsTowardTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if usage == nil || usage.InputTokens != 151 || usage.OutputTokens != 12 || usage.CachedTokens != 50 {
+	if usage == nil || usage.InputTokens != 151 || usage.OutputTokens != 12 || usage.CachedTokens != 20 {
 		t.Fatalf("usage = %+v", usage)
 	}
 }

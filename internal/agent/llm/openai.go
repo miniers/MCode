@@ -102,7 +102,11 @@ func sortedToolCalls(acc map[int]*toolCallAccumulator) []ToolCall {
 	var result []ToolCall
 	for _, i := range indices {
 		a := acc[i]
-		result = append(result, ToolCall{ID: a.ID, Name: a.Name, Arguments: json.RawMessage(a.Arguments.String())})
+		arguments := a.Arguments.String()
+		if strings.TrimSpace(arguments) == "" {
+			arguments = "{}"
+		}
+		result = append(result, ToolCall{ID: a.ID, Name: a.Name, Arguments: json.RawMessage(arguments)})
 	}
 	return result
 }
@@ -231,12 +235,14 @@ func requestBody(req Request, echoReasoning bool, resolveEffort func(model, effo
 	return body
 }
 
-func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Delta)) (*Response, error) {
+func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Delta)) (response *Response, streamErr error) {
 	encoded, err := json.Marshal(requestBody(req, c.cfg.EchoReasoning, c.resolveEffort))
 	if err != nil {
 		return nil, fmt.Errorf("openai: encode request: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsURL(c.cfg.BaseURL), bytes.NewReader(encoded))
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(streamCtx, http.MethodPost, chatCompletionsURL(c.cfg.BaseURL), bytes.NewReader(encoded))
 	if err != nil {
 		return nil, err
 	}
@@ -260,15 +266,26 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 		return nil, &APIError{Body: err.Error(), Retryable: true}
 	}
 	defer httpResp.Body.Close()
+	stopClose := context.AfterFunc(streamCtx, func() { httpResp.Body.Close() })
+	defer stopClose()
+	idle := newIdleReader(httpResp.Body, cancel)
+	defer func() {
+		timedOut := idle.stop()
+		if ctx.Err() != nil {
+			response, streamErr = nil, ctx.Err()
+		} else if timedOut {
+			response, streamErr = nil, &APIError{Body: "stream idle timeout", Retryable: true}
+		}
+	}()
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		body, readErr := io.ReadAll(io.LimitReader(httpResp.Body, 2048))
+		body, readErr := io.ReadAll(io.LimitReader(idle, 8192))
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		if readErr != nil {
-			return nil, &APIError{Status: httpResp.StatusCode, Body: readErr.Error(), Retryable: true}
+			return nil, &APIError{Status: httpResp.StatusCode, Body: readErr.Error(), Retryable: true, RetryAfter: retryAfter(httpResp.Header.Get("Retry-After"))}
 		}
-		return nil, &APIError{Status: httpResp.StatusCode, Body: string(body), Retryable: httpResp.StatusCode == 429 || httpResp.StatusCode >= 500}
+		return nil, &APIError{Status: httpResp.StatusCode, Body: string(body), Retryable: httpResp.StatusCode == 408 || httpResp.StatusCode == 429 || httpResp.StatusCode >= 500, RetryAfter: retryAfter(httpResp.Header.Get("Retry-After"))}
 	}
 	result := &Response{Message: Message{Role: "assistant"}, StopReason: "stop"}
 	acc := map[int]*toolCallAccumulator{}
@@ -350,13 +367,13 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 				case "stop":
 					result.StopReason = "stop"
 				default:
-					result.StopReason = "error"
+					result.StopReason = choice.FinishReason
 				}
 			}
 		}
 		return nil
 	}
-	reader := bufio.NewReader(httpResp.Body)
+	reader := bufio.NewReader(idle)
 	// 未声明 SSE 的兼容服务也可能返回事件流。
 	for {
 		b, peekErr := reader.ReadByte()

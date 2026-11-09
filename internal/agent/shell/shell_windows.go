@@ -3,9 +3,12 @@
 package shell
 
 import (
+	"context"
+	"fmt"
 	"os/exec"
 	"strconv"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/windows"
 	"mcode/internal/procattr"
@@ -27,9 +30,17 @@ func setProcessGroup(cmd *exec.Cmd) {
 }
 
 func stopProcess(cmd *exec.Cmd, done <-chan error) error {
-	killer := procattr.HideWindow(exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	killer := procattr.HideWindow(exec.CommandContext(ctx, "taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)))
 	if err := killer.Run(); err != nil {
 		_ = cmd.Process.Kill()
 	}
-	return <-done
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(3 * time.Second):
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("进程未在超时内退出，可能有子进程脱离了进程组")
+	}
 }

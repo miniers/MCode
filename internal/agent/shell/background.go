@@ -37,6 +37,8 @@ type backgroundJob struct {
 	dropped  int64 // 已从缓冲区头部丢弃的字节数
 	running  bool
 	exitCode int
+	finishedAt time.Time
+	timedOut bool
 	// reapable 在任务退出且 output 已读完全部剩余输出后置位。
 	reapable bool
 }
@@ -94,12 +96,20 @@ var (
 	backgroundMu   sync.Mutex
 	backgroundJobs = map[string]*backgroundJob{}
 	backgroundSeq  int
+	backgroundMaxAge = 10 * time.Minute
 )
 
 // backgroundCount 返回正在运行的任务数；调用方持有 backgroundMu。
 func backgroundCount() int {
 	n := 0
-	for _, job := range backgroundJobs {
+	for id, job := range backgroundJobs {
+		job.mu.Lock()
+		expired := !job.running && !job.finishedAt.IsZero() && time.Since(job.finishedAt) >= backgroundMaxAge
+		job.mu.Unlock()
+		if expired {
+			delete(backgroundJobs, id)
+			continue
+		}
 		if job.isRunning() {
 			n++
 		}
@@ -129,8 +139,8 @@ func Start(ctx context.Context, opts Options) (string, int, error) {
 		cmd = exec.Command(name, args...)
 		cmd.Dir = opts.WorkDir
 	}
-	// 命令退出后，若脱离进程组的子进程仍占用管道，最多再等待 2 秒。
-	cmd.WaitDelay = 2 * time.Second
+	// 命令退出后，若脱离进程组的子进程仍占用管道，最多再等待 3 秒。
+	cmd.WaitDelay = 3 * time.Second
 	cmd.Env = append(append(os.Environ(), opts.Env...), harness.NonInteractiveEnv()...)
 	stdin, err := os.Open(os.DevNull)
 	if err != nil {
@@ -156,7 +166,7 @@ func Start(ctx context.Context, opts Options) (string, int, error) {
 		if cleanup != nil {
 			cleanup()
 		}
-		return "", 0, fmt.Errorf("too many background jobs (max %d)", maxBackgroundJobs)
+		return "", 0, fmt.Errorf("too many background jobs (max %d); use kill tool to stop old jobs", maxBackgroundJobs)
 	}
 	if err := cmd.Start(); err != nil {
 		backgroundMu.Unlock()
@@ -176,6 +186,7 @@ func Start(ctx context.Context, opts Options) (string, int, error) {
 	if tracker := trackerFrom(ctx); tracker != nil && tracker.onStart != nil {
 		tracker.onStart(pid)
 	}
+	finished := make(chan struct{})
 	go func() {
 		var err error
 		exitCode := -1
@@ -202,14 +213,43 @@ func Start(ctx context.Context, opts Options) (string, int, error) {
 			job.mu.Lock()
 			job.running = false
 			job.exitCode = exitCode
+			job.finishedAt = time.Now()
 			job.mu.Unlock()
 			job.done <- err
+			close(finished)
 		}()
 		err = waitCommand(cmd)
 		if cmd.ProcessState != nil {
 			exitCode = cmd.ProcessState.ExitCode()
 		}
 	}()
+	if opts.Timeout > 0 {
+		go func() {
+			timer := time.NewTimer(opts.Timeout)
+			defer timer.Stop()
+			select {
+			case <-finished:
+				return
+			case <-timer.C:
+			}
+			job.killMu.Lock()
+			defer job.killMu.Unlock()
+			job.mu.Lock()
+			if !job.running {
+				job.mu.Unlock()
+				return
+			}
+			job.timedOut = true
+			job.mu.Unlock()
+			_, _ = job.Write([]byte("后台任务超时\n"))
+			if err := stopProcess(cmd, job.done); err != nil {
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) {
+					log.Print(err)
+				}
+			}
+		}()
+	}
 	return id, pid, nil
 }
 

@@ -242,13 +242,19 @@ func TestCancellationClosesToolCalls(t *testing.T) {
 		cancel()
 		return tools.Result{}, context.Canceled
 	}
-	err := Run(ctx, Options{Client: client, Store: store, SessionID: "cancel", Tools: []tools.Tool{tool}}, "hello", nil)
+	var ends []harness.Event
+	err := Run(ctx, Options{Client: client, Store: store, SessionID: "cancel", Tools: []tools.Tool{tool}, Emit: func(e harness.Event) {
+		if e.Type == harness.EventToolEnd { ends = append(ends, e) }
+	}}, "hello", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v", err)
 	}
 	messages := loadMessages(t, store, "cancel")
 	if len(messages) != 4 || messages[2].ToolCallID != "1" || messages[3].ToolCallID != "2" || !messages[2].IsError || !messages[3].IsError {
 		t.Fatalf("messages = %+v", messages)
+	}
+	if len(ends) != 2 || ends[0].ToolID != "1" || ends[1].ToolID != "2" || ends[0].ToolName != "read" || ends[1].Output != "Cancelled" || !ends[0].IsError || !ends[1].IsError {
+		t.Fatalf("ends = %+v", ends)
 	}
 }
 
@@ -319,7 +325,7 @@ func TestUsageAccumulation(t *testing.T) {
 	}}, "hello", nil); err != nil {
 		t.Fatal(err)
 	}
-	if usage == nil || usage.InputTokens != 24 || usage.OutputTokens != 3 || usage.CachedTokens != 9 {
+	if usage == nil || usage.InputTokens != 24 || usage.OutputTokens != 3 || usage.CachedTokens != 5 {
 		t.Fatalf("usage = %+v", usage)
 	}
 }
@@ -353,8 +359,35 @@ func TestUsageReportsLastRequestContextTokens(t *testing.T) {
 	}}, "hello", nil); err != nil {
 		t.Fatal(err)
 	}
-	if usage == nil || usage.ContextTokens != 1900 || usage.InputTokens != 3330 || usage.OutputTokens != 130 || usage.CachedTokens != 1130 {
+	if usage == nil || usage.ContextTokens != 1900 || usage.InputTokens != 3330 || usage.OutputTokens != 130 || usage.CachedTokens != 1100 {
 		t.Fatalf("usage = %+v", usage)
+	}
+}
+
+func TestStopReasonsEmitErrors(t *testing.T) {
+	for _, tc := range []struct{ reason, want string }{
+		{"refusal", "模型拒绝回答或内容被过滤（refusal）"},
+		{"content_filter", "模型拒绝回答或内容被过滤（content_filter）"},
+		{"length", "回复达到输出上限被截断"},
+	} {
+		t.Run(tc.reason, func(t *testing.T) {
+			var got *harness.Event
+			response := reply(tc.reason)
+			client := &scriptClient{steps: []scriptStep{{response: response}}}
+			if err := Run(context.Background(), Options{Client: client, Emit: func(event harness.Event) {
+				if event.Type == harness.EventError { copy := event; got = &copy }
+			}}, "hello", nil); err != nil { t.Fatal(err) }
+			if got == nil || got.Err != tc.want || got.ErrKind != harness.ErrKindAPIError { t.Fatalf("error event = %+v", got) }
+		})
+	}
+}
+
+func TestModelRequestErrorKinds(t *testing.T) {
+	for _, tc := range []struct{ status int; want string }{{429, harness.ErrKindRateLimited}, {529, harness.ErrKindRateLimited}, {401, harness.ErrKindAPIKeyRejected}, {403, harness.ErrKindAPIKeyRejected}, {500, harness.ErrKindAPIError}} {
+		client := &scriptClient{steps: []scriptStep{{err: &llm.APIError{Status: tc.status}}}}
+		var got harness.Event
+		_ = Run(context.Background(), Options{Client: client, Emit: func(event harness.Event) { if event.Type == harness.EventError { got = event } }}, "hello", nil)
+		if got.ErrKind != tc.want { t.Errorf("status %d kind = %q, want %q", tc.status, got.ErrKind, tc.want) }
 	}
 }
 
@@ -518,5 +551,19 @@ func TestParallelToolPanicIsRecovered(t *testing.T) {
 		if messages[i].IsError || messages[i].Content[0].Text != "result" {
 			t.Fatalf("message %d = %+v", i, messages[i])
 		}
+	}
+}
+
+func TestSerialToolPanicIsRecovered(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	tool := testTool("read")
+	tool.Run = func(context.Context, tools.Env, json.RawMessage) (tools.Result, error) { panic("serial boom") }
+	client := &scriptClient{steps: []scriptStep{{response: reply("tool_use", call("1", "read", `{}`))}, {response: reply("stop")}}}
+	if err := Run(context.Background(), Options{Client: client, Store: store, SessionID: "serial-panic", Tools: []tools.Tool{tool}}, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	messages := loadMessages(t, store, "serial-panic")
+	if len(messages) != 4 || !messages[2].IsError || messages[2].Content[0].Text != "tool panicked: serial boom" {
+		t.Fatalf("messages = %+v", messages)
 	}
 }

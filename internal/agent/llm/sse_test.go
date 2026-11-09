@@ -1,10 +1,15 @@
 package llm
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSSEReadEvent(t *testing.T) {
@@ -35,5 +40,62 @@ func TestSSEReadEvent(t *testing.T) {
 				t.Fatalf("expected EOF, got %v", err)
 			}
 		})
+	}
+}
+
+func TestStreamIdleTimeout(t *testing.T) {
+	previous := streamIdleTimeout
+	streamIdleTimeout = 50 * time.Millisecond
+	defer func() { streamIdleTimeout = previous }()
+	for _, name := range []string{"anthropic", "openai"} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+			}))
+			defer server.Close()
+			var client Client
+			if name == "anthropic" {
+				client = NewAnthropic(AnthropicConfig{BaseURL: server.URL})
+			} else {
+				client = NewOpenAI(OpenAIConfig{BaseURL: server.URL})
+			}
+			_, err := client.Stream(context.Background(), Request{}, nil)
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || !apiErr.Retryable || apiErr.Body != "stream idle timeout" {
+				t.Fatalf("error: %v", err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			_, err = client.Stream(ctx, Request{}, nil)
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancel: %v", err)
+			}
+		})
+	}
+}
+
+func TestIdleReaderResetsOnBytes(t *testing.T) {
+	previous := streamIdleTimeout
+	streamIdleTimeout = 200 * time.Millisecond
+	defer func() { streamIdleTimeout = previous }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	go func() {
+		defer writer.Close()
+		for i := 0; i < 4; i++ {
+			fmt.Fprint(writer, "x")
+			time.Sleep(60 * time.Millisecond)
+		}
+	}()
+	idle := newIdleReader(reader, cancel)
+	data, err := io.ReadAll(idle)
+	timedOut := idle.stop()
+	if err != nil || string(data) != "xxxx" || timedOut || ctx.Err() != nil {
+		t.Fatalf("data %q, error %v, timeout %t", data, err, timedOut)
 	}
 }

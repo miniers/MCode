@@ -52,6 +52,21 @@ func TestLoadPartialLastLine(t *testing.T) {
 	}
 }
 
+func TestAppendAfterPartialLine(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "partial.jsonl"), []byte(`{"half":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(dir)
+	if err := store.Append("partial", map[string]bool{"ok": true}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := store.Load("partial")
+	if err != nil || len(entries) != 1 || string(entries[0]) != `{"ok":true}` {
+		t.Fatalf("entries=%q err=%v", entries, err)
+	}
+}
+
 func TestLoadSkipsInvalidLines(t *testing.T) {
 	dir := t.TempDir()
 	data := "{\"a\":1}\nnot json\n{\"b\":2}\n"

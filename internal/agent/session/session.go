@@ -57,9 +57,24 @@ func (s *Store) Append(id string, entries ...any) error {
 	if err := os.MkdirAll(s.dir, 0700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
 	if err != nil {
 		return err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return err
+	}
+	if info.Size() > 0 && len(data) > 0 {
+		var last [1]byte
+		if _, err := f.ReadAt(last[:], info.Size()-1); err != nil {
+			f.Close()
+			return err
+		}
+		if last[0] != '\n' {
+			data = append([]byte{'\n'}, data...)
+		}
 	}
 	_, writeErr := f.Write(data)
 	closeErr := f.Close()

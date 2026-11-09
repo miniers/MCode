@@ -250,13 +250,53 @@ func TestDefaultHTTPClientResponseHeaderTimeout(t *testing.T) {
 }
 
 func TestIsContextOverflow(t *testing.T) {
-	for _, text := range []string{"context_length_exceeded", "Maximum context length", "prompt is too long", "too many tokens"} {
+	for _, text := range []string{"context_length_exceeded", "Maximum context length", "prompt is too long", "too many tokens", "INPUT IS TOO LONG", "Exceeds the context window", "CONTEXT_WINDOW_EXCEEDED", "Prompt too long"} {
 		if !IsContextOverflow(errors.New(text)) {
 			t.Errorf("not recognized: %s", text)
 		}
 	}
 	if IsContextOverflow(nil) || IsContextOverflow(errors.New(strings.Repeat("x", 4))) {
 		t.Fatal("false positive")
+	}
+}
+
+func TestOpenAIStopReasonsAndEmptyArguments(t *testing.T) {
+	for _, reason := range []string{"content_filter", "future_reason"} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call\",\"function\":{\"name\":\"run\",\"arguments\":\"  \\t\"}}]},\"finish_reason\":%q}]}\n\ndata: [DONE]\n\n", reason)
+		}))
+		response, err := NewOpenAI(OpenAIConfig{BaseURL: server.URL}).Stream(context.Background(), Request{}, nil)
+		server.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StopReason != reason || len(response.Message.ToolCalls) != 1 || string(response.Message.ToolCalls[0].Arguments) != "{}" {
+			t.Fatalf("response: %+v", response)
+		}
+	}
+}
+
+func TestOpenAIHTTPRetryAfter(t *testing.T) {
+	for _, header := range []string{"15", time.Now().Add(time.Minute).UTC().Format(http.TimeFormat)} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Retry-After", header)
+			w.WriteHeader(http.StatusGatewayTimeout)
+			fmt.Fprint(w, strings.Repeat("x", 9000))
+		}))
+		_, err := NewOpenAI(OpenAIConfig{BaseURL: server.URL}).Stream(context.Background(), Request{}, nil)
+		server.Close()
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || !apiErr.Retryable || apiErr.Status != 504 || len(apiErr.Body) != 8192 {
+			t.Fatalf("error: %v", err)
+		}
+		delay := RetryAfterOf(fmt.Errorf("wrapped: %w", err))
+		if header == "15" && delay != 15*time.Second || header != "15" && (delay < 55*time.Second || delay > time.Minute) {
+			t.Fatalf("Retry-After %q: %v", header, delay)
+		}
+	}
+	if RetryAfterOf(errors.New("other")) != 0 || retryAfter("invalid") != 0 || retryAfter("-1") != 0 || retryAfter(time.Now().Add(-time.Minute).UTC().Format(http.TimeFormat)) != 0 {
+		t.Fatal("invalid Retry-After")
 	}
 }
 

@@ -187,10 +187,13 @@ func Tools(ctx context.Context, servers []Server) []tools.Tool {
 				if name == "" {
 					continue
 				}
+				schema, invalid := validatedSchema(descriptor.InputSchema)
+				description := descriptor.Description
+				if invalid { description += " 原始参数结构无效，已忽略。" }
 				builtins = append(builtins, makeTool(
 					safeName("mcp__"+server.Name+"__"+name),
-					descriptor.Description,
-					schemaOrObject(descriptor.InputSchema),
+					description,
+					schema,
 					descriptor.Annotations.ReadOnlyHint,
 					builtinToolHandler(loaded.client, name),
 				))
@@ -362,11 +365,26 @@ func makeTool(name, description string, params json.RawMessage, readOnly bool, r
 
 // schemaOrObject 在远端 schema 无效时返回空对象 schema。
 func schemaOrObject(schema json.RawMessage) json.RawMessage {
+	result, _ := validatedSchema(schema)
+	return result
+}
+
+func validatedSchema(schema json.RawMessage) (json.RawMessage, bool) {
 	var value map[string]any
 	if json.Unmarshal(schema, &value) == nil && value != nil {
-		return schema
+		typ, hasType := value["type"]
+		props, hasProps := value["properties"]
+		_, propsOK := props.(map[string]any)
+		if (!hasType || typ == "object") && (!hasProps || propsOK) {
+			if !hasType {
+				value["type"] = "object"
+				result, _ := json.Marshal(value)
+				return result, false
+			}
+			return schema, false
+		}
 	}
-	return json.RawMessage(`{"type":"object","properties":{}}`)
+	return json.RawMessage(`{"type":"object","properties":{}}`), true
 }
 
 // safeName 将远端工具名转换为可注册名称，并为过长名称追加稳定摘要。
@@ -435,11 +453,13 @@ func toolInfo(server string, descriptor ToolDescriptor) string {
 	if description == "" {
 		description = descriptor.Name
 	}
+	schema, invalid := validatedSchema(descriptor.InputSchema)
+	if invalid { description += " 原始参数结构无效，已忽略。" }
 	data, _ := json.MarshalIndent(map[string]any{
 		"server":      server,
 		"tool":        descriptor.Name,
 		"description": description,
-		"inputSchema": json.RawMessage(schemaOrObject(descriptor.InputSchema)),
+		"inputSchema": schema,
 	}, "", "  ")
 	return string(data)
 }

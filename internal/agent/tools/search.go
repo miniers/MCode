@@ -52,13 +52,15 @@ func globMatch(pattern, path string) (bool, error) {
 	}
 	return expr.MatchString(path), nil
 }
+var gitSearchTimeout = 10 * time.Second
+
 func candidates(ctx context.Context, env Env, root string) ([]string, error) {
 	work, e := resolveRead(env, ".")
 	if e != nil {
 		return nil, e
 	}
 	var files []string
-	gitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	gitCtx, cancel := context.WithTimeout(ctx, gitSearchTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(gitCtx, "git", "-C", work, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	out, e := cmd.Output()
@@ -66,7 +68,7 @@ func candidates(ctx context.Context, env Env, root string) ([]string, error) {
 		return nil, ctx.Err()
 	}
 	if gitCtx.Err() != nil {
-		return nil, gitCtx.Err()
+		e = gitCtx.Err()
 	}
 	relRoot, relErr := filepath.Rel(work, root)
 	if relErr != nil || relRoot == ".." || strings.HasPrefix(relRoot, ".."+string(filepath.Separator)) {
@@ -100,8 +102,11 @@ func candidates(ctx context.Context, env Env, root string) ([]string, error) {
 				return ctx.Err()
 			}
 			if d.IsDir() {
-				if p != root && (d.Name() == ".git" || d.Name() == "node_modules") {
-					return filepath.SkipDir
+				if p != root {
+					switch d.Name() {
+					case ".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "target", ".next", ".cache", "vendor":
+						return filepath.SkipDir
+					}
 				}
 				return nil
 			}

@@ -437,6 +437,38 @@ func isPathByte(c byte) bool {
 	return c == '_' || c == '.' || c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
+func normalizeHome(text string) string {
+	home, _ := os.UserHomeDir()
+	text = strings.NewReplacer("'", "", "\"", "").Replace(text)
+	if home == "" {
+		return text
+	}
+	text = strings.ReplaceAll(text, "${HOME}", home)
+	text = regexp.MustCompile(`\$HOME\b`).ReplaceAllStringFunc(text, func(string) string { return home })
+	var b strings.Builder
+	for i := 0; i < len(text); i++ {
+		if text[i] == '~' && (i == 0 || strings.ContainsRune(" \t\r\n=;|&(<>", rune(text[i-1]))) && (i+1 == len(text) || text[i+1] == '/') {
+			b.WriteString(home)
+		} else {
+			b.WriteByte(text[i])
+		}
+	}
+	return b.String()
+}
+
+func containsPath(text, path string) bool {
+	for path != "" {
+		i := strings.Index(text, path)
+		if i < 0 { return false }
+		end := i + len(path)
+		if (i == 0 || !isPathByte(text[i-1]) && text[i-1] != '/') && (end == len(text) || strings.ContainsRune("/\\ \t\r\n\"';|&<>()", rune(text[end]))) {
+			return true
+		}
+		text = text[end:]
+	}
+	return false
+}
+
 // checkSensitive 对应 TS 的 checkSensitive、isControlPlanePath 和 commandTouchesControlPlane。
 func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, command string) string {
 	dirs := controlPaths(in)
@@ -471,14 +503,14 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 			}
 		}
 	}
-	if kind == harness.RequestKindCommand && !onlyReads(command) {
-		probe := command
+	if kind == harness.RequestKindCommand {
+		probe := normalizeHome(command)
 		if inside {
 			// 先把副本自身路径折叠成 "."，只引用副本的命令不再误判。
 			probe = stripWorkDir(probe, insideRoots...)
 		}
 		for _, d := range dirs {
-			if strings.Contains(probe, d) {
+			if containsPath(probe, d) {
 				return "controlPlane"
 			}
 		}
@@ -518,7 +550,7 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 // controlPlaneTarget 判断单个写入目标是否落在控制面目录内。
 // 位于控制面内的副本写自己的文件不算控制面；副本外的 ~/.mcode 路径照旧拦截。
 func controlPlaneTarget(in Input, dirs []string, inside bool, wd, realWD, target string) bool {
-	p := strings.TrimSpace(target)
+	p := strings.TrimSpace(normalizeHome(target))
 	if p == "" {
 		return false
 	}
@@ -573,6 +605,7 @@ func mcodeConfigJSON(text, home string) bool {
 // insideRoots 是位于控制面内的工作目录，其中的 JSON 不算 mcode 配置。
 func credential(text, project string, insideRoots []string) bool {
 	home, _ := os.UserHomeDir()
+	text = normalizeHome(text)
 	for _, s := range []string{"~/.ssh/", "/.ssh/", "id_rsa", "id_ed25519", "~/.aws/", "~/.config/gcloud", "~/.docker/config.json", "~/.kube/config", "~/.netrc", "~/.pi/agent/auth.json", "~/.mcode/config.json", "~/.ssh", "~/.aws"} {
 		if strings.Contains(text, s) {
 			return true

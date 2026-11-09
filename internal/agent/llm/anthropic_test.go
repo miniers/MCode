@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAnthropicUserAgent(t *testing.T) {
@@ -160,7 +162,7 @@ func TestAnthropicRequest(t *testing.T) {
 
 func TestDefaultAnthropicMaxTokens(t *testing.T) {
 	for _, tc := range []struct {
-		model string
+		model    string
 		want  int
 	}{
 		{"claude-3-opus-20240229", 4096},
@@ -238,7 +240,7 @@ func TestAnthropicErrors(t *testing.T) {
 			defer server.Close()
 			_, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL}).Stream(context.Background(), Request{}, nil)
 			var apiErr *APIError
-			if !errors.As(err, &apiErr) || !apiErr.Retryable || (tc.status == 529 && (apiErr.Status != 529 || len(apiErr.Body) != 2048)) {
+			if !errors.As(err, &apiErr) || !apiErr.Retryable || (tc.status == 529 && (apiErr.Status != 529 || len(apiErr.Body) != 3000)) {
 				t.Fatalf("error: %v", err)
 			}
 		})
@@ -246,7 +248,7 @@ func TestAnthropicErrors(t *testing.T) {
 }
 
 func TestAnthropicStreamErrorStatus(t *testing.T) {
-	for kind, status := range map[string]int{"rate_limit_error": 429, "overloaded_error": 529} {
+	for kind, status := range map[string]int{"rate_limit_error": 429, "overloaded_error": 529, "api_error": 500, "timeout_error": 408} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":%q,\"message\":\"busy\"}}\n\n", kind)
 		}))
@@ -255,6 +257,130 @@ func TestAnthropicStreamErrorStatus(t *testing.T) {
 		var apiErr *APIError
 		if !errors.As(err, &apiErr) || apiErr.Status != status || !apiErr.Retryable {
 			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+}
+
+func TestAnthropicAdaptiveThinking(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		adaptive bool
+	}{
+		{"auto/claude-opus-5-5[1m]", true},
+		{"claude-sonnet-4-6", true},
+		{"claude-haiku-6-0-20261101", true},
+		{"claude-sonnet-4-5", false},
+		{"claude-3-5-sonnet", false},
+		{"claude-opus-4-60x", false},
+		{"claude-other-5-0", false},
+	} {
+		if got := anthropicAdaptiveThinking(tc.model); got != tc.adaptive {
+			t.Errorf("%s: %t", tc.model, got)
+		}
+	}
+	for effort, want := range map[string]string{"minimal": "low", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"} {
+		body, err := anthropicRequestBody(Request{Model: "auto/claude-opus-5-5[1m]", Effort: effort, MaxTokens: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(body["thinking"], map[string]any{"type": "adaptive"}) || !reflect.DeepEqual(body["output_config"], map[string]any{"effort": want}) || body["max_tokens"] != 100 {
+			t.Fatalf("%s: %+v", effort, body)
+		}
+	}
+	body, _ := anthropicRequestBody(Request{Model: "claude-sonnet-4-5", Effort: "high", MaxTokens: 100})
+	if !reflect.DeepEqual(body["thinking"], map[string]any{"type": "enabled", "budget_tokens": 24000}) || body["max_tokens"] != 32192 || body["output_config"] != nil {
+		t.Fatalf("旧模型: %+v", body)
+	}
+	body, _ = anthropicRequestBody(Request{Model: "claude-opus-5-5"})
+	if body["thinking"] != nil || body["output_config"] != nil {
+		t.Fatalf("未指定 effort: %+v", body)
+	}
+}
+
+func TestAnthropicThinkingRoundTrip(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"empty-sig\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"a\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"b\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"secret\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+	response, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL + "/v1/messages/"}).Stream(context.Background(), Request{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ThinkingBlock{{Type: "thinking", Thinking: "ab", Signature: "sig"}, {Type: "redacted_thinking", Data: "secret"}, {Type: "thinking", Signature: "empty-sig"}}
+	if !reflect.DeepEqual(response.Message.ThinkingBlocks, want) || response.Message.Reasoning != "ab" {
+		t.Fatalf("message: %+v", response.Message)
+	}
+	body, err := anthropicRequestBody(Request{Messages: []Message{response.Message, {Role: "assistant", ReasoningSignature: "legacy"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := body["messages"].([]map[string]any)
+	blocks := messages[0]["content"].([]map[string]any)
+	wantBlocks := []map[string]any{{"type": "thinking", "thinking": "ab", "signature": "sig"}, {"type": "redacted_thinking", "data": "secret"}, {"type": "thinking", "thinking": "", "signature": "empty-sig"}}
+	if !reflect.DeepEqual(blocks, wantBlocks) || !reflect.DeepEqual(messages[1]["content"], []map[string]any{{"type": "thinking", "thinking": "", "signature": "legacy"}}) {
+		t.Fatalf("messages: %+v", messages)
+	}
+}
+
+func TestAnthropicEmptyTextAndBaseURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages" {
+			t.Errorf("path: %s", r.URL.Path)
+		}
+		var body struct {
+			Messages []struct {
+				Content []map[string]any `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if len(body.Messages) != 2 || len(body.Messages[0].Content) != 1 || body.Messages[0].Content[0]["text"] != "ok" || len(body.Messages[1].Content) != 1 || body.Messages[1].Content[0]["text"] != "" {
+			t.Errorf("messages: %+v", body.Messages)
+		}
+		fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+	_, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL + "/v1/messages/"}).Stream(context.Background(), Request{Messages: []Message{
+		{Role: "user", Content: []Part{{Type: "text"}, {Type: "text", Text: "ok"}}},
+		{Role: "user", Content: []Part{{Type: "text"}}},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnthropicStopReasons(t *testing.T) {
+	for reason, want := range map[string]string{"refusal": "refusal", "pause_turn": "stop", "future_reason": "future_reason"} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(w, "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":%q}}\n\ndata: {\"type\":\"message_stop\"}\n\n", reason)
+		}))
+		response, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL}).Stream(context.Background(), Request{}, nil)
+		server.Close()
+		if err != nil || response.StopReason != want {
+			t.Fatalf("%s: %+v %v", reason, response, err)
+		}
+	}
+}
+
+func TestAnthropicHTTPRetry(t *testing.T) {
+	for _, status := range []int{408, 504} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Retry-After", "12")
+			w.WriteHeader(status)
+			fmt.Fprint(w, strings.Repeat("x", 9000))
+		}))
+		_, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL}).Stream(context.Background(), Request{}, nil)
+		server.Close()
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || !apiErr.Retryable || apiErr.Status != status || len(apiErr.Body) != 8192 || RetryAfterOf(err) != 12*time.Second {
+			t.Fatalf("%d: %v", status, err)
 		}
 	}
 }

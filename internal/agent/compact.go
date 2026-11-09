@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"mcode/internal/agent/llm"
@@ -15,8 +16,6 @@ const (
 	defaultContextWindow = 128000
 	// reserveTokens 是留给下一轮输出和工具结果的余量。
 	reserveTokens = 16384
-	// keepRecentTokens 是压缩后大致保留的最近消息大小。
-	keepRecentTokens = 20000
 )
 
 // summaryPrefix 是压缩后摘要消息的固定前缀，界面和后续压缩靠它识别旧摘要。
@@ -51,6 +50,8 @@ func compactThreshold(window int) int {
 	return window - min(reserveTokens, window/4)
 }
 
+func keepRecentTokens(window int) int { return min(20000, window/4) }
+
 // historyFromEntries 按文件顺序重建会话消息。
 // compaction entry 把此前的消息替换成摘要加其后的保留消息，后写的压缩边界自然覆盖早先的。
 func historyFromEntries(entries []json.RawMessage) []llm.Message {
@@ -76,6 +77,7 @@ func historyFromEntries(entries []json.RawMessage) []llm.Message {
 			if json.Unmarshal(raw, &entry) != nil || entry.Summary == "" {
 				continue
 			}
+			messages = repairToolPairs(messages)
 			if entry.KeepFrom <= 0 || entry.KeepFrom >= len(messages) {
 				continue
 			}
@@ -183,8 +185,9 @@ func isUserTurn(message llm.Message) bool {
 }
 
 // findCut 返回压缩切点：保留该下标起的最近消息，返回 0 表示没有合法切点。
-// 切点总落在 user 消息开头，因此不会把 assistant 的 tool call 和对应的 tool 结果拆开。
-func findCut(messages []llm.Message) int {
+// 切点落在用户回合或 assistant 消息开头，不拆开工具调用及其结果。
+func findCut(messages []llm.Message, window int) int {
+	keepRecentTokens := keepRecentTokens(window)
 	total := 0
 	for i := len(messages) - 1; i >= 1; i-- {
 		total += tokensForMessage(messages[i])
@@ -198,17 +201,17 @@ func findCut(messages []llm.Message) int {
 	}
 	// 整体不足 keepRecentTokens（或目标区间之前没有用户回合）时，退回到最近的用户回合开头。
 	for i := len(messages) - 1; i >= 1; i-- {
-		if isUserTurn(messages[i]) && hasSummarizablePrefix(messages, i) {
+		if (isUserTurn(messages[i]) || messages[i].Role == "assistant") && hasSummarizablePrefix(messages, i) {
 			return i
 		}
 	}
 	return 0
 }
 
-// userCutAtOrBefore 从 i 往前找最近的用户回合开头。
+// userCutAtOrBefore 从 i 往前找最近的用户回合或 assistant 消息开头。
 func userCutAtOrBefore(messages []llm.Message, i int) int {
 	for j := i; j >= 1; j-- {
-		if isUserTurn(messages[j]) && hasSummarizablePrefix(messages, j) {
+		if (isUserTurn(messages[j]) || messages[j].Role == "assistant") && hasSummarizablePrefix(messages, j) {
 			return j
 		}
 	}
@@ -225,13 +228,37 @@ func hasSummarizablePrefix(messages []llm.Message, cut int) bool {
 
 // compactMessages 把切点之前的消息总结成一条摘要消息。
 // 返回 nil 表示没有合法切点，调用方应保持原消息不变。
-func compactMessages(ctx context.Context, client llm.Client, model string, messages []llm.Message, emit func(harness.Event)) (*compactionResult, error) {
-	cut := findCut(messages)
+func compactMessages(ctx context.Context, client llm.Client, model string, messages []llm.Message, window int, emit func(harness.Event)) (*compactionResult, error) {
+	cut := findCut(messages, window)
 	if cut <= 0 {
 		return nil, nil
 	}
 	before := tokensForMessages(messages)
-	request := llm.Request{Model: model, System: summaryInstruction, Messages: append([]llm.Message(nil), messages[:cut]...)}
+	prefix := append([]llm.Message(nil), messages[:cut]...)
+	for i := range prefix {
+		if prefix[i].Role != "tool" {
+			continue
+		}
+		prefix[i].Content = append([]llm.Part(nil), prefix[i].Content...)
+		for j := range prefix[i].Content {
+			part := &prefix[i].Content[j]
+			text := []rune(part.Text)
+			if part.Type == "text" && len(text) > 4000 {
+				part.Text = string(text[:2000]) + fmt.Sprintf("…（已截断 %d 字符）…", len(text)-3000) + string(text[len(text)-1000:])
+			}
+		}
+	}
+	for len(prefix) > 0 && tokensForMessages(prefix) > compactThreshold(window) {
+		next := 1
+		for next < len(prefix) && !isUserTurn(prefix[next]) && prefix[next].Role != "assistant" {
+			next++
+		}
+		prefix = prefix[next:]
+	}
+	if len(prefix) == 0 {
+		return nil, errors.New("agent: no messages fit in compaction request")
+	}
+	request := llm.Request{Model: model, System: summaryInstruction, Messages: prefix}
 	response, err := client.Stream(ctx, request, func(llm.Delta) {})
 	if err != nil {
 		return nil, err

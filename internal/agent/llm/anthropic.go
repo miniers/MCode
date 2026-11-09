@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -48,6 +51,19 @@ func defaultAnthropicMaxTokens(model string) int {
 	}
 }
 
+var anthropicModelVersion = regexp.MustCompile(`(?i)^claude-(opus|sonnet|haiku)-([0-9]+)-([0-9]+)($|-|\[)`)
+
+func anthropicAdaptiveThinking(model string) bool {
+	model = model[strings.LastIndex(model, "/")+1:]
+	match := anthropicModelVersion.FindStringSubmatch(model)
+	if match == nil {
+		return false
+	}
+	major, errMajor := strconv.Atoi(match[2])
+	minor, errMinor := strconv.Atoi(match[3])
+	return errMajor == nil && errMinor == nil && (major >= 5 || major == 4 && minor >= 6)
+}
+
 func anthropicRequestBody(req Request) (map[string]any, error) {
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
@@ -58,7 +74,14 @@ func anthropicRequestBody(req Request) (map[string]any, error) {
 		body["system"] = []any{map[string]any{"type": "text", "text": req.System, "cache_control": map[string]string{"type": "ephemeral"}}}
 	}
 	budget := map[string]int{"minimal": 1024, "low": 4096, "medium": 10000, "high": 24000, "xhigh": 32000, "max": 32000}[req.Effort]
-	if budget > 0 {
+	if anthropicAdaptiveThinking(req.Model) && req.Effort != "" {
+		effort := req.Effort
+		if effort == "minimal" {
+			effort = "low"
+		}
+		body["thinking"] = map[string]any{"type": "adaptive"}
+		body["output_config"] = map[string]any{"effort": effort}
+	} else if budget > 0 {
 		if maxTokens <= budget {
 			maxTokens = budget + 8192
 		}
@@ -85,13 +108,25 @@ func anthropicRequestBody(req Request) (map[string]any, error) {
 			continue
 		}
 		blocks := make([]map[string]any, 0, len(msg.Content)+len(msg.ToolCalls)+1)
-		if msg.Role == "assistant" && msg.Reasoning != "" && msg.ReasoningSignature != "" {
-			blocks = append(blocks, map[string]any{"type": "thinking", "thinking": msg.Reasoning, "signature": msg.ReasoningSignature})
+		if msg.Role == "assistant" {
+			if len(msg.ThinkingBlocks) > 0 {
+				for _, block := range msg.ThinkingBlocks {
+					if block.Type == "redacted_thinking" {
+						blocks = append(blocks, map[string]any{"type": block.Type, "data": block.Data})
+					} else if block.Type == "thinking" {
+						blocks = append(blocks, map[string]any{"type": block.Type, "thinking": block.Thinking, "signature": block.Signature})
+					}
+				}
+			} else if msg.ReasoningSignature != "" {
+				blocks = append(blocks, map[string]any{"type": "thinking", "thinking": msg.Reasoning, "signature": msg.ReasoningSignature})
+			}
 		}
 		for _, part := range msg.Content {
 			switch part.Type {
 			case "text":
-				blocks = append(blocks, map[string]any{"type": "text", "text": part.Text})
+				if part.Text != "" {
+					blocks = append(blocks, map[string]any{"type": "text", "text": part.Text})
+				}
 			case "image":
 				if msg.Role == "user" {
 					blocks = append(blocks, map[string]any{"type": "image", "source": map[string]string{"type": "base64", "media_type": part.MimeType, "data": part.Data}})
@@ -108,6 +143,9 @@ func anthropicRequestBody(req Request) (map[string]any, error) {
 				}
 				blocks = append(blocks, map[string]any{"type": "tool_use", "id": call.ID, "name": call.Name, "input": input})
 			}
+		}
+		if msg.Role == "user" && len(blocks) == 0 {
+			blocks = append(blocks, map[string]any{"type": "text", "text": ""})
 		}
 		messages = append(messages, map[string]any{"role": msg.Role, "content": blocks})
 	}
@@ -144,6 +182,7 @@ type anthropicEvent struct {
 		Text      string          `json:"text"`
 		Thinking  string          `json:"thinking"`
 		Signature string          `json:"signature"`
+		Data      string          `json:"data"`
 		Input     json.RawMessage `json:"input"`
 	} `json:"content_block"`
 	Delta struct {
@@ -168,7 +207,7 @@ type anthropicUsage struct {
 	CacheWrite int `json:"cache_creation_input_tokens"`
 }
 
-func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(Delta)) (*Response, error) {
+func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(Delta)) (response *Response, streamErr error) {
 	body, err := anthropicRequestBody(req)
 	if err != nil {
 		return nil, err
@@ -178,10 +217,15 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 		return nil, fmt.Errorf("anthropic: encode request: %w", err)
 	}
 	baseURL := strings.TrimRight(c.cfg.BaseURL, "/")
+	if strings.HasSuffix(baseURL, "/v1/messages") {
+		baseURL = strings.TrimSuffix(baseURL, "/messages")
+	}
 	if !strings.HasSuffix(baseURL, "/v1") {
 		baseURL += "/v1"
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/messages", bytes.NewReader(encoded))
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(streamCtx, http.MethodPost, baseURL+"/messages", bytes.NewReader(encoded))
 	if err != nil {
 		return nil, err
 	}
@@ -213,23 +257,33 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 		return nil, &APIError{Body: err.Error(), Retryable: true}
 	}
 	defer httpResp.Body.Close()
-	stopClose := context.AfterFunc(ctx, func() { httpResp.Body.Close() })
+	stopClose := context.AfterFunc(streamCtx, func() { httpResp.Body.Close() })
 	defer stopClose()
+	idle := newIdleReader(httpResp.Body, cancel)
+	defer func() {
+		timedOut := idle.stop()
+		if ctx.Err() != nil {
+			response, streamErr = nil, ctx.Err()
+		} else if timedOut {
+			response, streamErr = nil, &APIError{Body: "stream idle timeout", Retryable: true}
+		}
+	}()
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		body, readErr := io.ReadAll(io.LimitReader(httpResp.Body, 2048))
+		body, readErr := io.ReadAll(io.LimitReader(idle, 8192))
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		if readErr != nil {
-			return nil, &APIError{Status: httpResp.StatusCode, Body: readErr.Error(), Retryable: true}
+			return nil, &APIError{Status: httpResp.StatusCode, Body: readErr.Error(), Retryable: true, RetryAfter: retryAfter(httpResp.Header.Get("Retry-After"))}
 		}
 		status := httpResp.StatusCode
-		return nil, &APIError{Status: status, Body: string(body), Retryable: status == 429 || status == 500 || status == 502 || status == 503 || status == 529}
+		return nil, &APIError{Status: status, Body: string(body), Retryable: status == 408 || status == 429 || status == 500 || status == 502 || status == 503 || status == 504 || status == 529, RetryAfter: retryAfter(httpResp.Header.Get("Retry-After"))}
 	}
 	result := &Response{Message: Message{Role: "assistant"}, StopReason: "stop"}
 	calls := map[int]*toolCallAccumulator{}
+	thinkingBlocks := map[int]*ThinkingBlock{}
 	stopped := false
-	reader := newSSEReader(httpResp.Body)
+	reader := newSSEReader(idle)
 	for {
 		event, readErr := reader.readEvent()
 		if readErr != nil {
@@ -278,11 +332,14 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 					}
 				}
 			case "thinking":
+				thinkingBlocks[payload.Index] = &ThinkingBlock{Type: block.Type, Thinking: block.Thinking, Signature: block.Signature}
 				result.Message.Reasoning += block.Thinking
 				result.Message.ReasoningSignature += block.Signature
 				if block.Thinking != "" && onDelta != nil {
 					onDelta(Delta{Type: "reasoning", Text: block.Thinking})
 				}
+			case "redacted_thinking":
+				thinkingBlocks[payload.Index] = &ThinkingBlock{Type: block.Type, Data: block.Data}
 			}
 		case "content_block_delta":
 			switch payload.Delta.Type {
@@ -292,11 +349,17 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 					onDelta(Delta{Type: "text", Text: payload.Delta.Text})
 				}
 			case "thinking_delta":
+				if block := thinkingBlocks[payload.Index]; block != nil {
+					block.Thinking += payload.Delta.Thinking
+				}
 				result.Message.Reasoning += payload.Delta.Thinking
 				if onDelta != nil {
 					onDelta(Delta{Type: "reasoning", Text: payload.Delta.Thinking})
 				}
 			case "signature_delta":
+				if block := thinkingBlocks[payload.Index]; block != nil {
+					block.Signature += payload.Delta.Signature
+				}
 				result.Message.ReasoningSignature += payload.Delta.Signature
 			case "input_json_delta":
 				if call := calls[payload.Index]; call != nil {
@@ -306,12 +369,16 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 		case "message_delta":
 			result.Usage.Output = payload.Usage.Output
 			switch payload.Delta.StopReason {
-			case "end_turn", "stop_sequence":
+			case "end_turn", "stop_sequence", "pause_turn":
 				result.StopReason = "stop"
 			case "tool_use":
 				result.StopReason = "tool_use"
 			case "max_tokens":
 				result.StopReason = "length"
+			default:
+				if payload.Delta.StopReason != "" {
+					result.StopReason = payload.Delta.StopReason
+				}
 			}
 		case "message_stop":
 			stopped = true
@@ -322,12 +389,24 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 				status = 429
 			case "overloaded_error":
 				status = 529
+			case "api_error":
+				status = 500
+			case "timeout_error":
+				status = 408
 			}
 			return nil, &APIError{Status: status, Body: payload.Error.Type + ": " + payload.Error.Message, Retryable: status != 0}
 		}
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	indices := make([]int, 0, len(thinkingBlocks))
+	for index := range thinkingBlocks {
+		indices = append(indices, index)
+	}
+	sort.Ints(indices)
+	for _, index := range indices {
+		result.Message.ThinkingBlocks = append(result.Message.ThinkingBlocks, *thinkingBlocks[index])
 	}
 	result.Message.ToolCalls = sortedToolCalls(calls)
 	for i := range result.Message.ToolCalls {

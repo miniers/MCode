@@ -125,7 +125,7 @@ func applyPatch(ctx context.Context, env Env, raw json.RawMessage) (Result, erro
 			if e := os.MkdirAll(filepath.Dir(t.path), 0755); e != nil {
 				return failure(e)
 			}
-			if e := os.WriteFile(t.path, []byte(r.Updated), 0644); e != nil {
+			if e := writeFileAtomic(t.path, []byte(r.Updated), 0644); e != nil {
 				return failure(e)
 			}
 		case r.Deleted:
@@ -147,7 +147,7 @@ func applyPatch(ctx context.Context, env Env, raw json.RawMessage) (Result, erro
 			if e := os.MkdirAll(filepath.Dir(target), 0755); e != nil {
 				return failure(e)
 			}
-			if e := os.WriteFile(target, []byte(r.Updated), info.Mode()); e != nil {
+			if e := writeFileAtomic(target, []byte(r.Updated), info.Mode()); e != nil {
 				return failure(e)
 			}
 			if t.move != "" {

@@ -112,6 +112,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 					runErr = errors.Join(ctx.Err(), err)
 					break
 				}
+				emit(harness.Event{Type: harness.EventToolEnd, ToolID: call.ID, ToolName: call.Name, Output: "Cancelled", IsError: true})
 			}
 			if runErr == nil {
 				runErr = ctx.Err()
@@ -122,7 +123,21 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	}()
 	usage.ContextWindow = int64(window)
 	fail := func(err error) error {
-		emit(harness.Event{Type: harness.EventError, Err: err.Error()})
+		kind := ""
+		var apiErr *llm.APIError
+		if llm.IsContextOverflow(err) {
+			kind = harness.ErrKindContextExhausted
+		} else if errors.As(err, &apiErr) {
+			switch apiErr.Status {
+			case 429, 529:
+				kind = harness.ErrKindRateLimited
+			case 401, 403:
+				kind = harness.ErrKindAPIKeyRejected
+			default:
+				kind = harness.ErrKindAPIError
+			}
+		}
+		emit(harness.Event{Type: harness.EventError, Err: err.Error(), ErrKind: kind})
 		return err
 	}
 	if opts.Store != nil && opts.SessionID != "" && opts.Store.Exists(id) {
@@ -145,7 +160,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		return fail(errors.New("agent: llm client is required"))
 	}
 	compactNow := func() (*compactionResult, error) {
-		result, err := compactMessages(ctx, opts.Client, opts.Model, messages, emit)
+		result, err := compactMessages(ctx, opts.Client, opts.Model, messages, window, emit)
 		if err != nil || result == nil {
 			return nil, err
 		}
@@ -160,7 +175,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		contextMeasured = len(messages)
 		usage.InputTokens += int64(result.Usage.Input + result.Usage.CacheRead + result.Usage.CacheWrite)
 		usage.OutputTokens += int64(result.Usage.Output)
-		usage.CachedTokens += int64(result.Usage.CacheRead + result.Usage.CacheWrite)
+		usage.CachedTokens += int64(result.Usage.CacheRead)
 		return result, nil
 	}
 	request := llm.Request{Model: opts.Model, Effort: opts.Effort, System: opts.System}
@@ -255,7 +270,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		stopReason = response.StopReason
 		usage.InputTokens += int64(response.Usage.Input + response.Usage.CacheRead + response.Usage.CacheWrite)
 		usage.OutputTokens += int64(response.Usage.Output)
-		usage.CachedTokens += int64(response.Usage.CacheRead + response.Usage.CacheWrite)
+		usage.CachedTokens += int64(response.Usage.CacheRead)
 		usage.ContextTokens = int64(response.Usage.Input + response.Usage.CacheRead + response.Usage.CacheWrite + response.Usage.Output)
 		invalid := make(map[int]bool)
 		for i := range response.Message.ToolCalls {
@@ -285,6 +300,12 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			if steered > 0 {
 				continue
 			}
+			switch stopReason {
+			case "refusal", "content_filter":
+				emit(harness.Event{Type: harness.EventError, Err: fmt.Sprintf("模型拒绝回答或内容被过滤（%s）", stopReason), ErrKind: harness.ErrKindAPIError})
+			case "length":
+				emit(harness.Event{Type: harness.EventError, Err: "回复达到输出上限被截断", ErrKind: harness.ErrKindAPIError})
+			}
 			return nil
 		}
 		for i := 0; i < len(response.Message.ToolCalls); {
@@ -313,7 +334,14 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 				if invalid[i] {
 					result = tools.Result{Text: "Invalid or incomplete tool arguments", IsError: true}
 				} else {
-					result = runTool(ctx, opts, call)
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								result = tools.Result{Text: fmt.Sprintf("tool panicked: %v", r), IsError: true}
+							}
+						}()
+						result = runTool(ctx, opts, call)
+					}()
 				}
 				if ctx.Err() != nil {
 					return ctx.Err()

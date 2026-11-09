@@ -230,8 +230,8 @@ func Run(ctx context.Context, opts Options, onOutput func(chunk string)) (Result
 		cmd = exec.Command(name, args...)
 		cmd.Dir = opts.WorkDir
 	}
-	// 命令退出后，若脱离进程组的子进程仍占用管道，最多再等待 2 秒。
-	cmd.WaitDelay = 2 * time.Second
+	// 命令退出后，若脱离进程组的子进程仍占用管道，最多再等待 3 秒。
+	cmd.WaitDelay = 3 * time.Second
 	cmd.Env = append(append(os.Environ(), opts.Env...), harness.NonInteractiveEnv()...)
 	stdin, err := os.Open(os.DevNull)
 	if err != nil {

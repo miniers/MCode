@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -67,7 +68,9 @@ func webFetch(ctx context.Context, _ Env, raw json.RawMessage) (Result, error) {
 		return failure(e)
 	}
 	req.Header.Set("User-Agent", llm.UserAgent)
-	client := &http.Client{CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+	transport := &http.Transport{DialContext: fetchDialContext}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, CheckRedirect: func(_ *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return errors.New("stopped after 5 redirects")
 		}
@@ -115,6 +118,39 @@ func webFetch(ctx context.Context, _ Env, raw json.RawMessage) (Result, error) {
 
 	text = truncateRunes(text, maxChars)
 	return Result{Text: fmt.Sprintf("URL: %s\nStatus: %d\n\n%s", finalURL, resp.StatusCode, text)}, nil
+}
+
+func fetchDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	metadata := net.ParseIP("fd00:ec2::254")
+	for _, ip := range ips {
+		if ip.IP.IsLinkLocalUnicast() || ip.IP.IsLinkLocalMulticast() || ip.IP.Equal(metadata) {
+			return nil, errors.New("web_fetch 不允许访问链路本地或云元数据地址")
+		}
+	}
+	var dialer net.Dialer
+	for _, ip := range ips {
+		host := ip.IP.String()
+		if ip.Zone != "" {
+			host += "%" + ip.Zone
+		}
+		var conn net.Conn
+		conn, err = dialer.DialContext(ctx, network, net.JoinHostPort(host, port))
+		if err == nil {
+			return conn, nil
+		}
+	}
+	if err == nil {
+		err = fmt.Errorf("no addresses for %s", host)
+	}
+	return nil, err
 }
 
 // truncateRunes 按字符数截断文本，并在末尾说明剩余字符数。
