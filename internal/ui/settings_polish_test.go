@@ -19,11 +19,11 @@ func TestSettingsNavGroupHeadersAndMagpieDot(t *testing.T) {
 	st.open = true
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 900, 1400)
 	waitMagpie(t, tt, func() bool {
-		_, ok := tt.Find("settings-nav-" + "magpie-dot")
+		_, ok := tt.Find("已连接")
 		return ok
 	})
 	for _, group := range []string{"应用", "代理", "工作区"} {
-		if _, ok := tt.Find("settings-nav-" + "group-" + group); !ok {
+		if _, ok := tt.Find(group); !ok {
 			t.Fatalf("未找到导航分组 %s", group)
 		}
 	}
@@ -32,6 +32,22 @@ func TestSettingsNavGroupHeadersAndMagpieDot(t *testing.T) {
 			t.Fatalf("Magpie 导航文字不应含状态后缀: %q", text)
 		}
 	}
+
+	t.Run("未连接时不显示圆点", func(t *testing.T) {
+		fake := NewFakeClient()
+		s := newChatState(&routeTestClient{FakeClient: fake})
+		t.Cleanup(s.close)
+		st := NewSettingsState(settingsTestDir(t), nil, s)
+		st.open = true
+		tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 900, 1400)
+		waitMagpie(t, tt, func() bool {
+			_, ok := tt.Find("连接 Magpie")
+			return ok
+		})
+		if _, ok := tt.Find("已连接"); ok {
+			t.Fatal("未连接时不应显示连接圆点")
+		}
+	})
 }
 
 func TestSettingsNavTitleFontSize(t *testing.T) {
