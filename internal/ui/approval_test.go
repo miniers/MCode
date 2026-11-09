@@ -332,7 +332,14 @@ func TestQuestionCardSubmit(t *testing.T) {
 		return tt.HasText("第 1 / 2 题") && tt.HasText("选择实现方案") && tt.HasText("还有 1 题未回答")
 	})
 
-	// 未答完时提交按钮不可用
+	if tt.HasText("提交") {
+		t.Fatal("第一题不应显示提交按钮")
+	}
+
+	if err := tt.Click("下一题"); err != nil {
+		t.Fatalf("click '下一题' failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("包含哪些模块") })
 	if err := tt.Click("提交"); err != nil {
 		t.Fatalf("click '提交' failed: %v", err)
 	}
@@ -342,11 +349,6 @@ func TestQuestionCardSubmit(t *testing.T) {
 	if _, ok := fake.LastRespondAnswers(); ok {
 		t.Fatal("未答完时不应提交")
 	}
-
-	if err := tt.Click("下一题"); err != nil {
-		t.Fatalf("click '下一题' failed: %v", err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("包含哪些模块") })
 	for _, label := range []string{"模块一", "模块二"} {
 		if err := tt.Click(label); err != nil {
 			t.Fatalf("click %q failed: %v", label, err)
@@ -362,6 +364,26 @@ func TestQuestionCardSubmit(t *testing.T) {
 		call, ok := fake.LastRespondAnswers()
 		return ok && !call.Skip && call.OptionID == "" && reflect.DeepEqual(call.Answers, want)
 	})
+}
+
+func TestQuestionCardActionChangesOnLastQuestion(t *testing.T) {
+	a := questionApproval()
+	s := newChatState(NewFakeClient())
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderQuestionCard(c, s, a, false)
+	}, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("第 1 / 2 题") })
+	if !tt.HasText("下一题") || tt.HasText("提交") {
+		t.Fatal("第一题应显示下一题而非提交")
+	}
+	s.mu.Lock()
+	s.questionDraftFor(a).current = 1
+	s.mu.Unlock()
+	s.invalidate()
+	waitFor(t, tt, func() bool { return tt.HasText("第 2 / 2 题") })
+	if !tt.HasText("提交") {
+		t.Fatal("最后一题应显示提交")
+	}
 }
 
 func TestQuestionCardSkip(t *testing.T) {
@@ -750,32 +772,32 @@ func TestApprovalShortcutAction(t *testing.T) {
 	}
 
 	// 1~9 触发对应的 Options
-	a1 := approvalShortcutAction(normalAppr, ui.Key1, 0, false, false, false, false, false, 0)
+	a1 := approvalShortcutAction(normalAppr, ui.Key1, 0, false, false, false, false, false, false, 0)
 	if a1.Kind != ApprovalActionOption || a1.Index != 0 || a1.OptionID != "allow" {
 		t.Errorf("expected option 0 (allow), got %+v", a1)
 	}
-	a2 := approvalShortcutAction(normalAppr, ui.Key2, 0, false, false, false, false, false, 0)
+	a2 := approvalShortcutAction(normalAppr, ui.Key2, 0, false, false, false, false, false, false, 0)
 	if a2.Kind != ApprovalActionOption || a2.Index != 1 || a2.OptionID != "allow_always" {
 		t.Errorf("expected option 1 (allow_always), got %+v", a2)
 	}
-	a3 := approvalShortcutAction(normalAppr, ui.Key3, 0, false, false, false, false, false, 0)
+	a3 := approvalShortcutAction(normalAppr, ui.Key3, 0, false, false, false, false, false, false, 0)
 	if a3.Kind != ApprovalActionOption || a3.Index != 2 || a3.OptionID != "deny" {
 		t.Errorf("expected option 2 (deny), got %+v", a3)
 	}
 	// 超出范围的按键
-	a4 := approvalShortcutAction(normalAppr, ui.Key4, 0, false, false, false, false, false, 0)
+	a4 := approvalShortcutAction(normalAppr, ui.Key4, 0, false, false, false, false, false, false, 0)
 	if a4.Kind != ApprovalActionNone {
 		t.Errorf("expected none for out of range key, got %+v", a4)
 	}
 
 	// Enter 批准普通卡片
-	aEnter := approvalShortcutAction(normalAppr, ui.KeyEnter, 0, false, false, false, false, false, 0)
+	aEnter := approvalShortcutAction(normalAppr, ui.KeyEnter, 0, false, false, false, false, false, false, 0)
 	if aEnter.Kind != ApprovalActionApprove || aEnter.OptionID != "allow" {
 		t.Errorf("expected approve action for Enter, got %+v", aEnter)
 	}
 
 	// Esc 拒绝普通卡片
-	aEsc := approvalShortcutAction(normalAppr, ui.KeyEscape, 0, false, false, false, false, false, 0)
+	aEsc := approvalShortcutAction(normalAppr, ui.KeyEscape, 0, false, false, false, false, false, false, 0)
 	if aEsc.Kind != ApprovalActionDecline || aEsc.OptionID != "deny" {
 		t.Errorf("expected decline action for Esc, got %+v", aEsc)
 	}
@@ -787,61 +809,71 @@ func TestApprovalShortcutAction(t *testing.T) {
 	}
 
 	// 数字键 1~9 选择选项
-	qKey1 := approvalShortcutAction(qAppr, ui.Key1, 0, false, false, false, false, false, 3)
+	qKey1 := approvalShortcutAction(qAppr, ui.Key1, 0, false, false, false, false, false, false, 3)
 	if qKey1.Kind != ApprovalActionSelectChoice || qKey1.Index != 0 {
 		t.Errorf("expected select_choice 0, got %+v", qKey1)
 	}
-	qKey4 := approvalShortcutAction(qAppr, ui.Key4, 0, false, false, false, false, false, 3)
+	qKey4 := approvalShortcutAction(qAppr, ui.Key4, 0, false, false, false, false, false, false, 3)
 	if qKey4.Kind != ApprovalActionNone {
 		t.Errorf("expected none for key exceeding choices count, got %+v", qKey4)
 	}
 
 	// Enter：未全部回答时不提交
-	qEnterIncomplete := approvalShortcutAction(qAppr, ui.KeyEnter, 0, false, false, false, false, false, 3)
+	qEnterIncomplete := approvalShortcutAction(qAppr, ui.KeyEnter, 0, false, false, false, false, false, false, 3)
 	if qEnterIncomplete.Kind != ApprovalActionNone {
 		t.Errorf("expected none when questions incomplete, got %+v", qEnterIncomplete)
 	}
 
 	// Enter：全部回答时提交
-	qEnterComplete := approvalShortcutAction(qAppr, ui.KeyEnter, 0, false, false, false, false, true, 3)
+	qEnterComplete := approvalShortcutAction(qAppr, ui.KeyEnter, 0, false, false, false, false, true, false, 3)
 	if qEnterComplete.Kind != ApprovalActionSubmit {
 		t.Errorf("expected submit when questions complete, got %+v", qEnterComplete)
 	}
+	for _, answered := range []bool{false, true} {
+		next := approvalShortcutAction(qAppr, ui.KeyEnter, 0, false, false, false, false, answered, true, 3)
+		if next.Kind != ApprovalActionNext {
+			t.Errorf("有下一题时应前进，answered=%v，got %+v", answered, next)
+		}
+	}
+	otherBusyNext := approvalShortcutAction(qAppr, ui.KeyEnter, 0, false, false, false, true, true, true, 3)
+	if otherBusyNext.Kind != ApprovalActionNone {
+		t.Errorf("其他输入框聚焦时不应前进，got %+v", otherBusyNext)
+	}
 
 	// Esc：跳过
-	qEsc := approvalShortcutAction(qAppr, ui.KeyEscape, 0, false, false, false, false, false, 3)
+	qEsc := approvalShortcutAction(qAppr, ui.KeyEscape, 0, false, false, false, false, false, false, 3)
 	if qEsc.Kind != ApprovalActionDecline {
 		t.Errorf("expected decline for question Esc, got %+v", qEsc)
 	}
 
 	// 冲突测试：输入框聚焦且草稿非空时不拦截 Enter 和数字键
-	busyEnter := approvalShortcutAction(normalAppr, ui.KeyEnter, 0, false, true, true, false, false, 0)
+	busyEnter := approvalShortcutAction(normalAppr, ui.KeyEnter, 0, false, true, true, false, false, false, 0)
 	if busyEnter.Kind != ApprovalActionNone {
 		t.Errorf("expected no interception for Enter when composer focused and has draft, got %+v", busyEnter)
 	}
-	busyKey1 := approvalShortcutAction(normalAppr, ui.Key1, 0, false, true, true, false, false, 0)
+	busyKey1 := approvalShortcutAction(normalAppr, ui.Key1, 0, false, true, true, false, false, false, 0)
 	if busyKey1.Kind != ApprovalActionNone {
 		t.Errorf("expected no interception for Key1 when composer focused and has draft, got %+v", busyKey1)
 	}
 
 	// 输入框聚焦但草稿为空时，正常拦截
-	emptyDraftEnter := approvalShortcutAction(normalAppr, ui.KeyEnter, 0, false, true, false, false, false, 0)
+	emptyDraftEnter := approvalShortcutAction(normalAppr, ui.KeyEnter, 0, false, true, false, false, false, false, 0)
 	if emptyDraftEnter.Kind != ApprovalActionApprove {
 		t.Errorf("expected interception for Enter when draft is empty, got %+v", emptyDraftEnter)
 	}
 
 	// 问题卡片“其他”文本框聚焦时不拦截 Enter 和数字键
-	otherBusyEnter := approvalShortcutAction(qAppr, ui.KeyEnter, 0, false, false, false, true, true, 3)
+	otherBusyEnter := approvalShortcutAction(qAppr, ui.KeyEnter, 0, false, false, false, true, true, false, 3)
 	if otherBusyEnter.Kind != ApprovalActionNone {
 		t.Errorf("expected no interception when other focused, got %+v", otherBusyEnter)
 	}
-	otherBusyKey1 := approvalShortcutAction(qAppr, ui.Key1, 0, false, false, false, true, false, 3)
+	otherBusyKey1 := approvalShortcutAction(qAppr, ui.Key1, 0, false, false, false, true, false, false, 3)
 	if otherBusyKey1.Kind != ApprovalActionNone {
 		t.Errorf("expected no interception for Key1 when other focused, got %+v", otherBusyKey1)
 	}
 
 	// responding=true 时不响应
-	respKey := approvalShortcutAction(normalAppr, ui.Key1, 0, true, false, false, false, false, 0)
+	respKey := approvalShortcutAction(normalAppr, ui.Key1, 0, true, false, false, false, false, false, 0)
 	if respKey.Kind != ApprovalActionNone {
 		t.Errorf("expected no action when responding, got %+v", respKey)
 	}

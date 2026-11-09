@@ -63,6 +63,7 @@ const (
 	ApprovalActionSelectChoice ApprovalActionKind = "select_choice" // 问题卡片：选中/切换第 N 个选项
 	ApprovalActionOption       ApprovalActionKind = "option"        // 普通卡片：触发第 N 个 Option
 	ApprovalActionApprove      ApprovalActionKind = "approve"       // 普通卡片：Enter 批准
+	ApprovalActionNext         ApprovalActionKind = "next"          // 问题卡片：Enter 跳到下一题
 	ApprovalActionSubmit       ApprovalActionKind = "submit"        // 问题卡片：Enter 提交答案
 	ApprovalActionDecline      ApprovalActionKind = "decline"       // Esc 拒绝或跳过
 )
@@ -82,7 +83,7 @@ type ApprovalShortcutAction struct {
 // 4. 问题卡片的“其他”文本框聚焦时不拦截 Enter 和数字键（otherFocused）；
 // 5. 问题卡片：
 //   - 数字键 1~9：若下标在当前题目选项范围内，返回 ApprovalActionSelectChoice；
-//   - Enter：所有题目都已回答时返回 ApprovalActionSubmit；
+//   - Enter：有下一题时返回 ApprovalActionNext，否则所有题目都已回答时返回 ApprovalActionSubmit；
 //   - Esc：返回 ApprovalActionDecline；
 //
 // 6. 普通审批卡片：
@@ -98,6 +99,7 @@ func approvalShortcutAction(
 	composerHasDraft bool,
 	otherFocused bool,
 	questionAllAnswered bool,
+	questionHasNext bool,
 	currentQuestionChoicesCount int,
 ) ApprovalShortcutAction {
 	if responding || target.RequestID == "" || mods != 0 {
@@ -122,6 +124,9 @@ func approvalShortcutAction(
 			return ApprovalShortcutAction{}
 		}
 		if target.Kind == ApprovalKindQuestion {
+			if questionHasNext {
+				return ApprovalShortcutAction{Kind: ApprovalActionNext}
+			}
 			if questionAllAnswered {
 				return ApprovalShortcutAction{Kind: ApprovalActionSubmit}
 			}
@@ -394,6 +399,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 	if len(approvals) > 0 && !responding {
 		top := approvals[0]
 		var questionAllAnswered bool
+		var questionHasNext bool
 		var curChoicesCount int
 		var qDraft *questionDraft
 		var curQ ApprovalQuestion
@@ -403,6 +409,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 			qs := top.Questions
 			unanswered := unansweredQuestionCount(qs, qDraft.selected, qDraft.others)
 			questionAllAnswered = (unanswered == 0 && len(qs) > 0)
+			questionHasNext = qDraft != nil && len(qs) > 1 && qDraft.current < len(qs)-1
 			qi := qDraft.current
 			if qi >= 0 && qi < len(qs) {
 				curQ = qs[qi]
@@ -414,7 +421,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 		// 数字键 1~9
 		for k := ui.Key1; k <= ui.Key9; k++ {
 			if c.Shortcut(0, k) {
-				action := approvalShortcutAction(top, k, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, curChoicesCount)
+				action := approvalShortcutAction(top, k, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, questionHasNext, curChoicesCount)
 				switch action.Kind {
 				case ApprovalActionSelectChoice:
 					s.mu.Lock()
@@ -440,8 +447,15 @@ func renderApproval(c *ui.Context, s *chatState) {
 
 		// Enter 键
 		if c.Shortcut(0, ui.KeyEnter) {
-			action := approvalShortcutAction(top, ui.KeyEnter, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, curChoicesCount)
+			action := approvalShortcutAction(top, ui.KeyEnter, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, questionHasNext, curChoicesCount)
 			switch action.Kind {
+			case ApprovalActionNext:
+				s.mu.Lock()
+				if qDraft != nil && qDraft.current < len(top.Questions)-1 {
+					qDraft.current++
+				}
+				s.mu.Unlock()
+				s.invalidate()
 			case ApprovalActionSubmit:
 				s.mu.Lock()
 				answers := buildQuestionAnswers(top.Questions, qDraft.selected, qDraft.others)
@@ -459,7 +473,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 
 		// Esc 键
 		if c.Shortcut(0, ui.KeyEscape) {
-			action := approvalShortcutAction(top, ui.KeyEscape, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, curChoicesCount)
+			action := approvalShortcutAction(top, ui.KeyEscape, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, questionHasNext, curChoicesCount)
 			switch action.Kind {
 			case ApprovalActionDecline:
 				if top.Kind == ApprovalKindQuestion {
@@ -1014,6 +1028,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 			}
 			renderApprovalReason(c, approval)
 
+			hasNext := len(qs) > 1 && current < len(qs)-1
 			ui.Row(c.Key("question-actions-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
 				if unanswered > 0 {
 					ui.Text(c, fmt.Sprintf("还有 %d 题未回答", unanswered)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).Selectable()
@@ -1022,16 +1037,27 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 				renderApprovalButton(c, "question-skip-"+id, "跳过", "跳过提问 (Esc)", false, responding, func() {
 					s.respondAnswers(approval, "", nil, true)
 				})
-				submitTooltip := "提交答案"
-				if unanswered == 0 && len(qs) > 0 {
-					submitTooltip = "提交答案 (↩)"
+				if hasNext {
+					renderApprovalButton(c, "question-advance-"+id, "下一题", "下一题 (↩)", true, responding, func() {
+						s.mu.Lock()
+						if draft.current < len(qs)-1 {
+							draft.current++
+						}
+						s.mu.Unlock()
+						s.invalidate()
+					})
+				} else {
+					submitTooltip := "提交答案"
+					if unanswered == 0 && len(qs) > 0 {
+						submitTooltip = "提交答案 (↩)"
+					}
+					renderApprovalButton(c, "question-submit-"+id, "提交", submitTooltip, true, responding || unanswered > 0 || len(qs) == 0, func() {
+						s.mu.Lock()
+						answers := buildQuestionAnswers(qs, draft.selected, draft.others)
+						s.mu.Unlock()
+						s.respondAnswers(approval, "", answers, false)
+					})
 				}
-				renderApprovalButton(c, "question-submit-"+id, "提交", submitTooltip, true, responding || unanswered > 0 || len(qs) == 0, func() {
-					s.mu.Lock()
-					answers := buildQuestionAnswers(qs, draft.selected, draft.others)
-					s.mu.Unlock()
-					s.respondAnswers(approval, "", answers, false)
-				})
 			})
 		})
 }
