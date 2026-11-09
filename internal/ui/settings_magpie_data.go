@@ -13,7 +13,7 @@ func refreshMagpieGatewaySnapshots(st *SettingsState, client Client) {
 	for _, agent := range magpieMatrixAgents {
 		st.reloadAgentMagpie(agent)
 	}
-	markMagpieHubClaudeStale(st)
+	st.invalidate()
 	refreshCatalogAfterPiMagpieSave(st, client)
 	st.refreshModels()
 }
@@ -249,7 +249,7 @@ func renderMagpieGatewaySheetBody(c *ui.Context, st *SettingsState, gatewayID st
 					refresh := ui.ButtonBase(c.Key("magpie-sheet-refresh")).Label("刷新").Disabled(busy)
 					if refresh.Clicked() {
 						st.loadPiMagpieEndpoints()
-						markMagpieHubClaudeStale(st)
+						st.invalidate()
 					}
 					refresh.Children(func() { ui.Text(c, "刷新") })
 					label := "删除"

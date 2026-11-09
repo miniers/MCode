@@ -662,56 +662,6 @@ func TestSettings_AgentMagpie_DriftedStatus(t *testing.T) {
 	})
 }
 
-// TestSettings_AgentMagpie_ModeChangeMarksHubClaudeStale 覆盖：claude 切换使用方式成功后，
-// 顶部 Magpie 网关区块的 claude 快照被标为过期，下一次渲染会重新读取。
-func TestSettings_AgentMagpie_ModeChangeMarksHubClaudeStale(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	fake := NewFakeClient()
-	setting := agentMagpieTestSetting()
-	setting.Global = AgentMagpieGlobal{Supported: true, State: "none"}
-	tt, st := agentMagpieClaudeTester(t, fake, setting)
-
-	waitFor(t, tt, func() bool {
-		st.mu.Lock()
-		defer st.mu.Unlock()
-		state := st.agentMagpie["claude"]
-		return state != nil && state.loaded
-	})
-
-	// 模拟 hub 已经加载过 claude 快照。
-	st.mu.Lock()
-	st.magpieHub.claudeLoaded = true
-	st.mu.Unlock()
-
-	st.setAgentMagpieMode("claude", agentMagpieModeGlobal)
-
-	deadline := time.Now().Add(uiWaitTimeout)
-	for time.Now().Before(deadline) {
-		if calls := fake.SetAgentMagpieModeCalls(); len(calls) == 1 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if calls := fake.SetAgentMagpieModeCalls(); len(calls) != 1 {
-		t.Fatalf("未调用 SetAgentMagpieMode: %v", calls)
-	}
-
-	// 这里不再渲染帧：没有帧时 hub 不会重新加载，能稳定观察到过期标记。
-	deadline = time.Now().Add(uiWaitTimeout)
-	for {
-		st.mu.Lock()
-		stale := !st.magpieHub.claudeLoaded
-		st.mu.Unlock()
-		if stale {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("切换使用方式成功后，hub 的 claude 快照应被标为过期")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
 func TestSettings_AgentMagpie_UnsupportedMode(t *testing.T) {
 	setting := agentMagpieTestSetting()
 	setting.Mode = "off"

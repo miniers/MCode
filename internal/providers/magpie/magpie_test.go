@@ -559,6 +559,12 @@ func TestProviderID(t *testing.T) {
 	if got := ProviderID("Magpie", nil); got != "magpie-mcode" {
 		t.Errorf("ProviderID(Magpie) = %q，想要 magpie-mcode", got)
 	}
+	if got := ProviderID("magpie", nil); got != "magpie-mcode" {
+		t.Errorf("ProviderID(magpie) = %q，想要 magpie-mcode", got)
+	}
+	if got := ProviderID("jp", nil); got != "jp" {
+		t.Errorf("ProviderID(jp) = %q，想要 jp", got)
+	}
 	if got := ProviderID(" JP 东京 ", nil); got != "jp" {
 		t.Errorf("ProviderID(JP 东京) = %q，想要 jp", got)
 	}

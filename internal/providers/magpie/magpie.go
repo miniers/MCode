@@ -20,8 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"mcode/internal/apisource"
-	"mcode/internal/config"
 	"mcode/internal/providers/readhttp"
 )
 
@@ -473,13 +471,16 @@ func isRoutingGroup(id string) bool {
 	return strings.Contains(id, "/auto/") || strings.Contains(id, "/group/")
 }
 
+// builtinSourceKinds 需与 apisource 的内置来源保持一致。
+var builtinSourceKinds = []string{"mcode", "anthropic", "openai", "deepseek", "zai", "meta"}
+
 // ProviderID 把端点名转成 pi 的 provider id：小写，非 [a-z0-9-] 的字符换成
 // "-"，连续的 "-" 合并，去首尾 "-"；避开内置来源，与 taken 冲突时依次加后缀。
 func ProviderID(name string, taken map[string]bool) string {
 	base := slug(name)
 	if base == "" || base == "magpie" {
 		base = "magpie-mcode"
-	} else if base == "mcode" || slices.Contains(apisource.Kinds(config.Config{}), base) {
+	} else if slices.Contains(builtinSourceKinds, base) {
 		base = "magpie-" + base
 	}
 	id := base

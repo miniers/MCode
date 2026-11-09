@@ -192,7 +192,6 @@ func (st *SettingsState) toggleAgentMagpieModel(agent, endpointID, modelID strin
 		st.invalidate()
 		if err != nil {
 			// 保存失败时后端可能已经改了配置：重读设置，界面以服务端为准。
-			markMagpieHubClaudeStale(st)
 			st.reloadAgentMagpie(agent)
 			return
 		}
@@ -205,8 +204,7 @@ func (st *SettingsState) toggleAgentMagpieModel(agent, endpointID, modelID strin
 		if global {
 			st.reloadAgentMagpie(agent)
 		}
-		// 顶部 Magpie 网关区块里该 agent 的快照也要跟着过期。
-		markMagpieHubClaudeStale(st)
+		st.invalidate()
 	}()
 }
 
@@ -275,7 +273,7 @@ func (st *SettingsState) setAgentMagpieEndpointModels(agent, endpointID string, 
 				st.reloadAgentMagpie(agent)
 			}
 		}
-		markMagpieHubClaudeStale(st)
+		st.invalidate()
 	}()
 }
 
@@ -332,7 +330,7 @@ func (st *SettingsState) injectAgentMagpieModel(agent, endpointID, modelID strin
 	st.mu.Unlock()
 	st.invalidate()
 	refreshCatalogAfterPiMagpieSave(st, client)
-	markMagpieHubClaudeStale(st)
+	st.invalidate()
 	return nil
 }
 
@@ -375,7 +373,7 @@ func (st *SettingsState) setAgentMagpieMode(agent, mode string) {
 		st.invalidate()
 		if err == nil {
 			st.reloadAgentMagpie(agent)
-			markMagpieHubClaudeStale(st)
+			st.invalidate()
 		}
 	}()
 }
@@ -423,7 +421,7 @@ func (st *SettingsState) setAgentMagpieDefault(agent, endpointID, modelID string
 			if global {
 				st.reloadAgentMagpie(agent)
 			}
-			markMagpieHubClaudeStale(st)
+			st.invalidate()
 		}
 	}()
 }
@@ -458,7 +456,7 @@ func (st *SettingsState) runAgentMagpieGlobalAction(agent, action string) {
 		st.invalidate()
 		if err == nil {
 			st.reloadAgentMagpie(agent)
-			markMagpieHubClaudeStale(st)
+			st.invalidate()
 		}
 	}()
 }

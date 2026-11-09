@@ -458,7 +458,7 @@ func TestSilentFallbackBoundaries(t *testing.T) {
 
 func TestSelectModel(t *testing.T) {
 	t.Run("显式模型优先", func(t *testing.T) {
-		sources := []apisource.Source{{Kind: "test", Models: []string{"haiku"}, DefaultModel: "default"}}
+		sources := []apisource.Source{{Kind: "test", Models: []string{"haiku", "chosen"}, DefaultModel: "default"}}
 		_, model, err := SelectSource(sources, nil, "test", "chosen")
 		if err != nil || model != "chosen" {
 			t.Fatalf("模型 %q，错误 %v", model, err)
