@@ -18,11 +18,15 @@ func TestSidebarSearchProjectsAndCollapsedState(t *testing.T) {
 		},
 	)
 	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
 	tt := ui.NewTester(view, 1000, 700)
+	// 项目列表先于会话发布，要等会话也加载完再搜索。
 	waitFor(t, tt, func() bool {
 		_, first := tt.Find("收起项目 命中项目")
 		_, second := tt.Find("收起项目 其他项目")
-		return first && second
+		_, alpha := tt.Find("打开会话 Database Alpha")
+		_, unrelated := tt.Find("打开会话 无关会话")
+		return first && second && alpha && unrelated
 	})
 	state.mu.Lock()
 	state.collapsedProj = map[string]bool{"p1": true}
