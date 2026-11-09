@@ -13,6 +13,8 @@ import (
 	"time"
 	"unicode"
 
+	"mcode/internal/agent/llm"
+
 	"golang.org/x/net/html"
 )
 
@@ -64,7 +66,7 @@ func webFetch(ctx context.Context, _ Env, raw json.RawMessage) (Result, error) {
 	if e != nil {
 		return failure(e)
 	}
-	req.Header.Set("User-Agent", "mcode")
+	req.Header.Set("User-Agent", llm.UserAgent)
 	client := &http.Client{CheckRedirect: func(_ *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return errors.New("stopped after 5 redirects")

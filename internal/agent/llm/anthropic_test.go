@@ -11,6 +11,31 @@ import (
 	"testing"
 )
 
+func TestAnthropicUserAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    string
+	}{
+		{name: "default", want: UserAgent},
+		{name: "override", headers: map[string]string{"User-Agent": "custom-agent"}, want: "custom-agent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.Header.Get("User-Agent"); got != tc.want {
+					t.Errorf("User-Agent = %q, want %q", got, tc.want)
+				}
+				fmt.Fprint(w, "data: {\"type\":\"message_stop\"}\n\n")
+			}))
+			defer server.Close()
+			_, err := NewAnthropic(AnthropicConfig{BaseURL: server.URL, Headers: tc.headers}).Stream(context.Background(), Request{Model: "test"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestAnthropicStream(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

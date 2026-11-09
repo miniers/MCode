@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/agent/llm"
 )
 
 func runFetch(t *testing.T, ctx context.Context, args map[string]any) Result {
@@ -25,6 +27,9 @@ func runFetch(t *testing.T, ctx context.Context, args map[string]any) Result {
 
 func TestWebFetchHTML(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != llm.UserAgent {
+			t.Errorf("User-Agent = %q, want %q", got, llm.UserAgent)
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(`<!doctype html><html><head><title>t</title><style>.x{color:red}</style></head><body>
 <h1>Title</h1><h2>Sub</h2>

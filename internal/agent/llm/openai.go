@@ -241,6 +241,7 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", UserAgent)
 	if c.cfg.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 	}

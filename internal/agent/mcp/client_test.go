@@ -7,12 +7,31 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"mcode/internal/agent/llm"
 )
+
+func TestClientUserAgentOverride(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != "custom-agent" {
+			t.Errorf("User-Agent = %q, want %q", got, "custom-agent")
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	client := &Client{URL: server.URL, Headers: map[string]string{"User-Agent": "custom-agent"}}
+	if err := client.notify(context.Background(), "test"); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestClientInitializePaginationSessionAndSSE(t *testing.T) {
 	var requests int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
+		if got := r.Header.Get("User-Agent"); got != llm.UserAgent {
+			t.Errorf("User-Agent = %q, want %q", got, llm.UserAgent)
+		}
 		if requests > 1 && r.Header.Get("Mcp-Session-Id") != "session-1" {
 			t.Errorf("missing session header: %q", r.Header.Get("Mcp-Session-Id"))
 		}

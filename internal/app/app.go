@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"mcode/internal/agent/llm"
 	"mcode/internal/agentconf"
 	"mcode/internal/apisource"
 	"mcode/internal/attention"
@@ -405,6 +406,8 @@ func Open(opts Options) (*App, error) {
 	backend.SetDataDir(opts.DataDir)
 	// 远程能力声明里带桌面端版本号，与「关于」页同一来源。
 	backend.SetAppVersion(AppVersion)
+	// 自研引擎请求的 UA 与「关于」页同一版本来源。
+	llm.UserAgent = "mcode/" + AppVersion
 	modelsdev.Start(opts.DataDir)
 	startuptrace.Mark("modelsdev started")
 

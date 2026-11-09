@@ -186,6 +186,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", UserAgent)
 	if c.cfg.BearerAuth {
 		httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 	} else {

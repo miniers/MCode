@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mcode/internal/agent/llm"
 )
 
 const protocolVersion = "2025-06-18"
@@ -152,6 +154,7 @@ func (c *Client) post(ctx context.Context, body []byte) (*http.Response, error) 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", llm.UserAgent)
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("MCP-Protocol-Version", protocolVersion)
 	if c.Token != "" {
