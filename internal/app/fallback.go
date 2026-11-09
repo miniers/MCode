@@ -97,11 +97,14 @@ func textgenSourceUsable(cfg config.Config, secrets config.SecretStore, source a
 	return false
 }
 
-func collectTextgenCandidates(ctx context.Context, cfg config.Config, secrets config.SecretStore) []textgenCandidate {
+func collectTextgenCandidates(ctx context.Context, cfg config.Config, secrets config.SecretStore, only string) []textgenCandidate {
 	var candidates []textgenCandidate
 	for order, source := range apisource.Resolve(cfg, secrets) {
 		if ctx.Err() != nil {
 			break
+		}
+		if only != "" && !strings.EqualFold(source.Kind, only) {
+			continue
 		}
 		if !textgenSourceUsable(cfg, secrets, source) {
 			continue
@@ -188,7 +191,7 @@ func collectTextgenCandidates(ctx context.Context, cfg config.Config, secrets co
 	return candidates
 }
 
-func executeTextgenFallback(ctx context.Context, primary textgenCandidate, candidates []textgenCandidate, call func(context.Context, textgenCandidate) (string, error)) (string, error) {
+func executeTextgenFallback(ctx context.Context, primary textgenCandidate, candidates func() []textgenCandidate, call func(context.Context, textgenCandidate) (string, error)) (string, error) {
 	out, err := call(ctx, primary)
 	if err == nil || ctx.Err() != nil {
 		return out, err
@@ -201,8 +204,9 @@ func executeTextgenFallback(ctx context.Context, primary textgenCandidate, candi
 	if family == "" {
 		return out, err
 	}
+	available := candidates()
 	for _, sameSource := range []bool{false, true} {
-		for _, candidate := range candidates {
+		for _, candidate := range available {
 			same := candidate.source.Kind == primary.source.Kind && candidate.source.BaseURL == primary.source.BaseURL
 			if same != sameSource || (same && candidate.model == primary.model) || textgenFamily(candidate.model) != family {
 				continue

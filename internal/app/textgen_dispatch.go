@@ -196,10 +196,16 @@ func cliTextgenAvailable(cfg config.Config, provider string) bool {
 func generateText(ctx context.Context, cfg config.Config, secrets config.SecretStore, provider, model, effort, prompt string) (string, error) {
 	raw := strings.TrimSpace(provider)
 	var candidates []textgenCandidate
+	allCandidates := false
 	if textgenModelOverride(model) == "" {
-		candidates = collectTextgenCandidates(ctx, cfg, secrets)
 		global, _ := ctx.Value(textgenGlobalSelectionKey{}).(bool)
 		global = global || raw == ""
+		if global {
+			candidates = collectTextgenCandidates(ctx, cfg, secrets, "")
+			allCandidates = true
+		} else if source, ok, err := resolveTextgenSource(cfg, secrets, raw); ok && err == nil {
+			candidates = collectTextgenCandidates(ctx, cfg, secrets, source.Kind)
+		}
 		if candidate, ok := selectTextgenCandidate(candidates, raw, model, global); ok {
 			raw, model = candidate.source.Kind, candidate.model
 		}
@@ -269,10 +275,13 @@ func generateText(ctx context.Context, cfg config.Config, secrets config.SecretS
 		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		ctx = requestCtx
-		if candidates == nil {
-			candidates = collectTextgenCandidates(ctx, cfg, secrets)
+		loadCandidates := func() []textgenCandidate {
+			if allCandidates {
+				return candidates
+			}
+			return collectTextgenCandidates(ctx, cfg, secrets, "")
 		}
-		return executeTextgenFallback(ctx, textgenCandidate{source: source, model: modelID}, candidates, func(ctx context.Context, candidate textgenCandidate) (string, error) {
+		return executeTextgenFallback(ctx, textgenCandidate{source: source, model: modelID}, loadCandidates, func(ctx context.Context, candidate textgenCandidate) (string, error) {
 			client := apisource.NewClient(candidate.source, candidate.source.APIKey(secrets), candidate.model, apisource.ClientOptions{Effort: engineReasoningEffort(candidate.source.BaseURL)})
 			return streamOnce(ctx, client, candidate.model, effort, prompt)
 		})

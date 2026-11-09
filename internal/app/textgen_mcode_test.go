@@ -133,6 +133,10 @@ func TestGenerateTextWithoutCLIFallsBackToMcode(t *testing.T) {
 	var body map[string]any
 	hits := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			_, _ = io.WriteString(w, `{"data":[]}`)
+			return
+		}
 		hits++
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("decode: %v", err)

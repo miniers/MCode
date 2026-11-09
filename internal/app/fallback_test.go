@@ -50,7 +50,7 @@ func TestFallbackStatusAndLimit(t *testing.T) {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			calls, notices := 0, 0
 			ctx := withTextgenFallbackNotice(context.Background(), func(_, _ string) { notices++ })
-			_, err := executeTextgenFallback(ctx, primary, candidates, func(context.Context, textgenCandidate) (string, error) {
+			_, err := executeTextgenFallback(ctx, primary, func() []textgenCandidate { return candidates }, func(context.Context, textgenCandidate) (string, error) {
 				calls++
 				return "", &llm.APIError{Status: status}
 			})
@@ -70,7 +70,7 @@ func TestFallbackNoRetry(t *testing.T) {
 	other := textgenCandidate{source: apisource.Source{Kind: "two"}, model: "claude-sonnet"}
 	for _, err := range []error{errors.New("断流"), context.Canceled, context.DeadlineExceeded, &llm.APIError{Status: 500}} {
 		calls := 0
-		_, _ = executeTextgenFallback(context.Background(), primary, []textgenCandidate{other}, func(context.Context, textgenCandidate) (string, error) { calls++; return "", err })
+		_, _ = executeTextgenFallback(context.Background(), primary, func() []textgenCandidate { return []textgenCandidate{other} }, func(context.Context, textgenCandidate) (string, error) { calls++; return "", err })
 		if calls != 1 {
 			t.Fatalf("意外重试: %v", err)
 		}
@@ -78,7 +78,9 @@ func TestFallbackNoRetry(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	calls := 0
-	_, _ = executeTextgenFallback(ctx, primary, []textgenCandidate{{source: other.source, model: "gpt-5"}}, func(context.Context, textgenCandidate) (string, error) {
+	_, _ = executeTextgenFallback(ctx, primary, func() []textgenCandidate {
+		return []textgenCandidate{{source: other.source, model: "gpt-5"}}
+	}, func(context.Context, textgenCandidate) (string, error) {
 		calls++
 		return "", &llm.APIError{Status: 429}
 	})
@@ -104,7 +106,7 @@ func TestFallbackConcurrentNotices(t *testing.T) {
 				}
 			})
 			calls := 0
-			_, _ = executeTextgenFallback(ctx, primary, []textgenCandidate{candidate}, func(context.Context, textgenCandidate) (string, error) {
+			_, _ = executeTextgenFallback(ctx, primary, func() []textgenCandidate { return []textgenCandidate{candidate} }, func(context.Context, textgenCandidate) (string, error) {
 				calls++
 				if calls == 1 {
 					return "", &llm.APIError{Status: 429}
@@ -117,4 +119,34 @@ func TestFallbackConcurrentNotices(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestFallbackDoesNotLoadCandidatesOnSuccess(t *testing.T) {
+	primary := textgenCandidate{source: apisource.Source{Kind: "one"}, model: "claude-sonnet"}
+	loaded := false
+	out, err := executeTextgenFallback(context.Background(), primary, func() []textgenCandidate {
+		loaded = true
+		return nil
+	}, func(context.Context, textgenCandidate) (string, error) {
+		return "ok", nil
+	})
+	if err != nil || out != "ok" || loaded {
+		t.Fatalf("out=%q err=%v loaded=%v", out, err, loaded)
+	}
+}
+
+func TestFallbackDoesNotLoadCandidatesOnUnauthorized(t *testing.T) {
+	primary := textgenCandidate{source: apisource.Source{Kind: "one"}, model: "claude-sonnet"}
+	loaded := false
+	calls := 0
+	_, err := executeTextgenFallback(context.Background(), primary, func() []textgenCandidate {
+		loaded = true
+		return nil
+	}, func(context.Context, textgenCandidate) (string, error) {
+		calls++
+		return "", &llm.APIError{Status: 401}
+	})
+	if err == nil || calls != 1 || loaded {
+		t.Fatalf("err=%v calls=%d loaded=%v", err, calls, loaded)
+	}
 }

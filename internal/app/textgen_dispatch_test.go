@@ -127,6 +127,10 @@ func (f textgenFakeSecrets) Delete(string) error { return nil }
 func TestGenerateTextCustomEndpoint(t *testing.T) {
 	var gotPath, gotAuth, gotModel string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			_, _ = w.Write([]byte(`{"data":[]}`))
+			return
+		}
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		var body struct {
@@ -282,6 +286,10 @@ func TestGenerateTextAPISources(t *testing.T) {
 	var body map[string]any
 	status := http.StatusOK
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			_, _ = w.Write([]byte(`{"data":[]}`))
+			return
+		}
 		path, auth, apiKey, extra = r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("x-api-key"), r.Header.Get("X-Test-Preset")
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
