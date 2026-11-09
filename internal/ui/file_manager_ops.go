@@ -303,27 +303,10 @@ func renderFileManagerOpsDialog(c *ui.Context, s *chatState) {
 	open := true
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragFileManagerOp, fileManagerOpsCardWidth, fileManagerOpsCardHeight, 360, 160, winW, winH)
-	modalDragPanel(c, modalDragFileManagerOp, ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ThemeOverlay(c, ScrimOpacity))
-		_ = ui.Box(c.Key("file-manager-ops-backdrop")).
-			Fill().
-			Background(ui.Transparent).
-			OnClick(func() {
-				open = false
-			})
-		if !open {
-			return
-		}
-		panel.Key("file-manager-ops-panel").Padding(0).Gap(0)
-		card := ui.Column(c.Key("file-manager-ops-card")).
-			Label("file-manager-ops-card").
-			Width(width).
-			Height(height).
+	Sheet(c, SheetProps{Key: modalDragFileManagerOp, PanelKey: "file-manager-ops-panel", CardKey: "file-manager-ops-card", Label: "file-manager-ops-card", Open: &open, Width: width, Height: height}, func() {
+		ui.Column(c).
+			FillWidth().Grow(1).
 			Padding(Space6).
-			Radius(RadiusLG).
-			Background(ThemeWindowBg(c)).
-			BorderWidth(Hairline).
-			BorderColor(ThemeBorder(c)).
 			Gap(Space4).
 			Children(func() {
 				ui.Text(c, title).
@@ -337,24 +320,17 @@ func renderFileManagerOpsDialog(c *ui.Context, s *chatState) {
 						TextColor(ThemePrimaryText(c)).
 						Wrap()
 				} else {
-					ui.TextInput(c.Key("file-manager-ops-input"), &st.ops.name).
-						Label(inputLabel).
-						Placeholder(placeholder).
-						FontSize(TypeBody).
-						TextColor(ThemePrimaryText(c)).
-						FillWidth().
-						AutoFocus().
-						OnTextKey(func(k ui.TextKey) bool {
-							if k.Key == ui.KeyEscape {
-								s.closeFileManagerOpsDialog()
-								return true
-							}
-							if k.Key == ui.KeyEnter {
-								s.submitFileManagerOpsDialog()
-								return true
-							}
-							return false
-						})
+					TextField(c, TextFieldProps{Key: "file-manager-ops-input", Value: &st.ops.name, Label: inputLabel, Placeholder: placeholder, FillWidth: true, AutoFocus: true, OnKeyDown: func(k ui.TextKey) bool {
+						if k.Key == ui.KeyEscape {
+							s.closeFileManagerOpsDialog()
+							return true
+						}
+						if k.Key == ui.KeyEnter {
+							s.submitFileManagerOpsDialog()
+							return true
+						}
+						return false
+					}})
 				}
 
 				if ops.err != "" {
@@ -376,40 +352,34 @@ func renderFileManagerOpsDialog(c *ui.Context, s *chatState) {
 						})
 				}
 
-				ui.Row(c.Key("file-manager-ops-actions")).
-					FillWidth().
-					Gap(Space3).
-					AlignItems(ui.Center).
-					Justify(ui.End).
-					Children(func() {
-						Button(c.Key("file-manager-ops-cancel"), ButtonOpts{
-							Text:    "取消",
-							Variant: ButtonSecondary,
-							OnClick: func() {
-								s.closeFileManagerOpsDialog()
-							},
-						})
-						variant := ButtonPrimary
-						label := confirm
-						if destructive {
-							variant = ButtonDanger
-							// 弹窗标题也是「移到废纸篓」，给确认按钮单独一个无障碍标签便于区分。
-							label = "确认" + confirm
-						}
-						Button(c.Key("file-manager-ops-confirm"), ButtonOpts{
-							Text:     confirm,
-							Label:    label,
-							Variant:  variant,
-							Disabled: ops.busy,
-							OnClick: func() {
-								s.submitFileManagerOpsDialog()
-							},
-						})
+				FormActions(c, "file-manager-ops-actions", func() {
+					Button(c.Key("file-manager-ops-cancel"), ButtonOpts{
+						Text:    "取消",
+						Variant: ButtonSecondary,
+						OnClick: func() {
+							s.closeFileManagerOpsDialog()
+						},
 					})
+					variant := ButtonPrimary
+					label := confirm
+					if destructive {
+						variant = ButtonDanger
+						// 弹窗标题也是「移到废纸篓」，给确认按钮单独一个无障碍标签便于区分。
+						label = "确认" + confirm
+					}
+					Button(c.Key("file-manager-ops-confirm"), ButtonOpts{
+						Text:     confirm,
+						Label:    label,
+						Variant:  variant,
+						Disabled: ops.busy,
+						OnClick: func() {
+							s.submitFileManagerOpsDialog()
+						},
+					})
+				})
 				modalResizeGripsMin(c, modalDragFileManagerOp, width, height, 360, 160)
 			})
-		popoverCardShadow(card)
-	}))
+	})
 	if !open {
 		s.closeFileManagerOpsDialog()
 	}

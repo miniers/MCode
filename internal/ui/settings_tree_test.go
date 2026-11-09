@@ -261,6 +261,29 @@ func TestSettingsTreeSheet_NoLinkRow(t *testing.T) {
 	}
 }
 
+func TestSettingsTreeRowJumpOnce(t *testing.T) {
+	old := settingsRowFocus
+	t.Cleanup(func() { settingsRowFocus = old })
+	count := 0
+	settingsRowFocus.jumpID = "jump-row"
+	settingsRowFocus.highlightID = "jump-row"
+	settingsRowFocus.onJump = func(key string) {
+		if key != "jump-row" {
+			t.Errorf("跳转目标 = %q", key)
+		}
+		count++
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Scroll(c).Fill().Children(func() {
+			renderSettingRow(c, "jump-row", "跳转标题", func() { ui.Text(c, "跳转控件") })
+		})
+	}, 320, 200)
+	tt.Frame()
+	if count != 1 || settingsRowFocus.jumpID != "" || settingsRowFocus.highlightID != "jump-row" {
+		t.Fatalf("跳转次数或高亮状态错误：count=%d jump=%q highlight=%q", count, settingsRowFocus.jumpID, settingsRowFocus.highlightID)
+	}
+}
+
 func TestSettingsTree_RowVisibility(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	showSection, showMiddle := true, false

@@ -251,10 +251,7 @@ func groupGlobalSkillsByProvider(skills []agentconf.Skill) []skillGroup {
 
 // renderSkillGroupTitle 渲染卡片内的来源标题。
 func renderSkillGroupTitle(c *ui.Context, title string) {
-	ui.Text(c, title).
-		FontSize(TypeCaption).
-		FontWeight(500).
-		TextColor(ThemeTertiaryText(c)).
+	SectionHeading(c, nil, title).
 		Margin(Space3, 0, 0, settingsRowPadX)
 }
 
@@ -266,11 +263,7 @@ func renderSkillProviderSection(c *ui.Context, st *SettingsState, key, title str
 			Gap(Space3).
 			Padding(Space3, settingsRowPadX, 0, settingsRowPadX).
 			Children(func() {
-				ui.Text(c, title).
-					FontSize(TypeCaption).
-					FontWeight(500).
-					TextColor(ThemeTertiaryText(c)).
-					SingleLine()
+				SectionHeading(c, key+"-title", title).SingleLine()
 
 				ui.Spacer(c)
 
@@ -429,23 +422,25 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 						// 弹性占位推至右侧
 						ui.Spacer(c)
 
-						// 在访达中显示按钮
-						revealBtn := ui.ButtonBase(c.Key(skillKey+"-btn-reveal")).
-							Radius(RadiusSM).
-							Padding(settingsBadgePadY, Space3)
-						if revealBtn.Hovered() {
-							revealBtn.Background(ThemeHover(c))
-						}
-						if revealBtn.Clicked() {
-							openItemInFinder(skVal.Path)
-						}
-						revealBtn.Children(func() {
-							ui.Text(c, "在访达中显示").
-								FontSize(TypeFootnote).
-								TextColor(ThemeSecondaryText(c))
-						})
+						settingRowRight(c, skillKey+"-actions", func() {
+							// 在访达中显示按钮
+							revealBtn := ui.ButtonBase(c.Key(skillKey+"-btn-reveal")).
+								Radius(RadiusSM).
+								Padding(settingsBadgePadY, Space3)
+							if revealBtn.Hovered() {
+								revealBtn.Background(ThemeHover(c))
+							}
+							if revealBtn.Clicked() {
+								openItemInFinder(skVal.Path)
+							}
+							revealBtn.Children(func() {
+								ui.Text(c, "在访达中显示").
+									FontSize(TypeFootnote).
+									TextColor(ThemeSecondaryText(c))
+							})
 
-						renderSkillToggle(c, st, skillKey, skVal)
+							renderSkillToggle(c, st, skillKey, skVal)
+						})
 					})
 			})
 	}
@@ -499,5 +494,5 @@ func renderSkillsEmpty(c *ui.Context, isFiltered bool) {
 	if isFiltered {
 		title = "无匹配的技能"
 	}
-	ui.Text(c, title).FontSize(TypeProse).FontWeight(500).TextColor(ThemePrimaryText(c)).Margin(settingsRowPadY, settingsRowPadX)
+	EmptyState(c, EmptyStateProps{Key: "skills-empty", Title: title, Compact: true}).Margin(settingsRowPadY, settingsRowPadX)
 }

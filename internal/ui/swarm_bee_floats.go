@@ -922,30 +922,16 @@ func renderSwarmEmptyTeamPanel(c *ui.Context, s *chatState, f swarmFloatFrame) {
 	ui.Row(c.Key("swarm-strip")).FillWidth().AlignItems(ui.Center).Padding(Space3, Space4).Gap(Space3).Children(func() {
 		ui.Icon(c, IconSwarm()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c).Alpha(0.85))
 		ui.Text(c, "编排").FontSize(TypeFootnote).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
-		closeBtn := ui.ButtonBase(c.Key("swarm-strip-close")).
-			Size(ControlSM, ControlSM).
-			Radius(RadiusPill).
-			Background(ThemeHover(c)).
-			BorderWidth(1).
-			BorderColor(ThemeBorder(c)).
-			Justify(ui.Center).
-			AlignItems(ui.Center).
-			Label("关闭编排面板").
-			Role(ui.RoleButton).
-			Tooltip("关闭面板")
-		if closeBtn.Hovered() {
-			closeBtn.Background(ThemeHover(c).Alpha(0.85))
-		}
-		if closeBtn.Clicked() {
-			dismissSwarmFloatPanel(f.leadID, f.bees)
-			s.invalidate()
-		}
-		closeBtn.Children(func() {
-			ui.Icon(c, IconX()).Size(11, 11).TextColor(ThemeSecondaryText(c))
+		IconButton(c, IconButtonProps{
+			Key: "swarm-strip-close", Icon: IconX(), Label: "关闭编排面板", Tooltip: "关闭面板",
+			Size: ControlSM, Variant: ButtonGhost, OnClick: func() {
+				dismissSwarmFloatPanel(f.leadID, f.bees)
+				s.invalidate()
+			},
 		})
 	})
 	ui.Column(c.Key("swarm-empty-body")).Grow(1).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "暂无子代理").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+		EmptyState(c, EmptyStateProps{Title: "暂无子代理", Compact: true})
 	})
 }
 

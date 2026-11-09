@@ -160,27 +160,12 @@ func renderMemoryModal(c *ui.Context, s *chatState) {
 	windowWidth, windowHeight := c.Size()
 	width, height := modalResizeSize(modalDragMemoryPanel, min(MemoryPanelWidth, windowWidth-80), min(MemoryPanelHeight, windowHeight-80), min(360, max(0, windowWidth-modalDragPanelInset)), min(240, max(0, windowHeight-modalDragPanelInset)), windowWidth, windowHeight)
 
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.Color{}.Alpha(ScrimOpacity))
-		card := ui.Column(c.Key("memory-modal-card")).
-			Label("memory-modal-card").
-			Width(width).
-			Height(height).
-			Radius(RadiusLG).
-			Background(ThemeWindowBg(c)).
-			Border(Hairline, ThemeBorder(c)).
-			Clip()
-		card = applyElevation(c, card, ElevDialog)
-		modalDragPanel(c, modalDragMemoryPanel, panel)
-		panel.Children(func() {
-			card.Children(func() {
-				renderMemoryHeader(c, s)
-				renderMemoryTabs(c, s)
-				renderMemoryBody(c, s)
-				modalResizeGrips(c, modalDragMemoryPanel, width, height)
-			})
-		})
-	})
+	Sheet(c, SheetProps{Key: modalDragMemoryPanel, CardKey: "memory-modal-card", Label: "memory-modal-card", Open: &open, Width: width, Height: height}, func() {
+		renderMemoryHeader(c, s)
+		renderMemoryTabs(c, s)
+		renderMemoryBody(c, s)
+		modalResizeGrips(c, modalDragMemoryPanel, width, height)
+	}).Clip()
 	if !open {
 		modalDragReset(modalDragMemoryPanel)
 		s.closeMemoryPanel()
@@ -278,36 +263,16 @@ func renderMemoryTabs(c *ui.Context, s *chatState) {
 
 // renderMemoryTabButton 渲染单个标签页按钮，count>0 时显示数量徽标。
 func renderMemoryTabButton(c *ui.Context, s *chatState, tab int, label string, active bool, count int) {
-	textColor := ThemeSecondaryText(c)
-	bg := ui.Transparent
-	weight := 400
-	if active {
-		bg = ThemeAccent(c).Alpha(0.22)
-		textColor = ThemePrimaryText(c)
-		weight = 600
-	}
-	contextBaseButton(c, "memory-tab-"+strconv.Itoa(tab), label).
-		Height(memoryTabHeight).
-		Padding(0, Space4).
-		Shrink(0).
-		Background(bg).
-		OnClick(func() { s.switchMemoryTab(tab) }).
-		Children(func() {
-			ui.Text(c, label).FontSize(TypeFootnote).FontWeight(weight).SingleLine().TextColor(textColor)
-			if count > 0 {
-				badgeText, badgeBg := ThemeAccent(c), ThemeAccent(c).Alpha(0.2)
-				if active {
-					badgeText, badgeBg = ThemeOnAccent(c), ThemeAccent(c)
-				}
-				ui.Text(c, strconv.Itoa(count)).
-					FontSize(TypeCaption).
-					FontWeight(700).
-					Padding(Space0, Space2).
-					Radius(RadiusMD).
-					Background(badgeBg).
-					TextColor(badgeText)
+	TabButton(c, TabButtonProps{Key: "memory-tab-" + strconv.Itoa(tab), Label: label, Active: active}, func() {
+		ui.Text(c, label).FontSize(TypeFootnote).SingleLine().TextColor(ThemePrimaryText(c))
+		if count > 0 {
+			tone := ToneNeutral
+			if active {
+				tone = ToneAccent
 			}
-		})
+			Badge(c, "memory-pending-count", strconv.Itoa(count), tone)
+		}
+	}).Height(memoryTabHeight).Gap(Space2).AlignItems(ui.Center).OnClick(func() { s.switchMemoryTab(tab) })
 }
 
 // renderMemoryBody 渲染当前标签页内容。
@@ -366,19 +331,10 @@ func renderMemoryPendingTab(c *ui.Context, s *chatState, snap memoryPanelSnapsho
 				Gap(Space3).
 				Children(func() {
 					if snap.loading {
-						ui.Spinner(c).Size(IconMD, IconMD).TextColor(ThemeAccent(c))
+						LoadingIndicator(c, "memory-pending-loading", "", IconMD)
 						return
 					}
-					ui.Icon(c, IconBrain()).Size(memoryEmptyIconSize, memoryEmptyIconSize).TextColor(ThemeSecondaryText(c).Alpha(0.6))
-					ui.Text(c, "暂无待审记忆").
-						FontSize(TypeProse).
-						FontWeight(600).
-						TextColor(ThemePrimaryText(c))
-					ui.Text(c, "Agent 通过 memory_propose 提交提议后，会在这里等待你接受或拒绝。").
-						FontSize(TypeFootnote).
-						MaxWidth(memoryEmptyHintMaxWidth).
-						TextAlign(ui.Center).
-						TextColor(ThemeSecondaryText(c))
+					EmptyState(c, EmptyStateProps{Icon: IconBrain(), Title: "暂无待审记忆", Description: "Agent 通过 memory_propose 提交提议后，会在这里等待你接受或拒绝。"})
 				})
 		} else {
 			ui.Scroll(c.Key("memory-pending-scroll")).
@@ -902,17 +858,11 @@ func renderMemoryCreateDialog(c *ui.Context, s *chatState, snap memoryPanelSnaps
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragMemoryCreate, 480, 450, min(360, max(0, winW-modalDragPanelInset)), min(240, max(0, winH-modalDragPanelInset)), winW, winH)
 	open := true
-	modalDragModal(c, modalDragMemoryCreate, &open, func() {
-		ui.Column(c.Key("memory-create-card")).
-			Label("memory-create-card").
-			Width(width).
-			Height(height).
+	Sheet(c, SheetProps{Key: modalDragMemoryCreate, CardKey: "memory-create-card", Label: "memory-create-card", Open: &open, Width: width, Height: height}, func() {
+		ui.Column(c).
+			FillWidth().Grow(1).
 			Padding(Space5).
 			Gap(Space4).
-			Radius(RadiusLG).
-			Background(ThemeSurface(c)).
-			BorderWidth(Hairline).
-			BorderColor(ThemeBorder(c)).
 			Children(func() {
 				modalDragHandle(c, modalDragMemoryCreate, ui.Row(c.Key("memory-create-title-row")).FillWidth().Children(func() {
 					ui.Text(c, "新建记忆").FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
@@ -920,12 +870,7 @@ func renderMemoryCreateDialog(c *ui.Context, s *chatState, snap memoryPanelSnaps
 				ui.Text(c, "手动记录一条记忆，来源记为「我」，加入待审列表后再确认写入。").
 					FontSize(TypeFootnote).
 					TextColor(ThemeSecondaryText(c))
-				ui.TextInput(c.Key("memory-new-title"), &title).
-					Label("标题").
-					Placeholder("部署只用 make deploy").
-					FillWidth().
-					AutoFocus().
-					OnChange(func() { s.setMemoryNewField("title", title) })
+				TextField(c, TextFieldProps{Key: "memory-new-title", Value: &title, Label: "标题", Placeholder: "部署只用 make deploy", FillWidth: true, AutoFocus: true, OnChange: func(value string) { s.setMemoryNewField("title", value) }})
 				ui.TextArea(c.Key("memory-new-content"), &content).
 					Label("内容").
 					Height(max(40, height-300)).
@@ -935,33 +880,25 @@ func renderMemoryCreateDialog(c *ui.Context, s *chatState, snap memoryPanelSnaps
 					LineHeight(1.4).
 					TextColor(ThemePrimaryText(c)).
 					OnChange(func() { s.setMemoryNewField("content", content) })
-				ui.TextInput(c.Key("memory-new-unit"), &unit).
-					Label("类型").
-					Placeholder("fact / insight / preference").
-					FillWidth().
-					OnChange(func() { s.setMemoryNewField("unit", unit) })
-				ui.Row(c.Key("memory-create-actions")).
-					FillWidth().
-					Justify(ui.End).
-					Gap(Space3).
-					Children(func() {
-						Button(c.Key("memory-create-cancel-btn"), ButtonOpts{
-							Text: "取消",
-							OnClick: func() {
-								modalDragReset(modalDragMemoryCreate)
-								s.cancelCreateMemoryProposal()
-							},
-							Variant: ButtonSecondary,
-						})
-						Button(c.Key("memory-create-confirm-btn"), ButtonOpts{
-							Text:    "加入待审",
-							Variant: ButtonPrimary,
-							OnClick: func() {
-								modalDragReset(modalDragMemoryCreate)
-								s.createMemoryProposal()
-							},
-						})
+				TextField(c, TextFieldProps{Key: "memory-new-unit", Value: &unit, Label: "类型", Placeholder: "fact / insight / preference", FillWidth: true, OnChange: func(value string) { s.setMemoryNewField("unit", value) }})
+				FormActions(c, "memory-create-actions", func() {
+					Button(c.Key("memory-create-cancel-btn"), ButtonOpts{
+						Text: "取消",
+						OnClick: func() {
+							modalDragReset(modalDragMemoryCreate)
+							s.cancelCreateMemoryProposal()
+						},
+						Variant: ButtonSecondary,
 					})
+					Button(c.Key("memory-create-confirm-btn"), ButtonOpts{
+						Text:    "加入待审",
+						Variant: ButtonPrimary,
+						OnClick: func() {
+							modalDragReset(modalDragMemoryCreate)
+							s.createMemoryProposal()
+						},
+					})
+				})
 				modalResizeGrips(c, modalDragMemoryCreate, width, height)
 			})
 	})
@@ -981,11 +918,7 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 			Gap(Space3).
 			AlignItems(ui.Center).
 			Children(func() {
-				ui.TextInput(c.Key("memory-search-input"), &query).
-					Label("搜索记忆").
-					Placeholder("例如：部署流程、测试约定").
-					Grow(1).
-					OnChange(func() { s.editMemorySearchQuery(query) })
+				SearchField(c, TextFieldProps{Key: "memory-search-input", Value: &query, Label: "搜索记忆", Placeholder: "例如：部署流程、测试约定", Grow: true, OnChange: func(value string) { s.editMemorySearchQuery(value) }})
 				Button(c.Key("memory-search-btn"), ButtonOpts{
 					Icon:    IconSearch(),
 					Text:    "搜索",
@@ -1044,20 +977,11 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 				AlignItems(ui.Center).
 				Gap(Space3).
 				Children(func() {
-					ui.Icon(c, IconSearch()).Size(memoryEmptyIconSize, memoryEmptyIconSize).TextColor(ThemeSecondaryText(c).Alpha(0.6))
-					ui.Text(c, memorySearchEmptyTitle(snap)).
-						FontSize(TypeProse).
-						FontWeight(600).
-						TextColor(ThemePrimaryText(c))
 					hint := "搜索当前项目对应空间中的记忆，结果只读。"
 					if snap.backend == "local" {
 						hint = "搜索当前项目的记忆，结果只读。"
 					}
-					ui.Text(c, hint).
-						FontSize(TypeFootnote).
-						MaxWidth(memoryEmptyHintMaxWidth).
-						TextAlign(ui.Center).
-						TextColor(ThemeSecondaryText(c))
+					EmptyState(c, EmptyStateProps{Icon: IconSearch(), Title: memorySearchEmptyTitle(snap), Description: hint})
 				})
 			return
 		}

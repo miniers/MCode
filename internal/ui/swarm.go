@@ -2623,50 +2623,22 @@ func renderSwarmAvatarStack(c *ui.Context, keyPrefix string, entries []swarmRepo
 		Children(func() {
 			for i := 0; i < showCount; i++ {
 				entry := entries[i]
-				color := swarmAvatarColor(entry.Name)
-				runes := []rune(strings.TrimSpace(entry.Name))
-				char := ""
-				if len(runes) > 0 {
-					char = string(runes[0])
-				}
 				avatarKey := fmt.Sprintf("%s-avatar-%d", keyPrefix, i)
 				margin := float32(0)
 				if i > 0 {
 					margin = -4
 				}
-				ui.Row(c.Key(avatarKey)).
-					Size(22, 22).
-					Margin(0, 0, 0, margin).
-					Radius(RadiusLG).
-					Background(color).
-					BorderWidth(1).
-					BorderColor(ThemeSurface(c)).
-					Justify(ui.Center).
-					AlignItems(ui.Center).
-					Children(func() {
-						ui.Text(c, char).
-							FontSize(TypeCaption).
-							FontWeight(600).
-							TextColor(ThemeOnAccent(c))
-					})
+				Avatar(c, AvatarProps{
+					Key: avatarKey, Name: entry.Name, Size: 22, FontSize: TypeCaption,
+					Foreground: ThemeOnAccent(c), Background: swarmAvatarColor(entry.Name), Border: ThemeSurface(c),
+				}).Margin(0, 0, 0, margin)
 			}
 			if hasMore {
 				moreKey := fmt.Sprintf("%s-avatar-more", keyPrefix)
-				ui.Row(c.Key(moreKey)).
-					Size(22, 22).
-					Margin(0, 0, 0, -4).
-					Radius(RadiusLG).
-					Background(ThemeSecondaryText(c).Alpha(0.18)).
-					BorderWidth(1).
-					BorderColor(ThemeSurface(c)).
-					Justify(ui.Center).
-					AlignItems(ui.Center).
-					Children(func() {
-						ui.Text(c, fmt.Sprintf("+%d", moreCount)).
-							FontSize(TypeCaption).
-							FontWeight(600).
-							TextColor(ThemeSecondaryText(c))
-					})
+				Avatar(c, AvatarProps{
+					Key: moreKey, Text: fmt.Sprintf("+%d", moreCount), Size: 22, FontSize: TypeCaption,
+					Foreground: ThemeSecondaryText(c), Background: ThemeSecondaryText(c).Alpha(0.18), Border: ThemeSurface(c),
+				}).Margin(0, 0, 0, -4)
 			}
 		})
 }
@@ -2749,46 +2721,20 @@ func swarmReportPillText(e swarmReportEntry) string {
 
 // renderSwarmReportAvatar 渲染汇报里的单人头像：直径 size 的圆形，圆内是名字首字符。
 func renderSwarmReportAvatar(c *ui.Context, key, name string, size, fontSize float32) {
-	runes := []rune(strings.TrimSpace(name))
-	char := ""
-	if len(runes) > 0 {
-		char = string(runes[0])
-	}
-	ui.Row(c.Key(key)).
-		Size(size, size).
-		Radius(size / 2).
-		Background(swarmAvatarColor(name)).
-		Justify(ui.Center).
-		AlignItems(ui.Center).
-		Children(func() {
-			ui.Text(c, char).
-				FontSize(fontSize).
-				FontWeight(600).
-				TextColor(ThemeOnAccent(c))
-		})
+	Avatar(c, AvatarProps{
+		Key: key, Name: name, Size: size, FontSize: fontSize,
+		Foreground: ThemeOnAccent(c), Background: swarmAvatarColor(name),
+	})
 }
 
 // renderSwarmReportCopyButton 渲染表头右侧的汇总复制按钮：只显示图标，复制后短暂换成对勾。
 func renderSwarmReportCopyButton(c *ui.Context, s *chatState, key, text string) {
 	copyKey := key + "-copy"
 	copied := copyFeedbackActive(copyKey, time.Now())
-	ui.ButtonBase(c.Key(copyKey)).
-		Label("复制汇报").
-		Tooltip("复制汇报").
-		Padding(Space1).
-		Radius(RadiusSM).
-		Background(ThemeHover(c)).
-		OnClick(func() {
-			c.WriteClipboard(text)
-			markCopyFeedback(s, copyKey)
-		}).
-		Children(func() {
-			if copied {
-				ui.Icon(c, IconCheck()).Size(Space4, Space4).TextColor(ThemeSuccess(c))
-			} else {
-				ui.Icon(c, IconCopy()).Size(Space4, Space4).TextColor(ThemeSecondaryText(c))
-			}
-		})
+	CopyButton(c, CopyButtonProps{
+		Key: copyKey, Label: "复制汇报", Tooltip: "复制汇报", Mode: CopyIcon, Copied: copied,
+		Value: func() string { return text }, OnCopy: func() { markCopyFeedback(s, copyKey) },
+	})
 }
 
 // renderSwarmReportRow 渲染时间线中的 Swarm 汇报行：相邻的汇报消息合并成一行，

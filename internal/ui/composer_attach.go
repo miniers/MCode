@@ -1067,7 +1067,7 @@ func renderAttachmentUploadBar(c *ui.Context, a composerAttachment) {
 	bar.Children(func() {
 		if progress <= 0 {
 			// 上传是一次 RPC，拿不到中间进度：小号转圈放在进度条里，只表示“上传中”。
-			ui.Spinner(c).Size(composerAttachOverlayIconSize, composerAttachOverlayIconSize).TextColor(ThemeSecondaryText(c))
+			LoadingIndicator(c, nil, "", composerAttachOverlayIconSize)
 			ui.Box(c.Key("composer-attach-progress-rail-" + a.LocalID)).
 				Grow(1).
 				Height(Space0).
@@ -1076,18 +1076,10 @@ func renderAttachmentUploadBar(c *ui.Context, a composerAttachment) {
 			return
 		}
 
-		track := ui.Row(c.Key("composer-attach-progress-track-" + a.LocalID)).
-			Grow(1).
-			Height(Space0).
-			Radius(RadiusPill).
-			Background(ThemeAccent(c).Alpha(0.22))
-		track.Children(func() {
-			ui.Box(c.Key("composer-attach-progress-fill-" + a.LocalID)).
-				WidthPercent(progress * 100).
-				Height(Space0).
-				Radius(RadiusPill).
-				Background(ThemeAccent(c))
-		})
+		ProgressBar(c, ProgressBarProps{
+			Key: "composer-attach-progress-track-" + a.LocalID, Label: "上传进度", Ratio: progress, Height: Space0,
+			Track: ThemeAccent(c).Alpha(0.22), Fill: ThemeAccent(c),
+		}).Grow(1)
 		ui.Text(c, fmt.Sprintf("%d%%", int(progress*100+0.5))).
 			FontSize(TypeCaption).
 			FontFeatures("tnum").

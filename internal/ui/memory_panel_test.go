@@ -237,6 +237,9 @@ func TestMemoryPanelSearch(t *testing.T) {
 		t.Fatalf("focus 搜索记忆 input failed: %v", err)
 	}
 	tt.Type("部署")
+	if calls := fake.MemorySearchCalls(); len(calls) != 0 {
+		t.Fatalf("输入时不应搜索，实际调用 %v", calls)
+	}
 	if err := tt.Click("执行搜索"); err != nil {
 		t.Fatalf("click 执行搜索 failed: %v", err)
 	}

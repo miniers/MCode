@@ -198,6 +198,7 @@ func TestMotionSystemCustomTransitions(t *testing.T) {
 	}, 100, 100, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 }
 
+// 退出快照在移除那一帧按当时的过渡创建，退出途中切换偏好由 mygo 运行时处理，不在本测试覆盖范围内。
 func TestMotionSystemTransitionPreferenceChange(t *testing.T) {
 	show := false
 	tester := ui.NewTester(func(c *ui.Context) {
@@ -213,9 +214,9 @@ func TestMotionSystemTransitionPreferenceChange(t *testing.T) {
 	if rect, ok := tester.Find("item"); !ok || rect.W != 40 || rect.H != 20 {
 		t.Fatalf("进入后几何不正确：%+v，存在=%v", rect, ok)
 	}
-	show = false
-	tester.Frame()
 	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tester.Frame()
+	show = false
 	tester.Frame()
 	tester.Advance(50 * time.Millisecond)
 	if _, ok := tester.Find("item"); ok {

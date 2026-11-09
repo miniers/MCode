@@ -273,98 +273,71 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 	}
 	var headHeight, contentHeight, footerHeight float32
 
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.Color{}.Alpha(ScrimOpacity))
-		modalDragPanel(c, key, panel)
-		card := applyElevation(c, ui.Column(c.Key("settings-sheet-card-"+sh.ID)).
-			Width(width).
-			Label("设置面板 "+sh.Title).
-			Radius(RadiusLG).
-			Background(ThemeWindowBg(c)).
-			Border(Hairline, ThemeBorder(c)).
-			Clip(), ElevDialog)
-		card.Height(height)
-		panel.Children(func() {
-			card.Children(func() {
-				head := modalDragHandle(c, key, ui.Row(c.Key("settings-sheet-head-"+sh.ID)).
-					Padding(Space5, Space5).
-					AlignItems(ui.Center).
-					Gap(Space4))
-				head.Children(func() {
-					if sh.Header != nil {
-						sh.Header(c, st)
-					} else {
-						ui.Text(c, sh.Title).
-							FontSize(TypeTitle).
-							FontWeight(600).
-							TextColor(ThemePrimaryText(c)).
-							Grow(1).
-							SingleLine()
-					}
-					closeBtn := ui.ButtonBase(c.Key("settings-sheet-close-"+sh.ID)).
-						Label("关闭"+sh.Title).
-						Tooltip("关闭"+sh.Title).
-						Radius(RadiusSM).
-						Padding(Space1, Space2).
-						Shrink(0)
-					if closeBtn.Hovered() {
-						closeBtn.Background(ThemeHover(c))
-					}
-					if closeBtn.Clicked() {
-						closeSettingsSheet(st)
-					}
-					closeBtn.Children(func() {
-						ui.Icon(c, IconX()).
-							Size(IconSM, IconSM).
-							TextColor(ThemeSecondaryText(c))
-					})
-				})
-				headHeight = head.Bounds().H
-				ui.Column(c.Key("settings-sheet-body-" + sh.ID)).
+	Sheet(c, SheetProps{Key: key, CardKey: "settings-sheet-card-" + sh.ID, Label: "设置面板 " + sh.Title, Open: &open, Width: width, Height: height}, func() {
+		head := modalDragHandle(c, key, ui.Row(c.Key("settings-sheet-head-"+sh.ID)).
+			Padding(Space5, Space5).
+			AlignItems(ui.Center).
+			Gap(Space4))
+		head.Children(func() {
+			if sh.Header != nil {
+				sh.Header(c, st)
+			} else {
+				ui.Text(c, sh.Title).
+					FontSize(TypeTitle).
+					FontWeight(600).
+					TextColor(ThemePrimaryText(c)).
 					Grow(1).
-					Clip().
-					Children(func() {
-						// BodyOwnsScroll 时正文列自己滚动（已 Grow(1).Clip()）。
-						if sh.Body != nil && sh.BodyOwnsScroll {
-							sh.Body(c, st)
-							return
-						}
-						// 快捷键表这类内容比面板高，正文必须能滚动，否则下半截被裁掉。
-						ui.Scroll(c.Key("settings-sheet-scroll-" + sh.ID)).
-							Fill().
-							Children(func() {
-								content := ui.Column(c.Key("settings-sheet-content-"+sh.ID)).FillWidth().Gap(settingsSectionGap).Padding(0, Space5, Space5, Space5)
-								content.Children(func() {
-									if sh.Body != nil {
-										sh.Body(c, st)
-										return
-									}
-									for _, section := range sh.Sections {
-										section := section
-										renderSettingsTreeSection(c, st, section, true)
-									}
-								})
-								contentHeight = content.Bounds().H
-							})
-					})
-				if sh.Footer != nil && (sh.FooterVisible == nil || sh.FooterVisible(st)) {
-					ui.Box(c.Key("settings-sheet-footer-rule-" + sh.ID)).
-						Height(Hairline).
-						Background(ThemeHairline(c)).
-						Shrink(0)
-					footer := ui.Row(c.Key("settings-sheet-footer-"+sh.ID)).
-						Label("面板操作栏 "+sh.Title).
-						Padding(Space4, Space5).
-						AlignItems(ui.Center).
-						Gap(Space4).
-						Shrink(0)
-					footer.Children(func() { sh.Footer(c, st) })
-					footerHeight = Hairline + footer.Bounds().H
-				}
-				modalResizeGripsMin(c, key, width, height, minWidth, 240)
-			})
+					SingleLine()
+			}
+			IconButton(c, IconButtonProps{
+				Key: "settings-sheet-close-" + sh.ID, Icon: IconX(), Label: "关闭" + sh.Title,
+				Size: ControlSM, Variant: ButtonGhost, OnClick: func() { closeSettingsSheet(st) },
+			}).Shrink(0)
 		})
-	})
+		headHeight = head.Bounds().H
+		ui.Column(c.Key("settings-sheet-body-" + sh.ID)).
+			Grow(1).
+			Clip().
+			Children(func() {
+				// BodyOwnsScroll 时正文列自己滚动（已 Grow(1).Clip()）。
+				if sh.Body != nil && sh.BodyOwnsScroll {
+					sh.Body(c, st)
+					return
+				}
+				// 快捷键表这类内容比面板高，正文必须能滚动，否则下半截被裁掉。
+				ui.Scroll(c.Key("settings-sheet-scroll-" + sh.ID)).
+					Fill().
+					Children(func() {
+						content := ui.Column(c.Key("settings-sheet-content-"+sh.ID)).FillWidth().Gap(settingsSectionGap).Padding(0, Space5, Space5, Space5)
+						content.Children(func() {
+							if sh.Body != nil {
+								sh.Body(c, st)
+								return
+							}
+							for _, section := range sh.Sections {
+								section := section
+								renderSettingsTreeSection(c, st, section, true)
+							}
+						})
+						contentHeight = content.Bounds().H
+					})
+			})
+		if sh.Footer != nil && (sh.FooterVisible == nil || sh.FooterVisible(st)) {
+			ui.Box(c.Key("settings-sheet-footer-rule-" + sh.ID)).
+				Height(Hairline).
+				Background(ThemeHairline(c)).
+				Shrink(0)
+			footer := ui.Row(c.Key("settings-sheet-footer-"+sh.ID)).
+				Label("面板操作栏 "+sh.Title).
+				Padding(Space4, Space5).
+				AlignItems(ui.Center).
+				Gap(Space4).
+				Shrink(0)
+			footer.Children(func() { sh.Footer(c, st) })
+			footerHeight = Hairline + footer.Bounds().H
+		}
+		modalResizeGripsMin(c, key, width, height, minWidth, 240)
+	}).Clip()
 	settingsSheetMeasureMu.Lock()
 	measure.head, measure.footer, measure.height = headHeight, footerHeight, height
 	if !sh.BodyOwnsScroll {
@@ -392,10 +365,7 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 func renderSettingsSection(c *ui.Context, key string, title string, content func()) {
 	ui.Column(c.Key(key)).Gap(settingsSectionTitleGap).Children(func() {
 		if title != "" {
-			ui.Text(c, title).
-				FontSize(TypeCaption).
-				FontWeight(500).
-				TextColor(ThemeTertiaryText(c)).
+			SectionHeading(c, nil, title).
 				Margin(0, 0, 0, settingsRowPadX)
 		}
 		SectionCard(c, key+"-card", "", content).Label("设置卡片 " + key)
@@ -499,52 +469,20 @@ func applySettingsRowFocus(c *ui.Context, row ui.Element, key string) ui.Element
 
 // renderSettingRow 渲染卡片内的标题与控件：树渲染器与统一控件共用的私有原语，不带说明句。
 func renderSettingRow(c *ui.Context, key, title string, control func()) {
-	row := applySettingsRowFocus(c, ui.Row(c.Key(key)).
-		Padding(settingsRowPadY, settingsRowPadX).
-		MinHeight(settingsRowMinHeight).
-		Gap(Space4).
-		AlignItems(ui.Center), key)
-	row.Children(func() { renderSettingRowContent(c, key, title, control) })
-}
-
-func renderSettingRowContent(c *ui.Context, key, title string, control func()) {
-	ui.Column(c.Key(key + "-left")).
-		Grow(1).
-		MinWidth(160).
-		Gap(Space1).
-		Children(func() {
-			ui.Text(c, title).
-				FontSize(TypeBody).
-				FontWeight(400).
-				TextColor(ThemePrimaryText(c)).
-				SingleLine()
-		})
-	ui.Row(c.Key(key + "-right")).
-		Shrink(0).
-		AlignItems(ui.Center).
-		Children(control)
+	if settingsRowFocus.jumpID == "" && settingsRowFocus.highlightID == "" {
+		SettingRow(c, key, title, control)
+		return
+	}
+	settingRow(c, key, title, false, func(row ui.Element) ui.Element { return applySettingsRowFocus(c, row, key) }, control)
 }
 
 // renderStackedSettingRow 渲染标题和控件上下堆叠的设置行。
 func renderStackedSettingRow(c *ui.Context, key, title string, control func()) {
-	row := applySettingsRowFocus(c, ui.Column(c.Key(key)).
-		Padding(settingsRowPadY, settingsRowPadX).
-		MinHeight(settingsRowMinHeight).
-		Gap(Space4), key)
-	row.Children(func() {
-		ui.Column(c.Key(key + "-header")).
-			Gap(Space1).
-			Children(func() {
-				ui.Text(c, title).
-					FontSize(TypeBody).
-					FontWeight(400).
-					TextColor(ThemePrimaryText(c)).
-					SingleLine()
-			})
-		ui.Row(c.Key(key + "-control")).
-			AlignItems(ui.Center).
-			Children(control)
-	})
+	if settingsRowFocus.jumpID == "" && settingsRowFocus.highlightID == "" {
+		StackedSettingRow(c, key, title, control)
+		return
+	}
+	settingRow(c, key, title, true, func(row ui.Element) ui.Element { return applySettingsRowFocus(c, row, key) }, control)
 }
 
 // renderSettingsTreeSection 画一个 section：节标题、卡片与行之间的分隔线。
@@ -613,7 +551,7 @@ func renderSettingsTreeSetting(c *ui.Context, st *SettingsState, s setting) {
 		}
 		applySettingsRowFocus(c, button, s.ID).Children(func() {
 			ui.Row(c.Key(s.ID)).FillWidth().Gap(Space4).AlignItems(ui.Center).Children(func() {
-				renderSettingRowContent(c, s.ID, s.Title, control)
+				settingRowContent(c, s.ID, s.Title, control)
 			})
 		})
 	} else {

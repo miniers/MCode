@@ -35,44 +35,27 @@ func renderContextModal(c *ui.Context, s *chatState) {
 	windowWidth, windowHeight := c.Size()
 	width, height := modalResizeSize(modalDragContextPanel, min(ContextPanelWidth, windowWidth-80), min(ContextPanelHeight, windowHeight-80), min(360, max(0, windowWidth-modalDragPanelInset)), min(240, max(0, windowHeight-modalDragPanelInset)), windowWidth, windowHeight)
 
-	// 用 DialogBase 而不是 Modal：Modal 给面板自带背景、内边距和边框，卡片外会多出一圈黑框。
-	// 遮罩半透明，面板本身不设外观，外观全部由卡片负责（圆角、窗口背景、细边框、阴影）。
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.Color{}.Alpha(ScrimOpacity))
+	Sheet(c, SheetProps{Key: modalDragContextPanel, CardKey: "context-modal-card", Label: "context-modal-card", Open: &open, Width: width, Height: height}, func() {
 		// 与命令面板一致，弹窗打开时也在此处理 ⇧⌘K 关闭。
 		if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyK) {
 			s.toggleContextPanel()
 		}
-		card := ui.Column(c.Key("context-modal-card")).
-			Label("context-modal-card").
-			Width(width).
-			Height(height).
-			Radius(RadiusLG).
-			Background(ThemeWindowBg(c)).
-			Border(Hairline, ThemeBorder(c)).
-			Clip()
-		card = applyElevation(c, card, ElevDialog)
-		modalDragPanel(c, modalDragContextPanel, panel)
-		panel.Children(func() {
-			card.Children(func() {
-				renderContextHeader(c, s)
-				// 头部与 chip 行之间的竖向间距。
-				ui.Column(c.Key("context-chips-wrap")).FillWidth().Padding(Space3, 0, 0, 0).Children(func() {
-					renderContextChips(c, s)
-				})
-				contextPanelMu.Lock()
-				conflict := cp.conflict
-				errMsg := cp.err
-				contextPanelMu.Unlock()
-				renderContextConflictBanner(c, s, conflict)
-				if errMsg != "" && !conflict {
-					renderContextErrorBanner(c, s, errMsg)
-				}
-				renderContextDocView(c, s)
-				modalResizeGrips(c, modalDragContextPanel, width, height)
-			})
+		renderContextHeader(c, s)
+		// 头部与 chip 行之间的竖向间距。
+		ui.Column(c.Key("context-chips-wrap")).FillWidth().Padding(Space3, 0, 0, 0).Children(func() {
+			renderContextChips(c, s)
 		})
-	})
+		contextPanelMu.Lock()
+		conflict := cp.conflict
+		errMsg := cp.err
+		contextPanelMu.Unlock()
+		renderContextConflictBanner(c, s, conflict)
+		if errMsg != "" && !conflict {
+			renderContextErrorBanner(c, s, errMsg)
+		}
+		renderContextDocView(c, s)
+		modalResizeGrips(c, modalDragContextPanel, width, height)
+	}).Clip()
 	// 点击遮罩或按 Esc 关闭时同样要经过未保存修改确认。
 	if !open {
 		modalDragReset(modalDragContextPanel)
@@ -567,17 +550,11 @@ func renderContextCreateDialog(c *ui.Context, s *chatState, initial string) {
 	open := true
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragContextCreate, 360, contextCreateDialogHeight, 360, 160, winW, winH)
-	modalDragModal(c, modalDragContextCreate, &open, func() {
-		ui.Column(c.Key("context-create-card")).
-			Label("context-create-card").
-			Width(width).
-			Height(height).
+	Sheet(c, SheetProps{Key: modalDragContextCreate, CardKey: "context-create-card", Label: "context-create-card", Open: &open, Width: width, Height: height}, func() {
+		ui.Column(c).
+			FillWidth().Grow(1).
 			Padding(Space5).
 			Gap(Space4).
-			Radius(RadiusLG).
-			Background(ThemeSurface(c)).
-			BorderWidth(Hairline).
-			BorderColor(ThemeBorder(c)).
 			Children(func() {
 				// 标题行同时是弹窗的拖拽把手。
 				modalDragHandle(c, modalDragContextCreate, ui.Row(c.Key("context-create-title-row")).FillWidth().Children(func() {
@@ -586,42 +563,33 @@ func renderContextCreateDialog(c *ui.Context, s *chatState, initial string) {
 				ui.Text(c, "保存在 .mcode/context/docs/ 下，并作为独立标签显示。").
 					FontSize(TypeFootnote).
 					TextColor(ThemeSecondaryText(c))
-				ui.TextInput(c.Key("context-new-name"), &name).
-					Label("文档名称").
-					Placeholder("api-spec.md").
-					FillWidth().
-					AutoFocus().
-					OnChange(func() {
-						cp := getContextPanelState(s)
-						if cp == nil {
-							return
-						}
-						contextPanelMu.Lock()
-						cp.newName = name
-						contextPanelMu.Unlock()
+				TextField(c, TextFieldProps{Key: "context-new-name", Value: &name, Label: "文档名称", Placeholder: "api-spec.md", FillWidth: true, AutoFocus: true, OnChange: func(value string) {
+					cp := getContextPanelState(s)
+					if cp == nil {
+						return
+					}
+					contextPanelMu.Lock()
+					cp.newName = value
+					contextPanelMu.Unlock()
+				}})
+				FormActions(c, "context-create-actions", func() {
+					Button(c.Key("context-create-cancel-btn"), ButtonOpts{
+						Text: "取消",
+						OnClick: func() {
+							modalDragReset(modalDragContextCreate)
+							s.cancelCreateContextDoc()
+						},
+						Variant: ButtonSecondary,
 					})
-				ui.Row(c.Key("context-create-actions")).
-					FillWidth().
-					Justify(ui.End).
-					Gap(Space3).
-					Children(func() {
-						Button(c.Key("context-create-cancel-btn"), ButtonOpts{
-							Text: "取消",
-							OnClick: func() {
-								modalDragReset(modalDragContextCreate)
-								s.cancelCreateContextDoc()
-							},
-							Variant: ButtonSecondary,
-						})
-						Button(c.Key("context-create-confirm-btn"), ButtonOpts{
-							Text: "创建",
-							OnClick: func() {
-								modalDragReset(modalDragContextCreate)
-								s.createContextDoc()
-							},
-							Variant: ButtonPrimary,
-						})
+					Button(c.Key("context-create-confirm-btn"), ButtonOpts{
+						Text: "创建",
+						OnClick: func() {
+							modalDragReset(modalDragContextCreate)
+							s.createContextDoc()
+						},
+						Variant: ButtonPrimary,
 					})
+				})
 				modalResizeGripsMin(c, modalDragContextCreate, width, height, 360, 160)
 			})
 	})

@@ -371,6 +371,34 @@ func TestSettingsPageSkills_SearchFiltersByTitle(t *testing.T) {
 	}
 }
 
+func TestSkillsEmptyAndSheetClose(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.agentConfLoaded = true
+	sh := settingsSheet{ID: "skills-test", Title: "技能", Body: renderSkillsContent}
+	openSettingsSheet(st, sh.ID, "")
+	t.Cleanup(func() { closeSettingsSheet(st) })
+	tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreeSheet(c, st, sh) }, 1000, 800)
+	if _, ok := tt.Find("未发现技能"); !ok {
+		t.Fatal("无技能时应显示空态")
+	}
+	count := 0
+	for _, text := range tt.Texts() {
+		if text == "关闭技能" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("关闭按钮数量 = %d，期望 1", count)
+	}
+	if err := tt.Click("关闭技能"); err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := settingsTreeSheetState(st); id != "" {
+		t.Fatalf("关闭后仍打开面板 %q", id)
+	}
+}
+
 // TestSettingsPageSkills_StateLivesOnSettingsState 覆盖页面状态收口：同一 st 两次取 getter 拿到同一个指针，
 // 关面板后 skillsSearch 与 nowledgePage 清空，再打开时新建。
 func TestSettingsPageSkills_StateLivesOnSettingsState(t *testing.T) {
