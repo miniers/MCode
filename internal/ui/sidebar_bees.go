@@ -695,31 +695,10 @@ func renderSidebarSingleBeeAvatar(c *ui.Context, s *chatState, parentID string, 
 
 	btn.Children(func() {
 		// 头像容器（约 14pt，人设专属色底与边框）
-		ui.Box(c.Key(btnKey+"-glyph")).
-			Size(avatarSize, avatarSize).
-			Radius(avatarSize / 2).
-			Background(persona.Color.Alpha(0.18)).
-			BorderWidth(1).
-			BorderColor(persona.Color.Alpha(0.55)).
-			Justify(ui.Center).
-			AlignItems(ui.Center).
-			Children(func() {
-				if icon != nil {
-					ui.Icon(c, icon).
-						Size(avatarSize*0.75, avatarSize*0.75).
-						TextColor(persona.Color)
-				} else {
-					runes := []rune(name)
-					char := ""
-					if len(runes) > 0 {
-						char = string(runes[0])
-					}
-					ui.Text(c, char).
-						FontSize(avatarSize * 0.48).
-						FontWeight(600).
-						TextColor(persona.Color)
-				}
-			})
+		Avatar(c, AvatarProps{
+			Key: btnKey + "-glyph", Name: name, Icon: icon, Size: avatarSize, FontSize: avatarSize * 0.48,
+			Foreground: persona.Color, Background: persona.Color.Alpha(0.18), Border: persona.Color.Alpha(0.55),
+		})
 
 		// 约 8pt 带深色描边的状态角标
 		renderSidebarBeeBadge(c, btnKey, status)

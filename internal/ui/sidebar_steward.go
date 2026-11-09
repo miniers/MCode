@@ -285,20 +285,10 @@ func withoutStewardProject(projectID string, projects []Project) []Project {
 // 结构与侧栏 bee 头像一致，只是尺寸更大。
 func renderStewardSectionAvatar(c *ui.Context, key, avatar string) {
 	acc := ThemeAccent(c)
-	ui.Box(c.Key(key)).
-		Size(stewardSectionAvatarSize, stewardSectionAvatarSize).
-		Radius(stewardSectionAvatarSize / 2).
-		Background(acc.Alpha(0.18)).
-		BorderWidth(1).
-		BorderColor(acc.Alpha(0.55)).
-		Justify(ui.Center).
-		AlignItems(ui.Center).
-		Children(func() {
-			ui.Text(c, avatar).
-				FontSize(stewardSectionAvatarSize * 0.48).
-				FontWeight(600).
-				TextColor(acc)
-		})
+	Avatar(c, AvatarProps{
+		Key: key, Text: avatar, Size: stewardSectionAvatarSize, FontSize: stewardSectionAvatarSize * 0.48,
+		Foreground: acc, Background: acc.Alpha(0.18), Border: acc.Alpha(0.55),
+	})
 }
 
 // stewardRowBusy 返回总管行是否该显示运行中角标。找不到对应会话时按不在忙处理：

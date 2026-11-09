@@ -29,9 +29,18 @@ const userBubbleMaxWidthFull float32 = 960
 
 // 按比例档的用户消息气泡：占内容宽度的比例与下限。
 const (
+	userBubbleRatio     float32 = 0.85
 	userBubbleFullRatio float32 = 0.75
 	userBubbleFullMin   float32 = 600
 )
+
+func bubbleMaxWidthFor(columnWidth float32, setting string, percent int, padX float32) float32 {
+	if setting == config.ContentWidthFull {
+		bubble := min(userBubbleMaxWidthFull, contentColumnWidth(columnWidth, percent, padX)*userBubbleFullRatio)
+		return max(bubble, userBubbleFullMin)
+	}
+	return columnWidth * userBubbleRatio
+}
 
 // timelineContentMaxWidth 返回当前外观设置下时间线内容列的最大宽度。
 // 拿不到设置状态时按标准档处理，保证默认外观与改前完全一致。

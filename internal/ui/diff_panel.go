@@ -343,16 +343,7 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 						}
 						switch viewState {
 						case "loading":
-							ui.Row(c.Key("diff-loading-row")).
-								Gap(Space3).
-								AlignItems(ui.Center).
-								Margin(ui.Auto).
-								Children(func() {
-									ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-									ui.Text(c, "正在读取改动…").
-										FontSize(TypeBody).
-										TextColor(ThemeSecondaryText(c))
-								})
+							LoadingIndicator(c, "diff-loading-row", "正在读取改动…", IconSM).Margin(ui.Auto)
 							return
 						case "error":
 							renderDiffStatusState(c, "diff-error-state", IconOctagonAlert(),
@@ -445,35 +436,14 @@ func renderDiffEmptyState(c *ui.Context) {
 // onRetry 非 nil 时在下方追加“重试”按钮，复用标题栏刷新所用的 loadDiff。
 // 加载、错误、非 Git 与空态共用同一套布局。
 func renderDiffStatusState(c *ui.Context, key string, icon *ui.SVG, title, subtitle string, onRetry func()) {
-	ui.Column(c.Key(key)).
-		Center().
-		Gap(Space3).
-		Margin(ui.Auto).
-		Children(func() {
-			ui.Icon(c, icon).
-				Size(diffStatusIconSize, diffStatusIconSize).
-				TextColor(ThemeSecondaryText(c).Alpha(0.40))
-			ui.Text(c, title).
-				FontSize(TypeTitle).
-				FontWeight(500).
-				TextColor(ThemePrimaryText(c))
-			if subtitle != "" {
-				ui.Text(c, subtitle).
-					FontSize(TypeFootnote).
-					MaxWidth(diffStatusSubtitleMaxWidth).
-					TextAlign(ui.Center).
-					Wrap().
-					TextColor(ThemeSecondaryText(c))
-			}
-			if onRetry != nil {
-				Button(c, ButtonOpts{
-					Key:     key + "-retry",
-					Text:    "重试",
-					Variant: ButtonSecondary,
-					OnClick: onRetry,
-				})
-			}
-		})
+	var action func()
+	if onRetry != nil {
+		action = func() {
+			Button(c, ButtonOpts{Key: key + "-retry", Text: "重试", Variant: ButtonSecondary, OnClick: onRetry})
+		}
+	}
+	EmptyState(c, EmptyStateProps{Key: key, Icon: icon, Title: title, Description: subtitle, Action: action}).
+		Center().Margin(ui.Auto)
 }
 
 // renderDiffHeader 渲染顶部标题栏、轮次选择、刷新按钮和关闭按钮。
@@ -516,21 +486,9 @@ func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID,
 			})
 
 			// 关闭按钮
-			closeBtn := ui.ButtonBase(c.Key("diff-close-btn")).
-				Label("关闭").
-				Tooltip("关闭改动 (⌘D)").
-				Radius(RadiusSM).
-				Padding(Space1, Space2)
-			if closeBtn.Hovered() {
-				closeBtn.Background(ThemeHover(c))
-			}
-			if closeBtn.Clicked() {
-				s.toggleDiffPanel()
-			}
-			closeBtn.Children(func() {
-				ui.Icon(c, IconX()).
-					Size(IconSM, IconSM).
-					TextColor(ThemeSecondaryText(c))
+			IconButton(c, IconButtonProps{
+				Key: "diff-close-btn", Icon: IconX(), Label: "关闭", Tooltip: "关闭改动 (⌘D)",
+				Size: ControlXS, Variant: ButtonGhost, OnClick: s.toggleDiffPanel,
 			})
 		})
 }

@@ -261,24 +261,15 @@ func remoteTailscaleWhoisDesc(status RemoteTailscaleStatus) string {
 // renderRemoteCopyButton 渲染复制某个值的小按钮：按钮文字、提示与复制完成后的回执文案
 // 都由调用方给出，写进剪贴板的是 value 原文。
 func renderRemoteCopyButton(c *ui.Context, st *SettingsState, key, label, copiedLabel, tooltip, value, copiedKey string, copiedAt time.Time) {
-	btn := ui.ButtonBase(c.Key(key)).
-		Label(label).
-		Tooltip(tooltip).
-		Padding(Space1, settingsCompactPadX).
-		Radius(RadiusSM).
-		Background(ThemeHover(c))
-	// stylePairingButton 补上手型光标与悬停、按下时的背景加深。
-	stylePairingButton(c, btn, false)
-	if btn.Clicked() {
-		copyAt := c.Now()
-		c.WriteClipboard(value)
-		markRemoteCopied(st, key, copyAt)
-		copiedKey, copiedAt = key, copyAt
-	}
-	btn.Children(func() {
-		ui.Text(c, pairingCopyLabel(c, key, label, copiedLabel, copiedKey, copiedAt)).
-			FontSize(TypeFootnote).
-			TextColor(ThemeAccent(c))
+	shown := pairingCopyLabel(c, key, label, copiedLabel, copiedKey, copiedAt)
+	CopyButton(c, CopyButtonProps{
+		Key: key, Label: label, Tooltip: tooltip, Text: shown, Mode: CopyText,
+		Copied: copiedKey == key && !copiedAt.IsZero() && c.Now().Sub(copiedAt) < 1500*time.Millisecond,
+		Value: func() string { return value },
+		OnCopy: func() {
+			markRemoteCopied(st, key, c.Now())
+			st.invalidate()
+		},
 	})
 }
 

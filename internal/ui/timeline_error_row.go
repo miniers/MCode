@@ -198,27 +198,14 @@ func renderErrorDetail(c *ui.Context, m Message, fontFam string, codeSz float32)
 // renderErrorCopyButton 渲染错误卡片的「复制」按钮，复制后按钮内换成绿勾 1.4 秒，与其它复制按钮一致。
 func renderErrorCopyButton(c *ui.Context, s *chatState, m Message) {
 	key := "err-copy-" + m.ID
-	btn := ui.ButtonBase(c.Key(key)).
-		Label("复制").
-		Tooltip("复制完整错误信息").
-		Padding(Space0, Space2).
-		Radius(RadiusSM).
-		Cursor(ui.CursorPointer).
-		OnClick(func() {
-			c.WriteClipboard(m.Text)
-			markCopyFeedback(s, key)
-		})
-	if btn.Hovered() {
-		btn.Background(ThemeSecondaryText(c).Alpha(0.12))
+	copied := copyFeedbackActive(key, time.Now())
+	text := "复制"
+	if copied {
+		text = "已复制"
 	}
-	btn.Children(func() {
-		if copyFeedbackActive(key, time.Now()) {
-			ui.Icon(c, IconCheck()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSuccess(c))
-			ui.Text(c, "已复制").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSuccess(c))
-			return
-		}
-		ui.Icon(c, IconCopy()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-		ui.Text(c, "复制").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+	CopyButton(c, CopyButtonProps{
+		Key: key, Label: "复制", Tooltip: "复制完整错误信息", Text: text, Copied: copied,
+		Value: func() string { return m.Text }, OnCopy: func() { markCopyFeedback(s, key) },
 	})
 }
 

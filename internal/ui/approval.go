@@ -709,7 +709,7 @@ func approvalAuxText(approval Approval) string {
 }
 
 // approvalCardFrame 渲染审批卡的统一外壳：SurfaceCard 底色加左侧 2px 语义色条。
-// MessageCard 只能整卡描边、放不下左侧色条，因此这里用同一套令牌自绘。
+// 卡片需要左侧色条，因此这里用同一套令牌自绘。
 func approvalCardFrame(c *ui.Context, key string, accent ui.Color, body func()) {
 	ui.Row(c.Key(key)).
 		Clip().
@@ -875,21 +875,7 @@ func renderApprovalButton(c *ui.Context, key, label, tooltip string, primary, di
 
 // renderPlanCopyButton 渲染计划复制按钮。
 func renderPlanCopyButton(c *ui.Context, key, planText string) {
-	ui.ButtonBase(c.Key(key)).
-		Label("复制计划").
-		Tooltip("复制计划").
-		Padding(Space0, Space2).
-		Radius(RadiusXS).
-		Background(ThemeHover(c)).
-		OnClick(func() {
-			c.WriteClipboard(planText)
-		}).
-		Children(func() {
-			ui.Row(c.Key(key + "-row")).Gap(Space1).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconCopy()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-				ui.Text(c, "复制").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
-			})
-		})
+	CopyButton(c, CopyButtonProps{Key: key, Label: "复制计划", Tooltip: "复制计划", Text: "复制", Value: func() string { return planText }})
 }
 
 // renderPlanCard 渲染计划卡：Markdown 正文在限高滚动区里就地阅读，底部为“驳回 / 批准计划”。

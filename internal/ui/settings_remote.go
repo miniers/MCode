@@ -1536,16 +1536,7 @@ func pairingCopyLabel(c *ui.Context, key, idle, copied, copiedKey string, copied
 
 // disabledCopyButton 渲染不可用的复制按钮，保留按钮位置与提示。
 func disabledCopyButton(c *ui.Context, key, label string) {
-	btn := ui.ButtonBase(c.Key(key)).
-		Label(label).
-		Tooltip(label).
-		Padding(Space1, Space4).
-		Radius(RadiusSM).
-		Background(ThemeHover(c))
-	stylePairingButton(c, btn, true)
-	btn.Children(func() {
-		ui.Text(c, label).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
-	})
+	CopyButton(c, CopyButtonProps{Key: key, Label: label, Tooltip: label, Text: label, Mode: CopyText, Disabled: true})
 }
 
 // renderPairingNotice 渲染非 active 配对状态的标题与“配对新设备”按钮。

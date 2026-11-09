@@ -541,7 +541,7 @@ func renderUserMessage(c *ui.Context, s *chatState, m Message) ui.Element {
 			// 顶部图片附件缩略图条
 			renderUserMessageAttachments(c, s, m)
 
-			// 保留气泡自身的对齐与间距，外观与 MessageCard 的用户角色一致。
+			// 保留用户气泡自身的对齐与间距。
 			bubble := ui.Column(c.Key("msg-user-bubble-"+m.ID)).
 				AlignItems(ui.End).
 				Gap(Space1).
@@ -2799,26 +2799,10 @@ func messageActionBarVisible(rowHovered, copied bool) bool {
 // 1.4 秒内图标换成绿色对勾。助手回复与用户提问的操作栏共用这一个按钮。
 func renderCopyMessageButton(c *ui.Context, s *chatState, m Message, key string) {
 	copied := copyFeedbackActive(key, time.Now())
-	ui.ButtonBase(c.Key(key)).
-		Label("复制").
-		Tooltip("复制正文").
-		Padding(Space0, Space2).
-		Radius(RadiusXS).
-		Background(ThemeHover(c)).
-		OnClick(func() {
-			c.WriteClipboard(m.Text)
-			markCopyFeedback(s, key)
-		}).
-		Children(func() {
-			ui.Row(c.Key(key + "-row")).Gap(Space1).AlignItems(ui.Center).Children(func() {
-				if copied {
-					ui.Icon(c, IconCheck()).Size(11, 11).TextColor(ThemeSuccess(c))
-				} else {
-					ui.Icon(c, IconCopy()).Size(11, 11).TextColor(ThemeSecondaryText(c))
-				}
-				ui.Text(c, "复制").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-			})
-		})
+	CopyButton(c, CopyButtonProps{
+		Key: key, Label: "复制", Tooltip: "复制正文", Text: "复制", Copied: copied,
+		Value: func() string { return m.Text }, OnCopy: func() { markCopyFeedback(s, key) },
+	})
 }
 
 // swarmFenceEntry 是一条消息去掉 swarm 派单代码块后的正文缓存：src 用来判断正文是否又改过。
@@ -2962,29 +2946,13 @@ func renderCodeBlockContainer(c *ui.Context, s *chatState, b *markdown.CodeBlock
 					ui.Spacer(c)
 					copyKey := key + "-copy"
 					copied := copyFeedbackActive(copyKey, time.Now())
-					btn := ui.ButtonBase(c.Key(copyKey)).
-						Label("复制代码").
-						Tooltip("复制代码").
-						Padding(Space0, Space2).
-						Radius(RadiusXS).
-						Disabled(b.Open)
-					if btn.Hovered() && !b.Open {
-						btn.Background(ThemeHover(c))
-					}
-					btn.OnClick(func() {
-						c.WriteClipboard(b.Code())
-						markCopyFeedback(s, copyKey)
-						s.setToast("已复制")
-					})
-					btn.Children(func() {
-						ui.Row(c.Key(key + "-copy-row")).Gap(Space1).AlignItems(ui.Center).Children(func() {
-							if copied {
-								ui.Icon(c, IconCheck()).Size(11, 11).TextColor(ThemeSuccess(c))
-							} else {
-								ui.Icon(c, IconCopy()).Size(11, 11).TextColor(ThemeSecondaryText(c))
-							}
-							ui.Text(c, "复制").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-						})
+					CopyButton(c, CopyButtonProps{
+						Key: copyKey, Label: "复制代码", Tooltip: "复制代码", Text: "复制",
+						Copied: copied, Disabled: b.Open, Value: b.Code,
+						OnCopy: func() {
+							markCopyFeedback(s, copyKey)
+							s.setToast("已复制")
+						},
 					})
 				})
 			b.Body(c)
@@ -3888,25 +3856,10 @@ const todoProgressBarHeight float32 = 2
 // renderTodoProgressBar 渲染头部下方的 2px 进度条：轨道用分隔线色、填充用强调色，
 // 两段的 Grow 权重就是 todoProgressRatio。
 func renderTodoProgressBar(c *ui.Context, m Message, items []todoItem) {
-	ratio := todoProgressRatio(items)
-	ui.Row(c.Key("todo-progress-" + m.ID)).
-		FillWidth().
-		Height(todoProgressBarHeight).
-		Radius(RadiusPill).
-		Background(ThemeDivider(c)).
-		Children(func() {
-			if ratio <= 0 {
-				return
-			}
-			ui.Box(c.Key("todo-progress-fill-" + m.ID)).
-				Height(todoProgressBarHeight).
-				Radius(RadiusPill).
-				Grow(ratio).
-				Background(ThemeAccent(c))
-			if rest := 1 - ratio; rest > 0 {
-				ui.Box(c.Key("todo-progress-rest-" + m.ID)).Height(todoProgressBarHeight).Grow(rest)
-			}
-		})
+	ProgressBar(c, ProgressBarProps{
+		Key: "todo-progress-" + m.ID, Label: "待办进度", Ratio: todoProgressRatio(items),
+		Height: todoProgressBarHeight, Track: ThemeDivider(c), Fill: ThemeAccent(c),
+	})
 }
 
 // renderTodoCardSummary 渲染收起态的一行摘要：状态图标加 todoCollapsedSummary 的文本。
@@ -4463,7 +4416,29 @@ func toolMessageState(m Message) ToolState {
 
 const toolPendingBorderOpacity float32 = 0.10
 
-// renderToolChipStatus 与 ToolChip 共用状态形状及语义色。
+type toolMarkerShape int
+
+const (
+	toolMarkerHollow toolMarkerShape = iota
+	toolMarkerSpinner
+	toolMarkerCheck
+	toolMarkerAlert
+)
+
+func toolStateMarker(state ToolState) (toolMarkerShape, Tone) {
+	switch state {
+	case ToolRunning:
+		return toolMarkerSpinner, ToneAccent
+	case ToolDone:
+		return toolMarkerCheck, ToneSuccess
+	case ToolError:
+		return toolMarkerAlert, ToneDanger
+	default:
+		return toolMarkerHollow, ToneNeutral
+	}
+}
+
+// renderToolChipStatus 渲染工具状态形状及语义色。
 func renderToolChipStatus(c *ui.Context, m Message) {
 	shape, tone := toolStateMarker(toolMessageState(m))
 	color := ThemeTertiaryText(c)

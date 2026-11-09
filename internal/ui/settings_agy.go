@@ -1217,23 +1217,13 @@ const agyClipboardNoticeDuration = 2 * time.Second
 // renderAgyCopyButton 画复制按钮：把 text 写进剪贴板，短暂显示「已复制」作为反馈。
 func renderAgyCopyButton(c *ui.Context, st *SettingsState, key, text, label string) {
 	copied := agyClipboardCopied(st, key)
-	copyBtn := ui.ButtonBase(c.Key("agy-btn-copy-"+key)).
-		Label(label).
-		Radius(RadiusSM).
-		Padding(Space1, Space3)
-	if copyBtn.Hovered() {
-		copyBtn.Background(ThemeHover(c))
+	shown := label
+	if copied {
+		shown = "已复制"
 	}
-	if copyBtn.Clicked() {
-		c.WriteClipboard(text)
-		st.markAgyClipboardCopied(key)
-	}
-	copyBtn.Children(func() {
-		shown, color := label, ThemeAccent(c)
-		if copied {
-			shown, color = "已复制", ThemeSecondaryText(c)
-		}
-		ui.Text(c, shown).FontSize(TypeCaption).TextColor(color)
+	CopyButton(c, CopyButtonProps{
+		Key: "agy-btn-copy-" + key, Label: label, Text: shown, Mode: CopyText, Copied: copied,
+		Value: func() string { return text }, OnCopy: func() { st.markAgyClipboardCopied(key) },
 	})
 }
 

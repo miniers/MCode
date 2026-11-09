@@ -161,18 +161,10 @@ func renderSidebarNoResultsCard(c *ui.Context) {
 	ui.Column(c.Key("sidebar-no-results")).
 		Padding(sidebarNoResultsPadY, Space5).
 		AlignItems(ui.Center).
-		Gap(Space2).
 		Children(func() {
-			ui.Icon(c, IconSearch()).
-				Size(22, 22).
-				TextColor(ThemeSecondaryText(c))
-			ui.Text(c, "无结果").
-				FontSize(scaledFont(TypeBody)).
-				FontWeight(500).
-				TextColor(ThemePrimaryText(c).Alpha(0.8))
-			ui.Text(c, "试试输入会话标题或项目名称").
-				FontSize(scaledFont(TypeFootnote)).
-				TextColor(ThemeSecondaryText(c))
+			EmptyState(c, EmptyStateProps{
+				Icon: IconSearch(), Title: "无结果", Description: "试试输入会话标题或项目名称",
+			})
 		})
 }
 
