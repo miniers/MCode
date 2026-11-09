@@ -61,6 +61,51 @@ func TestSwarmReportGetReturnsFullSummaryForOwnLead(t *testing.T) {
 	}
 }
 
+func TestSwarmReportGetContinuedSession(t *testing.T) {
+	srv, st, _ := setupTestMCP(t)
+	registerThread(t, st, "lead-a", "proj-test-1")
+	registerThread(t, st, "lead-d", "proj-test-1")
+	for _, thread := range []store.Thread{
+		{ID: "lead-b", ForkedFromThreadID: "lead-a"},
+		{ID: "lead-c", ForkedFromThreadID: "lead-b"},
+	} {
+		thread.ProjectID = "proj-test-1"
+		thread.Title = "test thread"
+		thread.Provider = "memory"
+		if err := st.CreateThread(context.Background(), thread); err != nil {
+			t.Fatalf("登记测试线程 %s 失败: %v", thread.ID, err)
+		}
+	}
+
+	full := strings.Repeat("长", 3000)
+	if err := st.SaveSwarmReport(context.Background(), store.SwarmReport{
+		BeeID: "bee-1", LeadThreadID: "lead-a", Name: "Ada", Task: "改造", Summary: full,
+	}); err != nil {
+		t.Fatalf("写入存档失败: %v", err)
+	}
+
+	for _, threadID := range []string{"lead-b", "lead-c"} {
+		t.Run(threadID, func(t *testing.T) {
+			text, isError := callSwarmReportGet(t, srv, threadID, map[string]any{"bee_id": "bee-1"})
+			if isError {
+				t.Fatalf("来源会话的报告应可读取: %s", text)
+			}
+			var got map[string]string
+			if err := json.Unmarshal([]byte(text), &got); err != nil {
+				t.Fatalf("结果不是 JSON: %v (%s)", err, text)
+			}
+			if got["name"] != "Ada" || got["task"] != "改造" || got["summary"] != full {
+				t.Fatalf("返回内容不完整: name=%q task=%q summary 长度=%d", got["name"], got["task"], len(got["summary"]))
+			}
+		})
+	}
+
+	text, isError := callSwarmReportGet(t, srv, "lead-d", map[string]any{"bee_id": "bee-1"})
+	if !isError || !strings.Contains(text, CodeForbidden) {
+		t.Fatalf("无关会话读取应被拒绝, 实际: %v %s", isError, text)
+	}
+}
+
 // TestSwarmReportGetListSorted bees 列表按 StartedAt 升序返回，字段齐全，未结束时不含 finished_at。
 func TestSwarmReportGetListSorted(t *testing.T) {
 	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)

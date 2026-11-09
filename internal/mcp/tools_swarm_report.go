@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"strings"
@@ -35,7 +36,7 @@ func (r *Registry) registerSwarmReportTools(s *Server) {
 		Description: "Without bee_id, list every bee of the calling lead session with its status (running, completed, failed, stopped), " +
 			"so you can tell a bee still at work from one that failed. " +
 			"With bee_id, fetch the full archived report of a finished bee; reports longer than 1500 characters are cut short in the report message, " +
-			"which then carries a '- ID：' line. Only bees of the calling lead session can be read.",
+			"which then carries a '- ID：' line. Only bees of the calling lead session, or of the sessions it was continued or forked from, can be read.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -68,8 +69,8 @@ func handleSwarmReportGet(tc ToolContext, args map[string]any) ToolResult {
 	if err != nil {
 		return toolError(CodeInternal, err.Error(), true)
 	}
-	if rec.LeadThreadID != leadThreadID {
-		return toolError(CodeForbidden, "Bee "+beeID+" does not belong to this lead session", false)
+	if rec.LeadThreadID != leadThreadID && !leadLineageContains(tc.Context, tc.Server.opts.Store, leadThreadID, rec.LeadThreadID) {
+		return toolError(CodeForbidden, "Bee "+beeID+" does not belong to this lead session or the sessions it continues", false)
 	}
 	return toolSuccess(map[string]any{
 		"bee_id":  rec.BeeID,
@@ -77,6 +78,25 @@ func handleSwarmReportGet(tc ToolContext, args map[string]any) ToolResult {
 		"task":    rec.Task,
 		"summary": rec.Summary,
 	})
+}
+
+func leadLineageContains(ctx context.Context, st *store.Store, leadThreadID, owner string) bool {
+	visited := make(map[string]bool)
+	for depth, id := 0, leadThreadID; id != ""; depth++ {
+		if id == owner {
+			return true
+		}
+		if depth == 32 || visited[id] {
+			return false
+		}
+		visited[id] = true
+		thread, err := st.GetThread(ctx, id)
+		if err != nil {
+			return false
+		}
+		id = thread.ForkedFromThreadID
+	}
+	return false
 }
 
 // listSwarmBees 返回本主会话所有 bee 的状态快照，按 StartedAt 升序。
