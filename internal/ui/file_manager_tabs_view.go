@@ -156,23 +156,11 @@ func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelS
 			}
 
 			// 关闭面板：样式与列表头部一致。
-			closeBtn := ui.ButtonBase(c.Key("file-manager-tabbar-close-btn")).
-				Label("关闭文件面板").
-				Tooltip("关闭文件面板 (⇧⌘F)").
-				Radius(RadiusSM).
-				Padding(Space1, Space2).
-				Shrink(0)
-			if closeBtn.Hovered() {
-				closeBtn.Background(ThemeHover(c))
-			}
-			if closeBtn.Clicked() {
-				toggleFileManager(s)
-			}
-			closeBtn.Children(func() {
-				ui.Icon(c, IconX()).
-					Size(IconSM, IconSM).
-					TextColor(ThemeSecondaryText(c))
-			})
+			IconButton(c, IconButtonProps{
+				Key: "file-manager-tabbar-close-btn", Icon: IconX(), Label: "关闭文件面板",
+				Tooltip: "关闭文件面板 (⇧⌘F)", Size: ControlXS, Variant: ButtonGhost,
+				OnClick: func() { toggleFileManager(s) },
+			}).Shrink(0)
 		})
 }
 
@@ -210,83 +198,76 @@ func renderFileManagerTabItem(c *ui.Context, s *chatState, snap fileManagerPanel
 	inOtherPane := snap.splitAnchor != "" && !active &&
 		(tab.path == snap.splitAnchor || tab.path == snap.splitSide)
 
-	btn := ui.ButtonBase(c.Key("file-manager-tab-"+tab.path)).
-		Label(name).
-		Tooltip(tooltip).
-		Radius(RadiusXS).
-		Padding(Space0, Space2).
-		Shrink(0)
-	switch {
-	case active:
-		btn.Background(ThemeSurface(c))
-	case inOtherPane:
-		btn.Background(ThemeHover(c))
-	case btn.Hovered():
-		btn.Background(ThemeHover(c))
-	}
-	// tab 右键菜单：关闭、固定与复制路径。
-	btn.ContextMenu(fileManagerTabMenu(c, s, snap, tab))
-
 	// 关闭 ×：当前 tab 一直显示，其他 tab 只在悬停时显示；
 	// 隐藏时仍然占位（Invisible），避免悬停时 tab 宽度跳动。
-	showClose := active || btn.Hovered()
-	closeClicked := false
-
-	btn.Children(func() {
-		ui.Row(c.Key("file-manager-tab-inner-" + tab.path)).
-			Gap(Space0).
-			AlignItems(ui.Center).
-			Children(func() {
-				color := ThemeSecondaryText(c)
-				if active {
-					color = ThemePrimaryText(c)
-				}
-				if tab.temporary {
-					color = color.Alpha(0.75)
-				}
-				ui.Text(c, name).
-					FontSize(TypeFootnote).
-					SingleLine().
-					MaxWidth(fileManagerTabMaxWidth).
-					TextColor(color)
-
-				closeBtn := ui.ButtonBase(c.Key("file-manager-tab-close-"+tab.path)).
-					Size(IconSM, IconSM).
-					Radius(RadiusSM).
-					Center().
-					Label("关闭 " + name).
-					Tooltip("关闭 " + name).
-					Cursor(ui.CursorPointer)
-				if showClose {
-					if closeBtn.Hovered() {
-						closeBtn.Background(ThemeOverlay(c, 0.20))
+	wrapper := ui.Row(c.Key("file-manager-tab-wrapper-" + tab.path)).Shrink(0)
+	wrapper.Children(func() {
+		showClose := active || wrapper.Hovered()
+		closeClicked := false
+		btn := TabButton(c, TabButtonProps{
+			Key: "file-manager-tab-" + tab.path, Label: name, Tooltip: tooltip, Active: active,
+		}, func() {
+			ui.Row(c.Key("file-manager-tab-inner-" + tab.path)).
+				Gap(Space0).
+				AlignItems(ui.Center).
+				Children(func() {
+					color := ThemeSecondaryText(c)
+					if active {
+						color = ThemePrimaryText(c)
 					}
-					if closeBtn.Clicked() {
-						// 关闭按钮先于外层 tab 评估点击，用标记拦下外层的激活。
-						closeClicked = true
+					if tab.temporary {
+						color = color.Alpha(0.75)
 					}
-				} else {
-					closeBtn.Invisible()
-				}
-				closeBtn.Children(func() {
-					ui.Icon(c, IconX()).
-						Size(fileManagerIconTiny, fileManagerIconTiny).
-						TextColor(ThemeSecondaryText(c))
+					text := ui.Text(c, name).
+						FontSize(TypeFootnote).
+						SingleLine().
+						MaxWidth(fileManagerTabMaxWidth).
+						TextColor(color)
+					if tab.temporary {
+						text.Italic()
+					}
+
+					closeBtn := ui.ButtonBase(c.Key("file-manager-tab-close-"+tab.path)).
+						Size(IconSM, IconSM).
+						Radius(RadiusSM).
+						Center().
+						Label("关闭 " + name).
+						Tooltip("关闭 " + name).
+						Cursor(ui.CursorPointer)
+					if showClose {
+						if closeBtn.Hovered() {
+							closeBtn.Background(ThemeOverlay(c, 0.20))
+						}
+						if closeBtn.Clicked() {
+							// 关闭按钮先于外层 tab 评估点击，用标记拦下外层的激活。
+							closeClicked = true
+						}
+					} else {
+						closeBtn.Invisible()
+					}
+					closeBtn.Children(func() {
+						ui.Icon(c, IconX()).
+							Size(fileManagerIconTiny, fileManagerIconTiny).
+							TextColor(ThemeSecondaryText(c))
+					})
 				})
-			})
+		})
+		if inOtherPane {
+			btn.Background(ThemeHover(c))
+		}
+		btn.ContextMenu(fileManagerTabMenu(c, s, snap, tab))
+		if closeClicked {
+			s.closeFileManagerTab(tab.path)
+			return
+		}
+		if btn.DoubleClicked() {
+			s.pinFileManagerTab(tab.path)
+			return
+		}
+		if btn.Clicked() {
+			s.activateFileManagerTab(tab.path)
+		}
 	})
-
-	if closeClicked {
-		s.closeFileManagerTab(tab.path)
-		return
-	}
-	if btn.DoubleClicked() {
-		s.pinFileManagerTab(tab.path)
-		return
-	}
-	if btn.Clicked() {
-		s.activateFileManagerTab(tab.path)
-	}
 }
 
 // renderFileManagerPanes 渲染预览内容区：未拆分时只有一栏，拆分时两栏各占一半。

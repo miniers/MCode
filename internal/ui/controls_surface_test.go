@@ -15,21 +15,6 @@ func TestSectionCardContent(t *testing.T) {
 	}
 }
 
-func TestWorkspacePanelClose(t *testing.T) {
-	closed := 0
-	tt := ui.NewTester(func(c *ui.Context) {
-		WorkspacePanel(c, PanelProps{Title: "面板", OnClose: func() { closed++ }}, func() {
-			ui.Text(c, "面板内容")
-		})
-	}, 400, 200)
-	if err := tt.Click("关闭"); err != nil {
-		t.Fatal(err)
-	}
-	if closed != 1 {
-		t.Fatalf("关闭回调次数=%d", closed)
-	}
-}
-
 func TestBannerTonesAndAction(t *testing.T) {
 	clicked := 0
 	var colors []ui.Color
@@ -55,17 +40,6 @@ func TestBannerTonesAndAction(t *testing.T) {
 	}
 	if clicked != 1 {
 		t.Fatalf("操作回调次数=%d", clicked)
-	}
-}
-
-func TestSkeletonReducedMotion(t *testing.T) {
-	for _, progress := range []float32{0, 0.5, 1} {
-		if got := skeletonFill(progress, true); got != 0.35 {
-			t.Errorf("进度 %v 的静态填充=%v", progress, got)
-		}
-	}
-	if skeletonFill(0, false) == skeletonFill(1, false) {
-		t.Error("启用动效时填充未随进度变化")
 	}
 }
 

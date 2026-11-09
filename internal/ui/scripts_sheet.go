@@ -258,28 +258,8 @@ func renderScriptsSheet(c *ui.Context, s *chatState) {
 	winWidth, winHeight := c.Size()
 	width, height := modalResizeSize(modalDragScriptsSheet, 620, max(scriptsSheetMinHeight, winHeight-scriptsSheetChromeHeight), 360, 240, winWidth, winHeight)
 	note := scriptsSheetValidation(rows)
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center()
-		_ = ui.Box(c.Key("scripts-sheet-backdrop")).Fill().Background(ui.Transparent).OnClick(func() {
-			open = false
-		})
-		if !open {
-			return
-		}
-		panel.Key("scripts-sheet").Label("scripts-sheet").Padding(0).Gap(0)
-		modalDragPanel(c, modalDragScriptsSheet, panel)
-		sheetCard := ui.Column(c.Key("scripts-sheet-card")).
-			Label("scripts-sheet-card").
-			Width(width).
-			Height(height).
-			Padding(Space6).
-			Radius(kanbanModalRadius).
-			Background(ThemeWindowBg(c)).
-			BorderWidth(Hairline).
-			BorderColor(ThemeBorder(c))
-		applyElevation(c, sheetCard, ElevDialog).
-			Gap(Space4).
-			Children(func() {
+	Sheet(c, SheetProps{Key: modalDragScriptsSheet, PanelKey: "scripts-sheet", PanelLabel: "scripts-sheet", CardKey: "scripts-sheet-card", Label: "scripts-sheet-card", Open: &open, Width: width, Height: height}, func() {
+		ui.Column(c).FillWidth().Grow(1).Padding(Space6).Gap(Space4).Children(func() {
 				// 标题行同时是弹窗的拖拽把手。
 				modalDragHandle(c, modalDragScriptsSheet, ui.Row(c.Key("scripts-sheet-header")).
 					FillWidth().
@@ -365,8 +345,8 @@ func renderScriptsSheet(c *ui.Context, s *chatState) {
 							Variant: ButtonPrimary,
 						})
 					})
-				modalResizeGrips(c, modalDragScriptsSheet, width, height)
-			})
+		})
+		modalResizeGrips(c, modalDragScriptsSheet, width, height)
 	})
 
 	if !open {

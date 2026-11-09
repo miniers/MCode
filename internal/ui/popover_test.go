@@ -88,3 +88,69 @@ func TestPopoverRiseDirectionFollowsPlacement(t *testing.T) {
 		})
 	}
 }
+
+func TestAnchoredPopoverPlacementAndWidth(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		align PopoverAlign
+		width, minWidth, maxWidth float32
+	}{
+		{"下方左对齐与最小宽度", BelowStart, 40, 100, 180},
+		{"下方右对齐与最大宽度", BelowEnd, 240, 100, 180},
+		{"上方左对齐", AboveStart, 120, 100, 180},
+		{"上方右对齐", AboveEnd, 120, 100, 180},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			open := true
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Box(c).Fill().Children(func() {
+					anchor := ui.Box(c).Label("锚点").Absolute().Left(200).Top(150).Width(80).Height(24)
+					anchoredPopover(c, anchoredPopoverProps{Anchor: anchor, Open: &open, Align: tc.align, MinWidth: tc.minWidth, MaxWidth: tc.maxWidth, MaxHeight: 90}, func(panel ui.Element) {
+						panel.Label("浮层面板")
+						ui.Box(c).Width(tc.width).Height(60)
+					})
+				})
+			}, 600, 400)
+			tt.Frame()
+			tt.Advance(motionPop + 60*time.Millisecond)
+			anchor, ok := tt.Find("锚点")
+			if !ok { t.Fatal("未找到锚点") }
+			panel, ok := tt.Find("浮层面板")
+			if !ok { t.Fatal("未找到浮层面板") }
+			if panel.W < tc.minWidth || panel.W > tc.maxWidth || panel.H > 90 {
+				t.Fatalf("浮层尺寸超出限制：%+v", panel)
+			}
+			if tc.align == AboveStart || tc.align == AboveEnd {
+				if panel.Y+panel.H > anchor.Y { t.Fatalf("浮层不在锚点上方：%+v %+v", anchor, panel) }
+			} else if panel.Y < anchor.Y+anchor.H {
+				t.Fatalf("浮层不在锚点下方：%+v %+v", anchor, panel)
+			}
+			if tc.align == BelowEnd || tc.align == AboveEnd {
+				if math.Abs(float64(panel.X+panel.W-anchor.X-anchor.W)) > 1 { t.Fatalf("浮层未右对齐：%+v %+v", anchor, panel) }
+			} else if math.Abs(float64(panel.X-anchor.X)) > 1 {
+				t.Fatalf("浮层未左对齐：%+v %+v", anchor, panel)
+			}
+		})
+	}
+}
+
+func TestAnchoredPopoverDismiss(t *testing.T) {
+	for _, escape := range []bool{false, true} {
+		t.Run(map[bool]string{false: "外部点击", true: "Escape"}[escape], func(t *testing.T) {
+			open, dismissed, rendered := true, 0, 0
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Box(c).Fill().Children(func() {
+					anchor := ui.Box(c).Absolute().Left(20).Top(20).Width(80).Height(24)
+					appPopover(c, anchor, &open, func() { dismissed++ }, func() { rendered++; ui.Text(c, "浮层内容") })
+				})
+			}, 400, 300)
+			tt.Frame()
+			if escape { tt.Key(0, ui.KeyEscape) } else { tt.ClickAt(350, 250) }
+			tt.Frame()
+			if open || dismissed != 1 { t.Fatalf("open=%v，关闭回调=%d", open, dismissed) }
+			before := rendered
+			tt.Frame()
+			if rendered != before || dismissed != 1 { t.Fatalf("关闭后仍渲染或重复回调：渲染=%d，回调=%d", rendered-before, dismissed) }
+		})
+	}
+}

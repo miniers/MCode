@@ -6,6 +6,28 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func testDraggableSheet(c *ui.Context, key string, open *bool, title string, width float32, draggable, resizable bool, body func()) {
+	if open == nil || !*open {
+		if draggable || resizable { modalDragReset(key) }
+		return
+	}
+	w, h := c.Size()
+	height := float32(0)
+	if resizable {
+		if width <= 0 { width = 560 }
+		width, height = modalResizeSize(key, width, 420, 360, 240, w, h)
+	}
+	Sheet(c, SheetProps{Key: key, Label: "dialog-card-" + key, Open: open, Width: width, Height: height}, func() {
+		ui.Column(c).FillWidth().Grow(1).Padding(Space6).Gap(Space4).Children(func() {
+			titleRow := ui.Row(c).FillWidth()
+			if draggable { titleRow = modalDragHandle(c, key, titleRow) }
+			titleRow.Children(func() { ui.Text(c, title).FontSize(TypeTitle).FontWeight(weightFor(c, 600)).TextColor(ThemePrimaryText(c)) })
+			if body != nil { body() }
+		})
+		if resizable { modalResizeGrips(c, key, width, height) }
+	})
+}
+
 func TestModalResize_Integration(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -25,7 +47,7 @@ func TestModalResize_Integration(t *testing.T) {
 			t.Cleanup(func() { modalDragReset(key) })
 			open := true
 			tt := ui.NewTester(func(c *ui.Context) {
-				Dialog(c, DialogProps{Key: key, Open: &open, Title: "标题", Width: 500, Draggable: true, Resizable: true}, nil)
+				testDraggableSheet(c, key, &open, "标题", 500, true, true, nil)
 			}, 1200, 1000)
 			tt.Frame()
 			before, ok := tt.Find("dialog-card-" + key)
@@ -50,7 +72,7 @@ func TestModalResize_Integration(t *testing.T) {
 		t.Cleanup(func() { modalDragReset(first); modalDragReset(second) })
 		key, open := first, true
 		tt := ui.NewTester(func(c *ui.Context) {
-			Dialog(c, DialogProps{Key: key, Open: &open, Title: "标题", Width: 500, Draggable: true, Resizable: true}, nil)
+			testDraggableSheet(c, key, &open, "标题", 500, true, true, nil)
 		}, 1200, 1000)
 		tt.Frame()
 		initial, ok := tt.Find("dialog-card-" + key)

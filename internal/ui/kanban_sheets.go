@@ -271,27 +271,8 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragKanbanNewTask, 540, 480, min(360, max(0, winW-modalDragPanelInset)), min(240, max(0, winH-modalDragPanelInset)), winW, winH)
 	open := true
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center()
-		_ = ui.Box(c.Key("kanban-new-task-backdrop")).Fill().Background(ui.Transparent).OnClick(func() {
-			open = false
-		})
-		if !open {
-			return
-		}
-		panel.Key("kanban-new-task-sheet").Label("kanban-new-task-sheet").Padding(0).Gap(0)
-		modalDragPanel(c, modalDragKanbanNewTask, panel)
-		card := ui.Column(c.Key("kanban-new-task-card")).
-			Label("kanban-new-task-card").
-			Width(width).
-			Height(height).
-			Padding(Space6).
-			Radius(kanbanModalRadius).
-			Background(ThemeWindowBg(c)).
-			BorderWidth(1).
-			BorderColor(ThemeBorder(c)).
-			Gap(Space5)
-		applyElevation(c, card, ElevDialog).Children(func() {
+	Sheet(c, SheetProps{Key: modalDragKanbanNewTask, PanelKey: "kanban-new-task-sheet", PanelLabel: "kanban-new-task-sheet", CardKey: "kanban-new-task-card", Label: "kanban-new-task-card", Open: &open, Width: width, Height: height}, func() {
+		ui.Column(c).FillWidth().Grow(1).Padding(Space6).Gap(Space5).Children(func() {
 			// 标题行：标题 + 右上角取消，整行兼作弹窗的拖拽把手
 			modalDragHandle(c, modalDragKanbanNewTask, ui.Row(c.Key("kanban-new-task-header")).
 				FillWidth().
@@ -362,8 +343,8 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 						},
 					})
 				})
-			modalResizeGrips(c, modalDragKanbanNewTask, width, height)
 		})
+		modalResizeGrips(c, modalDragKanbanNewTask, width, height)
 	})
 
 	if !open {
@@ -435,27 +416,8 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 	width, height := modalResizeSize(modalDragKanbanNewGoal, 560, 520, min(360, max(0, winW-modalDragPanelInset)), min(240, max(0, winH-modalDragPanelInset)), winW, winH)
 
 	open := true
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center()
-		_ = ui.Box(c.Key("kanban-new-goal-backdrop")).Fill().Background(ui.Transparent).OnClick(func() {
-			open = false
-		})
-		if !open {
-			return
-		}
-		panel.Key("kanban-new-goal-sheet").Label("kanban-new-goal-sheet").Padding(0).Gap(0)
-		modalDragPanel(c, modalDragKanbanNewGoal, panel)
-		card := ui.Column(c.Key("kanban-new-goal-card")).
-			Label("kanban-new-goal-card").
-			Width(width).
-			Height(height).
-			Padding(Space7).
-			Radius(kanbanModalRadius).
-			Background(ThemeWindowBg(c)).
-			BorderWidth(1).
-			BorderColor(ThemeBorder(c)).
-			Gap(Space5)
-		applyElevation(c, card, ElevDialog).Children(func() {
+	Sheet(c, SheetProps{Key: modalDragKanbanNewGoal, PanelKey: "kanban-new-goal-sheet", PanelLabel: "kanban-new-goal-sheet", CardKey: "kanban-new-goal-card", Label: "kanban-new-goal-card", Open: &open, Width: width, Height: height}, func() {
+		ui.Column(c).FillWidth().Grow(1).Padding(Space7).Gap(Space5).Children(func() {
 			// 头部：标题、说明与关闭，整行兼作弹窗的拖拽把手
 			modalDragHandle(c, modalDragKanbanNewGoal, ui.Row(c.Key("kanban-new-goal-header")).
 				FillWidth().
@@ -552,8 +514,8 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 						},
 					})
 				})
-			modalResizeGrips(c, modalDragKanbanNewGoal, width, height)
 		})
+		modalResizeGrips(c, modalDragKanbanNewGoal, width, height)
 	})
 
 	if !open {

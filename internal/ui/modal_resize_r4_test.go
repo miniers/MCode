@@ -49,7 +49,7 @@ func TestDialog_ResizeOptIn(t *testing.T) {
 			t.Cleanup(func() { modalDragReset(key) })
 			open := true
 			tt := ui.NewTester(func(c *ui.Context) {
-				Dialog(c, DialogProps{Key: key, Open: &open, Title: "测试", Width: 500, Resizable: resizable}, func() { ui.Text(c, "正文") })
+				testDraggableSheet(c, key, &open, "测试", 500, false, resizable, func() { ui.Text(c, "正文") })
 			}, 1200, 1000)
 			tt.Frame()
 			initial, ok := tt.Find("dialog-card-" + key)

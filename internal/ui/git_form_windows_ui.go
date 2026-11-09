@@ -531,43 +531,39 @@ func (f *gitForm) viewCommit(c *ui.Context, st GitState, busy, generating, queue
 	}
 
 	// 底部一行：左边 AI 帮我写与提交后推送，右边取消与提交。
-	ui.Row(c.Key("git-form-commit-actions")).
-		FillWidth().
-		Gap(Space3).
-		AlignItems(ui.Center).
-		Children(func() {
-			// 生成中也允许再点一次：会先取消上一次请求再重新生成；
-			// 其它操作（提交、推送）占用时仍禁用。
-			f.commitAIAction(c, (busy && !generating) || st.Changes == 0 || !isGenerateCommitMessageEnabled(f.s), generating)
-			ui.Checkbox(c.Key("git-form-commit-push-check"), &f.pushAfter, "提交后推送到远程仓库")
-			Button(c, ButtonOpts{
-				Key:     "git-form-stash-list",
-				Text:    "贮藏列表…",
-				Variant: ButtonSecondary,
-				OnClick: f.openStashDialog,
-			})
-			ui.Spacer(c)
-			Button(c, ButtonOpts{
-				Key:     "git-form-cancel",
-				Text:    "取消",
-				Variant: ButtonSecondary,
-				OnClick: f.close,
-			})
-			if queuedCommit {
-				// 已排队等 AI 写完提交信息再自动提交：菊花表示仍在等待，按钮文字显示「等待提交…」。
-				ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-			}
-			Button(c, ButtonOpts{
-				Key:      "git-form-commit-submit",
-				Text:     submitText,
-				Label:    submitLabel,
-				Variant:  ButtonPrimary,
-				Disabled: submitDisabled,
-				OnClick: func() {
-					f.tapSubmitCommit(generating)
-				},
-			})
+	FormActions(c, "git-form-commit-actions", func() {
+		// 生成中也允许再点一次：会先取消上一次请求再重新生成；
+		// 其它操作（提交、推送）占用时仍禁用。
+		f.commitAIAction(c, (busy && !generating) || st.Changes == 0 || !isGenerateCommitMessageEnabled(f.s), generating)
+		ui.Checkbox(c.Key("git-form-commit-push-check"), &f.pushAfter, "提交后推送到远程仓库")
+		Button(c, ButtonOpts{
+			Key:     "git-form-stash-list",
+			Text:    "贮藏列表…",
+			Variant: ButtonSecondary,
+			OnClick: f.openStashDialog,
 		})
+		ui.Spacer(c)
+		Button(c, ButtonOpts{
+			Key:     "git-form-cancel",
+			Text:    "取消",
+			Variant: ButtonSecondary,
+			OnClick: f.close,
+		})
+		if queuedCommit {
+			// 已排队等 AI 写完提交信息再自动提交：菊花表示仍在等待，按钮文字显示「等待提交…」。
+			ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+		}
+		Button(c, ButtonOpts{
+			Key:      "git-form-commit-submit",
+			Text:     submitText,
+			Label:    submitLabel,
+			Variant:  ButtonPrimary,
+			Disabled: submitDisabled,
+			OnClick: func() {
+				f.tapSubmitCommit(generating)
+			},
+		})
+	})
 }
 
 // renderCommitFileRow 渲染一行可勾选的改动文件：勾选框后跟状态字符与路径。
@@ -647,33 +643,22 @@ func (f *gitForm) viewNewBranch(c *ui.Context, busy bool, errMsg string) {
 		FontSize(TypeCaption).
 		TextColor(ThemeSecondaryText(c))
 
-	in := ui.TextInput(c.Key("git-form-new-branch-input"), &name).
-		Label("新分支名").
-		Placeholder("新分支名...").
-		FontSize(TypeBody).
-		TextColor(ThemePrimaryText(c)).
-		Background(ThemeHover(c).Alpha(0.25)).
-		BorderColor(ThemeBorder(c)).
-		BorderWidth(Hairline).
-		Radius(RadiusSM).
-		Padding(Space2, Space3).
-		FillWidth().
-		AutoFocus().
-		OnChange(func() { f.branchName = name })
-	if in.Changed() {
-		f.branchName = name
-	}
-	in.OnTextKey(func(k ui.TextKey) bool {
-		switch {
-		case k.Key == ui.KeyEscape:
-			f.close()
-			return true
-		case k.Key == ui.KeyEnter && k.Mods == 0:
-			f.branchName = k.Text()
-			f.submitNewBranch()
-			return true
-		}
-		return false
+	TextField(c, TextFieldProps{
+		Key: "git-form-new-branch-input", Value: &name, Label: "新分支名",
+		Placeholder: "新分支名...", FillWidth: true, AutoFocus: true,
+		OnChange: func(value string) { f.branchName = value },
+		OnKeyDown: func(k ui.TextKey) bool {
+			switch {
+			case k.Key == ui.KeyEscape:
+				f.close()
+				return true
+			case k.Key == ui.KeyEnter && k.Mods == 0:
+				f.branchName = k.Text()
+				f.submitNewBranch()
+				return true
+			}
+			return false
+		},
 	})
 
 	if errMsg != "" {
@@ -687,28 +672,17 @@ func (f *gitForm) viewNewBranch(c *ui.Context, busy bool, errMsg string) {
 func (f *gitForm) viewCheckout(c *ui.Context, st GitState, busy bool, errMsg string, height float32) {
 	query := f.query
 
-	in := ui.TextInput(c.Key("git-form-branch-search"), &query).
-		Label("搜索分支").
-		Placeholder("搜索分支...").
-		FontSize(TypeFootnote).
-		TextColor(ThemePrimaryText(c)).
-		Background(ThemeHover(c).Alpha(0.25)).
-		BorderColor(ThemeBorder(c)).
-		BorderWidth(Hairline).
-		Radius(RadiusSM).
-		Padding(Space1, Space3).
-		FillWidth().
-		AutoFocus().
-		OnChange(func() { f.query = query })
-	if in.Changed() {
-		f.query = query
-	}
-	in.OnTextKey(func(k ui.TextKey) bool {
-		if k.Key == ui.KeyEscape {
-			f.close()
-			return true
-		}
-		return false
+	SearchField(c, TextFieldProps{
+		Key: "git-form-branch-search", Value: &query, Label: "搜索分支",
+		Placeholder: "搜索分支...", FillWidth: true, AutoFocus: true,
+		OnChange: func(value string) { f.query = value },
+		OnKeyDown: func(k ui.TextKey) bool {
+			if k.Key == ui.KeyEscape {
+				f.close()
+				return true
+			}
+			return false
+		},
 	})
 
 	needle := strings.ToLower(strings.TrimSpace(query))
@@ -748,22 +722,17 @@ func (f *gitForm) viewCheckout(c *ui.Context, st GitState, busy bool, errMsg str
 		renderGitError(c, "git-form-branch-error", errMsg)
 	}
 
-	ui.Row(c.Key("git-form-actions")).
-		FillWidth().
-		Gap(Space3).
-		AlignItems(ui.Center).
-		Justify(ui.End).
-		Children(func() {
-			ui.Text(c, "Esc 取消").
-				FontSize(TypeCaption).
-				TextColor(ThemeSecondaryText(c))
-			Button(c, ButtonOpts{
-				Key:     "git-form-cancel",
-				Text:    "取消",
-				Variant: ButtonSecondary,
-				OnClick: f.close,
-			})
+	FormActions(c, "git-form-actions", func() {
+		ui.Text(c, "Esc 取消").
+			FontSize(TypeCaption).
+			TextColor(ThemeSecondaryText(c))
+		Button(c, ButtonOpts{
+			Key:     "git-form-cancel",
+			Text:    "取消",
+			Variant: ButtonSecondary,
+			OnClick: f.close,
 		})
+	})
 }
 
 // viewMerge 渲染合并窗口：先选合并方向，再搜索并选中分支，最后点主按钮执行。
@@ -795,28 +764,17 @@ func (f *gitForm) viewMerge(c *ui.Context, st GitState, busy bool, errMsg string
 		FontSize(TypeCaption).
 		TextColor(ThemeSecondaryText(c))
 
-	in := ui.TextInput(c.Key("git-form-merge-search"), &query).
-		Label("搜索分支").
-		Placeholder("搜索分支...").
-		FontSize(TypeFootnote).
-		TextColor(ThemePrimaryText(c)).
-		Background(ThemeHover(c).Alpha(0.25)).
-		BorderColor(ThemeBorder(c)).
-		BorderWidth(Hairline).
-		Radius(RadiusSM).
-		Padding(Space1, Space3).
-		FillWidth().
-		AutoFocus().
-		OnChange(func() { f.query = query })
-	if in.Changed() {
-		f.query = query
-	}
-	in.OnTextKey(func(k ui.TextKey) bool {
-		if k.Key == ui.KeyEscape {
-			f.close()
-			return true
-		}
-		return false
+	SearchField(c, TextFieldProps{
+		Key: "git-form-merge-search", Value: &query, Label: "搜索分支",
+		Placeholder: "搜索分支...", FillWidth: true, AutoFocus: true,
+		OnChange: func(value string) { f.query = value },
+		OnKeyDown: func(k ui.TextKey) bool {
+			if k.Key == ui.KeyEscape {
+				f.close()
+				return true
+			}
+			return false
+		},
 	})
 
 	needle := strings.ToLower(strings.TrimSpace(query))
@@ -876,28 +834,17 @@ func (f *gitForm) viewPullRequest(c *ui.Context, st GitState, busy bool, errMsg 
 		FontSize(TypeCaption).
 		TextColor(ThemeSecondaryText(c))
 
-	titleIn := ui.TextInput(c.Key("git-form-pr-title-input"), &title).
-		Label("标题").
-		Placeholder("合并请求标题").
-		FontSize(TypeBody).
-		TextColor(ThemePrimaryText(c)).
-		Background(ThemeHover(c).Alpha(0.25)).
-		BorderColor(ThemeBorder(c)).
-		BorderWidth(Hairline).
-		Radius(RadiusSM).
-		Padding(Space2, Space3).
-		FillWidth().
-		AutoFocus().
-		OnChange(func() { f.prTitle = title })
-	if titleIn.Changed() {
-		f.prTitle = title
-	}
-	titleIn.OnTextKey(func(k ui.TextKey) bool {
-		if k.Key == ui.KeyEscape {
-			f.close()
-			return true
-		}
-		return false
+	TextField(c, TextFieldProps{
+		Key: "git-form-pr-title-input", Value: &title, Label: "标题",
+		Placeholder: "合并请求标题", FillWidth: true, AutoFocus: true,
+		OnChange: func(value string) { f.prTitle = value },
+		OnKeyDown: func(k ui.TextKey) bool {
+			if k.Key == ui.KeyEscape {
+				f.close()
+				return true
+			}
+			return false
+		},
 	})
 
 	bodyArea := ui.TextArea(c.Key("git-form-pr-body-input"), &body).
@@ -942,35 +889,30 @@ func (f *gitForm) viewPullRequest(c *ui.Context, st GitState, busy bool, errMsg 
 
 // renderGitFormActions 渲染窗口底部的取消与主操作按钮，进行中显示菊花与提示。
 func renderGitFormActions(c *ui.Context, busy bool, primaryLabel string, primaryDisabled bool, primaryKey string, primary, onCancel func()) {
-	ui.Row(c.Key("git-form-actions")).
-		FillWidth().
-		Gap(Space3).
-		AlignItems(ui.Center).
-		Justify(ui.End).
-		Children(func() {
-			if busy {
-				ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-				ui.Text(c, "处理中…").
-					FontSize(TypeCaption).
-					TextColor(ThemeSecondaryText(c))
-			}
-			ui.Text(c, "Esc 取消").
+	FormActions(c, "git-form-actions", func() {
+		if busy {
+			ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+			ui.Text(c, "处理中…").
 				FontSize(TypeCaption).
 				TextColor(ThemeSecondaryText(c))
-			Button(c, ButtonOpts{
-				Key:     "git-form-cancel",
-				Text:    "取消",
-				Variant: ButtonSecondary,
-				OnClick: onCancel,
-			})
-			Button(c, ButtonOpts{
-				Key:      primaryKey,
-				Text:     primaryLabel,
-				Variant:  ButtonPrimary,
-				Disabled: busy || primaryDisabled,
-				OnClick:  primary,
-			})
+		}
+		ui.Text(c, "Esc 取消").
+			FontSize(TypeCaption).
+			TextColor(ThemeSecondaryText(c))
+		Button(c, ButtonOpts{
+			Key:     "git-form-cancel",
+			Text:    "取消",
+			Variant: ButtonSecondary,
+			OnClick: onCancel,
 		})
+		Button(c, ButtonOpts{
+			Key:      primaryKey,
+			Text:     primaryLabel,
+			Variant:  ButtonPrimary,
+			Disabled: busy || primaryDisabled,
+			OnClick:  primary,
+		})
+	})
 }
 
 // run 在后台执行窗口内的操作：成功后刷新 Git 状态并关闭窗口，失败时把错误留在窗口里。

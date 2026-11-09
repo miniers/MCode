@@ -1397,7 +1397,7 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 			tElem.TextColor(ThemeSecondaryText(c))
 		}
 		if connected {
-			ui.Box(c.Key("settings-nav-magpie-dot")).Size(Space2, Space2).Radius(Space2 / 2).Background(ThemeSuccess(c)).Label("已连接").Shrink(0)
+			ui.Box(c.Key("settings-nav-magpie-dot")).Size(Space2, Space2).Radius(RadiusPill).Background(ThemeSuccess(c)).Label("已连接").Shrink(0)
 		}
 		if item.id == "about" {
 			available := updateAvailable(archiveClient(st))

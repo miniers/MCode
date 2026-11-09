@@ -24,53 +24,6 @@ func SectionCard(c *ui.Context, key any, title string, body func()) ui.Element {
 	})
 }
 
-// PanelProps 定义工作区面板的标题和操作。
-type PanelProps struct {
-	Key      any
-	Title    string
-	Subtitle string
-	Toolbar  func()
-	Footer   func()
-	Scroll   bool
-	OnClose  func()
-}
-
-// WorkspacePanel 渲染带标题栏和可选底栏的工作区。
-func WorkspacePanel(c *ui.Context, p PanelProps, body func()) ui.Element {
-	ctx := c
-	if p.Key != nil {
-		ctx = c.Key(p.Key)
-	}
-	return ui.Column(ctx).Fill().Background(ThemeSurfaceMain(c)).Children(func() {
-		ui.Row(c).FillWidth().MinHeight(ControlLG+Space3).Padding(0, Space4).AlignItems(ui.Center).Gap(Space3).Children(func() {
-			ui.Column(c).Grow(1).Children(func() {
-				ui.Text(c, p.Title).FontSize(TypeTitle).TextColor(ThemePrimaryText(c))
-				if p.Subtitle != "" {
-					ui.Text(c, p.Subtitle).FontSize(TypeFootnote).TextColor(ThemeTertiaryText(c))
-				}
-			})
-			if p.Toolbar != nil {
-				p.Toolbar()
-			}
-			if p.OnClose != nil {
-				IconButton(c, IconButtonProps{Icon: IconX(), Label: "关闭", Variant: ButtonGhost, OnClick: p.OnClose})
-			}
-		})
-		ui.Box(c).FillWidth().Height(Hairline).Background(ThemeHairline(c))
-		content := ui.Column(c).FillWidth().Grow(1).Padding(Space5)
-		if p.Scroll {
-			content = ui.Scroll(c).FillWidth().Grow(1).Padding(Space5)
-		}
-		if body != nil {
-			content.Children(body)
-		}
-		if p.Footer != nil {
-			ui.Box(c).FillWidth().Height(Hairline).Background(ThemeHairline(c))
-			ui.Row(c).FillWidth().Padding(Space4).Children(p.Footer)
-		}
-	})
-}
-
 // BannerProps 定义提示条内容和可选操作。
 type BannerProps struct {
 	Key      any
@@ -118,52 +71,6 @@ func Banner(c *ui.Context, p BannerProps) ui.Element {
 			IconButton(c, IconButtonProps{Icon: IconX(), Label: "关闭", Variant: ButtonGhost, Size: ControlSM, OnClick: p.OnClose})
 		}
 	})
-}
-
-func skeletonFill(progress float32, reduced bool) float32 {
-	if reduced {
-		return 0.35
-	}
-	if progress < 0 {
-		progress = 0
-	}
-	if progress > 1 {
-		progress = 1
-	}
-	return 0.35 * (0.55 + 0.45*progress)
-}
-
-func skeleton(c *ui.Context, key any, width, height float32) ui.Element {
-	ctx := c
-	if key != nil {
-		ctx = c.Key(key)
-	}
-	el := ui.Box(ctx).Height(height).Radius(RadiusMD)
-	if width > 0 {
-		el = el.Width(width)
-	} else {
-		el = el.FillWidth()
-	}
-	period := animateDuration(c, motionSweep)
-	progress := float32(0)
-	if period > 0 {
-		progress = el.Keyframes("skeleton-pulse", []ui.Keyframe{
-			{At: 0, Value: 0, Ease: EaseSnap},
-			{At: period, Value: 1, Ease: EaseSnap},
-		}, ui.KeyframeOptions{Repeat: ui.RepeatForever, Alternate: true})
-	}
-	fill := ThemeOverlayHover(c).Alpha(skeletonFill(progress, period == 0))
-	return el.Background(buttonOverlay(ThemeSurfaceCard(c), fill))
-}
-
-// SkeletonLine 渲染指定宽高的骨架行。
-func SkeletonLine(c *ui.Context, key any, width, height float32) ui.Element {
-	return skeleton(c, key, width, height)
-}
-
-// SkeletonBlock 渲染占满宽度的骨架块。
-func SkeletonBlock(c *ui.Context, key any, height float32) ui.Element {
-	return skeleton(c, key, 0, height)
 }
 
 func tooltipText(text, shortcut string) string {

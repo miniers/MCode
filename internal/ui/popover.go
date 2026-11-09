@@ -53,39 +53,14 @@ func popoverRise(panel, anchor ui.Element) {
 // 注意：按钮自己的 OnClick 里若把开合状态取反，点按钮本身时会与 PopoverBase 写入的
 // 关闭相互抵消（先关后开），需要 onDismiss 或“打开时不取反”的判断来避免。
 func appPopover(c *ui.Context, anchor ui.Element, open *bool, onDismiss func(), fn func()) ui.Element {
-	if !*open {
-		return ui.Element{}
-	}
-	panel := ui.PopoverBase(c, anchor, open, func(panel ui.Element) {
-		panel.Margin(Space1, 0, 0, 0)
-		popoverRise(panel, anchor)
-		fn()
-	})
-	// mygo 先执行内容构建回调、之后才写 panel.dismissed（ui/base.go:457 → :462），
-	// 在回调里读 Dismissed() 恒为 false，所以只能在 PopoverBase 返回后再判断。
-	if onDismiss != nil && panel.Dismissed() {
-		onDismiss()
-	}
-	return panel
+	return anchoredPopover(c, anchoredPopoverProps{Anchor: anchor, Open: open, OnDismiss: onDismiss}, func(_ ui.Element) { fn() })
 }
 
 // appPopoverAbove 是 appPopover 的向上展开版本：面板的左下角贴在锚点左上角，
 // 用于输入框上方的胶囊，避免浮层遮住输入框；空间不够时由框架翻转或夹紧位置。
 // 除落点外与 appPopover 完全一致，外观仍由 fn 内容中的卡片承担。
 func appPopoverAbove(c *ui.Context, anchor ui.Element, open *bool, onDismiss func(), fn func()) ui.Element {
-	if !*open {
-		return ui.Element{}
-	}
-	panel := ui.PopoverBase(c, anchor, open, func(panel ui.Element) {
-		panel.AttachTo(anchor, ui.AnchorTopLeft, ui.AnchorBottomLeft).Margin(0, 0, Space1, 0)
-		popoverRise(panel, anchor)
-		fn()
-	})
-	// 同 appPopover：dismissed 在内容构建之后才写入，只能在返回后判断。
-	if onDismiss != nil && panel.Dismissed() {
-		onDismiss()
-	}
-	return panel
+	return anchoredPopover(c, anchoredPopoverProps{Anchor: anchor, Open: open, Align: AboveStart, OnDismiss: onDismiss}, func(_ ui.Element) { fn() })
 }
 
 // anchoredMenu 在 Overlay 里渲染锚定在 trigger 下方的菜单面板：与触发按钮左对齐，
@@ -95,31 +70,14 @@ func appPopoverAbove(c *ui.Context, anchor ui.Element, open *bool, onDismiss fun
 // 面板就是 PopoverBase 的面板本身：尺寸约束与锚点直接作用在可见卡片的容器上，
 // 点外部或 Esc 关闭时写回 open 并调用 onDismiss（可为 nil）。
 func anchoredMenu(c *ui.Context, key string, trigger ui.Element, open *bool, onDismiss func(), minWidth, maxWidth, maxHeight float32, children func()) {
-	if !*open {
-		return
-	}
-	panel := ui.PopoverBase(c.Key(key), trigger, open, func(panel ui.Element) {
-		panel.Label(key).
-			AttachTo(trigger, ui.AnchorBottomLeft, ui.AnchorTopLeft).
-			Margin(Space1, 0, 0, 0).
-			MinWidth(minWidth).
-			MaxWidth(maxWidth).
-			MaxHeight(maxHeight)
-		popoverRise(panel, trigger)
+	anchoredPopover(c, anchoredPopoverProps{Key: key, Anchor: trigger, Open: open, MinWidth: minWidth, MaxWidth: maxWidth, MaxHeight: maxHeight, OnDismiss: onDismiss}, func(panel ui.Element) {
+		panel.Label(key)
 		children()
 	})
-	// 同上：dismissed 在内容构建之后才写入，只能在返回后判断。
-	if onDismiss != nil && panel.Dismissed() {
-		onDismiss()
-	}
 }
 
 // popoverCard 给直接由菜单项拼成的弹出层内容套上唯一的一层卡片外观
 // （圆角、表面底色、边框与阴影），取代原先 ui.Popover 面板自带的样式。
 func popoverCard(c *ui.Context, column ui.Element) ui.Element {
-	card := column.
-		Radius(RadiusLG).
-		Background(ThemeSurface(c)).
-		Border(Hairline, ThemeBorder(c))
-	return applyElevation(c, card, ElevPopover)
+	return popoverCardStyle(c, column)
 }

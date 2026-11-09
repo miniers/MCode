@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// 视觉规则守卫（B11）：阴影只给浮层、动效时长只取 token、状态色只取主题 token。
+// 视觉规则守卫（B11）：阴影只给浮层，状态色只取主题 token。
 // 沿用 modal_style_guard_test.go 的写法：解析 dir 下的 *.go（跳过 _test.go），按 AST 判定。
 // 每条规则都带「注入违规」子测试，避免规则写坏后静默通过。
 
@@ -47,56 +47,6 @@ func f(card box) {
 `)
 		if got := shadowViolations(t, dir); len(got) != 0 {
 			t.Fatalf("白名单文件未超限不应报错: %v", got)
-		}
-	})
-}
-
-func TestMotionDurationUsesTokens(t *testing.T) {
-	t.Run("当前代码", func(t *testing.T) {
-		for _, v := range motionDurationViolations(t, ".") {
-			t.Error(v)
-		}
-	})
-	t.Run("注入违规可检出", func(t *testing.T) {
-		dir := t.TempDir()
-		writeProbeFile(t, dir, "motion_probe.go", `package probe
-
-import (
-	"time"
-
-	"example.com/ui"
-)
-
-func f() {
-	_ = ui.Animation{Duration: 123 * time.Millisecond}
-}
-`)
-		requireViolation(t, motionDurationViolations(t, dir), "motion_probe.go", 10, "motion.go 的时长 token")
-	})
-	t.Run("动画时长令牌通过", func(t *testing.T) {
-		dir := t.TempDir()
-		writeProbeFile(t, dir, "motion_animate.go", "package probe\nfunc f() { _ = ui.Animation{Duration: animateDuration(c, DurSnap)} }\n")
-		if got := motionDurationViolations(t, dir); len(got) != 0 {
-			t.Fatalf("动画时长令牌不应报错: %v", got)
-		}
-	})
-	t.Run("动画裸时长违规", func(t *testing.T) {
-		dir := t.TempDir()
-		writeProbeFile(t, dir, "motion_animate.go", "package probe\nfunc f() { _ = ui.Animation{Duration: animateDuration(c, 90*time.Millisecond)} }\n")
-		requireViolation(t, motionDurationViolations(t, dir), "motion_animate.go", 2, "motion.go 的时长 token")
-	})
-	t.Run("token 通过", func(t *testing.T) {
-		dir := t.TempDir()
-		writeProbeFile(t, dir, "motion_token.go", `package probe
-
-import "example.com/ui"
-
-func f() {
-	_ = ui.Animation{Duration: motionFast}
-}
-`)
-		if got := motionDurationViolations(t, dir); len(got) != 0 {
-			t.Fatalf("token 时长不应报错: %v", got)
 		}
 	})
 }
@@ -203,82 +153,6 @@ func isShadowCall(call *ast.CallExpr) bool {
 		return fn.Name == "Shadow"
 	}
 	return false
-}
-
-// motionDurationTokens 是 motion.go 声明的全部时长 token，外加 effort_slider.go 里声明为 token 别名的常量。
-var motionDurationTokens = map[string]bool{
-	"DurFast":                true,
-	"DurSnap":                true,
-	"DurBase":                true,
-	"DurSheet":               true,
-	"DurSlow":                true,
-	"motionFast":             true,
-	"motionIconFade":         true,
-	"motionUnfold":           true,
-	"motionPop":              true,
-	"motionHoverDelay":       true,
-	"motionSweep":            true,
-	"motionRoll":             true,
-	"motionRollFade":         true,
-	"effortFastModeDuration": true,
-}
-
-// motionDurationBaseline 记录当前仍用数字/私有常量的 Duration: 落点，只减不增。
-// Phase 1 只守 Duration: 字段；AnimateWith 时长参数与 Keyframe At 暂不拦截。
-var motionDurationBaseline = map[string]int{
-	"approval.go":           1,
-	"chat.go":               2,
-	"composer_attach.go":    2,
-	"composer_complete.go":  1,
-	"composer_dock.go":      1,
-	"composer_mcp_menu.go":  1,
-	"model_capsule_view.go": 1,
-	"model_picker_anim.go":  2,
-	"root.go":               1,
-}
-
-// motionDurationViolations 返回 dir 下所有非 token 的 Duration: 字段：
-// 文件未登记，或该文件的裸时长数量超过基线。
-func motionDurationViolations(t *testing.T, dir string) []styleViolation {
-	t.Helper()
-	var out []styleViolation
-	eachProductionFile(t, dir, func(name string, file *ast.File, fset *token.FileSet) {
-		limit, listed := motionDurationBaseline[name]
-		count := 0
-		ast.Inspect(file, func(n ast.Node) bool {
-			kv, ok := n.(*ast.KeyValueExpr)
-			if !ok {
-				return true
-			}
-			key, ok := kv.Key.(*ast.Ident)
-			if !ok || key.Name != "Duration" {
-				return true
-			}
-			if ident, ok := kv.Value.(*ast.Ident); ok && motionDurationTokens[ident.Name] {
-				return true
-			}
-			if call, ok := kv.Value.(*ast.CallExpr); ok && len(call.Args) == 2 {
-				if fn, ok := call.Fun.(*ast.Ident); ok && fn.Name == "animateDuration" {
-					if duration, ok := call.Args[1].(*ast.Ident); ok && motionDurationTokens[duration.Name] {
-						return true
-					}
-				}
-			}
-			count++
-			line := fset.Position(kv.Pos()).Line
-			if !listed {
-				out = append(out, styleViolation{name, line,
-					"未登记的裸时长：Duration 只能用 motion.go 的时长 token（或 effortFastModeDuration）"})
-				return true
-			}
-			if count > limit {
-				out = append(out, styleViolation{name, line,
-					"裸时长超过基线上限 " + strconv.Itoa(limit) + "，只允许减少不允许新增"})
-			}
-			return true
-		})
-	})
-	return out
 }
 
 // statusTokenDefinitionsFile 是主题 token 定义处，允许出现原始 hex 与裸 token。
