@@ -379,8 +379,8 @@ func TestFrontdeskAmendInProgressTask(t *testing.T) {
 	if err != nil || len(messages) == 0 || messages[len(messages)-1].Role != "user" || messages[len(messages)-1].Text != "补充说明" {
 		t.Fatalf("补充内容未送入执行会话: %+v %v", messages, err)
 	}
-	if after.Notes != "原始要求\n补充说明" {
-		t.Skip("实现只把进行中任务的新要求送入执行会话，没有追加到 Notes")
+	if after.Notes != "原始要求" {
+		t.Fatalf("进行中任务的 Notes 不应改变: %q", after.Notes)
 	}
 }
 
