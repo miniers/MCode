@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -155,6 +156,7 @@ func TriggerAutoTitle(ctx context.Context, backend *remote.MemoryBackend, dataDi
 		if !shouldAutoGenerateTitle(th.Title, in.firstUserMsg, inherited) {
 			return
 		}
+		ctx = withThreadTextgenNotice(ctx, backend, threadID)
 		cleaned, err := generateAutoTitle(ctx, dataDir, in)
 		if err != nil || cleaned == "" {
 			return
@@ -192,7 +194,7 @@ func generateAutoTitle(ctx context.Context, dataDir string, in autoTitleInput) (
 	}
 	config.ApplyEnv(&cfg, os.LookupEnv)
 
-	// 与 Git 提交信息生成共用同一个模型配置（设置页指定模型优先，否则沿用 utility 角色模型），
+	// 与 Git 提交信息生成共用同一个模型配置，
 	// 模型未配置或调用失败时由调用方静默回退到原标题。
 	provider, model, effort := textgenModelSelection(cfg)
 
@@ -200,6 +202,7 @@ func generateAutoTitle(ctx context.Context, dataDir string, in autoTitleInput) (
 	genCtx, cancel := context.WithTimeout(ctx, 65*time.Second)
 	defer cancel()
 
+	genCtx = withTextgenGlobalSelection(genCtx, cfg)
 	out, err := autoTitleGenerateText(genCtx, cfg, config.NewSecretStore("mcode"), provider, model, effort, prompt)
 	if err != nil {
 		return "", err
@@ -224,6 +227,7 @@ func RegenerateTitle(ctx context.Context, backend *remote.MemoryBackend, dataDir
 	if err != nil {
 		return "", err
 	}
+	ctx = withThreadTextgenNotice(ctx, backend, threadID)
 	title, err := generateAutoTitle(ctx, dataDir, collectAutoTitleInput(hist, ""))
 	if err != nil {
 		return "", err
@@ -235,6 +239,12 @@ func RegenerateTitle(ctx context.Context, backend *remote.MemoryBackend, dataDir
 		return "", err
 	}
 	return title, nil
+}
+
+func withThreadTextgenNotice(ctx context.Context, backend *remote.MemoryBackend, threadID string) context.Context {
+	return withTextgenFallbackNotice(ctx, func(_, to string) {
+		_ = backend.AppendNotice(threadID, fmt.Sprintf("已切换到 %s", to))
+	})
 }
 
 // HandleTurnFinished 供轮次结束钩子（如 TurnFinishedHook）调用。

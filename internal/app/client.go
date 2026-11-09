@@ -2824,10 +2824,12 @@ func (c *Client) GenerateCommitMessage(ctx context.Context, threadID string) (st
 		return "", errors.New("没有检测到未提交的代码改动")
 	}
 
-	// 与会话标题自动生成共用同一套模型选择：设置页指定模型优先，否则沿用 utility 角色模型。
+	// 与会话标题自动生成共用同一套模型选择。
 	provider, model, effort := textgenModelSelection(cfg)
 
 	prompt := textgen.CommitMessagePrompt(diffStat, diffPatch, cfg.SourceControl.CommitInstructions)
+	ctx = withThreadTextgenNotice(ctx, c.backend, threadID)
+	ctx = withTextgenGlobalSelection(ctx, cfg)
 	out, err := generateText(ctx, cfg, c.textgenSecrets(), provider, model, effort, prompt)
 	if err != nil {
 		return "", err
@@ -3540,6 +3542,7 @@ func (c *Client) CondenseMemory(projectPath, title, content, mergeWith string) (
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
+	ctx = withTextgenGlobalSelection(ctx, cfg)
 	out, err := generateText(ctx, cfg, c.textgenSecrets(), provider, model, effort, prompt)
 	if err != nil {
 		return "", "", err

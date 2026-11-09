@@ -195,6 +195,15 @@ func cliTextgenAvailable(cfg config.Config, provider string) bool {
 // effort 为推理强度，为空时交给各后端默认值。
 func generateText(ctx context.Context, cfg config.Config, secrets config.SecretStore, provider, model, effort, prompt string) (string, error) {
 	raw := strings.TrimSpace(provider)
+	var candidates []textgenCandidate
+	if textgenModelOverride(model) == "" {
+		candidates = collectTextgenCandidates(ctx, cfg, secrets)
+		global, _ := ctx.Value(textgenGlobalSelectionKey{}).(bool)
+		global = global || raw == ""
+		if candidate, ok := selectTextgenCandidate(candidates, raw, model, global); ok {
+			raw, model = candidate.source.Kind, candidate.model
+		}
+	}
 	lower := strings.ToLower(raw)
 	if lower == "" {
 		lower = "claude"
@@ -257,10 +266,16 @@ func generateText(ctx context.Context, cfg config.Config, secrets config.SecretS
 		if modelID == "" {
 			return "", fmt.Errorf("来源 %s 未配置默认模型", raw)
 		}
-		client := apisource.NewClient(source, key, modelID, apisource.ClientOptions{Effort: engineReasoningEffort(source.BaseURL)})
 		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		return streamOnce(requestCtx, client, modelID, effort, prompt)
+		ctx = requestCtx
+		if candidates == nil {
+			candidates = collectTextgenCandidates(ctx, cfg, secrets)
+		}
+		return executeTextgenFallback(ctx, textgenCandidate{source: source, model: modelID}, candidates, func(ctx context.Context, candidate textgenCandidate) (string, error) {
+			client := apisource.NewClient(candidate.source, candidate.source.APIKey(secrets), candidate.model, apisource.ClientOptions{Effort: engineReasoningEffort(candidate.source.BaseURL)})
+			return streamOnce(ctx, client, candidate.model, effort, prompt)
+		})
 	}
 
 	// 第三层：回退到自动引擎顺序，先 claude、codex，最后内置 mcode。
