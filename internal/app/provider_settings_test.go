@@ -63,26 +63,35 @@ func TestBuildMcodeHarness_Kind(t *testing.T) {
 }
 
 func TestBuildProviderHarness_PresetModelOverride(t *testing.T) {
+	dir := t.TempDir()
+	setMcodeAgentRuntime(dir, nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
 	secrets := config.NewMemorySecretStore()
 
-	cfg := config.Config{}
+	cfg := config.Defaults()
 	cfg.Providers.Presets = map[string]config.PresetProviderConfig{
 		"deepseek": {Enabled: true},
+	}
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
 	}
 	h, ok := buildProviderHarness(cfg, secrets, "deepseek", providerMCP{})
 	if !ok {
 		t.Fatalf("deepseek 预设启用时应返回 harness")
 	}
-	if models := harnessModelIDs(t, h); !reflect.DeepEqual(models, []string{"deepseek-v4-pro"}) {
+	if models := harnessModelIDs(t, h); !reflect.DeepEqual(models, []string{"deepseek-v4-pro", "deepseek-flash", "deepseek-chat", "deepseek-reasoner"}) {
 		t.Fatalf("未覆盖时模型应为预设默认值，got %v", models)
 	}
 
 	cfg.Providers.Presets["deepseek"] = config.PresetProviderConfig{Enabled: true, Model: "deepseek-custom"}
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
 	h, ok = buildProviderHarness(cfg, secrets, "deepseek", providerMCP{})
 	if !ok {
 		t.Fatalf("deepseek 预设启用时应返回 harness")
 	}
-	if models := harnessModelIDs(t, h); !reflect.DeepEqual(models, []string{"deepseek-custom"}) {
+	if models := harnessModelIDs(t, h); !reflect.DeepEqual(models, []string{"deepseek-custom", "deepseek-v4-pro", "deepseek-flash", "deepseek-chat", "deepseek-reasoner"}) {
 		t.Fatalf("预设 Model 覆盖未生效，got %v", models)
 	}
 }

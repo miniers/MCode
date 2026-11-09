@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"mcode/internal/apisource"
 	"mcode/internal/config"
@@ -293,6 +294,64 @@ func TestSourceEngineMagpieColdDefault(t *testing.T) {
 	_, model, err := resolveSourceClient("magpie", nil, config.Defaults(), secrets, "default", "")
 	if err != nil || model != "preferred" {
 		t.Fatalf("冷缓存默认模型 = %q，错误 = %v", model, err)
+	}
+}
+
+func TestAnthropicEngineRemoteCatalogWithoutKey(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	setMcodeAgentRuntime("", nil)
+	t.Cleanup(func() { remote.SetAPICatalog("anthropic", nil); setMcodeAgentRuntime("", nil) })
+	newAnthropicEngineHarness(config.Config{}, config.NewMemorySecretStore(), "", providerMCP{})
+	rows := remote.ProviderModels("anthropic")
+	want := []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"}
+	if len(rows) != len(want) {
+		t.Fatalf("Anthropic 目录 = %#v", rows)
+	}
+	for i, id := range want {
+		if rows[i].ID != id {
+			t.Fatalf("Anthropic 目录 = %#v", rows)
+		}
+	}
+}
+
+func TestSourceEngineMagpieColdDefaultFetch(t *testing.T) {
+	setMcodeAgentRuntime("", nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
+	originalTimeout := magpieDefaultModelTimeout
+	magpieDefaultModelTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { magpieDefaultModelTimeout = originalTimeout })
+	for _, tc := range []struct {
+		name      string
+		handler   http.HandlerFunc
+		wantModel string
+		wantError string
+	}{
+		{"成功", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"data":[{"id":"fetched-model"}]}`) }, "fetched-model", ""},
+		{"服务错误", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		}, "", "获取模型目录失败"},
+		{"超时", func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }, "", "获取模型目录失败"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(tc.handler)
+			defer server.Close()
+			cfg := config.Config{}
+			cfg.Providers.Custom = []config.CustomEndpointConfig{{ID: "cold", Enabled: true, Magpie: true, BaseURL: server.URL}}
+			secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("cold"): "key"})
+			start := time.Now()
+			_, model, err := resolveSourceClient("custom-cold", nil, cfg, secrets, "default", "")
+			elapsed := time.Since(start)
+			if tc.wantError == "" {
+				if err != nil || model != tc.wantModel {
+					t.Fatalf("默认模型 = %q，错误 = %v", model, err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("预期错误 %q，得到 %v", tc.wantError, err)
+			}
+			if elapsed > magpieDefaultModelTimeout+time.Second {
+				t.Fatalf("获取目录耗时过长：%v", elapsed)
+			}
+		})
 	}
 }
 

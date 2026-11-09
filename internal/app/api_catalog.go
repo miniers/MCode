@@ -12,7 +12,14 @@ import (
 
 // apiSourceCatalog 返回当前启用来源的模型目录。
 func apiSourceCatalog(cfg config.Config, secrets config.SecretStore, kind string, legacyModelIDs []string) []wire.ProviderModel {
-	for _, source := range apisource.Resolve(cfg, secrets) {
+	sources := apisource.Resolve(cfg, secrets)
+	if kind == "anthropic" && cfg.Providers.Anthropic.IsEnabled() {
+		// 目录不依赖凭据；仅在目录查询中补充占位凭据，以复用来源的静态模型表。
+		catalogSecrets := config.NewMemorySecretStore()
+		_ = catalogSecrets.Set("anthropic.apiKey", "catalog")
+		sources = apisource.Resolve(cfg, catalogSecrets)
+	}
+	for _, source := range sources {
 		if source.Kind != kind {
 			continue
 		}

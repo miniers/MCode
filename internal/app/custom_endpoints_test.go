@@ -277,6 +277,10 @@ func TestCustomEndpoints_ChatCompletionsDialogue(t *testing.T) {
 	// 模拟 /chat/completions SSE 服务，驱动通过 newCustomEndpointHarness 构造的实例完成一轮会话
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			fmt.Fprint(w, `{"data":[]}`)
+			return
+		}
 		if r.URL.Path != "/chat/completions" {
 			http.NotFound(w, r)
 			return
@@ -501,6 +505,10 @@ func TestCustomEndpoints_RejectURLCredentialsAndQuery(t *testing.T) {
 func TestCustomEndpoints_RegisteredConversationKeepsHistory(t *testing.T) {
 	requests := make(chan int, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			fmt.Fprint(w, `{"data":[]}`)
+			return
+		}
 		var payload struct {
 			Messages []json.RawMessage `json:"messages"`
 		}

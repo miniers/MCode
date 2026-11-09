@@ -21,6 +21,8 @@ import (
 // openAIOfficialBaseURL 是官方 OpenAI 端点的默认地址，用于判断 reasoning_effort 的白名单。
 const openAIOfficialBaseURL = "https://api.openai.com/v1"
 
+var magpieDefaultModelTimeout = 5 * time.Second
+
 // mcodeRuntimeDataDir 返回内置引擎使用的数据目录：优先运行时记录，其次 app 级数据目录。
 func mcodeRuntimeDataDir() string {
 	mcodeAgentRuntime.RLock()
@@ -109,7 +111,7 @@ func resolveSourceClient(kind harness.Kind, legacy harness.Harness, cfg config.C
 			key := source.APIKey(store)
 			models, _ := magpie.CachedModels(source.BaseURL, key)
 			if len(models) == 0 {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), magpieDefaultModelTimeout)
 				var err error
 				models, err = magpie.FetchModels(ctx, source.BaseURL, key)
 				cancel()

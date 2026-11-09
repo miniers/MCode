@@ -77,7 +77,6 @@ row row-magpie-agent-claude Claude
 row row-magpie-agent-codex Codex
 row row-magpie-agent-pi pi
 section sec-magpie-models 模型
-row row-magpie-model-picker-visible 在模型选择器中显示
 row row-magpie-model-matrix 
 page models
 section sec-models-pinned 收藏模型

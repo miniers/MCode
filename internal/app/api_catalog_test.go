@@ -140,3 +140,19 @@ func TestAPISourceCatalogStaticSources(t *testing.T) {
 		t.Fatalf("预设目录 = %#v", rows)
 	}
 }
+
+func TestAPISourceCatalogWithoutKeys(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	cfg := config.Config{}
+	cfg.Providers.OpenAI.Enabled = true
+	cfg.Providers.OpenAI.Model = "gpt-test"
+	cfg.Providers.Presets = map[string]config.PresetProviderConfig{
+		"deepseek": {Enabled: true}, "zai": {Enabled: true}, "meta": {Enabled: true},
+	}
+	secrets := config.NewMemorySecretStore()
+	for _, kind := range []string{"anthropic", "openai", "deepseek", "zai", "meta"} {
+		if rows := apiSourceCatalog(cfg, secrets, kind, nil); len(rows) == 0 {
+			t.Errorf("%s 无密钥时目录为空", kind)
+		}
+	}
+}
