@@ -91,8 +91,14 @@ func threadIDOf(t store.Task) string {
 	return *t.ThreadID
 }
 
-func isStewardQueue(goal store.Goal) bool {
+// IsStewardQueue 判断目标是否为总管常驻队列。
+func IsStewardQueue(goal store.Goal) bool {
 	return goal.Owner == goalOwnerSteward && goal.Title == "总管" && (goal.PlanThreadID == nil || *goal.PlanThreadID == "")
+}
+
+func isStewardOwnerIn(goal store.Goal, t store.Task) bool {
+	meta, err := ParseTaskMeta(t.Meta)
+	return IsStewardQueue(goal) && err == nil && meta.Origin == "owner"
 }
 
 func (s *Service) stewardOwnerGoal(ctx context.Context, t store.Task) (store.Goal, bool) {
@@ -101,7 +107,7 @@ func (s *Service) stewardOwnerGoal(ctx context.Context, t store.Task) (store.Goa
 		return store.Goal{}, false
 	}
 	goal, err := s.opts.Store.GetGoal(ctx, *t.GoalID)
-	return goal, err == nil && goal.Owner == goalOwnerSteward && goal.Title == "总管"
+	return goal, err == nil && IsStewardQueue(goal)
 }
 
 func (s *Service) isStewardOwnerTask(ctx context.Context, t store.Task) bool {

@@ -181,7 +181,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 	if g.svc.opts.Now != nil {
 		now = g.svc.opts.Now()
 	}
-	if isStewardQueue(goal) {
+	if IsStewardQueue(goal) {
 		kept := tasks[:0]
 		for _, t := range tasks {
 			switch TaskStatus(t.Status) {
@@ -205,7 +205,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 
 	// (a) 对 in_progress / needs_approval 且有 ThreadID 的任务查 SessionState
 	for i, t := range tasks {
-		if t.Status == string(TaskStatusReview) && g.svc.isStewardOwnerTask(ctx, t) {
+		if t.Status == string(TaskStatusReview) && isStewardOwnerIn(goal, t) {
 			meta, err := ParseTaskMeta(t.Meta)
 			if err != nil || meta.DecisionID != "" || g.svc.isReviewActive(ctx, t) || (g.svc.opts.IsReviewActive != nil && g.svc.opts.IsReviewActive(t.ID)) {
 				continue
@@ -243,7 +243,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 		if (t.Status != string(TaskStatusInProgress) && t.Status != string(TaskStatusNeedsApproval)) || t.ThreadID == nil || *t.ThreadID == "" || g.svc.opts.Driver == nil {
 			continue
 		}
-		if t.Status == string(TaskStatusNeedsApproval) && g.svc.isStewardOwnerTask(ctx, t) {
+		if t.Status == string(TaskStatusNeedsApproval) && isStewardOwnerIn(goal, t) {
 			meta, err := ParseTaskMeta(t.Meta)
 			if err == nil && meta.DecisionID != "" {
 				d, err := g.svc.opts.Store.GetStewardDecision(ctx, meta.DecisionID)
@@ -284,7 +284,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			continue
 		}
 		if st.Failed {
-			if g.svc.isStewardOwnerTask(ctx, t) {
+			if isStewardOwnerIn(goal, t) {
 				log.Printf("kanban: 任务 %s 执行失败: %s", t.ID, st.FailureReason)
 				res := ExecutorResult{Status: ResultFailed, Summary: "执行会话运行失败"}
 				if err := g.svc.applyExecutorResult(ctx, &t, res, now); err != nil {
@@ -354,7 +354,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 				if decision.result.Status != "" && decision.result.Status != ResultDone {
 					break
 				}
-				if g.svc.isStewardOwnerTask(ctx, t) {
+				if isStewardOwnerIn(goal, t) {
 					t.Status = string(TaskStatusDone)
 					break
 				}
@@ -466,7 +466,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 				break
 			}
 		}
-		if allCompleted && goal.Status == string(GoalStatusRunning) && !isStewardQueue(goal) {
+		if allCompleted && goal.Status == string(GoalStatusRunning) && !IsStewardQueue(goal) {
 			goal.Status = string(GoalStatusCompleted)
 			summary := fmt.Sprintf("完成 %d 个任务", len(tasks))
 			goal.ResultSummary = &summary

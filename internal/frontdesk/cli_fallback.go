@@ -35,7 +35,13 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot) (bool
 		Tool string          `json:"tool"`
 		Args json.RawMessage `json:"args"`
 	}
-	if len(raw.Reply) == 0 || string(raw.Reply) == "null" || json.Unmarshal(raw.Reply, &reply) != nil || len(raw.Calls) == 0 || string(raw.Calls) == "null" || json.Unmarshal(raw.Calls, &calls) != nil {
+	if len(raw.Reply) == 0 || string(raw.Reply) == "null" || json.Unmarshal(raw.Reply, &reply) != nil {
+		return false, nil
+	}
+	if len(raw.Calls) != 0 && json.Unmarshal(raw.Calls, &calls) != nil {
+		return false, nil
+	}
+	if strings.TrimSpace(reply) == "" && len(calls) == 0 {
 		return false, nil
 	}
 	tools := d.toolbox()

@@ -25,7 +25,7 @@ type attentionTestRig struct {
 }
 
 // newAttentionTestRig 用临时库构造待处理事件服务与接线，启动订阅并在测试结束时停止。
-func newAttentionTestRig(t *testing.T) *attentionTestRig {
+func newAttentionTestRig(t *testing.T, boards ...*kanban.Service) *attentionTestRig {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "attention.db"))
 	if err != nil {
@@ -38,6 +38,9 @@ func newAttentionTestRig(t *testing.T) *attentionTestRig {
 		Hub:     hub,
 		Now:     time.Now,
 	})
+	if len(boards) > 0 {
+		wiring.kanban = boards[0]
+	}
 	wiring.Start()
 	t.Cleanup(func() {
 		wiring.Stop()
@@ -301,6 +304,21 @@ func TestDiffKanbanAttention(t *testing.T) {
 			t.Fatalf("任务消失时缺少 %s 的消解动作: %+v", kind, actions)
 		}
 	}
+}
+
+func TestPlanningGoalOwnerRetryAttention(t *testing.T) {
+	ctx := context.Background()
+	db, _, _ := newFrontdeskAdapterFixture(t)
+	planThread, projectID, goalID, reason := "plan", "project", "planning", "执行失败"
+	if err := db.CreateGoal(ctx, store.Goal{ID: goalID, ProjectID: projectID, Title: "总管", Owner: "steward", Status: "running", PlanThreadID: &planThread}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "task", ProjectID: &projectID, GoalID: &goalID, Title: "任务", Status: "todo", LastFailureReason: &reason, Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner"})}); err != nil {
+		t.Fatal(err)
+	}
+	rig := newAttentionTestRig(t, kanban.NewService(kanban.Options{Store: db}))
+	rig.wiring.scanKanban()
+	waitAttentionEvent(t, rig.svc, attention.KindKanbanFailed, "task")
 }
 
 func TestStewardRetryAttention(t *testing.T) {

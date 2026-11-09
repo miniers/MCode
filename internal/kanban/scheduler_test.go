@@ -21,6 +21,23 @@ func TestStewardOwnerCompletionScheduler(t *testing.T) {
 	testStewardOwnerCompletion(t, false)
 }
 
+func TestPlanningGoalOwnerCompletionGoesToReview(t *testing.T) {
+	ctx := context.Background()
+	driver := newPokeDriver()
+	svc, db, _, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+	thread, planThread := "executor", "plan"
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward, PlanThreadID: &planThread}, store.Task{ID: "t", Title: "任务", Status: "in_progress", ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner"})})
+	driver.setThreadState(thread, SessionState{})
+	if err := svc.SubmitExecutorResult(ctx, "t", thread, ExecutorResult{Status: ResultDone, Summary: "结果"}); err != nil {
+		t.Fatal(err)
+	}
+	scheduler.Tick(ctx)
+	task, err := db.GetTask(ctx, "t")
+	if err != nil || task.Status != "review" {
+		t.Fatalf("任务=%+v 错误=%v", task, err)
+	}
+}
+
 func testStewardOwnerCompletion(t *testing.T, watchdogFirst bool) {
 	t.Helper()
 	for _, autoReview := range []bool{false, true} {

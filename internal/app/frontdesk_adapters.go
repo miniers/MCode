@@ -88,7 +88,7 @@ func (s *frontdeskServices) CreateTask(ctx context.Context, in frontdesk.CreateT
 	}
 	var goal store.Goal
 	for _, g := range goals {
-		if g.Title == "总管" && g.Owner == "steward" && (g.Status == "running" || g.Status == "paused" || g.Status == "completed") {
+		if kanban.IsStewardQueue(g) && (g.Status == "running" || g.Status == "paused" || g.Status == "completed") {
 			goal = g
 			break
 		}
@@ -168,7 +168,7 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 			if err != nil {
 				return err
 			}
-			if goal.Owner == "steward" && goal.Title == "总管" && goal.Status == "completed" {
+			if kanban.IsStewardQueue(goal) && goal.Status == "completed" {
 				goal.Status = "running"
 				if _, err := s.store.UpdateGoal(ctx, goal, goal.Revision); err != nil {
 					return err

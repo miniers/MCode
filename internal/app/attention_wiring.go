@@ -694,7 +694,7 @@ func (w *attentionWiring) scanKanban() {
 	stewardGoals := make(map[string]bool, len(board.Goals))
 	for _, goal := range board.Goals {
 		nextGoals[goal.ID] = kanbanGoalSnapshotFromGoal(goal)
-		stewardGoals[goal.ID] = goal.Owner == "steward"
+		stewardGoals[goal.ID] = kanban.IsStewardQueue(goal)
 	}
 	next := make(map[string]kanbanTaskSnapshot, len(board.Tasks))
 	for _, view := range board.Tasks {

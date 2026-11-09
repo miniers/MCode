@@ -7,6 +7,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"mcode/internal/store"
 )
 
 func errorSummary(err error) string {
@@ -59,9 +61,13 @@ func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons 
 	taskID := in.ReplyTo
 	if taskID != "" {
 		if _, err := d.Tasks.GetTask(ctx, taskID); err != nil {
-			return err
+			if !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+			taskID = ""
 		}
-	} else if !strings.ContainsAny(in.Text, "\r\n") && len([]rune(in.Text)) <= 40 {
+	}
+	if taskID == "" && !strings.ContainsAny(in.Text, "\r\n") && len([]rune(in.Text)) <= 40 {
 		task, mentionedAt, err := d.Tasks.RecentTask(ctx, in.ThreadID)
 		now := d.now()
 		if err == nil && task.ID != "" && !mentionedAt.After(now) && now.Sub(mentionedAt) <= 10*time.Minute {

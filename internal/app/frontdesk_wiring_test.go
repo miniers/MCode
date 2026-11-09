@@ -324,6 +324,23 @@ func TestFrontdeskQuietWindowKeepsResult(t *testing.T) {
 	}
 }
 
+func TestFrontdeskCreateTaskDoesNotReusePlanningGoal(t *testing.T) {
+	ctx := context.Background()
+	db, _, svc := newFrontdeskAdapterFixture(t)
+	planThread := "plan"
+	if err := db.CreateGoal(ctx, store.Goal{ID: "planning", ProjectID: "project", Title: "总管", Owner: "steward", Status: "running", PlanThreadID: &planThread}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := svc.CreateTask(ctx, frontdesk.CreateTaskInput{Title: "任务", ProjectID: "project"})
+	if err != nil || task.GoalID == nil || *task.GoalID == "planning" {
+		t.Fatalf("任务目标错误: %+v %v", task, err)
+	}
+	goal, err := db.GetGoal(ctx, *task.GoalID)
+	if err != nil || !kanban.IsStewardQueue(goal) {
+		t.Fatalf("常驻目标错误: %+v %v", goal, err)
+	}
+}
+
 func newFrontdeskAdapterFixture(t *testing.T) (*store.Store, *remote.MemoryBackend, *frontdeskServices) {
 	t.Helper()
 	ctx := context.Background()

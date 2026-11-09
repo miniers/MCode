@@ -172,7 +172,7 @@ func TestCLI(t *testing.T) {
 		{"正常", `{"reply":"收到","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, true, []string{"reply:收到", "create:任务:owner"}, 1},
 		{"损坏", "{", true, []string{"create:工作:owner"}, 1},
 		{"丢弃读", `{"reply":"收到","calls":[{"tool":"list_tasks","args":{}}]}`, true, []string{"create:工作:owner"}, 1},
-		{"空答", `{"reply":"","calls":[]}`, true, nil, 1},
+		{"空答", `{"reply":"","calls":[]}`, true, []string{"create:工作:owner"}, 1},
 		{"空答写入", `{"reply":"","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, true, []string{"create:任务:owner"}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -485,7 +485,9 @@ func TestModelFailureCLIFallback(t *testing.T) {
 		output string
 		want   []string
 	}{
+		{`{"reply":"收到"}`, []string{"reply:收到"}},
 		{`{"reply":"收到","calls":[]}`, []string{"reply:收到"}},
+		{`{"reply":"收到","calls":null}`, []string{"reply:收到"}},
 		{`{`, []string{"amend:t:工作"}},
 	} {
 		f := &fake{recent: store.Task{ID: "t"}, recentAt: time.Now()}
@@ -501,6 +503,30 @@ func TestModelFailureCLIFallback(t *testing.T) {
 	}
 }
 
+func TestModelFailureMissingReplyTask(t *testing.T) {
+	f := &fake{getErr: store.ErrNotFound}
+	d := Desk{Client: &scripted{err: errors.New("401")}, Feed: f, Tasks: f}
+	if err := d.loop(context.Background(), Inbound{ReplyTo: "missing", Text: "工作"}, Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.events, []string{"create:工作:owner"}) {
+		t.Fatal(f.events)
+	}
+}
+
+func TestModelFailureCLIEmptyFallsBack(t *testing.T) {
+	f := &fake{}
+	d := Desk{Client: &scripted{err: errors.New("401")}, Feed: f, Tasks: f, CLIFallback: true, Generator: func(context.Context, textgen.Options, string) (string, error) {
+		return `{"reply":"","calls":[]}`, nil
+	}}
+	if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.events, []string{"create:工作:owner"}) {
+		t.Fatal(f.events)
+	}
+}
+
 func TestFallbackAssociation(t *testing.T) {
 	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
@@ -508,6 +534,7 @@ func TestFallbackAssociation(t *testing.T) {
 		getErr error
 	}{
 		{"显式任务优先且可重开", "feed", "done", "长补充\n第二行", "amend:done:长补充\n第二行", nil},
+		{"已清理任务匹配最近任务", "feed", "missing", "继续", "amend:recent:继续", store.ErrNotFound},
 		{"失效目标返回错误", "feed", "missing", "继续", "", errors.New("not found")},
 		{"跨会话不关联", "other", "", "继续", "create:继续:owner", nil},
 	} {
@@ -515,7 +542,7 @@ func TestFallbackAssociation(t *testing.T) {
 			f := &fake{recent: store.Task{ID: "recent"}, recentAt: now, recentThread: "feed", getErr: tc.getErr}
 			d := Desk{Tasks: f, Feed: f, Now: func() time.Time { return now }}
 			err := d.fallback(context.Background(), Inbound{ThreadID: tc.thread, ReplyTo: tc.replyTo, Text: tc.text}, Snapshot{})
-			if (err != nil) != (tc.getErr != nil) {
+			if (err != nil) != (tc.getErr != nil && !errors.Is(tc.getErr, store.ErrNotFound)) {
 				t.Fatal(err)
 			}
 			if tc.want == "" && len(f.events) != 0 || tc.want != "" && !reflect.DeepEqual(f.events, []string{tc.want}) {
@@ -557,9 +584,9 @@ func TestFailureFallbackAndCLIBoundaries(t *testing.T) {
 	t.Run("无模型时 CLI 成功不提示", func(t *testing.T) {
 		f := &fake{}
 		d := Desk{Client: &scripted{err: ErrNoModel}, Tasks: f, Feed: f, CLIFallback: true, Generator: func(context.Context, textgen.Options, string) (string, error) {
-			return `{"reply":"","calls":[]}`, nil
+			return `{"reply":"收到","calls":[]}`, nil
 		}}
-		if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil || len(f.events) != 0 {
+		if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil || !reflect.DeepEqual(f.events, []string{"reply:收到"}) {
 			t.Fatal(err, f.events)
 		}
 	})
