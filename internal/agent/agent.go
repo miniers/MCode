@@ -156,6 +156,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		}
 		messages = result.Messages
 		contextTokens = result.After
+		usage.ContextTokens = int64(result.After)
 		contextMeasured = len(messages)
 		usage.InputTokens += int64(result.Usage.Input + result.Usage.CacheRead + result.Usage.CacheWrite)
 		usage.OutputTokens += int64(result.Usage.Output)
@@ -255,6 +256,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		usage.InputTokens += int64(response.Usage.Input + response.Usage.CacheRead + response.Usage.CacheWrite)
 		usage.OutputTokens += int64(response.Usage.Output)
 		usage.CachedTokens += int64(response.Usage.CacheRead + response.Usage.CacheWrite)
+		usage.ContextTokens = int64(response.Usage.Input + response.Usage.CacheRead + response.Usage.CacheWrite + response.Usage.Output)
 		invalid := make(map[int]bool)
 		for i := range response.Message.ToolCalls {
 			if !json.Valid(response.Message.ToolCalls[i].Arguments) {

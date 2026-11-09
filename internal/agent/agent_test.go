@@ -339,6 +339,25 @@ func TestUsageReportsContextWindow(t *testing.T) {
 	}
 }
 
+func TestUsageReportsLastRequestContextTokens(t *testing.T) {
+	first := reply("tool_use", call("1", "read", `{}`))
+	first.Usage = llm.Usage{Input: 1000, CacheRead: 500, CacheWrite: 10, Output: 50}
+	second := reply("stop")
+	second.Usage = llm.Usage{Input: 1200, CacheRead: 600, CacheWrite: 20, Output: 80}
+	client := &scriptClient{steps: []scriptStep{{response: first}, {response: second}}}
+	var usage *harness.Usage
+	if err := Run(context.Background(), Options{Client: client, Tools: []tools.Tool{testTool("read")}, Emit: func(event harness.Event) {
+		if event.Type == harness.EventUsage {
+			usage = event.Usage
+		}
+	}}, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if usage == nil || usage.ContextTokens != 1900 || usage.InputTokens != 3330 || usage.OutputTokens != 130 || usage.CachedTokens != 1130 {
+		t.Fatalf("usage = %+v", usage)
+	}
+}
+
 func TestSteerInjectedBeforeRequest(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	client := &scriptClient{steps: []scriptStep{
