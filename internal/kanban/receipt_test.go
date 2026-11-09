@@ -166,6 +166,103 @@ func TestStewardOwnerDecisionRemainsBlocked(t *testing.T) {
 	if task.Status != "needs_approval" { t.Fatalf("决策必须等待: %+v", task) }
 }
 
+// TestStewardOwnerMissingReceiptUsesAssistantText 验证总管 owner 任务缺回执、会话调不到回执工具时，
+// 用最后一条助手文本作为结果摘要并直接结算为 done。
+func TestStewardOwnerMissingReceiptUsesAssistantText(t *testing.T) {
+	ctx := context.Background()
+	driver := newPokeDriver()
+	svc, db, _, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+
+	thread := "steward-owner-text"
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g-steward-text", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
+		store.Task{ID: "t-steward-text", Title: "任务", Status: string(TaskStatusInProgress), ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner"})})
+	driver.setThreadState(thread, SessionState{Running: false, LastAssistantText: "  已补齐总管任务  ", HostToolsUnavailable: true})
+	calls := 0
+	svc.SetOnResult(func(context.Context, store.Task, ExecutorResult) { calls++ })
+
+	scheduler.Tick(ctx)
+
+	task, err := db.GetTask(ctx, "t-steward-text")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if task.Status != string(TaskStatusDone) {
+		t.Fatalf("缺回执但有助手文本时应结算为 done，实际: %s", task.Status)
+	}
+	if task.LastActivityText == nil || *task.LastActivityText != "已补齐总管任务" {
+		t.Fatalf("期望活动文本为最后一条助手文本，实际: %v", task.LastActivityText)
+	}
+	meta, err := ParseTaskMeta(task.Meta)
+	if err != nil {
+		t.Fatalf("解析任务元信息失败: %v", err)
+	}
+	if meta.ResultStatus != string(ResultDone) || meta.Summary != "已补齐总管任务" {
+		t.Fatalf("期望结果摘要为助手文本，实际 status=%s summary=%q", meta.ResultStatus, meta.Summary)
+	}
+	if calls != 1 {
+		t.Fatalf("完成时应通知一次结果，实际: %d", calls)
+	}
+	goal, err := db.GetGoal(ctx, "g-steward-text")
+	if err != nil || goal.Status != string(GoalStatusRunning) {
+		t.Fatalf("常驻总管目标应保持 running，实际: %+v 错误=%v", goal, err)
+	}
+}
+
+// TestStewardOwnerMissingReceiptRetriesThenFailsOnce 验证总管 owner 任务缺回执且没有助手文本时，
+// 失败预算内先回到 todo 且不通知，超过 maxAttempts 后 failed 且只通知一次。
+func TestStewardOwnerMissingReceiptRetriesThenFailsOnce(t *testing.T) {
+	ctx := context.Background()
+	driver := newPokeDriver()
+	svc, db, _, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+
+	thread := "steward-owner-empty"
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g-steward-empty", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
+		store.Task{ID: "t-steward-empty", Title: "任务", Status: string(TaskStatusInProgress), ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner"})})
+	driver.setThreadState(thread, SessionState{Running: false, HostToolsUnavailable: true})
+	calls := 0
+	svc.SetOnResult(func(context.Context, store.Task, ExecutorResult) { calls++ })
+
+	scheduler.Tick(ctx)
+	task, err := db.GetTask(ctx, "t-steward-empty")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if task.Status != string(TaskStatusTodo) {
+		t.Fatalf("失败预算内应先回到 todo，实际: %s", task.Status)
+	}
+	if calls != 0 {
+		t.Fatalf("回到 todo 时不应通知结果，实际: %d", calls)
+	}
+	meta, err := ParseTaskMeta(task.Meta)
+	if err != nil {
+		t.Fatalf("解析任务元信息失败: %v", err)
+	}
+	if meta.ResultStatus != string(ResultFailed) || meta.Summary != "执行会话未提交结果" {
+		t.Fatalf("期望记录缺回执失败，实际 status=%s summary=%q", meta.ResultStatus, meta.Summary)
+	}
+
+	task.Status, task.AttemptCount = string(TaskStatusInProgress), 2
+	if _, err := db.UpdateTask(ctx, task, task.Revision); err != nil {
+		t.Fatalf("更新任务失败: %v", err)
+	}
+	scheduler.Tick(ctx)
+	task, err = db.GetTask(ctx, "t-steward-empty")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if task.Status != string(TaskStatusFailed) {
+		t.Fatalf("超过失败预算后应 failed，实际: %s", task.Status)
+	}
+	if calls != 1 {
+		t.Fatalf("最终失败应通知一次结果，实际: %d", calls)
+	}
+
+	scheduler.Tick(ctx)
+	if calls != 1 {
+		t.Fatalf("已失败的任务不应重复通知，实际: %d", calls)
+	}
+}
+
 // TestReceiptMissingAsksThenEscalates 验证缺回执时先追问两次，宽限过后升级到 needs_approval 并停住。
 func TestReceiptMissingAsksThenEscalates(t *testing.T) {
 	ctx := context.Background()

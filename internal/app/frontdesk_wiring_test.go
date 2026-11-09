@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -320,5 +321,173 @@ func TestFrontdeskQuietWindowKeepsResult(t *testing.T) {
 	messages, _, err := db.ListMessages(ctx, feedID, 0, 10)
 	if err != nil || len(messages) != 1 || pushes != 0 {
 		t.Fatalf("安静时段应保存结果且不推送：消息 %d，推送 %d，错误 %v", len(messages), pushes, err)
+	}
+}
+
+func newFrontdeskAdapterFixture(t *testing.T) (*store.Store, *remote.MemoryBackend, *frontdeskServices) {
+	t.Helper()
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "mcode.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	t.Cleanup(hub.Close)
+	backend := remote.NewMemoryBackend(hub)
+	t.Cleanup(backend.Close)
+	if err := backend.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	backend.AddProject(wire.ProjectSummary{ID: "home", Name: "总管", Path: filepath.Join(t.TempDir(), "home")})
+	backend.AddProject(wire.ProjectSummary{ID: "project", Name: "项目", Path: filepath.Join(t.TempDir(), "project")})
+	return db, backend, &frontdeskServices{store: db, backend: backend, kanban: kanban.NewService(kanban.Options{Store: db}), homeID: "home"}
+}
+
+func createFrontdeskTask(t *testing.T, db *store.Store, task store.Task) store.Task {
+	t.Helper()
+	if task.Meta == "" {
+		task.Meta = "{}"
+	}
+	if err := db.CreateTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestFrontdeskAmendInProgressTask(t *testing.T) {
+	ctx := context.Background()
+	db, backend, svc := newFrontdeskAdapterFixture(t)
+	backend.AddThread(wire.ThreadSummary{ID: "run", ProjectID: "project", Title: "执行", Provider: "memory"}, nil)
+	threadID := "run"
+	task := createFrontdeskTask(t, db, store.Task{ID: "working", ThreadID: &threadID, Title: "进行中任务", Notes: "原始要求", Status: "in_progress"})
+	if err := svc.AmendTask(ctx, task.ID, "补充说明"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != task.ID || after.Status != "in_progress" {
+		t.Fatalf("进行中任务不应被重开: %+v", after)
+	}
+	messages, _, err := db.ListMessages(ctx, threadID, 0, 10)
+	if err != nil || len(messages) == 0 || messages[len(messages)-1].Role != "user" || messages[len(messages)-1].Text != "补充说明" {
+		t.Fatalf("补充内容未送入执行会话: %+v %v", messages, err)
+	}
+	if after.Notes != "原始要求\n补充说明" {
+		t.Skip("实现只把进行中任务的新要求送入执行会话，没有追加到 Notes")
+	}
+}
+
+func TestFrontdeskAmendDoneTaskReopensAndRestoresGoal(t *testing.T) {
+	ctx := context.Background()
+	db, _, svc := newFrontdeskAdapterFixture(t)
+	if err := db.CreateGoal(ctx, store.Goal{ID: "goal", ProjectID: "project", Title: "总管", Prompt: "总管", Status: "running", Owner: "steward", Policy: map[string]any{"maxConcurrency": 1}}); err != nil {
+		t.Fatal(err)
+	}
+	projectID, goalID := "project", "goal"
+	failure := "失败"
+	meta := kanban.TaskMeta{Origin: "owner", ResultStatus: "done", Summary: "旧结果", NoChange: true}
+	task := createFrontdeskTask(t, db, store.Task{ID: "finished", ProjectID: &projectID, GoalID: &goalID, Title: "已完成任务", Notes: "原始要求", Status: "done", AttemptCount: 2, RejectCount: 1, LastFailureReason: &failure, Meta: kanban.EncodeTaskMeta(meta)})
+	goal, err := db.GetGoal(ctx, goalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal.Status = "completed"
+	if _, err := db.UpdateGoal(ctx, goal, goal.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AmendTask(ctx, task.ID, "补充内容"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotMeta, err := kanban.ParseTaskMeta(after.Meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != task.ID || after.Status != "todo" || after.AttemptCount != 0 || after.RejectCount != 0 || after.Notes != "原始要求\n补充内容" || gotMeta.ResultStatus != "" || gotMeta.Summary != "" || gotMeta.NoChange {
+		t.Fatalf("重开结果错误: %+v %+v", after, gotMeta)
+	}
+	goal, err = db.GetGoal(ctx, goalID)
+	if err != nil || goal.Status != "running" {
+		t.Fatalf("总管目标未恢复: %+v %v", goal, err)
+	}
+}
+
+func TestFrontdeskAmendOpenDecisionAnswersWithoutReopen(t *testing.T) {
+	ctx := context.Background()
+	db, backend, svc := newFrontdeskAdapterFixture(t)
+	if _, err := backend.EnsureStewardFeedThread(ctx, "home"); err != nil {
+		t.Fatal(err)
+	}
+	task := createFrontdeskTask(t, db, store.Task{ID: "waiting", Title: "待决策任务", Notes: "原始要求", Status: "needs_approval", AttemptCount: 2})
+	decision, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: task.ID, Question: "选择？", OptionsJSON: `["甲","乙"]`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Meta = kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner", DecisionID: decision.ID})
+	if _, err := db.UpdateTask(ctx, task, task.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AmendTask(ctx, task.ID, "甲"); err != nil {
+		t.Fatal(err)
+	}
+	answered, err := db.GetStewardDecision(ctx, decision.ID)
+	if err != nil || answered.Status != store.DecisionStatusAnswered || answered.Answer != "甲" {
+		t.Fatalf("决策卡未回答: %+v %v", answered, err)
+	}
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != task.ID || after.AttemptCount != 2 || after.Status != "todo" || !strings.Contains(after.Notes, "原始要求") || strings.Contains(after.Notes, "\n甲") {
+		t.Fatalf("任务不应按重开处理: %+v", after)
+	}
+}
+
+func TestFrontdeskRecentTaskSources(t *testing.T) {
+	ctx := context.Background()
+	db, backend, svc := newFrontdeskAdapterFixture(t)
+	for _, task := range []store.Task{
+		{ID: "cherry", Title: "樱桃", Status: "todo"},
+		{ID: "apple", Title: "苹果", Status: "todo"},
+	} {
+		createFrontdeskTask(t, db, task)
+	}
+	backend.AddThread(wire.ThreadSummary{ID: "feed-result", ProjectID: "home", Title: "结果", Provider: "memory"}, nil)
+	if err := backend.AppendStewardMessage(ctx, "feed-result", "assistant", "steward_result", `{"task":"cherry"}`); err != nil {
+		t.Fatal(err)
+	}
+	messages, _, err := db.ListMessages(ctx, "feed-result", 0, 10)
+	if err != nil || len(messages) != 1 {
+		t.Fatalf("消息数量错误: %+v %v", messages, err)
+	}
+	recent, mentionedAt, err := svc.RecentTask(ctx, "feed-result")
+	if err != nil || recent.ID != "cherry" || !mentionedAt.Equal(messages[0].CreatedAt) {
+		t.Fatalf("结果消息定位错误: %+v %v %v", recent, mentionedAt, err)
+	}
+
+	backend.AddThread(wire.ThreadSummary{ID: "feed-ambiguous", ProjectID: "home", Title: "歧义", Provider: "memory"}, nil)
+	if err := backend.AppendStewardMessage(ctx, "feed-ambiguous", "assistant", "", "樱桃和苹果都完成了"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.RecentTask(ctx, "feed-ambiguous"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("同时提及多个任务应返回 ErrNotFound: %v", err)
+	}
+
+	backend.AddThread(wire.ThreadSummary{ID: "feed-empty", ProjectID: "home", Title: "空", Provider: "memory"}, nil)
+	if err := backend.AppendStewardMessage(ctx, "feed-empty", "assistant", "", "今天没有提及任务。"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.RecentTask(ctx, "feed-empty"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("未提及任务应返回 ErrNotFound: %v", err)
 	}
 }

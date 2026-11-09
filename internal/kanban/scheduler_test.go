@@ -69,6 +69,85 @@ func testStewardOwnerCompletion(t *testing.T, watchdogFirst bool) {
 	}
 }
 
+// TestStewardOwnerReviewResolution 验证旧总管 owner 任务停在 review 时的结算边界：
+// ResultStatus 为 done 转 done、failed 转 todo，有未处理决策或会话仍在运行时保持 review。
+func TestStewardOwnerReviewResolution(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name       string
+		result     ResultStatus
+		decisionID string
+		running    bool
+		want       string
+	}{
+		{name: "done转done", result: ResultDone, want: string(TaskStatusDone)},
+		{name: "failed转todo", result: ResultFailed, want: string(TaskStatusTodo)},
+		{name: "未处理决策保持review", result: ResultDone, decisionID: "D-0001", want: string(TaskStatusReview)},
+		{name: "会话运行中保持review", result: ResultDone, running: true, want: string(TaskStatusReview)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			driver := newPokeDriver()
+			_, db, _, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+			thread := "steward-review"
+			seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g-steward-review", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
+				store.Task{ID: "t-steward-review", Title: "任务", Status: string(TaskStatusReview), ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner", ResultStatus: string(tc.result), DecisionID: tc.decisionID})})
+			driver.setThreadState(thread, SessionState{Running: tc.running})
+
+			scheduler.Tick(ctx)
+
+			task, err := db.GetTask(ctx, "t-steward-review")
+			if err != nil {
+				t.Fatalf("获取任务失败: %v", err)
+			}
+			if task.Status != tc.want {
+				t.Fatalf("期望状态 %s，实际: %s", tc.want, task.Status)
+			}
+		})
+	}
+}
+
+// TestStewardQueueGoalCompletionBoundary 验证常驻总管目标不会因所有任务 done 而被置为 completed，
+// 普通目标同样情况下仍会 completed。
+func TestStewardQueueGoalCompletionBoundary(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("常驻总管目标保持running", func(t *testing.T) {
+		_, db, _, scheduler := setupSchedulerTestService(t, true)
+		seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g-steward-queue", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward},
+			store.Task{ID: "t-steward-queue", Title: "任务", Status: string(TaskStatusDone)})
+
+		scheduler.Tick(ctx)
+
+		goal, err := db.GetGoal(ctx, "g-steward-queue")
+		if err != nil {
+			t.Fatalf("获取目标失败: %v", err)
+		}
+		if goal.Status != string(GoalStatusRunning) {
+			t.Fatalf("常驻总管目标应保持 running，实际: %s", goal.Status)
+		}
+	})
+
+	t.Run("普通目标完成", func(t *testing.T) {
+		_, db, _, scheduler := setupSchedulerTestService(t, true)
+		seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g-normal-queue", ProjectID: "p", Title: "普通目标", Owner: "user"},
+			store.Task{ID: "t-normal-queue", Title: "任务", Status: string(TaskStatusDone)})
+
+		scheduler.Tick(ctx)
+
+		goal, err := db.GetGoal(ctx, "g-normal-queue")
+		if err != nil {
+			t.Fatalf("获取目标失败: %v", err)
+		}
+		if goal.Status != string(GoalStatusCompleted) {
+			t.Fatalf("普通目标应完成，实际: %s", goal.Status)
+		}
+		if goal.ResultSummary == nil || *goal.ResultSummary != "完成 1 个任务" {
+			t.Fatalf("期望完成摘要，实际: %v", goal.ResultSummary)
+		}
+	})
+}
+
 func (m *mockPlanner) Plan(ctx context.Context, goal store.Goal, feedback string) (PlanResult, error) {
 	return m.result, m.err
 }
