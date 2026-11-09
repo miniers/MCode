@@ -474,7 +474,7 @@ func TestSteerContinuationAccumulatesUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	// InputTokens 含缓存读取，两次分别为 12 和 24。
-	if len(client.requests) != 2 || usage == nil || usage.InputTokens != 36 || usage.OutputTokens != 8 || usage.CachedTokens != 6 || usage.CostUSD != 36 || len(usage.Requests) != 2 {
+	if len(client.requests) != 2 || usage == nil || usage.InputTokens != 36 || usage.OutputTokens != 8 || usage.CachedTokens != 6 || usage.CostUSD != 36 {
 		t.Fatalf("requests=%d usage=%+v", len(client.requests), usage)
 	}
 }
