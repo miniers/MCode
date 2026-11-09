@@ -408,7 +408,7 @@ func TestSourceEngineMagpieClaudeUsesMessages(t *testing.T) {
 	if req.Path != "/v1/messages" || req.Model != "claude-sonnet-5-5" {
 		t.Fatalf("Claude 请求 = %+v", req)
 	}
-	if req.APIKey != "gateway-key" || req.Auth != "" {
+	if req.APIKey != "" || req.Auth != "Bearer gateway-key" {
 		t.Fatalf("鉴权 = x-api-key %q，Authorization %q", req.APIKey, req.Auth)
 	}
 	if req.Affinity != "thread-9" || req.ClientID != "thread-9" || req.Session != "thread-9" {

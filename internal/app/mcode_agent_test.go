@@ -85,7 +85,7 @@ func TestMcodeResolveClientMagpieClaudeMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != "/v1/messages" || apiKey != "gateway-key" || auth != "" {
+	if path != "/v1/messages" || apiKey != "" || auth != "Bearer gateway-key" {
 		t.Fatalf("request = %q, x-api-key %q, Authorization %q", path, apiKey, auth)
 	}
 	if affinity != "thread-1" || clientRequest != "thread-1" || session != "thread-1" {
