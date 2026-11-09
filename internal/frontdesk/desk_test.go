@@ -535,7 +535,8 @@ func TestSelectSourceLegacyAndPrefixedModel(t *testing.T) {
 		{"pi", "magpie-jp/auto/deepseek-v4.1-flash", "auto/deepseek-v4.1-flash"},
 		{"magpie", "magpie-jp/auto/deepseek-v4.1-flash", "auto/deepseek-v4.1-flash"},
 		{"magpie", "auto/claude-opus-5-5", "auto/claude-opus-5-5"},
-		{"magpie", "unknown/model", "unknown/model"},
+		// 不在目录里的模型回落到默认。
+		{"magpie", "unknown/model", "auto/deepseek-v4.1-flash"},
 	} {
 		src, model, err := SelectSource(sources, nil, tc.provider, tc.model)
 		if err != nil || src.Kind != "magpie" || model != tc.want {

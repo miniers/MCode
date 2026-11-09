@@ -330,7 +330,6 @@ func (st *SettingsState) injectAgentMagpieModel(agent, endpointID, modelID strin
 	st.mu.Unlock()
 	st.invalidate()
 	refreshCatalogAfterPiMagpieSave(st, client)
-	st.invalidate()
 	return nil
 }
 

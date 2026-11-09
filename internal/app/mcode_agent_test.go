@@ -314,16 +314,20 @@ func TestMcodeResolveClientAnthropicAndErrors(t *testing.T) {
 	}
 }
 
-func TestMcodeResolveClientDefaultAndAnthropicProviderPrecedence(t *testing.T) {
+func TestMcodeResolveClientDefaultAndAnthropicGatewayName(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "anthropic", Name: "Anthropic", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("anthropic"): "gateway-key"})
-	_, model, err := resolveMcodeClient(context.Background(), cfg, secrets, "anthropic/model-x", "")
-	if err != nil || model != "model-x" {
-		t.Fatalf("endpoint precedence = %q, %v", model, err)
-	}
-	target, modelID, ok := magpieinject.ProviderOf("anthropic/model-x", magpieinject.Targets(cfg, secrets, nil))
-	if !ok || target.ProviderID != "anthropic" || modelID != "model-x" {
+	target, modelID, ok := magpieinject.ProviderOf("magpie-anthropic/model-x", magpieinject.Targets(cfg, secrets, nil))
+	if !ok || target.ProviderID != "magpie-anthropic" || modelID != "model-x" {
 		t.Fatal("Magpie target should match")
+	}
+	_, model, err := resolveMcodeClient(context.Background(), cfg, secrets, "magpie-anthropic/model-x", "")
+	if err != nil || model != "model-x" {
+		t.Fatalf("gateway model = %q, %v", model, err)
+	}
+	if _, _, err := resolveMcodeClient(context.Background(), cfg, secrets, "anthropic/model-x", ""); err == nil || !strings.Contains(err.Error(), "未配置 Anthropic API Key") {
+		t.Fatalf("anthropic model should not use gateway: %v", err)
 	}
 	cfg = mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Edge", Enabled: true, Magpie: true, BaseURL: "https://gateway.example/v1"})
 	secrets = mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): "gateway-key"})

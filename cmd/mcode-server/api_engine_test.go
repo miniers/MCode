@@ -63,9 +63,13 @@ func TestAPIEngineDiscoversDefaultModel(t *testing.T) {
 	defer server.Close()
 	cfg := config.Defaults()
 	cfg.Providers.Custom = []config.CustomEndpointConfig{{ID: "discovery", Enabled: true, BaseURL: server.URL + "/v1"}}
+	dir := t.TempDir()
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
 	backend := remote.NewMemoryBackend(remote.NewStreamHub(remote.StreamHubOptions{}))
 	defer backend.Close()
-	registerAPIEngines(backend, cfg, config.NewMemorySecretStore(), t.TempDir())
+	registerAPIEngines(backend, cfg, config.NewMemorySecretStore(), dir)
 	t.Cleanup(func() { remote.SetAPICatalog("custom-discovery", nil) })
 	h := backend.RegisteredHarness("custom-discovery").(*providermcode.Harness)
 	if ok, reason := h.Available(); !ok {
@@ -83,12 +87,16 @@ func TestAPIEngineMissingAPIKeyUnavailable(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	cfg := config.Defaults()
 	cfg.Providers.Presets = map[string]config.PresetProviderConfig{"deepseek": {Enabled: true}}
+	dir := t.TempDir()
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
 	backend := remote.NewMemoryBackend(remote.NewStreamHub(remote.StreamHubOptions{}))
 	defer backend.Close()
-	registerAPIEngines(backend, cfg, config.NewMemorySecretStore(), t.TempDir())
+	registerAPIEngines(backend, cfg, config.NewMemorySecretStore(), dir)
 	t.Cleanup(func() { remote.SetAPICatalog("deepseek", nil) })
 	h := backend.RegisteredHarness("deepseek").(*providermcode.Harness)
-	if ok, reason := h.Available(); ok || reason == "" {
+	if ok, reason := h.Available(); ok || reason != "未配置 API Key" {
 		t.Fatalf("Available() = %v, %q", ok, reason)
 	}
 }
