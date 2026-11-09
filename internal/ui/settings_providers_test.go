@@ -35,31 +35,70 @@ func TestAPIProviderListEntries_ExcludesGateways(t *testing.T) {
 	}
 }
 
-func TestProviderAddSheet_ThreeKinds(t *testing.T) {
+func TestAPIProviderSheet_NativePresets(t *testing.T) {
+	for _, id := range []string{"anthropic", "openai"} {
+		t.Run(id, func(t *testing.T) {
+			st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+			st.presets.loaded, st.endpoints.loaded = true, true
+			st.presets.items = []ProviderSetting{{ID: id, Name: id, Kind: "api", HasAPIKey: true}}
+			entries := apiProviderListEntries(st)
+			if len(entries) != 1 || entries[0].Kind != "preset" {
+				t.Fatalf("供应商条目错误: %+v", entries)
+			}
+			openProviderSheet(st, entries[0].Kind, entries[0].ID)
+			tt := ui.NewTester(func(c *ui.Context) { renderProviderSheetBody(c, st) }, 1000, 3000)
+			for _, label := range []string{"密钥（API Key）", "接口地址（BaseURL）", "默认模型"} {
+				if !tt.HasText(label) {
+					t.Fatalf("供应商面板缺少 %q: %v", label, tt.Texts())
+				}
+			}
+		})
+	}
+}
+
+func TestProviderAddSheet_TwoKinds(t *testing.T) {
 	fake := NewFakeClient()
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
 	st.presets.loaded = true
-	st.presets.items = []ProviderSetting{{ID: "api", Name: "示例预置", Kind: "api"}}
+	st.presets.items = []ProviderSetting{{ID: "api", Name: "示例预置", Kind: "api"}, {ID: "configured", Name: "已配置预置", Kind: "api", HasAPIKey: true}, {ID: "magpie", Name: "Magpie", Kind: "api"}}
 	enabled := false
 	candidates := []providerListEntry{{ID: "cli", Name: "示例 CLI", CanToggle: true, Toggle: func(v bool) { enabled = v }}}
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c.Key("test-add")).Children(func() { renderProviderAddSheetBody(c, st, candidates) })
 	}, 1000, 3000)
 	waitFor(t, tt, func() bool { return tt.HasText("启用 示例 CLI") })
+	for _, label := range []string{"智能体", "API Key"} {
+		if !tt.HasText(label) {
+			t.Fatalf("缺少类型选项 %q", label)
+		}
+	}
+	for _, label := range []string{"CLI 智能体", "API 预置", "自定义"} {
+		if tt.HasText(label) {
+			t.Fatalf("仍有旧类型选项 %q", label)
+		}
+	}
 	if err := tt.Click("启用 示例 CLI"); err != nil {
 		t.Fatal(err)
 	}
 	if !enabled {
 		t.Fatal("CLI 未启用")
 	}
-	if err := tt.Click("API 预置"); err != nil {
+	if err := tt.Click("API Key"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("示例预置") })
-	if err := tt.Click("自定义"); err != nil {
+	if !tt.HasText("选择 自定义端点") || tt.HasText("已配置预置") || tt.HasText("Magpie") {
+		t.Fatalf("API Key 来源列表错误: %v", tt.Texts())
+	}
+	if err := tt.Click("选择 自定义端点"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("端点名称") })
+	for _, label := range []string{"名称", "接口地址（BaseURL）", "默认模型", "密钥（API Key）"} {
+		if !tt.HasText(label) {
+			t.Fatalf("自定义端点表单缺少 %q", label)
+		}
+	}
 	for _, field := range []struct{ label, value string }{{"编辑端点名称", "测试端点"}, {"编辑端点 BaseURL", "https://example.com/v1"}, {"编辑端点默认模型", "example"}, {"编辑端点 API Key", "secret"}} {
 		if err := tt.Click(field.label); err != nil {
 			t.Fatal(err)
@@ -119,7 +158,10 @@ func TestSettingsProviders_CreateCustomEndpoint(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c.Key("test-add")).Children(func() { renderProviderAddSheetBody(c, st, nil) })
 	}, 1000, 3000)
-	if err := tt.Click("自定义"); err != nil {
+	if err := tt.Click("API Key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("选择 自定义端点"); err != nil {
 		t.Fatal(err)
 	}
 	for _, field := range []struct{ label, value string }{{"编辑端点名称", "OpenRouter"}, {"编辑端点 BaseURL", "https://openrouter.ai/api/v1"}, {"编辑端点默认模型", "anthropic/claude-3.5-sonnet"}, {"编辑端点 API Key", "sk-or-testkey-123456"}} {
@@ -830,7 +872,10 @@ func TestSettingsProviders_MagpieEndpointNotListed(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c.Key("test-add")).Children(func() { renderProviderAddSheetBody(c, st, nil) })
 	}, 1000, 3000)
-	if err := tt.Click("自定义"); err != nil {
+	if err := tt.Click("API Key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("选择 自定义端点"); err != nil {
 		t.Fatal(err)
 	}
 	if tt.HasText("远程 Magpie") || tt.HasText("Magpie · ") {
@@ -845,7 +890,10 @@ func TestSettingsProviders_FormHasNoMagpieCheckbox(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c.Key("test-add")).Children(func() { renderProviderAddSheetBody(c, st, nil) })
 	}, 1000, 3000)
-	if err := tt.Click("自定义"); err != nil {
+	if err := tt.Click("API Key"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("选择 自定义端点"); err != nil {
 		t.Fatal(err)
 	}
 	if tt.HasText("这是 Magpie 网关") || tt.HasText("人设来源（可选）") {
@@ -891,7 +939,7 @@ func TestSettingsProviders_RowDescriptionsReplacedByPlaceholders(t *testing.T) {
 	}
 }
 
-// 只有带默认端点的 OpenAI 兼容预设才需要 BaseURL 与默认模型，原生协议预设只保存 API Key。
+// 验证预设和自定义端点的地址与模型字段。
 func TestAPIProviderNeedsEndpointFields(t *testing.T) {
 	st := &SettingsState{}
 	st.presets.items = []ProviderSetting{
@@ -901,8 +949,8 @@ func TestAPIProviderNeedsEndpointFields(t *testing.T) {
 	if !apiProviderNeedsEndpointFields(st, "preset", "deepseek") {
 		t.Fatal("带默认端点的预设应显示 BaseURL 与默认模型")
 	}
-	if apiProviderNeedsEndpointFields(st, "preset", "anthropic") {
-		t.Fatal("原生协议预设不应显示 BaseURL 与默认模型")
+	if !apiProviderNeedsEndpointFields(st, "preset", "anthropic") || !apiProviderNeedsEndpointFields(st, "preset", "openai") {
+		t.Fatal("Anthropic 与 OpenAI 应显示 BaseURL 与默认模型")
 	}
 	if !apiProviderNeedsEndpointFields(st, "custom", "ep") {
 		t.Fatal("自定义端点始终需要 BaseURL 与默认模型")

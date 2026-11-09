@@ -21,7 +21,7 @@ func TestProviderSheet_OpensOnClick(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool {
 		sheet, _ := settingsTreeSheetState(st)
-		return sheet == "provider-add" && tt.HasText("CLI 智能体")
+		return sheet == "provider-add" && tt.HasText("智能体") && tt.HasText("API Key")
 	})
 }
 

@@ -1073,9 +1073,9 @@ func apiProviderRowIcon(id string) *ui.SVG {
 }
 
 // apiProviderNeedsEndpointFields 判断 API 供应商是否需要 BaseURL 与默认模型输入：
-// 只有带默认端点的 OpenAI 兼容预设需要；原生协议预设（如 Anthropic）只保存 API Key。
+// Anthropic、OpenAI 和带默认端点的预设可以编辑地址与模型。
 func apiProviderNeedsEndpointFields(st *SettingsState, kind, id string) bool {
-	if kind == "custom" {
+	if kind == "custom" || (kind == "preset" && (id == "anthropic" || id == "openai")) {
 		return true
 	}
 	st.mu.Lock()
@@ -1272,34 +1272,28 @@ func renderProviderAddSheetBody(c *ui.Context, st *SettingsState, cliCandidates 
 	}
 	renderSettingsSection(c, "sec-provider-add-type", "类型", func() {
 		renderSettingRow(c, "row-provider-add-type", "类型", func() {
+			choice := kind
+			if choice == 2 {
+				choice = 1
+			}
 			choiceFunc(
-				[]string{"CLI 智能体", "API 预置", "自定义"},
-				func(*SettingsState) (int, bool) { return kind, false },
+				[]string{"智能体", "API Key"},
+				func(*SettingsState) (int, bool) { return choice, false },
 				func(st *SettingsState, index int) {
 					st.mu.Lock()
 					st.presets.addType = index
 					st.presets.addPresetID = ""
 					st.presets.apiKeyDraft = ""
-					if index == 2 {
-						openCustomEndpointForm(st, nil, endpointFormScopeCustom)
-					}
 					st.mu.Unlock()
 					st.invalidate()
 				},
 			).render(c, st, setting{ID: "provider-add-type", Title: "类型"})
 		})
 	})
-	hasCredentials := kind == 2 || errText != ""
+	hasCredentials := kind == 1 || kind == 2 || errText != ""
 	if kind == 0 {
 		for _, entry := range cliCandidates {
 			if !entry.Enabled {
-				hasCredentials = true
-				break
-			}
-		}
-	} else if kind == 1 {
-		for _, p := range presets {
-			if p.Kind == "api" && !p.HasAPIKey {
 				hasCredentials = true
 				break
 			}
@@ -1323,7 +1317,7 @@ func renderProviderAddSheetBody(c *ui.Context, st *SettingsState, cliCandidates 
 		case 1:
 			var chosen *ProviderSetting
 			for _, item := range presets {
-				if item.Kind != "api" || item.HasAPIKey {
+				if item.Kind != "api" || item.HasAPIKey || strings.EqualFold(strings.TrimSpace(item.ID), "magpie") {
 					continue
 				}
 				p := item
@@ -1342,6 +1336,15 @@ func renderProviderAddSheetBody(c *ui.Context, st *SettingsState, cliCandidates 
 					})
 				})
 			}
+			renderSettingRow(c, "row-provider-add-custom", "自定义端点", func() {
+				providerSheetButton(c, "provider-add-custom", "选择 自定义端点", busy, func() {
+					st.mu.Lock()
+					st.presets.addType = 2
+					openCustomEndpointForm(st, nil, endpointFormScopeCustom)
+					st.mu.Unlock()
+					st.invalidate()
+				})
+			})
 			if chosen != nil {
 				p := *chosen
 				renderSettingRow(c, "row-provider-add-apikey", "密钥（API Key）", func() {

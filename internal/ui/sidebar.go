@@ -22,15 +22,43 @@ var (
 	sidebarSearch = make(map[*chatState]*string)
 )
 
-// defaultNewThreadProvider 选新建会话的默认供应商：优先可用项，并跳过只为老会话保留的内置 mcode。
-func defaultNewThreadProvider(providers []ProviderInfo) string {
+type newThreadProviderContext struct {
+	threads         []Thread
+	stewardThreadID string
+}
+
+// defaultNewThreadProvider 优先选择最近使用的可用供应商，跳过 mcode 和辅助会话。
+func defaultNewThreadProvider(providers []ProviderInfo, contexts ...newThreadProviderContext) string {
+	var ctx newThreadProviderContext
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
+	available := make(map[string]bool, len(providers))
 	for _, p := range providers {
-		if p.Available && p.ID != "mcode" {
+		if p.Available && p.ID != config.ProviderMcode {
+			available[p.ID] = true
+		}
+	}
+	var recent *Thread
+	for i := range ctx.threads {
+		th := &ctx.threads[i]
+		if th.IsHelper || (ctx.stewardThreadID != "" && th.ID == ctx.stewardThreadID) || !available[th.Provider] {
+			continue
+		}
+		if recent == nil || threadActivityTime(*th).After(threadActivityTime(*recent)) {
+			recent = th
+		}
+	}
+	if recent != nil {
+		return recent.Provider
+	}
+	for _, p := range providers {
+		if p.Available && p.ID != config.ProviderMcode {
 			return p.ID
 		}
 	}
 	for _, p := range providers {
-		if p.ID != "mcode" {
+		if p.ID != config.ProviderMcode {
 			return p.ID
 		}
 	}
@@ -257,7 +285,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	selectedID := s.selectedThreadID
 
 	if s.newThreadProvider == "" {
-		s.newThreadProvider = defaultNewThreadProvider(s.providers)
+		s.newThreadProvider = defaultNewThreadProvider(s.providers, newThreadProviderContext{s.threads, s.stewardThreadID()})
 	}
 	s.mu.Unlock()
 
@@ -744,7 +772,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						OnClick: func() {
 							s.mu.Lock()
 							if s.newThreadProvider == "" {
-								s.newThreadProvider = defaultNewThreadProvider(s.providers)
+								s.newThreadProvider = defaultNewThreadProvider(s.providers, newThreadProviderContext{s.threads, s.stewardThreadID()})
 							}
 							s.mu.Unlock()
 							s.closeWorkspace()

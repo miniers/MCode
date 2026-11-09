@@ -1886,7 +1886,7 @@ func (b *MemoryBackend) watcherFor(root string) git.Watcher {
 	return w
 }
 
-// RegisterHarness 注册或替换同 Kind 的 harness，如果 defaultProvider 为空，就把它设为该 Kind。
+// RegisterHarness 注册或替换同 Kind 的 harness，默认来源为空时选择非 mcode 的 Kind。
 func (b *MemoryBackend) RegisterHarness(h harness.Harness) {
 	if h == nil {
 		return
@@ -1902,7 +1902,7 @@ func (b *MemoryBackend) RegisterHarness(h harness.Harness) {
 	}
 	b.bindUnsolicitedTurnHandlerLocked(h)
 	b.harnesses[kind] = h
-	if b.defaultProvider == "" {
+	if b.defaultProvider == "" && kind != config.ProviderMcode {
 		b.defaultProvider = kind
 	}
 }
@@ -1915,7 +1915,7 @@ func (b *MemoryBackend) RegisteredHarness(kind string) harness.Harness {
 }
 
 // UnregisterHarness 注销指定 kind 的 harness。
-// 若注销的是 defaultProvider，则将其更新为剩余已注册 kind 中字典序最小者；若无剩余则置为空串。
+// 若注销的是 defaultProvider，则回退到字典序最小的非 mcode 来源；没有则置空。
 func (b *MemoryBackend) UnregisterHarness(kind string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -1924,7 +1924,9 @@ func (b *MemoryBackend) UnregisterHarness(kind string) {
 	if b.defaultProvider == kind {
 		var remaining []string
 		for k := range b.harnesses {
-			remaining = append(remaining, k)
+			if k != config.ProviderMcode {
+				remaining = append(remaining, k)
+			}
 		}
 		if len(remaining) == 0 {
 			b.defaultProvider = ""
