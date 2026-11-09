@@ -381,6 +381,9 @@ func TestQuestionCardActionChangesOnLastQuestion(t *testing.T) {
 	s.mu.Unlock()
 	s.invalidate()
 	waitFor(t, tt, func() bool { return tt.HasText("第 2 / 2 题") })
+	if tt.HasText("下一题") {
+		t.Fatal("最后一题不应显示下一题")
+	}
 	if !tt.HasText("提交") {
 		t.Fatal("最后一题应显示提交")
 	}

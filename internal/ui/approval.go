@@ -992,7 +992,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 		Padding(Space5).
 		Gap(Space3).
 		Children(func() {
-			// 头部：图标、标题，多题时显示题号与上一题/下一题
+			// 头部：图标、标题，多题时显示题号与上一题
 			ui.Row(c.Key("approval-header-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, IconBrain()).Size(IconMD, IconMD).TextColor(accent)
 				ui.Text(c, approvalCardTitle(approval)).Bold().FontSize(TypeProse).TextColor(ThemePrimaryText(c)).Selectable()
@@ -1003,14 +1003,6 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 						s.mu.Lock()
 						if draft.current > 0 {
 							draft.current--
-						}
-						s.mu.Unlock()
-						s.invalidate()
-					})
-					renderApprovalButton(c, "question-next-"+id, "下一题", "下一题", false, current >= len(qs)-1, func() {
-						s.mu.Lock()
-						if draft.current < len(qs)-1 {
-							draft.current++
 						}
 						s.mu.Unlock()
 						s.invalidate()
@@ -1038,7 +1030,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 					s.respondAnswers(approval, "", nil, true)
 				})
 				if hasNext {
-					renderApprovalButton(c, "question-advance-"+id, "下一题", "下一题 (↩)", true, responding, func() {
+					renderApprovalButton(c, "question-next-"+id, "下一题", "下一题 (↩)", true, responding, func() {
 						s.mu.Lock()
 						if draft.current < len(qs)-1 {
 							draft.current++
