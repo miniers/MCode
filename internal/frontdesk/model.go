@@ -20,6 +20,7 @@ func cheapModel(src apisource.Source) string {
 }
 
 // SelectSource 按用户配置和来源顺序选择前台模型。
+// 不存在的 provider 视为旧配置，忽略其模型；匹配来源时尝试去掉模型前缀。
 func SelectSource(sources []apisource.Source, secrets config.SecretStore, provider, model string) (apisource.Source, string, error) {
 	if len(sources) == 0 {
 		return apisource.Source{}, "", ErrNoModel
@@ -31,6 +32,9 @@ func SelectSource(sources []apisource.Source, secrets config.SecretStore, provid
 				selected = i
 				break
 			}
+		}
+		if selected < 0 {
+			provider, model = "", ""
 		}
 	}
 	if selected < 0 {
@@ -53,6 +57,27 @@ func SelectSource(sources []apisource.Source, secrets config.SecretStore, provid
 		return apisource.Source{}, "", ErrNoModel
 	}
 	src := sources[selected]
+	if provider != "" && model != "" && len(src.Models) > 0 {
+		candidate := model
+		matched := false
+		for {
+			for _, available := range src.Models {
+				if candidate == available {
+					model = candidate
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+			_, rest, ok := strings.Cut(candidate, "/")
+			if !ok {
+				break
+			}
+			candidate = rest
+		}
+	}
 	if strings.TrimSpace(model) == "" {
 		model = cheapModel(src)
 	}

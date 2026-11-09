@@ -2,6 +2,7 @@ package frontdesk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"strings"
@@ -12,7 +13,23 @@ func errorSummary(err error) string {
 	if errors.Is(err, ErrNoModel) {
 		return "没有可用模型，可在主会话选择模型"
 	}
-	return truncate(strings.Join(strings.Fields(err.Error()), " "), 60)
+	text := err.Error()
+	if start := strings.IndexByte(text, '{'); start >= 0 {
+		var body struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+			Message string `json:"message"`
+		}
+		if json.NewDecoder(strings.NewReader(text[start:])).Decode(&body) == nil {
+			if body.Error.Message != "" {
+				text = body.Error.Message
+			} else if body.Message != "" {
+				text = body.Message
+			}
+		}
+	}
+	return truncate(strings.Join(strings.Fields(text), " "), 60)
 }
 
 func (d *Desk) reply(ctx context.Context, threadID, text string) {
@@ -25,12 +42,16 @@ func (d *Desk) reply(ctx context.Context, threadID, text string) {
 	}
 }
 
-func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons ...error) error {
+func (d *Desk) tryCLIFallback(ctx context.Context, in Inbound, snap Snapshot) (bool, error) {
 	if d.CLIFallback && d.Generator != nil {
-		ok, err := d.cliFallback(ctx, in, snap)
-		if ok || err != nil {
-			return err
-		}
+		return d.cliFallback(ctx, in, snap)
+	}
+	return false, nil
+}
+
+func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons ...error) error {
+	if ok, err := d.tryCLIFallback(ctx, in, snap); ok || err != nil {
+		return err
 	}
 	if d.Tasks == nil {
 		return errors.New("frontdesk: 任务服务不可用")

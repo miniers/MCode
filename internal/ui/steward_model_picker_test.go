@@ -58,3 +58,27 @@ func TestStewardComposerModel(t *testing.T) {
 		t.Fatal("总管会话尚未载入时缺少前台模型胶囊")
 	}
 }
+
+func TestStewardComposerModelLegacySelection(t *testing.T) {
+	s := newChatState(newStewardFakeClient(""))
+	t.Cleanup(s.close)
+	st := NewSettingsState(t.TempDir(), nil, s)
+	setChatSettings(s, st)
+	t.Cleanup(func() { setChatSettings(s, nil) })
+	s.providers = []ProviderInfo{{ID: "openai", Name: "OpenAI", Models: []ModelInfo{{ID: "gpt-test", Name: "GPT Test"}}}}
+	st.cfg.Orchestration.Steward.Provider = "pi"
+	st.cfg.Orchestration.Steward.Model = "magpie-jp/auto/deepseek-v4.1-flash"
+	tt := ui.NewTester(func(c *ui.Context) { renderStewardComposerModel(c, s) }, 1000, 700)
+	if !tt.HasText("自动") || tt.HasText("pi") || tt.HasText(st.cfg.Orchestration.Steward.Model) {
+		t.Fatalf("旧来源应显示自动: %v", tt.Texts())
+	}
+	if st.cfg.Orchestration.Steward.Provider != "pi" || st.cfg.Orchestration.Steward.Model != "magpie-jp/auto/deepseek-v4.1-flash" {
+		t.Fatal("显示旧来源时不应修改配置")
+	}
+	st.cfg.Orchestration.Steward.Provider = "openai"
+	st.cfg.Orchestration.Steward.Model = "gpt-test"
+	tt.Frame()
+	if !tt.HasText("GPT Test") {
+		t.Fatalf("API 模型应显示原值: %v", tt.Texts())
+	}
+}

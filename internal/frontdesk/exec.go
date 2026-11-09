@@ -68,7 +68,11 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 				err = fmt.Errorf("模型返回空响应")
 			}
 			log.Printf("frontdesk: 模型失败：%v", err)
-			return d.fallback(ctx, in, snap, err)
+			if ok, cliErr := d.tryCLIFallback(ctx, in, snap); ok || cliErr != nil {
+				return cliErr
+			}
+			d.reply(ctx, in.ThreadID, "前台模型不可用："+errorSummary(err))
+			return nil
 		}
 		dirty := false
 		for _, call := range resp.Message.ToolCalls {

@@ -53,6 +53,28 @@ func TestStewardSettingsModelCatalogExcludesCLI(t *testing.T) {
 	}
 }
 
+func TestStewardSettingsModelLegacySelection(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.providers = []ProviderInfo{{ID: "openai", Name: "OpenAI", Models: []ModelInfo{{ID: "gpt-test", Name: "GPT Test"}}}}
+	st := NewSettingsState(t.TempDir(), nil, s)
+	st.cfg.Orchestration.Steward.Provider = "pi"
+	st.cfg.Orchestration.Steward.Model = "magpie-jp/auto/deepseek-v4.1-flash"
+	tt := ui.NewTester(func(c *ui.Context) { renderStewardModelControl(c, st) }, 1000, 700)
+	if !tt.HasText("自动") || tt.HasText("pi") || tt.HasText(st.cfg.Orchestration.Steward.Model) {
+		t.Fatalf("旧来源应显示自动: %v", tt.Texts())
+	}
+	if st.cfg.Orchestration.Steward.Provider != "pi" || st.cfg.Orchestration.Steward.Model != "magpie-jp/auto/deepseek-v4.1-flash" {
+		t.Fatal("显示旧来源时不应修改配置")
+	}
+	st.cfg.Orchestration.Steward.Provider = "openai"
+	st.cfg.Orchestration.Steward.Model = "gpt-test"
+	tt.Frame()
+	if !tt.HasText("GPT Test") {
+		t.Fatalf("API 模型应显示原值: %v", tt.Texts())
+	}
+}
+
 func TestStewardSettings_SectionsAndKeys(t *testing.T) {
 	st := NewSettingsState(t.TempDir(), nil, newChatState(NewFakeClient()))
 	st.cfg.Orchestration.Steward.Enabled = true

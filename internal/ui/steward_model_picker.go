@@ -1,6 +1,18 @@
 package mcodeui
 
-import "github.com/egoist/mygo/ui"
+import (
+	"github.com/egoist/mygo/ui"
+	"mcode/internal/config"
+)
+
+func stewardModelSelection(cfg config.Config, catalog modelPickerCatalog) ModelSelection {
+	for _, provider := range catalog.Providers {
+		if provider.ID == cfg.Orchestration.Steward.Provider {
+			return ModelSelection{Provider: provider.ID, Model: cfg.Orchestration.Steward.Model}
+		}
+	}
+	return ModelSelection{}
+}
 
 // renderStewardComposerModel 与设置页共用前台模型配置和保存路径。
 func renderStewardComposerModel(c *ui.Context, s *chatState) {
@@ -8,13 +20,11 @@ func renderStewardComposerModel(c *ui.Context, s *chatState) {
 	if st == nil {
 		return
 	}
-	sel := ModelSelection{
-		Provider: st.cfg.Orchestration.Steward.Provider,
-		Model:    st.cfg.Orchestration.Steward.Model,
-	}
-	renderSwarmModelCapsuleCatalog(c, st, "composer-steward-model", "composer-steward-model", sel, "跟随通用设置", "选择前台模型", func(next ModelSelection) {
+	catalog := frontdeskModelPickerCatalog(settingsModelPickerCatalog(st), st.cfg)
+	sel := stewardModelSelection(st.cfg, catalog)
+	renderSwarmModelCapsuleCatalog(c, st, "composer-steward-model", "composer-steward-model", sel, "自动", "选择前台模型", func(next ModelSelection) {
 		st.cfg.Orchestration.Steward.Provider = next.Provider
 		st.cfg.Orchestration.Steward.Model = next.Model
 		st.save()
-	}, frontdeskModelPickerCatalog(settingsModelPickerCatalog(st), st.cfg), true)
+	}, catalog, true)
 }

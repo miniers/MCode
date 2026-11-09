@@ -135,11 +135,11 @@ func TestLoop(t *testing.T) {
 func TestFallback(t *testing.T) {
 	f := &fake{}
 	s := &scripted{err: errors.New("401")}
-	d := Desk{Client: s, Tasks: f}
+	d := Desk{Client: s, Feed: f, Tasks: f}
 	if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.requests) != 1 || !reflect.DeepEqual(f.events, []string{"create:工作:owner"}) {
+	if len(s.requests) != 1 || !reflect.DeepEqual(f.events, []string{"reply:前台模型不可用：401"}) {
 		t.Fatal(f.events)
 	}
 	f.events = nil
@@ -147,7 +147,7 @@ func TestFallback(t *testing.T) {
 	if err := d.fallback(context.Background(), Inbound{Text: "继续"}, Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.events, []string{"amend:t:继续"}) {
+	if !reflect.DeepEqual(f.events, []string{"amend:t:继续", "reply:已补充到上一个任务"}) {
 		t.Fatal(f.events)
 	}
 }
@@ -411,8 +411,8 @@ func TestVisibleFallbackAndBusy(t *testing.T) {
 		client llm.Client
 		want   string
 	}{
-		{"模型失败", &scripted{err: errors.New("401\n授权失败")}, "reply:前台模型不可用：401 授权失败，已建任务「工作」"},
-		{"没有模型", &scripted{err: ErrNoModel}, "reply:前台模型不可用：没有可用模型，可在主会话选择模型，已建任务「工作」"},
+		{"模型失败", &scripted{err: errors.New("401\n授权失败")}, "reply:前台模型不可用：401 授权失败"},
+		{"没有模型", &scripted{err: ErrNoModel}, "reply:前台模型不可用：没有可用模型，可在主会话选择模型"},
 		{"主动兜底", nil, "reply:已建任务「工作」"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -426,10 +426,64 @@ func TestVisibleFallbackAndBusy(t *testing.T) {
 			}
 			f.mu.Lock()
 			defer f.mu.Unlock()
-			if want := []string{"busy:true", "list", "create:工作:owner", tc.want, "busy:false"}; !reflect.DeepEqual(f.events, want) {
+			want := []string{"busy:true", "list"}
+			if tc.client == nil {
+				want = append(want, "create:工作:owner")
+			}
+			want = append(want, tc.want, "busy:false")
+			if !reflect.DeepEqual(f.events, want) {
 				t.Fatalf("事件 %v", f.events)
 			}
 		})
+	}
+}
+
+func TestSelectSourceLegacyAndPrefixedModel(t *testing.T) {
+	t.Setenv("FRONTDESK_TEST_KEY", "key")
+	sources := []apisource.Source{{Kind: "magpie", APIKeyEnv: "FRONTDESK_TEST_KEY", Models: []string{"auto/deepseek-v4.1-flash", "auto/claude-opus-5-5"}}}
+	for _, tc := range []struct{ provider, model, want string }{
+		{"pi", "magpie-jp/auto/deepseek-v4.1-flash", "auto/deepseek-v4.1-flash"},
+		{"magpie", "magpie-jp/auto/deepseek-v4.1-flash", "auto/deepseek-v4.1-flash"},
+		{"magpie", "auto/claude-opus-5-5", "auto/claude-opus-5-5"},
+		{"magpie", "unknown/model", "unknown/model"},
+	} {
+		src, model, err := SelectSource(sources, nil, tc.provider, tc.model)
+		if err != nil || src.Kind != "magpie" || model != tc.want {
+			t.Errorf("provider %q，来源 %q，模型 %q，错误 %v", tc.provider, src.Kind, model, err)
+		}
+	}
+}
+
+func TestErrorSummaryJSON(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{`llm: API error (status 404): {"error":{"type":"not_found","message":"magpie knows no model example"}}`, "magpie knows no model example"},
+		{`API error: {"message":" top\n level "}`, "top level"},
+		{`API error: {broken`, "API error: {broken"},
+	} {
+		if got := errorSummary(errors.New(tc.input)); got != tc.want {
+			t.Errorf("摘要 %q，期望 %q", got, tc.want)
+		}
+	}
+}
+
+func TestModelFailureCLIFallback(t *testing.T) {
+	for _, tc := range []struct {
+		output string
+		want   []string
+	}{
+		{`{"reply":"收到","calls":[]}`, []string{"reply:收到"}},
+		{`{`, []string{"reply:前台模型不可用：401"}},
+	} {
+		f := &fake{recent: store.Task{ID: "t", UpdatedAt: time.Now()}}
+		d := Desk{Client: &scripted{err: errors.New("401")}, Feed: f, Tasks: f, CLIFallback: true, Generator: func(context.Context, textgen.Options, string) (string, error) {
+			return tc.output, nil
+		}}
+		if err := d.loop(context.Background(), Inbound{Text: "工作"}, Snapshot{}); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(f.events, tc.want) {
+			t.Fatalf("事件 %v，期望 %v", f.events, tc.want)
+		}
 	}
 }
 
