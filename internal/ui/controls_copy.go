@@ -54,10 +54,14 @@ func CopyButton(c *ui.Context, p CopyButtonProps) ui.Element {
 			if p.Copied {
 				icon, label = IconCheck(), "复制成功"
 			}
-			ui.Icon(c, icon).Size(IconSM, IconSM).Label(label).TextColor(color)
+			feedback := motionFeedback(c)
+			if p.Copied && !reduceMotion(c) {
+				feedback.Enter = &ui.Motion{Opacity: 0}
+			}
+			ui.Icon(c.Key(label), icon).Size(IconSM, IconSM).Label(label).TextColor(color).Transition(feedback)
 		}
 		if p.Mode != CopyIcon && p.Text != "" {
-			ui.Text(c, p.Text).FontSize(TypeCaption).TextColor(color)
+			ui.Text(c, p.Text).FontSize(TypeCaption).TextColor(color).Transition(motionFeedback(c))
 		}
 	})
 }

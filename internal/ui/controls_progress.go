@@ -26,6 +26,7 @@ func ProgressBar(c *ui.Context, p ProgressBarProps) ui.Element {
 	}
 	track := ui.Row(ctx).FillWidth().Height(p.Height).Radius(RadiusPill).
 		Background(p.Track).Label(fmt.Sprintf("%s %.0f%%", p.Label, ratio*100))
+	ratio = max(0, min(1, track.AnimateTo("progress-ratio", ratio, ui.Animation{Duration: DurBase, Ease: EaseOut})))
 	return track.Children(func() {
 		if ratio > 0 {
 			ui.Box(c).Label(p.Label+" 填充").Height(p.Height).Radius(RadiusPill).

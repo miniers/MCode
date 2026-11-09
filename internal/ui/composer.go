@@ -76,6 +76,7 @@ func composerHoverBg(c *ui.Context, btn ui.Element, active bool) {
 }
 
 func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items []QueuedFollowUp, isRunning bool, capsules []composerCapsule) bool {
+	sortableScope := fmt.Sprintf("%p/%s/queue", s, threadID)
 	// 浮动面板里嵌入的 composer 不显示改动统计标签，只保留排队消息。
 	if !s.embeddedBee {
 		s.ensureThreadChangeStats(threadID, isRunning)
@@ -226,7 +227,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 						Children(func() {
 							queueList := ui.Column(c.Key("composer-queue")).Gap(Space2)
 							// 拖到行与行之间的空隙时，按最近一次悬停的落点重排。
-							if draggedID, dropped := ui.Drop[string](queueList); dropped {
+							if _, draggedID := SortableTarget(queueList, sortableScope, ""); draggedID != "" {
 								if before := queueDropBeforeFor(s, draggedID); before != "" && before != draggedID {
 									s.moveQueued(draggedID, before)
 									setQueueDropBefore(s, draggedID, "")
@@ -249,12 +250,12 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 									}
 									// 拖拽排队顺序：只有行首手柄是拖拽源（Drag 挂手柄），
 									// DragOver/Drop 仍挂在整行上，落点画成目标行上沿的 2pt 插入线。
-									draggedID, over := ui.DragOver[string](row)
-									dropTarget := over && draggedID != item.ID
+									draggedID, droppedID := SortableTarget(row, sortableScope, item.ID)
+									dropTarget := draggedID != ""
 									if dropTarget {
 										setQueueDropBefore(s, draggedID, item.ID)
 									}
-									if droppedID, dropped := ui.Drop[string](row); dropped && droppedID != item.ID {
+									if droppedID != "" {
 										s.moveQueued(droppedID, item.ID)
 										setQueueDropBefore(s, droppedID, "")
 									}
@@ -265,7 +266,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 										}
 
 										// 行首六点手柄：唯一可拖拽的部分。
-										renderQueueGrip(c, item)
+										renderQueueGrip(c, item, sortableScope)
 
 										// 意图标签：区分普通排队与「本意插入但被降级成排队」。
 										if label := queuedIntentLabel(item); label != "" {

@@ -397,21 +397,9 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 								s.loadFileManagerDir(threadID, dir)
 							})
 						case listLoading && len(entries) == 0:
-							ui.Row(c.Key("file-manager-loading")).
-								Gap(Space3).
-								AlignItems(ui.Center).
-								Margin(ui.Auto).
-								Children(func() {
-									ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-									ui.Text(c, "正在读取目录…").
-										FontSize(TypeBody).
-										TextColor(ThemeSecondaryText(c))
-								})
+							LoadingIndicator(c, "file-manager-loading", "正在读取目录…", IconSM).Margin(ui.Auto)
 						case len(entries) == 0:
-							ui.Text(c, "空目录").
-								FontSize(TypeFootnote).
-								TextColor(ThemeSecondaryText(c)).
-								Margin(ui.Auto)
+							EmptyState(c, EmptyStateProps{Title: "空目录", Compact: true}).Margin(ui.Auto)
 						default:
 							renderFileManagerEntries(c, s, threadID, entries)
 						}
@@ -503,21 +491,10 @@ func renderFileManagerHeader(c *ui.Context, s *chatState, dir string) {
 				})
 			}
 
-			closeBtn := ui.ButtonBase(c.Key("file-manager-close-btn")).
-				Label("关闭文件面板").
-				Tooltip("关闭文件面板 (⇧⌘F)").
-				Radius(RadiusSM).
-				Padding(Space1, Space2)
-			if closeBtn.Hovered() {
-				closeBtn.Background(ThemeHover(c))
-			}
-			if closeBtn.Clicked() {
-				toggleFileManager(s)
-			}
-			closeBtn.Children(func() {
-				ui.Icon(c, IconX()).
-					Size(IconSM, IconSM).
-					TextColor(ThemeSecondaryText(c))
+			IconButton(c, IconButtonProps{
+				Key: "file-manager-close-btn", Icon: IconX(), Label: "关闭文件面板",
+				Tooltip: "关闭文件面板 (⇧⌘F)", Size: ControlXS, Variant: ButtonGhost,
+				OnClick: func() { toggleFileManager(s) },
 			})
 		})
 }
@@ -535,61 +512,11 @@ func fileManagerThreadID(s *chatState) string {
 
 // renderFileManagerSearch 渲染搜索框：输入后防抖调用 SearchFiles，清空即回到目录列表。
 func renderFileManagerSearch(c *ui.Context, s *chatState, query *string, threadID string) {
-	row := ui.Row(c.Key("file-manager-search")).
-		FillWidth().
-		Height(ControlMD).
-		Margin(0, Space3, Space3, Space3).
-		Radius(RadiusSM).
-		BorderWidth(Hairline).
-		BorderColor(ThemeOverlay(c, 0.10)).
-		Background(ThemeHover(c)).
-		Padding(0, Space3).
-		Gap(Space2).
-		AlignItems(ui.Center)
-
-	row.Children(func() {
-		ui.Icon(c, IconSearch()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)).Shrink(0)
-
-		in := ui.TextInput(c.Key("file-manager-search-input"), query).
-			Label("搜索文件").
-			Placeholder("搜索文件…").
-			FontSize(TypeFootnote).
-			TextColor(ThemePrimaryText(c)).
-			BorderWidth(0).
-			Background(ui.Transparent).
-			Padding(0).
-			Grow(1).
-			MinWidth(0)
-
-		if row.Clicked() {
-			in.Focus()
-		}
-		if in.Changed() {
-			s.fileManagerSearch(threadID, *query)
-		}
-
-		if query != nil && *query != "" {
-			clear := ui.ButtonBase(c.Key("file-manager-search-clear")).
-				Size(IconSM, IconSM).
-				Radius(RadiusSM).
-				Center().
-				Label("清除搜索").
-				Tooltip("清除搜索").
-				Cursor(ui.CursorPointer)
-			if clear.Hovered() {
-				clear.Background(ThemeOverlay(c, 0.20))
-			} else {
-				clear.Background(ThemeOverlay(c, 0.10))
-			}
-			clear.OnClick(func() {
-				*query = ""
-				s.fileManagerSearch(threadID, "")
-			})
-			clear.Children(func() {
-				ui.Icon(c, IconX()).Size(fileManagerIconTiny, fileManagerIconTiny).TextColor(ThemeSecondaryText(c))
-			})
-		}
-	})
+	SearchField(c, TextFieldProps{
+		Key: "file-manager-search-input", Value: query, Label: "搜索文件", Placeholder: "搜索文件…",
+		FillWidth: true, Clearable: true, ClearLabel: "清除搜索",
+		OnChange: func(value string) { s.fileManagerSearch(threadID, value) },
+	}).Margin(0, Space3, Space3, Space3)
 }
 
 // renderFileManagerEntries 渲染目录条目列表。
@@ -641,23 +568,11 @@ func renderFileManagerSearchResults(c *ui.Context, s *chatState, searching bool,
 		return
 	}
 	if searching && len(results) == 0 {
-		ui.Row(c.Key("file-manager-search-loading")).
-			Gap(Space3).
-			AlignItems(ui.Center).
-			Margin(ui.Auto).
-			Children(func() {
-				ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-				ui.Text(c, "正在搜索…").
-					FontSize(TypeBody).
-					TextColor(ThemeSecondaryText(c))
-			})
+		LoadingIndicator(c, "file-manager-search-loading", "正在搜索…", IconSM).Margin(ui.Auto)
 		return
 	}
 	if len(results) == 0 {
-		ui.Text(c, "没有匹配的文件").
-			FontSize(TypeFootnote).
-			TextColor(ThemeSecondaryText(c)).
-			Margin(ui.Auto)
+		EmptyState(c, EmptyStateProps{Title: "没有匹配的文件", Compact: true}).Margin(ui.Auto)
 		return
 	}
 

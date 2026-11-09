@@ -10,6 +10,8 @@ import (
 	"mcode/internal/config"
 )
 
+const settingsRowTitleMinWidth float32 = 160
+
 // settingsPage 是一个设置页的声明：标题、图标、检索词与按顺序排列的 section。
 // 页面只声明，渲染、索引、重置、锁定全部由下面的渲染器与派生函数统一处理。
 type settingsPage struct {

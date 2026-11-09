@@ -681,8 +681,9 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				// 按住项目行拖动可改变顺序，松手落到目标项目行时重排并持久化。
 				// 框架的 Drag/Drop 会在指针移动后接管按压，拖动不产生点击。
 				if lowerQuery == "" {
-					headerRow.Drag(pVal.ID)
-					if droppedID, dropped := ui.Drop[string](headerRow); dropped {
+					scope := fmt.Sprintf("%p/projects", s)
+					SortableSource(headerRow, scope, pVal.ID)
+					if _, droppedID := SortableTarget(headerRow, scope, pVal.ID); droppedID != "" {
 						if reorderProjectsByDrop(s, projects, droppedID, idx) {
 							s.invalidate()
 						}

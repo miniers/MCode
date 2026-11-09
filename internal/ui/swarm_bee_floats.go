@@ -881,12 +881,11 @@ func renderSwarmPanelCard(c *ui.Context, s *chatState, f swarmFloatFrame, id pan
 	}
 	// 收起或关闭时轻微下沉并淡出，不再瞬间消失。必须显式写 Colors: true：
 	// 三项全不设时 mygo 会同时做位置与尺寸插值，和下面 AnimateWith 的停靠滑动、拖拽缩放打架。
-	// 减少动效时 mygo 只原地淡出、不位移。
-	card.Transition(ui.ElementTransition{
+	card.Transition(motionTransition(c, ui.ElementTransition{
 		Duration: DurBase,
 		Colors:   true,
 		Exit:     &ui.Motion{Y: motionRiseOffset * 2, Opacity: 0, Scale: 0.98},
-	})
+	}))
 	card.Children(func() {
 		if len(bees) == 0 || cur == nil {
 			renderSwarmEmptyTeamPanel(c, s, f)
@@ -908,12 +907,14 @@ func renderSwarmPanelCard(c *ui.Context, s *chatState, f swarmFloatFrame, id pan
 	})
 
 	// 拖动中的面板紧跟指针；松手后以短动画滑向停靠位置。
-	dur := swarmRestDuration
+	var x, y float32
 	if dragging {
-		dur = time.Millisecond
+		x = card.Jump("swarm-panel-x", f.mainLeft+pos.x)
+		y = card.Jump("swarm-panel-y", pos.y)
+	} else {
+		x = card.AnimateWith("swarm-panel-x", f.mainLeft+pos.x, animateDuration(c, swarmRestDuration), ui.EaseOut)
+		y = card.AnimateWith("swarm-panel-y", pos.y, animateDuration(c, swarmRestDuration), ui.EaseOut)
 	}
-	x := card.AnimateWith("swarm-panel-x", f.mainLeft+pos.x, animateDuration(c, dur), ui.EaseOut)
-	y := card.AnimateWith("swarm-panel-y", pos.y, animateDuration(c, dur), ui.EaseOut)
 	card.Left(x).Top(y)
 }
 

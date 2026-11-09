@@ -160,7 +160,7 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 
 	if loading {
 		// 扫描中用转圈代替说明句。
-		ui.Spinner(c).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)).Margin(Space3, settingsRowPadX, Space1, settingsRowPadX)
+		LoadingIndicator(c, "skills-loading", "", IconSM).Margin(Space3, settingsRowPadX, Space1, settingsRowPadX)
 	}
 	if errMsg != "" {
 		ui.Text(c, errMsg).

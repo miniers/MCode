@@ -230,10 +230,10 @@ func renderButton(c *ui.Context, p ButtonOpts, iconOnly, active bool) ui.Element
 	if b.FocusVisible() {
 		b.Shadow(0, 0, 0, 2, ThemeAccent(c)).Shadow(0, 0, 0, 1, ThemeSurfaceCard(c))
 	}
-	scale := 1 - 0.025*press
+	scale := motionPressScale(c, b, "button-press-scale", !disabled && b.Pressed())
 	b.Scale(scale, scale).Children(func() {
 		if p.Loading {
-			ui.Spinner(c).Size(iconSize, iconSize).TextColor(fg)
+			LoadingIndicator(c, nil, "", iconSize, fg)
 		} else if p.Icon != nil {
 			ui.Icon(c, p.Icon).Size(iconSize, iconSize).TextColor(fg)
 		}

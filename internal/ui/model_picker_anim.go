@@ -62,11 +62,8 @@ func modelPickerPageTransition(c *ui.Context, el ui.Element, state *ModelPickerS
 }
 
 // modelPickerTabSlide 驱动主导/执行分段指示块的位置：sel 为 0（主导段）或 1（执行段），
-// 返回当前帧插值出的位置。切换分段时框架按 DurBase ease-out 逐帧
+// 返回当前帧插值出的位置。切换分段时框架按 springSnappy 逐帧
 // 滑动，动画结束后停止请求重绘。
 func modelPickerTabSlide(c *ui.Context, el ui.Element, sel float32) float32 {
-	return el.AnimateTo(modelPickerTabSlideKey, sel, ui.Animation{
-		Duration: animateDuration(c, DurBase),
-		Ease:     ui.EaseOut,
-	})
+	return el.AnimateTo(modelPickerTabSlideKey, sel, springSnappy)
 }

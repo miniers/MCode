@@ -52,7 +52,7 @@ func segmentedControl(c *ui.Context, key any, selected *int, segments []Segment,
 		Background(ThemeOverlay(c, OverlaySubtle))
 	track.Children(func() {
 		for i, segment := range segments {
-			item := parts.Segment(i).Label(segment.Label).Padding(Space1, settingsCompactPadX).Radius(RadiusSM).Disabled(segment.Disabled)
+			item := parts.Segment(i).Label(segment.Label).Padding(Space1, settingsCompactPadX).Radius(RadiusSM).Disabled(segment.Disabled).Transition(motionFeedback(c))
 			if fill {
 				item = item.Grow(1)
 			}
@@ -73,7 +73,7 @@ func segmentedControl(c *ui.Context, key any, selected *int, segments []Segment,
 			item.Children(func() {
 				ui.Text(c, segment.Label).FontSize(TypeBody).TextColor(color).SingleLine()
 				if segment.Count > 0 {
-					ui.Text(c, strconv.Itoa(segment.Count)).FontSize(TypeCaption).TextColor(color).SingleLine()
+					ui.Text(c, strconv.Itoa(segment.Count)).FontSize(TypeCaption).TextColor(color).SingleLine().Transition(motionFeedback(c))
 				}
 			})
 		}

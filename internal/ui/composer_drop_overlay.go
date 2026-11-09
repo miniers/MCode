@@ -184,15 +184,15 @@ func renderComposerDropOverlay(c *ui.Context, s *chatState) {
 }
 
 // renderQueueGrip 是排队行首的六点拖拽手柄，只有手柄是拖拽源。
-func renderQueueGrip(c *ui.Context, item QueuedFollowUp) {
+func renderQueueGrip(c *ui.Context, item QueuedFollowUp, scope string) {
 	grip := ui.Row(c.Key("composer-queue-grip-" + item.ID)).
 		Width(Space4).
 		Height(ControlKbd).
 		Justify(ui.Center).
 		AlignItems(ui.Center).
 		Cursor(ui.CursorPointer).
-		Tooltip("拖动调整排队顺序").
-		Drag(item.ID)
+		Tooltip("拖动调整排队顺序")
+	SortableSource(grip, scope, item.ID)
 	grip.Children(func() {
 		ui.Icon(c, iconQueueGrip).
 			Size(IconSM, IconSM).

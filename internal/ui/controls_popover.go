@@ -59,9 +59,7 @@ func anchoredPopover(c *ui.Context, p anchoredPopoverProps, content func(ui.Elem
 		if p.MaxHeight > 0 {
 			panel.MaxHeight(p.MaxHeight)
 		}
-		if !reduceMotion(c) {
-			popoverRise(panel, p.Anchor)
-		}
+		panel.Transition(motionPopover(c, popoverRiseOffset(panel, p.Anchor)))
 		if content != nil {
 			content(panel)
 		}

@@ -1337,21 +1337,10 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 											textColor = ThemeSecondaryText(c)
 										}
 
-										tabBtn := ui.ButtonBase(c.Key(fmt.Sprintf("terminal-tab-%d", tb.id))).
-											Label(label).
-											Tooltip(tb.dir).
-											Radius(RowCornerRadius).
-											Padding(Space1, Space2)
-										if isActive {
-											tabBtn.Background(ThemeSelected(c))
-										} else if tabBtn.Hovered() {
-											tabBtn.Background(ThemeHover(c))
-										}
-										if tabBtn.Clicked() {
-											switchTerminalTab(s, st, threadID, tb.id)
-										}
-
-										tabBtn.Children(func() {
+										closeClicked := false
+										tabBtn := TabButton(c, TabButtonProps{
+											Key: fmt.Sprintf("terminal-tab-%d", tb.id), Label: label, Tooltip: tb.dir, Active: isActive,
+										}, func() {
 											ui.Row(c.Key(fmt.Sprintf("terminal-tab-inner-%d", tb.id))).
 												Gap(Space1).
 												AlignItems(ui.Center).
@@ -1364,13 +1353,16 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 														Key:   fmt.Sprintf("terminal-tab-close-%d", tb.id),
 														Icon:  IconX(),
 														Label: "关闭标签",
-														OnClick: func() {
-															closeTerminalTab(s, st, threadID, tb.id)
-														},
-														Variant: ButtonGhost,
-													})
-												})
+																OnClick: func() { closeClicked = true },
+																Variant: ButtonGhost,
+															})
+														})
 										})
+										if closeClicked {
+											closeTerminalTab(s, st, threadID, tb.id)
+										} else if tabBtn.Clicked() {
+											switchTerminalTab(s, st, threadID, tb.id)
+										}
 									}
 
 									// 新建按钮（+）

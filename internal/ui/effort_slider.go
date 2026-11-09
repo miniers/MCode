@@ -326,7 +326,7 @@ func renderFastModeButton(c *ui.Context, p EffortSliderCardProps) {
 		Radius(effortCardButtonSize / 2).
 		Center().
 		// Colors 只插值背景与描边色：开/关切换时底色在系统黄与白色微光之间渐变，悬停的加深也一并变柔和。
-		Transition(ui.ElementTransition{Colors: true, Duration: effortFastModeDuration})
+		Transition(motionFeedback(c))
 
 	switch {
 	case p.FastMode:

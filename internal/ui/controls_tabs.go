@@ -18,16 +18,16 @@ func TabButton(c *ui.Context, p TabButtonProps, body func()) ui.Element {
 	if p.Tooltip != "" {
 		btn.Tooltip(p.Tooltip)
 	}
-	selected, hovered := float32(0), float32(0)
+	background := ui.Transparent
 	if p.Active {
-		selected = 1
+		background = ThemeSelected(c)
 	} else if btn.Hovered() {
-		hovered = 1
+		background = ThemeHover(c)
 	}
-	animation := ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap}
-	selected = btn.AnimateTo("tab-selected", selected, animation)
-	hovered = btn.AnimateTo("tab-hover", hovered, animation)
-	btn.Background(ui.Transparent.Mix(ThemeHover(c), hovered).Mix(ThemeSelected(c), selected))
+	feedback, list := motionFeedback(c), motionListItem(c)
+	feedback.Enter, feedback.Exit = list.Enter, list.Exit
+	feedback.ExitDuration, feedback.ExitEase = list.ExitDuration, list.ExitEase
+	btn.Background(background).Transition(feedback)
 	btn.Children(func() {
 		if body != nil {
 			body()

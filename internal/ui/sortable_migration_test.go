@@ -1,0 +1,106 @@
+package mcodeui
+
+import (
+	"reflect"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+)
+
+func TestSortableNativeDrop(t *testing.T) {
+	for _, tc := range []struct {
+		name, sourceScope, targetScope, targetID string
+		want                                     []string
+	}{
+		{"同域", "list", "list", "b", []string{"a"}},
+		{"跨域", "projects", "thread/queue", "b", nil},
+		{"自身", "list", "list", "a", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var moves []string
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Column(c).Children(func() {
+					source := ui.Row(c.Key("source")).Label("拖拽源").Width(200).Height(50)
+					SortableSource(source, tc.sourceScope, "a")
+					target := ui.Row(c.Key("target")).Label("拖拽目标").Width(200).Height(50)
+					if _, id := SortableTarget(target, tc.targetScope, tc.targetID); id != "" {
+						moves = append(moves, id)
+					}
+				})
+			}, 300, 200)
+			from, ok := tt.Find("拖拽源")
+			if !ok {
+				t.Fatal("缺少拖拽源")
+			}
+			to, ok := tt.Find("拖拽目标")
+			if !ok {
+				t.Fatal("缺少拖拽目标")
+			}
+			x, y := from.X+from.W/2, from.Y+from.H/2
+			tx, ty := to.X+to.W/2, to.Y+to.H/2
+			tt.Press(x, y)
+			for step := 1; step <= 4; step++ {
+				fraction := float32(step) / 4
+				tt.Move(x+(tx-x)*fraction, y+(ty-y)*fraction)
+			}
+			tt.Release(tx, ty)
+			tt.Frame()
+			if !reflect.DeepEqual(moves, tc.want) {
+				t.Fatalf("移动 = %v，期望 %v", moves, tc.want)
+			}
+		})
+	}
+}
+
+func TestSidebarSortableSearchFilter(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	fake := NewFakeClient()
+	fake.SetProjectsAndThreads(
+		[]Project{{ID: "p1", Name: "共同项目一"}, {ID: "p2", Name: "共同项目二"}},
+		map[string][]Thread{},
+	)
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool {
+		_, first := tt.Find("proj-header-p1")
+		_, second := tt.Find("proj-header-p2")
+		return first && second
+	})
+	drag := func(source, target string) {
+		t.Helper()
+		from, ok := tt.Find(source)
+		if !ok {
+			t.Fatalf("缺少项目行 %q", source)
+		}
+		to, ok := tt.Find(target)
+		if !ok {
+			t.Fatalf("缺少项目行 %q", target)
+		}
+		x, y := from.X+from.W/2, from.Y+from.H/2
+		tx, ty := to.X+to.W/2, to.Y+to.H/2
+		tt.Press(x, y)
+		for step := 1; step <= 4; step++ {
+			fraction := float32(step) / 4
+			tt.Move(x+(tx-x)*fraction, y+(ty-y)*fraction)
+		}
+		tt.Release(tx, ty)
+		tt.Frame()
+	}
+	*getSearchQuery(state) = "共同项目"
+	state.invalidate()
+	tt.Frame()
+	drag("proj-header-p2", "proj-header-p1")
+	if order := sidebarProjectOrder(state); len(order) != 0 {
+		t.Fatalf("搜索期间不应排序：%v", order)
+	}
+	*getSearchQuery(state) = ""
+	state.invalidate()
+	tt.Frame()
+	drag("proj-header-p2", "proj-header-p1")
+	if order := sidebarProjectOrder(state); !reflect.DeepEqual(order, []string{"p2", "p1"}) {
+		t.Fatalf("拖动后的项目顺序 = %v", order)
+	}
+}

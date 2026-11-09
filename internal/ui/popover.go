@@ -35,16 +35,6 @@ func popoverRiseOffset(panel, anchor ui.Element) float32 {
 	return -motionRiseOffset
 }
 
-// popoverRise 给浮层面板挂上 motionRiseOffset 的升起/落下与淡入：进度由 Keyframes 驱动，
-// 位移方向每帧按面板实际落点现算，所以放不下而翻到锚点上方时，浮层从上往下落。
-func popoverRise(panel, anchor ui.Element) {
-	k := panel.Keyframes("pop-in", []ui.Keyframe{
-		{Value: 0},
-		{At: motionPop, Value: 1, Ease: motionEaseStandard},
-	})
-	panel.Translate(0, (1-k)*popoverRiseOffset(panel, anchor)).Opacity(k)
-}
-
 // appPopover 是 ui.Popover 的去外层样式版本：面板自身不做 Padding/Background/
 // Border/Shadow，由 fn 内容中的那一层卡片承担全部外观，避免出现“黑框套卡片”。
 // 调用方只需传入与原先一致的 c.Key(...) 作为锚点；onDismiss 可为 nil。

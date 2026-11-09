@@ -372,7 +372,7 @@ func renderEffortSignal(c *ui.Context, key string, props EffortSliderCardProps) 
 				Width(3).
 				Height(heights[i]).
 				Radius(RadiusXS).
-				Transition(ui.ElementTransition{Colors: true, Duration: 160 * time.Millisecond})
+				Transition(motionFeedback(c))
 			if progress >= float32(i)+0.5 {
 				col := effortSignalThemeColor(c, effortSignalSampleColor(colors, i, n))
 				bar.Background(col).Border(1, col)

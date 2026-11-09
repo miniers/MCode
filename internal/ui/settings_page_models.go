@@ -908,9 +908,9 @@ func renderPinnedModelRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 					TextColor(ThemeSecondaryText(c))
 			})
 		})
+	offset := float32(0)
 	if ps.dragFrom >= 0 {
 		target := modelDragTargetIndex(ps.dragFrom, ps.dragDy, 59, len(visiblePins))
-		offset := float32(0)
 		if idx == ps.dragFrom {
 			offset = ps.dragDy
 			row.Background(ThemeSurface(c)).Radius(RadiusMD)
@@ -919,8 +919,13 @@ func renderPinnedModelRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 		} else if idx < ps.dragFrom && idx >= target {
 			offset = 59
 		}
-		row.Translate(0, offset)
 	}
+	if ps.dragFrom >= 0 && idx == ps.dragFrom {
+		row.Jump("models-pin-offset", offset)
+	} else {
+		offset = row.AnimateTo("models-pin-offset", offset, springSnappy)
+	}
+	row.Translate(0, offset)
 }
 
 func renderProviderModelsSection(c *ui.Context, st *SettingsState, ps *modelsPageState, client Client, p ProviderInfo) {
