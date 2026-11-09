@@ -304,3 +304,21 @@ func TestServerSettingsResolution(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateProvider(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Providers.Presets = map[string]config.PresetProviderConfig{
+		"deepseek": {Enabled: true},
+		"zai":      {Enabled: false},
+	}
+	for _, provider := range []string{"memory", "claude", "codex", "deepseek"} {
+		if err := validateProvider(provider, cfg, nil); err != nil {
+			t.Errorf("%s: %v", provider, err)
+		}
+	}
+	for _, provider := range []string{"zai", "unknown"} {
+		if err := validateProvider(provider, cfg, nil); err == nil {
+			t.Errorf("%s 应当报错", provider)
+		}
+	}
+}

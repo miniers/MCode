@@ -30,6 +30,19 @@ type settings struct {
 	ExtraHosts []string
 }
 
+func validateProvider(provider string, cfg config.Config, secrets config.SecretStore) error {
+	switch provider {
+	case "memory", "claude", "codex":
+		return nil
+	}
+	for _, source := range serverAPISources(cfg, secrets) {
+		if source.Kind == provider {
+			return nil
+		}
+	}
+	return fmt.Errorf("unsupported or disabled provider %q", provider)
+}
+
 func resolveSettings(cfg config.Config, setFlags map[string]bool, flags flagValues) settings {
 	acpBins := make(map[string]string)
 	for k, v := range cfg.Providers.ACP {

@@ -34,7 +34,6 @@ import (
 	"mcode/internal/providers/acp"
 	"mcode/internal/providers/claude"
 	"mcode/internal/providers/codex"
-	"mcode/internal/providers/openai"
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
@@ -160,7 +159,7 @@ func main() {
 	listenFlag := flag.String("listen", defaults.Remote.Listen, "TCP listen address")
 	portFlag := flag.Int("port", 0, "TCP port; overrides the port in -listen when > 0")
 	dataFlag := flag.String("data", defaultDataDir, "mcode data directory")
-	providerFlag := flag.String("provider", defaults.Models.Provider, "agent provider (memory, claude, codex)")
+	providerFlag := flag.String("provider", defaults.Models.Provider, "agent provider (memory, claude, codex, or enabled API source kind)")
 	workdirFlag := flag.String("workdir", defaultWorkDir, "working directory for agent harness")
 	modeFlag := flag.String("mode", defaults.Permissions.Mode, "permission mode (readonly, supervised, autoAcceptEdits, auto, fullAccess; agent, full_access still accepted)")
 	claudeBinFlag := flag.String("claude-bin", "claude", "path to claude executable")
@@ -223,10 +222,9 @@ func main() {
 		acmeDirectory = *acmeDirectoryFlag
 	}
 
-	switch settings.Provider {
-	case "memory", "claude", "codex":
-	default:
-		log.Fatalf("unsupported provider %q: must be 'memory', 'claude', or 'codex'", settings.Provider)
+	secrets := config.NewSecretStore("mcode")
+	if err := validateProvider(settings.Provider, cfg, secrets); err != nil {
+		log.Fatal(err)
 	}
 
 	permMode, err := harness.ParseMode(settings.Mode)
@@ -267,6 +265,15 @@ func main() {
 	}
 	log.Printf("sqlite store opened at %s", dbPath)
 
+	if settings.Provider != "memory" {
+		fi, err := os.Stat(workdir)
+		if err != nil {
+			log.Fatalf("workdir %q does not exist: %v", workdir, err)
+		}
+		if !fi.IsDir() {
+			log.Fatalf("workdir %q is not a directory", workdir)
+		}
+	}
 	switch settings.Provider {
 	case "claude":
 		if _, err := exec.LookPath(settings.ClaudeBin); err != nil {
@@ -322,21 +329,21 @@ func main() {
 			log.Printf("legacy secret migration warning: %v", err)
 		}
 
-		if settings.OpenAI.Enabled {
-			backend.RegisterHarness(openai.New(openai.Options{
-				BaseURL: settings.OpenAI.BaseURL,
-				Model:   settings.OpenAI.Model,
-				// 环境变量只作兜底：装进 APIKey 会压过钥匙串里用户配置的 key。
-				FallbackAPIKey: os.Getenv("OPENAI_API_KEY"),
-				APIKeyAccount:  "openai.apiKey",
-				Secrets:        config.NewSecretStore("mcode"),
-			}))
+	}
+	if settings.Provider != "memory" {
+		registerAPIEngines(backend, cfg, secrets, *dataFlag)
+		if settings.Provider != "claude" && settings.Provider != "codex" {
+			h := backend.RegisteredHarness(settings.Provider)
+			if h == nil {
+				log.Fatalf("provider %q is not enabled or available", settings.Provider)
+			}
+			backend.SetHarness(h, workdir, permMode)
 		}
 	}
 
 	projectName := "演示项目"
 	projectPath := filepath.Join(*dataFlag, "demo-project")
-	if settings.Provider == "claude" || settings.Provider == "codex" {
+	if settings.Provider != "memory" {
 		projectName = filepath.Base(workdir)
 		projectPath = workdir
 	}
@@ -366,7 +373,13 @@ func main() {
 			IsExpanded:  true,
 			ThreadCount: 1,
 		}
+		if settings.Provider != "memory" && settings.Provider != "claude" && settings.Provider != "codex" {
+			project.ThreadCount = 0
+		}
 		backend.AddProject(project)
+		if settings.Provider != "memory" && settings.Provider != "claude" && settings.Provider != "codex" {
+			goto projectInitialized
+		}
 
 		demoProvider := "memory"
 		switch settings.Provider {
@@ -418,6 +431,7 @@ func main() {
 		backend.AddThread(thread, []wire.ThreadMessage{welcomeMsg})
 	}
 
+projectInitialized:
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		if errors.Is(err, syscall.EADDRINUSE) {
