@@ -326,10 +326,14 @@ func autoModeModelLabel(model string) string {
 	return model
 }
 
+// 仅放宽审批服务的工具硬上限与空闲超时至 24 小时，供用户慢慢回答。
+const approvalToolTimeoutMs = 86400000
+
 type mcpServerConfig struct {
 	Type    string            `json:"type"`
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers"`
+	Timeout int               `json:"timeout,omitempty"`
 }
 
 type mcpConfig struct {
@@ -351,8 +355,9 @@ func buildMCPArgs(turn harness.Turn, approvalURL, approvalToken string, builtin 
 
 	if approvalsActive(turn) && approvalURL != "" {
 		servers["mcode_approval"] = mcpServerConfig{
-			Type: "http",
-			URL:  approvalURL,
+			Type:    "http",
+			URL:     approvalURL,
+			Timeout: approvalToolTimeoutMs,
 			Headers: map[string]string{
 				"Authorization": "Bearer " + approvalToken,
 			},

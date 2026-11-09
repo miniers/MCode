@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,9 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"mcode/internal/harness"
 )
@@ -248,6 +251,143 @@ func TestApprovalServer_ToolsList(t *testing.T) {
 	}
 }
 
+const sseApprovalRequest = `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{"command":"git diff"}}}}`
+
+type blockingSSEApprover struct {
+	entered chan struct{}
+	release chan struct{}
+	exited  chan error
+}
+
+func (a *blockingSSEApprover) Approve(ctx context.Context, _ harness.ApprovalRequest) (harness.Decision, error) {
+	close(a.entered)
+	select {
+	case <-a.release:
+		a.exited <- nil
+		return harness.DecisionAllow, nil
+	case <-ctx.Done():
+		a.exited <- ctx.Err()
+		return harness.DecisionDeny, ctx.Err()
+	}
+}
+
+func newBlockingSSEApprover() *blockingSSEApprover {
+	return &blockingSSEApprover{entered: make(chan struct{}), release: make(chan struct{}), exited: make(chan error, 1)}
+}
+
+func postSSEApproval(t *testing.T, ctx context.Context, server *approvalServer) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.url(), strings.NewReader(sseApprovalRequest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.token())
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func TestApprovalServer_ToolsCall_SSEFlushesBeforeAnswer(t *testing.T) {
+	approver := newBlockingSSEApprover()
+	server, cleanup := newTestApprovalServer(t, approver)
+	defer cleanup()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	resp := postSSEApproval(t, ctx, server)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("unexpected response: %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	close(approver.release)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data string
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.HasPrefix(line, "data: ") {
+			data = strings.TrimPrefix(line, "data: ")
+		}
+	}
+	if !strings.Contains(string(body), "event: message\n") || data == "" {
+		t.Fatalf("missing SSE message: %q", body)
+	}
+	jsonServer, jsonCleanup := newTestApprovalServer(t, &fakeApprover{decision: harness.DecisionAllow})
+	defer jsonCleanup()
+	_, jsonBody := postMCP(t, jsonServer.url(), jsonServer.token(), []byte(sseApprovalRequest))
+	var got, want any
+	if err := json.Unmarshal([]byte(data), &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(jsonBody, &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SSE response %#v differs from JSON response %#v", got, want)
+	}
+}
+
+func TestApprovalServer_ToolsCall_SSEKeepalive(t *testing.T) {
+	oldInterval := approvalKeepaliveInterval
+	approvalKeepaliveInterval = 25 * time.Millisecond
+	defer func() { approvalKeepaliveInterval = oldInterval }()
+	approver := newBlockingSSEApprover()
+	server, cleanup := newTestApprovalServer(t, approver)
+	defer cleanup()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	resp := postSSEApproval(t, ctx, server)
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	line, err := reader.ReadString('\n')
+	if err != nil || !strings.HasPrefix(line, ":") {
+		t.Fatalf("expected keepalive before data, got %q: %v", line, err)
+	}
+	close(approver.release)
+	body, err := io.ReadAll(reader)
+	if err != nil || !strings.Contains(string(body), "data: ") {
+		t.Fatalf("expected SSE data after keepalive, got %q: %v", body, err)
+	}
+}
+
+func TestApprovalServer_ToolsCall_SSEClientCancel(t *testing.T) {
+	approver := newBlockingSSEApprover()
+	server := &approvalServer{approver: approver, tokenStr: "test-token"}
+	handlerDone := make(chan struct{})
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
+		server.handleMCP(w, r)
+	}))
+	defer httpServer.Close()
+	server.serverURL = httpServer.URL + "/mcp"
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	resp := postSSEApproval(t, ctx, server)
+	defer resp.Body.Close()
+	select {
+	case <-approver.entered:
+	case <-ctx.Done():
+		t.Fatal("approver did not start")
+	}
+	cancel()
+	select {
+	case err := <-approver.exited:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("approver error = %v, want context canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("approver did not exit")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler did not exit")
+	}
+}
+
 func TestApprovalServer_ToolsCall_Allow(t *testing.T) {
 	fake := &fakeApprover{decision: harness.DecisionAllow}
 	server, cleanup := newTestApprovalServer(t, fake)
@@ -271,6 +411,9 @@ func TestApprovalServer_ToolsCall_Allow(t *testing.T) {
 	resp, body := postMCP(t, server.url(), server.token(), reqBody)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json, got %q", ct)
 	}
 
 	// 1. 断言假 Approver 收到的字段

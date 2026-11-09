@@ -1375,7 +1375,7 @@ func TestBuildMCPArgs(t *testing.T) {
 			WorkDir:  "/workspace/test",
 		}
 
-		args := buildMCPArgs(turn, approvalURL, approvalToken, harness.BuiltinMCP{URL: builtinURL, Token: builtinToken}, nil)
+		args := buildMCPArgs(turn, approvalURL, approvalToken, harness.BuiltinMCP{URL: builtinURL, Token: builtinToken}, []harness.MCPEndpoint{{Name: "external", URL: "http://external"}})
 
 		mcpConfigCount := 0
 		var configStr string
@@ -1414,6 +1414,20 @@ func TestBuildMCPArgs(t *testing.T) {
 		}
 		if apprSrv.Headers["Authorization"] != "Bearer "+approvalToken {
 			t.Errorf("unexpected Authorization header for approval: %v", apprSrv.Headers)
+		}
+		if apprSrv.Timeout != 86400000 {
+			t.Errorf("expected approval timeout 86400000, got %d", apprSrv.Timeout)
+		}
+		var rawConfig struct {
+			MCPServers map[string]map[string]json.RawMessage `json:"mcpServers"`
+		}
+		if err := json.Unmarshal([]byte(configStr), &rawConfig); err != nil {
+			t.Fatalf("unmarshal raw config: %v", err)
+		}
+		for _, name := range []string{"mcode", "external"} {
+			if _, ok := rawConfig.MCPServers[name]["timeout"]; ok {
+				t.Errorf("unexpected timeout on %s", name)
+			}
 		}
 
 		// 断言内置 server 与 header

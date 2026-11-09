@@ -14,9 +14,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"mcode/internal/harness"
 )
+
+var approvalKeepaliveInterval = 15 * time.Second
 
 type approvalServer struct {
 	listener  net.Listener
@@ -334,6 +337,61 @@ func (s *approvalServer) handleApproveCall(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	writeResponse := func(result any, rpcErr *jsonRPCError) error {
+		return s.writeRPCResponse(w, reqID, result, rpcErr)
+	}
+	flusher, canFlush := w.(http.Flusher)
+	if canFlush && strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		interval := approvalKeepaliveInterval
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+		stop := make(chan struct{})
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-r.Context().Done():
+					return
+				case <-ticker.C:
+					if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
+						return
+					}
+					flusher.Flush()
+				}
+			}
+		}()
+		writeResponse = func(result any, rpcErr *jsonRPCError) error {
+			data, err := json.Marshal(rpcResponse(reqID, result, rpcErr))
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+			flusher.Flush()
+			return err
+		}
+		var stopOnce sync.Once
+		stopKeepalive := func() {
+			stopOnce.Do(func() {
+				close(stop)
+				<-done
+			})
+		}
+		defer stopKeepalive()
+		// 最终响应前先停止保活协程，避免并发写入 ResponseWriter。
+		originalWrite := writeResponse
+		writeResponse = func(result any, rpcErr *jsonRPCError) error {
+			stopKeepalive()
+			return originalWrite(result, rpcErr)
+		}
+	}
+
 	var resp harness.ApprovalResponse
 	var approveErr error
 	if ia, ok := approver.(harness.Interactor); ok {
@@ -362,7 +420,7 @@ func (s *approvalServer) handleApproveCall(w http.ResponseWriter, r *http.Reques
 				},
 			},
 		}
-		_ = s.writeRPCResponse(w, reqID, callResult, nil)
+		_ = writeResponse(callResult, nil)
 		return
 	}
 
@@ -413,7 +471,7 @@ func (s *approvalServer) handleApproveCall(w http.ResponseWriter, r *http.Reques
 			},
 		},
 	}
-	writeErr := s.writeRPCResponse(w, reqID, callResult, nil)
+	writeErr := writeResponse(callResult, nil)
 	harness.AckDelivery(approver, approvalReq, writeErr)
 }
 
@@ -501,7 +559,7 @@ type jsonRPCError struct {
 	Message string `json:"message"`
 }
 
-func (s *approvalServer) writeRPCResponse(w http.ResponseWriter, id *json.RawMessage, result any, rpcErr *jsonRPCError) error {
+func rpcResponse(id *json.RawMessage, result any, rpcErr *jsonRPCError) map[string]any {
 	resp := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      id,
@@ -512,9 +570,13 @@ func (s *approvalServer) writeRPCResponse(w http.ResponseWriter, id *json.RawMes
 		resp["result"] = result
 	}
 
+	return resp
+}
+
+func (s *approvalServer) writeRPCResponse(w http.ResponseWriter, id *json.RawMessage, result any, rpcErr *jsonRPCError) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	return json.NewEncoder(w).Encode(resp)
+	return json.NewEncoder(w).Encode(rpcResponse(id, result, rpcErr))
 }
 
 func (s *approvalServer) writeRPCError(w http.ResponseWriter, id *json.RawMessage, code int, message string) {

@@ -507,6 +507,8 @@ func TestTimelineTurnHeader_StatusOnlyFinishReplacesCachedRunningHeader(t *testi
 			state.mu.Unlock()
 			state.invalidate()
 			waitFor(t, tt, func() bool { return tt.HasText("用时 46s") })
+			// 结束后折叠体从运行时的强制展开回收起，等收起动画播完再断言。
+			tt.Advance(motionUnfold + 40*time.Millisecond)
 			if tt.HasText("已处理") || !tt.HasText("FOLD-ANSWER-ONE") || tt.HasText("已完成 ·") {
 				t.Fatalf("结束态显示不正确: %v", tt.Texts())
 			}
