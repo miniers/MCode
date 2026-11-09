@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/config"
 )
 
 // currentSwarmPair 按 Lead 与 Bees 配置精确匹配配对模板。
@@ -182,9 +183,50 @@ func TestReadySwarmPairs(t *testing.T) {
 		{ID: "missing-worker-model", LeadProvider: "claude", LeadModel: "claude-3-7-sonnet", WorkerProvider: "codex", WorkerModel: "gpt-5"},
 	}
 
-	ready := readySwarmPairs(pairs, providers, nil)
+	ready := readySwarmPairs(config.Config{}, pairs, providers, nil)
 	if len(ready) != 1 || ready[0].ID != "ready" {
 		t.Fatalf("expected only 'ready', got %+v", ready)
+	}
+}
+
+func TestReadySwarmPairsLegacyMcodeWorker(t *testing.T) {
+	cfg := config.Config{}
+	cfg.Providers.Custom = []config.CustomEndpointConfig{{ID: "432db46a", Name: "magpie_jp", Enabled: true, Magpie: true}}
+	providers := []ProviderInfo{
+		{ID: "claude", Models: []ModelInfo{{ID: "sonnet"}}},
+		{ID: "custom-432db46a", Models: []ModelInfo{{ID: "auto/deepseek-v4.1-flash"}}},
+	}
+	pair := SwarmPair{ID: "legacy", LeadProvider: "claude", LeadModel: "sonnet", WorkerProvider: "mcode", WorkerModel: "magpie-jp/auto/deepseek-v4.1-flash", BeeTiers: map[string]config.SwarmTierOverride{"deep": {Provider: "mcode", Model: "magpie-jp/auto/other"}}}
+	ready := readySwarmPairs(cfg, []SwarmPair{pair}, providers, nil)
+	if len(ready) != 1 || ready[0].WorkerProvider != pair.WorkerProvider || ready[0].WorkerModel != pair.WorkerModel || ready[0].BeeTiers["deep"] != pair.BeeTiers["deep"] {
+		t.Fatalf("旧配对应就绪并保留原始执行侧：%+v", ready)
+	}
+
+	disabled := cfg
+	disabled.Providers.Custom = []config.CustomEndpointConfig{{ID: "432db46a", Name: "magpie_jp", Magpie: true}}
+	if ready := readySwarmPairs(disabled, []SwarmPair{pair}, providers, nil); len(ready) != 0 {
+		t.Fatalf("端点禁用时不应就绪：%+v", ready)
+	}
+	pins := []ModelPin{{Provider: pair.WorkerProvider, ModelID: pair.WorkerModel}}
+	if ready := readySwarmPairs(cfg, []SwarmPair{pair}, providers[:1], pins); len(ready) != 0 {
+		t.Fatalf("目标来源不存在时固定模型不能放行：%+v", ready)
+	}
+	otherModels := []ProviderInfo{providers[0], {ID: "custom-432db46a", Models: []ModelInfo{{ID: "other"}}}}
+	if ready := readySwarmPairs(cfg, []SwarmPair{pair}, otherModels, pins); len(ready) != 1 {
+		t.Fatalf("原始来源的固定模型应放行：%+v", ready)
+	}
+	unknown := pair
+	unknown.WorkerModel = "unknown/auto/deepseek-v4.1-flash"
+	if ready := readySwarmPairs(cfg, []SwarmPair{unknown}, providers, nil); len(ready) != 0 {
+		t.Fatalf("未知旧来源不应就绪：%+v", ready)
+	}
+	lead := SwarmPair{ID: "lead", LeadProvider: "mcode", LeadModel: pair.WorkerModel}
+	if ready := readySwarmPairs(cfg, []SwarmPair{lead}, providers, nil); len(ready) != 0 {
+		t.Fatalf("主导侧原来源不存在时不应就绪：%+v", ready)
+	}
+	withMcode := append(append([]ProviderInfo(nil), providers...), ProviderInfo{ID: "mcode"})
+	if ready := readySwarmPairs(cfg, []SwarmPair{lead}, withMcode, nil); len(ready) != 1 || ready[0].WorkerModel != "" {
+		t.Fatalf("执行侧应跟随主导侧并保留原值：%+v", ready)
 	}
 }
 

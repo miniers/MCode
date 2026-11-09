@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
 )
@@ -98,7 +99,7 @@ type ModelPickerProps struct {
 
 	Pins            []ModelPin      // 一级页精选模型；为空时直接展示按 provider 分组的全部模型
 	ProviderEnabled map[string]bool // 各 provider 的启用状态（false 为已关闭）；列表页据此隐藏其模型，为空表示不过滤
-	Pairs           []SwarmPair     // Swarm 配对模板，展示在主导侧列表顶部
+	Pairs           []SwarmPair     // 已完成就绪检查的原始配对，展示在主导侧列表顶部
 	PairID          string          // 会话选中的配对 ID，选定则优先高亮这一条
 	MaxBees         int             // 并发 Bee 上限
 
@@ -612,15 +613,29 @@ func swarmPairMatches(p SwarmPair, leadProvider, leadModel, beesProvider, beesMo
 // readySwarmPairs 过滤出在当前提供方目录中两侧都能解析的配对模板：
 // Lead 与 Worker 的 provider 都存在，且各自指定的模型在该 provider 的模型列表中存在；
 // 模型为空表示不指定，不做校验。
-func readySwarmPairs(pairs []SwarmPair, providers []ProviderInfo, pins []ModelPin) []SwarmPair {
+func readySwarmPairs(cfg config.Config, pairs []SwarmPair, providers []ProviderInfo, pins []ModelPin) []SwarmPair {
 	var out []SwarmPair
 	for _, p := range pairs {
-		leadProv, ok := findProviderInfo(providers, p.LeadProvider)
-		if !ok || !modelUsable(leadProv, p.LeadModel, pins) {
+		leadProvider, leadModel, leadMapped := apisource.NormalizeBeeModel(cfg, nil, p.LeadProvider, p.LeadModel)
+		if p.LeadProvider == "mcode" {
+			if _, ok := findProviderInfo(providers, p.LeadProvider); !ok || !leadMapped {
+				continue
+			}
+		}
+		leadProv, ok := findProviderInfo(providers, leadProvider)
+		if !ok || (!modelUsable(leadProv, leadModel, pins) && !providerHasPinnedModel(p.LeadProvider, p.LeadModel, pins)) {
 			continue
 		}
-		workerProv, ok := findProviderInfo(providers, swarmWorkerProvider(p))
-		if !ok || !modelUsable(workerProv, p.WorkerModel, pins) {
+		originalWorkerProvider, originalWorkerModel := swarmWorkerProvider(p), p.WorkerModel
+		if originalWorkerModel == "" {
+			originalWorkerModel = p.LeadModel
+		}
+		workerProvider, workerModel, workerMapped := apisource.NormalizeBeeModel(cfg, nil, originalWorkerProvider, originalWorkerModel)
+		if originalWorkerProvider == "mcode" && !workerMapped {
+			continue
+		}
+		workerProv, ok := findProviderInfo(providers, workerProvider)
+		if !ok || (!modelUsable(workerProv, workerModel, pins) && !providerHasPinnedModel(originalWorkerProvider, originalWorkerModel, pins)) {
 			continue
 		}
 		out = append(out, p)
@@ -1993,15 +2008,15 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 						Children(func() {
 							// C-HY-19：Lead 段列表顶部展示就绪的 Swarm 配对模板，点击一键套用并关闭整个弹层。
 							// 搜索时只列匹配的模型，不展示配对段。
-							if p.Mode == ModelPickerSwarm && side == ModelPickerSideLead && len(p.Pairs) > 0 && !searching {
+							if p.Mode == ModelPickerSwarm && side == ModelPickerSideLead && !searching {
 								curPair, hasCurPair := SwarmPair{}, false
 								if p.SwarmOn {
 									curPair, hasCurPair = currentSwarmPairFor(p.Pairs, p.PairID, lead.Selection.Provider, lead.Selection.Model, p.Bees.Provider, p.Bees.Model)
 								}
-								renderProviderGroupHeader(c, p.KeyPrefix+"pair-group-header", "配对")
+								renderedPairs := 0
 								for idx, pair := range p.Pairs {
-									if pair.LeadProvider == "mcode" || swarmWorkerProvider(pair) == "mcode" {
-										continue
+									if renderedPairs == 0 {
+										renderProviderGroupHeader(c, p.KeyPrefix+"pair-group-header", "配对")
 									}
 									pair := pair
 									selected := hasCurPair && curPair.ID == pair.ID
@@ -2016,8 +2031,11 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 										}
 									}
 									renderModelListPairRow(c, p, fmt.Sprintf("%spair-row-%d", p.KeyPrefix, idx), pair, selected, onEnter)
+									renderedPairs++
 								}
-								renderProviderGroupHeader(c, p.KeyPrefix+"pair-models-header", "模型")
+								if renderedPairs > 0 {
+									renderProviderGroupHeader(c, p.KeyPrefix+"pair-models-header", "模型")
+								}
 							}
 
 							if isMoreOpen && !searching && side == ModelPickerSideBees && state != nil && state.TierEditing != "" {

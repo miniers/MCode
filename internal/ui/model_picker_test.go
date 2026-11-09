@@ -342,10 +342,10 @@ func TestProviderHasPinnedModelAllowsCustomModel(t *testing.T) {
 	}
 
 	pairs := []SwarmPair{{ID: "pinned-lead", LeadProvider: "claude", LeadModel: "claude-custom-x", WorkerProvider: "claude", WorkerModel: "sonnet"}}
-	if ready := readySwarmPairs(pairs, providers, pins); len(ready) != 1 || ready[0].ID != "pinned-lead" {
+	if ready := readySwarmPairs(config.Config{}, pairs, providers, pins); len(ready) != 1 || ready[0].ID != "pinned-lead" {
 		t.Fatalf("pin 应让配对保留，got %+v", ready)
 	}
-	if ready := readySwarmPairs(pairs, providers, nil); len(ready) != 0 {
+	if ready := readySwarmPairs(config.Config{}, pairs, providers, nil); len(ready) != 0 {
 		t.Fatalf("未固定时配对应按原逻辑被过滤，got %+v", ready)
 	}
 }
@@ -790,6 +790,58 @@ func TestRenderModelList_ProviderCatalogNotice(t *testing.T) {
 	}
 	if noButton.HasText("重新探测") {
 		t.Fatalf("未传 OnRefreshCatalog 时不应画重新探测按钮: %v", noButton.Texts())
+	}
+}
+
+func TestModelPickerSwarmPairHeaders(t *testing.T) {
+	pair := SwarmPair{ID: "legacy", Name: "旧配对", LeadProvider: "claude", LeadModel: "claude-3-7-sonnet", WorkerProvider: "mcode", WorkerModel: "magpie-jp/auto/deepseek-v4.1-flash"}
+	for _, hasPair := range []bool{false, true} {
+		name := "无配对"
+		if hasPair {
+			name = "旧配对"
+		}
+		t.Run(name, func(t *testing.T) {
+			state := &ModelPickerState{}
+			var applied SwarmPair
+			props := ModelPickerProps{
+				Mode: ModelPickerSwarm, KeyPrefix: "t-pair-", ScopeKey: "t-pair-" + name,
+				Providers: modelPickerTestProviders(), Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+				OnApplyPair: func(p SwarmPair) { applied = p },
+			}
+			if hasPair {
+				props.Pairs = []SwarmPair{pair}
+			}
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Column(c).Width(300).Children(func() {
+					renderModelPickerListPage(c, props, state, ModelPickerSideLead)
+				})
+			}, 320, 640)
+			tt.Frame()
+			for _, key := range []string{"t-pair-pair-group-header", "t-pair-pair-models-header", "t-pair-pair-row-0"} {
+				if _, ok := tt.Find(key); ok != hasPair {
+					t.Fatalf("%s 是否存在 = %v，期望 %v", key, ok, hasPair)
+				}
+			}
+			for _, title := range []string{"配对", "模型"} {
+				count := 0
+				for _, text := range tt.Texts() {
+					if text == title {
+						count++
+					}
+				}
+				if hasPair && count != 1 || !hasPair && count != 0 {
+					t.Fatalf("标题 %q 出现 %d 次", title, count)
+				}
+			}
+			if hasPair {
+				if err := tt.Click("旧配对"); err != nil {
+					t.Fatalf("点击旧配对失败：%v", err)
+				}
+				if applied.WorkerProvider != pair.WorkerProvider || applied.WorkerModel != pair.WorkerModel {
+					t.Fatalf("套用应保留执行侧原值：%+v", applied)
+				}
+			}
+		})
 	}
 }
 

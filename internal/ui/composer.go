@@ -1905,7 +1905,7 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 			capsuleLabel = string(name[:8]) + "…"
 		}
 	}
-	pairs := readySwarmPairs(swarmPairsFromSettings(s), providers, pinnedModelPins(s))
+	pairs := swarmPairsFromSettings(s, providers, pinnedModelPins(s))
 	var pairTierOverrides map[string]config.SwarmTierOverride
 	modelTooltip := "模型: " + modelTitle
 	matchedPair := false
@@ -2394,13 +2394,16 @@ func getProviderQuotaUsed(s *chatState, providerID string) (float64, bool) {
 	return windows[0].UsedPercent, true
 }
 
-// swarmPairsFromSettings 读取全局设置中的 Swarm 配对模板列表。
-func swarmPairsFromSettings(s *chatState) []SwarmPair {
+// swarmPairsFromSettings 返回当前目录就绪的原始配对。
+func swarmPairsFromSettings(s *chatState, providers []ProviderInfo, pins []ModelPin) []SwarmPair {
 	st := getChatSettings(s)
 	if st == nil {
 		return nil
 	}
-	return st.cfg.Orchestration.Pairs
+	st.cfgMu.Lock()
+	cfg := st.cfg
+	st.cfgMu.Unlock()
+	return readySwarmPairs(cfg, cfg.Orchestration.Pairs, providers, pins)
 }
 
 // swarmTiersFromSettings 读取全局设置中的 Swarm 档位列表。
