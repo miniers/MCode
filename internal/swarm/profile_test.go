@@ -324,7 +324,7 @@ func TestResolveBeeConfig(t *testing.T) {
 			want: BeeConfig{Provider: "codex", Model: "gpt-5.1-codex", Effort: "xhigh", Tier: "t1"},
 		},
 		{
-			name: "会话子代理模型被线程覆盖时提示不带空的 provider",
+			name: "会话子代理模型被线程覆盖时不提示",
 			in: ResolveInput{
 				Delegation:      Delegation{Tier: "t1"},
 				Tiers:           []Tier{{ID: "t1", Provider: "claude", Model: "opus"}},
@@ -333,8 +333,30 @@ func TestResolveBeeConfig(t *testing.T) {
 					"t1": {Provider: "gemini", Model: "flash"},
 				},
 			},
-			want:      BeeConfig{Provider: "gemini", Model: "flash", Tier: "t1"},
-			wantNotes: []string{`会话子代理模型 gpt-5 已被后续配置覆盖，实际使用 gemini/flash`},
+			want: BeeConfig{Provider: "gemini", Model: "flash", Tier: "t1"},
+		},
+		{
+			name: "会话子代理模型被配对覆盖时不提示",
+			in: ResolveInput{
+				Delegation:         Delegation{Tier: "t1"},
+				Tiers:              []Tier{{ID: "t1", Provider: "claude", Model: "opus"}},
+				PairID:             "pair-flash",
+				Pairs:              []Pair{{ID: "pair-flash", BeeTiers: map[string]TierOverride{"t1": {Provider: "gemini", Model: "flash"}}}},
+				SessionBeeProvider: "claude",
+				SessionBeeModel:    "sonnet",
+			},
+			want: BeeConfig{Provider: "gemini", Model: "flash", Tier: "t1", PairID: "pair-flash"},
+		},
+		{
+			name: "委派直属模型覆盖时提示不带空的 provider",
+			in: ResolveInput{
+				Delegation:      Delegation{Tier: "t1", Provider: "codex", Model: "gpt"},
+				Tiers:           []Tier{{ID: "t1", Provider: "claude", Model: "opus"}},
+				SessionBeeModel: "gpt-5",
+				UserMessage:     "请用 gpt 跑",
+			},
+			want:      BeeConfig{Provider: "codex", Model: "gpt", Tier: "t1", DirectModel: true},
+			wantNotes: []string{`会话子代理模型 gpt-5 已被后续配置覆盖，实际使用 codex/gpt`},
 		},
 		{
 			name: "委派明确授权的直属模型仍覆盖会话子代理模型",

@@ -238,9 +238,9 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 		}
 	}
 
-	// 会话选的子代理模型被后面的层（配对/线程覆盖、委派授权的直属模型）覆盖时，
-	// 说明真正生效的模型，避免输出已经被覆盖的误导提示。
-	if sessionApplied && cfg.Model != in.SessionBeeModel {
+	// 仅在委派明确授权的直属模型（含授权配对）覆盖会话模型时提示；
+	// 配对和线程覆盖是用户配置，档位列表已显示实际模型。
+	if sessionApplied && cfg.DirectModel && cfg.Model != in.SessionBeeModel {
 		notes = append(notes, fmt.Sprintf("会话子代理模型 %s 已被后续配置覆盖，实际使用 %s", providerModelLabel(in.SessionBeeProvider, in.SessionBeeModel), providerModelLabel(cfg.Provider, cfg.Model)))
 	}
 
