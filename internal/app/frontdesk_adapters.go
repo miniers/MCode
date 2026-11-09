@@ -281,7 +281,7 @@ func (s *frontdeskServices) AnswerDecision(ctx context.Context, id, answer, by s
 	if e != nil {
 		return e
 	}
-	payload, e := json.Marshal(map[string]string{"id": d.ID, "answer": d.Answer})
+	payload, e := json.Marshal(map[string]string{"id": d.ID, "answer": d.Answer, "by": by})
 	if e != nil {
 		log.Printf("前台编码决策答案失败: %v", e)
 		return nil

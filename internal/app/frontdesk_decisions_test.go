@@ -81,8 +81,8 @@ func TestFrontdeskAnswerDecisionAppendsMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := &frontdeskServices{store: db, backend: backend, kanban: kanban.NewService(kanban.Options{Store: db})}
-	for i, answer := range []string{"甲", "乙"} {
-		if err := svc.AnswerDecision(ctx, decision.ID, answer, "owner"); err != nil {
+	for i, entry := range []struct{ answer, by string }{{"甲", "owner"}, {"乙", "remote"}} {
+		if err := svc.AnswerDecision(ctx, decision.ID, entry.answer, entry.by); err != nil {
 			t.Fatal(err)
 		}
 		messages, _, err := db.ListMessages(ctx, feedID, 0, 10)
@@ -93,8 +93,9 @@ func TestFrontdeskAnswerDecisionAppendsMessages(t *testing.T) {
 		var payload struct {
 			ID     string `json:"id"`
 			Answer string `json:"answer"`
+			By     string `json:"by"`
 		}
-		if err := json.Unmarshal([]byte(message.Text), &payload); err != nil || message.Role != "system" || message.Kind != "steward_decision_answer" || payload.ID != decision.ID || payload.Answer != answer {
+		if err := json.Unmarshal([]byte(message.Text), &payload); err != nil || message.Role != "system" || message.Kind != "steward_decision_answer" || payload.ID != decision.ID || payload.Answer != entry.answer || payload.By != entry.by {
 			t.Fatalf("答卡消息错误：%+v，内容 %+v，错误 %v", message, payload, err)
 		}
 	}

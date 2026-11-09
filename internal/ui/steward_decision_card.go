@@ -16,6 +16,8 @@ type stewardDecisionOption struct {
 type stewardDecision struct {
 	ID          string                  `json:"id"`
 	Task        string                  `json:"task"`
+	TaskID      string                  `json:"task_id"`
+	Thread      string                  `json:"thread"`
 	Question    string                  `json:"question"`
 	Options     []stewardDecisionOption `json:"options"`
 	Recommended string                  `json:"recommended"`
@@ -24,6 +26,7 @@ type stewardDecision struct {
 type stewardDecisionAnswer struct {
 	ID     string `json:"id"`
 	Answer string `json:"answer"`
+	By     string `json:"by"`
 }
 
 func parseStewardDecision(text string) (stewardDecision, bool) {
@@ -33,7 +36,7 @@ func parseStewardDecision(text string) (stewardDecision, bool) {
 }
 
 // 最后一条同编号回答代表当前状态，允许后端追加改答记录。
-func stewardDecisionResult(decision stewardDecision, messages []Message) (string, bool) {
+func stewardDecisionResult(decision stewardDecision, messages []Message) (text string, remote bool, answered bool) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]
 		if m.Kind != stewardDecisionAnswerKind || (m.Role != "user" && m.Role != "system") {
@@ -43,17 +46,18 @@ func stewardDecisionResult(decision stewardDecision, messages []Message) (string
 		if json.Unmarshal([]byte(m.Text), &answer) != nil || answer.ID != decision.ID {
 			continue
 		}
+		remote = answer.By == "remote"
 		if answer.Answer == "忽略" {
-			return "已忽略", true
+			return "已忽略", remote, true
 		}
 		for _, option := range decision.Options {
 			if option.Key == answer.Answer {
-				return "已选 " + answer.Answer + " · " + option.Text, true
+				return "已选 " + answer.Answer + " · " + option.Text, remote, true
 			}
 		}
-		return "已选 " + answer.Answer, true
+		return "已选 " + answer.Answer, remote, true
 	}
-	return "", false
+	return "", false, false
 }
 
 func stewardDecisionShortcut(key ui.Key, options []stewardDecisionOption) (string, bool) {
@@ -125,7 +129,7 @@ func lastInteractiveStewardDecision(messages []Message) string {
 		if !ok {
 			continue
 		}
-		if _, answered := stewardDecisionResult(decision, messages); !answered {
+		if _, _, answered := stewardDecisionResult(decision, messages); !answered {
 			return m.ID
 		}
 	}
@@ -141,7 +145,7 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 	messages := append([]Message(nil), s.messages...)
 	draftEmpty := strings.TrimSpace(s.draft) == ""
 	s.mu.Unlock()
-	result, answered := stewardDecisionResult(decision, messages)
+	result, remote, answered := stewardDecisionResult(decision, messages)
 	st := getStewardOpenState(s)
 	st.mu.Lock()
 	answerError := st.decisionErrors[decision.ID]
@@ -171,9 +175,29 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 		ui.Row(c.Key("steward-decision-title-" + m.ID)).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, decision.ID).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 			ui.Text(c, decision.Question).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1)
+			if decision.Task != "" {
+				if decision.Thread != "" && decision.TaskID != "" {
+					btn := ui.ButtonBase(c.Key("steward-decision-task-" + m.ID)).Label(decision.Task).Shrink(1).MinWidth(0).
+						OnClick(func() { openStewardTask(s, stewardResult{Task: decision.TaskID, Thread: decision.Thread}) })
+					color := ThemeSecondaryText(c)
+					if btn.Hovered() {
+						color = ThemePrimaryText(c)
+					}
+					btn.Children(func() {
+						ui.Text(c, decision.Task).FontSize(scaledFont(TypeCaption)).TextColor(color).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+					})
+				} else {
+					ui.Text(c, decision.Task).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+				}
+			}
 		})
 		if answered {
-			ui.Text(c, result).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+			ui.Row(c.Key("steward-decision-result-" + m.ID)).Gap(Space2).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, result).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+				if remote {
+					ui.Icon(c, IconSmartphone()).Size(12, 12).TextColor(ThemeSecondaryText(c)).Tooltip("在远程设备上答复")
+				}
+			})
 			return
 		}
 		if answerError != "" {

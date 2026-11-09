@@ -1,23 +1,39 @@
 package mcodeui
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
 
-// insertTurnTimeRows 在每个回合第一条承载消息的条目（单条消息、工具组、工具节拍、回合折叠项、汇报行）
-// 之前插入一条日期时间分隔行，每个回合只插一次，其它条目原样保留；只用于总管会话。
-func insertTurnTimeRows(items []timelineItem) []timelineItem {
+// stewardTimeGap 是和上一个时间标签相隔多长才再显示一次的阈值。
+const stewardTimeGap = 5 * time.Minute
+
+// insertStewardTimeRows 按消息时间间隔和本地日期插入时间分隔行，只用于总管会话。
+func insertStewardTimeRows(items []timelineItem) []timelineItem {
 	out := make([]timelineItem, 0, len(items))
-	seen := make(map[int]bool)
+	var last time.Time
+	inserted := false
 	for _, item := range items {
 		switch item.kind {
 		case timelineItemSingle, timelineItemToolGroup, timelineItemToolBeat, timelineItemTurnWork, timelineItemSwarmReport:
-			if item.turnIndex >= 0 && !seen[item.turnIndex] {
-				seen[item.turnIndex] = true
-				out = append(out, timelineItem{kind: timelineItemTurnTime, id: "turn-time-" + strconv.Itoa(item.turnIndex), turnIndex: item.turnIndex})
+			var at time.Time
+			var found bool
+			for _, messages := range [][]Message{{item.msg}, item.tools, item.beatTools, item.reportMsgs} {
+				for _, msg := range messages {
+					if at, found = messageTime(msg); found {
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+			localAt, localLast := at.In(time.Local), last.In(time.Local)
+			if found && (!inserted || at.Sub(last) >= stewardTimeGap || localAt.Year() != localLast.Year() || localAt.YearDay() != localLast.YearDay()) {
+				out = append(out, timelineItem{kind: timelineItemTurnTime, id: "steward-time-" + item.id, turnIndex: item.turnIndex, stampAt: at})
+				last = at
+				inserted = true
 			}
 		}
 		out = append(out, item)
@@ -25,7 +41,7 @@ func insertTurnTimeRows(items []timelineItem) []timelineItem {
 	return out
 }
 
-// turnTimeLabel 按本地时区把回合起始时间格式化成「今天 15:04」「昨天 15:04」
+// turnTimeLabel 按本地时区把时间标签格式化成「今天 15:04」「昨天 15:04」
 // 「1月2日 15:04」或「2006年1月2日 15:04」，零值返回空串。
 func turnTimeLabel(at, now time.Time) string {
 	if at.IsZero() {
@@ -46,9 +62,9 @@ func turnTimeLabel(at, now time.Time) string {
 	}
 }
 
-// renderTurnTimeRow 渲染居中的日期时间小字，时间取本回合起始时间，拿不到时不画。
+// renderTurnTimeRow 渲染居中的日期时间小字，时间取分隔行记录的时刻，拿不到时不画。
 func renderTurnTimeRow(c *ui.Context, s *chatState, item timelineItem) {
-	label := turnTimeLabel(turnStartTimeFor(s, item.turnIndex), time.Now())
+	label := turnTimeLabel(item.stampAt, time.Now())
 	if label == "" {
 		return
 	}

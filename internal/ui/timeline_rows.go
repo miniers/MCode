@@ -823,6 +823,8 @@ type timelineItem struct {
 	answeredQuestion answeredQuestion
 	// 该项消息的完成时间，由消息 CreatedAt 解析得到，拿不到时为零值。
 	finishedAt time.Time
+	// 时间分隔行要显示的时刻，只有 timelineItemTurnTime 使用。
+	stampAt time.Time
 	// groupID 是所属工具组 ID（组头项与组内各节拍共用）。
 	groupID string
 	// groupExpanded 标记工具组处于展开状态：展开时组内各节拍紧随组头项生成。
@@ -1670,7 +1672,7 @@ func (s *chatState) assembledTimelineItemsWithQuestions(plans []resolvedPlan, an
 
 	items := attachPlanAndQuestionItems(base, plans, answered)
 	if sel != "" && sel == s.stewardThreadID() {
-		items = insertTurnTimeRows(items)
+		items = insertStewardTimeRows(items)
 	}
 
 	s.mu.Lock()
@@ -1814,7 +1816,7 @@ func timelineItemTopGap(items []timelineItem, i int, _ float32) float32 {
 // 每行占满列表宽度并居中；内容列最宽由外观设置的内容宽度决定（标准 768），左右 padding 20 放在列上，不放在列表上，使滚动条留在列表右边缘。
 // topGap 是该行上方要留的间距（列表不再统一设 Gap），由 timelineItemTopGap 决定。
 func renderTimelineItem(c *ui.Context, s *chatState, item timelineItem, liveID, lastLiveID string, isLastAssistant bool, hasUsage bool, turnUsage TokenUsage, topGap float32) ui.Element {
-	if item.kind == timelineItemTurnTime && turnStartTimeFor(s, item.turnIndex).IsZero() {
+	if item.kind == timelineItemTurnTime && item.stampAt.IsZero() {
 		return ui.Element{}
 	}
 	// 关闭“显示思考过程”时，单条思考行整行不渲染；节拍里只有思考、没有工具的也整行不渲染

@@ -86,8 +86,8 @@ func TestStewardDecisionAnswerChannel(t *testing.T) {
 }
 
 func TestParseStewardDecision(t *testing.T) {
-	decision, ok := parseStewardDecision(`{"id":"D-0001","task":"T-1","question":"选择？","options":[{"key":"A","text":"方案一"}],"recommended":"A"}`)
-	if !ok || decision.ID != "D-0001" || decision.Task != "T-1" || decision.Question != "选择？" || len(decision.Options) != 1 || decision.Options[0].Text != "方案一" || decision.Recommended != "A" {
+	decision, ok := parseStewardDecision(`{"id":"D-0001","task":"任务一","task_id":"T-1","thread":"thread-1","question":"选择？","options":[{"key":"A","text":"方案一"}],"recommended":"A"}`)
+	if !ok || decision.ID != "D-0001" || decision.Task != "任务一" || decision.TaskID != "T-1" || decision.Thread != "thread-1" || decision.Question != "选择？" || len(decision.Options) != 1 || decision.Options[0].Text != "方案一" || decision.Recommended != "A" {
 		t.Fatalf("解析结果不正确: %#v, %v", decision, ok)
 	}
 	for _, text := range []string{`{`, `{}`, `{"id":"D-0001"}`} {
@@ -103,20 +103,24 @@ func TestStewardDecisionResult(t *testing.T) {
 		name     string
 		messages []Message
 		text     string
+		remote   bool
 		answered bool
 	}{
-		{"未回答", nil, "", false},
-		{"选项", []Message{{Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0001","answer":"A"}`}}, "已选 A · 方案一", true},
-		{"忽略", []Message{{Kind: stewardDecisionAnswerKind, Role: "system", Text: `{"id":"D-0001","answer":"忽略"}`}}, "已忽略", true},
-		{"自定义", []Message{{Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0001","answer":"稍后再说"}`}}, "已选 稍后再说", true},
-		{"其他编号", []Message{{Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0002","answer":"A"}`}}, "", false},
-		{"改答", []Message{{Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0001","answer":"A"}`}, {Kind: stewardDecisionAnswerKind, Role: "system", Text: `{"id":"D-0001","answer":"忽略"}`}}, "已忽略", true},
+		{"未回答", nil, "", false, false},
+		{"旧版选项", []Message{{Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0001","answer":"A"}`}}, "已选 A · 方案一", false, true},
+		{"本机选项", []Message{{Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0001","answer":"A","by":"owner"}`}}, "已选 A · 方案一", false, true},
+		{"远程选项", []Message{{Kind: stewardDecisionAnswerKind, Role: "system", Text: `{"id":"D-0001","answer":"A","by":"remote"}`}}, "已选 A · 方案一", true, true},
+		{"远程忽略", []Message{{Kind: stewardDecisionAnswerKind, Role: "system", Text: `{"id":"D-0001","answer":"忽略","by":"remote"}`}}, "已忽略", true, true},
+		{"自定义", []Message{{Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0001","answer":"稍后再说"}`}}, "已选 稍后再说", false, true},
+		{"其他编号", []Message{{Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0002","answer":"A"}`}}, "", false, false},
+		{"远程改答", []Message{{Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0001","answer":"A","by":"owner"}`}, {Kind: stewardDecisionAnswerKind, Role: "system", Text: `{"id":"D-0001","answer":"忽略","by":"remote"}`}}, "已忽略", true, true},
+		{"本机改答", []Message{{Kind: stewardDecisionAnswerKind, Role: "system", Text: `{"id":"D-0001","answer":"A","by":"remote"}`}, {Kind: stewardDecisionAnswerKind, Role: "user", Text: `{"id":"D-0001","answer":"A","by":"owner"}`}}, "已选 A · 方案一", false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			text, answered := stewardDecisionResult(decision, tc.messages)
-			if text != tc.text || answered != tc.answered {
-				t.Fatalf("得到 %q, %v", text, answered)
+			text, remote, answered := stewardDecisionResult(decision, tc.messages)
+			if text != tc.text || remote != tc.remote || answered != tc.answered {
+				t.Fatalf("得到 %q, %v, %v", text, remote, answered)
 			}
 		})
 	}
