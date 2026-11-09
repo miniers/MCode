@@ -749,6 +749,7 @@ const (
 	// timelineItemForkOrigin 是时间线最顶部的 fork 来源条：只在当前会话带来源字段时出现，
 	// 内容每帧按会话列表现查源会话标题（见 renderForkOriginRow）。
 	timelineItemForkOrigin
+	timelineItemForwardedContext
 	// timelineItemToolBeat 是展开后的工具组内的一个“节拍”：一条思考消息加上它后面紧跟的连续工具调用，
 	// 渲染成一行思考叙事加一行可换行的动作胶囊（行级虚拟化单项）。
 	timelineItemToolBeat
@@ -799,6 +800,10 @@ func forkOriginItem(threadID, sourceThreadID string) timelineItem {
 		threadID:         threadID,
 		forkFromThreadID: sourceThreadID,
 	}
+}
+
+func forwardedContextItem(threadID string) timelineItem {
+	return timelineItem{kind: timelineItemForwardedContext, id: "forwarded-context-" + threadID, threadID: threadID}
 }
 
 // timelineItem 表示时间线中的一个渲染项（单条消息、连续工具合并组或组内的一个节拍）。
@@ -1676,7 +1681,7 @@ func (s *chatState) assembledTimelineItemsWithQuestions(plans []resolvedPlan, an
 	return s.withForkOriginItem(items)
 }
 
-// withForkOriginItem 在当前会话带 fork 来源时，把来源条插到时间线最顶部（第一条消息之前）。
+// withForkOriginItem 把带入的历史或 fork 来源条插到时间线最顶部。
 // 故意不存进拼装缓存：来源字段随会话列表到来，与“会话 ID + 消息版本 + 展开状态 + 计划指纹”
 // 这个缓存键不同步，现插现用才能保证来源条不会因缓存命中而缺失。
 func (s *chatState) withForkOriginItem(items []timelineItem) []timelineItem {
@@ -1695,6 +1700,14 @@ func (s *chatState) withForkOriginItem(items []timelineItem) []timelineItem {
 		}
 	}
 	s.mu.Unlock()
+	if fc, loaded := s.loadedForwardedContext(tid); loaded && strings.TrimSpace(fc.Content) != "" {
+		if _, ok := continuationStartInfoFor(s, tid); ok {
+			if len(items) > 0 && items[0].kind == timelineItemForwardedContext {
+				return items
+			}
+			return append([]timelineItem{forwardedContextItem(tid)}, items...)
+		}
+	}
 	if tid == "" || sourceThreadID == "" {
 		return items
 	}
@@ -1880,6 +1893,8 @@ func renderTimelineItem(c *ui.Context, s *chatState, item timelineItem, liveID, 
 					renderSessionUsageRow(c, s, item.threadID, item.id)
 				case timelineItemForkOrigin:
 					renderForkOriginRow(c, s, item)
+				case timelineItemForwardedContext:
+					renderForwardedContextRow(c, s, item)
 				default:
 					// 有折叠头承载完成信息时，收尾答复不再单独画完成行（只保留改动文件卡片）。
 					suppressTurnEnd := item.workHeaderID != ""
@@ -1984,9 +1999,112 @@ func renderRunningIndicator(c *ui.Context, key string) ui.Element {
 	})
 }
 
-// renderForkOriginRow 渲染时间线最顶部的 fork 来源条：左右细线夹着『分叉自「源会话标题」』。
-// 源会话仍在会话列表里时整行可点击，复用 @会话提及与侧边栏的跳转函数切过去；
-// 找不到源会话时显示『已删除的会话』且不可点击。
+// renderForwardedContextRow 渲染历史消息及其来源分隔线。
+func renderForwardedContextRow(c *ui.Context, s *chatState, item timelineItem) {
+	fc, loaded := s.loadedForwardedContext(item.threadID)
+	info, ok := continuationStartInfoFor(s, item.threadID)
+	if !loaded || !ok {
+		return
+	}
+	earlier, tail := splitForwardedTail(parseForwardedTurns(fc.Content))
+	count := 0
+	for _, turn := range earlier {
+		if turn.Role != "omitted" {
+			count++
+		}
+	}
+	ui.Column(c.Key(item.id+"-context")).FillWidth().Gap(turnGap).Children(func() {
+		ui.Column(c.Key(item.id+"-history")).FillWidth().Opacity(0.7).Gap(turnGap).Children(func() {
+			expanded := s.forwardedContextExpanded(item.threadID, false)
+			if count > 0 {
+				label := fmt.Sprintf("更早 %d 条", count)
+				btn := ui.ButtonBase(c.Key(item.id+"-earlier")).Label(label).Cursor(ui.CursorPointer).Padding(Space1, Space2).Radius(RadiusSM)
+				if btn.Hovered() {
+					btn.Background(ThemeHover(c))
+				}
+				if btn.Clicked() {
+					s.toggleForwardedContext(item.threadID, false)
+				}
+				btn.Children(func() {
+					icon := IconChevronRight()
+					if expanded {
+						icon = IconChevronDown()
+					}
+					ui.Icon(c, icon).Size(10, 10).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, label).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+				})
+			}
+			renderEarlier := func() {
+				for i, turn := range earlier {
+					renderForwardedTurn(c, s, fmt.Sprintf("%s-earlier-%d", item.id, i), turn)
+				}
+			}
+			if count > 0 {
+				motionUnfoldBody(c, item.id+"-earlier-body", expanded, func() {
+					ui.Column(c.Key(item.id+"-earlier-turns")).FillWidth().Gap(turnGap).Children(renderEarlier)
+				})
+			} else {
+				renderEarlier()
+			}
+			for i, turn := range tail {
+				renderForwardedTurn(c, s, fmt.Sprintf("%s-tail-%d", item.id, i), turn)
+			}
+		})
+		renderForwardedOriginRow(c, s, item.id, info)
+	})
+}
+
+func renderForwardedTurn(c *ui.Context, s *chatState, key string, turn forwardedTurn) {
+	switch turn.Role {
+	case "user":
+		ui.Row(c.Key(key)).FillWidth().Justify(ui.End).Children(func() {
+			ui.Column(c.Key(key+"-bubble")).MaxWidth(userBubbleMaxWidth(s)).Padding(Space4, Space5).Radius(RadiusLG).Background(userBubbleColor(c)).Children(func() {
+				ui.Text(c, turn.Text).MaxWidthPercent(100).Selectable().FontSize(scaledFont(TypeBody)).LineHeight(1.45).TextColor(ThemePrimaryText(c))
+			})
+		})
+	case "assistant":
+		markdown.View(c.Key(key), turn.Text, &s.mdStaticOpts)
+	case "omitted":
+		ui.Row(c.Key(key)).FillWidth().AlignItems(ui.Center).Gap(Space3).Children(func() {
+			ui.Box(c.Key(key+"-left")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
+			ui.Text(c, "…").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+			ui.Box(c.Key(key+"-right")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
+		})
+	}
+}
+
+func renderForwardedOriginRow(c *ui.Context, s *chatState, key string, info continuationStartInfo) {
+	label := info.Label + "「" + info.DisplayTitle + "」"
+	ui.Row(c.Key(key+"-origin-row")).FillWidth().AlignItems(ui.Center).Gap(Space3).Margin(0, 0, 10, 0).Children(func() {
+		ui.Box(c.Key(key+"-origin-left")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
+		color := ThemeSecondaryText(c)
+		if info.TargetThreadID != "" {
+			color = ThemeAccent(c)
+		}
+		content := func() {
+			ui.Icon(c, IconGitBranch()).Size(11, 11).TextColor(color)
+			text := ui.Text(c, label).FontSize(scaledFont(TypeCaption)).TextColor(color).SingleLine()
+			if info.DisplayTitle != info.SourceTitle {
+				text.Tooltip(info.SourceTitle)
+			}
+		}
+		if info.TargetThreadID == "" {
+			ui.Row(c.Key(key+"-origin-label")).Gap(Space2).AlignItems(ui.Center).Padding(Space0, Space1).Children(content)
+		} else {
+			btn := ui.ButtonBase(c.Key(key+"-origin-link")).Label(label).Cursor(ui.CursorPointer).Padding(Space0, Space1).Radius(RadiusSM)
+			if btn.Hovered() {
+				btn.Background(ThemeHover(c))
+			}
+			if btn.Clicked() {
+				s.headerSelectThread(info.TargetThreadID)
+			}
+			btn.Children(content)
+		}
+		ui.Box(c.Key(key+"-origin-right")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
+	})
+}
+
+// renderForkOriginRow 渲染可跳转的 fork 来源条；来源缺失时显示已删除。
 func renderForkOriginRow(c *ui.Context, s *chatState, item timelineItem) {
 	sourceThreadID := item.forkFromThreadID
 	title := mentionThreadTitle(s, sourceThreadID)
@@ -2372,6 +2490,78 @@ func (s *chatState) loadedForwardedContext(threadID string) (ForwardedContext, b
 	return st.contexts[threadID], true
 }
 
+func (s *chatState) hasForwardedContextBody(threadID string) bool {
+	s.loadForwardedContext(threadID)
+	fc, loaded := s.loadedForwardedContext(threadID)
+	return loaded && strings.TrimSpace(fc.Content) != ""
+}
+
+type forwardedTurn struct {
+	Role string
+	Text string
+}
+
+func parseForwardedTurns(content string) []forwardedTurn {
+	var turns []forwardedTurn
+	var role string
+	var lines []string
+	flush := func() {
+		if role == "" {
+			return
+		}
+		text := strings.TrimSpace(strings.Join(lines, "\n"))
+		if text == "[trimmed]" {
+			text = "…"
+		} else if strings.HasSuffix(text, "\n[trimmed]") {
+			text = strings.TrimSuffix(text, "[trimmed]") + "…"
+		}
+		turns = append(turns, forwardedTurn{Role: role, Text: text})
+		lines = nil
+	}
+	previousBlank := true
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		newRole := ""
+		if previousBlank && line == "User:" {
+			newRole = "user"
+		} else if previousBlank && line == "Assistant:" {
+			newRole = "assistant"
+		} else if strings.HasPrefix(line, "[…") && strings.HasSuffix(line, "…]") {
+			newRole = "omitted"
+		}
+		if newRole != "" {
+			flush()
+			role = newRole
+			if role == "omitted" {
+				turns = append(turns, forwardedTurn{Role: role, Text: line})
+				role = ""
+			}
+		} else if role != "" {
+			lines = append(lines, line)
+		}
+		previousBlank = strings.TrimSpace(line) == ""
+	}
+	flush()
+	if len(turns) == 0 {
+		return []forwardedTurn{{Role: "assistant", Text: strings.TrimSpace(content)}}
+	}
+	return turns
+}
+
+func splitForwardedTail(turns []forwardedTurn) (earlier, tail []forwardedTurn) {
+	if len(turns) == 0 {
+		return nil, nil
+	}
+	start := len(turns) - 1
+	for i := len(turns) - 1; i >= 0; i-- {
+		if turns[i].Role == "user" {
+			start = i
+			break
+		}
+	}
+	return turns[:start], turns[start:]
+}
+
 // forwardedContextExpanded 返回卡片的展开状态：用户点击过就按用户的来，否则用模式默认值。
 func (s *chatState) forwardedContextExpanded(threadID string, defaultExpanded bool) bool {
 	st := getForwardedContextState(s)
@@ -2396,14 +2586,6 @@ func (s *chatState) toggleForwardedContext(threadID string, defaultExpanded bool
 	s.invalidate()
 }
 
-// formatForwardedContextChars 把带入的字数格式化成卡片上的提示：一万及以上按「万」显示一位小数。
-func formatForwardedContextChars(n int) string {
-	if n < 10000 {
-		return strconv.Itoa(n)
-	}
-	return strconv.FormatFloat(float64(n)/10000, 'f', 1, 64) + " 万"
-}
-
 // continuationStartCardMaxWidth 是来源引导卡片的最大宽度：窄屏跟随容器宽度，宽屏不超过 520
 // 并居中。
 const continuationStartCardMaxWidth = 520
@@ -2419,61 +2601,16 @@ func renderContinuationStartCard(c *ui.Context, s *chatState, threadID string) b
 		}
 		return false
 	}
-	return renderContinuationContextCard(c, s, threadID, info, true, continuationStartCardMaxWidth)
+	return renderContinuationContextCard(c, s, info)
 }
 
-// renderContinuationContextDockCard 在非空会话的时间线上方渲染停靠版上下文卡片：
-// 只有成功加载到带入上下文时才显示，普通会话与没有 continuation 的会话都不占高度。
-func renderContinuationContextDockCard(c *ui.Context, s *chatState, threadID string) bool {
-	fc, loaded := s.loadedForwardedContext(threadID)
-	if !loaded {
-		s.loadForwardedContext(threadID)
-		return false
-	}
-	if strings.TrimSpace(fc.Content) == "" {
-		// 没有带入上下文（含加载失败）的会话不占高度。
-		return false
-	}
-	info, ok := continuationStartInfoFor(s, threadID)
-	if !ok {
-		return false
-	}
-	return renderContinuationContextCard(c, s, threadID, info, false, timelineContentMaxWidth(s))
-}
-
-// forwardedContextCardMaxHeight 是卡片展开区的最大高度：全文靠内部滚动查看，不把时间线顶下去。
-const forwardedContextCardMaxHeight float32 = 240
-
-// continuationCardMargins 返回上下文卡片的上下外边距：Hero 卡片在空会话里居中展示，顶部不留间距、
-// 底边距把后续内容推开；停靠版贴在时间线上方，顶部留出间距不贴窗口标题栏下边线，
-// 底边距比空态卡片小一点，不把首条消息推得太远。
-func continuationCardMargins(hero bool) (top, bottom float32) {
-	if hero {
-		return 0, 22
-	}
-	return 12, 12
-}
-
-// renderContinuationContextCard 渲染转发上下文的卡片：首行是来源标题与字数，整行可点击切换展开；
-// Hero 模式还展示引导文案与「打开原会话」按钮，停靠模式把按钮放在展开区的滚动容器之外。
-func renderContinuationContextCard(c *ui.Context, s *chatState, threadID string, info continuationStartInfo, hero bool, maxWidth float32) bool {
-	fc, loaded := s.loadedForwardedContext(threadID)
-	if !loaded && hero {
-		s.loadForwardedContext(threadID)
-	}
-	content := strings.TrimSpace(fc.Content)
-	hasBody := loaded && content != ""
-	expanded := hasBody && s.forwardedContextExpanded(threadID, hero)
-
+// renderContinuationContextCard 渲染无带入内容时的来源卡片。
+func renderContinuationContextCard(c *ui.Context, s *chatState, info continuationStartInfo) bool {
 	key := "continuation-start"
-	if !hero {
-		key = "continuation-dock"
-	}
-	marginTop, marginBottom := continuationCardMargins(hero)
 
 	ui.Column(c.Key(key+"-card")).
 		FillWidth().
-		MaxWidth(maxWidth).
+		MaxWidth(continuationStartCardMaxWidth).
 		AlignSelf(ui.Center).
 		AlignItems(ui.Start).
 		Background(ThemeSurface(c)).
@@ -2481,30 +2618,16 @@ func renderContinuationContextCard(c *ui.Context, s *chatState, threadID string,
 		Radius(RadiusXL).
 		Padding(Space5).
 		Gap(Space4).
-		Margin(marginTop, 0, marginBottom, 0).
+		Margin(0, 0, 22, 0).
 		Children(func() {
-			// 首行：图标、来源标题与字数，整行可点击切换展开，右侧放折叠箭头。
+			// 来源标题过长时用 tooltip 展示完整标题。
 			header := ui.Row(c.Key(key + "-header")).
 				FillWidth().
 				Gap(Space3).
 				AlignItems(ui.Center)
-			if hasBody {
-				if header.Hovered() {
-					header.Background(ThemeHover(c))
-				}
-				if header.Clicked() {
-					s.toggleForwardedContext(threadID, hero)
-				}
-			}
 			header.Children(func() {
 				ui.Icon(c, IconGitBranch()).Size(14, 14).TextColor(ThemeAccent(c))
 				label := info.Label + "「" + info.DisplayTitle + "」"
-				if hasBody {
-					label += " · 已带入约 " + formatForwardedContextChars(utf8.RuneCountInString(content)) + " 字"
-				}
-				if loaded && fc.Truncated {
-					label += " · 部分已截断"
-				}
 				origin := ui.Text(c, label).
 					Grow(1).
 					FontSize(scaledFont(TypeBody)).
@@ -2514,47 +2637,9 @@ func renderContinuationContextCard(c *ui.Context, s *chatState, threadID string,
 					// 标题被截断时用 tooltip 补回完整原文，卡片宽度不必为长标题让步。
 					origin.Tooltip(info.SourceTitle)
 				}
-				if hasBody {
-					icon := IconChevronRight()
-					if expanded {
-						icon = IconChevronDown()
-					}
-					ui.Icon(c, icon).Size(10, 10).TextColor(ThemeSecondaryText(c))
-				}
 			})
 
-			if hero {
-				ui.Text(c, "在下方选择模型或配对，发送消息继续对话。").
-					FontSize(scaledFont(TypeBody)).
-					TextColor(ThemePrimaryText(c))
-			}
-
-			if expanded {
-				// 带入的全文是纯文本：用滚动容器封顶高度，文字可选中。
-				ui.Scroll(c.Key(key+"-scroll-"+threadID)).
-					FillWidth().
-					MaxHeight(forwardedContextCardMaxHeight).
-					Radius(RadiusLG).
-					Background(ThemeHover(c)).
-					Border(1, ThemeBorder(c)).
-					Padding(Space3, Space4).
-					Selectable().
-					Children(func() {
-						ui.Text(c, content).
-							FillWidth().
-							Font("monospace").
-							FontSize(scaledFont(TypeFootnote)).
-							LineHeight(1.5).
-							TextColor(ThemePrimaryText(c))
-					})
-				if !hero && info.TargetThreadID != "" {
-					// 停靠模式把按钮放在滚动区外：滚到全文末尾时仍然常驻可见。
-					renderOpenOriginalThreadButton(c, s, key, info.TargetThreadID)
-				}
-			}
-
-			if hero && info.TargetThreadID != "" {
-				// 按钮单独占一行并留出上边距，与上方提示文案拉开层次。
+			if info.TargetThreadID != "" {
 				renderOpenOriginalThreadButton(c, s, key, info.TargetThreadID)
 			}
 		})

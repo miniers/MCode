@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +16,65 @@ import (
 
 	"github.com/egoist/mygo/ui"
 )
+
+func TestParseForwardedTurns(t *testing.T) {
+	cases := []struct {
+		content string
+		want []forwardedTurn
+	}{
+		{"User:\n第一句\n\nAssistant:\n第一答\n\nUser:\n第二句\n\nAssistant:\n第二答", []forwardedTurn{{"user", "第一句"}, {"assistant", "第一答"}, {"user", "第二句"}, {"assistant", "第二答"}}},
+		{"User:\n一\n[trimmed]\n\n[… omitted …]\n\nAssistant:\n二", []forwardedTurn{{"user", "一\n…"}, {"omitted", "[… omitted …]"}, {"assistant", "二"}}},
+		{"  没有前缀\n正文  ", []forwardedTurn{{"assistant", "没有前缀\n正文"}}},
+	}
+	for _, tc := range cases {
+		if got := parseForwardedTurns(tc.content); !slices.Equal(got, tc.want) {
+			t.Errorf("parseForwardedTurns(%q) = %#v, want %#v", tc.content, got, tc.want)
+		}
+	}
+}
+
+func TestSplitForwardedTail(t *testing.T) {
+	turns := []forwardedTurn{{"user", "a"}, {"assistant", "b"}, {"user", "c"}, {"assistant", "d"}}
+	earlier, tail := splitForwardedTail(turns)
+	if !slices.Equal(earlier, turns[:2]) || !slices.Equal(tail, turns[2:]) {
+		t.Fatalf("unexpected split: %#v, %#v", earlier, tail)
+	}
+	turns = []forwardedTurn{{"omitted", "…"}, {"assistant", "d"}}
+	earlier, tail = splitForwardedTail(turns)
+	if !slices.Equal(earlier, turns[:1]) || !slices.Equal(tail, turns[1:]) {
+		t.Fatalf("unexpected split without user: %#v, %#v", earlier, tail)
+	}
+}
+
+func TestWithForkOriginItemForwardedContext(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.threads = []Thread{
+		{ID: "src", Title: "来源"},
+		{ID: "forward", ForkedFromThreadID: "src"},
+		{ID: "fork", ForkedFromThreadID: "src", ForkedFromMessageID: "m"},
+	}
+	st := getForwardedContextState(s)
+	for _, id := range []string{"forward", "fork"} {
+		st.loaded[id] = true
+		st.contexts[id] = ForwardedContext{Content: "User:\n内容"}
+		s.selectedThreadID = id
+		items := s.withForkOriginItem([]timelineItem{{kind: timelineItemSingle}})
+		if len(items) != 2 || items[0].kind != timelineItemForwardedContext {
+			t.Fatalf("%s: unexpected items: %#v", id, items)
+		}
+	}
+	st.contexts["fork"] = ForwardedContext{Content: "  "}
+	s.selectedThreadID = "fork"
+	if items := s.withForkOriginItem(nil); len(items) != 1 || items[0].kind != timelineItemForkOrigin {
+		t.Fatalf("empty fork: unexpected items: %#v", items)
+	}
+	s.selectedThreadID = "forward"
+	st.contexts["forward"] = ForwardedContext{}
+	if items := s.withForkOriginItem(nil); len(items) != 0 {
+		t.Fatalf("empty forward: unexpected items: %#v", items)
+	}
+}
 
 // TestTimelineRows_KeyStabilityOnToggle 验证展开或折叠思考块与工具组后，时间线行的 key 绝对保持稳定。
 func TestTimelineRows_KeyStabilityOnToggle(t *testing.T) {
@@ -2269,9 +2329,6 @@ func TestTimelineRows_ContinuationStartCard(t *testing.T) {
 	tt := ui.NewTester(root, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("继续自「原会话」") })
 
-	if !tt.HasText("在下方选择模型或配对，发送消息继续对话。") {
-		t.Fatalf("引导卡片缺少引导文本: %q", tt.Texts())
-	}
 	if !tt.HasText("打开原会话") {
 		t.Fatalf("引导卡片缺少“打开原会话”按钮: %q", tt.Texts())
 	}
@@ -2844,13 +2901,11 @@ func TestTimelineRows_ContextCompactedNeverFolded(t *testing.T) {
 	}
 }
 
-// TestTimelineRows_ForwardedContextCard 验证转发会话的上下文卡片：Hero 模式直接展开全文并保留引导文案，
-// 停靠模式折叠成一行、默认看不到正文与引导文案，点击后才展开；标题被改过时仍按来源标题显示。
+// TestTimelineRows_ForwardedContextCard 验证带入历史作为时间线显示。
 func TestTimelineRows_ForwardedContextCard(t *testing.T) {
 	now := time.Now()
-	// 正文 12 个字符：卡片上的字数提示按 rune 计数。
 	const content = "User:\n原来的第一句"
-	const dockLabel = "继续自「原会话」 · 已带入约 12 字"
+	const dockLabel = "继续自「原会话」"
 
 	newFake := func(title string, withMessages bool) *FakeClient {
 		fake := NewFakeClient()
@@ -2870,28 +2925,26 @@ func TestTimelineRows_ForwardedContextCard(t *testing.T) {
 		return fake
 	}
 
-	t.Run("Hero 模式默认展开全文", func(t *testing.T) {
+	t.Run("空会话直接显示历史", func(t *testing.T) {
 		tt := ui.NewTester(Root(newFake("Continued: 原会话", false)), 1000, 700)
-		waitFor(t, tt, func() bool { return tt.HasText("已带入约 12 字") })
+		waitFor(t, tt, func() bool { return tt.HasText("原来的第一句") })
 		if !tt.HasText("原来的第一句") {
 			t.Fatalf("Hero 模式应直接看到带入的正文: %q", tt.Texts())
 		}
-		if !tt.HasText("在下方选择模型或配对，发送消息继续对话。") {
-			t.Fatalf("Hero 模式应保留引导文案: %q", tt.Texts())
+		if tt.HasText("在下方选择模型或配对，发送消息继续对话。") {
+			t.Fatalf("不应显示引导文案: %q", tt.Texts())
 		}
 	})
 
-	t.Run("停靠模式默认折叠，点击后展开", func(t *testing.T) {
+	t.Run("已有消息时显示历史", func(t *testing.T) {
 		tt := ui.NewTester(Root(newFake("Continued: 原会话", true)), 1000, 700)
 		waitFor(t, tt, func() bool { return tt.HasText(dockLabel) })
-		if tt.HasText("原来的第一句") {
-			t.Fatalf("停靠模式默认不应显示正文: %q", tt.Texts())
+		if !tt.HasText("原来的第一句") {
+			t.Fatalf("应显示最后一轮正文: %q", tt.Texts())
 		}
 		if tt.HasText("在下方选择模型或配对") {
 			t.Fatalf("停靠模式不应显示引导文案: %q", tt.Texts())
 		}
-		clickText(t, tt, dockLabel)
-		waitFor(t, tt, func() bool { return tt.HasText("原来的第一句") })
 	})
 
 	t.Run("标题改过后仍显示来源标题", func(t *testing.T) {
@@ -2899,11 +2952,26 @@ func TestTimelineRows_ForwardedContextCard(t *testing.T) {
 		waitFor(t, tt, func() bool { return tt.HasText(dockLabel) })
 	})
 
-	t.Run("截断时提示部分已截断", func(t *testing.T) {
+	t.Run("更早消息可展开", func(t *testing.T) {
+		fake := newFake("Continued: 原会话", false)
+		fake.forwardedContexts["t1"] = ForwardedContext{SourceTitle: "原会话", Content: "User:\n更早的问题\n\nAssistant:\n更早的回答\n\nUser:\n最后的问题\n\nAssistant:\n最后的回答"}
+		tt := ui.NewTester(Root(fake), 1000, 700)
+		waitFor(t, tt, func() bool { return tt.HasText("更早 2 条") && tt.HasText("最后的问题") })
+		if tt.HasText("更早的问题") {
+			t.Fatalf("更早消息应默认收起: %q", tt.Texts())
+		}
+		clickText(t, tt, "更早 2 条")
+		waitFor(t, tt, func() bool { return tt.HasText("更早的问题") })
+	})
+
+	t.Run("截断时不显示说明", func(t *testing.T) {
 		fake := newFake("Continued: 原会话", false)
 		fake.forwardedContexts["t1"] = ForwardedContext{SourceTitle: "原会话", Content: content, Truncated: true}
 		tt := ui.NewTester(Root(fake), 1000, 700)
-		waitFor(t, tt, func() bool { return tt.HasText("部分已截断") })
+		waitFor(t, tt, func() bool { return tt.HasText(dockLabel) })
+		if tt.HasText("部分已截断") {
+			t.Fatalf("不应显示截断说明: %q", tt.Texts())
+		}
 	})
 
 	t.Run("普通会话不显示卡片", func(t *testing.T) {
@@ -2920,14 +2988,14 @@ func TestTimelineRows_ForwardedContextCard(t *testing.T) {
 		}
 	})
 
-	t.Run("停靠模式展开后才显示打开原会话", func(t *testing.T) {
+	t.Run("来源分隔线可跳转", func(t *testing.T) {
 		tt := ui.NewTester(Root(newFake("Continued: 原会话", true)), 1000, 700)
 		waitFor(t, tt, func() bool { return tt.HasText(dockLabel) })
 		if tt.HasText("打开原会话") {
 			t.Fatalf("停靠模式默认折叠，不应显示“打开原会话”: %q", tt.Texts())
 		}
 		clickText(t, tt, dockLabel)
-		waitFor(t, tt, func() bool { return tt.HasText("打开原会话") })
+		waitFor(t, tt, func() bool { return !tt.HasText(dockLabel) })
 	})
 
 	t.Run("改名后的空转发会话仍显示来源卡片", func(t *testing.T) {
@@ -2955,25 +3023,6 @@ func TestTimelineRows_ForwardedContextCard(t *testing.T) {
 			t.Fatalf("上下文为空时不应显示停靠卡片: %q", tt.Texts())
 		}
 	})
-}
-
-// TestContinuationCardMargins 验证转发上下文卡片的上下外边距：停靠态顶部留出间距，Hero 态不偏移。
-func TestContinuationCardMargins(t *testing.T) {
-	heroTop, heroBottom := continuationCardMargins(true)
-	if heroTop != 0 {
-		t.Fatalf("Hero 态卡片顶部不应留外边距，得到 %v", heroTop)
-	}
-	if heroBottom != 22 {
-		t.Fatalf("Hero 态卡片底边距应为 22，得到 %v", heroBottom)
-	}
-
-	dockTop, dockBottom := continuationCardMargins(false)
-	if dockTop != 12 || dockTop <= 0 {
-		t.Fatalf("停靠态卡片顶部应留 12 的间距，得到 %v", dockTop)
-	}
-	if dockBottom != 12 {
-		t.Fatalf("停靠态卡片底边距应为 12，得到 %v", dockBottom)
-	}
 }
 
 // toolDetailTestLines 生成 n 行形如 LINE-01 的工具输出，供详情区截断用例使用。

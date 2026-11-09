@@ -251,13 +251,9 @@ func renderChat(c *ui.Context, s *chatState) {
 		chatBody.Children(func() {
 			// Hero 判定与输入框停靠共用 composerThreadEmpty：两处口径一致，
 			// 才不会出现「输入框已停靠到底部、引导屏还占着中间」的错位。
-			hero := composerThreadEmpty(len(messages), len(curResolvedPlans), len(curAnsweredQuestions))
+			hero := composerThreadEmpty(len(messages), len(curResolvedPlans), len(curAnsweredQuestions)) && !s.hasForwardedContextBody(selectedID)
 			// dockDec 是输入框本帧的布局结论；切换帧（首条消息刚发出）时才播位移与淡入。
 			dockDec := s.composerDockDecisionFor(hero, selectedID)
-			if !hero {
-				// 转发/分叉会话带入的上下文：有消息后折叠成一行，仍固定在时间线上方。
-				renderContinuationContextDockCard(c, s, selectedID)
-			}
 			if !dockDec.Docked {
 				// Hero 模式：当前会话无内容时输入框垂直居中，上方展示空态引导屏。
 				renderSwarmQuestionBanner(c, s)
