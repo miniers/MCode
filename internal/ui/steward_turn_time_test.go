@@ -91,3 +91,21 @@ func TestTurnTimeLabel(t *testing.T) {
 		})
 	}
 }
+
+func TestTurnTimeTooltip(t *testing.T) {
+	tests := []struct {
+		name string
+		at   time.Time
+		want string
+	}{
+		{"零值", time.Time{}, ""},
+		{"完整时间", time.Date(2026, 11, 9, 14, 32, 5, 0, time.Local), "2026年11月9日 星期一 14:32:05"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := turnTimeTooltip(tt.at); got != tt.want {
+				t.Errorf("turnTimeTooltip() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

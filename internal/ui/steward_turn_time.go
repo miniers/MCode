@@ -62,6 +62,16 @@ func turnTimeLabel(at, now time.Time) string {
 	}
 }
 
+// turnTimeTooltip 按本地时区格式化完整日期、星期和时间，零值返回空串。
+func turnTimeTooltip(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	at = at.In(time.Local)
+	weekdays := [...]string{"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"}
+	return at.Format("2006年1月2日") + " " + weekdays[at.Weekday()] + " " + at.Format("15:04:05")
+}
+
 // renderTurnTimeRow 渲染居中的日期时间小字，时间取分隔行记录的时刻，拿不到时不画。
 func renderTurnTimeRow(c *ui.Context, s *chatState, item timelineItem) {
 	label := turnTimeLabel(item.stampAt, time.Now())
@@ -69,6 +79,6 @@ func renderTurnTimeRow(c *ui.Context, s *chatState, item timelineItem) {
 		return
 	}
 	ui.Row(c.Key(item.id + "-label")).FillWidth().Justify(ui.Center).Children(func() {
-		ui.Text(c, label).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, label).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).Tooltip(turnTimeTooltip(item.stampAt))
 	})
 }
