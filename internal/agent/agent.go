@@ -19,6 +19,11 @@ import (
 	"mcode/internal/harness"
 )
 
+var (
+	retryBaseDelay = time.Second
+	maxRetryDelay  = 60 * time.Second
+)
+
 type Options struct {
 	Client    llm.Client
 	Model     string
@@ -240,7 +245,8 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 				request.Messages = append([]llm.Message(nil), messages...)
 				continue
 			}
-			if attempt == 3 || !retryable(err) {
+			retryAfter := llm.RetryAfterOf(err)
+			if attempt == 3 || !retryable(err) || retryAfter > maxRetryDelay {
 				if streamed.Len() > 0 {
 					emit(harness.Event{Type: harness.EventTextRetract, Text: streamed.String()})
 				}
@@ -249,7 +255,14 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			if streamed.Len() > 0 {
 				emit(harness.Event{Type: harness.EventTextRetract, Text: streamed.String()})
 			}
-			timer := time.NewTimer(time.Second << attempt)
+			delay := retryBaseDelay << attempt
+			if retryAfter > delay {
+				delay = retryAfter
+			}
+			if delay > maxRetryDelay {
+				delay = maxRetryDelay
+			}
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
 				timer.Stop()

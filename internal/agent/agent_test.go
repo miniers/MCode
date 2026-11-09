@@ -24,11 +24,13 @@ type scriptStep struct {
 }
 
 type scriptClient struct {
-	steps    []scriptStep
-	requests []llm.Request
+	steps        []scriptStep
+	requests     []llm.Request
+	requestTimes []time.Time
 }
 
 func (c *scriptClient) Stream(_ context.Context, request llm.Request, emit func(llm.Delta)) (*llm.Response, error) {
+	c.requestTimes = append(c.requestTimes, time.Now())
 	c.requests = append(c.requests, request)
 	if len(c.steps) == 0 {
 		return nil, errors.New("script exhausted")
@@ -215,6 +217,60 @@ func TestRetryAndRetract(t *testing.T) {
 	}
 	if !found || len(client.requests) != 2 {
 		t.Fatalf("events = %+v, requests = %d", events, len(client.requests))
+	}
+}
+
+func TestRetryAfter(t *testing.T) {
+	previous := retryBaseDelay
+	retryBaseDelay = time.Millisecond
+	t.Cleanup(func() { retryBaseDelay = previous })
+
+	client := &scriptClient{steps: []scriptStep{
+		{err: &llm.APIError{Status: 429, Retryable: true, RetryAfter: 50 * time.Millisecond}},
+		{response: reply("stop")},
+	}}
+	if err := Run(context.Background(), Options{Client: client}, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requestTimes) != 2 {
+		t.Fatalf("requests = %d, want 2", len(client.requestTimes))
+	}
+	if elapsed := client.requestTimes[1].Sub(client.requestTimes[0]); elapsed < 50*time.Millisecond {
+		t.Fatalf("retry delay = %v, want at least 50ms", elapsed)
+	}
+}
+
+func TestRetryAfterExceedsMaximum(t *testing.T) {
+	previous := maxRetryDelay
+	maxRetryDelay = 10 * time.Millisecond
+	t.Cleanup(func() { maxRetryDelay = previous })
+
+	apiErr := &llm.APIError{Status: 429, Retryable: true, RetryAfter: 50 * time.Millisecond}
+	client := &scriptClient{steps: []scriptStep{
+		{err: apiErr, delta: llm.Delta{Type: "text", Text: "partial"}},
+		{response: reply("stop")},
+	}}
+	var retracted string
+	err := Run(context.Background(), Options{Client: client, Emit: func(event harness.Event) {
+		if event.Type == harness.EventTextRetract {
+			retracted += event.Text
+		}
+	}}, "hello", nil)
+	if !errors.Is(err, apiErr) || len(client.requests) != 1 || retracted != "partial" {
+		t.Fatalf("error = %v, requests = %d, retracted = %q", err, len(client.requests), retracted)
+	}
+}
+
+func TestRetryAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	client := &scriptClient{steps: []scriptStep{
+		{err: &llm.APIError{Status: 429, Retryable: true, RetryAfter: 5 * time.Second}},
+		{response: reply("stop")},
+	}}
+	err := Run(ctx, Options{Client: client}, "hello", nil)
+	if !errors.Is(err, context.DeadlineExceeded) || len(client.requests) != 1 {
+		t.Fatalf("error = %v, requests = %d", err, len(client.requests))
 	}
 }
 
