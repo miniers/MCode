@@ -244,7 +244,9 @@ func TestCancellationClosesToolCalls(t *testing.T) {
 	}
 	var ends []harness.Event
 	err := Run(ctx, Options{Client: client, Store: store, SessionID: "cancel", Tools: []tools.Tool{tool}, Emit: func(e harness.Event) {
-		if e.Type == harness.EventToolEnd { ends = append(ends, e) }
+		if e.Type == harness.EventToolEnd {
+			ends = append(ends, e)
+		}
 	}}, "hello", nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v", err)
@@ -375,19 +377,35 @@ func TestStopReasonsEmitErrors(t *testing.T) {
 			response := reply(tc.reason)
 			client := &scriptClient{steps: []scriptStep{{response: response}}}
 			if err := Run(context.Background(), Options{Client: client, Emit: func(event harness.Event) {
-				if event.Type == harness.EventError { copy := event; got = &copy }
-			}}, "hello", nil); err != nil { t.Fatal(err) }
-			if got == nil || got.Err != tc.want || got.ErrKind != harness.ErrKindAPIError { t.Fatalf("error event = %+v", got) }
+				if event.Type == harness.EventError {
+					copy := event
+					got = &copy
+				}
+			}}, "hello", nil); err != nil {
+				t.Fatal(err)
+			}
+			if got == nil || got.Err != tc.want || got.ErrKind != harness.ErrKindAPIError {
+				t.Fatalf("error event = %+v", got)
+			}
 		})
 	}
 }
 
 func TestModelRequestErrorKinds(t *testing.T) {
-	for _, tc := range []struct{ status int; want string }{{429, harness.ErrKindRateLimited}, {529, harness.ErrKindRateLimited}, {401, harness.ErrKindAPIKeyRejected}, {403, harness.ErrKindAPIKeyRejected}, {500, harness.ErrKindAPIError}} {
+	for _, tc := range []struct {
+		status int
+		want   string
+	}{{429, harness.ErrKindRateLimited}, {529, harness.ErrKindRateLimited}, {401, harness.ErrKindAPIKeyRejected}, {403, harness.ErrKindAPIKeyRejected}, {500, harness.ErrKindAPIError}} {
 		client := &scriptClient{steps: []scriptStep{{err: &llm.APIError{Status: tc.status}}}}
 		var got harness.Event
-		_ = Run(context.Background(), Options{Client: client, Emit: func(event harness.Event) { if event.Type == harness.EventError { got = event } }}, "hello", nil)
-		if got.ErrKind != tc.want { t.Errorf("status %d kind = %q, want %q", tc.status, got.ErrKind, tc.want) }
+		_ = Run(context.Background(), Options{Client: client, Emit: func(event harness.Event) {
+			if event.Type == harness.EventError {
+				got = event
+			}
+		}}, "hello", nil)
+		if got.ErrKind != tc.want {
+			t.Errorf("status %d kind = %q, want %q", tc.status, got.ErrKind, tc.want)
+		}
 	}
 }
 

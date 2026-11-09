@@ -41,6 +41,7 @@ func stopProcess(cmd *exec.Cmd, done <-chan error) error {
 			return err
 		case <-time.After(3 * time.Second):
 			_ = cmd.Process.Kill()
+			<-done
 			return fmt.Errorf("进程未在超时内退出，可能有子进程脱离了进程组")
 		}
 	}

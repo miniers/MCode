@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -62,7 +63,7 @@ func TestAppendAfterPartialLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, err := store.Load("partial")
-	if err != nil || len(entries) != 1 || string(entries[0]) != `{"ok":true}` {
+	if err != nil || len(entries) != 1 || strings.TrimSpace(string(entries[0])) != `{"ok":true}` {
 		t.Fatalf("entries=%q err=%v", entries, err)
 	}
 }

@@ -75,7 +75,7 @@ func TestFindCutCanStartAfterInitialUser(t *testing.T) {
 func TestCompactionTruncatesLargeToolResult(t *testing.T) {
 	messages := []llm.Message{textMessage("user", strings.Repeat("u", 50000)), {Role: "assistant", ToolCalls: []llm.ToolCall{call("id", "read", `{}`)}}, toolMessage("id", strings.Repeat("x", 10000), false), textMessage("user", "next"), textMessage("assistant", strings.Repeat("recent", 2000)), textMessage("user", "current")}
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
-	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, nil); err != nil {
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, func(harness.Event) {}); err != nil {
 		t.Fatal(err)
 	}
 	for _, message := range client.requests[0].Messages {

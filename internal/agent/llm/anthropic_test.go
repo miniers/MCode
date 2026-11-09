@@ -297,6 +297,29 @@ func TestAnthropicAdaptiveThinking(t *testing.T) {
 	}
 }
 
+func TestAnthropicAdaptiveEffortByModel(t *testing.T) {
+	for _, tc := range []struct {
+		model  string
+		effort string
+		want   string
+	}{
+		{"claude-sonnet-4-6", "xhigh", "high"},
+		{"claude-opus-4-7", "xhigh", "xhigh"},
+		{"auto/claude-opus-5-5", "xhigh", "xhigh"},
+		{"claude-opus-5-5", "minimal", "low"},
+	} {
+		t.Run(tc.model+"/"+tc.effort, func(t *testing.T) {
+			body, err := anthropicRequestBody(Request{Model: tc.model, Effort: tc.effort})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(body["output_config"], map[string]any{"effort": tc.want}) {
+				t.Fatalf("output_config: %+v", body["output_config"])
+			}
+		})
+	}
+}
+
 func TestAnthropicThinkingRoundTrip(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"empty-sig\"}}\n\n")

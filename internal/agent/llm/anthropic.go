@@ -53,15 +53,20 @@ func defaultAnthropicMaxTokens(model string) int {
 
 var anthropicModelVersion = regexp.MustCompile(`(?i)^claude-(opus|sonnet|haiku)-([0-9]+)-([0-9]+)($|-|\[)`)
 
-func anthropicAdaptiveThinking(model string) bool {
+func anthropicParseModelVersion(model string) (int, int, bool) {
 	model = model[strings.LastIndex(model, "/")+1:]
 	match := anthropicModelVersion.FindStringSubmatch(model)
 	if match == nil {
-		return false
+		return 0, 0, false
 	}
 	major, errMajor := strconv.Atoi(match[2])
 	minor, errMinor := strconv.Atoi(match[3])
-	return errMajor == nil && errMinor == nil && (major >= 5 || major == 4 && minor >= 6)
+	return major, minor, errMajor == nil && errMinor == nil
+}
+
+func anthropicAdaptiveThinking(model string) bool {
+	major, minor, ok := anthropicParseModelVersion(model)
+	return ok && (major >= 5 || major == 4 && minor >= 6)
 }
 
 func anthropicRequestBody(req Request) (map[string]any, error) {
@@ -78,6 +83,8 @@ func anthropicRequestBody(req Request) (map[string]any, error) {
 		effort := req.Effort
 		if effort == "minimal" {
 			effort = "low"
+		} else if major, minor, _ := anthropicParseModelVersion(req.Model); effort == "xhigh" && major == 4 && minor == 6 {
+			effort = "high"
 		}
 		body["thinking"] = map[string]any{"type": "adaptive"}
 		body["output_config"] = map[string]any{"effort": effort}

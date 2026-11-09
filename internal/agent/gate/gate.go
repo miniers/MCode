@@ -437,6 +437,8 @@ func isPathByte(c byte) bool {
 	return c == '_' || c == '.' || c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
+var homeVariable = regexp.MustCompile(`\$HOME\b`)
+
 func normalizeHome(text string) string {
 	home, _ := os.UserHomeDir()
 	text = strings.NewReplacer("'", "", "\"", "").Replace(text)
@@ -444,7 +446,7 @@ func normalizeHome(text string) string {
 		return text
 	}
 	text = strings.ReplaceAll(text, "${HOME}", home)
-	text = regexp.MustCompile(`\$HOME\b`).ReplaceAllStringFunc(text, func(string) string { return home })
+	text = homeVariable.ReplaceAllStringFunc(text, func(string) string { return home })
 	var b strings.Builder
 	for i := 0; i < len(text); i++ {
 		if text[i] == '~' && (i == 0 || strings.ContainsRune(" \t\r\n=;|&(<>", rune(text[i-1]))) && (i+1 == len(text) || text[i+1] == '/') {
@@ -459,7 +461,9 @@ func normalizeHome(text string) string {
 func containsPath(text, path string) bool {
 	for path != "" {
 		i := strings.Index(text, path)
-		if i < 0 { return false }
+		if i < 0 {
+			return false
+		}
 		end := i + len(path)
 		if (i == 0 || !isPathByte(text[i-1]) && text[i-1] != '/') && (end == len(text) || strings.ContainsRune("/\\ \t\r\n\"';|&<>()", rune(text[end]))) {
 			return true
@@ -503,7 +507,7 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 			}
 		}
 	}
-	if kind == harness.RequestKindCommand {
+	if kind == harness.RequestKindCommand && !onlyReads(command) {
 		probe := normalizeHome(command)
 		if inside {
 			// 先把副本自身路径折叠成 "."，只引用副本的命令不再误判。
@@ -605,9 +609,10 @@ func mcodeConfigJSON(text, home string) bool {
 // insideRoots 是位于控制面内的工作目录，其中的 JSON 不算 mcode 配置。
 func credential(text, project string, insideRoots []string) bool {
 	home, _ := os.UserHomeDir()
+	original := text
 	text = normalizeHome(text)
 	for _, s := range []string{"~/.ssh/", "/.ssh/", "id_rsa", "id_ed25519", "~/.aws/", "~/.config/gcloud", "~/.docker/config.json", "~/.kube/config", "~/.netrc", "~/.pi/agent/auth.json", "~/.mcode/config.json", "~/.ssh", "~/.aws"} {
-		if strings.Contains(text, s) {
+		if strings.Contains(original, s) || strings.Contains(text, s) {
 			return true
 		}
 		if home != "" && strings.HasPrefix(s, "~/") && strings.Contains(text, filepath.Join(home, s[2:])) {

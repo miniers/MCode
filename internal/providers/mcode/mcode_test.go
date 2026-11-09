@@ -481,15 +481,27 @@ func TestRunRecoversStreamPanic(t *testing.T) {
 }
 
 func TestRunRecoversToolPanic(t *testing.T) {
-	client := &fakeClient{responses: []*llm.Response{toolCall("explode", "call-1", `{}`), answer()}}
+	client := &fakeClient{responses: []*llm.Response{toolCall("explode", "call-1", `{}`), answer(), answer()}}
 	h := harnessFor(client, Options{ExtraTools: func(context.Context, harness.Turn) []tools.Tool {
 		return []tools.Tool{{Name: "explode", Description: "panic on purpose", Run: func(context.Context, tools.Env, json.RawMessage) (tools.Result, error) {
 			panic("tool exploded")
 		}}}
 	}})
-	err := h.Run(context.Background(), harness.Turn{SessionID: "tool-panicked", Prompt: "go", Mode: harness.ModeFullAccess}, nil)
-	if err == nil || !strings.Contains(err.Error(), "内置引擎内部错误") || !strings.Contains(err.Error(), "tool exploded") {
+	var toolEnd *harness.Event
+	err := h.Run(context.Background(), harness.Turn{SessionID: "tool-panicked", Prompt: "go", Mode: harness.ModeFullAccess}, func(event harness.Event) {
+		if event.Type == harness.EventToolEnd && event.ToolName == "explode" {
+			e := event
+			toolEnd = &e
+		}
+	})
+	if err != nil {
 		t.Fatalf("Run() error = %v", err)
+	}
+	if toolEnd == nil || !toolEnd.IsError || !strings.Contains(toolEnd.Output, "tool exploded") {
+		t.Fatalf("tool_end = %+v", toolEnd)
+	}
+	if len(client.requests) < 2 {
+		t.Fatalf("requests = %d, want >= 2", len(client.requests))
 	}
 	if steerErr := h.Steer(context.Background(), "tool-panicked", "text"); !errors.Is(steerErr, harness.ErrNotRunning) {
 		t.Fatalf("panic 之后 Steer() error = %v", steerErr)
