@@ -42,16 +42,13 @@ func TestPaths(t *testing.T) {
 		t.Skip(e)
 	}
 	env := Env{WorkDir: root}
-	for _, path := range []string{filepath.Join(outside, "secret"), "link/secret", "link/new"} {
-		name := "read"
-		args := map[string]any{"path": path}
-		if strings.HasSuffix(path, "new") {
-			name = "write"
-			args["content"] = "x"
+	for _, path := range []string{filepath.Join(outside, "secret"), "link/secret"} {
+		if r := runTool(t, env, "read", map[string]any{"path": path}); r.IsError || !strings.Contains(r.Text, "secret") {
+			t.Fatalf("read %s: %+v", path, r)
 		}
-		if r := runTool(t, env, name, args); !r.IsError {
-			t.Fatalf("allowed %s", path)
-		}
+	}
+	if r := runTool(t, env, "write", map[string]any{"path": "link/new", "content": "x"}); !r.IsError {
+		t.Fatal("write through outside symlink allowed")
 	}
 	r := runTool(t, env, "grep", map[string]any{"pattern": "secret"})
 	if strings.Contains(r.Text, "secret") {

@@ -17,7 +17,7 @@ import (
 type Env struct {
 	WorkDir        string
 	AdditionalDirs []string
-	// ReadOnlyDirs 是只读类工具额外放行的目录（如技能目录），写类工具不放行。
+	// ReadOnlyDirs 保留供调用方兼容；读取不再受目录限制，写入仍不放行这些目录。
 	ReadOnlyDirs []string
 	Sandbox      harness.Sandbox
 	Mode         harness.PermissionMode

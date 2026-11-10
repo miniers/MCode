@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"mcode/internal/harness"
 )
 
 // TestResolveWorkDirPathWithAdditionalDirs 覆盖附加目录白名单：附加目录内的绝对路径放行且 rel
@@ -79,28 +77,41 @@ func TestResolveWorkDirPathWithAdditionalDirs(t *testing.T) {
 	})
 }
 
-func TestReadRootsReadOnlyDirs(t *testing.T) {
+func TestReadOutsideAndProtectCredentials(t *testing.T) {
 	workDir := t.TempDir()
-	additional := t.TempDir()
-	readonly := t.TempDir()
-	file := filepath.Join(readonly, "file.txt")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	file := filepath.Join(t.TempDir(), "file.txt")
 	if err := os.WriteFile(file, []byte("content"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	backing := make([]string, 1, 2)
-	backing[0] = additional
-	turn := harness.Turn{WorkDir: workDir, AdditionalDirs: backing, ReadOnlyDirs: []string{readonly}}
-	target, _, err := resolveWorkDirPath(workDir, file, readRoots(turn)...)
+	target, err := resolveReadPath(workDir, file)
 	if err != nil {
-		t.Fatalf("只读目录读取被拒绝: %v", err)
+		t.Fatalf("工作目录外读取被拒绝: %v", err)
 	}
 	if data, err := os.ReadFile(target); err != nil || string(data) != "content" {
 		t.Fatalf("读取内容 = %q, error = %v", data, err)
 	}
-	if _, _, err := resolveWorkDirPath(workDir, file, turn.AdditionalDirs...); err == nil {
-		t.Fatal("只读目录写入应被拒绝")
+	if _, _, err := resolveWorkDirPath(workDir, file); err == nil {
+		t.Fatal("工作目录外写入应被拒绝")
 	}
-	if backing[:cap(backing)][1] != "" {
-		t.Fatal("读取目录修改了附加目录的底层数组")
+	if data, err := os.ReadFile(file); err != nil || string(data) != "content" {
+		t.Fatalf("文件内容 = %q, error = %v", data, err)
+	}
+	secret := filepath.Join(home, ".ssh", "id_test")
+	if err := os.MkdirAll(filepath.Dir(secret), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secret, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(workDir, "ssh-link")
+	if err := os.Symlink(filepath.Dir(secret), link); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{secret, filepath.Join(link, "id_test")} {
+		if _, err := resolveReadPath(workDir, path); err == nil || !strings.Contains(err.Error(), "protected credential path:") {
+			t.Fatalf("读取凭据 %q: %v", path, err)
+		}
 	}
 }

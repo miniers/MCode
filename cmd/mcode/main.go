@@ -65,7 +65,7 @@ func extraPathDirs(home, goos string) []string {
 		return dirs
 	}
 
-	dirs := []string{"/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"}
+	dirs := []string{"/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/local/go/bin"}
 	if home != "" {
 		dirs = append(dirs,
 			filepath.Join(home, ".local/bin"),
@@ -74,6 +74,7 @@ func extraPathDirs(home, goos string) []string {
 			filepath.Join(home, ".npm-global/bin"),
 			filepath.Join(home, ".volta/bin"),
 			filepath.Join(home, ".version-fox/sdks/nodejs/bin"),
+			filepath.Join(home, ".version-fox/sdks/golang/bin"),
 			filepath.Join(home, ".version-fox/shims"),
 			filepath.Join(home, ".local/share/mise/shims"),
 			filepath.Join(home, ".asdf/shims"),

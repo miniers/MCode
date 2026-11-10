@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"mcode/internal/agent/tools"
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
 	"mcode/internal/providers/loginenv"
@@ -201,11 +202,18 @@ func buildEnv(base []string, workDir string, extraOpts []string, extraTurn []str
 	return env
 }
 
-// readRoots 合并可读目录，避免修改附加目录的底层数组。
-func readRoots(turn harness.Turn) []string {
-	roots := make([]string, 0, len(turn.AdditionalDirs)+len(turn.ReadOnlyDirs))
-	roots = append(roots, turn.AdditionalDirs...)
-	return append(roots, turn.ReadOnlyDirs...)
+func resolveReadPath(workDir, path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(workDir, path)
+	}
+	target, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if tools.SecretPath(target) {
+		return "", fmt.Errorf("protected credential path: %s", target)
+	}
+	return filepath.EvalSymlinks(target)
 }
 
 // resolveWorkDirPath 将 Agent 请求的相对或绝对路径解析为工作目录（或附加目录）内的绝对路径。
@@ -467,7 +475,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 			if err := json.Unmarshal(params, &p); err != nil {
 				return nil, err
 			}
-			target, _, err := resolveWorkDirPath(turn.WorkDir, p.Path, readRoots(turn)...)
+			target, err := resolveReadPath(turn.WorkDir, p.Path)
 			if err != nil {
 				return nil, err
 			}

@@ -24,6 +24,7 @@ func TestAugmentedPath(t *testing.T) {
 			goos:        "darwin",
 			wantPrefix:  "/opt/homebrew/bin",
 			wantContain: []string{"/home/u/.local/bin", "/home/u/.version-fox/sdks/nodejs/bin"},
+			exactlyOnce: []string{"/home/u/.version-fox/sdks/golang/bin", "/usr/local/go/bin"},
 		},
 		{
 			name:        "existing entries keep order and are not duplicated",
@@ -42,7 +43,7 @@ func TestAugmentedPath(t *testing.T) {
 			wantPrefix: "/usr/bin:",
 			absent: []string{
 				".local/bin", ".bun/bin", ".cargo/bin", ".npm-global/bin", ".volta/bin",
-				".version-fox/sdks/nodejs/bin", ".version-fox/shims", ".local/share/mise/shims", ".asdf/shims",
+				".version-fox/sdks/nodejs/bin", ".version-fox/sdks/golang/bin", ".version-fox/shims", ".local/share/mise/shims", ".asdf/shims",
 			},
 		},
 		{
@@ -57,7 +58,7 @@ func TestAugmentedPath(t *testing.T) {
 				filepath.Join(`C:\Users\u`, ".bun", "bin"),
 				filepath.Join(`C:\Users\u`, ".cargo", "bin"),
 			},
-			absent:      []string{"/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/bin", "/usr/sbin"},
+			absent:      []string{"/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/local/go/bin", "/usr/bin", "/usr/sbin"},
 			exactlyOnce: []string{`C:\Windows\System32`, `C:\Tools`},
 		},
 		{

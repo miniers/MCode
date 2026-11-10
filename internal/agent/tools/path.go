@@ -51,18 +51,36 @@ func canonical(path string) (string, error) {
 	}
 }
 
-func resolve(env Env, path string) (string, error) {
-	return resolveWithRoots(env, path, nil)
-}
-
-func resolveRead(env Env, path string) (string, error) {
-	return resolveWithRoots(env, path, env.ReadOnlyDirs)
-}
-
-func resolveWithRoots(env Env, path string, extraRoots []string) (string, error) {
-	if env.WorkDir == "" {
-		return "", fmt.Errorf("work directory is required")
+// SecretPath 判断路径是否指向受保护的凭据。
+func SecretPath(target string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return true
 	}
+	target, err = canonical(target)
+	if err != nil {
+		return true
+	}
+	for _, name := range []string{
+		".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker/config.json",
+		".netrc", ".npmrc", ".pypirc", ".git-credentials", ".password-store",
+		".config/gcloud", ".config/gh", "Library/Keychains", ".codex/auth.json",
+		".claude/.credentials.json", ".mcode/config.json", ".mcode/config.json.bak",
+		".mcode/agy-accounts.json", ".mcode/agy-accounts", ".mcode/remote-tls", ".mcode/tailnet",
+	} {
+		base, err := canonical(filepath.Join(home, name))
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(base, target)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			return true
+		}
+	}
+	return false
+}
+
+func expandPath(env Env, path string) string {
 	if path == "" {
 		path = "."
 	}
@@ -75,12 +93,33 @@ func resolveWithRoots(env Env, path string, extraRoots []string) (string, error)
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(env.WorkDir, path)
 	}
-	target, err := canonical(path)
+	return path
+}
+
+func resolvePath(env Env, path string) (string, error) {
+	if env.WorkDir == "" {
+		return "", fmt.Errorf("work directory is required")
+	}
+	return canonical(expandPath(env, path))
+}
+
+func resolveRead(env Env, path string) (string, error) {
+	target, err := resolvePath(env, path)
+	if err != nil {
+		return "", err
+	}
+	if SecretPath(target) {
+		return "", fmt.Errorf("protected credential path: %s", target)
+	}
+	return target, nil
+}
+
+func resolve(env Env, path string) (string, error) {
+	target, err := resolvePath(env, path)
 	if err != nil {
 		return "", err
 	}
 	roots := append([]string{env.WorkDir}, env.AdditionalDirs...)
-	roots = append(roots, extraRoots...)
 	for _, root := range roots {
 		base, e := canonical(root)
 		if e != nil {
@@ -91,5 +130,5 @@ func resolveWithRoots(env Env, path string, extraRoots []string) (string, error)
 			return target, nil
 		}
 	}
-	return "", fmt.Errorf("path outside allowed directories: %s", path)
+	return "", fmt.Errorf("path outside allowed directories: %s", expandPath(env, path))
 }

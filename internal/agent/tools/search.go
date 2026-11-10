@@ -56,7 +56,7 @@ func globMatch(pattern, path string) (bool, error) {
 var gitSearchTimeout = 10 * time.Second
 
 func candidates(ctx context.Context, env Env, root string) ([]string, error) {
-	work, e := resolveRead(env, ".")
+	work, e := resolvePath(env, ".")
 	if e != nil {
 		return nil, e
 	}
@@ -101,6 +101,12 @@ func candidates(ctx context.Context, env Env, root string) ([]string, error) {
 			}
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			if SecretPath(p) {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
 			}
 			if d.IsDir() {
 				if p != root {

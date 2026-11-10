@@ -49,7 +49,7 @@ func TestWriteDirectoriesAndPermissions(t *testing.T) {
 	}
 }
 
-func TestGrepRejectsOutsideFileSymlink(t *testing.T) {
+func TestGrepAllowsOutsideFileSymlink(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "secret")
 	put(t, outside, "private-marker")
@@ -57,7 +57,7 @@ func TestGrepRejectsOutsideFileSymlink(t *testing.T) {
 		t.Skip(err)
 	}
 	result := runTool(t, Env{WorkDir: root}, "grep", map[string]any{"pattern": "private-marker"})
-	if result.IsError || strings.Contains(result.Text, "private-marker") {
+	if result.IsError || !strings.Contains(result.Text, "private-marker") {
 		t.Fatal(result.Text)
 	}
 }
