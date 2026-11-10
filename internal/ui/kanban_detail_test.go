@@ -111,9 +111,12 @@ func TestKanbanDetailBusyMenuActionsUnavailable(t *testing.T) {
 	task := KanbanTask{ID: "busy", ProjectID: "p1", Title: "忙碌任务", Status: "done", Column: "done", CanMove: true}
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
 	tt, s := newWorkspaceTester(t, fake, "tasks")
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	ks.doneExpanded = true
+	kanbanMu.Unlock()
 	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
 	s.openTaskDetail(task)
-	ks := getKanbanState(s)
 	if !beginKanbanTask(ks, task.ID) {
 		t.Fatal("无法设置忙碌状态")
 	}
@@ -225,6 +228,10 @@ func TestKanbanDetailMoreMenuAndDeleteConfirmation(t *testing.T) {
 	task := KanbanTask{ID: "menu", ProjectID: "p1", Title: "菜单任务", Status: "done", Column: "done", CanMove: true}
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
 	tt, s := newWorkspaceTester(t, fake, "tasks")
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	ks.doneExpanded = true
+	kanbanMu.Unlock()
 	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
 	s.openTaskDetail(task)
 	waitFor(t, tt, func() bool { _, ok := tt.Find("任务更多操作"); return ok })

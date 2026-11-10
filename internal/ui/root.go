@@ -48,6 +48,9 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			opt(state)
 		}
 	}
+	if state.tasksWindowView != "" {
+		return state, tasksRootView(state)
+	}
 	// 启动时恢复上次持久化的侧边栏宽度与显隐状态。
 	// 默认不读写 ui-state.json，只有显式传入 WithUIStatePersistence 的主窗口才恢复，
 	// 避免多窗口与测试通过共享数据目录互相污染。
@@ -73,22 +76,6 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 		state.applyWorkspaceUpdates()
 		// 每帧把「用户正在看的会话」同步给应用层，值没变时内部直接跳过。
 		state.reportForegroundThread()
-
-		if state.tasksWindowView != "" {
-			ui.Column(c.Key("root-shell")).Fill().Children(func() {
-				state.mu.Lock()
-				if state.toastMessage != "" {
-					c.Toast(state.toastMessage)
-					state.toastMessage = ""
-				}
-				state.mu.Unlock()
-
-				renderKanbanWindow(c, state)
-				renderKanbanNewTaskSheet(c, state)
-				renderKanbanNewGoalSheet(c, state)
-			})
-			return
-		}
 
 		// 后台建好的总管会话每帧在这里跳到前台，侧栏折叠时也不会漏跳。
 		consumeStewardPendingThread(state)

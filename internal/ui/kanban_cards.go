@@ -394,6 +394,8 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 		})
 	kanbanMu.Lock()
 	returnFocus := ks.detailFocusReturnID == task.ID
+	selected := ks.selectedTaskIDs[task.ID]
+	opened := ks.detailTaskID == task.ID
 	if returnFocus {
 		ks.detailFocusReturnID = ""
 	}
@@ -406,18 +408,14 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 	if card.Hovered() {
 		card.Background(ThemeSurface(c).Alpha(0.60)).BorderColor(ThemeAccent(c).Alpha(0.35))
 	}
-	if st.selecting && kanbanDisplayColumn(task) == "todo" {
-		kanbanMu.Lock()
-		selected := ks.selectedTaskIDs[task.ID]
-		kanbanMu.Unlock()
-		if selected {
-			card.BorderWidth(kanbanCardHoverBorder).
-				BorderColor(ThemeAccent(c)).
-				Background(ThemeSurface(c).Alpha(0.75))
-		}
+	if opened || selected {
+		card.Background(ThemeSelected(c))
 	}
-	if kanbanKeyboardSelected(s, task.ID) {
-		card.BorderWidth(kanbanDropBorder).BorderColor(ThemeAccent(c))
+	if selected {
+		card.BorderColor(ThemeAccent(c))
+	}
+	if card.Focused() {
+		card.BorderWidth(KanbanFocusRingWidth).BorderColor(ThemeAccent(c))
 	}
 
 	// 右键菜单：与卡片内的按钮复用同一批调用
@@ -469,15 +467,10 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 	if mixed {
 		project = projectNameFor(s, task.ProjectID)
 	}
+	var more ui.Element
 	card.Children(func() {
 		ui.Row(c.Key("kanban-task-title-row-" + task.ID)).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
-			if kanbanKeyboardSelected(s, task.ID) {
-				ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-			}
 			if st.selecting && kanbanDisplayColumn(task) == "todo" {
-				kanbanMu.Lock()
-				selected := ks.selectedTaskIDs[task.ID]
-				kanbanMu.Unlock()
 				icon, color := IconSquare(), secondaryText
 				if selected {
 					icon, color = IconCircleCheck(), ThemeAccent(c)
@@ -487,54 +480,56 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 			renderKanbanPriority(c, task)
 			ui.Text(c, task.Title).Label(task.Title).Tooltip(task.Title).FontSize(TypeBody).FontWeight(500).
 				MaxLines(2).TextColor(primaryText).Grow(1).MinWidth(0)
-			if card.Hovered() || card.FocusWithin() {
-				if actions.primary == "开始" {
-					label := "开始"
-					if kanbanDisplayColumn(task) == "in_progress" {
-						label = "继续"
+			ui.Row(c.Key("kanban-task-actions-" + task.ID)).Width(KanbanCardActionSlotWidth).Shrink(0).AlignItems(ui.Center).Children(func() {
+				if card.Hovered() || card.FocusWithin() {
+					if actions.primary == "开始" {
+						label := "开始"
+						if kanbanDisplayColumn(task) == "in_progress" {
+							label = "继续"
+						}
+						btn := Button(c.Key("kanban-task-"+task.ID+"-start"), ButtonOpts{
+							Text: label, Label: "kanban-task-" + task.ID + "-start", Size: ControlXS, Variant: ButtonPrimary,
+							OnClick: func() {
+								if kanbanTaskBusy(ks, task.ID) {
+									return
+								}
+								if task.Blocked {
+									s.setToast("暂不可启动：" + kanbanTaskBlockReason(task))
+									return
+								}
+								s.startTask(task.ID, task.Revision)
+							},
+						})
+						if task.Blocked {
+							btn.Tooltip("暂不可启动：" + kanbanTaskBlockReason(task))
+						}
+					} else if actions.primary != "" {
+						label := actions.primary
+						Button(c.Key("kanban-task-"+task.ID+"-primary"), ButtonOpts{
+							Text: label, Label: label + " " + task.Title, Size: ControlXS, Variant: ButtonPrimary,
+							OnClick: func() {
+								if !kanbanTaskBusy(ks, task.ID) {
+									s.openTaskDetail(task)
+								}
+							},
+						})
 					}
-					btn := Button(c.Key("kanban-task-"+task.ID+"-start"), ButtonOpts{
-						Text: label, Label: "kanban-task-" + task.ID + "-start", Size: ControlXS, Variant: ButtonPrimary,
-						OnClick: func() {
-							if kanbanTaskBusy(ks, task.ID) {
-								return
-							}
-							if task.Blocked {
-								s.setToast("暂不可启动：" + kanbanTaskBlockReason(task))
-								return
-							}
-							s.startTask(task.ID, task.Revision)
-						},
-					})
-					if task.Blocked {
-						btn.Tooltip("暂不可启动：" + kanbanTaskBlockReason(task))
-					}
-				} else if actions.primary != "" {
-					label := actions.primary
-					Button(c.Key("kanban-task-"+task.ID+"-primary"), ButtonOpts{
-						Text: label, Label: label + " " + task.Title, Size: ControlXS, Variant: ButtonPrimary,
-						OnClick: func() {
-							if !kanbanTaskBusy(ks, task.ID) {
-								s.openTaskDetail(task)
-							}
-						},
-					})
 				}
-			}
-			Button(c.Key("kanban-task-"+task.ID+"-more"), ButtonOpts{
-				Icon: IconChevronRight(), Label: "kanban-task-" + task.ID + "-more", Size: ControlXS, Variant: ButtonSecondary,
-				OnClick: func() {
-					kanbanMu.Lock()
-					if ks.rescueMenuTaskID == task.ID {
-						ks.rescueMenuTaskID = ""
-					} else {
-						ks.rescueMenuTaskID = task.ID
-						ks.moveMenuTaskID = ""
-					}
-					ks.deleteTaskID = ""
-					kanbanMu.Unlock()
-					s.invalidate()
-				},
+				more = Button(c.Key("kanban-task-"+task.ID+"-more"), ButtonOpts{
+					Icon: IconMoreHorizontal(), Label: "kanban-task-" + task.ID + "-more", Size: ControlXS, Variant: ButtonSecondary,
+					OnClick: func() {
+						kanbanMu.Lock()
+						if ks.rescueMenuTaskID == task.ID {
+							ks.rescueMenuTaskID = ""
+						} else {
+							ks.rescueMenuTaskID = task.ID
+							ks.moveMenuTaskID = ""
+						}
+						ks.deleteTaskID = ""
+						kanbanMu.Unlock()
+						s.invalidate()
+					},
+				})
 			})
 		})
 		if signal != "" || project != "" {
@@ -545,151 +540,144 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 				ui.Text(c, signal+project).FontSize(TypeCaption).TextColor(kanbanSignalColor(c, tone)).SingleLine()
 			})
 		}
-		if task.Blocked && len(task.DependsOn) > 0 {
+		menuOpen := st.moveMenuTaskID == task.ID || st.rescueMenuTaskID == task.ID
+		appPopover(c.Key("kanban-task-more-popover-"+task.ID), more, &menuOpen, func() {
 			kanbanMu.Lock()
-			boardTasks := append([]KanbanTask(nil), ks.board.Tasks...)
+			ks.moveMenuTaskID = ""
+			ks.rescueMenuTaskID = ""
 			kanbanMu.Unlock()
-			for _, depID := range task.DependsOn {
-				for _, dep := range boardTasks {
-					if dep.ID == depID {
-						dependency := dep
-						Button(c.Key("kanban-dependency-"+task.ID+"-"+dep.ID), ButtonOpts{
-							Text: dep.Title, Label: "前置任务 " + dep.Title, Size: ControlXS, Variant: ButtonSecondary,
-							OnClick: func() { s.openTaskDetail(dependency) },
+			s.invalidate()
+		}, func() {
+			popoverCard(c, ui.Column(c.Key("kanban-task-more-menu-"+task.ID))).Padding(Space2).Children(func() {
+				// 移动选项菜单展开
+				if st.moveMenuTaskID == task.ID {
+					ui.Row(c.Key("kanban-task-move-options-"+task.ID)).
+						FillWidth().
+						Wrap().
+						Padding(Space1, Space2).
+						Radius(RadiusSM).
+						Background(ThemeHover(c)).
+						AlignItems(ui.Center).
+						Gap(Space1).
+						Children(func() {
+							ui.Text(c, "移动到:").
+								FontSize(TypeCaption).
+								TextColor(secondaryText)
+
+							for _, opt := range actions.menu {
+								optVal := opt
+								Button(c.Key(optVal.key), ButtonOpts{
+									Text:    optVal.label,
+									Label:   optVal.key,
+									Size:    ControlXS,
+									Variant: ButtonSecondary,
+									OnClick: func() {
+										kanbanMu.Lock()
+										ks.moveMenuTaskID = ""
+										kanbanMu.Unlock()
+										s.performKanbanTarget(task, optVal.status)
+									},
+								})
+							}
 						})
-						break
-					}
 				}
-			}
-		}
 
-		// 移动选项菜单展开
-		if st.moveMenuTaskID == task.ID {
-			ui.Row(c.Key("kanban-task-move-options-"+task.ID)).
-				FillWidth().
-				Wrap().
-				Padding(Space1, Space2).
-				Radius(RadiusSM).
-				Background(ThemeHover(c)).
-				AlignItems(ui.Center).
-				Gap(Space1).
-				Children(func() {
-					ui.Text(c, "移动到:").
-						FontSize(TypeCaption).
-						TextColor(secondaryText)
+				// 救援菜单展开：打开会话、提醒 Agent、中断并重置、删除
+				if st.rescueMenuTaskID == task.ID && !kanbanTaskBusy(ks, task.ID) {
+					rescuable := task.Status == "in_progress" || len(task.AttentionFlags) > 0
+					ui.Row(c.Key("kanban-task-rescue-options-"+task.ID)).
+						Label("kanban-task-rescue-options-"+task.ID).
+						FillWidth().
+						Wrap().
+						Padding(Space1, Space2).
+						Radius(RadiusSM).
+						Background(ThemeHover(c)).
+						AlignItems(ui.Center).
+						Gap(Space1).
+						Children(func() {
+							if rescuable {
+								ui.Text(c, "救援:").
+									FontSize(TypeCaption).
+									TextColor(secondaryText)
+							}
 
-					for _, opt := range actions.menu {
-						optVal := opt
-						Button(c.Key(optVal.key), ButtonOpts{
-							Text:    optVal.label,
-							Label:   optVal.key,
-							Size:    ControlXS,
-							Variant: ButtonSecondary,
-							OnClick: func() {
-								kanbanMu.Lock()
-								ks.moveMenuTaskID = ""
-								kanbanMu.Unlock()
-								s.performKanbanTarget(task, optVal.status)
-							},
+							if (task.Status == "done" || task.Column == "done") && actions.targets["todo"] != "" {
+								Button(c.Key("kanban-task-"+task.ID+"-reopen"), ButtonOpts{
+									Text: "重新打开", Label: "kanban-task-" + task.ID + "-reopen", Size: ControlXS, Variant: ButtonSecondary,
+									OnClick: func() { s.performKanbanTarget(task, "todo") },
+								})
+							}
+							if len(actions.menu) > 0 && task.Status != "done" && !(task.Status == "cancelled" && task.Column == "done") {
+								Button(c.Key("kanban-task-"+task.ID+"-move"), ButtonOpts{
+									Text: "移动", Label: "kanban-task-" + task.ID + "-move", Size: ControlXS, Variant: ButtonSecondary,
+									OnClick: func() {
+										kanbanMu.Lock()
+										ks.rescueMenuTaskID = ""
+										ks.moveMenuTaskID = task.ID
+										kanbanMu.Unlock()
+										s.invalidate()
+									},
+								})
+							}
+
+							if task.ThreadID != "" {
+								Button(c.Key("kanban-task-rescue-open-"+task.ID), ButtonOpts{
+									Text:    "打开会话",
+									Label:   "kanban-task-rescue-open-" + task.ID,
+									Size:    ControlXS,
+									Variant: ButtonSecondary,
+									OnClick: func() {
+										kanbanMu.Lock()
+										ks.rescueMenuTaskID = ""
+										kanbanMu.Unlock()
+										s.closeWorkspace()
+										s.loadThreads(task.ProjectID, false)
+										s.revealThread(task.ThreadID)
+									},
+								})
+							}
+
+							if rescuable {
+								Button(c.Key("kanban-task-rescue-nudge-"+task.ID), ButtonOpts{
+									Text:    "提醒 Agent",
+									Label:   "kanban-task-rescue-nudge-" + task.ID,
+									Size:    ControlXS,
+									Variant: ButtonSecondary,
+									OnClick: func() {
+										s.nudgeTaskAgent(task)
+									},
+								})
+
+								Button(c.Key("kanban-task-rescue-interrupt-"+task.ID), ButtonOpts{
+									Text:    "中断并重置为待办",
+									Label:   "kanban-task-rescue-interrupt-" + task.ID,
+									Size:    ControlXS,
+									Variant: ButtonSecondary,
+									OnClick: func() {
+										kanbanMu.Lock()
+										ks.rescueMenuTaskID = ""
+										kanbanMu.Unlock()
+										s.interruptTaskToTodo(task)
+									},
+								})
+							}
+
+							Button(c.Key("kanban-task-rescue-delete-"+task.ID), ButtonOpts{
+								Text:    "删除",
+								Label:   "kanban-task-rescue-delete-" + task.ID,
+								Size:    ControlXS,
+								Variant: ButtonDanger,
+								OnClick: func() {
+									kanbanMu.Lock()
+									ks.deleteTaskID = task.ID
+									kanbanMu.Unlock()
+									s.invalidate()
+								},
+							})
 						})
-					}
-				})
-		}
-
-		// 救援菜单展开：打开会话、提醒 Agent、中断并重置、删除
-		if st.rescueMenuTaskID == task.ID && !kanbanTaskBusy(ks, task.ID) {
-			rescuable := task.Status == "in_progress" || len(task.AttentionFlags) > 0
-			ui.Row(c.Key("kanban-task-rescue-options-"+task.ID)).
-				Label("kanban-task-rescue-options-"+task.ID).
-				FillWidth().
-				Wrap().
-				Padding(Space1, Space2).
-				Radius(RadiusSM).
-				Background(ThemeHover(c)).
-				AlignItems(ui.Center).
-				Gap(Space1).
-				Children(func() {
-					if rescuable {
-						ui.Text(c, "救援:").
-							FontSize(TypeCaption).
-							TextColor(secondaryText)
-					}
-
-					if (task.Status == "done" || task.Column == "done") && actions.targets["todo"] != "" {
-						Button(c.Key("kanban-task-"+task.ID+"-reopen"), ButtonOpts{
-							Text: "重新打开", Label: "kanban-task-" + task.ID + "-reopen", Size: ControlXS, Variant: ButtonSecondary,
-							OnClick: func() { s.performKanbanTarget(task, "todo") },
-						})
-					}
-					if len(actions.menu) > 0 && task.Status != "done" && !(task.Status == "cancelled" && task.Column == "done") {
-						Button(c.Key("kanban-task-"+task.ID+"-move"), ButtonOpts{
-							Text: "移动", Label: "kanban-task-" + task.ID + "-move", Size: ControlXS, Variant: ButtonSecondary,
-							OnClick: func() {
-								kanbanMu.Lock()
-								ks.rescueMenuTaskID = ""
-								ks.moveMenuTaskID = task.ID
-								kanbanMu.Unlock()
-								s.invalidate()
-							},
-						})
-					}
-
-					if task.ThreadID != "" {
-						Button(c.Key("kanban-task-rescue-open-"+task.ID), ButtonOpts{
-							Text:    "打开会话",
-							Label:   "kanban-task-rescue-open-" + task.ID,
-							Size:    ControlXS,
-							Variant: ButtonSecondary,
-							OnClick: func() {
-								kanbanMu.Lock()
-								ks.rescueMenuTaskID = ""
-								kanbanMu.Unlock()
-								s.closeWorkspace()
-								s.loadThreads(task.ProjectID, false)
-								s.revealThread(task.ThreadID)
-							},
-						})
-					}
-
-					if rescuable {
-						Button(c.Key("kanban-task-rescue-nudge-"+task.ID), ButtonOpts{
-							Text:    "提醒 Agent",
-							Label:   "kanban-task-rescue-nudge-" + task.ID,
-							Size:    ControlXS,
-							Variant: ButtonSecondary,
-							OnClick: func() {
-								s.nudgeTaskAgent(task)
-							},
-						})
-
-						Button(c.Key("kanban-task-rescue-interrupt-"+task.ID), ButtonOpts{
-							Text:    "中断并重置为待办",
-							Label:   "kanban-task-rescue-interrupt-" + task.ID,
-							Size:    ControlXS,
-							Variant: ButtonSecondary,
-							OnClick: func() {
-								kanbanMu.Lock()
-								ks.rescueMenuTaskID = ""
-								kanbanMu.Unlock()
-								s.interruptTaskToTodo(task)
-							},
-						})
-					}
-
-					Button(c.Key("kanban-task-rescue-delete-"+task.ID), ButtonOpts{
-						Text:    "删除",
-						Label:   "kanban-task-rescue-delete-" + task.ID,
-						Size:    ControlXS,
-						Variant: ButtonDanger,
-						OnClick: func() {
-							kanbanMu.Lock()
-							ks.deleteTaskID = task.ID
-							kanbanMu.Unlock()
-							s.invalidate()
-						},
-					})
-				})
-		}
+				}
+			})
+		})
 
 		// 删除二次确认：确认后调用客户端删除任务，成功时刷新看板。
 		if st.deleteTaskID == task.ID {

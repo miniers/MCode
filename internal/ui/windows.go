@@ -476,6 +476,12 @@ func (s *chatState) close() {
 	stopAutomationWatch(s)
 	// 收件箱订阅与补拉定时器同样持有 *chatState，关窗时一并注销。
 	stopAttentionWatch(s)
+	kanbanMu.Lock()
+	_, hasKanban := kanbanStates[s]
+	kanbanMu.Unlock()
+	if hasKanban {
+		s.closeTaskDetail()
+	}
 	swarmPanelMu.Lock()
 	var stopSwarm func()
 	if hp := swarmPanelStates[s]; hp != nil {

@@ -67,7 +67,17 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 
 	defaultView := kanbanConfiguredDefaultView(s)
 	curPID := s.currentWorkspaceProjectID()
-	s.syncKanbanProject(curPID)
+	if windowMode {
+		kanbanMu.Lock()
+		initialized, scope := ks.initialized, ks.scopeID
+		kanbanMu.Unlock()
+		if !initialized {
+			s.setKanbanScope(scope, scope == "")
+		}
+		curPID = scope
+	} else {
+		s.syncKanbanProject(curPID)
+	}
 
 	kanbanMu.Lock()
 	if ks.viewMode == "" {
@@ -139,16 +149,13 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 
 	if windowMode {
 		winWidth, _ := c.Size()
-		ui.Column(c.Key("kanban-window-root")).
-			Fill().
-			Background(ThemeWindowBg(c)).
-			Clip().
-			Gap(0).
-			Children(func() {
-				ui.Box(c.Key("kanban-window-titlebar")).FillWidth().Height(ControlLG).DragWindow()
-				renderKanbanModalHeader(c, s, ks, p, winWidth)
+		ui.Row(c.Key("kanban-window-root")).Fill().Background(ThemeWindowBg(c)).Clip().Gap(0).Children(func() {
+			renderTasksWindowSidebar(c, s, ks, p)
+			ui.Column(c.Key("tasks-window-content")).Grow(1).MinWidth(0).FillHeight().Gap(0).Children(func() {
+				renderKanbanModalHeader(c, s, ks, p, winWidth-TasksSidebarWidth)
 				renderBody()
 			})
+		})
 	} else {
 		winWidth, winHeight := c.Size()
 		modalWidth := winWidth - kanbanModalInset*2

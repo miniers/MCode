@@ -135,6 +135,10 @@ func (s *chatState) loadAutomationUnread(projectID string) {
 		return
 	}
 	automationMu.Lock()
+	if as.projectID != projectID {
+		automationMu.Unlock()
+		return
+	}
 	automationUnreadRequests[as]++
 	request := automationUnreadRequests[as]
 	automationMu.Unlock()
@@ -142,16 +146,16 @@ func (s *chatState) loadAutomationUnread(projectID string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		counts, err := client.AutomationUnreadCounts(ctx, pid)
-		if err != nil {
-			return
-		}
 		s.updateWorkspace(func() {
 			automationMu.Lock()
 			if as.projectID != pid || automationUnreadRequests[as] != request {
 				automationMu.Unlock()
 				return
 			}
-			as.unread = counts
+			as.unreadKnown = err == nil
+			if err == nil {
+				as.unread = counts
+			}
 			automationMu.Unlock()
 			s.invalidate()
 		})

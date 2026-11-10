@@ -56,7 +56,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 	if as.confirmDiscard {
 		ui.Row(c.Key("automation-discard-confirm")).Gap(Space2).Children(func() {
 			ui.Text(c, "放弃未保存的修改？").TextColor(ThemePrimaryText(c))
-			Button(c.Key("automation-discard-continue"), ButtonOpts{Text: "继续编辑", OnClick: func() { as.confirmDiscard = false }, Variant: ButtonSecondary})
+			Button(c.Key("automation-discard-continue"), ButtonOpts{Text: "继续编辑", OnClick: func() { as.confirmDiscard = false; as.pendingLeave = nil }, Variant: ButtonSecondary})
 			Button(c.Key("automation-discard"), ButtonOpts{Text: "放弃", OnClick: func() {
 				as.confirmDiscard = false
 				as.editorOpen = false
@@ -66,6 +66,11 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 					as.isNew = false
 				}
 				s.invalidate()
+				next := as.pendingLeave
+				as.pendingLeave = nil
+				if next != nil {
+					next()
+				}
 			}, Variant: ButtonDanger})
 		})
 	}

@@ -101,7 +101,7 @@ func OpenTasksWindow(client Client, view string, opts ...Option) *mygo.Window {
 			WithTasksWindowMode(view),
 			WithWindow(func() *mygo.Window { return win }),
 		)
-		state, content := buildRoot(client, allOpts...)
+		state, content := buildTasksRoot(client, allOpts...)
 		win = mygo.NewWindow(mygo.WindowOptions{
 			Title:                "任务",
 			Width:                1140,
@@ -110,6 +110,7 @@ func OpenTasksWindow(client Client, view string, opts ...Option) *mygo.Window {
 			MinHeight:            520,
 			TitleBarStyle:        mygo.TitleBarHiddenInset,
 			TrafficLightPosition: &mygo.Point{X: 18, Y: 16},
+			TitleBarHeight:       hiddenTitleBarHeight(titleBarGOOS, int(HeaderHeight)),
 			StateKey:             "tasks-window",
 			Content:              ui.View(content),
 		})

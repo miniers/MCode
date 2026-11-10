@@ -113,18 +113,22 @@ type automationState struct {
 	// openRunID 为当前展开详情的运行记录 ID
 	openRunID string
 	// unread 为项目下各自动化的未读运行记录数（automationID -> 未读数）
-	unread map[string]int
+	unread      map[string]int
+	unreadKnown bool
 
 	// 删除确认
-	confirmDelete      bool
-	editorOpen         bool
-	confirmDiscard     bool
-	focusEditorTrigger bool
-	detailTab          int
-	filter             int
-	unreadOnly         bool
-	narrowDetail       bool
-	moreOpen           bool
+	confirmDelete        bool
+	editorOpen           bool
+	confirmDiscard       bool
+	pendingLeave         func()
+	pendingProjectChoice func(string)
+	chooseProjectOpen    bool
+	focusEditorTrigger   bool
+	detailTab            int
+	filter               int
+	unreadOnly           bool
+	narrowDetail         bool
+	moreOpen             bool
 }
 
 func getAutomationState(s *chatState) *automationState {
@@ -594,11 +598,15 @@ func (s *chatState) saveAutomation() {
 			as.saving = false
 			loadRuns := false
 			runSaved := false
+			var leave func()
 			if as.editSession == editSession && as.selectedID == selectedID && as.isNew == isNew && err == nil {
 				if as.draft() == draft {
 					runSaved = as.runAfterSave
 					as.fillAutomation(saved)
 					as.editorOpen = false
+					as.confirmDiscard = false
+					leave = as.pendingLeave
+					as.pendingLeave = nil
 					as.stopSchedulePreview()
 					if isNew {
 						as.detailTab = 0
@@ -615,6 +623,9 @@ func (s *chatState) saveAutomation() {
 			}
 			as.runAfterSave = false
 			automationMu.Unlock()
+			if leave != nil {
+				leave()
+			}
 			if runSaved {
 				s.runAutomationNow(saved.ID)
 			}
@@ -1091,6 +1102,12 @@ func renderAutomationWorkspace(c *ui.Context, s *chatState) {
 // 调用处（看板「自动化」标签页）应传入看板搜索框文本 ks.searchText；
 // 传空串时等价于不过滤。
 func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText string) {
+	if s != nil {
+		renderAutomationWorkspaceInScope(c, s, automationWorkspaceProps{ScopeID: s.currentWorkspaceProjectID(), SearchText: searchText})
+	}
+}
+
+func renderAutomationWorkspaceLegacy(c *ui.Context, s *chatState, searchText string) {
 	if s == nil {
 		return
 	}
@@ -1145,9 +1162,6 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 	visible := filterAutomationStatus(autos, searchText, as.filter, as.unreadOnly, unread)
 	width, _ := c.Size()
 	narrow := width < automationNarrowWidth
-	if !as.editorOpen && c.Shortcut(ui.Cmd, ui.KeyN) && curPID != "" && !saving {
-		as.resetToNewAutomation(s)
-	}
 	if !as.editorOpen && !as.moreOpen && (as.openRunID != "" && as.detailTab == 0 || narrow && as.narrowDetail) && c.Shortcut(0, ui.KeyEscape) {
 		if as.openRunID != "" && as.detailTab == 0 {
 			as.openRunID = ""

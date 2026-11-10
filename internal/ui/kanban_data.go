@@ -25,6 +25,30 @@ func (s *chatState) syncKanbanProject(projectID string) {
 func (s *chatState) setKanbanScope(projectID string, all bool) {
 	ks := getKanbanState(s)
 	kanbanMu.Lock()
+	changed := ks.initialized && ks.scopeID != projectID
+	kanbanMu.Unlock()
+	if changed {
+		s.closeTaskDetail()
+		kanbanKeyboardClearSelection(s)
+	}
+	kanbanMu.Lock()
+	if changed {
+		if projectID != "" && ks.goalID != "" {
+			valid := false
+			for _, goal := range ks.board.Goals {
+				if goal.ID == ks.goalID && goal.ProjectID == projectID {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				ks.goalID = ""
+			}
+		}
+		ks.goalDetailOpen = false
+		ks.selecting = false
+		ks.selectedTaskIDs = nil
+	}
 	ks.scopeID = projectID
 	ks.overview = all
 	ks.initialized = true

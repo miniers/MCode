@@ -155,7 +155,11 @@ func TestKanbanDoneTaskDeleteConfirmCallsClient(t *testing.T) {
 	}
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
 
-	tt, _ := newWorkspaceTester(t, fake, "tasks")
+	tt, s := newWorkspaceTester(t, fake, "tasks")
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	ks.doneExpanded = true
+	kanbanMu.Unlock()
 	tt.SetSize(2400, 1000)
 	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
 	if _, ok := tt.Find("kanban-task-" + task.ID + "-more"); !ok {
