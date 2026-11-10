@@ -1949,12 +1949,30 @@ func (c *Client) UpdateAutomation(ctx context.Context, id string, in mcodeui.Aut
 		return mcodeui.Automation{}, wrapConflictErr(err)
 	}
 	spec := AutomationInputToSpec(in, existing.Spec)
-	def, err := a.Update(ctx, id, automation.UpdateInput{
-		Name:    &in.Name,
-		Prompt:  &in.Prompt,
-		Spec:    &spec,
-		Enabled: &in.Enabled,
-	}, revision)
+	update := automation.UpdateInput{
+		Name:   &in.Name,
+		Prompt: &in.Prompt,
+		Spec:   &spec,
+	}
+	if in.Enabled != existing.Enabled {
+		update.Enabled = &in.Enabled
+	}
+	def, err := a.Update(ctx, id, update, revision)
+	if err != nil {
+		return mcodeui.Automation{}, wrapConflictErr(err)
+	}
+	return AutomationToUI(def), nil
+}
+
+// SetAutomationEnabled 只改变启用状态，显式启用时重置失败状态。
+func (c *Client) SetAutomationEnabled(ctx context.Context, id string, enabled bool, revision int) (mcodeui.Automation, error) {
+	c.kanbanMu.Lock()
+	a := c.automation
+	c.kanbanMu.Unlock()
+	if a == nil {
+		return mcodeui.Automation{}, wrapConflictErr(errors.New("自动化服务不可用"))
+	}
+	def, err := a.Update(ctx, id, automation.UpdateInput{Enabled: &enabled}, revision)
 	if err != nil {
 		return mcodeui.Automation{}, wrapConflictErr(err)
 	}

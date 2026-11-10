@@ -2048,6 +2048,23 @@ func (f *FakeClient) CreateAutomation(ctx context.Context, in AutomationInput) (
 	return auto, nil
 }
 
+func (f *FakeClient) SetAutomationEnabled(ctx context.Context, id string, enabled bool, revision int) (Automation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.automations {
+		a := &f.automations[i]
+		if a.ID == id {
+			if a.Revision != revision {
+				return Automation{}, ErrRevisionConflict
+			}
+			a.Enabled = enabled
+			a.Revision++
+			return *a, nil
+		}
+	}
+	return Automation{}, fmt.Errorf("automation not found: %s", id)
+}
+
 // UpdateAutomation 更新自动化任务。
 func (f *FakeClient) UpdateAutomation(ctx context.Context, id string, in AutomationInput, revision int) (Automation, error) {
 	f.mu.Lock()

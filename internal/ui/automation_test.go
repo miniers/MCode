@@ -1,11 +1,137 @@
 package mcodeui
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+type blockingAutomationClient struct {
+	*FakeClient
+	started chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingAutomationClient) UpdateAutomation(ctx context.Context, id string, in AutomationInput, revision int) (Automation, error) {
+	c.started <- struct{}{}
+	<-c.release
+	return c.FakeClient.UpdateAutomation(ctx, id, in, revision)
+}
+
+// 嵌入基本接口，模拟尚未实现可选启停接口的客户端。
+type legacyAutomationClient struct{ Client }
+
+func TestAutomationWorkspace_DraftSurvivesToggleAndSave(t *testing.T) {
+	fake := NewFakeClient()
+	auto := testAutomation("auto-1", "p1")
+	fake.SetAutomations([]Automation{auto})
+	tt, s := newWorkspaceTester(t, fake, "automations")
+	waitFor(t, tt, func() bool { return tt.HasText(auto.Name) })
+	if err := tt.Click(auto.Name); err != nil {
+		t.Fatal(err)
+	}
+	as := getAutomationState(s)
+	automationMu.Lock()
+	as.prompt = "新正文"
+	automationMu.Unlock()
+	s.setAutomationEnabled(auto, false)
+	waitFor(t, tt, func() bool { automationMu.Lock(); defer automationMu.Unlock(); return as.editRevision == 2 })
+	if as.prompt != "新正文" || as.enabled {
+		t.Fatal("toggle replaced draft")
+	}
+	s.saveAutomation()
+	waitFor(t, tt, func() bool {
+		automationMu.Lock()
+		defer automationMu.Unlock()
+		return !as.saving && as.editRevision == 3
+	})
+	if as.conflict || as.prompt != "新正文" || fake.UpdateAutomationCalls()[0].Prompt != "新正文" {
+		t.Fatal("draft was lost or conflicted")
+	}
+}
+
+func TestAutomationWorkspace_LateSaveAndDuplicateClick(t *testing.T) {
+	fake := NewFakeClient()
+	a, b := testAutomation("auto-a", "p1"), testAutomation("auto-b", "p1")
+	fake.SetAutomations([]Automation{a, b})
+	client := &blockingAutomationClient{FakeClient: fake, started: make(chan struct{}, 2), release: make(chan struct{})}
+	tt, s := newWorkspaceTester(t, client, "automations")
+	waitFor(t, tt, func() bool { return tt.HasText(a.Name) && tt.HasText(b.Name) })
+	if err := tt.Click(a.Name); err != nil {
+		t.Fatal(err)
+	}
+	as := getAutomationState(s)
+	s.saveAutomation()
+	select {
+	case <-client.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("save did not start")
+	}
+	s.saveAutomation()
+	if err := tt.Click(b.Name); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click(a.Name); err != nil {
+		t.Fatal(err)
+	}
+	automationMu.Lock()
+	as.prompt = "新会话正文"
+	automationMu.Unlock()
+	close(client.release)
+	waitFor(t, tt, func() bool { automationMu.Lock(); defer automationMu.Unlock(); return !as.saving })
+	if as.selectedID != a.ID || as.prompt != "新会话正文" {
+		t.Fatal("late save replaced a new editing session")
+	}
+	if len(fake.UpdateAutomationCalls()) != 1 {
+		t.Fatal("duplicate save was sent")
+	}
+}
+
+func TestAutomationWorkspace_SavePreservesLaterInput(t *testing.T) {
+	fake := NewFakeClient()
+	a := testAutomation("auto-a", "p1")
+	fake.SetAutomations([]Automation{a})
+	client := &blockingAutomationClient{FakeClient: fake, started: make(chan struct{}, 1), release: make(chan struct{})}
+	tt, s := newWorkspaceTester(t, client, "automations")
+	waitFor(t, tt, func() bool { return tt.HasText(a.Name) })
+	if err := tt.Click(a.Name); err != nil {
+		t.Fatal(err)
+	}
+	as := getAutomationState(s)
+	s.saveAutomation()
+	select {
+	case <-client.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("save did not start")
+	}
+	automationMu.Lock()
+	as.prompt = "保存后输入"
+	automationMu.Unlock()
+	close(client.release)
+	waitFor(t, tt, func() bool {
+		automationMu.Lock()
+		defer automationMu.Unlock()
+		return !as.saving && as.editRevision == 2
+	})
+	if as.prompt != "保存后输入" {
+		t.Fatal("save replaced later input")
+	}
+}
+
+func TestAutomationWorkspace_LegacyToggleFallback(t *testing.T) {
+	fake := NewFakeClient()
+	a := testAutomation("auto-a", "p1")
+	fake.SetAutomations([]Automation{a})
+	tt, s := newWorkspaceTester(t, legacyAutomationClient{Client: fake}, "automations")
+	waitFor(t, tt, func() bool { return tt.HasText(a.Name) })
+	s.setAutomationEnabled(a, false)
+	waitFor(t, tt, func() bool { return len(fake.UpdateAutomationCalls()) == 1 })
+	if fake.UpdateAutomationCalls()[0].Enabled {
+		t.Fatal("fallback did not pause")
+	}
+}
 
 // 场景 1：空列表显示“还没有自动化”
 func TestAutomationWorkspace_Empty(t *testing.T) {
@@ -378,17 +504,11 @@ func TestAutomationWorkspace_TogglePause(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("auto-1") })
 	as := getAutomationState(s)
 	automationMu.Lock()
-	as.selectedID = auto.ID
-	as.isNew = false
+	as.fillAutomation(auto)
 	automationMu.Unlock()
 
 	if err := tt.Click("启用自动化 auto-1"); err != nil {
 		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return len(fake.UpdateAutomationCalls()) == 1 })
-	call := fake.UpdateAutomationCalls()[0]
-	if call.Enabled || call.Name != auto.Name || call.Schedule != auto.Schedule {
-		t.Fatalf("pause changed more than Enabled: %+v", call)
 	}
 	waitFor(t, tt, func() bool {
 		automationMu.Lock()
@@ -399,10 +519,11 @@ func TestAutomationWorkspace_TogglePause(t *testing.T) {
 	if err := tt.Click("启用自动化 auto-1"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool { return len(fake.UpdateAutomationCalls()) == 2 })
-	if !fake.UpdateAutomationCalls()[1].Enabled {
-		t.Fatal("resume did not enable the automation")
-	}
+	waitFor(t, tt, func() bool {
+		automationMu.Lock()
+		defer automationMu.Unlock()
+		return as.enabled && as.editRevision == 3
+	})
 }
 
 // U-011：completed 的自动化已经结束（Enabled=false），不能显示成「已暂停」。

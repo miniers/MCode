@@ -10,7 +10,7 @@ package app
 //   - create 用 automationExtInputToUI 转成 mcodeui.AutomationInput 后调 Client.CreateAutomation；
 //   - update 先按 ID 取当前自动化拿 ProjectID，再调 Client.UpdateAutomation（可带 revision）；
 //   - delete 直调 Client.DeleteAutomation；
-//   - setEnabled/reset 取当前自动化后调 Client.UpdateAutomation，Enabled=true 时后端会同时
+//   - setEnabled/reset 取当前自动化后调 Client.SetAutomationEnabled，Enabled=true 时后端会同时
 //     清空连续失败计数，与桌面端「恢复/重置」完全一致。
 //
 // 错误保持桌面端的处理方式：Client 的方法已经用 wrapConflictErr 包装过
@@ -172,7 +172,7 @@ func (s remoteAutomationService) SetEnabled(ctx context.Context, automationID st
 	if revision <= 0 {
 		revision = current.Revision
 	}
-	updated, err := s.client.UpdateAutomation(ctx, automationID, automationExtInputFromUI(current, enabled), revision)
+	updated, err := s.client.SetAutomationEnabled(ctx, automationID, enabled, revision)
 	if err != nil {
 		return wire.AutomationExtAutomation{}, remoteAutomationExtError(err)
 	}

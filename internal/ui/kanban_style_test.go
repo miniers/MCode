@@ -39,11 +39,11 @@ func TestKanbanPriorityStyleTokens(t *testing.T) {
 	}
 }
 
-// TestKanbanFilesUseDesignTokens 断言看板三文件不再出现硬编码颜色：
+// TestKanbanFilesUseDesignTokens 断言看板文件不再出现硬编码颜色：
 // ui.Hex(...) 与纯黑阴影 ui.RGBA(0, 0, 0, ...)；阴影统一走 ElevDialog/ElevPopover 令牌。
 func TestKanbanFilesUseDesignTokens(t *testing.T) {
 	banned := []string{"ui.Hex(", "ui.RGBA(0, 0, 0"}
-	for _, name := range []string{"kanban.go", "kanban_modal.go", "kanban_sheets.go"} {
+	for _, name := range []string{"kanban.go", "kanban_modal.go", "kanban_state.go", "kanban_data.go", "kanban_actions.go", "kanban_cards.go", "kanban_detail.go", "kanban_goals.go", "kanban_sheets.go"} {
 		src, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatalf("读取 %s 失败: %v", name, err)

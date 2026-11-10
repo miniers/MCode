@@ -4,16 +4,71 @@ package app
 // 不依赖 Client，因此不需要构造 App 或后端。
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"mcode/internal/automation"
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
+	"mcode/internal/store"
 	mcodeui "mcode/internal/ui"
 )
+
+func TestAutomationClientUpdateAndSetEnabled(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc := automation.New(automation.Options{Store: db, Now: func() time.Time { return now }})
+	def, err := svc.Create(ctx, automation.CreateInput{ProjectID: "p", Name: "old", Prompt: "prompt", Enabled: true, Spec: automation.Spec{Schedule: automation.Schedule{Type: "interval", Seconds: 3600}, Model: "model"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	def.Spec.State.ConsecutiveFailures = 2
+	def.Automation.Schedule, err = automation.EncodeSpec(def.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def.Automation, err = db.UpdateAutomation(ctx, def.Automation, def.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{automation: svc}
+	input := automationExtInputFromUI(AutomationToUI(def), true)
+	input.Name = "new"
+	now = now.Add(10 * time.Minute)
+	updated, err := client.UpdateAutomation(ctx, def.ID, input, def.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ConsecutiveFailures != 2 || !updated.NextRunAt.Equal(*def.NextRunAt) {
+		t.Fatalf("ordinary update reset state: %+v", updated)
+	}
+	reset, err := client.SetAutomationEnabled(ctx, def.ID, true, updated.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reset.ConsecutiveFailures != 0 || reset.Name != "new" || reset.Prompt != "prompt" || reset.Model != "model" || !reset.NextRunAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("reset changed configuration or failed to reset: %+v", reset)
+	}
+	if _, err := client.SetAutomationEnabled(ctx, def.ID, false, updated.Revision); !errors.Is(err, mcodeui.ErrRevisionConflict) {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+	paused, err := (remoteAutomationService{client: client}).SetEnabled(ctx, def.ID, false, reset.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Enabled || paused.Name != "new" {
+		t.Fatalf("remote pause changed configuration: %+v", paused)
+	}
+}
 
 func TestAutomationExtInputToUI(t *testing.T) {
 	failures := 5

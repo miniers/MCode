@@ -19,6 +19,10 @@ var (
 	automationStates = make(map[*chatState]*automationState)
 )
 
+type automationEnableClient interface {
+	SetAutomationEnabled(ctx context.Context, id string, enabled bool, revision int) (Automation, error)
+}
+
 const (
 	// automationEmptyIconSize 是空态插图的图标边长。
 	automationEmptyIconSize float32 = 44
@@ -42,6 +46,7 @@ type automationState struct {
 	runsLoadID  int
 	saving      bool
 	saveID      int
+	editSession int
 	watchStop   func()
 
 	// 卡片级操作：正在立即运行的自动化、已暂停/重置请求中的自动化
@@ -291,6 +296,7 @@ func (as *automationState) selectAutomation(auto Automation, s *chatState) {
 
 // fillAutomation 在 UI 线程持锁调用，保证草稿与其 revision 始终来自同一快照。
 func (as *automationState) fillAutomation(auto Automation) {
+	as.editSession++
 	as.selectedID = auto.ID
 	as.isNew = false
 	as.editRevision = auto.Revision
@@ -343,6 +349,7 @@ func (as *automationState) fillAutomation(auto Automation) {
 // resetToNewAutomation 重置表单进入新建状态。
 func (as *automationState) resetToNewAutomation(s *chatState) {
 	automationMu.Lock()
+	as.editSession++
 	as.selectedID = ""
 	as.isNew = true
 	as.editRevision = 0
@@ -372,6 +379,13 @@ func (as *automationState) resetToNewAutomation(s *chatState) {
 	as.runsErr = ""
 	automationMu.Unlock()
 	s.invalidate()
+}
+
+// automationDraftSnapshot 用于保留保存请求发出后的编辑。
+func (as *automationState) automationDraftSnapshot() ([15]string, int, bool, bool) {
+	return [15]string{as.name, as.prompt, as.scheduleType, as.intervalInput, as.timeOfDay,
+		as.cronExpr, as.onceDateStr, as.stopWhen, as.maxFailuresInput, as.maxRunsInput,
+		as.provider, as.model, as.effort, as.runtimeMode, as.runMode}, as.dayOfWeek, as.enabled, as.catchUp
 }
 
 // saveAutomation 校验并保存自动化。
@@ -424,6 +438,8 @@ func (s *chatState) saveAutomation() {
 
 	curRevision := as.editRevision
 	originalSchedule := as.schedule
+	editSession := as.editSession
+	draft, draftDay, draftEnabled, draftCatchUp := as.automationDraftSnapshot()
 	automationMu.Unlock()
 
 	// 表单校验
@@ -524,6 +540,10 @@ func (s *chatState) saveAutomation() {
 	}
 
 	automationMu.Lock()
+	if as.saving || as.editSession != editSession || as.projectID != curPID {
+		automationMu.Unlock()
+		return
+	}
 	as.formErr = ""
 	as.saving = true
 	as.saveID++
@@ -563,15 +583,26 @@ func (s *chatState) saveAutomation() {
 				return
 			}
 			as.saving = false
-			automationMu.Unlock()
-			if as.projectID == curPID && as.selectedID == selectedID && as.isNew == isNew && err == nil {
-				as.selectAutomation(saved, s)
+			if as.editSession == editSession && as.selectedID == selectedID && as.isNew == isNew && err == nil {
+				currentDraft, day, enabled, catchUp := as.automationDraftSnapshot()
+				if currentDraft == draft && day == draftDay && enabled == draftEnabled && catchUp == draftCatchUp {
+					as.fillAutomation(saved)
+				} else {
+					as.selectedID = saved.ID
+					as.isNew = false
+					as.editRevision = saved.Revision
+					as.schedule = saved.Schedule
+				}
 			}
+			automationMu.Unlock()
+			s.invalidate()
 		})
 		if err != nil {
 			if errors.Is(err, ErrRevisionConflict) {
 				automationMu.Lock()
-				as.conflict = true
+				if as.projectID == curPID && as.editSession == editSession {
+					as.conflict = true
+				}
 				automationMu.Unlock()
 			} else {
 				s.setToast("保存自动化失败: " + err.Error())
@@ -700,13 +731,19 @@ func (s *chatState) setAutomationEnabled(auto Automation, enabled bool) {
 	}
 	as.busyIDs[auto.ID] = true
 	projectID := as.projectID
+	editSession := as.editSession
 	automationMu.Unlock()
 	s.invalidate()
 
 	go func(a Automation) {
 		ctx := context.Background()
-		input := automationInputFrom(a, enabled)
-		saved, err := s.client.UpdateAutomation(ctx, a.ID, input, a.Revision)
+		var saved Automation
+		var err error
+		if client, ok := s.client.(automationEnableClient); ok {
+			saved, err = client.SetAutomationEnabled(ctx, a.ID, enabled, a.Revision)
+		} else {
+			saved, err = s.client.UpdateAutomation(ctx, a.ID, automationInputFrom(a, enabled), a.Revision)
+		}
 
 		automationMu.Lock()
 		delete(as.busyIDs, a.ID)
@@ -728,8 +765,10 @@ func (s *chatState) setAutomationEnabled(auto Automation, enabled bool) {
 		// 编辑区草稿同步到新状态，避免表单里的启用开关与卡片不一致。
 		s.updateWorkspace(func() {
 			automationMu.Lock()
-			if saved.ID == as.selectedID && !as.isNew {
-				as.enabled = enabled
+			if as.projectID == projectID && as.editSession == editSession && saved.ID == as.selectedID && !as.isNew &&
+				as.editRevision == a.Revision && saved.Revision == a.Revision+1 {
+				as.enabled = saved.Enabled
+				as.editRevision = saved.Revision
 			}
 			automationMu.Unlock()
 		})
@@ -1119,7 +1158,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 	if curPID != "" && (as.projectID != curPID || !as.initialized) {
 		automationMu.Lock()
 		if as.projectID != curPID {
-			*as = automationState{loadID: as.loadID, runsLoadID: as.runsLoadID, saveID: as.saveID, watchStop: as.watchStop, runningIDs: make(map[string]bool), busyIDs: make(map[string]bool)}
+			*as = automationState{loadID: as.loadID, runsLoadID: as.runsLoadID, saveID: as.saveID, editSession: as.editSession + 1, watchStop: as.watchStop, runningIDs: make(map[string]bool), busyIDs: make(map[string]bool)}
 		}
 		as.projectID = curPID
 		as.initialized = true
@@ -1780,6 +1819,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 										Label: "取消编辑",
 										OnClick: func() {
 											automationMu.Lock()
+											as.editSession++
 											as.selectedID = ""
 											as.isNew = false
 											as.confirmDelete = false

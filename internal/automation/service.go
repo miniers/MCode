@@ -332,6 +332,12 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput, expecte
 		if err := in.Spec.Schedule.Validate(); err != nil {
 			return Definition{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 		}
+		oldSchedule, newSchedule := spec.Schedule, in.Spec.Schedule
+		datesEqual := oldSchedule.Date == nil && newSchedule.Date == nil ||
+			oldSchedule.Date != nil && newSchedule.Date != nil && oldSchedule.Date.Equal(*newSchedule.Date)
+		scheduleChanged = oldSchedule.Type != newSchedule.Type || oldSchedule.Seconds != newSchedule.Seconds ||
+			!datesEqual || oldSchedule.TimeOfDay != newSchedule.TimeOfDay || oldSchedule.Timezone != newSchedule.Timezone ||
+			oldSchedule.DayOfWeek != newSchedule.DayOfWeek || oldSchedule.Expression != newSchedule.Expression
 		spec.Schedule = in.Spec.Schedule
 		spec.StopWhen = in.Spec.StopWhen
 		if in.Spec.ConfidenceThreshold != 0 {
@@ -356,7 +362,6 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput, expecte
 		spec.Model = in.Spec.Model
 		spec.Effort = in.Spec.Effort
 		spec.RuntimeMode = harness.NormalizeMode(in.Spec.RuntimeMode)
-		scheduleChanged = true
 	}
 
 	if in.Enabled != nil {
