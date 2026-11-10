@@ -10,6 +10,7 @@ import (
 
 // swarmTiersUIState 维护 Bee 档位编辑弹层与草稿状态。
 type swarmTiersUIState struct {
+	editor         *swarmTierEditorSession
 	openPopoverKey string // "" 表示关闭，"add" 表示新增，"edit-<id>" 表示编辑指定档位
 	isNew          bool
 	draft          config.SwarmTier
@@ -61,6 +62,7 @@ func saveTier(st *SettingsState, draft config.SwarmTier, isNew bool, errStr *str
 	st.mu.Lock()
 	st.cfgMu.Lock()
 	cfgCopy := st.cfg
+	oldTiers := st.cfg.Orchestration.Tiers
 	newTiers := make([]config.SwarmTier, len(st.cfg.Orchestration.Tiers))
 	copy(newTiers, st.cfg.Orchestration.Tiers)
 	if isNew {
@@ -90,7 +92,19 @@ func saveTier(st *SettingsState, draft config.SwarmTier, isNew bool, errStr *str
 	st.cfg.Orchestration.Tiers = newTiers
 	st.cfgMu.Unlock()
 	st.mu.Unlock()
-	st.save()
+	if !st.save() {
+		st.mu.Lock()
+		st.cfgMu.Lock()
+		if reflect.DeepEqual(st.cfg.Orchestration.Tiers, newTiers) {
+			st.cfg.Orchestration.Tiers = oldTiers
+		}
+		if errStr != nil {
+			*errStr = st.errorMessage
+		}
+		st.cfgMu.Unlock()
+		st.mu.Unlock()
+		return false
+	}
 	return true
 }
 
@@ -185,6 +199,7 @@ func deleteTier(st *SettingsState, id string) bool {
 	}
 	st.cfgMu.Unlock()
 	st.mu.Unlock()
+	disposeSwarmTierEditorIfEditing(st, id)
 	return true
 }
 
@@ -211,353 +226,323 @@ func swarmTierDeleteGuard(st *SettingsState, id string, draftReadOnly bool) (dis
 	return false, "删除档位"
 }
 
-// 浮层定位只会翻转位置，需按锚点两侧的可用空间限制滚动区域高度。
-func swarmTierEditorMaxHeight(winH float32, anchor ui.Rect) float32 {
-	const maxHeight = 650
-	const margin = 8
-	if winH <= 0 {
-		return maxHeight
-	}
-	if anchor.H <= 0 {
-		return min(maxHeight, winH-2*margin)
-	}
-	below := winH - (anchor.Y + anchor.H) - Space1 - margin
-	above := anchor.Y - Space1 - margin
-	return min(maxHeight, max(below, above, 160))
-}
+// renderSwarmTierEditorForm 渲染共享草稿。
+func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIState, popKey string) {
+	card := ui.Column(c.Key("swarm-tier-editor-card-"+popKey)).
+		FillWidth().
+		Padding(Space4, Space5).
+		Gap(Space4).
+		Background(ThemeSurface(c)).
+		Radius(RadiusMD)
+	card.Children(func() {
+		formTitle := "编辑子代理档位"
+		if uiSt.isNew {
+			formTitle = "添加子代理档位"
+		}
+		// 标题按顶边对齐：按文本查找时取到的是单个字形行高的矩形，胶囊定位与滚动
+		// 都要求它从弹层顶边开始。
+		ui.Row(c.Key("swarm-tier-editor-bee-" + popKey)).
+			AlignItems(ui.Start).
+			Children(func() {
+				ui.Text(c, formTitle).
+					FontSize(TypeProse).
+					FontWeight(600).
+					TextColor(ThemePrimaryText(c))
+			})
 
-// renderSwarmTierEditorPopover 渲染 Bee 档位添加与编辑 Popover 弹层。
-func renderSwarmTierEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIState, anchor ui.Element, popKey string, providers []ProviderInfo) {
-	_, winH := c.Size()
-	ui.Scroll(c.Key("swarm-tier-editor-scroll-" + popKey)).Width(360).MaxHeight(swarmTierEditorMaxHeight(winH, anchor.Bounds())).Children(func() {
-		card := ui.Column(c.Key("swarm-tier-editor-card-"+popKey)).
-			Width(360).
-			Padding(Space4, Space5).
-			Gap(Space4).
-			Background(ThemeSurface(c)).
-			Border(Hairline, ThemeBorder(c)).
-			Radius(RadiusMD)
-		applyElevation(c, card, ElevDialog).Children(func() {
-			formTitle := "编辑子代理档位"
-			if uiSt.isNew {
-				formTitle = "添加子代理档位"
-			}
-			// 标题按顶边对齐：按文本查找时取到的是单个字形行高的矩形，胶囊定位与滚动
-			// 都要求它从弹层顶边开始。
-			ui.Row(c.Key("swarm-tier-editor-bee-" + popKey)).
-				AlignItems(ui.Start).
-				Children(func() {
-					ui.Text(c, formTitle).
-						FontSize(TypeProse).
-						FontWeight(600).
-						TextColor(ThemePrimaryText(c))
+		// 1. ID 字段（新建时可编辑，仅支持小写字母与数字）
+		ui.Column(c.Key("field-tier-id-" + popKey)).
+			Gap(Space1).
+			Children(func() {
+				ui.Text(c, "档位 ID").
+					FontSize(TypeFootnote).
+					TextColor(ThemeSecondaryText(c))
+				TextField(c, TextFieldProps{
+					Key: "swarm-tier-id-" + popKey + "-input", Value: &uiSt.draft.ID,
+					Label: "编辑档位 ID", Placeholder: "英文小写标识，如 read / edit / deep",
+					Disabled: !uiSt.isNew, FillWidth: true,
+					OnChange: func(text string) { uiSt.draft.ID = strings.ToLower(strings.TrimSpace(text)) },
 				})
+			})
 
-			// 1. ID 字段（新建时可编辑，仅支持小写字母与数字）
-			ui.Column(c.Key("field-tier-id-" + popKey)).
-				Gap(Space1).
-				Children(func() {
-					ui.Text(c, "档位 ID").
-						FontSize(TypeFootnote).
-						TextColor(ThemeSecondaryText(c))
-					textFunc(func(*SettingsState) (string, bool) {
-						return uiSt.draft.ID, false
-					}, func(_ *SettingsState, text string) {
-						uiSt.draft.ID = strings.ToLower(strings.TrimSpace(text))
-					}, "英文小写标识，如 read / edit / deep").
-						withDisabled(func(*SettingsState) bool { return !uiSt.isNew }).
-						render(c, st, setting{ID: "swarm-tier-id-" + popKey, Title: "档位 ID"})
+		// 2. 名称
+		ui.Column(c.Key("field-tier-name-" + popKey)).
+			Gap(Space1).
+			Children(func() {
+				ui.Text(c, "档位名称").
+					FontSize(TypeFootnote).
+					TextColor(ThemeSecondaryText(c))
+				TextField(c, TextFieldProps{
+					Key: "swarm-tier-name-" + popKey + "-input", Value: &uiSt.draft.Name,
+					Label: "编辑档位名称", Placeholder: "如：只读 / 执行 / 深度", FillWidth: true,
 				})
+			})
 
-			// 2. 名称
-			ui.Column(c.Key("field-tier-name-" + popKey)).
-				Gap(Space1).
-				Children(func() {
-					ui.Text(c, "档位名称").
-						FontSize(TypeFootnote).
-						TextColor(ThemeSecondaryText(c))
-					textFunc(func(*SettingsState) (string, bool) {
-						return uiSt.draft.Name, false
-					}, func(_ *SettingsState, text string) {
-						uiSt.draft.Name = text
-					}, "如：只读 / 执行 / 深度").
-						render(c, st, setting{ID: "swarm-tier-name-" + popKey, Title: "档位名称"})
+		// 3. 用途说明（多行，此文本用于指引 Lead 决策）
+		ui.Column(c.Key("field-tier-desc-" + popKey)).
+			Gap(Space1).
+			Children(func() {
+				ui.Text(c, "用途说明").
+					FontSize(TypeFootnote).
+					TextColor(ThemeSecondaryText(c))
+				TextField(c, TextFieldProps{
+					Key:         "area-swarm-tier-desc-" + popKey,
+					Value:       &uiSt.draft.Description,
+					Label:       "用途说明",
+					Placeholder: "向主代理说明该档位的适用场景（展示给主代理）",
+					Multiline:   true,
+					MinLines:    2,
+					MaxLines:    5,
+					FillWidth:   true,
 				})
+			})
 
-			// 3. 用途说明（多行，此文本用于指引 Lead 决策）
-			ui.Column(c.Key("field-tier-desc-" + popKey)).
-				Gap(Space1).
-				Children(func() {
-					ui.Text(c, "用途说明").
-						FontSize(TypeFootnote).
-						TextColor(ThemeSecondaryText(c))
-					TextField(c, TextFieldProps{
-						Key:         "area-swarm-tier-desc-" + popKey,
-						Value:       &uiSt.draft.Description,
-						Label:       "用途说明",
-						Placeholder: "向主代理说明该档位的适用场景（展示给主代理）",
-						Multiline:   true,
-						MinLines:    2,
-						MaxLines:    5,
-						Width:       328,
-					})
-				})
-
-			// 4. 只读 switch 及辅助说明
-			ui.Row(c.Key("row-swarm-tier-readonly-" + popKey)).
-				AlignItems(ui.Center).
-				Justify(ui.SpaceBetween).
-				Children(func() {
-					ui.Column(c.Key("col-swarm-tier-readonly-text-" + popKey)).
-						Gap(Space0).
-						Width(260).
-						Children(func() {
-							ui.Text(c, "只读模式").
-								FontSize(TypeFootnote).
-								FontWeight(500).
-								TextColor(ThemePrimaryText(c))
-							ui.Text(c, "只读档子代理在独立工作树里运行，改动一律丢弃").
-								FontSize(TypeCaption).
-								TextColor(ThemeSecondaryText(c))
-						})
-					toggleFunc(func(*SettingsState) (bool, bool) {
-						return uiSt.draft.ReadOnly, false
-					}, func(_ *SettingsState, on bool) {
-						uiSt.draft.ReadOnly = on
-					}).render(c, st, setting{ID: "swarm-tier-readonly-" + popKey, Title: "只读模式"})
-				})
-
-			// 4.1 写入白名单（只读档没有写权限，不渲染）
-			if !uiSt.draft.ReadOnly {
-				ui.Column(c.Key("sec-tier-writepaths-" + popKey)).
-					Gap(Space1).
+		// 4. 只读 switch 及辅助说明
+		ui.Row(c.Key("row-swarm-tier-readonly-" + popKey)).
+			AlignItems(ui.Center).
+			Justify(ui.SpaceBetween).
+			Children(func() {
+				ui.Column(c.Key("col-swarm-tier-readonly-text-" + popKey)).
+					Gap(Space0).
+					MaxWidth(260).Grow(1).
 					Children(func() {
-						ui.Text(c, "写入白名单").
+						ui.Text(c, "只读模式").
 							FontSize(TypeFootnote).
 							FontWeight(500).
 							TextColor(ThemePrimaryText(c))
-						ui.Text(c, "每行一个路径通配，留空则不限制").
+						ui.Text(c, "只读档子代理在独立工作树里运行，改动一律丢弃").
 							FontSize(TypeCaption).
 							TextColor(ThemeSecondaryText(c))
-						TextField(c, TextFieldProps{
-							Key:         "area-swarm-tier-writepaths-" + popKey,
-							Value:       &uiSt.writePathsText,
-							Label:       "写入白名单",
-							Placeholder: "每行一个路径通配，留空表示不限制",
-							Multiline:   true,
-							MinLines:    2,
-							MaxLines:    5,
-							Width:       328,
-						})
 					})
-			}
+				toggleFunc(func(*SettingsState) (bool, bool) {
+					return uiSt.draft.ReadOnly, false
+				}, func(_ *SettingsState, on bool) {
+					uiSt.draft.ReadOnly = on
+				}).render(c, st, setting{ID: "swarm-tier-readonly-" + popKey, Title: "只读模式"})
+			})
 
-			// 5. 模型配置
-			ui.Column(c.Key("sec-tier-model-" + popKey)).
-				Gap(Space2).
-				Children(func() {
-					ui.Text(c, "模型配置").
-						FontSize(TypeFootnote).
-						FontWeight(600).
-						TextColor(ThemePrimaryText(c))
-
-					tierSel := ModelSelection{
-						Provider: uiSt.draft.Provider,
-						Model:    uiSt.draft.Model,
-						Effort:   uiSt.draft.Effort,
-						Fast:     uiSt.draft.FastMode,
-					}
-					ui.Row(c.Key("row-tier-capsule-" + popKey)).
-						Label("tier-model-capsule").
-						AlignItems(ui.Center).
-						Gap(Space3).
-						Children(func() {
-							renderSwarmModelCapsuleEx(c, st, "swarm-tier-model-capsule", "tier-model-"+popKey, tierSel, "跟随会话子代理模型", "选择档位模型", func(next ModelSelection) {
-								uiSt.draft.Provider = next.Provider
-								uiSt.draft.Model = next.Model
-								uiSt.draft.Effort = next.Effort
-								uiSt.draft.FastMode = next.Fast
-								st.invalidate()
-							})
-
-							if !swarmEmptySelection(tierSel) {
-								btnClear := ui.ButtonBase(c.Key("btn-clear-tier-model-"+popKey)).
-									Label("跟随会话").
-									Padding(Space1, Space4).
-									Radius(RadiusSM).
-									Background(ui.Transparent)
-								if btnClear.Hovered() {
-									btnClear.Background(ThemeHover(c))
-								}
-								if btnClear.Clicked() {
-									uiSt.draft.Provider = ""
-									uiSt.draft.Model = ""
-									uiSt.draft.Effort = ""
-									uiSt.draft.FastMode = false
-									st.invalidate()
-								}
-								btnClear.Children(func() {
-									ui.Text(c, "跟随会话").
-										FontSize(TypeFootnote).
-										TextColor(ThemeSecondaryText(c))
-								})
-							}
-						})
-				})
-
-			// 7. 档位要求多行输入（可选）
-			ui.Column(c.Key("field-system-prompt-" + popKey)).
+		// 4.1 写入白名单（只读档没有写权限，不渲染）
+		if !uiSt.draft.ReadOnly {
+			ui.Column(c.Key("sec-tier-writepaths-" + popKey)).
 				Gap(Space1).
 				Children(func() {
-					ui.Text(c, "档位要求 (可选)").
+					ui.Text(c, "写入白名单").
 						FontSize(TypeFootnote).
+						FontWeight(500).
+						TextColor(ThemePrimaryText(c))
+					ui.Text(c, "每行一个路径通配，留空则不限制").
+						FontSize(TypeCaption).
 						TextColor(ThemeSecondaryText(c))
 					TextField(c, TextFieldProps{
-						Key:         "area-swarm-tier-prompt-" + popKey,
-						Value:       &uiSt.draft.SystemPrompt,
-						Label:       "档位要求",
-						Placeholder: "写给该档位子代理的额外要求",
+						Key:         "area-swarm-tier-writepaths-" + popKey,
+						Value:       &uiSt.writePathsText,
+						Label:       "写入白名单",
+						Placeholder: "每行一个路径通配，留空表示不限制",
 						Multiline:   true,
 						MinLines:    2,
 						MaxLines:    5,
-						Width:       328,
+						FillWidth:   true,
 					})
 				})
+		}
 
-			// 保存校验错误提示
-			if uiSt.saveError != "" {
-				ui.Row(c.Key("row-tier-save-error-" + popKey)).
-					Gap(Space1).
+		// 5. 模型配置
+		ui.Column(c.Key("sec-tier-model-" + popKey)).
+			Gap(Space2).
+			Children(func() {
+				ui.Text(c, "模型配置").
+					FontSize(TypeFootnote).
+					FontWeight(600).
+					TextColor(ThemePrimaryText(c))
+
+				tierSel := ModelSelection{
+					Provider: uiSt.draft.Provider,
+					Model:    uiSt.draft.Model,
+					Effort:   uiSt.draft.Effort,
+					Fast:     uiSt.draft.FastMode,
+				}
+				ui.Row(c.Key("row-tier-capsule-" + popKey)).
+					Label("tier-model-capsule").
 					AlignItems(ui.Center).
+					Gap(Space3).
 					Children(func() {
-						ui.Icon(c, IconOctagonAlert()).
-							Size(Space4, Space4).
-							TextColor(ThemeDanger(c))
-						ui.Text(c, uiSt.saveError).
-							FontSize(TypeCaption).
-							TextColor(ThemeDanger(c)).
-							Grow(1)
-					})
-			}
+						renderSwarmModelCapsuleEx(c, st, "swarm-tier-model-capsule", "tier-model-"+popKey, tierSel, "跟随会话子代理模型", "选择档位模型", func(next ModelSelection) {
+							uiSt.draft.Provider = next.Provider
+							uiSt.draft.Model = next.Model
+							uiSt.draft.Effort = next.Effort
+							uiSt.draft.FastMode = next.Fast
+							st.invalidate()
+						})
 
-			// 8. 底部操作区：删除、重置、取消、保存
-			ui.Row(c.Key("actions-tier-" + popKey)).
-				AlignItems(ui.Center).
-				Justify(ui.SpaceBetween).
-				Children(func() {
-					if !uiSt.isNew {
-						ui.Row(c.Key("actions-left-" + popKey)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-							deleteDisabled, deleteTooltip := swarmTierDeleteGuard(st, uiSt.draft.ID, uiSt.draft.ReadOnly)
-
-							btnDelete := ui.ButtonBase(c.Key("btn-tier-delete-"+popKey)).
-								Label("删除").
-								Tooltip(deleteTooltip).
-								Disabled(deleteDisabled).
+						if !swarmEmptySelection(tierSel) {
+							btnClear := ui.ButtonBase(c.Key("btn-clear-tier-model-"+popKey)).
+								Label("跟随会话").
 								Padding(Space1, Space4).
 								Radius(RadiusSM).
 								Background(ui.Transparent)
-							if !deleteDisabled && btnDelete.Hovered() {
-								btnDelete.Background(ThemeDanger(c).Alpha(0.12))
+							if btnClear.Hovered() {
+								btnClear.Background(ThemeHover(c))
 							}
-							if (!deleteDisabled) && btnDelete.Clicked() {
-								if deleteTier(st, uiSt.draft.ID) {
-									uiSt.openPopoverKey = ""
-									uiSt.saveError = ""
-								} else {
-									uiSt.saveError = "删除档位失败：至少保留一个可写档位"
-								}
+							if btnClear.Clicked() {
+								uiSt.draft.Provider = ""
+								uiSt.draft.Model = ""
+								uiSt.draft.Effort = ""
+								uiSt.draft.FastMode = false
 								st.invalidate()
 							}
-							btnDelete.Children(func() {
-								textColor := ThemeDanger(c)
-								if deleteDisabled {
-									textColor = ThemeSecondaryText(c).Alpha(0.5)
-								}
-								ui.Text(c, "删除").FontSize(TypeFootnote).TextColor(textColor)
+							btnClear.Children(func() {
+								ui.Text(c, "跟随会话").
+									FontSize(TypeFootnote).
+									TextColor(ThemeSecondaryText(c))
 							})
+						}
+					})
+			})
 
-							if defaultTier, ok := defaultSwarmTier(uiSt.draft.ID); ok {
-								resetDisabled := swarmTierDraftIsDefault(uiSt.draft, uiSt.writePathsText)
-								btnReset := ui.ButtonBase(c.Key("btn-tier-reset-"+popKey)).
-									Label("重置").
-									Tooltip("恢复默认配置").
-									Disabled(resetDisabled).
-									Padding(Space1, Space4).
-									Radius(RadiusSM).
-									Background(ui.Transparent)
-								if !resetDisabled && btnReset.Hovered() {
-									btnReset.Background(ThemeHover(c))
-								}
-								if !resetDisabled && btnReset.Clicked() {
-									uiSt.draft = defaultTier
-									uiSt.writePathsText = formatWritePaths(defaultTier.WritePaths)
-									uiSt.saveError = ""
-									st.invalidate()
-								}
-								btnReset.Children(func() {
-									textColor := ThemeSecondaryText(c)
-									if resetDisabled {
-										textColor = textColor.Alpha(0.5)
-									}
-									ui.Text(c, "重置").FontSize(TypeFootnote).TextColor(textColor)
-								})
+		// 7. 档位要求多行输入（可选）
+		ui.Column(c.Key("field-system-prompt-" + popKey)).
+			Gap(Space1).
+			Children(func() {
+				ui.Text(c, "档位要求 (可选)").
+					FontSize(TypeFootnote).
+					TextColor(ThemeSecondaryText(c))
+				TextField(c, TextFieldProps{
+					Key:         "area-swarm-tier-prompt-" + popKey,
+					Value:       &uiSt.draft.SystemPrompt,
+					Label:       "档位要求",
+					Placeholder: "写给该档位子代理的额外要求",
+					Multiline:   true,
+					MinLines:    2,
+					MaxLines:    5,
+					FillWidth:   true,
+				})
+			})
+
+		// 保存校验错误提示
+		if uiSt.saveError != "" {
+			ui.Row(c.Key("row-tier-save-error-" + popKey)).
+				Gap(Space1).
+				AlignItems(ui.Center).
+				Children(func() {
+					ui.Icon(c, IconOctagonAlert()).
+						Size(Space4, Space4).
+						TextColor(ThemeDanger(c))
+					ui.Text(c, uiSt.saveError).
+						FontSize(TypeCaption).
+						TextColor(ThemeDanger(c)).
+						Grow(1)
+				})
+		}
+
+		// 8. 底部操作区：删除、重置、取消、保存
+		ui.Row(c.Key("actions-tier-" + popKey)).
+			AlignItems(ui.Center).
+			Justify(ui.SpaceBetween).
+			Children(func() {
+				if !uiSt.isNew {
+					ui.Row(c.Key("actions-left-" + popKey)).Gap(Space3).AlignItems(ui.Center).Children(func() {
+						deleteDisabled, deleteTooltip := swarmTierDeleteGuard(st, uiSt.draft.ID, uiSt.draft.ReadOnly)
+
+						btnDelete := ui.ButtonBase(c.Key("btn-tier-delete-"+popKey)).
+							Label("删除").
+							Tooltip(deleteTooltip).
+							Disabled(deleteDisabled).
+							Padding(Space1, Space4).
+							Radius(RadiusSM).
+							Background(ui.Transparent)
+						if !deleteDisabled && btnDelete.Hovered() {
+							btnDelete.Background(ThemeDanger(c).Alpha(0.12))
+						}
+						if (!deleteDisabled) && btnDelete.Clicked() {
+							if !deleteTier(st, uiSt.draft.ID) {
+								uiSt.saveError = "删除档位失败：至少保留一个可写档位"
 							}
+							st.invalidate()
+						}
+						btnDelete.Children(func() {
+							textColor := ThemeDanger(c)
+							if deleteDisabled {
+								textColor = ThemeSecondaryText(c).Alpha(0.5)
+							}
+							ui.Text(c, "删除").FontSize(TypeFootnote).TextColor(textColor)
 						})
-					} else {
-						ui.Box(c.Key("spacer-delete-" + popKey))
-					}
 
-					ui.Row(c.Key("actions-right-" + popKey)).
-						Gap(Space3).
-						AlignItems(ui.Center).
-						Children(func() {
-							btnCancel := ui.ButtonBase(c.Key("btn-tier-cancel-"+popKey)).
-								Label("取消").
+						if defaultTier, ok := defaultSwarmTier(uiSt.draft.ID); ok {
+							resetDisabled := swarmTierDraftIsDefault(uiSt.draft, uiSt.writePathsText)
+							btnReset := ui.ButtonBase(c.Key("btn-tier-reset-"+popKey)).
+								Label("重置").
+								Tooltip("恢复默认配置").
+								Disabled(resetDisabled).
 								Padding(Space1, Space4).
 								Radius(RadiusSM).
-								Background(ThemeHover(c))
-							if btnCancel.Clicked() {
-								uiSt.openPopoverKey = ""
+								Background(ui.Transparent)
+							if !resetDisabled && btnReset.Hovered() {
+								btnReset.Background(ThemeHover(c))
+							}
+							if !resetDisabled && btnReset.Clicked() {
+								uiSt.draft = defaultTier
+								uiSt.writePathsText = formatWritePaths(defaultTier.WritePaths)
 								uiSt.saveError = ""
 								st.invalidate()
 							}
-							btnCancel.Children(func() {
-								ui.Text(c, "取消").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							btnReset.Children(func() {
+								textColor := ThemeSecondaryText(c)
+								if resetDisabled {
+									textColor = textColor.Alpha(0.5)
+								}
+								ui.Text(c, "重置").FontSize(TypeFootnote).TextColor(textColor)
 							})
+						}
+					})
+				} else {
+					ui.Box(c.Key("spacer-delete-" + popKey))
+				}
 
-							btnSave := ui.ButtonBase(c.Key("btn-tier-save-"+popKey)).
-								Label("保存").
-								Padding(Space1, Space4).
-								Radius(RadiusSM).
-								Background(ThemeAccent(c))
-							if btnSave.Clicked() {
-								uiSt.draft.ID = strings.ToLower(strings.TrimSpace(uiSt.draft.ID))
-								if uiSt.draft.ReadOnly {
-									uiSt.draft.WritePaths = nil
-								} else {
-									uiSt.draft.WritePaths = parseWritePaths(uiSt.writePathsText)
-								}
-								if saveTier(st, uiSt.draft, uiSt.isNew, &uiSt.saveError) {
-									uiSt.openPopoverKey = ""
-									uiSt.saveError = ""
-								}
-								st.invalidate()
-							}
-							btnSave.Children(func() {
-								ui.Text(c, "保存").FontSize(TypeFootnote).TextColor(ThemeOnAccent(c))
-							})
+				ui.Row(c.Key("actions-right-" + popKey)).
+					Gap(Space3).
+					AlignItems(ui.Center).
+					Children(func() {
+						btnCancel := ui.ButtonBase(c.Key("btn-tier-cancel-"+popKey)).
+							Label("取消").
+							Padding(Space1, Space4).
+							Radius(RadiusSM).
+							Background(ThemeHover(c))
+						if btnCancel.Clicked() {
+							disposeSwarmTierEditor(st)
+							st.invalidate()
+						}
+						btnCancel.Children(func() {
+							ui.Text(c, "取消").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
 						})
-				})
-		})
+
+						btnSave := ui.ButtonBase(c.Key("btn-tier-save-"+popKey)).
+							Label("保存").
+							Padding(Space1, Space4).
+							Radius(RadiusSM).
+							Background(ThemeAccent(c))
+						if btnSave.Clicked() {
+							uiSt.draft.ID = strings.ToLower(strings.TrimSpace(uiSt.draft.ID))
+							if uiSt.draft.ReadOnly {
+								uiSt.draft.WritePaths = nil
+							} else {
+								uiSt.draft.WritePaths = parseWritePaths(uiSt.writePathsText)
+							}
+							if saveTier(st, uiSt.draft, uiSt.isNew, &uiSt.saveError) {
+								disposeSwarmTierEditor(st)
+							}
+							st.invalidate()
+						}
+						btnSave.Children(func() {
+							ui.Text(c, "保存").FontSize(TypeFootnote).TextColor(ThemeOnAccent(c))
+						})
+					})
+			})
 	})
 }
 
 // renderSwarmTierRow 渲染单个 Bee 档位条目。
 func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIState, tier config.SwarmTier, providers []ProviderInfo) {
 	popKey := "edit-" + tier.ID
-	wasOpen := (uiSt.openPopoverKey == popKey)
-	isPopOpen := wasOpen
-
 	rowBtn := ui.ButtonBase(c.Key("row-swarm-tier-"+tier.ID)).
 		Label(tier.Name).
 		Padding(settingsRowPadY, settingsRowPadX).
@@ -568,22 +553,10 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 	} else {
 		rowBtn.Background(ui.Transparent)
 	}
-	if rowBtn.Clicked() && uiSt.openPopoverKey != popKey {
-		uiSt.openPopoverKey = popKey
-		uiSt.isNew = false
-		uiSt.draft = tier
-		uiSt.writePathsText = formatWritePaths(tier.WritePaths)
-		uiSt.saveError = ""
-		st.invalidate()
+	if rowBtn.Clicked() {
+		openSwarmTierEditor(c, st, uiSt, rowBtn, popKey, tier)
 	}
-
-	appPopover(c.Key("popover-swarm-tier-"+popKey), rowBtn, &isPopOpen, nil, func() {
-		renderSwarmTierEditorPopover(c, st, uiSt, rowBtn, popKey, providers)
-	})
-	// 草稿弹层只能通过取消/保存关闭；外部点击（含嵌套模型选择器）不能丢弃草稿。
-	if wasOpen && uiSt.openPopoverKey == popKey {
-		isPopOpen = true
-	}
+	updateSwarmTierEditorAnchor(c, st, rowBtn, popKey)
 
 	rowBtn.Children(func() {
 		ui.Row(c.Key("row-swarm-tier-content-" + tier.ID)).

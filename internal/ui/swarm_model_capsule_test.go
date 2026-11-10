@@ -304,7 +304,7 @@ func TestSwarmModelCapsule_DefaultModel(t *testing.T) {
 
 // TestSwarmModelCapsule_TierEditor 验证 Bee 档位编辑弹层中的模型胶囊及“跟随会话”重置按钮。
 func TestSwarmModelCapsule_TierEditor(t *testing.T) {
-	st, tt := newSwarmCapsuleTester(t)
+	st, _ := newSwarmCapsuleTester(t)
 
 	// 打开只读档位的编辑弹层
 	uiSt := getSwarmTiersUIState(st)
@@ -316,6 +316,11 @@ func TestSwarmModelCapsule_TierEditor(t *testing.T) {
 			break
 		}
 	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Width(360).Children(func() {
+			renderSwarmTierEditorForm(c, st, uiSt, "edit-read")
+		})
+	}, 400, 1200)
 	tt.Frame()
 
 	// 初始状态下弹层打开

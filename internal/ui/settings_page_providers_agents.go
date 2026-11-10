@@ -1842,8 +1842,11 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 
 func openMagpieSettingsPage(st *SettingsState) {
 	st.mu.Lock()
-	loadProviders := st.switchSettingsPageLocked("magpie")
+	loadProviders, disposeEditor := st.switchSettingsPageLocked("magpie")
 	st.mu.Unlock()
+	if disposeEditor != nil {
+		disposeEditor()
+	}
 	st.loadSettingsPageData(loadProviders)
 }
 

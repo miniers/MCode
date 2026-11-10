@@ -8,28 +8,6 @@ import (
 	"mcode/internal/config"
 )
 
-func TestSwarmTierEditorMaxHeight(t *testing.T) {
-	tests := []struct {
-		name   string
-		winH   float32
-		anchor ui.Rect
-		want   float32
-	}{
-		{name: "窗口高度未知", winH: 0, want: 650},
-		{name: "锚点未布局", winH: 500, want: 484},
-		{name: "窗口足够高", winH: 1600, anchor: ui.Rect{Y: 800, H: 40}, want: 650},
-		{name: "锚点上方空间较大", winH: 600, anchor: ui.Rect{Y: 400, H: 40}, want: 400 - Space1 - 8},
-		{name: "两侧空间均不足", winH: 200, anchor: ui.Rect{Y: 90, H: 20}, want: 160},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := swarmTierEditorMaxHeight(tt.winH, tt.anchor); got != tt.want {
-				t.Fatalf("swarmTierEditorMaxHeight(%v, %+v) = %v, want %v", tt.winH, tt.anchor, got, tt.want)
-			}
-		})
-	}
-}
-
 // 测试 Bee 档位区块默认展示三种档位（只读、执行、深度）及“跟随会话子代理模型”胶囊文案。
 func TestSwarmTiers_DefaultRender(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

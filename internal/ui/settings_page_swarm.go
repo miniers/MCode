@@ -847,6 +847,18 @@ func renderSwarmPairsBody(c *ui.Context, st *SettingsState) {
 func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 	providers := settingsModelPickerCatalog(st).Providers
 	uiSt := getSwarmTiersUIState(st)
+	if uiSt.editor != nil && !uiSt.isNew {
+		found := false
+		for _, tier := range st.cfg.Orchestration.Tiers {
+			if tier.ID == uiSt.draft.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			disposeSwarmTierEditor(st)
+		}
+	}
 
 	// 顶部说明行与操作
 	ui.Row(c.Key("row-swarm-tiers-header")).
@@ -893,28 +905,14 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
 						Background(ThemeHover(c))
-					if btnAdd.Clicked() && uiSt.openPopoverKey != "add" {
-						uiSt.openPopoverKey = "add"
-						uiSt.isNew = true
-						uiSt.draft = config.SwarmTier{}
-						uiSt.writePathsText = ""
-						uiSt.saveError = ""
-						st.invalidate()
+					if btnAdd.Clicked() {
+						openSwarmTierEditor(c, st, uiSt, btnAdd, "add", config.SwarmTier{})
 					}
+					updateSwarmTierEditorAnchor(c, st, btnAdd, "add")
 					btnAdd.Children(func() {
 						ui.Text(c, "添加档位").FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
 					})
 
-					popKey := "add"
-					wasOpen := (uiSt.openPopoverKey == popKey)
-					isAddOpen := wasOpen
-					appPopover(c.Key("popover-swarm-tier-"+popKey), btnAdd, &isAddOpen, nil, func() {
-						renderSwarmTierEditorPopover(c, st, uiSt, btnAdd, popKey, providers)
-					})
-					// 草稿弹层只能通过取消/保存关闭；外部点击（含嵌套模型选择器）不能丢弃草稿。
-					if wasOpen && uiSt.openPopoverKey == popKey {
-						isAddOpen = true
-					}
 				})
 		})
 

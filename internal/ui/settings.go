@@ -422,6 +422,7 @@ func (s *SettingsState) Close() {
 	s.flushShortcutDrafts(true)
 
 	s.mu.Lock()
+	disposeEditor := detachSwarmTierEditorLocked(s)
 	s.open = false
 	s.resetPendingPage = ""
 	s.mcpPage = nil
@@ -433,6 +434,9 @@ func (s *SettingsState) Close() {
 	s.quickRepliesPage = nil
 	s.nowledgePage = nil
 	s.mu.Unlock()
+	if disposeEditor != nil {
+		disposeEditor()
+	}
 	closeSettingsSheet(s)
 
 	s.invalidate()
@@ -441,11 +445,18 @@ func (s *SettingsState) Close() {
 func (s *SettingsState) invalidate() {
 	s.mu.Lock()
 	chat := s.chat
+	var editorServices, hostServices ui.Services
+	if s.swarmTiersPage != nil && s.swarmTiersPage.editor != nil {
+		editorServices = s.swarmTiersPage.editor.services
+		hostServices = s.swarmTiersPage.editor.hostServices
+	}
 	s.mu.Unlock()
 	if chat != nil {
 		chat.invalidate()
 	}
 	invalidateSettingsWindow(s)
+	hostServices.Invalidate()
+	editorServices.Invalidate()
 }
 
 func (s *SettingsState) isLocked(key string) bool {
@@ -916,18 +927,25 @@ func (s *SettingsState) applyPendingPageSwitch() {
 // selectSettingsPage 切到目标页，并按需重置该页的延迟加载状态。直接点页名会清掉逐项跳转与高亮。
 func (s *SettingsState) selectSettingsPage(id string) {
 	s.mu.Lock()
-	loadProviders := s.switchSettingsPageLocked(id)
+	loadProviders, disposeEditor := s.switchSettingsPageLocked(id)
 	s.jumpToItemID = ""
 	s.highlightItemID = ""
 	s.mu.Unlock()
+	if disposeEditor != nil {
+		disposeEditor()
+	}
 	s.loadSettingsPageData(loadProviders)
 	s.invalidate()
 }
 
 // switchSettingsPageLocked 把当前页切到目标页（调用方已持有 s.mu），并按需重置目标页的延迟加载状态。
 // 返回 true 表示调用方需要在解锁后重新拉取供应商与模型目录。
-func (s *SettingsState) switchSettingsPageLocked(id string) bool {
+func (s *SettingsState) switchSettingsPageLocked(id string) (bool, func()) {
 	target := normalizeSettingsPageID(id)
+	var disposeEditor func()
+	if s.currentPage == "swarm" && target != "swarm" {
+		disposeEditor = detachSwarmTierEditorLocked(s)
+	}
 	if s.currentPage != target {
 		s.endpoints.failedAt = time.Time{}
 	}
@@ -952,7 +970,7 @@ func (s *SettingsState) switchSettingsPageLocked(id string) bool {
 	// 任何显式切页都作废渲染期攒下的请求，免得下一帧的 applyPendingPageSwitch
 	// 把用户刚选的页又改回导航搜索算出的目标页。
 	s.pendingPage = ""
-	return loadProviders
+	return loadProviders, disposeEditor
 }
 
 // loadSettingsPageData 在切页后补拉该页依赖的数据；必须在释放 s.mu 后调用。
@@ -1052,7 +1070,7 @@ resolved:
 		hit.Item.ID = ""
 	}
 	s.mu.Lock()
-	loadProviders := s.switchSettingsPageLocked(hit.Item.Page)
+	loadProviders, disposeEditor := s.switchSettingsPageLocked(hit.Item.Page)
 	if hit.Item.Sheet == "provider-add" {
 		switch {
 		case strings.HasPrefix(hit.Item.ID, "row-provider-add-cli-"):
@@ -1083,6 +1101,9 @@ resolved:
 		}
 	}
 	s.mu.Unlock()
+	if disposeEditor != nil {
+		disposeEditor()
+	}
 	s.loadSettingsPageData(loadProviders)
 	// 命中项在面板里时先打开面板，滚动与高亮才能落在面板的行上。
 	if providerID != "" {
@@ -1425,7 +1446,9 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 		st.ensureAgentConfCurrent()
 	}
 
-	ui.Scroll(c.Key("settings-detail-scroll")).Fill().Background(ThemeWindowBg(c)).Children(func() {
+	detailScroll := ui.Scroll(c.Key("settings-detail-scroll")).Fill().Background(ThemeWindowBg(c))
+	setSwarmTierEditorViewport(c, st, detailScroll.Bounds())
+	detailScroll.Children(func() {
 		ui.Row(c.Key("settings-detail-outer")).FillWidth().Justify(ui.Center).Padding(0, Space7).Children(func() {
 			ui.Column(c.Key("settings-detail-container")).
 				Label("设置详情列").
