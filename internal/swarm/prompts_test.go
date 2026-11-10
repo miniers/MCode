@@ -56,6 +56,7 @@ func TestLeadPolicyRequiresTestsAndPostMergeRead(t *testing.T) {
 		for _, want := range []string{
 			"add or update a test that covers it",
 			"read the files each bee changed",
+			"grep every reference to the symbol",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("plansOnly=%v 的策略应包含 %q:\n%s", plansOnly, want, got)
@@ -67,6 +68,14 @@ func TestLeadPolicyRequiresTestsAndPostMergeRead(t *testing.T) {
 	}
 	if !strings.Contains(LeadPolicy(true, "off"), "reading each bee's changed files") {
 		t.Fatalf("只规划策略应说明读改动文件仍归主代理:\n%s", LeadPolicy(true, "off"))
+	}
+}
+
+func TestTierPromptSectionCrossFileReferences(t *testing.T) {
+	tiers := []Tier{{ID: "fast", Description: "Quick responses"}}
+	got := TierPromptSection(tiers, "fast", nil)
+	if !strings.Contains(got, "goes to the default tier unless the brief already lists every file and reference to change") {
+		t.Fatalf("档位策略应要求跨文件引用清单不完整时使用默认档:\n%s", got)
 	}
 }
 
