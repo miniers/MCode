@@ -1,9 +1,5 @@
-// Package readhttp 提供只读 GET 请求用的 HTTP 客户端。
-//
-// 模型目录与额度这类只读请求是幂等的：连接在服务端被中途重置时（例如 HTTP/2
-// 的 "stream error: stream ID 357; INTERNAL_ERROR; received from peer"），
-// 换一个新的连接池重试一次通常就能成功，而且坏掉的连接不会被后续读取再选中。
-// 聊天等有副作用的请求不要用这里的客户端。
+// Package readhttp 提供连接中断时可换池的 HTTP 客户端。
+// 无请求体的 GET 自动重试一次，其他请求只换池、不重试，可用于有副作用的请求。
 package readhttp
 
 import (
@@ -56,8 +52,7 @@ type poolTransport struct {
 	pool *http.Transport // 当前连接池，受 mu 保护
 }
 
-// RoundTrip 在一次 http.Client.Do 内部完成恢复：失败后换池重试一次，重试沿用
-// 请求 context 与外层 Client.Timeout，不会重开超时预算。
+// RoundTrip 在连接中断时换池；仅无请求体的 GET 自动重试一次，沿用原超时预算。
 //
 // 每个响应体都被包一层：读完或关闭时对已经退役的旧池再回收一次空闲连接。
 // HTTP/2 连接上还有在途流时不会被关闭，只有等在途响应陆续结束后再扫，退役
@@ -73,6 +68,9 @@ func (t *poolTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return resp, err
 	}
 	if !retryable(req, err) {
+		if req.Context().Err() == nil && isConnectionBroken(err) {
+			t.rotate(pool)
+		}
 		t.reclaim(pool)
 		return resp, err
 	}
@@ -111,8 +109,7 @@ func (t *poolTransport) rotate(failed *http.Transport) *http.Transport {
 	t.mu.Unlock()
 
 	// 只关闭旧池的空闲连接：仍在旧池上进行的读取自然跑完，读完或关闭时由
-	// reclaimBody 再扫一次，退役的连接最终也会被回收；原客户端与聊天用的
-	// 连接池完全不受影响。
+	// reclaimBody 再扫一次，退役的连接最终也会被回收；原客户端不受影响。
 	failed.CloseIdleConnections()
 	return next
 }

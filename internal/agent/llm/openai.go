@@ -263,7 +263,6 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		client.CloseIdleConnections()
 		return nil, &APIError{Body: err.Error(), Retryable: true}
 	}
 	defer httpResp.Body.Close()
@@ -275,7 +274,6 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 		if ctx.Err() != nil {
 			response, streamErr = nil, ctx.Err()
 		} else if timedOut {
-			client.CloseIdleConnections()
 			response, streamErr = nil, &APIError{Body: "stream idle timeout", Retryable: true}
 		}
 	}()
@@ -285,7 +283,6 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 			return nil, ctx.Err()
 		}
 		if readErr != nil {
-			client.CloseIdleConnections()
 			return nil, &APIError{Status: httpResp.StatusCode, Body: readErr.Error(), Retryable: true, RetryAfter: retryAfter(httpResp.Header.Get("Retry-After"))}
 		}
 		return nil, &APIError{Status: httpResp.StatusCode, Body: string(body), Retryable: httpResp.StatusCode == 408 || httpResp.StatusCode == 429 || httpResp.StatusCode >= 500, RetryAfter: retryAfter(httpResp.Header.Get("Retry-After"))}
@@ -404,7 +401,6 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 					// 既没有 finish_reason 也没有 [DONE]，这一轮被截断了。
 					return nil, &APIError{Body: "openai: stream ended unexpectedly", Retryable: true}
 				}
-				client.CloseIdleConnections()
 				return nil, &APIError{Body: readErr.Error(), Retryable: true}
 			}
 			if strings.TrimSpace(event.Data) == "[DONE]" {
@@ -423,7 +419,6 @@ func (c *openAIClient) Stream(ctx context.Context, req Request, onDelta func(Del
 			return nil, ctx.Err()
 		}
 		if readErr != nil {
-			client.CloseIdleConnections()
 			return nil, &APIError{Body: readErr.Error(), Retryable: true}
 		}
 		if err := consume(body, true); err != nil {

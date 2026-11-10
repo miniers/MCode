@@ -13,13 +13,6 @@ import (
 	"time"
 )
 
-func TestAnthropicClosesIdleConnectionsOnFailure(t *testing.T) {
-	testCloseIdleConnections(t, func(client *http.Client) error {
-		_, err := NewAnthropic(AnthropicConfig{BaseURL: "http://example.test", HTTPClient: client}).Stream(context.Background(), Request{Model: "test"}, nil)
-		return err
-	}, "request", "stream", "error response", "idle")
-}
-
 func TestAnthropicUserAgent(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

@@ -15,13 +15,6 @@ import (
 	"time"
 )
 
-func TestOpenAIClosesIdleConnectionsOnFailure(t *testing.T) {
-	testCloseIdleConnections(t, func(client *http.Client) error {
-		_, err := NewOpenAI(OpenAIConfig{BaseURL: "http://example.test", HTTPClient: client}).Stream(context.Background(), Request{Model: "test"}, nil)
-		return err
-	}, "request", "stream", "nonstream", "error response", "idle")
-}
-
 func TestOpenAICompactionBreakpoints(t *testing.T) {
 	var bodies [][]byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

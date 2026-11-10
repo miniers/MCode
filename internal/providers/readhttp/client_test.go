@@ -159,6 +159,51 @@ func TestNewClientOwnsIndependentPool(t *testing.T) {
 	}
 }
 
+func TestPoolPreservesHTTP2Config(t *testing.T) {
+	base := &http.Transport{
+		ResponseHeaderTimeout: 2 * time.Minute,
+		HTTP2:                 &http.HTTP2Config{SendPingTimeout: 15 * time.Second, PingTimeout: 15 * time.Second},
+	}
+	tr := NewClient(&http.Client{Transport: base}).Transport.(*poolTransport)
+	first := tr.current()
+	for _, pool := range []*http.Transport{first, tr.rotate(first)} {
+		if pool.HTTP2 == nil || pool.HTTP2.SendPingTimeout != 15*time.Second || pool.HTTP2.PingTimeout != 15*time.Second || pool.ResponseHeaderTimeout != 2*time.Minute {
+			t.Fatalf("连接池配置丢失: HTTP2=%+v ResponseHeaderTimeout=%v", pool.HTTP2, pool.ResponseHeaderTimeout)
+		}
+	}
+}
+
+func TestRoundTripPostRotatesWithoutRetry(t *testing.T) {
+	srv := newStreamErrorServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok")
+	})
+	client := NewClient(srv.Client())
+	tr := client.Transport.(*poolTransport)
+	before := tr.current()
+	resp, err := client.Post(srv.URL+"/chat", "application/json", strings.NewReader(`{"message":"hello"}`))
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if err == nil || !isConnectionBroken(err) {
+		t.Fatalf("预期连接中断错误，得到 %v", err)
+	}
+	if got := srv.requests.Load(); got != 1 {
+		t.Fatalf("POST 请求数 = %d，想要 1", got)
+	}
+	if tr.current() == before {
+		t.Fatal("POST 失败后应当换池")
+	}
+	if body := getBody(t, client, srv.URL+"/models"); body != "ok" {
+		t.Fatalf("后续请求响应体 = %q，想要 ok", body)
+	}
+	if got := srv.okConn.Load(); got <= 1 {
+		t.Fatalf("后续请求连接 = %d，想要新连接", got)
+	}
+	if got := srv.wrongProto.Load(); got != 0 {
+		t.Fatalf("有 %d 个请求没走 HTTP/2", got)
+	}
+}
+
 // TestRoundTripRecoversFromHTTP2StreamError 用真实连接验证恢复：第一条底层连接
 // 上的请求被服务端 RST_STREAM 打断，读请求经一次换池重试后成功，并且后续读取
 // 直接复用健康的新连接池。
