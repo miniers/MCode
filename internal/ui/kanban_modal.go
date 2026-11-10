@@ -74,11 +74,31 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		return
 	}
 	defaultView := kanbanConfiguredDefaultView(s)
-	kanbanMu.Lock()
-	initialized, curPID := ks.initialized, ks.scopeID
-	kanbanMu.Unlock()
-	if !initialized {
-		s.setKanbanScope(curPID, curPID == "")
+	var curPID string
+	if s.tasksWindowView == "" {
+		ws := getWorkspaceState(s)
+		workspaceMu.Lock()
+		destination := ws.view
+		workspaceMu.Unlock()
+		curPID = s.currentWorkspaceProjectID()
+		kanbanMu.Lock()
+		ks.destination = destination
+		// 自动化视图只同步范围，避免重启已停止的看板订阅。
+		if destination == "automations" && ks.projectID != curPID {
+			ks.projectID, ks.scopeID, ks.overview = curPID, curPID, curPID == ""
+		}
+		kanbanMu.Unlock()
+		if destination == "tasks" {
+			s.syncKanbanProject(curPID)
+		}
+	} else {
+		kanbanMu.Lock()
+		initialized := ks.initialized
+		curPID = ks.scopeID
+		kanbanMu.Unlock()
+		if !initialized {
+			s.setKanbanScope(curPID, curPID == "")
+		}
 	}
 
 	kanbanMu.Lock()

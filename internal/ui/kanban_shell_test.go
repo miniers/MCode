@@ -52,6 +52,63 @@ func TestKanbanShellDestinationsAndSearch(t *testing.T) {
 	s.close()
 }
 
+func TestKanbanFallbackDestinationFollowsWorkspace(t *testing.T) {
+	fake := NewFakeClient()
+	tt, s := newWorkspaceTester(t, fake, "automations")
+	defer s.close()
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") })
+	if tt.HasText("全部任务") || tt.HasText("还没有任务") {
+		t.Fatal("自动化视图显示了看板")
+	}
+	if err := tt.Click("kanban-destination-tasks"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("还没有任务") })
+	ws := getWorkspaceState(s)
+	workspaceMu.Lock()
+	view := ws.view
+	workspaceMu.Unlock()
+	if view != "tasks" {
+		t.Fatalf("工作区视图 = %q，期望 tasks", view)
+	}
+	if err := tt.Click("kanban-destination-automations"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") })
+	workspaceMu.Lock()
+	view = ws.view
+	workspaceMu.Unlock()
+	if view != "automations" {
+		t.Fatalf("工作区视图 = %q，期望 automations", view)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.kanbanWatchers) != 0 || len(fake.automationWatchers) != 1 {
+		t.Fatal("切换后订阅与工作区视图不一致")
+	}
+}
+
+func TestKanbanFallbackScopeFollowsCurrentProject(t *testing.T) {
+	tt, s := newWorkspaceTester(t, NewFakeClient(), "tasks")
+	defer s.close()
+	waitFor(t, tt, func() bool { return tt.HasText("还没有任务") })
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	scope, overview := ks.scopeID, ks.overview
+	kanbanMu.Unlock()
+	if scope != "p1" || overview {
+		t.Fatalf("看板范围 = %q，全部项目 = %v", scope, overview)
+	}
+	s.openWorkspace("automations")
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") })
+	kanbanMu.Lock()
+	scope, overview = ks.scopeID, ks.overview
+	kanbanMu.Unlock()
+	if scope != "p1" || overview {
+		t.Fatalf("自动化范围 = %q，全部项目 = %v", scope, overview)
+	}
+}
+
 func TestTasksWindowEntrancesPreserveView(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	ks := getKanbanState(s)

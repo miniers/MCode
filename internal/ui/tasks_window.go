@@ -53,7 +53,6 @@ func (s *chatState) openTasksWindow(view string) {
 		return
 	}
 	s.setTasksWindowView(view)
-	s.openWorkspace(view)
 }
 
 func (s *chatState) closeTasksWindow() {
@@ -80,6 +79,9 @@ func (s *chatState) setTasksWindowView(view string) {
 	kanbanMu.Lock()
 	ks.destination = view
 	kanbanMu.Unlock()
+	if s.tasksWindowView == "" {
+		s.openWorkspace(view)
+	}
 }
 
 // OpenTasksWindow 创建或复用全局唯一的任务与看板窗口。

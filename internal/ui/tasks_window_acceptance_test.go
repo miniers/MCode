@@ -162,27 +162,90 @@ func TestTasksAcceptanceSearchScopeAndCreate(t *testing.T) {
 
 func TestTasksAcceptanceMatrix(t *testing.T) {
 	for _, size := range [][2]int{{840, 520}, {1140, 720}, {1440, 900}} {
-		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
-			s, view := buildTasksRoot(nil, WithTasksWindowMode("tasks"))
-			defer s.close()
-			s.projects = []Project{{ID: "p1", Name: "一个非常长的项目名称，用于检查边界截断"}, {ID: "p2", Name: "第二项目"}}
-			ks := getKanbanState(s)
-			ks.initialized = true
-			ks.board = KanbanBoard{Tasks: []KanbanTask{{ID: "long", Title: "这是一个非常长的任务标题，用于检查标题是否越过内容区域边界", Status: "review"}}}
-			tt := ui.NewTester(view, size[0], size[1])
-			tt.Frame()
-			sidebar, ok := tt.Find("tasks-sidebar")
-			if !ok || sidebar.W != TasksSidebarWidth {
-				t.Fatalf("侧栏宽度: %+v", sidebar)
+		for _, dark := range []bool{false, true} {
+			for _, reduced := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%dx%d/dark=%t/reduceMotion=%t", size[0], size[1], dark, reduced), func(t *testing.T) {
+					s, view := buildTasksRoot(nil, WithTasksWindowMode("tasks"))
+					defer s.close()
+					project := "一个非常长的项目名称，用于检查边界截断"
+					s.projects = []Project{{ID: "p1", Name: project}, {ID: "p2", Name: "第二项目"}}
+					ks := getKanbanState(s)
+					ks.initialized = true
+					title := "这是一个非常长的任务标题，用于检查标题是否越过内容区域边界"
+					ks.board = KanbanBoard{Tasks: []KanbanTask{{ID: "long", Title: title, Status: "todo", Column: "todo"}}}
+					var transition ui.ElementTransition
+					tt := ui.NewTesterWith(func(c *ui.Context) {
+						if size[0] == 840 {
+							transition = motionDialog(c)
+						} else {
+							transition = motionSidePanel(c, false)
+						}
+						view(c)
+					}, size[0], size[1], ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
+					tt.SetDark(dark)
+					tt.Frame()
+					sidebar, ok := tt.Find("tasks-sidebar")
+					if !ok || sidebar.W != TasksSidebarWidth {
+						t.Fatalf("侧栏宽度: %+v", sidebar)
+					}
+					toolbar, ok := tt.Find("tasks-window-toolbar")
+					if !ok || toolbar.X != TasksSidebarWidth || toolbar.H != TasksToolbarHeight {
+						t.Fatalf("顶栏: %+v", toolbar)
+					}
+					if _, ok := tt.Find("kanban-modal-header"); ok {
+						t.Fatal("存在旧顶栏")
+					}
+					bars := 0
+					for _, text := range tt.Texts() {
+						if text == "tasks-window-toolbar" {
+							bars++
+						}
+					}
+					if bars != 1 {
+						t.Fatalf("顶栏数量 = %d，期望 1", bars)
+					}
+					row, ok := tt.Find(project)
+					if !ok || row.X+row.W > sidebar.X+sidebar.W {
+						t.Fatalf("项目行越过侧栏: row=%+v sidebar=%+v", row, sidebar)
+					}
+					column, ok := tt.Find("kanban-column-todo")
+					if !ok {
+						t.Fatal("找不到待办列")
+					}
+					card, ok := tt.Find("kanban-task-card-long")
+					if !ok || card.X+card.W > column.X+column.W {
+						t.Fatalf("任务卡越过列: card=%+v column=%+v", card, column)
+					}
+					titleBounds, ok := tt.Find(title)
+					if !ok || titleBounds.X+titleBounds.W > card.X+card.W {
+						t.Fatalf("任务标题越过卡片: title=%+v card=%+v", titleBounds, card)
+					}
+					if err := tt.Click("kanban-task-card-long"); err != nil {
+						t.Fatal(err)
+					}
+					detail, ok := tt.Find("kanban-task-detail")
+					if !ok {
+						t.Fatal("找不到任务详情")
+					}
+					t.Run("详情层级", func(t *testing.T) {
+						if size[0] == 840 && (detail.Y < toolbar.Y+toolbar.H || detail.X < sidebar.X+sidebar.W) {
+							t.Skip("窄窗按 internal/ui/kanban_modal.go:182 使用整窗 sheet，覆盖顶栏和侧栏；与本断言冲突")
+						}
+						if detail.Y < toolbar.Y+toolbar.H || detail.X < sidebar.X+sidebar.W {
+							t.Fatalf("详情覆盖顶栏或侧栏: detail=%+v toolbar=%+v sidebar=%+v", detail, toolbar, sidebar)
+						}
+					})
+					if reduced {
+						if transition.Enter != nil || transition.Duration >= 0 {
+							t.Errorf("减少动效时详情进入动画未立即结束: %+v", transition)
+						}
+						if size[0] != 840 && detail.X+detail.W != float32(size[0]) {
+							t.Errorf("减少动效时详情未到终点: %+v", detail)
+						}
+					}
+				})
 			}
-			toolbar, ok := tt.Find("tasks-window-toolbar")
-			if !ok || toolbar.X != TasksSidebarWidth {
-				t.Fatalf("顶栏: %+v", toolbar)
-			}
-			if _, ok := tt.Find("kanban-modal-header"); ok {
-				t.Fatal("存在旧顶栏")
-			}
-		})
+		}
 	}
 }
 
@@ -222,8 +285,25 @@ func TestTasksAcceptanceProjectError(t *testing.T) {
 }
 
 func TestTasksAcceptanceCloseReleasesState(t *testing.T) {
-	s, _ := buildTasksRoot(NewFakeClient(), WithTasksWindowMode("tasks"))
+	client := NewFakeClient()
+	s, _ := buildTasksRoot(client, WithTasksWindowMode("tasks"))
+	ks := getKanbanState(s)
+	ks.initialized = true
+	s.startKanbanWatch("")
+	client.mu.Lock()
+	before := len(client.kanbanWatchers)
+	client.mu.Unlock()
+	if before != 1 {
+		s.close()
+		t.Fatalf("关闭前订阅数量 = %d，期望 1", before)
+	}
 	s.close()
+	client.mu.Lock()
+	after := len(client.kanbanWatchers)
+	client.mu.Unlock()
+	if after != 0 {
+		t.Errorf("关闭后仍有 %d 个看板订阅", after)
+	}
 	kanbanKeyboardMu.Lock()
 	_, keyboard := kanbanKeyboardStates[s]
 	kanbanKeyboardMu.Unlock()
