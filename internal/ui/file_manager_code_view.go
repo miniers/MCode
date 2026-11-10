@@ -122,7 +122,7 @@ func renderFileManagerCodePreview(c *ui.Context, s *chatState, tab fileManagerTa
 		} else {
 			progress = e.AnimateTo("line-highlight", 1, ui.Animation{Duration: DurBase, Ease: EaseSnap})
 		}
-		st.LineBackgrounds = []editor.LineBackground{{First: tab.hlFirst - 1, Last: tab.hlLast - 1, Color: ThemeAccentSubtle(c).Alpha(0.12 * progress)}}
+		st.LineBackgrounds = []editor.LineBackground{{First: tab.hlFirst - 1, Last: tab.hlLast - 1, Color: fileManagerLineHighlightColor(ThemeAccentSubtle(c), progress)}}
 	} else {
 		st.LineBackgrounds = nil
 	}
@@ -134,6 +134,12 @@ func renderFileManagerCodePreview(c *ui.Context, s *chatState, tab fileManagerTa
 			MinHeight(0)
 	})
 	return e
+}
+
+// fileManagerLineHighlightColor 按淡入进度缩放高亮透明度；base 已是柔和透明色，这里只做线性缩放。
+func fileManagerLineHighlightColor(base ui.Color, progress float32) ui.Color {
+	progress = min(max(progress, 0), 1)
+	return base.Alpha(progress)
 }
 
 // pruneFileManagerCodeViews 删除 st 窗口本帧不再渲染的缓存项：关掉的 tab 与不再显示该 tab 的栏位。

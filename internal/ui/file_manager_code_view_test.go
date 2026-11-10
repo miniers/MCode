@@ -3,12 +3,31 @@ package mcodeui
 import (
 	"testing"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 )
 
 // newTestFileManagerState 返回一份独立的文件管理面板状态，用来验证缓存按窗口隔离。
 func newTestFileManagerState() *fileManagerState {
 	return &fileManagerState{}
+}
+
+// 高亮透明度只按淡入进度缩放，不再与基础色的柔和透明度相乘。
+func TestFileManagerLineHighlightColor(t *testing.T) {
+	base := ui.Color{R: 10, G: 20, B: 30, A: 31}
+	if got := fileManagerLineHighlightColor(base, 1); got != base {
+		t.Fatalf("progress = 1 时颜色 = %+v，期望 %+v", got, base)
+	}
+	if got := fileManagerLineHighlightColor(base, 0); got.A != 0 {
+		t.Fatalf("progress = 0 时 A = %d，期望 0", got.A)
+	}
+	if got := fileManagerLineHighlightColor(base, 2); got != base {
+		t.Fatalf("progress = 2 时颜色 = %+v，期望 %+v", got, base)
+	}
+	half := fileManagerLineHighlightColor(base, 0.5)
+	if diff := int(half.A) - int(base.A)/2; diff < -1 || diff > 1 {
+		t.Fatalf("progress = 0.5 时 A = %d，期望约为 %d", half.A, base.A/2)
+	}
 }
 
 // 同一个栏位、同一路径的内容没变时，复用同一个编辑器状态（保留选区与滚动位置）。
