@@ -23,6 +23,12 @@ func (f *fileSearchMigrationClient) SearchFiles(_ context.Context, threadID, que
 	return []FileMatch{{Name: "match.go", Path: "match.go"}}, nil
 }
 
+// 内嵌 FakeClient 会提升其 SearchFileEntries，这里必须同时覆盖，确保请求经过本替身。
+func (f *fileSearchMigrationClient) SearchFileEntries(ctx context.Context, threadID, query string) (FileSearchResult, error) {
+	entries, err := f.SearchFiles(ctx, threadID, query)
+	return FileSearchResult{Entries: entries}, err
+}
+
 func TestFileManagerSearchMigrationCurrentThreadAndClear(t *testing.T) {
 	client := &fileSearchMigrationClient{FakeClient: NewFakeClient(), requests: make(chan fileSearchMigrationRequest, 10)}
 	s := newChatState(client)
