@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -82,6 +83,179 @@ func TestCompactionTriggerGrowthAndPressure(t *testing.T) {
 	}
 }
 
+func TestGrowthSinceSummary(t *testing.T) {
+	a, b, c := textMessage("user", "a"), textMessage("assistant", "bb"), textMessage("user", "ccc")
+	for _, tc := range []struct {
+		messages []llm.Message
+		want     int
+	}{
+		{[]llm.Message{a, b, c}, tokensForMessages([]llm.Message{b, c})},
+		{[]llm.Message{summaryMessage("old"), b, c}, tokensForMessages([]llm.Message{b, c})},
+		{[]llm.Message{a, b, summaryMessage("block"), c}, tokensForMessage(c)},
+	} {
+		if got := growthSinceSummary(tc.messages); got != tc.want {
+			t.Fatalf("growth = %d, want %d", got, tc.want)
+		}
+	}
+}
+
+func TestPlanBlock(t *testing.T) {
+	large := textMessage("assistant", strings.Repeat("x", 20000))
+	items := []replayItem{{message: textMessage("user", "first"), seq: 1}, {message: summaryMessage("old")}, {message: large, seq: 3}, {message: large, seq: 4}, {message: textMessage("user", strings.Repeat("r", 20000)), seq: 5}}
+	start, end, ok := planBlock(items, 20000)
+	if !ok || start != 2 || end != 4 {
+		t.Fatalf("plan = %d %d %v", start, end, ok)
+	}
+	short := append([]replayItem(nil), items...)
+	short[2].message, short[3].message = textMessage("assistant", "a"), textMessage("assistant", "b")
+	if _, _, ok := planBlock(short, 20000); ok {
+		t.Fatal("短区间不应压缩")
+	}
+	synthetic := append([]replayItem(nil), items...)
+	synthetic[2].seq = 0
+	if _, _, ok := planBlock(synthetic, 20000); ok {
+		t.Fatal("合成消息不应压缩")
+	}
+	split := []replayItem{{message: textMessage("user", "first"), seq: 1}, {message: llm.Message{Role: "assistant", Content: large.Content, ToolCalls: []llm.ToolCall{call("id", "read", `{}`)}}, seq: 2}, {message: textMessage("user", strings.Repeat("r", 20000)), seq: 3}, {message: toolMessage("id", "result", false), seq: 4}}
+	if _, _, ok := planBlock(split, 20000); ok {
+		t.Fatal("不能拆分工具调用")
+	}
+}
+
+func TestRunTwoBlockCompactions(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	id := "two-blocks"
+	appendHistory(t, store, id, textMessage("user", "first"))
+	for i := 0; i < 6; i++ {
+		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", 16000)))
+	}
+	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("first summary")}, {response: reply("stop")}, {response: summaryResponse("second summary")}, {response: reply("stop")}}}
+	opts := Options{Client: client, Store: store, SessionID: id, ContextWindow: 40000}
+	if err := Run(context.Background(), opts, "continue one", nil); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("b", 16000)))
+	}
+	if err := Run(context.Background(), opts, "continue two", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.requests) != 4 {
+		t.Fatalf("requests = %d", len(client.requests))
+	}
+	first, second := client.requests[1], client.requests[3]
+	if strings.Contains(messageText(client.requests[2].Messages[0]), "first summary") {
+		t.Fatal("第二次摘要包含旧摘要")
+	}
+	for _, msg := range client.requests[2].Messages {
+		if strings.Contains(messageText(msg), "first summary") {
+			t.Fatal("第二次摘要包含旧摘要")
+		}
+	}
+	if !reflect.DeepEqual(second.CacheBreakpoints, []int{1, 2}) || !reflect.DeepEqual(first.CacheBreakpoints, []int{1}) {
+		t.Fatalf("breakpoints = %v, %v", first.CacheBreakpoints, second.CacheBreakpoints)
+	}
+	if !reflect.DeepEqual(first.Messages[:2], second.Messages[:2]) {
+		t.Fatal("第二块之前的前缀发生变化")
+	}
+	entries, err := store.Load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := historyFromEntries(entries)
+	if !reflect.DeepEqual(history[:len(second.Messages)], second.Messages) {
+		t.Fatal("重载消息与请求不一致")
+	}
+	blocks := compactionEntries(t, store, id)
+	if len(blocks) != 2 || blocks[0].FromSeq <= 0 || blocks[1].FromSeq <= blocks[0].ToSeq {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	for _, block := range blocks {
+		result, err := recallTool(store, id).Run(context.Background(), tools.Env{}, json.RawMessage(fmt.Sprintf(`{"index":%d}`, block.FromSeq)))
+		if err != nil || strings.Contains(result.Text, "No message") {
+			t.Fatalf("recall = %+v, %v", result, err)
+		}
+	}
+}
+
+func TestBlockWithoutSavingsCountsUsage(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	id := "no-savings"
+	appendHistory(t, store, id, textMessage("user", "first"))
+	for i := 0; i < 6; i++ {
+		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", 16000)))
+	}
+	summary := summaryResponse(strings.Repeat("s", 50000))
+	summary.Usage = llm.Usage{Input: 123, Output: 45}
+	client := &scriptClient{steps: []scriptStep{{response: summary}, {response: reply("stop")}}}
+	var usage harness.Usage
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 40000, Emit: func(event harness.Event) {
+		if event.Type == harness.EventUsage {
+			usage = *event.Usage
+		}
+	}}, "continue", nil)
+	if err != nil || len(compactionEntries(t, store, id)) != 0 || usage.InputTokens != 123 || usage.OutputTokens != 45 {
+		t.Fatalf("err=%v usage=%+v", err, usage)
+	}
+}
+
+type permissionClient struct {
+	path     string
+	requests []llm.Request
+}
+
+func (c *permissionClient) Stream(_ context.Context, req llm.Request, _ func(llm.Delta)) (*llm.Response, error) {
+	c.requests = append(c.requests, req)
+	if req.System == summaryInstruction {
+		if err := os.Chmod(c.path, 0400); err != nil {
+			return nil, err
+		}
+		return summaryResponse("summary"), nil
+	}
+	if err := os.Chmod(c.path, 0600); err != nil {
+		return nil, err
+	}
+	return reply("stop"), nil
+}
+
+func TestBlockAppendFailureDoesNotChangeMessages(t *testing.T) {
+	dir := t.TempDir()
+	store := session.NewStore(dir)
+	id := "append-failure"
+	appendHistory(t, store, id, textMessage("user", "first"))
+	for i := 0; i < 6; i++ {
+		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", 16000)))
+	}
+	client := &permissionClient{path: filepath.Join(dir, id+".jsonl")}
+	var compacted bool
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 40000, Emit: func(event harness.Event) {
+		compacted = compacted || event.Type == harness.EventContextCompacted
+	}}, "continue", nil)
+	if err != nil || compacted || len(client.requests) != 2 || len(compactionEntries(t, store, id)) != 0 {
+		t.Fatalf("err=%v compacted=%v requests=%d", err, compacted, len(client.requests))
+	}
+	for _, message := range client.requests[1].Messages {
+		if isSummaryMessage(message) {
+			t.Fatal("写入失败后内存消息被压缩")
+		}
+	}
+}
+
+func TestNoStoreSkipsGrowthCompaction(t *testing.T) {
+	client := &scriptClient{steps: []scriptStep{{response: reply("stop")}, {response: reply("stop")}}}
+	calls := 0
+	err := Run(context.Background(), Options{Client: client, ContextWindow: 40000, Steer: func() []string {
+		calls++
+		if calls == 2 {
+			return []string{strings.Repeat("x", 84000)}
+		}
+		return nil
+	}}, "first", nil)
+	if err != nil || len(client.requests) != 2 || client.requests[1].System == summaryInstruction {
+		t.Fatalf("err=%v requests=%d", err, len(client.requests))
+	}
+}
+
 func TestFindCutCanStartAfterInitialUser(t *testing.T) {
 	messages := []llm.Message{textMessage("user", "start")}
 	for i := 0; i < 40; i++ {
@@ -99,7 +273,7 @@ func TestFindCutCanStartAfterInitialUser(t *testing.T) {
 func TestCompactionTruncatesLargeToolResult(t *testing.T) {
 	messages := []llm.Message{textMessage("user", strings.Repeat("u", 50000)), {Role: "assistant", ToolCalls: []llm.ToolCall{call("id", "read", `{}`)}}, toolMessage("id", strings.Repeat("x", 10000), false), textMessage("user", "next"), textMessage("assistant", strings.Repeat("recent", 2000)), textMessage("user", "current")}
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
-	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0, func(harness.Event) {}); err != nil {
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0); err != nil {
 		t.Fatal(err)
 	}
 	for _, message := range client.requests[0].Messages {
@@ -126,7 +300,7 @@ func TestCompactionPreservesSummaryWhenDroppingOldMessages(t *testing.T) {
 	}
 	messages = append(messages, textMessage("assistant", strings.Repeat("recent", 4000)), textMessage("user", "continue"))
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
-	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0, func(harness.Event) {}); err != nil {
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0); err != nil {
 		t.Fatal(err)
 	}
 	summarized := client.requests[0].Messages
@@ -149,7 +323,7 @@ func TestCompactionPreservesSummaryWhenDroppingOldMessages(t *testing.T) {
 func TestCompactionPrependsUserBeforeAssistant(t *testing.T) {
 	messages := []llm.Message{textMessage("assistant", "earlier"), textMessage("user", "continue")}
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
-	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0, func(harness.Event) {}); err != nil {
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0); err != nil {
 		t.Fatal(err)
 	}
 	summarized := client.requests[0].Messages
@@ -161,7 +335,7 @@ func TestCompactionPrependsUserBeforeAssistant(t *testing.T) {
 func TestCompactionAppendsInstructionToUser(t *testing.T) {
 	messages := []llm.Message{textMessage("user", "old"), textMessage("assistant", "recent")}
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}}}
-	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0, func(harness.Event) {}); err != nil {
+	if _, err := compactMessages(context.Background(), client, "test", messages, 12000, 0); err != nil {
 		t.Fatal(err)
 	}
 	got := client.requests[0].Messages
@@ -234,8 +408,8 @@ func TestReplayBlocks(t *testing.T) {
 	if got := foldedItemsFromEntries(entries); !reflect.DeepEqual(got, []foldedMessage{{2, b}, {3, c}, {5, e}}) {
 		t.Fatalf("folded = %+v", got)
 	}
-	if got := blockSummaryIndexes(entries); !reflect.DeepEqual(got, []int{1, 3}) {
-		t.Fatalf("indexes = %v", got)
+	if history := historyFromEntries(entries); !isSummaryMessage(history[1]) || !isSummaryMessage(history[3]) {
+		t.Fatal("块摘要位置错误")
 	}
 	x, y := replayEntries(entries)
 	x2, y2 := replayEntries(entries)
@@ -260,8 +434,8 @@ func TestReplayLegacyThenBlock(t *testing.T) {
 	if got := foldedItemsFromEntries(entries); !reflect.DeepEqual(got, []foldedMessage{{1, a}, {2, b}, {3, c}}) {
 		t.Fatalf("folded = %+v", got)
 	}
-	if got := blockSummaryIndexes(entries); len(got) != 0 {
-		t.Fatalf("indexes = %v", got)
+	if history := historyFromEntries(entries); !isSummaryMessage(history[0]) || isSummaryMessage(history[1]) {
+		t.Fatal("整段摘要位置错误")
 	}
 }
 

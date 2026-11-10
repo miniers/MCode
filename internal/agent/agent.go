@@ -194,6 +194,21 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		opts.Tools = append(opts.Tools, tool)
 		request.Tools = append(request.Tools, llm.ToolSpec{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
+	addCompactionUsage := func(result *compactionResult) {
+		if result == nil {
+			return
+		}
+		usage.InputTokens += int64(result.Usage.Input + result.Usage.CacheRead + result.Usage.CacheWrite)
+		usage.OutputTokens += int64(result.Usage.Output)
+		usage.CachedTokens += int64(result.Usage.CacheRead)
+	}
+	finishCompaction := func(result *compactionResult) {
+		messages = result.Messages
+		contextTokens = result.After
+		usage.ContextTokens = int64(result.After)
+		contextMeasured = len(messages)
+		emit(harness.Event{Type: harness.EventContextCompacted, CompactTokensBefore: int64(result.Before), CompactTokensAfter: int64(result.After)})
+	}
 	compactNow := func() (*compactionResult, error) {
 		input := messages
 		if opts.Store != nil {
@@ -203,7 +218,8 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			}
 			input = historyFromEntries(entries)
 		}
-		result, err := compactMessages(ctx, opts.Client, opts.Model, input, window, overhead, emit)
+		result, err := compactMessages(ctx, opts.Client, opts.Model, input, window, overhead)
+		addCompactionUsage(result)
 		if err != nil || result == nil {
 			return nil, err
 		}
@@ -213,14 +229,44 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			}
 			addRecall()
 		}
-		messages = result.Messages
-		contextTokens = result.After
-		usage.ContextTokens = int64(result.After)
-		contextMeasured = len(messages)
-		usage.InputTokens += int64(result.Usage.Input + result.Usage.CacheRead + result.Usage.CacheWrite)
-		usage.OutputTokens += int64(result.Usage.Output)
-		usage.CachedTokens += int64(result.Usage.CacheRead)
+		finishCompaction(result)
 		return result, nil
+	}
+	compactBlockNow := func() error {
+		entries, err := opts.Store.Load(id)
+		if err != nil {
+			return err
+		}
+		result, err := compactBlock(ctx, opts.Client, opts.Model, entries, window)
+		addCompactionUsage(result)
+		if err != nil || result == nil {
+			return err
+		}
+		if result.Entry.Type == "" {
+			return nil
+		}
+		if err := opts.Store.Append(id, result.Entry); err != nil {
+			return err
+		}
+		entries, err = opts.Store.Load(id)
+		if err != nil {
+			return err
+		}
+		result.Messages = historyFromEntries(entries)
+		result.Before += overhead
+		result.After = tokensForMessages(result.Messages) + overhead
+		addRecall()
+		finishCompaction(result)
+		return nil
+	}
+	setRequestMessages := func() {
+		request.Messages = append([]llm.Message(nil), messages...)
+		request.CacheBreakpoints = nil
+		for i, message := range request.Messages {
+			if isSummaryMessage(message) {
+				request.CacheBreakpoints = append(request.CacheBreakpoints, i)
+			}
+		}
 	}
 	if opts.MaxTokens != nil {
 		request.MaxTokens = opts.MaxTokens(opts.Model)
@@ -246,9 +292,17 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if autoCompact && estimateContextTokens(messages, contextTokens, contextMeasured) > compactThreshold(window) {
+		if autoCompact {
+			total := estimateContextTokens(messages, contextTokens, contextMeasured)
+			normal, emergency := compactionPressure(window, growthSinceSummary(messages), total)
+			var err error
 			// 压缩是为后续调用腾出空间；失败时保留原上下文继续，让模型调用自己给出结论。
-			if _, err := compactNow(); err != nil {
+			if emergency || total > compactThreshold(window) {
+				_, err = compactNow()
+			} else if normal && opts.Store != nil {
+				err = compactBlockNow()
+			}
+			if err != nil {
 				autoCompact = false
 				// 压缩失败不是致命错误：记日志后继续，由模型调用自己给出结论。
 				log.Printf("agent: context compaction failed: %v", err)
@@ -257,7 +311,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		if _, err := appendSteers(); err != nil {
 			return fail(err)
 		}
-		request.Messages = append([]llm.Message(nil), messages...)
+		setRequestMessages()
 		var response *llm.Response
 		var err error
 		// 本轮内最多因上下文溢出压缩重试一次，再溢出就返回原始错误。
@@ -288,7 +342,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 				if compactErr != nil || result == nil {
 					break
 				}
-				request.Messages = append([]llm.Message(nil), messages...)
+				setRequestMessages()
 				continue
 			}
 			retryAfter := llm.RetryAfterOf(err)

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"mcode/internal/agent/llm"
-	"mcode/internal/harness"
 )
 
 const (
@@ -66,6 +65,87 @@ func compactionPressure(window, growth, total int) (normal, emergency bool) {
 	return growth >= growthThreshold(window) || total >= normalPressure, total >= emergencyPressure
 }
 
+func growthSinceSummary(messages []llm.Message) int {
+	start := min(1, len(messages))
+	for i := len(messages) - 1; i >= 0; i-- {
+		if isSummaryMessage(messages[i]) {
+			start = i + 1
+			break
+		}
+	}
+	return tokensForMessages(messages[start:])
+}
+
+func planBlock(items []replayItem, window int) (start, end int, ok bool) {
+	start = 1
+	for i := len(items) - 1; i >= 0; i-- {
+		if isSummaryMessage(items[i].message) {
+			start = max(1, i+1)
+			break
+		}
+	}
+	total := 0
+	for i := len(items) - 1; i >= start; i-- {
+		total += tokensForMessage(items[i].message)
+		if total >= keepRecentTokens(window) {
+			for j := i; j >= start; j-- {
+				if isUserTurn(items[j].message) || items[j].message.Role == "assistant" {
+					end = j
+					break
+				}
+			}
+			break
+		}
+	}
+	if end <= start {
+		return 0, 0, false
+	}
+	total = 0
+	maxSeq := 0
+	for _, item := range items {
+		maxSeq = max(maxSeq, item.seq)
+	}
+	entered := make([]bool, maxSeq+1)
+	for _, item := range items {
+		if item.seq > 0 {
+			entered[item.seq] = true
+		}
+	}
+	for _, item := range items[start:end] {
+		if item.seq == 0 {
+			return 0, 0, false
+		}
+		total += tokensForMessage(item.message)
+	}
+	if total < 4000 {
+		return 0, 0, false
+	}
+	a, b, valid := blockRange(items, entered, items[start].seq, items[end-1].seq)
+	return start, end, valid && a == start && b == end
+}
+
+func compactBlock(ctx context.Context, client llm.Client, model string, entries []json.RawMessage, window int) (*compactionResult, error) {
+	items, _ := replayEntries(entries)
+	start, end, ok := planBlock(items, window)
+	if !ok {
+		return nil, nil
+	}
+	messages := replayMessages(items)
+	summary, usage, err := summarize(ctx, client, model, messages[start:end], window)
+	result := &compactionResult{Usage: usage}
+	if err != nil {
+		return result, err
+	}
+	if tokensForMessage(summaryMessage(summary))*2 >= tokensForMessages(messages[start:end]) {
+		return result, nil
+	}
+	result.Before = tokensForMessages(messages)
+	result.Messages = append(append(append([]llm.Message(nil), messages[:start]...), summaryMessage(summary)), messages[end:]...)
+	result.After = tokensForMessages(result.Messages)
+	result.Entry = compactionEntry{Type: compactionEntryType, Summary: summary, FromSeq: items[start].seq, ToSeq: items[end-1].seq}
+	return result, nil
+}
+
 // historyFromEntries 按文件顺序重建会话消息。
 // compaction entry 把此前的消息替换成摘要加其后的保留消息，后写的压缩边界自然覆盖早先的。
 func historyFromEntries(entries []json.RawMessage) []llm.Message {
@@ -82,9 +162,8 @@ func foldedFromEntries(entries []json.RawMessage) []llm.Message {
 }
 
 type replayItem struct {
-	message      llm.Message
-	seq          int
-	blockSummary bool
+	message llm.Message
+	seq     int
 }
 
 type foldedMessage struct {
@@ -95,17 +174,6 @@ type foldedMessage struct {
 func foldedItemsFromEntries(entries []json.RawMessage) []foldedMessage {
 	_, folded := replayEntries(entries)
 	return folded
-}
-
-func blockSummaryIndexes(entries []json.RawMessage) []int {
-	items, _ := replayEntries(entries)
-	var indexes []int
-	for i, item := range items {
-		if item.blockSummary {
-			indexes = append(indexes, i)
-		}
-	}
-	return indexes
 }
 
 func replayMessages(items []replayItem) []llm.Message {
@@ -153,7 +221,7 @@ func replayEntries(entries []json.RawMessage) ([]replayItem, []foldedMessage) {
 				for _, item := range messages[start:end] {
 					folded = append(folded, foldedMessage{Seq: item.seq, Message: item.message})
 				}
-				replacement := replayItem{message: summaryMessage(entry.Summary), blockSummary: true}
+				replacement := replayItem{message: summaryMessage(entry.Summary)}
 				messages = append(append(append([]replayItem(nil), messages[:start]...), replacement), messages[end:]...)
 				continue
 			}
@@ -380,13 +448,27 @@ func hasSummarizablePrefix(messages []llm.Message, cut int) bool {
 
 // compactMessages 把切点之前的消息总结成一条摘要消息。
 // 返回 nil 表示没有合法切点，调用方应保持原消息不变。
-func compactMessages(ctx context.Context, client llm.Client, model string, messages []llm.Message, window, overhead int, emit func(harness.Event)) (*compactionResult, error) {
+func compactMessages(ctx context.Context, client llm.Client, model string, messages []llm.Message, window, overhead int) (*compactionResult, error) {
 	cut := findCut(messages, window)
 	if cut <= 0 {
 		return nil, nil
 	}
 	before := tokensForMessages(messages) + overhead
-	prefix := append([]llm.Message(nil), messages[:cut]...)
+	summary, usage, err := summarize(ctx, client, model, messages[:cut], window)
+	result := &compactionResult{Usage: usage}
+	if err != nil {
+		return result, err
+	}
+	compacted := append([]llm.Message{summaryMessage(summary)}, messages[cut:]...)
+	result.Messages = compacted
+	result.Entry = compactionEntry{Type: compactionEntryType, Summary: summary, KeepFrom: cut}
+	result.Before = before
+	result.After = tokensForMessages(compacted) + overhead
+	return result, nil
+}
+
+func summarize(ctx context.Context, client llm.Client, model string, messages []llm.Message, window int) (string, llm.Usage, error) {
+	prefix := append([]llm.Message(nil), messages...)
 	truncate := func(message *llm.Message) {
 		message.Content = append([]llm.Part(nil), message.Content...)
 		for j := range message.Content {
@@ -423,7 +505,7 @@ func compactMessages(ctx context.Context, client llm.Client, model string, messa
 			start = 1
 		}
 		if start == len(prefix) {
-			return nil, errors.New("agent: no messages fit in compaction request")
+			return "", llm.Usage{}, errors.New("agent: no messages fit in compaction request")
 		}
 		next := start + 1
 		if prefix[start].Role == "assistant" && len(prefix[start].ToolCalls) > 0 {
@@ -436,7 +518,7 @@ func compactMessages(ctx context.Context, client llm.Client, model string, messa
 		prefix = append(prefix[:start], prefix[next:]...)
 	}
 	if len(prefix) == 0 {
-		return nil, errors.New("agent: no messages fit in compaction request")
+		return "", llm.Usage{}, errors.New("agent: no messages fit in compaction request")
 	}
 	if prefix[0].Role != "user" {
 		prefix = append([]llm.Message{omitted}, prefix...)
@@ -451,25 +533,19 @@ func compactMessages(ctx context.Context, client llm.Client, model string, messa
 	request := llm.Request{Model: model, System: summaryInstruction, Messages: prefix}
 	response, err := client.Stream(ctx, request, func(llm.Delta) {})
 	if err != nil {
-		return nil, err
+		if response != nil {
+			return "", response.Usage, err
+		}
+		return "", llm.Usage{}, err
 	}
 	if response == nil {
-		return nil, errors.New("agent: empty compaction response")
+		return "", llm.Usage{}, errors.New("agent: empty compaction response")
 	}
 	summary := strings.TrimSpace(messageText(response.Message))
 	if summary == "" {
-		return nil, errors.New("agent: empty compaction summary")
+		return "", response.Usage, errors.New("agent: empty compaction summary")
 	}
-	compacted := append([]llm.Message{summaryMessage(summary)}, messages[cut:]...)
-	after := tokensForMessages(compacted) + overhead
-	emit(harness.Event{Type: harness.EventContextCompacted, CompactTokensBefore: int64(before), CompactTokensAfter: int64(after)})
-	return &compactionResult{
-		Messages: compacted,
-		Entry:    compactionEntry{Type: compactionEntryType, Summary: summary, KeepFrom: cut},
-		Before:   before,
-		After:    after,
-		Usage:    response.Usage,
-	}, nil
+	return summary, response.Usage, nil
 }
 
 // messageText 连接消息里的文本片段。
