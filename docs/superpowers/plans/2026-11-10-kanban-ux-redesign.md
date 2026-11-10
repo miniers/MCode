@@ -8,7 +8,7 @@
 
 已读取 AGENTS.md、任务指定的生命周期文件、UI 入口、动效和 token，补读直接关联的桌面转换层、命令面板、快捷键、协议和测试。已查看相关 git 历史。本文所有现状结论来自静态代码检查，未经运行复现。
 
-本子任务明确禁止访问网络、启动 mcode、执行只读调研的构建和测试。因此未做在线竞品调研和 CrychicUI 源码核验；第 4 节给出八个产品的交互候选和官方核对入口，第 5 节给出组件核验清单。它们不能被当作截至本文日期的产品实测结果。CrychicUI 未找到可用的本地源码证据，不能可靠给出可引入的具体子包路径和版本；这部分是明确的待完成项，不猜路径。主代理可在允许联网的环境补齐，或者先交付复用仓库组件的阶段。
+本子任务明确禁止访问网络、启动 mcode、执行只读调研的构建和测试。因此未做在线竞品调研；CrychicUI 由主代理于 2026-11-10 联网补齐包与文件清单，见第 5.1 节，导出 API 待实现前读源码确认。第 4 节给出八个产品的交互候选和官方核对入口，第 5 节给出组件核验清单。竞品部分不能被当作截至本文日期的产品实测结果。主代理可在允许联网的环境补齐竞品部分，或者先交付复用仓库组件的阶段。
 
 行号以当前工作副本为准。每个现状痛点与实施步骤均附单行源码锚点，引用保持原文；实施后用符号名重新定位。下文「新增文件」是建议的实现目标，没有现存行号，以对应旧实现锚点定位。
 
@@ -297,11 +297,11 @@ internal/ui/kanban.go:2552 `activity := task.LastFailureReason`
 
 go.mod:8 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`
 
-CrychicUI 官方核对入口：https://github.com/ELY-Open-Source/CrychicUI 。MIT、sound 默认开启等信息来自 brief 与 AGENTS.md，本次未读取其仓库原文。
+CrychicUI 官方核对入口：https://github.com/ELY-Open-Source/CrychicUI 。MIT、sound 默认开启等信息来自 brief 与 AGENTS.md；module、版本与文件清单已由主代理于 2026-11-10 联网核对，见 5.1。
 
 | 候选能力 | 已核实可复用的本地实现 | CrychicUI 待查内容 / 决策 |
 |---|---|---|
-| 看板列、可拖拽列表、卡片 | github.com/egoist/mygo/ui 的 Column、Scroll、Drag、Drop；internal/ui/kanban_modal.go 的列结构 | 子包路径与版本未核实。先查真实 go.mod 与示例；存在同等组件则评估直接用，不能先自研另一套拖放框架 |
+| 看板列、可拖拽列表、卡片 | github.com/egoist/mygo/ui 的 Column、Scroll、Drag、Drop；internal/ui/kanban_modal.go 的列结构 | 包与文件已核实（见 5.1），API 待实现前读源码确认。存在同等组件则评估直接用，不能先自研另一套拖放框架 |
 | 标签 / chip | mcode/internal/ui 的 Capsule、kanbanToneBadge | 优先沿用现有 token；外库若只节省几行且强带主题/声音，不引入 |
 | 命令菜单 | mcode/internal/ui 的 buildPaletteItems、renderCommandPalette | 复用全局菜单；不额外做看板专属命令面板 |
 | 空状态 | mcode/internal/ui 的 EmptyState | 可直接用，Description 留空；只提供一个有意义的动作区 |
@@ -316,7 +316,28 @@ internal/ui/palette.go:479 `func renderCommandPalette(c *ui.Context, s *chatStat
 
 internal/ui/timeline_skeleton.go:14 `const timelineSkeletonMaxWait = 2 * motionSweep`
 
-组件选型的交付要求：允许联网后读取仓库 LICENSE、go.mod、目录与最小示例；记录精确 module、子包、tag 或 commit 和与 mygo 当前版本的兼容性。若引入，统一禁用 sound 或接到 mcode 提示音配置，测试 ReduceMotion 实时切换、隐藏窗口无循环刷新、CGO_ENABLED=0；在变更说明写包路径与固定版本。如果 sound 无法统一关闭、ReduceMotion 无法控制或 mygo 版本冲突，明确记录拒绝理由并沿用本地组件。未完成此核验前，没有「已确认可引入」的 CrychicUI 包路径清单。
+组件选型的交付要求：已记录 module、文件清单和上游依赖基线；实现前读取对应文件与最小示例，确认导出 API、可固定 commit 和与 mygo 当前版本的兼容性。若引入，统一禁用 sound 或接到 mcode 提示音配置，测试 ReduceMotion 实时切换、隐藏窗口无循环刷新、CGO_ENABLED=0；在变更说明写包路径与固定版本。如果 sound 无法统一关闭、ReduceMotion 无法控制或 mygo 版本冲突，明确记录拒绝理由并沿用本地组件。API 与兼容性未确认前，没有「已确认可引入」的 CrychicUI 导出清单。
+
+### 5.1 联网核验结果（2026-11-10）
+
+- module：`github.com/ELY-Open-Source/CrychicUI`。仓库没有 release 或 tag，只有 main 分支，引入时必须固定到具体 commit。
+- 版本基线：CrychicUI 的 go.mod 依赖 `github.com/egoist/mygo v0.8.3`，要求 Go 1.27.3。mcode 的 go.mod:8 使用 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`；兼容性在引入时用 `CGO_ENABLED=0 go build` 验证。
+- 共用底层包：sound、icon、kit；另有 overlay，按 AGENTS.md 不使用。
+- project 包文件：board.go、task_card.go、task_row.go、quick_add.go、priority.go、status.go、dependencies.go、subtasks.go、comments.go、checklist.go、labels.go、timeline.go。
+
+候选对应关系：
+
+| 看板能力 | CrychicUI 候选文件 |
+|---|---|
+| 看板列 | project/board.go |
+| 卡片 | project/task_card.go |
+| 列表行 | project/task_row.go |
+| 快速新建 | project/quick_add.go |
+| 优先级 | project/priority.go |
+| 状态 | project/status.go |
+| 依赖 | project/dependencies.go |
+
+实现前必须读上述文件的导出 API，确认是否支持拖放、ReduceMotion 和关闭 sound；不把猜测的导出名写入代码或 go.mod。
 
 ## 6. 目标信息架构与文字线框
 
@@ -490,7 +511,7 @@ internal/ui/tokens.go:95 `DurSheet = 280 * time.Millisecond`
 
 锚点：go.mod:8 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`
 
-改法：在允许联网的执行环境完成第 5 节 CrychicUI 核验；记录可复用子包、固定版本、sound 关闭方法和 ReduceMotion 能力。未获联网能力时沿用既有组件，不编造「组件不存在」结论。冻结只含 board 快照、任务 ID、视图查询、动作回调的最小接口；不要引入事件总线或第二套 store。
+改法：按第 5.1 节读取 CrychicUI 候选文件的导出 API；记录可复用组件、固定 commit、sound 关闭方法和 ReduceMotion 能力。API 或兼容性未确认时沿用既有组件，不编造「组件不存在」结论。冻结只含 board 快照、任务 ID、视图查询、动作回调的最小接口；不要引入事件总线或第二套 store。
 
 验收：组件选择可追溯；新依赖不提升 cgo 要求；没有核实前不引入新第三方包、不自研它可能已有的复杂组件。
 
@@ -742,7 +763,7 @@ docs/remote-control.schema.json:1215 `"canApprove": {`
 - 静态检查确认数据与入口分离问题，但未运行复现；实现先加行为回归，不能把本稿当成已经复现的缺陷报告。
 - 服务端 CanReview / CanApprove 对独立评审会话的运行信息有限；首期只表示权限，不凭 ThreadID 推测忙碌。评审状态机若有独立缺陷，单独修服务端与协议，不扩大 UI 项目。
 - 从居中详情改为侧栏会影响短宽窗口与焦点；必须通过 840×520 和大字号实机验收，仍保留基础 sheet 降级路径。
-- CrychicUI 未联网核实；不可承诺可用子包/版本或无声音。组件核验未完成时用现有组件交付基础阶段，复杂新组件保持待核验。
+- CrychicUI 已核实包与文件，API 与 mygo 兼容性待实现前确认；未确认前不承诺可用的导出组件或无声音。组件 API 未确认时用现有组件交付基础阶段，复杂新组件保持待确认。
 - 改变拖拽完成路径会更新既有测试和用户习惯，但能避免 review 绕过合并；需要用「拖到完成后打开审阅」的真实反馈验证操作可理解。
 
 ### 需要用户拍板（不阻塞本稿；括号为推荐默认）
@@ -781,4 +802,4 @@ docs/remote-control.schema.json:1215 `"canApprove": {`
 - 适配：go test ./internal/app/ -run 'TestKanbanBoardToUI' -timeout 120s
 - 生命周期回归：go test ./internal/kanban/ -run 'Test(Derive|TaskStatusTransitions|AutoAccept|ReviewAcceptMergeFailure|OccupiedSlots)' -timeout 120s
 
-新增测试名以实施时的最终模块名为准。主代理负责最后的全量检查、依赖核验与实机检查。本稿未完成的证据仅包括：在线竞品现状核实、CrychicUI 精确包/版本与 API 核实、运行复现及实机验证；已将它们显式列入前置核验与交付验收，不能在实现汇报中标成已通过。
+新增测试名以实施时的最终模块名为准。主代理负责最后的全量检查、依赖核验与实机检查。本稿未完成的证据仅包括：在线竞品现状核实、CrychicUI API 与 mygo 兼容性核实、运行复现及实机验证；已将它们显式列入前置核验与交付验收，不能在实现汇报中标成已通过。

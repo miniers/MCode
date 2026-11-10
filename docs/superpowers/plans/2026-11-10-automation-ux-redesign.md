@@ -9,7 +9,7 @@
 - 已读：任务指定的领域模型、调度、服务、评估器、锁、自动化 UI、运行状态 UI、关联入口、动效和 token，以及必要的 app 适配、远程类型、协议和已有测试。
 - 已查 Git：自动化相关最近 8 条提交。`cdceb3b` 为初始实现；`b1a2030` 主要归一化权限；`bc63d79` 将删除菜单标为危险；`ca66ea4` 复用模型目录；`119a0e6` 将加载提示收口到 LoadingIndicator。当前布局与领域功能多数已在初始提交中，近期变更没有重做信息架构。历史只能说明变更范围，不能代替运行验证。
 - 未运行：构建、测试、应用和桌面操作。本次按只读定位任务约束进行静态分析。下文中的测试是交给执行档的要求，不是已通过的结果。
-- 未访问网络：本次工作方式明确禁止网络。竞品部分是离线交互参考，给出官方入口供主代理核验，不声称已浏览当前产品；CrychicUI 的具体包路径、版本、API 和 ReduceMotion 行为无法核实，作为实施前置门槛，不编造包名。
+- 未访问网络：本次工作方式明确禁止网络。竞品部分是离线交互参考，给出官方入口供主代理核验，不声称已浏览当前产品；CrychicUI 的包与文件已由主代理于 2026-11-10 联网核实（见 5.2），导出 API、ReduceMotion 行为与 mygo 兼容性待实现前读源码确认，不编造导出名。
 - 本地组件检查：仓库 `go.mod`、`go.sum`、文档与自动化代码未发现 CrychicUI 引用；默认 Go 模块下载缓存的限定查询也未发现该库。不能由此推断用户其他目录不存在副本。
 
 引用锚点均为本工作副本现有行号；每个引用后紧跟该行原文。实施新增文件以既有提取点为锚，不虚构新增文件的行号。
@@ -262,7 +262,7 @@
 | 浮层 | appPopover / anchoredPopover | 日程和更多动作；只保留内容卡片一层外观 |
 | 弹窗 | modalDragModal / ui.DialogBase | 编辑器与草稿离开确认；外层仅设尺寸上限 |
 | 时间线 | 现有 Row / Column + StatusDot + 稳定 runID | 首轮用日期分组的记录行；不引入专门时间线框架 |
-| 日期 / 时间输入 | 当前 TextInput 可作为手输后备 | 先核验 CrychicUI picker；未核验前不自研完整日历 |
+| 日期 / 时间输入 | 当前 TextInput 可作为手输后备 | 优先读 CrychicUI datetime picker 源码；API 未确认前不自研完整日历 |
 
 `internal/ui/controls_toggle.go:32` — `func Segmented(c *ui.Context, key any, selected *int, segments []Segment, onChange func(int)) ui.Element {`
 
@@ -280,13 +280,36 @@
 
 ### 5.2 CrychicUI：必须完成核验才能引入
 
-来源：[ELY-Open-Source/CrychicUI](https://github.com/ELY-Open-Source/CrychicUI)。AGENTS.md 提供其 MIT、纯 Go、同源 UI 的背景；本次未能独立检查仓库。**当前没有经核实的 CrychicUI 可导入包路径与版本，不允许把猜测路径写入 go.mod。**
+来源：[ELY-Open-Source/CrychicUI](https://github.com/ELY-Open-Source/CrychicUI)。AGENTS.md 提供其 MIT、纯 Go、同源 UI 的背景；主代理已于 2026-11-10 联网核对 module、版本与文件清单（见本节末）。**包与文件已核实，导出 API 与 mygo 兼容性待实现前读源码确认；不允许把猜测路径写入 go.mod。**
 
-执行档联网后只查七类组件：日期、时间、分段、开关、时间线、空状态、骨架。对每个候选记录真实 module 路径、完整包路径、固定 tag/commit、导出 API、mygo 兼容版本、许可和 ReduceMotion 路径；有合适实现则按 AGENTS.md 直接复用。没有合适实现或无法验证时，保留现有本地控件和可手输时间，说明阻塞，不自行造日历替代。
+执行档按下列候选只查七类组件：日期、时间、分段、开关、时间线、空状态、骨架。对每个候选读源码记录完整包路径、可固定的 commit、导出 API、mygo 兼容版本、许可和 ReduceMotion 路径；有合适实现则按 AGENTS.md 直接复用。没有合适实现或 API 无法确认时，保留现有本地控件和可手输时间，说明阻塞，不自行造日历替代。
 
 引入的硬门槛：关闭 sound 的默认播放或接入 mcode 声音开关，并验证关闭时零播放；禁止引入 overlay 包作为外壳；验证包括循环动画在内的 ReduceMotion；确认没有 cgo 和隐藏的平台编译依赖。组件声明的「减少动效」不够，必须在 dev 版本切换偏好后验证已有动画立即停止。
 
-版本策略：不升级 mygo 来迁就单个 picker，不全库导入，不为状态点/开关引入新依赖。CrychicUI 日期/时间组件的真实包路径与版本仍是本文未完成项，交给主代理联网补齐后再启动该子步骤。
+版本策略：不升级 mygo 来迁就单个 picker，不全库导入，不为状态点/开关引入新依赖。CrychicUI 日期/时间组件的包与文件已核实；导出 API 与 mygo 兼容性仍是未完成项，实现前读源码确认后再启动该子步骤。
+
+#### 联网核验结果（2026-11-10）
+
+- module：`github.com/ELY-Open-Source/CrychicUI`。仓库没有 release 或 tag，只有 main 分支，引入时必须固定到具体 commit。
+- 版本基线：CrychicUI 依赖 `github.com/egoist/mygo v0.8.3`，要求 Go 1.27.3；mcode 的 `go.mod:8` 是 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`。兼容性在引入时用 `CGO_ENABLED=0 go build` 验证。
+- 共用底层包：sound、icon、kit；另有 overlay，按 AGENTS.md 不使用。
+- datetime 包文件：cron_field.go、recurrence.go、time_picker.go、date_picker.go、date_time_picker.go、duration_picker.go、zone_select.go、relative_date.go、time_ago.go、due_chip.go。
+- schedule 包文件：upcoming.go、next_event.go、week_view.go、month_view.go。
+
+候选对应关系：
+
+| 自动化能力 | CrychicUI 候选文件 |
+|---|---|
+| 高级 Cron | datetime/cron_field.go |
+| 重复规则 | datetime/recurrence.go |
+| 时间 | datetime/time_picker.go |
+| 单次日期 | datetime/date_picker.go 或 datetime/date_time_picker.go |
+| 间隔 | datetime/duration_picker.go |
+| 时区 | datetime/zone_select.go |
+| 相对时间（如「明天 09:00」） | datetime/relative_date.go |
+| 即将运行列表 | schedule/upcoming.go |
+
+实现前读这些文件的导出 API，确认签名、ReduceMotion 与 sound 行为；API 与 mygo 兼容性未确认时保留现有本地控件，不猜导出名。
 
 ## 6. 目标信息架构与文字线框
 
@@ -666,7 +689,7 @@
 
 `AGENTS.md:12` — ``8. **新组件先查现成实现**：需要新 UI 组件时，先查看 CrychicUI（https://github.com/ELY-Open-Source/CrychicUI，MIT，纯 Go，基于同一个 `github.com/egoist/mygo/ui`，1500 个组件、38 个包）是否已有合适的组件。有合适的就直接复用对应包，不从头自研；没有合适的再自己开发。引入时注意：该库的 `sound` 包默认开启，必须统一关闭或接入 mcode 的提示音配置；弹窗与浮层不使用其 `overlay` 包，仍按第 5 条用 `ui.DialogBase` / `ui.PopoverBase`；接入后要在 dev 版本里确认减少动效（`ReduceMotion`）时会关闭。变更说明里要写明引入的包路径与版本。``
 
-具体改法：在步骤 03 提取后的 automation_schedule_ui.go 中实现类型下拉、当前参数、时区和三次预览；六种类型的 draft 值相互保留；自定义间隔可输入，单位换算只在提交时做。给每个字段单独错误，保存与预览共用一次草稿解析。按第 5 节核验 CrychicUI，真实包路径与固定版本写入实施变更说明；未核验时保留手输入口，picker 子项明确阻塞，不猜包名。所有浮层用 appPopover。
+具体改法：在步骤 03 提取后的 automation_schedule_ui.go 中实现类型下拉、当前参数、时区和三次预览；六种类型的 draft 值相互保留；自定义间隔可输入，单位换算只在提交时做。给每个字段单独错误，保存与预览共用一次草稿解析。按第 5.2 节候选读 CrychicUI 源码确认导出 API，真实包路径与固定版本写入实施变更说明；API 或兼容性未确认时保留手输入口，picker 子项明确阻塞，不猜导出名。所有浮层用 appPopover。
 
 验收：仅改名称时原 90 秒、once 秒精度、cron 字符串与旧空时区保持；快速改日程不会显示旧预览；新建过去单次阻止启用；无候选的合法 cron 可暂停保存。heartbeat 不出现可编辑模型/权限设置，已有运行模式不丢失。
 
@@ -840,7 +863,7 @@
 4. **首轮是否接受最近 100 条历史与日志跳会话？** 推荐接受；若必须全历史分页或逐轮日志，另增游标/运行事件边界，扩大存储与协议范围。
 5. **自然语言调度是否为首发硬需求？** 推荐不是，首发先做结构化规则与三次预览；若是，必须明确解析失败、歧义确认、时区与可解释回填的独立范围。
 
-风险与限制：普通保存语义修复会触及 app、service 与远程适配，必须用真实调用链测，不能只依赖 UI Fake。时区与间隔完成后计算的语义必须如实呈现。原生窗口关闭保护 API 尚未核实。跨窗口未读同步不能依赖页面初始化。CrychicUI 包与版本、竞品当期事实仍待联网核验。
+风险与限制：普通保存语义修复会触及 app、service 与远程适配，必须用真实调用链测，不能只依赖 UI Fake。时区与间隔完成后计算的语义必须如实呈现。原生窗口关闭保护 API 尚未核实。跨窗口未读同步不能依赖页面初始化。CrychicUI 已核实包与文件，API 与 mygo 兼容性待实现前确认；竞品当期事实仍待联网核验。
 
 ## 13. 用户实机验证步骤（由用户或主代理在 dev 版本执行）
 
@@ -857,4 +880,4 @@
 11. 开启系统 ReduceMotion，在浮层开合、编辑器、增删、运行中、计数变化期间观察；所有位移、缩放、循环都停止，状态和焦点仍清楚。若引入 CrychicUI，关闭提示音后逐个操作日期、时间和开关，确认完全无声音。
 12. 暂停/恢复系统睡眠后查看补跑来源与合并次数；一次性任务关闭补跑时应显示已跳过并结束。多实例下被动窗口应说明由其他实例调度，不能宣称全局任务都已暂停。
 
-最终交付要求：执行档提供前后截图或录屏、定向测试结果、协议差异、引入组件的真实包路径和固定版本、声音/ReduceMotion 验证结果。本文没有进行实机验证；竞品与 CrychicUI 的联网核验尚未完成。
+最终交付要求：执行档提供前后截图或录屏、定向测试结果、协议差异、引入组件的真实包路径和固定版本、声音/ReduceMotion 验证结果。本文没有进行实机验证；竞品联网核验尚未完成，CrychicUI 已核实包与文件、API 与 mygo 兼容性待实现前确认。
