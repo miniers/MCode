@@ -7,9 +7,14 @@ func fileManagerHasClosableTab(s *chatState) bool {
 	if st == nil {
 		return false
 	}
+	// 打开状态由右栏容器判断，需在拿 fileManagerMu 之前查询。
+	open := isFileManagerOpen(s)
+	if !open {
+		return false
+	}
 	fileManagerMu.Lock()
 	defer fileManagerMu.Unlock()
-	return st.open && !st.showList && st.active != ""
+	return !st.showList && st.active != ""
 }
 
 // fileManagerCloseActiveTab 关闭文件面板里当前激活的标签页，并切到相邻标签页。
@@ -23,8 +28,12 @@ func fileManagerCloseActiveTab(s *chatState) bool {
 	if st == nil {
 		return false
 	}
+	// 打开状态由右栏容器判断，需在拿 fileManagerMu 之前查询。
+	if !isFileManagerOpen(s) {
+		return false
+	}
 	fileManagerMu.Lock()
-	if !st.open || st.showList || st.active == "" {
+	if st.showList || st.active == "" {
 		fileManagerMu.Unlock()
 		return false
 	}
