@@ -2082,6 +2082,8 @@ func TestIsSafeReadOnlyCommand(t *testing.T) {
 		"find /tmp -name x &>/dev/null",
 		"cd /tmp && ls",
 		"cd internal && grep -rn foo .",
+		"curl https://example.com",
+		"curl -fsSL https://example.com",
 	}
 	for _, cmd := range allowed {
 		if !isSafeReadOnlyCommand(cmd) {
@@ -2098,7 +2100,9 @@ func TestIsSafeReadOnlyCommand(t *testing.T) {
 		"touch new.txt",
 		"mkdir build",
 		"chmod +x run.sh",
-		"curl https://example.com",
+		"curl -o out https://example.com",
+		"curl -d a=b https://example.com",
+		"curl -X POST https://example.com",
 		"bash -c 'rm -rf /tmp/x'",
 		"ls > out.txt",
 		"echo hi >> log.txt",
