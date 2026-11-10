@@ -36,10 +36,19 @@ type engineTestRequest struct {
 
 // newEngineTestServer 启动假 OpenAI 兼容服务：/models 返回空目录，
 // /chat/completions 记录请求并返回一条普通（非流式）回复。
-func newEngineTestServer(t *testing.T, requests *[]engineTestRequest) *httptest.Server {
+func newEngineTestServer(t *testing.T, requests *[]engineTestRequest, mcpRequests ...*[]engineTestRequest) *httptest.Server {
 	t.Helper()
 	var mu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/mcp/") {
+			if len(mcpRequests) > 0 {
+				mu.Lock()
+				*mcpRequests[0] = append(*mcpRequests[0], engineTestRequest{Path: r.URL.Path, Auth: r.Header.Get("Authorization")})
+				mu.Unlock()
+			}
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path == "/models" {
 			io.WriteString(w, `{"data":[]}`)
 			return
@@ -194,7 +203,8 @@ func TestSourceEngineCustomEndpointColdDefault(t *testing.T) {
 func TestSourceEngineMagpieAffinity(t *testing.T) {
 	t.Cleanup(func() { remote.SetAPICatalog("magpie", nil); setMcodeAgentRuntime("", nil) })
 	var requests []engineTestRequest
-	server := newEngineTestServer(t, &requests)
+	var mcpRequests []engineTestRequest
+	server := newEngineTestServer(t, &requests, &mcpRequests)
 
 	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("magpie"): "gateway-key"})
 	ep := config.CustomEndpointConfig{
@@ -208,6 +218,9 @@ func TestSourceEngineMagpieAffinity(t *testing.T) {
 	}
 	if reply := runEngineTurn(t, h, "plain-model", "thread-42"); reply != "ok" {
 		t.Fatalf("reply = %q, want ok", reply)
+	}
+	if len(mcpRequests) == 0 || mcpRequests[0].Path != "/mcp/magpie/web-search" || mcpRequests[0].Auth != "Bearer gateway-key" {
+		t.Fatalf("搜索 MCP 请求 = %+v", mcpRequests)
 	}
 	if len(requests) != 1 {
 		t.Fatalf("请求 %d 次，want 1", len(requests))
@@ -229,6 +242,10 @@ func TestSourceEngineMagpieFullCatalog(t *testing.T) {
 	t.Cleanup(func() { remote.SetAPICatalog("magpie", nil); setMcodeAgentRuntime("", nil) })
 	var requests []engineTestRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/mcp/") {
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path == "/models" {
 			io.WriteString(w, `{"data":[{"id":"plain-model"},{"id":"other-model"}]}`)
 			return
@@ -380,6 +397,10 @@ func TestSourceEngineMagpieClaudeUsesMessages(t *testing.T) {
 	var mu sync.Mutex
 	var requests []engineTestRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/mcp/") {
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path == "/models" {
 			io.WriteString(w, `{"data":[]}`)
 			return
@@ -480,6 +501,10 @@ func TestSourceEngineMagpieModelCapabilities(t *testing.T) {
 	})
 	var requests []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/mcp/") {
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path == "/models" {
 			io.WriteString(w, `{"data":[{"id":"model-a","max_output_tokens":8192,"modalities":{"input":["text"]}},{"id":"model-b","modalities":{"input":["text","image"]}}]}`)
 			return
