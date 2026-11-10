@@ -179,8 +179,7 @@ func composerCapsules(c *ui.Context, s *chatState, threadID string, continueKind
 // composerPlanCapsule 返回待办进度胶囊：最新一份待办清单没做完时显示，
 // 点击沿用待办弹层（锚定在胶囊上）。没有待办或已全部完成时 ok=false。
 func composerPlanCapsule(c *ui.Context, s *chatState, threadID string) (composerCapsule, bool) {
-	// 浮动面板里的子代理输入框空间太小，不显示待办胶囊。
-	if s == nil || s.embeddedBee {
+	if s == nil {
 		return composerCapsule{}, false
 	}
 	// isThreadRunning 内部自己加锁，先取运行状态，再在锁内读消息快照。

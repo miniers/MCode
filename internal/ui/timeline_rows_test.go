@@ -1700,6 +1700,50 @@ func TestAssistantMetaText(t *testing.T) {
 }
 
 // TestTimelineRows_TodoCard 验证 TodoWrite 工具调用渲染成带进度与状态的待办卡片。
+func TestTimelineRows_GroupedTodoCard(t *testing.T) {
+	input := `{"todos":[{"content":"读代码","status":"completed"},{"content":"改代码","status":"completed"},{"content":"跑测试","status":"in_progress"}]}`
+	msgs := []Message{
+		{ID: "u1", Role: "user", Text: "规划一下", TurnIndex: 1, IsFinal: true},
+		{ID: "r1", Role: "assistant", Kind: "reasoning", Text: "先看看", TurnIndex: 1},
+		{ID: "read1", Role: "tool", Text: `Read {"file_path":"a.go"}`, TurnIndex: 1},
+		{ID: "todo1", Role: "tool", ToolName: "todo_write", ToolInput: input, Text: "todo_write " + input + "\nTodos updated: 2/3 completed", TurnIndex: 1},
+		{ID: "bash1", Role: "tool", Text: `Bash {"command":"go test"}`, TurnIndex: 1},
+	}
+	for _, bee := range []bool{false, true} {
+		t.Run(fmt.Sprintf("embeddedBee=%t", bee), func(t *testing.T) {
+			s := newChatState(NewFakeClient())
+			defer s.close()
+			s.embeddedBee = bee
+			s.messages = msgs
+			items := buildTimelineItems(msgs, map[string]bool{"toolgroup-r1": true})
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Column(c.Key("timeline")).Children(func() {
+					for _, item := range items {
+						renderTimelineItem(c, s, item, "", "", false, false, TokenUsage{}, 0)
+					}
+				})
+			}, 1000, 700)
+			for _, want := range []string{"待办清单", "2/3", "$ go test"} {
+				if !tt.HasText(want) {
+					t.Fatalf("缺少 %q: %q", want, tt.Texts())
+				}
+			}
+			if _, ok := tt.Find("a.go"); !ok {
+				t.Fatalf("缺少读取胶囊: %q", tt.Texts())
+			}
+			if tt.HasText("todo_write") {
+				t.Fatalf("待办不应显示普通工具胶囊: %q", tt.Texts())
+			}
+			clickText(t, tt, "展开待办清单")
+			for _, want := range []string{"读代码", "改代码", "跑测试"} {
+				if !tt.HasText(want) {
+					t.Fatalf("展开后缺少 %q: %q", want, tt.Texts())
+				}
+			}
+		})
+	}
+}
+
 func TestTimelineRows_TodoCard(t *testing.T) {
 	msgs := []Message{
 		{ID: "u1", Role: "user", Text: "规划一下", TurnIndex: 1, IsFinal: true},

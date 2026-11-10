@@ -5978,6 +5978,10 @@ func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID s
 					Children(func() {
 						opened := false
 						for _, toolMsg := range beatTools {
+							if items, ok := todoItemsFromMessage(toolMsg); ok {
+								renderTodoCard(c, s, toolMsg, items)
+								continue
+							}
 							ui.Row(c.Key("tool-beat-chip-row-"+toolMsg.ID)).
 								Padding(0, 0, 0, toolBeatPadLeft).
 								AlignItems(ui.Center).

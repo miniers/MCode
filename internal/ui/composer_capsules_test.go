@@ -97,6 +97,23 @@ func TestComposerRunningChangesCapsule(t *testing.T) {
 
 // TestComposerCapsulesShareOneRow 验证待办进度与继续提示两枚胶囊同时出现时在同一行：
 // 两者的中心 Y 相同，且都落在同一个带 Label 的胶囊行容器内。
+func TestComposerPlanCapsuleEmbeddedBee(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	defer s.close()
+	s.embeddedBee = true
+	s.selectedThreadID = "bee"
+	s.messages = []Message{{ID: "todo", Role: "tool", ToolName: "todo_write", ToolInput: `{"todos":[{"content":"一","status":"completed"},{"content":"二","status":"completed"},{"content":"三","status":"in_progress"}]}`}}
+	capsule, ok := composerPlanCapsule(nil, s, "bee")
+	if !ok || capsule.Label != "待办进度 2/3" {
+		t.Fatalf("子代理待办胶囊 = %+v, ok=%v", capsule, ok)
+	}
+	s.composerView.planPillOpen = true
+	s.messages[0].ToolInput = `{"todos":[{"content":"一","status":"completed"},{"content":"二","status":"completed"},{"content":"三","status":"completed"}]}`
+	if _, ok := composerPlanCapsule(nil, s, "bee"); ok || s.composerView.planPillOpen {
+		t.Fatal("全部完成后应隐藏胶囊并关闭浮层")
+	}
+}
+
 func TestComposerCapsulesShareOneRow(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fake := NewFakeClient()
