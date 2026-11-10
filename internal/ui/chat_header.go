@@ -2249,7 +2249,7 @@ func renderChatHeaderAuxGroup(c *ui.Context, s *chatState) {
 		}},
 		{true, func() {
 			ui.Row(c.Key("chat-header-aux-more-wrap")).Children(func() {
-				trigger := IconButton(c, IconButtonProps{Key: "chat-header-aux-more-btn", Icon: IconMoreHorizontal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "更多", Active: hs.auxMenuOpen, OnClick: func() { hs.auxMenuOpen = !hs.auxMenuOpen }})
+				trigger := IconButton(c, IconButtonProps{Key: "chat-header-aux-more-btn", Icon: IconMoreHorizontal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "更多工具", Tooltip: "更多", Active: hs.auxMenuOpen, OnClick: func() { hs.auxMenuOpen = !hs.auxMenuOpen }})
 				if pendingProposals > 0 {
 					renderGitCountBadge(c, "chat-header-memory-badge", pendingProposals)
 				}

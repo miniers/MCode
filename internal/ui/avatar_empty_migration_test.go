@@ -21,8 +21,8 @@ func TestDiffEmptyStateAndRetry(t *testing.T) {
 	tester = ui.NewTester(func(c *ui.Context) {
 		renderDiffStatusState(c, "diff-error", IconOctagonAlert(), "读取失败", "错误详情", func() { clicks++ })
 	}, 400, 300)
-	if !tester.HasText("读取失败") || !tester.HasText("错误详情") {
-		t.Fatal("Diff 错误标题或说明未显示")
+	if tester.HasText("读取失败") || !tester.HasText("错误详情") {
+		t.Fatal("Diff 错误态应只显示错误详情")
 	}
 	if err := tester.Click("重试"); err != nil {
 		t.Fatal(err)

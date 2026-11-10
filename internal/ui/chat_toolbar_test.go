@@ -85,7 +85,7 @@ func TestChatToolbarAuxGroupButtons(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
 
 	// 项目文档：点击按钮打开，关闭直接调用头部动作，避免再次点击命中按钮提示层
-	if err := tt.Click("更多"); err != nil {
+	if err := tt.Click("更多工具"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(DurBase + 50*time.Millisecond)
@@ -97,11 +97,11 @@ func TestChatToolbarAuxGroupButtons(t *testing.T) {
 	waitFor(t, tt, func() bool { return !getContextPanelState(s).IsOpen() })
 
 	// 终端：显示后再点一次隐藏
-	if err := tt.Click("终端 ⌘J"); err != nil {
+	if err := tt.Click("终端"); err != nil {
 		t.Fatalf("click terminal button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return getTerminalState(s).visible })
-	if err := tt.Click("终端 ⌘J"); err != nil {
+	if err := tt.Click("终端"); err != nil {
 		t.Fatalf("click terminal button again failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return !getTerminalState(s).visible })
@@ -115,7 +115,7 @@ func TestChatToolbarAuxGroupButtons(t *testing.T) {
 	waitFor(t, tt, func() bool { return !inspectorPaneOpen(s, sidePanePreviewID) })
 
 	// 看板：切到任务工作区视图
-	if err := tt.Click("更多"); err != nil {
+	if err := tt.Click("更多工具"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(DurBase + 50*time.Millisecond)

@@ -589,8 +589,8 @@ func TestMemoryHeaderEntryLabelLocalBackend(t *testing.T) {
 	t.Cleanup(s.close)
 
 	tt := ui.NewTester(view, 1200, 700)
-	waitFor(t, tt, func() bool { _, ok := tt.Find("更多"); return ok })
-	if err := tt.Click("更多"); err != nil {
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+	if err := tt.Click("更多工具"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(DurBase + 50*time.Millisecond)
