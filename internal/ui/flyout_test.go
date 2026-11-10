@@ -353,6 +353,62 @@ func TestFlyoutPopoverLifecycle(t *testing.T) {
 	}
 }
 
+func TestFlyoutPopoverClosesWhenHostUnmounts(t *testing.T) {
+	t.Run("宿主卸载", func(t *testing.T) {
+		entry, capture := setupPopoverFlyoutTest(t)
+		show, open := true, false
+		host := ui.NewTester(func(c *ui.Context) {
+			entry.services = c.Services()
+			if show {
+				trigger := ui.ButtonBase(c.Key("trigger")).Label("打开").Size(100, 30).OnClick(func() { open = true })
+				appFlyoutPopover(c, "test-popover", trigger, &open, nil, appFlyoutProps{Width: 120}, func(*ui.Context) {})
+			}
+		}, 400, 300)
+		host.Frame()
+		if err := host.Click("打开"); err != nil {
+			t.Fatal(err)
+		}
+		if len(capture.options) != 1 {
+			t.Fatalf("窗口数: %d", len(capture.options))
+		}
+		show = false
+		host.Frame()
+		host.Frame()
+		appFlyoutPopoverMu.Lock()
+		_, exists := appFlyoutPopovers[appFlyoutPopoverKey{entry.services, "test-popover"}]
+		appFlyoutPopoverMu.Unlock()
+		if len(capture.destroyedWindows) != 1 || exists {
+			t.Fatalf("卸载后销毁窗口数: %d，条目存在: %t", len(capture.destroyedWindows), exists)
+		}
+	})
+	t.Run("切换浮层键", func(t *testing.T) {
+		entry, capture := setupPopoverFlyoutTest(t)
+		key, open := "session-one", false
+		host := ui.NewTester(func(c *ui.Context) {
+			entry.services = c.Services()
+			trigger := ui.ButtonBase(c.Key("trigger")).Label("打开").Size(100, 30).OnClick(func() { open = true })
+			appFlyoutPopover(c, key, trigger, &open, nil, appFlyoutProps{Width: 120}, func(*ui.Context) {})
+		}, 400, 300)
+		host.Frame()
+		if err := host.Click("打开"); err != nil {
+			t.Fatal(err)
+		}
+		if len(capture.options) != 1 {
+			t.Fatalf("窗口数: %d", len(capture.options))
+		}
+		key = "session-two"
+		host.Frame()
+		host.Frame()
+		appFlyoutPopoverMu.Lock()
+		_, oldExists := appFlyoutPopovers[appFlyoutPopoverKey{entry.services, "session-one"}]
+		newEntry := appFlyoutPopovers[appFlyoutPopoverKey{entry.services, "session-two"}]
+		appFlyoutPopoverMu.Unlock()
+		if len(capture.options) != 2 || len(capture.destroyedWindows) != 1 || oldExists || newEntry == nil || newEntry.window == nil {
+			t.Fatalf("切换后创建窗口数: %d，销毁窗口数: %d，旧条目存在: %t，新条目: %v", len(capture.options), len(capture.destroyedWindows), oldExists, newEntry)
+		}
+	})
+}
+
 func TestFlyoutPopoverDismissWithoutCallback(t *testing.T) {
 	entry, capture := setupPopoverFlyoutTest(t)
 	open := true

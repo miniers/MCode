@@ -297,6 +297,8 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 		return
 	}
 	k := appFlyoutPopoverKey{services: host, key: key}
+	// 宿主卸载时关闭浮层；OnUnmount 只保留最后一次设置，调用方不要再给锚点设 OnUnmount。
+	anchor.OnUnmount(func() { closeAppFlyoutPopover(host, key) })
 	r, valid := flyoutAnchor(anchor.Bounds(), c.Zoom())
 	appFlyoutPopoverMu.Lock()
 	entry := appFlyoutPopovers[k]
@@ -371,7 +373,6 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 		})
 	}
 	appFlyoutPopoverMu.Unlock()
-	// shortcut: mygo 没有卸载钩子，依赖焦点转移或父窗口关闭浮层；有卸载钩子时再主动清理。
 	// 宿主重绘驱动浮层；mygo 不暴露输入计数，浮层仅在关闭时驱动宿主。
 	services.Invalidate()
 	if action != nil {
