@@ -159,3 +159,101 @@ func TestTasksAcceptanceSearchScopeAndCreate(t *testing.T) {
 		t.Fatal("放弃后未切换")
 	}
 }
+
+func TestTasksAcceptanceMatrix(t *testing.T) {
+	for _, size := range [][2]int{{840, 520}, {1140, 720}, {1440, 900}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			s, view := buildTasksRoot(nil, WithTasksWindowMode("tasks"))
+			defer s.close()
+			s.projects = []Project{{ID: "p1", Name: "一个非常长的项目名称，用于检查边界截断"}, {ID: "p2", Name: "第二项目"}}
+			ks := getKanbanState(s)
+			ks.initialized = true
+			ks.board = KanbanBoard{Tasks: []KanbanTask{{ID: "long", Title: "这是一个非常长的任务标题，用于检查标题是否越过内容区域边界", Status: "review"}}}
+			tt := ui.NewTester(view, size[0], size[1])
+			tt.Frame()
+			sidebar, ok := tt.Find("tasks-sidebar")
+			if !ok || sidebar.W != TasksSidebarWidth {
+				t.Fatalf("侧栏宽度: %+v", sidebar)
+			}
+			toolbar, ok := tt.Find("tasks-window-toolbar")
+			if !ok || toolbar.X != TasksSidebarWidth {
+				t.Fatalf("顶栏: %+v", toolbar)
+			}
+			if _, ok := tt.Find("kanban-modal-header"); ok {
+				t.Fatal("存在旧顶栏")
+			}
+		})
+	}
+}
+
+func TestTasksAcceptanceEmptyAndNoResults(t *testing.T) {
+	s, view := buildTasksRoot(nil, WithTasksWindowMode("tasks"))
+	defer s.close()
+	s.projects = []Project{{ID: "p1", Name: "项目一"}}
+	ks := getKanbanState(s)
+	ks.initialized = true
+	tt := ui.NewTester(view, 840, 520)
+	tt.Frame()
+	if !tt.HasText("还没有任务") {
+		t.Fatal("未显示空状态")
+	}
+	ks.board.Tasks = []KanbanTask{{ID: "a", Title: "现有任务", Status: "todo"}}
+	ks.searchText = "无匹配"
+	tt.Frame()
+	if !tt.HasText("未找到任务") {
+		t.Fatal("未显示搜索无结果状态")
+	}
+}
+
+func TestTasksAcceptanceProjectError(t *testing.T) {
+	s, view := buildTasksRoot(nil, WithTasksWindowMode("tasks"))
+	defer s.close()
+	s.projects = []Project{{ID: "p1", Name: "项目一"}}
+	ks := getKanbanState(s)
+	ks.initialized, ks.err = true, "读取失败"
+	tt := ui.NewTester(view, 840, 520)
+	tt.Frame()
+	if !tt.HasText("读取失败") {
+		t.Fatal("未显示错误状态")
+	}
+	if _, ok := tt.Find("tasks-sidebar"); !ok {
+		t.Fatal("错误状态下侧栏不可用")
+	}
+}
+
+func TestTasksAcceptanceCloseReleasesState(t *testing.T) {
+	s, _ := buildTasksRoot(NewFakeClient(), WithTasksWindowMode("tasks"))
+	s.close()
+	kanbanKeyboardMu.Lock()
+	_, keyboard := kanbanKeyboardStates[s]
+	kanbanKeyboardMu.Unlock()
+	kanbanBatchMu.Lock()
+	_, batch := kanbanBatchStates[s]
+	kanbanBatchMu.Unlock()
+	automationMu.Lock()
+	_, automation := automationStates[s]
+	automationMu.Unlock()
+	if keyboard || batch || automation {
+		t.Fatalf("关闭后状态未释放: keyboard=%v batch=%v automation=%v", keyboard, batch, automation)
+	}
+}
+
+func TestTasksAcceptanceFallbackSameShell(t *testing.T) {
+	s, view := buildRoot(NewFakeClient())
+	s.openWorkspace("tasks")
+	s.projects = []Project{{ID: "p1", Name: "项目一"}}
+	getKanbanState(s).initialized = true
+	tt := ui.NewTester(view, 1140, 720)
+	tt.Frame()
+	if _, ok := tt.Find("tasks-sidebar"); !ok {
+		t.Fatal("回退路径未显示任务侧栏")
+	}
+	if _, ok := tt.Find("tasks-window-toolbar"); !ok {
+		t.Fatal("回退路径未显示单条顶栏")
+	}
+	for _, old := range []string{"kanban-modal-header", "项目", "目标筛选"} {
+		if _, ok := tt.Find(old); ok {
+			t.Fatalf("回退路径出现旧控件 %q", old)
+		}
+	}
+}

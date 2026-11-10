@@ -52,6 +52,7 @@ func (s *chatState) openTasksWindow(view string) {
 		s.openTasksWindowFn(view)
 		return
 	}
+	s.setTasksWindowView(view)
 	s.openWorkspace(view)
 }
 

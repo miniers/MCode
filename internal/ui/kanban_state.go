@@ -20,10 +20,7 @@ var (
 
 // kanbanModalState 是「任务与看板」大弹窗的本地状态，按会话保存，不使用包级开关。
 type kanbanModalState struct {
-	open bool
-	// projectMenuOpen 是看板头部（任务与看板窗口标题栏）项目选择器的展开状态。
-	projectMenuOpen bool
-	// pickerMenuOpen 是「新建任务」弹窗内项目下拉的展开状态，与头部的 projectMenuOpen 互相独立。
+	open           bool
 	pickerMenuOpen bool
 }
 
@@ -39,29 +36,6 @@ func getKanbanModalState(s *chatState) *kanbanModalState {
 		kanbanModalStates[s] = st
 	}
 	return st
-}
-
-// kanbanProjectMenuOpen 报告头部项目选择器是否展开。
-func kanbanProjectMenuOpen(s *chatState) bool {
-	st := getKanbanModalState(s)
-	if st == nil {
-		return false
-	}
-	kanbanModalMu.Lock()
-	defer kanbanModalMu.Unlock()
-	return st.projectMenuOpen
-}
-
-// setKanbanProjectMenuOpen 设置项目选择器的展开状态。
-func setKanbanProjectMenuOpen(s *chatState, open bool) {
-	st := getKanbanModalState(s)
-	if st == nil {
-		return
-	}
-	kanbanModalMu.Lock()
-	st.projectMenuOpen = open
-	kanbanModalMu.Unlock()
-	s.invalidate()
 }
 
 // setKanbanPickerMenuOpen 设置「新建任务」弹窗内项目下拉的展开状态（与头部菜单独立）。
@@ -103,7 +77,6 @@ type kanbanState struct {
 	destination             string
 	automationSearch        string
 	goalID                  string
-	goalMenuOpen            bool
 	newMenuOpen             bool
 	goalDetailOpen          bool
 	goalDetailScroll        ui.ScrollState

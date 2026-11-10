@@ -37,11 +37,15 @@ func renderTasksWindowSidebar(c *ui.Context, s *chatState, ks *kanbanState, p ka
 	kanbanMu.Lock()
 	destination, viewFilter := ks.destination, ks.viewFilter
 	kanbanMu.Unlock()
+	unread, known := automationScopeUnread(s)
+	if !known {
+		unread = 0
+	}
 	ui.Column(c.Key("tasks-sidebar")).Label("tasks-sidebar").Width(TasksSidebarWidth).FillHeight().Background(ThemeSidebarBg(c)).Padding(Space3).Gap(Space5).Children(func() {
 		ui.Box(c.Key("tasks-sidebar-titlebar")).Height(HeaderHeight).FillWidth().DragWindow()
 		ui.Column(c.Key("tasks-sidebar-destinations")).FillWidth().Children(func() {
-			tasksDestinationRow(c, s, destination, "tasks", "任务", IconColumns3())
-			tasksDestinationRow(c, s, destination, "automations", "自动化", IconByName("automation"))
+			tasksDestinationRow(c, s, destination, "tasks", "任务", IconColumns3(), 0)
+			tasksDestinationRow(c, s, destination, "automations", "自动化", IconByName("automation"), unread)
 		})
 		_, height := c.Size()
 		ui.Column(c.Key("tasks-sidebar-projects")).MaxHeight(max(0, height/3)).FillWidth().Children(func() {
@@ -104,7 +108,7 @@ func renderTasksWindowSidebar(c *ui.Context, s *chatState, ks *kanbanState, p ka
 	})
 }
 
-func tasksDestinationRow(c *ui.Context, s *chatState, current, destination, title string, icon *ui.SVG) {
+func tasksDestinationRow(c *ui.Context, s *chatState, current, destination, title string, icon *ui.SVG, count int) {
 	selected := current == destination
 	row := ui.ButtonBase(c.Key("kanban-destination-"+destination)).Label("kanban-destination-"+destination).FillWidth().Height(RowHeight).Padding(0, Space3).Radius(RowCornerRadius).Gap(Space3).AlignItems(ui.Center).OnClick(func() { s.setTasksWindowView(destination) })
 	if selected {
@@ -113,12 +117,11 @@ func tasksDestinationRow(c *ui.Context, s *chatState, current, destination, titl
 		row = row.Background(ThemeHover(c))
 	}
 	row.Children(func() {
-		color := ThemeSecondaryText(c)
-		if selected {
-			color = ThemeAccent(c)
-		}
-		ui.Icon(c, icon).Size(IconMD, IconMD).TextColor(color)
+		ui.Icon(c, icon).Size(IconMD, IconMD).TextColor(tasksSidebarIconColor(c, selected))
 		tasksSidebarText(c, title, selected)
+		if count > 0 {
+			ui.Text(c.Key("kanban-destination-"+destination+"-count"), fmt.Sprint(count)).FontSize(TypeBody).TextColor(ThemeSecondaryText(c)).Transition(motionListItem(c))
+		}
 	})
 }
 
@@ -143,10 +146,22 @@ func tasksSidebarRow(c *ui.Context, key, title string, count int, selected bool,
 }
 
 func tasksSidebarText(c *ui.Context, title string, selected bool) {
-	text := ui.Text(c, title).SingleLine().FontSize(TypeBody).Grow(1).MinWidth(0)
+	text := ui.Text(c, title).SingleLine().FontSize(TypeBody).Grow(1).MinWidth(0).TextColor(tasksSidebarTextColor(c, selected))
 	if selected {
-		text.FontWeight(500).TextColor(ThemePrimaryText(c))
-	} else {
-		text.TextColor(ThemeSecondaryText(c))
+		text.FontWeight(500)
 	}
+}
+
+func tasksSidebarTextColor(c *ui.Context, selected bool) ui.Color {
+	if selected {
+		return ThemePrimaryText(c)
+	}
+	return ThemeSecondaryText(c)
+}
+
+func tasksSidebarIconColor(c *ui.Context, selected bool) ui.Color {
+	if selected {
+		return ThemeAccent(c)
+	}
+	return ThemeSecondaryText(c)
 }

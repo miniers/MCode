@@ -1185,29 +1185,13 @@ func TestKanbanWorkspace_NewTaskPickerIndependent(t *testing.T) {
 		kst := kanbanModalStates[state]
 		return kst != nil && kst.pickerMenuOpen
 	}
-	headerMenuOpen := func() bool {
-		kanbanModalMu.Lock()
-		defer kanbanModalMu.Unlock()
-		kst := kanbanModalStates[state]
-		return kst != nil && kst.projectMenuOpen
-	}
-
 	setKanbanPickerMenuOpen(state, true)
 	if !pickerMenuOpen() {
 		t.Fatalf("弹窗内下拉状态应可独立写入")
 	}
-	if headerMenuOpen() {
-		t.Fatalf("弹窗内下拉不应连带打开头部项目菜单")
+	if kanbanModalStates[state].pickerMenuOpen != true {
+		t.Fatalf("任务项目选择器状态丢失")
 	}
-	// 头部菜单单独打开时，弹窗内下拉状态保持不变（两个开关互不影响）。
-	setKanbanProjectMenuOpen(state, true)
-	if !headerMenuOpen() {
-		t.Fatalf("头部项目菜单状态应可独立写入")
-	}
-	if !pickerMenuOpen() {
-		t.Fatalf("打开头部菜单不应重置弹窗内下拉状态")
-	}
-	setKanbanProjectMenuOpen(state, false)
 
 	closeKanbanNewTaskSheet(state)
 	if pickerMenuOpen() {
@@ -1229,68 +1213,6 @@ func TestKanbanWorkspace_NewTaskPickerIndependent(t *testing.T) {
 // TestKanbanHeaderProjectMenuClamped 测试项目菜单与按钮对齐，并在空间不足时向上展开。
 // 按钮的 Tester 查找键是 Label“项目”；overlay 打开后命中树可能被压缩，
 // 因此展开状态在状态层断言，几何信息仅在菜单面板可见时再核对。
-func TestKanbanHeaderProjectMenuClamped(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	fake := NewFakeClient()
-	fake.SetKanbanBoard(KanbanBoard{})
-	projects := make([]Project, 0, 12)
-	for i := 0; i < 12; i++ {
-		projects = append(projects, Project{
-			ID:   fmt.Sprintf("wide-project-%02d", i),
-			Name: "一个名字很长很长很长很长的项目",
-			Path: fmt.Sprintf("/Users/me/proj-%02d/mcode", i),
-		})
-	}
-	fake.projects = projects
-	tt, state := newWorkspaceTester(t, fake, "tasks")
-
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("项目")
-		return ok
-	})
-	btn, ok := tt.Find("项目")
-	if !ok {
-		t.Fatalf("header project menu button missing")
-	}
-
-	if err := tt.Click("项目"); err != nil {
-		t.Fatalf("click header project menu failed: %v", err)
-	}
-	waitFor(t, tt, func() bool { return kanbanProjectMenuOpen(state) })
-
-	// 面板宽高受限，优先向下展开，空间不足时向上展开。
-	menu, ok := tt.Find("kanban-project-picker")
-	// 浮层要等触发按钮布局后的下一帧才按锚点定尺寸。
-	waitFor(t, tt, func() bool {
-		menu, ok = tt.Find("kanban-project-picker")
-		return ok && menu.W > 0
-	})
-	tt.Advance(DurBase + 50*time.Millisecond)
-	menu, ok = tt.Find("kanban-project-picker")
-	if !ok {
-		t.Fatal("header project menu missing after animation")
-	}
-	btn, ok = tt.Find("项目")
-	if !ok {
-		t.Fatal("项目按钮不可见")
-	}
-	if menu.Y < btn.Y+btn.H && menu.Y+menu.H > btn.Y {
-		t.Fatalf("菜单不应遮挡按钮：btn=%+v menu=%+v", btn, menu)
-	}
-	if menu.X < btn.X-1 || menu.X > btn.X+1 {
-		t.Fatalf("菜单应与按钮左对齐：btn=%+v menu=%+v", btn, menu)
-	}
-	if menu.W < 220 {
-		t.Fatalf("菜单最小宽度应为 220，实际 %.1f", menu.W)
-	}
-	if menu.W > 320 || menu.H > 360 {
-		t.Fatalf("菜单超出最大尺寸：%+v", menu)
-	}
-	if menu.X < 0 || menu.Y < 0 || menu.X+menu.W > 1320 || menu.Y+menu.H > 860 {
-		t.Fatalf("菜单超出窗口可视区域：%+v", menu)
-	}
-}
-
 // TestKanbanWorkspace_NewTaskSheet：头部「新建任务」打开弹窗，填写标题后「保存任务」
 // 调用 Client.CreateTask 并关闭弹窗；弹窗内按 Esc 只关闭弹窗，看板保持打开。
 func TestKanbanWorkspace_NewTaskSheet(t *testing.T) {

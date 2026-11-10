@@ -27,8 +27,6 @@ const (
 	kanbanTopBarHeight float32 = 52
 	// kanbanEmptyIconSize 是空态插图的边长。
 	kanbanEmptyIconSize float32 = 36
-	// kanbanProjectPickerMaxHeight 是项目下拉浮层列表的最大高度，超出后在浮层内滚动。
-	kanbanProjectPickerMaxHeight float32 = 352
 	// kanbanOverviewCardMaxHeight 是概览卡片的最大高度，超出后卡片内滚动。
 	kanbanOverviewCardMaxHeight float32 = 420
 	// kanbanDropBorder 是拖拽悬停时列与卡片的描边宽度。
@@ -38,45 +36,49 @@ const (
 // renderKanbanWorkspace 在根层挂载「任务与看板」大弹窗。
 // 工作区视图为 tasks 表示弹窗打开；按 Esc 或点击遮罩时关闭工作区。
 func renderKanbanWorkspace(c *ui.Context, s *chatState) {
-	renderKanbanPanel(c, s, false)
+	winWidth, winHeight := c.Size()
+	width, height := max(0, winWidth-kanbanModalInset*2), max(0, winHeight-kanbanModalInset*2)
+	width, height = modalResizeSize(modalDragKanbanWorkspace, width, height, min(360, max(0, winWidth-modalDragPanelInset)), min(240, max(0, winHeight-modalDragPanelInset)), winWidth, winHeight)
+	open := true
+	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
+		backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center()
+		ui.Box(c.Key("kanban-modal-backdrop")).Fill().Background(ui.Transparent).OnClick(func() { open = false })
+		if !open {
+			return
+		}
+		modalDragPanel(c, modalDragKanbanWorkspace, panel)
+		panel.Key("kanban-modal-panel").Label("kanban-modal-panel").Width(width).Height(height).Padding(0).Gap(0)
+		card := ui.Column(c.Key("kanban-modal-card")).Label("kanban-modal-card").Fill().Radius(kanbanModalRadius).Background(ThemeWindowBg(c)).BorderWidth(Hairline).BorderColor(ThemeBorder(c)).Clip().Gap(0).Transition(motionDialog(c))
+		applyElevation(c, card, ElevDialog).Children(func() {
+			renderTasksShell(c, s)
+			modalResizeGrips(c, modalDragKanbanWorkspace, width, height)
+		})
+	})
+	if !open {
+		modalDragReset(modalDragKanbanWorkspace)
+		kanbanBatchCancel(s)
+		s.closeWorkspace()
+	}
 }
 
-// renderKanbanWindow 铺满独立任务窗口，复用弹窗内容与详情层。
-func renderKanbanWindow(c *ui.Context, s *chatState) {
+// renderTasksShell 渲染任务窗口的侧栏、顶栏和内容。
+func renderTasksShell(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
 	}
-	if !kanbanModalOpen(s) {
+	if s.tasksWindowView != "" && !kanbanModalOpen(s) {
 		s.openWorkspace("tasks")
-	}
-	renderKanbanPanel(c, s, true)
-}
-
-func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
-	if s == nil {
-		return
 	}
 	ks := getKanbanState(s)
 	if ks == nil {
 		return
 	}
-	if !kanbanModalOpen(s) {
-		modalDragReset(modalDragKanbanWorkspace)
-		return
-	}
-
 	defaultView := kanbanConfiguredDefaultView(s)
-	curPID := s.currentWorkspaceProjectID()
-	if windowMode {
-		kanbanMu.Lock()
-		initialized, scope := ks.initialized, ks.scopeID
-		kanbanMu.Unlock()
-		if !initialized {
-			s.setKanbanScope(scope, scope == "")
-		}
-		curPID = scope
-	} else {
-		s.syncKanbanProject(curPID)
+	kanbanMu.Lock()
+	initialized, curPID := ks.initialized, ks.scopeID
+	kanbanMu.Unlock()
+	if !initialized {
+		s.setKanbanScope(curPID, curPID == "")
 	}
 
 	kanbanMu.Lock()
@@ -143,11 +145,11 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 		kanbanKeyboardUpdate(s, p.visibleBoard.Tasks, p.viewMode)
 	}
 	winWidth, _ := c.Size()
-	contentWidth := winWidth
-	if windowMode {
-		contentWidth -= TasksSidebarWidth
-	} else {
-		contentWidth -= kanbanModalInset * 2
+	contentWidth := winWidth - TasksSidebarWidth
+	if s.tasksWindowView == "" {
+		_, winHeight := c.Size()
+		width, _ := modalResizeSize(modalDragKanbanWorkspace, max(0, winWidth-kanbanModalInset*2), max(0, winHeight-kanbanModalInset*2), min(360, max(0, winWidth-modalDragPanelInset)), min(240, max(0, winHeight-modalDragPanelInset)), winWidth, winHeight)
+		contentWidth = width - TasksSidebarWidth
 	}
 	pane, _, _ := kanbanDetailLayout(contentWidth, ks.detailWidth)
 	wideDetail := pane && p.destination != "automations" && (detailTaskID != "" || goalDetailOpen)
@@ -169,69 +171,13 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 		})
 	}
 
-	if windowMode {
-		ui.Row(c.Key("kanban-window-root")).Fill().Background(ThemeWindowBg(c)).Clip().Gap(0).Children(func() {
-			renderTasksWindowSidebar(c, s, ks, p)
-			ui.Column(c.Key("tasks-window-content")).Grow(1).MinWidth(0).FillHeight().Gap(0).Children(func() {
-				renderTasksWindowHeader(c, s, ks, p)
-				renderBody()
-			})
+	ui.Row(c.Key("kanban-window-root")).Fill().Background(ThemeWindowBg(c)).Clip().Gap(0).Children(func() {
+		renderTasksWindowSidebar(c, s, ks, p)
+		ui.Column(c.Key("tasks-window-content")).Grow(1).MinWidth(0).FillHeight().Gap(0).Children(func() {
+			renderTasksWindowHeader(c, s, ks, p)
+			renderBody()
 		})
-	} else {
-		winWidth, winHeight := c.Size()
-		modalWidth := winWidth - kanbanModalInset*2
-		modalHeight := winHeight - kanbanModalInset*2
-		if modalWidth <= 0 {
-			modalWidth = winWidth
-		}
-		if modalHeight <= 0 {
-			modalHeight = winHeight
-		}
-
-		modalWidth, modalHeight = modalResizeSize(modalDragKanbanWorkspace, modalWidth, modalHeight, min(360, max(0, winWidth-modalDragPanelInset)), min(240, max(0, winHeight-modalDragPanelInset)), winWidth, winHeight)
-		open := true
-		ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-			// 遮罩透明（不套黑色容器），点击空白处关闭。
-			backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center()
-			_ = ui.Box(c.Key("kanban-modal-backdrop")).Fill().Background(ui.Transparent).OnClick(func() {
-				open = false
-			})
-			if !open {
-				return
-			}
-
-			// panel 本身不加任何外观，尺寸交给内层唯一的圆角卡片。
-			modalDragPanel(c, modalDragKanbanWorkspace, panel)
-			panel.Key("kanban-modal-panel").
-				Label("kanban-modal-panel").
-				Width(modalWidth).
-				Height(modalHeight).
-				Padding(0).
-				Gap(0)
-
-			card := ui.Column(c.Key("kanban-modal-card")).
-				Label("kanban-modal-card").
-				Fill().
-				Radius(kanbanModalRadius).
-				Background(ThemeWindowBg(c)).
-				BorderWidth(Hairline).
-				BorderColor(ThemeBorder(c)).
-				Clip().
-				Gap(0)
-			applyElevation(c, card, ElevDialog).Children(func() {
-				renderKanbanModalHeader(c, s, ks, p, modalWidth)
-				renderBody()
-				modalResizeGrips(c, modalDragKanbanWorkspace, modalWidth, modalHeight)
-			})
-		})
-
-		if !open {
-			modalDragReset(modalDragKanbanWorkspace)
-			kanbanBatchCancel(s)
-			s.closeWorkspace()
-			return
-		}
-	}
+	})
 
 	if !wideDetail && p.destination != "automations" && (detailTaskID != "" || goalDetailOpen) {
 		open := true
@@ -345,83 +291,6 @@ type kanbanModalBodyProps struct {
 	deleteTaskID     string
 }
 
-func renderKanbanModalHeader(c *ui.Context, s *chatState, ks *kanbanState, p kanbanModalBodyProps, width float32) {
-	ui.Column(c.Key("kanban-modal-header")).Label("kanban-modal-header").FillWidth().Shrink(0).Gap(0).
-		BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Children(func() {
-		ui.Row(c.Key("kanban-header-main")).FillWidth().Height(kanbanTopBarHeight).Padding(0, Space5).
-			AlignItems(ui.Center).Gap(Space4).Children(func() {
-			title := ui.Row(c.Key("kanban-modal-title")).Shrink(0)
-			if s.tasksWindowView == "" {
-				modalDragHandle(c, modalDragKanbanWorkspace, title)
-			}
-			title.Children(func() { ui.Text(c, "任务").FontSize(TypeProse).FontWeight(600).TextColor(ThemePrimaryText(c)) })
-			ui.Box(c.Key("kanban-header-spacer")).Grow(1)
-			idx := 0
-			if p.destination == "automations" {
-				idx = 1
-			}
-			parts := ui.SegmentedBase(c.Key("kanban-destination"), &idx, 2)
-			parts.Track.Label("任务目的").Gap(Space0).Radius(RadiusSM).Background(ThemeSurface(c)).Children(func() {
-				for i, label := range []string{"任务", "自动化"} {
-					segment := parts.Segment(i).Label("kanban-destination-"+[]string{"tasks", "automations"}[i]).Padding(Space1, Space4).Radius(RadiusSM).Center().Transition(motionFeedback(c))
-					if i == idx {
-						segment.Background(ThemeWindowBg(c))
-					}
-					segment.Children(func() { ui.Text(c, label).SingleLine().TextColor(ThemePrimaryText(c)) })
-				}
-			})
-			if parts.Track.Changed() {
-				if idx == 1 {
-					s.setTasksWindowView("automations")
-				} else {
-					s.setTasksWindowView("tasks")
-				}
-				s.invalidate()
-			}
-			if s.tasksWindowView != "" {
-				IconButton(c.Key("kanban-window-close"), IconButtonProps{Icon: IconX(), Label: "关闭任务", OnClick: s.closeTasksWindow, Variant: ButtonGhost, Size: ControlMD})
-			}
-		})
-		ui.Row(c.Key("kanban-header-filters")).FillWidth().Height(kanbanTopBarHeight).Padding(0, Space5).
-			AlignItems(ui.Center).Gap(Space4).Children(func() {
-			if p.destination != "automations" {
-				kanbanProjectMenu(c, s, p.scopeID, func(id string) { s.setKanbanScope(id, id == "") })
-				idx := 0
-				if p.viewMode == config.KanbanViewList {
-					idx = 1
-				}
-				seg := kanbanViewSwitch(c, &idx)
-				if seg.Changed() {
-					kanbanMu.Lock()
-					if idx == 1 {
-						ks.viewMode = config.KanbanViewList
-					} else {
-						ks.viewMode = config.KanbanViewKanban
-					}
-					kanbanMu.Unlock()
-					s.invalidate()
-				}
-				if len(p.board.Goals) > 0 {
-					kanbanGoalMenu(c, s, ks, p)
-				}
-			}
-			ui.Box(c.Key("kanban-header-filter-spacer")).Grow(1)
-			query := p.automationSearch
-			if p.destination != "automations" {
-				kanbanMu.Lock()
-				query = ks.searchText
-				kanbanMu.Unlock()
-			}
-			kanbanSearchRow(c, s, ks, &query)
-			if p.destination != "automations" {
-				kanbanCreateMenu(c, s, ks)
-			} else {
-				renderTasksAutomationCreate(c, s, p.scopeID)
-			}
-		})
-	})
-}
-
 func renderTasksAutomationCreate(c *ui.Context, s *chatState, scopeID string) {
 	as := getAutomationState(s)
 	button := Button(c.Key("tasks-new-automation"), ButtonOpts{Text: "新建", Label: "新建自动化", Disabled: !automationCanCreate(s), Variant: ButtonPrimary, OnClick: func() {
@@ -463,43 +332,6 @@ func kanbanCreateMenu(c *ui.Context, s *chatState, ks *kanbanState) {
 				}))
 			})
 		}
-	})
-}
-
-func kanbanGoalMenu(c *ui.Context, s *chatState, ks *kanbanState, p kanbanModalBodyProps) {
-	btn := ui.ButtonBase(c.Key("kanban-goal-toggle")).Label("目标筛选").Height(ControlSM).Padding(0, Space3).Radius(RadiusSM).AlignItems(ui.Center).Gap(Space2).OnClick(func() { kanbanMu.Lock(); ks.goalMenuOpen = !ks.goalMenuOpen; kanbanMu.Unlock(); s.invalidate() })
-	btn.Children(func() {
-		ui.Text(c, "目标").FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
-		ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-	})
-	kanbanMu.Lock()
-	open := ks.goalMenuOpen
-	kanbanMu.Unlock()
-	if !open {
-		return
-	}
-	opened := true
-	anchoredMenu(c, "kanban-goal-picker", btn, &opened, func() { kanbanMu.Lock(); ks.goalMenuOpen = false; kanbanMu.Unlock(); s.invalidate() }, 220, 320, 360, func() {
-		popoverCard(c, ui.Column(c.Key("kanban-goal-picker-card")).Padding(Space1).Gap(Space0).MaxHeight(kanbanProjectPickerMaxHeight).Children(func() {
-			ui.Scroll(c.Key("kanban-goal-picker-scroll")).Children(func() {
-				goals := append([]KanbanGoal{{Title: "全部目标"}}, p.board.Goals...)
-				for _, goal := range goals {
-					goal := goal
-					label := goal.Title
-					if label == "" {
-						label = goal.Prompt
-					}
-					ui.ButtonBase(c.Key("kanban-goal-item-"+goal.ID)).Label(label).FillWidth().Height(ControlMD).Padding(0, Space3).AlignItems(ui.Center).OnClick(func() {
-						kanbanMu.Lock()
-						ks.goalID = goal.ID
-						ks.goalMenuOpen = false
-						ks.goalDetailOpen = false
-						kanbanMu.Unlock()
-						s.invalidate()
-					}).Children(func() { ui.Text(c, label).SingleLine().TextColor(ThemePrimaryText(c)) })
-				}
-			})
-		}))
 	})
 }
 
@@ -637,101 +469,6 @@ func kanbanSearchRow(c *ui.Context, s *chatState, ks *kanbanState, query *string
 				ui.Icon(c, IconX()).Size(microIconSize, microIconSize).TextColor(ThemeSecondaryText(c))
 			})
 		}
-	})
-}
-
-// kanbanProjectMenu 渲染看板头部（任务与看板窗口标题栏）的项目选择器：收起时显示当前项目名，点击在按钮下方展开项目列表。
-// 菜单走 Overlay + AttachTo 锚定在按钮左下方，宽度与高度受限、超出内部滚动，不覆盖标题栏。
-// onSelect 在选中某个项目后调用。
-func kanbanProjectMenu(c *ui.Context, s *chatState, projectID string, onSelect func(string)) {
-	s.mu.Lock()
-	projects := append([]Project(nil), s.projects...)
-	s.mu.Unlock()
-	opts := kanbanProjectListOptions(projects)
-	opts = append([]kanbanModalPickOption{{Name: "全部项目"}}, opts...)
-
-	name := "全部项目"
-	for _, opt := range opts {
-		if opt.ID == projectID {
-			name = opt.Name
-			break
-		}
-	}
-
-	open := kanbanProjectMenuOpen(s)
-	// 点按钮只负责开合；关闭统一走 appPopover，避免与 PopoverBase 写入的关闭相互抵消。
-	nextOpen := !open
-
-	ui.Column(c.Key("kanban-project-menu")).MaxWidth(180).Shrink(1).Gap(Space1).Children(func() {
-		btn := ui.ButtonBase(c.Key("kanban-project-menu-toggle")).
-			Label("项目").
-			Height(ControlSM).
-			Padding(0, Space3).
-			Radius(RadiusSM).
-			AlignItems(ui.Center).
-			Gap(Space2).
-			Cursor(ui.CursorPointer).
-			OnClick(func() {
-				setKanbanProjectMenuOpen(s, nextOpen)
-			})
-		if btn.Hovered() {
-			btn.Background(ThemeHover(c))
-		} else {
-			btn.Background(ThemeOverlay(c, 0.06))
-		}
-		btn.Children(func() {
-			ui.Icon(c, IconFolder()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-			ui.Text(c, name).
-				MaxWidth(110).
-				FontSize(TypeFootnote).
-				TextColor(ThemePrimaryText(c)).
-				MaxLines(1)
-			ui.Icon(c, IconChevronDown()).Size(cardGlyphSize, cardGlyphSize).TextColor(ThemeSecondaryText(c))
-		})
-
-		if !open || len(opts) == 0 {
-			return
-		}
-		opened := true
-		anchoredMenu(c, "kanban-project-picker", btn, &opened, func() {
-			setKanbanProjectMenuOpen(s, false)
-		}, 220, 320, 360, func() {
-			popoverCard(c, ui.Column(c.Key("kanban-project-picker-card")).
-				FillWidth().
-				Padding(Space1).
-				Gap(Space0).
-				MaxHeight(kanbanProjectPickerMaxHeight).
-				Clip().
-				Children(func() {
-					ui.Scroll(c.Key("kanban-project-picker-scroll")).Grow(1).Children(func() {
-						ui.Column(c.Key("kanban-project-picker-list")).Gap(Space0).Children(func() {
-							for _, opt := range opts {
-								option := opt
-								item := ui.ButtonBase(c.Key("kanban-project-item-"+option.ID)).
-									Label(option.Name).
-									FillWidth().
-									Height(ControlMD).
-									Padding(0, Space3).
-									Radius(RadiusSM).
-									AlignItems(ui.Center).
-									OnClick(func() {
-										setKanbanProjectMenuOpen(s, false)
-										onSelect(option.ID)
-									})
-								if item.Hovered() {
-									item.Background(ThemeHover(c))
-								}
-								item.Children(func() {
-									kanbanProjectOptionLabel(c, option)
-									if option.ID == projectID {
-										ui.Icon(c, IconCheck()).Size(kanbanBadgeIconSize, kanbanBadgeIconSize).TextColor(ThemeAccent(c))
-									}
-								})
-							}
-						})
-					})
-				}))
-		})
 	})
 }
 

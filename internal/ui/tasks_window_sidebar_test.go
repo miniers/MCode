@@ -73,3 +73,62 @@ func TestTasksSidebarPlanReviewOpensDetail(t *testing.T) {
 		t.Fatalf("目标详情状态: %q %v", id, open)
 	}
 }
+
+func TestTasksSidebarAutomationUnreadBadge(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	t.Cleanup(func() {
+		automationMu.Lock()
+		delete(automationStates, s)
+		automationMu.Unlock()
+	})
+	ks := getKanbanState(s)
+	ks.destination = "tasks"
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderTasksWindowSidebar(c, s, ks, kanbanModalBodyProps{destination: "tasks"})
+	}, 840, 720)
+	for _, tc := range []struct {
+		name        string
+		initialized bool
+		known       bool
+		unread      int
+		want        bool
+	}{
+		{"未读", true, true, 7, true},
+		{"无未读", true, true, 0, false},
+		{"未知", true, false, 7, false},
+		{"未初始化", false, true, 7, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			automationMu.Lock()
+			automationStates[s] = &automationState{initialized: tc.initialized, unreadKnown: tc.known, unread: map[string]int{"a": tc.unread}}
+			automationMu.Unlock()
+			tt.Frame()
+			if got := tt.HasText("7"); got != tc.want {
+				t.Fatalf("未读数字显示 = %v，期望 %v", got, tc.want)
+			}
+			if tc.want {
+				badge, ok := tt.Find("7")
+				auto, autoOK := tt.Find("kanban-destination-automations")
+				if !ok || !autoOK || badge.Y < auto.Y || badge.Y >= auto.Y+auto.H {
+					t.Fatal("未读数字不在自动化行内")
+				}
+			}
+		})
+	}
+}
+
+func TestTasksSidebarTextColors(t *testing.T) {
+	tt := ui.NewTester(func(c *ui.Context) {
+		if tasksSidebarTextColor(c, true) != ThemePrimaryText(c) || tasksSidebarTextColor(c, false) != ThemeSecondaryText(c) {
+			t.Error("侧栏文字颜色不正确")
+		}
+		if tasksSidebarIconColor(c, true) != ThemeAccent(c) || tasksSidebarIconColor(c, false) != ThemeSecondaryText(c) {
+			t.Error("侧栏图标颜色不正确")
+		}
+	}, 100, 100)
+	for _, dark := range []bool{false, true} {
+		tt.SetDark(dark)
+		tt.Frame()
+	}
+}

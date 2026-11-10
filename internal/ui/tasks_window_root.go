@@ -68,7 +68,7 @@ func tasksRootView(s *chatState) func(*ui.Context) {
 				s.toastMessage = ""
 			}
 			s.mu.Unlock()
-			renderKanbanWindow(c, s)
+			renderTasksShell(c, s)
 			renderKanbanNewTaskSheet(c, s)
 			renderKanbanNewGoalSheet(c, s)
 		})

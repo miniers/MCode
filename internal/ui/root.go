@@ -187,7 +187,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				view = ws.view
 				workspaceMu.Unlock()
 			}
-			if view == "tasks" && c.Shortcut(ui.Cmd, ui.KeyF) {
+			if (view == "tasks" || view == "automations") && c.Shortcut(ui.Cmd, ui.KeyF) {
 				kanbanKeyboardSearchFocus(state, true)
 			}
 
@@ -198,7 +198,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				}
 			} else if view != "chat" && c.Shortcut(0, ui.KeyEscape) {
 				// 看板的快速添加与搜索框先消费 Esc（取消输入或清空搜索），工作区保持打开。
-				if view != "tasks" || !consumeKanbanEscape(state) {
+				if (view != "tasks" && view != "automations") || (view == "automations" && !handleAutomationEscape(state) && !consumeKanbanEscape(state)) || (view == "tasks" && !consumeKanbanEscape(state)) {
 					state.closeWorkspace()
 					view = "chat"
 				}
@@ -339,8 +339,6 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 							})
 							renderTerminalDock(c, state)
 						})
-					case "automations":
-						renderAutomationWorkspace(c, state)
 					default:
 						renderChatArea := func() {
 							ui.Column(c.Key("chat-terminal-col")).Fill().Children(func() {
@@ -371,7 +369,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			}
 
 			// 任务看板与新建任务 / 新建目标弹窗挂在根层，覆盖侧边栏与主区
-			if view == "tasks" {
+			if view == "tasks" || view == "automations" {
 				renderKanbanWorkspace(c, state)
 				renderKanbanNewTaskSheet(c, state)
 				renderKanbanNewGoalSheet(c, state)
@@ -433,14 +431,9 @@ func consumeKanbanEscape(s *chatState) bool {
 	if ks == nil {
 		return false
 	}
-	if kanbanProjectMenuOpen(s) {
-		setKanbanProjectMenuOpen(s, false)
-		return true
-	}
 	kanbanMu.Lock()
 	consumed := false
-	if ks.goalMenuOpen || ks.newMenuOpen {
-		ks.goalMenuOpen = false
+	if ks.newMenuOpen {
 		ks.newMenuOpen = false
 		consumed = true
 	} else if ks.showNewTask {
