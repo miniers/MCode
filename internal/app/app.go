@@ -99,6 +99,7 @@ type App struct {
 	mcpProxy      *mcp.Proxy
 	remote        *RemoteService
 	quotaCancel   context.CancelFunc
+	updateCancel  context.CancelFunc
 	// inboxMigrateCancel / inboxMigrateDone 是启动后旧收件箱迁移后台任务的取消函数与退出信号：
 	// 迁移会写 store，关闭前必须先取消并等它退出。
 	inboxMigrateCancel context.CancelFunc
@@ -144,6 +145,9 @@ func (a *App) RecoveredStoreBackupPath() string {
 
 // Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close。
 func (a *App) Close() error {
+	if a.updateCancel != nil {
+		a.updateCancel()
+	}
 	if a.client != nil {
 		a.client.stopQuestionAutoForward()
 	}
@@ -1211,7 +1215,8 @@ func Open(opts Options) (*App, error) {
 		},
 		OnChecked: client.notifyConfigChanged,
 	}
-	client.updateChecker.Start(context.Background(), 6*time.Hour)
+	updateCtx, updateCancel := context.WithCancel(context.Background())
+	client.updateChecker.Start(updateCtx, 6*time.Hour)
 	// 待处理事件（收件箱）：会话、看板、自动化、bee 四类事件源都在这里接入，
 	// 界面层用 client.(mcodeui.AttentionClient) 读取，未实现该接口时不显示收件箱。
 	attentionSvc = attention.New(dbStore, attention.Options{})
@@ -1357,6 +1362,7 @@ func Open(opts Options) (*App, error) {
 		mcpHub:        mcpHub,
 		mcpProxy:      mcpProxy,
 		remote:        rs,
+		updateCancel:  updateCancel,
 		attention:     attentionSvc,
 		attentionSrc:  attentionSrc,
 		// 旧收件箱迁移的取消函数与退出信号：App.Close 里先取消并等待，再关闭 store。

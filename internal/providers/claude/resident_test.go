@@ -33,7 +33,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -1235,7 +1234,11 @@ func TestResidentRealCLIHotSwitchAndResume(t *testing.T) {
 	}
 
 	// 外部杀掉进程：下一轮用 --resume 重建，会话 id 应保持不变。
-	if err := syscall.Kill(firstPIDs[0], syscall.SIGKILL); err != nil {
+	proc, err := os.FindProcess(firstPIDs[0])
+	if err != nil {
+		t.Fatalf("查找进程失败: %v", err)
+	}
+	if err := proc.Kill(); err != nil {
 		t.Fatalf("杀进程失败: %v", err)
 	}
 	waitFor(t, 5*time.Second, "进程被杀后应从 PID 表消失", func() bool {

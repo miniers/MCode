@@ -6,6 +6,35 @@ import (
 	"mcode/internal/config"
 )
 
+func TestCloseCancelsUpdateChecker(t *testing.T) {
+	app, err := Open(Options{
+		DataDir:  t.TempDir(),
+		Provider: "memory",
+		WorkDir:  t.TempDir(),
+		Mode:     "agent",
+	})
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	cancel := app.updateCancel
+	if cancel == nil {
+		defer app.Close()
+		t.Fatal("update checker cancel function is nil")
+	}
+	called := false
+	app.updateCancel = func() {
+		called = true
+		cancel()
+	}
+	if err := app.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if !called {
+		t.Fatal("Close did not cancel the update checker")
+	}
+}
+
 func TestRemoteDraftExcludesMcode(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Models.Provider = config.ProviderMcode
