@@ -202,6 +202,7 @@ func main() {
 	// 之后任何启动失败（包括 panic）都能在文件里查到。放在 flag.Parse 之后，
 	// 日志才能与 mcode.log 一起落在数据目录下的 logs。
 	initStartupLog(*dataFlag)
+	startPprofFromEnv()
 
 	autoOpen, err := mcodeui.PrepareOnboarding(*dataFlag)
 	if err != nil {

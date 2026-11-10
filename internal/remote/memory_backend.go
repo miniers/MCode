@@ -181,7 +181,12 @@ type memoryThread struct {
 	backgroundPending map[string]bool
 	// bgCount 缓存摘要里的 BackgroundTasks 计数，避免每次组装摘要都全量遍历消息；
 	// 工具状态在原地改写不改消息条数，改状态处需显式失效（见 invalidate）。
-	bgCount bgCountCache
+	bgCount   bgCountCache
+	toolCount struct {
+		count, msgCount int
+		loaded, evicted bool
+		valid           bool
+	}
 
 	phase         runtimePhase
 	historyOp     chan struct{}
@@ -2456,12 +2461,17 @@ func (b *MemoryBackend) SessionUsage(ctx context.Context, threadID string) (toke
 		return 0, 0, err
 	}
 	b.ensureMessagesLoadedLocked(td)
-	for _, msg := range td.messages {
-		if msg.Role == "tool" || (msg.Kind != nil && *msg.Kind == "tool") {
-			toolCalls++
+	c := &td.toolCount
+	if !c.valid || c.msgCount != len(td.messages) || c.loaded != td.messagesLoaded || c.evicted != td.messagesEvicted {
+		c.count = 0
+		for _, msg := range td.messages {
+			if msg.Role == "tool" || (msg.Kind != nil && *msg.Kind == "tool") {
+				c.count++
+			}
 		}
+		c.msgCount, c.loaded, c.evicted, c.valid = len(td.messages), td.messagesLoaded, td.messagesEvicted, true
 	}
-	return int(total.InputTokens + total.OutputTokens), toolCalls, nil
+	return int(total.InputTokens + total.OutputTokens), c.count, nil
 }
 
 // ThreadHistory 返回指定会话的历史消息页面（支持反向翻页语义）。
@@ -5976,6 +5986,7 @@ func (b *MemoryBackend) recallTurn(ctx context.Context, threadID string, draftOn
 		}
 	}
 	td.messages = keptMsgs
+	td.toolCount.valid = false
 	if td.takenBack == nil {
 		td.takenBack = make(map[string]bool)
 	}
@@ -6200,6 +6211,7 @@ func (b *MemoryBackend) ExecuteTurnRevert(ctx context.Context, threadID, turnID 
 		delete(b.usage[threadID], m.TurnIndex)
 	}
 	td.messages = keptMsgs
+	td.toolCount.valid = false
 	if len(rollbackIDs) > 0 {
 		if td.takenBack == nil {
 			td.takenBack = make(map[string]bool)
@@ -6800,8 +6812,9 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			currentReasoningMsgID string
 			toolMsgIDs            = make(map[string]string)
 			// toolStreams 收集各工具条目运行期间的增量输出，同一 ToolID 的片段先合并节流再下发。
-			toolStreams     = make(map[string]*toolOutputStream)
-			streamResetSent bool
+			toolStreams         = make(map[string]*toolOutputStream)
+			streamResetSent     bool
+			timingRefreshNeeded = true
 		)
 		receivedErrorEvent = false
 		errorEventText = ""
@@ -6919,8 +6932,8 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					msgToPublish = []wire.ThreadMessage{msg}
 				} else {
 					found := false
-					for idx, m := range td.messages {
-						if m.ID == currentTextMsgID {
+					for idx := len(td.messages) - 1; idx >= 0; idx-- {
+						if td.messages[idx].ID == currentTextMsgID {
 							td.messages[idx].Text += text
 							msgToPublish = []wire.ThreadMessage{td.messages[idx]}
 							found = true
@@ -6954,10 +6967,15 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			case harness.EventTextRetract:
 				// 上游流中断、残文没被确认：从当前正文消息末尾裁掉这段（写入时做过同样的破折号清洗），
 				// 裁完只剩空白就整条移除。新建消息时去掉过前导换行，所以消息全文是残文后缀时也算整条残文。
+				if currentTextMsgID == "" {
+					b.mu.Unlock()
+					return
+				}
 				retracted := withoutEmDashes(e.Text)
 				var removedIDs []string
-				for idx, m := range td.messages {
-					if currentTextMsgID == "" || m.ID != currentTextMsgID {
+				for idx := len(td.messages) - 1; idx >= 0; idx-- {
+					m := td.messages[idx]
+					if m.ID != currentTextMsgID {
 						continue
 					}
 					rest, ok := strings.CutSuffix(m.Text, retracted)
@@ -6970,6 +6988,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					}
 					if isBlankDelta(rest) {
 						td.messages = append(td.messages[:idx], td.messages[idx+1:]...)
+						td.toolCount.valid = false
 						removedIDs = []string{currentTextMsgID}
 						currentTextMsgID = ""
 					} else {
@@ -6983,7 +7002,9 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					return
 				}
 				td.summary.UpdatedAt = now
+				timingCount := len(td.turnTiming)
 				b.enrichTurnMessagesLocked(td, msgToPublish)
+				timingRefreshNeeded = timingRefreshNeeded || len(td.turnTiming) != timingCount
 				currentSummary = b.summaryForPublishLocked(td)
 				b.mu.Unlock()
 				b.hub.Publish(threadID, msgToPublish, removedIDs, currentSummary)
@@ -7014,8 +7035,8 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					msgToPublish = []wire.ThreadMessage{msg}
 				} else {
 					found := false
-					for idx, m := range td.messages {
-						if m.ID == currentReasoningMsgID {
+					for idx := len(td.messages) - 1; idx >= 0; idx-- {
+						if td.messages[idx].ID == currentReasoningMsgID {
 							td.messages[idx].Text += e.Text
 							msgToPublish = []wire.ThreadMessage{td.messages[idx]}
 							found = true
@@ -7271,6 +7292,9 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					b.mu.Unlock()
 					return
 				}
+				if td.messagesEvicted || !td.messagesLoaded {
+					timingRefreshNeeded = true
+				}
 				if err := b.ensureMessagesLocked(td, threadID); err != nil {
 					b.mu.Unlock()
 					return
@@ -7368,9 +7392,22 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 				b.mu.Unlock()
 				return
 			}
+			timingCount := len(td.turnTiming)
 			b.enrichTurnMessagesLocked(td, msgToPublish)
-			for i := range td.messages {
-				applyTurnTiming(&td.messages[i], td.turnTiming)
+			if timingRefreshNeeded || len(td.turnTiming) != timingCount {
+				for i := range td.messages {
+					applyTurnTiming(&td.messages[i], td.turnTiming)
+				}
+				timingRefreshNeeded = false
+			} else {
+				for _, msg := range msgToPublish {
+					for i := len(td.messages) - 1; i >= 0; i-- {
+						if td.messages[i].ID == msg.ID {
+							applyTurnTiming(&td.messages[i], td.turnTiming)
+							break
+						}
+					}
+				}
 			}
 			b.mu.Unlock()
 
