@@ -160,6 +160,54 @@ func TestAnthropicRequest(t *testing.T) {
 	}
 }
 
+func TestAnthropicStableCompactionBreakpoints(t *testing.T) {
+	text := func(role, value string) Message {
+		return Message{Role: role, Content: []Part{{Type: "text", Text: value}}}
+	}
+	thinking := Message{Role: "assistant", ThinkingBlocks: []ThinkingBlock{{Type: "thinking", Thinking: "x"}, {Type: "redacted_thinking", Data: "y"}}}
+	for _, tc := range []struct {
+		name, system string
+		messages     []Message
+		indices      []int
+		want         []string
+	}{
+		{"two blocks", "system", []Message{text("user", "start"), text("user", "B1"), text("assistant", "reply"), text("user", "B2"), text("assistant", "reply2"), text("user", "last")}, []int{1, 3}, []string{"1:0", "3:0", "5:0"}},
+		{"adjacent user and tool", "system", []Message{text("user", "B1"), {Role: "tool", ToolCallID: "1"}, text("assistant", "a"), text("user", "last")}, []int{0}, []string{"0:1", "2:0"}},
+		{"parallel tool results", "system", []Message{{Role: "tool", ToolCallID: "1"}, {Role: "tool", ToolCallID: "2"}, text("assistant", "a"), text("user", "last")}, []int{0, 1}, []string{"0:1", "2:0"}},
+		{"invalid and duplicate last", "system", []Message{text("user", "first"), text("assistant", "a"), text("user", "last")}, []int{-1, 20, 2, 2, 0}, []string{"0:0", "2:0"}},
+		{"no system", "", []Message{text("assistant", "a"), text("assistant", "b"), text("assistant", "c"), text("user", "last")}, []int{0, 1, 2}, []string{"0:0", "1:0", "2:0", "3:0"}},
+		{"thinking only skipped", "system", []Message{thinking, text("user", "last")}, []int{0}, []string{"1:0"}},
+		{"thinking with text", "system", []Message{{Role: "assistant", ThinkingBlocks: thinking.ThinkingBlocks, Content: []Part{{Type: "text", Text: "answer"}}}, text("user", "last")}, []int{0}, []string{"0:2", "1:0"}},
+		{"budget keeps latest", "system", []Message{text("assistant", "a"), text("assistant", "b"), text("assistant", "c"), text("assistant", "d"), text("user", "last")}, []int{3, 0, 2, 1, 3}, []string{"2:0", "3:0", "4:0"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := anthropicRequestBody(Request{System: tc.system, Messages: tc.messages, CacheBreakpoints: tc.indices})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			count := 0
+			if tc.system != "" {
+				count++
+			}
+			for i, message := range body["messages"].([]map[string]any) {
+				for j, block := range message["content"].([]map[string]any) {
+					if control, ok := block["cache_control"]; ok {
+						if !reflect.DeepEqual(control, map[string]string{"type": "ephemeral"}) || block["type"] == "thinking" || block["type"] == "redacted_thinking" {
+							t.Fatalf("invalid cache block: %+v", block)
+						}
+						count++
+						got = append(got, fmt.Sprintf("%d:%d", i, j))
+					}
+				}
+			}
+			if count > 4 || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("breakpoints = %v, count = %d; want %v", got, count, tc.want)
+			}
+		})
+	}
+}
+
 func TestDefaultAnthropicMaxTokens(t *testing.T) {
 	for _, tc := range []struct {
 		model string

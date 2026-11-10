@@ -59,6 +59,8 @@ type Request struct {
 	Tools     []ToolSpec `json:"tools,omitempty"`
 	Effort    string     `json:"effort,omitempty"`
 	MaxTokens int        `json:"max_tokens,omitempty"`
+	// CacheBreakpoints 是 Messages 的下标，在消息末尾为不再变化的摘要块打缓存断点；不支持的 provider 忽略。
+	CacheBreakpoints []int `json:"-"`
 }
 
 // Usage 记录模型请求的 token 用量。

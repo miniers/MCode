@@ -1,17 +1,43 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestOpenAICompactionBreakpoints(t *testing.T) {
+	var bodies [][]byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		bodies = append(bodies, body)
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer server.Close()
+	client := NewOpenAI(OpenAIConfig{BaseURL: server.URL})
+	req := Request{Model: "test", System: "system", Messages: []Message{{Role: "user", Content: []Part{{Type: "text", Text: "summary"}}}}, Tools: []ToolSpec{{Name: "run", Parameters: json.RawMessage(`{"type":"object"}`)}}}
+	for _, indices := range [][]int{nil, {0}} {
+		req.CacheBreakpoints = indices
+		if _, err := client.Stream(context.Background(), req, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(bodies) != 2 || !bytes.Equal(bodies[0], bodies[1]) {
+		t.Fatalf("request bodies differ: %q", bodies)
+	}
+}
 
 func TestOpenAIUserAgent(t *testing.T) {
 	for _, tc := range []struct {

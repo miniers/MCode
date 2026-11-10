@@ -97,7 +97,8 @@ func anthropicRequestBody(req Request) (map[string]any, error) {
 	body["max_tokens"] = maxTokens
 
 	messages := make([]map[string]any, 0, len(req.Messages))
-	for _, msg := range req.Messages {
+	messageIndices := make([]int, len(req.Messages))
+	for index, msg := range req.Messages {
 		if msg.Role == "tool" {
 			var text strings.Builder
 			for _, part := range msg.Content {
@@ -112,6 +113,7 @@ func anthropicRequestBody(req Request) (map[string]any, error) {
 			} else {
 				messages = append(messages, map[string]any{"role": "user", "content": []map[string]any{block}})
 			}
+			messageIndices[index] = len(messages) - 1
 			continue
 		}
 		blocks := make([]map[string]any, 0, len(msg.Content)+len(msg.ToolCalls)+1)
@@ -155,12 +157,40 @@ func anthropicRequestBody(req Request) (map[string]any, error) {
 			blocks = append(blocks, map[string]any{"type": "text", "text": ""})
 		}
 		messages = append(messages, map[string]any{"role": msg.Role, "content": blocks})
+		messageIndices[index] = len(messages) - 1
+	}
+	remaining := 4
+	if req.System != "" {
+		remaining--
 	}
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i]["role"] == "user" {
 			blocks := messages[i]["content"].([]map[string]any)
 			if len(blocks) > 0 {
 				blocks[len(blocks)-1]["cache_control"] = map[string]string{"type": "ephemeral"}
+				remaining--
+			}
+			break
+		}
+	}
+	indices := append([]int(nil), req.CacheBreakpoints...)
+	sort.Sort(sort.Reverse(sort.IntSlice(indices)))
+	for _, index := range indices {
+		if remaining == 0 {
+			break
+		}
+		if index < 0 || index >= len(messageIndices) {
+			continue
+		}
+		blocks := messages[messageIndices[index]]["content"].([]map[string]any)
+		for i := len(blocks) - 1; i >= 0; i-- {
+			block := blocks[i]
+			if block["type"] == "thinking" || block["type"] == "redacted_thinking" {
+				continue
+			}
+			if _, exists := block["cache_control"]; !exists {
+				block["cache_control"] = map[string]string{"type": "ephemeral"}
+				remaining--
 			}
 			break
 		}

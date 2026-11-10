@@ -54,9 +54,30 @@ func TestCompactThreshold(t *testing.T) {
 		{8192, 6144},
 		{200000, 183616},
 		{4096, 3072},
+		{128000, 111616},
 	} {
 		if got := compactThreshold(tc.window); got != tc.want {
 			t.Fatalf("compactThreshold(%d) = %d, want %d", tc.window, got, tc.want)
+		}
+	}
+}
+
+func TestCompactionTriggerGrowthAndPressure(t *testing.T) {
+	for _, tc := range []struct {
+		window, growth, total int
+		normal, emergency     bool
+	}{
+		{128000, 49999, 95999, false, false},
+		{128000, 50000, 0, true, false},
+		{128000, 0, 96000, true, false},
+		{128000, 0, 111616, true, true},
+		{200000, 0, 150000, true, false},
+		{8192, 0, 6143, false, false},
+		{8192, 0, 6144, true, true},
+	} {
+		normal, emergency := compactionPressure(tc.window, tc.growth, tc.total)
+		if normal != tc.normal || emergency != tc.emergency {
+			t.Errorf("compactionPressure(%d, %d, %d) = %v, %v; want %v, %v", tc.window, tc.growth, tc.total, normal, emergency, tc.normal, tc.emergency)
 		}
 	}
 }

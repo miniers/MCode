@@ -56,6 +56,14 @@ func compactThreshold(window int) int {
 
 func keepRecentTokens(window int) int { return min(20000, window/4) }
 
+func growthThreshold(window int) int { return min(50000, max(20000, window/2)) }
+
+func compactionPressure(window, growth, total int) (normal, emergency bool) {
+	normalPressure := min(window*3/4, compactThreshold(window))
+	emergencyPressure := min(window*95/100, compactThreshold(window))
+	return growth >= growthThreshold(window) || total >= normalPressure, total >= emergencyPressure
+}
+
 // historyFromEntries 按文件顺序重建会话消息。
 // compaction entry 把此前的消息替换成摘要加其后的保留消息，后写的压缩边界自然覆盖早先的。
 func historyFromEntries(entries []json.RawMessage) []llm.Message {
