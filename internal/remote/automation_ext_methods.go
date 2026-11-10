@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"mcode/internal/automation"
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 )
@@ -92,6 +93,7 @@ type automationExtService interface {
 }
 
 func init() {
+	RegisterMethod("automations.preview", handleAutomationsPreview)
 	RegisterMethod("automations.list", handleAutomationsList)
 	RegisterMethod("automations.runs", handleAutomationsRuns)
 	RegisterMethod("automations.run", handleAutomationsRun)
@@ -102,6 +104,61 @@ func init() {
 	RegisterMethod("automations.delete", handleAutomationsDelete)
 	RegisterMethod("automations.setEnabled", handleAutomationsSetEnabled)
 	RegisterMethod("automations.reset", handleAutomationsReset)
+}
+
+type automationPreviewService interface {
+	Preview(context.Context, wire.AutomationExtSchedule, time.Time, int) (wire.AutomationExtPreviewResult, error)
+}
+
+func handleAutomationsPreview(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
+	var p wire.AutomationExtPreviewParams
+	if err := decodeExtParams(params, &p); err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(params, &fields); err != nil {
+		return nil, ExtInvalidParams("Invalid params")
+	}
+	for _, field := range []string{"schedule", "after", "count"} {
+		if string(fields[field]) == "null" {
+			return nil, ExtInvalidParams("Invalid params: '" + field + "' cannot be null")
+		}
+	}
+	count := 3
+	if p.Count != nil {
+		count = *p.Count
+	}
+	if count < 1 || count > automation.PreviewMaxCount {
+		return nil, ExtInvalidParams("Invalid params: 'count' must be between 1 and 5")
+	}
+	after := time.Now()
+	if p.After != nil {
+		var err error
+		after, err = time.Parse(time.RFC3339, *p.After)
+		if err != nil {
+			return nil, ExtInvalidParams("Invalid params: 'after' must be RFC3339")
+		}
+	}
+	if d == nil {
+		return nil, ExtNotImplemented()
+	}
+	svc, ok := backendService[automationPreviewService](d.backend, automationExtServiceName)
+	if !ok {
+		return nil, ExtNotImplemented()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	result, err := svc.Preview(ctx, p.Schedule, after, count)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, automationExtWrapError(err)
+		}
+		return nil, ExtInvalidParams("Invalid params: " + err.Error())
+	}
+	if result.Times == nil {
+		result.Times = []string{}
+	}
+	return result, nil
 }
 
 // handleAutomationsList 返回项目下的自动化列表与未读数。

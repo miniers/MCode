@@ -25,6 +25,17 @@ type AutomationExtSchedule struct {
 	Expression string `json:"expression,omitempty"`
 }
 
+type AutomationExtPreviewParams struct {
+	Schedule AutomationExtSchedule `json:"schedule"`
+	After    *string               `json:"after,omitempty"`
+	Count    *int                  `json:"count,omitempty"`
+}
+
+type AutomationExtPreviewResult struct {
+	Times     []string `json:"times"`
+	Exhausted bool     `json:"exhausted"`
+}
+
 // AutomationExtAutomation 是自动化列表项，供客户端直接渲染与回填编辑表单。
 type AutomationExtAutomation struct {
 	ID string `json:"id"`

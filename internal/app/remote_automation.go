@@ -33,6 +33,22 @@ type remoteAutomationService struct {
 	client *Client
 }
 
+func (s remoteAutomationService) Preview(ctx context.Context, schedule wire.AutomationExtSchedule, after time.Time, count int) (wire.AutomationExtPreviewResult, error) {
+	if s.client == nil {
+		return wire.AutomationExtPreviewResult{}, errors.New(automationServiceUnavailable)
+	}
+	sch := automationExtInputToUI("", wire.AutomationExtInput{Schedule: schedule}).Schedule
+	preview, err := s.client.PreviewAutomationSchedule(ctx, sch, after, count)
+	if err != nil {
+		return wire.AutomationExtPreviewResult{}, err
+	}
+	result := wire.AutomationExtPreviewResult{Times: make([]string, 0, len(preview.Times)), Exhausted: preview.Exhausted}
+	for _, t := range preview.Times {
+		result.Times = append(result.Times, t.UTC().Format(time.RFC3339Nano))
+	}
+	return result, nil
+}
+
 // Automations 返回项目下的自动化列表与未读数；projectID 为空表示全部项目。
 func (s remoteAutomationService) Automations(ctx context.Context, projectID string) ([]wire.AutomationExtAutomation, map[string]int, error) {
 	if s.client == nil {

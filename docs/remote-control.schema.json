@@ -755,6 +755,12 @@
       "$ref": "#/$defs/RemoteStewardOpenResponse"
     },
     {
+      "$ref": "#/$defs/RemoteAutomationsPreviewRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteAutomationsPreviewResponse"
+    },
+    {
       "$ref": "#/$defs/RemoteAutomationsListRequest"
     },
     {
@@ -10873,6 +10879,9 @@
             "$ref": "#/$defs/RemoteStewardOpenRequest"
           },
           {
+            "$ref": "#/$defs/RemoteAutomationsPreviewRequest"
+          },
+          {
             "$ref": "#/$defs/RemoteAutomationsListRequest"
           },
           {
@@ -11228,6 +11237,9 @@
           { "$ref": "#/$defs/RemoteStewardDecisionsAnswerResponse" },
           {
             "$ref": "#/$defs/RemoteStewardOpenResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteAutomationsPreviewResponse"
           },
           {
             "$ref": "#/$defs/RemoteAutomationsListResponse"
@@ -14668,6 +14680,46 @@
       ],
       "additionalProperties": false
     },
+    "RemoteAutomationsPreviewParams": {
+      "type": "object",
+      "properties": {
+        "schedule": { "$ref": "#/$defs/RemoteAutomationExtSchedule" },
+        "after": { "type": "string", "format": "date-time" },
+        "count": { "type": "integer", "minimum": 1, "maximum": 5, "default": 3 }
+      },
+      "required": ["schedule"],
+      "additionalProperties": false
+    },
+    "RemoteAutomationExtPreviewResult": {
+      "type": "object",
+      "properties": {
+        "times": { "type": "array", "items": { "type": "string", "format": "date-time" } },
+        "exhausted": { "type": "boolean" }
+      },
+      "required": ["times", "exhausted"],
+      "additionalProperties": false
+    },
+    "RemoteAutomationsPreviewRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "automations.preview" },
+        "params": { "$ref": "#/$defs/RemoteAutomationsPreviewParams" },
+        "id": { "$ref": "#/$defs/JSONRPCId" }
+      },
+      "required": ["jsonrpc", "method", "params", "id"],
+      "additionalProperties": false
+    },
+    "RemoteAutomationsPreviewResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "result": { "$ref": "#/$defs/RemoteAutomationExtPreviewResult" },
+        "id": { "$ref": "#/$defs/JSONRPCId" }
+      },
+      "required": ["jsonrpc", "result", "id"],
+      "additionalProperties": false
+    },
     "RemoteAutomationExtAutomation": {
       "type": "object",
       "properties": {
@@ -14806,7 +14858,7 @@
         "maxIterations": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 50,
+          "maximum": 1000,
           "description": "最大运行次数；缺省或 0 表示不限制"
         },
         "maxRuns": {
