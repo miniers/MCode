@@ -27,7 +27,7 @@ var advancedConversation = settingsSection{
 	},
 }
 
-// pageConversation 是「会话」页：回复与思考、消息与排队、完成与提醒、保留与归档。
+// pageConversation 是「会话」页：回复与思考、消息与排队、保留与归档。
 var pageConversation = settingsPage{
 	ID:    "conversation",
 	Title: "会话",

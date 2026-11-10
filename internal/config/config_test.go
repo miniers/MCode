@@ -47,7 +47,7 @@ func TestLoadNotExist(t *testing.T) {
 	}
 }
 
-// 2. JSON 中缺失的字段保留默认值。
+// 旧配置中已删除的 session.thread_finish_action 和 providers.*.updateMonitor 加载时被忽略。
 func TestLoadIgnoresRemovedSessionAndProviderSettings(t *testing.T) {
 	dir := t.TempDir()
 	legacy := []byte(`{
@@ -66,6 +66,7 @@ func TestLoadIgnoresRemovedSessionAndProviderSettings(t *testing.T) {
 	}
 }
 
+// 2. JSON 中缺失的字段保留默认值。
 func TestLoadMissingFieldsKeepDefaults(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := ConfigPath(dir)

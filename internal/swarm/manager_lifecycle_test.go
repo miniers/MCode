@@ -228,51 +228,6 @@ func TestManager_AutoClearFinished_KeepsFailedMerge(t *testing.T) {
 	}
 }
 
-// BeesHidden 的开关、有无 bee、running 与排队项四类真假情况。
-func TestManager_BeesHidden(t *testing.T) {
-	mgr := NewManager(Options{})
-	mgr.SetSettingsFunc(func() Settings {
-		return Settings{Enabled: true}
-	})
-
-	mgr.mu.Lock()
-	mgr.leads["lead"] = &leadState{leadThreadID: "lead", bees: []Bee{{ThreadID: "h1", Status: StatusCompleted}}}
-	mgr.leads["empty"] = &leadState{leadThreadID: "empty", bees: []Bee{}}
-	mgr.mu.Unlock()
-
-	if mgr.BeesHidden("lead") {
-		t.Fatal("开关关闭时应返回 false")
-	}
-
-	mgr.SetSettingsFunc(func() Settings {
-		return Settings{Enabled: true, AutoHidesIdleBees: true}
-	})
-	if !mgr.BeesHidden("lead") {
-		t.Fatal("空闲且有 bee 时应返回 true")
-	}
-	if mgr.BeesHidden("missing") {
-		t.Fatal("不存在的 lead 应返回 false")
-	}
-	if mgr.BeesHidden("empty") {
-		t.Fatal("没有 bee 时应返回 false")
-	}
-
-	mgr.mu.Lock()
-	mgr.leads["lead"].bees = append(mgr.leads["lead"].bees, Bee{ThreadID: "h2", Status: StatusRunning})
-	mgr.mu.Unlock()
-	if mgr.BeesHidden("lead") {
-		t.Fatal("有 running bee 时应返回 false")
-	}
-
-	mgr.mu.Lock()
-	mgr.leads["lead"].bees = []Bee{{ThreadID: "h1", Status: StatusCompleted}}
-	mgr.queue = append(mgr.queue, queuedBee{leadThreadID: "lead", index: 0})
-	mgr.mu.Unlock()
-	if mgr.BeesHidden("lead") {
-		t.Fatal("该 lead 有排队项时应返回 false")
-	}
-}
-
 // planEntry/DispatchSingleEntry 带 profile 时，Profile 文件通过 Options.ProfilesPath 指定，
 // Provider/Model/Effort 与 Prompt 前缀都来自 Profile。
 func TestManager_DispatchSingleEntryWithProfile(t *testing.T) {

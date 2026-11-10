@@ -18,6 +18,7 @@ var advancedWorkbench = settingsSection{
 			ID:      "row-context-inject-budget",
 			Title:   "注入字符上限",
 			Aliases: []string{"项目文档", "注入", "字符", "上限", "context", "最大"},
+			Enabled: func(st *SettingsState) bool { return st.cfg.Workbench.ContextGuidanceEnabled() },
 			Control: number(val(func(c *config.Config) *int { return &c.Workbench.ContextInjectMaxCharacters }, config.DefaultContextInjectMaxCharacters), "字符", config.MinContextInjectMaxCharacters, config.MaxContextInjectMaxCharacters),
 		},
 		{
@@ -63,6 +64,7 @@ var pageWorkbench = settingsPage{
 					ID:      "row-context-doc-",
 					Title:   "注入文档",
 					Aliases: []string{"项目文档", "文档", "注入", "context", "自定义", "额外", "四篇"},
+					Enabled: func(st *SettingsState) bool { return st.cfg.Workbench.ContextGuidanceEnabled() },
 					Control: workbenchDocsControl{},
 				},
 			},
@@ -108,6 +110,7 @@ var pageWorkbench = settingsPage{
 					ID:      "row-kanban-entry-ordinary",
 					Title:   "普通会话暴露单一入口",
 					Aliases: []string{"看板", "会话", "入口", "kanban", "tool"},
+					Enabled: func(st *SettingsState) bool { return st.cfg.Workbench.KanbanMCPToolsEnabled() },
 					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Workbench.KanbanEntryOrdinary }, true)),
 				},
 				{

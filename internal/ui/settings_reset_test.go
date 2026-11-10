@@ -140,7 +140,7 @@ func TestSettingsReset_ConversationPage(t *testing.T) {
 	if !tt.HasText("只把本页对应的设置改回默认值，其他页不受影响。") {
 		t.Fatalf("确认框正文缺少适用范围说明: %q", tt.Texts())
 	}
-	if !tt.HasText("重置范围：回复与思考、消息与排队、完成与提醒、保留与归档") {
+	if !tt.HasText("重置范围：回复与思考、消息与排队、保留与归档") {
 		t.Fatalf("确认框没有列出会话页的重置范围: %q", tt.Texts())
 	}
 	if !tt.HasText("快捷回复、模型组合、档位等列表类数据保留。") {

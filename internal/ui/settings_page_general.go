@@ -156,6 +156,7 @@ var pageGeneral = settingsPage{
 					ID:      "row-quit-action",
 					Title:   "关闭窗口时",
 					Aliases: []string{"关闭窗口", "退出", "托盘", "最小化"},
+					Enabled: func(st *SettingsState) bool { return st.cfg.Startup.ShowTrayIcon },
 					Control: choice(
 						val(func(c *config.Config) *string { return &c.Startup.QuitAction }, config.QuitActionQuit),
 						[]choiceOption{
@@ -163,6 +164,9 @@ var pageGeneral = settingsPage{
 							{Value: config.QuitActionMinimizeToTray, Label: "最小化到托盘"},
 						},
 					).withDisplay(func(st *SettingsState) string {
+						if !st.cfg.Startup.ShowTrayIcon {
+							return config.QuitActionQuit
+						}
 						// 空值按「退出应用」处理，与旧选择器的回落一致。
 						if v := st.cfg.Startup.QuitAction; v != "" {
 							return v

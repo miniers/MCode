@@ -645,33 +645,3 @@ func TestManager_ClearFinished_KeepsInterruptedBee(t *testing.T) {
 		t.Fatalf("保留的应是被重启打断的 bee：%+v", st.Bees[0])
 	}
 }
-
-// 验证有被打断的 bee 或 heldQueue 时，侧栏不隐藏 bee 卡片，否则用户找不到续跑入口。
-func TestManager_BeesHidden_KeepsInterrupted(t *testing.T) {
-	const leadID = "lead-hidden-interrupted"
-	mgr, _, _ := restoreLeadForResume(t, leadID)
-	mgr.SetSettingsFunc(func() Settings {
-		return Settings{Enabled: true, AutoHidesIdleBees: true}
-	})
-
-	// 被打断的 bee 与 heldQueue 都在时不可隐藏。
-	if mgr.BeesHidden(leadID) {
-		t.Fatal("有被打断的 bee 与 heldQueue 时不应隐藏")
-	}
-
-	// 只去掉 heldQueue，仍有被打断的 bee：仍不可隐藏。
-	mgr.mu.Lock()
-	mgr.leads[leadID].heldQueue = nil
-	mgr.mu.Unlock()
-	if mgr.BeesHidden(leadID) {
-		t.Fatal("有被打断的 bee 时不应隐藏")
-	}
-
-	// 中断项全部处理完后，仅剩已结束的 bee 时才允许隐藏。
-	mgr.mu.Lock()
-	mgr.leads[leadID].bees = []Bee{{ThreadID: "bee-done-2", Status: StatusCompleted, Reported: true}}
-	mgr.mu.Unlock()
-	if !mgr.BeesHidden(leadID) {
-		t.Fatal("没有中断项且 bee 都已结束时应隐藏")
-	}
-}

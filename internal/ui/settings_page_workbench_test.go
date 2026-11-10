@@ -109,6 +109,89 @@ func TestSettingsWorkbenchReviewValueUnchanged(t *testing.T) {
 	}
 }
 
+func TestSettingsDependentControls(t *testing.T) {
+	findRow := func(page settingsPage, id string) setting {
+		t.Helper()
+		for _, section := range page.Sections {
+			for _, row := range section.Rows {
+				if row.ID == id {
+					return row
+				}
+			}
+		}
+		t.Fatalf("找不到设置行 %s", id)
+		return setting{}
+	}
+	s := newChatState(NewFakeClient())
+	s.projects = []Project{{ID: "p1", Name: "demo", Path: newWorkbenchProject(t, nil, map[string]string{"api-design.md": "# API"})}}
+	st := NewSettingsState(settingsTestDir(t), nil, s)
+	kanban := findRow(pageWorkbench, "row-kanban-entry-ordinary")
+	docs := findRow(pageWorkbench, "row-context-doc-")
+	budget := findRow(pageWorkbench, "row-context-inject-budget")
+	quit := findRow(pageGeneral, "row-quit-action")
+	for _, enabled := range []bool{false, true} {
+		st.cfg.Workbench.KanbanMCPEnabled = &enabled
+		st.cfg.Workbench.ContextInjectsGuidance = &enabled
+		st.cfg.Startup.ShowTrayIcon = enabled
+		for _, row := range []setting{kanban, docs, budget, quit} {
+			if row.Enabled == nil || row.Enabled(st) != enabled {
+				t.Errorf("%s 的可用状态应为 %v", row.ID, enabled)
+			}
+		}
+	}
+	st.cfg.Startup.QuitAction = config.QuitActionMinimizeToTray
+	st.cfg.Startup.ShowTrayIcon = false
+	if got := quit.Control.(choiceControl).current(st); got != config.QuitActionQuit {
+		t.Errorf("无托盘时应显示退出应用，实际 %q", got)
+	}
+	st.cfg.Startup.ShowTrayIcon = true
+	if got := quit.Control.(choiceControl).current(st); got != config.QuitActionMinimizeToTray {
+		t.Errorf("恢复托盘后应显示已保存的动作，实际 %q", got)
+	}
+	st.cfg.Startup.ShowTrayIcon = false
+	st.cfg.Workbench.ContextInjectsGuidance = new(bool)
+	st.cfg.Workbench.KanbanMCPEnabled = new(bool)
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderPageWorkbench(c, st)
+		renderSettingsTreeSetting(c, st, quit)
+	}, 1000, 4000)
+	if !tt.HasText("退出应用") {
+		t.Fatal("关闭窗口选项缺少退出应用")
+	}
+	if err := tt.Click("切换Api Design"); err != nil {
+		t.Fatalf("点击文档开关失败: %v", err)
+	}
+	if err := tt.Click("切换普通会话暴露单一入口"); err != nil {
+		t.Fatalf("点击看板入口开关失败: %v", err)
+	}
+	if err := tt.Click("退出应用"); err != nil {
+		t.Fatalf("点击退出应用失败: %v", err)
+	}
+	tt.Frame()
+	if contextInjectDocEnabled(st.cfg.Workbench.ContextInjectCustomDocs, "docs/api-design.md") {
+		t.Fatal("禁用的文档开关不应写入配置")
+	}
+	if st.cfg.Startup.QuitAction != config.QuitActionMinimizeToTray {
+		t.Fatal("无托盘时不应改写已保存的关闭窗口动作")
+	}
+	if !st.cfg.Workbench.KanbanEntryOrdinarySessions() {
+		t.Fatal("禁用的看板入口开关不应写入配置")
+	}
+	*st.cfg.Workbench.KanbanMCPEnabled = true
+	*st.cfg.Workbench.ContextInjectsGuidance = true
+	tt.Frame()
+	if err := tt.Click("切换普通会话暴露单一入口"); err != nil {
+		t.Fatalf("点击已启用的看板入口开关失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return !st.cfg.Workbench.KanbanEntryOrdinarySessions() })
+	if err := tt.Click("切换Api Design"); err != nil {
+		t.Fatalf("点击已启用的文档开关失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return contextInjectDocEnabled(st.cfg.Workbench.ContextInjectCustomDocs, "docs/api-design.md")
+	})
+}
+
 func TestSettingsSheetOpenIn(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	st.cfg.Workbench.OpenInApps = []config.OpenInAppConfig{
@@ -163,6 +246,12 @@ func TestWorkbenchSettings_ToggleAndPersist(t *testing.T) {
 		return st.cfg.Workbench.ContextInjectsGuidance != nil &&
 			*st.cfg.Workbench.ContextInjectsGuidance != initialGuidance
 	})
+	if !st.cfg.Workbench.ContextGuidanceEnabled() {
+		if err := tt.Click("切换注入项目说明"); err != nil {
+			t.Fatalf("重新开启项目说明失败: %v", err)
+		}
+		waitFor(t, tt, func() bool { return st.cfg.Workbench.ContextGuidanceEnabled() })
+	}
 
 	if err := tt.Click("切换Api Design"); err != nil {
 		t.Fatalf("click custom doc switch failed: %v", err)

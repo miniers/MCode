@@ -5379,39 +5379,6 @@ func (m *Manager) autoClearFinished(ctx context.Context) {
 	}
 }
 
-// BeesHidden 报告指定 lead 的 bee 卡片是否应在侧栏隐藏：仅在开启自动隐藏、lead 存在且有 bee、
-// 没有 running 的 bee 且没有排队项时为 true。侧栏过滤在后续批次实现。
-func (m *Manager) BeesHidden(leadThreadID string) bool {
-	if !m.Settings().AutoHidesIdleBees {
-		return false
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	lead, ok := m.leads[leadThreadID]
-	if !ok || len(lead.bees) == 0 {
-		return false
-	}
-	// 重启后待用户决定续跑或放弃的条目还在，隐藏卡片会让用户找不到它们。
-	if len(lead.heldQueue) > 0 {
-		return false
-	}
-	for _, h := range lead.bees {
-		// 被打断的 bee 仍在等用户决定，卡片不能隐藏。
-		if h.Interrupted {
-			return false
-		}
-		if h.Status == StatusRunning {
-			return false
-		}
-	}
-	for _, q := range m.queue {
-		if q.leadThreadID == leadThreadID {
-			return false
-		}
-	}
-	return true
-}
-
 // formatFailureReason 格式化失败原因：截断到 500 字符、去掉首尾空白，并按场景补齐前缀。
 func formatFailureReason(reason string) string {
 	reason = strings.TrimSpace(reason)
