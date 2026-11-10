@@ -372,7 +372,7 @@ func TestManager_ResumeInterrupted_ContinuesOriginalSession(t *testing.T) {
 			followUps := append([]fakeFollowUp(nil), driver.followUps...)
 			starts := driver.nextID
 			driver.mu.Unlock()
-			const message = "上一轮因 MCode 重启中断。先判断任务是否已经完成：如果已完成且最终报告已输出，直接再输出一次最终报告，不要重复已做的工作；如果未完成，从中断处继续，并在结束时输出最终报告。"
+			const message = "上一轮因 MCode 重启中断。先判断任务是否已经完成：如果已完成且最终报告已输出，直接再输出一次最终报告，不要重复已做的工作；如果未完成，从中断处继续，并在结束时输出最终报告。\n\n如果你看不到上一轮的对话，就按下面的原始任务从头完成。\n\n原始任务：\n原始 brief"
 			if len(followUps) != 1 || followUps[0].threadID != threadID || followUps[0].text != message {
 				t.Fatalf("应向原会话投递一条续接消息，实际 %+v", followUps)
 			}
@@ -449,8 +449,15 @@ func TestManager_ContinueInterruptedBee_RechecksStateAfterFollowUp(t *testing.T)
 				}
 				return nil
 			}
-			if mgr.continueInterruptedBee(context.Background(), leadID, old) {
-				t.Fatal("投递期间条目已改变，不应重新激活")
+			sent, resumed := mgr.continueInterruptedBee(context.Background(), leadID, old)
+			if !sent || resumed {
+				t.Fatalf("消息应已发出但不应重新激活：sent=%v resumed=%v", sent, resumed)
+			}
+			driver.mu.Lock()
+			interrupts := append([]string(nil), driver.interrupts...)
+			driver.mu.Unlock()
+			if len(interrupts) != 1 || interrupts[0] != old.ThreadID {
+				t.Fatalf("应中断原会话一次，实际 %v", interrupts)
 			}
 			for _, bee := range mgr.State(leadID).Bees {
 				if bee.Status == StatusRunning || !bee.Reported {
@@ -459,6 +466,66 @@ func TestManager_ContinueInterruptedBee_RechecksStateAfterFollowUp(t *testing.T)
 			}
 			if mgr.hasContinueNudge(old.ThreadID) {
 				t.Fatal("状态复核失败不应设置续接标记")
+			}
+		})
+	}
+}
+
+func TestManager_ResumeInterrupted_DismissedDuringFollowUp(t *testing.T) {
+	const leadID = "lead-resume-dismiss-during-follow-up"
+	old := Bee{ThreadID: "bee-old", Status: StatusStopped, Interrupted: true, ReadOnly: true}
+	driver := newFakeDriver()
+	mgr := NewManager(Options{Driver: driver})
+	mgr.leads[leadID] = &leadState{leadThreadID: leadID, bees: []Bee{old}}
+	driver.onFollowUp = func(id, text string) error {
+		mgr.mu.Lock()
+		mgr.leads[leadID].bees[0].Interrupted = false
+		mgr.mu.Unlock()
+		return nil
+	}
+
+	n, err := mgr.ResumeInterrupted(context.Background(), leadID)
+	if err != nil || n != 0 {
+		t.Fatalf("放弃续跑应返回 0，实际 %d，错误 %v", n, err)
+	}
+	bees := mgr.State(leadID).Bees
+	if len(bees) != 1 || bees[0].ThreadID != old.ThreadID {
+		t.Fatalf("不应新建 bee，实际 %+v", bees)
+	}
+	driver.mu.Lock()
+	starts := driver.nextID
+	interrupts := append([]string(nil), driver.interrupts...)
+	driver.mu.Unlock()
+	if starts != 0 || len(interrupts) != 1 || interrupts[0] != old.ThreadID {
+		t.Fatalf("不应启动新会话，应中断原会话一次：启动次数 %d，中断 %v", starts, interrupts)
+	}
+}
+
+func TestManager_ContinueInterruptedBee_OriginalTaskFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		task string
+		want string
+	}{
+		{name: "使用任务", task: "原始任务内容", want: "\n\n如果你看不到上一轮的对话，就按下面的原始任务从头完成。\n\n原始任务：\n原始任务内容"},
+		{name: "没有任务"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const leadID = "lead-original-task"
+			old := Bee{ThreadID: "bee-old", Task: tc.task, Status: StatusStopped, Interrupted: true, ReadOnly: true}
+			driver := newFakeDriver()
+			mgr := NewManager(Options{Driver: driver})
+			mgr.leads[leadID] = &leadState{leadThreadID: leadID, bees: []Bee{old}}
+			sent, resumed := mgr.continueInterruptedBee(context.Background(), leadID, old)
+			if !sent || !resumed {
+				t.Fatalf("应成功续接：sent=%v resumed=%v", sent, resumed)
+			}
+			const base = "上一轮因 MCode 重启中断。先判断任务是否已经完成：如果已完成且最终报告已输出，直接再输出一次最终报告，不要重复已做的工作；如果未完成，从中断处继续，并在结束时输出最终报告。"
+			driver.mu.Lock()
+			followUps := append([]fakeFollowUp(nil), driver.followUps...)
+			driver.mu.Unlock()
+			if len(followUps) != 1 || followUps[0].text != base+tc.want {
+				t.Fatalf("续接消息错误：%+v", followUps)
 			}
 		})
 	}

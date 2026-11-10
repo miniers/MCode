@@ -5481,8 +5481,12 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 	var errs []error
 	resumed := 0
 	for _, old := range pending {
-		if m.continueInterruptedBee(ctx, leadThreadID, old) {
+		sent, ok := m.continueInterruptedBee(ctx, leadThreadID, old)
+		if ok {
 			resumed++
+			continue
+		}
+		if sent {
 			continue
 		}
 		newBee, err := m.respawnInterruptedBee(ctx, leadThreadID, old)
@@ -5538,23 +5542,31 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 	return resumed, nil
 }
 
-// continueInterruptedBee 在原会话中续跑被重启打断的 bee，无法续接时交由调用方新开会话。
-func (m *Manager) continueInterruptedBee(ctx context.Context, leadThreadID string, old Bee) bool {
+// continueInterruptedBee 返回消息是否发出及 bee 是否重新激活；未发出时可回退新会话，发出但未激活时尝试中断原会话。
+func (m *Manager) continueInterruptedBee(ctx context.Context, leadThreadID string, old Bee) (sent bool, resumed bool) {
 	messenger, ok := m.opts.Driver.(kanban.SessionMessenger)
 	if !ok || old.ThreadID == "" {
-		return false
+		return false, false
 	}
 	if !old.ReadOnly {
 		if old.WorktreePath == "" {
-			return false
+			return false, false
 		}
 		if _, err := os.Stat(old.WorktreePath); err != nil {
-			return false
+			return false, false
 		}
 	}
-	if err := messenger.SendFollowUp(ctx, old.ThreadID, "上一轮因 MCode 重启中断。先判断任务是否已经完成：如果已完成且最终报告已输出，直接再输出一次最终报告，不要重复已做的工作；如果未完成，从中断处继续，并在结束时输出最终报告。"); err != nil {
+	message := "上一轮因 MCode 重启中断。先判断任务是否已经完成：如果已完成且最终报告已输出，直接再输出一次最终报告，不要重复已做的工作；如果未完成，从中断处继续，并在结束时输出最终报告。"
+	promptText := old.Prompt
+	if promptText == "" {
+		promptText = old.Task
+	}
+	if promptText != "" {
+		message += "\n\n如果你看不到上一轮的对话，就按下面的原始任务从头完成。\n\n原始任务：\n" + promptText
+	}
+	if err := messenger.SendFollowUp(ctx, old.ThreadID, message); err != nil {
 		log.Printf("swarm: 续接被打断的子代理 %s 失败: %v", old.ThreadID, err)
-		return false
+		return false, false
 	}
 
 	m.mu.Lock()
@@ -5570,7 +5582,12 @@ func (m *Manager) continueInterruptedBee(ctx context.Context, leadThreadID strin
 	// 投递期间可能已放弃续跑或改变状态，不能用旧快照重新激活。
 	if bee == nil || !bee.Interrupted || bee.Status != StatusStopped {
 		m.mu.Unlock()
-		return false
+		if interrupter, ok := m.opts.Driver.(kanban.SessionInterrupter); ok {
+			if err := interrupter.InterruptSession(ctx, old.ThreadID); err != nil {
+				log.Printf("swarm: 中断已取消续接的子代理 %s 失败: %v", old.ThreadID, err)
+			}
+		}
+		return true, false
 	}
 	bee.Status = StatusRunning
 	bee.Interrupted = false
@@ -5600,7 +5617,7 @@ func (m *Manager) continueInterruptedBee(ctx context.Context, leadThreadID strin
 	m.mu.Lock()
 	delete(m.beeProgress, old.ThreadID)
 	m.mu.Unlock()
-	return true
+	return true, true
 }
 
 // respawnInterruptedBee 在原会话无法续接时，为因 MCode 重启被打断的 bee 新开子会话。

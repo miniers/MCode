@@ -23,6 +23,7 @@ type fakeDriver struct {
 	onStart    func(kanban.SessionRequest)
 	relations  map[string]fakeRelation
 	followUps  []fakeFollowUp
+	interrupts []string
 	onFollowUp func(threadID, text string) error
 }
 
@@ -62,6 +63,13 @@ func (d *fakeDriver) SendFollowUp(ctx context.Context, threadID, text string) er
 	if d.onFollowUp != nil {
 		return d.onFollowUp(threadID, text)
 	}
+	return nil
+}
+
+func (d *fakeDriver) InterruptSession(ctx context.Context, threadID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.interrupts = append(d.interrupts, threadID)
 	return nil
 }
 
