@@ -5,7 +5,98 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/config"
 )
+
+func TestPaletteTaskCommands(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.openTasksWindowFn = func(string) {}
+	tasksWindowMu.Lock()
+	old := tasksWindowState
+	tasksWindowState = nil
+	tasksWindowMu.Unlock()
+	t.Cleanup(func() {
+		tasksWindowMu.Lock()
+		tasksWindowState = old
+		tasksWindowMu.Unlock()
+		kanbanMu.Lock()
+		delete(kanbanStates, s)
+		kanbanMu.Unlock()
+		kanbanModalMu.Lock()
+		delete(kanbanModalStates, s)
+		kanbanModalMu.Unlock()
+		kanbanKeyboardMu.Lock()
+		delete(kanbanKeyboardStates, s)
+		kanbanKeyboardMu.Unlock()
+	})
+	items := buildPaletteItems(s)
+	for id, title := range map[string]string{"cmd-new-task": "新建任务", "cmd-new-goal": "新建目标", "cmd-toggle-kanban-view": "切换看板/列表", "cmd-tasks-attention": "待你处理"} {
+		item := paletteItemByID(items, id)
+		if item == nil || item.title != title || item.subtitle != "" || item.run == nil {
+			t.Fatalf("命令 %s 不正确: %+v", id, item)
+		}
+	}
+	if paletteItemsHaveID(items, "cmd-new-automation") {
+		t.Fatal("没有项目时不应出现新建自动化")
+	}
+	ks := getKanbanState(s)
+	paletteItemByID(items, "cmd-new-task").run(s)
+	if !ks.showNewTask {
+		t.Fatal("未打开新建任务")
+	}
+	paletteItemByID(items, "cmd-new-goal").run(s)
+	if !ks.showNewGoal {
+		t.Fatal("未打开新建目标")
+	}
+	ks.viewMode = config.KanbanViewKanban
+	paletteItemByID(items, "cmd-toggle-kanban-view").run(s)
+	if ks.viewMode != config.KanbanViewList {
+		t.Fatal("未切换到列表")
+	}
+	paletteItemByID(items, "cmd-toggle-kanban-view").run(s)
+	if ks.viewMode != config.KanbanViewKanban {
+		t.Fatal("未切换到看板")
+	}
+	ks.goalID = "goal"
+	paletteItemByID(items, "cmd-tasks-attention").run(s)
+	if ks.viewFilter != "attention" || ks.goalID != "" {
+		t.Fatal("未切换到待你处理")
+	}
+	s.projects = []Project{{ID: "p1"}}
+	if !paletteItemsHaveID(buildPaletteItems(s), "cmd-new-automation") {
+		t.Fatal("有项目时应出现新建自动化")
+	}
+}
+
+func TestPaletteFocusedTaskActions(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(func() {
+		kanbanKeyboardMu.Lock()
+		delete(kanbanKeyboardStates, s)
+		kanbanKeyboardMu.Unlock()
+		kanbanMu.Lock()
+		delete(kanbanStates, s)
+		kanbanMu.Unlock()
+	})
+	if paletteItemsHaveID(buildPaletteItems(s), "cmd-task-detail") {
+		t.Fatal("没有焦点时不应出现任务动作")
+	}
+	kanbanKeyboardMu.Lock()
+	kanbanKeyboardStates[s] = &kanbanKeyboardState{focusID: "t1", tasks: []KanbanTask{{ID: "t1", Status: "done", CanMove: true}}}
+	kanbanKeyboardMu.Unlock()
+	items := buildPaletteItems(s)
+	for _, id := range []string{"cmd-task-detail", "cmd-task-move-todo"} {
+		if !paletteItemsHaveID(items, id) {
+			t.Errorf("缺少 %s", id)
+		}
+	}
+	for _, id := range []string{"cmd-task-move-in_progress", "cmd-task-move-rejected", "cmd-task-move-done"} {
+		if paletteItemsHaveID(items, id) {
+			t.Errorf("不应出现 %s", id)
+		}
+	}
+}
 
 func TestPaletteUpdateCommands(t *testing.T) {
 	items := buildPaletteItems(&chatState{})

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/config"
 )
 
 var (
@@ -84,6 +86,23 @@ func sidePanePaletteItems() []paletteItem {
 		})
 	}
 	return items
+}
+
+func paletteTasksState(s *chatState) *chatState {
+	tasksWindowMu.Lock()
+	ts := tasksWindowState
+	tasksWindowMu.Unlock()
+	if ts == nil {
+		return s
+	}
+	return ts
+}
+
+func paletteWithTasksWindow(s *chatState, view string, fn func(ts *chatState)) {
+	s.openTasksWindow(view)
+	ts := paletteTasksState(s)
+	fn(ts)
+	ts.invalidate()
 }
 
 // buildPaletteItems 收集全部候选项目：命令优先，随后是所有会话与项目。
@@ -194,6 +213,75 @@ func buildPaletteItems(s *chatState) []paletteItem {
 			},
 		},
 	)
+	items = append(items,
+		paletteItem{id: "cmd-new-task", kind: "command", title: "新建任务", run: func(cs *chatState) {
+			paletteWithTasksWindow(cs, "tasks", kanbanNewTaskAction)
+		}},
+		paletteItem{id: "cmd-new-goal", kind: "command", title: "新建目标", run: func(cs *chatState) {
+			paletteWithTasksWindow(cs, "tasks", kanbanNewGoalAction)
+		}},
+		paletteItem{id: "cmd-toggle-kanban-view", kind: "command", title: "切换看板/列表", run: func(cs *chatState) {
+			paletteWithTasksWindow(cs, "tasks", func(ts *chatState) {
+				ks := getKanbanState(ts)
+				kanbanMu.Lock()
+				if ks.viewMode == config.KanbanViewList {
+					ks.viewMode = config.KanbanViewKanban
+				} else {
+					ks.viewMode = config.KanbanViewList
+				}
+				kanbanMu.Unlock()
+			})
+		}},
+		paletteItem{id: "cmd-tasks-attention", kind: "command", title: "待你处理", run: func(cs *chatState) {
+			paletteWithTasksWindow(cs, "tasks", func(ts *chatState) {
+				ks := getKanbanState(ts)
+				kanbanMu.Lock()
+				ks.viewFilter, ks.goalID = "attention", ""
+				kanbanMu.Unlock()
+			})
+		}},
+	)
+	if automationCanCreate(s) {
+		items = append(items, paletteItem{id: "cmd-new-automation", kind: "command", title: "新建自动化", run: func(cs *chatState) {
+			paletteWithTasksWindow(cs, "automations", func(ts *chatState) {
+				ks := getKanbanState(ts)
+				kanbanMu.Lock()
+				scopeID := ks.scopeID
+				kanbanMu.Unlock()
+				if scopeID == "" {
+					scopeID = cs.currentWorkspaceProjectID()
+				}
+				requestNewAutomation(ts, scopeID, nil)
+			})
+		}})
+	}
+	ts := paletteTasksState(s)
+	var focused KanbanTask
+	kanbanKeyboardMu.Lock()
+	if kb := kanbanKeyboardStates[ts]; kb != nil && kb.focusID != "" {
+		for _, task := range kb.tasks {
+			if task.ID == kb.focusID {
+				focused = task
+				break
+			}
+		}
+	}
+	kanbanKeyboardMu.Unlock()
+	if focused.ID != "" {
+		items = append(items, paletteItem{id: "cmd-task-detail", kind: "command", title: "打开任务详情", run: func(cs *chatState) {
+			paletteWithTasksWindow(cs, "tasks", func(ts *chatState) { ts.openTaskDetail(focused) })
+		}})
+		actions := kanbanActions(focused, kanbanTaskBusy(getKanbanState(ts), focused.ID))
+		for _, opt := range actions.menu {
+			if actions.targets[opt.status] == "review" {
+				continue
+			}
+			target := opt.status
+			items = append(items, paletteItem{id: "cmd-task-move-" + target, kind: "command", title: "移到" + opt.label, run: func(cs *chatState) {
+				paletteWithTasksWindow(cs, "tasks", func(ts *chatState) { ts.performKanbanTarget(focused, target) })
+			}})
+		}
+	}
 
 	// 总管入口：与侧栏、项目右键菜单共用同一组函数。
 	items = append(items, stewardPaletteItems(s)...)

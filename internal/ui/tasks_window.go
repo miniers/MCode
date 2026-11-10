@@ -132,6 +132,7 @@ func OpenTasksWindow(client Client, view string, opts ...Option) *mygo.Window {
 			}
 		})
 		win.OnClosed(func() {
+			kanbanBatchCancel(state)
 			tasksWindowMu.Lock()
 			if tasksWindow == win {
 				tasksWindow = nil

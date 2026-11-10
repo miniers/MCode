@@ -438,6 +438,7 @@ func OpenMiniEditor(path string) *mygo.Window {
 }
 
 func (s *chatState) close() {
+	kanbanBatchCancel(s)
 	s.mu.Lock()
 	s.closed = true
 	if s.draftSaveTimer != nil {

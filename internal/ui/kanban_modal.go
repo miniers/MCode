@@ -130,6 +130,15 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 	goalDetailOpen := ks.goalDetailOpen
 	kanbanMu.Unlock()
 	if p.destination != "automations" {
+		kanbanKeyboardMu.Lock()
+		oldProject := ""
+		if keyboard := kanbanKeyboardStates[s]; keyboard != nil {
+			oldProject = keyboard.projectID
+		}
+		kanbanKeyboardMu.Unlock()
+		if oldProject != "" && oldProject != p.projectID {
+			kanbanBatchCancel(s)
+		}
 		kanbanKeyboardProject(s, p.projectID)
 		kanbanKeyboardUpdate(s, p.visibleBoard.Tasks, p.viewMode)
 	}
@@ -218,6 +227,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 
 		if !open {
 			modalDragReset(modalDragKanbanWorkspace)
+			kanbanBatchCancel(s)
 			s.closeWorkspace()
 			return
 		}
@@ -723,46 +733,6 @@ func kanbanProjectMenu(c *ui.Context, s *chatState, projectID string, onSelect f
 				}))
 		})
 	})
-}
-
-func renderKanbanSelectionBar(c *ui.Context, s *chatState, ks *kanbanState) {
-	kanbanKeyboardMu.Lock()
-	selected := 0
-	if st := kanbanKeyboardStates[s]; st != nil {
-		selected = len(st.selected)
-	}
-	kanbanKeyboardMu.Unlock()
-	if selected == 0 {
-		return
-	}
-
-	ui.Row(c.Key("kanban-selection-bar")).
-		FillWidth().
-		Padding(Space3, Space4).
-		Radius(RadiusMD).
-		Background(ThemeHover(c)).
-		AlignItems(ui.Center).
-		Gap(Space3).
-		Children(func() {
-			ui.Text(c, fmt.Sprintf("已选 %d 项", selected)).
-				FontSize(TypeFootnote).
-				FontWeight(600).
-				TextColor(ThemePrimaryText(c)).
-				SingleLine().
-				Shrink(0)
-			ui.Box(c.Key("kanban-selection-spacer")).Grow(1)
-
-			Button(c.Key("kanban-selection-clear"), ButtonOpts{
-				Text:  "清除",
-				Label: "清除选择",
-				OnClick: func() {
-					kanbanKeyboardClearSelection(s)
-					s.invalidate()
-				},
-				Variant: ButtonSecondary,
-				Size:    ControlSM,
-			})
-		})
 }
 
 // renderKanbanModalBody 渲染弹窗内容区：按视图模式在看板、列表、自动化与全部项目概览之间切换。
