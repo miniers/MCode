@@ -313,6 +313,10 @@ func turnFilePreviewPath(workDir string, f turnEditedFile) string {
 // openTurnFile 打开改动文件的预览：工作区内的文件先开文件面板再预览，
 // 工作区外的文件面板读不到，退回在访达里定位。
 func openTurnFile(s *chatState, threadID, workDir string, f turnEditedFile) {
+	openTurnFileAt(s, threadID, workDir, f, 0, 0)
+}
+
+func openTurnFileAt(s *chatState, threadID, workDir string, f turnEditedFile, first, last int) {
 	if s == nil || threadID == "" || f.abs == "" {
 		return
 	}
@@ -326,7 +330,7 @@ func openTurnFile(s *chatState, threadID, workDir string, f turnEditedFile) {
 	}
 	// 从聊天卡片打开的文件是固定 tab，不会被单击列表时的临时预览替换；
 	// 它属于外部入口，关掉最后一个 tab 时收起整个侧栏。
-	s.openFileManagerFileExternal(threadID, rel)
+	s.openFileManagerFileExternalAt(threadID, rel, first, last)
 }
 
 // turnFileContextMenu 是文件胶囊的右键菜单：打开、在访达中显示、复制路径。

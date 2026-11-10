@@ -19,6 +19,10 @@ type fileManagerTabSnapshot struct {
 	limitReached bool
 	imageBmp     *ui.Bitmap
 	mdPreview    bool
+	hlFirst      int
+	hlLast       int
+	reveal       bool
+	revealSeq    int
 }
 
 // fileManagerPanelSnapshot 是渲染用的面板快照：tab 列表、当前 tab 与拆分状态。
@@ -54,6 +58,10 @@ func fileManagerSnapshotLocked(st *fileManagerState) fileManagerPanelSnapshot {
 			limitReached: tab.limitReached,
 			imageBmp:     tab.imageBmp,
 			mdPreview:    tab.mdPreview,
+			hlFirst:      tab.hlFirst,
+			hlLast:       tab.hlLast,
+			reveal:       tab.reveal,
+			revealSeq:    tab.revealSeq,
 		})
 	}
 	return snap

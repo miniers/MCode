@@ -31,6 +31,10 @@ type fileManagerTab struct {
 	imageData    []byte
 	imageBmp     *ui.Bitmap
 	mdPreview    bool
+	hlFirst      int
+	hlLast       int
+	reveal       bool
+	revealSeq    int
 }
 
 // findTabLocked 按路径查找 tab；调用方持 fileManagerMu。
@@ -93,6 +97,8 @@ func resetFileManagerTab(tab *fileManagerTab, path string) {
 	tab.imageData = nil
 	tab.imageBmp = nil
 	tab.mdPreview = isMarkdownPath(path)
+	tab.hlFirst, tab.hlLast = 0, 0
+	tab.reveal = false
 }
 
 // openFileManagerFile 从文件侧栏打开某个文件的预览：已有同路径 tab 时直接激活，
@@ -105,12 +111,20 @@ func (s *chatState) openFileManagerFile(threadID, filePath string, pin bool) {
 // openFileManagerFileExternal 从侧栏以外的入口（聊天文件卡片、终端路径）打开文件：
 // 效果等同于 pin 为 true 打开，但新 tab 记作外部来源，关掉最后一个 tab 时收起整个侧栏。
 func (s *chatState) openFileManagerFileExternal(threadID, filePath string) {
-	s.openFileManagerFileFrom(threadID, filePath, true, false)
+	s.openFileManagerFileExternalAt(threadID, filePath, 0, 0)
+}
+
+func (s *chatState) openFileManagerFileExternalAt(threadID, filePath string, first, last int) {
+	s.openFileManagerFileFromAt(threadID, filePath, true, false, first, last)
 }
 
 // openFileManagerFileFrom 是前两个入口共用的实现；fromList 表示打开来源是否为文件侧栏。
 // 打开已存在的同路径 tab 时不改动它原来的来源标记。
 func (s *chatState) openFileManagerFileFrom(threadID, filePath string, pin, fromList bool) {
+	s.openFileManagerFileFromAt(threadID, filePath, pin, fromList, 0, 0)
+}
+
+func (s *chatState) openFileManagerFileFromAt(threadID, filePath string, pin, fromList bool, first, last int) {
 	st := getFileManagerState(s)
 	if st == nil {
 		return
@@ -118,6 +132,15 @@ func (s *chatState) openFileManagerFileFrom(threadID, filePath string, pin, from
 
 	fileManagerMu.Lock()
 	tab, fresh := st.openFileManagerTabLocked(filePath, pin, fromList)
+	if first > 0 && last > 0 {
+		if first > last {
+			first, last = last, first
+		}
+		tab.hlFirst, tab.hlLast = first, last
+		tab.reveal = true
+		tab.revealSeq++
+		tab.mdPreview = false
+	}
 	// 激活这个文件；拆分状态下它若不在固定栏，就顶替第二栏。
 	st.active = filePath
 	st.showList = false
@@ -300,8 +323,17 @@ func (s *chatState) loadMoreFileManagerTab(path string) {
 		}
 		tab.fileLoading = false
 		if err != nil {
-			tab.fileErr = err.Error()
+			fallback := tab.reveal && tab.content != ""
+			if fallback {
+				// 定位时保留已读取的内容，以便回退到最后一行。
+				tab.hasMore = false
+			} else {
+				tab.fileErr = err.Error()
+			}
 			fileManagerMu.Unlock()
+			if fallback {
+				s.setToast("加载更多失败：" + err.Error())
+			}
 			s.invalidate()
 			return
 		}

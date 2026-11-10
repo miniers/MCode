@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,6 +26,7 @@ func TestLocalFileLinkPath(t *testing.T) {
 		{"绝对路径", file, true},
 		{"file URL 百分号编码", "file://" + dir + "/%E6%9C%88%E6%8A%A5%20(2026%E5%B9%B410%E6%9C%88).docx", true},
 		{"位置后缀", file + "#L12", true},
+		{"URL 行号范围", (&url.URL{Scheme: "file", Path: file, Fragment: "L12-L20"}).String(), true},
 		{"不存在", filepath.Join(dir, "none.docx"), false},
 		{"网页", "https://example.com/a", false},
 		{"相对路径", "a.docx", false},
@@ -37,6 +39,31 @@ func TestLocalFileLinkPath(t *testing.T) {
 			}
 			if ok && got != file {
 				t.Fatalf("path = %q, want %q", got, file)
+			}
+		})
+	}
+}
+
+func TestLocalFileLinkLineRange(t *testing.T) {
+	for _, tc := range []struct {
+		dest        string
+		first, last int
+	}{
+		{"file:///a.go#L12", 12, 12},
+		{"/a.go#L12-L20", 12, 20},
+		{"/a.go#L20-L12", 12, 20},
+		{"/a.go", 0, 0},
+		{"/a.go#L0", 0, 0},
+		{"/a.go#L12-L0", 0, 0},
+		{"/a.go#L12-20", 0, 0},
+		{"/a.go#L12-L20x", 0, 0},
+		{"/a.go#L999999999999999999999999", 0, 0},
+		{"/a.go#L12#L20", 0, 0},
+	} {
+		t.Run(tc.dest, func(t *testing.T) {
+			first, last := localFileLinkLineRange(tc.dest)
+			if first != tc.first || last != tc.last {
+				t.Fatalf("得到 %d, %d，期望 %d, %d", first, last, tc.first, tc.last)
 			}
 		})
 	}
@@ -122,15 +149,15 @@ func TestLocalFileLinkPreviewDest(t *testing.T) {
 	}
 }
 
-// TestLocalPreviewTextLines 校验取行函数：只取前几行、二进制内容返回空、长行截断。
+// TestLocalPreviewTextLines 校验取行函数：保留全部行、二进制内容返回空、长行截断。
 func TestLocalPreviewTextLines(t *testing.T) {
 	var many strings.Builder
 	for i := 1; i <= 12; i++ {
 		fmt.Fprintf(&many, "第%d行\n", i)
 	}
 	lines := localPreviewTextLines([]byte(many.String()))
-	if len(lines) != localPreviewLineCount {
-		t.Fatalf("行数 = %d，期望 %d", len(lines), localPreviewLineCount)
+	if len(lines) != 13 {
+		t.Fatalf("行数 = %d，期望 13", len(lines))
 	}
 	if lines[0] != "第1行" || lines[localPreviewLineCount-1] != "第8行" {
 		t.Fatalf("取到的行不对: %v", lines)
@@ -144,6 +171,25 @@ func TestLocalPreviewTextLines(t *testing.T) {
 	lines = localPreviewTextLines([]byte(long))
 	if len(lines) != 1 || !strings.HasSuffix(lines[0], "…") || !strings.HasPrefix(lines[0], strings.Repeat("a", localPreviewLineRunes)) {
 		t.Fatalf("长行应截断到 %d 个字符并补省略号，得到 %q", localPreviewLineRunes, lines)
+	}
+}
+
+// TestLocalFilePreviewLineWindow 校验窗口边界。
+func TestLocalFilePreviewLineWindow(t *testing.T) {
+	lines := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+	for _, tc := range []struct {
+		start int
+		want  []string
+	}{
+		{1, lines[:8]},
+		{0, lines[:8]},
+		{3, lines[2:10]},
+		{9, lines[8:]},
+		{11, nil},
+	} {
+		if got := localPreviewLineWindow(lines, tc.start); !slices.Equal(got, tc.want) {
+			t.Errorf("起始行 %d：得到 %v，期望 %v", tc.start, got, tc.want)
+		}
 	}
 }
 

@@ -90,12 +90,50 @@ func fileManagerCodeViewFor(st *fileManagerState, key, filePath, content string,
 // renderFileManagerCodePreview 渲染只读代码编辑器：按文件名识别语言做语法高亮，显示行号，
 // 可选中复制，滚动与选区都由编辑器自己管理。字号跟随设置里的编辑器字号。
 func renderFileManagerCodePreview(c *ui.Context, s *chatState, tab fileManagerTabSnapshot, keyPrefix string) ui.Element {
-	st := fileManagerCodeViewFor(getFileManagerState(s), keyPrefix+tab.path, tab.path, tab.content, fileManagerPreviewFontSize(s))
-	return editor.View(c.Key(keyPrefix+"code-view"), st).
+	manager := getFileManagerState(s)
+	key := keyPrefix + tab.path
+	st := fileManagerCodeViewFor(manager, key, tab.path, tab.content, fileManagerPreviewFontSize(s))
+	e := ui.Column(c.Key(keyPrefix+"code-view-container")).
 		Grow(1).
 		FillWidth().
 		MinWidth(0).
 		MinHeight(0)
+	if tab.reveal {
+		lineCount := st.Buffer.LineCount()
+		switch {
+		case tab.hlFirst > lineCount && tab.hasMore && !tab.limitReached:
+			s.loadMoreFileManagerTab(tab.path)
+		case st.ViewportHeight() <= 0:
+			s.invalidate()
+		case lineCount > 0:
+			st.GoTo(editor.Pos{Line: min(tab.hlFirst, lineCount) - 1})
+			e.Jump("line-highlight", 0)
+			fileManagerMu.Lock()
+			if live := manager.findTabLocked(tab.path); live != nil && live.revealSeq == tab.revealSeq {
+				live.reveal = false
+			}
+			fileManagerMu.Unlock()
+		}
+	}
+	if tab.hlFirst > 0 && tab.hlLast >= tab.hlFirst {
+		progress := float32(1)
+		if reduceMotion(c) {
+			e.Jump("line-highlight", 1)
+		} else {
+			progress = e.AnimateTo("line-highlight", 1, ui.Animation{Duration: DurBase, Ease: EaseSnap})
+		}
+		st.LineBackgrounds = []editor.LineBackground{{First: tab.hlFirst - 1, Last: tab.hlLast - 1, Color: ThemeAccentSubtle(c).Alpha(0.12 * progress)}}
+	} else {
+		st.LineBackgrounds = nil
+	}
+	e.Children(func() {
+		editor.View(c.Key(keyPrefix+"code-view"), st).
+			Grow(1).
+			FillWidth().
+			MinWidth(0).
+			MinHeight(0)
+	})
+	return e
 }
 
 // pruneFileManagerCodeViews 删除 st 窗口本帧不再渲染的缓存项：关掉的 tab 与不再显示该 tab 的栏位。

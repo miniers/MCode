@@ -89,10 +89,14 @@ func localFilePreviewPath(dest string) (string, localPreviewKind) {
 // 读盘都留到卡片真正显示时的填充函数里。
 func localFileLinkPreview(c *ui.Context, dest string) func(tip ui.Element) {
 	path, kind := localFilePreviewPath(dest)
+	first, last := localFileLinkLineRange(dest)
 	switch kind {
 	case localPreviewImage:
 		return func(tip ui.Element) {
 			card := localPreviewCard(c, tip)
+			if resolved, ok := localFileLinkPath(dest); ok {
+				path = resolved
+			}
 			src, err := loadLocalImage(path)
 			if err != nil {
 				localPreviewPathText(c, card, path)
@@ -107,19 +111,32 @@ func localFileLinkPreview(c *ui.Context, dest string) func(tip ui.Element) {
 	case localPreviewText:
 		return func(tip ui.Element) {
 			card := localPreviewCard(c, tip)
-			lines := localTextPreviewLines(path)
+			if resolved, ok := localFileLinkPath(dest); ok {
+				path = resolved
+			}
+			start := 1
+			if first > 0 {
+				start = max(1, first-2)
+			}
+			lines := localPreviewLineWindow(localTextPreviewLines(path), start)
 			if len(lines) == 0 {
 				localPreviewPathText(c, card, path)
 				return
 			}
 			card.Children(func() {
 				ui.Column(c).Gap(Space0).Children(func() {
-					for _, line := range lines {
-						ui.Text(c, line).
-							Font("monospace").
-							FontSize(TypeCode).
-							NoWrap().
-							TextColor(ThemePrimaryText(c))
+					for i, line := range lines {
+						row := ui.Row(c).FillWidth()
+						if first > 0 && start+i >= first && start+i <= last {
+							row.Background(ThemeAccentSubtle(c))
+						}
+						row.Children(func() {
+							ui.Text(c, line).
+								Font("monospace").
+								FontSize(TypeCode).
+								NoWrap().
+								TextColor(ThemePrimaryText(c))
+						})
 					}
 				})
 			})
@@ -160,7 +177,7 @@ var (
 	localTextPreviewCache = map[string]localTextPreviewEntry{}
 )
 
-// localTextPreviewLines 读文件的文本预览前几行；目录、过大、读不了或含 NUL 的文件返回 nil。
+// localTextPreviewLines 读文件的全部预览行；目录、过大、读不了或含 NUL 的文件返回 nil。
 // 结果按路径、修改时间与大小缓存在进程内，重复悬停不再读盘。
 func localTextPreviewLines(path string) []string {
 	info, err := os.Stat(path)
@@ -192,7 +209,7 @@ func readTextPreview(path string, size int64) []string {
 	return localPreviewTextLines(data)
 }
 
-// localPreviewTextLines 从文件内容里取出前几行：含 NUL 的二进制内容返回 nil，长行截断不换行。
+// localPreviewTextLines 从文件内容里取出全部行：含 NUL 的二进制内容返回 nil，长行截断不换行。
 func localPreviewTextLines(data []byte) []string {
 	if len(data) == 0 {
 		return nil
@@ -206,12 +223,18 @@ func localPreviewTextLines(data []byte) []string {
 	}
 	lines := make([]string, 0, localPreviewLineCount)
 	for _, line := range strings.Split(string(data), "\n") {
-		if len(lines) == localPreviewLineCount {
-			break
-		}
 		lines = append(lines, localPreviewTruncateLine(line))
 	}
 	return lines
+}
+
+// localPreviewLineWindow 按从 1 开始的行号截取悬停卡片窗口。
+func localPreviewLineWindow(lines []string, start int) []string {
+	start = max(1, start) - 1
+	if start >= len(lines) {
+		return nil
+	}
+	return lines[start:min(start+localPreviewLineCount, len(lines))]
 }
 
 // localPreviewTruncateLine 去掉行尾回车，并把过长的行截断到固定字符数，末尾补省略号。

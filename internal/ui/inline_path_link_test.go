@@ -33,6 +33,7 @@ func TestResolveInlinePath(t *testing.T) {
 		{"纯文件名", "x.md", filepath.Dir(file), file, true},
 		{"行号后缀", "docs/plans/x.md:12", dir, file, true},
 		{"行列后缀", "docs/plans/x.md:12:5", dir, file, true},
+		{"冒号行号范围", "docs/plans/x.md:12-20", dir, file, true},
 		{"行号范围后缀", "docs/plans/x.md#L12-L20", dir, file, true},
 		{"绝对路径", file, "", file, true},
 		{"目录", "docs", dir, filepath.Join(dir, "docs"), true},
@@ -63,6 +64,26 @@ func TestResolveInlinePath(t *testing.T) {
 			t.Fatalf("resolveInlinePath(~/ ) = %q, %v", got, ok)
 		}
 	})
+}
+
+func TestLinkifyInlinePathsLineRanges(t *testing.T) {
+	dir := t.TempDir()
+	file := writeTestFile(t, filepath.Join(dir, "a.go"))
+	for _, tc := range []struct{ code, fragment string }{
+		{"a.go", ""},
+		{"a.go:186", "L186"},
+		{"a.go:12:5", "L12"},
+		{"a.go:12-20", "L12-L20"},
+		{"a.go#L12-L20", "L12-L20"},
+		{"a.go:20-12", "L12-L20"},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			want := "[`" + tc.code + "`](" + (&url.URL{Scheme: "file", Path: file, Fragment: tc.fragment}).String() + ")"
+			if got := linkifyInlinePaths("`"+tc.code+"`", dir); got != want {
+				t.Fatalf("得到 %q，期望 %q", got, want)
+			}
+		})
+	}
 }
 
 func TestLinkifyInlinePathsRewritesRelativePath(t *testing.T) {

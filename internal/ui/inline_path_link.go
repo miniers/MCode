@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,8 +14,25 @@ import (
 	"github.com/egoist/mygo/ui/markdown/parser"
 )
 
-// inlinePathSuffix 匹配行内代码路径末尾的行号定位后缀：:12、:12:5、#L12、#L12-L20。
-var inlinePathSuffix = regexp.MustCompile(`(?::\d+(?::\d+)?|#L\d+(?:-L\d+)?)$`)
+// inlinePathSuffix 匹配行内代码路径末尾的行号定位后缀。
+var inlinePathSuffix = regexp.MustCompile(`(?::\d+(?::\d+|-\d+)?|#L\d+(?:-L\d+)?)$`)
+
+func inlinePathLineRange(code string) (int, int) {
+	suffix := inlinePathSuffix.FindString(strings.TrimSpace(code))
+	if strings.HasPrefix(suffix, "#") {
+		return localFileLinkLineRange(suffix)
+	}
+	if !strings.HasPrefix(suffix, ":") {
+		return 0, 0
+	}
+	parts := strings.SplitN(suffix[1:], ":", 2)
+	line := strings.SplitN(parts[0], "-", 2)
+	fragment := "#L" + line[0]
+	if len(line) == 2 {
+		fragment += "-L" + line[1]
+	}
+	return localFileLinkLineRange(fragment)
+}
 
 // resolveInlinePath 判断行内代码是不是指向本机已存在的文件或目录，返回清理后的绝对路径。
 // 空白、通配符、URL 与其他地址一律不算路径；相对路径与纯文件名只在 workDir 下解析。
@@ -61,6 +79,7 @@ func resolveInlinePath(code, workDir string) (string, bool) {
 type inlinePathSpan struct {
 	start, end int
 	target     string
+	fragment   string
 }
 
 // linkifyInlinePaths 把文本里指向本地已存在文件的行内代码改写成 Markdown 链接：
@@ -94,7 +113,15 @@ func linkifyInlinePaths(text, workDir string) string {
 			if !ok {
 				continue
 			}
-			spans = append(spans, inlinePathSpan{start: n.Start, end: n.End, target: abs})
+			first, last := inlinePathLineRange(n.Text)
+			fragment := ""
+			if first > 0 {
+				fragment = fmt.Sprintf("L%d", first)
+				if last != first {
+					fragment += fmt.Sprintf("-L%d", last)
+				}
+			}
+			spans = append(spans, inlinePathSpan{start: n.Start, end: n.End, target: abs, fragment: fragment})
 		}
 	}
 	if len(spans) == 0 {
@@ -112,7 +139,7 @@ func linkifyInlinePaths(text, workDir string) string {
 		b.WriteString("[")
 		b.WriteString(text[sp.start:sp.end])
 		b.WriteString("](")
-		b.WriteString((&url.URL{Scheme: "file", Path: sp.target}).String())
+		b.WriteString((&url.URL{Scheme: "file", Path: sp.target, Fragment: sp.fragment}).String())
 		b.WriteString(")")
 		last = sp.end
 	}

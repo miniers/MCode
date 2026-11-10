@@ -4,12 +4,43 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 )
+
+var localFileLineFragment = regexp.MustCompile(`^L([0-9]+)(?:-L([0-9]+))?$`)
+
+// localFileLinkLineRange 从链接片段提取从 1 开始的闭区间。
+func localFileLinkLineRange(dest string) (int, int) {
+	_, fragment, ok := strings.Cut(dest, "#")
+	if !ok {
+		return 0, 0
+	}
+	m := localFileLineFragment.FindStringSubmatch(fragment)
+	if m == nil {
+		return 0, 0
+	}
+	first, err := strconv.Atoi(m[1])
+	if err != nil || first < 1 {
+		return 0, 0
+	}
+	last := first
+	if m[2] != "" {
+		last, err = strconv.Atoi(m[2])
+		if err != nil || last < 1 {
+			return 0, 0
+		}
+	}
+	if first > last {
+		first, last = last, first
+	}
+	return first, last
+}
 
 // riskyOpenExts 是直接交给系统默认程序可能执行代码的扩展名：点击时只在访达中定位，不直接打开。
 var riskyOpenExts = map[string]bool{
@@ -62,7 +93,7 @@ func openLocalFile(path string) {
 
 // openLocalFilePreview 在有会话工作目录时把工作区内的文件开在右侧文件面板预览；
 // 目录、工作区外的文件与无会话时沿用原有打开方式。
-func openLocalFilePreview(s *chatState, path string) {
+func openLocalFilePreview(s *chatState, path string, first, last int) {
 	path = filepath.Clean(path)
 	info, err := os.Stat(path)
 	if err == nil && info.IsDir() {
@@ -72,7 +103,7 @@ func openLocalFilePreview(s *chatState, path string) {
 	threadID, workDir := getSelectedThreadWorkDir(s)
 	if err == nil && info.Mode().IsRegular() && threadID != "" &&
 		turnFilePreviewPath(workDir, turnEditedFile{path: path, abs: path}) != "" {
-		openTurnFile(s, threadID, workDir, turnEditedFile{path: path, abs: path})
+		openTurnFileAt(s, threadID, workDir, turnEditedFile{path: path, abs: path}, first, last)
 		return
 	}
 	openLocalFile(path)
@@ -87,7 +118,8 @@ func installLocalFileLinkHook(o *markdown.Options, s *chatState) {
 	if o.OnLink == nil {
 		o.OnLink = func(dest string) {
 			if path, ok := localFileLinkPath(dest); ok {
-				openLocalFilePreview(s, path)
+				first, last := localFileLinkLineRange(dest)
+				openLocalFilePreview(s, path, first, last)
 				return
 			}
 			if ui.SafeToOpen(dest) {
@@ -107,7 +139,8 @@ func installLocalFileLinkHook(o *markdown.Options, s *chatState) {
 			menu.EditItems()
 			if path, ok := localFileLinkPath(dest); ok {
 				menu.Separator()
-				localFileLinkItems(s, menu, path)
+				first, last := localFileLinkLineRange(dest)
+				localFileLinkItems(s, menu, path, first, last)
 			} else if ui.SafeToOpen(dest) {
 				menu.Separator()
 				if menu.Item("打开链接").Chosen() {
@@ -129,9 +162,9 @@ func localRelativePath(s *chatState, path string) string {
 	return turnFilePreviewPath(workDir, turnEditedFile{path: p, abs: p})
 }
 
-func localFileLinkItems(s *chatState, menu *ui.Menu, path string) {
+func localFileLinkItems(s *chatState, menu *ui.Menu, path string, first, last int) {
 	if menu.Item("侧边栏预览").Chosen() {
-		openLocalFilePreview(s, path)
+		openLocalFilePreview(s, path, first, last)
 	}
 	apps := installedOpenInApps(currentWorkbenchConfig(s), openInStatFn)
 	menu.Submenu("打开方式", func(sub *ui.Menu) {

@@ -2,6 +2,46 @@ package mcodeui
 
 import "testing"
 
+func TestFileManagerExternalLineRange(t *testing.T) {
+	_, s, _ := openFileManagerForTest(t)
+	st := getFileManagerState(s)
+	check := func(first, last, seq int, reveal, preview bool) {
+		t.Helper()
+		fileManagerMu.Lock()
+		defer fileManagerMu.Unlock()
+		tab := st.findTabLocked("notes.md")
+		if tab == nil || tab.hlFirst != first || tab.hlLast != last || tab.revealSeq != seq || tab.reveal != reveal || tab.mdPreview != preview {
+			t.Fatalf("tab 状态不符：%+v", tab)
+		}
+		snap, ok := fileManagerSnapshotLocked(st).tabByPath("notes.md")
+		if !ok || snap.hlFirst != first || snap.hlLast != last || snap.revealSeq != seq || snap.reveal != reveal {
+			t.Fatalf("快照状态不符：%+v", snap)
+		}
+	}
+	s.openFileManagerFileExternalAt("", "notes.md", 12, 20)
+	check(12, 20, 1, true, false)
+	fileManagerMu.Lock()
+	st.findTabLocked("notes.md").reveal = false
+	st.findTabLocked("notes.md").mdPreview = true
+	fileManagerMu.Unlock()
+	s.openFileManagerFileExternalAt("", "notes.md", 30, 40)
+	check(30, 40, 2, true, false)
+	s.openFileManagerFileExternal("", "notes.md")
+	check(30, 40, 2, true, false)
+	s.openFileManagerFileExternalAt("", "notes.md", 30, 40)
+	check(30, 40, 3, true, false)
+}
+
+func TestFileManagerTemporaryTabClearsLineRange(t *testing.T) {
+	st := &fileManagerState{}
+	tab, _ := st.openFileManagerTabLocked("a.go", false, true)
+	tab.hlFirst, tab.hlLast, tab.reveal = 12, 20, true
+	replaced, fresh := st.openFileManagerTabLocked("b.go", false, true)
+	if !fresh || replaced != tab || tab.hlFirst != 0 || tab.hlLast != 0 || tab.reveal {
+		t.Fatalf("替换临时标签时应清除行号：%+v", tab)
+	}
+}
+
 // fileManagerTabsForTest 取面板的 tab 与拆分状态快照，供断言使用。
 func fileManagerTabsForTest(s *chatState) (paths []string, active, anchor, side string, vertical, showList bool) {
 	st := getFileManagerState(s)
