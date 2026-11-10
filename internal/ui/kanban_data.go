@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"time"
 
 	"mcode/internal/git"
@@ -491,7 +490,7 @@ func (s *chatState) reviewTask(taskID, decision, feedback string, revision int) 
 	go func() {
 		defer endKanbanTask(ks, taskID)
 		ctx := context.Background()
-		_, err := s.client.ReviewTask(ctx, taskID, decision, feedback, revision)
+		updated, err := s.client.ReviewTask(ctx, taskID, decision, feedback, revision)
 		if err != nil {
 			if errors.Is(err, ErrRevisionConflict) {
 				s.updateWorkspace(func() {
@@ -518,7 +517,13 @@ func (s *chatState) reviewTask(taskID, decision, feedback string, revision int) 
 			if ks.projectID == pid {
 				ks.reviewTaskID = ""
 				ks.reviewFeedback = ""
-				if ks.detailTaskID == taskID {
+				for i := range ks.board.Tasks {
+					if ks.board.Tasks[i].ID == taskID {
+						ks.board.Tasks[i] = updated
+						break
+					}
+				}
+				if ks.detailTaskID == taskID && decision == "accept" && updated.Status == "done" {
 					ks.detailTaskID = ""
 					ks.detailLoading = false
 					ks.detailErr = ""
@@ -534,6 +539,9 @@ func (s *chatState) reviewTask(taskID, decision, feedback string, revision int) 
 			}
 			kanbanMu.Unlock()
 		})
+		if decision == "accept" && updated.Status == "done" {
+			s.setToast("任务已完成")
+		}
 		s.refreshKanban()
 	}()
 }
@@ -549,16 +557,25 @@ func (s *chatState) loadTaskDetail(task KanbanTask, reset bool) {
 	}
 
 	kanbanMu.Lock()
+	if ks.detailCancel != nil {
+		ks.detailCancel()
+		ks.detailCancel = nil
+	}
+	changed := ks.detailTaskID != task.ID || ks.detailThreadID != task.ThreadID
 	ks.detailTaskID = task.ID
 	ks.detailThreadID = task.ThreadID
 	ks.detailRevision = task.Revision
 	ks.detailLoading = (task.ThreadID != "")
-	ks.detailErr = ""
-	ks.detailMessages = nil
-	ks.detailDiff = &diffPanelState{collapsed: make(map[string]bool)}
-	ks.detailFiles = nil
-	ks.detailDiffErr = ""
-	ks.detailDiffTruncated = false
+	if changed {
+		ks.detailErr = ""
+		ks.detailMessages = nil
+		ks.detailDiff = &diffPanelState{collapsed: make(map[string]bool)}
+		ks.detailFiles = nil
+		ks.detailDiffErr = ""
+		ks.detailDiffTruncated = false
+		ks.detailLogLoaded = false
+		ks.detailDiffLoaded = false
+	}
 	if reset {
 		ks.detailFeedback = ""
 		ks.detailConflict = false
@@ -568,33 +585,32 @@ func (s *chatState) loadTaskDetail(task KanbanTask, reset bool) {
 	targetTaskID := task.ID
 	threadID := task.ThreadID
 	projectID := ks.projectID
+	loadLog := ks.detailTab == "session" && !ks.detailLogLoaded
+	loadDiff := ks.detailTab == "diff" && !ks.detailDiffLoaded
+	ks.detailLoading = threadID != "" && (loadLog || loadDiff)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ks.detailCancel = cancel
 	kanbanMu.Unlock()
 	s.invalidate()
 
-	if threadID == "" || s.client == nil {
+	if threadID == "" || s.client == nil || (!loadLog && !loadDiff) {
+		cancel()
 		return
 	}
 
 	go func(tid string, loadID int) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		var wg sync.WaitGroup
 		var msgs []Message
 		var histErr error
 		var diffResp ThreadDiff
 		var diffErr error
 
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
+		if loadLog {
 			msgs, histErr = s.client.History(ctx, tid)
-		}()
-		go func() {
-			defer wg.Done()
+		} else {
 			diffResp, diffErr = s.client.Diff(ctx, tid, "")
-		}()
-		wg.Wait()
+		}
 
 		var files []git.FileDiff
 		var parseErr error
@@ -609,14 +625,18 @@ func (s *chatState) loadTaskDetail(task KanbanTask, reset bool) {
 				return
 			}
 			ks.detailLoading = false
-			if histErr != nil {
+			if loadLog && histErr != nil {
 				ks.detailErr = histErr.Error()
-				ks.detailMessages = nil
-			} else {
+			} else if loadLog {
 				ks.detailErr = ""
 				ks.detailMessages = msgs
+				ks.detailLogLoaded = true
 			}
 
+			if !loadDiff {
+				s.invalidate()
+				return
+			}
 			if diffErr != nil {
 				ks.detailDiffErr = diffErr.Error()
 				ks.detailFiles = nil
@@ -633,6 +653,7 @@ func (s *chatState) loadTaskDetail(task KanbanTask, reset bool) {
 				ks.detailDiffErr = ""
 				ks.detailFiles = files
 				ks.detailDiffTruncated = diffResp.Truncated
+				ks.detailDiffLoaded = true
 			}
 			s.invalidate()
 		})

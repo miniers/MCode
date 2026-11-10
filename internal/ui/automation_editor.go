@@ -9,6 +9,16 @@ import (
 )
 
 func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, isNew bool, selectedID, formErr string, saving, confirmDelete bool, runningIDs, busyIDs map[string]bool, selectedUnread int, includeArchived, runsLoading bool, runsErr string, runs []AutomationRun, runRead map[string]time.Time, runArchived map[string]bool, openRunID string) {
+	if c.Shortcut(ui.Cmd, ui.KeyS) && !saving {
+		s.saveAutomation()
+	}
+	if as.confirmRun {
+		ui.Row(c.Key("automation-confirm-run")).Gap(Space2).Children(func() {
+			Button(c.Key("automation-save-run"), ButtonOpts{Text: "保存后运行", Label: "automation-save-run", Disabled: saving, OnClick: func() { as.confirmRun = false; as.runAfterSave = true; s.saveAutomation() }, Variant: ButtonPrimary})
+			Button(c.Key("automation-saved-run"), ButtonOpts{Text: "按已保存配置运行", Label: "automation-saved-run", Disabled: saving, OnClick: func() { as.confirmRun = false; as.editorOpen = false; s.runAutomationNow(selectedID) }, Variant: ButtonSecondary})
+			Button(c.Key("automation-cancel-run"), ButtonOpts{Text: "取消", Label: "automation-cancel-run", OnClick: func() { as.confirmRun = false; s.invalidate() }, Variant: ButtonGhost})
+		})
+	}
 	// 标题与操作栏
 	ui.Row(c.Key("automation-detail-header")).
 		FillWidth().
@@ -24,6 +34,9 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 				FontWeight(600).
 				TextColor(ThemePrimaryText(c)).
 				Grow(1)
+			if !isNew {
+				Button(c.Key("automation-editor-run"), ButtonOpts{Text: "立即运行", Disabled: saving || runningIDs[selectedID], OnClick: func() { s.requestAutomationRun(selectedID) }, Variant: ButtonSecondary})
+			}
 
 			Button(c.Key("automation-cancel"), ButtonOpts{
 				Text:  "取消",

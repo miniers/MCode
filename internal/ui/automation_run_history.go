@@ -82,6 +82,11 @@ func automationRunDuration(run AutomationRun) string {
 	return formatRunDuration(run.FinishedAt.Sub(run.StartedAt))
 }
 
+func openAutomationRun(as *automationState, runID string) {
+	as.detailTab = 0
+	as.openRunID = runID
+}
+
 func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState, isNew bool, selectedID string, selectedUnread int, includeArchived, runsLoading bool, runsErr string, runs []AutomationRun, runRead map[string]time.Time, runArchived map[string]bool, openRunID string) {
 	if isNew || selectedID == "" {
 		return
@@ -113,6 +118,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 					Button(c.Key("run-detail-back"), ButtonOpts{Text: "← 运行记录", Label: "返回运行记录", OnClick: func() { automationMu.Lock(); as.openRunID = ""; automationMu.Unlock(); s.invalidate() }, Variant: ButtonGhost, Size: ControlXS})
 					status, kind := automationRunStatus(run.Status)
 					ui.Text(c, status).TextColor(automationCardStatusColor(c, kind)).Grow(1)
+					Button(c.Key("run-again"), ButtonOpts{Text: "再次运行", Disabled: as.runningIDs[selectedID], OnClick: func() { s.requestAutomationRun(selectedID) }, Variant: ButtonSecondary, Size: ControlXS})
 					if run.ThreadID != "" {
 						Button(c.Key("run-open-thread-"+run.ID), ButtonOpts{Text: "打开会话", Label: "run-open-thread-" + run.ID, OnClick: func() { s.revealThread(run.ThreadID) }, Variant: ButtonSecondary, Size: ControlXS})
 					}
@@ -217,7 +223,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 				}
 				open := func() {
 					automationMu.Lock()
-					as.openRunID = run.ID
+					openAutomationRun(as, run.ID)
 					automationMu.Unlock()
 					s.invalidate()
 					if unread {

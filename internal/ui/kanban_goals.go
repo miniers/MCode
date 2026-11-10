@@ -30,6 +30,86 @@ func goalStatusBadgeText(status string) string {
 	return "处理中"
 }
 
+func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
+	kanbanMu.Lock()
+	goalID, board, reviewGoalID := ks.goalID, ks.board, ks.planReviewGoalID
+	replanID, feedback := ks.replanGoalID, ks.replanFeedback
+	kanbanMu.Unlock()
+	var goal *KanbanGoal
+	for i := range board.Goals {
+		if board.Goals[i].ID == goalID {
+			goal = &board.Goals[i]
+			break
+		}
+	}
+	ui.Column(c.Key("kanban-goal-detail")).Label("kanban-goal-detail").Fill().Padding(Space5).Gap(Space3).Transition(motionSidePanel(c, false)).Children(func() {
+		Button(c.Key("kanban-goal-detail-close"), ButtonOpts{Text: "关闭", Label: "关闭目标详情", Variant: ButtonGhost, OnClick: func() { kanbanMu.Lock(); ks.goalDetailOpen = false; kanbanMu.Unlock(); s.invalidate() }})
+		if goal == nil {
+			ui.Text(c, "目标已不存在").TextColor(ThemeSecondaryText(c))
+			return
+		}
+		ui.Text(c, goal.Title).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
+		ui.Text(c, goalStatusBadgeText(goal.Status)).TextColor(ThemeSecondaryText(c))
+		ui.Scroll(c.Key("kanban-goal-detail-scroll")).Grow(1).FillWidth().Children(func() {
+			ui.Column(c.Key("kanban-goal-detail-body")).FillWidth().Gap(Space3).Children(func() {
+				if goal.PlanSummary != "" {
+					ui.Text(c, goal.PlanSummary).TextColor(ThemePrimaryText(c))
+				}
+				if goal.StatusReason != "" {
+					ui.Text(c, goal.StatusReason).TextColor(ThemeSecondaryText(c))
+				}
+				var tasks []KanbanTask
+				for _, task := range board.Tasks {
+					if task.GoalID == goalID {
+						tasks = append(tasks, task)
+					}
+				}
+				numbers := make(map[string]int, len(tasks))
+				for i, task := range tasks {
+					numbers[task.ID] = i + 1
+				}
+				for i, layer := range planLayers(tasks) {
+					ui.Text(c, fmt.Sprintf("第 %d 层", i+1)).TextColor(ThemeSecondaryText(c))
+					for _, task := range layer {
+						renderPlanReviewTaskCard(c, s, task, numbers)
+						if task.AcceptanceCriteria != "" {
+							ui.Text(c, task.AcceptanceCriteria).TextColor(ThemeSecondaryText(c))
+						}
+					}
+				}
+				ui.Text(c, "产物").FontWeight(600).TextColor(ThemePrimaryText(c))
+				for _, output := range goalOutputs(board, goalID) {
+					renderGoalOutputRow(c, s, ks, output)
+				}
+				if replanID == goalID {
+					ui.TextInput(c.Key("goal-replan-input-"+goalID), &ks.replanFeedback).Label("goal-replan-input").FillWidth()
+					Button(c.Key("goal-replan-submit-"+goalID), ButtonOpts{Text: "提交", Label: "提交重新规划", OnClick: func() { s.replanGoal(goalID, feedback, goal.Revision) }})
+				}
+			})
+		})
+		ui.Row(c.Key("kanban-goal-detail-actions")).Gap(Space2).Children(func() {
+			if goal.Status == "plan_review" && reviewGoalID != goalID {
+				Button(c.Key("goal-plan-review"), ButtonOpts{Text: "审阅计划", Label: "审阅计划", OnClick: func() { kanbanMu.Lock(); ks.planReviewGoalID = goalID; kanbanMu.Unlock(); s.invalidate() }})
+			}
+			if goal.Status == "plan_review" && reviewGoalID == goalID {
+				Button(c.Key("goal-plan-start"), ButtonOpts{Text: "确认并开始", Label: "确认并开始", Variant: ButtonPrimary, OnClick: func() { s.startGoal(goalID, goal.Revision) }})
+			}
+			if goal.Status == "paused" {
+				Button(c.Key("goal-resume"), ButtonOpts{Text: "继续", Label: "继续", OnClick: func() { s.startGoal(goalID, goal.Revision) }})
+			}
+			if goal.Status == "running" {
+				Button(c.Key("goal-pause"), ButtonOpts{Text: "暂停", Label: "暂停", OnClick: func() { s.pauseGoal(goalID, goal.Revision) }})
+			}
+			if goal.Status == "plan_review" || goal.Status == "plan_failed" || goal.Status == "paused" {
+				Button(c.Key("goal-replan-toggle"), ButtonOpts{Text: "重新规划", Label: "重新规划", OnClick: func() { kanbanMu.Lock(); ks.replanGoalID = goalID; kanbanMu.Unlock(); s.invalidate() }})
+			}
+			if goal.Status != "completed" && goal.Status != "cancelled" {
+				Button(c.Key("goal-cancel"), ButtonOpts{Text: "取消目标", Label: "取消目标", Variant: ButtonDanger, OnClick: func() { s.cancelGoal(goalID, goal.Revision) }})
+			}
+		})
+	})
+}
+
 // goalStatusBadgeColor 返回目标状态标签的强调色，与 goalStatusBadgeText 的映射保持一致。
 func goalStatusBadgeColor(c *ui.Context, status string) ui.Color {
 	switch status {

@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"context"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
@@ -167,6 +168,10 @@ type kanbanState struct {
 	detailLoadID        int
 	detailFeedback      string
 	detailConflict      bool
+	detailTab           string
+	detailCancel        context.CancelFunc
+	detailLogLoaded     bool
+	detailDiffLoaded    bool
 }
 
 func kanbanTaskBusy(ks *kanbanState, taskID string) bool {

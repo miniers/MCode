@@ -108,7 +108,30 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 		p.visibleBoard.Tasks = filtered
 	}
 	detailTaskID := ks.detailTaskID
+	goalDetailOpen := ks.goalDetailOpen
 	kanbanMu.Unlock()
+	winWidth, _ := c.Size()
+	contentWidth := winWidth
+	if !windowMode {
+		contentWidth -= kanbanModalInset * 2
+	}
+	wideDetail := contentWidth >= 980 && p.destination != "automations" && (detailTaskID != "" || goalDetailOpen)
+	renderBody := func() {
+		if !wideDetail {
+			renderKanbanModalBody(c, s, ks, p)
+			return
+		}
+		ui.Row(c.Key("kanban-body-with-detail")).Grow(1).FillWidth().MinWidth(0).Children(func() {
+			ui.Column(c.Key("kanban-board-pane")).Grow(1).MinWidth(0).FillHeight().Children(func() { renderKanbanModalBody(c, s, ks, p) })
+			ui.Column(c.Key("kanban-detail-pane")).Width(480).Shrink(0).FillHeight().Background(ThemeSurface(c)).Transition(motionSidePanel(c, false)).Children(func() {
+				if detailTaskID != "" {
+					renderTaskDetailContent(c, s, ks)
+				} else {
+					renderGoalDetailContent(c, s, ks)
+				}
+			})
+		})
+	}
 
 	if windowMode {
 		winWidth, _ := c.Size()
@@ -120,7 +143,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 			Children(func() {
 				ui.Box(c.Key("kanban-window-titlebar")).FillWidth().Height(ControlLG).DragWindow()
 				renderKanbanModalHeader(c, s, ks, p, winWidth)
-				renderKanbanModalBody(c, s, ks, p)
+				renderBody()
 			})
 	} else {
 		winWidth, winHeight := c.Size()
@@ -165,7 +188,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 				Gap(0)
 			applyElevation(c, card, ElevDialog).Children(func() {
 				renderKanbanModalHeader(c, s, ks, p, modalWidth)
-				renderKanbanModalBody(c, s, ks, p)
+				renderBody()
 				modalResizeGrips(c, modalDragKanbanWorkspace, modalWidth, modalHeight)
 			})
 		})
@@ -177,14 +200,23 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 		}
 	}
 
-	// 规划审查弹窗先于任务详情渲染，任务详情浮在它上层
-	renderGoalPlanReviewModal(c, s)
-
-	// 目标产物弹窗与规划审查同级，任务详情仍浮在最上层
-	renderGoalOutputsModal(c, s)
-
-	if detailTaskID != "" {
+	if !wideDetail && detailTaskID != "" {
 		renderTaskDetail(c, s, ks)
+	} else if !wideDetail && goalDetailOpen && p.destination != "automations" {
+		open := true
+		ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
+			backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))
+			_, height := c.Size()
+			panel.MaxWidth(contentWidth - Space8).MaxHeight(height - Space8).Padding(0)
+			sheetWidth, sheetHeight := min(settingsSheetWidth, contentWidth-Space8), height-Space8
+			ui.Column(c.Key("kanban-goal-sheet")).Width(sheetWidth).Height(sheetHeight).Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(func() { renderGoalDetailContent(c, s, ks) })
+		})
+		if !open {
+			kanbanMu.Lock()
+			ks.goalDetailOpen = false
+			kanbanMu.Unlock()
+			s.invalidate()
+		}
 	}
 }
 
@@ -214,7 +246,7 @@ type kanbanModalBodyProps struct {
 }
 
 func renderKanbanModalHeader(c *ui.Context, s *chatState, ks *kanbanState, p kanbanModalBodyProps, width float32) {
-	ui.Column(c.Key("kanban-modal-header")).Label("kanban-modal-header").FillWidth().Height(2*kanbanTopBarHeight+Hairline).Shrink(0).Gap(0).
+	ui.Column(c.Key("kanban-modal-header")).Label("kanban-modal-header").FillWidth().Shrink(0).Gap(0).
 		BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Children(func() {
 		ui.Row(c.Key("kanban-header-main")).FillWidth().Height(kanbanTopBarHeight).Padding(0, Space5).
 			AlignItems(ui.Center).Gap(Space4).Children(func() {
@@ -716,23 +748,6 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 				ui.ButtonBase(c.Key("kanban-selected-goal-" + goal.ID)).Label("目标详情 " + title).FillWidth().Height(ControlMD).Shrink(0).AlignItems(ui.Center).Transition(motionCollapse(c)).OnClick(func() { kanbanMu.Lock(); ks.goalDetailOpen = true; kanbanMu.Unlock(); s.invalidate() }).Children(func() {
 					ui.Text(c, fmt.Sprintf("%s · %d/%d", title, goal.Done, goal.Total)).FontSize(TypeBody).TextColor(ThemePrimaryText(c))
 				})
-				kanbanMu.Lock()
-				detailOpen := ks.goalDetailOpen
-				kanbanMu.Unlock()
-				if detailOpen {
-					open := true
-					ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-						backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))
-						panel.MaxWidth(660).Padding(0)
-						ui.Column(c.Key("kanban-goal-detail")).Width(600).Padding(Space5).Radius(RadiusLG).Background(ThemeWindowBg(c)).Transition(motionDialog(c)).Children(func() { renderGoalCard(c, s, ks, goal, p.replanGoalID, p.replanFeedback) })
-					})
-					if !open {
-						kanbanMu.Lock()
-						ks.goalDetailOpen = false
-						kanbanMu.Unlock()
-						s.invalidate()
-					}
-				}
 				break
 			}
 

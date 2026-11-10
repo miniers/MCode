@@ -47,8 +47,15 @@ type automationState struct {
 	watchStop   func()
 
 	// 卡片级操作：正在立即运行的自动化、已暂停/重置请求中的自动化
-	runningIDs map[string]bool
-	busyIDs    map[string]bool
+	runningIDs       map[string]bool
+	busyIDs          map[string]bool
+	runRequest       int
+	selectionVersion int
+	confirmRun       bool
+	runAfterSave     bool
+	listScroll       ui.ScrollState
+	historyScroll    ui.ScrollState
+	keyboardFocusID  string
 
 	selectedID   string // 当前选中的自动化 ID，为空且 isNew 为 true 时为新建
 	isNew        bool
@@ -289,6 +296,23 @@ func (s *chatState) loadAutomationRuns(automationID string) {
 			as.runRead = nil
 			as.runArchived = nil
 		} else {
+			if as.openRunID != "" {
+				found := false
+				for _, run := range runs {
+					if run.ID == as.openRunID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					for _, run := range as.runs {
+						if run.ID == as.openRunID {
+							runs = append([]AutomationRun{run}, runs...)
+							break
+						}
+					}
+				}
+			}
 			as.runs = runs
 			as.runsErr = ""
 			as.runRead = runRead
@@ -301,6 +325,7 @@ func (s *chatState) loadAutomationRuns(automationID string) {
 // selectAutomation 选中某自动化并填充编辑表单。
 func (as *automationState) selectAutomation(auto Automation, s *chatState) {
 	automationMu.Lock()
+	as.selectionVersion++
 	as.fillAutomation(auto)
 	as.detailTab = 0
 	as.narrowDetail = true
@@ -378,6 +403,7 @@ func (as *automationState) fillAutomation(auto Automation) {
 // resetToNewAutomation 重置表单进入新建状态。
 func (as *automationState) resetToNewAutomation(s *chatState) {
 	automationMu.Lock()
+	as.selectionVersion++
 	as.editSession++
 	as.selectedID = ""
 	as.isNew = true
@@ -482,6 +508,7 @@ func (s *chatState) saveAutomation() {
 	// 表单校验
 	if curPID == "" || failuresErr != nil || maxFailures <= 0 || runsErr != nil || maxRuns < 0 || maxRuns > 1000 {
 		automationMu.Lock()
+		as.runAfterSave = false
 		as.formErr = "请选择项目，连续失败次数须为正整数，最大运行次数须为 0 到 1000 的整数"
 		automationMu.Unlock()
 		s.invalidate()
@@ -489,6 +516,7 @@ func (s *chatState) saveAutomation() {
 	}
 	if name == "" {
 		automationMu.Lock()
+		as.runAfterSave = false
 		as.formErr = "自动化名称不能为空"
 		automationMu.Unlock()
 		s.invalidate()
@@ -496,6 +524,7 @@ func (s *chatState) saveAutomation() {
 	}
 	if prompt == "" {
 		automationMu.Lock()
+		as.runAfterSave = false
 		as.formErr = "Prompt 不能为空"
 		automationMu.Unlock()
 		s.invalidate()
@@ -504,6 +533,7 @@ func (s *chatState) saveAutomation() {
 
 	if len(scheduleErrors) != 0 {
 		automationMu.Lock()
+		as.runAfterSave = false
 		as.scheduleErrors = scheduleErrors
 		automationMu.Unlock()
 		s.invalidate()
@@ -556,8 +586,10 @@ func (s *chatState) saveAutomation() {
 			}
 			as.saving = false
 			loadRuns := false
+			runSaved := false
 			if as.editSession == editSession && as.selectedID == selectedID && as.isNew == isNew && err == nil {
 				if as.draft() == draft {
+					runSaved = as.runAfterSave
 					as.fillAutomation(saved)
 					as.editorOpen = false
 					if isNew {
@@ -573,7 +605,11 @@ func (s *chatState) saveAutomation() {
 					as.draftBaseline = draft
 				}
 			}
+			as.runAfterSave = false
 			automationMu.Unlock()
+			if runSaved {
+				s.runAutomationNow(saved.ID)
+			}
 			if loadRuns {
 				s.loadAutomationRuns(saved.ID)
 			}
@@ -673,17 +709,32 @@ func (s *chatState) runAutomationNow(id string) {
 		as.runningIDs = make(map[string]bool)
 	}
 	as.runningIDs[id] = true
+	as.runRequest++
+	request, projectID, selection := as.runRequest, as.projectID, as.selectionVersion
 	automationMu.Unlock()
 	s.invalidate()
 
 	go func() {
 		ctx := context.Background()
-		_, err := s.client.RunAutomation(ctx, id)
+		run, err := s.client.RunAutomation(ctx, id)
+		activeProject := s.currentWorkspaceProjectID()
 
 		automationMu.Lock()
+		if as.projectID != projectID {
+			automationMu.Unlock()
+			return
+		}
 		delete(as.runningIDs, id)
+		current := activeProject == projectID && as.runRequest == request && as.selectedID == id && as.selectionVersion == selection
+		if current && err == nil {
+			openAutomationRun(as, run.ID)
+			as.runs = append([]AutomationRun{run}, as.runs...)
+		}
 		automationMu.Unlock()
 		s.invalidate()
+		if !current {
+			return
+		}
 
 		if err != nil {
 			if errors.Is(err, ErrAutomationSchedulerPassive) {
@@ -700,8 +751,25 @@ func (s *chatState) runAutomationNow(id string) {
 			s.invalidate()
 			return
 		}
+		if run.Status == "failed" || run.Status == "error" {
+			s.setToast("运行自动化失败: " + run.Error)
+		}
 		s.loadAutomationRuns(id)
 	}()
+}
+
+func (s *chatState) requestAutomationRun(id string) {
+	as := getAutomationState(s)
+	if as.selectedID == id && as.dirty() {
+		as.editorOpen = true
+		as.confirmRun = true
+		s.invalidate()
+		return
+	}
+	if as.editorOpen {
+		as.editorOpen = false
+	}
+	s.runAutomationNow(id)
 }
 
 // setAutomationEnabled 切换启用开关：复用 Update 调用，只改变 Enabled 字段。
@@ -1034,7 +1102,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 			if as.previewCancel != nil {
 				as.previewCancel()
 			}
-			*as = automationState{loadID: as.loadID, runsLoadID: as.runsLoadID, saveID: as.saveID, editSession: as.editSession + 1, watchStop: as.watchStop, runningIDs: make(map[string]bool), busyIDs: make(map[string]bool)}
+			*as = automationState{loadID: as.loadID, runsLoadID: as.runsLoadID, saveID: as.saveID, runRequest: as.runRequest + 1, selectionVersion: as.selectionVersion + 1, editSession: as.editSession + 1, watchStop: as.watchStop, runningIDs: make(map[string]bool), busyIDs: make(map[string]bool)}
 		}
 		as.projectID = curPID
 		as.initialized = true
@@ -1073,6 +1141,20 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 
 	// 搜索过滤与排序：汇总计数与列表都只看过滤后的集合
 	visible := filterAutomationStatus(autos, searchText, as.filter, as.unreadOnly, unread)
+	width, _ := c.Size()
+	narrow := width < automationNarrowWidth
+	if !as.editorOpen && c.Shortcut(ui.Cmd, ui.KeyN) && curPID != "" && !saving {
+		as.resetToNewAutomation(s)
+	}
+	if !as.editorOpen && !as.moreOpen && (as.openRunID != "" && as.detailTab == 0 || narrow && as.narrowDetail) && c.Shortcut(0, ui.KeyEscape) {
+		if as.openRunID != "" && as.detailTab == 0 {
+			as.openRunID = ""
+			s.invalidate()
+		} else if as.narrowDetail {
+			as.narrowDetail = false
+			s.invalidate()
+		}
+	}
 	// 未读运行记录总数：自动化入口角标依据
 	totalUnread := automationUnreadTotal(unread, autos)
 	// 当前选中自动化在已加载记录中是否还有未读：“全部标为已读”按钮依据
@@ -1089,9 +1171,6 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 			break
 		}
 	}
-
-	width, _ := c.Size()
-	narrow := width < automationNarrowWidth
 
 	ui.Column(c.Key("automation-workspace-root")).
 		Fill().
@@ -1281,7 +1360,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 							}
 
 							// 自动化列表项滚动区域
-							ui.Scroll(c.Key("automation-scroll-list")).
+							ui.Scroll(c.Key("automation-scroll-list")).TrackScroll(&as.listScroll).
 								Grow(1).
 								FillWidth().
 								Children(func() {
@@ -1289,12 +1368,12 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 										FillWidth().
 										Gap(Space3).
 										Children(func() {
-											for _, a := range visible {
+											for index, a := range visible {
 												autoVal := a
 												isSelected := autoVal.ID == selectedID && !isNew
 												pillText, pillKind := automationCardStatus(autoVal, runningIDs[autoVal.ID])
 												pillColor := automationCardStatusColor(c, pillKind)
-												itemRow := ui.Column(c.Key("automation-item-"+autoVal.ID)).
+												itemRow := ui.Column(c.Key("automation-item-"+autoVal.ID)).Focusable().
 													Label("自动化项 "+autoVal.Name).
 													Transition(motionListItem(c)).
 													FillWidth().
@@ -1302,6 +1381,27 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 													Radius(RadiusMD).
 													BorderWidth(Hairline).
 													Gap(Space3)
+												if as.keyboardFocusID == autoVal.ID {
+													itemRow.Focus()
+													as.keyboardFocusID = ""
+												}
+												if itemRow.Focused() && !as.editorOpen {
+													next := index
+													if itemRow.Shortcut(0, ui.KeyUp) {
+														next--
+													} else if itemRow.Shortcut(0, ui.KeyDown) {
+														next++
+													}
+													if next >= 0 && next < len(visible) && next != index {
+														as.keyboardFocusID = visible[next].ID
+														as.selectAutomation(visible[next], s)
+													}
+													if itemRow.Shortcut(0, ui.KeyEnter) {
+														as.fillAutomation(autoVal)
+														as.editorOpen = true
+														s.invalidate()
+													}
+												}
 
 												// 悬停：强调色边框 + 半透明底色
 												if isSelected {
@@ -1323,7 +1423,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 														AlignItems(ui.Center).
 														Gap(Space3).
 														Children(func() {
-															ui.Box(c.Key("automation-status-dot-"+autoVal.ID)).Size(8, 8).Radius(4).Background(pillColor).Label(pillText)
+															ui.Box(c.Key("automation-status-dot-"+autoVal.ID)).Size(Space3, Space3).Radius(RadiusXS).Background(pillColor).Label(pillText)
 
 															nameColor := ThemeSecondaryText(c)
 															if autoVal.Enabled {
@@ -1337,7 +1437,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 																SingleLine()
 
 															if unread[autoVal.ID] > 0 {
-																ui.Box(c.Key("automation-unread-dot-"+autoVal.ID)).Size(6, 6).Radius(3).Background(ThemeAccent(c)).Label("未读")
+																ui.Box(c.Key("automation-unread-dot-"+autoVal.ID)).Size(Space2, Space2).Radius(RadiusPill).Background(ThemeAccent(c)).Label("未读")
 															}
 														})
 
@@ -1397,7 +1497,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 										if ui.Switch(c.Key("automation-detail-toggle"), &enabled).Label("启用自动化").Disabled(busyIDs[selectedID]).Changed() {
 											s.setAutomationEnabled(selected, enabled)
 										}
-										Button(c.Key("automation-detail-run"), ButtonOpts{Text: "立即运行", Label: "auto-run-now-" + selectedID, Disabled: runningIDs[selectedID] || busyIDs[selectedID], OnClick: func() { s.runAutomationNow(selectedID) }, Variant: ButtonSecondary})
+										Button(c.Key("automation-detail-run"), ButtonOpts{Text: "立即运行", Label: "auto-run-now-" + selectedID, Disabled: runningIDs[selectedID] || busyIDs[selectedID], OnClick: func() { s.requestAutomationRun(selectedID) }, Variant: ButtonSecondary})
 										more := IconButton(c.Key("automation-detail-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "自动化更多操作", Variant: ButtonGhost, OnClick: func() { as.moreOpen = true }})
 										appPopover(c, more, &as.moreOpen, nil, func() {
 											popoverCard(c, ui.Column(c.Key("automation-more-menu"))).Padding(Space2, Space2).Gap(Space1).Children(func() {
@@ -1419,16 +1519,26 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 										if openRunID != "" {
 											scrollKey = "automation-history-detail-scroll"
 										}
-										ui.Scroll(c.Key(scrollKey)).Grow(1).FillWidth().Children(func() {
+										scroll := ui.Scroll(c.Key(scrollKey)).Grow(1).FillWidth()
+										if openRunID == "" {
+											scroll.TrackScroll(&as.historyScroll)
+										}
+										scroll.Children(func() {
 											renderAutomationRunHistory(c, s, as, false, selectedID, selectedUnread, includeArchived, runsLoading, runsErr, runs, runRead, runArchived, openRunID)
 										})
 									} else {
-										ui.Text(c, selected.Prompt).TextColor(ThemePrimaryText(c))
-										editButton := Button(c.Key("automation-edit"), ButtonOpts{Text: "编辑", OnClick: func() { as.fillAutomation(selected); as.editorOpen = true; s.invalidate() }, Variant: ButtonSecondary})
+										editButton := Button(c.Key("automation-edit"), ButtonOpts{Text: "编辑", OnClick: func() {
+											if !as.dirty() {
+												as.fillAutomation(selected)
+											}
+											as.editorOpen = true
+											s.invalidate()
+										}, Variant: ButtonSecondary})
 										if as.focusEditorTrigger {
 											editButton.Focus()
 											as.focusEditorTrigger = false
 										}
+										renderAutomationConfig(c, selected)
 									}
 								}
 							})
@@ -1439,7 +1549,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 		open := true
 		modalDragModal(c, "automation-editor-modal", &open, func() {
 			_, height := c.Size()
-			ui.Column(c.Key("automation-editor-card")).Width(700).Height(650).MaxWidth(700).MaxHeight(height-modalDragPanelInset).Background(ThemeSurface(c)).Radius(RadiusMD).Padding(Space5, Space5).Gap(Space4).Children(func() {
+			ui.Column(c.Key("automation-editor-card")).Width(700).MaxWidth(700).MaxHeight(height-modalDragPanelInset).Background(ThemeSurface(c)).Radius(RadiusMD).Padding(Space5, Space5).Gap(Space4).Children(func() {
 				renderAutomationEditor(c, s, as, isNew, selectedID, formErr, saving, confirmDelete, runningIDs, busyIDs, selectedUnread, includeArchived, runsLoading, runsErr, runs, runRead, runArchived, openRunID)
 			})
 		})
