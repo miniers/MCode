@@ -1924,6 +1924,8 @@ type ProviderConfig struct {
 	// 让支持的服务商（如 Anthropic）使用更长的 prompt 缓存，停顿较久的对话可以少付重新写缓存的费用，
 	// 代价是缓存写入单价更高。默认关闭。
 	PiCacheLong bool `json:"piCacheLong,omitempty"`
+	// McodeBlockCompaction 仅 mcode 内置 agent 使用；开启后使用分块压缩（150k 触发、判定窗口封顶 200k、摘要复用主对话缓存），关闭时只在接近窗口上限时整段压缩。默认关闭。
+	McodeBlockCompaction bool `json:"mcodeBlockCompaction,omitempty"`
 	// PiVisionModel 仅 pi 使用：格式为 provider/model。填了以后 pi 会提供 vision 工具，
 	// 当前模型看不了图片时用这个模型描述图片；留空则不提供。
 	PiVisionModel string `json:"piVisionModel,omitempty"`

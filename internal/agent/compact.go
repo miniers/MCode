@@ -438,14 +438,21 @@ func hasSummarizablePrefix(messages []llm.Message, cut int) bool {
 
 // compactMessages 把切点之前的消息总结成一条摘要消息。
 // 返回 nil 表示没有合法切点，调用方应保持原消息不变。
-func compactMessages(ctx context.Context, client llm.Client, base llm.Request, window, overhead int) (*compactionResult, error) {
+func compactMessages(ctx context.Context, client llm.Client, base llm.Request, window, overhead int, shared bool) (*compactionResult, error) {
 	messages := base.Messages
 	cut := findCut(messages, window)
 	if cut <= 0 {
 		return nil, nil
 	}
 	before := tokensForMessages(messages) + overhead
-	summary, usage, err := summarize(ctx, client, base, 0, cut, window, overhead)
+	var summary string
+	var usage llm.Usage
+	var err error
+	if shared {
+		summary, usage, err = summarize(ctx, client, base, 0, cut, window, overhead)
+	} else {
+		summary, usage, err = summarizeTruncated(ctx, client, base.Model, messages[:cut], window)
+	}
 	result := &compactionResult{Usage: usage}
 	if err != nil {
 		return result, err

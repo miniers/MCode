@@ -663,6 +663,11 @@ var pageSwarm = settingsPage{
 				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoPopsBees }, true)),
 			},
 			{
+				ID: "row-swarm-block-compaction", Title: "分块压缩上下文",
+				Aliases: []string{"子代理上下文较大时分段压缩并复用缓存，关闭时接近上限才整段压缩"},
+				Control: toggle(val(func(c *config.Config) *bool { return &c.Providers.Mcode.McodeBlockCompaction }, false)),
+			},
+			{
 				ID: "row-swarm-archives-codex-bees", Title: "Codex 子会话历史", Lock: "swarm-archives-codex-bees",
 				Aliases: []string{"只归档成功完成的 Codex 子会话，可后续恢复"},
 				Control: swarmPickerControl{

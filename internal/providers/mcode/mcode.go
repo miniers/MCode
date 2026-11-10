@@ -44,6 +44,8 @@ type Options struct {
 	// ContextWindow 返回模型的上下文窗口（tokens）；
 	// 可以为 nil，返回 0 表示未知。
 	ContextWindow func(model string) int
+	// BlockCompaction 返回是否开启分块压缩；nil 时视为关闭。
+	BlockCompaction func() bool
 	// MaxTokens 返回每个模型请求的输出上限（tokens）；
 	// 可以为 nil，返回 0 表示交给 llm 层按模型取默认值。
 	MaxTokens func(model string) int
@@ -261,7 +263,8 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		Env:  tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, ReadOnlyDirs: turn.ReadOnlyDirs, Sandbox: turn.Sandbox, Mode: turn.Mode, ExtraEnv: extraEnv},
 		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", HardLocked: turn.HardLocked, HardLockOverride: turn.HardLockOverride, Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
 		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, ContextWindow: contextWindow,
-		Emit: runEmit,
+		BlockCompaction: h.opts.BlockCompaction != nil && h.opts.BlockCompaction(),
+		Emit:            runEmit,
 	}
 	if h.opts.MaxTokens != nil {
 		agentOpts.MaxTokens = func(string) int { return h.opts.MaxTokens(metaModel) }

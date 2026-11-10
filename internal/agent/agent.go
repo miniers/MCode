@@ -43,6 +43,8 @@ type Options struct {
 	HardLockOverride string
 	// ContextWindow 是模型上下文窗口的 token 数，为 0 时使用默认值。
 	ContextWindow int
+	// BlockCompaction 开启分块压缩和共享前缀摘要。
+	BlockCompaction bool
 	// MaxTokens 返回每个模型请求的输出上限；为 nil 或返回 0 时由 llm 层按模型取默认值。
 	MaxTokens func(model string) int
 	// Steer 取出并清空待处理的插话文本，每条作为一条 user 消息追加；可以为 nil。
@@ -71,7 +73,9 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	if window <= 0 {
 		window = defaultContextWindow
 	}
-	window = min(window, compactionBudget)
+	if opts.BlockCompaction {
+		window = min(window, compactionBudget)
+	}
 	var messages []llm.Message
 	hasFolded := false
 	// contextTokens/contextMeasured 记录最近一次用量对应的上下文大小和消息数量，之后的消息按字符估算。
@@ -230,7 +234,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			}
 			input = historyFromEntries(entries)
 		}
-		result, err := compactMessages(ctx, opts.Client, requestForMessages(input), window, overhead)
+		result, err := compactMessages(ctx, opts.Client, requestForMessages(input), window, overhead, opts.BlockCompaction)
 		addCompactionUsage(result)
 		if err != nil || result == nil {
 			return nil, err
@@ -303,7 +307,10 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		}
 		if autoCompact {
 			total := estimateContextTokens(messages, contextTokens, contextMeasured)
-			normal, emergency := compactionPressure(window, total)
+			var normal, emergency bool
+			if opts.BlockCompaction {
+				normal, emergency = compactionPressure(window, total)
+			}
 			var err error
 			// 压缩是为后续调用腾出空间；失败时保留原上下文继续，让模型调用自己给出结论。
 			if emergency || total > compactThreshold(window) {

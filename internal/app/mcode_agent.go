@@ -287,6 +287,9 @@ func mcodeEngineOptions(kind harness.Kind, cfg config.Config, secrets config.Sec
 	return providermcode.Options{
 		StoreDir:  storeDir,
 		MaxRounds: 0,
+		BlockCompaction: func() bool {
+			return mcodeCurrentConfig(cfg, secrets).Providers.Mcode.McodeBlockCompaction
+		},
 		SystemPrompt: func(turn harness.Turn, toolNames []string) string {
 			home, _ := os.UserHomeDir()
 			return prompt.Build(prompt.Options{
