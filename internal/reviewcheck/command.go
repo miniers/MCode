@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"mcode/internal/procutil"
 )
 
 const (
@@ -280,30 +282,10 @@ func outputBufferLimit(maxOutput int) int {
 	return limit
 }
 
-// tailBuffer 是只保留末尾 limit 字节的 io.Writer。
-type tailBuffer struct {
-	buf   []byte
-	limit int
-}
-
 // newTailBuffer 创建指定上限的尾部缓冲。
-func newTailBuffer(limit int) *tailBuffer {
+func newTailBuffer(limit int) *procutil.TailBuffer {
 	if limit <= 0 {
 		limit = defaultTailBytes
 	}
-	return &tailBuffer{limit: limit}
-}
-
-// Write 追加内容并裁掉超出上限的开头部分。
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.limit {
-		b.buf = b.buf[len(b.buf)-b.limit:]
-	}
-	return len(p), nil
-}
-
-// String 返回当前保留的内容。
-func (b *tailBuffer) String() string {
-	return string(b.buf)
+	return procutil.NewTailBuffer(limit)
 }

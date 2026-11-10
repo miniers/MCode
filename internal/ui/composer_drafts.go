@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mcode/internal/fsutil"
 )
 
 // 草稿按会话隔离并在重启后恢复文本。
@@ -89,25 +91,7 @@ func saveComposerDrafts(m map[string]string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, composerDraftsFileName+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return fsutil.WriteFileAtomic(path, data, 0o600)
 }
 
 // applyComposerDrafts 把持久化的草稿文本填入 state（仅文本，附件不落盘），窗口构建时调用一次。

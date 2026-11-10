@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/fsutil"
 	"mcode/internal/providers/agy/accounts"
 )
 
@@ -174,25 +175,7 @@ func saveProviderStatusCache(path string, cache providerStatusCache) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, providerStatusCacheFileName+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return fsutil.WriteFileAtomic(path, data, 0o600)
 }
 
 // applyProviderStatusCache 用缓存快照填充供应商行状态，供页面打开时立即渲染（调用方需持有 st.mu）。

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/plugins/terminal"
+	"mcode/internal/fsutil"
 )
 
 // 终端会话的持久化：把每个会话（thread）的标签列表与最近一段回滚输出写到
@@ -125,29 +126,7 @@ func saveTerminalThreadSnapshot(snap terminalThreadSnapshot) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return fsutil.WriteFileAtomic(path, data, 0o600)
 }
 
 // loadTerminalThreadSnapshot 读取快照；文件缺失或内容损坏时返回 false（按没有记录处理）。
