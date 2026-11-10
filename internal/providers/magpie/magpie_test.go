@@ -348,6 +348,51 @@ func TestCachedModels(t *testing.T) {
 	}
 }
 
+func TestRefreshModelsBypassesCache(t *testing.T) {
+	resetModelsCache(t)
+	var hits, response int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		switch atomic.LoadInt32(&response) {
+		case 0:
+			io.WriteString(w, `{"data":[{"id":"a"}]}`)
+		case 1:
+			io.WriteString(w, `{"data":[{"id":"a"},{"id":"b"}]}`)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	base, key := srv.URL+"/v1", "key-refresh"
+	models, err := FetchModels(ctx, base, key)
+	if err != nil || len(models) != 1 || models[0].ID != "a" {
+		t.Fatalf("首次读取 = %v，错误 = %v", models, err)
+	}
+	atomic.StoreInt32(&response, 1)
+	models, err = FetchModels(ctx, base, key)
+	if err != nil || len(models) != 1 || models[0].ID != "a" || atomic.LoadInt32(&hits) != 1 {
+		t.Fatalf("缓存读取 = %v，错误 = %v，请求次数 = %d", models, err, atomic.LoadInt32(&hits))
+	}
+	models, err = RefreshModels(ctx, base, key)
+	if err != nil || len(models) != 2 || models[0].ID != "a" || models[1].ID != "b" || atomic.LoadInt32(&hits) != 2 {
+		t.Fatalf("刷新 = %v，错误 = %v，请求次数 = %d", models, err, atomic.LoadInt32(&hits))
+	}
+	models, ok := CachedModels(base, key)
+	if !ok || len(models) != 2 || models[1].ID != "b" {
+		t.Fatalf("刷新后缓存 = %v，命中 = %v", models, ok)
+	}
+	atomic.StoreInt32(&response, 2)
+	if _, err := RefreshModels(ctx, base, key); err == nil {
+		t.Fatal("刷新失败时应返回错误")
+	}
+	models, ok = CachedModels(base, key)
+	if !ok || len(models) != 2 || models[0].ID != "a" || models[1].ID != "b" {
+		t.Fatalf("失败后缓存 = %v，命中 = %v", models, ok)
+	}
+}
+
 func TestFetchModelsErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

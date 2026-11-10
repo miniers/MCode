@@ -458,6 +458,7 @@ type FakeClient struct {
 
 	customEndpoints           []CustomEndpoint
 	piMagpieEndpoints         []PiMagpieEndpoint
+	refreshPiMagpieCalls      int
 	saveCustomEndpointCalls   []CustomEndpoint
 	saveCustomEndpointKeys    []string
 	saveCustomEndpointWebKeys []string
@@ -4348,6 +4349,20 @@ func (f *FakeClient) PiMagpieEndpoints(ctx context.Context) ([]PiMagpieEndpoint,
 		res[i] = ep
 	}
 	return res, nil
+}
+
+func (f *FakeClient) RefreshPiMagpieEndpoints(ctx context.Context) ([]PiMagpieEndpoint, error) {
+	f.mu.Lock()
+	f.refreshPiMagpieCalls++
+	f.mu.Unlock()
+	return f.PiMagpieEndpoints(ctx)
+}
+
+// RefreshPiMagpieEndpointsCalls 返回强制刷新端点的调用次数（测试用）。
+func (f *FakeClient) RefreshPiMagpieEndpointsCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.refreshPiMagpieCalls
 }
 
 // SetPiMagpieEndpoints 设置 PiMagpieEndpoints 返回的假数据。

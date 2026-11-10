@@ -13,6 +13,7 @@ import (
 type piMagpieState struct {
 	loading        bool
 	refreshPending bool
+	force          bool // 下一次加载绕过后端的模型缓存。
 	generation     uint64
 	loaded         bool
 	err            string             // 最近一次加载失败信息
@@ -41,7 +42,24 @@ func (st *SettingsState) loadPiMagpieEndpoints() {
 
 	go func() {
 		for {
-			endpoints, err := client.PiMagpieEndpoints(context.Background())
+			st.mu.Lock()
+			force := st.piMagpie.force
+			st.piMagpie.force = false
+			st.mu.Unlock()
+			var endpoints []PiMagpieEndpoint
+			var err error
+			if force {
+				endpoints, err = client.RefreshPiMagpieEndpoints(context.Background())
+			} else {
+				endpoints, err = client.PiMagpieEndpoints(context.Background())
+			}
+			if force && err == nil {
+				// 缓存已是最新，让各 agent 的快照与供应商目录读到同一份。
+				for _, agent := range magpieMatrixAgents {
+					st.reloadAgentMagpie(agent)
+				}
+				refreshCatalogProviders(st, client)
+			}
 
 			st.mu.Lock()
 			if generation == st.piMagpie.generation {
@@ -69,6 +87,14 @@ func (st *SettingsState) loadPiMagpieEndpoints() {
 			return
 		}
 	}()
+}
+
+// refreshPiMagpieEndpoints 绕过模型缓存重读 Magpie 端点，完成后同步各 agent 的快照与供应商目录。
+func (st *SettingsState) refreshPiMagpieEndpoints() {
+	st.mu.Lock()
+	st.piMagpie.force = true
+	st.mu.Unlock()
+	st.loadPiMagpieEndpoints()
 }
 
 // refreshPiMagpieSnapshots 在勾选保存结束后同步 pi 的两份快照：piMagpie 端点用于模型

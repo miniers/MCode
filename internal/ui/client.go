@@ -1424,6 +1424,8 @@ type Client interface {
 	RefreshThreadQuota(ctx context.Context, threadID, provider string) error
 	// PiMagpieEndpoints 列出启用的 Magpie 端点及可注入 pi 的模型。
 	PiMagpieEndpoints(ctx context.Context) ([]PiMagpieEndpoint, error)
+	// RefreshPiMagpieEndpoints 绕过模型缓存重新读取各 Magpie 端点的模型，返回与 PiMagpieEndpoints 相同的列表。
+	RefreshPiMagpieEndpoints(ctx context.Context) ([]PiMagpieEndpoint, error)
 	// MagpiePersonas 返回当前 provider/model 对应 magpie 网关的人设列表，非 magpie 或读不到时返回空。
 	MagpiePersonas(ctx context.Context, provider, model string) ([]MagpiePersona, error)
 	// SetPiMagpieModels 保存指定端点勾选的模型。

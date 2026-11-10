@@ -289,7 +289,21 @@ func FetchModels(ctx context.Context, baseURL, apiKey string) ([]Model, error) {
 		}
 		return models, nil
 	}
+	return fetchModels(ctx, base, key, cacheKey, now)
+}
 
+// RefreshModels 绕过缓存重新读取模型目录，成功后覆盖缓存；失败时保留未过期的成功缓存，错误原样返回。
+func RefreshModels(ctx context.Context, baseURL, apiKey string) ([]Model, error) {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	key := strings.TrimSpace(apiKey)
+	if base == "" {
+		return nil, errors.New("magpie: 未配置端点地址")
+	}
+	cacheKey := base + "\x00" + key
+	return fetchModels(ctx, base, key, cacheKey, time.Now())
+}
+
+func fetchModels(ctx context.Context, base, key, cacheKey string, now time.Time) ([]Model, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("magpie: 创建模型列表请求失败: %w", err)

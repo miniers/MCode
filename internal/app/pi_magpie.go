@@ -403,6 +403,15 @@ func (c *Client) piMagpieQuota(ctx context.Context, providerID string) ([]mcodeu
 // PiMagpieEndpoints 列出当前配置里启用的 Magpie 端点、各端点可选的模型与已勾选模型。
 // 拉取失败的端点把错误写进 Err、Models 留空；没配 key 的端点不请求网关。
 func (c *Client) PiMagpieEndpoints(ctx context.Context) ([]mcodeui.PiMagpieEndpoint, error) {
+	return c.piMagpieEndpoints(ctx, magpie.FetchModels)
+}
+
+// RefreshPiMagpieEndpoints 与 PiMagpieEndpoints 相同，但绕过模型缓存重新向各端点读取；读取失败的端点同样把错误写进 Err。
+func (c *Client) RefreshPiMagpieEndpoints(ctx context.Context) ([]mcodeui.PiMagpieEndpoint, error) {
+	return c.piMagpieEndpoints(ctx, magpie.RefreshModels)
+}
+
+func (c *Client) piMagpieEndpoints(ctx context.Context, fetch func(context.Context, string, string) ([]magpie.Model, error)) ([]mcodeui.PiMagpieEndpoint, error) {
 	cfg, ok := c.loadConfig()
 	if !ok {
 		return nil, errors.New("dataDir 未初始化")
@@ -427,7 +436,7 @@ func (c *Client) PiMagpieEndpoints(ctx context.Context) ([]mcodeui.PiMagpieEndpo
 			continue
 		}
 		fetchCtx, cancel := context.WithTimeout(ctx, piMagpieFetchTimeout)
-		models, err := magpie.FetchModels(fetchCtx, target.baseURL, target.apiKey)
+		models, err := fetch(fetchCtx, target.baseURL, target.apiKey)
 		cancel()
 		if err != nil {
 			ep.Err = err.Error()

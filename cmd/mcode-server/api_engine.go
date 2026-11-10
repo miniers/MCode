@@ -260,7 +260,7 @@ func registerAPIEngines(backend *remote.MemoryBackend, cfg config.Config, secret
 				if !ok || !s.Magpie {
 					return fmt.Errorf("来源 %s 未启用或已删除", kind)
 				}
-				_, err := magpie.FetchModels(ctx, s.BaseURL, s.APIKey(secrets))
+				_, err := magpie.RefreshModels(ctx, s.BaseURL, s.APIKey(secrets))
 				return err
 			}
 		}

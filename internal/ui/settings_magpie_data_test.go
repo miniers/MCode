@@ -90,3 +90,44 @@ func TestMagpieRefreshQueuesAndDiscardsStaleSnapshot(t *testing.T) {
 		})
 	}
 }
+
+func TestMagpieRefreshBypassesCacheAndReloadsAgents(t *testing.T) {
+	client := NewFakeClient()
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(client))
+	wait := func(ready func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(time.Second)
+		for !ready() {
+			if time.Now().After(deadline) {
+				t.Fatal("等待 Magpie 刷新超时")
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	loaded := func() bool {
+		_, loading, _, _, _ := magpieEndpointsFor(st, "pi")
+		return !loading
+	}
+	st.loadPiMagpieEndpoints()
+	wait(loaded)
+	if got := client.RefreshPiMagpieEndpointsCalls(); got != 0 {
+		t.Fatalf("普通加载的强制刷新次数 = %d，想要 0", got)
+	}
+	st.refreshPiMagpieEndpoints()
+	wait(loaded)
+	if got := client.RefreshPiMagpieEndpointsCalls(); got != 1 {
+		t.Fatalf("强制刷新次数 = %d，想要 1", got)
+	}
+	wait(func() bool {
+		seen := make(map[string]bool)
+		for _, agent := range client.AgentMagpieCalls() {
+			seen[agent] = true
+		}
+		for _, agent := range magpieMatrixAgents {
+			if !seen[agent] {
+				return false
+			}
+		}
+		return true
+	})
+}

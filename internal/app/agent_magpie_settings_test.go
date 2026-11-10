@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"mcode/internal/config"
@@ -349,6 +350,49 @@ func TestAgentMagpieOffPiInjection(t *testing.T) {
 	if err != nil || len(endpoints) != 1 || !reflect.DeepEqual(endpoints[0].Selected, []string{"model"}) {
 		t.Fatalf("pi 端点 = %+v，错误 = %v", endpoints, err)
 	}
+}
+
+func TestRefreshPiMagpieEndpointsBypassesCache(t *testing.T) {
+	var added atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		if added.Load() {
+			_, _ = io.WriteString(w, `{"data":[{"id":"a"},{"id":"b"}]}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":[{"id":"a"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	env := newAgentMagpieTestEnv(t, srv.URL)
+	if err := env.client.secrets.Set(config.CustomEndpointSecretAccount("jp"), "key-refresh-pi-endpoints"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	check := func(endpoints []mcodeui.PiMagpieEndpoint, err error, want ...string) {
+		t.Helper()
+		if err != nil || len(endpoints) != 1 || endpoints[0].Err != "" {
+			t.Fatalf("端点 = %+v，错误 = %v", endpoints, err)
+		}
+		var ids []string
+		for _, model := range endpoints[0].Models {
+			ids = append(ids, model.ID)
+		}
+		if !reflect.DeepEqual(ids, want) {
+			t.Fatalf("模型 = %v，想要 %v", ids, want)
+		}
+	}
+	endpoints, err := env.client.PiMagpieEndpoints(ctx)
+	check(endpoints, err, "a")
+	added.Store(true)
+	endpoints, err = env.client.PiMagpieEndpoints(ctx)
+	check(endpoints, err, "a")
+	endpoints, err = env.client.RefreshPiMagpieEndpoints(ctx)
+	check(endpoints, err, "a", "b")
+	endpoints, err = env.client.PiMagpieEndpoints(ctx)
+	check(endpoints, err, "a", "b")
 }
 
 // TestAgentMagpieEndpointSelection 校验读取接口返回端点、可选模型与已勾选模型，

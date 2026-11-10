@@ -75,7 +75,7 @@ func newSourceEngineHarness(kind harness.Kind, cfg config.Config, secrets config
 		}
 		ctx, cancel := context.WithTimeout(ctx, apiModelRequestTimeout)
 		defer cancel()
-		_, err := magpie.FetchModels(ctx, currentSource.BaseURL, currentSource.APIKey(store))
+		_, err := magpie.RefreshModels(ctx, currentSource.BaseURL, currentSource.APIKey(store))
 		return err
 	}
 	availability := &sourceAvailability{}

@@ -248,7 +248,7 @@ func renderMagpieGatewaySheetBody(c *ui.Context, st *SettingsState, gatewayID st
 				ui.Row(c.Key("magpie-sheet-operations")).Gap(settingsCompactPadX).Children(func() {
 					refresh := ui.ButtonBase(c.Key("magpie-sheet-refresh")).Label("刷新").Disabled(busy)
 					if refresh.Clicked() {
-						st.loadPiMagpieEndpoints()
+						st.refreshPiMagpieEndpoints()
 						st.invalidate()
 					}
 					refresh.Children(func() { ui.Text(c, "刷新") })
