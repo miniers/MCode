@@ -14,6 +14,7 @@ import (
 	"mcode/internal/agent"
 	"mcode/internal/agent/gate"
 	"mcode/internal/agent/llm"
+	"mcode/internal/agent/sandbox"
 	"mcode/internal/agent/session"
 	"mcode/internal/agent/shell"
 	"mcode/internal/agent/tools"
@@ -260,7 +261,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	defer func() { h.unregisterRun(sessionID) }()
 	agentOpts := agent.Options{
 		Client: client, Model: modelID, Effort: turn.Effort, System: system, Tools: toolset,
-		Env:  tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, ReadOnlyDirs: turn.ReadOnlyDirs, Sandbox: turn.Sandbox, Mode: turn.Mode, ExtraEnv: extraEnv},
+		Env:  tools.Env{WorkDir: turn.WorkDir, AdditionalDirs: turn.AdditionalDirs, ReadOnlyDirs: turn.ReadOnlyDirs, Sandbox: bashSandbox(turn), Mode: turn.Mode, ExtraEnv: extraEnv},
 		Mode: turn.Mode, Plan: turn.InteractionMode == "plan", HardLocked: turn.HardLocked, HardLockOverride: turn.HardLockOverride, Approver: turn.Approver, Gate: h.gateFor(turn.ThreadID),
 		Store: store, SessionID: turn.SessionID, MaxRounds: h.opts.MaxRounds, ContextWindow: contextWindow,
 		BlockCompaction: h.opts.BlockCompaction != nil && h.opts.BlockCompaction(),
@@ -303,6 +304,16 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		prompt = strings.Join(leftovers, "\n\n")
 		images = nil
 	}
+}
+
+func bashSandbox(turn harness.Turn) harness.Sandbox {
+	if turn.Sandbox != nil {
+		return turn.Sandbox
+	}
+	if turn.Mode == harness.ModeReadOnly || turn.InteractionMode == "plan" {
+		return sandbox.ReadOnly()
+	}
+	return nil
 }
 
 // Steer 向正在执行的会话追加一段插话，下一次模型调用前作为 user 消息注入。

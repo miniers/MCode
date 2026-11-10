@@ -13,6 +13,34 @@ import (
 	"mcode/internal/harness"
 )
 
+func TestSandboxedReadOnly(t *testing.T) {
+	for _, tc := range []struct {
+		command         string
+		mode            harness.PermissionMode
+		plan, sandboxed bool
+		want            Action
+	}{
+		{`python3 -c 'open("x","w")'`, harness.ModeReadOnly, false, true, Allow},
+		{"sed -i s/a/b/ f", harness.ModeReadOnly, false, true, Allow},
+		{"make -n", harness.ModeReadOnly, false, true, Allow},
+		{"go test ./...", harness.ModeReadOnly, false, true, Allow},
+		{"git push", harness.ModeReadOnly, false, true, Deny},
+		{"gh pr create", harness.ModeReadOnly, false, true, Deny},
+		{"cat ~/.ssh/id_rsa", harness.ModeReadOnly, false, true, Ask},
+		{`python3 -c 'open("x","w")'`, harness.ModeReadOnly, false, false, Deny},
+		{"sed -i s/a/b/ f", harness.ModeReadOnly, false, false, Deny},
+		{"python3 -c 'print(1)'", harness.ModeAuto, true, true, Allow},
+		{"git push", harness.ModeAuto, true, true, Deny},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			args, _ := json.Marshal(map[string]string{"command": tc.command})
+			if got := Check(Input{Mode: tc.mode, Plan: tc.plan, Sandboxed: tc.sandboxed, ToolName: "bash", Args: args}); got.Action != tc.want {
+				t.Errorf("得到 %+v，期望 %s", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMagpieSearchPermissions(t *testing.T) {
 	for _, mode := range []harness.PermissionMode{harness.ModeAuto, harness.ModeAutoAcceptEdits, harness.ModeReadOnly} {
 		for _, name := range []string{"mcp__magpie_search__web_search", "mcp__magpie_search__web_fetch"} {

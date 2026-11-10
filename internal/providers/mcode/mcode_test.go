@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"mcode/internal/agent/llm"
+	"mcode/internal/agent/sandbox"
 	"mcode/internal/agent/tools"
 	"mcode/internal/harness"
 )
@@ -42,6 +44,43 @@ func toolCall(name, id, args string) *llm.Response {
 func harnessFor(client llm.Client, opts Options) *Harness {
 	opts.ResolveClient = func(_ context.Context, model, _ string) (llm.Client, string, error) { return client, model, nil }
 	return New(opts)
+}
+
+type fakeBashSandbox struct{}
+
+func (*fakeBashSandbox) Command(context.Context, string, harness.PermissionMode, string, ...string) (*exec.Cmd, func(), error) {
+	return nil, nil, nil
+}
+
+func TestBashSandbox(t *testing.T) {
+	explicit := &fakeBashSandbox{}
+	for _, tt := range []struct {
+		name     string
+		turn     harness.Turn
+		explicit bool
+		readOnly bool
+	}{
+		{name: "explicit", turn: harness.Turn{Sandbox: explicit}, explicit: true},
+		{name: "explicit read only plan", turn: harness.Turn{Sandbox: explicit, Mode: harness.ModeReadOnly, InteractionMode: "plan"}, explicit: true},
+		{name: "auto", turn: harness.Turn{Mode: harness.ModeAuto}},
+		{name: "read only", turn: harness.Turn{Mode: harness.ModeReadOnly}, readOnly: true},
+		{name: "plan", turn: harness.Turn{Mode: harness.ModeAuto, InteractionMode: "plan"}, readOnly: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := bashSandbox(tt.turn)
+			if tt.explicit {
+				if got != explicit {
+					t.Fatalf("explicit sandbox replaced: %T", got)
+				}
+			} else if tt.readOnly {
+				if sandbox.IsReadOnly(got) != (sandbox.ReadOnly() != nil) {
+					t.Fatalf("read-only sandbox = %T", got)
+				}
+			} else if got != nil {
+				t.Fatalf("unexpected sandbox: %T", got)
+			}
+		})
+	}
 }
 
 func TestKind(t *testing.T) {

@@ -17,8 +17,10 @@ import (
 
 // Input 保存一次工具调用的门禁输入，对应 TS 的 gate、event 和 cwd。
 type Input struct {
-	Mode        harness.PermissionMode
-	Plan        bool
+	Mode harness.PermissionMode
+	Plan bool
+	// Sandboxed 为 true 表示 bash 在只读 OS 沙箱里运行，本地写入由内核拦截，门禁只拦远程写。
+	Sandboxed   bool
 	FinalReport bool
 	ToolName    string
 	ToolID      string
@@ -163,7 +165,8 @@ func Check(in Input) Verdict {
 	if in.FinalReport {
 		return Verdict{Action: Deny, Reason: "Blocked by mcode: this turn is only for the final report, so tools are off."}
 	}
-	reads := IsLookOnly(in.ToolName) || kind == harness.RequestKindCommand && OnlyReads(command) || webFetch
+	commandReads := kind == harness.RequestKindCommand && (OnlyReads(command) || in.Sandboxed && !RemoteWrites(command))
+	reads := IsLookOnly(in.ToolName) || commandReads || webFetch
 	// 计划模式允许无敏感内容的调研，内置 MCP 交给常规规则。
 	if in.Plan {
 		if reads {
@@ -176,13 +179,16 @@ func Check(in Input) Verdict {
 	}
 	if in.Mode == harness.ModeReadOnly && !reads && !in.ReadOnlyHint {
 		if in.ToolName == "bash" {
+			if in.Sandboxed {
+				return Verdict{Action: Deny, Reason: "只读档不能向远程写入（git push、curl 提交数据、gh 写操作、ssh 等），请只做调研。"}
+			}
 			return Verdict{Action: Deny, Reason: "只读档只能运行只读命令，请使用 ls、cat、sed -n、rg、git log、go doc 或 read/grep 工具，不要换写法重试被拒的命令。"}
 		}
 		return Verdict{Action: Deny, Reason: "只读模式不允许修改：" + in.ToolName}
 	}
 	// 敏感调用总要询问，其余按模式决定放行。
 	if sensitive == "" {
-		if IsLookOnly(in.ToolName) || in.Mode == harness.ModeReadOnly && in.ReadOnlyHint || in.Mode == harness.ModeFullAccess || webFetch && (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits) && kind == harness.RequestKindFileChange || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) && kind == harness.RequestKindCommand && OnlyReads(command) {
+		if IsLookOnly(in.ToolName) || in.Mode == harness.ModeReadOnly && in.ReadOnlyHint || in.Mode == harness.ModeFullAccess || webFetch && (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits) && kind == harness.RequestKindFileChange || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) && commandReads {
 			return Verdict{Action: Allow}
 		}
 	}
