@@ -14,6 +14,7 @@ import (
 
 	"mcode/internal/agent/gate"
 	"mcode/internal/agent/llm"
+	"mcode/internal/agent/sandbox"
 	"mcode/internal/agent/session"
 	"mcode/internal/agent/tools"
 	"mcode/internal/harness"
@@ -575,7 +576,7 @@ func resolveTool(opts Options, call llm.ToolCall) (*tools.Tool, gate.Verdict) {
 	if tool == nil {
 		return nil, gate.Verdict{}
 	}
-	verdict := gate.Check(gate.Input{Mode: opts.Mode, Plan: opts.Plan, HardLocked: opts.HardLocked, HardLockOverride: opts.HardLockOverride, ToolName: call.Name, ToolID: call.ID, Args: call.Arguments, ReadOnlyHint: tool.ReadOnly, WorkDir: opts.Env.WorkDir, AdditionalDirs: opts.Env.AdditionalDirs})
+	verdict := gate.Check(gate.Input{Mode: opts.Mode, Plan: opts.Plan, Sandboxed: sandbox.IsReadOnly(opts.Env.Sandbox), HardLocked: opts.HardLocked, HardLockOverride: opts.HardLockOverride, ToolName: call.Name, ToolID: call.ID, Args: call.Arguments, ReadOnlyHint: tool.ReadOnly, WorkDir: opts.Env.WorkDir, AdditionalDirs: opts.Env.AdditionalDirs})
 	return tool, verdict
 }
 

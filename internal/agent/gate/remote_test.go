@@ -7,6 +7,10 @@ func TestRemoteWrites(t *testing.T) {
 		command string
 		want    bool
 	}{
+		{"git --git-dir /x push", true}, {"git --work-tree /w --git-dir /x push origin", true}, {"git --namespace n push", true},
+		{"git --super-prefix x push", true}, {"git --config-env x push", true},
+		{"git --git-dir", true}, {"git --work-tree", true}, {"git --namespace", true}, {"git --super-prefix", true}, {"git --config-env", true},
+		{"git --git-dir /x log", false}, {"git --git-dir=/x status", false},
 		{"git push", true}, {"git -C /x push origin main", true}, {`bash -c "git push"`, true}, {`sh -lc 'cd x && git push'`, true}, {"echo $(git push)", true}, {"echo \"$(git push)\"", true}, {"echo `git push`", true}, {"env FOO=1 git push", true}, {"timeout 10 git push", true}, {"xargs git push", true}, {"eval git push", true},
 		{"curl -X POST https://x", true}, {"curl -XPUT https://x", true}, {"curl --request=DELETE https://x", true}, {"curl -d a=b https://x", true}, {"curl -sd a https://x", true}, {"curl --data-binary @f https://x", true}, {"curl --json '{}' https://x", true}, {"curl -F f=@a https://x", true}, {"curl -T f https://x", true}, {"wget --post-data=a https://x", true},
 		{"gh pr create", true}, {"gh issue comment 1 -b x", true}, {"gh api -X DELETE repos/a/b", true}, {"gh api repos/a/b/issues -f title=x", true}, {"gh repo delete a/b", true}, {"ssh host ls", true}, {"scp a host:b", true}, {"rsync -a a host:b", true}, {"npm publish", true}, {"docker push img", true}, {"echo 'unterminated", true},

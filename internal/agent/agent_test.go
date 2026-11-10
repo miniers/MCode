@@ -12,6 +12,7 @@ import (
 
 	"mcode/internal/agent/gate"
 	"mcode/internal/agent/llm"
+	"mcode/internal/agent/sandbox"
 	"mcode/internal/agent/session"
 	"mcode/internal/agent/tools"
 	"mcode/internal/harness"
@@ -70,6 +71,37 @@ func testTool(name string) tools.Tool {
 	return tools.Tool{Name: name, Parameters: json.RawMessage(`{"type":"object"}`), Run: func(context.Context, tools.Env, json.RawMessage) (tools.Result, error) {
 		return tools.Result{Text: "result"}, nil
 	}}
+}
+
+func TestResolveToolReadOnlySandbox(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		command   string
+		sandboxed bool
+		want      gate.Action
+	}{
+		{"sandboxed python", "python3 -c 'print(1)'", true, gate.Allow},
+		{"unsandboxed python", "python3 -c 'print(1)'", false, gate.Deny},
+		{"sandboxed git push", "git push", true, gate.Deny},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := Options{Mode: harness.ModeReadOnly, Tools: []tools.Tool{tools.BashTool()}}
+			if tc.sandboxed {
+				opts.Env.Sandbox = sandbox.ReadOnly()
+				if opts.Env.Sandbox == nil {
+					t.Skip("只读沙箱在此平台不可用")
+				}
+			}
+			args, err := json.Marshal(map[string]string{"command": tc.command})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tool, verdict := resolveTool(opts, llm.ToolCall{Name: "bash", Arguments: args})
+			if tool == nil || verdict.Action != tc.want {
+				t.Fatalf("resolveTool() = %v, %v; want action %v", tool, verdict.Action, tc.want)
+			}
+		})
+	}
 }
 
 func loadMessages(t *testing.T, store *session.Store, id string) []llm.Message {

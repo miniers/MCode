@@ -232,7 +232,7 @@ func remoteCommand(t []string, depth int) bool {
 			for len(t) > 0 && strings.HasPrefix(t[0], "-") {
 				a := t[0]
 				t = t[1:]
-				if a == "-C" || a == "-c" {
+				if a == "-C" || a == "-c" || a == "--git-dir" || a == "--work-tree" || a == "--namespace" || a == "--super-prefix" || a == "--config-env" {
 					if len(t) == 0 {
 						return true
 					}
