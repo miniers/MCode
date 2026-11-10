@@ -291,7 +291,8 @@ func TestTierPromptSection(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Pick it by what the brief already settles",
-		"never goes to that tier",
+		"(1) the bee writes no file, including diagnosis that reproduces, bisects or measures and reports the root cause with evidence: a read-only tier.",
+		"(3) the steps are settled but landing them takes careful reasoning, such as concurrency and locking, lifecycles and state machines, or a refactor across packages: the tier described for hard changes, when one exists. You design every fix yourself; never send a bee a symptom and ask it for the fix.",
 		"never raise it",
 		"path:line (never a bare filename, never an absolute path, never a line range)",
 	} {
@@ -304,6 +305,9 @@ func TestTierPromptSection(t *testing.T) {
 	}
 	if strings.Contains(got, "chosen by the task's difficulty") {
 		t.Errorf("prompt section still mentions task difficulty selection:\n%s", got)
+	}
+	if strings.Contains(got, "the tier described for diagnosis or design") {
+		t.Errorf("prompt section still assigns diagnosis or design to a tier:\n%s", got)
 	}
 
 	// resolved 为 nil 时档位行保持原样，不出现运行模型后缀。

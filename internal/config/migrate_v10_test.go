@@ -69,8 +69,8 @@ func TestLoadMigratesV9TierTexts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Version != 10 {
-		t.Fatalf("版本 = %d，期望 10", cfg.Version)
+	if cfg.Version != 11 {
+		t.Fatalf("版本 = %d，期望 11", cfg.Version)
 	}
 	tiers := cfg.Orchestration.Tiers
 	if len(tiers) != 3 {

@@ -16,7 +16,7 @@ import (
 )
 
 // Version 是当前支持的 config.json 结构版本。
-const Version = 10
+const Version = 11
 
 // 模型角色常量，分别对应设置 -> 模型的 规划角色 (Lead Agent)、编码角色 (Coder)、快搜角色 (Research)、视觉角色 (Vision)。
 // 模型角色概念已弃用，运行时不再读取，仅为兼容旧配置文件保留。
@@ -333,39 +333,44 @@ type SwarmTierOverride struct {
 }
 
 const (
-	readTierDescription   = "只读调研：回答 brief 列出的具体问题，如符号在哪、谁调用、历史上改过什么"
+	readTierDescription   = "只读调研与排查：回答 brief 列出的问题，如符号在哪、谁调用、历史上改过什么；可跑有范围的测试复现问题并给出根因证据"
 	choreTierDescription  = "机械活：brief 已逐字给出改法、无需判断的修改，如重放补丁、改名、格式化、按给定期望补测试、按给定文字改文档"
 	editTierDescription   = "按 brief 的步骤改代码，步骤内的实现细节自行判断，并补覆盖该行为的测试"
-	deepTierDescription   = "定位与设计：brief 只给现象、目标或边界、没给改法时用，产出可转交默认档位执行的分步方案"
-	readTierSystemPrompt  = "你是只读调研档。逐条回答 brief 里的问题，每条发现写成 path:line，后面紧跟用反引号包住的源码原文。可以用 grep、git log、git blame 等只读命令。不推测根因，不给改法；brief 没问到的不展开。"
+	deepTierDescription   = "攻坚：步骤已定但落地需要细致推理的改动，如并发与锁、生命周期与状态机、跨包重构；按 brief 改代码并补测试"
+	readTierSystemPrompt  = "你是只读调研档。逐条回答 brief 里的问题，每条发现写成 path:line，后面紧跟用反引号包住的源码原文。可以用 grep、git log、git blame 等只读命令，也可以跑有范围的测试或命令来复现、二分、测量。汇报根因时附上证据：path:line、复现命令和输出。不给改法；brief 没问到的不展开。"
 	choreTierSystemPrompt = "你是机械活档。严格按 brief 逐字执行，不自行扩展。遇到需要判断的地方，或者测试与代码对不上、不确定该改哪一边时，停下并在汇报里说明，不要自己选；不为了让测试通过去改断言。"
 	editTierSystemPrompt  = "你是执行档。按 brief 的步骤改代码，步骤内的实现细节（命名、错误处理、锚点漂移后按语义找到对应位置）自行判断，并补覆盖该行为的测试。发现步骤本身有错，或需要改步骤以外的内容时，在汇报里说明，不扩大修改范围。"
-	deepTierSystemPrompt  = "你是定位与设计档，不改代码。先读代码与 git 历史，必要时跑有范围的测试来复现，找到根因。方案写成分步改法：每步给出 path:line、具体改法、验收标准和要补的测试，写到改代码的子代理可以原样照做。有多种方案时列出取舍并给推荐。"
+	deepTierSystemPrompt  = "你是攻坚档。按 brief 的步骤改代码。涉及并发、生命周期、状态或跨包改动时，先读清相关调用方和不变量再动手，并补覆盖该行为的测试，包括边界与竞态。发现步骤本身有错，或需要改步骤以外的内容时，在汇报里说明，不扩大修改范围。"
 )
 
 // 以后修改默认文案时，把旧值追加到对应的表；提示词历史表不收录空串。
 // 包括 v5→v6 保留的描述，加载时统一升级为当前默认值。
 var builtinTierDescriptionHistory = map[string][]string{
-	"read":  {"只读调研：检索、阅读、总结代码与文档，不修改任何文件"},
+	"read":  {"只读调研：检索、阅读、总结代码与文档，不修改任何文件", "只读调研：回答 brief 列出的具体问题，如符号在哪、谁调用、历史上改过什么"},
 	"chore": {"机械活：补丁重放或重做已有补丁、改名、格式化、修测试或补测试、文档与文案修改；brief 已给出文件与改法"},
 	"edit":  {"执行步骤已写清楚的明确修改，单文件或少量文件"},
 	"deep": {"只做定位、方案设计与关键决策：brief 只给现象、目标或边界而没给改法时，先复现、二分、实测或设计接口，产出带 path:line 的分步方案；复杂时把方案写成 md 文档；不改代码。",
-		"定位与设计：brief 只给现象、目标或边界、没给改法时用，产出可交给 edit 档的分步方案"},
+		"定位与设计：brief 只给现象、目标或边界、没给改法时用，产出可交给 edit 档的分步方案",
+		"定位与设计：brief 只给现象、目标或边界、没给改法时用，产出可转交默认档位执行的分步方案"},
 }
 
 var builtinTierSystemPromptHistory = map[string][]string{
-	"deep": {"你是定位与设计档，不改代码。先读代码与 git 历史，必要时跑有范围的测试来复现，找到根因。汇报写清根因和分步改法：每步给出 path:line、具体改法、验收标准和要补的测试，可以原样转交执行档。有多种方案时列出取舍并给推荐。超过约 5 步时写入 docs/superpowers/plans/<主题>.md，并在汇报里给出路径。"},
+	"read": {"你是只读调研档。逐条回答 brief 里的问题，每条发现写成 path:line，后面紧跟用反引号包住的源码原文。可以用 grep、git log、git blame 等只读命令。不推测根因，不给改法；brief 没问到的不展开。"},
+	"deep": {"你是定位与设计档，不改代码。先读代码与 git 历史，必要时跑有范围的测试来复现，找到根因。汇报写清根因和分步改法：每步给出 path:line、具体改法、验收标准和要补的测试，可以原样转交执行档。有多种方案时列出取舍并给推荐。超过约 5 步时写入 docs/superpowers/plans/<主题>.md，并在汇报里给出路径。",
+		"你是定位与设计档，不改代码。先读代码与 git 历史，必要时跑有范围的测试来复现，找到根因。方案写成分步改法：每步给出 path:line、具体改法、验收标准和要补的测试，写到改代码的子代理可以原样照做。有多种方案时列出取舍并给推荐。"},
 }
 
-// defaultDeepWritePaths 返回内置 deep（深度）档的默认写入白名单：只允许落地方案文档，不改代码。
+var builtinTierNameHistory = map[string][]string{"deep": {"深度"}}
+
+// defaultDeepWritePaths 返回 deep 档的历史默认写入白名单，供旧版本迁移使用。
 // 每次返回新切片，避免调用方之间共享底层数组。
 func defaultDeepWritePaths() []string {
 	return []string{"docs/superpowers/plans/**/*.md"}
 }
 
-// DefaultSwarmTiers 返回内置的四组子代理档位：只读、杂活、执行、深度。
+// DefaultSwarmTiers 返回内置的四组子代理档位：只读、杂活、执行、攻坚。
 // 所有档位的 Provider 与 Model 均为空，默认跟随会话生效的子代理模型；
-// Effort 为各档默认推理强度，深度档用 high，其余用 medium。
+// Effort 为各档默认推理强度，攻坚档用 high，其余用 medium。
 func DefaultSwarmTiers() []SwarmTier {
 	return []SwarmTier{
 		{
@@ -392,10 +397,9 @@ func DefaultSwarmTiers() []SwarmTier {
 		},
 		{
 			ID:           "deep",
-			Name:         "深度",
+			Name:         "攻坚",
 			Description:  deepTierDescription,
 			SystemPrompt: deepTierSystemPrompt,
-			WritePaths:   defaultDeepWritePaths(),
 			Effort:       "high",
 		},
 	}
@@ -412,6 +416,12 @@ func UpgradeBuiltinTierTexts(tiers []SwarmTier) []SwarmTier {
 		for _, def := range DefaultSwarmTiers() {
 			if result[i].ID != def.ID {
 				continue
+			}
+			for _, old := range builtinTierNameHistory[def.ID] {
+				if result[i].Name == old {
+					result[i].Name = def.Name
+					break
+				}
 			}
 			for _, old := range builtinTierDescriptionHistory[def.ID] {
 				if strings.TrimSpace(result[i].Description) == old {

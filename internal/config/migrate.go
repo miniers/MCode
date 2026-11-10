@@ -12,7 +12,7 @@ import (
 type MigrationFunc func(raw map[string]any) (map[string]any, error)
 
 // migrations 是有序迁移链。每一步将版本 v 升级至 v+1。
-// 当前 Version 为 10。
+// 当前 Version 为 11。
 var migrations = []MigrationFunc{
 	migrateV1ToV2,
 	migrateV2ToV3,
@@ -23,6 +23,44 @@ var migrations = []MigrationFunc{
 	migrateV7ToV8,
 	migrateV8ToV9,
 	migrateV9ToV10,
+	migrateV10ToV11,
+}
+
+// migrateV10ToV11 移除 deep 档的历史默认白名单，保留用户自定义值。
+func migrateV10ToV11(raw map[string]any) (map[string]any, error) {
+	orchestration, ok := raw["orchestration"].(map[string]any)
+	if !ok {
+		return raw, nil
+	}
+	tiers, ok := orchestration["tiers"].([]any)
+	if !ok {
+		return raw, nil
+	}
+	for _, item := range tiers {
+		if tierIDOf(item) != "deep" {
+			continue
+		}
+		tier := item.(map[string]any)
+		paths, ok := tier["write_paths"].([]any)
+		defaults := defaultDeepWritePaths()
+		if !ok || len(paths) != len(defaults) {
+			continue
+		}
+		match := true
+		for i, path := range paths {
+			if value, ok := path.(string); !ok || value != defaults[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			delete(tier, "write_paths")
+			if current, ok := orchestration["default_tier"].(string); ok && strings.EqualFold(strings.TrimSpace(current), "deep") {
+				orchestration["default_tier"] = "edit"
+			}
+		}
+	}
+	return raw, nil
 }
 
 // migrateV1ToV2 将配置数据从 v1 迁移至 v2。

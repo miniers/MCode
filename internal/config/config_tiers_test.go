@@ -33,7 +33,7 @@ func TestNormalizeTiersNilFillsDefaults(t *testing.T) {
 	}
 }
 
-// 1b. DefaultSwarmTiers 返回只读、杂活、执行、深度四档，并带各自的默认推理强度。
+// 1b. DefaultSwarmTiers 返回只读、杂活、执行、攻坚四档，并带各自的默认推理强度。
 func TestDefaultSwarmTiersOrderAndEffort(t *testing.T) {
 	want := []struct {
 		id     string
@@ -125,7 +125,7 @@ func TestNormalizeDefaultTierLanding(t *testing.T) {
 		input string
 		want  string
 	}{
-		{name: "deep", input: "deep", want: "edit"},
+		{name: "deep", input: "deep", want: "deep"},
 		{name: "read", input: "read", want: "edit"},
 		{name: "chore", input: "chore", want: "chore"},
 		{name: "no edit", tiers: []SwarmTier{
@@ -373,32 +373,41 @@ func TestSwarmPairCloneIndependence(t *testing.T) {
 	}
 }
 
-// 8. 内置 deep 档带默认写入白名单（只允许落地方案文档），其余档位不限制。
+// 8. 内置档位均不限制写入路径。
 func TestDefaultSwarmTiersDeepWritePaths(t *testing.T) {
 	for _, tier := range DefaultSwarmTiers() {
-		if tier.ID == "deep" {
-			if !reflect.DeepEqual(tier.WritePaths, []string{"docs/superpowers/plans/**/*.md"}) {
-				t.Fatalf("deep 档的 WritePaths = %v，想要默认白名单", tier.WritePaths)
-			}
-			continue
-		}
 		if len(tier.WritePaths) != 0 {
 			t.Errorf("%s 档不该有写入白名单，得到 %v", tier.ID, tier.WritePaths)
 		}
 	}
 
 	// 每次调用返回新切片，改一次的结果不影响下一次。
-	first := DefaultSwarmTiers()
-	for i := range first {
-		if first[i].ID == "deep" {
-			first[i].WritePaths[0] = "mutated"
-		}
+	first := defaultDeepWritePaths()
+	first[0] = "mutated"
+	if second := defaultDeepWritePaths(); second[0] != "docs/superpowers/plans/**/*.md" {
+		t.Fatalf("历史默认白名单被上一次调用改动了: %v", second)
 	}
-	second := DefaultSwarmTiers()
-	for _, tier := range second {
-		if tier.ID == "deep" && tier.WritePaths[0] != "docs/superpowers/plans/**/*.md" {
-			t.Fatalf("默认白名单被上一次调用改动了: %v", tier.WritePaths)
-		}
+}
+
+func TestUpgradeRecentBuiltinTierTexts(t *testing.T) {
+	tiers := []SwarmTier{
+		{ID: "read", Description: "只读调研：回答 brief 列出的具体问题，如符号在哪、谁调用、历史上改过什么", SystemPrompt: "你是只读调研档。逐条回答 brief 里的问题，每条发现写成 path:line，后面紧跟用反引号包住的源码原文。可以用 grep、git log、git blame 等只读命令。不推测根因，不给改法；brief 没问到的不展开。"},
+		{ID: "deep", Name: "深度", Description: "定位与设计：brief 只给现象、目标或边界、没给改法时用，产出可转交默认档位执行的分步方案", SystemPrompt: "你是定位与设计档，不改代码。先读代码与 git 历史，必要时跑有范围的测试来复现，找到根因。方案写成分步改法：每步给出 path:line、具体改法、验收标准和要补的测试，写到改代码的子代理可以原样照做。有多种方案时列出取舍并给推荐。"},
+		{ID: "deep", Name: "自定义名称"},
+		{ID: "deep", Name: " 深度 "},
+	}
+	got := UpgradeBuiltinTierTexts(tiers)
+	if got[0].Description != readTierDescription || got[0].SystemPrompt != readTierSystemPrompt {
+		t.Errorf("read 档未升级：%+v", got[0])
+	}
+	if got[1].Name != "攻坚" || got[1].Description != deepTierDescription || got[1].SystemPrompt != deepTierSystemPrompt {
+		t.Errorf("deep 档未升级：%+v", got[1])
+	}
+	if got[2].Name != "自定义名称" || got[3].Name != " 深度 " {
+		t.Errorf("自定义名称被修改：%+v", got[2:])
+	}
+	if DefaultSwarmTiers()[3].Name != "攻坚" {
+		t.Error("deep 档默认名称应为攻坚")
 	}
 }
 

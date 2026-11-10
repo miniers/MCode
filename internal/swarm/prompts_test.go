@@ -369,7 +369,7 @@ func TestLeadNoticePolicy(t *testing.T) {
 func TestLeadPolicyBriefShapeByWork(t *testing.T) {
 	for _, plansOnly := range []bool{false, true} {
 		got := LeadPolicy(plansOnly, "")
-		for _, want := range []string{"For read-only research: numbered questions", "For diagnosis or design"} {
+		for _, want := range []string{"For read-only research: numbered questions", "For diagnosis: the symptom, how to reproduce it and numbered questions; the bee reports the root cause with evidence, and you design the fix."} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("plansOnly=%v 的策略应包含 %q:\n%s", plansOnly, want, got)
 			}
