@@ -46,11 +46,7 @@ func TestKanbanWorkspace_Empty(t *testing.T) {
 
 func openKanbanGoalDetailForTest(t *testing.T, tt *ui.Tester, title string) {
 	t.Helper()
-	waitFor(t, tt, func() bool { _, ok := tt.Find("目标筛选"); return ok })
-	if err := tt.Click("目标筛选"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText(title) })
+	waitFor(t, tt, func() bool { _, ok := tt.Find(title); return ok })
 	if err := tt.Click(title); err != nil {
 		t.Fatal(err)
 	}
@@ -329,6 +325,13 @@ func TestKanbanWorkspace_DragTransitions(t *testing.T) {
 			}}})
 			tt, _ := newWorkspaceTester(t, fake, "tasks")
 			waitFor(t, tt, func() bool { return tt.HasText("拖动任务") })
+			if tc.column == "done" {
+				column, ok := tt.Find("kanban-column-needs_you")
+				if !ok {
+					t.Fatal("middle column missing")
+				}
+				tt.Scroll(column.X+column.W/2, column.Y+20, 200, 0)
+			}
 			from, ok := tt.Find("kanban-task-card-drag-task")
 			if !ok {
 				t.Fatal("task card missing")
@@ -1300,16 +1303,14 @@ func TestKanbanWorkspace_NewGoalSheet(t *testing.T) {
 		t.Fatalf("click plan goal failed: %v", err)
 	}
 
-	// 新目标显示在目标筛选菜单中。
+	// 新目标显示在侧栏中。
 	waitFor(t, tt, func() bool {
 		_, sheet := tt.Find("kanban-new-goal-sheet")
 		return !sheet
 	})
-	if err := tt.Click("目标筛选"); err != nil {
-		t.Fatal(err)
-	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("给设置页加上深色模式")
+		_, ok := tt.Find("给设置页加上深色模式")
+		return ok
 	})
 }
 

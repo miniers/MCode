@@ -54,6 +54,11 @@ func TestKanbanDragReviewOpensDetail(t *testing.T) {
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{ID: "review-drag", ProjectID: "p1", Title: "拖动审阅", Status: "review", Column: "review", CanMove: true, CanReview: true, Revision: 3}}})
 	tt, _ := newWorkspaceTester(t, fake, "tasks")
 	waitFor(t, tt, func() bool { return tt.HasText("拖动审阅") })
+	column, ok := tt.Find("kanban-column-needs_you")
+	if !ok {
+		t.Fatal("middle column missing")
+	}
+	tt.Scroll(column.X+column.W/2, column.Y+20, 200, 0)
 	from, ok := tt.Find("kanban-task-card-review-drag")
 	if !ok {
 		t.Fatal("task card missing")

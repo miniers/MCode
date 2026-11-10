@@ -171,11 +171,12 @@ func TestTasksAcceptanceMatrix(t *testing.T) {
 					s.projects = []Project{{ID: "p1", Name: project}, {ID: "p2", Name: "第二项目"}}
 					ks := getKanbanState(s)
 					ks.initialized = true
+					pane, _, _ := kanbanDetailLayout(float32(size[0])-TasksSidebarWidth, ks.detailWidth)
 					title := "这是一个非常长的任务标题，用于检查标题是否越过内容区域边界"
 					ks.board = KanbanBoard{Tasks: []KanbanTask{{ID: "long", Title: title, Status: "todo", Column: "todo"}}}
 					var transition ui.ElementTransition
 					tt := ui.NewTesterWith(func(c *ui.Context) {
-						if size[0] == 840 {
+						if !pane {
 							transition = motionDialog(c)
 						} else {
 							transition = motionSidePanel(c, false)
@@ -228,18 +229,68 @@ func TestTasksAcceptanceMatrix(t *testing.T) {
 						t.Fatal("找不到任务详情")
 					}
 					t.Run("详情层级", func(t *testing.T) {
-						if size[0] == 840 && (detail.Y < toolbar.Y+toolbar.H || detail.X < sidebar.X+sidebar.W) {
-							t.Skip("窄窗按 internal/ui/kanban_modal.go:182 使用整窗 sheet，覆盖顶栏和侧栏；与本断言冲突")
+						if pane {
+							if detail.Y < toolbar.Y+toolbar.H || detail.X < sidebar.X+sidebar.W {
+								t.Fatalf("详情覆盖顶栏或侧栏: detail=%+v toolbar=%+v sidebar=%+v", detail, toolbar, sidebar)
+							}
+							return
 						}
-						if detail.Y < toolbar.Y+toolbar.H || detail.X < sidebar.X+sidebar.W {
-							t.Fatalf("详情覆盖顶栏或侧栏: detail=%+v toolbar=%+v sidebar=%+v", detail, toolbar, sidebar)
+						// 详情内容填满 sheet；测试器只能查找文本或 Label，不能查找 key。
+						sheet, ok := tt.Find("kanban-task-detail")
+						if !ok || sheet.X < 0 || sheet.Y < 0 || sheet.X+sheet.W > float32(size[0]) || sheet.Y+sheet.H > float32(size[1]) {
+							t.Fatalf("详情 sheet 不在窗口内: sheet=%+v found=%t", sheet, ok)
+						}
+						if _, ok := tt.Find("调整详情宽度"); ok {
+							t.Fatal("sheet 打开时出现详情分栏")
+						}
+						details := 0
+						for _, text := range tt.Texts() {
+							if text == "kanban-task-detail" {
+								details++
+							}
+						}
+						if details != 1 {
+							t.Fatalf("详情数量 = %d，期望 1", details)
+						}
+						if reduced {
+							w, h := min(settingsSheetWidth, float32(size[0])-Space8), float32(size[1])-Space8
+							if sheet.X != (float32(size[0])-w)/2 || sheet.Y != (float32(size[1])-h)/2 || sheet.W != w || sheet.H != h {
+								t.Errorf("减少动效时 sheet 第一帧未到终点: %+v", sheet)
+							}
+						}
+						for _, method := range []string{"Escape", "遮罩"} {
+							t.Run(method, func(t *testing.T) {
+								if _, ok := tt.Find("kanban-task-detail"); !ok {
+									if err := tt.Click("kanban-task-card-long"); err != nil {
+										t.Fatal(err)
+									}
+									if _, ok := tt.Find("kanban-task-detail"); !ok {
+										t.Fatal("重新打开后找不到详情 sheet")
+									}
+								}
+								if method == "Escape" {
+									tt.Key(0, ui.KeyEscape)
+								} else {
+									tt.ClickAt(1, 1)
+								}
+								tt.Frame()
+								if _, ok := tt.Find("kanban-task-detail"); ok {
+									t.Fatal("详情 sheet 未关闭")
+								}
+								if got, ok := tt.Find("tasks-sidebar"); !ok || got != sidebar {
+									t.Errorf("关闭后侧栏位置变化: before=%+v after=%+v found=%t", sidebar, got, ok)
+								}
+								if got, ok := tt.Find("tasks-window-toolbar"); !ok || got != toolbar {
+									t.Errorf("关闭后顶栏位置变化: before=%+v after=%+v found=%t", toolbar, got, ok)
+								}
+							})
 						}
 					})
 					if reduced {
 						if transition.Enter != nil || transition.Duration >= 0 {
 							t.Errorf("减少动效时详情进入动画未立即结束: %+v", transition)
 						}
-						if size[0] != 840 && detail.X+detail.W != float32(size[0]) {
+						if pane && detail.X+detail.W != float32(size[0]) {
 							t.Errorf("减少动效时详情未到终点: %+v", detail)
 						}
 					}
