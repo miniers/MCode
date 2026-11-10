@@ -225,8 +225,30 @@ func TestOnlyReads(t *testing.T) {
 		{"uniq a b", false}, {"sort --compress-program=sh x", false}, {"sort --compress-program sh x", false}, {"sort -T /tmp x", false}, {"sort -nT /tmp x", false}, {"sort --temporary-directory=/tmp x", false}, {"sort file", true}, {"grep x file", true},
 		{"find . -delete", false}, {"find . -exec rm {} \\;", false}, {"rg --pre=sh x", false}, {"sort -o out in", false}, {"tree -o out.txt .", false}, {"tree --output=out.txt .", false}, {"tree -L 2 .", true}, {"git branch -D x", false}, {"git diff --output=out", false}, {"git worktree list", true}, {"git branch --list", true}, {"echo 'a; b'", true}, {"echo x 2>/dev/null", true}, {"cat a 2>&1 | head", true}, {"echo $(rm a)", false}, {"echo x & rm a", false},
 	} {
-		if got := onlyReads(tc.command); got != tc.want {
+		if got := OnlyReads(tc.command); got != tc.want {
 			t.Errorf("%q 得到 %v，期望 %v", tc.command, got, tc.want)
+		}
+	}
+}
+
+func TestReadOnlyBashCommands(t *testing.T) {
+	allowed := []string{"whoami", "uname -a", "sed -n '1,20p' a.go", "go doc fmt", "go env GOPATH", "adb devices", "command -v adb", "env", "cd x && whoami", "jq '.' file", "uniq -c file", "xxd file", "date -u", "hostname"}
+	denied := []string{"xargs ls", "awk '{print}' f", "sed -i 's/a/b/' f", "sed 's/a/b/w out' f", "go build ./...", "go test ./...", "adb shell ls", "adb install x.apk", "env FOO=1 rm x", "defaults write a b c", "command rm x", "which adb | xargs -I{} {} version", "go env -w GOPATH=/tmp", "go list -toolexec=sh ./...", "uniq a b", "xxd -r - out", "hostname newname", "date 010101012025", "git log --exec-path=/tmp", "git diff --out'put'=out", "find . '-exec' rm x +"}
+	for _, group := range []struct {
+		commands []string
+		want     Action
+	}{{allowed, Allow}, {denied, Deny}} {
+		for _, command := range group.commands {
+			t.Run(command, func(t *testing.T) {
+				args, _ := json.Marshal(map[string]string{"command": command})
+				got := Check(Input{Mode: harness.ModeReadOnly, ToolName: "bash", Args: args, WorkDir: t.TempDir()})
+				if got.Action != group.want {
+					t.Fatalf("%q: %+v, want %s", command, got, group.want)
+				}
+				if group.want == Deny && (!strings.Contains(got.Reason, "只读档只能运行只读命令") || !strings.Contains(got.Reason, "不要换写法重试")) {
+					t.Errorf("缺少引导: %s", got.Reason)
+				}
+			})
 		}
 	}
 }

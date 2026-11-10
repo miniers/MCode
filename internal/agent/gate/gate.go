@@ -163,7 +163,7 @@ func Check(in Input) Verdict {
 	if in.FinalReport {
 		return Verdict{Action: Deny, Reason: "Blocked by mcode: this turn is only for the final report, so tools are off."}
 	}
-	reads := IsLookOnly(in.ToolName) || kind == harness.RequestKindCommand && onlyReads(command) || webFetch
+	reads := IsLookOnly(in.ToolName) || kind == harness.RequestKindCommand && OnlyReads(command) || webFetch
 	// 计划模式允许无敏感内容的调研，内置 MCP 交给常规规则。
 	if in.Plan {
 		if reads {
@@ -175,11 +175,14 @@ func Check(in Input) Verdict {
 		}
 	}
 	if in.Mode == harness.ModeReadOnly && !reads && !in.ReadOnlyHint {
+		if in.ToolName == "bash" {
+			return Verdict{Action: Deny, Reason: "只读档只能运行只读命令，请使用 ls、cat、sed -n、rg、git log、go doc 或 read/grep 工具，不要换写法重试被拒的命令。"}
+		}
 		return Verdict{Action: Deny, Reason: "只读模式不允许修改：" + in.ToolName}
 	}
 	// 敏感调用总要询问，其余按模式决定放行。
 	if sensitive == "" {
-		if IsLookOnly(in.ToolName) || in.Mode == harness.ModeReadOnly && in.ReadOnlyHint || in.Mode == harness.ModeFullAccess || webFetch && (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits) && kind == harness.RequestKindFileChange || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) && kind == harness.RequestKindCommand && onlyReads(command) {
+		if IsLookOnly(in.ToolName) || in.Mode == harness.ModeReadOnly && in.ReadOnlyHint || in.Mode == harness.ModeFullAccess || webFetch && (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits) && kind == harness.RequestKindFileChange || (in.Mode == harness.ModeAuto || in.Mode == harness.ModeAutoAcceptEdits || in.Mode == harness.ModeReadOnly) && kind == harness.RequestKindCommand && OnlyReads(command) {
 			return Verdict{Action: Allow}
 		}
 	}
@@ -225,12 +228,15 @@ func SensitiveFor(kind harness.RequestKind, toolName string, input json.RawMessa
 var nullRedirect = regexp.MustCompile(`\d*&?>>?\s*/dev/null([\s;|&]|$)`)
 var fdRedirect = regexp.MustCompile(`\d?>&\d`)
 
-// onlyReads 对应 TS 的 onlyReads 和 splitCommandPieces。
-func onlyReads(command string) bool {
+// OnlyReads 判断 shell 命令是否仅包含允许的只读操作。
+func OnlyReads(command string) bool {
+	if strings.TrimSpace(command) == "" {
+		return false
+	}
 	// 丢弃输出及复制文件描述符不属于写文件。
 	text := nullRedirect.ReplaceAllString(command, "$1")
 	text = fdRedirect.ReplaceAllString(text, "")
-	if strings.ContainsAny(text, "\r\n>`") || strings.Contains(text, "$(") || strings.Contains(text, "<(") || strings.Contains(text, ">(") {
+	if strings.ContainsAny(text, "\r\n<>`") || strings.Contains(text, "$(") {
 		return false
 	}
 	for i := 0; i < len(text); i++ {
@@ -251,8 +257,14 @@ func onlyReads(command string) bool {
 			continue
 		}
 		if c == '\\' {
+			if quote == 0 {
+				return false
+			}
 			i++
 			continue
+		}
+		if c == '$' && quote != '\'' {
+			return false
 		}
 		if quote == '"' {
 			if c == '"' {
@@ -276,7 +288,7 @@ func onlyReads(command string) bool {
 		return false
 	}
 	pieces = append(pieces, text[start:])
-	safe := " ls cat head tail wc grep rg find tree du stat file pwd echo which sort diff cd "
+	safe := " ls cat head tail wc grep rg find tree du stat file pwd echo which sort diff cd whoami id uname printenv nl cut tr basename dirname realpath readlink md5 md5sum shasum sha1sum sha256sum od hexdump strings df uptime sw_vers ps jq true false "
 	git := " status log diff show blame branch ls-files "
 	branch := " -a -r -v -vv --list --all --remotes --show-current --verbose --contains --merged --no-merged "
 	find := " -delete -exec -execdir -ok -okdir -fprint -fprint0 -fprintf -fls "
@@ -286,6 +298,88 @@ func onlyReads(command string) bool {
 			continue
 		}
 		p := t[0]
+		if strings.HasPrefix(p, "/") {
+			if filepath.Dir(p) != "/bin" && filepath.Dir(p) != "/usr/bin" {
+				return false
+			}
+			p = filepath.Base(p)
+		}
+		switch p {
+		case "git", "find", "rg", "sort", "tree", "go", "sed", "plutil", "uniq", "xxd":
+			for _, a := range t[1:] {
+				if strings.ContainsAny(a, "'\"") && strings.HasPrefix(strings.TrimLeft(a, "'\""), "-") {
+					return false
+				}
+			}
+		}
+		switch p {
+		case "hostname":
+			if len(t) != 1 {
+				return false
+			}
+			continue
+		case "date":
+			for _, a := range t[1:] {
+				if a != "-u" && !strings.HasPrefix(a, "+") {
+					return false
+				}
+			}
+			continue
+		case "env":
+			if len(t) != 1 {
+				return false
+			}
+			continue
+		case "go", "adb", "defaults", "plutil", "command":
+			allowed := map[string]string{"go": " version env list doc ", "adb": " devices version get-state get-serialno ", "defaults": " read ", "plutil": " -p ", "command": " -v -V "}
+			if len(t) < 2 || !strings.Contains(allowed[p], " "+t[1]+" ") {
+				return false
+			}
+			if p == "go" && t[1] == "env" {
+				for _, a := range t[2:] {
+					if strings.HasPrefix(a, "-") && a != "-json" && a != "-changed" {
+						return false
+					}
+				}
+			}
+			if p == "go" && t[1] == "list" {
+				for _, a := range t[2:] {
+					if strings.HasPrefix(a, "-") {
+						return false
+					}
+				}
+			}
+			if p == "plutil" {
+				for _, a := range t[2:] {
+					if strings.HasPrefix(a, "-") {
+						return false
+					}
+				}
+			}
+			continue
+		case "sed":
+			if len(t) < 3 || t[1] != "-n" || !regexp.MustCompile(`^([0-9$]+,)?[0-9$]+p$`).MatchString(strings.Trim(t[2], "'\"")) {
+				return false
+			}
+			for _, a := range t[3:] {
+				if strings.HasPrefix(a, "-") {
+					return false
+				}
+			}
+			continue
+		case "uniq", "xxd":
+			// 两者都支持将第二个位置参数作为输出文件。
+			count := 0
+			for _, a := range t[1:] {
+				if a == "-" || !strings.HasPrefix(a, "-") {
+					count++
+				}
+			}
+			if count > 1 {
+				return false
+			}
+			continue
+		}
 		// git 只允许只读子命令和安全的 branch 参数。
 		if p == "git" {
 			if len(t) < 2 {
@@ -296,13 +390,18 @@ func onlyReads(command string) bool {
 				if len(t) < 3 || t[2] != "list" {
 					return false
 				}
+				for _, a := range t[3:] {
+					if gitArgDenied(a) {
+						return false
+					}
+				}
 				continue
 			}
 			if !strings.Contains(git, " "+sub+" ") {
 				return false
 			}
 			for _, a := range t[2:] {
-				if a == "--ext-diff" || a == "--output" || strings.HasPrefix(a, "--output=") || sub == "branch" && !strings.Contains(branch, " "+a+" ") {
+				if a == "--ext-diff" || gitArgDenied(a) || sub == "branch" && !strings.Contains(branch, " "+a+" ") {
 					return false
 				}
 			}
@@ -320,6 +419,15 @@ func onlyReads(command string) bool {
 		}
 	}
 	return true
+}
+
+func gitArgDenied(arg string) bool {
+	for _, flag := range []string{"--output", "--exec-path", "--git-dir", "--work-tree", "--config-env", "-c"} {
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return strings.HasPrefix(arg, "-c") && len(arg) > 2
 }
 
 // absolute 对应 TS 的 path.resolve。
@@ -507,7 +615,7 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 			}
 		}
 	}
-	if kind == harness.RequestKindCommand && !onlyReads(command) {
+	if kind == harness.RequestKindCommand && !OnlyReads(command) {
 		probe := normalizeHome(command)
 		if inside {
 			// 先把副本自身路径折叠成 "."，只引用副本的命令不再误判。

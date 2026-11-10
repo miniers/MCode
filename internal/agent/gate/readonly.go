@@ -9,5 +9,5 @@ func IsReadOnlyCommand(cmd string) bool {
 	if strings.ContainsAny(cmd, "$\\'\"*?[") {
 		return false
 	}
-	return cmd == "true" || cmd == "false" || cmd != "" && onlyReads(cmd)
+	return cmd != "" && OnlyReads(cmd)
 }
