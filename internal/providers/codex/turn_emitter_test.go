@@ -21,7 +21,7 @@ func TestTurnEmitterSerializesCallbacks(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			emitter.emit(harness.Event{Type: harness.EventSession})
+			emitter.emit(harness.Event{Type: harness.EventSession, SessionID: "test-session"})
 			emitter.emitAccepted()
 		}()
 	}
