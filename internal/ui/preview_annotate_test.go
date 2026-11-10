@@ -6,6 +6,29 @@ import (
 	"testing"
 )
 
+func TestPreviewAnnotationsSnapshotIsolation(t *testing.T) {
+	st := &previewState{
+		annotations: []previewAnnotation{{Selector: "#app", Comment: "原评论"}},
+		consoleErrors: []previewConsoleError{{Message: "原错误"}},
+		viewport: previewViewportTablet,
+		annotOpen: true,
+	}
+	previewMu.Lock()
+	snapshot := previewSnapshotLocked(st)
+	snapshot.annotations[0].Comment = "快照评论"
+	snapshot.consoleErrors[0].Message = "快照错误"
+	if st.annotations[0].Comment != "原评论" || st.consoleErrors[0].Message != "原错误" {
+		t.Error("修改快照影响了原状态")
+	}
+	st.annotations[0].Selector = "#new"
+	st.consoleErrors[0].Message = "新错误"
+	st.viewport, st.annotOpen = previewViewportMobile, false
+	previewMu.Unlock()
+	if snapshot.annotations[0].Selector != "#app" || snapshot.consoleErrors[0].Message != "快照错误" || snapshot.viewport != previewViewportTablet || !snapshot.annotOpen {
+		t.Fatal("修改原状态影响了已有快照")
+	}
+}
+
 func TestPreviewAnnotationsFromJSON(t *testing.T) {
 	raw := `[{"selector":"#app > button.primary","tag":"button","role":"button",` +
 		`"name":"提交","text":"提交表单","url":"http://localhost:3000/",` +

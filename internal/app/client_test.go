@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -1360,6 +1361,39 @@ func TestClient_UploadAttachment(t *testing.T) {
 	_, err = client.UploadAttachment(ctx, "oversized.png", "image/png", oversized)
 	if err == nil {
 		t.Fatalf("expected error for data exceeding 2936012 bytes, got nil")
+	}
+}
+
+func TestSearchFileEntriesPreservesTruncation(t *testing.T) {
+	workDir := t.TempDir()
+	for i := 0; i < 201; i++ {
+		path := filepath.Join(workDir, fmt.Sprintf("target_%03d.txt", i))
+		if err := os.WriteFile(path, nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app, err := Open(Options{DataDir: t.TempDir(), Provider: "memory", WorkDir: workDir, Mode: "agent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	ctx := context.Background()
+	client := app.Client()
+	projects, err := client.Projects(ctx)
+	if err != nil || len(projects) == 0 {
+		t.Fatalf("获取项目失败：%v", err)
+	}
+	threadID, err := client.CreateThread(ctx, projects[0].ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.SearchFileEntries(ctx, threadID, "target_")
+	if err != nil || !result.Truncated || len(result.Entries) != 200 {
+		t.Fatalf("截断结果不正确：数量=%d，截断=%v，错误=%v", len(result.Entries), result.Truncated, err)
+	}
+	matches, err := client.SearchFiles(ctx, threadID, "target_")
+	if err != nil || !reflect.DeepEqual(matches, result.Entries) {
+		t.Fatalf("旧搜索结果不一致：%v", err)
 	}
 }
 

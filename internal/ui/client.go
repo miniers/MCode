@@ -552,6 +552,17 @@ type FileMatch struct {
 	IsDir bool
 }
 
+// FileSearchResult 是工作区文件搜索的结果及截断状态。
+type FileSearchResult struct {
+	Entries   []FileMatch
+	Truncated bool
+}
+
+// FileEntrySearcher 是支持返回截断状态的可选搜索能力。
+type FileEntrySearcher interface {
+	SearchFileEntries(ctx context.Context, threadID, query string) (FileSearchResult, error)
+}
+
 // FileEntry 工作区文件列表中的单个条目，Path 为相对工作区根的路径。
 type FileEntry struct {
 	Name      string

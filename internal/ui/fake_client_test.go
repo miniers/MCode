@@ -306,6 +306,8 @@ type FakeClient struct {
 	mcpSignOutCalls     []string
 	commands            []SlashCommand
 	files               []FileMatch
+	filesTruncated      bool
+	searchFilesErr      error
 	fileTree            map[string][]FileEntry
 	fileContents        map[string]FileContent
 	filesErr            error
@@ -1008,12 +1010,20 @@ func (f *FakeClient) SetFiles(files []FileMatch) {
 }
 
 func (f *FakeClient) SearchFiles(ctx context.Context, threadID, query string) ([]FileMatch, error) {
+	result, err := f.SearchFileEntries(ctx, threadID, query)
+	return result.Entries, err
+}
+
+func (f *FakeClient) SearchFileEntries(ctx context.Context, threadID, query string) (FileSearchResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.searchFilesErr != nil {
+		return FileSearchResult{}, f.searchFilesErr
+	}
 	if query == "" {
 		res := make([]FileMatch, len(f.files))
 		copy(res, f.files)
-		return res, nil
+		return FileSearchResult{Entries: res, Truncated: f.filesTruncated}, nil
 	}
 	q := strings.ToLower(query)
 	var res []FileMatch
@@ -1022,7 +1032,7 @@ func (f *FakeClient) SearchFiles(ctx context.Context, threadID, query string) ([
 			res = append(res, m)
 		}
 	}
-	return res, nil
+	return FileSearchResult{Entries: res, Truncated: f.filesTruncated}, nil
 }
 
 func (f *FakeClient) UploadAttachment(ctx context.Context, name, mimeType string, data []byte) (Attachment, error) {

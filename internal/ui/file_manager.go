@@ -64,13 +64,14 @@ type fileManagerState struct {
 	entries   []FileEntry
 	truncated bool
 	loading   bool
-	err       string
+	err       string // 目录及文件操作错误
 
 	query           string
 	searchGen       int
 	searching       bool
 	searchResults   []FileMatch
 	searchTruncated bool
+	searchErr       string
 
 	// 预览 tab 与拆分状态：拆分时第一栏固定为 splitAnchor，第二栏为 splitSide；
 	// splitVertical 为 true 表示上下分栏，false（默认）表示左右分栏，取消拆分后保留这个偏好。
@@ -160,6 +161,7 @@ func closeFileManager(s *chatState) {
 	fileManagerMu.Lock()
 	st.open = false
 	st.gen++
+	st.searchGen++
 	fileManagerMu.Unlock()
 	s.invalidate()
 }
@@ -175,6 +177,7 @@ func (s *chatState) loadFileManagerDir(threadID, dir string) {
 	fileManagerMu.Lock()
 	prevThread := st.threadID
 	st.gen++
+	st.searchGen++
 	gen := st.gen
 	st.threadID = threadID
 	st.dir = dir
@@ -197,6 +200,7 @@ func (s *chatState) loadFileManagerDir(threadID, dir string) {
 	st.query = ""
 	st.searchResults = nil
 	st.searchTruncated = false
+	st.searchErr = ""
 	st.searching = false
 	fileManagerMu.Unlock()
 	s.invalidate()
@@ -238,6 +242,9 @@ func (s *chatState) fileManagerSearch(threadID, query string) {
 	fileManagerMu.Lock()
 	st.searchGen++
 	gen := st.searchGen
+	dirGen := st.gen
+	st.query = query
+	st.searchErr = ""
 	trimmed := strings.TrimSpace(query)
 	if trimmed == "" {
 		st.searching = false
@@ -248,34 +255,42 @@ func (s *chatState) fileManagerSearch(threadID, query string) {
 		return
 	}
 	st.searching = true
+	st.searchResults = nil
+	st.searchTruncated = false
 	fileManagerMu.Unlock()
 	s.invalidate()
 
 	go func(tid, q string) {
 		time.Sleep(fileManagerSearchDebounce)
 		fileManagerMu.Lock()
-		if st.searchGen != gen {
+		if st.searchGen != gen || st.gen != dirGen || st.threadID != tid || strings.TrimSpace(st.query) != q {
 			fileManagerMu.Unlock()
 			return
 		}
 		fileManagerMu.Unlock()
 
-		matches, err := s.client.SearchFiles(context.Background(), tid, q)
+		var result FileSearchResult
+		var err error
+		if searcher, ok := s.client.(FileEntrySearcher); ok {
+			result, err = searcher.SearchFileEntries(context.Background(), tid, q)
+		} else {
+			result.Entries, err = s.client.SearchFiles(context.Background(), tid, q)
+		}
 
 		fileManagerMu.Lock()
 		defer fileManagerMu.Unlock()
-		if st.searchGen != gen {
+		if st.searchGen != gen || st.gen != dirGen || st.threadID != tid || strings.TrimSpace(st.query) != q {
 			return
 		}
 		st.searching = false
 		if err != nil {
-			st.err = err.Error()
+			st.searchErr = err.Error()
 			st.searchResults = nil
 			st.searchTruncated = false
 		} else {
-			st.searchResults = matches
-			// SearchFiles 不带截断标记，客户端约定只返回前若干条；按上限判断是否提示。
-			st.searchTruncated = false
+			st.searchErr = ""
+			st.searchResults = result.Entries
+			st.searchTruncated = result.Truncated
 		}
 		s.invalidate()
 	}(threadID, trimmed)
@@ -335,11 +350,10 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 	fileManagerMu.Lock()
 	panelThread := st.threadID
 	panelOpen := st.open
-	panelLoading := st.loading
 	fileManagerMu.Unlock()
 
 	// 线程切换（或首次拿到工作目录）时重置面板并重新加载根目录。
-	if panelOpen && !panelLoading && threadID != panelThread && threadID != "" && workDir != "" {
+	if panelOpen && threadID != panelThread && threadID != "" && workDir != "" {
 		s.loadFileManagerDir(threadID, "")
 	}
 
@@ -355,6 +369,7 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 	searchResults := make([]FileMatch, len(st.searchResults))
 	copy(searchResults, st.searchResults)
 	searchTruncated := st.searchTruncated
+	searchErr := st.searchErr
 	searchQueryPtr := &st.query
 	snap := fileManagerSnapshotLocked(st)
 	fileManagerMu.Unlock()
@@ -389,7 +404,7 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 							return
 						}
 						if query != "" {
-							renderFileManagerSearchResults(c, s, searching, listErr, searchResults, searchTruncated)
+							renderFileManagerSearchResults(c, s, searching, searchErr, searchResults, searchTruncated)
 							return
 						}
 						switch {
@@ -573,6 +588,10 @@ func renderFileManagerSearchResults(c *ui.Context, s *chatState, searching bool,
 		return
 	}
 	if len(results) == 0 {
+		if truncated {
+			ui.Text(c, "搜索结果已截断").FontSize(TypeFootnote).TextColor(ThemeWarning(c)).Margin(ui.Auto)
+			return
+		}
 		EmptyState(c, EmptyStateProps{Title: "没有匹配的文件", Compact: true}).Margin(ui.Auto)
 		return
 	}

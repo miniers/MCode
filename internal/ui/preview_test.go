@@ -1,10 +1,98 @@
 package mcodeui
 
 import (
+	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"mcode/internal/config"
 )
+
+type previewTestPage struct {
+	eval func(string) (any, error)
+}
+
+func (p *previewTestPage) Eval(script string) (any, error) { return p.eval(script) }
+
+func TestPreviewSnapshotConcurrentUpdates(t *testing.T) {
+	st := &previewState{
+		annotations: []previewAnnotation{{Selector: "#app"}},
+		consoleErrors: []previewConsoleError{{Message: "初始"}},
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			previewMu.Lock()
+			st.annotations[0].Comment = "更新"
+			st.consoleErrors[0].Message = "更新"
+			st.viewport = previewViewportMobile
+			st.annotOpen = !st.annotOpen
+			st.consoleOpen = !st.consoleOpen
+			previewMu.Unlock()
+		}
+	}()
+	for i := 0; i < 1000; i++ {
+		previewMu.Lock()
+		snapshot := previewSnapshotLocked(st)
+		previewMu.Unlock()
+		_ = previewViewportWidth(snapshot.viewport)
+		snapshot.annotations[0].Comment = "快照"
+		snapshot.consoleErrors[0].Message = "快照"
+	}
+	wg.Wait()
+}
+
+func TestPreviewPollDropsStalePage(t *testing.T) {
+	for _, kind := range []string{"console", "annotations"} {
+		for _, change := range []string{"navigation", "replacement", "release", "error"} {
+			t.Run(kind+"/"+change, func(t *testing.T) {
+				s := &chatState{}
+				st := getPreviewState(s)
+				started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+				page := &previewTestPage{eval: func(string) (any, error) {
+					close(started)
+					<-release
+					if change == "error" { return nil, errors.New("读取失败") }
+					if kind == "console" { return `[{"message":"旧页"}]`, nil }
+					return `[{"selector":"#old"}]`, nil
+				}}
+				previewMu.Lock()
+				st.page = page
+				st.pageID = 1
+				previewAdvanceGenerationLocked(st)
+				token := previewPageTokenLocked(st)
+				st.consolePolling, st.annotPolling = true, true
+				st.annotating = true
+				previewMu.Unlock()
+				go func() {
+					defer close(done)
+					if kind == "console" { previewPollConsoleErrors(s, token, page) } else { previewPollAnnotations(s, token, page) }
+				}()
+				select { case <-started: case <-time.After(time.Second): t.Fatal("轮询未启动") }
+				previewMu.Lock()
+				if change != "error" {
+					previewAdvanceGenerationLocked(st)
+					if change == "replacement" { st.pageID++ }
+					if change == "release" { st.page = nil }
+					// 旧请求结束不能清掉新请求的进行中标记。
+					st.consolePolling, st.annotPolling = true, true
+				}
+				previewMu.Unlock()
+				close(release)
+				select { case <-done: case <-time.After(time.Second): t.Fatal("轮询未结束") }
+				previewMu.Lock()
+				defer previewMu.Unlock()
+				if len(st.consoleErrors) != 0 || len(st.annotations) != 0 { t.Fatal("旧页结果被写回") }
+				polling := st.consolePolling
+				if kind == "annotations" { polling = st.annotPolling }
+				if polling != (change != "error") { t.Fatalf("轮询标记错误: %v", polling) }
+			})
+		}
+	}
+}
 
 func TestNormalizePreviewURL(t *testing.T) {
 	tests := []struct {

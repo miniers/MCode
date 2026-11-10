@@ -1,8 +1,10 @@
 package mcodeui
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -139,7 +141,7 @@ func TestFileManagerNavigateAndBreadcrumb(t *testing.T) {
 	}
 }
 
-// 搜索框输入后走 SearchFiles，结果行显示相对路径；清空后回到目录列表。
+// 搜索结果显示相对路径；清空后回到目录列表。
 func TestFileManagerSearch(t *testing.T) {
 	fake, _, tt := openFileManagerForTest(t)
 	fake.SetFiles([]FileMatch{{Name: "beta.go", Path: "src/beta.go"}})
@@ -156,6 +158,123 @@ func TestFileManagerSearch(t *testing.T) {
 		t.Fatalf("click clear search failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+}
+
+func TestFileManagerSearchTruncation(t *testing.T) {
+	fake, _, tt := openFileManagerForTest(t)
+	fake.SetFiles([]FileMatch{{Name: "beta.go", Path: "src/beta.go"}})
+	fake.mu.Lock()
+	fake.filesTruncated = true
+	fake.mu.Unlock()
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+	if err := tt.Click("搜索文件"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("beta")
+	waitFor(t, tt, func() bool { return tt.HasText("src/beta.go") && tt.HasText("搜索结果已截断") })
+}
+
+func TestFileManagerSearchErrorDoesNotLeakToDirectory(t *testing.T) {
+	fake, _, tt := openFileManagerForTest(t)
+	fake.mu.Lock()
+	fake.searchFilesErr = errors.New("搜索失败测试")
+	fake.mu.Unlock()
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+	if err := tt.Click("搜索文件"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("beta")
+	waitFor(t, tt, func() bool { return tt.HasText("搜索失败测试") })
+	if err := tt.Click("清除搜索"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+	if tt.HasText("搜索失败测试") {
+		t.Fatal("搜索错误残留在目录中")
+	}
+}
+
+func TestFileManagerSearchSuccessClearsError(t *testing.T) {
+	fake, s, tt := openFileManagerForTest(t)
+	fake.SetFiles([]FileMatch{{Name: "beta.go", Path: "src/beta.go"}})
+	fake.mu.Lock()
+	fake.searchFilesErr = errors.New("搜索失败测试")
+	fake.mu.Unlock()
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+	if err := tt.Click("搜索文件"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("bet")
+	waitFor(t, tt, func() bool { return tt.HasText("搜索失败测试") })
+	fake.mu.Lock()
+	fake.searchFilesErr = nil
+	fake.mu.Unlock()
+	tt.Type("a")
+	waitFor(t, tt, func() bool { return tt.HasText("src/beta.go") })
+	fileManagerMu.Lock()
+	errText := getFileManagerStateForTest(s).searchErr
+	fileManagerMu.Unlock()
+	if errText != "" || tt.HasText("搜索失败测试") {
+		t.Fatalf("成功后搜索错误未清除：%q", errText)
+	}
+}
+
+func getFileManagerStateForTest(s *chatState) *fileManagerState {
+	return fileManagerStates[s]
+}
+
+type delayedFileManagerSearchClient struct {
+	*FakeClient
+	started chan struct{}
+	release chan struct{}
+	done    chan struct{}
+}
+
+func (f *delayedFileManagerSearchClient) SearchFileEntries(ctx context.Context, threadID, query string) (FileSearchResult, error) {
+	if threadID == "old" {
+		close(f.started)
+		<-f.release
+		defer close(f.done)
+		return FileSearchResult{Entries: []FileMatch{{Path: "old.go"}}, Truncated: true}, nil
+	}
+	return FileSearchResult{Entries: []FileMatch{{Path: "new.go"}}}, nil
+}
+
+func TestFileManagerSearchDropsPreviousThread(t *testing.T) {
+	fake := &delayedFileManagerSearchClient{FakeClient: NewFakeClient(), started: make(chan struct{}), release: make(chan struct{}), done: make(chan struct{})}
+	s := &chatState{client: fake}
+	st := getFileManagerState(s)
+	s.loadFileManagerDir("old", "")
+	s.fileManagerSearch("old", "go")
+	select {
+	case <-fake.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("旧搜索未启动")
+	}
+	s.loadFileManagerDir("new", "")
+	s.fileManagerSearch("new", "go")
+	deadline := time.After(5 * time.Second)
+	for {
+		fileManagerMu.Lock()
+		ready := !st.searching && len(st.searchResults) == 1 && st.searchResults[0].Path == "new.go"
+		fileManagerMu.Unlock()
+		if ready {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("新搜索未完成")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	close(fake.release)
+	<-fake.done
+	time.Sleep(50 * time.Millisecond)
+	fileManagerMu.Lock()
+	defer fileManagerMu.Unlock()
+	if st.threadID != "new" || len(st.searchResults) != 1 || st.searchResults[0].Path != "new.go" || st.searchTruncated {
+		t.Fatalf("旧会话结果覆盖了新会话：%+v", st.searchResults)
+	}
 }
 
 // 点文件读取文本预览，「引用到输入框」把相对路径追加到 composer 草稿。

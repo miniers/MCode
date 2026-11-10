@@ -526,12 +526,18 @@ func (c *Client) UploadAttachment(ctx context.Context, name, mimeType string, da
 
 // SearchFiles 在指定会话的工作区内模糊搜索文件和目录。
 func (c *Client) SearchFiles(ctx context.Context, threadID, query string) ([]mcodeui.FileMatch, error) {
+	result, err := c.SearchFileEntries(ctx, threadID, query)
+	return result.Entries, err
+}
+
+// SearchFileEntries 在工作区内搜索，并返回后端的截断状态。
+func (c *Client) SearchFileEntries(ctx context.Context, threadID, query string) (mcodeui.FileSearchResult, error) {
 	res, err := c.backend.FilesSearch(ctx, wire.RemoteFilesSearchParams{
 		ThreadID: threadID,
 		Query:    query,
 	})
 	if err != nil {
-		return nil, err
+		return mcodeui.FileSearchResult{}, err
 	}
 	matches := make([]mcodeui.FileMatch, len(res.Entries))
 	for i, entry := range res.Entries {
@@ -541,7 +547,7 @@ func (c *Client) SearchFiles(ctx context.Context, threadID, query string) ([]mco
 			IsDir: entry.Kind == wire.RemoteFileEntryKindDirectory,
 		}
 	}
-	return matches, nil
+	return mcodeui.FileSearchResult{Entries: matches, Truncated: res.Truncated}, nil
 }
 
 // FilesList 列出指定会话工作区内某个目录的单层条目。
