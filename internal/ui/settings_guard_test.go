@@ -224,7 +224,7 @@ func TestSettingsGuard_NoNumericSpacing(t *testing.T) {
 		"settings_mcp_controls.go":          11,
 		"settings_page_archive.go":          3,
 		"settings_page_mcp_catalog.go":      9,
-		"settings_page_models.go":           11,
+		"settings_page_models.go":           6,
 		"settings_page_providers_agents.go": 1,
 		"settings_page_remote.go":           1,
 		"settings_page_skills.go":           3,

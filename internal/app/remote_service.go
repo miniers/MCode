@@ -574,6 +574,7 @@ func (s *RemoteService) ensureAuthLocked() (*remote.PairingAuth, error) {
 		OnRevoke: func(deviceID string) {
 			s.mu.Lock()
 			servers := []*remote.Server{s.srv, s.tlsSrv, s.tailscaleSrv}
+			push := s.push
 			s.mu.Unlock()
 			for _, srv := range servers {
 				if srv != nil {
@@ -581,7 +582,7 @@ func (s *RemoteService) ensureAuthLocked() (*remote.PairingAuth, error) {
 				}
 			}
 			// 撤销的设备不再接收推送：它的订阅随设备一起消失。
-			if push := s.push; push != nil {
+			if push != nil {
 				push.ForgetDevice(deviceID)
 			}
 		},

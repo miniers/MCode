@@ -32,7 +32,11 @@ import (
 
 // loadOrCreateVAPIDKey 加载或新建 VAPID P-256 私钥，PEM 文件权限 0600，先写临时文件再 rename。
 func loadOrCreateVAPIDKey(path string) (*ecdsa.PrivateKey, error) {
-	if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("remote: read VAPID key: %w", err)
+	}
+	if err == nil {
 		block, _ := pem.Decode(data)
 		if block == nil {
 			return nil, errors.New("remote: invalid VAPID PEM block")

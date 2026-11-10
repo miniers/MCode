@@ -25,6 +25,8 @@ import (
 	"golang.org/x/crypto/acme"
 )
 
+var defaultACMEHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
 // dnsProvider 抽象 ACME DNS-01 质询提供方。
 type dnsProvider interface {
 	Present(ctx context.Context, fqdn, value string) error
@@ -55,7 +57,7 @@ func newCloudflareDNS(apiBase, token string, client *http.Client, propagationDel
 	}
 	apiBase = strings.TrimRight(apiBase, "/")
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultACMEHTTPClient
 	}
 	return &cloudflareDNS{
 		apiBase:          apiBase,
@@ -140,7 +142,7 @@ func (c *cloudflareDNS) findZoneID(ctx context.Context, domain string) (string, 
 			return "", err
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		_ = resp.Body.Close()
 		if err != nil {
 			return "", err
@@ -392,7 +394,11 @@ func (c *cloudflareDNS) upsertARecord(ctx context.Context, name, ipv4 string) er
 // loadOrGenerateAccountKey 从 opts.Dir/account.key 读取现有账户密钥，不存在则生成并持久化。
 func loadOrGenerateAccountKey(dir string) (*ecdsa.PrivateKey, error) {
 	keyPath := filepath.Join(dir, "account.key")
-	if keyBytes, err := os.ReadFile(keyPath); err == nil && len(keyBytes) > 0 {
+	keyBytes, err := os.ReadFile(keyPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read acme account.key: %w", err)
+	}
+	if err == nil {
 		block, _ := pem.Decode(keyBytes)
 		if block != nil {
 			if privKey, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
@@ -404,6 +410,7 @@ func loadOrGenerateAccountKey(dir string) (*ecdsa.PrivateKey, error) {
 				}
 			}
 		}
+		return nil, errors.New("acme account.key is corrupt or unparseable")
 	}
 
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

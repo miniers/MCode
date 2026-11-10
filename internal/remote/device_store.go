@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -68,9 +69,18 @@ func NewDeviceStore(filePath string, now func() time.Time) (*DeviceStore, error)
 	}
 
 	data, err := os.ReadFile(filePath)
-	if err == nil && len(data) > 0 {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("remote: read device store %s: %w", filePath, err)
+	}
+	if err == nil {
 		var list []DeviceRecord
-		if err := json.Unmarshal(data, &list); err == nil {
+		if err := json.Unmarshal(data, &list); err != nil {
+			backupPath := fmt.Sprintf("%s.corrupt-%d", filePath, time.Now().UnixNano())
+			if renameErr := os.Rename(filePath, backupPath); renameErr != nil {
+				return nil, fmt.Errorf("remote: backup corrupt device store %s: %w", filePath, renameErr)
+			}
+			log.Printf("远程设备文件损坏，已备份至 %s：%v", backupPath, err)
+		} else {
 			s.records = list
 		}
 	}
@@ -437,9 +447,6 @@ func (s *DeviceStore) removeExpiredLocked(now time.Time) bool {
 }
 
 func (s *DeviceStore) writeLocked(now time.Time) error {
-	s.lastWrite = now
-	s.hasPendingFlush = false
-
 	dir := filepath.Dir(s.filePath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -465,5 +472,7 @@ func (s *DeviceStore) writeLocked(now time.Time) error {
 		_ = os.Remove(tmpFile)
 		return err
 	}
+	s.lastWrite = now
+	s.hasPendingFlush = false
 	return nil
 }

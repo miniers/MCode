@@ -1,7 +1,6 @@
 package mcodeui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
