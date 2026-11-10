@@ -219,6 +219,8 @@ type appFlyoutPopoverKey struct {
 	key      string
 }
 
+type appFlyoutAnchorKey struct{}
+
 type appFlyoutPopoverEntry struct {
 	appFlyout
 	parent    *mygo.Window
@@ -297,8 +299,13 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 		return
 	}
 	k := appFlyoutPopoverKey{services: host, key: key}
-	// 宿主卸载时关闭浮层；OnUnmount 只保留最后一次设置，调用方不要再给锚点设 OnUnmount。
-	anchor.OnUnmount(func() { closeAppFlyoutPopover(host, key) })
+	// 宿主卸载或同一锚点换了 key 时关闭旧浮层；每个锚点只挂一个浮层，调用方不要再给锚点设 OnUnmount。
+	cur := ui.Local(anchor, appFlyoutAnchorKey{}, func() string { return "" })
+	if *cur != "" && *cur != key {
+		closeAppFlyoutPopover(host, *cur)
+	}
+	*cur = key
+	anchor.OnUnmount(func() { closeAppFlyoutPopover(host, *cur) })
 	r, valid := flyoutAnchor(anchor.Bounds(), c.Zoom())
 	appFlyoutPopoverMu.Lock()
 	entry := appFlyoutPopovers[k]
