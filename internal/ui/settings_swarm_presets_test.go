@@ -347,7 +347,48 @@ func TestSwarmPreset_ReadyPresetClickPersists(t *testing.T) {
 	if err != nil || len(loaded.Orchestration.Pairs) != 1 || loaded.Orchestration.Pairs[0].LeadModel != "claude-fable-5-1" {
 		t.Fatalf("preset click must persist resolved pair: %+v, %v", loaded.Orchestration.Pairs, err)
 	}
+	if err := tt.Click("预设组合"); err != nil {
+		t.Fatal(err)
+	}
 	if !tt.HasText("已添加") {
 		t.Fatal("added preset must no longer offer another add action")
+	}
+}
+
+func TestSwarmPreset_Flyout(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	entry, capture := setupPopoverFlyoutTest(t)
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	providers := []ProviderInfo{{ID: config.ProviderClaude, Available: true, Models: []ModelInfo{
+		{ID: "fable", Name: "Fable"}, {ID: "opus", Name: "Opus"},
+	}}}
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		renderSwarmPresetsPanel(c, st, providers)
+	}, 900, 900)
+	if err := host.Click("预设组合"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.options) != 1 || capture.options[0].Width != int(settingsPresetPopoverWidth) || capture.options[0].Content == nil {
+		t.Fatalf("浮层参数错误: %+v", capture.options)
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, "swarm-preset-popover"), 480, 4000)
+	first, ok := menu.Find(swarmPresets[0].Title)
+	if !ok {
+		t.Fatalf("缺少预设: %v", menu.Texts())
+	}
+	last, ok := menu.Find(swarmPresets[len(swarmPresets)-1].Title)
+	if !ok || last.Y-first.Y <= 520 {
+		t.Fatalf("预设列表未按自然高度展开: 首项 %+v，末项 %+v", first, last)
+	}
+	if err := menu.Click("添加配对"); err != nil {
+		t.Fatal(err)
+	}
+	if getSwarmUIState(st).presetOpen || len(capture.destroyedWindows) != 1 {
+		t.Fatal("应用预设后未关闭浮层")
+	}
+	loaded, err := config.Load(st.dataDir)
+	if err != nil || len(loaded.Orchestration.Pairs) != 1 {
+		t.Fatalf("预设未保存: %+v, %v", loaded.Orchestration.Pairs, err)
 	}
 }

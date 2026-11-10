@@ -404,16 +404,23 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 		})
 	})
 
-	appPopover(c.Key("swarm-preset-popover"), trigger, &uiSt.presetOpen, nil, func() {
-		ui.Column(c.Key("swarm-preset-panel")).
+	host := c.Services()
+	native := flyoutHostWindow(host) != nil
+	background := ThemeSurface(c)
+	closePreset := func() {
+		uiSt.presetOpen = false
+		closeAppFlyoutPopover(host, "swarm-preset-popover")
+		st.invalidate()
+	}
+	appFlyoutPopover(c, "swarm-preset-popover", trigger, &uiSt.presetOpen, nil, appFlyoutProps{Width: int(settingsPresetPopoverWidth), Background: &background}, func(c *ui.Context) {
+		panel := ui.Column(c.Key("swarm-preset-panel")).
 			Width(settingsPresetPopoverWidth).
-			MaxHeight(settingsPresetPopoverMaxHeight).
 			Padding(Space5).
-			Gap(Space4).
-			Radius(RadiusMD).
-			Background(ThemeSurface(c)).
-			Border(Hairline, ThemeBorder(c)).
-			Shadow(0, 6, 20, 0, ThemeOverlay(c, 0.18)).
+			Gap(Space4)
+		if !native {
+			panel = panel.Radius(RadiusMD).Background(ThemeSurface(c)).Border(Hairline, ThemeBorder(c)).Shadow(0, 6, 20, 0, ThemeOverlay(c, 0.18))
+		}
+		panel.
 			Children(func() {
 				// 头部：标题与关闭按钮
 				ui.Row(c.Key("swarm-preset-header")).
@@ -443,8 +450,7 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 									TextColor(ThemeSecondaryText(c))
 							})
 						if closeBtn.Clicked() {
-							uiSt.presetOpen = false
-							st.invalidate()
+							closePreset()
 						}
 					})
 
@@ -461,97 +467,93 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 
 				presets := evaluateSwarmPresets(providers, existingPairs)
 
-				ui.Scroll(c.Key("swarm-preset-scroll")).
-					Grow(1).
+				ui.Column(c.Key("swarm-preset-list")).
+					Gap(Space3).
 					Children(func() {
-						ui.Column(c.Key("swarm-preset-list")).
-							Gap(Space3).
-							Children(func() {
-								for i, item := range presets {
-									preset := item.Preset
-									rowKey := fmt.Sprintf("swarm-preset-row-%d-%s", i, preset.ID)
+						for i, item := range presets {
+							preset := item.Preset
+							rowKey := fmt.Sprintf("swarm-preset-row-%d-%s", i, preset.ID)
 
-									ui.Box(c.Key(rowKey)).
-										Padding(settingsCompactPadX, Space4).
-										Radius(RadiusSM).
-										Background(ThemeOverlay(c, 0.03)).
+							ui.Box(c.Key(rowKey)).
+								Padding(settingsCompactPadX, Space4).
+								Radius(RadiusSM).
+								Background(ThemeOverlay(c, 0.03)).
+								Children(func() {
+									ui.Row(c.Key(rowKey + "-content")).
+										AlignItems(ui.Start).
 										Children(func() {
-											ui.Row(c.Key(rowKey + "-content")).
-												AlignItems(ui.Start).
+											ui.Column(c.Key(rowKey + "-info")).
+												Grow(1).
+												Gap(Space1).
 												Children(func() {
-													ui.Column(c.Key(rowKey + "-info")).
-														Grow(1).
-														Gap(Space1).
+													ui.Row(c.Key(rowKey + "-title-row")).
+														AlignItems(ui.Center).
+														Gap(Space3).
 														Children(func() {
-															ui.Row(c.Key(rowKey + "-title-row")).
-																AlignItems(ui.Center).
-																Gap(Space3).
-																Children(func() {
-																	ui.Text(c, preset.Title).
-																		FontSize(TypeBody).
-																		FontWeight(600).
-																		TextColor(ThemePrimaryText(c))
+															ui.Text(c, preset.Title).
+																FontSize(TypeBody).
+																FontWeight(600).
+																TextColor(ThemePrimaryText(c))
 
-																	if item.Added {
-																		renderPresetBadge(c, rowKey+"-badge-added", "已添加", ThemeSecondaryText(c), ThemeOverlay(c, 0.08))
-																	} else if item.Ready {
-																		renderPresetBadge(c, rowKey+"-badge-ready", "就绪", ThemeSuccess(c), ThemeOverlay(c, 0.12))
-																	} else {
-																		renderPresetBadge(c, rowKey+"-badge-waiting", "等待", ThemeSecondaryText(c), ThemeOverlay(c, 0.08))
-																	}
-																})
-
-															ui.Text(c, preset.Summary).
-																FontSize(TypeFootnote).
-																TextColor(ThemeSecondaryText(c))
-
-															if !item.Ready && len(item.Missing) > 0 {
-																ui.Column(c.Key(rowKey + "-missing-list")).
-																	Gap(Space0).
-																	Children(func() {
-																		for mIdx, msg := range item.Missing {
-																			missKey := fmt.Sprintf("%s-missing-%d", rowKey, mIdx)
-																			ui.Text(c.Key(missKey), "• "+msg).
-																				FontSize(TypeCaption).
-																				TextColor(ThemeSecondaryText(c))
-																		}
-																	})
+															if item.Added {
+																renderPresetBadge(c, rowKey+"-badge-added", "已添加", ThemeSecondaryText(c), ThemeOverlay(c, 0.08))
+															} else if item.Ready {
+																renderPresetBadge(c, rowKey+"-badge-ready", "就绪", ThemeSuccess(c), ThemeOverlay(c, 0.12))
+															} else {
+																renderPresetBadge(c, rowKey+"-badge-waiting", "等待", ThemeSecondaryText(c), ThemeOverlay(c, 0.08))
 															}
 														})
 
-													if item.Added {
-														ui.ButtonBase(c.Key(rowKey+"-btn-added")).
-															Label("已添加").
-															Padding(settingsBadgePadY, settingsCompactPadX).
-															Radius(RadiusSM).
-															Disabled(true).
-															Background(ThemeOverlay(c, 0.04)).
+													ui.Text(c, preset.Summary).
+														FontSize(TypeFootnote).
+														TextColor(ThemeSecondaryText(c))
+
+													if !item.Ready && len(item.Missing) > 0 {
+														ui.Column(c.Key(rowKey + "-missing-list")).
+															Gap(Space0).
 															Children(func() {
-																ui.Text(c, "已添加").
-																	FontSize(TypeFootnote).
-																	TextColor(ThemeSecondaryText(c))
+																for mIdx, msg := range item.Missing {
+																	missKey := fmt.Sprintf("%s-missing-%d", rowKey, mIdx)
+																	ui.Text(c.Key(missKey), "• "+msg).
+																		FontSize(TypeCaption).
+																		TextColor(ThemeSecondaryText(c))
+																}
 															})
-													} else if item.Ready {
-														addBtn := ui.ButtonBase(c.Key(rowKey+"-btn-add")).
-															Label("添加配对").
-															Padding(settingsBadgePadY, settingsCompactPadX).
-															Radius(RadiusSM).
-															Background(ThemeAccent(c)).
-															Children(func() {
-																ui.Text(c, "添加配对").
-																	FontSize(TypeFootnote).
-																	FontWeight(500).
-																	TextColor(ThemeOnAccent(c))
-															})
-														if addBtn.Clicked() {
-															addSwarmPreset(st, preset)
-															st.invalidate()
-														}
 													}
 												})
+
+											if item.Added {
+												ui.ButtonBase(c.Key(rowKey+"-btn-added")).
+													Label("已添加").
+													Padding(settingsBadgePadY, settingsCompactPadX).
+													Radius(RadiusSM).
+													Disabled(true).
+													Background(ThemeOverlay(c, 0.04)).
+													Children(func() {
+														ui.Text(c, "已添加").
+															FontSize(TypeFootnote).
+															TextColor(ThemeSecondaryText(c))
+													})
+											} else if item.Ready {
+												addBtn := ui.ButtonBase(c.Key(rowKey+"-btn-add")).
+													Label("添加配对").
+													Padding(settingsBadgePadY, settingsCompactPadX).
+													Radius(RadiusSM).
+													Background(ThemeAccent(c)).
+													Children(func() {
+														ui.Text(c, "添加配对").
+															FontSize(TypeFootnote).
+															FontWeight(500).
+															TextColor(ThemeOnAccent(c))
+													})
+												if addBtn.Clicked() {
+													addSwarmPreset(st, preset)
+													closePreset()
+												}
+											}
 										})
-								}
-							})
+								})
+						}
 					})
 			})
 	})

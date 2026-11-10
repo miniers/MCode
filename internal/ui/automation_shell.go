@@ -222,13 +222,22 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 							as.chooseProjectOpen = true
 						})
 					}})
-					appPopover(c, button, &as.chooseProjectOpen, nil, func() {
-						popoverCard(c, ui.Column(c.Key("automation-project-menu"))).Padding(Space2, Space2).Children(func() {
+					background := ThemeSurfacePopover(c)
+					native := flyoutHostWindow(c.Services()) != nil
+					host := c.Services()
+					appFlyoutPopover(c, "automation-choose-project", button, &as.chooseProjectOpen, nil, appFlyoutProps{Width: 200, Background: &background}, func(c *ui.Context) {
+						card := ui.Column(c.Key("automation-project-menu"))
+						if !native {
+							card = popoverCard(c, card)
+						}
+						card.Padding(Space2, Space2).Children(func() {
 							for _, project := range s.projects {
 								Button(c.Key("automation-project-"+project.ID), ButtonOpts{Text: project.Name, Variant: ButtonGhost, OnClick: func() {
 									choose := as.pendingProjectChoice
 									as.pendingProjectChoice = nil
 									as.chooseProjectOpen = false
+									closeAppFlyoutPopover(host, "automation-choose-project")
+									host.Invalidate()
 									if choose != nil {
 										choose(project.ID)
 									}

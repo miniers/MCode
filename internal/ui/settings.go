@@ -42,7 +42,6 @@ const (
 // 设置页浮层高度上限。
 const (
 	settingsEditorPopoverMaxHeight float32 = 650 // Swarm 编辑浮层可滚动高度
-	settingsPresetPopoverMaxHeight float32 = 520 // 预设编辑浮层可滚动高度
 )
 
 // settingsRemoteHeadlineFont 是远程访问页配对码标题字号。

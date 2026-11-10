@@ -66,7 +66,7 @@ func sessionStatsRowInComposer(s *chatState, threadID string) bool {
 }
 
 // renderSessionStatsButton 渲染底部紧凑的「会话统计」文字按钮，点击展开完整会话统计浮层；
-// 浮层用 appPopover（PopoverBase 去外层样式版）承载，外观由 popoverCard 负责。
+// 浮层由 appFlyoutPopover 承载。
 func renderSessionStatsButton(c *ui.Context, s *chatState, threadID, key string) {
 	open := sessionStatsOpen(s)
 	btn := ui.ButtonBase(c.Key(key+"-stats-btn")).
@@ -91,13 +91,15 @@ func renderSessionStatsButton(c *ui.Context, s *chatState, threadID, key string)
 			})
 	})
 
-	// 局部开关：PopoverBase 在点外部或 Esc 时把它写回 false，再据此清空全局状态，
+	// 局部开关在点外部或 Esc 时写回 false，再据此清空全局状态，
 	// 避免按钮的取反与面板的关闭相互抵消。
 	panelOpen := open
-	appPopover(c.Key(key+"-stats-popover"), btn, &panelOpen, func() {
+	background := ThemeSurfacePopover(c)
+	native := flyoutHostWindow(c.Services()) != nil
+	appFlyoutPopover(c, key+"-stats-popover", btn, &panelOpen, func() {
 		setSessionStatsOpen(s, false)
-	}, func() {
-		renderSessionStatsPopover(c, s, threadID, key)
+	}, appFlyoutProps{Width: int(sessionStatsMaxWidth), Background: &background}, func(c *ui.Context) {
+		renderSessionStatsPopover(c, s, threadID, key, native)
 	})
 	if open && !panelOpen {
 		setSessionStatsOpen(s, false)
@@ -302,8 +304,8 @@ func formatStatsDuration(d time.Duration) string {
 }
 
 // renderSessionStatsPopover 渲染会话统计浮层内容：Token、活动、常用工具、时间、改动、
-// 子代理与费用分组，没有数据的分组整组跳过。卡片外观由 popoverCard 承担。
-func renderSessionStatsPopover(c *ui.Context, s *chatState, threadID, key string) {
+// 子代理与费用分组，没有数据的分组整组跳过。
+func renderSessionStatsPopover(c *ui.Context, s *chatState, threadID, key string, native bool) {
 	st := collectSessionStats(s, threadID)
 
 	var tokenRows, activityRows, toolRows, timeRows, changeRows, beeRows [][2]string
@@ -366,11 +368,14 @@ func renderSessionStatsPopover(c *ui.Context, s *chatState, threadID, key string
 		}
 	}
 
-	card := popoverCard(c, ui.Column(c.Key(key+"-stats-card")).
+	card := ui.Column(c.Key(key+"-stats-card")).
 		Gap(Space2).
 		Padding(Space4, Space4).
 		MinWidth(sessionStatsMinWidth).
-		MaxWidth(sessionStatsMaxWidth))
+		MaxWidth(sessionStatsMaxWidth)
+	if !native {
+		card = popoverCard(c, card)
+	}
 	card.Children(func() {
 		ui.Text(c, "会话统计").
 			FontSize(scaledFont(TypeFootnote)).

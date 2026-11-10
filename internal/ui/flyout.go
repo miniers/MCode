@@ -61,6 +61,12 @@ func flyoutHostWindow(services ui.Services) *mygo.Window {
 			return entry.win
 		}
 	}
+	tasksWindowMu.Lock()
+	taskWin, taskState := tasksWindow, tasksWindowState
+	tasksWindowMu.Unlock()
+	if taskWin != nil && taskState != nil && taskState.uiServices() == services && !taskWin.IsDestroyed() {
+		return taskWin
+	}
 	return nil
 }
 
@@ -201,9 +207,9 @@ type appFlyoutPopoverKey struct {
 
 type appFlyoutPopoverEntry struct {
 	appFlyout
-	dismiss func()
-	props   appFlyoutProps
-	render  func(*ui.Context)
+	dismissed bool
+	props     appFlyoutProps
+	render    func(*ui.Context)
 }
 
 var appFlyoutPopoverMu sync.Mutex
@@ -235,6 +241,15 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 	r, valid := flyoutAnchor(anchor.Bounds(), c.Zoom())
 	appFlyoutPopoverMu.Lock()
 	entry := appFlyoutPopovers[k]
+	if entry != nil && entry.dismissed {
+		*open = false
+		delete(appFlyoutPopovers, k)
+		appFlyoutPopoverMu.Unlock()
+		if onDismiss != nil {
+			onDismiss()
+		}
+		return
+	}
 	if !*open {
 		appFlyoutPopoverMu.Unlock()
 		closeAppFlyoutPopover(host, key)
@@ -244,7 +259,7 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 		entry = &appFlyoutPopoverEntry{}
 		appFlyoutPopovers[k] = entry
 	}
-	entry.view, entry.dismiss, entry.props = fn, onDismiss, props
+	entry.view, entry.props = fn, props
 	services := entry.services
 	var action func()
 	if valid {
@@ -274,17 +289,16 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 			opts.Content = ui.View(render)
 			entry.create(&appFlyoutPopoverMu, opts, nil, func() {
 				appFlyoutPopoverMu.Lock()
-				dismiss := entry.dismiss
-				if appFlyoutPopovers[k] == entry {
-					delete(appFlyoutPopovers, k)
+				active := appFlyoutPopovers[k] == entry && entry.window == nil && !entry.creating
+				if active {
+					entry.dismissed = true
 				}
 				appFlyoutPopoverMu.Unlock()
-				if dismiss != nil {
-					dismiss()
-				}
-				host.Invalidate()
-				if !parent.IsDestroyed() {
-					flyoutFocus(parent)
+				if active {
+					host.Invalidate()
+					if !parent.IsDestroyed() {
+						flyoutFocus(parent)
+					}
 				}
 			})
 		})

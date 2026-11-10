@@ -72,15 +72,27 @@ func renderModelPickerPopover(c *ui.Context, st *SettingsState, ps *modelsPageSt
 // renderModelPickerPopoverWithNotice 与 renderModelPickerPopover 相同，额外在列表上方
 // 显示一条提示（例如模型数量已达上限）。
 func renderModelPickerPopoverWithNotice(c *ui.Context, st *SettingsState, ps *modelsPageState, popoverKey string, anchor ui.Element, items []modelPickerItem, emptyHint, notice string, onToggle func(item modelPickerItem, checked bool), custom modelPickerCustom) {
-	// open 每帧由状态重算，只有 appPopover 在 PopoverBase 返回后回调 onDismiss 才能把状态清掉。
 	open := ps.openPopoverKey == popoverKey
-	appPopover(c.Key("popover-"+popoverKey), anchor, &open, func() {
+	key := "popover-" + popoverKey
+	host := c.Services()
+	native := flyoutHostWindow(host) != nil
+	background := ThemeSurfacePopover(c)
+	closePicker := func() {
+		ps.openPopoverKey = ""
+		closeAppFlyoutPopover(host, key)
+		st.invalidate()
+	}
+	appFlyoutPopover(c, key, anchor, &open, func() {
 		if ps.openPopoverKey == popoverKey {
 			ps.openPopoverKey = ""
 		}
-	}, func() {
+	}, appFlyoutProps{Width: 420, Background: &background}, func(c *ui.Context) {
 		query := ps.providerSearchInput(popoverKey)
-		popoverCard(c, ui.Column(c.Key("model-picker-"+popoverKey)).Width(420).Padding(Space3).Gap(Space3)).
+		card := ui.Column(c.Key("model-picker-" + popoverKey)).Width(420).Padding(Space3).Gap(Space3)
+		if !native {
+			card = popoverCard(c, card)
+		}
+		card.
 			Children(func() {
 				ui.Row(c.Key("model-picker-search-" + popoverKey)).
 					FillWidth().
@@ -103,6 +115,7 @@ func renderModelPickerPopoverWithNotice(c *ui.Context, st *SettingsState, ps *mo
 							if custom.Add != nil {
 								custom.Add(id)
 							}
+							closePicker()
 						})
 						btn.Children(func() {
 							ui.Text(c, label).
@@ -117,13 +130,13 @@ func renderModelPickerPopoverWithNotice(c *ui.Context, st *SettingsState, ps *mo
 						TextColor(ThemeSecondaryText(c)).
 						Padding(0, Space1)
 				}
-				scrollKey := popoverKey + "-scroll"
-				scroll := ui.Scroll(c.Key(scrollKey)).
-					FillWidth().
-					MaxHeight(360)
-				scroll = containScroll(scroll, ps.magpieListScrollState(scrollKey))
-				scroll.Children(func() {
-					renderModelPickerSections(c, st, ps, popoverKey, items, strings.TrimSpace(*query), emptyHint, onToggle)
+				ui.Column(c.Key(popoverKey + "-list")).FillWidth().Children(func() {
+					renderModelPickerSections(c, st, ps, popoverKey, items, strings.TrimSpace(*query), emptyHint, func(item modelPickerItem, checked bool) {
+						if onToggle != nil {
+							onToggle(item, checked)
+						}
+						closePicker()
+					})
 				})
 			})
 	})
@@ -272,8 +285,7 @@ func modelFamilyIconKey(title string) string {
 	}
 }
 
-// renderModelPickerRow 渲染单个可勾选的模型行；关闭浮层时保持它继续打开，
-// 避免取消勾选（removePin 会清 openPopoverKey）后浮层意外消失。
+// renderModelPickerRow 渲染单个可勾选的模型行。
 func renderModelPickerRow(c *ui.Context, st *SettingsState, ps *modelsPageState, popoverKey string, item modelPickerItem, onToggle func(item modelPickerItem, checked bool)) {
 	name := strings.TrimSpace(item.Name)
 	if name == "" {
@@ -291,9 +303,6 @@ func renderModelPickerRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 			if cb.Changed() {
 				if onToggle != nil {
 					onToggle(item, checked)
-				}
-				if ps.openPopoverKey == "" {
-					ps.openPopoverKey = popoverKey
 				}
 				st.invalidate()
 			}

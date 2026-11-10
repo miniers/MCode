@@ -188,6 +188,22 @@ func TestFlyoutHostWindow(t *testing.T) {
 	if flyoutHostWindow(services) != beeWindow {
 		t.Fatal("子代理窗口未找到")
 	}
+	beeWindowsMu.Lock()
+	delete(beeWindows, "flyout-test")
+	beeWindowsMu.Unlock()
+	tasksWindowMu.Lock()
+	oldTaskWindow, oldTaskState := tasksWindow, tasksWindowState
+	taskWindow := &mygo.Window{}
+	tasksWindow, tasksWindowState = taskWindow, chat
+	tasksWindowMu.Unlock()
+	t.Cleanup(func() {
+		tasksWindowMu.Lock()
+		tasksWindow, tasksWindowState = oldTaskWindow, oldTaskState
+		tasksWindowMu.Unlock()
+	})
+	if flyoutHostWindow(services) != taskWindow || flyoutHostWindow(other) != nil {
+		t.Fatal("任务窗口服务匹配错误")
+	}
 }
 
 func setupPopoverFlyoutTest(t *testing.T) (*settingsWindowEntry, *swarmTierFlyoutCapture) {
@@ -238,7 +254,7 @@ func popoverTestView(t *testing.T, services ui.Services, key string) func(*ui.Co
 
 func TestFlyoutPopoverLifecycle(t *testing.T) {
 	entry, capture := setupPopoverFlyoutTest(t)
-	open, dismissed, frames, version := false, 0, 0, 1
+	open, dismissed, dismissCount, frames, version := false, 0, 0, 0, 1
 	var bounds ui.Rect
 	host := ui.NewTester(func(c *ui.Context) {
 		frames++
@@ -246,7 +262,7 @@ func TestFlyoutPopoverLifecycle(t *testing.T) {
 		trigger := ui.ButtonBase(c.Key("trigger")).Label("打开").Size(100, 30).OnClick(func() { open = true })
 		bounds = trigger.Bounds()
 		currentVersion := version
-		appFlyoutPopover(c, "test-popover", trigger, &open, func() { dismissed = currentVersion; open = false }, appFlyoutProps{Width: 120}, func(c *ui.Context) {
+		appFlyoutPopover(c, "test-popover", trigger, &open, func() { dismissed = currentVersion; dismissCount++ }, appFlyoutProps{Width: 120}, func(c *ui.Context) {
 			if currentVersion == 1 {
 				ui.Text(c, "旧内容")
 			} else {
@@ -293,7 +309,8 @@ func TestFlyoutPopoverLifecycle(t *testing.T) {
 		t.Fatal("重新打开失败")
 	}
 	capture.closed[0]()
-	if dismissed != 0 {
+	host.Frame()
+	if dismissed != 0 || !open || len(capture.options) != 2 {
 		t.Fatal("旧窗口关闭影响新窗口")
 	}
 	// 更新闭包后，关闭事件必须调用最新版本。
@@ -304,8 +321,97 @@ func TestFlyoutPopoverLifecycle(t *testing.T) {
 		t.Fatal("浮层未使用最新内容")
 	}
 	capture.closed[1]()
-	if dismissed != 2 || open || capture.focused != 1 {
+	if dismissed != 0 || !open || capture.focused != 1 || !host.FramePending() {
+		t.Fatal("关闭回调不应在宿主帧外执行")
+	}
+	host.Frame()
+	host.Frame()
+	if dismissed != 2 || dismissCount != 1 || open || len(capture.options) != 2 {
 		t.Fatal("关闭事件未通知宿主或恢复焦点")
+	}
+}
+
+func TestFlyoutPopoverDismissWithoutCallback(t *testing.T) {
+	entry, capture := setupPopoverFlyoutTest(t)
+	open := true
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		trigger := ui.ButtonBase(c.Key("trigger")).Label("锚点").Size(100, 30)
+		appFlyoutPopover(c, "nil-dismiss", trigger, &open, nil, appFlyoutProps{Width: 120}, func(c *ui.Context) { ui.Text(c, "内容") })
+	}, 400, 300)
+	host.Frame()
+	if len(capture.options) != 1 {
+		t.Fatal("未创建浮层")
+	}
+	capture.closed[0]()
+	if !open || !host.FramePending() {
+		t.Fatal("关闭应等待宿主帧写回")
+	}
+	host.Frame()
+	host.Frame()
+	if open || len(capture.options) != 1 {
+		t.Fatal("关闭未写回或浮层重新创建")
+	}
+}
+
+func TestFlyoutSessionStats(t *testing.T) {
+	entry, capture := setupPopoverFlyoutTest(t)
+	s := &chatState{}
+	t.Cleanup(func() { setSessionStatsOpen(s, false) })
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		renderSessionStatsButton(c, s, "thread", "test")
+	}, 400, 300)
+	if err := host.Click("会话统计"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.options) != 1 || capture.options[0].Content == nil {
+		t.Fatal("未创建会话统计窗口")
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, "test-stats-popover"), 330, 300)
+	if !menu.HasText("暂无统计数据") {
+		t.Fatalf("缺少统计内容: %v", menu.Texts())
+	}
+}
+
+func TestFlyoutAutomationProject(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	entry, capture := setupPopoverFlyoutTest(t)
+	s, view := buildTasksRoot(nil, WithTasksWindowMode("automations"))
+	defer s.close()
+	s.projects = []Project{{ID: "p1", Name: "项目一"}, {ID: "p2", Name: "项目二"}}
+	tasksWindowMu.Lock()
+	oldWindow, oldState := tasksWindow, tasksWindowState
+	tasksWindow, tasksWindowState = entry.win, s
+	tasksWindowMu.Unlock()
+	t.Cleanup(func() {
+		tasksWindowMu.Lock()
+		tasksWindow, tasksWindowState = oldWindow, oldState
+		tasksWindowMu.Unlock()
+	})
+	host := ui.NewTester(view, 1140, 720)
+	host.Frame()
+	entry.services = s.uiServices()
+	// 让任务窗口而非测试设置窗口匹配宿主。
+	settingsWindowMu.Lock()
+	settingsWindow = nil
+	settingsWindowMu.Unlock()
+	if err := host.Click("新建自动化"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.options) != 1 || capture.options[0].Parent != entry.win || capture.options[0].Content == nil {
+		t.Fatal("未创建任务窗口项目浮层")
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, "automation-choose-project"), 200, 300)
+	if !menu.HasText("项目二") {
+		t.Fatalf("缺少项目: %v", menu.Texts())
+	}
+	if err := menu.Click("项目二"); err != nil {
+		t.Fatal(err)
+	}
+	as := getAutomationState(s)
+	if as.chooseProjectOpen || !as.editorOpen || as.editorProjectID != "p2" || len(capture.destroyedWindows) != 1 {
+		t.Fatal("选择项目后未关闭浮层或打开编辑器")
 	}
 }
 

@@ -117,8 +117,55 @@ func TestModelPicker_AddAndSearch(t *testing.T) {
 		pins, _, err := fake.ModelList(context.Background())
 		return err == nil && len(pins) == 1 && pins[0].Key() == "claude/sonnet" && tt.HasText("移除收藏 Claude Sonnet")
 	})
-	if _, ok := tt.Find(search); !ok {
-		t.Fatalf("勾选后浮层被意外关闭: %v", tt.Texts())
+	if _, ok := tt.Find(search); ok {
+		t.Fatalf("勾选后浮层未关闭: %v", tt.Texts())
+	}
+}
+
+func TestModelPicker_Flyout(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	entry, capture := setupPopoverFlyoutTest(t)
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	ps := newModelsPageState()
+	items := make([]modelPickerItem, 30)
+	for i := range items {
+		name := fmt.Sprintf("Model %02d", i)
+		items[i] = modelPickerItem{Key: name, Name: name, ID: name}
+	}
+	selected := false
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		anchor := renderModelPickerAddButton(c, st, &ps, "test-picker", "打开模型")
+		renderModelPickerPopover(c, st, &ps, "test-picker", anchor, items, "空", func(_ modelPickerItem, checked bool) { selected = checked }, modelPickerCustom{})
+	}, 600, 300)
+	if err := host.Click("打开模型"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.options) != 1 || capture.options[0].Width != 420 || !capture.options[0].Focusable || capture.options[0].Content == nil {
+		t.Fatalf("浮层参数错误: %+v", capture.options)
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, "popover-test-picker"), 420, 3000)
+	first, ok := menu.Find("Model 00")
+	if !ok {
+		t.Fatalf("缺少模型: %v", menu.Texts())
+	}
+	last, ok := menu.Find("Model 29")
+	if !ok || last.Y-first.Y <= 360 {
+		t.Fatalf("模型列表未按自然高度展开: 首项 %+v，末项 %+v", first, last)
+	}
+	if err := menu.Click("input-provider-models-search-test-picker"); err != nil {
+		t.Fatal(err)
+	}
+	menu.Type("Model 00")
+	menu.Frame()
+	if !menu.HasText("Model 00") || menu.HasText("Model 29") {
+		t.Fatalf("搜索未过滤模型: %v", menu.Texts())
+	}
+	if err := menu.Click("Model 00"); err != nil {
+		t.Fatal(err)
+	}
+	if !selected || ps.openPopoverKey != "" || len(capture.destroyedWindows) != 1 {
+		t.Fatal("选择模型后未关闭浮层")
 	}
 }
 
