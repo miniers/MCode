@@ -883,6 +883,9 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 					tierIDToName := make(map[string]string)
 					tierNameToID := make(map[string]string)
 					for _, t := range st.cfg.Orchestration.Tiers {
+						if !config.IsLandingTier(t) {
+							continue
+						}
 						name := t.Name
 						if name == "" {
 							name = t.ID

@@ -118,6 +118,45 @@ func TestNormalizeDefaultTierFallback(t *testing.T) {
 	}
 }
 
+func TestNormalizeDefaultTierLanding(t *testing.T) {
+	tests := []struct {
+		name  string
+		tiers []SwarmTier
+		input string
+		want  string
+	}{
+		{name: "deep", input: "deep", want: "edit"},
+		{name: "read", input: "read", want: "edit"},
+		{name: "chore", input: "chore", want: "chore"},
+		{name: "no edit", tiers: []SwarmTier{
+			{ID: "read", ReadOnly: true},
+			{ID: "limited", WritePaths: []string{"docs/**"}},
+			{ID: "worker"},
+			{ID: "worker2"},
+		}, input: "limited", want: "worker"},
+		{name: "restricted edit", tiers: []SwarmTier{
+			{ID: "edit", WritePaths: []string{"docs/**"}},
+			{ID: "worker"},
+		}, input: "edit", want: "worker"},
+		{name: "no landing tier", tiers: []SwarmTier{
+			{ID: "read", ReadOnly: true},
+			{ID: "limited", WritePaths: []string{"docs/**"}},
+		}, input: "limited", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Defaults()
+			if tt.tiers != nil {
+				cfg.Orchestration.Tiers = tt.tiers
+			}
+			cfg.Orchestration.DefaultTier = tt.input
+			if got := Normalize(cfg).Orchestration.DefaultTier; got != tt.want {
+				t.Errorf("DefaultTier = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // 4. Normalize 过滤 SwarmPair.BeeTiers 中不存在的档位键，并先小写键。
 func TestNormalizeUnknownPairBeeTiersDropped(t *testing.T) {
 	fastTrue := true

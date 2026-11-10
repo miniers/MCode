@@ -1852,19 +1852,25 @@ func Normalize(cfg Config) Config {
 	}
 	cfg.Orchestration.Tiers = UpgradeBuiltinTierTexts(cfg.Orchestration.Tiers)
 
+	landingTierIDs := make(map[string]struct{}, len(cfg.Orchestration.Tiers))
+	for _, t := range cfg.Orchestration.Tiers {
+		if t.ID != "" && IsLandingTier(t) {
+			landingTierIDs[t.ID] = struct{}{}
+		}
+	}
 	cfg.Orchestration.DefaultTier = strings.ToLower(strings.TrimSpace(cfg.Orchestration.DefaultTier))
-	if _, ok := tierIDs[cfg.Orchestration.DefaultTier]; !ok || cfg.Orchestration.DefaultTier == "" {
-		if _, ok := tierIDs[DefaultSwarmTierID]; ok {
+	if _, ok := landingTierIDs[cfg.Orchestration.DefaultTier]; !ok {
+		if _, ok := landingTierIDs[DefaultSwarmTierID]; ok {
 			cfg.Orchestration.DefaultTier = DefaultSwarmTierID
 		} else {
-			firstNonReadOnly := ""
+			firstLandingTier := ""
 			for _, t := range cfg.Orchestration.Tiers {
-				if !t.ReadOnly {
-					firstNonReadOnly = t.ID
+				if t.ID != "" && IsLandingTier(t) {
+					firstLandingTier = t.ID
 					break
 				}
 			}
-			cfg.Orchestration.DefaultTier = firstNonReadOnly
+			cfg.Orchestration.DefaultTier = firstLandingTier
 		}
 	}
 
@@ -1887,6 +1893,11 @@ func Normalize(cfg Config) Config {
 
 	cfg.QuickReplies = NormalizeQuickReplies(cfg.QuickReplies)
 	return cfg
+}
+
+// IsLandingTier 判断档位是否可以不受路径限制地落地代码。
+func IsLandingTier(t SwarmTier) bool {
+	return !t.ReadOnly && len(t.WritePaths) == 0
 }
 
 // OpenAIConfig 单个 OpenAI Provider 的设置。
