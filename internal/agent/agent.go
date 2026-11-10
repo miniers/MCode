@@ -232,6 +232,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		finishCompaction(result)
 		return result, nil
 	}
+	blockCompact := true
 	compactBlockNow := func() error {
 		entries, err := opts.Store.Load(id)
 		if err != nil {
@@ -243,6 +244,8 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			return err
 		}
 		if result.Entry.Type == "" {
+			// 无节省时重复请求只会付费，不会腾出空间；紧急压力由整段压缩兜底。
+			blockCompact = false
 			return nil
 		}
 		if err := opts.Store.Append(id, result.Entry); err != nil {
@@ -299,7 +302,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			// 压缩是为后续调用腾出空间；失败时保留原上下文继续，让模型调用自己给出结论。
 			if emergency || total > compactThreshold(window) {
 				_, err = compactNow()
-			} else if normal && opts.Store != nil {
+			} else if normal && blockCompact && opts.Store != nil {
 				err = compactBlockNow()
 			}
 			if err != nil {

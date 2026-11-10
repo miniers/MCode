@@ -199,6 +199,51 @@ func TestBlockWithoutSavingsCountsUsage(t *testing.T) {
 	}
 }
 
+type noSavingsClient struct {
+	requests []llm.Request
+	steps    int
+}
+
+func (c *noSavingsClient) Stream(_ context.Context, req llm.Request, _ func(llm.Delta)) (*llm.Response, error) {
+	c.requests = append(c.requests, req)
+	if req.System == summaryInstruction {
+		return summaryResponse(strings.Repeat("s", 50000)), nil
+	}
+	c.steps++
+	if c.steps <= 2 {
+		return reply("tool_use", call(fmt.Sprint(c.steps), "read", `{}`)), nil
+	}
+	return reply("stop"), nil
+}
+
+func TestBlockWithoutSavingsStopsRetrying(t *testing.T) {
+	store := session.NewStore(t.TempDir())
+	id := "no-savings-retry"
+	appendHistory(t, store, id, textMessage("user", "first"))
+	for i := 0; i < 6; i++ {
+		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", 16000)))
+	}
+	client := &noSavingsClient{}
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 40000, Tools: []tools.Tool{testTool("read")}}, "continue", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summaries int
+	for _, request := range client.requests {
+		if request.System == summaryInstruction {
+			summaries++
+		}
+	}
+	if summaries != 1 || client.steps != 3 {
+		t.Fatalf("summary requests = %d, model steps = %d", summaries, client.steps)
+	}
+	for _, entry := range compactionEntries(t, store, id) {
+		if entry.FromSeq > 0 {
+			t.Fatalf("unexpected block entry = %+v", entry)
+		}
+	}
+}
+
 type permissionClient struct {
 	path     string
 	requests []llm.Request
