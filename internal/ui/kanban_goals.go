@@ -50,7 +50,7 @@ func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 		}
 		ui.Text(c, goal.Title).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
 		ui.Text(c, goalStatusBadgeText(goal.Status)).TextColor(ThemeSecondaryText(c))
-		ui.Scroll(c.Key("kanban-goal-detail-scroll")).Grow(1).FillWidth().Children(func() {
+		ui.Scroll(c.Key("kanban-goal-detail-scroll")).Grow(1).FillWidth().TrackScroll(&ks.goalDetailScroll).Children(func() {
 			ui.Column(c.Key("kanban-goal-detail-body")).FillWidth().Gap(Space3).Children(func() {
 				if goal.PlanSummary != "" {
 					ui.Text(c, goal.PlanSummary).TextColor(ThemePrimaryText(c))
@@ -769,7 +769,7 @@ func renderPlanReviewTaskCard(c *ui.Context, s *chatState, task KanbanTask, numb
 		BorderColor(ThemeBorder(c)).
 		Gap(Space1).
 		OnClick(func() {
-			s.openTaskDetail(task)
+			s.openTaskDetailFromGoal(task, true)
 		})
 
 	card.Children(func() {
@@ -1142,7 +1142,7 @@ func renderGoalOutputRow(c *ui.Context, s *chatState, ks *kanbanState, out goalO
 								kanbanMu.Lock()
 								ks.outputsGoalID = ""
 								kanbanMu.Unlock()
-								s.openTaskDetail(task)
+								s.openTaskDetailFromGoal(task, true)
 							},
 						})
 					}

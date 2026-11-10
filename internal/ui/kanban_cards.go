@@ -120,8 +120,9 @@ func renderKanbanListRow(c *ui.Context, s *chatState, task KanbanTask) {
 	kanbanMu.Unlock()
 	signal, tone := kanbanTaskSignal(task)
 
-	ui.Row(c.Key("kanban-list-row-"+task.ID)).
+	row := ui.Row(c.Key("kanban-list-row-"+task.ID)).
 		Label("kanban-list-row-"+task.ID).
+		Focusable().
 		FillWidth().
 		Padding(Space3, Space3).
 		Radius(RadiusMD).
@@ -129,25 +130,26 @@ func renderKanbanListRow(c *ui.Context, s *chatState, task KanbanTask) {
 		Gap(Space3).
 		OnClick(func() {
 			s.openTaskDetail(task)
-		}).
-		Children(func() {
-			renderKanbanPriority(c, task)
-			ui.Text(c, task.Title).
-				FontSize(TypeBody).
-				FontWeight(500).
-				TextColor(ThemePrimaryText(c)).
-				Grow(1).
-				SingleLine()
-
-			if signal != "" {
-				ui.Text(c, signal).FontSize(TypeCaption).TextColor(kanbanSignalColor(c, tone)).SingleLine()
-			}
-			if mixed {
-				if name := projectNameFor(s, task.ProjectID); name != "" {
-					ui.Text(c, name).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c)).SingleLine()
-				}
-			}
 		})
+	kanbanKeyboardItem(c, s, row, task)
+	row.Children(func() {
+		renderKanbanPriority(c, task)
+		ui.Text(c, task.Title).
+			FontSize(TypeBody).
+			FontWeight(500).
+			TextColor(ThemePrimaryText(c)).
+			Grow(1).
+			SingleLine()
+
+		if signal != "" {
+			ui.Text(c, signal).FontSize(TypeCaption).TextColor(kanbanSignalColor(c, tone)).SingleLine()
+		}
+		if mixed {
+			if name := projectNameFor(s, task.ProjectID); name != "" {
+				ui.Text(c, name).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c)).SingleLine()
+			}
+		}
+	})
 }
 
 // kanbanTaskSignal 只返回一条与所在列不重复的信号。
@@ -232,11 +234,29 @@ func renderKanbanPriority(c *ui.Context, task KanbanTask) {
 	}
 }
 
+func kanbanQuickAddAction(s *chatState) {
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	projectID := ks.scopeID
+	kanbanMu.Unlock()
+	if projectID == "" {
+		openKanbanNewTaskSheet(s)
+		kanbanMu.Lock()
+		ks.newTaskProjectID = ""
+		ks.newTaskVersion++
+		kanbanMu.Unlock()
+		return
+	}
+	kanbanMu.Lock()
+	ks.quickAddOpen = true
+	kanbanMu.Unlock()
+	s.invalidate()
+}
+
 // renderTodoQuickAdd 渲染待办列底部的「+ 添加任务」：点击展开单行输入，回车提交、Esc 取消。
 func renderTodoQuickAdd(c *ui.Context, s *chatState, ks *kanbanState) {
 	kanbanMu.Lock()
 	open := ks.quickAddOpen
-	projectID := ks.scopeID
 	kanbanMu.Unlock()
 
 	if !open {
@@ -245,20 +265,7 @@ func renderTodoQuickAdd(c *ui.Context, s *chatState, ks *kanbanState) {
 			Text:    "添加任务",
 			Label:   "kanban-quick-add-toggle",
 			Variant: ButtonSecondary,
-			OnClick: func() {
-				if projectID == "" {
-					openKanbanNewTaskSheet(s)
-					kanbanMu.Lock()
-					ks.newTaskProjectID = ""
-					ks.newTaskVersion++
-					kanbanMu.Unlock()
-					return
-				}
-				kanbanMu.Lock()
-				ks.quickAddOpen = true
-				kanbanMu.Unlock()
-				s.invalidate()
-			},
+			OnClick: func() { kanbanQuickAddAction(s) },
 		})
 		return
 	}
@@ -377,6 +384,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 	if returnFocus {
 		card.Focus()
 	}
+	kanbanKeyboardItem(c, s, card, task)
 	// 悬停时提亮底色与描边，让指针下的卡片更清晰
 	if card.Hovered() {
 		card.Background(ThemeSurface(c).Alpha(0.60)).BorderColor(ThemeAccent(c).Alpha(0.35))

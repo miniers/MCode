@@ -93,3 +93,41 @@ func TestKanbanDetailNoApproveOrReviewThread(t *testing.T) {
 		t.Fatal("没有评审会话 ID 时不应显示入口")
 	}
 }
+
+func TestKanbanDetailMoreMenuAndDeleteConfirmation(t *testing.T) {
+	fake := NewFakeClient()
+	task := KanbanTask{ID: "menu", ProjectID: "p1", Title: "菜单任务", Status: "done", Column: "done", CanMove: true}
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
+	tt, s := newWorkspaceTester(t, fake, "tasks")
+	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
+	s.openTaskDetail(task)
+	waitFor(t, tt, func() bool { _, ok := tt.Find("任务更多操作"); return ok })
+	if err := tt.Click("任务更多操作"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("kanban-detail-delete"); return ok })
+	if _, ok := tt.Find("kanban-detail-move-todo"); !ok {
+		t.Fatal("应提供重新打开")
+	}
+	if _, ok := tt.Find("kanban-detail-move-review"); ok {
+		t.Fatal("不允许的动作不应出现")
+	}
+	if err := tt.Click("kanban-detail-delete"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("kanban-detail-delete-confirm"); return ok })
+	if err := tt.Click("kanban-detail-delete-cancel"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("kanban-detail-delete-confirm"); return !ok })
+}
+
+func TestKanbanDetailCloseMissingCard(t *testing.T) {
+	tt, s := newWorkspaceTester(t, NewFakeClient(), "tasks")
+	s.openTaskDetail(KanbanTask{ID: "deleted"})
+	waitFor(t, tt, func() bool { return tt.HasText("任务已不存在") })
+	if err := tt.Click("kanban-task-detail-close"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+}

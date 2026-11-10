@@ -102,6 +102,10 @@ type kanbanState struct {
 	goalMenuOpen     bool
 	newMenuOpen      bool
 	goalDetailOpen   bool
+	goalDetailScroll ui.ScrollState
+	detailGoalID     string
+	detailMoreOpen   bool
+	detailDeleteOpen bool
 	// overview 为 true 时内容区显示「全部项目」概览。
 	overview bool
 	// selecting 为 true 时进入多选模式（本轮只做选中态视觉）。

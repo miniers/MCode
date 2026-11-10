@@ -7,8 +7,20 @@ import (
 )
 
 func (s *chatState) openTaskDetail(task KanbanTask) {
+	s.openTaskDetailFromGoal(task, false)
+}
+
+func (s *chatState) openTaskDetailFromGoal(task KanbanTask, fromGoal bool) {
 	ks := getKanbanState(s)
 	kanbanMu.Lock()
+	if fromGoal && ks.goalDetailOpen {
+		ks.detailGoalID = ks.goalID
+	} else {
+		ks.detailGoalID = ""
+		ks.goalDetailOpen = false
+	}
+	ks.detailMoreOpen = false
+	ks.detailDeleteOpen = false
 	ks.detailFocusReturnID = ""
 	ks.detailTab = "result"
 	if task.Status == "review" || task.Column == "review" {
@@ -32,6 +44,9 @@ func (s *chatState) closeTaskDetail() {
 		ks.detailFocusReturnID = ks.detailTaskID
 	}
 	ks.detailTaskID = ""
+	ks.detailGoalID = ""
+	ks.detailMoreOpen = false
+	ks.detailDeleteOpen = false
 	ks.detailLoading = false
 	ks.detailErr = ""
 	ks.detailMessages = nil
@@ -71,7 +86,7 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 	messages, dp, files, truncated := ks.detailMessages, ks.detailDiff, ks.detailFiles, ks.detailDiffTruncated
 	conflict, boardLoading, boardErr := ks.detailConflict, ks.loading, ks.err
 	tasks, goals := ks.board.Tasks, ks.board.Goals
-	goalBack := ks.goalDetailOpen
+	goalBack := ks.detailGoalID
 	kanbanMu.Unlock()
 	if taskID == "" {
 		return
@@ -87,17 +102,51 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 		Padding(Space5).Gap(Space3).Transition(motionSidePanel(c, false)).Children(func() {
 		ui.Row(c.Key("kanban-detail-header")).FillWidth().AlignItems(ui.Center).Gap(Space3).Children(func() {
 			label := "关闭"
-			if goalBack {
+			if goalBack != "" {
 				label = "← 返回目标"
+				for _, goal := range goals {
+					if goal.ID == goalBack {
+						label = "← " + goal.Title
+						break
+					}
+				}
 			}
 			Button(c.Key("kanban-task-detail-close"), ButtonOpts{Text: label, Label: "kanban-task-detail-close", Variant: ButtonGhost, OnClick: s.closeTaskDetail})
 			if task != nil {
 				ui.Text(c, task.Title).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
+				busy := kanbanTaskBusy(ks, task.ID)
+				more := IconButton(c.Key("kanban-detail-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "任务更多操作", Variant: ButtonGhost, OnClick: func() { ks.detailMoreOpen = true }})
+				appPopover(c.Key("kanban-detail-more-popover"), more, &ks.detailMoreOpen, nil, func() {
+					popoverCard(c, ui.Column(c.Key("kanban-detail-more-menu"))).Padding(Space2).Gap(Space1).Children(func() {
+						for _, opt := range kanbanActions(*task, busy).menu {
+							opt := opt
+							if opt.status == "in_progress" && task.CanStart || opt.status == "done" && task.Status == "review" {
+								continue
+							}
+							Button(c.Key("kanban-detail-move-"+opt.status), ButtonOpts{Text: "移至" + opt.label, Label: "kanban-detail-move-" + opt.status, Variant: ButtonGhost, OnClick: func() { ks.detailMoreOpen = false; s.performKanbanTarget(*task, opt.status) }})
+						}
+						Button(c.Key("kanban-detail-copy-id"), ButtonOpts{Text: "复制任务 ID", Variant: ButtonGhost, OnClick: func() { c.WriteClipboard(task.ID); ks.detailMoreOpen = false }})
+						Button(c.Key("kanban-detail-delete"), ButtonOpts{Text: "删除", Label: "kanban-detail-delete", Variant: ButtonDanger, Disabled: busy, OnClick: func() { ks.detailMoreOpen = false; ks.detailDeleteOpen = true }})
+					})
+				})
 			}
 		})
 		if task == nil {
 			ui.Text(c, "任务已不存在").TextColor(ThemeSecondaryText(c))
 			return
+		}
+		if ks.detailDeleteOpen {
+			ui.DialogBase(c.Key("kanban-detail-delete-dialog"), &ks.detailDeleteOpen, func(backdrop, panel ui.Element) {
+				backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))
+				panel.MaxWidth(settingsSheetWidth).Padding(0)
+				ui.Column(c.Key("kanban-detail-delete-card")).Padding(Space5).Gap(Space3).Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(func() {
+					ui.Text(c, "确认删除该任务？此操作不可撤销").TextColor(ThemePrimaryText(c))
+					ui.Row(c).Gap(Space2).Children(func() {
+						Button(c.Key("kanban-detail-delete-cancel"), ButtonOpts{Text: "取消", Label: "kanban-detail-delete-cancel", OnClick: func() { ks.detailDeleteOpen = false }})
+						Button(c.Key("kanban-detail-delete-confirm"), ButtonOpts{Text: "确认删除", Label: "kanban-detail-delete-confirm", Variant: ButtonDanger, Disabled: kanbanTaskBusy(ks, task.ID), OnClick: func() { ks.detailDeleteOpen = false; s.deleteKanbanTask(*task) }})
+					})
+				})
+			})
 		}
 		if task.ThreadID != threadID || task.Revision != revision {
 			s.loadTaskDetail(*task, false)
@@ -214,6 +263,8 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 				Button(c.Key("kanban-task-detail-reject"), ButtonOpts{Text: "退回修改", Label: "kanban-task-detail-reject", Variant: ButtonSecondary, Disabled: busy || !task.CanReview, OnClick: func() { s.reviewTask(task.ID, "reject", ks.detailFeedback, task.Revision) }})
 				Button(c.Key("kanban-task-detail-accept"), ButtonOpts{Text: "接受", Label: "kanban-task-detail-accept", Variant: ButtonPrimary, Disabled: busy || !task.CanApprove, OnClick: func() { s.reviewTask(task.ID, "accept", ks.detailFeedback, task.Revision) }})
 			})
+		} else if kanbanActions(*task, false).primary == "开始" {
+			Button(c.Key("kanban-task-detail-start"), ButtonOpts{Text: "开始", Label: "kanban-task-detail-start", Variant: ButtonPrimary, Disabled: kanbanTaskBusy(ks, task.ID) || task.Blocked, OnClick: func() { s.performKanbanTarget(*task, "in_progress") }})
 		}
 	})
 }
