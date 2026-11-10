@@ -274,16 +274,23 @@ func TestCompactionBeforeRequest(t *testing.T) {
 		t.Fatalf("compaction event lacks overhead: %+v", compactions[0])
 	}
 	entries := compactionEntries(t, store, "compact")
-	if len(entries) != 1 || entries[0].Summary != "earlier work summary" || entries[0].KeepFrom != 1 {
+	if len(entries) != 1 || entries[0].Summary != "earlier work summary" || entries[0].KeepFrom <= 0 {
 		t.Fatalf("compaction entries = %+v", entries)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "compact.jsonl"))
-	if err != nil || strings.Contains(string(data), strings.Repeat("a", 100)) {
-		t.Fatalf("session retains old messages: %v", err)
+	if err != nil || !strings.Contains(string(data), strings.Repeat("a", 100)) {
+		t.Fatalf("session lost old messages: %v", err)
 	}
 	raw, err := store.Load("compact")
 	if err != nil {
 		t.Fatal(err)
+	}
+	var lastEntry compactionEntry
+	if err := json.Unmarshal(raw[len(raw)-2], &lastEntry); err != nil || lastEntry.Type != compactionEntryType || lastEntry.KeepFrom <= 0 {
+		t.Fatalf("last entry before response = %+v, %v", lastEntry, err)
+	}
+	if got := historyFromEntries(raw[:len(raw)-1]); !reflect.DeepEqual(got, messages) {
+		t.Fatalf("history at compaction = %+v, want %+v", got, messages)
 	}
 	want := append(append([]llm.Message(nil), messages...), reply("stop").Message)
 	if got := historyFromEntries(raw); !reflect.DeepEqual(got, want) {
@@ -368,6 +375,14 @@ func TestOverflowCompactsAndRetries(t *testing.T) {
 	}
 	if compactions != 1 {
 		t.Fatalf("compactions = %d, want 1", compactions)
+	}
+	raw, err := store.Load("overflow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append(append([]llm.Message(nil), client.requests[2].Messages...), reply("stop").Message)
+	if got := historyFromEntries(raw); !reflect.DeepEqual(got, want) {
+		t.Fatalf("history = %+v, want %+v", got, want)
 	}
 }
 
@@ -454,7 +469,7 @@ func TestMultipleCompactionsKeepLatest(t *testing.T) {
 	if len(summarized) != 4 || !isSummaryMessage(summarized[0]) || !strings.Contains(summarized[0].Content[0].Text, "old detail") {
 		t.Fatalf("summarized messages = %+v", summarized)
 	}
-	if entries := compactionEntries(t, store, "multi"); len(entries) != 1 {
+	if entries := compactionEntries(t, store, "multi"); len(entries) != 2 {
 		t.Fatalf("compaction entries = %+v", entries)
 	}
 	entries, err := store.Load("multi")

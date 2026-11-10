@@ -22,7 +22,11 @@ const (
 const summaryPrefix = "The earlier conversation was compacted to save context. Summary of that conversation:"
 
 // summaryInstruction 是压缩请求使用的系统提示。
-const summaryInstruction = `You are compacting a coding agent conversation so it can continue in a smaller context window. Write a concise summary of the conversation so far. Include: the user's goals; decisions already made; files changed and why; work that is still open; and key facts such as exact file paths, identifiers, commands and error messages. Preserve file paths and identifiers verbatim. Output only the summary, with no preamble and no markdown fence.`
+const summaryInstruction = `You are compacting a coding agent conversation so it can continue in a smaller context window. Write a concise summary of the conversation so far. Include the user's goals, decisions, files changed and why, open work, and key facts.
+KEEP VERBATIM: file paths, function signatures and identifiers, errors, commands, exact numbers, the user's original requests, decisions and reasons, constraints, and unfinished work.
+DROP: verbose logs, repeatedly read file contents, and completed exploration; retain only a one-line lesson for dead ends.
+PRIORITY when space is limited: user goals > decisions and reasons > exact artifacts > conclusions > lessons.
+Output only the summary, with no preamble and no markdown fence.`
 
 // compactionEntry 是写入会话 JSONL 的压缩边界。
 // KeepFrom 是压缩后保留的第一条消息在重建后的消息列表中的下标；该列表可能以旧摘要消息开头。
@@ -55,7 +59,18 @@ func keepRecentTokens(window int) int { return min(20000, window/4) }
 // historyFromEntries 按文件顺序重建会话消息。
 // compaction entry 把此前的消息替换成摘要加其后的保留消息，后写的压缩边界自然覆盖早先的。
 func historyFromEntries(entries []json.RawMessage) []llm.Message {
+	messages, _ := replayEntries(entries)
+	return messages
+}
+
+func foldedFromEntries(entries []json.RawMessage) []llm.Message {
+	_, folded := replayEntries(entries)
+	return folded
+}
+
+func replayEntries(entries []json.RawMessage) ([]llm.Message, []llm.Message) {
 	var messages []llm.Message
+	var folded []llm.Message
 	for _, raw := range entries {
 		var head struct {
 			Type string `json:"type"`
@@ -85,10 +100,15 @@ func historyFromEntries(entries []json.RawMessage) []llm.Message {
 			if entry.KeepFrom <= 0 || entry.KeepFrom >= len(messages) {
 				continue
 			}
+			for _, message := range messages[:entry.KeepFrom] {
+				if !isSummaryMessage(message) {
+					folded = append(folded, message)
+				}
+			}
 			messages = append([]llm.Message{summaryMessage(entry.Summary)}, messages[entry.KeepFrom:]...)
 		}
 	}
-	return repairToolPairs(messages)
+	return repairToolPairs(messages), folded
 }
 
 // repairToolPairs 修补残缺的工具调用配对：

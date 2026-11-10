@@ -72,6 +72,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		window = defaultContextWindow
 	}
 	var messages []llm.Message
+	hasFolded := false
 	// contextTokens/contextMeasured 记录最近一次用量对应的上下文大小和消息数量，之后的消息按字符估算。
 	var contextTokens, contextMeasured int
 	var pending []llm.ToolCall
@@ -153,6 +154,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			return fail(err)
 		}
 		messages = historyFromEntries(entries)
+		hasFolded = len(foldedFromEntries(entries)) > 0
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -178,21 +180,38 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		return fail(errors.New("agent: llm client is required"))
 	}
 	overhead := 0
+	request := llm.Request{Model: opts.Model, Effort: opts.Effort, System: opts.System}
+	addRecall := func() {
+		if opts.Store == nil {
+			return
+		}
+		for _, tool := range opts.Tools {
+			if tool.Name == "recall" {
+				return
+			}
+		}
+		tool := recallTool(opts.Store, id)
+		opts.Tools = append(opts.Tools, tool)
+		request.Tools = append(request.Tools, llm.ToolSpec{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
+	}
 	compactNow := func() (*compactionResult, error) {
-		result, err := compactMessages(ctx, opts.Client, opts.Model, messages, window, overhead, emit)
+		input := messages
+		if opts.Store != nil {
+			entries, err := opts.Store.Load(id)
+			if err != nil {
+				return nil, err
+			}
+			input = historyFromEntries(entries)
+		}
+		result, err := compactMessages(ctx, opts.Client, opts.Model, input, window, overhead, emit)
 		if err != nil || result == nil {
 			return nil, err
 		}
 		if opts.Store != nil {
-			entry := result.Entry
-			entry.KeepFrom = 1
-			entries := []any{entry}
-			for _, message := range result.Messages[1:] {
-				entries = append(entries, messageEntry{Type: "message", Message: message})
-			}
-			if err := opts.Store.Rewrite(id, entries...); err != nil {
+			if err := opts.Store.Append(id, result.Entry); err != nil {
 				return nil, err
 			}
+			addRecall()
 		}
 		messages = result.Messages
 		contextTokens = result.After
@@ -203,7 +222,6 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		usage.CachedTokens += int64(result.Usage.CacheRead)
 		return result, nil
 	}
-	request := llm.Request{Model: opts.Model, Effort: opts.Effort, System: opts.System}
 	if opts.MaxTokens != nil {
 		request.MaxTokens = opts.MaxTokens(opts.Model)
 	}
@@ -212,6 +230,9 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	}
 	for _, tool := range opts.Tools {
 		request.Tools = append(request.Tools, llm.ToolSpec{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
+	}
+	if hasFolded {
+		addRecall()
 	}
 	chars := len(request.System)
 	for _, tool := range request.Tools {
