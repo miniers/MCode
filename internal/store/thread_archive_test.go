@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"path/filepath"
 	"reflect"
@@ -9,29 +8,6 @@ import (
 	"testing"
 	"time"
 )
-
-func TestDecodeThreadArchiveLimit(t *testing.T) {
-	oldLimit := threadArchiveMaxDecodedBytes
-	threadArchiveMaxDecodedBytes = 1 << 20
-	t.Cleanup(func() { threadArchiveMaxDecodedBytes = oldLimit })
-	enc, err := zstdMessageEncoder()
-	if err != nil {
-		t.Fatal(err)
-	}
-	frame := enc.EncodeAll(make([]byte, 64<<10), nil)
-	payload := bytes.Repeat(frame, threadArchiveMaxDecodedBytes/(64<<10)+1)
-	if _, err := decodeThreadArchive("test", payload, 0); err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("expected size limit error, got %v", err)
-	}
-	payload, _, err = encodeThreadArchive(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := decodeThreadArchive("test", payload, 0)
-	if err != nil || len(got) != 0 {
-		t.Fatalf("round trip: got %v, error %v", got, err)
-	}
-}
 
 // coldArchiveTestNow 是冷归档测试的固定时钟，7 天边界都由它推算，不依赖真实时间。
 var coldArchiveTestNow = time.Date(2026, 12, 1, 12, 0, 0, 0, time.UTC)

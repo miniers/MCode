@@ -27,10 +27,10 @@ const (
 
 	// messageEncodingGzip 是旧算法，只用于解压既有数据。
 	messageEncodingGzip = "gzip"
-)
 
-// messageContentMaxBytes 是单列解压后的上限，防脏数据（压缩炸弹）撑爆内存。
-var messageContentMaxBytes = 64 << 20
+	// messageContentMaxBytes 是单列解压后的上限，防脏数据（压缩炸弹）撑爆内存。
+	messageContentMaxBytes = 64 << 20
+)
 
 // 包级无字典编码器：创建开销大，进程内复用；不关闭，随进程退出回收。
 // 带字典的编码器与解码器由 message_dict.go 管理（注册表 + 编码器缓存）。
@@ -124,22 +124,11 @@ func decodeMessageContent(encoding string, textZ, toolInputZ []byte) (text, tool
 
 // unzstdMessageContent 解压单列正文；zstd 帧自带校验和，损坏即报错。
 func unzstdMessageContent(b []byte) (string, error) {
-	messageDictMu.RLock()
-	dicts := make([][]byte, 0, len(messageDictRegistry))
-	for _, dict := range messageDictRegistry {
-		dicts = append(dicts, dict)
-	}
-	messageDictMu.RUnlock()
-	dec, err := zstd.NewReader(bytes.NewReader(b),
-		zstd.WithDecoderMaxMemory(uint64(messageContentMaxBytes)),
-		zstd.WithDecoderConcurrency(1),
-		zstd.WithDecoderDicts(dicts...),
-	)
+	dec, err := messageZstdDecoder()
 	if err != nil {
 		return "", err
 	}
-	defer dec.Close()
-	out, err := io.ReadAll(io.LimitReader(dec, int64(messageContentMaxBytes)+1))
+	out, err := dec.DecodeAll(b, nil)
 	if err != nil {
 		return "", err
 	}
@@ -169,7 +158,7 @@ func gunzipMessageContent(b []byte) (string, error) {
 		return "", err
 	}
 	var buf bytes.Buffer
-	n, copyErr := io.Copy(&buf, io.LimitReader(r, int64(messageContentMaxBytes)+1))
+	n, copyErr := io.Copy(&buf, io.LimitReader(r, messageContentMaxBytes+1))
 	closeErr := r.Close()
 	if copyErr != nil {
 		return "", copyErr
@@ -177,7 +166,7 @@ func gunzipMessageContent(b []byte) (string, error) {
 	if closeErr != nil {
 		return "", closeErr
 	}
-	if n > int64(messageContentMaxBytes) {
+	if n > messageContentMaxBytes {
 		return "", fmt.Errorf("decompressed content exceeds %d bytes", int64(messageContentMaxBytes))
 	}
 	return buf.String(), nil

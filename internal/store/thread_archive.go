@@ -1,14 +1,13 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,10 +25,9 @@ import (
 const (
 	// threadArchiveEncoding 是 payload 的编码标记：zstd 压缩后的 JSON 消息数组。
 	threadArchiveEncoding = "zstd-json-v1"
+	// threadArchiveMaxDecodedBytes 是解压后的上限，防脏数据（压缩炸弹）撑爆内存。
+	threadArchiveMaxDecodedBytes = 256 << 20
 )
-
-// threadArchiveMaxDecodedBytes 是解压后的上限，防脏数据（压缩炸弹）撑爆内存。
-var threadArchiveMaxDecodedBytes = 256 << 20
 
 const (
 	// threadArchiveDefaultMinIdle 是会话「安静」多久之后才允许归档。
@@ -101,6 +99,25 @@ type archivedMessage struct {
 	Media           []MediaRef `json:"media,omitempty"`
 }
 
+// 包级解码器：解码整段归档，上限按 threadArchiveMaxDecodedBytes 放宽到 256MB。
+// 编码复用 message_content.go 的无字典编码器（EncodeAll 可并发调用）。
+var (
+	threadArchiveDecoderOnce sync.Once
+	threadArchiveDecoder     *zstd.Decoder
+	threadArchiveDecoderErr  error
+)
+
+// threadArchiveZstdDecoder 懒初始化归档专用解码器。
+func threadArchiveZstdDecoder() (*zstd.Decoder, error) {
+	threadArchiveDecoderOnce.Do(func() {
+		threadArchiveDecoder, threadArchiveDecoderErr = zstd.NewReader(nil,
+			zstd.WithDecoderMaxMemory(uint64(threadArchiveMaxDecodedBytes)),
+			zstd.WithDecoderConcurrency(1),
+		)
+	})
+	return threadArchiveDecoder, threadArchiveDecoderErr
+}
+
 // encodeThreadArchive 把会话消息按 seq 升序序列化成 JSON 再 zstd 压缩，返回 payload 与编码前字节数。
 func encodeThreadArchive(msgs []Message) ([]byte, int64, error) {
 	archived := make([]archivedMessage, 0, len(msgs))
@@ -137,15 +154,11 @@ func encodeThreadArchive(msgs []Message) ([]byte, int64, error) {
 
 // decodeThreadArchive 解压并还原归档消息；条数必须与 message_count 一致。
 func decodeThreadArchive(threadID string, payload []byte, messageCount int) ([]Message, error) {
-	dec, err := zstd.NewReader(bytes.NewReader(payload),
-		zstd.WithDecoderMaxMemory(uint64(threadArchiveMaxDecodedBytes)),
-		zstd.WithDecoderConcurrency(1),
-	)
+	dec, err := threadArchiveZstdDecoder()
 	if err != nil {
 		return nil, fmt.Errorf("init zstd decoder: %w", err)
 	}
-	defer dec.Close()
-	raw, err := io.ReadAll(io.LimitReader(dec, int64(threadArchiveMaxDecodedBytes)+1))
+	raw, err := dec.DecodeAll(payload, nil)
 	if err != nil {
 		return nil, fmt.Errorf("decode thread archive %s: %w", threadID, err)
 	}

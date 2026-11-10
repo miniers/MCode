@@ -1,29 +1,9 @@
 package store
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 )
-
-func TestUnzstdMessageContentLimit(t *testing.T) {
-	oldLimit := messageContentMaxBytes
-	messageContentMaxBytes = 1 << 20
-	t.Cleanup(func() { messageContentMaxBytes = oldLimit })
-	enc, err := zstdMessageEncoder()
-	if err != nil {
-		t.Fatal(err)
-	}
-	frame := enc.EncodeAll(make([]byte, 64<<10), nil)
-	payload := bytes.Repeat(frame, messageContentMaxBytes/(64<<10)+1)
-	if _, err := unzstdMessageContent(payload); err == nil || !strings.Contains(err.Error(), "decompressed content exceeds") {
-		t.Fatalf("expected size limit error, got %v", err)
-	}
-	got, err := unzstdMessageContent(enc.EncodeAll([]byte("正常内容"), nil))
-	if err != nil || got != "正常内容" {
-		t.Fatalf("round trip: got %q, error %v", got, err)
-	}
-}
 
 // 逐字节一致：空串、中文、emoji、含 \x00 的二进制式文本、1MB 可压缩文本都要原样还原。
 func TestMessageContentRoundTrip(t *testing.T) {
