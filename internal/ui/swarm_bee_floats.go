@@ -1428,10 +1428,9 @@ func renderBeeTimeline(c *ui.Context, s *chatState, bee SwarmBee) {
 	lastLiveID := s.lastLiveID
 	s.mu.Unlock()
 
-	// 时间线条目只在需要补“回复中”指示时才复制：缓存项本身只读，
-	// 200 条消息的浮窗每帧整表复制一遍是最大的一笔无谓分配。
+	// 只在运行中复制时间线缓存并补“回复中”指示项。
 	items := s.timelineCacheItems
-	if bee.Status == "running" && liveID == "" {
+	if bee.Status == "running" {
 		items = append(slices.Clone(items), runningIndicatorItem(selectedID))
 	}
 	s.chatListState.Key = func(i int) any {

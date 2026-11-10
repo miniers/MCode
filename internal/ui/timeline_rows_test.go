@@ -191,19 +191,51 @@ func TestTimelineRows_RunningIndicatorShownWhileWaitingReply(t *testing.T) {
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("正在回复…") })
 
-	// 助手开始流式输出后指示让位给正文（liveID 命中最后一条助手消息）
+	// 助手开始流式输出后指示仍然显示。
 	fake.TriggerUpdate(ThreadUpdate{
 		ThreadID: "t1",
 		Thread:   running,
 		Messages: []Message{{ID: "a1", Role: "assistant", Text: "好的，我先看看。", TurnIndex: 1, IsFinal: false}},
 	})
-	waitFor(t, tt, func() bool { return !tt.HasText("正在回复…") })
+	waitFor(t, tt, func() bool { return tt.HasText("好") && tt.HasText("正在回复…") })
 
-	// 后端报告 turn 结束：指示保持消失
+	// 后端报告 turn 结束后指示消失。
 	done := running
 	done.IsRunning = false
 	fake.TriggerUpdate(ThreadUpdate{ThreadID: "t1", Thread: done})
 	waitFor(t, tt, func() bool { return !tt.HasText("正在回复…") })
+}
+
+// TestTimelineRows_RunningIndicatorDuringStreaming 验证流式输出期间指示常驻，结束后消失。
+func TestTimelineRows_RunningIndicatorDuringStreaming(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message Message
+	}{
+		{"assistant", Message{ID: "a1", Role: "assistant", Kind: "text", Text: "回复内容", TurnIndex: 1}},
+		{"reasoning", Message{ID: "r1", Role: "assistant", Kind: "reasoning", Text: "思考内容", TurnIndex: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := NewFakeClient()
+			running := Thread{ID: "t1", ProjectID: "p1", Title: "流式回复", Provider: "claude", UpdatedAt: time.Now(), IsRunning: true}
+			fake.SetProjectsAndThreads(
+				[]Project{{ID: "p1", Name: "Proj1", Path: "/workspace"}},
+				map[string][]Thread{"p1": {running}},
+			)
+			fake.messages["t1"] = []Message{
+				{ID: "u1", Role: "user", Text: "开始吧", TurnIndex: 1, IsFinal: true},
+				tc.message,
+			}
+
+			tt := ui.NewTester(Root(fake), 1000, 700)
+			waitFor(t, tt, func() bool { return tt.HasText("开始吧") && tt.HasText("正在回复…") })
+
+			done := running
+			done.IsRunning = false
+			fake.TriggerUpdate(ThreadUpdate{ThreadID: "t1", Thread: done})
+			waitFor(t, tt, func() bool { return !tt.HasText("正在回复…") })
+		})
+	}
 }
 
 // TestTimelineRows_RunningIndicatorInEmptyThread 验证新会话还没有任何消息时运行中也显示“回复中”：

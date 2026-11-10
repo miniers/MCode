@@ -760,7 +760,7 @@ const (
 	timelineItemTurnTime
 )
 
-// runningIndicatorItem 构造时间线末尾的“回复中”指示项：会话运行中但还没有流式输出时展示。
+// runningIndicatorItem 构造时间线末尾的“回复中”指示项：会话运行期间常驻展示。
 func runningIndicatorItem(threadID string) timelineItem {
 	return timelineItem{kind: timelineItemRunning, id: runningIndicatorKey(threadID)}
 }
@@ -1999,7 +1999,7 @@ func turnStartTimeFor(s *chatState, turnIndex int) time.Time {
 	return turnStartTime(s.messages, turnIndex)
 }
 
-// renderRunningIndicator 渲染“回复中”指示行：会话运行中但助手还没有产出任何内容时，
+// renderRunningIndicator 渲染“回复中”指示行：会话运行期间常驻展示，
 // 在时间线末尾提示正在等待回复（低频点阵图标，只重绘该图形）。key 为元素唯一 Key。
 func renderRunningIndicator(c *ui.Context, key string) ui.Element {
 	return ui.Row(c.Key(key)).Gap(Space3).AlignItems(ui.Center).Padding(Space0, 0).Children(func() {

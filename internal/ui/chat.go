@@ -206,9 +206,8 @@ func renderChat(c *ui.Context, s *chatState) {
 		if curUsage.Total.Input+curUsage.Total.Output > 0 {
 			timelineItems = append(timelineItems, sessionUsageItem(selectedID))
 		}
-		// 会话运行中但还没有流式输出（刚发送完、等待首包或工具执行中）时，末尾补一条“回复中”指示，
-		// 让发送后立刻能看到 AI 正在回复，直到后端报告 turn 结束或出错。
-		if isRunning && liveID == "" {
+		// 会话运行期间末尾常驻一条“回复中”指示，直到后端报告 turn 结束或出错；整轮不随流式输出增删，避免时间线高度来回跳。
+		if isRunning {
 			timelineItems = append(timelineItems, runningIndicatorItem(selectedID))
 		}
 		// 回合进行中每一步（每次模型调用）结束都会先写一次该回合用量：只看用量有值会在步骤之间的间隙
