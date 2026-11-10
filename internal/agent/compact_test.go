@@ -69,10 +69,15 @@ func TestCompactionTriggerGrowthAndPressure(t *testing.T) {
 		normal, emergency     bool
 	}{
 		{128000, 49999, 95999, false, false},
-		{128000, 50000, 0, true, false},
+		{128000, 50000, 0, false, false},
+		{128000, 50000, 63999, false, false},
+		{128000, 50000, 64000, true, false},
 		{128000, 0, 96000, true, false},
 		{128000, 0, 111616, true, true},
 		{200000, 0, 150000, true, false},
+		{200000, 50000, 99999, false, false},
+		{200000, 50000, 100000, true, false},
+		{1000000, 50000, 400000, false, false},
 		{8192, 0, 6143, false, false},
 		{8192, 0, 6144, true, true},
 	} {

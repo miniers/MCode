@@ -59,10 +59,11 @@ func keepRecentTokens(window int) int { return min(20000, window/4) }
 
 func growthThreshold(window int) int { return min(50000, max(20000, window/2)) }
 
+// compactionPressure 要求增长触发时总量至少达到窗口一半，避免大窗口频繁压缩。
 func compactionPressure(window, growth, total int) (normal, emergency bool) {
 	normalPressure := min(window*3/4, compactThreshold(window))
 	emergencyPressure := min(window*95/100, compactThreshold(window))
-	return growth >= growthThreshold(window) || total >= normalPressure, total >= emergencyPressure
+	return (growth >= growthThreshold(window) && total >= window/2) || total >= normalPressure, total >= emergencyPressure
 }
 
 func growthSinceSummary(messages []llm.Message) int {
