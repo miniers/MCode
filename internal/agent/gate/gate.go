@@ -236,7 +236,7 @@ func OnlyReads(command string) bool {
 	// 丢弃输出及复制文件描述符不属于写文件。
 	text := nullRedirect.ReplaceAllString(command, "$1")
 	text = fdRedirect.ReplaceAllString(text, "")
-	if strings.ContainsAny(text, "\r\n<>`") || strings.Contains(text, "$(") {
+	if strings.ContainsAny(text, "\r\n`") || strings.Contains(text, "$(") {
 		return false
 	}
 	for i := 0; i < len(text); i++ {
@@ -263,8 +263,10 @@ func OnlyReads(command string) bool {
 			i++
 			continue
 		}
-		if c == '$' && quote != '\'' {
-			return false
+		if c == '$' {
+			if quote == 0 || i+1 < len(text) && (text[i+1] >= 'a' && text[i+1] <= 'z' || text[i+1] >= 'A' && text[i+1] <= 'Z' || text[i+1] >= '0' && text[i+1] <= '9' || strings.ContainsRune("_{(@*#?$!-", rune(text[i+1]))) {
+				return false
+			}
 		}
 		if quote == '"' {
 			if c == '"' {
@@ -275,6 +277,9 @@ func OnlyReads(command string) bool {
 		if c == '\'' || c == '"' {
 			quote = c
 			continue
+		}
+		if c == '<' || c == '>' {
+			return false
 		}
 		if c == '|' || c == ';' || c == '&' && i+1 < len(text) && text[i+1] == '&' {
 			pieces = append(pieces, text[start:i])
@@ -307,7 +312,7 @@ func OnlyReads(command string) bool {
 		switch p {
 		case "git", "find", "rg", "sort", "tree", "go", "sed", "plutil", "uniq", "xxd":
 			for _, a := range t[1:] {
-				if strings.ContainsAny(a, "'\"") && strings.HasPrefix(strings.TrimLeft(a, "'\""), "-") {
+				if !(p == "rg" && a == `"->"`) && strings.ContainsAny(a, "'\"") && strings.HasPrefix(strings.TrimLeft(a, "'\""), "-") {
 					return false
 				}
 			}
