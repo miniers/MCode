@@ -114,6 +114,7 @@ type ModelPickerProps struct {
 	TriggerLabel   string // 触发按钮的无障碍名，同一界面有多个胶囊时用来区分；为空时使用“选择模型”
 	Compact        bool   // 胶囊只显示供应商图标与箭头，完整文案放进提示，供浮动面板这类窄处使用
 	Inline         bool   // 只渲染推理强度卡片（供设置页在自有弹层内复用），不渲染触发胶囊与 Popover
+	NativeMenu     func(ui.Rect, float32, bool)
 
 	QuotaUsed            func(providerID string) (float64, bool) // 读取 provider 配额用量（可选）
 	OnPickModel          func(side ModelPickerSide, prov ProviderInfo, m ModelInfo)
@@ -1155,6 +1156,10 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 			// 读不到 Bounds 时 PopoverBase 自身的居中兜底会让箭头保持正中。
 			anchor := trigger
 
+			if p.NativeMenu != nil {
+				p.NativeMenu(anchor.Bounds(), c.Zoom(), state.MenuOpen)
+				return
+			}
 			ui.PopoverBase(c.Key(p.KeyPrefix+"model-popover"), anchor, &state.MenuOpen, func(panel ui.Element) {
 				panelBg := modelPickerPanelBg
 				borderColor := ColorBorderDark
@@ -1226,41 +1231,45 @@ const modelPickerBeeLineHeight = Space4
 // renderModelPickerMenuBody 渲染模型选择面板的主体内容（宽 330）：
 // Swarm 模式下最上方是主导/执行分段栏（左右 12、上 8、下 2），其下是强度卡片或二级模型列表。
 func renderModelPickerMenuBody(c *ui.Context, p ModelPickerProps, state *ModelPickerState) {
-	ui.Column(c.Key(p.KeyPrefix + "model-menu-list")).
-		Width(330).
-		Children(func() {
-			side := ModelPickerSideLead
-			if p.Mode == ModelPickerSwarm {
-				// Swarm 开关是异步生效的：点执行段时 SwarmOn 可能还没变为 true，保留 Tab 等开关生效后再切过去。
-				if p.SwarmOn && state.Tab == "bees" {
-					side = ModelPickerSideBees
-				}
-				ui.Row(c.Key(p.KeyPrefix+"model-tabs-wrap")).
-					Padding(Space3, Space4, Space0, Space4).
-					AlignSelf(ui.Stretch).
-					Children(func() {
-						renderModelPickerSideTabs(c, p, state)
-					})
+	menu := ui.Column(c.Key(p.KeyPrefix + "model-menu-list"))
+	if p.NativeMenu != nil {
+		menu.MaxWidth(330).FillWidth()
+	} else {
+		menu.Width(330)
+	}
+	menu.Children(func() {
+		side := ModelPickerSideLead
+		if p.Mode == ModelPickerSwarm {
+			// Swarm 开关是异步生效的：点执行段时 SwarmOn 可能还没变为 true，保留 Tab 等开关生效后再切过去。
+			if p.SwarmOn && state.Tab == "bees" {
+				side = ModelPickerSideBees
 			}
-
-			// 二级页换页时内容横向滑入 + 淡入（进入与返回反向）。
-			// 深度在卡片页与列表页之间统一计算，换页那一帧由 modelPickerPageTransition 记录方向。
-			depth := modelPickerPageDepth(p, state, side)
-			if depth > 0 {
-				wrap := ui.Box(c.Key(p.KeyPrefix + "model-list-wrap")).Padding(Space2)
-				modelPickerPageTransition(c, wrap, state, depth)
-				wrap.Children(func() {
-					renderModelPickerListPage(c, p, state, side)
+			ui.Row(c.Key(p.KeyPrefix+"model-tabs-wrap")).
+				Padding(Space3, Space4, Space0, Space4).
+				AlignSelf(ui.Stretch).
+				Children(func() {
+					renderModelPickerSideTabs(c, p, state)
 				})
-				return
-			}
+		}
 
-			wrap := ui.Column(c.Key(p.KeyPrefix + "model-slider-wrap"))
+		// 二级页换页时内容横向滑入 + 淡入（进入与返回反向）。
+		// 深度在卡片页与列表页之间统一计算，换页那一帧由 modelPickerPageTransition 记录方向。
+		depth := modelPickerPageDepth(p, state, side)
+		if depth > 0 {
+			wrap := ui.Box(c.Key(p.KeyPrefix + "model-list-wrap")).Padding(Space2)
 			modelPickerPageTransition(c, wrap, state, depth)
 			wrap.Children(func() {
-				renderModelPickerCard(c, p, state, side)
+				renderModelPickerListPage(c, p, state, side)
 			})
+			return
+		}
+
+		wrap := ui.Column(c.Key(p.KeyPrefix + "model-slider-wrap"))
+		modelPickerPageTransition(c, wrap, state, depth)
+		wrap.Children(func() {
+			renderModelPickerCard(c, p, state, side)
 		})
+	})
 }
 
 // modelPickerSideEffort 返回某一侧分段标签用的档位：当前选择的档位，为空时回退模型默认档位

@@ -33,6 +33,10 @@ func normalizeSwarmSelection(st *SettingsState, sel ModelSelection) ModelSelecti
 }
 
 func renderSwarmModelCapsuleCatalog(c *ui.Context, st *SettingsState, key, scopeKey string, sel ModelSelection, emptyLabel, triggerLabel string, onChange func(ModelSelection), catalog modelPickerCatalog, noEffort bool) {
+	renderModelPicker(c, catalog.apply(swarmModelCapsuleProps(st, key, scopeKey, sel, emptyLabel, triggerLabel, onChange, catalog, noEffort)))
+}
+
+func swarmModelCapsuleProps(st *SettingsState, key, scopeKey string, sel ModelSelection, emptyLabel, triggerLabel string, onChange func(ModelSelection), catalog modelPickerCatalog, noEffort bool) ModelPickerProps {
 	providers := catalog.Providers
 	sel = normalizeSwarmSelection(st, sel)
 
@@ -73,7 +77,7 @@ func renderSwarmModelCapsuleCatalog(c *ui.Context, st *SettingsState, key, scope
 		disabled = true
 	}
 
-	renderModelPicker(c, catalog.apply(ModelPickerProps{
+	return ModelPickerProps{
 		Mode:           ModelPickerSimple,
 		KeyPrefix:      keyPrefix,
 		ScopeKey:       scopeKey,
@@ -127,5 +131,5 @@ func renderSwarmModelCapsuleCatalog(c *ui.Context, st *SettingsState, key, scope
 			}
 		},
 		Invalidate: invalidate,
-	}))
+	}
 }

@@ -8,13 +8,14 @@ import (
 )
 
 type swarmTierFlyoutCapture struct {
-	options   []mygo.FlyoutOptions
-	closes    []func(*mygo.CloseEvent)
-	closed    []func()
-	anchors   []mygo.Rectangle
-	viewport  *ui.Rect
-	destroyed int
-	focused   int
+	options          []mygo.FlyoutOptions
+	closes           []func(*mygo.CloseEvent)
+	closed           []func()
+	anchors          []mygo.Rectangle
+	viewport         *ui.Rect
+	destroyed        int
+	destroyedWindows []*mygo.Window
+	focused          int
 }
 
 func setupSwarmTierFlyoutTest(t *testing.T) (*SettingsState, *ui.Tester, *swarmTierFlyoutCapture, *mygo.Window) {
@@ -38,7 +39,10 @@ func setupSwarmTierFlyoutTest(t *testing.T) (*SettingsState, *ui.Tester, *swarmT
 		capture.closed = append(capture.closed, closed)
 		return &mygo.Window{}
 	}
-	swarmTierDestroyFlyout = func(*mygo.Window) { capture.destroyed++ }
+	swarmTierDestroyFlyout = func(w *mygo.Window) {
+		capture.destroyed++
+		capture.destroyedWindows = append(capture.destroyedWindows, w)
+	}
 	swarmTierFocusFlyout = func(*mygo.Window) { capture.focused++ }
 	swarmTierSetAnchor = func(_ *mygo.Window, r mygo.Rectangle) { capture.anchors = append(capture.anchors, r) }
 	t.Cleanup(func() {
@@ -58,6 +62,93 @@ func setupSwarmTierFlyoutTest(t *testing.T) (*SettingsState, *ui.Tester, *swarmT
 	}, 1100, 3000)
 	host.Frame()
 	return st, host, capture, parent
+}
+
+func TestSwarmTierModelFlyout(t *testing.T) {
+	st, host, capture, _ := setupSwarmTierFlyoutTest(t)
+	chat, _ := buildRoot(NewFakeClient())
+	chat.providers = []ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{
+		ID: "sonnet", Name: "Sonnet", Efforts: []string{"low", "high"}, SupportsFast: true,
+	}}}}
+	st.chat = chat
+	if err := host.Click("添加档位"); err != nil {
+		t.Fatal(err)
+	}
+	state := getSwarmTiersUIState(st)
+	state.draft.Name = "保留草稿"
+	editor := ui.NewTester(state.editor.view, 360, 1200)
+	editor.Frame()
+	if err := editor.Click("选择档位模型"); err != nil {
+		t.Fatal(err)
+	}
+	editor.Frame()
+	if len(capture.options) != 2 {
+		t.Fatalf("创建次数: %d", len(capture.options))
+	}
+	o := capture.options[1]
+	if o.Parent != state.editor.window || o.Placement != mygo.PlacementBottomStart || !o.FitContent || !o.Focusable || o.Popover || !o.Shadow || o.MaxHeight != 0 || o.Anchor.Width <= 0 || capture.closes[1] != nil {
+		t.Fatalf("子窗口参数: %+v", o)
+	}
+	model := state.editor.model
+	menu := ui.NewTester(model.view, 330, 800)
+	menu.Frame()
+	if err := menu.Click("Sonnet"); err != nil {
+		t.Fatalf("选择模型: %v，内容: %v", err, menu.Texts())
+	}
+	if state.draft.Model != "sonnet" || state.editor.model != nil {
+		t.Fatalf("选择模型后草稿或窗口错误: %+v", state.draft)
+	}
+	editor.Frame()
+	if err := editor.Click("选择档位模型"); err != nil {
+		t.Fatal(err)
+	}
+	editor.Frame()
+	model = state.editor.model
+	menu = ui.NewTester(model.view, 330, 800)
+	menu.Frame()
+	clickEffortSlider(t, menu, 1)
+	if state.draft.Effort != "high" {
+		t.Fatalf("强度: %q", state.draft.Effort)
+	}
+	for _, want := range []bool{true, false} {
+		if err := menu.Click("快速模式"); err != nil {
+			t.Fatalf("快速模式: %v，内容: %v", err, menu.Texts())
+		}
+		menu.Frame()
+		if state.draft.FastMode != want || state.editor.model != model {
+			t.Fatalf("快速模式草稿或窗口错误: %+v", state.draft)
+		}
+		if info, ok := menu.Access("快速模式"); !ok || info.Checked != want {
+			t.Fatalf("子窗口快速模式未更新: %+v, %v", info, ok)
+		}
+	}
+	picker := modelPickerStateFor("swarm-tier-model-capsule-tier-model-add")
+	picker.searchQuery = "stale"
+	picker.setListOpen("tier-model-add", ModelPickerSideLead, true)
+	setModelPanelMoreOpen("tier-model-add", "lead", true)
+	setModelPanelProviderMoreOpen("tier-model-add", "lead", "claude", true)
+	oldClosed := capture.closed[len(capture.closed)-1]
+	oldClosed()
+	if state.draft.Name != "保留草稿" || picker.MenuOpen || picker.searchQuery != "" || picker.listOpen("tier-model-add", ModelPickerSideLead) || isModelPanelMoreOpen("tier-model-add", "lead") || isModelPanelProviderMoreOpen("tier-model-add", "lead", "claude") {
+		t.Fatal("外部关闭未保留草稿或清除状态")
+	}
+	editor.Frame()
+	if err := editor.Click("选择档位模型"); err != nil {
+		t.Fatal(err)
+	}
+	editor.Frame()
+	current := state.editor.model
+	oldClosed()
+	if current == nil || state.editor.model != current {
+		t.Fatal("旧窗口回调影响新窗口")
+	}
+	child, parent := current.window, state.editor.window
+	disposeSwarmTierEditor(st)
+	disposeSwarmTierEditor(st)
+	windows := capture.destroyedWindows
+	if len(windows) < 2 || windows[len(windows)-2] != child || windows[len(windows)-1] != parent {
+		t.Fatalf("销毁顺序: %v", windows)
+	}
 }
 
 func TestSwarmTierFlyoutAnchorLeavesViewport(t *testing.T) {

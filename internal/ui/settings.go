@@ -445,10 +445,13 @@ func (s *SettingsState) Close() {
 func (s *SettingsState) invalidate() {
 	s.mu.Lock()
 	chat := s.chat
-	var editorServices, hostServices ui.Services
+	var editorServices, hostServices, modelServices ui.Services
 	if s.swarmTiersPage != nil && s.swarmTiersPage.editor != nil {
 		editorServices = s.swarmTiersPage.editor.services
 		hostServices = s.swarmTiersPage.editor.hostServices
+		if model := s.swarmTiersPage.editor.model; model != nil {
+			modelServices = model.services
+		}
 	}
 	s.mu.Unlock()
 	if chat != nil {
@@ -457,6 +460,7 @@ func (s *SettingsState) invalidate() {
 	invalidateSettingsWindow(s)
 	hostServices.Invalidate()
 	editorServices.Invalidate()
+	modelServices.Invalidate()
 }
 
 func (s *SettingsState) isLocked(key string) bool {

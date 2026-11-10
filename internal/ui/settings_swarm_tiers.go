@@ -366,13 +366,15 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 					AlignItems(ui.Center).
 					Gap(Space3).
 					Children(func() {
-						renderSwarmModelCapsuleEx(c, st, "swarm-tier-model-capsule", "tier-model-"+popKey, tierSel, "跟随会话子代理模型", "选择档位模型", func(next ModelSelection) {
-							uiSt.draft.Provider = next.Provider
-							uiSt.draft.Model = next.Model
-							uiSt.draft.Effort = next.Effort
-							uiSt.draft.FastMode = next.Fast
-							st.invalidate()
-						})
+						catalog := settingsModelPickerCatalog(st)
+						props := swarmTierModelProps(st, uiSt, popKey, catalog)
+						if uiSt.editor != nil {
+							session := uiSt.editor
+							props.NativeMenu = func(bounds ui.Rect, zoom float32, open bool) {
+								updateSwarmTierModelFlyout(st, uiSt, session, bounds, zoom, open)
+							}
+						}
+						renderModelPicker(c, catalog.apply(props))
 
 						if !swarmEmptySelection(tierSel) {
 							btnClear := ui.ButtonBase(c.Key("btn-clear-tier-model-"+popKey)).
