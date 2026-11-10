@@ -11,6 +11,14 @@ func RemoteWrites(command string) bool {
 }
 
 func remoteWrites(s string, depth int) bool {
+	return scanRemote(s, depth, false)
+}
+
+func adbShellWrites(s string, depth int) bool {
+	return scanRemote(s, depth, true)
+}
+
+func scanRemote(s string, depth int, device bool) bool {
 	if depth > 32 {
 		return true
 	}
@@ -24,7 +32,17 @@ func remoteWrites(s string, depth int) bool {
 			started = false
 		}
 	}
-	check := func() bool { flush(); result := remoteCommand(words, depth); words = nil; return result }
+	check := func() bool {
+		flush()
+		var result bool
+		if device {
+			result = adbShellCommand(words, depth)
+		} else {
+			result = remoteCommand(words, depth)
+		}
+		words = nil
+		return result
+	}
 	var quote byte
 	parens := 0
 	for i := 0; i < len(s); i++ {
@@ -107,7 +125,7 @@ func remoteWrites(s string, depth int) bool {
 					}
 				}
 			}
-			if end < 0 || remoteWrites(s[start:end], depth+1) {
+			if end < 0 || scanRemote(s[start:end], depth+1, device) {
 				return true
 			}
 			started = true
@@ -126,6 +144,36 @@ func remoteWrites(s string, depth int) bool {
 		if quote == 0 && c == '\'' {
 			quote = c
 			started = true
+			continue
+		}
+		if device && quote == 0 && c == '>' {
+			fd := word.String()
+			if started && (fd == "2" || fd == "1") {
+				word.Reset()
+				started = false
+			} else {
+				flush()
+			}
+			if i+1 < len(s) && s[i+1] == '>' {
+				return true
+			}
+			j := i + 1
+			for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
+				j++
+			}
+			end := j
+			for end < len(s) && !strings.ContainsRune(" \t\r\n;|&()<> ", rune(s[end])) {
+				end++
+			}
+			if j < len(s) && s[j] == '&' && fd == "2" && j+1 < len(s) && s[j+1] == '1' {
+				end = j + 2
+			} else if s[j:end] != "/dev/null" {
+				return true
+			}
+			if end < len(s) && !strings.ContainsRune(" \t\r\n;|&()", rune(s[end])) {
+				return true
+			}
+			i = end - 1
 			continue
 		}
 		if quote == 0 && strings.ContainsRune(";|&\n()", rune(c)) {
@@ -228,6 +276,8 @@ func remoteCommand(t []string, depth int) bool {
 			return remoteWrites(strings.Join(t, " "), depth+1)
 		case "ssh", "scp", "sftp", "rsync":
 			return true
+		case "adb":
+			return adbRemote(t, depth)
 		case "git":
 			for len(t) > 0 && strings.HasPrefix(t[0], "-") {
 				a := t[0]
@@ -255,6 +305,154 @@ func remoteCommand(t []string, depth int) bool {
 		}
 	}
 	return false
+}
+
+func adbRemote(t []string, depth int) bool {
+	for len(t) > 0 {
+		switch t[0] {
+		case "-d", "-e", "-a":
+			t = t[1:]
+		case "-s", "-t", "-H", "-P", "-L":
+			if len(t) < 2 {
+				return true
+			}
+			t = t[2:]
+		default:
+			goto command
+		}
+	}
+command:
+	if len(t) == 0 {
+		return true
+	}
+	name, args := t[0], t[1:]
+	switch name {
+	case "devices", "version", "help", "get-state", "get-serialno", "get-devpath", "start-server", "pull":
+		return false
+	case "forward", "reverse":
+		for _, a := range args {
+			if a == "--list" {
+				return false
+			}
+		}
+		return true
+	case "logcat":
+		return adbLogcatWrites(args)
+	case "shell", "exec-out":
+		for len(args) > 0 && (args[0] == "-t" || args[0] == "-T" || args[0] == "-n" || args[0] == "-x") {
+			args = args[1:]
+		}
+		script := strings.Join(args, " ")
+		return strings.TrimSpace(script) == "" || adbShellWrites(script, depth+1)
+	default:
+		return !strings.HasPrefix(name, "wait-for-")
+	}
+}
+
+func adbLogcatWrites(args []string) bool {
+	for _, a := range args {
+		for _, flag := range []string{"--clear", "--buffer-size", "--prune", "--file"} {
+			if a == flag || strings.HasPrefix(a, flag+"=") {
+				return true
+			}
+		}
+		if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a[1:], "cGPf") {
+			return true
+		}
+	}
+	return false
+}
+
+func adbShellCommand(t []string, depth int) bool {
+	if len(t) == 0 {
+		return false
+	}
+	name, args := filepath.Base(t[0]), t[1:]
+	if name == "run-as" {
+		if depth > 32 {
+			return true
+		}
+		packageSeen := false
+		for len(args) > 0 {
+			if args[0] == "--user" {
+				if len(args) < 2 {
+					return true
+				}
+				args = args[2:]
+			} else if !packageSeen {
+				packageSeen = true
+				args = args[1:]
+			} else {
+				break
+			}
+		}
+		return !packageSeen || len(args) == 0 || adbShellCommand(args, depth+1)
+	}
+	switch name {
+	case "getprop", "dumpsys", "ps", "ls", "cat", "head", "tail", "grep", "wc", "df", "du", "id", "uname", "uptime", "whoami", "which", "stat", "echo", "printenv", "pidof", "ip", "ifconfig", "netstat", "getenforce", "readlink", "realpath", "basename", "dirname", "md5sum", "sha1sum", "sha256sum", "base64", "xxd", "od", "hexdump", "strings", "cut", "tr":
+		return false
+	case "sort":
+		for _, a := range args {
+			if a == "--output" || strings.HasPrefix(a, "--output=") || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a[1:], "o") {
+				return true
+			}
+		}
+		return false
+	case "uniq":
+		positional := 0
+		for i := 0; i < len(args); i++ {
+			a := args[i]
+			if a == "-f" || a == "-s" || a == "-w" || a == "--skip-fields" || a == "--skip-chars" || a == "--check-chars" {
+				i++
+				if i >= len(args) {
+					return true
+				}
+			} else if !strings.HasPrefix(a, "-") || a == "-" {
+				positional++
+			}
+		}
+		return positional > 1
+	case "date":
+		return len(args) != 0
+	case "top":
+		for _, a := range args {
+			if a == "-n" || strings.HasPrefix(a, "-n") {
+				return false
+			}
+		}
+		return true
+	case "find":
+		for _, a := range args {
+			switch a {
+			case "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls":
+				return true
+			}
+		}
+		return false
+	case "logcat":
+		return adbLogcatWrites(args)
+	case "dmesg":
+		for _, a := range args {
+			if a == "--clear" || a == "--read-clear" || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a[1:], "cC") {
+				return true
+			}
+		}
+		return false
+	case "pm":
+		return len(args) == 0 || args[0] != "list" && args[0] != "path" && args[0] != "dump"
+	case "settings":
+		return len(args) == 0 || args[0] != "get" && args[0] != "list"
+	case "wm":
+		return len(args) != 1 || args[0] != "size" && args[0] != "density"
+	case "service":
+		return len(args) == 0 || args[0] != "list"
+	case "cmd":
+		return len(args) < 2 || args[0] != "package" || args[1] != "list"
+	case "content":
+		return len(args) == 0 || args[0] != "query"
+	default:
+		return true
+	}
 }
 
 func safeMethod(s string, head bool) bool {

@@ -180,7 +180,7 @@ func Check(in Input) Verdict {
 	if in.Mode == harness.ModeReadOnly && !reads && !in.ReadOnlyHint {
 		if in.ToolName == "bash" {
 			if in.Sandboxed {
-				return Verdict{Action: Deny, Reason: "只读档不能向远程写入（git push、curl 提交数据、gh 写操作、ssh 等），请只做调研。"}
+				return Verdict{Action: Deny, Reason: "只读档不能向远程或设备写入（git push、curl 提交数据、gh 写操作、ssh、adb install/push/shell 写操作等），请只做调研；本机只有 $TMPDIR 可写。"}
 			}
 			return Verdict{Action: Deny, Reason: "只读档只能运行只读命令，请使用 ls、cat、sed -n、rg、git log、go doc 或 read/grep 工具，不要换写法重试被拒的命令。"}
 		}
