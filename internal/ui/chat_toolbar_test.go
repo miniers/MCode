@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -84,7 +85,11 @@ func TestChatToolbarAuxGroupButtons(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
 
 	// 项目文档：点击按钮打开，关闭直接调用头部动作，避免再次点击命中按钮提示层
-	if err := tt.Click("项目文档 (.mcode/context) ⇧⌘K"); err != nil {
+	if err := tt.Click("更多"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(DurBase + 50*time.Millisecond)
+	if err := tt.Click("项目文档"); err != nil {
 		t.Fatalf("click context button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return getContextPanelState(s).IsOpen() })
@@ -101,18 +106,20 @@ func TestChatToolbarAuxGroupButtons(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool { return !getTerminalState(s).visible })
 
-	// 浏览器预览：显示后再点一次隐藏
-	if err := tt.Click("浏览器预览 ⇧⌘B"); err != nil {
-		t.Fatalf("click preview button failed: %v", err)
+	// 右栏：打开浏览器标签，再关闭右栏。
+	inspectorSelect(s, sidePanePreviewID, false)
+	waitFor(t, tt, func() bool { return inspectorPaneOpen(s, sidePanePreviewID) })
+	if err := tt.Click("右栏"); err != nil {
+		t.Fatalf("click inspector button failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return getPreviewState(s).visible })
-	if err := tt.Click("浏览器预览 ⇧⌘B"); err != nil {
-		t.Fatalf("click preview button again failed: %v", err)
-	}
-	waitFor(t, tt, func() bool { return !getPreviewState(s).visible })
+	waitFor(t, tt, func() bool { return !inspectorPaneOpen(s, sidePanePreviewID) })
 
 	// 看板：切到任务工作区视图
-	if err := tt.Click("看板"); err != nil {
+	if err := tt.Click("更多"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(DurBase + 50*time.Millisecond)
+	if err := tt.Click("任务"); err != nil {
 		t.Fatalf("click kanban button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {

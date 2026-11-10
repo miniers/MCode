@@ -27,7 +27,7 @@ func TestChatHeaderPanelButtonsResponsive(t *testing.T) {
 				_, ok := tt.Find(headerPermissionCapsuleLabel)
 				return ok
 			})
-			labels := []string{"项目文档 (.mcode/context) ⇧⌘K", memoryEntryLabel(fake), "文件 ⇧⌘F", "终端 ⌘J", "浏览器预览 ⇧⌘B", "看板", "改动"}
+			labels := []string{"终端 ⌘J", "右栏", "更多"}
 			var first ui.Rect
 			for i, label := range labels {
 				r, ok := tt.Find(label)
@@ -63,15 +63,10 @@ func TestChatHeaderPanelButtonsRemainVisibleWithPreview(t *testing.T) {
 	s, root := buildRoot(fake)
 	t.Cleanup(func() { closeTerminals(s) })
 	tt := ui.NewTester(root, 1200, 700)
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("浏览器预览 ⇧⌘B")
-		return ok
-	})
-	if err := tt.Click("浏览器预览 ⇧⌘B"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return getPreviewState(s).visible })
-	for _, label := range []string{"项目文档 (.mcode/context) ⇧⌘K", memoryEntryLabel(fake), "文件 ⇧⌘F", "终端 ⌘J", "浏览器预览 ⇧⌘B", "看板", "改动"} {
+	waitFor(t, tt, func() bool { _, ok := tt.Find("右栏"); return ok })
+	inspectorSelect(s, sidePanePreviewID, false)
+	waitFor(t, tt, func() bool { return inspectorPaneOpen(s, sidePanePreviewID) })
+	for _, label := range []string{"终端 ⌘J", "右栏", "更多"} {
 		if _, ok := tt.Find(label); !ok {
 			t.Errorf("打开预览后头部开关 %q 不可见", label)
 		}
@@ -141,7 +136,7 @@ func TestChatHeaderIconButtonsHaveNoFill(t *testing.T) {
 		i := img.PixOffset(x, y)
 		return [3]int{int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])}
 	}
-	for _, label := range []string{"显示/隐藏侧边栏 ⌘B", "新建会话 ⌘N", "项目文档 (.mcode/context) ⇧⌘K", memoryEntryLabel(fake), "终端 ⌘J", "浏览器预览 ⇧⌘B", "看板", "改动"} {
+	for _, label := range []string{"显示/隐藏侧边栏 ⌘B", "新建会话 ⌘N", "终端 ⌘J", "右栏", "更多"} {
 		r, ok := tt.Find(label)
 		if !ok {
 			t.Fatalf("按钮 %q 不可见", label)

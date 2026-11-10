@@ -10,8 +10,8 @@ func TestDiffEmptyStateAndRetry(t *testing.T) {
 	tester := ui.NewTester(func(c *ui.Context) {
 		renderDiffEmptyState(c)
 	}, 400, 300)
-	if !tester.HasText(diffEmptyTitle) || !tester.HasText(diffEmptySubtitle) {
-		t.Fatal("Diff 空态标题或说明未显示")
+	if !tester.HasText(diffEmptyTitle) || tester.HasText("每轮对话后，Agent 改动的文件会显示在这里。") {
+		t.Fatal("Diff 空态应显示标题且不显示说明")
 	}
 	if _, ok := tester.Find("重试"); ok {
 		t.Fatal("Diff 空态不应显示重试")

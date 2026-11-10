@@ -37,7 +37,7 @@ func TestInspectorMoreMenuPreservesMemoryBadge(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Advance(DurSheet + 50*time.Millisecond)
-	if _, ok := tt.Find("记忆"); !ok {
+	if _, ok := tt.Find(memoryEntryLabel(s.client)); !ok {
 		t.Fatal("更多菜单缺少记忆入口")
 	}
 	if _, ok := tt.Find("任务"); !ok {
@@ -50,7 +50,7 @@ func TestInspectorMoreMenuPreservesMemoryBadge(t *testing.T) {
 
 func TestInspectorEmptyStatesNoDescriptions(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { renderDiffEmptyState(c) }, 400, 300)
-	if !tt.HasText("暂无改动") || tt.HasText(diffEmptySubtitle) {
+	if !tt.HasText(diffEmptyTitle) || tt.HasText("每轮对话后，Agent 改动的文件会显示在这里。") {
 		t.Fatal("改动空态应只有简短标题")
 	}
 }

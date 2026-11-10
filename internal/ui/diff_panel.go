@@ -17,11 +17,8 @@ const (
 	DiffPanelMaxWidth     float32 = 720
 )
 
-// 改动面板空态卡片文案（标题 + 灰色副标题）。
-const (
-	diffEmptyTitle    = "暂无改动"
-	diffEmptySubtitle = "每轮对话后，Agent 改动的文件会显示在这里。"
-)
+// 改动面板空态卡片标题。
+const diffEmptyTitle = "暂无改动"
 
 // 改动面板的固定尺寸：标题栏高度、状态卡片图标与副标题宽度、轮次菜单尺寸。
 const (

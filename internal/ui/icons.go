@@ -430,6 +430,7 @@ const (
 	svgPathTrash2            = `<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>`
 	svgPathPin               = `<line x1="12" x2="12" y1="17" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/>`
 	svgPathPanelLeft         = `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>`
+	svgPathPanelRight        = `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>`
 	svgPathPalette           = `<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>`
 	svgPathSmartphone        = `<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>`
 	svgPathCpu               = `<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>`
@@ -538,6 +539,7 @@ var (
 	iconSwarm             = parseLucideSVG(svgSwarmMark)
 	iconPin               = parseLucideSVG(svgPathPin)
 	iconPanelLeft         = parseLucideSVG(svgPathPanelLeft)
+	iconPanelRight        = parseLucideSVG(svgPathPanelRight)
 	iconPalette           = parseLucideSVG(svgPathPalette)
 	iconSmartphone        = parseLucideSVG(svgPathSmartphone)
 	iconCpu               = parseLucideSVG(svgPathCpu)
@@ -670,6 +672,7 @@ func IconTrash2() *ui.SVG            { return iconTrash2 }
 func IconSwarm() *ui.SVG             { return iconSwarm }
 func IconPin() *ui.SVG               { return iconPin }
 func IconPanelLeft() *ui.SVG         { return iconPanelLeft }
+func IconPanelRight() *ui.SVG        { return iconPanelRight }
 func IconPalette() *ui.SVG           { return iconPalette }
 func IconSmartphone() *ui.SVG        { return iconSmartphone }
 func IconCpu() *ui.SVG               { return iconCpu }

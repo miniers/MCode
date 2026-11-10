@@ -15,7 +15,7 @@ func toggleInspector(s *chatState) {
 }
 
 func renderInspectorHeader(c *ui.Context, s *chatState, st *inspectorSessionState) {
-	header := ui.Row(c.Key("inspector-header")).Height(40).Shrink(0).FillWidth()
+	header := ui.Row(c.Key("inspector-header")).Height(diffHeaderHeight).Shrink(0).FillWidth()
 	type selection struct {
 		index  int
 		active string
@@ -34,7 +34,7 @@ func renderInspectorHeader(c *ui.Context, s *chatState, st *inspectorSessionStat
 		tabs := ui.TabsBase(c.Key("inspector-tabs"), &selectionState.index, len(sidePanes))
 		tabs.List.Grow(1).Children(func() {
 			for i, pane := range sidePanes {
-				tab := tabs.Tab(i).Height(40).Padding(0, 12).Label(pane.title)
+				tab := tabs.Tab(i).Height(diffHeaderHeight).Padding(0, Space4).Label(pane.title)
 				target := float32(0)
 				if selectionState.index == i {
 					target = 1
@@ -44,8 +44,8 @@ func renderInspectorHeader(c *ui.Context, s *chatState, st *inspectorSessionStat
 				}
 				ink := tab.AnimateTo("indicator", target, springSnappy)
 				tab.Children(func() {
-					ui.Text(c, pane.title).FontSize(13)
-					ui.Box(c).Absolute().Left(12).Right(12).Bottom(0).Height(2).Background(ThemeAccent(c).Alpha(ink))
+					ui.Text(c, pane.title).FontSize(TypeBody)
+					ui.Box(c).Absolute().Left(Space4).Right(Space4).Bottom(0).Height(Space0).Background(ThemeAccent(c).Alpha(ink))
 				})
 			}
 		})

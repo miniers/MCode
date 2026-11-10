@@ -2245,7 +2245,7 @@ func renderChatHeaderAuxGroup(c *ui.Context, s *chatState) {
 			IconButton(c, IconButtonProps{Key: "chat-header-terminal-btn", Icon: IconTerminal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "终端", Tooltip: shortcutTitleWithKey("toggle-terminal", "终端"), Active: terminalOpen, OnClick: s.headerToggleTerminal})
 		}},
 		{true, func() {
-			IconButton(c, IconButtonProps{Key: "chat-header-inspector-btn", Icon: IconPanelLeft(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "右栏", Tooltip: shortcutTitleWithKey("toggle-inspector", "右栏"), Active: inspectorOpen, OnClick: func() { toggleInspector(s) }})
+			IconButton(c, IconButtonProps{Key: "chat-header-inspector-btn", Icon: IconPanelRight(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "右栏", Tooltip: shortcutTitleWithKey("toggle-inspector", "右栏"), Active: inspectorOpen, OnClick: func() { toggleInspector(s) }})
 		}},
 		{true, func() {
 			ui.Row(c.Key("chat-header-aux-more-wrap")).Children(func() {
@@ -2263,7 +2263,7 @@ func renderChatHeaderAuxGroup(c *ui.Context, s *chatState) {
 						if pendingProposals > 0 {
 							detail = strconv.Itoa(pendingProposals)
 						}
-						item("chat-header-memory-btn", "记忆", detail, s.headerToggleMemoryPanel)
+						item("chat-header-memory-btn", memoryEntryLabel(s.client), detail, s.headerToggleMemoryPanel)
 						item("chat-header-kanban-btn", "任务", "", s.headerOpenKanban)
 					}))
 				})
