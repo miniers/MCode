@@ -136,12 +136,54 @@ func TestReadContinuationAndOffsetBeyondEnd(t *testing.T) {
 	}
 	env := Env{WorkDir: root}
 	result, err := readFile(context.Background(), env, json.RawMessage(`{"path":"file"}`))
-	if err != nil || result.IsError || !strings.Contains(result.Text, fmt.Sprintf("continue with offset=%d", maxOutputLines+1)) {
+	if err != nil || result.IsError || !strings.Contains(result.Text, "continue with offset=401") {
 		t.Fatalf("truncation: %v %+v", err, result)
 	}
+	t.Run("explicit limit", func(t *testing.T) {
+		result, err := readFile(context.Background(), env, json.RawMessage(`{"path":"file","limit":2000}`))
+		if err != nil || result.IsError || !strings.Contains(result.Text, "More lines available; use offset 2001 to continue reading.") {
+			t.Fatalf("continuation: %v %+v", err, result)
+		}
+	})
 	result, err = readFile(context.Background(), env, json.RawMessage(fmt.Sprintf(`{"path":"file","offset":%d}`, maxOutputLines+2)))
 	if err != nil || !result.IsError || !strings.Contains(result.Text, fmt.Sprintf("offset %d is beyond end of file (%d lines)", maxOutputLines+2, maxOutputLines+1)) {
 		t.Fatalf("offset: %v %+v", err, result)
+	}
+}
+
+func TestReadByteLimits(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "file"), []byte(strings.Repeat("x", maxOutputBytes+1)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, args string
+		limit      int
+	}{
+		{"default", `{"path":"file"}`, readDefaultBytes},
+		{"explicit", `{"path":"file","limit":1}`, maxOutputBytes},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := readFile(context.Background(), Env{WorkDir: root}, json.RawMessage(tc.args))
+			if err != nil || result.IsError {
+				t.Fatalf("read: %v %+v", err, result)
+			}
+			notice := "\nOutput truncated; continue with offset=2"
+			if !strings.HasSuffix(result.Text, notice) || len(result.Text) != tc.limit+len(notice) {
+				t.Fatalf("unexpected output length or notice: length=%d", len(result.Text))
+			}
+		})
+	}
+}
+
+func TestReadDefaultSmallFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "file"), []byte("first\nsecond"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := readFile(context.Background(), Env{WorkDir: root}, json.RawMessage(`{"path":"file"}`))
+	if err != nil || result.IsError || result.Text != "1: first\n2: second\n" {
+		t.Fatalf("read: %v %+v", err, result)
 	}
 }
 

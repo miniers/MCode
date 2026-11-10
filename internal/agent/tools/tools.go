@@ -59,7 +59,7 @@ func parse(raw json.RawMessage, v any) error {
 // FileTools 返回文件操作工具。
 func FileTools() []Tool {
 	return []Tool{
-		{"read", "Read a file with line numbers.", json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1}},"required":["path"]}`), true, readFile},
+		{"read", "Read a file with line numbers. Without limit, returns at most 400 lines; for large files, grep first, then read the needed range with offset and limit.", json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1}},"required":["path"]}`), true, readFile},
 		{"write", "Write a file.", json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`), false, writeFile},
 		{"edit", "Replace unique, non-overlapping text in a file.", json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"edits":{"type":"array","items":{"type":"object","properties":{"oldText":{"type":"string"},"newText":{"type":"string"}},"required":["oldText","newText"]}}},"required":["path","edits"]}`), false, editFile},
 		{"ls", "List directory entries.", json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"limit":{"type":"integer","minimum":1}}}`), true, listDir},
@@ -67,6 +67,13 @@ func FileTools() []Tool {
 		{"grep", "Search files for a pattern.", json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"},"glob":{"type":"string"},"ignoreCase":{"type":"boolean"},"literal":{"type":"boolean"},"context":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1}},"required":["pattern"]}`), true, grepFiles},
 	}
 }
+
+// 未指定 limit 时的默认读取量，用来控制上下文增长。
+const (
+	readDefaultLines = 400
+	readDefaultBytes = 16 * 1024
+)
+
 func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error) {
 	var a struct {
 		Path          string `json:"path"`
@@ -99,6 +106,10 @@ func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 		a.Offset = 1
 	}
 	start := a.Offset - 1
+	lineLimit, byteLimit := maxOutputLines, maxOutputBytes
+	if a.Limit == 0 {
+		lineLimit, byteLimit = readDefaultLines, readDefaultBytes
+	}
 	reader := bufio.NewReaderSize(f, 32*1024)
 	lineNo := 0
 	lineCount := 0
@@ -114,10 +125,15 @@ func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 				return true
 			}
 			if !wrotePrefix {
-				fmt.Fprintf(&out, "%d: ", lineNo)
+				prefix := fmt.Sprintf("%d: ", lineNo)
+				if a.Limit == 0 && out.Len()+len(prefix) > byteLimit {
+					truncated = true
+					return false
+				}
+				out.WriteString(prefix)
 				wrotePrefix = true
 			}
-			room := maxOutputBytes - out.Len()
+			room := byteLimit - out.Len()
 			if room <= 0 {
 				truncated = true
 				return false
@@ -139,7 +155,7 @@ func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 			}
 			break
 		}
-		if inRange && !newline && out.Len() < maxOutputBytes {
+		if inRange && !newline && out.Len() < byteLimit {
 			out.WriteByte('\n')
 		}
 		if truncated {
@@ -151,7 +167,7 @@ func readFile(ctx context.Context, env Env, raw json.RawMessage) (Result, error)
 		if a.Limit > 0 && lineNo-start >= a.Limit {
 			break
 		}
-		if lineCount >= maxOutputLines {
+		if lineCount >= lineLimit {
 			lineLimitReached = true
 			break
 		}

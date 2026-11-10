@@ -254,43 +254,25 @@ func TestCompactThreshold(t *testing.T) {
 	}
 }
 
-func TestCompactionTriggerGrowthAndPressure(t *testing.T) {
+func TestCompactionPressure(t *testing.T) {
 	for _, tc := range []struct {
-		window, growth, total int
-		normal, emergency     bool
+		window, total     int
+		normal, emergency bool
 	}{
-		{128000, 49999, 95999, false, false},
-		{128000, 50000, 0, false, false},
-		{128000, 50000, 63999, false, false},
-		{128000, 50000, 64000, true, false},
-		{128000, 0, 96000, true, false},
-		{128000, 0, 111616, true, true},
-		{200000, 0, 150000, true, false},
-		{200000, 50000, 99999, false, false},
-		{200000, 50000, 100000, true, false},
-		{1000000, 50000, 400000, false, false},
-		{8192, 0, 6143, false, false},
-		{8192, 0, 6144, true, true},
+		{128000, 95999, false, false},
+		{128000, 96000, true, false},
+		{128000, 111616, true, true},
+		{200000, 100000, false, false},
+		{200000, 149999, false, false},
+		{200000, 150000, true, false},
+		{200000, 183616, true, true},
+		{1000000, 400000, false, false},
+		{8192, 6143, false, false},
+		{8192, 6144, true, true},
 	} {
-		normal, emergency := compactionPressure(tc.window, tc.growth, tc.total)
+		normal, emergency := compactionPressure(tc.window, tc.total)
 		if normal != tc.normal || emergency != tc.emergency {
-			t.Errorf("compactionPressure(%d, %d, %d) = %v, %v; want %v, %v", tc.window, tc.growth, tc.total, normal, emergency, tc.normal, tc.emergency)
-		}
-	}
-}
-
-func TestGrowthSinceSummary(t *testing.T) {
-	a, b, c := textMessage("user", "a"), textMessage("assistant", "bb"), textMessage("user", "ccc")
-	for _, tc := range []struct {
-		messages []llm.Message
-		want     int
-	}{
-		{[]llm.Message{a, b, c}, tokensForMessages([]llm.Message{b, c})},
-		{[]llm.Message{summaryMessage("old"), b, c}, tokensForMessages([]llm.Message{b, c})},
-		{[]llm.Message{a, b, summaryMessage("block"), c}, tokensForMessage(c)},
-	} {
-		if got := growthSinceSummary(tc.messages); got != tc.want {
-			t.Fatalf("growth = %d, want %d", got, tc.want)
+			t.Errorf("compactionPressure(%d, %d) = %v, %v; want %v, %v", tc.window, tc.total, normal, emergency, tc.normal, tc.emergency)
 		}
 	}
 }
@@ -320,12 +302,14 @@ func TestPlanBlock(t *testing.T) {
 
 func TestRunCompactionBudget(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		chars int
-		block bool
+		name    string
+		chars   int
+		compact bool
+		block   bool
 	}{
-		{"160k", 80000, true},
-		{"190k", 95000, false},
+		{"100k", 50000, false, false},
+		{"160k", 80000, true, true},
+		{"190k", 95000, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := session.NewStore(t.TempDir())
@@ -334,7 +318,11 @@ func TestRunCompactionBudget(t *testing.T) {
 			for i := 0; i < 8; i++ {
 				appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", tc.chars)))
 			}
-			client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}, {response: reply("stop")}}}
+			steps := []scriptStep{{response: reply("stop")}}
+			if tc.compact {
+				steps = append([]scriptStep{{response: summaryResponse("summary")}}, steps...)
+			}
+			client := &scriptClient{steps: steps}
 			var usage *harness.Usage
 			err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 1000000, Emit: func(event harness.Event) {
 				if event.Type == harness.EventUsage {
@@ -345,7 +333,7 @@ func TestRunCompactionBudget(t *testing.T) {
 				t.Fatal(err)
 			}
 			entries := compactionEntries(t, store, id)
-			if len(entries) != 1 || (entries[0].FromSeq > 0) != tc.block {
+			if (len(entries) == 1) != tc.compact || len(entries) > 1 || tc.compact && (entries[0].FromSeq > 0) != tc.block {
 				t.Fatalf("compaction entries = %+v, want block = %v", entries, tc.block)
 			}
 			if usage == nil || usage.ContextWindow != 1000000 {
@@ -359,15 +347,15 @@ func TestRunTwoBlockCompactions(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	id := "two-blocks"
 	appendHistory(t, store, id, textMessage("user", "first"))
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 15; i++ {
 		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", 16000)))
 	}
 	client := &scriptClient{steps: []scriptStep{{response: summaryResponse("first summary")}, {response: reply("stop")}, {response: summaryResponse("second summary")}, {response: reply("stop")}}}
-	opts := Options{Client: client, Store: store, SessionID: id, ContextWindow: 40000}
+	opts := Options{Client: client, Store: store, SessionID: id, ContextWindow: 80000}
 	if err := Run(context.Background(), opts, "continue one", nil); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 10; i++ {
 		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("b", 16000)))
 	}
 	if err := Run(context.Background(), opts, "continue two", nil); err != nil {
@@ -411,19 +399,19 @@ func TestBlockWithoutSavingsCountsUsage(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	id := "no-savings"
 	appendHistory(t, store, id, textMessage("user", "first"))
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 15; i++ {
 		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", 16000)))
 	}
-	summary := summaryResponse(strings.Repeat("s", 50000))
+	summary := summaryResponse(strings.Repeat("s", 100000))
 	summary.Usage = llm.Usage{Input: 123, Output: 45}
 	client := &scriptClient{steps: []scriptStep{{response: summary}, {response: reply("stop")}}}
 	var usage harness.Usage
-	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 40000, Emit: func(event harness.Event) {
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 80000, Emit: func(event harness.Event) {
 		if event.Type == harness.EventUsage {
 			usage = *event.Usage
 		}
 	}}, "continue", nil)
-	if err != nil || len(compactionEntries(t, store, id)) != 0 || usage.InputTokens != 123 || usage.OutputTokens != 45 {
+	if err != nil || len(client.requests) != 2 || !isSummaryRequest(client.requests[0]) || len(compactionEntries(t, store, id)) != 0 || usage.InputTokens != 123 || usage.OutputTokens != 45 {
 		t.Fatalf("err=%v usage=%+v", err, usage)
 	}
 }
@@ -436,7 +424,7 @@ type noSavingsClient struct {
 func (c *noSavingsClient) Stream(_ context.Context, req llm.Request, _ func(llm.Delta)) (*llm.Response, error) {
 	c.requests = append(c.requests, req)
 	if isSummaryRequest(req) {
-		return summaryResponse(strings.Repeat("s", 50000)), nil
+		return summaryResponse(strings.Repeat("s", 100000)), nil
 	}
 	c.steps++
 	if c.steps <= 2 {
@@ -449,11 +437,11 @@ func TestBlockWithoutSavingsStopsRetrying(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	id := "no-savings-retry"
 	appendHistory(t, store, id, textMessage("user", "first"))
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 15; i++ {
 		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", 16000)))
 	}
 	client := &noSavingsClient{}
-	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 40000, Tools: []tools.Tool{testTool("read")}}, "continue", nil)
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 80000, Tools: []tools.Tool{testTool("read")}}, "continue", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,12 +485,12 @@ func TestBlockAppendFailureDoesNotChangeMessages(t *testing.T) {
 	store := session.NewStore(dir)
 	id := "append-failure"
 	appendHistory(t, store, id, textMessage("user", "first"))
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 15; i++ {
 		appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", 16000)))
 	}
 	client := &permissionClient{path: filepath.Join(dir, id+".jsonl")}
 	var compacted bool
-	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 40000, Emit: func(event harness.Event) {
+	err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 80000, Emit: func(event harness.Event) {
 		compacted = compacted || event.Type == harness.EventContextCompacted
 	}}, "continue", nil)
 	if err != nil || compacted || len(client.requests) != 2 || len(compactionEntries(t, store, id)) != 0 {
@@ -515,13 +503,13 @@ func TestBlockAppendFailureDoesNotChangeMessages(t *testing.T) {
 	}
 }
 
-func TestNoStoreSkipsGrowthCompaction(t *testing.T) {
+func TestNoStoreSkipsBlockCompaction(t *testing.T) {
 	client := &scriptClient{steps: []scriptStep{{response: reply("stop")}, {response: reply("stop")}}}
 	calls := 0
-	err := Run(context.Background(), Options{Client: client, ContextWindow: 40000, Steer: func() []string {
+	err := Run(context.Background(), Options{Client: client, ContextWindow: 80000, Steer: func() []string {
 		calls++
 		if calls == 2 {
-			return []string{strings.Repeat("x", 84000)}
+			return []string{strings.Repeat("x", 244000)}
 		}
 		return nil
 	}}, "first", nil)

@@ -59,24 +59,11 @@ func compactThreshold(window int) int {
 
 func keepRecentTokens(window int) int { return min(20000, window/4) }
 
-func growthThreshold(window int) int { return min(50000, max(20000, window/2)) }
-
-// compactionPressure 要求增长触发时总量至少达到窗口一半，避免大窗口频繁压缩。
-func compactionPressure(window, growth, total int) (normal, emergency bool) {
+// compactionPressure 只按总量触发：摘要输出和尾部缓存重付有固定成本，一次多压才划算。
+func compactionPressure(window, total int) (normal, emergency bool) {
 	normalPressure := min(window*3/4, compactThreshold(window))
 	emergencyPressure := min(window*95/100, compactThreshold(window))
-	return (growth >= growthThreshold(window) && total >= window/2) || total >= normalPressure, total >= emergencyPressure
-}
-
-func growthSinceSummary(messages []llm.Message) int {
-	start := min(1, len(messages))
-	for i := len(messages) - 1; i >= 0; i-- {
-		if isSummaryMessage(messages[i]) {
-			start = i + 1
-			break
-		}
-	}
-	return tokensForMessages(messages[start:])
+	return total >= normalPressure, total >= emergencyPressure
 }
 
 func planBlock(items []replayItem, window int) (start, end int, ok bool) {

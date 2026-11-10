@@ -303,7 +303,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		}
 		if autoCompact {
 			total := estimateContextTokens(messages, contextTokens, contextMeasured)
-			normal, emergency := compactionPressure(window, growthSinceSummary(messages), total)
+			normal, emergency := compactionPressure(window, total)
 			var err error
 			// 压缩是为后续调用腾出空间；失败时保留原上下文继续，让模型调用自己给出结论。
 			if emergency || total > compactThreshold(window) {
