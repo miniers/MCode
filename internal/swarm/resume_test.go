@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/kanban"
 )
 
 // restoreLeadForResume 造一条「重启前 running 被中断 + 一条仍在排队」的主会话记录并完成恢复。
@@ -288,6 +290,177 @@ func TestManager_ResumeInterrupted_ReplacesInterruptedBee(t *testing.T) {
 	persisted := persister.leads[leadID]
 	if persisted.Bees[0].ThreadID != resumed.ThreadID || persisted.Bees[0].Interrupted {
 		t.Fatalf("落盘记录应保存续跑后的新 bee：%+v", persisted.Bees[0])
+	}
+}
+
+func TestManager_ResumeInterrupted_ContinuesOriginalSession(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		readOnly     bool
+		summary      string
+		followUpFail bool
+	}{
+		{name: "只读保留会话上下文", readOnly: true, summary: "已有调研结论"},
+		{name: "可写工作副本仍在"},
+		{name: "投递失败回退新会话", readOnly: true, followUpFail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const leadID = "lead-resume-original"
+			const threadID = "bee-original"
+			ctx := context.Background()
+			runner, dir := initTestRepo(t)
+			persister := newFakePersister()
+			now := time.Now()
+			staleStart := now.Add(-10 * time.Hour)
+			worktree := ""
+			if !tc.readOnly {
+				worktree = dir
+			}
+			if err := persister.SaveLead(ctx, LeadRecord{
+				LeadThreadID:     leadID,
+				Enabled:          true,
+				ProjectID:        "proj-1",
+				LeadWorkDir:      dir,
+				NextIndex:        1,
+				RequestStartedAt: staleStart,
+				Bees: []Bee{{
+					ThreadID: threadID, Name: "Aspen", Task: "继续做", Prompt: "原始 brief",
+					Status: StatusRunning, ReadOnly: tc.readOnly, WorktreePath: worktree,
+					ProjectID: "proj-1", TargetWorkDir: dir, BaseCommit: "HEAD",
+					StartedAt: staleStart, LastProgressAt: staleStart, WaitedFor: time.Minute,
+					Reported: true, Summary: tc.summary, ThinkingMinutes: 5, MergeWaitSince: &staleStart,
+				}},
+			}); err != nil {
+				t.Fatalf("保存恢复记录失败：%v", err)
+			}
+			driver := newFakeDriver()
+			driver.onFollowUp = func(id, text string) error {
+				if tc.followUpFail {
+					return errors.New("会话无法续接")
+				}
+				return nil
+			}
+			var reports []string
+			mgr := NewManager(Options{
+				Git: runner, Driver: driver, WorktreeDir: t.TempDir(), Persister: persister,
+				Now: func() time.Time { return now },
+				OnReport: func(id, message string) error {
+					if id != leadID {
+						t.Errorf("汇报主会话错误：%s", id)
+					}
+					reports = append(reports, message)
+					return nil
+				},
+			})
+			if err := mgr.Restore(ctx); err != nil {
+				t.Fatalf("恢复失败：%v", err)
+			}
+			mgr.mu.Lock()
+			mgr.beeProgress[threadID] = progressSnapshot{summary: "旧进度"}
+			mgr.reactivateSeen[threadID] = 1
+			mgr.reactivateProbedAt[threadID] = staleStart
+			mgr.leads[leadID].bees[0].waitTickAt = staleStart
+			mgr.mu.Unlock()
+			mgr.setRetryCount(threadID, 1)
+			mgr.setEmptyNudge(threadID, true)
+
+			n, err := mgr.ResumeInterrupted(ctx, leadID)
+			if err != nil || n != 1 {
+				t.Fatalf("期望续跑 1 条，实际 %d，错误 %v", n, err)
+			}
+			driver.mu.Lock()
+			followUps := append([]fakeFollowUp(nil), driver.followUps...)
+			starts := driver.nextID
+			driver.mu.Unlock()
+			const message = "上一轮因 MCode 重启中断。先判断任务是否已经完成：如果已完成且最终报告已输出，直接再输出一次最终报告，不要重复已做的工作；如果未完成，从中断处继续，并在结束时输出最终报告。"
+			if len(followUps) != 1 || followUps[0].threadID != threadID || followUps[0].text != message {
+				t.Fatalf("应向原会话投递一条续接消息，实际 %+v", followUps)
+			}
+			bee := mgr.State(leadID).Bees[0]
+			if bee.Status != StatusRunning || bee.Interrupted || bee.Reported {
+				t.Fatalf("续跑状态错误：%+v", bee)
+			}
+			if tc.followUpFail {
+				if bee.ThreadID == threadID || starts != 1 {
+					t.Fatalf("投递失败应新建会话，实际线程 %s，启动次数 %d", bee.ThreadID, starts)
+				}
+				return
+			}
+			if bee.ThreadID != threadID || starts != 0 {
+				t.Fatalf("续接应保留原线程且不新建会话，实际线程 %s，启动次数 %d", bee.ThreadID, starts)
+			}
+			if bee.FinishedAt != nil || bee.MergeWaitSince != nil || !bee.LastProgressAt.Equal(now) ||
+				!bee.StartedAt.Equal(now) || bee.WaitedFor != 0 || !bee.waitTickAt.IsZero() || bee.ThinkingMinutes != 0 || bee.Summary != tc.summary {
+				t.Fatalf("未清理中断前的生命周期状态：%+v", bee)
+			}
+			if !mgr.hasContinueNudge(threadID) || mgr.getRetryCount(threadID) != 0 || mgr.hasEmptyNudge(threadID) {
+				t.Fatal("续接应耗掉续接消息机会，重置新会话重试与空汇报催促机会")
+			}
+			mgr.mu.Lock()
+			_, hasProgress := mgr.beeProgress[threadID]
+			_, hasSeen := mgr.reactivateSeen[threadID]
+			_, hasProbe := mgr.reactivateProbedAt[threadID]
+			mgr.mu.Unlock()
+			if hasProgress || hasSeen || hasProbe {
+				t.Fatal("续接应清除旧进度与重新激活探测记录")
+			}
+			persisted := persister.leads[leadID].Bees[0]
+			if persisted.ThreadID != threadID || persisted.Status != StatusRunning || persisted.Interrupted || persisted.Reported {
+				t.Fatalf("落盘记录未保存原会话续跑状态：%+v", persisted)
+			}
+
+			// 长时间停机后仍能正常轮询，完成时继续走落地与汇报流程。
+			driver.setSessionState(threadID, kanban.SessionState{Running: true})
+			mgr.Tick(ctx)
+			if got := mgr.State(leadID).Bees[0].Status; got != StatusRunning || len(reports) != 0 {
+				t.Fatalf("续跑不应立即超时或提前汇报，状态 %s，汇报数 %d", got, len(reports))
+			}
+			driver.setSessionState(threadID, kanban.SessionState{LastAssistantText: "最终报告：任务已经完成"})
+			mgr.Tick(ctx)
+			bee = mgr.State(leadID).Bees[0]
+			if bee.Status != StatusCompleted || !bee.Merged || !bee.Reported || len(reports) != 1 || !strings.Contains(reports[0], "任务已经完成") {
+				t.Fatalf("续跑完成后应正常落地并汇报，bee %+v，汇报 %v", bee, reports)
+			}
+		})
+	}
+}
+
+func TestManager_ContinueInterruptedBee_RechecksStateAfterFollowUp(t *testing.T) {
+	for _, change := range []string{"放弃续跑", "状态变化", "移除条目", "移除主会话"} {
+		t.Run(change, func(t *testing.T) {
+			const leadID = "lead-resume-race"
+			old := Bee{ThreadID: "bee-old", Status: StatusStopped, Interrupted: true, ReadOnly: true, Reported: true}
+			driver := newFakeDriver()
+			mgr := NewManager(Options{Driver: driver})
+			mgr.leads[leadID] = &leadState{leadThreadID: leadID, bees: []Bee{old}}
+			driver.onFollowUp = func(id, text string) error {
+				// 驱动回调可以取管理器锁，证明发送消息时没有持锁。
+				mgr.mu.Lock()
+				defer mgr.mu.Unlock()
+				switch change {
+				case "放弃续跑":
+					mgr.leads[leadID].bees[0].Interrupted = false
+				case "状态变化":
+					mgr.leads[leadID].bees[0].Status = StatusFailed
+				case "移除条目":
+					mgr.leads[leadID].bees = nil
+				case "移除主会话":
+					delete(mgr.leads, leadID)
+				}
+				return nil
+			}
+			if mgr.continueInterruptedBee(context.Background(), leadID, old) {
+				t.Fatal("投递期间条目已改变，不应重新激活")
+			}
+			for _, bee := range mgr.State(leadID).Bees {
+				if bee.Status == StatusRunning || !bee.Reported {
+					t.Fatalf("不应覆盖并发修改后的状态：%+v", bee)
+				}
+			}
+			if mgr.hasContinueNudge(old.ThreadID) {
+				t.Fatal("状态复核失败不应设置续接标记")
+			}
+		})
 	}
 }
 

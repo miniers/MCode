@@ -5449,8 +5449,8 @@ func appendSummary(summary, note string) string {
 	return summary + "；" + note
 }
 
-// ResumeInterrupted 续跑指定主会话下因 MCode 重启被打断的 bee，并把重启前排队、尚未启动的条目
-// 重新排入派发队列；返回成功重新派发或重新入队的条目总数。
+// ResumeInterrupted 续跑指定主会话下因 MCode 重启被打断的 bee：先试原会话，再回退新开会话，
+// 并把重启前排队、尚未启动的条目重新排入派发队列；返回成功续跑或重新入队的条目总数。
 // 没有待续跑条目时返回 0 且不报错；全部续跑失败时返回 0 和合并后的错误。
 func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (int, error) {
 	m.mu.Lock()
@@ -5481,6 +5481,10 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 	var errs []error
 	resumed := 0
 	for _, old := range pending {
+		if m.continueInterruptedBee(ctx, leadThreadID, old) {
+			resumed++
+			continue
+		}
 		newBee, err := m.respawnInterruptedBee(ctx, leadThreadID, old)
 		if err != nil {
 			log.Printf("swarm: 续跑被打断的子代理 %d 失败: %v", old.Index, err)
@@ -5534,7 +5538,72 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 	return resumed, nil
 }
 
-// respawnInterruptedBee 为因 MCode 重启被打断的 bee 重新派发一个子会话。
+// continueInterruptedBee 在原会话中续跑被重启打断的 bee，无法续接时交由调用方新开会话。
+func (m *Manager) continueInterruptedBee(ctx context.Context, leadThreadID string, old Bee) bool {
+	messenger, ok := m.opts.Driver.(kanban.SessionMessenger)
+	if !ok || old.ThreadID == "" {
+		return false
+	}
+	if !old.ReadOnly {
+		if old.WorktreePath == "" {
+			return false
+		}
+		if _, err := os.Stat(old.WorktreePath); err != nil {
+			return false
+		}
+	}
+	if err := messenger.SendFollowUp(ctx, old.ThreadID, "上一轮因 MCode 重启中断。先判断任务是否已经完成：如果已完成且最终报告已输出，直接再输出一次最终报告，不要重复已做的工作；如果未完成，从中断处继续，并在结束时输出最终报告。"); err != nil {
+		log.Printf("swarm: 续接被打断的子代理 %s 失败: %v", old.ThreadID, err)
+		return false
+	}
+
+	m.mu.Lock()
+	var bee *Bee
+	if lead := m.leads[leadThreadID]; lead != nil {
+		for i := range lead.bees {
+			if lead.bees[i].ThreadID == old.ThreadID {
+				bee = &lead.bees[i]
+				break
+			}
+		}
+	}
+	// 投递期间可能已放弃续跑或改变状态，不能用旧快照重新激活。
+	if bee == nil || !bee.Interrupted || bee.Status != StatusStopped {
+		m.mu.Unlock()
+		return false
+	}
+	bee.Status = StatusRunning
+	bee.Interrupted = false
+	bee.Reported = false
+	bee.Delivered = false
+	bee.FinishedAt = nil
+	bee.LastProgressAt = m.now()
+	// 停机时间与上一轮等待不能占用续跑的运行预算。
+	bee.StartedAt = bee.LastProgressAt
+	bee.WaitedFor = 0
+	bee.waitTickAt = time.Time{}
+	bee.ThinkingMinutes = 0
+	bee.MergeWaitSince = nil
+	const prefix = "MCode 重启，子代理已中断"
+	if bee.Summary == prefix {
+		bee.Summary = ""
+	} else {
+		bee.Summary = strings.TrimPrefix(bee.Summary, prefix+"；")
+	}
+	delete(m.reactivateSeen, old.ThreadID)
+	delete(m.reactivateProbedAt, old.ThreadID)
+	m.mu.Unlock()
+
+	m.setContinueNudge(old.ThreadID, true)
+	m.setRetryCount(old.ThreadID, 0)
+	m.setEmptyNudge(old.ThreadID, false)
+	m.mu.Lock()
+	delete(m.beeProgress, old.ThreadID)
+	m.mu.Unlock()
+	return true
+}
+
+// respawnInterruptedBee 在原会话无法续接时，为因 MCode 重启被打断的 bee 新开子会话。
 // 这里的做法刻意与 checkReports 里「失败重试」那段（构造 BeeSpec、recordPartialWork、
 // 复用半成品 worktree、startSingleBee、替换 lead.bees 中对应条目）保持一致；
 // 改动其中一处时必须同步另一处，否则两条重派路径会越走越远。

@@ -90,7 +90,7 @@ func renderSwarmInterruptedBanner(c *ui.Context, s *chatState, leadThreadID stri
 				TextColor(ThemePrimaryText(c)).
 				MaxLines(2)
 			ui.Row(c.Key(key + "-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				renderApprovalButton(c, key+"-resume", "继续运行", "重新派发这些子代理，接着把中断的任务做完", true, busy, func() {
+				renderApprovalButton(c, key+"-resume", "继续运行", "让这些子代理接着把中断的任务做完", true, busy, func() {
 					resumeInterruptedSwarm(s, leadID)
 				})
 				renderApprovalButton(c, key+"-dismiss", "放弃", "放弃后这些任务不会再自动续跑", false, busy, func() {
