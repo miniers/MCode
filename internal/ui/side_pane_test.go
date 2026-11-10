@@ -154,7 +154,7 @@ func sidePaneByID(id string) *sidePane {
 	return nil
 }
 
-// 宽度偏好往返：写盘时带上 side_pane_widths，读回后首次创建面板状态即生效。
+// 宽度偏好往返：按会话写进 inspector_sessions，旧 side_pane_widths 只读不写。
 func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
@@ -164,24 +164,26 @@ func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	defer s.close()
 	WithUIStatePersistence()(s)
+	s.mu.Lock()
+	s.selectedThreadID = "t1"
+	s.mu.Unlock()
 
-	inspectorSession(s).Width = 620
-
-	persistUIState(s)
+	pref := inspectorSession(s)
+	s.mu.Lock()
+	pref.Width = 620
+	s.mu.Unlock()
+	inspectorRemember(s)
 	waitUIStateWrites()
 
 	file, ok := loadUIStateFile()
 	if !ok {
 		t.Fatal("ui-state.json 应已写入")
 	}
-	if got := file.SidePaneWidths[sidePaneFileID]; got != 620 {
-		t.Fatalf("side_pane_widths.file = %v, want 620", got)
+	if got := file.InspectorSessions["t1"].Width; got != 620 {
+		t.Fatalf("inspector_sessions.t1.width = %v, want 620", got)
 	}
-	if got := file.SidePaneWidths[sidePanePreviewID]; got != 620 {
-		t.Fatalf("side_pane_widths.preview = %v, want 620", got)
-	}
-	if got := file.SidePaneWidths[sidePaneDiffID]; got != 620 {
-		t.Fatalf("共享宽度未同步到旧键: %v", got)
+	if len(file.SidePaneWidths) != 0 {
+		t.Fatalf("旧键 side_pane_widths 不应被写入: %v", file.SidePaneWidths)
 	}
 
 	// JSON 往返：字段名固定为 side_pane_widths。
@@ -201,6 +203,9 @@ func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
 	restored := loadUIState()
 	other := newChatState(NewFakeClient())
 	defer other.close()
+	other.mu.Lock()
+	other.selectedThreadID = "t1"
+	other.mu.Unlock()
 	applyUIState(other, restored)
 	if width := inspectorSession(other).Width; width != 620 {
 		t.Fatalf("恢复后的共享宽度应为 620, got %v", width)
@@ -600,7 +605,7 @@ func TestSidePaneSplit_DragPersistsWidth(t *testing.T) {
 	if !ok {
 		t.Fatal("ui-state.json 应已写入")
 	}
-	if got := file.SidePaneWidths[sidePaneFileID]; got != start+40 {
+	if got := file.InspectorSessions[s.selectedThreadID].Width; got != start+40 {
 		t.Fatalf("落盘的面板宽度 = %v, want %v", got, start+40)
 	}
 }

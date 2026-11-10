@@ -39,6 +39,8 @@ func TestFileManagerSearchMigrationCurrentThreadAndClear(t *testing.T) {
 	st := getFileManagerState(s)
 	fileManagerMu.Lock()
 	st.threadID = "current"
+	// 标记为已加载，避免首帧重新拉取目录覆盖夹具。
+	st.gen = 1
 	st.showList = true
 	st.entries = []FileEntry{{Name: "old.txt", Path: "old.txt"}}
 	fileManagerMu.Unlock()
