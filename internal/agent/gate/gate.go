@@ -294,16 +294,49 @@ func OnlyReads(command string) bool {
 	}
 	pieces = append(pieces, text[start:])
 	safe := " ls cat head tail wc grep rg find tree du stat file pwd echo which sort diff cd whoami id uname printenv nl cut tr basename dirname realpath readlink md5 md5sum shasum sha1sum sha256sum od hexdump strings df uptime sw_vers ps jq true false "
-	git := " status log diff show blame branch ls-files "
+	git := " status log diff show blame branch ls-files describe rev-parse rev-list shortlog cat-file ls-tree ls-remote show-ref name-rev merge-base for-each-ref count-objects grep whatchanged tag remote config reflog "
 	branch := " -a -r -v -vv --list --all --remotes --show-current --verbose --contains --merged --no-merged "
 	find := " -delete -exec -execdir -ok -okdir -fprint -fprint0 -fprintf -fls "
 	for _, piece := range pieces {
-		t := strings.Fields(piece)
+		var t []string
+		var word strings.Builder
+		var q byte
+		started := false
+		for i := 0; i < len(piece); i++ {
+			c := piece[i]
+			if c == '\\' && q == '"' && i+1 < len(piece) {
+				i++
+				word.WriteByte(piece[i])
+				started = true
+				continue
+			}
+			if c == '\'' || c == '"' {
+				if q == 0 {
+					q = c
+					started = true
+					continue
+				}
+				if q == c {
+					q = 0
+					continue
+				}
+			}
+			if q == 0 && (c == ' ' || c == '\t') {
+				if started {
+					t = append(t, word.String())
+					word.Reset()
+					started = false
+				}
+				continue
+			}
+			word.WriteByte(c)
+			started = true
+		}
+		if started {
+			t = append(t, word.String())
+		}
 		if len(t) == 0 {
 			continue
-		}
-		for i := range t {
-			t[i] = strings.ReplaceAll(strings.ReplaceAll(t[i], "'", ""), `"`, "")
 		}
 		p := t[0]
 		if strings.HasPrefix(p, "/") {
@@ -313,6 +346,11 @@ func OnlyReads(command string) bool {
 			p = filepath.Base(p)
 		}
 		switch p {
+		case "curl":
+			if !curlReads(t[1:]) {
+				return false
+			}
+			continue
 		case "hostname":
 			if len(t) != 1 {
 				return false
@@ -380,30 +418,41 @@ func OnlyReads(command string) bool {
 			}
 			continue
 		}
-		// git 只允许只读子命令和安全的 branch 参数。
+		// git 只允许只读子命令和安全的参数。
 		if p == "git" {
-			if len(t) < 2 {
-				return false
-			}
-			sub := t[1]
-			if sub == "worktree" {
-				if len(t) < 3 || t[2] != "list" {
+			i := 1
+			for i < len(t) && t[i] == "-C" {
+				if i+1 >= len(t) || t[i+1] == "" || gitArgDenied(t[i+1]) || t[i+1] == "--ext-diff" {
 					return false
 				}
-				for _, a := range t[3:] {
-					if gitArgDenied(a) {
-						return false
-					}
+				i += 2
+			}
+			if i >= len(t) {
+				return false
+			}
+			sub := t[i]
+			args := t[i+1:]
+			for _, a := range args {
+				if a == "--ext-diff" || gitArgDenied(a) {
+					return false
+				}
+			}
+			if sub == "worktree" {
+				if len(args) < 1 || args[0] != "list" {
+					return false
 				}
 				continue
 			}
 			if !strings.Contains(git, " "+sub+" ") {
 				return false
 			}
-			for _, a := range t[2:] {
-				if a == "--ext-diff" || gitArgDenied(a) || sub == "branch" && !strings.Contains(branch, " "+a+" ") {
+			for _, a := range args {
+				if sub == "branch" && !strings.Contains(branch, " "+a+" ") {
 					return false
 				}
+			}
+			if !gitReadArgs(sub, args) {
+				return false
 			}
 			continue
 		}
@@ -428,6 +477,128 @@ func gitArgDenied(arg string) bool {
 		}
 	}
 	return strings.HasPrefix(arg, "-c") && len(arg) > 2
+}
+
+func gitReadArgs(sub string, args []string) bool {
+	switch sub {
+	case "remote":
+		return len(args) == 0 || len(args) == 1 && (args[0] == "-v" || args[0] == "--verbose") || len(args) == 2 && (args[0] == "get-url" || args[0] == "show") && !strings.HasPrefix(args[1], "-")
+	case "reflog":
+		return len(args) == 0 || args[0] == "show"
+	case "config":
+		read := false
+		for _, a := range args {
+			switch a {
+			case "--get", "--get-all", "--get-regexp", "-l", "--list":
+				read = true
+			case "--global", "--local", "--system", "--worktree", "--includes", "--no-includes", "--null", "-z", "--show-origin", "--show-scope":
+			default:
+				if strings.HasPrefix(a, "-") {
+					return false
+				}
+			}
+		}
+		return read
+	case "tag":
+		list, positional := false, false
+		for i := 0; i < len(args); i++ {
+			a := args[i]
+			switch {
+			case a == "-l" || a == "--list":
+				list = true
+			case a == "-n":
+			case strings.HasPrefix(a, "-n") && len(a) > 2 && strings.Trim(a[2:], "0123456789") == "":
+			case strings.HasPrefix(a, "--sort="):
+			case strings.HasPrefix(a, "--contains=") || strings.HasPrefix(a, "--points-at=") || strings.HasPrefix(a, "--merged=") || strings.HasPrefix(a, "--no-merged="):
+				list = true
+			case a == "--sort" || a == "--points-at":
+				if a == "--points-at" {
+					list = true
+				}
+				i++
+				if i >= len(args) || strings.HasPrefix(args[i], "-") {
+					return false
+				}
+			case a == "--contains" || a == "--merged" || a == "--no-merged":
+				list = true
+			case strings.HasPrefix(a, "-"):
+				return false
+			default:
+				positional = true
+			}
+		}
+		return !positional || list
+	}
+	return true
+}
+
+func curlReads(args []string) bool {
+	url := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "http://") || strings.HasPrefix(a, "https://") {
+			url = true
+			continue
+		}
+		if strings.HasPrefix(a, "--") {
+			name, value, hasValue := strings.Cut(a, "=")
+			switch name {
+			case "--silent", "--show-error", "--location", "--fail", "--head", "--include", "--verbose", "--compressed", "--insecure", "--globoff":
+				if hasValue {
+					return false
+				}
+				continue
+			case "--max-time", "--connect-timeout", "--header", "--user-agent", "--referer", "--range", "--retry", "--retry-delay", "--write-out", "--request":
+			default:
+				return false
+			}
+			if !hasValue {
+				i++
+				if i >= len(args) {
+					return false
+				}
+				value = args[i]
+			}
+			if !curlValueAllowed(name, value) {
+				return false
+			}
+			continue
+		}
+		if len(a) < 2 || a[0] != '-' {
+			return false
+		}
+		for j := 1; j < len(a); j++ {
+			if strings.ContainsRune("sSLfIivkg", rune(a[j])) {
+				continue
+			}
+			if !strings.ContainsRune("mHAerwX", rune(a[j])) {
+				return false
+			}
+			name, value := "-"+string(a[j]), a[j+1:]
+			if value == "" {
+				i++
+				if i >= len(args) {
+					return false
+				}
+				value = args[i]
+			}
+			if !curlValueAllowed(name, value) {
+				return false
+			}
+			break
+		}
+	}
+	return url
+}
+
+func curlValueAllowed(name, value string) bool {
+	if value == "" {
+		return false
+	}
+	if name == "-X" || name == "--request" {
+		return value == "GET" || value == "HEAD"
+	}
+	return name != "-w" && name != "--write-out" || !strings.HasPrefix(value, "@") && !strings.Contains(value, "%output{")
 }
 
 // absolute 对应 TS 的 path.resolve。

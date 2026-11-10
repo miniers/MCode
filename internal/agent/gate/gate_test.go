@@ -224,9 +224,30 @@ func TestOnlyReads(t *testing.T) {
 		{"ls", true}, {"git status", true}, {"cat a", true}, {"ls > out", false}, {"cat a | tee b", false}, {"rm a", false}, {"git push", false},
 		{"uniq a b", false}, {"sort --compress-program=sh x", false}, {"sort --compress-program sh x", false}, {"sort -T /tmp x", false}, {"sort -nT /tmp x", false}, {"sort --temporary-directory=/tmp x", false}, {"sort file", true}, {"grep x file", true},
 		{"find . -delete", false}, {"find . -exec rm {} \\;", false}, {"rg --pre=sh x", false}, {"sort -o out in", false}, {"tree -o out.txt .", false}, {"tree --output=out.txt .", false}, {"tree -L 2 .", true}, {"git branch -D x", false}, {"git diff --output=out", false}, {"git worktree list", true}, {"git branch --list", true}, {"echo 'a; b'", true}, {"echo x 2>/dev/null", true}, {"cat a 2>&1 | head", true}, {"echo $(rm a)", false}, {"echo x & rm a", false},
+		{"curl -sL -m 30 https://raw.githubusercontent.com/x/y/main/a.java | nl -ba", true},
+		{"git describe --tags 2>/dev/null; git tag | tail -20", true},
+		{"git -C /tmp/x log --oneline -3", true}, {"git -C /tmp -C x status", true}, {"git -C", false},
+		{"git rev-parse HEAD", true}, {"git tag -l 'v1*'", true}, {"git tag --sort=-creatordate | head", true},
+		{"git tag --contains HEAD", true}, {"git tag --points-at HEAD", true}, {"git tag -n10", true},
+		{"git remote -v", true}, {"git remote get-url origin", true}, {"git remote show origin", true},
+		{"git config --get remote.origin.url", true}, {"git reflog", true}, {"git reflog show HEAD", true},
+		{"curl -fsSL https://example.com/a", true}, {"curl -s -m 30 -H 'Accept: application/json' https://api.github.com/repos/a/b", true}, {"curl -I https://example.com", true},
+		{"curl -sLm30 --request=GET https://x", true}, {"curl --max-time 30 --write-out '%{http_code}' https://x", true},
+		{"git tag v1", false}, {"git tag -d v1", false}, {"git tag -ld v1", false}, {"git tag --list -f v1", false},
+		{"git remote add o url", false}, {"git config user.name x", false}, {"git config --unset a.b", false}, {"git config --get --add a.b x", false},
+		{"git reflog expire --all", false}, {"git -c core.pager=x log", false}, {"git -C /tmp log --ext-diff", false},
+		{"curl -o out https://x", false}, {"curl -sLo out https://x", false}, {"curl -O https://x/a", false}, {"curl -d a=b https://x", false},
+		{"curl -X POST https://x", false}, {"curl -T f https://x", false}, {"curl -K cfg", false}, {"curl file:///etc/passwd", false}, {"curl https://x > out", false},
+		{"curl -w @file https://x", false}, {"curl --write-out=%output{out} https://x", false}, {"curl --request=POST https://x", false}, {"curl -m", false},
+		{"git tag --contains HEAD -d v1", false}, {"git config --list --edit", false}, {"git reflog delete HEAD@{0}", false},
 	} {
 		if got := OnlyReads(tc.command); got != tc.want {
 			t.Errorf("%q 得到 %v，期望 %v", tc.command, got, tc.want)
+		}
+	}
+	for _, sub := range strings.Fields("describe rev-parse rev-list shortlog cat-file ls-tree ls-remote show-ref name-rev merge-base for-each-ref count-objects grep whatchanged") {
+		if !OnlyReads("git "+sub) || OnlyReads("git "+sub+" --ext-diff") || OnlyReads("git "+sub+" --output=x") {
+			t.Errorf("git %s 参数检查失败", sub)
 		}
 	}
 }
