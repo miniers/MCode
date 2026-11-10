@@ -453,9 +453,6 @@ func TestLoadMigratesV7ToV8RoundTrip(t *testing.T) {
 	if !cfg.Session.QueueWhileRunning || !cfg.Session.InsertIntoRunningTurn || !cfg.Session.AutoContinueAfterLimit {
 		t.Fatalf("session 布尔字段迁移失败: %+v", cfg.Session)
 	}
-	if cfg.Session.ThreadFinishAction != FinishActionArchive {
-		t.Fatalf("session.thread_finish_action = %q", cfg.Session.ThreadFinishAction)
-	}
 	if !cfg.Notifications.NotifyWhenFinished || !cfg.Notifications.NotifyWhenForeground || !cfg.Notifications.PlayFinishSound {
 		t.Fatalf("notifications 迁移失败: %+v", cfg.Notifications)
 	}

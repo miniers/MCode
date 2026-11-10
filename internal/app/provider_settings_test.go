@@ -222,9 +222,6 @@ func TestProviderSettings_ListOrderAndDefaults(t *testing.T) {
 	if byID["deepseek"].HasAPIKey || byID["droid"].HasAPIKey {
 		t.Errorf("未保存 Key 时 HasAPIKey 应为 false")
 	}
-	if !byID["copilot"].UpdateMonitor || !byID["droid"].UpdateMonitor {
-		t.Errorf("UpdateMonitor 默认应为开启")
-	}
 }
 
 // pi 的两个专有设置（长缓存、视觉模型）能在设置页视图与配置文件之间双向映射，
@@ -298,17 +295,16 @@ func TestSaveProviderSetting_WritesConfigAndSecrets(t *testing.T) {
 	client, dataDir, secrets := newProviderSettingsClient(t)
 	ctx := context.Background()
 
-	// 1. CLI Provider：启用 + 自定义 Bin + 关闭更新监控。
+	// 1. CLI Provider：启用 + 自定义 Bin。
 	saved, err := client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{
-		ID:            "copilot",
-		Enabled:       true,
-		Bin:           "/opt/copilot",
-		UpdateMonitor: false,
+		ID:      "copilot",
+		Enabled: true,
+		Bin:     "/opt/copilot",
 	}, "")
 	if err != nil {
 		t.Fatalf("SaveProviderSetting(copilot) failed: %v", err)
 	}
-	if !saved.Enabled || saved.Bin != "/opt/copilot" || saved.UpdateMonitor {
+	if !saved.Enabled || saved.Bin != "/opt/copilot" {
 		t.Fatalf("保存后的 copilot 设置不匹配: %+v", saved)
 	}
 
@@ -377,10 +373,9 @@ func TestSaveProviderSetting_WritesConfigAndSecrets(t *testing.T) {
 
 	// 4. droid：认证方式写入 ACP 配置，Key 写入 droid.apiKey 账号。
 	saved, err = client.SaveProviderSetting(ctx, mcodeui.ProviderSetting{
-		ID:            "droid",
-		Enabled:       true,
-		Auth:          "apiKey",
-		UpdateMonitor: true,
+		ID:      "droid",
+		Enabled: true,
+		Auth:    "apiKey",
 	}, "factory-key")
 	if err != nil {
 		t.Fatalf("SaveProviderSetting(droid) failed: %v", err)

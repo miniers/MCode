@@ -48,6 +48,24 @@ func TestLoadNotExist(t *testing.T) {
 }
 
 // 2. JSON 中缺失的字段保留默认值。
+func TestLoadIgnoresRemovedSessionAndProviderSettings(t *testing.T) {
+	dir := t.TempDir()
+	legacy := []byte(`{
+		"session": {"thread_finish_action": "archive", "queue_while_running": false},
+		"providers": {"copilot": {"updateMonitor": false, "enabled": true}}
+	}`)
+	if err := os.WriteFile(ConfigPath(dir), legacy, 0o600); err != nil {
+		t.Fatalf("写入旧配置失败: %v", err)
+	}
+	cfg, warnings, err := LoadWithWarnings(dir)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("加载旧配置失败: 警告 %v，错误 %v", warnings, err)
+	}
+	if cfg.Session.QueueWhileRunning || !cfg.Providers.Copilot.Enabled {
+		t.Fatalf("保留的设置未正常加载: session=%+v copilot=%+v", cfg.Session, cfg.Providers.Copilot)
+	}
+}
+
 func TestLoadMissingFieldsKeepDefaults(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := ConfigPath(dir)
@@ -786,9 +804,6 @@ func TestMigrateV1ToV4FullChain(t *testing.T) {
 	if loaded.Session.ConciseReplies() {
 		t.Errorf("旧 general.anti_slop_enabled=false 未迁移到 concise_replies_enabled: %+v", loaded.Session.ConciseRepliesEnabled)
 	}
-	if loaded.Session.ThreadFinishAction != FinishActionDormant {
-		t.Errorf("thread_finish_action 未迁移为 %q，got %q", FinishActionDormant, loaded.Session.ThreadFinishAction)
-	}
 	if got := loaded.Shortcuts.ShortcutOverrides["dormant-thread"]; got != "Shift+CmdOrCtrl+S" {
 		t.Errorf("快捷键 id settle-thread 未迁移为 dormant-thread，ShortcutOverrides = %+v", loaded.Shortcuts.ShortcutOverrides)
 	}
@@ -843,8 +858,8 @@ func TestMigrateV3ToV4RenamesKeysAndValues(t *testing.T) {
 		}
 	}
 
-	if got := general["thread_finish_action"]; got != FinishActionDormant {
-		t.Errorf("thread_finish_action 应为 %q，得 %v", FinishActionDormant, got)
+	if got := general["thread_finish_action"]; got != "dormant" {
+		t.Errorf("thread_finish_action 应为 %q，得 %v", "dormant", got)
 	}
 
 	overrides, ok := general["shortcut_overrides"].(map[string]any)
@@ -889,7 +904,7 @@ func TestMigrateV3ToV4KeepsNewKeys(t *testing.T) {
 	if _, exists := general["settle_sound"]; exists {
 		t.Errorf("旧键 settle_sound 未删除")
 	}
-	if got := general["thread_finish_action"]; got != FinishActionArchive {
+	if got := general["thread_finish_action"]; got != "archive" {
 		t.Errorf("archive 不应被改写，得 %v", got)
 	}
 }
@@ -1733,9 +1748,6 @@ func TestLoadOldConfigWithoutNewSectionsGetsDefaults(t *testing.T) {
 	}
 
 	// General 追加字段
-	if cfg.Session.ThreadFinishAction != FinishActionDormant {
-		t.Errorf("expected General.ThreadFinishAction %q, got %q", FinishActionDormant, cfg.Session.ThreadFinishAction)
-	}
 	if cfg.Notifications.NotifyWhenForeground {
 		t.Errorf("expected General.NotifyWhenForeground false, got true")
 	}
@@ -1802,7 +1814,6 @@ func TestNormalizeClampsOutOfRangeValues(t *testing.T) {
 	cfg.Workbench.BrowserQuickPorts = "   "
 	cfg.Appearance.CodeFontSize = 50
 	cfg.Appearance.ConversationDensity = "ultra_dense"
-	cfg.Session.ThreadFinishAction = "destroy"
 	cfg.Startup.QuitAction = "terminate"
 	cfg.SourceControl.DefaultWorkspaceMode = "custom_vcs"
 
@@ -1834,9 +1845,6 @@ func TestNormalizeClampsOutOfRangeValues(t *testing.T) {
 	}
 	if norm.Appearance.ConversationDensity != DensityComfortable {
 		t.Errorf("expected Appearance.ConversationDensity fallback to %q, got %q", DensityComfortable, norm.Appearance.ConversationDensity)
-	}
-	if norm.Session.ThreadFinishAction != FinishActionDormant {
-		t.Errorf("expected General.ThreadFinishAction fallback to %q, got %q", FinishActionDormant, norm.Session.ThreadFinishAction)
 	}
 	if norm.Startup.QuitAction != QuitActionQuit {
 		t.Errorf("expected General.QuitAction fallback to %q, got %q", QuitActionQuit, norm.Startup.QuitAction)

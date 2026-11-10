@@ -88,7 +88,7 @@ const providerRowsLoadTimeout = 15 * time.Second
 const providerStatusCacheFileName = "provider-status-cache.json"
 
 // providerStatusCacheVersion 是缓存文件的结构版本；读到其他版本时视为没有缓存。
-const providerStatusCacheVersion = 1
+const providerStatusCacheVersion = 2
 
 // providerStatusCache 是模型供应商页最近一次成功加载的结果快照：页面打开时先同步读它立即渲染，
 // 再在后台刷新并在完成后写回。嵌套结构复用 UI 侧的类型，字段名即 Go 字段名。
@@ -775,16 +775,15 @@ type providerRowStatus struct {
 
 // providerStatusInput 是 providerStatusSummary 的入参快照，避免纯函数直接读 SettingsState。
 type providerStatusInput struct {
-	Kind             providerKind
-	Loading          bool // 尚无任何结果（首次加载中）
-	Available        bool
-	AvailableKnown   bool // 已拿到可执行文件探测结果；未知时不判「未安装」
-	Version          ProviderVersionInfo
-	UpdateMonitoring bool // 仅对配置了更新监控的 CLI 生效；默认 true
-	AccountCount     int
-	LocalLogin       bool // 登录型 Provider 在本机已有系统凭证
-	HasAPIKey        bool
-	LoginState       string // CLI 型 Provider 的登录态，取值见 ProviderLoginState*
+	Kind           providerKind
+	Loading        bool // 尚无任何结果（首次加载中）
+	Available      bool
+	AvailableKnown bool // 已拿到可执行文件探测结果；未知时不判「未安装」
+	Version        ProviderVersionInfo
+	AccountCount   int
+	LocalLogin     bool // 登录型 Provider 在本机已有系统凭证
+	HasAPIKey      bool
+	LoginState     string // CLI 型 Provider 的登录态，取值见 ProviderLoginState*
 }
 
 // providerStatusSummary 统一推导 Provider 行状态，供 CLI 行与 API Key 行共用同一套展示。
@@ -819,17 +818,6 @@ func providerStatusSummary(in providerStatusInput) providerRowStatus {
 	// claude 已安装但本机未登录时用不了：摘要追加「未登录（请在终端运行 claude /login）」，
 	// 并按其他 Provider 行的未就绪样式（警告色）渲染。
 	loggedOut := strings.TrimSpace(in.LoginState) == ProviderLoginStateLoggedOut
-	if !in.UpdateMonitoring {
-		// 关闭更新监控只跳过远程 latest 版本，本地已安装的版本照常展示。
-		if !isInstalled {
-			return providerRowStatus{Summary: "未安装", NextStep: "点击安装"}
-		}
-		summary := "已安装"
-		if installed != "" {
-			summary += " · v" + installed
-		}
-		return providerRowStatus{Ready: !loggedOut, Summary: summary + loginSuffix}
-	}
 	if !isInstalled {
 		return providerRowStatus{Summary: "未安装", NextStep: "点击安装"}
 	}
@@ -868,9 +856,8 @@ func providerStatusFor(st *SettingsState, id string) providerRowStatus {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	in := providerStatusInput{
-		Kind:             providerKindCLI,
-		Loading:          st.providerRows.loading && !st.providerRows.loaded,
-		UpdateMonitoring: true,
+		Kind:    providerKindCLI,
+		Loading: st.providerRows.loading && !st.providerRows.loaded,
 	}
 	if id == "agy" {
 		in.Kind = providerKindLogin
@@ -899,9 +886,6 @@ func providerStatusFor(st *SettingsState, id string) providerRowStatus {
 	}
 	if st.providerRows.login != nil {
 		in.LoginState = st.providerRows.login[id]
-	}
-	if s, ok := st.providerRows.settings[id]; ok {
-		in.UpdateMonitoring = s.UpdateMonitor
 	}
 	return providerStatusSummary(in)
 }
@@ -1395,21 +1379,6 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 							TextColor(ThemeAccent(c))
 					})
 				})
-		})
-
-		renderSettingsDivider(c, "div-provider-monitor-"+id)
-
-		// (c) 监控更新开关
-		renderSettingsTreeSetting(c, st, setting{
-			ID:      "row-provider-update-monitor",
-			Title:   "监控更新",
-			Enabled: func(*SettingsState) bool { return !locked },
-			Control: toggleFunc(
-				func(*SettingsState) (bool, bool) { return provSetting.UpdateMonitor, saving },
-				func(_ *SettingsState, on bool) {
-					saveProviderRowSetting(st, id, func(s *ProviderSetting) { s.UpdateMonitor = on })
-				},
-			),
 		})
 
 		// (c1) 仅 pi：长缓存开关与视觉模型输入框，保存后走同一个 SaveProviderSetting 流程

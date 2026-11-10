@@ -78,7 +78,7 @@ func TestSettingsConversation_AutoDormantPreservesUnknownValue(t *testing.T) {
 }
 
 // TestSettingsPageConversation_Tree 验证「会话」页已经走声明式页面树：
-// 五节标题都在、高级区两行直接可见、页面没有折叠入口、旧说明句已删、切换开关写回配置。
+// 各节标题都在、高级区两行直接可见、页面没有折叠入口、旧说明句已删、切换开关写回配置。
 func TestSettingsPageConversation_Tree(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, newChatState(NewFakeClient()))
@@ -89,13 +89,13 @@ func TestSettingsPageConversation_Tree(t *testing.T) {
 		texts[text] = true
 	}
 	for _, want := range []string{
-		"回复与思考", "消息与排队", "完成与提醒", "保留与归档",
+		"回复与思考", "消息与排队", "保留与归档",
 		"显示思考过程", "自动折叠思考过程", "简洁 AI 回复",
 		"运行中排队消息", "新消息插入当前回合", "发送消息快捷键", "附件数量上限", "发送后置顶消息", "用尽限额后自动继续",
-		"会话完成动作", "删除会话前确认", "快捷回复", "已归档会话", "无消息多少天后自动休眠",
+		"删除会话前确认", "快捷回复", "已归档会话", "无消息多少天后自动休眠",
 		"高级", "恢复旧会话前询问压缩", "压缩 30 天前的子代理消息",
-		// 多选项改成带标签的分段：两个快捷键与两种完成动作都直接显示。
-		"Enter", "Shift+Enter", "休眠", "归档",
+		// 两个发送快捷键直接显示。
+		"Enter", "Shift+Enter",
 	} {
 		if !texts[want] {
 			t.Fatalf("会话页缺少 %q: %v", want, tt.Texts())

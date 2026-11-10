@@ -11,7 +11,6 @@ import (
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
-	"mcode/internal/store"
 )
 
 // boolPtr 是测试辅助函数。
@@ -287,112 +286,6 @@ func TestSessionSettings_AutoContinueAndCancel(t *testing.T) {
 
 	if waitActiveAfterCancel {
 		t.Errorf("expected autoContinueWait to be cancelled")
-	}
-}
-
-// TestSessionSettings_FinishThreadBranches 测试 FinishThread 按设置在 dormant 与 archive 之间正确分支。
-func TestSessionSettings_FinishThreadBranches(t *testing.T) {
-	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
-	defer hub.Close()
-
-	backend := NewMemoryBackend(hub)
-	defer backend.Close()
-
-	ctx := context.Background()
-
-	// 1. 设置为 dormant：普通会话在 dormant 与 reopen 间切换
-	backend.SetGeneralSettingsFunc(func() config.Config {
-		return config.Config{Session: config.SessionConfig{
-			ThreadFinishAction: "dormant",
-		}}
-	})
-
-	thID1 := "thread-finish-settle"
-	backend.AddThread(wire.ThreadSummary{
-		ID:        thID1,
-		Title:     "Settle Test",
-		Provider:  "memory",
-		IsDormant: false,
-	}, nil)
-
-	// 初次调用：未休眠 -> 休眠
-	if err := backend.FinishThread(ctx, thID1); err != nil {
-		t.Fatalf("FinishThread dormant failed: %v", err)
-	}
-	th, _ := backend.GetThread(ctx, thID1)
-	if !th.IsDormant {
-		t.Errorf("expected thread to be dormant")
-	}
-	if th.IsArchived {
-		t.Errorf("expected thread NOT to be archived")
-	}
-
-	// 二次调用：已休眠 -> reopen (IsDormant = false)
-	if err := backend.FinishThread(ctx, thID1); err != nil {
-		t.Fatalf("FinishThread reopen failed: %v", err)
-	}
-	th, _ = backend.GetThread(ctx, thID1)
-	if th.IsDormant {
-		t.Errorf("expected thread to be reopened (IsDormant=false)")
-	}
-
-	// 2. 设置为 archive：直接归档
-	backend.SetGeneralSettingsFunc(func() config.Config {
-		return config.Config{Session: config.SessionConfig{
-			ThreadFinishAction: "archive",
-		}}
-	})
-
-	thID2 := "thread-finish-archive"
-	backend.AddThread(wire.ThreadSummary{
-		ID:         thID2,
-		Title:      "Archive Test",
-		Provider:   "memory",
-		IsArchived: false,
-	}, nil)
-
-	if err := backend.FinishThread(ctx, thID2); err != nil {
-		t.Fatalf("FinishThread archive failed: %v", err)
-	}
-	th, _ = backend.GetThread(ctx, thID2)
-	if !th.IsArchived {
-		t.Errorf("expected thread to be archived")
-	}
-
-	// 3. 辅助会话判断：根据 IsHelper 或 ParentThreadID 判断
-	thID3 := "thread-finish-helper"
-	s3 := wire.ThreadSummary{
-		ID:         thID3,
-		Title:      "Helper Test",
-		Provider:   "memory",
-		IsArchived: false,
-	}
-	backend.AddThread(s3, nil)
-
-	if isHelperThread(s3) {
-		t.Errorf("expected isHelperThread to return false for normal thread")
-	}
-
-	parentID := "thread-parent"
-	helperByFlag := wire.ThreadSummary{
-		ID:       "helper-flag",
-		IsHelper: true,
-	}
-	if !isHelperThread(helperByFlag) {
-		t.Errorf("expected isHelperThread to return true when IsHelper is true")
-	}
-
-	helperByParent := wire.ThreadSummary{
-		ID:             "helper-parent",
-		ParentThreadID: &parentID,
-	}
-	if !isHelperThread(helperByParent) {
-		t.Errorf("expected isHelperThread to return true when ParentThreadID is set")
-	}
-
-	// 4. 不存在的会话返回 store.ErrNotFound
-	if err := backend.FinishThread(ctx, "non-existent-thread"); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("expected store.ErrNotFound for non-existent thread, got: %v", err)
 	}
 }
 

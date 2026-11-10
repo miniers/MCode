@@ -353,41 +353,35 @@ func TestProviders_ProviderStatusSummary(t *testing.T) {
 	}{
 		{
 			name:    "CLI 已安装",
-			in:      providerStatusInput{Kind: providerKindCLI, Available: true, Version: ProviderVersionInfo{Installed: "1.2.0"}, UpdateMonitoring: true},
+			in:      providerStatusInput{Kind: providerKindCLI, Available: true, Version: ProviderVersionInfo{Installed: "1.2.0"}},
 			ready:   true,
 			summary: "已安装 · v1.2.0",
 		},
 		{
 			name:    "CLI 只解析到路径",
-			in:      providerStatusInput{Kind: providerKindCLI, Version: ProviderVersionInfo{ExecutablePath: "/opt/homebrew/bin/pi"}, UpdateMonitoring: true},
+			in:      providerStatusInput{Kind: providerKindCLI, Version: ProviderVersionInfo{ExecutablePath: "/opt/homebrew/bin/pi"}},
 			ready:   true,
 			summary: "已安装",
 		},
 		{
 			name:     "CLI 未安装",
-			in:       providerStatusInput{Kind: providerKindCLI, UpdateMonitoring: true},
+			in:       providerStatusInput{Kind: providerKindCLI},
 			summary:  "未安装",
 			nextStep: "点击安装",
 		},
 		{
 			name: "CLI 有更新",
-			in: providerStatusInput{Kind: providerKindCLI, Available: true, UpdateMonitoring: true,
+			in: providerStatusInput{Kind: providerKindCLI, Available: true,
 				Version: ProviderVersionInfo{Installed: "1.2.0", Latest: "1.3.0", UpdateAvailable: true}},
 			ready:   true,
 			summary: "已安装 · v1.2.0 · 有新版本 1.3.0",
 		},
 		{
 			name: "CLI 有更新但缺最新版本号",
-			in: providerStatusInput{Kind: providerKindCLI, Available: true, UpdateMonitoring: true,
+			in: providerStatusInput{Kind: providerKindCLI, Available: true,
 				Version: ProviderVersionInfo{Installed: "1.2.0", UpdateAvailable: true}},
 			ready:   true,
 			summary: "已安装 · v1.2.0 · 有新版本",
-		},
-		{
-			name:    "CLI 关闭更新监控仍展示已安装版本",
-			in:      providerStatusInput{Kind: providerKindCLI, Available: true, UpdateMonitoring: false, Version: ProviderVersionInfo{Installed: "1.2.0"}},
-			ready:   true,
-			summary: "已安装 · v1.2.0",
 		},
 		{
 			name:     "登录型有账号但未安装",
@@ -445,7 +439,7 @@ func TestProviders_ProviderStatusSummary(t *testing.T) {
 		},
 		{
 			name:    "加载中",
-			in:      providerStatusInput{Kind: providerKindCLI, Loading: true, UpdateMonitoring: true},
+			in:      providerStatusInput{Kind: providerKindCLI, Loading: true},
 			summary: "检查中…",
 		},
 	}
@@ -476,8 +470,8 @@ func TestProviders_CLIRowsLoadSettingsAndCredits(t *testing.T) {
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true, UpdateMonitor: true},
-		{ID: "commandcode", Name: "Command Code", Kind: "cli", UpdateMonitor: true},
+		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true},
+		{ID: "commandcode", Name: "Command Code", Kind: "cli"},
 		{ID: "deepseek", Name: "DeepSeek", Kind: "api", BaseURL: "https://api.deepseek.com"},
 	}
 	fake.providerCreditsResult = map[string]ProviderCredits{
@@ -665,9 +659,9 @@ func TestProviders_OrderedProviderIDsIncludeCLI(t *testing.T) {
 		},
 		cliIDs: []string{"mcode", "pi", "copilot"},
 		settings: map[string]ProviderSetting{
-			"mcode":   {ID: "mcode", Name: "mcode", Kind: "cli", UpdateMonitor: true},
-			"pi":      {ID: "pi", Name: "Pi", Kind: "cli", UpdateMonitor: true},
-			"copilot": {ID: "copilot", Name: "GitHub Copilot", Kind: "cli", UpdateMonitor: true},
+			"mcode":   {ID: "mcode", Name: "mcode", Kind: "cli"},
+			"pi":      {ID: "pi", Name: "Pi", Kind: "cli"},
+			"copilot": {ID: "copilot", Name: "GitHub Copilot", Kind: "cli"},
 		},
 	}
 
@@ -683,46 +677,13 @@ func TestProviders_OrderedProviderIDsIncludeCLI(t *testing.T) {
 	}
 }
 
-// (i) UpdateMonitor=false 只跳过远程 latest 检查，仍探测并展示已安装版本。
-func TestProviders_UpdateMonitorOffKeepsInstalledVersion(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	fake := NewFakeClient()
-	fake.providerSettings = []ProviderSetting{
-		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", UpdateMonitor: false},
-		{ID: "pi", Name: "Pi", Kind: "cli", UpdateMonitor: true},
-	}
-	// 让 copilot 处于已安装状态：FakeClient 只在 Provider 非空时原样返回结果，
-	// 因此这里同时给出 Provider 与 Installed。
-	fake.providerVersionResult = ProviderVersionInfo{Provider: "copilot", Installed: "1.2.0"}
-
-	_, st := openProvidersPageTest(t, fake)
-
-	st.mu.Lock()
-	copilotVersion := st.providerRows.versions["copilot"]
-	_, piVersioned := st.providerRows.versions["pi"]
-	st.mu.Unlock()
-
-	if copilotVersion.Provider == "" {
-		t.Fatal("UpdateMonitor=false 的 Provider 仍应探测已安装版本")
-	}
-	if !piVersioned {
-		t.Fatal("UpdateMonitor=true 的 Provider 应写入版本信息")
-	}
-
-	// 关闭监控不影响状态摘要，已安装的版本照常展示。
-	if got := providerStatusFor(st, "copilot").Summary; !strings.HasPrefix(got, "已安装") {
-		t.Fatalf("关闭更新监控时仍应展示已安装状态，got %q", got)
-	}
-}
-
 // (j) 保存「可执行文件路径」后 SaveProviderSetting 收到带 Bin 的设置。
 func TestProviders_SaveBinSendsProviderSetting(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true, UpdateMonitor: true},
+		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true},
 	}
 
 	tt, st := openProvidersPageTest(t, fake)
@@ -763,7 +724,7 @@ func TestProviders_CopilotLoginGuidanceAndDepletedBalance(t *testing.T) {
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true, UpdateMonitor: true},
+		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true},
 	}
 	fake.providerCreditsResult = map[string]ProviderCredits{
 		"copilot": {Provider: "copilot", Total: 0, Currency: "USD", AmountText: "$0.00", Usable: true},
@@ -793,7 +754,7 @@ func TestProviders_BalancePanelShowsAmount(t *testing.T) {
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true, UpdateMonitor: true},
+		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true},
 	}
 	fake.providerCreditsResult = map[string]ProviderCredits{
 		"copilot": {Provider: "copilot", Total: 12.5, Currency: "USD", AmountText: "$12.50", Usable: true},
@@ -826,18 +787,18 @@ func TestProviders_ProviderAuthMapping(t *testing.T) {
 	}
 }
 
-// (n) droid 展开区显示认证方式、更新监控与 ACP 重启提示。
+// (n) droid 展开区显示认证方式与 ACP 重启提示。
 func TestProviders_DroidAuthAndRestartNote(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "droid", Name: "Droid", Kind: "cli", Enabled: true, UpdateMonitor: true},
+		{ID: "droid", Name: "Droid", Kind: "cli", Enabled: true},
 	}
 
 	tt, st := openProvidersPageTest(t, fake)
 	clickProviderDetailTabForTest(t, tt, "droid", "")
-	// 认证方式在账号节，重启提示与监控更新在高级里的命令行节。
+	// 认证方式在账号节，重启提示在高级里的命令行节。
 	selectProviderSheetSectionForTest(t, tt, st, "sec-provider-account")
 	waitFor(t, tt, func() bool {
 		return tt.HasText("认证方式") &&
@@ -846,8 +807,7 @@ func TestProviders_DroidAuthAndRestartNote(t *testing.T) {
 	})
 	selectProviderSheetSectionForTest(t, tt, st, "sec-provider-cli")
 	waitFor(t, tt, func() bool {
-		return tt.HasText("修改后需重启 MCode 生效") &&
-			tt.HasText("监控更新")
+		return tt.HasText("修改后需重启 MCode 生效")
 	})
 }
 
@@ -888,7 +848,7 @@ func TestProviders_StatusCacheRoundTrip(t *testing.T) {
 		}
 		cache.CLIIDs = []string{"pi"}
 		cache.Settings = map[string]ProviderSetting{
-			"pi": {ID: "pi", Name: "Pi", Kind: "cli", Enabled: true, UpdateMonitor: true},
+			"pi": {ID: "pi", Name: "Pi", Kind: "cli", Enabled: true},
 		}
 		cache.AgyAccounts = []accounts.Account{{ID: "acc-1", Email: "agy@example.com"}}
 		cache.AgyDefaultID = "acc-1"
@@ -973,7 +933,7 @@ func TestProviders_StatusCacheRoundTrip(t *testing.T) {
 
 // (p) 缓存水合：不请求后端也能立即得到版本、可执行文件路径与 bin 草稿。
 func TestProviders_ApplyStatusCacheSwarmtesRows(t *testing.T) {
-	piSetting := ProviderSetting{ID: "pi", Name: "Pi", Kind: "cli", Enabled: true, Bin: "/custom/pi", UpdateMonitor: true}
+	piSetting := ProviderSetting{ID: "pi", Name: "Pi", Kind: "cli", Enabled: true, Bin: "/custom/pi"}
 	piSetting.PiCacheLong = true
 	piSetting.PiVisionModel = "anthropic/claude-haiku-4-5"
 	st := &SettingsState{}
@@ -1030,7 +990,7 @@ func TestProviders_LoadWritesStatusCache(t *testing.T) {
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "pi", Name: "Pi", Kind: "cli", Enabled: true, UpdateMonitor: true},
+		{ID: "pi", Name: "Pi", Kind: "cli", Enabled: true},
 	}
 	fake.providerVersionResult = ProviderVersionInfo{
 		Provider:       "pi",
@@ -1109,7 +1069,7 @@ func TestProviders_VersionRowShowsDetectedPath(t *testing.T) {
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "pi", Name: "Pi", Kind: "cli", Enabled: true, UpdateMonitor: true},
+		{ID: "pi", Name: "Pi", Kind: "cli", Enabled: true},
 	}
 	fake.providerVersionResult = ProviderVersionInfo{
 		Provider:       "pi",
@@ -1464,11 +1424,10 @@ func TestProviders_ProviderStatusSummaryClaudeLogin(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			status := providerStatusSummary(providerStatusInput{
-				Kind:             providerKindCLI,
-				Available:        true,
-				UpdateMonitoring: true,
-				LoginState:       tc.login,
-				Version:          ProviderVersionInfo{Installed: "1.2.0"},
+				Kind:       providerKindCLI,
+				Available:  true,
+				LoginState: tc.login,
+				Version:    ProviderVersionInfo{Installed: "1.2.0"},
 			})
 			if status.Summary != tc.summary {
 				t.Fatalf("summary = %q, want %q", status.Summary, tc.summary)
@@ -1606,7 +1565,7 @@ func TestProviders_PiTuningRowsSaveValues(t *testing.T) {
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "pi", Name: "Pi", Kind: "cli", Enabled: true, UpdateMonitor: true},
+		{ID: "pi", Name: "Pi", Kind: "cli", Enabled: true},
 	}
 
 	tt, st := openProvidersPageTest(t, fake)
@@ -1677,14 +1636,14 @@ func TestProviders_PiTuningRowsOnlyForPi(t *testing.T) {
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
-		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true, UpdateMonitor: true},
+		{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true},
 	}
 
 	tt, st := openProvidersPageTest(t, fake)
 	clickProviderDetailTabForTest(t, tt, "copilot", "")
-	// 监控更新与 pi 调优行都在命令行节：切到命令行节断言前者存在、后者不存在。
+	// 切到命令行节检查 pi 专有设置不会出现在其他 Provider 中。
 	selectProviderSheetSectionForTest(t, tt, st, "sec-provider-cli")
-	waitFor(t, tt, func() bool { return tt.HasText("监控更新") })
+	waitFor(t, tt, func() bool { return tt.HasText("可执行文件路径") })
 
 	if tt.HasText("长缓存") || tt.HasText("视觉模型") {
 		t.Fatalf("非 pi 的 Provider 表单不应出现 pi 专有设置，当前文本：%v", tt.Texts())

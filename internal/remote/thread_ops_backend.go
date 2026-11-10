@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"mcode/internal/config"
 	"mcode/internal/git"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
@@ -2096,59 +2095,6 @@ func (b *MemoryBackend) QueueInterruptAndSend(ctx context.Context, p wire.Thread
 		FollowUpID: &fuID,
 		Queue:      snap,
 	}, nil
-}
-
-// FinishThread 根据通用配置中的 ThreadFinishAction 执行会话完成动作。
-// 触发时机：用户主动完成会话时触发。
-// 当配置为 "archive" 时，将会话归档（IsArchived = true）；
-// 当配置为 "dormant" 时，切换休眠状态：若未休眠则设为休眠（IsDormant = true），若已休眠则恢复（IsDormant = false）。
-// 注意：FinishThread 暂不针对 helper 辅助会话做单独归档分支处理，维持通用归档/休眠行为。
-func (b *MemoryBackend) FinishThread(ctx context.Context, threadID string) error {
-	action := b.generalSettings().Session.ThreadFinishAction
-	if action == "" {
-		action = config.FinishActionDormant
-	}
-
-	b.mu.Lock()
-	td, ok := b.threads[threadID]
-	if !ok {
-		b.mu.Unlock()
-		return store.ErrNotFound
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-
-	var (
-		archivedChanged bool
-		dormantChanged  bool
-		currentSummary  wire.ThreadSummary
-	)
-
-	// FinishThread 暂不针对 helper 辅助会话做特殊分支处理，维持统一行为
-	if action == config.FinishActionArchive {
-		if !td.summary.IsArchived {
-			td.summary.IsArchived = true
-			td.summary.UpdatedAt = now
-			archivedChanged = true
-		}
-	} else {
-		td.summary.IsDormant = !td.summary.IsDormant
-		td.summary.UpdatedAt = now
-		dormantChanged = true
-	}
-
-	currentSummary = b.summaryForPublishLocked(td)
-	b.mu.Unlock()
-
-	if archivedChanged {
-		b.persistThreadArchived(threadID, currentSummary.IsArchived)
-	}
-
-	if archivedChanged || dormantChanged {
-		b.hub.Publish(threadID, nil, nil, currentSummary)
-	}
-
-	return nil
 }
 
 // SetBulkClock 设置批量操作撤销窗口的时钟函数，便于测试注入。

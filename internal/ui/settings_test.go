@@ -209,33 +209,6 @@ func TestSettings_NoDefaultProviderRow(t *testing.T) {
 	}
 }
 
-// 测试用例 4：关闭设置后回到会话界面。
-func TestSettings_BackToChat(t *testing.T) {
-	fake := NewFakeClient()
-	dataDir := settingsTestDir(t)
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 700)
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("设置")
-	})
-
-	if err := tt.Click("设置"); err != nil {
-		t.Fatalf("click '设置' failed: %v", err)
-	}
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("关闭设置")
-	})
-
-	if err := tt.Click("关闭设置"); err != nil {
-		t.Fatalf("click '关闭设置' failed: %v", err)
-	}
-
-	waitFor(t, tt, func() bool {
-		return !tt.HasText("关闭设置") && tt.HasText("测试会话1") && tt.HasText("添加项目")
-	})
-}
-
 // 场景：readonly 是合法档位，通用页必须能显示、能选中并落盘（E-02）。
 func TestSettings_ReadOnlyPermissionMode(t *testing.T) {
 	fake := NewFakeClient()
@@ -296,14 +269,14 @@ func TestSettings_EscClosesSettings(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("关闭设置")
+		return tt.HasText("搜索设置")
 	})
 
 	tt.Key(0, ui.KeyEscape)
 
 	waitFor(t, tt, func() bool {
 		_, input := tt.Find("消息输入框")
-		return !tt.HasText("关闭设置") && input
+		return !tt.HasText("搜索设置") && input
 	})
 }
 
@@ -660,12 +633,12 @@ func TestSettingsLegacyPageAndRowLinks(t *testing.T) {
 	}
 }
 
-// TestConversationPageMovedRows 验证会话相关的 8 行搬到「会话」页，通用页不再包含它们。
+// TestConversationPageMovedRows 验证会话相关设置在「会话」页，通用页不包含它们。
 func TestConversationPageMovedRows(t *testing.T) {
 	titles := []string{
 		"显示思考过程", "自动折叠思考过程", "简洁 AI 回复",
 		"运行中排队消息", "新消息插入当前回合", "用尽限额后自动继续",
-		"会话完成动作", "删除会话前确认",
+		"删除会话前确认",
 	}
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	conv := ui.NewTester(func(c *ui.Context) {
@@ -829,13 +802,9 @@ func TestConfigWritersRaceWithRenderReaders(t *testing.T) {
 	// 最后一次同步是同步调用，结果必须落定。
 	st.mu.Lock()
 	pins := append([]ModelPin(nil), st.cfg.Models.Pins...)
-	finishAction := st.cfg.Session.ThreadFinishAction
 	st.mu.Unlock()
 	if len(pins) != 1 || pins[0] != pin {
 		t.Fatalf("「收藏模型」应同步为最后写入的列表，got %v", pins)
-	}
-	if want := config.Defaults().Session.ThreadFinishAction; finishAction != want {
-		t.Fatalf("重置后会话完成动作应为默认值 %q，got %q", want, finishAction)
 	}
 
 	// 偏好镜像由后台 goroutine 完成，轮询到写回为止。

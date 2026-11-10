@@ -121,24 +121,6 @@ var pageConversation = settingsPage{
 			},
 		},
 		{
-			ID:    "conversation.finish",
-			Title: "完成与提醒",
-			Rows: []setting{
-				{
-					ID:      "row-thread-finish-action",
-					Title:   "会话完成动作",
-					Aliases: []string{"完成", "归档", "休眠", "结束", "轮次", "dormant", "archive"},
-					Control: choice(
-						val(func(c *config.Config) *string { return &c.Session.ThreadFinishAction }, config.FinishActionDormant),
-						[]choiceOption{
-							{Value: config.FinishActionDormant, Label: "休眠"},
-							{Value: config.FinishActionArchive, Label: "归档"},
-						},
-					),
-				},
-			},
-		},
-		{
 			ID:    "conversation.retention",
 			Title: "保留与归档",
 			Rows: []setting{

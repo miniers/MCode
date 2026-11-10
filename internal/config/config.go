@@ -62,10 +62,6 @@ const (
 	ThemeLight  = "light"
 	ThemeDark   = "dark"
 
-	// 会话完成动作常量。
-	FinishActionDormant = "dormant"
-	FinishActionArchive = "archive"
-
 	// 工作区模式常量。
 	WorkspaceModeLocal    = "local"
 	WorkspaceModeWorktree = "worktree"
@@ -547,7 +543,6 @@ type SessionConfig struct {
 	InsertIntoRunningTurn   bool   `json:"insert_into_running_turn"`            // 运行中的消息插入当前回合（Provider 支持中途注入时），不支持则排队；默认 true
 	AutoContinueAfterLimit  bool   `json:"auto_continue_after_limit"`           // 额度用尽后自动等待续跑，默认 false
 	AskCompactBeforeResume  *bool  `json:"ask_compact_before_resume,omitempty"` // 恢复旧会话前询问压缩上下文，nil 视为开启
-	ThreadFinishAction      string `json:"thread_finish_action"`                // 会话完成动作：dormant | archive，默认 dormant
 	ComposerAttachmentLimit int    `json:"composer_attachment_limit,omitempty"` // 单条消息附件数量上限，0 或负数视为默认 10，范围 1..20
 	ComposerSendKey         string `json:"composer_send_key,omitempty"`         // 发送消息快捷键：enter | shift_enter，默认 enter（Enter 发送，Shift+Enter 换行）
 	SkillsInjectsPrompt     *bool  `json:"skills_injects_prompt,omitempty"`     // 技能规则注入提示词，nil 视为开启
@@ -1624,12 +1619,6 @@ func Normalize(cfg Config) Config {
 		cfg.Permissions.Mode = ModeFullAccess
 	}
 
-	switch cfg.Session.ThreadFinishAction {
-	case FinishActionDormant, FinishActionArchive:
-	default:
-		cfg.Session.ThreadFinishAction = FinishActionDormant
-	}
-
 	switch cfg.Session.ComposerSendKey {
 	case ComposerSendKeyEnter, ComposerSendKeyShiftEnter:
 	default:
@@ -1932,8 +1921,6 @@ func (c AnthropicConfig) IsEnabled() bool {
 type ProviderConfig struct {
 	Enabled bool   `json:"enabled"`
 	Bin     string `json:"bin"` // 可执行文件路径，空表示从 PATH 查找
-	// UpdateMonitor 是否检查该 Provider 的版本更新，nil 视为开启。
-	UpdateMonitor *bool `json:"updateMonitor,omitempty"`
 	// Auth 仅 ACP droid 使用，取值 "apiKey" 或 "browser"，空视为 "browser"。
 	Auth string `json:"auth,omitempty"`
 	// ResidentIdleMinutes 仅 claude 使用：常驻进程空闲多少分钟后回收。nil 表示默认 10，0 表示关闭常驻
@@ -1965,14 +1952,6 @@ func (p ProviderConfig) ResidentIdleTTL() time.Duration {
 		return 0
 	}
 	return time.Duration(minutes) * time.Minute
-}
-
-// UpdateMonitorEnabled 返回是否检查该 Provider 的版本更新，nil 视为开启。
-func (p ProviderConfig) UpdateMonitorEnabled() bool {
-	if p.UpdateMonitor == nil {
-		return true
-	}
-	return *p.UpdateMonitor
 }
 
 // RemoteConfig 远程控制服务配置。
@@ -2215,7 +2194,6 @@ func Defaults() Config {
 			InsertIntoRunningTurn:   true,
 			AutoContinueAfterLimit:  false,
 			AskCompactBeforeResume:  boolPtr(true),
-			ThreadFinishAction:      FinishActionDormant,
 			ComposerSendKey:         ComposerSendKeyEnter,
 			ComposerAttachmentLimit: DefaultComposerAttachmentLimit,
 		},
@@ -2400,12 +2378,6 @@ func Validate(cfg Config) error {
 	case ModeReadOnly, ModeSupervised, ModeAutoAcceptEdits, ModeAuto, ModeFullAccess, "agent", "full_access":
 	default:
 		return fmt.Errorf("invalid permissions.mode %q: must be 'readonly', 'supervised', 'autoAcceptEdits', 'auto', or 'fullAccess'", cfg.Permissions.Mode)
-	}
-
-	switch cfg.Session.ThreadFinishAction {
-	case FinishActionDormant, FinishActionArchive:
-	default:
-		return fmt.Errorf("invalid session.thread_finish_action %q: must be 'dormant' or 'archive'", cfg.Session.ThreadFinishAction)
 	}
 
 	switch cfg.Startup.QuitAction {

@@ -1512,11 +1512,6 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 										TextColor(ThemeAccent(c))
 								})
 							}
-							IconButton(c, IconButtonProps{
-								Key: "settings-dialog-close", Icon: IconX(), Label: "关闭设置", Tooltip: "关闭设置",
-								Size: ControlXS, Variant: ButtonGhost,
-								OnClick: func() { closeSettingsWindowForOwner(st.chat) },
-							}).Shrink(0)
 						})
 
 					if st.errorMessage != "" {

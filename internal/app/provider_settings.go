@@ -79,8 +79,8 @@ func providerSettingSecretAccount(id string) string {
 	return ""
 }
 
-// updateMonitorPtr 把设置页的开关值转换为配置指针；开启时返回 nil（配置省略该项，视为开启）。
-func updateMonitorPtr(enabled bool) *bool {
+// optionalTruePtr 在值为 true 时返回 nil，省略该项即视为开启。
+func optionalTruePtr(enabled bool) *bool {
 	if enabled {
 		return nil
 	}
@@ -109,7 +109,6 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 	case "copilot":
 		s.Enabled = cfg.Providers.Copilot.Enabled
 		s.Bin = cfg.Providers.Copilot.Bin
-		s.UpdateMonitor = cfg.Providers.Copilot.UpdateMonitorEnabled()
 	case "anthropic":
 		// Anthropic 来源同时看配置开关与 Key：没有 Key 时仍显示为关闭。
 		hasKey := hasProviderSecret(secrets, providerSettingSecretAccount(spec.id)) || hasProviderSecret(secrets, mcodeAnthropicAPIKeyAccount) || apisource.AnthropicAPIKey(nil) != ""
@@ -123,23 +122,19 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 	case "pi":
 		s.Enabled = cfg.Providers.Pi.Enabled
 		s.Bin = cfg.Providers.Pi.Bin
-		s.UpdateMonitor = cfg.Providers.Pi.UpdateMonitorEnabled()
 		s.PiCacheLong = cfg.Providers.Pi.PiCacheLong
 		s.PiVisionModel = cfg.Providers.Pi.PiVisionModel
 	case "omp":
 		s.Enabled = cfg.Providers.Omp.Enabled
 		s.Bin = cfg.Providers.Omp.Bin
-		s.UpdateMonitor = cfg.Providers.Omp.UpdateMonitorEnabled()
 	case "commandcode":
 		s.Enabled = cfg.Providers.CommandCode.Enabled
 		s.Bin = cfg.Providers.CommandCode.Bin
-		s.UpdateMonitor = cfg.Providers.CommandCode.UpdateMonitorEnabled()
 	case "droid", "cline", "cursor", "opencode", "grok", "devin":
 		pc, ok := cfg.Providers.ACP[spec.id]
 		// ACP map 中缺省时视为启用，与 registerExtraProviders 的注册逻辑一致。
 		s.Enabled = !ok || pc.Enabled
 		s.Bin = pc.Bin
-		s.UpdateMonitor = pc.UpdateMonitorEnabled()
 		if spec.id == "droid" {
 			s.Auth = pc.Auth
 			s.HasAPIKey = hasProviderSecret(secrets, droidAPIKeyAccount)
@@ -156,7 +151,6 @@ func buildProviderSetting(cfg config.Config, secrets config.SecretStore, spec pr
 		s.DefaultBaseURL = preset.DefaultBaseURL
 		s.DefaultModel = preset.DefaultModel
 		s.HasAPIKey = hasProviderSecret(secrets, preset.APIKeyAccount)
-		s.UpdateMonitor = true
 	}
 	return s
 }
@@ -167,9 +161,8 @@ func applyProviderSetting(cfg *config.Config, id string, s mcodeui.ProviderSetti
 	case "copilot":
 		cfg.Providers.Copilot.Enabled = s.Enabled
 		cfg.Providers.Copilot.Bin = strings.TrimSpace(s.Bin)
-		cfg.Providers.Copilot.UpdateMonitor = updateMonitorPtr(s.UpdateMonitor)
 	case "anthropic":
-		cfg.Providers.Anthropic.Enabled = updateMonitorPtr(s.Enabled)
+		cfg.Providers.Anthropic.Enabled = optionalTruePtr(s.Enabled)
 	case "openai":
 		cfg.Providers.OpenAI.Enabled = s.Enabled
 		cfg.Providers.OpenAI.BaseURL = strings.TrimSpace(s.BaseURL)
@@ -177,22 +170,18 @@ func applyProviderSetting(cfg *config.Config, id string, s mcodeui.ProviderSetti
 	case "pi":
 		cfg.Providers.Pi.Enabled = s.Enabled
 		cfg.Providers.Pi.Bin = strings.TrimSpace(s.Bin)
-		cfg.Providers.Pi.UpdateMonitor = updateMonitorPtr(s.UpdateMonitor)
 		cfg.Providers.Pi.PiCacheLong = s.PiCacheLong
 		cfg.Providers.Pi.PiVisionModel = strings.TrimSpace(s.PiVisionModel)
 	case "omp":
 		cfg.Providers.Omp.Enabled = s.Enabled
 		cfg.Providers.Omp.Bin = strings.TrimSpace(s.Bin)
-		cfg.Providers.Omp.UpdateMonitor = updateMonitorPtr(s.UpdateMonitor)
 	case "commandcode":
 		cfg.Providers.CommandCode.Enabled = s.Enabled
 		cfg.Providers.CommandCode.Bin = strings.TrimSpace(s.Bin)
-		cfg.Providers.CommandCode.UpdateMonitor = updateMonitorPtr(s.UpdateMonitor)
 	case "droid", "cline", "cursor", "opencode", "grok", "devin":
 		pc := cfg.Providers.ACP[id]
 		pc.Enabled = s.Enabled
 		pc.Bin = strings.TrimSpace(s.Bin)
-		pc.UpdateMonitor = updateMonitorPtr(s.UpdateMonitor)
 		if id == "droid" {
 			pc.Auth = strings.TrimSpace(s.Auth)
 		}

@@ -30,8 +30,6 @@ row row-composer-send-key 发送消息快捷键
 row row-composer-attachment-limit 附件数量上限
 row row-pin-sent-message 发送后置顶消息
 row row-auto-continue-after-limit 用尽限额后自动继续
-section conversation.finish 完成与提醒
-row row-thread-finish-action 会话完成动作
 section conversation.retention 保留与归档
 row row-auto-dormant-days 无消息多少天后自动休眠
 row row-archive 已归档会话

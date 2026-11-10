@@ -772,7 +772,6 @@ type ProviderSetting struct {
 	ID, Name, Kind string
 	Enabled        bool
 	Bin            string
-	UpdateMonitor  bool
 	BaseURL        string
 	Model          string
 	DefaultBaseURL string

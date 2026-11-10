@@ -40,8 +40,6 @@ var settingsCopyCases = []settingsCopyCase{
 	{title: "手动人设列表", desc: "JSON 数组，高级用法"},
 	// 供应商页（预设表单）
 	{title: "接口地址（BaseURL）", desc: "留空则用供应商默认值"},
-	// 供应商与 Agent 页
-	{title: "监控更新", desc: "默认开启；有新版本时在列表顶部提示"},
 	// 模型页
 	{title: "采样温度", desc: "越高越随机，越低越稳定（0–2，默认 1）"},
 	// Agy 多账号页
