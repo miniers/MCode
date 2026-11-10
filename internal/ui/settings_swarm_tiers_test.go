@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -409,4 +410,94 @@ func TestSaveTier_PersistsWritePaths(t *testing.T) {
 		return
 	}
 	t.Fatal("落盘配置中未找到 write-docs 档位")
+}
+
+func TestDefaultSwarmTier(t *testing.T) {
+	for _, id := range []string{"read", "chore", "edit", "deep"} {
+		tier, ok := defaultSwarmTier(id)
+		if !ok || tier.ID != id {
+			t.Fatalf("未找到默认档位 %q：%+v", id, tier)
+		}
+	}
+	if _, ok := defaultSwarmTier("custom"); ok {
+		t.Fatal("自定义档位不应有默认配置")
+	}
+}
+
+func TestSwarmTierDraftIsDefault(t *testing.T) {
+	deep, ok := defaultSwarmTier("deep")
+	if !ok {
+		t.Fatal("未找到 deep 默认档位")
+	}
+	paths := formatWritePaths(deep.WritePaths)
+	if !swarmTierDraftIsDefault(deep, paths) {
+		t.Fatal("默认 deep 草稿应等于默认配置")
+	}
+	model := deep
+	model.Model = "custom-model"
+	description := deep
+	description.Description = "修改后的说明"
+	for _, tc := range []struct {
+		name  string
+		draft config.SwarmTier
+		paths string
+	}{
+		{name: "模型", draft: model, paths: paths},
+		{name: "说明", draft: description, paths: paths},
+		{name: "白名单", draft: deep, paths: "other/**"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if swarmTierDraftIsDefault(tc.draft, tc.paths) {
+				t.Fatal("修改后的草稿不应等于默认配置")
+			}
+		})
+	}
+	read, ok := defaultSwarmTier("read")
+	if !ok {
+		t.Fatal("未找到 read 默认档位")
+	}
+	if !swarmTierDraftIsDefault(read, "ignored/**") {
+		t.Fatal("只读档应忽略白名单文本")
+	}
+	edit, ok := defaultSwarmTier("edit")
+	if !ok {
+		t.Fatal("未找到 edit 默认档位")
+	}
+	edit.WritePaths = []string{}
+	if !swarmTierDraftIsDefault(edit, "") {
+		t.Fatal("空白名单应与 nil 等价")
+	}
+}
+
+func TestSaveTier_ResetToDefault(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	defaultTier, ok := defaultSwarmTier("edit")
+	if !ok {
+		t.Fatal("未找到 edit 默认档位")
+	}
+	draft := defaultTier
+	draft.Model = "custom-model"
+	draft.Effort = "high"
+	draft.Description = "修改后的说明"
+	for i := range st.cfg.Orchestration.Tiers {
+		if st.cfg.Orchestration.Tiers[i].ID == draft.ID {
+			st.cfg.Orchestration.Tiers[i] = draft
+			break
+		}
+	}
+	draft = defaultTier
+	var errStr string
+	if !saveTier(st, draft, false, &errStr) {
+		t.Fatalf("保存重置后的档位失败：%s", errStr)
+	}
+	for _, tier := range st.cfg.Orchestration.Tiers {
+		if tier.ID == defaultTier.ID {
+			if !reflect.DeepEqual(tier, defaultTier) {
+				t.Fatalf("重置后的档位不等于默认值：%+v", tier)
+			}
+			return
+		}
+	}
+	t.Fatal("配置中未找到 edit 档位")
 }

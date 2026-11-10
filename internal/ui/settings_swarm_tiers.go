@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"reflect"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -91,6 +92,32 @@ func saveTier(st *SettingsState, draft config.SwarmTier, isNew bool, errStr *str
 	st.mu.Unlock()
 	st.save()
 	return true
+}
+
+// defaultSwarmTier 按 ID 查找内置档位的默认配置。
+func defaultSwarmTier(id string) (config.SwarmTier, bool) {
+	for _, tier := range config.DefaultSwarmTiers() {
+		if tier.ID == id {
+			return tier, true
+		}
+	}
+	return config.SwarmTier{}, false
+}
+
+func swarmTierDraftIsDefault(draft config.SwarmTier, writePathsText string) bool {
+	defaultTier, ok := defaultSwarmTier(draft.ID)
+	if !ok {
+		return false
+	}
+	if draft.ReadOnly {
+		draft.WritePaths = nil
+	} else {
+		draft.WritePaths = parseWritePaths(writePathsText)
+	}
+	if len(defaultTier.WritePaths) == 0 {
+		defaultTier.WritePaths = nil
+	}
+	return reflect.DeepEqual(draft, defaultTier)
 }
 
 // deleteTier 按 ID 删除档位，并级联从所有模型配对的 BeeTiers 中移除该档位映射。
@@ -397,39 +424,68 @@ func renderSwarmTierEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmT
 					})
 			}
 
-			// 8. 底部操作区：删除（危险色，默认档或最后非只读档禁用），取消，保存
+			// 8. 底部操作区：删除、重置、取消、保存
 			ui.Row(c.Key("actions-tier-" + popKey)).
 				AlignItems(ui.Center).
 				Justify(ui.SpaceBetween).
 				Children(func() {
 					if !uiSt.isNew {
-						deleteDisabled, deleteTooltip := swarmTierDeleteGuard(st, uiSt.draft.ID, uiSt.draft.ReadOnly)
+						ui.Row(c.Key("actions-left-" + popKey)).Gap(Space3).AlignItems(ui.Center).Children(func() {
+							deleteDisabled, deleteTooltip := swarmTierDeleteGuard(st, uiSt.draft.ID, uiSt.draft.ReadOnly)
 
-						btnDelete := ui.ButtonBase(c.Key("btn-tier-delete-"+popKey)).
-							Label("删除").
-							Tooltip(deleteTooltip).
-							Disabled(deleteDisabled).
-							Padding(Space1, Space4).
-							Radius(RadiusSM).
-							Background(ui.Transparent)
-						if !deleteDisabled && btnDelete.Hovered() {
-							btnDelete.Background(ThemeDanger(c).Alpha(0.12))
-						}
-						if (!deleteDisabled) && btnDelete.Clicked() {
-							if deleteTier(st, uiSt.draft.ID) {
-								uiSt.openPopoverKey = ""
-								uiSt.saveError = ""
-							} else {
-								uiSt.saveError = "删除档位失败：至少保留一个可写档位"
+							btnDelete := ui.ButtonBase(c.Key("btn-tier-delete-"+popKey)).
+								Label("删除").
+								Tooltip(deleteTooltip).
+								Disabled(deleteDisabled).
+								Padding(Space1, Space4).
+								Radius(RadiusSM).
+								Background(ui.Transparent)
+							if !deleteDisabled && btnDelete.Hovered() {
+								btnDelete.Background(ThemeDanger(c).Alpha(0.12))
 							}
-							st.invalidate()
-						}
-						btnDelete.Children(func() {
-							textColor := ThemeDanger(c)
-							if deleteDisabled {
-								textColor = ThemeSecondaryText(c).Alpha(0.5)
+							if (!deleteDisabled) && btnDelete.Clicked() {
+								if deleteTier(st, uiSt.draft.ID) {
+									uiSt.openPopoverKey = ""
+									uiSt.saveError = ""
+								} else {
+									uiSt.saveError = "删除档位失败：至少保留一个可写档位"
+								}
+								st.invalidate()
 							}
-							ui.Text(c, "删除").FontSize(TypeFootnote).TextColor(textColor)
+							btnDelete.Children(func() {
+								textColor := ThemeDanger(c)
+								if deleteDisabled {
+									textColor = ThemeSecondaryText(c).Alpha(0.5)
+								}
+								ui.Text(c, "删除").FontSize(TypeFootnote).TextColor(textColor)
+							})
+
+							if defaultTier, ok := defaultSwarmTier(uiSt.draft.ID); ok {
+								resetDisabled := swarmTierDraftIsDefault(uiSt.draft, uiSt.writePathsText)
+								btnReset := ui.ButtonBase(c.Key("btn-tier-reset-"+popKey)).
+									Label("重置").
+									Tooltip("恢复默认配置").
+									Disabled(resetDisabled).
+									Padding(Space1, Space4).
+									Radius(RadiusSM).
+									Background(ui.Transparent)
+								if !resetDisabled && btnReset.Hovered() {
+									btnReset.Background(ThemeHover(c))
+								}
+								if !resetDisabled && btnReset.Clicked() {
+									uiSt.draft = defaultTier
+									uiSt.writePathsText = formatWritePaths(defaultTier.WritePaths)
+									uiSt.saveError = ""
+									st.invalidate()
+								}
+								btnReset.Children(func() {
+									textColor := ThemeSecondaryText(c)
+									if resetDisabled {
+										textColor = textColor.Alpha(0.5)
+									}
+									ui.Text(c, "重置").FontSize(TypeFootnote).TextColor(textColor)
+								})
+							}
 						})
 					} else {
 						ui.Box(c.Key("spacer-delete-" + popKey))
