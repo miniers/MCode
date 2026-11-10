@@ -12,7 +12,7 @@ func TestSidebarFooterLabels(t *testing.T) {
 	t.Cleanup(state.close)
 	tt := ui.NewTester(view, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
-	for _, label := range []string{"添加项目", "任务与看板", "自动化", "设置", "更多"} {
+	for _, label := range []string{"添加项目", "任务", "自动化", "设置", "更多"} {
 		if _, ok := tt.Find(label); !ok {
 			t.Errorf("找不到底栏按钮 %q", label)
 		}
@@ -24,7 +24,7 @@ func TestSidebarFooter_WorkspaceButtons(t *testing.T) {
 		label string
 		empty string
 	}{
-		{label: "任务与看板", empty: "还没有任务"},
+		{label: "任务", empty: "还没有任务"},
 		{label: "自动化", empty: "还没有自动化"},
 	} {
 		t.Run(tc.label, func(t *testing.T) {

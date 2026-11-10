@@ -88,7 +88,7 @@ var pageWorkbench = settingsPage{
 				},
 				{
 					ID:      "row-kanban-auto-review",
-					Title:   "完成后自动转为 Review",
+					Title:   "完成后自动送审",
 					Aliases: []string{"看板", "任务", "完成", "验收", "review", "审查", "子代理"},
 					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Workbench.KanbanAutoReview }, true)),
 				},

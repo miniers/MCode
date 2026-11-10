@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -97,24 +98,29 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 
 			// 任务与看板入口：待审阅任务数大于 0 时在按钮右上角显示强调色小圆点
 			ui.Row(c.Key("sidebar-kanban-wrapper")).Children(func() {
-				IconButton(c, IconButtonProps{
+				Button(c, ButtonOpts{
 					Key:     "sidebar-kanban-btn",
+					Text:    "任务",
 					Icon:    IconColumns3(),
 					Size:    ControlSM,
 					Variant: ButtonGhost,
-					Label:   "任务与看板",
+					Label:   "任务",
 					OnClick: func() {
 						s.openTasksWindow("tasks")
 					},
 				})
-				if sidebarKanbanReviewCount(s) > 0 {
-					renderUnreadDot(c, "sidebar-kanban-review-dot").
-						Attach(ui.AnchorTopRight, ui.AnchorCenter)
+				if count := sidebarKanbanReviewCount(s); count > 0 {
+					ui.Box(c.Key("sidebar-kanban-review-dot")).
+						Background(ThemeHover(c)).Radius(RadiusSM).
+						Attach(ui.AnchorTopRight, ui.AnchorCenter).Children(func() {
+						rollingNumber(c, fmt.Sprintf("sidebar-kanban-count-%p", s), count)
+					})
 				}
 			})
 
-			IconButton(c, IconButtonProps{
+			Button(c, ButtonOpts{
 				Key:     "sidebar-automations-btn",
+				Text:    "自动化",
 				Icon:    IconCalendarClock(),
 				Size:    ControlSM,
 				Variant: ButtonGhost,
@@ -222,6 +228,28 @@ func sidebarKanbanReviewCount(s *chatState) int {
 	return st.kanbanReviewCount
 }
 
+func sidebarAttentionCount(board KanbanBoard) int {
+	tasks, goals := make(map[string]bool), make(map[string]bool)
+	for _, task := range board.Tasks {
+		needs := task.Column == "review" || task.CanReview || task.Status == "review" || task.Status == "failed" || task.Status == "needs_approval" || task.Status == "awaiting_input"
+		for _, flag := range task.AttentionFlags {
+			switch flag {
+			case "awaiting_approval", "awaiting_input", "failed", "needs_review":
+				needs = true
+			}
+		}
+		if needs {
+			tasks[task.ID] = true
+		}
+	}
+	for _, goal := range board.Goals {
+		if goal.Status == "plan_review" {
+			goals[goal.ID] = true
+		}
+	}
+	return len(tasks) + len(goals)
+}
+
 // refreshKanbanBadge 在无进行中的请求、且距上次刷新超过 30 秒（或从未刷新）时，
 // 异步拉取看板并更新待审阅任务数；client 为空或请求出错时静默跳过。
 func refreshKanbanBadge(s *chatState) {
@@ -249,13 +277,7 @@ func refreshKanbanBadge(s *chatState) {
 		st.kanbanLoading = false
 		st.kanbanFetchedAt = time.Now()
 		if err == nil {
-			count := 0
-			for _, task := range board.Tasks {
-				if task.Column == "review" || task.CanReview {
-					count++
-				}
-			}
-			st.kanbanReviewCount = count
+			st.kanbanReviewCount = sidebarAttentionCount(board)
 		}
 		sidebarFooterMu.Unlock()
 		s.invalidate()

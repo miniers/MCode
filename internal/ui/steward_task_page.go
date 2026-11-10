@@ -177,7 +177,7 @@ func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
 	}
 	label := kanbanStatusBadge(task)
 	if label == "" {
-		label = snapshot.Status
+		label = "未知状态"
 	}
 	reason := strings.TrimSpace(snapshot.ResultSummary)
 	if snapshot.Status == "waiting" {

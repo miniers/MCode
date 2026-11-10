@@ -233,7 +233,9 @@ func IconByName(name string) *ui.SVG {
 		return iconSparkles
 	case "kanban", "tasks":
 		return iconKanban
-	case "zap", "automation", "automations":
+	case "automation", "automations":
+		return iconCalendarClock
+	case "zap":
 		return iconZap
 	case "refresh-cw", "refresh":
 		return iconRefreshCw

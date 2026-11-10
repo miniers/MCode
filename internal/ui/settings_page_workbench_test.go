@@ -75,7 +75,7 @@ func TestSettingsPageWorkbench_Tree(t *testing.T) {
 		"项目文档", "注入项目说明", "注入文档", "标准 4 · 自定义 1",
 		"Instructions", "Overview", "Decisions", "Notes", "Api Design",
 		"看板与任务", "默认视图", "看板", "列表",
-		"验收后自动合并工作树", "完成后自动转为 Review", "在独立工作树中执行",
+		"验收后自动合并工作树", "完成后自动送审", "在独立工作树中执行",
 		"注册看板 MCP 工具", "普通会话暴露单一入口", "创建后自动启动", "卡死任务自动救援", "无活动中断",
 		"终端", "默认终端", "Web 预览", "起始地址", "捕获控制台输出",
 		"编辑器与文件树", "自动保存",
@@ -96,6 +96,16 @@ func TestSettingsPageWorkbench_Tree(t *testing.T) {
 		if tt.HasText(gone) {
 			t.Fatalf("工作台页不该再有 %q", gone)
 		}
+	}
+}
+
+func TestSettingsWorkbenchReviewValueUnchanged(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+	value := false
+	st.cfg.Workbench.KanbanAutoReview = &value
+	ui.NewTester(func(c *ui.Context) { renderPageWorkbench(c, st) }, 1000, 4000)
+	if st.cfg.Workbench.KanbanAutoReview == nil || *st.cfg.Workbench.KanbanAutoReview {
+		t.Fatal("渲染设置页改变了自动送审配置")
 	}
 }
 
