@@ -12,10 +12,7 @@ import (
 
 // kanbanDragPayload 是看板卡片拖拽传递的载荷数据。
 type kanbanDragPayload struct {
-	TaskID   string
-	Status   string
-	Revision int
-	CanStart bool
+	Task KanbanTask
 }
 
 // kanbanColumnDef 是看板列的定义：状态键、列名与列头圆形状态图标的颜色。
@@ -341,6 +338,7 @@ func kanbanToneBadge(c *ui.Context, key, label string, color ui.Color) {
 func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTask, st kanbanTaskCardState) {
 	primaryText := ThemePrimaryText(c)
 	secondaryText := ThemeSecondaryText(c)
+	actions := kanbanActions(task, kanbanTaskBusy(ks, task.ID))
 
 	card := ui.Column(c.Key("kanban-task-card-"+task.ID)).
 		Label("kanban-task-card-"+task.ID).
@@ -386,39 +384,37 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 		if m.Item("查看详情").Chosen() {
 			s.openTaskDetail(task)
 		}
-		if task.CanStart {
+		if actions.primary == "开始" {
 			m.Separator()
 			startLabel := "开始"
 			if kanbanDisplayColumn(task) == "in_progress" {
 				startLabel = "继续"
 			}
 			if m.Item(startLabel).Chosen() {
-				if task.Blocked || len(task.AttentionFlags) > 0 {
+				if kanbanTaskBusy(ks, task.ID) {
+					return
+				}
+				if task.Blocked {
 					s.setToast("暂不可启动：" + kanbanTaskBlockReason(task))
 					return
 				}
 				s.startTask(task.ID, task.Revision)
 			}
 		}
-		if task.CanMove {
+		if len(actions.menu) > 0 {
 			m.Separator()
-			for _, opt := range moveTargetsFor(task.Status) {
+			for _, opt := range actions.menu {
 				optVal := opt
 				if m.Item("移动到 " + optVal.label).Chosen() {
-					s.moveTask(task.ID, optVal.status, task.Revision)
+					s.performKanbanTarget(task, optVal.status)
 				}
 			}
 		}
 	})
 
 	// 若任务允许移动，挂载原生拖拽源
-	if task.CanMove {
-		card.Drag(kanbanDragPayload{
-			TaskID:   task.ID,
-			Status:   task.Status,
-			Revision: task.Revision,
-			CanStart: task.CanStart,
-		})
+	if len(actions.targets) > 0 {
+		card.Drag(kanbanDragPayload{Task: task})
 	}
 
 	kanbanMu.Lock()
@@ -445,7 +441,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 			ui.Text(c, task.Title).Label(task.Title).FontSize(TypeBody).FontWeight(600).
 				MaxLines(2).TextColor(primaryText).Grow(1).MinWidth(0)
 			if card.Hovered() || card.FocusWithin() {
-				if task.CanStart {
+				if actions.primary == "开始" {
 					label := "开始"
 					if kanbanDisplayColumn(task) == "in_progress" {
 						label = "继续"
@@ -453,24 +449,28 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 					btn := Button(c.Key("kanban-task-"+task.ID+"-start"), ButtonOpts{
 						Text: label, Label: "kanban-task-" + task.ID + "-start", Size: ControlXS, Variant: ButtonPrimary,
 						OnClick: func() {
-							if task.Blocked || len(task.AttentionFlags) > 0 {
+							if kanbanTaskBusy(ks, task.ID) {
+								return
+							}
+							if task.Blocked {
 								s.setToast("暂不可启动：" + kanbanTaskBlockReason(task))
 								return
 							}
 							s.startTask(task.ID, task.Revision)
 						},
 					})
-					if task.Blocked || len(task.AttentionFlags) > 0 {
+					if task.Blocked {
 						btn.Tooltip("暂不可启动：" + kanbanTaskBlockReason(task))
 					}
-				} else if task.CanReview || kanbanDisplayColumn(task) == "needs_you" {
-					label := "处理"
-					if task.CanReview {
-						label = "审阅"
-					}
+				} else if actions.primary != "" {
+					label := actions.primary
 					Button(c.Key("kanban-task-"+task.ID+"-primary"), ButtonOpts{
 						Text: label, Label: label + " " + task.Title, Size: ControlXS, Variant: ButtonPrimary,
-						OnClick: func() { s.openTaskDetail(task) },
+						OnClick: func() {
+							if !kanbanTaskBusy(ks, task.ID) {
+								s.openTaskDetail(task)
+							}
+						},
 					})
 				}
 			}
@@ -498,6 +498,23 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 				ui.Text(c, signal+project).FontSize(TypeCaption).TextColor(kanbanSignalColor(c, tone)).SingleLine()
 			})
 		}
+		if task.Blocked && len(task.DependsOn) > 0 {
+			kanbanMu.Lock()
+			boardTasks := append([]KanbanTask(nil), ks.board.Tasks...)
+			kanbanMu.Unlock()
+			for _, depID := range task.DependsOn {
+				for _, dep := range boardTasks {
+					if dep.ID == depID {
+						dependency := dep
+						Button(c.Key("kanban-dependency-"+task.ID+"-"+dep.ID), ButtonOpts{
+							Text: dep.Title, Label: "前置任务 " + dep.Title, Size: ControlXS, Variant: ButtonSecondary,
+							OnClick: func() { s.openTaskDetail(dependency) },
+						})
+						break
+					}
+				}
+			}
+		}
 
 		// 移动选项菜单展开
 		if st.moveMenuTaskID == task.ID {
@@ -514,7 +531,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 						FontSize(TypeCaption).
 						TextColor(secondaryText)
 
-					for _, opt := range moveTargetsFor(task.Status) {
+					for _, opt := range actions.menu {
 						optVal := opt
 						Button(c.Key(optVal.key), ButtonOpts{
 							Text:    optVal.label,
@@ -525,7 +542,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 								kanbanMu.Lock()
 								ks.moveMenuTaskID = ""
 								kanbanMu.Unlock()
-								s.moveTask(task.ID, optVal.status, task.Revision)
+								s.performKanbanTarget(task, optVal.status)
 							},
 						})
 					}
@@ -533,7 +550,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 		}
 
 		// 救援菜单展开：打开会话、提醒 Agent、中断并重置、删除
-		if st.rescueMenuTaskID == task.ID {
+		if st.rescueMenuTaskID == task.ID && !kanbanTaskBusy(ks, task.ID) {
 			rescuable := task.Status == "in_progress" || len(task.AttentionFlags) > 0
 			ui.Row(c.Key("kanban-task-rescue-options-"+task.ID)).
 				Label("kanban-task-rescue-options-"+task.ID).
@@ -551,13 +568,13 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 							TextColor(secondaryText)
 					}
 
-					if task.Status == "done" || task.Column == "done" {
+					if (task.Status == "done" || task.Column == "done") && actions.targets["todo"] != "" {
 						Button(c.Key("kanban-task-"+task.ID+"-reopen"), ButtonOpts{
 							Text: "重新打开", Label: "kanban-task-" + task.ID + "-reopen", Size: ControlXS, Variant: ButtonSecondary,
-							OnClick: func() { s.moveTask(task.ID, "todo", task.Revision) },
+							OnClick: func() { s.performKanbanTarget(task, "todo") },
 						})
 					}
-					if task.CanMove && task.Status != "done" && !(task.Status == "cancelled" && task.Column == "done") {
+					if len(actions.menu) > 0 && task.Status != "done" && !(task.Status == "cancelled" && task.Column == "done") {
 						Button(c.Key("kanban-task-"+task.ID+"-move"), ButtonOpts{
 							Text: "移动", Label: "kanban-task-" + task.ID + "-move", Size: ControlXS, Variant: ButtonSecondary,
 							OnClick: func() {
@@ -742,207 +759,6 @@ func kanbanBoardColumnWidth(c *ui.Context, s *chatState) float32 {
 	return width
 }
 
-// renderKanbanOverview 渲染「全部项目」概览：每个项目一张圆角卡片，
-// 列出该项目最近的任务；点击任务或右上角按钮进入该项目的看板。
-func renderKanbanOverview(c *ui.Context, s *chatState, tasks []KanbanTask) {
-	s.mu.Lock()
-	projects := append([]Project(nil), s.projects...)
-	s.mu.Unlock()
-
-	// 没有任何项目时的空态
-	if len(projects) == 0 {
-		ui.Column(c.Key("kanban-overview-empty")).
-			Grow(1).
-			FillWidth().
-			Center().
-			Padding(Space7).
-			Gap(Space3).
-			Children(func() {
-				ui.Icon(c, IconFolderOpen()).
-					Size(kanbanEmptyIconSize, kanbanEmptyIconSize).
-					TextColor(ThemeSecondaryText(c).Alpha(0.5))
-				ui.Text(c, "还没有添加项目").
-					FontSize(TypeTitle).
-					FontWeight(600).
-					TextColor(ThemePrimaryText(c))
-				ui.Text(c, "在侧边栏添加项目后，这里会汇总各项目的任务").
-					FontSize(TypeFootnote).
-					TextColor(ThemeSecondaryText(c)).
-					MaxLines(2)
-			})
-		return
-	}
-
-	ui.Scroll(c.Key("kanban-overview-scroll")).
-		Grow(1).
-		FillWidth().
-		MinWidth(0).
-		Children(func() {
-			ui.Column(c.Key("kanban-overview-root")).
-				FillWidth().
-				Gap(Space3).
-				Children(func() {
-					ui.Text(c, "全部项目").
-						FontSize(TypeFootnote).
-						FontWeight(600).
-						TextColor(ThemeSecondaryText(c))
-
-					ui.Row(c.Key("kanban-overview-row")).
-						FillWidth().
-						Wrap().
-						Gap(kanbanColumnSpacing).
-						Children(func() {
-							for _, p := range projects {
-								proj := p
-								var projTasks []KanbanTask
-								for _, task := range tasks {
-									if task.ProjectID == proj.ID {
-										projTasks = append(projTasks, task)
-									}
-								}
-								renderKanbanOverviewCard(c, s, proj, projTasks)
-							}
-						})
-				})
-		})
-}
-
-// renderKanbanOverviewCard 渲染概览里的单个项目卡片。
-func renderKanbanOverviewCard(c *ui.Context, s *chatState, project Project, tasks []KanbanTask) {
-	const overviewCardWidth = float32(300)
-	const overviewTaskLimit = 6
-
-	sort.SliceStable(tasks, func(i, j int) bool {
-		return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt)
-	})
-
-	setOverview := func() {
-		// getKanbanState 内部会取 kanbanMu，这里先取状态再加锁，避免重复加锁自锁。
-		ks := getKanbanState(s)
-		if ks == nil {
-			return
-		}
-		kanbanMu.Lock()
-		ks.overview = false
-		kanbanMu.Unlock()
-	}
-
-	ui.Column(c.Key("kanban-overview-card-" + project.ID)).
-		Label("kanban-overview-card-" + project.ID).
-		Width(overviewCardWidth).
-		MaxHeight(kanbanOverviewCardMaxHeight).
-		Padding(Space3).
-		Radius(RadiusMD).
-		Background(ThemeSurfaceCard(c)).
-		BorderWidth(Hairline).
-		BorderColor(ThemeBorder(c)).
-		Gap(Space3).
-		Children(func() {
-			ui.Row(c.Key("kanban-overview-card-header-" + project.ID)).
-				FillWidth().
-				AlignItems(ui.Center).
-				Gap(Space3).
-				Children(func() {
-					ui.Icon(c, IconFolder()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-					ui.Text(c, project.Name).
-						FontSize(TypeBody).
-						FontWeight(600).
-						TextColor(ThemePrimaryText(c)).
-						Grow(1).
-						SingleLine()
-					kanbanCountBadge(c, "kanban-overview-count-"+project.ID, len(tasks), nil)
-					IconButton(c.Key("kanban-overview-open-"+project.ID), IconButtonProps{
-						Icon:  IconChevronRight(),
-						Label: "打开看板",
-						OnClick: func() {
-							setOverview()
-							s.setWorkspaceProject(project.ID)
-						},
-						Variant: ButtonGhost,
-						Size:    ControlMD,
-					})
-				})
-
-			if len(tasks) == 0 {
-				ui.Text(c, "暂无任务").
-					FontSize(TypeFootnote).
-					TextColor(ThemeSecondaryText(c)).
-					Center().
-					Padding(Space4, 0)
-				return
-			}
-
-			for i, task := range tasks {
-				if i >= overviewTaskLimit {
-					break
-				}
-				taskVal := task
-				row := ui.Row(c.Key("kanban-overview-task-"+taskVal.ID)).
-					Label("kanban-overview-task-"+taskVal.ID).
-					FillWidth().
-					Padding(Space1, Space2).
-					Radius(RadiusSM).
-					AlignItems(ui.Center).
-					Gap(Space2)
-				if row.Hovered() {
-					row.Background(ThemeHover(c))
-				}
-				row.OnClick(func() {
-					setOverview()
-					s.setWorkspaceProject(project.ID)
-				})
-				row.Children(func() {
-					ui.Text(c, taskVal.Title).
-						FontSize(TypeFootnote).
-						TextColor(ThemePrimaryText(c)).
-						Grow(1).
-						SingleLine()
-					if label := kanbanStatusBadge(taskVal); label != "" {
-						ui.Row(c.Key("kanban-overview-status-"+taskVal.ID)).
-							Padding(Space0, Space1).
-							Radius(RadiusXS).
-							Background(ThemeOverlay(c, 0.08)).
-							Children(func() {
-								ui.Text(c, label).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
-							})
-					}
-				})
-			}
-
-			// 超出概览上限的任务收成一行，点击进入该项目看完整看板
-			if len(tasks) > overviewTaskLimit {
-				more := len(tasks) - overviewTaskLimit
-				moreText := fmt.Sprintf("还有 %d 个任务", more)
-				moreRow := ui.ButtonBase(c.Key("kanban-overview-more-"+project.ID)).
-					Label(moreText).
-					FillWidth().
-					Height(ControlXS).
-					Padding(0, Space2).
-					Radius(RadiusSM).
-					AlignItems(ui.Center).
-					Gap(Space1).
-					Cursor(ui.CursorPointer).
-					Tooltip("进入该项目查看全部任务").
-					OnClick(func() {
-						setOverview()
-						s.setWorkspaceProject(project.ID)
-					})
-				if moreRow.Hovered() {
-					moreRow.Background(ThemeHover(c))
-				}
-				moreRow.Children(func() {
-					ui.Text(c, moreText).
-						FontSize(TypeCaption).
-						TextColor(ThemeSecondaryText(c)).
-						Grow(1)
-					ui.Icon(c, IconChevronRight()).
-						Size(kanbanBadgeIconSize, kanbanBadgeIconSize).
-						TextColor(ThemeSecondaryText(c))
-				})
-			}
-		})
-}
-
 // kanbanStatusBadge 返回任务状态徽标的文案，未知状态返回空串。
 func kanbanStatusBadge(task KanbanTask) string {
 	switch task.Status {
@@ -1021,30 +837,11 @@ func renderKanbanColumn(
 
 	// 原生拖拽投放响应 (Drop)
 	if payload, ok := ui.Drop[kanbanDragPayload](colBox); ok {
-		switch colKey {
-		case "in_progress":
-			if payload.Status == "todo" && payload.CanStart {
-				s.startTask(payload.TaskID, payload.Revision)
-			} else {
-				s.setToast("此任务暂不可启动，请先处理前置依赖或会话状态")
-			}
-		case "needs_you":
-			s.setToast("此列由会话状态决定，请打开任务会话处理")
-		default:
-			if payload.Status != colKey {
-				// 拖拽投放要按状态迁移规则过滤：后端只接受合法迁移（如 done、rejected 只能回到待办），
-				// 非法投放直接忽略并提示，避免发一次必定被拒的 MoveTask。
-				if !kanban.CanTransition(kanban.TaskStatus(payload.Status), kanban.TaskStatus(colKey)) {
-					s.setToast("此任务不能从当前状态移动到此列，请先回到待办")
-				} else {
-					s.moveTask(payload.TaskID, colKey, payload.Revision)
-				}
-			}
-		}
+		s.performKanbanTarget(payload.Task, colKey)
 	}
 
 	// 拖拽悬停高亮：目标列边框变 accent 2pt；needs_you 列不接受投放，不高亮
-	if _, over := ui.DragOver[kanbanDragPayload](colBox); over && colKey != "needs_you" {
+	if payload, over := ui.DragOver[kanbanDragPayload](colBox); over && kanbanActions(payload.Task, kanbanTaskBusy(ks, payload.Task.ID)).targets[colKey] != "" {
 		colBox.BorderWidth(kanbanDropBorder).BorderColor(ThemeAccent(c))
 	}
 

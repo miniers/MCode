@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,7 +62,10 @@ type automationState struct {
 	prompt           string
 	scheduleType     string // "interval", "once", "daily", "weekdays", "weekly", "cron"
 	intervalInput    string // 间隔分钟文本，默认 "60"
+	intervalUnit     string
+	timezone         string
 	timeOfDay        string // "09:00"
+	typeTimes        [3]string
 	dayOfWeek        int    // 0-6 (0 为周日，1 为周一)
 	cronExpr         string // "*/15"
 	onceDateStr      string // "2006-01-02 15:04"
@@ -73,6 +75,15 @@ type automationState struct {
 	maxRunsInput     string // 默认 "0"，0 表示不限制
 	catchUp          bool   // 错过触发时是否补跑，默认开启
 	formErr          string
+	scheduleErrors   map[string]string
+	draftBaseline    automationDraft
+	previewSchedule  AutomationSchedule
+	previewValid     bool
+	previewID        int
+	previewCancel    context.CancelFunc
+	previewTimer     *time.Timer
+	preview          AutomationSchedulePreview
+	previewVisible   bool
 
 	// 每次运行新建会话使用的模型与权限：空串表示跟随默认
 	provider    string
@@ -98,7 +109,13 @@ type automationState struct {
 	unread map[string]int
 
 	// 删除确认
-	confirmDelete bool
+	confirmDelete  bool
+	editorOpen     bool
+	confirmDiscard bool
+	detailTab      int
+	filter         int
+	unreadOnly     bool
+	narrowDetail   bool
 }
 
 func getAutomationState(s *chatState) *automationState {
@@ -212,8 +229,10 @@ func (s *chatState) loadAutomationList(projectID string, refreshForm bool) {
 				for _, a := range autos {
 					if a.ID == as.selectedID {
 						found = true
-						if refreshForm {
+						if refreshForm && !as.dirty() {
 							as.fillAutomation(a)
+						} else if refreshForm && a.Revision != as.editRevision {
+							as.conflict = true
 						}
 						break
 					}
@@ -283,6 +302,8 @@ func (s *chatState) loadAutomationRuns(automationID string) {
 func (as *automationState) selectAutomation(auto Automation, s *chatState) {
 	automationMu.Lock()
 	as.fillAutomation(auto)
+	as.detailTab = 0
+	as.narrowDetail = true
 	as.runs = nil
 	as.runRead = nil
 	as.runArchived = nil
@@ -312,19 +333,26 @@ func (as *automationState) fillAutomation(auto Automation) {
 	} else {
 		as.intervalInput = "60"
 	}
+	as.intervalUnit = "分钟"
+	as.timezone = auto.Schedule.Timezone
 	if auto.Schedule.TimeOfDay != "" {
 		as.timeOfDay = auto.Schedule.TimeOfDay
 	} else {
 		as.timeOfDay = "09:00"
 	}
 	as.dayOfWeek = auto.Schedule.DayOfWeek
+	as.typeTimes = [3]string{as.timeOfDay, as.timeOfDay, as.timeOfDay}
 	if auto.Schedule.Expression != "" {
 		as.cronExpr = auto.Schedule.Expression
 	} else {
 		as.cronExpr = "*/15 * * * *"
 	}
 	if !auto.Schedule.Date.IsZero() {
-		as.onceDateStr = auto.Schedule.Date.Local().Format("2006-01-02 15:04")
+		loc := time.Local
+		if tz, err := time.LoadLocation(as.timezone); as.timezone != "" && err == nil {
+			loc = tz
+		}
+		as.onceDateStr = auto.Schedule.Date.In(loc).Format("2006-01-02 15:04")
 	} else {
 		as.onceDateStr = time.Now().Add(24 * time.Hour).Format("2006-01-02 15:04")
 	}
@@ -344,6 +372,7 @@ func (as *automationState) fillAutomation(auto Automation) {
 	as.runMode = auto.RunMode
 	as.formErr = ""
 	as.confirmDelete = false
+	as.draftBaseline = as.draft()
 }
 
 // resetToNewAutomation 重置表单进入新建状态。
@@ -352,13 +381,18 @@ func (as *automationState) resetToNewAutomation(s *chatState) {
 	as.editSession++
 	as.selectedID = ""
 	as.isNew = true
+	as.editorOpen = true
+	as.confirmDiscard = false
 	as.editRevision = 0
 	as.schedule = AutomationSchedule{}
 	as.name = ""
 	as.prompt = ""
 	as.scheduleType = "interval"
 	as.intervalInput = "60"
+	as.intervalUnit = "分钟"
+	as.timezone = ""
 	as.timeOfDay = "09:00"
+	as.typeTimes = [3]string{"09:00", "09:00", "09:00"}
 	as.dayOfWeek = 1
 	as.cronExpr = "*/15 * * * *"
 	as.onceDateStr = time.Now().Add(24 * time.Hour).Format("2006-01-02 15:04")
@@ -377,15 +411,27 @@ func (as *automationState) resetToNewAutomation(s *chatState) {
 	as.confirmDelete = false
 	as.runs = nil
 	as.runsErr = ""
+	as.draftBaseline = as.draft()
 	automationMu.Unlock()
 	s.invalidate()
 }
 
 // automationDraftSnapshot 用于保留保存请求发出后的编辑。
-func (as *automationState) automationDraftSnapshot() ([15]string, int, bool, bool) {
-	return [15]string{as.name, as.prompt, as.scheduleType, as.intervalInput, as.timeOfDay,
+type automationDraft struct {
+	fields           [17]string
+	day              int
+	enabled, catchUp bool
+	typeTimes        [3]string
+}
+
+func (as *automationState) draft() automationDraft {
+	return automationDraft{[17]string{as.name, as.prompt, as.scheduleType, as.intervalInput, as.timeOfDay,
 		as.cronExpr, as.onceDateStr, as.stopWhen, as.maxFailuresInput, as.maxRunsInput,
-		as.provider, as.model, as.effort, as.runtimeMode, as.runMode}, as.dayOfWeek, as.enabled, as.catchUp
+		as.provider, as.model, as.effort, as.runtimeMode, as.runMode, as.intervalUnit, as.timezone}, as.dayOfWeek, as.enabled, as.catchUp, as.typeTimes}
+}
+
+func (as *automationState) dirty() bool {
+	return as.draft() != as.draftBaseline
 }
 
 // saveAutomation 校验并保存自动化。
@@ -405,15 +451,7 @@ func (s *chatState) saveAutomation() {
 	}
 	name := strings.TrimSpace(as.name)
 	prompt := strings.TrimSpace(as.prompt)
-	schedType := as.scheduleType
-	if schedType == "" {
-		schedType = "interval"
-	}
-	intervalMinutes, intervalErr := strconv.ParseFloat(strings.TrimSpace(as.intervalInput), 64)
-	timeOfDay := strings.TrimSpace(as.timeOfDay)
-	dayOfWeek := as.dayOfWeek
-	cronExpr := strings.TrimSpace(as.cronExpr)
-	onceDateStr := strings.TrimSpace(as.onceDateStr)
+	sched, scheduleErrors := automationScheduleFromDraft(as)
 	stopWhen := strings.TrimSpace(as.stopWhen)
 	enabled := as.enabled
 	maxFailures, failuresErr := strconv.Atoi(strings.TrimSpace(as.maxFailuresInput))
@@ -437,9 +475,8 @@ func (s *chatState) saveAutomation() {
 	}
 
 	curRevision := as.editRevision
-	originalSchedule := as.schedule
 	editSession := as.editSession
-	draft, draftDay, draftEnabled, draftCatchUp := as.automationDraftSnapshot()
+	draft := as.draft()
 	automationMu.Unlock()
 
 	// 表单校验
@@ -465,75 +502,9 @@ func (s *chatState) saveAutomation() {
 		return
 	}
 
-	var sched AutomationSchedule
-	sched.Type = schedType
-	sched.Timezone = originalSchedule.Timezone
-
-	switch schedType {
-	case "interval":
-		// 间隔未改动时原样保留原始秒数，避免把非预设值（如 90 秒）吸附成预设档
-		if originalSchedule.Type == "interval" && originalSchedule.Seconds > 0 &&
-			originalSchedule.Seconds == int(math.Round(intervalMinutes*60)) {
-			sched.Seconds = originalSchedule.Seconds
-			break
-		}
-		seconds := intervalMinutes * 60
-		if intervalErr != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) ||
-			seconds < 1 || seconds >= float64(math.MaxInt64/int64(time.Second)) {
-			automationMu.Lock()
-			as.formErr = "运行间隔必须大于 0 分钟"
-			automationMu.Unlock()
-			s.invalidate()
-			return
-		}
-		sched.Seconds = int(math.Round(seconds))
-	case "daily", "weekdays":
-		if _, err := time.Parse("15:04", timeOfDay); err != nil {
-			automationMu.Lock()
-			as.formErr = "时间格式必须符合 HH:MM"
-			automationMu.Unlock()
-			s.invalidate()
-			return
-		}
-		sched.TimeOfDay = timeOfDay
-	case "weekly":
-		_, err := time.Parse("15:04", timeOfDay)
-		if err != nil || dayOfWeek < 0 || dayOfWeek > 6 {
-			automationMu.Lock()
-			as.formErr = "时间格式必须符合 HH:MM"
-			automationMu.Unlock()
-			s.invalidate()
-			return
-		}
-		sched.TimeOfDay = timeOfDay
-		sched.DayOfWeek = dayOfWeek
-	case "cron":
-		if len(strings.Fields(cronExpr)) != 5 {
-			automationMu.Lock()
-			as.formErr = "cron 表达式必须包含五个字段，例如 */15 * * * *"
-			automationMu.Unlock()
-			s.invalidate()
-			return
-		}
-		sched.Expression = cronExpr
-	case "once":
-		parsedTime, err := time.ParseInLocation("2006-01-02 15:04", onceDateStr, time.Local)
-		if err != nil {
-			automationMu.Lock()
-			as.formErr = "单次时间格式必须为 2006-01-02 15:04"
-			automationMu.Unlock()
-			s.invalidate()
-			return
-		}
-		sched.Date = parsedTime
-		// 时间文本未改动时保留原始 Date，避免截断秒
-		if originalSchedule.Type == "once" && !originalSchedule.Date.IsZero() &&
-			onceDateStr == originalSchedule.Date.Local().Format("2006-01-02 15:04") {
-			sched.Date = originalSchedule.Date
-		}
-	default:
+	if len(scheduleErrors) != 0 {
 		automationMu.Lock()
-		as.formErr = "请选择有效的调度类型"
+		as.scheduleErrors = scheduleErrors
 		automationMu.Unlock()
 		s.invalidate()
 		return
@@ -545,6 +516,7 @@ func (s *chatState) saveAutomation() {
 		return
 	}
 	as.formErr = ""
+	as.scheduleErrors = nil
 	as.saving = true
 	as.saveID++
 	saveID := as.saveID
@@ -584,14 +556,15 @@ func (s *chatState) saveAutomation() {
 			}
 			as.saving = false
 			if as.editSession == editSession && as.selectedID == selectedID && as.isNew == isNew && err == nil {
-				currentDraft, day, enabled, catchUp := as.automationDraftSnapshot()
-				if currentDraft == draft && day == draftDay && enabled == draftEnabled && catchUp == draftCatchUp {
+				if as.draft() == draft {
 					as.fillAutomation(saved)
+					as.editorOpen = false
 				} else {
 					as.selectedID = saved.ID
 					as.isNew = false
 					as.editRevision = saved.Revision
 					as.schedule = saved.Schedule
+					as.draftBaseline = draft
 				}
 			}
 			automationMu.Unlock()
@@ -613,6 +586,17 @@ func (s *chatState) saveAutomation() {
 
 		s.loadAutomationList(curPID, false)
 	}()
+}
+
+func (as *automationState) closeEditor() {
+	if as.dirty() {
+		as.confirmDiscard = true
+		return
+	}
+	as.editorOpen = false
+	if as.isNew {
+		as.isNew = false
+	}
 }
 
 // deleteAutomation 删除当前选中的自动化。
@@ -768,6 +752,7 @@ func (s *chatState) setAutomationEnabled(auto Automation, enabled bool) {
 			if as.projectID == projectID && as.editSession == editSession && saved.ID == as.selectedID && !as.isNew &&
 				as.editRevision == a.Revision && saved.Revision == a.Revision+1 {
 				as.enabled = saved.Enabled
+				as.draftBaseline.enabled = saved.Enabled
 				as.editRevision = saved.Revision
 			}
 			automationMu.Unlock()
@@ -978,6 +963,19 @@ func filterAutomations(autos []Automation, query string) []Automation {
 	return out
 }
 
+func filterAutomationStatus(autos []Automation, query string, filter int, unreadOnly bool, unread map[string]int) []Automation {
+	visible := filterAutomations(autos, query)
+	out := make([]Automation, 0, len(visible))
+	for _, a := range visible {
+		failed := a.LastRunStatus == "failed" || (!a.Enabled && a.Status == "failed" && a.ConsecutiveFailures > 0)
+		if filter == 1 && !failed || filter == 2 && (a.Enabled || a.Status == "completed") || unreadOnly && unread[a.ID] == 0 {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // formatRelativeUntil 输出未来时间的相对描述，如“N 分钟后”“N 小时后”。
 func formatRelativeUntil(t time.Time) string {
 	if t.IsZero() {
@@ -1020,6 +1018,12 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 	if curPID != "" && (as.projectID != curPID || !as.initialized) {
 		automationMu.Lock()
 		if as.projectID != curPID {
+			if as.previewTimer != nil {
+				as.previewTimer.Stop()
+			}
+			if as.previewCancel != nil {
+				as.previewCancel()
+			}
 			*as = automationState{loadID: as.loadID, runsLoadID: as.runsLoadID, saveID: as.saveID, editSession: as.editSession + 1, watchStop: as.watchStop, runningIDs: make(map[string]bool), busyIDs: make(map[string]bool)}
 		}
 		as.projectID = curPID
@@ -1059,9 +1063,9 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 	automationMu.Unlock()
 
 	// 搜索过滤与排序：汇总计数与列表都只看过滤后的集合
-	visible := filterAutomations(autos, searchText)
+	visible := filterAutomationStatus(autos, searchText, as.filter, as.unreadOnly, unread)
 	// 未读运行记录总数：自动化入口角标依据
-	totalUnread := automationUnreadTotal(unread, visible)
+	totalUnread := automationUnreadTotal(unread, autos)
 	// 当前选中自动化在已加载记录中是否还有未读：“全部标为已读”按钮依据
 	selectedUnread := 0
 	for _, run := range runs {
@@ -1069,7 +1073,16 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 			selectedUnread++
 		}
 	}
+	var selected Automation
+	for _, auto := range autos {
+		if auto.ID == selectedID {
+			selected = auto
+			break
+		}
+	}
 
+	width, _ := c.Size()
+	narrow := width < 1000
 	// 汇总：已启用数量与最近一次计划运行时间
 	enabledCount := 0
 	var nextRunAt time.Time
@@ -1216,6 +1229,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 							OnClick: func() {
 								automationMu.Lock()
 								as.conflict = false
+								as.draftBaseline = as.draft()
 								automationMu.Unlock()
 								s.loadAutomations(curPID)
 							},
@@ -1231,16 +1245,21 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 				Gap(Space5).
 				Children(func() {
 					// 左侧自动化列表区
-					ui.Column(c.Key("automation-list-col")).
-						Width(240).
-						FillHeight().
-						Radius(RadiusMD).
-						Background(ThemeOverlay(c, 0.06)).
-						BorderWidth(Hairline).
-						BorderColor(ThemeBorder(c)).
-						Padding(Space3, Space4).
-						Gap(Space3).
-						Children(func() {
+					if !narrow || !as.narrowDetail || selectedID == "" {
+						listCol := ui.Column(c.Key("automation-list-col")).
+							FillHeight().
+							Radius(RadiusMD).
+							Background(ThemeOverlay(c, 0.06)).
+							BorderWidth(Hairline).
+							BorderColor(ThemeBorder(c)).
+							Padding(Space3, Space4).
+							Gap(Space3)
+						if narrow {
+							listCol.Grow(1)
+						} else {
+							listCol.Width(320)
+						}
+						listCol.Children(func() {
 							// 列表头与新建按钮
 							ui.Row(c.Key("automation-list-header")).
 								FillWidth().
@@ -1266,6 +1285,12 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 										Size:    ControlSM,
 									})
 								})
+							Segmented(c, "automation-status-filter", &as.filter, []Segment{{Label: "全部"}, {Label: "失败"}, {Label: "暂停"}}, func(i int) { as.filter = i; s.invalidate() })
+							unreadOnly := as.unreadOnly
+							if ui.Switch(c.Key("automation-unread-filter"), &unreadOnly).Label("未读").Changed() {
+								as.unreadOnly = unreadOnly
+								s.invalidate()
+							}
 
 							// 三态处理
 							if loading && len(autos) == 0 {
@@ -1304,7 +1329,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 							}
 
 							// 搜索无命中时展示搜索空态
-							if len(visible) == 0 && searchText != "" {
+							if len(visible) == 0 && (strings.TrimSpace(searchText) != "" || as.filter != 0 || as.unreadOnly) {
 								ui.Column(c.Key("automation-search-empty")).
 									Grow(1).
 									Center().
@@ -1314,9 +1339,10 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 										ui.Icon(c, IconSearch()).
 											Size(ControlLG, ControlLG).
 											TextColor(ThemeSecondaryText(c))
-										ui.Text(c, "没有匹配的自动化").
+										ui.Text(c, "未找到").
 											FontSize(TypeBody).
 											TextColor(ThemeSecondaryText(c))
+										Button(c.Key("automation-clear-filter"), ButtonOpts{Text: "清除筛选", OnClick: func() { as.filter = 0; as.unreadOnly = false; getKanbanState(s).searchText = ""; s.invalidate() }, Variant: ButtonSecondary})
 									})
 								return
 							}
@@ -1581,31 +1607,68 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 								})
 						})
 
+					}
 					// 右侧编辑表单与运行记录区
-					ui.Column(c.Key("automation-detail-col")).
-						Grow(1).
-						FillHeight().
-						Radius(RadiusMD).
-						Background(ThemeSurface(c)).
-						BorderWidth(Hairline).
-						BorderColor(ThemeBorder(c)).
-						Padding(Space5, Space5).
-						Gap(Space4).
-						Children(func() {
-							if !isNew && selectedID == "" {
-								ui.Column(c.Key("automation-select-prompt")).
-									Grow(1).
-									Center().
-									Children(func() {
-										ui.Text(c, "从左侧选择一项自动化查看，或点击“新建”创建").
-											FontSize(TypeBody).
-											TextColor(ThemeSecondaryText(c))
-									})
-								return
-							}
+					if !narrow || (as.narrowDetail && selectedID != "") {
+						ui.Column(c.Key("automation-detail-col")).
+							Grow(1).
+							FillHeight().
+							Radius(RadiusMD).
+							Background(ThemeSurface(c)).
+							BorderWidth(Hairline).
+							BorderColor(ThemeBorder(c)).
+							Padding(Space5, Space5).
+							Gap(Space4).
+							Children(func() {
+								if narrow {
+									Button(c.Key("automation-back"), ButtonOpts{Text: "← 自动化", OnClick: func() { as.narrowDetail = false; s.invalidate() }, Variant: ButtonGhost})
+								}
+								if !isNew && selectedID == "" {
+									ui.Column(c.Key("automation-select-prompt")).
+										Grow(1).
+										Center().
+										Children(func() {
+											ui.Text(c, "从左侧选择一项自动化查看，或点击“新建”创建").
+												FontSize(TypeBody).
+												TextColor(ThemeSecondaryText(c))
+										})
+									return
+								}
 
-							renderAutomationEditor(c, s, as, isNew, selectedID, formErr, saving, confirmDelete, runningIDs, busyIDs, selectedUnread, includeArchived, runsLoading, runsErr, runs, runRead, runArchived, openRunID)
-						})
+								if selectedID != "" && !isNew {
+									ui.Row(c.Key("automation-selected-header")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
+										ui.Text(c, selected.Name).FontSize(TypeTitle).TextColor(ThemePrimaryText(c)).Grow(1)
+										enabled := selected.Enabled
+										if ui.Switch(c.Key("automation-detail-toggle"), &enabled).Label("启用自动化").Changed() {
+											s.setAutomationEnabled(selected, enabled)
+										}
+										Button(c.Key("automation-detail-run"), ButtonOpts{Text: "立即运行", Disabled: runningIDs[selectedID] || busyIDs[selectedID], OnClick: func() { s.runAutomationNow(selectedID) }, Variant: ButtonSecondary})
+									})
+									ui.Text(c, automationScheduleText(selected.Schedule)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+									Segmented(c, "automation-detail-tabs", &as.detailTab, []Segment{{Label: "运行记录"}, {Label: "配置"}}, func(idx int) { as.detailTab = idx; s.invalidate() })
+									if as.detailTab == 0 {
+										ui.Scroll(c.Key("automation-history-scroll")).Grow(1).FillWidth().Children(func() {
+											renderAutomationRunHistory(c, s, as, false, selectedID, selectedUnread, includeArchived, runsLoading, runsErr, runs, runRead, runArchived, openRunID)
+										})
+									} else {
+										ui.Text(c, selected.Prompt).TextColor(ThemePrimaryText(c))
+										Button(c.Key("automation-edit"), ButtonOpts{Text: "编辑", OnClick: func() { as.fillAutomation(selected); as.editorOpen = true; s.invalidate() }, Variant: ButtonSecondary})
+									}
+								}
+							})
+					}
 				})
 		})
+	if as.editorOpen {
+		open := true
+		modalDragModal(c, "automation-editor-modal", &open, func() {
+			ui.Column(c.Key("automation-editor-card")).Width(700).Height(650).MaxWidth(700).Background(ThemeSurface(c)).Radius(RadiusMD).Padding(Space5, Space5).Gap(Space4).Children(func() {
+				renderAutomationEditor(c, s, as, isNew, selectedID, formErr, saving, confirmDelete, runningIDs, busyIDs, selectedUnread, includeArchived, runsLoading, runsErr, runs, runRead, runArchived, openRunID)
+			})
+		})
+		if !open {
+			as.closeEditor()
+			s.invalidate()
+		}
+	}
 }

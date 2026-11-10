@@ -335,12 +335,13 @@ func TestKanbanWorkspace_ReplanStates(t *testing.T) {
 
 func TestKanbanWorkspace_DragTransitions(t *testing.T) {
 	for _, tc := range []struct {
-		name, column, toast string
-		canStart            bool
+		name, column string
+		canStart     bool
+		invalid      bool
 	}{
 		{name: "start", column: "in_progress", canStart: true},
-		{name: "blocked", column: "in_progress", toast: "此任务暂不可启动，请先处理前置依赖或会话状态"},
-		{name: "derived", column: "needs_you", toast: "此列由会话状态决定，请打开任务会话处理"},
+		{name: "blocked", column: "in_progress", invalid: true},
+		{name: "derived", column: "needs_you", invalid: true},
 		{name: "move", column: "done"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -365,8 +366,7 @@ func TestKanbanWorkspace_DragTransitions(t *testing.T) {
 				tt.Move(from.X+5+(to.X+20-from.X-5)*fraction, from.Y+5+(to.Y+20-from.Y-5)*fraction)
 			}
 			tt.Release(to.X+20, to.Y+20)
-			if tc.toast != "" {
-				waitFor(t, tt, func() bool { return tt.HasText(tc.toast) })
+			if tc.invalid {
 				if len(fake.StartTaskCalls()) != 0 || len(fake.MoveTaskCalls()) != 0 {
 					t.Fatal("invalid drop changed the task")
 				}
@@ -387,7 +387,7 @@ func TestKanbanWorkspace_DragTransitions(t *testing.T) {
 }
 
 // TestKanbanWorkspace_DragRejectsInvalidTransition 验证拖拽投放按状态迁移规则过滤：
-// done 卡拖到「待审阅」属于后端不接受的迁移，只给提示、不发 MoveTask。
+// done 卡拖到「待审阅」属于后端不接受的迁移，不发 MoveTask。
 func TestKanbanWorkspace_DragRejectsInvalidTransition(t *testing.T) {
 	fake := NewFakeClient()
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{
@@ -410,7 +410,6 @@ func TestKanbanWorkspace_DragRejectsInvalidTransition(t *testing.T) {
 		tt.Move(from.X+5+(to.X+20-from.X-5)*fraction, from.Y+5+(to.Y+20-from.Y-5)*fraction)
 	}
 	tt.Release(to.X+20, to.Y+20)
-	waitFor(t, tt, func() bool { return tt.HasText("此任务不能从当前状态移动到此列，请先回到待办") })
 	if calls := fake.MoveTaskCalls(); len(calls) != 0 {
 		t.Fatalf("非法迁移不应调用 MoveTask: %+v", calls)
 	}
@@ -926,14 +925,14 @@ func TestKanbanWorkspace_SearchFilter(t *testing.T) {
 	})
 }
 
-// TestKanbanWorkspace_QuickAdd：待办列底部的「+ 添加任务」展开输入，回车以输入内容为标题创建任务并收起；Esc 取消不创建。
+// TestKanbanWorkspace_QuickAdd：成功后保留输入框以便连续添加；Esc 取消不创建。
 func TestKanbanWorkspace_QuickAdd(t *testing.T) {
 	fake := NewFakeClient()
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{
 		ID: "qa-1", ProjectID: "p1", Title: "已有任务", Status: "todo", Column: "todo",
 	}}})
 
-	tt, _ := newWorkspaceTester(t, fake, "tasks")
+	tt, state := newWorkspaceTester(t, fake, "tasks")
 	waitFor(t, tt, func() bool { return tt.HasText("已有任务") })
 
 	if err := tt.Click("kanban-quick-add-toggle"); err != nil {
@@ -975,7 +974,11 @@ func TestKanbanWorkspace_QuickAdd(t *testing.T) {
 	})
 	waitFor(t, tt, func() bool {
 		_, open := tt.Find("kanban-quick-add-input")
-		return !open
+		ks := getKanbanState(state)
+		kanbanMu.Lock()
+		empty := ks.quickAddText == ""
+		kanbanMu.Unlock()
+		return open && empty && tt.HasText("快速添加的任务")
 	})
 }
 

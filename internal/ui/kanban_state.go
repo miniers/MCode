@@ -88,8 +88,14 @@ type kanbanState struct {
 	watchPending bool
 	loadingScope string
 	taskBusy     map[string]bool
-	// viewMode 是当前会话的看板 / 列表 / 自动化视图；空值表示尚未应用默认视图。
-	viewMode string
+	// viewMode 保存任务的展示方式，destination 独立保存窗口目的。
+	viewMode         string
+	destination      string
+	automationSearch string
+	goalID           string
+	goalMenuOpen     bool
+	newMenuOpen      bool
+	goalDetailOpen   bool
 	// overview 为 true 时内容区显示「全部项目」概览。
 	overview bool
 	// selecting 为 true 时进入多选模式（本轮只做选中态视觉）。

@@ -66,13 +66,12 @@ func (s *chatState) closeTasksWindow() {
 }
 
 func (s *chatState) setTasksWindowView(view string) {
-	mode := kanbanConfiguredDefaultView(s)
-	if view == "automations" {
-		mode = kanbanViewAutomations
-	}
 	ks := getKanbanState(s)
 	kanbanMu.Lock()
-	ks.viewMode = mode
+	ks.destination = "tasks"
+	if view == "automations" {
+		ks.destination = "automations"
+	}
 	kanbanMu.Unlock()
 }
 
@@ -104,7 +103,7 @@ func OpenTasksWindow(client Client, view string, opts ...Option) *mygo.Window {
 		)
 		state, content := buildRoot(client, allOpts...)
 		win = mygo.NewWindow(mygo.WindowOptions{
-			Title:                "任务与看板",
+			Title:                "任务",
 			Width:                1140,
 			Height:               720,
 			MinWidth:             840,

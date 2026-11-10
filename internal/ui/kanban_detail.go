@@ -221,7 +221,7 @@ func renderTaskDetail(c *ui.Context, s *chatState, ks *kanbanState) {
 											Text:  "重新刷新",
 											Label: "kanban-task-detail-refresh",
 											OnClick: func() {
-												s.loadKanban(ks.projectID)
+												s.refreshKanban()
 											},
 											Variant: ButtonSecondary,
 										})

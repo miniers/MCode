@@ -43,6 +43,59 @@ type moveTargetOption struct {
 	key    string
 }
 
+type kanbanTaskActions struct {
+	primary string
+	targets map[string]string
+	menu    []moveTargetOption
+}
+
+// kanbanActions 为拖放和菜单计算相同的目标意图。
+func kanbanActions(task KanbanTask, busy bool) kanbanTaskActions {
+	actions := kanbanTaskActions{targets: make(map[string]string)}
+	if busy {
+		return actions
+	}
+	if task.CanStart {
+		actions.primary = "开始"
+	} else if task.CanReview || task.Status == "review" {
+		actions.primary = "审阅"
+	} else if kanbanDisplayColumn(task) == "needs_you" {
+		actions.primary = "处理"
+	}
+	if task.CanStart && !task.Blocked && task.Status == "todo" && kanbanDisplayColumn(task) != "in_progress" {
+		actions.targets["in_progress"] = "start"
+	}
+	if task.CanMove {
+		for _, opt := range moveTargetOptions {
+			if opt.status == "rejected" || opt.status == kanbanDisplayColumn(task) || !kanban.CanTransition(kanban.TaskStatus(task.Status), kanban.TaskStatus(opt.status)) {
+				continue
+			}
+			intent := "move"
+			if task.Status == "review" && opt.status == "done" {
+				intent = "review"
+			}
+			actions.targets[opt.status] = intent
+			actions.menu = append(actions.menu, opt)
+		}
+	}
+	if actions.targets["in_progress"] != "" {
+		actions.menu = append(actions.menu, moveTargetOption{status: "in_progress", label: "进行中", key: "kanban-move-in-progress"})
+	}
+	return actions
+}
+
+func (s *chatState) performKanbanTarget(task KanbanTask, target string) {
+	ks := getKanbanState(s)
+	switch kanbanActions(task, kanbanTaskBusy(ks, task.ID)).targets[target] {
+	case "start":
+		s.startTask(task.ID, task.Revision)
+	case "move":
+		s.moveTask(task.ID, target, task.Revision)
+	case "review":
+		s.openTaskDetail(task)
+	}
+}
+
 // 可移动的目标状态选项
 var moveTargetOptions = []moveTargetOption{
 	{status: "todo", label: "待办", key: "kanban-move-todo"},

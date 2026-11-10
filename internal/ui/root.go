@@ -83,10 +83,6 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				}
 				state.mu.Unlock()
 
-				if c.Shortcut(0, ui.KeyEscape) {
-					state.closeTasksWindow()
-					return
-				}
 				renderKanbanWindow(c, state)
 				renderKanbanNewTaskSheet(c, state)
 				renderKanbanNewGoalSheet(c, state)
@@ -448,9 +444,23 @@ func consumeKanbanEscape(s *chatState) bool {
 	if ks == nil {
 		return false
 	}
+	if kanbanProjectMenuOpen(s) {
+		setKanbanProjectMenuOpen(s, false)
+		return true
+	}
 	kanbanMu.Lock()
 	consumed := false
-	if ks.showNewTask {
+	if ks.goalMenuOpen || ks.newMenuOpen {
+		ks.goalMenuOpen = false
+		ks.newMenuOpen = false
+		consumed = true
+	} else if ks.goalDetailOpen {
+		ks.goalDetailOpen = false
+		consumed = true
+	} else if ks.detailTaskID != "" || ks.planReviewGoalID != "" || ks.outputsGoalID != "" {
+		// 详情自身处理 Esc；此处只阻止外层 sheet 同时关闭。
+		consumed = true
+	} else if ks.showNewTask {
 		ks.showNewTask = false
 		ks.newTaskTitle = ""
 		ks.newTaskNotes = ""
@@ -463,7 +473,10 @@ func consumeKanbanEscape(s *chatState) bool {
 		ks.quickAddOpen = false
 		ks.quickAddText = ""
 		consumed = true
-	} else if ks.searchText != "" {
+	} else if ks.destination == "automations" && ks.automationSearch != "" {
+		ks.automationSearch = ""
+		consumed = true
+	} else if ks.destination != "automations" && ks.searchText != "" {
 		ks.searchText = ""
 		consumed = true
 	}

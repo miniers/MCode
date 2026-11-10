@@ -1,13 +1,165 @@
 package mcodeui
 
+// CrychicUI datetime 包的 picker 待联网引入依赖后替换。
+
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/automation"
 )
+
+func automationScheduleFromDraft(as *automationState) (AutomationSchedule, map[string]string) {
+	sch := AutomationSchedule{Type: as.scheduleType, Timezone: strings.TrimSpace(as.timezone)}
+	if sch.Type == "" {
+		sch.Type = "interval"
+	}
+	errs := make(map[string]string)
+	loc := time.Local
+	if sch.Timezone != "" {
+		var err error
+		loc, err = time.LoadLocation(sch.Timezone)
+		if err != nil {
+			errs["timezone"] = "请输入有效的时区"
+			loc = time.Local
+		}
+	}
+	switch sch.Type {
+	case "interval":
+		value, err := strconv.ParseFloat(strings.TrimSpace(as.intervalInput), 64)
+		factor := 60.0
+		switch as.intervalUnit {
+		case "秒":
+			factor = 1
+		case "小时":
+			factor = 3600
+		}
+		seconds := value * factor
+		if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 1 || seconds >= float64(math.MaxInt64/int64(time.Second)) {
+			errs["interval"] = "运行间隔必须大于 0"
+		} else {
+			sch.Seconds = int(math.Round(seconds))
+		}
+	case "daily", "weekdays", "weekly":
+		sch.TimeOfDay = strings.TrimSpace(as.timeOfDay)
+		if _, err := time.Parse("15:04", sch.TimeOfDay); err != nil {
+			errs["time"] = "请输入有效时间"
+		}
+		if sch.Type == "weekly" {
+			sch.DayOfWeek = as.dayOfWeek
+			if sch.DayOfWeek < 0 || sch.DayOfWeek > 6 {
+				errs["day"] = "请选择星期"
+			}
+		}
+	case "cron":
+		sch.Expression = strings.TrimSpace(as.cronExpr)
+		if err := (automation.Schedule{Type: "cron", Expression: sch.Expression}).Validate(); err != nil {
+			errs["cron"] = "请输入有效的 Cron 表达式"
+		}
+	case "once":
+		text := strings.TrimSpace(as.onceDateStr)
+		parsed, err := time.ParseInLocation("2006-01-02 15:04", text, loc)
+		if err != nil {
+			parsed, err = time.ParseInLocation("2006-01-02 15:04:05", text, loc)
+		}
+		if err != nil {
+			errs["once"] = "请输入有效的日期和时间"
+		} else {
+			sch.Date = parsed
+			if as.schedule.Type == "once" && !as.schedule.Date.IsZero() && sch.Timezone == as.schedule.Timezone && text == as.schedule.Date.In(loc).Format("2006-01-02 15:04") {
+				sch.Date = as.schedule.Date
+			}
+		}
+	default:
+		errs["type"] = "请选择有效的调度类型"
+	}
+	return sch, errs
+}
+
+func (as *automationState) updateSchedulePreview(s *chatState) {
+	client, supported := s.client.(automationPreviewClient)
+	sch, errs := automationScheduleFromDraft(as)
+	valid := supported && len(errs) == 0
+	if as.previewValid == valid && (!valid || automationSchedulesEqual(as.previewSchedule, sch)) {
+		return
+	}
+	if as.previewTimer != nil {
+		as.previewTimer.Stop()
+	}
+	if as.previewCancel != nil {
+		as.previewCancel()
+	}
+	as.previewID++
+	id := as.previewID
+	as.previewValid, as.previewSchedule, as.previewVisible = valid, sch, false
+	if !valid {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	as.previewCancel = cancel
+	as.previewTimer = time.AfterFunc(200*time.Millisecond, func() {
+		result, err := client.PreviewAutomationSchedule(ctx, sch, time.Now(), 3)
+		s.updateWorkspace(func() {
+			automationMu.Lock()
+			defer automationMu.Unlock()
+			current, errs := automationScheduleFromDraft(as)
+			if as.previewID != id || ctx.Err() != nil || len(errs) != 0 || !automationSchedulesEqual(current, sch) {
+				return
+			}
+			as.preview = result
+			as.previewVisible = err == nil && (len(result.Times) > 0 || result.Exhausted)
+			s.invalidate()
+		})
+	})
+}
+
+func automationSchedulesEqual(a, b AutomationSchedule) bool {
+	return a.Type == b.Type && a.Seconds == b.Seconds && a.Date.Equal(b.Date) && a.TimeOfDay == b.TimeOfDay && a.Timezone == b.Timezone && a.DayOfWeek == b.DayOfWeek && a.Expression == b.Expression
+}
+
+func automationShortTime(t, now time.Time) string {
+	y, m, d := t.Date()
+	ny, nm, nd := now.Date()
+	if y == ny && m == nm && d == nd {
+		return "今天 " + t.Format("15:04")
+	}
+	ty, tm, td := now.AddDate(0, 0, 1).Date()
+	if y == ty && m == tm && d == td {
+		return "明天 " + t.Format("15:04")
+	}
+	days := []string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
+	return fmt.Sprintf("%d月%d日 %s %s", m, d, days[t.Weekday()], t.Format("15:04"))
+}
+
+func automationTimeTypeIndex(kind string) int {
+	switch kind {
+	case "daily":
+		return 0
+	case "weekdays":
+		return 1
+	case "weekly":
+		return 2
+	}
+	return -1
+}
+
+func (as *automationState) switchScheduleType(kind string) {
+	if i := automationTimeTypeIndex(as.scheduleType); i >= 0 {
+		as.typeTimes[i] = as.timeOfDay
+	}
+	as.scheduleType = kind
+	if i := automationTimeTypeIndex(kind); i >= 0 {
+		as.timeOfDay = as.typeTimes[i]
+		if as.timeOfDay == "" {
+			as.timeOfDay = "09:00"
+		}
+	}
+}
 
 // automationScheduleText 生成调度描述，如“每 60 分钟”“每天 09:00”“每周一 09:00”。
 func automationScheduleText(sch AutomationSchedule) string {
@@ -63,12 +215,12 @@ var scheduleTypeOptions = []struct {
 	key   string
 	label string
 }{
-	{key: "interval", label: "每隔N分钟"},
-	{key: "daily", label: "每天固定时间"},
-	{key: "weekdays", label: "工作日固定时间"},
-	{key: "weekly", label: "每周指定日"},
-	{key: "cron", label: "Cron表达式"},
-	{key: "once", label: "单次定时运行"},
+	{key: "daily", label: "每天"},
+	{key: "weekdays", label: "工作日"},
+	{key: "weekly", label: "每周"},
+	{key: "interval", label: "间隔"},
+	{key: "once", label: "单次"},
+	{key: "cron", label: "高级 Cron"},
 }
 
 // 星期几选项（周日开始）
@@ -107,25 +259,24 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 				FontWeight(500).
 				TextColor(ThemeSecondaryText(c))
 
-			// 调度类型用分段控件，节省纵向空间
-			typeSegments := make([]Segment, len(scheduleTypeOptions))
-			curTypeIdx := 0
+			typeLabels := make([]string, len(scheduleTypeOptions))
+			curType := "间隔"
 			for i, opt := range scheduleTypeOptions {
-				typeSegments[i] = Segment{Label: opt.label}
+				typeLabels[i] = opt.label
 				if opt.key == as.scheduleType {
-					curTypeIdx = i
+					curType = opt.label
 				}
 			}
-			Segmented(c, "automation-sched-type-seg", &curTypeIdx, typeSegments, func(idx int) {
-				if idx < 0 || idx >= len(scheduleTypeOptions) {
-					return
+			if ui.Select(c.Key("automation-sched-type-select"), &curType, typeLabels).Label("调度类型").Width(150).Changed() {
+				for _, opt := range scheduleTypeOptions {
+					if opt.label == curType {
+						as.switchScheduleType(opt.key)
+						break
+					}
 				}
-				automationMu.Lock()
-				as.scheduleType = scheduleTypeOptions[idx].key
 				as.formErr = ""
-				automationMu.Unlock()
 				s.invalidate()
-			}).Label("调度类型")
+			}
 		})
 
 	// 调度参数组：外套浅底容器
@@ -145,47 +296,15 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 							FontSize(TypeFootnote).
 							FontWeight(500).
 							TextColor(ThemeSecondaryText(c))
-						// 固定八档间隔；原始值不在八档内（如 1.5 分钟）时作为额外选项保留，
-						// 避免打开表单就把日程吸附成预设值
-						curInterval := strings.TrimSpace(as.intervalInput)
-						if v, err := strconv.ParseFloat(curInterval, 64); err != nil ||
-							math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 {
-							curInterval = "60"
-						}
-						intervalLabels := make([]string, 0, len(intervalMinuteOptions)+1)
-						intervalValues := make([]string, 0, len(intervalMinuteOptions)+1)
-						for _, m := range intervalMinuteOptions {
-							intervalLabels = append(intervalLabels, fmt.Sprintf("%d 分钟", m))
-							intervalValues = append(intervalValues, strconv.Itoa(m))
-						}
-						curIntervalLabel := ""
-						for i, v := range intervalValues {
-							if v == curInterval {
-								curIntervalLabel = intervalLabels[i]
-								break
+						ui.Row(c.Key("automation-interval-row")).Gap(Space2).Children(func() {
+							ui.TextInput(c.Key("automation-interval-input"), &as.intervalInput).Label("运行间隔").Width(110)
+							if as.intervalUnit == "" {
+								as.intervalUnit = "分钟"
 							}
-						}
-						if curIntervalLabel == "" {
-							curIntervalLabel = curInterval + " 分钟"
-							intervalLabels = append(intervalLabels, curIntervalLabel)
-							intervalValues = append(intervalValues, curInterval)
-						}
-						intervalSel := ui.Select(c.Key("automation-interval-select"), &curIntervalLabel, intervalLabels).
-							Label("运行间隔").
-							Width(140)
-						if intervalSel.Changed() {
-							minutes := "60"
-							for i, lbl := range intervalLabels {
-								if lbl == curIntervalLabel {
-									minutes = intervalValues[i]
-									break
-								}
-							}
-							automationMu.Lock()
-							as.intervalInput = minutes
-							as.formErr = ""
-							automationMu.Unlock()
-							s.invalidate()
+							ui.Select(c.Key("automation-interval-unit"), &as.intervalUnit, []string{"秒", "分钟", "小时"}).Label("间隔单位").Width(100)
+						})
+						if msg := as.scheduleErrors["interval"]; msg != "" {
+							ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
 						}
 					})
 
@@ -202,6 +321,9 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 							Placeholder("如 09:30").
 							Label("automation-time-input").
 							FillWidth()
+						if msg := as.scheduleErrors["time"]; msg != "" {
+							ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+						}
 					})
 
 			case "weekly":
@@ -217,27 +339,22 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 									FontSize(TypeFootnote).
 									FontWeight(500).
 									TextColor(ThemeSecondaryText(c))
-								ui.Row(c.Key("sched-day-options")).
-									Gap(Space1).
-									Children(func() {
-										daySegments := make([]Segment, len(dayOfWeekOptions))
-										curDayIdx := 0
-										for i, d := range dayOfWeekOptions {
-											daySegments[i] = Segment{Label: d.label}
-											if as.dayOfWeek == d.day {
-												curDayIdx = i
-											}
+								labels := make([]string, len(dayOfWeekOptions))
+								day := "周一"
+								for i, opt := range dayOfWeekOptions {
+									labels[i] = opt.label
+									if opt.day == as.dayOfWeek {
+										day = opt.label
+									}
+								}
+								if ui.Select(c.Key("automation-sched-day"), &day, labels).Label("星期几").Width(110).Changed() {
+									for _, opt := range dayOfWeekOptions {
+										if opt.label == day {
+											as.dayOfWeek = opt.day
+											break
 										}
-										Segmented(c, "automation-sched-day", &curDayIdx, daySegments, func(idx int) {
-											if idx < 0 || idx >= len(dayOfWeekOptions) {
-												return
-											}
-											automationMu.Lock()
-											as.dayOfWeek = dayOfWeekOptions[idx].day
-											automationMu.Unlock()
-											s.invalidate()
-										}).Label("星期几")
-									})
+									}
+								}
 							})
 
 						ui.Column(c.Key("sched-weekly-time-group")).
@@ -252,6 +369,9 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 									Placeholder("如 10:00").
 									Label("automation-time-input").
 									FillWidth()
+								if msg := as.scheduleErrors["time"]; msg != "" {
+									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+								}
 							})
 					})
 
@@ -268,6 +388,9 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 							Placeholder("如 */15 * * * *").
 							Label("automation-cron-input").
 							FillWidth()
+						if msg := as.scheduleErrors["cron"]; msg != "" {
+							ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+						}
 					})
 
 			case "once":
@@ -283,8 +406,36 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 							Placeholder("如 2026-10-20 14:00").
 							Label("automation-once-input").
 							FillWidth()
+						if msg := as.scheduleErrors["once"]; msg != "" {
+							ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+						}
 					})
 			}
 		})
+	ui.TextInput(c.Key("automation-timezone-input"), &as.timezone).Label("时区").Placeholder("时区（IANA）").FillWidth()
+	if msg := as.scheduleErrors["timezone"]; msg != "" {
+		ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+	}
+	as.updateSchedulePreview(s)
+	if as.previewVisible {
+		ui.Column(c.Key("automation-preview")).Gap(Space1).Children(func() {
+			ui.Text(c, "预计运行").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+			loc := time.Local
+			if as.timezone != "" {
+				if zone, err := time.LoadLocation(as.timezone); err == nil {
+					loc = zone
+				}
+			}
+			for i, t := range as.preview.Times {
+				if i >= 3 || (as.scheduleType == "once" && i >= 1) {
+					break
+				}
+				ui.Text(c, automationShortTime(t.In(loc), time.Now().In(loc))).FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+			}
+			if len(as.preview.Times) == 0 && as.preview.Exhausted {
+				ui.Text(c, "没有即将到来的运行").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+			}
+		})
+	}
 
 }

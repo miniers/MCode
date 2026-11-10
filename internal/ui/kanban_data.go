@@ -252,7 +252,7 @@ func (s *chatState) createGoal(projectID, prompt string) {
 	}()
 }
 
-// submitQuickAdd 提交待办列底部的快速添加，成功后清空草稿并收起输入框。
+// submitQuickAdd 提交待办列底部的快速添加，成功后清空草稿并保留输入框。
 func (s *chatState) submitQuickAdd(projectID string) {
 	if s == nil || s.client == nil {
 		return
@@ -647,7 +647,6 @@ func (s *chatState) startGoal(goalID string, revision int) {
 		return
 	}
 
-	pid := ks.projectID
 	go func() {
 		ctx := context.Background()
 		_, err := s.client.StartGoal(ctx, goalID, revision)
@@ -662,7 +661,7 @@ func (s *chatState) startGoal(goalID string, revision int) {
 			s.invalidate()
 			return
 		}
-		s.loadKanban(pid)
+		s.refreshKanban()
 	}()
 }
 
@@ -676,7 +675,6 @@ func (s *chatState) pauseGoal(goalID string, revision int) {
 		return
 	}
 
-	pid := ks.projectID
 	go func() {
 		ctx := context.Background()
 		_, err := s.client.PauseGoal(ctx, goalID, revision)
@@ -691,7 +689,7 @@ func (s *chatState) pauseGoal(goalID string, revision int) {
 			s.invalidate()
 			return
 		}
-		s.loadKanban(pid)
+		s.refreshKanban()
 	}()
 }
 
@@ -705,7 +703,6 @@ func (s *chatState) cancelGoal(goalID string, revision int) {
 		return
 	}
 
-	pid := ks.projectID
 	go func() {
 		ctx := context.Background()
 		_, err := s.client.CancelGoal(ctx, goalID, revision)
@@ -720,7 +717,7 @@ func (s *chatState) cancelGoal(goalID string, revision int) {
 			s.invalidate()
 			return
 		}
-		s.loadKanban(pid)
+		s.refreshKanban()
 	}()
 }
 
@@ -755,6 +752,6 @@ func (s *chatState) replanGoal(goalID, feedback string, revision int) {
 				ks.replanFeedback = ""
 			}
 		})
-		s.loadKanban(pid)
+		s.refreshKanban()
 	}()
 }
