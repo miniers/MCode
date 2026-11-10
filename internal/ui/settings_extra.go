@@ -283,11 +283,6 @@ func renderShortcutTable(c *ui.Context, st *SettingsState, hint string) {
 	}
 }
 
-// renderPageShortcuts 渲染快捷键展示页；全局快捷键已搬到「通用」页，这里只保留分组表。
-func renderPageShortcuts(c *ui.Context, st *SettingsState) {
-	renderShortcutTable(c, st, "点击输入框修改，格式如 Cmd+Shift+P；留空恢复默认。")
-}
-
 // renderShortcutKeysBadge 渲染快捷键键位小标签。
 func renderShortcutKeysBadge(c *ui.Context, sc appShortcut) {
 	ui.Box(c.Key("badge-shortcut-"+sc.id)).

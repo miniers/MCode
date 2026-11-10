@@ -85,13 +85,6 @@ func TestSettingsLayout_Dialog(t *testing.T) {
 	}
 }
 
-func absFloat32(v float32) float32 {
-	if v < 0 {
-		return -v
-	}
-	return v
-}
-
 // TestSettingsLayout_PageTitleSmallerThanLegacyTitle 校验页面标题改用 TypePageTitle 字号。
 // 字号读不出来，改为和 20 号字的参照文字比高度：两者在同一个 Tester 里量，避免写死行高。
 func TestSettingsLayout_PageTitleSmallerThanLegacyTitle(t *testing.T) {

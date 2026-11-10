@@ -11,7 +11,6 @@ import (
 // internal/ui/composer_capsules.go:73 renderComposerCapsule → Capsule{Tone: ToneNeutral, Size: ControlMD, Interactive: true, Dismissible: true}；实时状态用 LeadingDot。
 // internal/ui/kanban_modal.go:368 kanbanHeaderPill → Capsule{Tone: ToneAccent, Size: ControlSM, Interactive: true}；实心样式需另行处理。
 // internal/ui/settings_status.go:16 settingBadge → Badge(..., ToneNeutral)。
-// internal/ui/memory_panel_views.go:835 memoryChip → Chip(..., CapsuleProps{Tone: ToneNeutral, Size: ControlXS})；独立无障碍名称需另行处理。
 // internal/ui/git_pr_ui.go:528 renderGitPRTag → Badge(..., ToneNeutral)。
 // internal/ui/chat_header.go:757 renderGitBranchCapsule → Capsule{Tone: ToneNeutral, Size: ControlMD, Interactive: true}；独立无障碍名称需另行处理。
 // internal/ui/timeline_rows.go:458 renderUserMessageFileCapsule → Capsule{Tone: ToneNeutral, Size: ControlXS}；原有描边和文件名截断需迁移时处理。
@@ -122,9 +121,6 @@ func Capsule(c *ui.Context, p CapsuleProps) ui.Element {
 		}
 	})
 }
-
-// Chip 使用与 Capsule 一致的参数渲染胶囊。
-func Chip(c *ui.Context, p CapsuleProps) ui.Element { return Capsule(c, p) }
 
 // Badge 渲染紧凑的方角标记。
 func Badge(c *ui.Context, key any, text string, tone Tone) ui.Element {

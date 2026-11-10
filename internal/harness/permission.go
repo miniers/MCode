@@ -81,16 +81,6 @@ type MCPToolAllower interface {
 	MCPToolAllowed(ctx context.Context, toolName string) bool
 }
 
-// MCPToolAllowed 询问审批方是否对这次 MCP 工具调用直接放行。approver 未实现 MCPToolAllower
-// （含 nil）时返回 false，调用方保持原有判定。
-func MCPToolAllowed(ctx context.Context, approver Approver, toolName string) bool {
-	allower, ok := approver.(MCPToolAllower)
-	if !ok || allower == nil {
-		return false
-	}
-	return allower.MCPToolAllowed(ctx, toolName)
-}
-
 // onlyReadsCommand 只放行可直接识别的单条只读命令，复杂 shell 表达式交给审批。
 func onlyReadsCommand(command string) bool {
 	if strings.ContainsAny(command, "\r\n;&|<>`$\\\"'") {

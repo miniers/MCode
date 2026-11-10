@@ -481,23 +481,6 @@ func TestWebPushService_ObserveHub(t *testing.T) {
 	}
 }
 
-// threadsChangedListenerBackend 在 fakeBackend 基础上实现 AddThreadsChangedListener，模拟 MemoryBackend。
-type threadsChangedListenerBackend struct {
-	*fakeBackend
-	listeners []func(wire.ThreadsChanged)
-}
-
-func (b *threadsChangedListenerBackend) AddThreadsChangedListener(fn func(wire.ThreadsChanged)) func() {
-	b.listeners = append(b.listeners, fn)
-	return func() { b.listeners = nil }
-}
-
-func (b *threadsChangedListenerBackend) emit(tc wire.ThreadsChanged) {
-	for _, fn := range b.listeners {
-		fn(tc)
-	}
-}
-
 func newTestPushService(t *testing.T, store *DeviceStore) *WebPushService {
 	t.Helper()
 	svc, err := NewWebPushService(WebPushOptions{

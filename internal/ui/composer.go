@@ -2460,37 +2460,6 @@ func modelPreferencePin(provider, modelID string) ModelPin {
 	return ModelPin{Provider: provider, ModelID: modelID}
 }
 
-// renderSwarmSwitchButton 渲染弹层内的 Swarm 开关按钮，切换会话的 Swarm 多 bee 协作状态。
-func renderSwarmSwitchButton(c *ui.Context, s *chatState, threadID string, swarmOn bool) {
-	tip := "开启编排"
-	if swarmOn {
-		tip = "关闭编排"
-	}
-	btn := ui.ButtonBase(c.Key("composer-swarm-switch-btn")).
-		Label("编排").
-		Tooltip(tip).
-		Radius(RadiusSM).
-		Padding(Space0, Space2)
-	if swarmOn {
-		btn.Background(ThemeAccent(c).Alpha(0.18))
-	} else {
-		composerHoverBg(c, btn, btn.Hovered())
-	}
-	btn.OnClick(func() {
-		s.enableSwarmWithGlobal(!swarmOn)
-	})
-	btn.Children(func() {
-		ui.Row(c.Key("composer-swarm-switch-content")).Gap(Space0).AlignItems(ui.Center).Children(func() {
-			iconColor := ThemeSecondaryText(c)
-			if swarmOn {
-				iconColor = ThemeAccent(c)
-			}
-			ui.Icon(c, IconSwarm()).Size(IconSM, IconSM).TextColor(iconColor)
-			ui.Text(c, "编排").FontSize(TypeCaption).TextColor(iconColor)
-		})
-	})
-}
-
 var iconChevronLeft = parseLucideSVG(`<path d="m15 18-6-6 6-6"/>`)
 
 // contextUsageFraction 计算已用 tokens 占上下文窗口上限的比例（0.0 ~ 1.0）。

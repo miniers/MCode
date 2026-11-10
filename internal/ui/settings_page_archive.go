@@ -119,17 +119,6 @@ func loadArchivedThreads(st *SettingsState) {
 	go fetchArchivedThreadsWorker(st, client)
 }
 
-// loadArchivedThreadsSync 同步拉取归档会话，便于单元测试直接触发。
-func loadArchivedThreadsSync(st *SettingsState) {
-	client := archiveClient(st)
-	if client == nil {
-		return
-	}
-	beginArchiveLoad()
-
-	fetchArchivedThreadsWorker(st, client)
-}
-
 // archiveThreadsFetch 是归档页的数据源：项目名表与已归档会话。测试可替换它统计加载次数。
 var archiveThreadsFetch = func(ctx context.Context, client Client) ([]Thread, map[string]string, error) {
 	projs, err := client.Projects(ctx)

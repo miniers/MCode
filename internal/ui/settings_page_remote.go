@@ -236,11 +236,6 @@ func renderPageRemote(c *ui.Context, st *SettingsState) {
 	renderSettingsTreePage(c, st, pageRemote)
 }
 
-// renderRemoteAdvancedSections 保留旧入口：端口与访问域名已并入页面树的 remote.ports。
-func renderRemoteAdvancedSections(c *ui.Context, st *SettingsState) {
-	renderSettingsTreeSection(c, st, remotePortsSection, false)
-}
-
 // remoteRunningState 是“服务运行中”的可见性判断，供各 section 共用。
 func remoteRunningState(st *SettingsState) bool {
 	st.mu.Lock()

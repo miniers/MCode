@@ -1,10 +1,6 @@
 package backup
 
-import (
-	"os"
-
-	"mcode/internal/config"
-)
+import "mcode/internal/config"
 
 var SecretStoreFor = func(service string) config.SecretStore {
 	return config.NewSecretStore(service)
@@ -23,8 +19,6 @@ type StageOptions struct {
 	Password []byte
 }
 
-type Info struct{ Version uint16 }
-
 type SecretFailure struct{ Service, Account, Reason string }
 
 type Result struct {
@@ -33,18 +27,4 @@ type Result struct {
 	SecretFailures    []SecretFailure
 	InvalidProjectIDs []string
 	Error             string `json:"error,omitempty"`
-}
-
-// Inspect reads only the outer header; it does not authenticate the archive.
-func Inspect(path string) (Info, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return Info{}, err
-	}
-	defer file.Close()
-	header, err := ReadHeader(file)
-	if err != nil {
-		return Info{}, err
-	}
-	return Info{Version: header.Version}, nil
 }

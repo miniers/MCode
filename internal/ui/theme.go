@@ -37,25 +37,17 @@ var (
 	ColorPlanLight    = ui.Hex("#AF52DE") // Plan 模式高亮 (系统紫，浅色)
 	ColorPlanDark     = ui.Hex("#BF5AF2") // Plan 模式高亮 (系统紫，深色)
 
-	// 交互叠加态 (8% hover, 12% selected, 3.5% emphasized)
-	ColorHoverLight      = ui.RGBA(0, 0, 0, 0.08)
-	ColorHoverDark       = ui.RGBA(255, 255, 255, 0.08)
-	ColorSelectedLight   = ui.RGBA(0, 0, 0, 0.12)
-	ColorSelectedDark    = ui.RGBA(255, 255, 255, 0.12)
-	ColorEmphasizedLight = ui.RGBA(0, 0, 0, 0.035)
-	ColorEmphasizedDark  = ui.RGBA(255, 255, 255, 0.035)
+	// 交互叠加态 (8% hover, 12% selected)
+	ColorHoverLight    = ui.RGBA(0, 0, 0, 0.08)
+	ColorHoverDark     = ui.RGBA(255, 255, 255, 0.08)
+	ColorSelectedLight = ui.RGBA(0, 0, 0, 0.12)
+	ColorSelectedDark  = ui.RGBA(255, 255, 255, 0.12)
 
 	// 分隔线与边框 (Divider 22%, Border 14%)
 	ColorDividerLight = ui.RGBA(0, 0, 0, 0.22)
 	ColorDividerDark  = ui.RGBA(255, 255, 255, 0.22)
 	ColorBorderLight  = ui.RGBA(0, 0, 0, 0.14)
 	ColorBorderDark   = ui.RGBA(255, 255, 255, 0.14)
-
-	// 置顶会话背景色 (10% 基础，选中叠加 6%)
-	ColorPinnedBgLight       = ui.RGBA(255, 59, 48, 0.10)
-	ColorPinnedBgDark        = ui.RGBA(255, 69, 58, 0.10)
-	ColorPinnedSelectedLight = ui.RGBA(255, 59, 48, 0.16)
-	ColorPinnedSelectedDark  = ui.RGBA(255, 69, 58, 0.16)
 )
 
 // 字号与字重常量
@@ -425,28 +417,6 @@ func ThemeSelected(c *ui.Context) ui.Color {
 		return ColorSelectedDark
 	}
 	return ColorSelectedLight
-}
-
-// ThemeEmphasized 返回当前模式的强调态叠加色 (3.5%)。
-func ThemeEmphasized(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorEmphasizedDark
-	}
-	return ColorEmphasizedLight
-}
-
-// ThemePinnedBg 返回置顶会话的背景色。
-func ThemePinnedBg(c *ui.Context, selected bool) ui.Color {
-	if isDark(c) {
-		if selected {
-			return ColorPinnedSelectedDark
-		}
-		return ColorPinnedBgDark
-	}
-	if selected {
-		return ColorPinnedSelectedLight
-	}
-	return ColorPinnedBgLight
 }
 
 // ThemeDivider 返回当前模式的分隔线颜色 (22%)。

@@ -23,17 +23,6 @@ import (
 // 整个 TOML 表被当作一个单元处理：调用方拥有的表（例如一个模型 provider）
 // 原样整体替换，文件里其它每一行都不动。
 
-// TOMLTables 按文件顺序列出显式的普通表头（不含数组表）。名字是表头的键
-// 路径：带引号的部分保留引号，点号两侧的空白不属于名字，所以 `[ a . b ]`
-// 的名字是 `a.b`。文件不存在返回 (nil, nil)；错误带路径。
-func TOMLTables(path string) ([]string, error) {
-	doc, err := tomlFileOf(path)
-	if err != nil {
-		return nil, err
-	}
-	return doc.names, nil
-}
-
 // GetTOMLTable 返回一个表的标量键；文件或表不存在时返回 (nil, nil)。读取
 // 或解析错误带路径返回。字符串会被解码，其它标量（布尔、数字、日期和时间）
 // 保留字面文本。数组和内联表省略。同名数组表是类型错误，不是表不存在。
@@ -364,11 +353,6 @@ func tomlFileOf(path string) (tomlFile, error) {
 	if err != nil {
 		return tomlFile{}, fmt.Errorf("%s: %w", path, err)
 	}
-	for _, table := range doc.tables {
-		if !table.array {
-			doc.names = append(doc.names, table.name)
-		}
-	}
 	return doc, nil
 }
 
@@ -384,7 +368,6 @@ func parseTOMLTables(lines []string) ([]tomlTableSpan, error) {
 type tomlFile struct {
 	root   tomlTableSpan
 	tables []tomlTableSpan
-	names  []string // TOMLTables
 }
 
 // parseTOMLFile 是带顶层键的 parseTOMLTables，定位方式相同：一个键的范围

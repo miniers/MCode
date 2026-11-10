@@ -388,14 +388,6 @@ func workbenchContextInjectEntries(manifest *projctx.Manifest) []workbenchInject
 	return docs
 }
 
-// workbenchContextCustomDocs 返回 docs/ 下的自定义文档信息。
-func workbenchContextCustomDocs(manifest *projctx.Manifest) []projctx.DocInfo {
-	if manifest == nil {
-		return nil
-	}
-	return manifest.Custom()
-}
-
 // contextInjectDocKey 把配置中保存的注入 key 规整为文档 refID；无法识别时原样返回。
 // 历史配置里自定义文档按文件名保存（notes.md），这里规整为 docs/notes.md 以兼容旧值。
 func contextInjectDocKey(name string) string {
@@ -439,6 +431,3 @@ func setContextInjectDocEnabled(names []string, name string, enabled bool) []str
 	}
 	return out
 }
-
-// renderWorkbenchAdvancedSections 保留给旧分发分支引用；工作台页已由页面树接管，进阶项在 advancedWorkbench。
-func renderWorkbenchAdvancedSections(c *ui.Context, st *SettingsState) {}

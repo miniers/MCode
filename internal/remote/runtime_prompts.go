@@ -66,11 +66,6 @@ func bundleFollowUpText(items []wire.FollowUp) string {
 	return strings.Join(append([]string{header}, sections...), "\n\n")
 }
 
-// BundleFollowUpText 是 bundleFollowUpText 的导出别名。
-func BundleFollowUpText(items []wire.FollowUp) string {
-	return bundleFollowUpText(items)
-}
-
 // flattenText 辅助函数：将多余换行与空白压缩为单空格分隔。
 func flattenText(text string) string {
 	return strings.Join(strings.Fields(text), " ")
@@ -132,11 +127,6 @@ func BuildLimitHandoffText(turnMessages []wire.ThreadMessage, title string) stri
 	}
 	blocks = append(blocks, "Please finish the remaining work here. If anything is ambiguous, ask me instead of guessing.")
 	return strings.Join(blocks, "\n\n")
-}
-
-// buildLimitHandoffText 是 BuildLimitHandoffText 的未导出别名。
-func buildLimitHandoffText(turnMessages []wire.ThreadMessage, title string) string {
-	return BuildLimitHandoffText(turnMessages, title)
 }
 
 // mentionedThread 表示被 @ 提及的会话结构。
@@ -379,11 +369,6 @@ func buildMentionContext(threads []mentionedThread) string {
 	return preamble + strings.Join(fitted, "\n\n") + suffix
 }
 
-// BuildMentionContext 是 buildMentionContext 的导出别名。
-func BuildMentionContext(threads []mentionedThread) string {
-	return buildMentionContext(threads)
-}
-
 // handoffTranscriptMsg 是交接用的一条可见对话：只含用户与助手正文。
 type handoffTranscriptMsg struct {
 	role string
@@ -489,9 +474,4 @@ Until now this chat was handled by a different agent. A condensed copy of that c
 		return handoffText
 	}
 	return handoffText + "\n\n" + prompt
-}
-
-// BuildProviderHandoffPrompt 是 buildProviderHandoffPrompt 的导出别名。
-func BuildProviderHandoffPrompt(history []wire.ThreadMessage, prompt string) string {
-	return buildProviderHandoffPrompt(history, prompt)
 }

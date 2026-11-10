@@ -173,9 +173,3 @@ func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageConversati
 func renderPageConversation(c *ui.Context, st *SettingsState) {
 	renderSettingsTreePage(c, st, pageConversation)
 }
-
-// renderConversationAdvancedSections 只为 settings.go 里尚未删除的旧高级区分支保活：
-// 行已经并入页面树，这里按「会话」节渲染，实际分发不会再走到。
-func renderConversationAdvancedSections(c *ui.Context, st *SettingsState) {
-	renderSettingsTreeSection(c, st, advancedConversation, false)
-}

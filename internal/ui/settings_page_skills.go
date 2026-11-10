@@ -128,10 +128,6 @@ var sectionSkills = settingsSection{
 	}},
 }
 
-func renderPageSkills(c *ui.Context, st *SettingsState) {
-	renderSettingsTreePage(c, st, pageExtensions)
-}
-
 func renderSkillsContent(c *ui.Context, st *SettingsState) {
 	st.ensureAgentConfCurrent()
 	st.mu.Lock()

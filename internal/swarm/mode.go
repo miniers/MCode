@@ -57,13 +57,3 @@ func EffectiveMode(threadMode string, global GlobalMode) string {
 	}
 	return ModeCollaborative
 }
-
-// LeadsPlansOnly 判断会话当前是否处于「主导只规划」。
-func LeadsPlansOnly(threadMode string, global GlobalMode) bool {
-	return EffectiveMode(threadMode, global) == ModeLeadPlansOnly
-}
-
-// AlwaysSendsToBees 判断会话当前是否处于「每条消息都派给 bee」。
-func AlwaysSendsToBees(threadMode string, global GlobalMode) bool {
-	return EffectiveMode(threadMode, global) == ModeAlwaysBees
-}

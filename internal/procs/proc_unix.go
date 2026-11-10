@@ -23,18 +23,6 @@ func procTable() ([]Proc, error) {
 	return parseProcTable(string(out)), nil
 }
 
-// Descendants 返回 rootPID 的全部后代进程（不含 rootPID 自身），按 ppid 递归收集。
-func Descendants(rootPID int) ([]Proc, error) {
-	if rootPID <= 0 {
-		return nil, fmt.Errorf("procs: 非法 rootPID %d", rootPID)
-	}
-	table, err := procTable()
-	if err != nil {
-		return nil, err
-	}
-	return collectDescendants(rootPID, table), nil
-}
-
 // KillTreesStartedAfter 终止 rootPID 后代中「启动时间不早于 since 减 2 秒、且父进程启动时间早于该阈值」
 // 的子树：先按子先于父的顺序发 SIGTERM，grace 之后对仍存活的进程发 SIGKILL。
 // 返回被发送过信号的进程数；常驻子进程（如会话开始时就启动的 MCP server）不会被选中。

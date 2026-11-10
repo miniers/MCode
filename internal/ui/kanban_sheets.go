@@ -65,15 +65,6 @@ func closeKanbanNewGoalSheet(s *chatState) {
 	s.invalidate()
 }
 
-// kanbanSheetWidth 计算弹窗宽度：基准宽度，并在窗口较窄时留出边距。
-func kanbanSheetWidth(c *ui.Context, base float32) float32 {
-	winWidth, _ := c.Size()
-	if winWidth > 100 && base > winWidth-2*kanbanModalInset {
-		base = winWidth - 2*kanbanModalInset
-	}
-	return base
-}
-
 // kanbanSheetLabel 渲染弹窗里的字段名。
 func kanbanSheetLabel(c *ui.Context, key, text string) {
 	ui.Text(c, text).

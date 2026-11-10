@@ -151,12 +151,6 @@ var advancedMemory = settingsSection{
 	},
 }
 
-// renderNowledgeAdvancedSections 渲染记忆页的高级项。记忆页已迁入页面树，页面直接画出这一节，
-// 这个入口只为 settings.go 里尚未迁移的旧分支保留。
-func renderNowledgeAdvancedSections(c *ui.Context, st *SettingsState) {
-	renderSettingsTreeSection(c, st, advancedMemory, false)
-}
-
 // nowledgeSpaceLoadResult 是一次后台加载的结果：空间列表与各项目的解析结果。
 type nowledgeSpaceLoadResult struct {
 	spaces      []MemorySpace

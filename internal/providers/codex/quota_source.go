@@ -78,18 +78,6 @@ var (
 	rateLimitsCache = map[string]cachedQuotaLimits{}
 )
 
-// ReadRateLimits 按默认运行时（PATH 中的 codex 与继承的登录环境）读取额度。
-func ReadRateLimits(ctx context.Context) (RateLimits, error) {
-	return ReadQuotaLimits(ctx, QuotaOptions{})
-}
-
-// ResetRateLimitsCache 清除额度内存缓存，供单元测试使用。
-func ResetRateLimitsCache() {
-	rateLimitsMu.Lock()
-	rateLimitsCache = map[string]cachedQuotaLimits{}
-	rateLimitsMu.Unlock()
-}
-
 // ReadQuotaLimits 判定 Codex 实际使用的额度来源并读取：直连 OpenAI 的 ChatGPT 登录走
 // account/rateLimits/read，Magpie 网关读该网关的账号卡片，其他网关、认证方式或读不到的
 // 配置一律返回错误（调用方据此显示不可用，不能回退到本机登录的额度）。
@@ -113,15 +101,6 @@ func ReadQuotaLimits(ctx context.Context, opts QuotaOptions) (RateLimits, error)
 	}
 	rateLimitsCache[key] = cachedQuotaLimits{limits: limits, at: time.Now()}
 	return cloneRateLimits(limits), nil
-}
-
-// FetchRateLimits 以 binary 启动 App Server 读取一次额度，不走缓存。
-func FetchRateLimits(ctx context.Context, binary string) (RateLimits, error) {
-	binPath, err := resolveQuotaBinary(binary)
-	if err != nil {
-		return RateLimits{}, err
-	}
-	return readQuotaLimitsUncached(ctx, binPath, QuotaOptions{Binary: binary})
 }
 
 // quotaCacheKey 让不同来源（可执行文件）、工作目录与 CODEX_HOME 的额度互不串用。

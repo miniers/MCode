@@ -583,23 +583,6 @@ func TestSettings_ModelsPage_LimitAndCollapse(t *testing.T) {
 
 }
 
-// waitProviderPreferencePersisted 等后台 goroutine 把「上次使用的 Agent」写进 dataDir 的配置。
-// 超时不判失败：真要出问题，t.TempDir() 的清理会自己报出 unlinkat，不会静默吞掉。
-func waitProviderPreferencePersisted(t *testing.T, dataDir string, provider string) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		cfg, err := config.Load(dataDir)
-		if err == nil && cfg.Models.ProviderSelected && cfg.Models.Provider == provider {
-			return
-		}
-		if time.Now().After(deadline) {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
 type modelsPageTestClient struct {
 	Client
 	list    func(context.Context) ([]ModelPin, int, error)
@@ -1524,12 +1507,6 @@ func (c *piMagpieTestClient) SetPiMagpieModels(endpointID string, modelIDs []str
 		break
 	}
 	return nil
-}
-
-func (c *piMagpieTestClient) savedModels(endpointID string) []string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]string(nil), c.saved[endpointID]...)
 }
 
 // TestSettings_ModelsPage_PiWithoutMagpieHasNoInjectHint 覆盖：没有 Magpie 端点时 pi 走通用模型列表，

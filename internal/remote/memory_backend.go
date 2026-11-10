@@ -427,10 +427,6 @@ func (b *MemoryBackend) nowLocked() time.Time {
 	return time.Now().UTC()
 }
 
-func (b *MemoryBackend) nowFormatted() string {
-	return b.now().Format(time.RFC3339Nano)
-}
-
 // SetSwarm 设置 Swarm 能力可用性及会话启用判断函数。
 func (b *MemoryBackend) SetSwarm(available bool, enabledFor func(threadID string) bool) {
 	b.mu.Lock()

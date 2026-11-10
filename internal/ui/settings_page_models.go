@@ -41,11 +41,10 @@ type modelsPageState struct {
 	loadSince time.Time // 本次加载的发起时间，用于超时放弃
 	// loadErr 是加载失败（固定模型列表/偏好读取不出来），会隐藏「你的模型」；
 	// catalogErr 是供应商目录读取失败，只提示不隐藏列表；opErr 是添加/排序/移除失败。
-	loadErr          string
-	catalogErr       string
-	opErr            string
-	searchQuery      string
-	providerExpanded map[string]bool
+	loadErr     string
+	catalogErr  string
+	opErr       string
+	searchQuery string
 	// providerSearch 按供应商 ID 保存局部搜索词；用指针是因为 ui.TextInput 需要可寻址的值。
 	providerSearch map[string]*string
 	// magpieListScroll 按滚动容器的 key 保存 Magpie 端点模型列表的滚动位置（懒初始化），
@@ -108,11 +107,10 @@ func (st *SettingsState) refreshModels() {
 
 func newModelsPageState() modelsPageState {
 	return modelsPageState{
-		limit:            config.MaxModelListLimit,
-		dragFrom:         -1,
-		providerExpanded: make(map[string]bool),
-		providerSearch:   make(map[string]*string),
-		preferences:      make(map[string]ModelPreference),
+		limit:          config.MaxModelListLimit,
+		dragFrom:       -1,
+		providerSearch: make(map[string]*string),
+		preferences:    make(map[string]ModelPreference),
 	}
 }
 
@@ -355,27 +353,6 @@ func filterProviderModels(providers []ProviderInfo, query string, keepEmpty ...b
 	return res
 }
 
-func filterModelPins(providers []ProviderInfo, pins []ModelPin, query string) []ModelPin {
-	if strings.TrimSpace(query) == "" {
-		return append([]ModelPin(nil), pins...)
-	}
-	var visible []ModelPin
-	for _, pin := range pins {
-		info := resolveModelInfoFromProviders(providers, pin)
-		provider := ProviderInfo{ID: pin.Provider, Models: []ModelInfo{info}}
-		for _, p := range providers {
-			if p.ID == pin.Provider {
-				provider.Name = p.Name
-				break
-			}
-		}
-		if len(filterProviderModels([]ProviderInfo{provider}, query)) > 0 {
-			visible = append(visible, pin)
-		}
-	}
-	return visible
-}
-
 // providerEnabledMap 汇总各供应商当前的启用状态，供渲染时跳过已关闭供应商的模型。
 // 取值优先级（后者覆盖前者）：页面加载时读到的 ProviderSettings、供应商页已加载的行设置、
 // 配置里直接控制的启用开关（claude/codex/agy 与自定义端点）。只读取，不写回任何数据。
@@ -441,19 +418,6 @@ func resolveModelName(providers []ProviderInfo, pin ModelPin) string {
 		}
 	}
 	return pin.ModelID
-}
-
-func resolveModelInfoFromProviders(providers []ProviderInfo, pin ModelPin) ModelInfo {
-	for _, p := range providers {
-		if p.ID == pin.Provider {
-			for _, m := range p.Models {
-				if m.ID == pin.ModelID {
-					return m
-				}
-			}
-		}
-	}
-	return ModelInfo{ID: pin.ModelID, Name: pin.ModelID}
 }
 
 // pinPickerProviders 返回只包含该固定模型所属 provider 的目录（推理强度卡片只针对该模型）。
@@ -571,12 +535,6 @@ var pageModels = settingsPage{
 }
 
 func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageModels) }
-
-func renderPageModels(c *ui.Context, st *SettingsState) *modelsLibraryView {
-	lib := modelsPageLibrary(c, st)
-	renderSettingsTreePage(c, st, pageModels)
-	return lib
-}
 
 func renderAddModelPin(c *ui.Context, st *SettingsState) {
 	lib := modelsPageLibrary(c, st)
@@ -931,69 +889,6 @@ func renderPinnedModelRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 	row.Translate(0, offset)
 }
 
-func renderProviderModelsSection(c *ui.Context, st *SettingsState, ps *modelsPageState, client Client, p ProviderInfo) {
-	isExpanded := true
-	if val, ok := ps.providerExpanded[p.ID]; ok {
-		isExpanded = val
-	}
-
-	SectionCard(c, "sec-models-provider-"+p.ID, "", func() {
-		header := ui.ButtonBase(c.Key("header-models-provider-"+p.ID)).
-			Label("header-models-provider-"+p.ID).
-			Padding(Space4, Space5).
-			Radius(RadiusLG)
-
-		if header.Hovered() {
-			header.Background(ThemeHover(c))
-		} else {
-			header.Background(ui.Transparent)
-		}
-
-		header.OnClick(func() {
-			ps.providerExpanded[p.ID] = !isExpanded
-			st.invalidate()
-		})
-
-		header.Children(func() {
-			ui.Row(c.Key("row-header-models-provider-" + p.ID)).
-				Grow(1).
-				AlignItems(ui.Center).
-				Justify(ui.SpaceBetween).
-				Children(func() {
-					ui.Row(c.Key("header-title-" + p.ID)).
-						Gap(Space3).
-						AlignItems(ui.Center).
-						Children(func() {
-							dispName := p.Name
-							if dispName == "" {
-								dispName = p.ID
-							}
-							ui.Text(c, dispName).
-								FontSize(TypeProse).
-								FontWeight(600).
-								TextColor(ThemePrimaryText(c))
-							ui.Text(c, fmt.Sprintf("%d 个模型", len(p.Models))).
-								FontSize(TypeFootnote).
-								TextColor(ThemeSecondaryText(c))
-						})
-					var arrIcon *ui.SVG
-					if isExpanded {
-						arrIcon = IconChevronDown()
-					} else {
-						arrIcon = IconChevronRight()
-					}
-					ui.Icon(c, arrIcon).
-						Size(IconSM, IconSM).
-						TextColor(ThemeSecondaryText(c))
-				})
-		})
-
-		if isExpanded || strings.TrimSpace(ps.searchQuery) != "" {
-			renderProviderModelsList(c, st, ps, client, p)
-		}
-	}).Margin(0, 0, Space5, 0)
-}
-
 // renderProviderModelSearchBox 渲染某个供应商模型列表顶部的局部搜索框：左侧放大镜图标，
 // 右侧在搜索词非空时显示清除按钮。返回节点，便于调用方按需控制宽度（如 Grow）。
 func renderProviderModelSearchBox(c *ui.Context, st *SettingsState, id string, query *string) ui.Element {
@@ -1044,160 +939,6 @@ func renderProviderModelsListExt(c *ui.Context, st *SettingsState, ps *modelsPag
 	}
 }
 
-func renderProviderModelsListLegacy(c *ui.Context, st *SettingsState, ps *modelsPageState, client Client, p ProviderInfo, opts providerModelsListOptions) {
-	addKey := "provider-add-" + p.ID
-	var added []ModelPin
-	for _, pin := range ps.pins {
-		if pin.Provider != p.ID {
-			continue
-		}
-		if opts.ExcludePin != nil && opts.ExcludePin(pin) {
-			continue
-		}
-		added = append(added, pin)
-	}
-	providerName := strings.TrimSpace(p.Name)
-	if providerName == "" {
-		providerName = p.ID
-	}
-	canRemove := ps.canEdit() && ps.loadErr == "" && client != nil
-	emptyModels := len(p.Models) == 0
-	pickerEmptyHint := "暂无可添加的模型"
-	if emptyModels {
-		pickerEmptyHint = "目录里还没有模型，可直接输入模型 ID 添加"
-	}
-	custom := providerCustomModelPicker(st, ps, client, p)
-
-	var addAnchor ui.Element
-	ui.Column(c.Key("provider-added-" + p.ID)).
-		FillWidth().
-		Gap(Space1).
-		Children(func() {
-			ui.Row(c.Key("provider-added-head-"+p.ID)).
-				FillWidth().
-				Padding(0, Space5, Space2, Space5).
-				Gap(Space3).
-				AlignItems(ui.Center).
-				Children(func() {
-					ui.Text(c, fmt.Sprintf("收藏（%d）", len(added))).
-						FontSize(TypeBody).
-						FontWeight(600).
-						TextColor(ThemePrimaryText(c)).
-						SingleLine()
-					ui.Row(c.Key("provider-added-gap-" + p.ID)).Grow(1)
-					addAnchor = renderModelPickerAddButton(c, st, ps, addKey, "添加 "+providerName+" 模型")
-				})
-			if len(added) == 0 {
-				emptyHint := "还没有添加模型，点「添加模型」从 " + providerName + " 的模型里选择"
-				if emptyModels {
-					emptyHint = "还没有添加模型，点「添加模型」输入模型 ID"
-				}
-				ui.Text(c, emptyHint).
-					FontSize(TypeFootnote).
-					TextColor(ThemeSecondaryText(c)).
-					Padding(0, Space5, Space3, Space5)
-			}
-			for _, pin := range added {
-				renderProviderAddedModelRow(c, st, ps, client, p, pin, canRemove)
-			}
-			if ps.opErr != "" {
-				ui.Text(c, ps.opErr).
-					FontSize(TypeFootnote).
-					TextColor(ThemeDanger(c)).
-					Padding(Space1, Space5)
-			}
-
-			items := providerModelPickerItems(ps, client, p)
-			onToggle := func(item modelPickerItem, checked bool) {
-				pin := ModelPin{Provider: p.ID, ModelID: item.ID}
-				if checked {
-					magpieAddModelPin(st, ps, client, pin)
-					return
-				}
-				ps.removePin(st, client, pin)
-			}
-			if hint := providerModelLimitHint(ps); hint != "" {
-				renderModelPickerPopoverWithNotice(c, st, ps, addKey, addAnchor, items, pickerEmptyHint, hint, onToggle, custom)
-			} else {
-				renderModelPickerPopover(c, st, ps, addKey, addAnchor, items, pickerEmptyHint, onToggle, custom)
-			}
-		})
-}
-
-// renderProviderAddedModelRow 渲染一个已收藏的模型：名称、说明与参考价，右侧是取消收藏按钮。
-func renderProviderAddedModelRow(c *ui.Context, st *SettingsState, ps *modelsPageState, client Client, p ProviderInfo, pin ModelPin, canRemove bool) {
-	name := pin.ModelID
-	detail := ""
-	for _, m := range p.Models {
-		if m.ID != pin.ModelID {
-			continue
-		}
-		if trimmed := strings.TrimSpace(m.Name); trimmed != "" {
-			name = trimmed
-		}
-		var descParts []string
-		if m.Detail != "" {
-			descParts = append(descParts, m.Detail)
-		}
-		if cost := formatModelCost(m.Cost); cost != "" {
-			descParts = append(descParts, cost)
-		}
-		detail = strings.Join(descParts, " · ")
-		break
-	}
-
-	rowKey := "provider-added-" + pin.Key()
-	ui.Row(c.Key(rowKey)).
-		FillWidth().
-		Padding(Space2, Space5).
-		Gap(Space4).
-		AlignItems(ui.Center).
-		Children(func() {
-			ui.Column(c.Key(rowKey + "-text")).
-				Grow(1).
-				Gap(Hairline).
-				Children(func() {
-					ui.Text(c, name).
-						FontSize(TypeBody).
-						TextColor(ThemePrimaryText(c)).
-						SingleLine()
-					if detail != "" {
-						ui.Text(c, detail).
-							FontSize(TypeFootnote).
-							TextColor(ThemeSecondaryText(c)).
-							SingleLine()
-					}
-				})
-			btn := ui.ButtonBase(c.Key(rowKey+"-remove")).
-				Label("取消收藏 "+name).
-				Tooltip("点击取消收藏").
-				Size(ControlSM, ControlSM).
-				AlignItems(ui.Center).
-				Justify(ui.Center).
-				Radius(RadiusXS).
-				Disabled(!canRemove)
-			if canRemove && btn.Hovered() {
-				btn.Background(ThemeHover(c))
-			} else {
-				btn.Background(ui.Transparent)
-			}
-			if canRemove {
-				btn.OnClick(func() {
-					ps.removePin(st, client, pin)
-				})
-			}
-			btn.Children(func() {
-				color := ThemeAccent(c)
-				if canRemove && btn.Hovered() {
-					color = ThemeSecondaryText(c)
-				}
-				ui.Icon(c, IconStarFilled()).
-					Size(IconMD, IconMD).
-					TextColor(color)
-			})
-		})
-}
-
 // providerModelPickerItems 把供应商模型转换成浮层选项：主模型在前、次要模型在后，
 // 已加入的显示为勾选；不能编辑、加载失败或达到数量上限时禁用未加入的选项。
 func providerModelPickerItems(ps *modelsPageState, client Client, p ProviderInfo) []modelPickerItem {
@@ -1241,41 +982,6 @@ func providerModelPickerItems(ps *modelsPageState, client Client, p ProviderInfo
 		}
 	}
 	return items
-}
-
-// providerCustomModelCandidate 在搜索词不是任何目录模型 ID、也未固定、且还能编辑时，返回可添加的自定义 ID。
-func providerCustomModelCandidate(ps *modelsPageState, p ProviderInfo, query string) (string, bool) {
-	id := strings.TrimSpace(query)
-	if id == "" || ps.loadErr != "" || !ps.canEdit() || len(ps.pins) >= ps.limit {
-		return "", false
-	}
-	for _, m := range p.Models {
-		if strings.EqualFold(m.ID, id) {
-			return "", false
-		}
-	}
-	if modelPinPresent(ps.pins, ModelPin{Provider: p.ID, ModelID: id}) {
-		return "", false
-	}
-	return id, true
-}
-
-// providerCustomModelPicker 给「添加模型」浮层注入「添加自定义模型」入口；
-// 点击后与勾选走同一条 magpieAddModelPin 路径，浮层保持打开。
-func providerCustomModelPicker(st *SettingsState, ps *modelsPageState, client Client, p ProviderInfo) modelPickerCustom {
-	if client == nil || ps == nil {
-		return modelPickerCustom{}
-	}
-	return modelPickerCustom{
-		Candidate: func(query string) (string, bool) {
-			return providerCustomModelCandidate(ps, p, query)
-		},
-		Add: func(id string) {
-			if id, ok := providerCustomModelCandidate(ps, p, id); ok {
-				magpieAddModelPin(st, ps, client, ModelPin{Provider: p.ID, ModelID: id})
-			}
-		},
-	}
 }
 
 // providerModelLimitHint 返回模型数量已达上限时的提示，未达上限返回空串。

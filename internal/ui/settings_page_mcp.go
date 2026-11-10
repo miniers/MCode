@@ -298,8 +298,6 @@ func mcpPageLoad(st *SettingsState, loaded, loading bool, scannedDir string, ser
 	return uiSt
 }
 
-func renderPageMCP(c *ui.Context, st *SettingsState) { renderSettingsTreePage(c, st, pageExtensions) }
-
 // mcpScopeLabel 把作用域转成界面上的中文名。
 func mcpScopeLabel(scope string) string {
 	if strings.EqualFold(scope, "project") {
@@ -387,33 +385,6 @@ func (uiSt *mcpPageUIState) syncNewThreadDisabled(st *SettingsState, scanKey str
 	}
 	uiSt.newThreadDisabled = disabled
 	uiSt.mu.Unlock()
-}
-
-// threadMCPAgentLabels 是 MCP 页说明里展示 Agent 名称用的对照表，顺序按界面习惯排列。
-// 是否支持由 providerSupportsThreadMCP 判定，说明文案因此不会和菜单实现脱节。
-var threadMCPAgentLabels = []struct {
-	provider string
-	label    string
-}{
-	{"claude", "Claude"},
-	{"codex", "Codex"},
-	{"copilot", "Copilot"},
-	{"commandcode", "Command Code"},
-	{"pi", "Pi"},
-	{"openai", "OpenAI"},
-	{"acp", "ACP"},
-	{"agy", "Antigravity"},
-}
-
-// threadMCPAgentListText 拼出「Claude、Codex、…」这样的支持列表。
-func threadMCPAgentListText() string {
-	names := make([]string, 0, len(threadMCPAgentLabels))
-	for _, item := range threadMCPAgentLabels {
-		if providerSupportsThreadMCP(item.provider) {
-			names = append(names, item.label)
-		}
-	}
-	return strings.Join(names, "、")
 }
 
 // renderCustomMCPSection 渲染自定义服务配置区（包含添加表单与自定义服务列表）。
@@ -582,43 +553,6 @@ func parseMCPHeaderLines(raw string) map[string]string {
 		}
 	}
 	return headers
-}
-
-// mcpServersAllReadOnly 判断一组服务是否全部来自只读来源（外部 Agent 自己的配置）。
-// 只读来源不会被注入会话，MCP 页据此提示「逐会话启停不适用」。
-func mcpServersAllReadOnly(servers []agentconf.MCPServer) bool {
-	if len(servers) == 0 {
-		return false
-	}
-	for _, srv := range servers {
-		if !srv.ReadOnly {
-			return false
-		}
-	}
-	return true
-}
-
-func renderMCPAgentBody(agentName string) func(*ui.Context, *SettingsState) {
-	return func(c *ui.Context, st *SettingsState) {
-		snap := mcpPageSnapshot(st)
-		var list []agentconf.MCPServer
-		for _, srv := range snap.servers {
-			if strings.EqualFold(srv.Agent, agentName) {
-				list = append(list, srv)
-			}
-		}
-		agentKey := strings.ToLower(agentName)
-		if len(list) == 0 {
-			ui.Text(c, "未配置 MCP 服务").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
-			return
-		}
-		for i, srv := range list {
-			if i > 0 {
-				renderSettingsDivider(c, "div-mcp-"+agentKey+"-"+strconv.Itoa(i))
-			}
-			renderMCPServerRow(c, st, snap.uiSt, srv, i, snap.client, snap.authBusy, snap.authErr, snap.staticAuth, false)
-		}
-	}
 }
 
 func setMCPToolFlag(uiSt *mcpPageUIState, flags map[string]map[string]bool, server, tool string, on bool) {

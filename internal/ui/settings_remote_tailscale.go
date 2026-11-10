@@ -413,11 +413,6 @@ var remoteTailscaleNodeSection = settingsSection{
 	},
 }
 
-// renderRemoteTailscaleSection 保留旧入口：内容已迁到页面树的 remote.tailscale*。
-func renderRemoteTailscaleSection(c *ui.Context, st *SettingsState) {
-	renderSettingsTreeSection(c, st, remoteTailscaleSection, false)
-}
-
 // remoteTailscaleVisible 判断 Tailscale 开关区块是否出现：停服且从未启用时整块收起。
 func remoteTailscaleVisible(st *SettingsState) bool {
 	st.mu.Lock()

@@ -11,18 +11,6 @@ import (
 	"mcode/internal/config"
 )
 
-func openProvidersSettings(t *testing.T, tt *ui.Tester) {
-	t.Helper()
-	waitFor(t, tt, func() bool { return tt.HasText("设置") })
-	if err := tt.Click("设置"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("模型与供应商") })
-	if err := tt.Click("模型与供应商"); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestAPIProviderListEntries_ExcludesGateways(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.presets.loaded = true

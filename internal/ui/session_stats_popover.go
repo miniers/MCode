@@ -206,12 +206,6 @@ func threadAgentLocked(s *chatState, threadID string) (provider, model string) {
 	return "", ""
 }
 
-// sessionDurationFromMessages 用消息时间戳推导会话总用时：逐轮取首条用户消息到该轮最后一条
-// 消息的时间差并累加。整轮都拿不到时间时返回 0（调用方不显示时间分组）。
-func sessionDurationFromMessages(msgs []Message) time.Duration {
-	return sessionDurationForTurns(msgs, nil)
-}
-
 func sessionDurationForTurns(msgs []Message, usage map[int]TokenUsage) time.Duration {
 	type turnKey struct {
 		id    string

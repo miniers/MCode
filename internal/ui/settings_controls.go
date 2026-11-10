@@ -382,12 +382,6 @@ func choiceFunc(options []string, get func(st *SettingsState) (idx int, busy boo
 	return choiceFuncControl{options: options, get: get, set: set}
 }
 
-// withDisabled 叠加额外的禁用条件；锁定仍由渲染器统一传 disabled。
-func (ch choiceFuncControl) withDisabled(fn func(st *SettingsState) bool) choiceFuncControl {
-	ch.disabled = fn
-	return ch
-}
-
 // withItemDisabled 让单个选项不可选（例如依赖别处勾选的路由），其余选项照常可点。
 // 只对分段生效，下拉不支持单项禁用。
 func (ch choiceFuncControl) withItemDisabled(fn func(st *SettingsState, idx int) bool) choiceFuncControl {
@@ -398,12 +392,6 @@ func (ch choiceFuncControl) withItemDisabled(fn func(st *SettingsState, idx int)
 // itemOff 报告单个选项是否不可选。
 func (ch choiceFuncControl) itemOff(st *SettingsState, idx int) bool {
 	return ch.itemDisabled != nil && ch.itemDisabled(st, idx)
-}
-
-// withFill 让分段等分整行：用于独占一行、左侧没有标题的路由选择。
-func (ch choiceFuncControl) withFill() choiceFuncControl {
-	ch.fill = true
-	return ch
 }
 
 func (ch choiceFuncControl) render(c *ui.Context, st *SettingsState, s setting) {

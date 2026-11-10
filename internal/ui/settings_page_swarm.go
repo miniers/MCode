@@ -591,23 +591,6 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 		})
 }
 
-// formatSwarmRequestTimeoutText 把请求总时长预算（分钟）格式化为「3 小时」「2 小时 30 分钟」「45 分钟」。
-func formatSwarmRequestTimeoutText(minutes int) string {
-	if minutes <= 0 {
-		minutes = config.DefaultSwarmRequestTimeoutMinutes
-	}
-	hours := minutes / 60
-	mins := minutes % 60
-	switch {
-	case hours > 0 && mins > 0:
-		return fmt.Sprintf("%d 小时 %d 分钟", hours, mins)
-	case hours > 0:
-		return fmt.Sprintf("%d 小时", hours)
-	default:
-		return fmt.Sprintf("%d 分钟", mins)
-	}
-}
-
 // truncateReviewCheckCommand 把检查命令裁到 config.MaxReviewCheckCommandLen 字节以内，
 // 并避免切断多字节字符，与配置归一化的截断规则一致。
 func truncateReviewCheckCommand(s string) string {

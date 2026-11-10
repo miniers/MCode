@@ -418,17 +418,6 @@ func modelDisplayIdentity(providers []ProviderInfo, providerID, modelID string) 
 	return "默认模型", true, modelProviderDisplayName(providers, providerID)
 }
 
-// modelDisplayIdentityTitle 以“<Provider 名> · <模型名>”的形式返回模型身份标题；无 provider 时只返回模型名。
-func modelDisplayIdentityTitle(name, provName string) string {
-	if provName == "" {
-		return name
-	}
-	if name == "" {
-		return provName
-	}
-	return provName + " · " + name
-}
-
 // modelProviderDisplayName 返回 provider 的展示名：优先 ProviderInfo.Name，其次内置映射，最后原 ID。
 func modelProviderDisplayName(providers []ProviderInfo, providerID string) string {
 	if prov, ok := findProviderInfo(providers, providerID); ok && prov.Name != "" {

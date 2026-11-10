@@ -4116,13 +4116,6 @@ func renderSingleToolItem(c *ui.Context, s *chatState, m Message) ui.Element {
 	})
 }
 
-// isToolExpanded 返回工具调用的详情是否展开（以消息 ID 为键，与工具组开合状态共用同一张表）。
-func (s *chatState) isToolExpanded(msgID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.expandedTool[msgID]
-}
-
 // toolMessageExpanded 默认展开等待审批的入参，用户选择优先。
 func (s *chatState) toolMessageExpanded(m Message) bool {
 	s.mu.Lock()
@@ -5795,26 +5788,6 @@ func runningTurnHasRunningTool(s *chatState, item timelineItem) bool {
 		}
 	}
 	return false
-}
-
-// turnWorkElapsedParts 把耗时短文本拆成「整秒数 + 后缀」，如 "3.2s" -> (3, ".2s")、"12s" -> (12, "s")，
-// 供滚动数字只滚整秒那几位。分钟格式或拆不出来时 ok 为 false，调用方退回显示原文。
-func turnWorkElapsedParts(elapsed string) (secs int, rest string, ok bool) {
-	if !strings.HasSuffix(elapsed, "s") || strings.ContainsRune(elapsed, 'm') {
-		return 0, "", false
-	}
-	digits := 0
-	for digits < len(elapsed) && elapsed[digits] >= '0' && elapsed[digits] <= '9' {
-		digits++
-	}
-	if digits == 0 {
-		return 0, "", false
-	}
-	n, err := strconv.Atoi(elapsed[:digits])
-	if err != nil {
-		return 0, "", false
-	}
-	return n, elapsed[digits:], true
 }
 
 // renderTurnWorkHeaderText 渲染折叠组头的摘要文字：结束态只显示用时，组头的计数与完成明细

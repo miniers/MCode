@@ -143,11 +143,6 @@ func newMiniEditorState(path string) *miniEditorState {
 	return st
 }
 
-// isMarkdown 返回当前文件是否为 Markdown。
-func (st *miniEditorState) isMarkdown() bool {
-	return isMarkdownPath(st.path)
-}
-
 // scheduleSave 在停止输入约 800ms 后自动保存；重复输入会重置计时器。
 func (st *miniEditorState) scheduleSave() {
 	st.mu.Lock()

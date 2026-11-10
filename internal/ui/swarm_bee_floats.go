@@ -1596,31 +1596,6 @@ func formatSwarmShortDuration(started time.Time, finished *time.Time) string {
 	return fmt.Sprintf("%ds", secs)
 }
 
-// formatBeeToolSummary 归一化工具调用摘要（生成“Use Read file”“Use Edit file”）。
-func formatBeeToolSummary(text string) string {
-	raw := strings.TrimSpace(text)
-	if raw == "" {
-		return "Use Tool"
-	}
-	lower := strings.ToLower(raw)
-	if strings.Contains(lower, "read_file") || strings.Contains(lower, "read file") {
-		return "Use Read file"
-	}
-	if strings.Contains(lower, "edit_file") || strings.Contains(lower, "edit file") || strings.Contains(lower, "apply_patch") {
-		return "Use Edit file"
-	}
-	if strings.Contains(lower, "run_command") || strings.Contains(lower, "command") {
-		return "Use Run command"
-	}
-	if strings.Contains(lower, "search_web") || strings.Contains(lower, "search") {
-		return "Use Search"
-	}
-	if strings.HasPrefix(raw, "Use ") {
-		return raw
-	}
-	return "Use " + toolSummary(raw)
-}
-
 // renderSwarmGlyph 渲染 bee 的龙形标识或首字圆形头像。
 func renderSwarmGlyph(c *ui.Context, keyPrefix string, h SwarmBee, size float32) {
 	persona := findSwarmPersona(h.Name)

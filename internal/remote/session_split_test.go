@@ -115,24 +115,6 @@ func TestRequestSplit(t *testing.T) {
 	}
 }
 
-// splitMessageText 取出历史里唯一一条分割线的正文。
-func splitMessageText(t *testing.T, page wire.HistoryPage) string {
-	t.Helper()
-	text, found := "", false
-	for _, m := range page.Messages {
-		if m.Kind != nil && *m.Kind == splitSessionKind {
-			if found {
-				t.Fatalf("历史里应只有一条分割线")
-			}
-			text, found = m.Text, true
-		}
-	}
-	if !found {
-		t.Fatalf("历史里应有分割线")
-	}
-	return text
-}
-
 func TestRequestSplitErrors(t *testing.T) {
 	ctx := context.Background()
 

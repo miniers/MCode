@@ -1,21 +1,11 @@
 package mcodeui
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/providers/agy/accounts"
 )
-
-func findTextContainingForTest(tt *ui.Tester, sub string) (ui.Rect, bool) {
-	for _, text := range tt.Texts() {
-		if strings.Contains(text, sub) {
-			return tt.Find(text)
-		}
-	}
-	return ui.Rect{}, false
-}
 
 func TestProviderSheetSectionForRow(t *testing.T) {
 	cases := []struct {

@@ -946,17 +946,6 @@ func formatTokens(n int64) string {
 	return strconv.FormatInt(n, 10)
 }
 
-// formatTurnUsageText 格式化单轮用量提示文本。
-func formatTurnUsageText(u TokenUsage) string {
-	if u.Input == 0 && u.Output == 0 && u.Cached == 0 {
-		return ""
-	}
-	if u.Cached > 0 {
-		return fmt.Sprintf("输入 %s · 输出 %s · 缓存 %s tokens", formatTokens(u.Input), formatTokens(u.Output), formatTokens(u.Cached))
-	}
-	return fmt.Sprintf("输入 %s · 输出 %s tokens", formatTokens(u.Input), formatTokens(u.Output))
-}
-
 // jumpToAdjacentUserMessage 根据视口顶部可见项定位上一个或下一个用户消息所在的 item，并用 ScrollTo 定位。
 // direction < 0 为跳到上一个用户消息，direction > 0 为跳到下一个用户消息。
 // 定位走 scrollToTimelineRow：目标被收进回合折叠项或工具组时先展开再滚动，

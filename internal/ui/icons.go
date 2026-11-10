@@ -94,9 +94,6 @@ const (
 	svgPathHammer          = `<path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9"/><path d="m18 15 4-4"/><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"/>`
 	svgPathGitBranch       = `<path d="M15 6a9 9 0 0 0-9 9V3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>`
 	svgPathCopy            = `<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>`
-	svgPathCircle          = `<circle cx="12" cy="12" r="10"/>`
-	svgPathGitMerge        = `<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/>`
-	svgPathGitPullRequest  = `<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/>`
 	svgPathArrowDownCircle = `<circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="m8 12 4 4 4-4"/>`
 )
 
@@ -126,16 +123,10 @@ var (
 	iconHammer          = parseLucideSVG(svgPathHammer)
 	iconGitBranch       = parseLucideSVG(svgPathGitBranch)
 	iconCopy            = parseLucideSVG(svgPathCopy)
-	iconCircle          = parseLucideSVG(svgPathCircle)
-	iconGitMerge        = parseLucideSVG(svgPathGitMerge)
-	iconGitPullRequest  = parseLucideSVG(svgPathGitPullRequest)
 	iconArrowDownCircle = parseLucideSVG(svgPathArrowDownCircle)
 )
 
 // 各图标快捷导出函数
-func IconCircle() *ui.SVG          { return iconCircle }
-func IconGitMerge() *ui.SVG        { return iconGitMerge }
-func IconGitPullRequest() *ui.SVG  { return iconGitPullRequest }
 func IconArrowDownCircle() *ui.SVG { return iconArrowDownCircle }
 func IconSearch() *ui.SVG          { return iconSearch }
 func IconBell() *ui.SVG            { return iconBell }
@@ -668,20 +659,11 @@ var (
 )
 
 // 追加各图标快捷导出函数
-func IconAsterisk() *ui.SVG          { return iconAsterisk }
-func IconHexagon() *ui.SVG           { return iconHexagon }
-func IconSun() *ui.SVG               { return iconSun }
-func IconMoon() *ui.SVG              { return iconMoon }
-func IconMonitor() *ui.SVG           { return iconMonitor }
-func IconShield() *ui.SVG            { return iconShield }
 func IconLock() *ui.SVG              { return iconLock }
 func IconLockOpen() *ui.SVG          { return iconLockOpen }
 func IconSparkles() *ui.SVG          { return iconSparkles }
-func IconKanban() *ui.SVG            { return iconKanban }
-func IconZap() *ui.SVG               { return iconZap }
 func IconRefreshCw() *ui.SVG         { return iconRefreshCw }
 func IconPlay() *ui.SVG              { return iconPlay }
-func IconPause() *ui.SVG             { return iconPause }
 func IconTrash2() *ui.SVG            { return iconTrash2 }
 func IconSwarm() *ui.SVG             { return iconSwarm }
 func IconPin() *ui.SVG               { return iconPin }
@@ -689,9 +671,7 @@ func IconPanelLeft() *ui.SVG         { return iconPanelLeft }
 func IconPalette() *ui.SVG           { return iconPalette }
 func IconSmartphone() *ui.SVG        { return iconSmartphone }
 func IconCpu() *ui.SVG               { return iconCpu }
-func IconPuzzle() *ui.SVG            { return iconPuzzle }
 func IconSlidersHorizontal() *ui.SVG { return iconSlidersHorizontal }
-func IconCommand() *ui.SVG           { return iconCommand }
 func IconArchive() *ui.SVG           { return iconArchive }
 func IconInfo() *ui.SVG              { return iconInfo }
 func IconCircleEllipsis() *ui.SVG    { return iconCircleEllipsis }
@@ -706,12 +686,10 @@ func IconHandRaised() *ui.SVG   { return iconHandRaised }
 func IconPencilLine() *ui.SVG   { return iconPencilLine }
 func IconWandSparkles() *ui.SVG { return iconWandSparkles }
 func IconBookOpen() *ui.SVG     { return iconBookOpen }
-func IconPlusMinus() *ui.SVG    { return iconPlusMinus }
 func IconExternalLink() *ui.SVG { return iconExternalLink }
 func IconChartBar() *ui.SVG     { return iconChartBar }
 func IconStopFilled() *ui.SVG   { return iconStopFilled }
 func IconTray() *ui.SVG         { return iconTray }
-func IconMap() *ui.SVG          { return iconMap }
 func IconSealCheck() *ui.SVG    { return iconSealCheck }
 func IconNote() *ui.SVG         { return iconNote }
 
@@ -742,13 +720,11 @@ func IconFileDiff() *ui.SVG              { return iconFileDiff }
 func IconClipboardList() *ui.SVG         { return iconClipboardList }
 func IconListOrdered() *ui.SVG           { return iconListOrdered }
 func IconGitFork() *ui.SVG               { return iconGitFork }
-func IconCircleDashed() *ui.SVG          { return iconCircleDashed }
 func IconScale() *ui.SVG                 { return iconScale }
 func IconScrollText() *ui.SVG            { return iconScrollText }
 func IconAnchor() *ui.SVG                { return iconAnchor }
 func IconMagnet() *ui.SVG                { return iconMagnet }
 func IconBot() *ui.SVG                   { return iconBot }
-func IconCircleDot() *ui.SVG             { return iconCircleDot }
 func IconColumns3() *ui.SVG              { return iconColumns3 }
 func IconCalendarClock() *ui.SVG         { return iconCalendarClock }
 func IconBatteryLow() *ui.SVG            { return iconBatteryLow }
@@ -756,27 +732,14 @@ func IconLoader() *ui.SVG                { return iconLoader }
 func IconClock() *ui.SVG                 { return iconClock }
 func IconRepeat() *ui.SVG                { return iconRepeat }
 func IconShuffle() *ui.SVG               { return iconShuffle }
-func IconCirclePause() *ui.SVG           { return iconCirclePause }
 func IconBoxes() *ui.SVG                 { return iconBoxes }
-func IconMinimize2() *ui.SVG             { return iconMinimize2 }
 func IconPackage() *ui.SVG               { return iconPackage }
 func IconFoldVertical() *ui.SVG          { return iconFoldVertical }
 func IconListChecks() *ui.SVG            { return iconListChecks }
 func IconUserRoundCheck() *ui.SVG        { return iconUserRoundCheck }
 func IconHighlighter() *ui.SVG           { return iconHighlighter }
 func IconArrowUpRight() *ui.SVG          { return iconArrowUpRight }
-func IconChartColumn() *ui.SVG           { return iconChartColumn }
 func IconBookOpenText() *ui.SVG          { return iconBookOpenText }
-
-func IconProviderAntigravity() *ui.SVG { return iconProviderAntigravity }
-func IconProviderCommandCode() *ui.SVG { return iconProviderCommandCode }
-func IconProviderDroid() *ui.SVG       { return iconProviderDroid }
-func IconProviderPi() *ui.SVG          { return iconProviderPi }
-func IconProviderCline() *ui.SVG       { return iconProviderCline }
-func IconProviderCursor() *ui.SVG      { return iconProviderCursor }
-func IconProviderDevin() *ui.SVG       { return iconProviderDevin }
-func IconProviderGrok() *ui.SVG        { return iconProviderGrok }
-func IconProviderOpencode() *ui.SVG    { return iconProviderOpencode }
 
 // ProviderIcon 按 Provider ID 返回对应的 Agent 图标。
 // custom- 前缀的自定义端点回落到 globe，其余未知 ID 回落到 brain。

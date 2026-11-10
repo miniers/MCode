@@ -1449,13 +1449,6 @@ func (h *Harness) SetProcessExitHandler(fn func(threadID string, before time.Tim
 	h.mu.Unlock()
 }
 
-// processExitHandlerNow 返回当前登记的退出回调快照。锁序同 unsolicitedHandlerNow：先 h.mu 后 p.mu。
-func (h *Harness) processExitHandlerNow() func(threadID string, before time.Time) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.processExitHandler
-}
-
 // finish 执行进程级清理（审批服务、MCP 配置临时文件、沙箱资源），只跑一次。
 func (p *residentProc) finish() {
 	p.finishOnce.Do(func() {

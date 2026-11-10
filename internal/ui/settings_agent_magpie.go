@@ -277,62 +277,6 @@ func (st *SettingsState) setAgentMagpieEndpointModels(agent, endpointID string, 
 	}()
 }
 
-// injectAgentMagpieModel 勾选并注入单个模型（来自模型列表的「+」）：已选中时直接返回；
-// 保存成功后才更新本地状态，失败返回错误且不改本地状态。
-func (st *SettingsState) injectAgentMagpieModel(agent, endpointID, modelID string) error {
-	client := st.agyClient()
-	if client == nil {
-		return errors.New("客户端不可用，无法注入 Magpie 模型")
-	}
-
-	st.mu.Lock()
-	state := st.agentMagpieFor(agent)
-	idx := -1
-	for i := range state.setting.Endpoints {
-		if state.setting.Endpoints[i].ID == endpointID {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		st.mu.Unlock()
-		return errors.New("找不到该 Magpie 端点")
-	}
-	ep := state.setting.Endpoints[idx]
-	for _, id := range ep.Selected {
-		if id == modelID {
-			st.mu.Unlock()
-			return nil
-		}
-	}
-	ids := piMagpieNextSelection(ep, modelID, true)
-	st.mu.Unlock()
-
-	if err := client.SetAgentMagpieModels(context.Background(), agent, endpointID, ids); err != nil {
-		if errors.Is(err, ErrNotImplemented) {
-			return errors.New("暂不支持保存 Magpie 模型")
-		}
-		return err
-	}
-
-	st.mu.Lock()
-	state = st.agentMagpieFor(agent)
-	for i := range state.setting.Endpoints {
-		if state.setting.Endpoints[i].ID != endpointID {
-			continue
-		}
-		state.setting.Endpoints[i].Selected = ids
-		if state.saveErr != nil {
-			state.saveErr[endpointID] = ""
-		}
-		break
-	}
-	st.mu.Unlock()
-	st.invalidate()
-	refreshCatalogAfterPiMagpieSave(st, client)
-	return nil
-}
-
 // setAgentMagpieMode 切换 agent 的 magpie 使用方式：先乐观更新界面，
 // 保存失败时回滚到切换前的取值并记录错误，成功后重新加载设置。
 func (st *SettingsState) setAgentMagpieMode(agent, mode string) {

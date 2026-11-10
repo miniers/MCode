@@ -90,11 +90,6 @@ var remoteTLSSection = settingsSection{
 	},
 }
 
-// renderRemoteTLSSection 保留旧入口：内容已迁到页面树的 remote.tls。
-func renderRemoteTLSSection(c *ui.Context, st *SettingsState) {
-	renderSettingsTreeSection(c, st, remoteTLSSection, false)
-}
-
 // remoteTLSVisible 判断 HTTPS 区块是否出现：运行中或曾配置过证书相关项时才显示。
 func remoteTLSVisible(st *SettingsState) bool {
 	st.mu.Lock()

@@ -123,33 +123,9 @@ func (a *App) Client() *Client {
 	return a.client
 }
 
-// Kanban 获取看板服务实例。
-func (a *App) Kanban() *kanban.Service {
-	return a.kanban
-}
-
 // Automation 获取自动化服务实例。
 func (a *App) Automation() *automation.Service {
 	return a.automation
-}
-
-// Attention 获取待处理事件（收件箱）服务实例；界面层通过 client.(mcodeui.AttentionClient) 读取。
-func (a *App) Attention() *attention.Service {
-	return a.attention
-}
-
-// SetAttentionIgnoreThread 设置需要排除的会话判定：被忽略的会话不产生任何待处理事件，
-// 主代理用它排除自己派发的跟进会话；传 nil 表示不排除任何会话。
-func (a *App) SetAttentionIgnoreThread(fn func(threadID string) bool) {
-	if a.attentionSrc == nil {
-		return
-	}
-	a.attentionSrc.SetIgnoreThread(fn)
-}
-
-// Swarm 获取 Swarm 管理器实例。
-func (a *App) Swarm() *swarm.Manager {
-	return a.swarm
 }
 
 // Hub 获取 StreamHub 实例。

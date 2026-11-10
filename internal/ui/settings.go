@@ -964,13 +964,6 @@ func (s *SettingsState) loadSettingsPageData(loadProviders bool) {
 	s.loadProviderRows()
 }
 
-// settingsAdvancedOpen 返回某页底部「高级」区是否展开，默认收起。
-func (s *SettingsState) settingsAdvancedOpen(page string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.advancedOpen[normalizeSettingsPageID(page)]
-}
-
 // setSettingsAdvancedOpen 记录某页底部「高级」区的展开状态。
 func (s *SettingsState) setSettingsAdvancedOpen(page string, open bool) {
 	s.mu.Lock()

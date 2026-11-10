@@ -172,26 +172,6 @@ func turnToolStatsFor(s *chatState, turnIndex int) turnToolStats {
 	return collectTurnToolStats(s.messages, turnIndex)
 }
 
-// turnFinishedModelName 返回本回合使用的模型短名：优先用会话线程记录的模型在供应商列表里的展示名，
-// 拿不到时退回模型 ID；都没有时返回空字符串，调用方省略该段。
-func turnFinishedModelName(s *chatState, m Message) string {
-	if s == nil {
-		return ""
-	}
-	provider, model, _ := assistantMetaSource(s, m)
-	if strings.TrimSpace(model) == "" {
-		return ""
-	}
-	s.mu.Lock()
-	providers := s.providers
-	s.mu.Unlock()
-	name := modelPickerDisplayName(providers, provider, model)
-	if strings.TrimSpace(name) == "" {
-		name = model
-	}
-	return shortenModelName(name)
-}
-
 // shortenModelName 把模型名压缩成适合一行的短名：去掉末尾的 -YYYYMMDD 日期后缀，超长时截断加省略号。
 func shortenModelName(name string) string {
 	name = strings.TrimSpace(name)

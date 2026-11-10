@@ -184,14 +184,6 @@ func recordPiMagpieMember(endpoint, provider, model string) {
 	}
 }
 
-// piMagpieMemberOf 返回端点最近一次的实际路由；没有记录时第二个返回值为 false。
-func piMagpieMemberOf(endpointID string) (piMagpieMember, bool) {
-	piMagpieMembers.Lock()
-	defer piMagpieMembers.Unlock()
-	member, ok := piMagpieMembers.byEndpoint[strings.TrimSpace(endpointID)]
-	return member, ok
-}
-
 // piMagpieBridge 缓存 Magpie 桥扩展的落盘路径：一个进程写一份临时目录。
 var piMagpieBridge struct {
 	once sync.Once

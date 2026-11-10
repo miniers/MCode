@@ -2588,21 +2588,6 @@ func swarmAvatarColor(name string) ui.Color {
 	return swarmAvatarColors[int(h)%len(swarmAvatarColors)]
 }
 
-func swarmStatusFromChinese(status string) string {
-	switch status {
-	case "已完成":
-		return "completed"
-	case "失败":
-		return "failed"
-	case "已停止":
-		return "stopped"
-	case "运行中":
-		return "running"
-	default:
-		return status
-	}
-}
-
 // renderSwarmAvatarStack 渲染重叠头像组，每个 entry 一个直径约 22 的圆形，圆内显示名字首字符（按 rune 取）。
 // 最多显示 4 个，超出部分用一个 +N 圆表示；后续头像以负外边距重叠 4px。
 func renderSwarmAvatarStack(c *ui.Context, keyPrefix string, entries []swarmReportEntry) {

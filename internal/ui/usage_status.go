@@ -45,11 +45,6 @@ type usageStatus struct {
 	Message string
 }
 
-// Normal 表示状态不需要额外说明行（正常或过期）。
-func (st usageStatus) Normal() bool {
-	return st.State == usageStateOK || st.State == usageStateStale
-}
-
 // Stale 表示数据已过期，需要在数据行尾追加 usageStaleSuffix。
 func (st usageStatus) Stale() bool {
 	return st.State == usageStateStale

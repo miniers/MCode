@@ -365,12 +365,6 @@ func makeTool(name, description string, params json.RawMessage, readOnly bool, r
 	return tools.Tool{Name: name, Description: description, Parameters: params, ReadOnly: readOnly, Run: run}
 }
 
-// schemaOrObject 在远端 schema 无效时返回空对象 schema。
-func schemaOrObject(schema json.RawMessage) json.RawMessage {
-	result, _ := validatedSchema(schema)
-	return result
-}
-
 func validatedSchema(schema json.RawMessage) (json.RawMessage, bool) {
 	var value map[string]any
 	if json.Unmarshal(schema, &value) == nil && value != nil {

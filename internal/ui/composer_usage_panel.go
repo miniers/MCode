@@ -117,11 +117,6 @@ func (s *chatState) loadComposerCreditsForProvider(provider string, force bool) 
 	}()
 }
 
-// SetChatQuotaWindows 为指定 chatState 设置提供方额度窗口数据（支持外部或测试注入）。
-func SetChatQuotaWindows(s *chatState, windows []ProviderQuotaWindow) {
-	SetChatQuotaWindowsForProvider(s, "", windows)
-}
-
 // SetChatQuotaWindowsForProvider 为指定 provider 设置额度窗口缓存；provider 为空时
 // 兼容旧行为，直接覆盖当前会话 provider 的缓存。
 func SetChatQuotaWindowsForProvider(s *chatState, provider string, windows []ProviderQuotaWindow) {

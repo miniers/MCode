@@ -1082,14 +1082,6 @@ func apiProviderSheetStateFor(st *SettingsState, kind, id string) (apiProviderSh
 	return state, true
 }
 
-// apiProviderRowIcon 返回 API 供应商行图标；Anthropic 与 Claude 是同一品牌，沿用它的图标。
-func apiProviderRowIcon(id string) *ui.SVG {
-	if id == "anthropic" {
-		return ProviderIcon("claude")
-	}
-	return ProviderIcon(id)
-}
-
 // apiProviderNeedsEndpointFields 判断 API 供应商是否需要 BaseURL 与默认模型输入：
 // Anthropic 只有 API Key；OpenAI、自定义端点和带默认端点的预设可以编辑地址与模型。
 func apiProviderNeedsEndpointFields(st *SettingsState, kind, id string) bool {

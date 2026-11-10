@@ -473,12 +473,6 @@ func effortTitleColor(p EffortSliderCardProps) ui.Color {
 	}
 }
 
-// effortSliderTickLabels 报告卡片是否显示各档位名：档位名只出现在无障碍值与
-// Swarm 分段栏里，轨道下方不再铺一排档位文字；只有卡片本身承载点击时才绘制。
-func effortSliderTickLabels(p EffortSliderCardProps) bool {
-	return false
-}
-
 // effortCardPaired 报告卡片是否按配对呈现：只有主导侧卡片承载配对
 // （Swarm 标记说明行、Lead→Bees 融合的标题与滑轨），执行侧始终是单模型卡片。
 func effortCardPaired(p EffortSliderCardProps) bool {

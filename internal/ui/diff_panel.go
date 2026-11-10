@@ -96,15 +96,6 @@ func getDiffPanelState(s *chatState) *diffPanelState {
 	return st
 }
 
-func setDiffPanelState(s *chatState, st *diffPanelState) {
-	if s == nil {
-		return
-	}
-	diffPanelMu.Lock()
-	defer diffPanelMu.Unlock()
-	diffPanelStates[s] = st
-}
-
 // IsOpen 返回改动面板当前是否展开。
 func (st *diffPanelState) IsOpen() bool {
 	if st == nil {

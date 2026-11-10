@@ -262,14 +262,14 @@ type FakeClient struct {
 	// killRunningCommandCalls 记录 KillRunningCommand 的调用（格式为「threadID/messageID」）。
 	killRunningCommandCalls []string
 	// killRunningCommandKilled 让 FakeClient.KillRunningCommand 模拟后端返回的终止进程数。
-	killRunningCommandKilled int
-	backgroundTaskLogCalls []string
-	backgroundTaskLogText string
+	killRunningCommandKilled   int
+	backgroundTaskLogCalls     []string
+	backgroundTaskLogText      string
 	backgroundTaskLogAvailable bool
-	backgroundTaskLogErr error
-	stopBackgroundTaskCalls []string
-	stopBackgroundTaskStopped bool
-	stopBackgroundTaskErr error
+	backgroundTaskLogErr       error
+	stopBackgroundTaskCalls    []string
+	stopBackgroundTaskStopped  bool
+	stopBackgroundTaskErr      error
 	// interruptAlreadyStopped 让 FakeClient.Interrupt 模拟后端返回 already_stopped。
 	interruptAlreadyStopped bool
 	// sendDelegated 让 FakeClient.Send/SendWithAttachments 模拟消息被交给子线程。
@@ -640,13 +640,6 @@ func (f *FakeClient) SplitSession(_ context.Context, threadID string) error {
 	defer f.mu.Unlock()
 	f.splitCalls = append(f.splitCalls, threadID)
 	return f.splitErr
-}
-
-// splitSessionCalls 在锁内复制一份分割请求记录。
-func (f *FakeClient) splitSessionCalls() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.splitCalls...)
 }
 
 func NewFakeClient() *FakeClient {
@@ -3461,21 +3454,6 @@ func (f *FakeClient) WatchThreadSummaries(onChange func(update Thread)) (stop fu
 			delete(f.summaryWatchers, id)
 			f.mu.Unlock()
 		})
-	}
-}
-
-// emitThreadSummary 测试辅助方法，同步通知所有会话运行态 watcher。
-func (f *FakeClient) emitThreadSummary(update Thread) {
-	f.mu.Lock()
-	watchers := make([]func(Thread), 0, len(f.summaryWatchers))
-	for _, w := range f.summaryWatchers {
-		watchers = append(watchers, w)
-	}
-	f.mu.Unlock()
-	for _, w := range watchers {
-		if w != nil {
-			w(update)
-		}
 	}
 }
 

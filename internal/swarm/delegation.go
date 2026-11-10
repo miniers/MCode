@@ -532,11 +532,6 @@ func (p *StreamParser) Closed() bool {
 	return p.closed
 }
 
-// Reset 清空全部缓冲与解析状态，便于复用同一解析器处理新文本。
-func (p *StreamParser) Reset() {
-	*p = StreamParser{atLineStart: true}
-}
-
 // beeWorkRules 是随委派提示词下发的子代理工作方式，约束其只做交代的改动、不做任何验证。
 const beeWorkRules = "- 立即开始，只读完成任务所需的内容，然后动手修改。\n" +
 	"- brief 已经点明文件、位置和改法的，直接照做，不再反复读。\n" +

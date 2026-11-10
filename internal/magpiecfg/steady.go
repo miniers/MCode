@@ -10,7 +10,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"runtime"
 	"time"
 )
@@ -54,30 +53,4 @@ func ReadFile(p string) ([]byte, error) {
 // Rename 是 os.Rename，在 Windows 上等过读的人放开 newpath。
 func Rename(oldpath, newpath string) error {
 	return retry(func() error { return rename(oldpath, newpath) })
-}
-
-// WriteFile 用 perm 权限把 b 写成 p：先写在它旁边的临时文件、刷到磁盘，再
-// rename 覆盖 p。写或刷盘失败时删掉临时文件，p 保持原样。
-func WriteFile(p string, b []byte, perm fs.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(p), "."+filepath.Base(p)+".*")
-	if err != nil {
-		return err
-	}
-	_, err = tmp.Write(b)
-	if err == nil {
-		err = tmp.Chmod(perm)
-	}
-	if err == nil {
-		err = Sync(tmp)
-	}
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = Rename(tmp.Name(), p)
-	}
-	if err != nil {
-		_ = os.Remove(tmp.Name())
-	}
-	return err
 }

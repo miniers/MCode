@@ -203,61 +203,6 @@ func (st *SettingsState) togglePiMagpieModel(endpointID, modelID string, selecte
 	}()
 }
 
-// injectPiMagpieModel 勾选并注入单个模型（来自模型列表的「+」）：已选中时直接返回；
-// 保存成功后才更新本地状态，失败返回错误且不改本地状态。
-func (st *SettingsState) injectPiMagpieModel(endpointID, modelID string) error {
-	client := st.agyClient()
-	if client == nil {
-		return errors.New("客户端不可用，无法注入 Magpie 模型")
-	}
-
-	st.mu.Lock()
-	idx := -1
-	for i := range st.piMagpie.endpoints {
-		if st.piMagpie.endpoints[i].ID == endpointID {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		st.mu.Unlock()
-		return errors.New("找不到该 Magpie 端点")
-	}
-	ep := st.piMagpie.endpoints[idx]
-	for _, id := range ep.Selected {
-		if id == modelID {
-			st.mu.Unlock()
-			return nil
-		}
-	}
-	ids := piMagpieNextSelection(ep, modelID, true)
-	st.mu.Unlock()
-
-	if err := client.SetPiMagpieModels(endpointID, ids); err != nil {
-		if errors.Is(err, ErrNotImplemented) {
-			return errors.New("暂不支持保存 Magpie 模型")
-		}
-		return err
-	}
-
-	st.mu.Lock()
-	for i := range st.piMagpie.endpoints {
-		if st.piMagpie.endpoints[i].ID != endpointID {
-			continue
-		}
-		st.piMagpie.endpoints[i].Selected = ids
-		if st.piMagpie.saveErr != nil {
-			st.piMagpie.saveErr[endpointID] = ""
-		}
-		break
-	}
-	st.mu.Unlock()
-	st.invalidate()
-	refreshPiMagpieSnapshots(st)
-	refreshCatalogAfterPiMagpieSave(st, client)
-	return nil
-}
-
 // piMagpieCatalogRefreshDelays 是保存勾选后重读供应商目录的时间点：pi 目录由后台子进程
 // 重新拉取（最长 30 秒），立刻读一次往往还是旧目录，隔几秒再读才能拿到注入的模型。
 // 改成包级变量便于测试缩短。
@@ -287,19 +232,6 @@ func refreshCatalogProviders(st *SettingsState, client Client) {
 // magpieAgentOwnModelTitle 返回自身配置分组的标题：<agent> 自身配置。
 func magpieAgentOwnModelTitle(agent string) string {
 	return agent + " 自身配置"
-}
-
-// magpieAgentGlobalName 返回写全局配置文案里使用的 agent 名称。
-func magpieAgentGlobalName(agent string) string {
-	switch agent {
-	case "claude":
-		return "Claude Code"
-	case "codex":
-		return "Codex"
-	case "cline":
-		return "Cline"
-	}
-	return agent
 }
 
 // magpieAgentMode 返回指定 agent 当前的 Magpie 使用方式；未加载时按运行时注入处理。
@@ -366,16 +298,6 @@ func magpieToggleFor(st *SettingsState, agent string) func(endpointID, modelID s
 	}
 	return func(endpointID, modelID string, selected bool) {
 		st.toggleAgentMagpieModel(agent, endpointID, modelID, selected)
-	}
-}
-
-// magpieInjectFor 返回指定 agent 的「+」注入函数：勾选模型并加入你的模型。
-func magpieInjectFor(st *SettingsState, agent string) func(endpointID, modelID string) error {
-	if agent == "pi" {
-		return st.injectPiMagpieModel
-	}
-	return func(endpointID, modelID string) error {
-		return st.injectAgentMagpieModel(agent, endpointID, modelID)
 	}
 }
 
@@ -492,11 +414,6 @@ func buildMagpieModelGroups(catalog []ModelInfo, endpoints []PiMagpieEndpoint, a
 	return groups
 }
 
-// buildPiModelGroups 是 pi 的薄包装：保留给既有调用点与测试使用。
-func buildPiModelGroups(catalog []ModelInfo, endpoints []PiMagpieEndpoint) []piModelGroup {
-	return buildMagpieModelGroups(catalog, endpoints, "pi")
-}
-
 // dropMagpieOwnGroup 去掉 agent 自身配置分组（Endpoint == nil 的那组）。
 // 写全局配置时，分组里的目录模型只是全局配置的回显，不再重复列在模型列表里。
 func dropMagpieOwnGroup(groups []piModelGroup) []piModelGroup {
@@ -552,23 +469,6 @@ func filterPiModelGroups(groups []piModelGroup, queries ...string) []piModelGrou
 	return res
 }
 
-// piMagpieSearchHit 判断 pi 的全局搜索词是否命中某个 Magpie 端点模型；
-// 命中时即使供应商行处于折叠状态也要展开，让结果直接可见。
-func piMagpieSearchHit(st *SettingsState, search string) bool {
-	st.mu.Lock()
-	endpoints := append([]PiMagpieEndpoint(nil), st.piMagpie.endpoints...)
-	st.mu.Unlock()
-	if len(endpoints) == 0 {
-		return false
-	}
-	for _, g := range filterPiModelGroups(buildPiModelGroups(nil, endpoints), search) {
-		if len(g.Rows) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // renderMagpieAgentModels 渲染某个 agent 的模型列表：已启用模型 + agent 自身配置的模型，
 // 由公共的 Magpie 模型面板统一渲染。首次渲染时异步加载端点。
 func renderMagpieAgentModels(c *ui.Context, st *SettingsState, lib *modelsLibraryView, catalog ProviderInfo, agent string) {
@@ -584,11 +484,6 @@ func renderMagpieAgentModels(c *ui.Context, st *SettingsState, lib *modelsLibrar
 		}
 	}
 	renderMagpieModelPanel(c, st, lib, catalog, agent, opts)
-}
-
-// renderPiModels 是 pi 的薄包装：保留给既有调用点与测试使用。
-func renderPiModels(c *ui.Context, st *SettingsState, lib *modelsLibraryView, catalog ProviderInfo) {
-	renderMagpieAgentModels(c, st, lib, catalog, "pi")
 }
 
 // renderMagpieRefreshButton 渲染端点卡片头部右侧的刷新按钮；刷新期间禁用并显示进度文案。

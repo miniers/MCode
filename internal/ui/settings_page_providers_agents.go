@@ -762,21 +762,6 @@ func providerRowNotInstalled(st *SettingsState, id string) bool {
 	return ok && !avail
 }
 
-// providerGroups 按启用状态把 orderedProviderIDs 的结果分成三组，供卡片按组渲染。
-func providerGroups(st *SettingsState, ids []string) (enabled, installedOff, uninstalled []string) {
-	inputs := make(map[string]providerGroupInput, len(ids))
-	for _, id := range ids {
-		hasSwitch, on := providerRowSwitchState(st, id)
-		inputs[id] = providerGroupInput{
-			HasSwitch:    hasSwitch,
-			Enabled:      on,
-			Ready:        providerStatusFor(st, id).Ready,
-			NotInstalled: providerRowNotInstalled(st, id),
-		}
-	}
-	return groupProviderIDs(ids, inputs)
-}
-
 const (
 	// Provider 行右侧操作区的固定列宽：快捷按钮、启用开关、展开箭头。
 	// 某个控件不存在时保留等宽占位，使各行的状态与操作列保持对齐。

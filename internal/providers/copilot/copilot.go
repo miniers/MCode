@@ -1019,58 +1019,6 @@ func ListModels(ctx context.Context, binary string, env []string) ([]ModelOption
 	return models, nil
 }
 
-// AuthState 表示 Copilot 账号登录状态。
-type AuthState string
-
-const (
-	AuthUnknown   AuthState = "unknown"
-	AuthSignedOut AuthState = "signedOut"
-	AuthSignedIn  AuthState = "signedIn"
-)
-
-// Auth 描述 `account.getCurrentAuth` 的结果。
-type Auth struct {
-	State   AuthState
-	Account string
-}
-
-// AuthStatus 启动一次临时连接并读取当前 GitHub 登录。
-// 连接或调用失败时返回 AuthUnknown。
-func AuthStatus(ctx context.Context, binary string, env []string) Auth {
-	conn, cmd, err := connect(ctx, binary, env)
-	if err != nil {
-		return Auth{State: AuthUnknown}
-	}
-	defer closeConnection(conn, cmd)
-
-	var result struct {
-		AuthInfo json.RawMessage `json:"authInfo"`
-	}
-	if err := conn.Call(ctx, "account.getCurrentAuth", map[string]any{}, &result); err != nil {
-		return Auth{State: AuthUnknown}
-	}
-	if len(result.AuthInfo) == 0 || strings.TrimSpace(string(result.AuthInfo)) == "null" {
-		return Auth{State: AuthSignedOut}
-	}
-
-	var auth struct {
-		Login       string `json:"login"`
-		CopilotUser struct {
-			AccessTypeSKU string `json:"access_type_sku"`
-		} `json:"copilotUser"`
-	}
-	_ = json.Unmarshal(result.AuthInfo, &auth)
-
-	account := auth.Login
-	if auth.CopilotUser.AccessTypeSKU == "no_access" {
-		if account == "" {
-			account = "GitHub"
-		}
-		account += " · no Copilot access"
-	}
-	return Auth{State: AuthSignedIn, Account: account}
-}
-
 // connect 在临时目录启动一次短生命周期的 copilot 连接并完成 ping 握手。
 // 调用方负责 closeConnection。
 func connect(ctx context.Context, binary string, env []string) (*Conn, *exec.Cmd, error) {

@@ -291,6 +291,3 @@ func saveCommitMessageModel(st *SettingsState, sel ModelSelection) {
 	st.save()
 	st.invalidate()
 }
-
-// renderSourceControlAdvancedSections 保留给旧分发分支引用；版本控制页已由页面树接管，进阶项在 advancedSourceControl。
-func renderSourceControlAdvancedSections(c *ui.Context, st *SettingsState) {}

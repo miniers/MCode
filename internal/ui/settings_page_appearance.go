@@ -201,9 +201,3 @@ func renderPageAppearance(c *ui.Context, st *SettingsState) {
 	syncAppearanceTheme(st)
 	renderSettingsTreePage(c, st, pageAppearance)
 }
-
-// renderAppearanceAdvancedSections 只为 settings.go 里尚未删除的旧高级区分支保活：
-// 行已经并入页面树，这里按「字体与字号」节渲染，实际分发不会再走到。
-func renderAppearanceAdvancedSections(c *ui.Context, st *SettingsState) {
-	renderSettingsTreeSection(c, st, appearanceFontsSection, false)
-}

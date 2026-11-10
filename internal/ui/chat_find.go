@@ -348,19 +348,6 @@ func (s *chatState) closeChatFind() {
 	s.invalidate()
 }
 
-// toggleChatFind 切换查找条的展开状态。
-func (s *chatState) toggleChatFind() {
-	f := getChatFindState(s)
-	if f == nil {
-		return
-	}
-	if f.open {
-		s.closeChatFind()
-		return
-	}
-	s.openChatFind()
-}
-
 // timelineItemContainsMessageID 判断条目是否覆盖某条消息：直接命中 msg，或该消息在
 // 条目的整组工具、节拍工具、汇报消息里，或落在此项的回合折叠区（workItems）里。
 // 折叠项只保留组头，被收起的消息不在 items 顶层露面，所以必须递归查。

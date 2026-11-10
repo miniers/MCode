@@ -364,35 +364,6 @@ type swarmScene struct {
 // has 表示场景里是否有任何面板。
 func (sc swarmScene) has() bool { return len(sc.slots) > 0 }
 
-// lockedSide 返回主区域放不下两侧面板时所有面板必须停靠的那一侧：团队面板所在侧，否则较满的一侧；
-// 两侧都放得下或没有别的面板时返回 false。
-func (sc swarmScene) lockedSide(excluding panelID) (panelSide, bool) {
-	if sc.layout.fitsBothSides() {
-		return 0, false
-	}
-	others := 0
-	leading := 0
-	for id, slot := range sc.slots {
-		if id == excluding {
-			continue
-		}
-		others++
-		if slot.corner.side() == panelSideLeading {
-			leading++
-		}
-	}
-	if others == 0 {
-		return 0, false
-	}
-	if team, ok := sc.slots[teamPanelID]; ok && excluding != teamPanelID {
-		return team.corner.side(), true
-	}
-	if leading >= others-leading {
-		return panelSideLeading, true
-	}
-	return panelSideTrailing, true
-}
-
 // computeSwarmScene 由输入算出面板场景：谁有面板、停在哪个角、堆叠顺序、聊天列让出多少宽度。
 func computeSwarmScene(in sceneInput) swarmScene {
 	measured := in.paneW > 0 && in.paneH > 0

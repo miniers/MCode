@@ -50,20 +50,6 @@ func routeTestSetting(agent, mode string) AgentMagpieSetting {
 	}
 }
 
-func routeControlTester(t *testing.T, agent, mode string, saveErr error) (*ui.Tester, *SettingsState, *routeTestClient) {
-	t.Helper()
-	fake := NewFakeClient()
-	fake.setAgentMagpieModeErr = saveErr
-	setting := routeTestSetting(agent, mode)
-	fake.SetAgentMagpie(setting)
-	if agent == "pi" {
-		fake.SetPiMagpieEndpoints(setting.Endpoints)
-	}
-	client := &routeTestClient{FakeClient: fake}
-	tt, st := routeControlTesterWith(t, client, agent)
-	return tt, st, client
-}
-
 // routeControlTesterWith 只渲染 Magpie 页里某个 agent 的路由行，便于单独验证路由控件。
 func routeControlTesterWith(t *testing.T, client *routeTestClient, agent string) (*ui.Tester, *SettingsState) {
 	t.Helper()
