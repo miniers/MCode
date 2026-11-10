@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
 )
@@ -1088,11 +1089,16 @@ func renderComposer(c *ui.Context, s *chatState) {
 					attachBtn.Children(func() {
 						ui.Icon(c, IconPaperclip()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 					})
-					appPopover(c.Key("composer-downloads-popover"), attachBtn, &s.composerView.downloadsOpen, func() {
+					bg := ThemeSurface(c)
+					host := c.Services()
+					appFlyoutPopover(c, "composer-downloads-popover", attachBtn, &s.composerView.downloadsOpen, func() {
 						s.composerView.downloadsOpen = false
 						s.composerView.mcpMenuOpen = false
-					}, func() {
-						renderAttachMenuPanel(c, s, currentThreadID, func() { s.composerView.downloadsOpen = false })
+					}, appFlyoutProps{Width: 360, Placement: mygo.PlacementTopStart, Background: &bg}, func(fc *ui.Context) {
+						renderAttachMenuPanel(fc, s, currentThreadID, func() {
+							s.composerView.downloadsOpen = false
+							host.Invalidate()
+						})
 					})
 					// 左侧供应商额度条：空间不足时优先收缩，不挤压右侧控件。
 					// 浮动面板里的子代理输入框（embeddedBee）同样显示该子代理会话的额度条。

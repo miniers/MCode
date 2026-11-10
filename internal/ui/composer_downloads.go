@@ -201,160 +201,160 @@ func promptChooseFiles(s *chatState) {
 
 // renderDownloadsPanel 渲染宽 360pt 的“最近下载”浮窗内容（卡片外观由 PopoverBase 的外层面板提供）。
 func renderDownloadsPanel(c *ui.Context, s *chatState, onDone func()) {
-	popoverCardShadow(ui.Column(c.Key("composer-downloads-panel")).
+	panel := ui.Column(c.Key("composer-downloads-panel")).
 		Width(360).
 		Padding(Space4).
-		Gap(Space3).
-		Radius(RadiusMD).
-		Background(ThemeSurface(c)).
-		Border(Hairline, ThemeBorder(c)).
-		Children(func() {
-			// 标题栏
-			ui.Row(c.Key("composer-downloads-header")).
-				FillWidth().
-				Height(ControlSM).
-				AlignItems(ui.Center).
-				Children(func() {
-					ui.Text(c, "最近下载").
-						FontSize(TypeBody).
-						FontWeight(600).
-						TextColor(ThemePrimaryText(c))
-				})
+		Gap(Space3)
+	if !isAppFlyoutServices(c.Services()) {
+		panel = popoverCardShadow(panel.Radius(RadiusMD).Background(ThemeSurface(c)).Border(Hairline, ThemeBorder(c)))
+	}
+	panel.Children(func() {
+		// 标题栏
+		ui.Row(c.Key("composer-downloads-header")).
+			FillWidth().
+			Height(ControlSM).
+			AlignItems(ui.Center).
+			Children(func() {
+				ui.Text(c, "最近下载").
+					FontSize(TypeBody).
+					FontWeight(600).
+					TextColor(ThemePrimaryText(c))
+			})
 
-			items, err := getCachedDownloads(s)
-			if err != nil {
-				ui.Text(c, "读取下载目录失败: "+err.Error()).
-					FontSize(TypeFootnote).
-					TextColor(ThemeDanger(c)).
-					Padding(Space3, 0, Space3, 0)
-			} else if len(items) == 0 {
-				ui.Text(c, "下载目录中没有文件").
-					FontSize(TypeFootnote).
-					TextColor(ThemeSecondaryText(c)).
-					Padding(Space4, 0, Space4, 0)
-			} else {
-				ui.Column(c.Key("composer-downloads-list")).
-					FillWidth().
-					Gap(Space0).
-					Children(func() {
-						for i, entry := range items {
-							idx := i
-							item := entry
-							rowKey := fmt.Sprintf("composer-download-row-%d", idx)
-
-							rowBtn := ui.ButtonBase(c.Key(rowKey)).
-								FillWidth().
-								Height(ControlLG).
-								Radius(RadiusSM).
-								Padding(0, Space3).
-								Background(ui.Transparent).
-								OnClick(func() {
-									if s != nil {
-										s.addAttachmentFiles([]string{item.Path})
-									}
-									if onDone != nil {
-										onDone()
-									}
-								})
-
-							if rowBtn.Hovered() {
-								composerHoverBg(c, rowBtn, true)
-							}
-
-							rowBtn.Children(func() {
-								ui.Row(c.Key(rowKey + "-content")).
-									FillWidth().
-									Height(ControlLG).
-									AlignItems(ui.Center).
-									Gap(Space3).
-									Children(func() {
-										ui.Icon(c, IconFile()).
-											Size(IconMD, IconMD).
-											TextColor(ThemeSecondaryText(c))
-
-										ui.Text(c, truncateMiddle(item.Name, 26)).
-											FontSize(TypeBody).
-											TextColor(ThemePrimaryText(c)).
-											Grow(1)
-
-										ui.Text(c, formatFileSize(item.Size)).
-											FontSize(TypeCaption).
-											TextColor(ThemeSecondaryText(c))
-									})
-							})
-						}
-					})
-			}
-
-			// 分隔线
-			ui.Row(c.Key("composer-downloads-divider")).
-				FillWidth().
-				Height(Hairline).
-				Background(ThemeDivider(c)).
-				Margin(Space1, 0, Space1, 0)
-
-			// 底部操作区
-			ui.Column(c.Key("composer-downloads-footer")).
+		items, err := getCachedDownloads(s)
+		if err != nil {
+			ui.Text(c, "读取下载目录失败: "+err.Error()).
+				FontSize(TypeFootnote).
+				TextColor(ThemeDanger(c)).
+				Padding(Space3, 0, Space3, 0)
+		} else if len(items) == 0 {
+			ui.Text(c, "下载目录中没有文件").
+				FontSize(TypeFootnote).
+				TextColor(ThemeSecondaryText(c)).
+				Padding(Space4, 0, Space4, 0)
+		} else {
+			ui.Column(c.Key("composer-downloads-list")).
 				FillWidth().
 				Gap(Space0).
 				Children(func() {
-					// 在 Finder 中显示
-					finderBtn := ui.ButtonBase(c.Key("composer-downloads-finder-btn")).
-						FillWidth().
-						Height(ControlMD).
-						Radius(RadiusSM).
-						Padding(0, Space3).
-						Background(ui.Transparent).
-						OnClick(func() {
-							openDirectoryPath(downloadsDir())
-							if onDone != nil {
-								onDone()
-							}
-						})
-					composerHoverBg(c, finderBtn, finderBtn.Hovered())
-					finderBtn.Children(func() {
-						ui.Row(c.Key("composer-downloads-finder-content")).
-							FillWidth().
-							AlignItems(ui.Center).
-							Gap(Space3).
-							Children(func() {
-								ui.Icon(c, IconFolderOpen()).
-									Size(IconSM, IconSM).
-									TextColor(ThemeSecondaryText(c))
-								ui.Text(c, "在 Finder 中显示").
-									FontSize(TypeFootnote).
-									TextColor(ThemePrimaryText(c))
-							})
-					})
+					for i, entry := range items {
+						idx := i
+						item := entry
+						rowKey := fmt.Sprintf("composer-download-row-%d", idx)
 
-					// 选择文件…
-					chooseBtn := ui.ButtonBase(c.Key("composer-downloads-choose-btn")).
-						FillWidth().
-						Height(ControlMD).
-						Radius(RadiusSM).
-						Padding(0, Space3).
-						Background(ui.Transparent).
-						OnClick(func() {
-							promptChooseFiles(s)
-							if onDone != nil {
-								onDone()
-							}
-						})
-					composerHoverBg(c, chooseBtn, chooseBtn.Hovered())
-					chooseBtn.Children(func() {
-						ui.Row(c.Key("composer-downloads-choose-content")).
+						rowBtn := ui.ButtonBase(c.Key(rowKey)).
 							FillWidth().
-							AlignItems(ui.Center).
-							Gap(Space3).
-							Children(func() {
-								ui.Icon(c, IconFile()).
-									Size(IconSM, IconSM).
-									TextColor(ThemeSecondaryText(c))
-								ui.Text(c, "选择文件…").
-									FontSize(TypeFootnote).
-									TextColor(ThemePrimaryText(c))
+							Height(ControlLG).
+							Radius(RadiusSM).
+							Padding(0, Space3).
+							Background(ui.Transparent).
+							OnClick(func() {
+								if s != nil {
+									s.addAttachmentFiles([]string{item.Path})
+								}
+								if onDone != nil {
+									onDone()
+								}
 							})
-					})
+
+						if rowBtn.Hovered() {
+							composerHoverBg(c, rowBtn, true)
+						}
+
+						rowBtn.Children(func() {
+							ui.Row(c.Key(rowKey + "-content")).
+								FillWidth().
+								Height(ControlLG).
+								AlignItems(ui.Center).
+								Gap(Space3).
+								Children(func() {
+									ui.Icon(c, IconFile()).
+										Size(IconMD, IconMD).
+										TextColor(ThemeSecondaryText(c))
+
+									ui.Text(c, truncateMiddle(item.Name, 26)).
+										FontSize(TypeBody).
+										TextColor(ThemePrimaryText(c)).
+										Grow(1)
+
+									ui.Text(c, formatFileSize(item.Size)).
+										FontSize(TypeCaption).
+										TextColor(ThemeSecondaryText(c))
+								})
+						})
+					}
 				})
-		}))
+		}
+
+		// 分隔线
+		ui.Row(c.Key("composer-downloads-divider")).
+			FillWidth().
+			Height(Hairline).
+			Background(ThemeDivider(c)).
+			Margin(Space1, 0, Space1, 0)
+
+		// 底部操作区
+		ui.Column(c.Key("composer-downloads-footer")).
+			FillWidth().
+			Gap(Space0).
+			Children(func() {
+				// 在 Finder 中显示
+				finderBtn := ui.ButtonBase(c.Key("composer-downloads-finder-btn")).
+					FillWidth().
+					Height(ControlMD).
+					Radius(RadiusSM).
+					Padding(0, Space3).
+					Background(ui.Transparent).
+					OnClick(func() {
+						openDirectoryPath(downloadsDir())
+						if onDone != nil {
+							onDone()
+						}
+					})
+				composerHoverBg(c, finderBtn, finderBtn.Hovered())
+				finderBtn.Children(func() {
+					ui.Row(c.Key("composer-downloads-finder-content")).
+						FillWidth().
+						AlignItems(ui.Center).
+						Gap(Space3).
+						Children(func() {
+							ui.Icon(c, IconFolderOpen()).
+								Size(IconSM, IconSM).
+								TextColor(ThemeSecondaryText(c))
+							ui.Text(c, "在 Finder 中显示").
+								FontSize(TypeFootnote).
+								TextColor(ThemePrimaryText(c))
+						})
+				})
+
+				// 选择文件…
+				chooseBtn := ui.ButtonBase(c.Key("composer-downloads-choose-btn")).
+					FillWidth().
+					Height(ControlMD).
+					Radius(RadiusSM).
+					Padding(0, Space3).
+					Background(ui.Transparent).
+					OnClick(func() {
+						promptChooseFiles(s)
+						if onDone != nil {
+							onDone()
+						}
+					})
+				composerHoverBg(c, chooseBtn, chooseBtn.Hovered())
+				chooseBtn.Children(func() {
+					ui.Row(c.Key("composer-downloads-choose-content")).
+						FillWidth().
+						AlignItems(ui.Center).
+						Gap(Space3).
+						Children(func() {
+							ui.Icon(c, IconFile()).
+								Size(IconSM, IconSM).
+								TextColor(ThemeSecondaryText(c))
+							ui.Text(c, "选择文件…").
+								FontSize(TypeFootnote).
+								TextColor(ThemePrimaryText(c))
+						})
+				})
+			})
+	})
 }

@@ -77,11 +77,6 @@ func renderModelPickerPopoverWithNotice(c *ui.Context, st *SettingsState, ps *mo
 	host := c.Services()
 	native := flyoutHostWindow(host) != nil
 	background := ThemeSurfacePopover(c)
-	closePicker := func() {
-		ps.openPopoverKey = ""
-		closeAppFlyoutPopover(host, key)
-		st.invalidate()
-	}
 	appFlyoutPopover(c, key, anchor, &open, func() {
 		if ps.openPopoverKey == popoverKey {
 			ps.openPopoverKey = ""
@@ -115,7 +110,6 @@ func renderModelPickerPopoverWithNotice(c *ui.Context, st *SettingsState, ps *mo
 							if custom.Add != nil {
 								custom.Add(id)
 							}
-							closePicker()
 						})
 						btn.Children(func() {
 							ui.Text(c, label).
@@ -131,12 +125,7 @@ func renderModelPickerPopoverWithNotice(c *ui.Context, st *SettingsState, ps *mo
 						Padding(0, Space1)
 				}
 				ui.Column(c.Key(popoverKey + "-list")).FillWidth().Children(func() {
-					renderModelPickerSections(c, st, ps, popoverKey, items, strings.TrimSpace(*query), emptyHint, func(item modelPickerItem, checked bool) {
-						if onToggle != nil {
-							onToggle(item, checked)
-						}
-						closePicker()
-					})
+					renderModelPickerSections(c, st, ps, popoverKey, items, strings.TrimSpace(*query), emptyHint, onToggle)
 				})
 			})
 	})
@@ -303,6 +292,9 @@ func renderModelPickerRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 			if cb.Changed() {
 				if onToggle != nil {
 					onToggle(item, checked)
+				}
+				if ps.openPopoverKey == "" {
+					ps.openPopoverKey = popoverKey
 				}
 				st.invalidate()
 			}

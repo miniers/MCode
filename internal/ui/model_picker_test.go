@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
 	"mcode/internal/magpieinject"
@@ -268,6 +269,53 @@ func TestRenderModelPickerCard_DefaultIdentityVisible(t *testing.T) {
 	}
 	if tt.HasText("当前：") || tt.HasText("低") || tt.HasText("超高") || tt.HasText("Low") {
 		t.Fatalf("unexpected tier list text in card, got %v", tt.Texts())
+	}
+}
+
+func TestModelPickerFlyoutSelection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	entry, capture := setupPopoverFlyoutTest(t)
+	providers := modelPickerTestProviders()
+	providers[0].Models[0].SupportsFast = true
+	state := &ModelPickerState{}
+	fast, picked := false, false
+	props := ModelPickerProps{KeyPrefix: "flyout-model-", ScopeKey: "flyout-model", State: state, Providers: providers,
+		Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"}, CapsuleLabel: "Claude",
+		OnToggleFast: func(ModelPickerSide) { fast = true }, OnPickModel: func(ModelPickerSide, ProviderInfo, ModelInfo) { picked = true; state.Reset() }}
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		props.Invalidate = c.Services().Invalidate
+		renderModelPicker(c, props)
+	}, 400, 500)
+	if err := host.Click("选择模型"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.options) != 1 || capture.options[0].Width != 330 || capture.options[0].Placement != mygo.PlacementTopStart {
+		t.Fatalf("窗口参数: %+v", capture.options)
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-model-model-popover"), 330, 600)
+	if err := menu.Click("快速模式"); err != nil {
+		t.Fatal(err)
+	}
+	if !fast || !state.MenuOpen {
+		t.Fatal("快速模式应保持浮层打开")
+	}
+	if err := menu.Click("选择其他模型"); err != nil {
+		t.Fatal(err)
+	}
+	menu.Type("Sonnet")
+	if state.searchQuery != "Sonnet" {
+		t.Fatalf("搜索输入失败: %q", state.searchQuery)
+	}
+	if !menu.HasText("Claude 3.7 Sonnet") {
+		t.Fatalf("缺少模型: %v", menu.Texts())
+	}
+	if err := menu.Click("Claude 3.7 Sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	host.Frame()
+	if !picked || state.MenuOpen || len(capture.destroyedWindows) != 1 {
+		t.Fatal("选模型后浮层未关闭")
 	}
 }
 

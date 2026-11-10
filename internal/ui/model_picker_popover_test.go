@@ -117,8 +117,8 @@ func TestModelPicker_AddAndSearch(t *testing.T) {
 		pins, _, err := fake.ModelList(context.Background())
 		return err == nil && len(pins) == 1 && pins[0].Key() == "claude/sonnet" && tt.HasText("移除收藏 Claude Sonnet")
 	})
-	if _, ok := tt.Find(search); ok {
-		t.Fatalf("勾选后浮层未关闭: %v", tt.Texts())
+	if _, ok := tt.Find(search); !ok {
+		t.Fatalf("勾选后浮层应保持打开: %v", tt.Texts())
 	}
 }
 
@@ -136,7 +136,13 @@ func TestModelPicker_Flyout(t *testing.T) {
 	host := ui.NewTester(func(c *ui.Context) {
 		entry.services = c.Services()
 		anchor := renderModelPickerAddButton(c, st, &ps, "test-picker", "打开模型")
-		renderModelPickerPopover(c, st, &ps, "test-picker", anchor, items, "空", func(_ modelPickerItem, checked bool) { selected = checked }, modelPickerCustom{})
+		renderModelPickerPopover(c, st, &ps, "test-picker", anchor, items, "空", func(_ modelPickerItem, checked bool) {
+			selected = checked
+			items[0].Checked = checked
+			if !checked {
+				ps.openPopoverKey = ""
+			}
+		}, modelPickerCustom{})
 	}, 600, 300)
 	if err := host.Click("打开模型"); err != nil {
 		t.Fatal(err)
@@ -164,8 +170,15 @@ func TestModelPicker_Flyout(t *testing.T) {
 	if err := menu.Click("Model 00"); err != nil {
 		t.Fatal(err)
 	}
-	if !selected || ps.openPopoverKey != "" || len(capture.destroyedWindows) != 1 {
-		t.Fatal("选择模型后未关闭浮层")
+	if !selected || ps.openPopoverKey != "test-picker" || len(capture.destroyedWindows) != 0 {
+		t.Fatal("勾选模型后状态未更新或浮层未保持打开")
+	}
+	menu.Frame()
+	if err := menu.Click("Model 00"); err != nil {
+		t.Fatal(err)
+	}
+	if selected || ps.openPopoverKey != "test-picker" || len(capture.destroyedWindows) != 0 {
+		t.Fatal("取消勾选模型后状态未更新或浮层未保持打开")
 	}
 }
 

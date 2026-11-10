@@ -28,6 +28,18 @@ func flyoutHostWindow(services ui.Services) *mygo.Window {
 	if services == (ui.Services{}) {
 		return nil
 	}
+	appFlyoutPopoverMu.Lock()
+	var flyoutWindow *mygo.Window
+	for _, entry := range appFlyoutPopovers {
+		if entry.services == services && entry.window != nil {
+			flyoutWindow = entry.window
+			break
+		}
+	}
+	appFlyoutPopoverMu.Unlock()
+	if flyoutWindow != nil && !flyoutWindow.IsDestroyed() {
+		return flyoutWindow
+	}
 	settingsWindowMu.Lock()
 	var w *mygo.Window
 	if settingsWindow != nil && settingsWindow.services == services {
@@ -82,12 +94,13 @@ func flyoutAnchor(bounds ui.Rect, zoom float32) (mygo.Rectangle, bool) {
 }
 
 type appFlyout struct {
-	window     *mygo.Window
-	anchor     mygo.Rectangle
-	creating   bool
-	services   ui.Services
-	view       func(*ui.Context)
-	generation uint64
+	window       *mygo.Window
+	closedWindow *mygo.Window
+	anchor       mygo.Rectangle
+	creating     bool
+	services     ui.Services
+	view         func(*ui.Context)
+	generation   uint64
 }
 
 // updateLocked 更新锚点，并返回需要在解锁后执行的操作。
@@ -149,6 +162,7 @@ func (f *appFlyout) create(mu *sync.Mutex, opts mygo.FlyoutOptions, onClose func
 		}
 		valid := f.generation == gen && f.window == identity.window
 		if valid {
+			f.closedWindow = f.window
 			f.window = nil
 			f.services = ui.Services{}
 			f.generation++
@@ -207,6 +221,7 @@ type appFlyoutPopoverKey struct {
 
 type appFlyoutPopoverEntry struct {
 	appFlyout
+	parent    *mygo.Window
 	dismissed bool
 	props     appFlyoutProps
 	render    func(*ui.Context)
@@ -215,18 +230,62 @@ type appFlyoutPopoverEntry struct {
 var appFlyoutPopoverMu sync.Mutex
 var appFlyoutPopovers = make(map[appFlyoutPopoverKey]*appFlyoutPopoverEntry)
 
+func isAppFlyoutServices(services ui.Services) bool {
+	appFlyoutPopoverMu.Lock()
+	defer appFlyoutPopoverMu.Unlock()
+	for _, entry := range appFlyoutPopovers {
+		if entry.window != nil && entry.services == services && services != (ui.Services{}) {
+			return true
+		}
+	}
+	return false
+}
+
+func disposeFlyoutChildrenLocked(parent *mygo.Window) []func() {
+	var actions []func()
+	for k, child := range appFlyoutPopovers {
+		if child.parent == parent {
+			if child.window != nil {
+				actions = append(actions, disposeFlyoutChildrenLocked(child.window)...)
+			}
+			delete(appFlyoutPopovers, k)
+			if dispose := child.destroyLocked(); dispose != nil {
+				actions = append(actions, dispose)
+			}
+		}
+	}
+	return actions
+}
+
 func closeAppFlyoutPopover(host ui.Services, key string) {
 	k := appFlyoutPopoverKey{services: host, key: key}
 	appFlyoutPopoverMu.Lock()
 	entry := appFlyoutPopovers[k]
-	var dispose func()
+	var actions []func()
+	var parent *mygo.Window
 	if entry != nil {
+		parent = entry.parent
+		if entry.window != nil {
+			actions = append(actions, disposeFlyoutChildrenLocked(entry.window)...)
+		}
 		delete(appFlyoutPopovers, k)
-		dispose = entry.destroyLocked()
+		if dispose := entry.destroyLocked(); dispose != nil {
+			actions = append(actions, dispose)
+		}
+	}
+	parentIsFlyout := false
+	for _, e := range appFlyoutPopovers {
+		if e.window == parent && parent != nil {
+			parentIsFlyout = true
+			break
+		}
 	}
 	appFlyoutPopoverMu.Unlock()
-	if dispose != nil {
-		dispose()
+	for _, action := range actions {
+		action()
+	}
+	if parentIsFlyout && !parent.IsDestroyed() {
+		flyoutRunOnMain(func() { flyoutFocus(parent) })
 	}
 }
 
@@ -256,7 +315,7 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 		return
 	}
 	if entry == nil {
-		entry = &appFlyoutPopoverEntry{}
+		entry = &appFlyoutPopoverEntry{parent: parent}
 		appFlyoutPopovers[k] = entry
 	}
 	entry.view, entry.props = fn, props
@@ -290,10 +349,18 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 			entry.create(&appFlyoutPopoverMu, opts, nil, func() {
 				appFlyoutPopoverMu.Lock()
 				active := appFlyoutPopovers[k] == entry && entry.window == nil && !entry.creating
+				var children []func()
 				if active {
+					if entry.closedWindow != nil {
+						children = disposeFlyoutChildrenLocked(entry.closedWindow)
+						entry.closedWindow = nil
+					}
 					entry.dismissed = true
 				}
 				appFlyoutPopoverMu.Unlock()
+				for _, dispose := range children {
+					dispose()
+				}
 				if active {
 					host.Invalidate()
 					if !parent.IsDestroyed() {

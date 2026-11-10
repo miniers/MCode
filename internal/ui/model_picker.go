@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/apisource"
 	"mcode/internal/config"
@@ -1160,6 +1161,12 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 				p.NativeMenu(anchor.Bounds(), c.Zoom(), state.MenuOpen)
 				return
 			}
+			if flyoutHostWindow(c.Services()) != nil {
+				appFlyoutPopover(c, p.KeyPrefix+"model-popover", anchor, &state.MenuOpen, nil, appFlyoutProps{Width: 330, Placement: mygo.PlacementTopStart, Background: &modelPickerPanelBg}, func(fc *ui.Context) {
+					renderModelPickerMenuBody(fc, p, state)
+				})
+				return
+			}
 			ui.PopoverBase(c.Key(p.KeyPrefix+"model-popover"), anchor, &state.MenuOpen, func(panel ui.Element) {
 				panelBg := modelPickerPanelBg
 				borderColor := ColorBorderDark
@@ -1521,16 +1528,17 @@ func renderModelPickerMaxBeesCapsule(c *ui.Context, p ModelPickerProps, state *M
 			})
 	})
 
-	appPopover(c.Key(p.KeyPrefix+"bees-max-popover"), btn, &state.MaxBeesOpen, func() {
+	appFlyoutPopover(c, p.KeyPrefix+"bees-max-popover", btn, &state.MaxBeesOpen, func() {
 		state.MaxBeesOpen = false
-	}, func() {
-		optionsCol := ui.Column(c.Key(p.KeyPrefix+"bees-max-options")).
-			Padding(Space1).
-			Radius(RadiusMD).
-			Background(ColorSurfaceRaisedDark).
-			Border(1, ColorBorderDark)
+	}, appFlyoutProps{Width: 230, Background: &ColorSurfaceRaisedDark}, func(fc *ui.Context) {
+		c := fc
+		optionsCol := ui.Column(c.Key(p.KeyPrefix + "bees-max-options")).
+			Padding(Space1)
 		// 选项面板是固定深色面上的第二层浮层，阴影取 ElevPopover。
-		applyElevation(c, optionsCol, ElevPopover).Children(func() {
+		if flyoutHostWindow(c.Services()) == nil {
+			optionsCol = applyElevation(c, optionsCol.Radius(RadiusMD).Background(ColorSurfaceRaisedDark).Border(1, ColorBorderDark), ElevPopover)
+		}
+		optionsCol.Children(func() {
 			options := []struct {
 				val   int
 				label string
@@ -1994,141 +2002,142 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 					}
 				})
 
-			// 步骤 3 滚动容器：ui.Scroll，MaxHeight 440，ScrollbarInsets(4, 0, 4, 0)，行间 Gap 1
-			ui.Scroll(c.Key(p.KeyPrefix+"model-list-scroll")).
-				MaxHeight(440).
-				ScrollbarInsets(4, 0, 4, 0).
-				FillWidth().
-				Children(func() {
-					ui.Column(c.Key(p.KeyPrefix + "model-list-items")).
-						Gap(Space0).
-						FillWidth().
-						Children(func() {
-							// C-HY-19：Lead 段列表顶部展示就绪的 Swarm 配对模板，点击一键套用并关闭整个弹层。
-							// 搜索时只列匹配的模型，不展示配对段。
-							if p.Mode == ModelPickerSwarm && side == ModelPickerSideLead && len(p.Pairs) > 0 && !searching {
-								curPair, hasCurPair := SwarmPair{}, false
-								if p.SwarmOn {
-									curPair, hasCurPair = currentSwarmPairFor(p.Pairs, p.PairID, lead.Selection.Provider, lead.Selection.Model, p.Bees.Provider, p.Bees.Model)
-								}
-								renderProviderGroupHeader(c, p.KeyPrefix+"pair-group-header", "配对")
-								for idx, pair := range p.Pairs {
-									pair := pair
-									selected := hasCurPair && curPair.ID == pair.ID
-									onEnter := func() {
-										// 应用配对后关闭整个弹层。
-										state.Reset()
-										clearModelPanelMoreOpen(scopeKey, "lead")
-										clearModelPanelMoreOpen(scopeKey, "bees")
-										clearModelCapsuleSnapshot(scopeKey)
-										if p.OnApplyPair != nil {
-											p.OnApplyPair(pair)
-										}
-									}
-									renderModelListPairRow(c, p, fmt.Sprintf("%spair-row-%d", p.KeyPrefix, idx), pair, selected, onEnter)
-								}
-								renderProviderGroupHeader(c, p.KeyPrefix+"pair-models-header", "模型")
+			var list ui.Element
+			if isAppFlyoutServices(c.Services()) && p.NativeMenu == nil {
+				list = ui.Column(c.Key(p.KeyPrefix + "model-list-scroll"))
+			} else {
+				list = ui.Scroll(c.Key(p.KeyPrefix+"model-list-scroll")).MaxHeight(440).ScrollbarInsets(4, 0, 4, 0)
+			}
+			list.FillWidth().Children(func() {
+				ui.Column(c.Key(p.KeyPrefix + "model-list-items")).
+					Gap(Space0).
+					FillWidth().
+					Children(func() {
+						// C-HY-19：Lead 段列表顶部展示就绪的 Swarm 配对模板，点击一键套用并关闭整个弹层。
+						// 搜索时只列匹配的模型，不展示配对段。
+						if p.Mode == ModelPickerSwarm && side == ModelPickerSideLead && len(p.Pairs) > 0 && !searching {
+							curPair, hasCurPair := SwarmPair{}, false
+							if p.SwarmOn {
+								curPair, hasCurPair = currentSwarmPairFor(p.Pairs, p.PairID, lead.Selection.Provider, lead.Selection.Model, p.Bees.Provider, p.Bees.Model)
 							}
-
-							if isMoreOpen && !searching && side == ModelPickerSideBees && state != nil && state.TierEditing != "" {
-								renderTierEditingBanner(c, p, state)
-							}
-
-							if showGrouped {
-								// 搜索时不展示档位段与跟随主导行，只列匹配的模型。
-								if !isMoreOpen && !searching && side == ModelPickerSideBees {
-									if len(p.Tiers) > 0 {
-										renderModelPickerTiersSection(c, p, state)
+							renderProviderGroupHeader(c, p.KeyPrefix+"pair-group-header", "配对")
+							for idx, pair := range p.Pairs {
+								pair := pair
+								selected := hasCurPair && curPair.ID == pair.ID
+								onEnter := func() {
+									// 应用配对后关闭整个弹层。
+									state.Reset()
+									clearModelPanelMoreOpen(scopeKey, "lead")
+									clearModelPanelMoreOpen(scopeKey, "bees")
+									clearModelCapsuleSnapshot(scopeKey)
+									if p.OnApplyPair != nil {
+										p.OnApplyPair(pair)
 									}
-									renderModelPickerFollowLeadRow(c, p, state, bees.FollowsLead)
 								}
-								// 二级页或无 pin 模型时的一级页：按 provider 分组
-								rendered := false
-								if side == ModelPickerSideBees {
-									rendered = renderModelList(c, p, "bees-more-", sideKey, providers, query,
-										func(prov ProviderInfo, mIdx int, m ModelInfo) bool {
-											return prov.ID == p.Bees.Provider && modelMatches(prov.Models, p.Bees.Model, mIdx, m)
-										},
-										func(ProviderInfo) bool { return false },
-										onPick)
-								} else {
-									rendered = renderModelList(c, p, "lead-more-", sideKey, providers, query,
-										func(prov ProviderInfo, mIdx int, m ModelInfo) bool {
-											return prov.ID == lead.Selection.Provider && modelMatches(prov.Models, lead.Selection.Model, mIdx, m)
-										},
-										func(prov ProviderInfo) bool { return p.HasMessages && prov.ID != lead.Selection.Provider },
-										onPick)
+								renderModelListPairRow(c, p, fmt.Sprintf("%spair-row-%d", p.KeyPrefix, idx), pair, selected, onEnter)
+							}
+							renderProviderGroupHeader(c, p.KeyPrefix+"pair-models-header", "模型")
+						}
+
+						if isMoreOpen && !searching && side == ModelPickerSideBees && state != nil && state.TierEditing != "" {
+							renderTierEditingBanner(c, p, state)
+						}
+
+						if showGrouped {
+							// 搜索时不展示档位段与跟随主导行，只列匹配的模型。
+							if !isMoreOpen && !searching && side == ModelPickerSideBees {
+								if len(p.Tiers) > 0 {
+									renderModelPickerTiersSection(c, p, state)
 								}
-								if searching && !rendered {
-									ui.Text(c, "没有匹配的模型").
-										FontSize(TypeFootnote).
-										TextColor(modelPickerTextSecondary).
-										Padding(Space2, Space3, Space1, Space3)
-								}
+								renderModelPickerFollowLeadRow(c, p, state, bees.FollowsLead)
+							}
+							// 二级页或无 pin 模型时的一级页：按 provider 分组
+							rendered := false
+							if side == ModelPickerSideBees {
+								rendered = renderModelList(c, p, "bees-more-", sideKey, providers, query,
+									func(prov ProviderInfo, mIdx int, m ModelInfo) bool {
+										return prov.ID == p.Bees.Provider && modelMatches(prov.Models, p.Bees.Model, mIdx, m)
+									},
+									func(ProviderInfo) bool { return false },
+									onPick)
 							} else {
-								// 一级页（有 pin 模型）：平铺展示 pin 的模型
+								rendered = renderModelList(c, p, "lead-more-", sideKey, providers, query,
+									func(prov ProviderInfo, mIdx int, m ModelInfo) bool {
+										return prov.ID == lead.Selection.Provider && modelMatches(prov.Models, lead.Selection.Model, mIdx, m)
+									},
+									func(prov ProviderInfo) bool { return p.HasMessages && prov.ID != lead.Selection.Provider },
+									onPick)
+							}
+							if searching && !rendered {
+								ui.Text(c, "没有匹配的模型").
+									FontSize(TypeFootnote).
+									TextColor(modelPickerTextSecondary).
+									Padding(Space2, Space3, Space1, Space3)
+							}
+						} else {
+							// 一级页（有 pin 模型）：平铺展示 pin 的模型
+							if side == ModelPickerSideBees {
+								if len(p.Tiers) > 0 {
+									renderModelPickerTiersSection(c, p, state)
+								}
+								renderModelPickerFollowLeadRow(c, p, state, bees.FollowsLead)
+							}
+
+							seenQuotaProvider := make(map[string]bool)
+
+							prefix := "lead-featured-"
+							if side == ModelPickerSideBees {
+								prefix = "bees-featured-"
+							}
+
+							for _, entry := range pinned {
+								prov := entry.Provider
+								modelItem := entry.Model
+
+								isChecked := false
+								isLocked := false
+								lockedReason := ""
 								if side == ModelPickerSideBees {
-									if len(p.Tiers) > 0 {
-										renderModelPickerTiersSection(c, p, state)
+									isChecked = (p.Bees.Provider != "" && prov.ID == p.Bees.Provider && modelItem.ID == p.Bees.Model)
+								} else {
+									isChecked = (prov.ID == lead.Selection.Provider && (modelItem.ID == lead.Selection.Model || (lead.Selection.Model == "" && modelItem.IsDefault)))
+									isLocked = (p.HasMessages && prov.ID != lead.Selection.Provider)
+									if isLocked {
+										lockedReason = "已有消息后只能切换到当前 Agent 的模型"
 									}
-									renderModelPickerFollowLeadRow(c, p, state, bees.FollowsLead)
+								}
+								if reason := effortCardLockedReason(p, side); reason != "" {
+									isLocked = true
+									lockedReason = reason
 								}
 
-								seenQuotaProvider := make(map[string]bool)
-
-								prefix := "lead-featured-"
-								if side == ModelPickerSideBees {
-									prefix = "bees-featured-"
+								showQuota := !seenQuotaProvider[prov.ID]
+								if showQuota {
+									seenQuotaProvider[prov.ID] = true
 								}
 
-								for _, entry := range pinned {
-									prov := entry.Provider
-									modelItem := entry.Model
-
-									isChecked := false
-									isLocked := false
-									lockedReason := ""
-									if side == ModelPickerSideBees {
-										isChecked = (p.Bees.Provider != "" && prov.ID == p.Bees.Provider && modelItem.ID == p.Bees.Model)
-									} else {
-										isChecked = (prov.ID == lead.Selection.Provider && (modelItem.ID == lead.Selection.Model || (lead.Selection.Model == "" && modelItem.IsDefault)))
-										isLocked = (p.HasMessages && prov.ID != lead.Selection.Provider)
-										if isLocked {
-											lockedReason = "已有消息后只能切换到当前 Agent 的模型"
-										}
-									}
-									if reason := effortCardLockedReason(p, side); reason != "" {
-										isLocked = true
-										lockedReason = reason
-									}
-
-									showQuota := !seenQuotaProvider[prov.ID]
-									if showQuota {
-										seenQuotaProvider[prov.ID] = true
-									}
-
-									renderModelRow(c, p, modelRowOptions{
-										KeyPrefix:    prefix,
-										Provider:     prov,
-										Model:        modelItem,
-										IsChecked:    isChecked,
-										IsLocked:     isLocked,
-										LockedReason: lockedReason,
-										ShowSubtitle: true, // 一级页每行带 provider 副标题
-										SubtitleText: prov.Name,
-										ShowQuota:    showQuota,
-										OnPick:       onPick,
-									})
-								}
-
-								// 一级页末尾：“更多模型…”行（步骤 7）
-								renderMoreModelsRow(c, p, prefix, func() {
-									setModelPanelMoreOpen(scopeKey, sideKey, true)
-									modelPickerInvalidate(p)
+								renderModelRow(c, p, modelRowOptions{
+									KeyPrefix:    prefix,
+									Provider:     prov,
+									Model:        modelItem,
+									IsChecked:    isChecked,
+									IsLocked:     isLocked,
+									LockedReason: lockedReason,
+									ShowSubtitle: true, // 一级页每行带 provider 副标题
+									SubtitleText: prov.Name,
+									ShowQuota:    showQuota,
+									OnPick:       onPick,
 								})
 							}
-						})
-				})
+
+							// 一级页末尾：“更多模型…”行（步骤 7）
+							renderMoreModelsRow(c, p, prefix, func() {
+								setModelPanelMoreOpen(scopeKey, sideKey, true)
+								modelPickerInvalidate(p)
+							})
+						}
+					})
+			})
 		})
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -146,6 +147,40 @@ func TestRenderDownloadsPanel_Empty(t *testing.T) {
 	}
 	if !tt.HasText("选择文件…") {
 		t.Fatalf("expected '选择文件…'")
+	}
+}
+
+func TestComposerDownloadFlyout(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	clearDownloadsCache()
+	dir := downloadsDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sample.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	entry, capture := setupPopoverFlyoutTest(t)
+	s, view := buildRoot(newStewardFakeClient("other"), WithInitialThread("t1"))
+	t.Cleanup(s.close)
+	host := ui.NewTester(func(c *ui.Context) { entry.services = c.Services(); view(c) }, 1000, 700)
+	waitFor(t, host, func() bool { return host.HasText("测试会话1") })
+	if err := host.Click("添加附件"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.options) != 1 || capture.options[0].Width != 360 || capture.options[0].Placement != mygo.PlacementTopStart {
+		t.Fatalf("窗口参数: %+v", capture.options)
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, "composer-downloads-popover"), 360, 500)
+	if !menu.HasText("sample.txt") {
+		t.Fatalf("缺少下载项: %v", menu.Texts())
+	}
+	if err := menu.Click("sample.txt"); err != nil {
+		t.Fatal(err)
+	}
+	host.Frame()
+	if s.composerView.downloadsOpen || len(capture.destroyedWindows) != 1 {
+		t.Fatal("选取下载项后浮层未关闭")
 	}
 }
 

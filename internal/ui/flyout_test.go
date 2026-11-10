@@ -354,6 +354,57 @@ func TestFlyoutPopoverDismissWithoutCallback(t *testing.T) {
 	}
 }
 
+func TestFlyoutPopoverNestedLifecycle(t *testing.T) {
+	entry, capture := setupPopoverFlyoutTest(t)
+	parentOpen, childOpen := true, true
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		anchor := ui.ButtonBase(c.Key("parent-anchor")).Size(100, 30)
+		appFlyoutPopover(c, "parent", anchor, &parentOpen, nil, appFlyoutProps{Width: 150}, func(c *ui.Context) {
+			anchor := ui.ButtonBase(c.Key("child-anchor")).Size(80, 30)
+			appFlyoutPopover(c, "child", anchor, &childOpen, nil, appFlyoutProps{Width: 100}, func(c *ui.Context) { ui.Text(c, "子浮层") })
+		})
+	}, 300, 300)
+	host.Frame()
+	parent := ui.NewTester(popoverTestView(t, entry.services, "parent"), 150, 200)
+	parent.Frame()
+	parent.Frame()
+	if len(capture.options) != 2 {
+		t.Fatalf("浮层数量: %d", len(capture.options))
+	}
+	appFlyoutPopoverMu.Lock()
+	parentWindow := appFlyoutPopovers[appFlyoutPopoverKey{entry.services, "parent"}].window
+	var childWindow *mygo.Window
+	for _, e := range appFlyoutPopovers {
+		if e.parent == parentWindow {
+			childWindow = e.window
+		}
+	}
+	appFlyoutPopoverMu.Unlock()
+	if capture.options[1].Parent != parentWindow || childWindow == nil {
+		t.Fatal("子浮层父窗口错误")
+	}
+	capture.closed[1]()
+	parent.Frame()
+	if childOpen || !parentOpen || capture.focused != 1 {
+		t.Fatal("子浮层关闭后应恢复父浮层焦点")
+	}
+	childOpen = true
+	parent.Frame()
+	appFlyoutPopoverMu.Lock()
+	for _, e := range appFlyoutPopovers {
+		if e.parent == parentWindow {
+			childWindow = e.window
+		}
+	}
+	appFlyoutPopoverMu.Unlock()
+	parentOpen = false
+	host.Frame()
+	if len(capture.destroyedWindows) != 2 || capture.destroyedWindows[0] != childWindow || capture.destroyedWindows[1] != parentWindow {
+		t.Fatalf("销毁顺序错误: %v", capture.destroyedWindows)
+	}
+}
+
 func TestFlyoutSessionStats(t *testing.T) {
 	entry, capture := setupPopoverFlyoutTest(t)
 	s := &chatState{}
