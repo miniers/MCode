@@ -252,6 +252,28 @@ func popoverTestView(t *testing.T, services ui.Services, key string) func(*ui.Co
 	return entry.render
 }
 
+func TestFlyoutComposerKeysAreIndependent(t *testing.T) {
+	entry, capture := setupPopoverFlyoutTest(t)
+	mainKey := composerKeyPrefix(&chatState{}, "lead") + "model-popover"
+	beeKey := composerKeyPrefix(&chatState{embeddedBee: true}, "bee") + "model-popover"
+	mainOpen, beeOpen := true, false
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		mainAnchor := ui.ButtonBase(c.Key("main-anchor")).Size(100, 30)
+		appFlyoutPopover(c, mainKey, mainAnchor, &mainOpen, nil, appFlyoutProps{Width: 120}, func(*ui.Context) {})
+		beeAnchor := ui.ButtonBase(c.Key("bee-anchor")).Size(100, 30)
+		appFlyoutPopover(c, beeKey, beeAnchor, &beeOpen, nil, appFlyoutProps{Width: 120}, func(*ui.Context) {})
+	}, 400, 300)
+	host.Frame()
+	host.Frame()
+	appFlyoutPopoverMu.Lock()
+	openEntry := appFlyoutPopovers[appFlyoutPopoverKey{entry.services, mainKey}]
+	appFlyoutPopoverMu.Unlock()
+	if openEntry == nil || len(capture.options) != 1 || len(capture.destroyedWindows) != 0 {
+		t.Fatal("关闭子代理浮层不应销毁主输入框浮层")
+	}
+}
+
 func TestFlyoutPopoverLifecycle(t *testing.T) {
 	entry, capture := setupPopoverFlyoutTest(t)
 	open, dismissed, dismissCount, frames, version := false, 0, 0, 0, 1

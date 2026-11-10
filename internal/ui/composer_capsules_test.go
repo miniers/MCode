@@ -13,6 +13,22 @@ import (
 	git "mcode/internal/git"
 )
 
+func TestComposerKeyPrefix(t *testing.T) {
+	main := composerKeyPrefix(&chatState{}, "lead")
+	bee := &chatState{embeddedBee: true}
+	first := composerKeyPrefix(bee, "bee-1")
+	second := composerKeyPrefix(bee, "bee-2")
+	if main != "composer-" || first != "bee-bee-1-composer-" || second != "bee-bee-2-composer-" {
+		t.Fatalf("输入框前缀错误: %q, %q, %q", main, first, second)
+	}
+	for _, suffix := range []string{"model-popover", "downloads-popover", "bees-max-popover", "usage-popover"} {
+		keys := map[string]bool{main + suffix: true, first + suffix: true, second + suffix: true}
+		if len(keys) != 3 {
+			t.Fatalf("浮层 key 冲突: %s", suffix)
+		}
+	}
+}
+
 // 输入区状态胶囊行的用例：只按可见文字与 a11y Label 定位，不认元素 Key。
 
 // seedCapsuleThread 把 t1 会话的运行态与最后状态改到位（调用方持 s.mu）。

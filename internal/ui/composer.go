@@ -58,6 +58,13 @@ var (
 	iconPlayFilled = parseLucideSVG(`<polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none"/>`)
 )
 
+func composerKeyPrefix(s *chatState, threadID string) string {
+	if s.embeddedBee {
+		return "bee-" + threadID + "-composer-"
+	}
+	return "composer-"
+}
+
 // renderComposerTabSlot 渲染输入框上方的悬浮 Tab 槽位。
 // 有排队消息时优先显示排队 Tab，否则显示当前会话的改动统计 Tab。
 // 只有真正渲染了改动统计行时才把 capsules 传进去并返回 true，表示状态胶囊已并入那一行；
@@ -1091,7 +1098,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 					})
 					bg := ThemeSurface(c)
 					host := c.Services()
-					appFlyoutPopover(c, "composer-downloads-popover", attachBtn, &s.composerView.downloadsOpen, func() {
+					appFlyoutPopover(c, composerKeyPrefix(s, currentThreadID)+"downloads-popover", attachBtn, &s.composerView.downloadsOpen, func() {
 						s.composerView.downloadsOpen = false
 						s.composerView.mcpMenuOpen = false
 					}, appFlyoutProps{Width: 360, Placement: mygo.PlacementTopStart, Background: &bg}, func(fc *ui.Context) {
@@ -1972,7 +1979,7 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 	// 模型目录为空时，选择器里提供「重新探测」按钮：重新拉取供应商目录。
 	renderModelPicker(c, modelPickerCatalogFor(s).apply(ModelPickerProps{
 		Mode:              pickerMode,
-		KeyPrefix:         "composer-",
+		KeyPrefix:         composerKeyPrefix(s, threadID),
 		ScopeKey:          threadID,
 		State:             pickerState,
 		Selection:         leadSelection,
@@ -2646,7 +2653,7 @@ func renderContextMeter(c *ui.Context, s *chatState, currentThread *Thread) {
 			Size(composerContextMeterImageSize, composerContextMeterImageSize).
 			Fit(ui.Contain)
 	})
-	appPopover(c.Key("composer-usage-popover"), meter, &s.composerView.usageOpen, func() {
+	appPopover(c.Key(composerKeyPrefix(s, currentThread.ID)+"usage-popover"), meter, &s.composerView.usageOpen, func() {
 		s.composerView.usageOpen = false
 	}, func() {
 		renderUsagePanel(c, s, currentThread)
