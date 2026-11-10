@@ -239,6 +239,9 @@ func TestAutomationRunHistoryDetailsAndFilters(t *testing.T) {
 		})
 	}, 1000, 800, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 	waitFor(t, tt, func() bool { return tt.HasText("今天") && tt.HasText("昨天") && tt.HasText("运行中") })
+	if err := tt.Click("筛选运行记录"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.Click("筛选失败"); err != nil {
 		t.Fatal(err)
 	}
@@ -295,6 +298,9 @@ func TestAutomationRunHistorySummaryAndUnread(t *testing.T) {
 		})
 	}, 1000, 800, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 	tt.Frame()
+	if err := tt.Click("筛选运行记录"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.Click("筛选未读"); err != nil {
 		t.Fatal(err)
 	}

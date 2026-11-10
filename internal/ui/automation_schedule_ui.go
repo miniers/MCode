@@ -1,7 +1,5 @@
 package mcodeui
 
-// CrychicUI datetime 包的 picker 待联网引入依赖后替换。
-
 import (
 	"context"
 	"fmt"
@@ -272,15 +270,11 @@ func formatIntervalMinutesText(seconds int) string {
 
 func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationState) {
 	// 调度类型选择
-	ui.Column(c.Key("form-sched-type-group")).
+	ui.Row(c.Key("form-sched-type-group")).
 		FillWidth().
+		Wrap().
 		Gap(Space2).
 		Children(func() {
-			ui.Text(c, "调度类型").
-				FontSize(TypeFootnote).
-				FontWeight(500).
-				TextColor(ThemeSecondaryText(c))
-
 			typeLabels := make([]string, len(scheduleTypeOptions))
 			curType := "间隔"
 			for i, opt := range scheduleTypeOptions {
@@ -299,148 +293,119 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 				as.formErr = ""
 				s.invalidate()
 			}
-		})
-
-	// 调度参数组：外套浅底容器
-	ui.Column(c.Key("form-sched-params")).
-		FillWidth().
-		Padding(Space3, Space3).
-		Radius(RadiusMD).
-		Background(ThemeOverlay(c, 0.05)).
-		Children(func() {
-			switch as.scheduleType {
-			case "interval":
-				ui.Column(c.Key("sched-interval-group")).
-					FillWidth().
-					Gap(Space1).
-					Children(func() {
-						ui.Text(c, "运行间隔").
-							FontSize(TypeFootnote).
-							FontWeight(500).
-							TextColor(ThemeSecondaryText(c))
-						ui.Row(c.Key("automation-interval-row")).Gap(Space2).Children(func() {
-							ui.TextInput(c.Key("automation-interval-input"), &as.intervalInput).Label("运行间隔").Width(110)
-							if as.intervalUnit == "" {
-								as.intervalUnit = "分钟"
-							}
-							ui.Select(c.Key("automation-interval-unit"), &as.intervalUnit, []string{"秒", "分钟", "小时"}).Label("间隔单位").Width(100)
-						})
-						if msg := as.scheduleErrors["interval"]; msg != "" {
-							ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
-						}
-					})
-
-			case "daily", "weekdays":
-				ui.Column(c.Key("sched-time-group")).
-					FillWidth().
-					Gap(Space1).
-					Children(func() {
-						ui.Text(c, "运行时间 (HH:MM)").
-							FontSize(TypeFootnote).
-							FontWeight(500).
-							TextColor(ThemeSecondaryText(c))
-						ui.TextInput(c.Key("automation-time-input"), &as.timeOfDay).
-							Placeholder("如 09:30").
-							Label("automation-time-input").
-							FillWidth()
-						if msg := as.scheduleErrors["time"]; msg != "" {
-							ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
-						}
-					})
-
-			case "weekly":
-				ui.Row(c.Key("sched-weekly-group")).
-					FillWidth().
-					Gap(Space4).
-					Children(func() {
-						ui.Column(c.Key("sched-weekly-day-group")).
-							Grow(1).
+			ui.Column(c.Key("form-sched-params")).
+				Children(func() {
+					switch as.scheduleType {
+					case "interval":
+						ui.Column(c.Key("sched-interval-group")).
 							Gap(Space1).
 							Children(func() {
-								ui.Text(c, "星期几").
-									FontSize(TypeFootnote).
-									FontWeight(500).
-									TextColor(ThemeSecondaryText(c))
-								labels := make([]string, len(dayOfWeekOptions))
-								day := "周一"
-								for i, opt := range dayOfWeekOptions {
-									labels[i] = opt.label
-									if opt.day == as.dayOfWeek {
-										day = opt.label
+								ui.Row(c.Key("automation-interval-row")).Wrap().Gap(Space2).Children(func() {
+									ui.TextInput(c.Key("automation-interval-input"), &as.intervalInput).Label("运行间隔").Width(110)
+									if as.intervalUnit == "" {
+										as.intervalUnit = "分钟"
 									}
-								}
-								if ui.Select(c.Key("automation-sched-day"), &day, labels).Label("星期几").Width(110).Changed() {
-									for _, opt := range dayOfWeekOptions {
-										if opt.label == day {
-											as.dayOfWeek = opt.day
-											break
-										}
-									}
+									ui.Select(c.Key("automation-interval-unit"), &as.intervalUnit, []string{"秒", "分钟", "小时"}).Label("间隔单位").Width(100)
+								})
+								if msg := as.scheduleErrors["interval"]; msg != "" {
+									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
 								}
 							})
 
-						ui.Column(c.Key("sched-weekly-time-group")).
-							Width(120).
+					case "daily", "weekdays":
+						ui.Column(c.Key("sched-time-group")).
+							Width(150).
 							Gap(Space1).
 							Children(func() {
-								ui.Text(c, "时间 (HH:MM)").
-									FontSize(TypeFootnote).
-									FontWeight(500).
-									TextColor(ThemeSecondaryText(c))
 								ui.TextInput(c.Key("automation-time-input"), &as.timeOfDay).
-									Placeholder("如 10:00").
+									Placeholder("如 09:30").
 									Label("automation-time-input").
 									FillWidth()
 								if msg := as.scheduleErrors["time"]; msg != "" {
 									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
 								}
 							})
-					})
 
-			case "cron":
-				ui.Column(c.Key("sched-cron-group")).
-					FillWidth().
-					Gap(Space1).
-					Children(func() {
-						ui.Text(c, "Cron 表达式（支持 */N * * * * 分钟间隔）").
-							FontSize(TypeFootnote).
-							FontWeight(500).
-							TextColor(ThemeSecondaryText(c))
-						ui.TextInput(c.Key("automation-cron-input"), &as.cronExpr).
-							Placeholder("如 */15 * * * *").
-							Label("automation-cron-input").
-							FillWidth()
-						if msg := as.scheduleErrors["cron"]; msg != "" {
-							ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
-						}
-					})
+					case "weekly":
+						ui.Row(c.Key("sched-weekly-group")).
+							Wrap().
+							Gap(Space2).
+							Children(func() {
+								ui.Column(c.Key("sched-weekly-day-group")).
+									Gap(Space1).
+									Children(func() {
+										labels := make([]string, len(dayOfWeekOptions))
+										day := "周一"
+										for i, opt := range dayOfWeekOptions {
+											labels[i] = opt.label
+											if opt.day == as.dayOfWeek {
+												day = opt.label
+											}
+										}
+										if ui.Select(c.Key("automation-sched-day"), &day, labels).Label("星期几").Width(110).Changed() {
+											for _, opt := range dayOfWeekOptions {
+												if opt.label == day {
+													as.dayOfWeek = opt.day
+													break
+												}
+											}
+										}
+									})
 
-			case "once":
-				ui.Column(c.Key("sched-once-group")).
-					FillWidth().
-					Gap(Space1).
-					Children(func() {
-						ui.Text(c, "执行时间 (2006-01-02 15:04)").
-							FontSize(TypeFootnote).
-							FontWeight(500).
-							TextColor(ThemeSecondaryText(c))
-						ui.TextInput(c.Key("automation-once-input"), &as.onceDateStr).
-							Placeholder("如 2026-10-20 14:00").
-							Label("automation-once-input").
-							FillWidth()
-						if msg := as.scheduleErrors["once"]; msg != "" {
-							ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
-						}
-					})
-			}
+								ui.Column(c.Key("sched-weekly-time-group")).
+									Width(120).
+									Gap(Space1).
+									Children(func() {
+										ui.TextInput(c.Key("automation-time-input"), &as.timeOfDay).
+											Placeholder("如 10:00").
+											Label("automation-time-input").
+											FillWidth()
+										if msg := as.scheduleErrors["time"]; msg != "" {
+											ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+										}
+									})
+							})
+
+					case "cron":
+						ui.Column(c.Key("sched-cron-group")).
+							Width(210).
+							Gap(Space1).
+							Children(func() {
+								ui.TextInput(c.Key("automation-cron-input"), &as.cronExpr).
+									Placeholder("如 */15 * * * *").
+									Label("automation-cron-input").
+									FillWidth()
+								if msg := as.scheduleErrors["cron"]; msg != "" {
+									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+								}
+							})
+
+					case "once":
+						ui.Column(c.Key("sched-once-group")).
+							Width(200).
+							Gap(Space1).
+							Children(func() {
+								ui.TextInput(c.Key("automation-once-input"), &as.onceDateStr).
+									Placeholder("如 2026-10-20 14:00").
+									Label("automation-once-input").
+									FillWidth()
+								if msg := as.scheduleErrors["once"]; msg != "" {
+									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+								}
+							})
+					}
+				})
 		})
-	ui.TextInput(c.Key("automation-timezone-input"), &as.timezone).Label("时区").Placeholder("时区（IANA）").FillWidth()
+	ui.Row(c.Key("automation-timezone-row")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, "时区").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+		ui.TextInput(c.Key("automation-timezone-input"), &as.timezone).Label("时区").Placeholder("时区（IANA）").Grow(1)
+	})
 	if msg := as.scheduleErrors["timezone"]; msg != "" {
 		ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
 	}
 	as.updateSchedulePreview(s)
 	if as.previewVisible {
-		ui.Column(c.Key("automation-preview")).Gap(Space1).Transition(motionListItem(c)).Children(func() {
+		ui.Column(c.Key("automation-preview")).Gap(Space1).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
 			ui.Text(c, "预计运行").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
 			loc := time.Local
 			if as.timezone != "" {

@@ -12,18 +12,6 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 	if c.Shortcut(ui.Cmd, ui.KeyS) && !saving {
 		s.saveAutomation()
 	}
-	if as.confirmRun {
-		ui.Row(c.Key("automation-confirm-run")).Gap(Space2).Children(func() {
-			Button(c.Key("automation-save-run"), ButtonOpts{Text: "保存后运行", Label: "automation-save-run", Disabled: saving, OnClick: func() { as.confirmRun = false; as.runAfterSave = true; s.saveAutomation() }, Variant: ButtonPrimary})
-			Button(c.Key("automation-saved-run"), ButtonOpts{Text: "按已保存配置运行", Label: "automation-saved-run", Disabled: saving, OnClick: func() {
-				as.confirmRun = false
-				as.editorOpen = false
-				as.stopSchedulePreview()
-				s.runAutomationNow(selectedID)
-			}, Variant: ButtonSecondary})
-			Button(c.Key("automation-cancel-run"), ButtonOpts{Text: "取消", Label: "automation-cancel-run", OnClick: func() { as.confirmRun = false; s.invalidate() }, Variant: ButtonGhost})
-		})
-	}
 	// 标题与操作栏
 	ui.Row(c.Key("automation-detail-header")).
 		FillWidth().
@@ -35,51 +23,23 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 				title = "新建自动化"
 			}
 			ui.Text(c, title).
-				FontSize(TypeTitle).
+				FontSize(TypePageTitle).
 				FontWeight(600).
 				TextColor(ThemePrimaryText(c)).
 				Grow(1)
-			if !isNew {
-				Button(c.Key("automation-editor-run"), ButtonOpts{Text: "立即运行", Disabled: saving || runningIDs[selectedID], OnClick: func() { s.requestAutomationRun(selectedID) }, Variant: ButtonSecondary})
-			}
-
-			Button(c.Key("automation-cancel"), ButtonOpts{
-				Text:  "取消",
-				Label: "取消编辑",
-				OnClick: func() {
-					as.closeEditor()
-					s.invalidate()
-				},
-				Variant: ButtonSecondary,
-			})
-
-			// 保存按钮：名称或 Prompt 为空（trim 后）或保存中时禁用
-			canSave := !saving &&
-				strings.TrimSpace(as.name) != "" &&
-				strings.TrimSpace(as.prompt) != ""
-			saveLabel := "保存"
-			if isNew {
-				saveLabel = "创建并启用"
-				if !as.enabled {
-					saveLabel = "创建为暂停"
-				}
-			}
-			Button(c.Key("automation-save"), ButtonOpts{
-				Text:     saveLabel,
-				Label:    "automation-save",
-				Disabled: !canSave,
-				OnClick: func() {
-					s.saveAutomation()
-				},
-				Variant: ButtonPrimary,
-			})
-			if isNew {
-				choice := saveLabel
-				if ui.Select(c.Key("automation-create-mode"), &choice, []string{"创建并启用", "创建为暂停"}).Label("创建状态").Width(140).Changed() {
-					as.enabled = choice != "创建为暂停"
-				}
-			}
 		})
+	if as.confirmRun {
+		ui.Row(c.Key("automation-confirm-run")).Gap(Space2).Wrap().Children(func() {
+			Button(c.Key("automation-save-run"), ButtonOpts{Text: "保存后运行", Label: "automation-save-run", Disabled: saving, OnClick: func() { as.confirmRun = false; as.runAfterSave = true; s.saveAutomation() }, Variant: ButtonPrimary})
+			Button(c.Key("automation-saved-run"), ButtonOpts{Text: "按已保存配置运行", Label: "automation-saved-run", Disabled: saving, OnClick: func() {
+				as.confirmRun = false
+				as.editorOpen = false
+				as.stopSchedulePreview()
+				s.runAutomationNow(selectedID)
+			}, Variant: ButtonSecondary})
+			Button(c.Key("automation-cancel-run"), ButtonOpts{Text: "取消", Label: "automation-cancel-run", OnClick: func() { as.confirmRun = false; s.invalidate() }, Variant: ButtonGhost})
+		})
+	}
 	if as.conflict {
 		ui.Row(c.Key("automation-conflict-banner")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "数据已在别处被修改，请刷新后重试").TextColor(ThemeWarning(c)).Grow(1)
@@ -148,7 +108,6 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								FontWeight(500).
 								TextColor(ThemeSecondaryText(c))
 							ui.TextInput(c.Key("automation-name-input"), &as.name).
-								Placeholder("如：每周安全审计").
 								Label("automation-name-input").
 								FillWidth().AutoFocus()
 						})
@@ -163,28 +122,14 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								FontWeight(500).
 								TextColor(ThemeSecondaryText(c))
 							ui.TextArea(c.Key("automation-prompt-input"), &as.prompt).
-								Placeholder("输入要执行的任务指令...").
 								Label("automation-prompt-input").
 								Height(automationPromptMinHeight).
 								FillWidth()
 						})
 
+					ui.Text(c, "计划").FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
 					renderAutomationScheduleFields(c, s, as)
-
-					// 停止条件 StopWhen
-					ui.Column(c.Key("form-stop-when-group")).
-						FillWidth().
-						Gap(Space1).
-						Children(func() {
-							ui.Text(c, "达到条件").
-								FontSize(TypeFootnote).
-								FontWeight(500).
-								TextColor(ThemeSecondaryText(c))
-							ui.TextInput(c.Key("automation-stop-when-input"), &as.stopWhen).
-								Placeholder("如：所有单元测试均通过，或任务目标达成").
-								Label("automation-stop-when-input").
-								FillWidth()
-						})
+					ui.Text(c, "执行").FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
 
 					// 模型与权限：只在每次运行新建会话时生效，心跳模式沿用原会话设置
 					heartbeat := as.runMode == "heartbeat"
@@ -295,15 +240,17 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 							}
 						})
 
-						// 启用开关与运行约束（并排）
+					ui.Text(c, "停止与补跑").FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
+					ui.Column(c.Key("form-stop-when-group")).FillWidth().Gap(Space1).Children(func() {
+						ui.Text(c, "达到条件").FontSize(TypeFootnote).FontWeight(500).TextColor(ThemeSecondaryText(c))
+						ui.TextInput(c.Key("automation-stop-when-input"), &as.stopWhen).Label("automation-stop-when-input").FillWidth()
+					})
 					ui.Row(c.Key("form-limits-row")).
 						FillWidth().
 						Wrap().
 						AlignItems(ui.Center).
 						Gap(Space5).
 						Children(func() {
-							ui.Box(c.Key("form-limits-spacer")).Grow(1)
-
 							// 最多连续失败次数：1–10 步进器
 							ui.Row(c.Key("form-max-failures-row")).
 								Gap(Space2).
@@ -369,7 +316,34 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								FontSize(TypeFootnote).
 								TextColor(ThemeSecondaryText(c))
 						})
+					if isNew {
+						choice := "创建并启用"
+						if !as.enabled {
+							choice = "创建为暂停"
+						}
+						ui.Row(c.Key("automation-create-mode-row")).Gap(Space2).AlignItems(ui.Center).Children(func() {
+							ui.Text(c, "创建状态").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							if ui.Select(c.Key("automation-create-mode"), &choice, []string{"创建并启用", "创建为暂停"}).Label("创建状态").Width(140).Changed() {
+								as.enabled = choice != "创建为暂停"
+							}
+						})
+					}
 
 				})
 		})
+	ui.Row(c.Key("automation-editor-footer")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
+		if !isNew {
+			Button(c.Key("automation-editor-run"), ButtonOpts{Text: "立即运行", Disabled: saving || runningIDs[selectedID], OnClick: func() { s.requestAutomationRun(selectedID) }, Variant: ButtonSecondary})
+		}
+		ui.Box(c.Key("automation-editor-footer-spacer")).Grow(1)
+		Button(c.Key("automation-cancel"), ButtonOpts{Text: "取消", Label: "取消编辑", OnClick: func() { as.closeEditor(); s.invalidate() }, Variant: ButtonSecondary})
+		label := "保存"
+		if isNew {
+			label = "创建并启用"
+			if !as.enabled {
+				label = "创建为暂停"
+			}
+		}
+		Button(c.Key("automation-save"), ButtonOpts{Text: label, Label: "automation-save", Disabled: saving || strings.TrimSpace(as.name) == "" || strings.TrimSpace(as.prompt) == "", OnClick: func() { s.saveAutomation() }, Variant: ButtonPrimary})
+	})
 }

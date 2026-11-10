@@ -23,6 +23,23 @@ const (
 
 // 设置界面的间距与尺寸（DIP）。
 const (
+	TasksSidebarWidth         float32 = 220
+	TasksToolbarHeight        float32 = 52
+	TasksSearchWidth          float32 = 140
+	TasksSearchMinWidth       float32 = 120
+	KanbanColumnMinWidth      float32 = 270
+	KanbanDoneRailWidth       float32 = 44
+	KanbanEmptyDropMinHeight  float32 = 64
+	KanbanCardActionSlotWidth float32 = 80
+	KanbanFocusRingWidth      float32 = 2
+	KanbanDragSourceOpacity   float32 = .4
+	KanbanBoardPaneMinWidth   float32 = 400
+	KanbanDetailMinWidth      float32 = 360
+	KanbanDetailDefaultWidth  float32 = 480
+	KanbanDetailMaxWidth      float32 = 640
+)
+
+const (
 	settingsBadgePadY       float32 = 3
 	settingsPillPadX        float32 = 5
 	settingsCompactPadX     float32 = 10

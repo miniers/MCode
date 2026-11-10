@@ -66,6 +66,10 @@ func nonzeroTokenLiteral(expr ast.Expr) (*ast.BasicLit, bool) {
 // designTokenNames 是 tokens.go 中可直接用于样式调用的设计令牌。
 // 令牌算术（如 Space1 / 2）算出来仍是写死的数值，扫描时与数字字面量同等对待。
 var designTokenNames = map[string]bool{
+	"TasksSidebarWidth": true, "TasksToolbarHeight": true, "TasksSearchWidth": true, "TasksSearchMinWidth": true,
+	"KanbanColumnMinWidth": true, "KanbanDoneRailWidth": true, "KanbanEmptyDropMinHeight": true,
+	"KanbanCardActionSlotWidth": true, "KanbanFocusRingWidth": true, "KanbanDragSourceOpacity": true,
+	"KanbanBoardPaneMinWidth": true, "KanbanDetailMinWidth": true, "KanbanDetailDefaultWidth": true, "KanbanDetailMaxWidth": true,
 	"Space0": true, "Space1": true, "Space2": true, "Space3": true, "Space4": true,
 	"Space5": true, "Space6": true, "Space7": true, "Space8": true,
 	"RadiusXS": true, "RadiusSM": true, "RadiusMD": true, "RadiusLG": true,

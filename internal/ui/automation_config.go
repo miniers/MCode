@@ -47,11 +47,62 @@ func automationConfigLines(a Automation) []string {
 }
 
 func renderAutomationConfig(c *ui.Context, a Automation) {
-	ui.Column(c.Key("automation-config")).FillWidth().Gap(Space3).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
-		for _, line := range automationConfigLines(a) {
-			if line != "" {
-				ui.Text(c, line).FillWidth().TextColor(ThemePrimaryText(c)).Selectable()
+	ui.Column(c.Key("automation-config")).FillWidth().Gap(Space7).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
+		ui.Text(c, a.Prompt).FontSize(TypeBody).FillWidth().TextColor(ThemePrimaryText(c)).Selectable()
+		section := func(key, title string, body func()) {
+			ui.Column(c.Key(key)).FillWidth().Gap(Space3).Children(func() {
+				ui.Text(c, title).FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
+				body()
+			})
+		}
+		field := func(name, value string) {
+			if strings.TrimSpace(value) != "" {
+				ui.Text(c, name+"："+value).FontSize(TypeFootnote).FillWidth().TextColor(ThemePrimaryText(c)).Selectable()
 			}
 		}
+		section("automation-config-schedule", "计划", func() {
+			schedule := automationScheduleText(a.Schedule)
+			if a.Schedule.Timezone != "" {
+				schedule += " · " + a.Schedule.Timezone
+			}
+			field("调度", schedule)
+			status := "已暂停"
+			if a.Enabled {
+				status = "已启用"
+			}
+			field("状态", status)
+		})
+		section("automation-config-execution", "执行", func() {
+			field("运行模式", a.RunMode)
+			field("供应商", a.Provider)
+			field("模型", a.Model)
+			field("推理强度", a.Effort)
+			if a.RuntimeMode != "" {
+				field("权限", automationRuntimeModeLabel(a.RuntimeMode))
+			}
+			if a.RunMode == "heartbeat" {
+				ui.Text(c, "心跳模式沿用原会话设置").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+			}
+		})
+		section("automation-config-limits", "停止与补跑", func() {
+			field("停止条件", a.StopWhen)
+			maxRuns := a.MaxRuns
+			if maxRuns == 0 {
+				maxRuns = a.MaxIterations
+			}
+			limit := "不限"
+			if maxRuns != 0 {
+				limit = fmt.Sprintf("最多 %d 次", maxRuns)
+			}
+			field("运行次数", limit)
+			catchUp := "关闭"
+			if a.CatchUp {
+				catchUp = "开启"
+			}
+			field("错过后补跑", catchUp)
+			if a.MaxConsecutiveFailures > 0 {
+				field("暂停", fmt.Sprintf("连续失败 %d 次后暂停", a.MaxConsecutiveFailures))
+			}
+		})
 	})
 }

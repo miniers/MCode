@@ -8,6 +8,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+var automationHistoryPopovers = make(map[*automationState]*struct{ filter, more bool })
+
 func formatRunDuration(d time.Duration) string {
 	if d < 0 {
 		d = 0
@@ -93,10 +95,14 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 	}
 	automationMu.Lock()
 	view := automationRunsViewFor(as, selectedID)
+	popovers := automationHistoryPopovers[as]
+	if popovers == nil {
+		popovers = &struct{ filter, more bool }{}
+		automationHistoryPopovers[as] = popovers
+	}
 	failedOnly, unreadOnly := view.failedOnly, view.unreadOnly
 	errText, retry := view.err, view.retry
 	automationMu.Unlock()
-	ui.Box(c.Key("automation-runs-divider")).FillWidth().Height(Hairline).Background(ThemeDivider(c)).Margin(Space2, 0, Space2, 0)
 	ui.Column(c.Key("automation-runs-section")).FillWidth().Gap(Space3).Children(func() {
 		if errText != "" {
 			ui.Row(c.Key("automation-runs-action-error")).FillWidth().Gap(Space2).Children(func() {
@@ -147,6 +153,9 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 					part := part
 					ui.Column(c.Key("run-detail-" + part.key)).FillWidth().Gap(Space1).Children(func() {
 						ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
+							if part.key == "error" {
+								ui.Icon(c, IconCircleX()).Size(IconSM, IconSM).TextColor(ThemeDanger(c))
+							}
 							ui.Text(c, part.label).Grow(1).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
 							CopyButton(c, CopyButtonProps{Key: "run-copy-" + part.key, Label: "复制" + part.label, Text: "复制", Value: func() string { return part.text }})
 						})
@@ -157,36 +166,51 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 			return
 		}
 		ui.Row(c.Key("automation-runs-header")).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
-			ui.Text(c, "运行记录").FontSize(TypeBody).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
-			Button(c.Key("automation-runs-mark-all-read"), ButtonOpts{Text: "全部标为已读", Label: "全部标为已读", Disabled: selectedUnread == 0, OnClick: func() { s.markAllAutomationRunsRead(selectedID) }, Variant: ButtonSecondary, Size: ControlXS})
-			ui.Text(c, "显示已归档").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
-			value := includeArchived
-			ui.Switch(c.Key("automation-runs-include-archived"), &value).Label("显示已归档运行记录")
-			if value != includeArchived {
-				automationMu.Lock()
-				as.includeArchived = value
-				as.openRunID = ""
-				automationMu.Unlock()
-				s.invalidate()
-				s.loadAutomationRuns(selectedID)
+			filterLabel := "全部"
+			if failedOnly {
+				filterLabel = "失败"
 			}
-			IconButton(c.Key("automation-runs-refresh"), IconButtonProps{Icon: IconRefreshCw(), Label: "刷新记录", OnClick: func() { s.loadAutomationRuns(selectedID) }, Variant: ButtonGhost, Size: ControlMD})
-		})
-		ui.Row(c.Key("automation-runs-filters")).Gap(Space2).Children(func() {
-			for _, f := range []struct {
-				label  string
-				active bool
-				click  func()
-			}{
-				{"全部", !failedOnly, func() { view.failedOnly = false }}, {"失败", failedOnly, func() { view.failedOnly = true }}, {"未读", unreadOnly, func() { view.unreadOnly = !view.unreadOnly }},
-			} {
-				f := f
-				variant := ButtonGhost
-				if f.active {
-					variant = ButtonSecondary
-				}
-				Button(c.Key("automation-runs-filter-"+f.label), ButtonOpts{Text: f.label, Label: "筛选" + f.label, OnClick: func() { automationMu.Lock(); f.click(); automationMu.Unlock(); s.invalidate() }, Variant: variant, Size: ControlXS})
+			if unreadOnly || includeArchived {
+				filterLabel += " •"
 			}
+			filter := Button(c.Key("automation-runs-filter-trigger"), ButtonOpts{Text: filterLabel + " ▾", Label: "筛选运行记录", Variant: ButtonSecondary, Size: ControlXS, OnClick: func() { popovers.filter = true }})
+			appPopover(c.Key("automation-runs-filter-popover"), filter, &popovers.filter, nil, func() {
+				popoverCard(c, ui.Column(c.Key("automation-runs-filters"))).Padding(Space2).Gap(Space1).Children(func() {
+					for _, f := range []struct {
+						label  string
+						active bool
+						click  func()
+					}{
+						{"全部", !failedOnly, func() { view.failedOnly = false }}, {"失败", failedOnly, func() { view.failedOnly = true }}, {"未读", unreadOnly, func() { view.unreadOnly = !view.unreadOnly }},
+					} {
+						f := f
+						variant := ButtonGhost
+						if f.active {
+							variant = ButtonSecondary
+						}
+						Button(c.Key("automation-runs-filter-"+f.label), ButtonOpts{Text: f.label, Label: "筛选" + f.label, OnClick: func() { automationMu.Lock(); f.click(); automationMu.Unlock(); s.invalidate() }, Variant: variant, Size: ControlXS})
+					}
+					value := includeArchived
+					ui.Switch(c.Key("automation-runs-include-archived"), &value).Label("显示已归档运行记录")
+					ui.Text(c, "显示已归档").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+					if value != includeArchived {
+						automationMu.Lock()
+						as.includeArchived = value
+						as.openRunID = ""
+						automationMu.Unlock()
+						s.invalidate()
+						s.loadAutomationRuns(selectedID)
+					}
+				})
+			})
+			ui.Box(c).Grow(1)
+			more := IconButton(c.Key("automation-runs-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "运行记录更多操作", Variant: ButtonGhost, Size: ControlXS, OnClick: func() { popovers.more = true }})
+			appPopover(c.Key("automation-runs-more-popover"), more, &popovers.more, nil, func() {
+				popoverCard(c, ui.Column(c.Key("automation-runs-more-menu"))).Padding(Space2).Gap(Space1).Children(func() {
+					Button(c.Key("automation-runs-mark-all-read"), ButtonOpts{Text: "全部标为已读", Label: "全部标为已读", Disabled: selectedUnread == 0, OnClick: func() { popovers.more = false; s.markAllAutomationRunsRead(selectedID) }, Variant: ButtonGhost, Size: ControlXS})
+					Button(c.Key("automation-runs-refresh"), ButtonOpts{Text: "刷新记录", Label: "刷新记录", OnClick: func() { popovers.more = false; s.loadAutomationRuns(selectedID) }, Variant: ButtonGhost, Size: ControlXS})
+				})
+			})
 		})
 		if runsLoading && len(runs) == 0 {
 			LoadingIndicator(c, nil, "正在读取运行记录…", IconSM)
@@ -206,7 +230,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 			ordered = ordered[:100]
 		}
 		shown, lastDay := 0, ""
-		ui.Column(c.Key("runs-list-col")).FillWidth().Gap(Space2).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
+		ui.Column(c.Key("runs-list-col")).FillWidth().Gap(Space0).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
 			for _, run := range ordered {
 				run := run
 				unread := automationRunUnread(runRead, run.ID)
@@ -218,7 +242,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 				shown++
 				day := automationRunDate(run.StartedAt, time.Now())
 				if day != lastDay {
-					ui.Text(c, day).FontSize(TypeCaption).FontWeight(600).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, day).FontSize(TypeFootnote).FontWeight(weightFor(c, 500)).TextColor(ThemeSecondaryText(c)).Margin(Space5, 0, Space2, 0)
 					lastDay = day
 				}
 				open := func() {
@@ -230,44 +254,76 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 						s.markAutomationRunRead(selectedID, run.ID)
 					}
 				}
-				row := ui.Row(c.Key("run-item-"+run.ID)).Label("运行记录 "+run.ID).FillWidth().Padding(Space2, Space3).Radius(RadiusSM).AlignItems(ui.Center).Gap(Space2).Transition(motionListItem(c))
+				row := ui.Column(c.Key("run-item-"+run.ID)).Focusable().Label("运行记录 "+run.ID).FillWidth().Padding(Space2, Space3).Radius(RadiusSM).Gap(Space1).Transition(motionListItem(c))
 				if row.Hovered() {
-					row.Background(ThemeOverlay(c, 0.08))
-				} else {
-					row.Background(ThemeOverlay(c, 0.04))
+					row.Background(ThemeHover(c))
 				}
-				if row.Clicked() {
+				if row.Clicked() || (row.Focused() && (row.Shortcut(0, ui.KeyEnter) || row.Shortcut(0, ui.KeySpace))) {
 					open()
 				}
 				row.Children(func() {
-					status, kind := automationRunStatus(run.Status)
-					ui.Row(c.Key("run-status-" + run.ID)).Width(90).Shrink(0).AlignItems(ui.Center).Gap(Space1).Children(func() {
-						if unread {
-							StatusDot(c, "run-unread-dot-"+run.ID, StatusAttention, "未读运行记录")
-						}
-						ui.Text(c, status).FontSize(TypeCaption).TextColor(automationCardStatusColor(c, kind))
-					})
-					ui.Row(c.Key("run-start-" + run.ID)).Width(75).Shrink(0).Children(func() {
-						ui.Text(c, run.StartedAt.Local().Format("15:04:05")).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
-					})
-					ui.Row(c.Key("run-duration-" + run.ID)).Width(65).Shrink(0).Children(func() { ui.Text(c, automationRunDuration(run)).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c)) })
-					if badge := automationRunTriggerBadge(run); badge != "" {
-						ui.Row(c.Key("run-trigger-pill-"+run.ID)).Padding(Space0, Space2).Radius(RadiusXS).Background(ThemeOverlay(c, 0.10)).Children(func() {
-							ui.Text(c, badge).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c)).SingleLine()
-						})
+					summary := run.Summary
+					if kind == "failed" && run.Error != "" {
+						summary = run.Error
 					}
-					ui.Box(c).Grow(1)
-					IconButton(c.Key("run-more-"+run.ID), IconButtonProps{Icon: IconMoreHorizontal(), Label: "运行记录更多操作 " + run.ID, Variant: ButtonGhost, Size: ControlXS}).Menu(func(m *ui.Menu) {
-						if m.Item("查看详情").Chosen() {
-							open()
+					narrow := row.Bounds().W < 700
+					renderSummary := func() {
+						if summary != "" {
+							ui.Text(c, summary).FontSize(TypeBody).TextColor(ThemeSecondaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 						}
-						if m.Item("归档").Disabled(archived).Chosen() {
-							s.setAutomationRunArchived(run.ID, true)
+					}
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
+						status, kind := automationRunStatus(run.Status)
+						ui.Row(c.Key("run-status-" + run.ID)).Shrink(0).AlignItems(ui.Center).Gap(Space2).Children(func() {
+							if unread {
+								StatusDot(c, "run-unread-dot-"+run.ID, StatusAttention, "未读运行记录")
+							}
+							icon := IconCircleSmall()
+							switch kind {
+							case "running":
+								icon = IconLoader()
+							case "succeeded":
+								icon = IconCircleCheck()
+							case "failed":
+								icon = IconCircleX()
+							case "stopped":
+								icon = IconCircleStop()
+							}
+							ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(automationCardStatusColor(c, kind))
+							weight := 400
+							if unread {
+								weight = weightFor(c, 500)
+							}
+							ui.Text(c, status).FontSize(TypeBody).FontWeight(weight).TextColor(ThemePrimaryText(c)).SingleLine()
+						})
+						ui.Row(c.Key("run-start-" + run.ID)).Shrink(0).Children(func() {
+							ui.Text(c, run.StartedAt.Local().Format("15:04")).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+						})
+						duration := automationRunDuration(run)
+						if duration == "运行中" {
+							duration = "—"
 						}
-						if m.Item("取消归档").Disabled(!archived).Chosen() {
-							s.setAutomationRunArchived(run.ID, false)
+						ui.Row(c.Key("run-duration-" + run.ID)).Shrink(0).Children(func() { ui.Text(c, duration).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)) })
+						if narrow || summary == "" {
+							ui.Box(c).Grow(1)
+						} else {
+							renderSummary()
 						}
+						IconButton(c.Key("run-more-"+run.ID), IconButtonProps{Icon: IconMoreHorizontal(), Label: "运行记录更多操作 " + run.ID, Variant: ButtonGhost, Size: ControlXS}).Menu(func(m *ui.Menu) {
+							if m.Item("查看详情").Chosen() {
+								open()
+							}
+							if m.Item("归档").Disabled(archived).Chosen() {
+								s.setAutomationRunArchived(run.ID, true)
+							}
+							if m.Item("取消归档").Disabled(!archived).Chosen() {
+								s.setAutomationRunArchived(run.ID, false)
+							}
+						})
 					})
+					if narrow && summary != "" {
+						ui.Row(c).FillWidth().Padding(0, Space5).Children(renderSummary)
+					}
 				})
 			}
 			if shown == 0 {

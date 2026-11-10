@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,7 @@ type UIState struct {
 // 与 UIState 读写同一文件、同一套落盘逻辑。
 type uiStateFile struct {
 	UIState
+	TasksDetailWidth float32 `json:"tasks_detail_width,omitempty"`
 	// ProjectOrder 是侧边栏拖拽重排后的项目顺序（项目 ID 列表）；空表示按项目默认顺序。
 	ProjectOrder []string `json:"project_order,omitempty"`
 	// ProjectActivation 是项目激活状态的覆盖表（项目 ID -> 是否激活）：键为项目 ID，false 表示停用；
@@ -233,11 +235,14 @@ func persistContinueDismissed(s *chatState, records map[string]string) {
 // 缓存按数据目录（ui-state.json 路径）区分，数据目录变化时重新读盘，避免读到别的目录的记录。
 // Swarm 记录与模型选择共用同一缓存与锁。
 var (
-	lastModelSelectionMu     sync.Mutex
-	lastModelSelectionPath   string
-	lastModelSelectionLoaded bool
-	lastModelSelectionCache  *ModelSelection
-	lastSwarmSelectionCache  *LastSwarmSelection
+	lastModelSelectionMu       sync.Mutex
+	lastModelSelectionPath     string
+	lastModelSelectionLoaded   bool
+	lastModelSelectionCache    *ModelSelection
+	tasksDetailWidthCache      float32
+	tasksDetailWidthDirty      bool
+	tasksDetailWidthGeneration uint64
+	lastSwarmSelectionCache    *LastSwarmSelection
 	// lastModelSelectionModTime 记录上次从磁盘加载或本进程写盘完成时 ui-state.json 的修改时间，
 	// 用于发现其它进程对该文件的改动（为零值时表示上次加载时文件还不存在）。
 	lastModelSelectionModTime time.Time
@@ -334,6 +339,11 @@ func lastSelectionFileChangedLocked(path string) bool {
 // reloadLastSelectionLocked 重新读盘并刷新最近选择缓存，同时记录文件当前的修改时间。
 // 读盘结果与本进程尚标脏的字段按字段合并，外部改动不会把本进程未落盘的记忆冲掉。
 func reloadLastSelectionLocked(path string) {
+	if lastModelSelectionPath != path {
+		tasksDetailWidthDirty = false
+		tasksDetailWidthCache = 0
+		tasksDetailWidthGeneration++
+	}
 	lastModelSelectionPath = path
 	lastModelSelectionLoaded = true
 	lastModelSelectionCheckedAt = time.Now()
@@ -348,6 +358,9 @@ func reloadLastSelectionLocked(path string) {
 	}
 	// 先合并（会读取旧缓存里的脏字段）再覆写缓存。
 	merged := mergeLastSelectionsLocked(file)
+	if !tasksDetailWidthDirty {
+		tasksDetailWidthCache = file.TasksDetailWidth
+	}
 	lastModelSelectionCache = nil
 	if merged.model.Provider != "" || merged.model.Model != "" {
 		sel := merged.model
@@ -356,6 +369,34 @@ func reloadLastSelectionLocked(path string) {
 	lastSwarmSelectionCache = merged.swarm
 	continueDismissedCache = copyStringMap(merged.continueDismissed)
 	projectModelCache = copyProjectSelections(merged.projects)
+}
+
+func clampTasksDetailWidth(width float32) float32 {
+	if width <= 0 || math.IsNaN(float64(width)) || math.IsInf(float64(width), 0) {
+		return KanbanDetailDefaultWidth
+	}
+	return min(max(width, KanbanDetailMinWidth), KanbanDetailMaxWidth)
+}
+
+func loadTasksDetailWidth() float32 {
+	lastModelSelectionMu.Lock()
+	defer lastModelSelectionMu.Unlock()
+	ensureLastSelectionLoadedLocked()
+	return clampTasksDetailWidth(tasksDetailWidthCache)
+}
+
+func rememberTasksDetailWidth(ks *kanbanState, width float32) {
+	if ks == nil || !ks.persistTasksDetailWidth {
+		return
+	}
+	lastModelSelectionMu.Lock()
+	ensureLastSelectionLoadedLocked()
+	tasksDetailWidthCache = clampTasksDetailWidth(width)
+	tasksDetailWidthDirty = true
+	tasksDetailWidthGeneration++
+	lastSelectionWritesPending++
+	lastModelSelectionMu.Unlock()
+	writeLastSelections(nil)
 }
 
 // lastSelectionMerge 是一次按字段合并的结果：swarm 为新键 last_swarm 的值（无记录时为 nil），
@@ -644,6 +685,11 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	swarmBeesGeneration := lastSwarmBeesGeneration
 	sidebarGeneration := lastSidebarGeneration
 	continueGeneration := continueDismissedGeneration
+	tasksGeneration := tasksDetailWidthGeneration
+	tasksApplied := tasksDetailWidthDirty
+	if tasksApplied {
+		file.TasksDetailWidth = tasksDetailWidthCache
+	}
 	// 按项目选择按项目键记 generation：写盘期间该项目又有新写入时不清脏，交给后面的写者。
 	projectGenerations := make(map[string]uint64, len(merged.projectApplied))
 	for _, key := range merged.projectApplied {
@@ -689,6 +735,12 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	}
 
 	lastModelSelectionMu.Lock()
+	if tasksGeneration == tasksDetailWidthGeneration {
+		if tasksApplied {
+			tasksDetailWidthDirty = false
+		}
+		tasksDetailWidthCache = file.TasksDetailWidth
+	}
 	// 只有 generation 没变的字段才可以清脏并回填合并结果：generation 变了说明写盘期间又来了
 	// 新的写入，缓存里已经是更新的值，这里保持脏标记与缓存不动，交给排在后面的写者写出。
 	// 未变更字段的合并结果包含磁盘上的外部改动，回填缓存正好把外部改动也同步进来。

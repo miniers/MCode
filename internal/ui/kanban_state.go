@@ -95,17 +95,21 @@ type kanbanState struct {
 	loadingScope  string
 	taskBusy      map[string]bool
 	// viewMode 保存任务的展示方式，destination 独立保存窗口目的。
-	viewMode         string
-	destination      string
-	automationSearch string
-	goalID           string
-	goalMenuOpen     bool
-	newMenuOpen      bool
-	goalDetailOpen   bool
-	goalDetailScroll ui.ScrollState
-	detailGoalID     string
-	detailMoreOpen   bool
-	detailDeleteOpen bool
+	viewMode                string
+	viewFilter              string
+	doneExpanded            bool
+	detailWidth             float32
+	persistTasksDetailWidth bool
+	destination             string
+	automationSearch        string
+	goalID                  string
+	goalMenuOpen            bool
+	newMenuOpen             bool
+	goalDetailOpen          bool
+	goalDetailScroll        ui.ScrollState
+	detailGoalID            string
+	detailMoreOpen          bool
+	detailDeleteOpen        bool
 	// overview 为 true 时内容区显示「全部项目」概览。
 	overview bool
 	// selecting 为 true 时进入多选模式（本轮只做选中态视觉）。
