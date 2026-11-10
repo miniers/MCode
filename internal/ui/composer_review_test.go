@@ -162,13 +162,19 @@ func TestComposer_QuotaLoadsFromClientAndChangesProvider(t *testing.T) {
 	s := newChatState(fake)
 	t.Cleanup(s.close)
 	th := &Thread{ID: "t1", Provider: "agy"}
-	tt := ui.NewTester(func(c *ui.Context) { renderUsagePanel(c, s, th) }, 400, 400)
-	waitFor(t, tt, func() bool { return tt.HasText("agy quota") })
+	tt := ui.NewTester(func(c *ui.Context) { renderComposerQuotaStrip(c, s, th) }, 400, 400)
+	waitFor(t, tt, func() bool {
+		windows := getChatQuotaWindowsForProvider(s, "agy")
+		return len(windows) == 1 && windows[0].Label == "agy quota"
+	})
 	if provider := <-fake.calls; provider != "agy" {
 		t.Fatalf("unexpected provider: %s", provider)
 	}
 	th.Provider = "claude"
-	waitFor(t, tt, func() bool { return tt.HasText("claude quota") })
+	waitFor(t, tt, func() bool {
+		windows := getChatQuotaWindowsForProvider(s, "claude")
+		return len(windows) == 1 && windows[0].Label == "claude quota"
+	})
 	if provider := <-fake.calls; provider != "claude" {
 		t.Fatalf("unexpected provider: %s", provider)
 	}

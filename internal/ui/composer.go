@@ -31,7 +31,6 @@ type composerViewState struct {
 	downloadsOpen             bool
 	usageOpen                 bool
 	quotaOpen                 bool                          // 额度弹层是否打开
-	quotaShowRemaining        bool                          // 额度弹窗百分比显示剩余（默认 false 显示已用）
 	quotaPopoverProvider      string                        // 额度弹层当前锚定的 provider（关闭时清空）
 	history                   composerHistoryState          // 方向键历史导航状态
 	lastThreadID              string                        // 上一帧的选中会话，用于切换会话时重置历史导航

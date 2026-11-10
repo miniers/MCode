@@ -58,80 +58,6 @@ func TestFormatTokenCount(t *testing.T) {
 	}
 }
 
-// 场景 2：formatQuotaResetCountdown 格式化各种到期区间的倒计时文案。
-func TestFormatQuotaResetCountdown(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.Local)
-
-	// 零值
-	if got := formatQuotaResetCountdown(now, time.Time{}); got != "" {
-		t.Errorf("zero time want empty, got %q", got)
-	}
-
-	// 已过期 / 即将到期
-	if got := formatQuotaResetCountdown(now, now.Add(-10*time.Second)); got != "即将重置" {
-		t.Errorf("past time want '即将重置', got %q", got)
-	}
-
-	// 2 小时 30 分
-	if got := formatQuotaResetCountdown(now, now.Add(2*time.Hour+30*time.Minute)); got != "2 时 30 分后重置" {
-		t.Errorf("2h30m want '2 时 30 分后重置', got %q", got)
-	}
-
-	// 4 小时 37 分
-	if got := formatQuotaResetCountdown(now, now.Add(4*time.Hour+37*time.Minute)); got != "4 时 37 分后重置" {
-		t.Errorf("4h37m want '4 时 37 分后重置', got %q", got)
-	}
-
-	// 2 小时整
-	if got := formatQuotaResetCountdown(now, now.Add(2*time.Hour)); got != "2 小时后重置" {
-		t.Errorf("2h want '2 小时后重置', got %q", got)
-	}
-
-	// 45 分钟
-	if got := formatQuotaResetCountdown(now, now.Add(45*time.Minute)); got != "45 分后重置" {
-		t.Errorf("45m want '45 分后重置', got %q", got)
-	}
-
-	// 不足 1 分钟取 1 分
-	if got := formatQuotaResetCountdown(now, now.Add(20*time.Second)); got != "1 分后重置" {
-		t.Errorf("20s want '1 分后重置', got %q", got)
-	}
-
-	// 2 天后
-	got2d := formatQuotaResetCountdown(now, now.Add(48*time.Hour))
-	if !strings.Contains(got2d, "重置") {
-		t.Errorf("2d want containing '重置', got %q", got2d)
-	}
-
-	// 10 天后
-	got10d := formatQuotaResetCountdown(now, now.Add(240*time.Hour))
-	if !strings.Contains(got10d, "重置") {
-		t.Errorf("10d want containing '重置', got %q", got10d)
-	}
-}
-
-// 弹窗行里的窗口名用周期短名，但认不出周期或只限某个模型的窗口保留原名。
-func TestQuotaPopoverWindowName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	tests := []struct {
-		window ProviderQuotaWindow
-		want   string
-	}{
-		{window: ProviderQuotaWindow{Label: "5-hour limit"}, want: "5h"},
-		{window: ProviderQuotaWindow{Label: "Weekly · all models"}, want: "周"},
-		{window: ProviderQuotaWindow{Label: "Weekly · Opus"}, want: "Weekly · Opus"},
-		{window: ProviderQuotaWindow{Label: "Credits"}, want: "Credits"},
-	}
-	for _, tc := range tests {
-		if got := quotaPopoverWindowName(tc.window); got != tc.want {
-			t.Errorf("quotaPopoverWindowName(%q) = %q, want %q", tc.window.Label, got, tc.want)
-		}
-	}
-}
-
 // 场景 3：验证上下文用量比例、百分比计算与格式化组合。
 func TestUsageContextCalculation(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -229,83 +155,17 @@ func TestRenderUsagePanel_PrefersSingleRequestContext(t *testing.T) {
 	}
 }
 
-// 场景 5：renderUsagePanel 存在配额数据时渲染额度信息与倒计时。
-func TestRenderUsagePanel_WithQuota(t *testing.T) {
+func TestRenderUsagePanel_OmitsQuota(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-
-	fake := NewFakeClient()
-	s := newChatState(fake)
-	th := &Thread{ID: "t1", Provider: "anthropic"}
-
-	now := time.Now()
-	usagePanelNow = func() time.Time { return now }
-	t.Cleanup(func() { usagePanelNow = time.Now })
-
-	windows := []ProviderQuotaWindow{
-		{
-			Label:       "Claude 3.7 限额",
-			UsedPercent: 62.0,
-			ResetsAt:    now.Add(2*time.Hour + 30*time.Minute),
-		},
-	}
-	SetChatQuotaWindowsForProvider(s, th.Provider, windows)
-	defer SetChatQuotaWindowsForProvider(s, th.Provider, nil)
+	s := newChatState(NewFakeClient())
+	th := &Thread{ID: "t1", Provider: "claude"}
+	SetChatQuotaWindowsForProvider(s, th.Provider, []ProviderQuotaWindow{{Label: "5 小时限额", UsedPercent: 62}})
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderUsagePanel(c, s, th)
 	}, 400, 400)
-
-	if !tt.HasText("上下文窗口") {
-		t.Fatalf("expected header '上下文窗口'")
-	}
-	if !tt.HasText("额度") {
-		t.Fatalf("expected section '额度'")
-	}
-	if !tt.HasText("Claude 3.7 限额") {
-		t.Fatalf("expected window label 'Claude 3.7 限额'")
-	}
-	if !tt.HasText("已用 62%") {
-		t.Fatal("expected '已用 62%'：额度百分比默认显示已用")
-	}
-	if !tt.HasText("2 时 30 分后重置") {
-		t.Fatalf("expected countdown '2 时 30 分后重置'")
-	}
-}
-
-// 弹窗内百分比默认显示已用额度，点一下变「剩余」，再点回「已用」；所有窗口共用一个开关。
-func TestRenderUsagePanel_QuotaPercentToggle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	s := newChatState(NewFakeClient())
-	th := &Thread{ID: "t1", Provider: "anthropic"}
-	SetChatQuotaWindowsForProvider(s, th.Provider, []ProviderQuotaWindow{{Label: "5 小时限额", UsedPercent: 62}})
-	defer SetChatQuotaWindowsForProvider(s, th.Provider, nil)
-
-	render := func() *ui.Tester {
-		return ui.NewTester(func(c *ui.Context) {
-			renderUsagePanel(c, s, th)
-		}, 400, 400)
-	}
-
-	tt := render()
-	if !tt.HasText("已用 62%") || tt.HasText("剩余 38%") {
-		t.Fatalf("quota percent must default to used, texts: %q", tt.Texts())
-	}
-	if err := tt.Click("已用 62%"); err != nil {
-		t.Fatalf("click percent failed: %v", err)
-	}
-	if !s.composerView.quotaShowRemaining {
-		t.Fatal("click must turn quotaShowRemaining on")
-	}
-	tt = render()
-	if !tt.HasText("剩余 38%") || tt.HasText("已用 62%") {
-		t.Fatalf("quota percent must show remaining after toggle, texts: %q", tt.Texts())
-	}
-	if err := tt.Click("剩余 38%"); err != nil {
-		t.Fatalf("click percent again failed: %v", err)
-	}
-	if s.composerView.quotaShowRemaining {
-		t.Fatal("second click must turn quotaShowRemaining back off")
+	if !tt.HasText("上下文窗口") || tt.HasText("额度") || tt.HasText("62%") || tt.HasText("38%") {
+		t.Fatalf("浮窗应显示上下文窗口且不显示额度，texts: %q", tt.Texts())
 	}
 }
 
@@ -436,7 +296,7 @@ func TestQuotaAccountsSameProvider(t *testing.T) {
 }
 
 // TestQuotaInUseAccountSkipsDisabled 校验已停用（Disabled）的账号不参与在用账号判定：
-// 有 Active 账号时用它，全部停用时不判在用，标题也不显示「在用」。
+// 有 Active 账号时用它，全部停用时不判在用。
 func TestQuotaInUseAccountSkipsDisabled(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -444,27 +304,11 @@ func TestQuotaInUseAccountSkipsDisabled(t *testing.T) {
 		{ID: "gemini", Period: "5h", Label: "系统账号 · Gemini Models", Account: "系统账号", UsedPercent: 40, Disabled: true},
 		{ID: "gemini-7d", Period: "7d", Label: "a@example.com · Gemini Models 7d", Account: "a@example.com", UsedPercent: 10, Active: true},
 	}
-	client := NewFakeClient()
-	client.providerQuotaResult = windows
-	s := newChatState(client)
-	th := &Thread{ID: "t1", Provider: "agy"}
-	SetChatQuotaWindowsForProvider(s, th.Provider, windows)
-	defer SetChatQuotaWindowsForProvider(s, th.Provider, nil)
-
-	if got := s.quotaInUseAccount(th.Provider, windows); got != "a@example.com" {
+	s := newChatState(NewFakeClient())
+	if got := s.quotaInUseAccount("agy", windows); got != "a@example.com" {
 		t.Fatalf("在用账号 = %q，想要 a@example.com", got)
 	}
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderUsagePanel(c, s, th)
-	}, 400, 400)
-	if !tt.HasText("系统账号 · 已停止") {
-		t.Fatalf("停用账号标题应标『已停止』，texts: %q", tt.Texts())
-	}
-	if !tt.HasText("a@example.com · 在用") {
-		t.Fatalf("在用账号标题应标『在用』，texts: %q", tt.Texts())
-	}
-
-	// 全部账号停用：不判定在用账号，标题只有「已停止」。
+	// 全部账号停用时不判定在用账号。
 	allDisabled := []ProviderQuotaWindow{
 		{ID: "gemini", Period: "5h", Label: "系统账号 · Gemini Models", Account: "系统账号", UsedPercent: 40, Disabled: true},
 	}
@@ -558,70 +402,6 @@ func TestQuotaMagpieAccountAttribution(t *testing.T) {
 		}
 		if got := quotaRecentAccount(windows); got != "" {
 			t.Fatalf("最近使用账号应为空，得到 %q", got)
-		}
-	})
-}
-
-// TestQuotaMagpieAccountMarkers 校验弹层标记：唯一 Active 组标「在用」，没有 Active 时
-// Last 组标「最近使用」；两者都没有时顶部提示账号未知，且保留卡片套餐与读取时间。
-func TestQuotaMagpieAccountMarkers(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	readAt := time.Now().Add(-3 * time.Minute)
-	a := "a@b.com"
-	b := "{{EMAIL_d949a3a8}}"
-	base := []ProviderQuotaWindow{
-		{ID: a + "/5 hours", Period: "5h", Label: "5 hours", Account: a, UsedPercent: 85,
-			Source: "magpie", Plan: "Plus", ReadAt: readAt},
-		{ID: b + "/30 days", Period: "30d", Label: "30 days", Account: b, UsedPercent: 0,
-			Source: "magpie", Plan: "Free"},
-	}
-
-	render := func(t *testing.T, windows []ProviderQuotaWindow) *ui.Tester {
-		t.Helper()
-		client := NewFakeClient()
-		client.providerQuotaResult = windows
-		s := newChatState(client)
-		th := &Thread{ID: "t1", Provider: "codex"}
-		SetChatQuotaWindowsForProvider(s, th.Provider, windows)
-		t.Cleanup(func() { SetChatQuotaWindowsForProvider(s, th.Provider, nil) })
-		return ui.NewTester(func(c *ui.Context) {
-			renderUsagePanel(c, s, th)
-		}, 420, 640)
-	}
-
-	t.Run("唯一 Active 标在用", func(t *testing.T) {
-		windows := append([]ProviderQuotaWindow{}, base...)
-		windows[0].Active = true
-		tt := render(t, windows)
-		if !tt.HasText(a+" · Plus") || !tt.HasText("· 在用") {
-			t.Fatalf("在用账号标题应带套餐与「在用」，texts: %q", tt.Texts())
-		}
-		if tt.HasText("本会话账号未知") || tt.HasText("· 最近使用") {
-			t.Fatalf("有在用账号时不应提示未知或最近使用，texts: %q", tt.Texts())
-		}
-	})
-
-	t.Run("Last 标最近使用", func(t *testing.T) {
-		windows := append([]ProviderQuotaWindow{}, base...)
-		windows[1].Last = true
-		windows[1].LastServedAt = readAt
-		tt := render(t, windows)
-		if tt.HasText("· 在用") {
-			t.Fatalf("没有 Active 时不应标在用，texts: %q", tt.Texts())
-		}
-		if !tt.HasText(b+" · Free") || !tt.HasText("· 最近使用") {
-			t.Fatalf("最近使用的账号应带标记，texts: %q", tt.Texts())
-		}
-	})
-
-	t.Run("没有任何线索时提示账号未知", func(t *testing.T) {
-		tt := render(t, append([]ProviderQuotaWindow{}, base...))
-		if !tt.HasText("本会话账号未知，以下为全部账号") {
-			t.Fatalf("账号未知时应在顶部提示，texts: %q", tt.Texts())
-		}
-		if tt.HasText("· 在用") || tt.HasText("· 最近使用") {
-			t.Fatalf("未知时不应标在用或最近使用，texts: %q", tt.Texts())
 		}
 	})
 }
@@ -833,141 +613,6 @@ func TestRenderUsagePanel_PrefersReportedContextWindow(t *testing.T) {
 	}
 }
 
-// 额度弹窗的大进度条在可推断周期且有重置时间时显示时间进度竖线；没有重置时间时不显示。
-func TestRenderUsagePanel_QuotaPaceMarker(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	now := time.Now()
-	usagePanelNow = func() time.Time { return now }
-	t.Cleanup(func() { usagePanelNow = time.Now })
-
-	s := newChatState(NewFakeClient())
-	th := &Thread{ID: "t1", Provider: "anthropic"}
-	defer SetChatQuotaWindowsForProvider(s, th.Provider, nil)
-
-	SetChatQuotaWindowsForProvider(s, th.Provider, []ProviderQuotaWindow{
-		{Label: "5 小时限额", UsedPercent: 62, ResetsAt: now.Add(2 * time.Hour)},
-	})
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderUsagePanel(c, s, th)
-	}, 400, 400)
-	if _, ok := tt.Find("quota-pace-marker"); !ok {
-		t.Fatalf("expected pace marker in quota bar, texts: %q", tt.Texts())
-	}
-
-	SetChatQuotaWindowsForProvider(s, th.Provider, []ProviderQuotaWindow{
-		{Label: "5 小时限额", UsedPercent: 62},
-	})
-	tt = ui.NewTester(func(c *ui.Context) {
-		renderUsagePanel(c, s, th)
-	}, 400, 400)
-	if _, ok := tt.Find("quota-pace-marker"); ok {
-		t.Fatalf("must not render pace marker without reset time, texts: %q", tt.Texts())
-	}
-}
-
-// quotaGroupSharedCountdown 只在组内所有带重置时间的窗口文案都相同时返回该文案：
-// 文案不同或有窗口根本没有重置时间时不能把倒计时提到组标题行。
-func TestQuotaGroupSharedCountdown(t *testing.T) {
-	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.Local)
-
-	tests := []struct {
-		name    string
-		windows []ProviderQuotaWindow
-		want    string
-	}{
-		{
-			name: "全部相同返回文案",
-			windows: []ProviderQuotaWindow{
-				{ResetsAt: now.Add(2 * time.Hour)},
-				{ResetsAt: now.Add(2 * time.Hour)},
-			},
-			want: "2 小时后重置",
-		},
-		{
-			name: "文案不同返回空串",
-			windows: []ProviderQuotaWindow{
-				{ResetsAt: now.Add(2 * time.Hour)},
-				{ResetsAt: now.Add(45 * time.Minute)},
-			},
-			want: "",
-		},
-		{
-			name: "无重置时间的窗口不参与比较",
-			windows: []ProviderQuotaWindow{
-				{ResetsAt: now.Add(2 * time.Hour)},
-				{},
-				{ResetsAt: now.Add(2 * time.Hour)},
-			},
-			want: "2 小时后重置",
-		},
-		{
-			name:    "没有窗口带重置时间返回空串",
-			windows: []ProviderQuotaWindow{{}, {}},
-			want:    "",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := quotaGroupSharedCountdown(tc.windows, now); got != tc.want {
-				t.Fatalf("quotaGroupSharedCountdown(%+v) = %q, want %q", tc.name, got, tc.want)
-			}
-		})
-	}
-}
-
-// 同一账号组内两个窗口的重置时间一致时，倒计时只在组标题行显示一次，窗口行不再重复。
-func TestRenderUsagePanel_QuotaSharedCountdownOnce(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	now := time.Now()
-	usagePanelNow = func() time.Time { return now }
-	t.Cleanup(func() { usagePanelNow = time.Now })
-
-	s := newChatState(NewFakeClient())
-	th := &Thread{ID: "t1", Provider: "codex"}
-	account := "a@example.com"
-	SetChatQuotaWindowsForProvider(s, th.Provider, []ProviderQuotaWindow{
-		{ID: account + "/5h", Label: "5 hours", Account: account, UsedPercent: 20, ResetsAt: now.Add(2 * time.Hour)},
-		{ID: account + "/7d", Label: "7 days", Account: account, UsedPercent: 40, ResetsAt: now.Add(2 * time.Hour)},
-	})
-	defer SetChatQuotaWindowsForProvider(s, th.Provider, nil)
-
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderUsagePanel(c, s, th)
-	}, 400, 400)
-	if got := strings.Count(strings.Join(tt.Texts(), "\n"), "2 小时后重置"); got != 1 {
-		t.Fatalf("共同倒计时应只出现一次，得到 %d 次：%q", got, tt.Texts())
-	}
-	if !tt.HasText("5h") || !tt.HasText("周") {
-		t.Fatalf("两个窗口都要列出来（周期短名），texts: %q", tt.Texts())
-	}
-}
-
-// 两个窗口重置时间不同时不能合并：两条倒计时都留在各自的窗口行里。
-func TestRenderUsagePanel_QuotaDistinctCountdowns(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	now := time.Now()
-	usagePanelNow = func() time.Time { return now }
-	t.Cleanup(func() { usagePanelNow = time.Now })
-
-	s := newChatState(NewFakeClient())
-	th := &Thread{ID: "t1", Provider: "codex"}
-	SetChatQuotaWindowsForProvider(s, th.Provider, []ProviderQuotaWindow{
-		{Label: "5 小时限额", UsedPercent: 20, ResetsAt: now.Add(2 * time.Hour)},
-		{Label: "7 天限额", UsedPercent: 40, ResetsAt: now.Add(45 * time.Minute)},
-	})
-	defer SetChatQuotaWindowsForProvider(s, th.Provider, nil)
-
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderUsagePanel(c, s, th)
-	}, 400, 400)
-	if !tt.HasText("2 小时后重置") || !tt.HasText("45 分后重置") {
-		t.Fatalf("重置时间不同的窗口各自显示倒计时，texts: %q", tt.Texts())
-	}
-}
-
 // 校验 Magpie 供应商 ID 转换为展示名称的规则。
 func TestMagpieQuotaProviderName(t *testing.T) {
 	cases := []struct {
@@ -1063,142 +708,3 @@ func TestGroupQuotaWindowsByProvider(t *testing.T) {
 	}
 }
 
-// 校验 Magpie 多供应商窗口渲染后供应商组头（Claude、WorkBuddy）各出现一次，且账号名去掉 provider 前缀。
-func TestRenderComposerQuotaSection_MagpieProviders(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	now := time.Now()
-	usagePanelNow = func() time.Time { return now }
-	t.Cleanup(func() { usagePanelNow = time.Now })
-
-	fake := NewFakeClient()
-	s := newChatState(fake)
-	windows := []ProviderQuotaWindow{
-		{ID: "c1", Label: "5 hours", Account: "claude · user1@example.com", Source: "magpie", Provider: "claude", UsedPercent: 20},
-		{ID: "c2", Label: "5 hours", Account: "claude · user2@example.com", Source: "magpie", Provider: "claude", UsedPercent: 40},
-		{ID: "w1", Label: "Credits", Account: "workbuddy · team@example.com", Source: "magpie", Provider: "workbuddy", UsedPercent: 60},
-	}
-
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderComposerQuotaSection(c, s, "pi:magpie-jp", windows)
-	}, 400, 500)
-
-	texts := tt.Texts()
-	claudeCount := 0
-	workbuddyCount := 0
-	for _, text := range texts {
-		if text == "Claude" {
-			claudeCount++
-		}
-		if text == "WorkBuddy" {
-			workbuddyCount++
-		}
-	}
-	if claudeCount != 1 {
-		t.Fatalf("期望供应商名 Claude 出现 1 次，实际 %d 次，texts: %q", claudeCount, texts)
-	}
-	if workbuddyCount != 1 {
-		t.Fatalf("期望供应商名 WorkBuddy 出现 1 次，实际 %d 次，texts: %q", workbuddyCount, texts)
-	}
-
-	for _, text := range texts {
-		if strings.HasPrefix(text, "claude · ") {
-			t.Fatalf("账号标题不应以 'claude · ' 开头: %q", text)
-		}
-	}
-	if !tt.HasText("user1@example.com") || !tt.HasText("user2@example.com") {
-		t.Fatalf("应包含去掉 provider 前缀后的账号名，texts: %q", texts)
-	}
-}
-
-// 校验在用账号所在的供应商组排在第一位（WorkBuddy 组头出现在 Claude 之前）。
-func TestRenderComposerQuotaSection_ActiveProviderFirst(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	now := time.Now()
-	usagePanelNow = func() time.Time { return now }
-	t.Cleanup(func() { usagePanelNow = time.Now })
-
-	fake := NewFakeClient()
-	s := newChatState(fake)
-
-	windows := []ProviderQuotaWindow{
-		{ID: "c1", Label: "5 hours", Account: "claude · user1@example.com", Source: "magpie", Provider: "claude", UsedPercent: 20},
-		{ID: "w1", Label: "Credits", Account: "workbuddy · team@example.com", Source: "magpie", Provider: "workbuddy", UsedPercent: 60, Active: true},
-	}
-
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderComposerQuotaSection(c, s, "pi:magpie-jp", windows)
-	}, 400, 500)
-
-	texts := tt.Texts()
-	wbIdx, clIdx := -1, -1
-	for i, txt := range texts {
-		if txt == "WorkBuddy" && wbIdx == -1 {
-			wbIdx = i
-		}
-		if txt == "Claude" && clIdx == -1 {
-			clIdx = i
-		}
-	}
-	if wbIdx == -1 || clIdx == -1 || wbIdx > clIdx {
-		t.Fatalf("含 Active 账号的 WorkBuddy 组头应排在 Claude 之前，wbIdx=%d, clIdx=%d, texts: %q", wbIdx, clIdx, texts)
-	}
-
-	wbEl, wbOk := tt.Find("WorkBuddy")
-	clEl, clOk := tt.Find("Claude")
-	if wbOk && clOk && wbEl.Y > 0 && clEl.Y > 0 && wbEl.Y >= clEl.Y {
-		t.Fatalf("WorkBuddy 组头 Y 坐标 (%v) 应在 Claude 组头 Y 坐标 (%v) 上方", wbEl.Y, clEl.Y)
-	}
-}
-
-// 校验非 Magpie 窗口（Source 为空）不渲染供应商组头，账号标题与现状保持一致。
-func TestRenderComposerQuotaSection_NonMagpieNoProviderHeader(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	fake := NewFakeClient()
-	s := newChatState(fake)
-	windows := []ProviderQuotaWindow{
-		{ID: "c1", Label: "5 hours", Account: "a@example.com", UsedPercent: 20},
-		{ID: "c2", Label: "7 days", Account: "a@example.com", UsedPercent: 40},
-	}
-
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderComposerQuotaSection(c, s, "codex", windows)
-	}, 400, 400)
-
-	if tt.HasText("Codex") {
-		t.Fatalf("非 Magpie 窗口不应渲染供应商组头，texts: %q", tt.Texts())
-	}
-	if !tt.HasText("a@example.com · 在用") {
-		t.Fatalf("单账号应标在用，texts: %q", tt.Texts())
-	}
-}
-
-// 校验窗口行同时有倒计时和提前用尽提示时，行内只显示提前用尽文案，倒计时不占行内文本空间。
-func TestRenderComposerQuotaWindowRow_PaceHidesCountdown(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-	usagePanelNow = func() time.Time { return now }
-	t.Cleanup(func() { usagePanelNow = time.Now })
-
-	// 5h 窗口过去 1 小时，已用 50%，重置在 4 小时后：触发 paceStateEarly（提前用尽）
-	win := ProviderQuotaWindow{
-		Period:      "5h",
-		Label:       "5 hours",
-		UsedPercent: 50,
-		ResetsAt:    now.Add(4 * time.Hour),
-	}
-
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderComposerQuotaWindowRow(c, nil, 0, win, now, false, "", 0)
-	}, 400, 100)
-
-	if !tt.HasText("预计约 1 小时后用尽") {
-		t.Fatalf("应显示提前用尽文案，texts: %q", tt.Texts())
-	}
-	if tt.HasText("4 小时后重置") {
-		t.Fatalf("倒计时不应出现在行内可见文字中（已移入 Tooltip），texts: %q", tt.Texts())
-	}
-}
