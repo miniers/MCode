@@ -15,8 +15,8 @@ const kanbanBadgeRefreshInterval = 30 * time.Second
 // addProjectOpen、moreMenuOpen 绑定在控件上，只在 UI 线程读写；
 // kanbanReviewCount、kanbanFetchedAt、kanbanLoading 由后台 goroutine 写入，受 sidebarFooterMu 保护。
 type sidebarFooterState struct {
-	addProjectOpen bool
-	moreMenuOpen   bool
+	addProjectOpen  bool
+	moreMenuOpen    bool
 	updateVisible   bool
 	updateOpen      bool
 	whatsNewOpen    bool

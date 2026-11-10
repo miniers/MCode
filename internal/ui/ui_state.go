@@ -51,7 +51,7 @@ type uiStateFile struct {
 	// ContinueDismissed 记录被忽略的继续胶囊（会话 ID -> 忽略时最后一条消息 ID）：
 	// 最后一条消息 ID 变化后该记录自动失效，胶囊重新出现。
 	ContinueDismissed map[string]string `json:"continue_dismissed,omitempty"`
-	Onboarding string `json:"onboarding,omitempty"`
+	Onboarding        string            `json:"onboarding,omitempty"`
 	// LastModel 是最近一次在模型选择组件中确认的模型选择（provider + model + 推理强度 + 快速模式），
 	// 新建会话或组件初始化时优先使用该记录；零值表示还没有记录。
 	LastModel ModelSelection `json:"last_model,omitempty"`

@@ -707,4 +707,3 @@ func TestGroupQuotaWindowsByProvider(t *testing.T) {
 		t.Fatalf("第 3 组应为 commandcode-plan，得到 %+v", groups[2])
 	}
 }
-

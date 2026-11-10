@@ -93,7 +93,7 @@ func renderFileManagerCodePreview(c *ui.Context, s *chatState, tab fileManagerTa
 	manager := getFileManagerState(s)
 	key := keyPrefix + tab.path
 	st := fileManagerCodeViewFor(manager, key, tab.path, tab.content, fileManagerPreviewFontSize(s))
-	e := ui.Column(c.Key(keyPrefix+"code-view-container")).
+	e := ui.Column(c.Key(keyPrefix + "code-view-container")).
 		Grow(1).
 		FillWidth().
 		MinWidth(0).

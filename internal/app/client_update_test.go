@@ -11,7 +11,9 @@ import (
 
 func TestClientNativeUpdateInstall(t *testing.T) {
 	oldEnabled, oldCheck, oldRelaunch := nativeUpdatesEnabled, nativeUpdateCheck, relaunchAfterUpdate
-	t.Cleanup(func() { nativeUpdatesEnabled, nativeUpdateCheck, relaunchAfterUpdate = oldEnabled, oldCheck, oldRelaunch })
+	t.Cleanup(func() {
+		nativeUpdatesEnabled, nativeUpdateCheck, relaunchAfterUpdate = oldEnabled, oldCheck, oldRelaunch
+	})
 	nativeUpdatesEnabled = func() bool { return true }
 	nativeUpdateCheck = func(context.Context) (string, installableUpdate, error) {
 		return "2.0.0", fakeInstallableUpdate{}, nil

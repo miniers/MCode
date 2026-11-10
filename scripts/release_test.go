@@ -377,10 +377,10 @@ func TestReleaseExistingChangelog(t *testing.T) {
 
 func TestReleasePreconditionsAndDryRun(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		args []string
+		name            string
+		args            []string
 		dirty, tag, dry bool
-		want string
+		want            string
 	}{
 		{name: "工作区不干净", dirty: true, want: "工作区不干净"},
 		{name: "标签已存在", tag: true, want: "本地标签 v0.2.10 已存在"},

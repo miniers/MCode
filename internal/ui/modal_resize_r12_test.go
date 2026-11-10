@@ -29,8 +29,8 @@ func TestKanbanModal_Resize(t *testing.T) {
 func TestContextAndMemoryDialogs_Resize(t *testing.T) {
 	for _, tc := range []struct {
 		name, key, label string
-		render func(*ui.Context, *chatState)
-		open func(*chatState)
+		render           func(*ui.Context, *chatState)
+		open             func(*chatState)
 	}{
 		{"context", modalDragContextPanel, "context-modal-card", renderContextModal, func(s *chatState) { getContextPanelState(s).open = true }},
 		{"memory", modalDragMemoryPanel, "memory-modal-card", renderMemoryModal, func(s *chatState) { getMemoryPanelState(s).open = true }},

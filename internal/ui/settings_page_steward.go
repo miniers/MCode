@@ -110,8 +110,8 @@ func stewardMainSection() settingsSection {
 
 // stewardModelSection 包含前台模型。
 var stewardModelSection = settingsSection{
-	ID:    "sec-steward-model",
-	Title: "模型",
+	ID:      "sec-steward-model",
+	Title:   "模型",
 	Visible: stewardEnabled,
 	Rows: []setting{
 		{
@@ -184,10 +184,10 @@ var stewardQuietSection = settingsSection{ID: "sec-steward-quiet", Title: "安�
 				st.mu.Unlock()
 				st.save()
 			})},
-		{ID: "row-steward-quiet-range", Title: "时间范围",
-			Aliases: []string{"总管", "免打扰", "本地时间", "午夜"},
-			Visible: func(st *SettingsState) bool { return st == nil || stewardQuietOn(st) },
-			Control: custom(renderStewardQuietRange)},
+	{ID: "row-steward-quiet-range", Title: "时间范围",
+		Aliases: []string{"总管", "免打扰", "本地时间", "午夜"},
+		Visible: func(st *SettingsState) bool { return st == nil || stewardQuietOn(st) },
+		Control: custom(renderStewardQuietRange)},
 }}
 
 func renderStewardNoProgress(c *ui.Context, st *SettingsState) {

@@ -10,8 +10,8 @@ import (
 )
 
 type fakeAppUpdateExtService struct {
-	status wire.AppUpdateStatus
-	checks int
+	status   wire.AppUpdateStatus
+	checks   int
 	installs int
 }
 

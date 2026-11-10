@@ -26,8 +26,8 @@ func TestProviderSheetContentInsets(t *testing.T) {
 			st.presets.items = []ProviderSetting{{ID: "deepseek", Kind: "api"}}
 			st.endpoints.endpoints = []CustomEndpoint{{ID: "endpoint", Name: "端点"}}
 			st.providerRows.quota = map[string][]ProviderQuotaWindow{
-				"claude": {{Label: "测试额度", UsedPercent: 50}},
-				"codex": {{Label: "测试额度", UsedPercent: 50}},
+				"claude":   {{Label: "测试额度", UsedPercent: 50}},
+				"codex":    {{Label: "测试额度", UsedPercent: 50}},
 				"deepseek": {{Label: "测试额度", UsedPercent: 50}},
 			}
 			st.providerRows.quotaErr = map[string]string{"pi": "unsupported"}

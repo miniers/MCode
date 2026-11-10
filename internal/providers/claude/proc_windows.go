@@ -3,10 +3,12 @@
 package claude
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strconv"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -29,7 +31,9 @@ func killProcessGroup(cmd *exec.Cmd, sig os.Signal) error {
 	if cmd == nil || cmd.Process == nil || cmd.Process.Pid <= 0 {
 		return nil
 	}
-	killer := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	killer := exec.CommandContext(ctx, "taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid))
 	killer.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	if err := killer.Run(); err != nil {
 		return cmd.Process.Kill()

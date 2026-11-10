@@ -12,12 +12,12 @@ import (
 
 type fakeRemoteAppUpdateClient struct {
 	status mcodeui.AppUpdateStatus
-	notes string
+	notes  string
 }
 
-func (c *fakeRemoteAppUpdateClient) AppVersion() string { return "1" }
+func (c *fakeRemoteAppUpdateClient) AppVersion() string                    { return "1" }
 func (c *fakeRemoteAppUpdateClient) LatestUpdate() mcodeui.AppUpdateStatus { return c.status }
-func (c *fakeRemoteAppUpdateClient) UpdateNotes() string { return c.notes }
+func (c *fakeRemoteAppUpdateClient) UpdateNotes() string                   { return c.notes }
 func (c *fakeRemoteAppUpdateClient) CheckForUpdate(context.Context) (mcodeui.AppUpdateStatus, error) {
 	return c.status, nil
 }

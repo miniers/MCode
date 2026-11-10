@@ -413,7 +413,7 @@ func (s *Store) messageCompressSince(ctx context.Context) (string, error) {
 }
 
 // messageCompressCandidates 返回本轮要扫的会话：非临时会话、最近 10 分钟没有动静、没有进行中的轮次，
-// 且仍有无损压缩候选行（text_encoding = '' 的 tool 消息或 thinking 消息）。
+// 且仍有无损压缩候选行（text_encoding 为空的 tool 消息或 thinking 消息）。
 // since 非空时额外要求 updated_at 不早于该时刻。
 func (s *Store) messageCompressCandidates(ctx context.Context, now time.Time, since string) ([]string, error) {
 	query := `

@@ -237,8 +237,8 @@ func renderAboutChangelog(c *ui.Context, st *SettingsState) {
 	ui.Column(c.Key("about-changelog-content")).FillWidth().Children(func() {
 		for _, version := range changelogVersions() {
 			expanded := aboutChangelogExpanded[version.Version]
-			header := ui.ButtonBase(c.Key("about-changelog-header-" + version.Version)).
-				Label("about-changelog-header-" + version.Version).
+			header := ui.ButtonBase(c.Key("about-changelog-header-"+version.Version)).
+				Label("about-changelog-header-"+version.Version).
 				Padding(settingsRowPadY, settingsRowPadX).
 				Radius(RadiusLG)
 			if header.Hovered() {
@@ -265,7 +265,7 @@ func renderAboutChangelog(c *ui.Context, st *SettingsState) {
 					})
 			})
 			if expanded {
-				ui.Column(c.Key("about-changelog-body-" + version.Version)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Children(func() {
+				ui.Column(c.Key("about-changelog-body-"+version.Version)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Children(func() {
 					markdown.View(c.Key("about-changelog-markdown-"+version.Version), version.Body, swarmReportMarkdownOptions(c, st.chat, TypeBody))
 				})
 			}

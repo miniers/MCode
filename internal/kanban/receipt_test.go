@@ -133,20 +133,36 @@ func TestStewardOwnerFailureBudgetAndDecision(t *testing.T) {
 			svc.SetOnResult(func(context.Context, store.Task, ExecutorResult) { calls++ })
 			finish := func(res ExecutorResult) {
 				t.Helper()
-				if err := svc.SubmitExecutorResult(ctx, "t", thread, res); err != nil { t.Fatal(err) }
-				if watchdogFirst { if err := wd.Check(ctx); err != nil { t.Fatal(err) } } else { scheduler.Tick(ctx) }
+				if err := svc.SubmitExecutorResult(ctx, "t", thread, res); err != nil {
+					t.Fatal(err)
+				}
+				if watchdogFirst {
+					if err := wd.Check(ctx); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					scheduler.Tick(ctx)
+				}
 			}
 			finish(ExecutorResult{Status: ResultFailed, Summary: "失败"})
 			task, _ := db.GetTask(ctx, "t")
-			if task.Status != "todo" || calls != 0 { t.Fatalf("首次失败: %+v 回调=%d", task, calls) }
+			if task.Status != "todo" || calls != 0 {
+				t.Fatalf("首次失败: %+v 回调=%d", task, calls)
+			}
 			task.Status, task.AttemptCount = "in_progress", 2
-			if _, err := db.UpdateTask(ctx, task, task.Revision); err != nil { t.Fatal(err) }
+			if _, err := db.UpdateTask(ctx, task, task.Revision); err != nil {
+				t.Fatal(err)
+			}
 			finish(ExecutorResult{Status: ResultFailed, Summary: "再次失败"})
 			scheduler.Tick(ctx)
-			if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+			if err := wd.Check(ctx); err != nil {
+				t.Fatal(err)
+			}
 			task, _ = db.GetTask(ctx, "t")
 			goal, _ := db.GetGoal(ctx, "g")
-			if task.Status != "failed" || calls != 1 || goal.Status != "running" { t.Fatalf("最终失败: %+v 回调=%d 目标=%s", task, calls, goal.Status) }
+			if task.Status != "failed" || calls != 1 || goal.Status != "running" {
+				t.Fatalf("最终失败: %+v 回调=%d 目标=%s", task, calls, goal.Status)
+			}
 		})
 	}
 }
@@ -159,11 +175,17 @@ func TestStewardOwnerDecisionRemainsBlocked(t *testing.T) {
 	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: "总管", Owner: goalOwnerSteward}, store.Task{ID: "t", Title: "任务", Status: "in_progress", ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{Origin: "owner"})})
 	driver.setThreadState(thread, SessionState{})
 	res := ExecutorResult{Status: ResultNeedsDecision, Summary: "请选择", Question: "继续吗", Options: []DecisionOption{{Key: "A", Text: "继续"}, {Key: "B", Text: "停下"}}}
-	if err := svc.SubmitExecutorResult(ctx, "t", thread, res); err != nil { t.Fatal(err) }
-	if err := wd.Check(ctx); err != nil { t.Fatal(err) }
+	if err := svc.SubmitExecutorResult(ctx, "t", thread, res); err != nil {
+		t.Fatal(err)
+	}
+	if err := wd.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
 	scheduler.Tick(ctx)
 	task, _ := db.GetTask(ctx, "t")
-	if task.Status != "needs_approval" { t.Fatalf("决策必须等待: %+v", task) }
+	if task.Status != "needs_approval" {
+		t.Fatalf("决策必须等待: %+v", task)
+	}
 }
 
 // TestStewardOwnerMissingReceiptUsesAssistantText 验证总管 owner 任务缺回执、会话调不到回执工具时，

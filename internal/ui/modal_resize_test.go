@@ -5,7 +5,7 @@ import "testing"
 func TestModalResizeApply(t *testing.T) {
 	tests := []struct {
 		name, edge string
-		dx, dy float32
+		dx, dy     float32
 		w, h, x, y float32
 	}{
 		{"right", "right", 40, 0, 540, 400, 20, 0},
@@ -29,7 +29,11 @@ func TestModalResizeSize(t *testing.T) {
 	modalDragReset(key)
 	t.Cleanup(func() { modalDragReset(key) })
 	w, h := modalResizeSize(key, 520, 640, 360, 240, 1200, 1000)
-	if w != 520 || h != 640 { t.Fatalf("default = %v, %v", w, h) }
+	if w != 520 || h != 640 {
+		t.Fatalf("default = %v, %v", w, h)
+	}
 	w, h = modalResizeSize(key, 720, 640, 360, 240, 600, 500)
-	if w != 560 || h != 460 { t.Fatalf("clamped = %v, %v", w, h) }
+	if w != 560 || h != 460 {
+		t.Fatalf("clamped = %v, %v", w, h)
+	}
 }
