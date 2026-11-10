@@ -102,6 +102,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 	}
 	failedOnly, unreadOnly := view.failedOnly, view.unreadOnly
 	errText, retry := view.err, view.retry
+	running := as.runningIDs[selectedID]
 	automationMu.Unlock()
 	ui.Column(c.Key("automation-runs-section")).FillWidth().Gap(Space3).Children(func() {
 		if errText != "" {
@@ -124,7 +125,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 					Button(c.Key("run-detail-back"), ButtonOpts{Text: "← 运行记录", Label: "返回运行记录", OnClick: func() { automationMu.Lock(); as.openRunID = ""; automationMu.Unlock(); s.invalidate() }, Variant: ButtonGhost, Size: ControlXS})
 					status, kind := automationRunStatus(run.Status)
 					ui.Text(c, status).TextColor(automationCardStatusColor(c, kind)).Grow(1)
-					Button(c.Key("run-again"), ButtonOpts{Text: "再次运行", Disabled: as.runningIDs[selectedID], OnClick: func() { s.requestAutomationRun(selectedID) }, Variant: ButtonSecondary, Size: ControlXS})
+					Button(c.Key("run-again"), ButtonOpts{Text: "再次运行", Disabled: running, OnClick: func() { s.requestAutomationRun(selectedID) }, Variant: ButtonSecondary, Size: ControlXS})
 					if run.ThreadID != "" {
 						Button(c.Key("run-open-thread-"+run.ID), ButtonOpts{Text: "打开会话", Label: "run-open-thread-" + run.ID, OnClick: func() { s.revealThread(run.ThreadID) }, Variant: ButtonSecondary, Size: ControlXS})
 					}

@@ -155,6 +155,16 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 		}
 	}
 	visible := filterAutomationStatus(as.autos, p.SearchText, as.filter, as.unreadOnly, as.unread)
+	automationMu.Lock()
+	runningIDs := make(map[string]bool, len(as.runningIDs))
+	for id, running := range as.runningIDs {
+		runningIDs[id] = running
+	}
+	busyIDs := make(map[string]bool, len(as.busyIDs))
+	for id, busy := range as.busyIDs {
+		busyIDs[id] = busy
+	}
+	automationMu.Unlock()
 	var selected Automation
 	for _, a := range visible {
 		if a.ID == as.selectedID {
@@ -168,6 +178,9 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 		handleAutomationEscape(s)
 	}
 	ui.Column(c.Key("automation-workspace-root")).Fill().Background(ThemeSurface(c)).Children(func() {
+		if hint := automationSchedulerHint(as.schedulerStatus); hint != "" {
+			ui.Text(c, hint).Key("automation-scheduler-hint").FontSize(TypeFootnote).TextColor(ThemeWarning(c))
+		}
 		if as.loading && len(as.autos) == 0 {
 			ui.Column(c.Key("automation-loading-box")).Fill().Center().Children(func() { LoadingIndicator(c, nil, "正在加载自动化…", IconMD) })
 			return
@@ -240,7 +253,7 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 					for _, project := range s.projects {
 						names[project.ID] = project.Name
 					}
-					renderAutomationList(c, automationListProps{Visible: visible, SelectedID: as.selectedID, Unread: as.unread, RunningIDs: as.runningIDs, ScopeID: p.ScopeID, ProjectNames: names, Scroll: &as.listScroll, KeyboardFocusID: &as.keyboardFocusID, EditorOpen: as.editorOpen, Now: time.Now(), OnSelect: func(a Automation) { as.selectAutomation(a, s) }, OnEdit: func(a Automation) { as.fillAutomation(a); as.editorOpen = true; s.invalidate() }})
+					renderAutomationList(c, automationListProps{Visible: visible, SelectedID: as.selectedID, Unread: as.unread, RunningIDs: runningIDs, ScopeID: p.ScopeID, ProjectNames: names, Scroll: &as.listScroll, KeyboardFocusID: &as.keyboardFocusID, EditorOpen: as.editorOpen, Now: time.Now(), OnSelect: func(a Automation) { as.selectAutomation(a, s) }, OnEdit: func(a Automation) { as.fillAutomation(a); as.editorOpen = true; s.invalidate() }})
 				})
 			}
 			if !narrow || (as.narrowDetail && selected.ID != "") {
@@ -255,10 +268,10 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 					ui.Row(c.Key("automation-selected-header")).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
 						ui.Text(c, selected.Name).FontSize(TypeTitle).TextColor(ThemePrimaryText(c)).Grow(1)
 						enabled := selected.Enabled
-						if ui.Switch(c.Key("automation-detail-toggle"), &enabled).Label("启用自动化").Disabled(as.busyIDs[selected.ID]).Changed() {
+						if ui.Switch(c.Key("automation-detail-toggle"), &enabled).Label("启用自动化").Disabled(busyIDs[selected.ID]).Changed() {
 							s.setAutomationEnabled(selected, enabled)
 						}
-						Button(c.Key("automation-detail-run"), ButtonOpts{Text: "立即运行", Label: "auto-run-now-" + selected.ID, Disabled: as.runningIDs[selected.ID] || as.busyIDs[selected.ID], Variant: ButtonSecondary, OnClick: func() { s.requestAutomationRun(selected.ID) }})
+						Button(c.Key("automation-detail-run"), ButtonOpts{Text: "立即运行", Label: "auto-run-now-" + selected.ID, Disabled: runningIDs[selected.ID] || busyIDs[selected.ID], Variant: ButtonSecondary, OnClick: func() { s.requestAutomationRun(selected.ID) }})
 						more := IconButton(c.Key("automation-detail-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "自动化更多操作", Variant: ButtonGhost, OnClick: func() { as.moreOpen = true }})
 						appPopover(c, more, &as.moreOpen, nil, func() {
 							popoverCard(c, ui.Column(c.Key("automation-more-menu"))).Padding(Space2, Space2).Children(func() {
@@ -301,7 +314,7 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 		open := true
 		modalDragModal(c, "automation-editor-modal", &open, func() {
 			ui.Column(c.Key("automation-editor-card")).MaxWidth(min(automationEditorMaxWidth, max(0, width-modalDragPanelInset))).MaxHeight(max(0, height-modalDragPanelInset)).Background(ThemeSurface(c)).Radius(RadiusLG).Padding(Space5, Space5).Gap(Space4).Children(func() {
-				renderAutomationEditor(c, s, as, as.isNew, as.selectedID, as.formErr, as.saving, as.confirmDelete, as.runningIDs, as.busyIDs, 0, as.includeArchived, as.runsLoading, as.runsErr, as.runs, as.runRead, as.runArchived, as.openRunID)
+				renderAutomationEditor(c, s, as, as.isNew, as.selectedID, as.formErr, as.saving, as.confirmDelete, runningIDs, busyIDs, 0, as.includeArchived, as.runsLoading, as.runsErr, as.runs, as.runRead, as.runArchived, as.openRunID)
 			})
 		})
 		if !open {

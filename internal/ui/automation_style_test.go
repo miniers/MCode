@@ -46,10 +46,10 @@ func TestAutomationRenderBoundariesAndKeys(t *testing.T) {
 		file, function string
 		want           []string
 	}{
-		{"automation.go", "renderAutomationWorkspaceWithSearch", []string{"automation-detail-col", "renderAutomationRunHistory", "modalDragModal", "renderAutomationEditor"}},
-		{"automation_editor.go", "renderAutomationEditor", []string{"automation-save", "automation-name-input", "automation-prompt-input", "renderAutomationScheduleFields", "automation-stop-when-input"}},
+		{"automation_shell.go", "renderAutomationScopedBody", []string{"automation-list-col", "renderAutomationList", "automation-detail-col", "renderAutomationRunHistory", "modalDragModal", "renderAutomationEditor"}},
+		{"automation_editor.go", "renderAutomationEditor", []string{"automation-detail-header", "automation-form-scroll", "automation-name-input", "automation-prompt-input", "renderAutomationScheduleFields", "automation-stop-when-input", "automation-editor-footer", "automation-save"}},
 		{"automation_schedule_ui.go", "renderAutomationScheduleFields", []string{"form-sched-type-group", "form-sched-params", "automation-interval-input"}},
-		{"automation_run_history.go", "renderAutomationRunHistory", []string{"automation-runs-divider", "automation-runs-section", "automation-runs-header"}},
+		{"automation_run_history.go", "renderAutomationRunHistory", []string{"automation-runs-section", "automation-runs-header"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.function, func(t *testing.T) {
@@ -70,7 +70,7 @@ func TestAutomationRenderBoundariesAndKeys(t *testing.T) {
 			next := 0
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
-				if !ok || next == len(tt.want) {
+				if !ok {
 					return true
 				}
 				name := ""
@@ -81,7 +81,10 @@ func TestAutomationRenderBoundariesAndKeys(t *testing.T) {
 						name, _ = strconv.Unquote(arg.Value)
 					}
 				}
-				if name == tt.want[next] {
+				if tt.function == "renderAutomationScopedBody" && (name == "automation-toolbar" || name == "renderWorkspaceProjectPicker") {
+					t.Errorf("自动化主体不应包含 %s", name)
+				}
+				if next < len(tt.want) && name == tt.want[next] {
 					next++
 				}
 				return true

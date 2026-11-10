@@ -1,7 +1,6 @@
 package mcodeui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -32,16 +31,7 @@ func renderAutomationList(c *ui.Context, p automationListProps) {
 		ui.Column(c.Key("automation-items-col")).FillWidth().Padding(0, Space3).Children(func() {
 			for index, a := range p.Visible {
 				fields := automationVisualRowFields(a, p.ProjectNames[a.ProjectID], p.ScopeID, p.RunningIDs[a.ID], p.Now)
-				label := "自动化项 " + a.Name
-				if p.Unread[a.ID] > 0 {
-					label += fmt.Sprintf("，未读 %d", p.Unread[a.ID])
-				}
-				for _, part := range []string{fields.Schedule, fields.Next, fields.Plan, fields.Result} {
-					if part != "" {
-						label += "，" + part
-					}
-				}
-				row := ui.Column(c.Key("automation-item-"+a.ID)).Focusable().Label(label).Transition(motionListItem(c)).FillWidth().MinWidth(0).Padding(Space4, Space4).Radius(RadiusSM).Gap(Space1)
+				row := ui.Column(c.Key("automation-item-"+a.ID)).Focusable().Label("自动化项 "+a.Name).Transition(motionListItem(c)).FillWidth().MinWidth(0).Padding(Space4, Space4).Radius(RadiusSM).Gap(Space1)
 				if p.KeyboardFocusID != nil && *p.KeyboardFocusID == a.ID {
 					row.Focus()
 					*p.KeyboardFocusID = ""

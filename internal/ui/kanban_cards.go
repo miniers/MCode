@@ -469,6 +469,10 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 	menuOpen := st.moveMenuTaskID == task.ID || st.rescueMenuTaskID == task.ID
 	var more ui.Element
 	card.Children(func() {
+		if opened {
+			ui.Box(c.Key("kanban-task-open-" + task.ID)).Label("kanban-task-open-" + task.ID).
+				Absolute().Left(0).Right(0).Top(0).Bottom(0)
+		}
 		if card.Focused() {
 			ui.Box(c.Key("kanban-task-focus-"+task.ID)).Label("kanban-task-focus-"+task.ID).
 				Absolute().Left(0).Right(0).Top(0).Bottom(0).Radius(RadiusMD).

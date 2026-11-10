@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -89,5 +90,50 @@ func TestTasksAttentionCountDeduplicatesAndTracksGoals(t *testing.T) {
 	board.Goals[0].Status = "running"
 	if got := tasksAttentionCount(board); got != 0 {
 		t.Fatalf("处理后计数 = %d", got)
+	}
+}
+
+func TestTasksRootEscapeChain(t *testing.T) {
+	for _, width := range []int{840, 1440} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			s, view := buildTasksRoot(nil, WithTasksWindowMode("tasks"))
+			defer s.close()
+			ks := getKanbanState(s)
+			ks.initialized = true
+			ks.board.Tasks = []KanbanTask{{ID: "a", Title: "任务 A", Column: "todo"}}
+			tt := ui.NewTester(view, width, 720)
+			tt.Frame()
+			kanbanKeyboardSelect(s, "a", "toggle")
+			ks.detailTaskID, ks.newMenuOpen, ks.searchText = "a", true, "任务"
+			escape := func() { tt.Key(0, ui.KeyEscape); tt.Frame() }
+			escape()
+			if ks.newMenuOpen || !kanbanKeyboardSelected(s, "a") || ks.detailTaskID != "a" {
+				t.Fatalf("浮层未优先关闭: menu=%v selected=%v detail=%q", ks.newMenuOpen, kanbanKeyboardSelected(s, "a"), ks.detailTaskID)
+			}
+			escape()
+			if kanbanKeyboardSelected(s, "a") || ks.detailTaskID != "a" {
+				t.Fatalf("未先清除选择: selected=%v detail=%q", kanbanKeyboardSelected(s, "a"), ks.detailTaskID)
+			}
+			escape()
+			if ks.detailTaskID != "" || ks.searchText != "任务" {
+				t.Fatal("详情未优先于搜索关闭")
+			}
+			escape()
+			if ks.searchText != "" {
+				t.Fatal("搜索未清除")
+			}
+			escape()
+			if s.tasksWindowView == "" || !kanbanModalOpen(s) {
+				t.Fatal("空闲 Esc 关闭窗口")
+			}
+			s.setTasksWindowView("automations")
+			as := getAutomationState(s)
+			as.chooseProjectOpen = true
+			ks.automationSearch = "自动化"
+			escape()
+			if as.chooseProjectOpen || ks.automationSearch != "自动化" {
+				t.Fatal("自动化未优先消费 Esc")
+			}
+		})
 	}
 }

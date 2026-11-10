@@ -133,7 +133,7 @@ func TestAutomationWorkspace_LegacyToggleFallback(t *testing.T) {
 	}
 }
 
-// 场景 1：空列表显示“还没有自动化”
+// 场景 1：单项目空列表显示项目空态。
 func TestAutomationWorkspace_Empty(t *testing.T) {
 	fake := NewFakeClient()
 	fake.SetAutomations(nil)
@@ -149,7 +149,7 @@ func TestAutomationWorkspace_Empty(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("还没有自动化")
+		return tt.HasText("此项目没有自动化")
 	})
 }
 
@@ -169,14 +169,12 @@ func TestAutomationWorkspace_Create(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("还没有自动化")
+		return tt.HasText("此项目没有自动化")
 	})
 
-	// 点击空态的“创建第一个自动化”按钮进入新建表单
-	if err := tt.Click("automation-empty-create"); err != nil {
-		if clickErr := tt.Click("automation-new-btn"); clickErr != nil {
-			t.Fatalf("click 'automation-empty-create' failed: %v", err)
-		}
+	// 点击空态按钮进入新建表单。
+	if err := tt.Click("新建自动化"); err != nil {
+		t.Fatal(err)
 	}
 
 	waitFor(t, tt, func() bool {
@@ -241,12 +239,12 @@ func TestAutomationWorkspace_ValidationFailed(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("还没有自动化")
+		return tt.HasText("此项目没有自动化")
 	})
 
-	// 点击空态的“创建第一个自动化”按钮
-	if err := tt.Click("automation-empty-create"); err != nil {
-		_ = tt.Click("automation-new-btn")
+	// 点击空态按钮。
+	if err := tt.Click("新建自动化"); err != nil {
+		t.Fatal(err)
 	}
 
 	waitFor(t, tt, func() bool {
@@ -372,20 +370,24 @@ func TestAutomationWorkspace_ProjectIsolation(t *testing.T) {
 	fake := NewFakeClient()
 	fake.SetProjectsAndThreads([]Project{{ID: "p1", Name: "项目一"}, {ID: "p2", Name: "项目二"}}, nil)
 	fake.SetAutomations([]Automation{testAutomation("auto-p1", "p1"), testAutomation("auto-p2", "p2")})
-	tt, s := newWorkspaceTester(t, fake, "automations")
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.projects = []Project{{ID: "p1", Name: "项目一"}, {ID: "p2", Name: "项目二"}}
+	scope := "p1"
+	tt := ui.NewTester(func(c *ui.Context) {
+		s.applyWorkspaceUpdates()
+		renderAutomationWorkspaceInScope(c, s, automationWorkspaceProps{ScopeID: scope})
+	}, 1320, 860)
 	waitFor(t, tt, func() bool { return tt.HasText("auto-p1") })
 	if err := tt.Click("auto-p1"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("运行记录") })
-	if err := tt.Click("workspace-project-p2"); err != nil {
-		t.Fatal(err)
-	}
+	scope = "p2"
 	waitFor(t, tt, func() bool {
 		return tt.HasText("auto-p2") && !tt.HasText("auto-p1") && !tt.HasText("编辑自动化")
 	})
-	as := getAutomationState(s)
-	if as.selectedID != "" || as.isNew {
+	if as := getAutomationState(s); as.selectedID != "" || as.isNew {
 		t.Fatal("selection from another project survived the switch")
 	}
 }
@@ -423,7 +425,7 @@ func TestAutomationWorkspace_InvalidLimits(t *testing.T) {
 		t.Run(input, func(t *testing.T) {
 			fake := NewFakeClient()
 			tt, s := newWorkspaceTester(t, fake, "automations")
-			waitFor(t, tt, func() bool { return tt.HasText("还没有自动化") })
+			waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") })
 			as := getAutomationState(s)
 			as.resetToNewAutomation(s)
 			as.name, as.prompt, as.maxRunsInput = "检查", "检查项目", input
@@ -435,7 +437,7 @@ func TestAutomationWorkspace_InvalidLimits(t *testing.T) {
 	}
 }
 
-// 列表保留各自动化及唯一的新建入口。
+// 列表保留各自动化，新建由外壳入口提供。
 func TestAutomationWorkspace_Summary(t *testing.T) {
 	fake := NewFakeClient()
 	now := time.Now()
@@ -454,23 +456,25 @@ func TestAutomationWorkspace_Summary(t *testing.T) {
 		Schedule: AutomationSchedule{Type: "daily", TimeOfDay: "09:00"}, Revision: 1,
 	}
 	fake.SetAutomations([]Automation{nextA, nextB, paused})
-	tt, _ := newWorkspaceTester(t, fake, "automations")
+	tt, s := newWorkspaceTester(t, fake, "automations")
 
 	waitFor(t, tt, func() bool { return tt.HasText("甲") && tt.HasText("乙") && tt.HasText("丙") })
-	if _, ok := tt.Find("automation-new-btn"); !ok {
-		t.Fatal("列表缺少新建入口")
+	if _, ok := tt.Find("automation-new-btn"); ok {
+		t.Fatal("列表不应包含新建入口")
 	}
 	if _, ok := tt.Find("automation-summary-new-btn"); ok {
 		t.Fatal("页面存在重复新建入口")
 	}
+	requestNewAutomation(s, "p1", nil)
+	waitFor(t, tt, func() bool { _, ok := tt.Find("automation-save"); return ok })
 }
 
-// 空态提供“创建第一个自动化”按钮，点击后进入新建表单
+// 空态提供新建按钮，点击后进入新建表单。
 func TestAutomationWorkspace_EmptyCreateButton(t *testing.T) {
 	fake := NewFakeClient()
 	tt, _ := newWorkspaceTester(t, fake, "automations")
-	waitFor(t, tt, func() bool { return tt.HasText("创建第一个自动化") })
-	if err := tt.Click("automation-empty-create"); err != nil {
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") && tt.HasText("新建自动化") })
+	if err := tt.Click("新建自动化"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("新建自动化") })
@@ -655,6 +659,10 @@ func TestAutomationWorkspace_RunTriggerBadges(t *testing.T) {
 			tt, _ := newWorkspaceTester(t, fake, "automations")
 			waitFor(t, tt, func() bool { return tt.HasText("auto-1") })
 			if err := tt.Click("auto-1"); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, tt, func() bool { _, ok := tt.Find("运行记录 " + tc.run.ID); return ok })
+			if err := tt.Click("运行记录 " + tc.run.ID); err != nil {
 				t.Fatal(err)
 			}
 			waitFor(t, tt, func() bool { return tt.HasText(tc.want) })

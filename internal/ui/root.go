@@ -425,8 +425,7 @@ func (s *chatState) selectAdjacentThread(offset int) bool {
 	return true
 }
 
-// consumeKanbanEscape 处理任务看板里的 Esc：快速添加展开时收起并清空输入，搜索框有内容时清空搜索词，
-// 新建任务 / 新建目标弹窗打开时先关闭弹窗。两者都没有内容时返回 false，由调用方关闭看板弹窗。
+// consumeKanbanEscape 按浮层、表单、选择、详情、搜索的顺序处理 Esc。
 // 返回 true 表示 Esc 已被看板消费，看板弹窗应保持打开。
 // mygo 的窗口级 Esc 先于输入框自身的快捷键收到按键，因此需要在根视图里判断。
 func consumeKanbanEscape(s *chatState) bool {
@@ -457,17 +456,22 @@ func consumeKanbanEscape(s *chatState) bool {
 		ks.quickAddOpen = false
 		ks.quickAddText = ""
 		consumed = true
-	} else if ks.destination != "automations" && ks.goalDetailOpen {
-		ks.goalDetailOpen = false
-		consumed = true
-	} else if ks.destination != "automations" && (ks.detailTaskID != "" || ks.planReviewGoalID != "" || ks.outputsGoalID != "") {
-		// 详情自身处理 Esc；此处只阻止外层 sheet 同时关闭。
-		consumed = true
 	} else if ks.destination != "automations" && (ks.selecting || kanbanKeyboardClearSelection(s)) {
 		ks.selecting = false
 		ks.selectedTaskIDs = nil
 		kanbanKeyboardClearSelection(s)
 		consumed = true
+	} else if ks.destination != "automations" && ks.goalDetailOpen && ks.detailTaskID == "" {
+		ks.goalDetailOpen = false
+		consumed = true
+	} else if ks.destination != "automations" && (ks.detailTaskID != "" || ks.planReviewGoalID != "" || ks.outputsGoalID != "") {
+		// 任务详情关闭需恢复焦点及清理相关状态。
+		closeTask := ks.detailTaskID != ""
+		kanbanMu.Unlock()
+		if closeTask {
+			s.closeTaskDetail()
+		}
+		return true
 	} else if ks.destination == "automations" && ks.automationSearch != "" {
 		ks.automationSearch = ""
 		consumed = true

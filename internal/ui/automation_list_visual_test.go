@@ -46,9 +46,14 @@ func TestAutomationListVisualStatusWithoutColor(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderAutomationList(c, automationListProps{Visible: []Automation{a}, Unread: map[string]int{"a": 1}, OnSelect: func(Automation) { clicks++ }, Now: time.Now()})
 	}, 320, 400)
-	label := "自动化项 暂停任务，未读 1，未设置调度，已暂停，运行中"
+	label := "自动化项 暂停任务"
 	if _, ok := tt.Find(label); !ok {
 		t.Fatalf("缺少无障碍名 %s: %v", label, tt.Texts())
+	}
+	for _, text := range []string{"未读", "未设置调度", "已暂停 · 运行中"} {
+		if _, ok := tt.Find(text); !ok {
+			t.Errorf("缺少状态 %s", text)
+		}
 	}
 	tt.Click(label)
 	if clicks != 1 {

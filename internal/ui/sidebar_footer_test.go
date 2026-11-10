@@ -25,7 +25,7 @@ func TestSidebarFooter_WorkspaceButtons(t *testing.T) {
 		empty string
 	}{
 		{label: "任务", empty: "还没有任务"},
-		{label: "自动化", empty: "还没有自动化"},
+		{label: "自动化", empty: "此项目没有自动化"},
 	} {
 		t.Run(tc.label, func(t *testing.T) {
 			fake := NewFakeClient()

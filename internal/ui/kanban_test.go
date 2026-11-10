@@ -267,7 +267,7 @@ func TestKanbanWorkspace_ReopenRestoresWatch(t *testing.T) {
 	fake.TriggerKanbanChange()
 	waitFor(t, tt, func() bool { return tt.HasText("订阅更新任务") })
 	s.openWorkspace("automations")
-	waitFor(t, tt, func() bool { return tt.HasText("还没有自动化") })
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") })
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	if len(fake.kanbanWatchers) != 0 || len(fake.automationWatchers) != 1 {

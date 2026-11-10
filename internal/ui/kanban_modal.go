@@ -224,22 +224,41 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 		}
 	}
 
-	if !wideDetail && detailTaskID != "" && p.destination != "automations" {
-		renderTaskDetail(c, s, ks)
-	} else if !wideDetail && goalDetailOpen && p.destination != "automations" {
+	if !wideDetail && p.destination != "automations" && (detailTaskID != "" || goalDetailOpen) {
 		open := true
+		backdropClicked := false
+		if detailTaskID != "" {
+			contentWidth = winWidth
+		}
 		ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 			backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))
+			ui.Box(c.Key("tasks-detail-backdrop")).Fill().OnClick(func() { backdropClicked = true })
 			_, height := c.Size()
 			panel.MaxWidth(contentWidth - Space8).MaxHeight(height - Space8).Padding(0)
 			sheetWidth, sheetHeight := min(settingsSheetWidth, contentWidth-Space8), height-Space8
-			ui.Column(c.Key("kanban-goal-sheet")).Width(sheetWidth).Height(sheetHeight).Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(func() { renderGoalDetailContent(c, s, ks) })
+			key := "kanban-goal-sheet"
+			if detailTaskID != "" {
+				key = "kanban-detail-sheet"
+			}
+			ui.Column(c.Key(key)).Width(sheetWidth).Height(sheetHeight).Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(func() {
+				if detailTaskID != "" {
+					renderTaskDetailContent(c, s, ks)
+				} else {
+					renderGoalDetailContent(c, s, ks)
+				}
+			})
 		})
 		if !open {
-			kanbanMu.Lock()
-			ks.goalDetailOpen = false
-			kanbanMu.Unlock()
-			s.invalidate()
+			if !backdropClicked {
+				consumeKanbanEscape(s)
+			} else if detailTaskID != "" {
+				s.closeTaskDetail()
+			} else {
+				kanbanMu.Lock()
+				ks.goalDetailOpen = false
+				kanbanMu.Unlock()
+				s.invalidate()
+			}
 		}
 	}
 }
@@ -407,7 +426,7 @@ func renderTasksAutomationCreate(c *ui.Context, s *chatState, scopeID string) {
 		popoverCard(c, ui.Column(c.Key("tasks-automation-project-menu"))).Padding(Space2, Space2).Children(func() {
 			for _, project := range s.projects {
 				project := project
-				Button(c.Key("tasks-automation-project-"+project.ID), ButtonOpts{Text: project.Name, Variant: ButtonGhost, OnClick: func() {
+				Button(c.Key("tasks-automation-project-"+project.ID), ButtonOpts{Text: project.Name, Label: "选择项目 " + project.Name, Variant: ButtonGhost, OnClick: func() {
 					choose := as.pendingProjectChoice
 					as.pendingProjectChoice = nil
 					as.chooseProjectOpen = false
