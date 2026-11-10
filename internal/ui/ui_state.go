@@ -37,7 +37,79 @@ type UIState struct {
 	TerminalDockHeight float32 `json:"terminal_dock_height"`
 	// SidePaneWidths 是主区右侧分栏面板的宽度（面板 ID -> 宽度，pt）；
 	// 没有记录的面板首次创建时用默认宽度。
-	SidePaneWidths map[string]float32 `json:"side_pane_widths,omitempty"`
+	SidePaneWidths    map[string]float32             `json:"side_pane_widths,omitempty"`
+	InspectorSessions map[string]InspectorPreference `json:"inspector_sessions,omitempty"`
+}
+
+type InspectorPreference struct {
+	Open   bool    `json:"open"`
+	Active string  `json:"active"`
+	Width  float32 `json:"width"`
+}
+
+func normalizeInspectorPreference(pref InspectorPreference) InspectorPreference {
+	switch pref.Active {
+	case sidePaneFileID, sidePaneDiffID, sidePanePreviewID:
+	default:
+		pref.Active = sidePaneFileID
+	}
+	if pref.Width <= 0 || math.IsNaN(float64(pref.Width)) || math.IsInf(float64(pref.Width), 0) {
+		pref.Width = inspectorDefaultWidth
+	} else {
+		pref.Width = min(max(pref.Width, inspectorMinWidth), inspectorMaxWidth)
+	}
+	return pref
+}
+
+// nil 和空表都只表示没有更新，删除必须提交显式操作。
+func mergeInspectorPreferences(base, updates map[string]InspectorPreference) map[string]InspectorPreference {
+	var result map[string]InspectorPreference
+	for _, source := range []map[string]InspectorPreference{base, updates} {
+		for tid, pref := range source {
+			if tid == "" {
+				continue
+			}
+			if result == nil {
+				result = make(map[string]InspectorPreference)
+			}
+			result[tid] = normalizeInspectorPreference(pref)
+		}
+	}
+	return result
+}
+
+type pendingInspectorPreference struct {
+	Preference InspectorPreference
+	Delete     bool
+	Generation uint64
+}
+
+var (
+	inspectorPreferencePendingPath string
+	inspectorPreferencePending     map[string]pendingInspectorPreference
+	inspectorPreferenceGeneration  uint64
+)
+
+// 与其他界面字段共用串行写者；锁内只登记更新，不读盘。
+func persistInspectorPreference(tid string, change pendingInspectorPreference) {
+	if tid == "" {
+		return
+	}
+	lastModelSelectionMu.Lock()
+	path := uiStatePath()
+	if inspectorPreferencePendingPath != path {
+		inspectorPreferencePendingPath = path
+		inspectorPreferencePending = nil
+	}
+	if inspectorPreferencePending == nil {
+		inspectorPreferencePending = make(map[string]pendingInspectorPreference)
+	}
+	inspectorPreferenceGeneration++
+	change.Generation = inspectorPreferenceGeneration
+	inspectorPreferencePending[tid] = change
+	lastSelectionWritesPending++
+	lastModelSelectionMu.Unlock()
+	writeLastSelections(nil)
 }
 
 // uiStateFile 是 ui-state.json 的完整文件结构：在 UIState 之外承载带切片字段的持久化数据，
@@ -180,6 +252,7 @@ func loadUIState() UIState {
 	st.SidebarHidden = file.SidebarHidden
 	st.TerminalDockHeight = file.TerminalDockHeight
 	st.SidePaneWidths = file.SidePaneWidths
+	st.InspectorSessions = mergeInspectorPreferences(nil, file.InspectorSessions)
 	return st
 }
 
@@ -705,6 +778,7 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	case uiOverride != nil:
 		// 调用方没有带侧栏宽度时保留磁盘上的旧值（侧栏宽度与显隐仍按 override 覆盖）。
 		ui := *uiOverride
+		ui.InspectorSessions = mergeInspectorPreferences(file.InspectorSessions, ui.InspectorSessions)
 		if ui.SidePaneWidths == nil {
 			ui.SidePaneWidths = file.SidePaneWidths
 		}
@@ -712,6 +786,7 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	case lastSelectionPendingSidebar.set:
 		// 没有待写侧栏状态时保留磁盘上的原值。
 		pending := lastSelectionPendingSidebar
+		pending.ui.InspectorSessions = mergeInspectorPreferences(file.InspectorSessions, pending.ui.InspectorSessions)
 		// 本窗口从未创建过侧栏面板状态时不会带 side_pane_widths，
 		// 这里用磁盘上的旧值补上，避免把另一个进程写入的宽度冲掉。
 		if pending.ui.SidePaneWidths == nil {
@@ -721,6 +796,21 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 		file.ProjectOrder = append([]string(nil), pending.projectOrder...)
 		file.ProjectActivation = copyBoolMap(pending.projectActivation)
 		sidebarConsumed = true
+	}
+	inspectorApplied := make(map[string]pendingInspectorPreference)
+	if inspectorPreferencePendingPath == uiStatePath() {
+		file.InspectorSessions = mergeInspectorPreferences(nil, file.InspectorSessions)
+		for tid, change := range inspectorPreferencePending {
+			inspectorApplied[tid] = change
+			if change.Delete {
+				delete(file.InspectorSessions, tid)
+			} else {
+				if file.InspectorSessions == nil {
+					file.InspectorSessions = make(map[string]InspectorPreference)
+				}
+				file.InspectorSessions[tid] = normalizeInspectorPreference(change.Preference)
+			}
+		}
 	}
 	lastModelSelectionMu.Unlock()
 
@@ -735,6 +825,11 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	}
 
 	lastModelSelectionMu.Lock()
+	for tid, change := range inspectorApplied {
+		if inspectorPreferencePending[tid].Generation == change.Generation {
+			delete(inspectorPreferencePending, tid)
+		}
+	}
 	if tasksGeneration == tasksDetailWidthGeneration {
 		if tasksApplied {
 			tasksDetailWidthDirty = false
@@ -843,6 +938,7 @@ func writeUIStateFile(file uiStateFile) (time.Time, error) {
 		return time.Time{}, errors.New("未找到 mcode 数据目录")
 	}
 	file.SidebarWidth = clampSidebarWidth(file.SidebarWidth)
+	file.InspectorSessions = mergeInspectorPreferences(nil, file.InspectorSessions)
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return time.Time{}, err
@@ -897,6 +993,7 @@ func applyUIState(s *chatState, st UIState) {
 	s.mu.Lock()
 	s.sidebarWidth = clampSidebarWidth(st.SidebarWidth)
 	s.sidebarCollapsed = st.SidebarHidden
+	s.inspector.Preferences = mergeInspectorPreferences(nil, st.InspectorSessions)
 	if len(continueDismissed) > 0 {
 		if s.continueDismissed == nil {
 			s.continueDismissed = make(map[string]string, len(continueDismissed))
@@ -923,14 +1020,11 @@ func persistUIState(s *chatState) {
 	if s == nil || !uiStatePersistenceEnabled(s) {
 		return
 	}
-	// 侧栏宽度要从各面板自己的状态里读（各自加锁），在 s.mu 之外先取好，避免锁嵌套。
-	sideWidths := sidePaneWidthsForPersist(s)
 	s.mu.Lock()
 	st := UIState{
 		SidebarWidth:       s.sidebarWidth,
 		SidebarHidden:      s.sidebarCollapsed,
 		TerminalDockHeight: terminalDockHeightForPersist(s),
-		SidePaneWidths:     sideWidths,
 	}
 	s.mu.Unlock()
 	order := sidebarProjectOrder(s)

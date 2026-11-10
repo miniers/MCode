@@ -131,11 +131,11 @@ func TestSwarmFloatFrameExcludesSidePane(t *testing.T) {
 	}
 
 	const paneW float32 = 400
-	getFileManagerState(s)
-	fileManagerMu.Lock()
-	fileManagerStates[s].width = paneW
-	fileManagerMu.Unlock()
 	toggleFileManager(s)
+	inspector := inspectorSession(s)
+	s.mu.Lock()
+	inspector.Width = paneW
+	s.mu.Unlock()
 
 	ui.NewTester(func(c *ui.Context) {
 		frame = swarmFloatFrameFor(c, s)

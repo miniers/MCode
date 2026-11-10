@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -211,5 +212,116 @@ func TestInspectorWorkspaceInvalidatesCaches(t *testing.T) {
 	}
 	if st.Browser.page != page || page.destroyed.Load() != 0 {
 		t.Fatal("作废工作区缓存时错误销毁了网页")
+	}
+}
+
+func TestInspectorWorktreeResolveKeepsReviewState(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	s := sidePaneTestState(t)
+	defer s.close()
+	inspectorValidateWorkspace(s)
+	st := inspectorSession(s)
+	files, review := st.Files, st.Review
+	for _, path := range []string{filepath.Join(t.TempDir(), "ai-one"), "", filepath.Join(t.TempDir(), "ai-two")} {
+		setDiffTestWorktree(t, s, "t1", path)
+		inspectorValidateWorkspace(s)
+		if st.Review != review || st.Files != files {
+			t.Fatal("AI worktree 解析变化重置了会话缓存")
+		}
+	}
+	s.client.(*FakeClient).SetThreadWorkDir(t.TempDir())
+	inspectorValidateWorkspace(s)
+	if st.Files == files || st.Review == review {
+		t.Fatal("root 变化未重置文件与审阅缓存")
+	}
+}
+
+func TestInspectorThreadPreferenceRestore(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	s := sidePaneTestState(t)
+	WithUIStatePersistence()(s)
+	applyUIState(s, UIState{})
+	inspectorSelect(s, sidePanePreviewID, false)
+	inspectorSession(s).Width = 640
+	s.selectThread("t2")
+	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSession(s).Width = 370
+	inspectorClose(s)
+	s.selectThread("t1")
+	waitUIStateWrites()
+	s.close()
+
+	other := sidePaneTestState(t)
+	defer other.close()
+	WithUIStatePersistence()(other)
+	applyUIState(other, loadUIState())
+	a := inspectorSession(other)
+	if !a.Open || a.Active != sidePanePreviewID || a.Width != 640 || a.Browser.page != nil {
+		t.Fatalf("重启后会话 A 偏好未恢复或创建了网页: %+v", a)
+	}
+	_, actual := inspectorLayout(300, a.Width)
+	if actual != 300 || a.Width != 640 {
+		t.Fatal("窄窗口改写了期望宽度")
+	}
+	other.selectThread("t2")
+	b := inspectorSession(other)
+	if b.Open || b.Active != sidePaneDiffID || b.Width != 370 {
+		t.Fatalf("重启后会话 B 偏好未恢复: %+v", b)
+	}
+	other.forgetDeletedThread("t1")
+	waitUIStateWrites()
+	if _, ok := loadUIState().InspectorSessions["t1"]; ok {
+		t.Fatal("删除会话后偏好仍存在")
+	}
+}
+
+func TestInspectorTransientThreadNotPersisted(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	s := sidePaneTestState(t)
+	defer s.close()
+	WithUIStatePersistence()(s)
+	applyUIState(s, UIState{})
+	s.selectThread("")
+	inspectorSelect(s, sidePanePreviewID, false)
+	inspectorSession(s).Width = 600
+	inspectorClose(s)
+	s.selectThread("t1")
+	waitUIStateWrites()
+	if _, ok := loadUIState().InspectorSessions[""]; ok {
+		t.Fatal("临时会话以空键落盘")
+	}
+	if len(loadUIState().InspectorSessions) != 0 {
+		t.Fatal("临时会话写入了真实会话的偏好")
+	}
+}
+
+func TestInspectorPrunePreferences(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	s := sidePaneTestState(t)
+	defer s.close()
+	WithUIStatePersistence()(s)
+	prefs := map[string]InspectorPreference{
+		"t1":      {Open: true, Active: sidePaneFileID, Width: 500},
+		"deleted": {Open: true, Active: sidePaneDiffID, Width: 600},
+	}
+	if err := saveUIState(UIState{InspectorSessions: prefs}); err != nil {
+		t.Fatal(err)
+	}
+	applyUIState(s, loadUIState())
+	s.mu.Lock()
+	old := inspectorSessionLocked(s, "deleted")
+	s.mu.Unlock()
+	inspectorPrunePreferences(s)
+	inspectorPersistSession(s, "deleted", old)
+	waitUIStateWrites()
+	got := loadUIState().InspectorSessions
+	if len(got) != 1 || got["t1"] != prefs["t1"] {
+		t.Fatalf("清理未保留有效偏好或旧槽复活已删偏好: %+v", got)
+	}
+	if s.inspector.Sessions["deleted"] != nil {
+		t.Fatal("过期会话槽未清理")
 	}
 }

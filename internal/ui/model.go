@@ -599,6 +599,7 @@ func newChatState(client Client) *chatState {
 		collapsedPlans:      make(map[string]bool),
 	}
 	s.windowActive.Store(true)
+	s.inspector.Persist = func(tid string, st *inspectorSessionState) { inspectorPersistSession(s, tid, st) }
 	htmlCodeRenderer := func(c *ui.Context, b *markdown.CodeBlockView) {
 		ui.Column(c).AlignSelf(ui.Stretch).Children(func() {
 			ui.Row(c).AlignItems(ui.Center).Justify(ui.End).Padding(0, 0, Space1, 0).Children(func() {
@@ -1053,7 +1054,9 @@ func (s *chatState) loadProjects() {
 			return
 		}
 		var allThreads []Thread
+		loadedProjects := 0
 		for pt := range resCh {
+			loadedProjects++
 			s.threadsByProj[pt.projID] = pt.threads
 			allThreads = append(allThreads, pt.threads...)
 		}
@@ -1104,6 +1107,9 @@ func (s *chatState) loadProjects() {
 			}
 		}
 		s.mu.Unlock()
+		if loadedProjects == len(projects) {
+			inspectorPrunePreferences(s)
+		}
 		close(threadsLoaded)
 		startuptrace.Mark("sidebar data loaded")
 		s.invalidate()
@@ -1290,6 +1296,7 @@ func (s *chatState) fetchUsage(threadID string) {
 // selectThread 切换会话：先注销前一个 Watch，再加载 History、Approvals 和 Usage，最后 Watch 新会话。
 // 切换前把当前会话草稿（含排队项编辑暂存）写回草稿表，切换后回填目标会话的草稿。
 func (s *chatState) selectThread(threadID string) {
+	inspectorRemember(s)
 	stewardID := s.stewardThreadID()
 	s.mu.Lock()
 	if s.closed {

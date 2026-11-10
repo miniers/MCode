@@ -16,9 +16,10 @@ const (
 
 // inspectorState 的槽表由 chatState.mu 保护；布局、页面及编辑器由 UI 线程拥有。
 type inspectorState struct {
-	Sessions  map[string]*inspectorSessionState
-	Temporary *inspectorSessionState
-	// P0.3 接入偏好写者；空会话不触发回调。
+	Sessions    map[string]*inspectorSessionState
+	Temporary   *inspectorSessionState
+	Preferences map[string]InspectorPreference
+	// 空会话不触发回调；nil 状态表示显式删除偏好。
 	Persist func(string, *inspectorSessionState)
 }
 
@@ -62,6 +63,10 @@ func inspectorSessionLocked(s *chatState, threadID string) *inspectorSessionStat
 		Files:   &fileManagerState{},
 		Review:  &diffPanelState{owner: s, collapsed: make(map[string]bool)},
 		Browser: &previewState{viewport: previewViewportDesktop},
+	}
+	if pref, ok := s.inspector.Preferences[threadID]; threadID != "" && ok {
+		pref = normalizeInspectorPreference(pref)
+		st.Open, st.Active, st.Width = pref.Open, pref.Active, pref.Width
 	}
 	if slot != nil {
 		if *slot != nil {
@@ -154,6 +159,53 @@ func inspectorRemember(s *chatState) {
 	}
 }
 
+func inspectorPersistSession(s *chatState, tid string, st *inspectorSessionState) {
+	if tid == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	change := pendingInspectorPreference{Delete: st == nil}
+	if st == nil {
+		delete(s.inspector.Preferences, tid)
+	} else {
+		// 删除后到达的旧槽回调不得重新创建偏好。
+		if s.inspector.Sessions[tid] != st {
+			return
+		}
+		change.Preference = normalizeInspectorPreference(InspectorPreference{Open: st.Open, Active: st.Active, Width: st.Width})
+		if s.inspector.Preferences == nil {
+			s.inspector.Preferences = make(map[string]InspectorPreference)
+		}
+		s.inspector.Preferences[tid] = change.Preference
+	}
+	if uiStatePersistenceEnabled(s) {
+		persistInspectorPreference(tid, change)
+	}
+}
+
+// 仅在完整会话列表加载成功后清理，部分加载失败时不能判定会话已删除。
+func inspectorPrunePreferences(s *chatState) {
+	s.mu.Lock()
+	existing := make(map[string]bool, len(s.threads))
+	for _, th := range s.threads {
+		existing[th.ID] = true
+	}
+	var stale []string
+	for tid := range s.inspector.Preferences {
+		if !existing[tid] {
+			stale = append(stale, tid)
+		}
+	}
+	s.mu.Unlock()
+	for _, tid := range stale {
+		inspectorDeleteSession(s, tid)
+	}
+}
+
 // hidePreviewState 保留页面与已选标注；换代后旧轮询不能回写。
 func hidePreviewState(s *chatState, st *previewState) {
 	if st == nil {
@@ -186,7 +238,6 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 	s.mu.Lock()
 	old := inspectorExistingSessionLocked(s, oldID)
 	current := inspectorExistingSessionLocked(s, s.selectedThreadID)
-	save := s.inspector.Persist
 	s.mu.Unlock()
 	if old != nil {
 		fileManagerMu.Lock()
@@ -198,9 +249,6 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 		} else {
 			hidePreviewState(s, old.Browser)
 		}
-		if oldID != "" && save != nil {
-			save(oldID, old)
-		}
 	}
 	if current != nil {
 		inspectorSyncVisibility(current)
@@ -208,14 +256,14 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 	inspectorValidateWorkspace(s)
 }
 
-// 同一个会话换 root/worktree 后，旧请求与文件、diff 缓存都失效，网页仍保留。
+// 同一个会话换 root/main 后作废缓存；AI worktree 变化由改动面板自行处理。
 func inspectorValidateWorkspace(s *chatState) {
 	st := inspectorSession(s)
 	if st == nil {
 		return
 	}
-	tid, root, main := getSelectedThreadDirs(s)
-	identity := root + "\x00" + main + "\x00" + s.aiWorktreePath(tid)
+	_, root, main := getSelectedThreadDirs(s)
+	identity := root + "\x00" + main
 	if st.workspaceKnown && st.workspace != identity {
 		fileManagerMu.Lock()
 		st.Files.gen++
@@ -254,7 +302,11 @@ func inspectorDeleteSession(s *chatState, tid string) {
 	s.mu.Lock()
 	st := s.inspector.Sessions[tid]
 	delete(s.inspector.Sessions, tid)
+	save := s.inspector.Persist
 	s.mu.Unlock()
+	if tid != "" && save != nil {
+		save(tid, nil)
+	}
 	if s.window != nil {
 		mygo.RunOnMain(func() { inspectorDisposeSession(s, st) })
 	} else {

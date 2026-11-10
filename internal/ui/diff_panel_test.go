@@ -53,6 +53,7 @@ new file mode 100644
 			tt.HasText("-1") &&
 			tt.HasText("+2")
 	})
+	tt.Advance(DurSheet + 50*time.Millisecond)
 
 	// 验证差异行内容可见
 	if !tt.HasText("return a - b") {
@@ -191,6 +192,7 @@ new file mode 100644
 	waitFor(t, tt, func() bool {
 		return tt.HasText("pkg/hello.go") && tt.HasText("+1")
 	})
+	tt.Advance(DurSheet + 50*time.Millisecond)
 
 	// 点击关闭按钮关闭面板
 	if err := tt.Click("关闭"); err != nil {
@@ -237,6 +239,7 @@ func TestDiffPanel_LargeFileCollapsed(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		return tt.HasText("big/gen.go")
 	})
+	tt.Advance(DurSheet + 50*time.Millisecond)
 
 	// 1. 默认折叠：只有文件头与折叠占位行，代码行都不在渲染树里
 	placeholder := "该文件改动 " + strconv.Itoa(lines) + " 行，已折叠；点击展开全部"
@@ -304,6 +307,7 @@ func TestDiffPanel_DeferredFileExpand(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		return tt.HasText("big/deferred.go") && tt.HasText(placeholder)
 	})
+	tt.Advance(DurSheet + 50*time.Millisecond)
 	if tt.HasText("line 0") {
 		t.Fatalf("expected deferred file rows to stay hidden before expanding")
 	}
@@ -358,6 +362,7 @@ func openDiffPanelWithPatch(t *testing.T, filePath, patch string) (*chatState, *
 		return dp.threadID == "t1" && !dp.loading && len(dp.files) > 0
 	})
 	waitFor(t, tt, func() bool { return tt.HasText(filePath) })
+	tt.Advance(DurSheet + 50*time.Millisecond)
 	return s, tt, dp
 }
 

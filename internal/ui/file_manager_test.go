@@ -92,6 +92,7 @@ func openFileManagerForTest(t *testing.T) (*FakeClient, *chatState, *ui.Tester) 
 		t.Fatalf("click files button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return isFileManagerOpen(s) })
+	tt.Advance(DurSheet + 50*time.Millisecond)
 	return fake, s, tt
 }
 

@@ -35,6 +35,7 @@ func TestFileManagerSearchMigrationCurrentThreadAndClear(t *testing.T) {
 	s.selectedThreadID = "current"
 	s.projects = []Project{{ID: "p1", Path: "/project"}}
 	s.threads = []Thread{{ID: "current", ProjectID: "p1"}, {ID: "other", ProjectID: "p1"}}
+	inspectorSelect(s, sidePaneFileID, false)
 	st := getFileManagerState(s)
 	fileManagerMu.Lock()
 	st.threadID = "current"
@@ -48,6 +49,7 @@ func TestFileManagerSearchMigrationCurrentThreadAndClear(t *testing.T) {
 	})
 
 	tester := ui.NewTester(func(c *ui.Context) { renderFileManagerPanel(c, s) }, 800, 600)
+	tester.Advance(DurSheet + 50*time.Millisecond)
 	if err := tester.Click("搜索文件"); err != nil {
 		t.Fatal(err)
 	}

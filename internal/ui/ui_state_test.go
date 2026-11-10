@@ -1,8 +1,11 @@
 package mcodeui
 
 import (
+	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -175,5 +178,170 @@ func TestReleaseChatUIState(t *testing.T) {
 	chatUIMu.Unlock()
 	if ok {
 		t.Fatalf("关闭后应清理界面状态")
+	}
+}
+
+func TestInspectorPreferencesRoundTrip(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	want := map[string]InspectorPreference{
+		"t1": {Open: true, Active: sidePaneDiffID, Width: 620},
+		"t2": {Active: sidePanePreviewID, Width: 400},
+	}
+	if err := saveUIState(UIState{InspectorSessions: want}); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadUIState().InspectorSessions; !reflect.DeepEqual(got, want) {
+		t.Fatalf("偏好往返失败: got %+v, want %+v", got, want)
+	}
+	if err := saveUIState(UIState{InspectorSessions: map[string]InspectorPreference{}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadUIState().InspectorSessions; !reflect.DeepEqual(got, want) {
+		t.Fatal("空 map 删除了已有偏好")
+	}
+}
+
+func TestInspectorLegacyWidthsMigration(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	for _, tc := range []struct {
+		name   string
+		widths map[string]float32
+		want   float32
+	}{
+		{"preview", map[string]float32{"preview": 610, "file": 550, "diff": 390}, 610},
+		{"file", map[string]float32{"file": 550, "diff": 390}, 550},
+		{"diff", map[string]float32{"diff": 390}, 390},
+		{"default", nil, inspectorDefaultWidth},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MCODE_DATA", t.TempDir())
+			t.Cleanup(waitUIStateWrites)
+			if err := saveUIState(UIState{SidePaneWidths: tc.widths}); err != nil {
+				t.Fatal(err)
+			}
+			s := newChatState(NewFakeClient())
+			defer s.close()
+			WithUIStatePersistence()(s)
+			applyUIState(s, loadUIState())
+			s.selectedThreadID = tc.name
+			st := inspectorSession(s)
+			if st.Open || st.Active != sidePaneFileID || st.Width != tc.want {
+				t.Fatalf("旧宽度迁移错误: %+v", st)
+			}
+			inspectorRemember(s)
+			waitUIStateWrites()
+			if got := loadUIState().SidePaneWidths; !reflect.DeepEqual(got, tc.widths) {
+				t.Fatalf("旧宽度被改写: %+v", got)
+			}
+		})
+	}
+}
+
+func TestInspectorPreferenceMergePreservesOtherFields(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	initial := uiStateFile{
+		UIState: UIState{SidebarWidth: 330, TerminalDockHeight: 280, InspectorSessions: map[string]InspectorPreference{
+			"t2": {Open: true, Active: sidePaneDiffID, Width: 500},
+		}},
+		ProjectOrder: []string{"p2", "p1"},
+		LastModel:    ModelSelection{Provider: "test", Model: "model"},
+		LastSwarm:    &LastSwarmSelection{Enabled: new(true)},
+	}
+	if err := saveUIStateFile(initial); err != nil {
+		t.Fatal(err)
+	}
+	s := newChatState(NewFakeClient())
+	defer s.close()
+	WithUIStatePersistence()(s)
+	applyUIState(s, loadUIState())
+	s.selectedThreadID = "t1"
+	inspectorSelect(s, sidePaneFileID, false)
+	waitUIStateWrites()
+	got, _ := loadUIStateFile()
+	if len(got.InspectorSessions) != 2 || got.InspectorSessions["t2"] != initial.InspectorSessions["t2"] ||
+		!reflect.DeepEqual(got.ProjectOrder, initial.ProjectOrder) || got.LastModel != initial.LastModel ||
+		!reflect.DeepEqual(got.LastSwarm, initial.LastSwarm) || got.TerminalDockHeight != 280 {
+		t.Fatalf("会话写者覆盖了其他字段: %+v", got)
+	}
+	persistUIState(s)
+	waitUIStateWrites()
+	if got := loadUIState().InspectorSessions; len(got) != 2 {
+		t.Fatal("侧栏写者丢失会话偏好")
+	}
+	if err := saveUIState(UIState{InspectorSessions: map[string]InspectorPreference{"t3": {Width: 600}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadUIState().InspectorSessions; len(got) != 3 {
+		t.Fatal("按值保存丢失其他会话偏好")
+	}
+}
+
+func TestInspectorPreferenceInvalidValues(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	for _, tc := range []struct{ width, want float32 }{
+		{float32(math.NaN()), 480}, {float32(math.Inf(1)), 480}, {float32(math.Inf(-1)), 480},
+		{-1, 480}, {0, 480}, {100, 320}, {900, 800}, {620, 620},
+	} {
+		s := newChatState(NewFakeClient())
+		applyUIState(s, UIState{InspectorSessions: map[string]InspectorPreference{
+			"t1": {Open: true, Active: "unknown", Width: tc.width}, "": {Open: true, Width: 500},
+		}})
+		s.selectedThreadID = "t1"
+		st := inspectorSession(s)
+		if !st.Open || st.Active != sidePaneFileID || st.Width != tc.want {
+			t.Fatalf("非法偏好未修正: %+v", st)
+		}
+		s.close()
+		if err := saveUIState(UIState{InspectorSessions: map[string]InspectorPreference{"t1": {Width: tc.width}, "": {Width: 500}}}); err != nil {
+			t.Fatal(err)
+		}
+		got := loadUIState().InspectorSessions
+		if got["t1"].Width != tc.want || got["t1"].Active != sidePaneFileID {
+			t.Fatalf("写盘未修正偏好: %+v", got)
+		}
+		if _, ok := got[""]; ok {
+			t.Fatal("空会话键落盘")
+		}
+	}
+}
+
+func TestInspectorPreferenceChangesDuringWrite(t *testing.T) {
+	for _, deleting := range []bool{false, true} {
+		name := "update"
+		if deleting {
+			name = "delete"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("MCODE_DATA", t.TempDir())
+			t.Cleanup(func() {
+				waitUIStateWrites()
+				uiStateBeforeWriteHook = nil
+			})
+			late := InspectorPreference{Open: true, Active: sidePaneDiffID, Width: 700}
+			var once sync.Once
+			uiStateBeforeWriteHook = func() {
+				once.Do(func() {
+					persistInspectorPreference("t1", pendingInspectorPreference{Preference: late, Delete: deleting})
+					persistInspectorPreference("t2", pendingInspectorPreference{Preference: late})
+				})
+			}
+			persistInspectorPreference("t1", pendingInspectorPreference{Preference: InspectorPreference{Width: 500}})
+			waitUIStateWrites()
+			got := loadUIState().InspectorSessions
+			if deleting {
+				if _, ok := got["t1"]; ok {
+					t.Fatal("旧写者快照复活了删除的偏好")
+				}
+			} else if got["t1"] != late {
+				t.Fatalf("写盘期间的新偏好被旧快照覆盖: %+v", got)
+			}
+			if got["t2"] != late {
+				t.Fatalf("写盘期间其他会话偏好丢失: %+v", got)
+			}
+		})
 	}
 }

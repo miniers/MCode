@@ -324,7 +324,6 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 		if collapsed {
 			p.close(s)
 		}
-		persistUIState(s)
 		inspectorRemember(s)
 	default:
 		// 只是点了一下（按下又松开却没移动）或根本没有按下。
