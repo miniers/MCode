@@ -761,10 +761,13 @@ func renderNewThreadPrompt(c *ui.Context, s *chatState, selectedID string) {
 						us.projectPopoverOpen = !us.projectPopoverOpen
 						s.invalidate()
 					}
-					appPopover(c.Key("chat-new-thread-project-popover"), trigger, &us.projectPopoverOpen, func() {
+					background := ThemeSurfacePopover(c)
+					native := flyoutHostWindow(c.Services()) != nil
+					host := c.Services()
+					appFlyoutPopover(c, "chat-new-thread-project-popover", trigger, &us.projectPopoverOpen, func() {
 						us.projectPopoverOpen = false
-					}, func() {
-						renderProjectChoicesPopover(c, s, projectID)
+					}, appFlyoutProps{Width: 200, Background: &background}, func(c *ui.Context) {
+						renderProjectChoicesPopover(c, s, projectID, native, host)
 					})
 
 					ui.Text(c, " 中构建什么？").
@@ -809,7 +812,7 @@ func renderStewardEmptyPrompt(c *ui.Context, s *chatState) {
 }
 
 // renderProjectChoicesPopover 渲染空态项目切换浮层：项目列表、添加项目与从 GitHub 克隆入口。
-func renderProjectChoicesPopover(c *ui.Context, s *chatState, currentProjectID string) {
+func renderProjectChoicesPopover(c *ui.Context, s *chatState, currentProjectID string, native bool, host ui.Services) {
 	s.mu.Lock()
 	projects := make([]Project, len(s.projects))
 	copy(projects, s.projects)
@@ -817,7 +820,11 @@ func renderProjectChoicesPopover(c *ui.Context, s *chatState, currentProjectID s
 	// 总管主目录对应的项目只属于总管自己，不在切换项目浮层里露出；只过滤局部副本。
 	projects = withoutStewardProject(s.stewardProjectID(), projects)
 
-	popoverCard(c, ui.Column(c.Key("chat-new-thread-project-menu"))).
+	card := ui.Column(c.Key("chat-new-thread-project-menu"))
+	if !native {
+		card = popoverCard(c, card)
+	}
+	card.
 		Gap(Space0).
 		Padding(Space1).
 		MinWidth(200).
@@ -838,7 +845,9 @@ func renderProjectChoicesPopover(c *ui.Context, s *chatState, currentProjectID s
 					item.Background(ThemeHover(c))
 				}
 				if item.Clicked() {
+					closeAppFlyoutPopover(host, "chat-new-thread-project-popover")
 					switchEmptyThreadProject(s, project.ID)
+					host.Invalidate()
 				}
 				item.Children(func() {
 					ui.Row(c.Key("chat-new-thread-project-item-row-" + project.ID)).
@@ -874,10 +883,12 @@ func renderProjectChoicesPopover(c *ui.Context, s *chatState, currentProjectID s
 				addBtn.Background(ThemeHover(c))
 			}
 			if addBtn.Clicked() {
+				closeAppFlyoutPopover(host, "chat-new-thread-project-popover")
 				if us := getChatUIState(s); us != nil {
 					us.projectPopoverOpen = false
 				}
 				s.promptAddProject()
+				host.Invalidate()
 			}
 			addBtn.Children(func() {
 				ui.Row(c.Key("chat-new-thread-add-project-row")).
@@ -901,10 +912,12 @@ func renderProjectChoicesPopover(c *ui.Context, s *chatState, currentProjectID s
 				cloneBtn.Background(ThemeHover(c))
 			}
 			if cloneBtn.Clicked() {
+				closeAppFlyoutPopover(host, "chat-new-thread-project-popover")
 				if us := getChatUIState(s); us != nil {
 					us.projectPopoverOpen = false
 				}
 				openGitHubClonePanel(s)
+				host.Invalidate()
 			}
 			cloneBtn.Children(func() {
 				ui.Row(c.Key("chat-new-thread-clone-github-row")).

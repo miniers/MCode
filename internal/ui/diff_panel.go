@@ -555,12 +555,19 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 	menuOpen := dp.turnMenuOpen
 	diffPanelMu.Unlock()
 
-	appPopover(c.Key("diff-turn-popover"), trigger, &menuOpen, func() {
+	background := ThemeSurfacePopover(c)
+	native := flyoutHostWindow(c.Services()) != nil
+	host := c.Services()
+	appFlyoutPopover(c, "diff-turn-popover", trigger, &menuOpen, func() {
 		diffPanelMu.Lock()
 		dp.turnMenuOpen = false
 		diffPanelMu.Unlock()
-	}, func() {
-		popoverCard(c, ui.Column(c.Key("diff-turn-menu"))).
+	}, appFlyoutProps{Width: int(diffTurnMenuMinWidth), Background: &background}, func(c *ui.Context) {
+		card := ui.Column(c.Key("diff-turn-menu"))
+		if !native {
+			card = popoverCard(c, card)
+		}
+		card.
 			Gap(Space0).
 			Padding(Space1).
 			MinWidth(diffTurnMenuMinWidth).
@@ -578,9 +585,11 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 					allBtn.Background(ThemeHover(c))
 				}
 				if allBtn.Clicked() {
+					closeAppFlyoutPopover(host, "diff-turn-popover")
 					diffPanelMu.Lock()
 					dp.turnMenuOpen = false
 					diffPanelMu.Unlock()
+					host.Invalidate()
 					s.loadDiff(dp.threadID, "")
 				}
 				allBtn.Children(func() {
@@ -606,9 +615,11 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 						optBtn.Background(ThemeHover(c))
 					}
 					if optBtn.Clicked() {
+						closeAppFlyoutPopover(host, "diff-turn-popover")
 						diffPanelMu.Lock()
 						dp.turnMenuOpen = false
 						diffPanelMu.Unlock()
+						host.Invalidate()
 						s.loadDiff(dp.threadID, turnItem.TurnID)
 					}
 					optBtn.Children(func() {

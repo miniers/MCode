@@ -189,3 +189,186 @@ func TestFlyoutHostWindow(t *testing.T) {
 		t.Fatal("子代理窗口未找到")
 	}
 }
+
+func setupPopoverFlyoutTest(t *testing.T) (*settingsWindowEntry, *swarmTierFlyoutCapture) {
+	t.Helper()
+	entry := &settingsWindowEntry{win: &mygo.Window{}}
+	capture := &swarmTierFlyoutCapture{}
+	settingsWindowMu.Lock()
+	old := settingsWindow
+	settingsWindow = entry
+	settingsWindowMu.Unlock()
+	oldRun, oldNew, oldDestroy, oldFocus, oldAnchor := flyoutRunOnMain, flyoutNew, flyoutDestroy, flyoutFocus, flyoutSetAnchor
+	flyoutRunOnMain = func(fn func()) { fn() }
+	flyoutNew = func(o mygo.FlyoutOptions, close func(*mygo.CloseEvent), closed func()) *mygo.Window {
+		capture.options = append(capture.options, o)
+		capture.closes = append(capture.closes, close)
+		capture.closed = append(capture.closed, closed)
+		return &mygo.Window{}
+	}
+	flyoutDestroy = func(w *mygo.Window) { capture.destroyedWindows = append(capture.destroyedWindows, w) }
+	flyoutFocus = func(*mygo.Window) { capture.focused++ }
+	flyoutSetAnchor = func(_ *mygo.Window, r mygo.Rectangle) { capture.anchors = append(capture.anchors, r) }
+	t.Cleanup(func() {
+		flyoutRunOnMain, flyoutNew, flyoutDestroy, flyoutFocus, flyoutSetAnchor = oldRun, oldNew, oldDestroy, oldFocus, oldAnchor
+		settingsWindowMu.Lock()
+		settingsWindow = old
+		settingsWindowMu.Unlock()
+		appFlyoutPopoverMu.Lock()
+		for k := range appFlyoutPopovers {
+			if k.services == entry.services {
+				delete(appFlyoutPopovers, k)
+			}
+		}
+		appFlyoutPopoverMu.Unlock()
+	})
+	return entry, capture
+}
+
+func popoverTestView(t *testing.T, services ui.Services, key string) func(*ui.Context) {
+	t.Helper()
+	appFlyoutPopoverMu.Lock()
+	defer appFlyoutPopoverMu.Unlock()
+	entry := appFlyoutPopovers[appFlyoutPopoverKey{services, key}]
+	if entry == nil || entry.render == nil {
+		t.Fatal("浮层视图不存在")
+	}
+	return entry.render
+}
+
+func TestFlyoutPopoverLifecycle(t *testing.T) {
+	entry, capture := setupPopoverFlyoutTest(t)
+	open, dismissed, frames, version := false, 0, 0, 1
+	var bounds ui.Rect
+	host := ui.NewTester(func(c *ui.Context) {
+		frames++
+		entry.services = c.Services()
+		trigger := ui.ButtonBase(c.Key("trigger")).Label("打开").Size(100, 30).OnClick(func() { open = true })
+		bounds = trigger.Bounds()
+		currentVersion := version
+		appFlyoutPopover(c, "test-popover", trigger, &open, func() { dismissed = currentVersion; open = false }, appFlyoutProps{Width: 120}, func(c *ui.Context) {
+			if currentVersion == 1 {
+				ui.Text(c, "旧内容")
+			} else {
+				ui.Text(c, "新内容")
+			}
+		})
+	}, 400, 300)
+	host.SetZoom(1.3)
+	host.Frame()
+	if err := host.Click("打开"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.options) != 1 {
+		t.Fatalf("窗口数: %d", len(capture.options))
+	}
+	o := capture.options[0]
+	r, _ := flyoutAnchor(bounds, 1.3)
+	if o.Parent != entry.win || o.Anchor != r || !o.FitContent || o.Popover || !o.Focusable || capture.closes[0] != nil {
+		t.Fatalf("窗口参数: %+v, 锚点: %+v", o, r)
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, "test-popover"), 120, 200)
+	menu.Frame()
+	before := frames
+	host.Frame()
+	host.Frame()
+	if frames != before+2 || len(capture.anchors) != 0 {
+		t.Fatalf("宿主重绘或锚点异常: %d, %v", frames-before, capture.anchors)
+	}
+	if !menu.FramePending() {
+		t.Fatal("宿主重绘未通知浮层")
+	}
+	menu.Frame()
+	if frames != before+2 || host.FramePending() {
+		t.Fatal("浮层重绘不应触发宿主重绘")
+	}
+	open = false
+	host.Frame()
+	if len(capture.destroyedWindows) != 1 {
+		t.Fatal("关闭时未销毁")
+	}
+	open = true
+	host.Frame()
+	if len(capture.options) != 2 {
+		t.Fatal("重新打开失败")
+	}
+	capture.closed[0]()
+	if dismissed != 0 {
+		t.Fatal("旧窗口关闭影响新窗口")
+	}
+	// 更新闭包后，关闭事件必须调用最新版本。
+	version = 2
+	host.Frame()
+	menu = ui.NewTester(popoverTestView(t, entry.services, "test-popover"), 120, 200)
+	if !menu.HasText("新内容") {
+		t.Fatal("浮层未使用最新内容")
+	}
+	capture.closed[1]()
+	if dismissed != 2 || open || capture.focused != 1 {
+		t.Fatal("关闭事件未通知宿主或恢复焦点")
+	}
+}
+
+func TestFlyoutPopoverFallback(t *testing.T) {
+	open := true
+	host := ui.NewTester(func(c *ui.Context) {
+		trigger := ui.ButtonBase(c.Key("trigger")).Label("锚点").Size(100, 30)
+		appFlyoutPopover(c, "fallback", trigger, &open, nil, appFlyoutProps{Width: 120}, func(c *ui.Context) { ui.Text(c, "退回内容") })
+	}, 400, 300)
+	host.Frame()
+	if !host.HasText("退回内容") {
+		t.Fatalf("窗口内浮层不存在: %v", host.Texts())
+	}
+}
+
+func TestFlyoutDiffTurnMenu(t *testing.T) {
+	entry, capture := setupPopoverFlyoutTest(t)
+	s := &chatState{}
+	dp := getDiffPanelState(s)
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		renderDiffTurnSelector(c, s, dp, ThreadDiff{Turns: []DiffTurn{{TurnID: "one", Index: 0, HasChanges: true}}}, "")
+	}, 400, 300)
+	if err := host.Click("整个会话"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.options) != 1 {
+		t.Fatalf("窗口数: %d", len(capture.options))
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, "diff-turn-popover"), 120, 200)
+	if !menu.HasText("第 1 轮") {
+		t.Fatalf("缺少轮次: %v", menu.Texts())
+	}
+	if err := menu.Click("整个会话"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.destroyedWindows) != 1 {
+		t.Fatal("选择后未关闭")
+	}
+}
+
+func TestFlyoutNewThreadProjectMenu(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	entry, capture := setupPopoverFlyoutTest(t)
+	s := &chatState{closed: true, projects: []Project{{ID: "p1", Name: "项目Alpha"}, {ID: "p2", Name: "项目Beta"}}, threads: []Thread{{ID: "t1", ProjectID: "p1"}}, threadsByProj: map[string][]Thread{"p2": {{ID: "t2"}}}}
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		renderNewThreadPrompt(c, s, "t1")
+	}, 800, 400)
+	if err := host.Click("切换项目"); err != nil {
+		t.Fatalf("%v: %v", err, host.Texts())
+	}
+	if len(capture.options) != 1 {
+		t.Fatalf("窗口数: %d", len(capture.options))
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, "chat-new-thread-project-popover"), 200, 300)
+	if !menu.HasText("项目Beta") {
+		t.Fatalf("缺少项目: %v", menu.Texts())
+	}
+	if err := menu.Click("切换到项目 项目Beta"); err != nil {
+		t.Fatal(err)
+	}
+	if len(capture.destroyedWindows) != 1 {
+		t.Fatal("选择后未关闭")
+	}
+}

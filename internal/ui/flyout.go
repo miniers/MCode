@@ -188,6 +188,116 @@ func appFlyoutOptions(parent *mygo.Window, anchor mygo.Rectangle, width int) myg
 	return mygo.FlyoutOptions{Parent: parent, Anchor: anchor, Placement: mygo.PlacementBottomStart, Gap: int(Space1), Width: width, MaxWidth: width, FitContent: true, Focusable: true, Shadow: true, CornerRadius: int(RadiusMD)}
 }
 
+type appFlyoutProps struct {
+	Width      int
+	Placement  mygo.Placement
+	Background *ui.Color
+}
+
+type appFlyoutPopoverKey struct {
+	services ui.Services
+	key      string
+}
+
+type appFlyoutPopoverEntry struct {
+	appFlyout
+	dismiss func()
+	props   appFlyoutProps
+	render  func(*ui.Context)
+}
+
+var appFlyoutPopoverMu sync.Mutex
+var appFlyoutPopovers = make(map[appFlyoutPopoverKey]*appFlyoutPopoverEntry)
+
+func closeAppFlyoutPopover(host ui.Services, key string) {
+	k := appFlyoutPopoverKey{services: host, key: key}
+	appFlyoutPopoverMu.Lock()
+	entry := appFlyoutPopovers[k]
+	var dispose func()
+	if entry != nil {
+		delete(appFlyoutPopovers, k)
+		dispose = entry.destroyLocked()
+	}
+	appFlyoutPopoverMu.Unlock()
+	if dispose != nil {
+		dispose()
+	}
+}
+
+func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, onDismiss func(), props appFlyoutProps, fn func(c *ui.Context)) {
+	host := c.Services()
+	parent := flyoutHostWindow(host)
+	if parent == nil {
+		appPopover(c.Key(key), anchor, open, onDismiss, func() { fn(c) })
+		return
+	}
+	k := appFlyoutPopoverKey{services: host, key: key}
+	r, valid := flyoutAnchor(anchor.Bounds(), c.Zoom())
+	appFlyoutPopoverMu.Lock()
+	entry := appFlyoutPopovers[k]
+	if !*open {
+		appFlyoutPopoverMu.Unlock()
+		closeAppFlyoutPopover(host, key)
+		return
+	}
+	if entry == nil {
+		entry = &appFlyoutPopoverEntry{}
+		appFlyoutPopovers[k] = entry
+	}
+	entry.view, entry.dismiss, entry.props = fn, onDismiss, props
+	services := entry.services
+	var action func()
+	if valid {
+		action = entry.updateLocked(&appFlyoutPopoverMu, r, func() {
+			appFlyoutPopoverMu.Lock()
+			p := entry.props
+			appFlyoutPopoverMu.Unlock()
+			opts := appFlyoutOptions(parent, r, p.Width)
+			if p.Placement != "" {
+				opts.Placement = p.Placement
+			}
+			render := func(fc *ui.Context) {
+				appFlyoutPopoverMu.Lock()
+				active := appFlyoutPopovers[k] == entry
+				view, p := entry.view, entry.props
+				if active {
+					entry.services = fc.Services()
+				}
+				appFlyoutPopoverMu.Unlock()
+				if active {
+					renderAppFlyout(fc, key+"-root", key+"-scroll", float32(p.Width), p.Background, func() { view(fc) })
+				}
+			}
+			appFlyoutPopoverMu.Lock()
+			entry.render = render
+			appFlyoutPopoverMu.Unlock()
+			opts.Content = ui.View(render)
+			entry.create(&appFlyoutPopoverMu, opts, nil, func() {
+				appFlyoutPopoverMu.Lock()
+				dismiss := entry.dismiss
+				if appFlyoutPopovers[k] == entry {
+					delete(appFlyoutPopovers, k)
+				}
+				appFlyoutPopoverMu.Unlock()
+				if dismiss != nil {
+					dismiss()
+				}
+				host.Invalidate()
+				if !parent.IsDestroyed() {
+					flyoutFocus(parent)
+				}
+			})
+		})
+	}
+	appFlyoutPopoverMu.Unlock()
+	// shortcut: mygo 没有卸载钩子，依赖焦点转移或父窗口关闭浮层；有卸载钩子时再主动清理。
+	// 宿主重绘驱动浮层；mygo 不暴露输入计数，浮层仅在关闭时驱动宿主。
+	services.Invalidate()
+	if action != nil {
+		action()
+	}
+}
+
 func renderAppFlyout(c *ui.Context, rootKey, scrollKey string, width float32, background *ui.Color, body func()) {
 	applyAppTheme(c)
 	transition := motionTransition(c, ui.ElementTransition{Duration: DurBase, Ease: EaseSnap, Enter: &ui.Motion{Opacity: 0}})
