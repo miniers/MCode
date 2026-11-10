@@ -112,9 +112,6 @@ type kanbanState struct {
 	detailDeleteOpen        bool
 	// overview 为 true 时内容区显示「全部项目」概览。
 	overview bool
-	// selecting 为 true 时进入多选模式（本轮只做选中态视觉）。
-	selecting       bool
-	selectedTaskIDs map[string]bool
 	// searchText 按标题与备注过滤任务，看板与列表视图共用。
 	searchText string
 

@@ -116,9 +116,11 @@ func TestKanbanDoneRailReduceMotion(t *testing.T) {
 func TestKanbanCardFocusAndSelectionHaveSeparateMarkers(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	defer s.close()
-	ks := &kanbanState{scopeID: "p1", selectedTaskIDs: map[string]bool{"state": true}, detailTaskID: "state"}
+	ks := &kanbanState{scopeID: "p1", detailTaskID: "state"}
 	task := KanbanTask{ID: "state", Title: "状态卡", Status: "todo", Column: "todo"}
-	tt := ui.NewTesterWith(func(c *ui.Context) { renderTaskCard(c, s, ks, task, kanbanTaskCardState{selecting: true}) }, 400, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	kanbanKeyboardProject(s, "p1")
+	kanbanKeyboardSelect(s, task.ID, "toggle")
+	tt := ui.NewTesterWith(func(c *ui.Context) { renderTaskCard(c, s, ks, task, kanbanTaskCardState{}) }, 400, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 	tt.Key(0, ui.KeyTab)
 	if !tt.Focused("kanban-task-card-state") {
 		t.Fatal("卡片未获得焦点")
@@ -249,8 +251,9 @@ func TestKanbanVisualOpenFocusSelectedStates(t *testing.T) {
 	}
 	kanbanMu.Lock()
 	ks.detailTaskID = task.ID
-	ks.selectedTaskIDs = map[string]bool{task.ID: true}
 	kanbanMu.Unlock()
+	kanbanKeyboardProject(s, "p1")
+	kanbanKeyboardSelect(s, task.ID, "toggle")
 	tt.Key(0, ui.KeyTab)
 	after, _ := tt.Find("kanban-task-card-states")
 	if before != after {

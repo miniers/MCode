@@ -456,28 +456,32 @@ func consumeKanbanEscape(s *chatState) bool {
 		ks.quickAddOpen = false
 		ks.quickAddText = ""
 		consumed = true
-	} else if ks.destination != "automations" && (ks.selecting || kanbanKeyboardClearSelection(s)) {
-		ks.selecting = false
-		ks.selectedTaskIDs = nil
-		kanbanKeyboardClearSelection(s)
-		consumed = true
-	} else if ks.destination != "automations" && ks.goalDetailOpen && ks.detailTaskID == "" {
-		ks.goalDetailOpen = false
-		consumed = true
-	} else if ks.destination != "automations" && (ks.detailTaskID != "" || ks.planReviewGoalID != "" || ks.outputsGoalID != "") {
-		// 任务详情关闭需恢复焦点及清理相关状态。
-		closeTask := ks.detailTaskID != ""
+	} else {
+		// 两个状态锁不嵌套，避免与看板刷新互相等待。
+		selectionEnabled := ks.destination != "automations"
 		kanbanMu.Unlock()
-		if closeTask {
-			s.closeTaskDetail()
+		cleared := selectionEnabled && kanbanKeyboardClearSelection(s)
+		kanbanMu.Lock()
+		if cleared {
+			consumed = true
+		} else if ks.destination != "automations" && ks.goalDetailOpen && ks.detailTaskID == "" {
+			ks.goalDetailOpen = false
+			consumed = true
+		} else if ks.destination != "automations" && (ks.detailTaskID != "" || ks.planReviewGoalID != "" || ks.outputsGoalID != "") {
+			// 任务详情关闭需恢复焦点及清理相关状态。
+			closeTask := ks.detailTaskID != ""
+			kanbanMu.Unlock()
+			if closeTask {
+				s.closeTaskDetail()
+			}
+			return true
+		} else if ks.destination == "automations" && ks.automationSearch != "" {
+			ks.automationSearch = ""
+			consumed = true
+		} else if ks.destination != "automations" && ks.searchText != "" {
+			ks.searchText = ""
+			consumed = true
 		}
-		return true
-	} else if ks.destination == "automations" && ks.automationSearch != "" {
-		ks.automationSearch = ""
-		consumed = true
-	} else if ks.destination != "automations" && ks.searchText != "" {
-		ks.searchText = ""
-		consumed = true
 	}
 	kanbanMu.Unlock()
 	if consumed {

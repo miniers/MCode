@@ -2,11 +2,7 @@ package mcodeui
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 	"time"
-
-	"github.com/egoist/mygo/ui"
 )
 
 // AutomationRunReadState 描述一条运行记录的已读与归档状态。
@@ -361,24 +357,4 @@ func (s *chatState) setAutomationRunArchived(runID string, archived bool) {
 			s.loadAutomationUnread(projectID)
 		})
 	}()
-}
-
-// renderAutomationUnreadBadge 渲染未读数角标，沿用侧栏未读圆点的强调色样式。
-// count <= 0 时不渲染任何内容。
-func renderAutomationUnreadBadge(c *ui.Context, key string, count int) {
-	if count <= 0 {
-		return
-	}
-	ui.Row(c.Key(key)).
-		Label(fmt.Sprintf("未读运行记录 %d 条", count)).
-		Padding(Space0, Space2).
-		Radius(RadiusMD).
-		AlignItems(ui.Center).
-		Background(ThemeAccent(c)).
-		Children(func() {
-			ui.Text(c, strconv.Itoa(count)).
-				FontSize(TypeCaption).
-				FontWeight(600).
-				TextColor(ThemeOnAccent(c))
-		})
 }

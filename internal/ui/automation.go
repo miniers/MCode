@@ -3,7 +3,6 @@ package mcodeui
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -1070,27 +1069,6 @@ func filterAutomationStatus(autos []Automation, query string, filter int, unread
 		out = append(out, a)
 	}
 	return out
-}
-
-// formatRelativeUntil 输出未来时间的相对描述，如“N 分钟后”“N 小时后”。
-func formatRelativeUntil(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	diff := time.Until(t)
-	if diff <= 0 {
-		return "即将运行"
-	}
-	if diff < time.Minute {
-		return "不到 1 分钟后"
-	}
-	if diff < time.Hour {
-		return fmt.Sprintf("%d 分钟后", int(diff.Minutes()))
-	}
-	if diff < 24*time.Hour {
-		return fmt.Sprintf("%d 小时后", int(diff.Hours()))
-	}
-	return fmt.Sprintf("%d 天后", int(diff.Hours()/24))
 }
 
 // renderAutomationWorkspace 渲染自动化工作区主视图。

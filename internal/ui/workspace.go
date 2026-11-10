@@ -2,8 +2,6 @@ package mcodeui
 
 import (
 	"sync"
-
-	"github.com/egoist/mygo/ui"
 )
 
 var (
@@ -158,45 +156,4 @@ func (s *chatState) currentWorkspaceProjectID() string {
 		return s.projects[0].ID
 	}
 	return ""
-}
-
-// setWorkspaceProject 设置当前工作区聚焦的项目 ID。
-func (s *chatState) setWorkspaceProject(projectID string) {
-	if s == nil {
-		return
-	}
-	ws := getWorkspaceState(s)
-	if ws == nil {
-		return
-	}
-	workspaceMu.Lock()
-	ws.projectID = projectID
-	workspaceMu.Unlock()
-	s.invalidate()
-}
-
-func renderWorkspaceProjectPicker(c *ui.Context, s *chatState, projectID string) {
-	s.mu.Lock()
-	projects := append([]Project(nil), s.projects...)
-	s.mu.Unlock()
-	ui.Row(c.Key("workspace-projects")).Wrap().Gap(Space2).AlignItems(ui.Center).Children(func() {
-		for _, p := range projects {
-			selected := p.ID == projectID
-			btn := ui.ButtonBase(c.Key("workspace-project-"+p.ID)).
-				Label("workspace-project-"+p.ID).Padding(Space1, Space3).Radius(RowCornerRadius).Center()
-			if selected {
-				btn.Background(ThemeSelected(c))
-			} else if btn.Hovered() {
-				btn.Background(ThemeHover(c))
-			}
-			btn.OnClick(func() { s.setWorkspaceProject(p.ID) })
-			btn.Children(func() {
-				color := ThemeSecondaryText(c)
-				if selected {
-					color = ThemePrimaryText(c)
-				}
-				ui.Text(c, p.Name).FontSize(TypeFootnote).FontWeight(500).TextColor(color)
-			})
-		}
-	})
 }

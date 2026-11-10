@@ -330,7 +330,6 @@ type kanbanTaskCardState struct {
 	moveMenuTaskID, reviewTaskID, reviewFeedback string
 	goals                                        []KanbanGoal
 	rescueMenuTaskID, deleteTaskID               string
-	selecting                                    bool
 }
 
 // projectNameFor 返回项目显示名，找不到时返回空字符串。
@@ -380,28 +379,16 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 				kanbanKeyboardSelect(s, task.ID, "range")
 				return
 			}
-			// 多选模式下点击待办卡片只切换选中态，不打开详情。
-			if st.selecting && kanbanDisplayColumn(task) == "todo" {
-				kanbanMu.Lock()
-				if ks.selectedTaskIDs == nil {
-					ks.selectedTaskIDs = make(map[string]bool)
-				}
-				ks.selectedTaskIDs[task.ID] = !ks.selectedTaskIDs[task.ID]
-				kanbanMu.Unlock()
-				s.invalidate()
-				return
-			}
 			s.openTaskDetail(task)
 		})
 	kanbanMu.Lock()
 	returnFocus := ks.detailFocusReturnID == task.ID
-	selected := ks.selectedTaskIDs[task.ID]
 	opened := ks.detailTaskID == task.ID
 	if returnFocus {
 		ks.detailFocusReturnID = ""
 	}
 	kanbanMu.Unlock()
-	selected = selected || kanbanKeyboardSelected(s, task.ID)
+	selected := kanbanKeyboardSelected(s, task.ID)
 	if returnFocus {
 		card.Focus()
 	}
@@ -479,7 +466,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 				Border(KanbanFocusRingWidth, ThemeAccent(c))
 		}
 		ui.Row(c.Key("kanban-task-title-row-" + task.ID)).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
-			if selected || (st.selecting && kanbanDisplayColumn(task) == "todo") {
+			if selected {
 				icon, color := IconSquare(), secondaryText
 				if selected {
 					icon, color = IconCircleCheck(), ThemeAccent(c)

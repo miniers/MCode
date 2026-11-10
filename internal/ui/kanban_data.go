@@ -50,8 +50,6 @@ func (s *chatState) setKanbanScope(projectID string, all bool) {
 			}
 		}
 		ks.goalDetailOpen = false
-		ks.selecting = false
-		ks.selectedTaskIDs = nil
 	}
 	ks.scopeID = projectID
 	ks.overview = all

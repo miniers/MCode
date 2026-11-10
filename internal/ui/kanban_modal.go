@@ -92,7 +92,6 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 		goalID:           ks.goalID,
 		overview:         ks.overview,
 		searching:        strings.TrimSpace(ks.searchText) != "",
-		selecting:        ks.selecting,
 		loading:          ks.loading,
 		errMsg:           ks.err,
 		conflict:         ks.conflict,
@@ -322,7 +321,6 @@ type kanbanModalBodyProps struct {
 	goalID           string
 	overview         bool
 	searching        bool
-	selecting        bool
 	loading          bool
 	errMsg           string
 	conflict         bool
@@ -727,26 +725,22 @@ func kanbanProjectMenu(c *ui.Context, s *chatState, projectID string, onSelect f
 	})
 }
 
-// renderKanbanSelectionBar 渲染多选模式的选择工具条：
-// 左侧是已选数量与「仅待办任务可多选」提示，右侧是清除与完成。
-// 批量合并运行 / 排队运行暂无对应的 client 方法，这里不提供这两个按钮。
 func renderKanbanSelectionBar(c *ui.Context, s *chatState, ks *kanbanState) {
-	kanbanMu.Lock()
+	kanbanKeyboardMu.Lock()
 	selected := 0
-	for _, on := range ks.selectedTaskIDs {
-		if on {
-			selected++
-		}
+	if st := kanbanKeyboardStates[s]; st != nil {
+		selected = len(st.selected)
 	}
-	kanbanMu.Unlock()
+	kanbanKeyboardMu.Unlock()
+	if selected == 0 {
+		return
+	}
 
 	ui.Row(c.Key("kanban-selection-bar")).
 		FillWidth().
 		Padding(Space3, Space4).
 		Radius(RadiusMD).
 		Background(ThemeHover(c)).
-		BorderWidth(Hairline).
-		BorderColor(ThemeAccent(c).Alpha(0.30)).
 		AlignItems(ui.Center).
 		Gap(Space3).
 		Children(func() {
@@ -756,35 +750,13 @@ func renderKanbanSelectionBar(c *ui.Context, s *chatState, ks *kanbanState) {
 				TextColor(ThemePrimaryText(c)).
 				SingleLine().
 				Shrink(0)
-			ui.Text(c, "仅待办任务可多选").
-				FontSize(TypeCaption).
-				TextColor(ThemeSecondaryText(c)).
-				SingleLine().
-				Shrink(0)
-
 			ui.Box(c.Key("kanban-selection-spacer")).Grow(1)
 
 			Button(c.Key("kanban-selection-clear"), ButtonOpts{
 				Text:  "清除",
 				Label: "清除选择",
 				OnClick: func() {
-					kanbanMu.Lock()
-					ks.selectedTaskIDs = nil
-					kanbanMu.Unlock()
-					s.invalidate()
-				},
-				Variant: ButtonSecondary,
-				Size:    ControlSM,
-			})
-
-			Button(c.Key("kanban-selection-done"), ButtonOpts{
-				Text:  "完成",
-				Label: "完成选择",
-				OnClick: func() {
-					kanbanMu.Lock()
-					ks.selecting = false
-					ks.selectedTaskIDs = nil
-					kanbanMu.Unlock()
+					kanbanKeyboardClearSelection(s)
 					s.invalidate()
 				},
 				Variant: ButtonSecondary,
@@ -802,10 +774,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 		Padding(Space5).
 		Gap(Space3).
 		Children(func() {
-			// 0. 多选模式的选择工具条：已选数量、限制说明、清除与退出。
-			if p.selecting {
-				renderKanbanSelectionBar(c, s, ks)
-			}
+			renderKanbanSelectionBar(c, s, ks)
 
 			// 1. 版本冲突横幅
 			if p.conflict {
@@ -1023,7 +992,6 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 							goals:            p.board.Goals,
 							rescueMenuTaskID: p.rescueMenuTaskID,
 							deleteTaskID:     p.deleteTaskID,
-							selecting:        p.selecting,
 						})
 					}
 				})
