@@ -32,8 +32,37 @@ type approvalServer struct {
 	// 而 HTTP 处理协程可能并发读取它。
 	mu       sync.RWMutex
 	approver harness.Approver
+	pending  int
+	changed  chan struct{}
 	// planExitMode 是计划获批后要切到的权限模式（本轮运行模式）；空表示不切换。
 	planExitMode string
+}
+
+func (s *approvalServer) pendingApprovals() int {
+	count, _ := s.approvalState()
+	return count
+}
+
+func (s *approvalServer) approvalState() (int, <-chan struct{}) {
+	if s == nil {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.changed == nil {
+		s.changed = make(chan struct{})
+	}
+	return s.pending, s.changed
+}
+
+func (s *approvalServer) changePending(delta int) {
+	s.mu.Lock()
+	s.pending += delta
+	if s.changed != nil {
+		close(s.changed)
+	}
+	s.changed = make(chan struct{})
+	s.mu.Unlock()
 }
 
 // setApprover 替换本轮使用的审批方；传 nil 表示这一轮没有审批方（审批请求一律拒绝）。
@@ -394,6 +423,10 @@ func (s *approvalServer) handleApproveCall(w http.ResponseWriter, r *http.Reques
 
 	var resp harness.ApprovalResponse
 	var approveErr error
+	if approver != nil {
+		s.changePending(1)
+		defer s.changePending(-1)
+	}
 	if ia, ok := approver.(harness.Interactor); ok {
 		resp, approveErr = ia.Interact(r.Context(), approvalReq)
 	} else if approver != nil {

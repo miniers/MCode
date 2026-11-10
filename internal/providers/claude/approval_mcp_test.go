@@ -253,6 +253,105 @@ func TestApprovalServer_ToolsList(t *testing.T) {
 
 const sseApprovalRequest = `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{"command":"git diff"}}}}`
 
+type pendingTestApprover struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (a *pendingTestApprover) Approve(ctx context.Context, req harness.ApprovalRequest) (harness.Decision, error) {
+	resp, err := a.Interact(ctx, req)
+	return resp.Decision, err
+}
+
+func (a *pendingTestApprover) Interact(ctx context.Context, _ harness.ApprovalRequest) (harness.ApprovalResponse, error) {
+	a.entered <- struct{}{}
+	select {
+	case <-a.release:
+		return harness.ApprovalResponse{Decision: harness.DecisionAllow}, nil
+	case <-ctx.Done():
+		return harness.ApprovalResponse{}, ctx.Err()
+	}
+}
+
+type failingApprovalWriter struct{ header http.Header }
+
+func (w *failingApprovalWriter) Header() http.Header { return w.header }
+func (w *failingApprovalWriter) WriteHeader(int)     {}
+func (w *failingApprovalWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+func TestApprovalServer_PendingApprovals(t *testing.T) {
+	a := &pendingTestApprover{entered: make(chan struct{}, 2), release: make(chan struct{}, 2)}
+	s, cleanup := newTestApprovalServer(t, a)
+	defer cleanup()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 2)
+	start := func() {
+		go func() {
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url(), strings.NewReader(sseApprovalRequest))
+			if err == nil {
+				req.Header.Set("Authorization", "Bearer "+s.token())
+				var resp *http.Response
+				resp, err = http.DefaultClient.Do(req)
+				if err == nil {
+					_, err = io.Copy(io.Discard, resp.Body)
+					_ = resp.Body.Close()
+				}
+			}
+			done <- err
+		}()
+	}
+	check := func(ch <-chan struct{}, want int) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			t.Fatal("审批计数变化未通知")
+		}
+		if got := s.pendingApprovals(); got != want {
+			t.Fatalf("审批计数 = %d，期望 %d", got, want)
+		}
+	}
+	_, changed := s.approvalState()
+	start()
+	<-a.entered
+	check(changed, 1)
+	_, changed = s.approvalState()
+	start()
+	<-a.entered
+	check(changed, 2)
+	_, changed = s.approvalState()
+	a.release <- struct{}{}
+	check(changed, 1)
+	_, changed = s.approvalState()
+	a.release <- struct{}{}
+	check(changed, 0)
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestApprovalServer_PendingApprovalsErrorAndWriteFailure(t *testing.T) {
+	a := &fakeInteractor{fakeApprover: fakeApprover{err: errors.New("interact failed")}}
+	s := &approvalServer{approver: a, tokenStr: "token"}
+	_, changed := s.approvalState()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(sseApprovalRequest))
+	req.Header.Set("Authorization", "Bearer token")
+	s.handleMCP(&failingApprovalWriter{header: make(http.Header)}, req)
+	select {
+	case <-changed:
+	default:
+		t.Fatal("审批计数变化未通知")
+	}
+	if got := s.pendingApprovals(); got != 0 {
+		t.Fatalf("审批计数 = %d，期望 0", got)
+	}
+}
+
 type blockingSSEApprover struct {
 	entered chan struct{}
 	release chan struct{}

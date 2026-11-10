@@ -3167,6 +3167,22 @@ func (b *MemoryBackend) sendMessage(ctx context.Context, params wire.SendMessage
 				followUpIntent = "insert"
 			}
 		} else if steerer, ok := b.threadHarnessLocked(td.summary.Provider).(harness.Steerer); ok && td.sessionID != "" && len(params.Attachments) == 0 && params.Options == nil {
+			if td.hasWaitingQuestionLocked() {
+				turnID := td.runTurnID
+				fu := wire.FollowUp{ID: newUUID(), Text: params.Text, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Kind: kind}
+				td.setPendingSendLocked(fu)
+				_, batch, err := b.interruptLocked(td, turnID)
+				b.mu.Unlock()
+				b.commitQueueChange(params.ThreadID)
+				b.finishWithdraw(batch, withdrawInterrupt)
+				if err != nil {
+					return wire.SendMessageResult{}, err
+				}
+				if params.ActionID != "" {
+					b.actions.record(wire.ActionStatusResult{ActionID: params.ActionID, State: wire.ActionStateAccepted, ThreadID: &params.ThreadID, TurnID: &turnID, FollowUpID: &fu.ID})
+				}
+				return wire.SendMessageResult{ActionID: params.ActionID, ThreadID: params.ThreadID, TurnID: &turnID, FollowUpID: &fu.ID}, nil
+			}
 			turnID, sessionID := td.runTurnID, td.sessionID
 			b.mu.Unlock()
 			err := steerer.Steer(ctx, sessionID, params.Text)
@@ -5238,6 +5254,23 @@ func (b *MemoryBackend) ActionStatus(ctx context.Context, actionID string) (wire
 		ActionID: actionID,
 		State:    wire.ActionStateUnknown,
 	}, nil
+}
+
+func (td *memoryThread) hasWaitingQuestionLocked() bool {
+	for _, pr := range td.pending {
+		if !pr.handled && pr.providerWaiting && pr.req.Kind == string(harness.RequestKindQuestion) {
+			return true
+		}
+	}
+	return false
+}
+
+func (td *memoryThread) setPendingSendLocked(fu wire.FollowUp) {
+	if td.pendingSend != nil {
+		td.followUps = append([]wire.FollowUp{*td.pendingSend}, td.followUps...)
+		td.queueRevision++
+	}
+	td.pendingSend = &fu
 }
 
 func (b *MemoryBackend) interruptLocked(td *memoryThread, turnID string) (wire.InterruptResult, *withdrawBatch, error) {

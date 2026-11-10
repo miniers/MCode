@@ -2059,26 +2059,24 @@ func (b *MemoryBackend) QueueInterruptAndSend(ctx context.Context, p wire.Thread
 	turnID := td.runTurnID
 	fuID := newUUID()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if td.pendingSend != nil {
-		td.followUps = append([]wire.FollowUp{*td.pendingSend}, td.followUps...)
-		td.queueRevision++
-	}
-	td.pendingSend = &wire.FollowUp{
+	td.setPendingSendLocked(wire.FollowUp{
 		ID:          fuID,
 		Text:        *p.Text,
 		Attachments: queueAtts,
 		CreatedAt:   now,
 		BundleID:    nil,
-	}
+	})
 
-	if td.runCancel != nil {
-		td.runCancel()
-	}
+	_, batch, err := b.interruptLocked(td, turnID)
 
 	snap := td.snapshotLocked()
 	b.mu.Unlock()
 
 	b.commitQueueChange(p.ThreadID)
+	b.finishWithdraw(batch, withdrawInterrupt)
+	if err != nil {
+		return wire.ThreadsQueueInterruptAndSendResult{}, err
+	}
 
 	if p.ActionID != "" {
 		b.actions.record(wire.ActionStatusResult{

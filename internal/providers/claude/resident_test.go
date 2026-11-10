@@ -28,8 +28,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -84,6 +87,13 @@ func runFakeResidentClaude(mode string) {
 	// 启动期就吐 init：此时 harness 那边可能还没挂接轮次，用来覆盖「attach 之前的 init 不是自发轮次」。
 	if state.startupInit {
 		_, _ = os.Stdout.Write(firstLine)
+	}
+	if name == "resident_once_stall" {
+		_, _ = os.Stdout.Write(firstLine)
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		<-ctx.Done()
+		return
 	}
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -146,6 +156,33 @@ func (st *fakeResidentState) handle(frame []byte) bool {
 		switch st.name {
 		case "resident_block":
 			_, _ = out.Write(st.firstLine)
+		case "resident_approval":
+			_, _ = out.Write(st.firstLine)
+			go func() {
+				for i, arg := range os.Args {
+					if arg != "--mcp-config" || i+1 >= len(os.Args) {
+						continue
+					}
+					data, err := os.ReadFile(os.Args[i+1])
+					var cfg mcpConfig
+					if err != nil || json.Unmarshal(data, &cfg) != nil {
+						return
+					}
+					srv := cfg.MCPServers["mcode_approval"]
+					req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(sseApprovalRequest))
+					if err != nil {
+						return
+					}
+					req.Header.Set("Authorization", srv.Headers["Authorization"])
+					resp, err := http.DefaultClient.Do(req)
+					if err == nil {
+						_, _ = io.Copy(io.Discard, resp.Body)
+						_ = resp.Body.Close()
+						_, _ = out.Write(rest)
+					}
+					return
+				}
+			}()
 		case "resident_fail_stderr":
 			_, _ = fmt.Fprintln(os.Stderr, "fake: fatal startup error")
 			os.Exit(1)
@@ -619,6 +656,112 @@ func TestResident_InterruptKeepsProcessAlive(t *testing.T) {
 	}
 	if pids := h.ProcessRootPIDs(residentTestThreadID); len(pids) == 0 {
 		t.Fatalf("第二轮打断后进程应继续驻留")
+	}
+}
+
+func TestResident_PendingApprovalPausesWatchdog(t *testing.T) {
+	dir := t.TempDir()
+	h := New(Options{Binary: os.Args[0], IdleTTL: time.Minute, FirstOutputTimeout: 2 * time.Second, StallTimeout: 200 * time.Millisecond})
+	defer h.Close()
+	a := &pendingTestApprover{entered: make(chan struct{}, 1), release: make(chan struct{}, 1)}
+	turn := residentTurn("resident_approval:"+fixtureAbs(t, "basic.jsonl"), filepath.Join(dir, "starts.log"), dir)
+	turn.Approver = a
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	type result struct {
+		events []harness.Event
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var events []harness.Event
+		err := h.Run(ctx, turn, collectEvents(&events))
+		done <- result{events, err}
+	}()
+	select {
+	case <-a.entered:
+	case <-ctx.Done():
+		t.Fatal("审批未开始")
+	}
+	select {
+	case got := <-done:
+		t.Fatalf("审批等待时轮次提前结束: %+v", got)
+	case <-time.After(650 * time.Millisecond):
+	}
+	a.release <- struct{}{}
+	select {
+	case got := <-done:
+		if got.err != nil || hasEvent(got.events, harness.EventError) || !hasEvent(got.events, harness.EventDone) {
+			t.Fatalf("审批后未正常结束: %+v", got)
+		}
+	case <-ctx.Done():
+		t.Fatal("审批后轮次未结束")
+	}
+}
+
+func TestResident_StallTimeoutReportsBudget(t *testing.T) {
+	dir := t.TempDir()
+	h := New(Options{Binary: os.Args[0], IdleTTL: time.Minute, FirstOutputTimeout: 2 * time.Second, StallTimeout: 200 * time.Millisecond})
+	defer h.Close()
+	turn := residentTurn("resident_block:"+fixtureAbs(t, "basic.jsonl"), filepath.Join(dir, "starts.log"), dir)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := h.Run(ctx, turn, func(harness.Event) {})
+	if err == nil || !strings.Contains(err.Error(), "200ms") || strings.Contains(err.Error(), "2s") {
+		t.Fatalf("停顿超时应报告 200ms: %v", err)
+	}
+}
+
+func TestRunOnce_StallTimeoutReportsBudget(t *testing.T) {
+	dir := t.TempDir()
+	h := New(Options{Binary: os.Args[0], FirstOutputTimeout: 2 * time.Second, StallTimeout: 200 * time.Millisecond})
+	defer h.Close()
+	turn := residentTurn("resident_once_stall:"+fixtureAbs(t, "basic.jsonl"), filepath.Join(dir, "starts.log"), dir)
+	turn.Transient = true
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := h.Run(ctx, turn, func(harness.Event) {})
+	if err == nil || !strings.Contains(err.Error(), "200ms") || strings.Contains(err.Error(), "2s") {
+		t.Fatalf("单进程停顿超时应报告 200ms: %v", err)
+	}
+}
+
+func TestResident_PendingApprovalInterruptRebuilds(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "starts.log")
+	h := New(Options{Binary: os.Args[0], IdleTTL: time.Minute, FirstOutputTimeout: 2 * time.Second, StallTimeout: 200 * time.Millisecond, InterruptGrace: time.Second})
+	defer h.Close()
+	a := &pendingTestApprover{entered: make(chan struct{}, 2), release: make(chan struct{}, 1)}
+	turn := residentTurn("resident_approval:"+fixtureAbs(t, "basic.jsonl"), logPath, dir)
+	turn.Approver = a
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- h.Run(ctx, turn, func(harness.Event) {}) }()
+	select {
+	case <-a.entered:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("审批未开始")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("取消后错误: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("取消后轮次未结束")
+	}
+	turn.SessionID = "sess-123"
+	a.release <- struct{}{}
+	secondCtx, secondCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer secondCancel()
+	if err := h.Run(secondCtx, turn, func(harness.Event) {}); err != nil {
+		t.Fatalf("第二轮失败: %v", err)
+	}
+	starts := fakeStartArgvs(t, logPath)
+	if len(starts) != 2 || !strings.Contains(starts[1], "--resume sess-123") {
+		t.Fatalf("挂起审批的进程应重建并恢复会话: %v", starts)
 	}
 }
 

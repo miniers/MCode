@@ -597,6 +597,33 @@ func TestThreadOps_QueueInterruptAndSend(t *testing.T) {
 	}
 }
 
+func TestThreadOps_QueueInterruptAndSendWithdrawsQuestion(t *testing.T) {
+	b, h, id, dbPath, req, order := setupPendingQuestion(t)
+	text := "中断后发送"
+	res, err := b.QueueInterruptAndSend(context.Background(), wire.ThreadsQueueInterruptAndSendParams{ThreadID: id, Text: &text})
+	if err != nil || res.State != wire.ThreadsQueueInterruptStateStopping {
+		t.Fatalf("中断发送失败: %+v %v", res, err)
+	}
+	if !<-order {
+		t.Fatal("取消前未发出撤卡信号")
+	}
+	result := <-h.result
+	if result.resp.Decision != harness.DecisionDeny || !errors.Is(result.err, errRequestWithdrawn) {
+		t.Fatalf("提问结果: %+v", result)
+	}
+	row := readAskTrace(t, dbPath, req.RequestID)
+	if row.state != store.PendingAskWithdrawn || row.resolution != string(withdrawInterrupt) {
+		t.Fatalf("留痕: %+v", row)
+	}
+	close(h.release)
+	select {
+	case <-h.turns:
+	case <-time.After(2 * time.Second):
+		t.Fatal("新轮未启动")
+	}
+	waitThreadIdle(t, b, context.Background(), id)
+}
+
 // 9. MoveThread 的 up、down 和越界返回 moved=false，并且 ListThreads 顺序随之变化；
 func TestThreadOps_MoveThread(t *testing.T) {
 	ctx := context.Background()

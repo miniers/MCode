@@ -239,6 +239,162 @@ type steerStateHarness struct {
 	text    chan string
 }
 
+type pendingQuestionHarness struct {
+	calls   atomic.Int32
+	steers  atomic.Int32
+	result  chan interactResult
+	turns   chan harness.Turn
+	release chan struct{}
+}
+
+func (*pendingQuestionHarness) Kind() harness.Kind { return "pending-question-test" }
+
+func (h *pendingQuestionHarness) Run(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+	if h.calls.Add(1) != 1 {
+		h.turns <- turn
+		return nil
+	}
+	emit(harness.Event{Type: harness.EventSession, SessionID: "question-session"})
+	resp, err := turn.Approver.(harness.Interactor).Interact(ctx, harness.ApprovalRequest{
+		ToolName: "AskUserQuestion", Kind: harness.RequestKindQuestion,
+		Questions: []harness.Question{{ID: "q1", Prompt: "选择？"}},
+	})
+	h.result <- interactResult{resp: resp, err: err}
+	<-h.release
+	return ctx.Err()
+}
+
+func (h *pendingQuestionHarness) Steer(context.Context, string, string) error {
+	h.steers.Add(1)
+	return nil
+}
+
+func setupPendingQuestion(t *testing.T) (*MemoryBackend, *pendingQuestionHarness, string, string, wire.RemoteRequest, <-chan bool) {
+	t.Helper()
+	syncPendingAskTrace(t)
+	b, dbPath := newAskTraceBackend(t)
+	id := newUUID()
+	projectID := newUUID()
+	b.AddProject(wire.ProjectSummary{ID: projectID, Name: "测试", Path: t.TempDir()})
+	b.AddThread(wire.ThreadSummary{ID: id, ProjectID: projectID, Title: "测试"}, nil)
+	h := &pendingQuestionHarness{result: make(chan interactResult, 1), turns: make(chan harness.Turn, 2), release: make(chan struct{})}
+	t.Cleanup(func() {
+		select {
+		case <-h.release:
+		default:
+			close(h.release)
+		}
+	})
+	b.SetHarness(h, t.TempDir(), harness.ModeAgent)
+	events := make(chan wire.RequestsChangedParams, 8)
+	conn := newMockStreamConn()
+	conn.notifyFn = func(method string, params any) error {
+		if method == "requests.changed" {
+			events <- params.(wire.RequestsChangedParams)
+		}
+		return nil
+	}
+	if _, err := b.Subscribe(context.Background(), conn, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SendMessage(context.Background(), wire.SendMessageParams{ThreadID: id, Text: "开始"}); err != nil {
+		t.Fatal(err)
+	}
+	req := waitFirstCard(t, events)
+	order := make(chan bool, 1)
+	b.mu.Lock()
+	td := b.threads[id]
+	pr := td.pending[req.RequestID]
+	cancel := td.runCancel
+	td.runCancel = func() {
+		withdrawn := false
+		select {
+		case <-pr.done:
+			withdrawn = true
+		default:
+		}
+		select {
+		case order <- withdrawn:
+		default:
+		}
+		cancel()
+	}
+	b.mu.Unlock()
+	return b, h, id, dbPath, req, order
+}
+
+func TestRuntimeRegression_SendDuringPendingQuestion(t *testing.T) {
+	b, h, id, dbPath, req, order := setupPendingQuestion(t)
+	ctx := context.Background()
+	queued, err := b.SendMessage(ctx, wire.SendMessageParams{ThreadID: id, Text: "稍后", WhenRunning: "queue"})
+	if err != nil || queued.Queued == nil || !*queued.Queued {
+		t.Fatalf("显式排队失败: %+v %v", queued, err)
+	}
+	b.mu.Lock()
+	if len(b.threads[id].pending) != 1 {
+		t.Fatal("显式排队撤回了提问")
+	}
+	b.threads[id].pendingSend = &wire.FollowUp{ID: "old", Text: "旧消息"}
+	b.mu.Unlock()
+	res, err := b.SendMessage(ctx, wire.SendMessageParams{ThreadID: id, Text: "新消息", ActionID: newUUID()})
+	if err != nil || res.TurnID == nil || *res.TurnID != *req.TurnID || res.FollowUpID == nil {
+		t.Fatalf("发送失败: %+v %v", res, err)
+	}
+	if !<-order {
+		t.Fatal("取消前未发出撤卡信号")
+	}
+	if h.steers.Load() != 0 {
+		t.Fatal("待答时调用了 Steer")
+	}
+	result := <-h.result
+	if result.resp.Decision != harness.DecisionDeny || !errors.Is(result.err, errRequestWithdrawn) {
+		t.Fatalf("提问结果: %+v", result)
+	}
+	row := readAskTrace(t, dbPath, req.RequestID)
+	if row.state != store.PendingAskWithdrawn || row.resolution != string(withdrawInterrupt) {
+		t.Fatalf("留痕: %+v", row)
+	}
+	b.mu.Lock()
+	td := b.threads[id]
+	if len(td.followUps) != 2 || td.followUps[0].ID != "old" || td.pendingSend == nil || td.pendingSend.Text != "新消息" {
+		t.Fatalf("消息丢失: %+v %+v", td.followUps, td.pendingSend)
+	}
+	b.mu.Unlock()
+	select {
+	case <-h.turns:
+		t.Fatal("旧轮收尾前启动了新轮")
+	default:
+	}
+	close(h.release)
+	select {
+	case turn := <-h.turns:
+		if !strings.Contains(turn.Prompt, "新消息") {
+			t.Fatalf("新轮内容: %q", turn.Prompt)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("新轮未启动")
+	}
+	waitThreadIdle(t, b, ctx, id)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	count := 0
+	for _, msg := range td.messages {
+		if msg.Role == "user" && msg.Text == "新消息" {
+			count++
+			if msg.TurnID == nil || *msg.TurnID == *req.TurnID {
+				t.Fatal("新轮 turnID 错误")
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("新消息出现 %d 次", count)
+	}
+	row = readAskTrace(t, dbPath, req.RequestID)
+	if row.state != store.PendingAskWithdrawn || row.resolution != string(withdrawInterrupt) {
+		t.Fatalf("留痕被重复结算: %+v", row)
+	}
+}
+
 func (*steerStateHarness) Kind() harness.Kind { return "steer-state" }
 func (h *steerStateHarness) Run(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
 	emit(harness.Event{Type: harness.EventSession, SessionID: "steer-session"})

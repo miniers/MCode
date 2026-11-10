@@ -791,7 +791,7 @@ const settingsApplyTimeout = 10 * time.Second
 // 还没出现）把两个 result 串成同一轮，只在最后一个 result 上报完成。
 func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harness.Turn, spec claudeLaunch, emit func(harness.Event), reused bool) error {
 	keep := false
-	defer func() { h.release(p, keep) }()
+	defer func() { h.release(p, keep && p.approval.pendingApprovals() == 0) }()
 
 	// 审批方随轮次更换：HTTP 处理协程在轮内读取它，轮结束置空（nil 时保持既有的“一律拒绝”行为）。
 	p.setApprover(turn.Approver, planExitModeFor(turn))
@@ -850,6 +850,38 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 	}
 	timer := time.NewTimer(firstWait)
 	defer timer.Stop()
+	budget := firstWait
+	paused := false
+	var approvalChanged <-chan struct{}
+	stopTimer := func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}
+	reset := func(d time.Duration) {
+		budget = d
+		if p.approval.pendingApprovals() > 0 {
+			stopTimer()
+			paused = true
+			return
+		}
+		paused = false
+		resetTimer(timer, d)
+	}
+	updateApproval := func(changed bool) {
+		count, notify := p.approval.approvalState()
+		approvalChanged = notify
+		if count > 0 {
+			stopTimer()
+			paused = true
+		} else if paused || changed {
+			reset(h.opts.stallTimeout())
+		}
+	}
+	updateApproval(false)
 
 	sawOutput := false
 	if draining {
@@ -884,7 +916,7 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 				sawOutput = true
 				p.openSteer()
 				if p.noteReplayEcho(line) {
-					resetTimer(timer, h.opts.stallTimeout())
+					reset(h.opts.stallTimeout())
 					continue
 				}
 				_ = parser.handleLine(line, out)
@@ -892,11 +924,17 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 					drained = true
 					break
 				}
-				resetTimer(timer, h.opts.stallTimeout())
+				reset(h.opts.stallTimeout())
+			case <-approvalChanged:
+				updateApproval(true)
 			case <-timer.C:
+				if p.approval.pendingApprovals() > 0 {
+					updateApproval(true)
+					continue
+				}
 				h.killResident(p)
 				// 这一段已经在跑了（CLI 自己开的），超时口径按「轮内停顿」算，与首输出无关。
-				msg := fmt.Sprintf("claude process produced no output while draining unsolicited output within %s", firstWait)
+				msg := fmt.Sprintf("claude process produced no output while draining unsolicited output within %s", budget)
 				return residentTimeoutFailure(p, msg)
 			case <-ctx.Done():
 				p.closeSteer()
@@ -908,7 +946,7 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 		p.clearUnsolicited()
 		// 排空阶段已经用过解析器：换新的，写用户帧之后从干净状态重新开始。
 		parser = newParser()
-		resetTimer(timer, h.opts.firstOutputTimeout())
+		reset(h.opts.firstOutputTimeout())
 	}
 
 	// 复用时先把模型、思考强度、权限模式热切换到本轮想要的值，应答齐了再写用户帧。
@@ -924,7 +962,7 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 			h.noteRebuild(turn.ThreadID, "apply-failed")
 			return residentApplyFailure(p, err)
 		}
-		resetTimer(timer, h.opts.firstOutputTimeout())
+		reset(h.opts.firstOutputTimeout())
 	}
 
 	if turn.Attach {
@@ -968,7 +1006,7 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 			sawOutput = true
 			p.openSteer()
 			if p.noteReplayEcho(line) {
-				resetTimer(timer, h.opts.stallTimeout())
+				reset(h.opts.stallTimeout())
 				continue
 			}
 			_ = parser.handleLine(line, out)
@@ -977,7 +1015,7 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 					// 排队的 steer 已经在路上：换新解析器等它的回显与 result，没有任何输出就按首输出超时处理。
 					chained = false
 					parser = newParser()
-					resetTimer(timer, h.opts.firstOutputTimeout())
+					reset(h.opts.firstOutputTimeout())
 					continue
 				}
 				// 收到 result 立即结束本轮，不再等排空；排队中的 steer 没有被消费时进程不能留。
@@ -985,10 +1023,16 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 				p.markDrained(sink)
 				return nil
 			}
-			resetTimer(timer, h.opts.stallTimeout())
+			reset(h.opts.stallTimeout())
+		case <-approvalChanged:
+			updateApproval(true)
 		case <-timer.C:
+			if p.approval.pendingApprovals() > 0 {
+				updateApproval(true)
+				continue
+			}
 			h.killResident(p)
-			msg := fmt.Sprintf("claude process produced no output within %s", h.opts.firstOutputTimeout())
+			msg := fmt.Sprintf("claude process produced no output within %s", budget)
 			return residentTimeoutFailure(p, msg)
 		case <-ctx.Done():
 			// 先确认用户帧已经写完（或写失败），否则 interrupt 可能抢在 user 帧之前到达 CLI，

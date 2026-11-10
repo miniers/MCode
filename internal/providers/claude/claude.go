@@ -678,20 +678,24 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 	// 就强杀整个进程组并关闭管道读端，让读取循环立刻收尾。这样 CLI 卡在会话锁、MCP 握手或网络重试时
 	// 不会无声挂起，而是把失败回报给上层（界面显示错误并结束本轮）。
 	var (
-		watchdogMu    sync.Mutex
-		watchdogFired string
+		watchdogMu       sync.Mutex
+		watchdogFired    string
+		watchdogBudget   = h.opts.firstOutputTimeout()
+		watchdogDeadline = time.Now().Add(watchdogBudget)
 	)
-	fireWatchdog := func(reason string) {
+	fireWatchdog := func() {
 		watchdogMu.Lock()
-		watchdogFired = reason
+		if time.Now().Before(watchdogDeadline) {
+			watchdogMu.Unlock()
+			return
+		}
+		watchdogFired = fmt.Sprintf("produced no output within %s", watchdogBudget)
 		watchdogMu.Unlock()
 		_ = killProcessGroup(cmd, syscall.SIGKILL)
 		// 兜底关闭读端：万一仍有子进程占着管道写端，读取循环也能立即结束。
 		_ = stdout.Close()
 	}
-	watchdog := time.AfterFunc(h.opts.firstOutputTimeout(), func() {
-		fireWatchdog(fmt.Sprintf("produced no output within %s", h.opts.firstOutputTimeout()))
-	})
+	watchdog := time.AfterFunc(watchdogBudget, fireWatchdog)
 	defer watchdog.Stop()
 
 	sawOutput := false
@@ -703,11 +707,15 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 				sawOutput = true
 				_ = p.handleLine(trimmed, parserEmit)
 				// 有新输出：静默计时重置。收到 result 后 CLI 应立刻退出，只留短兜底等残留子进程释放管道。
+				watchdogMu.Lock()
 				if p.sawResult {
-					watchdog.Reset(resultDrainTimeout)
+					watchdogBudget = resultDrainTimeout
 				} else {
-					watchdog.Reset(h.opts.stallTimeout())
+					watchdogBudget = h.opts.stallTimeout()
 				}
+				watchdogDeadline = time.Now().Add(watchdogBudget)
+				watchdog.Reset(watchdogBudget)
+				watchdogMu.Unlock()
 			}
 		}
 		if readErr != nil {
