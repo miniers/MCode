@@ -181,14 +181,6 @@ func threadQuotaProvider(th *Thread) string {
 	return th.Provider
 }
 
-// getChatQuotaWindows 获取指定 chatState 关联的提供方额度窗口列表。
-func getChatQuotaWindows(s *chatState, th *Thread) []ProviderQuotaWindow {
-	if s == nil || th == nil {
-		return nil
-	}
-	return getChatQuotaWindowsForProvider(s, threadQuotaProvider(th))
-}
-
 // getChatQuotaWindowsForProvider 读取指定 provider 的额度窗口缓存。
 func getChatQuotaWindowsForProvider(s *chatState, provider string) []ProviderQuotaWindow {
 	if s == nil || strings.TrimSpace(provider) == "" {
@@ -272,14 +264,6 @@ func composerQuotaStatus(s *chatState, provider string) (loading bool, errText s
 		loading = false
 	}
 	return loading, errText
-}
-
-// loadComposerQuota 加载当前会话 provider 的额度窗口。
-func (s *chatState) loadComposerQuota(th *Thread, force bool) {
-	if th == nil {
-		return
-	}
-	s.loadComposerQuotaForProvider(threadQuotaProvider(th), force)
 }
 
 // loadComposerQuotaForProvider 按 provider 加载额度窗口：同一 provider 一分钟内不重复请求。
@@ -759,14 +743,11 @@ func formatTurnCostUSD(cost float64) string {
 	return fmt.Sprintf("本轮费用 $%.4f", cost)
 }
 
-// renderUsagePanel 渲染上下文用量与配额分析浮窗内容（卡片外观由 PopoverBase 的外层面板提供）。
+// renderUsagePanel 渲染上下文用量浮窗内容（卡片外观由 PopoverBase 的外层面板提供）。
 func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
-	s.loadComposerQuota(th, false)
 	threadProvider := ""
-	quotaProvider := ""
 	if th != nil {
 		threadProvider = th.Provider
-		quotaProvider = threadQuotaProvider(th)
 	}
 	popoverCardShadow(ui.Column(c.Key("composer-usage-panel")).
 		Width(360).
@@ -872,25 +853,6 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 					Height(Hairline).
 					Background(ThemeDivider(c))
 				renderComposerCreditsRow(c, "composer-usage-credits", credits)
-			}
-
-			// 额度状态：加载中显示进度，否则按语义状态展示（未登录/不支持灰色说明，出错警告色并保留原错误，
-			// 数据过期只在行尾加提示）。
-			quotaLoading, _ := composerQuotaStatus(s, quotaProvider)
-			if quotaLoading {
-				ui.Text(c, "正在加载额度…").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
-			} else {
-				renderUsageStatusLine(c, chatUsageStatus(s, quotaProvider, usagePanelNow()), TypeFootnote, usageSettingsTarget{s, threadProvider})
-			}
-
-			quotaWindows := getChatQuotaWindows(s, th)
-			if len(quotaWindows) > 0 {
-				ui.Row(c.Key("composer-usage-quota-divider")).
-					FillWidth().
-					Height(Hairline).
-					Background(ThemeDivider(c))
-
-				renderComposerQuotaSection(c, s, quotaProvider, quotaWindows)
 			}
 		}))
 }
