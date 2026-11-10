@@ -13,6 +13,8 @@ import (
 const (
 	// defaultContextWindow 是 Options.ContextWindow 为 0 时采用的上下文窗口大小。
 	defaultContextWindow = 128000
+	// 压缩判定使用的窗口上限，超过 200k 的输入费用很高，大窗口模型也按此上限压缩。
+	compactionBudget = 200000
 	// reserveTokens 是留给下一轮输出和工具结果的余量。
 	reserveTokens = 16384
 )

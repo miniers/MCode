@@ -127,6 +127,43 @@ func TestPlanBlock(t *testing.T) {
 	}
 }
 
+func TestRunCompactionBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		chars int
+		block bool
+	}{
+		{"160k", 80000, true},
+		{"190k", 95000, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := session.NewStore(t.TempDir())
+			const id = "budget"
+			appendHistory(t, store, id, textMessage("user", "first"))
+			for i := 0; i < 8; i++ {
+				appendHistory(t, store, id, textMessage("assistant", strings.Repeat("a", tc.chars)))
+			}
+			client := &scriptClient{steps: []scriptStep{{response: summaryResponse("summary")}, {response: reply("stop")}}}
+			var usage *harness.Usage
+			err := Run(context.Background(), Options{Client: client, Store: store, SessionID: id, ContextWindow: 1000000, Emit: func(event harness.Event) {
+				if event.Type == harness.EventUsage {
+					usage = event.Usage
+				}
+			}}, "continue", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entries := compactionEntries(t, store, id)
+			if len(entries) != 1 || (entries[0].FromSeq > 0) != tc.block {
+				t.Fatalf("compaction entries = %+v, want block = %v", entries, tc.block)
+			}
+			if usage == nil || usage.ContextWindow != 1000000 {
+				t.Fatalf("usage = %+v", usage)
+			}
+		})
+	}
+}
+
 func TestRunTwoBlockCompactions(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	id := "two-blocks"

@@ -71,6 +71,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	if window <= 0 {
 		window = defaultContextWindow
 	}
+	window = min(window, compactionBudget)
 	var messages []llm.Message
 	hasFolded := false
 	// contextTokens/contextMeasured 记录最近一次用量对应的上下文大小和消息数量，之后的消息按字符估算。
