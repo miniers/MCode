@@ -389,7 +389,69 @@ func adbShellCommand(t []string, depth int) bool {
 		return !packageSeen || len(args) == 0 || adbShellCommand(args, depth+1)
 	}
 	switch name {
-	case "getprop", "dumpsys", "ps", "ls", "cat", "head", "tail", "grep", "wc", "df", "du", "id", "uname", "uptime", "whoami", "which", "stat", "echo", "printenv", "pidof", "ip", "ifconfig", "netstat", "getenforce", "readlink", "realpath", "basename", "dirname", "md5sum", "sha1sum", "sha256sum", "base64", "xxd", "od", "hexdump", "strings", "cut", "tr":
+	case "getprop", "ps", "ls", "cat", "head", "tail", "grep", "wc", "df", "du", "id", "uname", "uptime", "whoami", "which", "stat", "echo", "printenv", "pidof", "netstat", "getenforce", "readlink", "realpath", "basename", "dirname", "md5sum", "sha1sum", "sha256sum", "base64", "od", "hexdump", "strings", "cut", "tr":
+		return false
+	case "ip":
+		for len(args) > 0 && strings.HasPrefix(args[0], "-") {
+			switch args[0] {
+			case "-n", "-netns", "-f", "-family":
+				if len(args) < 2 {
+					return true
+				}
+				args = args[1:]
+			}
+			args = args[1:]
+		}
+		if len(args) == 0 {
+			return false
+		}
+		switch args[0] {
+		case "addr", "a", "address", "link", "l", "route", "r", "ro", "neigh", "n", "rule", "ru", "maddr", "m", "netconf":
+		default:
+			return true
+		}
+		if len(args) == 1 {
+			return false
+		}
+		switch args[1] {
+		case "show", "list", "lst", "ls", "get":
+			return false
+		default:
+			return true
+		}
+	case "ifconfig":
+		positional := 0
+		for _, a := range args {
+			if !strings.HasPrefix(a, "-") {
+				positional++
+			}
+		}
+		return positional > 1
+	case "xxd":
+		positional := 0
+		for i := 0; i < len(args); i++ {
+			switch args[i] {
+			case "-r", "-revert":
+				return true
+			case "-l", "-s", "-c", "-g", "-o":
+				i++
+				if i >= len(args) {
+					return true
+				}
+			default:
+				if !strings.HasPrefix(args[i], "-") {
+					positional++
+				}
+			}
+		}
+		return positional > 1
+	case "dumpsys":
+		for _, a := range args {
+			switch a {
+			case "set", "unplug", "reset", "force-idle", "unforce", "step", "enable", "disable", "whitelist", "tempwhitelist", "except-idle-whitelist", "sys-whitelist", "put", "clear", "force-inactive", "suspend", "resume", "kill":
+				return true
+			}
+		}
 		return false
 	case "sort":
 		for _, a := range args {
@@ -413,7 +475,7 @@ func adbShellCommand(t []string, depth int) bool {
 		}
 		return positional > 1
 	case "date":
-		return len(args) != 0
+		return len(args) != 0 && (len(args) != 1 || !strings.HasPrefix(args[0], "+"))
 	case "top":
 		for _, a := range args {
 			if a == "-n" || strings.HasPrefix(a, "-n") {

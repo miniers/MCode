@@ -35,6 +35,16 @@ func TestRemoteWrites(t *testing.T) {
 		{`adb shell 'cat a 2>&1'`, false}, {`adb shell 'cat a >/dev/null'`, false}, {`adb shell 'cat a >>/dev/null'`, true},
 		{`adb shell 'echo $(rm /sdcard/a)'`, true}, {"adb -s", true}, {"adb shell find /sdcard -delete", true},
 		{"adb shell uniq a b", true}, {"adb shell uniq -f 1 a", false}, {"adb shell dmesg -c", true},
+		{"adb shell ip addr", false}, {"adb shell ip -4 addr show wlan0", false}, {"adb shell ip route", false}, {"adb shell ip link show", false},
+		{"adb shell ifconfig wlan0", false}, {"adb shell ifconfig", false}, {"adb shell xxd -l 64 /sdcard/a.bin", false},
+		{"adb shell dumpsys battery", false}, {`adb shell 'dumpsys activity activities | grep mResumed'`, false}, {"adb shell dumpsys meminfo com.example", false},
+		{"adb shell date +%s", false}, {"adb shell date", false},
+		{"adb shell ip link set wlan0 down", true}, {"adb shell ip addr add 1.2.3.4/24 dev wlan0", true}, {"adb shell ip route del default", true},
+		{"adb shell ifconfig wlan0 down", true}, {"adb shell xxd -r a.hex /sdcard/a.bin", true}, {"adb shell xxd /sdcard/a /sdcard/b", true},
+		{"adb shell dumpsys battery set level 5", true}, {"adb shell dumpsys battery unplug", true}, {"adb shell dumpsys battery reset", true},
+		{"adb shell dumpsys deviceidle force-idle", true}, {"adb shell date 010100002020", true},
+		{"adb shell ip -netns test -family inet route list", false}, {"adb shell ip", false}, {"adb shell ip -n", true}, {"adb shell ip tunnel show", true},
+		{"adb shell xxd -s 1 -c 16 -g 1 -o 2 /sdcard/a", false}, {"adb shell xxd -revert a", true}, {"adb shell xxd -l", true}, {"adb shell date +%s extra", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.command, func(t *testing.T) {
