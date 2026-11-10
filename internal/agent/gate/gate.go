@@ -305,6 +305,10 @@ func OnlyReads(command string) bool {
 				}
 				return false
 			}
+			// PowerShell 双引号内反斜杠不转义，bash 与 PowerShell 对引号结束位置的判断不一致。
+			if quote == '"' && i+1 < len(text) && text[i+1] == '"' {
+				return false
+			}
 			i++
 			continue
 		}

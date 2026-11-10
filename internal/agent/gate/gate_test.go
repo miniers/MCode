@@ -285,6 +285,8 @@ func TestOnlyReads(t *testing.T) {
 		{"ls (Remove-Item x)", false}, {"Get-ChildItem | Where-Object { Remove-Item x }", false},
 		{"Get-Process | Stop-Process", false}, {"sc a.txt x", false}, {"Set-Content a x", false}, {"iwr https://x", false},
 		{`echo \"; rm x; echo \"`, false}, {`cat a\;rm x`, false}, {"ipconfig /release", false}, {`reg add HKCU\x`, false},
+		{`echo "a\"; Remove-Item x; echo "`, false}, {`grep "x\"" a`, false},
+		{`grep "a\.b" f`, true}, {`echo "a\\b"`, true},
 		{"go list -toolexec x ./...", false}, {"go list -mod=mod ./...", false}, {"gh pr create", false},
 		{"adb pull /sdcard/a.txt", false}, {"adb shell rm /sdcard/x", false}, {"fd -x rm", false}, {"fd -Hx rm", false},
 		{"base64 -o out a", false}, {"git show HEAD@{1}", false},
