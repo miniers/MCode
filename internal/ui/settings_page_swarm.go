@@ -909,7 +909,7 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 					wasOpen := (uiSt.openPopoverKey == popKey)
 					isAddOpen := wasOpen
 					appPopover(c.Key("popover-swarm-tier-"+popKey), btnAdd, &isAddOpen, nil, func() {
-						renderSwarmTierEditorPopover(c, st, uiSt, popKey, providers)
+						renderSwarmTierEditorPopover(c, st, uiSt, btnAdd, popKey, providers)
 					})
 					// 草稿弹层只能通过取消/保存关闭；外部点击（含嵌套模型选择器）不能丢弃草稿。
 					if wasOpen && uiSt.openPopoverKey == popKey {

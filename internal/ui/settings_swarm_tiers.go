@@ -211,9 +211,25 @@ func swarmTierDeleteGuard(st *SettingsState, id string, draftReadOnly bool) (dis
 	return false, "删除档位"
 }
 
+// 浮层定位只会翻转位置，需按锚点两侧的可用空间限制滚动区域高度。
+func swarmTierEditorMaxHeight(winH float32, anchor ui.Rect) float32 {
+	const maxHeight = 650
+	const margin = 8
+	if winH <= 0 {
+		return maxHeight
+	}
+	if anchor.H <= 0 {
+		return min(maxHeight, winH-2*margin)
+	}
+	below := winH - (anchor.Y + anchor.H) - Space1 - margin
+	above := anchor.Y - Space1 - margin
+	return min(maxHeight, max(below, above, 160))
+}
+
 // renderSwarmTierEditorPopover 渲染 Bee 档位添加与编辑 Popover 弹层。
-func renderSwarmTierEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIState, popKey string, providers []ProviderInfo) {
-	ui.Scroll(c.Key("swarm-tier-editor-scroll-" + popKey)).Width(360).MaxHeight(650).Children(func() {
+func renderSwarmTierEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIState, anchor ui.Element, popKey string, providers []ProviderInfo) {
+	_, winH := c.Size()
+	ui.Scroll(c.Key("swarm-tier-editor-scroll-" + popKey)).Width(360).MaxHeight(swarmTierEditorMaxHeight(winH, anchor.Bounds())).Children(func() {
 		card := ui.Column(c.Key("swarm-tier-editor-card-"+popKey)).
 			Width(360).
 			Padding(Space4, Space5).
@@ -562,7 +578,7 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 	}
 
 	appPopover(c.Key("popover-swarm-tier-"+popKey), rowBtn, &isPopOpen, nil, func() {
-		renderSwarmTierEditorPopover(c, st, uiSt, popKey, providers)
+		renderSwarmTierEditorPopover(c, st, uiSt, rowBtn, popKey, providers)
 	})
 	// 草稿弹层只能通过取消/保存关闭；外部点击（含嵌套模型选择器）不能丢弃草稿。
 	if wasOpen && uiSt.openPopoverKey == popKey {
