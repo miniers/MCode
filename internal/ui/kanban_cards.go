@@ -120,7 +120,8 @@ func renderKanbanListRow(c *ui.Context, s *chatState, task KanbanTask) {
 	kanbanMu.Unlock()
 	signal, tone := kanbanTaskSignal(task)
 
-	row := ui.Row(c.Key("kanban-list-row-"+task.ID)).
+	var row ui.Element
+	row = ui.Row(c.Key("kanban-list-row-"+task.ID)).
 		Label("kanban-list-row-"+task.ID).
 		Focusable().
 		FillWidth().
@@ -129,10 +130,21 @@ func renderKanbanListRow(c *ui.Context, s *chatState, task KanbanTask) {
 		AlignItems(ui.Center).
 		Gap(Space3).
 		OnClick(func() {
+			if row.ClickModifiers()&ui.Shift != 0 {
+				kanbanKeyboardSelect(s, task.ID, "range")
+				return
+			}
 			s.openTaskDetail(task)
 		})
+	selected := kanbanKeyboardSelected(s, task.ID)
+	if selected {
+		row.BorderWidth(kanbanDropBorder).BorderColor(ThemeAccent(c))
+	}
 	kanbanKeyboardItem(c, s, row, task)
 	row.Children(func() {
+		if selected {
+			ui.Icon(c, IconCheck()).Size(kanbanBadgeIconSize, kanbanBadgeIconSize).TextColor(ThemeAccent(c))
+		}
 		renderKanbanPriority(c, task)
 		ui.Text(c, task.Title).
 			FontSize(TypeBody).
@@ -351,7 +363,8 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 	secondaryText := ThemeSecondaryText(c)
 	actions := kanbanActions(task, kanbanTaskBusy(ks, task.ID))
 
-	card := ui.Column(c.Key("kanban-task-card-"+task.ID)).
+	var card ui.Element
+	card = ui.Column(c.Key("kanban-task-card-"+task.ID)).
 		Label("kanban-task-card-"+task.ID).
 		Focusable().
 		FillWidth().
@@ -362,6 +375,10 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 		BorderColor(ThemeOverlay(c, 0.08)).
 		Gap(Space3).
 		OnClick(func() {
+			if card.ClickModifiers()&ui.Shift != 0 {
+				kanbanKeyboardSelect(s, task.ID, "range")
+				return
+			}
 			// 多选模式下点击待办卡片只切换选中态，不打开详情。
 			if st.selecting && kanbanDisplayColumn(task) == "todo" {
 				kanbanMu.Lock()
@@ -398,6 +415,9 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 				BorderColor(ThemeAccent(c)).
 				Background(ThemeSurface(c).Alpha(0.75))
 		}
+	}
+	if kanbanKeyboardSelected(s, task.ID) {
+		card.BorderWidth(kanbanDropBorder).BorderColor(ThemeAccent(c))
 	}
 
 	// 右键菜单：与卡片内的按钮复用同一批调用
@@ -448,6 +468,9 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 	}
 	card.Children(func() {
 		ui.Row(c.Key("kanban-task-title-row-" + task.ID)).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
+			if kanbanKeyboardSelected(s, task.ID) {
+				ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+			}
 			if st.selecting && kanbanDisplayColumn(task) == "todo" {
 				kanbanMu.Lock()
 				selected := ks.selectedTaskIDs[task.ID]

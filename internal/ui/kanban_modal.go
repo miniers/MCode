@@ -111,6 +111,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 	goalDetailOpen := ks.goalDetailOpen
 	kanbanMu.Unlock()
 	if p.destination != "automations" {
+		kanbanKeyboardProject(s, p.projectID)
 		kanbanKeyboardUpdate(s, p.visibleBoard.Tasks, p.viewMode)
 	}
 	winWidth, _ := c.Size()

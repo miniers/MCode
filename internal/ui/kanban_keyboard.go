@@ -15,6 +15,9 @@ type kanbanKeyboardState struct {
 	tasks     []KanbanTask
 	focusID   string
 	pendingID string
+	selected  map[string]bool
+	anchorID  string
+	projectID string
 }
 
 func kanbanKeyboardUpdate(s *chatState, tasks []KanbanTask, view string) {
@@ -47,6 +50,18 @@ func kanbanKeyboardUpdate(s *chatState, tasks []KanbanTask, view string) {
 		}
 	}
 	st.tasks = ordered
+	visible := make(map[string]bool, len(ordered))
+	for _, task := range ordered {
+		visible[task.ID] = true
+	}
+	for id := range st.selected {
+		if !visible[id] {
+			delete(st.selected, id)
+		}
+	}
+	if !visible[st.anchorID] {
+		st.anchorID = ""
+	}
 	if st.focusID == "" {
 		return
 	}
@@ -63,6 +78,110 @@ func kanbanKeyboardUpdate(s *chatState, tasks []KanbanTask, view string) {
 		}
 		st.focusID = ordered[oldIndex].ID
 		st.pendingID = st.focusID
+	}
+}
+
+func kanbanKeyboardProject(s *chatState, projectID string) {
+	kanbanKeyboardMu.Lock()
+	st := kanbanKeyboardStates[s]
+	if st == nil {
+		st = &kanbanKeyboardState{projectID: projectID}
+		kanbanKeyboardStates[s] = st
+	} else if st.projectID != projectID {
+		st.projectID = projectID
+		st.selected = nil
+		st.anchorID = ""
+	}
+	kanbanKeyboardMu.Unlock()
+}
+
+func kanbanKeyboardSelect(s *chatState, id string, mode string) {
+	kanbanKeyboardMu.Lock()
+	st := kanbanKeyboardStates[s]
+	if st != nil {
+		if st.selected == nil {
+			st.selected = make(map[string]bool)
+		}
+		switch mode {
+		case "all":
+			for _, task := range st.tasks {
+				st.selected[task.ID] = true
+			}
+			st.anchorID = id
+		case "range":
+			if st.anchorID == "" {
+				st.anchorID = st.focusID
+			}
+			start, end := -1, -1
+			for i, task := range st.tasks {
+				if task.ID == st.anchorID {
+					start = i
+				}
+				if task.ID == id {
+					end = i
+				}
+			}
+			if start < 0 {
+				start = end
+				st.anchorID = id
+			}
+			if start >= 0 && end >= 0 {
+				clear(st.selected)
+				for i := min(start, end); i <= max(start, end); i++ {
+					st.selected[st.tasks[i].ID] = true
+				}
+			}
+		default:
+			if st.selected[id] {
+				delete(st.selected, id)
+			} else {
+				st.selected[id] = true
+			}
+			st.anchorID = id
+		}
+	}
+	kanbanKeyboardMu.Unlock()
+	s.invalidate()
+}
+
+func kanbanKeyboardSelected(s *chatState, id string) bool {
+	kanbanKeyboardMu.Lock()
+	defer kanbanKeyboardMu.Unlock()
+	st := kanbanKeyboardStates[s]
+	return st != nil && st.selected[id]
+}
+
+func kanbanKeyboardClearSelection(s *chatState) bool {
+	kanbanKeyboardMu.Lock()
+	defer kanbanKeyboardMu.Unlock()
+	st := kanbanKeyboardStates[s]
+	if st == nil || len(st.selected) == 0 {
+		return false
+	}
+	clear(st.selected)
+	st.anchorID = ""
+	return true
+}
+
+func kanbanKeyboardExtend(s *chatState, id string, delta int) {
+	kanbanKeyboardMu.Lock()
+	st := kanbanKeyboardStates[s]
+	target := ""
+	if st != nil {
+		for i, task := range st.tasks {
+			if task.ID == id && i+delta >= 0 && i+delta < len(st.tasks) {
+				if st.anchorID == "" {
+					st.anchorID = id
+				}
+				target = st.tasks[i+delta].ID
+				st.focusID, st.pendingID = target, target
+				break
+			}
+		}
+	}
+	kanbanKeyboardMu.Unlock()
+	if target != "" {
+		kanbanKeyboardSelect(s, target, "range")
 	}
 }
 
@@ -148,6 +267,14 @@ func kanbanKeyboardItem(c *ui.Context, s *chatState, e ui.Element, task KanbanTa
 	kanbanKeyboardMu.Unlock()
 	e.BorderWidth(kanbanDropBorder).BorderColor(ThemeAccent(c))
 	switch {
+	case e.Shortcut(0, ui.KeySpace):
+		kanbanKeyboardSelect(s, task.ID, "toggle")
+	case e.Shortcut(ui.Cmd, ui.KeyA):
+		kanbanKeyboardSelect(s, task.ID, "all")
+	case e.Shortcut(ui.Shift, ui.KeyUp):
+		kanbanKeyboardExtend(s, task.ID, -1)
+	case e.Shortcut(ui.Shift, ui.KeyDown):
+		kanbanKeyboardExtend(s, task.ID, 1)
 	case e.Shortcut(0, ui.KeyUp), e.Shortcut(0, ui.KeyK):
 		kanbanKeyboardMove(s, task.ID, -1)
 	case e.Shortcut(0, ui.KeyDown), e.Shortcut(0, ui.KeyJ):

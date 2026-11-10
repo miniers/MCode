@@ -454,6 +454,8 @@ func consumeKanbanEscape(s *chatState) bool {
 		ks.goalMenuOpen = false
 		ks.newMenuOpen = false
 		consumed = true
+	} else if ks.destination != "automations" && kanbanKeyboardClearSelection(s) {
+		consumed = true
 	} else if ks.goalDetailOpen {
 		ks.goalDetailOpen = false
 		consumed = true

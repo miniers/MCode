@@ -41,3 +41,43 @@ func TestKanbanKeyboardVisibleOrderAndFocus(t *testing.T) {
 		t.Fatalf("focus retained with no tasks: %q", st.focusID)
 	}
 }
+
+func TestKanbanKeyboardSelection(t *testing.T) {
+	s := &chatState{}
+	defer func() { kanbanKeyboardMu.Lock(); delete(kanbanKeyboardStates, s); kanbanKeyboardMu.Unlock() }()
+	tasks := []KanbanTask{{ID: "a", Status: "todo"}, {ID: "b", Status: "todo"}, {ID: "c", Status: "todo"}}
+	kanbanKeyboardUpdate(s, tasks, config.KanbanViewKanban)
+	kanbanKeyboardSelect(s, "a", "toggle")
+	kanbanKeyboardExtend(s, "a", 1)
+	if !kanbanKeyboardSelected(s, "a") || !kanbanKeyboardSelected(s, "b") || kanbanKeyboardSelected(s, "c") {
+		t.Fatal("range selection did not follow visible order")
+	}
+	kanbanKeyboardUpdate(s, tasks[1:], config.KanbanViewKanban)
+	kanbanKeyboardSelect(s, "b", "all")
+	if kanbanKeyboardSelected(s, "a") || !kanbanKeyboardSelected(s, "b") || !kanbanKeyboardSelected(s, "c") {
+		t.Fatal("select all included a hidden task")
+	}
+	kanbanKeyboardProject(s, "another-project")
+	if kanbanKeyboardSelected(s, "b") || kanbanKeyboardSelected(s, "c") {
+		t.Fatal("selection survived project change")
+	}
+}
+
+func TestKanbanKeyboardEscapeClearsSelectionFirst(t *testing.T) {
+	s := &chatState{}
+	defer func() { kanbanKeyboardMu.Lock(); delete(kanbanKeyboardStates, s); kanbanKeyboardMu.Unlock() }()
+	kanbanKeyboardUpdate(s, []KanbanTask{{ID: "a", Status: "todo"}}, config.KanbanViewKanban)
+	kanbanKeyboardSelect(s, "a", "toggle")
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	ks.detailTaskID = "a"
+	kanbanMu.Unlock()
+	if !consumeKanbanEscape(s) || kanbanKeyboardSelected(s, "a") {
+		t.Fatal("escape did not clear selection")
+	}
+	kanbanMu.Lock()
+	defer kanbanMu.Unlock()
+	if ks.detailTaskID != "a" {
+		t.Fatal("escape closed detail before clearing selection")
+	}
+}
