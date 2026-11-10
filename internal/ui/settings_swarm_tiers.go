@@ -606,8 +606,8 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 									FontSize(TypeCaption).
 									TextColor(ThemeSecondaryText(c))
 								if config.BuiltinTierCustomized(tier) {
-									ui.Box(c.Key("tier-customized-" + tier.ID)).
-										Size(6, 6).Radius(3).Background(ThemeAccent(c)).Label("已修改").Tooltip("已修改")
+									ui.Box(c.Key("tier-customized-"+tier.ID)).
+										Size(Space2, Space2).Radius(RadiusPill).Background(ThemeAccent(c)).Label("已修改").Tooltip("已修改").Shrink(0)
 								}
 								if tier.ReadOnly {
 									ui.Text(c, "只读").
