@@ -82,6 +82,7 @@ func kanbanListGroups(tasks []KanbanTask) []kanbanListGroup {
 // renderKanbanListView 渲染按状态分组的任务列表视图。
 func renderKanbanListView(c *ui.Context, s *chatState, tasks []KanbanTask) {
 	ui.Scroll(c.Key("kanban-list-scroll")).
+		TrackScroll(&getKanbanState(s).listScroll).
 		Grow(1).
 		FillWidth().
 		Children(func() {
@@ -235,12 +236,8 @@ func renderKanbanPriority(c *ui.Context, task KanbanTask) {
 func renderTodoQuickAdd(c *ui.Context, s *chatState, ks *kanbanState) {
 	kanbanMu.Lock()
 	open := ks.quickAddOpen
-	projectID := ks.projectID
+	projectID := ks.scopeID
 	kanbanMu.Unlock()
-
-	if projectID == "" {
-		return
-	}
 
 	if !open {
 		Button(c.Key("kanban-quick-add-toggle"), ButtonOpts{
@@ -249,9 +246,16 @@ func renderTodoQuickAdd(c *ui.Context, s *chatState, ks *kanbanState) {
 			Label:   "kanban-quick-add-toggle",
 			Variant: ButtonSecondary,
 			OnClick: func() {
+				if projectID == "" {
+					openKanbanNewTaskSheet(s)
+					kanbanMu.Lock()
+					ks.newTaskProjectID = ""
+					ks.newTaskVersion++
+					kanbanMu.Unlock()
+					return
+				}
 				kanbanMu.Lock()
 				ks.quickAddOpen = true
-				ks.quickAddText = ""
 				kanbanMu.Unlock()
 				s.invalidate()
 			},
@@ -285,7 +289,7 @@ func renderTodoQuickAdd(c *ui.Context, s *chatState, ks *kanbanState) {
 			in.OnTextKey(func(k ui.TextKey) bool {
 				switch k.Key {
 				case ui.KeyEnter:
-					s.submitQuickAdd(projectID)
+					s.submitQuickAdd()
 					return true
 				}
 				return false
@@ -878,7 +882,14 @@ func renderKanbanColumn(
 			})
 
 		// 列内卡片滚动区域
+		if ks.columnScroll == nil {
+			ks.columnScroll = make(map[string]*ui.ScrollState)
+		}
+		if ks.columnScroll[colKey] == nil {
+			ks.columnScroll[colKey] = &ui.ScrollState{}
+		}
 		ui.Scroll(c.Key("kanban-col-scroll-" + colKey)).
+			TrackScroll(ks.columnScroll[colKey]).
 			Grow(1).
 			FillWidth().
 			MinWidth(0).

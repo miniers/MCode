@@ -25,10 +25,8 @@ type automationEnableClient interface {
 const (
 	// automationEmptyIconSize 是空态插图的图标边长。
 	automationEmptyIconSize float32 = 44
-	// automationEmptyHintMaxWidth 是空态说明文字的最大宽度，超出换行。
-	automationEmptyHintMaxWidth float32 = 480
-	// automationPillSpinnerSize 是运行中状态胶囊里转圈的边长。
-	automationPillSpinnerSize float32 = 9
+	automationListWidth     float32 = 320
+	automationNarrowWidth   float32 = 1000
 	// automationPromptMinHeight 是任务指令输入框的最小高度。
 	automationPromptMinHeight float32 = 90
 )
@@ -109,13 +107,15 @@ type automationState struct {
 	unread map[string]int
 
 	// 删除确认
-	confirmDelete  bool
-	editorOpen     bool
-	confirmDiscard bool
-	detailTab      int
-	filter         int
-	unreadOnly     bool
-	narrowDetail   bool
+	confirmDelete      bool
+	editorOpen         bool
+	confirmDiscard     bool
+	focusEditorTrigger bool
+	detailTab          int
+	filter             int
+	unreadOnly         bool
+	narrowDetail       bool
+	moreOpen           bool
 }
 
 func getAutomationState(s *chatState) *automationState {
@@ -555,10 +555,16 @@ func (s *chatState) saveAutomation() {
 				return
 			}
 			as.saving = false
+			loadRuns := false
 			if as.editSession == editSession && as.selectedID == selectedID && as.isNew == isNew && err == nil {
 				if as.draft() == draft {
 					as.fillAutomation(saved)
 					as.editorOpen = false
+					if isNew {
+						as.detailTab = 0
+						as.narrowDetail = true
+						loadRuns = true
+					}
 				} else {
 					as.selectedID = saved.ID
 					as.isNew = false
@@ -568,6 +574,9 @@ func (s *chatState) saveAutomation() {
 				}
 			}
 			automationMu.Unlock()
+			if loadRuns {
+				s.loadAutomationRuns(saved.ID)
+			}
 			s.invalidate()
 		})
 		if err != nil {
@@ -594,6 +603,7 @@ func (as *automationState) closeEditor() {
 		return
 	}
 	as.editorOpen = false
+	as.focusEditorTrigger = true
 	if as.isNew {
 		as.isNew = false
 	}
@@ -879,7 +889,7 @@ func automationCardStatus(auto Automation, running bool) (text string, kind stri
 	case auto.Status == "completed":
 		// 停止条件命中、迭代次数用尽或一次性调度跑完：任务已结束，不是暂停。
 		return "已完成", "succeeded"
-	case !auto.Enabled && auto.ConsecutiveFailures > 0:
+	case !auto.Enabled && auto.Status == "failed" && auto.ConsecutiveFailures > 0:
 		return "连续失败后暂停", "failed"
 	case !auto.Enabled:
 		return "已暂停", "paused"
@@ -1036,7 +1046,6 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 	automationMu.Lock()
 	loading := as.loading
 	errMsg := as.err
-	conflict := as.conflict
 	autos := as.autos
 	selectedID := as.selectedID
 	isNew := as.isNew
@@ -1082,19 +1091,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 	}
 
 	width, _ := c.Size()
-	narrow := width < 1000
-	// 汇总：已启用数量与最近一次计划运行时间
-	enabledCount := 0
-	var nextRunAt time.Time
-	for _, a := range visible {
-		if !a.Enabled {
-			continue
-		}
-		enabledCount++
-		if !a.NextRunAt.IsZero() && (nextRunAt.IsZero() || a.NextRunAt.Before(nextRunAt)) {
-			nextRunAt = a.NextRunAt
-		}
-	}
+	narrow := width < automationNarrowWidth
 
 	ui.Column(c.Key("automation-workspace-root")).
 		Fill().
@@ -1119,7 +1116,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 			}
 
 			// 没有任何自动化且未在新建时整页展示空态
-			if !loading && errMsg == "" && len(autos) == 0 && !isNew && selectedID == "" {
+			if !loading && errMsg == "" && len(autos) == 0 && !isNew && selectedID == "" && strings.TrimSpace(searchText) == "" && as.filter == 0 && !as.unreadOnly {
 				ui.Column(c.Key("automation-empty-full")).
 					Grow(1).
 					FillWidth().
@@ -1138,14 +1135,8 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 									FontSize(TypePageTitle).
 									FontWeight(700).
 									TextColor(ThemePrimaryText(c))
-								ui.Text(c, "自动化会按计划自动启动 Agent 会话，完成巡检、审计或看护等周期任务，并在满足停止条件时自动结束。").
-									FontSize(TypeBody).
-									TextColor(ThemeSecondaryText(c)).
-									TextAlign(ui.Center).
-									MaxLines(2).
-									MaxWidth(automationEmptyHintMaxWidth)
 							})
-						Button(c.Key("automation-empty-create"), ButtonOpts{
+						newButton := Button(c.Key("automation-empty-create"), ButtonOpts{
 							Icon:     IconPlus(),
 							Text:     "创建第一个自动化",
 							Label:    "automation-empty-create",
@@ -1156,88 +1147,26 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 							Variant: ButtonPrimary,
 							Size:    ControlMD,
 						})
+						if as.focusEditorTrigger {
+							newButton.Focus()
+							as.focusEditorTrigger = false
+						}
 					})
 				return
 			}
 
-			// 页面顶栏汇总：已启用 X / 共 Y、下次运行、新建
-			ui.Row(c.Key("automation-summary")).
-				FillWidth().
-				Padding(Space3, Space6).
-				Radius(RadiusMD).
-				Background(ThemeOverlay(c, 0.04)).
-				AlignItems(ui.Center).
-				Gap(Space5).
-				Children(func() {
-					ui.Row(c.Key("automation-summary-active")).Gap(Space2).AlignItems(ui.Center).Children(func() {
-						ui.Icon(c, IconCircleCheck()).
-							Size(IconSM, IconSM).
-							TextColor(ThemeAccent(c))
-						ui.Text(c, fmt.Sprintf("已启用 %d / 共 %d", enabledCount, len(visible))).
-							FontSize(TypeBody).
-							FontWeight(500).
-							TextColor(ThemePrimaryText(c))
-					})
-					if !nextRunAt.IsZero() {
-						ui.Row(c.Key("automation-summary-next")).Gap(Space2).AlignItems(ui.Center).Children(func() {
-							ui.Icon(c, IconClock()).
-								Size(IconSM, IconSM).
-								TextColor(ThemeSecondaryText(c))
-							ui.Text(c, "下次运行 "+formatRelativeUntil(nextRunAt.Local())).
-								FontSize(TypeCaption).
-								TextColor(ThemeSecondaryText(c)).
-								SingleLine()
-						})
-					}
-					ui.Box(c.Key("automation-summary-spacer")).Grow(1)
-					Button(c.Key("automation-summary-new-btn"), ButtonOpts{
-						Icon:     IconPlus(),
-						Text:     "新建自动化",
-						Label:    "automation-summary-new-btn",
-						Disabled: curPID == "" || saving,
-						OnClick: func() {
-							as.resetToNewAutomation(s)
-						},
-						Variant: ButtonPrimary,
-						Size:    ControlSM,
-					})
-				})
 			if errMsg != "" && len(autos) > 0 {
 				ui.Text(c, "刷新失败: "+errMsg).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
 			}
-			// 1. 版本冲突横幅
-			if conflict {
-				ui.Row(c.Key("automation-conflict-banner")).
-					FillWidth().
-					Padding(Space3, Space4).
-					Radius(RadiusMD).
-					Background(ThemeWarning(c).Alpha(0.16)).
-					AlignItems(ui.Center).
-					Gap(Space4).
-					Children(func() {
-						ui.Icon(c, IconOctagonAlert()).
-							Size(IconMD, IconMD).
-							TextColor(ThemeWarning(c))
-						ui.Text(c, "数据已在别处被修改，请刷新后重试").
-							FontSize(TypeBody).
-							FontWeight(500).
-							TextColor(ThemeWarning(c)).
-							Grow(1)
-						Button(c.Key("automation-conflict-refresh"), ButtonOpts{
-							Text:  "刷新",
-							Label: "automation-conflict-refresh",
-							OnClick: func() {
-								automationMu.Lock()
-								as.conflict = false
-								as.draftBaseline = as.draft()
-								automationMu.Unlock()
-								s.loadAutomations(curPID)
-							},
-							Variant: ButtonPrimary,
-						})
-					})
+			if as.conflict && !as.editorOpen {
+				ui.Row(c.Key("automation-conflict-banner")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, "数据已在别处被修改，请刷新后重试").TextColor(ThemeWarning(c)).Grow(1)
+					Button(c.Key("automation-conflict-refresh"), ButtonOpts{Text: "刷新", Label: "automation-conflict-refresh", Variant: ButtonSecondary, OnClick: func() {
+						as.conflict = false
+						s.loadAutomationList(curPID, false)
+					}})
+				})
 			}
-
 			// 2. 左右双栏：左侧列表，右侧编辑与运行详情
 			ui.Row(c.Key("automation-main-row")).
 				Grow(1).
@@ -1257,7 +1186,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 						if narrow {
 							listCol.Grow(1)
 						} else {
-							listCol.Width(320)
+							listCol.Width(automationListWidth)
 						}
 						listCol.Children(func() {
 							// 列表头与新建按钮
@@ -1273,7 +1202,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 									renderAutomationUnreadBadge(c, "automation-list-unread-badge", totalUnread)
 									ui.Box(c.Key("automation-list-header-spacer")).Grow(1)
 
-									Button(c.Key("automation-new-btn"), ButtonOpts{
+									newButton := Button(c.Key("automation-new-btn"), ButtonOpts{
 										Icon:     IconPlus(),
 										Text:     "新建",
 										Label:    "automation-new-btn",
@@ -1284,6 +1213,10 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 										Variant: ButtonPrimary,
 										Size:    ControlSM,
 									})
+									if as.focusEditorTrigger && selectedID == "" {
+										newButton.Focus()
+										as.focusEditorTrigger = false
+									}
 								})
 							Segmented(c, "automation-status-filter", &as.filter, []Segment{{Label: "全部"}, {Label: "失败"}, {Label: "暂停"}}, func(i int) { as.filter = i; s.invalidate() })
 							unreadOnly := as.unreadOnly
@@ -1359,12 +1292,11 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 											for _, a := range visible {
 												autoVal := a
 												isSelected := autoVal.ID == selectedID && !isNew
-												isRunning := runningIDs[autoVal.ID] || autoVal.LastRunStatus == "running"
-												isBusy := busyIDs[autoVal.ID]
 												pillText, pillKind := automationCardStatus(autoVal, runningIDs[autoVal.ID])
 												pillColor := automationCardStatusColor(c, pillKind)
 												itemRow := ui.Column(c.Key("automation-item-"+autoVal.ID)).
 													Label("自动化项 "+autoVal.Name).
+													Transition(motionListItem(c)).
 													FillWidth().
 													Padding(Space4, Space4).
 													Radius(RadiusMD).
@@ -1384,41 +1316,6 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 													as.selectAutomation(autoVal, s)
 												}
 
-												// 后端缺对应方法的右键菜单项已省略
-												itemRow.ContextMenu(func(m *ui.Menu) {
-													if !isRunning {
-														if m.Item("立即运行").Chosen() {
-															s.runAutomationNow(autoVal.ID)
-														}
-													}
-													if m.Item("查看运行记录").Chosen() {
-														as.selectAutomation(autoVal, s)
-													}
-													if m.Item("编辑").Chosen() {
-														as.selectAutomation(autoVal, s)
-													}
-													if autoVal.ConsecutiveFailures > 0 {
-														if m.Item("重置失败计数").Chosen() {
-															s.setAutomationEnabled(autoVal, true)
-														}
-													}
-													m.Separator()
-													toggleLabel := "暂停"
-													if !autoVal.Enabled {
-														toggleLabel = "恢复"
-													}
-													if m.Item(toggleLabel).Chosen() {
-														s.setAutomationEnabled(autoVal, !autoVal.Enabled)
-													}
-													if m.Item("复制").Chosen() {
-														s.duplicateAutomation(autoVal)
-													}
-													m.Separator()
-													if m.Item("删除").Danger().Chosen() {
-														s.deleteAutomation(autoVal.ID)
-													}
-												})
-
 												itemRow.Children(func() {
 													// 第一行：启用开关、名称、状态胶囊
 													ui.Row(c.Key("automation-item-row1-" + autoVal.ID)).
@@ -1426,13 +1323,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 														AlignItems(ui.Center).
 														Gap(Space3).
 														Children(func() {
-															enabledVal := autoVal.Enabled
-															// 标签只交给无障碍树，不作为可见文字显示
-															ui.Switch(c.Key("automation-item-toggle-"+autoVal.ID), &enabledVal).
-																Label("启用自动化 " + autoVal.Name)
-															if enabledVal != autoVal.Enabled {
-																s.setAutomationEnabled(autoVal, enabledVal)
-															}
+															ui.Box(c.Key("automation-status-dot-"+autoVal.ID)).Size(8, 8).Radius(4).Background(pillColor).Label(pillText)
 
 															nameColor := ThemeSecondaryText(c)
 															if autoVal.Enabled {
@@ -1445,22 +1336,8 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 																Grow(1).
 																SingleLine()
 
-															if pillText != "" {
-																ui.Row(c.Key("auto-status-pill-"+autoVal.ID)).
-																	Padding(Space1, Space2).
-																	Radius(RadiusMD).
-																	AlignItems(ui.Center).
-																	Gap(Space1).
-																	Background(pillColor.Alpha(0.15)).
-																	Children(func() {
-																		if pillKind == "running" {
-																			LoadingIndicator(c, nil, "", automationPillSpinnerSize, pillColor)
-																		}
-																		ui.Text(c, pillText).
-																			FontSize(TypeCaption).
-																			FontWeight(700).
-																			TextColor(pillColor)
-																	})
+															if unread[autoVal.ID] > 0 {
+																ui.Box(c.Key("automation-unread-dot-"+autoVal.ID)).Size(6, 6).Radius(3).Background(ThemeAccent(c)).Label("未读")
 															}
 														})
 
@@ -1471,136 +1348,13 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 														Gap(Space3).
 														AlignItems(ui.Center).
 														Children(func() {
-															ui.Row(c.Key("auto-schedule-chip-"+autoVal.ID)).
-																Padding(Space1, Space2).
-																Radius(RadiusXS).
-																AlignItems(ui.Center).
-																Background(ThemeAccent(c).Alpha(0.10)).
-																Children(func() {
-																	ui.Text(c, automationScheduleText(autoVal.Schedule)).
-																		FontSize(TypeCaption).
-																		FontWeight(500).
-																		TextColor(ThemeAccent(c)).
-																		SingleLine()
-																})
-															// 已启用但没有下次运行时间时不显示占位文案
-															if autoVal.Enabled {
-																if !autoVal.NextRunAt.IsZero() {
-																	ui.Text(c, "下次 "+formatRelativeUntil(autoVal.NextRunAt.Local())).
-																		FontSize(TypeCaption).
-																		TextColor(ThemeSecondaryText(c)).
-																		SingleLine()
-																}
-															} else if strings.TrimSpace(autoVal.StopReason) != "" {
-																ui.Text(c, autoVal.StopReason).
-																	FontSize(TypeCaption).
-																	TextColor(ThemeWarning(c)).
-																	SingleLine()
-															}
-															if !autoVal.LastRunAt.IsZero() {
-																ui.Text(c, "上次 "+formatRelativeTime(autoVal.LastRunAt.Local())).
-																	FontSize(TypeCaption).
-																	TextColor(ThemeSecondaryText(c)).
-																	SingleLine()
+															if autoVal.Enabled && !autoVal.NextRunAt.IsZero() {
+																ui.Text(c, automationShortTime(autoVal.NextRunAt.Local(), time.Now().Local())).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c)).SingleLine()
+															} else if pillText != "" {
+																ui.Text(c, pillText).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c)).SingleLine()
 															}
 														})
 
-													// Prompt 预览，最多两行
-													if strings.TrimSpace(autoVal.Prompt) != "" {
-														ui.Text(c, autoVal.Prompt).
-															FontSize(TypeFootnote).
-															TextColor(ThemeSecondaryText(c)).
-															MaxLines(2)
-													}
-
-													// 收敛目标（stopWhen）
-													if strings.TrimSpace(autoVal.StopWhen) != "" {
-														ui.Text(c, "收敛目标: "+autoVal.StopWhen).
-															FontSize(TypeCaption).
-															FontWeight(500).
-															TextColor(ThemeAccent(c)).
-															SingleLine()
-													}
-
-													// 连续失败警告与重置
-													if autoVal.ConsecutiveFailures > 0 {
-														ui.Row(c.Key("auto-failures-"+autoVal.ID)).
-															FillWidth().
-															Padding(Space1, Space2).
-															Radius(RadiusXS).
-															Background(ThemeDanger(c).Alpha(0.08)).
-															AlignItems(ui.Center).
-															Gap(Space2).
-															Children(func() {
-																ui.Icon(c, IconOctagonAlert()).
-																	Size(IconSM, IconSM).
-																	TextColor(ThemeDanger(c))
-																ui.Text(c, fmt.Sprintf("连续失败 %d 次（上限 %d）", autoVal.ConsecutiveFailures, autoVal.MaxConsecutiveFailures)).
-																	FontSize(TypeCaption).
-																	TextColor(ThemeDanger(c)).
-																	Grow(1).
-																	SingleLine()
-																Button(c.Key("auto-reset-failures-"+autoVal.ID), ButtonOpts{
-																	Text:     "重置",
-																	Label:    "auto-reset-failures-" + autoVal.ID,
-																	Disabled: isBusy,
-																	OnClick: func() {
-																		s.setAutomationEnabled(autoVal, true)
-																	},
-																	Variant: ButtonSecondary,
-																	Size:    ControlXS,
-																})
-															})
-													}
-
-													// 操作行前的 1px 分隔线
-													ui.Box(c.Key("auto-actions-divider-" + autoVal.ID)).
-														FillWidth().
-														Height(Hairline).
-														Background(ThemeOverlay(c, 0.2))
-
-													// 操作：立即运行、运行记录、复制；卡片窄时换行，避免「复制」被裁掉。
-													ui.Row(c.Key("automation-item-actions-" + autoVal.ID)).
-														FillWidth().
-														Wrap().
-														AlignItems(ui.Center).
-														Gap(Space3).
-														Children(func() {
-															ui.Box(c.Key("auto-actions-spacer-" + autoVal.ID)).Grow(1)
-
-															Button(c.Key("auto-run-now-"+autoVal.ID), ButtonOpts{
-																Icon:     IconPlay(),
-																Text:     "立即运行",
-																Label:    "auto-run-now-" + autoVal.ID,
-																Disabled: isRunning || isBusy,
-																OnClick: func() {
-																	s.runAutomationNow(autoVal.ID)
-																},
-																Variant: ButtonSecondary,
-																Size:    ControlXS,
-															})
-
-															Button(c.Key("auto-runs-"+autoVal.ID), ButtonOpts{
-																Text:  fmt.Sprintf("运行记录(%d)", autoVal.TotalRunCount),
-																Label: "auto-runs-" + autoVal.ID,
-																OnClick: func() {
-																	as.selectAutomation(autoVal, s)
-																},
-																Variant: ButtonSecondary,
-																Size:    ControlXS,
-															})
-
-															Button(c.Key("auto-duplicate-"+autoVal.ID), ButtonOpts{
-																Text:     "复制",
-																Label:    "auto-duplicate-" + autoVal.ID,
-																Disabled: saving || isBusy,
-																OnClick: func() {
-																	s.duplicateAutomation(autoVal)
-																},
-																Variant: ButtonSecondary,
-																Size:    ControlXS,
-															})
-														})
 												})
 											}
 										})
@@ -1612,6 +1366,7 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 					if !narrow || (as.narrowDetail && selectedID != "") {
 						ui.Column(c.Key("automation-detail-col")).
 							Grow(1).
+							Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).
 							FillHeight().
 							Radius(RadiusMD).
 							Background(ThemeSurface(c)).
@@ -1639,20 +1394,41 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 									ui.Row(c.Key("automation-selected-header")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 										ui.Text(c, selected.Name).FontSize(TypeTitle).TextColor(ThemePrimaryText(c)).Grow(1)
 										enabled := selected.Enabled
-										if ui.Switch(c.Key("automation-detail-toggle"), &enabled).Label("启用自动化").Changed() {
+										if ui.Switch(c.Key("automation-detail-toggle"), &enabled).Label("启用自动化").Disabled(busyIDs[selectedID]).Changed() {
 											s.setAutomationEnabled(selected, enabled)
 										}
-										Button(c.Key("automation-detail-run"), ButtonOpts{Text: "立即运行", Disabled: runningIDs[selectedID] || busyIDs[selectedID], OnClick: func() { s.runAutomationNow(selectedID) }, Variant: ButtonSecondary})
+										Button(c.Key("automation-detail-run"), ButtonOpts{Text: "立即运行", Label: "auto-run-now-" + selectedID, Disabled: runningIDs[selectedID] || busyIDs[selectedID], OnClick: func() { s.runAutomationNow(selectedID) }, Variant: ButtonSecondary})
+										more := IconButton(c.Key("automation-detail-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "自动化更多操作", Variant: ButtonGhost, OnClick: func() { as.moreOpen = true }})
+										appPopover(c, more, &as.moreOpen, nil, func() {
+											popoverCard(c, ui.Column(c.Key("automation-more-menu"))).Padding(Space2, Space2).Gap(Space1).Children(func() {
+												Button(c.Key("automation-copy"), ButtonOpts{Text: "复制", Label: "auto-duplicate-" + selectedID, Disabled: saving || busyIDs[selectedID], Variant: ButtonGhost, OnClick: func() { as.moreOpen = false; s.duplicateAutomation(selected) }})
+												Button(c.Key("automation-delete"), ButtonOpts{Text: "删除", Variant: ButtonDanger, OnClick: func() { as.moreOpen = false; s.deleteAutomation(selectedID) }})
+											})
+										})
 									})
 									ui.Text(c, automationScheduleText(selected.Schedule)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+									if status, _ := automationCardStatus(selected, runningIDs[selectedID]); status != "" {
+										ui.Text(c, status).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+									}
+									if selected.StopReason != "" {
+										ui.Text(c, selected.StopReason).FontSize(TypeFootnote).TextColor(ThemeWarning(c))
+									}
 									Segmented(c, "automation-detail-tabs", &as.detailTab, []Segment{{Label: "运行记录"}, {Label: "配置"}}, func(idx int) { as.detailTab = idx; s.invalidate() })
 									if as.detailTab == 0 {
-										ui.Scroll(c.Key("automation-history-scroll")).Grow(1).FillWidth().Children(func() {
+										scrollKey := "automation-history-scroll"
+										if openRunID != "" {
+											scrollKey = "automation-history-detail-scroll"
+										}
+										ui.Scroll(c.Key(scrollKey)).Grow(1).FillWidth().Children(func() {
 											renderAutomationRunHistory(c, s, as, false, selectedID, selectedUnread, includeArchived, runsLoading, runsErr, runs, runRead, runArchived, openRunID)
 										})
 									} else {
 										ui.Text(c, selected.Prompt).TextColor(ThemePrimaryText(c))
-										Button(c.Key("automation-edit"), ButtonOpts{Text: "编辑", OnClick: func() { as.fillAutomation(selected); as.editorOpen = true; s.invalidate() }, Variant: ButtonSecondary})
+										editButton := Button(c.Key("automation-edit"), ButtonOpts{Text: "编辑", OnClick: func() { as.fillAutomation(selected); as.editorOpen = true; s.invalidate() }, Variant: ButtonSecondary})
+										if as.focusEditorTrigger {
+											editButton.Focus()
+											as.focusEditorTrigger = false
+										}
 									}
 								}
 							})
@@ -1662,7 +1438,8 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 	if as.editorOpen {
 		open := true
 		modalDragModal(c, "automation-editor-modal", &open, func() {
-			ui.Column(c.Key("automation-editor-card")).Width(700).Height(650).MaxWidth(700).Background(ThemeSurface(c)).Radius(RadiusMD).Padding(Space5, Space5).Gap(Space4).Children(func() {
+			_, height := c.Size()
+			ui.Column(c.Key("automation-editor-card")).Width(700).Height(650).MaxWidth(700).MaxHeight(height-modalDragPanelInset).Background(ThemeSurface(c)).Radius(RadiusMD).Padding(Space5, Space5).Gap(Space4).Children(func() {
 				renderAutomationEditor(c, s, as, isNew, selectedID, formErr, saving, confirmDelete, runningIDs, busyIDs, selectedUnread, includeArchived, runsLoading, runsErr, runs, runRead, runArchived, openRunID)
 			})
 		})

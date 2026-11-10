@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 type createRequest struct {
@@ -156,9 +158,9 @@ func TestKanbanCreation_QuickAddContinuous(t *testing.T) {
 	s, ks, c := creationSetup()
 	ks.quickAddOpen = true
 	ks.quickAddText = "one"
-	s.submitQuickAdd("p1")
+	s.submitQuickAdd()
 	r := nextCreate(t, c.tasks)
-	s.submitQuickAdd("p1")
+	s.submitQuickAdd()
 	select {
 	case <-c.tasks:
 		t.Fatal("重复快速新建")
@@ -170,11 +172,73 @@ func TestKanbanCreation_QuickAddContinuous(t *testing.T) {
 		t.Fatal("输入框被关闭")
 	}
 	ks.quickAddText = "two"
-	s.submitQuickAdd("p1")
+	s.submitQuickAdd()
 	r = nextCreate(t, c.tasks)
 	if r.title != "two" {
 		t.Fatal("第二次创建失败")
 	}
 	r.reply <- nil
 	awaitKanban(t, s, func() bool { return ks.quickAddText == "" })
+}
+
+func TestKanbanQuickAddUsesSelectedScope(t *testing.T) {
+	s, ks, client := creationSetup()
+	s.setKanbanScope("p2", false)
+	defer stopKanbanWatch(s)
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() { renderTodoQuickAdd(c, s, ks) })
+	}, 840, 520)
+	tt.Frame()
+	if err := tt.Click("kanban-quick-add-toggle"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Type("项目 B 的任务")
+	tt.Key(0, ui.KeyEnter)
+	r := nextCreate(t, client.tasks)
+	if r.project != "p2" || r.title != "项目 B 的任务" {
+		t.Fatalf("创建请求错误: %+v", r)
+	}
+	r.reply <- nil
+	awaitKanban(t, s, func() bool { return ks.quickAddText == "" })
+}
+
+func TestKanbanQuickAddAllProjectsRequiresSelection(t *testing.T) {
+	s, ks, client := creationSetup()
+	s.projects = []Project{{ID: "p1", Name: "项目 A", Path: "/a"}, {ID: "p2", Name: "项目 B", Path: "/b"}}
+	s.setKanbanScope("", true)
+	defer stopKanbanWatch(s)
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Fill().Children(func() { renderTodoQuickAdd(c, s, ks) })
+		renderKanbanNewTaskSheet(c, s)
+	}, 840, 520)
+	tt.Frame()
+	if err := tt.Click("kanban-quick-add-toggle"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !ks.showNewTask || ks.newTaskProjectID != "" || !tt.HasText("选择项目") {
+		t.Fatal("全部项目范围应打开未选项目的任务表单")
+	}
+	ks.newTaskTitle = "任务"
+	submitKanbanNewTask(s)
+	select {
+	case <-client.tasks:
+		t.Fatal("未选择项目时创建了任务")
+	default:
+	}
+	if err := tt.Click("选择项目"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("项目 B") })
+	if err := tt.Click("项目 B"); err != nil {
+		t.Fatal(err)
+	}
+	submitKanbanNewTask(s)
+	r := nextCreate(t, client.tasks)
+	if r.project != "p2" {
+		t.Fatalf("创建项目 = %q，期望 p2", r.project)
+	}
+	r.reply <- nil
+	awaitKanban(t, s, func() bool { return !ks.newTaskBusy })
 }

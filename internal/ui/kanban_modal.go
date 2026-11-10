@@ -25,9 +25,6 @@ const (
 	kanbanColumnMinWidth = float32(270)
 	// kanbanTopBarHeight 是弹窗顶栏（标题 + 视图切换 + 操作按钮）的高度。
 	kanbanTopBarHeight float32 = 52
-	// 单行宽度估算：标题与计数 128、范围胶囊 80、项目选择 154、搜索 140、视图分段 170，
-	// 两个文字按钮各 94、刷新和关闭各 28、间距 9×12、左右内边距各 16。
-	kanbanHeaderSingleRowMinWidth float32 = 128 + 80 + 154 + 140 + 170 + 2*94 + 2*ControlMD + 9*Space4 + 2*Space5
 	// kanbanEmptyIconSize 是空态插图的边长。
 	kanbanEmptyIconSize float32 = 36
 	// kanbanProjectPickerMaxHeight 是项目下拉浮层列表的最大高度，超出后在浮层内滚动。
@@ -347,157 +344,6 @@ func kanbanGoalMenu(c *ui.Context, s *chatState, ks *kanbanState, p kanbanModalB
 	})
 }
 
-// renderKanbanModalHeaderLegacy 保留旧布局供既有内部辅助函数使用。
-func renderKanbanModalHeaderLegacy(c *ui.Context, s *chatState, ks *kanbanState, p kanbanModalBodyProps, width float32) {
-	primaryText := ThemePrimaryText(c)
-
-	header := ui.Column(c.Key("kanban-modal-header")).
-		Label("kanban-modal-header").FillWidth().Gap(0).
-		BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c))
-	compact := width > 0 && width < kanbanHeaderSingleRowMinWidth
-	height := kanbanTopBarHeight
-	if compact {
-		height *= 2
-	}
-	renderScope := func() {
-		if p.overview {
-			kanbanHeaderPill(c, "kanban-overview-current", "当前项目", true, func() {
-				if p.projectID != "" {
-					s.setKanbanScope(p.projectID, false)
-				}
-			})
-		} else {
-			kanbanHeaderPill(c, "kanban-back-overview", "全部项目", false, func() {
-				s.setKanbanScope("", true)
-			})
-		}
-		kanbanProjectMenu(c, s, p.projectID, func(id string) { s.setWorkspaceProject(id) })
-	}
-	renderSearch := func() {
-		kanbanMu.Lock()
-		searchQuery := ks.searchText
-		kanbanMu.Unlock()
-		kanbanSearchRow(c, s, ks, &searchQuery)
-	}
-	header.Height(height).Children(func() {
-		ui.Row(c.Key("kanban-header-main")).FillWidth().Height(kanbanTopBarHeight).
-			Padding(0, Space5).AlignItems(ui.Center).Gap(Space4).Children(func() {
-			// 看板图标 + 「任务与看板」+ 任务总数徽标
-			// 标题不可压缩，否则窄窗口下会被压成「任...」。
-			titleRow := ui.Row(c.Key("kanban-modal-title")).AlignItems(ui.Center).Gap(Space3).Shrink(0)
-			if s.tasksWindowView == "" {
-				modalDragHandle(c, modalDragKanbanWorkspace, titleRow)
-			}
-			titleRow.Children(func() {
-				ui.Icon(c, IconColumns3()).Size(IconSM, IconSM).TextColor(ThemeAccent(c)).Shrink(0)
-				ui.Text(c, "任务与看板").
-					FontSize(TypeProse).
-					FontWeight(600).
-					TextColor(primaryText).
-					SingleLine().
-					Shrink(0)
-				kanbanCountBadge(c, "kanban-modal-task-count", len(p.board.Tasks), nil)
-			})
-
-			if !compact {
-				renderScope()
-			}
-
-			ui.Box(c.Key("kanban-header-spacer")).Grow(1)
-
-			if !compact {
-				renderSearch()
-			}
-
-			// 看板 / 列表 / 自动化：只影响当前会话，不写回配置
-			viewIdx := 0
-			switch p.viewMode {
-			case config.KanbanViewList:
-				viewIdx = 1
-			case kanbanViewAutomations:
-				viewIdx = 2
-			}
-			seg := kanbanViewSwitch(c, &viewIdx)
-			if seg.Changed() {
-				kanbanMu.Lock()
-				switch viewIdx {
-				case 1:
-					ks.viewMode = config.KanbanViewList
-				case 2:
-					ks.viewMode = kanbanViewAutomations
-				default:
-					ks.viewMode = config.KanbanViewKanban
-				}
-				kanbanMu.Unlock()
-				s.invalidate()
-			}
-
-			// 批量动作接入前隐藏入口：多选目前没有任何批量操作，先不渲染「批量选择」按钮。
-
-			if compact {
-				IconButton(c.Key("kanban-new-task-toggle"), IconButtonProps{
-					Icon: IconPlus(), Label: "新建任务", Tooltip: "新建任务", Disabled: p.projectID == "",
-					OnClick: func() { kanbanNewTaskAction(s) }, Variant: ButtonSecondary,
-				})
-				IconButton(c.Key("kanban-new-goal-toggle"), IconButtonProps{
-					Icon: IconWandSparkles(), Label: "新建目标", Tooltip: "新建目标", Disabled: p.projectID == "",
-					OnClick: func() { kanbanNewGoalAction(s) }, Variant: ButtonPrimary,
-				})
-			} else {
-				Button(c.Key("kanban-new-task-toggle"), ButtonOpts{
-					Icon:     IconPlus(),
-					Text:     "新建任务",
-					Label:    "新建任务",
-					Disabled: p.projectID == "",
-					OnClick: func() {
-						kanbanNewTaskAction(s)
-					},
-					Variant: ButtonSecondary,
-				})
-
-				Button(c.Key("kanban-new-goal-toggle"), ButtonOpts{
-					Icon:     IconWandSparkles(),
-					Text:     "新建目标",
-					Label:    "新建目标",
-					Disabled: p.projectID == "",
-					OnClick: func() {
-						kanbanNewGoalAction(s)
-					},
-					Variant: ButtonPrimary,
-				})
-			}
-			ui.Row(c.Key("kanban-header-actions")).Shrink(0).AlignItems(ui.Center).Gap(Space4).Children(func() {
-				IconButton(c.Key("kanban-refresh-btn"), IconButtonProps{
-					Icon:  IconRefreshCw(),
-					Label: "刷新",
-					OnClick: func() {
-						s.loadKanban(p.scopeID)
-					},
-					Variant: ButtonGhost,
-					Size:    ControlMD,
-				})
-				if s.tasksWindowView != "" {
-					IconButton(c.Key("kanban-window-close"), IconButtonProps{
-						Icon:    IconX(),
-						Label:   "关闭任务与看板",
-						OnClick: s.closeTasksWindow,
-						Variant: ButtonGhost,
-						Size:    ControlMD,
-					})
-				}
-			})
-		})
-		if compact {
-			ui.Row(c.Key("kanban-header-filters")).FillWidth().Height(kanbanTopBarHeight).
-				Padding(0, Space5).AlignItems(ui.Center).Gap(Space4).Children(func() {
-				renderScope()
-				ui.Box(c.Key("kanban-header-filter-spacer")).Grow(1)
-				renderSearch()
-			})
-		}
-	})
-}
-
 // kanbanNewTaskAction 打开新建任务弹窗；工具栏按钮与空态按钮共用。
 func kanbanNewTaskAction(s *chatState) {
 	openKanbanNewTaskSheet(s)
@@ -506,40 +352,6 @@ func kanbanNewTaskAction(s *chatState) {
 // kanbanNewGoalAction 打开新建目标弹窗；工具栏按钮与空态按钮共用。
 func kanbanNewGoalAction(s *chatState) {
 	openKanbanNewGoalSheet(s)
-}
-
-// kanbanHeaderPill 渲染头部的小号 accent 胶囊按钮；filled 为 true 表示当前选中的范围。
-func kanbanHeaderPill(c *ui.Context, key, label string, filled bool, onClick func()) {
-	Capsule(c, CapsuleProps{
-		Key:         key,
-		Text:        label,
-		Icon:        IconLayoutDashboard(),
-		Tone:        ToneAccent,
-		Size:        ControlSM,
-		Interactive: true,
-		Selected:    filled,
-		Tooltip:     label,
-		OnClick:     onClick,
-	})
-}
-
-// kanbanCountBadge 渲染数量徽标。
-func kanbanCountBadge(c *ui.Context, key string, count int, onClick func()) {
-	badge := ui.Row(c.Key(key)).
-		Label(fmt.Sprintf("%s-%d", key, count)).
-		Padding(Space0, Space2).
-		Radius(RadiusMD).
-		Background(ThemeOverlay(c, 0.08)).
-		Center()
-	if onClick != nil {
-		badge.OnClick(onClick)
-	}
-	badge.Children(func() {
-		ui.Text(c, fmt.Sprintf("%d", count)).
-			FontSize(TypeCaption).
-			FontWeight(600).
-			TextColor(ThemeSecondaryText(c))
-	})
 }
 
 // kanbanViewSwitchCount 是看板视图分段控件的段数：看板、列表、自动化。
@@ -1016,6 +828,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 			// 6. 看板五列横向排列：每列至少 270，窗口拉窄后横向滚动，不再压缩列宽
 			colWidth := kanbanBoardColumnWidth(c, s)
 			ui.ScrollHorizontal(c.Key("kanban-columns-row")).
+				TrackScroll(&ks.columnsScroll).
 				Grow(1).
 				FillWidth().
 				MinWidth(0).

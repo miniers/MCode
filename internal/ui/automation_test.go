@@ -214,7 +214,8 @@ func TestAutomationWorkspace_Create(t *testing.T) {
 			c.Schedule.Type == "interval" &&
 			c.Schedule.Seconds == 3600 // 默认 60 分钟 * 60 秒
 	})
-	waitFor(t, tt, func() bool { return tt.HasText("编辑自动化") })
+	waitFor(t, tt, func() bool { return tt.HasText("运行记录") })
+	openAutomationEditor(t, tt)
 	if err := tt.Click("automation-save"); err != nil {
 		t.Fatal(err)
 	}
@@ -305,6 +306,18 @@ func newWorkspaceTester(t *testing.T, client Client, view string) (*ui.Tester, *
 	return tt, state
 }
 
+func openAutomationEditor(t *testing.T, tt *ui.Tester) {
+	t.Helper()
+	if err := tt.Click("配置"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("编辑") })
+	if err := tt.Click("编辑"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("automation-save"); return ok })
+}
+
 func testAutomation(id, projectID string) Automation {
 	return Automation{
 		ID: id, ProjectID: projectID, Name: id, Prompt: "检查项目",
@@ -322,6 +335,7 @@ func TestAutomationWorkspace_RefreshConflictAndDraftRevision(t *testing.T) {
 	if err := tt.Click(auto.Name); err != nil {
 		t.Fatal(err)
 	}
+	openAutomationEditor(t, tt)
 	as := getAutomationState(s)
 	as.name = "本地草稿"
 	auto.Name = "远程配置"
@@ -363,7 +377,7 @@ func TestAutomationWorkspace_ProjectIsolation(t *testing.T) {
 	if err := tt.Click("auto-p1"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("编辑自动化") })
+	waitFor(t, tt, func() bool { return tt.HasText("运行记录") })
 	if err := tt.Click("workspace-project-p2"); err != nil {
 		t.Fatal(err)
 	}
@@ -391,6 +405,7 @@ func TestAutomationWorkspace_PreservesScheduleOnSave(t *testing.T) {
 			if err := tt.Click("auto-1"); err != nil {
 				t.Fatal(err)
 			}
+			openAutomationEditor(t, tt)
 			if err := tt.Click("automation-save"); err != nil {
 				t.Fatal(err)
 			}
@@ -420,7 +435,7 @@ func TestAutomationWorkspace_InvalidLimits(t *testing.T) {
 	}
 }
 
-// 汇总栏显示“已启用 X / 共 Y”，并展示最近一次计划运行时间
+// 列表保留各自动化及唯一的新建入口。
 func TestAutomationWorkspace_Summary(t *testing.T) {
 	fake := NewFakeClient()
 	now := time.Now()
@@ -441,12 +456,12 @@ func TestAutomationWorkspace_Summary(t *testing.T) {
 	fake.SetAutomations([]Automation{nextA, nextB, paused})
 	tt, _ := newWorkspaceTester(t, fake, "automations")
 
-	waitFor(t, tt, func() bool { return tt.HasText("已启用 2 / 共 3") })
-	waitFor(t, tt, func() bool {
-		return tt.HasText("下次运行 " + formatRelativeUntil(nextB.NextRunAt.Local()))
-	})
-	if !tt.HasText("新建自动化") {
-		t.Fatal("summary lost the new-automation button")
+	waitFor(t, tt, func() bool { return tt.HasText("甲") && tt.HasText("乙") && tt.HasText("丙") })
+	if _, ok := tt.Find("automation-new-btn"); !ok {
+		t.Fatal("列表缺少新建入口")
+	}
+	if _, ok := tt.Find("automation-summary-new-btn"); ok {
+		t.Fatal("页面存在重复新建入口")
 	}
 }
 
@@ -455,9 +470,6 @@ func TestAutomationWorkspace_EmptyCreateButton(t *testing.T) {
 	fake := NewFakeClient()
 	tt, _ := newWorkspaceTester(t, fake, "automations")
 	waitFor(t, tt, func() bool { return tt.HasText("创建第一个自动化") })
-	if !tt.HasText("自动化会按计划自动启动 Agent 会话") {
-		t.Fatal("empty state is missing its description")
-	}
 	if err := tt.Click("automation-empty-create"); err != nil {
 		t.Fatal(err)
 	}
@@ -474,6 +486,13 @@ func TestAutomationWorkspace_Duplicate(t *testing.T) {
 	tt, s := newWorkspaceTester(t, fake, "automations")
 	waitFor(t, tt, func() bool { return tt.HasText("auto-1") })
 
+	if err := tt.Click("auto-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("自动化更多操作"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("auto-duplicate-auto-1") })
 	if err := tt.Click("auto-duplicate-auto-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -503,11 +522,11 @@ func TestAutomationWorkspace_TogglePause(t *testing.T) {
 	tt, s := newWorkspaceTester(t, fake, "automations")
 	waitFor(t, tt, func() bool { return tt.HasText("auto-1") })
 	as := getAutomationState(s)
-	automationMu.Lock()
-	as.fillAutomation(auto)
-	automationMu.Unlock()
+	if err := tt.Click("auto-1"); err != nil {
+		t.Fatal(err)
+	}
 
-	if err := tt.Click("启用自动化 auto-1"); err != nil {
+	if err := tt.Click("启用自动化"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {
@@ -516,7 +535,7 @@ func TestAutomationWorkspace_TogglePause(t *testing.T) {
 		return !as.enabled
 	})
 
-	if err := tt.Click("启用自动化 auto-1"); err != nil {
+	if err := tt.Click("启用自动化"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {
@@ -538,6 +557,7 @@ func TestAutomationCardStatusCompleted(t *testing.T) {
 		{name: "迭代用尽", auto: Automation{Status: "completed", Enabled: false, ConsecutiveFailures: 0}, want: "已完成", kind: "succeeded"},
 		{name: "连续失败暂停", auto: Automation{Status: "failed", Enabled: false, ConsecutiveFailures: 3}, want: "连续失败后暂停", kind: "failed"},
 		{name: "普通暂停", auto: Automation{Status: "paused", Enabled: false}, want: "已暂停", kind: "paused"},
+		{name: "失败后手动暂停", auto: Automation{Status: "paused", Enabled: false, ConsecutiveFailures: 1}, want: "已暂停", kind: "paused"},
 		{name: "运行中优先", auto: Automation{Status: "completed", Enabled: false, LastRunStatus: "running"}, want: "运行中", kind: "running"},
 	}
 	for _, tc := range cases {
@@ -561,7 +581,7 @@ func TestAutomationWorkspace_MaxRunsAndCatchUp(t *testing.T) {
 	if err := tt.Click(auto.Name); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("编辑自动化") })
+	openAutomationEditor(t, tt)
 
 	if err := tt.Click("automation-max-runs-input"); err != nil {
 		t.Fatal(err)

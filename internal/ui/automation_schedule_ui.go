@@ -418,7 +418,7 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 	}
 	as.updateSchedulePreview(s)
 	if as.previewVisible {
-		ui.Column(c.Key("automation-preview")).Gap(Space1).Children(func() {
+		ui.Column(c.Key("automation-preview")).Gap(Space1).Transition(motionListItem(c)).Children(func() {
 			ui.Text(c, "预计运行").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
 			loc := time.Local
 			if as.timezone != "" {

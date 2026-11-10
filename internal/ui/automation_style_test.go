@@ -46,9 +46,9 @@ func TestAutomationRenderBoundariesAndKeys(t *testing.T) {
 		file, function string
 		want           []string
 	}{
-		{"automation.go", "renderAutomationWorkspaceWithSearch", []string{"automation-detail-col", "renderAutomationEditor"}},
-		{"automation_editor.go", "renderAutomationEditor", []string{"automation-save", "automation-name-input", "automation-prompt-input", "renderAutomationScheduleFields", "automation-stop-when-input", "renderAutomationRunHistory"}},
-		{"automation_schedule_ui.go", "renderAutomationScheduleFields", []string{"form-sched-type-group", "form-sched-params", "automation-interval-select"}},
+		{"automation.go", "renderAutomationWorkspaceWithSearch", []string{"automation-detail-col", "renderAutomationRunHistory", "modalDragModal", "renderAutomationEditor"}},
+		{"automation_editor.go", "renderAutomationEditor", []string{"automation-save", "automation-name-input", "automation-prompt-input", "renderAutomationScheduleFields", "automation-stop-when-input"}},
+		{"automation_schedule_ui.go", "renderAutomationScheduleFields", []string{"form-sched-type-group", "form-sched-params", "automation-interval-input"}},
 		{"automation_run_history.go", "renderAutomationRunHistory", []string{"automation-runs-divider", "automation-runs-section", "automation-runs-header"}},
 	}
 	for _, tt := range tests {

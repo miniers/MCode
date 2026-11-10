@@ -3,6 +3,8 @@ package mcodeui
 import (
 	"sync"
 
+	"github.com/egoist/mygo/ui"
+
 	"mcode/internal/config"
 	"mcode/internal/git"
 )
@@ -74,20 +76,23 @@ func setKanbanPickerMenuOpen(s *chatState, open bool) {
 }
 
 type kanbanState struct {
-	projectID    string
-	scopeID      string
-	initialized  bool
-	loading      bool
-	err          string
-	board        KanbanBoard
-	conflict     bool
-	watchStop    func()
-	loadID       int
-	watchID      int
-	watchLoading bool
-	watchPending bool
-	loadingScope string
-	taskBusy     map[string]bool
+	listScroll    ui.ScrollState
+	columnsScroll ui.ScrollState
+	columnScroll  map[string]*ui.ScrollState
+	projectID     string
+	scopeID       string
+	initialized   bool
+	loading       bool
+	err           string
+	board         KanbanBoard
+	conflict      bool
+	watchStop     func()
+	loadID        int
+	watchID       int
+	watchLoading  bool
+	watchPending  bool
+	loadingScope  string
+	taskBusy      map[string]bool
 	// viewMode 保存任务的展示方式，destination 独立保存窗口目的。
 	viewMode         string
 	destination      string

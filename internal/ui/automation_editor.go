@@ -62,6 +62,19 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 				}
 			}
 		})
+	if as.conflict {
+		ui.Row(c.Key("automation-conflict-banner")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "数据已在别处被修改，请刷新后重试").TextColor(ThemeWarning(c)).Grow(1)
+			Button(c.Key("automation-conflict-refresh"), ButtonOpts{Text: "刷新", Label: "automation-conflict-refresh", Variant: ButtonPrimary, OnClick: func() {
+				automationMu.Lock()
+				as.conflict = false
+				as.draftBaseline = as.draft()
+				projectID := as.projectID
+				automationMu.Unlock()
+				s.loadAutomations(projectID)
+			}})
+		})
+	}
 	if as.confirmDiscard {
 		ui.Row(c.Key("automation-discard-confirm")).Gap(Space2).Children(func() {
 			ui.Text(c, "放弃未保存的修改？").TextColor(ThemePrimaryText(c))
@@ -69,9 +82,11 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 			Button(c.Key("automation-discard"), ButtonOpts{Text: "放弃", OnClick: func() {
 				as.confirmDiscard = false
 				as.editorOpen = false
+				as.focusEditorTrigger = true
 				if as.isNew {
 					as.isNew = false
 				}
+				s.invalidate()
 			}, Variant: ButtonDanger})
 		})
 	}
@@ -331,7 +346,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								automationMu.Unlock()
 								s.invalidate()
 							}
-							ui.Text(c, "错过触发时补跑一次（默认开启）").
+							ui.Text(c, "错过后补跑一次").
 								FontSize(TypeFootnote).
 								TextColor(ThemeSecondaryText(c))
 						})

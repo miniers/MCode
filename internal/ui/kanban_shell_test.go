@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -66,6 +67,41 @@ func TestTasksWindowEntrancesPreserveView(t *testing.T) {
 	s.setTasksWindowView("tasks")
 	if ks.destination != "tasks" || ks.viewMode != config.KanbanViewList {
 		t.Fatal("任务入口未保留列表视图")
+	}
+}
+
+func TestTasksWindowPreservesListScrollAcrossDestinations(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.projects = []Project{{ID: "p1", Name: "项目", Path: "/project"}}
+	ks := getKanbanState(s)
+	ks.viewMode = config.KanbanViewList
+	ks.destination = "tasks"
+	for i := 0; i < 40; i++ {
+		ks.board.Tasks = append(ks.board.Tasks, KanbanTask{ID: fmt.Sprintf("t%d", i), ProjectID: "p1", Title: fmt.Sprintf("任务 %02d", i), Column: "todo"})
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		p := kanbanModalBodyProps{destination: ks.destination, viewMode: ks.viewMode, board: ks.board, visibleBoard: ks.board}
+		ui.Column(c).Fill().Children(func() { renderKanbanModalBody(c, s, ks, p) })
+	}, 840, 520)
+	tt.Frame()
+	tt.Scroll(400, 300, 0, 600)
+	tt.Advance(time.Second)
+	before := ks.listScroll.Y
+	if before <= 0 {
+		t.Fatal("列表未滚动")
+	}
+	s.setTasksWindowView("automations")
+	tt.Frame()
+	if _, ok := tt.Find("kanban-list-group-todo"); ok {
+		t.Fatal("切换后仍显示任务列表")
+	}
+	s.setTasksWindowView("tasks")
+	tt.Frame()
+	if _, ok := tt.Find("kanban-list-group-todo"); !ok {
+		t.Fatal("切回后未显示任务列表")
+	}
+	if ks.listScroll.Y != before {
+		t.Fatalf("切换目的后列表位置从 %v 变为 %v", before, ks.listScroll.Y)
 	}
 }
 

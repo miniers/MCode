@@ -34,6 +34,7 @@ func (s *chatState) setKanbanScope(projectID string, all bool) {
 	ks.watchPending = false
 	ks.board = KanbanBoard{}
 	ks.err = ""
+	ks.quickAddOpen = false
 	kanbanMu.Unlock()
 	s.startKanbanWatch(projectID)
 	s.loadKanban(projectID)
@@ -253,7 +254,7 @@ func (s *chatState) createGoal(projectID, prompt string) {
 }
 
 // submitQuickAdd 提交待办列底部的快速添加，成功后清空草稿并保留输入框。
-func (s *chatState) submitQuickAdd(projectID string) {
+func (s *chatState) submitQuickAdd() {
 	if s == nil || s.client == nil {
 		return
 	}
@@ -262,9 +263,10 @@ func (s *chatState) submitQuickAdd(projectID string) {
 		return
 	}
 	kanbanMu.Lock()
+	projectID := ks.scopeID
 	draft := ks.quickAddText
 	title := strings.TrimSpace(draft)
-	if title == "" || ks.quickAddBusy {
+	if projectID == "" || title == "" || ks.quickAddBusy {
 		kanbanMu.Unlock()
 		return
 	}
@@ -290,7 +292,7 @@ func (s *chatState) submitQuickAdd(projectID string) {
 		}
 		s.updateWorkspace(func() {
 			kanbanMu.Lock()
-			if ks.projectID == projectID && ks.quickAddText == draft {
+			if ks.scopeID == projectID && ks.quickAddText == draft {
 				ks.quickAddText = ""
 			}
 			scope := ks.scopeID

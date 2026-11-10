@@ -30,14 +30,9 @@ func TestKanbanWorkspace_Empty(t *testing.T) {
 		return tt.HasText("还没有任务")
 	})
 
-	// 空态直接给出新建入口，文案指向两个按钮
-	waitFor(t, tt, func() bool {
-		return tt.HasText("新建一个任务，或用目标让 Agent 拆解规划")
-	})
-	// 紧凑工具栏使用图标按钮，文字节点数量会变化；按空态按钮的无障碍名称检查并点击。
+	// 空态提供新建任务，目标从新建菜单进入。
 	for _, item := range []struct{ label, sheet string }{
 		{"空态新建任务", "kanban-new-task-sheet"},
-		{"空态新建目标", "kanban-new-goal-sheet"},
 	} {
 		if _, ok := tt.Find(item.label); !ok {
 			t.Fatalf("找不到空态按钮 %s", item.label)
@@ -55,10 +50,24 @@ func TestKanbanWorkspace_Empty(t *testing.T) {
 			return !ok
 		})
 	}
-	// 空态说明文字只有空态框里有。
-	if n := exactTextCount(tt, "新建一个任务，或用目标让 Agent 拆解规划"); n != 1 {
-		t.Fatalf("empty state description should appear once, got %d: %v", n, tt.Texts())
+}
+
+func openKanbanGoalDetailForTest(t *testing.T, tt *ui.Tester, title string) {
+	t.Helper()
+	waitFor(t, tt, func() bool { _, ok := tt.Find("目标筛选"); return ok })
+	if err := tt.Click("目标筛选"); err != nil {
+		t.Fatal(err)
 	}
+	waitFor(t, tt, func() bool { return tt.HasText(title) })
+	if err := tt.Click(title); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("目标详情 " + title); return ok })
+	tt.Advance(DurBase + 50*time.Millisecond)
+	if err := tt.Click("目标详情 " + title); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("目标产物") })
 }
 
 // exactTextCount 统计渲染树中文本精确等于 text 的节点数量（Find 同样按精确匹配文本或 Label）。
@@ -325,7 +334,7 @@ func TestKanbanWorkspace_ReplanStates(t *testing.T) {
 				ID: "g1", ProjectID: "p1", Title: "测试目标", Status: status, Revision: 1,
 			}}})
 			tt, _ := newWorkspaceTester(t, fake, "tasks")
-			waitFor(t, tt, func() bool { return tt.HasText("测试目标") })
+			openKanbanGoalDetailForTest(t, tt, "测试目标")
 			if tt.HasText("重新规划") != (status != "running") {
 				t.Fatalf("incorrect replan action for %s", status)
 			}
@@ -1095,7 +1104,7 @@ func TestKanbanWorkspace_GoalOutputsModal(t *testing.T) {
 	})
 	tt, _ := newWorkspaceTester(t, fake, "tasks")
 
-	waitFor(t, tt, func() bool { return tt.HasText("目标一") })
+	openKanbanGoalDetailForTest(t, tt, "目标一")
 
 	if err := tt.Click("goal-outputs-goal-1"); err != nil {
 		t.Fatalf("click goal outputs failed: %v", err)
@@ -1113,6 +1122,9 @@ func TestKanbanWorkspace_GoalOutputsModal(t *testing.T) {
 		return !open
 	})
 
+	tt.Key(0, ui.KeyEscape)
+	waitFor(t, tt, func() bool { return !tt.HasText("目标产物") })
+	openKanbanGoalDetailForTest(t, tt, "目标二")
 	if err := tt.Click("goal-outputs-goal-2"); err != nil {
 		t.Fatalf("click empty goal outputs failed: %v", err)
 	}
@@ -1261,8 +1273,7 @@ func TestKanbanWorkspace_NewTaskPickerIndependent(t *testing.T) {
 	}
 }
 
-// TestKanbanHeaderProjectMenuClamped 测试头部项目菜单点击后展开，且锚定在按钮下方并与按钮左对齐、
-// 宽度受限且完整落在窗口可视区域内（不溢出窗口顶部、不覆盖标题栏）。
+// TestKanbanHeaderProjectMenuClamped 测试项目菜单与按钮对齐，并在空间不足时向上展开。
 // 按钮的 Tester 查找键是 Label“项目”；overlay 打开后命中树可能被压缩，
 // 因此展开状态在状态层断言，几何信息仅在菜单面板可见时再核对。
 func TestKanbanHeaderProjectMenuClamped(t *testing.T) {
@@ -1294,12 +1305,8 @@ func TestKanbanHeaderProjectMenuClamped(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool { return kanbanProjectMenuOpen(state) })
 
-	// 菜单面板由 anchoredMenu 固定为 AnchorBottomLeft 对 AnchorTopLeft、
-	// MinWidth 220 / MaxWidth 320 / MaxHeight 360；面板进入命中树时核对实际几何。
+	// 面板宽高受限，优先向下展开，空间不足时向上展开。
 	menu, ok := tt.Find("kanban-project-picker")
-	if !ok {
-		return
-	}
 	// 浮层要等触发按钮布局后的下一帧才按锚点定尺寸。
 	waitFor(t, tt, func() bool {
 		menu, ok = tt.Find("kanban-project-picker")
@@ -1310,8 +1317,12 @@ func TestKanbanHeaderProjectMenuClamped(t *testing.T) {
 	if !ok {
 		t.Fatal("header project menu missing after animation")
 	}
-	if menu.Y < btn.Y+btn.H {
-		t.Fatalf("菜单应锚定在按钮下方：btn=%+v menu=%+v", btn, menu)
+	btn, ok = tt.Find("项目")
+	if !ok {
+		t.Fatal("项目按钮不可见")
+	}
+	if menu.Y < btn.Y+btn.H && menu.Y+menu.H > btn.Y {
+		t.Fatalf("菜单不应遮挡按钮：btn=%+v menu=%+v", btn, menu)
 	}
 	if menu.X < btn.X-1 || menu.X > btn.X+1 {
 		t.Fatalf("菜单应与按钮左对齐：btn=%+v menu=%+v", btn, menu)
@@ -1391,10 +1402,11 @@ func TestKanbanWorkspace_NewGoalSheet(t *testing.T) {
 	fake.SetKanbanBoard(KanbanBoard{})
 
 	tt, _ := newWorkspaceTester(t, fake, "tasks")
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("新建目标")
-		return ok
-	})
+	waitFor(t, tt, func() bool { _, ok := tt.Find("新建菜单"); return ok })
+	if err := tt.Click("新建菜单"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("新建目标"); return ok })
 
 	if err := tt.Click("新建目标"); err != nil {
 		t.Fatalf("click new goal failed: %v", err)
@@ -1413,13 +1425,16 @@ func TestKanbanWorkspace_NewGoalSheet(t *testing.T) {
 		t.Fatalf("click plan goal failed: %v", err)
 	}
 
-	// CreateGoal 不记录调用，成功后重新加载看板里会出现以 Prompt 为标题的目标。
-	waitFor(t, tt, func() bool {
-		return tt.HasText("给设置页加上深色模式")
-	})
+	// 新目标显示在目标筛选菜单中。
 	waitFor(t, tt, func() bool {
 		_, sheet := tt.Find("kanban-new-goal-sheet")
 		return !sheet
+	})
+	if err := tt.Click("目标筛选"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("给设置页加上深色模式")
 	})
 }
 
