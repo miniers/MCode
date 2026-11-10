@@ -12,7 +12,10 @@ func kanbanDetailLayout(availableWidth, preferredWidth float32) (pane bool, boar
 }
 
 func renderKanbanDetailSplit(c *ui.Context, s *chatState, ks *kanbanState, availableWidth float32, board func(float32), detail func()) {
-	pane, boardWidth, detailWidth := kanbanDetailLayout(availableWidth, ks.detailWidth)
+	kanbanMu.Lock()
+	preferredWidth := ks.detailWidth
+	kanbanMu.Unlock()
+	pane, boardWidth, detailWidth := kanbanDetailLayout(availableWidth, preferredWidth)
 	if !pane {
 		board(boardWidth)
 		return
@@ -22,19 +25,25 @@ func renderKanbanDetailSplit(c *ui.Context, s *chatState, ks *kanbanState, avail
 		handle := ui.Box(c.Key("kanban-detail-handle")).Label("调整详情宽度").Width(sidePaneHandleWidth).FillHeight().Shrink(0).Focusable().Role(ui.RoleSplitter).Cursor(ui.CursorResizeEW)
 		dx, _, held := handle.Dragged()
 		_, _, released := handle.DragEnded()
-		adjust := func(delta float32) {
+		adjust := func(delta float32) float32 {
 			_, _, width := kanbanDetailLayout(availableWidth, max(KanbanDetailMinWidth, detailWidth+delta))
+			kanbanMu.Lock()
 			ks.detailWidth = width
+			kanbanMu.Unlock()
 			s.invalidate()
+			return width
 		}
 		if held && dx != 0 {
 			adjust(-dx)
 		}
 		if released {
-			rememberTasksDetailWidth(ks, clampTasksDetailWidth(ks.detailWidth))
+			kanbanMu.Lock()
+			width := ks.detailWidth
+			kanbanMu.Unlock()
+			rememberTasksDetailWidth(ks, clampTasksDetailWidth(width))
 		}
-		handle.OnShortcut(0, ui.KeyLeft, func() { adjust(sidePaneHandleStep); rememberTasksDetailWidth(ks, ks.detailWidth) })
-		handle.OnShortcut(0, ui.KeyRight, func() { adjust(-sidePaneHandleStep); rememberTasksDetailWidth(ks, ks.detailWidth) })
+		handle.OnShortcut(0, ui.KeyLeft, func() { rememberTasksDetailWidth(ks, adjust(sidePaneHandleStep)) })
+		handle.OnShortcut(0, ui.KeyRight, func() { rememberTasksDetailWidth(ks, adjust(-sidePaneHandleStep)) })
 		color := ThemeDivider(c)
 		if held || handle.Hovered() {
 			color = ThemeAccent(c)
