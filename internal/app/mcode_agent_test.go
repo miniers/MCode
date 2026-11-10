@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"mcode/internal/agent/llm"
 	"mcode/internal/agent/shell"
+	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/magpieinject"
@@ -34,6 +36,87 @@ func mcodeTestSecrets(values map[string]string) config.SecretStore {
 		_ = store.Set(account, value)
 	}
 	return store
+}
+
+type magpieSearchTestTransport func(*http.Request) (*http.Response, error)
+
+func (f magpieSearchTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestMagpieSearchInjection(t *testing.T) {
+	setMcodeAgentRuntime("", nil)
+	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
+	secret := strings.Repeat("x", 16)
+	secrets := mcodeTestSecrets(map[string]string{config.CustomEndpointSecretAccount("edge"): secret})
+	cfg := mcodeTestConfig(config.CustomEndpointConfig{ID: "edge", Name: "Magpie", Enabled: true, Magpie: true, BaseURL: "https://search-injection.invalid/v1"}, config.CustomEndpointConfig{ID: "other", Enabled: true, BaseURL: "https://other.invalid/v1"})
+	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderMcode: {DefaultEndpointID: "edge", DefaultModel: "model"}}
+	targets := apisource.MagpieTargets(cfg, secrets)
+	if len(targets) != 1 {
+		t.Fatal("Magpie 端点数量不正确")
+	}
+	for _, tc := range []struct {
+		name     string
+		kind     harness.Kind
+		model    string
+		external []harness.MCPEndpoint
+		want     bool
+	}{
+		{name: "custom", kind: "custom-edge", model: "model", want: true},
+		{name: "mcode", kind: "mcode", model: targets[0].ProviderID + "/model", want: true},
+		{name: "mcode-default", kind: "mcode", model: "default", want: true},
+		{name: "other", kind: "custom-other", model: "model"},
+		{name: "anthropic", kind: "mcode", model: "anthropic/model"},
+		{name: "duplicate-name", kind: "custom-edge", external: []harness.MCPEndpoint{{Name: "magpie_search", URL: "https://existing.invalid/mcp"}}},
+		{name: "duplicate-url", kind: "custom-edge", external: []harness.MCPEndpoint{{Name: "existing", URL: "https://search-injection.invalid/mcp/magpie/web-search/"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			endpoint, ok := magpieSearchEndpoint(context.Background(), tc.kind, harness.Turn{Model: tc.model}, cfg, secrets)
+			if tc.want && (!ok || endpoint.URL != "https://search-injection.invalid/mcp/magpie/web-search" || endpoint.Token != secret) {
+				t.Fatal("Magpie 端点地址或凭据不正确")
+			}
+			if !tc.want && len(tc.external) == 0 && ok {
+				t.Fatal("不应生成 Magpie 端点")
+			}
+		})
+	}
+	oldClient := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: magpieSearchTestTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != "https://search-injection.invalid/mcp/magpie/web-search" {
+			return nil, fmt.Errorf("未配置的测试端点")
+		}
+		if r.Header.Get("Authorization") != "Bearer "+secret {
+			t.Error("MCP 请求地址或认证头不正确")
+		}
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		body := `{}`
+		if req.Method == "initialize" {
+			body = `{"jsonrpc":"2.0","id":` + string(req.ID) + `,"result":{}}`
+		}
+		if req.Method == "tools/list" {
+			body = `{"jsonrpc":"2.0","id":` + string(req.ID) + `,"result":{"tools":[{"name":"web_search","inputSchema":{"type":"object"}},{"name":"web_fetch","inputSchema":{"type":"object"}}]}}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})}
+	t.Cleanup(func() { http.DefaultClient = oldClient })
+	opts := mcodeEngineOptions("custom-edge", cfg, secrets, "", providerMCP{})
+	got := opts.ExtraTools(context.Background(), harness.Turn{Model: "model"})
+	if len(got) != 2 || got[0].Name != "mcp__magpie_search__web_search" || got[1].Name != "mcp__magpie_search__web_fetch" {
+		t.Fatalf("搜索工具未直接暴露: %v", got)
+	}
+	for _, external := range [][]harness.MCPEndpoint{{{Name: "magpie_search", URL: "https://existing.invalid/mcp"}}, {{Name: "existing", URL: "https://search-injection.invalid/mcp/magpie/web-search/"}}} {
+		opts := mcodeEngineOptions("custom-edge", cfg, secrets, "", providerMCP{External: func(string, string) []harness.MCPEndpoint { return external }})
+		for _, tool := range opts.ExtraTools(context.Background(), harness.Turn{}) {
+			if strings.HasPrefix(tool.Name, "mcp__magpie_search__") {
+				t.Fatal("重复注入 Magpie 工具")
+			}
+		}
+	}
+	if _, ok := magpieSearchEndpoint(context.Background(), "custom-edge", harness.Turn{}, cfg, config.NewMemorySecretStore()); ok {
+		t.Fatal("缺少密钥时不应注入")
+	}
 }
 
 func TestMcodeResolveClientMagpieRequest(t *testing.T) {

@@ -363,6 +363,17 @@ func TestBeePrompt_ScopedSelfChecks(t *testing.T) {
 	}
 }
 
+func TestBeeWorkRules_NetworkResearch(t *testing.T) {
+	for _, want := range []string{"自测不依赖网络", "web_fetch、web_search", "curl（必须带 -m 超时）", "只读不写", "不向外部服务提交、发布或上传内容", "不发送密钥或用户信息"} {
+		if !strings.Contains(beeWorkRules, want) {
+			t.Errorf("bee 工作规则应包含 %q", want)
+		}
+	}
+	if strings.Contains(beeWorkRules, "不访问网络") {
+		t.Error("bee 工作规则不应禁止访问网络")
+	}
+}
+
 func TestStreamParser_EmitsOnClosingBrace(t *testing.T) {
 	entry1 := `{"task": "A", "prompt": "do A"}`
 	entry2 := `{"task": "B", "prompt": "do B"}`

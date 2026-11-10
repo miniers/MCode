@@ -23,7 +23,7 @@ const anthropicEngineContextWindow = 200000
 // newAnthropicEngineHarness 让 Anthropic API Key 来源由内置引擎运行。
 // 来源解析与旧 mcode.anthropicApiKey 共用同一套规则，Key 放在新账号或旧账号都能用。
 func newAnthropicEngineHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
-	opts := mcodeEngineOptions(secrets, dataDir, mcpInjection)
+	opts := mcodeEngineOptions(anthropicEngineKind, cfg, secrets, dataDir, mcpInjection)
 	opts.Kind = anthropicEngineKind
 	opts.DisplayName = "Anthropic"
 	remote.SetAPICatalog(string(anthropicEngineKind), func() []wire.ProviderModel {

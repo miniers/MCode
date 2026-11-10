@@ -13,6 +13,24 @@ import (
 	"mcode/internal/harness"
 )
 
+func TestMagpieSearchPermissions(t *testing.T) {
+	for _, mode := range []harness.PermissionMode{harness.ModeAuto, harness.ModeAutoAcceptEdits, harness.ModeReadOnly} {
+		for _, name := range []string{"mcp__magpie_search__web_search", "mcp__magpie_search__web_fetch"} {
+			if got := Check(Input{Mode: mode, ToolName: name}).Action; got != Allow {
+				t.Errorf("%s %s: %s", mode, name, got)
+			}
+		}
+	}
+	for _, name := range []string{"mcp__other__web_search", "mcp__magpie_search__other", "mcode_mcp_call"} {
+		if got := Check(Input{Mode: harness.ModeAuto, ToolName: name, ReadOnlyHint: true}).Action; got != Ask {
+			t.Errorf("%s: %s", name, got)
+		}
+	}
+	if got := Check(Input{Mode: harness.ModeAuto, ToolName: "mcp__magpie_search__web_search", FinalReport: true}).Action; got != Deny {
+		t.Errorf("final report: %s", got)
+	}
+}
+
 func TestIsLookOnlyNamedTools(t *testing.T) {
 	for _, tc := range []struct {
 		name string

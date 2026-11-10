@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -277,7 +278,7 @@ func registerShellSecrets(cfg config.Config, secrets config.SecretStore) {
 // mcodeEngineOptions 返回内置引擎与具体来源无关的公共选项。
 // API Key 类来源与 mcode 本身共用同一个会话存储目录：会话 ID 由引擎随机生成，
 // 不同来源之间不会互相覆盖。
-func mcodeEngineOptions(secrets config.SecretStore, dataDir string, mcpInjection providerMCP) providermcode.Options {
+func mcodeEngineOptions(kind harness.Kind, cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) providermcode.Options {
 	storeDir := ""
 	if dataDir != "" {
 		storeDir = filepath.Join(dataDir, "mcode", "sessions")
@@ -299,14 +300,62 @@ func mcodeEngineOptions(secrets config.SecretStore, dataDir string, mcpInjection
 			if mcpInjection.External != nil {
 				external = mcpInjection.External(turn.WorkDir, turn.ThreadID)
 			}
-			return mcp.Tools(ctx, mcp.Servers(turn, mcpInjection.Builtin, external))
+			servers := mcp.Servers(turn, mcpInjection.Builtin, external)
+			current := mcodeCurrentConfig(cfg, secrets)
+			store := mcodeCurrentSecrets(secrets)
+			if endpoint, ok := magpieSearchEndpoint(ctx, kind, turn, current, store); ok {
+				duplicate := false
+				for _, server := range servers {
+					if server.Name == endpoint.Name || strings.TrimRight(server.URL, "/") == endpoint.URL {
+						duplicate = true
+						break
+					}
+				}
+				if !duplicate {
+					servers = append(servers, mcp.Server{Name: endpoint.Name, URL: endpoint.URL, Token: endpoint.Token, Builtin: true})
+				}
+			}
+			return mcp.Tools(ctx, servers)
 		},
 	}
 }
 
+func magpieSearchEndpoint(ctx context.Context, kind harness.Kind, turn harness.Turn, cfg config.Config, secrets config.SecretStore) (harness.MCPEndpoint, bool) {
+	var target magpieinject.Target
+	if kind == "mcode" {
+		model := strings.TrimSpace(turn.Model)
+		if model == "" || strings.EqualFold(model, "default") {
+			model, _ = mcodeDefaultModel(ctx, cfg, secrets)
+		}
+		var ok bool
+		target, _, ok = magpieinject.ProviderOf(model, apisource.MagpieTargets(cfg, secrets))
+		if !ok {
+			return harness.MCPEndpoint{}, false
+		}
+	} else {
+		for _, candidate := range apisource.MagpieTargets(cfg, secrets) {
+			for _, ep := range cfg.Providers.Custom {
+				if ep.ID == candidate.Endpoint && config.CustomEndpointProviderKind(ep) == string(kind) {
+					target = candidate
+					break
+				}
+			}
+		}
+	}
+	if target.APIKey == "" {
+		return harness.MCPEndpoint{}, false
+	}
+	base, err := customEndpointBaseURL(target.BaseURL)
+	if err != nil {
+		return harness.MCPEndpoint{}, false
+	}
+	u, _ := url.Parse(base)
+	return harness.MCPEndpoint{Name: "magpie_search", URL: u.Scheme + "://" + u.Host + "/mcp/magpie/web-search", Token: target.APIKey}, true
+}
+
 // buildMcodeHarness 构造内置 mcode agent harness。
 func buildMcodeHarness(cfg config.Config, secrets config.SecretStore, dataDir string, mcpInjection providerMCP) harness.Harness {
-	opts := mcodeEngineOptions(secrets, dataDir, mcpInjection)
+	opts := mcodeEngineOptions("mcode", cfg, secrets, dataDir, mcpInjection)
 	registerShellSecrets(mcodeCurrentConfig(cfg, secrets), mcodeCurrentSecrets(secrets))
 	remote.SetMcodeModels(mcodeModelCatalog)
 	opts.QualifyModel = func(ctx context.Context, model string) string {

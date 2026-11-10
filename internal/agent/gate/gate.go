@@ -153,7 +153,7 @@ func Check(in Input) Verdict {
 			return Verdict{Action: Deny, Reason: "危险操作已锁定，需要用户答决策卡后解锁：" + lock.Reason}
 		}
 	}
-	webFetch := in.ToolName == "web_fetch"
+	webFetch := in.ToolName == "web_fetch" || in.ToolName == "mcp__magpie_search__web_search" || in.ToolName == "mcp__magpie_search__web_fetch"
 	var patchPaths []string
 	if in.ToolName == "apply_patch" {
 		patchPaths, _ = patch.Paths(str("input"))
