@@ -108,6 +108,8 @@ func TestCheck(t *testing.T) {
 		{"u_grep_plan", "", true, false, "grep", "pattern", "planBlocksTool", Allow, ""},
 		{"u_edit_plan", "", true, false, "edit", "path", "planlimits.go", Deny, ""},
 		{"k_ask_user_question_supervised", harness.ModeSupervised, false, false, "ask_user_question", "question", "Proceed?", Allow, ""},
+		{"k_recall_supervised", harness.ModeSupervised, false, false, "recall", "query", "gate", Allow, ""},
+		{"f_recall_plan", "", true, false, "recall", "query", "gate", Allow, ""},
 		{"todo_write_supervised", harness.ModeSupervised, false, false, "todo_write", "", "", Allow, ""},
 		{"todo_write_plan", harness.ModeSupervised, true, false, "todo_write", "", "", Allow, ""},
 		{"l_ask_user_question_final_report", "", false, true, "ask_user_question", "question", "Final?", Deny, ""},
