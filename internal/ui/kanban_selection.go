@@ -21,7 +21,7 @@ type kanbanBatchState struct {
 var kanbanBatchMu sync.Mutex
 var kanbanBatchStates = make(map[*chatState]*kanbanBatchState)
 
-// Never acquire kanbanBatchMu while holding kanbanMu; project and close hooks call this after releasing kanbanMu.
+// 不要在持有 kanbanMu 时获取 kanbanBatchMu；项目切换和关闭钩子会在释放 kanbanMu 后调用此函数。
 func kanbanBatchCancel(s *chatState) {
 	kanbanBatchMu.Lock()
 	st := kanbanBatchStates[s]
@@ -112,6 +112,9 @@ func kanbanBatchRun(s *chatState, kind string, tasks []KanbanTask) {
 			st.failures = failures
 		}
 		kanbanBatchMu.Unlock()
+		if ctx.Err() != nil {
+			return
+		}
 		s.refreshKanban()
 		s.invalidate()
 	}()

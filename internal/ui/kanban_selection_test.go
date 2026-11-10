@@ -125,16 +125,47 @@ func TestKanbanBatchNoDuplicateRun(t *testing.T) {
 }
 func TestKanbanBatchCancelStopsRequests(t *testing.T) {
 	started := make(chan struct{})
-	client := &kanbanBatchTestClient{FakeClient: NewFakeClient(), move: func(ctx context.Context, _ string) error { close(started); <-ctx.Done(); return ctx.Err() }}
+	release := make(chan struct{})
+	client := &kanbanBatchTestClient{FakeClient: NewFakeClient(), move: func(ctx context.Context, _ string) error {
+		close(started)
+		<-release
+		return ctx.Err()
+	}}
 	s := &chatState{client: client}
 	kanbanBatchRun(s, "todo", []KanbanTask{batchTestTask("one", "review"), batchTestTask("two", "review")})
 	<-started
+	kanbanBatchMu.Lock()
+	st := kanbanBatchStates[s]
+	kanbanBatchMu.Unlock()
 	kanbanBatchCancel(s)
-	time.Sleep(20 * time.Millisecond)
+	// 恢复原状态以便等待协程完成其状态清理。
+	kanbanBatchMu.Lock()
+	kanbanBatchStates[s] = st
+	kanbanBatchMu.Unlock()
+	close(release)
+	awaitBatch(t, s)
+	time.Sleep(50 * time.Millisecond)
+	kanbanBatchCancel(s)
 	client.mu.Lock()
 	defer client.mu.Unlock()
 	if len(client.calls) != 1 {
 		t.Fatalf("calls=%v", client.calls)
+	}
+	if calls := client.KanbanBoardCalls(); calls != 0 {
+		t.Fatalf("board calls=%d", calls)
+	}
+}
+
+func TestKanbanBatchRefreshesOnCompletion(t *testing.T) {
+	client := &kanbanBatchTestClient{FakeClient: NewFakeClient()}
+	s := &chatState{client: client}
+	kanbanBatchRun(s, "todo", []KanbanTask{batchTestTask("one", "review")})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && client.KanbanBoardCalls() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	if calls := client.KanbanBoardCalls(); calls != 1 {
+		t.Fatalf("board calls=%d", calls)
 	}
 }
 func TestKanbanBatchDeleteNeedsConfirm(t *testing.T) {
