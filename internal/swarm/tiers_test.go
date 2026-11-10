@@ -356,7 +356,7 @@ func TestTierPromptSection_WritePaths(t *testing.T) {
 		{ID: "fast", Description: "Quick responses"},
 		{ID: "read", Description: "Read only tasks", ReadOnly: true},
 	}
-	const rule = "A tier marked writes only cannot land code: send it to locate the cause and design the change, have it write the plan into its allowed paths when the plan is long, and report numbered steps with path:line anchors; then dispatch the implementation to the default tier in the next round."
+	const rule = "A tier marked writes only lands changes only under its allowed paths: use it for work that lives there, such as docs; send any code change to a tier without that limit."
 	if got := TierPromptSection(plain, "fast", nil); strings.Contains(got, "writes only") || strings.Contains(got, rule) {
 		t.Errorf("无白名单档位时不应出现 writes only 标注或规则句:\n%s", got)
 	} else if !strings.Contains(got, "keeps its tier; never raise it; ") {

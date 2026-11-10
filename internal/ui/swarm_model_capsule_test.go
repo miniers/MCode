@@ -179,7 +179,7 @@ func TestSwarmModelCapsule_PairEditorLeadSelection(t *testing.T) {
 	}
 }
 
-// TestSwarmModelCapsule_TierMappingOverride 验证在配对编辑器中为深度档选择覆盖模型并保存持久化。
+// TestSwarmModelCapsule_TierMappingOverride 验证在配对编辑器中为攻坚档选择覆盖模型并保存持久化。
 func TestSwarmModelCapsule_TierMappingOverride(t *testing.T) {
 	st, tt := newSwarmCapsuleTester(t)
 
@@ -193,9 +193,9 @@ func TestSwarmModelCapsule_TierMappingOverride(t *testing.T) {
 		t.Fatal("pair editor must be visible")
 	}
 
-	// 2. 按无障碍名点击“深度”档位的映射胶囊
-	if err := tt.Click("选择深度档模型"); err != nil {
-		t.Fatalf("click '选择深度档模型' capsule failed: %v", err)
+	// 2. 按无障碍名点击“攻坚”档位的映射胶囊
+	if err := tt.Click("选择攻坚档模型"); err != nil {
+		t.Fatalf("click '选择攻坚档模型' capsule failed: %v", err)
 	}
 	tt.Frame()
 

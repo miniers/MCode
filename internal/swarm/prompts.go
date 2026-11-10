@@ -228,9 +228,9 @@ func TierPromptSection(tiers []Tier, defaultTier string, resolved map[string]Res
 	return b.String()
 }
 
-// tierWriteOnlyRule 是存在写入白名单档位时追加给主代理的规则句：
-// 这类档位落不了代码，只能用它们定位原因、设计改动并输出带 path:line 锚点的分步方案。
-const tierWriteOnlyRule = "A tier marked writes only cannot land code: send it to locate the cause and design the change, have it write the plan into its allowed paths when the plan is long, and report numbered steps with path:line anchors; then dispatch the implementation to the default tier in the next round."
+// tierWriteOnlyRule 是存在写入白名单档位时追加给主代理的规则句，
+// 说明这类档位只能落地白名单内的改动，代码改动要派给不受限的档位。
+const tierWriteOnlyRule = "A tier marked writes only lands changes only under its allowed paths: use it for work that lives there, such as docs; send any code change to a tier without that limit."
 
 // tierRuntimeSuffix 生成档位行尾的运行模型后缀，例如 " [runs on pi/model-x, effort high]"；
 // 该档没有解析结果或模型为空时返回空串，让提示行保持原样。

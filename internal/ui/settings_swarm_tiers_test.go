@@ -8,7 +8,7 @@ import (
 	"mcode/internal/config"
 )
 
-// 测试 Bee 档位区块默认展示三种档位（只读、执行、深度）及“跟随会话子代理模型”胶囊文案。
+// 测试 Bee 档位区块默认展示三种档位（只读、执行、攻坚）及“跟随会话子代理模型”胶囊文案。
 func TestSwarmTiers_DefaultRender(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dataDir := settingsTestDir(t)
@@ -24,8 +24,8 @@ func TestSwarmTiers_DefaultRender(t *testing.T) {
 	if !tt.HasText("子代理档位") {
 		t.Fatalf("expected 'Bee 档位' section header to be rendered")
 	}
-	if !tt.HasText("只读") || !tt.HasText("执行") || !tt.HasText("深度") {
-		t.Fatalf("expected default tiers '只读', '执行', '深度' to be rendered: %v", tt.Texts())
+	if !tt.HasText("只读") || !tt.HasText("执行") || !tt.HasText("攻坚") {
+		t.Fatalf("expected default tiers '只读', '执行', '攻坚' to be rendered: %v", tt.Texts())
 	}
 	if !tt.HasText("跟随会话子代理模型") {
 		t.Fatalf("expected '跟随会话子代理模型' capsule text to be rendered: %v", tt.Texts())
