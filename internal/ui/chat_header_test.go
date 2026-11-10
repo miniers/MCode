@@ -2123,9 +2123,9 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	if title.X+title.W > commit.X {
 		t.Fatalf("动作胶囊组应排在标题之后：标题 %+v 提交 %+v", title, commit)
 	}
-	contextBtn, ok := tt.Find("项目文档 (.mcode/context) ⇧⌘K")
+	contextBtn, ok := tt.Find("终端")
 	if !ok {
-		t.Fatal("辅助面板组缺少项目文档按钮")
+		t.Fatal("辅助面板组缺少终端按钮")
 	}
 	if contextBtn.X <= commit.X {
 		t.Fatalf("辅助面板胶囊组应在动作胶囊组右侧：项目文档 %+v 提交 %+v", contextBtn, commit)

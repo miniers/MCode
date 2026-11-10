@@ -50,6 +50,7 @@ type chatHeaderState struct {
 	permissionMenuOpen bool
 	openInMenuOpen     bool
 	scriptsMenuOpen    bool
+	auxMenuOpen        bool
 
 	// 脚本缓存（按 threadID），出错或没有脚本时没有条目
 	scripts    map[string][]Script
@@ -954,7 +955,8 @@ func renderGitCountBadge(c *ui.Context, key string, count int) {
 				FontSize(TypeCaption).
 				FontWeight(600).
 				TextColor(ThemeOnAccent(c)).
-				SingleLine()
+				SingleLine().
+				Transition(motionFeedback(c))
 		})
 }
 
@@ -2219,19 +2221,9 @@ func (s *chatState) headerToggleDiff() {
 	s.toggleDiffPanel()
 }
 
-// renderChatHeaderAuxGroup 渲染头部右侧的辅助面板胶囊组：
-// 依次为项目文档、文件、终端、浏览器预览、看板与改动按钮，对应面板打开时按钮高亮。
+// renderChatHeaderAuxGroup 渲染终端、右栏和更多入口。
 func renderChatHeaderAuxGroup(c *ui.Context, s *chatState) {
-	contextOpen := false
-	if cp := getContextPanelState(s); cp != nil {
-		contextOpen = cp.IsOpen()
-	}
-
-	// 记忆面板（Nowledge）：待审数量读缓存，按低频间隔刷新，不每帧请求数据库。
-	memoryOpen := false
-	if mp := getMemoryPanelState(s); mp != nil {
-		memoryOpen = mp.IsOpen()
-	}
+	hs := getChatHeaderState(s)
 	pendingProposals := memoryPendingBadgeCount(s)
 	s.refreshPendingMemoryCount(false)
 	// 原生菜单在窗口创建前安装，那时还拿不到 client，这里补一次入口文案纠正。
@@ -2244,56 +2236,38 @@ func renderChatHeaderAuxGroup(c *ui.Context, s *chatState) {
 		terminalMu.Unlock()
 	}
 
-	previewOpen := false
-	if pv := getPreviewState(s); pv != nil {
-		previewMu.Lock()
-		previewOpen = pv.visible
-		previewMu.Unlock()
-	}
-
-	kanbanOpen := false
-	if ws := getWorkspaceState(s); ws != nil {
-		workspaceMu.Lock()
-		kanbanOpen = ws.view == "tasks"
-		workspaceMu.Unlock()
-	}
-
-	diffOpen := false
-	if dp := getDiffPanelState(s); dp != nil {
-		diffOpen = dp.IsOpen()
-	}
-
-	// 文件管理面板只在当前会话已有工作目录时可用。
-	_, headerWorkDir := getSelectedThreadWorkDir(s)
-	fileManagerOpen := isFileManagerOpen(s)
+	inspector := inspectorSession(s)
+	inspectorOpen := inspector != nil && inspector.Open
 
 	// 与动作胶囊组同一套容器：内边距 2、固定高度 28，相邻按钮之间插发丝分隔线。
 	groups := []headerGroup{
 		{true, func() {
-			IconButton(c, IconButtonProps{Key: "chat-header-context-btn", Icon: IconNotebook(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "项目文档 (.mcode/context) ⇧⌘K", Active: contextOpen, OnClick: s.headerToggleContextPanel})
+			IconButton(c, IconButtonProps{Key: "chat-header-terminal-btn", Icon: IconTerminal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "终端", Tooltip: shortcutTitleWithKey("toggle-terminal", "终端"), Active: terminalOpen, OnClick: s.headerToggleTerminal})
 		}},
 		{true, func() {
-			ui.Row(c.Key("chat-header-memory-wrap")).Children(func() {
-				IconButton(c, IconButtonProps{Key: "chat-header-memory-btn", Icon: IconBrain(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: memoryEntryLabel(s.client), Active: memoryOpen, OnClick: s.headerToggleMemoryPanel})
+			IconButton(c, IconButtonProps{Key: "chat-header-inspector-btn", Icon: IconPanelLeft(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "右栏", Tooltip: shortcutTitleWithKey("toggle-inspector", "右栏"), Active: inspectorOpen, OnClick: func() { toggleInspector(s) }})
+		}},
+		{true, func() {
+			ui.Row(c.Key("chat-header-aux-more-wrap")).Children(func() {
+				trigger := IconButton(c, IconButtonProps{Key: "chat-header-aux-more-btn", Icon: IconMoreHorizontal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "更多", Active: hs.auxMenuOpen, OnClick: func() { hs.auxMenuOpen = !hs.auxMenuOpen }})
 				if pendingProposals > 0 {
 					renderGitCountBadge(c, "chat-header-memory-badge", pendingProposals)
 				}
+				appPopover(c.Key("chat-header-aux-more-popover"), trigger, &hs.auxMenuOpen, nil, func() {
+					popoverCard(c, ui.Column(c.Key("chat-header-aux-more-menu")).Width(180).Padding(Space1).Children(func() {
+						item := func(key, title, detail string, action func()) {
+							renderGitMenuOption(c, key, title, title, detail, false, false, func() { hs.auxMenuOpen = false; action() })
+						}
+						item("chat-header-context-btn", "项目文档", "", s.headerToggleContextPanel)
+						detail := ""
+						if pendingProposals > 0 {
+							detail = strconv.Itoa(pendingProposals)
+						}
+						item("chat-header-memory-btn", "记忆", detail, s.headerToggleMemoryPanel)
+						item("chat-header-kanban-btn", "任务", "", s.headerOpenKanban)
+					}))
+				})
 			})
-		}},
-		{headerWorkDir != "", func() {
-			IconButton(c, IconButtonProps{Key: "chat-header-files-btn", Icon: IconFolder(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "文件 ⇧⌘F", Active: fileManagerOpen, OnClick: func() { toggleFileManager(s) }})
-		}},
-		{true, func() {
-			IconButton(c, IconButtonProps{Key: "chat-header-terminal-btn", Icon: IconTerminal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "终端 ⌘J", Active: terminalOpen, OnClick: s.headerToggleTerminal})
-		}},
-		{true, func() {
-			IconButton(c, IconButtonProps{Key: "chat-header-preview-btn", Icon: IconGlobe(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "浏览器预览 ⇧⌘B", Active: previewOpen, OnClick: s.headerTogglePreview})
-		}},
-		{true, func() {
-			IconButton(c, IconButtonProps{Key: "chat-header-kanban-btn", Icon: IconColumns3(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "看板", Active: kanbanOpen, OnClick: s.headerOpenKanban})
-		}},
-		{true, func() {
-			IconButton(c, IconButtonProps{Key: "chat-header-diff-btn", Icon: IconFileDiff(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "改动", Tooltip: "改动 ⌘D", Active: diffOpen, OnClick: s.headerToggleDiff})
 		}},
 	}
 

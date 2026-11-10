@@ -69,10 +69,11 @@ func shortcutDefaults() []appShortcut {
 		{id: "open-settings", title: "打开设置", group: "窗口", keys: "⌘,", mods: ui.Cmd, key: ui.KeyComma, bound: true, customizable: true, registered: true},
 		{id: "close-settings", title: "关闭设置", group: "窗口", keys: "Esc"},
 		{id: "toggle-diff", title: "显示/隐藏改动", group: "窗口", keys: "⌘D", mods: ui.Cmd, key: ui.KeyD, bound: true, customizable: true, registered: true},
+		{id: "toggle-inspector", title: "显示/隐藏右栏", group: "窗口", customizable: true, registered: true},
 		{id: "toggle-terminal", title: "显示/隐藏终端", group: "窗口", keys: "⌘J", mods: ui.Cmd, key: ui.KeyJ, bound: true, customizable: true, registered: true},
-		{id: "toggle-preview", title: "显示/隐藏预览", group: "窗口", keys: "⇧⌘B", mods: ui.Cmd | ui.Shift, key: ui.KeyB, bound: true, customizable: true, registered: true},
+		{id: "toggle-preview", title: "显示/隐藏浏览器", group: "窗口", keys: "⇧⌘B", mods: ui.Cmd | ui.Shift, key: ui.KeyB, bound: true, customizable: true, registered: true},
 		// ⇧⌘E 已被源码编辑器占用，文件面板改用 ⇧⌘F，菜单 Accelerator 同源。
-		{id: "toggle-file-manager", title: "显示/隐藏文件面板", group: "窗口", keys: "⇧⌘F", mods: ui.Cmd | ui.Shift, key: ui.KeyF, bound: true, customizable: true, registered: true},
+		{id: "toggle-file-manager", title: "显示/隐藏文件", group: "窗口", keys: "⇧⌘F", mods: ui.Cmd | ui.Shift, key: ui.KeyF, bound: true, customizable: true, registered: true},
 		{id: "open-editor", title: "源码编辑器", group: "窗口", keys: "⇧⌘E", mods: ui.Cmd | ui.Shift, key: ui.KeyE, bound: true, customizable: true, registered: true},
 		{id: "toggle-activity", title: "动态视图", group: "窗口", keys: "⌥⌘U", mods: ui.Cmd | ui.Alt, key: ui.KeyU, bound: true, customizable: true, registered: true},
 		{id: "add-project", title: "添加项目", group: "窗口", keys: "⇧⌘O", mods: ui.Cmd | ui.Shift, key: ui.KeyO, bound: true, customizable: true, registered: true},
@@ -149,6 +150,14 @@ func effectiveShortcutBindingsFor(overrides map[string]string) []shortcutBinding
 	bindings := make([]shortcutBinding, 0, len(defaults)+len(fixedShortcutBindings())+9)
 	for _, sc := range defaults {
 		if !sc.bound {
+			if !sc.customizable {
+				continue
+			}
+			mods, key, err := parseShortcutSpec(overrides[sc.id])
+			if err != nil {
+				continue
+			}
+			bindings = append(bindings, shortcutBinding{id: sc.id, mods: mods, key: key, registered: sc.registered})
 			continue
 		}
 		mods, key := resolveShortcutBinding(sc, overrides)
@@ -197,6 +206,9 @@ func appShortcuts() []appShortcut {
 	list := shortcutDefaults()
 	for i := range list {
 		if !list[i].bound {
+			if mods, key, err := parseShortcutSpec(overrides[list[i].id]); list[i].customizable && err == nil {
+				list[i].keys = formatShortcutKeys(mods, key)
+			}
 			continue
 		}
 		mods, key := resolveShortcutBinding(list[i], overrides)

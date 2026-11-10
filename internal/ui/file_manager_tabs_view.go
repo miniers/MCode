@@ -163,12 +163,6 @@ func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelS
 				})
 			}
 
-			// 关闭面板：样式与列表头部一致。
-			IconButton(c, IconButtonProps{
-				Key: "file-manager-tabbar-close-btn", Icon: IconX(), Label: "关闭文件面板",
-				Tooltip: "关闭文件面板 (⇧⌘F)", Size: ControlXS, Variant: ButtonGhost,
-				OnClick: func() { toggleFileManager(s) },
-			}).Shrink(0)
 		})
 }
 

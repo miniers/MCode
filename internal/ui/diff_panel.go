@@ -19,7 +19,7 @@ const (
 
 // 改动面板空态卡片文案（标题 + 灰色副标题）。
 const (
-	diffEmptyTitle    = "暂无代码变更"
+	diffEmptyTitle    = "暂无改动"
 	diffEmptySubtitle = "每轮对话后，Agent 改动的文件会显示在这里。"
 )
 
@@ -320,10 +320,7 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 					Padding(Space4, Space4).
 					Children(func() {
 						if threadID == "" {
-							ui.Text(c, "未选择会话").
-								FontSize(TypeBody).
-								TextColor(ThemeSecondaryText(c)).
-								Margin(ui.Auto)
+							renderDiffEmptyState(c)
 							return
 						}
 						switch viewState {
@@ -414,7 +411,7 @@ func diffPanelViewState(loading bool, err string, fileCount int) string {
 // renderDiffEmptyState 渲染无改动文件时的图文空态卡片：文档搜索图标 + 标题 + 灰色副标题，
 // 颜色与字号复用主题 token。
 func renderDiffEmptyState(c *ui.Context) {
-	renderDiffStatusState(c, "diff-empty-box", iconFileSearch, diffEmptyTitle, diffEmptySubtitle, nil)
+	renderDiffStatusState(c, "diff-empty-box", iconFileSearch, diffEmptyTitle, "", nil)
 }
 
 // renderDiffStatusState 渲染居中的状态卡片：图标 + 标题 + 次要色副标题，
@@ -427,7 +424,10 @@ func renderDiffStatusState(c *ui.Context, key string, icon *ui.SVG, title, subti
 			Button(c, ButtonOpts{Key: key + "-retry", Text: "重试", Variant: ButtonSecondary, OnClick: onRetry})
 		}
 	}
-	EmptyState(c, EmptyStateProps{Key: key, Icon: icon, Title: title, Description: subtitle, Action: action}).
+	if onRetry != nil && subtitle != "" {
+		title = subtitle
+	}
+	EmptyState(c, EmptyStateProps{Key: key, Icon: icon, Title: title, Action: action}).
 		Center().Margin(ui.Auto)
 }
 
@@ -442,11 +442,6 @@ func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID,
 		AlignItems(ui.Center).
 		Gap(Space3).
 		Children(func() {
-			ui.Text(c, "改动").
-				FontSize(TypeProse).
-				FontWeight(600).
-				TextColor(ThemePrimaryText(c))
-
 			ui.Spacer(c)
 
 			// 轮次选择
@@ -470,11 +465,6 @@ func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID,
 					TextColor(ThemeSecondaryText(c))
 			})
 
-			// 关闭按钮
-			IconButton(c, IconButtonProps{
-				Key: "diff-close-btn", Icon: IconX(), Label: "关闭", Tooltip: "关闭改动 (⌘D)",
-				Size: ControlXS, Variant: ButtonGhost, OnClick: s.toggleDiffPanel,
-			})
 		})
 }
 

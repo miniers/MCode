@@ -352,8 +352,8 @@ func TestSidePaneByAction(t *testing.T) {
 // 注册表生成的命令面板项数量与 id/标题/kind 必须与注册表一致，且 run 真的能开关面板。
 func TestSidePanePaletteItems(t *testing.T) {
 	items := sidePanePaletteItems()
-	if len(items) != len(sidePanes) {
-		t.Fatalf("命令面板项应有 %d 条, got %d", len(sidePanes), len(items))
+	if len(items) != len(sidePanes)+1 {
+		t.Fatalf("命令面板项应有 %d 条, got %d", len(sidePanes)+1, len(items))
 	}
 	s := sidePaneTestState(t)
 	defer s.close()
@@ -361,9 +361,9 @@ func TestSidePanePaletteItems(t *testing.T) {
 	for i := range sidePanes {
 		p := &sidePanes[i]
 		it := items[i]
-		if it.id != p.paletteID || it.title != p.paletteTitle || it.kind != "command" {
+		if it.id != p.paletteID || it.title != "显示/隐藏"+p.title || it.kind != "command" {
 			t.Fatalf("第 %d 条命令面板项 = {%q %q %q}, want {%q %q command}",
-				i, it.id, it.title, it.kind, p.paletteID, p.paletteTitle)
+				i, it.id, it.title, it.kind, p.paletteID, "显示/隐藏"+p.title)
 		}
 		if it.run == nil {
 			t.Fatalf("命令面板项 %q 缺少 run", it.id)
@@ -384,8 +384,8 @@ func TestSidePaneMenuItems(t *testing.T) {
 	for i := range sidePanes {
 		p := &sidePanes[i]
 		it := items[i]
-		if it.Label != p.menuLabel {
-			t.Fatalf("第 %d 个菜单项标签 = %q, want %q", i, it.Label, p.menuLabel)
+		if it.Label != "显示/隐藏"+p.title {
+			t.Fatalf("第 %d 个菜单项标签 = %q, want %q", i, it.Label, "显示/隐藏"+p.title)
 		}
 		if it.Accelerator == "" || it.Click == nil {
 			t.Fatalf("菜单项 %q 缺少 Accelerator 或 Click", it.Label)

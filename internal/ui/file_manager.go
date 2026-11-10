@@ -381,10 +381,7 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 					ContextMenu(fileManagerDirMenu(c, s)).
 					Children(func() {
 						if workDir == "" {
-							ui.Text(c, "未选择会话").
-								FontSize(TypeBody).
-								TextColor(ThemeSecondaryText(c)).
-								Margin(ui.Auto)
+							EmptyState(c, EmptyStateProps{Icon: IconFolder(), Title: "未选择工作区"}).Margin(ui.Auto)
 							return
 						}
 						if query != "" {
@@ -399,7 +396,7 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 						case listLoading && len(entries) == 0:
 							LoadingIndicator(c, "file-manager-loading", "正在读取目录…", IconSM).Margin(ui.Auto)
 						case len(entries) == 0:
-							EmptyState(c, EmptyStateProps{Title: "空目录", Compact: true}).Margin(ui.Auto)
+							EmptyState(c, EmptyStateProps{Icon: IconFolder(), Title: "空目录", Compact: true}).Margin(ui.Auto)
 						default:
 							renderFileManagerEntries(c, s, threadID, entries)
 						}
@@ -433,11 +430,6 @@ func renderFileManagerHeader(c *ui.Context, s *chatState, dir string) {
 		AlignItems(ui.Center).
 		Gap(Space2).
 		Children(func() {
-			ui.Text(c, "文件").
-				FontSize(TypeProse).
-				FontWeight(600).
-				TextColor(ThemePrimaryText(c))
-
 			crumbs := fileManagerBreadcrumb(dir)
 			ui.Row(c.Key("file-manager-crumbs")).
 				Gap(Space0).
@@ -491,11 +483,6 @@ func renderFileManagerHeader(c *ui.Context, s *chatState, dir string) {
 				})
 			}
 
-			IconButton(c, IconButtonProps{
-				Key: "file-manager-close-btn", Icon: IconX(), Label: "关闭文件面板",
-				Tooltip: "关闭文件面板 (⇧⌘F)", Size: ControlXS, Variant: ButtonGhost,
-				OnClick: func() { toggleFileManager(s) },
-			})
 		})
 }
 
@@ -576,7 +563,7 @@ func renderFileManagerSearchResults(c *ui.Context, s *chatState, searching bool,
 			ui.Text(c, "搜索结果已截断").FontSize(TypeFootnote).TextColor(ThemeWarning(c)).Margin(ui.Auto)
 			return
 		}
-		EmptyState(c, EmptyStateProps{Title: "没有匹配的文件", Compact: true}).Margin(ui.Auto)
+		EmptyState(c, EmptyStateProps{Icon: iconFileSearch, Title: "没有匹配的文件", Compact: true}).Margin(ui.Auto)
 		return
 	}
 

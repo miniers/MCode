@@ -142,11 +142,8 @@ func TestDiffPanelViewState(t *testing.T) {
 // TestDiffPanel_EmptyState 覆盖空态文案常量与无改动文件时的图文空态卡片渲染分支。
 func TestDiffPanel_EmptyState(t *testing.T) {
 	// 1. 文案常量（标题 + 副标题）
-	if diffEmptyTitle != "暂无代码变更" {
-		t.Fatalf("diffEmptyTitle = %q, want 暂无代码变更", diffEmptyTitle)
-	}
-	if diffEmptySubtitle != "每轮对话后，Agent 改动的文件会显示在这里。" {
-		t.Fatalf("diffEmptySubtitle = %q", diffEmptySubtitle)
+	if diffEmptyTitle != "暂无改动" {
+		t.Fatalf("diffEmptyTitle = %q, want 暂无改动", diffEmptyTitle)
 	}
 
 	// 2. 无改动文件时渲染图标 + 标题 + 副标题的空态卡片
@@ -161,7 +158,7 @@ func TestDiffPanel_EmptyState(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyD)
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText(diffEmptyTitle) && tt.HasText(diffEmptySubtitle)
+		return tt.HasText(diffEmptyTitle) && !tt.HasText("每轮对话后，Agent 改动的文件会显示在这里。")
 	})
 }
 
@@ -184,10 +181,8 @@ new file mode 100644
 		return tt.HasText("测试会话1")
 	})
 
-	// 点击头部“改动”图标按钮打开面板
-	if err := tt.Click("改动"); err != nil {
-		t.Fatalf("click '改动' failed: %v", err)
-	}
+	// 快捷键打开改动标签。
+	tt.Key(ui.Cmd, ui.KeyD)
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("pkg/hello.go") && tt.HasText("+1")
@@ -195,7 +190,7 @@ new file mode 100644
 	tt.Advance(DurSheet + 50*time.Millisecond)
 
 	// 点击关闭按钮关闭面板
-	if err := tt.Click("关闭"); err != nil {
+	if err := tt.Click("关闭右栏"); err != nil {
 		t.Fatalf("click '关闭' failed: %v", err)
 	}
 

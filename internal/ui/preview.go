@@ -850,11 +850,6 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						ui.Icon(c, IconGlobe()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 					})
 
-					// 关闭按钮
-					IconButton(c, IconButtonProps{
-						Key: "preview-close-btn", Icon: IconX(), Label: "关闭预览", Tooltip: "关闭预览",
-						Size: ControlXS, Variant: ButtonGhost, OnClick: func() { inspectorClose(s) },
-					})
 				})
 
 			// 主体区域
@@ -869,10 +864,9 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					AlignItems(ui.Center).
 					Children(func() {
 						msg := snap.err
-						if msg == "" {
-							msg = "暂无预览内容或 Web 视图不可用"
+						if msg != "" {
+							EmptyState(c, EmptyStateProps{Icon: IconGlobe(), Title: msg})
 						}
-						ui.Text(c, msg).TextColor(ThemeSecondaryText(c)).FontSize(TypeBody)
 					})
 			} else {
 				// 轮询页面收集到的 JS 错误与元素标注；没有推送式消息通道时按最小间隔读取。

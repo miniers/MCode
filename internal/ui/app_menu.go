@@ -386,6 +386,9 @@ func buildViewMenuItems() []*mygo.MenuItem {
 	}
 	items = append(items, sidePaneMenuItems()...)
 	items = append(items,
+		&mygo.MenuItem{Label: "显示/隐藏右栏", Accelerator: menuAccelerator("toggle-inspector", ""), Click: func(*mygo.MenuItem, *mygo.Window) {
+			DispatchMenuAction("toggle-inspector", 0)
+		}},
 		&mygo.MenuItem{
 			Label:       "项目文档 (.mcode/context)",
 			Accelerator: menuAccelerator("toggle-context", "Shift+CmdOrCtrl+K"),
@@ -427,7 +430,7 @@ func sidePaneMenuItems() []*mygo.MenuItem {
 		p := &sidePanes[i]
 		id := p.actionID
 		items = append(items, &mygo.MenuItem{
-			Label:       p.menuLabel,
+			Label:       "显示/隐藏" + p.title,
 			Accelerator: menuAccelerator(id, p.menuAccel),
 			Click: func(*mygo.MenuItem, *mygo.Window) {
 				DispatchMenuAction(id, 0)

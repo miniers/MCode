@@ -215,6 +215,8 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 					p.toggle(state)
 				}
 				switch scID {
+				case "toggle-inspector":
+					toggleInspector(state)
 				case "new-thread":
 					state.closeWorkspace()
 					view = "chat"

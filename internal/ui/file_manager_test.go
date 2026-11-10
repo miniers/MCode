@@ -88,9 +88,7 @@ func openFileManagerForTest(t *testing.T) (*FakeClient, *chatState, *ui.Tester) 
 	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
 
-	if err := tt.Click("文件 ⇧⌘F"); err != nil {
-		t.Fatalf("click files button failed: %v", err)
-	}
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyF)
 	waitFor(t, tt, func() bool { return isFileManagerOpen(s) })
 	tt.Advance(DurSheet + 50*time.Millisecond)
 	return fake, s, tt
@@ -101,7 +99,7 @@ func TestFileManagerToggle(t *testing.T) {
 	_, s, tt := openFileManagerForTest(t)
 	waitFor(t, tt, func() bool { return tt.HasText("根目录") })
 
-	if err := tt.Click("关闭文件面板"); err != nil {
+	if err := tt.Click("关闭右栏"); err != nil {
 		t.Fatalf("click close button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return !isFileManagerOpen(s) })
@@ -314,7 +312,7 @@ func TestFileManagerPreviewCloseButton(t *testing.T) {
 	}
 	waitForFileManagerText(t, tt, s, "a.txt", "hello")
 
-	if err := tt.Click("关闭文件面板"); err != nil {
+	if err := tt.Click("关闭右栏"); err != nil {
 		t.Fatalf("click preview close button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return !isFileManagerOpen(s) })

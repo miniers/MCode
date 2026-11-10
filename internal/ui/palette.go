@@ -77,7 +77,7 @@ func sidePanePaletteItems() []paletteItem {
 		items = append(items, paletteItem{
 			id:    p.paletteID,
 			kind:  "command",
-			title: p.paletteTitle,
+			title: "显示/隐藏" + p.title,
 			run: func(cs *chatState) {
 				if toggle != nil {
 					toggle(cs)
@@ -85,6 +85,7 @@ func sidePanePaletteItems() []paletteItem {
 			},
 		})
 	}
+	items = append(items, paletteItem{id: "cmd-toggle-inspector", kind: "command", title: "显示/隐藏右栏", run: toggleInspector})
 	return items
 }
 

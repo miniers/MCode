@@ -448,37 +448,7 @@ func renderInspectorBody(c *ui.Context, s *chatState, width float32) {
 	if st == nil {
 		return
 	}
-	header := ui.Row(c.Key("inspector-header")).Height(40).Shrink(0).FillWidth()
-	header.Children(func() {
-		selected := 0
-		for i := range sidePanes {
-			if sidePanes[i].id == st.Active {
-				selected = i
-			}
-		}
-		tabs := ui.TabsBase(c.Key("inspector-tabs"), &selected, len(sidePanes))
-		tabs.List.Grow(1).Children(func() {
-			for i, pane := range sidePanes {
-				tab := tabs.Tab(i).Height(40).Padding(0, 12).Label(pane.title)
-				target := float32(0)
-				if selected == i {
-					target = 1
-				}
-				if reduceMotion(c) {
-					tab.Jump("indicator", target)
-				}
-				ink := tab.AnimateTo("indicator", target, springSnappy)
-				tab.Children(func() {
-					ui.Text(c, pane.title).FontSize(13)
-					ui.Box(c).Absolute().Left(12).Right(12).Bottom(0).Height(2).Background(ThemeAccent(c).Alpha(ink))
-				})
-			}
-		})
-		if selected >= 0 && selected < len(sidePanes) && sidePanes[selected].id != st.Active {
-			inspectorSelect(s, sidePanes[selected].id, false)
-		}
-		IconButton(c, IconButtonProps{Key: "inspector-close", Icon: IconX(), Label: "关闭右栏", Tooltip: "关闭右栏", Size: ControlXS, Variant: ButtonGhost, OnClick: func() { inspectorClose(s) }})
-	})
+	renderInspectorHeader(c, s, st)
 	if !st.Open {
 		return
 	}
