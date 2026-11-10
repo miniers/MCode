@@ -1074,6 +1074,7 @@ func writableRoots(turn harness.Turn) []string {
 // 会话事件（EventSession）只是线程标识，不算内容事件，否则 thread/start 成功后 turn/start 失败就永远无法重试。
 type turnEmitter struct {
 	fn          func(harness.Event)
+	fnMu        sync.Mutex // 上层回调可能由多个 goroutine 触发，统一串行化。
 	mu          sync.Mutex
 	emittedFlag bool
 	accepted    bool // 本轮是否已上报 EventTurnAccepted
@@ -1086,6 +1087,8 @@ func (e *turnEmitter) emit(ev harness.Event) {
 		e.emittedFlag = true
 	}
 	e.mu.Unlock()
+	e.fnMu.Lock()
+	defer e.fnMu.Unlock()
 	_ = harness.Emit(e.fn, ev)
 }
 
@@ -1106,6 +1109,8 @@ func (e *turnEmitter) emitAccepted() {
 	}
 	e.accepted = true
 	e.mu.Unlock()
+	e.fnMu.Lock()
+	defer e.fnMu.Unlock()
 	_ = harness.Emit(e.fn, harness.Event{Type: harness.EventTurnAccepted})
 }
 

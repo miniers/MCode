@@ -296,7 +296,7 @@ func countSettingsRenderPurity(name string, file *ast.File) int {
 // TestSettingsGuard_RenderPurity 统计渲染函数里的副作用，移除阶段：P5。
 func TestSettingsGuard_RenderPurity(t *testing.T) {
 	allowed := map[string]int{
-		"settings_page_providers_agents.go": 18,
+		"settings_page_providers_agents.go": 13,
 		"settings_page_archive.go":          13,
 		"settings_page_models.go":           7,
 		"settings_page_about.go":            5,
