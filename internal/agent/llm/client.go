@@ -12,6 +12,8 @@ var UserAgent = "mcode"
 
 var streamIdleTimeout = 2 * time.Minute
 
+const http2PingTimeout = 15 * time.Second
+
 func retryAfter(header string) time.Duration {
 	header = strings.TrimSpace(header)
 	if seconds, err := strconv.ParseInt(header, 10, 64); err == nil {
@@ -29,8 +31,8 @@ func retryAfter(header string) time.Duration {
 }
 
 // defaultHTTPClient 是未显式配置 HTTPClient 时使用的共享客户端。
-// 只限制等待响应头的时间：端点连上后不返回时能及时发现，同时不设置
-// Client.Timeout，避免流式长回答被整体掐断。
+// 限制响应头等待时间，并通过 HTTP/2 ping 发现和淘汰断网后的死连接。
+// 不设置 Client.Timeout，避免流式长回答被整体掐断。
 var defaultHTTPClient = newDefaultHTTPClient()
 
 func newDefaultHTTPClient() *http.Client {
@@ -40,5 +42,6 @@ func newDefaultHTTPClient() *http.Client {
 	}
 	clone := transport.Clone()
 	clone.ResponseHeaderTimeout = 2 * time.Minute
+	clone.HTTP2 = &http.HTTP2Config{SendPingTimeout: http2PingTimeout, PingTimeout: http2PingTimeout}
 	return &http.Client{Transport: clone}
 }

@@ -291,6 +291,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		client.CloseIdleConnections()
 		return nil, &APIError{Body: err.Error(), Retryable: true}
 	}
 	defer httpResp.Body.Close()
@@ -302,6 +303,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 		if ctx.Err() != nil {
 			response, streamErr = nil, ctx.Err()
 		} else if timedOut {
+			client.CloseIdleConnections()
 			response, streamErr = nil, &APIError{Body: "stream idle timeout", Retryable: true}
 		}
 	}()
@@ -311,6 +313,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 			return nil, ctx.Err()
 		}
 		if readErr != nil {
+			client.CloseIdleConnections()
 			return nil, &APIError{Status: httpResp.StatusCode, Body: readErr.Error(), Retryable: true, RetryAfter: retryAfter(httpResp.Header.Get("Retry-After"))}
 		}
 		status := httpResp.StatusCode
@@ -335,6 +338,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req Request, onDelta func(
 				return nil, &APIError{Body: "anthropic: stream ended unexpectedly", Retryable: true}
 			}
 			// 中途断网等读取错误同样值得重试。
+			client.CloseIdleConnections()
 			return nil, &APIError{Body: readErr.Error(), Retryable: true}
 		}
 		if event.Data == "" {
