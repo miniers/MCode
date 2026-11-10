@@ -1,7 +1,6 @@
 package mcodeui
 
 import (
-	"math"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -10,24 +9,16 @@ import (
 )
 
 type swarmTierEditorSession struct {
-	parent       *mygo.Window
-	window       *mygo.Window
+	parent *mygo.Window
+	appFlyout
 	hostServices ui.Services
-	services     ui.Services
-	anchor       mygo.Rectangle
 	viewport     ui.Rect
 	key          string
-	creating     bool
-	view         func(*ui.Context)
 	model        *swarmTierModelSession
 }
 
 type swarmTierModelSession struct {
-	window   *mygo.Window
-	services ui.Services
-	anchor   mygo.Rectangle
-	creating bool
-	view     func(*ui.Context)
+	appFlyout
 }
 
 func setSwarmTierEditorViewport(c *ui.Context, st *SettingsState, viewport ui.Rect) {
@@ -39,63 +30,6 @@ func setSwarmTierEditorViewport(c *ui.Context, st *SettingsState, viewport ui.Re
 		state.editor.viewport = viewport
 	}
 	st.mu.Unlock()
-}
-
-// 测试替换此边界，避免创建原生窗口和依赖事件循环。
-var swarmTierRunOnMain = mygo.RunOnMain
-var swarmTierNewFlyout = func(opts mygo.FlyoutOptions, onClose func(*mygo.CloseEvent), onClosed func()) *mygo.Window {
-	w := mygo.NewFlyout(opts)
-	if onClose != nil {
-		w.OnClose(onClose)
-	}
-	w.OnClosed(onClosed)
-	return w
-}
-var swarmTierDestroyFlyout = func(w *mygo.Window) { w.Destroy() }
-var swarmTierFocusFlyout = func(w *mygo.Window) { w.Show(); w.Focus() }
-var swarmTierSetAnchor = func(w *mygo.Window, r mygo.Rectangle) { w.SetAnchor(r) }
-
-func swarmTierHostWindow(st *SettingsState, services ui.Services) *mygo.Window {
-	if services == (ui.Services{}) {
-		return nil
-	}
-	settingsWindowMu.Lock()
-	entry, inline := settingsWindow, settingsWindowInline
-	inline = inline && entry != nil && entry.state == st
-	var win *mygo.Window
-	if entry != nil && entry.state == st && entry.services == services {
-		win = entry.win
-	}
-	settingsWindowMu.Unlock()
-	if win != nil && !win.IsDestroyed() {
-		return win
-	}
-	if !inline {
-		return nil
-	}
-	chatWindowsMu.RLock()
-	windows := make(map[*mygo.Window]*chatState, len(chatWindows))
-	for w, chat := range chatWindows {
-		windows[w] = chat
-	}
-	chatWindowsMu.RUnlock()
-	for w, chat := range windows {
-		if w != nil && chat != nil && chat.uiServices() == services && !w.IsDestroyed() {
-			return w
-		}
-	}
-	return nil
-}
-
-func swarmTierAnchor(bounds ui.Rect, zoom float32) (mygo.Rectangle, bool) {
-	if bounds.W <= 0 || bounds.H <= 0 || zoom <= 0 {
-		return mygo.Rectangle{}, false
-	}
-	x := int(math.Floor(float64(bounds.X * zoom)))
-	y := int(math.Floor(float64(bounds.Y * zoom)))
-	right := int(math.Ceil(float64((bounds.X + bounds.W) * zoom)))
-	bottom := int(math.Ceil(float64((bounds.Y + bounds.H) * zoom)))
-	return mygo.Rectangle{X: x, Y: y, Width: right - x, Height: bottom - y}, true
 }
 
 func swarmTierModelProps(st *SettingsState, state *swarmTiersUIState, key string, catalog modelPickerCatalog) ModelPickerProps {
@@ -129,18 +63,20 @@ func closeSwarmTierModel(st *SettingsState, state *swarmTiersUIState, session *s
 		return
 	}
 	session.model = nil
-	w := model.window
-	model.services = ui.Services{}
+	var dispose func()
+	if destroy {
+		dispose = model.destroyLocked()
+	}
 	resetSwarmTierModelPicker(session.key)
 	st.mu.Unlock()
-	if destroy && w != nil {
-		swarmTierRunOnMain(func() { swarmTierDestroyFlyout(w) })
+	if dispose != nil {
+		dispose()
 	}
 	st.invalidate()
 }
 
 func updateSwarmTierModelFlyout(st *SettingsState, state *swarmTiersUIState, session *swarmTierEditorSession, bounds ui.Rect, zoom float32, open bool) {
-	r, valid := swarmTierAnchor(bounds, zoom)
+	r, valid := flyoutAnchor(bounds, zoom)
 	st.mu.Lock()
 	if st.swarmTiersPage != state || state.editor != session {
 		st.mu.Unlock()
@@ -159,21 +95,13 @@ func updateSwarmTierModelFlyout(st *SettingsState, state *swarmTiersUIState, ses
 		return
 	}
 	if model == nil {
-		model = &swarmTierModelSession{anchor: r, creating: true}
+		model = &swarmTierModelSession{}
 		session.model = model
-		st.mu.Unlock()
-		swarmTierRunOnMain(func() { createSwarmTierModelFlyout(st, state, session, model) })
-		return
 	}
-	if model.anchor == r {
-		st.mu.Unlock()
-		return
-	}
-	model.anchor = r
-	w := model.window
+	action := model.updateLocked(&st.mu, r, func() { createSwarmTierModelFlyout(st, state, session, model) })
 	st.mu.Unlock()
-	if w != nil {
-		swarmTierRunOnMain(func() { swarmTierSetAnchor(w, r) })
+	if action != nil {
+		action()
 	}
 }
 
@@ -186,7 +114,6 @@ func createSwarmTierModelFlyout(st *SettingsState, state *swarmTiersUIState, ses
 		return
 	}
 	view := func(c *ui.Context) {
-		applyAppTheme(c)
 		st.mu.Lock()
 		active := st.swarmTiersPage == state && state.editor == session && session.model == model
 		if active {
@@ -204,40 +131,28 @@ func createSwarmTierModelFlyout(st *SettingsState, state *swarmTiersUIState, ses
 			pick(side, provider, item)
 			closeSwarmTierModel(st, state, session, model, true)
 		}
-		transition := motionTransition(c, ui.ElementTransition{Duration: DurBase, Ease: EaseSnap, Enter: &ui.Motion{Opacity: 0}})
-		ui.Column(c.Key("swarm-tier-model-flyout-root")).MaxWidth(330).FillWidth().FillHeight().Background(modelPickerPanelBg).Radius(RadiusMD).Transition(transition).Children(func() {
-			ui.Scroll(c.Key("swarm-tier-model-flyout-scroll")).Grow(1).FillWidth().Children(func() {
-				renderModelPickerMenuBody(c, props, props.State)
-			})
+		renderAppFlyout(c, "swarm-tier-model-flyout-root", "swarm-tier-model-flyout-scroll", 330, &modelPickerPanelBg, func() {
+			renderModelPickerMenuBody(c, props, props.State)
 		})
 	}
-	model.view = view
-	w := swarmTierNewFlyout(mygo.FlyoutOptions{
-		Parent: parent, Anchor: anchor, Placement: mygo.PlacementBottomStart,
-		Width: 330, MaxWidth: 330, FitContent: true, Focusable: true, Shadow: true,
-		CornerRadius: int(RadiusMD), Content: ui.View(view),
-	}, nil, func() { closeSwarmTierModel(st, state, session, model, false) })
 	st.mu.Lock()
-	active = st.swarmTiersPage == state && state.editor == session && session.model == model
-	if active {
-		model.window, model.creating = w, false
-	}
+	model.view = view
 	st.mu.Unlock()
-	if !active && w != nil {
-		swarmTierDestroyFlyout(w)
-	}
+	opts := appFlyoutOptions(parent, anchor, 330)
+	opts.Content = ui.View(view)
+	model.create(&st.mu, opts, nil, func() { closeSwarmTierModel(st, state, session, model, false) })
 }
 
 func openSwarmTierEditor(c *ui.Context, st *SettingsState, state *swarmTiersUIState, anchor ui.Element, key string, tier config.SwarmTier) {
 	services := c.Services()
-	parent := swarmTierHostWindow(st, services)
+	parent := flyoutHostWindow(services)
 	st.mu.Lock()
 	if state.openPopoverKey != "" {
 		if session := state.editor; session != nil {
 			w := session.window
 			st.mu.Unlock()
 			if w != nil {
-				swarmTierRunOnMain(func() { swarmTierFocusFlyout(w) })
+				flyoutRunOnMain(func() { flyoutFocus(w) })
 			}
 			return
 		}
@@ -270,7 +185,7 @@ func openSwarmTierEditor(c *ui.Context, st *SettingsState, state *swarmTiersUISt
 
 func updateSwarmTierEditorAnchor(c *ui.Context, st *SettingsState, element ui.Element, key string) {
 	bounds := element.Bounds()
-	r, valid := swarmTierAnchor(bounds, c.Zoom())
+	r, valid := flyoutAnchor(bounds, c.Zoom())
 	if !valid {
 		return
 	}
@@ -298,21 +213,10 @@ func updateSwarmTierEditorAnchor(c *ui.Context, st *SettingsState, element ui.El
 		}
 		return
 	}
-	if session.window == nil && !session.creating {
-		session.anchor, session.creating = r, true
-		st.mu.Unlock()
-		swarmTierRunOnMain(func() { createSwarmTierEditor(st, state, session) })
-		return
-	}
-	if session.anchor == r {
-		st.mu.Unlock()
-		return
-	}
-	session.anchor = r
-	w := session.window
+	action := session.updateLocked(&st.mu, r, func() { createSwarmTierEditor(st, state, session) })
 	st.mu.Unlock()
-	if w != nil {
-		swarmTierRunOnMain(func() { swarmTierSetAnchor(w, r) })
+	if action != nil {
+		action()
 	}
 }
 
@@ -321,14 +225,13 @@ func createSwarmTierEditor(st *SettingsState, state *swarmTiersUIState, session 
 	active := st.swarmTiersPage == state && state.editor == session
 	anchor := session.anchor
 	st.mu.Unlock()
-	if !active || session.parent.IsDestroyed() || swarmTierHostWindow(st, session.hostServices) != session.parent {
+	if !active || session.parent.IsDestroyed() || flyoutHostWindow(session.hostServices) != session.parent {
 		if active {
 			disposeSwarmTierEditor(st)
 		}
 		return
 	}
-	session.view = func(c *ui.Context) {
-		applyAppTheme(c)
+	view := func(c *ui.Context) {
 		st.mu.Lock()
 		active := st.swarmTiersPage == state && state.editor == session
 		if active {
@@ -338,20 +241,16 @@ func createSwarmTierEditor(st *SettingsState, state *swarmTiersUIState, session 
 		if !active {
 			return
 		}
-		transition := motionTransition(c, ui.ElementTransition{Duration: DurBase, Ease: EaseSnap, Enter: &ui.Motion{Opacity: 0}})
-		ui.Column(c.Key("swarm-tier-flyout-root")).MaxWidth(360).FillWidth().FillHeight().Transition(transition).Children(func() {
-			ui.Scroll(c.Key("swarm-tier-editor-scroll-" + session.key)).Grow(1).FillWidth().Children(func() {
-				renderSwarmTierEditorForm(c, st, state, session.key)
-			})
+		renderAppFlyout(c, "swarm-tier-flyout-root", "swarm-tier-editor-scroll-"+session.key, 360, nil, func() {
+			renderSwarmTierEditorForm(c, st, state, session.key)
 		})
 	}
-	opts := mygo.FlyoutOptions{
-		Parent: session.parent, Anchor: anchor, Placement: mygo.PlacementBottomStart,
-		Gap: int(Space1), Width: 360, MaxWidth: 360, FitContent: true, Focusable: true,
-		Shadow: true, CornerRadius: int(RadiusMD),
-		Content: ui.View(session.view),
-	}
-	w := swarmTierNewFlyout(opts, func(e *mygo.CloseEvent) {
+	st.mu.Lock()
+	session.view = view
+	st.mu.Unlock()
+	opts := appFlyoutOptions(session.parent, anchor, 360)
+	opts.Content = ui.View(view)
+	session.create(&st.mu, opts, func(e *mygo.CloseEvent) {
 		st.mu.Lock()
 		active := st.swarmTiersPage == state && state.editor == session
 		st.mu.Unlock()
@@ -360,10 +259,10 @@ func createSwarmTierEditor(st *SettingsState, state *swarmTiersUIState, session 
 		}
 	}, func() {
 		st.mu.Lock()
-		var child *mygo.Window
+		var disposeChild func()
 		if st.swarmTiersPage == state && state.editor == session {
 			if session.model != nil {
-				child = session.model.window
+				disposeChild = session.model.destroyLocked()
 				session.model = nil
 				resetSwarmTierModelPicker(session.key)
 			}
@@ -374,21 +273,11 @@ func createSwarmTierEditor(st *SettingsState, state *swarmTiersUIState, session 
 			}
 		}
 		st.mu.Unlock()
-		if child != nil {
-			swarmTierRunOnMain(func() { swarmTierDestroyFlyout(child) })
+		if disposeChild != nil {
+			disposeChild()
 		}
 		st.invalidate()
 	})
-	st.mu.Lock()
-	active = st.swarmTiersPage == state && state.editor == session
-	if active {
-		session.window = w
-		session.creating = false
-	}
-	st.mu.Unlock()
-	if !active && w != nil {
-		swarmTierDestroyFlyout(w)
-	}
 }
 
 // detachSwarmTierEditorLocked 只摘除会话；调用方解锁后销毁窗口。
@@ -404,22 +293,20 @@ func detachSwarmTierEditorLocked(st *SettingsState) func() {
 	if session == nil {
 		return nil
 	}
-	var child *mygo.Window
+	var disposeChild func()
 	if session.model != nil {
-		child = session.model.window
+		disposeChild = session.model.destroyLocked()
 		session.model = nil
 		resetSwarmTierModelPicker(session.key)
 	}
-	window := session.window
+	disposeWindow := session.destroyLocked()
 	return func() {
-		swarmTierRunOnMain(func() {
-			if child != nil {
-				swarmTierDestroyFlyout(child)
-			}
-			if window != nil {
-				swarmTierDestroyFlyout(window)
-			}
-		})
+		if disposeChild != nil {
+			disposeChild()
+		}
+		if disposeWindow != nil {
+			disposeWindow()
+		}
 	}
 }
 

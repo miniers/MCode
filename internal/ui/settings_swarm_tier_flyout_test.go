@@ -25,28 +25,28 @@ func setupSwarmTierFlyoutTest(t *testing.T) (*SettingsState, *ui.Tester, *swarmT
 	st.currentPage = "swarm"
 	parent := &mygo.Window{}
 	capture := &swarmTierFlyoutCapture{}
-	oldRun, oldNew, oldDestroy, oldFocus, oldAnchor := swarmTierRunOnMain, swarmTierNewFlyout, swarmTierDestroyFlyout, swarmTierFocusFlyout, swarmTierSetAnchor
+	oldRun, oldNew, oldDestroy, oldFocus, oldAnchor := flyoutRunOnMain, flyoutNew, flyoutDestroy, flyoutFocus, flyoutSetAnchor
 	settingsWindowMu.Lock()
 	oldEntry, oldInline := settingsWindow, settingsWindowInline
 	settingsWindowInline = false
 	entry := &settingsWindowEntry{state: st, win: parent}
 	settingsWindow = entry
 	settingsWindowMu.Unlock()
-	swarmTierRunOnMain = func(fn func()) { fn() }
-	swarmTierNewFlyout = func(o mygo.FlyoutOptions, close func(*mygo.CloseEvent), closed func()) *mygo.Window {
+	flyoutRunOnMain = func(fn func()) { fn() }
+	flyoutNew = func(o mygo.FlyoutOptions, close func(*mygo.CloseEvent), closed func()) *mygo.Window {
 		capture.options = append(capture.options, o)
 		capture.closes = append(capture.closes, close)
 		capture.closed = append(capture.closed, closed)
 		return &mygo.Window{}
 	}
-	swarmTierDestroyFlyout = func(w *mygo.Window) {
+	flyoutDestroy = func(w *mygo.Window) {
 		capture.destroyed++
 		capture.destroyedWindows = append(capture.destroyedWindows, w)
 	}
-	swarmTierFocusFlyout = func(*mygo.Window) { capture.focused++ }
-	swarmTierSetAnchor = func(_ *mygo.Window, r mygo.Rectangle) { capture.anchors = append(capture.anchors, r) }
+	flyoutFocus = func(*mygo.Window) { capture.focused++ }
+	flyoutSetAnchor = func(_ *mygo.Window, r mygo.Rectangle) { capture.anchors = append(capture.anchors, r) }
 	t.Cleanup(func() {
-		swarmTierRunOnMain, swarmTierNewFlyout, swarmTierDestroyFlyout, swarmTierFocusFlyout, swarmTierSetAnchor = oldRun, oldNew, oldDestroy, oldFocus, oldAnchor
+		flyoutRunOnMain, flyoutNew, flyoutDestroy, flyoutFocus, flyoutSetAnchor = oldRun, oldNew, oldDestroy, oldFocus, oldAnchor
 		settingsWindowMu.Lock()
 		settingsWindow, settingsWindowInline = oldEntry, oldInline
 		settingsWindowMu.Unlock()
@@ -201,11 +201,11 @@ func TestSwarmTierFlyoutEntrancesAndLifecycle(t *testing.T) {
 }
 
 func TestSwarmTierFlyoutAnchor(t *testing.T) {
-	r, ok := swarmTierAnchor(ui.Rect{X: -10.2, Y: 20.2, W: 30.1, H: 40.1}, 1.3)
+	r, ok := flyoutAnchor(ui.Rect{X: -10.2, Y: 20.2, W: 30.1, H: 40.1}, 1.3)
 	if !ok || r != (mygo.Rectangle{X: -14, Y: 26, Width: 40, Height: 53}) {
 		t.Fatalf("锚点 = %+v, %v", r, ok)
 	}
-	if _, ok := swarmTierAnchor(ui.Rect{}, 1); ok {
+	if _, ok := flyoutAnchor(ui.Rect{}, 1); ok {
 		t.Fatal("未布局的锚点不可用")
 	}
 }
@@ -252,7 +252,7 @@ func TestSwarmTierFlyoutStaleClosedAndPageSwitch(t *testing.T) {
 }
 
 func TestSwarmTierFlyoutInlineHost(t *testing.T) {
-	st, host, _, parent := setupSwarmTierFlyoutTest(t)
+	_, host, _, parent := setupSwarmTierFlyoutTest(t)
 	var services ui.Services
 	tester := ui.NewTester(func(c *ui.Context) { services = c.Services(); ui.Box(c).Size(10, 10) }, 20, 20)
 	tester.Frame()
@@ -266,10 +266,10 @@ func TestSwarmTierFlyoutInlineHost(t *testing.T) {
 	chatWindows[parent] = chat
 	chatWindowsMu.Unlock()
 	t.Cleanup(func() { chatWindowsMu.Lock(); delete(chatWindows, parent); chatWindowsMu.Unlock() })
-	if got := swarmTierHostWindow(st, services); got != parent {
+	if got := flyoutHostWindow(services); got != parent {
 		t.Fatal("内联宿主解析失败")
 	}
-	if swarmTierHostWindow(st, ui.Services{}) != nil {
+	if flyoutHostWindow(ui.Services{}) != nil {
 		t.Fatal("空 services 不能匹配")
 	}
 	_ = host
