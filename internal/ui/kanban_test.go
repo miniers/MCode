@@ -963,6 +963,7 @@ func TestKanbanWorkspace_ReopenDone(t *testing.T) {
 	}}})
 
 	tt, s := newWorkspaceTester(t, fake, "tasks")
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.SetSize(1800, 860)
 	ks := getKanbanState(s)
 	kanbanMu.Lock()

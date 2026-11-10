@@ -77,6 +77,7 @@ func TestKanbanNudgeTaskAgentCallsClient(t *testing.T) {
 
 	tt, _ := newWorkspaceTester(t, fake, "tasks")
 	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
+	hoverKanbanCard(t, tt, task.ID)
 
 	if err := tt.Click("kanban-task-" + task.ID + "-more"); err != nil {
 		t.Fatalf("click rescue menu failed: %v", err)
@@ -114,6 +115,7 @@ func TestKanbanDeleteConfirmCallsClient(t *testing.T) {
 
 	tt, _ := newWorkspaceTester(t, fake, "tasks")
 	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
+	hoverKanbanCard(t, tt, task.ID)
 
 	if err := tt.Click("kanban-task-" + task.ID + "-more"); err != nil {
 		t.Fatalf("click rescue menu failed: %v", err)
@@ -162,6 +164,7 @@ func TestKanbanDoneTaskDeleteConfirmCallsClient(t *testing.T) {
 	kanbanMu.Unlock()
 	tt.SetSize(2400, 1000)
 	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
+	hoverKanbanCard(t, tt, task.ID)
 	if _, ok := tt.Find("kanban-task-" + task.ID + "-more"); !ok {
 		t.Fatal("已完成任务缺少更多按钮")
 	}
@@ -207,6 +210,7 @@ func TestKanbanDeleteFailureToast(t *testing.T) {
 
 	tt, _ := newWorkspaceTester(t, fake, "tasks")
 	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
+	hoverKanbanCard(t, tt, task.ID)
 
 	if err := tt.Click("kanban-task-" + task.ID + "-more"); err != nil {
 		t.Fatalf("click rescue menu failed: %v", err)

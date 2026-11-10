@@ -67,11 +67,17 @@ func (s *chatState) closeTasksWindow() {
 
 func (s *chatState) setTasksWindowView(view string) {
 	ks := getKanbanState(s)
-	kanbanMu.Lock()
-	ks.destination = "tasks"
-	if view == "automations" {
-		ks.destination = "automations"
+	if view != "automations" {
+		view = "tasks"
 	}
+	kanbanMu.Lock()
+	leaving := ks.destination == "automations" && view != "automations"
+	kanbanMu.Unlock()
+	if leaving && !prepareAutomationLeave(s, func() { s.setTasksWindowView(view); s.invalidate() }) {
+		return
+	}
+	kanbanMu.Lock()
+	ks.destination = view
 	kanbanMu.Unlock()
 }
 
@@ -116,6 +122,15 @@ func OpenTasksWindow(client Client, view string, opts ...Option) *mygo.Window {
 		})
 		tasksWindow = win
 		tasksWindowState = state
+		closingConfirmed := false
+		win.OnClose(func(e *mygo.CloseEvent) {
+			if closingConfirmed {
+				return
+			}
+			if !prepareAutomationLeave(state, func() { closingConfirmed = true; win.Close() }) {
+				e.PreventDefault()
+			}
+		})
 		win.OnClosed(func() {
 			tasksWindowMu.Lock()
 			if tasksWindow == win {

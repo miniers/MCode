@@ -104,6 +104,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 		reviewFeedback:   ks.reviewFeedback,
 		rescueMenuTaskID: ks.rescueMenuTaskID,
 		deleteTaskID:     ks.deleteTaskID,
+		viewFilter:       ks.viewFilter,
 	}
 	// 搜索只改变展示，不改看板数据；看板与列表视图共用同一份过滤结果。
 	p.visibleBoard = p.board
@@ -112,6 +113,15 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 		filtered := make([]KanbanTask, 0, len(p.visibleBoard.Tasks))
 		for _, task := range p.visibleBoard.Tasks {
 			if task.GoalID == ks.goalID {
+				filtered = append(filtered, task)
+			}
+		}
+		p.visibleBoard.Tasks = filtered
+	}
+	if ks.viewFilter == "attention" {
+		filtered := make([]KanbanTask, 0, len(p.visibleBoard.Tasks))
+		for _, task := range p.visibleBoard.Tasks {
+			if tasksNeedsAttention(task) {
 				filtered = append(filtered, task)
 			}
 		}
@@ -126,33 +136,36 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 	}
 	winWidth, _ := c.Size()
 	contentWidth := winWidth
-	if !windowMode {
+	if windowMode {
+		contentWidth -= TasksSidebarWidth
+	} else {
 		contentWidth -= kanbanModalInset * 2
 	}
-	wideDetail := contentWidth >= 980 && p.destination != "automations" && (detailTaskID != "" || goalDetailOpen)
+	pane, _, _ := kanbanDetailLayout(contentWidth, ks.detailWidth)
+	wideDetail := pane && p.destination != "automations" && (detailTaskID != "" || goalDetailOpen)
 	renderBody := func() {
 		if !wideDetail {
+			p.boardWidth = contentWidth
 			renderKanbanModalBody(c, s, ks, p)
 			return
 		}
-		ui.Row(c.Key("kanban-body-with-detail")).Grow(1).FillWidth().MinWidth(0).Children(func() {
-			ui.Column(c.Key("kanban-board-pane")).Grow(1).MinWidth(0).FillHeight().Children(func() { renderKanbanModalBody(c, s, ks, p) })
-			ui.Column(c.Key("kanban-detail-pane")).Width(480).Shrink(0).FillHeight().Background(ThemeSurface(c)).Transition(motionSidePanel(c, false)).Children(func() {
-				if detailTaskID != "" {
-					renderTaskDetailContent(c, s, ks)
-				} else {
-					renderGoalDetailContent(c, s, ks)
-				}
-			})
+		renderKanbanDetailSplit(c, s, ks, contentWidth, func(width float32) {
+			p.boardWidth = width
+			renderKanbanModalBody(c, s, ks, p)
+		}, func() {
+			if detailTaskID != "" {
+				renderTaskDetailContent(c, s, ks)
+			} else {
+				renderGoalDetailContent(c, s, ks)
+			}
 		})
 	}
 
 	if windowMode {
-		winWidth, _ := c.Size()
 		ui.Row(c.Key("kanban-window-root")).Fill().Background(ThemeWindowBg(c)).Clip().Gap(0).Children(func() {
 			renderTasksWindowSidebar(c, s, ks, p)
 			ui.Column(c.Key("tasks-window-content")).Grow(1).MinWidth(0).FillHeight().Gap(0).Children(func() {
-				renderKanbanModalHeader(c, s, ks, p, winWidth-TasksSidebarWidth)
+				renderTasksWindowHeader(c, s, ks, p)
 				renderBody()
 			})
 		})
@@ -211,7 +224,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 		}
 	}
 
-	if !wideDetail && detailTaskID != "" {
+	if !wideDetail && detailTaskID != "" && p.destination != "automations" {
 		renderTaskDetail(c, s, ks)
 	} else if !wideDetail && goalDetailOpen && p.destination != "automations" {
 		open := true
@@ -231,8 +244,57 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 	}
 }
 
+func renderTasksWindowHeader(c *ui.Context, s *chatState, ks *kanbanState, p kanbanModalBodyProps) {
+	ui.Row(c.Key("tasks-window-toolbar")).Label("tasks-window-toolbar").FillWidth().Height(TasksToolbarHeight).Shrink(0).Padding(0, Space5).AlignItems(ui.Center).Gap(Space4).BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Children(func() {
+		title := "全部任务"
+		if p.destination == "automations" {
+			title = "自动化"
+		} else if ks.viewFilter == "attention" {
+			title = "待你处理"
+		} else if p.goalID != "" {
+			for _, goal := range p.board.Goals {
+				if goal.ID == p.goalID {
+					title = goal.Title
+					if title == "" {
+						title = goal.Prompt
+					}
+					break
+				}
+			}
+		}
+		ui.Text(c, title).SingleLine().FontSize(TypeProse).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0)
+		if p.destination != "automations" {
+			idx := 0
+			if p.viewMode == config.KanbanViewList {
+				idx = 1
+			}
+			if kanbanViewSwitch(c, &idx).Changed() {
+				kanbanMu.Lock()
+				ks.viewMode = config.KanbanViewKanban
+				if idx == 1 {
+					ks.viewMode = config.KanbanViewList
+				}
+				kanbanMu.Unlock()
+				s.invalidate()
+			}
+		}
+		query := p.automationSearch
+		if p.destination != "automations" {
+			query = ks.searchText
+		}
+		kanbanSearchRow(c, s, ks, &query)
+		if p.destination == "automations" {
+			renderTasksAutomationCreate(c, s, p.scopeID)
+		} else {
+			kanbanCreateMenu(c, s, ks)
+		}
+	})
+}
+
 // kanbanModalBodyProps 汇总看板弹窗内容区需要的只读状态快照。
 type kanbanModalBodyProps struct {
+	boardWidth       float32
+	viewFilter       string
 	projectID        string
 	scopeID          string
 	viewMode         string
@@ -326,6 +388,33 @@ func renderKanbanModalHeader(c *ui.Context, s *chatState, ks *kanbanState, p kan
 			kanbanSearchRow(c, s, ks, &query)
 			if p.destination != "automations" {
 				kanbanCreateMenu(c, s, ks)
+			} else {
+				renderTasksAutomationCreate(c, s, p.scopeID)
+			}
+		})
+	})
+}
+
+func renderTasksAutomationCreate(c *ui.Context, s *chatState, scopeID string) {
+	as := getAutomationState(s)
+	button := Button(c.Key("tasks-new-automation"), ButtonOpts{Text: "新建", Label: "新建自动化", Disabled: !automationCanCreate(s), Variant: ButtonPrimary, OnClick: func() {
+		requestNewAutomation(s, scopeID, func(onChosen func(string)) {
+			as.pendingProjectChoice = onChosen
+			as.chooseProjectOpen = true
+		})
+	}})
+	appPopover(c, button, &as.chooseProjectOpen, nil, func() {
+		popoverCard(c, ui.Column(c.Key("tasks-automation-project-menu"))).Padding(Space2, Space2).Children(func() {
+			for _, project := range s.projects {
+				project := project
+				Button(c.Key("tasks-automation-project-"+project.ID), ButtonOpts{Text: project.Name, Variant: ButtonGhost, OnClick: func() {
+					choose := as.pendingProjectChoice
+					as.pendingProjectChoice = nil
+					as.chooseProjectOpen = false
+					if choose != nil {
+						choose(project.ID)
+					}
+				}})
 			}
 		})
 	})
@@ -454,7 +543,7 @@ func kanbanViewSwitch(c *ui.Context, viewIdx *int) ui.Element {
 // 不再用统一搜索框的胶囊外观，避免在头部占宽过多。
 func kanbanSearchRow(c *ui.Context, s *chatState, ks *kanbanState, query *string) {
 	row := ui.Row(c.Key("kanban-search-row")).
-		Width(140).
+		Width(TasksSearchWidth).
 		Height(ControlSM).
 		Radius(RadiusSM).
 		BorderWidth(Hairline).
@@ -464,7 +553,7 @@ func kanbanSearchRow(c *ui.Context, s *chatState, ks *kanbanState, query *string
 		Gap(Space2).
 		AlignItems(ui.Center).
 		Shrink(1).
-		MinWidth(120)
+		MinWidth(TasksSearchMinWidth)
 
 	row.Children(func() {
 		ui.Icon(c, IconSearch()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)).Shrink(0)
@@ -734,7 +823,12 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 			// 2. 自动化视图：直接嵌入现有的自动化工作区
 			if p.destination == "automations" {
 				ui.Column(c.Key("kanban-automations-embed")).Grow(1).FillWidth().MinWidth(0).Transition(motionDialog(c)).Children(func() {
-					renderAutomationWorkspaceWithSearch(c, s, p.automationSearch)
+					renderAutomationWorkspaceInScope(c, s, automationWorkspaceProps{ScopeID: p.scopeID, SearchText: p.automationSearch, ClearSearch: func() {
+						kanbanMu.Lock()
+						ks.automationSearch = ""
+						kanbanMu.Unlock()
+						s.invalidate()
+					}})
 				})
 				return
 			}
@@ -747,6 +841,32 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 			}
 
 			// 3. 目标区域 (Goals)
+			attentionGoals := 0
+			if p.viewFilter == "attention" {
+				query := strings.ToLower(strings.TrimSpace(ks.searchText))
+				for _, goal := range p.board.Goals {
+					if goal.Status != "plan_review" || (query != "" && !strings.Contains(strings.ToLower(goal.Title+" "+goal.Prompt), query)) {
+						continue
+					}
+					goal := goal
+					attentionGoals++
+					title := goal.Title
+					if title == "" {
+						title = goal.Prompt
+					}
+					ui.ButtonBase(c.Key("tasks-attention-goal-" + goal.ID)).Label("确认目标计划 " + goal.ID).FillWidth().Height(RowHeight).AlignItems(ui.Center).Gap(Space3).OnClick(func() {
+						kanbanMu.Lock()
+						ks.goalID = goal.ID
+						ks.viewFilter = ""
+						ks.goalDetailOpen = true
+						kanbanMu.Unlock()
+						s.invalidate()
+					}).Children(func() {
+						ui.Icon(c, IconOctagonAlert()).Size(IconMD, IconMD).TextColor(ThemeWarning(c))
+						ui.Text(c, title).SingleLine().TextColor(ThemePrimaryText(c))
+					})
+				}
+			}
 			for _, goal := range p.board.Goals {
 				if goal.ID != p.goalID {
 					continue
@@ -838,11 +958,18 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 				return
 			}
 
-			if (p.searching || p.goalID != "") && len(p.visibleBoard.Tasks) == 0 {
+			if (p.searching || p.goalID != "" || p.viewFilter == "attention") && len(p.visibleBoard.Tasks) == 0 && attentionGoals == 0 {
 				ui.Column(c.Key("kanban-search-empty")).Fill().Center().Gap(Space2).Children(func() {
 					ui.Icon(c, IconSearch()).Size(ControlSM, ControlSM).TextColor(ThemeSecondaryText(c).Alpha(0.50))
 					ui.Text(c, "未找到任务").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
-					Button(c.Key("kanban-clear-filters"), ButtonOpts{Text: "清除筛选", Label: "清除筛选", Variant: ButtonSecondary, OnClick: func() { kanbanMu.Lock(); ks.searchText = ""; ks.goalID = ""; kanbanMu.Unlock(); s.invalidate() }})
+					Button(c.Key("kanban-clear-filters"), ButtonOpts{Text: "清除筛选", Label: "清除筛选", Variant: ButtonSecondary, OnClick: func() {
+						kanbanMu.Lock()
+						ks.searchText = ""
+						ks.goalID = ""
+						ks.viewFilter = ""
+						kanbanMu.Unlock()
+						s.invalidate()
+					}})
 				})
 				return
 			}
@@ -852,7 +979,15 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 			}
 
 			// 6. 看板五列横向排列：每列至少 270，窗口拉窄后横向滚动，不再压缩列宽
-			colWidth := kanbanBoardColumnWidth(c, s)
+			collapsed := 0
+			if !ks.doneExpanded {
+				collapsed = 1
+			}
+			boardWidth := p.boardWidth
+			if boardWidth <= 0 {
+				boardWidth, _ = c.Size()
+			}
+			colWidth := kanbanColumnWidthFor(max(0, boardWidth-2*Space5), len(kanbanColumnDefs)-collapsed, collapsed)
 			ui.ScrollHorizontal(c.Key("kanban-columns-row")).
 				TrackScroll(&ks.columnsScroll).
 				Grow(1).

@@ -59,3 +59,35 @@ func TestTasksRootDoesNotInitializeChat(t *testing.T) {
 	}
 	s.close()
 }
+
+func TestTasksAutomationLeaveProtectsDestinationAndScope(t *testing.T) {
+	s, _ := buildTasksRoot(nil, WithTasksWindowMode("automations"))
+	ks := getKanbanState(s)
+	ks.initialized = true
+	ks.scopeID = "p1"
+	as := getAutomationState(s)
+	as.editorOpen = true
+	as.name = "修改"
+	s.setTasksWindowView("tasks")
+	if ks.destination != "automations" || !as.confirmDiscard || as.pendingLeave == nil {
+		t.Fatal("切换目的时未保护未保存的修改")
+	}
+	handleAutomationEscape(s)
+	s.setKanbanScope("p2", false)
+	if ks.scopeID != "p1" || !as.confirmDiscard || as.pendingLeave == nil {
+		t.Fatal("切换项目时未保护未保存的修改")
+	}
+	s.close()
+}
+
+func TestTasksAttentionCountDeduplicatesAndTracksGoals(t *testing.T) {
+	board := KanbanBoard{Tasks: []KanbanTask{{ID: "a", Status: "failed"}, {ID: "a", Status: "review"}, {ID: "b", Status: "waiting", WaitKind: "machine"}}, Goals: []KanbanGoal{{ID: "g", Status: "plan_review"}}}
+	if got := tasksAttentionCount(board); got != 2 {
+		t.Fatalf("待处理计数 = %d", got)
+	}
+	board.Tasks = board.Tasks[2:]
+	board.Goals[0].Status = "running"
+	if got := tasksAttentionCount(board); got != 0 {
+		t.Fatalf("处理后计数 = %d", got)
+	}
+}

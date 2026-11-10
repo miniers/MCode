@@ -108,8 +108,12 @@ func TestKanbanBlockedDependencyOpensTask(t *testing.T) {
 		{ID: "dependency", ProjectID: "p1", Title: "前置工作", Status: "todo", Column: "todo"},
 	}})
 	tt, state := newWorkspaceTester(t, fake, "tasks")
-	waitFor(t, tt, func() bool { _, ok := tt.Find("前置任务 前置工作"); return ok })
-	if err := tt.Click("前置任务 前置工作"); err != nil {
+	waitFor(t, tt, func() bool { _, ok := tt.Find("kanban-task-card-blocked"); return ok })
+	if err := tt.Click("kanban-task-card-blocked"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("前置工作"); return ok })
+	if err := tt.Click("前置工作"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {

@@ -26,7 +26,11 @@ func (s *chatState) setKanbanScope(projectID string, all bool) {
 	ks := getKanbanState(s)
 	kanbanMu.Lock()
 	changed := ks.initialized && ks.scopeID != projectID
+	leavingAutomation := s.tasksWindowView != "" && changed && ks.destination == "automations"
 	kanbanMu.Unlock()
+	if leavingAutomation && !prepareAutomationLeave(s, func() { s.setKanbanScope(projectID, all); s.invalidate() }) {
+		return
+	}
 	if changed {
 		s.closeTaskDetail()
 		kanbanKeyboardClearSelection(s)

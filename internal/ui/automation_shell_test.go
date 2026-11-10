@@ -1,6 +1,10 @@
 package mcodeui
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+)
 
 func TestAutomationShellActionsAndLeaveGuard(t *testing.T) {
 	s := &chatState{}
@@ -63,5 +67,85 @@ func TestAutomationShellEscape(t *testing.T) {
 	}
 	if handleAutomationEscape(s) {
 		t.Fatal("无可关闭内容时不应消费")
+	}
+}
+
+func TestAutomationShellLeaveDiscardRunsNextOnce(t *testing.T) {
+	tt, s := newWorkspaceTester(t, NewFakeClient(), "automations")
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") || tt.HasText("还没有自动化") })
+	requestNewAutomation(s, "p1", nil)
+	waitFor(t, tt, func() bool { return tt.Focused("automation-name-input") })
+	tt.Type("草稿")
+	called := 0
+	next := func() { called++ }
+	if prepareAutomationLeave(s, next) {
+		t.Fatal("草稿未阻止离开")
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("继续编辑") })
+	if err := tt.Click("继续编辑"); err != nil {
+		t.Fatal(err)
+	}
+	if called != 0 {
+		t.Fatal("继续编辑执行了回调")
+	}
+	if prepareAutomationLeave(s, next) {
+		t.Fatal("草稿未阻止离开")
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("放弃") })
+	if err := tt.Click("放弃"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if called != 1 {
+		t.Fatalf("回调执行 %d 次", called)
+	}
+}
+
+func TestAutomationShellClearSearchIsolation(t *testing.T) {
+	s := &chatState{}
+	as := getAutomationState(s)
+	as.initialized, as.filter, as.unreadOnly = true, 1, true
+	autoSearch, taskSearch := "自动化", "任务"
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderAutomationWorkspaceInScope(c, s, automationWorkspaceProps{SearchText: autoSearch, ClearSearch: func() { autoSearch = "" }})
+	}, 800, 600)
+	tt.Frame()
+	if err := tt.Click("清除筛选"); err != nil {
+		t.Fatal(err)
+	}
+	if autoSearch != "" || taskSearch != "任务" || as.filter != 0 || as.unreadOnly {
+		t.Fatal("清除筛选影响了其他搜索或未重置筛选")
+	}
+}
+
+func TestAutomationVisualEmptyStates(t *testing.T) {
+	for _, tc := range []struct {
+		name, scope, search, want string
+		loading                   bool
+		err                       string
+	}{
+		{name: "all", want: "还没有自动化"},
+		{name: "project", scope: "p1", want: "此项目没有自动化"},
+		{name: "filtered", search: "x", want: "无匹配结果"},
+		{name: "loading", loading: true, want: "正在加载自动化…"},
+		{name: "error", err: "读取失败", want: "读取失败"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &chatState{}
+			as := getAutomationState(s)
+			as.initialized, as.projectID, as.loading, as.err = true, tc.scope, tc.loading, tc.err
+			tt := ui.NewTester(func(c *ui.Context) {
+				renderAutomationWorkspaceInScope(c, s, automationWorkspaceProps{ScopeID: tc.scope, SearchText: tc.search})
+			}, 800, 600)
+			tt.Frame()
+			if !tt.HasText(tc.want) {
+				t.Fatalf("缺少 %s", tc.want)
+			}
+			for _, text := range []string{"还没有自动化", "此项目没有自动化", "无匹配结果", "正在加载自动化…", "读取失败"} {
+				if text != tc.want && tt.HasText(text) {
+					t.Fatalf("错误显示 %s", text)
+				}
+			}
+		})
 	}
 }

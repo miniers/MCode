@@ -54,7 +54,12 @@ func tasksRootView(s *chatState) func(*ui.Context) {
 			kanbanKeyboardSearchFocus(s, true)
 		}
 		if c.Shortcut(0, ui.KeyEscape) {
-			consumeKanbanEscape(s)
+			kanbanMu.Lock()
+			automations := ks.destination == "automations"
+			kanbanMu.Unlock()
+			if !automations || !handleAutomationEscape(s) {
+				consumeKanbanEscape(s)
+			}
 		}
 		ui.Column(c.Key("root-shell")).Fill().Children(func() {
 			s.mu.Lock()

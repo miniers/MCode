@@ -290,7 +290,6 @@ func kanbanKeyboardItem(c *ui.Context, s *chatState, e ui.Element, task KanbanTa
 		st.focusID = task.ID
 	}
 	kanbanKeyboardMu.Unlock()
-	e.BorderWidth(kanbanDropBorder).BorderColor(ThemeAccent(c))
 	switch {
 	case e.Shortcut(0, ui.KeySpace):
 		kanbanKeyboardSelect(s, task.ID, "toggle")

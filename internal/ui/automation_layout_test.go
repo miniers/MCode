@@ -51,18 +51,14 @@ func TestAutomationLayoutFilterAndUnreadTotal(t *testing.T) {
 func TestAutomationLayoutEditorDismiss(t *testing.T) {
 	fake := NewFakeClient()
 	tt, s := newWorkspaceTester(t, fake, "automations")
-	waitFor(t, tt, func() bool { return tt.HasText("还没有自动化") })
-	if err := tt.Click("automation-empty-create"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") || tt.HasText("还没有自动化") })
+	requestNewAutomation(s, "p1", nil)
 	waitFor(t, tt, func() bool { return tt.Focused("automation-name-input") })
 	if err := tt.Click("取消编辑"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return !getAutomationState(s).editorOpen })
-	if err := tt.Click("automation-empty-create"); err != nil {
-		t.Fatal(err)
-	}
+	requestNewAutomation(s, "p1", nil)
 	waitFor(t, tt, func() bool { return tt.Focused("automation-name-input") })
 	tt.Type("草稿")
 	if err := tt.Click("取消编辑"); err != nil {
@@ -80,18 +76,23 @@ func TestAutomationLayoutEditorDismiss(t *testing.T) {
 
 func TestAutomationLayoutCreatePaused(t *testing.T) {
 	fake := NewFakeClient()
-	tt, _ := newWorkspaceTester(t, fake, "automations")
-	waitFor(t, tt, func() bool { return tt.HasText("还没有自动化") })
-	if err := tt.Click("automation-empty-create"); err != nil {
-		t.Fatal(err)
-	}
+	tt, s := newWorkspaceTester(t, fake, "automations")
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") || tt.HasText("还没有自动化") })
+	requestNewAutomation(s, "p1", nil)
 	waitFor(t, tt, func() bool { return tt.Focused("automation-name-input") })
 	tt.Type("暂停任务")
 	if err := tt.Click("automation-prompt-input"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Type("执行检查")
-	if err := tt.Click("创建状态"); err != nil {
+	form, ok := tt.Find("automation-prompt-input")
+	if !ok {
+		t.Fatal("缺少编辑表单")
+	}
+	for i := 0; i < 8; i++ {
+		tt.Scroll(form.X+form.W/2, form.Y+form.H/2, 0, 150)
+	}
+	if err := tt.Click("创建并启用"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tt.Click("创建为暂停"); err != nil {
@@ -164,7 +165,7 @@ func (c *delayedAutomationPreviewClient) PreviewAutomationSchedule(_ context.Con
 func TestAutomationLayoutPreviewDiscardsLateResult(t *testing.T) {
 	client := &delayedAutomationPreviewClient{FakeClient: NewFakeClient(), started: make(chan int, 2), release: make(chan struct{}), finished: make(chan struct{})}
 	tt, s := newWorkspaceTester(t, client, "automations")
-	waitFor(t, tt, func() bool { return tt.HasText("还没有自动化") })
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") || tt.HasText("还没有自动化") })
 	as := getAutomationState(s)
 	as.resetToNewAutomation(s)
 	as.intervalInput = "1"

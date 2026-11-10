@@ -58,9 +58,10 @@ func TestAutomationRunNowDoubleClickAndLateProject(t *testing.T) {
 		t.Fatal("运行未开始")
 	}
 	s.runAutomationNow("a")
-	if err := tt.Click("workspace-project-p2"); err != nil {
-		t.Fatal(err)
-	}
+	tt = ui.NewTester(func(c *ui.Context) {
+		s.applyWorkspaceUpdates()
+		renderAutomationWorkspaceInScope(c, s, automationWorkspaceProps{ScopeID: "p2"})
+	}, 1320, 860)
 	waitFor(t, tt, func() bool { return tt.HasText("b") })
 	if err := tt.Click("b"); err != nil {
 		t.Fatal(err)
@@ -110,8 +111,8 @@ func TestAutomationConfigSummary(t *testing.T) {
 func TestAutomationEditorCommandSaveValidation(t *testing.T) {
 	fake := NewFakeClient()
 	tt, s := newWorkspaceTester(t, fake, "automations")
-	waitFor(t, tt, func() bool { return tt.HasText("还没有自动化") })
-	getAutomationState(s).resetToNewAutomation(s)
+	waitFor(t, tt, func() bool { return tt.HasText("此项目没有自动化") || tt.HasText("还没有自动化") })
+	requestNewAutomation(s, "p1", nil)
 	waitFor(t, tt, func() bool { return tt.Focused("automation-name-input") })
 	tt.Key(ui.Cmd, ui.KeyS)
 	waitFor(t, tt, func() bool { return tt.HasText("自动化名称不能为空") })

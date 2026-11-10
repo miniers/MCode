@@ -444,14 +444,6 @@ func consumeKanbanEscape(s *chatState) bool {
 		ks.goalMenuOpen = false
 		ks.newMenuOpen = false
 		consumed = true
-	} else if ks.destination != "automations" && kanbanKeyboardClearSelection(s) {
-		consumed = true
-	} else if ks.goalDetailOpen {
-		ks.goalDetailOpen = false
-		consumed = true
-	} else if ks.detailTaskID != "" || ks.planReviewGoalID != "" || ks.outputsGoalID != "" {
-		// 详情自身处理 Esc；此处只阻止外层 sheet 同时关闭。
-		consumed = true
 	} else if ks.showNewTask {
 		ks.showNewTask = false
 		ks.newTaskTitle = ""
@@ -464,6 +456,17 @@ func consumeKanbanEscape(s *chatState) bool {
 	} else if ks.quickAddOpen {
 		ks.quickAddOpen = false
 		ks.quickAddText = ""
+		consumed = true
+	} else if ks.destination != "automations" && ks.goalDetailOpen {
+		ks.goalDetailOpen = false
+		consumed = true
+	} else if ks.destination != "automations" && (ks.detailTaskID != "" || ks.planReviewGoalID != "" || ks.outputsGoalID != "") {
+		// 详情自身处理 Esc；此处只阻止外层 sheet 同时关闭。
+		consumed = true
+	} else if ks.destination != "automations" && (ks.selecting || kanbanKeyboardClearSelection(s)) {
+		ks.selecting = false
+		ks.selectedTaskIDs = nil
+		kanbanKeyboardClearSelection(s)
 		consumed = true
 	} else if ks.destination == "automations" && ks.automationSearch != "" {
 		ks.automationSearch = ""
