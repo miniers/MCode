@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 func canonical(path string) (string, error) {
@@ -51,16 +52,20 @@ func canonical(path string) (string, error) {
 	}
 }
 
-// SecretPath 判断路径是否指向受保护的凭据。
-func SecretPath(target string) bool {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return true
+var (
+	secretBasesMu     sync.Mutex
+	cachedSecretHome  string
+	cachedSecretBases []string
+)
+
+// 缓存凭据路径的解析结果，避免遍历文件时反复解析同一份名单。
+func secretBases(home string) []string {
+	secretBasesMu.Lock()
+	defer secretBasesMu.Unlock()
+	if home == cachedSecretHome {
+		return cachedSecretBases
 	}
-	target, err = canonical(target)
-	if err != nil {
-		return true
-	}
+	var bases []string
 	for _, name := range []string{
 		".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker/config.json",
 		".netrc", ".npmrc", ".pypirc", ".git-credentials", ".password-store",
@@ -72,6 +77,24 @@ func SecretPath(target string) bool {
 		if err != nil {
 			continue
 		}
+		bases = append(bases, base)
+	}
+	cachedSecretHome = home
+	cachedSecretBases = bases
+	return bases
+}
+
+// SecretPath 判断路径是否指向受保护的凭据。
+func SecretPath(target string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return true
+	}
+	target, err = canonical(target)
+	if err != nil {
+		return true
+	}
+	for _, base := range secretBases(home) {
 		rel, err := filepath.Rel(base, target)
 		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
 			return true

@@ -155,3 +155,36 @@ func TestSecretPathResolvesProtectedSymlink(t *testing.T) {
 		t.Fatal("名称前缀相同的普通目录被拒绝")
 	}
 }
+
+func TestSecretPathCacheChangesWithHome(t *testing.T) {
+	var previous string
+	for i := 0; i < 2; i++ {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		key := filepath.Join(home, ".ssh", "key")
+		if err := os.MkdirAll(filepath.Dir(key), 0755); err != nil {
+			t.Fatal(err)
+		}
+		put(t, key, "key")
+		if !SecretPath(key) {
+			t.Fatalf("当前用户目录中的凭据未被保护: %s", key)
+		}
+		if previous != "" && SecretPath(previous) {
+			t.Fatalf("上一个用户目录中的路径仍被保护: %s", previous)
+		}
+		previous = key
+	}
+}
+
+func BenchmarkSecretPath(b *testing.B) {
+	workDir, err := os.Getwd()
+	if err != nil {
+		b.Fatal(err)
+	}
+	path := filepath.Join(workDir, "path.go")
+	SecretPath(path)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		SecretPath(path)
+	}
+}
