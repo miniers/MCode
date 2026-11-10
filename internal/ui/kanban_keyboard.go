@@ -39,6 +39,10 @@ func kanbanKeyboardSearchFocus(s *chatState, set bool) bool {
 }
 
 func kanbanKeyboardUpdate(s *chatState, tasks []KanbanTask, view string) {
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	doneExpanded := ks.doneExpanded
+	kanbanMu.Unlock()
 	kanbanKeyboardMu.Lock()
 	defer kanbanKeyboardMu.Unlock()
 	st := kanbanKeyboardStates[s]
@@ -60,6 +64,9 @@ func kanbanKeyboardUpdate(s *chatState, tasks []KanbanTask, view string) {
 		}
 	} else {
 		for _, col := range kanbanColumnDefs {
+			if col.key == "done" && !doneExpanded {
+				continue
+			}
 			for _, t := range tasks {
 				if kanbanDisplayColumn(t) == col.key {
 					ordered = append(ordered, t)

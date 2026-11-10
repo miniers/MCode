@@ -99,21 +99,20 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 		}
 	}
 	ui.Column(c.Key("kanban-task-detail")).Label("kanban-task-detail").Fill().MinWidth(0).
-		Padding(Space5).Gap(Space3).Transition(motionSidePanel(c, false)).Children(func() {
-		ui.Row(c.Key("kanban-detail-header")).FillWidth().AlignItems(ui.Center).Gap(Space3).Children(func() {
-			label := "关闭"
+		Gap(0).Children(func() {
+		ui.Row(c.Key("kanban-detail-header")).FillWidth().Padding(Space4, Space5).AlignItems(ui.Center).Gap(Space3).Children(func() {
 			if goalBack != "" {
-				label = "← 返回目标"
+				label := "← 返回目标"
 				for _, goal := range goals {
 					if goal.ID == goalBack {
 						label = "← " + goal.Title
 						break
 					}
 				}
+				Button(c.Key("kanban-task-detail-back"), ButtonOpts{Text: label, Label: "返回目标", Variant: ButtonGhost, OnClick: s.closeTaskDetail})
 			}
-			Button(c.Key("kanban-task-detail-close"), ButtonOpts{Text: label, Label: "kanban-task-detail-close", Variant: ButtonGhost, OnClick: s.closeTaskDetail})
+			ui.Text(c, "任务详情").FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
 			if task != nil {
-				ui.Text(c, task.Title).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
 				busy := kanbanTaskBusy(ks, task.ID)
 				more := IconButton(c.Key("kanban-detail-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "任务更多操作", Variant: ButtonGhost, OnClick: func() { ks.detailMoreOpen = true }})
 				appPopover(c.Key("kanban-detail-more-popover"), more, &ks.detailMoreOpen, nil, func() {
@@ -130,11 +129,18 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 					})
 				})
 			}
+			IconButton(c.Key("kanban-task-detail-close"), IconButtonProps{Icon: IconX(), Label: "kanban-task-detail-close", Tooltip: "关闭任务详情", Variant: ButtonGhost, OnClick: func() {
+				kanbanMu.Lock()
+				ks.goalDetailOpen = false
+				kanbanMu.Unlock()
+				s.closeTaskDetail()
+			}})
 		})
 		if task == nil {
 			ui.Text(c, "任务已不存在").TextColor(ThemeSecondaryText(c))
 			return
 		}
+		ui.Text(c, task.Title).Padding(0, Space5).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
 		if ks.detailDeleteOpen {
 			ui.DialogBase(c.Key("kanban-detail-delete-dialog"), &ks.detailDeleteOpen, func(backdrop, panel ui.Element) {
 				backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))
@@ -151,7 +157,7 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 		if task.ThreadID != threadID || task.Revision != revision {
 			s.loadTaskDetail(*task, false)
 		}
-		ui.Row(c.Key("kanban-detail-meta")).Gap(Space3).Children(func() {
+		ui.Row(c.Key("kanban-detail-meta")).Padding(Space3, Space5).Gap(Space3).Children(func() {
 			ui.Text(c, goalOutputStatusLabel(task.Status)).TextColor(ThemeSecondaryText(c))
 			for _, goal := range goals {
 				if goal.ID == task.GoalID {
@@ -174,7 +180,7 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 				ui.Text(c, "合并失败: "+reason).TextColor(ThemeDanger(c))
 			}
 		})
-		ui.Row(c.Key("kanban-detail-tabs")).Gap(Space2).Children(func() {
+		ui.Row(c.Key("kanban-detail-tabs")).Padding(0, Space5).Gap(Space2).Children(func() {
 			for _, item := range []struct{ id, label string }{{"result", "结果"}, {"diff", "改动"}, {"session", "会话"}} {
 				item := item
 				variant := ButtonGhost
@@ -191,7 +197,7 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 			}
 		})
 		ui.Scroll(c.Key("kanban-task-detail-scroll-" + tab)).Grow(1).FillWidth().Children(func() {
-			ui.Column(c.Key("kanban-task-detail-body-" + tab)).FillWidth().Gap(Space3).Transition(motionFeedback(c)).Children(func() {
+			ui.Column(c.Key("kanban-task-detail-body-"+tab)).FillWidth().Padding(Space3, Space5).Gap(Space3).Transition(motionFeedback(c)).Children(func() {
 				if conflict {
 					ui.Text(c, "任务已被其他地方修改，请核对刷新后的任务与改动后重试").TextColor(ThemeDanger(c))
 					if boardLoading {
@@ -256,15 +262,17 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 				}
 			})
 		})
-		if task.CanReview || task.Column == "review" {
-			ui.TextInput(c.Key("kanban-task-detail-feedback-input"), &ks.detailFeedback).Label("kanban-task-detail-feedback").Placeholder("评审反馈").FillWidth()
-			busy := kanbanTaskBusy(ks, task.ID) || (conflict && boardErr != "")
-			ui.Row(c.Key("kanban-task-detail-review-actions")).Gap(Space3).Children(func() {
-				Button(c.Key("kanban-task-detail-reject"), ButtonOpts{Text: "退回修改", Label: "kanban-task-detail-reject", Variant: ButtonSecondary, Disabled: busy || !task.CanReview, OnClick: func() { s.reviewTask(task.ID, "reject", ks.detailFeedback, task.Revision) }})
-				Button(c.Key("kanban-task-detail-accept"), ButtonOpts{Text: "接受", Label: "kanban-task-detail-accept", Variant: ButtonPrimary, Disabled: busy || !task.CanApprove, OnClick: func() { s.reviewTask(task.ID, "accept", ks.detailFeedback, task.Revision) }})
-			})
-		} else if kanbanActions(*task, false).primary == "开始" {
-			Button(c.Key("kanban-task-detail-start"), ButtonOpts{Text: "开始", Label: "kanban-task-detail-start", Variant: ButtonPrimary, Disabled: kanbanTaskBusy(ks, task.ID) || task.Blocked, OnClick: func() { s.performKanbanTarget(*task, "in_progress") }})
-		}
+		ui.Column(c.Key("kanban-task-detail-footer")).FillWidth().Padding(Space4, Space5).Gap(Space3).Children(func() {
+			if task.CanReview || task.Column == "review" {
+				ui.TextInput(c.Key("kanban-task-detail-feedback-input"), &ks.detailFeedback).Label("kanban-task-detail-feedback").Placeholder("评审反馈").FillWidth()
+				busy := kanbanTaskBusy(ks, task.ID) || (conflict && boardErr != "")
+				ui.Row(c.Key("kanban-task-detail-review-actions")).Gap(Space3).Children(func() {
+					Button(c.Key("kanban-task-detail-reject"), ButtonOpts{Text: "退回修改", Label: "kanban-task-detail-reject", Variant: ButtonSecondary, Disabled: busy || !task.CanReview, OnClick: func() { s.reviewTask(task.ID, "reject", ks.detailFeedback, task.Revision) }})
+					Button(c.Key("kanban-task-detail-accept"), ButtonOpts{Text: "接受", Label: "kanban-task-detail-accept", Variant: ButtonPrimary, Disabled: busy || !task.CanApprove, OnClick: func() { s.reviewTask(task.ID, "accept", ks.detailFeedback, task.Revision) }})
+				})
+			} else if kanbanActions(*task, false).primary == "开始" {
+				Button(c.Key("kanban-task-detail-start"), ButtonOpts{Text: "开始", Label: "kanban-task-detail-start", Variant: ButtonPrimary, Disabled: kanbanTaskBusy(ks, task.ID) || task.Blocked, OnClick: func() { s.performKanbanTarget(*task, "in_progress") }})
+			}
+		})
 	})
 }

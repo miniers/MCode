@@ -371,7 +371,11 @@ func TestKanbanWorkspace_DragRejectsInvalidTransition(t *testing.T) {
 		ID: "done-task", ProjectID: "p1", Title: "已完成任务", Status: "done", Column: "done",
 		CanMove: true, Revision: 2,
 	}}})
-	tt, _ := newWorkspaceTester(t, fake, "tasks")
+	tt, s := newWorkspaceTester(t, fake, "tasks")
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	ks.doneExpanded = true
+	kanbanMu.Unlock()
 	waitFor(t, tt, func() bool { return tt.HasText("已完成任务") })
 	from, ok := tt.Find("kanban-task-card-done-task")
 	if !ok {
@@ -958,8 +962,12 @@ func TestKanbanWorkspace_ReopenDone(t *testing.T) {
 		ID: "done-1", ProjectID: "p1", Title: "已完成任务", Status: "done", Column: "done", CanMove: true, Revision: 5,
 	}}})
 
-	tt, _ := newWorkspaceTester(t, fake, "tasks")
+	tt, s := newWorkspaceTester(t, fake, "tasks")
 	tt.SetSize(1800, 860)
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	ks.doneExpanded = true
+	kanbanMu.Unlock()
 	waitFor(t, tt, func() bool { return tt.HasText("已完成任务") })
 
 	hoverKanbanCard(t, tt, "done-1")

@@ -42,16 +42,19 @@ func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 			break
 		}
 	}
-	ui.Column(c.Key("kanban-goal-detail")).Label("kanban-goal-detail").Fill().Padding(Space5).Gap(Space3).Transition(motionSidePanel(c, false)).Children(func() {
-		Button(c.Key("kanban-goal-detail-close"), ButtonOpts{Text: "关闭", Label: "关闭目标详情", Variant: ButtonGhost, OnClick: func() { kanbanMu.Lock(); ks.goalDetailOpen = false; kanbanMu.Unlock(); s.invalidate() }})
+	ui.Column(c.Key("kanban-goal-detail")).Label("kanban-goal-detail").Fill().Children(func() {
+		ui.Row(c.Key("kanban-goal-detail-header")).FillWidth().Padding(Space4, Space5).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, "目标详情").FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
+			IconButton(c.Key("kanban-goal-detail-close"), IconButtonProps{Icon: IconX(), Label: "关闭目标详情", Tooltip: "关闭目标详情", Variant: ButtonGhost, OnClick: func() { kanbanMu.Lock(); ks.goalDetailOpen = false; kanbanMu.Unlock(); s.invalidate() }})
+		})
 		if goal == nil {
 			ui.Text(c, "目标已不存在").TextColor(ThemeSecondaryText(c))
 			return
 		}
-		ui.Text(c, goal.Title).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
-		ui.Text(c, goalStatusBadgeText(goal.Status)).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, goal.Title).Padding(0, Space5).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
+		ui.Text(c, goalStatusBadgeText(goal.Status)).Padding(Space3, Space5).TextColor(ThemeSecondaryText(c))
 		ui.Scroll(c.Key("kanban-goal-detail-scroll")).Grow(1).FillWidth().TrackScroll(&ks.goalDetailScroll).Children(func() {
-			ui.Column(c.Key("kanban-goal-detail-body")).FillWidth().Gap(Space3).Children(func() {
+			ui.Column(c.Key("kanban-goal-detail-body")).FillWidth().Padding(Space3, Space5).Gap(Space3).Children(func() {
 				if goal.PlanSummary != "" {
 					ui.Text(c, goal.PlanSummary).TextColor(ThemePrimaryText(c))
 				}
@@ -87,7 +90,7 @@ func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 				}
 			})
 		})
-		ui.Row(c.Key("kanban-goal-detail-actions")).Gap(Space2).Children(func() {
+		ui.Row(c.Key("kanban-goal-detail-actions")).Padding(Space4, Space5).Gap(Space2).Children(func() {
 			if goal.Status == "plan_review" && reviewGoalID != goalID {
 				Button(c.Key("goal-plan-review"), ButtonOpts{Text: "审阅计划", Label: "审阅计划", OnClick: func() { kanbanMu.Lock(); ks.planReviewGoalID = goalID; kanbanMu.Unlock(); s.invalidate() }})
 			}

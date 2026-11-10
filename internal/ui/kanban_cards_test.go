@@ -51,9 +51,9 @@ func TestKanbanCardProjectSignalAndPriority(t *testing.T) {
 	s.projects = []Project{{ID: "p1", Name: "项目一"}}
 	task := KanbanTask{ID: "t1", ProjectID: "p1", Title: "任务标题", Status: "todo", Column: "todo", Notes: "不显示的备注"}
 	for _, mixed := range []bool{false, true} {
-		ks := &kanbanState{projectID: "p1"}
+		ks := &kanbanState{scopeID: "p1"}
 		if mixed {
-			ks.projectID = ""
+			ks.scopeID = ""
 		}
 		tt := ui.NewTester(func(c *ui.Context) { renderTaskCard(c, s, ks, task, kanbanTaskCardState{}) }, 400, 200)
 		_, hasSignal := tt.Find("kanban-task-signal-t1")
@@ -63,7 +63,7 @@ func TestKanbanCardProjectSignalAndPriority(t *testing.T) {
 	}
 	for priority, label := range map[string]string{"": "", "none": "", "urgent": "紧急", "high": "高", "medium": "中", "low": "低"} {
 		task.Priority = priority
-		ks := &kanbanState{projectID: "p1"}
+		ks := &kanbanState{scopeID: "p1"}
 		tt := ui.NewTester(func(c *ui.Context) { renderTaskCard(c, s, ks, task, kanbanTaskCardState{}) }, 400, 200)
 		if label != "" {
 			if _, ok := tt.Find("优先级：" + label); !ok {
@@ -112,9 +112,9 @@ func TestKanbanListRowProjectAndSignal(t *testing.T) {
 	ks := getKanbanState(s)
 	task := KanbanTask{ID: "list", ProjectID: "p1", Title: "列表任务", Status: "waiting", Column: "in_progress", WaitKind: "children"}
 	for _, mixed := range []bool{false, true} {
-		ks.projectID = "p1"
+		ks.scopeID = "p1"
 		if mixed {
-			ks.projectID = ""
+			ks.scopeID = ""
 		}
 		tt := ui.NewTester(func(c *ui.Context) { renderKanbanListRow(c, s, task) }, 600, 100)
 		if !tt.HasText("等待子任务") || tt.HasText("项目一") != mixed || tt.HasText("更新于") {

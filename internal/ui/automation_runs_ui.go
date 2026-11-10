@@ -126,9 +126,6 @@ func automationUnreadTotal(unread map[string]int, autos []Automation) int {
 
 // loadAutomationUnread 异步刷新项目下各自动化的未读运行记录数，供入口角标使用。
 func (s *chatState) loadAutomationUnread(projectID string) {
-	if projectID == "" {
-		return
-	}
 	client, ok := s.automationRunsStateClient()
 	if !ok {
 		return

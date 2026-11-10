@@ -35,6 +35,7 @@ func TestKanbanKeyboardWindowFindFocusesSearch(t *testing.T) {
 
 func TestKanbanKeyboardVisibleOrderAndFocus(t *testing.T) {
 	s := &chatState{}
+	getKanbanState(s).doneExpanded = true
 	defer func() { kanbanKeyboardMu.Lock(); delete(kanbanKeyboardStates, s); kanbanKeyboardMu.Unlock() }()
 	tasks := []KanbanTask{{ID: "c", Status: "done"}, {ID: "a", Status: "todo"}, {ID: "b", Status: "todo"}}
 	kanbanKeyboardUpdate(s, tasks, config.KanbanViewKanban)
@@ -66,6 +67,26 @@ func TestKanbanKeyboardVisibleOrderAndFocus(t *testing.T) {
 	kanbanKeyboardUpdate(s, nil, config.KanbanViewKanban)
 	if st.focusID != "" {
 		t.Fatalf("focus retained with no tasks: %q", st.focusID)
+	}
+}
+
+func TestKanbanKeyboardCollapsedDone(t *testing.T) {
+	s := &chatState{}
+	defer func() { kanbanKeyboardMu.Lock(); delete(kanbanKeyboardStates, s); kanbanKeyboardMu.Unlock() }()
+	tasks := []KanbanTask{{ID: "todo", Status: "todo"}, {ID: "done", Status: "done"}}
+	kanbanKeyboardUpdate(s, tasks, config.KanbanViewKanban)
+	if got := kanbanKeyboardStates[s].tasks; len(got) != 1 || got[0].ID != "todo" {
+		t.Fatalf("collapsed order: %+v", got)
+	}
+	getKanbanState(s).doneExpanded = true
+	kanbanKeyboardUpdate(s, tasks, config.KanbanViewKanban)
+	if got := kanbanKeyboardStates[s].tasks; len(got) != 2 {
+		t.Fatalf("expanded order: %+v", got)
+	}
+	getKanbanState(s).doneExpanded = false
+	kanbanKeyboardUpdate(s, tasks, config.KanbanViewList)
+	if got := kanbanKeyboardStates[s].tasks; len(got) != 2 {
+		t.Fatalf("list order: %+v", got)
 	}
 }
 

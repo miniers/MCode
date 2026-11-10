@@ -116,7 +116,7 @@ func renderKanbanListView(c *ui.Context, s *chatState, tasks []KanbanTask) {
 func renderKanbanListRow(c *ui.Context, s *chatState, task KanbanTask) {
 	ks := getKanbanState(s)
 	kanbanMu.Lock()
-	mixed := ks.projectID == ""
+	mixed := ks.scopeID == ""
 	kanbanMu.Unlock()
 	signal, tone := kanbanTaskSignal(task)
 
@@ -368,12 +368,12 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 		Label("kanban-task-card-"+task.ID).
 		Focusable().
 		FillWidth().
-		Padding(Space3, Space3).
+		Padding(Space4, Space4).
 		Radius(RadiusMD).
-		Background(ThemeSurface(c).Alpha(0.55)).
+		Background(ThemeSurfaceCard(c)).
 		BorderWidth(Hairline).
-		BorderColor(ThemeOverlay(c, 0.08)).
-		Gap(Space3).
+		BorderColor(ThemeBorder(c)).
+		Gap(Space2).
 		OnClick(func() {
 			if card.ClickModifiers()&ui.Shift != 0 {
 				kanbanKeyboardSelect(s, task.ID, "range")
@@ -456,10 +456,13 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 	// 若任务允许移动，挂载原生拖拽源
 	if len(actions.targets) > 0 {
 		card.Drag(kanbanDragPayload{Task: task})
+		if card.Dragging() {
+			card.Opacity(KanbanDragSourceOpacity)
+		}
 	}
 
 	kanbanMu.Lock()
-	mixed := ks.projectID == ""
+	mixed := ks.scopeID == ""
 	kanbanMu.Unlock()
 	signal, tone := kanbanTaskSignal(task)
 	project := ""
@@ -482,7 +485,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 				ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(color)
 			}
 			renderKanbanPriority(c, task)
-			ui.Text(c, task.Title).Label(task.Title).FontSize(TypeBody).FontWeight(600).
+			ui.Text(c, task.Title).Label(task.Title).Tooltip(task.Title).FontSize(TypeBody).FontWeight(500).
 				MaxLines(2).TextColor(primaryText).Grow(1).MinWidth(0)
 			if card.Hovered() || card.FocusWithin() {
 				if actions.primary == "开始" {
@@ -775,10 +778,7 @@ func kanbanColumnCountBadge(c *ui.Context, key string, filtered, total int, sear
 		text = fmt.Sprintf("%d/%d", filtered, total)
 	}
 	ui.Row(c.Key(key)).
-		Label(key+"-"+text).
-		Padding(Space0, Space2).
-		Radius(RadiusMD).
-		Background(ThemeOverlay(c, 0.08)).
+		Label(key + "-" + text).
 		Center().
 		Children(func() {
 			ui.Text(c, text).
@@ -796,11 +796,16 @@ func kanbanBoardColumnWidth(c *ui.Context, s *chatState) float32 {
 	if s == nil || s.tasksWindowView == "" {
 		avail -= float32(2 * kanbanModalInset)
 	}
-	width := (avail - 1 - float32(len(kanbanColumnDefs)-1)*kanbanColumnSpacing) / float32(len(kanbanColumnDefs))
-	if width < kanbanColumnMinWidth {
-		width = kanbanColumnMinWidth
+	return kanbanColumnWidthFor(avail-1, len(kanbanColumnDefs), 0)
+}
+
+func kanbanColumnWidthFor(boardWidth float32, expandedCount, collapsedCount int) float32 {
+	if expandedCount <= 0 {
+		return KanbanColumnMinWidth
 	}
-	return width
+	columns := expandedCount + max(collapsedCount, 0)
+	available := boardWidth - float32(max(collapsedCount, 0))*KanbanDoneRailWidth - float32(columns-1)*kanbanColumnSpacing
+	return max(KanbanColumnMinWidth, available/float32(expandedCount))
 }
 
 // kanbanStatusBadge 返回任务状态徽标的文案，未知状态返回空串。
@@ -867,15 +872,49 @@ func renderKanbanColumn(
 		}
 	}
 
+	kanbanMu.Lock()
+	doneExpanded := ks.doneExpanded
+	kanbanMu.Unlock()
+	if colKey == "done" && !doneExpanded {
+		rail := ui.Column(c.Key("kanban-col-" + colKey)).
+			Label("kanban-column-" + colKey).
+			Focusable().Width(KanbanDoneRailWidth).MinWidth(KanbanDoneRailWidth).
+			FillHeight().MinHeight(KanbanEmptyDropMinHeight).
+			Padding(Space2).Gap(Space2).
+			OnClick(func() {
+				kanbanMu.Lock()
+				ks.doneExpanded = true
+				kanbanMu.Unlock()
+				s.invalidate()
+			})
+		if rail.Focused() && rail.Shortcut(0, ui.KeyEnter) {
+			kanbanMu.Lock()
+			ks.doneExpanded = true
+			kanbanMu.Unlock()
+			s.invalidate()
+		}
+		if payload, ok := ui.Drop[kanbanDragPayload](rail); ok {
+			s.performKanbanTarget(payload.Task, colKey)
+		}
+		if payload, over := ui.DragOver[kanbanDragPayload](rail); over && kanbanActions(payload.Task, kanbanTaskBusy(ks, payload.Task.ID)).targets[colKey] != "" {
+			rail.BorderWidth(KanbanFocusRingWidth).BorderColor(ThemeAccent(c)).Background(ThemeSelected(c))
+		} else if rail.Focused() {
+			rail.BorderWidth(KanbanFocusRingWidth).BorderColor(ThemeAccent(c))
+		}
+		rail.Children(func() {
+			ui.Icon(c, IconCircleCheck()).Size(IconSM, IconSM).TextColor(secondaryText)
+			ui.Text(c, colDef.label).FontSize(TypeCaption).TextColor(secondaryText)
+			kanbanColumnCountBadge(c, "kanban-col-count-"+colKey, len(colTasks), totalCount, searching)
+		})
+		return
+	}
+
 	colBox := ui.Column(c.Key("kanban-col-" + colKey)).
 		Label("kanban-column-" + colKey).
 		Width(colWidth).
 		MinWidth(kanbanColumnMinWidth).
 		FillHeight().
-		Radius(RadiusLG).
-		Background(ThemeSurfaceCard(c)).
-		BorderWidth(Hairline).
-		BorderColor(ThemeOverlay(c, 0.08)).
+		MinHeight(KanbanEmptyDropMinHeight).
 		Padding(Space3).
 		Gap(Space3)
 
@@ -907,6 +946,17 @@ func renderKanbanColumn(
 					Grow(1)
 
 				kanbanColumnCountBadge(c, "kanban-col-count-"+colKey, len(colTasks), totalCount, searching)
+				if colKey == "done" {
+					IconButton(c.Key("kanban-col-collapse-done"), IconButtonProps{
+						Icon: IconChevronRight(), Label: "收起已完成", Variant: ButtonGhost, Size: ControlMD,
+						OnClick: func() {
+							kanbanMu.Lock()
+							ks.doneExpanded = false
+							kanbanMu.Unlock()
+							s.invalidate()
+						},
+					})
+				}
 
 				if colKey == "todo" {
 					IconButton(c.Key("kanban-col-add-"+colKey), IconButtonProps{
@@ -938,17 +988,6 @@ func renderKanbanColumn(
 					FillWidth().
 					Gap(Space3).
 					Children(func() {
-						if len(colTasks) == 0 {
-							emptyLabel := "暂无任务"
-							if searching {
-								emptyLabel = "未找到任务"
-							}
-							ui.Text(c, emptyLabel).
-								FontSize(TypeCaption).
-								TextColor(secondaryText).
-								Center().
-								Padding(Space4, 0)
-						}
 						for _, task := range colTasks {
 							taskVal := task
 							renderTaskCard(c, s, ks, taskVal, st)

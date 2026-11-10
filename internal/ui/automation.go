@@ -33,18 +33,19 @@ const (
 
 // automationState 维护自动化工作区列表、表单与运行记录的本地状态。
 type automationState struct {
-	projectID   string
-	initialized bool
-	loading     bool
-	err         string
-	conflict    bool
-	autos       []Automation
-	loadID      int
-	runsLoadID  int
-	saving      bool
-	saveID      int
-	editSession int
-	watchStop   func()
+	projectID       string
+	editorProjectID string
+	initialized     bool
+	loading         bool
+	err             string
+	conflict        bool
+	autos           []Automation
+	loadID          int
+	runsLoadID      int
+	saving          bool
+	saveID          int
+	editSession     int
+	watchStop       func()
 
 	// 卡片级操作：正在立即运行的自动化、已暂停/重置请求中的自动化
 	runningIDs       map[string]bool
@@ -189,7 +190,7 @@ func (s *chatState) startAutomationWatch(projectID string) {
 }
 
 func (s *chatState) loadAutomationList(projectID string, refreshForm bool) {
-	if s == nil || s.client == nil || projectID == "" {
+	if s == nil || s.client == nil {
 		return
 	}
 	as := getAutomationState(s)
@@ -210,7 +211,8 @@ func (s *chatState) loadAutomationList(projectID string, refreshForm bool) {
 	s.invalidate()
 
 	go func(pid string) {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		autos, err := s.client.Automations(ctx, pid)
 		schedStatus, schedErr := s.client.AutomationSchedulerStatus(ctx)
 		if schedErr != nil {
@@ -346,6 +348,7 @@ func (as *automationState) selectAutomation(auto Automation, s *chatState) {
 func (as *automationState) fillAutomation(auto Automation) {
 	as.editSession++
 	as.selectedID = auto.ID
+	as.editorProjectID = auto.ProjectID
 	as.isNew = false
 	as.editRevision = auto.Revision
 	as.schedule = auto.Schedule
@@ -405,6 +408,7 @@ func (as *automationState) fillAutomation(auto Automation) {
 // resetToNewAutomation 重置表单进入新建状态。
 func (as *automationState) resetToNewAutomation(s *chatState) {
 	automationMu.Lock()
+	as.editorProjectID = as.projectID
 	as.selectionVersion++
 	as.editSession++
 	as.selectedID = ""
@@ -493,6 +497,7 @@ func (s *chatState) saveAutomation() {
 	selectedID := as.selectedID
 	isNew := as.isNew || selectedID == ""
 	curPID := as.projectID
+	editorPID := as.editorProjectID
 	// 心跳模式沿用原会话设置，模型与权限不参与保存
 	provider := as.provider
 	model := as.model
@@ -508,7 +513,7 @@ func (s *chatState) saveAutomation() {
 	automationMu.Unlock()
 
 	// 表单校验
-	if curPID == "" || failuresErr != nil || maxFailures <= 0 || runsErr != nil || maxRuns < 0 || maxRuns > 1000 {
+	if editorPID == "" || failuresErr != nil || maxFailures <= 0 || runsErr != nil || maxRuns < 0 || maxRuns > 1000 {
 		automationMu.Lock()
 		as.runAfterSave = false
 		as.formErr = "请选择项目，连续失败次数须为正整数，最大运行次数须为 0 到 1000 的整数"
@@ -555,7 +560,7 @@ func (s *chatState) saveAutomation() {
 	automationMu.Unlock()
 
 	input := AutomationInput{
-		ProjectID:              curPID,
+		ProjectID:              editorPID,
 		Name:                   name,
 		Prompt:                 prompt,
 		StopWhen:               stopWhen,
@@ -721,15 +726,13 @@ func (s *chatState) runAutomationNow(id string) {
 	go func() {
 		ctx := context.Background()
 		run, err := s.client.RunAutomation(ctx, id)
-		activeProject := s.currentWorkspaceProjectID()
-
 		automationMu.Lock()
 		if as.projectID != projectID {
 			automationMu.Unlock()
 			return
 		}
 		delete(as.runningIDs, id)
-		current := activeProject == projectID && as.runRequest == request && as.selectedID == id && as.selectionVersion == selection
+		current := as.runRequest == request && as.selectedID == id && as.selectionVersion == selection
 		if current && err == nil {
 			openAutomationRun(as, run.ID)
 			as.runs = append([]AutomationRun{run}, as.runs...)
