@@ -106,6 +106,29 @@ func PlanModePrompt() string {
 	return "Plan mode is on, so this turn is read-only: no file edits and no commands that change state. You can still investigate: read files, use grep / find / ls, run read-only shell commands (ls, cat, rg, git status, ...), and call the mcode MCP tools. Look into the task, then finish with the plan written in markdown."
 }
 
+// ReadOnlyPrompt 根据实际门禁白名单说明只读命令的使用范围。
+func ReadOnlyPrompt(sandboxed bool) string {
+	if sandboxed {
+		return "Read-only mode: shell commands run in an OS sandbox. Local writes fail except under $TMPDIR; writing to remotes or devices (git push, curl with a body or non-GET method, gh writes, ssh/scp/rsync, adb install/push or shell writes) is refused. Other commands run normally."
+	}
+	var commands []string
+	for _, name := range strings.Fields(safe) {
+		if strings.Contains(name, "-") {
+			parts := strings.Split(name, "-")
+			for i, part := range parts {
+				parts[i] = strings.ToUpper(part[:1]) + part[1:]
+			}
+			name = strings.Join(parts, "-")
+		} else if strings.Contains(" gci gc gi gp gl gcm gps gsv sls select measure group ft fl ", " "+name+" ") {
+			continue
+		}
+		commands = append(commands, name)
+	}
+	return "Read-only mode: only allowlisted read commands run. Do not retry denied commands with different syntax. Commands: " + strings.Join(commands, " ") +
+		"; git " + strings.Join(strings.Fields(git), ", git ") + " (read options only; branch: " + strings.TrimSpace(branch) + "); find excludes " + strings.TrimSpace(find) +
+		"; go version/env/list/doc/mod graph/mod why; gh read operations; adb devices, logcat -d, shell read commands; curl GET. Syntax: no redirects to files, no $vars or $(...), no unquoted parentheses or braces, no background &."
+}
+
 // IsLookOnly 对应 TS 的 LOOK_ONLY_TOOLS。
 // bash_output 只读；kill_bash 只停止本引擎自己启动的后台任务，不改变外部状态。
 func IsLookOnly(name string) bool {
@@ -231,8 +254,14 @@ func SensitiveFor(kind harness.RequestKind, toolName string, input json.RawMessa
 	return checkSensitive(Input{ToolName: toolName, WorkDir: workDir}, args, kind, command)
 }
 
-var nullRedirect = regexp.MustCompile(`\d*&?>>?\s*/dev/null([\s;|&]|$)`)
+var nullRedirect = regexp.MustCompile(`(?i)\d*&?>>?\s*(?:/dev/null|\$null|NUL)([\s;|&]|$)`)
 var fdRedirect = regexp.MustCompile(`\d?>&\d`)
+
+// sc 在 Windows PowerShell 5.1 中是 Set-Content 的别名，所以不能加入白名单。
+var safe = " ls cat head tail wc grep rg find tree du stat file pwd echo which sort diff cd whoami id uname printenv nl cut tr basename dirname realpath readlink md5 md5sum shasum sha1sum sha256sum od hexdump strings df uptime sw_vers ps jq true false tac rev paste comm cmp column fold expand seq cksum sha512sum b2sum type dir netstat where tasklist systeminfo findstr get-childitem gci get-content gc get-item gi get-itemproperty gp get-location gl test-path resolve-path split-path join-path get-filehash get-command gcm get-process gps get-service gsv get-date get-acl get-computerinfo get-ciminstance get-netipaddress get-nettcpconnection get-winevent select-string sls select-object select sort-object measure-object measure group-object group compare-object format-table ft format-list fl format-wide out-string convertto-json convertfrom-json write-output where-object "
+var git = " status log diff show blame branch ls-files describe rev-parse rev-list shortlog cat-file ls-tree ls-remote show-ref name-rev merge-base for-each-ref count-objects grep whatchanged tag remote config reflog "
+var branch = " -a -r -v -vv --list --all --remotes --show-current --verbose --contains --merged --no-merged "
+var find = " -delete -exec -execdir -ok -okdir -fprint -fprint0 -fprintf -fls "
 
 // OnlyReads 判断 shell 命令是否仅包含允许的只读操作。
 func OnlyReads(command string) bool {
@@ -264,6 +293,16 @@ func OnlyReads(command string) bool {
 		}
 		if c == '\\' {
 			if quote == 0 {
+				if i+1 < len(text) {
+					next := text[i+1]
+					if next == '\\' {
+						i++
+						continue
+					}
+					if next >= 'a' && next <= 'z' || next >= 'A' && next <= 'Z' || next >= '0' && next <= '9' || strings.ContainsRune("._-/:", rune(next)) {
+						continue
+					}
+				}
 				return false
 			}
 			i++
@@ -284,7 +323,7 @@ func OnlyReads(command string) bool {
 			quote = c
 			continue
 		}
-		if c == '<' || c == '>' {
+		if strings.ContainsRune("<>(){}", rune(c)) {
 			return false
 		}
 		if c == '|' || c == ';' || c == '&' && i+1 < len(text) && text[i+1] == '&' {
@@ -299,10 +338,6 @@ func OnlyReads(command string) bool {
 		return false
 	}
 	pieces = append(pieces, text[start:])
-	safe := " ls cat head tail wc grep rg find tree du stat file pwd echo which sort diff cd whoami id uname printenv nl cut tr basename dirname realpath readlink md5 md5sum shasum sha1sum sha256sum od hexdump strings df uptime sw_vers ps jq true false "
-	git := " status log diff show blame branch ls-files describe rev-parse rev-list shortlog cat-file ls-tree ls-remote show-ref name-rev merge-base for-each-ref count-objects grep whatchanged tag remote config reflog "
-	branch := " -a -r -v -vv --list --all --remotes --show-current --verbose --contains --merged --no-merged "
-	find := " -delete -exec -execdir -ok -okdir -fprint -fprint0 -fprintf -fls "
 	for _, piece := range pieces {
 		var t []string
 		var word strings.Builder
@@ -351,7 +386,60 @@ func OnlyReads(command string) bool {
 			}
 			p = filepath.Base(p)
 		}
+		p = strings.TrimSuffix(strings.ToLower(p), ".exe")
 		switch p {
+		case "base64":
+			for _, a := range t[1:] {
+				if a == "-o" || strings.HasPrefix(a, "--output") {
+					return false
+				}
+			}
+			continue
+		case "fd", "fdfind":
+			for _, a := range t[1:] {
+				name, _, _ := strings.Cut(a, "=")
+				if name == "--exec" || name == "--exec-batch" || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a[1:], "xX") {
+					return false
+				}
+			}
+			continue
+		case "ipconfig":
+			if len(t) != 1 && (len(t) != 2 || !strings.Contains(" /all -all /displaydns ", " "+strings.ToLower(t[1])+" ")) {
+				return false
+			}
+			continue
+		case "reg":
+			if len(t) < 2 || !strings.EqualFold(t[1], "query") {
+				return false
+			}
+			continue
+		case "gh":
+			if ghRemote(t[1:]) {
+				return false
+			}
+			continue
+		case "adb":
+			if adbRemote(t[1:], 0) {
+				return false
+			}
+			args := t[1:]
+			for len(args) > 0 && strings.HasPrefix(args[0], "-") {
+				switch args[0] {
+				case "-d", "-e", "-a":
+					args = args[1:]
+				case "-s", "-t", "-H", "-P", "-L":
+					if len(args) < 2 {
+						return false
+					}
+					args = args[2:]
+				default:
+					return false
+				}
+			}
+			if len(args) == 0 || args[0] == "pull" {
+				return false
+			}
+			continue
 		case "curl":
 			if !curlReads(t[1:]) {
 				return false
@@ -374,8 +462,8 @@ func OnlyReads(command string) bool {
 				return false
 			}
 			continue
-		case "go", "adb", "defaults", "plutil", "command":
-			allowed := map[string]string{"go": " version env list doc ", "adb": " devices version get-state get-serialno ", "defaults": " read ", "plutil": " -p ", "command": " -v -V "}
+		case "go", "defaults", "plutil", "command":
+			allowed := map[string]string{"go": " version env list doc mod ", "defaults": " read ", "plutil": " -p ", "command": " -v -V "}
 			if len(t) < 2 || !strings.Contains(allowed[p], " "+t[1]+" ") {
 				return false
 			}
@@ -387,8 +475,24 @@ func OnlyReads(command string) bool {
 				}
 			}
 			if p == "go" && t[1] == "list" {
-				for _, a := range t[2:] {
-					if strings.HasPrefix(a, "-") {
+				for i := 2; i < len(t); i++ {
+					a := t[i]
+					if a == "-f" {
+						i++
+						if i >= len(t) {
+							return false
+						}
+					} else if strings.HasPrefix(a, "-") && !strings.Contains(" -m -json -e -deps -test -u -versions -find -compiled -retracted ", " "+a+" ") && !strings.HasPrefix(a, "-json=") && !strings.HasPrefix(a, "-f=") {
+						return false
+					}
+				}
+			}
+			if p == "go" && t[1] == "mod" {
+				if len(t) < 3 || t[2] != "graph" && t[2] != "why" {
+					return false
+				}
+				for _, a := range t[3:] {
+					if t[2] == "graph" || strings.HasPrefix(a, "-") && a != "-m" && a != "-vendor" {
 						return false
 					}
 				}

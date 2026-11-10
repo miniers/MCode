@@ -2084,6 +2084,12 @@ func TestIsSafeReadOnlyCommand(t *testing.T) {
 		"cd internal && grep -rn foo .",
 		"curl https://example.com",
 		"curl -fsSL https://example.com",
+		`Get-Content C:\x\y.txt`,
+		"git.exe status",
+		"ls 2>$null",
+		"dir > NUL",
+		"gh pr view 1",
+		"adb shell ls",
 	}
 	for _, cmd := range allowed {
 		if !isSafeReadOnlyCommand(cmd) {
@@ -2099,6 +2105,12 @@ func TestIsSafeReadOnlyCommand(t *testing.T) {
 		"cp a b",
 		"touch new.txt",
 		"mkdir build",
+		"ls (Remove-Item x)",
+		"Get-ChildItem | Where-Object { Remove-Item x }",
+		`echo \"; rm x; echo \"`,
+		"go list -mod=mod ./...",
+		"adb -s serial pull /sdcard/a.txt",
+		"gh pr create",
 		"chmod +x run.sh",
 		"curl -o out https://example.com",
 		"curl -d a=b https://example.com",

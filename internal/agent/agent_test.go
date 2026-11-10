@@ -233,6 +233,45 @@ func TestResumeAndPlan(t *testing.T) {
 	}
 }
 
+func TestReadOnlySystemPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		mode      harness.PermissionMode
+		plan      bool
+		sandboxed bool
+	}{
+		{"readonly", harness.ModeReadOnly, false, false},
+		{"auto", harness.ModeAuto, false, false},
+		{"plan", harness.ModeAuto, true, false},
+		{"sandboxed readonly", harness.ModeReadOnly, false, true},
+		{"sandboxed plan", harness.ModeAuto, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &scriptClient{steps: []scriptStep{{response: reply("stop")}}}
+			opts := Options{Client: client, Mode: tc.mode, Plan: tc.plan, System: "system"}
+			if tc.sandboxed {
+				opts.Env.Sandbox = sandbox.ReadOnly()
+				if opts.Env.Sandbox == nil {
+					t.Skip("只读沙箱在此平台不可用")
+				}
+			}
+			if err := Run(context.Background(), opts, "hello", nil); err != nil {
+				t.Fatal(err)
+			}
+			want := "system"
+			if tc.plan {
+				want += "\n\n" + gate.PlanModePrompt()
+			}
+			if tc.plan || tc.mode == harness.ModeReadOnly {
+				want += "\n\n" + gate.ReadOnlyPrompt(tc.sandboxed)
+			}
+			if got := client.requests[0].System; got != want {
+				t.Fatalf("system = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestRetryAndRetract(t *testing.T) {
 	client := &scriptClient{steps: []scriptStep{{err: &llm.APIError{Retryable: true}, delta: llm.Delta{Type: "text", Text: "partial"}}, {response: reply("stop")}}}
 	var events []harness.Event

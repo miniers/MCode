@@ -288,6 +288,9 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	if opts.Plan {
 		request.System += "\n\n" + gate.PlanModePrompt()
 	}
+	if opts.Plan || opts.Mode == harness.ModeReadOnly {
+		request.System += "\n\n" + gate.ReadOnlyPrompt(sandbox.IsReadOnly(opts.Env.Sandbox))
+	}
 	for _, tool := range opts.Tools {
 		request.Tools = append(request.Tools, llm.ToolSpec{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}

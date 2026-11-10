@@ -275,6 +275,33 @@ func TestOnlyReads(t *testing.T) {
 		{"git log --outp=x", false}, {"git log --ext", false}, {"git diff --ext-d", false}, {"git grep --open-files=vim foo", false}, {"git log --exec-p=/tmp", false},
 		{"git grep -O foo", false}, {"git grep -nOless foo", false}, {"git grep -iOless foo", false}, {"git grep --open-files-in-pager foo", false}, {"git grep --open-files-in-pager=vim foo", false},
 		{"curl -H @headers.txt https://example.com", false}, {"curl --header=@h https://example.com", false}, {"curl -H@h https://example.com", false},
+		{`cat C:\Users\a\b.txt`, true}, {`Get-Content C:\x\y.txt`, true},
+		{"get-childitem -Recurse -Filter *.go", true}, {"Select-String -Path a.txt -Pattern foo", true},
+		{"git.exe status", true}, {"where.exe go", true}, {"ls 2>$null", true}, {"dir > NUL", true},
+		{"tasklist", true}, {"ipconfig /all", true}, {`reg query HKCU\Software\x`, true},
+		{"go list -m -json all", true}, {"go list -f '{{.Dir}}' ./...", true}, {"go mod why -m golang.org/x/sys", true},
+		{"gh pr view 1", true}, {"gh api repos/a/b", true}, {"adb logcat -d -t 100", true},
+		{"adb shell getprop ro.product.model", true}, {"jq '{a}' x.json", true}, {"tac a", true}, {"base64 a", true},
+		{"ls (Remove-Item x)", false}, {"Get-ChildItem | Where-Object { Remove-Item x }", false},
+		{"Get-Process | Stop-Process", false}, {"sc a.txt x", false}, {"Set-Content a x", false}, {"iwr https://x", false},
+		{`echo \"; rm x; echo \"`, false}, {`cat a\;rm x`, false}, {"ipconfig /release", false}, {`reg add HKCU\x`, false},
+		{"go list -toolexec x ./...", false}, {"go list -mod=mod ./...", false}, {"gh pr create", false},
+		{"adb pull /sdcard/a.txt", false}, {"adb shell rm /sdcard/x", false}, {"fd -x rm", false}, {"fd -Hx rm", false},
+		{"base64 -o out a", false}, {"git show HEAD@{1}", false},
+		{`cat \\server\share\a.txt`, true}, {`cat C:\x\a-b_1.txt`, true}, {`rg 'a{2}' .`, true},
+		{`cat a\`, false}, {`cat a\ b`, false}, {`cat a\|rm x`, false}, {`cat a\$x`, false},
+		{`cat a\<b`, false}, {`cat a\>b`, false}, {`cat a\&rm x`, false}, {"cat a\\\nrm x", false},
+		{"ls > $NULL", true}, {"dir 2>>nul", true}, {"dir > NUL.txt", false}, {"ls > $nullx", false},
+		{"GET-CONTENT.EXE a.txt", true}, {"ipconfig", true}, {"ipconfig -ALL", true}, {"ipconfig /DISPLAYDNS", true},
+		{"ipconfig /all /release", false}, {"ipconfig /flushdns", false}, {"reg QUERY HKCU", true}, {"reg", false},
+		{"go mod graph", true}, {"go mod graph -modfile=x", false}, {"go mod why -vendor x", true}, {"go mod why -mod=mod x", false},
+		{"go mod download", false}, {"go list -json=Name -f='{{.Dir}}' -e -deps -test -u -versions -find -compiled -retracted ./...", true},
+		{"go list -f", false}, {"go list -modfile=x ./...", false}, {"go list -exec=x ./...", false}, {"go list -overlay=x ./...", false},
+		{"fd --exec=rm", false}, {"fd --exec-batch=rm", false}, {"fdfind -X=rm", false}, {"fd --exec rm", false},
+		{"fdfind --exec-batch rm", false}, {"fd -HX rm", false}, {"fd -H x", true}, {"fdfind x", true},
+		{"base64 --output=out a", false}, {"base64 --output out a", false}, {"base64 -d a", true},
+		{"adb -s serial pull /sdcard/a", false}, {"adb -d -s serial shell ls", true}, {"adb -H host -P 5037 -L tcp:5037 devices", true},
+		{"adb -s", false}, {"adb -s serial", false}, {"adb logcat -c", false}, {"gh api repos/a/b -X POST", false},
 	} {
 		if got := OnlyReads(tc.command); got != tc.want {
 			t.Errorf("%q 得到 %v，期望 %v", tc.command, got, tc.want)
@@ -287,9 +314,30 @@ func TestOnlyReads(t *testing.T) {
 	}
 }
 
+func TestReadOnlyPrompt(t *testing.T) {
+	plain, sandboxed := ReadOnlyPrompt(false), ReadOnlyPrompt(true)
+	t.Log(plain)
+	if plain == "" || sandboxed == "" {
+		t.Fatal("只读提示不能为空")
+	}
+	for _, name := range []string{"rg", "git log", "Get-Content"} {
+		if !strings.Contains(plain, name) {
+			t.Errorf("白名单提示缺少 %q", name)
+		}
+	}
+	if !strings.Contains(sandboxed, "$TMPDIR") || strings.Contains(sandboxed, "rg") {
+		t.Fatalf("沙箱提示错误：%q", sandboxed)
+	}
+	for _, name := range []string{"gci", "gc", "gi", "gp", "gl", "gcm", "gps", "gsv", "sls", "select", "measure", "group", "ft", "fl"} {
+		if strings.Contains(" "+plain+" ", " "+name+" ") {
+			t.Errorf("提示不应列出 PowerShell 别名 %q", name)
+		}
+	}
+}
+
 func TestReadOnlyBashCommands(t *testing.T) {
-	allowed := []string{"whoami", "uname -a", "sed -n '1,20p' a.go", "go doc fmt", "go env GOPATH", "adb devices", "command -v adb", "env", "cd x && whoami", "jq '.' file", "uniq -c file", "xxd file", "date -u", "hostname"}
-	denied := []string{"xargs ls", "awk '{print}' f", "sed -i 's/a/b/' f", "sed 's/a/b/w out' f", "go build ./...", "go test ./...", "adb shell ls", "adb install x.apk", "env FOO=1 rm x", "defaults write a b c", "command rm x", "which adb | xargs -I{} {} version", "go env -w GOPATH=/tmp", "go list -toolexec=sh ./...", "uniq a b", "xxd -r - out", "hostname newname", "date 010101012025", "git log --exec-path=/tmp", "git diff --out'put'=out", "find . '-exec' rm x +"}
+	allowed := []string{"whoami", "uname -a", "sed -n '1,20p' a.go", "go doc fmt", "go env GOPATH", "adb devices", "adb shell ls", "command -v adb", "env", "cd x && whoami", "jq '.' file", "uniq -c file", "xxd file", "date -u", "hostname"}
+	denied := []string{"xargs ls", "awk '{print}' f", "sed -i 's/a/b/' f", "sed 's/a/b/w out' f", "go build ./...", "go test ./...", "adb shell rm x", "adb install x.apk", "env FOO=1 rm x", "defaults write a b c", "command rm x", "which adb | xargs -I{} {} version", "go env -w GOPATH=/tmp", "go list -toolexec=sh ./...", "uniq a b", "xxd -r - out", "hostname newname", "date 010101012025", "git log --exec-path=/tmp", "git diff --out'put'=out", "find . '-exec' rm x +"}
 	allowed = append(allowed, `rg -e "->" internal`, `rg -- "->" .`, `git log --grep "-x"`, `grep -n "<div" a.html`, `rg "=>" .`, `rg 'a<b>c' .`, `rg "foo$" .`, `rg "a$|b$" .`, `rg 'foo$HOME' .`, `rg "a$)b" .`, `rg "a$ b" .`, `rg "a$\b" .`)
 	denied = append(denied, `rg '--pre=x' foo`, `rg "--pre" x foo`, `find . -ex''ec rm {} ';'`, `find . "-delete"`, `sort '-o' out a`, `git log '-cfoo=bar'`, `git "diff" '--output=x'`, `tree '-o' x`, `cat a > b`, `cat a >b`, `cat < a`, `echo ">" > f`, `echo "$HOME"`, `find . "${X:=-delete}"`, `rg "$(id)" .`, "rg \"`id`\" .", `echo $x`, `echo "$1"`, `echo "$@"`, `echo "$*"`, `echo "$#"`, `echo "$?"`, `echo "$$"`, `echo "$!"`, `echo "$-"`, `rg "--pre=sh" x`)
 	for _, group := range []struct {
