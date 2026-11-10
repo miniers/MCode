@@ -2638,8 +2638,8 @@ func shouldKeepSwarmReportOpen(opened, dismissed bool) bool {
 
 // renderSwarmReportCapsule 渲染汇报行中的一枚胶囊及其详情浮窗。
 // key 同时用作控件 key 后缀与 reportOpen/reportDismissed 的 map 键，
-// view 描述胶囊内容，body 渲染浮窗里的内容（maxH 是浮窗在当前窗口里可用的最大高度）。
-func renderSwarmReportCapsule(c *ui.Context, s *chatState, hp *swarmPanelState, key string, view swarmCapsuleView, body func(maxH float32)) {
+// view 描述胶囊内容，body 使用浮窗自己的 Context 渲染浮窗里的内容。
+func renderSwarmReportCapsule(c *ui.Context, s *chatState, hp *swarmPanelState, key string, view swarmCapsuleView, body func(*ui.Context)) {
 	swarmPanelMu.Lock()
 	if hp != nil && hp.reportOpen == nil {
 		hp.reportOpen = make(map[string]bool)
@@ -2656,13 +2656,10 @@ func renderSwarmReportCapsule(c *ui.Context, s *chatState, hp *swarmPanelState, 
 	swarmPanelMu.Unlock()
 
 	// 胶囊外观由 renderSwarmCapsuleButton 统一负责，与运行中的子线程胶囊完全一致。
-	open, wasDismissed := renderSwarmCapsuleButton(c, key, view, opened, dismissed, func(maxH float32) {
-		if s != nil {
-			s.ensureSwarm(c)
-		}
-		// 表头固定，滚动交给正文自己处理，所以这里不再套 Scroll。
-		body(maxH)
-	})
+	open, wasDismissed := renderSwarmCapsuleButton(c, key, view, opened, dismissed, body)
+	if open && s != nil {
+		s.ensureSwarm(c)
+	}
 
 	swarmPanelMu.Lock()
 	if hp != nil {
@@ -2813,16 +2810,12 @@ func renderSwarmReportMessageCapsules(c *ui.Context, s *chatState, hp *swarmPane
 			Name:        label,
 			Text:        label,
 			StatusColor: ThemeSecondaryText(c),
-		}, func(maxH float32) {
-			ui.Scroll(c.Key("swarm-report-scroll-" + m.ID)).
+		}, func(fc *ui.Context) {
+			ui.Column(fc.Key("swarm-report-fallback-"+m.ID)).
 				FillWidth().
-				MaxHeight(maxH).
+				Padding(Space4, Space5).
 				Children(func() {
-					ui.Column(c.Key("swarm-report-fallback-"+m.ID)).
-						Padding(Space4, Space5).
-						Children(func() {
-							ui.Text(c, swarmStripNoticePrefix(m.Text)).Selectable().TextColor(ThemePrimaryText(c))
-						})
+					ui.Text(fc, swarmStripNoticePrefix(m.Text)).Selectable().TextColor(ThemePrimaryText(fc))
 				})
 		})
 		return
@@ -2851,8 +2844,8 @@ func renderSwarmReportMessageCapsules(c *ui.Context, s *chatState, hp *swarmPane
 			TierName:     chipName,
 			TierColor:    chipColor,
 			TierReadOnly: chipReadOnly,
-		}, func(maxH float32) {
-			renderSwarmReportEntryCard(c, s, hp, m.ID, entryIdx, entry, maxH)
+		}, func(fc *ui.Context) {
+			renderSwarmReportEntryCard(fc, s, hp, m.ID, entryIdx, entry)
 		})
 	}
 }
@@ -2908,9 +2901,8 @@ func matchSwarmReportBee(s *chatState, hp *swarmPanelState, e swarmReportEntry) 
 	return nil
 }
 
-// renderSwarmReportEntryCard 渲染单个 bee 的汇报详情：表头固定，正文在自己的滚动区里。
-// maxH 是浮窗可用的最大高度，正文用它减去表头高度后自行滚动。
-func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState, msgID string, idx int, e swarmReportEntry, maxH float32) {
+// renderSwarmReportEntryCard 渲染单个 bee 的汇报详情。
+func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState, msgID string, idx int, e swarmReportEntry) {
 	cardKey := fmt.Sprintf("swarm-report-card-%s-%d", msgID, idx)
 
 	matchedBee := matchSwarmReportBee(s, hp, e)
@@ -2942,16 +2934,10 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 	}
 	duration, toolCount, fileCount, linesAdded, linesDeleted := swarmReportCaptionParts(e, matchedBee)
 
-	// 表头是两行信息（名字与状态 / 档位与模型）加任务标题，扣掉表头和分隔线的高度再交给正文滚动。
-	bodyMaxH := maxH - 96
-	if bodyMaxH < 150 {
-		bodyMaxH = 150
-	}
-
 	ui.Column(c.Key(cardKey)).
 		FillWidth().
 		Children(func() {
-			// 固定表头：头像、名字与状态、档位与模型标签、任务标题，右侧是复制按钮。
+			// 表头：头像、名字与状态、档位与模型标签、任务标题，右侧是复制按钮。
 			ui.Row(c.Key(cardKey+"-header")).
 				FillWidth().
 				AlignItems(ui.Start).
@@ -3146,9 +3132,8 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 				Height(Hairline).
 				Background(ThemeBorder(c))
 
-			ui.Scroll(c.Key(cardKey + "-scroll")).
+			ui.Column(c.Key(cardKey + "-body-scroll")).
 				FillWidth().
-				MaxHeight(bodyMaxH).
 				Children(func() {
 					ui.Column(c.Key(cardKey+"-body")).
 						FillWidth().

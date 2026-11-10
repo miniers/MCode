@@ -644,7 +644,7 @@ func TestSwarmReportLegacyDoesNotMatchReusedBee(t *testing.T) {
 			// 旧前缀 [Hydra] 协作者汇报：… 仍按汇报解析（历史会话兼容）。
 			_, entries := parseSwarmReport("[Hydra] 协作者汇报：Ives 已结束工作。\n\n## Ives：旧任务 (已完成)\n- 合并结果：已合并\n- 汇报总结：旧汇报")
 			tt := ui.NewTester(func(c *ui.Context) {
-				renderSwarmReportEntryCard(c, s, hp, "legacy", 0, entries[0], 520)
+				renderSwarmReportEntryCard(c, s, hp, "legacy", 0, entries[0])
 			}, 800, 600)
 			if tt.HasText("current.go") != tc.wantFiles {
 				t.Fatalf("文件匹配错误: %v", tt.Texts())

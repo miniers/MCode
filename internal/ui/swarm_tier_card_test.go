@@ -172,7 +172,7 @@ func TestSwarmReportEntryCard_RenderTags(t *testing.T) {
 	}
 
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderSwarmReportEntryCard(c, s, nil, "msg-1", 0, entry, 520)
+		renderSwarmReportEntryCard(c, s, nil, "msg-1", 0, entry)
 	}, 800, 600)
 
 	if !tt.HasText("指定模型") {
