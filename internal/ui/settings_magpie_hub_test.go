@@ -1,6 +1,9 @@
 package mcodeui
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -271,5 +274,183 @@ func TestMagpieGatewaySheetBody_SaveKeepsKey(t *testing.T) {
 	}
 	if fake.saveCustomEndpointCalls[0].Model != "magpie-model" {
 		t.Fatalf("默认模型未写入: %+v", fake.saveCustomEndpointCalls[0])
+	}
+}
+
+// magpieGatewaySaveErrClient 让切换保存失败，同时保留 FakeClient 的其他行为。
+type magpieGatewaySaveErrClient struct {
+	*FakeClient
+	err       error
+	saveCalls int
+}
+
+func (c *magpieGatewaySaveErrClient) SaveCustomEndpoint(_ context.Context, _ CustomEndpoint, _, _ string) (CustomEndpoint, error) {
+	c.FakeClient.mu.Lock()
+	c.saveCalls++
+	c.FakeClient.mu.Unlock()
+	return CustomEndpoint{}, c.err
+}
+
+func TestMagpieGatewayToggleSave_KeepsToggledEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		initial, target bool
+	}{
+		{"关闭后保存重开仍关闭", true, false},
+		{"开启后保存重开仍开启", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := NewFakeClient()
+			gw := CustomEndpoint{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Magpie: true, Enabled: tc.initial, HasAPIKey: true}
+			fake.customEndpoints = []CustomEndpoint{gw}
+			st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
+			st.mu.Lock()
+			st.endpoints.loaded = true
+			st.endpoints.endpoints = []CustomEndpoint{gw}
+			st.mu.Unlock()
+			openMagpieGatewaySheet(st, "gw")
+			tt := ui.NewTester(func(c *ui.Context) {
+				if id, _ := settingsTreeSheetState(st); id == "magpie-gateway" {
+					renderMagpieGatewaySheetBody(c, st, "gw")
+				}
+			}, 1200, 4000)
+			waitMagpie(t, tt, func() bool { return tt.HasText("切换启用 测试网关") })
+			if err := tt.Click("网关名称"); err != nil {
+				t.Fatal(err)
+			}
+			tt.Type(" 草稿")
+			if err := tt.Click("编辑网关默认模型"); err != nil {
+				t.Fatal(err)
+			}
+			tt.Type("draft-model")
+			if err := tt.Click("切换启用 测试网关"); err != nil {
+				t.Fatal(err)
+			}
+			waitMagpie(t, tt, func() bool {
+				fake.mu.Lock()
+				saves := len(fake.saveCustomEndpointCalls)
+				fake.mu.Unlock()
+				st.mu.Lock()
+				defer st.mu.Unlock()
+				return saves == 1 && !st.endpoints.toggling && st.endpoints.editEnabled == tc.target &&
+					len(st.endpoints.endpoints) == 1 && st.endpoints.endpoints[0].Enabled == tc.target
+			})
+			st.mu.Lock()
+			draftName, draftModel := st.endpoints.editName, st.endpoints.editModel
+			st.mu.Unlock()
+			if !strings.Contains(draftName, "草稿") || draftModel != "draft-model" {
+				t.Fatalf("切换重置了草稿: name=%q model=%q", draftName, draftModel)
+			}
+			if err := tt.Click("保存"); err != nil {
+				t.Fatal(err)
+			}
+			waitMagpie(t, tt, func() bool {
+				fake.mu.Lock()
+				saves := len(fake.saveCustomEndpointCalls)
+				fake.mu.Unlock()
+				st.mu.Lock()
+				defer st.mu.Unlock()
+				return saves == 2 && !st.endpoints.saving && !st.endpoints.editing
+			})
+			fake.mu.Lock()
+			toggleSaved := fake.saveCustomEndpointCalls[0]
+			formSaved := fake.saveCustomEndpointCalls[1]
+			toggleKey, formKey := fake.saveCustomEndpointKeys[0], fake.saveCustomEndpointKeys[1]
+			hasAPIKey := fake.customEndpoints[0].HasAPIKey
+			fake.mu.Unlock()
+			if toggleSaved.Enabled != tc.target || formSaved.Enabled != tc.target {
+				t.Fatalf("保存的启用状态错误: toggle=%v form=%v want=%v", toggleSaved.Enabled, formSaved.Enabled, tc.target)
+			}
+			if toggleKey != "" || formKey != "" || !hasAPIKey {
+				t.Fatalf("留空密钥覆盖了已存密钥: toggleKey=%q formKey=%q hasKey=%v", toggleKey, formKey, hasAPIKey)
+			}
+			if !strings.Contains(formSaved.Name, "草稿") || formSaved.Model != "draft-model" {
+				t.Fatalf("表单保存丢失草稿: name=%q model=%q", formSaved.Name, formSaved.Model)
+			}
+			waitMagpie(t, tt, func() bool { id, _ := settingsTreeSheetState(st); return id == "" })
+			openMagpieGatewaySheet(st, "gw")
+			waitMagpie(t, tt, func() bool {
+				st.mu.Lock()
+				defer st.mu.Unlock()
+				return st.endpoints.editing && st.endpoints.editID == "gw" && st.endpoints.editEnabled == tc.target &&
+					len(st.endpoints.endpoints) == 1 && st.endpoints.endpoints[0].Enabled == tc.target
+			})
+		})
+	}
+}
+
+func TestMagpieGatewayToggleSave_RollbackOnFailure(t *testing.T) {
+	fake := NewFakeClient()
+	gw := CustomEndpoint{ID: "gw", Name: "测试网关", Magpie: true, Enabled: true, HasAPIKey: true}
+	fake.customEndpoints = []CustomEndpoint{gw}
+	client := &magpieGatewaySaveErrClient{FakeClient: fake, err: errors.New("切换失败")}
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(client))
+	st.mu.Lock()
+	st.endpoints.loaded = true
+	st.endpoints.endpoints = []CustomEndpoint{gw}
+	st.mu.Unlock()
+	tt := ui.NewTester(func(c *ui.Context) { renderMagpieGatewaySheetBody(c, st, "gw") }, 1200, 4000)
+	waitMagpie(t, tt, func() bool { return tt.HasText("切换启用 测试网关") })
+	if err := tt.Click("网关名称"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type(" 草稿")
+	if err := tt.Click("编辑网关默认模型"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("draft-model")
+	if err := tt.Click("切换启用 测试网关"); err != nil {
+		t.Fatal(err)
+	}
+	waitMagpie(t, tt, func() bool {
+		client.mu.Lock()
+		calls := client.saveCalls
+		client.mu.Unlock()
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return calls == 1 && !st.endpoints.toggling
+	})
+	st.mu.Lock()
+	draftEnabled, draftName, draftModel := st.endpoints.editEnabled, st.endpoints.editName, st.endpoints.editModel
+	listEnabled := st.endpoints.endpoints[0].Enabled
+	st.mu.Unlock()
+	if !draftEnabled || !listEnabled {
+		t.Fatalf("切换失败后应回滚为启用: draft=%v list=%v", draftEnabled, listEnabled)
+	}
+	if !strings.Contains(draftName, "草稿") || draftModel != "draft-model" {
+		t.Fatalf("切换失败重置了草稿: name=%q model=%q", draftName, draftModel)
+	}
+}
+
+func TestCustomEndpointToggle_LeavesOtherDraftUntouched(t *testing.T) {
+	fake := NewFakeClient()
+	a := CustomEndpoint{ID: "a", Name: "网关 A", Magpie: true, Enabled: true}
+	b := CustomEndpoint{ID: "b", Name: "网关 B", Magpie: true, Enabled: false}
+	fake.customEndpoints = []CustomEndpoint{a, b}
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
+	st.mu.Lock()
+	st.endpoints.loaded = true
+	st.endpoints.endpoints = []CustomEndpoint{a, b}
+	openCustomEndpointForm(st, &b, endpointFormScopeMagpie)
+	st.endpoints.editName = "B 未保存"
+	st.endpoints.editEnabled = false
+	st.mu.Unlock()
+	toggleCustomEndpointEnabled(st, a, false)
+	tt := ui.NewTester(func(c *ui.Context) {}, 100, 100)
+	waitMagpie(t, tt, func() bool {
+		fake.mu.Lock()
+		saves := len(fake.saveCustomEndpointCalls)
+		fake.mu.Unlock()
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return saves == 1 && !st.endpoints.toggling
+	})
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.endpoints.editID != "b" || st.endpoints.editEnabled || st.endpoints.editName != "B 未保存" {
+		t.Fatalf("切换影响了其他端点草稿: id=%q enabled=%v name=%q", st.endpoints.editID, st.endpoints.editEnabled, st.endpoints.editName)
+	}
+	if st.endpoints.endpoints[0].Enabled || st.endpoints.endpoints[1].Enabled {
+		t.Fatalf("列表启用状态错误: %+v", st.endpoints.endpoints)
 	}
 }
