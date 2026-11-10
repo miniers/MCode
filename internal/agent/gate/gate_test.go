@@ -234,8 +234,8 @@ func TestOnlyReads(t *testing.T) {
 func TestReadOnlyBashCommands(t *testing.T) {
 	allowed := []string{"whoami", "uname -a", "sed -n '1,20p' a.go", "go doc fmt", "go env GOPATH", "adb devices", "command -v adb", "env", "cd x && whoami", "jq '.' file", "uniq -c file", "xxd file", "date -u", "hostname"}
 	denied := []string{"xargs ls", "awk '{print}' f", "sed -i 's/a/b/' f", "sed 's/a/b/w out' f", "go build ./...", "go test ./...", "adb shell ls", "adb install x.apk", "env FOO=1 rm x", "defaults write a b c", "command rm x", "which adb | xargs -I{} {} version", "go env -w GOPATH=/tmp", "go list -toolexec=sh ./...", "uniq a b", "xxd -r - out", "hostname newname", "date 010101012025", "git log --exec-path=/tmp", "git diff --out'put'=out", "find . '-exec' rm x +"}
-	allowed = append(allowed, `rg "->" internal`, `grep -n "<div" a.html`, `rg "=>" .`, `rg 'a<b>c' .`, `rg "foo$" .`, `rg "a$|b$" .`, `rg 'foo$HOME' .`, `rg "a$)b" .`, `rg "a$ b" .`, `rg "a$\b" .`)
-	denied = append(denied, `cat a > b`, `cat a >b`, `cat < a`, `echo ">" > f`, `echo "$HOME"`, `find . "${X:=-delete}"`, `rg "$(id)" .`, "rg \"`id`\" .", `echo $x`, `echo "$1"`, `echo "$@"`, `echo "$*"`, `echo "$#"`, `echo "$?"`, `echo "$$"`, `echo "$!"`, `echo "$-"`, `rg "--pre=sh" x`)
+	allowed = append(allowed, `rg -e "->" internal`, `rg -- "->" .`, `git log --grep "-x"`, `grep -n "<div" a.html`, `rg "=>" .`, `rg 'a<b>c' .`, `rg "foo$" .`, `rg "a$|b$" .`, `rg 'foo$HOME' .`, `rg "a$)b" .`, `rg "a$ b" .`, `rg "a$\b" .`)
+	denied = append(denied, `rg '--pre=x' foo`, `rg "--pre" x foo`, `find . -ex''ec rm {} ';'`, `find . "-delete"`, `sort '-o' out a`, `git log '-cfoo=bar'`, `git "diff" '--output=x'`, `tree '-o' x`, `cat a > b`, `cat a >b`, `cat < a`, `echo ">" > f`, `echo "$HOME"`, `find . "${X:=-delete}"`, `rg "$(id)" .`, "rg \"`id`\" .", `echo $x`, `echo "$1"`, `echo "$@"`, `echo "$*"`, `echo "$#"`, `echo "$?"`, `echo "$$"`, `echo "$!"`, `echo "$-"`, `rg "--pre=sh" x`)
 	for _, group := range []struct {
 		commands []string
 		want     Action

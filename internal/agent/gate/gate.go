@@ -302,20 +302,15 @@ func OnlyReads(command string) bool {
 		if len(t) == 0 {
 			continue
 		}
+		for i := range t {
+			t[i] = strings.ReplaceAll(strings.ReplaceAll(t[i], "'", ""), `"`, "")
+		}
 		p := t[0]
 		if strings.HasPrefix(p, "/") {
 			if filepath.Dir(p) != "/bin" && filepath.Dir(p) != "/usr/bin" {
 				return false
 			}
 			p = filepath.Base(p)
-		}
-		switch p {
-		case "git", "find", "rg", "sort", "tree", "go", "sed", "plutil", "uniq", "xxd":
-			for _, a := range t[1:] {
-				if !(p == "rg" && a == `"->"`) && strings.ContainsAny(a, "'\"") && strings.HasPrefix(strings.TrimLeft(a, "'\""), "-") {
-					return false
-				}
-			}
 		}
 		switch p {
 		case "hostname":
@@ -363,7 +358,7 @@ func OnlyReads(command string) bool {
 			}
 			continue
 		case "sed":
-			if len(t) < 3 || t[1] != "-n" || !regexp.MustCompile(`^([0-9$]+,)?[0-9$]+p$`).MatchString(strings.Trim(t[2], "'\"")) {
+			if len(t) < 3 || t[1] != "-n" || !regexp.MustCompile(`^([0-9$]+,)?[0-9$]+p$`).MatchString(t[2]) {
 				return false
 			}
 			for _, a := range t[3:] {
