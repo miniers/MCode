@@ -481,6 +481,18 @@ func gitArgDenied(arg string) bool {
 
 func gitReadArgs(sub string, args []string) bool {
 	switch sub {
+	case "ls-remote":
+		for _, a := range args {
+			if a == "-u" || a == "--upload-pack" || strings.HasPrefix(a, "--upload-pack=") {
+				return false
+			}
+		}
+	case "grep":
+		for _, a := range args {
+			if a == "--open-files-in-pager" || strings.HasPrefix(a, "--open-files-in-pager=") || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a[1:], "O") {
+				return false
+			}
+		}
 	case "remote":
 		return len(args) == 0 || len(args) == 1 && (args[0] == "-v" || args[0] == "--verbose") || len(args) == 2 && (args[0] == "get-url" || args[0] == "show") && !strings.HasPrefix(args[1], "-")
 	case "reflog":
@@ -597,6 +609,9 @@ func curlValueAllowed(name, value string) bool {
 	}
 	if name == "-X" || name == "--request" {
 		return value == "GET" || value == "HEAD"
+	}
+	if name == "-H" || name == "--header" {
+		return !strings.HasPrefix(value, "@")
 	}
 	return name != "-w" && name != "--write-out" || !strings.HasPrefix(value, "@") && !strings.Contains(value, "%output{")
 }
