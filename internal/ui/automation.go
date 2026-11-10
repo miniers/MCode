@@ -85,6 +85,7 @@ type automationState struct {
 	previewSchedule  AutomationSchedule
 	previewValid     bool
 	previewID        int
+	previewEpoch     int
 	previewCancel    context.CancelFunc
 	previewTimer     *time.Timer
 	preview          AutomationSchedulePreview
@@ -162,6 +163,7 @@ func stopAutomationWatch(s *chatState) {
 	defer automationMu.Unlock()
 	if as := automationStates[s]; as != nil {
 		as.initialized = false
+		as.stopSchedulePreview()
 		if as.watchStop != nil {
 			as.watchStop()
 			as.watchStop = nil
@@ -592,6 +594,7 @@ func (s *chatState) saveAutomation() {
 					runSaved = as.runAfterSave
 					as.fillAutomation(saved)
 					as.editorOpen = false
+					as.stopSchedulePreview()
 					if isNew {
 						as.detailTab = 0
 						as.narrowDetail = true
@@ -639,6 +642,7 @@ func (as *automationState) closeEditor() {
 		return
 	}
 	as.editorOpen = false
+	as.stopSchedulePreview()
 	as.focusEditorTrigger = true
 	if as.isNew {
 		as.isNew = false
@@ -1096,13 +1100,8 @@ func renderAutomationWorkspaceWithSearch(c *ui.Context, s *chatState, searchText
 	if curPID != "" && (as.projectID != curPID || !as.initialized) {
 		automationMu.Lock()
 		if as.projectID != curPID {
-			if as.previewTimer != nil {
-				as.previewTimer.Stop()
-			}
-			if as.previewCancel != nil {
-				as.previewCancel()
-			}
-			*as = automationState{loadID: as.loadID, runsLoadID: as.runsLoadID, saveID: as.saveID, runRequest: as.runRequest + 1, selectionVersion: as.selectionVersion + 1, editSession: as.editSession + 1, watchStop: as.watchStop, runningIDs: make(map[string]bool), busyIDs: make(map[string]bool)}
+			as.stopSchedulePreview()
+			*as = automationState{loadID: as.loadID, runsLoadID: as.runsLoadID, saveID: as.saveID, previewEpoch: as.previewEpoch, runRequest: as.runRequest + 1, selectionVersion: as.selectionVersion + 1, editSession: as.editSession + 1, watchStop: as.watchStop, runningIDs: make(map[string]bool), busyIDs: make(map[string]bool)}
 		}
 		as.projectID = curPID
 		as.initialized = true

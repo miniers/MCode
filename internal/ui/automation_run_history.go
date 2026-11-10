@@ -113,7 +113,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 		}
 		if selected != nil {
 			run := *selected
-			ui.Column(c.Key("automation-run-detail-" + run.ID)).FillWidth().Gap(Space3).Transition(motionListItem(c)).Children(func() {
+			ui.Column(c.Key("automation-run-detail-" + run.ID)).FillWidth().Gap(Space3).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
 				ui.Row(c.Key("run-detail-header")).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
 					Button(c.Key("run-detail-back"), ButtonOpts{Text: "← 运行记录", Label: "返回运行记录", OnClick: func() { automationMu.Lock(); as.openRunID = ""; automationMu.Unlock(); s.invalidate() }, Variant: ButtonGhost, Size: ControlXS})
 					status, kind := automationRunStatus(run.Status)
@@ -206,7 +206,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 			ordered = ordered[:100]
 		}
 		shown, lastDay := 0, ""
-		ui.Column(c.Key("runs-list-col")).FillWidth().Gap(Space2).Transition(motionListItem(c)).Children(func() {
+		ui.Column(c.Key("runs-list-col")).FillWidth().Gap(Space2).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
 			for _, run := range ordered {
 				run := run
 				unread := automationRunUnread(runRead, run.ID)
@@ -230,7 +230,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 						s.markAutomationRunRead(selectedID, run.ID)
 					}
 				}
-				row := ui.Row(c.Key("run-item-"+run.ID)).Label("运行记录 "+run.ID).FillWidth().Padding(Space2, Space3).Radius(RadiusSM).AlignItems(ui.Center).Gap(Space2)
+				row := ui.Row(c.Key("run-item-"+run.ID)).Label("运行记录 "+run.ID).FillWidth().Padding(Space2, Space3).Radius(RadiusSM).AlignItems(ui.Center).Gap(Space2).Transition(motionListItem(c))
 				if row.Hovered() {
 					row.Background(ThemeOverlay(c, 0.08))
 				} else {

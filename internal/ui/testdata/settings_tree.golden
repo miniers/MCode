@@ -196,7 +196,7 @@ row row-context-doc- 注入文档
 section workbench.kanban 看板与任务
 row row-kanban-default-view 默认视图
 row row-tasks-auto-merge-worktree 验收后自动合并工作树
-row row-kanban-auto-review 完成后自动转为 Review
+row row-kanban-auto-review 完成后自动送审
 row row-kanban-run-in-worktree 在独立工作树中执行
 row row-kanban-mcp-tools 注册看板 MCP 工具
 row row-kanban-entry-ordinary 普通会话暴露单一入口

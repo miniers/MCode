@@ -15,7 +15,12 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 	if as.confirmRun {
 		ui.Row(c.Key("automation-confirm-run")).Gap(Space2).Children(func() {
 			Button(c.Key("automation-save-run"), ButtonOpts{Text: "保存后运行", Label: "automation-save-run", Disabled: saving, OnClick: func() { as.confirmRun = false; as.runAfterSave = true; s.saveAutomation() }, Variant: ButtonPrimary})
-			Button(c.Key("automation-saved-run"), ButtonOpts{Text: "按已保存配置运行", Label: "automation-saved-run", Disabled: saving, OnClick: func() { as.confirmRun = false; as.editorOpen = false; s.runAutomationNow(selectedID) }, Variant: ButtonSecondary})
+			Button(c.Key("automation-saved-run"), ButtonOpts{Text: "按已保存配置运行", Label: "automation-saved-run", Disabled: saving, OnClick: func() {
+				as.confirmRun = false
+				as.editorOpen = false
+				as.stopSchedulePreview()
+				s.runAutomationNow(selectedID)
+			}, Variant: ButtonSecondary})
 			Button(c.Key("automation-cancel-run"), ButtonOpts{Text: "取消", Label: "automation-cancel-run", OnClick: func() { as.confirmRun = false; s.invalidate() }, Variant: ButtonGhost})
 		})
 	}
@@ -95,6 +100,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 			Button(c.Key("automation-discard"), ButtonOpts{Text: "放弃", OnClick: func() {
 				as.confirmDiscard = false
 				as.editorOpen = false
+				as.stopSchedulePreview()
 				as.focusEditorTrigger = true
 				if as.isNew {
 					as.isNew = false

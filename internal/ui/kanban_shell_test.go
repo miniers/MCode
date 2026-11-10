@@ -188,5 +188,5 @@ func TestKanbanShellGoalFilterAndDetail(t *testing.T) {
 	if err := tt.Click("目标详情 目标一"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("目标产物") })
+	waitFor(t, tt, func() bool { _, ok := tt.Find("kanban-goal-detail"); return ok && tt.HasText("产物") })
 }

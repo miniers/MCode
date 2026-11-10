@@ -368,6 +368,15 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 			}
 			s.openTaskDetail(task)
 		})
+	kanbanMu.Lock()
+	returnFocus := ks.detailFocusReturnID == task.ID
+	if returnFocus {
+		ks.detailFocusReturnID = ""
+	}
+	kanbanMu.Unlock()
+	if returnFocus {
+		card.Focus()
+	}
 	// 悬停时提亮底色与描边，让指针下的卡片更清晰
 	if card.Hovered() {
 		card.Background(ThemeSurface(c).Alpha(0.60)).BorderColor(ThemeAccent(c).Alpha(0.35))

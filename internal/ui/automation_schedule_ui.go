@@ -81,6 +81,25 @@ func automationScheduleFromDraft(as *automationState) (AutomationSchedule, map[s
 	return sch, errs
 }
 
+func (as *automationState) cancelSchedulePreview() {
+	if as.previewTimer != nil {
+		as.previewTimer.Stop()
+		as.previewTimer = nil
+	}
+	if as.previewCancel != nil {
+		as.previewCancel()
+		as.previewCancel = nil
+	}
+	as.previewID++
+	as.previewValid = false
+	as.previewVisible = false
+}
+
+func (as *automationState) stopSchedulePreview() {
+	as.previewEpoch++
+	as.cancelSchedulePreview()
+}
+
 func (as *automationState) updateSchedulePreview(s *chatState) {
 	client, supported := s.client.(automationPreviewClient)
 	sch, errs := automationScheduleFromDraft(as)
@@ -88,14 +107,9 @@ func (as *automationState) updateSchedulePreview(s *chatState) {
 	if as.previewValid == valid && (!valid || automationSchedulesEqual(as.previewSchedule, sch)) {
 		return
 	}
-	if as.previewTimer != nil {
-		as.previewTimer.Stop()
-	}
-	if as.previewCancel != nil {
-		as.previewCancel()
-	}
-	as.previewID++
+	as.cancelSchedulePreview()
 	id := as.previewID
+	epoch := as.previewEpoch
 	as.previewValid, as.previewSchedule, as.previewVisible = valid, sch, false
 	if !valid {
 		return
@@ -103,7 +117,15 @@ func (as *automationState) updateSchedulePreview(s *chatState) {
 	ctx, cancel := context.WithCancel(context.Background())
 	as.previewCancel = cancel
 	as.previewTimer = time.AfterFunc(200*time.Millisecond, func() {
+		if ctx.Err() != nil {
+			return
+		}
 		result, err := client.PreviewAutomationSchedule(ctx, sch, time.Now(), 3)
+		automationMu.Lock()
+		defer automationMu.Unlock()
+		if as.previewEpoch != epoch {
+			return
+		}
 		s.updateWorkspace(func() {
 			automationMu.Lock()
 			defer automationMu.Unlock()

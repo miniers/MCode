@@ -16,15 +16,7 @@ func TestKanbanWorkspace_Empty(t *testing.T) {
 	fake := NewFakeClient()
 	fake.SetKanbanBoard(KanbanBoard{})
 
-	tt := ui.NewTester(Root(fake), 1000, 700)
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("任务与看板")
-	})
-
-	if err := tt.Click("任务与看板"); err != nil {
-		t.Fatalf("click '任务与看板' nav failed: %v", err)
-	}
+	tt, _ := newWorkspaceTester(t, fake, "tasks")
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("还没有任务")
@@ -67,7 +59,7 @@ func openKanbanGoalDetailForTest(t *testing.T, tt *ui.Tester, title string) {
 	if err := tt.Click("目标详情 " + title); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("目标产物") })
+	waitFor(t, tt, func() bool { _, ok := tt.Find("kanban-goal-detail"); return ok && tt.HasText("产物") })
 }
 
 // exactTextCount 统计渲染树中文本精确等于 text 的节点数量（Find 同样按精确匹配文本或 Label）。
@@ -108,15 +100,7 @@ func TestKanbanWorkspace_MoveTask(t *testing.T) {
 		Tasks:    []KanbanTask{task},
 	})
 
-	tt := ui.NewTester(Root(fake), 1000, 700)
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("任务与看板")
-	})
-
-	if err := tt.Click("任务与看板"); err != nil {
-		t.Fatalf("click '任务与看板' nav failed: %v", err)
-	}
+	tt, _ := newWorkspaceTester(t, fake, "tasks")
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("待办任务1")
@@ -179,15 +163,7 @@ func TestKanbanWorkspace_RevisionConflict(t *testing.T) {
 	})
 	fake.SetMoveTaskError(fmt.Errorf("%w", ErrRevisionConflict))
 
-	tt := ui.NewTester(Root(fake), 1000, 700)
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("任务与看板")
-	})
-
-	if err := tt.Click("任务与看板"); err != nil {
-		t.Fatalf("click '任务与看板' nav failed: %v", err)
-	}
+	tt, _ := newWorkspaceTester(t, fake, "tasks")
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("冲突任务")
@@ -249,15 +225,7 @@ func TestKanbanWorkspace_StartTask(t *testing.T) {
 		Tasks:    []KanbanTask{task},
 	})
 
-	tt := ui.NewTester(Root(fake), 1000, 700)
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("任务与看板")
-	})
-
-	if err := tt.Click("任务与看板"); err != nil {
-		t.Fatalf("click '任务与看板' nav failed: %v", err)
-	}
+	tt, _ := newWorkspaceTester(t, fake, "tasks")
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("待启动任务")
@@ -460,15 +428,7 @@ index 1111111..2222222 100644
 		Diff: diffContent,
 	})
 
-	tt := ui.NewTester(Root(fake), 1000, 700)
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("任务与看板")
-	})
-	if err := tt.Click("任务与看板"); err != nil {
-		t.Fatalf("click '任务与看板' nav failed: %v", err)
-	}
-
+	tt, _ := newWorkspaceTester(t, fake, "tasks")
 	waitFor(t, tt, func() bool {
 		return tt.HasText("详情测试任务")
 	})
@@ -477,6 +437,13 @@ index 1111111..2222222 100644
 		t.Fatalf("click task card failed: %v", err)
 	}
 
+	if err := tt.Click("kanban-detail-tab-session"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText(logText) })
+	if err := tt.Click("kanban-detail-tab-diff"); err != nil {
+		t.Fatal(err)
+	}
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("kanban-task-detail")
 		return ok
@@ -499,9 +466,11 @@ index 1111111..2222222 100644
 		return histFound && diffFound
 	})
 
-	waitFor(t, tt, func() bool {
-		return tt.HasText(logText) && tt.HasText("main.go") && tt.HasText("备注: 详情备注")
-	})
+	waitFor(t, tt, func() bool { return tt.HasText("main.go") })
+	if err := tt.Click("kanban-detail-tab-result"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("需求: 详情备注") })
 
 	if err := tt.Click("kanban-task-detail-close"); err != nil {
 		t.Fatalf("click 'kanban-task-detail-close' failed: %v", err)
@@ -517,13 +486,14 @@ index 1111111..2222222 100644
 func TestKanbanWorkspace_DetailAccept(t *testing.T) {
 	fake := NewFakeClient()
 	task := KanbanTask{
-		ID:        "task-review-1",
-		ProjectID: "p1",
-		Title:     "待审查任务1",
-		Status:    "review",
-		Column:    "review",
-		CanReview: true,
-		Revision:  4,
+		ID:         "task-review-1",
+		ProjectID:  "p1",
+		Title:      "待审查任务1",
+		Status:     "review",
+		Column:     "review",
+		CanReview:  true,
+		CanApprove: true,
+		Revision:   4,
 	}
 	fake.SetKanbanBoard(KanbanBoard{
 		Revision: 1,
@@ -532,14 +502,7 @@ func TestKanbanWorkspace_DetailAccept(t *testing.T) {
 
 	// 看板每列最小 270pt，窗口窄于五列总宽时看板横向滚动；这里开到能容下
 	// 「待审阅」列（第 4 列），否则卡片右上角的「详情」按钮落在滚动视口外，点不到。
-	tt := ui.NewTester(Root(fake), 1500, 900)
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("任务与看板")
-	})
-	if err := tt.Click("任务与看板"); err != nil {
-		t.Fatalf("click '任务与看板' nav failed: %v", err)
-	}
+	tt, _ := newWorkspaceTester(t, fake, "tasks")
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("待审查任务1")
@@ -568,7 +531,7 @@ func TestKanbanWorkspace_DetailAccept(t *testing.T) {
 	})
 	waitFor(t, tt, func() bool {
 		_, open := tt.Find("kanban-task-detail")
-		return !open
+		return !open && len(fake.ReviewTaskCalls()) == 1
 	})
 }
 
@@ -590,14 +553,7 @@ func TestKanbanWorkspace_DetailRejectWithFeedback(t *testing.T) {
 	})
 
 	// 同 TestKanbanWorkspace_DetailAccept：窗口需容下「待审阅」列，才能点到卡片的「详情」。
-	tt := ui.NewTester(Root(fake), 1500, 900)
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("任务与看板")
-	})
-	if err := tt.Click("任务与看板"); err != nil {
-		t.Fatalf("click '任务与看板' nav failed: %v", err)
-	}
+	tt, _ := newWorkspaceTester(t, fake, "tasks")
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("待驳回任务2")
@@ -630,7 +586,7 @@ func TestKanbanWorkspace_DetailRejectWithFeedback(t *testing.T) {
 	})
 	waitFor(t, tt, func() bool {
 		_, open := tt.Find("kanban-task-detail")
-		return !open
+		return open && len(fake.ReviewTaskCalls()) == 1
 	})
 }
 
@@ -638,12 +594,13 @@ func TestKanbanWorkspace_DetailRejectWithFeedback(t *testing.T) {
 func TestKanbanWorkspace_DetailRevisionConflict(t *testing.T) {
 	fake := NewFakeClient()
 	task := KanbanTask{
-		ID:        "task-conflict-detail",
-		ProjectID: "p1",
-		Title:     "冲突详情任务",
-		Status:    "review",
-		Column:    "review",
-		CanReview: true,
+		ID:         "task-conflict-detail",
+		ProjectID:  "p1",
+		Title:      "冲突详情任务",
+		Status:     "review",
+		Column:     "review",
+		CanReview:  true,
+		CanApprove: true,
 		// 看板卡片上已提供「会话」按钮，因此带会话的任务必然在卡片操作区占位；
 		// 这里保留 ThreadID 以覆盖详情加载，同时在卡片操作区多放几个按钮，确保操作区仍溢出到卡片下方。
 		ThreadID:       "thread-before-conflict",
@@ -703,9 +660,12 @@ func TestKanbanWorkspace_DetailRevisionConflict(t *testing.T) {
 	})
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("任务已被其他地方修改，请核对刷新后的任务与改动后重试") &&
-			tt.HasText("更新后的运行日志")
+		return tt.HasText("任务已被其他地方修改，请核对刷新后的任务与改动后重试")
 	})
+	if err := tt.Click("kanban-detail-tab-session"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("更新后的运行日志") })
 	fake.SetReviewTaskError(nil)
 	if err := tt.Click("kanban-task-detail-reject"); err != nil {
 		t.Fatalf("retry reject failed: %v", err)
@@ -714,7 +674,7 @@ func TestKanbanWorkspace_DetailRevisionConflict(t *testing.T) {
 		calls := fake.ReviewTaskCalls()
 		_, open := tt.Find("kanban-task-detail")
 		return len(calls) == 2 && calls[1].Revision == 2 &&
-			calls[1].Decision == "reject" && calls[1].Feedback == "先改一下" && !open
+			calls[1].Decision == "reject" && calls[1].Feedback == "先改一下" && open
 	})
 }
 
@@ -1085,9 +1045,8 @@ func TestGoalOutputs_FiltersAndSorts(t *testing.T) {
 	}
 }
 
-// TestKanbanWorkspace_GoalOutputsModal：点击目标卡片的「目标产物」打开弹窗，
-// 展示该目标下任务的标题、状态与完成说明；无任务的目标显示空态。
-func TestKanbanWorkspace_GoalOutputsModal(t *testing.T) {
+// 目标详情直接显示所属任务的产物，不再打开独立弹窗。
+func TestKanbanWorkspace_GoalOutputsDetail(t *testing.T) {
 	fake := NewFakeClient()
 	fake.SetKanbanBoard(KanbanBoard{
 		Revision: 1,
@@ -1106,32 +1065,17 @@ func TestKanbanWorkspace_GoalOutputsModal(t *testing.T) {
 
 	openKanbanGoalDetailForTest(t, tt, "目标一")
 
-	if err := tt.Click("goal-outputs-goal-1"); err != nil {
-		t.Fatalf("click goal outputs failed: %v", err)
-	}
 	waitFor(t, tt, func() bool {
-		_, open := tt.Find("kanban-goal-outputs")
+		_, open := tt.Find("kanban-goal-detail")
 		return open && tt.HasText("产物任务") && tt.HasText("已完成并合入")
 	})
-
-	if err := tt.Click("kanban-goal-outputs-close"); err != nil {
-		t.Fatalf("close goal outputs failed: %v", err)
+	if err := tt.Click("关闭目标详情"); err != nil {
+		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool {
-		_, open := tt.Find("kanban-goal-outputs")
-		return !open
-	})
-
-	tt.Key(0, ui.KeyEscape)
-	waitFor(t, tt, func() bool { return !tt.HasText("目标产物") })
 	openKanbanGoalDetailForTest(t, tt, "目标二")
-	if err := tt.Click("goal-outputs-goal-2"); err != nil {
-		t.Fatalf("click empty goal outputs failed: %v", err)
+	if tt.HasText("已完成并合入") {
+		t.Fatal("其他目标的产物不应出现")
 	}
-	waitFor(t, tt, func() bool {
-		_, open := tt.Find("kanban-goal-outputs")
-		return open && tt.HasText("该目标暂无任务产出")
-	})
 }
 
 // TestKanbanWorkspace_EscInQuickAddKeepsWorkspaceOpen：快速添加输入框里按 Esc 只收起输入，任务工作区保持打开且不创建任务。

@@ -9,6 +9,7 @@ import (
 func (s *chatState) openTaskDetail(task KanbanTask) {
 	ks := getKanbanState(s)
 	kanbanMu.Lock()
+	ks.detailFocusReturnID = ""
 	ks.detailTab = "result"
 	if task.Status == "review" || task.Column == "review" {
 		ks.detailTab = "diff"
@@ -26,6 +27,9 @@ func (s *chatState) closeTaskDetail() {
 	if ks.detailCancel != nil {
 		ks.detailCancel()
 		ks.detailCancel = nil
+	}
+	if !ks.goalDetailOpen {
+		ks.detailFocusReturnID = ks.detailTaskID
 	}
 	ks.detailTaskID = ""
 	ks.detailLoading = false

@@ -156,6 +156,7 @@ type kanbanState struct {
 
 	// 详情浮窗状态
 	detailTaskID        string
+	detailFocusReturnID string
 	detailThreadID      string
 	detailRevision      int
 	detailLoading       bool
