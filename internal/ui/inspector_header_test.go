@@ -33,7 +33,7 @@ func TestInspectorMoreMenuPreservesMemoryBadge(t *testing.T) {
 	if !tt.HasText("17") {
 		t.Fatal("更多入口缺少待审数量")
 	}
-	if err := tt.Click("更多"); err != nil {
+	if err := tt.Click("更多工具"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(DurSheet + 50*time.Millisecond)
