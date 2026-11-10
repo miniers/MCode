@@ -494,7 +494,7 @@ func (s *chatState) close() {
 		stopSwarm()
 	}
 	closeTerminals(s)
-	closePreview(s)
+	inspectorDisposeAllSessions(s)
 	previewMu.Lock()
 	delete(previewStates, s)
 	previewMu.Unlock()

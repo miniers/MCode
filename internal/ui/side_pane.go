@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"math"
 	"sync"
 	"time"
 
@@ -14,24 +15,12 @@ const (
 	sidePaneDiffID    = "diff"
 )
 
-// sidePane 描述主区右侧一个可拖拽的分栏面板：会话主区与它组成一行分栏（主区 Grow(1) +
-// 7 DIP 拖拽手柄 + 面板固定宽度），同一时刻只允许一个面板打开。三个面板（文件管理、
-// 网页预览、改动）的挂载、互斥、宽度夹取与宽度持久化都收拢在这里，root.go 只调用
-// renderSidePaneSplit。
-//
-// 约定：isOpen/width 只读取面板状态，不加锁也不新建状态，调用方必须持有该面板自己的
-// mutex（即 mu，与面板状态结构共用同一把锁）；close 与 render 自行加锁，调用方不得持锁调用。
+// sidePane 只描述目的和旧入口；开关、选择和宽度由 Inspector 拥有。
 type sidePane struct {
-	id           string
-	mu           *sync.Mutex
-	isOpen       func(s *chatState) bool
-	close        func(s *chatState)
-	width        func(s *chatState) *float32
-	minWidth     float32
-	defaultWidth float32
-	maxWidth     float32
-	splitKey     string
-	render       func(c *ui.Context, s *chatState)
+	id       string
+	title    string
+	splitKey string
+	render   func(c *ui.Context, s *chatState)
 
 	// 开关入口的注册信息：快捷键/菜单动作 id（与 shortcuts.go 一致）、菜单与命令面板的
 	// 展示文案，以及真正的开关函数。root.go 的快捷键分发、app_menu.go 与 palette.go 的
@@ -44,26 +33,16 @@ type sidePane struct {
 	paletteTitle string
 }
 
-// sidePanes 是右侧分栏面板注册表，顺序即优先级：文件管理 > 网页预览 > 改动。
-// 三者互斥，正常不会同时打开；优先级只在状态异常（例如外部直接改了状态字段）时决定渲染哪一个。
-//
-// 用 init() 赋值而不是包级字面量：条目里的 toggle 会调用 toggleFileManager/togglePreview/
-// toggleDiffPanel，它们最终引用 sidePanes（经 closeOtherSidePanes），字面量写法会构成初始化循环。
+// sidePanes 的顺序就是顶部目的标签顺序。
 var sidePanes []sidePane
 
 func init() {
 	sidePanes = []sidePane{
 		{
-			id:           sidePaneFileID,
-			mu:           &fileManagerMu,
-			isOpen:       fileManagerPaneOpen,
-			close:        closeFileManager,
-			width:        fileManagerPaneWidth,
-			minWidth:     FileManagerPanelMinWidth,
-			defaultWidth: FileManagerPanelDefaultWidth,
-			maxWidth:     FileManagerPanelMaxWidth,
-			splitKey:     "chat-file-split",
-			render:       renderFileManagerPanel,
+			id:       sidePaneFileID,
+			title:    "文件",
+			splitKey: "chat-inspector-split",
+			render:   renderFileManagerPanel,
 
 			actionID: "toggle-file-manager",
 			toggle: func(s *chatState) {
@@ -75,37 +54,10 @@ func init() {
 			paletteTitle: "显示/隐藏文件面板",
 		},
 		{
-			id:           sidePanePreviewID,
-			mu:           &previewMu,
-			isOpen:       previewPaneOpen,
-			close:        closePreviewPaneIfOpen,
-			width:        previewPaneWidth,
-			minWidth:     PreviewPanelMinWidth,
-			defaultWidth: PreviewPanelDefaultWidth,
-			maxWidth:     PreviewPanelMaxWidth,
-			splitKey:     "chat-preview-split",
-			render:       renderPreviewPanel,
-
-			actionID: "toggle-preview",
-			toggle: func(s *chatState) {
-				togglePreview(s)
-			},
-			menuLabel:    "显示/隐藏网页预览",
-			menuAccel:    "Shift+CmdOrCtrl+B",
-			paletteID:    "cmd-open-preview",
-			paletteTitle: "打开 Web 预览",
-		},
-		{
-			id:           sidePaneDiffID,
-			mu:           &diffPanelMu,
-			isOpen:       diffPaneOpen,
-			close:        closeDiffPanelPane,
-			width:        diffPaneWidth,
-			minWidth:     DiffPanelMinWidth,
-			defaultWidth: DiffPanelDefaultWidth,
-			maxWidth:     DiffPanelMaxWidth,
-			splitKey:     "chat-diff-split",
-			render:       renderDiffPanel,
+			id:       sidePaneDiffID,
+			title:    "改动",
+			splitKey: "chat-inspector-split",
+			render:   renderDiffPanel,
 
 			actionID: "toggle-diff",
 			toggle: func(s *chatState) {
@@ -115,6 +67,12 @@ func init() {
 			menuAccel:    "CmdOrCtrl+D",
 			paletteID:    "cmd-toggle-diff",
 			paletteTitle: "显示/隐藏改动",
+		},
+		{
+			id: sidePanePreviewID, title: "浏览器", splitKey: "chat-inspector-split",
+			render: renderPreviewPanel, actionID: "toggle-preview", toggle: togglePreview,
+			menuLabel: "显示/隐藏网页预览", menuAccel: "Shift+CmdOrCtrl+B",
+			paletteID: "cmd-open-preview", paletteTitle: "打开 Web 预览",
 		},
 	}
 }
@@ -133,94 +91,50 @@ func sidePaneByAction(id string) *sidePane {
 	return nil
 }
 
-// fileManagerPaneOpen 返回文件管理面板是否展开；调用方持 fileManagerMu。
 func fileManagerPaneOpen(s *chatState) bool {
-	st := fileManagerStates[s]
-	return st != nil && st.open
+	return inspectorPaneOpen(s, sidePaneFileID)
 }
 
 // fileManagerPaneWidth 返回文件管理面板的宽度字段指针；状态不存在时返回 nil。调用方持 fileManagerMu。
-func fileManagerPaneWidth(s *chatState) *float32 {
-	st := fileManagerStates[s]
-	if st == nil {
-		return nil
-	}
-	return &st.width
-}
-
-// previewPaneOpen 返回网页预览面板是否可见；调用方持 previewMu。
 func previewPaneOpen(s *chatState) bool {
-	st := previewStates[s]
-	return st != nil && st.visible
+	return inspectorPaneOpen(s, sidePanePreviewID)
 }
 
 // previewPaneWidth 返回网页预览面板的宽度字段指针；状态不存在时返回 nil。调用方持 previewMu。
-func previewPaneWidth(s *chatState) *float32 {
-	st := previewStates[s]
-	if st == nil {
-		return nil
-	}
-	return &st.width
-}
-
-// diffPaneOpen 返回改动面板是否展开；调用方持 diffPanelMu。
 func diffPaneOpen(s *chatState) bool {
-	st := diffPanelStates[s]
-	return st != nil && st.open
+	return inspectorPaneOpen(s, sidePaneDiffID)
 }
 
 // diffPaneWidth 返回改动面板的宽度字段指针；状态不存在时返回 nil。调用方持 diffPanelMu。
-func diffPaneWidth(s *chatState) *float32 {
-	st := diffPanelStates[s]
-	if st == nil {
-		return nil
-	}
-	return &st.width
-}
-
-// closePreviewPaneIfOpen 关闭右侧网页预览面板。
-// 未打开时不新建状态、不销毁 WebView（直接从注册表里查，不经过会创建状态的 getPreviewState）。
-func closePreviewPaneIfOpen(s *chatState) {
-	previewMu.Lock()
-	st := previewStates[s]
-	visible := st != nil && st.visible
-	previewMu.Unlock()
-	if visible {
-		closePreview(s)
-	}
-}
-
-// closeDiffPanelPane 关闭右侧改动面板；未打开时不新建状态。
 func closeDiffPanelPane(s *chatState) {
-	diffPanelMu.Lock()
-	st := diffPanelStates[s]
-	if st != nil {
-		st.open = false
+	if inspectorPaneOpen(s, sidePaneDiffID) {
+		inspectorClose(s)
 	}
-	diffPanelMu.Unlock()
 }
 
 // isOpenNow 在面板自己的锁内读取展开状态。
 func (p *sidePane) isOpenNow(s *chatState) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.isOpen(s)
+	return inspectorPaneOpen(s, p.id)
+}
+
+func (p *sidePane) close(s *chatState) {
+	if p.isOpenNow(s) {
+		inspectorClose(s)
+	}
 }
 
 // widthPointer 在面板锁内把宽度夹取到该面板允许的范围并返回字段指针，供分栏直接读写：
 // 小于最小值时回落到默认宽度（拖到极窄后回弹），大于最大值时取上限。
 // 面板状态不存在时返回 nil，调用方按无侧栏处理。
 func (p *sidePane) widthPointer(s *chatState) *float32 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	ptr := p.width(s)
+	ptr := p.rawWidthPointer(s)
 	if ptr == nil {
 		return nil
 	}
-	if *ptr < p.minWidth {
-		*ptr = p.defaultWidth
-	} else if *ptr > p.maxWidth {
-		*ptr = p.maxWidth
+	if *ptr < inspectorMinWidth || math.IsNaN(float64(*ptr)) || math.IsInf(float64(*ptr), 0) {
+		*ptr = inspectorDefaultWidth
+	} else if *ptr > inspectorMaxWidth {
+		*ptr = inspectorMaxWidth
 	}
 	return ptr
 }
@@ -229,12 +143,16 @@ func (p *sidePane) widthPointer(s *chatState) *float32 {
 // 压到最小宽度以下（松手时才决定收起还是回弹），否则每帧都会被 widthPointer 弹回默认宽度，
 // 手柄会一跳一跳地抖。
 func (p *sidePane) rawWidthPointer(s *chatState) *float32 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.width(s)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := inspectorExistingSessionLocked(s, s.selectedThreadID)
+	if st == nil {
+		return nil
+	}
+	return &st.Width
 }
 
-// activeSidePane 返回当前打开的右侧面板；多个同时打开时按注册顺序取优先级最高的一个。
+// activeSidePane 只由当前会话的单一 Active 决定。
 func activeSidePane(s *chatState) *sidePane {
 	if s == nil {
 		return nil
@@ -245,20 +163,6 @@ func activeSidePane(s *chatState) *sidePane {
 		}
 	}
 	return nil
-}
-
-// closeOtherSidePanes 关闭除 keepID 之外所有已打开的右侧面板，是所有互斥关系的唯一入口。
-func closeOtherSidePanes(s *chatState, keepID string) {
-	if s == nil {
-		return
-	}
-	for i := range sidePanes {
-		p := &sidePanes[i]
-		if p.id == keepID || !p.isOpenNow(s) {
-			continue
-		}
-		p.close(s)
-	}
 }
 
 // 分栏手柄的几何与交互参数。
@@ -410,17 +314,18 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 		sidePaneHandles.setDragging(c, p.splitKey, true)
 		if dx != 0 {
 			// 上限在拖动中也不越：越过的部分直接夹掉，松手时就不会突然被拉回。
-			*width = min(sidePaneDraggedWidth(*width, dx), p.maxWidth)
+			*width = min(sidePaneDraggedWidth(*width, dx), inspectorMaxWidth)
 		}
 	case released:
 		// 松手：压得过窄就收起面板并把宽度复位到默认值，否则夹取到面板自己的范围。
-		next, collapsed := sidePaneReleasedWidth(*width, p.minWidth, p.defaultWidth, p.maxWidth)
+		next, collapsed := sidePaneReleasedWidth(*width, inspectorMinWidth, inspectorDefaultWidth, inspectorMaxWidth)
 		*width = next
 		sidePaneHandles.setDragging(c, p.splitKey, false)
 		if collapsed {
 			p.close(s)
 		}
 		persistUIState(s)
+		inspectorRemember(s)
 	default:
 		// 只是点了一下（按下又松开却没移动）或根本没有按下。
 		sidePaneHandles.setDragging(c, p.splitKey, false)
@@ -429,12 +334,14 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 	// 键盘可达：焦点在手柄上时左右各调 sidePaneHandleStep；面板在右侧，所以左箭头加宽。
 	// 不做焦点陷阱，不做惯性，与 ui.Split 的方向键行为保持同一套语义（步长不同）。
 	handle.OnShortcut(0, ui.KeyLeft, func() {
-		*width = min(*width+sidePaneHandleStep, p.maxWidth)
+		*width = min(*width+sidePaneHandleStep, inspectorMaxWidth)
 		persistUIState(s)
+		inspectorRemember(s)
 	})
 	handle.OnShortcut(0, ui.KeyRight, func() {
-		*width = max(*width-sidePaneHandleStep, p.minWidth)
+		*width = max(*width-sidePaneHandleStep, inspectorMinWidth)
 		persistUIState(s)
+		inspectorRemember(s)
 	})
 
 	ink := handle.AnimateTo("ink", sidePaneHandleInkTarget(hovered, held, elapsed), ui.Animation{Duration: animateDuration(c, motionFast), Ease: motionEaseStandard})
@@ -475,37 +382,113 @@ func renderSidePaneSplit(c *ui.Context, s *chatState, renderChat func()) {
 	if renderChat == nil {
 		return
 	}
+	inspectorValidateWorkspace(s)
+	if st := inspectorSession(s); st != nil {
+		inspectorSyncVisibility(st)
+	}
+	host := ui.Row(c.Key("chat-inspector-split")).Fill().AlignItems(ui.Stretch)
+	bounds := host.Bounds()
+	windowW, windowH := c.Size()
+	available := bounds.W
+	if available <= 0 {
+		available = windowW
+		c.After(time.Nanosecond)
+	}
 	p := activeSidePane(s)
 	if p == nil {
-		renderChat()
+		host.Children(renderChat)
 		return
 	}
-	// 拖动中不夹取宽度：允许压到最小宽度以下，松手时再决定收起还是回弹。
-	var width *float32
-	if sidePaneHandles.dragging(c, p.splitKey) {
-		width = p.rawWidthPointer(s)
-	} else {
+	width := p.rawWidthPointer(s)
+	if !sidePaneHandles.dragging(c, p.splitKey) {
 		width = p.widthPointer(s)
 	}
 	if width == nil {
-		renderChat()
+		host.Children(renderChat)
 		return
 	}
-	// 面板读的是手柄改写后的宽度，所以主区、手柄在前，面板在后。
-	ui.Row(c.Key(p.splitKey)).Fill().AlignItems(ui.Stretch).Children(func() {
-		// 主区吃掉剩下的宽度；MinWidth(0) 让它在面板很宽时也能压到 0，不必再靠 Clip 裁掉内容。
-		ui.Box(c.Key(p.splitKey + "/main")).Grow(1).Shrink(1).MinWidth(0).Children(renderChat)
+	overlay, actual := inspectorLayout(available, *width)
+	if sidePaneHandles.dragging(c, p.splitKey) && !overlay {
+		actual = min(*width, available-inspectorChatMinWidth-sidePaneHandleWidth)
+	}
+	host.Children(func() {
+		ui.Box(c.Key("chat-inspector-main")).Grow(1).Shrink(1).MinWidth(0).Children(renderChat)
+		if overlay {
+			return
+		}
 		renderSidePaneHandle(c, s, p, width)
-		// 面板宽度直接挂在 *width 上，语义不再有歧义；上边距让出标题栏横带。
-		ui.Box(c.Key(p.splitKey+"/panel")).
-			Width(*width).
-			Shrink(0).
-			Clip().
+		_, actual = inspectorLayout(available, *width)
+		if sidePaneHandles.dragging(c, p.splitKey) {
+			actual = min(*width, available-inspectorChatMinWidth-sidePaneHandleWidth)
+		}
+		ui.Column(c.Key("inspector-shell")).Width(actual).Shrink(0).Clip().
 			Margin(headerInsetFor(paneMain), 0, 0, 0).
-			Children(func() {
-				p.render(c, s)
-			})
+			Transition(motionSidePanel(c, false)).Children(func() { renderInspectorBody(c, s, actual) })
 	})
+	if overlay {
+		open := true
+		if bounds.W <= 0 {
+			bounds = ui.Rect{W: available, H: windowH}
+		}
+		ui.DialogBase(c.Key("inspector-overlay"), &open, func(backdrop, panel ui.Element) {
+			backdrop.Left(bounds.X).Top(bounds.Y + headerInsetFor(paneMain)).
+				Right(max(0, windowW-bounds.X-bounds.W)).Bottom(max(0, windowH-bounds.Y-bounds.H))
+			panel.Absolute().Right(0).Top(0).Bottom(0).MaxWidth(actual).MaxHeight(max(0, bounds.H-headerInsetFor(paneMain)))
+			ui.Column(c.Key("inspector-overlay-card")).Width(actual).FillHeight().Clip().
+				Background(ThemeWindowBg(c)).Transition(motionSidePanel(c, false)).
+				Children(func() { renderInspectorBody(c, s, actual) })
+		})
+		if !open {
+			inspectorClose(s)
+		}
+	}
+}
+
+func renderInspectorBody(c *ui.Context, s *chatState, width float32) {
+	st := inspectorSession(s)
+	if st == nil {
+		return
+	}
+	header := ui.Row(c.Key("inspector-header")).Height(40).Shrink(0).FillWidth()
+	header.Children(func() {
+		selected := 0
+		for i := range sidePanes {
+			if sidePanes[i].id == st.Active {
+				selected = i
+			}
+		}
+		tabs := ui.TabsBase(c.Key("inspector-tabs"), &selected, len(sidePanes))
+		tabs.List.Grow(1).Children(func() {
+			for i, pane := range sidePanes {
+				tab := tabs.Tab(i).Height(40).Padding(0, 12).Label(pane.title)
+				target := float32(0)
+				if selected == i {
+					target = 1
+				}
+				if reduceMotion(c) {
+					tab.Jump("indicator", target)
+				}
+				ink := tab.AnimateTo("indicator", target, springSnappy)
+				tab.Children(func() {
+					ui.Text(c, pane.title).FontSize(13)
+					ui.Box(c).Absolute().Left(12).Right(12).Bottom(0).Height(2).Background(ThemeAccent(c).Alpha(ink))
+				})
+			}
+		})
+		if selected >= 0 && selected < len(sidePanes) && sidePanes[selected].id != st.Active {
+			inspectorSelect(s, sidePanes[selected].id, false)
+		}
+		IconButton(c, IconButtonProps{Key: "inspector-close", Icon: IconX(), Label: "关闭右栏", Tooltip: "关闭右栏", Size: ControlXS, Variant: ButtonGhost, OnClick: func() { inspectorClose(s) }})
+	})
+	if !st.Open {
+		return
+	}
+	fileManagerMu.Lock()
+	st.Files.width = width
+	fileManagerMu.Unlock()
+	if p := activeSidePane(s); p != nil {
+		ui.Box(c.Key("inspector-body")).Grow(1).MinHeight(0).FillWidth().Children(func() { p.render(c, s) })
+	}
 }
 
 // sidePanePrefs 保存每个窗口从 ui-state.json 恢复的侧栏宽度偏好（面板 ID -> 宽度），
@@ -560,18 +543,15 @@ func sidePaneWidthsForPersist(s *chatState) map[string]float32 {
 	if s == nil {
 		return nil
 	}
-	widths := make(map[string]float32, len(sidePanes))
-	for i := range sidePanes {
-		p := &sidePanes[i]
-		p.mu.Lock()
-		ptr := p.width(s)
-		if ptr != nil && *ptr > 0 {
-			widths[p.id] = *ptr
-		}
-		p.mu.Unlock()
-	}
-	if len(widths) == 0 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := inspectorExistingSessionLocked(s, s.selectedThreadID)
+	if st == nil {
 		return nil
+	}
+	widths := make(map[string]float32, len(sidePanes))
+	for _, p := range sidePanes {
+		widths[p.id] = st.Width
 	}
 	return widths
 }

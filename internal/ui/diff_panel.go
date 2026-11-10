@@ -43,14 +43,15 @@ var (
 
 // diffPanelState 维护改动面板的状态。
 type diffPanelState struct {
-	open      bool
-	threadID  string
-	turnID    string
-	loading   bool
-	err       string
-	data      ThreadDiff
-	files     []git.FileDiff
-	collapsed map[string]bool
+	owner      *chatState
+	requestGen uint64
+	threadID   string
+	turnID     string
+	loading    bool
+	err        string
+	data       ThreadDiff
+	files      []git.FileDiff
+	collapsed  map[string]bool
 	// expandedDeferred 缓存大文件延迟补丁点开后的展开结果，键为文件路径（见 expandDeferredDiffFile）。
 	expandedDeferred map[string]git.FileDiff
 	// expandingDeferred 记录正在后台展开的大文件，重复点开只排队一次解析。
@@ -68,7 +69,6 @@ type diffPanelState struct {
 	rowsRev uint64
 	// rowsList 是行模型虚拟列表的滚动状态。
 	rowsList     ui.ListState
-	width        float32
 	turnMenuOpen bool
 	// worktreePath 是加载这批改动时识别到的 AI 自建 worktree；
 	// 非空表示改动取自那个 worktree（见 ai_worktree.go）。
@@ -83,17 +83,14 @@ func getDiffPanelState(s *chatState) *diffPanelState {
 	if s == nil {
 		return nil
 	}
+	slot := inspectorSession(s)
+	if slot == nil {
+		return nil
+	}
 	diffPanelMu.Lock()
 	defer diffPanelMu.Unlock()
-	st, ok := diffPanelStates[s]
-	if !ok {
-		st = &diffPanelState{
-			collapsed: make(map[string]bool),
-			width:     sidePaneInitialWidth(s, sidePaneDiffID, DiffPanelMinWidth, DiffPanelDefaultWidth, DiffPanelMaxWidth),
-		}
-		diffPanelStates[s] = st
-	}
-	return st
+	diffPanelStates[s] = slot.Review
+	return slot.Review
 }
 
 // IsOpen 返回改动面板当前是否展开。
@@ -101,9 +98,7 @@ func (st *diffPanelState) IsOpen() bool {
 	if st == nil {
 		return false
 	}
-	diffPanelMu.Lock()
-	defer diffPanelMu.Unlock()
-	return st.open
+	return inspectorPaneOpen(st.owner, sidePaneDiffID)
 }
 
 // toggleDiffPanel 切换改动面板的展开与折叠状态。
@@ -116,18 +111,16 @@ func (s *chatState) toggleDiffPanel() {
 		return
 	}
 
-	diffPanelMu.Lock()
-	dp.open = !dp.open
-	isOpen := dp.open
-	diffPanelMu.Unlock()
-
-	if isOpen {
-		// 右侧只留一个分栏：关掉文件面板与预览面板（改动与预览也互斥）。
-		closeOtherSidePanes(s, sidePaneDiffID)
+	if inspectorSelect(s, sidePaneDiffID, true) {
 		s.mu.Lock()
 		tid := s.selectedThreadID
 		s.mu.Unlock()
-		s.loadDiff(tid, "")
+		diffPanelMu.Lock()
+		needLoad := dp.threadID != tid || dp.requestGen == 0
+		diffPanelMu.Unlock()
+		if needLoad {
+			s.loadDiff(tid, "")
+		}
 	}
 	s.invalidate()
 }
@@ -143,6 +136,8 @@ func (s *chatState) loadDiff(threadID, turnID string) {
 	}
 
 	diffPanelMu.Lock()
+	dp.requestGen++
+	gen := dp.requestGen
 	dp.threadID = threadID
 	dp.turnID = turnID
 	if threadID == "" {
@@ -185,7 +180,7 @@ func (s *chatState) loadDiff(threadID, turnID string) {
 
 		diffPanelMu.Lock()
 		defer diffPanelMu.Unlock()
-		if dp.threadID != tid || dp.turnID != turn {
+		if dp.requestGen != gen || dp.threadID != tid || dp.turnID != turn {
 			return
 		}
 		dp.loading = false
@@ -257,8 +252,8 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 	loadedWorktree := dp.worktreePath
 	worktreeResolved := dp.worktreeResolved
 	panelTurn := dp.turnID
-	needReload := dp.open && selectedTid != "" && selectedTid != panelTid && !dp.loading
-	if dp.open && selectedTid == "" && panelTid != "" {
+	needReload := selectedTid != "" && selectedTid != panelTid && !dp.loading
+	if selectedTid == "" && panelTid != "" {
 		dp.threadID = ""
 		dp.turnID = ""
 		dp.worktreePath = ""
@@ -268,19 +263,18 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 		dp.rowsRev++
 		dp.rebuildDiffRowsLocked()
 	}
-	panelOpen := dp.open
 	panelLoading := dp.loading
 	diffPanelMu.Unlock()
 
 	if needReload {
 		s.loadDiff(selectedTid, "")
-	} else if panelOpen && !panelLoading && panelTid != "" {
+	} else if !panelLoading && panelTid != "" {
 		// AI 自建 worktree 的识别可能晚于这次改动加载：识别结果变了就重取一次，让改动归属跟上。
 		// 识别偶尔会短暂返回空串，不能当作「worktree 变了」，否则反复取数并触发整片内容重帧。
 		reloadWorktree, resolvedWorktree := diffWorktreeReloadNeeded(loadedWorktree, worktreeResolved, s.aiWorktreePath(panelTid))
 		if reloadWorktree {
 			diffPanelMu.Lock()
-			stillCurrent := dp.open && !dp.loading && dp.threadID == panelTid && dp.turnID == panelTurn
+			stillCurrent := !dp.loading && dp.threadID == panelTid && dp.turnID == panelTurn
 			if stillCurrent {
 				dp.worktreeResolved = resolvedWorktree
 			}

@@ -115,6 +115,7 @@ func (s *chatState) openFileManagerFileExternal(threadID, filePath string) {
 }
 
 func (s *chatState) openFileManagerFileExternalAt(threadID, filePath string, first, last int) {
+	inspectorSelect(s, sidePaneFileID, false)
 	s.openFileManagerFileFromAt(threadID, filePath, true, false, first, last)
 }
 

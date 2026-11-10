@@ -1,0 +1,298 @@
+package mcodeui
+
+import (
+	"math"
+	"time"
+
+	"github.com/egoist/mygo"
+)
+
+const (
+	inspectorMinWidth     float32 = 320
+	inspectorDefaultWidth float32 = 480
+	inspectorMaxWidth     float32 = 800
+	inspectorChatMinWidth float32 = 360
+)
+
+// inspectorState 的槽表由 chatState.mu 保护；布局、页面及编辑器由 UI 线程拥有。
+type inspectorState struct {
+	Sessions  map[string]*inspectorSessionState
+	Temporary *inspectorSessionState
+	// P0.3 接入偏好写者；空会话不触发回调。
+	Persist func(string, *inspectorSessionState)
+}
+
+type inspectorSessionState struct {
+	Open           bool
+	Active         string
+	Width          float32
+	Files          *fileManagerState
+	Review         *diffPanelState
+	Browser        *previewState
+	workspace      string
+	workspaceKnown bool
+}
+
+func inspectorSession(s *chatState) *inspectorSessionState {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	return inspectorSessionLocked(s, s.selectedThreadID)
+}
+
+func inspectorSessionLocked(s *chatState, threadID string) *inspectorSessionState {
+	var slot **inspectorSessionState
+	if threadID == "" {
+		slot = &s.inspector.Temporary
+	} else {
+		if s.inspector.Sessions == nil {
+			s.inspector.Sessions = make(map[string]*inspectorSessionState)
+		}
+		if st := s.inspector.Sessions[threadID]; st != nil {
+			return st
+		}
+	}
+	st := &inspectorSessionState{
+		Active: sidePaneFileID, Width: inspectorInitialWidth(s),
+		Files:   &fileManagerState{},
+		Review:  &diffPanelState{owner: s, collapsed: make(map[string]bool)},
+		Browser: &previewState{viewport: previewViewportDesktop},
+	}
+	if slot != nil {
+		if *slot != nil {
+			return *slot
+		}
+		*slot = st
+	} else {
+		s.inspector.Sessions[threadID] = st
+	}
+	return st
+}
+
+func inspectorInitialWidth(s *chatState) float32 {
+	sidePanePrefsMu.Lock()
+	defer sidePanePrefsMu.Unlock()
+	for _, id := range []string{sidePanePreviewID, sidePaneFileID, sidePaneDiffID} {
+		if w := sidePanePrefs[s][id]; w > 0 && !math.IsNaN(float64(w)) && !math.IsInf(float64(w), 0) {
+			return min(max(w, inspectorMinWidth), inspectorMaxWidth)
+		}
+	}
+	return inspectorDefaultWidth
+}
+
+func inspectorPaneOpen(s *chatState, id string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := inspectorExistingSessionLocked(s, s.selectedThreadID)
+	return st != nil && st.Open && st.Active == id
+}
+
+func inspectorExistingSessionLocked(s *chatState, threadID string) *inspectorSessionState {
+	if threadID == "" {
+		return s.inspector.Temporary
+	}
+	return s.inspector.Sessions[threadID]
+}
+
+// inspectorSelect 的 toggle 只用于旧入口；顶部标签始终只选择。
+func inspectorSelect(s *chatState, id string, toggle bool) bool {
+	st := inspectorSession(s)
+	if st == nil {
+		return false
+	}
+	s.mu.Lock()
+	wasBrowser := st.Open && st.Active == sidePanePreviewID
+	st.Open = !(toggle && st.Open && st.Active == id)
+	st.Active = id
+	open := st.Open
+	s.mu.Unlock()
+	if wasBrowser && (!open || id != sidePanePreviewID) {
+		hidePreviewState(s, st.Browser)
+	}
+	inspectorSyncVisibility(st)
+	inspectorRemember(s)
+	s.invalidate()
+	return open
+}
+
+func inspectorClose(s *chatState) {
+	st := inspectorSession(s)
+	if st == nil {
+		return
+	}
+	s.mu.Lock()
+	st.Open = false
+	s.mu.Unlock()
+	hidePreviewState(s, st.Browser)
+	inspectorSyncVisibility(st)
+	inspectorRemember(s)
+	s.invalidate()
+}
+
+// 旧聊天头部仍读取 visible；它只作容器可见性的兼容镜像。
+func inspectorSyncVisibility(st *inspectorSessionState) {
+	previewMu.Lock()
+	st.Browser.visible = st.Open && st.Active == sidePanePreviewID
+	previewMu.Unlock()
+}
+
+func inspectorRemember(s *chatState) {
+	s.mu.Lock()
+	tid, save := s.selectedThreadID, s.inspector.Persist
+	st := inspectorExistingSessionLocked(s, tid)
+	s.mu.Unlock()
+	if tid != "" && save != nil && st != nil {
+		save(tid, st)
+	}
+}
+
+// hidePreviewState 保留页面与已选标注；换代后旧轮询不能回写。
+func hidePreviewState(s *chatState, st *previewState) {
+	if st == nil {
+		return
+	}
+	previewMu.Lock()
+	page, off, picking := st.page, st.pageOff, st.annotating
+	annotations, annotOpen := st.annotations, st.annotOpen
+	errors, consoleOpen := st.consoleErrors, st.consoleOpen
+	previewAdvanceGenerationLocked(st)
+	st.annotations, st.annotOpen = annotations, annotOpen
+	st.consoleErrors, st.consoleOpen = errors, consoleOpen
+	st.visible = false
+	st.pageOff = nil
+	st.consoleLastPoll = time.Time{}
+	token := previewPageTokenLocked(st)
+	previewMu.Unlock()
+	if off != nil {
+		off()
+	}
+	if page != nil && picking {
+		_, _ = page.Eval(previewAnnotateStopScript)
+	}
+	if events, ok := page.(previewPageEvents); ok {
+		previewBindPageCallbacks(s, token, events)
+	}
+}
+
+func inspectorSwitchThread(s *chatState, oldID string) {
+	s.mu.Lock()
+	old := inspectorExistingSessionLocked(s, oldID)
+	current := inspectorExistingSessionLocked(s, s.selectedThreadID)
+	save := s.inspector.Persist
+	s.mu.Unlock()
+	if old != nil {
+		fileManagerMu.Lock()
+		old.Files.opsSeq++
+		old.Files.ops = fileManagerOpsDialog{}
+		fileManagerMu.Unlock()
+		if s.window != nil {
+			mygo.RunOnMain(func() { hidePreviewState(s, old.Browser) })
+		} else {
+			hidePreviewState(s, old.Browser)
+		}
+		if oldID != "" && save != nil {
+			save(oldID, old)
+		}
+	}
+	if current != nil {
+		inspectorSyncVisibility(current)
+	}
+	inspectorValidateWorkspace(s)
+}
+
+// 同一个会话换 root/worktree 后，旧请求与文件、diff 缓存都失效，网页仍保留。
+func inspectorValidateWorkspace(s *chatState) {
+	st := inspectorSession(s)
+	if st == nil {
+		return
+	}
+	tid, root, main := getSelectedThreadDirs(s)
+	identity := root + "\x00" + main + "\x00" + s.aiWorktreePath(tid)
+	if st.workspaceKnown && st.workspace != identity {
+		fileManagerMu.Lock()
+		st.Files.gen++
+		st.Files.searchGen++
+		for _, tab := range st.Files.tabs {
+			tab.gen++
+		}
+		st.Files = &fileManagerState{}
+		fileManagerMu.Unlock()
+		diffPanelMu.Lock()
+		st.Review.requestGen++
+		st.Review = &diffPanelState{owner: s, collapsed: make(map[string]bool)}
+		diffPanelMu.Unlock()
+	}
+	st.workspace, st.workspaceKnown = identity, true
+}
+
+func inspectorDisposeSession(s *chatState, st *inspectorSessionState) {
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	st.Files.gen++
+	st.Files.searchGen++
+	for _, tab := range st.Files.tabs {
+		tab.gen++
+	}
+	fileManagerMu.Unlock()
+	diffPanelMu.Lock()
+	st.Review.requestGen++
+	diffPanelMu.Unlock()
+	disposePreviewState(s, st.Browser)
+}
+
+func inspectorDeleteSession(s *chatState, tid string) {
+	s.mu.Lock()
+	st := s.inspector.Sessions[tid]
+	delete(s.inspector.Sessions, tid)
+	s.mu.Unlock()
+	if s.window != nil {
+		mygo.RunOnMain(func() { inspectorDisposeSession(s, st) })
+	} else {
+		inspectorDisposeSession(s, st)
+	}
+}
+
+func inspectorSuspend(s *chatState) {
+	s.mu.Lock()
+	st := inspectorExistingSessionLocked(s, s.selectedThreadID)
+	s.mu.Unlock()
+	if st == nil {
+		return
+	}
+	previewMu.Lock()
+	visible := st.Browser.visible
+	previewMu.Unlock()
+	if visible {
+		hidePreviewState(s, st.Browser)
+	}
+}
+
+func inspectorDisposeAllSessions(s *chatState) {
+	s.mu.Lock()
+	states := s.inspector.Sessions
+	temporary := s.inspector.Temporary
+	s.inspector = inspectorState{}
+	s.mu.Unlock()
+	for _, st := range states {
+		inspectorDisposeSession(s, st)
+	}
+	inspectorDisposeSession(s, temporary)
+}
+
+func inspectorLayout(available, preferred float32) (overlay bool, width float32) {
+	width = min(max(preferred, inspectorMinWidth), inspectorMaxWidth)
+	if available < inspectorChatMinWidth+sidePaneHandleWidth+inspectorMinWidth {
+		return true, max(0, min(width, available))
+	}
+	return false, min(width, available-inspectorChatMinWidth-sidePaneHandleWidth)
+}

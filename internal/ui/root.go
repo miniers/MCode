@@ -330,28 +330,20 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			// 整体主工作区内容
 			renderMainArea := func() {
 				ui.Column(c.Key("chat-wrapper")).Fill().Background(ThemeSurfaceMain(c)).Children(func() {
-					switch view {
-					case "tasks":
-						// 任务与看板以根层大弹窗呈现，主工作区保持聊天视图
+					renderChatArea := func() {
 						ui.Column(c.Key("chat-terminal-col")).Fill().Children(func() {
 							ui.Column(c.Key("chat-pane")).Grow(1).MinWidth(0).Children(func() {
 								renderChat(c, state)
 							})
 							renderTerminalDock(c, state)
 						})
-					default:
-						renderChatArea := func() {
-							ui.Column(c.Key("chat-terminal-col")).Fill().Children(func() {
-								ui.Column(c.Key("chat-pane")).Grow(1).MinWidth(0).Children(func() {
-									renderChat(c, state)
-								})
-								renderTerminalDock(c, state)
-							})
-						}
+					}
 
-						// 右侧三个面板（文件管理 / 网页预览 / 改动）互斥，共用同一分栏，
-						// 挂载、宽度夹取与持久化都交给 sidePanes 注册表。
+					if view == "chat" || view == "tasks" {
 						renderSidePaneSplit(c, state, renderChatArea)
+					} else {
+						inspectorSuspend(state)
+						renderChatArea()
 					}
 				})
 			}

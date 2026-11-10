@@ -391,11 +391,11 @@ func TestFileManagerTruncatedNotice(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("目录条目已截断（仅显示前 1000 个条目）") })
 }
 
-// 打开改动面板或网页预览面板会关闭文件面板；改动与预览也互斥（互斥统一走 closeOtherSidePanes，
-// 细节用例见 side_pane_test.go）。
+// 目的切换只改变 Active，文件状态仍在原槽中。
 func TestFileManagerClosedByOtherPanels(t *testing.T) {
 	_, s, tt := openFileManagerForTest(t)
 	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+	files := getFileManagerState(s)
 
 	s.toggleDiffPanel()
 	waitFor(t, tt, func() bool { return !isFileManagerOpen(s) })
@@ -417,5 +417,8 @@ func TestFileManagerClosedByOtherPanels(t *testing.T) {
 	})
 	if !getDiffPanelState(s).IsOpen() {
 		t.Fatal("打开改动面板后它应处于展开状态")
+	}
+	if getFileManagerState(s) != files {
+		t.Fatal("切换目的后文件状态被替换")
 	}
 }

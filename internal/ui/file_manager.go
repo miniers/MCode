@@ -58,7 +58,6 @@ var (
 // active 是当前 tab 的路径，showList 为 true 时显示目录列表。gen 是目录请求代数，
 // 异步结果回来时代数不符即丢弃；tab 的内容请求各有自己的代数（见 fileManagerTab.gen）。
 type fileManagerState struct {
-	open      bool
 	threadID  string
 	dir       string
 	entries   []FileEntry
@@ -92,7 +91,7 @@ type fileManagerState struct {
 	// opsSeq 是弹窗的代数计数器，只增不减：关掉再开时旧请求不会撞上新弹窗。
 	opsSeq int
 
-	width float32
+	width float32 // 内容的实际布局宽度；偏好宽度只存于 Inspector。
 	gen   int
 }
 
@@ -101,25 +100,19 @@ func getFileManagerState(s *chatState) *fileManagerState {
 	if s == nil {
 		return nil
 	}
+	slot := inspectorSession(s)
+	if slot == nil {
+		return nil
+	}
 	fileManagerMu.Lock()
 	defer fileManagerMu.Unlock()
-	st, ok := fileManagerStates[s]
-	if !ok {
-		st = &fileManagerState{width: sidePaneInitialWidth(s, sidePaneFileID, FileManagerPanelMinWidth, FileManagerPanelDefaultWidth, FileManagerPanelMaxWidth)}
-		fileManagerStates[s] = st
-	}
-	return st
+	fileManagerStates[s] = slot.Files
+	return slot.Files
 }
 
 // isFileManagerOpen 返回文件管理面板当前是否展开。
 func isFileManagerOpen(s *chatState) bool {
-	st := getFileManagerState(s)
-	if st == nil {
-		return false
-	}
-	fileManagerMu.Lock()
-	defer fileManagerMu.Unlock()
-	return st.open
+	return inspectorPaneOpen(s, sidePaneFileID)
 }
 
 // toggleFileManager 切换文件管理面板；打开时关闭改动面板与网页预览，三者互斥。
@@ -132,19 +125,17 @@ func toggleFileManager(s *chatState) {
 		return
 	}
 
-	fileManagerMu.Lock()
-	open := !st.open
-	st.open = open
-	fileManagerMu.Unlock()
-
-	if open {
-		// 右侧只留一个分栏：关掉改动面板与网页预览面板。
-		closeOtherSidePanes(s, sidePaneFileID)
+	if inspectorSelect(s, sidePaneFileID, true) {
 		threadID, workDir := getSelectedThreadWorkDir(s)
 		if workDir == "" || threadID == "" {
 			threadID = ""
 		}
-		s.loadFileManagerDir(threadID, "")
+		fileManagerMu.Lock()
+		needLoad := st.gen == 0 || st.threadID != threadID
+		fileManagerMu.Unlock()
+		if needLoad {
+			s.loadFileManagerDir(threadID, "")
+		}
 	}
 	s.invalidate()
 }
@@ -154,16 +145,9 @@ func closeFileManager(s *chatState) {
 	if s == nil {
 		return
 	}
-	st := getFileManagerState(s)
-	if st == nil {
-		return
+	if inspectorPaneOpen(s, sidePaneFileID) {
+		inspectorClose(s)
 	}
-	fileManagerMu.Lock()
-	st.open = false
-	st.gen++
-	st.searchGen++
-	fileManagerMu.Unlock()
-	s.invalidate()
 }
 
 // loadFileManagerDir 在后台异步加载指定会话下某个相对目录的条目。
@@ -349,11 +333,11 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 
 	fileManagerMu.Lock()
 	panelThread := st.threadID
-	panelOpen := st.open
+	firstLoad := st.gen == 0
 	fileManagerMu.Unlock()
 
 	// 线程切换（或首次拿到工作目录）时重置面板并重新加载根目录。
-	if panelOpen && threadID != panelThread && threadID != "" && workDir != "" {
+	if (firstLoad || threadID != panelThread) && threadID != "" && workDir != "" {
 		s.loadFileManagerDir(threadID, "")
 	}
 

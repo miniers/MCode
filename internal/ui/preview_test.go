@@ -15,6 +15,7 @@ type previewTestPage struct {
 }
 
 func (p *previewTestPage) Eval(script string) (any, error) { return p.eval(script) }
+func (p *previewTestPage) Destroy()                        {}
 
 type previewTestEventPage struct {
 	previewTestPage
@@ -349,8 +350,8 @@ func TestPreviewState(t *testing.T) {
 	if st == nil {
 		t.Fatal("expected non-nil previewState")
 	}
-	if st.width != PreviewPanelDefaultWidth {
-		t.Errorf("expected default width %v, got %v", PreviewPanelDefaultWidth, st.width)
+	if width := inspectorSession(s).Width; width != inspectorDefaultWidth {
+		t.Errorf("expected default width %v, got %v", inspectorDefaultWidth, width)
 	}
 	if st.viewport != previewViewportDesktop {
 		t.Errorf("expected default viewport %q, got %q", previewViewportDesktop, st.viewport)

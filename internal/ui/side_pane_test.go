@@ -77,7 +77,7 @@ func TestSidePaneMutualExclusion(t *testing.T) {
 	}
 }
 
-// 状态被外部直接置为同时打开时，渲染只取优先级最高的一个：file > preview > diff。
+// Active 独立于注册顺序；只有选中的目的会显示。
 func TestActiveSidePanePriority(t *testing.T) {
 	s := sidePaneTestState(t)
 	defer s.close()
@@ -86,35 +86,15 @@ func TestActiveSidePanePriority(t *testing.T) {
 		t.Fatalf("没有面板打开时应返回 nil, got %q", p.id)
 	}
 
-	getFileManagerState(s)
-	fileManagerMu.Lock()
-	fileManagerStates[s].open = true
-	fileManagerMu.Unlock()
-	getPreviewState(s)
-	previewMu.Lock()
-	previewStates[s].visible = true
-	previewMu.Unlock()
-	getDiffPanelState(s)
-	diffPanelMu.Lock()
-	diffPanelStates[s].open = true
-	diffPanelMu.Unlock()
-
-	if p := activeSidePane(s); p == nil || p.id != sidePaneFileID {
-		t.Fatalf("三者同时打开时应取文件管理面板, got %+v", p)
-	}
-
-	fileManagerMu.Lock()
-	fileManagerStates[s].open = false
-	fileManagerMu.Unlock()
-	if p := activeSidePane(s); p == nil || p.id != sidePanePreviewID {
-		t.Fatalf("文件关闭后应取预览面板, got %+v", p)
-	}
-
-	previewMu.Lock()
-	previewStates[s].visible = false
-	previewMu.Unlock()
-	if p := activeSidePane(s); p == nil || p.id != sidePaneDiffID {
-		t.Fatalf("预览关闭后应取改动面板, got %+v", p)
+	for _, id := range []string{sidePaneDiffID, sidePanePreviewID, sidePaneFileID} {
+		inspectorSelect(s, id, false)
+		if p := activeSidePane(s); p == nil || p.id != id {
+			t.Fatalf("Active=%s, got %+v", id, p)
+		}
+		inspectorSelect(s, id, false)
+		if activeSidePane(s) == nil {
+			t.Fatal("重复点击目的标签不应收起")
+		}
 	}
 }
 
@@ -131,18 +111,16 @@ func TestSidePaneWidthClamp(t *testing.T) {
 		in   float32
 		want float32
 	}{
-		{"低于最小", FileManagerPanelMinWidth - 20, FileManagerPanelDefaultWidth},
-		{"高于最大", FileManagerPanelMaxWidth + 200, FileManagerPanelMaxWidth},
-		{"区间内", FileManagerPanelMinWidth + 40, FileManagerPanelMinWidth + 40},
+		{"低于最小", inspectorMinWidth - 20, inspectorDefaultWidth},
+		{"高于最大", inspectorMaxWidth + 200, inspectorMaxWidth},
+		{"区间内", inspectorMinWidth + 40, inspectorMinWidth + 40},
 	}
 	p := sidePaneByID(sidePaneFileID)
 	if p == nil {
 		t.Fatal("注册表里缺少文件管理面板")
 	}
 	for _, tc := range cases {
-		fileManagerMu.Lock()
-		fileManagerStates[s].width = tc.in
-		fileManagerMu.Unlock()
+		inspectorSession(s).Width = tc.in
 
 		ptr := p.widthPointer(s)
 		if ptr == nil {
@@ -187,14 +165,7 @@ func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
 	defer s.close()
 	WithUIStatePersistence()(s)
 
-	getFileManagerState(s)
-	fileManagerMu.Lock()
-	fileManagerStates[s].width = 500
-	fileManagerMu.Unlock()
-	getPreviewState(s)
-	previewMu.Lock()
-	previewStates[s].width = 620
-	previewMu.Unlock()
+	inspectorSession(s).Width = 620
 
 	persistUIState(s)
 	waitUIStateWrites()
@@ -203,14 +174,14 @@ func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("ui-state.json 应已写入")
 	}
-	if got := file.SidePaneWidths[sidePaneFileID]; got != 500 {
-		t.Fatalf("side_pane_widths.file = %v, want 500", got)
+	if got := file.SidePaneWidths[sidePaneFileID]; got != 620 {
+		t.Fatalf("side_pane_widths.file = %v, want 620", got)
 	}
 	if got := file.SidePaneWidths[sidePanePreviewID]; got != 620 {
 		t.Fatalf("side_pane_widths.preview = %v, want 620", got)
 	}
-	if _, ok := file.SidePaneWidths[sidePaneDiffID]; ok {
-		t.Fatal("从未创建状态的改动面板不应写入宽度")
+	if got := file.SidePaneWidths[sidePaneDiffID]; got != 620 {
+		t.Fatalf("共享宽度未同步到旧键: %v", got)
 	}
 
 	// JSON 往返：字段名固定为 side_pane_widths。
@@ -231,31 +202,17 @@ func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
 	other := newChatState(NewFakeClient())
 	defer other.close()
 	applyUIState(other, restored)
-	dp := getDiffPanelState(other)
-	diffPanelMu.Lock()
-	diffWidth := dp.width
-	diffPanelMu.Unlock()
-	if diffWidth != DiffPanelDefaultWidth {
-		t.Fatalf("没有偏好时改动面板应使用默认宽度 %v, got %v", DiffPanelDefaultWidth, diffWidth)
-	}
-	fm := getFileManagerState(other)
-	fileManagerMu.Lock()
-	fileWidth := fm.width
-	fileManagerMu.Unlock()
-	if fileWidth != 500 {
-		t.Fatalf("恢复后文件面板应使用偏好宽度 500, got %v", fileWidth)
+	if width := inspectorSession(other).Width; width != 620 {
+		t.Fatalf("恢复后的共享宽度应为 620, got %v", width)
 	}
 
 	// 偏好越界时按优先级夹到最大宽度。
 	outOfRange := newChatState(NewFakeClient())
 	defer outOfRange.close()
 	setSidePaneWidthPreferences(outOfRange, map[string]float32{sidePanePreviewID: PreviewPanelMaxWidth + 300})
-	pv := getPreviewState(outOfRange)
-	previewMu.Lock()
-	previewWidth := pv.width
-	previewMu.Unlock()
-	if previewWidth != PreviewPanelMaxWidth {
-		t.Fatalf("越界偏好应夹到 %v, got %v", PreviewPanelMaxWidth, previewWidth)
+	previewWidth := inspectorSession(outOfRange).Width
+	if previewWidth != inspectorMaxWidth {
+		t.Fatalf("越界偏好应夹到 %v, got %v", inspectorMaxWidth, previewWidth)
 	}
 }
 
@@ -315,7 +272,7 @@ func TestSidePaneWidthPersistSkippedWithoutPersistence(t *testing.T) {
 
 // 保证注册表覆盖三个面板且顺序即优先级。
 func TestSidePanesRegistryOrder(t *testing.T) {
-	want := []string{sidePaneFileID, sidePanePreviewID, sidePaneDiffID}
+	want := []string{sidePaneFileID, sidePaneDiffID, sidePanePreviewID}
 	if len(sidePanes) != len(want) {
 		t.Fatalf("注册表应包含 %d 个面板, got %d", len(want), len(sidePanes))
 	}
@@ -323,7 +280,7 @@ func TestSidePanesRegistryOrder(t *testing.T) {
 		if sidePanes[i].id != id {
 			t.Fatalf("第 %d 个面板 = %q, want %q", i, sidePanes[i].id, id)
 		}
-		if sidePanes[i].splitKey == "" || sidePanes[i].render == nil || sidePanes[i].close == nil {
+		if sidePanes[i].splitKey == "" || sidePanes[i].render == nil {
 			t.Fatalf("面板 %q 缺少 splitKey/close/render", id)
 		}
 	}
@@ -473,10 +430,8 @@ func openFilePaneForTest(t *testing.T, s *chatState) float32 {
 	if getFileManagerState(s) == nil {
 		t.Fatal("文件管理面板状态应可创建")
 	}
-	fileManagerMu.Lock()
-	defer fileManagerMu.Unlock()
-	fileManagerStates[s].open = true
-	return fileManagerStates[s].width
+	inspectorSelect(s, sidePaneFileID, false)
+	return inspectorSession(s).Width
 }
 
 // sidePaneHandlePoint 用无障碍标签找到分栏手柄，返回它的中心点。
@@ -609,9 +564,7 @@ func TestSidePaneSplit_AutoCollapsesWhenTooNarrow(t *testing.T) {
 	if file {
 		t.Fatal("压到最小宽度一半以下松手后面板应收起")
 	}
-	fileManagerMu.Lock()
-	width := fileManagerStates[s].width
-	fileManagerMu.Unlock()
+	width := inspectorSession(s).Width
 	if width != start {
 		t.Fatalf("收起后宽度应复位到默认值 %v, got %v", start, width)
 	}
@@ -637,9 +590,7 @@ func TestSidePaneSplit_DragPersistsWidth(t *testing.T) {
 	tt.Move(hx-40, hy) // 手柄左移 40：面板加宽 40
 	tt.Release(hx-40, hy)
 
-	fileManagerMu.Lock()
-	width := fileManagerStates[s].width
-	fileManagerMu.Unlock()
+	width := inspectorSession(s).Width
 	if width != start+40 {
 		t.Fatalf("拖动 40 DIP 后面板宽度应为 %v, got %v", start+40, width)
 	}

@@ -38,7 +38,6 @@ func TestFileManagerSearchMigrationCurrentThreadAndClear(t *testing.T) {
 	st := getFileManagerState(s)
 	fileManagerMu.Lock()
 	st.threadID = "current"
-	st.open = true
 	st.showList = true
 	st.entries = []FileEntry{{Name: "old.txt", Path: "old.txt"}}
 	fileManagerMu.Unlock()

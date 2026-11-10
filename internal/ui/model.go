@@ -246,6 +246,7 @@ type pendingMenuAction struct {
 type chatState struct {
 	mu           sync.Mutex
 	windowActive atomic.Bool
+	inspector    inspectorState
 
 	client Client
 	// services 由 servicesMu 单独保护，不要直接读写，统一走 uiServices / setUIServices。
@@ -1382,6 +1383,9 @@ func (s *chatState) selectThread(threadID string) {
 	s.stoppingSince = time.Time{}
 	s.scrollToEnd = true
 	s.mu.Unlock()
+	if oldThreadID != threadID {
+		inspectorSwitchThread(s, oldThreadID)
+	}
 	if readProjectID != "" {
 		go func() {
 			if err := s.client.BulkMarkRead(context.Background(), readProjectID, []string{threadID}); err != nil {
@@ -3590,6 +3594,7 @@ func (s *chatState) forgetDeletedThread(id string) {
 	// 删掉了会话：待处理请求集合必须重算。
 	s.bumpThreadsRuntimeLocked()
 	s.mu.Unlock()
+	inspectorDeleteSession(s, id)
 	s.invalidate()
 }
 

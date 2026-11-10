@@ -9,7 +9,15 @@ import (
 // previewPage 只暴露轮询需要的能力，测试可用阻塞页面替代原生页面。
 type previewPage interface {
 	Eval(string) (any, error)
+	Destroy()
 }
+
+type nativePreviewPage struct {
+	*mygo.Page
+	web *mygo.WebView
+}
+
+func (p *nativePreviewPage) Destroy() { p.web.Destroy() }
 
 type previewPageEvents interface {
 	previewPage
@@ -17,7 +25,14 @@ type previewPageEvents interface {
 	OnDidFinishLoad(func()) func()
 }
 
+type previewNavigablePage interface {
+	previewPage
+	LoadURL(string) error
+	LoadHTML(string, string)
+}
+
 type previewPageToken struct {
+	state              *previewState
 	pageID, generation uint64
 	consoleRevision    uint64
 	annotRevision      uint64
@@ -29,7 +44,6 @@ type previewSnapshot struct {
 	visible       bool
 	url, html     string
 	web           *mygo.WebView
-	width         float32
 	addr, err     string
 	webFailed     bool
 	viewport      previewViewportMode
@@ -44,7 +58,7 @@ type previewSnapshot struct {
 func previewSnapshotLocked(st *previewState) previewSnapshot {
 	return previewSnapshot{
 		token: previewPageTokenLocked(st), visible: st.visible,
-		url: st.url, html: st.html, web: st.web, width: st.width,
+		url: st.url, html: st.html, web: st.web,
 		addr: st.addr, err: st.err, webFailed: st.webFailed, viewport: st.viewport,
 		consoleErrors: append([]previewConsoleError(nil), st.consoleErrors...),
 		consoleOpen:   st.consoleOpen, annotating: st.annotating,
@@ -53,11 +67,11 @@ func previewSnapshotLocked(st *previewState) previewSnapshot {
 }
 
 func previewPageTokenLocked(st *previewState) previewPageToken {
-	return previewPageToken{st.pageID, st.generation, st.consoleRevision, st.annotRevision}
+	return previewPageToken{st, st.pageID, st.generation, st.consoleRevision, st.annotRevision}
 }
 
 func previewStateForTokenLocked(s *chatState, token previewPageToken) *previewState {
-	st := previewStates[s]
+	st := token.state
 	if st == nil || st.pageID != token.pageID || st.generation != token.generation {
 		return nil
 	}
@@ -101,7 +115,7 @@ func previewBindPageCallbacks(s *chatState, token previewPageToken, page preview
 		}
 		previewMu.Lock()
 		st := previewStateForTokenLocked(s, token)
-		if st == nil || st.page == nil || st.consolePolling {
+		if st == nil || st.page == nil || !st.visible || st.consolePolling {
 			previewMu.Unlock()
 			return
 		}

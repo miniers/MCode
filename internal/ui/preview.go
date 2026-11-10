@@ -171,7 +171,6 @@ type previewState struct {
 	webCreating                    bool
 	pageOff                        func()
 	nextAnnotationID               uint64
-	width                          float32
 	addr                           string
 	err                            string
 	// webFailed 记录原生 WebView 创建失败：失败原因（无宿主窗口等）不变时按帧重试只会反复失败，
@@ -223,17 +222,17 @@ func getPreviewState(s *chatState) *previewState {
 		return nil
 	}
 	startURL := previewStartURL(s)
+	slot := inspectorSession(s)
+	if slot == nil {
+		return nil
+	}
 	previewMu.Lock()
 	defer previewMu.Unlock()
-	st, ok := previewStates[s]
-	if !ok {
-		st = &previewState{
-			width:    sidePaneInitialWidth(s, sidePanePreviewID, PreviewPanelMinWidth, PreviewPanelDefaultWidth, PreviewPanelMaxWidth),
-			viewport: previewViewportDesktop,
-			addr:     startURL,
-		}
-		previewStates[s] = st
+	st := slot.Browser
+	if st.addr == "" {
+		st.addr = startURL
 	}
+	previewStates[s] = st
 	return st
 }
 
@@ -257,7 +256,7 @@ func previewMaybePollConsoleErrors(s *chatState, st *previewState, force bool) {
 		return
 	}
 	previewMu.Lock()
-	if st.consolePolling || st.page == nil {
+	if !st.visible || st.consolePolling || st.page == nil {
 		previewMu.Unlock()
 		return
 	}
@@ -416,10 +415,10 @@ func getBrowserQuickPorts(s *chatState) []string {
 // 创建失败后置 webFailed 并停手：本函数在渲染路径里每帧调用，若失败还继续尝试就会以帧率重试。
 func ensureWebView(s *chatState, st *previewState) bool {
 	previewMu.Lock()
-	web, generation := st.web, st.generation
+	web, pageExists, generation := st.web, st.page != nil, st.generation
 	blocked := st.webFailed || st.webCreating
 	previewMu.Unlock()
-	if blocked || (web != nil && !web.IsDestroyed()) {
+	if blocked || (pageExists && (web == nil || !web.IsDestroyed())) {
 		return false
 	}
 	previewMu.Lock()
@@ -470,7 +469,7 @@ func ensureWebView(s *chatState, st *previewState) bool {
 	st.webCreating = false
 	st.web = wv
 	if page != nil {
-		st.page = page
+		st.page = &nativePreviewPage{Page: page, web: wv}
 	}
 	st.err = message
 	st.webFailed = message != ""
@@ -483,7 +482,7 @@ func ensureWebView(s *chatState, st *previewState) bool {
 
 func loadPreviewPage(s *chatState, st *previewState) {
 	previewMu.Lock()
-	page, ok := st.page.(*mygo.Page)
+	page, ok := st.page.(previewNavigablePage)
 	if !ok {
 		previewMu.Unlock()
 		return
@@ -499,7 +498,9 @@ func loadPreviewPage(s *chatState, st *previewState) {
 	if off != nil {
 		off()
 	}
-	previewBindPageCallbacks(s, token, page)
+	if events, ok := page.(previewPageEvents); ok {
+		previewBindPageCallbacks(s, token, events)
+	}
 	if target != "" {
 		if err := page.LoadURL(target); err != nil {
 			previewMu.Lock()
@@ -531,7 +532,6 @@ func openPreviewURL(s *chatState, raw string) {
 	previewMu.Lock()
 	previewAdvanceGenerationLocked(st)
 	st.webCreating = false
-	st.visible = true
 	st.url = target
 	st.addr = target
 	st.html = ""
@@ -539,8 +539,7 @@ func openPreviewURL(s *chatState, raw string) {
 	st.webFailed = false
 	previewMu.Unlock()
 
-	// 右侧只留一个分栏：预览打开时先关掉文件面板与改动面板（改动与预览也互斥）。
-	closeOtherSidePanes(s, sidePanePreviewID)
+	inspectorSelect(s, sidePanePreviewID, false)
 
 	if !ensureWebView(s, st) {
 		loadPreviewPage(s, st)
@@ -561,7 +560,6 @@ func openPreviewHTML(s *chatState, html string) {
 	previewMu.Lock()
 	previewAdvanceGenerationLocked(st)
 	st.webCreating = false
-	st.visible = true
 	st.html = html
 	st.url = ""
 	st.addr = "html-preview"
@@ -569,8 +567,7 @@ func openPreviewHTML(s *chatState, html string) {
 	st.webFailed = false
 	previewMu.Unlock()
 
-	// 右侧只留一个分栏：预览打开时先关掉文件面板与改动面板（改动与预览也互斥）。
-	closeOtherSidePanes(s, sidePanePreviewID)
+	inspectorSelect(s, sidePanePreviewID, false)
 
 	if !ensureWebView(s, st) {
 		loadPreviewPage(s, st)
@@ -588,12 +585,24 @@ func closePreview(s *chatState) {
 		return
 	}
 
+	if inspectorPaneOpen(s, sidePanePreviewID) {
+		inspectorClose(s)
+	}
+	disposePreviewState(s, st)
+	s.invalidate()
+}
+
+// disposePreviewState 只用于关闭网页、删除会话和关闭窗口。
+func disposePreviewState(s *chatState, st *previewState) {
+	if st == nil {
+		return
+	}
 	previewMu.Lock()
 	st.visible = false
 	// 关闭预览时一并退出标注模式并清空标注，下次打开不残留旧页面的 selector。
 	previewAdvanceGenerationLocked(st)
 	st.webCreating = false
-	web := st.web
+	page := st.page
 	off := st.pageOff
 	st.pageOff = nil
 	st.web = nil
@@ -603,10 +612,9 @@ func closePreview(s *chatState) {
 	if off != nil {
 		off()
 	}
-	if web != nil && !web.IsDestroyed() {
-		web.Destroy()
+	if page != nil {
+		page.Destroy()
 	}
-	s.invalidate()
 }
 
 // togglePreview 切换预览面板的可见状态。
@@ -620,22 +628,16 @@ func togglePreview(s *chatState) {
 	}
 	startURL := previewStartURL(s)
 
+	visible := inspectorSelect(s, sidePanePreviewID, true)
 	previewMu.Lock()
-	st.visible = !st.visible
-	if st.visible && strings.TrimSpace(st.addr) == "" {
+	if visible && strings.TrimSpace(st.addr) == "" {
 		st.addr = startURL
 	}
-	if st.visible {
+	if visible {
 		// 重新打开面板时重置创建失败标记，给 WebView 一次新的创建机会。
 		st.webFailed = false
 	}
-	visible := st.visible
 	previewMu.Unlock()
-
-	if visible {
-		// 右侧只留一个分栏：预览打开时先关掉文件面板与改动面板（改动与预览也互斥）。
-		closeOtherSidePanes(s, sidePanePreviewID)
-	}
 
 	s.invalidate()
 }
@@ -851,7 +853,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					// 关闭按钮
 					IconButton(c, IconButtonProps{
 						Key: "preview-close-btn", Icon: IconX(), Label: "关闭预览", Tooltip: "关闭预览",
-						Size: ControlXS, Variant: ButtonGhost, OnClick: func() { closePreview(s) },
+						Size: ControlXS, Variant: ButtonGhost, OnClick: func() { inspectorClose(s) },
 					})
 				})
 

@@ -389,7 +389,7 @@ func previewMaybePollAnnotations(s *chatState, st *previewState, force bool) {
 		return
 	}
 	previewMu.Lock()
-	if !st.annotating || st.annotPolling || st.page == nil {
+	if !st.visible || !st.annotating || st.annotPolling || st.page == nil {
 		previewMu.Unlock()
 		return
 	}
