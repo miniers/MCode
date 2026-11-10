@@ -304,7 +304,7 @@ export const SwarmTiersSheet: React.FC<SwarmTiersSheetProps> = ({ isOpen, onClos
             <span className="px-1.5 py-0.5 rounded-md bg-[var(--border)]/40">Fast</span>
           )}
           {tier.systemPrompt && (
-            <span className="px-1.5 py-0.5 rounded-md bg-[var(--border)]/40">含系统提示词</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-[var(--border)]/40">含档位要求</span>
           )}
         </div>
         {tier.description && (
@@ -458,7 +458,7 @@ export const SwarmTiersSheet: React.FC<SwarmTiersSheetProps> = ({ isOpen, onClos
         </div>
 
         <label className="block space-y-1">
-          <span className="text-xs text-[var(--foreground-muted)]">系统提示词（可选）</span>
+          <span className="text-xs text-[var(--foreground-muted)]">档位要求（可选）</span>
           <textarea
             value={draft.systemPrompt ?? ''}
             onChange={(event) => updateDraft({ systemPrompt: event.target.value })}

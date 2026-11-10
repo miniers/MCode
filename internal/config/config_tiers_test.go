@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -469,6 +470,39 @@ func TestUpgradeBuiltinTierTexts(t *testing.T) {
 	}
 	if UpgradeBuiltinTierTexts(nil) != nil || UpgradeBuiltinTierTexts([]SwarmTier{}) == nil {
 		t.Fatal("应保留 nil 与空切片的区别")
+	}
+}
+
+func TestUpgradeBuiltinDeepTierTexts(t *testing.T) {
+	const (
+		oldDesc   = "定位与设计：brief 只给现象、目标或边界、没给改法时用，产出可交给 edit 档的分步方案"
+		oldPrompt = "你是定位与设计档，不改代码。先读代码与 git 历史，必要时跑有范围的测试来复现，找到根因。汇报写清根因和分步改法：每步给出 path:line、具体改法、验收标准和要补的测试，可以原样转交执行档。有多种方案时列出取舍并给推荐。超过约 5 步时写入 docs/superpowers/plans/<主题>.md，并在汇报里给出路径。"
+	)
+	var def SwarmTier
+	for _, d := range DefaultSwarmTiers() {
+		if d.ID == "deep" {
+			def = d
+		}
+	}
+	for _, bad := range []string{"超过约 5 步", "可以原样转交执行档", "edit 档"} {
+		if strings.Contains(def.Description+def.SystemPrompt, bad) {
+			t.Errorf("deep 默认文案不应包含 %q", bad)
+		}
+	}
+
+	got := UpgradeBuiltinTierTexts([]SwarmTier{
+		{ID: "deep", Description: oldDesc, SystemPrompt: oldPrompt},
+		{ID: "deep", Description: "自定义说明", SystemPrompt: "自定义提示词"},
+		{ID: "deep", Description: oldDesc, SystemPrompt: ""},
+	})
+	if got[0].Description != def.Description || got[0].SystemPrompt != def.SystemPrompt {
+		t.Errorf("旧默认值应升级为当前默认值：%+v", got[0])
+	}
+	if got[1].Description != "自定义说明" || got[1].SystemPrompt != "自定义提示词" {
+		t.Errorf("自定义文本应保持不变：%+v", got[1])
+	}
+	if got[2].Description != def.Description || got[2].SystemPrompt != "" {
+		t.Errorf("空提示词应保持为空：%+v", got[2])
 	}
 }
 

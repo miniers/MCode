@@ -405,17 +405,17 @@ func renderSwarmTierEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmT
 						})
 				})
 
-			// 7. 系统提示词多行输入（可选）
+			// 7. 档位要求多行输入（可选）
 			ui.Column(c.Key("field-system-prompt-" + popKey)).
 				Gap(Space1).
 				Children(func() {
-					ui.Text(c, "系统提示词 (可选)").
+					ui.Text(c, "档位要求 (可选)").
 						FontSize(TypeFootnote).
 						TextColor(ThemeSecondaryText(c))
 					TextField(c, TextFieldProps{
 						Key:         "area-swarm-tier-prompt-" + popKey,
 						Value:       &uiSt.draft.SystemPrompt,
-						Label:       "系统提示词",
+						Label:       "档位要求",
 						Placeholder: "为该档位注入额外的特定系统指令（可选）",
 						Multiline:   true,
 						MinLines:    2,

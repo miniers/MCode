@@ -336,11 +336,11 @@ const (
 	readTierDescription   = "只读调研：回答 brief 列出的具体问题，如符号在哪、谁调用、历史上改过什么"
 	choreTierDescription  = "机械活：brief 已逐字给出改法、无需判断的修改，如重放补丁、改名、格式化、按给定期望补测试、按给定文字改文档"
 	editTierDescription   = "按 brief 的步骤改代码，步骤内的实现细节自行判断，并补覆盖该行为的测试"
-	deepTierDescription   = "定位与设计：brief 只给现象、目标或边界、没给改法时用，产出可交给 edit 档的分步方案"
+	deepTierDescription   = "定位与设计：brief 只给现象、目标或边界、没给改法时用，产出可转交默认档位执行的分步方案"
 	readTierSystemPrompt  = "你是只读调研档。逐条回答 brief 里的问题，每条发现写成 path:line，后面紧跟用反引号包住的源码原文。可以用 grep、git log、git blame 等只读命令。不推测根因，不给改法；brief 没问到的不展开。"
 	choreTierSystemPrompt = "你是机械活档。严格按 brief 逐字执行，不自行扩展。遇到需要判断的地方，或者测试与代码对不上、不确定该改哪一边时，停下并在汇报里说明，不要自己选；不为了让测试通过去改断言。"
 	editTierSystemPrompt  = "你是执行档。按 brief 的步骤改代码，步骤内的实现细节（命名、错误处理、锚点漂移后按语义找到对应位置）自行判断，并补覆盖该行为的测试。发现步骤本身有错，或需要改步骤以外的内容时，在汇报里说明，不扩大修改范围。"
-	deepTierSystemPrompt  = "你是定位与设计档，不改代码。先读代码与 git 历史，必要时跑有范围的测试来复现，找到根因。汇报写清根因和分步改法：每步给出 path:line、具体改法、验收标准和要补的测试，可以原样转交执行档。有多种方案时列出取舍并给推荐。超过约 5 步时写入 docs/superpowers/plans/<主题>.md，并在汇报里给出路径。"
+	deepTierSystemPrompt  = "你是定位与设计档，不改代码。先读代码与 git 历史，必要时跑有范围的测试来复现，找到根因。方案写成分步改法：每步给出 path:line、具体改法、验收标准和要补的测试，写到改代码的子代理可以原样照做。有多种方案时列出取舍并给推荐。"
 )
 
 // 以后修改默认文案时，把旧值追加到对应的表；提示词历史表不收录空串。
@@ -349,10 +349,13 @@ var builtinTierDescriptionHistory = map[string][]string{
 	"read":  {"只读调研：检索、阅读、总结代码与文档，不修改任何文件"},
 	"chore": {"机械活：补丁重放或重做已有补丁、改名、格式化、修测试或补测试、文档与文案修改；brief 已给出文件与改法"},
 	"edit":  {"执行步骤已写清楚的明确修改，单文件或少量文件"},
-	"deep":  {"只做定位、方案设计与关键决策：brief 只给现象、目标或边界而没给改法时，先复现、二分、实测或设计接口，产出带 path:line 的分步方案；复杂时把方案写成 md 文档；不改代码。"},
+	"deep": {"只做定位、方案设计与关键决策：brief 只给现象、目标或边界而没给改法时，先复现、二分、实测或设计接口，产出带 path:line 的分步方案；复杂时把方案写成 md 文档；不改代码。",
+		"定位与设计：brief 只给现象、目标或边界、没给改法时用，产出可交给 edit 档的分步方案"},
 }
 
-var builtinTierSystemPromptHistory = map[string][]string{}
+var builtinTierSystemPromptHistory = map[string][]string{
+	"deep": {"你是定位与设计档，不改代码。先读代码与 git 历史，必要时跑有范围的测试来复现，找到根因。汇报写清根因和分步改法：每步给出 path:line、具体改法、验收标准和要补的测试，可以原样转交执行档。有多种方案时列出取舍并给推荐。超过约 5 步时写入 docs/superpowers/plans/<主题>.md，并在汇报里给出路径。"},
+}
 
 // defaultDeepWritePaths 返回内置 deep（深度）档的默认写入白名单：只允许落地方案文档，不改代码。
 // 每次返回新切片，避免调用方之间共享底层数组。
