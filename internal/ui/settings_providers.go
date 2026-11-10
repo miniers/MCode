@@ -411,6 +411,13 @@ func toggleCustomEndpointEnabled(st *SettingsState, ep CustomEndpoint, enabled b
 	}
 	st.endpoints.toggling = true
 	st.endpoints.err = ""
+	// 同步正在编辑的草稿，避免随后保存用旧的 editEnabled 覆盖刚切换的值。
+	draftEnabled := false
+	syncDraft := st.endpoints.editing && st.endpoints.editID == ep.ID
+	if syncDraft {
+		draftEnabled = st.endpoints.editEnabled
+		st.endpoints.editEnabled = enabled
+	}
 	for i, item := range st.endpoints.endpoints {
 		if item.ID == ep.ID {
 			st.endpoints.endpoints[i].Enabled = enabled
@@ -433,6 +440,9 @@ func toggleCustomEndpointEnabled(st *SettingsState, ep CustomEndpoint, enabled b
 					st.endpoints.endpoints[i].Enabled = !enabled
 					break
 				}
+			}
+			if syncDraft && st.endpoints.editing && st.endpoints.editID == ep.ID {
+				st.endpoints.editEnabled = draftEnabled
 			}
 			st.mu.Unlock()
 			st.invalidate()
