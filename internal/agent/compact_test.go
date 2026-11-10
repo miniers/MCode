@@ -215,6 +215,75 @@ func TestRepairToolPairs(t *testing.T) {
 	}
 }
 
+func replayTestEntries(values ...any) []json.RawMessage {
+	var entries []json.RawMessage
+	for _, value := range values {
+		b, _ := json.Marshal(value)
+		entries = append(entries, b)
+	}
+	return entries
+}
+
+func TestReplayBlocks(t *testing.T) {
+	a, b, c, d, e, f := textMessage("user", "a"), textMessage("assistant", "b"), textMessage("user", "c"), textMessage("assistant", "d"), textMessage("user", "e"), textMessage("assistant", "f")
+	entries := replayTestEntries(messageEntry{Type: "message", Message: a}, messageEntry{Type: "message", Message: b}, messageEntry{Type: "message", Message: c}, messageEntry{Type: "message", Message: d}, messageEntry{Type: "message", Message: e}, messageEntry{Type: "message", Message: f}, compactionEntry{Type: compactionEntryType, Summary: "B1", FromSeq: 2, ToSeq: 3}, compactionEntry{Type: compactionEntryType, Summary: "B2", FromSeq: 5, ToSeq: 5})
+	want := []llm.Message{a, summaryMessage("B1"), d, summaryMessage("B2"), f}
+	if got := historyFromEntries(entries); !reflect.DeepEqual(got, want) {
+		t.Fatalf("history = %+v", got)
+	}
+	if got := foldedItemsFromEntries(entries); !reflect.DeepEqual(got, []foldedMessage{{2, b}, {3, c}, {5, e}}) {
+		t.Fatalf("folded = %+v", got)
+	}
+	if got := blockSummaryIndexes(entries); !reflect.DeepEqual(got, []int{1, 3}) {
+		t.Fatalf("indexes = %v", got)
+	}
+	x, y := replayEntries(entries)
+	x2, y2 := replayEntries(entries)
+	if !reflect.DeepEqual(x, x2) || !reflect.DeepEqual(y, y2) {
+		t.Fatal("重放结果不一致")
+	}
+}
+
+func TestReplayLegacyThenBlock(t *testing.T) {
+	a, b, c, d := textMessage("user", "a"), textMessage("assistant", "b"), textMessage("user", "c"), textMessage("assistant", "d")
+	entries := replayTestEntries(messageEntry{Type: "message", Message: a}, messageEntry{Type: "message", Message: b}, messageEntry{Type: "message", Message: c}, messageEntry{Type: "message", Message: d}, compactionEntry{Type: compactionEntryType, Summary: "old", KeepFrom: 2})
+	if got := historyFromEntries(entries); !reflect.DeepEqual(got, []llm.Message{summaryMessage("old"), c, d}) {
+		t.Fatalf("legacy history = %+v", got)
+	}
+	if got := foldedFromEntries(entries); !reflect.DeepEqual(got, []llm.Message{a, b}) {
+		t.Fatalf("legacy folded = %+v", got)
+	}
+	entries = append(entries, replayTestEntries(compactionEntry{Type: compactionEntryType, Summary: "block", FromSeq: 3, ToSeq: 3}, compactionEntry{Type: compactionEntryType, Summary: "new", KeepFrom: 2})...)
+	if got := historyFromEntries(entries); !reflect.DeepEqual(got, []llm.Message{summaryMessage("new"), d}) {
+		t.Fatalf("history = %+v", got)
+	}
+	if got := foldedItemsFromEntries(entries); !reflect.DeepEqual(got, []foldedMessage{{1, a}, {2, b}, {3, c}}) {
+		t.Fatalf("folded = %+v", got)
+	}
+	if got := blockSummaryIndexes(entries); len(got) != 0 {
+		t.Fatalf("indexes = %v", got)
+	}
+}
+
+func TestReplayInvalidBlocks(t *testing.T) {
+	entries := replayTestEntries(messageEntry{Type: "message", Message: textMessage("user", "a")}, messageEntry{Type: "message", Message: textMessage("assistant", "b")}, messageEntry{Type: "message", Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call("id", "read", `{}`)}}}, messageEntry{Type: "message", Message: toolMessage("id", "ok", false)}, messageEntry{Type: "message", Message: textMessage("user", "e")}, compactionEntry{Type: compactionEntryType, Summary: "existing", FromSeq: 2, ToSeq: 2})
+	for _, tc := range []struct {
+		name  string
+		entry compactionEntry
+	}{
+		{"empty", compactionEntry{FromSeq: 3, ToSeq: 4}}, {"reversed", compactionEntry{Summary: "x", FromSeq: 4, ToSeq: 3}}, {"future", compactionEntry{Summary: "x", FromSeq: 3, ToSeq: 6}}, {"first", compactionEntry{Summary: "x", FromSeq: 1, ToSeq: 1}}, {"overlap", compactionEntry{Summary: "x", FromSeq: 2, ToSeq: 4}}, {"call only", compactionEntry{Summary: "x", FromSeq: 3, ToSeq: 3}}, {"result only", compactionEntry{Summary: "x", FromSeq: 4, ToSeq: 4}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.entry.Type = compactionEntryType
+			before, folded := replayEntries(entries)
+			after, foldedAfter := replayEntries(append(append([]json.RawMessage(nil), entries...), replayTestEntries(tc.entry)...))
+			if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(folded, foldedAfter) {
+				t.Fatalf("invalid block changed replay: %+v", after)
+			}
+		})
+	}
+}
+
 func TestAutoCompactionFailureStopsRetrying(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	appendHistory(t, store, "compact-fail",

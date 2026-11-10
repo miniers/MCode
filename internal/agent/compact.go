@@ -34,6 +34,8 @@ type compactionEntry struct {
 	Type     string `json:"type"`
 	Summary  string `json:"summary"`
 	KeepFrom int    `json:"keep_from"`
+	FromSeq  int    `json:"from_seq,omitempty"`
+	ToSeq    int    `json:"to_seq,omitempty"`
 }
 
 const compactionEntryType = "compaction"
@@ -67,18 +69,58 @@ func compactionPressure(window, growth, total int) (normal, emergency bool) {
 // historyFromEntries 按文件顺序重建会话消息。
 // compaction entry 把此前的消息替换成摘要加其后的保留消息，后写的压缩边界自然覆盖早先的。
 func historyFromEntries(entries []json.RawMessage) []llm.Message {
-	messages, _ := replayEntries(entries)
-	return messages
+	items, _ := replayEntries(entries)
+	return replayMessages(items)
 }
 
 func foldedFromEntries(entries []json.RawMessage) []llm.Message {
+	var messages []llm.Message
+	for _, item := range foldedItemsFromEntries(entries) {
+		messages = append(messages, item.Message)
+	}
+	return messages
+}
+
+type replayItem struct {
+	message      llm.Message
+	seq          int
+	blockSummary bool
+}
+
+type foldedMessage struct {
+	Seq     int
+	Message llm.Message
+}
+
+func foldedItemsFromEntries(entries []json.RawMessage) []foldedMessage {
 	_, folded := replayEntries(entries)
 	return folded
 }
 
-func replayEntries(entries []json.RawMessage) ([]llm.Message, []llm.Message) {
-	var messages []llm.Message
-	var folded []llm.Message
+func blockSummaryIndexes(entries []json.RawMessage) []int {
+	items, _ := replayEntries(entries)
+	var indexes []int
+	for i, item := range items {
+		if item.blockSummary {
+			indexes = append(indexes, i)
+		}
+	}
+	return indexes
+}
+
+func replayMessages(items []replayItem) []llm.Message {
+	messages := make([]llm.Message, 0, len(items))
+	for _, item := range items {
+		messages = append(messages, item.message)
+	}
+	return messages
+}
+
+func replayEntries(entries []json.RawMessage) ([]replayItem, []foldedMessage) {
+	var messages []replayItem
+	var folded []foldedMessage
+	entered := []bool{false}
+	seq := 0
 	for _, raw := range entries {
 		var head struct {
 			Type string `json:"type"`
@@ -88,75 +130,153 @@ func replayEntries(entries []json.RawMessage) ([]llm.Message, []llm.Message) {
 		}
 		switch head.Type {
 		case "message":
+			seq++
+			entered = append(entered, false)
 			var entry messageEntry
 			if json.Unmarshal(raw, &entry) != nil {
 				continue
 			}
 			if entry.Message.Role == "user" || entry.Message.Role == "assistant" || entry.Message.Role == "tool" {
-				messages = append(messages, entry.Message)
+				messages = append(messages, replayItem{message: entry.Message, seq: seq})
+				entered[seq] = true
 			}
 		case compactionEntryType:
 			var entry compactionEntry
 			if json.Unmarshal(raw, &entry) != nil || entry.Summary == "" {
 				continue
 			}
-			messages = repairToolPairs(messages)
+			if entry.FromSeq > 0 {
+				start, end, ok := blockRange(messages, entered, entry.FromSeq, entry.ToSeq)
+				if !ok {
+					continue
+				}
+				for _, item := range messages[start:end] {
+					folded = append(folded, foldedMessage{Seq: item.seq, Message: item.message})
+				}
+				replacement := replayItem{message: summaryMessage(entry.Summary), blockSummary: true}
+				messages = append(append(append([]replayItem(nil), messages[:start]...), replacement), messages[end:]...)
+				continue
+			}
+			messages = repairReplayToolPairs(messages)
 			if len(messages) == 0 && entry.KeepFrom == 1 {
-				messages = []llm.Message{summaryMessage(entry.Summary)}
+				messages = []replayItem{{message: summaryMessage(entry.Summary)}}
 				continue
 			}
 			if entry.KeepFrom <= 0 || entry.KeepFrom >= len(messages) {
 				continue
 			}
-			for _, message := range messages[:entry.KeepFrom] {
-				if !isSummaryMessage(message) {
-					folded = append(folded, message)
+			for _, item := range messages[:entry.KeepFrom] {
+				if !isSummaryMessage(item.message) {
+					folded = append(folded, foldedMessage{Seq: item.seq, Message: item.message})
 				}
 			}
-			messages = append([]llm.Message{summaryMessage(entry.Summary)}, messages[entry.KeepFrom:]...)
+			messages = append([]replayItem{{message: summaryMessage(entry.Summary)}}, messages[entry.KeepFrom:]...)
 		}
 	}
-	return repairToolPairs(messages), folded
+	return repairReplayToolPairs(messages), folded
+}
+
+func blockRange(items []replayItem, entered []bool, from, to int) (int, int, bool) {
+	if from > to || to >= len(entered) {
+		return 0, 0, false
+	}
+	start, end, count := -1, -1, 0
+	for i, item := range items {
+		if item.seq >= from && item.seq <= to {
+			if start < 0 {
+				start = i
+			}
+			end = i + 1
+			count++
+		}
+	}
+	want := 0
+	for _, exists := range entered[from : to+1] {
+		if exists {
+			want++
+		}
+	}
+	if start <= 0 || count != want || end-start != count {
+		return 0, 0, false
+	}
+	// 配对规则与修复逻辑相同：结果属于前一条 assistant。
+	matched := make(map[int]bool)
+	for i, item := range items {
+		if item.message.Role != "assistant" {
+			continue
+		}
+		for _, call := range item.message.ToolCalls {
+			result := -1
+			for j := i + 1; j < len(items) && items[j].message.Role != "assistant"; j++ {
+				if items[j].message.Role == "tool" && items[j].message.ToolCallID == call.ID && !matched[j] {
+					result = j
+					break
+				}
+			}
+			inside := i >= start && i < end
+			if result >= 0 {
+				matched[result] = true
+			}
+			if inside != (result >= start && result < end) {
+				return 0, 0, false
+			}
+		}
+	}
+	for i := start; i < end; i++ {
+		if items[i].message.Role == "tool" && !matched[i] {
+			return 0, 0, false
+		}
+	}
+	return start, end, true
 }
 
 // repairToolPairs 修补残缺的工具调用配对：
 // 为缺少结果的 assistant 工具调用补一条错误结果，并丢掉找不到对应调用的孤立 tool 消息。
 func repairToolPairs(messages []llm.Message) []llm.Message {
-	repaired := make([]llm.Message, 0, len(messages))
+	items := make([]replayItem, len(messages))
+	for i, message := range messages {
+		items[i].message = message
+	}
+	return replayMessages(repairReplayToolPairs(items))
+}
+
+func repairReplayToolPairs(messages []replayItem) []replayItem {
+	repaired := make([]replayItem, 0, len(messages))
 	for i := 0; i < len(messages); i++ {
-		message := messages[i]
+		item := messages[i]
+		message := item.message
 		if message.Role != "assistant" || len(message.ToolCalls) == 0 {
 			// 前面没有工具调用的 tool 消息是孤立结果，丢掉。
 			if message.Role == "tool" {
 				continue
 			}
-			repaired = append(repaired, message)
+			repaired = append(repaired, item)
 			continue
 		}
-		repaired = append(repaired, message)
+		repaired = append(repaired, item)
 		expected := make(map[string]bool, len(message.ToolCalls))
 		for _, call := range message.ToolCalls {
 			expected[call.ID] = true
 		}
 		answered := make(map[string]bool, len(message.ToolCalls))
-		var rest []llm.Message
+		var rest []replayItem
 		j := i + 1
 		// 工具结果只属于紧接着的 assistant 消息，直到下一条 assistant 为止。
-		for ; j < len(messages) && messages[j].Role != "assistant"; j++ {
+		for ; j < len(messages) && messages[j].message.Role != "assistant"; j++ {
 			next := messages[j]
-			if next.Role != "tool" {
+			if next.message.Role != "tool" {
 				rest = append(rest, next)
 				continue
 			}
-			if !expected[next.ToolCallID] || answered[next.ToolCallID] {
+			if !expected[next.message.ToolCallID] || answered[next.message.ToolCallID] {
 				continue
 			}
-			answered[next.ToolCallID] = true
+			answered[next.message.ToolCallID] = true
 			repaired = append(repaired, next)
 		}
 		for _, call := range message.ToolCalls {
 			if !answered[call.ID] {
-				repaired = append(repaired, toolMessage(call.ID, "Tool call was interrupted.", true))
+				repaired = append(repaired, replayItem{message: toolMessage(call.ID, "Tool call was interrupted.", true)})
 			}
 		}
 		repaired = append(repaired, rest...)

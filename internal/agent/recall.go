@@ -35,8 +35,8 @@ func recallRole(message llm.Message) string {
 func recallTool(store *session.Store, id string) tools.Tool {
 	return tools.Tool{
 		Name:        "recall",
-		Description: "Search earlier original messages compacted from this session. Use when the summary lacks details.",
-		Parameters:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"index":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1}}}`),
+		Description: "Search earlier original messages compacted from this session. Use their stable message sequence numbers to retrieve them.",
+		Parameters:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"index":{"type":"integer","minimum":1,"description":"Stable sequence number of a message in the session."},"limit":{"type":"integer","minimum":1}}}`),
 		ReadOnly:    true,
 		Run: func(_ context.Context, _ tools.Env, raw json.RawMessage) (tools.Result, error) {
 			var args struct {
@@ -57,19 +57,22 @@ func recallTool(store *session.Store, id string) tools.Tool {
 			if err != nil {
 				return tools.Result{}, err
 			}
-			messages := foldedFromEntries(entries)
+			messages := foldedItemsFromEntries(entries)
 			if args.Index != nil {
-				if *args.Index > len(messages) {
-					return tools.Result{Text: "No message at that index."}, nil
+				for _, item := range messages {
+					if item.Seq != *args.Index {
+						continue
+					}
+					message := item.Message
+					text := []rune(recallText(message))
+					suffix := ""
+					if len(text) > 20000 {
+						text = text[:20000]
+						suffix = "\n[truncated]"
+					}
+					return tools.Result{Text: fmt.Sprintf("#%d %s: %s%s", *args.Index, recallRole(message), string(text), suffix)}, nil
 				}
-				message := messages[*args.Index-1]
-				text := []rune(recallText(message))
-				suffix := ""
-				if len(text) > 20000 {
-					text = text[:20000]
-					suffix = "\n[truncated]"
-				}
-				return tools.Result{Text: fmt.Sprintf("#%d %s: %s%s", *args.Index, recallRole(message), string(text), suffix)}, nil
+				return tools.Result{Text: "No message at that index."}, nil
 			}
 			if args.Query == "" {
 				return tools.Result{Text: "Provide a query or index."}, nil
@@ -77,7 +80,11 @@ func recallTool(store *session.Store, id string) tools.Tool {
 			query := []rune(strings.Map(unicode.ToLower, args.Query))
 			var out strings.Builder
 			total := 0
-			for i, message := range messages {
+			for _, item := range messages {
+				if item.Seq == 0 {
+					continue
+				}
+				message := item.Message
 				text := []rune(recallText(message))
 				lower := []rune(strings.Map(unicode.ToLower, string(text)))
 				at := strings.Index(string(lower), string(query))
@@ -89,7 +96,7 @@ func recallTool(store *session.Store, id string) tools.Tool {
 				if total <= args.Limit {
 					snippet := string(text[max(0, pos-300):min(len(text), pos+len(query)+300)])
 					snippet = strings.ReplaceAll(snippet, "\n", " ")
-					fmt.Fprintf(&out, "#%d %s: %s\n", i+1, recallRole(message), snippet)
+					fmt.Fprintf(&out, "#%d %s: %s\n", item.Seq, recallRole(message), snippet)
 				}
 			}
 			if total == 0 {
