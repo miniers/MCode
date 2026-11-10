@@ -200,6 +200,9 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				view = ws.view
 				workspaceMu.Unlock()
 			}
+			if view == "tasks" && c.Shortcut(ui.Cmd, ui.KeyF) {
+				kanbanKeyboardSearchFocus(state, true)
+			}
 
 			paletteOpen := pal != nil && pal.open
 			if paletteOpen {

@@ -3,8 +3,35 @@ package mcodeui
 import (
 	"testing"
 
+	"github.com/egoist/mygo/ui"
+
 	"mcode/internal/config"
 )
+
+func TestKanbanKeyboardFindFocusesSearch(t *testing.T) {
+	for _, destination := range []string{"tasks", "automations"} {
+		t.Run(destination, func(t *testing.T) {
+			tt, s := newWorkspaceTester(t, NewFakeClient(), "tasks")
+			s.setTasksWindowView(destination)
+			tt.Frame()
+			tt.Key(ui.Cmd, ui.KeyF)
+			waitFor(t, tt, func() bool { return tt.Focused("筛选任务") })
+		})
+	}
+}
+
+func TestKanbanKeyboardWindowFindFocusesSearch(t *testing.T) {
+	for _, destination := range []string{"tasks", "automations"} {
+		t.Run(destination, func(t *testing.T) {
+			s, view := buildRoot(NewFakeClient(), WithTasksWindowMode(destination))
+			t.Cleanup(s.close)
+			tt := ui.NewTester(view, 1320, 860)
+			waitFor(t, tt, func() bool { _, ok := tt.Find("筛选任务"); return ok })
+			tt.Key(ui.Cmd, ui.KeyF)
+			waitFor(t, tt, func() bool { return tt.Focused("筛选任务") })
+		})
+	}
+}
 
 func TestKanbanKeyboardVisibleOrderAndFocus(t *testing.T) {
 	s := &chatState{}

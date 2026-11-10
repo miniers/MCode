@@ -473,7 +473,7 @@ func kanbanSearchRow(c *ui.Context, s *chatState, ks *kanbanState, query *string
 			Grow(1).
 			MinWidth(0)
 
-		if row.Clicked() {
+		if kanbanKeyboardSearchFocus(s, false) || row.Clicked() || c.Shortcut(ui.Cmd, ui.KeyF) {
 			in.Focus()
 		}
 		if in.Changed() && query != nil {

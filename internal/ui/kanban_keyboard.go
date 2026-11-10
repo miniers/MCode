@@ -12,12 +12,30 @@ var kanbanKeyboardMu sync.Mutex
 var kanbanKeyboardStates = make(map[*chatState]*kanbanKeyboardState)
 
 type kanbanKeyboardState struct {
-	tasks     []KanbanTask
-	focusID   string
-	pendingID string
-	selected  map[string]bool
-	anchorID  string
-	projectID string
+	tasks       []KanbanTask
+	focusID     string
+	pendingID   string
+	selected    map[string]bool
+	anchorID    string
+	projectID   string
+	searchFocus bool
+}
+
+func kanbanKeyboardSearchFocus(s *chatState, set bool) bool {
+	kanbanKeyboardMu.Lock()
+	defer kanbanKeyboardMu.Unlock()
+	st := kanbanKeyboardStates[s]
+	if st == nil {
+		st = &kanbanKeyboardState{}
+		kanbanKeyboardStates[s] = st
+	}
+	if set {
+		st.searchFocus = true
+		return true
+	}
+	pending := st.searchFocus
+	st.searchFocus = false
+	return pending
 }
 
 func kanbanKeyboardUpdate(s *chatState, tasks []KanbanTask, view string) {
