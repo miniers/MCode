@@ -171,6 +171,7 @@ row row-swarm-retry-failed 失败时自动重试
 row row-swarm-auto-clear-finished 自动清理已完成子代理
 row row-swarm-auto-hides-idle-bees 侧边栏自动隐藏空闲子代理
 row row-swarm-auto-pops-bees 自动弹出子代理面板
+row row-swarm-block-compaction 分块压缩上下文
 row row-swarm-archives-codex-bees Codex 子会话历史
 section swarm.messages 消息流向
 row row-swarm-auto-delegate 自动委托
