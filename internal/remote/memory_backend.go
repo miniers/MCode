@@ -6699,7 +6699,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 	// attach 只在第一次尝试里生效：那段输出已经读走，重试不该再当 attach 轮。
 	firstAttempt := true
 	home, _ := os.UserHomeDir()
-	readOnlyDirs := projctx.SkillReadDirs(workDir, home)
+	readOnlyDirs := append(projctx.SkillReadDirs(workDir, home), projctx.GoReadDirs(workDir)...)
 	// 只有看板任务的执行线程（tasks.thread_id 等于当前线程）才加硬锁；普通交互会话不受影响。
 	hardLocked := false
 	hardLockOverride := ""
