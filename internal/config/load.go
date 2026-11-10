@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"mcode/internal/fsutil"
 )
 
 const configFileName = "config.json"
@@ -170,47 +172,9 @@ func save(dataDir string, cfg Config) error {
 	}
 	data = append(data, '\n')
 
-	targetPath := ConfigPath(dataDir)
-
-	tmpFile, err := os.CreateTemp(dataDir, "config.*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp config file: %w", err)
+	if err := fsutil.WriteFileAtomic(ConfigPath(dataDir), data, 0o600); err != nil {
+		return fmt.Errorf("write config file: %w", err)
 	}
-	tmpName := tmpFile.Name()
-	defer func() {
-		if tmpName != "" {
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	if err := tmpFile.Chmod(0o600); err != nil {
-		_ = tmpFile.Close()
-		return fmt.Errorf("chmod temp config file: %w", err)
-	}
-
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		return fmt.Errorf("write temp config file: %w", err)
-	}
-
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		return fmt.Errorf("sync temp config file: %w", err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp config file: %w", err)
-	}
-
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		return fmt.Errorf("chmod temp config file before rename: %w", err)
-	}
-
-	if err := os.Rename(tmpName, targetPath); err != nil {
-		return fmt.Errorf("rename config file: %w", err)
-	}
-
-	tmpName = "" // 重命名成功，取消临时文件的清理删除
 
 	// 降级快照：配置升到 v8 后旧版本 mcode 读不懂新结构，另存一份 v7 镜像供回退时读取。
 	// 写失败只记日志，不影响保存结果——快照是便利，不是保存成功的前提。
@@ -236,40 +200,7 @@ func writeV7Snapshot(dataDir string, cfg Config) {
 	}
 	data = append(data, '\n')
 
-	tmpFile, err := os.CreateTemp(dataDir, "config.v7.*.tmp")
-	if err != nil {
+	if err := fsutil.WriteFileAtomic(filepath.Join(dataDir, v7SnapshotFileName), data, 0o600); err != nil {
 		log.Printf("config: 写入 v7 降级快照失败: %v", err)
-		return
 	}
-	tmpName := tmpFile.Name()
-	defer func() {
-		if tmpName != "" {
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	if err := tmpFile.Chmod(0o600); err != nil {
-		_ = tmpFile.Close()
-		log.Printf("config: 写入 v7 降级快照失败: %v", err)
-		return
-	}
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		log.Printf("config: 写入 v7 降级快照失败: %v", err)
-		return
-	}
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		log.Printf("config: 写入 v7 降级快照失败: %v", err)
-		return
-	}
-	if err := tmpFile.Close(); err != nil {
-		log.Printf("config: 写入 v7 降级快照失败: %v", err)
-		return
-	}
-	if err := os.Rename(tmpName, filepath.Join(dataDir, v7SnapshotFileName)); err != nil {
-		log.Printf("config: 写入 v7 降级快照失败: %v", err)
-		return
-	}
-	tmpName = ""
 }

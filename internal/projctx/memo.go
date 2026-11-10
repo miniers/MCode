@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"mcode/internal/fsutil"
 )
 
 // InboxItem 描述收集箱中的一条备忘录。
@@ -118,34 +120,9 @@ func (s *Service) DraftMemo(content, title string) (InboxItem, error) {
 	}
 	stored += "\n"
 
-	dir := s.InboxPath()
-	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return InboxItem{}, fmt.Errorf("projctx: create temp in %s: %w", dir, err)
+	if err := fsutil.WriteFileAtomic(targetPath, []byte(stored), 0o600); err != nil {
+		return InboxItem{}, fmt.Errorf("projctx: write %s: %w", targetPath, err)
 	}
-	tmpPath := tmpFile.Name()
-	defer func() {
-		if tmpPath != "" {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if _, err := tmpFile.WriteString(stored); err != nil {
-		_ = tmpFile.Close()
-		return InboxItem{}, fmt.Errorf("projctx: write temp %s: %w", tmpPath, err)
-	}
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		return InboxItem{}, fmt.Errorf("projctx: sync temp %s: %w", tmpPath, err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return InboxItem{}, fmt.Errorf("projctx: close temp %s: %w", tmpPath, err)
-	}
-
-	if err := os.Rename(tmpPath, targetPath); err != nil {
-		return InboxItem{}, fmt.Errorf("projctx: rename temp to %s: %w", targetPath, err)
-	}
-	tmpPath = ""
 
 	stat, _ := os.Stat(targetPath)
 	var modTime time.Time

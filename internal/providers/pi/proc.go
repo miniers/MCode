@@ -15,7 +15,12 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"mcode/internal/procutil"
 )
+
+var setProcessGroup = procutil.SetProcessGroup
+var killProcessGroup = procutil.KillProcessGroup
 
 const (
 	// maxRPCLineBytes 是 stdout 单行 RPC 消息的上限（16MB），防止脏流或超大帧耗尽内存。
@@ -43,8 +48,8 @@ type proc struct {
 	key      string
 	threadID string
 	cmd      *exec.Cmd
-	writer   *lineWriter
-	stderr   *tailBuffer
+	writer   *procutil.LineWriter
+	stderr   *procutil.TailBuffer
 	// gatePath 是门禁运行模式文件；复用进程时每轮重写。
 	gatePath string
 	cleanups []func()
@@ -209,7 +214,7 @@ func (p *proc) call(ctx context.Context, req rpcRequest) (*rpcEvent, error) {
 		forget()
 		return nil, err
 	}
-	if err := p.writer.write(line); err != nil {
+	if err := p.writer.WriteLine(line); err != nil {
 		forget()
 		return nil, fmt.Errorf("%w: write %s: %v", errProcDead, req.Type, err)
 	}
@@ -256,7 +261,7 @@ func (p *proc) close() {
 			}
 		}()
 		// 写端可能正握着锁卡在管道 Write 上；进程退出后那次 Write 返回错误并放锁，这里不占用调用方。
-		go func() { _ = p.writer.close() }()
+		go func() { _ = p.writer.Close() }()
 	})
 }
 

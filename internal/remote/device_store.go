@@ -12,6 +12,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"mcode/internal/fsutil"
 )
 
 const (
@@ -457,19 +459,7 @@ func (s *DeviceStore) writeLocked(now time.Time) error {
 		return err
 	}
 
-	tmpFile := filepath.Join(dir, fmt.Sprintf(".tmp_%d_%s", now.UnixNano(), filepath.Base(s.filePath)))
-	if err := os.WriteFile(tmpFile, data, 0600); err != nil {
-		return err
-	}
-
-	// 明确设为 0600 权限以防 umask 影响
-	if err := os.Chmod(tmpFile, 0600); err != nil {
-		_ = os.Remove(tmpFile)
-		return err
-	}
-
-	if err := os.Rename(tmpFile, s.filePath); err != nil {
-		_ = os.Remove(tmpFile)
+	if err := fsutil.WriteFileAtomic(s.filePath, data, 0600); err != nil {
 		return err
 	}
 	s.lastWrite = now

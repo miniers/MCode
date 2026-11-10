@@ -122,6 +122,7 @@ func (c *IdempotencyCache) Finish(key string, result ToolResult) {
 	if entry, ok := c.entries[key]; ok {
 		if entry.result == nil {
 			entry.result = &result
+			c.evictIfNeeded()
 		}
 	}
 }
@@ -147,10 +148,15 @@ func (c *IdempotencyCache) removeFromOrder(key string) {
 }
 
 func (c *IdempotencyCache) evictIfNeeded() {
-	for len(c.order) > c.capacity {
-		oldest := c.order[0]
-		c.order = c.order[1:]
-		delete(c.entries, oldest)
+	for i := 0; i < len(c.order); {
+		key := c.order[i]
+		entry, ok := c.entries[key]
+		if !ok || (len(c.entries) > c.capacity && entry.result != nil) {
+			delete(c.entries, key)
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			continue
+		}
+		i++
 	}
 }
 

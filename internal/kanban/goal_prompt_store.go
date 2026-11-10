@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/store"
 )
 
@@ -79,20 +80,7 @@ func writeGoalPromptFile(dir, contentHash, prompt string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".goal-prompt-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.WriteString(prompt); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
+	return fsutil.WriteFileAtomic(path, []byte(prompt), 0o600)
 }
 
 // readMaterializedGoalPrompt 从落盘文件回读全文并校验 SHA-256；内容被篡改时返回 ErrHashMismatch。

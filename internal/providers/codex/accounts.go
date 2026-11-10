@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"mcode/internal/fsutil"
 )
 
 // Account 描述一个 Codex 多账号条目：Home 为该账号的 CODEX_HOME 目录。
@@ -120,7 +122,7 @@ func (s *AccountStore) Active() (Account, bool) {
 	return Account{}, false
 }
 
-// Save 以原子方式写回账号存储：先写 path+".tmp"，再重命名覆盖。
+// Save 以原子方式写回账号存储。
 func (s *AccountStore) Save() error {
 	if s.path == "" {
 		return errors.New("codex: 账号存储路径为空")
@@ -134,13 +136,8 @@ func (s *AccountStore) Save() error {
 	if err != nil {
 		return fmt.Errorf("codex: 序列化账号存储: %w", err)
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := fsutil.WriteFileAtomic(s.path, data, 0o600); err != nil {
 		return fmt.Errorf("codex: 写入账号存储: %w", err)
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("codex: 替换账号存储: %w", err)
 	}
 	return nil
 }

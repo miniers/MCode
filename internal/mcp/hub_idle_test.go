@@ -116,10 +116,11 @@ func TestHubReapIdle_回收空闲的stdio客户端(t *testing.T) {
 	}
 
 	// 回收后再次请求会懒创建新的客户端。
-	second, err := hub.getClient("stdio-idle")
+	second, release, err := hub.acquireClient("stdio-idle")
 	if err != nil {
-		t.Fatalf("getClient after reap failed: %v", err)
+		t.Fatalf("acquireClient after reap failed: %v", err)
 	}
+	defer release()
 	if second == first {
 		t.Fatal("回收后应创建新的客户端")
 	}
@@ -147,6 +148,36 @@ func TestHubReapIdle_有在途请求时不回收(t *testing.T) {
 
 	if !hubHasClient(hub, "stdio-busy") {
 		t.Fatal("有在途请求的客户端不应被回收")
+	}
+}
+
+func TestHubAcquireClient_使用期间不回收(t *testing.T) {
+	hub := NewHub(nil)
+	defer hub.Close()
+
+	hub.SetUpstreams([]UpstreamSpec{stdioSpecForFakeServer("stdio-acquired")})
+	first, releaseFirst, err := hub.acquireClient("stdio-acquired")
+	if err != nil {
+		t.Fatalf("acquireClient failed: %v", err)
+	}
+	releaseFirst()
+	client, release, err := hub.acquireClient("stdio-acquired")
+	if err != nil {
+		t.Fatalf("acquireClient existing client failed: %v", err)
+	}
+	if client != first {
+		t.Fatal("应复用已有客户端")
+	}
+
+	hub.reapIdle(time.Now().Add(upstreamIdleTimeout + time.Hour))
+	if !hubHasClient(hub, "stdio-acquired") {
+		t.Fatal("使用中的客户端不应被回收")
+	}
+
+	release()
+	hub.reapIdle(time.Now().Add(upstreamIdleTimeout + time.Hour))
+	if hubHasClient(hub, "stdio-acquired") {
+		t.Fatal("释放后空闲超时的客户端应被回收")
 	}
 }
 
@@ -195,16 +226,23 @@ func TestHubAcquireRelease_计数归零(t *testing.T) {
 	hub := NewHub(nil)
 	defer hub.Close()
 
-	hub.acquire("x")
-	hub.acquire("x")
+	hub.SetUpstreams([]UpstreamSpec{stdioSpecForFakeServer("x")})
+	_, releaseFirst, err := hub.acquireClient("x")
+	if err != nil {
+		t.Fatalf("acquireClient failed: %v", err)
+	}
+	_, releaseSecond, err := hub.acquireClient("x")
+	if err != nil {
+		t.Fatalf("second acquireClient failed: %v", err)
+	}
 	hub.mu.RLock()
 	inflight := hub.inflight["x"]
 	hub.mu.RUnlock()
 	if inflight != 2 {
 		t.Fatalf("期望 inflight=2，实际 %d", inflight)
 	}
-	hub.release("x")
-	hub.release("x")
+	releaseFirst()
+	releaseSecond()
 	if hubMapHas(hub, hub.inflight, "x") {
 		t.Fatal("计数归零后应删除 inflight 条目")
 	}

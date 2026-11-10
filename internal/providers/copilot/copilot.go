@@ -30,6 +30,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -94,7 +95,7 @@ type sessionProc struct {
 	cmd       *exec.Cmd
 	stdin     io.WriteCloser
 	conn      *Conn
-	stderrBuf *tailBuffer
+	stderrBuf *procutil.TailBuffer
 	workDir   string
 	cleanup   func()
 
@@ -263,23 +264,6 @@ func (p *sessionProc) handleConnClosed(err error) {
 		at.abortByClose(err)
 	}
 }
-
-// tailBuffer 是一个保留末尾至多指定字节大小的缓冲区。
-type tailBuffer struct {
-	limit int
-	buf   []byte
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	n := len(p)
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.limit {
-		b.buf = b.buf[len(b.buf)-b.limit:]
-	}
-	return n, nil
-}
-
-func (b *tailBuffer) String() string { return string(b.buf) }
 
 // buildEnv 构造子进程环境变量列表：剔除继承的 PWD，注入 workDir，最后追加 extra（turn.Env 优先级最高）。
 func buildEnv(base []string, workDir string, extra []string) []string {
@@ -557,7 +541,7 @@ func (h *Harness) startProcess(ctx context.Context, turn harness.Turn) (*session
 		return nil, fmt.Errorf("copilot: stdout pipe: %w", err)
 	}
 
-	stderrBuf := &tailBuffer{limit: 8192}
+	stderrBuf := procutil.NewTailBuffer(8192)
 	cmd.Stderr = stderrBuf
 
 	if err := cmd.Start(); err != nil {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/remote/wire"
 )
 
@@ -196,31 +197,8 @@ func (b *MemoryBackend) SetProjectScriptsByProjectID(projectID string, scripts [
 }
 
 // writeFileAtomic 先写临时文件再 rename，避免进程中断时留下半个文件。
-func writeFileAtomic(dir, path string, data []byte) error {
-	tmpFile, err := os.CreateTemp(dir, "project-scripts-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmpFile.Name()
-	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmpFile.Sync(); err != nil {
-		tmpFile.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	return nil
+func writeFileAtomic(_ string, path string, data []byte) error {
+	return fsutil.WriteFileAtomic(path, data, 0o600)
 }
 
 // normalizeProjectScripts 去掉首尾空白、补全缺失的 ID，并校验名称与命令。

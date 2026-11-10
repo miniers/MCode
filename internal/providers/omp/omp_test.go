@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"mcode/internal/harness"
+	"mcode/internal/procutil"
 )
 
 // TestOmpRunHelperProcess 是 Run 测试里替换 omp 的假进程（GO_WANT_OMP_RUN_HELPER=1 时生效，
@@ -688,7 +689,7 @@ func TestSteer(t *testing.T) {
 	}
 
 	sink := &bufferWriteCloser{}
-	h.registerRun(&activeRun{turnID: "turn-1", sessionID: "sess-1", writer: &lineWriter{w: sink}})
+	h.registerRun(&activeRun{turnID: "turn-1", sessionID: "sess-1", writer: procutil.NewLineWriter(sink)})
 	if err := h.Steer(context.Background(), "sess-1", "换个思路"); err != nil {
 		t.Fatalf("Steer 失败: %v", err)
 	}
@@ -711,9 +712,9 @@ func TestForceStopTurn(t *testing.T) {
 	h.ForceStopTurn("missing")
 
 	sink := &bufferWriteCloser{}
-	h.registerRun(&activeRun{turnID: "turn-9", sessionID: "sess-9", writer: &lineWriter{w: sink}})
+	h.registerRun(&activeRun{turnID: "turn-9", sessionID: "sess-9", writer: procutil.NewLineWriter(sink)})
 	h.ForceStopTurn("turn-9")
-	if err := h.runs[0].writer.write([]byte("x")); err == nil {
+	if err := h.runs[0].writer.WriteLine([]byte("x")); err == nil {
 		t.Fatal("强停应关闭活动轮次的 stdin")
 	}
 }
@@ -840,7 +841,7 @@ func TestAnswerApprovalByInteractionMode(t *testing.T) {
 		approver := &recordingApprover{decision: harness.DecisionAllow}
 		sink := &bufferWriteCloser{}
 		New(Options{}).handleExtensionUI(context.Background(),
-			harness.Turn{Approver: approver, InteractionMode: "plan"}, &lineWriter{w: sink}, gateSelectEvent(t, "bash"))
+			harness.Turn{Approver: approver, InteractionMode: "plan"}, procutil.NewLineWriter(sink), gateSelectEvent(t, "bash"))
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Deny" {
@@ -855,7 +856,7 @@ func TestAnswerApprovalByInteractionMode(t *testing.T) {
 		approver := &recordingApprover{decision: harness.DecisionAllow}
 		sink := &bufferWriteCloser{}
 		New(Options{}).handleExtensionUI(context.Background(),
-			harness.Turn{Approver: approver, InteractionMode: "plan"}, &lineWriter{w: sink}, gateSelectEvent(t, "read"))
+			harness.Turn{Approver: approver, InteractionMode: "plan"}, procutil.NewLineWriter(sink), gateSelectEvent(t, "read"))
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Approve" {
@@ -870,7 +871,7 @@ func TestAnswerApprovalByInteractionMode(t *testing.T) {
 		approver := &recordingApprover{decision: harness.DecisionAllow}
 		sink := &bufferWriteCloser{}
 		New(Options{}).handleExtensionUI(context.Background(),
-			harness.Turn{Approver: approver, Mode: harness.ModeSupervised}, &lineWriter{w: sink}, gateSelectEvent(t, "bash"))
+			harness.Turn{Approver: approver, Mode: harness.ModeSupervised}, procutil.NewLineWriter(sink), gateSelectEvent(t, "bash"))
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Approve" {

@@ -13,6 +13,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -52,7 +53,7 @@ func ProbeModels(ctx context.Context, agent Agent, binary string) ([]ProbedModel
 	setProcessGroup(cmd)
 	cmd.Dir = dir
 	cmd.Env = buildEnv(loginenv.Environ(), dir, ExtraEnv(agent), nil)
-	stderrBuf := &tailBuffer{limit: 4096}
+	stderrBuf := procutil.NewTailBuffer(4096)
 	cmd.Stderr = stderrBuf
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -125,7 +126,7 @@ func ProbeModels(ctx context.Context, agent Agent, binary string) ([]ProbedModel
 	return out, nil
 }
 
-func probeError(step string, err error, stderr *tailBuffer) error {
+func probeError(step string, err error, stderr *procutil.TailBuffer) error {
 	if tail := strings.TrimSpace(stderr.String()); tail != "" {
 		return fmt.Errorf("acp probe %s: %w (stderr: %s)", step, err, tail)
 	}

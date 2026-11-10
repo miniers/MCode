@@ -20,6 +20,7 @@ import (
 	"mcode/internal/agent/tools"
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -161,30 +162,6 @@ func (h *Harness) Available() (bool, string) {
 		return true, ""
 	}
 	return false, fmt.Sprintf("%s (%s) was not found in PATH", DisplayName(h.opts.Agent), bin)
-}
-
-// tailBuffer 是一个并发安全的保留末尾至多指定大小字节的缓冲区。
-type tailBuffer struct {
-	mu    sync.Mutex
-	limit int
-	buf   []byte
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	n := len(p)
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.limit {
-		b.buf = b.buf[len(b.buf)-b.limit:]
-	}
-	return n, nil
-}
-
-func (b *tailBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return string(b.buf)
 }
 
 func buildEnv(base []string, workDir string, extraOpts []string, extraTurn []string) []string {
@@ -420,7 +397,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	combinedOptsEnv := append(ExtraEnv(h.opts.Agent), h.opts.Env...)
 	cmd.Env = buildEnv(loginenv.Environ(), turn.WorkDir, combinedOptsEnv, turn.Env)
 
-	stderrBuf := &tailBuffer{limit: 8192}
+	stderrBuf := procutil.NewTailBuffer(8192)
 	cmd.Stderr = stderrBuf
 
 	stdinPipe, err := cmd.StdinPipe()

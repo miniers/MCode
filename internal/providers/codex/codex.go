@@ -37,6 +37,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/magpieinject"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -272,25 +273,6 @@ func buildEnv(base []string, workDir string, extra []string) []string {
 	return env
 }
 
-// tailBuffer 是一个保留末尾至多指定字节大小的缓冲区。
-type tailBuffer struct {
-	limit int
-	buf   []byte
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	n := len(p)
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.limit {
-		b.buf = b.buf[len(b.buf)-b.limit:]
-	}
-	return n, nil
-}
-
-func (b *tailBuffer) String() string {
-	return string(b.buf)
-}
-
 // appClient 管理与 codex app-server 子进程的 JSON-RPC 2.0 双向通信。
 type appClient struct {
 	stdin        io.WriteCloser
@@ -394,7 +376,7 @@ type residentProcess struct {
 	cmd       *exec.Cmd
 	stdin     io.WriteCloser
 	client    *appClient
-	stderrBuf *tailBuffer
+	stderrBuf *procutil.TailBuffer
 	workDir   string
 	sandbox   harness.Sandbox
 	routeKey  string
@@ -845,7 +827,7 @@ func (h *Harness) startProcess(ctx context.Context, turn harness.Turn, route *Ma
 		return nil, fmt.Errorf("codex: stdout pipe: %w", err)
 	}
 
-	stderrBuf := &tailBuffer{limit: 8192}
+	stderrBuf := procutil.NewTailBuffer(8192)
 	cmd.Stderr = stderrBuf
 
 	if err := cmd.Start(); err != nil {

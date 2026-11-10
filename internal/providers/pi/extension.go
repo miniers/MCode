@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"mcode/internal/harness"
+	"mcode/internal/procutil"
 )
 
 // gateTitlePrefix 是 pi 扩展在 select 标题里标记工具门禁的前缀。
@@ -129,7 +130,7 @@ func questionRequest(id, prompt string, options []string) harness.ApprovalReques
 
 // handleExtensionUI 应答 pi 扩展发来的交互请求（工具门禁、选择、确认、输入）。
 // notify / setWidget 等没有应答通道，直接忽略；setStatus 里的 Magpie 账号回传另行消费。
-func (h *Harness) handleExtensionUI(ctx context.Context, turn harness.Turn, writer *lineWriter, ev *rpcEvent) {
+func (h *Harness) handleExtensionUI(ctx context.Context, turn harness.Turn, writer *procutil.LineWriter, ev *rpcEvent) {
 	// setStatus 是无需应答的通知：Magpie 桥用它回传实际路由到的上游账号，
 	// 处理完直接返回，不进审批流程。
 	if ev.Method == "setStatus" {
@@ -171,7 +172,7 @@ func (h *Harness) handleExtensionUI(ctx context.Context, turn harness.Turn, writ
 		if title == "" && len(payload.Options) == 0 {
 			// 没有标题也没有选项：问也问不出东西，直接取消，别弹空白提问。
 			if line, err := requestLine(cancelledResponse(id)); err == nil {
-				_ = writer.write(line)
+				_ = writer.WriteLine(line)
 			}
 			return
 		}
@@ -212,7 +213,7 @@ func (h *Harness) handleSetStatus(ev *rpcEvent) {
 // answerGate 应答一次工具门禁：计划模式只读，能改东西的调用直接拒绝（扩展据此给出
 // “plan mode only allows reading”的说明），其余交 turn.Approver 裁决。
 // 没有审批方时按拒绝处理：扩展在等这条应答，悬着会卡死当轮。
-func (h *Harness) answerGate(ctx context.Context, turn harness.Turn, writer *lineWriter, id string, gate *gatePayload) {
+func (h *Harness) answerGate(ctx context.Context, turn harness.Turn, writer *procutil.LineWriter, id string, gate *gatePayload) {
 	req := approvalFromGate(gate)
 	resp := harness.ApprovalResponse{Decision: harness.DecisionDeny}
 	if !planBlocksTool(turn, req.ToolName) {
@@ -232,14 +233,14 @@ func (h *Harness) answerGate(ctx context.Context, turn harness.Turn, writer *lin
 	}
 	line, err := requestLine(valueResponse(id, val))
 	if err == nil {
-		err = writer.write(line)
+		err = writer.WriteLine(line)
 	}
 	harness.AckDelivery(turn.Approver, req, err)
 }
 
 // answerQuestion 应答 pi 扩展的选择/确认/输入请求。
 // 没有可用的交互方时按取消（cancelled）应答，等价于用户放弃这次提问。
-func (h *Harness) answerQuestion(ctx context.Context, turn harness.Turn, writer *lineWriter, id, method, prompt string, options []string) {
+func (h *Harness) answerQuestion(ctx context.Context, turn harness.Turn, writer *procutil.LineWriter, id, method, prompt string, options []string) {
 	req := questionRequest(id, prompt, options)
 	var resp harness.ApprovalResponse
 	if interactor, ok := turn.Approver.(harness.Interactor); ok && interactor != nil {
@@ -264,7 +265,7 @@ func (h *Harness) answerQuestion(ctx context.Context, turn harness.Turn, writer 
 		line, err = requestLine(valueResponse(id, answers[0]))
 	}
 	if err == nil {
-		err = writer.write(line)
+		err = writer.WriteLine(line)
 	}
 	harness.AckDelivery(turn.Approver, req, err)
 }

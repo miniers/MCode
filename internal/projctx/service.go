@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"mcode/internal/fsutil"
 )
 
 const (
@@ -545,34 +547,9 @@ func (s *Service) Write(name, content, expectedHash string) (Doc, error) {
 		return Doc{}, fmt.Errorf("projctx: read %s: %w", path, err)
 	}
 
-	dir := s.DocsPath()
-	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return Doc{}, fmt.Errorf("projctx: create temp in %s: %w", dir, err)
+	if err := fsutil.WriteFileAtomic(path, []byte(content), 0o600); err != nil {
+		return Doc{}, fmt.Errorf("projctx: write %s: %w", path, err)
 	}
-	tmpPath := tmpFile.Name()
-	defer func() {
-		if tmpPath != "" {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if _, err := tmpFile.WriteString(content); err != nil {
-		_ = tmpFile.Close()
-		return Doc{}, fmt.Errorf("projctx: write temp %s: %w", tmpPath, err)
-	}
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		return Doc{}, fmt.Errorf("projctx: sync temp %s: %w", tmpPath, err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return Doc{}, fmt.Errorf("projctx: close temp %s: %w", tmpPath, err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		return Doc{}, fmt.Errorf("projctx: rename temp to %s: %w", path, err)
-	}
-	tmpPath = ""
 
 	stat, _ := os.Stat(path)
 	var modTime time.Time

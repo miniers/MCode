@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/procutil"
 )
 
 // readFixtureLines 读取 testdata 下录制的 RPC 帧流。
@@ -573,7 +574,7 @@ func TestApprovalRoundTrip(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: approver}, &lineWriter{w: pw}, event)
+		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: approver}, procutil.NewLineWriter(pw), event)
 	}()
 
 	raw, err := bufio.NewReader(pr).ReadBytes('\n')
@@ -606,7 +607,7 @@ func TestAnswerToolGateWithoutApprover(t *testing.T) {
 		t.Fatal(err)
 	}
 	sink := &bufferWriteCloser{}
-	New(Options{}).handleExtensionUI(context.Background(), harness.Turn{}, &lineWriter{w: sink}, event)
+	New(Options{}).handleExtensionUI(context.Background(), harness.Turn{}, procutil.NewLineWriter(sink), event)
 	response := decodeSingleRequest(t, sink.String())
 	if response["value"] != "Deny" {
 		t.Fatalf("没有审批方时应拒绝: %+v", response)
@@ -628,7 +629,7 @@ func TestAnswerQuestion(t *testing.T) {
 				Answers:  map[string][]string{"q-1": {"Yes"}},
 			},
 		}
-		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["confirmed"] != true {
@@ -654,7 +655,7 @@ func TestAnswerQuestion(t *testing.T) {
 				Answers:  map[string][]string{"q-2": {"b"}},
 			},
 		}
-		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "b" {
@@ -673,7 +674,7 @@ func TestAnswerQuestion(t *testing.T) {
 		}
 		h := New(Options{})
 		sink := &bufferWriteCloser{}
-		h.handleExtensionUI(context.Background(), harness.Turn{}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{}, procutil.NewLineWriter(sink), event)
 		response := decodeSingleRequest(t, sink.String())
 		if response["cancelled"] != true {
 			t.Fatalf("无答案时应取消: %+v", response)
@@ -689,7 +690,7 @@ func TestAnswerQuestion(t *testing.T) {
 		h := New(Options{})
 		sink := &bufferWriteCloser{}
 		approver := &recordingApprover{decision: harness.DecisionAllow}
-		h.handleExtensionUI(context.Background(), harness.Turn{Approver: approver}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: approver}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Approve" {

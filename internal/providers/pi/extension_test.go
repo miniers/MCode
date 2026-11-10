@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"mcode/internal/harness"
+	"mcode/internal/procutil"
 )
 
 func TestParseGatePayload_Sensitive(t *testing.T) {
@@ -118,7 +119,7 @@ func TestAnswerGate_SensitiveHandling(t *testing.T) {
 				Answers:  map[string][]string{"req-s1": {"Allow for session"}},
 			},
 		}
-		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Allow" {
@@ -136,7 +137,7 @@ func TestAnswerGate_SensitiveHandling(t *testing.T) {
 		approver := &recordingApprover{decision: harness.DecisionAllow}
 		sink := &bufferWriteCloser{}
 		New(Options{}).handleExtensionUI(context.Background(),
-			harness.Turn{Approver: approver, InteractionMode: "plan"}, &lineWriter{w: sink}, event)
+			harness.Turn{Approver: approver, InteractionMode: "plan"}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Allow" {
@@ -157,7 +158,7 @@ func TestAnswerGate_SensitiveHandling(t *testing.T) {
 		approver := &recordingApprover{decision: harness.DecisionAllow}
 		sink := &bufferWriteCloser{}
 		New(Options{}).handleExtensionUI(context.Background(),
-			harness.Turn{Approver: approver, InteractionMode: "plan"}, &lineWriter{w: sink}, event)
+			harness.Turn{Approver: approver, InteractionMode: "plan"}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Deny" {

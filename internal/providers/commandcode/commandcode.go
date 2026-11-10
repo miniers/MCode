@@ -37,6 +37,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -132,25 +133,6 @@ func buildEnv(base []string, workDir string, extra []string) []string {
 	}
 	env = append(env, extra...)
 	return env
-}
-
-// tailBuffer 是一个保留末尾至多指定字节大小的缓冲区，用于错误输出。
-type tailBuffer struct {
-	limit int
-	buf   []byte
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	n := len(p)
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.limit {
-		b.buf = b.buf[len(b.buf)-b.limit:]
-	}
-	return n, nil
-}
-
-func (b *tailBuffer) String() string {
-	return string(b.buf)
 }
 
 // commandcodeEfforts 是 CLI 自己（cmd 1.53.1）的模型 reasoning effort 表
@@ -383,7 +365,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	if err != nil {
 		return fmt.Errorf("commandcode: stdout pipe: %w", err)
 	}
-	stderrTail := &tailBuffer{limit: 8192}
+	stderrTail := procutil.NewTailBuffer(8192)
 	cmd.Stderr = stderrTail
 
 	if err := cmd.Start(); err != nil {

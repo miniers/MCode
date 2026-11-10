@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"mcode/internal/fsutil"
 )
 
 // DefaultMCPFoldThreshold 是工具折叠的默认阈值：单个服务过滤后的工具数严格大于它时才折叠。
@@ -94,37 +96,7 @@ func SaveMCPToolPolicy(path string, p MCPToolPolicy) error {
 		return err
 	}
 
-	tmpFile, err := os.CreateTemp(dir, "mcp_tool_policy.*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmpFile.Name()
-	defer func() {
-		if tmpName != "" {
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	if err := tmpFile.Chmod(0o600); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return err
-	}
-	tmpName = "" // 重命名成功，取消临时文件的清理删除
-	return nil
+	return fsutil.WriteFileAtomic(path, data, 0o600)
 }
 
 // normalize 保证两层 map 非空，便于调用方直接写入。

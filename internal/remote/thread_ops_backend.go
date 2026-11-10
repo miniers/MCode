@@ -334,6 +334,10 @@ func stripLegacyOriginPrefixes(title string) string {
 
 // BranchThread 从指定的助手答复分支出新会话。
 func (b *MemoryBackend) BranchThread(ctx context.Context, p wire.ThreadsBranchParams) (wire.ThreadsBranchResult, error) {
+	if p.ActionID != "" {
+		b.branchActionMu.Lock()
+		defer b.branchActionMu.Unlock()
+	}
 	if p.ActionID != "" && b.isTombstoned(p.ActionID) {
 		return wire.ThreadsBranchResult{}, &wire.RPCError{
 			Code:    wire.ErrCodeOperationRejected,
@@ -422,25 +426,6 @@ func (b *MemoryBackend) BranchThread(ctx context.Context, p wire.ThreadsBranchPa
 	}
 
 	projectID := orig.summary.ProjectID
-	var (
-		hasExisting bool
-		minSort     int64
-	)
-	for _, t := range b.threads {
-		if t.summary.ProjectID == projectID {
-			if !hasExisting || t.sortOrder < minSort {
-				minSort = t.sortOrder
-				hasExisting = true
-			}
-		}
-	}
-	var sortOrder int64
-	if hasExisting {
-		sortOrder = minSort - 1
-	} else {
-		sortOrder = 0
-	}
-
 	newThreadID := newUUID()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	newTitle := stripLegacyOriginPrefixes(orig.summary.Title)
@@ -458,7 +443,6 @@ func (b *MemoryBackend) BranchThread(ctx context.Context, p wire.ThreadsBranchPa
 		HasUnread:         false,
 		Attention:         "normal",
 		Section:           "recent",
-		OrderKey:          formatOrderKey(sortOrder),
 		UpdatedAt:         now,
 		RuntimeMode:       orig.summary.RuntimeMode,
 		InteractionMode:   orig.summary.InteractionMode,
@@ -491,21 +475,48 @@ func (b *MemoryBackend) BranchThread(ctx context.Context, p wire.ThreadsBranchPa
 	if baseDir == "" {
 		baseDir = b.attachments.ensureTempDir()
 	}
+	var mediaToCopy []wire.MediaRef
 	for _, msg := range copiedMsgs {
-		for _, media := range msg.Media {
-			dir := filepath.Join(baseDir, "media", newThreadID)
-			if err := os.MkdirAll(dir, 0700); err != nil {
-				b.mu.Unlock()
-				return wire.ThreadsBranchResult{}, err
-			}
-			// 源文件可能是带扩展名的新数据，也可能只有裸 ID；目标保留源文件同名（含扩展名）
-			srcPath := resolveMediaFilePath(filepath.Join(baseDir, "media", p.ThreadID), media.ID, media.Name, media.MimeType)
-			if err := copyMediaFile(srcPath, filepath.Join(dir, filepath.Base(srcPath))); err != nil {
-				b.mu.Unlock()
-				return wire.ThreadsBranchResult{}, fmt.Errorf("copy branched media: %w", err)
-			}
+		mediaToCopy = append(mediaToCopy, msg.Media...)
+	}
+	b.mu.Unlock()
+	mediaDir := filepath.Join(baseDir, "media", newThreadID)
+	for _, media := range mediaToCopy {
+		if err := os.MkdirAll(mediaDir, 0700); err != nil {
+			_ = os.RemoveAll(mediaDir)
+			return wire.ThreadsBranchResult{}, err
+		}
+		// 源文件可能是带扩展名的新数据，也可能只有裸 ID；目标保留源文件同名（含扩展名）
+		srcPath := resolveMediaFilePath(filepath.Join(baseDir, "media", p.ThreadID), media.ID, media.Name, media.MimeType)
+		if err := copyMediaFile(srcPath, filepath.Join(mediaDir, filepath.Base(srcPath))); err != nil {
+			_ = os.RemoveAll(mediaDir)
+			return wire.ThreadsBranchResult{}, fmt.Errorf("copy branched media: %w", err)
 		}
 	}
+
+	b.mu.Lock()
+	if current, ok := b.threads[p.ThreadID]; !ok || current != orig {
+		b.mu.Unlock()
+		_ = os.RemoveAll(mediaDir)
+		rpcErr := &wire.RPCError{Code: wire.ErrCodeResourceNotFound, Message: fmt.Sprintf("thread %s not found", p.ThreadID)}
+		if p.ActionID != "" {
+			b.actions.record(wire.ActionStatusResult{ActionID: p.ActionID, State: wire.ActionStateFailed, Error: &wire.ActionError{Code: rpcErr.Code, Message: rpcErr.Message}})
+		}
+		return wire.ThreadsBranchResult{}, rpcErr
+	}
+	var minSort int64
+	hasExisting := false
+	for _, t := range b.threads {
+		if t.summary.ProjectID == projectID && (!hasExisting || t.sortOrder < minSort) {
+			minSort = t.sortOrder
+			hasExisting = true
+		}
+	}
+	var sortOrder int64
+	if hasExisting {
+		sortOrder = minSort - 1
+	}
+	newSummary.OrderKey = formatOrderKey(sortOrder)
 
 	b.threads[newThreadID] = &memoryThread{
 		summary:       newSummary,
@@ -532,10 +543,31 @@ func (b *MemoryBackend) BranchThread(ctx context.Context, p wire.ThreadsBranchPa
 
 	if s != nil {
 		pCtx, pCancel := persistCtx()
-		if err := s.CreateThread(pCtx, threadToStore(newSummary, "", sortOrder, continuation)); err != nil {
-			log.Printf("store create branched thread %s error: %v", newThreadID, err)
+		createThread := s.CreateThread
+		if b.createBranchThreadHook != nil {
+			createThread = b.createBranchThreadHook
 		}
+		err := createThread(pCtx, threadToStore(newSummary, "", sortOrder, continuation))
 		pCancel()
+		if err != nil {
+			b.mu.Lock()
+			_, exists := b.threads[newThreadID]
+			delete(b.threads, newThreadID)
+			if p.ActionID != "" && b.actionThreads[p.ActionID] == newThreadID {
+				delete(b.actionThreads, p.ActionID)
+			}
+			if proj, ok := b.projects[projectID]; ok && exists {
+				proj.ThreadCount--
+				b.projects[projectID] = proj
+			}
+			b.mu.Unlock()
+			_ = os.RemoveAll(mediaDir)
+			err = fmt.Errorf("store create branched thread %s: %w", newThreadID, err)
+			if p.ActionID != "" {
+				b.actions.record(wire.ActionStatusResult{ActionID: p.ActionID, State: wire.ActionStateFailed, Error: &wire.ActionError{Code: wire.InternalError, Message: err.Error()}})
+			}
+			return wire.ThreadsBranchResult{}, err
+		}
 		b.persistMessages(newThreadID, copiedMsgs)
 	}
 

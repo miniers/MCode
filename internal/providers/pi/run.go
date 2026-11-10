@@ -20,6 +20,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 	"mcode/internal/redact"
 )
@@ -369,7 +370,7 @@ func (h *Harness) startProc(turn harness.Turn, spec launchSpec) (*proc, error) {
 		abandon()
 		return nil, fmt.Errorf("pi: stdout pipe: %w", err)
 	}
-	stderrTail := &tailBuffer{limit: 8192}
+	stderrTail := procutil.NewTailBuffer(8192)
 	cmd.Stderr = stderrTail
 
 	if err := cmd.Start(); err != nil {
@@ -384,7 +385,7 @@ func (h *Harness) startProc(turn harness.Turn, spec launchSpec) (*proc, error) {
 		key:      spec.key,
 		threadID: turn.ThreadID,
 		cmd:      cmd,
-		writer:   &lineWriter{w: stdin},
+		writer:   procutil.NewLineWriter(stdin),
 		stderr:   stderrTail,
 		gatePath: opts.GatePath,
 		cleanups: cleanups,
@@ -526,7 +527,7 @@ func (h *Harness) runTurn(ctx context.Context, p *proc, turn harness.Turn, image
 	if err != nil {
 		return err
 	}
-	if err := p.writer.write(line); err != nil {
+	if err := p.writer.WriteLine(line); err != nil {
 		if reused {
 			return errStaleProc
 		}
@@ -563,7 +564,7 @@ func (h *Harness) runTurn(ctx context.Context, p *proc, turn harness.Turn, image
 func (h *Harness) cancelTurn(p *proc, pooled bool) (keep bool) {
 	if !pooled {
 		if line, err := requestLine(abortRequest("")); err == nil {
-			_ = p.writer.write(line)
+			_ = p.writer.WriteLine(line)
 		}
 		return false
 	}

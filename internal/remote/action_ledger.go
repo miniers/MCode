@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/remote/wire"
 )
 
@@ -148,28 +149,8 @@ func (l *actionLedger) saveLocked() {
 		return
 	}
 
-	tmpFile, err := os.CreateTemp(dir, ".action-ledger-*.tmp")
-	if err != nil {
-		log.Printf("create temp file for action ledger in %s failed: %v", dir, err)
-		return
-	}
-	tmpName := tmpFile.Name()
-
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpName)
-		log.Printf("write temp file for action ledger failed: %v", err)
-		return
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		log.Printf("close temp file for action ledger failed: %v", err)
-		return
-	}
-
-	if err := os.Rename(tmpName, l.path); err != nil {
-		_ = os.Remove(tmpName)
-		log.Printf("rename temp file to %s failed: %v", l.path, err)
+	if err := fsutil.WriteFileAtomic(l.path, data, 0o600); err != nil {
+		log.Printf("write action ledger %s failed: %v", l.path, err)
 		return
 	}
 }

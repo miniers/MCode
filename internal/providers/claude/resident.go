@@ -40,6 +40,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -732,7 +733,7 @@ func (h *Harness) spawnResident(turn harness.Turn, spec claudeLaunch) (*resident
 		abandon()
 		return nil, fmt.Errorf("claude: stdout pipe: %w", err)
 	}
-	stderrBuf := &tailBuffer{limit: 8192}
+	stderrBuf := procutil.NewTailBuffer(8192)
 	cmd.Stderr = stderrBuf
 
 	if err := cmd.Start(); err != nil {
@@ -1342,7 +1343,7 @@ type residentProc struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
-	stderr *tailBuffer
+	stderr *procutil.TailBuffer
 	// approval 是这个进程专用的审批服务，与进程同生共死，URL/令牌已写进启动参数。
 	approval *approvalServer
 	// cleanups 在进程退出后统一执行（审批服务、MCP 配置临时文件、沙箱资源）。

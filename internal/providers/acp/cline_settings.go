@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -123,21 +124,5 @@ func UpdateClineReasoning(effort string) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".providers-*.tmp")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return fsutil.WriteFileAtomic(path, data, 0o600)
 }

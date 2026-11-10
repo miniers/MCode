@@ -195,6 +195,7 @@ type memoryThread struct {
 	// pendingFollowUpEvents 暂存本次队列变更要写入的审计事件；commitQueueChange 取走后清空。
 	// 只在持有 b.mu 期间读写。
 	pendingFollowUpEvents []store.FollowUpEvent
+	queueRetryPending     bool
 	takenBack             map[string]bool
 
 	parentThreadID string
@@ -227,21 +228,24 @@ func (td *memoryThread) setIdleLocked() {
 
 // MemoryBackend 提供纯内存实现的 Backend 接口，供测试与本地开发模拟。
 type MemoryBackend struct {
-	mu                sync.Mutex
-	stewardFeedMu     sync.Mutex
-	stewardFeedID     string
-	stewardFeedLoaded bool
-	stewardDesk       StewardDesk
-	queuePersistMu    sync.Mutex
-	turnPersistMu     sync.Mutex
-	wg                sync.WaitGroup
-	hub               *StreamHub
-	projects          map[string]wire.ProjectSummary
-	threads           map[string]*memoryThread
-	usage             map[string]map[int]harness.Usage
-	actionThreads     map[string]string
-	actions           *actionLedger
-	store             *store.Store
+	mu                     sync.Mutex
+	stewardFeedMu          sync.Mutex
+	stewardFeedID          string
+	stewardFeedLoaded      bool
+	stewardDesk            StewardDesk
+	queuePersistMu         sync.Mutex
+	branchActionMu         sync.Mutex
+	turnPersistMu          sync.Mutex
+	wg                     sync.WaitGroup
+	hub                    *StreamHub
+	projects               map[string]wire.ProjectSummary
+	threads                map[string]*memoryThread
+	usage                  map[string]map[int]harness.Usage
+	actionThreads          map[string]string
+	actions                *actionLedger
+	store                  *store.Store
+	replaceFollowUpsHook   func(context.Context, string, int64, []store.FollowUp, []store.FollowUpEvent) error
+	createBranchThreadHook func(context.Context, store.Thread) error
 
 	// scriptRuns 保存最近的脚本运行结果，只在内存里供 scripts.runStatus 查询，不写回会话时间线。
 	scriptRuns scriptRunStore
@@ -9277,6 +9281,8 @@ func (b *MemoryBackend) startNextQueuedTurnLocked(td *memoryThread, allowQueue, 
 	return st, text, true
 }
 
+var queueRetryDelay = 5 * time.Second
+
 // commitQueueChange 在持锁复制快照后释放锁，并写穿至 store 及触发 queueChangedHook。
 func (b *MemoryBackend) commitQueueChange(threadID string) {
 	b.queuePersistMu.Lock()
@@ -9304,7 +9310,6 @@ func (b *MemoryBackend) commitQueueChange(threadID string) {
 	if td.pendingSend != nil {
 		fus = append([]wire.FollowUp{*td.pendingSend}, fus...)
 	}
-	s := b.store
 	hook := b.queueChangedHook
 	var listeners []func(wire.ThreadsQueueSnapshot)
 	if len(b.queueListeners) > 0 {
@@ -9317,6 +9322,23 @@ func (b *MemoryBackend) commitQueueChange(threadID string) {
 	}
 	b.mu.Unlock()
 
+	b.persistQueueSnapshot(threadID, revision, fus, events)
+
+	b.queuePersistMu.Unlock()
+	if hook != nil {
+		hook(snap)
+	}
+	for _, fn := range listeners {
+		fn(snap)
+	}
+}
+
+// 调用方持有 queuePersistMu，保证快照和审计事件按顺序写入。
+func (b *MemoryBackend) persistQueueSnapshot(threadID string, revision int, fus []wire.FollowUp, events []store.FollowUpEvent) {
+	b.mu.Lock()
+	s := b.store
+	replaceHook := b.replaceFollowUpsHook
+	b.mu.Unlock()
 	if s != nil {
 		storeItems := make([]store.FollowUp, 0, len(fus))
 		for i, fu := range fus {
@@ -9366,19 +9388,48 @@ func (b *MemoryBackend) commitQueueChange(threadID string) {
 			})
 		}
 		pCtx, pCancel := persistCtx()
-		if err := s.ReplaceFollowUpsWithAudit(pCtx, threadID, int64(revision), storeItems, events); err != nil {
+		replace := s.ReplaceFollowUpsWithAudit
+		if replaceHook != nil {
+			replace = replaceHook
+		}
+		if err := replace(pCtx, threadID, int64(revision), storeItems, events); err != nil {
 			log.Printf("store replace follow-ups error for thread %s: %v", threadID, err)
+			b.mu.Lock()
+			if td, ok := b.threads[threadID]; ok {
+				td.pendingFollowUpEvents = append(events, td.pendingFollowUpEvents...)
+				if !td.queueRetryPending && b.ctx.Err() == nil {
+					td.queueRetryPending = true
+					time.AfterFunc(queueRetryDelay, func() { b.retryQueueSnapshot(threadID) })
+				}
+			}
+			b.mu.Unlock()
 		}
 		pCancel()
 	}
+}
 
-	b.queuePersistMu.Unlock()
-	if hook != nil {
-		hook(snap)
+func (b *MemoryBackend) retryQueueSnapshot(threadID string) {
+	b.queuePersistMu.Lock()
+	defer b.queuePersistMu.Unlock()
+	b.mu.Lock()
+	td, ok := b.threads[threadID]
+	if !ok || b.ctx.Err() != nil {
+		b.mu.Unlock()
+		return
 	}
-	for _, fn := range listeners {
-		fn(snap)
+	td.queueRetryPending = false
+	if td.queueRevision == 0 {
+		td.queueRevision = 1
 	}
+	revision := td.queueRevision
+	events := td.pendingFollowUpEvents
+	td.pendingFollowUpEvents = nil
+	fus := td.queueSnapshotFollowUpsLocked()
+	if td.pendingSend != nil {
+		fus = append([]wire.FollowUp{*td.pendingSend}, fus...)
+	}
+	b.mu.Unlock()
+	b.persistQueueSnapshot(threadID, revision, fus, events)
 }
 
 // resetThreadModel 把线程模型改成 model 并发布变更、写穿到 store；线程不存在时什么都不做。

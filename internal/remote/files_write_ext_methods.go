@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/remote/wire"
 )
 
@@ -210,39 +210,9 @@ func (b *MemoryBackend) FilesWrite(ctx context.Context, p wire.FilesWriteExtPara
 	}, nil
 }
 
-// writeWorkspaceFileAtomic 同目录写临时文件再 rename，保证读者不会看到写了一半的内容；
-// 落盘前显式 chmod 回原文件权限位，避免 CreateTemp 的 0600 覆盖原权限。
-// 与 project_scripts.go 的 writeFileAtomic 分开：后者不保留权限，专用于 mcode 自有配置。
+// writeWorkspaceFileAtomic 保留原文件权限，原子替换文件内容。
 func writeWorkspaceFileAtomic(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".mcode-write-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	fail := func(err error) error {
-		_ = os.Remove(tmpName)
-		return err
-	}
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fail(err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fail(err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fail(err)
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		return fail(err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fail(err)
-	}
-	return nil
+	return fsutil.WriteFileAtomic(path, data, perm)
 }
 
 // normalizeFileHash 规范化客户端传入的哈希：去空白、转小写，并校验为 64 位十六进制。

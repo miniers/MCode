@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"mcode/internal/fsutil"
 )
 
 const (
@@ -84,24 +86,7 @@ func SaveProjectConfig(dataDir, projectDir string, cfg ProjectConfig) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("reviewcheck: 创建配置目录 %s: %w", dir, err)
 	}
-	tmp, err := os.CreateTemp(dir, ".review-checks-*.json")
-	if err != nil {
-		return fmt.Errorf("reviewcheck: 创建临时配置: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.Write(raw); err != nil {
-		tmp.Close()
-		return fmt.Errorf("reviewcheck: 写入临时配置: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return fmt.Errorf("reviewcheck: 设置配置权限: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("reviewcheck: 关闭临时配置: %w", err)
-	}
-	if err := os.Rename(tmpPath, configPath); err != nil {
+	if err := fsutil.WriteFileAtomic(configPath, raw, 0o600); err != nil {
 		return fmt.Errorf("reviewcheck: 替换项目检查配置 %s: %w", configPath, err)
 	}
 	return nil

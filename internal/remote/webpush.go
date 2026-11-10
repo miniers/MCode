@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/remote/wire"
 )
 
@@ -72,16 +73,7 @@ func loadOrCreateVAPIDKey(path string) (*ecdsa.PrivateKey, error) {
 		return nil, err
 	}
 
-	tmpFile := filepath.Join(dir, fmt.Sprintf(".tmp_%d_%s", time.Now().UnixNano(), filepath.Base(path)))
-	if err := os.WriteFile(tmpFile, pemBytes, 0600); err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(tmpFile, 0600); err != nil {
-		_ = os.Remove(tmpFile)
-		return nil, err
-	}
-	if err := os.Rename(tmpFile, path); err != nil {
-		_ = os.Remove(tmpFile)
+	if err := fsutil.WriteFileAtomic(path, pemBytes, 0600); err != nil {
 		return nil, err
 	}
 

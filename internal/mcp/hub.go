@@ -211,20 +211,6 @@ func (h *Hub) reapLoop() {
 	}
 }
 
-// acquire 标记某上游有一次请求进行中，防止其在使用期间被回收。
-func (h *Hub) acquire(id string) {
-	h.mu.Lock()
-	if h.inflight == nil {
-		h.inflight = make(map[string]int)
-	}
-	if h.lastUsed == nil {
-		h.lastUsed = make(map[string]time.Time)
-	}
-	h.inflight[id]++
-	h.lastUsed[id] = time.Now()
-	h.mu.Unlock()
-}
-
 // release 结束一次请求计数；lastUsed 从请求结束时刻起算，长调用不会刚结束就被判定空闲。
 func (h *Hub) release(id string) {
 	h.mu.Lock()
@@ -284,12 +270,11 @@ func (h *Hub) reapIdle(now time.Time) {
 // UpstreamCapabilities 返回上游 initialize 结果中的 capabilities 原始 JSON。
 // 客户端不支持上报能力（如 sse）时返回 nil, nil，由调用方按无能力处理。
 func (h *Hub) UpstreamCapabilities(ctx context.Context, id string) (json.RawMessage, error) {
-	client, err := h.getClient(id)
+	client, release, err := h.acquireClient(id)
 	if err != nil {
 		return nil, err
 	}
-	h.acquire(id)
-	defer h.release(id)
+	defer release()
 	if err := client.initialize(ctx); err != nil {
 		return nil, err
 	}
@@ -341,74 +326,64 @@ func (h *Hub) Upstream(id string) (UpstreamSpec, bool) {
 	return spec, ok
 }
 
-// getClient 并发安全地懒加载获取或创建对应 ID 的客户端。
-func (h *Hub) getClient(id string) (upstreamClient, error) {
-	h.mu.RLock()
-	if h.closed {
-		h.mu.RUnlock()
-		return nil, errors.New("hub is closed")
-	}
-	if client, ok := h.clients[id]; ok {
-		h.mu.RUnlock()
-		return client, nil
-	}
-	spec, ok := h.upstreams[id]
-	h.mu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("upstream %q not found", id)
-	}
-
+// acquireClient 获取或创建客户端，并在同一锁内标记请求进行中。
+func (h *Hub) acquireClient(id string) (upstreamClient, func(), error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
-		return nil, errors.New("hub is closed")
+		return nil, nil, errors.New("hub is closed")
 	}
-	if client, ok := h.clients[id]; ok {
-		return client, nil
+	client, ok := h.clients[id]
+	if !ok {
+		spec, ok := h.upstreams[id]
+		if !ok {
+			return nil, nil, fmt.Errorf("upstream %q not found", id)
+		}
+		var err error
+		client, err = createClient(spec, h.tokens)
+		if err != nil {
+			return nil, nil, err
+		}
+		h.clients[id] = client
 	}
-	client, err := createClient(spec, h.tokens)
-	if err != nil {
-		return nil, err
+	if h.inflight == nil {
+		h.inflight = make(map[string]int)
 	}
-	h.clients[id] = client
-	// 新建客户端也记一次使用时间，否则从未被 acquire 的客户端会永久滞留。
 	if h.lastUsed == nil {
 		h.lastUsed = make(map[string]time.Time)
 	}
+	h.inflight[id]++
 	h.lastUsed[id] = time.Now()
-	return client, nil
+	return client, func() { h.release(id) }, nil
 }
 
 // ListTools 获取指定上游服务的可用工具列表。
 func (h *Hub) ListTools(ctx context.Context, id string) ([]Tool, error) {
-	client, err := h.getClient(id)
+	client, release, err := h.acquireClient(id)
 	if err != nil {
 		return nil, err
 	}
-	h.acquire(id)
-	defer h.release(id)
+	defer release()
 	return client.listTools(ctx)
 }
 
 // CallTool 调用指定上游服务的具体工具，原样返回上游的 result。
 func (h *Hub) CallTool(ctx context.Context, id, name string, args json.RawMessage) (json.RawMessage, error) {
-	client, err := h.getClient(id)
+	client, release, err := h.acquireClient(id)
 	if err != nil {
 		return nil, err
 	}
-	h.acquire(id)
-	defer h.release(id)
+	defer release()
 	return client.callTool(ctx, name, args)
 }
 
 // Forward 将 JSON-RPC 请求直接转发给指定上游服务。
 func (h *Hub) Forward(ctx context.Context, id, method string, params json.RawMessage) (json.RawMessage, *jsonRPCError, error) {
-	client, err := h.getClient(id)
+	client, release, err := h.acquireClient(id)
 	if err != nil {
 		return nil, nil, err
 	}
-	h.acquire(id)
-	defer h.release(id)
+	defer release()
 	ctx, cancel := withMethodTimeout(ctx, method)
 	defer cancel()
 	return client.forward(ctx, method, params)

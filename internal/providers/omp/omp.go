@@ -30,7 +30,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -40,6 +39,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -124,7 +124,7 @@ type activeRun struct {
 	turnID    string
 	sessionID string
 	cmd       *exec.Cmd
-	writer    *lineWriter
+	writer    *procutil.LineWriter
 }
 
 // New 创建一个新的 omp Harness 实例。
@@ -173,52 +173,6 @@ func buildEnv(base []string, workDir string, extra []string) []string {
 	}
 	env = append(env, extra...)
 	return env
-}
-
-// tailBuffer 是一个保留末尾至多指定字节大小的缓冲区，用于错误输出。
-type tailBuffer struct {
-	limit int
-	buf   []byte
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	n := len(p)
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.limit {
-		b.buf = b.buf[len(b.buf)-b.limit:]
-	}
-	return n, nil
-}
-
-func (b *tailBuffer) String() string {
-	return string(b.buf)
-}
-
-// lineWriter 串行化对 omp stdin 的写入：主循环、Steer 与强停可能并发操作同一管道。
-type lineWriter struct {
-	mu     sync.Mutex
-	w      io.WriteCloser
-	closed bool
-}
-
-func (l *lineWriter) write(line []byte) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.closed {
-		return io.ErrClosedPipe
-	}
-	_, err := l.w.Write(line)
-	return err
-}
-
-func (l *lineWriter) close() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.closed {
-		return nil
-	}
-	l.closed = true
-	return l.w.Close()
 }
 
 // ompModelArg 返回要透传给 omp 的模型选择。只有非空、不是
@@ -437,7 +391,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	if err != nil {
 		return fmt.Errorf("omp: stdout pipe: %w", err)
 	}
-	stderrTail := &tailBuffer{limit: 8192}
+	stderrTail := procutil.NewTailBuffer(8192)
 	cmd.Stderr = stderrTail
 
 	if err := cmd.Start(); err != nil {
@@ -448,14 +402,14 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	h.roots.Set(turn.ThreadID, agentPID)
 	defer h.roots.Clear(turn.ThreadID, agentPID)
 
-	writer := &lineWriter{w: stdin}
+	writer := procutil.NewLineWriter(stdin)
 	run := &activeRun{turnID: turn.ID, sessionID: turn.SessionID, cmd: cmd, writer: writer}
 	h.registerRun(run)
 	defer h.unregisterRun(run)
 
 	// 正常路径与提前返回都走同一套回收：关 stdin、杀掉进程组、回收进程。
 	defer func() {
-		_ = writer.close()
+		_ = writer.Close()
 		_ = killProcessGroup(cmd, syscall.SIGKILL)
 		// 正常路径已经 Wait 过，重复调用只会返回错误，忽略即可。
 		_ = cmd.Wait()
@@ -471,7 +425,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		if err != nil {
 			return err
 		}
-		return writer.write(line)
+		return writer.WriteLine(line)
 	}
 
 	// 配置了门禁扩展时，先问命令表确认门禁加载，
@@ -481,7 +435,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		if err != nil {
 			return err
 		}
-		if err := writer.write(line); err != nil {
+		if err := writer.WriteLine(line); err != nil {
 			return fmt.Errorf("omp: write get_available_commands: %w", err)
 		}
 	} else if err := sendState(); err != nil {
@@ -498,7 +452,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		if err != nil {
 			return err
 		}
-		return writer.write(line)
+		return writer.WriteLine(line)
 	}
 
 	reader := bufio.NewReader(stdout)
@@ -544,16 +498,16 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	if ctx.Err() != nil {
 		// ctx 取消：先发 abort 让 omp 收尾，再按进程组强杀兜底。
 		if line, err := requestLine(abortRequest()); err == nil {
-			_ = writer.write(line)
+			_ = writer.WriteLine(line)
 		}
-		_ = writer.close()
+		_ = writer.Close()
 		_ = killProcessGroup(cmd, syscall.SIGTERM)
 		_ = waitWithKill(cmd, 3*time.Second)
 		return ctx.Err()
 	}
 
 	// 当轮结束后 omp 进程仍会驻留，主动终止整个进程组再回收。
-	_ = writer.close()
+	_ = writer.Close()
 	_ = killProcessGroup(cmd, syscall.SIGTERM)
 	waitErr := waitWithKill(cmd, 3*time.Second)
 
@@ -604,7 +558,7 @@ func (h *Harness) Steer(ctx context.Context, sessionID string, text string) erro
 	if err != nil {
 		return err
 	}
-	if err := run.writer.write(line); err != nil {
+	if err := run.writer.WriteLine(line); err != nil {
 		return fmt.Errorf("omp: steer: %w", err)
 	}
 	return nil
@@ -616,7 +570,7 @@ func (h *Harness) ForceStopTurn(turnID string) {
 	if run == nil {
 		return
 	}
-	_ = run.writer.close()
+	_ = run.writer.Close()
 	_ = killProcessGroup(run.cmd, syscall.SIGKILL)
 }
 

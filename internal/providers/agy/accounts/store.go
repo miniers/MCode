@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/providers/multiaccount"
 )
 
@@ -26,44 +27,11 @@ func atomicWriteJSON(path string, v any) error {
 		return fmt.Errorf("create parent directory %s: %w", dir, err)
 	}
 
-	tmpFile, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return fmt.Errorf("create temp file in %s: %w", dir, err)
+		return fmt.Errorf("encode json to %s: %w", path, err)
 	}
-	tmpName := tmpFile.Name()
-	defer func() {
-		// 若未成功完成重命名，清理残余临时文件
-		if _, err := os.Stat(tmpName); err == nil {
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	enc := json.NewEncoder(tmpFile)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil {
-		_ = tmpFile.Close()
-		return fmt.Errorf("encode json to %s: %w", tmpName, err)
-	}
-
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		return fmt.Errorf("sync temp file %s: %w", tmpName, err)
-	}
-
-	if err := tmpFile.Chmod(filePerm0600); err != nil {
-		_ = tmpFile.Close()
-		return fmt.Errorf("chmod 0600 temp file %s: %w", tmpName, err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp file %s: %w", tmpName, err)
-	}
-
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("rename %s to %s: %w", tmpName, path, err)
-	}
-
-	return nil
+	return fsutil.WriteFileAtomic(path, append(data, '\n'), filePerm0600)
 }
 
 // loadIndex 从 <dataDir>/agy-accounts.json 读取索引。

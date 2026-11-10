@@ -1,6 +1,6 @@
 //go:build unix
 
-package copilot
+package procutil
 
 import (
 	"os"
@@ -8,8 +8,8 @@ import (
 	"syscall"
 )
 
-// setProcessGroup 将命令配置为独立进程组，以便在取消时杀死整个子进程树。
-func setProcessGroup(cmd *exec.Cmd) {
+// SetProcessGroup 将命令配置为独立进程组。
+func SetProcessGroup(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
 	}
@@ -20,8 +20,8 @@ func setProcessGroup(cmd *exec.Cmd) {
 	}
 }
 
-// killProcessGroup 向 cmd 所属的整个进程组发送指定信号（通过负 PID）。
-func killProcessGroup(cmd *exec.Cmd, sig os.Signal) error {
+// KillProcessGroup 向整个进程组发送信号。
+func KillProcessGroup(cmd *exec.Cmd, sig os.Signal) error {
 	if cmd == nil || cmd.Process == nil || cmd.Process.Pid <= 0 {
 		return nil
 	}

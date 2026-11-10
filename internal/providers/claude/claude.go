@@ -21,6 +21,7 @@ import (
 	"mcode/internal/agent/gate"
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -443,30 +444,6 @@ func hasEnvKey(env []string, prefix string) bool {
 	return false
 }
 
-// tailBuffer 是一个保留末尾至多指定字节大小的缓冲区。
-type tailBuffer struct {
-	mu    sync.Mutex
-	limit int
-	buf   []byte
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	n := len(p)
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.limit {
-		b.buf = b.buf[len(b.buf)-b.limit:]
-	}
-	return n, nil
-}
-
-func (b *tailBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return string(b.buf)
-}
-
 // promptTracker 记录 prompt 是否已经写进子进程 stdin。
 // exec.Cmd 在 Start 之后才从 Stdin 读取，所以这里读到写入即表示 CLI 已经收到（或正在接收）prompt：
 // 此时本轮失败若再用同一个 prompt 重跑，工具调用等副作用会被静默重放，因此不再自动重试。
@@ -677,7 +654,7 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 		return fmt.Errorf("claude: stdout pipe: %w", err)
 	}
 
-	stderrBuf := &tailBuffer{limit: 8192}
+	stderrBuf := procutil.NewTailBuffer(8192)
 	cmd.Stderr = stderrBuf
 
 	if err := cmd.Start(); err != nil {

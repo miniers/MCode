@@ -6,29 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
-)
 
-// setProcessGroup 将命令配置为独立进程组，以便关闭时能终结整棵子进程树
-// （npx 之类的包装脚本会再拉起 node，只杀直系子进程会留下孤儿）。
-func setProcessGroup(cmd *exec.Cmd) {
-	if cmd == nil {
-		return
-	}
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	} else {
-		cmd.SysProcAttr.Setpgid = true
-	}
-}
+	"mcode/internal/procutil"
+)
 
 // killProcessGroup 向 cmd 所属的整个进程组发送指定信号（通过负 PID）。
 func killProcessGroup(cmd *exec.Cmd, sig os.Signal) error {
-	if cmd == nil || cmd.Process == nil || cmd.Process.Pid <= 0 {
-		return nil
+	if _, ok := sig.(syscall.Signal); !ok {
+		sig = syscall.SIGKILL
 	}
-	sysSig, ok := sig.(syscall.Signal)
-	if !ok {
-		sysSig = syscall.SIGKILL
-	}
-	return syscall.Kill(-cmd.Process.Pid, sysSig)
+	return procutil.KillProcessGroup(cmd, sig)
 }

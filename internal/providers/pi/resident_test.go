@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/procutil"
 )
 
 // TestPiResidentHelperProcess 是驻留测试里替换 pi 的假进程（GO_WANT_PI_RESIDENT_HELPER=1 时生效）：
@@ -657,11 +658,37 @@ func TestResidentRestartsAfterProcessDies(t *testing.T) {
 	}
 }
 
+type blockingWriteCloser struct {
+	started chan struct{}
+	release chan struct{}
+	closed  chan struct{}
+}
+
+func (w *blockingWriteCloser) Write(p []byte) (int, error) {
+	close(w.started)
+	<-w.release
+	return len(p), nil
+}
+
+func (w *blockingWriteCloser) Close() error {
+	close(w.closed)
+	return nil
+}
+
 // TestProcCloseNotBlockedByWriterLock 回归：写端握着 lineWriter 的锁卡在管道 Write 上时，
 // close 仍要立刻返回，发信号和关 stdin 都不能等那把锁。
 func TestProcCloseNotBlockedByWriterLock(t *testing.T) {
-	p := &proc{writer: &lineWriter{w: &bufferWriteCloser{}}, exited: make(chan struct{})}
-	p.writer.mu.Lock() // 模拟 lineWriter.write 卡在写满的管道上
+	sink := &blockingWriteCloser{started: make(chan struct{}), release: make(chan struct{}), closed: make(chan struct{})}
+	defer func() {
+		select {
+		case <-sink.release:
+		default:
+			close(sink.release)
+		}
+	}()
+	p := &proc{writer: procutil.NewLineWriter(sink), exited: make(chan struct{})}
+	go func() { _ = p.writer.WriteLine([]byte("x")) }()
+	<-sink.started
 
 	done := make(chan struct{})
 	go func() {
@@ -673,21 +700,11 @@ func TestProcCloseNotBlockedByWriterLock(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("close 被 writer 的写锁卡住")
 	}
-	p.writer.mu.Unlock()
-
-	// 放锁之后，独立协程里的关 stdin 应该随即完成。
-	deadline := time.Now().Add(time.Second)
-	for {
-		p.writer.mu.Lock()
-		closed := p.writer.closed
-		p.writer.mu.Unlock()
-		if closed {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("close 返回后 stdin 没有被关掉")
-		}
-		time.Sleep(5 * time.Millisecond)
+	close(sink.release)
+	select {
+	case <-sink.closed:
+	case <-time.After(time.Second):
+		t.Fatal("close 返回后 stdin 没有被关掉")
 	}
 	close(p.exited) // 让 close 里等 killGrace 的那条协程退出
 }

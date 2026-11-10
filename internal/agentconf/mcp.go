@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"mcode/internal/config"
+	"mcode/internal/fsutil"
 )
 
 // MCPToolInfo 表示 MCP 服务提供的工具描述信息。
@@ -357,33 +358,7 @@ func writeFileAtomic(filePath string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(filePath)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	committed := false
-	defer func() {
-		if !committed {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, filePath); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+	return fsutil.WriteFileAtomic(filePath, data, perm)
 }
 
 // SaveMCPServer 持久化自定义 MCP 服务配置。敏感变量自动存入 SecretStore。

@@ -1,4 +1,4 @@
-package claude
+package procutil
 
 import (
 	"strings"
@@ -6,8 +6,21 @@ import (
 	"testing"
 )
 
+func TestTailBuffer(t *testing.T) {
+	b := NewTailBuffer(4)
+	_, _ = b.Write([]byte("abc"))
+	_, _ = b.Write([]byte("def"))
+	if got := b.String(); got != "cdef" {
+		t.Fatalf("尾部 = %q", got)
+	}
+	_, _ = b.Write([]byte("123456"))
+	if got := b.String(); got != "3456" {
+		t.Fatalf("尾部 = %q", got)
+	}
+}
+
 func TestTailBufferConcurrentReadWrite(t *testing.T) {
-	b := &tailBuffer{limit: 64}
+	b := NewTailBuffer(64)
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(2)

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"mcode/internal/harness"
+	"mcode/internal/procutil"
 )
 
 // TestPiRunHelperProcess 是 Run 测试里替换 pi 的假进程（GO_WANT_PI_RUN_HELPER=1 时生效，
@@ -585,7 +586,7 @@ func TestHandleSetStatusMagpieMember(t *testing.T) {
 			got = append(got, [3]string{endpoint, provider, model})
 		}})
 		sink := &bufferWriteCloser{}
-		h.handleExtensionUI(context.Background(), harness.Turn{}, &lineWriter{w: sink}, setStatus(t,
+		h.handleExtensionUI(context.Background(), harness.Turn{}, procutil.NewLineWriter(sink), setStatus(t,
 			`{"type":"extension_ui_request","id":"status-1","method":"setStatus","statusKey":"mcode-magpie-member",`+
 				`"statusText":"{\"endpoint\":\"432db46a\",\"provider\":\"magpie-jp\",\"model\":\"deepseek-v4.1-flash\"}"}`))
 
@@ -600,7 +601,7 @@ func TestHandleSetStatusMagpieMember(t *testing.T) {
 	t.Run("其他键不触发", func(t *testing.T) {
 		var called bool
 		h := New(Options{OnMagpieMember: func(string, string, string) { called = true }})
-		h.handleExtensionUI(context.Background(), harness.Turn{}, &lineWriter{w: &bufferWriteCloser{}}, setStatus(t,
+		h.handleExtensionUI(context.Background(), harness.Turn{}, procutil.NewLineWriter(&bufferWriteCloser{}), setStatus(t,
 			`{"type":"extension_ui_request","id":"status-2","method":"setStatus","statusKey":"other","statusText":"{}"}`))
 		if called {
 			t.Fatal("其他状态键不应触发账号回传")
@@ -609,7 +610,7 @@ func TestHandleSetStatusMagpieMember(t *testing.T) {
 
 	t.Run("没有回调也不报错", func(t *testing.T) {
 		sink := &bufferWriteCloser{}
-		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{}, &lineWriter{w: sink}, setStatus(t,
+		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{}, procutil.NewLineWriter(sink), setStatus(t,
 			`{"type":"extension_ui_request","id":"status-3","method":"setStatus","statusKey":"mcode-magpie-member","statusText":"{\"endpoint\":\"e\"}"}`))
 		if sink.String() != "" {
 			t.Fatalf("没有回调时不应写回任何应答: %q", sink.String())
@@ -735,7 +736,7 @@ func TestMagpieEnvPairsIncludesBridgePath(t *testing.T) {
 
 func TestExitedErrorRedactsSecretsAndHome(t *testing.T) {
 	h := New(Options{})
-	stderrBuf := &tailBuffer{limit: 8192}
+	stderrBuf := procutil.NewTailBuffer(8192)
 	home, _ := os.UserHomeDir()
 	rawErr := "failed with token sk-abcdef1234567890 at " + home + "/project"
 	stderrBuf.Write([]byte(rawErr))
@@ -798,7 +799,7 @@ func TestSteer(t *testing.T) {
 	}
 
 	sink := &bufferWriteCloser{}
-	h.registerRun(&activeRun{turnID: "turn-1", sessionID: "sess-1", writer: &lineWriter{w: sink}})
+	h.registerRun(&activeRun{turnID: "turn-1", sessionID: "sess-1", writer: procutil.NewLineWriter(sink)})
 	if err := h.Steer(context.Background(), "sess-1", "换个思路"); err != nil {
 		t.Fatalf("Steer 失败: %v", err)
 	}
@@ -821,9 +822,9 @@ func TestForceStopTurn(t *testing.T) {
 	h.ForceStopTurn("missing")
 
 	sink := &bufferWriteCloser{}
-	h.registerRun(&activeRun{turnID: "turn-9", sessionID: "sess-9", writer: &lineWriter{w: sink}})
+	h.registerRun(&activeRun{turnID: "turn-9", sessionID: "sess-9", writer: procutil.NewLineWriter(sink)})
 	h.ForceStopTurn("turn-9")
-	if err := h.runs[0].writer.write([]byte("x")); err == nil {
+	if err := h.runs[0].writer.WriteLine([]byte("x")); err == nil {
 		t.Fatal("强停应关闭活动轮次的 stdin")
 	}
 }
@@ -861,7 +862,7 @@ func TestAnswerGate(t *testing.T) {
 		h := New(Options{})
 		sink := &bufferWriteCloser{}
 		approver := &recordingApprover{decision: harness.DecisionAllow}
-		h.handleExtensionUI(context.Background(), harness.Turn{Approver: approver}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: approver}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["type"] != rpcTypeExtensionUIResp || response["id"] != "req-1" || response["value"] != "Allow" {
@@ -875,7 +876,7 @@ func TestAnswerGate(t *testing.T) {
 	t.Run("没有审批方时拒绝", func(t *testing.T) {
 		h := New(Options{})
 		sink := &bufferWriteCloser{}
-		h.handleExtensionUI(context.Background(), harness.Turn{}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{}, procutil.NewLineWriter(sink), event)
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Deny" {
 			t.Fatalf("没有审批方时应拒绝: %+v", response)
@@ -891,7 +892,7 @@ func TestAnswerGate(t *testing.T) {
 				Answers:  map[string][]string{"req-1": {"Allow for session"}},
 			},
 		}
-		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Allow for session" {
 			t.Fatalf("会话级允许应答错误: %+v", response)
@@ -914,7 +915,7 @@ func TestAnswerQuestion(t *testing.T) {
 				Answers:  map[string][]string{"q-1": {"Yes"}},
 			},
 		}
-		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["confirmed"] != true {
@@ -939,7 +940,7 @@ func TestAnswerQuestion(t *testing.T) {
 				Answers:  map[string][]string{"q-2": {"b"}},
 			},
 		}
-		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "b" {
@@ -955,7 +956,7 @@ func TestAnswerQuestion(t *testing.T) {
 		}
 		h := New(Options{})
 		sink := &bufferWriteCloser{}
-		h.handleExtensionUI(context.Background(), harness.Turn{}, &lineWriter{w: sink}, event)
+		h.handleExtensionUI(context.Background(), harness.Turn{}, procutil.NewLineWriter(sink), event)
 		response := decodeSingleRequest(t, sink.String())
 		if response["cancelled"] != true {
 			t.Fatalf("无答案时应取消: %+v", response)
@@ -972,7 +973,7 @@ func TestAnswerSelectRootFields(t *testing.T) {
 		}
 		approver := &recordingApprover{decision: harness.DecisionAllow}
 		sink := &bufferWriteCloser{}
-		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: approver}, &lineWriter{w: sink}, event)
+		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: approver}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Allow" {
@@ -996,7 +997,7 @@ func TestAnswerSelectRootFields(t *testing.T) {
 			},
 		}
 		sink := &bufferWriteCloser{}
-		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, &lineWriter{w: sink}, event)
+		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "b" {
@@ -1021,7 +1022,7 @@ func TestAnswerSelectRootFields(t *testing.T) {
 			},
 		}
 		sink := &bufferWriteCloser{}
-		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, &lineWriter{w: sink}, event)
+		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["confirmed"] != true {
@@ -1047,7 +1048,7 @@ func TestAnswerSelectRejectsEmptyRequest(t *testing.T) {
 		},
 	}
 	sink := &bufferWriteCloser{}
-	New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, &lineWriter{w: sink}, event)
+	New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
 
 	response := decodeSingleRequest(t, sink.String())
 	if response["cancelled"] != true {
@@ -1282,7 +1283,7 @@ func TestAnswerGateInPlanMode(t *testing.T) {
 		approver := &recordingApprover{decision: harness.DecisionAllow}
 		sink := &bufferWriteCloser{}
 		New(Options{}).handleExtensionUI(context.Background(),
-			harness.Turn{Approver: approver, InteractionMode: "plan"}, &lineWriter{w: sink}, gateEvent(t, "bash"))
+			harness.Turn{Approver: approver, InteractionMode: "plan"}, procutil.NewLineWriter(sink), gateEvent(t, "bash"))
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Deny" {
@@ -1297,7 +1298,7 @@ func TestAnswerGateInPlanMode(t *testing.T) {
 		approver := &recordingApprover{decision: harness.DecisionAllow}
 		sink := &bufferWriteCloser{}
 		New(Options{}).handleExtensionUI(context.Background(),
-			harness.Turn{Approver: approver, InteractionMode: "plan"}, &lineWriter{w: sink}, gateEvent(t, "read"))
+			harness.Turn{Approver: approver, InteractionMode: "plan"}, procutil.NewLineWriter(sink), gateEvent(t, "read"))
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Allow" {
@@ -1312,7 +1313,7 @@ func TestAnswerGateInPlanMode(t *testing.T) {
 		approver := &recordingApprover{decision: harness.DecisionAllow}
 		sink := &bufferWriteCloser{}
 		New(Options{}).handleExtensionUI(context.Background(),
-			harness.Turn{Approver: approver, Mode: harness.ModeSupervised}, &lineWriter{w: sink}, gateEvent(t, "bash"))
+			harness.Turn{Approver: approver, Mode: harness.ModeSupervised}, procutil.NewLineWriter(sink), gateEvent(t, "bash"))
 
 		response := decodeSingleRequest(t, sink.String())
 		if response["value"] != "Allow" {

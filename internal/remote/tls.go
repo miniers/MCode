@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/acme"
+
+	"mcode/internal/fsutil"
 )
 
 // TLSOptions 配置 TLS 证书管理项。
@@ -668,44 +670,5 @@ func writeAtomic(targetPath string, data []byte, perm os.FileMode) error {
 		return err
 	}
 
-	tmpFile, err := os.CreateTemp(dir, filepath.Base(targetPath)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmpFile.Name()
-	defer func() {
-		if tmpName != "" {
-			_ = os.Remove(tmpName)
-		}
-	}()
-
-	if err := tmpFile.Chmod(perm); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-
-	if err := tmpFile.Sync(); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-
-	if err := os.Chmod(tmpName, perm); err != nil {
-		return err
-	}
-
-	if err := os.Rename(tmpName, targetPath); err != nil {
-		return err
-	}
-
-	tmpName = ""
-	return nil
+	return fsutil.WriteFileAtomic(targetPath, data, perm)
 }

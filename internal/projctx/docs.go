@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mcode/internal/fsutil"
 )
 
 // 标准文档名：四篇固定文档，位于上下文目录根部。
@@ -544,32 +546,10 @@ func (s *Service) WriteRef(raw, content, expectedHash string) (Doc, error) {
 }
 
 // writeFileAtomic 以临时文件 + rename 原子写入文件内容。
-func writeFileAtomic(dir, path, content string) error {
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return fmt.Errorf("projctx: create temp in %s: %w", dir, err)
+func writeFileAtomic(_ string, path, content string) error {
+	if err := fsutil.WriteFileAtomic(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("projctx: write %s: %w", path, err)
 	}
-	tmpPath := tmp.Name()
-	defer func() {
-		if tmpPath != "" {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.WriteString(content); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("projctx: write temp %s: %w", tmpPath, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("projctx: sync temp %s: %w", tmpPath, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("projctx: close temp %s: %w", tmpPath, err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("projctx: rename temp to %s: %w", path, err)
-	}
-	tmpPath = ""
 	return nil
 }
 

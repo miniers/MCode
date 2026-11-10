@@ -13,12 +13,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"mcode/internal/harness"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
 	"mcode/internal/redact"
 )
@@ -145,29 +145,6 @@ func (h *Harness) Available() (bool, string) {
 		return true, ""
 	}
 	return false, fmt.Sprintf("agy (%s) was not found in PATH", bin)
-}
-
-type tailBuffer struct {
-	mu    sync.Mutex
-	limit int
-	buf   []byte
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	n := len(p)
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.limit {
-		b.buf = b.buf[len(b.buf)-b.limit:]
-	}
-	return n, nil
-}
-
-func (b *tailBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return string(b.buf)
 }
 
 func parseModelRow(slug string) (baseSlug string, effort string) {
@@ -522,7 +499,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		cmd.Env = buildEnv(baseEnv, turn.WorkDir, turn.Env, routeEnv)
 		cmd.WaitDelay = 3 * time.Second
 
-		stderrBuf := &tailBuffer{limit: 8192}
+		stderrBuf := procutil.NewTailBuffer(8192)
 		cmd.Stderr = stderrBuf
 
 		stdinPipe, err := cmd.StdinPipe()

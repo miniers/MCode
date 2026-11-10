@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/procutil"
 )
 
 var (
@@ -117,7 +118,7 @@ type activeRun struct {
 	turnID    string
 	sessionID string
 	cmd       *exec.Cmd
-	writer    *lineWriter
+	writer    *procutil.LineWriter
 }
 
 // New 创建一个新的 Pi Harness 实例。
@@ -270,52 +271,6 @@ func buildEnv(base []string, workDir string, extra []string) []string {
 	return env
 }
 
-// tailBuffer 是一个保留末尾至多指定字节大小的缓冲区，用于错误输出。
-type tailBuffer struct {
-	limit int
-	buf   []byte
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	n := len(p)
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.limit {
-		b.buf = b.buf[len(b.buf)-b.limit:]
-	}
-	return n, nil
-}
-
-func (b *tailBuffer) String() string {
-	return string(b.buf)
-}
-
-// lineWriter 串行化对 pi stdin 的写入：主循环、Steer 与强停可能并发操作同一管道。
-type lineWriter struct {
-	mu     sync.Mutex
-	w      io.WriteCloser
-	closed bool
-}
-
-func (l *lineWriter) write(line []byte) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.closed {
-		return io.ErrClosedPipe
-	}
-	_, err := l.w.Write(line)
-	return err
-}
-
-func (l *lineWriter) close() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.closed {
-		return nil
-	}
-	l.closed = true
-	return l.w.Close()
-}
-
 // splitModelRef 拆分 pi 的 "provider/model" 形式；不含斜杠时只返回模型名。
 func splitModelRef(model string) (provider, modelID string, qualified bool) {
 	if index := strings.Index(model, "/"); index > 0 && index < len(model)-1 {
@@ -412,7 +367,7 @@ func (h *Harness) Steer(ctx context.Context, sessionID string, text string) erro
 	if err != nil {
 		return err
 	}
-	if err := run.writer.write(line); err != nil {
+	if err := run.writer.WriteLine(line); err != nil {
 		return fmt.Errorf("pi: steer: %w", err)
 	}
 	return nil
@@ -427,7 +382,7 @@ func (h *Harness) ForceStopTurn(turnID string) {
 	// 先杀进程组再关 stdin：子进程不再读 stdin 而管道写满时，writer.close() 会卡在 l.mu 上，
 	// 先关 writer 会让 SIGKILL 永远等不到执行。
 	_ = killProcessGroup(run.cmd, syscall.SIGKILL)
-	_ = run.writer.close()
+	_ = run.writer.Close()
 }
 
 // registerRun 记录当轮的活动进程。

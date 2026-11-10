@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/harness"
 )
 
@@ -238,11 +239,7 @@ func (g *gate) reply(id string, allow bool, reason string) error {
 		return err
 	}
 	target := filepath.Join(g.dir, id+".reply.json")
-	temporary := target + ".tmp"
-	if err := os.WriteFile(temporary, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(temporary, target)
+	return fsutil.WriteFileAtomic(target, data, 0o600)
 }
 
 // humanize 把 task_create 变成 "Task create"。
