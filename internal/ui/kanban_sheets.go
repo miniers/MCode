@@ -7,15 +7,16 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// openKanbanNewTaskSheet 打开新建任务弹窗，清空上次的草稿。
+// openKanbanNewTaskSheet 打开新建任务弹窗。
 func openKanbanNewTaskSheet(s *chatState) {
 	ks := getKanbanState(s)
 	if ks == nil {
 		return
 	}
 	kanbanMu.Lock()
-	ks.newTaskTitle = ""
-	ks.newTaskNotes = ""
+	if ks.newTaskProjectID == "" {
+		ks.newTaskProjectID = ks.projectID
+	}
 	ks.showNewTask = true
 	ks.showNewGoal = false
 	kanbanMu.Unlock()
@@ -38,14 +39,16 @@ func closeKanbanNewTaskSheet(s *chatState) {
 	s.invalidate()
 }
 
-// openKanbanNewGoalSheet 打开新建目标弹窗，清空上次的草稿。
+// openKanbanNewGoalSheet 打开新建目标弹窗。
 func openKanbanNewGoalSheet(s *chatState) {
 	ks := getKanbanState(s)
 	if ks == nil {
 		return
 	}
 	kanbanMu.Lock()
-	ks.newGoalPrompt = ""
+	if ks.newGoalProjectID == "" {
+		ks.newGoalProjectID = ks.projectID
+	}
 	ks.showNewGoal = true
 	ks.showNewTask = false
 	kanbanMu.Unlock()
@@ -252,7 +255,8 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 	show := ks.showNewTask
 	title := ks.newTaskTitle
 	notes := ks.newTaskNotes
-	projectID := ks.projectID
+	projectID := ks.newTaskProjectID
+	busy, errMsg := ks.newTaskBusy, ks.newTaskErr
 	kanbanMu.Unlock()
 	if !show {
 		modalDragReset(modalDragKanbanNewTask)
@@ -289,11 +293,14 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 					// 任务标题（可留空，由备注自动生成标题）
 					ui.Column(c.Key("kanban-new-task-title-field")).FillWidth().Gap(Space2).Children(func() {
 						kanbanSheetLabel(c, "任务标题", "任务标题")
-						ui.TextInput(c.Key("kanban-new-task-title"), &ks.newTaskTitle).
+						input := ui.TextInput(c.Key("kanban-new-task-title"), &ks.newTaskTitle).
 							Label("kanban-new-task-title").
 							Placeholder("可选：留空则用备注自动生成标题").
 							FillWidth().
 							AutoFocus()
+						if input.Changed() {
+							ks.newTaskVersion++
+						}
 					})
 
 					// 项目
@@ -301,7 +308,8 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 						kanbanSheetLabel(c, "项目", "项目")
 						kanbanSheetProjectPicker(c, s, projectID, func(id string) {
 							kanbanMu.Lock()
-							ks.projectID = id
+							ks.newTaskProjectID = id
+							ks.newTaskVersion++
 							kanbanMu.Unlock()
 							s.invalidate()
 						})
@@ -310,10 +318,13 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 					// 需求与备注（多行）
 					ui.Column(c.Key("kanban-new-task-notes-field")).FillWidth().Gap(Space2).Children(func() {
 						kanbanSheetLabel(c, "需求与备注", "需求与备注")
-						ui.TextArea(c.Key("kanban-new-task-notes"), &ks.newTaskNotes).
+						input := ui.TextArea(c.Key("kanban-new-task-notes"), &ks.newTaskNotes).
 							Label("kanban-new-task-notes").
 							Lines(4, 6).
 							FillWidth()
+						if input.Changed() {
+							ks.newTaskVersion++
+						}
 					})
 
 				})
@@ -323,12 +334,15 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 				FillWidth().
 				AlignItems(ui.Center).
 				Children(func() {
+					if errMsg != "" {
+						ui.Text(c, errMsg).TextColor(ThemeDanger(c))
+					}
 					ui.Box(c.Key("kanban-new-task-footer-spacer")).Grow(1)
 					Button(c.Key("kanban-new-task-save"), ButtonOpts{
 						Text:     "保存任务",
 						Label:    "保存任务",
 						Variant:  ButtonPrimary,
-						Disabled: strings.TrimSpace(title) == "" && strings.TrimSpace(notes) == "",
+						Disabled: busy || (strings.TrimSpace(title) == "" && strings.TrimSpace(notes) == ""),
 						OnClick: func() {
 							submitKanbanNewTask(s)
 						},
@@ -352,7 +366,7 @@ func submitKanbanNewTask(s *chatState) {
 	kanbanMu.Lock()
 	title := strings.TrimSpace(ks.newTaskTitle)
 	notes := strings.TrimSpace(ks.newTaskNotes)
-	projectID := ks.projectID
+	projectID := ks.newTaskProjectID
 	kanbanMu.Unlock()
 
 	if projectID == "" {
@@ -374,13 +388,6 @@ func submitKanbanNewTask(s *chatState) {
 		}
 	}
 
-	kanbanMu.Lock()
-	ks.showNewTask = false
-	ks.newTaskTitle = ""
-	ks.newTaskNotes = ""
-	kanbanMu.Unlock()
-	setKanbanPickerMenuOpen(s, false)
-	s.invalidate()
 	s.createTask(projectID, title, notes)
 }
 
@@ -395,14 +402,15 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 	kanbanMu.Lock()
 	show := ks.showNewGoal
 	prompt := ks.newGoalPrompt
-	projectID := ks.projectID
+	projectID := ks.newGoalProjectID
+	busy, errMsg := ks.newGoalBusy, ks.newGoalErr
 	kanbanMu.Unlock()
 	if !show {
 		modalDragReset(modalDragKanbanNewGoal)
 		return
 	}
 
-	canCreate := projectID != "" && strings.TrimSpace(prompt) != ""
+	canCreate := !busy && projectID != "" && strings.TrimSpace(prompt) != ""
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragKanbanNewGoal, 560, 520, min(360, max(0, winW-modalDragPanelInset)), min(240, max(0, winH-modalDragPanelInset)), winW, winH)
 
@@ -420,9 +428,6 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 							FontSize(TypePageTitle).
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c))
-						ui.Text(c, "说出你想完成的事，Agent 会阅读项目、拆成任务并逐项完成。").
-							FontSize(TypeBody).
-							TextColor(ThemeSecondaryText(c))
 					})
 					Button(c.Key("kanban-new-goal-cancel"), ButtonOpts{
 						Text:    "取消",
@@ -445,13 +450,16 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 						BorderColor(ThemeOverlay(c, 0.10)).
 						Gap(0).
 						Children(func() {
-							ui.TextArea(c.Key("kanban-new-goal-prompt"), &ks.newGoalPrompt).
+							input := ui.TextArea(c.Key("kanban-new-goal-prompt"), &ks.newGoalPrompt).
 								Label("kanban-new-goal-prompt").
 								Placeholder("例如：为设置页加上深色模式，并补上测试").
 								FontSize(TypeProse).
 								Lines(5, 9).
 								FillWidth().
 								AutoFocus()
+							if input.Changed() {
+								ks.newGoalVersion++
+							}
 							ui.Row(c.Key("kanban-new-goal-toolbar")).
 								FillWidth().
 								Padding(Space3, Space3).
@@ -462,25 +470,13 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 									ui.Column(c.Key("kanban-new-goal-project")).Width(220).Children(func() {
 										kanbanSheetProjectPicker(c, s, projectID, func(id string) {
 											kanbanMu.Lock()
-											ks.projectID = id
+											ks.newGoalProjectID = id
+											ks.newGoalVersion++
 											kanbanMu.Unlock()
 											s.invalidate()
 										})
 									})
 								})
-						})
-
-					// 选项行：展示默认策略（预审阅计划、结束后自动接受）
-					ui.Row(c.Key("kanban-new-goal-options")).
-						FillWidth().
-						Wrap().
-						Gap(Space3).
-						Children(func() {
-							kanbanGoalOptionPill(c, "kanban-new-goal-preview", "预览计划", true)
-							kanbanGoalOptionPill(c, "kanban-new-goal-auto-accept", "自动接受", true)
-							kanbanGoalOptionPill(c, "kanban-new-goal-worktree", "Worktree", false)
-							kanbanGoalOptionPill(c, "kanban-new-goal-concurrency", "串行执行", false)
-							kanbanGoalOptionPill(c, "kanban-new-goal-manual-review", "手动审查", false)
 						})
 
 				})
@@ -490,10 +486,10 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 				FillWidth().
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Text(c, "你会先审阅计划，然后才开始执行。").
-						FontSize(TypeFootnote).
-						TextColor(ThemeSecondaryText(c)).
-						Grow(1)
+					if errMsg != "" {
+						ui.Text(c, errMsg).TextColor(ThemeDanger(c))
+					}
+					ui.Box(c).Grow(1)
 					Button(c.Key("kanban-new-goal-create"), ButtonOpts{
 						Text:     "规划目标",
 						Label:    "规划目标",
@@ -538,7 +534,7 @@ func submitKanbanNewGoal(s *chatState) {
 	}
 	kanbanMu.Lock()
 	prompt := strings.TrimSpace(ks.newGoalPrompt)
-	projectID := ks.projectID
+	projectID := ks.newGoalProjectID
 	kanbanMu.Unlock()
 
 	if projectID == "" {
@@ -550,10 +546,5 @@ func submitKanbanNewGoal(s *chatState) {
 		return
 	}
 
-	kanbanMu.Lock()
-	ks.showNewGoal = false
-	ks.newGoalPrompt = ""
-	kanbanMu.Unlock()
-	s.invalidate()
 	s.createGoal(projectID, prompt)
 }

@@ -199,6 +199,7 @@ type FakeClient struct {
 	diffs             map[string]ThreadDiff
 
 	kanbanBoard         KanbanBoard
+	kanbanBoardHook     func(context.Context, string) (KanbanBoard, error)
 	kanbanErr           error
 	moveTaskErr         error
 	kanbanBoardCalls    int
@@ -1787,8 +1788,12 @@ func (f *FakeClient) AutomationSchedulerStatusCalls() int {
 // KanbanBoard 返回已设置看板中按 projectID 过滤后的副本。
 func (f *FakeClient) KanbanBoard(ctx context.Context, projectID string) (KanbanBoard, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.kanbanBoardCalls++
+	if hook := f.kanbanBoardHook; hook != nil {
+		f.mu.Unlock()
+		return hook(ctx, projectID)
+	}
+	defer f.mu.Unlock()
 	if f.kanbanErr != nil {
 		return KanbanBoard{}, f.kanbanErr
 	}

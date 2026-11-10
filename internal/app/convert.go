@@ -442,6 +442,16 @@ func ThreadActivityFromMessages(msgs []mcodeui.Message) (requests, toolCalls int
 // KanbanTaskToUI 将 store.Task 与 kanban.Derived 转换为 mcodeui.KanbanTask。
 // 字符串型可空字段为 nil 时转成空串。
 func KanbanTaskToUI(t store.Task, d kanban.Derived) mcodeui.KanbanTask {
+	var reviewThreadID, reviewFeedback, reviewStatus string
+	if t.ReviewThreadID != nil {
+		reviewThreadID = *t.ReviewThreadID
+	}
+	if t.ReviewFeedback != nil {
+		reviewFeedback = *t.ReviewFeedback
+	}
+	if t.ReviewStatus != nil {
+		reviewStatus = *t.ReviewStatus
+	}
 	var projectID string
 	if t.ProjectID != nil {
 		projectID = *t.ProjectID
@@ -480,30 +490,35 @@ func KanbanTaskToUI(t store.Task, d kanban.Derived) mcodeui.KanbanTask {
 	copy(flags, d.AttentionFlags)
 
 	return mcodeui.KanbanTask{
-		ID:                t.ID,
-		ProjectID:         projectID,
-		ThreadID:          threadID,
-		GoalID:            goalID,
-		Title:             t.Title,
-		Notes:             t.Notes,
-		Status:            t.Status,
-		Priority:          t.Priority,
-		Column:            string(d.DisplayColumn),
-		DependsOn:         deps,
-		Blocked:           d.Blocked,
-		CanStart:          d.CanStart,
-		CanMove:           d.CanMove,
-		CanReview:         d.CanReview,
-		AttentionFlags:    flags,
-		LastFailureReason: lastFailureReason,
-		LastActivity:      lastActivity,
-		ReviewSummary:     reviewSummary,
-		ResultSummary:     resultSummary,
-		WaitKind:          waitKind,
-		WakeAt:            wakeAt,
-		AttemptCount:      t.AttemptCount,
-		Revision:          t.Revision,
-		UpdatedAt:         t.UpdatedAt,
+		AcceptanceCriteria: t.AcceptanceCriteria,
+		ReviewThreadID:     reviewThreadID,
+		ReviewFeedback:     reviewFeedback,
+		ReviewStatus:       reviewStatus,
+		CanApprove:         d.CanApprove,
+		ID:                 t.ID,
+		ProjectID:          projectID,
+		ThreadID:           threadID,
+		GoalID:             goalID,
+		Title:              t.Title,
+		Notes:              t.Notes,
+		Status:             t.Status,
+		Priority:           t.Priority,
+		Column:             string(d.DisplayColumn),
+		DependsOn:          deps,
+		Blocked:            d.Blocked,
+		CanStart:           d.CanStart,
+		CanMove:            d.CanMove,
+		CanReview:          d.CanReview,
+		AttentionFlags:     flags,
+		LastFailureReason:  lastFailureReason,
+		LastActivity:       lastActivity,
+		ReviewSummary:      reviewSummary,
+		ResultSummary:      resultSummary,
+		WaitKind:           waitKind,
+		WakeAt:             wakeAt,
+		AttemptCount:       t.AttemptCount,
+		Revision:           t.Revision,
+		UpdatedAt:          t.UpdatedAt,
 	}
 }
 

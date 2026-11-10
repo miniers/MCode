@@ -10,6 +10,43 @@ import (
 	"mcode/internal/git"
 )
 
+func (s *chatState) syncKanbanProject(projectID string) {
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	changed := !ks.initialized || ks.projectID != projectID
+	if changed {
+		ks.projectID = projectID
+	}
+	kanbanMu.Unlock()
+	if changed {
+		s.setKanbanScope(projectID, projectID == "")
+	}
+}
+
+func (s *chatState) setKanbanScope(projectID string, all bool) {
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	ks.scopeID = projectID
+	ks.overview = all
+	ks.initialized = true
+	ks.loadID++
+	ks.watchLoading = false
+	ks.watchPending = false
+	ks.board = KanbanBoard{}
+	ks.err = ""
+	kanbanMu.Unlock()
+	s.startKanbanWatch(projectID)
+	s.loadKanban(projectID)
+}
+
+func (s *chatState) refreshKanban() {
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	scope := ks.scopeID
+	kanbanMu.Unlock()
+	s.loadKanban(scope)
+}
+
 // stopKanbanWatch 停止当前看板的实时更新订阅。
 func stopKanbanWatch(s *chatState) {
 	if s == nil {
@@ -19,6 +56,10 @@ func stopKanbanWatch(s *chatState) {
 	defer kanbanMu.Unlock()
 	if st, ok := kanbanStates[s]; ok {
 		st.initialized = false
+		st.loadID++
+		st.watchID++
+		st.watchLoading = false
+		st.watchPending = false
 		if st.watchStop != nil {
 			st.watchStop()
 			st.watchStop = nil
@@ -28,7 +69,7 @@ func stopKanbanWatch(s *chatState) {
 
 // startKanbanWatch 订阅看板数据变更。
 func (s *chatState) startKanbanWatch(projectID string) {
-	if s == nil || s.client == nil || projectID == "" {
+	if s == nil || s.client == nil {
 		return
 	}
 	ks := getKanbanState(s)
@@ -37,6 +78,8 @@ func (s *chatState) startKanbanWatch(projectID string) {
 	}
 
 	kanbanMu.Lock()
+	ks.watchID++
+	watchID := ks.watchID
 	if ks.watchStop != nil {
 		ks.watchStop()
 		ks.watchStop = nil
@@ -44,17 +87,27 @@ func (s *chatState) startKanbanWatch(projectID string) {
 	kanbanMu.Unlock()
 
 	stop := s.client.WatchKanban(func() {
+		kanbanMu.Lock()
+		valid := ks.initialized && ks.watchID == watchID && ks.scopeID == projectID
+		kanbanMu.Unlock()
+		if !valid {
+			return
+		}
 		s.loadKanban(projectID)
 	})
 
 	kanbanMu.Lock()
-	ks.watchStop = stop
+	if ks.initialized && ks.watchID == watchID && ks.scopeID == projectID {
+		ks.watchStop = stop
+	} else {
+		stop()
+	}
 	kanbanMu.Unlock()
 }
 
 // loadKanban 异步加载看板数据。
 func (s *chatState) loadKanban(projectID string) {
-	if s == nil || s.client == nil || projectID == "" {
+	if s == nil || s.client == nil {
 		return
 	}
 	ks := getKanbanState(s)
@@ -63,12 +116,19 @@ func (s *chatState) loadKanban(projectID string) {
 	}
 
 	kanbanMu.Lock()
-	if ks.projectID != projectID {
+	if ks.scopeID != projectID {
+		kanbanMu.Unlock()
+		return
+	}
+	if ks.watchLoading && ks.loadingScope == projectID {
+		ks.watchPending = true
 		kanbanMu.Unlock()
 		return
 	}
 	ks.loadID++
 	loadID := ks.loadID
+	ks.watchLoading = true
+	ks.loadingScope = projectID
 	ks.loading = true
 	ks.err = ""
 	kanbanMu.Unlock()
@@ -80,10 +140,13 @@ func (s *chatState) loadKanban(projectID string) {
 
 		s.updateWorkspace(func() {
 			kanbanMu.Lock()
-			defer kanbanMu.Unlock()
-			if ks.projectID != pid || ks.loadID != loadID {
+			if ks.scopeID != pid || ks.loadID != loadID {
+				kanbanMu.Unlock()
 				return
 			}
+			ks.watchLoading = false
+			pending := ks.watchPending
+			ks.watchPending = false
 			ks.loading = false
 			if err != nil {
 				if errors.Is(err, ErrRevisionConflict) {
@@ -94,6 +157,10 @@ func (s *chatState) loadKanban(projectID string) {
 			} else {
 				ks.board = board
 				ks.err = ""
+			}
+			kanbanMu.Unlock()
+			if pending {
+				s.loadKanban(pid)
 			}
 			s.invalidate()
 		})
@@ -110,28 +177,36 @@ func (s *chatState) createTask(projectID, title, notes string) {
 		return
 	}
 
+	kanbanMu.Lock()
+	if ks.newTaskBusy {
+		kanbanMu.Unlock()
+		return
+	}
+	ks.newTaskBusy = true
+	ks.newTaskErr = ""
+	draftTitle, draftNotes, draftProject := ks.newTaskTitle, ks.newTaskNotes, ks.newTaskProjectID
+	version := ks.newTaskVersion
+	kanbanMu.Unlock()
+	s.invalidate()
 	go func() {
 		ctx := context.Background()
 		_, err := s.client.CreateTask(ctx, projectID, title, notes)
-		if err != nil {
-			if errors.Is(err, ErrRevisionConflict) {
-				kanbanMu.Lock()
-				ks.conflict = true
-				kanbanMu.Unlock()
-			} else {
-				s.setToast("创建任务失败: " + err.Error())
-			}
-			s.invalidate()
-			return
-		}
 		s.updateWorkspace(func() {
-			if ks.projectID == projectID {
+			kanbanMu.Lock()
+			ks.newTaskBusy = false
+			if err != nil {
+				ks.newTaskErr = err.Error()
+			} else if ks.newTaskVersion == version && ks.newTaskProjectID == draftProject && ks.newTaskTitle == draftTitle && ks.newTaskNotes == draftNotes {
 				ks.newTaskTitle = ""
 				ks.newTaskNotes = ""
 				ks.showNewTask = false
 			}
+			scope := ks.scopeID
+			kanbanMu.Unlock()
+			if err == nil {
+				s.loadKanban(scope)
+			}
 		})
-		s.loadKanban(projectID)
 	}()
 }
 
@@ -145,27 +220,35 @@ func (s *chatState) createGoal(projectID, prompt string) {
 		return
 	}
 
+	kanbanMu.Lock()
+	if ks.newGoalBusy {
+		kanbanMu.Unlock()
+		return
+	}
+	ks.newGoalBusy = true
+	ks.newGoalErr = ""
+	draftPrompt, draftProject := ks.newGoalPrompt, ks.newGoalProjectID
+	version := ks.newGoalVersion
+	kanbanMu.Unlock()
+	s.invalidate()
 	go func() {
 		ctx := context.Background()
 		_, err := s.client.CreateGoal(ctx, projectID, prompt)
-		if err != nil {
-			if errors.Is(err, ErrRevisionConflict) {
-				kanbanMu.Lock()
-				ks.conflict = true
-				kanbanMu.Unlock()
-			} else {
-				s.setToast("创建目标失败: " + err.Error())
-			}
-			s.invalidate()
-			return
-		}
 		s.updateWorkspace(func() {
-			if ks.projectID == projectID {
+			kanbanMu.Lock()
+			ks.newGoalBusy = false
+			if err != nil {
+				ks.newGoalErr = err.Error()
+			} else if ks.newGoalVersion == version && ks.newGoalProjectID == draftProject && ks.newGoalPrompt == draftPrompt {
 				ks.newGoalPrompt = ""
 				ks.showNewGoal = false
 			}
+			scope := ks.scopeID
+			kanbanMu.Unlock()
+			if err == nil {
+				s.loadKanban(scope)
+			}
 		})
-		s.loadKanban(projectID)
 	}()
 }
 
@@ -179,15 +262,21 @@ func (s *chatState) submitQuickAdd(projectID string) {
 		return
 	}
 	kanbanMu.Lock()
-	title := strings.TrimSpace(ks.quickAddText)
-	kanbanMu.Unlock()
-	if title == "" {
+	draft := ks.quickAddText
+	title := strings.TrimSpace(draft)
+	if title == "" || ks.quickAddBusy {
+		kanbanMu.Unlock()
 		return
 	}
+	ks.quickAddBusy = true
+	kanbanMu.Unlock()
 
 	go func() {
 		ctx := context.Background()
 		_, err := s.client.CreateTask(ctx, projectID, title, "")
+		kanbanMu.Lock()
+		ks.quickAddBusy = false
+		kanbanMu.Unlock()
 		if err != nil {
 			if errors.Is(err, ErrRevisionConflict) {
 				kanbanMu.Lock()
@@ -200,12 +289,14 @@ func (s *chatState) submitQuickAdd(projectID string) {
 			return
 		}
 		s.updateWorkspace(func() {
-			if ks.projectID == projectID {
+			kanbanMu.Lock()
+			if ks.projectID == projectID && ks.quickAddText == draft {
 				ks.quickAddText = ""
-				ks.quickAddOpen = false
 			}
+			scope := ks.scopeID
+			kanbanMu.Unlock()
+			s.loadKanban(scope)
 		})
-		s.loadKanban(projectID)
 	}()
 }
 
@@ -263,8 +354,11 @@ func (s *chatState) deleteKanbanTask(task KanbanTask) {
 		s.setToast("当前版本的 Client 未提供删除任务的方法，已跳过")
 		return
 	}
-	pid := ks.projectID
+	if !beginKanbanTask(ks, task.ID) {
+		return
+	}
 	go func() {
+		defer endKanbanTask(ks, task.ID)
 		if err := client.DeleteTask(context.Background(), task.ID, task.Revision); err != nil {
 			s.setToast("删除任务失败：" + err.Error())
 			s.invalidate()
@@ -279,22 +373,37 @@ func (s *chatState) deleteKanbanTask(task KanbanTask) {
 			kanbanMu.Unlock()
 		})
 		s.setToast("已删除任务")
-		s.loadKanban(pid)
+		s.refreshKanban()
 	}()
 }
 
 // interruptTaskToTodo 中断任务会话并把它移回待办；任务没有会话时只做移动。
 func (s *chatState) interruptTaskToTodo(task KanbanTask) {
-	if s == nil {
+	if s == nil || s.client == nil {
 		return
 	}
-	if s.client != nil && task.ThreadID != "" {
-		threadID := task.ThreadID
-		go func() {
-			_, _ = s.client.Interrupt(context.Background(), threadID)
-		}()
+	ks := getKanbanState(s)
+	if !beginKanbanTask(ks, task.ID) {
+		return
 	}
-	s.moveTask(task.ID, "todo", task.Revision)
+	go func() {
+		defer endKanbanTask(ks, task.ID)
+		if task.ThreadID != "" {
+			_, _ = s.client.Interrupt(context.Background(), task.ThreadID)
+		}
+		if _, err := s.client.MoveTask(context.Background(), task.ID, "todo", task.Revision); err != nil {
+			if errors.Is(err, ErrRevisionConflict) {
+				kanbanMu.Lock()
+				ks.conflict = true
+				kanbanMu.Unlock()
+			} else {
+				s.setToast("移动任务失败: " + err.Error())
+			}
+			s.invalidate()
+			return
+		}
+		s.refreshKanban()
+	}()
 }
 
 // moveTask 移动任务到指定状态。
@@ -307,8 +416,11 @@ func (s *chatState) moveTask(taskID, status string, revision int) {
 		return
 	}
 
-	pid := ks.projectID
+	if !beginKanbanTask(ks, taskID) {
+		return
+	}
 	go func() {
+		defer endKanbanTask(ks, taskID)
 		ctx := context.Background()
 		_, err := s.client.MoveTask(ctx, taskID, status, revision)
 		if err != nil {
@@ -322,7 +434,7 @@ func (s *chatState) moveTask(taskID, status string, revision int) {
 			s.invalidate()
 			return
 		}
-		s.loadKanban(pid)
+		s.refreshKanban()
 	}()
 }
 
@@ -337,7 +449,11 @@ func (s *chatState) startTask(taskID string, revision int) {
 	}
 
 	pid := ks.projectID
+	if !beginKanbanTask(ks, taskID) {
+		return
+	}
 	go func() {
+		defer endKanbanTask(ks, taskID)
 		ctx := context.Background()
 		_, err := s.client.StartTask(ctx, taskID, revision)
 		if err != nil {
@@ -351,7 +467,7 @@ func (s *chatState) startTask(taskID string, revision int) {
 			s.invalidate()
 			return
 		}
-		s.loadKanban(pid)
+		s.refreshKanban()
 		s.loadThreads(pid, false)
 	}()
 }
@@ -367,7 +483,11 @@ func (s *chatState) reviewTask(taskID, decision, feedback string, revision int) 
 	}
 
 	pid := ks.projectID
+	if !beginKanbanTask(ks, taskID) {
+		return
+	}
 	go func() {
+		defer endKanbanTask(ks, taskID)
 		ctx := context.Background()
 		_, err := s.client.ReviewTask(ctx, taskID, decision, feedback, revision)
 		if err != nil {
@@ -383,7 +503,7 @@ func (s *chatState) reviewTask(taskID, decision, feedback string, revision int) 
 						ks.detailConflict = true
 					}
 					kanbanMu.Unlock()
-					s.loadKanban(pid)
+					s.refreshKanban()
 				})
 			} else {
 				s.setToast("验收任务失败: " + err.Error())
@@ -412,7 +532,7 @@ func (s *chatState) reviewTask(taskID, decision, feedback string, revision int) 
 			}
 			kanbanMu.Unlock()
 		})
-		s.loadKanban(pid)
+		s.refreshKanban()
 	}()
 }
 

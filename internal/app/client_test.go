@@ -879,16 +879,21 @@ func TestKanbanBoardToUI_FilterAndProgress(t *testing.T) {
 	p2 := "proj-2"
 	g1 := "goal-1"
 	g2 := "goal-2"
+	reviewThread, feedback, reviewStatus := "review-thread", "merge conflict", "merge_failed"
 
 	board := kanban.Board{
 		Revision: 42,
 		Tasks: []kanban.TaskView{
 			{
 				Task: store.Task{
-					ID:        "t1",
-					ProjectID: &p1,
-					GoalID:    &g1,
-					Status:    "done",
+					ID:                 "t1",
+					ProjectID:          &p1,
+					GoalID:             &g1,
+					Status:             "done",
+					ReviewThreadID:     &reviewThread,
+					ReviewFeedback:     &feedback,
+					ReviewStatus:       &reviewStatus,
+					AcceptanceCriteria: "go test ./...",
 				},
 				Derived: kanban.Derived{DisplayColumn: kanban.DisplayColumnDone},
 			},
@@ -933,6 +938,12 @@ func TestKanbanBoardToUI_FilterAndProgress(t *testing.T) {
 	allUI := KanbanBoardToUI(board, "")
 	if len(allUI.Tasks) != 3 || len(allUI.Goals) != 2 {
 		t.Fatalf("expected 3 tasks and 2 goals, got %d tasks and %d goals", len(allUI.Tasks), len(allUI.Goals))
+	}
+	if task := allUI.Tasks[0]; task.ThreadID != "" || task.ReviewThreadID != reviewThread || task.ReviewFeedback != feedback || task.ReviewStatus != reviewStatus || task.AcceptanceCriteria != "go test ./..." || task.CanApprove {
+		t.Errorf("unexpected review fields: %+v", task)
+	}
+	if task := allUI.Tasks[1]; task.ReviewThreadID != "" || task.AcceptanceCriteria != "" {
+		t.Errorf("unexpected empty fields: %+v", task)
 	}
 	// g1 进度由任务统计：共 2 个任务，1 个完成
 	if allUI.Goals[0].Total != 2 || allUI.Goals[0].Done != 1 {

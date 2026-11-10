@@ -74,14 +74,20 @@ func setKanbanPickerMenuOpen(s *chatState, open bool) {
 }
 
 type kanbanState struct {
-	projectID   string
-	initialized bool
-	loading     bool
-	err         string
-	board       KanbanBoard
-	conflict    bool
-	watchStop   func()
-	loadID      int
+	projectID    string
+	scopeID      string
+	initialized  bool
+	loading      bool
+	err          string
+	board        KanbanBoard
+	conflict     bool
+	watchStop    func()
+	loadID       int
+	watchID      int
+	watchLoading bool
+	watchPending bool
+	loadingScope string
+	taskBusy     map[string]bool
 	// viewMode 是当前会话的看板 / 列表 / 自动化视图；空值表示尚未应用默认视图。
 	viewMode string
 	// overview 为 true 时内容区显示「全部项目」概览。
@@ -101,13 +107,22 @@ type kanbanState struct {
 	deleteTaskID     string
 
 	// 新建任务草稿
-	showNewTask  bool
-	newTaskTitle string
-	newTaskNotes string
+	showNewTask      bool
+	newTaskTitle     string
+	newTaskNotes     string
+	newTaskProjectID string
+	newTaskBusy      bool
+	newTaskErr       string
+	newTaskVersion   int
 
 	// 新建目标草稿
-	showNewGoal   bool
-	newGoalPrompt string
+	showNewGoal      bool
+	newGoalPrompt    string
+	newGoalProjectID string
+	newGoalBusy      bool
+	newGoalErr       string
+	newGoalVersion   int
+	quickAddBusy     bool
 
 	// 目标重新规划草稿
 	replanGoalID   string
@@ -141,6 +156,31 @@ type kanbanState struct {
 	detailLoadID        int
 	detailFeedback      string
 	detailConflict      bool
+}
+
+func kanbanTaskBusy(ks *kanbanState, taskID string) bool {
+	kanbanMu.Lock()
+	defer kanbanMu.Unlock()
+	return ks != nil && ks.taskBusy[taskID]
+}
+
+func beginKanbanTask(ks *kanbanState, taskID string) bool {
+	kanbanMu.Lock()
+	defer kanbanMu.Unlock()
+	if ks.taskBusy[taskID] {
+		return false
+	}
+	if ks.taskBusy == nil {
+		ks.taskBusy = make(map[string]bool)
+	}
+	ks.taskBusy[taskID] = true
+	return true
+}
+
+func endKanbanTask(ks *kanbanState, taskID string) {
+	kanbanMu.Lock()
+	delete(ks.taskBusy, taskID)
+	kanbanMu.Unlock()
 }
 
 func getKanbanState(s *chatState) *kanbanState {

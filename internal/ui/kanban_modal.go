@@ -70,19 +70,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 
 	defaultView := kanbanConfiguredDefaultView(s)
 	curPID := s.currentWorkspaceProjectID()
-	if curPID != "" && (ks.projectID != curPID || !ks.initialized) {
-		kanbanMu.Lock()
-		if ks.projectID != curPID {
-			// 重建时保留已弹出的审查目标：可能刚指定了一个新项目里的目标，
-			// 这里一丢就再也不会自动打开（planReviewSeen 已经把它标记成看过）。
-			*ks = kanbanState{watchStop: ks.watchStop, loadID: ks.loadID, detailLoadID: ks.detailLoadID, planReviewSeen: ks.planReviewSeen, planReviewGoalID: ks.planReviewGoalID, viewMode: ks.viewMode, searchText: ks.searchText, overview: ks.overview, selecting: ks.selecting}
-		}
-		ks.projectID = curPID
-		ks.initialized = true
-		kanbanMu.Unlock()
-		s.startKanbanWatch(curPID)
-		s.loadKanban(curPID)
-	}
+	s.syncKanbanProject(curPID)
 
 	kanbanMu.Lock()
 	if ks.viewMode == "" {
@@ -90,6 +78,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 	}
 	p := kanbanModalBodyProps{
 		projectID:        curPID,
+		scopeID:          ks.scopeID,
 		viewMode:         ks.viewMode,
 		overview:         ks.overview,
 		searching:        strings.TrimSpace(ks.searchText) != "",
@@ -209,6 +198,7 @@ func renderKanbanPanel(c *ui.Context, s *chatState, windowMode bool) {
 // kanbanModalBodyProps 汇总看板弹窗内容区需要的只读状态快照。
 type kanbanModalBodyProps struct {
 	projectID        string
+	scopeID          string
 	viewMode         string
 	overview         bool
 	searching        bool
@@ -242,17 +232,13 @@ func renderKanbanModalHeader(c *ui.Context, s *chatState, ks *kanbanState, p kan
 	renderScope := func() {
 		if p.overview {
 			kanbanHeaderPill(c, "kanban-overview-current", "当前项目", true, func() {
-				kanbanMu.Lock()
-				ks.overview = false
-				kanbanMu.Unlock()
-				s.invalidate()
+				if p.projectID != "" {
+					s.setKanbanScope(p.projectID, false)
+				}
 			})
 		} else {
 			kanbanHeaderPill(c, "kanban-back-overview", "全部项目", false, func() {
-				kanbanMu.Lock()
-				ks.overview = true
-				kanbanMu.Unlock()
-				s.invalidate()
+				s.setKanbanScope("", true)
 			})
 		}
 		kanbanProjectMenu(c, s, p.projectID, func(id string) { s.setWorkspaceProject(id) })
@@ -355,7 +341,7 @@ func renderKanbanModalHeader(c *ui.Context, s *chatState, ks *kanbanState, p kan
 					Icon:  IconRefreshCw(),
 					Label: "刷新",
 					OnClick: func() {
-						s.loadKanban(p.projectID)
+						s.loadKanban(p.scopeID)
 					},
 					Variant: ButtonGhost,
 					Size:    ControlMD,
@@ -744,7 +730,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 								kanbanMu.Lock()
 								ks.conflict = false
 								kanbanMu.Unlock()
-								s.loadKanban(p.projectID)
+								s.loadKanban(p.scopeID)
 							},
 							Variant: ButtonPrimary,
 						})
@@ -788,10 +774,6 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 			}
 
 			// 4. 全部项目概览
-			if p.overview {
-				renderKanbanOverview(c, s, p.visibleBoard.Tasks)
-				return
-			}
 
 			// 5. 三态处理与看板五列主体
 			if p.loading && len(p.board.Tasks) == 0 && len(p.board.Goals) == 0 {
@@ -821,7 +803,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 							Text:  "重试",
 							Label: "重试",
 							OnClick: func() {
-								s.loadKanban(p.projectID)
+								s.loadKanban(p.scopeID)
 							},
 							Variant: ButtonSecondary,
 						})
