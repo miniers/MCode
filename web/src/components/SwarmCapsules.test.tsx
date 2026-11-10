@@ -1,10 +1,9 @@
 // 同 LazyFallback.test.tsx：web/ 没有测试运行器，用 react-dom/server 渲染成字符串后顶层断言。
 // 这里校验耗时计算，以及派单胶囊的取名（无 name 时用匹配到的 bee 真名）与完成状态标记。
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { RemoteSwarmBee, RemoteSwarmState } from '../types/swarm';
-import type { SwarmEntryParsed, SwarmReportSection } from '../utils/markdown';
-import { SwarmDispatchCapsules, SwarmReportCapsules, beeDurationMs } from './SwarmCapsules';
+import type { SwarmEntryParsed } from '../utils/markdown';
+import { SwarmDispatchCapsules, beeDurationMs, swarmReportKey } from './SwarmCapsules';
 
 function assertEqual(actual: number | null, expected: number | null): void {
   if (actual !== expected) throw new Error(`期望 ${String(expected)}，实际为 ${String(actual)}`);
@@ -85,34 +84,17 @@ assertExcludes(runningHtml, 'data-status="completed"');
 assertExcludes(runningHtml, '#34C759 12%');
 assertIncludes(runningHtml, 'animate-pulse');
 
-// 模拟点击并重排报告，确认展开状态跟随原报告而不是位置。
-const reports: SwarmReportSection[] = [
+// 报告键区分同名任务，并在重排时保持稳定。
+const reports = [
   { name: 'Aspen', task: '任务一', status: '已完成', body: '报告一' },
   { name: 'Aspen', task: '任务二', status: '已完成', body: '报告二' }
 ];
-type ReportButton = React.ReactElement<{ onClick: () => void; 'aria-expanded': boolean }>;
-type ReportRow = React.ReactElement<{ children: [ReportButton, React.ReactNode] }>;
-type ReportList = React.ReactElement<{ children: ReportRow[] }>;
-const internals = (React as unknown as {
-  __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED: { ReactCurrentDispatcher: { current: unknown } };
-}).__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
-const originalDispatcher = internals.ReactCurrentDispatcher.current;
-let expanded: Record<string, boolean> = {};
-internals.ReactCurrentDispatcher.current = {
-  useState: () => [expanded, (update: (previous: Record<string, boolean>) => Record<string, boolean>) => {
-    expanded = update(expanded);
-  }],
-  useMemo: (create: () => unknown) => create()
-};
-try {
-  const initial = SwarmReportCapsules({ reports }) as ReportList;
-  initial.props.children[0].props.children[0].props.onClick();
-  const reordered = SwarmReportCapsules({ reports: [...reports].reverse() }) as ReportList;
-  const [first, second] = reordered.props.children;
-  if (first.props.children[0].props['aria-expanded'] || !second.props.children[0].props['aria-expanded']) {
-    throw new Error('重排后展开状态未跟随原报告');
-  }
-  if (first.key === second.key) throw new Error('同名不同任务的报告不应使用相同的 key');
-} finally {
-  internals.ReactCurrentDispatcher.current = originalDispatcher;
+if (swarmReportKey(reports[0], 0) === swarmReportKey(reports[1], 0)) {
+  throw new Error('同名不同任务的报告不应使用相同的 key');
+}
+if (swarmReportKey(reports[0], 0) !== swarmReportKey(reports[0], 1)) {
+  throw new Error('同一份报告的 key 不应随位置变化');
+}
+if (swarmReportKey({ name: '', task: '', status: '', body: '' }, 1) !== 'index:1') {
+  throw new Error('无名称和任务的报告应使用位置作为 key');
 }

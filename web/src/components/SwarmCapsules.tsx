@@ -379,6 +379,10 @@ export interface SwarmReportCapsulesProps {
   onOpenBee?: (threadID: string) => void;
 }
 
+export function swarmReportKey(report: SwarmReportSection, index: number): string {
+  return report.name || report.task ? JSON.stringify([report.name, report.task]) : `index:${index}`;
+}
+
 /**
  * 子代理汇报胶囊：每个 bee 一枚，点击在下方展开该段汇报正文。
  * 汇报消息以用户消息形式写入，这里替掉默认的用户气泡。
@@ -400,7 +404,7 @@ export const SwarmReportCapsules: React.FC<SwarmReportCapsulesProps> = ({
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       {rows.map(({ report, bee }, index) => {
-        const key = report.name || report.task ? JSON.stringify([report.name, report.task]) : `index:${index}`;
+        const key = swarmReportKey(report, index);
         const isOpen = Boolean(expanded[key]);
         const displayName = report.name?.trim() || '子代理';
         const dotStatus = statusKeyOfReport(report.status) ?? bee?.status;
