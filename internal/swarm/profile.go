@@ -69,16 +69,6 @@ func FindProfile(ps []BeeProfile, name string) (BeeProfile, bool) {
 	return BeeProfile{}, false
 }
 
-// applyProfilePrompt 把 Profile 的系统提示词前置到任务提示词之前；
-// systemPrompt 去空白后为空时原样返回 prompt。
-func applyProfilePrompt(prompt, systemPrompt string) string {
-	prefix := strings.TrimSpace(systemPrompt)
-	if prefix == "" {
-		return prompt
-	}
-	return prefix + "\n\n" + prompt
-}
-
 // BeeConfig 是一次 bee 派发最终生效的执行配置。
 type BeeConfig struct {
 	Provider     string

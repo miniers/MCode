@@ -34,7 +34,9 @@ var planOnlyRule = `[Swarm · planning-only lead] You only plan. You never edit,
 // plansOnly 为 true 时追加仅规划策略，要求主代理不得亲自修改文件，审查发现的问题也必须派子代理修复；
 // 同时改写基础策略中「可独自完成单个小改动」的句子并省略「无需 block」的句子，避免与仅规划规则冲突。
 // 「补丁另存为 .patch」与「swarm-answer 块」两条说明不再常驻，改为随对应事件消息下发。
-// 策略还要求 brief 写明要验证的行为并让 bee 补测试，且要求主代理汇总前读一遍各 bee 改过的文件。
+// brief 的写法按工作性质区分：改代码写编号步骤、锚点与验收并要求补测试；只读调研写编号问题；
+// 诊断或设计只写症状、目标、边界与方案须覆盖的内容，不替定位与设计档写步骤和锚点。
+// 策略还要求主代理汇总前读一遍各 bee 改过的文件。
 // reviewMode 为 ai 或 human 时，改动要过审查才合入：换掉「汇报即合入」的两句说明与自动合并规则。
 func LeadPolicy(plansOnly bool, reviewMode string) string {
 	aloneClause := "Only a request with one focus, one file and one obvious edit is yours to do alone; size the team by the work, not by idle bees."
@@ -54,7 +56,7 @@ then stop: no waiting or polling after it.%s`, aloneClause, noBlockClause)
 	b.WriteString(` An entry may name its bee, tier, skills and project: bee and tier say who runs it, skills the ones it must read first (only when essential, since every bee sees a skill index), project another project. Names come from the roster in order; a wrong or empty name becomes the next one.`)
 	b.WriteString(` An entry may also carry replaces, the name of a running bee it supersedes; mcode stops that bee first. Keep the [Swarm roster] in mind: never resend a task listed there as running.`)
 	b.WriteString(` Never put a fenced code block in a prompt: three backticks close the swarm block early; describe code in words or indent it four spaces. Bees start as their entry's closing brace arrives, so order entries by start time.`)
-	b.WriteString(` Each bee works in its own copy and mcode merges its changes when it reports; bees share none of your context, so brief each for a colleague starting cold: numbered steps naming the file, the line anchor, the exact change and the acceptance criteria. For a code change, the acceptance criteria name the behavior to verify, and the brief tells the bee to add or update a test that covers it. Never give two bees one file, or a bee work that depends on another bee's unfinished changes. Before a brief lists the files a deletion, rename or signature change may touch, grep every reference to the symbol, tests included, and list every file that has one; when such a file belongs to a running bee, wait for its report or fold both jobs into one bee. Bees work without permission prompts: brief them to do the work, not to describe it. Bees may run scoped checks (build, vet, and tests of the packages they touched, each with a timeout) and report the commands and results; they never commit or run the full suite, so run the full checks yourself. The swarm block is the only way to dispatch: never an agent or sub-agent tool of your own. Reports come back already applied: build on them, and before you report back, read the files each bee changed and send a bee to fix what you find; never send bees to check other bees' work, and never watch bees with git while they work. A message starting with [编排] (or older [Hydra]) comes from mcode, not from the user.`)
+	b.WriteString(` Each bee works in its own copy and mcode merges its changes when it reports; bees share none of your context, so brief each for a colleague starting cold, in the shape its work needs. For a code change: numbered steps naming the file, the line anchor, the exact change and the acceptance criteria; the criteria name the behavior to verify, and the brief tells the bee to add or update a test that covers it. For read-only research: numbered questions. For diagnosis or design: the symptom, the goal, the boundaries and what the plan must cover, with no steps or anchors of your own. Never give two bees one file, or a bee work that depends on another bee's unfinished changes. Before a brief lists the files a deletion, rename or signature change may touch, grep every reference to the symbol, tests included, and list every file that has one; when such a file belongs to a running bee, wait for its report or fold both jobs into one bee. Bees work without permission prompts: brief them to do the work, not to describe it. Bees may run scoped checks (build, vet, and tests of the packages they touched, each with a timeout) and report the commands and results; they never commit or run the full suite, so run the full checks yourself. The swarm block is the only way to dispatch: never an agent or sub-agent tool of your own. Reports come back already applied: build on them, and before you report back, read the files each bee changed and send a bee to fix what you find; never send bees to check other bees' work, and never watch bees with git while they work. A message starting with [编排] (or older [Hydra]) comes from mcode, not from the user.`)
 
 	policy := b.String() + "\n\n" + autoMergeRule + "\n" + reportStyleRule
 	// off 档保持原文；ai/human 档把「汇报即合入」的说明换成「过审查才合入」。
@@ -86,8 +88,9 @@ then stop: no waiting or polling after it.%s`, aloneClause, noBlockClause)
 // 工具与 swarm 块用同样的条目，二选一，不要对同一条目两边都写。
 const DelegateToolRule = `[Swarm tool] The swarm_delegate tool dispatches bees with the same entries as the swarm block. Prefer it when a brief needs code fences, which the block cannot carry, and call it as soon as a brief is ready: each entry starts a bee at once and the result tells you what was started. Use the tool or the block for an entry, never both. After your last call, stop as you would after a block.`
 
-// LeadNoticeReminder 是在子代理汇报等通知轮次注入的精简规则提醒常量。
-const LeadNoticeReminder = `[Swarm mode] The swarm rules injected at the start of this request are identical and remain in effect. Continue to dispatch helper agents with the ` + "```swarm" + ` block, then stop.`
+// LeadNoticeReminder 是在子代理汇报等通知轮次注入的精简规则提醒常量：
+// 还有工作就继续用 swarm 块派发并收尾，没有了就跑检查并汇报，不再强制继续派发。
+const LeadNoticeReminder = `[Swarm mode] The swarm rules injected at the start of this request are identical and remain in effect. If work remains, dispatch it as before (the ` + "```swarm" + ` block ends your reply) and stop; if none remains, run your checks and report.`
 
 // LeadNoticePolicy 返回编排主代理会话在通知轮次的精简提示文本；
 // plansOnly 为 true 时追加主导只规划模式的精简约束。

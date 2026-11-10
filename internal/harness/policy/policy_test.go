@@ -25,10 +25,10 @@ func TestRenderStartsWithVersionMarker(t *testing.T) {
 
 // 版本号在文案或拼装顺序变化时递增，这里钉住当前值，避免改了文案忘记提版本。
 func TestVersionIsBumped(t *testing.T) {
-	if Version != "2026-11-01.1" {
-		t.Fatalf("版本号应为 2026-11-01.1，实际 %q", Version)
+	if Version != "2026-11-10.1" {
+		t.Fatalf("版本号应为 2026-11-10.1，实际 %q", Version)
 	}
-	if want := `<mcode_harness_policy version="2026-11-01.1"/>`; Marker != want {
+	if want := `<mcode_harness_policy version="2026-11-10.1"/>`; Marker != want {
 		t.Fatalf("标记应使用新版本号: got %q want %q", Marker, want)
 	}
 }

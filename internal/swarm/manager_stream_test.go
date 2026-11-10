@@ -808,7 +808,7 @@ func TestBuildReport_SavedPatchRetryGuidance(t *testing.T) {
 		"- 补丁改动文件：internal/swarm/manager.go、internal/ui/sidebar.go",
 		"- 补丁冲突或脏路径：internal/ui/sidebar.go",
 		"- 补丁冲突或脏路径：internal/swarm/manager.go、internal/ui/sidebar.go",
-		"请派一个 deep 档 bee 读取该补丁文件",
+		"请派一个默认档位的 bee 读取该补丁文件",
 		"每个补丁只重试一次",
 	} {
 		if !strings.Contains(report, want) {
@@ -824,7 +824,7 @@ func TestBuildReport_SavedPatchRetryGuidance(t *testing.T) {
 		ChangedFiles: []string{"internal/swarm/swarm.go"},
 	}
 	mergedReport := BuildReport([]Bee{merged})
-	for _, bad := range []string{patchPath, "补丁未合入", "请派一个 deep 档 bee", "补丁已保存到"} {
+	for _, bad := range []string{patchPath, "补丁未合入", "请派一个默认档位的 bee", "补丁已保存到"} {
 		if strings.Contains(mergedReport, bad) {
 			t.Fatalf("已合入的 bee 汇报不应包含 %q:\n%s", bad, mergedReport)
 		}

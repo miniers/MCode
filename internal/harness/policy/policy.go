@@ -9,7 +9,7 @@ package policy
 import "strings"
 
 // Version 是宿主规则渲染器的版本号；文案或拼装顺序变化时递增。
-const Version = "2026-11-01.1"
+const Version = "2026-11-10.1"
 
 // Marker 是渲染结果的首行版本标记，测试与排查都以它为准。
 const Marker = `<mcode_harness_policy version="` + Version + `"/>`

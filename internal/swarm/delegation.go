@@ -532,30 +532,78 @@ func (p *StreamParser) Closed() bool {
 	return p.closed
 }
 
-// beeWorkRules 是随委派提示词下发的子代理工作方式，约束其只做交代的改动，只跑有范围的自测。
-const beeWorkRules = "- 立即开始，只读完成任务所需的内容，然后动手修改。\n" +
-	"- brief 已经点明文件、位置和改法的，直接照做，不再反复读。\n" +
-	"- 如果长时间在几种设计之间犹豫，就按 brief 最简单的理解去做，并在汇报里说明这个选择。\n" +
-	"- 只做这项任务，不扩大范围，不碰 brief 没提到的文件（确实无法避免的除外），不回退、不重排、不清理别人的改动。\n" +
-	"- 可以做有范围的自测：构建、vet 或 lint，以及只针对改动所在包或模块的测试（Go 项目用 go build ./...、go vet、go test ./<包>/ -run <测试名> -timeout 120s），每条命令都要设超时。自测不依赖网络，不跑全量测试套件，不启动 mcode 本体；不为了让测试通过去改任务范围外的测试。全量检查由主代理在自己的检出中执行。\n" +
-	"- 查文档、核对外部库或网页信息时，可以用 web_fetch、web_search 等联网工具或 curl（必须带 -m 超时）；只读不写，不向外部服务提交、发布或上传内容，不发送密钥或用户信息。\n" +
-	"- 不执行 git commit、push、branch、stash、reset、checkout。\n" +
-	"- 严禁调用提问工具（如 ask_user_question、ask_user、question 等）向用户或主代理询问确认；需求存在歧义或有多种实现可能时，直接按最合理直接的方案继续分析或改动，并在汇报里列出你的设计选择与未尽事项。\n" +
-	"- 只读任务必须使用只读工具（如 read、find、grep、serena 等）查阅代码，严禁执行修改文件或任何未经允许的写命令；只读任务不跑构建与测试。\n" +
-	"- 遇到阻塞就停下并说明，不要猜测或绕过。"
+// beeWorkRulesFor 返回随委派提示词下发的工作方式：先是该档位类型专属的几条，再是三类共通的几条。
+// 类型判断：ReadOnly 为只读类；否则有 WritePaths 为方案类；其余为改代码类。
+func beeWorkRulesFor(cfg BeeConfig) string {
+	var rules []string
+	switch {
+	case cfg.ReadOnly:
+		rules = []string{
+			"- 立即开始，只读回答问题所需的内容。",
+			"- 只用只读工具（如 read、find、grep、serena 等）和只读命令查阅，不修改任何文件，不跑构建与测试。",
+		}
+	case len(cfg.WritePaths) > 0:
+		rules = []string{
+			"- 立即开始，先读代码定位问题，再设计改法；不改代码。",
+			"- 只能写入这些路径：" + strings.Join(cfg.WritePaths, "、") + "；其他路径的改动会被丢弃。",
+			"- 需要复现时可以跑有范围的测试：只针对相关包或模块，每条命令都要设超时，不依赖网络，不跑全量测试套件，不启动 mcode 本体。",
+		}
+	default:
+		rules = []string{
+			"- 立即开始，只读完成任务所需的内容，然后动手修改。",
+			"- brief 已经点明文件、位置和改法的，直接照做，不再反复读。",
+			"- 不碰 brief 没提到的文件（确实无法避免的除外），不回退、不重排、不清理别人的改动。",
+			"- 可以做有范围的自测：构建、vet 或 lint，以及只针对改动所在包或模块的测试（Go 项目用 go build ./...、go vet、go test ./<包>/ -run <测试名> -timeout 120s），每条命令都要设超时。自测不依赖网络，不跑全量测试套件，不启动 mcode 本体；不为了让测试通过去改任务范围外的测试。全量检查由主代理在自己的检出中执行。",
+		}
+	}
+	rules = append(rules,
+		"- 只做这项任务，不扩大范围。",
+		"- 查文档、核对外部库或网页信息时，可以用 web_fetch、web_search 等联网工具或 curl（必须带 -m 超时）；只读不写，不向外部服务提交、发布或上传内容，不发送密钥或用户信息。",
+		"- 不执行 git commit、push、branch、stash、reset、checkout。",
+		"- 严禁调用提问工具（如 ask_user_question、ask_user、question 等）向用户或主代理询问确认。",
+		"- brief 有歧义或有多种做法时，按最直接的理解继续，并在汇报里写明你的选择。",
+		"- 遇到阻塞（缺文件、命令无法运行、brief 与代码事实对不上）就停下并在汇报里说明，不要猜测或绕过。",
+	)
+	if strings.TrimSpace(cfg.SystemPrompt) != "" {
+		rules = append(rules, "- 档位要求与以上规则冲突时，以档位要求为准。")
+	}
+	return strings.Join(rules, "\n")
+}
 
-// beeReportRules 是随委派提示词下发的汇报规范：子代理的最后一条回复会原样展示给用户。
-const beeReportRules = "- 汇报只写一次，几行即可，写成主代理能直接照着处理的内容：改了什么、在哪个文件、跑了哪些自测命令及结果（没跑就写未跑），以及仍未解决或不确定的地方。\n" +
-	"- 明确列出注意事项和未完成的部分，不要省略。\n" +
-	"- 不要开场白，不要复述任务，不贴日志，不贴大段代码。\n" +
-	"- 引用代码一律写成 `相对工作副本根目录的完整路径:行号`，例如 internal/ui/sidebar.go:865；禁止只写文件名，禁止绝对路径。\n" +
-	"- 每条引用写在自己的一行或一个句段里，紧跟该行源码原文并用反引号包住，原样复制，不改写、不加省略号；引用路径前后不要紧贴中文括号或全角标点。\n" +
-	"- 只写单个行号，不要写 559-561 这样的范围。\n" +
-	"- 只读或调研类任务，用要点列出结论和对应的引用，不要整段转述源码。"
+// beeReportRulesFor 返回随委派提示词下发的汇报规范：第一条按档位类型，其余共通。
+// 子代理的最后一条回复会原样展示给用户。
+func beeReportRulesFor(cfg BeeConfig) string {
+	var first string
+	switch {
+	case cfg.ReadOnly:
+		first = "- 汇报只写一次，按 brief 的问题编号逐条作答：每条先写结论，再给对应的引用，不要整段转述源码。"
+	case len(cfg.WritePaths) > 0:
+		// 1000 字的阈值是为了让汇报留在 ReportSummaryLimit（1500）以内。
+		first = "- 汇报只写一次：先写根因，再写编号步骤，每步给出位置、改法和验收标准。汇报正文超过约 1000 字时，把完整方案写进允许写入的路径，汇报里只留根因、各步标题和该文件路径。"
+	default:
+		first = "- 汇报只写一次，几行即可，写成主代理能直接照着处理的内容：改了什么、在哪个文件、跑了哪些自测命令及结果（没跑就写未跑），以及仍未解决或不确定的地方。"
+	}
+	return strings.Join([]string{
+		first,
+		"- 明确列出注意事项和未完成的部分，不要省略。",
+		"- 不要开场白，不要复述任务，不贴日志，不贴大段代码。",
+		"- 引用代码一律写成 `相对工作副本根目录的完整路径:行号`，例如 internal/ui/sidebar.go:865；禁止只写文件名，禁止绝对路径。",
+		"- 每条引用写在自己的一行或一个句段里，紧跟该行源码原文并用反引号包住，原样复制，不改写、不加省略号；引用路径前后不要紧贴中文括号或全角标点。",
+		"- 只写单个行号，不要写 559-561 这样的范围。",
+	}, "\n")
+}
 
-// beePrompt 为子会话生成包含角色前言与委派提示词的完整 Prompt。
-func beePrompt(name string, d Delegation) string {
-	return fmt.Sprintf("%s%s，由主代理派发，在独立工作副本中完成以下任务。\n\n## 任务：%s\n\n%s\n\n## 工作方式\n%s\n\n## 汇报\n%s", BeePromptPrefix, name, d.Task, d.Prompt, beeWorkRules, beeReportRules)
+// beePrompt 为子会话生成包含角色前言、任务、档位要求与工作规则的完整 Prompt。
+// 首行始终以 BeePromptPrefix 开头，IsBeePrompt 才能识别。
+func beePrompt(name string, d Delegation, cfg BeeConfig) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s%s，由主代理派发，完成以下任务。\n\n## 任务：%s\n\n%s", BeePromptPrefix, name, d.Task, d.Prompt)
+	if sys := strings.TrimSpace(cfg.SystemPrompt); sys != "" {
+		b.WriteString("\n\n## 档位要求\n" + sys)
+	}
+	b.WriteString("\n\n## 工作方式\n" + beeWorkRulesFor(cfg))
+	b.WriteString("\n\n## 汇报\n" + beeReportRulesFor(cfg))
+	return b.String()
 }
 
 const (

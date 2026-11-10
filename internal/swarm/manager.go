@@ -1720,7 +1720,7 @@ func (m *Manager) planEntry(ctx context.Context, leadThreadID string, d Delegati
 	}
 
 	// 只有声明了 skills 的 bee 才追加技能提示块；Delegation.Prompt 保持不变（流式派发的去重键依赖它）。
-	prompt := beePrompt(chosenName, d)
+	prompt := beePrompt(chosenName, d, cfg)
 	if m.opts.SkillsGuidance != nil && len(d.Skills) > 0 {
 		if block := m.opts.SkillsGuidance(targetWorkDir, d.Skills); strings.TrimSpace(block) != "" {
 			prompt += "\n\n" + block
@@ -1737,7 +1737,7 @@ func (m *Manager) planEntry(ctx context.Context, leadThreadID string, d Delegati
 		index:       &index,
 		Name:        chosenName,
 		Task:        d.Task,
-		Prompt:      applyProfilePrompt(prompt, cfg.SystemPrompt),
+		Prompt:      prompt,
 		ProjectID:   targetProjectID,
 		WorkDir:     targetWorkDir,
 		Provider:    cfg.Provider,
@@ -3273,7 +3273,7 @@ func BuildReport(bees []Bee) string {
 			sb.WriteString(fmt.Sprintf("- 越权写入：该档只允许写入 %s，以下改动已丢弃未合并：%s\n", joinOrNone(h.WritePaths), joinOrNone(h.DiscardedPaths)))
 		}
 		if (h.Status == StatusFailed || h.Status == StatusStopped) && h.Tier != "" {
-			sb.WriteString("- 提示：如需重试，可在新条目里换更高档位（如 deep）重新派发\n")
+			sb.WriteString("- 提示：如需重试，先看失败原因并改 brief，重新派发时保持原档位\n")
 		}
 
 		// 文件快照随汇报保存，清理或复用 bee 后仍能查看当时的产物。
@@ -3310,7 +3310,7 @@ func BuildReport(bees []Bee) string {
 			sb.WriteString(fmt.Sprintf("- 补丁改动文件：%s\n", joinOrNone(h.ChangedFiles)))
 			sb.WriteString(fmt.Sprintf("- 补丁冲突或脏路径：%s\n", joinOrNone(patchBlockedPaths(h))))
 			sb.WriteString(fmt.Sprintf("- 补丁失败原因：%s\n", h.MergeError))
-			sb.WriteString("- 补丁处理指引：请派一个 deep 档 bee 读取该补丁文件，在主工作区当前内容之上按补丁意图重新实现；不得覆盖这些文件里已有的未提交改动，只能在其基础上追加修改；每个补丁只重试一次，仍失败则向用户报告，不要再次派发。\n")
+			sb.WriteString("- 补丁处理指引：请派一个默认档位的 bee 读取该补丁文件，在主工作区当前内容之上按补丁意图重新实现；不得覆盖这些文件里已有的未提交改动，只能在其基础上追加修改；每个补丁只重试一次，仍失败则向用户报告，不要再次派发。\n")
 		}
 
 		// Summary

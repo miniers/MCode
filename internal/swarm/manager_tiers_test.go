@@ -189,7 +189,7 @@ func TestBuildReport_TiersAndViolations(t *testing.T) {
 	}
 
 	// Bee-4: 失败重试提示
-	if !strings.Contains(report, "- 提示：如需重试，可在新条目里换更高档位（如 deep）重新派发\n") {
+	if !strings.Contains(report, "- 提示：如需重试，先看失败原因并改 brief，重新派发时保持原档位\n") {
 		t.Errorf("report missing retry hint line:\n%s", report)
 	}
 }

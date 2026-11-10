@@ -336,23 +336,24 @@ func TestParseDelegations_ReworkOf(t *testing.T) {
 	}
 }
 
-// beePrompt 不参与技能拼接：不含 skills 的条目输出与以前逐字一致。
+// beePrompt 不参与技能拼接：不含 skills 的条目输出固定为各段以空行分隔。
 func TestBeePrompt_WithoutSkillsUnchanged(t *testing.T) {
 	d := Delegation{Task: "T", Prompt: "P"}
-	want := BeePromptPrefix + "Aspen" + "，由主代理派发，在独立工作副本中完成以下任务。\n\n## 任务：T\n\nP\n\n## 工作方式\n" + beeWorkRules + "\n\n## 汇报\n" + beeReportRules
-	if got := beePrompt("Aspen", d); got != want {
+	cfg := BeeConfig{}
+	want := BeePromptPrefix + "Aspen" + "，由主代理派发，完成以下任务。\n\n## 任务：T\n\nP\n\n## 工作方式\n" + beeWorkRulesFor(cfg) + "\n\n## 汇报\n" + beeReportRulesFor(cfg)
+	if got := beePrompt("Aspen", d, cfg); got != want {
 		t.Errorf("beePrompt 输出变化：\ngot  %q\nwant %q", got, want)
 	}
 
 	// 即使声明了 skills，beePrompt 也不自行拼接技能块（由 manager 追加）。
 	withSkills := Delegation{Task: "T", Prompt: "P", Skills: []string{"alpha"}}
-	if got := beePrompt("Aspen", withSkills); got != want {
+	if got := beePrompt("Aspen", withSkills, cfg); got != want {
 		t.Errorf("beePrompt 不应自行拼接技能块：\ngot  %q\nwant %q", got, want)
 	}
 }
 
 func TestBeePrompt_ScopedSelfChecks(t *testing.T) {
-	got := beePrompt("Aspen", Delegation{Task: "T", Prompt: "P"})
+	got := beePrompt("Aspen", Delegation{Task: "T", Prompt: "P"}, BeeConfig{})
 	for _, want := range []string{"有范围的自测", "-timeout", "跑了哪些自测命令及结果"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("bee 提示词应包含 %q:\n%s", want, got)
@@ -363,14 +364,81 @@ func TestBeePrompt_ScopedSelfChecks(t *testing.T) {
 	}
 }
 
-func TestBeeWorkRules_NetworkResearch(t *testing.T) {
-	for _, want := range []string{"自测不依赖网络", "web_fetch、web_search", "curl（必须带 -m 超时）", "只读不写", "不向外部服务提交、发布或上传内容", "不发送密钥或用户信息"} {
-		if !strings.Contains(beeWorkRules, want) {
-			t.Errorf("bee 工作规则应包含 %q", want)
+func TestBeePrompt_TierRequirements(t *testing.T) {
+	d := Delegation{Task: "T", Prompt: "P"}
+
+	with := beePrompt("Aspen", d, BeeConfig{SystemPrompt: "  只出方案  "})
+	if !IsBeePrompt(with) {
+		t.Errorf("带档位要求的提示词应被 IsBeePrompt 识别:\n%s", with)
+	}
+	for _, want := range []string{"## 档位要求\n只出方案\n\n## 工作方式", "以档位要求为准"} {
+		if !strings.Contains(with, want) {
+			t.Errorf("带档位要求的提示词应包含 %q:\n%s", want, with)
 		}
 	}
-	if strings.Contains(beeWorkRules, "不访问网络") {
-		t.Error("bee 工作规则不应禁止访问网络")
+
+	for _, sys := range []string{"", " \n\t "} {
+		without := beePrompt("Aspen", d, BeeConfig{SystemPrompt: sys})
+		for _, bad := range []string{"## 档位要求", "以档位要求为准"} {
+			if strings.Contains(without, bad) {
+				t.Errorf("SystemPrompt=%q 时不应包含 %q:\n%s", sys, bad, without)
+			}
+		}
+	}
+}
+
+func TestBeePrompt_RulesByTier(t *testing.T) {
+	d := Delegation{Task: "T", Prompt: "P"}
+	readOnly := beePrompt("Aspen", d, BeeConfig{ReadOnly: true})
+	plan := beePrompt("Aspen", d, BeeConfig{WritePaths: []string{"docs/plans/**", "notes/*.md"}})
+	code := beePrompt("Aspen", d, BeeConfig{})
+
+	for _, bad := range []string{"然后动手修改", "可以做有范围的自测"} {
+		if strings.Contains(readOnly, bad) {
+			t.Errorf("只读类不应包含 %q:\n%s", bad, readOnly)
+		}
+	}
+	if !strings.Contains(readOnly, "按 brief 的问题编号逐条作答") {
+		t.Errorf("只读类汇报应按问题编号作答:\n%s", readOnly)
+	}
+
+	for _, want := range []string{"docs/plans/**、notes/*.md", "不改代码", "先写根因"} {
+		if !strings.Contains(plan, want) {
+			t.Errorf("方案类应包含 %q:\n%s", want, plan)
+		}
+	}
+	if strings.Contains(plan, "然后动手修改") {
+		t.Errorf("方案类不应包含 %q:\n%s", "然后动手修改", plan)
+	}
+
+	if !strings.Contains(code, "可以做有范围的自测") || !strings.Contains(code, "然后动手修改") {
+		t.Errorf("改代码类应包含自测与动手修改规则:\n%s", code)
+	}
+
+	for name, got := range map[string]string{"只读": readOnly, "方案": plan, "改代码": code} {
+		if strings.Contains(got, "独立工作副本") {
+			t.Errorf("%s类不应包含 %q:\n%s", name, "独立工作副本", got)
+		}
+		if strings.Contains(got, "如果长时间在几种设计之间犹豫") || strings.Contains(got, "只读任务必须使用只读工具") {
+			t.Errorf("%s类不应保留已删除的旧规则:\n%s", name, got)
+		}
+	}
+}
+
+func TestBeeWorkRules_NetworkResearch(t *testing.T) {
+	for name, cfg := range map[string]BeeConfig{"只读": {ReadOnly: true}, "方案": {WritePaths: []string{"docs/**"}}, "改代码": {}} {
+		rules := beeWorkRulesFor(cfg)
+		for _, want := range []string{"web_fetch、web_search", "curl（必须带 -m 超时）", "只读不写", "不向外部服务提交、发布或上传内容", "不发送密钥或用户信息"} {
+			if !strings.Contains(rules, want) {
+				t.Errorf("%s类工作规则应包含 %q", name, want)
+			}
+		}
+		if strings.Contains(rules, "不访问网络") {
+			t.Errorf("%s类工作规则不应禁止访问网络", name)
+		}
+	}
+	if !strings.Contains(beeWorkRulesFor(BeeConfig{}), "自测不依赖网络") {
+		t.Error("改代码类工作规则应包含自测不依赖网络")
 	}
 }
 

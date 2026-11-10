@@ -116,26 +116,6 @@ func TestFindProfile(t *testing.T) {
 	}
 }
 
-func TestApplyProfilePrompt(t *testing.T) {
-	tests := []struct {
-		name   string
-		prompt string
-		sys    string
-		want   string
-	}{
-		{name: "无系统提示词原样返回", prompt: "do it", sys: "", want: "do it"},
-		{name: "纯空白系统提示词原样返回", prompt: "do it", sys: "  \n\t ", want: "do it"},
-		{name: "系统提示词前置并以空行分隔", prompt: "do it", sys: "  be careful  ", want: "be careful\n\ndo it"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := applyProfilePrompt(tt.prompt, tt.sys); got != tt.want {
-				t.Errorf("applyProfilePrompt(%q, %q) = %q, want %q", tt.prompt, tt.sys, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestResolveBeeConfig(t *testing.T) {
 	pairs := []Pair{
 		{ID: "pair-deep", Name: "Deep", BeeProvider: "claude", BeeModel: "opus", BeeEffort: "high", BeeFastMode: true},

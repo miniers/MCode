@@ -317,11 +317,11 @@ func TestManager_DispatchSingleEntryWithProfile(t *testing.T) {
 	if started.Provider != "codex" || started.Model != "gpt-5" || started.Effort != "high" {
 		t.Fatalf("SessionRequest 未采用 Profile 配置: %+v", started)
 	}
-	if !strings.HasPrefix(started.Prompt, "专用人设\n\n") {
-		t.Fatalf("Prompt 未前置 Profile 系统提示词: %q", started.Prompt)
+	if !IsBeePrompt(started.Prompt) || !strings.HasPrefix(started.Prompt, "你是子代理 Aspen") {
+		t.Fatalf("Prompt 应以 bee 前言开头: %q", started.Prompt)
 	}
-	if !strings.Contains(started.Prompt, "你是子代理 Aspen") {
-		t.Fatalf("Prompt 缺少 bee 前言: %q", started.Prompt)
+	if !strings.Contains(started.Prompt, "## 档位要求\n专用人设\n\n## 工作方式") {
+		t.Fatalf("Prompt 缺少档位要求段: %q", started.Prompt)
 	}
 }
 
@@ -416,7 +416,7 @@ func TestManager_DispatchSingleEntryWithoutSkills(t *testing.T) {
 	if strings.Contains(started.Prompt, "[mcode 已启用技能]") {
 		t.Fatalf("未声明 skills 时提示词不应含技能块: %q", started.Prompt)
 	}
-	if want := beePrompt(RosterName(0), entry); started.Prompt != want {
+	if want := beePrompt(RosterName(0), entry, BeeConfig{}); started.Prompt != want {
 		t.Fatalf("未声明 skills 时提示词应为 beePrompt，got %q want %q", started.Prompt, want)
 	}
 }

@@ -339,8 +339,14 @@ func TestLeadNoticePolicy(t *testing.T) {
 	if !strings.Contains(defaultGot, "remain in effect") {
 		t.Fatalf("默认通知提示词应说明规则一致且持续生效:\n%s", defaultGot)
 	}
-	if !strings.Contains(defaultGot, "```swarm") || !strings.Contains(defaultGot, "then stop") {
+	if !strings.Contains(defaultGot, "```swarm") || !strings.Contains(defaultGot, "and stop") {
 		t.Fatalf("默认通知提示词应提醒派发后停止:\n%s", defaultGot)
+	}
+	if !strings.Contains(defaultGot, "if none remains, run your checks and report") {
+		t.Fatalf("默认通知提示词应允许没有剩余工作时检查并汇报:\n%s", defaultGot)
+	}
+	if strings.Contains(defaultGot, "Continue to dispatch") {
+		t.Fatalf("默认通知提示词不应再强制继续派发:\n%s", defaultGot)
 	}
 	if strings.Contains(defaultGot, "You only plan") {
 		t.Fatalf("默认通知提示词不应包含只规划段落:\n%s", defaultGot)
@@ -353,5 +359,29 @@ func TestLeadNoticePolicy(t *testing.T) {
 	wantClause := "You only plan, every change goes to a bee."
 	if !strings.Contains(plansOnlyGot, wantClause) {
 		t.Fatalf("只规划通知提示词应包含 %q:\n%s", wantClause, plansOnlyGot)
+	}
+	if !strings.HasSuffix(plansOnlyGot, wantClause) {
+		t.Fatalf("只规划通知提示词应以 %q 结尾:\n%s", wantClause, plansOnlyGot)
+	}
+}
+
+// TestLeadPolicyBriefShapeByWork 验证 brief 写法按工作性质区分，且审查档改写子串仍命中。
+func TestLeadPolicyBriefShapeByWork(t *testing.T) {
+	for _, plansOnly := range []bool{false, true} {
+		got := LeadPolicy(plansOnly, "")
+		for _, want := range []string{"For read-only research: numbered questions", "For diagnosis or design"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("plansOnly=%v 的策略应包含 %q:\n%s", plansOnly, want, got)
+			}
+		}
+	}
+	for _, mode := range []string{"ai", "human"} {
+		got := LeadPolicy(false, mode)
+		if !strings.Contains(got, "only after they pass review") {
+			t.Fatalf("reviewMode=%s 的策略应说明过审查才合入:\n%s", mode, got)
+		}
+		if strings.Contains(got, "merges its changes when it reports") {
+			t.Fatalf("reviewMode=%s 的策略不应保留汇报即合入的说法:\n%s", mode, got)
+		}
 	}
 }

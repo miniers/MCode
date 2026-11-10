@@ -55,7 +55,7 @@ func TestManager_DispatchSingleEntryWithMemoryRecall(t *testing.T) {
 	if want := beeRecallQuery(entry); gotQuery != want {
 		t.Fatalf("MemoryRecall query = %q, want %q", gotQuery, want)
 	}
-	want := beePrompt(RosterName(0), entry) + "\n\n" + beeRecallHeader + "\n\n" + block
+	want := beePrompt(RosterName(0), entry, BeeConfig{}) + "\n\n" + beeRecallHeader + "\n\n" + block
 	if started.Prompt != want {
 		t.Fatalf("提示词应在末尾附带记忆段落：\ngot  %q\nwant %q", started.Prompt, want)
 	}
@@ -105,7 +105,7 @@ func TestManager_DispatchSingleEntryWithoutMemoryRecall(t *testing.T) {
 			if strings.Contains(started.Prompt, beeRecallHeader) {
 				t.Fatalf("无记忆时提示词不应含记忆段落: %q", started.Prompt)
 			}
-			if want := beePrompt(RosterName(0), entry); started.Prompt != want {
+			if want := beePrompt(RosterName(0), entry, BeeConfig{}); started.Prompt != want {
 				t.Fatalf("无记忆时提示词应为 beePrompt，got %q want %q", started.Prompt, want)
 			}
 		})
