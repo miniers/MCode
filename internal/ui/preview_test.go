@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -15,9 +16,71 @@ type previewTestPage struct {
 
 func (p *previewTestPage) Eval(script string) (any, error) { return p.eval(script) }
 
+type previewTestEventPage struct {
+	previewTestPage
+	navigate func(string)
+	finish   func()
+	offCount int
+}
+
+func (p *previewTestEventPage) OnDidNavigate(fn func(string)) func() {
+	previewMu.Lock()
+	previewMu.Unlock()
+	p.navigate = fn
+	return func() {
+		previewMu.Lock()
+		previewMu.Unlock()
+		p.offCount++
+	}
+}
+
+func (p *previewTestEventPage) OnDidFinishLoad(fn func()) func() {
+	previewMu.Lock()
+	previewMu.Unlock()
+	p.finish = fn
+	return func() {
+		previewMu.Lock()
+		previewMu.Unlock()
+		p.offCount++
+	}
+}
+
+func TestPreviewPageCallbacksDropOldGeneration(t *testing.T) {
+	s := &chatState{}
+	st := getPreviewState(s)
+	page := &previewTestEventPage{previewTestPage: previewTestPage{eval: func(string) (any, error) { return `[]`, nil }}}
+	previewMu.Lock()
+	st.page, st.pageID = page, 42
+	st.consoleErrors = []previewConsoleError{{Message: "旧错误"}}
+	token := previewPageTokenLocked(st)
+	previewMu.Unlock()
+	previewBindPageCallbacks(s, token, page)
+	oldNavigate, oldFinish := page.navigate, page.finish
+	oldNavigate("http://localhost/next")
+	oldFinish()
+	oldNavigate("http://localhost/stale")
+	previewMu.Lock()
+	if st.generation != token.generation+1 || len(st.consoleErrors) != 0 || st.consolePolling {
+		t.Errorf("旧事件被应用或导航未换代: %+v", st)
+	}
+	previewMu.Unlock()
+	if page.offCount != 2 {
+		t.Fatalf("导航后未解绑旧回调: %d", page.offCount)
+	}
+	currentNavigate, currentFinish := page.navigate, page.finish
+	closePreview(s)
+	currentNavigate("http://localhost/released")
+	currentFinish()
+	previewMu.Lock()
+	defer previewMu.Unlock()
+	if st.generation != token.generation+2 || st.page != nil || st.consolePolling || page.offCount != 4 {
+		t.Fatal("释放后旧回调仍生效，或回调未全部解绑")
+	}
+}
+
 func TestPreviewSnapshotConcurrentUpdates(t *testing.T) {
 	st := &previewState{
-		annotations: []previewAnnotation{{Selector: "#app"}},
+		annotations:   []previewAnnotation{{Selector: "#app"}},
 		consoleErrors: []previewConsoleError{{Message: "初始"}},
 	}
 	var wg sync.WaitGroup
@@ -55,8 +118,12 @@ func TestPreviewPollDropsStalePage(t *testing.T) {
 				page := &previewTestPage{eval: func(string) (any, error) {
 					close(started)
 					<-release
-					if change == "error" { return nil, errors.New("读取失败") }
-					if kind == "console" { return `[{"message":"旧页"}]`, nil }
+					if change == "error" {
+						return nil, errors.New("读取失败")
+					}
+					if kind == "console" {
+						return `[{"message":"旧页"}]`, nil
+					}
 					return `[{"selector":"#old"}]`, nil
 				}}
 				previewMu.Lock()
@@ -69,28 +136,173 @@ func TestPreviewPollDropsStalePage(t *testing.T) {
 				previewMu.Unlock()
 				go func() {
 					defer close(done)
-					if kind == "console" { previewPollConsoleErrors(s, token, page) } else { previewPollAnnotations(s, token, page) }
+					if kind == "console" {
+						previewPollConsoleErrors(s, token, page)
+					} else {
+						previewPollAnnotations(s, token, page)
+					}
 				}()
-				select { case <-started: case <-time.After(time.Second): t.Fatal("轮询未启动") }
+				select {
+				case <-started:
+				case <-time.After(time.Second):
+					t.Fatal("轮询未启动")
+				}
 				previewMu.Lock()
 				if change != "error" {
 					previewAdvanceGenerationLocked(st)
-					if change == "replacement" { st.pageID++ }
-					if change == "release" { st.page = nil }
+					if change == "replacement" {
+						st.pageID++
+					}
+					if change == "release" {
+						st.page = nil
+					}
 					// 旧请求结束不能清掉新请求的进行中标记。
 					st.consolePolling, st.annotPolling = true, true
 				}
 				previewMu.Unlock()
 				close(release)
-				select { case <-done: case <-time.After(time.Second): t.Fatal("轮询未结束") }
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Fatal("轮询未结束")
+				}
 				previewMu.Lock()
 				defer previewMu.Unlock()
-				if len(st.consoleErrors) != 0 || len(st.annotations) != 0 { t.Fatal("旧页结果被写回") }
+				if len(st.consoleErrors) != 0 || len(st.annotations) != 0 {
+					t.Fatal("旧页结果被写回")
+				}
 				polling := st.consolePolling
-				if kind == "annotations" { polling = st.annotPolling }
-				if polling != (change != "error") { t.Fatalf("轮询标记错误: %v", polling) }
+				if kind == "annotations" {
+					polling = st.annotPolling
+				}
+				if polling != (change != "error") {
+					t.Fatalf("轮询标记错误: %v", polling)
+				}
 			})
 		}
+	}
+}
+
+func TestPreviewPollResults(t *testing.T) {
+	for _, kind := range []string{"console", "annotations"} {
+		for _, fail := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/error=%v", kind, fail), func(t *testing.T) {
+				s := &chatState{}
+				st := getPreviewState(s)
+				page := &previewTestPage{eval: func(string) (any, error) {
+					// 原生调用期间可重新取得状态锁。
+					previewMu.Lock()
+					previewMu.Unlock()
+					if fail {
+						return nil, errors.New("读取失败")
+					}
+					if kind == "console" {
+						return `[{"message":"新错误"}]`, nil
+					}
+					return `[{"selector":"#new"}]`, nil
+				}}
+				previewMu.Lock()
+				st.page = page
+				st.annotating = true
+				st.consolePolling, st.annotPolling = true, true
+				token := previewPageTokenLocked(st)
+				previewMu.Unlock()
+				if kind == "console" {
+					previewPollConsoleErrors(s, token, page)
+				} else {
+					previewPollAnnotations(s, token, page)
+				}
+				previewMu.Lock()
+				defer previewMu.Unlock()
+				if kind == "console" {
+					if st.consolePolling || (len(st.consoleErrors) > 0) == fail {
+						t.Fatalf("错误采集结果或进行中标记错误: %+v", st)
+					}
+				} else if st.annotPolling || (len(st.annotations) > 0) == fail {
+					t.Fatalf("标注采集结果或进行中标记错误: %+v", st)
+				} else if !fail && (st.annotations[0].id == 0 || !st.annotOpen) {
+					t.Fatal("新标注缺少稳定身份或未展开")
+				}
+			})
+		}
+	}
+}
+
+func TestPreviewConsoleClearDropsPendingPoll(t *testing.T) {
+	s := &chatState{}
+	st := getPreviewState(s)
+	started, release, cleared, reread, done := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
+	page := &previewTestPage{eval: func(script string) (any, error) {
+		if script == previewConsoleClearScript {
+			close(cleared)
+			return nil, errors.New("清空脚本失败")
+		}
+		select {
+		case <-started:
+			close(reread)
+			return `[]`, nil
+		default:
+			close(started)
+			<-release
+			return `[{"message":"清空前的旧错误"}]`, nil
+		}
+	}}
+	previewMu.Lock()
+	st.page, st.consolePolling = page, true
+	token := previewPageTokenLocked(st)
+	previewMu.Unlock()
+	go func() { previewPollConsoleErrors(s, token, page); close(done) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("旧轮询未启动")
+	}
+	clearPreviewConsoleErrors(s, st)
+	for _, signal := range []chan struct{}{cleared, reread} {
+		select {
+		case <-signal:
+		case <-time.After(time.Second):
+			t.Fatal("清空或重读未结束")
+		}
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("旧轮询未结束")
+	}
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	for {
+		previewMu.Lock()
+		polling, count := st.consolePolling, len(st.consoleErrors)
+		previewMu.Unlock()
+		if count != 0 {
+			t.Fatal("清空后旧结果复活")
+		}
+		if !polling {
+			break
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatal("失败路径未清理轮询标记")
+		}
+	}
+}
+
+func TestPreviewAdvanceGenerationClearsPageData(t *testing.T) {
+	st := &previewState{
+		consoleErrors: []previewConsoleError{{Message: "旧错误"}}, consoleOpen: true, consolePolling: true,
+		annotations: []previewAnnotation{{Selector: "#old"}}, annotating: true, annotOpen: true, annotPolling: true,
+	}
+	previewMu.Lock()
+	previewAdvanceGenerationLocked(st)
+	defer previewMu.Unlock()
+	if st.generation != 1 || len(st.consoleErrors) != 0 || len(st.annotations) != 0 || st.consoleOpen || st.annotOpen || st.annotating || st.consolePolling || st.annotPolling {
+		t.Fatalf("换代未清理旧页状态: %+v", st)
 	}
 }
 

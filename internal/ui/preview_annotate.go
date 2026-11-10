@@ -40,6 +40,7 @@ const (
 // previewAnnotation 描述用户在内置浏览器里圈选的一个元素。
 // rect 在脚本里是嵌套对象，落到 Go 侧拆成 X/Y/W/H 便于直接格式化。
 type previewAnnotation struct {
+	id       uint64
 	Selector string
 	Tag      string
 	Role     string
@@ -388,7 +389,7 @@ func previewMaybePollAnnotations(s *chatState, st *previewState, force bool) {
 		return
 	}
 	previewMu.Lock()
-	if !st.annotating || st.annotPolling || st.web == nil || st.web.IsDestroyed() {
+	if !st.annotating || st.annotPolling || st.page == nil {
 		previewMu.Unlock()
 		return
 	}
@@ -398,38 +399,60 @@ func previewMaybePollAnnotations(s *chatState, st *previewState, force bool) {
 	}
 	st.annotLastPoll = time.Now()
 	st.annotPolling = true
-	web := st.web
+	page, token := st.page, previewPageTokenLocked(st)
 	previewMu.Unlock()
 
-	go func() {
-		var items []previewAnnotation
-		if !web.IsDestroyed() && web.Page() != nil {
-			if raw, err := web.Page().Eval(previewAnnotateDrainScript); err == nil {
-				if text, ok := raw.(string); ok && text != "" {
-					if text == "null" {
-						// 页面导航后注入的监听器随旧上下文丢失：重新安装并继续标注模式。
-						_, _ = web.Page().Eval(previewAnnotateStartScript)
-					} else {
-						items = previewAnnotationsFromJSON(text)
-					}
-				}
-			}
-		}
+	go previewPollAnnotations(s, token, page)
+}
 
-		previewMu.Lock()
-		st.annotPolling = false
-		changed := len(items) > 0
-		if changed {
-			st.annotations = previewAppendAnnotations(st.annotations, items)
-			// 选到元素就把抽屉展开，用户能立刻看到 chip 并随手写评论。
-			st.annotOpen = true
+func previewPollAnnotations(s *chatState, token previewPageToken, page previewPage) {
+	previewMu.Lock()
+	current := previewStateForTokenLocked(s, token)
+	valid := current != nil && current.page != nil && current.annotRevision == token.annotRevision
+	previewMu.Unlock()
+	if !valid {
+		return
+	}
+	raw, err := page.Eval(previewAnnotateDrainScript)
+	var items []previewAnnotation
+	if text, ok := raw.(string); err == nil && ok && text != "" {
+		if text == "null" {
+			// 仅当前页面仍在标注时才重新安装监听器。
+			previewEvalAnnotations(s, token, page, previewAnnotateStartScript)
+		} else {
+			items = previewAnnotationsFromJSON(text)
 		}
+	}
+	previewMu.Lock()
+	st := previewStateForTokenLocked(s, token)
+	if st == nil || st.page == nil || st.annotRevision != token.annotRevision {
 		previewMu.Unlock()
-
-		if changed && s != nil {
-			s.invalidate()
+		return
+	}
+	st.annotPolling = false
+	changed := st.annotating && len(items) > 0
+	if changed {
+		for i := range items {
+			st.nextAnnotationID++
+			items[i].id = st.nextAnnotationID
 		}
-	}()
+		st.annotations = previewAppendAnnotations(st.annotations, items)
+		st.annotOpen = true
+	}
+	previewMu.Unlock()
+	if changed && s != nil {
+		s.invalidate()
+	}
+}
+
+func previewEvalAnnotations(s *chatState, token previewPageToken, page previewPage, script string) {
+	previewMu.Lock()
+	st := previewStateForTokenLocked(s, token)
+	valid := st != nil && st.page != nil && st.annotRevision == token.annotRevision
+	previewMu.Unlock()
+	if valid {
+		_, _ = page.Eval(script)
+	}
 }
 
 // previewStopAnnotateMode 退出标注模式（页面侧停用拾取、恢复高亮），本地标注保留。
@@ -438,12 +461,15 @@ func previewStopAnnotateMode(s *chatState, st *previewState) {
 		return
 	}
 	previewMu.Lock()
-	web := st.web
+	page := st.page
 	st.annotating = false
+	st.annotRevision++
+	st.annotPolling = false
+	token := previewPageTokenLocked(st)
 	previewMu.Unlock()
 
-	if web != nil && !web.IsDestroyed() && web.Page() != nil {
-		go func() { _, _ = web.Page().Eval(previewAnnotateStopScript) }()
+	if page != nil {
+		go previewEvalAnnotations(s, token, page, previewAnnotateStopScript)
 	}
 	if s != nil {
 		s.invalidate()
@@ -456,11 +482,12 @@ func togglePreviewAnnotate(s *chatState, st *previewState) {
 		return
 	}
 	previewMu.Lock()
-	web := st.web
+	page := st.page
+	token := previewPageTokenLocked(st)
 	active := st.annotating
 	previewMu.Unlock()
 
-	if web == nil || web.IsDestroyed() || web.Page() == nil {
+	if page == nil {
 		if s != nil {
 			s.setToast("预览页面未就绪，无法标注元素")
 		}
@@ -472,12 +499,19 @@ func togglePreviewAnnotate(s *chatState, st *previewState) {
 	}
 
 	previewMu.Lock()
+	if previewStateForTokenLocked(s, token) == nil {
+		previewMu.Unlock()
+		return
+	}
+	st.annotRevision++
+	token = previewPageTokenLocked(st)
 	st.annotating = true
+	st.annotPolling = false
 	st.annotLastPoll = time.Time{}
 	// 已有标注时展开抽屉，用户能接着看到上次选过的元素。
 	st.annotOpen = len(st.annotations) > 0
 	previewMu.Unlock()
-	go func() { _, _ = web.Page().Eval(previewAnnotateStartScript) }()
+	go previewEvalAnnotations(s, token, page, previewAnnotateStartScript)
 	if s != nil {
 		s.setToast("标注模式：点击页面上要修改的元素")
 	}
@@ -489,6 +523,8 @@ func previewClearAnnotations(s *chatState, st *previewState) {
 		return
 	}
 	previewMu.Lock()
+	st.annotRevision++
+	st.annotPolling = false
 	st.annotations = nil
 	st.annotOpen = false
 	previewMu.Unlock()
@@ -547,12 +583,22 @@ func previewAnnotateIntoComposer(s *chatState, text string) {
 }
 
 // previewSendAnnotations 把已标注元素整理成提示送入当前 Composer，随后退出标注模式并清空列表。
-func previewSendAnnotations(s *chatState, st *previewState) {
-	if s == nil || st == nil {
+func previewSendAnnotations(s *chatState, token previewPageToken) {
+	if s == nil {
 		return
 	}
 	previewMu.Lock()
+	st := previewStateForTokenLocked(s, token)
+	if st == nil || st.annotRevision != token.annotRevision {
+		previewMu.Unlock()
+		return
+	}
 	items := append([]previewAnnotation(nil), st.annotations...)
+	page := st.page
+	previewResetAnnotationsLocked(st)
+	st.annotPolling = false
+	st.annotRevision++
+	token = previewPageTokenLocked(st)
 	previewMu.Unlock()
 
 	prompt := previewAnnotationsPrompt(items)
@@ -561,20 +607,20 @@ func previewSendAnnotations(s *chatState, st *previewState) {
 		return
 	}
 	previewAnnotateIntoComposer(s, prompt)
-	previewStopAnnotateMode(s, st)
-	previewClearAnnotations(s, st)
+	if page != nil {
+		go previewEvalAnnotations(s, token, page, previewAnnotateStopScript)
+	}
 	s.setToast(fmt.Sprintf("已把 %d 条浏览器标注送入输入框", len(items)))
 }
 
 // renderPreviewAnnotateDrawer 渲染底部标注抽屉：已选元素 chip（可删除）、单行评论与发送按钮。
 // 评论输入框绑定在本帧快照上，渲染结束后把快照里的评论写回状态，避免并发追加让指针悬空。
-func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, st *previewState) {
-	previewMu.Lock()
-	items := append([]previewAnnotation(nil), st.annotations...)
-	previewMu.Unlock()
+func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapshot) {
+	items := append([]previewAnnotation(nil), snap.annotations...)
 
-	removeIdx := -1
+	var removeID uint64
 	closeDrawer := false
+	clearItems, sendItems := false, false
 
 	ui.Column(c.Key("preview-annotate-drawer")).
 		Height(previewAnnotateDrawerHeight).
@@ -607,7 +653,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, st *previewState) 
 						sendBtn.Background(ThemeHover(c))
 					}
 					if sendBtn.Clicked() {
-						previewSendAnnotations(s, st)
+						sendItems = true
 					}
 					sendBtn.Children(func() {
 						ui.Text(c, "发送给 Agent").FontSize(TypeCaption).FontWeight(600).TextColor(ThemeAccent(c))
@@ -622,7 +668,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, st *previewState) 
 						clearBtn.Background(ThemeHover(c))
 					}
 					if clearBtn.Clicked() {
-						previewClearAnnotations(s, st)
+						clearItems = true
 					}
 					clearBtn.Children(func() {
 						ui.Text(c, "清空").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
@@ -658,7 +704,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, st *previewState) 
 					for i := range items {
 						idx := i
 						item := items[idx]
-						ui.Row(c.Key(fmt.Sprintf("preview-annotate-item-%d", idx))).
+						ui.Row(c.Key(fmt.Sprintf("preview-annotate-item-%d", item.id))).
 							FillWidth().
 							Gap(Space2).
 							AlignItems(ui.Center).
@@ -683,12 +729,12 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, st *previewState) 
 									TextColor(ThemeSecondaryText(c)).
 									Tooltip(item.Selector)
 
-								ui.TextInput(c.Key(fmt.Sprintf("preview-annotate-comment-%d", idx)), &items[idx].Comment).
+								ui.TextInput(c.Key(fmt.Sprintf("preview-annotate-comment-%d", item.id)), &items[idx].Comment).
 									Placeholder("对这个元素的评论...").
 									FontSize(TypeCaption).
 									Grow(1)
 
-								removeBtn := ui.ButtonBase(c.Key(fmt.Sprintf("preview-annotate-remove-%d", idx))).
+								removeBtn := ui.ButtonBase(c.Key(fmt.Sprintf("preview-annotate-remove-%d", item.id))).
 									Label("删除").
 									Tooltip("删除这条标注").
 									Radius(RadiusXS).
@@ -697,7 +743,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, st *previewState) 
 									removeBtn.Background(ThemeHover(c))
 								}
 								if removeBtn.Clicked() {
-									removeIdx = idx
+									removeID = item.id
 								}
 								removeBtn.Children(func() {
 									ui.Icon(c, IconX()).Size(previewAnnotateRemoveIconSize, previewAnnotateRemoveIconSize).TextColor(ThemeSecondaryText(c))
@@ -707,22 +753,47 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, st *previewState) 
 				})
 		})
 
-	// 输入框在渲染期间直接改动快照里的 Comment，这里把评论写回真实状态。
+	if !previewCommitAnnotationEdits(s, snap.token, items, removeID, closeDrawer, clearItems) {
+		return
+	}
+	if sendItems {
+		previewSendAnnotations(s, snap.token)
+	}
+}
+
+// previewCommitAnnotationEdits 按条目身份回写，后台追加或淘汰首项不会把评论写给别的元素。
+func previewCommitAnnotationEdits(s *chatState, token previewPageToken, items []previewAnnotation, removeID uint64, hide, clear bool) bool {
 	previewMu.Lock()
-	for i := range items {
-		if i < len(st.annotations) {
-			st.annotations[i].Comment = items[i].Comment
+	st := previewStateForTokenLocked(s, token)
+	if st == nil || st.annotRevision != token.annotRevision {
+		previewMu.Unlock()
+		return false
+	}
+	for i := range st.annotations {
+		for _, item := range items {
+			if st.annotations[i].id == item.id {
+				st.annotations[i].Comment = item.Comment
+				break
+			}
 		}
 	}
-	previewMu.Unlock()
-
-	if closeDrawer {
-		previewMu.Lock()
+	for i, item := range st.annotations {
+		if removeID != 0 && item.id == removeID {
+			st.annotations = append(st.annotations[:i:i], st.annotations[i+1:]...)
+			break
+		}
+	}
+	if clear {
+		st.annotRevision++
+		st.annotPolling = false
+		st.annotations = nil
+	}
+	if hide || len(st.annotations) == 0 {
 		st.annotOpen = false
-		previewMu.Unlock()
+	}
+	previewMu.Unlock()
+	if hide || clear || removeID != 0 {
 		s.invalidate()
 	}
-	if removeIdx >= 0 {
-		previewRemoveAnnotation(s, st, removeIdx)
-	}
+	return true
 }

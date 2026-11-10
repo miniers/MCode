@@ -154,19 +154,26 @@ const previewConsoleClearScript = `(function () {
 })()`
 
 var (
-	previewMu     sync.Mutex
-	previewStates = make(map[*chatState]*previewState)
+	previewMu         sync.Mutex
+	previewStates     = make(map[*chatState]*previewState)
+	previewNextPageID uint64
 )
 
 // previewState 维护单个聊天窗口下的 Web 预览状态。
 type previewState struct {
-	visible bool
-	url     string
-	html    string
-	web     *mygo.WebView
-	width   float32
-	addr    string
-	err     string
+	visible                        bool
+	url                            string
+	html                           string
+	web                            *mygo.WebView
+	page                           previewPage
+	pageID, generation             uint64
+	consoleRevision, annotRevision uint64
+	webCreating                    bool
+	pageOff                        func()
+	nextAnnotationID               uint64
+	width                          float32
+	addr                           string
+	err                            string
 	// webFailed 记录原生 WebView 创建失败：失败原因（无宿主窗口等）不变时按帧重试只会反复失败，
 	// 因此失败后不再自动重试，由用户重新打开预览、改地址或点刷新时重置（见 ensureWebView）。
 	webFailed bool
@@ -250,7 +257,7 @@ func previewMaybePollConsoleErrors(s *chatState, st *previewState, force bool) {
 		return
 	}
 	previewMu.Lock()
-	if st.consolePolling || st.web == nil || st.web.IsDestroyed() {
+	if st.consolePolling || st.page == nil {
 		previewMu.Unlock()
 		return
 	}
@@ -260,34 +267,43 @@ func previewMaybePollConsoleErrors(s *chatState, st *previewState, force bool) {
 	}
 	st.consoleLastPoll = time.Now()
 	st.consolePolling = true
-	web := st.web
+	page, token := st.page, previewPageTokenLocked(st)
 	previewMu.Unlock()
 
-	go func() {
-		var errors []previewConsoleError
-		if !web.IsDestroyed() && web.Page() != nil {
-			if raw, err := web.Page().Eval(previewConsoleScript); err == nil {
-				if text, ok := raw.(string); ok && text != "" {
-					_ = json.Unmarshal([]byte(text), &errors)
-				}
-			}
-		}
+	go previewPollConsoleErrors(s, token, page)
+}
 
-		previewMu.Lock()
-		st.consolePolling = false
-		changed := !previewConsoleErrorsEqual(st.consoleErrors, errors)
-		if changed {
-			st.consoleErrors = errors
-			if len(errors) == 0 {
-				st.consoleOpen = false
-			}
-		}
+func previewPollConsoleErrors(s *chatState, token previewPageToken, page previewPage) {
+	previewMu.Lock()
+	current := previewStateForTokenLocked(s, token)
+	valid := current != nil && current.page != nil && current.consoleRevision == token.consoleRevision
+	previewMu.Unlock()
+	if !valid {
+		return
+	}
+	raw, err := page.Eval(previewConsoleScript)
+	var entries []previewConsoleError
+	if text, ok := raw.(string); err == nil && ok && text != "" {
+		err = json.Unmarshal([]byte(text), &entries)
+	}
+	previewMu.Lock()
+	st := previewStateForTokenLocked(s, token)
+	if st == nil || st.page == nil || st.consoleRevision != token.consoleRevision {
 		previewMu.Unlock()
-
-		if changed && s != nil {
-			s.invalidate()
+		return
+	}
+	st.consolePolling = false
+	changed := err == nil && !previewConsoleErrorsEqual(st.consoleErrors, entries)
+	if changed {
+		st.consoleErrors = entries
+		if len(entries) == 0 {
+			st.consoleOpen = false
 		}
-	}()
+	}
+	previewMu.Unlock()
+	if changed && s != nil {
+		s.invalidate()
+	}
 }
 
 // clearPreviewConsoleErrors 清空页面与本地收集的控制台错误。
@@ -296,19 +312,38 @@ func clearPreviewConsoleErrors(s *chatState, st *previewState) {
 		return
 	}
 	previewMu.Lock()
-	web := st.web
+	page := st.page
+	st.consoleRevision++
+	token := previewPageTokenLocked(st)
+	st.consolePolling = false
+	// 清空脚本完成前暂停新轮询，避免再读到页面侧尚未清掉的数据。
+	if page != nil {
+		st.consolePolling = true
+	}
 	st.consoleErrors = nil
 	st.consoleOpen = false
 	previewMu.Unlock()
 
-	if web != nil && !web.IsDestroyed() && web.Page() != nil {
+	if page != nil {
 		go func() {
-			_, _ = web.Page().Eval(previewConsoleClearScript)
+			previewMu.Lock()
+			current := previewStateForTokenLocked(s, token)
+			valid := current != nil && current.page != nil && current.consoleRevision == token.consoleRevision
+			previewMu.Unlock()
+			if !valid {
+				return
+			}
+			_, _ = page.Eval(previewConsoleClearScript)
 			// 清空后立刻重读，避免上一次轮询的旧结果把列表又填回来。
 			previewMu.Lock()
-			st.consoleLastPoll = time.Time{}
+			current = previewStateForTokenLocked(s, token)
+			if current == nil || current.consoleRevision != token.consoleRevision {
+				previewMu.Unlock()
+				return
+			}
+			current.consoleLastPoll = time.Now()
 			previewMu.Unlock()
-			previewMaybePollConsoleErrors(s, st, true)
+			previewPollConsoleErrors(s, token, page)
 		}()
 	}
 	if s != nil {
@@ -379,64 +414,102 @@ func getBrowserQuickPorts(s *chatState) []string {
 
 // ensureWebView 保证 previewState 中的 webview 实例已初始化。
 // 创建失败后置 webFailed 并停手：本函数在渲染路径里每帧调用，若失败还继续尝试就会以帧率重试。
-func ensureWebView(s *chatState, st *previewState) {
-	if st.web != nil && !st.web.IsDestroyed() {
-		return
+func ensureWebView(s *chatState, st *previewState) bool {
+	previewMu.Lock()
+	web, generation := st.web, st.generation
+	blocked := st.webFailed || st.webCreating
+	previewMu.Unlock()
+	if blocked || (web != nil && !web.IsDestroyed()) {
+		return false
 	}
+	previewMu.Lock()
+	if st.web != web || st.generation != generation || st.webCreating {
+		previewMu.Unlock()
+		return false
+	}
+	previewAdvanceGenerationLocked(st)
+	previewNextPageID++
+	st.pageID = previewNextPageID
+	token := previewPageTokenLocked(st)
+	off := st.pageOff
+	st.pageOff = nil
 	st.web = nil
-	if st.webFailed {
-		return
+	st.page = nil
+	st.webCreating = true
+	previewMu.Unlock()
+	if off != nil {
+		off()
 	}
 
 	var win *mygo.Window
 	if s != nil && s.window != nil {
 		win = s.window()
 	}
-	if win == nil {
-		st.err = "未关联宿主窗口，无法创建 Web 视图"
-		st.webFailed = true
-		return
-	}
-
-	wv, err := win.NewWebView(mygo.WebViewOptions{})
-	if err != nil {
-		st.err = "创建 Web 视图失败: " + err.Error()
-		st.webFailed = true
-		return
-	}
-
-	st.web = wv
-	st.err = ""
-	st.webFailed = false
-
-	// 页面每次加载完成后注入错误收集器并立刻读一次；注入脚本自身幂等。
-	// 关闭控制台错误采集时既不注入脚本，也不轮询。
-	if previewConsoleCaptureEnabled(s) {
-		if page := wv.Page(); page != nil {
-			page.OnDidFinishLoad(func() {
-				go previewMaybePollConsoleErrors(s, st, true)
-			})
+	var wv *mygo.WebView
+	var page *mygo.Page
+	var message string
+	if win != nil {
+		var err error
+		wv, err = win.NewWebView(mygo.WebViewOptions{})
+		if err != nil {
+			message = "创建 Web 视图失败: " + err.Error()
+		} else {
+			page = wv.Page()
 		}
+	} else {
+		message = "未关联宿主窗口，无法创建 Web 视图"
 	}
-
-	loadPreviewPage(st)
+	previewMu.Lock()
+	if previewStateForTokenLocked(s, token) == nil {
+		previewMu.Unlock()
+		if wv != nil {
+			wv.Destroy()
+		}
+		return false
+	}
+	st.webCreating = false
+	st.web = wv
+	if page != nil {
+		st.page = page
+	}
+	st.err = message
+	st.webFailed = message != ""
+	previewMu.Unlock()
+	if page != nil {
+		loadPreviewPage(s, st)
+	}
+	return page != nil
 }
 
-func loadPreviewPage(st *previewState) {
-	if st.web == nil || st.web.IsDestroyed() || st.web.Page() == nil {
+func loadPreviewPage(s *chatState, st *previewState) {
+	previewMu.Lock()
+	page, ok := st.page.(*mygo.Page)
+	if !ok {
+		previewMu.Unlock()
 		return
 	}
 	// 页面一换，旧的 selector 就指向不了任何元素：退出标注模式并清空已选元素。
-	previewMu.Lock()
-	previewResetAnnotationsLocked(st)
-	previewMu.Unlock()
+	previewAdvanceGenerationLocked(st)
+	token := previewPageTokenLocked(st)
+	target, addr, html := st.url, st.addr, st.html
+	off := st.pageOff
+	st.pageOff = nil
 	st.err = ""
-	if st.url != "" {
-		if err := st.web.Page().LoadURL(st.url); err != nil {
-			st.err = "加载预览失败: " + err.Error()
+	previewMu.Unlock()
+	if off != nil {
+		off()
+	}
+	previewBindPageCallbacks(s, token, page)
+	if target != "" {
+		if err := page.LoadURL(target); err != nil {
+			previewMu.Lock()
+			if current := previewStateForTokenLocked(s, token); current != nil {
+				current.err = "加载预览失败: " + err.Error()
+			}
+			previewMu.Unlock()
 		}
-	} else if st.addr == "html-preview" {
-		st.web.Page().LoadHTML(st.html, "")
+	} else if addr == "html-preview" {
+		page.LoadHTML(html, "")
 	}
 }
 
@@ -456,6 +529,8 @@ func openPreviewURL(s *chatState, raw string) {
 	}
 
 	previewMu.Lock()
+	previewAdvanceGenerationLocked(st)
+	st.webCreating = false
 	st.visible = true
 	st.url = target
 	st.addr = target
@@ -467,10 +542,8 @@ func openPreviewURL(s *chatState, raw string) {
 	// 右侧只留一个分栏：预览打开时先关掉文件面板与改动面板（改动与预览也互斥）。
 	closeOtherSidePanes(s, sidePanePreviewID)
 
-	if st.web != nil && !st.web.IsDestroyed() {
-		loadPreviewPage(st)
-	} else {
-		ensureWebView(s, st)
+	if !ensureWebView(s, st) {
+		loadPreviewPage(s, st)
 	}
 	s.invalidate()
 }
@@ -486,6 +559,8 @@ func openPreviewHTML(s *chatState, html string) {
 	}
 
 	previewMu.Lock()
+	previewAdvanceGenerationLocked(st)
+	st.webCreating = false
 	st.visible = true
 	st.html = html
 	st.url = ""
@@ -497,10 +572,8 @@ func openPreviewHTML(s *chatState, html string) {
 	// 右侧只留一个分栏：预览打开时先关掉文件面板与改动面板（改动与预览也互斥）。
 	closeOtherSidePanes(s, sidePanePreviewID)
 
-	if st.web != nil && !st.web.IsDestroyed() {
-		loadPreviewPage(st)
-	} else {
-		ensureWebView(s, st)
+	if !ensureWebView(s, st) {
+		loadPreviewPage(s, st)
 	}
 	s.invalidate()
 }
@@ -518,11 +591,18 @@ func closePreview(s *chatState) {
 	previewMu.Lock()
 	st.visible = false
 	// 关闭预览时一并退出标注模式并清空标注，下次打开不残留旧页面的 selector。
-	previewResetAnnotationsLocked(st)
+	previewAdvanceGenerationLocked(st)
+	st.webCreating = false
 	web := st.web
+	off := st.pageOff
+	st.pageOff = nil
 	st.web = nil
+	st.page = nil
 	previewMu.Unlock()
 
+	if off != nil {
+		off()
+	}
 	if web != nil && !web.IsDestroyed() {
 		web.Destroy()
 	}
@@ -570,6 +650,10 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 		return
 	}
 	captureConsole := previewConsoleCaptureEnabled(s)
+	ensureWebView(s, st)
+	previewMu.Lock()
+	snap := previewSnapshotLocked(st)
+	previewMu.Unlock()
 
 	ui.Column(c.Key("preview-panel")).
 		Grow(1).
@@ -588,18 +672,26 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 				BorderColor(ThemeBorder(c)).
 				Children(func() {
 					// 地址输入框
-					in := ui.TextInput(c.Key("preview-addr-input"), &st.addr).
+					addr := snap.addr
+					in := ui.TextInput(c.Key("preview-addr-input"), &addr).
 						Placeholder("输入 URL (例如 localhost:3000)...").
 						FontSize(TypeFootnote).
 						Grow(1)
+					if addr != snap.addr {
+						previewMu.Lock()
+						if current := previewStateForTokenLocked(s, snap.token); current != nil {
+							current.addr = addr
+						}
+						previewMu.Unlock()
+					}
 					if in.Submitted() {
-						openPreviewURL(s, st.addr)
+						openPreviewURL(s, addr)
 					}
 
 					// 视口分段选择：桌面 / 平板 / 手机
 					for _, mode := range previewViewportModes() {
 						mode := mode
-						selected := st.viewport == mode
+						selected := snap.viewport == mode
 						viewportBtn := ui.ButtonBase(c.Key("preview-viewport-"+string(mode))).
 							Label(previewViewportLabel(mode)).
 							Tooltip(previewViewportLabel(mode)+"视口").
@@ -642,7 +734,6 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						}
 						if btn.Clicked() {
 							target := "http://localhost:" + portStr
-							st.addr = target
 							openPreviewURL(s, target)
 						}
 						btn.Children(func() {
@@ -655,21 +746,23 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					}
 
 					// 控制台错误胶囊：有错误时显示数量，点击展开底部错误抽屉
-					if captureConsole && len(st.consoleErrors) > 0 {
+					if captureConsole && len(snap.consoleErrors) > 0 {
 						badgeBtn := ui.ButtonBase(c.Key("preview-console-badge")).
-							Label(fmt.Sprintf("控制台错误 %d", len(st.consoleErrors))).
+							Label(fmt.Sprintf("控制台错误 %d", len(snap.consoleErrors))).
 							Tooltip("展开或收起控制台错误").
 							Radius(RadiusXS).
 							Padding(Space0, Space2).
 							Background(ThemeDanger(c).Alpha(0.18))
 						if badgeBtn.Clicked() {
 							previewMu.Lock()
-							st.consoleOpen = !st.consoleOpen
+							if current := previewStateForTokenLocked(s, snap.token); current != nil {
+								current.consoleOpen = !snap.consoleOpen
+							}
 							previewMu.Unlock()
 							s.invalidate()
 						}
 						badgeBtn.Children(func() {
-							ui.Text(c, fmt.Sprintf("! %d", len(st.consoleErrors))).
+							ui.Text(c, fmt.Sprintf("! %d", len(snap.consoleErrors))).
 								FontSize(TypeCode).
 								FontWeight(600).
 								Font("monospace").
@@ -684,7 +777,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						Radius(RadiusXS).
 						Padding(Space0, Space2).
 						Background(ThemeOverlay(c, 0.06))
-					if st.annotating {
+					if snap.annotating {
 						annotBtn.Background(ThemeSelected(c))
 					}
 					if annotBtn.Hovered() {
@@ -695,13 +788,13 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					}
 					annotBtn.Children(func() {
 						color := ThemeSecondaryText(c)
-						if st.annotating {
+						if snap.annotating {
 							color = ThemeAccent(c)
 						}
 						ui.Row(c.Key("preview-annotate-btn-row")).Gap(Space0).AlignItems(ui.Center).Children(func() {
 							ui.Icon(c, IconHighlighter()).Size(IconSM, IconSM).TextColor(color)
-							if len(st.annotations) > 0 {
-								ui.Text(c, fmt.Sprintf("%d", len(st.annotations))).
+							if len(snap.annotations) > 0 {
+								ui.Text(c, fmt.Sprintf("%d", len(snap.annotations))).
 									FontSize(TypeCaption).
 									FontWeight(600).
 									TextColor(color)
@@ -720,9 +813,14 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					}
 					if reloadBtn.Clicked() {
 						// 刷新按钮是创建失败后的人工重试入口：先清失败标记再建视图，最后重新加载。
+						previewMu.Lock()
+						previewAdvanceGenerationLocked(st)
+						st.webCreating = false
 						st.webFailed = false
-						ensureWebView(s, st)
-						loadPreviewPage(st)
+						previewMu.Unlock()
+						if !ensureWebView(s, st) {
+							loadPreviewPage(s, st)
+						}
 					}
 					reloadBtn.Children(func() {
 						ui.Icon(c, IconRefreshCw()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
@@ -738,9 +836,9 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						openExternalBtn.Background(ThemeHover(c))
 					}
 					if openExternalBtn.Clicked() {
-						target := st.url
-						if target == "" && st.addr != "" && st.addr != "html-preview" {
-							target = normalizePreviewURL(st.addr)
+						target := snap.url
+						if target == "" && snap.addr != "" && snap.addr != "html-preview" {
+							target = normalizePreviewURL(snap.addr)
 						}
 						if target != "" {
 							c.OpenURL(target)
@@ -758,18 +856,17 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 				})
 
 			// 主体区域
-			ensureWebView(s, st)
-			if st.err != "" && st.web != nil {
-				ui.Text(c, st.err).TextColor(ThemeDanger(c)).FontSize(TypeFootnote).Padding(Space3)
+			if snap.err != "" && snap.web != nil {
+				ui.Text(c, snap.err).TextColor(ThemeDanger(c)).FontSize(TypeFootnote).Padding(Space3)
 			}
-			if st.web == nil {
+			if snap.web == nil {
 				ui.Column(c.Key("preview-empty-state")).
 					Grow(1).
 					FillHeight().
 					Justify(ui.Center).
 					AlignItems(ui.Center).
 					Children(func() {
-						msg := st.err
+						msg := snap.err
 						if msg == "" {
 							msg = "暂无预览内容或 Web 视图不可用"
 						}
@@ -779,19 +876,19 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 				// 轮询页面收集到的 JS 错误与元素标注；没有推送式消息通道时按最小间隔读取。
 				previewMaybePollConsoleErrors(s, st, false)
 				previewMaybePollAnnotations(s, st, false)
-				renderPreviewViewport(c, st)
-				if st.annotOpen && len(st.annotations) > 0 {
-					renderPreviewAnnotateDrawer(c, s, st)
+				renderPreviewViewport(c, snap)
+				if snap.annotOpen && len(snap.annotations) > 0 {
+					renderPreviewAnnotateDrawer(c, s, snap)
 				}
-				if captureConsole && st.consoleOpen && len(st.consoleErrors) > 0 {
-					renderPreviewConsoleDrawer(c, s, st)
+				if captureConsole && snap.consoleOpen && len(snap.consoleErrors) > 0 {
+					renderPreviewConsoleDrawer(c, s, st, snap)
 				}
 			}
 		})
 }
 
 // renderPreviewViewport 渲染 Web 视图：桌面铺满面板，平板与手机居中并限制宽度。
-func renderPreviewViewport(c *ui.Context, st *previewState) {
+func renderPreviewViewport(c *ui.Context, st previewSnapshot) {
 	width := previewViewportWidth(st.viewport)
 	if width <= 0 {
 		ui.WebView(c, st.web).Grow(1)
@@ -809,10 +906,8 @@ func renderPreviewViewport(c *ui.Context, st *previewState) {
 }
 
 // renderPreviewConsoleDrawer 渲染底部控制台错误抽屉，使用不透明背景，可清空。
-func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *previewState) {
-	previewMu.Lock()
-	entries := append([]previewConsoleError(nil), st.consoleErrors...)
-	previewMu.Unlock()
+func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *previewState, snap previewSnapshot) {
+	entries := snap.consoleErrors
 
 	ui.Column(c.Key("preview-console-drawer")).
 		Height(previewConsoleDrawerHeight).

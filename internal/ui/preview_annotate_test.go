@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPreviewAnnotationsSnapshotIsolation(t *testing.T) {
 	st := &previewState{
-		annotations: []previewAnnotation{{Selector: "#app", Comment: "原评论"}},
+		annotations:   []previewAnnotation{{Selector: "#app", Comment: "原评论"}},
 		consoleErrors: []previewConsoleError{{Message: "原错误"}},
-		viewport: previewViewportTablet,
-		annotOpen: true,
+		viewport:      previewViewportTablet,
+		annotOpen:     true,
 	}
 	previewMu.Lock()
 	snapshot := previewSnapshotLocked(st)
@@ -26,6 +27,92 @@ func TestPreviewAnnotationsSnapshotIsolation(t *testing.T) {
 	previewMu.Unlock()
 	if snapshot.annotations[0].Selector != "#app" || snapshot.consoleErrors[0].Message != "快照错误" || snapshot.viewport != previewViewportTablet || !snapshot.annotOpen {
 		t.Fatal("修改原状态影响了已有快照")
+	}
+}
+
+func TestPreviewAnnotationEditsKeepIdentity(t *testing.T) {
+	s := &chatState{}
+	st := getPreviewState(s)
+	previewMu.Lock()
+	st.annotations = []previewAnnotation{{id: 1, Selector: "#old"}, {id: 2, Selector: "#keep"}}
+	snap := previewSnapshotLocked(st)
+	// 模拟轮询在满队列中淘汰首项、追加新项。
+	st.annotations = []previewAnnotation{{id: 2, Selector: "#keep"}, {id: 3, Selector: "#new"}}
+	previewMu.Unlock()
+	snap.annotations[0].Comment = "已淘汰项的评论"
+	snap.annotations[1].Comment = "保留项的评论"
+	if !previewCommitAnnotationEdits(s, snap.token, snap.annotations, 1, false, false) {
+		t.Fatal("同页编辑未提交")
+	}
+	previewMu.Lock()
+	if st.annotations[0].Comment != "保留项的评论" || st.annotations[1].Comment != "" || len(st.annotations) != 2 {
+		t.Errorf("评论或删除被应用到其他元素: %+v", st.annotations)
+	}
+	previewAdvanceGenerationLocked(st)
+	st.annotations = []previewAnnotation{{id: 4, Selector: "#next"}}
+	previewMu.Unlock()
+	if previewCommitAnnotationEdits(s, snap.token, snap.annotations, 4, true, true) {
+		t.Fatal("旧页的编辑不应提交")
+	}
+	previewMu.Lock()
+	defer previewMu.Unlock()
+	if len(st.annotations) != 1 || st.annotations[0].Selector != "#next" {
+		t.Fatal("旧页操作改动了新页")
+	}
+}
+
+func TestPreviewAnnotationClearDropsPendingPoll(t *testing.T) {
+	s := &chatState{}
+	st := getPreviewState(s)
+	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	page := &previewTestPage{eval: func(string) (any, error) {
+		close(started)
+		<-release
+		return `[{"selector":"#old"}]`, nil
+	}}
+	previewMu.Lock()
+	st.page, st.annotating, st.annotPolling = page, true, true
+	token := previewPageTokenLocked(st)
+	previewMu.Unlock()
+	go func() { previewPollAnnotations(s, token, page); close(done) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("轮询未启动")
+	}
+	previewClearAnnotations(s, st)
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("轮询未结束")
+	}
+	previewMu.Lock()
+	defer previewMu.Unlock()
+	if len(st.annotations) != 0 || st.annotPolling {
+		t.Fatal("清空后旧标注复活，或旧轮询未释放")
+	}
+}
+
+func TestPreviewAnnotationsSendKeepsEditedComment(t *testing.T) {
+	s := &chatState{}
+	st := getPreviewState(s)
+	previewMu.Lock()
+	st.annotations = []previewAnnotation{{id: 1, Selector: "#app"}}
+	snap := previewSnapshotLocked(st)
+	previewMu.Unlock()
+	snap.annotations[0].Comment = "本帧输入的评论"
+	previewCommitAnnotationEdits(s, snap.token, snap.annotations, 0, false, false)
+	previewSendAnnotations(s, snap.token)
+	s.mu.Lock()
+	if !strings.Contains(s.draft, "本帧输入的评论") {
+		t.Error("追加到输入框时丢失了当前评论")
+	}
+	s.mu.Unlock()
+	previewMu.Lock()
+	defer previewMu.Unlock()
+	if len(st.annotations) != 0 || st.annotating || st.annotOpen {
+		t.Fatal("追加到输入框后未清理标注")
 	}
 }
 
