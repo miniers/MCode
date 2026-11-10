@@ -422,7 +422,7 @@ func OnlyReads(command string) bool {
 		if p == "git" {
 			i := 1
 			for i < len(t) && t[i] == "-C" {
-				if i+1 >= len(t) || t[i+1] == "" || gitArgDenied(t[i+1]) || t[i+1] == "--ext-diff" {
+				if i+1 >= len(t) || t[i+1] == "" || gitArgDenied(t[i+1]) {
 					return false
 				}
 				i += 2
@@ -433,7 +433,7 @@ func OnlyReads(command string) bool {
 			sub := t[i]
 			args := t[i+1:]
 			for _, a := range args {
-				if a == "--ext-diff" || gitArgDenied(a) {
+				if gitArgDenied(a) {
 					return false
 				}
 			}
@@ -471,25 +471,30 @@ func OnlyReads(command string) bool {
 }
 
 func gitArgDenied(arg string) bool {
-	for _, flag := range []string{"--output", "--exec-path", "--git-dir", "--work-tree", "--config-env", "-c"} {
-		if arg == flag || strings.HasPrefix(arg, flag+"=") {
-			return true
+	if strings.HasPrefix(arg, "--") {
+		name, _, _ := strings.Cut(arg, "=")
+		if len(name) > 2 {
+			for _, flag := range []string{"--output", "--exec-path", "--git-dir", "--work-tree", "--config-env", "--upload-pack", "--receive-pack", "--open-files-in-pager", "--ext-diff"} {
+				if strings.HasPrefix(flag, name) {
+					return true
+				}
+			}
 		}
 	}
-	return strings.HasPrefix(arg, "-c") && len(arg) > 2
+	return strings.HasPrefix(arg, "-c")
 }
 
 func gitReadArgs(sub string, args []string) bool {
 	switch sub {
 	case "ls-remote":
 		for _, a := range args {
-			if a == "-u" || a == "--upload-pack" || strings.HasPrefix(a, "--upload-pack=") {
+			if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a[1:], "u") {
 				return false
 			}
 		}
 	case "grep":
 		for _, a := range args {
-			if a == "--open-files-in-pager" || strings.HasPrefix(a, "--open-files-in-pager=") || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a[1:], "O") {
+			if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a[1:], "O") {
 				return false
 			}
 		}

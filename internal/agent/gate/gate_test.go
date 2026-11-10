@@ -232,6 +232,7 @@ func TestOnlyReads(t *testing.T) {
 		{"git remote -v", true}, {"git remote get-url origin", true}, {"git remote show origin", true},
 		{"git config --get remote.origin.url", true}, {"git reflog", true}, {"git reflog show HEAD", true},
 		{"git ls-remote origin", true}, {"git grep -n foo", true}, {"curl -H 'Accept: */*' https://example.com", true},
+		{"git log --oneline -3", true}, {"git log --stat", true}, {"git ls-remote --tags origin", true}, {"git ls-remote -q origin", true}, {"git diff --exit-code", true},
 		{"curl -fsSL https://example.com/a", true}, {"curl -s -m 30 -H 'Accept: application/json' https://api.github.com/repos/a/b", true}, {"curl -I https://example.com", true},
 		{"curl -sLm30 --request=GET https://x", true}, {"curl --max-time 30 --write-out '%{http_code}' https://x", true},
 		{"git tag v1", false}, {"git tag -d v1", false}, {"git tag -ld v1", false}, {"git tag --list -f v1", false},
@@ -242,6 +243,8 @@ func TestOnlyReads(t *testing.T) {
 		{"curl -w @file https://x", false}, {"curl --write-out=%output{out} https://x", false}, {"curl --request=POST https://x", false}, {"curl -m", false},
 		{"git tag --contains HEAD -d v1", false}, {"git config --list --edit", false}, {"git reflog delete HEAD@{0}", false},
 		{"git ls-remote --upload-pack=touch /tmp/x origin", false}, {"git ls-remote --upload-pack evil origin", false}, {"git ls-remote -u evil origin", false},
+		{"git ls-remote --upload-pa=touch origin", false}, {"git ls-remote -uevil origin", false}, {"git ls-remote -qu origin", false},
+		{"git log --outp=x", false}, {"git log --ext", false}, {"git diff --ext-d", false}, {"git grep --open-files=vim foo", false}, {"git log --exec-p=/tmp", false},
 		{"git grep -O foo", false}, {"git grep -nOless foo", false}, {"git grep -iOless foo", false}, {"git grep --open-files-in-pager foo", false}, {"git grep --open-files-in-pager=vim foo", false},
 		{"curl -H @headers.txt https://example.com", false}, {"curl --header=@h https://example.com", false}, {"curl -H@h https://example.com", false},
 	} {
