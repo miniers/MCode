@@ -1144,13 +1144,22 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 		return swarm.NormalizeMode(modeResolver(threadID))
 	}
 
+	// bee 登记晚于首轮消息，登记前的首轮要看辅助会话标记兜底。
+	isBeeThread := func(threadID string) bool {
+		if _, ok := mgr.BeeOwner(threadID); ok {
+			return true
+		}
+		thread, err := backend.GetThread(ctx, threadID)
+		return err == nil && thread.IsHelper
+	}
+
 	// canAutoDelegate 判断该会话是否允许自动委派：两个开关开启、会话启用、不是 bee，
 	// 且不处于 plan 模式（plan 回复只供审阅，不触发执行型子任务派发）。
 	canAutoDelegate := func(threadID string) bool {
 		if !mgr.Settings().Enabled || !mgr.Settings().AutoDelegate || !mgr.State(threadID).Enabled {
 			return false
 		}
-		if _, isBee := mgr.BeeOwner(threadID); isBee {
+		if isBeeThread(threadID) {
 			return false
 		}
 		if thread, err := backend.GetThread(ctx, threadID); err == nil && thread.InteractionMode == "plan" {
@@ -1218,7 +1227,7 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 
 	backend.SetPromptDecorator(prefaceDecorator(preface, func(threadID, prompt string) string {
 		if !swarm.IsNotice(prompt) {
-			if _, isBee := mgr.BeeOwner(threadID); !isBee {
+			if !isBeeThread(threadID) {
 				mgr.BeginLeadRequest(threadID)
 				// 新的用户请求开始：已失败或已停止的去重记录作废，仍在跑或排队的记录保留，
 				// 免得主代理换个措辞又把同一批工作派一遍。
@@ -1227,7 +1236,7 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 		}
 
 		if mgr.Settings().Enabled && mgr.State(threadID).Enabled {
-			if _, isBee := mgr.BeeOwner(threadID); !isBee {
+			if !isBeeThread(threadID) {
 				// 宿主规则统一由 harness/policy 渲染：版本标记 + 固定顺序的启用段。
 				// 「主导只规划」时在策略末尾追加只规划规则（swarm.LeadPolicy 复用已有文案）；
 				// 轮次上限取 maxRounds()，与派发器实际执行的拦截口径一致。
@@ -1253,7 +1262,7 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 		}
 		// 未开启编排的主线程（也不是 bee）：默认禁用原生子代理工具。
 		if !swarm.IsNotice(prompt) {
-			if _, isBee := mgr.BeeOwner(threadID); !isBee {
+			if !isBeeThread(threadID) {
 				return swarm.NativeSubagentRule + "\n\n---\n\n" + prompt
 			}
 		}

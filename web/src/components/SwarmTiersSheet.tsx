@@ -462,7 +462,7 @@ export const SwarmTiersSheet: React.FC<SwarmTiersSheetProps> = ({ isOpen, onClos
           <textarea
             value={draft.systemPrompt ?? ''}
             onChange={(event) => updateDraft({ systemPrompt: event.target.value })}
-            placeholder="为该档位注入额外的系统指令（可选）"
+            placeholder="写给该档位子代理的额外要求"
             className={TEXTAREA_CLASS}
           />
         </label>

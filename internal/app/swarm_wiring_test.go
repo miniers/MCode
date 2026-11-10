@@ -760,6 +760,62 @@ func TestSwarmLeadPromptDecoratorNoticeLifecycle(t *testing.T) {
 	}
 }
 
+func TestSwarmPromptDecoratorSkipsUnregisteredHelperThread(t *testing.T) {
+	ctx := context.Background()
+	dir := swarmRepo(t)
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	defer hub.Close()
+	b := remote.NewMemoryBackend(hub)
+	defer b.Close()
+
+	h := newPromptCaptureHarness()
+	b.SetHarness(h, dir, harness.ModeFullAccess)
+	b.AddProject(wire.ProjectSummary{ID: "p", Name: "P", Path: dir})
+	b.AddThread(wire.ThreadSummary{ID: "main", ProjectID: "p", Provider: "prompt-capture"}, nil)
+	b.AddThread(wire.ThreadSummary{ID: "helper", ProjectID: "p", Provider: "prompt-capture"}, nil)
+	b.AddThread(wire.ThreadSummary{ID: "plain", ProjectID: "p", Provider: "prompt-capture"}, nil)
+	// 辅助标记已设置，但 helper 没有登记到 mgr 的 bees 里。
+	b.SetThreadRelation("helper", "main", true)
+
+	mgr := swarm.NewManager(swarm.Options{
+		Git:         git.NewRunner("", 4),
+		Driver:      b,
+		WorktreeDir: t.TempDir(),
+	})
+	mgr.SetSettingsFunc(func() swarm.Settings {
+		return swarm.Settings{
+			Enabled:     true,
+			DefaultTier: "edit",
+			Tiers:       []swarm.Tier{{ID: "edit", Description: "常规编辑"}},
+		}
+	})
+	// helper 即便开启编排，也不能被当成主会话；plain 未开启编排。
+	mgr.SetEnabled("helper", true)
+	wireSwarm(ctx, mgr, b, false)
+
+	capture := func(threadID, text string) string {
+		t.Helper()
+		sendSwarmMessage(t, ctx, b, threadID, text)
+		select {
+		case got := <-h.prompts:
+			return got
+		case <-time.After(5 * time.Second):
+			t.Fatalf("等待 %s 捕获 prompt 超时", threadID)
+			return ""
+		}
+	}
+
+	const text = "helper first prompt"
+	if got := capture("helper", text); got != text {
+		t.Fatalf("未登记的辅助会话 prompt 应保持原文，实际:\n%s", got)
+	}
+
+	got := capture("plain", "plain first prompt")
+	if !strings.HasPrefix(got, swarm.NativeSubagentRule) {
+		t.Fatalf("普通线程应带 NativeSubagentRule 前缀:\n%s", got)
+	}
+}
+
 func TestSwarmStoreAdapterReopenAndProjectResolution(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "mcode.db")

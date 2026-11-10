@@ -416,7 +416,7 @@ func renderSwarmTierEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmT
 						Key:         "area-swarm-tier-prompt-" + popKey,
 						Value:       &uiSt.draft.SystemPrompt,
 						Label:       "档位要求",
-						Placeholder: "为该档位注入额外的特定系统指令（可选）",
+						Placeholder: "写给该档位子代理的额外要求",
 						Multiline:   true,
 						MinLines:    2,
 						MaxLines:    5,
