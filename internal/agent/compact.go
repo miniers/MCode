@@ -127,14 +127,14 @@ func planBlock(items []replayItem, window int) (start, end int, ok bool) {
 	return start, end, valid && a == start && b == end
 }
 
-func compactBlock(ctx context.Context, client llm.Client, model string, entries []json.RawMessage, window int) (*compactionResult, error) {
+func compactBlock(ctx context.Context, client llm.Client, base llm.Request, entries []json.RawMessage, window, overhead int) (*compactionResult, error) {
 	items, _ := replayEntries(entries)
 	start, end, ok := planBlock(items, window)
 	if !ok {
 		return nil, nil
 	}
 	messages := replayMessages(items)
-	summary, usage, err := summarize(ctx, client, model, messages[start:end], window)
+	summary, usage, err := summarize(ctx, client, base, start, end, window, overhead)
 	result := &compactionResult{Usage: usage}
 	if err != nil {
 		return result, err
@@ -451,13 +451,14 @@ func hasSummarizablePrefix(messages []llm.Message, cut int) bool {
 
 // compactMessages 把切点之前的消息总结成一条摘要消息。
 // 返回 nil 表示没有合法切点，调用方应保持原消息不变。
-func compactMessages(ctx context.Context, client llm.Client, model string, messages []llm.Message, window, overhead int) (*compactionResult, error) {
+func compactMessages(ctx context.Context, client llm.Client, base llm.Request, window, overhead int) (*compactionResult, error) {
+	messages := base.Messages
 	cut := findCut(messages, window)
 	if cut <= 0 {
 		return nil, nil
 	}
 	before := tokensForMessages(messages) + overhead
-	summary, usage, err := summarize(ctx, client, model, messages[:cut], window)
+	summary, usage, err := summarize(ctx, client, base, 0, cut, window, overhead)
 	result := &compactionResult{Usage: usage}
 	if err != nil {
 		return result, err
@@ -470,7 +471,58 @@ func compactMessages(ctx context.Context, client llm.Client, model string, messa
 	return result, nil
 }
 
-func summarize(ctx context.Context, client llm.Client, model string, messages []llm.Message, window int) (string, llm.Usage, error) {
+func summarize(ctx context.Context, client llm.Client, base llm.Request, start, end, window, overhead int) (string, llm.Usage, error) {
+	request := base
+	request.Messages = append([]llm.Message(nil), base.Messages[:end]...)
+	instruction := fmt.Sprintf("你正在为当前会话生成压缩摘要。只总结本指令之前的会话消息中，零基下标 [%d,%d) 的消息，即第 %d 条至第 %d 条。计数不含 System、Tools 和本条指令。前面的消息仅供理解语境，不要再次总结；本条指令也不属于摘要内容。目标之后的近期消息未随此请求发送，不要补写其内容。只输出摘要正文，不调用任何工具，不继续执行原任务。\n\n%s", start, end, start+1, end, strings.Replace(summaryInstruction, "the conversation so far", "the specified message range", 1))
+	request.Messages = append(request.Messages, llm.Message{Role: "user", Content: []llm.Part{{Type: "text", Text: instruction}}})
+	request.CacheBreakpoints = nil
+	for _, index := range base.CacheBreakpoints {
+		if index < end {
+			request.CacheBreakpoints = append(request.CacheBreakpoints, index)
+		}
+	}
+	chars := len(base.System)
+	for _, tool := range base.Tools {
+		chars += len(tool.Name) + len(tool.Description) + len(tool.Parameters)
+	}
+	fallback := func(usage llm.Usage) (string, llm.Usage, error) {
+		summary, extra, err := summarizeTruncated(ctx, client, base.Model, base.Messages[start:end], window)
+		usage.Input += extra.Input
+		usage.Output += extra.Output
+		usage.CacheRead += extra.CacheRead
+		usage.CacheWrite += extra.CacheWrite
+		return summary, usage, err
+	}
+	if end == 0 || base.Messages[0].Role != "user" || tokensForMessages(request.Messages)+max(overhead, (chars+3)/4) > compactThreshold(window) {
+		return fallback(llm.Usage{})
+	}
+	response, err := client.Stream(ctx, request, func(llm.Delta) {})
+	var usage llm.Usage
+	if response != nil {
+		usage = response.Usage
+	}
+	if err != nil {
+		var apiErr *llm.APIError
+		if llm.IsContextOverflow(err) || (errors.As(err, &apiErr) && apiErr.Status == 413) {
+			return fallback(usage)
+		}
+		return "", usage, err
+	}
+	if response == nil {
+		return "", usage, errors.New("agent: empty compaction response")
+	}
+	if len(response.Message.ToolCalls) > 0 {
+		return fallback(usage)
+	}
+	summary := strings.TrimSpace(messageText(response.Message))
+	if summary == "" {
+		return "", usage, errors.New("agent: empty compaction summary")
+	}
+	return summary, usage, nil
+}
+
+func summarizeTruncated(ctx context.Context, client llm.Client, model string, messages []llm.Message, window int) (string, llm.Usage, error) {
 	prefix := append([]llm.Message(nil), messages...)
 	truncate := func(message *llm.Message) {
 		message.Content = append([]llm.Part(nil), message.Content...)
@@ -495,8 +547,9 @@ func summarize(ctx context.Context, client llm.Client, model string, messages []
 		}
 	}
 	omitted := llm.Message{Role: "user", Content: []llm.Part{{Type: "text", Text: "（更早的对话已省略）"}}}
+	instruction := llm.Part{Type: "text", Text: "请按系统提示的要求，总结以上对话，用于在新的上下文中继续工作。只输出摘要。"}
 	for len(prefix) > 0 {
-		tokens := tokensForMessages(prefix)
+		tokens := tokensForMessages(prefix) + (len(summaryInstruction)+3)/4 + tokensForMessage(llm.Message{Role: "user", Content: []llm.Part{instruction}})
 		if prefix[0].Role != "user" {
 			tokens += tokensForMessage(omitted)
 		}
@@ -526,7 +579,6 @@ func summarize(ctx context.Context, client llm.Client, model string, messages []
 	if prefix[0].Role != "user" {
 		prefix = append([]llm.Message{omitted}, prefix...)
 	}
-	instruction := llm.Part{Type: "text", Text: "请按系统提示的要求，总结以上对话，用于在新的上下文中继续工作。只输出摘要。"}
 	last := &prefix[len(prefix)-1]
 	if last.Role == "user" && last.ToolCallID == "" {
 		last.Content = append(append([]llm.Part(nil), last.Content...), instruction)
@@ -543,6 +595,9 @@ func summarize(ctx context.Context, client llm.Client, model string, messages []
 	}
 	if response == nil {
 		return "", llm.Usage{}, errors.New("agent: empty compaction response")
+	}
+	if len(response.Message.ToolCalls) > 0 {
+		return "", response.Usage, errors.New("agent: compaction response contains tool calls")
 	}
 	summary := strings.TrimSpace(messageText(response.Message))
 	if summary == "" {

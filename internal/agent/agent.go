@@ -203,6 +203,17 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		usage.OutputTokens += int64(result.Usage.Output)
 		usage.CachedTokens += int64(result.Usage.CacheRead)
 	}
+	requestForMessages := func(input []llm.Message) llm.Request {
+		snapshot := request
+		snapshot.Messages = append([]llm.Message(nil), input...)
+		snapshot.CacheBreakpoints = nil
+		for i, message := range snapshot.Messages {
+			if isSummaryMessage(message) {
+				snapshot.CacheBreakpoints = append(snapshot.CacheBreakpoints, i)
+			}
+		}
+		return snapshot
+	}
 	finishCompaction := func(result *compactionResult) {
 		messages = result.Messages
 		contextTokens = result.After
@@ -219,7 +230,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 			}
 			input = historyFromEntries(entries)
 		}
-		result, err := compactMessages(ctx, opts.Client, opts.Model, input, window, overhead)
+		result, err := compactMessages(ctx, opts.Client, requestForMessages(input), window, overhead)
 		addCompactionUsage(result)
 		if err != nil || result == nil {
 			return nil, err
@@ -239,7 +250,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		if err != nil {
 			return err
 		}
-		result, err := compactBlock(ctx, opts.Client, opts.Model, entries, window)
+		result, err := compactBlock(ctx, opts.Client, requestForMessages(historyFromEntries(entries)), entries, window, overhead)
 		addCompactionUsage(result)
 		if err != nil || result == nil {
 			return err
@@ -264,13 +275,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 		return nil
 	}
 	setRequestMessages := func() {
-		request.Messages = append([]llm.Message(nil), messages...)
-		request.CacheBreakpoints = nil
-		for i, message := range request.Messages {
-			if isSummaryMessage(message) {
-				request.CacheBreakpoints = append(request.CacheBreakpoints, i)
-			}
-		}
+		request = requestForMessages(messages)
 	}
 	if opts.MaxTokens != nil {
 		request.MaxTokens = opts.MaxTokens(opts.Model)

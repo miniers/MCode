@@ -39,6 +39,42 @@ func TestOpenAICompactionBreakpoints(t *testing.T) {
 	}
 }
 
+func TestOpenAISummaryPrefixMatchesMainRequest(t *testing.T) {
+	for _, last := range []Message{
+		{Role: "user", Content: []Part{{Type: "text", Text: "user"}}},
+		{Role: "tool", ToolCallID: "1", Content: []Part{{Type: "text", Text: "result"}}},
+	} {
+		base := Request{Model: "test", System: "system", Tools: []ToolSpec{{Name: "read", Parameters: json.RawMessage(`{"type":"object"}`)}}, Messages: []Message{{Role: "user", Content: []Part{{Type: "text", Text: "first"}}}, {Role: "assistant", ToolCalls: []ToolCall{{ID: "1", Name: "read", Arguments: json.RawMessage(`{"path":"a"}`)}}}, last}}
+		summary := base
+		summary.Messages = append(append([]Message(nil), base.Messages...), Message{Role: "user", Content: []Part{{Type: "text", Text: "instruction"}}})
+		mainBody, summaryBody := requestBody(base, true, nil), requestBody(summary, true, nil)
+		for _, key := range []string{"tools"} {
+			a, _ := json.Marshal(mainBody[key])
+			b, _ := json.Marshal(summaryBody[key])
+			if !bytes.Equal(a, b) {
+				t.Fatalf("%s 不一致", key)
+			}
+		}
+		mainJSON, _ := json.Marshal(mainBody["messages"])
+		summaryJSON, _ := json.Marshal(summaryBody["messages"])
+		var mainMessages, summaryMessages []json.RawMessage
+		if err := json.Unmarshal(mainJSON, &mainMessages); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(summaryJSON, &summaryMessages); err != nil {
+			t.Fatal(err)
+		}
+		if len(summaryMessages) != len(mainMessages)+1 {
+			t.Fatal("消息数量不一致")
+		}
+		for i := range mainMessages {
+			if !bytes.Equal(mainMessages[i], summaryMessages[i]) {
+				t.Fatalf("消息 %d 不一致", i)
+			}
+		}
+	}
+}
+
 func TestOpenAIUserAgent(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

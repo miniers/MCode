@@ -208,6 +208,54 @@ func TestAnthropicStableCompactionBreakpoints(t *testing.T) {
 	}
 }
 
+func TestAnthropicSummaryPreservesCacheConfiguration(t *testing.T) {
+	base := Request{Model: "claude-sonnet-4-5", System: "system", Effort: "high", MaxTokens: 40000, Tools: []ToolSpec{{Name: "read", Parameters: json.RawMessage(`{"type":"object"}`)}}, CacheBreakpoints: []int{1}, Messages: []Message{
+		{Role: "user", Content: []Part{{Type: "text", Text: "start"}}},
+		{Role: "user", Content: []Part{{Type: "text", Text: "summary"}}},
+		{Role: "assistant", ThinkingBlocks: []ThinkingBlock{{Type: "thinking", Thinking: "thought", Signature: "sig"}}, ToolCalls: []ToolCall{{ID: "1", Name: "read", Arguments: json.RawMessage(`{}`)}}},
+		{Role: "tool", ToolCallID: "1", Content: []Part{{Type: "text", Text: "result"}}},
+	}}
+	summary := base
+	summary.Messages = append(append([]Message(nil), base.Messages...), Message{Role: "user", Content: []Part{{Type: "text", Text: "instruction"}}})
+	mainBody, err := anthropicRequestBody(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaryBody, err := anthropicRequestBody(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"system", "tools", "thinking", "output_config", "max_tokens"} {
+		if !reflect.DeepEqual(mainBody[key], summaryBody[key]) {
+			t.Fatalf("%s 不一致", key)
+		}
+	}
+	strip := func(body map[string]any) []map[string]any {
+		messages := body["messages"].([]map[string]any)
+		count := 1
+		for _, message := range messages {
+			for _, block := range message["content"].([]map[string]any) {
+				if _, ok := block["cache_control"]; ok {
+					count++
+					delete(block, "cache_control")
+				}
+			}
+		}
+		if count > 4 {
+			t.Fatalf("缓存断点数量 %d", count)
+		}
+		return messages
+	}
+	mainMessages, summaryMessages := strip(mainBody), strip(summaryBody)
+	if len(summaryMessages) != len(mainMessages)+1 || !reflect.DeepEqual(mainMessages, summaryMessages[:len(mainMessages)]) {
+		t.Fatal("消息前缀不一致")
+	}
+	blocks := summaryMessages[2]["content"].([]map[string]any)
+	if blocks[0]["signature"] != "sig" {
+		t.Fatal("思考签名丢失")
+	}
+}
+
 func TestDefaultAnthropicMaxTokens(t *testing.T) {
 	for _, tc := range []struct {
 		model string
