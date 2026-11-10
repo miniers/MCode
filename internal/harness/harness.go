@@ -245,6 +245,11 @@ type ProcessRooter interface {
 	ProcessRootPIDs(threadID string) []int
 }
 
+// CommandKiller 由自行登记命令进程组的 Harness 实现，直接终止整组，优先于 ProcessRooter。
+type CommandKiller interface {
+	KillRunningCommands(threadID string, grace time.Duration) (int, error)
+}
+
 // ThreadEvictor 是 Harness 的可选扩展接口：释放指定 thread 持有的空闲常驻进程，
 // 供会话或项目被删除时立刻回收内存；正在执行的轮次不受影响。
 // 不支持常驻的后端无需实现，调用方通过类型断言探测。

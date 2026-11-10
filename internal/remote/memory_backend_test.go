@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/procs"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
 )
@@ -370,6 +371,48 @@ type mockHarness struct {
 	kind      harness.Kind
 	runFunc   func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error
 	turnCalls []harness.Turn
+}
+
+type commandKillerHarness struct {
+	mockHarness
+	called int
+	err    error
+}
+
+func (h *commandKillerHarness) KillRunningCommands(threadID string, grace time.Duration) (int, error) {
+	if threadID != "kill-thread" || grace != killRunningCommandGrace {
+		return 0, errors.New("错误的终止参数")
+	}
+	h.called++
+	return 3, h.err
+}
+
+func (h *commandKillerHarness) ProcessRootPIDs(string) []int {
+	panic("不应调用 ProcessRootPIDs")
+}
+
+func TestKillRunningCommandUsesCommandKiller(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+	h := &commandKillerHarness{}
+	b.SetHarness(h, t.TempDir(), harness.ModeAgent)
+	b.AddThread(wire.ThreadSummary{ID: "kill-thread", Provider: "mock"}, nil)
+
+	if n, err := b.KillRunningCommand(context.Background(), "kill-thread", ""); n != 0 || err != nil || h.called != 0 {
+		t.Fatalf("空闲轮次：n=%d err=%v calls=%d", n, err, h.called)
+	}
+	b.mu.Lock()
+	b.threads["kill-thread"].runTurnID = "turn"
+	b.mu.Unlock()
+	if n, err := b.KillRunningCommand(context.Background(), "kill-thread", ""); n != 3 || err != nil || h.called != 1 {
+		t.Fatalf("运行轮次：n=%d err=%v calls=%d", n, err, h.called)
+	}
+	h.err = procs.ErrNotSupported
+	if n, err := b.KillRunningCommand(context.Background(), "kill-thread", ""); n != 0 || err != nil || h.called != 2 {
+		t.Fatalf("平台不支持：n=%d err=%v calls=%d", n, err, h.called)
+	}
 }
 
 func (m *mockHarness) Kind() harness.Kind {

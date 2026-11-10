@@ -5520,9 +5520,8 @@ func (b *MemoryBackend) InterruptCurrent(ctx context.Context, threadID string) (
 	return res, err
 }
 
-// KillRunningCommand 终止指定会话当前正在运行的那条命令的子进程树，不中断本轮对话：
-// agent 会收到命令失败的结果后继续工作。只杀本轮新起的进程子树，会话开始时就存在的常驻子进程
-// （MCP server 等）不受影响。没有运行中的轮次或 Provider 不支持时报 killed=0，不返回错误。
+// KillRunningCommand 终止指定会话当前正在运行的命令，不中断本轮对话。
+// 没有运行中的轮次或 Provider 不支持时返回 killed=0，不返回错误。
 func (b *MemoryBackend) KillRunningCommand(ctx context.Context, threadID, messageID string) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -5555,9 +5554,18 @@ func (b *MemoryBackend) KillRunningCommand(ctx context.Context, threadID, messag
 			break
 		}
 	}
-	rooter, _ := b.threadHarnessLocked(td.summary.Provider).(harness.ProcessRooter)
+	h := b.threadHarnessLocked(td.summary.Provider)
+	killer, _ := h.(harness.CommandKiller)
+	rooter, _ := h.(harness.ProcessRooter)
 	b.mu.Unlock()
 
+	if killer != nil {
+		killed, err := killer.KillRunningCommands(threadID, killRunningCommandGrace)
+		if errors.Is(err, procs.ErrNotSupported) {
+			return 0, nil
+		}
+		return killed, err
+	}
 	if rooter == nil || since.IsZero() {
 		return 0, nil
 	}

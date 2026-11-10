@@ -297,6 +297,46 @@ func TestProcessRootPIDsTrackRunningCommand(t *testing.T) {
 	}
 }
 
+func TestKillRunningCommandsStopsMultilineScript(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		t.Skip("需要 Unix 进程组")
+	}
+	client := &fakeClient{responses: []*llm.Response{
+		toolCall("bash", "call-1", `{"command":"sleep 30\nsleep 30"}`), answer(),
+	}}
+	h := harnessFor(client, Options{})
+	const threadID = "kill-command-thread"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	turn := harness.Turn{ThreadID: threadID, Prompt: "go", Mode: harness.ModeFullAccess, WorkDir: t.TempDir()}
+	done := make(chan error, 1)
+	go func() { done <- h.Run(ctx, turn, nil) }()
+	defer func() { _, _ = h.KillRunningCommands(threadID, 0) }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for len(h.ProcessRootPIDs(threadID)) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(h.ProcessRootPIDs(threadID)) == 0 {
+		t.Fatal("命令运行期间没有登记 PID")
+	}
+	killed, err := h.KillRunningCommands(threadID, time.Second)
+	if err != nil || killed < 1 {
+		t.Fatalf("KillRunningCommands() = %d, %v", killed, err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("命令被终止后本轮应正常结束：%v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("命令被终止后本轮没有结束")
+	}
+	if pids := h.ProcessRootPIDs(threadID); len(pids) != 0 {
+		t.Fatalf("本轮结束后仍登记 PID：%v", pids)
+	}
+}
+
 // TestEvictThreadReleasesGateAndPIDs 验证回收后进程登记被清空，「本会话允许」的记忆也会被清除。
 func TestEvictThreadReleasesGateAndPIDs(t *testing.T) {
 	client := &fakeClient{responses: []*llm.Response{

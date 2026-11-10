@@ -154,4 +154,5 @@ func (h *Harness) EvictThread(threadID string) {
 }
 
 var _ harness.ProcessRooter = (*Harness)(nil)
+var _ harness.CommandKiller = (*Harness)(nil)
 var _ harness.ThreadEvictor = (*Harness)(nil)

@@ -165,6 +165,13 @@ func renderBeeWindow(c *ui.Context, parent *chatState, beeID string, child *chat
 	}
 
 	ui.Column(c.Key("bee-window-root")).Fill().Background(ThemeWindowBg(c)).Clip().Gap(0).Children(func() {
+		child.mu.Lock()
+		if child.toastMessage != "" {
+			c.Toast(child.toastMessage)
+			child.toastMessage = ""
+		}
+		child.mu.Unlock()
+
 		stripLeading, stripTrailing := beeWindowStripInsets(titleBarGOOS, c.TitleBar())
 
 		ui.Row(c.Key("bee-window-strip")).

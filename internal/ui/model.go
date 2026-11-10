@@ -760,10 +760,11 @@ func (s *chatState) popPendingAction() (string, int, bool) {
 
 // setToast 设置错误提示文本并触发重绘以弹出 Toast。
 func (s *chatState) setToast(msg string) {
-	s.mu.Lock()
-	s.toastMessage = msg
-	s.mu.Unlock()
-	s.invalidate()
+	owner := toastOwner(s)
+	owner.mu.Lock()
+	owner.toastMessage = msg
+	owner.mu.Unlock()
+	owner.invalidate()
 }
 
 // providerCatalogRetryDelays 是供应商目录仍是占位行时的补拉时间点（相对初次拉取）。
@@ -2706,21 +2707,26 @@ func (s *chatState) killRunningCommand(messageID string) {
 		defer cancel()
 		killed, err := s.client.KillRunningCommand(ctx, tid, messageID)
 
+		var toast string
 		s.mu.Lock()
 		delete(s.killingTools, messageID)
 		// 期间切了会话（或重开了一轮监听）就不再弹提示，避免张冠李戴。
 		if s.selectedThreadID == tid && s.watchSeq == seq {
 			switch {
 			case err != nil:
-				s.toastMessage = "终止命令失败: " + err.Error()
+				toast = "终止命令失败: " + err.Error()
 			case killed > 0:
-				s.toastMessage = fmt.Sprintf("已终止 %d 个进程，AI 会收到命令失败的结果", killed)
+				toast = fmt.Sprintf("已终止 %d 个进程，AI 会收到命令失败的结果", killed)
 			default:
-				s.toastMessage = "没有找到正在运行的命令进程"
+				toast = "没有找到正在运行的命令进程"
 			}
 		}
 		s.mu.Unlock()
-		s.invalidate()
+		if toast != "" {
+			s.setToast(toast)
+		} else {
+			s.invalidate()
+		}
 	}()
 }
 

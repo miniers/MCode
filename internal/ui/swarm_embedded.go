@@ -65,6 +65,17 @@ func noteEmbeddedComposerFocus(s *chatState, focused bool) {
 	}
 }
 
+// toastOwner 返回嵌入状态的 Toast 所属状态；独立窗口状态未登记时仍由自己显示。
+func toastOwner(s *chatState) *chatState {
+	embeddedMu.Lock()
+	parent := embeddedParent[s]
+	embeddedMu.Unlock()
+	if parent != nil {
+		return parent
+	}
+	return s
+}
+
 // newEmbeddedBeeState 构造一个 embeddedBee 模式的子会话状态：复用 composer，但不含主窗口独有的组件。
 // 状态不登记进嵌入表，生命周期由调用方负责（浮窗缓存或独立窗口各持一份）。
 func newEmbeddedBeeState(parent *chatState) *chatState {
