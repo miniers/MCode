@@ -3,6 +3,7 @@
 package procs
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -146,7 +147,9 @@ func processStartTime(pid int) time.Time {
 
 // taskkill 请求整棵进程树正常退出（不带 /F）；taskkill 自身也隐藏控制台窗口。
 func taskkill(pid int) error {
-	cmd := exec.Command("taskkill", "/T", "/PID", strconv.Itoa(pid))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "taskkill", "/T", "/PID", strconv.Itoa(pid))
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
 	return cmd.Run()
 }

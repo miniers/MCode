@@ -388,7 +388,7 @@ export const SwarmReportCapsules: React.FC<SwarmReportCapsulesProps> = ({
   swarmState = null,
   onOpenBee
 }) => {
-  const [expanded, setExpanded] = React.useState<Record<number, boolean>>({});
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const bees = React.useMemo(() => swarmState?.bees ?? [], [swarmState]);
   const rows = React.useMemo(
     () => reports.map((report) => ({ report, bee: matchBee({ name: report.name, task: report.task }, bees) })),
@@ -400,15 +400,16 @@ export const SwarmReportCapsules: React.FC<SwarmReportCapsulesProps> = ({
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       {rows.map(({ report, bee }, index) => {
-        const isOpen = Boolean(expanded[index]);
+        const key = report.name || report.task ? JSON.stringify([report.name, report.task]) : `index:${index}`;
+        const isOpen = Boolean(expanded[key]);
         const displayName = report.name?.trim() || '子代理';
         const dotStatus = statusKeyOfReport(report.status) ?? bee?.status;
 
         return (
-          <div key={`report-${index}`} className="min-w-0">
+          <div key={key} className="min-w-0">
             <button
               type="button"
-              onClick={() => setExpanded((prev) => ({ ...prev, [index]: !prev[index] }))}
+              onClick={() => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }))}
               aria-expanded={isOpen}
               title={report.task}
               className={`${capsuleClass} ${bee ? '' : 'opacity-90'}`}

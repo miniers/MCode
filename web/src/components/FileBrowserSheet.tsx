@@ -17,7 +17,6 @@ import {
 } from '../utils/markdown';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FileEditor } from './FileEditor';
-import { SheetFrame } from './sheet/SheetFrame';
 import { MenuSheetHeader } from './thread/menu/MenuSheetHeader';
 import { useMenuPageChrome } from './thread/menu/menuPageChrome';
 import type { ThreadMenuPageHandle } from './thread/menu/menuPages';
@@ -1394,24 +1393,3 @@ export const FileBrowserSheetBody = React.forwardRef<ThreadMenuPageHandle, FileB
   }
 );
 
-/**
- * 兼容外壳：保留原有 isOpen 语义，内部改为 SheetFrame + FileBrowserSheetBody。
- * 外部调用方无需改动。
- */
-export const FileBrowserSheet: React.FC<FileBrowserSheetProps> = ({ isOpen, ...bodyProps }) => {
-  const bodyRef = useRef<ThreadMenuPageHandle | null>(null);
-  if (!isOpen) return null;
-
-  return (
-    <SheetFrame
-      size="panel"
-      cardClassName="overflow-x-hidden"
-      labelledBy={FILE_BROWSER_TITLE_ID}
-      onRequestClose={() => {
-        if (bodyRef.current?.requestClose() !== false) bodyProps.onClose();
-      }}
-    >
-      <FileBrowserSheetBody ref={bodyRef} {...bodyProps} />
-    </SheetFrame>
-  );
-};

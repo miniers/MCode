@@ -1,9 +1,7 @@
 // 存为看板任务表单：填写标题与备注，提交后与当前会话关联
 
-import React, { useCallback, useImperativeHandle, useRef } from 'react';
-import { SheetFrame } from '../sheet/SheetFrame';
+import React, { useCallback, useImperativeHandle } from 'react';
 import { isImeComposing } from '../../utils/ime';
-import { MenuSheetHeader } from './menu/MenuSheetHeader';
 import type { ThreadMenuPageHandle } from './menu/menuPages';
 
 export interface SaveTaskFormProps {
@@ -108,47 +106,3 @@ export const SaveTaskBody = React.forwardRef<ThreadMenuPageHandle, SaveTaskBodyP
   }
 );
 
-/** 兼容外壳：保留原 props，内部用 SheetFrame + MenuSheetHeader 包住内容体。 */
-export const SaveTaskForm = React.memo(function SaveTaskForm({
-  saveTaskTitle,
-  setSaveTaskTitle,
-  saveTaskNotes,
-  setSaveTaskNotes,
-  saveTaskError,
-  isSavingTask,
-  shareActionsBlocked,
-  setSaveTaskOpen,
-  handleSubmitSaveTask
-}: SaveTaskFormProps) {
-  const bodyRef = useRef<ThreadMenuPageHandle>(null);
-
-  const requestClose = useCallback(() => {
-    if (bodyRef.current?.requestClose() === false) return;
-    setSaveTaskOpen(false);
-  }, [setSaveTaskOpen]);
-
-  return (
-    <SheetFrame size="menu" labelledBy="save-task-title" onRequestClose={requestClose}>
-      <MenuSheetHeader
-        eyebrow="看板"
-        title="存为看板任务"
-        labelledBy="save-task-title"
-        leading="close"
-        onLeading={requestClose}
-      />
-      <SaveTaskBody
-        ref={bodyRef}
-        saveTaskTitle={saveTaskTitle}
-        setSaveTaskTitle={setSaveTaskTitle}
-        saveTaskNotes={saveTaskNotes}
-        setSaveTaskNotes={setSaveTaskNotes}
-        saveTaskError={saveTaskError}
-        isSavingTask={isSavingTask}
-        shareActionsBlocked={shareActionsBlocked}
-        setSaveTaskOpen={setSaveTaskOpen}
-        handleSubmitSaveTask={handleSubmitSaveTask}
-        onClose={requestClose}
-      />
-    </SheetFrame>
-  );
-});

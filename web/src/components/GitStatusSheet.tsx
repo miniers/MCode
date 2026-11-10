@@ -22,9 +22,7 @@ import { GitBranchPanel } from './GitBranchPanel';
 import { GitCommitPanel } from './GitCommitPanel';
 import { GitStashPanel } from './GitStashPanel';
 import { GitPRPanel } from './GitPRPanel';
-import { SheetFrame } from './sheet/SheetFrame';
-import { MenuSheetHeader } from './thread/menu/MenuSheetHeader';
-import { MenuPageChromeContext, useMenuPageChrome } from './thread/menu/menuPageChrome';
+import { useMenuPageChrome } from './thread/menu/menuPageChrome';
 import type { ThreadMenuPageHandle } from './thread/menu/menuPages';
 
 /** 本抽屉自己发起的远程同步占用键，与子面板的占用键区分开。 */
@@ -40,14 +38,7 @@ const GIT_SYNC_LABELS: Record<GitRemoteSyncAction, string> = {
   fetch: '抓取'
 };
 
-export interface GitStatusSheetProps {
-  isOpen: boolean;
-  onClose: () => void;
-  threadID: string;
-  threadTitle?: string;
-}
-
-/** 内容体：供菜单页面栈与兼容外壳复用；不含遮罩、卡片与标题栏。 */
+/** 内容体：供菜单页面栈使用；不含遮罩、卡片与标题栏。 */
 export interface GitStatusSheetBodyProps {
   onClose: () => void;
   threadID: string;
@@ -1036,48 +1027,3 @@ export const GitStatusSheetBody = React.forwardRef<ThreadMenuPageHandle, GitStat
   }
 );
 
-export const GitStatusSheet: React.FC<GitStatusSheetProps> = ({
-  isOpen,
-  onClose,
-  threadID,
-  threadTitle
-}) => {
-  const bodyRef = useRef<ThreadMenuPageHandle | null>(null);
-  const [trailing, setTrailing] = useState<React.ReactNode>(null);
-
-  const handleRequestClose = useCallback(() => {
-    if (bodyRef.current?.requestClose() === false) return;
-    onClose();
-  }, [onClose]);
-
-  if (!isOpen) return null;
-
-  return (
-    <SheetFrame onRequestClose={handleRequestClose} labelledBy="git-sheet-title" size="panel">
-      <MenuPageChromeContext.Provider
-        value={{
-          leading: 'close',
-          onLeading: handleRequestClose,
-          onClose: handleRequestClose,
-          setTrailing
-        }}
-      >
-        <MenuSheetHeader
-          eyebrow={threadTitle ? `Git · ${threadTitle}` : '工作区 Git'}
-          title="Git 工作区"
-          labelledBy="git-sheet-title"
-          leading="close"
-          onLeading={handleRequestClose}
-          onClose={handleRequestClose}
-          trailing={trailing}
-        />
-        <GitStatusSheetBody
-          ref={bodyRef}
-          onClose={onClose}
-          threadID={threadID}
-          threadTitle={threadTitle}
-        />
-      </MenuPageChromeContext.Provider>
-    </SheetFrame>
-  );
-};

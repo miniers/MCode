@@ -5,9 +5,6 @@ import { periodMinutes } from '../utils/quotaPace';
 import { ProviderIcon } from './ProviderIcon';
 import { ComposerQuotaSheet, formatQuotaPercent, quotaWindowContent, usageColor, usagePercentColor } from './ComposerQuotaSheet';
 
-// 周期换算放在 utils/quotaPace，额度详情弹层也要用；这里保留导出不破坏既有引用。
-export { periodMinutes };
-
 export interface ComposerQuotaBarProps {
   scope: ComposerQuotaScope;
   isRunning?: boolean;

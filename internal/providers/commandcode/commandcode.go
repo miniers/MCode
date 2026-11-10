@@ -447,13 +447,27 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 
 	if ctx.Err() != nil {
 		_ = killProcessGroup(cmd, syscall.SIGTERM)
-		_ = cmd.Wait()
+		_ = waitWithKill(cmd, 3*time.Second)
 		return ctx.Err()
 	}
 
 	waitErr := cmd.Wait()
 	state.finishRun(exitStatus(waitErr), killedByStopSignal(waitErr), stderrTail.String(), emit)
 	return nil
+}
+
+func waitWithKill(cmd *exec.Cmd, grace time.Duration) error {
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		_ = killProcessGroup(cmd, syscall.SIGKILL)
+		return <-done
+	}
 }
 
 // ForceStopTurn 强停指定轮次的 cmd 进程组，不影响同一 Harness 的其他会话。

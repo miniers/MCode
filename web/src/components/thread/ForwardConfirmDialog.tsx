@@ -1,8 +1,6 @@
 // 转发到新会话确认弹窗：把整段对话上下文带入一个新会话
 
-import React, { useCallback, useImperativeHandle, useRef } from 'react';
-import { SheetFrame } from '../sheet/SheetFrame';
-import { MenuSheetHeader } from './menu/MenuSheetHeader';
+import React, { useCallback, useImperativeHandle } from 'react';
 import type { ThreadMenuPageHandle } from './menu/menuPages';
 
 export interface ForwardConfirmDialogProps {
@@ -79,42 +77,3 @@ export const ForwardConfirmBody = React.forwardRef<ThreadMenuPageHandle, Forward
   }
 );
 
-/** 兼容外壳：保留原 props，内部用 SheetFrame + MenuSheetHeader 包住内容体。 */
-export const ForwardConfirmDialog = React.memo(function ForwardConfirmDialog({
-  isForwarding,
-  shareActionsBlocked,
-  forwardError,
-  setForwardConfirmOpen,
-  setForwardError,
-  handleConfirmForward
-}: ForwardConfirmDialogProps) {
-  const bodyRef = useRef<ThreadMenuPageHandle>(null);
-
-  const requestClose = useCallback(() => {
-    if (bodyRef.current?.requestClose() === false) return;
-    setForwardConfirmOpen(false);
-    setForwardError(null);
-  }, [setForwardConfirmOpen, setForwardError]);
-
-  return (
-    <SheetFrame size="menu" labelledBy="forward-confirm-title" onRequestClose={requestClose}>
-      <MenuSheetHeader
-        eyebrow="分享"
-        title="转发到新会话？"
-        labelledBy="forward-confirm-title"
-        leading="close"
-        onLeading={requestClose}
-      />
-      <ForwardConfirmBody
-        ref={bodyRef}
-        isForwarding={isForwarding}
-        shareActionsBlocked={shareActionsBlocked}
-        forwardError={forwardError}
-        setForwardConfirmOpen={setForwardConfirmOpen}
-        setForwardError={setForwardError}
-        handleConfirmForward={handleConfirmForward}
-        onClose={requestClose}
-      />
-    </SheetFrame>
-  );
-});

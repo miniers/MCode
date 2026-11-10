@@ -242,11 +242,15 @@ func (m *Manager) Remove(id string) error {
 	}
 
 	// 1. 从索引移除并原子落盘
+	previousAccounts := append([]Account(nil), m.index.Accounts...)
+	previousDefault := m.index.DefaultAccountID
 	m.index.Accounts = append(m.index.Accounts[:idx], m.index.Accounts[idx+1:]...)
 	if m.index.DefaultAccountID == id {
 		m.index.DefaultAccountID = SystemAccountID
 	}
 	if err := m.saveIndexLocked(); err != nil {
+		m.index.Accounts = previousAccounts
+		m.index.DefaultAccountID = previousDefault
 		return err
 	}
 

@@ -445,11 +445,14 @@ func hasEnvKey(env []string, prefix string) bool {
 
 // tailBuffer 是一个保留末尾至多指定字节大小的缓冲区。
 type tailBuffer struct {
+	mu    sync.Mutex
 	limit int
 	buf   []byte
 }
 
 func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	n := len(p)
 	b.buf = append(b.buf, p...)
 	if len(b.buf) > b.limit {
@@ -459,6 +462,8 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *tailBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return string(b.buf)
 }
 

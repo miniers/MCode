@@ -1111,23 +1111,26 @@ func matchETag(header, etag string) bool {
 }
 
 func acceptsGzipHeader(header string) bool {
-	if header == "" {
-		return false
-	}
+	wildcard := false
 	for _, part := range strings.Split(header, ",") {
 		pieces := strings.Split(part, ";")
-		if strings.TrimSpace(pieces[0]) == "gzip" {
-			hasQ0 := false
-			for _, param := range pieces[1:] {
-				if strings.TrimSpace(param) == "q=0" {
-					hasQ0 = true
-					break
+		encoding := strings.TrimSpace(pieces[0])
+		if !strings.EqualFold(encoding, "gzip") && encoding != "*" {
+			continue
+		}
+		accepted := true
+		for _, param := range pieces[1:] {
+			param = strings.TrimSpace(param)
+			if len(param) >= 2 && strings.EqualFold(param[:2], "q=") {
+				if q, err := strconv.ParseFloat(strings.TrimSpace(param[2:]), 64); err == nil && q <= 0 {
+					accepted = false
 				}
 			}
-			if !hasQ0 {
-				return true
-			}
 		}
+		if strings.EqualFold(encoding, "gzip") {
+			return accepted
+		}
+		wildcard = accepted
 	}
-	return false
+	return wildcard
 }

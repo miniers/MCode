@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,29 @@ import (
 
 	"mcode/internal/providers/multiaccount"
 )
+
+func TestRemoveRestoresIndexWhenSaveFails(t *testing.T) {
+	m, err := NewManager(Options{DataDir: t.TempDir(), HostHome: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := createTestAccountWithToken(t, m, "remove@example.com", "access", "refresh", time.Now().Add(time.Hour))
+	createTestAccountWithToken(t, m, "keep@example.com", "access", "refresh", time.Now().Add(time.Hour))
+	if err := m.SetDefault(id); err != nil {
+		t.Fatal(err)
+	}
+	before := m.List()
+	m.opts.DataDir = filepath.Join(m.opts.DataDir, accountsFileName)
+	if err := m.Remove(id); err == nil {
+		t.Fatal("expected index save to fail")
+	}
+	if after := m.List(); !reflect.DeepEqual(after, before) {
+		t.Fatalf("accounts changed after failed removal: before=%+v after=%+v", before, after)
+	}
+	if got := m.DefaultAccountID(); got != id {
+		t.Fatalf("default account changed after failed removal: %q", got)
+	}
+}
 
 // setupMockOAuthServer 创建模拟的 Google OAuth Token 与 UserInfo 端点服务。
 func setupMockOAuthServer(t *testing.T, emailSeq *int32) (*httptest.Server, OAuthEndpoints) {

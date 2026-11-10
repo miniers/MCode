@@ -450,7 +450,9 @@ func readLoginFromKeychain(configDir string) (claudeLogin, bool) {
 		sum := sha256.Sum256([]byte(configDir))
 		service += "-" + hex.EncodeToString(sum[:])[:8]
 	}
-	out, err := procattr.HideWindow(exec.Command(securityExecutable, "find-generic-password", "-s", service, "-w")).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := procattr.HideWindow(exec.CommandContext(ctx, securityExecutable, "find-generic-password", "-s", service, "-w")).Output()
 	if err != nil {
 		return claudeLogin{}, false
 	}

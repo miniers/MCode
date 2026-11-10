@@ -40,7 +40,6 @@ Go 代码内嵌 `internal/webassets/dist`，改了 Web 要重新构建才能在�
 | `scripts/package_release.sh` | 发布包 |
 | `scripts/relaunch_app.sh` | 重启应用。调用方可能是 MCode 自己（内置终端或脚本菜单），应用退出时会杀掉子进程，所以脚本先用 `setsid` 脱离当前会话 |
 | `scripts/fetch_models_dev_snapshot.sh` | 更新 models.dev 快照 |
-| `scripts/gpu_bench.py` | GPU 性能测试 |
 
 ## 守卫测试
 

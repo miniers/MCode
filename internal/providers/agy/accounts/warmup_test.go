@@ -17,6 +17,60 @@ import (
 	"mcode/internal/providers/agy/quota"
 )
 
+func TestWarmupRefreshDoesNotOverwriteNewLogin(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		_, _ = w.Write([]byte(`{"access_token":"old-refresh-result","expires_in":3600}`))
+	}))
+	defer server.Close()
+	m, err := NewManager(Options{
+		DataDir: t.TempDir(), HostHome: t.TempDir(), HTTPClient: server.Client(),
+		Endpoints: OAuthEndpoints{TokenURL: server.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := createTestAccountWithToken(t, m, "login@example.com", "expired", "refresh", time.Now().Add(-time.Hour))
+	acc, _ := m.Get(id)
+	type result struct {
+		accessToken string
+		err         error
+	}
+	results := make(chan result, 1)
+	go func() {
+		token, err := m.ensureAccessToken(context.Background(), acc)
+		results <- result{token, err}
+	}()
+	<-started
+	newToken := OAuthTokenFile{AuthMethod: "consumer", Token: OAuthTokenData{
+		AccessToken: "new-login", RefreshToken: "new-refresh", Expiry: time.Now().UTC().Truncate(time.Second).Add(time.Hour),
+	}}
+	writeErr := m.WriteToken(id, newToken)
+	close(release)
+	if writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	got := <-results
+	if got.err != nil || got.accessToken != newToken.Token.AccessToken {
+		t.Fatalf("got token %q, error %v", got.accessToken, got.err)
+	}
+	var current OAuthTokenFile
+	if err := m.withTokenLock(id, func(p string) error {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(data, &current)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if current != newToken {
+		t.Fatalf("new credentials were overwritten: %+v", current)
+	}
+}
+
 func testGeminiWeeklyQuotaResponse(w http.ResponseWriter, resetTime string) {
 	if resetTime == "" {
 		_, _ = w.Write([]byte(`{}`))

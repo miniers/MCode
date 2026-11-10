@@ -366,6 +366,7 @@ func (m *Manager) ensureAccessToken(ctx context.Context, acc Account) (string, e
 	tokenURL := m.opts.Endpoints.withDefaults().TokenURL
 
 	if accessToken == "" || (!expiry.IsZero() && now.After(expiry)) {
+		previous := tokenFile
 		newAccess, newExp, err := quota.RefreshAccessToken(ctx, m.opts.HTTPClient, tokenURL, OfficialClientID, OfficialClientSecret, refreshToken)
 		if err != nil {
 			return "", err
@@ -381,6 +382,19 @@ func (m *Manager) ensureAccessToken(ctx context.Context, acc Account) (string, e
 				return "", ErrAccountGone
 			}
 			if err := m.withTokenLock(id, func(p string) error {
+				var current OAuthTokenFile
+				data, err := os.ReadFile(p)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(data, &current); err != nil {
+					return err
+				}
+				if current.Token != previous.Token {
+					tokenFile = current
+					accessToken = current.Token.AccessToken
+					return nil
+				}
 				return atomicWriteJSON(p, tokenFile)
 			}); err != nil {
 				return "", err

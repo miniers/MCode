@@ -3,6 +3,7 @@
 package procs
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +15,9 @@ import (
 
 // procTable 执行 ps 读取整机进程表。LC_ALL=C 保证 lstart 用英文星期与月份，便于按固定格式解析。
 func procTable() ([]Proc, error) {
-	cmd := procattr.HideWindow(exec.Command("ps", "-axo", "pid=,ppid=,pgid=,lstart=,command="))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := procattr.HideWindow(exec.CommandContext(ctx, "ps", "-axo", "pid=,ppid=,pgid=,lstart=,command="))
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 	out, err := cmd.Output()
 	if err != nil {

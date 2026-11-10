@@ -61,6 +61,33 @@ var testAssets = fstest.MapFS{
 	},
 }
 
+func TestAcceptsGzipHeader(t *testing.T) {
+	tests := []struct {
+		header string
+		want   bool
+	}{
+		{"gzip", true},
+		{"gzip;q=0", false},
+		{"gzip;q=0.0", false},
+		{"GZIP;Q=0", false},
+		{"gzip;q=0.5", true},
+		{"*", true},
+		{"*;q=0", false},
+		{"br", false},
+		{"", false},
+		{"*;q=1, gzip;q=0", false},
+		{"gzip;q=0, *;q=1", false},
+		{"br, *; Q=0.5", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.header, func(t *testing.T) {
+			if got := acceptsGzipHeader(tt.header); got != tt.want {
+				t.Errorf("acceptsGzipHeader(%q) = %v, want %v", tt.header, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestServer_StaticRoutesAndDirectoryTraversal(t *testing.T) {
 	server := NewServer(ServerOptions{
 		Assets:       testAssets,

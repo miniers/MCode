@@ -950,9 +950,17 @@ func (b *MemoryBackend) ThreadsMediaRead(ctx context.Context, params wire.Thread
 			}
 		}
 
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(srcBytes))
+		if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > 50_000_000/cfg.Height {
+			// 无法解码的图片按“图片不可用”返回，客户端据此展示占位提示
+			return wire.ThreadsMediaReadResult{}, &wire.RPCError{
+				Code:    wire.InvalidParams,
+				Message: "图片不可用",
+				Data:    map[string]any{"reason": "unavailable"},
+			}
+		}
 		srcImg, _, err := image.Decode(bytes.NewReader(srcBytes))
 		if err != nil {
-			// 无法解码的图片按“图片不可用”返回，客户端据此展示占位提示
 			return wire.ThreadsMediaReadResult{}, &wire.RPCError{
 				Code:    wire.InvalidParams,
 				Message: "图片不可用",

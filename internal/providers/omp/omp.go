@@ -548,14 +548,14 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 		}
 		_ = writer.close()
 		_ = killProcessGroup(cmd, syscall.SIGTERM)
-		_ = cmd.Wait()
+		_ = waitWithKill(cmd, 3*time.Second)
 		return ctx.Err()
 	}
 
 	// 当轮结束后 omp 进程仍会驻留，主动终止整个进程组再回收。
 	_ = writer.close()
 	_ = killProcessGroup(cmd, syscall.SIGTERM)
-	waitErr := cmd.Wait()
+	waitErr := waitWithKill(cmd, 3*time.Second)
 
 	if !state.sawDone {
 		stderrText := strings.TrimSpace(stderrTail.String())
@@ -571,6 +571,20 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	}
 
 	return nil
+}
+
+func waitWithKill(cmd *exec.Cmd, grace time.Duration) error {
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		_ = killProcessGroup(cmd, syscall.SIGKILL)
+		return <-done
+	}
 }
 
 // Steer 向指定会话正在执行的轮次注入指引：以 steer 请求写入其 stdin。

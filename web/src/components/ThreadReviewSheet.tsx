@@ -1,6 +1,6 @@
 // 移动端会话级与按轮 Diff 审阅抽屉组件
 
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { RemoteReviewTurn, TaskItem, ThreadsGetDiffResult } from '../types/contract';
 import { useRemoteStatic } from '../context/RemoteContext';
 import { DiffViewer } from './DiffViewer';
@@ -15,8 +15,6 @@ import {
   type ParsedFileDiff
 } from '../utils/diff';
 import { setTaskRejectFeedbackPrefill } from './TaskDetailModal';
-import { SheetFrame } from './sheet/SheetFrame';
-import { MenuSheetHeader } from './thread/menu/MenuSheetHeader';
 import type { ThreadMenuPageHandle } from './thread/menu/menuPages';
 
 export interface ThreadReviewSheetProps {
@@ -499,33 +497,3 @@ export const ThreadReviewSheetBody = forwardRef<ThreadMenuPageHandle, ThreadRevi
   }
 );
 
-/** 兼容外壳：保留 isOpen/onClose 旧接口，内部用 SheetFrame + 共享标题栏 + 内容体。 */
-export const ThreadReviewSheet: React.FC<ThreadReviewSheetProps> = ({
-  isOpen,
-  onClose,
-  threadTitle,
-  ...rest
-}) => {
-  const bodyRef = useRef<ThreadMenuPageHandle | null>(null);
-
-  if (!isOpen) return null;
-
-  // 遮罩点击与关闭按钮先过内容体守卫；返回 false 时本次关闭作废
-  const handleClose = () => {
-    if (bodyRef.current?.requestClose() === false) return;
-    onClose();
-  };
-
-  return (
-    <SheetFrame size="panel" labelledBy="thread-review-title" onRequestClose={handleClose}>
-      <MenuSheetHeader
-        eyebrow={threadTitle ? `审阅 · ${threadTitle}` : '代码审阅'}
-        title="代码变更与审阅"
-        labelledBy="thread-review-title"
-        leading="close"
-        onLeading={handleClose}
-      />
-      <ThreadReviewSheetBody ref={bodyRef} onClose={onClose} threadTitle={threadTitle} {...rest} />
-    </SheetFrame>
-  );
-};

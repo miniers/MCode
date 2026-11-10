@@ -171,7 +171,11 @@ func (w *attentionWiring) Start() {
 		w.observeKanban()
 		w.observeSwarm()
 		// 启动即做一次全量看板扫描；与上一轮重复的条目会被记录层去重。
-		go w.scanKanban()
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			w.scanKanban()
+		}()
 	})
 }
 
@@ -578,6 +582,11 @@ func kanbanActionDetail(action kanbanAttentionAction) string {
 // applyKanbanActions 依次执行看板差异动作。
 func (w *attentionWiring) applyKanbanActions(actions []kanbanAttentionAction) {
 	for _, action := range actions {
+		select {
+		case <-w.done:
+			return
+		default:
+		}
 		if action.resolve {
 			w.resolveSubject(attention.SubjectKanbanTask, action.subjectID, action.kind)
 			continue
@@ -662,6 +671,11 @@ func kanbanGoalSnapshotFromGoal(goal store.Goal) kanbanGoalSnapshot {
 // applyKanbanGoalActions 依次执行目标差异动作。
 func (w *attentionWiring) applyKanbanGoalActions(actions []kanbanGoalAttentionAction) {
 	for _, action := range actions {
+		select {
+		case <-w.done:
+			return
+		default:
+		}
 		if action.resolve {
 			w.resolveSubject(attention.SubjectKanbanGoal, action.subjectID, action.kind)
 			continue
@@ -684,8 +698,15 @@ func (w *attentionWiring) scanKanban() {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), attentionScanTimeout)
+	defer cancel()
+	go func() {
+		select {
+		case <-w.done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	board, err := w.kanban.Board(ctx)
-	cancel()
 	if err != nil {
 		log.Printf("attention: 读取看板失败，跳过本轮扫描: %v", err)
 		return
@@ -693,13 +714,22 @@ func (w *attentionWiring) scanKanban() {
 	nextGoals := make(map[string]kanbanGoalSnapshot, len(board.Goals))
 	stewardGoals := make(map[string]bool, len(board.Goals))
 	for _, goal := range board.Goals {
+		if ctx.Err() != nil {
+			return
+		}
 		nextGoals[goal.ID] = kanbanGoalSnapshotFromGoal(goal)
 		stewardGoals[goal.ID] = kanban.IsStewardQueue(goal)
 	}
 	next := make(map[string]kanbanTaskSnapshot, len(board.Tasks))
 	for _, view := range board.Tasks {
+		if ctx.Err() != nil {
+			return
+		}
 		task := view.Task
 		next[task.ID] = kanbanSnapshotForGoal(task, task.GoalID != nil && stewardGoals[*task.GoalID])
+	}
+	if ctx.Err() != nil {
+		return
 	}
 	w.mu.Lock()
 	actions := diffKanbanAttention(w.kanbanSnapshot, next)

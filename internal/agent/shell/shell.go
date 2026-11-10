@@ -219,7 +219,7 @@ func (w *outputWriter) Write(p []byte) (int, error) {
 	if len(w.tail) > maxOutputBytes {
 		w.tail = w.tail[len(w.tail)-maxOutputBytes:]
 	}
-	for lineCount(w.tail) > maxOutputLines {
+	for n := lineCount(w.tail); n > maxOutputLines; n-- {
 		i := bytes.IndexByte(w.tail, '\n')
 		if i < 0 {
 			break

@@ -23,21 +23,10 @@ import {
   PlusIcon,
   StarIcon
 } from './Icons';
-import { SheetFrame } from './sheet/SheetFrame';
-import { MenuSheetHeader } from './thread/menu/MenuSheetHeader';
-import { MenuPageChromeContext, useMenuPageChrome } from './thread/menu/menuPageChrome';
+import { useMenuPageChrome } from './thread/menu/menuPageChrome';
 import type { ThreadMenuPageHandle } from './thread/menu/menuPages';
 
-export interface ScriptsSheetProps {
-  isOpen: boolean;
-  onClose: () => void;
-  threadID: string;
-  threadTitle?: string;
-  /** 当前会话所属项目 ID；缺省时项目脚本只读（无法保存到项目级存储）。 */
-  projectID?: string;
-}
-
-/** 内容体：供菜单页面栈与兼容外壳复用；不含遮罩、卡片与标题栏。 */
+/** 内容体：供菜单页面栈使用；不含遮罩、卡片与标题栏。 */
 export interface ScriptsSheetBodyProps {
   onClose: () => void;
   threadID: string;
@@ -842,50 +831,3 @@ export const ScriptsSheetBody = React.forwardRef<ThreadMenuPageHandle, ScriptsSh
   }
 );
 
-export const ScriptsSheet: React.FC<ScriptsSheetProps> = ({
-  isOpen,
-  onClose,
-  threadID,
-  threadTitle,
-  projectID
-}) => {
-  const bodyRef = useRef<ThreadMenuPageHandle | null>(null);
-  const [trailing, setTrailing] = useState<React.ReactNode>(null);
-
-  const handleRequestClose = useCallback(() => {
-    if (bodyRef.current?.requestClose() === false) return;
-    onClose();
-  }, [onClose]);
-
-  if (!isOpen) return null;
-
-  return (
-    <SheetFrame onRequestClose={handleRequestClose} labelledBy="scripts-sheet-title" size="panel">
-      <MenuPageChromeContext.Provider
-        value={{
-          leading: 'close',
-          onLeading: handleRequestClose,
-          onClose: handleRequestClose,
-          setTrailing
-        }}
-      >
-        <MenuSheetHeader
-          eyebrow={threadTitle ? `脚本 · ${threadTitle}` : '工作区脚本'}
-          title="运行脚本"
-          labelledBy="scripts-sheet-title"
-          leading="close"
-          onLeading={handleRequestClose}
-          onClose={handleRequestClose}
-          trailing={trailing}
-        />
-        <ScriptsSheetBody
-          ref={bodyRef}
-          onClose={onClose}
-          threadID={threadID}
-          threadTitle={threadTitle}
-          projectID={projectID}
-        />
-      </MenuPageChromeContext.Provider>
-    </SheetFrame>
-  );
-};

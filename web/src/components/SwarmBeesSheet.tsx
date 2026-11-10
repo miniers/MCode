@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import type { RemoteSwarmMergeDiffResult, RemoteProvider } from '../types/generated';
 import { modelDisplayName } from '../utils/modelLabel';
 import type { RemoteSwarmBee, RemoteSwarmState } from '../types/swarm';
@@ -8,8 +8,6 @@ import { SwarmInterruptedBanner } from './SwarmInterruptedBanner';
 import { ChevronRightIcon, LockIcon } from './Icons';
 import { MarkdownContent } from './ThreadTimeline';
 import { LazyBoundary } from './LazyFallback';
-import { SheetFrame } from './sheet/SheetFrame';
-import { MenuSheetHeader } from './thread/menu/MenuSheetHeader';
 import type { ThreadMenuPageHandle } from './thread/menu/menuPages';
 
 // 合并审查抽屉带 diff 渲染，只在点开审查时才用到，做成懒加载。
@@ -696,28 +694,3 @@ export const SwarmBeesSheetBody = forwardRef<ThreadMenuPageHandle, SwarmBeesShee
   }
 );
 
-/** 兼容外壳：保留 isOpen/onClose 旧接口，内部用 SheetFrame + 共享标题栏 + 内容体。 */
-export const SwarmBeesSheet: React.FC<SwarmBeesSheetProps> = ({ isOpen, onClose, ...rest }) => {
-  const bodyRef = useRef<ThreadMenuPageHandle | null>(null);
-
-  if (!isOpen) return null;
-
-  // 遮罩点击与关闭按钮先过内容体守卫；返回 false 时本次关闭作废
-  const handleClose = () => {
-    if (bodyRef.current?.requestClose() === false) return;
-    onClose();
-  };
-
-  return (
-    <SheetFrame size="panel" labelledBy="swarm-bees-title" onRequestClose={handleClose}>
-      <MenuSheetHeader
-        eyebrow="编排"
-        title="子代理进度与汇报"
-        labelledBy="swarm-bees-title"
-        leading="close"
-        onLeading={handleClose}
-      />
-      <SwarmBeesSheetBody ref={bodyRef} onClose={onClose} {...rest} />
-    </SheetFrame>
-  );
-};

@@ -144,6 +144,9 @@ func (a *App) RecoveredStoreBackupPath() string {
 
 // Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close。
 func (a *App) Close() error {
+	if a.client != nil {
+		a.client.stopQuestionAutoForward()
+	}
 	// bee 消息保留会写库，必须等它退出后再关闭 store。
 	if a.retention != nil {
 		a.retention.Stop()

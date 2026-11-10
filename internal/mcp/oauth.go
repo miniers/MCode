@@ -24,6 +24,8 @@ import (
 	"mcode/internal/config"
 )
 
+var defaultOAuthHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
 var (
 	// ErrOAuthNotSignedIn 尚未登录或 OAuth 凭据不存在。
 	ErrOAuthNotSignedIn = errors.New("oauth: not signed in")
@@ -188,7 +190,7 @@ func NewOAuthManager(opts OAuthOptions) *OAuthManager {
 		opts.Now = time.Now
 	}
 	if opts.HTTPClient == nil {
-		opts.HTTPClient = http.DefaultClient
+		opts.HTTPClient = defaultOAuthHTTPClient
 	}
 	return &OAuthManager{
 		opts: opts,
@@ -206,7 +208,7 @@ func (m *OAuthManager) httpClient() *http.Client {
 	if m.opts.HTTPClient != nil {
 		return m.opts.HTTPClient
 	}
-	return http.DefaultClient
+	return defaultOAuthHTTPClient
 }
 
 // PendingAuthURL 返回指定服务进行中登录的授权 URL，没有会话时返回空串。

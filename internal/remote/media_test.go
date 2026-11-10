@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -32,6 +34,50 @@ func makeTestPNG(w, h int) []byte {
 	var buf bytes.Buffer
 	_ = png.Encode(&buf, img)
 	return buf.Bytes()
+}
+
+func TestMedia_ThumbRejectsExcessivePixels(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+	b.SetDataDir(t.TempDir())
+	projectID := newUUID()
+	b.AddProject(wire.ProjectSummary{ID: projectID, Name: "test", Path: t.TempDir()})
+	thread, err := b.CreateThread(context.Background(), wire.ThreadCreateParams{ProjectID: projectID, ActionID: newUUID()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := makeTestPNG(1, 1)
+	binary.BigEndian.PutUint32(data[16:20], 50_000_001)
+	binary.BigEndian.PutUint32(data[29:33], crc32.ChecksumIEEE(data[12:29]))
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width != 50_000_001 || cfg.Height != 1 {
+		t.Fatalf("invalid test image config: %+v, %v", cfg, err)
+	}
+	attachment, err := b.AttachmentsUpload(context.Background(), wire.AttachmentsUploadParams{
+		Name: "large.png", Data: base64.StdEncoding.EncodeToString(data),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := b.SendMessage(context.Background(), wire.SendMessageParams{
+		ThreadID: thread.ThreadID, Text: "image", Attachments: []string{attachment.AttachmentID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.ThreadsMediaRead(context.Background(), wire.ThreadsMediaReadParams{
+		ThreadID: thread.ThreadID, MessageID: *message.MessageID,
+		MediaID: attachment.AttachmentID, Variant: wire.MediaVariantThumb,
+	})
+	rpcErr, ok := err.(*wire.RPCError)
+	if !ok || rpcErr.Code != wire.InvalidParams || rpcErr.Message != "图片不可用" {
+		t.Fatalf("expected unavailable image error, got %v", err)
+	}
+	if data, ok := rpcErr.Data.(map[string]any); !ok || data["reason"] != "unavailable" {
+		t.Fatalf("expected unavailable reason, got %v", rpcErr.Data)
+	}
 }
 
 type fakeMediaHarness struct {
