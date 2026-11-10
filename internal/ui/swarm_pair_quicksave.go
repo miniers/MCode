@@ -128,7 +128,7 @@ type swarmPairFavPlan struct {
 	Matched   bool      // 当前组合已存为配对：应删除 Pair
 	Pair      SwarmPair // Matched 时为命中的已存配对
 	Draft     SwarmPair // 需要新增的配对草稿，名称取默认名
-	Duplicate SwarmPair // 同 provider/model 组合已存在但强度/快速模式不同：只提示，不覆盖
+	Duplicate SwarmPair // 同 provider/model 组合已存在但强度/快速模式不同：用当前选择更新它
 	HasDup    bool      // Duplicate 是否命中
 }
 
@@ -141,6 +141,10 @@ func swarmPairFavPlanFor(pairs []SwarmPair, p ModelPickerProps, lead, bees model
 	plan := swarmPairFavPlan{Draft: draft}
 	if existing, ok := swarmPairQuickSaveDuplicate(draft, pairs); ok {
 		plan.Duplicate = existing
+		plan.Duplicate.LeadEffort = draft.LeadEffort
+		plan.Duplicate.LeadFastMode = draft.LeadFastMode
+		plan.Duplicate.WorkerEffort = draft.WorkerEffort
+		plan.Duplicate.WorkerFastMode = draft.WorkerFastMode
 		plan.HasDup = true
 	}
 	return plan
@@ -161,8 +165,8 @@ func swarmPairFavProps(p ModelPickerProps, lead, bees modelPickerSide) *pairFavP
 	return fav
 }
 
-// swarmPairFavToggle 处理说明行收藏按钮的点击：当前组合已存为配对时删除它，否则按默认名新增。
-// 新增与持久化复用设置页的 swarmPairSave，删除复用 swarmPairDelete（同一条 RemovePair 落盘路径）。
+// swarmPairFavToggle 处理收藏按钮点击：已匹配时删除，同组合但强度或快速模式不同时更新原配对，否则新增。
+// 新增与更新复用设置页的 swarmPairSave，删除复用 swarmPairDelete（同一条 RemovePair 落盘路径）。
 func swarmPairFavToggle(p ModelPickerProps, lead, bees modelPickerSide) {
 	chat := activeChatState()
 	notify := func(msg string) {
@@ -184,7 +188,12 @@ func swarmPairFavToggle(p ModelPickerProps, lead, bees modelPickerSide) {
 			notify("取消配对失败：" + msg)
 		}
 	case plan.HasDup:
-		notify("已存在配对 " + swarmPairTitle(plan.Duplicate, p.Providers))
+		updated := swarmPairSave(st, plan.Duplicate, false)
+		if msg := swarmPairQuickSaveError(st); msg != "" {
+			notify("保存失败：" + msg)
+		} else {
+			notify("已更新配对 " + swarmPairTitle(updated, p.Providers))
+		}
 	default:
 		added := swarmPairSave(st, plan.Draft, true)
 		if msg := swarmPairQuickSaveError(st); msg != "" {

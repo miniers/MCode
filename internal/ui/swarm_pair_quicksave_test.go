@@ -122,20 +122,43 @@ func TestSwarmPairFavPlan_DeleteMatched(t *testing.T) {
 	}
 }
 
-// TestSwarmPairFavPlan_DuplicateCombo 验证同 provider/model 组合但强度不同时只提示重复、不新建。
+// TestSwarmPairFavPlan_DuplicateCombo 验证同组合但强度不同时更新原配对。
 func TestSwarmPairFavPlan_DuplicateCombo(t *testing.T) {
 	p, lead, bees := pairFavFixture()
 	existing := swarmPairQuickSaveDraft(p, lead, bees, "另一档强度")
-	// 把已存配对的强度改掉：组合相同但强度不同 → 不算匹配，应判重复。
+	// 把已存配对的强度和快速模式改掉，使其与当前选择不同。
 	low := "low"
 	existing.LeadEffort = &low
+	existing.WorkerEffort = &low
+	existing.LeadFastMode = true
+	existing.WorkerFastMode = true
 	existing.ID = "pair-dup"
+	existing.BeeTiers = map[string]config.SwarmTierOverride{"tier": {}}
 
-	plan := swarmPairFavPlanFor([]SwarmPair{existing}, p, lead, bees)
+	pairs := []SwarmPair{existing}
+	plan := swarmPairFavPlanFor(pairs, p, lead, bees)
 	if plan.Matched {
 		t.Fatalf("强度不同不应匹配：%+v", plan)
 	}
 	if !plan.HasDup || plan.Duplicate.ID != "pair-dup" {
 		t.Fatalf("应判为重复并指向 pair-dup：%+v", plan)
+	}
+	updated := plan.Duplicate
+	if updated.Name != existing.Name || updated.LeadProvider != existing.LeadProvider || updated.LeadModel != existing.LeadModel ||
+		updated.WorkerProvider != existing.WorkerProvider || updated.WorkerModel != existing.WorkerModel {
+		t.Fatalf("更新时应保留原配对名称和模型：%+v", updated)
+	}
+	if _, ok := updated.BeeTiers["tier"]; !ok {
+		t.Fatalf("更新时应保留原配对档位：%+v", updated)
+	}
+	if updated.LeadEffort == nil || *updated.LeadEffort != lead.Selection.Effort || *updated.LeadEffort == *existing.LeadEffort ||
+		updated.WorkerEffort == nil || *updated.WorkerEffort != bees.Selection.Effort || *updated.WorkerEffort == *existing.WorkerEffort ||
+		updated.LeadFastMode != lead.Selection.Fast || updated.LeadFastMode == existing.LeadFastMode ||
+		updated.WorkerFastMode != bees.Selection.Fast || updated.WorkerFastMode == existing.WorkerFastMode {
+		t.Fatalf("更新时应采用当前强度和快速模式：%+v", updated)
+	}
+	pairs[0] = updated
+	if again := swarmPairFavPlanFor(pairs, p, lead, bees); !again.Matched || again.Pair.ID != "pair-dup" {
+		t.Fatalf("更新后应匹配原配对：%+v", again)
 	}
 }
