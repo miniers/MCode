@@ -12,7 +12,7 @@ import (
 type MigrationFunc func(raw map[string]any) (map[string]any, error)
 
 // migrations 是有序迁移链。每一步将版本 v 升级至 v+1。
-// 当前 Version 为 9。
+// 当前 Version 为 10。
 var migrations = []MigrationFunc{
 	migrateV1ToV2,
 	migrateV2ToV3,
@@ -22,6 +22,7 @@ var migrations = []MigrationFunc{
 	migrateV6ToV7,
 	migrateV7ToV8,
 	migrateV8ToV9,
+	migrateV9ToV10,
 }
 
 // migrateV1ToV2 将配置数据从 v1 迁移至 v2。
@@ -534,6 +535,38 @@ func migrateV8ToV9(raw map[string]any) (map[string]any, error) {
 		return raw, nil
 	}
 	setPathIfAbsent(raw, "orchestration.review_mode", mode)
+	return raw, nil
+}
+
+// migrateV9ToV10 补齐内置档位的系统提示词；v8 已将 swarm 整段迁至 orchestration。
+func migrateV9ToV10(raw map[string]any) (map[string]any, error) {
+	section, ok := raw["orchestration"].(map[string]any)
+	if !ok {
+		return raw, nil
+	}
+	tiers, ok := section["tiers"].([]any)
+	if !ok {
+		return raw, nil
+	}
+	for _, item := range tiers {
+		tier, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		prompt, exists := tier["system_prompt"]
+		if exists && prompt != nil {
+			text, isString := prompt.(string)
+			if !isString || strings.TrimSpace(text) != "" {
+				continue
+			}
+		}
+		for _, def := range DefaultSwarmTiers() {
+			if tierIDOf(item) == def.ID {
+				tier["system_prompt"] = def.SystemPrompt
+				break
+			}
+		}
+	}
 	return raw, nil
 }
 

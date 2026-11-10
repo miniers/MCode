@@ -65,6 +65,8 @@ func LoadWithWarnings(dataDir string) (Config, []string, error) {
 	}
 
 	cfg := Defaults()
+	// 避免 JSON 复用默认切片中的档位，导致缺失的提示词继承默认值。
+	cfg.Orchestration.Tiers = nil
 	if err := json.Unmarshal(migratedRaw, &cfg); err != nil {
 		return Config{}, nil, fmt.Errorf("unmarshal config: %w", err)
 	}

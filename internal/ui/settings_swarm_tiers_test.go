@@ -57,6 +57,40 @@ func TestSwarmTiers_DefaultRender(t *testing.T) {
 	}
 }
 
+func TestSwarmTierRowCustomizedIndicator(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	def := config.DefaultSwarmTiers()[2]
+	description := def
+	description.Description = "自定义说明"
+	prompt := def
+	prompt.SystemPrompt = ""
+	model := def
+	model.Model = "custom-model"
+	for _, tc := range []struct {
+		name string
+		tier config.SwarmTier
+		want bool
+	}{
+		{"默认", def, false},
+		{"说明", description, true},
+		{"提示词", prompt, true},
+		{"模型", model, false},
+		{"自定义档位", config.SwarmTier{ID: "custom", Name: "自定义"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := &swarmTiersUIState{}
+			tester := ui.NewTester(func(c *ui.Context) {
+				renderSwarmTierRow(c, st, state, tc.tier, nil)
+			}, 1000, 200)
+			tester.Frame()
+			if _, got := tester.Find("已修改"); got != tc.want {
+				t.Errorf("修改标记 = %v，期望 %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // 测试添加档位持久化保存至磁盘。
 func TestSwarmTiers_AddTierPersists(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -459,6 +493,8 @@ func TestSwarmTierDraftIsDefault(t *testing.T) {
 	model.Model = "custom-model"
 	description := deep
 	description.Description = "修改后的说明"
+	prompt := deep
+	prompt.SystemPrompt = "修改后的提示词"
 	for _, tc := range []struct {
 		name  string
 		draft config.SwarmTier
@@ -466,6 +502,7 @@ func TestSwarmTierDraftIsDefault(t *testing.T) {
 	}{
 		{name: "模型", draft: model, paths: paths},
 		{name: "说明", draft: description, paths: paths},
+		{name: "提示词", draft: prompt, paths: paths},
 		{name: "白名单", draft: deep, paths: "other/**"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

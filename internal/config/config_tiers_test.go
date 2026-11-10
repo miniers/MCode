@@ -432,3 +432,74 @@ func TestMigrateV5ToV6DeepWritePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestUpgradeBuiltinTierTexts(t *testing.T) {
+	defaults := DefaultSwarmTiers()
+	oldDescriptions := []string{
+		"只读调研：检索、阅读、总结代码与文档，不修改任何文件",
+		"机械活：补丁重放或重做已有补丁、改名、格式化、修测试或补测试、文档与文案修改；brief 已给出文件与改法",
+		"执行步骤已写清楚的明确修改，单文件或少量文件",
+		"只做定位、方案设计与关键决策：brief 只给现象、目标或边界而没给改法时，先复现、二分、实测或设计接口，产出带 path:line 的分步方案；复杂时把方案写成 md 文档；不改代码。",
+	}
+	tiers := make([]SwarmTier, len(defaults))
+	copy(tiers, defaults)
+	for i := range tiers {
+		tiers[i].Description = "  " + oldDescriptions[i] + "  "
+		tiers[i].SystemPrompt = ""
+	}
+	tiers = append(tiers,
+		SwarmTier{ID: "edit", Description: "自定义说明", SystemPrompt: "自定义提示词"},
+		SwarmTier{ID: "custom", Description: oldDescriptions[0]},
+	)
+	original := append([]SwarmTier(nil), tiers...)
+	got := UpgradeBuiltinTierTexts(tiers)
+	for i, def := range defaults {
+		if got[i].Description != def.Description || got[i].SystemPrompt != "" {
+			t.Errorf("档位 %s 的升级结果不符：%+v", def.ID, got[i])
+		}
+	}
+	if !reflect.DeepEqual(got[len(defaults):], original[len(defaults):]) {
+		t.Errorf("自定义内容被修改：%+v", got[len(defaults):])
+	}
+	if !reflect.DeepEqual(tiers, original) {
+		t.Fatal("输入切片被修改")
+	}
+	if !reflect.DeepEqual(UpgradeBuiltinTierTexts(got), got) {
+		t.Fatal("重复升级应保持不变")
+	}
+	if UpgradeBuiltinTierTexts(nil) != nil || UpgradeBuiltinTierTexts([]SwarmTier{}) == nil {
+		t.Fatal("应保留 nil 与空切片的区别")
+	}
+}
+
+func TestBuiltinTierCustomized(t *testing.T) {
+	for _, def := range DefaultSwarmTiers() {
+		if BuiltinTierCustomized(def) {
+			t.Errorf("默认档位 %s 不应标记为已修改", def.ID)
+		}
+		modified := def
+		modified.Description = " " + def.Description + " "
+		modified.SystemPrompt = "\n" + def.SystemPrompt + "\t"
+		modified.Provider, modified.Model, modified.Effort, modified.FastMode = "p", "m", "low", true
+		modified.WritePaths = []string{"other/**"}
+		if BuiltinTierCustomized(modified) {
+			t.Errorf("空白和模型配置不应影响 %s 的标记", def.ID)
+		}
+		modified.Description = "自定义说明"
+		if !BuiltinTierCustomized(modified) {
+			t.Errorf("%s 的说明已修改", def.ID)
+		}
+		modified.Description = def.Description
+		modified.SystemPrompt = ""
+		if !BuiltinTierCustomized(modified) {
+			t.Errorf("%s 的提示词已清空", def.ID)
+		}
+		modified.SystemPrompt = "自定义提示词"
+		if !BuiltinTierCustomized(modified) {
+			t.Errorf("%s 的提示词已修改", def.ID)
+		}
+	}
+	if BuiltinTierCustomized(SwarmTier{ID: "custom", Description: "自定义"}) {
+		t.Fatal("非内置档位不应标记")
+	}
+}

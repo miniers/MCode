@@ -351,6 +351,18 @@ func TestBeePrompt_WithoutSkillsUnchanged(t *testing.T) {
 	}
 }
 
+func TestBeePrompt_ScopedSelfChecks(t *testing.T) {
+	got := beePrompt("Aspen", Delegation{Task: "T", Prompt: "P"})
+	for _, want := range []string{"有范围的自测", "-timeout", "跑了哪些自测命令及结果"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("bee 提示词应包含 %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "不运行构建、测试") {
+		t.Fatalf("bee 提示词不应再禁止全部构建与测试:\n%s", got)
+	}
+}
+
 func TestStreamParser_EmitsOnClosingBrace(t *testing.T) {
 	entry1 := `{"task": "A", "prompt": "do A"}`
 	entry2 := `{"task": "B", "prompt": "do B"}`

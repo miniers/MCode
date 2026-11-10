@@ -135,6 +135,21 @@ func TestLeadPolicyReviewFunnelWording(t *testing.T) {
 	}
 }
 
+// bee 可跑有范围的自测并汇报命令与结果；所有策略档都不再说 bee 不构建、不测试。
+func TestLeadPolicyScopedBees(t *testing.T) {
+	for _, plansOnly := range []bool{false, true} {
+		for _, mode := range []string{"off", "ai", "human"} {
+			got := LeadPolicy(plansOnly, mode)
+			if !strings.Contains(got, "Bees may run scoped checks") || !strings.Contains(got, "run the full checks yourself") {
+				t.Fatalf("plansOnly=%v mode=%s 的策略应说明 bee 只跑有范围的自测:\n%s", plansOnly, mode, got)
+			}
+			if strings.Contains(got, "They never build, test or commit") {
+				t.Fatalf("plansOnly=%v mode=%s 的策略不应保留旧说法:\n%s", plansOnly, mode, got)
+			}
+		}
+	}
+}
+
 // RosterPromptSection 需只列在跑的 bee，开头为 [Swarm roster]，末尾附固定规则段；
 // 无在跑且无排队时返回空串。
 func TestRosterPromptSection(t *testing.T) {
