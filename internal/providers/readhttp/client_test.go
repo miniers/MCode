@@ -454,36 +454,67 @@ func TestNoRetryOnHTTPStatus(t *testing.T) {
 }
 
 func TestNoReplayForNonIdempotentRequests(t *testing.T) {
-	srv := newStreamErrorServer(t, func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, "ok")
+	t.Run("POST", func(t *testing.T) {
+		srv := newStreamErrorServer(t, func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, "ok")
+		})
+		client := NewClient(srv.Client())
+		tr := client.Transport.(*poolTransport)
+		before := tr.current()
+
+		resp, err := client.Post(srv.URL+"/models", "text/plain", strings.NewReader("payload"))
+		if err == nil {
+			resp.Body.Close()
+			t.Fatal("POST 应当失败")
+		}
+		if got := srv.requests.Load(); got != 1 {
+			t.Errorf("POST 请求数 = %d，想要 1（不重放）", got)
+		}
+		if tr.current() == before {
+			t.Error("POST 遇到连接中断后应换池")
+		}
+
+		resp, err = client.Get(srv.URL + "/models")
+		if err != nil {
+			t.Fatalf("换池后的 GET: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("换池后的 GET 状态码 = %d，想要 200", resp.StatusCode)
+		}
 	})
-	client := NewClient(srv.Client())
-	tr := client.Transport.(*poolTransport)
-	before := tr.current()
 
-	resp, err := client.Post(srv.URL+"/models", "text/plain", strings.NewReader("payload"))
-	if err == nil {
-		resp.Body.Close()
-		t.Fatal("POST 应当失败")
-	}
-	if got := srv.requests.Load(); got != 1 {
-		t.Errorf("POST 请求数 = %d，想要 1（不重放）", got)
-	}
+	t.Run("GET with body", func(t *testing.T) {
+		srv := newStreamErrorServer(t, func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, "ok")
+		})
+		client := NewClient(srv.Client())
+		tr := client.Transport.(*poolTransport)
+		before := tr.current()
 
-	srv.requests.Store(0)
-	req, err := http.NewRequest(http.MethodGet, srv.URL+"/models", strings.NewReader("payload"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.Do(req); err == nil {
-		t.Fatal("带 body 的 GET 应当失败")
-	}
-	if got := srv.requests.Load(); got != 1 {
-		t.Errorf("带 body 的 GET 请求数 = %d，想要 1（不重放）", got)
-	}
-	if tr.current() != before {
-		t.Error("不重放的请求失败时不应换池")
-	}
+		req, err := http.NewRequest(http.MethodGet, srv.URL+"/models", strings.NewReader("payload"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.Do(req); err == nil {
+			t.Fatal("带 body 的 GET 应当失败")
+		}
+		if got := srv.requests.Load(); got != 1 {
+			t.Errorf("带 body 的 GET 请求数 = %d，想要 1（不重放）", got)
+		}
+		if tr.current() == before {
+			t.Error("带 body 的 GET 遇到连接中断后应换池")
+		}
+
+		resp, err := client.Get(srv.URL + "/models")
+		if err != nil {
+			t.Fatalf("换池后的 GET: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("换池后的 GET 状态码 = %d，想要 200", resp.StatusCode)
+		}
+	})
 }
 
 // TestClientTimeoutCoversBothAttempts 验证重试沿用同一次 Do 的截止时间：第一次

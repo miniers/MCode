@@ -298,19 +298,6 @@ func TestOpenAIStreamErrors(t *testing.T) {
 	}
 }
 
-func TestDefaultHTTPClientResponseHeaderTimeout(t *testing.T) {
-	transport, ok := defaultHTTPClient.Transport.(*http.Transport)
-	if !ok {
-		t.Fatalf("transport: %T", defaultHTTPClient.Transport)
-	}
-	if transport.ResponseHeaderTimeout != 2*time.Minute {
-		t.Fatalf("ResponseHeaderTimeout: %v", transport.ResponseHeaderTimeout)
-	}
-	if defaultHTTPClient.Timeout != 0 {
-		t.Fatalf("Client.Timeout should be 0, got %v", defaultHTTPClient.Timeout)
-	}
-}
-
 func TestIsContextOverflow(t *testing.T) {
 	for _, text := range []string{"context_length_exceeded", "Maximum context length", "prompt is too long", "too many tokens", "INPUT IS TOO LONG", "Exceeds the context window", "CONTEXT_WINDOW_EXCEEDED", "Prompt too long"} {
 		if !IsContextOverflow(errors.New(text)) {

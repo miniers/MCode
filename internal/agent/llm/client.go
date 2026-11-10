@@ -38,7 +38,7 @@ func retryAfter(header string) time.Duration {
 // 不设置 Client.Timeout，避免流式长回答被整体掐断。
 var defaultHTTPClient = newDefaultHTTPClient()
 
-func newDefaultHTTPClient() *http.Client {
+func newDefaultTransport() *http.Transport {
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		transport = &http.Transport{}
@@ -46,5 +46,9 @@ func newDefaultHTTPClient() *http.Client {
 	clone := transport.Clone()
 	clone.ResponseHeaderTimeout = 2 * time.Minute
 	clone.HTTP2 = &http.HTTP2Config{SendPingTimeout: http2PingTimeout, PingTimeout: http2PingTimeout}
-	return readhttp.NewClient(&http.Client{Transport: clone})
+	return clone
+}
+
+func newDefaultHTTPClient() *http.Client {
+	return readhttp.NewClient(&http.Client{Transport: newDefaultTransport()})
 }
