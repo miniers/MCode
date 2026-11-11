@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"mcode/internal/providers/claude"
-	"mcode/internal/providers/codex"
 	"mcode/internal/providers/magpie"
 	mcodeui "mcode/internal/ui"
 )
@@ -72,11 +71,11 @@ func (c *Client) RefreshThreadQuota(ctx context.Context, threadID, provider stri
 		}
 		return c.refreshRouteAccount(ctx, baseURL, token, "claude", threadID)
 	case provider == "codex":
-		limits, err := c.codexQuotaLimits(ctx, threadID)
-		if err != nil || limits.Source != codex.QuotaSourceMagpie || strings.TrimSpace(limits.GatewayBaseURL) == "" {
+		baseURL, token, ok, _, err := c.codexMagpieEndpoint(ctx, threadID)
+		if err != nil || !ok {
 			return nil
 		}
-		return c.refreshRouteAccount(ctx, limits.GatewayBaseURL, limits.GatewayToken, "codex", threadID)
+		return c.refreshRouteAccount(ctx, baseURL, token, "codex", threadID)
 	default:
 		return nil
 	}

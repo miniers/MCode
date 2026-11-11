@@ -137,6 +137,21 @@ var (
 	readProviderPlanWindows = credits.ReadPlanWindows
 	// readCopilotAccount 读取 Copilot CLI 当前登录的账户，测试中替换为桩，避免启动真实 CLI。
 	readCopilotAccount = copilot.ReadAccountFromCLI
+	// readCodexQuotaLimits 与路由读取函数可替换，避免额度测试启动真实 Codex。
+	readCodexQuotaLimits = func(c *Client, ctx context.Context, threadID string) (codex.RateLimits, error) {
+		return c.codexQuotaLimits(ctx, threadID)
+	}
+	codexMagpieRoutesForQuota = codexMagpieRoutes
+	readCodexThreadModel      = func(ctx context.Context, backend *remote.MemoryBackend, threadID string) (string, error) {
+		if backend == nil {
+			return "", nil
+		}
+		thread, err := backend.GetThread(ctx, threadID)
+		if err != nil {
+			return "", err
+		}
+		return derefString(thread.Model), nil
+	}
 )
 
 // NewClient 创建并返回一个新的 Client 实例。
@@ -4901,8 +4916,7 @@ func codexAccountHome() string {
 	return filepath.Join(home, ".codex")
 }
 
-// codexQuotaWindows 把 codex 的额度结果转成 UI 窗口：Magpie 卡片按账号平铺（账号、套餐、
-// 读取时间随窗口给出），直连时只有一组本机登录信息。
+// codexQuotaWindows 把直连 Codex 的额度结果转成 UI 窗口。
 func codexQuotaWindows(limits codex.RateLimits) []mcodeui.ProviderQuotaWindow {
 	var windows []mcodeui.ProviderQuotaWindow
 	add := func(account, plan, source string, readAt time.Time, list []codex.RateLimitWindow) int {
@@ -4918,21 +4932,6 @@ func codexQuotaWindows(limits codex.RateLimits) []mcodeui.ProviderQuotaWindow {
 			})
 		}
 		return start
-	}
-	if limits.Source == codex.QuotaSourceMagpie {
-		for _, acct := range limits.Accounts {
-			start := add(acct.Account, acct.PlanType, codex.QuotaSourceMagpie, acct.ReadAt, acct.Windows)
-			// 账号级元数据跟着每张卡片的窗口走：界面靠 Provider/User 与 trace 路由对齐，
-			// 才能只给本会话应答的账号标「在用」。
-			for i := start; i < len(windows); i++ {
-				windows[i].Provider = acct.Provider
-				windows[i].User = acct.User
-				windows[i].Kind = acct.Kind
-				windows[i].Last = acct.Last
-				windows[i].LastServedAt = acct.LastServedAt
-			}
-		}
-		return windows
 	}
 	add("", limits.PlanType, codex.QuotaSourceOpenAI, limits.ReadAt, limits.Windows)
 	return windows
@@ -4976,6 +4975,32 @@ func (c *Client) codexQuotaLimits(ctx context.Context, threadID string) (codex.R
 		}
 	}
 	return codex.ReadQuotaLimits(ctx, opts)
+}
+
+// codexMagpieEndpoint 优先解析 Codex 注入路由；没有注入模型时再按 Codex 自己的
+// 有效配置判断直连或 Magpie 来源。
+func (c *Client) codexMagpieEndpoint(ctx context.Context, threadID string) (baseURL, apiKey string, ok bool, limits codex.RateLimits, err error) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID != "" {
+		if model, modelErr := readCodexThreadModel(ctx, c.backend, threadID); modelErr == nil {
+			for _, route := range codexMagpieRoutesForQuota() {
+				providerID := strings.TrimSpace(route.ProviderID)
+				prefix := providerID + "/"
+				if providerID != "" && strings.HasPrefix(model, prefix) && strings.TrimSpace(strings.TrimPrefix(model, prefix)) != "" {
+					return route.BaseURL, route.APIKey, true, codex.RateLimits{}, nil
+				}
+			}
+		}
+	}
+
+	limits, err = readCodexQuotaLimits(c, ctx, threadID)
+	if err != nil {
+		return "", "", false, codex.RateLimits{}, err
+	}
+	if limits.Source == codex.QuotaSourceMagpie && strings.TrimSpace(limits.GatewayBaseURL) != "" {
+		return limits.GatewayBaseURL, limits.GatewayToken, true, limits, nil
+	}
+	return "", "", false, limits, nil
 }
 
 // RefreshProviderQuota 让 Magpie 网关重新向厂商读取指定提供方的额度卡片。
@@ -5028,25 +5053,19 @@ func (c *Client) ProviderQuota(ctx context.Context, provider string) ([]mcodeui.
 		return c.engineQuotaWindows(ctx, provider)
 	}
 	if provider == "codex" {
-		// 额度来源由 Codex 自己的有效配置决定（可能直连，也可能经 Magpie 网关），
-		// 这里交给 codex 包统一判定；判定不出来时返回错误，界面显示不可用。
-		limits, err := c.codexQuotaLimits(ctx, mcodeui.QuotaThread(ctx))
+		threadID := mcodeui.QuotaThread(ctx)
+		baseURL, token, magpie, limits, err := c.codexMagpieEndpoint(ctx, threadID)
 		if err != nil {
 			return nil, err
 		}
-		windows := codexQuotaWindows(limits)
-		// 经 Magpie 网关时，用 trace 记录只给本会话实际应答的账号标「在用」；直连没有路由。
-		if limits.Source == codex.QuotaSourceMagpie && strings.TrimSpace(limits.GatewayBaseURL) != "" {
-			route, hasRoute := sessionRoute{}, false
-			tracker := c.sessionTracker()
-			tracker.noteSource(limits.GatewayBaseURL, limits.GatewayToken)
-			if threadID := mcodeui.QuotaThread(ctx); threadID != "" && c.agySessionForThread != nil {
-				sessionID := c.agySessionForThread(ctx, threadID)
-				// 弹层可能被反复打开，fresh=false 时先看缓存，再用 10 秒节流控制远程读取。
-				route, hasRoute = tracker.routeFor(ctx, limits.GatewayBaseURL, limits.GatewayToken, "codex", sessionID, false)
+		if magpie {
+			sessionID := ""
+			if threadID != "" && c.agySessionForThread != nil {
+				sessionID = c.agySessionForThread(ctx, threadID)
 			}
-			markRouteActive(windows, route, hasRoute)
+			return c.readMagpieQuotaWindows(ctx, baseURL, token, "codex", sessionID)
 		}
+		windows := codexQuotaWindows(limits)
 		return windows, nil
 	}
 	if provider == "claude" {

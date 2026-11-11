@@ -1,10 +1,17 @@
 package app
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"mcode/internal/providers/codex"
+	"mcode/internal/providers/magpie"
+	"mcode/internal/remote"
+	mcodeui "mcode/internal/ui"
 )
 
 // 直连 Codex 只有一组窗口，套餐与读取时间来自本机登录的实时读取。
@@ -39,66 +46,108 @@ func TestCodexQuotaWindowsDirect(t *testing.T) {
 	}
 }
 
-// Magpie 的每张 Codex 卡片各带账号、套餐和读取时间；未知读取时间保持零值。
-func TestCodexQuotaWindowsMagpieAccounts(t *testing.T) {
-	readAt := time.Date(2026, 10, 28, 2, 58, 16, 0, time.UTC)
-	lastServedAt := time.Date(2026, 10, 28, 2, 40, 0, 0, time.UTC)
-	windows := codexQuotaWindows(codex.RateLimits{
-		Source: codex.QuotaSourceMagpie,
-		Accounts: []codex.AccountQuota{
-			{
-				Account:      "a@b.com",
-				PlanType:     "Plus",
-				Provider:     "codex",
-				User:         "a@example.com",
-				Kind:         "subscription",
-				Last:         true,
-				LastServedAt: lastServedAt,
-				ReadAt:       readAt,
-				Windows: []codex.RateLimitWindow{
-					{ID: "a@b.com/5 hours", Title: "5 hours", Period: "5h", UsedPercent: 85},
-					{ID: "a@b.com/30 days", Title: "30 days", Period: "30d", UsedPercent: 10},
-				},
-			},
-			{
-				Account:  "{{EMAIL_d949a3a8}}",
-				PlanType: "Free",
-				Windows: []codex.RateLimitWindow{
-					{ID: "{{EMAIL_d949a3a8}}/30 days", Title: "30 days", Period: "30d", UsedPercent: 0},
-				},
-			},
-		},
-	})
+func codexQuotaTestGateway(t *testing.T, provider, account string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer gw-key" {
+			t.Errorf("Authorization = %q，想要 Bearer gw-key", got)
+		}
+		switch r.URL.Path {
+		case "/v1/magpie/quotas":
+			io.WriteString(w, `{"object":"list","data":[
+				{"provider":"codex","user":"free@example.com","plan":"Free","windows":[{"name":"30 days","used":10}]},
+				{"provider":"codex","user":"plus@example.com","plan":"Plus","windows":[{"name":"5 hours","used":20}]},
+				{"provider":"sub2api","user":"sub@example.com","plan":"Wallet","windows":[{"name":"Credits","used":30}]}]}`)
+		case "/v1/magpie/usage/requests":
+			io.WriteString(w, `{"rows":[{"t":"2026-11-11T22:19:17Z","agent":"codex","provider":"`+provider+`","providerAccount":"`+account+`","session":"codex-session"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func codexQuotaTestClient(t *testing.T, srv *httptest.Server) *Client {
+	t.Helper()
+	previousReader := readCodexQuotaLimits
+	readCodexQuotaLimits = func(*Client, context.Context, string) (codex.RateLimits, error) {
+		return codex.RateLimits{Source: codex.QuotaSourceMagpie, GatewayBaseURL: srv.URL + "/v1", GatewayToken: "gw-key"}, nil
+	}
+	t.Cleanup(func() { readCodexQuotaLimits = previousReader })
+	client := NewClient(nil)
+	client.SetAgySessionLookup(func(context.Context, string) string { return "codex-session" })
+	tracker := newTestSessionAccountTracker(t)
+	tracker.readUsage = magpie.ReadUsageRequests
+	useQuotaTracker(client, tracker)
+	return client
+}
+
+func assertCodexQuotaActive(t *testing.T, windows []mcodeui.ProviderQuotaWindow, activeUser string) {
+	t.Helper()
 	if len(windows) != 3 {
-		t.Fatalf("expected 3 windows, got %d: %+v", len(windows), windows)
+		t.Fatalf("窗口数 = %d，想要 3: %+v", len(windows), windows)
 	}
-	first, second, third := windows[0], windows[1], windows[2]
-	if first.Account != "a@b.com" || first.Plan != "Plus" || first.Source != codex.QuotaSourceMagpie {
-		t.Errorf("unexpected first window metadata: %+v", first)
+	for _, w := range windows {
+		if w.Source != codex.QuotaSourceMagpie || w.User == "" {
+			t.Errorf("Magpie 卡片元数据不完整: %+v", w)
+		}
+		want := w.User == activeUser
+		if w.Active != want {
+			t.Errorf("账号 %q Active = %v，想要 %v: %+v", w.User, w.Active, want, w)
+		}
 	}
-	if !first.ReadAt.Equal(readAt) || first.Period != "5h" {
-		t.Errorf("unexpected first window: %+v", first)
+}
+
+func TestProviderQuotaCodexMagpieUsageAccount(t *testing.T) {
+	srv := codexQuotaTestGateway(t, "sub2api", "sub@example.com")
+	defer srv.Close()
+	client := codexQuotaTestClient(t, srv)
+	windows, err := client.ProviderQuota(mcodeui.WithQuotaThread(context.Background(), "thread-1"), "codex")
+	if err != nil {
+		t.Fatalf("ProviderQuota 失败: %v", err)
 	}
-	if second.Period != "30d" || second.Account != "a@b.com" {
-		t.Errorf("unexpected second window: %+v", second)
+	assertCodexQuotaActive(t, windows, "sub@example.com")
+}
+
+func TestProviderQuotaCodexMagpieCodexPlus(t *testing.T) {
+	srv := codexQuotaTestGateway(t, "codex", "plus@example.com")
+	defer srv.Close()
+	client := codexQuotaTestClient(t, srv)
+	windows, err := client.ProviderQuota(mcodeui.WithQuotaThread(context.Background(), "thread-1"), "codex")
+	if err != nil {
+		t.Fatalf("ProviderQuota 失败: %v", err)
 	}
-	// 卡片上的路由元数据要落到该卡片的每个窗口上，另一张卡不受影响。
-	if first.Provider != "codex" || first.User != "a@example.com" || first.Kind != "subscription" {
-		t.Errorf("card route metadata missing on first window: %+v", first)
+	assertCodexQuotaActive(t, windows, "plus@example.com")
+}
+
+func TestProviderQuotaCodexMagpieInjectedRoute(t *testing.T) {
+	srv := codexQuotaTestGateway(t, "codex", "plus@example.com")
+	defer srv.Close()
+	previousRoutes := codexMagpieRoutesForQuota
+	previousModel := readCodexThreadModel
+	previousReader := readCodexQuotaLimits
+	codexMagpieRoutesForQuota = func() []codex.MagpieRoute {
+		return []codex.MagpieRoute{{ProviderID: "magpie-test", BaseURL: srv.URL + "/v1", APIKey: "gw-key"}}
 	}
-	if !first.Last || !first.LastServedAt.Equal(lastServedAt) {
-		t.Errorf("card last-served metadata missing on first window: %+v", first)
+	readCodexThreadModel = func(context.Context, *remote.MemoryBackend, string) (string, error) {
+		return "magpie-test/auto/gpt", nil
 	}
-	if second.Provider != "codex" || second.User != "a@example.com" || !second.Last {
-		t.Errorf("same card windows must share route metadata: %+v", second)
+	readCodexQuotaLimits = func(*Client, context.Context, string) (codex.RateLimits, error) {
+		t.Fatal("注入路由不应读取 Codex app-server")
+		return codex.RateLimits{}, nil
 	}
-	if third.Provider != "" || third.User != "" || third.Kind != "" || third.Last {
-		t.Errorf("second card must not inherit route metadata: %+v", third)
+	t.Cleanup(func() {
+		codexMagpieRoutesForQuota = previousRoutes
+		readCodexThreadModel = previousModel
+		readCodexQuotaLimits = previousReader
+	})
+	client := NewClient(nil)
+	client.SetAgySessionLookup(func(context.Context, string) string { return "codex-session" })
+	tracker := newTestSessionAccountTracker(t)
+	tracker.readUsage = magpie.ReadUsageRequests
+	useQuotaTracker(client, tracker)
+	windows, err := client.ProviderQuota(mcodeui.WithQuotaThread(context.Background(), "thread-1"), "codex")
+	if err != nil {
+		t.Fatalf("ProviderQuota 失败: %v", err)
 	}
-	if third.Account != "{{EMAIL_d949a3a8}}" || third.Plan != "Free" {
-		t.Errorf("second card must stay a separate account: %+v", third)
-	}
-	if !third.ReadAt.IsZero() {
-		t.Errorf("unknown card read time must stay zero, got %v", third.ReadAt)
-	}
+	assertCodexQuotaActive(t, windows, "plus@example.com")
 }
