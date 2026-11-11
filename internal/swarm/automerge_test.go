@@ -3,6 +3,7 @@ package swarm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,6 +99,23 @@ func newPipelineFileBatch(dir string, bees ...Bee) LandedBatch {
 	}
 }
 
+func addNewFilePatch(t *testing.T, b *LandedBatch) {
+	t.Helper()
+	for i := range b.Bees {
+		name := b.Bees[i].ChangedFiles[0]
+		data, err := os.ReadFile(filepath.Join(b.TargetWorkDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		patch := fmt.Sprintf("diff --git a/%s b/%s\nnew file mode 100644\n--- /dev/null\n+++ b/%s\n@@ -0,0 +1 @@\n+%s", name, name, name, data)
+		path := filepath.Join(t.TempDir(), "landed.patch")
+		if err := os.WriteFile(path, []byte(patch), 0644); err != nil {
+			t.Fatal(err)
+		}
+		b.Bees[i].LandedPatchPath = path
+	}
+}
+
 // (a) 两个开关都关闭时，自动批次不做任何事：无提交、不 push、不调用 forge。
 func TestPipeline_BothSwitchesOffDoesNothing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -167,6 +185,7 @@ func TestPipeline_AutoMergeOnlyCommitsLocally(t *testing.T) {
 		Bee{Name: "A", Task: "做 A", ChangedFiles: []string{"a.txt"}, Merged: true},
 		Bee{Name: "B", Task: "做 B", ChangedFiles: []string{"b.txt"}, Merged: true},
 	)
+	addNewFilePatch(t, &b)
 	if err := p.RunBatch(ctx, b, false); err != nil {
 		t.Fatalf("RunBatch failed: %v", err)
 	}
@@ -238,6 +257,7 @@ func TestPipeline_AutoPushPushesAndOpensThenMerges(t *testing.T) {
 	})
 
 	b := newPipelineFileBatch(dir, Bee{Name: "A", Task: "做 A", ChangedFiles: []string{"a.txt"}, Merged: true})
+	addNewFilePatch(t, &b)
 	if err := p.RunBatch(ctx, b, false); err != nil {
 		t.Fatalf("RunBatch failed: %v", err)
 	}
@@ -305,6 +325,7 @@ func TestPipeline_ManualTriggerIgnoresSwitches(t *testing.T) {
 	})
 
 	b := newPipelineFileBatch(dir, Bee{Name: "A", Task: "做 A", ChangedFiles: []string{"a.txt"}, Merged: true})
+	addNewFilePatch(t, &b)
 	if err := p.Trigger(ctx, []LandedBatch{b}); err != nil {
 		t.Fatalf("Trigger failed: %v", err)
 	}
@@ -355,6 +376,7 @@ func TestPipeline_RetryScheduledAndDroppedWhenAutoPushOff(t *testing.T) {
 	})
 
 	b := newPipelineFileBatch(dir, Bee{Name: "A", Task: "做 A", ChangedFiles: []string{"a.txt"}, Merged: true})
+	addNewFilePatch(t, &b)
 	if err := p.RunBatch(ctx, b, false); err == nil {
 		t.Fatal("可重试失败应返回错误")
 	}
@@ -422,6 +444,7 @@ func TestPipeline_RetryResumesFromFailedStage(t *testing.T) {
 	})
 
 	b := newPipelineFileBatch(dir, Bee{Name: "A", Task: "做 A", ChangedFiles: []string{"a.txt"}, Merged: true})
+	addNewFilePatch(t, &b)
 	beeBefore := gitTestRun(t, dir, "rev-parse", "HEAD")
 	if err := p.RunBatch(ctx, b, false); err == nil {
 		t.Fatal("可重试失败应返回错误")
@@ -565,6 +588,7 @@ func TestPipeline_ReportsDoneAfterLocalCommit(t *testing.T) {
 	})
 
 	b := newPipelineFileBatch(dir, Bee{Name: "A", Task: "做 A", ChangedFiles: []string{"a.txt"}, Merged: true})
+	addNewFilePatch(t, &b)
 	if err := p.RunBatch(ctx, b, false); err != nil {
 		t.Fatalf("RunBatch failed: %v", err)
 	}
@@ -740,44 +764,57 @@ func TestPipeline_SkipsNonGitBees(t *testing.T) {
 	}
 }
 
-// (k) bee 缺少 LandedPatchPath 时退回兼容路径，通过工作区 add 与 commit 提交。
-func TestPipeline_FallbackWhenNoLandedPatchPath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+// 缺少或无法读取补丁存档时，保留工作区且不创建提交。
+func TestPipeline_SkipsUnavailableLandedPatch(t *testing.T) {
+	for _, patchPath := range []string{"", "/不存在的补丁"} {
+		t.Run(fmt.Sprintf("path=%q", patchPath), func(t *testing.T) {
+			runner, dir := initTestRepo(t)
+			writePipelineFile(t, dir, "a.txt", "user change\n")
+			before := gitTestRun(t, dir, "rev-parse", "HEAD")
+			p := NewPipeline(PipelineOptions{Git: runner, Settings: func() Settings { return Settings{AutoMerge: true} }})
+			b := newPipelineFileBatch(dir, Bee{Name: "A", Merged: true, ChangedFiles: []string{"a.txt"}, LandedPatchPath: patchPath})
+			if err := p.RunBatch(context.Background(), b, false); err != nil {
+				t.Fatal(err)
+			}
+			if got := gitTestRun(t, dir, "rev-parse", "HEAD"); got != before {
+				t.Fatalf("HEAD 改变: %s", got)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+			if err != nil || string(data) != "user change\n" {
+				t.Fatalf("工作区内容=%q err=%v", data, err)
+			}
+			if status := gitTestRun(t, dir, "status", "--porcelain"); !strings.Contains(status, "a.txt") {
+				t.Fatalf("用户改动未保留: %s", status)
+			}
+		})
+	}
+}
+
+func TestPipeline_AlreadyCommittedAndMissingPatch(t *testing.T) {
 	runner, dir := initTestRepo(t)
-	ctx := context.Background()
-
-	writePipelineFile(t, dir, "a.txt", "a\n")
-	beeBefore := gitTestRun(t, dir, "rev-parse", "HEAD")
-
-	p := NewPipeline(PipelineOptions{
-		Git:      runner,
-		Settings: func() Settings { return Settings{AutoMerge: true} },
-		Notify:   func(string, string) {},
-		Push:     func(context.Context, string, string, string, string) error { return nil },
-	})
-
-	// bee 未设置 LandedPatchPath（为空），走兼容路径
-	b := newPipelineFileBatch(dir, Bee{
-		Name:         "A",
-		Task:         "做 A",
-		ChangedFiles: []string{"a.txt"},
-		Merged:       true,
-	})
-	if err := p.RunBatch(ctx, b, false); err != nil {
-		t.Fatalf("RunBatch failed: %v", err)
+	writePipelineFile(t, dir, "a.txt", "bee change\n")
+	gitTestRun(t, dir, "add", "a.txt")
+	gitTestRun(t, dir, "commit", "-m", "bee")
+	sha := gitTestRun(t, dir, "rev-parse", "HEAD")
+	writePipelineFile(t, dir, "a.txt", "user change\n")
+	var results []BatchResult
+	p := NewPipeline(PipelineOptions{Git: runner, Settings: func() Settings { return Settings{AutoMerge: true} }, OnResult: func(_ LandedBatch, r BatchResult) { results = append(results, r) }})
+	b := newPipelineFileBatch(dir, Bee{Name: "已提交", Merged: true, LandedCommit: sha}, Bee{Name: "无补丁", Merged: true, ChangedFiles: []string{"a.txt"}})
+	if err := p.RunBatch(context.Background(), b, false); err != nil {
+		t.Fatal(err)
 	}
-
-	beeAfter := gitTestRun(t, dir, "rev-parse", "HEAD")
-	if beeAfter == beeBefore {
-		t.Fatal("走兼容路径时应创建本地提交")
+	if got := gitTestRun(t, dir, "rev-parse", "HEAD"); got != sha {
+		t.Fatalf("HEAD 改变: %s", got)
 	}
-	committed := gitTestRun(t, dir, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")
-	if committed != "a.txt" {
-		t.Errorf("提交内容 = %q, want a.txt", committed)
+	data, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if err != nil || string(data) != "user change\n" {
+		t.Fatalf("工作区内容=%q err=%v", data, err)
 	}
-	status := gitTestRun(t, dir, "status", "--porcelain")
-	if strings.Contains(status, "a.txt") {
-		t.Errorf("走兼容路径提交后工作区应干净，status:\n%s", status)
+	if status := gitTestRun(t, dir, "status", "--porcelain"); !strings.Contains(status, "a.txt") {
+		t.Fatalf("用户改动未保留: %s", status)
+	}
+	if len(results) != 1 || results[0].State != AutoMergeDone || results[0].SHA != sha {
+		t.Fatalf("结果=%+v", results)
 	}
 }
 

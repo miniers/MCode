@@ -438,14 +438,28 @@ func (p *Pipeline) runLocal(ctx context.Context, b LandedBatch) (*preparedBatch,
 	}
 	prep.subject, prep.message = defaultCommitMessage(validBees)
 	var uncommitted []Bee
+	var patches [][]byte
 	for _, bee := range validBees {
 		if bee.LandedCommit != "" {
 			prep.commits = append(prep.commits, bee.LandedCommit)
 		} else {
+			if strings.TrimSpace(bee.LandedPatchPath) == "" {
+				log.Printf("swarm: 跳过没有补丁存档的 bee: %s (thread: %s)", bee.Name, bee.ThreadID)
+				continue
+			}
+			data, err := os.ReadFile(bee.LandedPatchPath)
+			if err != nil {
+				log.Printf("swarm: 跳过无法读取补丁存档的 bee: %s (thread: %s): %v", bee.Name, bee.ThreadID, err)
+				continue
+			}
 			uncommitted = append(uncommitted, bee)
+			patches = append(patches, data)
 		}
 	}
 	if len(uncommitted) == 0 {
+		if len(prep.commits) == 0 {
+			return prep, nil
+		}
 		unlock := lockHead(root)
 		defer unlock()
 		var err error
@@ -473,40 +487,14 @@ func (p *Pipeline) runLocal(ctx context.Context, b LandedBatch) (*preparedBatch,
 		}
 	}
 
-	// 检查是否所有 bee 都有非空的 LandedPatchPath 且文件可读
-	patches, canUsePatches := p.readBeePatches(b.Bees)
-	if canUsePatches {
-		prep, fallback, err := p.commitWithPatches(ctx, root, b, patches, prep)
-		if err != nil {
-			return nil, err
-		}
-		if !fallback {
-			return prep, nil
-		}
+	prep, fallback, err := p.commitWithPatches(ctx, root, b, patches, prep)
+	if err != nil {
+		return nil, err
 	}
-
-	// 兼容路径：当仓库无 HEAD（git.ErrNoHead）或 bee 缺少 LandedPatchPath 存档时，
-	// 回退到基于工作区文件改动的 gatherPaths + CommitPaths 提交。
+	if !fallback {
+		return prep, nil
+	}
 	return p.commitPathsFallback(ctx, root, b, paths, prep)
-}
-
-// readBeePatches 检查所有 bee 是否都有非空的 LandedPatchPath 且文件可读，按 bee 顺序返回补丁列表。
-func (p *Pipeline) readBeePatches(bees []Bee) ([][]byte, bool) {
-	if len(bees) == 0 {
-		return nil, false
-	}
-	patches := make([][]byte, 0, len(bees))
-	for _, h := range bees {
-		if strings.TrimSpace(h.LandedPatchPath) == "" {
-			return nil, false
-		}
-		data, err := os.ReadFile(h.LandedPatchPath)
-		if err != nil {
-			return nil, false
-		}
-		patches = append(patches, data)
-	}
-	return patches, true
 }
 
 // commitWithPatches 按补丁列表仅向 HEAD 提交，不写工作区。
@@ -563,7 +551,7 @@ func (p *Pipeline) commitWithPatches(ctx context.Context, root string, b LandedB
 	return prep, false, nil
 }
 
-// commitPathsFallback 仅供无 HEAD 或缺少补丁存档的兼容批次按工作区路径提交。
+// commitPathsFallback 仅供无 HEAD 的仓库按工作区路径提交。
 func (p *Pipeline) commitPathsFallback(ctx context.Context, root string, b LandedBatch, paths []string, prep *preparedBatch) (*preparedBatch, error) {
 	if len(paths) > 0 {
 		if p.describe != nil {
