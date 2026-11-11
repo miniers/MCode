@@ -39,6 +39,10 @@ export type Project = {
 
 export type Task = {
   id: UUID;
+  origin?: string;
+  parentID?: string;
+  sourceMessageID?: string;
+  amendMessageIDs?: Array<string>;
   projectID: string | null;
   threadID: string | null;
   reviewThreadID: string | null;

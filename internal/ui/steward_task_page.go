@@ -61,12 +61,23 @@ func renderStewardResult(c *ui.Context, s *chatState, m Message, liveID, lastLiv
 			renderAssistantMessage(c, s, m, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, turnDur, suppressTurnEnd)
 			if result.Thread != "" {
 				ui.Row(c.Key("steward-result-actions-"+m.ID)).Margin(2, 0, 0, 0).Children(func() {
-					Button(c.Key("steward-result-open-"+m.ID), ButtonOpts{
-						Text:    "打开任务",
-						Variant: ButtonSecondary,
-						Size:    ControlMD,
-						OnClick: func() { openStewardTask(s, result) },
-					})
+					if result.Owner {
+						task := KanbanTask{ID: result.Task, ThreadID: result.Thread, Title: result.Title, Status: result.Status, ResultSummary: result.Summary}
+						for _, live := range s.stewardBoardTasks() {
+							if live.ID == result.Task {
+								task.Status, task.Column = live.Status, live.Column
+								break
+							}
+						}
+						renderStewardTaskChip(c, s, "steward-result-open-"+m.ID, task)
+					} else {
+						Button(c.Key("steward-result-open-"+m.ID), ButtonOpts{
+							Text:    "打开任务",
+							Variant: ButtonSecondary,
+							Size:    ControlMD,
+							OnClick: func() { openStewardTask(s, result) },
+						})
+					}
 				})
 			}
 		})

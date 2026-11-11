@@ -758,6 +758,8 @@ const (
 	timelineItemBackgroundWait
 	// 总管会话里每个回合开头的日期时间分隔行。
 	timelineItemTurnTime
+	timelineItemStewardTask
+	timelineItemStewardAmend
 )
 
 // runningIndicatorItem 构造时间线末尾的“回复中”指示项：会话运行期间常驻展示。
@@ -808,6 +810,7 @@ func forwardedContextItem(threadID string) timelineItem {
 // timelineItem 表示时间线中的一个渲染项（单条消息、连续工具合并组或组内的一个节拍）。
 type timelineItem struct {
 	kind         timelineItemKind
+	stewardTask  KanbanTask
 	msg          Message
 	tools        []Message // 组头项与组内各节拍共用的整组消息
 	reportMsgs   []Message // 合并后的连续 Swarm 汇报消息（汇报行专有，首条与 msg 相同）
@@ -1644,6 +1647,14 @@ func (s *chatState) assembledTimelineItemsWithQuestions(plans []resolvedPlan, an
 		return nil
 	}
 	key := timelineAssemblyKey(plans, answered)
+	s.mu.Lock()
+	selected := s.selectedThreadID
+	s.mu.Unlock()
+	var taskIndex stewardTaskIndex
+	if selected != "" && selected == s.stewardThreadID() {
+		taskIndex = indexStewardTasks(s.stewardBoardTasks())
+		key += "|steward|" + taskIndex.fingerprint
+	}
 
 	s.mu.Lock()
 	if s.timelineAssembledValid &&
@@ -1669,11 +1680,12 @@ func (s *chatState) assembledTimelineItemsWithQuestions(plans []resolvedPlan, an
 
 	items := attachPlanAndQuestionItems(base, plans, answered)
 	if sel != "" && sel == s.stewardThreadID() {
+		items = insertStewardTaskRows(items, taskIndex)
 		items = insertStewardTimeRows(items)
 	}
 
 	s.mu.Lock()
-	if s.selectedThreadID == sel && s.timelineCacheRev == baseRev && s.expandedRev == expandedRev {
+	if selected == sel && s.selectedThreadID == sel && s.timelineCacheRev == baseRev && s.expandedRev == expandedRev {
 		s.timelineAssembledSel = sel
 		s.timelineAssembledRev = baseRev
 		s.timelineAssembledExpand = expandedRev
@@ -1870,6 +1882,10 @@ func renderTimelineItem(c *ui.Context, s *chatState, item timelineItem, liveID, 
 		Children(func() {
 			ui.Column(c.Key("timeline-col-"+item.id)).FillWidth().MaxWidth(timelineContentMaxWidth(s)).Padding(0, colPadX).Children(func() {
 				switch item.kind {
+				case timelineItemStewardTask:
+					renderStewardTaskCard(c, s, item.id, item.stewardTask)
+				case timelineItemStewardAmend:
+					renderStewardTaskChip(c, s, item.id, item.stewardTask)
 				case timelineItemTurnTime:
 					renderTurnTimeRow(c, s, item)
 				case timelineItemToolGroup:

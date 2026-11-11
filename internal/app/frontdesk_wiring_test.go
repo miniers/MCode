@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -466,6 +467,52 @@ func TestFrontdeskAmendInProgressTask(t *testing.T) {
 	meta, err := kanban.ParseTaskMeta(after.Meta)
 	if err != nil || !reflect.DeepEqual(meta.AmendMessageIDs, []string{"message-1"}) || changes != 1 {
 		t.Fatalf("进行中任务来源或刷新错误: %+v，刷新 %d，错误 %v", meta, changes, err)
+	}
+}
+
+func TestFrontdeskAmendDeliveredDespiteRevisionConflict(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "mcode.db")
+	db, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	t.Cleanup(hub.Close)
+	backend := remote.NewMemoryBackend(hub)
+	t.Cleanup(backend.Close)
+	if err := backend.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	backend.AddProject(wire.ProjectSummary{ID: "project", Name: "项目", Path: filepath.Join(t.TempDir(), "project")})
+	backend.AddThread(wire.ThreadSummary{ID: "run", ProjectID: "project", Title: "执行", Provider: "memory"}, nil)
+	threadID := "run"
+	task := createFrontdeskTask(t, db, store.Task{ID: "working", ThreadID: &threadID, Title: "任务", Status: "in_progress"})
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	_, err = raw.Exec(`CREATE TRIGGER amend_conflict AFTER INSERT ON messages WHEN NEW.thread_id = 'run' AND NEW.role = 'user' BEGIN UPDATE tasks SET revision = revision + 1 WHERE id = 'working'; END`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &frontdeskServices{store: db, backend: backend, kanban: kanban.NewService(kanban.Options{Store: db})}
+	if err := svc.AmendTask(ctx, task.ID, "已经送达", "message-1"); err != nil {
+		t.Fatalf("消息已送达却返回错误: %v", err)
+	}
+	messages, _, err := db.ListMessages(ctx, threadID, 0, 10)
+	if err != nil || len(messages) == 0 || messages[len(messages)-1].Text != "已经送达" {
+		t.Fatalf("消息未送达: %+v %v", messages, err)
+	}
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil || after.Revision <= task.Revision {
+		t.Fatalf("未触发版本冲突: %+v %v", after, err)
+	}
+	meta, err := kanban.ParseTaskMeta(after.Meta)
+	if err != nil || len(meta.AmendMessageIDs) != 0 {
+		t.Fatalf("冲突时不应写入来源: %+v %v", meta, err)
 	}
 }
 

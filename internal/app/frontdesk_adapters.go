@@ -157,12 +157,17 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text, sourceMessa
 			return errors.New("任务没有执行会话")
 		}
 		_, err = s.backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: *t.ThreadID, Text: text})
-		if err == nil && addSource {
-			_, err = s.kanban.PatchTaskMeta(ctx, id, t.Revision, func(m *kanban.TaskMeta) {
-				m.AmendMessageIDs = append(m.AmendMessageIDs, sourceMessageID)
-			})
+		if err != nil {
+			return err
 		}
-		return err
+		if addSource {
+			if _, err := s.kanban.PatchTaskMeta(ctx, id, t.Revision, func(m *kanban.TaskMeta) {
+				m.AmendMessageIDs = append(m.AmendMessageIDs, sourceMessageID)
+			}); err != nil {
+				log.Printf("记录任务 %s 的补充消息失败: %v", id, err)
+			}
+		}
+		return nil
 	}
 	if t.Status == "review" {
 		review := t

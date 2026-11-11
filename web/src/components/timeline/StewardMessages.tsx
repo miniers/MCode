@@ -1,5 +1,7 @@
 import React from 'react';
 import type { ThreadMessage } from '../ThreadTimeline';
+import type { TaskItem } from '../../types/contract';
+import { StewardTaskCard } from './StewardTaskCard';
 
 export interface StewardDecisionOption {
   key: string;
@@ -209,30 +211,22 @@ export const StewardDecisionCard: React.FC<StewardDecisionCardProps> = ({ messag
 export interface StewardResultMessageProps {
   message: Pick<ThreadMessage, 'text'>;
   onOpenThread?: (threadID: string) => void;
+  task?: TaskItem;
 }
 
-export const StewardResultMessage: React.FC<StewardResultMessageProps> = ({ message, onOpenThread }) => {
+export const StewardResultMessage: React.FC<StewardResultMessageProps> = ({ message, onOpenThread, task }) => {
   const result = parseStewardResult(message.text);
   if (!result) return null;
-  const threadID = result.thread?.trim();
-  const openThread = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!threadID || !onOpenThread) return;
-    event.preventDefault();
-    onOpenThread(threadID);
-  };
+  const threadID = task?.threadID || result.thread?.trim();
   return (
     <div className="mb-4 min-w-0 max-w-full text-sm leading-relaxed text-[var(--foreground)]">
       <p>
         {result.title}{result.status === 'failed' ? ' 没能完成：' : '：'}{result.summary}
       </p>
       {threadID && (
-        <a
-          href={`#/t/${encodeURIComponent(threadID)}`}
-          onClick={openThread}
-          className="mt-1 inline-block text-[var(--foreground-muted)] underline underline-offset-2 transition motion-reduce:transition-none hover:text-[var(--foreground)]"
-        >
-          打开任务
-        </a>
+        <div className="mt-1">
+          <StewardTaskCard compact task={task ? { ...task, threadID } : { title: result.task || result.title, status: result.status, threadID }} onOpenThread={onOpenThread} />
+        </div>
       )}
     </div>
   );

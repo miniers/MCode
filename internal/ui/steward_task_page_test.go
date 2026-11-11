@@ -93,11 +93,14 @@ func TestStewardTaskResultOpensThreadAndShowsBand(t *testing.T) {
 	state, view := buildRoot(fake, WithInitialThread("feed"))
 	t.Cleanup(state.close)
 	tt := ui.NewTester(view, 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("打开任务") })
+	waitFor(t, tt, func() bool { return tt.HasText("整理任务") })
+	if tt.HasText("打开任务") {
+		t.Fatal("用户任务结果不应显示打开任务按钮")
+	}
 	if !tt.HasText("已完成") || tt.HasText("整理任务：已完成") {
 		t.Fatalf("用户任务结果应只显示摘要: %q", tt.Texts())
 	}
-	if err := tt.Click("打开任务"); err != nil {
+	if err := tt.Click("整理任务"); err != nil {
 		t.Fatalf("点击打开任务失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return selectedThreadForTest(state) == "task-thread" && tt.HasText("等待中") })

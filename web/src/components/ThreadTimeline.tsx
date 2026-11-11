@@ -2,7 +2,8 @@ import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type {
   RemoteThreadHistoryPage,
-  RemoteThreadMessage
+  RemoteThreadMessage,
+  TaskItem
 } from '../types/contract';
 import {
   CheckCircleIcon,
@@ -56,6 +57,8 @@ import {
 } from './timeline/toolSegments';
 import { TimelineErrorActions } from './thread/TimelineErrorActions';
 import { reasoningHeaderTitle } from './timeline/stewardTimeline';
+import { stewardTasksByTurnEnd, type StewardTurnTasks } from './timeline/stewardTasks';
+import { StewardTaskCard } from './timeline/StewardTaskCard';
 import {
   SwarmReportFullText,
   parseSwarmReportArchiveFields,
@@ -1387,6 +1390,7 @@ interface TimelineEntryProps {
   onSendStewardMessage?: (text: string) => void | Promise<unknown>;
   onAnswerStewardDecision?: (id: string, answer: string) => void | Promise<unknown>;
   onOpenThread?: (threadID: string) => void;
+  resultTask?: TaskItem;
 }
 
 /**
@@ -1670,7 +1674,8 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
     decisionAnswers,
     onSendStewardMessage,
     onAnswerStewardDecision,
-    onOpenThread
+    onOpenThread,
+    resultTask
   } = props;
   // 长按菜单（W-3）：只对窄屏、有正文的用户消息生效；长按成立先给中档触感。
   const narrowScreen = useIsNarrowScreen();
@@ -1978,7 +1983,7 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
   if (message.kind === 'steward_result' && message.role === 'assistant') {
     const result = parseStewardResult(message.text);
     if (result) {
-      return <StewardResultMessage key={message.id} message={message} onOpenThread={onOpenThread} />;
+      return <StewardResultMessage key={message.id} message={message} onOpenThread={onOpenThread} task={resultTask} />;
     }
   }
 
@@ -2500,7 +2505,12 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
   previous.lastMessageID === next.lastMessageID &&
   previous.isRunning === next.isRunning &&
   previous.onContinue === next.onContinue &&
-  previous.onOpenFile === next.onOpenFile
+  previous.onOpenFile === next.onOpenFile &&
+  previous.resultTask === next.resultTask &&
+  previous.onOpenThread === next.onOpenThread &&
+  previous.decisionAnswers === next.decisionAnswers &&
+  previous.onSendStewardMessage === next.onSendStewardMessage &&
+  previous.onAnswerStewardDecision === next.onAnswerStewardDecision
 );
 TimelineEntry.displayName = 'TimelineEntry';
 
@@ -2567,6 +2577,7 @@ interface ThreadTimelineProps {
   bottomPadding?: number;
   /** 是否为总管会话。 */
   isSteward?: boolean;
+  stewardTasks?: TaskItem[];
   /** 总管决策卡选择/忽略时发送一条普通用户消息。 */
   onSendStewardMessage?: (text: string) => void | Promise<unknown>;
   onAnswerStewardDecision?: (id: string, answer: string) => void | Promise<unknown>;
@@ -2592,6 +2603,22 @@ interface VirtualTimelineProps extends ThreadTimelineProps {
   backgroundCommands: BackgroundTaskCommand[];
   runningBees: RemoteSwarmBee[];
   decisionAnswers: Record<string, string>;
+  turnTasks: Map<number, StewardTurnTasks>;
+}
+
+function TurnTasks({ group, onOpenThread }: { group?: StewardTurnTasks; onOpenThread?: (threadID: string) => void }) {
+  if (!group) return null;
+  return <div className="mt-3 space-y-2">
+    {group.created.map((task) => <StewardTaskCard key={task.id} task={task} onOpenThread={onOpenThread} />)}
+    {group.amended.map((task) => <StewardTaskCard key={task.id} compact task={task} onOpenThread={onOpenThread} />)}
+  </div>;
+}
+
+function resultTaskForItem(item: TimelineItem, tasks?: TaskItem[]): TaskItem | undefined {
+  if (item.type !== 'message' || item.message.kind !== 'steward_result') return undefined;
+  const result = parseStewardResult(item.message.text);
+  if (!result) return undefined;
+  return tasks?.find((task) => (result.task && task.id === result.task) || (result.thread && task.threadID === result.thread));
 }
 
 const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
@@ -2631,6 +2658,8 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
   backgroundCommands,
   runningBees,
   decisionAnswers,
+  turnTasks,
+  stewardTasks,
   onSendStewardMessage,
   onAnswerStewardDecision,
   onOpenThread
@@ -2783,6 +2812,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
           onSendStewardMessage={onSendStewardMessage}
           onAnswerStewardDecision={onAnswerStewardDecision}
           onOpenThread={onOpenThread}
+          resultTask={resultTaskForItem(item, stewardTasks)}
         />
       </div>
     );
@@ -2837,6 +2867,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
               ref={virtualizer.measureElement}
             >
               {renderEntry(item)}
+              <TurnTasks group={turnTasks.get(virtualItem.index)} onOpenThread={onOpenThread} />
             </div>
           );
         })}
@@ -2873,6 +2904,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
   onContinue,
   bottomPadding = 0,
   isSteward = false,
+  stewardTasks,
   onOpenFile,
   onSendStewardMessage,
   onAnswerStewardDecision,
@@ -2960,6 +2992,10 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
       (item.message.kind !== 'steward_decision_answer' && !isMergedSwarmReportRow(item, swarmReportIndex))
     ),
     [items, swarmReportIndex]
+  );
+  const turnTasks = React.useMemo(
+    () => isSteward ? stewardTasksByTurnEnd(visibleItems, stewardTasks ?? []) : new Map<number, StewardTurnTasks>(),
+    [isSteward, visibleItems, stewardTasks]
   );
   // 时间线最后一条可见消息（已跳过隐藏消息与并进胶囊的汇报行）
   const lastMessageID = React.useMemo(() => lastVisibleMessageID(visibleItems), [visibleItems]);
@@ -3082,6 +3118,8 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
         onOpenFile={onOpenFile}
         bottomPadding={bottomPadding}
         isSteward={isSteward}
+        stewardTasks={isSteward ? stewardTasks : undefined}
+        turnTasks={turnTasks}
         backgroundCommands={backgroundCommands}
         runningBees={runningBees}
           decisionAnswers={decisionAnswers}
@@ -3149,6 +3187,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
            onSendStewardMessage={onSendStewardMessage}
            onAnswerStewardDecision={onAnswerStewardDecision}
            onOpenThread={onOpenThread}
+          resultTask={resultTaskForItem(item, isSteward ? stewardTasks : undefined)}
         />
       </div>
     );
@@ -3156,7 +3195,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
 
   return (
     <>
-      {visibleItems.map((item) => renderEntry(item))}
+      {visibleItems.map((item, index) => <React.Fragment key={timelineItemKey(item)}>{renderEntry(item)}<TurnTasks group={turnTasks.get(index)} onOpenThread={onOpenThread} /></React.Fragment>)}
       <BackgroundTasksRow
         commands={backgroundCommands}
         bees={runningBees}
