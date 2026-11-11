@@ -12,8 +12,9 @@ func TestFileManagerEmptyAndLoadingWithEntries(t *testing.T) {
 	st := getFileManagerState(s)
 
 	fileManagerMu.Lock()
-	st.entries = nil
-	st.loading = false
+	tree := ensureFileTreeLocked(st)
+	tree.children[""] = []string{}
+	tree.loading[""] = false
 	fileManagerMu.Unlock()
 	tester.Frame()
 	if !tester.HasText("空目录") {
@@ -21,8 +22,9 @@ func TestFileManagerEmptyAndLoadingWithEntries(t *testing.T) {
 	}
 
 	fileManagerMu.Lock()
-	st.entries = []FileEntry{{Name: "old.txt", Path: "old.txt"}}
-	st.loading = true
+	tree.children[""] = []string{"old.txt"}
+	tree.entries["old.txt"] = FileEntry{Name: "old.txt", Path: "old.txt"}
+	tree.loading[""] = true
 	fileManagerMu.Unlock()
 	tester.Frame()
 	if !tester.HasText("old.txt") || tester.HasText("空目录") || tester.HasText("正在读取目录…") {

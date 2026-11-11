@@ -34,9 +34,9 @@ func TestFileManagerExternalLineRange(t *testing.T) {
 
 func TestFileManagerTemporaryTabClearsLineRange(t *testing.T) {
 	st := &fileManagerState{}
-	tab, _ := st.openFileManagerTabLocked("a.go", false, true)
+	tab, _ := st.openFileManagerTabLocked("a.go", false)
 	tab.hlFirst, tab.hlLast, tab.reveal = 12, 20, true
-	replaced, fresh := st.openFileManagerTabLocked("b.go", false, true)
+	replaced, fresh := st.openFileManagerTabLocked("b.go", false)
 	if !fresh || replaced != tab || tab.hlFirst != 0 || tab.hlLast != 0 || tab.reveal {
 		t.Fatalf("替换临时标签时应清除行号：%+v", tab)
 	}
@@ -84,21 +84,6 @@ func openTestFileManagerFileExternal(t *testing.T, s *chatState, path string) {
 	t.Helper()
 	threadID, _ := getSelectedThreadWorkDir(s)
 	s.openFileManagerFileExternal(threadID, path)
-}
-
-// fileManagerTabFromListForTest 报告某个 tab 是否来自文件侧栏。
-func fileManagerTabFromListForTest(s *chatState, path string) (fromList bool, ok bool) {
-	st := getFileManagerState(s)
-	if st == nil {
-		return false, false
-	}
-	fileManagerMu.Lock()
-	defer fileManagerMu.Unlock()
-	tab := st.findTabLocked(path)
-	if tab == nil {
-		return false, false
-	}
-	return tab.fromList, true
 }
 
 // 单击打开的文件落在同一个临时 tab 里：先开 a.txt 再开 b.txt 只剩 b.txt 一个 tab。
@@ -214,8 +199,8 @@ func TestFileManagerCloseTabActivatesNeighbor(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("sub") })
 }
 
-// 外部入口打开的最后一个 tab 关掉后，整个侧栏收起。
-func TestFileManagerCloseLastExternalTabClosesPanel(t *testing.T) {
+// 外部入口打开的最后一个 tab 关掉后回到文件树，侧栏保持打开。
+func TestFileManagerCloseLastExternalTabReturnsToTree(t *testing.T) {
 	_, s, tt := openFileManagerForTest(t)
 	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
 
@@ -223,12 +208,13 @@ func TestFileManagerCloseLastExternalTabClosesPanel(t *testing.T) {
 	waitForFileManagerText(t, tt, s, "a.txt", "hello")
 
 	s.closeFileManagerTab("a.txt")
-	if isFileManagerOpen(s) {
-		t.Fatal("关掉外部入口打开的最后一个 tab 后侧栏应收起")
+	if !isFileManagerOpen(s) {
+		t.Fatal("关掉最后一个 tab 后侧栏应保持打开")
 	}
-	if paths, _, _, _, _, _ := fileManagerTabsForTest(s); len(paths) != 0 {
-		t.Fatalf("关掉最后一个 tab 后不应剩下 tab，得到 %v", paths)
+	if paths, _, _, _, _, showList := fileManagerTabsForTest(s); len(paths) != 0 || !showList {
+		t.Fatalf("关掉最后一个 tab 后应回到树，得到 %v / showList=%v", paths, showList)
 	}
+	waitFor(t, tt, func() bool { return tt.HasText("sub") })
 }
 
 // 从侧栏打开的最后一个 tab 关掉后回到目录列表，面板保持打开。
@@ -291,20 +277,6 @@ func TestFileManagerCloseExternalTabBeforeListTab(t *testing.T) {
 	}
 	if !showList {
 		t.Fatal("关掉侧栏打开的 tab 后应回到目录列表")
-	}
-}
-
-// 外部入口重新打开已由侧栏打开的路径时，不改变它原来的来源标记。
-func TestFileManagerExternalReopenKeepsListSource(t *testing.T) {
-	_, s, tt := openFileManagerForTest(t)
-	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
-
-	openTestFileManagerFile(t, s, "a.txt", true)
-	waitForFileManagerText(t, tt, s, "a.txt", "hello")
-	openTestFileManagerFileExternal(t, s, "a.txt")
-
-	if fromList, ok := fileManagerTabFromListForTest(s, "a.txt"); !ok || !fromList {
-		t.Fatalf("已由侧栏打开的 tab 应保持 fromList=true，得到 fromList=%v ok=%v", fromList, ok)
 	}
 }
 
@@ -373,41 +345,45 @@ func TestFileManagerSplitSingleTab(t *testing.T) {
 	}
 }
 
-// 界面上点「拆分」后两栏的文件都能看到；点「返回目录」列表可见且 tab 还在，
+// 界面上点「拆分」后两栏的文件都能看到；点「返回文件树」树可见且 tab 还在，
 // 再点 tab 又回到预览。
 func TestFileManagerSplitUI(t *testing.T) {
 	fake, s, tt := openFileManagerForTest(t)
 	fake.SetFileContents(map[string]FileContent{
-		"a.txt": {Path: "a.txt", Kind: "text", Text: "hello", TotalSize: 5},
-		"b.txt": {Path: "b.txt", Kind: "text", Text: "world", TotalSize: 5},
+		"a.txt":    {Path: "a.txt", Kind: "text", Text: "hello", TotalSize: 5},
+		"sub/b.go": {Path: "sub/b.go", Kind: "text", Text: "world", TotalSize: 5},
 	})
 	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
 
 	openTestFileManagerFile(t, s, "a.txt", true)
-	openTestFileManagerFile(t, s, "b.txt", true)
-	waitForFileManagerText(t, tt, s, "b.txt", "world")
+	openTestFileManagerFile(t, s, "sub/b.go", true)
+	waitForFileManagerText(t, tt, s, "sub/b.go", "world")
 
 	if err := tt.Click("拆分"); err != nil {
 		t.Fatalf("click split button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		return fileManagerTabText(s, "a.txt") == "hello" && fileManagerTabText(s, "b.txt") == "world"
+		return fileManagerTabText(s, "a.txt") == "hello" && fileManagerTabText(s, "sub/b.go") == "world"
 	})
 
-	if err := tt.Click("返回目录"); err != nil {
+	if err := tt.Click("返回文件树"); err != nil {
 		t.Fatalf("click back button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("sub") })
 	if paths, _, _, _, _, _ := fileManagerTabsForTest(s); len(paths) != 2 {
-		t.Fatalf("返回目录后应保留 tab，得到 %v", paths)
+		t.Fatalf("返回文件树后应保留 tab，得到 %v", paths)
 	}
 
-	if err := tt.Click("b.txt"); err != nil {
-		t.Fatalf("click tab failed: %v", err)
+	if err := tt.Click("sub"); err != nil {
+		t.Fatalf("click sub dir failed: %v", err)
 	}
-	waitForFileManagerText(t, tt, s, "b.txt", "world")
+	waitFor(t, tt, func() bool { return tt.HasText("b.go") })
+	if err := tt.Click("b.go"); err != nil {
+		t.Fatalf("click file row failed: %v", err)
+	}
+	waitForFileManagerText(t, tt, s, "sub/b.go", "world")
 	if _, _, _, _, _, showList := fileManagerTabsForTest(s); showList {
-		t.Fatal("点击 tab 后应回到预览")
+		t.Fatal("点击文件后应回到预览")
 	}
 }
 

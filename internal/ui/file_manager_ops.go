@@ -223,19 +223,29 @@ func (s *chatState) finishFileManagerOps(op fileManagerOpsDialog, newPath string
 	fileManagerMu.Unlock()
 	modalDragReset(modalDragFileManagerOp)
 
+	affected := []string{fileManagerParentPath(op.targetPath)}
 	switch op.kind {
 	case fileManagerOpsRename:
 		s.renameFileManagerTabPaths(op.targetPath, newPath)
+		affected = append(affected, fileManagerParentPath(newPath))
 	case fileManagerOpsTrash:
+		s.fileTreeTrashPath(op.targetPath)
 		s.closeFileManagerTabsUnder(op.targetPath)
+	case fileManagerOpsNewFile, fileManagerOpsNewDir:
+		affected = []string{op.targetPath}
 	}
 
-	// 重命名目录时 st.dir 已被改到新路径，这里重新取一次当前目录。
-	fileManagerMu.Lock()
-	dir := st.dir
-	fileManagerMu.Unlock()
-
-	s.loadFileManagerDir(threadID, dir)
+	// 只刷新受影响的目录，保留树的展开、选中与滚动位置。
+	seen := make(map[string]bool, len(affected))
+	dirs := make([]string, 0, len(affected))
+	for _, dir := range affected {
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		dirs = append(dirs, dir)
+	}
+	fileTreeInvalidate(s, threadID, dirs)
 	if op.kind == fileManagerOpsNewFile {
 		s.openFileManagerFile(op.threadID, newPath, true)
 	}
@@ -253,7 +263,7 @@ func (s *chatState) duplicateFileManagerEntry(path string) {
 	}
 
 	fileManagerMu.Lock()
-	threadID, dir := st.threadID, st.dir
+	threadID := st.threadID
 	st.err = ""
 	fileManagerMu.Unlock()
 
@@ -267,7 +277,7 @@ func (s *chatState) duplicateFileManagerEntry(path string) {
 			s.invalidate()
 			return
 		}
-		s.loadFileManagerDir(threadID, dir)
+		fileTreeInvalidate(s, threadID, []string{fileManagerParentPath(path)})
 	}()
 }
 

@@ -114,7 +114,7 @@ func TestFileManagerRenameUpdatesTabPath(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool { return fmt.Sprint(fileManagerTabPaths(s)) == "[sub/b.go]" })
 
-	if err := tt.Click("返回目录"); err != nil {
+	if err := tt.Click("返回文件树"); err != nil {
 		t.Fatalf("click back to list failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("sub/b.go") })
@@ -153,7 +153,7 @@ func TestFileManagerTrashClosesTabAndKeepsDialogOnError(t *testing.T) {
 		t.Fatalf("click search result failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return fmt.Sprint(fileManagerTabPaths(s)) == "[sub/b.go]" })
-	if err := tt.Click("返回目录"); err != nil {
+	if err := tt.Click("返回文件树"); err != nil {
 		t.Fatalf("click back to list failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("sub/b.go") })
@@ -207,7 +207,7 @@ func TestFileManagerTabMenuCloseOthersAndAll(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool { return fmt.Sprint(fileManagerTabPaths(s)) == "[a.txt]" })
 
-	if err := tt.Click("返回目录"); err != nil {
+	if err := tt.Click("返回文件树"); err != nil {
 		t.Fatalf("click back to list failed: %v", err)
 	}
 	if err := tt.Click("sub"); err != nil {

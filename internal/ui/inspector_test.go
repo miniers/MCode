@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -318,7 +319,7 @@ func TestInspectorPrunePreferences(t *testing.T) {
 	inspectorPersistSession(s, "deleted", old)
 	waitUIStateWrites()
 	got := loadUIState().InspectorSessions
-	if len(got) != 1 || got["t1"] != prefs["t1"] {
+	if len(got) != 1 || !reflect.DeepEqual(got["t1"], prefs["t1"]) {
 		t.Fatalf("清理未保留有效偏好或旧槽复活已删偏好: %+v", got)
 	}
 	if s.inspector.Sessions["deleted"] != nil {

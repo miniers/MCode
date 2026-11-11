@@ -27,7 +27,7 @@ func TestNativeUpdateCheckAndInstall(t *testing.T) {
 		return "2.0.0", fakeInstallableUpdate{}, nil
 	}
 	relaunched := false
-	relaunchAfterUpdate = func() { relaunched = true }
+	relaunchAfterUpdate = func(...string) { relaunched = true }
 	u := &UpdateChecker{}
 	if err := u.Install(context.Background(), nil); err == nil {
 		t.Fatal("没有待安装更新时应报错")

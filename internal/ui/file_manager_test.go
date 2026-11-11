@@ -26,7 +26,7 @@ func fileManagerTestTree() map[string][]FileEntry {
 	}
 }
 
-// fileManagerSnapshot 取面板状态的只读快照（目录、条目数、当前激活的 tab 路径）。
+// fileManagerSnapshot 取面板状态的只读快照（目录、根目录条目数、当前激活的 tab 路径）。
 func fileManagerSnapshot(s *chatState) (dir string, entries int, active string) {
 	st := getFileManagerState(s)
 	if st == nil {
@@ -34,7 +34,10 @@ func fileManagerSnapshot(s *chatState) (dir string, entries int, active string) 
 	}
 	fileManagerMu.Lock()
 	defer fileManagerMu.Unlock()
-	return st.dir, len(st.entries), st.active
+	if st.tree != nil {
+		entries = len(st.tree.children[""])
+	}
+	return st.dir, entries, st.active
 }
 
 // fileManagerTabPaths 取面板当前所有 tab 的路径（按打开顺序）。
@@ -97,7 +100,7 @@ func openFileManagerForTest(t *testing.T) (*FakeClient, *chatState, *ui.Tester) 
 // 头部文件按钮打开面板，关闭按钮收起面板。
 func TestFileManagerToggle(t *testing.T) {
 	_, s, tt := openFileManagerForTest(t)
-	waitFor(t, tt, func() bool { return tt.HasText("根目录") })
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
 
 	if err := tt.Click("关闭右栏"); err != nil {
 		t.Fatalf("click close button failed: %v", err)
@@ -119,8 +122,8 @@ func TestFileManagerListRoot(t *testing.T) {
 	}
 }
 
-// 点目录进入子目录，点面包屑「根目录」回到根目录。
-func TestFileManagerNavigateAndBreadcrumb(t *testing.T) {
+// 点目录在树里展开，再点一次收起；根目录的条目仍然保留。
+func TestFileManagerTreeExpandAndCollapse(t *testing.T) {
 	_, s, tt := openFileManagerForTest(t)
 	waitFor(t, tt, func() bool { return tt.HasText("sub") })
 
@@ -128,16 +131,19 @@ func TestFileManagerNavigateAndBreadcrumb(t *testing.T) {
 		t.Fatalf("click sub dir failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("b.go") })
-
-	// 面包屑里出现子目录名，点「根目录」回到上层。
-	if err := tt.Click("根目录"); err != nil {
-		t.Fatalf("click root crumb failed: %v", err)
+	st := getFileManagerState(s)
+	fileManagerMu.Lock()
+	tree := ensureFileTreeLocked(st)
+	expanded := tree.outline.Open.Has("sub")
+	fileManagerMu.Unlock()
+	if !expanded {
+		t.Fatal("点击目录后应展开")
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
 
-	if dir, _, _ := fileManagerSnapshot(s); dir != "" {
-		t.Fatalf("面包屑返回后应回到根目录，得到 %q", dir)
+	if err := tt.Click("sub"); err != nil {
+		t.Fatalf("click sub dir again failed: %v", err)
 	}
+	waitFor(t, tt, func() bool { return !tt.HasText("b.go") && tt.HasText("a.txt") })
 }
 
 // 搜索结果显示相对路径；清空后回到目录列表。
@@ -296,7 +302,7 @@ func TestFileManagerPreviewTextAndMention(t *testing.T) {
 	})
 
 	// 返回按钮回到目录列表。
-	if err := tt.Click("返回目录"); err != nil {
+	if err := tt.Click("返回文件树"); err != nil {
 		t.Fatalf("click back button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("sub") })
@@ -382,7 +388,7 @@ func TestFileManagerTruncatedNotice(t *testing.T) {
 
 	if st := getFileManagerState(s); st != nil {
 		fileManagerMu.Lock()
-		st.truncated = true
+		ensureFileTreeLocked(st).rootTruncated = true
 		fileManagerMu.Unlock()
 	}
 	s.invalidate()

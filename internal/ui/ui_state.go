@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +46,11 @@ type InspectorPreference struct {
 	Open   bool    `json:"open"`
 	Active string  `json:"active"`
 	Width  float32 `json:"width"`
+
+	// 文件树定位：展开的目录、活动文件与滚动锚点都只存工作区相对路径，不存像素或文件正文。
+	FileExpanded []string `json:"files_expanded,omitempty"`
+	FileActive   string   `json:"file_active,omitempty"`
+	FileAnchor   string   `json:"file_anchor,omitempty"`
 }
 
 func normalizeInspectorPreference(pref InspectorPreference) InspectorPreference {
@@ -58,7 +64,46 @@ func normalizeInspectorPreference(pref InspectorPreference) InspectorPreference 
 	} else {
 		pref.Width = min(max(pref.Width, inspectorMinWidth), inspectorMaxWidth)
 	}
+	pref.FileExpanded = normalizeInspectorPaths(pref.FileExpanded)
+	pref.FileActive = normalizeInspectorPath(pref.FileActive)
+	pref.FileAnchor = normalizeInspectorPath(pref.FileAnchor)
 	return pref
+}
+
+// normalizeInspectorPath 只保留工作区相对路径；绝对路径与含 .. 的路径直接丢弃。
+func normalizeInspectorPath(path string) string {
+	path = strings.TrimSpace(path)
+	path = strings.TrimPrefix(path, "./")
+	if path == "" || strings.HasPrefix(path, "/") || strings.Contains(path, `\`) {
+		return ""
+	}
+	for _, part := range strings.Split(path, "/") {
+		if part == "" || part == "." || part == ".." {
+			return ""
+		}
+	}
+	return path
+}
+
+func normalizeInspectorPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(paths))
+	result := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = normalizeInspectorPath(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		result = append(result, path)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	sort.Strings(result)
+	return result
 }
 
 // nil 和空表都只表示没有更新，删除必须提交显式操作。

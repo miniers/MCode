@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/ebitengine/purego v0.11.1
-	github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d
+	github.com/egoist/mygo v0.8.4-0.20261110145816-daf6341a2fe0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.20.0

@@ -34,8 +34,8 @@ func TestFileManagerShortcutDirectoryListNotClosable(t *testing.T) {
 	}
 }
 
-// 外部入口（聊天卡片、终端路径）打开的最后一个预览被 ⌘W 关掉后，整个侧栏收起。
-func TestFileManagerShortcutExternalTabClosesPanel(t *testing.T) {
+// 外部入口（聊天卡片、终端路径）打开的最后一个预览被 ⌘W 关掉后回到文件树，侧栏保持打开。
+func TestFileManagerShortcutExternalTabReturnsToTree(t *testing.T) {
 	_, s, tt := openFileManagerForTest(t)
 	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
 
@@ -48,8 +48,11 @@ func TestFileManagerShortcutExternalTabClosesPanel(t *testing.T) {
 	if !fileManagerCloseActiveTab(s) {
 		t.Fatal("预览文件时应关闭预览")
 	}
-	if isFileManagerOpen(s) {
-		t.Fatal("关掉外部入口打开的最后一个预览后侧栏应收起")
+	if !isFileManagerOpen(s) {
+		t.Fatal("关掉最后一个预览后侧栏应保持打开")
+	}
+	if _, _, _, _, _, showList := fileManagerTabsForTest(s); !showList {
+		t.Fatal("关掉最后一个预览后应回到文件树")
 	}
 }
 

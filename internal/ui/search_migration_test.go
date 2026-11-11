@@ -39,10 +39,11 @@ func TestFileManagerSearchMigrationCurrentThreadAndClear(t *testing.T) {
 	st := getFileManagerState(s)
 	fileManagerMu.Lock()
 	st.threadID = "current"
-	// 标记为已加载，避免首帧重新拉取目录覆盖夹具。
-	st.gen = 1
+	// 根目录已经有缓存，避免首帧重新拉取目录覆盖夹具。
 	st.showList = true
-	st.entries = []FileEntry{{Name: "old.txt", Path: "old.txt"}}
+	tree := ensureFileTreeLocked(st)
+	tree.children[""] = []string{"old.txt"}
+	tree.entries["old.txt"] = FileEntry{Name: "old.txt", Path: "old.txt"}
 	fileManagerMu.Unlock()
 	t.Cleanup(func() {
 		fileManagerMu.Lock()

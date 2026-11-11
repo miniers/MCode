@@ -19,7 +19,7 @@ func TestClientNativeUpdateInstall(t *testing.T) {
 		return "2.0.0", fakeInstallableUpdate{}, nil
 	}
 	relaunched := false
-	relaunchAfterUpdate = func() { relaunched = true }
+	relaunchAfterUpdate = func(...string) { relaunched = true }
 	client := &Client{updateChecker: &UpdateChecker{}}
 	status, err := client.CheckForUpdate(context.Background())
 	if err != nil || !status.Available || !status.Installable || !client.LatestUpdate().Installable {
