@@ -252,7 +252,7 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 		return
 	}
 	if _, ok := s.client.(reviewClient); ok {
-		renderReviewPanel(c, s, dp)
+		inspectorFollowSurface(c, s, fileManagerThreadID(s), "review-follow-surface").Children(func() { renderReviewPanel(c, s, dp) })
 		return
 	}
 
@@ -311,7 +311,7 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 	// 未选会话、加载、错误、非 Git、失败原因与空态仍是普通滚动容器；文件行才走虚拟列表
 	showStatus := threadID == "" || viewState != "files" || data.FailureReason != ""
 
-	ui.Column(c.Key("diff-panel-root")).
+	inspectorFollowSurface(c, s, selectedTid, "diff-panel-root").
 		Fill().
 		Background(ThemeWindowBg(c)).
 		BorderWidth(0, 0, 0, Hairline).
@@ -593,6 +593,7 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 					allBtn.Background(ThemeHover(c))
 				}
 				if allBtn.Clicked() {
+					inspectorFollowPause(s, "")
 					closeAppFlyoutPopover(host, "diff-turn-popover")
 					diffPanelMu.Lock()
 					dp.turnMenuOpen = false
@@ -628,6 +629,7 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 						optBtn.Background(ThemeHover(c))
 					}
 					if optBtn.Clicked() {
+						inspectorFollowPause(s, "")
 						closeAppFlyoutPopover(host, "diff-turn-popover")
 						diffPanelMu.Lock()
 						dp.turnMenuOpen = false

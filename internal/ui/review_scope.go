@@ -98,6 +98,7 @@ func (s *chatState) selectReviewScope(dp *diffPanelState, scope string) {
 	dp.scope, dp.scopeMenuOpen = reviewScope(scope), false
 	threadID := dp.threadID
 	diffPanelMu.Unlock()
+	inspectorFollowPause(s, threadID)
 	s.loadDiff(threadID, "")
 }
 

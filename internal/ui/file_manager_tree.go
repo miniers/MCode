@@ -472,6 +472,7 @@ func fileTreeRowIndexLocked(tree *fileTreeState, path string) int {
 
 // fileTreeSelect 更新树的单选/多选，不改展开状态与滚动位置。
 func (s *chatState) fileTreeSelect(path string, mods ui.Modifiers) {
+	inspectorFollowPause(s, "")
 	st := getFileManagerState(s)
 	if st == nil {
 		return
@@ -514,6 +515,7 @@ func (s *chatState) fileTreeSelect(path string, mods ui.Modifiers) {
 
 // fileTreeToggleDir 展开或收起一个目录；展开时异步加载子项。
 func (s *chatState) fileTreeToggleDir(threadID, path string) {
+	inspectorFollowPause(s, threadID)
 	st := getFileManagerState(s)
 	if st == nil || path == "" {
 		return
@@ -544,6 +546,7 @@ func (s *chatState) fileTreeToggleDir(threadID, path string) {
 
 // fileTreeRevealDir 清空搜索并在树里展开目标目录及其祖先。
 func (s *chatState) fileTreeRevealDir(threadID, dir string) {
+	inspectorFollowPause(s, threadID)
 	st := getFileManagerState(s)
 	if st == nil {
 		return
@@ -946,6 +949,7 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 		s.fileTreeLoadDir(threadID, dir)
 	}
 	if changed {
+		inspectorFollowPause(s, threadID)
 		inspectorRemember(s)
 	}
 	if pendingOpen != "" {

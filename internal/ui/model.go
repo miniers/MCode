@@ -1585,6 +1585,7 @@ func turnEndQuotaKey(key string) bool {
 // onWatchUpdate 在收到 Watch 增量更新时安全更新本地消息与会话状态，并在从运行中变为空闲时拉取最新用量。
 func (s *chatState) onWatchUpdate(update ThreadUpdate) {
 	browserServerObserveToolOutput(s, update)
+	inspectorFollowObserve(s, update)
 	stewardID := s.stewardThreadID()
 	readProjectID := ""
 	markRead := false

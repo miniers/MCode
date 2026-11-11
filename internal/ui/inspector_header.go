@@ -1,6 +1,10 @@
 package mcodeui
 
-import "github.com/egoist/mygo/ui"
+import (
+	"fmt"
+
+	"github.com/egoist/mygo/ui"
+)
 
 func toggleInspector(s *chatState) {
 	st := inspectorSession(s)
@@ -15,6 +19,7 @@ func toggleInspector(s *chatState) {
 }
 
 func renderInspectorHeader(c *ui.Context, s *chatState, st *inspectorSessionState, topAligned bool) {
+	inspectorFollowTick(s, st)
 	height := diffHeaderHeight
 	header := ui.Row(c.Key("inspector-header")).Shrink(0).FillWidth()
 	if topAligned {
@@ -40,7 +45,18 @@ func renderInspectorHeader(c *ui.Context, s *chatState, st *inspectorSessionStat
 		tabs := ui.TabsBase(c.Key("inspector-tabs"), &selectionState.index, len(sidePanes))
 		tabs.List.Grow(1).Children(func() {
 			for i, pane := range sidePanes {
-				tab := tabs.Tab(i).Height(height).Padding(0, Space4).Label(pane.title)
+				tab := tabs.Tab(i).Height(height).Padding(0, Space4).Gap(Space2).AlignItems(ui.Center).Label(pane.title)
+				s.mu.Lock()
+				count := 0
+				if st.follow != nil {
+					count = st.follow.badges[pane.id]
+				}
+				s.mu.Unlock()
+				if count > 0 && tab.Clicked() {
+					selectionState.index, selectionState.active = i, pane.id
+					inspectorFollowResume(s, st, pane.id)
+					count = 0
+				}
 				target := float32(0)
 				if selectionState.index == i {
 					target = 1
@@ -51,6 +67,10 @@ func renderInspectorHeader(c *ui.Context, s *chatState, st *inspectorSessionStat
 				ink := tab.AnimateTo("indicator", target, springSnappy)
 				tab.Children(func() {
 					ui.Text(c, pane.title).FontSize(TypeBody)
+					if count > 0 {
+						rollingNumber(c, fmt.Sprintf("inspector-follow-%p-%p-%s", s, st, pane.id), count).
+							Padding(0, Space1).Radius(RadiusSM).Background(ThemeAccentSubtle(c)).TextColor(ThemeAccent(c))
+					}
 					ui.Box(c).Absolute().Left(Space4).Right(Space4).Bottom(0).Height(Space0).Background(ThemeAccent(c).Alpha(ink))
 				})
 			}

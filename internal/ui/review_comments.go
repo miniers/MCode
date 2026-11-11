@@ -432,6 +432,20 @@ func renderReviewReadButton(c *ui.Context, s *chatState, dp *diffPanelState, tid
 }
 
 func selectReviewFile(s *chatState, dp *diffPanelState, tid, path string) {
+	inspectorFollowPause(s, tid)
+	selectReviewFileAt(s, dp, tid, path)
+}
+
+func selectReviewFileFollowing(s *chatState, dp *diffPanelState, tid, path string) {
+	selectReviewFileAt(s, dp, tid, path)
+	diffPanelMu.Lock()
+	dp.pendingPath = path
+	turn := dp.turnID
+	diffPanelMu.Unlock()
+	s.loadDiff(tid, turn)
+}
+
+func selectReviewFileAt(s *chatState, dp *diffPanelState, tid, path string) {
 	diffPanelMu.Lock()
 	dp.selectedPath = path
 	diffPanelMu.Unlock()

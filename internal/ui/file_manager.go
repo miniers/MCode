@@ -327,7 +327,7 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 		treeOnly = !hasActive || snap.showList
 	}
 
-	ui.Column(c.Key("file-manager-panel")).
+	inspectorFollowSurface(c, s, threadID, "file-manager-panel").
 		Fill().
 		Background(ThemeWindowBg(c)).
 		BorderWidth(0, 0, 0, Hairline).
@@ -815,7 +815,7 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 				FillWidth()
 		} else {
 			// 文本预览用只读代码编辑器：语法高亮、行号、可选中复制，滚动也由它管理。
-			renderFileManagerCodePreview(c, s, tab, keyPrefix)
+			inspectorFollowCodePreview(c, s, tab, keyPrefix)
 		}
 		if tab.limitReached {
 			ui.Text(c, "已达预览上限").

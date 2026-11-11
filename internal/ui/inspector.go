@@ -30,6 +30,7 @@ type inspectorSessionState struct {
 	Files          *fileManagerState
 	Review         *diffPanelState
 	Browser        *previewState
+	follow         *inspectorFollowState
 	workspace      string
 	workspaceKnown bool
 }
@@ -264,6 +265,9 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 	s.mu.Lock()
 	old := inspectorExistingSessionLocked(s, oldID)
 	current := inspectorExistingSessionLocked(s, s.selectedThreadID)
+	if old != nil {
+		inspectorFollowStopLocked(old)
+	}
 	s.mu.Unlock()
 	if old != nil {
 		browserServerDiscoveryStop(s)
@@ -301,6 +305,7 @@ func inspectorValidateWorkspace(s *chatState) {
 	_, root, main := getSelectedThreadDirs(s)
 	identity := root + "\x00" + main
 	if st.workspaceKnown && st.workspace != identity {
+		inspectorFollowReset(s, st)
 		fileManagerMu.Lock()
 		st.Files.gen++
 		st.Files.searchGen++
@@ -324,6 +329,7 @@ func inspectorDisposeSession(s *chatState, st *inspectorSessionState) {
 	if st == nil {
 		return
 	}
+	inspectorFollowReset(s, st)
 	browserServerDiscoveryDispose(s)
 	fileTreeWatchDispose(st.Files)
 	fileManagerMu.Lock()

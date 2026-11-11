@@ -115,13 +115,41 @@ func (s *chatState) openFileManagerFileExternal(threadID, filePath string) {
 }
 
 func (s *chatState) openFileManagerFileExternalAt(threadID, filePath string, first, last int) {
+	inspectorFollowClear(s, threadID, sidePaneFileID)
 	inspectorSelect(s, sidePaneFileID, false)
 	s.openFileManagerFileFromAt(threadID, filePath, true, first, last)
 }
 
 func (s *chatState) openFileManagerFileFromAt(threadID, filePath string, pin bool, first, last int) {
+	inspectorFollowPause(s, threadID)
+	s.openFileManagerFileAt(threadID, filePath, pin, first, last, true)
+}
+
+func (s *chatState) openFileManagerFileFollowing(threadID, filePath string, first, last int, refresh bool) {
+	s.prepareFileManagerTree(threadID)
+	if first <= 0 {
+		first, last = 1, 1
+	}
+	s.openFileManagerFileAt(threadID, filePath, false, first, last, false)
+	if refresh {
+		st := getFileManagerState(s)
+		fileManagerMu.Lock()
+		tab := st.findTabLocked(filePath)
+		if tab == nil || tab.fileLoading {
+			fileManagerMu.Unlock()
+			return
+		}
+		tab.gen++
+		gen := tab.gen
+		tab.fileLoading = true
+		fileManagerMu.Unlock()
+		s.readFileManagerTab(st, tab, threadID, filePath, gen)
+	}
+}
+
+func (s *chatState) openFileManagerFileAt(threadID, filePath string, pin bool, first, last int, user bool) {
 	// PDF 不在内容标签里读源码，直接交给右栏浏览器；客户端不支持时退回普通二进制提示。
-	if threadID != "" && isInspectorPDFPath(filePath) && s.openInspectorPreview(threadID, filePath) {
+	if user && threadID != "" && isInspectorPDFPath(filePath) && s.openInspectorPreview(threadID, filePath) {
 		return
 	}
 	st := getFileManagerState(s)
@@ -473,6 +501,7 @@ func (s *chatState) pinFileManagerTab(path string) {
 
 // activateFileManagerTab 激活某个 tab；拆分状态下它不在固定栏时同时顶替第二栏。
 func (s *chatState) activateFileManagerTab(path string) {
+	inspectorFollowPause(s, "")
 	st := getFileManagerState(s)
 	if st == nil {
 		return
@@ -557,6 +586,7 @@ func (s *chatState) toggleFileManagerSplitDirection() {
 
 // showFileManagerList 回到目录列表视图，保留全部 tab，也不重新读取目录。
 func (s *chatState) showFileManagerList() {
+	inspectorFollowPause(s, "")
 	st := getFileManagerState(s)
 	if st == nil {
 		return
