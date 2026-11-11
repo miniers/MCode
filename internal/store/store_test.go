@@ -562,6 +562,28 @@ func TestStoreThreadMethods(t *testing.T) {
 	}
 }
 
+func TestUpdateThreadWorktreePathPreservesSessionAndRequest(t *testing.T) {
+	ctx := context.Background()
+	s := seedCorruptTestData(t, "t1")
+	defer s.Close()
+	if err := s.UpdateThreadWorkDir(ctx, "t1", "/old", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateThreadSession(ctx, "t1", "session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateThreadWorktreePath(ctx, "t1", "/new"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetThread(ctx, "t1")
+	if err != nil || got.WorktreePath != "/new" || got.SessionID != "session" || !got.WorktreeRequested {
+		t.Fatalf("线程路径或其他字段不符合预期: %+v, %v", got, err)
+	}
+	if err := s.UpdateThreadWorktreePath(ctx, "missing", "/new"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("线程不存在时应返回 ErrNotFound: %v", err)
+	}
+}
+
 func TestTurnUsageUpsertAndList(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "usage_test.db")

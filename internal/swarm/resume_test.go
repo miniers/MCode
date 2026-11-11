@@ -113,6 +113,201 @@ func TestManager_Restore_MarksInterruptedAndHoldsQueue(t *testing.T) {
 	}
 }
 
+func TestManager_Restore_InterruptedDoesNotReportOrFinishBatch(t *testing.T) {
+	for _, pending := range []string{"被打断的 bee", "暂存队列", "两者都有"} {
+		t.Run(pending, func(t *testing.T) {
+			const leadID = "lead-resume-no-report"
+			ctx := context.Background()
+			mgr, persister, _ := restoreLeadForResume(t, leadID)
+			rec := persister.leads[leadID]
+			rec.Bees[0].Reported = false
+			rec.Bees[1].Reported = false
+			rec.Bees[1].Merged = true
+			if pending == "被打断的 bee" {
+				rec.Queue = nil
+			}
+			if pending == "暂存队列" {
+				rec.Bees = rec.Bees[1:]
+			}
+			if err := persister.SaveLead(ctx, rec); err != nil {
+				t.Fatal(err)
+			}
+			if err := mgr.Restore(ctx); err != nil {
+				t.Fatal(err)
+			}
+			reports, idle, landed := 0, 0, 0
+			mgr.opts.OnReport = func(string, string) error { reports++; return nil }
+			mgr.opts.OnBeesIdle = func(context.Context, string) { idle++ }
+			mgr.opts.OnBatchLanded = func(context.Context, LandedBatch) { landed++ }
+
+			mgr.checkReports(ctx)
+			// 批次落地也可能由手动合并等路径直接触发。
+			mgr.maybeFireBatchLanded(ctx, leadID)
+			if reports != 0 || idle != 0 || landed != 0 {
+				t.Fatalf("待续跑时不应汇报或结束批次：汇报 %d，空闲 %d，落地 %d", reports, idle, landed)
+			}
+			for _, bee := range mgr.State(leadID).Bees {
+				if bee.Reported || bee.Delivered {
+					t.Fatalf("待续跑时不应标记已汇报或已交付：%+v", bee)
+				}
+			}
+		})
+	}
+}
+
+func TestManager_ResumeAllInterrupted_ContinuesAllLeads(t *testing.T) {
+	const firstID = "lead-resume-all-first"
+	const secondID = "lead-resume-all-second"
+	ctx := context.Background()
+	mgr, persister, _ := restoreLeadForResume(t, firstID)
+	rec := persister.leads[firstID]
+	rec.Queue = nil
+	rec.Bees = rec.Bees[:1]
+	rec.Bees[0].ReadOnly = true
+	if err := persister.SaveLead(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	rec.LeadThreadID = secondID
+	rec.Bees = append([]Bee(nil), rec.Bees...)
+	rec.Bees[0].ThreadID = "bee-run-second"
+	if err := persister.SaveLead(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Restore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	driver := mgr.opts.Driver.(*fakeDriver)
+	driver.onFollowUp = func(id, _ string) error {
+		// 发送期间可重入管理器，且另一轮轮询不能把待续跑项当作结束。
+		mgr.checkReports(ctx)
+		leadID := firstID
+		if id == "bee-run-second" {
+			leadID = secondID
+		}
+		if n, err := mgr.ResumeInterrupted(ctx, leadID); err != nil || n != 0 {
+			t.Errorf("派发期间重复续跑应跳过：数量 %d，错误 %v", n, err)
+		}
+		return nil
+	}
+	mgr.opts.OnReport = func(string, string) error {
+		t.Error("续接期间不应汇报")
+		return nil
+	}
+	mgr.opts.OnBeesIdle = func(context.Context, string) { t.Error("续接期间不应判为空闲") }
+
+	mgr.ResumeAllInterrupted(ctx)
+	mgr.ResumeAllInterrupted(ctx)
+
+	driver.mu.Lock()
+	followUps := append([]fakeFollowUp(nil), driver.followUps...)
+	starts := driver.nextID
+	driver.mu.Unlock()
+	wantIDs := map[string]bool{"bee-run-1": true, "bee-run-second": true}
+	for _, followUp := range followUps {
+		if !wantIDs[followUp.threadID] {
+			t.Fatalf("不应重复或向其他会话续接：%+v", followUps)
+		}
+		delete(wantIDs, followUp.threadID)
+	}
+	if len(wantIDs) != 0 || starts != 0 {
+		t.Fatalf("两个原会话都应续接且不重派：未续接 %v，重派 %d", wantIDs, starts)
+	}
+	for _, leadID := range []string{firstID, secondID} {
+		bee := mgr.State(leadID).Bees[0]
+		if bee.Status != StatusRunning || bee.Interrupted || bee.Reported {
+			t.Fatalf("%s 续接状态错误：%+v", leadID, bee)
+		}
+	}
+}
+
+type resumeFailDriver struct {
+	*fakeDriver
+	starts int
+}
+
+func (d *resumeFailDriver) StartSession(context.Context, kanban.SessionRequest) (string, error) {
+	d.starts++
+	return "", errors.New("重派失败")
+}
+
+func TestManager_ResumeAllInterrupted_FailureReportsStopped(t *testing.T) {
+	const leadID = "lead-resume-all-failed"
+	const secondID = "lead-resume-all-failed-second"
+	ctx := context.Background()
+	mgr, persister, _ := restoreLeadForResume(t, leadID)
+	rec := persister.leads[leadID]
+	rec.Queue = nil
+	rec.Bees[0].ReadOnly = true
+	rec.Bees[0].Reported = false
+	if err := persister.SaveLead(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	rec.LeadThreadID = secondID
+	rec.Bees = append([]Bee(nil), rec.Bees...)
+	rec.Bees[0].ThreadID = "bee-failed-second"
+	if err := persister.SaveLead(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Restore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	driver := &resumeFailDriver{fakeDriver: newFakeDriver()}
+	driver.onFollowUp = func(string, string) error { return errors.New("续接失败") }
+	mgr.opts.Driver = driver
+	var reports []string
+	mgr.opts.OnReport = func(_ string, message string) error {
+		reports = append(reports, message)
+		return nil
+	}
+	mgr.checkReports(ctx)
+	if len(reports) != 0 {
+		t.Fatal("续跑前不应汇报")
+	}
+
+	mgr.ResumeAllInterrupted(ctx)
+	if len(driver.followUps) != 2 || driver.starts != 2 {
+		t.Fatalf("单个主会话失败不应阻止其他主会话续跑：续接 %d，重派 %d", len(driver.followUps), driver.starts)
+	}
+	for _, id := range []string{leadID, secondID} {
+		bee := mgr.State(id).Bees[0]
+		if bee.Interrupted || bee.Status != StatusStopped {
+			t.Fatalf("续接与重派失败后应清除中断标记并保持停止：%+v", bee)
+		}
+	}
+	mgr.checkReports(ctx)
+	if len(reports) != 2 || !mgr.State(leadID).Bees[0].Reported || !mgr.State(secondID).Bees[0].Reported {
+		t.Fatalf("续跑失败后应正常汇报已停止：%v", reports)
+	}
+	for _, report := range reports {
+		if !strings.Contains(report, "已停止") || !strings.Contains(report, "续跑失败") {
+			t.Fatalf("应汇报已停止及续跑失败原因：%s", report)
+		}
+	}
+}
+
+func TestManager_ResumeAllInterrupted_RequeuesHeldOnlyLead(t *testing.T) {
+	const leadID = "lead-resume-all-held"
+	ctx := context.Background()
+	mgr, persister, _ := restoreLeadForResume(t, leadID)
+	rec := persister.leads[leadID]
+	rec.Bees = nil
+	rec.Queue[0].Spec.ReadOnly = true
+	if err := persister.SaveLead(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Restore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mgr.opts.OnBeesIdle = func(context.Context, string) { t.Error("暂存条目出队派发期间不应判为空闲") }
+	mgr.opts.Driver.(*fakeDriver).onStart = func(kanban.SessionRequest) { mgr.checkReports(ctx) }
+
+	mgr.ResumeAllInterrupted(ctx)
+	st := mgr.State(leadID)
+	if st.Interrupted != 0 || len(st.Bees) != 1 || st.Bees[0].Name != "Cedar" || st.Bees[0].Status != StatusRunning || mgr.QueueLength() != 0 {
+		t.Fatalf("仅有暂存队列的主会话也应自动派发：%+v", st)
+	}
+}
+
 func TestManager_Restore_PreservesFinishedAt(t *testing.T) {
 	const leadID = "lead-resume-finished-at"
 	ctx := context.Background()

@@ -1481,6 +1481,22 @@ func (s *Store) UpdateThreadTitle(ctx context.Context, id, title string) error {
 	return nil
 }
 
+// UpdateThreadWorktreePath 仅更新线程的工作目录，不改变会话或 worktree 标记。
+func (s *Store) UpdateThreadWorktreePath(ctx context.Context, id, workDir string) error {
+	res, err := s.db.ExecContext(ctx, "UPDATE threads SET worktree_path = NULLIF(?, '') WHERE id = ?", workDir, id)
+	if err != nil {
+		return fmt.Errorf("update thread worktree path %s: %w", id, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdateThreadWorkDir 更新线程的工作目录（worktree_path）与 worktree_requested 标记，并清空 session。
 // 若线程不存在返回 ErrNotFound。
 func (s *Store) UpdateThreadWorkDir(ctx context.Context, id, workDir string, worktreeRequested bool) error {

@@ -66,6 +66,7 @@ type leadState struct {
 	nextIndex    int
 	bees         []Bee
 	dispatching  bool
+	resuming     bool
 	// delegationRounds 记录本次用户请求已使用的委派轮次，随 LeadRecord 持久化。
 	delegationRounds int
 	// requestStartedAt 记录本次用户请求的起始时间；零值表示尚未标记请求开始。
@@ -75,7 +76,7 @@ type leadState struct {
 	reportsHeld bool
 	// stoppedByUser 在用户停止全部子代理后为 true，期间不投递汇报、不回调 OnBeesIdle，直到主会话再次运行或派发新 bee。
 	stoppedByUser bool
-	// heldQueue 保存重启后从持久化记录里恢复出来、等待用户决定是否续跑的排队条目。
+	// heldQueue 保存重启后从持久化记录里恢复出来、等待后端就绪后续跑的排队条目。
 	// 它们不进入 m.queue，因此不会被 processQueue 自动派发；只有 ResumeInterrupted 才会放出。
 	heldQueue []queuedBee
 }
@@ -827,7 +828,7 @@ func (m *Manager) Restore(ctx context.Context) error {
 			}
 			if beeCopy.Status == StatusRunning {
 				beeCopy.Status = StatusStopped
-				// 标记为可续跑：进程重启后这个 bee 的会话已断，交回用户决定续跑还是放弃。
+				// 标记为待续跑，后端就绪后优先续接原会话。
 				beeCopy.Interrupted = true
 				if beeCopy.FinishedAt == nil {
 					beeCopy.FinishedAt = &now
@@ -843,7 +844,7 @@ func (m *Manager) Restore(ctx context.Context) error {
 			}
 			lead.bees[i] = beeCopy
 		}
-		// 重启前还在排队、尚未启动的条目不再自动派发：放进 heldQueue 等用户决定是否续跑。
+		// 重启前还在排队、尚未启动的条目先放进 heldQueue，等后端就绪后重新入队。
 		for _, q := range rec.Queue {
 			lead.heldQueue = append(lead.heldQueue, queuedBee{
 				leadThreadID: rec.LeadThreadID,
@@ -2794,7 +2795,7 @@ func (m *Manager) checkReports(ctx context.Context) {
 		if lead.stoppedByUser {
 			stoppedLeads = append(stoppedLeads, leadID)
 		}
-		hasRunning := lead.dispatching
+		hasRunning := lead.dispatching || lead.resuming || len(lead.heldQueue) > 0
 		if !hasRunning {
 			for _, q := range m.queue {
 				if q.leadThreadID == leadID {
@@ -2805,7 +2806,7 @@ func (m *Manager) checkReports(ctx context.Context) {
 		}
 		if !hasRunning {
 			for i := range lead.bees {
-				if lead.bees[i].Status == StatusRunning {
+				if lead.bees[i].Status == StatusRunning || lead.bees[i].Interrupted {
 					hasRunning = true
 					break
 				}
@@ -2829,7 +2830,7 @@ func (m *Manager) checkReports(ctx context.Context) {
 			var uncommitted []Bee
 			ids := make(map[string]bool)
 			for i := range lead.bees {
-				if !lead.bees[i].Reported && (lead.bees[i].Status == StatusCompleted || lead.bees[i].Status == StatusFailed || lead.bees[i].Status == StatusStopped) {
+				if !lead.bees[i].Interrupted && !lead.bees[i].Reported && (lead.bees[i].Status == StatusCompleted || lead.bees[i].Status == StatusFailed || lead.bees[i].Status == StatusStopped) {
 					ids[lead.bees[i].ThreadID] = true
 					uncommitted = append(uncommitted, lead.bees[i].clone())
 				}
@@ -3020,7 +3021,7 @@ func (m *Manager) maybeFireBatchLanded(ctx context.Context, leadThreadID string)
 		m.mu.Unlock()
 		return
 	}
-	if lead.dispatching {
+	if lead.dispatching || lead.resuming || len(lead.heldQueue) > 0 {
 		m.mu.Unlock()
 		return
 	}
@@ -3033,7 +3034,7 @@ func (m *Manager) maybeFireBatchLanded(ctx context.Context, leadThreadID string)
 	for i := range lead.bees {
 		h := &lead.bees[i]
 		// 落地等待只对仍在运行的 bee 有意义：已结束的 bee 即使残留 MergeWaitSince 也不应卡住批次落地回调。
-		if h.Status == StatusRunning || h.PendingMerge {
+		if h.Status == StatusRunning || h.Interrupted || h.PendingMerge {
 			m.mu.Unlock()
 			return
 		}
@@ -5524,6 +5525,31 @@ func appendSummary(summary, note string) string {
 	return summary + "；" + note
 }
 
+// ResumeAllInterrupted 在后端就绪后续跑所有主会话的中断项，单个主会话失败不影响其余主会话。
+func (m *Manager) ResumeAllInterrupted(ctx context.Context) {
+	m.mu.Lock()
+	var leadIDs []string
+	for leadID, lead := range m.leads {
+		if len(lead.heldQueue) > 0 {
+			leadIDs = append(leadIDs, leadID)
+			continue
+		}
+		for _, bee := range lead.bees {
+			if bee.Interrupted && bee.Status == StatusStopped && !bee.Merged {
+				leadIDs = append(leadIDs, leadID)
+				break
+			}
+		}
+	}
+	m.mu.Unlock()
+
+	for _, leadID := range leadIDs {
+		if _, err := m.ResumeInterrupted(ctx, leadID); err != nil {
+			log.Printf("swarm: 自动续跑主会话 %s 的中断项失败: %v", leadID, err)
+		}
+	}
+}
+
 // ResumeInterrupted 续跑指定主会话下因 MCode 重启被打断的 bee：先试原会话，再回退新开会话，
 // 并把重启前排队、尚未启动的条目重新排入派发队列；返回成功续跑或重新入队的条目总数。
 // 没有待续跑条目时返回 0 且不报错；全部续跑失败时返回 0 和合并后的错误。
@@ -5533,6 +5559,10 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 	if !ok {
 		m.mu.Unlock()
 		return 0, ErrLeadNotFound
+	}
+	if lead.resuming {
+		m.mu.Unlock()
+		return 0, nil
 	}
 	var pending []Bee
 	for _, h := range lead.bees {
@@ -5545,6 +5575,13 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 		m.mu.Unlock()
 		return 0, nil
 	}
+	// 续接和出队派发会解锁并调用驱动，期间整批仍在工作中，且不能重复续跑。
+	lead.resuming = true
+	defer func() {
+		m.mu.Lock()
+		lead.resuming = false
+		m.mu.Unlock()
+	}()
 	// 取出即清空：heldQueue 里的条目要么重新入队，要么随这次调用一起消失。
 	lead.heldQueue = nil
 	if !lead.requestStartedAt.IsZero() {

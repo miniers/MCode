@@ -2,13 +2,49 @@ package remote
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"mcode/internal/harness"
 	"mcode/internal/kanban"
 	"mcode/internal/remote/wire"
+	"mcode/internal/store"
 )
+
+func TestBeeWorkDirPersistsAcrossReload(t *testing.T) {
+	ctx := context.Background()
+	s, err := store.Open(filepath.Join(t.TempDir(), "bee.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	hub := NewStreamHub(StreamHubOptions{})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+	if err := b.AttachStore(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	b.AddProject(wire.ProjectSummary{ID: "p1", Path: t.TempDir()})
+	workDir := t.TempDir()
+	threadID, err := b.StartSession(ctx, kanban.SessionRequest{ProjectID: "p1", WorkDir: workDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateThreadSession(ctx, threadID, "session"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewMemoryBackend(hub)
+	defer reloaded.Close()
+	if err := reloaded.AttachStore(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	td := reloaded.threads[threadID]
+	if td == nil || td.workDir != workDir || td.sessionID != "session" || td.summary.WorktreeRequested {
+		t.Fatalf("重载后的 bee 会话不符合预期: %+v", td)
+	}
+}
 
 func TestBeeSessionRelationBeforeHarnessRun(t *testing.T) {
 	ctx := context.Background()

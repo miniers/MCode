@@ -438,6 +438,7 @@ func Open(opts Options) (*App, error) {
 
 	var swarmPipeline *swarm.Pipeline
 	var swarmMgr *swarm.Manager
+	var swarmRestored bool
 	if gitRunner != nil {
 		beeTimeout := swarm.DefaultBeeTimeout
 		if c, err := config.Load(opts.DataDir); err == nil {
@@ -536,6 +537,7 @@ func Open(opts Options) (*App, error) {
 		if err := swarmMgr.Restore(context.Background()); err != nil {
 			log.Printf("swarm restore error: %v", err)
 		} else {
+			swarmRestored = true
 			// 上次退出时没做完的自动合并接着做：已本地提交的批次从远端阶段继续，不重复提交。
 			for _, pending := range swarmMgr.PendingAutoMergeBatches() {
 				swarmPipeline.ResumeBatch(context.Background(), pending.Batch, pending.SHA, swarm.MergeStageFromString(pending.Stage))
@@ -1397,6 +1399,10 @@ func Open(opts Options) (*App, error) {
 	})
 	if swarmMgr != nil {
 		swarmMgr.Start()
+		if swarmRestored {
+			// 编排接线、provider 注册与账号配置均已完成，驱动此时才能续接原会话。
+			go swarmMgr.ResumeAllInterrupted(context.Background())
+		}
 	}
 
 	appInstance := &App{

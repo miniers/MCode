@@ -136,6 +136,11 @@ func (b *MemoryBackend) StartSession(ctx context.Context, req kanban.SessionRequ
 	s := b.store
 	b.mu.Unlock()
 
+	if s != nil && req.WorkDir != "" {
+		if err := s.UpdateThreadWorktreePath(ctx, threadID, req.WorkDir); err != nil {
+			log.Printf("persist worktree path for thread %s: %v", threadID, err)
+		}
+	}
 	if s != nil && req.Title != "" {
 		_ = s.UpdateThreadTitle(ctx, threadID, req.Title)
 	}
