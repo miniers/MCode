@@ -47,6 +47,12 @@ func TestStewardTaskBoardRefreshAndOtherThread(t *testing.T) {
 	s.mu.Unlock()
 	s.syncStewardBoard(true)
 	waitFor(t, tt, func() bool { return len(s.stewardBoardTasks()) == 1 })
+	first := s.assembledTimelineItems(nil)
+	second := s.assembledTimelineItems(nil)
+	if len(first) == 0 || len(second) == 0 || &first[0] != &second[0] {
+		t.Fatal("看板版本未变时应复用组装结果")
+	}
+	oldRev := s.stewardBoardRev()
 	find := func() KanbanTask {
 		for _, item := range s.assembledTimelineItems(nil) {
 			if item.kind == timelineItemStewardTask {
@@ -63,6 +69,10 @@ func TestStewardTaskBoardRefreshAndOtherThread(t *testing.T) {
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
 	fake.TriggerKanbanChange()
 	waitFor(t, tt, func() bool { return tt.HasText("已通过") })
+	updated := s.assembledTimelineItems(nil)
+	if s.stewardBoardRev() <= oldRev || len(updated) == 0 || &first[0] == &updated[0] || find().Status != "done" {
+		t.Fatal("看板更新后应重新组装并更新任务状态")
+	}
 	s.mu.Lock()
 	s.selectedThreadID = "other"
 	s.mu.Unlock()

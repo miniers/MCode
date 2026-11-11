@@ -17,6 +17,9 @@ const (
 type stewardBoardState struct {
 	active           bool
 	generation       uint64
+	rev              uint64
+	indexRev         uint64
+	index            stewardTaskIndex
 	stop             func()
 	loading, pending bool
 	tasks            []KanbanTask
@@ -66,6 +69,12 @@ func (s *chatState) stewardBoardTasks() []KanbanTask {
 	return append([]KanbanTask(nil), s.stewardBoard.tasks...)
 }
 
+func (s *chatState) stewardBoardRev() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stewardBoard.rev
+}
+
 func stopStewardBoardWatch(s *chatState) {
 	s.mu.Lock()
 	b := &s.stewardBoard
@@ -73,6 +82,7 @@ func stopStewardBoardWatch(s *chatState) {
 	b.generation++
 	b.loading, b.pending = false, false
 	b.tasks = nil
+	b.rev++
 	stop := b.stop
 	b.stop = nil
 	s.mu.Unlock()
@@ -141,6 +151,7 @@ func (s *chatState) loadStewardBoard(generation uint64) {
 		b.pending = false
 		if err == nil {
 			b.tasks = board.Tasks
+			b.rev++
 		}
 		s.mu.Unlock()
 		s.invalidate()

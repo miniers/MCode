@@ -5,16 +5,24 @@ const labels: Record<TaskStatus, string> = {
   rejected: '已驳回', done: '已完成', failed: '失败', cancelled: '已取消', waiting: '待处理'
 };
 
+type StewardTaskStatusTask = Pick<TaskItem, 'status'> & Partial<Pick<TaskItem, 'waitKind' | 'blocked' | 'displayColumn'>>;
+
+export function stewardTaskStatus(task: StewardTaskStatusTask): { label: string; color: string } {
+  const waitingOnHuman = task.status === 'waiting' && task.waitKind === 'human';
+  const color = task.status === 'failed' || task.status === 'rejected' ? 'thread-status--danger'
+    : task.status === 'needs_approval' || waitingOnHuman || task.blocked || task.displayColumn === 'needs_you' ? 'thread-status--warning'
+    : task.status === 'review' ? 'thread-status--primary'
+    : task.status === 'in_progress' ? 'thread-status--running' : '';
+  return { label: waitingOnHuman ? '等你决定' : labels[task.status], color };
+}
+
 export function StewardTaskCard({ task, compact = false, onOpenThread }: {
-  task: Pick<TaskItem, 'title' | 'status' | 'threadID'> & Partial<Pick<TaskItem, 'blocked' | 'displayColumn' | 'lastActivityText' | 'lastFailureReason' | 'resultSummary'>>;
+  task: Pick<TaskItem, 'title' | 'status' | 'threadID'> & Partial<Pick<TaskItem, 'waitKind' | 'blocked' | 'displayColumn' | 'lastActivityText' | 'lastFailureReason' | 'resultSummary'>>;
   compact?: boolean;
   onOpenThread?: (threadID: string) => void;
 }) {
   const status = task.status;
-  const color = status === 'failed' || status === 'rejected' ? 'thread-status--danger'
-    : status === 'needs_approval' || task.blocked || task.displayColumn === 'needs_you' ? 'thread-status--warning'
-    : status === 'review' ? 'thread-status--primary'
-    : status === 'in_progress' ? 'thread-status--running' : '';
+  const { label, color } = stewardTaskStatus(task);
   const signal = status === 'in_progress' ? task.lastActivityText
     : status === 'failed' ? task.lastFailureReason
     : status === 'done' ? task.resultSummary : null;
@@ -29,7 +37,7 @@ export function StewardTaskCard({ task, compact = false, onOpenThread }: {
       <span className="flex min-w-0 items-center gap-2">
         <span className={`thread-status ${color} transition-colors motion-reduce:transition-none`} aria-hidden="true">●</span>
         <span className="min-w-0 flex-1 truncate">{task.title}</span>
-        <span className={`thread-status ${color} shrink-0 transition-colors motion-reduce:transition-none`}>{labels[status]}</span>
+        <span className={`thread-status ${color} shrink-0 transition-colors motion-reduce:transition-none`}>{label}</span>
       </span>
       {!compact && signal?.trim() && <span className="mt-1 block truncate text-xs text-[var(--foreground-muted)]">{signal.trim().split(/\r?\n/)[0]}</span>}
     </button>

@@ -1,7 +1,6 @@
 package mcodeui
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -9,17 +8,14 @@ import (
 
 type stewardTaskIndex struct {
 	source, amend map[string][]KanbanTask
-	fingerprint   string
 }
 
 func indexStewardTasks(tasks []KanbanTask) stewardTaskIndex {
 	idx := stewardTaskIndex{source: make(map[string][]KanbanTask), amend: make(map[string][]KanbanTask)}
-	var included []KanbanTask
 	for _, task := range tasks {
 		if task.Origin != "owner" || task.ParentID != "" {
 			continue
 		}
-		included = append(included, task)
 		if task.SourceMessageID != "" {
 			idx.source[task.SourceMessageID] = append(idx.source[task.SourceMessageID], task)
 		}
@@ -31,9 +27,18 @@ func indexStewardTasks(tasks []KanbanTask) stewardTaskIndex {
 			}
 		}
 	}
-	data, _ := json.Marshal(included)
-	idx.fingerprint = string(data)
 	return idx
+}
+
+func (s *chatState) stewardTaskIndex() (stewardTaskIndex, uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b := &s.stewardBoard
+	if b.index.source == nil || b.indexRev != b.rev {
+		b.index = indexStewardTasks(b.tasks)
+		b.indexRev = b.rev
+	}
+	return b.index, b.rev
 }
 
 func insertStewardTaskRows(items []timelineItem, idx stewardTaskIndex) []timelineItem {

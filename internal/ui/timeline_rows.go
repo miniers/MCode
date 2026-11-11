@@ -1650,14 +1650,15 @@ func (s *chatState) assembledTimelineItemsWithQuestions(plans []resolvedPlan, an
 	s.mu.Lock()
 	selected := s.selectedThreadID
 	s.mu.Unlock()
-	var taskIndex stewardTaskIndex
-	if selected != "" && selected == s.stewardThreadID() {
-		taskIndex = indexStewardTasks(s.stewardBoardTasks())
-		key += "|steward|" + taskIndex.fingerprint
+	isSteward := selected != "" && selected == s.stewardThreadID()
+	var boardRev uint64
+	if isSteward {
+		boardRev = s.stewardBoardRev()
+		key += "|steward|" + strconv.FormatUint(boardRev, 10)
 	}
 
 	s.mu.Lock()
-	if s.timelineAssembledValid &&
+	if selected == s.selectedThreadID && (!isSteward || boardRev == s.stewardBoard.rev) && s.timelineAssembledValid &&
 		s.timelineAssembledSel == s.selectedThreadID &&
 		s.timelineAssembledRev == s.timelineCacheRev &&
 		s.timelineAssembledExpand == s.expandedRev &&
@@ -1679,13 +1680,16 @@ func (s *chatState) assembledTimelineItemsWithQuestions(plans []resolvedPlan, an
 	s.mu.Unlock()
 
 	items := attachPlanAndQuestionItems(base, plans, answered)
-	if sel != "" && sel == s.stewardThreadID() {
+	if isSteward && sel == selected {
+		var taskIndex stewardTaskIndex
+		taskIndex, boardRev = s.stewardTaskIndex()
+		key = timelineAssemblyKey(plans, answered) + "|steward|" + strconv.FormatUint(boardRev, 10)
 		items = insertStewardTaskRows(items, taskIndex)
 		items = insertStewardTimeRows(items)
 	}
 
 	s.mu.Lock()
-	if selected == sel && s.selectedThreadID == sel && s.timelineCacheRev == baseRev && s.expandedRev == expandedRev {
+	if selected == sel && s.selectedThreadID == sel && s.timelineCacheRev == baseRev && s.expandedRev == expandedRev && (!isSteward || s.stewardBoard.rev == boardRev) {
 		s.timelineAssembledSel = sel
 		s.timelineAssembledRev = baseRev
 		s.timelineAssembledExpand = expandedRev
