@@ -30,6 +30,8 @@
 
 提示词在 `internal/swarm/prompts.go`：`LeadPolicy`、`LeadNoticePolicy`、`NativeSubagentRule`。它们通过 `policy.Render` 注入，见 [02-session-runtime.md](02-session-runtime.md#提示词注入)。
 
+Claude 和 mcode 原生 Provider 的主会话将静态主代理规则与档位说明放入系统提示，每轮变化的上限、bee 清单与看板 preface 仍放在用户消息前。其余 Provider 继续在用户消息前拼接全部规则；切回这些 Provider 后会重新发送完整规则。
+
 ## 子代理生命周期
 
 `Manager`（`manager.go`）通过 `Tick`（每 2 秒）驱动：

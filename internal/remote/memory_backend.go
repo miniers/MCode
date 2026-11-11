@@ -271,9 +271,10 @@ type MemoryBackend struct {
 	// appVersion 是对外声明的桌面端版本号（与「关于」页同源），由 app 层注入。
 	appVersion string
 	// watchers 按仓库根目录缓存检查点文件监听器，由 b.mu 保护；见 watcherFor。
-	watchers        map[string]git.Watcher
-	swarmAvailable  bool
-	swarmEnabledFor func(threadID string) bool
+	watchers              map[string]git.Watcher
+	swarmAvailable        bool
+	swarmEnabledFor       func(threadID string) bool
+	swarmLeadPlansOnlyFor func(threadID string) bool
 
 	// inspectorPreview 是文件预览专用的 loopback 内容服务，懒启动；由 inspectorPreviewMu 保护。
 	inspectorPreviewMu     sync.Mutex
@@ -292,6 +293,7 @@ type MemoryBackend struct {
 	turnFinishedHook    func(threadID, projectID, assistantText string, completed bool)
 	assistantStreamHook func(threadID, projectID string, reset bool, delta string)
 	promptDecorator     func(threadID, prompt string) string
+	systemPolicyFunc    func(threadID string) string
 	// sessionRotator 在续接 provider 会话的轮次开始前判定是否换新会话；nil 表示从不换新。
 	sessionRotator SessionRotator
 	// nowledge 是宿主注入的 Nowledge Mem 客户端；nil 表示不启用任何 Nowledge 功能
@@ -455,6 +457,13 @@ func (b *MemoryBackend) SetRevertBusyCheck(fn func(threadID, root string) string
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.revertBusyCheck = fn
+}
+
+// SetSwarmLeadPlansOnlyFunc 设置主代理只规划约束的判断函数。
+func (b *MemoryBackend) SetSwarmLeadPlansOnlyFunc(fn func(threadID string) bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.swarmLeadPlansOnlyFor = fn
 }
 
 // SetSwarmEnabler 设置新建会话时立即开启编排的回调（与 threads.swarm.set 同一后端实现）。
@@ -653,6 +662,26 @@ func (b *MemoryBackend) SetPromptDecorator(fn func(threadID, prompt string) stri
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.promptDecorator = fn
+}
+
+// SetSystemPolicyFunc 设置追加到 Provider 系统提示的静态规则生成函数。
+func (b *MemoryBackend) SetSystemPolicyFunc(fn func(threadID string) string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.systemPolicyFunc = fn
+}
+
+// CarriesSystemPolicy 按会话当前的 Provider 路由判断系统规则承载能力。
+func (b *MemoryBackend) CarriesSystemPolicy(threadID string) bool {
+	b.mu.Lock()
+	td, ok := b.threads[threadID]
+	var h harness.Harness
+	if ok {
+		h = b.threadHarnessLocked(td.summary.Provider)
+	}
+	b.mu.Unlock()
+	carrier, ok := h.(harness.SystemPolicyCarrier)
+	return ok && carrier.CarriesSystemPolicy(threadID)
 }
 
 // SetNowledge 注入 Nowledge Mem 客户端。为 nil 时所有 Nowledge 功能（首轮 Working Memory
@@ -6580,6 +6609,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 	}
 	gitRunner := b.git
 	decorator := b.promptDecorator
+	systemPolicyFunc := b.systemPolicyFunc
 	// 人设解析器与线程当前人设、provider 快照在锁内取出；解析调用放到解锁之后，避免持锁调用外部函数。
 	personaResolver := b.personaTag
 	personaID := td.summary.Persona
@@ -6787,15 +6817,26 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			approver = &hardLockApprover{inner: approver, b: b, threadID: threadID, hardLocked: hardLocked, override: hardLockOverride}
 		}
 
+		b.mu.Lock()
+		leadPlansOnlyFor := b.swarmLeadPlansOnlyFor
+		b.mu.Unlock()
+		leadPlansOnly := leadPlansOnlyFor != nil && leadPlansOnlyFor(threadID)
+		systemPolicy := ""
+		if carrier, ok := h.(harness.SystemPolicyCarrier); ok && carrier.CarriesSystemPolicy(threadID) && systemPolicyFunc != nil {
+			systemPolicy = systemPolicyFunc(threadID)
+		}
+
 		turn := harness.Turn{
 			ID:               turnID,
 			ThreadID:         threadID,
 			Prompt:           harnessTurnPrompt(compactOnly, personaPrefix, currPrompt),
+			SystemPolicy:     systemPolicy,
 			WorkDir:          workDir,
 			ReadOnlyDirs:     readOnlyDirs,
 			SessionID:        currSessionID,
 			Model:            model,
 			Mode:             turnMode,
+			LeadPlansOnly:    leadPlansOnly,
 			HardLocked:       hardLocked,
 			HardLockOverride: hardLockOverride,
 			Approver:         approver,

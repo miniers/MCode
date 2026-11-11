@@ -106,6 +106,8 @@ Provider 通过 `emit` 发 `harness.Event`，`runHarness` 处理后写消息并�
 - `policy.Render` 按固定顺序输出段落：`SwarmLead`、`SwarmTiers`、`SwarmLimits`、`SwarmRoster`、`Kanban`、`ProjectContext`、`Automation`。
 - 输出带 `<mcode_harness_policy version=.../>` 标记。文案或顺序变化时要递增 `policy.Version`。
 
+Claude 和 mcode 原生 Provider 将静态的 `SwarmLead`、`SwarmTiers` 通过 `Turn.SystemPolicy` 追加到系统提示；`SwarmLimits`、`SwarmRoster` 与看板 preface 仍放在用户消息前。其余 Provider 保持全部规则拼在用户消息前的现有行为。
+
 `internal/remote/runtime_prompts.go` 的预算：
 
 | 函数 | 用途 | 预算 |

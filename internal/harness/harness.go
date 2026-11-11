@@ -79,6 +79,8 @@ type Turn struct {
 	ThreadID string // 所属会话 ID，用于内置 MCP 按会话路由；为空时退回共享端点
 	Prompt   string
 	WorkDir  string
+	// SystemPolicy 是宿主追加到系统提示的静态规则；空字符串表示没有。
+	SystemPolicy string
 
 	// AdditionalDirs 是工作目录之外额外允许访问的绝对目录（总管会话填已注册项目目录），
 	// 普通会话为空：provider 把它映射成自己的附加目录参数，进程工作目录仍是 WorkDir。
@@ -93,6 +95,9 @@ type Turn struct {
 	Sandbox   Sandbox
 	Env       []string
 	Images    []string // 本地图片绝对路径
+
+	// LeadPlansOnly 表示主代理本轮的实现修改必须委派。
+	LeadPlansOnly bool
 
 	// HardLocked 表示本轮是看板任务执行会话，危险命令需要用户先答决策卡。
 	HardLocked bool
@@ -211,6 +216,11 @@ type Sandbox interface {
 type Harness interface {
 	Kind() Kind
 	Run(ctx context.Context, turn Turn, emit func(Event)) error
+}
+
+// SystemPolicyCarrier 是可选能力，判断指定会话是否支持 Turn.SystemPolicy。
+type SystemPolicyCarrier interface {
+	CarriesSystemPolicy(threadID string) bool
 }
 
 // Emit 校验事件并在合法时派发给接收函数。

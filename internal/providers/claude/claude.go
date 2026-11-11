@@ -129,6 +129,9 @@ func (h *Harness) Kind() harness.Kind {
 	return harness.Kind("claude")
 }
 
+// CarriesSystemPolicy 表示常驻与单轮模式均支持追加系统规则。
+func (h *Harness) CarriesSystemPolicy(string) bool { return true }
+
 // CatalogBinary 返回当前运行时配置的 CLI。
 func (h *Harness) CatalogBinary() string { return h.opts.Binary }
 
@@ -159,6 +162,11 @@ func buildArgs(turn harness.Turn, extra ...string) []string {
 		"--verbose",
 		"--include-partial-messages",
 		"--disallowed-tools", disallowed,
+	}
+
+	if turn.SystemPolicy != "" {
+		// 禁用快照，恢复会话时也要应用本轮最新的系统规则。
+		args = append(args, "--append-system-prompt", turn.SystemPolicy, "--system-prompt-snapshot", "off")
 	}
 
 	// "default" 表示交给 CLI 自己的默认模型，此时不传 --model。

@@ -128,6 +128,9 @@ func (h *Harness) Kind() harness.Kind {
 	return harness.Kind("mcode")
 }
 
+// CarriesSystemPolicy 表示内置引擎支持追加系统规则。
+func (h *Harness) CarriesSystemPolicy(string) bool { return true }
+
 // Run 执行一轮内置 agent 对话。
 func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.Event)) (retErr error) {
 	// 引擎在进程内运行，也作为 swarm bee 的运行时并发执行，任何 panic 都会带崩整个进程。
@@ -194,6 +197,9 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	system := "你是一个 coding agent。"
 	if h.opts.SystemPrompt != nil {
 		system = h.opts.SystemPrompt(turn, toolNames)
+	}
+	if turn.SystemPolicy != "" {
+		system += "\n\n" + turn.SystemPolicy
 	}
 
 	prompt := turn.Prompt
