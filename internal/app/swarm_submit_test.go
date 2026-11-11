@@ -245,3 +245,32 @@ func TestSwarmPlanSubmitAndSettle(t *testing.T) {
 		t.Fatalf("非 Plan 派发异常: %v", got)
 	}
 }
+
+func TestSwarmPlanSubmitRetryRead(t *testing.T) {
+	h := newSubmitHarness(t, 0)
+	d := h.dispatcher
+	d.planGate = func(_ string, entry swarm.Delegation) (swarm.Delegation, bool) { return entry, entry.Tier == "read" }
+	d.reset("lead")
+	if got := d.submit("lead", "project", []swarm.Delegation{{Prompt: "same", Tier: "edit"}}); !strings.Contains(got, "plan mode allows only read-only") {
+		t.Fatalf("编辑档应被拒绝: %q", got)
+	}
+	if got := d.submit("lead", "project", []swarm.Delegation{{Prompt: "same", Tier: "read"}}); got != "Started 1 bee(s)." {
+		t.Fatalf("只读档应被派发: %q", got)
+	}
+	waitSwarm(t, func() bool { return len(h.dispatched()) == 1 })
+	if got := h.dispatched(); got[0] != "same" {
+		t.Fatalf("派发内容异常: %v", got)
+	}
+}
+
+func TestSwarmPlanStreamRetryRead(t *testing.T) {
+	h, d := newRoundLimitHarness(t, 1)
+	d.planGate = func(_ string, entry swarm.Delegation) (swarm.Delegation, bool) { return entry, entry.Tier == "read" }
+	d.reset("lead")
+	full := "```swarm\n[{\"prompt\":\"same\",\"tier\":\"edit\"}]\n```\n```swarm\n[{\"prompt\":\"same\",\"tier\":\"read\"}]\n```"
+	d.feed("lead", "project", full)
+	d.settleTurn("lead", "project", full)
+	if h.dispatched != 1 || len(h.notices) != 1 || !strings.Contains(h.notices[0], "本回合有 1 个其他档的条目没有派发") {
+		t.Fatalf("流式派发或拒绝计数异常: %+v", h)
+	}
+}
