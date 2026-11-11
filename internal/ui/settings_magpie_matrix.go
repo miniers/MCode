@@ -311,7 +311,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 			}
 			if !loaded {
 				ui.Text(c, "正在加载…").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					PaddingX(settingsRowPadX)
 			}
@@ -326,7 +326,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 			ui.Row(c.Key("magpie-matrix-load-err")).Gap(Space2).PaddingX(settingsRowPadX).Children(func() {
 				ui.Column(c.Key("magpie-matrix-load-err-lines")).Gap(Space1).Children(func() {
 					for _, line := range lines {
-						ui.Text(c, line).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+						ui.Text(c, line).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 					}
 				})
 				retry := ui.ButtonBase(c.Key("retry-magpie-matrix")).Label("重试")
@@ -339,13 +339,13 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 					}
 				}
 				retry.Children(func() {
-					ui.Text(c, "重试").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+					ui.Text(c, "重试").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 				})
 			})
 		}
 		for _, line := range magpieMatrixErrorLines(agents, matrixErrs) {
 			ui.Text(c, line).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeDanger(c)).
 				PaddingX(settingsRowPadX)
 		}
@@ -357,14 +357,14 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 			Children(func() {
 				ui.Text(c, "模型").
 					Grow(1).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					FontWeight(600).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
 				for _, agent := range agents {
 					magpieMatrixCell(c, "magpie-matrix-head-"+agent, func() {
 						ui.Text(c, magpieMatrixAgentTitle(agent)).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							FontWeight(600).
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
@@ -376,7 +376,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 		if len(gateways) == 0 {
 			if len(agents) > 0 && allLoaded && len(loadErrs) == 0 && strings.TrimSpace(*query) == "" {
 				ui.Text(c, "网关没有返回模型").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					PaddingX(settingsRowPadX)
 			}
@@ -389,7 +389,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 				for _, gateway := range gateways {
 					if showGateway {
 						ui.Text(c, gateway.name).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							FontWeight(600).
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine().
@@ -403,7 +403,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 					}
 					for _, line := range magpieMatrixErrorLines(agents, epErrs) {
 						ui.Text(c, line).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c)).
 							PaddingX(settingsRowPadX)
 					}
@@ -433,7 +433,7 @@ func renderMagpieMatrixFamily(c *ui.Context, st *SettingsState, gateway magpieMa
 			Children(func() {
 				ui.Text(c, family.title).
 					Grow(1).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					FontWeight(600).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
@@ -495,14 +495,14 @@ func renderMagpieMatrixFamily(c *ui.Context, st *SettingsState, gateway magpieMa
 					Gap(Space1).
 					Children(func() {
 						ui.Text(c, row.model.Name).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemePrimaryText(c)).
 							SingleLine().
 							Shrink(1).
 							MinWidth(0)
 						if id := magpieMatrixModelIDLabel(row.model); id != "" {
 							ui.Text(c, id).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeTertiaryText(c)).
 								SingleLine().
 								Shrink(1).
@@ -517,7 +517,7 @@ func renderMagpieMatrixFamily(c *ui.Context, st *SettingsState, gateway magpieMa
 						}
 						if badge := magpieMatrixDefaultBadge(defaults); badge != "" {
 							ui.Text(c, badge).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeAccent(c)).
 								Background(ThemeAccent(c).Alpha(0.12)).
 								Radius(RadiusPill).
@@ -651,7 +651,7 @@ func renderMagpieAgentDefaultPicker(c *ui.Context, st *SettingsState, agent stri
 		MinHeight(RowHeight).
 		Children(func() {
 			ui.Text(c, "默认模型").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				SingleLine()
 			pick := ui.Select(c.Key("magpie-default-select-"+agent), &selected, labels).

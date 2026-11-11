@@ -51,12 +51,12 @@ func headerGitMenuOption(c *ui.Context, key, label, title, detail string, icon *
 					ui.Icon(c, icon).Size(14, 14).TextColor(ThemeSecondaryText(c))
 				}
 				ui.Text(c, title).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
 					SingleLine()
 				if detail != "" {
 					ui.Text(c, detail).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c)).
 						SingleLine()
 				}
@@ -129,13 +129,13 @@ func renderHeaderScriptsMenuButton(c *ui.Context, s *chatState, threadID string)
 			MaxWidth(320).
 			Children(func() {
 				ui.Text(c, "执行命令").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					Bold().
 					TextColor(ThemeSecondaryText(c)).
 					Padding(Space1, Space3, Space0, Space3)
 				if loaded && len(scripts) == 0 {
 					ui.Text(c, "暂无可用脚本").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c)).
 						Padding(Space1, Space3)
 				}
@@ -208,7 +208,7 @@ func renderHeaderScriptsExpandRow(c *ui.Context, s *chatState, mn *headerScripts
 					chevron = IconChevronDown()
 				}
 				ui.Icon(c, chevron).Size(14, 14).TextColor(ThemeSecondaryText(c))
-				ui.Text(c, label).FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+				ui.Text(c, label).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 			})
 	})
 }
@@ -323,7 +323,7 @@ func renderHeaderOpenInButton(c *ui.Context, s *chatState, threadID string) {
 			MaxWidth(300).
 			Children(func() {
 				ui.Text(c, "打开方式").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					Bold().
 					TextColor(ThemeSecondaryText(c)).
 					Padding(Space1, Space3, Space0, Space3)

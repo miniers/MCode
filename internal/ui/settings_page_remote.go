@@ -383,7 +383,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 			if busy {
 				label = "配对中…"
 			}
-			ui.Text(c, label).FontSize(TypeBody).TextColor(ThemeAccent(c))
+			ui.Text(c, label).FontSize(uiFont(TypeBody)).TextColor(ThemeAccent(c))
 		})
 	}
 
@@ -442,7 +442,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 						countdownText = "已过期，请点击刷新"
 					}
 					ui.Text(c, countdownText).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				}
 
@@ -451,7 +451,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 						Gap(Space3).
 						AlignItems(ui.Center).
 						Children(func() {
-							ui.Text(c, "二维码入口").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, "二维码入口").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 							for _, opt := range targetOptions {
 								selected := opt.Value == selectedTarget
 								btn := ui.ButtonBase(c.Key("btn-remote-pairing-target-"+opt.Value)).
@@ -475,7 +475,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 									if selected {
 										color = ThemeAccent(c)
 									}
-									ui.Text(c, opt.Label).FontSize(TypeFootnote).TextColor(color)
+									ui.Text(c, opt.Label).FontSize(uiFont(TypeFootnote)).TextColor(color)
 								})
 							}
 						})
@@ -489,8 +489,8 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 						Gap(Space3).
 						AlignItems(ui.Center).
 						Children(func() {
-							ui.Text(c, "MagicDNS 域名").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
-							ui.Text(c, fqdn).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).SingleLine()
+							ui.Text(c, "MagicDNS 域名").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, fqdn).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine()
 							renderRemoteCopyButton(c, st, "btn-remote-pairing-copy-fqdn", "复制 MagicDNS 域名", "已复制域名", "复制 MagicDNS 域名", fqdn, copiedKey, copiedAt)
 						})
 				}
@@ -517,7 +517,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 							if busy {
 								label = "刷新中…"
 							}
-							ui.Text(c, label).FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+							ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 						})
 
 						if targetURL != "" {
@@ -534,7 +534,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 					})
 
 				if pairingErr != "" {
-					ui.Text(c, pairingErr).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+					ui.Text(c, pairingErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 				}
 			})
 
@@ -565,7 +565,7 @@ func renderRemoteDevicesBlock(c *ui.Context, st *SettingsState) {
 			Padding(settingsRowPadY, settingsRowPadX).
 			Children(func() {
 				ui.Text(c, "无法获取已授权设备列表："+devicesErr).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeSecondaryText(c))
 			})
 		return
@@ -576,7 +576,7 @@ func renderRemoteDevicesBlock(c *ui.Context, st *SettingsState) {
 			Padding(settingsRowPadY, settingsRowPadX).
 			Children(func() {
 				ui.Text(c, "正在加载设备…").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeSecondaryText(c))
 			})
 		return
@@ -594,7 +594,7 @@ func renderRemoteDevicesBlock(c *ui.Context, st *SettingsState) {
 			Padding(settingsRowPadY, settingsRowPadX).
 			Children(func() {
 				ui.Text(c, deviceActionErr).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			})
 	}

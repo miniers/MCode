@@ -98,7 +98,7 @@ func renderKanbanListView(c *ui.Context, s *chatState, tasks []KanbanTask) {
 							Gap(Space2).
 							Children(func() {
 								ui.Text(c, fmt.Sprintf("%s · %d", group.label, len(group.tasks))).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									FontWeight(600).
 									TextColor(ThemeSecondaryText(c))
 
@@ -147,18 +147,18 @@ func renderKanbanListRow(c *ui.Context, s *chatState, task KanbanTask) {
 		}
 		renderKanbanPriority(c, task)
 		ui.Text(c, task.Title).
-			FontSize(TypeBody).
+			FontSize(uiFont(TypeBody)).
 			FontWeight(500).
 			TextColor(ThemePrimaryText(c)).
 			Grow(1).
 			SingleLine()
 
 		if signal != "" {
-			ui.Text(c, signal).FontSize(TypeCaption).TextColor(kanbanSignalColor(c, tone)).SingleLine()
+			ui.Text(c, signal).FontSize(uiFont(TypeCaption)).TextColor(kanbanSignalColor(c, tone)).SingleLine()
 		}
 		if mixed {
 			if name := projectNameFor(s, task.ProjectID); name != "" {
-				ui.Text(c, name).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c)).SingleLine()
+				ui.Text(c, name).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine()
 			}
 		}
 	})
@@ -298,7 +298,7 @@ func renderTodoQuickAdd(c *ui.Context, s *chatState, ks *kanbanState) {
 			in := ui.TextInput(c.Key("kanban-quick-add-input"), &ks.quickAddText).
 				Placeholder("添加任务...").
 				Label("kanban-quick-add-input").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				BorderWidth(0).
 				Background(ui.Transparent).
 				Padding(0).
@@ -352,7 +352,7 @@ func kanbanToneBadge(c *ui.Context, key, label string, color ui.Color) {
 		Radius(RadiusMD).
 		Background(color.Alpha(0.15)).
 		Children(func() {
-			ui.Text(c, label).FontSize(TypeCaption).FontWeight(600).TextColor(color)
+			ui.Text(c, label).FontSize(uiFont(TypeCaption)).FontWeight(600).TextColor(color)
 		})
 }
 
@@ -474,7 +474,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 				ui.Icon(c, icon).Label("kanban-task-selection-"+task.ID).Size(IconSM, IconSM).TextColor(color)
 			}
 			renderKanbanPriority(c, task)
-			ui.Text(c, task.Title).Label(task.Title).Tooltip(task.Title).FontSize(TypeBody).FontWeight(500).
+			ui.Text(c, task.Title).Label(task.Title).Tooltip(task.Title).FontSize(uiFont(TypeBody)).FontWeight(500).
 				MaxLines(2).TextColor(primaryText).Grow(1).MinWidth(0)
 			ui.Row(c.Key("kanban-task-actions-" + task.ID)).Width(KanbanCardActionSlotWidth).Height(ControlXS).Shrink(0).AlignItems(ui.Center).Children(func() {
 				if card.Hovered() || card.FocusWithin() || menuOpen {
@@ -533,7 +533,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 				signal += " · "
 			}
 			ui.Row(c.Key("kanban-task-signal-" + task.ID)).Label("kanban-task-signal-" + task.ID).Children(func() {
-				ui.Text(c, signal+project).FontSize(TypeCaption).TextColor(kanbanSignalColor(c, tone)).SingleLine()
+				ui.Text(c, signal+project).FontSize(uiFont(TypeCaption)).TextColor(kanbanSignalColor(c, tone)).SingleLine()
 			})
 		}
 		if menuOpen {
@@ -557,7 +557,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 							Gap(Space1).
 							Children(func() {
 								ui.Text(c, "移动到:").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(secondaryText)
 
 								for _, opt := range actions.menu {
@@ -593,7 +593,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 							Children(func() {
 								if rescuable {
 									ui.Text(c, "救援:").
-										FontSize(TypeCaption).
+										FontSize(uiFont(TypeCaption)).
 										TextColor(secondaryText)
 								}
 
@@ -694,7 +694,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 					Gap(Space2).
 					Children(func() {
 						ui.Text(c, "确认删除该任务？此操作不可撤销").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeDanger(c)).
 							Grow(1)
 						Button(c.Key("kanban-task-delete-cancel-"+task.ID), ButtonOpts{
@@ -780,7 +780,7 @@ func kanbanColumnCountBadge(c *ui.Context, key string, filtered, total int, sear
 		Center().
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(700).
 				TextColor(ThemeSecondaryText(c))
 		})
@@ -902,7 +902,7 @@ func renderKanbanColumn(
 		}
 		rail.Children(func() {
 			ui.Icon(c, IconCircleCheck()).Size(IconSM, IconSM).TextColor(secondaryText)
-			ui.Text(c, colDef.label).FontSize(TypeCaption).TextColor(secondaryText)
+			ui.Text(c, colDef.label).FontSize(uiFont(TypeCaption)).TextColor(secondaryText)
 			kanbanColumnCountBadge(c, "kanban-col-count-"+colKey, len(colTasks), totalCount, searching)
 		})
 		return
@@ -946,7 +946,7 @@ func renderKanbanColumn(
 					TextColor(colDef.color(c)).
 					Shrink(0)
 				ui.Text(c, colDef.label).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					FontWeight(600).
 					TextColor(primaryText).
 					Grow(1)

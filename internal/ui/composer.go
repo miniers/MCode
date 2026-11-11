@@ -139,14 +139,14 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 						Size(IconSM, IconSM).
 						TextColor(ThemeSecondaryText(c))
 					ui.Text(c, tabText).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemePrimaryText(c))
 					if summary := queueCollapsedSummary(items); summary != "" {
 						ui.Text(c, "·").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 						ui.Text(c, summary).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							MaxLines(1).
 							TextColor(ThemeSecondaryText(c))
 					}
@@ -176,11 +176,11 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 								AlignItems(ui.Center).
 								Children(func() {
 									ui.Text(c, "排队队列").
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										TextColor(ThemePrimaryText(c))
 									if isEditing {
 										ui.Text(c, "正在编辑排队消息 · Esc 取消").
-											FontSize(TypeCaption).
+											FontSize(uiFont(TypeCaption)).
 											TextColor(ThemeAccent(c))
 									}
 								})
@@ -202,7 +202,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 										}).
 										Children(func() {
 											ui.Text(c, "清空全部").
-												FontSize(TypeCaption).
+												FontSize(uiFont(TypeCaption)).
 												TextColor(ThemeSecondaryText(c))
 										})
 
@@ -221,7 +221,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 											}).
 											Children(func() {
 												ui.Text(c, "全部退回编辑").
-													FontSize(TypeCaption).
+													FontSize(uiFont(TypeCaption)).
 													TextColor(ThemeSecondaryText(c))
 											})
 									}
@@ -287,7 +287,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 												Padding(Space0, Space2, Space0, Space2).
 												Children(func() {
 													ui.Text(c, label).
-														FontSize(TypeCaption).
+														FontSize(uiFont(TypeCaption)).
 														TextColor(labelColor)
 												})
 										}
@@ -299,7 +299,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 											Padding(Space0, Space2, Space0, Space2).
 											Children(func() {
 												ui.Text(c, "主代理").
-													FontSize(TypeCaption).
+													FontSize(uiFont(TypeCaption)).
 													TextColor(ThemeSecondaryText(c))
 											})
 
@@ -311,7 +311,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 												Padding(Space0, Space2, Space0, Space2).
 												Children(func() {
 													ui.Text(c, "系统消息").
-														FontSize(TypeCaption).
+														FontSize(uiFont(TypeCaption)).
 														TextColor(ThemeSecondaryText(c))
 												})
 										}
@@ -324,7 +324,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 										// 消息文本摘要
 										ui.Text(c, item.Text).
 											TextColor(ThemePrimaryText(c)).
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											MaxLines(1).
 											Grow(1)
 
@@ -345,7 +345,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 												}).
 												Children(func() {
 													ui.Text(c, "编辑").
-														FontSize(TypeCaption).
+														FontSize(uiFont(TypeCaption)).
 														TextColor(ThemePrimaryText(c))
 												})
 										}
@@ -367,7 +367,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 												}).
 												Children(func() {
 													ui.Text(c, "插入").
-														FontSize(TypeCaption).
+														FontSize(uiFont(TypeCaption)).
 														TextColor(ThemeAccent(c))
 												})
 										}
@@ -386,7 +386,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 											}).
 											Children(func() {
 												ui.Text(c, "立即发送").
-													FontSize(TypeCaption).
+													FontSize(uiFont(TypeCaption)).
 													TextColor(ThemePrimaryText(c))
 											})
 
@@ -405,7 +405,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 												}).
 												Children(func() {
 													ui.Text(c, "删除").
-														FontSize(TypeCaption).
+														FontSize(uiFont(TypeCaption)).
 														TextColor(ThemeSecondaryText(c))
 												})
 										}
@@ -454,9 +454,9 @@ func renderDraftThreadMentions(c *ui.Context, s *chatState, mentions []ThreadMen
 					Border(Hairline, ThemeBorder(c)).
 					AlignItems(ui.Center).
 					Children(func() {
-						ui.Text(c, "💬").FontSize(TypeCaption)
+						ui.Text(c, "💬").FontSize(uiFont(TypeCaption))
 						ui.Text(c, draftThreadMentionLabel(title)).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c))
 						ui.ButtonBase(c.Key("composer-mention-remove-"+mention.ThreadID)).
 							Label("移除引用 "+title).
@@ -469,7 +469,7 @@ func renderDraftThreadMentions(c *ui.Context, s *chatState, mentions []ThreadMen
 							}).
 							Children(func() {
 								ui.Text(c, "✕").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeSecondaryText(c))
 							})
 					})
@@ -798,7 +798,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 				// 占位符沿用平时的颜色（框架固定用 TextMuted），不额外高亮。
 				if disabledReason != "" && trimmedDraft != "" {
 					ui.Row(c.Key("composer-disabled-hint")).Padding(Space0, Space1, 0, Space1).Children(func() {
-						ui.Text(c, disabledReason).TextColor(ThemeSecondaryText(c)).FontSize(TypeFootnote)
+						ui.Text(c, disabledReason).TextColor(ThemeSecondaryText(c)).FontSize(uiFont(TypeFootnote))
 					})
 				}
 
@@ -815,7 +815,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 						// 文字区使用统一内距，达到卡片上限后由输入框内部滚动。
 						in := ui.TextArea(c.Key("composer-textarea"), &s.draft).
 							Lines(1, int(textMaxHeight)).
-							FontSize(TypeProse).
+							FontSize(uiFont(TypeProse)).
 							LineHeight(1.3).
 							MinHeight(composerTextMinHeight).
 							MaxHeight(textMaxHeight).
@@ -1342,7 +1342,7 @@ func renderEditQueuedPill(c *ui.Context, s *chatState, tier composerChinSize) {
 		})
 	pill.Children(func() {
 		ui.Text(c, text).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeAccent(c))
 	})
 }

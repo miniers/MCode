@@ -631,7 +631,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 				Padding(Space4, Space5).
 				Children(func() {
 					ui.Text(c, errText).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeDanger(c))
 				})
 			renderSettingsDivider(c, "div-custom-endpoints-err")
@@ -647,7 +647,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 						text = "正在加载端点…"
 					}
 					ui.Text(c, text).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				})
 		} else {
@@ -680,7 +680,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 						}
 						editBtn.Children(func() {
 							ui.Text(c, "编辑").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeAccent(c))
 						})
 
@@ -723,7 +723,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 								delColor = ThemeDanger(c)
 							}
 							ui.Text(c, delLabel).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(delColor)
 						})
 					})
@@ -753,7 +753,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 					}
 					addBtn.Children(func() {
 						ui.Text(c, "添加端点").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeAccent(c))
 					})
 				})
@@ -769,7 +769,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 				Padding(Space4, Space5, Space1, Space5).
 				Children(func() {
 					ui.Text(c, formTitle).
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 				})
@@ -811,7 +811,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 					Padding(Space3, Space5).
 					Children(func() {
 						ui.Text(c, testErr).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					})
 			} else if testResult != nil {
@@ -822,7 +822,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 						if testResult.OK {
 							msg := fmt.Sprintf("连接成功 (%dms, %d 个模型)", testResult.Latency.Milliseconds(), len(testResult.Models))
 							ui.Text(c, msg).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSuccess(c))
 						} else {
 							msg := testResult.Message
@@ -830,7 +830,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 								msg = "连接失败"
 							}
 							ui.Text(c, msg).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeDanger(c))
 						}
 					})
@@ -843,7 +843,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 					Padding(Space3, Space5).
 					Children(func() {
 						ui.Text(c, editErr).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					})
 			}
@@ -874,7 +874,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 					}
 					testBtn.Children(func() {
 						ui.Text(c, testBtnText).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemePrimaryText(c))
 					})
 
@@ -897,7 +897,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 					}
 					saveBtn.Children(func() {
 						ui.Text(c, saveBtnText).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeOnAccent(c))
 					})
 
@@ -919,7 +919,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 					}
 					cancelBtn.Children(func() {
 						ui.Text(c, "取消").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeSecondaryText(c))
 					})
 				})
@@ -1008,7 +1008,7 @@ func providerSheetButtonWithColor(c *ui.Context, key, label string, disabled boo
 	if b.Clicked() {
 		action()
 	}
-	b.Children(func() { ui.Text(c, label).FontSize(TypeBody).TextColor(textColor) })
+	b.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeBody)).TextColor(textColor) })
 }
 
 func providerSheetPrimaryButton(c *ui.Context, key, label string, disabled bool, action func()) {
@@ -1019,7 +1019,7 @@ func providerSheetPrimaryButton(c *ui.Context, key, label string, disabled bool,
 	if b.Clicked() {
 		action()
 	}
-	b.Children(func() { ui.Text(c, label).FontSize(TypeBody).TextColor(ThemeOnAccent(c)) })
+	b.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeBody)).TextColor(ThemeOnAccent(c)) })
 }
 
 // apiProviderSheetState 是 API 供应商面板一帧的状态快照；草稿字段来自编辑态，避免与后台保存竞争。
@@ -1147,7 +1147,7 @@ func apiProviderSheetSections(st *SettingsState, kind, id string) []providerShee
 						renderProviderBalancePanel(c, st, id)
 						if state.credits.BreakdownText != "" {
 							renderSettingRow(c, "row-provider-balance-breakdown", "明细", func() {
-								ui.Text(c, state.credits.BreakdownText).FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+								ui.Text(c, state.credits.BreakdownText).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 							})
 						}
 					}
@@ -1191,9 +1191,9 @@ func renderAPIProviderSheetFooter(c *ui.Context, st *SettingsState, kind, id str
 		Children(func() {
 			switch {
 			case state.errText != "":
-				ui.Text(c, state.errText).FontSize(TypeCaption).TextColor(ThemeDanger(c)).SingleLine()
+				ui.Text(c, state.errText).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c)).SingleLine()
 			case state.testErr != "":
-				ui.Text(c, state.testErr).FontSize(TypeCaption).TextColor(ThemeDanger(c)).SingleLine()
+				ui.Text(c, state.testErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c)).SingleLine()
 			case state.result != nil && state.result.OK:
 				ui.Row(c.Key("provider-sheet-status-ok")).
 					AlignItems(ui.Center).
@@ -1201,7 +1201,7 @@ func renderAPIProviderSheetFooter(c *ui.Context, st *SettingsState, kind, id str
 					Children(func() {
 						ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(ThemeSuccess(c))
 						ui.Text(c, fmt.Sprintf("%d ms · %d 个模型", state.result.Latency.Milliseconds(), len(state.result.Models))).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			case state.result != nil:
@@ -1209,7 +1209,7 @@ func renderAPIProviderSheetFooter(c *ui.Context, st *SettingsState, kind, id str
 				if msg == "" {
 					msg = "连接失败"
 				}
-				ui.Text(c, msg).FontSize(TypeCaption).TextColor(ThemeDanger(c)).SingleLine()
+				ui.Text(c, msg).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c)).SingleLine()
 			}
 		})
 	ui.Row(c.Key("provider-sheet-actions")).
@@ -1589,17 +1589,17 @@ func renderCustomEndpointRow(c *ui.Context, key, id, name string, ep CustomEndpo
 						Gap(Space1).
 						Children(func() {
 							ui.Text(c, name).
-								FontSize(TypeProse).
+								FontSize(uiFont(TypeProse)).
 								FontWeight(500).
 								TextColor(ThemePrimaryText(c)).
 								SingleLine()
 							ui.Text(c, providerSubtitleText(status)).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(summaryColor).
 								SingleLine()
 							if endpointText != "" {
 								ui.Text(c, endpointText).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c)).
 									SingleLine()
 							}
@@ -1608,7 +1608,7 @@ func renderCustomEndpointRow(c *ui.Context, key, id, name string, ep CustomEndpo
 									continue
 								}
 								ui.Text(c, line).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c)).
 									SingleLine()
 							}

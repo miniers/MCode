@@ -102,7 +102,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 			Padding(Space4, Space5, Space1, Space5).
 			Children(func() {
 				ui.Text(c, title).
-					FontSize(TypeProse).
+					FontSize(uiFont(TypeProse)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
 			})
@@ -178,11 +178,11 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Gap(Space1).
 					Children(func() {
 						ui.Text(c, "人设来源（可选）").
-							FontSize(TypeProse).
+							FontSize(uiFont(TypeProse)).
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c))
 						ui.Text(c, "本机 magpie 会自动读取；远端 magpie 请配置 web 管理接口，或粘贴人设列表").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})
 
@@ -204,7 +204,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(0, Space5, Space4, Space5).
 					Children(func() {
 						ui.Text(c, "明文 http 会暴露 web key，建议使用 https 或 SSH 隧道").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeWarning(c))
 					})
 			}
@@ -270,7 +270,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				}
 				personaTestBtn.Children(func() {
 					ui.Text(c, "测试并刷新").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeAccent(c))
 				})
 			})
@@ -280,7 +280,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(Space1, Space5).
 					Children(func() {
 						ui.Text(c, personaTestErr).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					})
 			} else if personaTestShown {
@@ -292,7 +292,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(Space1, Space5).
 					Children(func() {
 						ui.Text(c, text).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			}
@@ -317,7 +317,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				}
 				refreshBtn.Children(func() {
 					ui.Text(c, "刷新供应商").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			})
@@ -327,7 +327,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(Space2, Space5, Space4, Space5).
 					Children(func() {
 						ui.Text(c, "保存后可选择要在菜单栏展示额度的供应商").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			} else if quotaLoading {
@@ -335,7 +335,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(Space2, Space5, Space4, Space5).
 					Children(func() {
 						ui.Text(c, "正在读取网关供应商…").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			} else if quotaErr != "" {
@@ -343,7 +343,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(Space2, Space5, Space4, Space5).
 					Children(func() {
 						ui.Text(c, "读取额度供应商失败："+quotaErr).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					})
 			} else if len(quotaList) == 0 {
@@ -351,7 +351,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(Space2, Space5, Space4, Space5).
 					Children(func() {
 						ui.Text(c, "该网关暂无额度卡片").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			} else {
@@ -391,7 +391,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 			Padding(Space3, Space5).
 			Children(func() {
 				ui.Text(c, testErr).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			})
 	} else if mode != "persona" && mode != "connect" && testResult != nil {
@@ -409,7 +409,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 			Padding(Space3, Space5).
 			Children(func() {
 				ui.Text(c, text).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			})
 	}
@@ -422,7 +422,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 			Padding(Space3, Space5).
 			Children(func() {
 				ui.Text(c, editErr).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			})
 	}
@@ -458,7 +458,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				}
 				testBtn.Children(func() {
 					ui.Text(c, "测试连接").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				})
 
@@ -489,7 +489,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 			}
 			saveBtn.Children(func() {
 				ui.Text(c, saveLabel).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeOnAccent(c))
 			})
 
@@ -514,7 +514,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				}
 				cancelBtn.Children(func() {
 					ui.Text(c, "取消").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			}

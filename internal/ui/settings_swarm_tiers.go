@@ -245,7 +245,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 			AlignItems(ui.Start).
 			Children(func() {
 				ui.Text(c, formTitle).
-					FontSize(TypeProse).
+					FontSize(uiFont(TypeProse)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
 			})
@@ -255,7 +255,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 			Gap(Space1).
 			Children(func() {
 				ui.Text(c, "档位 ID").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 				TextField(c, TextFieldProps{
 					Key: "swarm-tier-id-" + popKey + "-input", Value: &uiSt.draft.ID,
@@ -270,7 +270,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 			Gap(Space1).
 			Children(func() {
 				ui.Text(c, "档位名称").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 				TextField(c, TextFieldProps{
 					Key: "swarm-tier-name-" + popKey + "-input", Value: &uiSt.draft.Name,
@@ -283,7 +283,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 			Gap(Space1).
 			Children(func() {
 				ui.Text(c, "用途说明").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 				TextField(c, TextFieldProps{
 					Key:         "area-swarm-tier-desc-" + popKey,
@@ -307,11 +307,11 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 					MaxWidth(260).Grow(1).
 					Children(func() {
 						ui.Text(c, "只读模式").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							FontWeight(500).
 							TextColor(ThemePrimaryText(c))
 						ui.Text(c, "只读档子代理在独立工作树里运行，改动一律丢弃").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 					})
 				toggleFunc(func(*SettingsState) (bool, bool) {
@@ -327,11 +327,11 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 				Gap(Space1).
 				Children(func() {
 					ui.Text(c, "写入白名单").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						FontWeight(500).
 						TextColor(ThemePrimaryText(c))
 					ui.Text(c, "每行一个路径通配，留空则不限制").
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c))
 					TextField(c, TextFieldProps{
 						Key:         "area-swarm-tier-writepaths-" + popKey,
@@ -351,7 +351,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 			Gap(Space2).
 			Children(func() {
 				ui.Text(c, "模型配置").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
 
@@ -394,7 +394,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 							}
 							btnClear.Children(func() {
 								ui.Text(c, "跟随会话").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							})
 						}
@@ -406,7 +406,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 			Gap(Space1).
 			Children(func() {
 				ui.Text(c, "档位要求 (可选)").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 				TextField(c, TextFieldProps{
 					Key:         "area-swarm-tier-prompt-" + popKey,
@@ -430,7 +430,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 						Size(Space4, Space4).
 						TextColor(ThemeDanger(c))
 					ui.Text(c, uiSt.saveError).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeDanger(c)).
 						Grow(1)
 				})
@@ -466,7 +466,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 							if deleteDisabled {
 								textColor = ThemeSecondaryText(c).Alpha(0.5)
 							}
-							ui.Text(c, "删除").FontSize(TypeFootnote).TextColor(textColor)
+							ui.Text(c, "删除").FontSize(uiFont(TypeFootnote)).TextColor(textColor)
 						})
 
 						if defaultTier, ok := defaultSwarmTier(uiSt.draft.ID); ok {
@@ -492,7 +492,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 								if resetDisabled {
 									textColor = textColor.Alpha(0.5)
 								}
-								ui.Text(c, "重置").FontSize(TypeFootnote).TextColor(textColor)
+								ui.Text(c, "重置").FontSize(uiFont(TypeFootnote)).TextColor(textColor)
 							})
 						}
 					})
@@ -514,7 +514,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 							st.invalidate()
 						}
 						btnCancel.Children(func() {
-							ui.Text(c, "取消").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, "取消").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 						})
 
 						btnSave := ui.ButtonBase(c.Key("btn-tier-save-"+popKey)).
@@ -535,7 +535,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 							st.invalidate()
 						}
 						btnSave.Children(func() {
-							ui.Text(c, "保存").FontSize(TypeFootnote).TextColor(ThemeOnAccent(c))
+							ui.Text(c, "保存").FontSize(uiFont(TypeFootnote)).TextColor(ThemeOnAccent(c))
 						})
 					})
 			})
@@ -578,7 +578,7 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 							Children(func() {
 								renderSwarmTierChip(c, "chip-"+tier.ID, tier.Name, tier.ID, tier.ReadOnly)
 								ui.Text(c, tier.ID).
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeSecondaryText(c))
 								if config.BuiltinTierCustomized(tier) {
 									ui.Box(c.Key("tier-customized-"+tier.ID)).
@@ -586,7 +586,7 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 								}
 								if tier.ReadOnly {
 									ui.Text(c, "只读").
-										FontSize(TypeCaption).
+										FontSize(uiFont(TypeCaption)).
 										TextColor(ThemeSecondaryText(c)).
 										Padding(Hairline, Space1).
 										Radius(RadiusXS).
@@ -595,7 +595,7 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 							})
 						if tier.Description != "" {
 							ui.Text(c, tier.Description).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c)).
 								SingleLine()
 						}
@@ -610,7 +610,7 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 						AlignItems(ui.Center).
 						Children(func() {
 							ui.Text(c, "跟随会话子代理模型").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								Italic().
 								TextColor(ThemeSecondaryText(c))
 						})
@@ -625,7 +625,7 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 							renderProviderIcon(c, tier.Provider, 14)
 							txt := swarmModelCapsuleText(providers, tier.Provider, tier.Model, tier.Effort, tier.FastMode)
 							ui.Text(c, txt).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemePrimaryText(c))
 						})
 				}

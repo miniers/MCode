@@ -172,7 +172,7 @@ func renderQuickReplies(c *ui.Context, s *chatState) {
 					}).
 					Children(func() {
 						ui.Text(c, item.Label).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							MaxLines(1).
 							TextColor(ThemeSecondaryText(c))
 					})

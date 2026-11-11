@@ -1117,7 +1117,7 @@ func completionSourceLabel(scope string) string {
 func renderCompletionFooterHint(c *ui.Context, key, kbd, label string) {
 	ui.Row(c.Key(key)).Gap(Space1).AlignItems(ui.Center).Label(kbd + " " + label).Children(func() {
 		Kbd(c, key+"-kbd", kbd)
-		ui.Text(c, label).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, label).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 	})
 }
 
@@ -1374,7 +1374,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 							if it.Category {
 								// 分类行单行展示，用次要色与更小字号，和叶子候选区分开。
 								ui.Text(c, it.Label).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 								return
 							}
@@ -1391,14 +1391,14 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 								labelColor = ThemeSecondaryText(c)
 							}
 							ui.Text(c, label).
-								FontSize(TypeBody).
+								FontSize(uiFont(TypeBody)).
 								TextColor(labelColor)
 
 							if reason != "" {
 								// 右侧说明换成失效原因，用危险色提示。
 								ui.Spacer(c)
 								ui.Text(c, reason).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeDanger(c))
 							} else if it.Detail != "" || it.Source != "" {
 								ui.Spacer(c)
@@ -1410,13 +1410,13 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 										Background(ThemeHover(c).Alpha(0.6)).
 										Children(func() {
 											ui.Text(c, source).
-												FontSize(TypeCaption).
+												FontSize(uiFont(TypeCaption)).
 												TextColor(ThemeSecondaryText(c))
 										})
 								}
 								if it.Detail != "" {
 									ui.Text(c, it.Detail).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 								}
 							}
@@ -1424,7 +1424,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 							// 高亮行的参数提示贴在该行右侧，沿用 Detail 的次要颜色与字号。
 							if idx == selected && it.Hint != "" && reason == "" {
 								ui.Text(c, it.Hint).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							}
 						})
@@ -1434,7 +1434,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 							Padding(Space1, Space3).
 							Children(func() {
 								ui.Text(c, "正在加载…").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							})
 					}
@@ -1447,7 +1447,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 						AlignItems(ui.Center).
 						Children(func() {
 							ui.Text(c, completionEmptyLabel(kind, scope)).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						})
 				} else if scrollable {

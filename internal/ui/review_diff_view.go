@@ -284,7 +284,7 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 						selectReviewFile(s, dp, tid, file.Path)
 					}
 					row.Children(func() {
-						ui.Text(c, file.Path).FontSize(TypeFootnote).SingleLine().TextColor(ThemePrimaryText(c))
+						ui.Text(c, file.Path).FontSize(uiFont(TypeFootnote)).SingleLine().TextColor(ThemePrimaryText(c))
 						renderDiffStatusBadge(c, file.Status)
 						renderReviewReadButton(c, s, dp, tid, snapshot, file, "list")
 					})
@@ -305,7 +305,7 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 							}
 							btn.Children(func() { ui.Icon(c, IconArrowLeft()).Size(IconSM, IconSM) })
 						}
-						ui.Text(c, path).SingleLine().Grow(1).FontSize(TypeFootnote)
+						ui.Text(c, path).SingleLine().Grow(1).FontSize(uiFont(TypeFootnote))
 						for _, file := range snapshot.Files {
 							if file.Path == path {
 								renderReviewReadButton(c, s, dp, tid, snapshot, file, "header")
@@ -322,7 +322,7 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 								dp.preferSplit = !dp.preferSplit
 								c.Invalidate()
 							}
-							btn.Children(func() { ui.Text(c, label).FontSize(TypeFootnote) })
+							btn.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeFootnote)) })
 						}
 					})
 					for _, file := range snapshot.Files {

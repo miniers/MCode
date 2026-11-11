@@ -220,6 +220,6 @@ func renderFileManagerSVGTab(c *ui.Context, s *chatState, tab fileManagerTabSnap
 		if previewMode == current {
 			color = ThemePrimaryText(c)
 		}
-		ui.Text(c, label).FontSize(TypeCaption).TextColor(color)
+		ui.Text(c, label).FontSize(uiFont(TypeCaption)).TextColor(color)
 	})
 }

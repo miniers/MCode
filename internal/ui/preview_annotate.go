@@ -455,7 +455,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 				BorderColor(ThemeBorder(c)).
 				Children(func() {
 					ui.Text(c, fmt.Sprintf("浏览器标注 (%d)", len(items))).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 
@@ -472,7 +472,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 						sendItems = true
 					}
 					sendBtn.Children(func() {
-						ui.Text(c, "添加到对话").FontSize(TypeCaption).FontWeight(600).TextColor(ThemeAccent(c))
+						ui.Text(c, "添加到对话").FontSize(uiFont(TypeCaption)).FontWeight(600).TextColor(ThemeAccent(c))
 					})
 
 					clearBtn := ui.ButtonBase(c.Key("preview-annotate-clear")).
@@ -487,7 +487,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 						clearItems = true
 					}
 					clearBtn.Children(func() {
-						ui.Text(c, "清空").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, "清空").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 					})
 
 					hideBtn := ui.ButtonBase(c.Key("preview-annotate-hide")).
@@ -502,7 +502,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 						closeDrawer = true
 					}
 					hideBtn.Children(func() {
-						ui.Text(c, "收起").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, "收起").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 					})
 				})
 
@@ -513,7 +513,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 				Children(func() {
 					if len(items) == 0 {
 						ui.Text(c, "点工具栏「标注」开始，然后在页面上点击要修改的元素。").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 						return
 					}
@@ -547,7 +547,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 
 								ui.TextInput(c.Key(fmt.Sprintf("preview-annotate-comment-%d", item.id)), &items[idx].Comment).
 									Placeholder("对这个元素的评论...").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									Grow(1)
 
 								removeBtn := ui.ButtonBase(c.Key(fmt.Sprintf("preview-annotate-remove-%d", item.id))).

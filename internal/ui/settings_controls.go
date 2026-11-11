@@ -258,7 +258,7 @@ func (n numberControl) renderDisabled(c *ui.Context, st *SettingsState, s settin
 			Disabled:    disabled,
 		})
 		if n.unit != "" {
-			ui.Text(c, n.unit).FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, n.unit).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 		}
 	})
 	if disabled || txt == oldTxt {
@@ -546,7 +546,7 @@ func link(value func(st *SettingsState) string, sheet string) linkControl {
 
 func (l linkControl) render(c *ui.Context, st *SettingsState, s setting) {
 	ui.Row(c.Key(s.ID + "-link-body")).AlignItems(ui.Center).Gap(Space1).Children(func() {
-		ui.Text(c, l.value(st)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).SingleLine()
+		ui.Text(c, l.value(st)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine()
 		ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 	})
 }

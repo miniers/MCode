@@ -47,7 +47,12 @@ func segmentedControl(c *ui.Context, key any, selected *int, segments []Segment,
 	if selected == nil {
 		selected = new(int)
 	}
+	// -1 用于用户主题生效时取消内置主题的选中态。
+	unselected := *selected < 0
 	parts := ui.SegmentedBase(ctx, selected, len(segments))
+	if unselected {
+		*selected = -1
+	}
 	track := parts.Track.Padding(Space0).Gap(Space0).Radius(RadiusMD).
 		Background(ThemeOverlay(c, OverlaySubtle))
 	track.Children(func() {
@@ -71,9 +76,9 @@ func segmentedControl(c *ui.Context, key any, selected *int, segments []Segment,
 				item.Border(1, ThemeAccent(c))
 			}
 			item.Children(func() {
-				ui.Text(c, segment.Label).FontSize(TypeBody).TextColor(color).SingleLine()
+				ui.Text(c, segment.Label).FontSize(uiFont(TypeBody)).TextColor(color).SingleLine()
 				if segment.Count > 0 {
-					ui.Text(c, strconv.Itoa(segment.Count)).FontSize(TypeCaption).TextColor(color).SingleLine().Transition(motionFeedback(c))
+					ui.Text(c, strconv.Itoa(segment.Count)).FontSize(uiFont(TypeCaption)).TextColor(color).SingleLine().Transition(motionFeedback(c))
 				}
 			})
 		}

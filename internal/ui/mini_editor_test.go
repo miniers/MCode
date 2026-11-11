@@ -220,12 +220,13 @@ func TestMiniEditorEditorFontSize(t *testing.T) {
 func TestMiniEditorUsesStagedWorkbench(t *testing.T) {
 	s := newChatState(nil)
 	settings := NewSettingsState(settingsTestDir(t), nil, s)
-	settings.cfg.Workbench.EditorFontSize = 15
+	off := false
+	settings.cfg.Workbench.EditorAutoSave = &off
 	setChatSettings(s, settings)
 
 	s.stageMiniEditorWorkbench()
 	st := newMiniEditorState(filepath.Join(t.TempDir(), "a.go"))
-	if st.workbench.EditorFontSize != 15 {
+	if st.workbench.EditorAutoSave == nil || *st.workbench.EditorAutoSave {
 		t.Fatalf("编辑器应使用会话设置快照: %+v", st.workbench)
 	}
 }

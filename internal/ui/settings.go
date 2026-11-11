@@ -1215,13 +1215,13 @@ func renderSettingsNavHits(c *ui.Context, st *SettingsState, hits []settingsItem
 		hitRow.Children(func() {
 			ui.Box(c.Key("settings-nav-hit-indent-" + hit.Item.ID)).Width(Space6)
 			ui.Text(c, hit.Item.Title).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				SingleLine().
 				TextColor(ThemeSecondaryText(c)).
 				Grow(1)
 			if hit.Item.Section != "" {
 				ui.Text(c, hit.Item.Section).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					SingleLine().
 					TextColor(ThemeTertiaryText(c))
 			}
@@ -1229,7 +1229,7 @@ func renderSettingsNavHits(c *ui.Context, st *SettingsState, hits []settingsItem
 	}
 	if more := len(hits) - len(shown); more > 0 {
 		ui.Text(c, fmt.Sprintf("还有 %d 项", more)).
-			FontSize(TypeCaption).
+			FontSize(uiFont(TypeCaption)).
 			TextColor(ThemeSecondaryText(c)).
 			Padding(Space1, settingsFieldTrailingPad, Space2, Space3)
 	}
@@ -1345,7 +1345,7 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 				renderSettingsNavItem(c, st, item, hitsByPage[item.id])
 			}
 			if len(visible) == 0 {
-				ui.Text(c, "无匹配结果").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).Padding(Space4, Space3)
+				ui.Text(c, "无匹配结果").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Padding(Space4, Space3)
 			}
 		})
 		if st.chat != nil {
@@ -1413,7 +1413,7 @@ func renderSettingsNavItem(c *ui.Context, st *SettingsState, item settingsNavDef
 			}
 		}
 		tElem := ui.Text(c, title).
-			FontSize(settingsNavTitleFontSize).
+			FontSize(uiFont(settingsNavTitleFontSize)).
 			SingleLine().
 			Grow(1)
 		if isSelected {
@@ -1481,7 +1481,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 						AlignItems(ui.Center).
 						Children(func() {
 							ui.Text(c, title).
-								FontSize(TypePageTitle).
+								FontSize(uiFont(TypePageTitle)).
 								FontWeight(500).
 								TextColor(ThemePrimaryText(c)).
 								Grow(1)
@@ -1516,7 +1516,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 								}
 								refreshBtn.Children(func() {
 									ui.Text(c, refreshLabel).
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										TextColor(ThemeAccent(c))
 								})
 							}
@@ -1530,7 +1530,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 							Children(func() {
 								ui.Text(c, st.errorMessage).
 									TextColor(ThemeDanger(c)).
-									FontSize(TypeBody)
+									FontSize(uiFont(TypeBody))
 							})
 					}
 
@@ -1543,7 +1543,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 							Children(func() {
 								ui.Text(c, st.configWarning).
 									TextColor(ThemeWarning(c)).
-									FontSize(TypeBody)
+									FontSize(uiFont(TypeBody))
 							})
 					}
 

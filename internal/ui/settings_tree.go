@@ -285,7 +285,7 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 				sh.Header(c, st)
 			} else {
 				ui.Text(c, sh.Title).
-					FontSize(TypeTitle).
+					FontSize(uiFont(TypeTitle)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c)).
 					Grow(1).

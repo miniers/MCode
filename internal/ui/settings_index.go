@@ -61,6 +61,28 @@ func settingsItems() []settingsItem {
 // settings_index_test.go 会解析源码里的行 key 与本表做双向比对，保证不漏不残。
 func settingsLegacyItems() []settingsItem {
 	return []settingsItem{
+		{ID: "row-theme-color-canvas", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "窗口", Aliases: []string{"颜色", "主题", "canvas"}},
+		{ID: "row-theme-color-main", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "主区域", Aliases: []string{"颜色", "主题", "main"}},
+		{ID: "row-theme-color-card", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "卡片", Aliases: []string{"颜色", "主题", "card"}},
+		{ID: "row-theme-color-raised", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "浮起", Aliases: []string{"颜色", "主题", "raised"}},
+		{ID: "row-theme-color-popover", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "浮层", Aliases: []string{"颜色", "主题", "popover"}},
+		{ID: "row-theme-color-text", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "主文字", Aliases: []string{"颜色", "主题", "text"}},
+		{ID: "row-theme-color-text_secondary", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "次要文字", Aliases: []string{"颜色", "主题", "text_secondary"}},
+		{ID: "row-theme-color-text_tertiary", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "辅助文字", Aliases: []string{"颜色", "主题", "text_tertiary"}},
+		{ID: "row-theme-color-accent", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "强调色", Aliases: []string{"颜色", "主题", "accent"}},
+		{ID: "row-theme-color-danger", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "危险", Aliases: []string{"颜色", "主题", "danger"}},
+		{ID: "row-theme-color-warning", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "警告", Aliases: []string{"颜色", "主题", "warning"}},
+		{ID: "row-theme-color-success", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "成功", Aliases: []string{"颜色", "主题", "success"}},
+		{ID: "row-theme-color-caution", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "提醒", Aliases: []string{"颜色", "主题", "caution"}},
+		{ID: "row-theme-color-plan", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "Plan", Aliases: []string{"颜色", "主题", "plan"}},
+		{ID: "row-theme-color-border", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "边框", Aliases: []string{"颜色", "主题", "border"}},
+		{ID: "row-theme-color-divider", Page: "appearance", Sheet: "themes", Section: "颜色", Title: "分隔线", Aliases: []string{"颜色", "主题", "divider"}},
+		{ID: "row-theme-font-sidebar", Page: "appearance", Sheet: "themes", Section: "字号", Title: "侧栏字号", Aliases: []string{"字号", "字体", "缩放", "sidebar"}},
+		{ID: "row-theme-font-conversation", Page: "appearance", Sheet: "themes", Section: "字号", Title: "对话字号", Aliases: []string{"字号", "字体", "缩放", "conversation"}},
+		{ID: "row-theme-font-interface", Page: "appearance", Sheet: "themes", Section: "字号", Title: "界面字号", Aliases: []string{"字号", "字体", "缩放", "interface"}},
+		{ID: "row-theme-font-code", Page: "appearance", Sheet: "themes", Section: "字号", Title: "代码字号", Aliases: []string{"字号", "字体", "缩放", "code"}},
+		{ID: "row-theme-font-terminal", Page: "appearance", Sheet: "themes", Section: "字号", Title: "终端字号", Aliases: []string{"字号", "字体", "缩放", "terminal"}},
+		{ID: "row-theme-font-editor", Page: "appearance", Sheet: "themes", Section: "字号", Title: "编辑器字号", Aliases: []string{"字号", "字体", "缩放", "editor"}},
 		// ---- 工作台：打开方式（按应用循环的模板行） ----
 		{ID: "row-openin-", Page: "workbench", Sheet: "open-in", Section: "打开方式", Title: "打开方式", Aliases: []string{"应用", "外部编辑器"}, Dynamic: true},
 		// ---- 工作台：快捷回复（列表区） ----

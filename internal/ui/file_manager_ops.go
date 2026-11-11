@@ -320,13 +320,13 @@ func renderFileManagerOpsDialog(c *ui.Context, s *chatState) {
 			Gap(Space4).
 			Children(func() {
 				ui.Text(c, title).
-					FontSize(TypeTitle).
+					FontSize(uiFont(TypeTitle)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
 
 				if destructive {
 					ui.Text(c, "确定把 "+ops.targetPath+" 移到废纸篓吗？").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemePrimaryText(c)).
 						Wrap()
 				} else {
@@ -356,7 +356,7 @@ func renderFileManagerOpsDialog(c *ui.Context, s *chatState) {
 								Size(IconSM, IconSM).
 								TextColor(ThemeDanger(c))
 							ui.Text(c, ops.err).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeDanger(c)).
 								Wrap()
 						})

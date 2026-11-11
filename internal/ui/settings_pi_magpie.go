@@ -508,7 +508,7 @@ func renderMagpieRefreshButton(c *ui.Context, st *SettingsState, agent, key stri
 			color = ThemeAccent(c)
 		}
 		ui.Text(c, label).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(color)
 	})
 }
@@ -519,7 +519,7 @@ func renderPiMagpieNotice(c *ui.Context, key, text string, color ui.Color) {
 		Padding(0, Space5, Space4, Space5).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(color)
 		})
 }

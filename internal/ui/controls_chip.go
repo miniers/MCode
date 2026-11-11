@@ -108,7 +108,7 @@ func Capsule(c *ui.Context, p CapsuleProps) ui.Element {
 		} else if p.Icon != nil {
 			ui.Icon(c, p.Icon).Size(IconSM, IconSM).TextColor(fg)
 		}
-		ui.Text(c, p.Text).FontSize(font).TextColor(fg).SingleLine()
+		ui.Text(c, p.Text).FontSize(uiFont(font)).TextColor(fg).SingleLine()
 		if p.Dismissible {
 			close := ui.ButtonBase(c).Label("关闭 "+p.Text).
 				Size(ControlSM, ControlSM).Radius(RadiusPill).OnClick(p.OnDismiss)
@@ -131,7 +131,7 @@ func Badge(c *ui.Context, key any, text string, tone Tone) ui.Element {
 	fg, bg, _ := toneColors(c, tone)
 	return ui.Row(ctx).Label(text).Padding(Space0, Space2).Radius(RadiusXS).
 		Background(bg).Children(func() {
-		ui.Text(c, text).FontSize(TypeCaption).TextColor(fg).SingleLine()
+		ui.Text(c, text).FontSize(uiFont(TypeCaption)).TextColor(fg).SingleLine()
 	})
 }
 

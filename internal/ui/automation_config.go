@@ -48,16 +48,16 @@ func automationConfigLines(a Automation) []string {
 
 func renderAutomationConfig(c *ui.Context, a Automation) {
 	ui.Column(c.Key("automation-config")).FillWidth().Gap(Space7).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
-		ui.Text(c, a.Prompt).FontSize(TypeBody).FillWidth().TextColor(ThemePrimaryText(c)).Selectable()
+		ui.Text(c, a.Prompt).FontSize(uiFont(TypeBody)).FillWidth().TextColor(ThemePrimaryText(c)).Selectable()
 		section := func(key, title string, body func()) {
 			ui.Column(c.Key(key)).FillWidth().Gap(Space3).Children(func() {
-				ui.Text(c, title).FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
+				ui.Text(c, title).FontSize(uiFont(TypeBody)).FontWeight(500).TextColor(ThemePrimaryText(c))
 				body()
 			})
 		}
 		field := func(name, value string) {
 			if strings.TrimSpace(value) != "" {
-				ui.Text(c, name+"："+value).FontSize(TypeFootnote).FillWidth().TextColor(ThemePrimaryText(c)).Selectable()
+				ui.Text(c, name+"："+value).FontSize(uiFont(TypeFootnote)).FillWidth().TextColor(ThemePrimaryText(c)).Selectable()
 			}
 		}
 		section("automation-config-schedule", "计划", func() {
@@ -81,7 +81,7 @@ func renderAutomationConfig(c *ui.Context, a Automation) {
 				field("权限", automationRuntimeModeLabel(a.RuntimeMode))
 			}
 			if a.RunMode == "heartbeat" {
-				ui.Text(c, "心跳模式沿用原会话设置").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "心跳模式沿用原会话设置").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			}
 		})
 		section("automation-config-limits", "停止与补跑", func() {

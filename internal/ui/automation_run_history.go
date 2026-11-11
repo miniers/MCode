@@ -107,7 +107,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 	ui.Column(c.Key("automation-runs-section")).FillWidth().Gap(Space3).Children(func() {
 		if errText != "" {
 			ui.Row(c.Key("automation-runs-action-error")).FillWidth().Gap(Space2).Children(func() {
-				ui.Text(c, errText).FontSize(TypeCaption).TextColor(ThemeDanger(c)).Grow(1)
+				ui.Text(c, errText).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c)).Grow(1)
 				Button(c.Key("automation-runs-retry"), ButtonOpts{Text: "重试", Label: "重试", OnClick: retry, Variant: ButtonSecondary, Size: ControlXS})
 			})
 		}
@@ -141,11 +141,11 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 				} else if run.Status != "running" {
 					end = "—"
 				}
-				ui.Text(c, run.StartedAt.Local().Format("2006-01-02 15:04:05")+" → "+end+" · "+automationRunDuration(run)).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, run.StartedAt.Local().Format("2006-01-02 15:04:05")+" → "+end+" · "+automationRunDuration(run)).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 				if badge := automationRunTriggerBadge(run); badge != "" {
-					ui.Text(c, badge).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, badge).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 				} else if run.Trigger == "scheduled" {
-					ui.Text(c, "计划").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, "计划").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 				}
 				for _, part := range []struct{ key, label, text string }{{"summary", "摘要", run.Summary}, {"error", "错误", run.Error}} {
 					if part.text == "" {
@@ -157,10 +157,10 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 							if part.key == "error" {
 								ui.Icon(c, IconCircleX()).Size(IconSM, IconSM).TextColor(ThemeDanger(c))
 							}
-							ui.Text(c, part.label).Grow(1).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, part.label).Grow(1).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 							CopyButton(c, CopyButtonProps{Key: "run-copy-" + part.key, Label: "复制" + part.label, Text: "复制", Value: func() string { return part.text }})
 						})
-						ui.Text(c, part.text).FillWidth().Shrink(1).FontSize(TypeBody).TextColor(ThemePrimaryText(c)).Selectable()
+						ui.Text(c, part.text).FillWidth().Shrink(1).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Selectable()
 					})
 				}
 			})
@@ -193,7 +193,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 					}
 					value := includeArchived
 					ui.Switch(c.Key("automation-runs-include-archived"), &value).Label("显示已归档运行记录")
-					ui.Text(c, "显示已归档").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, "显示已归档").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 					if value != includeArchived {
 						automationMu.Lock()
 						as.includeArchived = value
@@ -218,11 +218,11 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 			return
 		}
 		if runsErr != "" {
-			ui.Text(c, "加载记录失败: "+runsErr).FontSize(TypeCaption).TextColor(ThemeDanger(c))
+			ui.Text(c, "加载记录失败: "+runsErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
 			return
 		}
 		if len(runs) == 0 {
-			ui.Text(c, "暂无运行记录").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "暂无运行记录").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 			return
 		}
 		ordered := append([]AutomationRun(nil), runs...)
@@ -243,7 +243,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 				shown++
 				day := automationRunDate(run.StartedAt, time.Now())
 				if day != lastDay {
-					ui.Text(c, day).FontSize(TypeFootnote).FontWeight(weightFor(c, 500)).TextColor(ThemeSecondaryText(c)).Margin(Space5, 0, Space2, 0)
+					ui.Text(c, day).FontSize(uiFont(TypeFootnote)).FontWeight(weightFor(c, 500)).TextColor(ThemeSecondaryText(c)).Margin(Space5, 0, Space2, 0)
 					lastDay = day
 				}
 				open := func() {
@@ -270,7 +270,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 					narrow := row.Bounds().W < 700
 					renderSummary := func() {
 						if summary != "" {
-							ui.Text(c, summary).FontSize(TypeBody).TextColor(ThemeSecondaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+							ui.Text(c, summary).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 						}
 					}
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
@@ -295,16 +295,16 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 							if unread {
 								weight = weightFor(c, 500)
 							}
-							ui.Text(c, status).FontSize(TypeBody).FontWeight(weight).TextColor(ThemePrimaryText(c)).SingleLine()
+							ui.Text(c, status).FontSize(uiFont(TypeBody)).FontWeight(weight).TextColor(ThemePrimaryText(c)).SingleLine()
 						})
 						ui.Row(c.Key("run-start-" + run.ID)).Shrink(0).Children(func() {
-							ui.Text(c, run.StartedAt.Local().Format("15:04")).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, run.StartedAt.Local().Format("15:04")).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 						})
 						duration := automationRunDuration(run)
 						if duration == "运行中" {
 							duration = "—"
 						}
-						ui.Row(c.Key("run-duration-" + run.ID)).Shrink(0).Children(func() { ui.Text(c, duration).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)) })
+						ui.Row(c.Key("run-duration-" + run.ID)).Shrink(0).Children(func() { ui.Text(c, duration).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)) })
 						if narrow || summary == "" {
 							ui.Box(c).Grow(1)
 						} else {
@@ -328,10 +328,10 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 				})
 			}
 			if shown == 0 {
-				ui.Text(c, "最近 100 条中无匹配").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "最近 100 条中无匹配").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 			}
 			if len(runs) >= 100 {
-				ui.Text(c, "仅显示最近 100 条").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "仅显示最近 100 条").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 			}
 		})
 	})

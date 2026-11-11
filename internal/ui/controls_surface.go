@@ -11,7 +11,7 @@ func SectionCard(c *ui.Context, key any, title string, body func()) ui.Element {
 	return ui.Column(ctx).FillWidth().Radius(RadiusLG).Background(ThemeSurfaceCard(c)).
 		Border(Space1/4, ThemeBorder(c)).Children(func() {
 		if title != "" {
-			ui.Text(c, title).FontSize(TypeFootnote).FontWeight(600).
+			ui.Text(c, title).FontSize(uiFont(TypeFootnote)).FontWeight(600).
 				TextColor(ThemeSecondaryText(c)).Margin(Space4, Space4, 0, Space4)
 		}
 		if body != nil {
@@ -58,7 +58,7 @@ func Banner(c *ui.Context, p BannerProps) ui.Element {
 	return ui.Row(ctx).FillWidth().Radius(RadiusMD).Padding(Space3, Space4).Gap(Space3).
 		AlignItems(ui.Center).Background(color.Alpha(0.1)).Border(Space1/4, color.Alpha(0.2)).Children(func() {
 		ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(color)
-		ui.Text(c, p.Text).Grow(1).FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+		ui.Text(c, p.Text).Grow(1).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 		if p.Action != "" {
 			Button(c, ButtonOpts{Text: p.Action, Variant: ButtonGhost, Size: ControlSM, OnClick: p.OnAction})
 		}

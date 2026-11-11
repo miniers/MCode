@@ -185,7 +185,7 @@ func renderBeeWindow(c *ui.Context, parent *chatState, beeID string, child *chat
 			BorderColor(ThemeBorder(c)).
 			Children(func() {
 				if !found {
-					ui.Text(c, "子代理").FontSize(TypeFootnote).FontWeight(600).TextColor(ThemeSecondaryText(c)).SingleLine()
+					ui.Text(c, "子代理").FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemeSecondaryText(c)).SingleLine()
 					return
 				}
 				persona := findSwarmPersona(bee.Name)
@@ -196,10 +196,10 @@ func renderBeeWindow(c *ui.Context, parent *chatState, beeID string, child *chat
 					statusColor = ThemeAccent(c)
 				}
 				renderSwarmGlyph(c, "bee-window-glyph-"+bee.ThreadID, bee, 18)
-				ui.Text(c, bee.Name).FontSize(TypeFootnote).FontWeight(600).TextColor(persona.Color).SingleLine()
-				ui.Text(c, statusText).FontSize(TypeCaption).FontWeight(500).TextColor(statusColor)
+				ui.Text(c, bee.Name).FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(persona.Color).SingleLine()
+				ui.Text(c, statusText).FontSize(uiFont(TypeCaption)).FontWeight(500).TextColor(statusColor)
 				if d := formatSwarmDuration(bee.StartedAt, bee.FinishedAt); d != "" {
-					ui.Text(c, d).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c).Alpha(0.8))
+					ui.Text(c, d).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c).Alpha(0.8))
 				}
 			})
 
@@ -212,7 +212,7 @@ func renderBeeWindow(c *ui.Context, parent *chatState, beeID string, child *chat
 					Justify(ui.Center).
 					AlignItems(ui.Center).
 					Children(func() {
-						ui.Text(c, "子代理已结束或不存在").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, "子代理已结束或不存在").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 					})
 			default:
 				renderBeeTimeline(c, child, bee)

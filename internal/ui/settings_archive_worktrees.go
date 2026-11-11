@@ -350,7 +350,7 @@ func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
 			AlignItems(ui.Center).
 			Children(func() {
 				ui.Text(c, "扫描各项目遗留的 Worktree（孤立目录、已合入、有未提交改动），勾选后可彻底删除并回收磁盘空间；正在被会话使用的 Worktree 不可选择。").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					Grow(1)
 
@@ -385,7 +385,7 @@ func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
 		switch {
 		case client == nil:
 			ui.Text(c, "客户端不可用，无法扫描 Worktree。").
-				FontSize(TypeBody).
+				FontSize(uiFont(TypeBody)).
 				TextColor(ThemeSecondaryText(c)).
 				Padding(settingsCompactPadX, Space5)
 		case scanning:
@@ -403,7 +403,7 @@ func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, "扫描失败："+scanErr).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeDanger(c)).
 						Grow(1)
 					Button(c.Key("btn-archive-wt-retry"), ButtonOpts{
@@ -415,7 +415,7 @@ func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
 				})
 		case len(items) == 0:
 			ui.Text(c, "没有发现遗留的 Worktree。").
-				FontSize(TypeBody).
+				FontSize(uiFont(TypeBody)).
 				TextColor(ThemeSecondaryText(c)).
 				Padding(settingsCompactPadX, Space5)
 		default:
@@ -453,12 +453,12 @@ func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
 						color = ThemeWarning(c)
 					}
 					ui.Text(c, resultText).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						FontWeight(500).
 						TextColor(color)
 					for _, line := range resultFailed {
 						ui.Text(c, line).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeDanger(c))
 					}
 				})
@@ -498,7 +498,7 @@ func renderArchiveWorktreeRow(c *ui.Context, st *SettingsState, it archiveWorktr
 
 			ui.Column(c.Key(key + "-info")).Grow(1).Gap(Space0).Children(func() {
 				ui.Text(c, it.Path).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
 					SingleLine()
 				branch := it.Branch
@@ -506,13 +506,13 @@ func renderArchiveWorktreeRow(c *ui.Context, st *SettingsState, it archiveWorktr
 					branch = "（未关联分支）"
 				}
 				ui.Text(c, branch).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
 			})
 
 			ui.Text(c, formatFileSize(it.SizeBytes)).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c))
 
 			if it.InUse {
@@ -574,12 +574,12 @@ func renderArchiveWorktreeConfirmModal(c *ui.Context, st *SettingsState, targets
 				Background(ThemeDanger(c).Alpha(0.12)).
 				Children(func() {
 					ui.Text(c, fmt.Sprintf("其中 %d 个存在未提交改动，删除后这些改动将无法恢复：", len(dirtyItems))).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						FontWeight(600).
 						TextColor(ThemeDanger(c))
 					for _, it := range dirtyItems {
 						ui.Text(c, it.Path).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeDanger(c)).
 							SingleLine()
 					}

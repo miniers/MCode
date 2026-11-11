@@ -58,14 +58,14 @@ func renderLegacyDiffFile(c *ui.Context, s *chatState, dp *diffPanelState, file 
 			c.Invalidate()
 		}
 		btn.Children(func() {
-			ui.Text(c, path).SingleLine().FontSize(TypeFootnote)
+			ui.Text(c, path).SingleLine().FontSize(uiFont(TypeFootnote))
 			adds, dels := file.Additions, file.Deletions
 			if adds == 0 && dels == 0 {
 				stats := toolDiffFileStatsFor(file)
 				adds, dels = stats.adds, stats.dels
 			}
-			ui.Text(c, fmt.Sprintf("+%d", adds)).TextColor(ThemeSuccess(c)).FontSize(TypeFootnote)
-			ui.Text(c, fmt.Sprintf("-%d", dels)).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+			ui.Text(c, fmt.Sprintf("+%d", adds)).TextColor(ThemeSuccess(c)).FontSize(uiFont(TypeFootnote))
+			ui.Text(c, fmt.Sprintf("-%d", dels)).TextColor(ThemeDanger(c)).FontSize(uiFont(TypeFootnote))
 		})
 		if collapsed {
 			return
@@ -174,6 +174,6 @@ func renderPatchSummary(c *ui.Context, key string, file git.FileDiff) {
 		}
 	}
 	if remaining := diffFileLineCount(file) - shown; remaining > 0 {
-		ui.Text(c, fmt.Sprintf("已截断，还有 %d 行未显示", remaining)).FontSize(TypeCaption).TextColor(ThemeWarning(c))
+		ui.Text(c, fmt.Sprintf("已截断，还有 %d 行未显示", remaining)).FontSize(uiFont(TypeCaption)).TextColor(ThemeWarning(c))
 	}
 }

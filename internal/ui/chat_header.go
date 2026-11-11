@@ -128,7 +128,7 @@ func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 		in := ui.TextInput(c.Key("chat-header-title-input"), &hs.editTitle).
 			Label("会话标题").
 			Placeholder("输入会话标题...").
-			FontSize(TypeTitle).
+			FontSize(uiFont(TypeTitle)).
 			TextColor(ThemePrimaryText(c)).
 			Background(ThemeHover(c).Alpha(0.25)).
 			BorderColor(ThemeAccent(c)).
@@ -220,7 +220,7 @@ func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 	btn.Children(func() {
 		ui.Text(c, title).
 			TextColor(textColor).
-			FontSize(TypeTitle).
+			FontSize(uiFont(TypeTitle)).
 			FontWeight(600).
 			SingleLine()
 	})
@@ -278,7 +278,7 @@ func renderChatHeaderParentChip(c *ui.Context, s *chatState) {
 	chip.Children(func() {
 		ui.Icon(c, IconArrowLeft()).Size(10, 10).TextColor(ThemeAccent(c))
 		ui.Text(c, truncateParentThreadTitle(parent.Title)).
-			FontSize(TypeCaption).
+			FontSize(uiFont(TypeCaption)).
 			FontWeight(500).
 			TextColor(ThemePrimaryText(c)).
 			SingleLine()
@@ -733,7 +733,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 							FillWidth().
 							Children(func() {
 								ui.Text(c, "分支").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									Bold().
 									TextColor(ThemeSecondaryText(c)).
 									Padding(Space1, Space3, Space0, Space3)
@@ -764,7 +764,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 
 								if len(st.Worktrees) > 0 {
 									ui.Text(c, "Worktree").
-										FontSize(TypeCaption).
+										FontSize(uiFont(TypeCaption)).
 										Bold().
 										TextColor(ThemeSecondaryText(c)).
 										Padding(Space3, Space3, Space0, Space3)
@@ -810,7 +810,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 												in := ui.TextInput(c.Key("chat-header-git-move-wt-input"), &hs.wtBranch).
 													Label("Worktree 分支名").
 													Placeholder("留空自动生成").
-													FontSize(TypeFootnote).
+													FontSize(uiFont(TypeFootnote)).
 													TextColor(ThemePrimaryText(c)).
 													Background(ThemeHover(c).Alpha(0.25)).
 													BorderColor(ThemeAccent(c)).
@@ -836,7 +836,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 													Children(func() {
 														ui.Toggle(c.Key("chat-header-git-move-wt-transfer-check"), &hs.wtTransfer, "同时迁移未提交的改动")
 														ui.Text(c, "同时迁移未提交的改动").
-															FontSize(TypeFootnote).
+															FontSize(uiFont(TypeFootnote)).
 															TextColor(ThemePrimaryText(c))
 													})
 												Button(c.Key("chat-header-git-move-wt-confirm"), ButtonOpts{
@@ -918,13 +918,13 @@ func renderGitMenuOption(c *ui.Context, key, label, title, detail string, curren
 					ui.Box(c.Key(key+"-check-placeholder")).Size(14, 14)
 				}
 				ui.Text(c, title).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
 					Grow(1).
 					SingleLine()
 				if detail != "" {
 					ui.Text(c, detail).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c)).
 						MaxWidth(96).
 						SingleLine()
@@ -952,7 +952,7 @@ func renderGitCountBadge(c *ui.Context, key string, count int) {
 		Background(ThemeAccent(c)).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(600).
 				TextColor(ThemeOnAccent(c)).
 				SingleLine().
@@ -969,7 +969,7 @@ func renderGitError(c *ui.Context, key, msg string) {
 		Background(ThemeDanger(c).Alpha(0.12)).
 		Children(func() {
 			ui.Text(c, msg).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeDanger(c))
 		})
 }
@@ -1065,7 +1065,7 @@ func renderGitCommitButton(c *ui.Context, s *chatState, hs *chatHeaderState, thr
 					Width(gitMenuWidth).
 					Children(func() {
 						ui.Text(c, fmt.Sprintf("已更改 %d 个文件", changed)).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c)).
 							Padding(Space1, Space3)
@@ -1244,7 +1244,7 @@ func renderGitPushPRConfirm(c *ui.Context, s *chatState, st GitState) {
 		Padding(Space0, Space3).
 		Children(func() {
 			ui.Text(c, fmt.Sprintf("将推送当前分支 %s 到远端，并用 gh/glab 创建 PR/MR。确认继续？", gitBranchLabel(st))).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c))
 			ui.Row(c.Key("chat-header-push-pr-confirm-actions")).
 				Gap(Space2).
@@ -1343,7 +1343,7 @@ func renderGitMenuItem(c *ui.Context, key string, p gitMenuItemProps) {
 			ui.Box(c.Key(key+"-icon-placeholder")).Size(16, 16)
 		}
 		ui.Text(c, p.Label).
-			FontSize(TypeBody).
+			FontSize(uiFont(TypeBody)).
 			TextColor(ThemePrimaryText(c)).
 			Grow(1).
 			SingleLine()
@@ -1702,7 +1702,7 @@ func renderHeaderPermissionCapsule(c *ui.Context, s *chatState, threadID string)
 							FillWidth().
 							Children(func() {
 								ui.Text(c, "权限").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									FontWeight(600).
 									TextColor(ThemeSecondaryText(c)).
 									Padding(Space2, Space3, Space1, Space3)
@@ -1743,7 +1743,7 @@ func renderHeaderPermissionCapsule(c *ui.Context, s *chatState, threadID string)
 												}
 												ui.Icon(c, permissionModeIcon(o.mode)).Size(16, 16).TextColor(ThemeSecondaryText(c))
 												ui.Text(c, o.title).
-													FontSize(TypeBody).
+													FontSize(uiFont(TypeBody)).
 													TextColor(ThemePrimaryText(c)).
 													SingleLine()
 											})
@@ -1765,7 +1765,7 @@ func renderHeaderPersonaSection(c *ui.Context, s *chatState, hs *chatHeaderState
 	}
 	gitMenuDivider(c)
 	ui.Text(c, "人设").
-		FontSize(TypeCaption).
+		FontSize(uiFont(TypeCaption)).
 		FontWeight(600).
 		TextColor(ThemeSecondaryText(c)).
 		Padding(Space2, Space3, Space1, Space3)
@@ -1821,7 +1821,7 @@ func renderHeaderPersonaOption(c *ui.Context, s *chatState, hs *chatHeaderState,
 					ui.Box(c.Key(key+"-check")).Size(14, 14)
 				}
 				ui.Text(c, label).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
 					SingleLine()
 			})
@@ -2298,7 +2298,7 @@ func renderChatThreadsPopover(c *ui.Context, s *chatState) {
 	ui.Scroll(c.Key("chat-header-threads-scroll")).MaxHeight(max(100, height-120)).Children(func() {
 		ui.Column(c.Key("chat-header-threads-menu")).FillWidth().Children(func() {
 			if len(threads) == 0 {
-				ui.Text(c, "暂无会话").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).Padding(Space2, Space3)
+				ui.Text(c, "暂无会话").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Padding(Space2, Space3)
 				return
 			}
 			for _, th := range threads {
@@ -2342,7 +2342,7 @@ func renderChatThreadMenuItem(c *ui.Context, s *chatState, th Thread, current bo
 					ui.Box(c.Key("chat-header-threads-item-"+th.ID+"-check-placeholder")).Size(14, 14)
 				}
 				ui.Text(c, title).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
 					SingleLine()
 			})

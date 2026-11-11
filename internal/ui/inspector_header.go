@@ -66,7 +66,7 @@ func renderInspectorHeader(c *ui.Context, s *chatState, st *inspectorSessionStat
 				}
 				ink := tab.AnimateTo("indicator", target, springSnappy)
 				tab.Children(func() {
-					ui.Text(c, pane.title).FontSize(TypeBody)
+					ui.Text(c, pane.title).FontSize(uiFont(TypeBody))
 					if count > 0 {
 						rollingNumber(c, fmt.Sprintf("inspector-follow-%p-%p-%s", s, st, pane.id), count).
 							Padding(0, Space1).Radius(RadiusSM).Background(ThemeAccentSubtle(c)).TextColor(ThemeAccent(c))

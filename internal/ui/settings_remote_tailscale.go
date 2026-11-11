@@ -288,7 +288,7 @@ func renderRemoteTailscaleRetryButton(c *ui.Context, busy bool, tooltip string, 
 		onClick()
 	}
 	btn.Children(func() {
-		ui.Text(c, "重试").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+		ui.Text(c, "重试").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 	})
 }
 
@@ -539,7 +539,7 @@ func (remoteTailscaleStateControl) render(c *ui.Context, st *SettingsState, s se
 				c.OpenURL(tailscaleAdminConsoleURL)
 			}
 			btn.Children(func() {
-				ui.Text(c, "打开管理台").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+				ui.Text(c, "打开管理台").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 			})
 		}
 
@@ -582,7 +582,7 @@ func (remoteTailscaleLoginControl) render(c *ui.Context, st *SettingsState, s se
 			c.OpenURL(authURL)
 		}
 		openBtn.Children(func() {
-			ui.Text(c, "打开授权页").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+			ui.Text(c, "打开授权页").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 		})
 
 		renderRemoteCopyButton(c, st, "btn-remote-tailscale-login-copy", "复制链接", "已复制链接", "复制授权链接", authURL, copiedKey, copiedAt)
@@ -676,7 +676,7 @@ func (remoteTailscaleResetControl) render(c *ui.Context, st *SettingsState, s se
 		st.invalidate()
 	}
 	btn.Children(func() {
-		ui.Text(c, "重置").FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+		ui.Text(c, "重置").FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 	})
 
 	if resetConfirm {

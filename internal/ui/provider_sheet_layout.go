@@ -70,7 +70,7 @@ func renderProviderSheetBody(c *ui.Context, st *SettingsState) {
 						// agy 的账号、策略、会话保持和调度由原有渲染函数画标题。
 						if !(kind == "cli" && id == "agy" && def.ID != "sec-agy-advanced-login") {
 							ui.Text(c, def.Title).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								FontWeight(500).
 								TextColor(ThemeTertiaryText(c)).
 								Margin(0, 0, 0, settingsRowPadX)
@@ -105,8 +105,8 @@ func renderProviderSheetBody(c *ui.Context, st *SettingsState) {
 				}
 				btn.Children(func() {
 					ui.Row(c.Key("provider-advanced-content")).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
-						ui.Text(c, "高级").FontSize(TypeBody).FontWeight(500).TextColor(ThemeSecondaryText(c))
-						ui.Text(c, strings.Join(titles, "、")).FontSize(TypeFootnote).TextColor(ThemeTertiaryText(c)).SingleLine().Shrink(1)
+						ui.Text(c, "高级").FontSize(uiFont(TypeBody)).FontWeight(500).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, strings.Join(titles, "、")).FontSize(uiFont(TypeFootnote)).TextColor(ThemeTertiaryText(c)).SingleLine().Shrink(1)
 						ui.Box(c.Key("provider-advanced-spacer")).Grow(1)
 						ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 					})
@@ -226,7 +226,7 @@ func renderProviderSheetHero(c *ui.Context, st *SettingsState) {
 						AlignItems(ui.Center).
 						Children(func() {
 							ui.Text(c, name).
-								FontSize(TypeTitle).
+								FontSize(uiFont(TypeTitle)).
 								FontWeight(600).
 								TextColor(ThemePrimaryText(c)).
 								SingleLine()
@@ -234,7 +234,7 @@ func renderProviderSheetHero(c *ui.Context, st *SettingsState) {
 						})
 					if subtitle := providerSheetSubtitle(st, kind, id); subtitle != "" {
 						ui.Text(c, subtitle).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
 					}
@@ -249,7 +249,7 @@ func renderProviderSheetHero(c *ui.Context, st *SettingsState) {
 				}
 				btn.Children(func() {
 					ui.Text(c, label).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeAccent(c))
 				})
 			}
@@ -291,7 +291,7 @@ func renderProviderSheetStatusPill(c *ui.Context, status string) {
 		Padding(settingsPillPadX, Space2).
 		Children(func() {
 			ui.Text(c, status).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(color).
 				SingleLine()
 		})

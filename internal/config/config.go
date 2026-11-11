@@ -719,22 +719,10 @@ type AppearanceConfig struct {
 	Theme               string     `json:"theme"` // system | light | dark | <用户主题 ID>
 	Themes              []ThemeDef `json:"themes,omitempty"`
 	CodeFont            string     `json:"code_font"`             // 代码字体名称，空表示系统等宽字体
-	CodeFontSize        int        `json:"code_font_size"`        // 代码字号，默认 12，范围 10..24
 	ConversationDensity string     `json:"conversation_density"`  // 对话密度：compact | comfortable，默认 comfortable
 	ContentWidth        string     `json:"content_width"`         // 对话内容宽度：standard | wide | full（按比例），默认 standard
 	ContentWidthPercent int        `json:"content_width_percent"` // 按比例档的内容宽度百分比，60..100，默认 85
 	SidebarCompact      bool       `json:"sidebar_compact"`       // 侧边栏紧凑密度，默认 false
-	TextScale           int        `json:"text_scale"`            // 文字大小百分比，默认 100，取值见 TextScaleLevels
-}
-
-// EffectiveTextScale 返回归一化后的文字大小百分比：不在档位里的值（含缺省的 0）按默认 100 处理。
-func (a AppearanceConfig) EffectiveTextScale() int {
-	for _, level := range TextScaleLevels {
-		if a.TextScale == level {
-			return level
-		}
-	}
-	return DefaultTextScale
 }
 
 // EffectiveContentWidthPercent 返回归一化后的按比例档内容宽度百分比：
@@ -922,7 +910,6 @@ type WorkbenchConfig struct {
 	StuckInterruptTimeout   int    `json:"stuck_interrupt_timeout"`      // 无活动强制中断阈值（秒），默认 1800
 	EditorAutoSave          *bool  `json:"editor_auto_save,omitempty"`   // 编辑器自动保存，nil 视为开启
 	TerminalScrollbackLines int    `json:"terminal_scrollback_lines"`    // 终端缓冲区行数，默认 1000
-	TerminalFontSize        int    `json:"terminal_font_size"`           // 终端字号（pt），默认 13
 	TerminalShell           string `json:"terminal_shell"`               // 默认终端 shell，空表示跟随系统 SHELL
 	KanbanAutoReview        *bool  `json:"kanban_auto_review,omitempty"` // 看板任务完成后自动转为 Review，nil 视为开启
 	KanbanAutoStartOnCreate bool   `json:"kanban_auto_start_on_create"`  // 看板任务创建后自动启动，默认 false
@@ -939,7 +926,6 @@ type WorkbenchConfig struct {
 	KanbanEntryOrdinary        *bool    `json:"kanban_entry_ordinary,omitempty"`      // 普通会话暴露单一 kanban 入口工具，nil 视为开启
 	BrowserStartURL            string   `json:"browser_start_url"`                    // 浏览器起始地址，默认 "http://localhost:3000"
 	BrowserConsoleCapture      *bool    `json:"browser_console_capture,omitempty"`    // 捕获浏览器控制台输出，nil 视为开启
-	EditorFontSize             int      `json:"editor_font_size"`                     // 编辑器字号，默认 12，范围 10..18
 	// OpenInApps 标题栏「打开方式」里可选的应用；为空时使用 DefaultOpenInApps()。
 	OpenInApps []OpenInAppConfig `json:"open_in_apps,omitempty"`
 }
@@ -1637,13 +1623,6 @@ func Normalize(cfg Config) Config {
 	cfg.Workbench.TerminalShell = strings.TrimSpace(cfg.Workbench.TerminalShell)
 
 	cfg.Appearance.CodeFont = strings.TrimSpace(cfg.Appearance.CodeFont)
-	if cfg.Appearance.CodeFontSize <= 0 {
-		cfg.Appearance.CodeFontSize = DefaultCodeFontSize
-	} else if cfg.Appearance.CodeFontSize < MinCodeFontSize {
-		cfg.Appearance.CodeFontSize = MinCodeFontSize
-	} else if cfg.Appearance.CodeFontSize > MaxCodeFontSize {
-		cfg.Appearance.CodeFontSize = MaxCodeFontSize
-	}
 	switch cfg.Appearance.ConversationDensity {
 	case DensityCompact, DensityComfortable:
 	default:
@@ -1655,7 +1634,6 @@ func Normalize(cfg Config) Config {
 		cfg.Appearance.ContentWidth = ContentWidthStandard
 	}
 	cfg.Appearance.ContentWidthPercent = cfg.Appearance.EffectiveContentWidthPercent()
-	cfg.Appearance.TextScale = cfg.Appearance.EffectiveTextScale()
 
 	if cfg.Orchestration.MaxBees < MinSwarmMaxBees {
 		cfg.Orchestration.MaxBees = MinSwarmMaxBees
@@ -1757,14 +1735,6 @@ func Normalize(cfg Config) Config {
 		cfg.Workbench.TerminalScrollbackLines = MaxTerminalScrollback
 	}
 
-	if cfg.Workbench.TerminalFontSize <= 0 {
-		cfg.Workbench.TerminalFontSize = DefaultTerminalFontSize
-	} else if cfg.Workbench.TerminalFontSize < MinTerminalFontSize {
-		cfg.Workbench.TerminalFontSize = MinTerminalFontSize
-	} else if cfg.Workbench.TerminalFontSize > MaxTerminalFontSize {
-		cfg.Workbench.TerminalFontSize = MaxTerminalFontSize
-	}
-
 	cfg.Workbench.BrowserQuickPorts = strings.TrimSpace(cfg.Workbench.BrowserQuickPorts)
 	if cfg.Workbench.BrowserQuickPorts == "" {
 		cfg.Workbench.BrowserQuickPorts = "3000, 5173, 8080, 4321"
@@ -1790,14 +1760,6 @@ func Normalize(cfg Config) Config {
 	}
 	// 打开方式：不预填默认列表，保持“未配置即用默认”的语义；只清理空项与两端空白。
 	cfg.Workbench.OpenInApps = normalizeOpenInApps(cfg.Workbench.OpenInApps)
-
-	if cfg.Workbench.EditorFontSize <= 0 {
-		cfg.Workbench.EditorFontSize = DefaultEditorFontSize
-	} else if cfg.Workbench.EditorFontSize < MinEditorFontSize {
-		cfg.Workbench.EditorFontSize = MinEditorFontSize
-	} else if cfg.Workbench.EditorFontSize > MaxEditorFontSize {
-		cfg.Workbench.EditorFontSize = MaxEditorFontSize
-	}
 
 	switch cfg.SourceControl.DefaultWorkspaceMode {
 	case WorkspaceModeLocal, WorkspaceModeWorktree:
@@ -2229,12 +2191,10 @@ func Defaults() Config {
 		Appearance: AppearanceConfig{
 			Theme:               ThemeSystem,
 			CodeFont:            "",
-			CodeFontSize:        DefaultCodeFontSize,
 			ConversationDensity: DensityComfortable,
 			ContentWidth:        ContentWidthStandard,
 			ContentWidthPercent: DefaultContentWidthPercent,
 			SidebarCompact:      false,
-			TextScale:           DefaultTextScale,
 		},
 		Providers: ProvidersConfig{
 			Claude: ProviderConfig{Enabled: true, Bin: ""},
@@ -2303,7 +2263,6 @@ func Defaults() Config {
 			StuckInterruptTimeout:      DefaultStuckInterruptTimeout,
 			EditorAutoSave:             boolPtr(true),
 			TerminalScrollbackLines:    DefaultTerminalScrollback,
-			TerminalFontSize:           DefaultTerminalFontSize,
 			KanbanAutoReview:           boolPtr(true),
 			KanbanAutoStartOnCreate:    false,
 			BrowserQuickPorts:          "3000, 5173, 8080, 4321",
@@ -2315,7 +2274,6 @@ func Defaults() Config {
 			KanbanEntryOrdinary:        boolPtr(true),
 			BrowserStartURL:            DefaultBrowserStartURL,
 			BrowserConsoleCapture:      boolPtr(true),
-			EditorFontSize:             DefaultEditorFontSize,
 		},
 		SourceControl: SourceControlConfig{
 			AutoCleanupMergedWorktrees:   boolPtr(true),
@@ -2397,10 +2355,6 @@ func Validate(cfg Config) error {
 		return err
 	}
 
-	if cfg.Appearance.CodeFontSize < MinCodeFontSize || cfg.Appearance.CodeFontSize > MaxCodeFontSize {
-		return fmt.Errorf("appearance.code_font_size %d must be between %d and %d", cfg.Appearance.CodeFontSize, MinCodeFontSize, MaxCodeFontSize)
-	}
-
 	switch cfg.Appearance.ConversationDensity {
 	case DensityCompact, DensityComfortable:
 	default:
@@ -2417,11 +2371,6 @@ func Validate(cfg Config) error {
 	// 0 表示沿用默认值（旧配置没有这一项），其余必须在 60..100 之间。
 	if cfg.Appearance.ContentWidthPercent != 0 && (cfg.Appearance.ContentWidthPercent < MinContentWidthPercent || cfg.Appearance.ContentWidthPercent > MaxContentWidthPercent) {
 		return fmt.Errorf("appearance.content_width_percent %d must be between %d and %d", cfg.Appearance.ContentWidthPercent, MinContentWidthPercent, MaxContentWidthPercent)
-	}
-
-	// 0 表示沿用默认值（旧配置没有这一项），其余必须是 TextScaleLevels 里的档位。
-	if cfg.Appearance.TextScale != 0 && cfg.Appearance.EffectiveTextScale() != cfg.Appearance.TextScale {
-		return fmt.Errorf("appearance.text_scale %d must be one of %v", cfg.Appearance.TextScale, TextScaleLevels)
 	}
 
 	if cfg.Orchestration.MaxBees < MinSwarmMaxBees || cfg.Orchestration.MaxBees > MaxSwarmMaxBees {
@@ -2493,10 +2442,6 @@ func Validate(cfg Config) error {
 	case KanbanViewKanban, KanbanViewList:
 	default:
 		return fmt.Errorf("invalid workbench.kanban_default_view %q: must be 'kanban' or 'list'", cfg.Workbench.KanbanDefaultView)
-	}
-
-	if cfg.Workbench.EditorFontSize < MinEditorFontSize || cfg.Workbench.EditorFontSize > MaxEditorFontSize {
-		return fmt.Errorf("workbench.editor_font_size %d must be between %d and %d", cfg.Workbench.EditorFontSize, MinEditorFontSize, MaxEditorFontSize)
 	}
 
 	switch cfg.SourceControl.DefaultWorkspaceMode {

@@ -195,7 +195,7 @@ func renderContextHeader(c *ui.Context, s *chatState) {
 						title = "全局记忆"
 					}
 					ui.Text(c, title).
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 					subtitle := ".mcode/context/ • CAS 并发保护"
@@ -203,7 +203,7 @@ func renderContextHeader(c *ui.Context, s *chatState) {
 						subtitle = "全局记忆与规则，位于 ~/.mcode/context"
 					}
 					ui.Text(c, subtitle).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						Font("monospace").
 						TextColor(ThemeSecondaryText(c))
 				})
@@ -269,7 +269,7 @@ func renderContextChips(c *ui.Context, s *chatState) {
 						contextChipDivider(c, "custom")
 						// 标签不收缩、不换行，否则会被挤成竖排。
 						ui.Text(c, "自定义").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							FontWeight(500).
 							Shrink(0).
 							MaxLines(1).
@@ -353,7 +353,7 @@ func renderContextConflictBanner(c *ui.Context, s *chatState, conflict bool) {
 		Background(ThemeDanger(c).Alpha(0.12)).
 		Children(func() {
 			ui.Icon(c, IconOctagonAlert()).Size(IconSM, IconSM).TextColor(ThemeDanger(c))
-			ui.Text(c, msg).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+			ui.Text(c, msg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 			ui.Spacer(c)
 			Button(c.Key("context-reload-btn"), ButtonOpts{
 				Text:    "从磁盘重新加载",
@@ -416,7 +416,7 @@ func renderContextDocView(c *ui.Context, s *chatState) {
 					Label("项目文档内容").
 					Grow(1).
 					FillWidth().
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					Font("monospace").
 					LineHeight(1.4).
 					TextColor(ThemePrimaryText(c)).
@@ -465,15 +465,15 @@ func renderContextDocDetails(c *ui.Context, s *chatState, snap contextPanelSnaps
 				MinWidth(0).
 				Children(func() {
 					ui.Text(c, doc.File).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(700).
 						Font("monospace").
 						SingleLine().
 						Shrink(0).
 						TextColor(ThemePrimaryText(c))
-					ui.Text(c, "•").FontSize(TypeFootnote).Shrink(0).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, "•").FontSize(uiFont(TypeFootnote)).Shrink(0).TextColor(ThemeSecondaryText(c))
 					ui.Text(c, doc.Subtitle).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						SingleLine().
 						Shrink(1).
 						MinWidth(0).
@@ -519,7 +519,7 @@ func renderContextDocDetails(c *ui.Context, s *chatState, snap contextPanelSnaps
 			}
 			b.Children(func() {
 				ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(saveText)
-				ui.Text(c, "保存").FontSize(TypeFootnote).TextColor(saveText)
+				ui.Text(c, "保存").FontSize(uiFont(TypeFootnote)).TextColor(saveText)
 			})
 		})
 }
@@ -558,10 +558,10 @@ func renderContextCreateDialog(c *ui.Context, s *chatState, initial string) {
 			Children(func() {
 				// 标题行同时是弹窗的拖拽把手。
 				modalDragHandle(c, modalDragContextCreate, ui.Row(c.Key("context-create-title-row")).FillWidth().Children(func() {
-					ui.Text(c, "新建自定义文档").FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "新建自定义文档").FontSize(uiFont(TypeTitle)).FontWeight(600).TextColor(ThemePrimaryText(c))
 				}))
 				ui.Text(c, "保存在 .mcode/context/docs/ 下，并作为独立标签显示。").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 				TextField(c, TextFieldProps{Key: "context-new-name", Value: &name, Label: "文档名称", Placeholder: "api-spec.md", FillWidth: true, AutoFocus: true, OnChange: func(value string) {
 					cp := getContextPanelState(s)

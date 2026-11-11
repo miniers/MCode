@@ -160,13 +160,13 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 	}
 	if errMsg != "" {
 		ui.Text(c, errMsg).
-			FontSize(TypeBody).
+			FontSize(uiFont(TypeBody)).
 			TextColor(ThemeDanger(c)).
 			Margin(Space3, settingsRowPadX, Space1, settingsRowPadX)
 	}
 	if writeErr != "" {
 		ui.Text(c, writeErr).
-			FontSize(TypeBody).
+			FontSize(uiFont(TypeBody)).
 			TextColor(ThemeDanger(c)).
 			Margin(Space3, settingsRowPadX, Space1, settingsRowPadX)
 	}
@@ -287,7 +287,7 @@ func renderSkillBatchButton(c *ui.Context, st *SettingsState, key, label string,
 	}
 	btn.Children(func() {
 		ui.Text(c, label).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeSecondaryText(c))
 	})
 }
@@ -386,7 +386,7 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 					Gap(Space3).
 					Children(func() {
 						ui.Text(c, skVal.Name).
-							FontSize(TypeProse).
+							FontSize(uiFont(TypeProse)).
 							FontWeight(500).
 							TextColor(ThemePrimaryText(c)).
 							SingleLine()
@@ -431,7 +431,7 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 							}
 							revealBtn.Children(func() {
 								ui.Text(c, "在访达中显示").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							})
 
@@ -448,7 +448,7 @@ func renderSkillsActions(c *ui.Context, st *SettingsState, count int) {
 		Gap(settingsCompactPadX).
 		Padding(settingsRowPadY, settingsRowPadX).
 		Children(func() {
-			ui.Text(c, fmt.Sprintf("%d 个技能", count)).FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+			ui.Text(c, fmt.Sprintf("%d 个技能", count)).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 			ui.Spacer(c)
 
 			openBtn := ui.ButtonBase(c.Key("btn-skills-open-folder")).
@@ -463,7 +463,7 @@ func renderSkillsActions(c *ui.Context, st *SettingsState, count int) {
 			}
 			openBtn.Children(func() {
 				ui.Text(c, "打开目录").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c))
 			})
 
@@ -479,7 +479,7 @@ func renderSkillsActions(c *ui.Context, st *SettingsState, count int) {
 			}
 			rescanBtn.Children(func() {
 				ui.Text(c, "重新扫描").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c))
 			})
 		})

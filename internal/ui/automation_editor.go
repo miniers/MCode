@@ -23,7 +23,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 				title = "新建自动化"
 			}
 			ui.Text(c, title).
-				FontSize(TypePageTitle).
+				FontSize(uiFont(TypePageTitle)).
 				FontWeight(600).
 				TextColor(ThemePrimaryText(c)).
 				Grow(1)
@@ -89,7 +89,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 					Size(IconSM, IconSM).
 					TextColor(ThemeDanger(c))
 				ui.Text(c, formErr).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			})
 	}
@@ -109,7 +109,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 						Gap(Space1).
 						Children(func() {
 							ui.Text(c, "名称").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								FontWeight(500).
 								TextColor(ThemeSecondaryText(c))
 							ui.TextInput(c.Key("automation-name-input"), &as.name).
@@ -123,7 +123,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 						Gap(Space1).
 						Children(func() {
 							ui.Text(c, "要执行的任务").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								FontWeight(500).
 								TextColor(ThemeSecondaryText(c))
 							ui.TextArea(c.Key("automation-prompt-input"), &as.prompt).
@@ -132,9 +132,9 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								FillWidth()
 						})
 
-					ui.Text(c, "计划").FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "计划").FontSize(uiFont(TypeBody)).FontWeight(500).TextColor(ThemePrimaryText(c))
 					renderAutomationScheduleFields(c, s, as)
-					ui.Text(c, "执行").FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "执行").FontSize(uiFont(TypeBody)).FontWeight(500).TextColor(ThemePrimaryText(c))
 
 					// 模型与权限：只在每次运行新建会话时生效，心跳模式沿用原会话设置
 					heartbeat := as.runMode == "heartbeat"
@@ -152,7 +152,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								AlignItems(ui.Center).
 								Children(func() {
 									ui.Text(c, "模型").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 									followsDefault := strings.TrimSpace(as.provider) == "" && strings.TrimSpace(as.model) == ""
 									resolved := resolveModelPickerSelection(providers, ModelSelection{
@@ -211,7 +211,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								AlignItems(ui.Center).
 								Children(func() {
 									ui.Text(c, "权限").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 									curLabel := automationRuntimeModeLabel(as.runtimeMode)
 									labels := make([]string, 0, len(automationRuntimeModeOptions))
@@ -240,14 +240,14 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 
 							if heartbeat {
 								ui.Text(c, "心跳模式沿用原会话设置").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeSecondaryText(c))
 							}
 						})
 
-					ui.Text(c, "停止与补跑").FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "停止与补跑").FontSize(uiFont(TypeBody)).FontWeight(500).TextColor(ThemePrimaryText(c))
 					ui.Column(c.Key("form-stop-when-group")).FillWidth().Gap(Space1).Children(func() {
-						ui.Text(c, "达到条件").FontSize(TypeFootnote).FontWeight(500).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, "达到条件").FontSize(uiFont(TypeFootnote)).FontWeight(500).TextColor(ThemeSecondaryText(c))
 						ui.TextInput(c.Key("automation-stop-when-input"), &as.stopWhen).Label("automation-stop-when-input").FillWidth()
 					})
 					ui.Row(c.Key("form-limits-row")).
@@ -262,7 +262,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								AlignItems(ui.Center).
 								Children(func() {
 									ui.Text(c, "最多连续失败").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 									maxFailuresVal := 3.0
 									if v, err := strconv.Atoi(strings.TrimSpace(as.maxFailuresInput)); err == nil {
@@ -284,7 +284,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 										s.invalidate()
 									}
 									ui.Text(c, strconv.Itoa(int(maxFailuresVal))).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemePrimaryText(c))
 								})
 
@@ -294,7 +294,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								AlignItems(ui.Center).
 								Children(func() {
 									ui.Text(c, "最多运行次数").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 									ui.TextInput(c.Key("automation-max-runs-input"), &as.maxRunsInput).
 										Width(110).
@@ -318,7 +318,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 								s.invalidate()
 							}
 							ui.Text(c, "错过后补跑一次").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						})
 					if isNew {
@@ -327,7 +327,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 							choice = "创建为暂停"
 						}
 						ui.Row(c.Key("automation-create-mode-row")).Gap(Space2).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, "创建状态").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, "创建状态").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 							if ui.Select(c.Key("automation-create-mode"), &choice, []string{"创建并启用", "创建为暂停"}).Label("创建状态").Width(140).Changed() {
 								as.enabled = choice != "创建为暂停"
 							}

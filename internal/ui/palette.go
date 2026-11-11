@@ -623,7 +623,7 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 
 						in := ui.TextInput(c.Key("palette-query-input"), &p.query).
 							Placeholder("搜索会话、项目、命令或消息").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c)).
 							Background(ui.Transparent).
 							BorderWidth(0).
@@ -674,7 +674,7 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 						Justify(ui.Center).
 						Children(func() {
 							ui.Text(c, "没有匹配项").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						})
 				} else {
@@ -732,19 +732,19 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 												Background(ThemeHover(c)).
 												Children(func() {
 													ui.Text(c, kindLabel).
-														FontSize(TypeCaption).
+														FontSize(uiFont(TypeCaption)).
 														TextColor(ThemeSecondaryText(c))
 												})
 
 											ui.Text(c, item.title).
 												SingleLine().
-												FontSize(TypeFootnote).
+												FontSize(uiFont(TypeFootnote)).
 												TextColor(ThemePrimaryText(c))
 
 											if item.subtitle != "" {
 												ui.Text(c, item.subtitle).
 													SingleLine().
-													FontSize(TypeCaption).
+													FontSize(uiFont(TypeCaption)).
 													TextColor(ThemeSecondaryText(c))
 											}
 										})
@@ -767,7 +767,7 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 							renderPaletteFooterHint(c, "palette-footer-esc", "esc", "关闭")
 							ui.Spacer(c)
 							ui.Text(c, fmt.Sprintf("%d 项结果", len(filtered))).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
 						})
 				})
@@ -780,6 +780,6 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 func renderPaletteFooterHint(c *ui.Context, key, kbd, label string) {
 	ui.Row(c.Key(key)).Gap(Space1).AlignItems(ui.Center).Label(kbd + " " + label).Children(func() {
 		Kbd(c, key+"-kbd", kbd)
-		ui.Text(c, label).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, label).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 	})
 }

@@ -675,7 +675,7 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 				Gap(Space2).
 				Children(func() {
 					ui.Text(c, "额度").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						Bold().
 						TextColor(ThemePrimaryText(c))
 
@@ -687,7 +687,7 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 							textColor = ThemeWarning(c)
 						}
 						ui.Text(c, m.UpdatedText).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(textColor)
 					}
 
@@ -727,7 +727,7 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 			// 上次刷新失败时保留旧数据，这里用次要文字提示数据不是最新的
 			if m.StaleNote != "" {
 				ui.Text(c, m.StaleNote).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c)).
 					Padding(0, Space4)
 			}
@@ -745,7 +745,7 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 							Children(func() {
 								ui.Spacer(c)
 								ui.Text(c, "暂无可用额度数据").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 								ui.Spacer(c)
 							})
@@ -789,7 +789,7 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 					}
 					btnShow.Children(func() {
 						ui.Text(c, "显示窗口").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c))
 					})
 
@@ -811,7 +811,7 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 					}
 					btnQuit.Children(func() {
 						ui.Text(c, "退出").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})
 				})

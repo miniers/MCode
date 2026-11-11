@@ -212,7 +212,7 @@ func renderStewardBoardList(c *ui.Context, s *chatState, groups stewardGroups) {
 						}
 					}
 					header.Children(func() {
-						ui.Text(c, name).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, name).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 						rollingNumber(c, "steward-board-count-"+strconv.Itoa(group), len(tasks))
 					})
 					if group == 2 && !s.stewardBoard.doneOpen {
@@ -230,10 +230,10 @@ func renderStewardBoardList(c *ui.Context, s *chatState, groups stewardGroups) {
 						row.Children(func() {
 							ui.Row(c.Key("steward-board-task-title-" + task.ID)).FillWidth().MinWidth(0).AlignItems(ui.Center).Gap(Space2).Children(func() {
 								ui.Box(c.Key("steward-board-dot-"+task.ID)).Size(Space2, Space2).Radius(RadiusPill).Background(kanbanStatusColor(c, kanbanDisplayColumn(task))).Shrink(0)
-								ui.Text(c, task.Title).FontSize(TypeBody).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+								ui.Text(c, task.Title).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 							})
 							if signal := stewardBoardSignal(task, group); signal != "" {
-								ui.Text(c, signal).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…")
+								ui.Text(c, signal).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…")
 							}
 						})
 					}

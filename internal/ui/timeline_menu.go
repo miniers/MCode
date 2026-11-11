@@ -497,7 +497,7 @@ func renderSendToParentButton(c *ui.Context, s *chatState, m Message, leadID str
 		Children(func() {
 			ui.Row(c.Key("send-parent-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, IconReply()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-				ui.Text(c, "回报父会话").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "回报父会话").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 			})
 		})
 }
@@ -522,7 +522,7 @@ func renderEditMessageButton(c *ui.Context, s *chatState, m Message) {
 		Children(func() {
 			ui.Row(c.Key("edit-btn-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, IconPencilLine()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-				ui.Text(c, "修改").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "修改").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 			})
 		})
 }
@@ -556,15 +556,15 @@ func renderBranchActionButton(c *ui.Context, s *chatState, m Message) {
 	btn.Children(func() {
 		ui.Row(c.Key("branch-btn-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, IconGitBranch()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-			ui.Text(c, "分支").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "分支").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 		})
 	})
 
 	appPopover(c.Key("branch-popover-"+m.ID), btn, open, nil, func() {
 		popoverCard(c, ui.Column(c.Key("branch-popover-body-"+m.ID)).Gap(Space3).Padding(Space3).MaxWidth(branchPopoverMaxWidth)).Children(func() {
-			ui.Text(c, "从这条回复分支？").FontSize(TypeBody).FontWeight(600).TextColor(ThemePrimaryText(c))
+			ui.Text(c, "从这条回复分支？").FontSize(uiFont(TypeBody)).FontWeight(600).TextColor(ThemePrimaryText(c))
 			ui.Text(c, "新会话将包含到这条回复为止的对话。").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				LineHeight(1.4).
 				TextColor(ThemeSecondaryText(c))
 			ui.Row(c.Key("branch-popover-actions-" + m.ID)).Gap(Space3).Justify(ui.End).Children(func() {

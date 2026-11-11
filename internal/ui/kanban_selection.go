@@ -147,7 +147,7 @@ func renderKanbanSelectionBar(c *ui.Context, s *chatState, ks *kanbanState) {
 	kanbanBatchMu.Unlock()
 	ui.Column(c.Key("kanban-selection-wrap")).FillWidth().Gap(Space2).Transition(motionDialog(c)).Children(func() {
 		ui.Row(c.Key("kanban-selection-bar")).FillWidth().Padding(Space3, Space4).Radius(RadiusMD).Background(ThemeHover(c)).AlignItems(ui.Center).Gap(Space3).Children(func() {
-			ui.Text(c, fmt.Sprintf("已选 %d 项", len(tasks))).FontSize(TypeFootnote).FontWeight(600).TextColor(ThemePrimaryText(c)).SingleLine().Shrink(0)
+			ui.Text(c, fmt.Sprintf("已选 %d 项", len(tasks))).FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemePrimaryText(c)).SingleLine().Shrink(0)
 			Button(c.Key("kanban-selection-move"), ButtonOpts{Text: fmt.Sprintf("移回待办 %d/%d", len(moveable), len(tasks)), Label: "移回待办", Disabled: running || len(moveable) == 0, Variant: ButtonSecondary, Size: ControlSM, OnClick: func() { kanbanBatchRun(s, "todo", moveable) }})
 			Button(c.Key("kanban-selection-delete"), ButtonOpts{Text: fmt.Sprintf("删除 %d/%d", len(deletable), len(tasks)), Label: "kanban-selection-delete", Disabled: running || len(deletable) == 0, Variant: ButtonSecondary, Size: ControlSM, OnClick: func() {
 				kanbanBatchMu.Lock()
@@ -171,7 +171,7 @@ func renderKanbanSelectionBar(c *ui.Context, s *chatState, ks *kanbanState) {
 		})
 		if expanded {
 			for i, failure := range failures {
-				ui.Text(c, failure.Title+"："+failure.Reason).Key(fmt.Sprintf("kanban-selection-failure-%d", i)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, failure.Title+"："+failure.Reason).Key(fmt.Sprintf("kanban-selection-failure-%d", i)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			}
 		}
 	})

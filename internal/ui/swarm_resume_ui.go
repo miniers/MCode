@@ -86,7 +86,7 @@ func renderSwarmInterruptedBanner(c *ui.Context, s *chatState, leadThreadID stri
 			ui.Text(c, title).
 				Grow(1).
 				MinWidth(0).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemePrimaryText(c)).
 				MaxLines(2)
 			ui.Row(c.Key(key + "-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {

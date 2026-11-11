@@ -356,7 +356,7 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 								Background(ThemeHover(c)).
 								Children(func() {
 									ui.Text(c, data.FailureReason).
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										TextColor(ThemeSecondaryText(c))
 								})
 							return
@@ -385,7 +385,7 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 					Margin(0, Space4, Space3, Space4).
 					Children(func() {
 						ui.Text(c, "改动过多，已截断").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeWarning(c))
 					})
 			}
@@ -473,7 +473,7 @@ func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID,
 			}
 			refreshBtn.Children(func() {
 				ui.Text(c, "刷新").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			})
 
@@ -495,7 +495,7 @@ func renderDiffWorktreeNotice(c *ui.Context, worktreePath, turnID string) {
 		Padding(0, Space4, Space3, Space4).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c)).
 				SingleLine().
 				Tooltip(worktreePath)
@@ -546,7 +546,7 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 			AlignItems(ui.Center).
 			Children(func() {
 				ui.Text(c, currentTitle).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemePrimaryText(c))
 				ui.Icon(c, IconChevronDown()).
 					Size(diffTurnChevronSize, diffTurnChevronSize).
@@ -608,7 +608,7 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 						}
 						return "整个会话"
 					}()).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemePrimaryText(c))
 				})
 
@@ -639,7 +639,7 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 					}
 					optBtn.Children(func() {
 						ui.Text(c, turnTitle).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c))
 					})
 				}
@@ -678,7 +678,7 @@ func renderDiffStatusBadge(c *ui.Context, status string) {
 		Background(bg).
 		Children(func() {
 			ui.Text(c, label).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(500).
 				TextColor(fg)
 		})

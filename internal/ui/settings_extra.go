@@ -169,7 +169,7 @@ func renderBadge(c *ui.Context, key string, text string) {
 		Background(ThemeOverlay(c, 0.08)).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c))
 		})
 }
@@ -251,7 +251,7 @@ func renderShortcutResetAll(c *ui.Context, st *SettingsState) {
 	}
 	resetAll.Children(func() {
 		ui.Text(c, "全部恢复默认").
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			FontWeight(500).
 			TextColor(ThemePrimaryText(c))
 	})
@@ -271,7 +271,7 @@ func renderShortcutTable(c *ui.Context, st *SettingsState, hint string) {
 		Children(func() {
 			if hint != "" {
 				ui.Text(c, hint).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeSecondaryText(c)).
 					Grow(1)
 			}
@@ -291,7 +291,7 @@ func renderShortcutKeysBadge(c *ui.Context, sc appShortcut) {
 		Background(ThemeHover(c)).
 		Children(func() {
 			ui.Text(c, sc.keys).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				FontWeight(500).
 				TextColor(ThemePrimaryText(c))
 		})
@@ -343,7 +343,7 @@ func renderShortcutOverrideControl(c *ui.Context, st *SettingsState, sc appShort
 						}
 						reset.Children(func() {
 							ui.Text(c, "重置").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						})
 					}
@@ -351,11 +351,11 @@ func renderShortcutOverrideControl(c *ui.Context, st *SettingsState, sc appShort
 
 			if msg := shortcutOverrideError(*draft); msg != "" {
 				ui.Text(c, msg).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeDanger(c))
 			} else if len(conflicts) > 0 {
 				ui.Text(c, shortcutConflictMessage(conflicts)).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeWarning(c))
 			}
 		})

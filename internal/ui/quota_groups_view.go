@@ -51,14 +51,14 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 										})
 
 									ui.Text(c, g.Title).
-										FontSize(TypeProse).
+										FontSize(uiFont(TypeProse)).
 										Bold().
 										TextColor(ThemePrimaryText(c)).
 										SingleLine()
 
 									if !g.HasErr && g.Plan != "" {
 										ui.Text(c, "· "+g.Plan).
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeSecondaryText(c)).
 											SingleLine()
 									}
@@ -67,7 +67,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 
 									if g.HasErr {
 										ui.Text(c, g.ErrText).
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeSecondaryText(c)).
 											SingleLine()
 										return
@@ -79,13 +79,13 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 											textColor = ThemeWarning(c)
 										}
 										ui.Text(c, g.HeadText).
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(textColor).
 											SingleLine()
 									}
 								})
 						} else if g.HasErr {
-							ui.Text(c, g.ErrText).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).SingleLine()
+							ui.Text(c, g.ErrText).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine()
 						}
 
 						if g.HasErr {
@@ -179,7 +179,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 												Gap(Space1).
 												Children(func() {
 													ui.Text(c, win.ShortLabel).
-														FontSize(TypeFootnote).
+														FontSize(uiFont(TypeFootnote)).
 														TextColor(ThemeSecondaryText(c)).
 														SingleLine().
 														Shrink(0)
@@ -190,7 +190,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 															rightColor = ThemeWarning(c)
 														}
 														ui.Text(c, win.RightText).
-															FontSize(TypeCaption).
+															FontSize(uiFont(TypeCaption)).
 															TextColor(rightColor).
 															SingleLine().
 															Ellipsis("…").
@@ -201,7 +201,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 													// 画条窗口自带的读数（如金额）跟在标签后，进度条与百分比照旧。
 													if win.Display != "" && !win.NoBar {
 														ui.Text(c, win.Display).
-															FontSize(TypeCaption).
+															FontSize(uiFont(TypeCaption)).
 															TextColor(ThemeTertiaryText(c)).
 															SingleLine().
 															Ellipsis("…").
@@ -224,7 +224,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 												}
 												if content != "" {
 													ui.Text(c, content).
-														FontSize(TypeBody).
+														FontSize(uiFont(TypeBody)).
 														TextColor(ThemePrimaryText(c)).
 														SingleLine().
 														Ellipsis("…").
@@ -237,7 +237,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 											renderBar(win, winKey, projected, 120)
 
 											ui.Text(c, fmt.Sprintf("%d%%", int(math.Round(win.UsedPercent)))).
-												FontSize(TypeBody).
+												FontSize(uiFont(TypeBody)).
 												FontWeight(600).
 												TextColor(quotaPercentColor(c, win.UsedPercent)).
 												Width(40).
@@ -264,7 +264,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 										labelColor = ThemeWarning(c)
 									}
 									ui.Text(c, win.ShortLabel).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(labelColor).
 										SingleLine().
 										Shrink(0)
@@ -272,7 +272,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									// 画条窗口自带的读数（如金额）跟在标签后，进度条与百分比照旧。
 									if win.Display != "" {
 										ui.Text(c, win.Display).
-											FontSize(TypeCaption).
+											FontSize(uiFont(TypeCaption)).
 											TextColor(ThemeTertiaryText(c)).
 											SingleLine().
 											Ellipsis("…").
@@ -283,7 +283,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									renderBar(win, winKey, projected, 0)
 
 									ui.Text(c, fmt.Sprintf("%d%%", int(math.Round(win.UsedPercent)))).
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										FontWeight(600).
 										TextColor(quotaPercentColor(c, win.UsedPercent)).
 										Width(36).
@@ -330,7 +330,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 											Children(func() {
 												ui.Box(c.Key(accKey + "-stopped-indent")).Width(rowIndent)
 												ui.Text(c, "已停止").
-													FontSize(TypeFootnote).
+													FontSize(uiFont(TypeFootnote)).
 													TextColor(ThemeSecondaryText(c)).
 													SingleLine()
 											})
@@ -359,7 +359,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 															nameColor = ThemeSecondaryText(c)
 														}
 														ui.Text(c, curAcc.DisplayName).
-															FontSize(TypeFootnote).
+															FontSize(uiFont(TypeFootnote)).
 															TextColor(nameColor).
 															SingleLine().
 															Ellipsis("…").
@@ -368,7 +368,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 
 														if curAcc.Plan != "" {
 															ui.Text(c, "· "+curAcc.Plan).
-																FontSize(TypeFootnote).
+																FontSize(uiFont(TypeFootnote)).
 																TextColor(ThemeSecondaryText(c)).
 																SingleLine()
 														}
@@ -381,7 +381,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 																textColor = ThemeWarning(c)
 															}
 															ui.Text(c, curAcc.HeadText).
-																FontSize(TypeFootnote).
+																FontSize(uiFont(TypeFootnote)).
 																TextColor(textColor).
 																SingleLine()
 														}

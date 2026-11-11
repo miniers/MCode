@@ -113,7 +113,9 @@ func renderReviewScope(c *ui.Context, s *chatState, dp *diffPanelState) {
 		dp.scopeMenuOpen = open
 		diffPanelMu.Unlock()
 	}
-	trigger.Children(func() { ui.Text(c, reviewScopeTitle(scope)).FontSize(TypeFootnote).TextColor(ThemePrimaryText(c)) })
+	trigger.Children(func() {
+		ui.Text(c, reviewScopeTitle(scope)).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
+	})
 	bg := ThemeSurfacePopover(c)
 	native := flyoutHostWindow(c.Services()) != nil
 	host := c.Services()
@@ -138,7 +140,9 @@ func renderReviewScope(c *ui.Context, s *chatState, dp *diffPanelState) {
 					s.selectReviewScope(dp, value)
 					host.Invalidate()
 				}
-				btn.Children(func() { ui.Text(c, reviewScopeTitle(value)).FontSize(TypeFootnote).TextColor(ThemePrimaryText(c)) })
+				btn.Children(func() {
+					ui.Text(c, reviewScopeTitle(value)).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
+				})
 			}
 		})
 	})

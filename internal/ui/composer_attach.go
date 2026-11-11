@@ -1045,14 +1045,14 @@ func renderAttachmentRemoveButton(c *ui.Context, s *chatState, a composerAttachm
 			Opacity(op).
 			Background(composerAttachScrim).
 			Children(func() {
-				ui.Text(c, "×").FontSize(TypeFootnote).TextColor(ThemeOnAccent(c))
+				ui.Text(c, "×").FontSize(uiFont(TypeFootnote)).TextColor(ThemeOnAccent(c))
 			})
 		return
 	}
 	btn.Background(ui.Transparent).
 		Children(func() {
 			ui.Text(c, "×").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c))
 		})
 }
@@ -1124,7 +1124,7 @@ func renderAttachmentUploadBar(c *ui.Context, a composerAttachment) {
 			Track: ThemeAccent(c).Alpha(0.22), Fill: ThemeAccent(c),
 		}).Grow(1)
 		ui.Text(c, fmt.Sprintf("%d%%", int(progress*100+0.5))).
-			FontSize(TypeCaption).
+			FontSize(uiFont(TypeCaption)).
 			FontFeatures("tnum").
 			TextColor(ThemePrimaryText(c))
 	})
@@ -1291,7 +1291,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 					AlignItems(ui.Center).
 					Children(func() {
 						ui.Icon(c, IconOctagonAlert()).Size(IconSM, IconSM).TextColor(ThemeWarning(c))
-						ui.Text(c, tokenNotice).FontSize(TypeFootnote).TextColor(ThemeWarning(c))
+						ui.Text(c, tokenNotice).FontSize(uiFont(TypeFootnote)).TextColor(ThemeWarning(c))
 					})
 			}
 
@@ -1307,7 +1307,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 					AlignItems(ui.Center).
 					Children(func() {
 						ui.Icon(c, IconOctagonAlert()).Size(IconSM, IconSM).TextColor(ThemeWarning(c))
-						ui.Text(c, notice).FontSize(TypeFootnote).TextColor(ThemeWarning(c))
+						ui.Text(c, notice).FontSize(uiFont(TypeFootnote)).TextColor(ThemeWarning(c))
 					})
 			}
 
@@ -1358,11 +1358,11 @@ func renderAttachments(c *ui.Context, s *chatState) {
 
 								ui.Icon(c, IconFile()).Size(IconSM, IconSM).TextColor(catCol)
 								if tag != "" {
-									ui.Text(c, tag).FontSize(TypeCaption).TextColor(catCol)
+									ui.Text(c, tag).FontSize(uiFont(TypeCaption)).TextColor(catCol)
 								}
 
 								displayName := truncateAttachmentName(a.Name, 18)
-								txt := ui.Text(c, displayName).FontSize(TypeFootnote)
+								txt := ui.Text(c, displayName).FontSize(uiFont(TypeFootnote))
 								if a.Err != "" {
 									txt.TextColor(ThemeDanger(c))
 								} else {
@@ -1372,7 +1372,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 								// 显示文件大小
 								if a.Size > 0 && a.InspectorRef == nil {
 									ui.Text(c, formatAttachmentSize(a.Size)).
-										FontSize(TypeCaption).
+										FontSize(uiFont(TypeCaption)).
 										TextColor(ThemeSecondaryText(c))
 								}
 

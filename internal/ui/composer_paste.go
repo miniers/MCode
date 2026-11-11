@@ -234,7 +234,7 @@ func renderSnippetChip(c *ui.Context, s *chatState, sn composerSnippet, previewO
 			AlignItems(ui.Center).
 			Children(func() {
 				ui.Icon(c, IconFile()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-				ui.Text(c, title).FontSize(TypeFootnote).TextColor(ThemePrimaryText(c)).SingleLine()
+				ui.Text(c, title).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).SingleLine()
 				ui.ButtonBase(c.Key(key+"-remove")).
 					Label("移除粘贴的文本 "+title).
 					Disabled(sending).
@@ -243,7 +243,7 @@ func renderSnippetChip(c *ui.Context, s *chatState, sn composerSnippet, previewO
 					Background(ui.Transparent).
 					OnClick(func() { s.removeSnippet(sn.ID) }).
 					Children(func() {
-						ui.Text(c, "×").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, "×").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 					})
 			})
 	})
@@ -268,7 +268,7 @@ func renderSnippetChip(c *ui.Context, s *chatState, sn composerSnippet, previewO
 					Children(func() {
 						ui.Text(c, snippetPreview(sn.Text)).
 							FillWidth().
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c)).
 							Selectable()
 					})

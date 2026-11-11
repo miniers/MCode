@@ -267,18 +267,18 @@ func renderEffortSubtitleRow(c *ui.Context, p EffortSliderCardProps) {
 			}
 			renderEffortBrandIcon(c, p.BrandID, p.ProviderID)
 			ui.Text(c, p.Subtitle).
-				FontSize(TypeBody).
+				FontSize(uiFont(TypeBody)).
 				TextColor(effortTextSoft).
 				SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 
 			if effortCardPaired(p) && strings.TrimSpace(p.SubtitlePair) != "" {
 				ui.Text(c, "+").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(effortTextSoft).
 					Shrink(0)
 				renderEffortBrandIcon(c, p.PairBrandID, p.PairProviderID)
 				ui.Text(c, p.SubtitlePair).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(effortTextSoft).
 					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 			}
@@ -913,7 +913,7 @@ func renderEffortSliderCard(c *ui.Context, p EffortSliderCardProps) {
 					Height(effortThumbD).
 					Children(func() {
 						ui.Text(c, "该模型未提供可调的推理强度").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ColorTextSecondaryDark)
 					})
 			} else {

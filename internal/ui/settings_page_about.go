@@ -256,7 +256,7 @@ func renderAboutChangelog(c *ui.Context, st *SettingsState) {
 					AlignItems(ui.Center).
 					Justify(ui.SpaceBetween).
 					Children(func() {
-						ui.Text(c, version.Version).FontSize(TypeProse).TextColor(ThemePrimaryText(c))
+						ui.Text(c, version.Version).FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c))
 						icon := IconChevronRight()
 						if expanded {
 							icon = IconChevronDown()
@@ -329,11 +329,11 @@ func renderAboutFooter(c *ui.Context, st *SettingsState) {
 }
 
 func renderAboutVersionValue(c *ui.Context, st *SettingsState) {
-	ui.Text(c, aboutVersion(st)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+	ui.Text(c, aboutVersion(st)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 }
 
 func renderAboutDataDirValue(c *ui.Context, st *SettingsState) {
-	ui.Text(c, st.dataDir).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+	ui.Text(c, st.dataDir).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 }
 
 // renderAboutUpdateControls 渲染「检查更新」行的状态文本与按钮，只读快照。
@@ -354,15 +354,15 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 		Children(func() {
 			switch {
 			case installing:
-				ui.Text(c, fmt.Sprintf("下载中 %.0f%%", progress*100)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, fmt.Sprintf("下载中 %.0f%%", progress*100)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			case checking:
-				ui.Text(c, "检查中…").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "检查中…").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			case errMsg != "":
-				ui.Text(c, errMsg).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+				ui.Text(c, errMsg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 			case done && status.Available:
-				ui.Text(c, fmt.Sprintf("发现新版本 v%s", status.Latest)).FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+				ui.Text(c, fmt.Sprintf("发现新版本 v%s", status.Latest)).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 			case done:
-				ui.Text(c, "已是最新版本").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "已是最新版本").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			}
 
 			if installing {
@@ -381,7 +381,7 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 					startAppUpdateInstall(st, installer)
 				}
 				installBtn.Children(func() {
-					ui.Text(c, "更新并重启").FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "更新并重启").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 				})
 			} else if done && status.Available && status.URL != "" {
 				downloadBtn := ui.ButtonBase(c.Key("btn-about-download")).
@@ -395,7 +395,7 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 					openExternalURL(status.URL)
 				}
 				downloadBtn.Children(func() {
-					ui.Text(c, "前往下载页").FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "前往下载页").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 				})
 			}
 
@@ -411,7 +411,7 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 				startUpdateCheck(st)
 			}
 			checkBtn.Children(func() {
-				ui.Text(c, "检查更新").FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+				ui.Text(c, "检查更新").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 			})
 		})
 }
@@ -430,11 +430,11 @@ func renderAboutDiagnosticsControls(c *ui.Context, st *SettingsState) {
 		Children(func() {
 			switch {
 			case exporting:
-				ui.Text(c, "导出中…").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "导出中…").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			case diagErr != "":
-				ui.Text(c, diagErr).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+				ui.Text(c, diagErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 			case diagMsg != "":
-				ui.Text(c, diagMsg).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, diagMsg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			}
 
 			exportBtn := ui.ButtonBase(c.Key("btn-about-export-diag")).
@@ -449,7 +449,7 @@ func renderAboutDiagnosticsControls(c *ui.Context, st *SettingsState) {
 				startDiagnosticsExport(st, aboutDiagnosticsClient(st))
 			}
 			exportBtn.Children(func() {
-				ui.Text(c, "导出…").FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+				ui.Text(c, "导出…").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 			})
 		})
 }

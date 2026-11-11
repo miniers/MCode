@@ -124,7 +124,7 @@ func configureReviewComments(c *ui.Context, s *chatState, dp *diffPanelState, ke
 						draft.open = false
 						s.invalidate()
 					}
-					button.Children(func() { ui.Text(c, "添加").FontSize(TypeFootnote) })
+					button.Children(func() { ui.Text(c, "添加").FontSize(uiFont(TypeFootnote)) })
 				})
 			})
 			return
@@ -143,7 +143,7 @@ func renderReviewComment(c *ui.Context, s *chatState, dp *diffPanelState, commen
 		}
 		ui.Row(c.Key("header")).FillWidth().Height(ControlLG).Padding(Space2).Gap(Space2).Children(func() {
 			if comment.stale {
-				ui.Text(c, "过期").FontSize(TypeCaption).TextColor(ThemeWarning(c))
+				ui.Text(c, "过期").FontSize(uiFont(TypeCaption)).TextColor(ThemeWarning(c))
 			}
 			label := "展开评论"
 			if comment.expanded {
@@ -161,7 +161,7 @@ func renderReviewComment(c *ui.Context, s *chatState, dp *diffPanelState, commen
 				diffPanelMu.Unlock()
 				s.invalidate()
 			}
-			summary.Children(func() { ui.Text(c, comment.body).SingleLine().FontSize(TypeFootnote).TextColor(color) })
+			summary.Children(func() { ui.Text(c, comment.body).SingleLine().FontSize(uiFont(TypeFootnote)).TextColor(color) })
 			button := ui.ButtonBase(c.Key("delete")).Label("删除评论").Padding(Space1)
 			if button.Clicked() {
 				diffPanelMu.Lock()
@@ -173,7 +173,7 @@ func renderReviewComment(c *ui.Context, s *chatState, dp *diffPanelState, commen
 		})
 		if comment.expanded {
 			ui.Scroll(c.Key("body")).FillWidth().Height(reviewCommentBodyHeight).Padding(Space2).Transition(motionCollapse(c)).Children(func() {
-				ui.Text(c, comment.body).FontSize(TypeFootnote).TextColor(color)
+				ui.Text(c, comment.body).FontSize(uiFont(TypeFootnote)).TextColor(color)
 			})
 		}
 	})
@@ -375,7 +375,7 @@ func renderReviewCommentsAction(c *ui.Context, s *chatState, dp *diffPanelState,
 	if button.Clicked() {
 		reviewCommentsAddToConversation(s, dp, tid)
 	}
-	button.Children(func() { ui.Text(c, fmt.Sprintf("添加到对话 %d", count)).FontSize(TypeFootnote) })
+	button.Children(func() { ui.Text(c, fmt.Sprintf("添加到对话 %d", count)).FontSize(uiFont(TypeFootnote)) })
 }
 
 func reviewReadKey(key reviewDiffKey, file ReviewFile) string {

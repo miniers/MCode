@@ -235,7 +235,7 @@ func (d workbenchDocsControl) renderDisabled(c *ui.Context, st *SettingsState, s
 	}
 	ui.Column(c.Key(s.ID + "-list")).Gap(settingsCompactPadX).Children(func() {
 		ui.Text(c, fmt.Sprintf("标准 %d · 自定义 %d", standardCount, customCount)).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeSecondaryText(c))
 		for _, doc := range docs {
 			doc := doc
@@ -245,7 +245,7 @@ func (d workbenchDocsControl) renderDisabled(c *ui.Context, st *SettingsState, s
 			rowID := s.ID + doc.refID
 			ctl := toggle(bind[bool]{plain: func(*config.Config) *bool { return &value }, def: true})
 			ui.Row(c.Key(rowID)).Gap(Space4).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, doc.title).FontSize(TypeProse).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine().Grow(1)
+				ui.Text(c, doc.title).FontSize(uiFont(TypeProse)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine().Grow(1)
 				ctl.renderDisabled(c, st, setting{ID: rowID, Title: doc.title}, disabled || always)
 				if always {
 					settingBadge(c, rowID+"-always", "始终注入")

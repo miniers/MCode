@@ -251,16 +251,16 @@ func renderMCPMenuEntry(c *ui.Context, s *chatState, threadID string) {
 			Gap(Space3).
 			Children(func() {
 				ui.Text(c, "MCP 服务器").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(mcpMenuTextColor(c, supported))
 				ui.Spacer(c)
 				if !supported {
 					ui.Text(c, "不支持").
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c))
 				} else {
 					ui.Text(c, "›").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
 				}
 			})
@@ -317,36 +317,36 @@ func renderMCPSelectionPanel(c *ui.Context, s *chatState, threadID string, onBac
 					OnClick(onBack).
 					Children(func() {
 						ui.Text(c, "‹ 返回").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})
 				ui.Text(c, "MCP 服务器").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
 			})
 
 		if !supported {
 			ui.Text(c, "当前 Agent 不支持外部 MCP，仅内置端点生效。").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				Padding(Space1, 0, Space1, 0)
 			return
 		}
 
 		ui.Text(c, "勾选仅对当前会话生效，取消勾选表示本会话不注入该服务。").
-			FontSize(TypeCaption).
+			FontSize(uiFont(TypeCaption)).
 			TextColor(ThemeSecondaryText(c))
 
 		switch {
 		case !ready:
 			ui.Text(c, "正在读取 MCP 服务器…").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				Padding(Space3, 0, Space3, 0)
 		case len(servers) == 0:
 			ui.Text(c, "没有发现 MCP 服务器").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				Padding(Space3, 0, Space3, 0)
 		default:
@@ -383,7 +383,7 @@ func renderMCPSelectionPanel(c *ui.Context, s *chatState, threadID string, onBac
 				applyBtn.Disabled(saving)
 				applyBtn.Children(func() {
 					ui.Text(c, "应用").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeOnAccent(c))
 				})
 			})
@@ -440,17 +440,17 @@ func renderMCPSelectionRow(c *ui.Context, s *chatState, srv agentconf.MCPServer)
 				}
 				if enabled {
 					ui.Text(c, "✓").
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeOnAccent(c))
 				}
 				ui.Text(c, mcpServerRowLabel(srv)).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(mcpMenuTextColor(c, !locked)).
 					Grow(1).
 					MaxLines(1)
 				if locked {
 					ui.Text(c, reason).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c)).
 						MaxLines(1)
 				}

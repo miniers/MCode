@@ -51,7 +51,7 @@ func renderModelPickerAddButton(c *ui.Context, st *SettingsState, ps *modelsPage
 					Size(14, 14).
 					TextColor(ThemeAccent(c))
 				ui.Text(c, "添加模型").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeAccent(c))
 			})
 	})
@@ -113,14 +113,14 @@ func renderModelPickerPopoverWithNotice(c *ui.Context, st *SettingsState, ps *mo
 						})
 						btn.Children(func() {
 							ui.Text(c, label).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeAccent(c))
 						})
 					}
 				}
 				if notice != "" {
 					ui.Text(c, notice).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c)).
 						Padding(0, Space1)
 				}
@@ -187,7 +187,7 @@ func renderModelPickerSections(c *ui.Context, st *SettingsState, ps *modelsPageS
 						renderProviderRowIcon(c, section, IconSM)
 					})
 					ui.Text(c, sectionNames[section]).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						FontWeight(600).
 						TextColor(ThemeSecondaryText(c)).
 						SingleLine()
@@ -196,7 +196,7 @@ func renderModelPickerSections(c *ui.Context, st *SettingsState, ps *modelsPageS
 		rendered = true
 		if !byProvider && multi && section != "" {
 			ui.Text(c, section).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(600).
 				TextColor(ThemeSecondaryText(c)).
 				Padding(Space1, Space1, Space0, Space1)
@@ -234,7 +234,7 @@ func renderModelPickerSections(c *ui.Context, st *SettingsState, ps *modelsPageS
 							})
 						}
 						ui.Text(c, group.title).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							FontWeight(600).
 							TextColor(ThemeSecondaryText(c))
 					})
@@ -252,7 +252,7 @@ func renderModelPickerSections(c *ui.Context, st *SettingsState, ps *modelsPageS
 		text = emptyHint
 	}
 	ui.Text(c, text).
-		FontSize(TypeFootnote).
+		FontSize(uiFont(TypeFootnote)).
 		TextColor(ThemeSecondaryText(c)).
 		Padding(Space2, Space1)
 }
@@ -300,7 +300,7 @@ func renderModelPickerRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 			}
 			if strings.TrimSpace(item.ID) != "" && item.ID != name {
 				ui.Text(c, item.ID).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine().
 					Ellipsis("…").

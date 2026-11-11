@@ -550,7 +550,7 @@ func renderAddModelPin(c *ui.Context, st *SettingsState) {
 		}
 		st.invalidate()
 	})
-	btn.Children(func() { ui.Text(c, "+ 添加收藏").FontSize(TypeFootnote).TextColor(ThemeAccent(c)) })
+	btn.Children(func() { ui.Text(c, "+ 添加收藏").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c)) })
 	st.mu.Lock()
 	cfg := st.cfg
 	providerRows := make(map[string]ProviderSetting, len(st.providerRows.settings))
@@ -609,7 +609,7 @@ func renderPinnedModels(c *ui.Context, st *SettingsState) {
 		status := ui.Column(c.Key("models-pinned-status")).Padding(settingsRowPadY, settingsRowPadX)
 		status.Children(func() {
 			if loadErrText != "" {
-				ui.Text(c, loadErrText).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+				ui.Text(c, loadErrText).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 				ui.Button(c.Key("models-retry"), "重新加载").OnClick(func() {
 					ps.loaded = false
 					ps.loadErr = ""
@@ -618,13 +618,13 @@ func renderPinnedModels(c *ui.Context, st *SettingsState) {
 				})
 			}
 			if ps.opErr != "" {
-				ui.Text(c, ps.opErr).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+				ui.Text(c, ps.opErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 			}
 			if refreshDone {
 				if refreshErr != "" {
-					ui.Text(c, refreshErr).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+					ui.Text(c, refreshErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 				} else {
-					ui.Text(c, "模型列表已刷新").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, "模型列表已刷新").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 				}
 			}
 		})
@@ -649,7 +649,7 @@ func renderPinnedModels(c *ui.Context, st *SettingsState) {
 	}
 
 	if hint := providerModelLimitHint(ps); hint != "" {
-		ui.Text(c, hint).FontSize(TypeFootnote).TextColor(ThemeDanger(c)).Padding(0, settingsRowPadX)
+		ui.Text(c, hint).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c)).Padding(0, settingsRowPadX)
 	}
 }
 
@@ -781,13 +781,13 @@ func renderPinnedModelRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 					Gap(Space0).
 					Children(func() {
 						ui.Row(c.Key("pin-name-" + pinKey)).Gap(Space2).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, modelName).Tooltip(pin.ModelID).FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
+							ui.Text(c, modelName).Tooltip(pin.ModelID).FontSize(uiFont(TypeBody)).FontWeight(500).TextColor(ThemePrimaryText(c))
 							if _, ok := magpieModelSource(st, pin.Provider, pin.ModelID); ok {
-								ui.Text(c, "Magpie").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+								ui.Text(c, "Magpie").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 							}
 						})
 						ui.Text(c, summary).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			})
@@ -935,7 +935,7 @@ func renderProviderModelsListExt(c *ui.Context, st *SettingsState, ps *modelsPag
 		if name == "" {
 			name = model.ID
 		}
-		ui.Text(c, name).FontSize(TypeBody).TextColor(ThemePrimaryText(c)).Padding(Space2, Space5)
+		ui.Text(c, name).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Padding(Space2, Space5)
 	}
 }
 
@@ -1062,12 +1062,12 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 				Gap(Space0).
 				Children(func() {
 					ui.Text(c, dispName).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(500).
 						TextColor(ThemePrimaryText(c))
 					if desc != "" {
 						ui.Text(c, desc).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 					}
 				})
@@ -1106,7 +1106,7 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 							Size(IconSM, IconSM).
 							TextColor(ThemeDanger(c))
 						ui.Text(c, "移除").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 						return
 					}
@@ -1114,7 +1114,7 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 						Size(IconSM, IconSM).
 						TextColor(ThemeSecondaryText(c))
 					ui.Text(c, "已收藏").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			} else {

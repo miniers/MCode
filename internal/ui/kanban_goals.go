@@ -51,7 +51,7 @@ func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 			ui.Text(c, "目标已不存在").TextColor(ThemeSecondaryText(c))
 			return
 		}
-		ui.Text(c, goal.Title).Padding(0, Space5).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
+		ui.Text(c, goal.Title).Padding(0, Space5).FontSize(uiFont(TypeTitle)).FontWeight(600).TextColor(ThemePrimaryText(c))
 		ui.Text(c, goalStatusBadgeText(goal.Status)).Padding(Space3, Space5).TextColor(ThemeSecondaryText(c))
 		ui.Scroll(c.Key("kanban-goal-detail-scroll")).Grow(1).FillWidth().TrackScroll(&ks.goalDetailScroll).Children(func() {
 			ui.Column(c.Key("kanban-goal-detail-body")).FillWidth().Padding(Space3, Space5).Gap(Space3).Children(func() {
@@ -218,7 +218,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 						title = goal.Prompt
 					}
 					ui.Text(c, title).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(600).
 						TextColor(primaryText).
 						Grow(1).
@@ -233,7 +233,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 						Background(badgeColor.Alpha(0.12)).
 						Children(func() {
 							ui.Text(c, badgeText).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								FontWeight(500).
 								TextColor(badgeColor)
 						})
@@ -271,7 +271,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 							})
 
 						ui.Text(c, fmt.Sprintf("%d/%d", goal.Done, goal.Total)).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(secondaryText)
 					})
 			}
@@ -286,7 +286,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 			}
 			if desc != "" {
 				ui.Text(c, desc).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(secondaryText).
 					SingleLine()
 			}
@@ -448,13 +448,13 @@ func renderPlanReviewTaskCard(c *ui.Context, s *chatState, task KanbanTask, numb
 					Background(ThemeAccent(c).Alpha(0.15)).
 					Children(func() {
 						ui.Text(c, fmt.Sprintf("%d", numbers[task.ID])).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							FontWeight(600).
 							TextColor(ThemeAccent(c))
 					})
 
 				ui.Text(c, task.Title).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					FontWeight(500).
 					TextColor(ThemePrimaryText(c)).
 					Grow(1)
@@ -466,7 +466,7 @@ func renderPlanReviewTaskCard(c *ui.Context, s *chatState, task KanbanTask, numb
 						Background(ThemeHover(c)).
 						Children(func() {
 							ui.Text(c, task.Status).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
 						})
 				}
@@ -478,13 +478,13 @@ func renderPlanReviewTaskCard(c *ui.Context, s *chatState, task KanbanTask, numb
 				labels = append(labels, fmt.Sprintf("#%d", n))
 			}
 			ui.Text(c, "依赖："+strings.Join(labels, "、")).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c))
 		}
 
 		if task.Notes != "" {
 			ui.Text(c, task.Notes).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c).Alpha(0.80)).
 				SingleLine()
 		}
@@ -589,7 +589,7 @@ func renderGoalOutputRow(c *ui.Context, s *chatState, ks *kanbanState, out goalO
 				Gap(Space3).
 				Children(func() {
 					ui.Text(c, task.Title).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(500).
 						TextColor(ThemePrimaryText(c)).
 						Grow(1)
@@ -600,7 +600,7 @@ func renderGoalOutputRow(c *ui.Context, s *chatState, ks *kanbanState, out goalO
 						Background(ThemeHover(c)).
 						Children(func() {
 							ui.Text(c, goalOutputStatusLabel(task.Status)).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
 						})
 
@@ -623,7 +623,7 @@ func renderGoalOutputRow(c *ui.Context, s *chatState, ks *kanbanState, out goalO
 
 			if out.Summary != "" {
 				ui.Text(c, out.Summary).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
 			}

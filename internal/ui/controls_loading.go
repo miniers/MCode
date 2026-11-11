@@ -31,7 +31,7 @@ func LoadingIndicator(c *ui.Context, key any, text string, size float32, colors 
 			ui.Spinner(c).Size(size, size).TextColor(color).Label("加载中")
 		}
 		if text != "" {
-			ui.Text(c, text).FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, text).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 		}
 	})
 	return row

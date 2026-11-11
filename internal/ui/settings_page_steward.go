@@ -180,7 +180,7 @@ func renderStewardTaskModelControl(c *ui.Context, st *SettingsState) {
 				}
 				btnClear.Children(func() {
 					ui.Text(c, "自动").
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			}
@@ -218,7 +218,7 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 				}
 				btnClear.Children(func() {
 					ui.Text(c, "自动").
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			}
@@ -292,7 +292,7 @@ func renderStewardQuietRange(c *ui.Context, st *SettingsState) {
 		AlignItems(ui.Center).
 		Children(func() {
 			renderStewardQuietClock(c, st, "sel-steward-quiet-start", "安静时段开始", &st.cfg.Orchestration.Steward.QuietStart, st.cfg.Orchestration.Steward.QuietEnd)
-			ui.Text(c, "至").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "至").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			renderStewardQuietClock(c, st, "sel-steward-quiet-end", "安静时段结束", &st.cfg.Orchestration.Steward.QuietEnd, st.cfg.Orchestration.Steward.QuietStart)
 		})
 }

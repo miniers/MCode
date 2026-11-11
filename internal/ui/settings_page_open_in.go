@@ -210,7 +210,7 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 			addBtn.Children(func() {
 				ui.Row(c.Key("btn-openin-add-row")).Gap(Space2).AlignItems(ui.Center).Children(func() {
 					ui.Icon(c, IconPlus()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c))
-					ui.Text(c, "添加应用…").FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "添加应用…").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 				})
 			})
 			return
@@ -251,12 +251,12 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				}()
 			}
 			chooseBtn.Children(func() {
-				ui.Text(c, "选择…").FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+				ui.Text(c, "选择…").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 			})
 		})
 
 		if ps.err != "" {
-			ui.Text(c, ps.err).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+			ui.Text(c, ps.err).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 		}
 
 		ui.Row(c.Key("row-openin-add-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
@@ -290,7 +290,7 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				}
 			}
 			add.Children(func() {
-				ui.Text(c, "添加").FontSize(TypeFootnote).FontWeight(600)
+				ui.Text(c, "添加").FontSize(uiFont(TypeFootnote)).FontWeight(600)
 			})
 
 			cancel := ui.ButtonBase(c.Key("btn-openin-add-cancel")).
@@ -306,7 +306,7 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				st.invalidate()
 			}
 			cancel.Children(func() {
-				ui.Text(c, "取消").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "取消").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			})
 		})
 	})

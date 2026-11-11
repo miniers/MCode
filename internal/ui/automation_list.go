@@ -85,12 +85,12 @@ func renderAutomationList(c *ui.Context, p automationListProps) {
 						if a.ID == p.SelectedID || p.Unread[a.ID] > 0 {
 							weight = weightFor(c, 500)
 						}
-						ui.Text(c, fields.Name).FontSize(TypeBody).FontWeight(weight).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+						ui.Text(c, fields.Name).FontSize(uiFont(TypeBody)).FontWeight(weight).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 						if p.Unread[a.ID] > 0 {
 							ui.Box(c.Key("automation-unread-dot-"+a.ID)).Size(Space2, Space2).Radius(RadiusPill).Background(ThemeAccent(c)).Label("未读").Shrink(0)
 						}
 					})
-					ui.Text(c, fields.Schedule).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…")
+					ui.Text(c, fields.Schedule).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…")
 					parts := []string{}
 					for _, part := range []string{fields.Next, fields.Plan, fields.Result} {
 						if part != "" {
@@ -98,7 +98,7 @@ func renderAutomationList(c *ui.Context, p automationListProps) {
 						}
 					}
 					if len(parts) > 0 {
-						ui.Text(c, strings.Join(parts, " · ")).FontSize(TypeBody).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…")
+						ui.Text(c, strings.Join(parts, " · ")).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…")
 					}
 				})
 			}

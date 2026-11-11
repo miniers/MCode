@@ -660,7 +660,7 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 			in := ui.TextInput(c.Key("chat-find-input"), &f.query).
 				Label("在会话中查找").
 				Placeholder("在会话中查找").
-				FontSize(FontSizeCapsuleText).
+				FontSize(uiFont(FontSizeCapsuleText)).
 				TextColor(ThemePrimaryText(c)).
 				Background(ui.Transparent).
 				BorderWidth(0).
@@ -725,7 +725,7 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 
 			if counter := chatFindCounterText(f); counter != "" {
 				ui.Text(c, counter).
-					FontSize(FontSizeCapsuleText).
+					FontSize(uiFont(FontSizeCapsuleText)).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
 			}
@@ -787,7 +787,7 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 				if f.caseSensitive {
 					color = ThemeAccent(c)
 				}
-				ui.Text(c, "Aa").FontSize(TypeCaption).TextColor(color)
+				ui.Text(c, "Aa").FontSize(uiFont(TypeCaption)).TextColor(color)
 			})
 
 			IconButton(c.Key("chat-find-close-btn"), IconButtonProps{

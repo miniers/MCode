@@ -360,14 +360,14 @@ func (f *gitForm) view(c *ui.Context) {
 					Gap(Space3).
 					Children(func() {
 						ui.Text(c, gitFormTitle(f.kind)).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c)).
 							SingleLine()
 						ui.Spacer(c)
 						if label := strings.TrimSpace(gitBranchLabel(st)); label != "" {
 							ui.Text(c, label).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c)).
 								MaxWidth(gitFormBranchNameMaxWidth).
 								SingleLine()
@@ -416,7 +416,7 @@ func (f *gitForm) viewCommit(c *ui.Context, st GitState, busy, generating, queue
 	selectedCount := gitSelectedFileCount(files, selected)
 
 	ui.Text(c, "提交变更").
-		FontSize(TypePageTitle).
+		FontSize(uiFont(TypePageTitle)).
 		FontWeight(600).
 		TextColor(ThemePrimaryText(c))
 
@@ -453,7 +453,7 @@ func (f *gitForm) viewCommit(c *ui.Context, st GitState, busy, generating, queue
 						}
 						ui.Spacer(c)
 						ui.Text(c, fmt.Sprintf("已选 %d/%d", selectedCount, len(files))).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
 					})
@@ -470,11 +470,11 @@ func (f *gitForm) viewCommit(c *ui.Context, st GitState, busy, generating, queue
 							// GitState 已经报了改动、但列表还没读出来时，说明状态仍在同步，不能报「没有改动」。
 							case len(files) == 0 && (!filesLoaded || st.Changes > 0):
 								ui.Text(c, "正在读取改动文件…").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							case len(files) == 0:
 								ui.Text(c, "工作区里没有未提交的改动").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							default:
 								for _, file := range files {
@@ -493,7 +493,7 @@ func (f *gitForm) viewCommit(c *ui.Context, st GitState, busy, generating, queue
 	area := ui.TextArea(c.Key("git-form-commit-input"), &commitMsg).
 		Label("提交信息").
 		Placeholder(placeholder).
-		FontSize(TypeBody).
+		FontSize(uiFont(TypeBody)).
 		TextColor(ThemePrimaryText(c)).
 		Background(ThemeSurface(c)).
 		Border(Hairline, ThemeBorder(c)).
@@ -628,7 +628,7 @@ func (f *gitForm) commitAIAction(c *ui.Context, disabled, generating bool) {
 			LoadingIndicator(c, nil, "", gitFormAICapsuleSpinner)
 		}
 		ui.Text(c, "AI 帮我写").
-			FontSize(FontSizeCapsuleText).
+			FontSize(uiFont(FontSizeCapsuleText)).
 			FontWeight(500).
 			TextColor(textColor).
 			SingleLine()
@@ -640,7 +640,7 @@ func (f *gitForm) viewNewBranch(c *ui.Context, busy bool, errMsg string) {
 	name := f.branchName
 
 	ui.Text(c, "新分支会从当前分支创建并切换过去。").
-		FontSize(TypeCaption).
+		FontSize(uiFont(TypeCaption)).
 		TextColor(ThemeSecondaryText(c))
 
 	TextField(c, TextFieldProps{
@@ -703,7 +703,7 @@ func (f *gitForm) viewCheckout(c *ui.Context, st GitState, busy bool, errMsg str
 				Children(func() {
 					if len(matched) == 0 {
 						ui.Text(c, "没有匹配的分支").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c)).
 							Padding(Space2, Space3)
 						return
@@ -724,7 +724,7 @@ func (f *gitForm) viewCheckout(c *ui.Context, st GitState, busy bool, errMsg str
 
 	FormActions(c, "git-form-actions", func() {
 		ui.Text(c, "Esc 取消").
-			FontSize(TypeCaption).
+			FontSize(uiFont(TypeCaption)).
 			TextColor(ThemeSecondaryText(c))
 		Button(c, ButtonOpts{
 			Key:     "git-form-cancel",
@@ -761,7 +761,7 @@ func (f *gitForm) viewMerge(c *ui.Context, st GitState, busy bool, errMsg string
 		})
 
 	ui.Text(c, "选择分支").
-		FontSize(TypeCaption).
+		FontSize(uiFont(TypeCaption)).
 		TextColor(ThemeSecondaryText(c))
 
 	SearchField(c, TextFieldProps{
@@ -796,7 +796,7 @@ func (f *gitForm) viewMerge(c *ui.Context, st GitState, busy bool, errMsg string
 				Children(func() {
 					if len(matched) == 0 {
 						ui.Text(c, "没有匹配的分支").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c)).
 							Padding(Space2, Space3)
 						return
@@ -831,7 +831,7 @@ func (f *gitForm) viewPullRequest(c *ui.Context, st GitState, busy bool, errMsg 
 	body := f.prBody
 
 	ui.Text(c, "在浏览器中打开创建合并请求的页面，标题与正文会一并带上。").
-		FontSize(TypeCaption).
+		FontSize(uiFont(TypeCaption)).
 		TextColor(ThemeSecondaryText(c))
 
 	TextField(c, TextFieldProps{
@@ -851,7 +851,7 @@ func (f *gitForm) viewPullRequest(c *ui.Context, st GitState, busy bool, errMsg 
 		Label("正文").
 		Placeholder("这次改动做了什么...").
 		Lines(4, 10).
-		FontSize(TypeBody).
+		FontSize(uiFont(TypeBody)).
 		TextColor(ThemePrimaryText(c)).
 		Background(ThemeHover(c).Alpha(0.25)).
 		Border(Hairline, ThemeBorder(c)).
@@ -894,7 +894,7 @@ func renderGitFormActions(c *ui.Context, busy bool, primaryLabel string, primary
 			LoadingIndicator(c, nil, "处理中…", IconSM)
 		}
 		ui.Text(c, "Esc 取消").
-			FontSize(TypeCaption).
+			FontSize(uiFont(TypeCaption)).
 			TextColor(ThemeSecondaryText(c))
 		Button(c, ButtonOpts{
 			Key:     "git-form-cancel",

@@ -245,7 +245,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 					formTitle = "添加模型配对"
 				}
 				ui.Text(c, formTitle).
-					FontSize(TypeProse).
+					FontSize(uiFont(TypeProse)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
 
@@ -254,7 +254,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 					Gap(Space1).
 					Children(func() {
 						ui.Text(c, "配对名称").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 						textFunc(func(*SettingsState) (string, bool) {
 							return uiSt.draft.Name, false
@@ -269,7 +269,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 					Justify(ui.SpaceBetween).
 					Children(func() {
 						ui.Text(c, "主代理模型").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c))
 
@@ -303,7 +303,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 					Justify(ui.SpaceBetween).
 					Children(func() {
 						ui.Text(c, "子代理模型").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c))
 
@@ -352,7 +352,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 									}
 									btnClear.Children(func() {
 										ui.Text(c, "与主代理相同").
-											FontSize(TypeCaption).
+											FontSize(uiFont(TypeCaption)).
 											TextColor(ThemeSecondaryText(c))
 									})
 								}
@@ -369,7 +369,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 								Gap(Space3).
 								Children(func() {
 									ui.Text(c, "档位映射").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										FontWeight(600).
 										TextColor(ThemePrimaryText(c))
 								})
@@ -470,7 +470,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 							st.invalidate()
 						}
 						btnCancel.Children(func() {
-							ui.Text(c, "取消").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, "取消").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 						})
 
 						btnSave := ui.ButtonBase(c.Key("btn-save-"+popKey)).
@@ -484,7 +484,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 							st.invalidate()
 						}
 						btnSave.Children(func() {
-							ui.Text(c, "保存").FontSize(TypeBody).TextColor(ThemeOnAccent(c))
+							ui.Text(c, "保存").FontSize(uiFont(TypeBody)).TextColor(ThemeOnAccent(c))
 						})
 					})
 			})
@@ -529,11 +529,11 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 						Gap(Space0).
 						Children(func() {
 							ui.Text(c, swarmPairTitle(p, providers)).
-								FontSize(TypeBody).
+								FontSize(uiFont(TypeBody)).
 								FontWeight(500).
 								TextColor(ThemePrimaryText(c))
 							ui.Text(c, swarmPairSummary(p)).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
 						})
 				})
@@ -558,7 +558,7 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 						st.invalidate()
 					}
 					btnEdit.Children(func() {
-						ui.Text(c, "编辑").FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+						ui.Text(c, "编辑").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 					})
 
 					popKey := "edit-" + p.ID
@@ -585,7 +585,7 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 						st.invalidate()
 					}
 					btnDelete.Children(func() {
-						ui.Text(c, "删除").FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+						ui.Text(c, "删除").FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 					})
 				})
 		})
@@ -808,7 +808,7 @@ func renderSwarmPairsBody(c *ui.Context, st *SettingsState) {
 						st.invalidate()
 					}
 					btnAdd.Children(func() {
-						ui.Text(c, "添加配对").FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+						ui.Text(c, "添加配对").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 					})
 
 					popKey := "add"
@@ -834,7 +834,7 @@ func renderSwarmPairsBody(c *ui.Context, st *SettingsState) {
 			Padding(settingsRowPadY, settingsRowPadX).
 			Children(func() {
 				ui.Text(c, "还没有配对，点击添加配对或从预设组合添加").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeSecondaryText(c))
 			})
 	} else {
@@ -876,7 +876,7 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, "默认档").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
 
 					var tierOptions []string
@@ -918,7 +918,7 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 					}
 					updateSwarmTierEditorAnchor(c, st, btnAdd, "add")
 					btnAdd.Children(func() {
-						ui.Text(c, "添加档位").FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+						ui.Text(c, "添加档位").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 					})
 
 				})
@@ -932,7 +932,7 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 			Padding(settingsRowPadY, settingsRowPadX).
 			Children(func() {
 				ui.Text(c, "暂无档位配置，点击添加档位创建").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeSecondaryText(c))
 			})
 	} else {
@@ -958,7 +958,7 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 					Size(IconSM, IconSM).
 					TextColor(ThemeWarning(c))
 				ui.Text(c, "档位超过 5 个时，主代理更容易选错档位").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeWarning(c))
 			})
 	}
@@ -1033,7 +1033,7 @@ func (m swarmModelControl) renderDisabled(c *ui.Context, st *SettingsState, s se
 			m.clear(st)
 		}
 		btnClear.Children(func() {
-			ui.Text(c, m.clearLabel).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, m.clearLabel).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 		})
 	})
 }
@@ -1105,13 +1105,13 @@ func (swarmReviewCheckControl) renderDisabled(c *ui.Context, st *SettingsState, 
 				}
 			}
 			btnSave.Children(func() {
-				ui.Text(c, "保存检查命令").FontSize(TypeFootnote).TextColor(ThemeOnAccent(c))
+				ui.Text(c, "保存检查命令").FontSize(uiFont(TypeFootnote)).TextColor(ThemeOnAccent(c))
 			})
 		})
 		if st.reviewCheckErr != "" {
-			ui.Text(c, st.reviewCheckErr).FontSize(TypeCaption).TextColor(ThemeDanger(c))
+			ui.Text(c, st.reviewCheckErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
 		} else if st.reviewCheckSaved {
-			ui.Text(c, "已保存").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "已保存").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 		}
 	})
 }

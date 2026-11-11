@@ -217,7 +217,7 @@ func fileManagerBarButton(c *ui.Context, key, label string, onClick func()) {
 	}
 	btn.Children(func() {
 		ui.Text(c, label).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeSecondaryText(c)).
 			SingleLine()
 	})
@@ -256,7 +256,7 @@ func renderFileManagerTabItem(c *ui.Context, s *chatState, snap fileManagerPanel
 						color = color.Alpha(0.75)
 					}
 					text := ui.Text(c, name).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						SingleLine().
 						MaxWidth(fileManagerTabMaxWidth).
 						TextColor(color)

@@ -267,7 +267,7 @@ func renderScriptsSheet(c *ui.Context, s *chatState) {
 				Children(func() {
 					ui.Column(c.Key("scripts-sheet-header-text")).Gap(Space0).Grow(1).Children(func() {
 						ui.Text(c, "项目脚本").
-							FontSize(TypeTitle).
+							FontSize(uiFont(TypeTitle)).
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c))
 					})
@@ -283,11 +283,11 @@ func renderScriptsSheet(c *ui.Context, s *chatState) {
 
 			if loading {
 				ui.Text(c, "正在加载项目脚本…").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			} else if len(rows) == 0 {
 				ui.Text(c, "还没有脚本，点「添加脚本」新建一个。").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			}
 
@@ -308,11 +308,11 @@ func renderScriptsSheet(c *ui.Context, s *chatState) {
 
 			if errText != "" {
 				ui.Text(c, errText).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			} else if note != "" {
 				ui.Text(c, note).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			}
 
@@ -373,7 +373,7 @@ func renderScriptsSheetRow(c *ui.Context, s *chatState, idx int, row *scriptsShe
 					ui.TextInput(c.Key(fmt.Sprintf("scripts-sheet-name-%d", idx)), &row.name).
 						Label("脚本名称").
 						Placeholder("名称").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						Grow(1)
 					IconButton(c, IconButtonProps{
 						Key:   fmt.Sprintf("scripts-sheet-remove-%d", idx),
@@ -390,7 +390,7 @@ func renderScriptsSheetRow(c *ui.Context, s *chatState, idx int, row *scriptsShe
 			ui.TextInput(c.Key(fmt.Sprintf("scripts-sheet-command-%d", idx)), &row.command).
 				Label("脚本命令").
 				Placeholder("命令，例如 npm run dev").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				FillWidth()
 
 			ui.Row(c.Key(fmt.Sprintf("scripts-sheet-row-flags-%d", idx))).
@@ -407,7 +407,7 @@ func renderScriptsSheetRow(c *ui.Context, s *chatState, idx int, row *scriptsShe
 
 			if strings.TrimSpace(row.command) == "" {
 				ui.Text(c, "缺少命令").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeDanger(c))
 			}
 		})

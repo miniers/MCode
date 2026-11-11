@@ -147,8 +147,8 @@ func renderStartupLoading(c *ui.Context, done, total int64) {
 				FillWidth().
 				Gap(Space1).
 				Children(func() {
-					ui.Text(c, "正在整理数据库…").FontSize(TypeProse).FontWeight(600).TextColor(ThemePrimaryText(c))
-					ui.Text(c, "仅首次升级时进行一次，请勿关闭").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, "正在整理数据库…").FontSize(uiFont(TypeProse)).FontWeight(600).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "仅首次升级时进行一次，请勿关闭").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 				})
 
 			// 进度条：高 6、圆角 3，轨道是低透明度主文本色，填充用强调色。
@@ -157,6 +157,6 @@ func renderStartupLoading(c *ui.Context, done, total int64) {
 				Track: ThemeOverlay(c, 0.1), Fill: ThemeAccent(c),
 			}).MarginY(12).Clip()
 
-			ui.Text(c, startupProgressLabel(done, total)).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, startupProgressLabel(done, total)).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 		})
 }

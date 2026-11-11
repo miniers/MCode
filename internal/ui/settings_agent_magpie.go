@@ -549,23 +549,23 @@ func (r magpieAgentRouteControl) render(c *ui.Context, st *SettingsState, s sett
 	ui.Column(c.Key(s.ID)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Gap(Space1).Children(func() {
 		ui.Row(c.Key(s.ID + "-mode")).FillWidth().AlignItems(ui.Center).Gap(Space3).Children(func() {
 			ui.Text(c, s.Title).
-				FontSize(TypeBody).
+				FontSize(uiFont(TypeBody)).
 				TextColor(ThemePrimaryText(c)).
 				SingleLine().
 				Grow(1)
 			magpieAgentRouteChoice(r.agent).render(c, st, setting{ID: s.ID + "-choice", Title: magpieAgentRouteLabel(s.Title)})
 		})
 		if !loaded && !known {
-			ui.Text(c, "正在加载…").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "正在加载…").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 		}
 		if loadErr != "" {
-			ui.Text(c, "加载 Magpie 设置失败: "+loadErr).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+			ui.Text(c, "加载 Magpie 设置失败: "+loadErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 		}
 		if loaded {
 			renderMagpieAgentDefaultPicker(c, st, r.agent, endpoints, snapshot)
 		}
 		if defaultErr != "" {
-			ui.Text(c, defaultErr).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+			ui.Text(c, defaultErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 		}
 		renderMagpieAgentRouteExtras(c, st, r.agent)
 	})
@@ -784,13 +784,13 @@ func renderAgentMagpieGlobalStatus(c *ui.Context, st *SettingsState, agent strin
 
 	if statusText != "" {
 		ui.Text(c, statusText).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(statusColor).
 			Padding(Space0, settingsRowPadX)
 	}
 	if actionErr != "" {
 		ui.Text(c, "操作失败: "+actionErr).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeDanger(c)).
 			Padding(Space0, settingsRowPadX)
 	}
@@ -813,7 +813,7 @@ func renderAgentMagpieGlobalStatus(c *ui.Context, st *SettingsState, agent strin
 				}
 				reapply.Children(func() {
 					ui.Text(c, "重新写入").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeAccent(c))
 				})
 
@@ -830,7 +830,7 @@ func renderAgentMagpieGlobalStatus(c *ui.Context, st *SettingsState, agent strin
 				}
 				keep.Children(func() {
 					ui.Text(c, "保留我的修改").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemePrimaryText(c))
 				})
 			})
@@ -838,7 +838,7 @@ func renderAgentMagpieGlobalStatus(c *ui.Context, st *SettingsState, agent strin
 
 	if managed := strings.TrimSpace(g.ManagedPath); managed != "" {
 		ui.Text(c, "系统管理员配置可能覆盖本设置："+managed).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeWarning(c)).
 			Padding(Space0, settingsRowPadX)
 	}
@@ -850,7 +850,7 @@ func renderAgentMagpieNotice(c *ui.Context, key, text string, color ui.Color) {
 		Padding(Space0, settingsRowPadX).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(color)
 		})
 }

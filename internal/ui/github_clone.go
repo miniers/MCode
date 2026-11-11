@@ -447,12 +447,12 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 							Gap(Space0).
 							Children(func() {
 								ui.Text(c, "从 GitHub 克隆").
-									FontSize(TypeProse).
+									FontSize(uiFont(TypeProse)).
 									FontWeight(600).
 									TextColor(ThemePrimaryText(c)).
 									SingleLine()
 								ui.Text(c, "选择仓库，克隆到你指定的目录并作为项目打开。").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c)).
 									SingleLine()
 							})
@@ -470,7 +470,7 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 				// 输入框：粘贴 Git URL 或输入 owner/repo，也可用于过滤 gh 仓库列表
 				in := ui.TextInput(c.Key("github-clone-search"), &cs.search).
 					Placeholder("搜索仓库或粘贴 Git URL").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
 					Background(ThemeHover(c).Alpha(0.25)).
 					BorderColor(ThemeBorder(c)).
@@ -522,7 +522,7 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 										hint = cs.reposErr + "，可直接粘贴 URL"
 									}
 									ui.Text(c, hint).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c)).
 										Padding(Space3)
 								}
@@ -541,14 +541,14 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 							Gap(Space0).
 							Children(func() {
 								ui.Text(c, "克隆到").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemePrimaryText(c))
 								dirText := cs.parentDir
 								if dirText == "" {
 									dirText = "尚未选择目录"
 								}
 								ui.Text(c, dirText).
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeSecondaryText(c)).
 									SingleLine()
 							})
@@ -568,7 +568,7 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 					Children(func() {
 						if cs.errMsg != "" {
 							ui.Text(c, cs.errMsg).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeDanger(c)).
 								Grow(1).
 								SingleLine()
@@ -619,7 +619,7 @@ func renderGitHubRepoRow(c *ui.Context, s *chatState, cs *githubCloneState, full
 	}
 	row.Children(func() {
 		ui.Text(c, title).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemePrimaryText(c)).
 			SingleLine()
 	})

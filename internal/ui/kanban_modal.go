@@ -256,7 +256,7 @@ func renderTasksWindowHeader(c *ui.Context, s *chatState, ks *kanbanState, p kan
 				}
 			}
 		}
-		ui.Text(c, title).SingleLine().FontSize(TypeProse).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0)
+		ui.Text(c, title).SingleLine().FontSize(uiFont(TypeProse)).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0)
 		if p.destination != "automations" {
 			idx := 0
 			if p.viewMode == config.KanbanViewList {
@@ -440,7 +440,7 @@ func kanbanSearchRow(c *ui.Context, s *chatState, ks *kanbanState, query *string
 		in := ui.TextInput(c.Key("kanban-search-input"), query).
 			Label("筛选任务").
 			Placeholder("筛选任务…").
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemePrimaryText(c)).
 			BorderWidth(0).
 			Background(ui.Transparent).
@@ -517,7 +517,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 							Size(IconMD, IconMD).
 							TextColor(ThemeWarning(c))
 						ui.Text(c, "数据已在别处被修改，请刷新后重试").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							FontWeight(500).
 							TextColor(ThemeWarning(c)).
 							Grow(1)
@@ -550,7 +550,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 
 			if p.errMsg != "" && (len(p.board.Tasks) > 0 || len(p.board.Goals) > 0) {
 				ui.Row(c.Key("kanban-refresh-error")).AlignItems(ui.Center).Gap(Space3).Children(func() {
-					ui.Text(c, "刷新失败").FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+					ui.Text(c, "刷新失败").FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 					Button(c.Key("kanban-refresh-retry"), ButtonOpts{Text: "重试", Label: "重试", Variant: ButtonGhost, OnClick: func() { s.loadKanban(p.scopeID) }})
 				})
 			}
@@ -592,7 +592,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 					title = goal.Prompt
 				}
 				ui.ButtonBase(c.Key("kanban-selected-goal-" + goal.ID)).Label("目标详情 " + title).FillWidth().Height(ControlMD).Shrink(0).AlignItems(ui.Center).Transition(motionCollapse(c)).OnClick(func() { kanbanMu.Lock(); ks.goalDetailOpen = true; kanbanMu.Unlock(); s.invalidate() }).Children(func() {
-					ui.Text(c, fmt.Sprintf("%s · %d/%d", title, goal.Done, goal.Total)).FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+					ui.Text(c, fmt.Sprintf("%s · %d/%d", title, goal.Done, goal.Total)).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 				})
 				break
 			}
@@ -621,7 +621,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 							Size(ControlSM, ControlSM).
 							TextColor(ThemeDanger(c))
 						ui.Text(c, p.errMsg).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeDanger(c))
 						Button(c.Key("kanban-retry-btn"), ButtonOpts{
 							Text:  "重试",
@@ -654,7 +654,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 							Size(ControlLG, ControlLG).
 							TextColor(ThemeSecondaryText(c).Alpha(0.40))
 						ui.Text(c, "还没有任务").
-							FontSize(TypeTitle).
+							FontSize(uiFont(TypeTitle)).
 							FontWeight(500).
 							TextColor(ThemePrimaryText(c))
 						ui.Row(c.Key("kanban-empty-actions")).AlignItems(ui.Center).Gap(Space3).Children(func() {
@@ -676,7 +676,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 			if (p.searching || p.goalID != "" || p.viewFilter == "attention") && len(p.visibleBoard.Tasks) == 0 && attentionGoals == 0 {
 				ui.Column(c.Key("kanban-search-empty")).Fill().Center().Gap(Space2).Children(func() {
 					ui.Icon(c, IconSearch()).Size(ControlSM, ControlSM).TextColor(ThemeSecondaryText(c).Alpha(0.50))
-					ui.Text(c, "未找到任务").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, "未找到任务").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 					Button(c.Key("kanban-clear-filters"), ButtonOpts{Text: "清除筛选", Label: "清除筛选", Variant: ButtonSecondary, OnClick: func() {
 						kanbanMu.Lock()
 						ks.searchText = ""

@@ -205,7 +205,7 @@ func renderRevertDialog(c *ui.Context, s *chatState) {
 				// 标题行同时是弹窗的拖拽把手。
 				modalDragHandle(c, modalDragRevert, ui.Row(c.Key("modal-revert-title-row")).FillWidth().Children(func() {
 					ui.Text(c, "撤销此轮改动").
-						FontSize(TypeTitle).
+						FontSize(uiFont(TypeTitle)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 				}))
@@ -220,11 +220,11 @@ func renderRevertDialog(c *ui.Context, s *chatState) {
 						})
 				case errText != "":
 					ui.Text(c, errText).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeDanger(c))
 				case preview == nil || len(preview.Files) == 0:
 					ui.Text(c, "此轮没有可撤销的文件改动").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				default:
 					renderRevertFileList(c, preview, height)
@@ -265,7 +265,7 @@ func renderRevertDialogActions(c *ui.Context, s *chatState, loading bool, errTex
 			default:
 				revert, kept := revertCounts(preview)
 				ui.Text(c, fmt.Sprintf("将还原 %d 个文件，保留 %d 个文件", revert, kept)).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					Grow(1)
 
@@ -328,25 +328,25 @@ func renderRevertFileRow(c *ui.Context, f RevertFile) {
 		AlignItems(ui.Center).
 		Children(func() {
 			ui.Text(c, f.Path).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemePrimaryText(c)).
 				Grow(1).
 				SingleLine()
 			if f.Additions > 0 {
 				ui.Text(c, fmt.Sprintf("+%d", f.Additions)).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					FontWeight(500).
 					TextColor(ThemeSuccess(c))
 			}
 			if f.Deletions > 0 {
 				ui.Text(c, fmt.Sprintf("-%d", f.Deletions)).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					FontWeight(500).
 					TextColor(ThemeDanger(c))
 			}
 			if f.IsKept {
 				ui.Text(c, "已保留（轮次结束后被修改过）").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c))
 			}
 		})

@@ -219,7 +219,7 @@ func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *browserTab, sna
 						}
 						previewMu.Unlock()
 					}
-					btn.Children(func() { ui.Text(c, label).FontSize(TypeCaption) })
+					btn.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeCaption)) })
 				}
 			})
 			ui.Row(c.Key("preview-console-actions")).Height(ControlMD).Gap(Space2).Padding(0, Space2).AlignItems(ui.Center).Children(func() {
@@ -233,7 +233,7 @@ func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *browserTab, sna
 					}
 					c.WriteClipboard(strings.Join(lines, "\n"))
 				}
-				copyBtn.Children(func() { ui.Text(c, "复制").FontSize(TypeCaption) })
+				copyBtn.Children(func() { ui.Text(c, "复制").FontSize(uiFont(TypeCaption)) })
 				add := ui.ButtonBase(c.Key("preview-console-add")).Label("添加到对话").Disabled(len(selected) == 0)
 				s.mu.Lock()
 				threadID := s.selectedThreadID
@@ -241,12 +241,12 @@ func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *browserTab, sna
 				if add.Clicked() {
 					previewConsoleAddToConversation(s, threadID, snap)
 				}
-				add.Children(func() { ui.Text(c, "添加到对话").FontSize(TypeCaption) })
+				add.Children(func() { ui.Text(c, "添加到对话").FontSize(uiFont(TypeCaption)) })
 				clear := ui.ButtonBase(c.Key("preview-console-clear")).Label("清空")
 				if clear.Clicked() {
 					clearPreviewConsoleErrors(s, st)
 				}
-				clear.Children(func() { ui.Text(c, "清空").FontSize(TypeCaption) })
+				clear.Children(func() { ui.Text(c, "清空").FontSize(uiFont(TypeCaption)) })
 			})
 			ui.Scroll(c.Key("preview-console-scroll")).Grow(1).FillWidth().Children(func() {
 				for _, entry := range snap.consoleErrors {

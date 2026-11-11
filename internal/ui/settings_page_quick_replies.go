@@ -258,7 +258,7 @@ func renderQuickReplyRow(c *ui.Context, st *SettingsState, page *quickRepliesPag
 		).render(c, st, setting{ID: "quick-reply-message-" + strconv.Itoa(i), Title: fmt.Sprintf("第 %d 条内容", idx)})
 
 		if errText != "" {
-			ui.Text(c, errText).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+			ui.Text(c, errText).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 		}
 
 		ui.Row(c.Key("quick-replies-row-actions-" + strconv.Itoa(i))).Gap(Space1).AlignItems(ui.Center).Children(func() {
@@ -292,7 +292,7 @@ func renderQuickReplyAddRow(c *ui.Context, st *SettingsState, page *quickReplies
 		addBtn.Children(func() {
 			ui.Row(c.Key("btn-quick-reply-add-row")).Gap(Space2).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, IconPlus()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c))
-				ui.Text(c, "添加一条").FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+				ui.Text(c, "添加一条").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 			})
 		})
 	})

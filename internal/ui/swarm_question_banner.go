@@ -73,7 +73,7 @@ func renderSwarmQuestionBanner(c *ui.Context, s *chatState) {
 			}
 			if hidden > 0 {
 				ui.Text(c, fmt.Sprintf("另有 %d 个子线程在提问", hidden)).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					Selectable()
 			}
@@ -107,19 +107,19 @@ func renderSwarmQuestionBannerRow(c *ui.Context, s *chatState, leadID string, h 
 				ui.Text(c, swarmQuestionBannerSummary(h)).
 					Grow(1).
 					MinWidth(0).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
 					MaxLines(1)
 				ui.Row(c.Key(key + "-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
 					if forwarded {
 						ui.Text(c, "已交给主线程，等待回答…").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c)).
 							Selectable()
 					} else {
 						if hint := swarmQuestionAutoForwardHint(h.PendingQuestion, time.Now()); hint != "" {
 							ui.Text(c, hint).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c)).
 								MaxLines(1)
 						}
@@ -135,7 +135,7 @@ func renderSwarmQuestionBannerRow(c *ui.Context, s *chatState, leadID string, h 
 			})
 		if errText != "" {
 			ui.Text(c, "转交失败："+errText).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(ThemeDanger(c)).
 				MaxLines(2)
 		}

@@ -2,62 +2,44 @@ package mcodeui
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
 )
 
-// textScaleControl 是「文字大小」的档位分段：档位是 int，choice 只绑定字符串，
-// 所以这里直接画分段按钮，并实现禁用与重置，让渲染器统一处理锁定。
-type textScaleControl struct{}
+type themeControl struct{}
 
-func (textScaleControl) render(c *ui.Context, st *SettingsState, s setting) {
-	textScaleControl{}.renderDisabled(c, st, s, false)
+func (themeControl) render(c *ui.Context, st *SettingsState, s setting) {
+	themeControl{}.renderDisabled(c, st, s, false)
 }
 
-func (textScaleControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, disabled bool) {
-	cur := st.cfg.Appearance.EffectiveTextScale()
-	ui.Row(c.Key("seg-text-scale")).
-		Background(ThemeOverlay(c, OverlaySubtle)).
-		Padding(Space0).
-		Radius(RadiusMD).
-		Gap(Space0).
-		AlignItems(ui.Center).
-		Children(func() {
-			for _, level := range config.TextScaleLevels {
-				lv := level
-				label := fmt.Sprintf("%d%%", lv)
-				btn := ui.ButtonBase(c.Key(fmt.Sprintf("btn-text-scale-%d", lv))).
-					Label(label).
-					Padding(Space1, settingsCompactPadX).
-					Radius(RadiusSM).
-					Disabled(disabled)
-				if !disabled {
-					btn.OnClick(func() {
-						if cur == lv {
-							return
-						}
-						commitSettingsControl(st, func(cfg *config.Config) { cfg.Appearance.TextScale = lv })
-					})
+func (themeControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, disabled bool) {
+	ids := []string{config.ThemeSystem, config.ThemeLight, config.ThemeDark}
+	selected := -1
+	for i, id := range ids {
+		if st.cfg.Appearance.Theme == id || (i == 0 && st.cfg.Appearance.Theme == "") {
+			selected = i
+		}
+	}
+	ui.Column(c.Key(s.ID + "-choices")).Gap(Space2).AlignItems(ui.End).Children(func() {
+		Segmented(c, s.ID+"-seg", &selected, []Segment{{Label: "跟随系统", Disabled: disabled}, {Label: "浅色", Disabled: disabled}, {Label: "深色", Disabled: disabled}}, func(i int) {
+			commitSettingsControl(st, func(cfg *config.Config) { cfg.Appearance.Theme = ids[i] })
+		}).Label("主题")
+		ui.Row(c.Key(s.ID + "-custom")).Wrap().Gap(Space2).Children(func() {
+			for _, theme := range st.cfg.Appearance.Themes {
+				if config.IsBuiltinTheme(theme.ID) {
+					continue
 				}
-				txtColor := ThemeSecondaryText(c)
-				if cur == lv {
-					btn.Background(ThemeSurface(c))
-					txtColor = ThemePrimaryText(c)
-				} else if btn.Hovered() && !disabled {
-					btn.Background(ThemeOverlay(c, OverlayFaint))
-					txtColor = ThemePrimaryText(c)
-				}
-				btn.Children(func() {
-					ui.Text(c, label).FontSize(TypeBody).TextColor(txtColor)
-				})
+				Capsule(c, CapsuleProps{Key: theme.ID, Text: theme.Name, Selected: st.cfg.Appearance.Theme == theme.ID, Interactive: !disabled, OnClick: func() {
+					commitSettingsControl(st, func(cfg *config.Config) { cfg.Appearance.Theme = theme.ID })
+				}}).Transition(motionFeedback(c))
 			}
 		})
+	})
 }
 
-func (textScaleControl) reset(cfg *config.Config) { cfg.Appearance.TextScale = config.DefaultTextScale }
+func (themeControl) reset(cfg *config.Config) { cfg.Appearance.Theme = config.ThemeSystem }
 
 // appearanceThemeApplied 记录最近一次同步到运行时主题源的值：主题控件与整页重置都只改配置，
 // 页面渲染时发现配置里的主题变了就立刻应用，避免要重启才生效。
@@ -93,7 +75,7 @@ func syncAppearanceTheme(st *SettingsState) {
 	applyThemeSource(mygo.ThemeSource(source))
 }
 
-// appearanceThemeSection 是「主题与排版」节：主题、文字大小、密度、内容宽度与侧边栏。
+// appearanceThemeSection 是主题、布局与主题编辑入口。
 var appearanceThemeSection = settingsSection{
 	ID:    "appearance.theme",
 	Title: "主题与排版",
@@ -103,22 +85,14 @@ var appearanceThemeSection = settingsSection{
 			Title:   "主题",
 			Aliases: []string{"深色", "浅色", "暗色", "亮色", "跟随系统", "配色", "夜间"},
 			Lock:    "theme",
-			Control: choice(
-				val(func(c *config.Config) *string { return &c.Appearance.Theme }, config.ThemeSystem),
-				[]choiceOption{
-					{Value: config.ThemeSystem, Label: "跟随系统"},
-					{Value: config.ThemeLight, Label: "浅色"},
-					{Value: config.ThemeDark, Label: "深色"},
-				},
-			),
+			Control: themeControl{},
 		},
-		{
-			ID:      "row-text-scale",
-			Title:   "文字大小",
-			Aliases: []string{"字号", "缩放", "侧栏", "对话内容", "百分比"},
-			Lock:    "text-scale",
-			Control: textScaleControl{},
-		},
+		{ID: "row-edit-themes", Title: "编辑主题", Aliases: []string{"自定义主题", "颜色", "字号"}, Control: link(func(st *SettingsState) string {
+			if st.cfg.Appearance.Theme == "" || st.cfg.Appearance.Theme == config.ThemeSystem {
+				return "跟随系统"
+			}
+			return st.cfg.Appearance.ThemeDisplayName(st.cfg.Appearance.Theme)
+		}, "themes")},
 		{
 			ID:      "row-conversation-density",
 			Title:   "界面密度",
@@ -168,10 +142,10 @@ var appearanceThemeSection = settingsSection{
 	},
 }
 
-// appearanceFontsSection 是「字体与字号」节：代码字体与代码字号同组。
+// appearanceFontsSection 是代码字体设置。
 var appearanceFontsSection = settingsSection{
 	ID:    "appearance.fonts",
-	Title: "字体与字号",
+	Title: "字体",
 	Rows: []setting{
 		{
 			ID:      "row-code-font",
@@ -179,28 +153,6 @@ var appearanceFontsSection = settingsSection{
 			Aliases: []string{"字体", "等宽", "代码块", "内联代码", "工具输出", "SF Mono", "Menlo", "JetBrains Mono", "monospace"},
 			Lock:    "code-font",
 			Control: text(val(func(c *config.Config) *string { return &c.Appearance.CodeFont }, ""), "系统默认"),
-		},
-		{
-			ID:      "row-code-font-size",
-			Title:   "代码字号",
-			Aliases: []string{"字号", "代码块", "等宽", "pt"},
-			Lock:    "code-font-size",
-			Control: number(
-				val(func(c *config.Config) *int { return &c.Appearance.CodeFontSize }, config.DefaultCodeFontSize),
-				"pt", config.MinCodeFontSize, config.MaxCodeFontSize,
-			),
-		},
-		{
-			ID:      "row-terminal-font-size",
-			Title:   "终端字号",
-			Aliases: []string{"终端", "字体", "字号", "font", "size", "文字"},
-			Control: number(val(func(c *config.Config) *int { return &c.Workbench.TerminalFontSize }, config.DefaultTerminalFontSize), "pt", config.MinTerminalFontSize, config.MaxTerminalFontSize),
-		},
-		{
-			ID:      "row-editor-font-size",
-			Title:   "编辑器字号",
-			Aliases: []string{"编辑器", "字体", "字号", "font", "源码"},
-			Control: number(val(func(c *config.Config) *int { return &c.Workbench.EditorFontSize }, config.DefaultEditorFontSize), "pt", config.MinEditorFontSize, config.MaxEditorFontSize),
 		},
 	},
 }

@@ -368,7 +368,7 @@ func renderBrowserTabs(c *ui.Context, s *chatState, st *previewState) {
 					}
 					ink := tab.AnimateTo("indicator", target, springSnappy)
 					tab.Children(func() {
-						ui.Text(c, item.title).FontSize(TypeCaption).SingleLine().MaxWidth(160)
+						ui.Text(c, item.title).FontSize(uiFont(TypeCaption)).SingleLine().MaxWidth(160)
 						ui.Box(c).Absolute().Left(Space2).Right(Space2).Bottom(0).Height(Hairline).Background(ThemeAccent(c).Alpha(ink))
 					})
 					IconButton(c, IconButtonProps{Key: fmt.Sprintf("browser-close-%d", item.id), Icon: IconX(), Label: "关闭网页标签", Size: ControlXS, Variant: ButtonGhost, OnClick: func() { closeID = item.id }})

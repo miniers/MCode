@@ -78,7 +78,7 @@ func renderTasksWindowSidebar(c *ui.Context, s *chatState, ks *kanbanState, p ka
 				})
 				if len(p.board.Goals) > 0 {
 					ui.Column(c.Key("tasks-sidebar-goals")).FillWidth().Padding(Space5, 0, 0, 0).Children(func() {
-						ui.Text(c, "目标").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, "目标").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 						for _, goal := range p.board.Goals {
 							goal := goal
 							title := goal.Title
@@ -120,7 +120,7 @@ func tasksDestinationRow(c *ui.Context, s *chatState, current, destination, titl
 		ui.Icon(c, icon).Size(IconMD, IconMD).TextColor(tasksSidebarIconColor(c, selected))
 		tasksSidebarText(c, title, selected)
 		if count > 0 {
-			ui.Text(c.Key("kanban-destination-"+destination+"-count"), fmt.Sprint(count)).FontSize(TypeBody).TextColor(ThemeSecondaryText(c)).Transition(motionListItem(c))
+			ui.Text(c.Key("kanban-destination-"+destination+"-count"), fmt.Sprint(count)).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c)).Transition(motionListItem(c))
 		}
 	})
 }
@@ -135,7 +135,7 @@ func tasksSidebarRow(c *ui.Context, key, title string, count int, selected bool,
 	row.Children(func() {
 		tasksSidebarText(c, title, selected)
 		if count > 0 {
-			ui.Text(c, fmt.Sprint(count)).FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, fmt.Sprint(count)).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 		}
 		if confirm != nil {
 			ui.ButtonBase(c.Key(key+"-confirm")).Label("确认目标计划 "+title).Size(IconMD, IconMD).OnClick(confirm).Children(func() {
@@ -146,7 +146,7 @@ func tasksSidebarRow(c *ui.Context, key, title string, count int, selected bool,
 }
 
 func tasksSidebarText(c *ui.Context, title string, selected bool) {
-	text := ui.Text(c, title).SingleLine().FontSize(TypeBody).Grow(1).MinWidth(0).TextColor(tasksSidebarTextColor(c, selected))
+	text := ui.Text(c, title).SingleLine().FontSize(uiFont(TypeBody)).Grow(1).MinWidth(0).TextColor(tasksSidebarTextColor(c, selected))
 	if selected {
 		text.FontWeight(500)
 	}

@@ -198,7 +198,7 @@ func renderMemoryHeader(c *ui.Context, s *chatState) {
 				Justify(ui.Center).
 				Children(func() {
 					ui.Text(c, "记忆").
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 					subtitle := "Nowledge Mem • 写入前必须由你确认"
@@ -206,7 +206,7 @@ func renderMemoryHeader(c *ui.Context, s *chatState) {
 						subtitle = "本地文档 • 写入前必须由你确认"
 					}
 					ui.Text(c, subtitle).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						Font("monospace").
 						TextColor(ThemeSecondaryText(c))
 				})
@@ -252,7 +252,7 @@ func renderMemoryTabs(c *ui.Context, s *chatState) {
 			}
 			ui.Spacer(c)
 			ui.Text(c, snap.projectPath).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				Font("monospace").
 				SingleLine().
 				Shrink(1).
@@ -264,7 +264,7 @@ func renderMemoryTabs(c *ui.Context, s *chatState) {
 // renderMemoryTabButton 渲染单个标签页按钮，count>0 时显示数量徽标。
 func renderMemoryTabButton(c *ui.Context, s *chatState, tab int, label string, active bool, count int) {
 	TabButton(c, TabButtonProps{Key: "memory-tab-" + strconv.Itoa(tab), Label: label, Active: active}, func() {
-		ui.Text(c, label).FontSize(TypeFootnote).SingleLine().TextColor(ThemePrimaryText(c))
+		ui.Text(c, label).FontSize(uiFont(TypeFootnote)).SingleLine().TextColor(ThemePrimaryText(c))
 		if count > 0 {
 			tone := ToneNeutral
 			if active {
@@ -314,7 +314,7 @@ func renderMemoryPendingTab(c *ui.Context, s *chatState, snap memoryPanelSnapsho
 					hint = "Agent 提议的记忆，只有你接受后才会写入本地文档；你在对话里明确要求记住的会直接写入"
 				}
 				ui.Text(c, hint).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c))
 			})
 
@@ -359,7 +359,7 @@ func renderMemoryPendingTab(c *ui.Context, s *chatState, snap memoryPanelSnapsho
 			BorderColor(ThemeBorder(c)).
 			Children(func() {
 				ui.Text(c, "待审 "+strconv.Itoa(len(snap.proposals))+" 条").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c))
 				ui.Spacer(c)
 				if snap.backend != "local" {
@@ -419,7 +419,7 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 						Children(func() {
 							ui.Icon(c, IconBrain()).Size(IconSM, IconSM).Shrink(0).TextColor(ThemeAccent(c))
 							ui.Text(c, p.Title).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								FontWeight(600).
 								MaxLines(2).
 								Grow(1).
@@ -478,7 +478,7 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 						Label("内容").
 						Height(memoryEditTextAreaHeight).
 						FillWidth().
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						Font("monospace").
 						LineHeight(1.4).
 						TextColor(ThemePrimaryText(c)).
@@ -495,11 +495,11 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 								countColor = ThemeWarning(c)
 							}
 							ui.Text(c, strconv.Itoa(contentRunes)+" 字").
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(countColor)
 							if contentRunes > 600 {
 								ui.Text(c, "建议精简到 600 字以内：检索摘要只取前 400 字").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeWarning(c))
 							}
 							ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
@@ -518,11 +518,11 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 								Variant:  ButtonSecondary,
 							}).Shrink(0)
 							if snap.condenseErr != "" {
-								ui.Text(c, snap.condenseErr).FontSize(TypeCaption).TextColor(ThemeDanger(c))
+								ui.Text(c, snap.condenseErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
 							}
 						})
 					ui.Column(c.Key("memory-edit-unit-" + p.ID)).FillWidth().Gap(Space2).Children(func() {
-						ui.Text(c, "类型").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, "类型").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 						ui.Row(c.Key("memory-edit-unit-options-" + p.ID)).
 							FillWidth().
 							Wrap().
@@ -557,7 +557,7 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 							GapY(Space1).
 							AlignItems(ui.Center).
 							Children(func() {
-								ui.Text(c, "标签").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+								ui.Text(c, "标签").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 								for _, label := range p.Labels {
 									memoryChip(c, label)
 								}
@@ -599,7 +599,7 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 					OnClick(func() { s.toggleMemoryProposalExpand(p.ID) }).
 					Children(func() {
 						ui.Text(c, p.Content).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							Font("monospace").
 							MaxLines(3).
 							FillWidth().
@@ -616,7 +616,7 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 				AlignItems(ui.Center).
 				Children(func() {
 					if p.TargetMemoryID == "" {
-						ui.Text(c, "写入到").FontSize(TypeCaption).Shrink(0).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, "写入到").FontSize(uiFont(TypeCaption)).Shrink(0).TextColor(ThemeSecondaryText(c))
 						renderMemoryScopeOption(c, s, p, memoryScopeProject, "当前项目", busy)
 						renderMemoryScopeOption(c, s, p, memoryScopeGlobal, "全局", busy)
 					}
@@ -659,7 +659,7 @@ func renderMemorySimilarBlock(c *ui.Context, s *chatState, snap memoryPanelSnaps
 		return
 	}
 	ui.Column(c.Key("memory-similar-" + p.ID)).FillWidth().Gap(Space2).Children(func() {
-		ui.Text(c, "相似的已有记忆").FontSize(TypeCaption).FontWeight(600).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, "相似的已有记忆").FontSize(uiFont(TypeCaption)).FontWeight(600).TextColor(ThemeSecondaryText(c))
 		switch {
 		case snap.similarLoading:
 			ui.Row(c.Key("memory-similar-loading-" + p.ID)).
@@ -670,9 +670,9 @@ func renderMemorySimilarBlock(c *ui.Context, s *chatState, snap memoryPanelSnaps
 					LoadingIndicator(c, nil, "正在检索相似记忆…", IconSM).Grow(1).Shrink(1).MinWidth(0)
 				})
 		case snap.similarErr != "":
-			ui.Text(c, snap.similarErr).FontSize(TypeCaption).FillWidth().TextColor(ThemeDanger(c))
+			ui.Text(c, snap.similarErr).FontSize(uiFont(TypeCaption)).FillWidth().TextColor(ThemeDanger(c))
 		case len(snap.similarItems) == 0:
-			ui.Text(c, "没有找到相似记忆").FontSize(TypeCaption).FillWidth().TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "没有找到相似记忆").FontSize(uiFont(TypeCaption)).FillWidth().TextColor(ThemeSecondaryText(c))
 		default:
 			for _, item := range snap.similarItems {
 				renderMemorySimilarItem(c, s, p, item, busy)
@@ -699,7 +699,7 @@ func renderMemorySimilarItem(c *ui.Context, s *chatState, p MemoryProposal, item
 				Gap(Space1).
 				Children(func() {
 					ui.Text(c, item.Title).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						FontWeight(600).
 						SingleLine().
 						FillWidth().
@@ -707,7 +707,7 @@ func renderMemorySimilarItem(c *ui.Context, s *chatState, p MemoryProposal, item
 						MinWidth(0).
 						TextColor(ThemePrimaryText(c))
 					ui.Text(c, item.Content).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						Font("monospace").
 						MaxLines(2).
 						FillWidth().
@@ -731,7 +731,7 @@ func renderMemorySimilarItem(c *ui.Context, s *chatState, p MemoryProposal, item
 				Children(func() {
 					if selected {
 						ui.Text(c, "已选为合并目标").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							SingleLine().
 							Shrink(0).
 							TextColor(ThemeAccent(c))
@@ -864,17 +864,17 @@ func renderMemoryCreateDialog(c *ui.Context, s *chatState, snap memoryPanelSnaps
 			Gap(Space4).
 			Children(func() {
 				modalDragHandle(c, modalDragMemoryCreate, ui.Row(c.Key("memory-create-title-row")).FillWidth().Children(func() {
-					ui.Text(c, "新建记忆").FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "新建记忆").FontSize(uiFont(TypeTitle)).FontWeight(600).TextColor(ThemePrimaryText(c))
 				}))
 				ui.Text(c, "手动记录一条记忆，来源记为「我」，加入待审列表后再确认写入。").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 				TextField(c, TextFieldProps{Key: "memory-new-title", Value: &title, Label: "标题", Placeholder: "部署只用 make deploy", FillWidth: true, AutoFocus: true, OnChange: func(value string) { s.setMemoryNewField("title", value) }})
 				ui.TextArea(c.Key("memory-new-content"), &content).
 					Label("内容").
 					Height(max(40, height-300)).
 					FillWidth().
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					Font("monospace").
 					LineHeight(1.4).
 					TextColor(ThemePrimaryText(c)).
@@ -952,7 +952,7 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 				Children(func() {
 					ui.Icon(c, IconCheck()).Size(IconSM, IconSM).Shrink(0).TextColor(ThemeAccent(c))
 					ui.Text(c, snap.searchNotice).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						Grow(1).
 						Shrink(1).
 						MinWidth(0).
@@ -1028,7 +1028,7 @@ func renderMemoryItemCard(c *ui.Context, s *chatState, snap memoryPanelSnapshot,
 				Children(func() {
 					ui.Icon(c, IconNote()).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
 					ui.Text(c, item.Title).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						FontWeight(600).
 						SingleLine().
 						Grow(1).
@@ -1039,7 +1039,7 @@ func renderMemoryItemCard(c *ui.Context, s *chatState, snap memoryPanelSnapshot,
 					memoryChip(c, "重要度 "+formatImportance(item.Importance))
 					if !item.CreatedAt.IsZero() {
 						ui.Text(c, item.CreatedAt.Format("2006-01-02 15:04")).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							Shrink(0).
 							TextColor(ThemeSecondaryText(c))
 					}
@@ -1067,7 +1067,7 @@ func renderMemoryItemCard(c *ui.Context, s *chatState, snap memoryPanelSnapshot,
 					}).Shrink(0)
 				})
 			ui.Text(c, item.Content).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				Font("monospace").
 				MaxLines(4).
 				FillWidth().
@@ -1086,7 +1086,7 @@ func renderMemoryWorkingTab(c *ui.Context, s *chatState, snap memoryPanelSnapsho
 			Children(func() {
 				ui.Icon(c, IconSparkles()).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
 				ui.Text(c, "今日 Working Memory（只读）").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c))
 				ui.Spacer(c)
 				Button(c.Key("memory-working-refresh-btn"), ButtonOpts{
@@ -1123,11 +1123,11 @@ func renderMemoryWorkingTab(c *ui.Context, s *chatState, snap memoryPanelSnapsho
 				Children(func() {
 					ui.Icon(c, IconNotebook()).Size(memoryEmptyIconSize, memoryEmptyIconSize).TextColor(ThemeSecondaryText(c).Alpha(0.6))
 					ui.Text(c, "今天还没有 Working Memory").
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 					ui.Text(c, "Nowledge Mem 会在整理当天记忆后生成 Working Memory。").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						MaxWidth(memoryEmptyHintMaxWidth).
 						TextAlign(ui.Center).
 						TextColor(ThemeSecondaryText(c))

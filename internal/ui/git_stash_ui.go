@@ -285,7 +285,7 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 				// 标题行同时是弹窗的拖拽把手。
 				modalDragHandle(c, modalDragGitStash, ui.Row(c.Key("modal-git-stash-title-row")).FillWidth().AlignItems(ui.Center).Children(func() {
 					ui.Text(c, "贮藏列表").
-						FontSize(TypeTitle).
+						FontSize(uiFont(TypeTitle)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 					ui.Spacer(c)
@@ -304,7 +304,7 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 						})
 				case len(entries) == 0:
 					ui.Text(c, "这个仓库还没有贮藏记录").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				default:
 					renderGitStashList(c, f, entries, busy, confirmAt, height)
@@ -312,7 +312,7 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 
 				if errText != "" {
 					ui.Text(c, errText).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeDanger(c)).
 						MaxLines(3)
 				}
@@ -324,7 +324,7 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 					Justify(ui.End).
 					Children(func() {
 						ui.Text(c, "Esc 关闭").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 						Button(c, ButtonOpts{
 							Key:      "modal-git-stash-refresh",
@@ -392,11 +392,11 @@ func renderGitStashRow(c *ui.Context, f *gitForm, entry git.StashEntry, busy str
 				Gap(Space0).
 				Children(func() {
 					ui.Text(c, title).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemePrimaryText(c)).
 						SingleLine()
 					ui.Text(c, gitStashEntryMeta(entry)).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c)).
 						SingleLine()
 				})

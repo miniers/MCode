@@ -82,7 +82,7 @@ func renderMCPNewThreadDefaultsBody(c *ui.Context, st *SettingsState) {
 	func() {
 		if saveErr != "" {
 			ui.Text(c, saveErr).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeDanger(c)).
 				Margin(0, Space5, Space3, Space5)
 		}
@@ -136,14 +136,14 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 			}
 			ui.Text(c, formTitle).
 				Margin(0, settingsRowPadX).
-				FontSize(TypeProse).
+				FontSize(uiFont(TypeProse)).
 				FontWeight(600).
 				TextColor(ThemePrimaryText(c))
 
 			if formErr != "" {
 				ui.Text(c, formErr).
 					Margin(0, settingsRowPadX).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			}
 
@@ -161,7 +161,7 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 				Gap(Space4).
 				Children(func() {
 					ui.Text(c, "传输方式:").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c)).
 						Width(80)
 
@@ -180,7 +180,7 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 						st.invalidate()
 					}
 					stdioBtn.Children(func() {
-						ui.Text(c, "本地命令 (stdio)").FontSize(TypeFootnote)
+						ui.Text(c, "本地命令 (stdio)").FontSize(uiFont(TypeFootnote))
 					})
 
 					httpBtn := ui.ButtonBase(c.Key("btn-form-trans-http")).
@@ -198,7 +198,7 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 						st.invalidate()
 					}
 					httpBtn.Children(func() {
-						ui.Text(c, "远程地址 (http/sse)").FontSize(TypeFootnote)
+						ui.Text(c, "远程地址 (http/sse)").FontSize(uiFont(TypeFootnote))
 					})
 				})
 
@@ -369,7 +369,7 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 					}
 					saveBtn.Children(func() {
 						ui.Text(c, "保存").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							FontWeight(500).
 							TextColor(ThemeOnAccent(c))
 					})
@@ -390,7 +390,7 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 					}
 					cancelBtn.Children(func() {
 						ui.Text(c, "取消").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})
 				})
@@ -462,7 +462,7 @@ func renderMCPServerRow(
 				Gap(Space3).
 				Children(func() {
 					ui.Text(c, srvVal.Name).
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						FontWeight(500).
 						TextColor(ThemePrimaryText(c)).
 						SingleLine()
@@ -517,7 +517,7 @@ func renderMCPServerRow(
 											busyLabel = "等待授权…"
 										}
 										ui.Text(c, busyLabel).
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeSecondaryText(c))
 									})
 
@@ -535,7 +535,7 @@ func renderMCPServerRow(
 										}
 										cancelBtn.Children(func() {
 											ui.Text(c, "取消").
-												FontSize(TypeFootnote).
+												FontSize(uiFont(TypeFootnote)).
 												TextColor(ThemeSecondaryText(c))
 										})
 									}
@@ -553,7 +553,7 @@ func renderMCPServerRow(
 									}
 									btn.Children(func() {
 										ui.Text(c, "登录").
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeAccent(c))
 									})
 								} else {
@@ -570,7 +570,7 @@ func renderMCPServerRow(
 									}
 									reauthBtn.Children(func() {
 										ui.Text(c, "重新授权").
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeAccent(c))
 									})
 
@@ -587,7 +587,7 @@ func renderMCPServerRow(
 									}
 									signoutBtn.Children(func() {
 										ui.Text(c, "退出").
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeSecondaryText(c))
 									})
 								}
@@ -622,7 +622,7 @@ func renderMCPServerRow(
 							btnText = "收起工具"
 						}
 						ui.Text(c, btnText).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})
 
@@ -682,7 +682,7 @@ func renderMCPServerRow(
 						}
 						editBtn.Children(func() {
 							ui.Text(c, "编辑").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						})
 
@@ -702,7 +702,7 @@ func renderMCPServerRow(
 						}
 						delBtn.Children(func() {
 							ui.Text(c, "删除").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeDanger(c))
 						})
 					}
@@ -761,7 +761,7 @@ func renderMCPServerRow(
 			}
 			if detailLine != "" {
 				ui.Text(c, detailLine).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
 			}
@@ -769,7 +769,7 @@ func renderMCPServerRow(
 			// 环境变量提示
 			if len(srvVal.EnvKeys) > 0 {
 				ui.Text(c, "环境变量："+strings.Join(srvVal.EnvKeys, ", ")).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
 			}
@@ -777,7 +777,7 @@ func renderMCPServerRow(
 			// 仓库内配置未信任时提示用户：启用开关即代表确认信任该命令
 			if srvVal.Untrusted {
 				ui.Text(c, "来自仓库配置，未信任：启用即表示信任该命令").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
 			}
@@ -785,7 +785,7 @@ func renderMCPServerRow(
 			// 配置文件路径
 			if srvVal.Source != "" {
 				ui.Text(c, srvVal.Source).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c).Alpha(0.8)).
 					SingleLine()
 			}
@@ -798,7 +798,7 @@ func renderMCPServerRow(
 					Gap(Space3).
 					Children(func() {
 						ui.Text(c, mcpAuthLinkDisplay(authLink)).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
 
@@ -819,17 +819,17 @@ func renderMCPServerRow(
 					Gap(Space3).
 					Children(func() {
 						ui.Text(c, "验证码").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 
 						ui.Text(c, userCode).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							Font(codeFontFamily(st.cfg.Appearance)).
 							TextColor(ThemePrimaryText(c)).
 							SingleLine()
 
 						ui.Text(c, "在 "+verifyURI+" 输入").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
 
@@ -847,7 +847,7 @@ func renderMCPServerRow(
 			if authErr != nil {
 				if errStr, ok := authErr[serverID]; ok && errStr != "" {
 					ui.Text(c, errStr).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeDanger(c))
 				}
 			}
@@ -864,12 +864,12 @@ func renderMCPServerRow(
 						// 引擎侧已关闭的说明：只解释原因，不改变这里的开关行为。
 						if srvVal.DisabledByEngine {
 							ui.Text(c, "这个服务在 Claude Code 里被关掉了（~/.claude.json 的 disabledMcpServers）。MCode 是否注入仍由这里的开关决定。").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						}
 						if isLoadingTools {
 							ui.Text(c, "正在探测工具列表…").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						} else if len(tools) > 0 {
 							// 工具开关状态一次性取出，避免每个工具每帧加两次锁；
@@ -898,7 +898,7 @@ func renderMCPServerRow(
 								AlignItems(ui.Center).
 								Children(func() {
 									ui.Text(c, fmt.Sprintf("支持的工具 (%d):", len(tools))).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
 										TextColor(ThemePrimaryText(c))
 									ui.Spacer(c)
@@ -907,7 +907,7 @@ func renderMCPServerRow(
 										return
 									}
 									ui.Text(c, "全部禁用").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 									toggleFunc(
 										func(*SettingsState) (bool, bool) { return allDisabled, false },
@@ -918,7 +918,7 @@ func renderMCPServerRow(
 									).render(c, st, setting{ID: mcpKey + "-batch-disable", Title: "全部禁用"})
 
 									ui.Text(c, "全部免审批").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 									toggleFunc(
 										func(*SettingsState) (bool, bool) { return allApprove, false },
@@ -937,12 +937,12 @@ func renderMCPServerRow(
 									Gap(Space3).
 									Children(func() {
 										ui.Text(c, "• "+t.Name).
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											FontWeight(500).
 											TextColor(ThemePrimaryText(c))
 										if t.Description != "" {
 											ui.Text(c, "- "+t.Description).
-												FontSize(TypeFootnote).
+												FontSize(uiFont(TypeFootnote)).
 												TextColor(ThemeSecondaryText(c)).
 												SingleLine()
 										}
@@ -953,7 +953,7 @@ func renderMCPServerRow(
 											return
 										}
 										ui.Text(c, "禁用").
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeSecondaryText(c))
 										toggleFunc(
 											func(*SettingsState) (bool, bool) { return toolDisabled, false },
@@ -964,7 +964,7 @@ func renderMCPServerRow(
 										).render(c, st, setting{ID: toolKey + "-disable", Title: "禁用 " + t.Name})
 
 										ui.Text(c, "免审批").
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeSecondaryText(c))
 										toggleFunc(
 											func(*SettingsState) (bool, bool) { return toolAutoApprove, false },
@@ -979,7 +979,7 @@ func renderMCPServerRow(
 							// 探测失败（含认证失败、命令跑不起来）不再笼统写成「连接后可见」，
 							// 否则用户不知道是自己没登录还是服务本身坏了。
 							ui.Text(c, "探测失败："+toolsErr).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeDanger(c))
 							ui.Row(c.Key(mcpKey + "-tools-retry-row")).
 								Children(func() {
@@ -997,13 +997,13 @@ func renderMCPServerRow(
 									}
 									retryBtn.Children(func() {
 										ui.Text(c, "重新检测").
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeAccent(c))
 									})
 								})
 						} else {
 							ui.Text(c, "连接后可见").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						}
 					})

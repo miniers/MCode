@@ -196,7 +196,7 @@ func renderComposerDropOverlay(c *ui.Context, s *chatState) {
 					Size(IconSM, IconSM).
 					TextColor(ThemeAccent(c))
 				ui.Text(c, "松开以添加附件").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c))
 			})
 	})

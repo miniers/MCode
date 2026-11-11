@@ -113,7 +113,7 @@ func renderMCPCatalogBody(c *ui.Context, st *SettingsState) {
 				Padding(Space1, Space5).
 				Children(func() {
 					ui.Text(c, group.category).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						FontWeight(600).
 						TextColor(ThemeSecondaryText(c))
 				})
@@ -132,7 +132,7 @@ func renderMCPCatalogBody(c *ui.Context, st *SettingsState) {
 				Padding(Space5, Space5).
 				Children(func() {
 					ui.Text(c, "没有匹配的预设").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				})
 		}
@@ -179,7 +179,7 @@ func renderMCPCatalogCard(
 				Gap(Space3).
 				Children(func() {
 					ui.Text(c, entryVal.Name).
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						FontWeight(500).
 						TextColor(ThemePrimaryText(c)).
 						SingleLine()
@@ -205,7 +205,7 @@ func renderMCPCatalogCard(
 							}
 							reprobeBtn.Children(func() {
 								ui.Text(c, "重新检测").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeSecondaryText(c))
 							})
 						}
@@ -240,28 +240,28 @@ func renderMCPCatalogCard(
 							label = "收起"
 						}
 						ui.Text(c, label).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							FontWeight(500).
 							TextColor(ThemeAccent(c))
 					})
 				})
 
 			ui.Text(c, entryVal.Summary).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				MaxLines(2)
 
 			// 探测失败时在卡片内补充一行错误详情，过长截断
 			if installed && probeErr != "" {
 				ui.Text(c, probeErr).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c)).
 					SingleLine()
 			}
 
 			if len(entryVal.SampleTools) > 0 {
 				ui.Text(c, row.view.sampleLine).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c).Alpha(0.8)).
 					SingleLine()
 			}
@@ -284,7 +284,7 @@ func renderMCPCatalogCard(
 							}
 							docsBtn.Children(func() {
 								ui.Text(c, "文档").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							})
 						}
@@ -300,7 +300,7 @@ func renderMCPCatalogCard(
 							}
 							keysBtn.Children(func() {
 								ui.Text(c, "获取密钥").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeAccent(c))
 							})
 						}
@@ -341,14 +341,14 @@ func renderMCPCatalogCard(
 
 						if fieldVal.Help != "" {
 							ui.Text(c, fieldVal.Help).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c).Alpha(0.8))
 						}
 					}
 
 					if errMsg != "" {
 						ui.Text(c, errMsg).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					}
 
@@ -366,7 +366,7 @@ func renderMCPCatalogCard(
 							}
 							saveBtn.Children(func() {
 								ui.Text(c, "保存").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									FontWeight(500).
 									TextColor(ThemeOnAccent(c))
 							})
@@ -384,7 +384,7 @@ func renderMCPCatalogCard(
 							}
 							cancelBtn.Children(func() {
 								ui.Text(c, "取消").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							})
 						})
@@ -458,7 +458,7 @@ func renderMCPCatalogStatusBadge(c *ui.Context, key, text string, color ui.Color
 		Background(color.Alpha(0.15)).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(500).
 				TextColor(color)
 		})

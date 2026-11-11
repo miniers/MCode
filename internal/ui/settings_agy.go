@@ -421,7 +421,7 @@ func renderAgyRefreshQuota(c *ui.Context, st *SettingsState) {
 					label = "正在预热…"
 				}
 				ui.Text(c, label).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeAccent(c))
 			})
 
@@ -443,20 +443,20 @@ func renderAgyRefreshQuota(c *ui.Context, st *SettingsState) {
 					label = "正在刷新额度…"
 				}
 				ui.Text(c, label).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeAccent(c))
 			})
 		})
 
 	if refreshErr != "" {
 		ui.Text(c, "刷新额度失败: "+refreshErr).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeDanger(c)).
 			Margin(0, 0, Space1, 0)
 	}
 	if warmupErr != "" {
 		ui.Text(c, "批量预热失败: "+warmupErr).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeDanger(c)).
 			Margin(0, 0, Space1, 0)
 	}
@@ -511,7 +511,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 				Padding(settingsRowPadY, settingsRowPadX).
 				Children(func() {
 					ui.Text(c, "正在加载 agy 账号…").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			return
@@ -523,7 +523,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 				Gap(Space3).
 				Children(func() {
 					ui.Text(c, errMsg).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeDanger(c))
 
 					retryBtn := ui.ButtonBase(c.Key("agy-retry-btn")).
@@ -538,7 +538,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 					}
 					retryBtn.Children(func() {
 						ui.Text(c, "重试").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeAccent(c))
 					})
 				})
@@ -554,7 +554,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, "还没有 agy 账号").
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						TextColor(ThemeSecondaryText(c))
 
 					loginShortcutBtn := ui.ButtonBase(c.Key("agy-empty-login-btn")).
@@ -570,7 +570,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 					}
 					loginShortcutBtn.Children(func() {
 						ui.Text(c, "登录 agy 账号").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							FontWeight(500).
 							TextColor(ThemeAccent(c))
 					})
@@ -607,14 +607,14 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 						Gap(Space3).
 						Children(func() {
 							ui.Text(c, displayName).
-								FontSize(TypeProse).
+								FontSize(uiFont(TypeProse)).
 								FontWeight(600).
 								TextColor(ThemePrimaryText(c)).
 								SingleLine()
 
 							if accVal.Label != "" && accVal.Email != "" && accVal.Label != accVal.Email {
 								ui.Text(c, "("+accVal.Email+")").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c)).
 									SingleLine()
 							}
@@ -695,19 +695,19 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 					// 系统账号在本机没有凭证时给出提示，避免把缺失的凭证当成正常状态。
 					if isSystem && !localLogin {
 						ui.Text(c, "本机未检测到 agy 登录凭证").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeWarning(c))
 					}
 
 					// 状态说明（如有 StatusReason）
 					if accVal.StatusReason != "" {
 						ui.Text(c, accVal.StatusReason).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					}
 					if accVal.CoolingUntil.After(now) {
 						ui.Text(c, "路由冷却中，至 "+accVal.CoolingUntil.Local().Format("15:04:05")).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					}
 
@@ -717,12 +717,12 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 						Children(func() {
 							if accVal.QuotaReadAt == "" {
 								ui.Text(c, "尚未拉取额度").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							} else {
 								if accVal.QuotaStale {
 									ui.Text(c, "额度数据已过期").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeDanger(c))
 								}
 
@@ -766,24 +766,24 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 										AlignItems(ui.Center).
 										Children(func() {
 											ui.Text(c, qk.label+":").
-												FontSize(TypeFootnote).
+												FontSize(uiFont(TypeFootnote)).
 												TextColor(ThemeSecondaryText(c))
 
 											usedText := fmt.Sprintf("已用 %.0f%%", qg.UsedPercent)
 											ui.Text(c, usedText).
-												FontSize(TypeFootnote).
+												FontSize(uiFont(TypeFootnote)).
 												FontWeight(500).
 												TextColor(ThemePrimaryText(c))
 
 											if resetStr != "" {
 												ui.Text(c, "(重置时间: "+resetStr+")").
-													FontSize(TypeCaption).
+													FontSize(uiFont(TypeCaption)).
 													TextColor(ThemeSecondaryText(c))
 											}
 
 											if isCooling {
 												ui.Text(c, fmt.Sprintf("冷却中，至 %s", coolingUntilStr)).
-													FontSize(TypeCaption).
+													FontSize(uiFont(TypeCaption)).
 													FontWeight(500).
 													TextColor(ThemeDanger(c))
 											}
@@ -800,7 +800,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 							AlignItems(ui.Center).
 							Children(func() {
 								ui.Text(c, "Gemini 预热:").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 
 								modelText := lw.Model
@@ -808,7 +808,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 									modelText = "未指定"
 								}
 								ui.Text(c, modelText).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									FontWeight(500).
 									TextColor(ThemePrimaryText(c))
 
@@ -832,14 +832,14 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 									statusColor = ThemeDanger(c)
 								}
 								ui.Text(c, "("+statusDesc+")").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(statusColor)
 							})
 					}
 
 					if wErr, ok := warmupRowErr[accVal.ID]; ok && wErr != "" {
 						ui.Text(c, "预热失败: "+wErr).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					}
 
@@ -870,7 +870,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 									label = "预热中…"
 								}
 								ui.Text(c, label).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeAccent(c))
 							})
 							// 设为默认按钮（仅对非默认账号显示）
@@ -901,12 +901,12 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 								}
 								defBtn.Children(func() {
 									ui.Text(c, "设为默认").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeAccent(c))
 								})
 
 								ui.Text(c, "只修改 MCode 自己的账号配置，不改动系统 ~/.gemini").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeSecondaryText(c))
 							}
 
@@ -922,7 +922,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 									Disabled(true)
 								delBtn.Children(func() {
 									ui.Text(c, "系统账号不可删除").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c).Alpha(0.6))
 								})
 							} else if deleteConfirmID == accVal.ID {
@@ -933,7 +933,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 								}
 
 								ui.Text(c, confirmPrompt).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeDanger(c))
 
 								confirmBtn := ui.ButtonBase(c.Key("btn-del-confirm-"+accVal.ID)).
@@ -975,7 +975,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 								}
 								confirmBtn.Children(func() {
 									ui.Text(c, "确认删除").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeDanger(c))
 								})
 
@@ -995,12 +995,12 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 								}
 								cancelBtn.Children(func() {
 									ui.Text(c, "取消").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 								})
 							} else if deleteBusyID == accVal.ID {
 								ui.Text(c, "正在删除…").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							} else {
 								// 正常删除按钮
@@ -1029,7 +1029,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 								}
 								delBtn.Children(func() {
 									ui.Text(c, "删除").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeDanger(c))
 								})
 							}
@@ -1038,12 +1038,12 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 					// 行级错误显示
 					if errStr, ok := deleteErr[accVal.ID]; ok && errStr != "" {
 						ui.Text(c, "删除失败: "+errStr).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					}
 					if errStr, ok := rowErr[accVal.ID]; ok && errStr != "" {
 						ui.Text(c, errStr).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					}
 				})
@@ -1103,7 +1103,7 @@ func renderAgyBrowserLoginBody(c *ui.Context, st *SettingsState) {
 							btnText = "正在等待浏览器回调…"
 						}
 						ui.Text(c, btnText).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							FontWeight(500).
 							TextColor(ThemeAccent(c))
 					})
@@ -1132,7 +1132,7 @@ func renderAgyBrowserLoginBody(c *ui.Context, st *SettingsState) {
 						}
 						cancelBtn.Children(func() {
 							ui.Text(c, "取消").
-								FontSize(TypeBody).
+								FontSize(uiFont(TypeBody)).
 								TextColor(ThemeSecondaryText(c))
 						})
 					}
@@ -1145,7 +1145,7 @@ func renderAgyBrowserLoginBody(c *ui.Context, st *SettingsState) {
 					FillWidth().
 					Children(func() {
 						ui.Text(c, loginURL).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c)).
 							Grow(1)
 						renderAgyCopyButton(c, st, "browser-url", loginURL, "复制链接")
@@ -1197,7 +1197,7 @@ func renderAgyBrowserLoginBody(c *ui.Context, st *SettingsState) {
 						}
 						submitBtn.Children(func() {
 							ui.Text(c, "提交").
-								FontSize(TypeBody).
+								FontSize(uiFont(TypeBody)).
 								TextColor(ThemePrimaryText(c))
 						})
 					})
@@ -1205,7 +1205,7 @@ func renderAgyBrowserLoginBody(c *ui.Context, st *SettingsState) {
 
 			if loginErr != "" {
 				ui.Text(c, loginErr).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			}
 		})
@@ -1276,7 +1276,7 @@ func renderAgyRoutingNote(c *ui.Context, key string, lines ...string) {
 				}
 				ui.Text(c, line).
 					Key(fmt.Sprintf("%s-%d", key, i)).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			}
 		})
@@ -1622,7 +1622,7 @@ func renderAgyRowAdvancedSections(c *ui.Context, st *SettingsState) {
 						Gap(Space1).
 						Children(func() {
 							ui.Text(c, "账号调度").
-								FontSize(TypeProse).
+								FontSize(uiFont(TypeProse)).
 								FontWeight(500).
 								TextColor(ThemePrimaryText(c)).
 								SingleLine()
@@ -1718,7 +1718,7 @@ func renderAgyTerminalLoginBody(c *ui.Context, st *SettingsState) {
 			}
 			startTermBtn.Children(func() {
 				ui.Text(c, "终端登录（备用）").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c))
 			})
 
@@ -1729,7 +1729,7 @@ func renderAgyTerminalLoginBody(c *ui.Context, st *SettingsState) {
 					Gap(Space2).
 					Children(func() {
 						ui.Text(c, fullCmd).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 
 						ui.Row(c.Key("row-agy-terminal-adopt")).
@@ -1776,13 +1776,13 @@ func renderAgyTerminalLoginBody(c *ui.Context, st *SettingsState) {
 								}
 								adoptBtn.Children(func() {
 									ui.Text(c, "我已完成登录").
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										TextColor(ThemeAccent(c))
 								})
 
 								if terminalLoginBusy {
 									ui.Text(c, "正在校验登录状态…").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 								}
 							})
@@ -1791,7 +1791,7 @@ func renderAgyTerminalLoginBody(c *ui.Context, st *SettingsState) {
 
 			if terminalLoginErr != "" {
 				ui.Text(c, terminalLoginErr).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			}
 		})

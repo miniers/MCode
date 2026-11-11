@@ -26,10 +26,10 @@ func EmptyState(c *ui.Context, p EmptyStateProps) ui.Element {
 		if p.Compact {
 			font = TypeFootnote
 		}
-		ui.Text(c, p.Title).FontSize(font).FontWeight(500).TextColor(ThemePrimaryText(c))
+		ui.Text(c, p.Title).FontSize(uiFont(font)).FontWeight(500).TextColor(ThemePrimaryText(c))
 		if p.Description != "" {
 			ui.Text(c, p.Description).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				MaxWidth(diffStatusSubtitleMaxWidth).
 				TextAlign(ui.Center).
 				Wrap().

@@ -55,7 +55,7 @@ func renderOnboardingHero(c *ui.Context) {
 						ui.Icon(c, IconSparkles()).Size(IconMD, IconMD).TextColor(ThemeAccent(c))
 					}
 				})
-				ui.Text(c, label).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, label).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 			})
 		}
 	})

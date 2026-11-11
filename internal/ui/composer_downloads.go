@@ -216,7 +216,7 @@ func renderDownloadsPanel(c *ui.Context, s *chatState, onDone func()) {
 			AlignItems(ui.Center).
 			Children(func() {
 				ui.Text(c, "最近下载").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
 			})
@@ -224,12 +224,12 @@ func renderDownloadsPanel(c *ui.Context, s *chatState, onDone func()) {
 		items, err := getCachedDownloads(s)
 		if err != nil {
 			ui.Text(c, "读取下载目录失败: "+err.Error()).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeDanger(c)).
 				Padding(Space3, 0, Space3, 0)
 		} else if len(items) == 0 {
 			ui.Text(c, "下载目录中没有文件").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				Padding(Space4, 0, Space4, 0)
 		} else {
@@ -273,12 +273,12 @@ func renderDownloadsPanel(c *ui.Context, s *chatState, onDone func()) {
 										TextColor(ThemeSecondaryText(c))
 
 									ui.Text(c, truncateMiddle(item.Name, 26)).
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										TextColor(ThemePrimaryText(c)).
 										Grow(1)
 
 									ui.Text(c, formatFileSize(item.Size)).
-										FontSize(TypeCaption).
+										FontSize(uiFont(TypeCaption)).
 										TextColor(ThemeSecondaryText(c))
 								})
 						})
@@ -322,7 +322,7 @@ func renderDownloadsPanel(c *ui.Context, s *chatState, onDone func()) {
 								Size(IconSM, IconSM).
 								TextColor(ThemeSecondaryText(c))
 							ui.Text(c, "在 Finder 中显示").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemePrimaryText(c))
 						})
 				})
@@ -351,7 +351,7 @@ func renderDownloadsPanel(c *ui.Context, s *chatState, onDone func()) {
 								Size(IconSM, IconSM).
 								TextColor(ThemeSecondaryText(c))
 							ui.Text(c, "选择文件…").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemePrimaryText(c))
 						})
 				})

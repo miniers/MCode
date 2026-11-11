@@ -1077,7 +1077,7 @@ func renderTerminalSearchBar(c *ui.Context, s *chatState, st *terminalState, tab
 			in := ui.TextInput(c.Key("terminal-search-input"), &text).
 				Label("搜索终端输出").
 				Placeholder("搜索终端输出").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemePrimaryText(c)).
 				BorderWidth(0).
 				Background(ui.Transparent).
@@ -1111,7 +1111,7 @@ func renderTerminalSearchBar(c *ui.Context, s *chatState, st *terminalState, tab
 
 			if label := state.matchLabel(); label != "" {
 				ui.Text(c, label).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					Width(72)
 			}
@@ -1336,7 +1336,7 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 												AlignItems(ui.Center).
 												Children(func() {
 													ui.Text(c, label).
-														FontSize(TypeFootnote).
+														FontSize(uiFont(TypeFootnote)).
 														TextColor(textColor)
 
 													if IconButton(c, IconButtonProps{
@@ -1405,7 +1405,7 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 														s.invalidate()
 													}
 													worktreeBtn.Children(func() {
-														ui.Text(c, "Worktree 目录").FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+														ui.Text(c, "Worktree 目录").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 													})
 
 													mainBtn := ui.ButtonBase(c.Key("terminal-tab-new-main")).
@@ -1425,7 +1425,7 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 														s.invalidate()
 													}
 													mainBtn.Children(func() {
-														ui.Text(c, "主项目目录").FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+														ui.Text(c, "主项目目录").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 													})
 												})
 										})
@@ -1484,7 +1484,7 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 
 			if currentErrText != "" && actTab != nil {
 				ui.Text(c, "新建终端失败: "+currentErrText).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c)).
 					Padding(Space1, Space4)
 			}
@@ -1498,7 +1498,7 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 					AlignItems(ui.Center).
 					Children(func() {
 						ui.Text(c, "没有选中会话").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			} else if currentErrText != "" && actTab == nil {
@@ -1509,7 +1509,7 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 					AlignItems(ui.Center).
 					Children(func() {
 						ui.Text(c, currentErrText).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeDanger(c))
 						Button(c, ButtonOpts{
 							Key:   "terminal-retry",
@@ -1533,7 +1533,7 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 					Gap(Space3).
 					Children(func() {
 						ui.Text(c, actTab.err).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeDanger(c))
 						ui.Row(c.Key("terminal-dock-tab-actions")).
 							Gap(Space3).
@@ -1568,7 +1568,7 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 					AlignItems(ui.Center).
 					Children(func() {
 						ui.Text(c, "未找到工作区目录").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			}

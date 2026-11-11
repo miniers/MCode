@@ -403,7 +403,7 @@ func renderFileManagerSearchResults(c *ui.Context, s *chatState, searching bool,
 	}
 	if len(results) == 0 {
 		if truncated {
-			ui.Text(c, "搜索结果已截断").FontSize(TypeFootnote).TextColor(ThemeWarning(c)).Margin(ui.Auto)
+			ui.Text(c, "搜索结果已截断").FontSize(uiFont(TypeFootnote)).TextColor(ThemeWarning(c)).Margin(ui.Auto)
 			return
 		}
 		EmptyState(c, EmptyStateProps{Icon: iconFileSearch, Title: "没有匹配的文件", Compact: true}).Margin(ui.Auto)
@@ -440,7 +440,7 @@ func renderFileManagerSearchResults(c *ui.Context, s *chatState, searching bool,
 			}
 			if truncated {
 				ui.Text(c, "搜索结果已截断").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeWarning(c)).
 					Padding(Space2, Space1, 0, Space1)
 			}
@@ -498,7 +498,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 		ui.Icon(c, props.icon).Size(IconSM, IconSM).TextColor(iconColor).Shrink(0)
 
 		ui.Text(c, props.name).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(nameColor).
 			SingleLine().
 			Grow(1).
@@ -512,7 +512,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 		}
 		if props.size != "" {
 			ui.Text(c, props.size).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c)).
 				Shrink(0)
 		}
@@ -533,7 +533,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 			}
 			mention.Children(func() {
 				ui.Text(c, "@引用").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c))
 			})
 		}
@@ -580,7 +580,7 @@ func renderFileManagerTag(c *ui.Context, key, label string, color ui.Color) {
 		Shrink(0).
 		Children(func() {
 			ui.Text(c, label).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(500).
 				TextColor(color)
 		})
@@ -614,11 +614,11 @@ func renderFileManagerError(c *ui.Context, s *chatState, keyPrefix, errMsg strin
 				Size(fileManagerIconAlert, fileManagerIconAlert).
 				TextColor(ThemeDanger(c).Alpha(0.6))
 			ui.Text(c, "无法读取").
-				FontSize(TypeBody).
+				FontSize(uiFont(TypeBody)).
 				FontWeight(500).
 				TextColor(ThemePrimaryText(c))
 			ui.Text(c, errMsg).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				MaxWidth(fileManagerErrorMaxWidth).
 				TextAlign(ui.Center).
 				Wrap().
@@ -654,7 +654,7 @@ func renderFileManagerFileHeader(c *ui.Context, s *chatState, tab fileManagerTab
 				Gap(Hairline).
 				Children(func() {
 					ui.Text(c, fileName).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						FontWeight(500).
 						TextColor(ThemePrimaryText(c)).
 						SingleLine().
@@ -664,7 +664,7 @@ func renderFileManagerFileHeader(c *ui.Context, s *chatState, tab fileManagerTab
 						detail = tab.path + " · " + formatFileSize(tab.totalSize)
 					}
 					ui.Text(c, detail).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c)).
 						SingleLine()
 				})
@@ -748,7 +748,7 @@ func renderFileManagerMdTab(c *ui.Context, s *chatState, tab fileManagerTabSnaps
 		if previewMode == current {
 			color = ThemePrimaryText(c)
 		}
-		ui.Text(c, label).FontSize(TypeCaption).TextColor(color)
+		ui.Text(c, label).FontSize(uiFont(TypeCaption)).TextColor(color)
 	})
 }
 
@@ -773,7 +773,7 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 	case "image":
 		if tab.imageBmp == nil {
 			ui.Text(c, "图片加载中…").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				Margin(ui.Auto)
 			return
@@ -792,7 +792,7 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 			})
 	case "binary":
 		ui.Text(c, "该文件为二进制格式，暂不支持预览").
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeSecondaryText(c)).
 			Margin(ui.Auto)
 	default:
@@ -803,7 +803,7 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 		mdPreview := tab.mdPreview && isMarkdownPath(tab.path)
 		if tab.content == "" {
 			ui.Text(c, "空文件").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				Margin(ui.Auto)
 			return
@@ -819,7 +819,7 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 		}
 		if tab.limitReached {
 			ui.Text(c, "已达预览上限").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeWarning(c)).
 				Padding(Space3, 0, 0, 0)
 			return

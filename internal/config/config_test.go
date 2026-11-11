@@ -1790,9 +1790,6 @@ func TestLoadOldConfigWithoutNewSectionsGetsDefaults(t *testing.T) {
 	if cfg.Appearance.CodeFont != "" {
 		t.Errorf("expected empty Appearance.CodeFont, got %q", cfg.Appearance.CodeFont)
 	}
-	if cfg.Appearance.CodeFontSize != DefaultCodeFontSize {
-		t.Errorf("expected Appearance.CodeFontSize %d, got %d", DefaultCodeFontSize, cfg.Appearance.CodeFontSize)
-	}
 	if cfg.Appearance.ConversationDensity != DensityComfortable {
 		t.Errorf("expected Appearance.ConversationDensity %q, got %q", DensityComfortable, cfg.Appearance.ConversationDensity)
 	}
@@ -1813,7 +1810,7 @@ func TestNormalizeClampsOutOfRangeValues(t *testing.T) {
 	cfg.Workbench.StuckInterruptTimeout = 99999
 	cfg.Workbench.TerminalScrollbackLines = 200000
 	cfg.Workbench.BrowserQuickPorts = "   "
-	cfg.Appearance.CodeFontSize = 50
+
 	cfg.Appearance.ConversationDensity = "ultra_dense"
 	cfg.Startup.QuitAction = "terminate"
 	cfg.SourceControl.DefaultWorkspaceMode = "custom_vcs"
@@ -1841,9 +1838,6 @@ func TestNormalizeClampsOutOfRangeValues(t *testing.T) {
 	if norm.Workbench.BrowserQuickPorts != "3000, 5173, 8080, 4321" {
 		t.Errorf("expected Workbench.BrowserQuickPorts fallback to default, got %q", norm.Workbench.BrowserQuickPorts)
 	}
-	if norm.Appearance.CodeFontSize != MaxCodeFontSize {
-		t.Errorf("expected Appearance.CodeFontSize clamped to %d, got %d", MaxCodeFontSize, norm.Appearance.CodeFontSize)
-	}
 	if norm.Appearance.ConversationDensity != DensityComfortable {
 		t.Errorf("expected Appearance.ConversationDensity fallback to %q, got %q", DensityComfortable, norm.Appearance.ConversationDensity)
 	}
@@ -1865,7 +1859,6 @@ func TestNormalizeClampsOutOfRangeValues(t *testing.T) {
 	cfg2.Workbench.StuckNudgeTimeout = -5
 	cfg2.Workbench.StuckInterruptTimeout = 50 // 小于 NudgeTimeout，应被纠正大于 NudgeTimeout
 	cfg2.Workbench.TerminalScrollbackLines = 10
-	cfg2.Appearance.CodeFontSize = 2
 
 	norm2 := Normalize(cfg2)
 	if norm2.Orchestration.MaxBees != MinSwarmMaxBees {
@@ -1882,9 +1875,6 @@ func TestNormalizeClampsOutOfRangeValues(t *testing.T) {
 	}
 	if norm2.Workbench.TerminalScrollbackLines != MinTerminalScrollback {
 		t.Errorf("expected Workbench.TerminalScrollbackLines clamped to %d, got %d", MinTerminalScrollback, norm2.Workbench.TerminalScrollbackLines)
-	}
-	if norm2.Appearance.CodeFontSize != MinCodeFontSize {
-		t.Errorf("expected Appearance.CodeFontSize clamped to %d, got %d", MinCodeFontSize, norm2.Appearance.CodeFontSize)
 	}
 
 	if err := Validate(norm2); err != nil {
@@ -2220,9 +2210,6 @@ func TestWorkbenchContextAndKanbanDefaults(t *testing.T) {
 	if !cfg.Workbench.BrowserConsoleCaptureEnabled() {
 		t.Error("expected BrowserConsoleCaptureEnabled default true")
 	}
-	if cfg.Workbench.EditorFontSize != DefaultEditorFontSize {
-		t.Errorf("EditorFontSize = %d, want %d", cfg.Workbench.EditorFontSize, DefaultEditorFontSize)
-	}
 
 	var zero WorkbenchConfig
 	if !zero.ContextGuidanceEnabled() || !zero.KanbanRunInWorktreeEnabled() ||
@@ -2265,7 +2252,7 @@ func TestNormalizeWorkbenchContextAndKanbanFields(t *testing.T) {
 	cfg.Workbench.ContextInjectMaxCharacters = 999999
 	cfg.Workbench.KanbanDefaultView = "timeline"
 	cfg.Workbench.BrowserStartURL = "   "
-	cfg.Workbench.EditorFontSize = 99
+
 	cfg.Workbench.StuckNudgeTimeout = 100
 
 	norm := Normalize(cfg)
@@ -2278,9 +2265,6 @@ func TestNormalizeWorkbenchContextAndKanbanFields(t *testing.T) {
 	if norm.Workbench.BrowserStartURL != DefaultBrowserStartURL {
 		t.Errorf("BrowserStartURL = %q, want %q", norm.Workbench.BrowserStartURL, DefaultBrowserStartURL)
 	}
-	if norm.Workbench.EditorFontSize != MaxEditorFontSize {
-		t.Errorf("EditorFontSize = %d, want clamp %d", norm.Workbench.EditorFontSize, MaxEditorFontSize)
-	}
 	if norm.Workbench.StuckNudgeTimeout != MinStuckNudgeTimeout {
 		t.Errorf("StuckNudgeTimeout = %d, want clamp %d", norm.Workbench.StuckNudgeTimeout, MinStuckNudgeTimeout)
 	}
@@ -2292,7 +2276,6 @@ func TestNormalizeWorkbenchContextAndKanbanFields(t *testing.T) {
 	zeroed.Workbench.ContextInjectMaxCharacters = 0
 	zeroed.Workbench.KanbanDefaultView = ""
 	zeroed.Workbench.BrowserStartURL = ""
-	zeroed.Workbench.EditorFontSize = 0
 
 	normZero := Normalize(zeroed)
 	if normZero.Workbench.ContextInjectMaxCharacters != DefaultContextInjectMaxCharacters {
@@ -2304,20 +2287,14 @@ func TestNormalizeWorkbenchContextAndKanbanFields(t *testing.T) {
 	if normZero.Workbench.BrowserStartURL != DefaultBrowserStartURL {
 		t.Errorf("BrowserStartURL = %q, want default %q", normZero.Workbench.BrowserStartURL, DefaultBrowserStartURL)
 	}
-	if normZero.Workbench.EditorFontSize != DefaultEditorFontSize {
-		t.Errorf("EditorFontSize = %d, want default %d", normZero.Workbench.EditorFontSize, DefaultEditorFontSize)
-	}
 
 	lower := Defaults()
 	lower.Workbench.ContextInjectMaxCharacters = 1
-	lower.Workbench.EditorFontSize = 1
+
 	lower.Workbench.KanbanDefaultView = KanbanViewList
 	normLower := Normalize(lower)
 	if normLower.Workbench.ContextInjectMaxCharacters != MinContextInjectMaxCharacters {
 		t.Errorf("ContextInjectMaxCharacters = %d, want clamp %d", normLower.Workbench.ContextInjectMaxCharacters, MinContextInjectMaxCharacters)
-	}
-	if normLower.Workbench.EditorFontSize != MinEditorFontSize {
-		t.Errorf("EditorFontSize = %d, want clamp %d", normLower.Workbench.EditorFontSize, MinEditorFontSize)
 	}
 	if normLower.Workbench.KanbanDefaultView != KanbanViewList {
 		t.Errorf("KanbanDefaultView = %q, want %q", normLower.Workbench.KanbanDefaultView, KanbanViewList)
@@ -2596,8 +2573,7 @@ func TestValidateWorkbenchContextAndKanbanFields(t *testing.T) {
 		{"context inject too small", func(c *Config) { c.Workbench.ContextInjectMaxCharacters = MinContextInjectMaxCharacters - 1 }},
 		{"context inject too large", func(c *Config) { c.Workbench.ContextInjectMaxCharacters = MaxContextInjectMaxCharacters + 1 }},
 		{"unknown kanban view", func(c *Config) { c.Workbench.KanbanDefaultView = "timeline" }},
-		{"editor font too small", func(c *Config) { c.Workbench.EditorFontSize = MinEditorFontSize - 1 }},
-		{"editor font too large", func(c *Config) { c.Workbench.EditorFontSize = MaxEditorFontSize + 1 }},
+
 		{"stuck nudge below new minimum", func(c *Config) { c.Workbench.StuckNudgeTimeout = MinStuckNudgeTimeout - 1 }},
 	}
 
@@ -2764,44 +2740,6 @@ func TestSourceControlCloneIgnored(t *testing.T) {
 }
 
 // 终端字号：默认值参与 Defaults()，Normalize 把零值与越界值夹到合法区间，JSON 键名为 terminal_font_size。
-func TestTerminalFontSize(t *testing.T) {
-	cfg := Defaults()
-	if cfg.Workbench.TerminalFontSize != DefaultTerminalFontSize {
-		t.Errorf("expected Workbench.TerminalFontSize %d, got %d", DefaultTerminalFontSize, cfg.Workbench.TerminalFontSize)
-	}
-
-	zero := Defaults()
-	zero.Workbench.TerminalFontSize = 0
-	if got := Normalize(zero).Workbench.TerminalFontSize; got != DefaultTerminalFontSize {
-		t.Errorf("expected zero font size normalized to %d, got %d", DefaultTerminalFontSize, got)
-	}
-
-	low := Defaults()
-	low.Workbench.TerminalFontSize = MinTerminalFontSize - 1
-	if got := Normalize(low).Workbench.TerminalFontSize; got != MinTerminalFontSize {
-		t.Errorf("expected font size clamped to %d, got %d", MinTerminalFontSize, got)
-	}
-
-	high := Defaults()
-	high.Workbench.TerminalFontSize = MaxTerminalFontSize + 10
-	if got := Normalize(high).Workbench.TerminalFontSize; got != MaxTerminalFontSize {
-		t.Errorf("expected font size clamped to %d, got %d", MaxTerminalFontSize, got)
-	}
-
-	ok := Defaults()
-	ok.Workbench.TerminalFontSize = MinTerminalFontSize
-	if got := Normalize(ok).Workbench.TerminalFontSize; got != MinTerminalFontSize {
-		t.Errorf("expected legal font size kept at %d, got %d", MinTerminalFontSize, got)
-	}
-
-	raw, err := json.Marshal(Defaults())
-	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
-	}
-	if !strings.Contains(string(raw), "\"terminal_font_size\"") {
-		t.Errorf("expected json key terminal_font_size in %s", raw)
-	}
-}
 
 func TestNowledgeThreadScopeSwitches(t *testing.T) {
 	// 默认与零值都视为关闭（bee 子会话、自动化运行会话默认不同步）。

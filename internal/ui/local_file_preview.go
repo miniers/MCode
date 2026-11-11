@@ -159,7 +159,7 @@ func localPreviewCard(c *ui.Context, tip ui.Element) ui.Element {
 func localPreviewPathText(c *ui.Context, card ui.Element, path string) {
 	card.Children(func() {
 		ui.Text(c, localPreviewTruncateLine(path)).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			NoWrap().
 			TextColor(ThemeSecondaryText(c))
 	})

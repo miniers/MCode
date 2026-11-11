@@ -1061,7 +1061,7 @@ func renderSwarmHeaderBadge(c *ui.Context, key string, count int, bg ui.Color) {
 		Background(bg).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(600).
 				TextColor(ThemeOnAccent(c)).
 				SingleLine()
@@ -1080,7 +1080,7 @@ func renderSwarmReviewBadge(c *ui.Context, count int) {
 		Background(ThemeAccent(c).Alpha(0.15)).
 		Children(func() {
 			ui.Text(c, fmt.Sprintf("待审查 %d", count)).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(600).
 				TextColor(ThemeAccent(c)).
 				SingleLine()
@@ -1216,7 +1216,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 				Cursor(ui.CursorGrab).
 				Children(func() {
 					ui.Text(c, "合并审查").
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 
@@ -1240,7 +1240,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 							Children(func() {
 								ui.Icon(c, IconX()).Size(Space4, Space4).TextColor(ThemeSecondaryText(c))
 								ui.Text(c, "关闭").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							})
 					})
@@ -1253,7 +1253,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 					Padding(Space3, 0).
 					Children(func() {
 						ui.Text(c, "暂无可合并审查的子代理").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeSecondaryText(c))
 					})
 				return
@@ -1296,12 +1296,12 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 										displayName = fmt.Sprintf("子代理 #%d", beeItem.Index)
 									}
 									ui.Text(c, displayName).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
 										TextColor(titleColor)
 
 									ui.Text(c, tagText).
-										FontSize(TypeCaption).
+										FontSize(uiFont(TypeCaption)).
 										TextColor(tagColor)
 								})
 						})
@@ -1327,19 +1327,19 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 							Children(func() {
 								fileCountText := fmt.Sprintf("%d 个改动文件", len(reviewFiles))
 								ui.Text(c, fileCountText).
-									FontSize(TypeBody).
+									FontSize(uiFont(TypeBody)).
 									FontWeight(500).
 									TextColor(ThemePrimaryText(c))
 
 								if adds > 0 {
 									ui.Text(c, fmt.Sprintf("+%d", adds)).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
 										TextColor(ThemeSuccess(c))
 								}
 								if dels > 0 {
 									ui.Text(c, fmt.Sprintf("-%d", dels)).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
 										TextColor(ThemeDanger(c))
 								}
@@ -1348,11 +1348,11 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 
 								if curBee.ReviewState == "running" {
 									ui.Text(c, "审查模型正在审查…").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeAccent(c))
 								} else if curBee.ReviewState == "rejected" {
 									ui.Text(c, "改动未合入，补丁已保留，可让主代理派子代理按审查意见返工").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeDanger(c))
 								} else if curBee.PendingMerge {
 									if reviewBusy {
@@ -1362,7 +1362,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 											Children(func() {
 												renderRunningGlyph(c, "swarm-panel-run-merge-busy-"+curBee.ThreadID, 12, ThemeAccent(c))
 												ui.Text(c, "处理中…").
-													FontSize(TypeFootnote).
+													FontSize(uiFont(TypeFootnote)).
 													TextColor(ThemeSecondaryText(c))
 											})
 									} else {
@@ -1380,7 +1380,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 										}
 										approveBtn.Children(func() {
 											ui.Text(c, "批准合并").
-												FontSize(TypeFootnote).
+												FontSize(uiFont(TypeFootnote)).
 												FontWeight(500).
 												TextColor(ThemeOnAccent(c))
 										})
@@ -1401,23 +1401,23 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 										}
 										discardBtn.Children(func() {
 											ui.Text(c, "放弃").
-												FontSize(TypeFootnote).
+												FontSize(uiFont(TypeFootnote)).
 												TextColor(ThemeDanger(c))
 										})
 									}
 								} else if curBee.Merged {
 									ui.Text(c, "已合并").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
 										TextColor(ThemeSuccess(c))
 								} else if curBee.MergeDiscarded {
 									ui.Text(c, "已放弃合并").
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c))
 								} else {
 									_, statusColor := swarmStatusTone(c, curBee.Status)
 									ui.Text(c, swarmStatusLabel(curBee.Status)).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(statusColor)
 								}
 
@@ -1445,7 +1445,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 								layerText += " · " + formatReviewTokenCount(curBee.ReviewTokens, curBee.ReviewTokensEstimated)
 							}
 							ui.Text(c, layerText).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
 						}
 
@@ -1456,21 +1456,21 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 								reasonLabel = "审查意见："
 							}
 							ui.Text(c, reasonLabel+curBee.ReviewReason).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						}
 
 						// 审查疑点：最多展示 10 条，避免撑爆面板
 						if len(curBee.ReviewConcerns) > 0 {
 							ui.Text(c, "审查疑点").
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
 							for i, concern := range curBee.ReviewConcerns {
 								if i >= 10 {
 									break
 								}
 								ui.Text(c, "· "+concern).
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeSecondaryText(c))
 							}
 						}
@@ -1497,7 +1497,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 									Children(func() {
 										ui.Icon(c, IconEye()).Size(Space4, Space4).TextColor(ThemeSecondaryText(c))
 										ui.Text(c, "查看审查会话").
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeSecondaryText(c))
 									})
 							})
@@ -1507,14 +1507,14 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 						if len(curBee.ConflictFiles) > 0 {
 							conflictText := "冲突文件: " + strings.Join(curBee.ConflictFiles, ", ")
 							ui.Text(c, conflictText).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeDanger(c))
 						}
 
 						// MergeError
 						if curBee.MergeError != "" {
 							ui.Text(c, "合并错误: "+curBee.MergeError).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeDanger(c))
 						}
 					})
@@ -1529,7 +1529,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 					Children(func() {
 						renderRunningGlyph(c, "swarm-panel-run-review-loading", 14, ThemeAccent(c))
 						ui.Text(c, "加载中…").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			} else if reviewErr != "" {
@@ -1539,7 +1539,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 					Background(ThemeDanger(c).Alpha(0.12)).
 					Children(func() {
 						ui.Text(c, reviewErr).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c))
 					})
 			} else if len(reviewFiles) == 0 {
@@ -1547,7 +1547,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 					Padding(Space4, 0).
 					Children(func() {
 						ui.Text(c, "无改动").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			} else {
@@ -1620,7 +1620,7 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 								Children(func() {
 									renderRunningGlyph(c, "swarm-panel-run-loading", 14, ThemeAccent(c))
 									ui.Text(c, "正在加载…").
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										TextColor(ThemeSecondaryText(c))
 								})
 							return
@@ -1635,7 +1635,7 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 								Background(ThemeDanger(c).Alpha(0.12)).
 								Children(func() {
 									ui.Text(c, errMsg).
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										TextColor(ThemeDanger(c))
 									retryBtn := ui.ButtonBase(c.Key("swarm-retry-btn")).
 										Label("重试").
@@ -1649,7 +1649,7 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 									}
 									retryBtn.Children(func() {
 										ui.Text(c, "重试").
-											FontSize(TypeFootnote).
+											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeAccent(c))
 									})
 								})
@@ -1663,7 +1663,7 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 								Background(ThemeHover(c)).
 								Children(func() {
 									ui.Text(c, "编排不可用：需要安装 git").
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										TextColor(ThemeSecondaryText(c))
 								})
 							return
@@ -1684,7 +1684,7 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 								Background(ThemeHover(c)).
 								Children(func() {
 									ui.Text(c, desc).
-										FontSize(TypeBody).
+										FontSize(uiFont(TypeBody)).
 										TextColor(ThemeSecondaryText(c))
 								})
 							return
@@ -1769,14 +1769,14 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 		Cursor(ui.CursorGrab).
 		Children(func() {
 			ui.Text(c, "编排").
-				FontSize(TypeProse).
+				FontSize(uiFont(TypeProse)).
 				FontWeight(600).
 				TextColor(ThemePrimaryText(c))
 
 			progress := swarmProgressText(st)
 			if progress != "" {
 				ui.Text(c, progress).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			}
 
@@ -1799,7 +1799,7 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 				}
 				plansOnlyBtn.Children(func() {
 					txt := ui.Text(c, plansOnlyLabel).
-						FontSize(TypeFootnote)
+						FontSize(uiFont(TypeFootnote))
 					if st.PlansOnly {
 						txt.TextColor(ThemeAccent(c)).FontWeight(600)
 					} else {
@@ -1824,7 +1824,7 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 			}
 			toggleBtn.Children(func() {
 				ui.Text(c, toggleLabel).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemePrimaryText(c))
 			})
 
@@ -1841,7 +1841,7 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 				}
 				stopAllBtn.Children(func() {
 					ui.Text(c, "停止全部").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeDanger(c))
 				})
 			}
@@ -1859,7 +1859,7 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 				}
 				clearBtn.Children(func() {
 					ui.Text(c, "清理已结束").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			}
@@ -1900,7 +1900,7 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 			Padding(Space3, 0).
 			Children(func() {
 				ui.Text(c, "暂无子代理；开启后主代理派发的子代理会显示在这里").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeSecondaryText(c))
 			})
 		return
@@ -1953,7 +1953,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 					// #Index Name
 					title := fmt.Sprintf("#%d %s", h.Index, h.Name)
 					ui.Text(c, title).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 
@@ -1964,7 +1964,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 					// status label in status color
 					_, statusColor := swarmStatusTone(c, h.Status)
 					ui.Text(c, swarmStatusLabel(h.Status)).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						FontWeight(500).
 						TextColor(statusColor)
 
@@ -1983,7 +1983,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 					}
 					if provModel != "" {
 						ui.Text(c, provModel).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 					}
 
@@ -1996,7 +1996,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Tooltip("用户在消息里点名了这个模型").
 							Children(func() {
 								ui.Text(c, "指定模型").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeAccent(c))
 							})
 					}
@@ -2004,7 +2004,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 					// tokens & toolCalls
 					usageText := fmt.Sprintf("%s tokens · %d 工具调用", formatTokens(int64(h.Tokens)), h.ToolCalls)
 					ui.Text(c, usageText).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c))
 
 					// 越权写入 tag when ReadOnlyViolation
@@ -2016,7 +2016,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Tooltip("只读档子代理改动了文件，改动已丢弃，未合并").
 							Children(func() {
 								ui.Text(c, "越权写入").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									FontWeight(600).
 									TextColor(ThemeDanger(c))
 							})
@@ -2041,7 +2041,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 									Size(10, 10).
 									TextColor(badgeColor)
 								ui.Text(c, fmt.Sprintf("%d/%d", h.Credibility.Verified, h.Credibility.Cited)).
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									FontWeight(600).
 									TextColor(badgeColor)
 							})
@@ -2055,7 +2055,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Background(ThemeAccent(c).Alpha(0.15)).
 							Children(func() {
 								ui.Text(c, "审查中").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeAccent(c))
 							})
 					} else if h.ReviewState == "rejected" {
@@ -2065,7 +2065,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Background(ThemeDanger(c).Alpha(0.15)).
 							Children(func() {
 								ui.Text(c, "审查未通过").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeDanger(c))
 							})
 					} else if h.PendingMerge {
@@ -2075,7 +2075,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Background(ThemeAccent(c).Alpha(0.15)).
 							Children(func() {
 								ui.Text(c, "待审查").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeAccent(c))
 							})
 					}
@@ -2088,7 +2088,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Background(ThemeSuccess(c).Alpha(0.15)).
 							Children(func() {
 								ui.Text(c, "已合并").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeSuccess(c))
 							})
 					}
@@ -2101,7 +2101,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Background(ThemeSecondaryText(c).Alpha(0.15)).
 							Children(func() {
 								ui.Text(c, "已放弃合并").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(ThemeSecondaryText(c))
 							})
 					}
@@ -2123,7 +2123,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 						}
 						reviewBtn.Children(func() {
 							ui.Text(c, "审查").
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeOnAccent(c))
 						})
 					} else if (h.Merged || len(h.ConflictFiles) > 0) && (h.Status == "completed" || h.Status == "failed") {
@@ -2139,7 +2139,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 						}
 						viewBtn.Children(func() {
 							ui.Text(c, "查看改动").
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
 						})
 					}
@@ -2158,7 +2158,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 						}
 						stopBtn.Children(func() {
 							ui.Text(c, "停止").
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeDanger(c))
 						})
 					}
@@ -2168,7 +2168,7 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 			preview := swarmBeePreview(h)
 			if preview != "" {
 				ui.Text(c, preview).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			}
 
@@ -2176,14 +2176,14 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 			if len(h.ConflictFiles) > 0 {
 				conflictText := "冲突文件: " + strings.Join(h.ConflictFiles, ", ")
 				ui.Text(c, conflictText).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			}
 
 			// MergeError in error color
 			if h.MergeError != "" {
 				ui.Text(c, "合并错误: "+h.MergeError).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			}
 		})
@@ -2960,7 +2960,7 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 								ClipX().
 								Children(func() {
 									ui.Text(c, e.Name).
-										FontSize(TypeProse).
+										FontSize(uiFont(TypeProse)).
 										FontWeight(600).
 										TextColor(ThemePrimaryText(c)).
 										SingleLine().
@@ -2978,14 +2978,14 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 												// 状态与耗时保持完整，排在后面的说明在空间不足时从末尾截断。
 												captionText := func(text string, color ui.Color) {
 													ui.Text(c, text).
-														FontSize(TypeFootnote).
+														FontSize(uiFont(TypeFootnote)).
 														TextColor(color).
 														SingleLine().
 														Shrink(0)
 												}
 												captionTail := func(text string, color ui.Color) {
 													ui.Text(c, text).
-														FontSize(TypeFootnote).
+														FontSize(uiFont(TypeFootnote)).
 														TextColor(color).
 														SingleLine().
 														Ellipsis("…").
@@ -2998,7 +2998,7 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 
 												if e.Status != "" {
 													ui.Text(c, e.Status).
-														FontSize(TypeFootnote).
+														FontSize(uiFont(TypeFootnote)).
 														FontWeight(500).
 														TextColor(statusColor).
 														SingleLine().
@@ -3060,7 +3060,7 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 															TextColor(chipColor)
 													}
 													ui.Text(c, chipName).
-														FontSize(TypeCaption).
+														FontSize(uiFont(TypeCaption)).
 														FontWeight(600).
 														TextColor(chipColor).
 														SingleLine().
@@ -3070,7 +3070,7 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 
 										if model != "" {
 											ui.Text(c, model).
-												FontSize(TypeCaption).
+												FontSize(uiFont(TypeCaption)).
 												TextColor(ThemeSecondaryText(c)).
 												SingleLine().
 												Ellipsis("…").
@@ -3088,7 +3088,7 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 												Tooltip("用户在消息里点名了这个模型").
 												Children(func() {
 													ui.Text(c, "指定模型").
-														FontSize(TypeCaption).
+														FontSize(uiFont(TypeCaption)).
 														TextColor(ThemeAccent(c)).
 														SingleLine().
 														Shrink(0)
@@ -3104,7 +3104,7 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 												Tooltip(violation).
 												Children(func() {
 													ui.Text(c, "越权写入").
-														FontSize(TypeCaption).
+														FontSize(uiFont(TypeCaption)).
 														FontWeight(600).
 														TextColor(ThemeDanger(c)).
 														SingleLine().
@@ -3116,7 +3116,7 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 
 							if e.Task != "" {
 								ui.Text(c, e.Task).
-									FontSize(TypeBody).
+									FontSize(uiFont(TypeBody)).
 									TextColor(ThemePrimaryText(c).Alpha(0.85))
 							}
 						})
@@ -3151,14 +3151,14 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 									credText = "可信度: " + credText
 								}
 								ui.Text(c, credText).
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(credColor)
 							}
 
 							// 合并结果
 							if e.MergeResult != "" {
 								ui.Text(c, "合并结果: "+e.MergeResult).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							}
 
@@ -3169,12 +3169,12 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 										Gap(Space1).
 										Children(func() {
 											ui.Text(c, fmt.Sprintf("改动文件 (%d):", len(matchedBee.ChangedFiles))).
-												FontSize(TypeCaption).
+												FontSize(uiFont(TypeCaption)).
 												FontWeight(600).
 												TextColor(ThemeSecondaryText(c))
 											for _, f := range matchedBee.ChangedFiles {
 												ui.Text(c, f).
-													FontSize(TypeCaption).
+													FontSize(uiFont(TypeCaption)).
 													TextColor(ThemeSecondaryText(c))
 											}
 										})
@@ -3185,12 +3185,12 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 										Gap(Space1).
 										Children(func() {
 											ui.Text(c, fmt.Sprintf("冲突文件 (%d):", len(matchedBee.ConflictFiles))).
-												FontSize(TypeCaption).
+												FontSize(uiFont(TypeCaption)).
 												FontWeight(600).
 												TextColor(ThemeDanger(c))
 											for _, f := range matchedBee.ConflictFiles {
 												ui.Text(c, f).
-													FontSize(TypeCaption).
+													FontSize(uiFont(TypeCaption)).
 													TextColor(ThemeDanger(c))
 											}
 										})
@@ -3208,13 +3208,13 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 										} else {
 											ui.Text(c, summary).
 												Selectable().
-												FontSize(TypeFootnote).
+												FontSize(uiFont(TypeFootnote)).
 												TextColor(ThemePrimaryText(c))
 										}
 									})
 							} else {
 								ui.Text(c, "还没有汇报。").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							}
 						})

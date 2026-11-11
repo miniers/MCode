@@ -63,7 +63,6 @@ func TestSettingsPageWorkbench_Tree(t *testing.T) {
 	st.cfg.Workbench.ContextInjectMaxCharacters = 12000
 	st.cfg.Workbench.StuckNudgeTimeout = 600
 	st.cfg.Workbench.StuckInterruptTimeout = 1800
-	st.cfg.Workbench.EditorFontSize = 16
 
 	tt := ui.NewTester(func(c *ui.Context) { renderPageWorkbench(c, st) }, 1000, 4000)
 

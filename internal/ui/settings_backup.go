@@ -229,7 +229,7 @@ func renderBackupControl(c *ui.Context, st *SettingsState) {
 	backupUI.mu.Unlock()
 	ui.Row(c.Key("backup-controls")).AlignItems(ui.Center).Gap(Space3).Children(func() {
 		if message != "" {
-			ui.Text(c, message).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, message).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 		}
 		label := "备份…"
 		if operation == "backup" {
@@ -251,7 +251,7 @@ func renderRestoreControl(c *ui.Context, st *SettingsState) {
 	backupUI.mu.Unlock()
 	ui.Row(c.Key("restore-controls")).AlignItems(ui.Center).Gap(Space3).Children(func() {
 		if message != "" {
-			ui.Text(c, message).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+			ui.Text(c, message).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 		}
 		label := "恢复…"
 		if operation == "restore" {
@@ -276,7 +276,7 @@ func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
 			if mode == "restore" {
 				title = "输入备份密码"
 			}
-			modalDragHandle(c, "backup-password", ui.Row(c.Key("backup-password-title")).FillWidth().Children(func() { ui.Text(c, title).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c)) }))
+			modalDragHandle(c, "backup-password", ui.Row(c.Key("backup-password-title")).FillWidth().Children(func() { ui.Text(c, title).FontSize(uiFont(TypeTitle)).FontWeight(600).TextColor(ThemePrimaryText(c)) }))
 			TextField(c, TextFieldProps{Key: "backup-password-input", Value: &backupUI.password, Placeholder: "密码", Password: true, FillWidth: true, AutoFocus: true})
 			if mode == "backup" {
 				TextField(c, TextFieldProps{Key: "backup-password-repeat", Value: &backupUI.repeat, Placeholder: "确认密码", Password: true, FillWidth: true})

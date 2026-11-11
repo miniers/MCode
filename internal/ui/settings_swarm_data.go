@@ -44,7 +44,7 @@ func (n swarmNumberControl) renderDisabled(c *ui.Context, st *SettingsState, s s
 			withDisabled(func(*SettingsState) bool { return disabled }).
 			renderDisabled(c, st, setting{ID: s.ID, Title: s.Title}, disabled)
 		if n.unit != "" {
-			ui.Text(c, n.unit).FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, n.unit).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 		}
 	})
 }
@@ -100,7 +100,7 @@ var stewardAdvancedSection = settingsSection{
 			ID: "row-steward-home-dir", Title: "主目录",
 			Aliases: []string{"总管", "存储", "目录", "默认"},
 			Control: custom(func(c *ui.Context, st *SettingsState) {
-				ui.Text(c, st.cfg.Orchestration.Steward.ResolvedHomeDir(st.dataDir)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, st.cfg.Orchestration.Steward.ResolvedHomeDir(st.dataDir)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			}),
 		},
 	},

@@ -121,7 +121,7 @@ func renderSettingsResetArea(c *ui.Context, st *SettingsState, page string) {
 		Gap(Space4).
 		Children(func() {
 			ui.Text(c, "把本页设置改回默认值；快捷回复、模型组合、档位等列表数据不受影响。").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				Grow(1)
 			Button(c.Key("btn-settings-reset-"+page), ButtonOpts{

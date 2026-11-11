@@ -318,12 +318,12 @@ func renderGitPRDialog(c *ui.Context, s *chatState) {
 					Gap(Space3).
 					Children(func() {
 						ui.Text(c, "Pull Request").
-							FontSize(TypeTitle).
+							FontSize(uiFont(TypeTitle)).
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c)).
 							SingleLine()
 						ui.Text(c, "只读查看").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
 						ui.Spacer(c)
@@ -348,7 +348,7 @@ func renderGitPRDialog(c *ui.Context, s *chatState) {
 					Justify(ui.End).
 					Children(func() {
 						ui.Text(c, "Esc 关闭").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 						url := ""
 						if detail != nil {
@@ -403,7 +403,7 @@ func renderGitPRListPane(c *ui.Context, s *chatState, prs []git.PRSummary, selec
 				Gap(Space2).
 				Children(func() {
 					ui.Text(c, "开放的 PR/MR").
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						FontWeight(600).
 						TextColor(ThemeSecondaryText(c)).
 						SingleLine()
@@ -429,12 +429,12 @@ func renderGitPRListPane(c *ui.Context, s *chatState, prs []git.PRSummary, selec
 					})
 			case errText != "" && len(prs) == 0:
 				ui.Text(c, errText).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c)).
 					MaxLines(4)
 			case len(prs) == 0:
 				ui.Text(c, "这个仓库没有开放的 PR/MR").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			default:
 				ui.Scroll(c.Key("modal-git-pr-list-scroll")).
@@ -455,7 +455,7 @@ func renderGitPRListPane(c *ui.Context, s *chatState, prs []git.PRSummary, selec
 			// 列表已有内容时，错误只作为底部提示，不顶掉列表。
 			if errText != "" && len(prs) > 0 {
 				ui.Text(c, errText).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeDanger(c)).
 					MaxLines(3)
 			}
@@ -491,11 +491,11 @@ func renderGitPRListRow(c *ui.Context, s *chatState, pr git.PRSummary, active bo
 					AlignItems(ui.Center).
 					Children(func() {
 						ui.Text(c, fmt.Sprintf("#%d", pr.Number)).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
 						ui.Text(c, pr.Title).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c)).
 							Grow(1).
 							SingleLine()
@@ -509,7 +509,7 @@ func renderGitPRListRow(c *ui.Context, s *chatState, pr git.PRSummary, active bo
 						renderGitPRTag(c, key+"-tag-checks", gitPRChecksLabel(pr.ChecksState))
 						if author := strings.TrimSpace(pr.Author); author != "" {
 							ui.Text(c, author).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c)).
 								SingleLine()
 						}
@@ -535,7 +535,7 @@ func renderGitPRDetailPane(c *ui.Context, s *chatState, detail *git.PRDetail, se
 			switch {
 			case selected == 0:
 				ui.Text(c, "从左侧选择一条 PR 查看详情").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			case loading && detail == nil:
 				ui.Row(c.Key("modal-git-pr-detail-loading")).
@@ -546,12 +546,12 @@ func renderGitPRDetailPane(c *ui.Context, s *chatState, detail *git.PRDetail, se
 					})
 			case errText != "" && detail == nil:
 				ui.Text(c, errText).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c)).
 					MaxLines(4)
 			case detail == nil:
 				ui.Text(c, "没有可显示的详情").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			default:
 				renderGitPRDetail(c, *detail, contentH)
@@ -559,7 +559,7 @@ func renderGitPRDetailPane(c *ui.Context, s *chatState, detail *git.PRDetail, se
 
 			if errText != "" && detail != nil {
 				ui.Text(c, errText).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeDanger(c)).
 					MaxLines(3)
 			}
@@ -577,13 +577,13 @@ func renderGitPRDetail(c *ui.Context, detail git.PRDetail, contentH float32) {
 				Gap(Space3).
 				Children(func() {
 					ui.Text(c, fmt.Sprintf("#%d %s", detail.Number, detail.Title)).
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 
 					if meta := gitPRMetaLine(detail.PRSummary); meta != "" {
 						ui.Text(c, meta).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c))
 					}
 
@@ -596,7 +596,7 @@ func renderGitPRDetail(c *ui.Context, detail git.PRDetail, contentH float32) {
 							renderGitPRTag(c, "modal-git-pr-detail-tag-review", gitPRReviewLabel(detail.ReviewDecision))
 							renderGitPRTag(c, "modal-git-pr-detail-tag-checks", gitPRChecksLabel(detail.ChecksState))
 							ui.Text(c, gitPRChangeStats(detail.Additions, detail.Deletions, detail.ChangedFiles)).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c)).
 								SingleLine()
 						})
@@ -616,18 +616,18 @@ func renderGitPRDetail(c *ui.Context, detail git.PRDetail, contentH float32) {
 					renderGitPRSectionTitle(c, "正文")
 					if detail.Body == "" {
 						ui.Text(c, "没有填写正文").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					} else {
 						ui.Text(c, detail.Body).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c))
 					}
 
 					renderGitPRSectionTitle(c, fmt.Sprintf("评论（%d）", len(detail.Comments)))
 					if len(detail.Comments) == 0 {
 						ui.Text(c, "还没有评论").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 						return
 					}
@@ -646,7 +646,7 @@ func renderGitPRDetail(c *ui.Context, detail git.PRDetail, contentH float32) {
 // renderGitPRSectionTitle 渲染小节标题。
 func renderGitPRSectionTitle(c *ui.Context, text string) {
 	ui.Text(c, text).
-		FontSize(TypeCaption).
+		FontSize(uiFont(TypeCaption)).
 		FontWeight(600).
 		TextColor(ThemeSecondaryText(c)).
 		SingleLine()
@@ -667,12 +667,12 @@ func renderGitPRCheckRow(c *ui.Context, key string, check git.PRCheck) {
 				name = "未命名检查"
 			}
 			ui.Text(c, name).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemePrimaryText(c)).
 				Grow(1).
 				SingleLine()
 			ui.Text(c, gitPRChecksLabel(check.State)).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c)).
 				SingleLine()
 		})
@@ -697,19 +697,19 @@ func renderGitPRCommentRow(c *ui.Context, key string, comment git.PRComment) {
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, author).
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c)).
 						SingleLine()
 					if rel := gitPRUpdatedLabel(comment.CreatedAt); rel != "" {
 						ui.Text(c, rel).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c)).
 							SingleLine()
 					}
 				})
 			ui.Text(c, comment.Body).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemePrimaryText(c))
 		})
 }

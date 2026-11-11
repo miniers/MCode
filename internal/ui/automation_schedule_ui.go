@@ -308,7 +308,7 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 									ui.Select(c.Key("automation-interval-unit"), &as.intervalUnit, []string{"秒", "分钟", "小时"}).Label("间隔单位").Width(100)
 								})
 								if msg := as.scheduleErrors["interval"]; msg != "" {
-									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(uiFont(TypeFootnote))
 								}
 							})
 
@@ -322,7 +322,7 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 									Label("automation-time-input").
 									FillWidth()
 								if msg := as.scheduleErrors["time"]; msg != "" {
-									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(uiFont(TypeFootnote))
 								}
 							})
 
@@ -361,7 +361,7 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 											Label("automation-time-input").
 											FillWidth()
 										if msg := as.scheduleErrors["time"]; msg != "" {
-											ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+											ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(uiFont(TypeFootnote))
 										}
 									})
 							})
@@ -376,7 +376,7 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 									Label("automation-cron-input").
 									FillWidth()
 								if msg := as.scheduleErrors["cron"]; msg != "" {
-									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(uiFont(TypeFootnote))
 								}
 							})
 
@@ -390,23 +390,23 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 									Label("automation-once-input").
 									FillWidth()
 								if msg := as.scheduleErrors["once"]; msg != "" {
-									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+									ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(uiFont(TypeFootnote))
 								}
 							})
 					}
 				})
 		})
 	ui.Row(c.Key("automation-timezone-row")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "时区").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, "时区").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 		ui.TextInput(c.Key("automation-timezone-input"), &as.timezone).Label("时区").Placeholder("时区（IANA）").Grow(1)
 	})
 	if msg := as.scheduleErrors["timezone"]; msg != "" {
-		ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(TypeFootnote)
+		ui.Text(c, msg).TextColor(ThemeDanger(c)).FontSize(uiFont(TypeFootnote))
 	}
 	as.updateSchedulePreview(s)
 	if as.previewVisible {
 		ui.Column(c.Key("automation-preview")).Gap(Space1).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
-			ui.Text(c, "预计运行").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "预计运行").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			loc := time.Local
 			if as.timezone != "" {
 				if zone, err := time.LoadLocation(as.timezone); err == nil {
@@ -417,10 +417,10 @@ func renderAutomationScheduleFields(c *ui.Context, s *chatState, as *automationS
 				if i >= 3 || (as.scheduleType == "once" && i >= 1) {
 					break
 				}
-				ui.Text(c, automationShortTime(t.In(loc), time.Now().In(loc))).FontSize(TypeFootnote).TextColor(ThemePrimaryText(c))
+				ui.Text(c, automationShortTime(t.In(loc), time.Now().In(loc))).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 			}
 			if len(as.preview.Times) == 0 && as.preview.Exhausted {
-				ui.Text(c, "没有即将到来的运行").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "没有即将到来的运行").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			}
 		})
 	}

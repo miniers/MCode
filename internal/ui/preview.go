@@ -675,7 +675,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					in := ui.TextInput(c.Key(fmt.Sprintf("preview-addr-input-%p-%d", st.owner, st.tabID)), &addr).
 						Label("地址").
 						Placeholder("输入地址").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						Grow(1)
 					if addr != snap.addr || in.Focused() != snap.addressEditing {
 						previewMu.Lock()
@@ -722,7 +722,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 								color = ThemeAccent(c)
 							}
 							ui.Text(c, previewViewportLabel(mode)).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								FontWeight(500).
 								TextColor(color)
 						})
@@ -748,7 +748,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 							s.invalidate()
 						}
 						badgeBtn.Children(func() {
-							ui.Text(c, "控制台").FontSize(TypeCaption)
+							ui.Text(c, "控制台").FontSize(uiFont(TypeCaption))
 							count := previewConsoleErrorCount(snap.consoleErrors)
 							previous := ui.Local(badgeBtn, "error-count", func() int { return count })
 							_, fade := motionNumberProgress(c, badgeBtn, *previous != count)
@@ -792,7 +792,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 							if len(snap.annotations) > 0 {
 								label = "添加到对话"
 							}
-							ui.Text(c, label).FontSize(TypeCaption).FontWeight(600).TextColor(color)
+							ui.Text(c, label).FontSize(uiFont(TypeCaption)).FontWeight(600).TextColor(color)
 						})
 					})
 					menuBtn := ui.ButtonBase(c.Key("preview-capture-menu-btn")).Label("截图与元素菜单").Tooltip("更多").Padding(Space0, Space1)
@@ -848,7 +848,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 
 			// 主体区域
 			if snap.err != "" && snap.web != nil {
-				ui.Text(c, snap.err).TextColor(ThemeDanger(c)).FontSize(TypeFootnote).Padding(Space3)
+				ui.Text(c, snap.err).TextColor(ThemeDanger(c)).FontSize(uiFont(TypeFootnote)).Padding(Space3)
 			}
 			if snap.web == nil {
 				ui.Column(c.Key("preview-empty-state")).

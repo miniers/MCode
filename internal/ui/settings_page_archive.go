@@ -310,7 +310,7 @@ func renderArchiveOpError(c *ui.Context, msg string) {
 		Children(func() {
 			ui.Icon(c, IconOctagonAlert()).Size(IconSM, IconSM).TextColor(ThemeDanger(c))
 			ui.Text(c, msg).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeDanger(c)).
 				Grow(1)
 		})
@@ -330,12 +330,12 @@ func renderArchiveDeleteAllResult(c *ui.Context, text string, deleted int, faile
 		Gap(Space1).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				FontWeight(500).
 				TextColor(color)
 			for _, line := range failed {
 				ui.Text(c, line).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeDanger(c))
 			}
 		})
@@ -488,7 +488,7 @@ func requestArchiveBulkDelete(st *SettingsState) {
 func renderArchiveThreadRow(c *ui.Context, st *SettingsState, client Client, th Thread, picked map[string]bool) {
 	ui.Row(c.Key("row-archive-actions-" + th.ID)).Gap(Space3).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, th.UpdatedAt.Local().Format("2006-01-02 15:04")).
-			FontSize(TypeCaption).
+			FontSize(uiFont(TypeCaption)).
 			TextColor(ThemeSecondaryText(c)).
 			SingleLine()
 
@@ -600,7 +600,7 @@ func renderPageArchive(c *ui.Context, st *SettingsState) {
 					Justify(ui.Center).
 					Children(func() {
 						ui.Text(c, "加载失败："+view.loadErr).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeDanger(c)).
 							SingleLine()
 						Button(c.Key("btn-archive-retry"), ButtonOpts{
@@ -875,12 +875,12 @@ func renderArchiveProjectGroupHeader(c *ui.Context, projectID, name string, coun
 		AlignItems(ui.Center).
 		Children(func() {
 			ui.Text(c, name).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				FontWeight(600).
 				TextColor(ThemeSecondaryText(c)).
 				SingleLine()
 			ui.Text(c, fmt.Sprintf("%d 个会话", count)).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				SingleLine()
 		})
@@ -894,7 +894,7 @@ func renderArchiveNoMatch(c *ui.Context) {
 		AlignItems(ui.Center).
 		Children(func() {
 			ui.Text(c, "没有匹配的已归档会话").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c))
 		})
 }
@@ -961,7 +961,7 @@ func renderArchiveBulkBar(c *ui.Context, st *SettingsState, threads []Thread, co
 		AlignItems(ui.Center).
 		Children(func() {
 			ui.Text(c, fmt.Sprintf("已选 %d 项", count)).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).
 				Grow(1)
 
@@ -1020,12 +1020,12 @@ func renderArchiveBulkResult(c *ui.Context, text string, failed []string) {
 		Gap(Space1).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				FontWeight(500).
 				TextColor(color)
 			for _, line := range failed {
 				ui.Text(c, line).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeDanger(c))
 			}
 		})

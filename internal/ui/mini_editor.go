@@ -292,13 +292,13 @@ func (st *miniEditorState) view(c *ui.Context) {
 			Children(func() {
 				ui.Icon(c, IconFile()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 				ui.Text(c, path).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemePrimaryText(c)).
 					Grow(1).
 					SingleLine()
 
 				ui.Text(c, miniEditorStatusText(st)).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c))
 
 				if isMarkdownPath(path) {
@@ -326,7 +326,7 @@ func (st *miniEditorState) view(c *ui.Context) {
 				Background(ThemeDanger(c).Alpha(0.10)).
 				Children(func() {
 					ui.Text(c, loadErr).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeDanger(c))
 				})
 		}
@@ -339,7 +339,7 @@ func (st *miniEditorState) view(c *ui.Context) {
 				Background(ThemeWarning(c).Alpha(0.12)).
 				Children(func() {
 					ui.Text(c, saveErr).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeWarning(c)).
 						Grow(1)
 					Button(c.Key("mini-editor-reload-btn"), ButtonOpts{

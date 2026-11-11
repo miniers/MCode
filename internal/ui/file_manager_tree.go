@@ -724,7 +724,7 @@ func renderFileManagerNavigation(c *ui.Context, s *chatState, threadID, workDir 
 			}
 			if !onlyChanged && rootTruncated && rootErr == "" {
 				ui.Text(c, "目录条目已截断（仅显示前 1000 个条目）").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeWarning(c)).
 					Padding(Space2, Space3, Space3, Space3)
 			}

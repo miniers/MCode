@@ -188,12 +188,12 @@ func renderShortcutHelp(c *ui.Context, s *chatState) {
 			BorderColor(ThemeBorder(c)).
 			Children(func() {
 				ui.Text(c, "键盘快捷键").
-					FontSize(TypeTitle).
+					FontSize(uiFont(TypeTitle)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
 				ui.Box(c.Key("shortcut-help-header-spacer")).Grow(1)
 				ui.Text(c, "Esc 关闭").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c))
 			}))
 
@@ -213,7 +213,7 @@ func renderShortcutHelp(c *ui.Context, s *chatState) {
 				groups := filterShortcutHelpGroups(shortcutHelpGroups(list), *st.query)
 				if len(groups) == 0 {
 					ui.Text(c, "没有匹配的快捷键").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
 					return
 				}
@@ -243,7 +243,7 @@ func renderShortcutHelp(c *ui.Context, s *chatState) {
 			BorderColor(ThemeBorder(c)).
 			Children(func() {
 				ui.Text(c, fmt.Sprintf("共 %d 项", len(list))).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c))
 				// 没有设置状态时（如精简窗口/测试未注入设置）不渲染按钮，避免点了没反应。
 				if getChatSettings(s) != nil {
@@ -278,7 +278,7 @@ func renderShortcutHelpGroup(c *ui.Context, grp shortcutHelpGroup, conflicts map
 		Border(Hairline, ThemeBorder(c)).
 		Children(func() {
 			ui.Text(c, grp.name).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(600).
 				TextColor(ThemeSecondaryText(c))
 			for _, sc := range grp.items {
@@ -296,7 +296,7 @@ func renderShortcutHelpRow(c *ui.Context, sc appShortcut, conflicts []string) {
 		AlignItems(ui.Center).
 		Children(func() {
 			ui.Text(c, sc.title).
-				FontSize(TypeBody).
+				FontSize(uiFont(TypeBody)).
 				TextColor(ThemePrimaryText(c)).
 				Grow(1).
 				SingleLine()
@@ -307,7 +307,7 @@ func renderShortcutHelpRow(c *ui.Context, sc appShortcut, conflicts []string) {
 					Background(ThemeDanger(c).Alpha(0.14)).
 					Children(func() {
 						ui.Text(c, "冲突").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							FontWeight(600).
 							TextColor(ThemeDanger(c))
 					})

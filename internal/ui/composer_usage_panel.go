@@ -641,17 +641,17 @@ func renderComposerCreditsRow(c *ui.Context, key string, credits ProviderCredits
 		Gap(Space3).
 		Children(func() {
 			ui.Text(c, "余额").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c))
 			ui.Box(c.Key(key + "-spacer")).Grow(1)
 			ui.Text(c, amount).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				FontWeight(500).
 				TextColor(creditsAmountColor(c, credits)).
 				SingleLine()
 			if depleted {
 				ui.Text(c, "余额不足").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeDanger(c)).
 					SingleLine()
 			}
@@ -704,7 +704,7 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 						AlignItems(ui.Center).
 						Children(func() {
 							ui.Text(c, "上下文窗口").
-								FontSize(TypeBody).
+								FontSize(uiFont(TypeBody)).
 								FontWeight(600).
 								TextColor(ThemePrimaryText(c))
 
@@ -715,7 +715,7 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 								txt := fmt.Sprintf("%s / %s (%d%%)", formatTokenCount(used), formatTokenCount(limit), pct)
 								ui.Text(c, txt).
 									FontFeatures("tnum").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							}
 						})
@@ -755,17 +755,17 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 							})
 					} else {
 						ui.Text(c, "暂无上下文窗口数据").
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					}
 					if total.Input > 0 || total.Output > 0 || total.Cached > 0 {
 						ui.Text(c, fmt.Sprintf("输入 %s · 输出 %s · 缓存命中 %s",
 							formatTokenCount(total.Input), formatTokenCount(total.Output), formatTokenCount(total.Cached))).
-							FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 					}
 					if costLine := formatTurnCostUSD(costUSD); costLine != "" {
 						ui.Text(c, costLine).
-							FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 					}
 				})
 
@@ -1146,7 +1146,7 @@ func renderComposerQuotaStrip(c *ui.Context, s *chatState, th *Thread, tiers ...
 								Size(usageStripSmallSize, usageStripSmallSize).
 								TextColor(usageStatusColor(c, stripStatus))
 							ui.Text(c, usageStatusStripLabel(stripStatus)).
-								FontSize(FontSizeProjectName).
+								FontSize(uiFont(FontSizeProjectName)).
 								FontWeight(500).
 								TextColor(usageStatusColor(c, stripStatus))
 						})
@@ -1161,7 +1161,7 @@ func renderComposerQuotaStrip(c *ui.Context, s *chatState, th *Thread, tiers ...
 							}
 							renderRunningGlyph(c, "quota-loading", usageStripSmallSize, ThemeSecondaryText(c))
 							ui.Text(c, "加载中…").
-								FontSize(FontSizeProjectName).
+								FontSize(uiFont(FontSizeProjectName)).
 								FontWeight(500).
 								TextColor(ThemeSecondaryText(c))
 						})
@@ -1198,7 +1198,7 @@ func renderComposerQuotaStrip(c *ui.Context, s *chatState, th *Thread, tiers ...
 					if !rendered {
 						// 有窗口但都无法映射成短标签时，不能再显示「加载中…」。
 						ui.Text(c, "暂无额度数据").
-							FontSize(FontSizeProjectName).
+							FontSize(uiFont(FontSizeProjectName)).
 							FontWeight(500).
 							TextColor(ThemeSecondaryText(c))
 					}
@@ -1335,7 +1335,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 			AlignItems(ui.Center).
 			Children(func() {
 				ui.Text(c, "｜").
-					FontSize(FontSizeProjectName).
+					FontSize(uiFont(FontSizeProjectName)).
 					TextColor(ThemeTertiaryText(c)).
 					SingleLine()
 			})
@@ -1384,7 +1384,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 				}
 				if unknownAccount {
 					ui.Text(c, "额度未知").
-						FontSize(FontSizeProjectName).
+						FontSize(uiFont(FontSizeProjectName)).
 						FontWeight(500).
 						TextColor(ThemeSecondaryText(c)).
 						SingleLine()
@@ -1398,7 +1398,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 							used = inner.used
 						}
 						ui.Text(c, fmt.Sprintf("%d%%", int(math.Round(used)))).
-							FontFeatures("tnum").FontSize(FontSizeProjectName).FontWeight(500).
+							FontFeatures("tnum").FontSize(uiFont(FontSizeProjectName)).FontWeight(500).
 							TextColor(ThemeSecondaryText(c)).SingleLine()
 					}
 					return
@@ -1411,7 +1411,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 						Children(func() {
 							if tier != composerChinNarrow {
 								ui.Text(c, r.label).
-									FontSize(FontSizeProjectName).
+									FontSize(uiFont(FontSizeProjectName)).
 									FontWeight(500).
 									TextColor(ThemeSecondaryText(c)).
 									SingleLine()
@@ -1421,7 +1421,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 							}
 							ui.Text(c, fmt.Sprintf("%d%%", int(math.Round(r.used)))).
 								FontFeatures("tnum").
-								FontSize(FontSizeProjectName).
+								FontSize(uiFont(FontSizeProjectName)).
 								FontWeight(500).
 								TextColor(ThemeSecondaryText(c)).
 								SingleLine()
@@ -1866,14 +1866,14 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 			Children(func() {
 				renderProviderIconColor(c, provider, IconMD, ThemeSecondaryText(c))
 				ui.Text(c, title).
-					FontSize(FontSizeTitle3).
+					FontSize(uiFont(FontSizeTitle3)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c)).
 					SingleLine()
 
 				if len(groups) == 1 && groups[0].Plan != "" {
 					ui.Text(c, "· "+groups[0].Plan).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c)).
 						SingleLine()
 				}
@@ -1883,7 +1883,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 					if groups[0].HeadWarn {
 						textColor = ThemeWarning(c)
 					}
-					ui.Text(c, groups[0].HeadText).FontSize(TypeFootnote).TextColor(textColor).SingleLine()
+					ui.Text(c, groups[0].HeadText).FontSize(uiFont(TypeFootnote)).TextColor(textColor).SingleLine()
 				}
 
 				refresh := ui.ButtonBase(c.Key("composer-quota-refresh")).
@@ -1902,7 +1902,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 				}
 				refresh.Children(func() {
 					ui.Text(c, composerQuotaRefreshLabel(s, provider)).
-						FontSize(FontSizeProjectName).
+						FontSize(uiFont(FontSizeProjectName)).
 						TextColor(ThemePrimaryText(c))
 				})
 			})
@@ -1972,13 +1972,13 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 				Children(func() {
 					renderRunningGlyph(c, "quota-popover-loading", IconSM, ThemeSecondaryText(c))
 					ui.Text(c, "正在加载额度…").
-						FontSize(FontSizeCallout).
+						FontSize(uiFont(FontSizeCallout)).
 						TextColor(ThemeSecondaryText(c))
 				})
 		default:
 			ui.Row(c.Key("composer-quota-popover-empty")).FillWidth().Padding(0, Space4).Children(func() {
 				ui.Text(c, "暂无额度数据").
-					FontSize(FontSizeCallout).
+					FontSize(uiFont(FontSizeCallout)).
 					TextColor(ThemeSecondaryText(c))
 			})
 		}

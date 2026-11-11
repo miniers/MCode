@@ -113,7 +113,7 @@ func renderComposerCapsule(c *ui.Context, s *chatState, capsule composerCapsule)
 						TextColor(ThemeSecondaryText(c))
 				}
 				ui.Text(c, capsule.Text).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemePrimaryText(c)).
 					SingleLine()
 				if capsule.OnDismiss != nil {

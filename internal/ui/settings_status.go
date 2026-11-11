@@ -6,7 +6,7 @@ import "github.com/egoist/mygo/ui"
 func settingStatus(c *ui.Context, key string, value string) {
 	ui.Row(c.Key(key)).Children(func() {
 		ui.Text(c, value).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeSecondaryText(c)).
 			SingleLine()
 	})

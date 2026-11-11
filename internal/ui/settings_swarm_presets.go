@@ -376,7 +376,7 @@ func renderPresetBadge(c *ui.Context, key string, text string, textColor ui.Colo
 		Background(bgColor).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(500).
 				TextColor(textColor)
 		})
@@ -398,7 +398,7 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 	trigger.Children(func() {
 		ui.Row(c.Key("swarm-preset-trigger-row")).Gap(Space2).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "预设组合").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				FontWeight(500).
 				TextColor(ThemePrimaryText(c))
 		})
@@ -431,11 +431,11 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 							Grow(1).
 							Children(func() {
 								ui.Text(c, "编排预设组合").
-									FontSize(TypeTitle).
+									FontSize(uiFont(TypeTitle)).
 									FontWeight(600).
 									TextColor(ThemePrimaryText(c))
 								ui.Text(c, "预置的高效协作配对模式，一键添加到当前设置。").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							})
 
@@ -446,7 +446,7 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 							Background(ThemeOverlay(c, 0.05)).
 							Children(func() {
 								ui.Text(c, "关闭").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							})
 						if closeBtn.Clicked() {
@@ -491,7 +491,7 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 														Gap(Space3).
 														Children(func() {
 															ui.Text(c, preset.Title).
-																FontSize(TypeBody).
+																FontSize(uiFont(TypeBody)).
 																FontWeight(600).
 																TextColor(ThemePrimaryText(c))
 
@@ -505,7 +505,7 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 														})
 
 													ui.Text(c, preset.Summary).
-														FontSize(TypeFootnote).
+														FontSize(uiFont(TypeFootnote)).
 														TextColor(ThemeSecondaryText(c))
 
 													if !item.Ready && len(item.Missing) > 0 {
@@ -515,7 +515,7 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 																for mIdx, msg := range item.Missing {
 																	missKey := fmt.Sprintf("%s-missing-%d", rowKey, mIdx)
 																	ui.Text(c.Key(missKey), "• "+msg).
-																		FontSize(TypeCaption).
+																		FontSize(uiFont(TypeCaption)).
 																		TextColor(ThemeSecondaryText(c))
 																}
 															})
@@ -531,7 +531,7 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 													Background(ThemeOverlay(c, 0.04)).
 													Children(func() {
 														ui.Text(c, "已添加").
-															FontSize(TypeFootnote).
+															FontSize(uiFont(TypeFootnote)).
 															TextColor(ThemeSecondaryText(c))
 													})
 											} else if item.Ready {
@@ -542,7 +542,7 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 													Background(ThemeAccent(c)).
 													Children(func() {
 														ui.Text(c, "添加配对").
-															FontSize(TypeFootnote).
+															FontSize(uiFont(TypeFootnote)).
 															FontWeight(500).
 															TextColor(ThemeOnAccent(c))
 													})

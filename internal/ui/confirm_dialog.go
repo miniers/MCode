@@ -150,13 +150,13 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 				// 标题行同时是弹窗的拖拽把手。
 				modalDragHandle(c, key, ui.Row(c.Key("confirm-"+key+"-title-row")).FillWidth().Children(func() {
 					ui.Text(c, d.Title).
-						FontSize(TypeTitle).
+						FontSize(uiFont(TypeTitle)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 				}))
 				if d.Body != "" {
 					ui.Text(c, d.Body).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						LineHeight(1.45).
 						TextColor(ThemeSecondaryText(c))
 				}
@@ -173,7 +173,7 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 										itemKey := fmt.Sprintf("confirm-%s-detail-%d", key, i)
 										ui.Row(c.Key(itemKey)).FillWidth().Children(func() {
 											ui.Text(c, line).
-												FontSize(TypeFootnote).
+												FontSize(uiFont(TypeFootnote)).
 												TextColor(ThemePrimaryText(c))
 										})
 									}

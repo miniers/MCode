@@ -22,7 +22,7 @@ func Kbd(c *ui.Context, key any, text string) ui.Element {
 		Justify(ui.Center).
 		AlignItems(ui.Center).
 		Children(func() {
-			ui.Text(c, text).FontSize(TypeCaption).Font("monospace").TextColor(ThemeSecondaryText(c))
+			ui.Text(c, text).FontSize(uiFont(TypeCaption)).Font("monospace").TextColor(ThemeSecondaryText(c))
 		})
 }
 

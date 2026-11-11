@@ -365,7 +365,7 @@ func renderTablePopupHeader(c *ui.Context, s *chatState, st *tablePopupState) {
 	header.Children(func() {
 		ui.Icon(c, IconSquareArrowOutUpRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 		ui.Text(c, "表格").
-			FontSize(TypeBody).
+			FontSize(uiFont(TypeBody)).
 			FontWeight(600).
 			TextColor(ThemePrimaryText(c))
 		ui.Box(c).Grow(1)

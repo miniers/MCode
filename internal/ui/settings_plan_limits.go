@@ -93,7 +93,7 @@ func renderPlanLimitsView(c *ui.Context, key, planName string, limits []planLimi
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, headerText).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 
 					if refreshing {
@@ -120,7 +120,7 @@ func renderPlanLimitsView(c *ui.Context, key, planName string, limits []planLimi
 							Gap(Space3).
 							Children(func() {
 								ui.Text(c, limit.Label).
-									FontSize(TypeBody).
+									FontSize(uiFont(TypeBody)).
 									TextColor(ThemePrimaryText(c))
 
 								ui.Box(c.Key(fmt.Sprintf("%s-limit-%d-spacer", key, idx))).Grow(1)
@@ -128,18 +128,18 @@ func renderPlanLimitsView(c *ui.Context, key, planName string, limits []planLimi
 								resetStr := formatLimitReset(now, limit.ResetsAt)
 								if resetStr != "" {
 									ui.Text(c, resetStr).
-										FontSize(TypeCaption).
+										FontSize(uiFont(TypeCaption)).
 										TextColor(ThemeSecondaryText(c))
 								}
 
 								percentStr := fmt.Sprintf("%d%%", int(math.Round(limit.UsedPercent)))
 								ui.Text(c, percentStr).
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									TextColor(quotaPercentColor(c, limit.UsedPercent))
 
 								if usageStatusForData("", true, limit.RefreshedAt, now).Stale() {
 									ui.Text(c, usageStaleSuffix).
-										FontSize(TypeCaption).
+										FontSize(uiFont(TypeCaption)).
 										TextColor(ThemeSecondaryText(c))
 								}
 							})
@@ -183,10 +183,10 @@ func renderPlanLimitsView(c *ui.Context, key, planName string, limits []planLimi
 					Gap(Space2).
 					Children(func() {
 						ui.Text(c, "储存的重置次数").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemePrimaryText(c))
 						ui.Text(c, fmt.Sprintf("%d", bankedResets)).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeSecondaryText(c))
 					})
 			}

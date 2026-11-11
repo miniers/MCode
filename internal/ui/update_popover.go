@@ -98,7 +98,7 @@ func renderUpdateCapsule(c *ui.Context, s *chatState, st *SettingsState, fs *sid
 		progress = btn.AnimateTo("update-capsule-in", 1, ui.Animation{Duration: animateDuration(c, DurBase), Ease: motionEaseStandard})
 	}
 	btn.Scale(0.95+0.05*progress, 0.95+0.05*progress).Translate(0, (1-progress)*motionRiseOffset).Opacity(progress).Children(func() {
-		ui.Text(c, status.Latest).FontSize(TypeCaption).TextColor(ThemeAccent(c))
+		ui.Text(c, status.Latest).FontSize(uiFont(TypeCaption)).TextColor(ThemeAccent(c))
 	})
 	appPopoverAbove(c.Key("sidebar-update-popover"), btn, &fs.updateOpen, nil, func() {
 		notes := ""
@@ -116,7 +116,7 @@ func renderUpdatePopover(c *ui.Context, s *chatState, st *SettingsState, title, 
 		Padding(Space4).
 		Gap(Space3).
 		Children(func() {
-			ui.Text(c, title).FontSize(TypeBody).FontWeight(600).TextColor(ThemePrimaryText(c))
+			ui.Text(c, title).FontSize(uiFont(TypeBody)).FontWeight(600).TextColor(ThemePrimaryText(c))
 			if strings.TrimSpace(notes) != "" {
 				ui.Scroll(c.Key("update-popover-notes")).FillWidth().MaxHeight(320).Children(func() {
 					markdown.View(c.Key("update-popover-markdown"), notes, swarmReportMarkdownOptions(c, s, TypeBody))

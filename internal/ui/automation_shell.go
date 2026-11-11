@@ -30,7 +30,7 @@ func renderAutomationSidebarSection(c *ui.Context, s *chatState) {
 				as.filter = i
 				s.invalidate()
 			}
-			row.Children(func() { ui.Text(c, label).FontSize(TypeBody).TextColor(ThemePrimaryText(c)) })
+			row.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)) })
 		}
 		value := as.unreadOnly
 		if ui.Switch(c.Key("automation-unread-filter"), &value).Label("未读").Changed() {
@@ -179,7 +179,7 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 	}
 	ui.Column(c.Key("automation-workspace-root")).Fill().Background(ThemeSurface(c)).Children(func() {
 		if hint := automationSchedulerHint(as.schedulerStatus); hint != "" {
-			ui.Text(c, hint).Key("automation-scheduler-hint").FontSize(TypeFootnote).TextColor(ThemeWarning(c))
+			ui.Text(c, hint).Key("automation-scheduler-hint").FontSize(uiFont(TypeFootnote)).TextColor(ThemeWarning(c))
 		}
 		if as.loading && len(as.autos) == 0 {
 			ui.Column(c.Key("automation-loading-box")).Fill().Center().Children(func() { LoadingIndicator(c, nil, "正在加载自动化…", IconMD) })
@@ -275,7 +275,7 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 						return
 					}
 					ui.Row(c.Key("automation-selected-header")).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
-						ui.Text(c, selected.Name).FontSize(TypeTitle).TextColor(ThemePrimaryText(c)).Grow(1)
+						ui.Text(c, selected.Name).FontSize(uiFont(TypeTitle)).TextColor(ThemePrimaryText(c)).Grow(1)
 						enabled := selected.Enabled
 						if ui.Switch(c.Key("automation-detail-toggle"), &enabled).Label("启用自动化").Disabled(busyIDs[selected.ID]).Changed() {
 							s.setAutomationEnabled(selected, enabled)
@@ -289,7 +289,7 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 							})
 						})
 					})
-					ui.Text(c, automationScheduleText(selected.Schedule)).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, automationScheduleText(selected.Schedule)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 					Segmented(c, "automation-detail-tabs", &as.detailTab, []Segment{{Label: "运行记录"}, {Label: "配置"}}, func(i int) { as.detailTab = i; s.invalidate() })
 					if as.detailTab == 0 {
 						unread := 0

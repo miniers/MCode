@@ -140,7 +140,7 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 			ui.Text(c, "任务已不存在").TextColor(ThemeSecondaryText(c))
 			return
 		}
-		ui.Text(c, task.Title).Padding(0, Space5).FontSize(TypeTitle).FontWeight(600).TextColor(ThemePrimaryText(c))
+		ui.Text(c, task.Title).Padding(0, Space5).FontSize(uiFont(TypeTitle)).FontWeight(600).TextColor(ThemePrimaryText(c))
 		if ks.detailDeleteOpen {
 			ui.DialogBase(c.Key("kanban-detail-delete-dialog"), &ks.detailDeleteOpen, func(backdrop, panel ui.Element) {
 				backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))

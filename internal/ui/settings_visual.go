@@ -69,7 +69,7 @@ func renderVisualPicker(c *ui.Context, key string, selected *string, options []v
 
 						// 下方文字：单行居中，选中时主色加粗
 						txt := ui.Text(c, optVal.label).
-							FontSize(TypeFootnote).
+							FontSize(uiFont(TypeFootnote)).
 							SingleLine()
 						if isSelected {
 							txt.TextColor(ThemePrimaryText(c)).FontWeight(600)

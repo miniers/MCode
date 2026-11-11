@@ -922,7 +922,7 @@ func renderSwarmPanelCard(c *ui.Context, s *chatState, f swarmFloatFrame, id pan
 func renderSwarmEmptyTeamPanel(c *ui.Context, s *chatState, f swarmFloatFrame) {
 	ui.Row(c.Key("swarm-strip")).FillWidth().AlignItems(ui.Center).Padding(Space3, Space4).Gap(Space3).Children(func() {
 		ui.Icon(c, IconSwarm()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c).Alpha(0.85))
-		ui.Text(c, "编排").FontSize(TypeFootnote).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
+		ui.Text(c, "编排").FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
 		IconButton(c, IconButtonProps{
 			Key: "swarm-strip-close", Icon: IconX(), Label: "关闭编排面板", Tooltip: "关闭面板",
 			Size: ControlSM, Variant: ButtonGhost, OnClick: func() {
@@ -969,7 +969,7 @@ func renderSwarmPanelStrip(c *ui.Context, s *chatState, f swarmFloatFrame, id pa
 			btn.Children(func() {
 				ui.Row(c.Key("swarm-strip-count-row")).AlignItems(ui.Center).Gap(Space1).Children(func() {
 					ui.Icon(c, IconSwarm()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c).Alpha(0.85))
-					ui.Text(c, strconv.Itoa(len(bees))).FontSize(TypeFootnote).FontWeight(600).TextColor(ThemePrimaryText(c))
+					ui.Text(c, strconv.Itoa(len(bees))).FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemePrimaryText(c))
 					if running > 0 {
 						renderRunningGlyph(c, "bee-float-run-strip-"+key, 9, ThemeAccent(c))
 					}
@@ -1009,14 +1009,14 @@ func renderSwarmPanelStrip(c *ui.Context, s *chatState, f swarmFloatFrame, id pa
 		}
 		handle.Children(func() {
 			renderSwarmGlyph(c, "strip-"+cur.ThreadID, cur, 18)
-			ui.Text(c, cur.Name).FontSize(TypeFootnote).FontWeight(600).TextColor(persona.Color)
+			ui.Text(c, cur.Name).FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(persona.Color)
 			// 顶栏胶囊补上档位徽章，与团队卡片里的档位展示保持一致。
 			if cur.Tier != "" {
 				renderSwarmTierChip(c, "strip-tier-"+cur.ThreadID, swarmTierName(s, cur.Tier), cur.Tier, cur.ReadOnly)
 			}
-			ui.Text(c, statusText).FontSize(TypeCaption).FontWeight(500).TextColor(statusColor)
+			ui.Text(c, statusText).FontSize(uiFont(TypeCaption)).FontWeight(500).TextColor(statusColor)
 			if d := formatSwarmDuration(cur.StartedAt, cur.FinishedAt); d != "" {
-				ui.Text(c, d).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c).Alpha(0.8))
+				ui.Text(c, d).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c).Alpha(0.8))
 			}
 		})
 		trackSwarmPanelDrag(s, f, id, key, rest, handle)
@@ -1247,15 +1247,15 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 					renderSwarmGlyph(c, "menu-"+bee.ThreadID, bee, IconLG)
 					ui.Column(c.Key("swarm-menu-meta-" + bee.ThreadID)).Grow(1).Gap(Space0).Children(func() {
 						ui.Row(c.Key("swarm-menu-title-" + bee.ThreadID)).AlignItems(ui.Center).Gap(Space2).Children(func() {
-							ui.Text(c, bee.Name).FontSize(TypeFootnote).FontWeight(600).TextColor(ThemePrimaryText(c))
+							ui.Text(c, bee.Name).FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemePrimaryText(c))
 							// 菜单每行同样带档位徽章，key 带 ThreadID 保证各子代理之间唯一。
 							if bee.Tier != "" {
 								renderSwarmTierChip(c, "menu-tier-"+bee.ThreadID, swarmTierName(s, bee.Tier), bee.Tier, bee.ReadOnly)
 							}
-							ui.Text(c, swarmStatusLabel(bee.Status)).FontSize(TypeCaption).TextColor(swarmStatusColor(c, bee.Status))
+							ui.Text(c, swarmStatusLabel(bee.Status)).FontSize(uiFont(TypeCaption)).TextColor(swarmStatusColor(c, bee.Status))
 						})
 						if bee.Task != "" {
-							ui.Text(c, bee.Task).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, bee.Task).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 						}
 					})
 					if bee.Status == "running" {
@@ -1300,7 +1300,7 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 					*open = false
 				}
 				all.Children(func() {
-					ui.Text(c, "停止全部").FontSize(TypeCaption).TextColor(ThemeDanger(c))
+					ui.Text(c, "停止全部").FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
 				})
 			}
 			ui.Spacer(c)
@@ -1312,7 +1312,7 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 				*open = false
 			}
 			clear.Children(func() {
-				ui.Text(c, "清理已结束").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "清理已结束").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 			})
 		})
 
@@ -1334,7 +1334,7 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 			s.invalidate()
 		}
 		layoutToggle.Children(func() {
-			ui.Text(c, scatterLabel).FontSize(TypeCaption).TextColor(ThemePrimaryText(c))
+			ui.Text(c, scatterLabel).FontSize(uiFont(TypeCaption)).TextColor(ThemePrimaryText(c))
 		})
 	})
 }
@@ -1405,9 +1405,9 @@ func renderBeeTimeline(c *ui.Context, s *chatState, bee SwarmBee) {
 		ui.Column(c.Key("swarm-timeline-empty")).Grow(1).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Gap(Space2).Children(func() {
 			if bee.Status == "running" {
 				renderRunningGlyph(c, "bee-float-run-timeline-empty-"+bee.ThreadID, 14, ThemeAccent(c))
-				ui.Text(c, "正在执行任务…").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "正在执行任务…").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			} else {
-				ui.Text(c, "暂无记录").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "暂无记录").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			}
 		})
 		return

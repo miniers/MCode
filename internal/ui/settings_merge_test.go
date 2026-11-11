@@ -39,14 +39,14 @@ func TestMergeConfigChangesAppliesEditedField(t *testing.T) {
 	base := config.Defaults()
 	edited := cloneConfig(base)
 	latest := cloneConfig(base)
-	edited.Appearance.TextScale = 130
+	_ = edited.Appearance.SetThemeFont(config.ThemeLight, "interface", 130)
 	latest.Appearance.Theme = config.ThemeDark
 	latest.Models.PinLimit = 12
 
 	mergeForTest(&latest, base, edited)
 
-	if latest.Appearance.TextScale != 130 {
-		t.Fatalf("文字大小应取设置页的值，实际 %d", latest.Appearance.TextScale)
+	if latest.Appearance.ThemeFonts(config.ThemeLight)["interface"] != 130 {
+		t.Fatalf("文字大小应取设置页的值，实际 %d", latest.Appearance.ThemeFonts(config.ThemeLight)["interface"])
 	}
 	if latest.Appearance.Theme != config.ThemeDark {
 		t.Fatalf("主题应保留磁盘上的最新值，实际 %q", latest.Appearance.Theme)

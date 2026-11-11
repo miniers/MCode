@@ -273,7 +273,7 @@ func renderNowledgeSpaceList(c *ui.Context, st *SettingsState) {
 				Gap(Space3).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Text(c, ps.loadErr).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).Grow(1)
+					ui.Text(c, ps.loadErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Grow(1)
 					ui.ButtonBase(c.Key("btn-nowledge-space-retry")).Label("重试").Padding(Space2, settingsCompactPadX).Radius(RadiusSM).OnClick(func() {
 						ps.loaded = false
 						ps.loadErr = ""
@@ -289,7 +289,7 @@ func renderNowledgeSpaceList(c *ui.Context, st *SettingsState) {
 			return
 		}
 		if len(projects) == 0 {
-			ui.Text(c, "还没有项目").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).Margin(settingsRowPadY, settingsRowPadX)
+			ui.Text(c, "还没有项目").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Margin(settingsRowPadY, settingsRowPadX)
 			return
 		}
 		for i, p := range projects {
@@ -352,12 +352,12 @@ func renderNowledgeSpaceRow(c *ui.Context, st *SettingsState, ps *nowledgeSpaceP
 				Gap(settingsBadgePadY).
 				Children(func() {
 					ui.Text(c, p.Name).
-						FontSize(TypeProse).
+						FontSize(uiFont(TypeProse)).
 						FontWeight(500).
 						TextColor(ThemePrimaryText(c)).
 						SingleLine()
 					ui.Text(c, subtitle).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			ui.Row(c.Key(key + "-right")).

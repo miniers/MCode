@@ -200,7 +200,7 @@ func (remoteTLSTokenControl) renderDisabled(c *ui.Context, st *SettingsState, s 
 		Children(func() {
 			if hasToken {
 				ui.Text(c, "已保存").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			}
 
@@ -238,7 +238,7 @@ func (remoteTLSTokenControl) renderDisabled(c *ui.Context, st *SettingsState, s 
 				saveRemoteCloudflareToken(st, trimmed)
 			}
 			saveBtn.Children(func() {
-				ui.Text(c, "保存").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+				ui.Text(c, "保存").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 			})
 
 			if hasToken {
@@ -255,7 +255,7 @@ func (remoteTLSTokenControl) renderDisabled(c *ui.Context, st *SettingsState, s 
 					saveRemoteCloudflareToken(st, "")
 				}
 				clearBtn.Children(func() {
-					ui.Text(c, "清除").FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+					ui.Text(c, "清除").FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 				})
 			}
 		})
@@ -272,7 +272,7 @@ func (remoteTLSEntryControl) render(c *ui.Context, st *SettingsState, s setting)
 		return
 	}
 	ui.Row(c.Key("row-remote-tls-entry-control")).Gap(Space3).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, startedURL).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c)).SingleLine()
+		ui.Text(c, startedURL).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine()
 		CopyButton(c, CopyButtonProps{Key: "btn-copy-tls-entry", Label: "复制 HTTPS 入口", Tooltip: "复制 HTTPS 入口", Text: "复制", Mode: CopyText, Value: func() string { return startedURL }})
 	})
 }
@@ -353,7 +353,7 @@ func (remoteTLSActionsControl) render(c *ui.Context, st *SettingsState, s settin
 				issueRemoteTLSCertificate(st)
 			}
 			issueBtn.Children(func() {
-				ui.Text(c, "申请证书").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+				ui.Text(c, "申请证书").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 			})
 
 			importBtn := ui.ButtonBase(c.Key("btn-remote-tls-import")).
@@ -369,7 +369,7 @@ func (remoteTLSActionsControl) render(c *ui.Context, st *SettingsState, s settin
 				importRemoteTLSCertificate(st)
 			}
 			importBtn.Children(func() {
-				ui.Text(c, "导入证书…").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+				ui.Text(c, "导入证书…").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 			})
 
 			removeBtn := ui.ButtonBase(c.Key("btn-remote-tls-remove")).
@@ -389,7 +389,7 @@ func (remoteTLSActionsControl) render(c *ui.Context, st *SettingsState, s settin
 				st.invalidate()
 			}
 			removeBtn.Children(func() {
-				ui.Text(c, "移除证书").FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+				ui.Text(c, "移除证书").FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 			})
 		})
 

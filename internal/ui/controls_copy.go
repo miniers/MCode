@@ -61,7 +61,7 @@ func CopyButton(c *ui.Context, p CopyButtonProps) ui.Element {
 			ui.Icon(c.Key(label), icon).Size(IconSM, IconSM).Label(label).TextColor(color).Transition(feedback)
 		}
 		if p.Mode != CopyIcon && p.Text != "" {
-			ui.Text(c, p.Text).FontSize(TypeCaption).TextColor(color).Transition(motionFeedback(c))
+			ui.Text(c, p.Text).FontSize(uiFont(TypeCaption)).TextColor(color).Transition(motionFeedback(c))
 		}
 	})
 }

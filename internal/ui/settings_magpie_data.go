@@ -188,7 +188,7 @@ func renderMagpieGatewayListRow(c *ui.Context, st *SettingsState, gw CustomEndpo
 		ui.Column(c.Key("content-magpie-gateway-" + gw.ID)).FillWidth().Gap(Space1).Children(func() {
 			ui.Row(c.Key("head-magpie-gateway-" + gw.ID)).FillWidth().AlignItems(ui.Center).Gap(Space4).Children(func() {
 				ui.Column(c.Key("name-magpie-gateway-" + gw.ID)).Grow(1).Children(func() {
-					ui.Text(c, gw.Name).FontSize(TypeBody).TextColor(ThemePrimaryText(c)).SingleLine()
+					ui.Text(c, gw.Name).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).SingleLine()
 				})
 				ui.Row(c.Key("actions-magpie-gateway-" + gw.ID)).Shrink(0).AlignItems(ui.Center).Gap(Space4).Children(func() {
 					renderMagpieHubStatusPill(c, "pill-magpie-gateway-"+gw.ID, pill)
@@ -196,7 +196,7 @@ func renderMagpieGatewayListRow(c *ui.Context, st *SettingsState, gw CustomEndpo
 				})
 			})
 			if status.Kind == magpieGatewayStatusDanger {
-				ui.Text(c, status.Text).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+				ui.Text(c, status.Text).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 			}
 		})
 	})

@@ -292,7 +292,7 @@ func renderBrowserServerCandidates(c *ui.Context, s *chatState, threadID string,
 		count := newCount
 		badge := ui.Row(c.Key("preview-server-discovery-badge")).Gap(Space1).AlignItems(ui.Center)
 		badge.Children(func() {
-			ui.Text(c, "+").FontSize(TypeCaption)
+			ui.Text(c, "+").FontSize(uiFont(TypeCaption))
 			prev := ui.Local(badge, "server-count", func() int { return count })
 			_, fade := motionNumberProgress(c, badge, *prev != count)
 			*prev = count

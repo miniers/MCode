@@ -1024,7 +1024,7 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 						renderModelBrandIcon(c, lead.Selection.Provider, leadBrand, 14)
 						if !p.Compact {
 							ui.Text(c, capsuleLabel).
-								FontSize(FontSizeCapsuleText).
+								FontSize(uiFont(FontSizeCapsuleText)).
 								TextColor(ThemeSecondaryText(c)).
 								SingleLine().Ellipsis("…").MaxWidth(140)
 						}
@@ -1047,7 +1047,7 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 						}
 						if showBee {
 							ui.Text(c, "·").
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c).Alpha(0.5))
 							beeIconAlpha := float32(0.7)
 							if trigger.Hovered() || state.MenuOpen {
@@ -1062,7 +1062,7 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 								})
 							if !p.Compact && !p.HideBeeName {
 								ui.Text(c, beeLabel).
-									FontSize(FontSizeProjectName).
+									FontSize(uiFont(FontSizeProjectName)).
 									TextColor(ThemeSecondaryText(c).Alpha(0.75)).
 									SingleLine().Ellipsis("…").MaxWidth(110)
 							}
@@ -1095,7 +1095,7 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 									Children(func() {
 										renderModelBrandIcon(c, lead.Selection.Provider, leadBrand, 13)
 										ui.Text(c, capsuleLabel).
-											FontSize(FontSizeCapsuleText).
+											FontSize(uiFont(FontSizeCapsuleText)).
 											FontWeight(500).
 											TextColor(ThemePrimaryText(c).Alpha(0.9)).
 											LineHeight(1).
@@ -1132,7 +1132,7 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 												renderModelBrandIcon(c, bees.Selection.Provider, beeBrand, 10)
 											})
 										ui.Text(c, beeLabel).
-											FontSize(FontSizeProjectName).
+											FontSize(uiFont(FontSizeProjectName)).
 											TextColor(ThemeSecondaryText(c).Alpha(0.75)).
 											LineHeight(1).
 											SingleLine().Ellipsis("…").MaxWidth(150)
@@ -1368,7 +1368,7 @@ func renderModelPickerSideTabs(c *ui.Context, p ModelPickerProps, state *ModelPi
 					color = ThemeOnAccent(c)
 				}
 				ui.Text(c, item.label).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					FontWeight(500).
 					SingleLine().
 					Ellipsis("…").
@@ -1519,7 +1519,7 @@ func renderModelPickerMaxBeesCapsule(c *ui.Context, p ModelPickerProps, state *M
 			Gap(Space1).
 			Children(func() {
 				ui.Text(c, label).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					Bold().
 					TextColor(ColorTextPrimaryDark)
 				ui.Icon(c, IconChevronDown()).
@@ -1582,7 +1582,7 @@ func renderModelPickerMaxBeesCapsule(c *ui.Context, p ModelPickerProps, state *M
 							if isSel {
 								txtColor = ThemeAccent(c)
 							}
-							ui.Text(c, o.label).FontSize(TypeCaption).TextColor(txtColor)
+							ui.Text(c, o.label).FontSize(uiFont(TypeCaption)).TextColor(txtColor)
 							if isSel {
 								ui.Icon(c, IconCheck()).Size(11, 11).TextColor(ThemeAccent(c))
 							}
@@ -1626,7 +1626,7 @@ func renderModelPickerFollowLeadRow(c *ui.Context, p ModelPickerProps, state *Mo
 			Grow(1).
 			Children(func() {
 				ui.Text(c, "跟随主导模型").
-					FontSize(TypeProse).
+					FontSize(uiFont(TypeProse)).
 					TextColor(modelPickerTextPrimary).
 					SingleLine().
 					Grow(1)
@@ -1704,7 +1704,7 @@ func renderTierEditingBanner(c *ui.Context, p ModelPickerProps, state *ModelPick
 		FillWidth().
 		Children(func() {
 			ui.Text(c, fmt.Sprintf("正在为「%s」档选择模型", tierName)).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(modelPickerTextPrimary).
 				SingleLine()
 			cancelBtn := ui.ButtonBase(c.Key(p.KeyPrefix+"tier-editing-cancel")).
@@ -1723,7 +1723,7 @@ func renderTierEditingBanner(c *ui.Context, p ModelPickerProps, state *ModelPick
 			})
 			cancelBtn.Children(func() {
 				ui.Text(c, "取消").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeAccent(c))
 			})
 		})
@@ -1778,7 +1778,7 @@ func renderModelPickerTiersSection(c *ui.Context, p ModelPickerProps, state *Mod
 								Gap(Space2).
 								Children(func() {
 									ui.Text(c, effectiveText).
-										FontSize(TypeFootnote).
+										FontSize(uiFont(TypeFootnote)).
 										TextColor(modelPickerTextSecondary).
 										SingleLine()
 									if hasSessionOverride {
@@ -1833,7 +1833,7 @@ func renderModelPickerTiersSection(c *ui.Context, p ModelPickerProps, state *Mod
 		FillWidth().
 		Children(func() {
 			ui.Text(c, "修改在下一轮派发生效").
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				TextColor(modelPickerTextSecondary)
 			if len(p.TierOverrides) > 0 {
 				btnResetAll := ui.ButtonBase(c.Key(p.KeyPrefix+"tier-reset-all")).
@@ -1857,7 +1857,7 @@ func renderModelPickerTiersSection(c *ui.Context, p ModelPickerProps, state *Mod
 				})
 				btnResetAll.Children(func() {
 					ui.Text(c, "全部恢复").
-						FontSize(TypeCaption).
+						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeAccent(c))
 				})
 			}
@@ -1969,7 +1969,7 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 					})
 
 					ui.Text(c, pageTitle).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(modelPickerTextSecondary)
 				})
 
@@ -1990,7 +1990,7 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 					searchIn := ui.TextInput(c.Key(p.KeyPrefix+"model-list-search-input"), &state.searchQuery).
 						Label("model-list-search-input").
 						Placeholder("搜索模型").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(modelPickerTextPrimary).
 						BorderWidth(0).
 						Background(ui.Transparent).
@@ -2073,7 +2073,7 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 							}
 							if searching && !rendered {
 								ui.Text(c, "没有匹配的模型").
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(modelPickerTextSecondary).
 									Padding(Space2, Space3, Space1, Space3)
 							}
@@ -2263,11 +2263,11 @@ func renderModelRow(c *ui.Context, p ModelPickerProps, opt modelRowOptions) {
 					Grow(1).
 					Children(func() {
 						ui.Text(c, modelDisplayName).
-							FontSize(TypeProse).
+							FontSize(uiFont(TypeProse)).
 							TextColor(modelPickerTextPrimary)
 						if subtitle != "" {
 							ui.Text(c, subtitle).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(modelPickerTextSecondary)
 						}
 					})
@@ -2278,7 +2278,7 @@ func renderModelRow(c *ui.Context, p ModelPickerProps, opt modelRowOptions) {
 						clamped := math.Max(0, math.Min(100, usedPercent))
 						quotaText := fmt.Sprintf("已使用 %d%%", int(math.Round(clamped)))
 						ui.Text(c, quotaText).
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							FontFeatures("tnum").
 							TextColor(quotaPercentColor(c, clamped))
 					}
@@ -2311,7 +2311,7 @@ func renderProviderGroupHeader(c *ui.Context, key, title string) {
 		FillWidth().
 		Children(func() {
 			ui.Text(c, title).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				Bold().
 				TextColor(modelPickerTextSecondary)
 		})
@@ -2348,7 +2348,7 @@ func renderProviderGroupHeaderToggle(c *ui.Context, key, title string, collapsed
 			FillWidth().
 			Children(func() {
 				ui.Text(c, title).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					Bold().
 					TextColor(modelPickerTextSecondary).
 					Grow(1)
@@ -2403,12 +2403,12 @@ func renderModelListPairRow(c *ui.Context, p ModelPickerProps, key string, pair 
 					MinWidth(0).
 					Children(func() {
 						ui.Text(c, title).
-							FontSize(TypeProse).
+							FontSize(uiFont(TypeProse)).
 							TextColor(modelPickerTextPrimary).
 							SingleLine().Ellipsis("…")
 						if detail != "" {
 							ui.Text(c, detail).
-								FontSize(TypeFootnote).
+								FontSize(uiFont(TypeFootnote)).
 								TextColor(modelPickerTextSecondary).
 								SingleLine().Ellipsis("…")
 						}
@@ -2488,7 +2488,7 @@ func renderMoreModelsRowLabeled(c *ui.Context, p ModelPickerProps, keyPrefix, la
 							TextColor(modelPickerTextSecondary)
 					})
 				ui.Text(c, label).
-					FontSize(TypeProse).
+					FontSize(uiFont(TypeProse)).
 					TextColor(modelPickerTextPrimary).
 					SingleLine().
 					Grow(1)
@@ -2514,7 +2514,7 @@ func renderProviderCatalogNotice(c *ui.Context, p ModelPickerProps, prefix strin
 		Padding(Space3, Space3, Space3, Space3).
 		Children(func() {
 			ui.Text(c, title+" · "+prov.UnavailableReason).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(modelPickerTextSecondary).
 				FillWidth()
 			if p.OnRefreshCatalog == nil {
@@ -2533,7 +2533,7 @@ func renderProviderCatalogNotice(c *ui.Context, p ModelPickerProps, prefix strin
 			btn.OnClick(p.OnRefreshCatalog)
 			btn.Children(func() {
 				ui.Text(c, "重新探测").
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(modelPickerTextPrimary).
 					SingleLine()
 			})

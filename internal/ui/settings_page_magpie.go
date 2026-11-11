@@ -55,7 +55,7 @@ var pageMagpie = settingsPage{
 			}
 			button.Children(func() {
 				ui.Row(c.Key("row-magpie-gateway-add-content")).FillWidth().AlignItems(ui.Center).Children(func() {
-					ui.Text(c, "添加网关").FontSize(TypeBody).TextColor(ThemeAccent(c))
+					ui.Text(c, "添加网关").FontSize(uiFont(TypeBody)).TextColor(ThemeAccent(c))
 					ui.Box(c.Key("row-magpie-gateway-add-spacer")).Grow(1)
 				})
 			})

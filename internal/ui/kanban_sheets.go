@@ -72,7 +72,7 @@ func closeKanbanNewGoalSheet(s *chatState) {
 func kanbanSheetLabel(c *ui.Context, key, text string) {
 	ui.Text(c, text).
 		Label(key).
-		FontSize(TypeBody).
+		FontSize(uiFont(TypeBody)).
 		FontWeight(500).
 		TextColor(ThemePrimaryText(c))
 }
@@ -130,14 +130,14 @@ func kanbanProjectHint(path string) string {
 // kanbanProjectOptionLabel 渲染下拉一行：名称占满剩余宽度，重名时右侧追加次要色小号的父目录名。
 func kanbanProjectOptionLabel(c *ui.Context, opt kanbanModalPickOption) {
 	ui.Text(c, opt.Name).
-		FontSize(TypeFootnote).
+		FontSize(uiFont(TypeFootnote)).
 		TextColor(ThemePrimaryText(c)).
 		Grow(1).
 		SingleLine()
 	if opt.Hint != "" {
 		ui.Text(c, opt.Hint).
 			Label("项目所在目录 "+opt.Hint).
-			FontSize(TypeCaption).
+			FontSize(uiFont(TypeCaption)).
 			TextColor(ThemeSecondaryText(c)).
 			Margin(0, Space2, 0, 0).
 			Shrink(0).
@@ -190,7 +190,7 @@ func kanbanSheetProjectPicker(c *ui.Context, s *chatState, projectID string, onS
 		btn.Children(func() {
 			ui.Icon(c, IconFolder()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 			ui.Text(c, name).
-				FontSize(TypeBody).
+				FontSize(uiFont(TypeBody)).
 				TextColor(ThemePrimaryText(c)).
 				Grow(1).
 				SingleLine()
@@ -274,7 +274,7 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, "新建任务").
-						FontSize(TypeTitle).
+						FontSize(uiFont(TypeTitle)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c)).
 						Grow(1)
@@ -425,7 +425,7 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 				Children(func() {
 					ui.Column(c.Key("kanban-new-goal-header-text")).Grow(1).Gap(Space1).Children(func() {
 						ui.Text(c, "新建目标").
-							FontSize(TypePageTitle).
+							FontSize(uiFont(TypePageTitle)).
 							FontWeight(600).
 							TextColor(ThemePrimaryText(c))
 					})
@@ -453,7 +453,7 @@ func renderKanbanNewGoalSheet(c *ui.Context, s *chatState) {
 							input := ui.TextArea(c.Key("kanban-new-goal-prompt"), &ks.newGoalPrompt).
 								Label("kanban-new-goal-prompt").
 								Placeholder("例如：为设置页加上深色模式，并补上测试").
-								FontSize(TypeProse).
+								FontSize(uiFont(TypeProse)).
 								Lines(5, 9).
 								FillWidth().
 								AutoFocus()

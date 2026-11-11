@@ -392,13 +392,13 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 	snap := mcpPageSnapshot(st)
 	uiSt, allServers := snap.uiSt, snap.servers
 	if snap.loading {
-		ui.Text(c, "正在扫描 MCP 服务…").FontSize(TypeBody).TextColor(ThemeSecondaryText(c)).Margin(Space2, settingsRowPadX, Space1, settingsRowPadX)
+		ui.Text(c, "正在扫描 MCP 服务…").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c)).Margin(Space2, settingsRowPadX, Space1, settingsRowPadX)
 	}
 	if snap.errMsg != "" {
-		ui.Text(c, snap.errMsg).FontSize(TypeBody).TextColor(ThemeDanger(c)).Margin(Space2, settingsRowPadX, Space1, settingsRowPadX)
+		ui.Text(c, snap.errMsg).FontSize(uiFont(TypeBody)).TextColor(ThemeDanger(c)).Margin(Space2, settingsRowPadX, Space1, settingsRowPadX)
 	}
 	if snap.policyErr != "" {
-		ui.Text(c, snap.policyErr).FontSize(TypeBody).TextColor(ThemeDanger(c)).Margin(Space2, settingsRowPadX, Space1, settingsRowPadX)
+		ui.Text(c, snap.policyErr).FontSize(uiFont(TypeBody)).TextColor(ThemeDanger(c)).Margin(Space2, settingsRowPadX, Space1, settingsRowPadX)
 	}
 	customServers := allServers
 
@@ -432,7 +432,7 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 				}
 				addBtn.Children(func() {
 					ui.Text(c, "+ 添加服务").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(500).
 						TextColor(ThemeAccent(c))
 				})
@@ -446,7 +446,7 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 				Padding(settingsRowPadY, settingsRowPadX).
 				Children(func() {
 					ui.Text(c, "暂无自定义服务").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			return
@@ -467,7 +467,7 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 			}
 			row.Children(func() {
 				ui.Row(c.Key("mcp-list-content-" + key)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, srv.Name).FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+					ui.Text(c, srv.Name).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 					Badge(c, "mcp-list-source-"+key, srv.Agent, ToneNeutral)
 					if srv.ReadOnly {
 						Badge(c, "mcp-list-readonly-"+key, "只读", ToneNeutral)

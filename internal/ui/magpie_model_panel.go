@@ -116,7 +116,7 @@ func renderMagpieEnabledSection(c *ui.Context, st *SettingsState, ps *modelsPage
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, fmt.Sprintf("已启用（%d）", len(rows))).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c)).
 						SingleLine()
@@ -126,13 +126,13 @@ func renderMagpieEnabledSection(c *ui.Context, st *SettingsState, ps *modelsPage
 				})
 			if !opts.ShowDefault && strings.TrimSpace(opts.Footer) != "" {
 				ui.Text(c, opts.Footer).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c)).
 					Padding(0, Space5, Space3, Space5)
 			}
 			if len(rows) == 0 {
 				ui.Text(c, "还没有启用模型，点「添加模型」从网关里选择").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c)).
 					Padding(0, Space5, Space3, Space5)
 			}
@@ -140,13 +140,13 @@ func renderMagpieEnabledSection(c *ui.Context, st *SettingsState, ps *modelsPage
 				// 端点出错时保留提示：已启用的行照旧渲染，用户仍能停用或取消收藏。
 				if ep.Err != "" {
 					ui.Text(c, "该端点不可用: "+ep.Err).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeDanger(c)).
 						Padding(0, Space5, Space1, Space5)
 				}
 				if errText := saveErr[ep.ID]; errText != "" {
 					ui.Text(c, "保存失败: "+errText).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeDanger(c)).
 						Padding(0, Space5, Space1, Space5)
 				}
@@ -237,23 +237,23 @@ func renderMagpieEnabledRow(c *ui.Context, st *SettingsState, ps *modelsPageStat
 				Children(func() {
 					ui.Row(c.Key(key + "-name")).Gap(Space2).AlignItems(ui.Center).Children(func() {
 						ui.Text(c, name).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemePrimaryText(c)).
 							SingleLine()
 						if showDefault {
 							if defEP, defModel, ok := agentMagpieCurrentDefault(st, agent); ok && defEP == ep.ID && defModel == modelID {
-								ui.Text(c, "默认").FontSize(TypeCaption).TextColor(ThemeAccent(c))
+								ui.Text(c, "默认").FontSize(uiFont(TypeCaption)).TextColor(ThemeAccent(c))
 							}
 						}
 					})
 					ui.Text(c, modelID).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c)).
 						SingleLine()
 				})
 			if showEndpoint {
 				ui.Text(c, agentMagpieEndpointName(ep)).
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c)).
 					SingleLine()
 			}
@@ -363,7 +363,7 @@ func renderMagpieDefaultSummary(c *ui.Context, st *SettingsState, catalog Provid
 		AlignItems(ui.Center).
 		Gap(Space3).
 		Children(func() {
-			ui.Text(c, "默认模型").FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+			ui.Text(c, "默认模型").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 			ui.Row(c.Key("magpie-default-gap-" + agent)).Grow(1)
 			pick := ui.Select(c.Key("magpie-default-select-"+agent), &sel, labels).
 				Label("选择默认模型").Width(220).Height(RowHeight)
@@ -382,13 +382,13 @@ func renderMagpieDefaultSummary(c *ui.Context, st *SettingsState, catalog Provid
 		})
 	if strings.TrimSpace(footer) != "" {
 		ui.Text(c, footer).
-			FontSize(TypeCaption).
+			FontSize(uiFont(TypeCaption)).
 			TextColor(ThemeSecondaryText(c)).
 			Padding(0, Space5, Space3, Space5)
 	}
 	if stale {
 		ui.Text(c, "默认模型 "+strings.TrimSpace(setting.DefaultModel)+" 已停用，当前按自动规则选择").
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeWarning(c)).
 			Padding(0, Space5, Space3, Space5)
 	}
@@ -419,11 +419,11 @@ func renderMagpieTierSection(c *ui.Context, st *SettingsState, agent string, end
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, "档位映射").
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 					ui.Text(c, "（按默认模型自动推导）").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
 				})
 			for _, tier := range tiers {
@@ -451,24 +451,24 @@ func renderMagpieTierRow(c *ui.Context, agent string, tier AgentMagpieTier, endp
 			secondary := ThemeSecondaryText(c)
 			ui.Text(c, "/model "+tier.Tier).
 				Width(110).
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(secondary)
 			ui.Text(c, "→").
-				FontSize(TypeFootnote).
+				FontSize(uiFont(TypeFootnote)).
 				TextColor(secondary)
 			if modelID == "" {
 				ui.Text(c, "—（用 Claude Code 自带）").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(secondary)
 				return
 			}
 			ui.Text(c, name).
-				FontSize(TypeBody).
+				FontSize(uiFont(TypeBody)).
 				TextColor(ThemePrimaryText(c)).
 				SingleLine()
 			if tier.Tier == "haiku" {
 				ui.Text(c, "也用于后台小任务").
-					FontSize(TypeCaption).
+					FontSize(uiFont(TypeCaption)).
 					TextColor(secondary)
 			}
 		})
@@ -592,11 +592,11 @@ func renderMagpieOwnModelGroup(c *ui.Context, st *SettingsState, ps *modelsPageS
 			btn.Children(func() {
 				ui.Row(c.Key(key + "-title")).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, g.Title).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(500).
 						TextColor(ThemePrimaryText(c)).
 						SingleLine()
-					ui.Text(c, fmt.Sprintf("%d 个模型", len(g.Rows))).FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, fmt.Sprintf("%d 个模型", len(g.Rows))).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 					ui.Row(c.Key(key + "-gap")).Grow(1)
 					icon := IconChevronRight()
 					if expanded {
@@ -618,7 +618,7 @@ func renderMagpieOwnModelGroup(c *ui.Context, st *SettingsState, ps *modelsPageS
 						name = r.Model.ID
 					}
 					ui.Text(c, name).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c)).
 						Padding(Space2, Space5)
 				}

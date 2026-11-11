@@ -229,7 +229,7 @@ func renderImageParagraph(c *ui.Context, s *chatState, d *parser.Document, i int
 				ph := ui.Row(c).Padding(Space1, Space2).Radius(RadiusXS).Background(ThemeOverlay(c, 0.06))
 				ph.Role(ui.RoleImage).Label(alt)
 				ph.Children(func() {
-					ui.Text(c, label).TextColor(ThemeSecondaryText(c)).FontSize(TypeBody)
+					ui.Text(c, label).TextColor(ThemeSecondaryText(c)).FontSize(uiFont(TypeBody))
 				})
 				continue
 			}
@@ -362,7 +362,7 @@ func renderImagePreviewOverlay(c *ui.Context, s *chatState) {
 			Children(func() {
 				if hasGallery {
 					ui.Text(c.Key("image-preview-counter"), fmt.Sprintf("%d / %d", index+1, len(items))).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(imagePreviewMutedTextColor)
 				}
 				renderImagePreviewStage(c, s, &snap, src, dispW, dispH, index, len(items), goTo)
@@ -370,7 +370,7 @@ func renderImagePreviewOverlay(c *ui.Context, s *chatState) {
 					ui.Text(c.Key("image-preview-caption"), snap.alt).
 						MaxWidth(maxW).
 						MaxLines(2).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						TextColor(imagePreviewTextColor)
 				}
 				renderImagePreviewActions(c, s, &snap)
@@ -394,7 +394,7 @@ func renderImagePreviewStage(c *ui.Context, s *chatState, pv *imagePreviewState,
 		if src == nil {
 			// 原图或缩略图还没加载好，先给一行提示，加载完成后由重绘换成图片。
 			ui.Text(c.Key("image-preview-loading"), "图片加载中…").
-				FontSize(TypeBody).
+				FontSize(uiFont(TypeBody)).
 				TextColor(imagePreviewWeakTextColor)
 			return
 		}
@@ -526,7 +526,7 @@ func previewActionButton(c *ui.Context, key, label, tip string, onClick func()) 
 		btn.Background(imagePreviewBtnHoverBg)
 	}
 	btn.Children(func() {
-		ui.Text(c, label).FontSize(TypeFootnote).TextColor(imagePreviewTextColor)
+		ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(imagePreviewTextColor)
 	})
 	btn.OnClick(onClick)
 }

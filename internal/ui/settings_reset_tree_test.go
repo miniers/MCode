@@ -17,8 +17,8 @@ func TestSettingsResetTree_ThemeApplied(t *testing.T) {
 	def := config.Defaults()
 
 	st.cfg.Appearance.Theme = config.ThemeDark
-	st.cfg.Appearance.TextScale = 130
-	st.cfg.Workbench.TerminalFontSize = def.Workbench.TerminalFontSize + 1
+	_ = st.cfg.Appearance.SetThemeFont(config.ThemeDark, "interface", 130)
+	_ = st.cfg.Appearance.SetThemeFont(config.ThemeDark, "terminal", config.DefaultTerminalFontSize+1)
 	tt.Frame()
 
 	prevApply := applyThemeSource
@@ -36,12 +36,10 @@ func TestSettingsResetTree_ThemeApplied(t *testing.T) {
 	if st.cfg.Appearance.Theme != def.Appearance.Theme {
 		t.Fatalf("主题应恢复默认 %q，实际 %q", def.Appearance.Theme, st.cfg.Appearance.Theme)
 	}
-	if st.cfg.Appearance.TextScale != def.Appearance.TextScale {
-		t.Fatalf("文字大小应恢复默认 %d，实际 %d", def.Appearance.TextScale, st.cfg.Appearance.TextScale)
+	if st.cfg.Appearance.ThemeFonts(config.ThemeDark)["interface"] != 130 || st.cfg.Appearance.ThemeFonts(config.ThemeDark)["terminal"] != config.DefaultTerminalFontSize+1 {
+		t.Fatal("页面重置不应删除主题覆盖")
 	}
-	if st.cfg.Workbench.TerminalFontSize != def.Workbench.TerminalFontSize {
-		t.Fatalf("终端字号应恢复默认 %d，实际 %d", def.Workbench.TerminalFontSize, st.cfg.Workbench.TerminalFontSize)
-	}
+
 	if len(applied) != 1 || applied[0] != mygo.ThemeSource(def.Appearance.Theme) {
 		t.Fatalf("重置后应立即应用默认主题 %q，实际应用 %v", def.Appearance.Theme, applied)
 	}

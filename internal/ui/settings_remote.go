@@ -988,7 +988,7 @@ func (remoteStatusControl) render(c *ui.Context, st *SettingsState, s setting) {
 
 	if remoteServiceRunning(status) {
 		ui.Text(c, remoteExposureLabel(listen)).
-			FontSize(TypeFootnote).
+			FontSize(uiFont(TypeFootnote)).
 			TextColor(ThemeSecondaryText(c))
 		renderRemoteRestartButton(c, st, busy)
 		return
@@ -1019,7 +1019,7 @@ func renderRemoteRestartButton(c *ui.Context, st *SettingsState, busy bool) {
 		if busy {
 			label = "重启中…"
 		}
-		ui.Text(c, label).FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+		ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 	})
 }
 
@@ -1044,7 +1044,7 @@ func renderRemoteRetryButton(c *ui.Context, st *SettingsState, busy bool) {
 		if busy {
 			label = "重试中…"
 		}
-		ui.Text(c, label).FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+		ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 	})
 }
 
@@ -1078,7 +1078,7 @@ func (remotePairControl) render(c *ui.Context, st *SettingsState, s setting) {
 		if busy {
 			label = "配对中…"
 		}
-		ui.Text(c, label).FontSize(TypeBody).TextColor(ThemeAccent(c))
+		ui.Text(c, label).FontSize(uiFont(TypeBody)).TextColor(ThemeAccent(c))
 	})
 
 	// 刷新按钮在配对卡里，确认框由常驻的本行渲染，卡片收起时也不会丢。
@@ -1125,7 +1125,7 @@ func (remoteEntryControl) render(c *ui.Context, st *SettingsState, s setting) {
 		Gap(Space4).
 		AlignItems(ui.Center).
 		Children(func() {
-			ui.Text(c, entryURL).FontSize(TypeBody).TextColor(ThemePrimaryText(c)).SingleLine()
+			ui.Text(c, entryURL).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).SingleLine()
 			if !running || currentLAN == "" {
 				// 没有局域网地址时不提供可复制入口，避免复制出打不开的 loopback 地址。
 				return
@@ -1309,13 +1309,13 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 								Radius(RadiusXS).
 								Background(dotColor)
 							ui.Text(c, name).
-								FontSize(TypeProse).
+								FontSize(uiFont(TypeProse)).
 								FontWeight(500).
 								TextColor(ThemePrimaryText(c)).
 								SingleLine()
 						})
 					ui.Text(c, desc).
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
 				})
 
@@ -1361,7 +1361,7 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 							if renameBusyID == devVal.ID {
 								label = "保存中…"
 							}
-							ui.Text(c, label).FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+							ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 						})
 
 						cancelBtn := ui.ButtonBase(c.Key("btn-rename-cancel-"+devVal.ID)).
@@ -1377,7 +1377,7 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 							st.invalidate()
 						}
 						cancelBtn.Children(func() {
-							ui.Text(c, "取消").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, "取消").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 						})
 						return
 					}
@@ -1400,7 +1400,7 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 						st.invalidate()
 					}
 					renameBtn.Children(func() {
-						ui.Text(c, "重命名").FontSize(TypeFootnote).TextColor(ThemeAccent(c))
+						ui.Text(c, "重命名").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 					})
 
 					isConfirm := revokeConfirmID == devVal.ID
@@ -1448,7 +1448,7 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 						if isBusy {
 							label = "撤销中…"
 						}
-						ui.Text(c, label).FontSize(TypeFootnote).TextColor(textColor)
+						ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(textColor)
 					})
 
 					if isConfirm {
@@ -1467,7 +1467,7 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 							st.invalidate()
 						}
 						cancelBtn.Children(func() {
-							ui.Text(c, "取消").FontSize(TypeFootnote).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, "取消").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 						})
 					}
 				})
@@ -1532,19 +1532,19 @@ func renderPairingNotice(c *ui.Context, title string, pairButton func(), pairing
 					Background(ThemeSuccess(c).Alpha(0.16)).
 					Children(func() {
 						ui.Text(c, "✓").
-							FontSize(TypeTitle).
+							FontSize(uiFont(TypeTitle)).
 							FontWeight(600).
 							TextColor(ThemeSuccess(c))
 					})
 			}
 			ui.Text(c, title).
-				FontSize(TypeTitle).
+				FontSize(uiFont(TypeTitle)).
 				FontWeight(600).
 				TextColor(ThemePrimaryText(c))
 			pairButton()
 			if pairingErr != "" {
 				ui.Text(c, pairingErr).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			}
 		})
@@ -1604,7 +1604,7 @@ func renderPushTestButton(c *ui.Context, st *SettingsState, running, busy bool) 
 		if busy {
 			label = "发送中…"
 		}
-		ui.Text(c, label).FontSize(TypeBody).TextColor(ThemeAccent(c))
+		ui.Text(c, label).FontSize(uiFont(TypeBody)).TextColor(ThemeAccent(c))
 	})
 }
 

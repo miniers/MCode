@@ -33,7 +33,7 @@ func TabButton(c *ui.Context, p TabButtonProps, body func()) ui.Element {
 			body()
 			return
 		}
-		ui.Text(c, p.Label).FontSize(TypeFootnote).TextColor(ThemePrimaryText(c)).SingleLine()
+		ui.Text(c, p.Label).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).SingleLine()
 	})
 	return btn
 }

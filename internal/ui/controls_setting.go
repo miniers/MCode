@@ -26,7 +26,7 @@ func settingRow(c *ui.Context, key, title string, stacked bool, decorate func(ui
 			return
 		}
 		ui.Column(c.Key(key + "-header")).Gap(Space1).Children(func() {
-			ui.Text(c, title).FontSize(TypeBody).FontWeight(400).TextColor(ThemePrimaryText(c)).SingleLine()
+			ui.Text(c, title).FontSize(uiFont(TypeBody)).FontWeight(400).TextColor(ThemePrimaryText(c)).SingleLine()
 		})
 		ui.Row(c.Key(key + "-control")).AlignItems(ui.Center).Children(control)
 	})
@@ -35,7 +35,7 @@ func settingRow(c *ui.Context, key, title string, stacked bool, decorate func(ui
 
 func settingRowContent(c *ui.Context, key, title string, control func()) {
 	ui.Column(c.Key(key + "-left")).MinWidth(settingsRowTitleMinWidth).Grow(1).Gap(Space1).Children(func() {
-		ui.Text(c, title).FontSize(TypeBody).FontWeight(400).TextColor(ThemePrimaryText(c)).SingleLine()
+		ui.Text(c, title).FontSize(uiFont(TypeBody)).FontWeight(400).TextColor(ThemePrimaryText(c)).SingleLine()
 	})
 	settingRowRight(c, key+"-right", control)
 }

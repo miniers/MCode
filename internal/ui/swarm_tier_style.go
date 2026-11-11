@@ -65,7 +65,7 @@ func renderSwarmTierChipColored(c *ui.Context, key string, name string, col ui.C
 					TextColor(col)
 			}
 			ui.Text(c, name).
-				FontSize(TypeCaption).
+				FontSize(uiFont(TypeCaption)).
 				FontWeight(600).
 				TextColor(col).
 				SingleLine()

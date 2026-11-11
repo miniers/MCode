@@ -1252,7 +1252,7 @@ func renderProviderBalancePanel(c *ui.Context, st *SettingsState, id string) {
 						amountColor = ThemeWarning(c)
 					}
 					ui.Text(c, amount).
-						FontSize(TypeBody).
+						FontSize(uiFont(TypeBody)).
 						FontWeight(500).
 						TextColor(amountColor)
 					if depleted {
@@ -1262,7 +1262,7 @@ func renderProviderBalancePanel(c *ui.Context, st *SettingsState, id string) {
 							Background(ThemeWarning(c).Alpha(0.12)).
 							Children(func() {
 								ui.Text(c, "余额不足").
-									FontSize(TypeCaption).
+									FontSize(uiFont(TypeCaption)).
 									FontWeight(500).
 									TextColor(ThemeWarning(c))
 							})
@@ -1331,7 +1331,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 		if id == "droid" || id == "cline" || id == "cursor" || id == "opencode" || id == "grok" || id == "devin" {
 			ui.Column(c.Key("provider-restart-hint-"+id)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Children(func() {
 				ui.Text(c, "修改后需重启 MCode 生效").
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			})
 		}
@@ -1375,7 +1375,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 					}
 					saveBtn.Children(func() {
 						ui.Text(c, "保存").
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeAccent(c))
 					})
 				})
@@ -1437,7 +1437,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 						}
 						saveBtn.Children(func() {
 							ui.Text(c, "保存").
-								FontSize(TypeBody).
+								FontSize(uiFont(TypeBody)).
 								TextColor(ThemeAccent(c))
 						})
 					})
@@ -1488,7 +1488,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 									label = "正在检查更新…"
 								}
 								ui.Text(c, label).
-									FontSize(TypeBody).
+									FontSize(uiFont(TypeBody)).
 									TextColor(ThemePrimaryText(c))
 							})
 
@@ -1500,7 +1500,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 									msgColor = ThemeAccent(c)
 								}
 								ui.Text(c, updateMsg).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(msgColor)
 							}
 						})
@@ -1537,7 +1537,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 							settingStatus(c, "provider-copilot-account-status-"+id, "已登录："+acc.Email)
 							if acc.Plan != "" {
 								ui.Text(c, acc.Plan).
-									FontSize(TypeFootnote).
+									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							}
 						})
@@ -1561,7 +1561,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 							}
 							loginBtn.Children(func() {
 								ui.Text(c, "在终端登录").
-									FontSize(TypeBody).
+									FontSize(uiFont(TypeBody)).
 									TextColor(ThemeAccent(c))
 							})
 						})
@@ -1578,7 +1578,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 			Padding(0, settingsRowPadX).
 			Children(func() {
 				ui.Text(c, saveErr).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
 			})
 	}
@@ -1612,7 +1612,7 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 		})
 	}
 	if loadErr != "" {
-		ui.Text(c, loadErr).FontSize(TypeFootnote).TextColor(ThemeDanger(c)).Margin(Space2, settingsRowPadX)
+		ui.Text(c, loadErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c)).Margin(Space2, settingsRowPadX)
 	}
 	for groupIndex, group := range []struct {
 		title   string
@@ -1633,16 +1633,16 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 			childClicked := false
 			row.Children(func() {
 				renderProviderRowIcon(c, e.ID, 16)
-				ui.Text(c, e.Name).FontSize(TypeBody).FontWeight(500).TextColor(ThemePrimaryText(c))
+				ui.Text(c, e.Name).FontSize(uiFont(TypeBody)).FontWeight(500).TextColor(ThemePrimaryText(c))
 				ui.Box(c.Key("provider-list-spacer-" + e.Kind + "-" + e.ID)).Grow(1)
-				ui.Text(c, e.Status).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, e.Status).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 				if e.Kind == "cli" {
 					if route, known := magpieAgentRouteValue(st, e.ID); known && (route == "仅 mcode" || route == "全局") {
-						ui.Text(c, "路由 · Magpie").FontSize(TypeCaption).TextColor(ThemeAccent(c))
+						ui.Text(c, "路由 · Magpie").FontSize(uiFont(TypeCaption)).TextColor(ThemeAccent(c))
 					}
 				}
 				if e.Locked {
-					ui.Text(c, "锁定").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, "锁定").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 				}
 				if e.CanToggle {
 					value := e.Enabled
@@ -1672,7 +1672,7 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 		row.Background(ThemeHover(c))
 	}
 	row.Children(func() {
-		ui.Text(c, "添加供应商").FontSize(TypeBody).TextColor(ThemePrimaryText(c))
+		ui.Text(c, "添加供应商").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 		ui.Box(c.Key("provider-add-spacer")).Grow(1)
 		ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 	})
@@ -1757,7 +1757,7 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 									AlignItems(ui.Center).
 									Gap(Space1).
 									Children(func() {
-										ui.Text(c, value).FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+										ui.Text(c, value).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 										ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 									})
 							})
@@ -1772,7 +1772,7 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 						name = providerDisplayName(id)
 					}
 					ui.Text(c, "来自 "+name+" 的模型目录，只读；常用模型请在「收藏模型」里添加").
-						FontSize(TypeFootnote).
+						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c)).
 						Padding(settingsRowPadY, settingsRowPadX)
 					renderSettingsDivider(c, "div-provider-models-note")
@@ -1786,7 +1786,7 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 						}
 						renderSettingRow(c, "provider-model-"+model.ID, title, func() {
 							if strings.TrimSpace(model.ID) != strings.TrimSpace(title) {
-								ui.Text(c, model.ID).FontSize(TypeCaption).TextColor(ThemeTertiaryText(c)).SingleLine()
+								ui.Text(c, model.ID).FontSize(uiFont(TypeCaption)).TextColor(ThemeTertiaryText(c)).SingleLine()
 							}
 						})
 					}
@@ -1949,7 +1949,7 @@ func renderProviderCheckUpdateRow(c *ui.Context, st *SettingsState, id string, u
 					btnLabel = "正在检查更新…"
 				}
 				ui.Text(c, btnLabel).
-					FontSize(TypeBody).
+					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c))
 			})
 
@@ -1963,7 +1963,7 @@ func renderProviderCheckUpdateRow(c *ui.Context, st *SettingsState, id string, u
 					msgColor = ThemeAccent(c)
 				}
 				ui.Text(c, updateMsg).
-					FontSize(TypeFootnote).
+					FontSize(uiFont(TypeFootnote)).
 					TextColor(msgColor)
 			}
 		})
@@ -2048,13 +2048,13 @@ func renderProviderAccountsSection(c *ui.Context, st *SettingsState, id string) 
 							email = "已连接"
 						}
 						ui.Text(c, email).
-							FontSize(TypeBody).
+							FontSize(uiFont(TypeBody)).
 							FontWeight(500).
 							TextColor(ThemePrimaryText(c)).
 							SingleLine()
 						if acc.Plan != "" {
 							ui.Text(c, acc.Plan).
-								FontSize(TypeCaption).
+								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c)).
 								SingleLine()
 						}
@@ -2068,7 +2068,7 @@ func renderProviderAccountsSection(c *ui.Context, st *SettingsState, id string) 
 					Background(ThemeAccent(c).Alpha(0.12)).
 					Children(func() {
 						ui.Text(c, "本机登录").
-							FontSize(TypeCaption).
+							FontSize(uiFont(TypeCaption)).
 							FontWeight(500).
 							TextColor(ThemeAccent(c))
 					})

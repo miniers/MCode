@@ -299,7 +299,7 @@ func onboardingProviderRow(c *ui.Context, s *chatState, st *SettingsState, id st
 	row.Children(func() {
 		ui.Row(c).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
 			renderProviderRowIcon(c, id, IconMD)
-			ui.Text(c, providerDisplayName(id)).FontSize(TypeBody).Grow(1)
+			ui.Text(c, providerDisplayName(id)).FontSize(uiFont(TypeBody)).Grow(1)
 			onboardingBadge(c, "onboarding-status-"+id, status.Summary, onboardingStatusTone(status, missing))
 			action, label := "settings", "设置"
 			if missing {
@@ -316,10 +316,10 @@ func onboardingProviderRow(c *ui.Context, s *chatState, st *SettingsState, id st
 			}})
 		})
 		if missing && onboardingNeedsNode(id) && !probing && (!node || !npm) {
-			ui.Text(c, "需要先安装 Node.js：https://nodejs.org/").FontSize(TypeCaption).TextColor(ThemeWarning(c))
+			ui.Text(c, "需要先安装 Node.js：https://nodejs.org/").FontSize(uiFont(TypeCaption)).TextColor(ThemeWarning(c))
 		}
 		if id == "agy" {
-			ui.Text(c, "安装后在终端运行 agy，选择 Google 登录").FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "安装后在终端运行 agy，选择 Google 登录").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 		}
 	})
 }
@@ -409,7 +409,7 @@ func renderOnboardingDialog(c *ui.Context, s *chatState) {
 					body.Translate(dir*(1-progress)*24, 0).Opacity(progress).Children(func() { renderOnboardingStep(c, s, st, step, route) })
 				})
 				if saveError != "" {
-					ui.Text(c, saveError).Padding(0, Space5, Space2, Space5).FontSize(TypeFootnote).TextColor(ThemeDanger(c))
+					ui.Text(c, saveError).Padding(0, Space5, Space2, Space5).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 				}
 				ui.Row(c.Key("onboarding-footer")).FillWidth().Gap(Space2).Padding(Space3, Space5, Space5, Space5).AlignItems(ui.Center).Children(func() {
 					if step > onboardingWelcome {
@@ -453,7 +453,7 @@ func renderOnboardingDialog(c *ui.Context, s *chatState) {
 // renderOnboardingStep 处理新手引导中的对应流程。
 func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step onboardingStep, route onboardingRoute) {
 	titles := [...]string{"欢迎使用 mcode", "选择你的智能体", "连接 Magpie", "准备好了"}
-	ui.Text(c, titles[step]).FontSize(TypePageTitle).TextColor(ThemePrimaryText(c))
+	ui.Text(c, titles[step]).FontSize(uiFont(TypePageTitle)).TextColor(ThemePrimaryText(c))
 	switch step {
 	case onboardingWelcome:
 		renderOnboardingHero(c)
@@ -471,20 +471,20 @@ func renderOnboardingStep(c *ui.Context, s *chatState, st *SettingsState, step o
 				onboardingEntry(c, el, i)
 				el.Children(func() {
 					ui.Icon(c, card.icon).Size(IconMD, IconMD).TextColor(ThemeAccent(c))
-					ui.Text(c, card.title).FontSize(TypeFootnote)
-					ui.Text(c, card.description).FontSize(TypeCaption).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, card.title).FontSize(uiFont(TypeFootnote))
+					ui.Text(c, card.description).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 				})
 			}
 		})
-		ui.Text(c, "mcode 与 Magpie 网关深度整合。推荐连接 Magpie：一个网关统一调用多个模型，菜单栏显示 Magpie 额度，可以切换人设。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
-		ui.Text(c, "也可以只用 Claude、Codex 或 agy 直连。跳过后，Magpie 人设、Magpie 额度和网关模型路由不可用，以后可以随时在设置里补上。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, "mcode 与 Magpie 网关深度整合。推荐连接 Magpie：一个网关统一调用多个模型，菜单栏显示 Magpie 额度，可以切换人设。").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, "也可以只用 Claude、Codex 或 agy 直连。跳过后，Magpie 人设、Magpie 额度和网关模型路由不可用，以后可以随时在设置里补上。").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 	case onboardingAgents:
-		ui.Text(c, "装好任意一个就能开始。安装会在系统终端里进行，完成后回来点「重新检测」。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, "装好任意一个就能开始。安装会在系统终端里进行，完成后回来点「重新检测」。").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 		for i, id := range []string{"claude", "codex", "agy"} {
 			onboardingProviderRow(c, s, st, id, i)
 		}
 	case onboardingMagpie:
-		ui.Text(c, "填写网关地址和 API Key。本机网关默认地址是 http://127.0.0.1:3425/v1。").FontSize(TypeBody).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, "填写网关地址和 API Key。本机网关默认地址是 http://127.0.0.1:3425/v1。").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 		status, connected := onboardingMagpieStatus(st)
 		tone := ToneNeutral
 		if connected {
@@ -535,6 +535,6 @@ func onboardingSummaryRow(c *ui.Context, index int, name, status string, ready b
 		} else {
 			ui.Box(c).Width(Space2).Height(Space2).Radius(RadiusPill).Background(ThemeWarning(c))
 		}
-		ui.Text(c, name+"："+status).FontSize(TypeBody)
+		ui.Text(c, name+"："+status).FontSize(uiFont(TypeBody))
 	})
 }
