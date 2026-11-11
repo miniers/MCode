@@ -74,7 +74,7 @@
 
 ### 迁移
 
-`internal/config/migrate.go` 的 `migrateRaw` 在原始 JSON 上做版本迁移，当前版本是 9。迁移时备份 `config.json.bak`，并留 `config.v7.json` 快照。
+`internal/config/migrate.go` 的 `migrateRaw` 在原始 JSON 上做版本迁移，当前版本是 12。迁移时备份 `config.json.bak`，并留 `config.v7.json` 快照。主题存于 `appearance.themes`，内置主题只存覆盖项。
 
 旧键到新键的对照也在这个文件里，例如 `general.swarm_send_to_bees` → `orchestration.always_bees`，`general.swarm_lead_plans_only` → `orchestration.lead_plans_only`。
 

@@ -16,7 +16,7 @@ import (
 )
 
 // Version 是当前支持的 config.json 结构版本。
-const Version = 11
+const Version = 12
 
 // 模型角色常量，分别对应设置 -> 模型的 规划角色 (Lead Agent)、编码角色 (Coder)、快搜角色 (Research)、视觉角色 (Vision)。
 // 模型角色概念已弃用，运行时不再读取，仅为兼容旧配置文件保留。
@@ -716,14 +716,15 @@ func (s SessionConfig) ConciseReplies() bool {
 
 // AppearanceConfig 外观设置。
 type AppearanceConfig struct {
-	Theme               string `json:"theme"`                 // system | light | dark
-	CodeFont            string `json:"code_font"`             // 代码字体名称，空表示系统等宽字体
-	CodeFontSize        int    `json:"code_font_size"`        // 代码字号，默认 12，范围 10..24
-	ConversationDensity string `json:"conversation_density"`  // 对话密度：compact | comfortable，默认 comfortable
-	ContentWidth        string `json:"content_width"`         // 对话内容宽度：standard | wide | full（按比例），默认 standard
-	ContentWidthPercent int    `json:"content_width_percent"` // 按比例档的内容宽度百分比，60..100，默认 85
-	SidebarCompact      bool   `json:"sidebar_compact"`       // 侧边栏紧凑密度，默认 false
-	TextScale           int    `json:"text_scale"`            // 文字大小百分比，默认 100，取值见 TextScaleLevels
+	Theme               string     `json:"theme"` // system | light | dark | <用户主题 ID>
+	Themes              []ThemeDef `json:"themes,omitempty"`
+	CodeFont            string     `json:"code_font"`             // 代码字体名称，空表示系统等宽字体
+	CodeFontSize        int        `json:"code_font_size"`        // 代码字号，默认 12，范围 10..24
+	ConversationDensity string     `json:"conversation_density"`  // 对话密度：compact | comfortable，默认 comfortable
+	ContentWidth        string     `json:"content_width"`         // 对话内容宽度：standard | wide | full（按比例），默认 standard
+	ContentWidthPercent int        `json:"content_width_percent"` // 按比例档的内容宽度百分比，60..100，默认 85
+	SidebarCompact      bool       `json:"sidebar_compact"`       // 侧边栏紧凑密度，默认 false
+	TextScale           int        `json:"text_scale"`            // 文字大小百分比，默认 100，取值见 TextScaleLevels
 }
 
 // EffectiveTextScale 返回归一化后的文字大小百分比：不在档位里的值（含缺省的 0）按默认 100 处理。
@@ -2392,10 +2393,8 @@ func Validate(cfg Config) error {
 		return fmt.Errorf("invalid startup.quit_action %q: must be 'quit' or 'minimize_to_tray'", cfg.Startup.QuitAction)
 	}
 
-	switch cfg.Appearance.Theme {
-	case ThemeSystem, ThemeLight, ThemeDark:
-	default:
-		return fmt.Errorf("invalid appearance.theme %q: must be 'system', 'light', or 'dark'", cfg.Appearance.Theme)
+	if err := cfg.Appearance.validateThemes(); err != nil {
+		return err
 	}
 
 	if cfg.Appearance.CodeFontSize < MinCodeFontSize || cfg.Appearance.CodeFontSize > MaxCodeFontSize {

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,7 @@ import (
 type MigrationFunc func(raw map[string]any) (map[string]any, error)
 
 // migrations 是有序迁移链。每一步将版本 v 升级至 v+1。
-// 当前 Version 为 11。
+// 当前 Version 为 12。
 var migrations = []MigrationFunc{
 	migrateV1ToV2,
 	migrateV2ToV3,
@@ -24,6 +25,54 @@ var migrations = []MigrationFunc{
 	migrateV8ToV9,
 	migrateV9ToV10,
 	migrateV10ToV11,
+	migrateV11ToV12,
+}
+
+// migrateV11ToV12 将旧字号复制到两个内置主题，保留旧键供旧界面读取。
+func migrateV11ToV12(raw map[string]any) (map[string]any, error) {
+	appearance, ok := raw["appearance"].(map[string]any)
+	if !ok {
+		return raw, nil
+	}
+	if _, exists := appearance["themes"]; exists {
+		return raw, nil
+	}
+	workbench, _ := raw["workbench"].(map[string]any)
+	fonts := make(map[string]int)
+	for _, item := range []struct {
+		section map[string]any
+		oldKey  string
+		keys    []string
+	}{
+		{appearance, "text_scale", []string{"sidebar", "conversation"}},
+		{appearance, "code_font_size", []string{"code"}},
+		{workbench, "terminal_font_size", []string{"terminal"}},
+		{workbench, "editor_font_size", []string{"editor"}},
+	} {
+		value, ok := item.section[item.oldKey].(float64)
+		_, _, def, _ := ThemeFontRange(item.keys[0])
+		if !ok || value <= 0 || value == float64(def) {
+			continue
+		}
+		min, max, _, _ := ThemeFontRange(item.keys[0])
+		// JSON 数字可能超出 int 范围，先钳制再转换。
+		value = math.Max(float64(min), math.Min(value, float64(max)))
+		font, _ := NormalizeThemeFont(item.keys[0], int(value))
+		for _, key := range item.keys {
+			fonts[key] = font
+		}
+	}
+	if len(fonts) > 0 {
+		lightFonts := make(map[string]int, len(fonts))
+		for key, value := range fonts {
+			lightFonts[key] = value
+		}
+		appearance["themes"] = []any{
+			map[string]any{"id": ThemeLight, "base": ThemeLight, "fonts": lightFonts},
+			map[string]any{"id": ThemeDark, "base": ThemeDark, "fonts": fonts},
+		}
+	}
+	return raw, nil
 }
 
 // migrateV10ToV11 移除 deep 档的历史默认白名单，保留用户自定义值。

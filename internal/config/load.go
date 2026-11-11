@@ -103,11 +103,12 @@ func repairInvalidFields(cfg *Config) []string {
 		cfg.Permissions.Mode = ModeSupervised
 	}
 
-	switch cfg.Appearance.Theme {
-	case ThemeSystem, ThemeLight, ThemeDark:
-	default:
-		warnings = append(warnings, fmt.Sprintf("appearance.theme %q 非法，已重置为 %q", cfg.Appearance.Theme, def.Appearance.Theme))
-		cfg.Appearance.Theme = def.Appearance.Theme
+	warnings = append(warnings, cfg.Appearance.repairThemes()...)
+	if cfg.Appearance.Theme != ThemeSystem {
+		if _, ok := cfg.Appearance.ThemeByID(cfg.Appearance.Theme); !ok {
+			warnings = append(warnings, fmt.Sprintf("appearance.theme %q 非法，已重置为 %q", cfg.Appearance.Theme, def.Appearance.Theme))
+			cfg.Appearance.Theme = def.Appearance.Theme
+		}
 	}
 
 	if cfg.Orchestration.PanelWidth < 0 || cfg.Orchestration.PanelHeight < 0 {
