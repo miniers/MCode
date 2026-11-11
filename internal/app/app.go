@@ -594,6 +594,15 @@ func Open(opts Options) (*App, error) {
 			}
 			return true
 		},
+		StewardTasks: func() kanban.StewardTaskDefaults {
+			c, err := config.Load(opts.DataDir)
+			if err != nil {
+				return kanban.StewardTaskDefaults{}
+			}
+			config.ApplyEnv(&c, os.LookupEnv)
+			st := c.Orchestration.Steward
+			return kanban.StewardTaskDefaults{Provider: st.TaskProvider, Model: st.TaskModel, Swarm: st.TaskSwarm}
+		},
 		StuckNudgeTimeout: func() time.Duration {
 			if c, err := config.Load(opts.DataDir); err == nil {
 				config.ApplyEnv(&c, os.LookupEnv)

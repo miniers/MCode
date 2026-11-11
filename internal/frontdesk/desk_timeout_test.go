@@ -41,7 +41,7 @@ func TestMessageWorkerCopiesExportedFields(t *testing.T) {
 		Model:          "model",
 		MaxRounds:      3,
 		ProjectPath:    "/project",
-		Settings:       func() (bool, string) { return true, "provider" },
+		Settings:       func() (bool, string, string) { return true, "provider", "" },
 		Automations:    &fakeAutomationService{},
 		queue:          []Inbound{{Text: "queued"}},
 		running:        true,

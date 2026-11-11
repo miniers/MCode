@@ -1329,8 +1329,11 @@ type StewardConfig struct {
 	Name          string `json:"name"`                     // 总管的昵称，可留空；留空时界面只显示「总管」
 	Avatar        string `json:"avatar"`                   // 头像：一个 emoji 或一个字，空表示用昵称首字，无昵称用「总」
 	Provider      string `json:"provider"`                 // 总管使用的提供方，空表示跟随 Models.Provider
-	Model         string `json:"model"`                    // 总管使用的模型，空表示该提供方的默认模型
+	Model         string `json:"model"`                    // 总管使用的模型，空表示「自动」：该提供方的默认模型，没有默认时取目录第一个
 	HomeDir       string `json:"home_dir,omitempty"`       // 总管主目录，空表示数据目录下的 steward 子目录
+	TaskProvider  string `json:"task_provider,omitempty"`  // 总管下发任务使用的提供方，空表示跟随默认
+	TaskModel     string `json:"task_model,omitempty"`     // 总管下发任务使用的模型，空表示该提供方的默认模型
+	TaskSwarm     bool   `json:"task_swarm,omitempty"`     // 总管下发任务是否开启编排
 	QuietStart    string `json:"quiet_start"`              // 安静时段开始，HH:MM 本地时间，空表示关闭
 	QuietEnd      string `json:"quiet_end"`                // 安静时段结束，HH:MM 本地时间，空表示关闭；可早于开始表示跨午夜
 
@@ -1713,6 +1716,8 @@ func Normalize(cfg Config) Config {
 	cfg.Orchestration.Steward.Provider = strings.TrimSpace(cfg.Orchestration.Steward.Provider)
 	cfg.Orchestration.Steward.Model = strings.TrimSpace(cfg.Orchestration.Steward.Model)
 	cfg.Orchestration.Steward.HomeDir = strings.TrimSpace(cfg.Orchestration.Steward.HomeDir)
+	cfg.Orchestration.Steward.TaskProvider = strings.TrimSpace(cfg.Orchestration.Steward.TaskProvider)
+	cfg.Orchestration.Steward.TaskModel = strings.TrimSpace(cfg.Orchestration.Steward.TaskModel)
 	// 安静时段：任一非法或首尾相等即视为关闭并清空，合法时规范成 HH:MM。
 	qs, okStart := ParseClock(cfg.Orchestration.Steward.QuietStart)
 	qe, okEnd := ParseClock(cfg.Orchestration.Steward.QuietEnd)

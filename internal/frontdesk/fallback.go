@@ -23,7 +23,7 @@ func (d *Desk) reply(ctx context.Context, threadID, text string) {
 func (d *Desk) tryCLIFallback(ctx context.Context, in Inbound, snap Snapshot) (bool, error) {
 	enabled, opts := d.CLIFallback, d.CLIOptions
 	if d.Settings != nil {
-		enabled, opts.Provider = d.Settings()
+		enabled, opts.Provider, opts.Model = d.Settings()
 	}
 	if enabled && d.Generator != nil {
 		return d.cliFallback(ctx, in, snap, opts)

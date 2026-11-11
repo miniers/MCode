@@ -79,23 +79,23 @@ func TestComposerDraftsStashTakeClear(t *testing.T) {
 	defer s.mu.Unlock()
 
 	// 空白文本且没有已上传附件：不留下条目
-	s.stashDraftLocked("t1", "   ", []composerAttachment{uploading, failed})
+	s.stashDraftLocked("t1", "   ", []composerAttachment{uploading, failed}, nil)
 	if _, ok := s.drafts["t1"]; ok {
 		t.Fatalf("空草稿不应留下条目: %+v", s.drafts["t1"])
 	}
 	// 文本 + 附件：只保留已上传成功的附件
-	s.stashDraftLocked("t1", "草稿A", []composerAttachment{uploaded, uploading, failed})
+	s.stashDraftLocked("t1", "草稿A", []composerAttachment{uploaded, uploading, failed}, nil)
 	entry := s.drafts["t1"]
 	if entry.Text != "草稿A" || len(entry.Attachments) != 1 || entry.Attachments[0].ID != "up-1" {
 		t.Fatalf("stashDraftLocked = %+v, want 文本 + 仅 up-1", entry)
 	}
 	// 已有草稿后清空文本且没有附件：删除条目
-	s.stashDraftLocked("t1", "", nil)
+	s.stashDraftLocked("t1", "", nil, nil)
 	if _, ok := s.drafts["t1"]; ok {
 		t.Fatal("清空后不应保留条目")
 	}
 	// take 返回附件切片拷贝，缺失条目返回零值
-	s.stashDraftLocked("t2", "草稿B", []composerAttachment{uploaded})
+	s.stashDraftLocked("t2", "草稿B", []composerAttachment{uploaded}, nil)
 	d := s.takeDraftLocked("t2")
 	if d.Text != "草稿B" || len(d.Attachments) != 1 {
 		t.Fatalf("takeDraftLocked = %+v", d)

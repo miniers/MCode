@@ -81,7 +81,7 @@ type Desk struct {
 	Now            func() time.Time
 	MaxRounds      int
 	CLIFallback    bool
-	Settings       func() (cliFallback bool, provider string)
+	Settings       func() (cliFallback bool, provider, model string)
 	Generator      Generator
 	CLIOptions     textgen.Options
 	mu             sync.Mutex

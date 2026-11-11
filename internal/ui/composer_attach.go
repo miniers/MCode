@@ -825,8 +825,8 @@ func isPastedFilePath(text string, filePaths []string) bool {
 }
 
 // handlePaste 处理输入框的粘贴：剪贴板含图片或文件时作为附件加入并吞掉这次粘贴；
-// 纯文本里算长文本的不直接插入（会把输入框撑爆），只登记一个占位符并吞掉粘贴，
-// 由下一帧按光标位置插入占位符；短文本仍交给输入框正常插入并返回 false。
+// 纯文本里算长文本的不直接插入（会把输入框撑爆），收成附件行里的卡片并吞掉粘贴；
+// 短文本仍交给输入框正常插入并返回 false。
 func (s *chatState) handlePaste(text string) bool {
 	if strings.TrimSpace(text) != "" {
 		if filePaths, err := clipboardFilesReader(); err == nil && isPastedFilePath(text, filePaths) {
@@ -836,16 +836,6 @@ func (s *chatState) handlePaste(text string) bool {
 		return s.pasteLongText(text)
 	}
 	return s.tryPasteImage()
-}
-
-// pasteLongText 把长文本折叠成占位符：登记原文、排队占位符插入并吞掉这次粘贴。
-// 短文本返回 false，交给框架默认插入。
-func (s *chatState) pasteLongText(text string) bool {
-	if !isLongPastedText(text) {
-		return false
-	}
-	s.queuePastedPlaceholder(text)
-	return true
 }
 
 // truncateAttachmentName 截断过长的文件名用于在胶囊中紧凑展示。
@@ -1255,6 +1245,8 @@ func renderAttachments(c *ui.Context, s *chatState) {
 	if hasAtts {
 		attachments = append([]composerAttachment(nil), s.attachments...)
 	}
+	snippets := append([]composerSnippet(nil), s.snippets...)
+	previewID := s.snippetPreviewID
 	sending := s.sending
 	// 与 composer.go 一致的取法：当前选中的会话线程（仅用于读取上下文用量）。
 	var currentThread *Thread
@@ -1279,7 +1271,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 		}
 	}
 
-	if notice == "" && tokenNotice == "" && !hasAtts {
+	if notice == "" && tokenNotice == "" && !hasAtts && len(snippets) == 0 {
 		return
 	}
 
@@ -1319,13 +1311,16 @@ func renderAttachments(c *ui.Context, s *chatState) {
 					})
 			}
 
-			// 附件胶囊行
-			if hasAtts {
+			// 附件胶囊行：长文本粘贴卡片排在附件前面
+			if hasAtts || len(snippets) > 0 {
 				ui.Row(c.Key("composer-attachments-row")).
 					Gap(Space2).
 					Wrap().
 					AlignItems(ui.Center).
 					Children(func() {
+						for _, sn := range snippets {
+							renderSnippetChip(c, s, sn, previewID == sn.ID, sending)
+						}
 						for _, att := range attachments {
 							a := att
 							cat, tag := classifyAttachment(a.Name, a.MimeType)

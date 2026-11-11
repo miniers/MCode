@@ -130,3 +130,23 @@ func TestStewardComposerModelShowsMagpieSource(t *testing.T) {
 		t.Fatalf("前台模型未保存: %+v", st.cfg.Orchestration.Steward)
 	}
 }
+
+// TestStewardTaskModelSelection 验证任务模型读的是子任务字段，与前台模型互不影响。
+func TestStewardTaskModelSelection(t *testing.T) {
+	var cfg config.Config
+	cfg.Orchestration.Steward.Provider = "openai"
+	cfg.Orchestration.Steward.Model = "front"
+	cfg.Orchestration.Steward.TaskProvider = "claude"
+	cfg.Orchestration.Steward.TaskModel = "opus"
+	cat := modelPickerCatalog{Providers: []ProviderInfo{
+		{ID: "openai", Models: []ModelInfo{{ID: "front"}}},
+		{ID: "claude", Models: []ModelInfo{{ID: "opus"}}},
+	}}
+	if got := stewardTaskModelSelection(cfg, cat); got != (ModelSelection{Provider: "claude", Model: "opus"}) {
+		t.Fatalf("任务模型 = %+v", got)
+	}
+	cfg.Orchestration.Steward.TaskProvider, cfg.Orchestration.Steward.TaskModel = "", ""
+	if got := stewardTaskModelSelection(cfg, cat); got != (ModelSelection{}) {
+		t.Fatalf("未设置时应为自动：%+v", got)
+	}
+}

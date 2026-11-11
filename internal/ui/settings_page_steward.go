@@ -120,7 +120,56 @@ var stewardModelSection = settingsSection{
 			Aliases: []string{"总管", "模型", "通用设置"},
 			Control: custom(renderStewardModelControl),
 		},
+		{
+			ID:      "row-steward-task-model",
+			Title:   "任务模型",
+			Aliases: []string{"总管", "模型", "子任务", "下发"},
+			Control: custom(renderStewardTaskModelControl),
+		},
+		{
+			ID:      "row-steward-task-swarm",
+			Title:   "任务走编排",
+			Aliases: []string{"总管", "编排", "swarm", "子代理", "子任务"},
+			Control: toggle(val(func(cfg *config.Config) *bool { return &cfg.Orchestration.Steward.TaskSwarm }, false)),
+		},
 	},
+}
+
+// renderStewardTaskModelControl 画总管下发任务的模型胶囊；选过模型后可退回自动。
+func renderStewardTaskModelControl(c *ui.Context, st *SettingsState) {
+	catalog := settingsModelPickerCatalog(st)
+	sel := stewardTaskModelSelection(st.cfg, catalog)
+	ui.Row(c.Key("wrap-steward-task-model")).
+		AlignItems(ui.Center).
+		Gap(Space1).
+		Children(func() {
+			renderSwarmModelCapsuleCatalog(c, st, "steward-task-model", "steward-task-model", sel, "自动", "选择任务模型", func(next ModelSelection) {
+				st.cfg.Orchestration.Steward.TaskProvider = next.Provider
+				st.cfg.Orchestration.Steward.TaskModel = next.Model
+				st.save()
+			}, catalog, true)
+
+			if !swarmEmptySelection(sel) {
+				btnClear := ui.ButtonBase(c.Key("btn-steward-task-model-clear")).
+					Label("自动").
+					Padding(settingsBadgePadY, Space3).
+					Radius(RadiusSM).
+					Background(ui.Transparent)
+				if btnClear.Hovered() {
+					btnClear.Background(ThemeHover(c))
+				}
+				if btnClear.Clicked() {
+					st.cfg.Orchestration.Steward.TaskProvider = ""
+					st.cfg.Orchestration.Steward.TaskModel = ""
+					st.save()
+				}
+				btnClear.Children(func() {
+					ui.Text(c, "自动").
+						FontSize(TypeCaption).
+						TextColor(ThemeSecondaryText(c))
+				})
+			}
+		})
 }
 
 // renderStewardModelControl 画模型胶囊，以及选过模型后出现的「自动」退回按钮。

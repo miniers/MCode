@@ -228,9 +228,11 @@ func TestFallbackRecentTaskErrors(t *testing.T) {
 func TestCLIFallbackSettingsChange(t *testing.T) {
 	f := &fake{}
 	enabled := false
-	var providers []string
-	d := Desk{Tasks: f, Settings: func() (bool, string) { return enabled, "codex" }, Generator: func(_ context.Context, opts textgen.Options, _ string) (string, error) {
+	model := ""
+	var providers, models []string
+	d := Desk{Tasks: f, Settings: func() (bool, string, string) { return enabled, "codex", model }, Generator: func(_ context.Context, opts textgen.Options, _ string) (string, error) {
 		providers = append(providers, opts.Provider)
+		models = append(models, opts.Model)
 		return `{"reply":"","calls":[]}`, nil
 	}}
 	if err := d.fallback(context.Background(), Inbound{Text: "第一轮"}, Snapshot{}); err != nil {
@@ -240,8 +242,16 @@ func TestCLIFallbackSettingsChange(t *testing.T) {
 	if err := d.fallback(context.Background(), Inbound{Text: "第二轮"}, Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.events, []string{"create:第一轮:owner"}) || !reflect.DeepEqual(providers, []string{"codex"}) {
+	// 配置了总管模型时，CLI 兜底用它，不再强制最便宜的模型。
+	model = "gpt-6.1-sol"
+	if err := d.fallback(context.Background(), Inbound{Text: "第三轮"}, Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.events, []string{"create:第一轮:owner"}) || !reflect.DeepEqual(providers, []string{"codex", "codex"}) {
 		t.Fatal(f.events, providers)
+	}
+	if want := []string{textgen.CheapestModel("codex"), "gpt-6.1-sol"}; !reflect.DeepEqual(models, want) {
+		t.Fatalf("模型 %v，想要 %v", models, want)
 	}
 }
 
@@ -536,15 +546,20 @@ func TestSelectModel(t *testing.T) {
 			t.Fatalf("模型 %q，错误 %v", model, err)
 		}
 	})
-	for _, name := range []string{"haiku", "mini", "flash"} {
-		t.Run("按关键词选择_"+name, func(t *testing.T) {
-			sources := []apisource.Source{{Kind: "test", Models: []string{"large", "model-" + name}, DefaultModel: "default"}}
-			_, model, err := SelectSource(sources, nil, "test", "")
-			if err != nil || model != "model-"+name {
-				t.Fatalf("模型 %q，错误 %v", model, err)
-			}
-		})
-	}
+	t.Run("自动跟随默认模型而不挑小模型", func(t *testing.T) {
+		sources := []apisource.Source{{Kind: "test", Models: []string{"model-haiku", "model-mini", "large"}, DefaultModel: "large"}}
+		_, model, err := SelectSource(sources, nil, "test", "")
+		if err != nil || model != "large" {
+			t.Fatalf("模型 %q，错误 %v", model, err)
+		}
+	})
+	t.Run("没有默认模型时取目录第一个", func(t *testing.T) {
+		sources := []apisource.Source{{Kind: "test", Models: []string{"first", "model-haiku"}}}
+		_, model, err := SelectSource(sources, nil, "test", "")
+		if err != nil || model != "first" {
+			t.Fatalf("模型 %q，错误 %v", model, err)
+		}
+	})
 	t.Run("没有来源返回错误", func(t *testing.T) {
 		_, _, err := SelectSource(nil, nil, "", "")
 		if !errors.Is(err, ErrNoModel) {

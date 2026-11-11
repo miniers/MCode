@@ -433,19 +433,19 @@ type chatState struct {
 	pendingDraftFill        *string
 	pendingDraftFillIfEmpty bool
 
-	// 长文本粘贴折叠（定义见 composer_paste.go）：
-	// pastedPlaceholders 保存「占位符 -> 原文」，发送时按占位符展开回全文（由 s.mu 保护）。
-	pastedPlaceholders map[string]string
-	// pastedPlaceholderSeq 是占位符自增序号，从 1 开始（由 s.mu 保护）。
-	pastedPlaceholderSeq int
-	// pendingPastedPlaceholders 是已登记、还没插进输入框的占位符：OnPaste 回调拿不到输入框句柄，
-	// 由下一帧构建 composer 时按光标位置插入（仅 UI 线程读写）。
-	pendingPastedPlaceholders []string
+	// 长文本粘贴卡片（定义见 composer_paste.go，由 s.mu 保护）：
+	// snippets 是输入框附件行里待发送的长文本，发送时接在正文后面。
+	snippets []composerSnippet
+	// snippetSeq 是卡片自增序号，从 1 开始。
+	snippetSeq int
+	// snippetPreviewID 是正在预览的卡片 ID，0 表示没有打开预览。
+	snippetPreviewID int
 
 	editingFollowUpID     string
 	editingFollowUpThread string
 	editStashDraft        string
 	editStashAttachments  []composerAttachment
+	editStashSnippets     []composerSnippet
 	drafts                map[string]composerDraft // 各会话草稿（文本 + 仅内存保留的已上传附件）
 	draftSaveTimer        *time.Timer              // 草稿落盘防抖定时器
 	editGeneration        uint64
@@ -1310,13 +1310,15 @@ func (s *chatState) selectThread(threadID string) {
 	s.disarmComposerDockPromote(oldThreadID)
 	oldText := s.draft
 	oldAtts := s.attachments
+	oldSnippets := s.snippets
 	editingQueued := s.editingFollowUpID != ""
 	if editingQueued {
 		oldText = s.editStashDraft
 		oldAtts = s.editStashAttachments
+		oldSnippets = s.editStashSnippets
 	}
 	if oldThreadID != threadID {
-		s.stashDraftLocked(oldThreadID, oldText, oldAtts)
+		s.stashDraftLocked(oldThreadID, oldText, oldAtts, oldSnippets)
 		stopStewardTaskWatchLocked(s)
 	}
 	s.watchSeq++
@@ -1365,6 +1367,8 @@ func (s *chatState) selectThread(threadID string) {
 		s.pendingDraftFill = &d.Text
 		s.pendingDraftFillIfEmpty = false
 		s.attachments = d.Attachments
+		s.snippets = d.Snippets
+		s.snippetPreviewID = 0
 	} else if editingQueued {
 		// 同一会话重新选中：排队编辑暂存的草稿仍归它自己，保持原来的回填行为。
 		stash := oldText
@@ -2161,8 +2165,6 @@ func (s *chatState) finishOutgoingMessageLocked(tid, text string, attachmentIDs 
 
 // sendMessage 在后台 goroutine 中向当前会话发送文本与已上传附件。
 func (s *chatState) sendMessage(text string) {
-	// 长文本粘贴的占位符在这里就展开：待创建会话的递归调用、排队与发送都拿展开后的全文。
-	text = s.expandPastedPlaceholders(text)
 	s.mu.Lock()
 	sendFromPending := s.isPendingThreadLocked(s.selectedThreadID)
 	s.mu.Unlock()
@@ -2173,7 +2175,9 @@ func (s *chatState) sendMessage(text string) {
 	}
 
 	s.mu.Lock()
-	tid, attachmentIDs, ok := s.prepareOutgoingMessageLocked(text)
+	// 粘贴卡片接在正文后面一起发出；text 仍是输入框原文，供发送后按 sentDraft 清空输入框。
+	outgoing, snippetIDs := s.outgoingTextLocked(text)
+	tid, attachmentIDs, ok := s.prepareOutgoingMessageLocked(outgoing)
 	mentions := append([]ThreadMention(nil), s.draftThreadMentions...)
 	if ok {
 		// 引用胶囊只消费一次；发送被拒绝时保留，供下次重试使用。
@@ -2193,10 +2197,10 @@ func (s *chatState) sendMessage(text string) {
 
 	go func() {
 		ctx := context.Background()
-		sendText := text
+		sendText := outgoing
 		if len(mentions) > 0 {
 			// 被引用会话的 <referenced_chat> 资料块连同前言与结束标记一并置于用户当前输入之前。
-			sendText = expandDraftThreadMentions(text, mentions, s.threadTitleByID, func(id string) ([]Message, error) {
+			sendText = expandDraftThreadMentions(outgoing, mentions, s.threadTitleByID, func(id string) ([]Message, error) {
 				return s.client.History(ctx, id)
 			})
 		}
@@ -2209,6 +2213,9 @@ func (s *chatState) sendMessage(text string) {
 		}
 		s.mu.Lock()
 		s.finishOutgoingMessageLocked(tid, text, attachmentIDs, delegated, err, "发送消息失败")
+		if err == nil {
+			s.dropSnippetsLocked(snippetIDs)
+		}
 		s.mu.Unlock()
 		if err == nil {
 			// 发送成功后草稿已清空，后台补一次落盘（内部自行加锁）。
@@ -2873,7 +2880,6 @@ func (s *chatState) insertIntoRunningTurnEnabled() bool {
 
 // steerMessage 在会话运行中发送转向纠偏消息。
 func (s *chatState) steerMessage(text string) {
-	text = s.expandPastedPlaceholders(text)
 	s.mu.Lock()
 	sender, ok := s.client.(steerSender)
 	if !ok {
@@ -2881,7 +2887,8 @@ func (s *chatState) steerMessage(text string) {
 		s.setToast("当前客户端不支持转向消息")
 		return
 	}
-	tid, attachmentIDs, ok := s.prepareOutgoingMessageLocked(text)
+	outgoing, snippetIDs := s.outgoingTextLocked(text)
+	tid, attachmentIDs, ok := s.prepareOutgoingMessageLocked(outgoing)
 	s.mu.Unlock()
 	if !ok {
 		return
@@ -2889,9 +2896,12 @@ func (s *chatState) steerMessage(text string) {
 
 	go func() {
 		ctx := context.Background()
-		err := sender.InterruptAndSend(ctx, tid, text, attachmentIDs)
+		err := sender.InterruptAndSend(ctx, tid, outgoing, attachmentIDs)
 		s.mu.Lock()
 		s.finishOutgoingMessageLocked(tid, text, attachmentIDs, false, err, "转向消息失败")
+		if err == nil {
+			s.dropSnippetsLocked(snippetIDs)
+		}
 		s.mu.Unlock()
 		if err == nil {
 			// 发送成功后草稿已清空，后台补一次落盘（内部自行加锁）。
@@ -2906,9 +2916,9 @@ const continuePrompt = "Pick up from the point where you stopped and see the tas
 // enqueueMessage 在后台 goroutine 中向当前会话排队发送文本与已上传附件。
 // 前置检查与 sendMessage 相同；调用 client.Enqueue 成功后清空草稿和附件，复用 sentDraft 机制。
 func (s *chatState) enqueueMessage(text string) {
-	text = s.expandPastedPlaceholders(text)
 	s.mu.Lock()
-	tid, attachmentIDs, ok := s.prepareOutgoingMessageLocked(text)
+	outgoing, snippetIDs := s.outgoingTextLocked(text)
+	tid, attachmentIDs, ok := s.prepareOutgoingMessageLocked(outgoing)
 	s.mu.Unlock()
 	if !ok {
 		return
@@ -2916,9 +2926,12 @@ func (s *chatState) enqueueMessage(text string) {
 
 	go func() {
 		ctx := context.Background()
-		err := s.client.Enqueue(ctx, tid, text, attachmentIDs)
+		err := s.client.Enqueue(ctx, tid, outgoing, attachmentIDs)
 		s.mu.Lock()
 		s.finishOutgoingMessageLocked(tid, text, attachmentIDs, false, err, "加入队列失败")
+		if err == nil {
+			s.dropSnippetsLocked(snippetIDs)
+		}
 		s.mu.Unlock()
 		if err == nil {
 			// 入队成功后草稿已清空，后台补一次落盘（内部自行加锁）。
@@ -2933,9 +2946,9 @@ func (s *chatState) enqueueMessage(text string) {
 // 服务商不支持或消息带附件时退回排队，因此不会中断当前轮次。
 // 前置检查与 sendMessage 相同；发送成功后清空草稿和附件，复用 sentDraft 机制。
 func (s *chatState) injectMessage(text string) {
-	text = s.expandPastedPlaceholders(text)
 	s.mu.Lock()
-	tid, attachmentIDs, ok := s.prepareOutgoingMessageLocked(text)
+	outgoing, snippetIDs := s.outgoingTextLocked(text)
+	tid, attachmentIDs, ok := s.prepareOutgoingMessageLocked(outgoing)
 	s.mu.Unlock()
 	if !ok {
 		return
@@ -2946,12 +2959,15 @@ func (s *chatState) injectMessage(text string) {
 		var err error
 		delegated := false
 		if len(attachmentIDs) > 0 {
-			delegated, err = s.client.SendWithAttachments(ctx, tid, text, attachmentIDs)
+			delegated, err = s.client.SendWithAttachments(ctx, tid, outgoing, attachmentIDs)
 		} else {
-			delegated, err = s.client.Send(ctx, tid, text)
+			delegated, err = s.client.Send(ctx, tid, outgoing)
 		}
 		s.mu.Lock()
 		s.finishOutgoingMessageLocked(tid, text, attachmentIDs, delegated, err, "插入当前回合失败")
+		if err == nil {
+			s.dropSnippetsLocked(snippetIDs)
+		}
 		s.mu.Unlock()
 		if err == nil {
 			// 发送成功后草稿已清空，后台补一次落盘（内部自行加锁）。
@@ -2995,8 +3011,11 @@ func (s *chatState) beginEditQueued(followUpID string) {
 	if s.editingFollowUpID == "" {
 		s.editStashDraft = s.draft
 		s.editStashAttachments = append([]composerAttachment(nil), s.attachments...)
+		s.editStashSnippets = append([]composerSnippet(nil), s.snippets...)
 	}
 	s.attachments = nil
+	s.snippets = nil
+	s.snippetPreviewID = 0
 	s.editGeneration++
 	s.editingFollowUpID = followUpID
 	s.editingFollowUpThread = tid
@@ -3055,9 +3074,9 @@ func (s *chatState) cancelQueuedEdit() {
 
 // saveQueuedEdit 原地更新排队消息；不支持更新时保留原项，避免降级删除造成数据丢失。
 func (s *chatState) saveQueuedEdit(text string) {
-	// 编辑排队项时输入框里可能有长文本占位符，交给后端前先展开成全文。
-	text = s.expandPastedPlaceholders(text)
 	s.mu.Lock()
+	// 编辑排队项时粘贴的长文本卡片并入排队项；保存成功后卡片随编辑态一起换回用户草稿的卡片。
+	text, _ = s.outgoingTextLocked(text)
 	tid := s.selectedThreadID
 	followUpID := s.editingFollowUpID
 	stash := s.editStashDraft
@@ -3125,8 +3144,11 @@ func (s *chatState) clearEditingStateLocked() {
 	s.editGeneration++
 	if s.editingFollowUpID != "" {
 		s.attachments = s.editStashAttachments
+		s.snippets = s.editStashSnippets
+		s.snippetPreviewID = 0
 	}
 	s.editStashAttachments = nil
+	s.editStashSnippets = nil
 	s.editingFollowUpID = ""
 	s.editingFollowUpThread = ""
 	s.editStashDraft = ""

@@ -31,8 +31,9 @@ func TestFrontdeskSourcesMagpieCache(t *testing.T) {
 	if len(sources) == 0 || len(sources[0].Models) != 2 {
 		t.Fatalf("未读取缓存模型：%+v", sources)
 	}
+	// 端点没有默认模型：「自动」取目录里第一个，不按名字挑 flash 一类的小模型。
 	_, model, err := frontdesk.SelectSource(sources, secrets, "", "")
-	if err != nil || model != "gemini-flash" {
+	if err != nil || model != "large-model" {
 		t.Fatalf("选择模型 = %q，错误 %v", model, err)
 	}
 }

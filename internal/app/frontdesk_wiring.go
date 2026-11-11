@@ -155,13 +155,14 @@ func wireFrontdesk(a *App, dataDir string) {
 		}
 	}
 	services := &frontdeskServices{store: a.store, backend: a.backend, kanban: a.kanban, homeID: projectID, homePath: home}
-	desk := &frontdesk.Desk{Client: frontdeskClient{dataDir: dataDir}, Feed: services, Tasks: services, Decisions: services, Memory: newFrontdeskMemory(a.store, dataDir), Projects: services, ProjectPath: home, Generator: textgen.GenerateWithOptions, Settings: func() (bool, string) {
+	desk := &frontdesk.Desk{Client: frontdeskClient{dataDir: dataDir}, Feed: services, Tasks: services, Decisions: services, Memory: newFrontdeskMemory(a.store, dataDir), Projects: services, ProjectPath: home, Generator: textgen.GenerateWithOptions, Settings: func() (bool, string, string) {
 		current, err := config.Load(dataDir)
 		if err != nil {
 			log.Printf("前台读取配置失败: %v", err)
-			return false, ""
+			return false, "", ""
 		}
-		return current.Orchestration.Steward.CLIFallback, current.Orchestration.Steward.Provider
+		steward := current.Orchestration.Steward
+		return steward.CLIFallback, steward.Provider, steward.Model
 	}}
 	if a.automation != nil {
 		desk.Automations = frontdeskAutomation{service: a.automation, store: a.store}

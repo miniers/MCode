@@ -324,8 +324,6 @@ func cancelInlineEdit(s *chatState) {
 // submitInlineEdit 提交就地编辑：分支到该消息之前最近的助手最终答复（没有则新建会话），
 // 并把编辑后的文本直接发送到新会话。
 func (s *chatState) submitInlineEdit(msgID, text string) {
-	// 就地编辑的正文里可能有长文本粘贴占位符，交后端前先展开全文。
-	text = s.expandPastedPlaceholders(text)
 	text = strings.TrimSpace(text)
 	if msgID == "" || text == "" {
 		return

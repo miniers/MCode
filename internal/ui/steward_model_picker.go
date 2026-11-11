@@ -6,9 +6,17 @@ import (
 )
 
 func stewardModelSelection(cfg config.Config, catalog modelPickerCatalog) ModelSelection {
+	return catalogModelSelection(cfg.Orchestration.Steward.Provider, cfg.Orchestration.Steward.Model, catalog)
+}
+
+// stewardTaskModelSelection 返回总管下发任务的模型选择，提供方不在目录里时为空（自动）。
+func stewardTaskModelSelection(cfg config.Config, catalog modelPickerCatalog) ModelSelection {
+	return catalogModelSelection(cfg.Orchestration.Steward.TaskProvider, cfg.Orchestration.Steward.TaskModel, catalog)
+}
+
+func catalogModelSelection(providerID, model string, catalog modelPickerCatalog) ModelSelection {
 	for _, provider := range catalog.Providers {
-		if provider.ID == cfg.Orchestration.Steward.Provider {
-			model := cfg.Orchestration.Steward.Model
+		if provider.ID == providerID {
 			if !modelUsable(provider, model, nil) {
 				model = ""
 			}

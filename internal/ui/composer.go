@@ -614,6 +614,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 			hasUploadedAttachment = true
 		}
 	}
+	// 粘贴卡片和已上传附件一样算作可发送的内容。
+	hasUploadedAttachment = hasUploadedAttachment || len(s.snippets) > 0
 	s.mu.Unlock()
 
 	// 切换会话时退出历史导航，避免把上一个会话的输入回填到新会话
@@ -842,25 +844,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 							in.SetTextSelection(n, n)
 						}
 
-						// 长文本粘贴：OnPaste 回调里拿不到输入框句柄也读不到光标，占位符在那时已经登记好，
-						// 这里按当前选中区间（光标）把占位符插进草稿并接管光标位置；下一帧框架会把草稿写回编辑器。
-						if pending := s.pendingPastedPlaceholders; len(pending) > 0 {
-							s.pendingPastedPlaceholders = nil
-							start, end := in.TextSelection()
-							caret, selEnd := start, end
-							for _, label := range pending {
-								var next string
-								next, caret = insertPastedPlaceholderAt(s.draft, caret, selEnd, label)
-								s.draft = next
-								selEnd = caret
-							}
-							in.SetTextSelection(caret, caret)
-							if s.editingQueuedID() == "" {
-								s.noteComposerDraft(currentThreadID, s.draft)
-							}
-						}
-
-						// 粘贴图片或文件时作为附件加入并吞掉这次粘贴；长文本折叠成占位符，短文本仍交给输入框正常插入。
+						// 粘贴图片或文件时作为附件加入并吞掉这次粘贴；长文本收成附件行里的卡片，短文本仍交给输入框正常插入。
 						// 框架的粘贴走 OnPaste，不经过 OnTextKey，必须在入口处拦截。
 						in.OnPaste(func(text string) bool {
 							return s.handlePaste(text)
@@ -1000,6 +984,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 										hasUploaded = true
 									}
 								}
+								// 粘贴卡片和已上传附件一样算作可发送的内容。
+								hasUploaded = hasUploaded || len(s.snippets) > 0
 								s.mu.Unlock()
 
 								hasContentNow := (text != "" || hasUploaded)
@@ -1050,6 +1036,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 										hasUploaded = true
 									}
 								}
+								// 粘贴卡片和已上传附件一样算作可发送的内容。
+								hasUploaded = hasUploaded || len(s.snippets) > 0
 								s.mu.Unlock()
 
 								hasContentNow := (text != "" || hasUploaded)

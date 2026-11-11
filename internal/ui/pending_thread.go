@@ -156,6 +156,7 @@ func (s *chatState) promotePendingThread(p *pendingThreadState, newThreadID stri
 	s.drafts[newThreadID] = composerDraft{
 		Text:        s.draft,
 		Attachments: append([]composerAttachment(nil), s.attachments...),
+		Snippets:    append([]composerSnippet(nil), s.snippets...),
 	}
 	s.mu.Unlock()
 

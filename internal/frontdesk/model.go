@@ -7,16 +7,18 @@ import (
 	"mcode/internal/config"
 )
 
-func cheapModel(src apisource.Source) string {
+// autoModel 是「自动」档解析出的模型：来源的默认模型，没有默认模型时取目录里第一个。
+// 不按名字挑便宜模型，否则总管会落到 haiku 一类的小模型上。
+func autoModel(src apisource.Source) string {
+	if model := strings.TrimSpace(src.DefaultModel); model != "" {
+		return model
+	}
 	for _, model := range src.Models {
-		lower := strings.ToLower(model)
-		for _, part := range []string{"haiku", "mini", "flash", "deepseek-chat", "glm-4-flash"} {
-			if strings.Contains(lower, part) {
-				return model
-			}
+		if strings.TrimSpace(model) != "" {
+			return model
 		}
 	}
-	return src.DefaultModel
+	return ""
 }
 
 // SelectSource 按用户配置和来源顺序选择前台模型。
@@ -39,7 +41,7 @@ func SelectSource(sources []apisource.Source, secrets config.SecretStore, provid
 	}
 	if selected < 0 {
 		for i, s := range sources {
-			if s.APIKey(secrets) != "" && (strings.TrimSpace(model) != "" || strings.TrimSpace(cheapModel(s)) != "") {
+			if s.APIKey(secrets) != "" && (strings.TrimSpace(model) != "" || strings.TrimSpace(autoModel(s)) != "") {
 				selected = i
 				break
 			}
@@ -47,7 +49,7 @@ func SelectSource(sources []apisource.Source, secrets config.SecretStore, provid
 	}
 	if selected < 0 {
 		for i, s := range sources {
-			if strings.TrimSpace(model) != "" || strings.TrimSpace(cheapModel(s)) != "" {
+			if strings.TrimSpace(model) != "" || strings.TrimSpace(autoModel(s)) != "" {
 				selected = i
 				break
 			}
@@ -82,7 +84,7 @@ func SelectSource(sources []apisource.Source, secrets config.SecretStore, provid
 		}
 	}
 	if strings.TrimSpace(model) == "" {
-		model = cheapModel(src)
+		model = autoModel(src)
 	}
 	if strings.TrimSpace(model) == "" {
 		return apisource.Source{}, "", ErrNoModel

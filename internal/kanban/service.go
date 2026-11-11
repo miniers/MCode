@@ -58,6 +58,14 @@ type SessionRequest struct {
 	Model    string // 非空时覆盖 model；Provider 非空而 Model 为空表示使用该 provider 的默认模型
 	Effort   string // 非空时覆盖 effort
 	FastMode bool   // 为 true 时为新会话开启快速模式
+	Swarm    bool   // 为 true 时新会话在首轮之前开启编排
+}
+
+// StewardTaskDefaults 是总管下发任务的执行默认值：Provider 为空表示跟随默认。
+type StewardTaskDefaults struct {
+	Provider string
+	Model    string
+	Swarm    bool
 }
 
 // SessionState 描述代理会话的运行时执行状态。
@@ -160,6 +168,8 @@ type Options struct {
 	AutoRescueStuck func() bool
 	// RunInWorktree 返回看板任务是否在 worktree 中执行；nil 时视为开启。
 	RunInWorktree func() bool
+	// StewardTasks 返回总管下发任务的模型与编排设置；nil 时沿用默认。
+	StewardTasks func() StewardTaskDefaults
 	// StuckNudgeTimeout 返回无活动提醒阈值；nil 视为 600s。
 	StuckNudgeTimeout func() time.Duration
 	// StuckInterruptTimeout 返回无活动强制中断超时；nil 视为 1800s。
@@ -626,7 +636,8 @@ func (s *Service) startTaskInternal(ctx context.Context, taskID string, expected
 		}
 	}
 
-	prompt := buildStartPrompt(task, deps, branchName, workDir, inWorktree, s.isStewardOwnerTask(ctx, task))
+	stewardOwner := s.isStewardOwnerTask(ctx, task)
+	prompt := buildStartPrompt(task, deps, branchName, workDir, inWorktree, stewardOwner)
 
 	if s.opts.Driver == nil {
 		return store.Task{}, errors.New("kanban: session driver is nil")
@@ -651,6 +662,14 @@ func (s *Service) startTaskInternal(ctx context.Context, taskID string, expected
 				}
 			}
 		}
+	}
+	// 总管下发的任务：未指定模型时用设置里的子任务模型，并按设置决定是否走编排。
+	if stewardOwner && s.opts.StewardTasks != nil {
+		d := s.opts.StewardTasks()
+		if req.Provider == "" && req.Model == "" {
+			req.Provider, req.Model = d.Provider, d.Model
+		}
+		req.Swarm = d.Swarm
 	}
 	threadID, err := s.opts.Driver.StartSession(ctx, req)
 	if err != nil {

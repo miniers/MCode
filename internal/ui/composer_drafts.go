@@ -30,6 +30,7 @@ var composerDraftsWriteMu sync.Mutex
 type composerDraft struct {
 	Text        string
 	Attachments []composerAttachment // 已上传附件及待完成的上下文引用，仅内存保留，不落盘
+	Snippets    []composerSnippet    // 长文本粘贴卡片；落盘时并入 Text，重启后以原文回到输入框
 }
 
 // composerDraftRecord 是单条草稿的磁盘格式，只持久化文本。
@@ -128,22 +129,23 @@ func draftAttachments(atts []composerAttachment) []composerAttachment {
 
 // stashDraftLocked 把会话草稿写回草稿表；上下文引用保留上传与失败状态，便于返回来源会话重试。
 // threadID 为空字符串表示新会话页。调用方需持有 s.mu。
-func (s *chatState) stashDraftLocked(threadID, text string, atts []composerAttachment) {
+func (s *chatState) stashDraftLocked(threadID, text string, atts []composerAttachment, snippets []composerSnippet) {
 	if s.drafts == nil {
 		s.drafts = make(map[string]composerDraft)
 	}
 	uploaded := draftAttachments(atts)
-	if strings.TrimSpace(text) == "" && len(uploaded) == 0 {
+	if strings.TrimSpace(text) == "" && len(uploaded) == 0 && len(snippets) == 0 {
 		delete(s.drafts, threadID)
 		return
 	}
-	s.drafts[threadID] = composerDraft{Text: text, Attachments: uploaded}
+	s.drafts[threadID] = composerDraft{Text: text, Attachments: uploaded, Snippets: append([]composerSnippet(nil), snippets...)}
 }
 
-// takeDraftLocked 读取会话草稿并复制附件切片；条目缺失时返回零值。调用方需持有 s.mu。
+// takeDraftLocked 读取会话草稿并复制附件与卡片切片；条目缺失时返回零值。调用方需持有 s.mu。
 func (s *chatState) takeDraftLocked(threadID string) composerDraft {
 	d := s.drafts[threadID]
 	d.Attachments = append([]composerAttachment(nil), d.Attachments...)
+	d.Snippets = append([]composerSnippet(nil), d.Snippets...)
 	return d
 }
 
@@ -152,11 +154,12 @@ func (s *chatState) clearDraftLocked(threadID string) {
 	delete(s.drafts, threadID)
 }
 
-// snapshotDraftTextsLocked 拷贝草稿文本表用于落盘。调用方需持有 s.mu。
+// snapshotDraftTextsLocked 拷贝草稿文本表用于落盘，粘贴卡片并入文本：重启后卡片没了，原文还在。
+// 调用方需持有 s.mu。
 func (s *chatState) snapshotDraftTextsLocked() map[string]string {
 	m := make(map[string]string, len(s.drafts))
 	for id, d := range s.drafts {
-		m[id] = d.Text
+		m[id] = composeWithSnippets(d.Text, d.Snippets)
 	}
 	return m
 }
@@ -188,12 +191,14 @@ func (s *chatState) flushComposerDrafts() {
 	s.mu.Lock()
 	text := s.draft
 	atts := s.attachments
+	snippets := s.snippets
 	if s.editingFollowUpID != "" {
 		// 正在编辑排队项时，输入框里是排队项文本，用户自己的草稿在暂存字段里。
 		text = s.editStashDraft
 		atts = s.editStashAttachments
+		snippets = s.editStashSnippets
 	}
-	s.stashDraftLocked(s.selectedThreadID, text, atts)
+	s.stashDraftLocked(s.selectedThreadID, text, atts, snippets)
 	s.mu.Unlock()
 	// 窗口正在关闭，写盘失败只忽略，不再弹 Toast。
 	composerDraftsWriteMu.Lock()
@@ -224,7 +229,7 @@ func (s *chatState) noteComposerDraft(threadID, text string) {
 		return
 	}
 	entry.Text = text
-	if strings.TrimSpace(text) == "" && len(draftAttachments(entry.Attachments)) == 0 {
+	if strings.TrimSpace(text) == "" && len(draftAttachments(entry.Attachments)) == 0 && len(entry.Snippets) == 0 {
 		delete(s.drafts, threadID)
 	} else {
 		s.drafts[threadID] = entry

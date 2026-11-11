@@ -95,3 +95,32 @@ func TestStartSession_ProviderWithoutModelUsesDefault(t *testing.T) {
 		t.Fatalf("首轮应使用 provider 默认模型: %+v", calls)
 	}
 }
+
+// StartSession 带 Swarm 时在建会话后立即开启编排，不带时不开。
+func TestStartSession_SwarmEnablesBeforeFirstTurn(t *testing.T) {
+	ctx := context.Background()
+	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+
+	b.SetHarness(&mockHarness{kind: "claude"}, t.TempDir(), harness.ModeFullAccess)
+	b.AddProject(wire.ProjectSummary{ID: "p1", Path: t.TempDir()})
+	var enabled []string
+	b.SetSwarmEnabler(func(threadID string, on bool) {
+		if on {
+			enabled = append(enabled, threadID)
+		}
+	})
+
+	swarmID, err := b.StartSession(ctx, kanban.SessionRequest{ProjectID: "p1", WorkDir: t.TempDir(), Swarm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.StartSession(ctx, kanban.SessionRequest{ProjectID: "p1", WorkDir: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if len(enabled) != 1 || enabled[0] != swarmID {
+		t.Fatalf("只有带 Swarm 的会话应开启编排, got %v want [%s]", enabled, swarmID)
+	}
+}

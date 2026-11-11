@@ -19,7 +19,7 @@ type Sources interface {
 
 // ClientFor 根据来源创建模型客户端。
 func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, string, error) {
-	model := cheapModel(src)
+	model := autoModel(src)
 	if model == "" || src.Kind == "" {
 		return nil, "", ErrNoModel
 	}

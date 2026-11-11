@@ -15,7 +15,10 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot, opts 
 	if provider == "" {
 		provider = "claude"
 	}
-	opts.Model = textgen.CheapestModel(provider)
+	// 没有配置模型时才退到该 CLI 最便宜的模型。
+	if strings.TrimSpace(opts.Model) == "" {
+		opts.Model = textgen.CheapestModel(provider)
+	}
 	prompt := snap.Text + "\n只输出 JSON 对象：{\"reply\":\"回复\",\"calls\":[{\"tool\":\"create_task\",\"args\":{}}]}。只允许写工具 create_task、amend_task、cancel_task、set_priority、reassign_task、remember、edit_memory、answer_decision，不允许读工具；信息不足时不要编造。"
 	out, err := d.Generator(ctx, opts, prompt)
 	if err != nil {

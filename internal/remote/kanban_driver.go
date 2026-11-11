@@ -92,6 +92,15 @@ func (b *MemoryBackend) StartSession(ctx context.Context, req kanban.SessionRequ
 	if req.LeadThreadID != "" {
 		b.SetThreadRelation(threadID, req.LeadThreadID, true)
 	}
+	// 编排要在首轮之前开启，否则首轮按普通会话执行。
+	if req.Swarm {
+		b.mu.Lock()
+		enable := b.swarmEnablerFunc
+		b.mu.Unlock()
+		if enable != nil {
+			enable(threadID, true)
+		}
+	}
 	if req.LeadThreadID != "" || req.InteractionMode != "" || req.Effort != "" {
 		if _, err := b.SetThreadComposerPrefs(ctx, threadID, prefs); err != nil {
 			return "", err
