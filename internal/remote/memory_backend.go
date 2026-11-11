@@ -8337,10 +8337,11 @@ func (b *MemoryBackend) RespondRequest(ctx context.Context, params wire.Requests
 
 	// confirmsDelivery 为 false 时，行为与现在完全一致（Interact 已在收到答复后完成卡片清理与广播）
 	if !confirmsDelivery {
-		// 提问类请求：答复已交给 Provider，把问答记录写进会话历史，前端重启后仍能看到。
-		// 审批类与计划类请求不写这条记录。
+		// 交互类请求的答复已交给 Provider，写进会话历史，前端重启后仍能回放。
 		if kind == string(harness.RequestKindQuestion) {
 			b.appendQuestionAnswer(params.ThreadID, questionReq, answers, isSkip || optID == "deny")
+		} else if kind == string(harness.RequestKindPlan) {
+			b.appendPlanDecision(params.ThreadID, questionReq, optID, answers)
 		}
 		return wire.RequestsRespondResult{
 			ThreadID:  params.ThreadID,
@@ -8489,9 +8490,11 @@ func (b *MemoryBackend) RespondRequest(ctx context.Context, params wire.Requests
 		})
 	}
 
-	// 送达确认路径：确认答复已经交给 Provider 之后再写问答记录。
+	// 送达确认路径：确认答复已经交给 Provider 之后再写交互记录。
 	if kind == string(harness.RequestKindQuestion) {
 		b.appendQuestionAnswer(params.ThreadID, questionReq, answers, isSkip || optID == "deny")
+	} else if kind == string(harness.RequestKindPlan) {
+		b.appendPlanDecision(params.ThreadID, questionReq, optID, answers)
 	}
 
 	return wire.RequestsRespondResult{
