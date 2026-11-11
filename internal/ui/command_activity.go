@@ -338,6 +338,25 @@ func commandActivityNoOutputExpected(step string) bool {
 			continue
 		}
 		if ch == '>' {
+			redirectEnd := i + 1
+			if redirectEnd < len(step) && step[redirectEnd] == '>' {
+				redirectEnd++
+			}
+			if redirectEnd < len(step) && step[redirectEnd] == '&' {
+				continue
+			}
+			if i > 0 && step[i-1] == '2' {
+				target := redirectEnd
+				for target < len(step) && (step[target] == ' ' || step[target] == '\t') {
+					target++
+				}
+				if strings.HasPrefix(step[target:], "/dev/null") {
+					end := target + len("/dev/null")
+					if end == len(step) || strings.ContainsRune(" \t\r\n|;&", rune(step[end])) {
+						continue
+					}
+				}
+			}
 			return true
 		}
 		if ch != '|' || (i+1 < len(step) && step[i+1] == '|') {
@@ -357,6 +376,19 @@ func commandActivityNoOutputExpected(step string) bool {
 		}
 	}
 	return false
+}
+
+func commandStepStatus(i, maxStep int) string {
+	if maxStep <= 0 {
+		return "pending"
+	}
+	if i < maxStep-1 {
+		return "completed"
+	}
+	if i == maxStep-1 {
+		return "in_progress"
+	}
+	return "pending"
 }
 
 func commandActivitySnapshot(s *chatState, id string) commandActivityState {
@@ -480,12 +512,7 @@ func renderRunningCommandActivity(c *ui.Context, s *chatState, m Message, fontFa
 	if len(st.steps) >= 2 {
 		ui.Column(c.Key("command-steps-" + m.ID)).FillWidth().Gap(Space1).Children(func() {
 			for i, step := range st.steps {
-				status := "pending"
-				if i < st.maxStep {
-					status = "completed"
-				} else if i == st.maxStep-1 {
-					status = "in_progress"
-				}
+				status := commandStepStatus(i, st.maxStep)
 				ui.Row(c.Key(fmt.Sprintf("command-step-%s-%d", m.ID, i))).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 					renderTodoStatusIcon(c, fmt.Sprintf("command-step-icon-%s-%d", m.ID, i), status, isToolRunning(m))
 					ui.Text(c, step).Font(fontFam).FontSize(scaledFont(TypeCaption)).SingleLine().Grow(1).MinWidth(0)
@@ -502,13 +529,14 @@ func renderRunningCommandActivity(c *ui.Context, s *chatState, m Message, fontFa
 	}
 	if len(st.processes) > 0 {
 		ui.Column(c.Key("command-processes-" + m.ID)).FillWidth().Gap(Space1).Children(func() {
+			captionSize := scaledFont(TypeCaption)
 			for i, p := range st.processes {
 				ui.Row(c.Key(fmt.Sprintf("command-process-%s-%d", m.ID, i))).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, p.name).Width(90).SingleLine().TextColor(ThemeSecondaryText(c))
-					ui.Text(c, p.object).Grow(1).MinWidth(0).SingleLine().TextColor(ThemeSecondaryText(c))
-					ui.Text(c, fmt.Sprintf("%.0f%%", p.cpu)).Width(42).Shrink(0).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, p.name).FontSize(captionSize).Width(captionSize * (90 / TypeCaption)).SingleLine().TextColor(ThemeSecondaryText(c))
+					ui.Text(c, p.object).FontSize(captionSize).Grow(1).MinWidth(0).SingleLine().TextColor(ThemeSecondaryText(c))
+					ui.Text(c, fmt.Sprintf("%.0f%%", p.cpu)).FontSize(captionSize).Width(captionSize * (42 / TypeCaption)).Shrink(0).TextColor(ThemeSecondaryText(c))
 					if p.rss >= 1024*1024 {
-						ui.Text(c, fmt.Sprintf("%d MB", p.rss/(1024*1024))).Width(58).Shrink(0).TextColor(ThemeSecondaryText(c))
+						ui.Text(c, fmt.Sprintf("%d MB", p.rss/(1024*1024))).FontSize(captionSize).Width(captionSize * (58 / TypeCaption)).Shrink(0).TextColor(ThemeSecondaryText(c))
 					}
 				})
 			}

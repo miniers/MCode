@@ -74,14 +74,43 @@ func TestCommandActivityEstimate(t *testing.T) {
 }
 
 func TestCommandActivityNoOutputExpected(t *testing.T) {
-	if !commandActivityNoOutputExpected("go test ./... | tail -20") {
-		t.Fatal("tail pipeline should suppress no-output warning")
+	tests := []struct {
+		command string
+		want    bool
+	}{
+		{"go test ./... | tail -20", true},
+		{"go test ./... 2>&1", false},
+		{"make 2>/dev/null", false},
+		{"echo hi >&2", false},
+		{"go build ./... 2>&1 | tail -20", true},
+		{"make > build.log", true},
+		{"make >> build.log 2>&1", true},
+		{"make &> out.txt", true},
+		{`echo "a > b"`, false},
+		{"go test ./...", false},
 	}
-	if !commandActivityNoOutputExpected("go test > result.log") {
-		t.Fatal("redirect should suppress no-output warning")
+	for _, tt := range tests {
+		if got := commandActivityNoOutputExpected(tt.command); got != tt.want {
+			t.Errorf("commandActivityNoOutputExpected(%q) = %v, want %v", tt.command, got, tt.want)
+		}
 	}
-	if commandActivityNoOutputExpected("go test ./...") {
-		t.Fatal("ordinary command should keep no-output warning")
+}
+
+func TestCommandStepStatus(t *testing.T) {
+	for _, tt := range []struct {
+		i, maxStep int
+		want       string
+	}{
+		{0, 2, "completed"},
+		{1, 2, "in_progress"},
+		{2, 2, "pending"},
+		{0, 0, "pending"},
+		{1, 0, "pending"},
+		{2, 0, "pending"},
+	} {
+		if got := commandStepStatus(tt.i, tt.maxStep); got != tt.want {
+			t.Errorf("commandStepStatus(%d, %d) = %q, want %q", tt.i, tt.maxStep, got, tt.want)
+		}
 	}
 }
 
