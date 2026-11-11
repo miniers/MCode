@@ -321,7 +321,7 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
         return (
           <article
             key={request.requestID}
-            className="rounded-mc-pill border border-[var(--border)] bg-[var(--card-alt,var(--card))] p-4 shadow-sm space-y-3"
+            className="rounded-mc-xl border border-[var(--border)] bg-[var(--card-alt,var(--card))] p-4 shadow-sm space-y-3"
           >
             <div className="flex items-start justify-between gap-2">
               <div className="text-mc-caption font-bold uppercase tracking-[1.1px] text-[var(--foreground-muted)]">

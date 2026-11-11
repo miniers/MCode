@@ -9,11 +9,15 @@ export const KEYBOARD_THRESHOLD = 120;
  */
 export const SAFE_AREA_MAX_GAP = 80;
 
-const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+const EDITABLE_TAGS = new Set(['TEXTAREA', 'SELECT']);
+
+/** 不弹软键盘的 input 类型：单选、复选、按钮等聚焦时不能当成键盘 */
+const NON_TEXT_INPUT_TYPES = new Set(['radio', 'checkbox', 'button', 'submit', 'reset', 'image', 'range', 'color', 'file', 'hidden']);
 
 /** 焦点是否落在可编辑元素上：只有此时的可视视口收缩才可能是软键盘 */
 export function isEditableElement(element: Element | null): boolean {
   if (!element) return false;
+  if (element.tagName === 'INPUT') return !NON_TEXT_INPUT_TYPES.has((element as HTMLInputElement).type);
   if (EDITABLE_TAGS.has(element.tagName)) return true;
   return (element as HTMLElement).isContentEditable === true;
 }

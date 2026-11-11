@@ -53,6 +53,10 @@ if (typeof window !== 'undefined') {
     return parseFloat(getComputedStyle(safeAreaProbe).paddingTop) || 0;
   };
 
+  // 键盘弹起期间定时复查：聚焦的输入框被卸载时 iOS 不发 focusout，
+  // 键盘收起也可能不发 resize，没有复查 --app-height 会一直停在键盘高度（页面只剩半屏）
+  let keyboardWatchTimer = 0;
+
   // 判定逻辑全在 utils/viewport.ts：只有可视视口明显变矮且焦点在可编辑元素上才算键盘
   const updateViewport = () => {
     const { height, keyboardOpen } = computeViewport({
@@ -74,6 +78,8 @@ if (typeof window !== 'undefined') {
     // 给只在键盘收起时显示的悬浮元素（如渠道额度条）用
     document.documentElement.toggleAttribute('data-keyboard-open', keyboardOpen);
     if (window.scrollY > 0 || window.scrollX > 0) window.scrollTo(0, 0);
+    window.clearTimeout(keyboardWatchTimer);
+    if (keyboardOpen) keyboardWatchTimer = window.setTimeout(updateViewport, 500);
   };
   // iOS 从后台切回、键盘收起动画结束时都可能不触发 visualViewport resize，
   // 所以在这些时机主动补算一次，焦点变化后再延迟补算覆盖动画耗时

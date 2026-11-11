@@ -1,6 +1,6 @@
 // web/ 没有接入测试运行器（package.json 无 vitest/jest），沿用 src/components/*.test.tsx 的写法：
 // 不使用测试框架，断言失败直接抛 Error，tsc --noEmit 会检查本文件。
-import { computeViewport } from './viewport';
+import { computeViewport, isEditableElement } from './viewport';
 import type { ViewportInput, ViewportMetrics } from './viewport';
 
 const BASE: ViewportInput = {
@@ -91,5 +91,24 @@ for (const testCase of cases) {
     throw new Error(
       `期望「${testCase.name}」得到 ${JSON.stringify(testCase.expected)}，实际为 ${JSON.stringify(actual)}`
     );
+  }
+}
+
+// 单选、复选等聚焦时不弹键盘：提问卡点选项会把焦点移到 radio 上，不能当成键盘还开着
+const element = (tagName: string, type = ''): Element => ({ tagName, type } as unknown as Element);
+const editableCases: { name: string; element: Element | null; expected: boolean }[] = [
+  { name: '文本 input', element: element('INPUT', 'text'), expected: true },
+  { name: '密码 input', element: element('INPUT', 'password'), expected: true },
+  { name: 'textarea', element: element('TEXTAREA'), expected: true },
+  { name: 'radio', element: element('INPUT', 'radio'), expected: false },
+  { name: 'checkbox', element: element('INPUT', 'checkbox'), expected: false },
+  { name: 'button', element: element('BUTTON'), expected: false },
+  { name: '无焦点', element: null, expected: false }
+];
+
+for (const testCase of editableCases) {
+  const actual = isEditableElement(testCase.element);
+  if (actual !== testCase.expected) {
+    throw new Error(`期望「${testCase.name}」isEditableElement 为 ${testCase.expected}，实际为 ${actual}`);
   }
 }
