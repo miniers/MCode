@@ -115,7 +115,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 		tabBtn := ui.ButtonBase(c.Key("composer-queue-tab")).
 			Label(tabText).
 			Tooltip("排队消息").
-			Height(ControlMD).
+			Height(uiSize(ControlMD)).
 			Radius(RadiusXL).
 			Padding(Space1, Space3).
 			Border(Hairline, ThemeBorder(c)).
@@ -192,7 +192,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 									ui.ButtonBase(c.Key("composer-queue-clear-all")).
 										Label("清空全部").
 										Tooltip("清空全部").
-										Height(ControlXS).
+										Height(uiSize(ControlXS)).
 										Radius(RadiusPill).
 										Padding(0, Space3).
 										Background(ThemeHover(c)).
@@ -211,7 +211,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 										ui.ButtonBase(c.Key("composer-queue-recall-all")).
 											Label("全部退回编辑").
 											Tooltip("把排队消息按顺序放回输入框").
-											Height(ControlXS).
+											Height(uiSize(ControlXS)).
 											Radius(RadiusPill).
 											Padding(0, Space3).
 											Background(ThemeHover(c)).
@@ -335,7 +335,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 											ui.ButtonBase(c.Key("composer-queue-edit-"+item.ID)).
 												Label("编辑").
 												Tooltip("编辑").
-												Height(ControlXS).
+												Height(uiSize(ControlXS)).
 												Radius(RadiusPill).
 												Padding(0, Space3).
 												Background(ThemeSurface(c)).
@@ -357,7 +357,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 											ui.ButtonBase(c.Key("composer-queue-steer-"+item.ID)).
 												Label("插入到当前轮次 "+item.Text).
 												Tooltip("把这条排队消息插入当前轮次").
-												Height(ControlXS).
+												Height(uiSize(ControlXS)).
 												Radius(RadiusPill).
 												Padding(0, Space3).
 												Background(ThemeSurface(c)).
@@ -376,7 +376,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 										ui.ButtonBase(c.Key("composer-queue-send-"+item.ID)).
 											Label("立即发送").
 											Tooltip("立即发送").
-											Height(ControlXS).
+											Height(uiSize(ControlXS)).
 											Radius(RadiusPill).
 											Padding(0, Space3).
 											Background(ThemeSurface(c)).
@@ -395,7 +395,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 											ui.ButtonBase(c.Key("composer-queue-remove-"+item.ID)).
 												Label("删除").
 												Tooltip("删除").
-												Height(ControlXS).
+												Height(uiSize(ControlXS)).
 												Radius(RadiusPill).
 												Padding(0, Space3).
 												Background(ThemeSurface(c)).

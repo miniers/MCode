@@ -24,6 +24,9 @@ func TestInterfaceScaleHeights(t *testing.T) {
 			if got := uiScaleFactor(); got != factor {
 				t.Fatalf("dark=%v percent=%d: factor=%v", dark, percent, got)
 			}
+			if got := uiSize(ControlXS); got != ControlXS*factor {
+				t.Errorf("dark=%v percent=%d: uiSize(ControlXS)=%v want=%v", dark, percent, got, ControlXS*factor)
+			}
 			tester := ui.NewTester(func(c *ui.Context) {
 				ui.Column(c).Children(func() {
 					Capsule(c, CapsuleProps{Text: "chip"})
