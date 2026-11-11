@@ -136,12 +136,19 @@ func menuAcceleratorKey(key ui.Key) string {
 // 因此统一入队，由该窗口在下一帧按顺序消费。
 // 全部窗口关闭后菜单栏仍然可用：此时先开一个聊天窗口，再在其中执行动作。
 func DispatchMenuAction(id string, index int) {
-	if id == "open-settings" {
+	if id == "open-settings" || id == "open-about" || id == "check-update" {
 		settingsWindowMu.Lock()
 		entry := settingsWindow
 		settingsWindowMu.Unlock()
 		if entry != nil {
-			openSettingsWindow(entry.owner, "")
+			switch id {
+			case "open-settings":
+				openSettingsWindow(entry.owner, "")
+			case "open-about":
+				openSettingsWindow(entry.owner, "about")
+			case "check-update":
+				openAboutAndCheckUpdate(entry.owner)
+			}
 			return
 		}
 	}
@@ -196,8 +203,8 @@ func buildDarwinAppMenu() *mygo.Menu {
 			Role:  mygo.RoleAppMenu,
 			Label: "MCode",
 			Submenu: []*mygo.MenuItem{
-				// 系统角色的标题默认取 mygo.json 里的应用名（mcode），这里显式给出展示名 MCode。
-				{Role: mygo.RoleAbout, Label: "关于 MCode"},
+				{Label: "关于 MCode", Click: func(*mygo.MenuItem, *mygo.Window) { DispatchMenuAction("open-about", 0) }},
+				{Label: "检查更新…", Click: func(*mygo.MenuItem, *mygo.Window) { DispatchMenuAction("check-update", 0) }},
 				mygo.Separator(),
 				settingsMenuItem(),
 				mygo.Separator(),
@@ -235,7 +242,7 @@ func buildDarwinAppMenu() *mygo.Menu {
 // Windows 上 mygo 会把 macOS 专用的角色标成隐藏（mygo menu.go 的 prepareItem 用 macOnlyRoles
 // 过滤），应用菜单本身（RoleAppMenu）、关于、服务、隐藏、全部显示、帮助都在其中，所以这里不写这些项：
 // 原应用菜单里仍有意义的偏好设置并进「文件」，退出用 RoleQuit 放在文件末尾，
-// 关于 MCode 放进最后的「帮助」（RoleAbout 在 Windows 上会被隐藏，因此用普通菜单项打开设置里的关于分区）。
+// 关于 MCode 和检查更新放进最后的「帮助」。
 //
 // 主窗口用 TitleBarHiddenInset 创建（internal/ui/windows.go），标题栏隐藏的窗口不显示菜单栏
 // （mygo internal/windows/menu.go 的 menuShown 与 barless），但菜单仍然装进窗口：
@@ -268,10 +275,10 @@ func buildWindowsAppMenu() *mygo.Menu {
 				{
 					Label: "关于 MCode",
 					Click: func(*mygo.MenuItem, *mygo.Window) {
-						// 版本号与检查更新在设置面板的「关于」页，这里打开设置面板。
-						DispatchMenuAction("open-settings", 0)
+						DispatchMenuAction("open-about", 0)
 					},
 				},
+				{Label: "检查更新…", Click: func(*mygo.MenuItem, *mygo.Window) { DispatchMenuAction("check-update", 0) }},
 			},
 		},
 	})

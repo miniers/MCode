@@ -50,7 +50,9 @@ func TestBuildAppMenu(t *testing.T) {
 
 	appMenu := items[0].Submenu
 	requireMenuItem(t, appMenu, "偏好设置…", "CmdOrCtrl+,")
-	requireMenuRole(t, appMenu, mygo.RoleAbout)
+	requireMenuItem(t, appMenu, "关于 MCode", "")
+	requireMenuItem(t, appMenu, "检查更新…", "")
+	forbidMenuRole(t, appMenu, mygo.RoleAbout)
 	requireMenuRole(t, appMenu, mygo.RoleServices)
 	requireMenuRole(t, appMenu, mygo.RoleHide)
 	requireMenuRole(t, appMenu, mygo.RoleHideOthers)
@@ -171,6 +173,7 @@ func TestBuildWindowsAppMenu(t *testing.T) {
 
 	// RoleAbout 在 Windows 上会被隐藏，关于项是普通菜单项。
 	requireMenuItem(t, items[5].Submenu, "关于 MCode", "")
+	requireMenuItem(t, items[5].Submenu, "检查更新…", "")
 
 	for i, item := range items {
 		if !item.IsVisible() {
@@ -184,7 +187,7 @@ func forbidMenuRole(t *testing.T, items []*mygo.MenuItem, role mygo.MenuRole) {
 	t.Helper()
 	for _, item := range items {
 		if item.Role == role {
-			t.Errorf("Windows 菜单不应包含角色为 %q 的菜单项", role)
+			t.Errorf("菜单不应包含角色为 %q 的菜单项", role)
 		}
 		forbidMenuRole(t, item.Submenu, role)
 	}
@@ -217,4 +220,41 @@ func requireMenuRole(t *testing.T, items []*mygo.MenuItem, role mygo.MenuRole) {
 		}
 	}
 	t.Errorf("缺少角色为 %q 的菜单项", role)
+}
+
+func TestMenuAboutActionsOpenAboutPage(t *testing.T) {
+	resetSettingsWindowForTest()
+	t.Cleanup(resetSettingsWindowForTest)
+	owner := newChatState(NewFakeClient())
+	defer owner.close()
+	st := NewSettingsState(settingsTestDir(t), nil, owner)
+	setChatSettings(owner, st)
+	openSettingsWindow(owner, "appearance")
+
+	for _, action := range []string{"open-about", "check-update"} {
+		st.selectSettingsPage("appearance")
+		DispatchMenuAction(action, 0)
+		st.mu.Lock()
+		page := st.currentPage
+		st.mu.Unlock()
+		if page != "about" {
+			t.Errorf("动作 %s 打开的设置页 = %q，期望 about", action, page)
+		}
+	}
+}
+
+func TestMenuCheckUpdateHelperOpensAboutPage(t *testing.T) {
+	resetSettingsWindowForTest()
+	t.Cleanup(resetSettingsWindowForTest)
+	owner := newChatState(NewFakeClient())
+	defer owner.close()
+	st := NewSettingsState(settingsTestDir(t), nil, owner)
+	setChatSettings(owner, st)
+	openAboutAndCheckUpdate(owner)
+	st.mu.Lock()
+	page := st.currentPage
+	st.mu.Unlock()
+	if page != "about" {
+		t.Fatalf("设置页 = %q，期望 about", page)
+	}
 }

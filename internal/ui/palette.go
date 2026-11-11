@@ -162,15 +162,7 @@ func buildPaletteItems(s *chatState) []paletteItem {
 			id:    "cmd-check-update",
 			kind:  "command",
 			title: "检查更新",
-			run: func(cs *chatState) {
-				if getChatSettings(cs) == nil {
-					return
-				}
-				openSettingsWindow(cs, "about")
-				if st := currentSettingsWindowState(); st != nil {
-					startUpdateCheck(st)
-				}
-			},
+			run:   openAboutAndCheckUpdate,
 		},
 		paletteItem{
 			id:    "cmd-changelog",
@@ -782,4 +774,14 @@ func renderPaletteFooterHint(c *ui.Context, key, kbd, label string) {
 		Kbd(c, key+"-kbd", kbd)
 		ui.Text(c, label).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 	})
+}
+
+func openAboutAndCheckUpdate(cs *chatState) {
+	if getChatSettings(cs) == nil {
+		return
+	}
+	openSettingsWindow(cs, "about")
+	if st := currentSettingsWindowState(); st != nil {
+		startUpdateCheck(st)
+	}
 }

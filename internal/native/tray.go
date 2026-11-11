@@ -11,8 +11,9 @@ import (
 
 // TrayOptions 配置系统托盘行为。
 type TrayOptions struct {
-	OnShowWindow   func()
-	OnOpenSettings func()
+	OnShowWindow      func()
+	OnOpenSettings    func()
+	OnCheckForUpdates func()
 	// OnLeftClick 非 nil 时左键点击图标调用它，原生菜单改为右键弹出。
 	OnLeftClick func()
 	OnQuit      func()
@@ -29,7 +30,7 @@ type Tray struct {
 
 // NewTray 创建菜单栏托盘图标。
 // 图标为 macOS 模板图（IconIsTemplate）。
-// 菜单项包含："显示窗口"、可选的"设置…"、禁用的状态项、分隔线、"退出 MCode"。
+// 菜单项包含："显示窗口"、可选的"设置…"和"检查更新…"、禁用的状态项、分隔线、"退出 MCode"。
 func NewTray(opts TrayOptions) (*Tray, error) {
 	icon := trayIconPNG
 	tip := "正在运行 0 个会话"
@@ -143,6 +144,14 @@ func makeTrayMenu(opts TrayOptions, n int) *mygo.Menu {
 			Label: "设置…",
 			Click: func(item *mygo.MenuItem, win *mygo.Window) {
 				opts.OnOpenSettings()
+			},
+		})
+	}
+	if opts.OnCheckForUpdates != nil {
+		items = append(items, &mygo.MenuItem{
+			Label: "检查更新…",
+			Click: func(item *mygo.MenuItem, win *mygo.Window) {
+				opts.OnCheckForUpdates()
 			},
 		})
 	}

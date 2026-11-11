@@ -1,6 +1,7 @@
 package native
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -23,8 +24,6 @@ func TestTrayMenu(t *testing.T) {
 	var hasShowWindow, hasRunningCount, hasQuit bool
 	for _, item := range menu.Items() {
 		switch item.Label {
-		case "检查更新…":
-			t.Fatal("makeTrayMenu 菜单不应包含『检查更新…』")
 		case "显示窗口":
 			hasShowWindow = true
 		case "正在运行 3 个会话":
@@ -66,5 +65,21 @@ func TestTrayMenuSettings(t *testing.T) {
 	items[1].Click(items[1], nil)
 	if !called {
 		t.Fatal("点击设置菜单应调用 OnOpenSettings")
+	}
+}
+
+func TestTrayMenuCheckForUpdates(t *testing.T) {
+	called := false
+	opts := TrayOptions{OnOpenSettings: func() {}, OnCheckForUpdates: func() { called = true }}
+	for _, count := range []int{3, 4} {
+		items := makeTrayMenu(opts, count).Items()
+		if len(items) < 4 || items[1].Label != "设置…" || items[2].Label != "检查更新…" || items[2].Click == nil || items[3].Label != fmt.Sprintf("正在运行 %d 个会话", count) {
+			t.Fatalf("检查更新菜单顺序或回调不正确：%v", items)
+		}
+		items[2].Click(items[2], nil)
+		if !called {
+			t.Fatal("点击检查更新应调用 OnCheckForUpdates")
+		}
+		called = false
 	}
 }

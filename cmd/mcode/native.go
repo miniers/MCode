@@ -72,6 +72,10 @@ func setupNative(hub *remote.StreamHub, client *app.Client, dataDir string, cfg 
 				showWindow()
 				mcodeui.DispatchMenuAction("open-settings", 0)
 			},
+			OnCheckForUpdates: func() {
+				showWindow()
+				mcodeui.DispatchMenuAction("check-update", 0)
+			},
 			OnLeftClick: func() {
 				if panel != nil {
 					panel.Toggle()

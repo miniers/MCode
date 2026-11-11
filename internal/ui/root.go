@@ -296,6 +296,12 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				case "open-settings":
 					state.closeShortcutHelp()
 					openSettingsWindow(state, "")
+				case "open-about":
+					state.closeShortcutHelp()
+					openSettingsWindow(state, "about")
+				case "check-update":
+					state.closeShortcutHelp()
+					openAboutAndCheckUpdate(state)
 				case "show-shortcuts":
 					state.toggleShortcutHelp()
 				case "jump-to-latest":
