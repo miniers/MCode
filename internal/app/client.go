@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -814,6 +815,12 @@ type localConn struct {
 	threadID    string
 	onUpdate    func(mcodeui.ThreadUpdate)
 	onApprovals func([]mcodeui.Approval)
+	// eventMu 串行化快照与事件回调；关闭连接不等待回调，避免与界面锁互相等待。
+	eventMu         sync.Mutex
+	runID           string
+	lastSeq         int
+	snapshotApplied bool
+	pendingEvents   []wire.ThreadEvent
 }
 
 func (c *localConn) Info() remote.ClientInfo {
@@ -841,7 +848,6 @@ func (c *localConn) Notify(method string, params any) error {
 		return nil
 	}
 	threadID := c.threadID
-	onUpdate := c.onUpdate
 	onApprovals := c.onApprovals
 	c.mu.Unlock()
 
@@ -859,14 +865,12 @@ func (c *localConn) Notify(method string, params any) error {
 		if ev.ThreadID != threadID {
 			return nil
 		}
-		c.mu.Lock()
-		closed := c.closed
-		c.mu.Unlock()
-		if closed {
-			return nil
-		}
-		if onUpdate != nil {
-			onUpdate(ThreadUpdateFromWire(ev))
+		c.eventMu.Lock()
+		defer c.eventMu.Unlock()
+		if !c.snapshotApplied {
+			c.pendingEvents = append(c.pendingEvents, ev)
+		} else {
+			c.applyEventLocked(ev)
 		}
 
 	case "requests.changed":
@@ -891,6 +895,54 @@ func (c *localConn) Notify(method string, params any) error {
 	return nil
 }
 
+// applyEventLocked 的水位比较与回调共用 eventMu，避免旧帧在新帧之后覆盖界面。
+func (c *localConn) applyEventLocked(ev wire.ThreadEvent) {
+	c.mu.Lock()
+	closed := c.closed
+	c.mu.Unlock()
+	if closed || (ev.RunID == c.runID && ev.Sequence <= c.lastSeq) {
+		return
+	}
+	c.runID, c.lastSeq = ev.RunID, ev.Sequence
+	if c.onUpdate != nil {
+		c.onUpdate(ThreadUpdateFromWire(ev))
+	}
+}
+
+func (c *localConn) applySnapshot(snap *wire.ThreadStreamSnapshot) {
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	if snap != nil {
+		c.runID, c.lastSeq = snap.RunID, snap.Sequence
+		if c.onUpdate != nil {
+			c.onUpdate(mcodeui.ThreadUpdate{
+				ThreadID: c.threadID,
+				Thread:   ThreadSummaryToUI(snap.Thread),
+				Messages: MessagesWireToUI(snap.History.Messages),
+			})
+		}
+	}
+	// 轮次保持首次出现的顺序，同一轮次内按序号回放；快照所属轮次最先处理。
+	runOrder := map[string]int{c.runID: 0}
+	for _, ev := range c.pendingEvents {
+		if _, ok := runOrder[ev.RunID]; !ok {
+			runOrder[ev.RunID] = len(runOrder)
+		}
+	}
+	sort.SliceStable(c.pendingEvents, func(i, j int) bool {
+		a, b := c.pendingEvents[i], c.pendingEvents[j]
+		if a.RunID != b.RunID {
+			return runOrder[a.RunID] < runOrder[b.RunID]
+		}
+		return a.Sequence < b.Sequence
+	})
+	for _, ev := range c.pendingEvents {
+		c.applyEventLocked(ev)
+	}
+	c.pendingEvents = nil
+	c.snapshotApplied = true
+}
+
 // Watch 订阅指定会话的事件与审批，返回可重复调用的 stop 函数。
 func (c *Client) Watch(threadID string, onUpdate func(mcodeui.ThreadUpdate), onApprovals func([]mcodeui.Approval)) (stop func()) {
 	conn := &localConn{
@@ -902,6 +954,7 @@ func (c *Client) Watch(threadID string, onUpdate func(mcodeui.ThreadUpdate), onA
 	ctx := context.Background()
 	res, err := c.backend.Subscribe(ctx, conn, threadID)
 	if err != nil {
+		_ = conn.Close()
 		log.Printf("Watch: failed to subscribe thread %s: %v", threadID, err)
 		return func() {}
 	}
@@ -909,15 +962,7 @@ func (c *Client) Watch(threadID string, onUpdate func(mcodeui.ThreadUpdate), onA
 	// 订阅快照是后端对会话状态的权威回答（含 IsRunning）。会话列表里的运行标记只是
 	// 某次加载时的快照；若一轮的结束事件在未订阅该会话时发出，界面会一直显示进行中，
 	// 打开会话也不会自愈。这里立刻把快照交给界面，使打开会话即以真实状态为准。
-	if onUpdate != nil {
-		if snap := res.Snapshot; snap != nil {
-			onUpdate(mcodeui.ThreadUpdate{
-				ThreadID: threadID,
-				Thread:   ThreadSummaryToUI(snap.Thread),
-				Messages: MessagesWireToUI(snap.History.Messages),
-			})
-		}
-	}
+	conn.applySnapshot(res.Snapshot)
 
 	var once sync.Once
 	stop = func() {

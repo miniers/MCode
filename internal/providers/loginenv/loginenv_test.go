@@ -1,7 +1,9 @@
 package loginenv
 
 import (
+	"bytes"
 	"errors"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +14,35 @@ import (
 	"testing"
 	"time"
 )
+
+func TestLoadFailureLogRedactsSecrets(t *testing.T) {
+	const secret = "sk-abcdefghijklmnop"
+	const stderr = "shell-stderr Bearer " + secret
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"loginEnvError", &loginEnvError{err: errors.New("shell failed"), stderr: stderr}},
+		{"ExitError", &exec.ExitError{Stderr: []byte(stderr)}},
+		{"普通错误", errors.New("shell-stderr Bearer " + secret)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resetState(t)
+			defer resetState(t)
+			var output bytes.Buffer
+			previous := log.Writer()
+			log.SetOutput(&output)
+			defer log.SetOutput(previous)
+			loadFunc = func() ([]string, error) { return nil, test.err }
+			performLoad(false)
+			got := output.String()
+			if strings.Contains(got, secret) || !strings.Contains(got, "Bearer ***") || strings.Count(got, "shell-stderr") != 1 {
+				t.Fatalf("日志未正确脱敏或 stderr 重复: %q", got)
+			}
+		})
+	}
+}
 
 func resetState(t *testing.T) {
 	// 先拿 loadMu，等可能在跑的登录环境加载退出，避免和后台 goroutine 同时写缓存。

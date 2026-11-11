@@ -450,6 +450,19 @@ func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (store.Tas
 		if depsDone {
 			if started, err := s.startTaskInternal(ctx, created.ID, created.Revision); err == nil {
 				created = started
+			} else {
+				log.Printf("kanban: 创建后启动任务 %s 失败: %v", created.ID, err)
+				reason := fmt.Sprintf("启动任务失败：%v", err)
+				if latest, readErr := s.opts.Store.GetTask(ctx, created.ID); readErr != nil {
+					log.Printf("kanban: 读取任务 %s 的启动失败原因时失败: %v", created.ID, readErr)
+				} else {
+					latest.LastFailureReason = &reason
+					if updated, updateErr := s.opts.Store.UpdateTask(ctx, latest, latest.Revision); updateErr != nil {
+						log.Printf("kanban: 保存任务 %s 的启动失败原因失败: %v", created.ID, updateErr)
+					} else {
+						created = updated
+					}
+				}
 			}
 		}
 	}

@@ -30,6 +30,33 @@ func useGatewayTestServer(t *testing.T, srv *httptest.Server) {
 	t.Cleanup(func() { gatewayHTTPClient = orig })
 }
 
+func TestGatewayGetLimitsResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", (1<<20)+100)))
+	}))
+	defer srv.Close()
+	body, status, err := gatewayGet(context.Background(), srv.URL, "token")
+	if err != nil || status != http.StatusOK || len(body) != 1<<20 {
+		t.Fatalf("响应长度=%d，状态=%d，错误=%v", len(body), status, err)
+	}
+}
+
+func TestGatewayGetDoesNotRedirect(t *testing.T) {
+	var targetRequests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetRequests.Add(1)
+	}))
+	defer target.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer srv.Close()
+	_, status, err := gatewayGet(context.Background(), srv.URL, "token")
+	if err != nil || status != http.StatusFound || targetRequests.Load() != 0 {
+		t.Fatalf("状态=%d，目标请求数=%d，错误=%v", status, targetRequests.Load(), err)
+	}
+}
+
 func TestReadGatewayPlanLimits_Magpie(t *testing.T) {
 	var infoAuth, cardsAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

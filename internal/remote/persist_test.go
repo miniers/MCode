@@ -2,7 +2,10 @@ package remote
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -10,6 +13,8 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+
+	"modernc.org/sqlite"
 )
 
 func TestPersist_SimulateAndReload(t *testing.T) {
@@ -566,7 +571,12 @@ func TestPersist_LazyLoadMessages(t *testing.T) {
 // seedPersistStore 打开一个临时 store 并写入 1 个项目与 1 个线程，返回 store 与线程 ID。
 func seedPersistStore(t *testing.T, ctx context.Context, name string) (*store.Store, string) {
 	t.Helper()
-	s, err := store.Open(filepath.Join(t.TempDir(), name+".db"))
+	return seedPersistStorePath(t, ctx, name, filepath.Join(t.TempDir(), name+".db"))
+}
+
+func seedPersistStorePath(t *testing.T, ctx context.Context, name, path string) (*store.Store, string) {
+	t.Helper()
+	s, err := store.Open(path)
 	if err != nil {
 		t.Fatalf("open store failed: %v", err)
 	}
@@ -784,5 +794,138 @@ func TestPersist_LoadFailureKeepsUnloaded(t *testing.T) {
 	}
 	if evicted {
 		t.Error("读库失败时不应改变 messagesEvicted 状态")
+	}
+}
+
+func newPersistFaultBackend(t *testing.T, name string) (*MemoryBackend, *store.Store, *sql.DB, string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	path := filepath.Join(t.TempDir(), name+".db")
+	s, threadID := seedPersistStorePath(t, ctx, name, path)
+	t.Cleanup(func() { _ = s.Close() })
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	t.Cleanup(hub.Close)
+	b := NewMemoryBackend(hub)
+	t.Cleanup(b.Close)
+	if err := b.AttachStore(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	b.threads[threadID].messagesLoaded = true
+	b.mu.Unlock()
+	return b, s, db, threadID
+}
+
+func TestPersist_RetriesFailedUpdateWithNextBatch(t *testing.T) {
+	b, s, db, threadID := newPersistFaultBackend(t, "retry-update")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	msg := wire.ThreadMessage{ID: "retry", Role: "assistant", Text: "初稿"}
+	b.mu.Lock()
+	b.threads[threadID].messages = []wire.ThreadMessage{msg}
+	b.mu.Unlock()
+	b.persistMessages(threadID, []wire.ThreadMessage{msg})
+	if _, err := db.ExecContext(ctx, `CREATE TRIGGER fail_update BEFORE UPDATE ON messages
+		WHEN NEW.id = 'retry' BEGIN SELECT RAISE(ABORT, '测试更新失败'); END`); err != nil {
+		t.Fatal(err)
+	}
+	msg.Text = "终稿"
+	msg.IsFinal = true
+	b.mu.Lock()
+	b.threads[threadID].messages[0] = msg
+	b.mu.Unlock()
+	b.persistMessages(threadID, []wire.ThreadMessage{msg})
+	b.mu.Lock()
+	td := b.threads[threadID]
+	retry, persisted := td.persistRetry[msg.ID], td.persisted[msg.ID]
+	b.mu.Unlock()
+	if !retry || !persisted {
+		t.Fatalf("更新失败后应保留持久化标记与重试 ID：retry=%v persisted=%v", retry, persisted)
+	}
+	if _, err := db.ExecContext(ctx, "DROP TRIGGER fail_update"); err != nil {
+		t.Fatal(err)
+	}
+	next := wire.ThreadMessage{ID: "next", Role: "user", Text: "下一条"}
+	b.mu.Lock()
+	td.messages = append(td.messages, next)
+	b.mu.Unlock()
+	b.persistMessages(threadID, []wire.ThreadMessage{next})
+	msgs, _, _, err := s.ListMessagesTolerant(ctx, threadID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[0].ID != msg.ID || msgs[0].Text != msg.Text || !msgs[0].IsFinal {
+		t.Fatalf("下一批未补写失败的终稿：%+v", msgs)
+	}
+	b.mu.Lock()
+	retry = td.persistRetry[msg.ID]
+	b.mu.Unlock()
+	if retry {
+		t.Fatal("更新成功后仍保留重试 ID")
+	}
+}
+
+func TestPersist_RetryDoesNotLoadMissingMessages(t *testing.T) {
+	b, _, _, threadID := newPersistFaultBackend(t, "retry-unloaded")
+	b.mu.Lock()
+	td := b.threads[threadID]
+	td.messagesLoaded = false
+	td.persistRetry = map[string]bool{"missing": true}
+	b.mu.Unlock()
+	b.persistMessages(threadID, nil)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if td.messagesLoaded || !td.persistRetry["missing"] {
+		t.Fatal("重试不应加载历史或删除暂时找不到的重试 ID")
+	}
+}
+
+func TestPersist_EachWriteGetsFreshContext(t *testing.T) {
+	for _, operation := range []string{"UPDATE", "INSERT"} {
+		t.Run(operation, func(t *testing.T) {
+			// 让首条 SQL 越过 persistCtx 的期限，验证后续写入没有复用过期上下文。
+			fn := fmt.Sprintf("persist_pause_%d", time.Now().UnixNano())
+			if err := sqlite.RegisterScalarFunction(fn, 0, func(*sqlite.FunctionContext, []driver.Value) (driver.Value, error) {
+				time.Sleep(5100 * time.Millisecond)
+				return int64(1), nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			b, s, db, threadID := newPersistFaultBackend(t, "fresh-"+operation)
+			msgs := []wire.ThreadMessage{
+				{ID: "slow", Role: "assistant", Text: "慢消息"},
+				{ID: "fast", Role: "assistant", Text: "后续消息"},
+			}
+			b.mu.Lock()
+			b.threads[threadID].messages = append([]wire.ThreadMessage(nil), msgs...)
+			b.mu.Unlock()
+			if operation == "UPDATE" {
+				b.persistMessages(threadID, msgs)
+				msgs[0].Text, msgs[1].Text = "慢消息终稿", "后续消息终稿"
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			query := "CREATE TRIGGER slow_write BEFORE " + operation + " ON messages WHEN NEW.id = 'slow' BEGIN SELECT " + fn + "(); END"
+			if _, err := db.ExecContext(ctx, query); err != nil {
+				t.Fatal(err)
+			}
+			b.persistMessages(threadID, msgs)
+			stored, _, _, err := s.ListMessagesTolerant(ctx, threadID, 0, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, msg := range stored {
+				if msg.ID == "fast" && msg.Text == msgs[1].Text {
+					return
+				}
+			}
+			t.Fatalf("首条超时后后续消息未成功写入：%+v", stored)
+		})
 	}
 }

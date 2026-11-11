@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"mcode/internal/procattr"
+	"mcode/internal/redact"
 	"mcode/internal/startuptrace"
 )
 
@@ -333,6 +334,7 @@ func performLoad(force bool) {
 		var exitErr *exec.ExitError
 		if errors.As(err, &lErr) {
 			stderrStr = lErr.stderr
+			logErr = lErr.err
 		} else if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
 			se := bytes.TrimSpace(exitErr.Stderr)
 			if len(se) > 300 {
@@ -342,9 +344,9 @@ func performLoad(force bool) {
 		}
 
 		if stderrStr != "" {
-			log.Printf("登录 shell 环境加载失败 (shell: %s, 耗时: %v, stderr: %s): %v", shell, elapsed, stderrStr, logErr)
+			log.Printf("登录 shell 环境加载失败 (shell: %s, 耗时: %v, stderr: %s): %s", shell, elapsed, redact.Secrets(stderrStr), redact.Secrets(fmt.Sprint(logErr)))
 		} else {
-			log.Printf("登录 shell 环境加载失败 (shell: %s, 耗时: %v): %v", shell, elapsed, logErr)
+			log.Printf("登录 shell 环境加载失败 (shell: %s, 耗时: %v): %s", shell, elapsed, redact.Secrets(fmt.Sprint(logErr)))
 		}
 
 		// 成功加载后再次失败不会覆盖已有的好缓存

@@ -702,10 +702,6 @@ func (b *MemoryBackend) ensureMessagesLoadedLocked(td *memoryThread) {
 // persistMessages 把指定会话的消息写穿到 store。
 // 持锁时拷贝出待写消息与已持久化状态，释放锁后再执行数据库操作；错误仅记录日志。
 func (b *MemoryBackend) persistMessages(threadID string, msgs []wire.ThreadMessage) {
-	if len(msgs) == 0 {
-		return
-	}
-
 	type opItem struct {
 		msg   store.Message
 		isNew bool
@@ -735,23 +731,46 @@ func (b *MemoryBackend) persistMessages(threadID string, msgs []wire.ThreadMessa
 			isNew: isNew,
 		})
 	}
+	// 只重试内存中仍有的消息，不为重试触发历史加载。
+	for _, m := range td.messages {
+		if td.persistRetry[m.ID] && !seen[m.ID] {
+			ops = append(ops, opItem{msg: messageToStore(threadID, m)})
+			seen[m.ID] = true
+		}
+	}
 	b.mu.Unlock()
 
-	ctx, cancel := persistCtx()
-	defer cancel()
 	for _, item := range ops {
 		if !item.isNew {
+			ctx, cancel := persistCtx()
 			err := s.UpdateMessage(ctx, item.msg)
+			cancel()
 			if err == nil {
+				b.mu.Lock()
+				if td := b.threads[threadID]; td != nil {
+					delete(td.persistRetry, item.msg.ID)
+				}
+				b.mu.Unlock()
 				continue
 			}
+			b.mu.Lock()
+			if td := b.threads[threadID]; td != nil {
+				if td.persistRetry == nil {
+					td.persistRetry = make(map[string]bool)
+				}
+				td.persistRetry[item.msg.ID] = true
+			}
+			b.mu.Unlock()
 			if !errors.Is(err, store.ErrNotFound) {
 				log.Printf("store update message error (thread %s, msg %s): %v", threadID, item.msg.ID, err)
 				continue
 			}
 			// 库里没有这条消息（上次追加失败或已被清理）时回退为追加，避免它永远不入库。
 		}
-		if err := b.appendPersistedMessage(ctx, s, threadID, item.msg); err != nil {
+		ctx, cancel := persistCtx()
+		err := b.appendPersistedMessage(ctx, s, threadID, item.msg)
+		cancel()
+		if err != nil {
 			log.Printf("store append message error (thread %s, msg %s): %v", threadID, item.msg.ID, err)
 		}
 	}
@@ -770,6 +789,7 @@ func (b *MemoryBackend) appendPersistedMessage(ctx context.Context, s *store.Sto
 			td.persisted = make(map[string]bool)
 		}
 		td.persisted[saved.ID] = true
+		delete(td.persistRetry, saved.ID)
 		b.ensureMessagesLoadedLocked(td)
 		for idx := range td.messages {
 			if td.messages[idx].ID == saved.ID {

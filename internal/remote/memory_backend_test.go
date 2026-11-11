@@ -1809,3 +1809,71 @@ func TestMemoryBackend_SummaryContextAndCost(t *testing.T) {
 		t.Errorf("expected fallback contextWindow %d, got %d", want, fallback.ContextWindow)
 	}
 }
+
+func TestMemoryBackend_SubscribeRegistersBeforeSnapshot(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+	const threadID = "subscribe-before-snapshot"
+	b.AddThread(wire.ThreadSummary{ID: threadID, Title: "初始"}, nil)
+	runID := hub.BeginRun(threadID)
+	hub.Publish(threadID, nil, nil, wire.ThreadSummary{ID: threadID})
+	hub.Flush(threadID)
+	conn := newMockStreamConn()
+	type result struct {
+		res wire.SubscribeResult
+		err error
+	}
+	done := make(chan result, 1)
+	b.mu.Lock()
+	go func() {
+		res, err := b.Subscribe(context.Background(), conn, threadID)
+		done <- result{res, err}
+	}()
+	deadline := time.Now().Add(time.Second)
+	for !hub.IsSubscribed(conn) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !hub.IsSubscribed(conn) {
+		b.mu.Unlock()
+		<-done
+		t.Fatal("读取快照前尚未注册订阅")
+	}
+	// 快照仍被 b.mu 阻挡，此时的收尾帧必须已经能送达。
+	final := wire.ThreadSummary{ID: threadID, Title: "已完成"}
+	b.threads[threadID].summary = final
+	hub.Publish(threadID, nil, nil, final)
+	hub.Flush(threadID)
+	b.mu.Unlock()
+	got := <-done
+	if got.err != nil || got.res.Snapshot == nil {
+		t.Fatalf("订阅失败：%+v", got)
+	}
+	if snap := got.res.Snapshot; snap.RunID != runID || snap.Sequence != 1 || snap.Thread.Title != final.Title {
+		t.Fatalf("快照未保留注册时水位或未读取最新状态：%+v", snap)
+	}
+	events := conn.getEvents()
+	if len(events) != 1 || events[0].Sequence != 2 || events[0].Payload.Thread.Title != final.Title {
+		t.Fatalf("快照前的收尾帧丢失：%+v", events)
+	}
+	hub.Publish(threadID, nil, nil, final)
+	hub.Flush(threadID)
+	if len(conn.getEvents()) != 2 {
+		t.Fatal("订阅返回后未收到新帧")
+	}
+}
+
+func TestMemoryBackend_SubscribeMissingThreadRemovesRegistration(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+	conn := newMockStreamConn()
+	if _, err := b.Subscribe(context.Background(), conn, "missing"); err == nil {
+		t.Fatal("不存在的会话应返回错误")
+	}
+	if hub.IsSubscribed(conn) {
+		t.Fatal("不存在的会话遗留订阅")
+	}
+}

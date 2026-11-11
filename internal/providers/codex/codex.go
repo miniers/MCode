@@ -39,6 +39,7 @@ import (
 	"mcode/internal/procattr"
 	"mcode/internal/procutil"
 	"mcode/internal/providers/loginenv"
+	"mcode/internal/redact"
 )
 
 var _ harness.Harness = (*Harness)(nil)
@@ -860,6 +861,7 @@ func (h *Harness) startProcess(ctx context.Context, turn harness.Turn, route *Ma
 	go func() {
 		defer close(client.readerDoneCh)
 		reader := bufio.NewReader(stdout)
+		badLines := 0
 
 		for {
 			line, readErr := reader.ReadBytes('\n')
@@ -918,6 +920,15 @@ func (h *Harness) startProcess(ctx context.Context, turn harness.Turn, route *Ma
 								}
 							}
 						}
+					} else {
+						badLines++
+						if badLines == 1 {
+							content := redact.Secrets(string(line))
+							if len(content) > 200 {
+								content = content[:200]
+							}
+							log.Printf("codex: 跳过无法解析的行: %q", content)
+						}
 					}
 				}
 			}
@@ -926,6 +937,9 @@ func (h *Harness) startProcess(ctx context.Context, turn harness.Turn, route *Ma
 			}
 		}
 
+		if badLines > 1 {
+			log.Printf("codex: 共跳过 %d 行无法解析的行", badLines)
+		}
 		proc.deadOnce.Do(func() {
 			close(proc.deadCh)
 		})

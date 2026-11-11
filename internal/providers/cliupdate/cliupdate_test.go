@@ -6,10 +6,49 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestRunCommandTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("测试使用 Unix shell")
+	}
+	previous := commandTimeout
+	commandTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { commandTimeout = previous })
+
+	t.Run("命令超时", func(t *testing.T) {
+		start := time.Now()
+		_, err := runCommand(context.Background(), "/bin/sh", "-c", "exec sleep 30")
+		if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 5*time.Second {
+			t.Fatalf("命令未按时超时: %v，耗时 %v", err, time.Since(start))
+		}
+	})
+	t.Run("后台进程继承管道", func(t *testing.T) {
+		pidFile := filepath.Join(t.TempDir(), "pid")
+		t.Cleanup(func() {
+			if data, err := os.ReadFile(pidFile); err == nil {
+				if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+					if process, err := os.FindProcess(pid); err == nil {
+						_ = process.Kill()
+					}
+				}
+			}
+		})
+		start := time.Now()
+		_, err := runCommand(context.Background(), "/bin/sh", "-c", "sleep 30 & echo $! > \"$1\"; echo v1", "sh", pidFile)
+		if err == nil || time.Since(start) > 5*time.Second {
+			t.Fatalf("继承管道的命令未按时返回错误: %v，耗时 %v", err, time.Since(start))
+		}
+	})
+}
 
 // stubRunCommand 替换 runCommand，测试结束自动恢复。
 func stubRunCommand(t *testing.T, command func(context.Context, string, ...string) (string, error)) {

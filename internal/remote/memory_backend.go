@@ -143,6 +143,7 @@ type memoryThread struct {
 	messagesLoaded bool
 	sessionID      string
 	persisted      map[string]bool
+	persistRetry   map[string]bool // 只保存待重写的消息 ID，由 b.mu 保护。
 	pending        map[string]*pendingRequest
 	alwaysAllow    map[string]bool
 	runTurnID      string
@@ -2599,10 +2600,15 @@ func (b *MemoryBackend) threadHistoryLocked(params wire.HistoryParams) (wire.His
 
 // Subscribe 登记会话订阅并返回包含当前水位的快照。
 func (b *MemoryBackend) Subscribe(ctx context.Context, c Conn, threadID string) (wire.SubscribeResult, error) {
+	runID, seq := b.hub.Subscribe(c, threadID)
+	if runID == "" {
+		runID = b.hub.BeginRun(threadID)
+	}
 	b.mu.Lock()
 	td, ok := b.threads[threadID]
 	if !ok {
 		b.mu.Unlock()
+		b.hub.Unsubscribe(c, threadID)
 		return wire.SubscribeResult{}, &wire.RPCError{
 			Code:    wire.ErrCodeResourceNotFound,
 			Message: fmt.Sprintf("thread %s not found", threadID),
@@ -2612,10 +2618,6 @@ func (b *MemoryBackend) Subscribe(ctx context.Context, c Conn, threadID string) 
 	history, _ := b.threadHistoryLocked(wire.HistoryParams{ThreadID: threadID})
 	b.mu.Unlock()
 
-	runID, seq := b.hub.Subscribe(c, threadID)
-	if runID == "" {
-		runID = b.hub.BeginRun(threadID)
-	}
 	return wire.SubscribeResult{
 		ThreadID:   threadID,
 		Subscribed: true,

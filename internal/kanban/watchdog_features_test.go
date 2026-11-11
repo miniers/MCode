@@ -2,6 +2,7 @@ package kanban
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,6 +76,25 @@ func setupWatchdogTestService(t *testing.T, autoReview, autoStart, autoRescue bo
 // TestKanbanAutoStartOnCreate 测试新建任务自动排队启动。
 func TestKanbanAutoStartOnCreate(t *testing.T) {
 	ctx := context.Background()
+
+	t.Run("启动失败时记录原因", func(t *testing.T) {
+		svc, db, driver, _ := setupWatchdogTestService(t, true, true, true, 600*time.Second, 1800*time.Second, nil)
+		startErr := errors.New("session boom")
+		svc.opts.Driver = &failingStartDriver{mockDriver: driver, err: startErr}
+		task, err := svc.CreateTask(ctx, CreateTaskInput{Title: "启动失败任务"})
+		if err != nil {
+			t.Fatalf("创建任务失败: %v", err)
+		}
+		stored, err := db.GetTask(ctx, task.ID)
+		if err != nil {
+			t.Fatalf("读取任务失败: %v", err)
+		}
+		for _, got := range []store.Task{task, stored} {
+			if got.Status != string(TaskStatusTodo) || got.LastFailureReason == nil || !strings.Contains(*got.LastFailureReason, startErr.Error()) {
+				t.Fatalf("期望任务保持 todo 并记录启动失败原因: %+v", got)
+			}
+		}
+	})
 
 	t.Run("开启自启且无依赖时创建后立即为in_progress", func(t *testing.T) {
 		svc, _, _, _ := setupWatchdogTestService(t, true, true, true, 600*time.Second, 1800*time.Second, nil)

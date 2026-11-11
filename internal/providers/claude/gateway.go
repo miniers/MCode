@@ -17,7 +17,12 @@ import (
 )
 
 // gatewayHTTPClient 请求 Magpie 网关，测试中可替换。
-var gatewayHTTPClient = &http.Client{Timeout: 10 * time.Second}
+var gatewayHTTPClient = &http.Client{
+	Timeout: 10 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
 
 // readGatewayPlanLimits 读取 Claude Code 所指向的 Magpie 网关的额度。
 // 返回值的 bool 表示当前上游是否被识别为 Magpie：false 时调用方应回退到原有逻辑。
@@ -315,7 +320,7 @@ func gatewayDo(ctx context.Context, method, target, token string) ([]byte, int, 
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, resp.StatusCode, err
 	}

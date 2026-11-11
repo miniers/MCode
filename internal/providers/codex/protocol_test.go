@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -992,6 +993,34 @@ while True:
         sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn_mock_abc","status":"completed"}}}) + "\n")
         sys.stdout.flush()
 `
+
+func TestMalformedLinesDoNotStopTurn(t *testing.T) {
+	var logs bytes.Buffer
+	oldOutput := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(oldOutput)
+	script := strings.Replace(pongAppServerScript, `    elif method == "turn/start":`,
+		"    elif method == \"turn/start\":\n        sys.stdout.write('bad token=secretvalue\\nsecond bad line\\nthird bad line\\n')", 1)
+	h := newEvictHarness(t, script)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := h.Run(ctx, harness.Turn{WorkDir: t.TempDir(), Mode: harness.ModeAgent, Prompt: "test", Sandbox: evictSandbox(script)}, nil)
+	if err != nil {
+		t.Fatalf("轮次失败: %v", err)
+	}
+	procs := h.poolProcs()
+	if len(procs) != 1 {
+		t.Fatalf("进程数=%d", len(procs))
+	}
+	if err := h.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-procs[0].client.readerDoneCh
+	got := logs.String()
+	if strings.Count(got, "跳过无法解析的行:") != 1 || strings.Count(got, "共跳过 3 行") != 1 || strings.Contains(got, "secretvalue") || !strings.Contains(got, "token=***") || strings.Contains(got, "second bad line") {
+		t.Fatalf("坏行日志不符合预期: %s", got)
+	}
+}
 
 // slowAppServerScript 与 pongAppServerScript 相同，但当轮输入包含 SLOW 时延迟 2 秒才结束该轮，
 // 用于验证并发轮次不会被串行化。
