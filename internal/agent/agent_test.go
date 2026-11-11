@@ -674,6 +674,66 @@ func readOnlyTestTool(name string) tools.Tool {
 	return tool
 }
 
+func TestToolOutputEvents(t *testing.T) {
+	for _, parallel := range []bool{false, true} {
+		t.Run(map[bool]string{false: "serial", true: "parallel"}[parallel], func(t *testing.T) {
+			calls := []llm.ToolCall{call("1", "read", `{"text":"one"}`)}
+			if parallel {
+				calls = append(calls, call("2", "read", `{"text":"two"}`))
+			}
+			client := &scriptClient{steps: []scriptStep{{response: reply("tool_use", calls...)}, {response: reply("stop")}}}
+			tool := readOnlyTestTool("read")
+			tool.Run = func(_ context.Context, env tools.Env, args json.RawMessage) (tools.Result, error) {
+				var input struct{ Text string }
+				if err := json.Unmarshal(args, &input); err != nil {
+					return tools.Result{}, err
+				}
+				env.OnOutput(input.Text)
+				env.OnOutput("!")
+				return tools.Result{Text: input.Text + "!"}, nil
+			}
+			var events []harness.Event
+			var mu sync.Mutex
+			var original []string
+			err := Run(context.Background(), Options{Client: client, Tools: []tools.Tool{tool}, Mode: harness.ModeFullAccess,
+				Env:  tools.Env{OnOutput: func(chunk string) { mu.Lock(); defer mu.Unlock(); original = append(original, chunk) }},
+				Emit: func(event harness.Event) { events = append(events, event) },
+			}, "hello", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(original) != len(calls)*2 {
+				t.Fatalf("original callback chunks = %v", original)
+			}
+			for _, c := range calls {
+				var chunks []string
+				ended := false
+				for _, event := range events {
+					if event.ToolID != c.ID {
+						continue
+					}
+					if event.Type == harness.EventToolEnd {
+						ended = true
+					}
+					if event.Type == harness.EventToolOutput {
+						if ended || event.ToolName != c.Name {
+							t.Fatalf("unexpected output event: %+v", event)
+						}
+						chunks = append(chunks, event.Text)
+					}
+				}
+				var input struct{ Text string }
+				if err := json.Unmarshal(c.Arguments, &input); err != nil {
+					t.Fatal(err)
+				}
+				if !ended || !reflect.DeepEqual(chunks, []string{input.Text, "!"}) {
+					t.Fatalf("call %s: chunks = %v, ended = %v", c.ID, chunks, ended)
+				}
+			}
+		})
+	}
+}
+
 func TestParallelReadOnlyToolCalls(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	calls := []llm.ToolCall{call("1", "read", `{"n":1}`), call("2", "read", `{"n":2}`), call("3", "read", `{"n":3}`)}

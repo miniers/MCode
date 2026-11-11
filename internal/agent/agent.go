@@ -84,8 +84,21 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 	var pending []llm.ToolCall
 	var usage harness.Usage
 	var stopReason string
+	var emitMu sync.Mutex
 	emit := func(event harness.Event) {
+		emitMu.Lock()
+		defer emitMu.Unlock()
 		_ = harness.Emit(opts.Emit, event)
+	}
+	toolOptions := func(call llm.ToolCall) Options {
+		toolOpts := opts
+		toolOpts.Env.OnOutput = func(chunk string) {
+			if opts.Env.OnOutput != nil {
+				opts.Env.OnOutput(chunk)
+			}
+			emit(harness.Event{Type: harness.EventToolOutput, ToolID: call.ID, ToolName: call.Name, Text: chunk})
+		}
+		return toolOpts
 	}
 	appendMessage := func(message llm.Message) error {
 		if opts.Store != nil {
@@ -473,7 +486,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 								result = tools.Result{Text: fmt.Sprintf("tool panicked: %v", r), IsError: true}
 							}
 						}()
-						result = runTool(ctx, opts, call)
+						result = runTool(ctx, toolOptions(call), call)
 					}()
 				}
 				if ctx.Err() != nil {
@@ -505,7 +518,7 @@ func Run(ctx context.Context, opts Options, prompt string, images []llm.Part) (r
 					}()
 					sem <- struct{}{}
 					defer func() { <-sem }()
-					results[index] = executeTool(ctx, opts, item.call, item.tool, item.verdict)
+					results[index] = executeTool(ctx, toolOptions(item.call), item.call, item.tool, item.verdict)
 				}(index, item)
 			}
 			wg.Wait()
