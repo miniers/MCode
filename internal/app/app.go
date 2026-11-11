@@ -631,8 +631,7 @@ func Open(opts Options) (*App, error) {
 				return kanban.StewardTaskDefaults{}
 			}
 			config.ApplyEnv(&c, os.LookupEnv)
-			st := c.Orchestration.Steward
-			return kanban.StewardTaskDefaults{Provider: st.TaskProvider, Model: st.TaskModel, Swarm: st.TaskSwarm}
+			return stewardTaskDefaults(c)
 		},
 		StuckNudgeTimeout: func() time.Duration {
 			if c, err := config.Load(opts.DataDir); err == nil {
@@ -2030,6 +2029,26 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 	// 兼容旧线程，最后注册以免覆盖其他来源的默认顺序。
 	backend.RegisterHarness(buildMcodeHarness(cfg, secrets, dataDir, mcpInjection))
 	return agyMgr, agyHarness
+}
+
+// stewardTaskDefaults 读取总管下发任务的模型设置：选了仍存在的编排配对时按配对两侧模型下发并开启编排，
+// 否则用单个任务模型、不开编排。
+func stewardTaskDefaults(c config.Config) kanban.StewardTaskDefaults {
+	st := c.Orchestration.Steward
+	p, ok := c.Orchestration.Pair(st.TaskPairID)
+	if st.TaskPairID == "" || !ok {
+		return kanban.StewardTaskDefaults{Provider: st.TaskProvider, Model: st.TaskModel}
+	}
+	return kanban.StewardTaskDefaults{
+		Provider:     p.LeadProvider,
+		Model:        p.LeadModel,
+		Effort:       derefString(p.LeadEffort),
+		FastMode:     p.LeadFastMode,
+		BeesProvider: p.WorkerProvider,
+		BeesModel:    p.WorkerModel,
+		BeesEffort:   derefString(p.WorkerEffort),
+		PairID:       p.ID,
+	}
 }
 
 // swarmThreadContextFrom 从原始用户消息、配对 ID、档位 JSON 与会话选定的子线程模型（含推理强度）构建 swarm.ThreadContext。

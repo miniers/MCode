@@ -263,8 +263,83 @@ var git = " status log diff show blame branch ls-files describe rev-parse rev-li
 var branch = " -a -r -v -vv --list --all --remotes --show-current --verbose --contains --merged --no-merged "
 var find = " -delete -exec -execdir -ok -okdir -fprint -fprint0 -fprintf -fls "
 
+// LeadPlansOnlyDenial 判断主代理工具调用是否违反只规划约束。
+func LeadPlansOnlyDenial(toolName string, args json.RawMessage) string {
+	const denial = "主代理只负责规划和验证，请将修改交给 bee，不要换工具或命令重试。"
+	name := strings.ToLower(strings.TrimSpace(toolName))
+	if strings.HasPrefix(name, "mcp__mcode__") {
+		return ""
+	}
+	switch name {
+	case "read", "glob", "grep", "ls", "webfetch", "websearch":
+		return ""
+	case "bash", "exec_command", "shell", "terminal":
+		var input map[string]json.RawMessage
+		if json.Unmarshal(args, &input) != nil {
+			return denial
+		}
+		var command string
+		if value, ok := input["command"]; ok {
+			if json.Unmarshal(value, &command) != nil {
+				return denial
+			}
+		} else if value, ok := input["cmd"]; ok {
+			if json.Unmarshal(value, &command) != nil {
+				return denial
+			}
+		}
+		if !strings.ContainsAny(command, "<>") && onlyReads(command, true) {
+			return ""
+		}
+	}
+	return denial
+}
+
+func goCheckArgs(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			continue
+		}
+		name, value, hasValue := strings.Cut(a, "=")
+		switch name {
+		case "-v", "-race", "-short", "-failfast", "-fullpath", "-trimpath", "-a", "-n", "-x":
+			if hasValue && value != "true" && value != "false" {
+				return false
+			}
+		case "-timeout", "-run", "-count", "-tags", "-bench", "-benchtime", "-cpu", "-parallel", "-p", "-vet", "-shuffle":
+			if !hasValue {
+				i++
+				if i >= len(args) || strings.HasPrefix(args[i], "-") {
+					return false
+				}
+			} else if value == "" {
+				return false
+			}
+		case "-mod":
+			if !hasValue {
+				i++
+				if i >= len(args) {
+					return false
+				}
+				value = args[i]
+			}
+			if value != "readonly" && value != "vendor" {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // OnlyReads 判断 shell 命令是否仅包含允许的只读操作。
 func OnlyReads(command string) bool {
+	return onlyReads(command, false)
+}
+
+func onlyReads(command string, allowGoChecks bool) bool {
 	if strings.TrimSpace(command) == "" {
 		return false
 	}
@@ -467,6 +542,12 @@ func OnlyReads(command string) bool {
 			}
 			continue
 		case "go", "defaults", "plutil", "command":
+			if p == "go" && allowGoChecks && len(t) > 1 && (t[1] == "build" || t[1] == "test" || t[1] == "vet") {
+				if !goCheckArgs(t[2:]) {
+					return false
+				}
+				continue
+			}
 			allowed := map[string]string{"go": " version env list doc mod ", "defaults": " read ", "plutil": " -p ", "command": " -v -V "}
 			if len(t) < 2 || !strings.Contains(allowed[p], " "+t[1]+" ") {
 				return false

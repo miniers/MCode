@@ -609,7 +609,6 @@ func TestSettingsLegacyPageAndRowLinks(t *testing.T) {
 		{"row-steward-home-dir", "steward", ""},
 		{"row-steward-model", "steward", ""},
 		{"row-steward-task-model", "steward", ""},
-		{"row-steward-task-swarm", "steward", ""},
 		{"row-steward-enabled", "steward", ""},
 		{"row-context-inject-budget", "workbench", ""},
 		{"row-terminal-scrollback-lines", "workbench", ""},

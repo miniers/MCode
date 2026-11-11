@@ -70,6 +70,12 @@ func (b *MemoryBackend) StartSession(ctx context.Context, req kanban.SessionRequ
 	if req.Effort != "" {
 		prefs.Effort = req.Effort
 	}
+	if req.BeesProvider != "" || req.BeesModel != "" {
+		prefs.BeesProvider, prefs.BeesModel = req.BeesProvider, req.BeesModel
+	}
+	if req.BeesEffort != "" {
+		prefs.BeesEffort = req.BeesEffort
+	}
 	// 权限模式同理：非空时覆盖上面从 Lead 继承的值，为空则保持原行为（沿用 Lead 或后端默认）。
 	// 合法性由 createThread 统一校验，这里不重复判断。
 	if req.RuntimeMode != "" {
@@ -101,8 +107,13 @@ func (b *MemoryBackend) StartSession(ctx context.Context, req kanban.SessionRequ
 			enable(threadID, true)
 		}
 	}
-	if req.LeadThreadID != "" || req.InteractionMode != "" || req.Effort != "" {
+	if req.LeadThreadID != "" || req.InteractionMode != "" || req.Effort != "" || prefs.BeesProvider != "" || prefs.BeesModel != "" || prefs.BeesEffort != "" {
 		if _, err := b.SetThreadComposerPrefs(ctx, threadID, prefs); err != nil {
+			return "", err
+		}
+	}
+	if req.PairID != "" {
+		if err := b.SetThreadSwarmPairID(ctx, threadID, req.PairID); err != nil {
 			return "", err
 		}
 	}

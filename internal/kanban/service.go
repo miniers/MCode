@@ -59,13 +59,24 @@ type SessionRequest struct {
 	Effort   string // 非空时覆盖 effort
 	FastMode bool   // 为 true 时为新会话开启快速模式
 	Swarm    bool   // 为 true 时新会话在首轮之前开启编排
+	// 以下字段来自编排配对：非空时写入新会话的子代理偏好与选中的配对。
+	BeesProvider string
+	BeesModel    string
+	BeesEffort   string
+	PairID       string
 }
 
-// StewardTaskDefaults 是总管下发任务的执行默认值：Provider 为空表示跟随默认。
+// StewardTaskDefaults 是总管下发任务的执行默认值：Provider 为空表示跟随默认；
+// PairID 非空表示按该编排配对下发并开启编排。
 type StewardTaskDefaults struct {
-	Provider string
-	Model    string
-	Swarm    bool
+	Provider     string
+	Model        string
+	Effort       string
+	FastMode     bool
+	BeesProvider string
+	BeesModel    string
+	BeesEffort   string
+	PairID       string
 }
 
 // SessionState 描述代理会话的运行时执行状态。
@@ -663,13 +674,17 @@ func (s *Service) startTaskInternal(ctx context.Context, taskID string, expected
 			}
 		}
 	}
-	// 总管下发的任务：未指定模型时用设置里的子任务模型，并按设置决定是否走编排。
+	// 总管下发的任务：未指定模型时用设置里的任务模型；设置选的是编排配对时开启编排。
 	if stewardOwner && s.opts.StewardTasks != nil {
 		d := s.opts.StewardTasks()
 		if req.Provider == "" && req.Model == "" {
-			req.Provider, req.Model = d.Provider, d.Model
+			req.Provider, req.Model, req.Effort, req.FastMode = d.Provider, d.Model, d.Effort, d.FastMode
 		}
-		req.Swarm = d.Swarm
+		if d.PairID != "" {
+			req.Swarm = true
+			req.PairID = d.PairID
+			req.BeesProvider, req.BeesModel, req.BeesEffort = d.BeesProvider, d.BeesModel, d.BeesEffort
+		}
 	}
 	threadID, err := s.opts.Driver.StartSession(ctx, req)
 	if err != nil {

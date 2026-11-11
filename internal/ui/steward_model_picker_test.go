@@ -223,3 +223,20 @@ func TestStewardTaskModelSelection(t *testing.T) {
 		t.Fatalf("未设置时应为自动：%+v", got)
 	}
 }
+
+// TestStewardTaskPair 验证任务模型只认仍就绪的配对，配对不在就绪列表里时视为没选。
+func TestStewardTaskPair(t *testing.T) {
+	var cfg config.Config
+	ready := []SwarmPair{{ID: "a", LeadProvider: "claude"}, {ID: "b", LeadProvider: "codex"}}
+	if _, ok := stewardTaskPair(cfg, ready); ok {
+		t.Fatal("未选配对时不应命中")
+	}
+	cfg.Orchestration.Steward.TaskPairID = "b"
+	if got, ok := stewardTaskPair(cfg, ready); !ok || got.ID != "b" {
+		t.Fatalf("配对 = %+v, %v", got, ok)
+	}
+	cfg.Orchestration.Steward.TaskPairID = "gone"
+	if _, ok := stewardTaskPair(cfg, ready); ok {
+		t.Fatal("已删除的配对不应命中")
+	}
+}

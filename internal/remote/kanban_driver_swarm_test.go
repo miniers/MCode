@@ -124,3 +124,32 @@ func TestStartSession_SwarmEnablesBeforeFirstTurn(t *testing.T) {
 		t.Fatalf("只有带 Swarm 的会话应开启编排, got %v want [%s]", enabled, swarmID)
 	}
 }
+
+// StartSession 带编排配对时写入子代理偏好与配对 ID。
+func TestStartSession_PairWritesBeesAndPairID(t *testing.T) {
+	ctx := context.Background()
+	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+
+	b.SetHarness(&mockHarness{kind: "claude"}, t.TempDir(), harness.ModeFullAccess)
+	b.RegisterHarness(&mockHarness{kind: "codex"})
+	b.AddProject(wire.ProjectSummary{ID: "p1", Path: t.TempDir()})
+
+	threadID, err := b.StartSession(ctx, kanban.SessionRequest{
+		ProjectID: "p1", WorkDir: t.TempDir(), Swarm: true,
+		BeesProvider: "codex", BeesModel: "gpt-5.4", BeesEffort: "high", PairID: "pair-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	th, err := b.GetThread(ctx, threadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if derefString(th.SwarmBeesProvider) != "codex" || derefString(th.SwarmBeesModel) != "gpt-5.4" ||
+		derefString(th.SwarmBeesEffort) != "high" || derefString(th.SwarmPairID) != "pair-1" {
+		t.Fatalf("配对未写入会话: %+v", th)
+	}
+}

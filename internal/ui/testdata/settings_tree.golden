@@ -151,7 +151,6 @@ row row-steward-cli-fallback 没有 API Key 时用本机 CLI
 section sec-steward-model 模型
 row row-steward-model 前台模型
 row row-steward-task-model 任务模型
-row row-steward-task-swarm 任务走编排
 section sec-steward-quiet 安静时段
 row row-steward-no-progress 无进展提醒
 row row-steward-quiet-enabled 启用安静时段

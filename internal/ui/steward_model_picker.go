@@ -46,6 +46,17 @@ func stewardTaskModelSelection(cfg config.Config, catalog modelPickerCatalog) Mo
 	return catalogModelSelection(cfg.Orchestration.Steward.TaskProvider, cfg.Orchestration.Steward.TaskModel, catalog)
 }
 
+// stewardTaskPair 返回任务模型选中的编排配对；配对已删除或当前目录未就绪时视为没选。
+func stewardTaskPair(cfg config.Config, ready []SwarmPair) (SwarmPair, bool) {
+	id := cfg.Orchestration.Steward.TaskPairID
+	for _, p := range ready {
+		if id != "" && p.ID == id {
+			return p, true
+		}
+	}
+	return SwarmPair{}, false
+}
+
 func catalogModelSelection(providerID, model string, catalog modelPickerCatalog) ModelSelection {
 	for _, provider := range catalog.Providers {
 		if provider.ID == providerID {

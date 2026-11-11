@@ -123,33 +123,47 @@ var stewardModelSection = settingsSection{
 		{
 			ID:      "row-steward-task-model",
 			Title:   "任务模型",
-			Aliases: []string{"总管", "模型", "子任务", "下发"},
+			Aliases: []string{"总管", "模型", "子任务", "下发", "编排", "配对", "swarm"},
 			Control: custom(renderStewardTaskModelControl),
-		},
-		{
-			ID:      "row-steward-task-swarm",
-			Title:   "任务走编排",
-			Aliases: []string{"总管", "编排", "swarm", "子代理", "子任务"},
-			Control: toggle(val(func(cfg *config.Config) *bool { return &cfg.Orchestration.Steward.TaskSwarm }, false)),
 		},
 	},
 }
 
-// renderStewardTaskModelControl 画总管下发任务的模型胶囊；选过模型后可退回自动。
+// renderStewardTaskModelControl 画总管下发任务的模型胶囊：选编排配对即任务走编排，选单个模型即不走编排；
+// 选过之后可退回自动。
 func renderStewardTaskModelControl(c *ui.Context, st *SettingsState) {
 	catalog := settingsModelPickerCatalog(st)
 	sel := stewardTaskModelSelection(st.cfg, catalog)
+	pairs := readySwarmPairs(st.cfg, st.cfg.Orchestration.Pairs, catalog.Providers, catalog.Pins)
+	pair, hasPair := stewardTaskPair(st.cfg, pairs)
+	if hasPair {
+		sel = ModelSelection{}
+	}
 	ui.Row(c.Key("wrap-steward-task-model")).
 		AlignItems(ui.Center).
 		Gap(Space1).
 		Children(func() {
-			renderSwarmModelCapsuleCatalog(c, st, "steward-task-model", "steward-task-model", sel, "自动", "选择任务模型", func(next ModelSelection) {
+			props := swarmModelCapsuleProps(st, "steward-task-model", "steward-task-model", sel, "自动", "选择任务模型", func(next ModelSelection) {
 				st.cfg.Orchestration.Steward.TaskProvider = next.Provider
 				st.cfg.Orchestration.Steward.TaskModel = next.Model
+				st.cfg.Orchestration.Steward.TaskPairID = ""
 				st.save()
 			}, catalog, true)
+			props.Pairs = pairs
+			props.OnApplyPair = func(next SwarmPair) {
+				st.cfg.Orchestration.Steward.TaskProvider = ""
+				st.cfg.Orchestration.Steward.TaskModel = ""
+				st.cfg.Orchestration.Steward.TaskPairID = next.ID
+				st.save()
+			}
+			if hasPair {
+				props.PairID = pair.ID
+				props.CapsuleLabel = swarmPairTitle(pair, catalog.Providers)
+				props.Tooltip = swarmPairTooltip(pair, "", catalog.Providers)
+			}
+			renderModelPicker(c, catalog.apply(props))
 
-			if !swarmEmptySelection(sel) {
+			if hasPair || !swarmEmptySelection(sel) {
 				btnClear := ui.ButtonBase(c.Key("btn-steward-task-model-clear")).
 					Label("自动").
 					Padding(settingsBadgePadY, Space3).
@@ -161,6 +175,7 @@ func renderStewardTaskModelControl(c *ui.Context, st *SettingsState) {
 				if btnClear.Clicked() {
 					st.cfg.Orchestration.Steward.TaskProvider = ""
 					st.cfg.Orchestration.Steward.TaskModel = ""
+					st.cfg.Orchestration.Steward.TaskPairID = ""
 					st.save()
 				}
 				btnClear.Children(func() {

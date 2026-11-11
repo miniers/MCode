@@ -2015,9 +2015,12 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 					Children(func() {
 						// C-HY-19：Lead 段列表顶部展示就绪的 Swarm 配对模板，点击一键套用并关闭整个弹层。
 						// 搜索时只列匹配的模型，不展示配对段。
-						if p.Mode == ModelPickerSwarm && side == ModelPickerSideLead && len(p.Pairs) > 0 && !searching {
+						// Simple 模式传了 OnApplyPair 时同样列出配对，选中项直接认 PairID。
+						if (p.Mode == ModelPickerSwarm || p.OnApplyPair != nil) && side == ModelPickerSideLead && len(p.Pairs) > 0 && !searching {
 							curPair, hasCurPair := SwarmPair{}, false
-							if p.SwarmOn {
+							if p.Mode != ModelPickerSwarm {
+								curPair, hasCurPair = SwarmPair{ID: p.PairID}, p.PairID != ""
+							} else if p.SwarmOn {
 								curPair, hasCurPair = currentSwarmPairFor(p.Pairs, p.PairID, lead.Selection.Provider, lead.Selection.Model, p.Bees.Provider, p.Bees.Model)
 							}
 							renderProviderGroupHeader(c, p.KeyPrefix+"pair-group-header", "配对")

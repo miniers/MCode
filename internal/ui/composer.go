@@ -1961,8 +1961,9 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 	}
 	pickerMode, pickerState := ModelPickerSwarm, composerModelPickerState
 	if s.embeddedBee {
-		// 子代理的输入框只选单个模型，展开状态也用自己的一份，不与主输入框联动。
+		// 子代理的输入框只选单个模型，不列配对，展开状态也用自己的一份，不与主输入框联动。
 		pickerMode, pickerState = ModelPickerSimple, s.embeddedPicker
+		pairs = nil
 	}
 	// 模型目录为空时，选择器里提供「重新探测」按钮：重新拉取供应商目录。
 	renderModelPicker(c, modelPickerCatalogFor(s).apply(ModelPickerProps{
