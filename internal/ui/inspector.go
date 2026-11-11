@@ -26,6 +26,7 @@ type inspectorState struct {
 type inspectorSessionState struct {
 	Open           bool
 	Active         string
+	generation     uint64
 	Width          float32
 	Files          *fileManagerState
 	Review         *diffPanelState
@@ -60,7 +61,7 @@ func inspectorSessionLocked(s *chatState, threadID string) *inspectorSessionStat
 		}
 	}
 	st := &inspectorSessionState{
-		Active: sidePaneFileID, Width: inspectorInitialWidth(s),
+		Active: sidePaneFileID, generation: 1, Width: inspectorInitialWidth(s),
 		Files:   &fileManagerState{},
 		Review:  &diffPanelState{owner: s, collapsed: make(map[string]bool)},
 		Browser: &previewState{lastUsed: time.Now()},
@@ -117,8 +118,12 @@ func inspectorSelect(s *chatState, id string, toggle bool) bool {
 	}
 	s.mu.Lock()
 	wasBrowser := st.Open && st.Active == sidePanePreviewID
+	wasOpen, wasActive := st.Open, st.Active
 	st.Open = !(toggle && st.Open && st.Active == id)
 	st.Active = id
+	if st.Open != wasOpen || st.Active != wasActive {
+		st.generation++
+	}
 	open := st.Open
 	s.mu.Unlock()
 	if wasBrowser && (!open || id != sidePanePreviewID) {
@@ -137,6 +142,9 @@ func inspectorClose(s *chatState) {
 		return
 	}
 	s.mu.Lock()
+	if st.Open {
+		st.generation++
+	}
 	st.Open = false
 	s.mu.Unlock()
 	hidePreviewState(s, st.Browser)
@@ -266,7 +274,11 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 	old := inspectorExistingSessionLocked(s, oldID)
 	current := inspectorExistingSessionLocked(s, s.selectedThreadID)
 	if old != nil {
+		old.generation++
 		inspectorFollowStopLocked(old)
+	}
+	if current != nil && current != old {
+		current.generation++
 	}
 	s.mu.Unlock()
 	if old != nil {
@@ -304,7 +316,10 @@ func inspectorValidateWorkspace(s *chatState) {
 	}
 	_, root, main := getSelectedThreadDirs(s)
 	identity := root + "\x00" + main
-	if st.workspaceKnown && st.workspace != identity {
+	s.mu.Lock()
+	changed := st.workspaceKnown && st.workspace != identity
+	s.mu.Unlock()
+	if changed {
 		inspectorFollowReset(s, st)
 		fileManagerMu.Lock()
 		st.Files.gen++
@@ -321,7 +336,12 @@ func inspectorValidateWorkspace(s *chatState) {
 		st.Review = &diffPanelState{owner: s, collapsed: make(map[string]bool)}
 		diffPanelMu.Unlock()
 	}
+	s.mu.Lock()
+	if !st.workspaceKnown || st.workspace != identity {
+		st.generation++
+	}
 	st.workspace, st.workspaceKnown = identity, true
+	s.mu.Unlock()
 	inspectorFileWatchTick(s, st)
 }
 
@@ -329,6 +349,9 @@ func inspectorDisposeSession(s *chatState, st *inspectorSessionState) {
 	if st == nil {
 		return
 	}
+	s.mu.Lock()
+	st.generation++
+	s.mu.Unlock()
 	inspectorFollowReset(s, st)
 	browserServerDiscoveryDispose(s)
 	fileTreeWatchDispose(st.Files)
