@@ -2264,7 +2264,7 @@ func renderTimelinePlanCard(c *ui.Context, s *chatState, plan resolvedPlan, pend
 				ContextMenu(messageContextMenu(c, s, Message{Role: "assistant", Text: plan.Plan})).Children(func() {
 				renderPlanMarkdown(c, s, key+"-markdown", plan.Plan, 0)
 				if !pending && !plan.Approved && plan.Feedback != "" {
-					ui.Row(c.Key(key+"-feedback")).BorderLeft(Space1, ThemeBorder(c)).Padding(0, Space3).Children(func() {
+					ui.Row(c.Key(key+"-feedback")).BorderStartWidth(Space1).BorderColor(ThemeBorder(c)).Padding(0, Space3).Children(func() {
 						ui.Text(c, plan.Feedback).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c)).Selectable()
 					})
 				}
