@@ -261,7 +261,7 @@ func TestInspectorPreferenceMergePreservesOtherFields(t *testing.T) {
 	inspectorSelect(s, sidePaneFileID, false)
 	waitUIStateWrites()
 	got, _ := loadUIStateFile()
-	if len(got.InspectorSessions) != 2 || got.InspectorSessions["t2"] != initial.InspectorSessions["t2"] ||
+	if len(got.InspectorSessions) != 2 || !reflect.DeepEqual(got.InspectorSessions["t2"], initial.InspectorSessions["t2"]) ||
 		!reflect.DeepEqual(got.ProjectOrder, initial.ProjectOrder) || got.LastModel != initial.LastModel ||
 		!reflect.DeepEqual(got.LastSwarm, initial.LastSwarm) || got.TerminalDockHeight != 280 {
 		t.Fatalf("会话写者覆盖了其他字段: %+v", got)
@@ -336,12 +336,88 @@ func TestInspectorPreferenceChangesDuringWrite(t *testing.T) {
 				if _, ok := got["t1"]; ok {
 					t.Fatal("旧写者快照复活了删除的偏好")
 				}
-			} else if got["t1"] != late {
+			} else if !reflect.DeepEqual(got["t1"], late) {
 				t.Fatalf("写盘期间的新偏好被旧快照覆盖: %+v", got)
 			}
-			if got["t2"] != late {
+			if !reflect.DeepEqual(got["t2"], late) {
 				t.Fatalf("写盘期间其他会话偏好丢失: %+v", got)
 			}
 		})
+	}
+}
+
+// 文件树的展开、活动文件与滚动锚点按会话落盘并在新窗口中恢复；
+// 恢复时只展开仍然存在的目录。
+func TestFileTreeRestoresSessionPosition(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+
+	s := newChatState(NewFakeClient())
+	defer s.close()
+	WithUIStatePersistence()(s)
+	s.selectedThreadID = "t1"
+	st := inspectorSession(s)
+	func() {
+		fileManagerMu.Lock()
+		defer fileManagerMu.Unlock()
+		tree := ensureFileTreeLocked(st.Files)
+		tree.outline.Open.Add("sub")
+		tree.outline.Open.Add("sub/deep")
+		tree.restoreExpanded["gone"] = true
+		tree.selection.Add("a.txt")
+		tree.anchor = "a.txt"
+		st.Files.active = "a.txt"
+		st.Files.showList = false
+	}()
+	inspectorRemember(s)
+	waitUIStateWrites()
+
+	pref := loadUIState().InspectorSessions["t1"]
+	if !reflect.DeepEqual(pref.FileExpanded, []string{"gone", "sub", "sub/deep"}) ||
+		pref.FileActive != "a.txt" || pref.FileAnchor != "a.txt" {
+		t.Fatalf("树位置未正确落盘: %+v", pref)
+	}
+
+	s2 := newChatState(NewFakeClient())
+	defer s2.close()
+	WithUIStatePersistence()(s2)
+	applyUIState(s2, loadUIState())
+	s2.selectedThreadID = "t1"
+	st2 := inspectorSession(s2)
+	var restoredExpanded int
+	var restoredActive, restoredAnchor string
+	var opened []string
+	var openFile, pending string
+	var goneOpen, subOpen, deepOpen bool
+	func() {
+		fileManagerMu.Lock()
+		defer fileManagerMu.Unlock()
+		tree2 := ensureFileTreeLocked(st2.Files)
+		restoredExpanded = len(tree2.restoreExpanded)
+		restoredActive, restoredAnchor = tree2.restoreActive, tree2.restoreAnchor
+		opened, openFile = fileTreeApplyListingLocked(st2.Files, tree2, "", FileListing{Entries: []FileEntry{
+			{Name: "sub", Path: "sub", IsDir: true},
+			{Name: "a.txt", Path: "a.txt"},
+		}})
+		fileTreeApplyListingLocked(st2.Files, tree2, "sub", FileListing{Entries: []FileEntry{
+			{Name: "deep", Path: "sub/deep", IsDir: true},
+		}})
+		goneOpen = tree2.outline.Open.Has("gone")
+		subOpen = tree2.outline.Open.Has("sub")
+		deepOpen = tree2.outline.Open.Has("sub/deep")
+		pending = tree2.pendingOpen
+	}()
+
+	if restoredExpanded != 3 || restoredActive != "a.txt" || restoredAnchor != "a.txt" {
+		t.Fatalf("恢复偏好未挂到树状态: expanded=%d active=%q anchor=%q", restoredExpanded, restoredActive, restoredAnchor)
+	}
+	if fmtOpen := opened; len(fmtOpen) != 1 || fmtOpen[0] != "sub" {
+		t.Fatalf("根目录应继续加载已展开的 sub，得到 %v", fmtOpen)
+	}
+	if openFile != "a.txt" || pending != "a.txt" {
+		t.Fatalf("活动文件未安排恢复: openFile=%q pending=%q", openFile, pending)
+	}
+	if goneOpen || !subOpen || !deepOpen {
+		t.Fatalf("恢复展开状态不符: gone=%v sub=%v deep=%v", goneOpen, subOpen, deepOpen)
 	}
 }
