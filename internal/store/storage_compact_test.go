@@ -229,6 +229,9 @@ func TestCompactForIncrementalVacuum(t *testing.T) {
 	if !converted {
 		t.Fatalf("首次调用应完成预整理")
 	}
+	if marker, err := os.Stat(path + compactMarkerSuffix); err != nil || marker.Size() != 0 {
+		t.Fatalf("首次转换应生成空标记文件: marker=%v err=%v", marker, err)
+	}
 	if len(samples) == 0 {
 		t.Fatalf("progress 至少应被调用一次")
 	}
@@ -287,6 +290,83 @@ func TestCompactForIncrementalVacuum(t *testing.T) {
 	}
 }
 
+func TestCompactForIncrementalVacuumRewrite(t *testing.T) {
+	oldMinBytes := compactRewriteMinBytes
+	t.Cleanup(func() { compactRewriteMinBytes = oldMinBytes })
+
+	for _, tc := range []struct {
+		name        string
+		markerAge   time.Duration
+		marker      bool
+		belowSize   bool
+		wantRewrite bool
+	}{
+		{name: "无标记", wantRewrite: true},
+		{name: "标记为一天前", marker: true, markerAge: 24 * time.Hour},
+		{name: "标记为三十一天前", marker: true, markerAge: 31 * 24 * time.Hour, wantRewrite: true},
+		{name: "小于阈值", belowSize: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			path := createCompactTestDB(t)
+			if converted, err := CompactForIncrementalVacuum(ctx, path, nil); err != nil || !converted {
+				t.Fatalf("初始化增量库失败: converted=%v err=%v", converted, err)
+			}
+			markerPath := path + compactMarkerSuffix
+			if tc.marker {
+				markerTime := time.Now().Add(-tc.markerAge)
+				if err := os.Chtimes(markerPath, markerTime, markerTime); err != nil {
+					t.Fatalf("设置标记时间失败: %v", err)
+				}
+			} else if err := os.Remove(markerPath); err != nil {
+				t.Fatalf("删除标记失败: %v", err)
+			}
+			before, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compactRewriteMinBytes = before.Size()
+			if tc.belowSize {
+				compactRewriteMinBytes++
+			}
+			started := time.Now()
+			converted, err := CompactForIncrementalVacuum(ctx, path, nil)
+			if err != nil || converted != tc.wantRewrite {
+				t.Fatalf("重写结果不符: converted=%v err=%v", converted, err)
+			}
+			after, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if os.SameFile(before, after) == tc.wantRewrite {
+				t.Fatalf("数据库替换状态不符: wantRewrite=%v", tc.wantRewrite)
+			}
+			if tc.wantRewrite {
+				marker, err := os.Stat(markerPath)
+				if err != nil || marker.Size() != 0 || marker.ModTime().Before(started.Add(-time.Second)) {
+					t.Fatalf("标记未生成或刷新: marker=%v err=%v", marker, err)
+				}
+				s, err := Open(path)
+				if err != nil {
+					t.Fatalf("打开重写后的库失败: %v", err)
+				}
+				defer s.Close()
+				if mode := compactTestPragma(t, s, "auto_vacuum"); mode != autoVacuumIncremental {
+					t.Fatalf("重写后模式不符: %d", mode)
+				}
+				var count int
+				var text string
+				if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*), MIN(text) FROM messages").Scan(&count, &text); err != nil {
+					t.Fatalf("读取重写后的消息失败: %v", err)
+				}
+				if count != compactTestMessageCount || text != strings.Repeat("字", (8<<10)/3) {
+					t.Fatalf("重写后的消息不完整: count=%d", count)
+				}
+			}
+		})
+	}
+}
+
 func TestCompactForIncrementalVacuumSkipsConvertedDB(t *testing.T) {
 	ctx := context.Background()
 	path := createCompactTestDB(t)
@@ -305,6 +385,17 @@ func TestCompactForIncrementalVacuumSkipsConvertedDB(t *testing.T) {
 	}
 	if called {
 		t.Fatalf("已转换的库不应上报进度")
+	}
+}
+
+func TestCompactForIncrementalVacuumMarkerWriteFailure(t *testing.T) {
+	path := createCompactTestDB(t)
+	if err := os.Mkdir(path+compactMarkerSuffix, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	converted, err := CompactForIncrementalVacuum(context.Background(), path, nil)
+	if err != nil || !converted {
+		t.Fatalf("标记写入失败不应影响整理: converted=%v err=%v", converted, err)
 	}
 }
 

@@ -103,7 +103,7 @@ func bkAllowed(p string, history bool) bool {
 	p = strings.TrimPrefix(p, "files/")
 	for _, part := range strings.Split(p, "/") {
 		switch part {
-		case "remote-devices.json", "remote-webpush-vapid.pem", "remote-tls", "tailnet", "logs", "cache", "caches", "attachments", "worktrees", "swarm-worktrees", "shadow-git", "swarm-patches", "swarm-landed", "swarm-reviews", "config.v7.json", "config.json.bak":
+		case "remote-devices.json", "remote-webpush-vapid.pem", "remote-tls", "tailnet", "logs", "cache", "caches", "attachments", "worktrees", "swarm-worktrees", "shadow-git", "swarm-patches", "swarm-landed", "swarm-reviews", "config.v7.json", "config.json.bak", "mcode.db.compacted":
 			return false
 		}
 		if strings.HasSuffix(part, ".lock") {

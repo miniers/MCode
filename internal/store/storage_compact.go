@@ -37,17 +37,24 @@ const (
 const (
 	compactTempSuffix       = ".compact-tmp"
 	compactBackupSuffix     = ".pre-compact"
+	compactMarkerSuffix     = ".compacted"
 	compactProgressInterval = 200 * time.Millisecond
+)
+
+var (
+	compactRewriteMinBytes int64 = 200 << 20
+	compactRewriteInterval       = 30 * 24 * time.Hour
 )
 
 // CompactForIncrementalVacuum 在 store.Open 之前，用 VACUUM INTO 把整库重写成
 // 已切到增量 auto_vacuum 的新文件，校验后替换原库。
+// 已是增量模式的库仅在大小达到阈值且上次整理已满 30 天或没有整理记录时重写。
 //
 // 与在已打开的库上原地 VACUUM 相比，这条路径能给出真实进度：VACUUM INTO 边写边落盘，
 // 轮询临时文件大小即可估算 done，启动界面据此显示进度条；同时新库先落在旁边，
 // 校验失败时原库完全不受影响。progress 可为 nil，成功时最后一次调用 done == total。
 //
-// 返回 converted 表示本次是否真的替换了原库。库不存在、已是增量模式，或 VACUUM INTO
+// 返回 converted 表示本次是否真的替换了原库。库不存在、未达到重写条件，或 VACUUM INTO
 // 没能把 auto_vacuum 写进新库时返回 false，交给 EnsureIncrementalAutoVacuum 原地兜底。
 func CompactForIncrementalVacuum(ctx context.Context, path string, progress func(done, total int64)) (converted bool, err error) {
 	started := time.Now()
@@ -62,6 +69,7 @@ func CompactForIncrementalVacuum(ctx context.Context, path string, progress func
 
 	tmpPath := cleanPath + compactTempSuffix
 	backupPath := cleanPath + compactBackupSuffix
+	markerPath := cleanPath + compactMarkerSuffix
 	// 任何失败路径都要清掉半成品，否则残留文件会挡住下一次 VACUUM INTO。
 	cleanupTmp := func() {
 		for _, p := range []string{tmpPath, tmpPath + "-wal", tmpPath + "-shm"} {
@@ -114,7 +122,16 @@ func CompactForIncrementalVacuum(ctx context.Context, path string, progress func
 		return false, err
 	}
 	if mode == autoVacuumIncremental {
-		return false, nil
+		if info.Size() < compactRewriteMinBytes {
+			return false, nil
+		}
+		marker, statErr := os.Stat(markerPath)
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return false, fmt.Errorf("stat compact marker %s: %w", markerPath, statErr)
+		}
+		if statErr == nil && time.Since(marker.ModTime()) < compactRewriteInterval {
+			return false, nil
+		}
 	}
 	// 先截断 WAL：page_count/freelist_count 才和磁盘上的主文件一致，替换后也不会留下旧 WAL。
 	if err := drainPragma("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
@@ -256,6 +273,14 @@ func CompactForIncrementalVacuum(ctx context.Context, path string, progress func
 	for _, stale := range []string{cleanPath + "-wal", cleanPath + "-shm", backupPath} {
 		if err := os.Remove(stale); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Printf("store: 清理 %s 失败: %v", stale, err)
+		}
+	}
+	if markerErr := os.WriteFile(markerPath, nil, 0o600); markerErr != nil {
+		log.Printf("store: 写入整理标记 %s 失败: %v", markerPath, markerErr)
+	} else {
+		now := time.Now()
+		if markerErr := os.Chtimes(markerPath, now, now); markerErr != nil {
+			log.Printf("store: 刷新整理标记 %s 时间失败: %v", markerPath, markerErr)
 		}
 	}
 

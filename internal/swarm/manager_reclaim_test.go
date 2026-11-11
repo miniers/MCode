@@ -2,9 +2,11 @@ package swarm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -192,6 +194,239 @@ func TestManager_ReclaimBeeCopies_SkipsUnsafeBees(t *testing.T) {
 		if h := f.bee(t, c.bee.ThreadID); h.WorktreePath != c.bee.WorktreePath {
 			t.Errorf("%s：不应清空副本引用，实际 %q", c.name, h.WorktreePath)
 		}
+	}
+}
+
+func TestManager_ReclaimBeeCopies_ArchivesStaleUnmerged(t *testing.T) {
+	cases := []struct {
+		name       string
+		bee        Bee
+		useStarted bool
+	}{
+		{name: "stopped", bee: Bee{Status: StatusStopped}},
+		{name: "completed", bee: Bee{Status: StatusCompleted}},
+		{name: "failed", bee: Bee{Status: StatusFailed}},
+		{name: "interrupted", bee: Bee{Status: StatusStopped, Interrupted: true}},
+		{name: "merge-error-conflict-unreported", bee: Bee{Status: StatusStopped, MergeError: "merge failed", ConflictFiles: []string{"new.txt"}}},
+		{name: "missing-finished-at", bee: Bee{Status: StatusStopped}, useStarted: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newReclaimFixture(t)
+			humanReviewSettings(f.mgr)
+			f.mgr.opts.OnReport = func(string, string) error { return nil }
+			path, base := f.addCopy(t, "lead-stale-0", "mcode/test-stale/0")
+			if err := os.WriteFile(filepath.Join(path, "new.txt"), []byte("stale bee changes\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			h := tc.bee
+			h.ThreadID = "bee-stale"
+			h.WorktreePath = path
+			h.Branch = "mcode/test-stale/0"
+			h.BaseCommit = base
+			h.ChangedFiles = []string{"new.txt"}
+			h.StartedAt = f.clock.Now().Add(-48 * time.Hour)
+			h.FinishedAt = f.finishedAtAgo(23 * time.Hour)
+			if tc.useStarted {
+				h.StartedAt = *h.FinishedAt
+				h.FinishedAt = nil
+			}
+			f.setBees(h)
+			ctx := context.Background()
+			f.mgr.reclaimBeeCopies(ctx)
+			if got := f.bee(t, h.ThreadID); !reflect.DeepEqual(got, h.clone()) {
+				t.Fatalf("23 小时时不得改变 bee：%+v", got)
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("23 小时时应保留副本: %v", err)
+			}
+
+			f.clock.Advance(time.Hour)
+			f.mgr.reclaimBeeCopies(ctx)
+			f.assertCopyGone(t, path, h.Branch)
+			got := f.bee(t, h.ThreadID)
+			patchPath := filepath.Join(filepath.Dir(f.wtRoot), "swarm-patches", f.leadID+"-0.patch")
+			want := h.clone()
+			want.WorktreePath, want.Branch = "", ""
+			want.ArchivedPatchPath = patchPath
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("回收只能更新副本引用与存档路径，got=%+v want=%+v", got, want)
+			}
+			patch, err := os.ReadFile(got.ArchivedPatchPath)
+			if err != nil || !strings.Contains(string(patch), "+stale bee changes") {
+				t.Fatalf("未存档真实改动：%q, %v", patch, err)
+			}
+			diff, err := f.mgr.MergeDiff(ctx, f.leadID, h.ThreadID)
+			if err != nil || string(diff) != string(patch) {
+				t.Fatalf("MergeDiff 应读取归档补丁：%q, %v", diff, err)
+			}
+			records, err := f.mgr.opts.Persister.LoadLeads(ctx)
+			if err != nil || len(records) != 1 || len(records[0].Bees) != 1 || !reflect.DeepEqual(records[0].Bees[0], want) {
+				t.Fatalf("存档路径与副本清空应一起持久化：%+v, %v", records, err)
+			}
+			if _, err := f.mgr.integratePatch(ctx, f.leadID, f.repoDir, &got); err == nil || !strings.Contains(err.Error(), "worktree path is empty") {
+				t.Fatalf("回收后的整合应明确拒绝：%v", err)
+			}
+			if _, err := f.mgr.ApproveMerge(ctx, f.leadID, h.ThreadID); !errors.Is(err, ErrNoPendingMerge) {
+				t.Fatalf("回收后的 bee 不应进入批准合并：%v", err)
+			}
+			if after := f.bee(t, h.ThreadID); !reflect.DeepEqual(after, want) || !reflect.DeepEqual(got, want) {
+				t.Fatal("回收后的合并入口不得改变 bee 状态")
+			}
+		})
+	}
+}
+
+func TestManager_ReclaimBeeCopies_StaleActiveBeesKept(t *testing.T) {
+	f := newReclaimFixture(t)
+	f.setBees()
+	for i, h := range []Bee{
+		{Status: StatusRunning},
+		{Status: StatusCompleted, PendingMerge: true},
+		{Status: StatusCompleted, ReviewState: ReviewRunning},
+	} {
+		name := fmt.Sprintf("active-%d", i)
+		path, base := f.addCopy(t, name, "mcode/test-"+name)
+		h.ThreadID, h.Index = name, i
+		h.WorktreePath, h.BaseCommit, h.Branch = path, base, "mcode/test-"+name
+		h.ChangedFiles = []string{"new.txt"}
+		h.FinishedAt = f.finishedAtAgo(48 * time.Hour)
+		f.appendBee(h)
+	}
+	f.mgr.reclaimBeeCopies(context.Background())
+	for i := 0; i < 3; i++ {
+		h := f.bee(t, fmt.Sprintf("active-%d", i))
+		if _, err := os.Stat(h.WorktreePath); err != nil || h.ArchivedPatchPath != "" {
+			t.Fatalf("运行中、待合并或审查中的副本不应回收：%+v, %v", h, err)
+		}
+	}
+}
+
+func TestManager_ReclaimBeeCopies_InvalidGitMetadata(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		for _, relative := range []bool{false, true} {
+			t.Run(fmt.Sprintf("changed=%t/relative=%t", changed, relative), func(t *testing.T) {
+				f := newReclaimFixture(t)
+				path, base := f.addCopy(t, "lead-invalid-0", "mcode/test-invalid/0")
+				gitDir := filepath.Join(t.TempDir(), "missing-admin")
+				if relative {
+					var err error
+					gitDir, err = filepath.Rel(path, gitDir)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(filepath.Join(path, ".git"), []byte("gitdir: "+gitDir+"\n"), 0644); err != nil {
+					t.Fatal(err)
+				}
+				h := Bee{ThreadID: "bee-invalid", Status: StatusStopped, WorktreePath: path, BaseCommit: base, Branch: "mcode/test-invalid/0", FinishedAt: f.finishedAtAgo(24 * time.Hour)}
+				if changed {
+					h.ChangedFiles = []string{"new.txt"}
+				}
+				f.setBees(h)
+				for i := 0; i < 2; i++ {
+					f.mgr.reclaimBeeCopies(context.Background())
+					f.clock.Advance(time.Minute)
+				}
+				got := f.bee(t, h.ThreadID)
+				if changed {
+					if _, err := os.Stat(path); err != nil || !reflect.DeepEqual(got, h.clone()) {
+						t.Fatalf("元数据失效但有改动时必须保留副本与状态：%+v, %v", got, err)
+					}
+				} else {
+					// Git 元数据已损坏时，只要求残留目录与 bee 引用被清理。
+					f.assertCopyGone(t, path, "")
+					if got.WorktreePath != "" || got.Branch != "" || got.ArchivedPatchPath != "" {
+						t.Fatalf("元数据失效且无改动时应直接回收：%+v", got)
+					}
+				}
+				f.mgr.mu.Lock()
+				logged := f.mgr.invalidBeeCopyLogged[path]
+				f.mgr.mu.Unlock()
+				if !logged {
+					t.Fatal("失效路径应记入日志去重集合")
+				}
+			})
+		}
+	}
+}
+
+func TestManager_ReclaimBeeCopies_StaleArchiveFailureKeepsCopy(t *testing.T) {
+	for _, failure := range []string{"add", "diff", "save"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newReclaimFixture(t)
+			path, base := f.addCopy(t, "lead-failure-0", "mcode/test-failure/0")
+			if err := os.WriteFile(filepath.Join(path, "new.txt"), []byte("keep me\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			switch failure {
+			case "add":
+				f.runner.Bin = filepath.Join(t.TempDir(), "missing-git")
+			case "diff":
+				base = "invalid-base-commit"
+			case "save":
+				if err := os.WriteFile(filepath.Join(filepath.Dir(f.wtRoot), "swarm-patches"), []byte("not a directory"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			h := Bee{ThreadID: "bee-failure", Status: StatusFailed, WorktreePath: path, BaseCommit: base, Branch: "mcode/test-failure/0", ChangedFiles: []string{"new.txt"}, FinishedAt: f.finishedAtAgo(24 * time.Hour)}
+			f.setBees(h)
+			f.mgr.reclaimBeeCopies(context.Background())
+			if _, err := os.Stat(path); err != nil || !reflect.DeepEqual(f.bee(t, h.ThreadID), h.clone()) {
+				t.Fatalf("存档失败时应保留副本与 bee 状态：%v", err)
+			}
+		})
+	}
+}
+
+func TestManager_ReclaimBeeCopies_StaleEmptyPatch(t *testing.T) {
+	f := newReclaimFixture(t)
+	path, base := f.addCopy(t, "lead-empty-0", "mcode/test-empty/0")
+	f.setBees(Bee{ThreadID: "bee-empty", Status: StatusStopped, WorktreePath: path, BaseCommit: base, Branch: "mcode/test-empty/0", FinishedAt: f.finishedAtAgo(24 * time.Hour)})
+	f.mgr.reclaimBeeCopies(context.Background())
+	f.assertCopyGone(t, path, "mcode/test-empty/0")
+	if h := f.bee(t, "bee-empty"); h.WorktreePath != "" || h.Branch != "" || h.ArchivedPatchPath != "" {
+		t.Fatalf("空补丁可直接回收且不写存档路径：%+v", h)
+	}
+}
+
+func TestManager_ReclaimBeeCopies_RechecksAfterMergeLock(t *testing.T) {
+	f := newReclaimFixture(t)
+	path, base := f.addCopy(t, "lead-resumed-0", "mcode/test-resumed/0")
+	f.setBees(Bee{ThreadID: "bee-resumed", Status: StatusStopped, WorktreePath: path, BaseCommit: base, FinishedAt: f.finishedAtAgo(24 * time.Hour)})
+	mergeMu := f.mgr.getLeadMergeMutex(f.leadID)
+	mergeMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f.mgr.reclaimBeeCopies(context.Background())
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		f.mgr.mu.Lock()
+		collected := !f.mgr.lastBeeCopyReclaim.IsZero()
+		if collected {
+			f.mgr.leads[f.leadID].bees[0].Status = StatusRunning
+		}
+		f.mgr.mu.Unlock()
+		if collected {
+			break
+		}
+		if time.Now().After(deadline) {
+			mergeMu.Unlock()
+			<-done
+			t.Fatal("回收没有收集候选")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	mergeMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("回收未结束")
+	}
+	if _, err := os.Stat(path); err != nil || f.bee(t, "bee-resumed").WorktreePath != path {
+		t.Fatalf("等待合并锁时已恢复运行的 bee 不得回收：%v", err)
 	}
 }
 
@@ -555,6 +790,31 @@ func TestManager_MergeDiff_UsesLandedPatchAfterReclaim(t *testing.T) {
 	patch, err = f.mgr.MergeDiff(context.Background(), f.leadID, "bee-empty")
 	if err != nil || patch != nil {
 		t.Fatalf("无补丁无副本时应返回 nil, nil，实际 %q, %v", string(patch), err)
+	}
+}
+
+func TestManager_MergeDiff_FallsBackToArchivedPatch(t *testing.T) {
+	f := newReclaimFixture(t)
+	archivedPath := filepath.Join(t.TempDir(), "archived.patch")
+	const content = "diff --git a/new.txt b/new.txt\n+archived\n"
+	if err := os.WriteFile(archivedPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	landedPath := filepath.Join(t.TempDir(), "landed.patch")
+	for _, landed := range []string{"", landedPath, archivedPath} {
+		f.setBees(Bee{ThreadID: "bee-archived", Status: StatusStopped, LandedPatchPath: landed, ArchivedPatchPath: archivedPath})
+		diff, err := f.mgr.MergeDiff(context.Background(), f.leadID, "bee-archived")
+		if err != nil || string(diff) != content {
+			t.Fatalf("落地路径为空或不可读时应读取归档：%q, %v", diff, err)
+		}
+	}
+	if err := os.WriteFile(landedPath, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	f.setBees(Bee{ThreadID: "bee-archived", Status: StatusStopped, LandedPatchPath: landedPath, ArchivedPatchPath: archivedPath})
+	diff, err := f.mgr.MergeDiff(context.Background(), f.leadID, "bee-archived")
+	if err != nil || string(diff) != content {
+		t.Fatalf("落地补丁为空时应读取归档：%q, %v", diff, err)
 	}
 }
 

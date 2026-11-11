@@ -109,12 +109,14 @@ type Bee struct {
 	// SharedNoGitReason 记录项目不是 git 仓库且影子仓库不可用时的原因说明。
 	SharedNoGitReason string `json:"shared_no_git_reason,omitempty"`
 	// LandedPatchPath 记录本 bee 落地补丁的存档路径，供后续自动合并使用。
-	LandedPatchPath string   `json:"landed_patch_path,omitempty"`
-	WorktreePath    string   `json:"worktreePath"`
-	Branch          string   `json:"branch"`
-	BaseCommit      string   `json:"baseCommit"`
-	Merged          bool     `json:"merged"`
-	ConflictFiles   []string `json:"conflictFiles"`
+	LandedPatchPath string `json:"landed_patch_path,omitempty"`
+	// ArchivedPatchPath 是副本回收前把未落地改动存档到 swarm-patches 的补丁路径。
+	ArchivedPatchPath string   `json:"archivedPatchPath,omitempty"`
+	WorktreePath      string   `json:"worktreePath"`
+	Branch            string   `json:"branch"`
+	BaseCommit        string   `json:"baseCommit"`
+	Merged            bool     `json:"merged"`
+	ConflictFiles     []string `json:"conflictFiles"`
 	// ConflictHandbacks 因与主工作区冲突被交回重做的次数。
 	ConflictHandbacks int      `json:"conflict_handbacks,omitempty"`
 	ChangedFiles      []string `json:"changedFiles"`

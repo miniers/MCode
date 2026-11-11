@@ -122,6 +122,9 @@ const reactivateProbeInterval = 10 * time.Second
 // 避免收尾（批次落地回调、汇报、续跑）还没走完就把副本删掉。
 const beeCopyReclaimIdle = 10 * time.Minute
 
+// beeCopyStaleIdle 是未落地的 bee 结束后先存档补丁再回收副本的最短静置时间。
+const beeCopyStaleIdle = 24 * time.Hour
+
 // beeCopyReclaimInterval 是自动回收 bee 副本的最小间隔：每个 tick 都会调用回收，
 // 但一分钟内最多真正扫一次，避免持锁遍历与 git 操作随 tick 频率放大。
 const beeCopyReclaimInterval = time.Minute
@@ -178,6 +181,8 @@ type Manager struct {
 	// lastBeeCopyReclaim 记录上一次自动回收 bee 工作副本的时间，用于把回收限流到每分钟一次；
 	// 由 m.mu 保护。
 	lastBeeCopyReclaim time.Time
+	// invalidBeeCopyLogged 对 Git 元数据失效的副本按路径去重日志；由 m.mu 保护。
+	invalidBeeCopyLogged map[string]bool
 
 	// 纯进度类变更（工具计数、tokens、Activity、思考分钟数）的合并窗口：标脏后在
 	// progressDelay 内合并成一次落盘与一次通知，避免高频全量落盘与全量状态推送。
@@ -4550,9 +4555,12 @@ func (m *Manager) MergeDiff(ctx context.Context, leadThreadID, beeThreadID strin
 		return h.MergePatch, nil
 	}
 	if h.WorktreePath == "" {
-		// 副本已被自动回收：已落地的 bee 仍可查看存档的落地补丁。
-		if h.LandedPatchPath != "" {
-			if patch, err := os.ReadFile(h.LandedPatchPath); err == nil {
+		// 副本已被自动回收：优先查看落地补丁，否则查看未落地改动的存档。
+		for _, path := range []string{h.LandedPatchPath, h.ArchivedPatchPath} {
+			if path == "" {
+				continue
+			}
+			if patch, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(patch)) > 0 {
 				return patch, nil
 			}
 		}
@@ -4994,6 +5002,8 @@ type reclaimCandidate struct {
 	targetDir    string
 	worktreePath string
 	branch       string
+	needsArchive bool
+	bee          Bee
 }
 
 // leadBeeCopy 是删除 lead 时待回收的一个 bee 副本。
@@ -5002,7 +5012,7 @@ type leadBeeCopy struct {
 	targetDir string
 }
 
-// reclaimBeeCopies 回收已安全落地的 bee 工作副本：包括已合并的 bee 与无改动的只读 bee。
+// reclaimBeeCopies 回收已安全落地或结束满 beeCopyStaleIdle 的 bee 工作副本；未落地的先存档。
 // 每个 beeCopyReclaimInterval 最多真正扫一次；bee 记录本身保留在面板里，只清空 WorktreePath
 // 与 Branch，用户仍可通过 MergeDiff 查看存档的落地补丁。
 func (m *Manager) reclaimBeeCopies(ctx context.Context) {
@@ -5025,15 +5035,45 @@ func (m *Manager) reclaimBeeCopies(ctx context.Context) {
 		// 与合并、审查共用同一 lead 的合并互斥锁：回收时不能还有补丁在读同一份副本。
 		mergeMu := m.getLeadMergeMutex(c.leadID)
 		mergeMu.Lock()
+		// 等待合并锁时状态可能已改变；只按当前 bee 的状态与快照回收。
+		m.mu.Lock()
+		decision := beeCopyKeep
+		if lead := m.leads[c.leadID]; lead != nil {
+			for i := range lead.bees {
+				h := &lead.bees[i]
+				if h.ThreadID == c.threadID && filepath.Clean(h.WorktreePath) == c.worktreePath {
+					decision = m.beeCopyReclaimDecisionLocked(h, m.now())
+					c.bee = h.clone()
+					c.branch = h.Branch
+					break
+				}
+			}
+		}
+		m.mu.Unlock()
+		c.needsArchive = decision == beeCopyArchive
+		if decision == beeCopyKeep {
+			mergeMu.Unlock()
+			continue
+		}
+		var patchPath string
+		if c.needsArchive {
+			var ok bool
+			patchPath, ok = m.archiveBeeCopyPatch(ctx, c.leadID, c.bee, c.worktreePath)
+			if !ok {
+				mergeMu.Unlock()
+				continue
+			}
+		}
 		removed := m.removeBeeCopy(ctx, c.targetDir, c.worktreePath, c.branch)
-		mergeMu.Unlock()
 		if !removed {
+			mergeMu.Unlock()
 			log.Printf("swarm: 回收 bee 副本 %s 失败，下轮再试", c.worktreePath)
 			continue
 		}
-		if m.clearBeeCopy(c) {
+		if m.clearBeeCopy(c, patchPath) {
 			changedLeads[c.leadID] = struct{}{}
 		}
+		mergeMu.Unlock()
 	}
 	for leadID := range changedLeads {
 		m.notifyChange(leadID)
@@ -5066,7 +5106,8 @@ func (m *Manager) reclaimCandidatesLocked() []reclaimCandidate {
 	for leadID, lead := range m.leads {
 		for i := range lead.bees {
 			h := &lead.bees[i]
-			if !m.beeCopyReclaimableLocked(h, now) {
+			decision := m.beeCopyReclaimDecisionLocked(h, now)
+			if decision == beeCopyKeep {
 				continue
 			}
 			path := filepath.Clean(h.WorktreePath)
@@ -5086,6 +5127,8 @@ func (m *Manager) reclaimCandidatesLocked() []reclaimCandidate {
 				targetDir:    targetDir,
 				worktreePath: path,
 				branch:       h.Branch,
+				needsArchive: decision == beeCopyArchive,
+				bee:          h.clone(),
 			})
 		}
 	}
@@ -5112,7 +5155,34 @@ func (m *Manager) reclaimProtectedPathsLocked() map[string]struct{} {
 	return sweepPathSet(paths)
 }
 
-// beeCopyReclaimableLocked 判断单个 bee 的副本是否已可安全回收：已结束且静置足够久，
+type beeCopyReclaimDecision int
+
+const (
+	beeCopyKeep beeCopyReclaimDecision = iota
+	beeCopyRemove
+	beeCopyArchive
+)
+
+// beeCopyReclaimDecisionLocked 保留原有直接回收规则，未满足时再检查先存档的过期副本。
+// 调用方必须持有 m.mu。
+func (m *Manager) beeCopyReclaimDecisionLocked(h *Bee, now time.Time) beeCopyReclaimDecision {
+	if m.beeCopyReclaimableLocked(h, now) {
+		return beeCopyRemove
+	}
+	if h.WorktreePath == "" || h.Status == StatusRunning || h.PendingMerge || h.ReviewState == ReviewRunning {
+		return beeCopyKeep
+	}
+	endedAt := h.StartedAt
+	if h.FinishedAt != nil {
+		endedAt = *h.FinishedAt
+	}
+	if now.Sub(endedAt) >= beeCopyStaleIdle {
+		return beeCopyArchive
+	}
+	return beeCopyKeep
+}
+
+// beeCopyReclaimableLocked 判断单个 bee 的副本是否已可直接回收：已结束且静置足够久，
 // 并且成果已落地（已合并，或只读且没有任何改动）。调用方必须持有 m.mu。
 func (m *Manager) beeCopyReclaimableLocked(h *Bee, now time.Time) bool {
 	if h.WorktreePath == "" || h.Status == StatusRunning {
@@ -5143,12 +5213,12 @@ func (m *Manager) beeCopyReclaimableLocked(h *Bee, now time.Time) bool {
 	if h.ReadOnly {
 		return !h.ReadOnlyViolation && len(h.ChangedFiles) == 0
 	}
-	// 未合并的已停止/失败 bee 可能还有成果没落地，一律保留。
+	// 未落地成果不能直接删除；过期副本由先存档的路径处理。
 	return false
 }
 
 // clearBeeCopy 在副本删除后清空 bee 的 WorktreePath 与 Branch；路径已被别的流程改写时不动。
-func (m *Manager) clearBeeCopy(c reclaimCandidate) bool {
+func (m *Manager) clearBeeCopy(c reclaimCandidate, patchPath string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	lead, ok := m.leads[c.leadID]
@@ -5162,6 +5232,9 @@ func (m *Manager) clearBeeCopy(c reclaimCandidate) bool {
 		}
 		h.WorktreePath = ""
 		h.Branch = ""
+		if patchPath != "" {
+			h.ArchivedPatchPath = patchPath
+		}
 		return true
 	}
 	return false
@@ -5190,10 +5263,10 @@ func (m *Manager) reclaimLeadBeeCopies(ctx context.Context, leadID string, copie
 			continue
 		}
 		// 删除 lead 时正在运行的 bee 的 ChangedFiles 可能还没更新，不能据此判断副本里没有成果，
-		// 因此只有已合并的才直接删；archiveBeeCopyPatch 在补丁为空时返回 true，没有改动的副本照样会被删除。
+		// 因此只有已合并的才直接删；archiveBeeCopyPatch 在补丁为空时返回 ok，没有改动的副本照样会被删除。
 		landed := c.bee.Merged
 		if !landed {
-			if !m.archiveBeeCopyPatch(ctx, leadID, c.bee, path) {
+			if _, ok := m.archiveBeeCopyPatch(ctx, leadID, c.bee, path); !ok {
 				continue
 			}
 		}
@@ -5203,31 +5276,66 @@ func (m *Manager) reclaimLeadBeeCopies(ctx context.Context, leadID string, copie
 	}
 }
 
-// archiveBeeCopyPatch 把副本里未落地的改动存档到 swarm-patches；返回 true 表示可以安全删副本。
-func (m *Manager) archiveBeeCopyPatch(ctx context.Context, leadID string, h Bee, path string) bool {
+// archiveBeeCopyPatch 把副本里未落地的改动存档到 swarm-patches；ok 表示可以安全删副本。
+func (m *Manager) archiveBeeCopyPatch(ctx context.Context, leadID string, h Bee, path string) (patchPath string, ok bool) {
+	if beeCopyGitDirMissing(path) {
+		m.mu.Lock()
+		logged := m.invalidBeeCopyLogged[path]
+		if m.invalidBeeCopyLogged == nil {
+			m.invalidBeeCopyLogged = make(map[string]bool)
+		}
+		m.invalidBeeCopyLogged[path] = true
+		m.mu.Unlock()
+		if !logged {
+			if len(h.ChangedFiles) == 0 {
+				log.Printf("swarm: lead %s 的 bee 副本 %s Git 元数据失效，无已知改动，跳过存档", leadID, path)
+			} else {
+				log.Printf("swarm: lead %s 的 bee 副本 %s Git 元数据失效，有未落地改动，保留副本", leadID, path)
+			}
+		}
+		return "", len(h.ChangedFiles) == 0
+	}
 	if m.opts.Git == nil {
-		log.Printf("swarm: lead %s 删除时保留 bee 副本 %s：未配置 Git，无法存档改动", leadID, path)
-		return false
+		log.Printf("swarm: lead %s 保留 bee 副本 %s：未配置 Git，无法存档改动", leadID, path)
+		return "", false
 	}
 	if err := m.opts.Git.AddAll(ctx, path); err != nil {
-		log.Printf("swarm: lead %s 删除时暂存 bee 副本改动失败，保留 %s: %v", leadID, path, err)
-		return false
+		log.Printf("swarm: lead %s 暂存 bee 副本改动失败，保留 %s: %v", leadID, path, err)
+		return "", false
 	}
 	patch, err := m.opts.Git.DiffCachedBinary(ctx, path, h.BaseCommit)
 	if err != nil {
-		log.Printf("swarm: lead %s 删除时生成 bee 补丁失败，保留 %s: %v", leadID, path, err)
-		return false
+		log.Printf("swarm: lead %s 生成 bee 补丁失败，保留 %s: %v", leadID, path, err)
+		return "", false
 	}
 	if len(bytes.TrimSpace(patch)) == 0 {
-		return true
+		return "", true
 	}
-	patchPath, err := m.savePatch(leadID, h.Index, patch)
+	patchPath, err = m.savePatch(leadID, h.Index, patch)
 	if err != nil {
-		log.Printf("swarm: lead %s 删除时保存 bee 补丁失败，保留 %s: %v", leadID, path, err)
+		log.Printf("swarm: lead %s 保存 bee 补丁失败，保留 %s: %v", leadID, path, err)
+		return "", false
+	}
+	log.Printf("swarm: lead %s 已把 bee 副本改动存档到 %s", leadID, patchPath)
+	return patchPath, true
+}
+
+// beeCopyGitDirMissing 只识别 .git 文件明确指向已不存在的目录；其他错误一律留给 Git 处理。
+func beeCopyGitDirMissing(path string) bool {
+	data, err := os.ReadFile(filepath.Join(path, ".git"))
+	if err != nil {
 		return false
 	}
-	log.Printf("swarm: lead %s 删除时已把 bee 副本改动存档到 %s", leadID, patchPath)
-	return true
+	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	gitDir = strings.TrimSpace(gitDir)
+	if !ok || gitDir == "" {
+		return false
+	}
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(path, gitDir)
+	}
+	_, err = os.Stat(gitDir)
+	return os.IsNotExist(err)
 }
 
 // pathUnderDir 判断路径是否位于 root 之下：Clean 与解析符号链接后都必须命中，
