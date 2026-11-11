@@ -23,15 +23,18 @@ func TestCreateAutomationTool(t *testing.T) {
 	if !ok || !tool.Write {
 		t.Fatal("缺少写工具")
 	}
-	result, err := tool.Run(context.Background(), json.RawMessage(`{"project_id":"p","name":"n","prompt":"work","schedule":"daily:09:00"}`))
+	result, err := tool.Run(context.Background(), json.RawMessage(`{"project_id":"p","name":"n","prompt":"work","schedule":"daily:09:00","check":"git status"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := AutomationInput{ProjectID: "p", Name: "n", Prompt: "work", Schedule: "daily:09:00"}
+	want := AutomationInput{ProjectID: "p", Name: "n", Prompt: "work", Schedule: "daily:09:00", Check: "git status"}
 	if !reflect.DeepEqual(service.input, want) || result != (AutomationResult{ID: "a", Name: "n"}) {
 		t.Fatalf("参数或结果不符: %+v %+v", service.input, result)
 	}
 	if _, err := tool.Run(context.Background(), json.RawMessage(`{"project_id":"p","name":"n","prompt":"work"}`)); err == nil {
 		t.Fatal("缺少 schedule 应报错")
+	}
+	if _, err := tool.Run(context.Background(), json.RawMessage(`{"project_id":"p","name":"n","prompt":"work","schedule":"daily:09:00"}`)); err != nil || service.input.Check != "" {
+		t.Fatalf("check 应为可选参数: %+v %v", service.input, err)
 	}
 }

@@ -2105,6 +2105,9 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 			renderChatHeaderTitle(c, s, selectedThread)
 		})
 		ui.Row(c.Key("chat-header-right")).Gap(Space2).AlignItems(ui.Center).Children(func() {
+			if stewardSelected(s, selectedID) && !stewardBoardWide(chatAreaWidth(c, s)) {
+				renderStewardBoardBadge(c, s)
+			}
 			renderChatHeaderActionGroup(c, s, selectedID)
 			if collapsed {
 				more := IconButton(c, IconButtonProps{Key: "chat-header-more-btn", Icon: IconMoreHorizontal(), Size: ControlMD, Variant: ButtonGhost,

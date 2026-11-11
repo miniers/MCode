@@ -42,12 +42,12 @@ func TestFrontdeskAutomationCreate(t *testing.T) {
 		t.Run(tc.input, func(t *testing.T) {
 			creator := &frontdeskAutomationCreatorFake{}
 			service := frontdeskAutomation{service: creator, store: frontdeskAutomationSettingsFake{}}
-			got, err := service.CreateAutomation(context.Background(), frontdesk.AutomationInput{ProjectID: "p", Name: "n", Prompt: "work", Schedule: tc.input})
+			got, err := service.CreateAutomation(context.Background(), frontdesk.AutomationInput{ProjectID: "p", Name: "n", Prompt: "work", Schedule: tc.input, Check: "git status"})
 			if err != nil {
 				t.Fatal(err)
 			}
 			in := creator.input
-			if in.ProjectID != "p" || in.Name != "n" || in.Prompt != "work" || !in.Enabled || in.OriginThreadID != "" || in.CreatorThreadID != "feed" || in.Spec.RunMode != automation.RunModeStandalone || !reflect.DeepEqual(in.Spec.Schedule, tc.want) {
+			if in.ProjectID != "p" || in.Name != "n" || in.Prompt != "work" || !in.Enabled || in.OriginThreadID != "" || in.CreatorThreadID != "feed" || in.Spec.RunMode != automation.RunModeStandalone || in.Spec.Origin != "steward" || in.Spec.Check != "git status" || !reflect.DeepEqual(in.Spec.Schedule, tc.want) {
 				t.Fatalf("创建参数错误: %+v", in)
 			}
 			if got.ID != "a" || got.Name != "n" || got.NextRunAt != "2026-01-01T09:00:00Z" {

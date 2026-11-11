@@ -716,4 +716,7 @@ func TestStartPromptMentionsSubmitResult(t *testing.T) {
 	if !strings.Contains(prompt, "kanban_submit_result") {
 		t.Fatalf("启动提示词应包含 kanban_submit_result，实际: %s", prompt)
 	}
+	if !strings.Contains(prompt, "用 kanban_update_card 的 progress 参数写一句不超过 80 字的进展") {
+		t.Fatalf("启动提示词应包含进展报告要求，实际: %s", prompt)
+	}
 }

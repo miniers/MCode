@@ -15,9 +15,12 @@ func TestUpdateScheduleAndEnableSemantics(t *testing.T) {
 	clock := newFakeClock(start)
 	svc, db := setupTestService(t, clock, newFakeDriver())
 	defer db.Close()
-	def, err := svc.Create(ctx, CreateInput{ProjectID: "p", Name: "old", Prompt: "prompt", Enabled: true, Spec: Spec{Schedule: Schedule{Type: "interval", Seconds: 3600}}})
+	def, err := svc.Create(ctx, CreateInput{ProjectID: "p", Name: "old", Prompt: "prompt", Enabled: true, Spec: Spec{Schedule: Schedule{Type: "interval", Seconds: 3600}, Origin: "steward"}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if def.Spec.Origin != "steward" || DecodeSpec(def.Schedule).Origin != "steward" {
+		t.Fatal("创建时丢失来源", def.Spec.Origin)
 	}
 	def.Spec.State.ConsecutiveFailures = 2
 	def.Automation.Schedule, err = EncodeSpec(def.Spec)
@@ -39,11 +42,12 @@ func TestUpdateScheduleAndEnableSemantics(t *testing.T) {
 		t.Fatalf("name update changed state: %+v", def)
 	}
 	copySpec := def.Spec
+	copySpec.Origin = ""
 	def, err = svc.Update(ctx, def.ID, UpdateInput{Spec: &copySpec}, def.Revision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !def.NextRunAt.Equal(originalNext) || def.Spec.State.ConsecutiveFailures != 2 {
+	if !def.NextRunAt.Equal(originalNext) || def.Spec.State.ConsecutiveFailures != 2 || def.Spec.Origin != "steward" || DecodeSpec(def.Schedule).Origin != "steward" {
 		t.Fatalf("same schedule changed state: %+v", def)
 	}
 	copySpec.Schedule.Seconds = 7200

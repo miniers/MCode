@@ -35,7 +35,7 @@ func (a frontdeskAutomation) CreateAutomation(ctx context.Context, in frontdesk.
 	}
 	created, err := a.service.Create(ctx, automation.CreateInput{
 		ProjectID: in.ProjectID, Name: strings.TrimSpace(in.Name), Prompt: strings.TrimSpace(in.Prompt),
-		Spec:    automation.Spec{Schedule: schedule, RunMode: automation.RunModeStandalone},
+		Spec:    automation.Spec{Schedule: schedule, RunMode: automation.RunModeStandalone, Origin: "steward", Check: in.Check},
 		Enabled: true, CreatorThreadID: threadID,
 	})
 	if err != nil {

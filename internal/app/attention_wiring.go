@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -55,7 +56,8 @@ type attentionWiringOptions struct {
 	// Sessions 提供会话运行状态与最近一次文件改动时刻。
 	Sessions sessionProgressSource
 	// DataDir 是配置目录，卡住巡检每次从这里现读阈值与开关。
-	DataDir string
+	DataDir              string
+	AppendStewardMessage func(context.Context, string, string, string, string) error
 	// Now 提供当前时间，测试可注入；为空时使用 time.Now。
 	Now func() time.Time
 }
@@ -64,14 +66,17 @@ type attentionWiringOptions struct {
 // hub 观察者回调只更新内存状态并把写库动作投进队列，避免阻塞广播路径；
 // 其余事件源在各自的 goroutine 里读快照并写库。
 type attentionWiring struct {
-	svc     *attention.Service
-	hub     *remote.StreamHub
-	kanban  *kanban.Service
-	swarm   *swarm.Manager
-	client  *Client
-	dataDir string
-	now     func() time.Time
-	store   *store.Store
+	svc                  *attention.Service
+	hub                  *remote.StreamHub
+	kanban               *kanban.Service
+	swarm                *swarm.Manager
+	client               *Client
+	dataDir              string
+	now                  func() time.Time
+	store                *store.Store
+	appendStewardMessage func(context.Context, string, string, string, string) error
+	automationResultMu   sync.Mutex
+	automationResults    map[string]struct{}
 	// sessions 是会话状态读取入口，无进展看门狗按它确认会话是否仍在跑。
 	sessions sessionProgressSource
 	// runningBees 提供运行中的 bee 快照，测试可注入；为空时读 swarm.Manager。
@@ -129,23 +134,24 @@ type threadAlertState struct {
 // newAttentionWiring 构造接线，不启动任何订阅。
 func newAttentionWiring(opts attentionWiringOptions) *attentionWiring {
 	return &attentionWiring{
-		svc:                opts.Service,
-		hub:                opts.Hub,
-		kanban:             opts.Kanban,
-		swarm:              opts.Swarm,
-		client:             opts.Client,
-		dataDir:            opts.DataDir,
-		now:                opts.Now,
-		store:              opts.Store,
-		sessions:           opts.Sessions,
-		alerts:             remote.NewSessionAlertDetector(),
-		threads:            make(map[string]*threadAlertState),
-		kanbanSnapshot:     make(map[string]kanbanTaskSnapshot),
-		kanbanGoalSnapshot: make(map[string]kanbanGoalSnapshot),
-		beeSnapshot:        make(map[string]map[string]string),
-		noProgress:         make(map[string]*noProgressState),
-		queue:              make(chan func(), attentionEventBuffer),
-		done:               make(chan struct{}),
+		svc:                  opts.Service,
+		hub:                  opts.Hub,
+		kanban:               opts.Kanban,
+		swarm:                opts.Swarm,
+		client:               opts.Client,
+		dataDir:              opts.DataDir,
+		now:                  opts.Now,
+		store:                opts.Store,
+		appendStewardMessage: opts.AppendStewardMessage,
+		sessions:             opts.Sessions,
+		alerts:               remote.NewSessionAlertDetector(),
+		threads:              make(map[string]*threadAlertState),
+		kanbanSnapshot:       make(map[string]kanbanTaskSnapshot),
+		kanbanGoalSnapshot:   make(map[string]kanbanGoalSnapshot),
+		beeSnapshot:          make(map[string]map[string]string),
+		noProgress:           make(map[string]*noProgressState),
+		queue:                make(chan func(), attentionEventBuffer),
+		done:                 make(chan struct{}),
 	}
 }
 
@@ -802,11 +808,12 @@ func automationAttentionInput(def automation.Definition, run store.AutomationRun
 	return input, true
 }
 
-// HandleAutomationRun 是 automation.OnRunSettled 的回调：失败写进待处理事件并唤醒总管，
-// 成功不建事件，改为直接发一条桌面通知（用户没在看该会话时才发）。
+// HandleAutomationRun 是 automation.OnRunSettled 的回调：失败写进待处理事件，
+// 成功发送桌面通知，总管创建的自动化结算后将结果写入总管会话。
 // 本轮之后自动化已停用时额外发一条停用通知：连续失败达到上限、次数上限、停止条件满足与
 // 一次性任务结束后都不会再有新的运行，否则用户完全不知道它已经不跑了。
 func (w *attentionWiring) HandleAutomationRun(def automation.Definition, run store.AutomationRun) {
+	w.appendAutomationResult(def, run)
 	threadID := ""
 	if run.ThreadID != nil {
 		threadID = *run.ThreadID
@@ -838,6 +845,48 @@ func (w *attentionWiring) HandleAutomationRun(def automation.Definition, run sto
 	if notify := w.automationNotifier(); notify != nil {
 		notify(title, body, threadID)
 	}
+}
+
+func (w *attentionWiring) appendAutomationResult(def automation.Definition, run store.AutomationRun) {
+	if def.Spec.Origin != "steward" || (run.Status != automation.RunSucceeded && run.Status != automation.RunFailed) || run.ID == "" || w.store == nil || w.appendStewardMessage == nil {
+		return
+	}
+	cfg, err := config.Load(w.dataDir)
+	if err != nil || !cfg.Orchestration.Steward.Enabled {
+		return
+	}
+	w.automationResultMu.Lock()
+	defer w.automationResultMu.Unlock()
+	if _, ok := w.automationResults[run.ID]; ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), attentionWriteTimeout)
+	defer cancel()
+	feedID, _, err := w.store.GetSetting(ctx, "steward.feed_thread_id")
+	if err != nil || feedID == "" {
+		log.Printf("前台读取自动化结果会话失败: %v", err)
+		return
+	}
+	text := def.Name + "\n"
+	if run.Status == automation.RunSucceeded {
+		if run.ResultSummary != nil {
+			text += *run.ResultSummary
+		}
+	} else {
+		reason := ""
+		if run.Error != nil {
+			reason = *run.Error
+		}
+		text = fmt.Sprintf("自动化「%s」没能完成：%s", def.Name, reason)
+	}
+	if err := w.appendStewardMessage(ctx, feedID, "system", "steward_result", text); err != nil {
+		log.Printf("前台写入自动化结果失败: %v", err)
+		return
+	}
+	if w.automationResults == nil {
+		w.automationResults = make(map[string]struct{})
+	}
+	w.automationResults[run.ID] = struct{}{}
 }
 
 // automationNotifier 返回当前的自动化通知实现，并发安全。

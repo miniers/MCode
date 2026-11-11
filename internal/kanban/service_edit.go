@@ -27,6 +27,7 @@ type UpdateTaskInput struct {
 	Notes            *string
 	NotesAppend      *string
 	ReviewSummary    *string
+	LastActivityText *string
 }
 
 // CreateDraftInput 描述创建草稿任务的入参。
@@ -47,7 +48,7 @@ type SetGoalInput struct {
 	ExpectedRevision int
 }
 
-// UpdateTask 更新任务元数据（标题、描述、追加说明、评审摘要），支持 CAS 乐观并发控制。
+// UpdateTask 更新任务详情与最近活动，支持 CAS 乐观并发控制。
 func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (store.Task, error) {
 	if strings.TrimSpace(in.TaskID) == "" {
 		return store.Task{}, ErrInvalidTransition
@@ -86,6 +87,9 @@ func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (store.Tas
 	}
 	if in.ReviewSummary != nil {
 		task.ReviewSummary = in.ReviewSummary
+	}
+	if in.LastActivityText != nil {
+		task.LastActivityText = in.LastActivityText
 	}
 
 	expectedRev := task.Revision

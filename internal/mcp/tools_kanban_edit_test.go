@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"mcode/internal/kanban"
@@ -32,6 +33,50 @@ func parseToolText(t *testing.T, res map[string]any) (string, bool, map[string]a
 	var jsonMap map[string]any
 	_ = json.Unmarshal([]byte(text), &jsonMap)
 	return text, isError, jsonMap
+}
+
+func TestMCP_KanbanUpdateCardProgress(t *testing.T) {
+	srv, s, projDir := setupTestMCP(t)
+	task, err := srv.opts.Kanban.CreateTask(context.Background(), kanban.CreateTaskInput{
+		ProjectID: "proj-test-1",
+		Title:     "进展测试",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var changes atomic.Int32
+	srv.opts.Kanban.SetOnChange(func() { changes.Add(1) })
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	for i, tc := range []struct {
+		progress string
+		want     string
+	}{
+		{"  完成第一步  ", "完成第一步"},
+		{" \t" + strings.Repeat("进", 80) + "额外内容  ", strings.Repeat("进", 80)},
+	} {
+		status, res := postRPC(t, ts.URL+"/mcp", srv.Token(), projDir, map[string]any{
+			"jsonrpc": "2.0", "id": i + 1, "method": "tools/call",
+			"params": map[string]any{"name": "kanban_update_card", "arguments": map[string]any{
+				"task_id": task.ID, "progress": tc.progress, "notes_append": "备注",
+			}},
+		})
+		_, isErr, payload := parseToolText(t, res)
+		if status != http.StatusOK || isErr {
+			t.Fatalf("更新失败：状态 %d，结果 %v", status, payload)
+		}
+		stored, err := s.GetTask(context.Background(), task.ID)
+		if err != nil || stored.LastActivityText == nil || *stored.LastActivityText != tc.want {
+			t.Fatalf("进展不符：%v，错误：%v", stored.LastActivityText, err)
+		}
+		if stored.Notes != strings.TrimSuffix(strings.Repeat("备注\n", i+1), "\n") {
+			t.Fatalf("追加备注不符：%q", stored.Notes)
+		}
+		if got := changes.Load(); got != int32(i+1) {
+			t.Fatalf("通知次数不符：%d", got)
+		}
+	}
 }
 
 func TestMCP_KanbanEditTools_Flow(t *testing.T) {

@@ -1222,14 +1222,15 @@ func Open(opts Options) (*App, error) {
 	attentionSvc = attention.New(dbStore, attention.Options{})
 	client.SetAttention(attentionSvc)
 	attentionSrc = newAttentionWiring(attentionWiringOptions{
-		Service:  attentionSvc,
-		Hub:      hub,
-		Kanban:   kanbanSvc,
-		Swarm:    swarmMgr,
-		Client:   client,
-		Store:    dbStore,
-		Sessions: backend,
-		DataDir:  opts.DataDir,
+		Service:              attentionSvc,
+		Hub:                  hub,
+		Kanban:               kanbanSvc,
+		Swarm:                swarmMgr,
+		Client:               client,
+		Store:                dbStore,
+		Sessions:             backend,
+		DataDir:              opts.DataDir,
+		AppendStewardMessage: backend.AppendStewardMessage,
 	})
 	attentionSrc.Start()
 	rs := NewRemoteService(opts.DataDir, backend)

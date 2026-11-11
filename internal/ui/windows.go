@@ -473,6 +473,7 @@ func (s *chatState) close() {
 	closeEmbeddedBees(s)
 	closeContextPanel(s)
 	stopKanbanWatch(s)
+	stopStewardBoardWatch(s)
 	stopStewardTaskWatch(s)
 	stopAutomationWatch(s)
 	// 收件箱订阅与补拉定时器同样持有 *chatState，关窗时一并注销。

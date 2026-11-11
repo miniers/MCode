@@ -73,8 +73,8 @@ func newToolbox(d *Desk, in Inbound) *Toolbox {
 		return d.Tasks.CreateTask(c, CreateTaskInput{Title: a["title"], Body: a["body"], ProjectID: a["project_id"], Priority: a["priority"], Provider: a["provider"], Model: a["model"], Origin: "owner", SourceMessageID: in.MessageID})
 	})
 	if d.Automations != nil {
-		add("create_automation", "创建定时任务：按固定节奏独立运行，不经过总管。schedule 格式为 interval:秒数、daily:HH:mm、weekdays:HH:mm、weekly:星期数字,HH:mm（0 为周日）或 cron:表达式。", true, []string{"project_id", "name", "prompt", "schedule"}, nil, func(c context.Context, a map[string]string) (any, error) {
-			return d.Automations.CreateAutomation(c, AutomationInput{ProjectID: a["project_id"], Name: a["name"], Prompt: a["prompt"], Schedule: a["schedule"]})
+		add("create_automation", "创建定时任务：按固定节奏独立运行，结果会写回总管会话。schedule 格式为 interval:秒数、daily:HH:mm、weekdays:HH:mm、weekly:星期数字,HH:mm（0 为周日）或 cron:表达式。check 是可选的只读检查命令，退出码 0 才运行，非 0 跳过本轮。", true, []string{"project_id", "name", "prompt", "schedule"}, []string{"check"}, func(c context.Context, a map[string]string) (any, error) {
+			return d.Automations.CreateAutomation(c, AutomationInput{ProjectID: a["project_id"], Name: a["name"], Prompt: a["prompt"], Schedule: a["schedule"], Check: a["check"]})
 		})
 	}
 	add("amend_task", "追加任务消息", true, []string{"task_id", "text"}, nil, func(c context.Context, a map[string]string) (any, error) {

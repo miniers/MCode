@@ -397,6 +397,10 @@ func (r *Registry) registerKanbanTools(s *Server) {
 					"type":        "string",
 					"description": "Text to add to the end of the notes, such as a milestone reached.",
 				},
+				"progress": map[string]any{
+					"type":        "string",
+					"description": "一句话报告刚完成的关键进展，不超过 80 字，会显示给用户",
+				},
 				"review_summary": map[string]any{
 					"type":        "string",
 					"description": "New summary of the work, shown to the user when they review it.",
@@ -1358,9 +1362,18 @@ func handleKanbanUpdateCard(tc ToolContext, args map[string]any) ToolResult {
 	if rs, ok := args["review_summary"].(string); ok {
 		reviewSummary = &rs
 	}
+	var progress *string
+	if p, ok := args["progress"].(string); ok {
+		runes := []rune(strings.TrimSpace(p))
+		if len(runes) > 80 {
+			runes = runes[:80]
+		}
+		text := string(runes)
+		progress = &text
+	}
 
-	if title == nil && notes == nil && (notesAppend == nil || *notesAppend == "") && reviewSummary == nil {
-		return toolError(CodeInvalidArguments, "Nothing to update: pass at least one of 'title', 'notes', 'notes_append' or 'review_summary'.", false)
+	if title == nil && notes == nil && (notesAppend == nil || *notesAppend == "") && reviewSummary == nil && progress == nil {
+		return toolError(CodeInvalidArguments, "Nothing to update: pass at least one of 'title', 'notes', 'notes_append', 'progress' or 'review_summary'.", false)
 	}
 
 	if tc.Server.opts.Store == nil || tc.Server.opts.Kanban == nil {
@@ -1384,6 +1397,7 @@ func handleKanbanUpdateCard(tc ToolContext, args map[string]any) ToolResult {
 		Notes:            notes,
 		NotesAppend:      notesAppend,
 		ReviewSummary:    reviewSummary,
+		LastActivityText: progress,
 	}
 
 	updated, err := tc.Server.opts.Kanban.UpdateTask(tc.Context, in)

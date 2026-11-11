@@ -70,6 +70,7 @@ func renderChat(c *ui.Context, s *chatState) {
 	s.mu.Lock()
 	selectedID := s.selectedThreadID
 	s.mu.Unlock()
+	s.syncStewardBoard(stewardSelected(s, selectedID))
 	var runningTurnKey int
 	for {
 		runningTurnKey = timelineRunningTurnKey(s, selectedID)
@@ -169,240 +170,250 @@ func renderChat(c *ui.Context, s *chatState) {
 		}
 	}
 
-	ui.Column(c.Key("chat-main")).Grow(1).FillHeight().Children(func() {
-		// 会话头部：显示会话标题与项目动作
-		renderChatHeader(c, s, selectedID, curUsage, sidebarVisibleProgress(s))
-		renderStewardTaskBand(c, s, selectedID)
+	boardGroups := stewardBoardGroups(s.stewardBoardTasks())
+	showBoard := stewardSelected(s, selectedID) && stewardBoardWide(chatAreaWidth(c, s)) && stewardBoardCount(boardGroups) > 0
+	if showBoard {
+		setChatPaneWidth(s, chatAreaWidth(c, s)-stewardBoardWidth)
+	}
+	ui.Row(c.Key("steward-chat-layout")).Grow(1).FillHeight().Children(func() {
+		ui.Column(c.Key("chat-main")).Grow(1).FillHeight().Children(func() {
+			// 会话头部：显示会话标题与项目动作
+			renderChatHeader(c, s, selectedID, curUsage, sidebarVisibleProgress(s))
+			renderStewardTaskBand(c, s, selectedID)
 
-		// 子代理面板停靠在聊天列两侧：先算出它们让出的宽度，再渲染面板
-		swarmReserve := swarmFloatReserve(c, s)
-		renderSwarmBeeFloats(c, s)
+			// 子代理面板停靠在聊天列两侧：先算出它们让出的宽度，再渲染面板
+			swarmReserve := swarmFloatReserve(c, s)
+			renderSwarmBeeFloats(c, s)
 
-		// 计算当前会话的运行中状态与正在输出的消息 ID（决定时间线的“回复中”指示与流式光标）
-		var liveID string
-		s.mu.Lock()
-		isRunning := running
-		if mainRunning && len(messages) > 0 {
-			lastMsg := messages[len(messages)-1]
-			if (lastMsg.Role == "assistant" || lastMsg.Kind == "reasoning") && lastMsg.Role != "user" && lastMsg.Role != "tool" && lastMsg.Role != "system" {
-				liveID = lastMsg.ID
-			}
-		}
-		if liveID != "" {
-			s.lastLiveID = liveID
-		}
-		lastLiveID := s.lastLiveID
-		s.mu.Unlock()
-
-		// 聚合并组织时间线渲染项（连续工具调用合并为汇总组，并插入已裁决的计划历史态）；
-		// 拼装结果按会话/消息版本/展开状态/计划指纹缓存，静止时直接复用上一帧的那份。
-		timelineItems := s.assembledTimelineItemsWithQuestions(curResolvedPlans, curAnsweredQuestions)
-		// 回合已结束但仍有后台任务在跑时，在最后一条回复下方贴一条等待条：会话不是在空闲，
-		// 而是在等这些任务。放在会话总用量之前，让它紧贴最后一条回复。
-		if waitData := backgroundTasksFor(s, selectedID); shouldShowBackgroundWait(isRunning, waitData) {
-			timelineItems = append(timelineItems, backgroundWaitItem(selectedID))
-		}
-		// 会话总用量固定放在时间线底部；即使“回复中”指示出现，它仍在指示之上。
-		if curUsage.Total.Input+curUsage.Total.Output > 0 {
-			timelineItems = append(timelineItems, sessionUsageItem(selectedID))
-		}
-		// 会话运行期间末尾常驻一条“回复中”指示，直到后端报告 turn 结束或出错；整轮不随流式输出增删，避免时间线高度来回跳。
-		if isRunning {
-			timelineItems = append(timelineItems, runningIndicatorItem(selectedID))
-		}
-		// 回合进行中每一步（每次模型调用）结束都会先写一次该回合用量：只看用量有值会在步骤之间的间隙
-		// 提前冒出「已完成」，所以会话仍在跑时压掉进行中那一轮的完成块，之前的历史回合不受影响。
-		turnRunning, latestTurn := s.runningTurn(selectedID)
-
-		// 回合跳转快捷键：跳到上一个或下一个用户消息所在的 item。
-		// ⌥⌘↑ 和 ⌥⌘↓ 已被 shortcuts.go 中的 previous-thread / next-thread 占用；
-		// 依要求改用未被占用的快捷键 ⌃⌥↑ / ⌃⌥↓ (ui.Ctrl|ui.Alt 加 ui.KeyUp / ui.KeyDown)。
-		if c.Shortcut(ui.Ctrl|ui.Alt, ui.KeyUp) {
-			jumpToAdjacentUserMessage(s, timelineItems, -1)
-		} else if c.Shortcut(ui.Ctrl|ui.Alt, ui.KeyDown) {
-			jumpToAdjacentUserMessage(s, timelineItems, 1)
-		}
-
-		// 会话内查找（默认 ⌘F）：按有效绑定检测，改键后同样生效。
-		// 注册表里该条目不进每帧注册集合，与 ⌘K、⌘B 的做法一致，避免被 dispatchActiveShortcut 抢占。
-		if mods, key, ok := shortcutBindingFor("find-in-thread"); ok && c.Shortcut(mods, key) {
-			s.openChatFind()
-		}
-
-		ensureChatMarkdown(c, s)
-
-		// 消息列表（虚拟滚动，稳定 Key；FollowEnd 在 newChatState 中设置一次，
-		// KeepOffset 为 false 使 anchorKey 锚定条目，FollowAnimation 为 nil 避免展开时位移动画）
-		s.chatListState.Key = func(i int) any {
-			if i >= 0 && i < len(timelineItems) {
-				return timelineItems[i].id
-			}
-			return i
-		}
-
-		// 每个回合最后一条助手消息（按 messagesRev 缓存，长会话不再逐帧重建）
-		lastAssistantPerTurn := s.lastAssistantPerTurn()
-
-		// 消息列表的间距与上下留白跟界面密度走：紧凑档一起收窄。
-		dens := currentDensity(c, s)
-		listGap := dens.Gap
-		listPadY := dens.PadY
-
-		// 消息列表与输入框布局（两侧为停靠的子代理面板让出宽度，聊天内容在剩余空间里居中）
-		chatBody := ui.Column(c.Key("chat-body-container")).Grow(1).MinHeight(0).FillWidth()
-		setComposerFileDragOver(s, chatBody.FileDragOver())
-		if dropped := chatBody.DroppedFiles(); len(dropped) > 0 {
-			s.addAttachmentFiles(dropped)
-		}
-		// 让位宽度变化是整列位移，用略长于浮窗退场的时长，浮窗淡完后时间线再落定。
-		chatBody.Padding(0,
-			chatBody.AnimateWith("swarm-reserve-trailing", swarmReserve.trailing, animateDuration(c, DurSheet), motionEaseStandard),
-			0,
-			chatBody.AnimateWith("swarm-reserve-leading", swarmReserve.leading, animateDuration(c, DurSheet), motionEaseStandard))
-		chatBody.Children(func() {
-			// Hero 判定与输入框停靠共用 composerThreadEmpty：两处口径一致，
-			// 才不会出现「输入框已停靠到底部、引导屏还占着中间」的错位。
-			hasForwardedContext := s.hasForwardedContextBody(selectedID)
-			hero := composerThreadEmpty(len(messages), len(curResolvedPlans), len(curAnsweredQuestions)) && !hasForwardedContext
-			// dockDec 是输入框本帧的布局结论；切换帧（首条消息刚发出）时才播位移与淡入。
-			dockDec := s.composerDockDecisionFor(hero, selectedID)
-			if !dockDec.Docked {
-				// Hero 模式：当前会话无内容时输入框垂直居中，上方展示空态引导屏。
-				renderSwarmQuestionBanner(c, s)
-				renderApproval(c, s)
-				// 上下两个弹性占位把「引导块 + 输入框」夹在中间：居中位置与改动前一致，
-				// 而且输入框的父级与兄弟关系在 Hero/Docked 两态下不变，
-				// mygo 的同父 FLIP 才能把同一个输入框元素从中间插值到底部。
-				ui.Spacer(c)
-				heroCol := ui.Column(c.Key("chat-hero-container")).FillWidth().AlignItems(ui.Center)
-				// 引导块淡出：消失时播放（切到有消息的会话也会淡出，约 220ms）。
-				// 过渡常驻注册、只在真正消失时播；输入框不放进来，否则会多出一份淡出的幽灵副本。
-				// 必须显式写 Colors: true：mygo 的 ElementTransition 在 Position/Size/Colors
-				// 全不设时等于三项都动画，引导块就会跟着布局变化做位置插值——审批卡长高把它挤走后，
-				// 它会在旧位置停留，直到过渡停止那一帧才瞬移到位，中途盖住「提交」按钮并截走点击。
-				// 只开 Colors 后只剩颜色通道与 Exit 淡出（Exit 走独立的 animateExits，不受这三项影响），
-				// 不做位置和尺寸动画，布局一变就直接落在新位置。
-				heroCol.Transition(motionTransition(c, ui.ElementTransition{
-					Duration: composerHeroExitDuration,
-					Colors:   true,
-					Exit:     &ui.Motion{Opacity: 0},
-				}))
-				heroCol.Children(func() {
-					// 转发/分叉出来的新会话还没有消息：改为展示来源引导卡片，不再显示通用的新会话引导。
-					if !renderContinuationStartCard(c, s, selectedID) {
-						renderNewThreadPrompt(c, s, selectedID)
-					}
-					// 新会话首轮：后端还没推回用户消息时（messages 仍为空）也要能看到“回复中”，
-					// 否则发送后引导屏毫无变化，看起来像没有反应。
-					if isRunning {
-						renderRunningIndicator(c, runningIndicatorKey(selectedID)+"-row")
-					}
-					// 总管会话还没开口时，输入框上方给三枚起步胶囊。
-					renderStewardStarterCapsules(c, s)
-				})
-				renderComposer(c, s)
-				ui.Spacer(c)
-			} else {
-				// Docked 停靠模式：有消息时展示时间线并底部停靠输入框
-				// 锚点行在条目里的下标：列表构建时靠它接住锚点行元素，读上一帧的位置。
-				anchorRow := -1
-				if anchorID := s.chatAnchorRowID(); anchorID != "" {
-					anchorRow = anchorRowIndex(timelineItems, anchorID)
+			// 计算当前会话的运行中状态与正在输出的消息 ID（决定时间线的“回复中”指示与流式光标）
+			var liveID string
+			s.mu.Lock()
+			isRunning := running
+			if mainRunning && len(messages) > 0 {
+				lastMsg := messages[len(messages)-1]
+				if (lastMsg.Role == "assistant" || lastMsg.Kind == "reasoning") && lastMsg.Role != "user" && lastMsg.Role != "tool" && lastMsg.Role != "system" {
+					liveID = lastMsg.ID
 				}
-				// 锚点行与列表的上一帧窗口坐标，列表构建时再填（Bounds 只能读上一帧的值）。
-				var anchorRowTop float32
-				var listEl ui.Element
-				timeline := ui.Row(c.Key("timeline-container")).Grow(1).MinHeight(0).FillWidth().AlignItems(ui.Stretch)
-				// 时间线淡入：切换帧（dockDec.Promote）注册，之后只要过渡还在跑就继续注册——
-				// 过渡只在这一帧注册、下一帧就停，淡入会被掐断，所以要跟到 Transitioning() 为假为止。
-				// 切会话、打开已有消息的会话时时间线本来就在且没有过渡在跑，不会重播淡入。
-				// Colors: true 让时间线只跟颜色通道，后续布局变化不做位置动画。
-				if dockDec.Promote || timeline.Transitioning() {
-					timeline.Transition(motionTransition(c, ui.ElementTransition{
+			}
+			if liveID != "" {
+				s.lastLiveID = liveID
+			}
+			lastLiveID := s.lastLiveID
+			s.mu.Unlock()
+
+			// 聚合并组织时间线渲染项（连续工具调用合并为汇总组，并插入已裁决的计划历史态）；
+			// 拼装结果按会话/消息版本/展开状态/计划指纹缓存，静止时直接复用上一帧的那份。
+			timelineItems := s.assembledTimelineItemsWithQuestions(curResolvedPlans, curAnsweredQuestions)
+			// 回合已结束但仍有后台任务在跑时，在最后一条回复下方贴一条等待条：会话不是在空闲，
+			// 而是在等这些任务。放在会话总用量之前，让它紧贴最后一条回复。
+			if waitData := backgroundTasksFor(s, selectedID); shouldShowBackgroundWait(isRunning, waitData) {
+				timelineItems = append(timelineItems, backgroundWaitItem(selectedID))
+			}
+			// 会话总用量固定放在时间线底部；即使“回复中”指示出现，它仍在指示之上。
+			if curUsage.Total.Input+curUsage.Total.Output > 0 {
+				timelineItems = append(timelineItems, sessionUsageItem(selectedID))
+			}
+			// 会话运行期间末尾常驻一条“回复中”指示，直到后端报告 turn 结束或出错；整轮不随流式输出增删，避免时间线高度来回跳。
+			if isRunning {
+				timelineItems = append(timelineItems, runningIndicatorItem(selectedID))
+			}
+			// 回合进行中每一步（每次模型调用）结束都会先写一次该回合用量：只看用量有值会在步骤之间的间隙
+			// 提前冒出「已完成」，所以会话仍在跑时压掉进行中那一轮的完成块，之前的历史回合不受影响。
+			turnRunning, latestTurn := s.runningTurn(selectedID)
+
+			// 回合跳转快捷键：跳到上一个或下一个用户消息所在的 item。
+			// ⌥⌘↑ 和 ⌥⌘↓ 已被 shortcuts.go 中的 previous-thread / next-thread 占用；
+			// 依要求改用未被占用的快捷键 ⌃⌥↑ / ⌃⌥↓ (ui.Ctrl|ui.Alt 加 ui.KeyUp / ui.KeyDown)。
+			if c.Shortcut(ui.Ctrl|ui.Alt, ui.KeyUp) {
+				jumpToAdjacentUserMessage(s, timelineItems, -1)
+			} else if c.Shortcut(ui.Ctrl|ui.Alt, ui.KeyDown) {
+				jumpToAdjacentUserMessage(s, timelineItems, 1)
+			}
+
+			// 会话内查找（默认 ⌘F）：按有效绑定检测，改键后同样生效。
+			// 注册表里该条目不进每帧注册集合，与 ⌘K、⌘B 的做法一致，避免被 dispatchActiveShortcut 抢占。
+			if mods, key, ok := shortcutBindingFor("find-in-thread"); ok && c.Shortcut(mods, key) {
+				s.openChatFind()
+			}
+
+			ensureChatMarkdown(c, s)
+
+			// 消息列表（虚拟滚动，稳定 Key；FollowEnd 在 newChatState 中设置一次，
+			// KeepOffset 为 false 使 anchorKey 锚定条目，FollowAnimation 为 nil 避免展开时位移动画）
+			s.chatListState.Key = func(i int) any {
+				if i >= 0 && i < len(timelineItems) {
+					return timelineItems[i].id
+				}
+				return i
+			}
+
+			// 每个回合最后一条助手消息（按 messagesRev 缓存，长会话不再逐帧重建）
+			lastAssistantPerTurn := s.lastAssistantPerTurn()
+
+			// 消息列表的间距与上下留白跟界面密度走：紧凑档一起收窄。
+			dens := currentDensity(c, s)
+			listGap := dens.Gap
+			listPadY := dens.PadY
+
+			// 消息列表与输入框布局（两侧为停靠的子代理面板让出宽度，聊天内容在剩余空间里居中）
+			chatBody := ui.Column(c.Key("chat-body-container")).Grow(1).MinHeight(0).FillWidth()
+			setComposerFileDragOver(s, chatBody.FileDragOver())
+			if dropped := chatBody.DroppedFiles(); len(dropped) > 0 {
+				s.addAttachmentFiles(dropped)
+			}
+			// 让位宽度变化是整列位移，用略长于浮窗退场的时长，浮窗淡完后时间线再落定。
+			chatBody.Padding(0,
+				chatBody.AnimateWith("swarm-reserve-trailing", swarmReserve.trailing, animateDuration(c, DurSheet), motionEaseStandard),
+				0,
+				chatBody.AnimateWith("swarm-reserve-leading", swarmReserve.leading, animateDuration(c, DurSheet), motionEaseStandard))
+			chatBody.Children(func() {
+				// Hero 判定与输入框停靠共用 composerThreadEmpty：两处口径一致，
+				// 才不会出现「输入框已停靠到底部、引导屏还占着中间」的错位。
+				hasForwardedContext := s.hasForwardedContextBody(selectedID)
+				hero := composerThreadEmpty(len(messages), len(curResolvedPlans), len(curAnsweredQuestions)) && !hasForwardedContext
+				// dockDec 是输入框本帧的布局结论；切换帧（首条消息刚发出）时才播位移与淡入。
+				dockDec := s.composerDockDecisionFor(hero, selectedID)
+				if !dockDec.Docked {
+					// Hero 模式：当前会话无内容时输入框垂直居中，上方展示空态引导屏。
+					renderSwarmQuestionBanner(c, s)
+					renderApproval(c, s)
+					// 上下两个弹性占位把「引导块 + 输入框」夹在中间：居中位置与改动前一致，
+					// 而且输入框的父级与兄弟关系在 Hero/Docked 两态下不变，
+					// mygo 的同父 FLIP 才能把同一个输入框元素从中间插值到底部。
+					ui.Spacer(c)
+					heroCol := ui.Column(c.Key("chat-hero-container")).FillWidth().AlignItems(ui.Center)
+					// 引导块淡出：消失时播放（切到有消息的会话也会淡出，约 220ms）。
+					// 过渡常驻注册、只在真正消失时播；输入框不放进来，否则会多出一份淡出的幽灵副本。
+					// 必须显式写 Colors: true：mygo 的 ElementTransition 在 Position/Size/Colors
+					// 全不设时等于三项都动画，引导块就会跟着布局变化做位置插值——审批卡长高把它挤走后，
+					// 它会在旧位置停留，直到过渡停止那一帧才瞬移到位，中途盖住「提交」按钮并截走点击。
+					// 只开 Colors 后只剩颜色通道与 Exit 淡出（Exit 走独立的 animateExits，不受这三项影响），
+					// 不做位置和尺寸动画，布局一变就直接落在新位置。
+					heroCol.Transition(motionTransition(c, ui.ElementTransition{
 						Duration: composerHeroExitDuration,
 						Colors:   true,
-						Enter:    &ui.Motion{Opacity: 0},
+						Exit:     &ui.Motion{Opacity: 0},
 					}))
-				}
-				timeline.Children(func() {
-					// 锚定期间在列表底部垫出一屏空白，刚发出的消息才能停在视口顶部：
-					// 动画推进时这块空白逐帧增长，follow-end 排版就把锚点行一路顶上来。
-					listPadBottom := listPadY + s.chatAnchorPadExtra(c, chatBody)
-					listEl = ui.List(c.Key("message-list"), &s.chatListState, len(timelineItems), func(i int) {
-						item := timelineItems[i]
-						isLastAssistant := itemHoldsTurnEnd(item, lastAssistantPerTurn) &&
-							!turnRunSuppressesEnd(turnRunning, latestTurn, item.turnIndex)
-						turnUsage, hasUsage := curUsage.Turns[item.turnIndex]
+					heroCol.Children(func() {
+						// 转发/分叉出来的新会话还没有消息：改为展示来源引导卡片，不再显示通用的新会话引导。
+						if !renderContinuationStartCard(c, s, selectedID) {
+							renderNewThreadPrompt(c, s, selectedID)
+						}
+						// 新会话首轮：后端还没推回用户消息时（messages 仍为空）也要能看到“回复中”，
+						// 否则发送后引导屏毫无变化，看起来像没有反应。
+						if isRunning {
+							renderRunningIndicator(c, runningIndicatorKey(selectedID)+"-row")
+						}
+						// 总管会话还没开口时，输入框上方给三枚起步胶囊。
+						renderStewardStarterCapsules(c, s)
+					})
+					renderComposer(c, s)
+					ui.Spacer(c)
+				} else {
+					// Docked 停靠模式：有消息时展示时间线并底部停靠输入框
+					// 锚点行在条目里的下标：列表构建时靠它接住锚点行元素，读上一帧的位置。
+					anchorRow := -1
+					if anchorID := s.chatAnchorRowID(); anchorID != "" {
+						anchorRow = anchorRowIndex(timelineItems, anchorID)
+					}
+					// 锚点行与列表的上一帧窗口坐标，列表构建时再填（Bounds 只能读上一帧的值）。
+					var anchorRowTop float32
+					var listEl ui.Element
+					timeline := ui.Row(c.Key("timeline-container")).Grow(1).MinHeight(0).FillWidth().AlignItems(ui.Stretch)
+					// 时间线淡入：切换帧（dockDec.Promote）注册，之后只要过渡还在跑就继续注册——
+					// 过渡只在这一帧注册、下一帧就停，淡入会被掐断，所以要跟到 Transitioning() 为假为止。
+					// 切会话、打开已有消息的会话时时间线本来就在且没有过渡在跑，不会重播淡入。
+					// Colors: true 让时间线只跟颜色通道，后续布局变化不做位置动画。
+					if dockDec.Promote || timeline.Transitioning() {
+						timeline.Transition(motionTransition(c, ui.ElementTransition{
+							Duration: composerHeroExitDuration,
+							Colors:   true,
+							Enter:    &ui.Motion{Opacity: 0},
+						}))
+					}
+					timeline.Children(func() {
+						// 锚定期间在列表底部垫出一屏空白，刚发出的消息才能停在视口顶部：
+						// 动画推进时这块空白逐帧增长，follow-end 排版就把锚点行一路顶上来。
+						listPadBottom := listPadY + s.chatAnchorPadExtra(c, chatBody)
+						listEl = ui.List(c.Key("message-list"), &s.chatListState, len(timelineItems), func(i int) {
+							item := timelineItems[i]
+							isLastAssistant := itemHoldsTurnEnd(item, lastAssistantPerTurn) &&
+								!turnRunSuppressesEnd(turnRunning, latestTurn, item.turnIndex)
+							turnUsage, hasUsage := curUsage.Turns[item.turnIndex]
 
-						// 工具组内的节拍由 timelineItemTopGap 自己决定间距，列表不设 Gap
-						el := renderTimelineItem(c, s, item, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, timelineItemTopGap(timelineItems, i, listGap))
-						if i == anchorRow {
-							// 锚点行已排过版（高度非 0）才记位置：没渲染的行留 0，交给“等几何量”分支。
-							if b := el.Bounds(); b.H > 0 {
-								anchorRowTop = b.Y
+							// 工具组内的节拍由 timelineItemTopGap 自己决定间距，列表不设 Gap
+							el := renderTimelineItem(c, s, item, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, timelineItemTopGap(timelineItems, i, listGap))
+							if i == anchorRow {
+								// 锚点行已排过版（高度非 0）才记位置：没渲染的行留 0，交给“等几何量”分支。
+								if b := el.Bounds(); b.H > 0 {
+									anchorRowTop = b.Y
+								}
 							}
-						}
-					}).Grow(1).MinHeight(0).Padding(listPadY, 0, listPadBottom, 0)
-					// 列表构建完再处理锚定：推进垫高动画、下发收口滚动、判断是否该解除。
-					s.applyChatAnchor(selectedID, timelineItems, anchorGeometry{
-						rowTop:       anchorRowTop,
-						listTop:      listEl.Bounds().Y,
-						padTop:       listPadY,
-						reduceMotion: reduceMotion(c),
-					})
-					// 时间线迷你地图在容器内绝对定位贴右缘、不占列表宽度，不走 Overlay，以免盖住浮窗
-					renderTimelineMinimap(c, s, buildMinimapEntries(timelineItems))
-					// 会话内查找条浮在聊天区右上角，横向让出迷你地图的宽度
-					renderChatFindBar(c, s, selectedID, rev, messages, timelineItems)
-				})
-
-				// 跳到最新按钮浮在时间线右下，不占布局高度。
-				atEnd := s.chatListState.AtEnd()
-				unread := s.observeTimelineUnread(selectedID, messages, atEnd || s.chatAnchorHolding(selectedID))
-				if shouldShowJumpToLatest(atEnd, -1) || unread > 0 {
-					ui.Overlay(c, func() {
-						// 悬停提示带上当前键位；离开底部后有新消息时，胶囊文字换成未读条数。
-						jumpLabel := shortcutTitleWithKey("jump-to-latest", "跳到最新")
-						text := "跳到最新"
-						if unread > 0 {
-							text = unreadJumpLabel(unread)
-						}
-						btn := Capsule(c, CapsuleProps{
-							Key:         "chat-jump-latest",
-							Text:        text,
-							Icon:        IconChevronDown(),
-							Tone:        ToneNeutral,
-							Size:        ControlMD,
-							Interactive: true,
-							Tooltip:     jumpLabel,
-							OnClick:     func() { s.jumpChatToLatest(selectedID) },
+						}).Grow(1).MinHeight(0).Padding(listPadY, 0, listPadBottom, 0)
+						// 列表构建完再处理锚定：推进垫高动画、下发收口滚动、判断是否该解除。
+						s.applyChatAnchor(selectedID, timelineItems, anchorGeometry{
+							rowTop:       anchorRowTop,
+							listTop:      listEl.Bounds().Y,
+							padTop:       listPadY,
+							reduceMotion: reduceMotion(c),
 						})
-						btn.AttachTo(timeline, ui.AnchorBottomRight, ui.AnchorBottomRight).Margin(0, 24, 10, 0)
+						// 时间线迷你地图在容器内绝对定位贴右缘、不占列表宽度，不走 Overlay，以免盖住浮窗
+						renderTimelineMinimap(c, s, buildMinimapEntries(timelineItems))
+						// 会话内查找条浮在聊天区右上角，横向让出迷你地图的宽度
+						renderChatFindBar(c, s, selectedID, rev, messages, timelineItems)
 					})
+
+					// 跳到最新按钮浮在时间线右下，不占布局高度。
+					atEnd := s.chatListState.AtEnd()
+					unread := s.observeTimelineUnread(selectedID, messages, atEnd || s.chatAnchorHolding(selectedID))
+					if shouldShowJumpToLatest(atEnd, -1) || unread > 0 {
+						ui.Overlay(c, func() {
+							// 悬停提示带上当前键位；离开底部后有新消息时，胶囊文字换成未读条数。
+							jumpLabel := shortcutTitleWithKey("jump-to-latest", "跳到最新")
+							text := "跳到最新"
+							if unread > 0 {
+								text = unreadJumpLabel(unread)
+							}
+							btn := Capsule(c, CapsuleProps{
+								Key:         "chat-jump-latest",
+								Text:        text,
+								Icon:        IconChevronDown(),
+								Tone:        ToneNeutral,
+								Size:        ControlMD,
+								Interactive: true,
+								Tooltip:     jumpLabel,
+								OnClick:     func() { s.jumpChatToLatest(selectedID) },
+							})
+							btn.AttachTo(timeline, ui.AnchorBottomRight, ui.AnchorBottomRight).Margin(0, 24, 10, 0)
+						})
+					}
+
+					// 审批卡片区域
+					renderSwarmQuestionBanner(c, s)
+					renderApproval(c, s)
+
+					// 长会话压缩建议卡片：输入框上方（压缩卡片优先，避免与转发建议叠在一起）
+					if !renderCompactSuggestionCard(c, s, selectedID, curUsage) {
+						renderForwardSuggestionCard(c, s, selectedID, isRunning)
+					}
+
+					// 总管会话的起步胶囊：用户还没开口时停在输入框上方，发出后条件不再满足自然消失。
+					renderStewardStarterCapsules(c, s)
+
+					// 底部输入框区域
+					renderComposer(c, s)
 				}
 
-				// 审批卡片区域
-				renderSwarmQuestionBanner(c, s)
-				renderApproval(c, s)
-
-				// 长会话压缩建议卡片：输入框上方（压缩卡片优先，避免与转发建议叠在一起）
-				if !renderCompactSuggestionCard(c, s, selectedID, curUsage) {
-					renderForwardSuggestionCard(c, s, selectedID, isRunning)
-				}
-
-				// 总管会话的起步胶囊：用户还没开口时停在输入框上方，发出后条件不再满足自然消失。
-				renderStewardStarterCapsules(c, s)
-
-				// 底部输入框区域
-				renderComposer(c, s)
-			}
-
-			// D-18 首帧骨架：只在会话首次进入、历史还没落地时显示，数据到达后用 motionFast 淡出。
-			// 它是绝对定位的 PassThrough 层，不参与布局，也不改变已有滚动位置。
-			renderTimelineSkeletonLayer(c, s, selectedID, rev, len(messages) > 0)
-			// D-9 拖文件覆盖层：铺在时间线与输入区整块区域上方，不拦截拖放。
-			renderComposerDropOverlay(c, s)
+				// D-18 首帧骨架：只在会话首次进入、历史还没落地时显示，数据到达后用 motionFast 淡出。
+				// 它是绝对定位的 PassThrough 层，不参与布局，也不改变已有滚动位置。
+				renderTimelineSkeletonLayer(c, s, selectedID, rev, len(messages) > 0)
+				// D-9 拖文件覆盖层：铺在时间线与输入区整块区域上方，不拦截拖放。
+				renderComposerDropOverlay(c, s)
+			})
 		})
+		if showBoard {
+			renderStewardBoard(c, s, boardGroups)
+		}
 	})
 }
 

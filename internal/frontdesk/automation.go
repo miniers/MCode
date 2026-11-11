@@ -9,7 +9,7 @@ type AutomationService interface {
 
 // AutomationInput 描述需要独立运行的定时任务。
 type AutomationInput struct {
-	ProjectID, Name, Prompt, Schedule string
+	ProjectID, Name, Prompt, Schedule, Check string
 }
 
 // AutomationResult 描述创建的定时任务。

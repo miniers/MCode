@@ -74,6 +74,8 @@ type RunState struct {
 type Spec struct {
 	Schedule Schedule `json:"schedule"`
 	StopWhen string   `json:"stopWhen,omitempty"`
+	// Origin 是创建来源，steward 表示由总管创建。
+	Origin string `json:"origin,omitempty"`
 	// Check 是定时触发前在项目目录执行的只读检查命令，退出码 0 才运行，空表示不检查。
 	Check                  string  `json:"check,omitempty"`
 	ConfidenceThreshold    float64 `json:"confidenceThreshold"`

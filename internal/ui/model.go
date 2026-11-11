@@ -427,6 +427,7 @@ type chatState struct {
 	// chatPaneWidthBits 是聊天区最近一帧的可用宽度（float32 位模式，见 chatPaneWidth / setChatPaneWidth）：
 	// 按比例档的内容宽度每帧按它换算，时间线逐行渲染时用原子量读取，不抢 s.mu。
 	chatPaneWidthBits       atomic.Uint32
+	stewardBoard            stewardBoardState
 	embeddedBee             bool              // 为浮动面板里某个子代理嵌入的会话状态：复用 composer（含额度条），但改动标签与 Hero 布局不同
 	embeddedPicker          *ModelPickerState // 嵌入 composer 自己的模型选择展开状态，避免与主 composer 的全局状态联动
 	pendingDraftFill        *string

@@ -10,12 +10,71 @@ import (
 
 	"mcode/internal/attention"
 	"mcode/internal/automation"
+	"mcode/internal/config"
 	"mcode/internal/kanban"
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
 	"mcode/internal/swarm"
 )
+
+func TestHandleAutomationRunStewardResult(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Orchestration.Steward.Enabled = true
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	defer hub.Close()
+	backend := remote.NewMemoryBackend(hub)
+	defer backend.Close()
+	if err := backend.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	backend.AddProject(wire.ProjectSummary{ID: "home", Name: "总管", Path: filepath.Join(dir, "home")})
+	feedID, err := backend.EnsureStewardFeedThread(ctx, "home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := newAttentionWiring(attentionWiringOptions{Service: attention.New(db, attention.Options{}), Store: db, DataDir: dir, AppendStewardMessage: backend.AppendStewardMessage})
+	def := automation.Definition{Automation: store.Automation{ID: "auto", Name: "巡检", Enabled: true}, Spec: automation.Spec{Origin: "steward"}}
+	summary, reason := "全部正常", "连接失败"
+	success := store.AutomationRun{ID: "success", Status: automation.RunSucceeded, ResultSummary: &summary}
+	failure := store.AutomationRun{ID: "failure", Status: automation.RunFailed, Error: &reason}
+	w.HandleAutomationRun(def, success)
+	w.HandleAutomationRun(def, success)
+	w.HandleAutomationRun(def, failure)
+	w.HandleAutomationRun(def, failure)
+	other := def
+	other.Spec.Origin = ""
+	w.HandleAutomationRun(other, store.AutomationRun{ID: "other", Status: automation.RunSucceeded})
+	w.HandleAutomationRun(def, store.AutomationRun{ID: "running", Status: automation.RunRunning})
+	cfg.Orchestration.Steward.Enabled = false
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	w.HandleAutomationRun(def, store.AutomationRun{ID: "disabled", Status: automation.RunSucceeded})
+	messages, _, err := db.ListMessages(ctx, feedID, 0, 10)
+	if err != nil || len(messages) != 2 {
+		t.Fatalf("消息数量错误: %+v %v", messages, err)
+	}
+	for i, text := range []string{"巡检\n全部正常", "自动化「巡检」没能完成：连接失败"} {
+		if messages[i].Role != "system" || messages[i].Kind != "steward_result" || messages[i].Text != text {
+			t.Fatalf("消息错误: %+v", messages[i])
+		}
+	}
+	recent, err := (&frontdeskServices{store: db}).Recent(ctx, feedID, 12)
+	if err != nil || len(recent) != 2 || !strings.Contains(recent[0].Content[0].Text, "全部正常") || !strings.Contains(recent[1].Content[0].Text, "连接失败") {
+		t.Fatalf("最近对话缺少自动化结果: %+v %v", recent, err)
+	}
+}
 
 // attentionTestRig 是测试用的一套真实存储、待处理事件服务与接线。
 type attentionTestRig struct {
