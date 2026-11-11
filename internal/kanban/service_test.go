@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -86,6 +87,89 @@ func setupTestService(t *testing.T) (*Service, *store.Store, *mockDriver) {
 	t.Cleanup(func() { svc.Close() })
 
 	return svc, s, driver
+}
+
+func TestBuildStartPromptTaskContext(t *testing.T) {
+	goal := "目标正文"
+	task := store.Task{ID: "e58a7f8a-1d03-4f10-8643-15b487f293e9", Title: "任务标题", Notes: "任务正文", GoalPrompt: &goal}
+	for _, workDir := range []string{"/Users/test/项目", ""} {
+		t.Run(workDir, func(t *testing.T) {
+			prompt := buildStartPrompt(task, nil, "branch", workDir, false, false)
+			if !strings.Contains(prompt, "任务 ID：`"+task.ID+"`，调用看板工具时使用此 ID。") {
+				t.Fatalf("开工提示缺少完整任务 ID: %s", prompt)
+			}
+			if strings.Index(prompt, "任务正文") >= strings.Index(prompt, "## 任务") || strings.Index(prompt, "## 任务") >= strings.Index(prompt, "## Goal") {
+				t.Fatalf("任务信息应位于正文之后、目标之前: %s", prompt)
+			}
+			if workDir == "" {
+				if strings.Contains(prompt, "工作区：") {
+					t.Fatalf("空工作区不应输出工作区行: %s", prompt)
+				}
+			} else if !strings.Contains(prompt, "工作区：`"+workDir+"`，这是本机路径，所有工具都在这个目录执行，直接在这里读写代码。") {
+				t.Fatalf("开工提示缺少本机工作区说明: %s", prompt)
+			}
+		})
+	}
+}
+
+func TestStartTaskMetaSessionRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name, meta, provider, model string
+		attachments                 []string
+	}{
+		{"模型与附件", `{"provider":"codex","model":"gpt-5.4","source_message":"source"}`, "codex", "gpt-5.4", []string{"image-1", "image-2"}},
+		{"仅提供商", `{"provider":"codex"}`, "codex", "", nil},
+		{"仅模型", `{"model":"gpt-5.4"}`, "", "gpt-5.4", nil},
+		{"无元数据", "", "", "", nil},
+		{"无效元数据", `{"provider":"codex","model":123}`, "", "", nil},
+		{"源消息不存在", `{"provider":"codex","source_message":"missing"}`, "codex", "", nil},
+		{"源消息无附件", `{"source_message":"empty"}`, "", "", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			svc, db, driver := setupTestService(t)
+			now := time.Now()
+			if err := db.UpsertProject(ctx, store.Project{ID: "proj-1", Name: "项目", Path: t.TempDir(), CreatedAt: now, UpdatedAt: now}); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.CreateThread(ctx, store.Thread{ID: "source-thread", ProjectID: "proj-1", Provider: "codex", CreatedAt: now, UpdatedAt: now}); err != nil {
+				t.Fatal(err)
+			}
+			for _, msg := range []store.Message{
+				{ID: "source", ThreadID: "source-thread", Role: "user", CreatedAt: now, Media: []store.MediaRef{{ID: "image-1"}, {ID: "image-2"}}},
+				{ID: "empty", ThreadID: "source-thread", Role: "user", CreatedAt: now},
+			} {
+				if _, err := db.AppendMessage(ctx, msg); err != nil {
+					t.Fatal(err)
+				}
+			}
+			task, err := svc.CreateTask(ctx, CreateTaskInput{ProjectID: "proj-1", Title: "开工"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			task.Meta = tc.meta
+			task, err = db.UpdateTask(ctx, task, task.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.StartTask(ctx, task.ID, task.Revision); err != nil {
+				t.Fatal(err)
+			}
+			if len(driver.starts) != 1 {
+				t.Fatalf("应只开工一次: %+v", driver.starts)
+			}
+			req := driver.starts[0]
+			if req.Provider != tc.provider || req.Model != tc.model || !reflect.DeepEqual(req.Attachments, tc.attachments) {
+				t.Fatalf("开工偏好与附件不符: %+v", req)
+			}
+			if !strings.Contains(req.Prompt, "任务 ID：`"+task.ID+"`") || !strings.Contains(req.Prompt, "工作区：`"+req.WorkDir+"`") {
+				t.Fatalf("开工提示缺少任务与实际工作区: %s", req.Prompt)
+			}
+			if len(tc.attachments) > 0 && req.SourceMessageID != "source" {
+				t.Fatalf("附件恢复应携带源消息 ID: %+v", req)
+			}
+		})
+	}
 }
 
 func TestCreateTask(t *testing.T) {

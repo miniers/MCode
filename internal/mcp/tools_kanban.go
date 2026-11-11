@@ -12,6 +12,26 @@ import (
 	"mcode/internal/store"
 )
 
+func resolveKanbanTaskID(tc ToolContext, args map[string]any) (string, *ToolResult) {
+	taskID, _ := args["task_id"].(string)
+	if taskID = strings.TrimSpace(taskID); taskID != "" {
+		return taskID, nil
+	}
+	threadID := scopeThreadID(tc.Context)
+	if threadID != "" && tc.Server.opts.Store != nil {
+		task, err := tc.Server.opts.Store.TaskByThreadID(tc.Context, threadID)
+		if err == nil {
+			return task.ID, nil
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			result := toolError(CodeInternal, err.Error(), true)
+			return "", &result
+		}
+	}
+	result := toolError(CodeInvalidArguments, "Missing required argument: 'task_id'.", false)
+	return "", &result
+}
+
 // kanbanScope 返回调用线程的看板角色与自身任务 ID；评审线程的写操作一律以只读拒绝。
 func kanbanScope(tc ToolContext) (threadRole, string, *ToolResult) {
 	role, ownTaskID := tc.Server.threadRole(tc.Context, tc.Project.ID)
@@ -100,10 +120,9 @@ func (r *Registry) registerKanbanTools(s *Server) {
 			"properties": map[string]any{
 				"task_id": map[string]any{
 					"type":        "string",
-					"description": "Task UUID to read.",
+					"description": "Task UUID. Optional inside a task's own session; defaults to the task bound to this session.",
 				},
 			},
-			"required":             []string{"task_id"},
 			"additionalProperties": false,
 		},
 		IsWrite:    false,
@@ -383,7 +402,7 @@ func (r *Registry) registerKanbanTools(s *Server) {
 			"properties": map[string]any{
 				"task_id": map[string]any{
 					"type":        "string",
-					"description": "Task UUID to update.",
+					"description": "Task UUID. Optional inside a task's own session; defaults to the task bound to this session.",
 				},
 				"title": map[string]any{
 					"type":        "string",
@@ -414,7 +433,6 @@ func (r *Registry) registerKanbanTools(s *Server) {
 					"description": "Alias of request_id.",
 				},
 			},
-			"required":             []string{"task_id"},
 			"additionalProperties": false,
 		},
 		IsWrite:    true,
@@ -442,7 +460,7 @@ func (r *Registry) registerKanbanTools(s *Server) {
 				"attachments":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				"task_id": map[string]any{
 					"type":        "string",
-					"description": "UUID of the task this conversation is executing.",
+					"description": "Task UUID. Optional inside a task's own session; defaults to the task bound to this session.",
 				},
 				"outcome": map[string]any{
 					"type":        "string",
@@ -462,7 +480,7 @@ func (r *Registry) registerKanbanTools(s *Server) {
 					"description": "Alias of request_id.",
 				},
 			},
-			"required":             []string{"task_id", "summary"},
+			"required":             []string{"summary"},
 			"additionalProperties": false,
 		},
 		IsWrite:    true,
@@ -660,11 +678,10 @@ func handleKanbanReadBoard(tc ToolContext, args map[string]any) ToolResult {
 const kanbanTaskDiffToolName = "kanban_task_diff"
 
 func handleKanbanReadCard(tc ToolContext, args map[string]any) ToolResult {
-	taskID, ok := args["task_id"].(string)
-	if !ok || strings.TrimSpace(taskID) == "" {
-		return toolError(CodeInvalidArguments, "Missing required argument: 'task_id'.", false)
+	taskID, failure := resolveKanbanTaskID(tc, args)
+	if failure != nil {
+		return *failure
 	}
-	taskID = strings.TrimSpace(taskID)
 	if tc.Server.opts.Store == nil {
 		return toolError(CodeInternal, "Store is unavailable", false)
 	}
@@ -1338,11 +1355,10 @@ func handleKanbanUpdateCard(tc ToolContext, args map[string]any) ToolResult {
 	if guard := kanbanWriteGuard(tc); guard != nil {
 		return *guard
 	}
-	taskID, ok := args["task_id"].(string)
-	if !ok || strings.TrimSpace(taskID) == "" {
-		return toolError(CodeInvalidArguments, "Missing required argument: 'task_id'.", false)
+	taskID, failure := resolveKanbanTaskID(tc, args)
+	if failure != nil {
+		return *failure
 	}
-	taskID = strings.TrimSpace(taskID)
 
 	var title *string
 	if t, ok := args["title"].(string); ok {
@@ -1418,11 +1434,10 @@ func handleKanbanSubmitResult(tc ToolContext, args map[string]any) ToolResult {
 	if guard := kanbanWriteGuard(tc); guard != nil {
 		return *guard
 	}
-	taskID, ok := args["task_id"].(string)
-	if !ok || strings.TrimSpace(taskID) == "" {
-		return toolError(CodeInvalidArguments, "Missing required argument: 'task_id'.", false)
+	taskID, failure := resolveKanbanTaskID(tc, args)
+	if failure != nil {
+		return *failure
 	}
-	taskID = strings.TrimSpace(taskID)
 	outcome, _ := args["outcome"].(string)
 	status, _ := args["status"].(string)
 	if strings.TrimSpace(status) == "" && strings.TrimSpace(outcome) == "" {

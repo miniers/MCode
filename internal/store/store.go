@@ -2160,6 +2160,25 @@ func scanMessageRow(s rowScanner) (Message, string, string, error) {
 	return m, createdAtStr, mediaStr, nil
 }
 
+// GetMessage 按消息 ID 获取单条消息。
+func (s *Store) GetMessage(ctx context.Context, messageID string) (Message, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+messageSelectCols+` FROM messages WHERE id = ?`, messageID)
+	m, createdAt, media, err := scanMessageRow(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Message{}, ErrNotFound
+	}
+	if err != nil {
+		return Message{}, err
+	}
+	if m.CreatedAt, err = parseTime(createdAt); err != nil {
+		return Message{}, fmt.Errorf("parse message created_at: %w", err)
+	}
+	if m.Media, err = decodeJSONList[MediaRef](media); err != nil {
+		return Message{}, fmt.Errorf("decode media for message %s: %w", m.ID, err)
+	}
+	return m, nil
+}
+
 // ListMessages 分页获取指定线程的消息。
 // beforeSeq <= 0 表示从最新消息开始；
 // 返回按 seq 升序排列的一页消息，以及布尔值表示是否还有更早的消息。

@@ -211,7 +211,7 @@ func TestKanbanEntryHelpAndForwarding(t *testing.T) {
 	if isError {
 		t.Fatalf("help read_card 不应失败: %s", text)
 	}
-	if !strings.Contains(text, "task_id") || !strings.Contains(text, "必填") {
+	if !strings.Contains(text, "task_id") || !strings.Contains(text, "可选") {
 		t.Fatalf("read_card 参数说明不完整: %s", text)
 	}
 

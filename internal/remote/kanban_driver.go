@@ -2,7 +2,11 @@ package remote
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"mcode/internal/harness"
@@ -123,15 +127,62 @@ func (b *MemoryBackend) StartSession(ctx context.Context, req kanban.SessionRequ
 
 	sendActionID := newUUID()
 	_, err = b.SendMessage(ctx, wire.SendMessageParams{
-		ThreadID: threadID,
-		Text:     req.Prompt,
-		ActionID: sendActionID,
+		ThreadID:    threadID,
+		Text:        req.Prompt,
+		ActionID:    sendActionID,
+		Attachments: b.sessionAttachments(ctx, req),
 	})
 	if err != nil {
 		return "", err
 	}
 
 	return threadID, nil
+}
+
+// sessionAttachments 将源消息已落盘的媒体重新上传，临时附件 ID 在首次发送后已经失效。
+func (b *MemoryBackend) sessionAttachments(ctx context.Context, req kanban.SessionRequest) []string {
+	if req.SourceMessageID == "" || len(req.Attachments) == 0 {
+		return req.Attachments
+	}
+	b.mu.Lock()
+	s, baseDir := b.store, b.dataDir
+	b.mu.Unlock()
+	if s == nil {
+		log.Printf("kanban: 恢复源消息 %s 的附件失败：存储不可用", req.SourceMessageID)
+		return nil
+	}
+	message, err := s.GetMessage(ctx, req.SourceMessageID)
+	if err != nil {
+		log.Printf("kanban: 读取源消息 %s 的附件失败: %v", req.SourceMessageID, err)
+		return nil
+	}
+	if baseDir == "" {
+		baseDir = b.attachments.ensureTempDir()
+	}
+	var ids []string
+	for _, id := range req.Attachments {
+		for _, media := range message.Media {
+			if media.ID != id {
+				continue
+			}
+			path := resolveMediaFilePath(filepath.Join(baseDir, "media", message.ThreadID), media.ID, media.Name, media.MimeType)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				log.Printf("kanban: 读取源消息 %s 的附件 %s 失败: %v", message.ID, id, err)
+				break
+			}
+			attachment, err := b.AttachmentsUpload(WithLocalUpload(ctx), wire.AttachmentsUploadParams{
+				Name: media.Name, MimeType: optionalString(media.MimeType), Data: base64.StdEncoding.EncodeToString(data),
+			})
+			if err != nil {
+				log.Printf("kanban: 恢复源消息 %s 的附件 %s 失败: %v", message.ID, id, err)
+				break
+			}
+			ids = append(ids, attachment.AttachmentID)
+			break
+		}
+	}
+	return ids
 }
 
 // SessionState 实现 kanban.SessionDriver 接口，查询指定会话的运行中、审批中、失败状态以及最后一条 assistant 回复。

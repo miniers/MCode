@@ -47,7 +47,9 @@ type SessionRequest struct {
 	WorkDir         string
 	Title           string
 	Prompt          string
-	InteractionMode string // 非空时（"plan"/"build"）会话以该交互模式启动
+	Attachments     []string // 第一条消息附带的附件 ID
+	SourceMessageID string   // 源消息 ID，用于恢复已消费的附件
+	InteractionMode string   // 非空时（"plan"/"build"）会话以该交互模式启动
 	// RuntimeMode 非空时以该权限模式创建会话，取值同 ThreadCreateParams.RuntimeMode
 	// （readonly/supervised/autoAcceptEdits/auto/fullAccess），空表示沿用现有默认行为。
 	RuntimeMode string
@@ -624,17 +626,33 @@ func (s *Service) startTaskInternal(ctx context.Context, taskID string, expected
 		}
 	}
 
-	prompt := buildStartPrompt(task, deps, branchName, inWorktree, s.isStewardOwnerTask(ctx, task))
+	prompt := buildStartPrompt(task, deps, branchName, workDir, inWorktree, s.isStewardOwnerTask(ctx, task))
 
 	if s.opts.Driver == nil {
 		return store.Task{}, errors.New("kanban: session driver is nil")
 	}
-	threadID, err := s.opts.Driver.StartSession(ctx, SessionRequest{
+	req := SessionRequest{
 		ProjectID: projectID,
 		WorkDir:   workDir,
 		Title:     task.Title,
 		Prompt:    prompt,
-	})
+	}
+	if meta, err := ParseTaskMeta(task.Meta); err == nil {
+		req.Provider = meta.Provider
+		req.Model = meta.Model
+		if meta.SourceMessageID != "" {
+			message, err := s.opts.Store.GetMessage(ctx, meta.SourceMessageID)
+			if err != nil {
+				log.Printf("kanban: 读取任务 %s 的源消息附件失败: %v", task.ID, err)
+			} else {
+				req.SourceMessageID = message.ID
+				for _, media := range message.Media {
+					req.Attachments = append(req.Attachments, media.ID)
+				}
+			}
+		}
+	}
+	threadID, err := s.opts.Driver.StartSession(ctx, req)
 	if err != nil {
 		return store.Task{}, fmt.Errorf("start session: %w", err)
 	}
@@ -673,12 +691,20 @@ func (s *Service) runWorktreeSetup(ctx context.Context, projectID, projectRoot, 
 
 // buildStartPrompt 组装任务启动提示词：任务本身与目标、评审反馈，以及已完成依赖的上下文、
 // 上次失败原因、隔离工作区说明和看板协作约束。
-func buildStartPrompt(task store.Task, deps []store.Task, branchName string, inWorktree, stewardOwner bool) string {
+func buildStartPrompt(task store.Task, deps []store.Task, branchName, workDir string, inWorktree, stewardOwner bool) string {
 	var b strings.Builder
 	b.WriteString(task.Title)
 	if task.Notes != "" {
 		b.WriteString("\n\n")
 		b.WriteString(task.Notes)
+	}
+	b.WriteString("\n\n## 任务\n任务 ID：`")
+	b.WriteString(task.ID)
+	b.WriteString("`，调用看板工具时使用此 ID。")
+	if workDir != "" {
+		b.WriteString("\n工作区：`")
+		b.WriteString(workDir)
+		b.WriteString("`，这是本机路径，所有工具都在这个目录执行，直接在这里读写代码。")
 	}
 	if task.GoalPrompt != nil && *task.GoalPrompt != "" {
 		b.WriteString("\n\n## Goal\n")

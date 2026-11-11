@@ -79,6 +79,88 @@ func TestMCP_KanbanUpdateCardProgress(t *testing.T) {
 	}
 }
 
+func TestKanbanTaskIDDefaultsToSession(t *testing.T) {
+	srv, st, _ := setupTestMCP(t)
+	ctx := context.Background()
+	projectID, threadID := "proj-test-1", "executor-thread"
+	for _, task := range []store.Task{
+		{ID: "bound-task", ProjectID: &projectID, ThreadID: &threadID, Title: "bound", Status: string(kanban.TaskStatusInProgress)},
+		{ID: "other-task", ProjectID: &projectID, Title: "other", Status: string(kanban.TaskStatusInProgress)},
+	} {
+		if err := st.CreateTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	boundCtx := context.WithValue(ctx, threadScopeKey{}, threadID)
+	unboundCtx := context.WithValue(ctx, threadScopeKey{}, "unbound-thread")
+	tools := []struct {
+		name string
+		args map[string]any
+	}{
+		{"kanban_read_card", map[string]any{}},
+		{"kanban_update_card", map[string]any{"notes": "updated"}},
+		{"kanban_submit_result", map[string]any{"outcome": "done", "summary": "finished"}},
+	}
+	for _, tool := range tools {
+		t.Run(tool.name, func(t *testing.T) {
+			def, ok := srv.registry.Get(tool.name)
+			if !ok {
+				t.Fatal("工具未注册")
+			}
+			if failure := validateArguments(def, tool.args); failure != nil {
+				t.Fatalf("省略 task_id 未通过 schema 校验: %s", failure.Text)
+			}
+			call := func(callCtx context.Context, args map[string]any) ToolResult {
+				return def.Handler(ToolContext{Context: callCtx, Project: store.Project{ID: projectID}, Server: srv}, args)
+			}
+			result := call(boundCtx, tool.args)
+			if result.IsError {
+				t.Fatalf("默认任务调用失败: %s", result.Text)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(result.Text), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if tool.name == "kanban_read_card" {
+				card, _ := payload["card"].(map[string]any)
+				if card["id"] != "bound-task" {
+					t.Fatalf("读取了错误任务: %v", payload)
+				}
+			} else if payload["task_id"] != "bound-task" {
+				t.Fatalf("操作了错误任务: %v", payload)
+			}
+			for _, missingCtx := range []context.Context{ctx, unboundCtx} {
+				result = call(missingCtx, tool.args)
+				if !result.IsError || toolErrorCode(result) != CodeInvalidArguments || !strings.Contains(result.Text, "Missing required argument: 'task_id'.") {
+					t.Fatalf("未绑定会话应返回缺参错误: %+v", result)
+				}
+			}
+			explicitArgs := make(map[string]any, len(tool.args)+1)
+			for k, v := range tool.args {
+				explicitArgs[k] = v
+			}
+			explicitArgs["task_id"] = "  bound-task  "
+			result = call(boundCtx, explicitArgs)
+			if result.IsError {
+				t.Fatalf("显式指定绑定任务失败: %+v", result)
+			}
+			explicitArgs["task_id"] = "  other-task  "
+			result = call(boundCtx, explicitArgs)
+			if tool.name == "kanban_submit_result" {
+				if !result.IsError || toolErrorCode(result) != CodeInvalidArguments {
+					t.Fatalf("不能代其他会话提交结果: %+v", result)
+				}
+			} else if result.IsError || !strings.Contains(result.Text, "other-task") {
+				t.Fatalf("显式任务调用失败: %+v", result)
+			}
+		})
+	}
+	stored, err := st.GetTask(ctx, "bound-task")
+	if err != nil || stored.Notes != "updated" {
+		t.Fatalf("默认任务备注未更新: %+v, %v", stored, err)
+	}
+}
+
 func TestMCP_KanbanEditTools_Flow(t *testing.T) {
 	srv, s, projDir := setupTestMCP(t)
 	ts := httptest.NewServer(srv.Handler())

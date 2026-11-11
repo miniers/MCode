@@ -5,9 +5,48 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestGetMessage(t *testing.T) {
+	ctx := context.Background()
+	s := seedCorruptTestData(t, "source")
+	defer s.Close()
+	for _, media := range [][]MediaRef{nil, {{ID: "image-1", Source: "attachment", Name: "截图.png", MimeType: "image/png", ByteCount: 123}, {ID: "image-2"}}} {
+		id := fmt.Sprintf("message-%d", len(media))
+		want, err := s.AppendMessage(ctx, Message{ID: id, ThreadID: "source", Role: "user", Text: "消息正文", CreatedAt: time.Now().UTC(), Media: media})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.GetMessage(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.ID != want.ID || got.ThreadID != want.ThreadID || got.Text != want.Text || got.Seq != want.Seq || !got.CreatedAt.Equal(want.CreatedAt) || len(got.Media) != len(want.Media) {
+			t.Fatalf("消息读回不符: %+v，期望 %+v", got, want)
+		}
+		if len(media) > 0 && !reflect.DeepEqual(got.Media, media) {
+			t.Fatalf("媒体读回不符: %+v", got.Media)
+		}
+	}
+	if _, err := s.GetMessage(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("消息不存在时应返回 ErrNotFound: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE messages SET media = 'invalid' WHERE id = 'message-2'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetMessage(ctx, "message-2"); err == nil {
+		t.Fatal("媒体 JSON 损坏时应返回错误")
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE messages SET created_at = 'invalid' WHERE id = 'message-0'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetMessage(ctx, "message-0"); err == nil {
+		t.Fatal("消息时间损坏时应返回错误")
+	}
+}
 
 func TestMigrationIdempotency(t *testing.T) {
 	ctx := context.Background()

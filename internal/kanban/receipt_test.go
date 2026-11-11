@@ -302,8 +302,8 @@ func TestReceiptMissingAsksThenEscalates(t *testing.T) {
 	if len(asks) != 1 {
 		t.Fatalf("第一轮应追问一次，实际: %d", len(asks))
 	}
-	if asks[0].text != TaskReceiptPrompt {
-		t.Fatalf("追问文案应为 TaskReceiptPrompt，实际: %s", asks[0].text)
+	if asks[0].text != taskReceiptPrompt("task-receipt-ask") || !strings.Contains(asks[0].text, "任务 ID：`task-receipt-ask`。") {
+		t.Fatalf("追问文案应包含任务 ID，实际: %s", asks[0].text)
 	}
 	task, _ := s.GetTask(ctx, "task-receipt-ask")
 	if task.Status != string(TaskStatusInProgress) {
@@ -712,7 +712,7 @@ func TestReceiptConsumedOnce(t *testing.T) {
 
 // TestStartPromptMentionsSubmitResult 验证执行会话的启动提示词要求调用 kanban_submit_result。
 func TestStartPromptMentionsSubmitResult(t *testing.T) {
-	prompt := buildStartPrompt(store.Task{ID: "task-prompt", Title: "提示词任务"}, nil, "kanban/task-prompt", false, false)
+	prompt := buildStartPrompt(store.Task{ID: "task-prompt", Title: "提示词任务"}, nil, "kanban/task-prompt", "", false, false)
 	if !strings.Contains(prompt, "kanban_submit_result") {
 		t.Fatalf("启动提示词应包含 kanban_submit_result，实际: %s", prompt)
 	}
