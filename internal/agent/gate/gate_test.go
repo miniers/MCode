@@ -47,7 +47,7 @@ func TestSandboxedReadOnly(t *testing.T) {
 		})
 	}
 	args, _ := json.Marshal(map[string]string{"command": `awk '{print}' ` + filepath.Join(home, ".mcode/mcode.db")})
-	if got := Check(Input{Mode: harness.ModeAuto, ToolName: "bash", Args: args}); got.Request == nil || got.Request.Sensitive != "controlPlane" {
+	if got := Check(Input{Mode: harness.ModeAuto, ToolName: "bash", Args: args}); got.Action != Ask || got.Request.Sensitive != "controlPlane" {
 		t.Errorf("得到 %+v，期望 controlPlane", got)
 	}
 }
