@@ -94,13 +94,15 @@ func attachmentPreviewData(mime string, data []byte) []byte {
 }
 
 type composerAttachment struct {
-	LocalID   string
-	Name      string
-	MimeType  string
-	Size      int
-	ID        string // 后端上传成功后回填
-	Uploading bool
-	Err       string
+	// InspectorRef 让引用去重，并在切换会话时保留尚未完成的上传。
+	InspectorRef *inspectorFileRef
+	LocalID      string
+	Name         string
+	MimeType     string
+	Size         int
+	ID           string // 后端上传成功后回填
+	Uploading    bool
+	Err          string
 	// Progress 是上传进度（0~1）。上传走单次 RPC，客户端拿不到中间进度，因此生产环境通常为 0：
 	// 0 表示进度未知，卡片显示不定进度；大于 0 时显示百分比。
 	Progress float32
@@ -110,6 +112,14 @@ type composerAttachment struct {
 	Thumb *ui.Bitmap
 	// Data 保存图片附件的原始数据，点击缩略图时解码成全尺寸图片；非图片附件为 nil。
 	Data []byte
+}
+
+func (a composerAttachment) uploadName() string {
+	// 后端按名称保留扩展名，图片后缀会让 provider 把引用文本误判成图片。
+	if a.InspectorRef != nil && filepath.Ext(a.Name) != ".txt" {
+		return a.Name + ".txt"
+	}
+	return a.Name
 }
 
 var localAttachmentSeq uint64
@@ -356,17 +366,26 @@ func (s *chatState) uploadAttachmentTask(locID, attName, attMime string, attData
 	res, err := s.client.UploadAttachment(ctx, attName, attMime, attData)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.attachments {
-		if s.attachments[i].LocalID == locID {
-			s.attachments[i].Uploading = false
+	update := func(atts []composerAttachment) {
+		for i := range atts {
+			if atts[i].LocalID != locID {
+				continue
+			}
+			atts[i].Uploading = false
 			if err != nil {
-				s.attachments[i].Err = err.Error()
+				atts[i].Err = err.Error()
 			} else {
-				s.attachments[i].ID = res.ID
-				s.attachments[i].RetryData = nil
+				atts[i].Err = ""
+				atts[i].ID = res.ID
+				atts[i].RetryData = nil
 			}
 			break
 		}
+	}
+	update(s.attachments)
+	update(s.editStashAttachments)
+	for _, draft := range s.drafts {
+		update(draft.Attachments)
 	}
 	if err != nil {
 		s.toastMessage = "附件上传失败: " + err.Error()
@@ -376,12 +395,23 @@ func (s *chatState) uploadAttachmentTask(locID, attName, attMime string, attData
 
 // addAttachment 校验并向输入框添加一个附件，通过后异步触发上传。
 func (s *chatState) addAttachment(name, mime string, data []byte) bool {
+	s.mu.Lock()
+	threadID := s.selectedThreadID
+	s.mu.Unlock()
+	return s.addAttachmentToThread(threadID, name, mime, data, nil)
+}
+
+// addAttachmentToThread 复用附件限额与上传；引用明确指定文本类型，不能按被引用路径的后缀解码。
+func (s *chatState) addAttachmentToThread(threadID, name, mime string, data []byte, ref *inspectorFileRef) bool {
 	if len(data) == 0 {
 		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：内容为空", name))
 		return false
 	}
 
-	detectedMime, ok := detectAttachmentMime(name, data)
+	detectedMime, ok := mime, true
+	if ref == nil {
+		detectedMime, ok = detectAttachmentMime(name, data)
+	}
 	if !ok || detectedMime == "" {
 		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：不支持的文件类型", name))
 		return false
@@ -389,7 +419,7 @@ func (s *chatState) addAttachment(name, mime string, data []byte) bool {
 	mime = detectedMime
 
 	// TIFF 转为 PNG 格式
-	if mime == "image/tiff" || strings.ToLower(filepath.Ext(name)) == ".tiff" || strings.ToLower(filepath.Ext(name)) == ".tif" {
+	if ref == nil && (mime == "image/tiff" || strings.ToLower(filepath.Ext(name)) == ".tiff" || strings.ToLower(filepath.Ext(name)) == ".tif") {
 		img, err := tiff.Decode(bytes.NewReader(data))
 		if err == nil {
 			var buf bytes.Buffer
@@ -409,14 +439,26 @@ func (s *chatState) addAttachment(name, mime string, data []byte) bool {
 
 	limit := s.attachmentLimit()
 	s.mu.Lock()
-	if len(s.attachments) >= limit {
+	atts := s.attachments
+	if threadID != s.selectedThreadID {
+		atts = s.drafts[threadID].Attachments
+	}
+	if ref != nil {
+		for _, att := range atts {
+			if att.InspectorRef != nil && *att.InspectorRef == *ref {
+				s.mu.Unlock()
+				return false
+			}
+		}
+	}
+	if len(atts) >= limit {
 		s.mu.Unlock()
 		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：超过最多 %d 个附件上限", name, limit))
 		return false
 	}
 
 	var totalSize int
-	for _, a := range s.attachments {
+	for _, a := range atts {
 		totalSize += a.Size
 	}
 	if totalSize+len(data) > maxTotalAttachmentBytes {
@@ -427,21 +469,32 @@ func (s *chatState) addAttachment(name, mime string, data []byte) bool {
 
 	localID := nextLocalAttachmentID()
 	att := composerAttachment{
-		LocalID:   localID,
-		Name:      name,
-		MimeType:  mime,
-		Size:      len(data),
-		Uploading: true,
-		Thumb:     attachmentThumbnail(mime, data),
-		Data:      attachmentPreviewData(mime, data),
-		RetryData: data,
+		InspectorRef: ref,
+		LocalID:      localID,
+		Name:         name,
+		MimeType:     mime,
+		Size:         len(data),
+		Uploading:    true,
+		Thumb:        attachmentThumbnail(mime, data),
+		Data:         attachmentPreviewData(mime, data),
+		RetryData:    data,
 	}
-	s.attachments = append(s.attachments, att)
+	atts = append(atts, att)
+	if threadID == s.selectedThreadID {
+		s.attachments = atts
+	} else {
+		if s.drafts == nil {
+			s.drafts = make(map[string]composerDraft)
+		}
+		draft := s.drafts[threadID]
+		draft.Attachments = atts
+		s.drafts[threadID] = draft
+	}
 	s.mu.Unlock()
 	attachmentTokenCache.Store(localID, estimateAttachmentTokens(mime, data, len(data)))
 	s.invalidate()
 
-	go s.uploadAttachmentTask(localID, name, mime, data)
+	go s.uploadAttachmentTask(localID, att.uploadName(), mime, data)
 	return true
 }
 
@@ -484,7 +537,7 @@ func (s *chatState) retryAttachment(localID string) bool {
 		a.Err = ""
 		a.Uploading = true
 		a.Progress = 0
-		name, mime = a.Name, a.MimeType
+		name, mime = a.uploadName(), a.MimeType
 		found = true
 		break
 	}
@@ -1276,6 +1329,9 @@ func renderAttachments(c *ui.Context, s *chatState) {
 						for _, att := range attachments {
 							a := att
 							cat, tag := classifyAttachment(a.Name, a.MimeType)
+							if a.InspectorRef != nil {
+								cat, tag = categoryMDText, ""
+							}
 							catCol := categoryColor(c, cat)
 
 							// 图片附件只显示缩略图正方形卡片；非图片附件保持原有胶囊样式。
@@ -1284,45 +1340,55 @@ func renderAttachments(c *ui.Context, s *chatState) {
 								continue
 							}
 
-							ui.Row(c.Key("composer-attach-"+a.LocalID)).
+							card := ui.Row(c.Key("composer-attach-"+a.LocalID)).
 								Transition(motionListItem(c)).
 								Gap(Space2).
 								Padding(Space0, Space3, Space0, Space3).
 								Radius(RadiusLG).
 								Background(ThemeHover(c)).
 								Border(Hairline, ThemeBorder(c)).
-								AlignItems(ui.Center).
-								Children(func() {
-									if a.Uploading {
-										LoadingIndicator(c, nil, "", IconSM, ThemeSecondaryText(c))
-									}
+								AlignItems(ui.Center)
+							if a.InspectorRef != nil && !reduceMotion(c) {
+								scale := float32(1)
+								if a.Uploading {
+									scale = 0.97
+								}
+								scale = card.AnimateTo("reference-ready", scale, springSnappy)
+								card.Scale(scale, scale)
+							}
+							card.Children(func() {
+								if a.Uploading {
+									LoadingIndicator(c, nil, "", IconSM, ThemeSecondaryText(c))
+								}
 
-									ui.Icon(c, IconFile()).Size(IconSM, IconSM).TextColor(catCol)
+								ui.Icon(c, IconFile()).Size(IconSM, IconSM).TextColor(catCol)
+								if tag != "" {
 									ui.Text(c, tag).FontSize(TypeCaption).TextColor(catCol)
+								}
 
-									displayName := truncateAttachmentName(a.Name, 18)
-									txt := ui.Text(c, displayName).FontSize(TypeFootnote)
-									if a.Err != "" {
-										txt.TextColor(ThemeDanger(c))
-									} else {
-										txt.TextColor(ThemePrimaryText(c))
-									}
+								displayName := truncateAttachmentName(a.Name, 18)
+								txt := ui.Text(c, displayName).FontSize(TypeFootnote)
+								if a.Err != "" {
+									txt.TextColor(ThemeDanger(c))
+								} else {
+									txt.TextColor(ThemePrimaryText(c))
+								}
 
-									// 显示文件大小
-									if a.Size > 0 {
-										ui.Text(c, formatAttachmentSize(a.Size)).
-											FontSize(TypeCaption).
-											TextColor(ThemeSecondaryText(c))
-									}
+								// 显示文件大小
+								if a.Size > 0 && a.InspectorRef == nil {
+									ui.Text(c, formatAttachmentSize(a.Size)).
+										FontSize(TypeCaption).
+										TextColor(ThemeSecondaryText(c))
+								}
 
-									// 失败时右侧给重试入口，再右侧是 × 删除按钮
-									if a.Err != "" {
-										renderAttachmentRetryButton(c, s, a, false)
-									}
+								// 失败时右侧给重试入口，再右侧是 × 删除按钮
+								if a.Err != "" {
+									renderAttachmentRetryButton(c, s, a, false)
+								}
 
-									// 右侧 × 删除按钮
-									renderAttachmentRemoveButton(c, s, a, sending, false, true)
-								})
+								// 右侧 × 删除按钮
+								renderAttachmentRemoveButton(c, s, a, sending, false, true)
+							})
 						}
 					})
 			}

@@ -892,18 +892,21 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 			props.onOpen = nil
 			props.onMention = nil
 		}
-		ui.Row(c.Key("file-tree-content-" + path)).
+		row := ui.Row(c.Key("file-tree-content-" + path)).
 			Grow(1).
 			MinWidth(0).
 			AlignItems(ui.Center).
 			Gap(Space1).
-			Transition(motionListItem(c)).
-			Children(func() {
-				renderFileManagerRow(c, s, props)
-				if hasStatus {
-					renderFileTreeGitTag(c, "file-tree-git-"+path, status)
-				}
-			})
+			Transition(motionListItem(c))
+		if payload, ok := fileTreeDragReference(s, threadID, entry); ok && !deleted {
+			row.Drag(payload)
+		}
+		row.Children(func() {
+			renderFileManagerRow(c, s, props)
+			if hasStatus {
+				renderFileTreeGitTag(c, "file-tree-git-"+path, status)
+			}
+		})
 	}).Grow(1).FillWidth().Padding(Space2, Space2).ContextMenu(fileManagerDirMenu(c, s))
 
 	if onlyChanged {

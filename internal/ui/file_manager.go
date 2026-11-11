@@ -8,7 +8,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
-	"github.com/egoist/mygo/ui/richtext"
 )
 
 // 文件管理面板的宽度范围，与右侧改动面板、网页预览面板同属主区右侧分栏。
@@ -296,23 +295,6 @@ func (s *chatState) fileManagerSearch(threadID, query string) {
 	}(threadID, trimmed)
 }
 
-// appendFileReferenceToDraft 把「@相对路径 」追加到当前会话的 composer 草稿末尾，
-// 与补全插入的 @ 引用格式一致；草稿非空且不以空白结尾时先补一个空格。
-func appendFileReferenceToDraft(s *chatState, relPath string) {
-	if s == nil || relPath == "" {
-		return
-	}
-	s.mu.Lock()
-	if s.draft != "" && !strings.HasSuffix(s.draft, " ") && !strings.HasSuffix(s.draft, "\n") && !strings.HasSuffix(s.draft, "\t") {
-		s.draft += " "
-	}
-	s.draft += "@" + relPath + " "
-	s.draftText = richtext.NewText(s.draft)
-	s.completionKind = completionNone
-	s.mu.Unlock()
-	s.invalidate()
-}
-
 // renderFileManagerPanel 渲染右侧只读文件管理面板。
 // 宽于 640 DIP 且用户展开导航时，树与内容并排；窄栏两者二选一，由内容头部的返回按钮切换。
 func renderFileManagerPanel(c *ui.Context, s *chatState) {
@@ -401,13 +383,11 @@ func fileManagerThreadID(s *chatState) string {
 	return st.threadID
 }
 
-// fileManagerMentionHandler 返回「@引用」回调：只有文件行才提供引用，目录不参与。
-func fileManagerMentionHandler(s *chatState, isDir bool, relPath string) func() {
-	if isDir {
-		return nil
-	}
+// fileManagerMentionHandler 在构建入口时固定来源，文件与目录共用引用附件。
+func fileManagerMentionHandler(s *chatState, _ bool, relPath string) func() {
+	ref := inspectorFileReference(s, fileManagerThreadID(s), relPath, 0, 0)
 	return func() {
-		appendFileReferenceToDraft(s, relPath)
+		s.addInspectorFileRefs([]inspectorFileRef{ref})
 	}
 }
 
@@ -707,13 +687,14 @@ func renderFileManagerFileHeader(c *ui.Context, s *chatState, tab fileManagerTab
 				mentionText = "引用"
 			}
 
+			ref := inspectorFileReference(s, fileManagerThreadID(s), tab.path, tab.hlFirst, tab.hlLast)
 			Button(c, ButtonOpts{
 				Key:     keyPrefix + "file-manager-file-mention",
 				Text:    mentionText,
 				Label:   "引用到输入框",
 				Variant: ButtonSecondary,
 				OnClick: func() {
-					appendFileReferenceToDraft(s, tab.path)
+					s.addInspectorFileRefs([]inspectorFileRef{ref})
 				},
 			})
 		})

@@ -88,6 +88,7 @@ func openFileManagerInSplit(s *chatState, threadID, path string) {
 
 // fileManagerEntryMenu 返回文件 / 目录行的菜单：行右键与行尾「更多操作」按钮共用。
 func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry FileEntry) func(*ui.Menu) {
+	payload, canReference := fileTreeDragReference(s, threadID, entry)
 	return func(m *ui.Menu) {
 		if entry.IsDir {
 			if m.Item("打开").Chosen() {
@@ -101,8 +102,8 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 				openFileManagerInSplit(s, threadID, entry.Path)
 			}
 		}
-		if m.Item("引用到输入框").Chosen() {
-			appendFileReferenceToDraft(s, entry.Path)
+		if m.Item("引用到输入框").Disabled(!canReference).Chosen() {
+			s.addInspectorFileRefs(payload.refs())
 		}
 
 		abs := fileManagerWorkspacePath(s, threadID, entry.Path)

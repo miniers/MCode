@@ -276,7 +276,7 @@ func TestFileManagerSearchDropsPreviousThread(t *testing.T) {
 	}
 }
 
-// 点文件读取文本预览，「引用到输入框」把相对路径追加到 composer 草稿。
+// 点文件读取文本预览，「引用到输入框」生成引用附件并保留正文。
 func TestFileManagerPreviewTextAndMention(t *testing.T) {
 	_, s, tt := openFileManagerForTest(t)
 	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
@@ -292,7 +292,7 @@ func TestFileManagerPreviewTextAndMention(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		return s.draft == "@a.txt "
+		return s.draft == "" && len(s.attachments) == 1 && s.attachments[0].Name == "a.txt" && s.attachments[0].ID != ""
 	})
 
 	// 返回按钮回到目录列表。

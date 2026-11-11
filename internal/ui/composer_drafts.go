@@ -29,7 +29,7 @@ var composerDraftsWriteMu sync.Mutex
 // composerDraft 是单个会话的草稿内存态；threadID 为空字符串表示新会话页。
 type composerDraft struct {
 	Text        string
-	Attachments []composerAttachment // 仅已上传成功的附件，仅内存保留，不落盘
+	Attachments []composerAttachment // 已上传附件及待完成的上下文引用，仅内存保留，不落盘
 }
 
 // composerDraftRecord 是单条草稿的磁盘格式，只持久化文本。
@@ -114,11 +114,11 @@ func applyComposerDrafts(s *chatState, drafts map[string]string) {
 	}
 }
 
-// uploadedAttachments 过滤出已上传成功的附件（ID 非空、非上传中、无错误）。
-func uploadedAttachments(atts []composerAttachment) []composerAttachment {
+// draftAttachments 保留已上传附件，以及需要在来源会话继续上传或重试的上下文引用。
+func draftAttachments(atts []composerAttachment) []composerAttachment {
 	var out []composerAttachment
 	for _, att := range atts {
-		if att.ID == "" || att.Uploading || att.Err != "" {
+		if att.InspectorRef == nil && (att.ID == "" || att.Uploading || att.Err != "") {
 			continue
 		}
 		out = append(out, att)
@@ -126,13 +126,13 @@ func uploadedAttachments(atts []composerAttachment) []composerAttachment {
 	return out
 }
 
-// stashDraftLocked 把会话草稿写回草稿表；文本为空且没有已上传附件时删除条目。
+// stashDraftLocked 把会话草稿写回草稿表；上下文引用保留上传与失败状态，便于返回来源会话重试。
 // threadID 为空字符串表示新会话页。调用方需持有 s.mu。
 func (s *chatState) stashDraftLocked(threadID, text string, atts []composerAttachment) {
 	if s.drafts == nil {
 		s.drafts = make(map[string]composerDraft)
 	}
-	uploaded := uploadedAttachments(atts)
+	uploaded := draftAttachments(atts)
 	if strings.TrimSpace(text) == "" && len(uploaded) == 0 {
 		delete(s.drafts, threadID)
 		return
@@ -224,7 +224,7 @@ func (s *chatState) noteComposerDraft(threadID, text string) {
 		return
 	}
 	entry.Text = text
-	if strings.TrimSpace(text) == "" && len(uploadedAttachments(entry.Attachments)) == 0 {
+	if strings.TrimSpace(text) == "" && len(draftAttachments(entry.Attachments)) == 0 {
 		delete(s.drafts, threadID)
 	} else {
 		s.drafts[threadID] = entry
