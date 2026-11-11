@@ -4046,6 +4046,7 @@ func (s *chatState) observeToolRun(m Message, now time.Time) (elapsed, idleFor t
 	s.mu.Lock()
 	if !toolIsRunningCommand(m) {
 		delete(s.toolRunIdle, m.ID)
+		delete(s.commandActivity, m.ID)
 		s.mu.Unlock()
 		return elapsed, 0, true
 	}
@@ -4095,13 +4096,38 @@ func (s *chatState) runningCommandBadge(c *ui.Context, m Message) (text string, 
 	if !ok {
 		return "", false
 	}
+	now := c.Now()
+	threadID := selectedThreadIDSnapshot(s)
+	s.mu.Lock()
+	ensureCommandActivityLocked(s, m)
+	s.mu.Unlock()
+	if elapsed >= commandActivityStartAfter {
+		requestCommandActivity(c, s, threadID, now)
+	}
+	activity := commandActivitySnapshot(s, m.ID)
 	// 状态明确为 running 的工具照旧每秒刷新时长；其余靠兜底判为运行中的工具，
 	// 只有当前会话仍在跑（IsRunning 或 SwarmBusy）时才继续每秒重建。
 	if isToolRunning(m) || s.threadIsBusy(selectedThreadIDSnapshot(s)) {
 		c.After(time.Second)
 	}
 	text = formatToolRunDuration(elapsed)
-	if elapsed >= toolRunStallMinRun && idleFor >= toolRunStallAfter {
+	if len(activity.steps) >= 2 && activity.maxStep > 0 {
+		text = fmt.Sprintf("%d/%d · %s", activity.maxStep, len(activity.steps), text)
+	}
+	if activity.estimateSet && activity.estimate > elapsed {
+		text += " / ~" + formatToolRunDuration(activity.estimate)
+	}
+	if activity.hasProcess {
+		if activity.sampleCount >= 2 && elapsed >= toolRunStallMinRun && idleFor >= toolRunStallAfter && now.Sub(activity.lastBusyAt) >= toolRunStallAfter {
+			return text + " · 空闲", true
+		}
+		return text, false
+	}
+	lastStep := ""
+	if len(activity.steps) > 0 {
+		lastStep = activity.steps[len(activity.steps)-1]
+	}
+	if elapsed >= toolRunStallMinRun && idleFor >= toolRunStallAfter && !commandActivityNoOutputExpected(lastStep) {
 		return text + " · 无输出", true
 	}
 	return text, false
@@ -4700,9 +4726,11 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 						renderInlineToolDiff(c, s, m)
 					}
 
-					// 输出正文：等宽小号字，超长时保留前 300 个字符；
-					// 正文区限高后可滚动，运行中默认贴底跟随新输出，用户上滚则停止跟随。
-					if strings.TrimSpace(m.Text) != "" {
+					if toolIsRunningCommand(m) {
+						renderRunningCommandActivity(c, s, m, fontFam, outputMax)
+					} else if strings.TrimSpace(m.Text) != "" {
+						// 输出正文：等宽小号字，超长时保留前 300 个字符；
+						// 正文区限高后可滚动，运行中默认贴底跟随新输出，用户上滚则停止跟随。
 						// 拦截标记那行已从 lines 去掉，正文按处理后的行拼回
 						text := strings.Join(lines, "\n")
 						foldKey := "tool-output-fold-" + m.ID

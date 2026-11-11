@@ -471,8 +471,12 @@ type chatState struct {
 	// 运行中命令的观测量：toolRunIdle 按消息 ID 记录输出长度与最后一次变化时刻，用于判定
 	// 「长时间无输出」，消息结束后删除对应项避免泄漏；killingTools 记录正在请求终止的消息 ID。
 	// 两者都由 s.mu 保护。
-	toolRunIdle  map[string]toolRunIdleState
-	killingTools map[string]bool
+	toolRunIdle               map[string]toolRunIdleState
+	commandActivity           map[string]*commandActivityState
+	commandActivityPending    map[string]bool
+	commandActivityNext       map[string]time.Time
+	commandActivityGeneration map[string]uint64
+	killingTools              map[string]bool
 
 	// 补全状态
 	completionKind         completionKind
