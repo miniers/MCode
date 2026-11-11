@@ -66,8 +66,15 @@ func TestSwarmSystemPolicyRouting(t *testing.T) {
 				if strings.Contains(turn.Prompt, leadPolicy) || strings.Contains(turn.Prompt, "Bee tiers:") || strings.Contains(turn.Prompt, swarm.LeadNoticeReminder) {
 					t.Fatalf("用户消息含静态规则: %s", turn.Prompt)
 				}
-				if !strings.Contains(turn.Prompt, "rounds used so far") || !strings.Contains(turn.Prompt, "kanban preface") {
-					t.Fatalf("用户消息缺少动态段或看板 preface: %s", turn.Prompt)
+				if !strings.Contains(turn.Prompt, "rounds used so far") {
+					t.Fatalf("用户消息缺少动态段: %s", turn.Prompt)
+				}
+				notice := swarm.IsNotice(prompt)
+				if !notice && !strings.Contains(turn.Prompt, "kanban preface") {
+					t.Fatalf("用户轮缺少看板 preface: %s", turn.Prompt)
+				}
+				if notice && strings.Contains(turn.Prompt, "kanban preface") {
+					t.Fatalf("通知轮不应带看板 preface: %s", turn.Prompt)
 				}
 				if !strings.Contains(turn.SystemPolicy, policy.Marker) || !strings.Contains(turn.SystemPolicy, leadPolicy) || !strings.Contains(turn.SystemPolicy, "Bee tiers:") {
 					t.Fatalf("系统提示缺少静态规则: %s", turn.SystemPolicy)
