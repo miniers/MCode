@@ -75,7 +75,7 @@ func CleanTitle(raw string) string {
 }
 
 // CleanCommitMessage 清洗模型输出为合规的 Git 提交信息。
-// 移除代码围栏与多余的首尾空白。
+// 移除代码围栏与多余的首尾空白，并拦截写作计划和自检输出。
 func CleanCommitMessage(raw string) string {
 	cleaned := strings.TrimSpace(raw)
 	// 去掉代码围栏 ```git, ```等
@@ -88,8 +88,51 @@ func CleanCommitMessage(raw string) string {
 		}
 		filtered = append(filtered, line)
 	}
+	for i := len(filtered) - 1; i >= 0; i-- {
+		if isCommitOutputMarker(filtered[i]) {
+			filtered = filtered[i+1:]
+			break
+		}
+	}
 	result := strings.TrimSpace(strings.Join(filtered, "\n"))
+	if result == "" {
+		return ""
+	}
+	lines = strings.Split(result, "\n")
+	if strings.Contains(lines[0], "撰写中") || strings.Contains(lines[0], "正在撰写") {
+		return ""
+	}
+	for _, line := range lines {
+		line = strings.TrimFunc(line, func(r rune) bool { return unicode.IsSpace(r) || r == '*' || r == '#' })
+		i := 0
+		for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+			i++
+		}
+		if i > 0 && i+1 < len(line) && line[i] == '.' && (line[i+1] == ' ' || line[i+1] == '\t') {
+			line = strings.TrimFunc(line[i+1:], func(r rune) bool { return unicode.IsSpace(r) || r == '*' || r == '#' })
+		}
+		if strings.HasPrefix(line, "自检") {
+			return ""
+		}
+	}
 	return result
+}
+
+func isCommitOutputMarker(line string) bool {
+	line = strings.TrimFunc(line, func(r rune) bool { return unicode.IsSpace(r) || r == '*' || r == '#' })
+	lower := strings.ToLower(line)
+	for _, marker := range []string{"最终输出", "最终提交信息", "最终结果", "final output", "final commit message"} {
+		if strings.HasPrefix(lower, marker) {
+			rest := strings.TrimFunc(line[len(marker):], func(r rune) bool {
+				return unicode.IsSpace(r) || strings.ContainsRune(":：.。", r)
+			})
+			rest = strings.TrimPrefix(rest, "如下")
+			return strings.TrimFunc(rest, func(r rune) bool {
+				return unicode.IsSpace(r) || strings.ContainsRune(":：.。", r)
+			}) == ""
+		}
+	}
+	return false
 }
 
 // stripCodeFences 去掉文本中的代码围栏行（如 ```、```markdown）并去除首尾空白。

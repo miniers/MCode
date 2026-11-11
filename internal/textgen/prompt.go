@@ -79,6 +79,7 @@ func CommitMessagePrompt(diffStat, diffPatch, instructions string) string {
 	sb.WriteString("- 第一行必须是简明扼要的主题行，使用祈使语气，不超过 72 个字符，末尾不加句号\n")
 	sb.WriteString("- 若改动包含多项重要细节，可空一行后附带要点列表（使用 '-' 引导短句）\n")
 	sb.WriteString("- 只输出提交信息正文，严禁使用代码块围栏（```）包裹，严禁包含多余解释\n")
+	sb.WriteString("- 直接给出提交信息本身，不要输出思考过程、写作计划、自检或「最终输出如下」之类的引导语\n")
 
 	inst := strings.TrimSpace(instructions)
 	if inst != "" {

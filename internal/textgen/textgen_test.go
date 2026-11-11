@@ -122,6 +122,31 @@ func TestCleanTitle(t *testing.T) {
 }
 
 func TestCleanCommitMessage(t *testing.T) {
+	plan := `详细撰写中：结合 diff 中的改动点，逐条整理成中文提交说明。
+1. **主题行**：概括本组改动核心--「自动」模型选择策略与总管任务下发配置。
+2. **要点**：
+- 自动模型选择策略替换原 cheapest/小模型关键词挑选逻辑
+- CLI 兜底读取总管模型配置
+3. **格式**：纯文本，无代码块围栏，中文表达，主题行 ≤72 字符，空行后接 '-' 要点列表。
+4. **自检**：主题行为祈使语气、无句号；要点为短句；无多余解释。符合全部规则。
+最终输出如下。`
+	body := "feat: 自动模型跟随默认模型\n- CLI 兜底读取配置"
+	for _, tc := range []struct{ name, input, want string }{
+		{"计划", plan, ""},
+		{"计划后有正文", plan + "\n\n" + body, body},
+		{"正常自检要点", "fix: 修复自检脚本\n- 自检脚本支持并发", "fix: 修复自检脚本\n- 自检脚本支持并发"},
+		{"正在撰写", "正在撰写提交信息\n正文", ""},
+		{"编号自检", "feat: 更新配置\n4. **自检**：符合规则", ""},
+		{"英文标记", "计划\n## FINAL COMMIT MESSAGE: ##\n" + body, body},
+		{"非标记正文", "最终结果支持并发", "最终结果支持并发"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CleanCommitMessage(tc.input); got != tc.want {
+				t.Errorf("got: %q, want: %q", got, tc.want)
+			}
+		})
+	}
+
 	inputWithFences := "```git\nfeat(config): add utility model role\n\n- support utility in ModelRoles\n```"
 	got := CleanCommitMessage(inputWithFences)
 	want := "feat(config): add utility model role\n\n- support utility in ModelRoles"
