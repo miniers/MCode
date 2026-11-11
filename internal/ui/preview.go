@@ -164,48 +164,6 @@ var newPreviewWebView = func(win *mygo.Window, opts mygo.WebViewOptions) (*mygo.
 	return win.NewWebView(opts)
 }
 
-// previewState 维护单个聊天窗口下的 Web 预览状态。
-type previewState struct {
-	visible                        bool
-	url                            string
-	html                           string
-	web                            *mygo.WebView
-	page                           previewPage
-	pageID, generation             uint64
-	consoleRevision, annotRevision uint64
-	webCreating                    bool
-	pageOff                        func()
-	// untrusted / pageUntrusted 记录当前内容想要的信任级别与已创建页面的级别；
-	// 本地内容一律 Untrusted，切换内容时若级别不同就先释放旧页面再重建。
-	untrusted bool
-	// pageUntrusted 只在创建页面时写入，由 previewMu 保护。
-	pageUntrusted bool
-	// localPreview 与 previewThreadID 记录本地内容页：释放时撤销该会话的 Token。
-	localPreview    bool
-	previewThreadID string
-
-	nextAnnotationID uint64
-	addr             string
-	err              string
-	// webFailed 记录原生 WebView 创建失败：失败原因（无宿主窗口等）不变时按帧重试只会反复失败，
-	// 因此失败后不再自动重试，由用户重新打开预览、改地址或点刷新时重置（见 ensureWebView）。
-	webFailed bool
-	// viewport 为桌面 / 平板 / 手机视口模式。
-	viewport previewViewportMode
-	// consoleErrors 是最近一次轮询到的页面 JS 错误，consoleOpen 控制底部抽屉。
-	consoleErrors   []previewConsoleError
-	consoleOpen     bool
-	consolePolling  bool
-	consoleLastPoll time.Time
-	// annotating 为真时预览处于元素标注模式；annotations 是已圈选元素（含评论），
-	// annotOpen 控制底部标注抽屉，annotPolling/annotLastPoll 复用错误轮询的间隔与节流。
-	annotating    bool
-	annotations   []previewAnnotation
-	annotOpen     bool
-	annotPolling  bool
-	annotLastPoll time.Time
-}
-
 // previewWorkbenchSettings 返回当前会话使用的工作台设置；设置尚未初始化时返回零值。
 func previewWorkbenchSettings(s *chatState) config.WorkbenchConfig {
 	if st := getChatSettings(s); st != nil {
@@ -230,12 +188,11 @@ func previewConsoleCaptureEnabled(s *chatState) bool {
 	return previewWorkbenchSettings(s).BrowserConsoleCaptureEnabled()
 }
 
-// getPreviewState 获取或初始化当前 chatState 的预览状态。
-func getPreviewState(s *chatState) *previewState {
+// getPreviewState 保留活动页面访问入口，容器状态由 Inspector 会话槽持有。
+func getPreviewState(s *chatState) *browserTab {
 	if s == nil {
 		return nil
 	}
-	startURL := previewStartURL(s)
 	slot := inspectorSession(s)
 	if slot == nil {
 		return nil
@@ -243,15 +200,12 @@ func getPreviewState(s *chatState) *previewState {
 	previewMu.Lock()
 	defer previewMu.Unlock()
 	st := slot.Browser
-	if st.addr == "" {
-		st.addr = startURL
-	}
 	previewStates[s] = st
-	return st
+	return browserActiveTabLocked(st)
 }
 
 // setPreviewViewport 切换视口模式并请求重绘。
-func setPreviewViewport(s *chatState, st *previewState, mode previewViewportMode) {
+func setPreviewViewport(s *chatState, st *browserTab, mode previewViewportMode) {
 	if st == nil {
 		return
 	}
@@ -265,7 +219,7 @@ func setPreviewViewport(s *chatState, st *previewState, mode previewViewportMode
 
 // previewMaybePollConsoleErrors 按最小间隔读取页面收集到的 JS 错误。
 // force 为真时忽略间隔（用于页面加载完成后的首次读取）。
-func previewMaybePollConsoleErrors(s *chatState, st *previewState, force bool) {
+func previewMaybePollConsoleErrors(s *chatState, st *browserTab, force bool) {
 	if st == nil || !previewConsoleCaptureEnabled(s) {
 		return
 	}
@@ -320,7 +274,7 @@ func previewPollConsoleErrors(s *chatState, token previewPageToken, page preview
 }
 
 // clearPreviewConsoleErrors 清空页面与本地收集的控制台错误。
-func clearPreviewConsoleErrors(s *chatState, st *previewState) {
+func clearPreviewConsoleErrors(s *chatState, st *browserTab) {
 	if st == nil || !previewConsoleCaptureEnabled(s) {
 		return
 	}
@@ -425,9 +379,9 @@ func getBrowserQuickPorts(s *chatState) []string {
 	return ParseQuickPorts(raw)
 }
 
-// ensureWebView 保证 previewState 中的 webview 实例已初始化。
+// ensureWebView 保证网页标签的 WebView 实例已初始化。
 // 创建失败后置 webFailed 并停手：本函数在渲染路径里每帧调用，若失败还继续尝试就会以帧率重试。
-func ensureWebView(s *chatState, st *previewState) bool {
+func ensureWebView(s *chatState, st *browserTab) bool {
 	previewMu.Lock()
 	web, pageExists, generation := st.web, st.page != nil, st.generation
 	untrustedMismatch := pageExists && st.pageUntrusted != st.untrusted
@@ -519,7 +473,7 @@ func ensureWebView(s *chatState, st *previewState) bool {
 	return page != nil
 }
 
-func loadPreviewPage(s *chatState, st *previewState) {
+func loadPreviewPage(s *chatState, st *browserTab) {
 	previewMu.Lock()
 	page, ok := st.page.(previewNavigablePage)
 	if !ok {
@@ -533,6 +487,7 @@ func loadPreviewPage(s *chatState, st *previewState) {
 	off := st.pageOff
 	st.pageOff = nil
 	st.err = ""
+	st.loading = true
 	previewMu.Unlock()
 	if off != nil {
 		off()
@@ -569,10 +524,12 @@ func openPreviewURL(s *chatState, raw string) {
 	}
 
 	previewMu.Lock()
+	browserPromoteTabLocked(st)
 	previewAdvanceGenerationLocked(st)
 	st.webCreating = false
 	st.url = target
 	st.addr = target
+	st.addressEditing = false
 	st.html = ""
 	st.untrusted = false
 	st.localPreview = false
@@ -599,11 +556,13 @@ func openPreviewHTML(s *chatState, html string) {
 	}
 
 	previewMu.Lock()
+	browserPromoteTabLocked(st)
 	previewAdvanceGenerationLocked(st)
 	st.webCreating = false
 	st.html = html
 	st.url = ""
 	st.addr = "html-preview"
+	st.addressEditing = false
 	st.untrusted = false
 	st.localPreview = false
 	// 用户重新打开时重置失败标记，允许再试一次创建 WebView。
@@ -635,10 +594,12 @@ func openPreviewLocalURL(s *chatState, threadID, raw string) {
 	}
 
 	previewMu.Lock()
+	browserPromoteTabLocked(st)
 	previewAdvanceGenerationLocked(st)
 	st.webCreating = false
 	st.url = target
 	st.addr = target
+	st.addressEditing = false
 	st.html = ""
 	st.untrusted = true
 	st.localPreview = true
@@ -668,7 +629,7 @@ func closePreview(s *chatState) {
 	if inspectorPaneOpen(s, sidePanePreviewID) {
 		inspectorClose(s)
 	}
-	disposePreviewState(s, st)
+	disposePreviewState(s, st.owner)
 	s.invalidate()
 }
 
@@ -678,18 +639,38 @@ func disposePreviewState(s *chatState, st *previewState) {
 		return
 	}
 	previewMu.Lock()
+	tabs := append([]*browserTab(nil), st.tabs...)
+	if st.empty != nil {
+		tabs = append(tabs, st.empty)
+	}
 	st.visible = false
-	// 关闭预览时一并退出标注模式并清空标注，下次打开不残留旧页面的 selector。
-	previewAdvanceGenerationLocked(st)
-	st.webCreating = false
-	page := st.page
-	off := st.pageOff
-	st.pageOff = nil
-	st.web = nil
-	st.page = nil
-	// 本地内容页关闭后 Token 立即失效；清掉地址，避免再次打开面板时加载已撤销的 URL。
+	previewMu.Unlock()
+	for _, tab := range tabs {
+		disposeBrowserTab(s, tab)
+	}
+	previewMu.Lock()
+	st.tabs, st.empty, st.activeTabID = nil, nil, 0
+	previewMu.Unlock()
+}
+
+func disposeBrowserTab(s *chatState, st *browserTab) {
+	if st == nil {
+		return
+	}
+	browserReleaseView(st)
+	previewMu.Lock()
+	// 本地标签释放后清掉地址，避免再次加载已撤销的 URL。
 	threadID := st.previewThreadID
 	st.previewThreadID = ""
+	// 现有接口按会话撤销，等最后一个同会话本地标签释放，避免使兄弟页失效。
+	if st.owner != nil && threadID != "" {
+		for _, tab := range st.owner.tabs {
+			if tab != st && tab.previewThreadID == threadID {
+				threadID = ""
+				break
+			}
+		}
+	}
 	if st.localPreview {
 		st.localPreview = false
 		st.url = ""
@@ -703,12 +684,6 @@ func disposePreviewState(s *chatState, st *previewState) {
 			client.RevokeInspectorPreviews(threadID)
 		}
 	}
-	if off != nil {
-		off()
-	}
-	if page != nil {
-		page.Destroy()
-	}
 }
 
 // togglePreview 切换预览面板的可见状态。
@@ -720,13 +695,8 @@ func togglePreview(s *chatState) {
 	if st == nil {
 		return
 	}
-	startURL := previewStartURL(s)
-
 	visible := inspectorSelect(s, sidePanePreviewID, true)
 	previewMu.Lock()
-	if visible && strings.TrimSpace(st.addr) == "" {
-		st.addr = startURL
-	}
 	if visible {
 		// 重新打开面板时重置创建失败标记，给 WebView 一次新的创建机会。
 		st.webFailed = false
@@ -746,7 +716,13 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 		return
 	}
 	captureConsole := previewConsoleCaptureEnabled(s)
-	ensureWebView(s, st)
+	previewMu.Lock()
+	hasContent := st.url != "" || st.html != ""
+	previewMu.Unlock()
+	if hasContent {
+		ensureWebView(s, st)
+	}
+	browserMaybeSyncNavigation(s, st)
 	previewMu.Lock()
 	snap := previewSnapshotLocked(st)
 	previewMu.Unlock()
@@ -758,6 +734,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 		BorderWidth(0, 0, 0, Hairline).
 		BorderColor(ThemeBorder(c)).
 		Children(func() {
+			renderBrowserTabs(c, s, st.owner)
 			// 顶栏 Toolbar
 			ui.Row(c.Key("preview-toolbar")).
 				Height(previewToolbarHeight).
@@ -767,23 +744,34 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 				BorderWidth(0, 0, Hairline, 0).
 				BorderColor(ThemeBorder(c)).
 				Children(func() {
+					renderBrowserHistory(c, s, st, snap)
 					// 地址输入框
 					addr := snap.addr
-					in := ui.TextInput(c.Key("preview-addr-input"), &addr).
-						Placeholder("输入 URL (例如 localhost:3000)...").
+					in := ui.TextInput(c.Key(fmt.Sprintf("preview-addr-input-%p-%d", st.owner, st.tabID)), &addr).
+						Label("地址").
+						Placeholder("输入地址").
 						FontSize(TypeFootnote).
 						Grow(1)
-					if addr != snap.addr {
+					if addr != snap.addr || in.Focused() != snap.addressEditing {
 						previewMu.Lock()
 						if current := previewStateForTokenLocked(s, snap.token); current != nil {
 							current.addr = addr
+							current.addressEditing = in.Focused()
 						}
 						previewMu.Unlock()
 					}
 					if in.Submitted() {
 						openPreviewURL(s, addr)
 					}
+				})
 
+			ui.Row(c.Key("preview-page-tools")).
+				Height(previewToolbarHeight).
+				Shrink(0).
+				Padding(0, Space3).
+				Gap(Space2).
+				AlignItems(ui.Center).
+				Children(func() {
 					// 视口分段选择：桌面 / 平板 / 手机
 					for _, mode := range previewViewportModes() {
 						mode := mode
@@ -898,30 +886,6 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						})
 					})
 
-					// 刷新按钮
-					reloadBtn := ui.ButtonBase(c.Key("preview-reload-btn")).
-						Tooltip("刷新").
-						Label("刷新").
-						Radius(RadiusXS).
-						Padding(Space1, Space2)
-					if reloadBtn.Hovered() {
-						reloadBtn.Background(ThemeHover(c))
-					}
-					if reloadBtn.Clicked() {
-						// 刷新按钮是创建失败后的人工重试入口：先清失败标记再建视图，最后重新加载。
-						previewMu.Lock()
-						previewAdvanceGenerationLocked(st)
-						st.webCreating = false
-						st.webFailed = false
-						previewMu.Unlock()
-						if !ensureWebView(s, st) {
-							loadPreviewPage(s, st)
-						}
-					}
-					reloadBtn.Children(func() {
-						ui.Icon(c, IconRefreshCw()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-					})
-
 					// 在系统浏览器打开按钮
 					openExternalBtn := ui.ButtonBase(c.Key("preview-open-external-btn")).
 						Tooltip("在系统浏览器打开").
@@ -962,7 +926,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 							EmptyState(c, EmptyStateProps{Icon: IconGlobe(), Title: msg})
 						}
 					})
-			} else {
+			} else if browserTabVisible(st) {
 				// 轮询页面收集到的 JS 错误与元素标注；没有推送式消息通道时按最小间隔读取。
 				previewMaybePollConsoleErrors(s, st, false)
 				previewMaybePollAnnotations(s, st, false)
@@ -996,7 +960,7 @@ func renderPreviewViewport(c *ui.Context, st previewSnapshot) {
 }
 
 // renderPreviewConsoleDrawer 渲染底部控制台错误抽屉，使用不透明背景，可清空。
-func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *previewState, snap previewSnapshot) {
+func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *browserTab, snap previewSnapshot) {
 	entries := snap.consoleErrors
 
 	ui.Column(c.Key("preview-console-drawer")).

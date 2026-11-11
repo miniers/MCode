@@ -32,7 +32,7 @@ type previewNavigablePage interface {
 }
 
 type previewPageToken struct {
-	state              *previewState
+	state              *browserTab
 	pageID, generation uint64
 	consoleRevision    uint64
 	annotRevision      uint64
@@ -40,37 +40,40 @@ type previewPageToken struct {
 
 // previewSnapshot 是一帧共享的渲染数据；输入框只修改副本，再按令牌提交。
 type previewSnapshot struct {
-	token         previewPageToken
-	visible       bool
-	url, html     string
-	web           *mygo.WebView
-	addr, err     string
-	webFailed     bool
-	viewport      previewViewportMode
-	consoleErrors []previewConsoleError
-	consoleOpen   bool
-	annotating    bool
-	annotations   []previewAnnotation
-	annotOpen     bool
+	token                            previewPageToken
+	visible                          bool
+	url, html                        string
+	web                              *mygo.WebView
+	addr, err                        string
+	addressEditing                   bool
+	canGoBack, canGoForward, loading bool
+	webFailed                        bool
+	viewport                         previewViewportMode
+	consoleErrors                    []previewConsoleError
+	consoleOpen                      bool
+	annotating                       bool
+	annotations                      []previewAnnotation
+	annotOpen                        bool
 }
 
 // previewSnapshotLocked 调用方须持有 previewMu。
-func previewSnapshotLocked(st *previewState) previewSnapshot {
+func previewSnapshotLocked(st *browserTab) previewSnapshot {
 	return previewSnapshot{
 		token: previewPageTokenLocked(st), visible: st.visible,
 		url: st.url, html: st.html, web: st.web,
 		addr: st.addr, err: st.err, webFailed: st.webFailed, viewport: st.viewport,
+		addressEditing: st.addressEditing, canGoBack: st.canGoBack, canGoForward: st.canGoForward, loading: st.loading,
 		consoleErrors: append([]previewConsoleError(nil), st.consoleErrors...),
 		consoleOpen:   st.consoleOpen, annotating: st.annotating,
 		annotations: append([]previewAnnotation(nil), st.annotations...), annotOpen: st.annotOpen,
 	}
 }
 
-func previewPageTokenLocked(st *previewState) previewPageToken {
+func previewPageTokenLocked(st *browserTab) previewPageToken {
 	return previewPageToken{st, st.pageID, st.generation, st.consoleRevision, st.annotRevision}
 }
 
-func previewStateForTokenLocked(s *chatState, token previewPageToken) *previewState {
+func previewStateForTokenLocked(s *chatState, token previewPageToken) *browserTab {
 	st := token.state
 	if st == nil || st.pageID != token.pageID || st.generation != token.generation {
 		return nil
@@ -79,7 +82,7 @@ func previewStateForTokenLocked(s *chatState, token previewPageToken) *previewSt
 }
 
 // previewAdvanceGenerationLocked 使旧页面结果失效，同时清理旧页的显示和轮询状态。
-func previewAdvanceGenerationLocked(st *previewState) {
+func previewAdvanceGenerationLocked(st *browserTab) {
 	st.generation++
 	st.consoleErrors = nil
 	st.consoleOpen = false
@@ -91,7 +94,14 @@ func previewAdvanceGenerationLocked(st *previewState) {
 
 // previewBindPageCallbacks 每次换代重新绑定，使已排队的旧回调也不能操作新页。
 func previewBindPageCallbacks(s *chatState, token previewPageToken, page previewPageEvents) {
-	navigateOff := page.OnDidNavigate(func(string) {
+	navigateOff := page.OnDidNavigate(func(target string) {
+		previewMu.Lock()
+		live := previewStateForTokenLocked(s, token) != nil
+		previewMu.Unlock()
+		if !live {
+			return
+		}
+		back, forward := browserPageHistory(page)
 		previewMu.Lock()
 		st := previewStateForTokenLocked(s, token)
 		if st == nil || st.page == nil {
@@ -101,6 +111,8 @@ func previewBindPageCallbacks(s *chatState, token previewPageToken, page preview
 		off := st.pageOff
 		st.pageOff = nil
 		previewAdvanceGenerationLocked(st)
+		browserCommitNavigationLocked(st, target, back, forward)
+		st.loading = true
 		next := previewPageTokenLocked(st)
 		previewMu.Unlock()
 		if off != nil {
@@ -110,13 +122,25 @@ func previewBindPageCallbacks(s *chatState, token previewPageToken, page preview
 		s.invalidate()
 	})
 	finishOff := page.OnDidFinishLoad(func() {
-		if !previewConsoleCaptureEnabled(s) {
+		previewMu.Lock()
+		live := previewStateForTokenLocked(s, token) != nil
+		previewMu.Unlock()
+		if !live {
 			return
 		}
+		captureConsole := previewConsoleCaptureEnabled(s)
+		back, forward := browserPageHistory(page)
 		previewMu.Lock()
 		st := previewStateForTokenLocked(s, token)
-		if st == nil || st.page == nil || !st.visible || st.consolePolling {
+		if st == nil || st.page == nil {
 			previewMu.Unlock()
+			return
+		}
+		st.loading = false
+		st.canGoBack, st.canGoForward = back, forward
+		if !captureConsole || !st.visible || st.consolePolling {
+			previewMu.Unlock()
+			s.invalidate()
 			return
 		}
 		st.consolePolling = true
@@ -124,8 +148,10 @@ func previewBindPageCallbacks(s *chatState, token previewPageToken, page preview
 		current := previewPageTokenLocked(st)
 		previewMu.Unlock()
 		go previewPollConsoleErrors(s, current, page)
+		s.invalidate()
 	})
-	off := func() { navigateOff(); finishOff() }
+	titleOff := browserBindTitle(s, token, page)
+	off := func() { navigateOff(); finishOff(); titleOff() }
 	previewMu.Lock()
 	st := previewStateForTokenLocked(s, token)
 	if st != nil && st.page != nil {

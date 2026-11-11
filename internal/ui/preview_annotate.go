@@ -384,7 +384,7 @@ func previewAppendAnnotations(existing, incoming []previewAnnotation) []previewA
 
 // previewMaybePollAnnotations 按最小间隔读取页面里已拾取的标注，与错误轮询共用间隔常量。
 // force 为真时忽略间隔（用于启动标注模式后的首次读取）。
-func previewMaybePollAnnotations(s *chatState, st *previewState, force bool) {
+func previewMaybePollAnnotations(s *chatState, st *browserTab, force bool) {
 	if st == nil {
 		return
 	}
@@ -456,7 +456,7 @@ func previewEvalAnnotations(s *chatState, token previewPageToken, page previewPa
 }
 
 // previewStopAnnotateMode 退出标注模式（页面侧停用拾取、恢复高亮），本地标注保留。
-func previewStopAnnotateMode(s *chatState, st *previewState) {
+func previewStopAnnotateMode(s *chatState, st *browserTab) {
 	if st == nil {
 		return
 	}
@@ -477,7 +477,7 @@ func previewStopAnnotateMode(s *chatState, st *previewState) {
 }
 
 // togglePreviewAnnotate 切换元素标注模式：进入时注入并启动拾取脚本，退出时停用并清空高亮。
-func togglePreviewAnnotate(s *chatState, st *previewState) {
+func togglePreviewAnnotate(s *chatState, st *browserTab) {
 	if st == nil {
 		return
 	}
@@ -518,7 +518,7 @@ func togglePreviewAnnotate(s *chatState, st *previewState) {
 }
 
 // previewClearAnnotations 清空本地标注列表并收起抽屉；页面里未读的队列保持不动。
-func previewClearAnnotations(s *chatState, st *previewState) {
+func previewClearAnnotations(s *chatState, st *browserTab) {
 	if st == nil {
 		return
 	}
@@ -534,7 +534,7 @@ func previewClearAnnotations(s *chatState, st *previewState) {
 }
 
 // previewRemoveAnnotation 删除指定下标的标注，越界时忽略。
-func previewRemoveAnnotation(s *chatState, st *previewState, idx int) {
+func previewRemoveAnnotation(s *chatState, st *browserTab, idx int) {
 	if st == nil {
 		return
 	}
@@ -553,7 +553,7 @@ func previewRemoveAnnotation(s *chatState, st *previewState, idx int) {
 
 // previewResetAnnotationsLocked 退出标注模式并清空已选元素，调用方需持有 previewMu。
 // 关闭预览与切换页面时调用：页面上下文一换，旧的 selector 就不再指向任何元素。
-func previewResetAnnotationsLocked(st *previewState) {
+func previewResetAnnotationsLocked(st *browserTab) {
 	if st == nil {
 		return
 	}

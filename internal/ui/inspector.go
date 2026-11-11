@@ -62,7 +62,7 @@ func inspectorSessionLocked(s *chatState, threadID string) *inspectorSessionStat
 		Active: sidePaneFileID, Width: inspectorInitialWidth(s),
 		Files:   &fileManagerState{},
 		Review:  &diffPanelState{owner: s, collapsed: make(map[string]bool)},
-		Browser: &previewState{viewport: previewViewportDesktop},
+		Browser: &previewState{lastUsed: time.Now()},
 	}
 	if pref, ok := s.inspector.Preferences[threadID]; threadID != "" && ok {
 		pref = normalizeInspectorPreference(pref)
@@ -147,6 +147,7 @@ func inspectorClose(s *chatState) {
 func inspectorSyncVisibility(st *inspectorSessionState) {
 	previewMu.Lock()
 	st.Browser.visible = st.Open && st.Active == sidePanePreviewID
+	browserActiveTabLocked(st.Browser).visible = st.Browser.visible
 	previewMu.Unlock()
 	fileTreeWatchSetVisible(st.Files, st.Open && st.Active == sidePaneFileID)
 }
@@ -224,6 +225,17 @@ func hidePreviewState(s *chatState, st *previewState) {
 		return
 	}
 	previewMu.Lock()
+	st.visible = false
+	tab := browserActiveTabLocked(st)
+	previewMu.Unlock()
+	hideBrowserTab(s, tab)
+}
+
+func hideBrowserTab(s *chatState, st *browserTab) {
+	if st == nil {
+		return
+	}
+	previewMu.Lock()
 	page, off, picking := st.page, st.pageOff, st.annotating
 	annotations, annotOpen := st.annotations, st.annotOpen
 	errors, consoleOpen := st.consoleErrors, st.consoleOpen
@@ -265,6 +277,14 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 	}
 	if current != nil {
 		inspectorSyncVisibility(current)
+		previewMu.Lock()
+		current.Browser.lastUsed = time.Now()
+		previewMu.Unlock()
+	}
+	if s.window != nil {
+		mygo.RunOnMain(func() { browserEnforceSessionLimit(s) })
+	} else {
+		browserEnforceSessionLimit(s)
 	}
 	inspectorValidateWorkspace(s)
 }

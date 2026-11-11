@@ -59,6 +59,24 @@ func (s *chatState) openInspectorPreview(threadID, filePath string) bool {
 	if !ok {
 		return false
 	}
+	active := getPreviewState(s)
+	if active == nil {
+		return false
+	}
+	previewMu.Lock()
+	var existingID uint64
+	for _, tab := range active.owner.tabs {
+		if tab.localPreview && tab.previewThreadID == threadID && tab.localPath == filePath {
+			existingID = tab.tabID
+			break
+		}
+	}
+	previewMu.Unlock()
+	if existingID != 0 {
+		browserActivateTab(s, active.owner, existingID)
+		inspectorSelect(s, sidePanePreviewID, false)
+		return true
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), fileManagerPreviewTimeout)
 	defer cancel()
 	target, err := client.InspectorPreviewURL(ctx, threadID, filePath)
@@ -66,7 +84,11 @@ func (s *chatState) openInspectorPreview(threadID, filePath string) bool {
 		s.setToast(err.Error())
 		return false
 	}
+	tab := browserNewTab(s)
 	openPreviewLocalURL(s, threadID, target)
+	previewMu.Lock()
+	tab.localPath, tab.title = filePath, path.Base(filePath)
+	previewMu.Unlock()
 	return true
 }
 

@@ -31,6 +31,7 @@ func inspectorAttachPage(s *chatState) *inspectorTestPage {
 	st := getPreviewState(s)
 	p := &inspectorTestPage{}
 	previewMu.Lock()
+	browserPromoteTabLocked(st)
 	previewNextPageID++
 	st.pageID = previewNextPageID
 	st.page = p
@@ -55,7 +56,7 @@ func TestInspectorTabSwitchPreservesState(t *testing.T) {
 			t.Fatalf("未选择目的 %s", id)
 		}
 	}
-	if slot.Files != files || slot.Review != review || slot.Browser != browser || browser.page != page {
+	if slot.Files != files || slot.Review != review || slot.Browser != browser || getPreviewState(s).page != page {
 		t.Fatal("目的切换替换了子状态或页面")
 	}
 	if files.dir != "src" || len(files.tabs) != 1 || review.turnID != "turn-2" || !review.collapsed["src/main.go"] {
@@ -211,7 +212,7 @@ func TestInspectorWorkspaceInvalidatesCaches(t *testing.T) {
 	if st.Files == files || st.Review == review || len(st.Files.tabs) != 0 || files.gen != 1 || files.tabs[0].gen != 1 || review.requestGen != 1 {
 		t.Fatal("工作区变化未作废缓存和旧请求")
 	}
-	if st.Browser.page != page || page.destroyed.Load() != 0 {
+	if getPreviewState(s).page != page || page.destroyed.Load() != 0 {
 		t.Fatal("作废工作区缓存时错误销毁了网页")
 	}
 }
@@ -258,7 +259,7 @@ func TestInspectorThreadPreferenceRestore(t *testing.T) {
 	WithUIStatePersistence()(other)
 	applyUIState(other, loadUIState())
 	a := inspectorSession(other)
-	if !a.Open || a.Active != sidePanePreviewID || a.Width != 640 || a.Browser.page != nil {
+	if !a.Open || a.Active != sidePanePreviewID || a.Width != 640 || getPreviewState(other).page != nil {
 		t.Fatalf("重启后会话 A 偏好未恢复或创建了网页: %+v", a)
 	}
 	_, actual := inspectorLayout(300, a.Width)

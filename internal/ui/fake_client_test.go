@@ -197,6 +197,9 @@ type FakeClient struct {
 	approvals         map[string][]Approval
 	usage             map[string]ThreadUsage
 	diffs             map[string]ThreadDiff
+	reviewSnapshots   map[ReviewGetCall]ReviewSnapshot
+	reviewGetCalls    []ReviewGetCall
+	reviewGetErr      error
 
 	kanbanBoard         KanbanBoard
 	kanbanBoardHook     func(context.Context, string) (KanbanBoard, error)
@@ -1590,6 +1593,80 @@ func (f *FakeClient) DiffCalls() []string {
 	res := make([]string, len(f.diffCalls))
 	copy(res, f.diffCalls)
 	return res
+}
+
+// ReviewGetCall 记录审阅的完整作用域与文件选择参数。
+type ReviewGetCall struct {
+	ThreadID string
+	Scope    string
+	TurnID   string
+	Path     string
+}
+
+func cloneReviewSnapshot(s ReviewSnapshot) ReviewSnapshot {
+	s.Files = append([]ReviewFile{}, s.Files...)
+	if s.File != nil {
+		file := *s.File
+		s.File = &file
+	}
+	return s
+}
+
+func (f *FakeClient) SetReviewSnapshot(threadID, scope, turnID, path string, snapshot ReviewSnapshot) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.reviewSnapshots == nil {
+		f.reviewSnapshots = make(map[ReviewGetCall]ReviewSnapshot)
+	}
+	f.reviewSnapshots[ReviewGetCall{threadID, scope, turnID, path}] = cloneReviewSnapshot(snapshot)
+}
+
+func (f *FakeClient) SetReviewGetError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reviewGetErr = err
+}
+
+func (f *FakeClient) ReviewGet(ctx context.Context, threadID, scope, turnID, path string) (ReviewSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	call := ReviewGetCall{threadID, scope, turnID, path}
+	f.reviewGetCalls = append(f.reviewGetCalls, call)
+	return cloneReviewSnapshot(f.reviewSnapshots[call]), f.reviewGetErr
+}
+
+func (f *FakeClient) ReviewGetCalls() []ReviewGetCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]ReviewGetCall{}, f.reviewGetCalls...)
+}
+
+var _ reviewClient = (*FakeClient)(nil)
+
+func TestReviewFakeClientSnapshotIsolation(t *testing.T) {
+	f := &FakeClient{}
+	snapshot := ReviewSnapshot{Scope: "turn", Files: []ReviewFile{{Path: "a.go"}}, File: &ReviewFileContent{Path: "a.go", NewText: "content"}}
+	f.SetReviewSnapshot("thread", "turn", "turnID", "a.go", snapshot)
+	snapshot.Files[0].Path = "changed"
+	snapshot.File.NewText = "changed"
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got, err := f.ReviewGet(context.Background(), "thread", "turn", "turnID", "a.go")
+			if err != nil || got.Files[0].Path != "a.go" || got.File.NewText != "content" {
+				t.Errorf("快照未隔离: %+v %v", got, err)
+			}
+			got.Files[0].Path = "caller"
+			got.File.NewText = "caller"
+		}()
+	}
+	wg.Wait()
+	calls := f.ReviewGetCalls()
+	if len(calls) != 8 || calls[0] != (ReviewGetCall{"thread", "turn", "turnID", "a.go"}) {
+		t.Fatalf("调用记录不符: %+v", calls)
+	}
 }
 
 var _ Client = (*FakeClient)(nil)

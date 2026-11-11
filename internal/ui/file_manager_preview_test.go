@@ -130,6 +130,7 @@ func TestFilePreviewRoutesPDFAndHTML(t *testing.T) {
 
 	tester := ui.NewTester(func(c *ui.Context) { renderFileManagerPanel(c, s) }, 900, 600)
 	tester.Frame()
+	tester.Advance(DurSheet + 50*time.Millisecond)
 	if err := tester.Click("在浏览器打开"); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +142,7 @@ func TestFilePreviewRoutesPDFAndHTML(t *testing.T) {
 		t.Fatal("HTML 未切到浏览器目的")
 	}
 	previewMu.Lock()
-	target = previewState.url
+	target = browserActiveTabLocked(previewState.owner).url
 	previewMu.Unlock()
 	if target != client.target {
 		t.Fatalf("HTML 导航地址=%q", target)

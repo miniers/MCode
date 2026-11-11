@@ -660,6 +660,12 @@
       "$ref": "#/$defs/RemoteThreadsRevertPreviewRequest"
     },
     {
+      "$ref": "#/$defs/RemoteThreadsReviewGetRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteThreadsReviewGetResponse"
+    },
+    {
       "$ref": "#/$defs/RemoteThreadsRevertPreviewResponse"
     },
     {
@@ -10848,6 +10854,9 @@
             "$ref": "#/$defs/RemoteThreadsRevertPreviewRequest"
           },
           {
+            "$ref": "#/$defs/RemoteThreadsReviewGetRequest"
+          },
+          {
             "$ref": "#/$defs/RemoteThreadsRevertApplyRequest"
           },
           {
@@ -11206,6 +11215,9 @@
           },
           {
             "$ref": "#/$defs/RemoteThreadsRevertPreviewResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteThreadsReviewGetResponse"
           },
           {
             "$ref": "#/$defs/RemoteThreadsRevertApplyResponse"
@@ -16166,6 +16178,96 @@
       "additionalProperties": false
     }
 ,
+      "RemoteReviewScope": {
+        "type": "string",
+        "enum": ["turn", "session", "uncommitted"]
+      },
+      "RemoteThreadsReviewGetParams": {
+        "type": "object",
+        "description": "固定作用域的审阅快照；省略 path 时只返回元数据。turnID 仅适用于 turn，缺省选择当前运行轮或最近有完整 checkpoint 的轮。",
+        "properties": {
+          "threadID": {"type": "string", "format": "uuid"},
+          "scope": {"$ref": "#/$defs/RemoteReviewScope"},
+          "turnID": {"type": "string", "anyOf": [{"const": ""}, {"format": "uuid"}]},
+          "path": {"type": "string"}
+        },
+        "required": ["threadID", "scope"],
+        "allOf": [{
+          "if": {"properties": {"scope": {"enum": ["session", "uncommitted"]}}},
+          "then": {"properties": {"turnID": {"const": ""}}}
+        }],
+        "additionalProperties": false
+      },
+      "RemoteReviewFileMeta": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "origPath": {"type": "string"},
+          "status": {"type": "string", "enum": ["M", "A", "D", "R", "?"]},
+          "language": {"type": "string"},
+          "oldSize": {"type": "integer", "minimum": 0},
+          "newSize": {"type": "integer", "minimum": 0},
+          "oldHash": {"type": "string"},
+          "newHash": {"type": "string"},
+          "binary": {"type": "boolean"},
+          "tooLarge": {"type": "boolean"},
+          "missing": {"type": "boolean"}
+        },
+        "required": ["path", "origPath", "status", "language", "oldSize", "newSize", "oldHash", "newHash", "binary", "tooLarge", "missing"],
+        "additionalProperties": false
+      },
+      "RemoteReviewFileContent": {
+        "type": "object",
+        "description": "每侧全文上限为 2 MiB。binary、tooLarge 或 missing 为真时两侧正文均为空；新增或删除的空侧为空文本。",
+        "properties": {
+          "path": {"type": "string"},
+          "oldText": {"type": "string"},
+          "newText": {"type": "string"},
+          "oldHash": {"type": "string"},
+          "newHash": {"type": "string"},
+          "binary": {"type": "boolean"},
+          "tooLarge": {"type": "boolean"},
+          "missing": {"type": "boolean"}
+        },
+        "required": ["path", "oldText", "newText", "oldHash", "newHash", "binary", "tooLarge", "missing"],
+        "additionalProperties": false
+      },
+      "RemoteThreadsReviewGetResult": {
+        "type": "object",
+        "properties": {
+          "scope": {"$ref": "#/$defs/RemoteReviewScope"},
+          "turnID": {"type": "string"},
+          "baseRevision": {"type": "string"},
+          "headRevision": {"type": "string"},
+          "running": {"type": "boolean"},
+          "unavailable": {"type": "string"},
+          "files": {"type": "array", "items": {"$ref": "#/$defs/RemoteReviewFileMeta"}},
+          "file": {"$ref": "#/$defs/RemoteReviewFileContent"}
+        },
+        "required": ["scope", "turnID", "baseRevision", "headRevision", "running", "unavailable", "files"],
+        "additionalProperties": false
+      },
+      "RemoteThreadsReviewGetRequest": {
+        "type": "object",
+        "properties": {
+          "jsonrpc": {"const": "2.0"},
+          "method": {"const": "threads.review.get"},
+          "params": {"$ref": "#/$defs/RemoteThreadsReviewGetParams"},
+          "id": {"$ref": "#/$defs/JSONRPCId"}
+        },
+        "required": ["jsonrpc", "method", "params", "id"],
+        "additionalProperties": false
+      },
+      "RemoteThreadsReviewGetResponse": {
+        "type": "object",
+        "properties": {
+          "jsonrpc": {"const": "2.0"},
+          "result": {"$ref": "#/$defs/RemoteThreadsReviewGetResult"},
+          "id": {"$ref": "#/$defs/JSONRPCId"}
+        },
+        "required": ["jsonrpc", "result", "id"],
+        "additionalProperties": false
+      },
       "RemoteThreadsRevertParams": {
         "type": "object",
         "properties": {

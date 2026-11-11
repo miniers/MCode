@@ -80,7 +80,7 @@ func TestPreviewPageCallbacksDropOldGeneration(t *testing.T) {
 }
 
 func TestPreviewSnapshotConcurrentUpdates(t *testing.T) {
-	st := &previewState{
+	st := &browserTab{
 		annotations:   []previewAnnotation{{Selector: "#app"}},
 		consoleErrors: []previewConsoleError{{Message: "初始"}},
 	}
@@ -295,7 +295,7 @@ func TestPreviewConsoleClearDropsPendingPoll(t *testing.T) {
 }
 
 func TestPreviewAdvanceGenerationClearsPageData(t *testing.T) {
-	st := &previewState{
+	st := &browserTab{
 		consoleErrors: []previewConsoleError{{Message: "旧错误"}}, consoleOpen: true, consolePolling: true,
 		annotations: []previewAnnotation{{Selector: "#old"}}, annotating: true, annotOpen: true, annotPolling: true,
 	}
@@ -441,12 +441,12 @@ func TestPreviewConsoleErrorHelpers(t *testing.T) {
 	}
 }
 
-// TestPreviewStartURLDefault 验证未配置时打开预览面板使用内置起始地址。
+// TestPreviewStartURLDefault 验证配置只作显式导航入口，不自动访问网站。
 func TestPreviewStartURLDefault(t *testing.T) {
 	s := &chatState{}
 	st := getPreviewState(s)
-	if st.addr != config.DefaultBrowserStartURL {
-		t.Fatalf("预览地址 = %q, want %q", st.addr, config.DefaultBrowserStartURL)
+	if st.addr != "" || previewStartURL(s) != config.DefaultBrowserStartURL {
+		t.Fatal("空态自动恢复了地址，或默认配置丢失")
 	}
 }
 
@@ -458,20 +458,20 @@ func TestPreviewStartURLFromSettings(t *testing.T) {
 	setChatSettings(s, settings)
 
 	st := getPreviewState(s)
-	if st.addr != "http://localhost:4321" {
-		t.Fatalf("预览地址 = %q, want 配置值", st.addr)
+	if st.addr != "" || previewStartURL(s) != "http://localhost:4321" {
+		t.Fatal("空态自动恢复了地址，或自定义配置丢失")
 	}
 }
 
-// TestPreviewToggleFillsEmptyAddress 验证已有面板地址为空时，打开面板会填入默认起始地址。
+// TestPreviewToggleFillsEmptyAddress 验证重新打开面板仍保留地址空态。
 func TestPreviewToggleFillsEmptyAddress(t *testing.T) {
 	s := &chatState{}
 	st := getPreviewState(s)
 	st.addr = ""
 
 	togglePreview(s)
-	if st.addr != config.DefaultBrowserStartURL {
-		t.Fatalf("打开面板后地址 = %q, want %q", st.addr, config.DefaultBrowserStartURL)
+	if st.addr != "" {
+		t.Fatalf("打开面板后地址 = %q，预期空态", st.addr)
 	}
 }
 

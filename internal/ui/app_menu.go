@@ -320,6 +320,9 @@ func closeMenuItem() *mygo.MenuItem {
 			state := chatWindows[win]
 			chatWindowsMu.RUnlock()
 			// 设置等非聊天窗口查不到 state，照常关闭窗口。
+			if state != nil && browserCloseFromMenu(state) {
+				return
+			}
 			if state != nil && fileManagerHasClosableTab(state) {
 				state.enqueueAction("close-file-tab", 0)
 				return

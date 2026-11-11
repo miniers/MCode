@@ -8930,40 +8930,13 @@ const turnMetadataLimit = 50
 
 // GetDiff 获取会话整库或指定轮次的代码差异。
 func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffParams) (wire.ThreadsGetDiffResult, error) {
-	b.mu.Lock()
-	td, ok := b.threads[params.ThreadID]
-	if !ok {
-		b.mu.Unlock()
-		return wire.ThreadsGetDiffResult{}, &wire.RPCError{
-			Code:    wire.ErrCodeResourceNotFound,
-			Message: fmt.Sprintf("thread %s not found", params.ThreadID),
-		}
-	}
-	// C-ST-07：diff 需要按轮次匹配消息，先确保历史已回载。
-	if err := b.ensureMessagesLocked(td, params.ThreadID); err != nil {
-		b.mu.Unlock()
+	state, err := b.diffThreadState(params.ThreadID)
+	if err != nil {
 		return wire.ThreadsGetDiffResult{}, err
 	}
-	b.ensureMessagesLoadedLocked(td)
-	b.touchThreadLocked(td)
-
-	workDir := b.harnessWorkDir
-	if td.workDir != "" {
-		workDir = td.workDir
-	} else if proj, ok := b.projects[td.summary.ProjectID]; ok && proj.Path != "" {
-		workDir = proj.Path
-	}
-	gitRunner := b.git
-	msgs := make([]wire.ThreadMessage, len(td.messages))
-	copy(msgs, td.messages)
-	isRunning := td.summary.IsRunning
-	runningTurnID := td.runTurnID
-	takenBack := make(map[string]bool, len(td.takenBack))
-	for id := range td.takenBack {
-		takenBack[id] = true
-	}
-	s := b.store
-	b.mu.Unlock()
+	workDir, gitRunner, msgs := state.workDir, state.git, state.messages
+	isRunning, runningTurnID := state.running, state.runningTurnID
+	takenBack, s := state.takenBack, state.store
 	storeTurns := make(map[string]store.Turn)
 	if s != nil {
 		turns, err := s.ListTurns(ctx, params.ThreadID)

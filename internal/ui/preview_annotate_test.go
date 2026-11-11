@@ -8,7 +8,7 @@ import (
 )
 
 func TestPreviewAnnotationsSnapshotIsolation(t *testing.T) {
-	st := &previewState{
+	st := &browserTab{
 		annotations:   []previewAnnotation{{Selector: "#app", Comment: "原评论"}},
 		consoleErrors: []previewConsoleError{{Message: "原错误"}},
 		viewport:      previewViewportTablet,
