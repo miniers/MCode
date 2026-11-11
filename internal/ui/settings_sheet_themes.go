@@ -95,7 +95,7 @@ func themesPage(st *SettingsState, c *ui.Context) *themesSheetState {
 
 func renderThemesHeader(c *ui.Context, st *SettingsState) {
 	page := themesPage(st, c)
-	ui.Row(c.Key("theme-list")).Grow(1).Gap(Space3).Wrap().Children(func() {
+	ui.Row(c.Key("theme-list")).Grow(1).Gap(Space3).Wrap().AlignItems(ui.Start).Children(func() {
 		ids := []string{config.ThemeLight, config.ThemeDark}
 		for _, theme := range st.cfg.Appearance.Themes {
 			if !config.IsBuiltinTheme(theme.ID) {
@@ -132,7 +132,7 @@ func renderThemesSheet(c *ui.Context, st *SettingsState) {
 	titles := []string{"窗口", "主区域", "卡片", "浮起", "浮层", "主文字", "次要文字", "辅助文字", "强调色", "危险", "警告", "成功", "提醒", "Plan", "边框", "分隔线"}
 	ui.Column(c.Key("themes-editor")).FillWidth().Gap(settingsSectionGap).Children(func() {
 		if !config.IsBuiltinTheme(id) {
-			renderSettingsSection(c, "theme-name-section", "名称", func() { renderSettingRow(c, "row-theme-name", "名称", func() { renderThemeName(c, st, page, id) }) })
+			renderSettingsSection(c, "theme-name-section", "", func() { renderSettingRow(c, "row-theme-name", "名称", func() { renderThemeName(c, st, page, id) }) })
 		}
 		sections := []struct {
 			title      string
@@ -284,7 +284,7 @@ func renderThemeFont(c *ui.Context, st *SettingsState, page *themesSheetState, i
 		page.fonts[valueKey] = input
 	}
 	*input = float64(value)
-	if ui.Slider(c.Key("theme-font-"+key), input, float64(lower), float64(upper)).Step(1).Width(settingsPreviewTileW * 2).Label(key + "字号").Changed() {
+	if settingsSlider(c, "theme-font-"+key, input, float64(lower), float64(upper), key+"字号") {
 		next := int(math.Round(*input))
 		mutateTheme(st, func(a *config.AppearanceConfig) { _ = a.SetThemeFont(id, key, next) })
 	}

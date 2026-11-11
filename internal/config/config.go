@@ -193,8 +193,8 @@ const (
 
 // 文字缩放范围，单位为百分比。
 const (
-	MinTextScale = 85
-	MaxTextScale = 150
+	MinTextScale = 80
+	MaxTextScale = 200
 )
 
 // 快捷回复的长度上限：标题按「按钮上那行字」来定，正文按「填进草稿的一段话」来定。

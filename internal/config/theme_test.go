@@ -147,7 +147,7 @@ func TestNormalizeThemeFont(t *testing.T) {
 		value, want int
 	}{
 		{"sidebar", 107, 107}, {"conversation", 110, 110}, {"interface", 140, 140},
-		{"sidebar", -100, 85}, {"sidebar", 1000, 150}, {"code", 0, 10},
+		{"sidebar", 50, 80}, {"sidebar", 250, 200}, {"code", 0, 10},
 		{"code", 100, 24}, {"terminal", -10, 9}, {"terminal", 100, 28},
 		{"editor", 0, 10}, {"editor", 100, 18},
 	} {
@@ -260,7 +260,7 @@ func TestValidateThemes(t *testing.T) {
 		func(c *Config) { c.Appearance.Themes[0].Colors = map[string]string{"future": "#123456"} },
 		func(c *Config) { c.Appearance.Themes[0].Fonts = map[string]int{"future": 12} },
 		func(c *Config) { c.Appearance.Themes[0].Fonts = map[string]int{"code": 1} },
-		func(c *Config) { c.Appearance.Themes[0].Fonts = map[string]int{"sidebar": 151} },
+		func(c *Config) { c.Appearance.Themes[0].Fonts = map[string]int{"sidebar": 201} },
 	} {
 		bad := cfg
 		bad.Appearance.Themes = append([]ThemeDef(nil), cfg.Appearance.Themes...)

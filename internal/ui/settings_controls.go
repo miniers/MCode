@@ -226,6 +226,10 @@ func (ch choiceControl) reset(cfg *config.Config) { ch.b.reset(cfg) }
 // 数值
 // ---------------------------------------------------------------------------
 
+func settingsSlider(c *ui.Context, key string, value *float64, min, max float64, label string) bool {
+	return ui.Slider(c.Key(key), value, min, max).Step(1).Width(settingsPreviewTileW * 2).Label(label).Changed()
+}
+
 type numberControl struct {
 	b        bind[int]
 	unit     string

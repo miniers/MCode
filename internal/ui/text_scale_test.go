@@ -11,7 +11,7 @@ func TestInterfaceScaleHeights(t *testing.T) {
 	previousDark := themeDark.Load()
 	t.Cleanup(func() { setActiveTheme(config.AppearanceConfig{}); themeDark.Store(previousDark) })
 	for _, dark := range []bool{false, true} {
-		for _, percent := range []int{100, 150} {
+		for _, percent := range []int{100, 150, 200} {
 			cfg := config.AppearanceConfig{}
 			for _, id := range []string{config.ThemeLight, config.ThemeDark} {
 				if err := cfg.SetThemeFont(id, "interface", percent); err != nil {
@@ -32,12 +32,13 @@ func TestInterfaceScaleHeights(t *testing.T) {
 					Capsule(c, CapsuleProps{Text: "chip"})
 					CopyButton(c, CopyButtonProps{Label: "copy", Text: "copy", Mode: CopyText})
 					Kbd(c, nil, "kbd").Label("kbd")
+					renderEditQueuedPill(c, nil, 0)
 				})
 			}, 300, 200)
 			for _, item := range []struct {
 				label  string
 				height float32
-			}{{"chip", ControlSM}, {"copy", ControlXS}, {"kbd", ControlKbd}} {
+			}{{"chip", ControlSM}, {"copy", ControlXS}, {"kbd", ControlKbd}, {"编辑排队消息 · Esc 取消", ControlSM}} {
 				bounds, ok := tester.Find(item.label)
 				if !ok || bounds.H != item.height*factor {
 					t.Errorf("dark=%v percent=%d %s: height=%v found=%v want=%v", dark, percent, item.label, bounds.H, ok, item.height*factor)

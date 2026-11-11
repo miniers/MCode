@@ -271,9 +271,25 @@ func TestThemesSheet_LayoutAndValues(t *testing.T) {
 		t.Fatalf("滑块未更新字号: %d", got)
 	}
 
-	mutateTheme(st, func(a *config.AppearanceConfig) { _ = a.SetThemeFont(config.ThemeDark, "sidebar", 200) })
+	if err := tt.Click("sidebar字号"); err != nil {
+		t.Fatal(err)
+	}
+	mutateTheme(st, func(a *config.AppearanceConfig) { _ = a.SetThemeFont(config.ThemeDark, "sidebar", 189) })
 	tt.Frame()
-	if !tt.HasText("150%") {
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	if got := st.cfg.Appearance.ThemeFonts(config.ThemeDark)["sidebar"]; got != 190 || !tt.HasText("190%") {
+		t.Fatalf("滑块字号或显示不正确：%d", got)
+	}
+	st.flushTextSave(true)
+	loaded, err := config.Load(st.dataDir)
+	if err != nil || loaded.Appearance.ThemeFonts(config.ThemeDark)["sidebar"] != 190 {
+		t.Fatalf("字号未保存：%v, %v", loaded.Appearance.ThemeFonts(config.ThemeDark), err)
+	}
+
+	mutateTheme(st, func(a *config.AppearanceConfig) { _ = a.SetThemeFont(config.ThemeDark, "sidebar", 250) })
+	tt.Frame()
+	if !tt.HasText("200%") {
 		t.Fatal("字号未限制到上限")
 	}
 	reference := ui.NewTester(func(c *ui.Context) {
