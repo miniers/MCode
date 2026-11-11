@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func TestStewardBoardGroups(t *testing.T) {
 		}
 	}
 	tasks = append(tasks, KanbanTask{ID: "other-origin", Origin: "agent", Status: "todo"}, KanbanTask{ID: "child", Origin: "owner", ParentID: "parent", Status: "failed"})
-	groups := stewardBoardGroups(tasks)
+	groups := stewardBoardGroups(tasks, base)
 	for i, group := range groups {
 		var got []string
 		for _, task := range group {
@@ -38,6 +39,28 @@ func TestStewardBoardGroups(t *testing.T) {
 		if !reflect.DeepEqual(got, want[i]) {
 			t.Errorf("group %d = %v, want %v", i, got, want[i])
 		}
+	}
+}
+
+func TestStewardBoardDoneWindow(t *testing.T) {
+	now := time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+	tasks := []KanbanTask{
+		{ID: "recent", Origin: "owner", Status: "done", UpdatedAt: now.Add(-23 * time.Hour)},
+		{ID: "boundary", Origin: "owner", Status: "done", UpdatedAt: now.Add(-24 * time.Hour)},
+		{ID: "expired", Origin: "owner", Status: "done", UpdatedAt: now.Add(-25 * time.Hour)},
+		{ID: "missing", Origin: "owner", Status: "done"},
+		{ID: "active", Origin: "owner", Status: "in_progress", UpdatedAt: now.Add(-30 * time.Hour)},
+	}
+	groups := stewardBoardGroups(tasks, now)
+	var got [3][]string
+	for i, group := range groups {
+		for _, task := range group {
+			got[i] = append(got[i], task.ID)
+		}
+	}
+	want := [3][]string{nil, {"active"}, {"recent", "boundary", "missing"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("groups = %v, want %v", got, want)
 	}
 }
 
@@ -116,6 +139,23 @@ func TestStewardBoardRender(t *testing.T) {
 			_, badge := tt.Find("总管任务 1")
 			if board != tc.board || badge != tc.badge {
 				t.Errorf("board=%v badge=%v, want %v %v", board, badge, tc.board, tc.badge)
+			}
+		})
+	}
+}
+
+func TestStewardBoardExpiredDoneDoesNotRender(t *testing.T) {
+	task := KanbanTask{ID: "expired", Title: "过期任务", Origin: "owner", Status: "done", UpdatedAt: time.Now().Add(-25 * time.Hour)}
+	for _, width := range []int{700, 1100} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			tt, s, _ := newStewardBoardTester(t, width, "steward", []KanbanTask{task})
+			waitFor(t, tt, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.stewardBoard.active && !s.stewardBoard.loading })
+			tt.Frame()
+			if _, ok := tt.Find("已完成"); ok {
+				t.Error("expired done group is visible")
+			}
+			if _, ok := tt.Find("总管任务 0"); ok {
+				t.Error("badge is visible")
 			}
 		})
 	}

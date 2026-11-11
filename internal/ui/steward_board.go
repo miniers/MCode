@@ -5,13 +5,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
 
 const (
-	stewardBoardWidth   float32 = 260
-	stewardChatMinWidth float32 = 560
+	stewardBoardWidth      float32 = 260
+	stewardChatMinWidth    float32 = 560
+	stewardBoardDoneWindow         = 24 * time.Hour
 )
 
 type stewardBoardState struct {
@@ -28,7 +30,7 @@ type stewardBoardState struct {
 
 type stewardGroups [3][]KanbanTask
 
-func stewardBoardGroups(tasks []KanbanTask) stewardGroups {
+func stewardBoardGroups(tasks []KanbanTask, now time.Time) stewardGroups {
 	var groups stewardGroups
 	for _, task := range tasks {
 		if task.Origin != "owner" || task.ParentID != "" {
@@ -46,6 +48,9 @@ func stewardBoardGroups(tasks []KanbanTask) stewardGroups {
 		case "todo", "in_progress":
 			group = 1
 		case "done":
+			if !task.UpdatedAt.IsZero() && now.Sub(task.UpdatedAt) > stewardBoardDoneWindow {
+				continue
+			}
 			group = 2
 		}
 		if group >= 0 {
@@ -239,7 +244,7 @@ func renderStewardBoardList(c *ui.Context, s *chatState, groups stewardGroups) {
 }
 
 func renderStewardBoardBadge(c *ui.Context, s *chatState) {
-	groups := stewardBoardGroups(s.stewardBoardTasks())
+	groups := stewardBoardGroups(s.stewardBoardTasks(), time.Now())
 	if stewardBoardCount(groups) == 0 {
 		return
 	}
