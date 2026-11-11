@@ -399,7 +399,7 @@ func (r *Registry) registerKanbanTools(s *Server) {
 				},
 				"progress": map[string]any{
 					"type":        "string",
-					"description": "一句话报告刚完成的关键进展，不超过 80 字，会显示给用户",
+					"description": "One sentence reporting the key progress just made, at most 80 characters; shown to the user.",
 				},
 				"review_summary": map[string]any{
 					"type":        "string",

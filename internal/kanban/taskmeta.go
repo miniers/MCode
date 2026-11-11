@@ -11,6 +11,7 @@ type TaskMeta struct {
 	Origin          string   `json:"origin"`
 	ParentID        string   `json:"parent,omitempty"`
 	SourceMessageID string   `json:"source_message,omitempty"`
+	AmendMessageIDs []string `json:"amend_messages,omitempty"`
 	Children        []string `json:"children,omitempty"`
 	ResultStatus    string   `json:"result_status,omitempty"`
 	Summary         string   `json:"summary,omitempty"`

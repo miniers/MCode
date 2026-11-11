@@ -83,6 +83,7 @@ func taskViewToWire(tv kanban.TaskView) wire.KanbanTask {
 		Origin:             meta.Origin,
 		ParentID:           meta.ParentID,
 		SourceMessageID:    meta.SourceMessageID,
+		AmendMessageIDs:    meta.AmendMessageIDs,
 		ProjectID:          t.ProjectID,
 		ThreadID:           t.ThreadID,
 		ReviewThreadID:     t.ReviewThreadID,

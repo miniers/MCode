@@ -78,7 +78,7 @@ func newToolbox(d *Desk, in Inbound) *Toolbox {
 		})
 	}
 	add("amend_task", "追加任务消息", true, []string{"task_id", "text"}, nil, func(c context.Context, a map[string]string) (any, error) {
-		return nil, d.Tasks.AmendTask(c, a["task_id"], a["text"])
+		return nil, d.Tasks.AmendTask(c, a["task_id"], a["text"], in.MessageID)
 	})
 	add("cancel_task", "取消任务", true, []string{"task_id"}, nil, func(c context.Context, a map[string]string) (any, error) {
 		return nil, d.Tasks.CancelTask(c, a["task_id"])

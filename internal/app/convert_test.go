@@ -14,9 +14,9 @@ import (
 )
 
 func TestKanbanTaskToUISource(t *testing.T) {
-	task := store.Task{Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner", ParentID: "parent-1", SourceMessageID: "message-1"})}
+	task := store.Task{Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner", ParentID: "parent-1", SourceMessageID: "message-1", AmendMessageIDs: []string{"message-2"}})}
 	got := KanbanTaskToUI(task, kanban.Derived{})
-	if got.Origin != "owner" || got.ParentID != "parent-1" || got.SourceMessageID != "message-1" {
+	if got.Origin != "owner" || got.ParentID != "parent-1" || got.SourceMessageID != "message-1" || !reflect.DeepEqual(got.AmendMessageIDs, []string{"message-2"}) {
 		t.Fatalf("任务来源错误: %+v", got)
 	}
 }

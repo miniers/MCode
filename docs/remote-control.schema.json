@@ -1144,6 +1144,12 @@
         "sourceMessageID": {
           "type": "string"
         },
+        "amendMessageIDs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "projectID": {
           "type": [
             "string",

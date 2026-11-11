@@ -42,7 +42,7 @@ type TaskService interface {
 	ListTasks(context.Context, string) ([]store.Task, error)
 	GetTask(context.Context, string) (store.Task, error)
 	CreateTask(context.Context, CreateTaskInput) (store.Task, error)
-	AmendTask(context.Context, string, string) error
+	AmendTask(context.Context, string, string, string) error
 	CancelTask(context.Context, string) error
 	SetPriority(context.Context, string, string) error
 	ReassignTask(context.Context, string, string, string) error

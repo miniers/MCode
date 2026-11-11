@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -90,7 +91,7 @@ func TestFrontdeskTaskAndMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AmendTask(ctx, task.ID, "继续修改"); err != nil {
+	if err := svc.AmendTask(ctx, task.ID, "继续修改", ""); err != nil {
 		t.Fatal(err)
 	}
 	reopened, err := db.GetTask(ctx, task.ID)
@@ -113,7 +114,7 @@ func TestFrontdeskTaskAndMigration(t *testing.T) {
 	if _, err := db.UpdateTask(ctx, reopened, reopened.Revision); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AmendTask(ctx, task.ID, "甲"); err != nil {
+	if err := svc.AmendTask(ctx, task.ID, "甲", ""); err != nil {
 		t.Fatal(err)
 	}
 	answered, err := db.GetStewardDecision(ctx, decision.ID)
@@ -381,6 +382,27 @@ func TestFrontdeskCreateTaskNotifiesAndRecordsMessage(t *testing.T) {
 	}
 }
 
+func TestFrontdeskAmendTaskRecordsMessages(t *testing.T) {
+	ctx := context.Background()
+	db, _, svc := newFrontdeskAdapterFixture(t)
+	task := createFrontdeskTask(t, db, store.Task{ID: "amend", Title: "任务", Status: "todo"})
+	changes := 0
+	svc.kanban.SetOnChange(func() { changes++ })
+	for _, messageID := range []string{"message-1", "message-1", "", "message-2"} {
+		if err := svc.AmendTask(ctx, task.ID, "补充", messageID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := kanban.ParseTaskMeta(after.Meta)
+	if err != nil || !reflect.DeepEqual(meta.AmendMessageIDs, []string{"message-1", "message-2"}) || changes != 4 {
+		t.Fatalf("补充消息或刷新错误: %+v，刷新 %d，错误 %v", meta, changes, err)
+	}
+}
+
 func newFrontdeskAdapterFixture(t *testing.T) (*store.Store, *remote.MemoryBackend, *frontdeskServices) {
 	t.Helper()
 	ctx := context.Background()
@@ -422,7 +444,9 @@ func TestFrontdeskAmendInProgressTask(t *testing.T) {
 	backend.AddThread(wire.ThreadSummary{ID: "run", ProjectID: "project", Title: "执行", Provider: "memory"}, nil)
 	threadID := "run"
 	task := createFrontdeskTask(t, db, store.Task{ID: "working", ThreadID: &threadID, Title: "进行中任务", Notes: "原始要求", Status: "in_progress"})
-	if err := svc.AmendTask(ctx, task.ID, "补充说明"); err != nil {
+	changes := 0
+	svc.kanban.SetOnChange(func() { changes++ })
+	if err := svc.AmendTask(ctx, task.ID, "补充说明", "message-1"); err != nil {
 		t.Fatal(err)
 	}
 	after, err := db.GetTask(ctx, task.ID)
@@ -439,6 +463,10 @@ func TestFrontdeskAmendInProgressTask(t *testing.T) {
 	if after.Notes != "原始要求" {
 		t.Fatalf("进行中任务的 Notes 不应改变: %q", after.Notes)
 	}
+	meta, err := kanban.ParseTaskMeta(after.Meta)
+	if err != nil || !reflect.DeepEqual(meta.AmendMessageIDs, []string{"message-1"}) || changes != 1 {
+		t.Fatalf("进行中任务来源或刷新错误: %+v，刷新 %d，错误 %v", meta, changes, err)
+	}
 }
 
 func TestFrontdeskAmendReviewTaskReopens(t *testing.T) {
@@ -446,7 +474,7 @@ func TestFrontdeskAmendReviewTaskReopens(t *testing.T) {
 	db, _, svc := newFrontdeskAdapterFixture(t)
 	threadID := "review-thread"
 	task := createFrontdeskTask(t, db, store.Task{ID: "review", ThreadID: &threadID, ReviewThreadID: &threadID, Title: "待审任务", Status: "review"})
-	if err := svc.AmendTask(ctx, task.ID, "补充内容"); err != nil {
+	if err := svc.AmendTask(ctx, task.ID, "补充内容", ""); err != nil {
 		t.Fatal(err)
 	}
 	after, err := db.GetTask(ctx, task.ID)
@@ -474,7 +502,7 @@ func TestFrontdeskAmendActiveReview(t *testing.T) {
 	svc.kanban = kanban.NewService(kanban.Options{Store: db, Driver: driver})
 	reviewID := "review-thread"
 	task := createFrontdeskTask(t, db, store.Task{ID: "review-active", Title: "评审", Status: "review", Notes: "原文", ReviewThreadID: &reviewID})
-	if err := svc.AmendTask(ctx, task.ID, "追加"); err == nil || err.Error() != "任务正在评审，请稍后再改" {
+	if err := svc.AmendTask(ctx, task.ID, "追加", ""); err == nil || err.Error() != "任务正在评审，请稍后再改" {
 		t.Fatal(err)
 	}
 	after, err := db.GetTask(ctx, task.ID)
@@ -484,7 +512,7 @@ func TestFrontdeskAmendActiveReview(t *testing.T) {
 	driver.running = false
 	changes := 0
 	svc.kanban.SetOnChange(func() { changes++ })
-	if err := svc.AmendTask(ctx, task.ID, "追加"); err != nil {
+	if err := svc.AmendTask(ctx, task.ID, "追加", ""); err != nil {
 		t.Fatal(err)
 	}
 	after, err = db.GetTask(ctx, task.ID)
@@ -514,7 +542,7 @@ func TestFrontdeskAmendNeedsApprovalWithoutDecisionSendsMessage(t *testing.T) {
 	backend.AddThread(wire.ThreadSummary{ID: "approval-run", ProjectID: "project", Title: "执行", Provider: "memory"}, nil)
 	threadID := "approval-run"
 	task := createFrontdeskTask(t, db, store.Task{ID: "approval", ThreadID: &threadID, Title: "待批准任务", Status: "needs_approval"})
-	if err := svc.AmendTask(ctx, task.ID, "补充说明"); err != nil {
+	if err := svc.AmendTask(ctx, task.ID, "补充说明", ""); err != nil {
 		t.Fatal(err)
 	}
 	after, err := db.GetTask(ctx, task.ID)
@@ -548,7 +576,7 @@ func TestFrontdeskAmendDoneTaskReopensAndRestoresGoal(t *testing.T) {
 	if _, err := db.UpdateGoal(ctx, goal, goal.Revision); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AmendTask(ctx, task.ID, "补充内容"); err != nil {
+	if err := svc.AmendTask(ctx, task.ID, "补充内容", "message-1"); err != nil {
 		t.Fatal(err)
 	}
 	after, err := db.GetTask(ctx, task.ID)
@@ -561,6 +589,9 @@ func TestFrontdeskAmendDoneTaskReopensAndRestoresGoal(t *testing.T) {
 	}
 	if after.ID != task.ID || after.Status != "todo" || after.AttemptCount != 0 || after.RejectCount != 0 || after.Notes != "原始要求\n补充内容" || gotMeta.ResultStatus != "" || gotMeta.Summary != "" || gotMeta.NoChange {
 		t.Fatalf("重开结果错误: %+v %+v", after, gotMeta)
+	}
+	if !reflect.DeepEqual(gotMeta.AmendMessageIDs, []string{"message-1"}) {
+		t.Fatalf("重开任务来源错误: %+v", gotMeta)
 	}
 	goal, err = db.GetGoal(ctx, goalID)
 	if err != nil || goal.Status != "running" {
@@ -583,7 +614,7 @@ func TestFrontdeskAmendOpenDecisionAnswersWithoutReopen(t *testing.T) {
 	if _, err := db.UpdateTask(ctx, task, task.Revision); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.AmendTask(ctx, task.ID, "甲"); err != nil {
+	if err := svc.AmendTask(ctx, task.ID, "甲", ""); err != nil {
 		t.Fatal(err)
 	}
 	answered, err := db.GetStewardDecision(ctx, decision.ID)

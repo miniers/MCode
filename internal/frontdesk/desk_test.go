@@ -49,6 +49,7 @@ type fake struct {
 	getErr       error
 	recentErr    error
 	created      chan CreateTaskInput
+	amended      chan string
 }
 
 func (f *fake) event(s string) {
@@ -75,8 +76,11 @@ func (f *fake) CreateTask(_ context.Context, in CreateTaskInput) (store.Task, er
 	}
 	return store.Task{ID: "t"}, f.createErr
 }
-func (f *fake) AmendTask(_ context.Context, id, text string) error {
+func (f *fake) AmendTask(_ context.Context, id, text, sourceMessageID string) error {
 	f.event("amend:" + id + ":" + text)
+	if f.amended != nil {
+		f.amended <- sourceMessageID
+	}
 	return f.amendErr
 }
 func (f *fake) CancelTask(_ context.Context, id string) error {
@@ -352,6 +356,30 @@ func TestQueueCreateTaskRecordsMessage(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("等待创建任务超时")
+	}
+}
+
+func TestAmendTaskRecordsMessage(t *testing.T) {
+	for _, fallback := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fallback=%t", fallback), func(t *testing.T) {
+			f := &fake{amended: make(chan string, 1)}
+			s := &scripted{replies: []*llm.Response{response(call("amend_task", `{"task_id":"t","text":"继续"}`))}, texts: []string{""}}
+			if fallback {
+				s.err = errors.New("模型失败")
+			}
+			d := Desk{Client: s, Feed: f, Tasks: f}
+			if err := d.HandleMessage(context.Background(), Inbound{MessageID: "message-1", Text: "继续", ReplyTo: "t"}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case id := <-f.amended:
+				if id != "message-1" {
+					t.Fatalf("消息来源错误: %q", id)
+				}
+			default:
+				t.Fatal("未补充任务")
+			}
+		})
 	}
 }
 

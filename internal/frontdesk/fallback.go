@@ -65,7 +65,7 @@ func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons 
 		}
 	}
 	if taskID != "" {
-		if err := d.Tasks.AmendTask(ctx, taskID, in.Text); err != nil {
+		if err := d.Tasks.AmendTask(ctx, taskID, in.Text, in.MessageID); err != nil {
 			return err
 		}
 	} else {

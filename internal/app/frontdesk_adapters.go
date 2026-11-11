@@ -127,7 +127,7 @@ func (s *frontdeskServices) CreateTask(ctx context.Context, in frontdesk.CreateT
 	}
 	return s.store.GetTask(ctx, t.ID)
 }
-func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) error {
+func (s *frontdeskServices) AmendTask(ctx context.Context, id, text, sourceMessageID string) error {
 	t, err := s.store.GetTask(ctx, id)
 	if err != nil {
 		return err
@@ -145,11 +145,23 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 			return s.AnswerDecision(ctx, d.ID, text, "owner")
 		}
 	}
+	addSource := sourceMessageID != ""
+	for _, messageID := range meta.AmendMessageIDs {
+		if messageID == sourceMessageID {
+			addSource = false
+			break
+		}
+	}
 	if t.Status == "in_progress" || t.Status == "needs_approval" {
 		if t.ThreadID == nil {
 			return errors.New("任务没有执行会话")
 		}
 		_, err = s.backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: *t.ThreadID, Text: text})
+		if err == nil && addSource {
+			_, err = s.kanban.PatchTaskMeta(ctx, id, t.Revision, func(m *kanban.TaskMeta) {
+				m.AmendMessageIDs = append(m.AmendMessageIDs, sourceMessageID)
+			})
+		}
 		return err
 	}
 	if t.Status == "review" {
@@ -173,7 +185,6 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 		meta.ResultStatus, meta.Summary, meta.DecisionID, meta.GateOverride = "", "", "", ""
 		meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
 		meta.NoChange = false
-		t.Meta = kanban.EncodeTaskMeta(meta)
 		if t.GoalID != nil {
 			goal, err := s.store.GetGoal(ctx, *t.GoalID)
 			if err != nil {
@@ -190,6 +201,10 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text string) erro
 	default:
 		return fmt.Errorf("不能追加任务状态 %s", t.Status)
 	}
+	if addSource {
+		meta.AmendMessageIDs = append(meta.AmendMessageIDs, sourceMessageID)
+	}
+	t.Meta = kanban.EncodeTaskMeta(meta)
 	_, err = s.kanban.ReplaceTask(ctx, t)
 	return err
 }
