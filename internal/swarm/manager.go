@@ -826,6 +826,10 @@ func (m *Manager) Restore(ctx context.Context) error {
 				beeCopy.ReviewReason = "MCode 重启，审查中断"
 				beeCopy.ReviewThreadID = ""
 			}
+			if beeCopy.Interrupted && beeCopy.Reported {
+				// lead 已收到汇报，旧版本遗留的中断标记不再自动续跑。
+				beeCopy.Interrupted = false
+			}
 			if beeCopy.Status == StatusRunning {
 				beeCopy.Status = StatusStopped
 				// 标记为待续跑，后端就绪后优先续接原会话。

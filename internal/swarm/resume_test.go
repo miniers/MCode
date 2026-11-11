@@ -36,7 +36,7 @@ func restoreLeadForResume(t *testing.T, leadThreadID string) (*Manager, *fakePer
 				Status:        StatusRunning,
 				ProjectID:     "proj-1",
 				TargetWorkDir: dir,
-				Reported:      true,
+				Reported:      false,
 			},
 			{
 				ThreadID: "bee-done-2",
@@ -70,6 +70,36 @@ func restoreLeadForResume(t *testing.T, leadThreadID string) (*Manager, *fakePer
 		t.Fatalf("Restore failed: %v", err)
 	}
 	return mgr, persister, dir
+}
+
+func TestManager_Restore_ClearsReportedInterruption(t *testing.T) {
+	const leadID = "lead-resume-reported"
+	ctx := context.Background()
+	mgr, persister, _ := restoreLeadForResume(t, leadID)
+	rec := persister.leads[leadID]
+	rec.Queue = nil
+	rec.Bees = []Bee{
+		{ThreadID: "bee-reported", Status: StatusStopped, Interrupted: true, Reported: true, ReadOnly: true},
+		{ThreadID: "bee-unreported", Status: StatusStopped, Interrupted: true, ReadOnly: true},
+	}
+	if err := persister.SaveLead(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Restore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.State(leadID)
+	if len(st.Bees) != 2 || st.Bees[0].Interrupted || !st.Bees[1].Interrupted || st.Interrupted != 1 {
+		t.Fatalf("恢复后的中断状态错误：%+v", st)
+	}
+
+	mgr.ResumeAllInterrupted(ctx)
+	driver := mgr.opts.Driver.(*fakeDriver)
+	driver.mu.Lock()
+	defer driver.mu.Unlock()
+	if len(driver.followUps) != 1 || driver.followUps[0].threadID != "bee-unreported" || driver.nextID != 0 {
+		t.Fatalf("应仅续接未汇报的会话，实际续接 %+v，新会话 %d", driver.followUps, driver.nextID)
+	}
 }
 
 // 验证 Restore 给被中断的 bee 打上 Interrupted 标记、排队条目进 heldQueue 而不进派发队列，
