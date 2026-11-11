@@ -28,6 +28,7 @@ func reviewScopeTitle(scope string) string {
 }
 
 func (s *chatState) loadReview(dp *diffPanelState, client reviewClient, threadID, turnID string) {
+	loadReviewPreference(s, dp, threadID)
 	diffPanelMu.Lock()
 	scope := reviewScope(dp.scope)
 	if scope != "turn" {
@@ -85,6 +86,9 @@ func (s *chatState) loadReview(dp *diffPanelState, client reviewClient, threadID
 			dp.pendingPath = ""
 		}
 		diffPanelMu.Unlock()
+		if err == nil {
+			rememberReviewPreference(s, dp, threadID)
+		}
 		s.invalidate()
 	}()
 }

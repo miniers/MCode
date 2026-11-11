@@ -1,11 +1,13 @@
 package mcodeui
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -157,11 +159,85 @@ func persistInspectorPreference(tid string, change pendingInspectorPreference) {
 	writeLastSelections(nil)
 }
 
+type reviewPreference struct {
+	SelectedPath string   `json:"selected_path,omitempty"`
+	ReadKeys     []string `json:"read_keys,omitempty"`
+}
+
+type pendingReviewPreference struct {
+	preference reviewPreference
+	generation uint64
+}
+
+var (
+	reviewPreferencePendingPath string
+	reviewPreferencePending     map[string]pendingReviewPreference
+	reviewPreferenceGeneration  uint64
+)
+
+func normalizeReviewPreference(pref reviewPreference) reviewPreference {
+	pref.SelectedPath = normalizeInspectorPath(pref.SelectedPath)
+	keys := make([]string, 0, min(len(pref.ReadKeys), reviewReadMarkerLimit))
+	seen := make(map[string]bool)
+	for i := len(pref.ReadKeys) - 1; i >= 0 && len(keys) < reviewReadMarkerLimit; i-- {
+		key := pref.ReadKeys[i]
+		if len(key) != sha256.Size*2 || strings.Trim(key, "0123456789abcdef") != "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	slices.Reverse(keys)
+	pref.ReadKeys = keys
+	return pref
+}
+
+func loadReviewPreference(s *chatState, dp *diffPanelState, tid string) {
+	diffPanelMu.Lock()
+	loaded := dp.prefLoaded
+	dp.prefLoaded = true
+	diffPanelMu.Unlock()
+	if loaded || tid == "" || !uiStatePersistenceEnabled(s) {
+		return
+	}
+	file, _ := loadUIStateFile()
+	pref := normalizeReviewPreference(file.ReviewSessions[tid])
+	diffPanelMu.Lock()
+	dp.readKeys = pref.ReadKeys
+	if dp.selectedPath == "" && dp.pendingPath == "" {
+		dp.selectedPath = pref.SelectedPath
+	}
+	diffPanelMu.Unlock()
+}
+
+func rememberReviewPreference(s *chatState, dp *diffPanelState, tid string) {
+	if tid == "" || !uiStatePersistenceEnabled(s) {
+		return
+	}
+	diffPanelMu.Lock()
+	pref := normalizeReviewPreference(reviewPreference{SelectedPath: dp.selectedPath, ReadKeys: dp.readKeys})
+	diffPanelMu.Unlock()
+	lastModelSelectionMu.Lock()
+	path := uiStatePath()
+	if reviewPreferencePendingPath != path {
+		reviewPreferencePendingPath, reviewPreferencePending = path, nil
+	}
+	if reviewPreferencePending == nil {
+		reviewPreferencePending = make(map[string]pendingReviewPreference)
+	}
+	reviewPreferenceGeneration++
+	reviewPreferencePending[tid] = pendingReviewPreference{preference: pref, generation: reviewPreferenceGeneration}
+	lastSelectionWritesPending++
+	lastModelSelectionMu.Unlock()
+	writeLastSelections(nil)
+}
+
 // uiStateFile 是 ui-state.json 的完整文件结构：在 UIState 之外承载带切片字段的持久化数据，
 // 与 UIState 读写同一文件、同一套落盘逻辑。
 type uiStateFile struct {
 	UIState
-	TasksDetailWidth float32 `json:"tasks_detail_width,omitempty"`
+	ReviewSessions   map[string]reviewPreference `json:"review_sessions,omitempty"`
+	TasksDetailWidth float32                     `json:"tasks_detail_width,omitempty"`
 	// ProjectOrder 是侧边栏拖拽重排后的项目顺序（项目 ID 列表）；空表示按项目默认顺序。
 	ProjectOrder []string `json:"project_order,omitempty"`
 	// ProjectActivation 是项目激活状态的覆盖表（项目 ID -> 是否激活）：键为项目 ID，false 表示停用；
@@ -857,6 +933,16 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 			}
 		}
 	}
+	reviewApplied := make(map[string]pendingReviewPreference)
+	if reviewPreferencePendingPath == uiStatePath() {
+		for tid, change := range reviewPreferencePending {
+			if file.ReviewSessions == nil {
+				file.ReviewSessions = make(map[string]reviewPreference)
+			}
+			file.ReviewSessions[tid] = change.preference
+			reviewApplied[tid] = change
+		}
+	}
 	lastModelSelectionMu.Unlock()
 
 	if hook := uiStateBeforeWriteHook; hook != nil {
@@ -870,6 +956,11 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	}
 
 	lastModelSelectionMu.Lock()
+	for tid, change := range reviewApplied {
+		if current := reviewPreferencePending[tid]; current.generation == change.generation {
+			delete(reviewPreferencePending, tid)
+		}
+	}
 	for tid, change := range inspectorApplied {
 		if inspectorPreferencePending[tid].Generation == change.Generation {
 			delete(inspectorPreferencePending, tid)

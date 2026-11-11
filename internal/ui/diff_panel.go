@@ -45,6 +45,12 @@ type diffPanelState struct {
 	scopeMenuOpen bool
 	snapshot      ReviewSnapshot
 	selectedPath  string
+	comments      []*reviewComment
+	commentDraft  *reviewCommentDraft
+	commentSerial uint64
+	commentBatch  bool
+	readKeys      []string
+	prefLoaded    bool
 	pendingPath   string
 	preferSplit   bool
 	reviewWidth   float32

@@ -633,6 +633,9 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	threadID := s.selectedThreadID
+	s.mu.Unlock()
 	st := getPreviewState(s)
 	if st == nil {
 		return
@@ -727,29 +730,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 
 					// 快捷端口胶囊
 					quickPorts := getBrowserQuickPorts(s)
-					for _, port := range quickPorts {
-						portStr := port
-						btn := ui.ButtonBase(c.Key("preview-port-"+portStr)).
-							Label(portStr).
-							Tooltip("http://localhost:"+portStr).
-							Radius(RadiusXS).
-							Padding(Space0, Space2).
-							Background(ThemeOverlay(c, 0.06))
-						if btn.Hovered() {
-							btn.Background(ThemeHover(c))
-						}
-						if btn.Clicked() {
-							target := "http://localhost:" + portStr
-							openPreviewURL(s, target)
-						}
-						btn.Children(func() {
-							ui.Text(c, portStr).
-								FontSize(TypeCode).
-								Font("monospace").
-								FontWeight(500).
-								TextColor(ThemeSecondaryText(c))
-						})
-					}
+					renderBrowserServerCandidates(c, s, threadID, quickPorts)
 
 					if captureConsole {
 						badgeBtn := ui.ButtonBase(c.Key("preview-console-badge")).

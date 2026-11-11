@@ -20,6 +20,123 @@ type reviewExtTestBackend struct {
 	err    error
 }
 
+type reviewRevertExtTestBackend struct {
+	Backend
+	params wire.ThreadsReviewRevertHunkParams
+	calls  int
+}
+
+func (b *reviewRevertExtTestBackend) ReviewRevertHunk(_ context.Context, p wire.ThreadsReviewRevertHunkParams) (wire.ThreadsReviewRevertHunkResult, error) {
+	b.params = p
+	b.calls++
+	return wire.ThreadsReviewRevertHunkResult{FileHash: "result-hash"}, nil
+}
+
+func TestReviewRevertSchemaAndInvalidParams(t *testing.T) {
+	b := &reviewRevertExtTestBackend{}
+	d, conn := newGitExtTestDispatcher(b)
+	const method = "threads.review.revertHunk"
+	if !d.methods[method] {
+		t.Fatal("未注册块撤销方法")
+	}
+	advertised := false
+	for _, name := range ImplementedMethods() {
+		advertised = advertised || name == method
+	}
+	if !advertised {
+		t.Fatal("capability 缺少块撤销方法")
+	}
+	p := wire.ThreadsReviewRevertHunkParams{ThreadID: revertExtTestThreadID, Scope: wire.ReviewScopeTurn, TurnID: revertExtTestTurnID, Path: "a.go", BaseRevision: "base", HeadRevision: "head", StartLine: 2, LineCount: 1, HunkHash: "hunk", ExpectedFileHash: "file"}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := string(raw)
+	for _, params := range []string{
+		strings.Replace(valid, `"scope":"turn"`, `"scope":"invalid"`, 1),
+		strings.Replace(valid, `"threadID":"`+p.ThreadID+`",`, "", 1),
+		strings.Replace(valid, p.ThreadID, "invalid", 1),
+		strings.TrimSuffix(valid, "}") + `,"unknown":1}`,
+		strings.Replace(valid, `"path":"a.go"`, `"path":"../a.go"`, 1),
+		strings.Replace(valid, `"path":"a.go"`, `"path":"/tmp/a.go"`, 1),
+		strings.Replace(valid, p.TurnID, "invalid", 1),
+		strings.Replace(valid, `"scope":"turn"`, `"scope":"session"`, 1),
+	} {
+		resp := callExtension(t, d, conn, `{"jsonrpc":"2.0","method":"`+method+`","params":`+params+`,"id":1}`)
+		if resp.Error == nil || resp.Error.Code != wire.InvalidParams {
+			t.Fatalf("非法参数未拒绝: %s %+v", params, resp.Error)
+		}
+	}
+	if b.calls != 0 {
+		t.Fatal("非法请求调用了后端")
+	}
+	resp := callExtension(t, d, conn, `{"jsonrpc":"2.0","method":"`+method+`","params":`+valid+`,"id":1}`)
+	var result wire.ThreadsReviewRevertHunkResult
+	gitExtResult(t, resp, &result)
+	if b.calls != 1 || b.params != p || result.FileHash != "result-hash" {
+		t.Fatalf("参数或结果丢字段: %+v %+v", b.params, result)
+	}
+	d2, c2 := newGitExtTestDispatcher(&fakeBackend{})
+	resp = callExtension(t, d2, c2, `{"jsonrpc":"2.0","method":"`+method+`","params":`+valid+`,"id":1}`)
+	if resp.Error == nil || resp.Error.Code != wire.MethodNotFound {
+		t.Fatalf("旧后端未报告不支持: %+v", resp.Error)
+	}
+	data, err := os.ReadFile("../../docs/remote-control.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Defs map[string]json.RawMessage `json:"$defs"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"RemoteThreadsReviewRevertHunkRequest", "RemoteThreadsReviewRevertHunkResponse"} {
+		if len(schema.Defs[name]) == 0 || strings.Count(string(data), `"$ref": "#/$defs/`+name+`"`) != 2 {
+			t.Fatalf("%s 未同步根协议与批量协议", name)
+		}
+	}
+	var request struct {
+		Properties map[string]struct {
+			Const string `json:"const"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(schema.Defs["RemoteThreadsReviewRevertHunkRequest"], &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.Properties["method"].Const != method {
+		t.Fatal("schema 方法名不符")
+	}
+	for name, value := range map[string]any{"RemoteThreadsReviewRevertHunkParams": p, "RemoteThreadsReviewRevertHunkResult": result} {
+		var def struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+			Required   []string                   `json:"required"`
+			Additional bool                       `json:"additionalProperties"`
+		}
+		if err := json.Unmarshal(schema.Defs[name], &def); err != nil {
+			t.Fatal(err)
+		}
+		typ := reflect.TypeOf(value)
+		if len(def.Properties) != typ.NumField() || def.Additional {
+			t.Fatalf("%s 字段或严格性不符", name)
+		}
+		for i := 0; i < typ.NumField(); i++ {
+			tag := typ.Field(i).Tag.Get("json")
+			field := strings.Split(tag, ",")[0]
+			if _, ok := def.Properties[field]; !ok {
+				t.Fatalf("%s 缺少 %s", name, field)
+			}
+			required := false
+			for _, key := range def.Required {
+				required = required || key == field
+			}
+			if required == strings.Contains(tag, "omitempty") {
+				t.Fatalf("%s.%s 必填约束不符", name, field)
+			}
+		}
+	}
+}
+
 func (b *reviewExtTestBackend) ReviewGet(ctx context.Context, p wire.ThreadsReviewGetParams) (wire.ThreadsReviewGetResult, error) {
 	b.params = p
 	b.calls++

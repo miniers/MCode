@@ -203,6 +203,7 @@ type FakeClient struct {
 	reviewRevertResult ReviewRevertHunkResult
 	reviewRevertErr    error
 	reviewRevertCalls  []ReviewRevertHunkParams
+	reviewRevertHook   func(context.Context, ReviewRevertHunkParams) (ReviewRevertHunkResult, error)
 
 	kanbanBoard         KanbanBoard
 	kanbanBoardHook     func(context.Context, string) (KanbanBoard, error)
@@ -1661,9 +1662,25 @@ func (f *FakeClient) SetReviewRevertHunkResult(result ReviewRevertHunkResult, er
 
 func (f *FakeClient) ReviewRevertHunk(ctx context.Context, p ReviewRevertHunkParams) (ReviewRevertHunkResult, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.reviewRevertCalls = append(f.reviewRevertCalls, p)
-	return f.reviewRevertResult, f.reviewRevertErr
+	hook, result, err := f.reviewRevertHook, f.reviewRevertResult, f.reviewRevertErr
+	f.mu.Unlock()
+	if hook != nil {
+		return hook(ctx, p)
+	}
+	return result, err
+}
+
+func (f *FakeClient) SetReviewRevertHunkHook(hook func(context.Context, ReviewRevertHunkParams) (ReviewRevertHunkResult, error)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reviewRevertHook = hook
+}
+
+func (f *FakeClient) ReviewRevertHunkCalls() []ReviewRevertHunkParams {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]ReviewRevertHunkParams{}, f.reviewRevertCalls...)
 }
 
 var _ reviewClient = (*FakeClient)(nil)

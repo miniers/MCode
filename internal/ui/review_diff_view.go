@@ -108,8 +108,33 @@ func renderReviewDiffView(c *ui.Context, key string, view *reviewDiffView, split
 }
 
 func reviewKey(s *chatState, threadID string, snapshot ReviewSnapshot, path string) reviewDiffKey {
-	_, root, main := getSelectedThreadDirs(s)
-	return reviewDiffKey{workspace: root + "\x00" + main, threadID: threadID, scope: reviewScope(snapshot.Scope), turnID: snapshot.TurnID, base: snapshot.BaseRevision, head: snapshot.HeadRevision, path: path}
+	return reviewDiffKey{workspace: reviewWorkspace(s, threadID), threadID: threadID, scope: reviewScope(snapshot.Scope), turnID: snapshot.TurnID, base: snapshot.BaseRevision, head: snapshot.HeadRevision, path: path}
+}
+
+// 异步评论固定来源会话，不能从当前选中的另一个会话推导工作区。
+func reviewWorkspace(s *chatState, threadID string) string {
+	s.mu.Lock()
+	var projectID, main string
+	for _, thread := range s.threads {
+		if thread.ID == threadID {
+			projectID = thread.ProjectID
+			break
+		}
+	}
+	for _, project := range s.projects {
+		if projectID != "" && project.ID == projectID {
+			main = project.Path
+			break
+		}
+	}
+	s.mu.Unlock()
+	root := main
+	if s.client != nil {
+		if dir, ok := s.client.ThreadWorkDir(threadID); ok {
+			root = dir
+		}
+	}
+	return root + "\x00" + main
 }
 
 func touchReviewKey(order []reviewDiffKey, key reviewDiffKey) []reviewDiffKey {
@@ -225,6 +250,7 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 		}
 	}).Children(func() {
 		renderDiffHeader(c, s, dp, tid, turn, reviewTurns(s))
+		renderReviewCommentsAction(c, s, dp, tid)
 		if loading {
 			ui.Row(c.Key("review-busy")).Height(Space4).Children(func() { reviewBusy(c, "review-loading") })
 		}
@@ -255,14 +281,12 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 						row.Background(ThemeSelected(c))
 					}
 					if row.Clicked() && !loading {
-						diffPanelMu.Lock()
-						dp.selectedPath = file.Path
-						diffPanelMu.Unlock()
-						s.invalidate()
+						selectReviewFile(s, dp, tid, file.Path)
 					}
 					row.Children(func() {
 						ui.Text(c, file.Path).FontSize(TypeFootnote).SingleLine().TextColor(ThemePrimaryText(c))
 						renderDiffStatusBadge(c, file.Status)
+						renderReviewReadButton(c, s, dp, tid, snapshot, file, "list")
 					})
 				}).FillHeight().MinHeight(0)
 				if wide {
@@ -277,14 +301,17 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 						if !wide {
 							btn := ui.ButtonBase(c.Key("review-back")).Label("返回改动列表").Padding(Space2)
 							if btn.Clicked() {
-								diffPanelMu.Lock()
-								dp.selectedPath = ""
-								diffPanelMu.Unlock()
-								s.invalidate()
+								selectReviewFile(s, dp, tid, "")
 							}
 							btn.Children(func() { ui.Icon(c, IconArrowLeft()).Size(IconSM, IconSM) })
 						}
 						ui.Text(c, path).SingleLine().Grow(1).FontSize(TypeFootnote)
+						for _, file := range snapshot.Files {
+							if file.Path == path {
+								renderReviewReadButton(c, s, dp, tid, snapshot, file, "header")
+								break
+							}
+						}
 						if wide {
 							label := "并排"
 							if dp.preferSplit {
@@ -338,5 +365,7 @@ func renderReviewFile(c *ui.Context, s *chatState, dp *diffPanelState, tid strin
 	}
 	view := reviewViewFor(dp, key, *entry.content, file.Language)
 	configureReviewHunkActions(c, s, dp, tid, snapshot, file, *entry.content, view)
+	configureReviewComments(c, s, dp, key, *entry.content, view)
 	renderReviewDiffView(c, fmt.Sprintf("review-diff-%s-%s", key.head, key.path), view, split, width)
+	renderReviewOrphanComments(c, s, dp, key, *entry.content)
 }

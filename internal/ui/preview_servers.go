@@ -270,13 +270,8 @@ func renderBrowserServerCandidates(c *ui.Context, s *chatState, threadID string,
 	newCount := d.newCount
 	d.newCount = 0
 	d.mu.Unlock()
-	shown := map[string]bool{}
-	render := func(key, label, target string, discovered bool) {
-		if shown[target] {
-			return
-		}
-		shown[target] = true
-		btn := ui.ButtonBase(c.Key("preview-server-"+key)).Label(label).Tooltip(target).Radius(RadiusXS).Padding(Space0, Space2).Background(ThemeOverlay(c, .06)).Transition(motionListItem(c))
+	render := func(key, label, target string) {
+		btn := ui.ButtonBase(c.Key(key)).Label(label).Tooltip(target).Radius(RadiusXS).Padding(Space0, Space2).Background(ThemeOverlay(c, .06)).Transition(motionListItem(c))
 		if btn.Hovered() {
 			btn.Background(ThemeHover(c))
 		}
@@ -288,13 +283,10 @@ func renderBrowserServerCandidates(c *ui.Context, s *chatState, threadID string,
 		})
 	}
 	for _, x := range discovered {
-		render(x.url, x.url, x.url, true)
+		render("preview-server-"+x.url, x.url, x.url)
 	}
 	for _, port := range quickPorts {
-		origin := browserServerOrigin("http://localhost:" + port)
-		if origin != "" {
-			render("quick-"+port, port, origin, false)
-		}
+		render("preview-port-"+port, port, "http://localhost:"+port)
 	}
 	if newCount > 0 {
 		count := newCount

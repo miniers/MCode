@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"weak"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
@@ -19,11 +20,41 @@ type reviewHunkActionState struct {
 	err           string
 }
 
-var reviewHunkStates sync.Map
+const reviewHunkStateLimit = 256
 
-func reviewHunkState(key string) *reviewHunkActionState {
-	v, _ := reviewHunkStates.LoadOrStore(key, &reviewHunkActionState{})
-	return v.(*reviewHunkActionState)
+type reviewHunkStateKey struct {
+	view  weak.Pointer[reviewDiffView]
+	index int
+}
+
+var reviewHunkStates = struct {
+	sync.Mutex
+	entries map[reviewHunkStateKey]*reviewHunkActionState
+	order   []reviewHunkStateKey
+}{entries: make(map[reviewHunkStateKey]*reviewHunkActionState)}
+
+func reviewHunkState(view *reviewDiffView, index int) *reviewHunkActionState {
+	key := reviewHunkStateKey{view: weak.Make(view), index: index}
+	reviewHunkStates.Lock()
+	defer reviewHunkStates.Unlock()
+	state := reviewHunkStates.entries[key]
+	if state == nil {
+		state = &reviewHunkActionState{}
+		reviewHunkStates.entries[key] = state
+	}
+	for i, old := range reviewHunkStates.order {
+		if old == key {
+			reviewHunkStates.order = append(reviewHunkStates.order[:i], reviewHunkStates.order[i+1:]...)
+			break
+		}
+	}
+	reviewHunkStates.order = append(reviewHunkStates.order, key)
+	// 弱引用不保留已淘汰的全文 Buffer；上限同时约束尚未 GC 的按钮状态。
+	for len(reviewHunkStates.order) > reviewHunkStateLimit {
+		delete(reviewHunkStates.entries, reviewHunkStates.order[0])
+		reviewHunkStates.order = reviewHunkStates.order[1:]
+	}
+	return state
 }
 
 func reviewContentHash(text string) string {
@@ -34,30 +65,57 @@ func reviewContentHash(text string) string {
 func configureReviewHunkActions(c *ui.Context, s *chatState, dp *diffPanelState, tid string, snapshot ReviewSnapshot, file ReviewFile, content ReviewFileContent, view *reviewDiffView) {
 	client, ok := s.client.(reviewHunkReverter)
 	if !ok || snapshot.Running || file.Binary || file.OrigPath != "" || file.Status == "A" || file.Status == "D" || file.Status == "R" || content.Binary || content.TooLarge || content.Missing {
+		view.state.HunkActions = false
 		view.state.RenderHunkActions = nil
 		return
 	}
+	view.state.HunkActions = true
 	view.state.RenderHunkActions = func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions) {
-		start, count := a.Hunk.NewStart+1, a.Hunk.NewEnd-a.Hunk.NewStart
-		hash, err := reviewHunkHash(content.NewText, start, count)
-		if err != nil {
-			return
+		state := reviewHunkState(view, a.Index)
+		state.mu.Lock()
+		pending := state.pending
+		state.mu.Unlock()
+		bar.Children(func() {
+			btn := ui.ButtonBase(c.Key(fmt.Sprintf("review-revert-hunk-%d", a.Index))).Label("撤销此块").Padding(Space1, Space2).Radius(RadiusXS).Disabled(pending)
+			btn.Children(func() { ui.Icon(c, iconRotateCcw).Size(IconSM, IconSM) })
+			if btn.Clicked() && !pending {
+				state.mu.Lock()
+				state.open, state.err = true, ""
+				state.mu.Unlock()
+				c.Invalidate()
+			}
+		})
+	}
+	// 编辑器只为活动块构建按钮；确认框和错误不能随鼠标离开改动块而消失。
+	states := make(map[int]*reviewHunkActionState)
+	viewKey := weak.Make(view)
+	reviewHunkStates.Lock()
+	for key, state := range reviewHunkStates.entries {
+		if key.view == viewKey {
+			states[key.index] = state
 		}
-		state := reviewHunkState(fmt.Sprintf("%p-%d", view, a.Index))
+	}
+	reviewHunkStates.Unlock()
+	for index, hunk := range view.state.Hunks() {
+		state := states[index]
+		if state == nil {
+			continue
+		}
 		state.mu.Lock()
 		open, pending, actionErr := state.open, state.pending, state.err
 		state.mu.Unlock()
-		btn := ui.ButtonBase(c.Key(fmt.Sprintf("review-revert-hunk-%d", a.Index))).Label("撤销此块").Padding(Space1, Space2).Radius(RadiusXS).Disabled(pending)
-		btn.Children(func() { ui.Icon(c, iconRotateCcw).Size(IconSM, IconSM) })
-		if btn.Clicked() && !pending {
-			state.mu.Lock()
-			state.open, state.err = true, ""
-			state.mu.Unlock()
-			c.Invalidate()
-		}
-		RenderConfirmDialog(c, ConfirmDialog{Key: fmt.Sprintf("review-revert-confirm-%p-%d", view, a.Index), Open: open, Title: "撤销此块？", ConfirmLabel: "撤销", CancelLabel: "取消", ConfirmDisabled: pending,
+		start, count := hunk.NewStart+1, hunk.NewEnd-hunk.NewStart
+		RenderConfirmDialog(c, ConfirmDialog{Key: fmt.Sprintf("review-revert-confirm-%p-%d", view, index), Open: open, Title: "撤销此块？", ConfirmLabel: "撤销", CancelLabel: "取消", ConfirmDisabled: pending,
 			OnCancel: func() { state.mu.Lock(); state.open = false; state.mu.Unlock() },
 			OnConfirm: func() {
+				hash, err := reviewHunkHash(content.NewText, start, count)
+				if err != nil {
+					state.mu.Lock()
+					state.open, state.err = false, err.Error()
+					state.mu.Unlock()
+					c.Invalidate()
+					return
+				}
 				state.mu.Lock()
 				state.open, state.pending, state.err = false, true, ""
 				state.mu.Unlock()

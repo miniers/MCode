@@ -2,11 +2,14 @@ package mcodeui
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func TestBrowserServerDiscoveryFromToolOutput(t *testing.T) {
@@ -69,6 +72,112 @@ func TestBrowserServerDiscoveryStopsOnThreadChange(t *testing.T) {
 		t.Fatal("切会话后旧候选仍处于活动状态")
 	}
 }
+
+func TestBrowserServerCandidatesRenderedInToolbar(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer srv.Close()
+	_, port, err := net.SplitHostPort(srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := "http://localhost:" + port
+	s := sidePaneTestState(t)
+	defer s.close()
+	tab, page := browserAttachTestPage(s, "https://example.test/start")
+	inspectorSelect(s, sidePanePreviewID, false)
+	tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 1800, 600)
+	tester.Frame()
+	tester.Advance(DurSheet + 50*time.Millisecond)
+	if _, ok := tester.Find("3000"); !ok {
+		t.Fatal("工具条缺少快捷端口")
+	}
+	browserServerObserveToolOutput(s, ThreadUpdate{ThreadID: "t1", Messages: []Message{{Role: "tool", Text: "ready at " + target}}})
+	tester.Frame()
+	d := browserServerDiscoveryFor(s)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		d.mu.Lock()
+		candidate := d.candidates[target]
+		alive := candidate != nil && candidate.alive
+		d.mu.Unlock()
+		if alive {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("服务器探测未成功")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	tester.Frame()
+	tester.Advance(DurSheet + 50*time.Millisecond)
+	if _, ok := tester.Find(target); !ok {
+		t.Fatal("工具条缺少已发现的服务器")
+	}
+	if tab.url != "https://example.test/start" || page.loaded.Load() != 0 {
+		t.Fatal("发现服务器时不应导航")
+	}
+	if err := tester.Click(target); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if tab.url != target || page.loaded.Load() != 1 {
+		t.Fatalf("点击服务器未导航：%s", tab.url)
+	}
+}
+
+func TestBrowserServerDiscoveryIdleWhenHidden(t *testing.T) {
+	started := make(chan struct{}, 1)
+	canceled := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		<-r.Context().Done()
+		canceled <- struct{}{}
+	}))
+	defer srv.Close()
+	s := sidePaneTestState(t)
+	defer s.close()
+	inspectorSelect(s, sidePanePreviewID, false)
+	tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 1800, 600)
+	tester.Frame()
+	tester.Advance(DurSheet + 50*time.Millisecond)
+	browserServerObserveToolOutput(s, ThreadUpdate{ThreadID: "t1", Messages: []Message{{Role: "tool", Text: srv.URL}}})
+	tester.Frame()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("未开始探测")
+	}
+	inspectorClose(s)
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("隐藏后探测未取消")
+	}
+	d := browserServerDiscoveryFor(s)
+	d.mu.Lock()
+	visible, cancel, lastProbe := d.visible, d.cancel, d.lastProbe
+	d.mu.Unlock()
+	if visible || cancel != nil {
+		t.Fatal("隐藏后发现状态仍在运行")
+	}
+	frames := 0
+	idle := ui.NewTester(func(c *ui.Context) {
+		frames++
+		browserServerDiscoveryTick(c, s, "t1")
+	}, 100, 100)
+	idle.Frame()
+	initialFrames := frames
+	idle.Advance(3 * browserServerProbeInterval)
+	if frames != initialFrames {
+		t.Fatalf("隐藏后仍调度了 %d 帧", frames-initialFrames)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.lastProbe != lastProbe || d.cancel != nil {
+		t.Fatal("隐藏后仍发起探测")
+	}
+}
+
 func testContext(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

@@ -181,6 +181,45 @@ func TestReleaseChatUIState(t *testing.T) {
 	}
 }
 
+func TestReviewUIStateChangesDuringWrite(t *testing.T) {
+	s, _, dp, key, _ := reviewCommentsSetup(t)
+	t.Setenv("MCODE_DATA", t.TempDir())
+	WithUIStatePersistence()(s)
+	t.Cleanup(func() {
+		waitUIStateWrites()
+		uiStateBeforeWriteHook = nil
+	})
+	var once sync.Once
+	readKey := reviewReadKey(key, ReviewFile{NewHash: "changed"})
+	uiStateBeforeWriteHook = func() {
+		once.Do(func() {
+			toggleReviewRead(dp, readKey)
+			selectReviewFile(s, dp, "t1", "new.go")
+			persistInspectorPreference("t2", pendingInspectorPreference{Preference: InspectorPreference{Width: 500}})
+		})
+	}
+	selectReviewFile(s, dp, "t1", "old.go")
+	waitUIStateWrites()
+	file, ok := loadUIStateFile()
+	if !ok || file.ReviewSessions["t1"].SelectedPath != "new.go" || !reflect.DeepEqual(file.ReviewSessions["t1"].ReadKeys, []string{readKey}) || file.InspectorSessions["t2"].Width != 500 {
+		t.Fatalf("并发写者丢失新偏好或其他字段: %+v", file)
+	}
+}
+
+func TestReviewUIStateNormalizesReadKeys(t *testing.T) {
+	pref := reviewPreference{SelectedPath: "../outside", ReadKeys: []string{"invalid"}}
+	key := reviewDiffKey{workspace: "/workspace", scope: "turn", path: "a.go"}
+	for i := 0; i <= reviewReadMarkerLimit; i++ {
+		pref.ReadKeys = append(pref.ReadKeys, reviewReadKey(key, ReviewFile{NewHash: string(rune(i + 1))}))
+	}
+	last := pref.ReadKeys[len(pref.ReadKeys)-1]
+	pref.ReadKeys = append(pref.ReadKeys, last)
+	normalized := normalizeReviewPreference(pref)
+	if normalized.SelectedPath != "" || len(normalized.ReadKeys) != reviewReadMarkerLimit || normalized.ReadKeys[0] != pref.ReadKeys[2] || normalized.ReadKeys[len(normalized.ReadKeys)-1] != last {
+		t.Fatal("没有清洗路径、去重或淘汰最旧已读键")
+	}
+}
+
 func TestInspectorPreferencesRoundTrip(t *testing.T) {
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(waitUIStateWrites)
