@@ -138,7 +138,7 @@ func TestDelegateToolFollowsSetting(t *testing.T) {
 		b.AddThread(wire.ThreadSummary{ID: id, ProjectID: "p", Provider: "prompt-capture"}, nil)
 	}
 
-	mgr := swarm.NewManager(swarm.Options{Git: git.NewRunner("", 4), Driver: b, WorktreeDir: t.TempDir()})
+	mgr := swarm.NewManager(swarm.Options{Git: git.NewRunner("", 4), Driver: b, WorktreeDir: t.TempDir(), PollInterval: testSwarmPollInterval})
 	var delegateTool atomic.Bool
 	mgr.SetSettingsFunc(func() swarm.Settings {
 		return swarm.Settings{Enabled: true, AutoDelegate: true, DelegateTool: delegateTool.Load()}

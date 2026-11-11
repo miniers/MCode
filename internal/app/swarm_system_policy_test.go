@@ -40,7 +40,7 @@ func TestSwarmSystemPolicyRouting(t *testing.T) {
 			b.SetHarness(h, dir, harness.ModeFullAccess)
 			b.AddProject(wire.ProjectSummary{ID: "p", Path: dir})
 			b.AddThread(wire.ThreadSummary{ID: "lead", ProjectID: "p", Provider: "swarm-policy"}, nil)
-			mgr := swarm.NewManager(swarm.Options{Git: git.NewRunner("", 4), Driver: b, WorktreeDir: t.TempDir()})
+			mgr := swarm.NewManager(swarm.Options{Git: git.NewRunner("", 4), Driver: b, WorktreeDir: t.TempDir(), PollInterval: testSwarmPollInterval})
 			mgr.SetSettingsFunc(func() swarm.Settings {
 				return swarm.Settings{Enabled: true, DefaultTier: "edit", Tiers: []swarm.Tier{{ID: "edit", Description: "常规编辑"}}}
 			})
@@ -116,7 +116,7 @@ func TestSwarmSystemPolicyDisabledAndBee(t *testing.T) {
 			b.SetHarness(&swarmSystemPolicyHarness{h}, dir, harness.ModeFullAccess)
 			b.AddProject(wire.ProjectSummary{ID: "p", Path: dir})
 			b.AddThread(wire.ThreadSummary{ID: "thread", ProjectID: "p", Provider: "swarm-policy", IsHelper: tc.helper}, nil)
-			mgr := swarm.NewManager(swarm.Options{Git: git.NewRunner("", 4), Driver: b, WorktreeDir: t.TempDir()})
+			mgr := swarm.NewManager(swarm.Options{Git: git.NewRunner("", 4), Driver: b, WorktreeDir: t.TempDir(), PollInterval: testSwarmPollInterval})
 			mgr.SetSettingsFunc(func() swarm.Settings { return swarm.Settings{Enabled: tc.global} })
 			mgr.SetEnabled("thread", tc.enabled)
 			wireSwarm(ctx, mgr, b, false)

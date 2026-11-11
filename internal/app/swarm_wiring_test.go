@@ -135,7 +135,7 @@ func testSwarmChatDispatchMergeReportAndQueuedFollowUp(t *testing.T, review bool
 	backend.AddProject(wire.ProjectSummary{ID: "project", Name: "Project", Path: dir})
 	backend.AddThread(wire.ThreadSummary{ID: "lead", ProjectID: "project", Provider: "swarm-flow"}, nil)
 	mgr := swarm.NewManager(swarm.Options{
-		Git: git.NewRunner("", 4), Driver: backend, WorktreeDir: t.TempDir(),
+		Git: git.NewRunner("", 4), Driver: backend, WorktreeDir: t.TempDir(), PollInterval: testSwarmPollInterval,
 		OnReport: func(lead, text string) error {
 			return backend.SendSwarmReport(ctx, lead, text)
 		},
@@ -472,9 +472,10 @@ func TestSwarmLeadPrefaceDecoratorAppendsTierSection(t *testing.T) {
 	b.AddThread(wire.ThreadSummary{ID: "lead-1", ProjectID: "p", Provider: "prompt-capture"}, nil)
 
 	mgr := swarm.NewManager(swarm.Options{
-		Git:         git.NewRunner("", 4),
-		Driver:      b,
-		WorktreeDir: t.TempDir(),
+		Git:          git.NewRunner("", 4),
+		Driver:       b,
+		WorktreeDir:  t.TempDir(),
+		PollInterval: testSwarmPollInterval,
 	})
 	mgr.SetSettingsFunc(func() swarm.Settings {
 		return swarm.Settings{
@@ -651,9 +652,10 @@ func TestSwarmLeadPromptDecoratorNoticeLifecycle(t *testing.T) {
 	b.AddThread(wire.ThreadSummary{ID: "lead-life", ProjectID: "p", Provider: "prompt-capture"}, nil)
 
 	mgr := swarm.NewManager(swarm.Options{
-		Git:         git.NewRunner("", 4),
-		Driver:      b,
-		WorktreeDir: t.TempDir(),
+		Git:          git.NewRunner("", 4),
+		Driver:       b,
+		WorktreeDir:  t.TempDir(),
+		PollInterval: testSwarmPollInterval,
 	})
 	mgr.SetSettingsFunc(func() swarm.Settings {
 		return swarm.Settings{
@@ -778,9 +780,10 @@ func TestSwarmPromptDecoratorSkipsUnregisteredHelperThread(t *testing.T) {
 	b.SetThreadRelation("helper", "main", true)
 
 	mgr := swarm.NewManager(swarm.Options{
-		Git:         git.NewRunner("", 4),
-		Driver:      b,
-		WorktreeDir: t.TempDir(),
+		Git:          git.NewRunner("", 4),
+		Driver:       b,
+		WorktreeDir:  t.TempDir(),
+		PollInterval: testSwarmPollInterval,
 	})
 	mgr.SetSettingsFunc(func() swarm.Settings {
 		return swarm.Settings{
@@ -823,7 +826,7 @@ func TestSwarmStoreAdapterReopenAndProjectResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgr := swarm.NewManager(swarm.Options{Persister: swarmStoreAdapter{s: s}})
+	mgr := swarm.NewManager(swarm.Options{Persister: swarmStoreAdapter{s: s}, PollInterval: testSwarmPollInterval})
 	mgr.SetEnabled("lead", true)
 	if err := (swarmStoreAdapter{s: s}).SaveLead(ctx, swarm.LeadRecord{
 		LeadThreadID: "lead", Enabled: true, NextIndex: 7,
@@ -842,7 +845,7 @@ func TestSwarmStoreAdapterReopenAndProjectResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	restarted := swarm.NewManager(swarm.Options{Persister: swarmStoreAdapter{s: s}})
+	restarted := swarm.NewManager(swarm.Options{Persister: swarmStoreAdapter{s: s}, PollInterval: testSwarmPollInterval})
 	if err := restarted.Restore(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -887,7 +890,7 @@ func TestSwarmDirectMessageRoutingEnabled(t *testing.T) {
 	b.SetHarness(&testMockHarness{kind: "noop"}, dir, harness.ModeFullAccess)
 	b.AddProject(wire.ProjectSummary{ID: "p", Name: "P", Path: dir})
 	b.AddThread(wire.ThreadSummary{ID: "lead", ProjectID: "p", Provider: "noop"}, nil)
-	mgr := swarm.NewManager(swarm.Options{Git: git.NewRunner("", 4), Driver: b, WorktreeDir: t.TempDir()})
+	mgr := swarm.NewManager(swarm.Options{Git: git.NewRunner("", 4), Driver: b, WorktreeDir: t.TempDir(), PollInterval: testSwarmPollInterval})
 	mgr.SetEnabled("lead", true)
 	wireSwarm(ctx, mgr, b, true)
 	result, err := b.SendMessage(ctx, wire.SendMessageParams{ThreadID: "lead", Text: "first task"})
@@ -1381,7 +1384,7 @@ func TestSwarmBeeAnswersRespondToBeeRequest(t *testing.T) {
 		LeadThreadID: "lead",
 		Enabled:      true,
 		Bees:         []swarm.Bee{{ThreadID: "head", Name: "Ives", Status: swarm.StatusRunning}},
-	}}}})
+	}}}, PollInterval: testSwarmPollInterval})
 	if err := mgr.Restore(ctx); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}

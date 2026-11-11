@@ -26,7 +26,7 @@ func TestLeadPlansOnlyWiring(t *testing.T) {
 	defer b.Close()
 	h := &leadPlansCapture{turns: make(chan harness.Turn, 1)}
 	b.SetHarness(h, t.TempDir(), harness.ModeAgent)
-	mgr := swarm.NewManager(swarm.Options{Driver: b, WorktreeDir: t.TempDir()})
+	mgr := swarm.NewManager(swarm.Options{Driver: b, WorktreeDir: t.TempDir(), PollInterval: testSwarmPollInterval})
 	var global bool
 	var mode string
 	mgr.SetSettingsFunc(func() swarm.Settings { return swarm.Settings{Enabled: global} })
@@ -42,6 +42,7 @@ func TestLeadPlansOnlyWiring(t *testing.T) {
 		{"global-off", false, true, swarm.ModeLeadPlansOnly, false, "", false},
 		{"session-off", true, false, swarm.ModeLeadPlansOnly, false, "", false},
 		{"collaborative", true, true, swarm.ModeCollaborative, false, "", false},
+		// 自动委派关闭时，即使是「每条都派」也应交给主代理。
 		{"always", true, true, swarm.ModeAlwaysBees, false, "", false},
 		{"lead", true, true, swarm.ModeLeadPlansOnly, false, "", true},
 		{"helper", true, true, swarm.ModeLeadPlansOnly, true, "", false},

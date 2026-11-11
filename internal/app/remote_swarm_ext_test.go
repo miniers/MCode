@@ -40,7 +40,7 @@ func newRemoteSwarmReportEnv(t *testing.T) (remoteSwarmExt, *store.Store) {
 		LeadThreadID: remoteSwarmReportTestLead,
 		Enabled:      true,
 		Bees:         []swarm.Bee{{ThreadID: remoteSwarmReportTestBee, Name: "Aspen", Status: swarm.StatusCompleted}},
-	}}}})
+	}}}, PollInterval: testSwarmPollInterval})
 	if err := mgr.Restore(context.Background()); err != nil {
 		t.Fatalf("restore swarm: %v", err)
 	}

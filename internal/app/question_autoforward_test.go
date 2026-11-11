@@ -42,7 +42,7 @@ func newAutoForwardFixture(t *testing.T, seconds int) (*Client, *remote.MemoryBa
 		LeadThreadID: "lead",
 		Enabled:      true,
 		Bees:         []swarm.Bee{{ThreadID: "head", Name: "Ives", Status: swarm.StatusRunning}},
-	}}}})
+	}}}, PollInterval: testSwarmPollInterval})
 	if err := mgr.Restore(ctx); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}

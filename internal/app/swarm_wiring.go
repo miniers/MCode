@@ -1430,7 +1430,8 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 		},
 		func(ctx context.Context, threadID, text string) (string, error) {
 			// 只有「每条都派」模式把用户消息直接交给 bee；协作与只规划都由主导先规划。
-			if effectiveMode(threadID) != swarm.ModeAlwaysBees || !mgr.Settings().Enabled || !mgr.State(threadID).Enabled ||
+			settings := mgr.Settings()
+			if effectiveMode(threadID) != swarm.ModeAlwaysBees || !settings.Enabled || !settings.AutoDelegate || !mgr.State(threadID).Enabled ||
 				strings.TrimSpace(text) == "" ||
 				strings.HasPrefix(strings.TrimSpace(text), "/") || swarm.IsNotice(text) {
 				return "", nil

@@ -1166,7 +1166,7 @@ func TestClient_Swarm_WithManager(t *testing.T) {
 	c := NewClient(nil)
 	ctx := context.Background()
 
-	mgr := swarm.NewManager(swarm.Options{})
+	mgr := swarm.NewManager(swarm.Options{PollInterval: testSwarmPollInterval})
 	c.SetSwarmManager(mgr)
 
 	var mu sync.Mutex

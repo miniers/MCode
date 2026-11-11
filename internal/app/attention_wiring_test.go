@@ -720,7 +720,7 @@ func TestAttentionWiringMergeReviewRestartDedup(t *testing.T) {
 	}
 	// 每次循环都新建 Manager 与接线，模拟 MCode 重启后重新观察同一份持久化状态。
 	for i := 0; i < 2; i++ {
-		mgr := swarm.NewManager(swarm.Options{Persister: staticLeadPersister{records: []swarm.LeadRecord{record}}})
+		mgr := swarm.NewManager(swarm.Options{Persister: staticLeadPersister{records: []swarm.LeadRecord{record}}, PollInterval: testSwarmPollInterval})
 		if err := mgr.Restore(ctx); err != nil {
 			t.Fatalf("restore swarm: %v", err)
 		}
