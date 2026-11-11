@@ -836,7 +836,8 @@ func TestPersist_RetriesFailedUpdateWithNextBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg.Text = "终稿"
-	msg.IsFinal = true
+	final := true
+	msg.IsFinalResponse = &final
 	b.mu.Lock()
 	b.threads[threadID].messages[0] = msg
 	b.mu.Unlock()

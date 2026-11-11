@@ -2601,9 +2601,6 @@ func (b *MemoryBackend) threadHistoryLocked(params wire.HistoryParams) (wire.His
 // Subscribe 登记会话订阅并返回包含当前水位的快照。
 func (b *MemoryBackend) Subscribe(ctx context.Context, c Conn, threadID string) (wire.SubscribeResult, error) {
 	runID, seq := b.hub.Subscribe(c, threadID)
-	if runID == "" {
-		runID = b.hub.BeginRun(threadID)
-	}
 	b.mu.Lock()
 	td, ok := b.threads[threadID]
 	if !ok {
@@ -2617,6 +2614,9 @@ func (b *MemoryBackend) Subscribe(ctx context.Context, c Conn, threadID string) 
 	summary := b.summaryForPublishLocked(td)
 	history, _ := b.threadHistoryLocked(wire.HistoryParams{ThreadID: threadID})
 	b.mu.Unlock()
+	if runID == "" {
+		runID = b.hub.BeginRun(threadID)
+	}
 
 	return wire.SubscribeResult{
 		ThreadID:   threadID,

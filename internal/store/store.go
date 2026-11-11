@@ -11,9 +11,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"mcode/internal/filelock"
 	"mcode/internal/startuptrace"
 
 	_ "modernc.org/sqlite"
@@ -542,6 +544,11 @@ var migrations = []string{
 // Store 封装 SQLite 数据库操作。
 type Store struct {
 	db *sql.DB
+	// 主宿主锁仅在 Open 时竞争，持有到数据库关闭后再释放。
+	hostLock  *filelock.Lock
+	primary   bool
+	closeOnce sync.Once
+	closeErr  error
 	// RecoveredFrom 记录数据库损坏自愈时的备份文件路径；若未发生自愈恢复则为空。
 	RecoveredFrom string
 	// filePath 是数据库主文件的物理路径，用于后台完整性检查与标记文件。
@@ -604,13 +611,6 @@ func openAndMigrate(ctx context.Context, dsn string, syncCheck bool) (*sql.DB, e
 		_ = db.Close()
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
-
-	// 清扫进程异常退出遗留的空临时会话（幂等）。
-	if _, err := db.ExecContext(ctx, "DELETE FROM threads WHERE is_provisional = 1 AND NOT EXISTS (SELECT 1 FROM messages WHERE thread_id = threads.id) AND NOT EXISTS (SELECT 1 FROM thread_archives a WHERE a.thread_id = threads.id)"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("sweep orphan provisional threads: %w", err)
-	}
-	startuptrace.Mark("store provisional sweep")
 
 	return db, nil
 }
@@ -707,11 +707,19 @@ func (s *Store) startBackgroundQuickCheck(skip bool) {
 
 // finalizeOpen 组装 Store：同步检查通过则清理标记文件，并启动后台完整性检查。
 // 组装完成前先加载 zstd 字典：缺字典会读不回历史压缩消息，此时 Open 必须失败。
-func finalizeOpen(ctx context.Context, db *sql.DB, filePath, recoveredPath string, syncChecked, memory bool) (*Store, error) {
+func finalizeOpen(ctx context.Context, db *sql.DB, filePath, recoveredPath string, syncChecked, memory, primary bool, hostLock *filelock.Lock) (*Store, error) {
 	if syncChecked && !memory {
 		removeQuickCheckMarker(filePath)
 	}
-	s := &Store{db: db, RecoveredFrom: recoveredPath, filePath: filePath}
+	s := &Store{db: db, RecoveredFrom: recoveredPath, filePath: filePath, primary: primary, hostLock: hostLock}
+	// 只由主宿主清扫，避免删掉另一个活跃宿主刚建的空草稿。
+	if s.IsPrimary() {
+		if _, err := db.ExecContext(ctx, "DELETE FROM threads WHERE is_provisional = 1 AND NOT EXISTS (SELECT 1 FROM messages WHERE thread_id = threads.id) AND NOT EXISTS (SELECT 1 FROM thread_archives a WHERE a.thread_id = threads.id)"); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("sweep orphan provisional threads: %w", err)
+		}
+		startuptrace.Mark("store provisional sweep")
+	}
 	if err := s.loadMessageDicts(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("load message zstd dicts: %w", err)
@@ -737,18 +745,35 @@ func quarantineCorruptFiles(basePath, timestamp string) {
 // 常规启动不做同步 quick_check，改为打开后由后台只读连接检查；
 // 若存在 .needs-check 标记（上次后台检查失败）则同步检查。
 // 若检测到数据库文件损坏且非内存数据库，将自动备份损坏文件并自愈重试一次。
-func Open(path string) (*Store, error) {
+func Open(path string) (opened *Store, err error) {
 	cleanPath := strings.TrimPrefix(path, "file:")
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", cleanPath)
 	filePath := physicalDBPath(cleanPath)
 	memory := isMemoryDB(path, dsn)
+	primary := true
+	var hostLock *filelock.Lock
+	if !memory && filePath != "." {
+		hostLock, err = filelock.TryAcquire(filePath + ".host.lock")
+		switch {
+		case errors.Is(err, filelock.ErrBusy):
+			primary = false
+		case err != nil && !errors.Is(err, filelock.ErrUnsupported):
+			log.Printf("store: 获取主宿主锁失败，按主宿主继续启动: %v", err)
+		}
+	}
+	// Open 失败时释放锁；成功后由 Store.Close 接管。
+	defer func() {
+		if opened == nil {
+			_ = hostLock.Close()
+		}
+	}()
 	// 内存库无法持久化标记文件，始终同步检查（库为空，开销可忽略）
 	syncCheck := memory || quickCheckMarkerExists(filePath)
 
 	ctx := context.Background()
 	db, err := openAndMigrate(ctx, dsn, syncCheck)
 	if err == nil {
-		return finalizeOpen(ctx, db, filePath, "", syncCheck, memory)
+		return finalizeOpen(ctx, db, filePath, "", syncCheck, memory, primary, hostLock)
 	}
 
 	// 内存数据库或非损坏类错误不做自愈处理
@@ -771,7 +796,12 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("reopen sqlite db after corruption backup (%s): %w", backupPath, retryErr)
 	}
 
-	return finalizeOpen(ctx, retryDB, filePath, backupPath, syncCheck, memory)
+	return finalizeOpen(ctx, retryDB, filePath, backupPath, syncCheck, memory, primary, hostLock)
+}
+
+// IsPrimary 报告本 Store 是否负责启动清扫；非主宿主运行期间不会重新竞争锁。
+func (s *Store) IsPrimary() bool {
+	return s.primary
 }
 
 // RecoveredBackupPath 返回本次打开时发生自愈备份的主文件路径；若未发生自愈恢复则返回空字符串。
@@ -782,18 +812,22 @@ func (s *Store) RecoveredBackupPath() string {
 	return s.RecoveredFrom
 }
 
-// Close 先取消并等待后台完整性检查退出，再关闭底层数据库连接。
+// Close 先取消并等待后台完整性检查退出，再关闭数据库连接并释放主宿主锁。
 func (s *Store) Close() error {
-	if s.bgCheckCancel != nil {
-		s.bgCheckCancel()
-	}
-	if s.bgCheckDone != nil {
-		<-s.bgCheckDone
-	}
-	if s.db == nil {
-		return nil
-	}
-	return s.db.Close()
+	s.closeOnce.Do(func() {
+		if s.bgCheckCancel != nil {
+			s.bgCheckCancel()
+		}
+		if s.bgCheckDone != nil {
+			<-s.bgCheckDone
+		}
+		var dbErr error
+		if s.db != nil {
+			dbErr = s.db.Close()
+		}
+		s.closeErr = errors.Join(dbErr, s.hostLock.Close())
+	})
+	return s.closeErr
 }
 
 // migrate 执行所有未执行的数据库版本迁移。

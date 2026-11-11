@@ -462,7 +462,7 @@ func (b *MemoryBackend) AttachStore(ctx context.Context, s *store.Store) error {
 	startuptrace.Mark("AttachStore per-thread queries")
 
 	// 启动纠正：上次进程被杀或崩溃时，可能留下 status 为 running/starting 的轮次。
-	// 此刻内存里没有任何执行中的轮次，这些行必然是残留，统一收尾为 interrupted。
+	// 只由主宿主收尾为 interrupted，非主宿主不能把其他进程的活跃轮次视为残留。
 	b.finalizeOrphanTurns(ctx, s, loadedThreads)
 
 	// 排队审计事件只保留 30 天；启动清理失败不影响加载。
@@ -498,13 +498,17 @@ func (b *MemoryBackend) Store() *store.Store {
 }
 
 // finalizeOrphanTurns 收尾上次进程遗留的未收尾轮次，并自愈历史残留的悬空工具消息。
-// 只在启动加载阶段调用：此刻本进程没有任何轮次在跑，running/starting 的行必然是上次
-// 进程异常退出（被杀、崩溃、provider 子进程连带退出）的残留。前提是同一数据目录不被
-// 两个后端进程同时打开（现有部署均为单一宿主）。落库失败仅记录日志，不影响整体加载。
+// 只在启动加载阶段由持有数据目录主宿主锁的 Store 执行；其他宿主可以同时打开数据库，
+// 但不能把持锁宿主的 running/starting 轮次视为上次进程异常退出的残留。
+// 落库失败仅记录日志，不影响整体加载。
 // 先做轮次事务（工具消息与 turn 同事务），再收尾 provider 托管的后台任务（background），
 // 最后处理不属于未收尾轮次的历史残留；
 // 同时刷新内存摘要的 LastStatus，让侧栏、看板与会话卡片看到终态而不是“进行中”。
 func (b *MemoryBackend) finalizeOrphanTurns(ctx context.Context, s *store.Store, threads map[string]*memoryThread) {
+	if !s.IsPrimary() {
+		log.Printf("store: 另一个宿主进程持有数据目录，跳过启动轮次与工具消息对账")
+		return
+	}
 	turns, err := s.ListUnfinishedTurns(ctx)
 	if err != nil {
 		log.Printf("store list unfinished turns error: %v", err)

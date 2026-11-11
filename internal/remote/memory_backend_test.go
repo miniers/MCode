@@ -1876,4 +1876,10 @@ func TestMemoryBackend_SubscribeMissingThreadRemovesRegistration(t *testing.T) {
 	if hub.IsSubscribed(conn) {
 		t.Fatal("不存在的会话遗留订阅")
 	}
+	hub.mu.Lock()
+	runID := hub.threads["missing"].runID
+	hub.mu.Unlock()
+	if runID != "" {
+		t.Fatalf("不存在的会话遗留 run：%s", runID)
+	}
 }

@@ -22,6 +22,10 @@ const (
 // 调用前提：b.store 与 b.threads 已挂载（提示依赖内存线程表定位会话），且调用方不持有 b.mu。
 // 任何一步失败都只记日志，不阻断启动。
 func (b *MemoryBackend) reconcileBoot(ctx context.Context, s *store.Store) {
+	if !s.IsPrimary() {
+		log.Printf("store: 另一个宿主进程持有数据目录，跳过启动审批与投递对账")
+		return
+	}
 	// 两张表都只返回“本次被转换的行”，且转换后的行不会再被返回，
 	// 因此提示与状态迁移一样只发生一次，重复启动不会重复提示。
 	asks, err := s.ExpirePendingAsks(ctx, bootAskResolution)
