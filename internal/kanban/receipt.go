@@ -20,7 +20,7 @@ const (
 
 const (
 	// TaskReceiptPrompt 是执行会话停止却没有提交回执时发送的追问文案。
-	TaskReceiptPrompt = "这一轮还没有提交任务结果。请调用 kanban_submit_result，status 选择 done、failed、waiting、delegated 或 needs_decision，并填写对应结果。不要重做已完成的部分。"
+	TaskReceiptPrompt = "这一轮还没有提交任务结果。请调用 kanban_submit_result，status 选择 done、failed、waiting、delegated 或 needs_decision，并填写对应结果。不要重做已完成的部分。只有交付物已经到达用户手上，并且没有剩下需要用户决定、授权或验收的事，才算 done；工具调用成功或命令跑通不等于完成，还要用户拍板的用 needs_decision。"
 	// receiptAskGrace 是两次追问之间、以及最后一次追问到升级人工之间的最短间隔。
 	receiptAskGrace = 60 * time.Second
 	// receiptMaxAsks 是为了拿到回执最多追问的次数，超过后交由人工确认。

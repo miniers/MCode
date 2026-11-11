@@ -11,10 +11,12 @@ import (
 	"mcode/internal/store"
 )
 
-type testStewardDesk struct{ id, text string }
+type testStewardDesk struct{ id, messageID, text string }
 
-func (d *testStewardDesk) IsFeed(id string) bool                     { return id == d.id }
-func (d *testStewardDesk) Enqueue(_ string, text string, _ []string) { d.text = text }
+func (d *testStewardDesk) IsFeed(id string) bool { return id == d.id }
+func (d *testStewardDesk) Enqueue(_, messageID, text string, _ []string) {
+	d.messageID, d.text = messageID, text
+}
 
 func TestStewardFeed(t *testing.T) {
 	ctx := context.Background()
@@ -51,6 +53,9 @@ func TestStewardFeed(t *testing.T) {
 	messages, _, err := db.ListMessages(ctx, id, 0, 10)
 	if err != nil || len(messages) != 1 || messages[0].Text != "/plan" || messages[0].Role != "user" {
 		t.Fatalf("消息未落库: %+v %v", messages, err)
+	}
+	if desk.messageID != messages[0].ID || desk.messageID != *result.MessageID {
+		t.Fatalf("消息 ID 不一致: 接收 %q，落库 %q，返回 %q", desk.messageID, messages[0].ID, *result.MessageID)
 	}
 	if err = b.AppendStewardMessage(ctx, id, "assistant", "steward_reply", "收到"); err != nil {
 		t.Fatal(err)

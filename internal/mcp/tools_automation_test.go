@@ -46,3 +46,37 @@ func TestAutomationCreateRecordsCreatorThread(t *testing.T) {
 		t.Fatalf("CreatorThreadID 期望 %q, 实际为 %q", threadID, def.Spec.CreatorThreadID)
 	}
 }
+
+func TestAutomationCheckParameter(t *testing.T) {
+	srv, s, _ := setupTestMCP(t)
+	const threadID = "thread-check"
+	registerThread(t, s, threadID, "proj-test-1")
+	call := func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		status, res := postThreadRPC(t, srv, threadID, map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{"name": name, "arguments": args},
+		})
+		if status != http.StatusOK {
+			t.Fatalf("状态码: %d", status)
+		}
+		payload, isError := toolCallResult(t, res)
+		if isError {
+			t.Fatalf("调用失败: %v", payload)
+		}
+		return payload
+	}
+	created := call("automation_create", map[string]any{
+		"name": "检查", "prompt": "检查", "schedule_type": "interval", "schedule_value": "3600", "check": "true",
+	})
+	id, _ := created["automation_id"].(string)
+	for _, check := range []string{"true", "false", ""} {
+		if check != "true" {
+			call("automation_update", map[string]any{"automation_id": id, "check": check})
+		}
+		def, err := srv.getAutomation().Get(context.Background(), id)
+		if err != nil || def.Spec.Check != check {
+			t.Fatalf("检查命令期望 %q，实际 %q，错误 %v", check, def.Spec.Check, err)
+		}
+	}
+}

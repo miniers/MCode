@@ -6,10 +6,20 @@ import (
 	"testing"
 
 	"mcode/internal/harness"
+	"mcode/internal/kanban"
 	"mcode/internal/remote/wire"
+	"mcode/internal/store"
 	"mcode/internal/swarm"
 	mcodeui "mcode/internal/ui"
 )
+
+func TestKanbanTaskToUISource(t *testing.T) {
+	task := store.Task{Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner", ParentID: "parent-1", SourceMessageID: "message-1"})}
+	got := KanbanTaskToUI(task, kanban.Derived{})
+	if got.Origin != "owner" || got.ParentID != "parent-1" || got.SourceMessageID != "message-1" {
+		t.Fatalf("任务来源错误: %+v", got)
+	}
+}
 
 func TestThreadMessageToUITurnTiming(t *testing.T) {
 	id, status := "turn-0", "completed"

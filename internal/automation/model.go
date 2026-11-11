@@ -72,10 +72,12 @@ type RunState struct {
 
 // Spec 描述自动化的调度与执行策略，序列化后保存在 store.Automation.Schedule 列中。
 type Spec struct {
-	Schedule               Schedule `json:"schedule"`
-	StopWhen               string   `json:"stopWhen,omitempty"`
-	ConfidenceThreshold    float64  `json:"confidenceThreshold"`
-	MaxConsecutiveFailures int      `json:"maxConsecutiveFailures"`
+	Schedule Schedule `json:"schedule"`
+	StopWhen string   `json:"stopWhen,omitempty"`
+	// Check 是定时触发前在项目目录执行的只读检查命令，退出码 0 才运行，空表示不检查。
+	Check                  string  `json:"check,omitempty"`
+	ConfidenceThreshold    float64 `json:"confidenceThreshold"`
+	MaxConsecutiveFailures int     `json:"maxConsecutiveFailures"`
 	// MaxIterations 已由 MaxRuns 取代，仅为旧数据与旧版本二进制的兼容镜像保留读取。
 	// Deprecated: 使用 MaxRuns。
 	MaxIterations int `json:"maxIterations,omitempty"`

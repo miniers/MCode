@@ -13,7 +13,7 @@ import (
 // StewardDesk 接收总管主会话的消息。
 type StewardDesk interface {
 	IsFeed(threadID string) bool
-	Enqueue(threadID, text string, images []string)
+	Enqueue(threadID, messageID, text string, images []string)
 }
 
 // SetStewardDesk 注入前台消息接收器。
@@ -177,6 +177,6 @@ func (b *MemoryBackend) acceptStewardMessage(ctx context.Context, params wire.Se
 	if params.ActionID != "" {
 		b.actions.record(wire.ActionStatusResult{ActionID: params.ActionID, State: wire.ActionStateAccepted, ThreadID: &params.ThreadID, MessageID: &msg.ID})
 	}
-	desk.Enqueue(params.ThreadID, params.Text, paths)
+	desk.Enqueue(params.ThreadID, msg.ID, params.Text, paths)
 	return wire.SendMessageResult{ActionID: params.ActionID, ThreadID: params.ThreadID, MessageID: &msg.ID}, nil
 }

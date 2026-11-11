@@ -118,9 +118,12 @@ func (s *frontdeskServices) CreateTask(ctx context.Context, in frontdesk.CreateT
 	if strings.TrimSpace(in.Title) == "" {
 		return store.Task{}, errors.New("任务标题不能为空")
 	}
-	t := store.Task{ID: uuid.NewString(), ProjectID: &projectID, GoalID: &goal.ID, Title: in.Title, Notes: in.Body, Status: "todo", Priority: string(priority), DependsOn: []string{}, Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner", Provider: in.Provider, Model: in.Model})}
+	t := store.Task{ID: uuid.NewString(), ProjectID: &projectID, GoalID: &goal.ID, Title: in.Title, Notes: in.Body, Status: "todo", Priority: string(priority), DependsOn: []string{}, Meta: kanban.EncodeTaskMeta(kanban.TaskMeta{Origin: "owner", Provider: in.Provider, Model: in.Model, SourceMessageID: in.SourceMessageID})}
 	if err := s.store.CreateGoalTask(ctx, t, goal.Revision); err != nil {
 		return store.Task{}, err
+	}
+	if s.kanban != nil {
+		s.kanban.NotifyChanged()
 	}
 	return s.store.GetTask(ctx, t.ID)
 }

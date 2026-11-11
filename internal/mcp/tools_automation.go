@@ -131,6 +131,10 @@ func (r *Registry) registerAutomationTools(s *Server) {
 					"type":        "string",
 					"description": "可选的自然语言停止条件；一旦满足，这次自动化就结束，不再运行。",
 				},
+				"check": map[string]any{
+					"type":        "string",
+					"description": "可选。定时触发前执行的只读检查命令，退出码 0 才运行，非 0 跳过本轮",
+				},
 				"max_consecutive_failures": map[string]any{
 					"type":        "integer",
 					"description": "连续失败多少次后自动暂停（默认 3）。",
@@ -223,6 +227,10 @@ func (r *Registry) registerAutomationTools(s *Server) {
 				"stop_when": map[string]any{
 					"type":        "string",
 					"description": "New plain-language stop condition.",
+				},
+				"check": map[string]any{
+					"type":        "string",
+					"description": "可选。定时触发前执行的只读检查命令，退出码 0 才运行，非 0 跳过本轮",
 				},
 				"max_runs": map[string]any{
 					"type":        "integer",
@@ -548,12 +556,14 @@ func handleAutomationCreate(tc ToolContext, args map[string]any) ToolResult {
 	}
 
 	stopWhen, _ := args["stop_when"].(string)
+	check, _ := args["check"].(string)
 
 	// catch_up 缺省开启，显式传 false 才关闭。
 	catchUp := true
 	spec := automation.Spec{
 		Schedule:               sched,
 		StopWhen:               strings.TrimSpace(stopWhen),
+		Check:                  check,
 		MaxConsecutiveFailures: maxFailures,
 		CatchUp:                &catchUp,
 		RunMode:                runMode,
@@ -668,6 +678,10 @@ func handleAutomationUpdate(tc ToolContext, args map[string]any) ToolResult {
 	specTouched := false
 	if stopWhen, ok := args["stop_when"].(string); ok {
 		spec.StopWhen = strings.TrimSpace(stopWhen)
+		specTouched = true
+	}
+	if check, ok := args["check"].(string); ok {
+		spec.Check = check
 		specTouched = true
 	}
 	// 模型与权限：参数缺省表示不改，传空串表示恢复默认。

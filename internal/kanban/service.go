@@ -251,6 +251,9 @@ func (s *Service) notifyChange() {
 	}
 }
 
+// NotifyChanged 供绕过 Service 直接写库的调用方触发刷新。
+func (s *Service) NotifyChanged() { s.notifyChange() }
+
 // Close 取消内部上下文并等待所有后台规划任务平稳退出。
 func (s *Service) Close() {
 	s.cancel()
@@ -720,7 +723,7 @@ func buildStartPrompt(task store.Task, deps []store.Task, branchName string, inW
 	} else {
 		b.WriteString("\n- 不要绕过人工评审直接把卡片结算为 Done，验收结论由用户给出。")
 	}
-	b.WriteString("\n\n## 结束方式\n结束时必须调用 kanban_submit_result，status 选择 done、failed、waiting、delegated 或 needs_decision，并填写对应结果。")
+	b.WriteString("\n\n## 结束方式\n结束时必须调用 kanban_submit_result，status 选择 done、failed、waiting、delegated 或 needs_decision，并填写对应结果。只有交付物已经到达用户手上，并且没有剩下需要用户决定、授权或验收的事，才算 done；工具调用成功或命令跑通不等于完成，还要用户拍板的用 needs_decision。")
 	if stewardOwner {
 		b.WriteString("\nsummary 会原样发给交代这项工作的用户。用用户的语言写一到三句，直接回答问题或说明完成了什么、查到了什么，并附有用的文件、提交、PR 或其他产出链接。不要加任务标题，不要写“已汇总给用户”“供主代理参考”“任务已完成”这类元描述，不要让用户再打开任务才能看到答案。只陈述已验证的事实；尚未运行检查、代码仍在独立分支、尚未合并或部署时要如实说明。需要用户决定时用 needs_decision，question 是不超过三十字的一个问题，并给出几个明确选项。")
 	}

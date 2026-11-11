@@ -48,6 +48,7 @@ type fake struct {
 	amendErr     error
 	getErr       error
 	recentErr    error
+	created      chan CreateTaskInput
 }
 
 func (f *fake) event(s string) {
@@ -69,6 +70,9 @@ func (f *fake) GetTask(_ context.Context, id string) (store.Task, error) {
 }
 func (f *fake) CreateTask(_ context.Context, in CreateTaskInput) (store.Task, error) {
 	f.event("create:" + in.Title + ":" + in.Origin)
+	if f.created != nil {
+		f.created <- in
+	}
 	return store.Task{ID: "t"}, f.createErr
 }
 func (f *fake) AmendTask(_ context.Context, id, text string) error {
@@ -333,6 +337,46 @@ func TestQueue(t *testing.T) {
 		default:
 			time.Sleep(time.Millisecond)
 		}
+	}
+}
+
+func TestQueueCreateTaskRecordsMessage(t *testing.T) {
+	f := &fake{created: make(chan CreateTaskInput, 1)}
+	s := &scripted{replies: []*llm.Response{response(call("create_task", `{"title":"任务"}`))}, texts: []string{""}}
+	d := Desk{Client: s, Feed: f, Tasks: f}
+	d.Enqueue(Inbound{ThreadID: "feed", MessageID: "message-1", Text: "工作"})
+	select {
+	case in := <-f.created:
+		if in.SourceMessageID != "message-1" {
+			t.Fatalf("消息来源错误: %+v", in)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("等待创建任务超时")
+	}
+}
+
+func TestFallbackCreateTaskRecordsMessage(t *testing.T) {
+	for _, cli := range []bool{false, true} {
+		t.Run(fmt.Sprintf("CLI=%t", cli), func(t *testing.T) {
+			f := &fake{created: make(chan CreateTaskInput, 1)}
+			d := Desk{Client: &scripted{err: errors.New("模型失败")}, Feed: f, Tasks: f, CLIFallback: cli}
+			if cli {
+				d.Generator = func(context.Context, textgen.Options, string) (string, error) {
+					return `{"reply":"","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, nil
+				}
+			}
+			if err := d.HandleMessage(context.Background(), Inbound{ThreadID: "feed", MessageID: "message-1", Text: "工作"}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case in := <-f.created:
+				if in.SourceMessageID != "message-1" {
+					t.Fatalf("消息来源错误: %+v", in)
+				}
+			default:
+				t.Fatal("未创建任务")
+			}
+		})
 	}
 }
 func TestTaskTools(t *testing.T) {

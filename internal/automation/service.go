@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"mcode/internal/agent/gate"
 	"mcode/internal/harness"
 	"mcode/internal/kanban"
 	"mcode/internal/procattr"
@@ -189,6 +190,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Definition, error
 	if err := in.Spec.Schedule.Validate(); err != nil {
 		return Definition{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
+	if in.Spec.Check != "" && !gate.IsReadOnlyCommand(in.Spec.Check) {
+		return Definition{}, fmt.Errorf("%w: 检查命令必须是只读命令", ErrInvalidInput)
+	}
 
 	in.Spec.RuntimeMode = harness.NormalizeMode(in.Spec.RuntimeMode)
 	in.Spec.State = RunState{}
@@ -332,6 +336,9 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput, expecte
 		if err := in.Spec.Schedule.Validate(); err != nil {
 			return Definition{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 		}
+		if in.Spec.Check != "" && !gate.IsReadOnlyCommand(in.Spec.Check) {
+			return Definition{}, fmt.Errorf("%w: 检查命令必须是只读命令", ErrInvalidInput)
+		}
 		oldSchedule, newSchedule := spec.Schedule, in.Spec.Schedule
 		datesEqual := oldSchedule.Date == nil && newSchedule.Date == nil ||
 			oldSchedule.Date != nil && newSchedule.Date != nil && oldSchedule.Date.Equal(*newSchedule.Date)
@@ -340,6 +347,7 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput, expecte
 			oldSchedule.DayOfWeek != newSchedule.DayOfWeek || oldSchedule.Expression != newSchedule.Expression
 		spec.Schedule = in.Spec.Schedule
 		spec.StopWhen = in.Spec.StopWhen
+		spec.Check = in.Spec.Check
 		if in.Spec.ConfidenceThreshold != 0 {
 			spec.ConfidenceThreshold = in.Spec.ConfidenceThreshold
 		} else if spec.ConfidenceThreshold == 0 {
@@ -846,6 +854,35 @@ func (s *Service) triggerDue(ctx context.Context, auto store.Automation, now tim
 			s.advanceWithoutRun(ctx, auto, spec, now)
 		}
 		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	if spec.Check != "" {
+		var root string
+		var err error
+		if auto.ProjectID != nil && *auto.ProjectID != "" && s.opts.Projects != nil {
+			root, err = s.opts.Projects.ProjectRoot(ctx, *auto.ProjectID)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil || strings.TrimSpace(root) == "" {
+			s.logf("自动化 %s 无法获取项目目录，跳过前置检查: %v", auto.ID, err)
+		} else {
+			checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			cmd := exec.CommandContext(checkCtx, "sh", "-c", spec.Check)
+			cmd.Dir = root
+			err = cmd.Run()
+			cancel()
+			if ctx.Err() != nil {
+				return
+			}
+			if err != nil {
+				s.advanceWithoutRun(ctx, auto, spec, now)
+				return
+			}
+		}
 	}
 
 	kind := RunTriggerScheduled

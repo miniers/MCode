@@ -367,6 +367,20 @@ func TestFrontdeskCreateTaskDoesNotReusePlanningGoal(t *testing.T) {
 	}
 }
 
+func TestFrontdeskCreateTaskNotifiesAndRecordsMessage(t *testing.T) {
+	_, _, svc := newFrontdeskAdapterFixture(t)
+	changes := 0
+	svc.kanban.SetOnChange(func() { changes++ })
+	task, err := svc.CreateTask(context.Background(), frontdesk.CreateTaskInput{Title: "任务", ProjectID: "project", SourceMessageID: "message-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := kanban.ParseTaskMeta(task.Meta)
+	if err != nil || meta.SourceMessageID != "message-1" || changes != 1 {
+		t.Fatalf("任务来源或刷新错误: %+v，刷新 %d，错误 %v", meta, changes, err)
+	}
+}
+
 func newFrontdeskAdapterFixture(t *testing.T) (*store.Store, *remote.MemoryBackend, *frontdeskServices) {
 	t.Helper()
 	ctx := context.Background()

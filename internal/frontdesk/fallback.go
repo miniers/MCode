@@ -70,7 +70,7 @@ func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons 
 		}
 	} else {
 		title := truncate(strings.TrimSpace(strings.SplitN(in.Text, "\n", 2)[0]), 80)
-		if _, err := d.Tasks.CreateTask(ctx, CreateTaskInput{Title: title, Body: in.Text, Origin: "owner"}); err != nil {
+		if _, err := d.Tasks.CreateTask(ctx, CreateTaskInput{Title: title, Body: in.Text, Origin: "owner", SourceMessageID: in.MessageID}); err != nil {
 			return err
 		}
 	}

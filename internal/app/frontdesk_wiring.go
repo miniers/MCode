@@ -90,7 +90,7 @@ func (r frontdeskReceiver) IsFeed(id string) bool {
 	cfg, err := config.Load(r.dataDir)
 	return err == nil && cfg.Orchestration.Steward.Enabled
 }
-func (r frontdeskReceiver) Enqueue(id, text string, images []string) {
+func (r frontdeskReceiver) Enqueue(id, messageID, text string, images []string) {
 	var parts []llm.Part
 	for _, path := range images {
 		data, err := os.ReadFile(path)
@@ -103,7 +103,7 @@ func (r frontdeskReceiver) Enqueue(id, text string, images []string) {
 			parts = append(parts, llm.Part{Type: "image", MimeType: mime, Data: base64.StdEncoding.EncodeToString(data)})
 		}
 	}
-	r.desk.Enqueue(frontdesk.Inbound{ThreadID: id, Text: text, Images: parts})
+	r.desk.Enqueue(frontdesk.Inbound{ThreadID: id, MessageID: messageID, Text: text, Images: parts})
 }
 
 func (a *App) notifyFrontdesk(dataDir, title, body, thread string) error {

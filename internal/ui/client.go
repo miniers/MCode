@@ -358,6 +358,7 @@ var ErrAutomationSchedulerPassive = errors.New("automation: scheduler is passive
 
 // KanbanTask 表示看板任务卡片。
 type KanbanTask struct {
+	Origin, ParentID, SourceMessageID                                       string
 	AcceptanceCriteria, ReviewThreadID, ReviewFeedback, ReviewStatus        string
 	CanApprove                                                              bool
 	ID, ProjectID, ThreadID, GoalID, Title, Notes, Status, Priority, Column string

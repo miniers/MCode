@@ -220,6 +220,64 @@ func TestOnTimeTrigger(t *testing.T) {
 	}
 }
 
+func TestScheduledCheck(t *testing.T) {
+	for _, tc := range []struct {
+		check string
+		want  int
+	}{{"true", 1}, {"false", 0}} {
+		t.Run(tc.check, func(t *testing.T) {
+			ctx := context.Background()
+			clock := newFakeClock(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+			driver := newFakeDriver()
+			svc, db := setupTestService(t, clock, driver)
+			defer db.Close()
+			def, err := svc.Create(ctx, CreateInput{
+				ProjectID: "p1", Name: "检查", Prompt: "检查",
+				Spec: Spec{Schedule: Schedule{Type: "interval", Seconds: 60}, Check: tc.check}, Enabled: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, err := svc.Get(ctx, def.ID)
+			if err != nil || stored.Spec.Check != tc.check {
+				t.Fatalf("检查命令未保存: %q, %v", stored.Spec.Check, err)
+			}
+			clock.Advance(time.Minute)
+			now := clock.Now()
+			svc.triggerDue(ctx, stored.Automation, now)
+			runs, err := svc.Runs(ctx, def.ID, 10)
+			if err != nil || len(runs) != tc.want || driver.startCount() != tc.want {
+				t.Fatalf("运行记录 %d，会话 %d，错误 %v", len(runs), driver.startCount(), err)
+			}
+			updated, err := svc.Get(ctx, def.ID)
+			if err != nil || updated.NextRunAt == nil || !updated.NextRunAt.After(now) {
+				t.Fatalf("下次运行时间未推进: %v, %v", updated.NextRunAt, err)
+			}
+		})
+	}
+}
+
+func TestCheckRejectsWriteCommands(t *testing.T) {
+	ctx := context.Background()
+	svc, db := setupTestService(t, newFakeClock(time.Now()), newFakeDriver())
+	defer db.Close()
+	in := CreateInput{ProjectID: "p1", Name: "检查", Prompt: "检查", Spec: Spec{
+		Schedule: Schedule{Type: "interval", Seconds: 60}, Check: "rm -rf x",
+	}}
+	if _, err := svc.Create(ctx, in); err == nil || !strings.Contains(err.Error(), "检查命令必须是只读命令") {
+		t.Fatalf("创建时应拒绝写命令: %v", err)
+	}
+	in.Spec.Check = "true"
+	def, err := svc.Create(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def.Spec.Check = "rm -rf x"
+	if _, err := svc.Update(ctx, def.ID, UpdateInput{Spec: &def.Spec}, def.Revision); err == nil || !strings.Contains(err.Error(), "检查命令必须是只读命令") {
+		t.Fatalf("更新时应拒绝写命令: %v", err)
+	}
+}
+
 func TestMissedWindow(t *testing.T) {
 	ctx := context.Background()
 	t0 := time.Date(2026, 10, 17, 8, 0, 0, 0, time.UTC)

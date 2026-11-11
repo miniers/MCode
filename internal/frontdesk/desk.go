@@ -35,7 +35,7 @@ type BusyFeed interface {
 }
 
 // CreateTaskInput 描述前台创建的任务。
-type CreateTaskInput struct{ Title, Body, ProjectID, Priority, Provider, Model, Origin string }
+type CreateTaskInput struct{ Title, Body, ProjectID, Priority, Provider, Model, Origin, SourceMessageID string }
 
 // TaskService 提供任务操作。
 type TaskService interface {
@@ -110,9 +110,9 @@ func (f *messageFeed) AppendAssistant(ctx context.Context, threadID, kind, text 
 
 // Inbound 描述一条收到的消息。
 type Inbound struct {
-	ThreadID, Text, ReplyTo string
-	SentAt                  time.Time
-	Images                  []llm.Part
+	ThreadID, MessageID, Text, ReplyTo string
+	SentAt                             time.Time
+	Images                             []llm.Part
 }
 
 // Snapshot 保存前台调用使用的上下文。

@@ -43,7 +43,7 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot, opts 
 	if strings.TrimSpace(reply) == "" && len(calls) == 0 {
 		return true, nil
 	}
-	tools := d.toolbox()
+	tools := d.toolbox(in)
 	for _, call := range calls {
 		tool, ok := tools.Get(call.Tool)
 		if !ok || !tool.Write {

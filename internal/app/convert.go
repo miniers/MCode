@@ -479,8 +479,9 @@ func KanbanTaskToUI(t store.Task, d kanban.Derived) mcodeui.KanbanTask {
 	deps := make([]string, len(t.DependsOn))
 	copy(deps, t.DependsOn)
 
-	var resultSummary, waitKind, wakeAt string
+	var resultSummary, waitKind, wakeAt, origin, parentID, sourceMessageID string
 	if meta, err := kanban.ParseTaskMeta(t.Meta); err == nil {
+		origin, parentID, sourceMessageID = meta.Origin, meta.ParentID, meta.SourceMessageID
 		resultSummary = meta.Summary
 		waitKind = meta.WaitKind
 		wakeAt = meta.WakeAt
@@ -490,6 +491,9 @@ func KanbanTaskToUI(t store.Task, d kanban.Derived) mcodeui.KanbanTask {
 	copy(flags, d.AttentionFlags)
 
 	return mcodeui.KanbanTask{
+		Origin:             origin,
+		ParentID:           parentID,
+		SourceMessageID:    sourceMessageID,
 		AcceptanceCriteria: t.AcceptanceCriteria,
 		ReviewThreadID:     reviewThreadID,
 		ReviewFeedback:     reviewFeedback,

@@ -79,8 +79,8 @@ func TestStewardDecisionAnswerDispatcher(t *testing.T) {
 	}
 }
 
-func (*decisionAnswerDesk) IsFeed(string) bool               { return true }
-func (*decisionAnswerDesk) Enqueue(string, string, []string) {}
+func (*decisionAnswerDesk) IsFeed(string) bool                       { return true }
+func (*decisionAnswerDesk) Enqueue(string, string, string, []string) {}
 func (d *decisionAnswerDesk) AnswerStewardDecision(_ context.Context, id, answer, by string) error {
 	d.id, d.answer, d.by = id, answer, by
 	return d.err

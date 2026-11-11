@@ -1135,6 +1135,15 @@
         "id": {
           "$ref": "#/$defs/UUID"
         },
+        "origin": {
+          "type": "string"
+        },
+        "parentID": {
+          "type": "string"
+        },
+        "sourceMessageID": {
+          "type": "string"
+        },
         "projectID": {
           "type": [
             "string",

@@ -11,11 +11,11 @@ import (
 	"mcode/internal/agent/llm"
 )
 
-func (d *Desk) toolbox() *Toolbox {
+func (d *Desk) toolbox(in Inbound) *Toolbox {
 	if d.Tools != nil {
 		return d.Tools
 	}
-	return NewToolbox(d)
+	return newToolbox(d, in)
 }
 func (d *Desk) stream(ctx context.Context, req llm.Request) (*llm.Response, string, error) {
 	var text strings.Builder
@@ -42,7 +42,7 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 	if d.Client == nil {
 		return d.fallback(ctx, in, snap)
 	}
-	tools := d.toolbox()
+	tools := d.toolbox(in)
 	parts := []llm.Part{{Type: "text", Text: in.Text}}
 	parts = append(parts, in.Images...)
 	req := llm.Request{Model: d.Model, System: snap.Text, Messages: []llm.Message{{Role: "user", Content: parts}}, Tools: tools.Specs()}

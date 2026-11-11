@@ -24,6 +24,10 @@ type Toolbox struct{ tools map[string]Tool }
 
 // NewToolbox 创建与前台服务绑定的工具集合。
 func NewToolbox(d *Desk) *Toolbox {
+	return newToolbox(d, Inbound{})
+}
+
+func newToolbox(d *Desk, in Inbound) *Toolbox {
 	t := &Toolbox{tools: map[string]Tool{}}
 	add := func(name, description string, write bool, required []string, optional []string, run func(context.Context, map[string]string) (any, error)) {
 		props := map[string]any{}
@@ -66,7 +70,7 @@ func NewToolbox(d *Desk) *Toolbox {
 		return d.Projects.List(c)
 	})
 	add("create_task", "创建任务", true, []string{"title"}, []string{"body", "project_id", "priority", "provider", "model"}, func(c context.Context, a map[string]string) (any, error) {
-		return d.Tasks.CreateTask(c, CreateTaskInput{Title: a["title"], Body: a["body"], ProjectID: a["project_id"], Priority: a["priority"], Provider: a["provider"], Model: a["model"], Origin: "owner"})
+		return d.Tasks.CreateTask(c, CreateTaskInput{Title: a["title"], Body: a["body"], ProjectID: a["project_id"], Priority: a["priority"], Provider: a["provider"], Model: a["model"], Origin: "owner", SourceMessageID: in.MessageID})
 	})
 	if d.Automations != nil {
 		add("create_automation", "创建定时任务：按固定节奏独立运行，不经过总管。schedule 格式为 interval:秒数、daily:HH:mm、weekdays:HH:mm、weekly:星期数字,HH:mm（0 为周日）或 cron:表达式。", true, []string{"project_id", "name", "prompt", "schedule"}, nil, func(c context.Context, a map[string]string) (any, error) {

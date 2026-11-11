@@ -8,22 +8,23 @@ import (
 )
 
 type TaskMeta struct {
-	Origin       string   `json:"origin"`
-	ParentID     string   `json:"parent,omitempty"`
-	Children     []string `json:"children,omitempty"`
-	ResultStatus string   `json:"result_status,omitempty"`
-	Summary      string   `json:"summary,omitempty"`
-	WaitKind     string   `json:"wait_kind,omitempty"`
-	WakeAt       string   `json:"wake_at,omitempty"`
-	WaitCheck    string   `json:"wait_check,omitempty"`
-	WaitBase     string   `json:"wait_check_base,omitempty"`
-	Wakes        int      `json:"wakes,omitempty"`
-	DecisionID   string   `json:"decision_id,omitempty"`
-	GateOverride string   `json:"gate_override,omitempty"`
-	Follows      string   `json:"follows,omitempty"`
-	Provider     string   `json:"provider,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	NoChange     bool     `json:"no_change,omitempty"`
+	Origin          string   `json:"origin"`
+	ParentID        string   `json:"parent,omitempty"`
+	SourceMessageID string   `json:"source_message,omitempty"`
+	Children        []string `json:"children,omitempty"`
+	ResultStatus    string   `json:"result_status,omitempty"`
+	Summary         string   `json:"summary,omitempty"`
+	WaitKind        string   `json:"wait_kind,omitempty"`
+	WakeAt          string   `json:"wake_at,omitempty"`
+	WaitCheck       string   `json:"wait_check,omitempty"`
+	WaitBase        string   `json:"wait_check_base,omitempty"`
+	Wakes           int      `json:"wakes,omitempty"`
+	DecisionID      string   `json:"decision_id,omitempty"`
+	GateOverride    string   `json:"gate_override,omitempty"`
+	Follows         string   `json:"follows,omitempty"`
+	Provider        string   `json:"provider,omitempty"`
+	Model           string   `json:"model,omitempty"`
+	NoChange        bool     `json:"no_change,omitempty"`
 }
 
 func ParseTaskMeta(s string) (TaskMeta, error) {

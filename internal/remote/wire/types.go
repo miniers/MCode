@@ -87,6 +87,9 @@ type KanbanProject struct {
 
 type KanbanTask struct {
 	ID                 string   `json:"id"`
+	Origin             string   `json:"origin,omitempty"`
+	ParentID           string   `json:"parentID,omitempty"`
+	SourceMessageID    string   `json:"sourceMessageID,omitempty"`
 	ProjectID          *string  `json:"projectID"`
 	ThreadID           *string  `json:"threadID"`
 	ReviewThreadID     *string  `json:"reviewThreadID"`
