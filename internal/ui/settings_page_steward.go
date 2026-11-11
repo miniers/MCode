@@ -180,7 +180,7 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 		AlignItems(ui.Center).
 		Gap(Space1).
 		Children(func() {
-			renderSwarmModelCapsuleCatalog(c, st, "steward-model", "steward-model", sel, "自动", "选择前台模型", func(next ModelSelection) {
+			renderSwarmModelCapsuleCatalog(c, st, "steward-model", "steward-model", sel, stewardModelEmptyLabel(st.cfg, catalog, sel, config.NewSecretStore("mcode")), "选择前台模型", func(next ModelSelection) {
 				st.cfg.Orchestration.Steward.Provider = next.Provider
 				st.cfg.Orchestration.Steward.Model = next.Model
 				st.save()

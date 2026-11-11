@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -13,9 +14,21 @@ import (
 
 	"mcode/internal/agent/llm"
 	"mcode/internal/apisource"
+	"mcode/internal/providers/claude"
+	"mcode/internal/providers/codex"
+	"mcode/internal/remote"
 	"mcode/internal/store"
 	"mcode/internal/textgen"
 )
+
+func TestMain(m *testing.M) {
+	restoreClaude := claude.ResetCatalogCacheForTest()
+	restoreCodex := codex.ResetCatalogCacheForTest()
+	code := m.Run()
+	restoreCodex()
+	restoreClaude()
+	os.Exit(code)
+}
 
 type scripted struct {
 	replies   []*llm.Response
@@ -242,16 +255,31 @@ func TestCLIFallbackSettingsChange(t *testing.T) {
 	if err := d.fallback(context.Background(), Inbound{Text: "第二轮"}, Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	// 配置了总管模型时，CLI 兜底用它，不再强制最便宜的模型。
-	model = "gpt-6.1-sol"
-	if err := d.fallback(context.Background(), Inbound{Text: "第三轮"}, Snapshot{}); err != nil {
-		t.Fatal(err)
+	for _, configured := range []string{"gpt-5.4-mini", "openai/GPT-5.4-MINI", "anthropic/unknown"} {
+		model = configured
+		if err := d.fallback(context.Background(), Inbound{Text: "后续"}, Snapshot{}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !reflect.DeepEqual(f.events, []string{"create:第一轮:owner"}) || !reflect.DeepEqual(providers, []string{"codex", "codex"}) {
+	if !reflect.DeepEqual(f.events, []string{"create:第一轮:owner"}) || !reflect.DeepEqual(providers, []string{"codex", "codex", "codex", "codex"}) {
 		t.Fatal(f.events, providers)
 	}
-	if want := []string{textgen.CheapestModel("codex"), "gpt-6.1-sol"}; !reflect.DeepEqual(models, want) {
+	if want := []string{remote.DefaultModel("codex"), "gpt-5.4-mini", "GPT-5.4-MINI", remote.DefaultModel("codex")}; !reflect.DeepEqual(models, want) {
 		t.Fatalf("模型 %v，想要 %v", models, want)
+	}
+}
+
+func TestCLIModel(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"sonnet", "sonnet"},
+		{"anthropic/SoNnEt", "SoNnEt"},
+		{"anthropic/unknown", ""},
+		{"", ""},
+		{"anthropic/", ""},
+	} {
+		if got := cliModel(tc.input, []string{"sonnet"}); got != tc.want {
+			t.Errorf("cliModel(%q) = %q，想要 %q", tc.input, got, tc.want)
+		}
 	}
 }
 

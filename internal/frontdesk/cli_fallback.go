@@ -7,17 +7,62 @@ import (
 	"log"
 	"strings"
 
+	"mcode/internal/providers/claude"
+	"mcode/internal/providers/codex"
+	"mcode/internal/remote"
 	"mcode/internal/textgen"
 )
 
+func cliModel(model string, known []string) string {
+	model = strings.TrimSpace(model)
+	if _, rest, ok := strings.Cut(model, "/"); ok {
+		model = rest
+	}
+	for _, id := range known {
+		if id != "" && strings.EqualFold(model, id) {
+			return model
+		}
+	}
+	return ""
+}
+
 func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot, opts textgen.Options) (bool, error) {
-	provider := opts.Provider
+	provider := strings.ToLower(strings.TrimSpace(opts.Provider))
 	if provider == "" {
 		provider = "claude"
 	}
-	// 没有配置模型时才退到该 CLI 最便宜的模型。
-	if strings.TrimSpace(opts.Model) == "" {
-		opts.Model = textgen.CheapestModel(provider)
+	var known []string
+	switch provider {
+	case "claude":
+		known = []string{"default", "opus", "sonnet", "haiku"}
+		for _, model := range claude.CachedModels() {
+			known = append(known, model.ID, model.ResolvedModel)
+		}
+	case "codex":
+		for _, model := range codex.CachedModels() {
+			known = append(known, model.ID)
+		}
+	case "pi", "memory", "mcode":
+		for _, model := range remote.ProviderModels(provider) {
+			known = append(known, model.ID)
+			if provider == "pi" {
+				if _, id, ok := strings.Cut(model.ID, "/"); ok {
+					known = append(known, id)
+				}
+			}
+		}
+	}
+	known = append(known, textgen.CheapestModel(provider))
+	originalModel := opts.Model
+	opts.Model = cliModel(originalModel, known)
+	if opts.Model == "" {
+		if strings.TrimSpace(originalModel) != "" {
+			log.Printf("frontdesk: 丢弃未知 CLI 模型 %q", originalModel)
+		}
+		opts.Model = remote.DefaultModel(provider)
+		if opts.Model == "" {
+			opts.Model = textgen.CheapestModel(provider)
+		}
 	}
 	prompt := snap.Text + "\n只输出 JSON 对象：{\"reply\":\"回复\",\"calls\":[{\"tool\":\"create_task\",\"args\":{}}]}。只允许写工具 create_task、amend_task、cancel_task、set_priority、reassign_task、remember、edit_memory、answer_decision，不允许读工具；信息不足时不要编造。"
 	out, err := d.Generator(ctx, opts, prompt)

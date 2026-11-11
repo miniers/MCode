@@ -17,6 +17,31 @@ func TestStewardModelSelectionUnavailable(t *testing.T) {
 	}
 }
 
+func TestStewardModelEmptyLabel(t *testing.T) {
+	var cfg config.Config
+	cfg.Providers.OpenAI.Enabled = true
+	cat := modelPickerCatalog{Providers: []ProviderInfo{{ID: "openai", Models: []ModelInfo{
+		{ID: "first", Name: "First"}, {ID: "default", Name: "Default"},
+	}}}}
+	secrets := config.NewMemorySecretStore()
+	for _, tc := range []struct {
+		name, configured, provider, want string
+		catalog                          modelPickerCatalog
+	}{
+		{"默认模型", "default", "openai", "Default", cat},
+		{"首个模型", "", "openai", "First", cat},
+		{"自动来源", "default", "", "Default", cat},
+		{"空目录", "default", "", "自动", modelPickerCatalog{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg.Providers.OpenAI.Model = tc.configured
+			if got := stewardModelEmptyLabel(cfg, tc.catalog, ModelSelection{Provider: tc.provider}, secrets); got != tc.want {
+				t.Fatalf("标签 = %q，期望 %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestStewardComposerModel(t *testing.T) {
 	fake := newStewardFakeClient("")
 	fake.threadID = "steward"
