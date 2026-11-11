@@ -215,6 +215,33 @@ func TestGateDecisions(t *testing.T) {
 	}
 }
 
+func TestRejectedToolCallFeedback(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		feedback string
+		want     string
+	}{
+		{name: "with feedback", feedback: "敏感操作已自动拒绝", want: "User rejected the tool call: 敏感操作已自动拒绝"},
+		{name: "without feedback", want: "User rejected the tool call"},
+		{name: "whitespace feedback", feedback: " \n\t", want: "User rejected the tool call"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			approver := &testApprover{response: harness.ApprovalResponse{Decision: harness.DecisionDeny, Feedback: tc.feedback}}
+			client := &scriptClient{steps: []scriptStep{{response: reply("tool_use", call("1", "write", `{"path":"a"}`))}, {response: reply("stop")}}}
+			if err := Run(context.Background(), Options{Client: client, Tools: []tools.Tool{testTool("write")}, Mode: harness.ModeSupervised, Approver: approver}, "hello", nil); err != nil {
+				t.Fatal(err)
+			}
+			if len(approver.requests) != 1 {
+				t.Fatalf("approval requests = %d, want 1", len(approver.requests))
+			}
+			result := client.requests[1].Messages[2]
+			if !result.IsError || len(result.Content) != 1 || result.Content[0].Text != tc.want {
+				t.Fatalf("result = %+v, want error with text %q", result, tc.want)
+			}
+		})
+	}
+}
+
 func TestResumeAndPlan(t *testing.T) {
 	store := session.NewStore(t.TempDir())
 	if err := store.Append("old", messageEntry{Type: "message", Message: llm.Message{Role: "user", Content: []llm.Part{{Type: "text", Text: "old"}}}}, map[string]string{"type": "unknown"}); err != nil {

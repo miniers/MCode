@@ -612,7 +612,11 @@ func executeTool(ctx context.Context, opts Options, call llm.ToolCall, tool *too
 			}
 		}
 		if response.Decision != harness.DecisionAllow {
-			return tools.Result{Text: "User rejected the tool call", IsError: true}
+			text := "User rejected the tool call"
+			if strings.TrimSpace(response.Feedback) != "" {
+				text += ": " + response.Feedback
+			}
+			return tools.Result{Text: text, IsError: true}
 		}
 	}
 	if tool.Run == nil {

@@ -920,7 +920,8 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 			}
 		}
 	}
-	if kind == harness.RequestKindCommand && !OnlyReads(command) {
+	// 沙箱下写入由内核拦截、凭证文件读取已被 profile 禁止，不再按控制面路径判敏感。
+	if kind == harness.RequestKindCommand && !in.Sandboxed && !OnlyReads(command) {
 		probe := normalizeHome(command)
 		if inside {
 			// 先把副本自身路径折叠成 "."，只引用副本的命令不再误判。

@@ -14,6 +14,11 @@ import (
 )
 
 func TestSandboxedReadOnly(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := `strings -n 20 ` + filepath.Join(home, ".mcode/mcode.db") + ` | awk -F'x' '{print $2}'`
 	for _, tc := range []struct {
 		command         string
 		mode            harness.PermissionMode
@@ -27,6 +32,8 @@ func TestSandboxedReadOnly(t *testing.T) {
 		{"git push", harness.ModeReadOnly, false, true, Deny},
 		{"gh pr create", harness.ModeReadOnly, false, true, Deny},
 		{"cat ~/.ssh/id_rsa", harness.ModeReadOnly, false, true, Ask},
+		{command, harness.ModeReadOnly, false, true, Allow},
+		{command, harness.ModeReadOnly, false, false, Deny},
 		{`python3 -c 'open("x","w")'`, harness.ModeReadOnly, false, false, Deny},
 		{"sed -i s/a/b/ f", harness.ModeReadOnly, false, false, Deny},
 		{"python3 -c 'print(1)'", harness.ModeAuto, true, true, Allow},
@@ -38,6 +45,10 @@ func TestSandboxedReadOnly(t *testing.T) {
 				t.Errorf("得到 %+v，期望 %s", got, tc.want)
 			}
 		})
+	}
+	args, _ := json.Marshal(map[string]string{"command": `awk '{print}' ` + filepath.Join(home, ".mcode/mcode.db")})
+	if got := Check(Input{Mode: harness.ModeAuto, ToolName: "bash", Args: args}); got.Request == nil || got.Request.Sensitive != "controlPlane" {
+		t.Errorf("得到 %+v，期望 controlPlane", got)
 	}
 }
 
