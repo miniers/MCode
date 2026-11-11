@@ -463,7 +463,7 @@ func renderTimelineMinimapRow(c *ui.Context, s *chatState, row minimapRow, spaci
 
 	index := entry.Index
 	el.OnClick(func() {
-		// 跳到目标块时把目标带到顶部。mygo v0.7.3 的 ListState 只有按行滚动
+		// 跳到目标块时把目标带到顶部。mygo 的 ListState 只有按行滚动
 		// （ScrollTo / ScrollIntoView / ScrollToEnd），没有带像素偏移的滚动 API。
 		s.chatListState.ScrollTo(index, ui.Start)
 	})

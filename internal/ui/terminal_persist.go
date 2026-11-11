@@ -15,11 +15,11 @@ import (
 // 终端会话的持久化：把每个会话（thread）的标签列表与最近一段回滚输出写到
 // <数据目录>/terminals/<threadID>.json，重启后再按记录重建标签并把历史灰显出来。
 //
-// mygo 终端（github.com/egoist/mygo v0.6.4，包路径 plugins/terminal）的能力结论：
+// mygo 终端（github.com/egoist/mygo，包路径 plugins/terminal）的能力结论：
 //
 //   - Terminal.Text() 返回屏幕加回滚区的纯文本，被终端宽度软换行的长行已经拼接好，
-//     适合做输出快照；Terminal.Snapshot() 返回带样式的转义序列（VT），体积大且会把
-//     主题、光标状态一起带进来，这里不用。
+//     适合做输出快照；Terminal.Snapshot() 返回带样式的转义序列（VT），包含光标和
+//     终端模式但不包含调色板；这里只恢复灰显纯文本，不用它。
 //   - Terminal.Feed([]byte) 把数据「当作程序写出的内容」显示：只进显示区，不发给 shell，
 //     用来写入灰显历史；Terminal.Send([]byte) 才是发给 shell 的输入，不能拿来恢复。
 //   - terminal.Options.OpenLink func(link string) bool 是唯一的链接点击钩子：Command+click
