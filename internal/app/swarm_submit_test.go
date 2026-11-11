@@ -263,14 +263,22 @@ func TestSwarmPlanSubmitRetryRead(t *testing.T) {
 	}
 }
 
+// Plan 模式拒绝的条目不进跨回合去重记录，主代理下一回合改派只读档时能正常启动。
 func TestSwarmPlanStreamRetryRead(t *testing.T) {
 	h, d := newRoundLimitHarness(t, 1)
 	d.planGate = func(_ string, entry swarm.Delegation) (swarm.Delegation, bool) { return entry, entry.Tier == "read" }
 	d.reset("lead")
-	full := "```swarm\n[{\"prompt\":\"same\",\"tier\":\"edit\"}]\n```\n```swarm\n[{\"prompt\":\"same\",\"tier\":\"read\"}]\n```"
-	d.feed("lead", "project", full)
-	d.settleTurn("lead", "project", full)
-	if h.dispatched != 1 || len(h.notices) != 1 || !strings.Contains(h.notices[0], "本回合有 1 个其他档的条目没有派发") {
-		t.Fatalf("流式派发或拒绝计数异常: %+v", h)
+	blocked := "```swarm\n[{\"prompt\":\"same\",\"tier\":\"edit\"}]\n```"
+	d.feed("lead", "project", blocked)
+	d.settleTurn("lead", "project", blocked)
+	if h.dispatched != 0 || len(h.notices) != 1 || !strings.Contains(h.notices[0], "本回合有 1 个其他档的条目没有派发") {
+		t.Fatalf("Plan 模式拒绝计数异常: %+v", h)
+	}
+	d.reset("lead")
+	read := "```swarm\n[{\"prompt\":\"same\",\"tier\":\"read\"}]\n```"
+	d.feed("lead", "project", read)
+	d.settleTurn("lead", "project", read)
+	if h.dispatched != 1 || len(h.notices) != 1 || h.rounds != 1 {
+		t.Fatalf("下一回合改派只读档异常: %+v", h)
 	}
 }
