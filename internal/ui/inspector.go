@@ -67,6 +67,7 @@ func inspectorSessionLocked(s *chatState, threadID string) *inspectorSessionStat
 	if pref, ok := s.inspector.Preferences[threadID]; threadID != "" && ok {
 		pref = normalizeInspectorPreference(pref)
 		st.Open, st.Active, st.Width = pref.Open, pref.Active, pref.Width
+		fileTreeSeedPreference(st.Files, pref)
 	}
 	if slot != nil {
 		if *slot != nil {
@@ -147,6 +148,7 @@ func inspectorSyncVisibility(st *inspectorSessionState) {
 	previewMu.Lock()
 	st.Browser.visible = st.Open && st.Active == sidePanePreviewID
 	previewMu.Unlock()
+	fileTreeWatchSetVisible(st.Files, st.Open && st.Active == sidePaneFileID)
 }
 
 func inspectorRemember(s *chatState) {
@@ -168,6 +170,13 @@ func inspectorPersistSession(s *chatState, tid string, st *inspectorSessionState
 	if s.closed {
 		return
 	}
+	var fileExpanded []string
+	var fileActive, fileAnchor string
+	if st != nil {
+		fileManagerMu.Lock()
+		fileExpanded, fileActive, fileAnchor = fileTreePreferenceLocked(st.Files)
+		fileManagerMu.Unlock()
+	}
 	change := pendingInspectorPreference{Delete: st == nil}
 	if st == nil {
 		delete(s.inspector.Preferences, tid)
@@ -176,7 +185,10 @@ func inspectorPersistSession(s *chatState, tid string, st *inspectorSessionState
 		if s.inspector.Sessions[tid] != st {
 			return
 		}
-		change.Preference = normalizeInspectorPreference(InspectorPreference{Open: st.Open, Active: st.Active, Width: st.Width})
+		change.Preference = normalizeInspectorPreference(InspectorPreference{
+			Open: st.Open, Active: st.Active, Width: st.Width,
+			FileExpanded: fileExpanded, FileActive: fileActive, FileAnchor: fileAnchor,
+		})
 		if s.inspector.Preferences == nil {
 			s.inspector.Preferences = make(map[string]InspectorPreference)
 		}
@@ -240,6 +252,7 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 	current := inspectorExistingSessionLocked(s, s.selectedThreadID)
 	s.mu.Unlock()
 	if old != nil {
+		fileTreeWatchSetVisible(old.Files, false)
 		fileManagerMu.Lock()
 		old.Files.opsSeq++
 		old.Files.ops = fileManagerOpsDialog{}
@@ -271,20 +284,24 @@ func inspectorValidateWorkspace(s *chatState) {
 		for _, tab := range st.Files.tabs {
 			tab.gen++
 		}
+		oldFiles := st.Files
 		st.Files = &fileManagerState{}
 		fileManagerMu.Unlock()
+		fileTreeWatchDispose(oldFiles)
 		diffPanelMu.Lock()
 		st.Review.requestGen++
 		st.Review = &diffPanelState{owner: s, collapsed: make(map[string]bool)}
 		diffPanelMu.Unlock()
 	}
 	st.workspace, st.workspaceKnown = identity, true
+	inspectorFileWatchTick(s, st)
 }
 
 func inspectorDisposeSession(s *chatState, st *inspectorSessionState) {
 	if st == nil {
 		return
 	}
+	fileTreeWatchDispose(st.Files)
 	fileManagerMu.Lock()
 	st.Files.gen++
 	st.Files.searchGen++

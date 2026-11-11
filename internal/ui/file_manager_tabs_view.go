@@ -19,6 +19,8 @@ type fileManagerTabSnapshot struct {
 	limitReached bool
 	imageBmp     *ui.Bitmap
 	mdPreview    bool
+	svg          *ui.SVG
+	svgPreview   bool
 	hlFirst      int
 	hlLast       int
 	reveal       bool
@@ -58,6 +60,8 @@ func fileManagerSnapshotLocked(st *fileManagerState) fileManagerPanelSnapshot {
 			limitReached: tab.limitReached,
 			imageBmp:     tab.imageBmp,
 			mdPreview:    tab.mdPreview,
+			svg:          tab.svg,
+			svgPreview:   tab.svgPreview,
 			hlFirst:      tab.hlFirst,
 			hlLast:       tab.hlLast,
 			reveal:       tab.reveal,
@@ -88,9 +92,62 @@ func (snap fileManagerPanelSnapshot) activeTab() (fileManagerTabSnapshot, bool) 
 // fileManagerTabMaxWidth 是单个 tab 名的最大宽度。
 const fileManagerTabMaxWidth float32 = 140
 
-// renderFileManagerTabBar 渲染标签栏。inPreview 为 false 时只放 tab（列表视图里的那一行），
-// 为 true 时依次是返回目录、tab 列表、拆分、方向与关闭面板。
-func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, inPreview bool) {
+// renderFileManagerContent 渲染内容区：tab 栏与预览。窄栏导航由返回按钮切换。
+func renderFileManagerContent(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, narrow, navOpen bool) {
+	ui.Column(c.Key("file-manager-content")).
+		FillWidth().
+		FillHeight().
+		MinWidth(0).
+		Children(func() {
+			renderFileManagerTabBar(c, s, snap, narrow, navOpen)
+			renderFileManagerPanes(c, s, snap, !narrow)
+		})
+}
+
+// renderFileManagerNavToggle 渲染内容头部的导航按钮：窄栏是返回文件树，
+// 宽栏是展开或收起并排导航。只有图标，无障碍名称说明动作。
+func renderFileManagerNavToggle(c *ui.Context, s *chatState, narrow, navOpen bool) {
+	label := "返回文件树"
+	icon := IconArrowLeft()
+	action := func() { s.showFileManagerList() }
+	if !narrow {
+		if navOpen {
+			label = "收起文件导航"
+		} else {
+			label = "展开文件导航"
+		}
+		icon = IconPanelLeft()
+		action = func() {
+			st := getFileManagerState(s)
+			if st == nil {
+				return
+			}
+			fileManagerMu.Lock()
+			st.treeNavOpen = !st.treeNavOpen
+			fileManagerMu.Unlock()
+			s.invalidate()
+		}
+	}
+	btn := ui.ButtonBase(c.Key("file-manager-nav-toggle")).
+		Label(label).
+		Tooltip(label).
+		Size(ControlSM, ControlSM).
+		Radius(RadiusSM).
+		Center().
+		Shrink(0)
+	if btn.Hovered() {
+		btn.Background(ThemeHover(c))
+	}
+	if btn.Clicked() {
+		action()
+	}
+	btn.Children(func() {
+		ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+	})
+}
+
+// renderFileManagerTabBar 渲染标签栏：导航切换、tab 列表、拆分与方向。
+func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, narrow, navOpen bool) {
 	ui.Row(c.Key("file-manager-tab-bar")).
 		FillWidth().
 		Height(ControlLG).
@@ -100,25 +157,7 @@ func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelS
 		AlignItems(ui.Center).
 		Gap(Space1).
 		Children(func() {
-			if inPreview {
-				back := ui.ButtonBase(c.Key("file-manager-back-btn")).
-					Label("返回目录").
-					Tooltip("返回目录").
-					Radius(RadiusSM).
-					Padding(Space1, Space2).
-					Shrink(0)
-				if back.Hovered() {
-					back.Background(ThemeHover(c))
-				}
-				if back.Clicked() {
-					s.showFileManagerList()
-				}
-				back.Children(func() {
-					ui.Icon(c, IconArrowLeft()).
-						Size(IconSM, IconSM).
-						TextColor(ThemeSecondaryText(c))
-				})
-			}
+			renderFileManagerNavToggle(c, s, narrow, navOpen)
 
 			// tab 多了就整行左右滑动，而不是把每个 tab 压扁。
 			ui.ScrollHorizontal(c.Key("file-manager-tabs-scroll")).
@@ -137,10 +176,6 @@ func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelS
 						})
 				})
 
-			if !inPreview {
-				return
-			}
-
 			splitLabel := "拆分"
 			if snap.splitAnchor != "" {
 				splitLabel = "取消拆分"
@@ -153,7 +188,7 @@ func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelS
 				s.splitFileManager()
 			})
 
-			if snap.splitAnchor != "" {
+			if snap.splitAnchor != "" && !narrow {
 				directionLabel := "切换为上下分栏"
 				if snap.splitVertical {
 					directionLabel = "切换为左右分栏"
@@ -272,8 +307,9 @@ func renderFileManagerTabItem(c *ui.Context, s *chatState, snap fileManagerPanel
 	})
 }
 
-// renderFileManagerPanes 渲染预览内容区：未拆分时只有一栏，拆分时两栏各占一半。
-func renderFileManagerPanes(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot) {
+// renderFileManagerPanes 渲染预览内容区：未拆分或宽度不足时只有活动文件一栏，
+// 拆分可用时两栏各占一半。拆分偏好不因窄栏而清除。
+func renderFileManagerPanes(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, splitVisible bool) {
 	// 代码预览的状态按「窗口 + 栏位前缀 + 路径」缓存，保存在各自窗口的 fileManagerState 里：
 	// 本帧所有 tab 与两个栏位的组合都算存活，其余（已关闭的 tab）在渲染前清掉，
 	// 避免缓存随打开过的文件一直增长。
@@ -286,7 +322,7 @@ func renderFileManagerPanes(c *ui.Context, s *chatState, snap fileManagerPanelSn
 	pruneFileManagerCodeViews(getFileManagerState(s), live)
 
 	anchor, hasAnchor := snap.tabByPath(snap.splitAnchor)
-	if snap.splitAnchor == "" || !hasAnchor {
+	if !splitVisible || snap.splitAnchor == "" || !hasAnchor {
 		tab, ok := snap.activeTab()
 		if !ok {
 			return

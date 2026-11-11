@@ -11,14 +11,10 @@ import (
 // fileManagerTab 是文件管理面板里的一个预览标签页。
 // path 是相对工作目录的路径；temporary 为 true 表示它是单击文件列表打开的
 // 临时预览，之后单击别的文件会被原地替换，双击或从聊天卡片打开则固定。
-// fromList 为 true 表示这个 tab 是从文件侧栏的列表或搜索结果打开的，
-// 为 false 表示来自外部入口（聊天文件卡片、终端路径等）。
-// 关闭最后一个 tab 时据此决定回到目录列表还是收起整个侧栏。
 // gen 是这个 tab 自己的请求代数，异步结果回来时代数不符（或 tab 已被关闭）即丢弃。
 type fileManagerTab struct {
 	path         string
 	temporary    bool
-	fromList     bool
 	gen          int
 	kind         string
 	fileLoading  bool
@@ -31,6 +27,8 @@ type fileManagerTab struct {
 	imageData    []byte
 	imageBmp     *ui.Bitmap
 	mdPreview    bool
+	svg          *ui.SVG
+	svgPreview   bool
 	hlFirst      int
 	hlLast       int
 	reveal       bool
@@ -97,6 +95,8 @@ func resetFileManagerTab(tab *fileManagerTab, path string) {
 	tab.imageData = nil
 	tab.imageBmp = nil
 	tab.mdPreview = isMarkdownPath(path)
+	tab.svg = nil
+	tab.svgPreview = isInspectorSVGPath(path)
 	tab.hlFirst, tab.hlLast = 0, 0
 	tab.reveal = false
 }
@@ -105,34 +105,32 @@ func resetFileManagerTab(tab *fileManagerTab, path string) {
 // pin 为 false 时优先原地替换临时 tab，否则追加新 tab。
 // 只有新建或替换时才重新读取内容。
 func (s *chatState) openFileManagerFile(threadID, filePath string, pin bool) {
-	s.openFileManagerFileFrom(threadID, filePath, pin, true)
+	s.openFileManagerFileFromAt(threadID, filePath, pin, 0, 0)
 }
 
 // openFileManagerFileExternal 从侧栏以外的入口（聊天文件卡片、终端路径）打开文件：
-// 效果等同于 pin 为 true 打开，但新 tab 记作外部来源，关掉最后一个 tab 时收起整个侧栏。
+// 效果等同于 pin 为 true 打开。关闭最后一个 tab 时面板保持打开并回到树。
 func (s *chatState) openFileManagerFileExternal(threadID, filePath string) {
 	s.openFileManagerFileExternalAt(threadID, filePath, 0, 0)
 }
 
 func (s *chatState) openFileManagerFileExternalAt(threadID, filePath string, first, last int) {
 	inspectorSelect(s, sidePaneFileID, false)
-	s.openFileManagerFileFromAt(threadID, filePath, true, false, first, last)
+	s.openFileManagerFileFromAt(threadID, filePath, true, first, last)
 }
 
-// openFileManagerFileFrom 是前两个入口共用的实现；fromList 表示打开来源是否为文件侧栏。
-// 打开已存在的同路径 tab 时不改动它原来的来源标记。
-func (s *chatState) openFileManagerFileFrom(threadID, filePath string, pin, fromList bool) {
-	s.openFileManagerFileFromAt(threadID, filePath, pin, fromList, 0, 0)
-}
-
-func (s *chatState) openFileManagerFileFromAt(threadID, filePath string, pin, fromList bool, first, last int) {
+func (s *chatState) openFileManagerFileFromAt(threadID, filePath string, pin bool, first, last int) {
+	// PDF 不在内容标签里读源码，直接交给右栏浏览器；客户端不支持时退回普通二进制提示。
+	if threadID != "" && isInspectorPDFPath(filePath) && s.openInspectorPreview(threadID, filePath) {
+		return
+	}
 	st := getFileManagerState(s)
 	if st == nil {
 		return
 	}
 
 	fileManagerMu.Lock()
-	tab, fresh := st.openFileManagerTabLocked(filePath, pin, fromList)
+	tab, fresh := st.openFileManagerTabLocked(filePath, pin)
 	if first > 0 && last > 0 {
 		if first > last {
 			first, last = last, first
@@ -150,6 +148,7 @@ func (s *chatState) openFileManagerFileFromAt(threadID, filePath string, pin, fr
 	}
 	if !fresh {
 		fileManagerMu.Unlock()
+		inspectorRemember(s)
 		s.invalidate()
 		return
 	}
@@ -157,6 +156,7 @@ func (s *chatState) openFileManagerFileFromAt(threadID, filePath string, pin, fr
 	gen := tab.gen
 	tab.fileLoading = threadID != ""
 	fileManagerMu.Unlock()
+	inspectorRemember(s)
 	s.invalidate()
 
 	if threadID == "" {
@@ -166,9 +166,8 @@ func (s *chatState) openFileManagerFileFromAt(threadID, filePath string, pin, fr
 }
 
 // openFileManagerTabLocked 选出显示 filePath 的 tab；返回的 fresh 表示需要重新读取内容。
-// 新建或原地替换的 tab 使用传入的 fromList；已有的 tab 保留原来的来源标记。
 // 调用方持 fileManagerMu。
-func (st *fileManagerState) openFileManagerTabLocked(filePath string, pin, fromList bool) (*fileManagerTab, bool) {
+func (st *fileManagerState) openFileManagerTabLocked(filePath string, pin bool) (*fileManagerTab, bool) {
 	if existing := st.findTabLocked(filePath); existing != nil {
 		if pin {
 			existing.temporary = false
@@ -179,11 +178,10 @@ func (st *fileManagerState) openFileManagerTabLocked(filePath string, pin, fromL
 		if temp := st.temporaryTabLocked(); temp != nil {
 			// 临时 tab 原地换文件：同一个下标，自己换一代 gen 丢弃旧请求的结果。
 			resetFileManagerTab(temp, filePath)
-			temp.fromList = fromList
 			return temp, true
 		}
 	}
-	tab := &fileManagerTab{path: filePath, temporary: !pin, fromList: fromList, mdPreview: isMarkdownPath(filePath)}
+	tab := &fileManagerTab{path: filePath, temporary: !pin, mdPreview: isMarkdownPath(filePath), svgPreview: isInspectorSVGPath(filePath)}
 	st.tabs = append(st.tabs, tab)
 	return tab, true
 }
@@ -206,11 +204,18 @@ func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab
 			return
 		}
 		if content.Kind != "image" {
+			// SVG 一律尝试解析，但只有完整读入且通过上限/外链检查时才有预览。
+			svg := fileManagerSVGForContent(filePath, content.Text, content.TotalSize, content.HasMore)
 			tab.kind = content.Kind
 			tab.content = content.Text
 			tab.totalSize = content.TotalSize
 			tab.nextOffset = content.NextOffset
 			tab.hasMore = content.HasMore
+			tab.svg = svg
+			if isInspectorSVGPath(filePath) {
+				// 解析失败/超限/外链时没有可预览的内容，默认停在源码。
+				tab.svgPreview = svg != nil
+			}
 			fileManagerMu.Unlock()
 			s.invalidate()
 			return
@@ -349,14 +354,30 @@ func (s *chatState) loadMoreFileManagerTab(path string) {
 			tab.hasMore = false
 			tab.limitReached = true
 		}
+		// 加载更多后 SVG 可能才完整读入；重新解析一次，结果仍由同一代次保护。
+		svgContent, svgTotal := "", int64(0)
+		if isInspectorSVGPath(path) && !tab.hasMore && !tab.limitReached {
+			svgContent, svgTotal = tab.content, tab.totalSize
+		}
 		fileManagerMu.Unlock()
+		if svgContent != "" {
+			svg := fileManagerSVGForContent(path, svgContent, svgTotal, false)
+			fileManagerMu.Lock()
+			if st.tabLiveLocked(tab, gen) {
+				if tab.svg == nil && svg != nil {
+					// 首次完整读入后才具备预览条件；此前没有切换按钮，不存在用户选择被覆盖。
+					tab.svgPreview = true
+				}
+				tab.svg = svg
+			}
+			fileManagerMu.Unlock()
+		}
 		s.invalidate()
 	}()
 }
 
 // closeFileManagerTab 关闭某个 tab：关掉当前 tab 时切到相邻 tab，
-// 关掉拆分固定栏时取消拆分。tab 全部关完时，关掉的若是外部入口打开的 tab
-// （来自聊天文件卡片、终端路径），收起整个侧栏；否则回到目录列表。
+// 关掉拆分固定栏时取消拆分。tab 全部关完时回到文件树，面板保持打开。
 func (s *chatState) closeFileManagerTab(path string) {
 	st := getFileManagerState(s)
 	if st == nil {
@@ -376,7 +397,6 @@ func (s *chatState) closeFileManagerTab(path string) {
 		return
 	}
 
-	fromList := st.tabs[idx].fromList
 	wasActive := st.active == path
 	wasAnchor := st.splitAnchor == path
 	wasSide := st.splitSide == path
@@ -431,10 +451,8 @@ func (s *chatState) closeFileManagerTab(path string) {
 	}
 	fileManagerMu.Unlock()
 
-	// 最后一个 tab 来自外部入口：收起侧栏（closeFileManager 自己会加锁，不能持锁调用）。
-	if empty && !fromList {
-		closeFileManager(s)
-		return
+	if empty || wasActive {
+		inspectorRemember(s)
 	}
 	s.invalidate()
 }
@@ -470,6 +488,7 @@ func (s *chatState) activateFileManagerTab(path string) {
 		st.splitSide = path
 	}
 	fileManagerMu.Unlock()
+	inspectorRemember(s)
 	s.invalidate()
 }
 
@@ -562,6 +581,20 @@ func (s *chatState) setFileManagerTabMarkdownPreview(path string, preview bool) 
 	s.invalidate()
 }
 
+// setFileManagerTabSVGPreview 切换某个 tab 的 SVG 预览/源码显示。
+func (s *chatState) setFileManagerTabSVGPreview(path string, preview bool) {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	if tab := st.findTabLocked(path); tab != nil {
+		tab.svgPreview = preview
+	}
+	fileManagerMu.Unlock()
+	s.invalidate()
+}
+
 // fileManagerTabName 返回 tab 显示的文件名（路径的最后一段）。
 func fileManagerTabName(path string) string {
 	if idx := strings.LastIndex(path, "/"); idx >= 0 {
@@ -598,6 +631,7 @@ func (s *chatState) closeOtherFileManagerTabs(path string) {
 	st.splitAnchor = ""
 	st.splitSide = ""
 	fileManagerMu.Unlock()
+	inspectorRemember(s)
 	s.invalidate()
 }
 
@@ -643,6 +677,7 @@ func (s *chatState) closeAllFileManagerTabs() {
 	st.splitSide = ""
 	st.showList = true
 	fileManagerMu.Unlock()
+	inspectorRemember(s)
 	s.invalidate()
 }
 
@@ -685,6 +720,7 @@ func (s *chatState) renameFileManagerTabPaths(oldPath, newPath string) {
 		st.dir = next
 	}
 	fileManagerMu.Unlock()
+	s.fileTreeRenamePaths(oldPath, newPath)
 	s.invalidate()
 }
 

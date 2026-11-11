@@ -274,6 +274,11 @@ type MemoryBackend struct {
 	watchers        map[string]git.Watcher
 	swarmAvailable  bool
 	swarmEnabledFor func(threadID string) bool
+
+	// inspectorPreview 是文件预览专用的 loopback 内容服务，懒启动；由 inspectorPreviewMu 保护。
+	inspectorPreviewMu     sync.Mutex
+	inspectorPreview       *inspectorPreviewServer
+	inspectorPreviewClosed bool
 	// swarmEnablerFunc 在新建会话需要立即开启编排时启用它，由宿主注入 threads.swarm.set 背后的同一实现。
 	swarmEnablerFunc func(threadID string, enabled bool)
 	// swarmInheritFunc 在转发会话时把源会话的编排开关与只规划覆盖值带到新会话。
@@ -2051,6 +2056,8 @@ func (b *MemoryBackend) Close() {
 		b.finishWithdraw(batch, withdrawShutdown)
 	}
 	b.cancel()
+	// 先在关闭会话与工作区状态前停掉本地内容服务，避免预览请求落在半关闭的后端上。
+	b.closeInspectorPreviewServer()
 	b.mu.Lock()
 	for _, td := range b.threads {
 		if td.watchdogStop != nil {

@@ -42,28 +42,19 @@ const (
 	fileManagerSearchDebounce = 200 * time.Millisecond
 )
 
-// fileBreadcrumb 是目录面包屑的一段：标签与它的相对路径（根目录为空串）。
-type fileBreadcrumb struct {
-	label string
-	path  string
-}
-
 var (
 	fileManagerMu     sync.Mutex
 	fileManagerStates = make(map[*chatState]*fileManagerState)
 )
 
 // fileManagerState 维护文件管理面板的状态。
-// 列表（目录 / 搜索结果）与文件预览共用一个面板：tabs 里是按打开顺序排列的预览 tab，
-// active 是当前 tab 的路径，showList 为 true 时显示目录列表。gen 是目录请求代数，
-// 异步结果回来时代数不符即丢弃；tab 的内容请求各有自己的代数（见 fileManagerTab.gen）。
+// 树导航（tree）与文件预览共用一个面板：tabs 里是按打开顺序排列的预览 tab，
+// active 是当前 tab 的路径，showList 为 true 时窄栏显示树而不是内容。
+// gen 是会话代数，异步结果回来时代数不符即丢弃；tab 的内容请求各有自己的代数。
 type fileManagerState struct {
-	threadID  string
-	dir       string
-	entries   []FileEntry
-	truncated bool
-	loading   bool
-	err       string // 目录及文件操作错误
+	threadID string
+	dir      string // 树的当前目录：新建入口与目录菜单使用
+	err      string // 根目录读取错误
 
 	query           string
 	searchGen       int
@@ -80,6 +71,11 @@ type fileManagerState struct {
 	splitAnchor   string
 	splitSide     string
 	splitVertical bool
+
+	// tree 是文件树导航状态；宽栏并排时与内容共用右栏，窄栏与内容二选一。
+	tree *fileTreeState
+	// treeNavOpen 记录用户是否主动展开宽栏导航；窄栏不改变它。
+	treeNavOpen bool
 
 	// codeViews 是本窗口代码预览的编辑器状态缓存，key 为「栏位前缀 + 路径」。
 	// 它只在这个窗口的 UI 渲染线程读写（渲染与 prune 都在每帧渲染里执行），不受 fileManagerMu 保护，
@@ -130,11 +126,8 @@ func toggleFileManager(s *chatState) {
 		if workDir == "" || threadID == "" {
 			threadID = ""
 		}
-		fileManagerMu.Lock()
-		needLoad := st.gen == 0 || st.threadID != threadID
-		fileManagerMu.Unlock()
-		if needLoad {
-			s.loadFileManagerDir(threadID, "")
+		if threadID != "" {
+			s.prepareFileManagerTree(threadID)
 		}
 	}
 	s.invalidate()
@@ -150,70 +143,93 @@ func closeFileManager(s *chatState) {
 	}
 }
 
-// loadFileManagerDir 在后台异步加载指定会话下某个相对目录的条目。
-// 传空 threadID 表示没有可用工作区：清空列表并停止加载。
+// loadFileManagerDir 兼容旧的目录入口：切换会话时重置面板，否则展开并刷新该目录。
+// 树导航取代了平铺目录，目录打开不再替换内容，只影响树的展开状态。
 func (s *chatState) loadFileManagerDir(threadID, dir string) {
 	st := getFileManagerState(s)
 	if st == nil {
 		return
 	}
+	dir = strings.Trim(strings.TrimSpace(dir), "/")
 
 	fileManagerMu.Lock()
-	prevThread := st.threadID
+	if threadID == "" {
+		fileManagerResetForThreadLocked(st, "")
+		st.loadingResetLocked()
+		fileManagerMu.Unlock()
+		s.invalidate()
+		return
+	}
+	if st.threadID != threadID {
+		fileManagerResetForThreadLocked(st, threadID)
+	}
+	tree := ensureFileTreeLocked(st)
+	for _, path := range fileTreeAncestors(dir) {
+		if path != "" {
+			tree.outline.Open.Add(path)
+		}
+	}
+	st.dir = dir
+	fileManagerMu.Unlock()
+
+	// 兼容旧入口的刷新语义：目标目录标记过期后重新读取，其它已加载目录不受影响。
+	fileTreeInvalidate(s, threadID, []string{dir})
+	s.invalidate()
+}
+
+// prepareFileManagerTree 在右栏显示前对齐会话与树状态，并在根目录未加载时发起读取。
+func (s *chatState) prepareFileManagerTree(threadID string) {
+	st := getFileManagerState(s)
+	if st == nil || threadID == "" {
+		return
+	}
+	fileManagerMu.Lock()
+	if st.threadID != threadID {
+		fileManagerResetForThreadLocked(st, threadID)
+	}
+	tree := ensureFileTreeLocked(st)
+	needRoot := tree.children[""] == nil && !tree.loading[""]
+	fileManagerMu.Unlock()
+	if needRoot {
+		s.fileTreeLoadDir(threadID, "")
+	}
+}
+
+// fileManagerResetForThreadLocked 清空上一个会话的 tab 与树缓存，保留当前会话的恢复偏好。
+// 调用方持 fileManagerMu。
+func fileManagerResetForThreadLocked(st *fileManagerState, threadID string) {
+	prev := st.threadID
+	if prev == threadID {
+		return
+	}
 	st.gen++
 	st.searchGen++
-	gen := st.gen
 	st.threadID = threadID
-	st.dir = dir
-	st.entries = nil
-	st.truncated = false
-	st.err = ""
-	st.loading = threadID != ""
-	// 回到列表视图。同一会话内切换目录保留已打开的 tab，只有切换会话才清空。
+	st.dir = ""
 	st.showList = true
-	if prevThread != threadID {
-		st.tabs = nil
-		st.active = ""
-		st.splitAnchor = ""
-		st.splitSide = ""
-		// 弹窗里的目标和 tab 都属于旧会话，一并丢掉。
-		st.ops = fileManagerOpsDialog{}
-		modalDragReset(modalDragFileManagerOp)
-	}
-	// 搜索状态与目录绑定：换目录时清空搜索词，避免列表与搜索结果错位。
+	st.err = ""
+	st.tabs = nil
+	st.active = ""
+	st.splitAnchor = ""
+	st.splitSide = ""
+	st.ops = fileManagerOpsDialog{}
 	st.query = ""
 	st.searchResults = nil
 	st.searchTruncated = false
 	st.searchErr = ""
 	st.searching = false
-	fileManagerMu.Unlock()
-	s.invalidate()
+	// 新会话的树从空缓存开始；展开偏好等该会话自己的 InspectorPreference 恢复。
+	st.tree = nil
+	ensureFileTreeLocked(st)
+	modalDragReset(modalDragFileManagerOp)
+}
 
-	if threadID == "" {
-		return
+// loadingResetLocked 清除根目录加载状态，用于没有工作区的空会话。
+func (st *fileManagerState) loadingResetLocked() {
+	if st.tree != nil {
+		delete(st.tree.loading, "")
 	}
-
-	go func(tid, sub string) {
-		listing, err := s.client.FilesList(context.Background(), tid, sub)
-		fileManagerMu.Lock()
-		defer fileManagerMu.Unlock()
-		if st.gen != gen {
-			return
-		}
-		st.loading = false
-		if err != nil {
-			st.err = err.Error()
-			st.entries = nil
-			st.truncated = false
-		} else {
-			st.entries = listing.Entries
-			st.truncated = listing.Truncated
-			if listing.Path != "" {
-				st.dir = listing.Path
-			}
-		}
-		s.invalidate()
-	}(threadID, dir)
+	st.err = ""
 }
 
 // fileManagerSearch 按防抖间隔在后台搜索文件；过期结果用 searchGen 丢弃。
@@ -280,28 +296,6 @@ func (s *chatState) fileManagerSearch(threadID, query string) {
 	}(threadID, trimmed)
 }
 
-// fileManagerBreadcrumb 把当前相对目录拆成面包屑：首段「根目录」，其后每段累加一级路径。
-func fileManagerBreadcrumb(dir string) []fileBreadcrumb {
-	items := []fileBreadcrumb{{label: "根目录", path: ""}}
-	trimmed := strings.Trim(strings.TrimSpace(dir), "/")
-	if trimmed == "" {
-		return items
-	}
-	current := ""
-	for _, part := range strings.Split(trimmed, "/") {
-		if part == "" {
-			continue
-		}
-		if current == "" {
-			current = part
-		} else {
-			current += "/" + part
-		}
-		items = append(items, fileBreadcrumb{label: part, path: current})
-	}
-	return items
-}
-
 // appendFileReferenceToDraft 把「@相对路径 」追加到当前会话的 composer 草稿末尾，
 // 与补全插入的 @ 引用格式一致；草稿非空且不以空白结尾时先补一个空格。
 func appendFileReferenceToDraft(s *chatState, relPath string) {
@@ -320,6 +314,7 @@ func appendFileReferenceToDraft(s *chatState, relPath string) {
 }
 
 // renderFileManagerPanel 渲染右侧只读文件管理面板。
+// 宽于 640 DIP 且用户展开导航时，树与内容并排；窄栏两者二选一，由内容头部的返回按钮切换。
 func renderFileManagerPanel(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
@@ -330,35 +325,25 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 	}
 
 	threadID, workDir := getSelectedThreadWorkDir(s)
-
-	fileManagerMu.Lock()
-	panelThread := st.threadID
-	firstLoad := st.gen == 0
-	fileManagerMu.Unlock()
-
-	// 线程切换（或首次拿到工作目录）时重置面板并重新加载根目录。
-	if (firstLoad || threadID != panelThread) && threadID != "" && workDir != "" {
-		s.loadFileManagerDir(threadID, "")
+	if threadID != "" && workDir != "" {
+		s.prepareFileManagerTree(threadID)
 	}
 
 	fileManagerMu.Lock()
-	dir := st.dir
-	listLoading := st.loading
-	listErr := st.err
-	truncated := st.truncated
-	entries := make([]FileEntry, len(st.entries))
-	copy(entries, st.entries)
-	query := st.query
-	searching := st.searching
-	searchResults := make([]FileMatch, len(st.searchResults))
-	copy(searchResults, st.searchResults)
-	searchTruncated := st.searchTruncated
-	searchErr := st.searchErr
-	searchQueryPtr := &st.query
+	width := st.width
+	navOpen := st.treeNavOpen
 	snap := fileManagerSnapshotLocked(st)
 	fileManagerMu.Unlock()
 
-	showList := snap.showList || len(snap.tabs) == 0
+	hasActive := false
+	if _, ok := snap.activeTab(); ok {
+		hasActive = true
+	}
+	narrow := width < fileTreeSplitMinWidth
+	treeOnly := !hasActive
+	if narrow {
+		treeOnly = !hasActive || snap.showList
+	}
 
 	ui.Column(c.Key("file-manager-panel")).
 		Fill().
@@ -366,124 +351,43 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 		BorderWidth(0, 0, 0, Hairline).
 		BorderColor(ThemeBorder(c)).
 		Children(func() {
-			if showList {
-				renderFileManagerHeader(c, s, dir)
-				// 列表视图里也留一行 tab：从预览回到目录后还能直接点回某个文件。
-				if len(snap.tabs) > 0 {
-					renderFileManagerTabBar(c, s, snap, false)
-				}
-				renderFileManagerSearch(c, s, searchQueryPtr, threadID)
-
-				ui.Scroll(c.Key("file-manager-scroll")).
-					Grow(1).
+			switch {
+			case treeOnly:
+				renderFileManagerNavigation(c, s, threadID, workDir)
+			case narrow:
+				renderFileManagerContent(c, s, snap, true, navOpen)
+			case navOpen:
+				ui.Row(c.Key("file-manager-split-nav")).
 					FillWidth().
-					Padding(Space3, Space3).
-					ContextMenu(fileManagerDirMenu(c, s)).
+					FillHeight().
 					Children(func() {
-						if workDir == "" {
-							EmptyState(c, EmptyStateProps{Icon: IconFolder(), Title: "未选择工作区"}).Margin(ui.Auto)
-							return
-						}
-						if query != "" {
-							renderFileManagerSearchResults(c, s, searching, searchErr, searchResults, searchTruncated)
-							return
-						}
-						switch {
-						case listErr != "":
-							renderFileManagerError(c, s, "", listErr, func() {
-								s.loadFileManagerDir(threadID, dir)
+						ui.Column(c.Key("file-manager-nav-column")).
+							Width(fileTreeNavWidth).
+							Shrink(0).
+							FillHeight().
+							Clip().
+							BorderWidth(0, 0, 0, Hairline).
+							BorderColor(ThemeBorder(c)).
+							Transition(motionCollapse(c)).
+							Children(func() {
+								renderFileManagerNavigation(c, s, threadID, workDir)
 							})
-						case listLoading && len(entries) == 0:
-							LoadingIndicator(c, "file-manager-loading", "正在读取目录…", IconSM).Margin(ui.Auto)
-						case len(entries) == 0:
-							EmptyState(c, EmptyStateProps{Icon: IconFolder(), Title: "空目录", Compact: true}).Margin(ui.Auto)
-						default:
-							renderFileManagerEntries(c, s, threadID, entries)
-						}
-						if truncated && query == "" && listErr == "" {
-							ui.Text(c, "目录条目已截断（仅显示前 1000 个条目）").
-								FontSize(TypeFootnote).
-								TextColor(ThemeWarning(c)).
-								Padding(Space2, Space1, 0, Space1)
-						}
+						ui.Column(c.Key("file-manager-content-column")).
+							Grow(1).
+							MinWidth(0).
+							FillHeight().
+							Transition(motionCollapse(c)).
+							Children(func() {
+								renderFileManagerContent(c, s, snap, false, navOpen)
+							})
 					})
-				return
+			default:
+				renderFileManagerContent(c, s, snap, false, navOpen)
 			}
-
-			// 预览模式：上面是 tab 栏，下面是内容区（未拆分时一栏，拆分时两栏）。
-			renderFileManagerTabBar(c, s, snap, true)
-			renderFileManagerPanes(c, s, snap)
 		})
 
 	// 写操作弹窗挂在面板末尾：DialogBase 自己挂到 overlay root，不受面板裁剪影响。
 	renderFileManagerOpsDialog(c, s)
-}
-
-// renderFileManagerHeader 渲染列表视图的头部：标题、目录面包屑与关闭按钮。
-func renderFileManagerHeader(c *ui.Context, s *chatState, dir string) {
-	ui.Row(c.Key("file-manager-header")).
-		FillWidth().
-		Height(fileManagerHeaderHeight).
-		Padding(Space3, Space4).
-		BorderWidth(0, 0, Hairline, 0).
-		BorderColor(ThemeBorder(c)).
-		AlignItems(ui.Center).
-		Gap(Space2).
-		Children(func() {
-			crumbs := fileManagerBreadcrumb(dir)
-			ui.Row(c.Key("file-manager-crumbs")).
-				Gap(Space0).
-				AlignItems(ui.Center).
-				Grow(1).
-				MinWidth(0).
-				ClipX().
-				Children(func() {
-					for i, crumb := range crumbs {
-						item := crumb
-						if i > 0 {
-							ui.Icon(c, IconChevronRight()).
-								Size(fileManagerIconChevron, fileManagerIconChevron).
-								TextColor(ThemeSecondaryText(c).Alpha(0.5))
-						}
-						btn := ui.ButtonBase(c.Key("file-manager-crumb-"+item.path)).
-							Label(item.label).
-							Tooltip(item.path).
-							Radius(RadiusXS).
-							Padding(Space0, Space1)
-						if btn.Hovered() {
-							btn.Background(ThemeHover(c))
-						}
-						if btn.Clicked() && item.path != dir {
-							s.loadFileManagerDir(fileManagerThreadID(s), item.path)
-						}
-						btn.Children(func() {
-							ui.Text(c, item.label).
-								FontSize(TypeFootnote).
-								TextColor(ThemeSecondaryText(c)).
-								SingleLine()
-						})
-					}
-				})
-
-			// 新建：菜单里放「新建文件 / 新建文件夹」，客户端不支持文件操作时不显示。
-			if _, ok := fileOpsClient(s); ok {
-				newBtn := ui.ButtonBase(c.Key("file-manager-new-btn")).
-					Label("新建文件或文件夹").
-					Tooltip("新建").
-					Radius(RadiusSM).
-					Padding(Space1, Space2)
-				if newBtn.Hovered() {
-					newBtn.Background(ThemeHover(c))
-				}
-				newBtn.Menu(fileManagerDirMenu(c, s))
-				newBtn.Children(func() {
-					ui.Icon(c, IconPlus()).
-						Size(IconSM, IconSM).
-						TextColor(ThemeSecondaryText(c))
-				})
-			}
-
-		})
 }
 
 // fileManagerThreadID 返回面板当前绑定的会话 ID（面包屑跳转等即时操作使用）。
@@ -495,47 +399,6 @@ func fileManagerThreadID(s *chatState) string {
 	fileManagerMu.Lock()
 	defer fileManagerMu.Unlock()
 	return st.threadID
-}
-
-// renderFileManagerSearch 渲染搜索框：输入后防抖调用 SearchFiles，清空即回到目录列表。
-func renderFileManagerSearch(c *ui.Context, s *chatState, query *string, threadID string) {
-	SearchField(c, TextFieldProps{
-		Key: "file-manager-search-input", Value: query, Label: "搜索文件", Placeholder: "搜索文件…",
-		FillWidth: true, Clearable: true, ClearLabel: "清除搜索",
-		OnChange: func(value string) { s.fileManagerSearch(threadID, value) },
-	}).Margin(0, Space3, Space3, Space3)
-}
-
-// renderFileManagerEntries 渲染目录条目列表。
-func renderFileManagerEntries(c *ui.Context, s *chatState, threadID string, entries []FileEntry) {
-	ui.Column(c.Key("file-manager-entries")).
-		Gap(Hairline).
-		FillWidth().
-		Children(func() {
-			for _, entry := range entries {
-				item := entry
-				renderFileManagerRow(c, s, fileManagerRowProps{
-					key:       "file-manager-entry-" + item.Path,
-					icon:      fileManagerEntryIcon(item),
-					name:      truncateMiddle(item.Name, 40),
-					size:      fileManagerEntrySize(item),
-					ignored:   item.Ignored,
-					protected: item.Protected,
-					symlink:   item.IsSymlink,
-					isDir:     item.IsDir,
-					threadID:  threadID,
-					entry:     item,
-					onOpen: func(pin bool) {
-						if item.IsDir {
-							s.loadFileManagerDir(threadID, item.Path)
-							return
-						}
-						s.openFileManagerFile(threadID, item.Path, pin)
-					},
-					onMention: fileManagerMentionHandler(s, item.IsDir, item.Path),
-				})
-			}
-		})
 }
 
 // fileManagerMentionHandler 返回「@引用」回调：只有文件行才提供引用，目录不参与。
@@ -585,9 +448,9 @@ func renderFileManagerSearchResults(c *ui.Context, s *chatState, searching bool,
 					isDir:    item.IsDir,
 					threadID: threadID,
 					entry:    FileEntry{Name: item.Name, Path: item.Path, IsDir: item.IsDir},
-					onOpen: func(pin bool) {
+					onOpen: func(pin bool, _ ui.Modifiers) {
 						if item.IsDir {
-							s.loadFileManagerDir(threadID, item.Path)
+							s.fileTreeRevealDir(threadID, item.Path)
 							return
 						}
 						s.openFileManagerFile(threadID, item.Path, pin)
@@ -618,7 +481,7 @@ type fileManagerRowProps struct {
 	threadID string
 	entry    FileEntry
 	// onOpen 打开文件：pin 为 false 表示单击（临时预览），true 表示双击（固定 tab）。
-	onOpen    func(pin bool)
+	onOpen    func(pin bool, mods ui.Modifiers)
 	onMention func()
 }
 
@@ -720,9 +583,9 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 		if !props.protected && !mentionClicked && !morePressed && props.onOpen != nil {
 			// 双击固定预览，单击只开临时 tab；双击先于 Clicked 拦下。
 			if row.DoubleClicked() {
-				props.onOpen(true)
+				props.onOpen(true, 0)
 			} else if row.Clicked() {
-				props.onOpen(false)
+				props.onOpen(false, row.ClickModifiers())
 			}
 		}
 	})
@@ -828,6 +691,14 @@ func renderFileManagerFileHeader(c *ui.Context, s *chatState, tab fileManagerTab
 
 			if isMarkdownPath(tab.path) {
 				renderFileManagerMarkdownToggle(c, s, tab, keyPrefix)
+			}
+
+			if isInspectorSVGPath(tab.path) && tab.svg != nil {
+				renderFileManagerSVGToggle(c, s, tab, keyPrefix)
+			}
+
+			if isInspectorHTMLPath(tab.path) && inspectorPreviewAvailable(s) {
+				renderFileManagerBrowserOpenButton(c, s, tab, keyPrefix)
 			}
 
 			// 窄面板下把按钮文案收紧为「引用」，保证按钮不被挤出可视区；无障碍名称不变。
@@ -944,6 +815,10 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 			TextColor(ThemeSecondaryText(c)).
 			Margin(ui.Auto)
 	default:
+		if tab.svgPreview && isInspectorSVGPath(tab.path) && tab.svg != nil {
+			renderFileManagerSVGPreview(c, tab, keyPrefix)
+			return
+		}
 		mdPreview := tab.mdPreview && isMarkdownPath(tab.path)
 		if tab.content == "" {
 			ui.Text(c, "空文件").

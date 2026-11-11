@@ -937,6 +937,9 @@ func (f *gitForm) run(name string, op func() error) {
 			f.invalidate()
 			return
 		}
+		// Git 动作完成后即使监听器还没报告变化，也立即刷新树与 Git 标记。
+		fileTreeInvalidate(f.s, f.threadID, nil)
+		fileTreeRefreshGit(f.s, f.threadID)
 		f.close()
 	}()
 }

@@ -159,6 +159,11 @@ var (
 	previewNextPageID uint64
 )
 
+// newPreviewWebView 是创建原生 WebView 的唯一入口；测试替换它来检查创建选项。
+var newPreviewWebView = func(win *mygo.Window, opts mygo.WebViewOptions) (*mygo.WebView, error) {
+	return win.NewWebView(opts)
+}
+
 // previewState 维护单个聊天窗口下的 Web 预览状态。
 type previewState struct {
 	visible                        bool
@@ -170,9 +175,18 @@ type previewState struct {
 	consoleRevision, annotRevision uint64
 	webCreating                    bool
 	pageOff                        func()
-	nextAnnotationID               uint64
-	addr                           string
-	err                            string
+	// untrusted / pageUntrusted 记录当前内容想要的信任级别与已创建页面的级别；
+	// 本地内容一律 Untrusted，切换内容时若级别不同就先释放旧页面再重建。
+	untrusted bool
+	// pageUntrusted 只在创建页面时写入，由 previewMu 保护。
+	pageUntrusted bool
+	// localPreview 与 previewThreadID 记录本地内容页：释放时撤销该会话的 Token。
+	localPreview    bool
+	previewThreadID string
+
+	nextAnnotationID uint64
+	addr             string
+	err              string
 	// webFailed 记录原生 WebView 创建失败：失败原因（无宿主窗口等）不变时按帧重试只会反复失败，
 	// 因此失败后不再自动重试，由用户重新打开预览、改地址或点刷新时重置（见 ensureWebView）。
 	webFailed bool
@@ -416,9 +430,13 @@ func getBrowserQuickPorts(s *chatState) []string {
 func ensureWebView(s *chatState, st *previewState) bool {
 	previewMu.Lock()
 	web, pageExists, generation := st.web, st.page != nil, st.generation
+	untrustedMismatch := pageExists && st.pageUntrusted != st.untrusted
 	blocked := st.webFailed || st.webCreating
 	previewMu.Unlock()
-	if blocked || (pageExists && (web == nil || !web.IsDestroyed())) {
+	if blocked {
+		return false
+	}
+	if pageExists && !untrustedMismatch && (web == nil || !web.IsDestroyed()) {
 		return false
 	}
 	previewMu.Lock()
@@ -426,6 +444,24 @@ func ensureWebView(s *chatState, st *previewState) bool {
 		previewMu.Unlock()
 		return false
 	}
+	if st.page != nil && st.pageUntrusted != st.untrusted {
+		// 信任级别变了（普通网页 ↔ 本地内容）：旧页面连同 WebView 一起释放，
+		// 新一代页面使用新的 Untrusted 选项，旧回包由 generation 丢弃。
+		page, off, oldWeb := st.page, st.pageOff, st.web
+		st.page, st.pageOff, st.web = nil, nil, nil
+		previewAdvanceGenerationLocked(st)
+		previewMu.Unlock()
+		if off != nil {
+			off()
+		}
+		if page != nil {
+			page.Destroy()
+		} else if oldWeb != nil {
+			oldWeb.Destroy()
+		}
+		return ensureWebView(s, st)
+	}
+	untrusted := st.untrusted
 	previewAdvanceGenerationLocked(st)
 	previewNextPageID++
 	st.pageID = previewNextPageID
@@ -449,7 +485,9 @@ func ensureWebView(s *chatState, st *previewState) bool {
 	var message string
 	if win != nil {
 		var err error
-		wv, err = win.NewWebView(mygo.WebViewOptions{})
+		wv, err = newPreviewWebView(win, mygo.WebViewOptions{
+			Page: mygo.PageOptions{Untrusted: untrusted},
+		})
 		if err != nil {
 			message = "创建 Web 视图失败: " + err.Error()
 		} else {
@@ -468,6 +506,7 @@ func ensureWebView(s *chatState, st *previewState) bool {
 	}
 	st.webCreating = false
 	st.web = wv
+	st.pageUntrusted = untrusted
 	if page != nil {
 		st.page = &nativePreviewPage{Page: page, web: wv}
 	}
@@ -535,6 +574,8 @@ func openPreviewURL(s *chatState, raw string) {
 	st.url = target
 	st.addr = target
 	st.html = ""
+	st.untrusted = false
+	st.localPreview = false
 	// 用户重新打开/改地址时重置失败标记，允许再试一次创建 WebView。
 	st.webFailed = false
 	previewMu.Unlock()
@@ -563,6 +604,45 @@ func openPreviewHTML(s *chatState, html string) {
 	st.html = html
 	st.url = ""
 	st.addr = "html-preview"
+	st.untrusted = false
+	st.localPreview = false
+	// 用户重新打开时重置失败标记，允许再试一次创建 WebView。
+	st.webFailed = false
+	previewMu.Unlock()
+
+	inspectorSelect(s, sidePanePreviewID, false)
+
+	if !ensureWebView(s, st) {
+		loadPreviewPage(s, st)
+	}
+	s.invalidate()
+}
+
+// openPreviewLocalURL 打开后端签发的本地内容 URL。
+// 这个页面以 Untrusted 创建：不注册 Go 绑定，也不因监听在 loopback 上获得应用权限。
+func openPreviewLocalURL(s *chatState, threadID, raw string) {
+	if s == nil {
+		return
+	}
+	target := normalizePreviewURL(raw)
+	if target == "" {
+		s.setToast("本地预览地址无效")
+		return
+	}
+	st := getPreviewState(s)
+	if st == nil {
+		return
+	}
+
+	previewMu.Lock()
+	previewAdvanceGenerationLocked(st)
+	st.webCreating = false
+	st.url = target
+	st.addr = target
+	st.html = ""
+	st.untrusted = true
+	st.localPreview = true
+	st.previewThreadID = threadID
 	// 用户重新打开时重置失败标记，允许再试一次创建 WebView。
 	st.webFailed = false
 	previewMu.Unlock()
@@ -607,8 +687,22 @@ func disposePreviewState(s *chatState, st *previewState) {
 	st.pageOff = nil
 	st.web = nil
 	st.page = nil
+	// 本地内容页关闭后 Token 立即失效；清掉地址，避免再次打开面板时加载已撤销的 URL。
+	threadID := st.previewThreadID
+	st.previewThreadID = ""
+	if st.localPreview {
+		st.localPreview = false
+		st.url = ""
+		st.html = ""
+		st.addr = ""
+	}
 	previewMu.Unlock()
 
+	if s != nil && threadID != "" {
+		if client, ok := s.client.(inspectorPreviewClient); ok {
+			client.RevokeInspectorPreviews(threadID)
+		}
+	}
 	if off != nil {
 		off()
 	}

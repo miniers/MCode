@@ -43,6 +43,20 @@ type fileTreeState struct {
 	rootTruncated bool
 	// rowBuilds 只用于测试：一帧里 Outline 实际构建的行数。
 	rowBuilds int
+
+	// git 是路径到 Git 改动状态的缓存，只显示文件行，不汇总到目录。
+	git         map[string]GitChangedFile
+	gitLoaded   bool
+	gitTried    bool
+	gitTriedGen uint64
+	gitSeq      int
+
+	// onlyChanged 打开时用 Git 改动列表生成独立树；changedOutline 与完整树状态互不影响。
+	onlyChanged      bool
+	changedOutline   *ui.OutlineState[string]
+	changedSig       string
+	changedSelected  int
+	changedSelection ui.Selection[string]
 }
 
 // ensureFileTreeLocked 初始化树状态；调用方持 fileManagerMu。
@@ -447,8 +461,9 @@ func fileTreeDirsToLoadLocked(st *fileManagerState) []string {
 
 // fileTreeRowIndexLocked 返回路径在当前可见行里的下标。
 func fileTreeRowIndexLocked(tree *fileTreeState, path string) int {
-	for i := 0; i < tree.outline.Rows(); i++ {
-		if tree.outline.Item(i) == path {
+	outline := fileTreeActiveOutlineLocked(tree)
+	for i := 0; i < outline.Rows(); i++ {
+		if outline.Item(i) == path {
 			return i
 		}
 	}
@@ -468,24 +483,32 @@ func (s *chatState) fileTreeSelect(path string, mods ui.Modifiers) {
 		fileManagerMu.Unlock()
 		return
 	}
+	selected := &tree.selected
+	selection := &tree.selection
+	outline := &tree.outline
+	if tree.onlyChanged && tree.changedOutline != nil {
+		selected = &tree.changedSelected
+		selection = &tree.changedSelection
+		outline = tree.changedOutline
+	}
 	switch {
-	case mods&ui.Shift != 0 && tree.selected >= 0:
-		lo, hi := min(tree.selected, idx), max(tree.selected, idx)
-		tree.selection.Clear()
+	case mods&ui.Shift != 0 && *selected >= 0:
+		lo, hi := min(*selected, idx), max(*selected, idx)
+		selection.Clear()
 		for i := lo; i <= hi; i++ {
-			tree.selection.Add(tree.outline.Item(i))
+			selection.Add(outline.Item(i))
 		}
 	case mods&ui.Cmd != 0:
-		if tree.selection.Has(path) {
-			tree.selection.Remove(path)
+		if selection.Has(path) {
+			selection.Remove(path)
 		} else {
-			tree.selection.Add(path)
+			selection.Add(path)
 		}
 	default:
-		tree.selection.Clear()
-		tree.selection.Add(path)
+		selection.Clear()
+		selection.Add(path)
 	}
-	tree.selected = idx
+	*selected = idx
 	fileManagerMu.Unlock()
 }
 
@@ -497,21 +520,25 @@ func (s *chatState) fileTreeToggleDir(threadID, path string) {
 	}
 	fileManagerMu.Lock()
 	tree := ensureFileTreeLocked(st)
+	outline := fileTreeActiveOutlineLocked(tree)
 	open := false
-	if tree.outline.Open.Has(path) {
-		tree.outline.Open.Remove(path)
+	if outline.Open.Has(path) {
+		outline.Open.Remove(path)
 	} else {
-		tree.outline.Open.Add(path)
+		outline.Open.Add(path)
 		open = true
 	}
 	st.dir = path
-	needLoad := open && tree.children[path] == nil && !tree.loading[path]
+	needLoad := !tree.onlyChanged && open && tree.children[path] == nil && !tree.loading[path]
+	onlyChanged := tree.onlyChanged
 	fileManagerMu.Unlock()
 
 	if needLoad {
 		s.fileTreeLoadDir(threadID, path)
 	}
-	inspectorRemember(s)
+	if !onlyChanged {
+		inspectorRemember(s)
+	}
 	s.invalidate()
 }
 
@@ -639,10 +666,19 @@ func renderFileManagerNavigation(c *ui.Context, s *chatState, threadID, workDir 
 	rootLoading := false
 	rootTruncated := false
 	rootCount := 0
+	onlyChanged := false
+	gitLoaded := false
+	gitTried := false
 	if st.tree != nil {
 		rootLoading = st.tree.loading[""]
 		rootTruncated = st.tree.rootTruncated
 		rootCount = len(st.tree.children[""])
+		onlyChanged = st.tree.onlyChanged
+		gitLoaded = st.tree.gitLoaded
+		gitTried = st.tree.gitTried
+		if onlyChanged {
+			rootCount = fileTreeChangedRootCountLocked(st.tree)
+		}
 	}
 	fileManagerMu.Unlock()
 
@@ -668,18 +704,22 @@ func renderFileManagerNavigation(c *ui.Context, s *chatState, threadID, workDir 
 			}
 
 			switch {
-			case rootErr != "" && rootCount == 0:
+			case onlyChanged && rootCount == 0 && !gitLoaded && !gitTried:
+				LoadingIndicator(c, "file-manager-only-changed-loading", "正在读取改动…", IconSM).Margin(ui.Auto)
+			case onlyChanged && rootCount == 0:
+				EmptyState(c, EmptyStateProps{Icon: IconFileDiff(), Title: "没有改动", Compact: true}).Margin(ui.Auto)
+			case !onlyChanged && rootErr != "" && rootCount == 0:
 				renderFileManagerError(c, s, "", rootErr, func() {
 					fileTreeInvalidate(s, threadID, []string{""})
 				})
-			case rootLoading && rootCount == 0:
+			case !onlyChanged && rootLoading && rootCount == 0:
 				LoadingIndicator(c, "file-manager-loading", "正在读取目录…", IconSM).Margin(ui.Auto)
 			case rootCount == 0:
 				EmptyState(c, EmptyStateProps{Icon: IconFolder(), Title: "空目录", Compact: true}).Margin(ui.Auto)
 			default:
 				renderFileManagerTree(c, s, threadID)
 			}
-			if rootTruncated && rootErr == "" {
+			if !onlyChanged && rootTruncated && rootErr == "" {
 				ui.Text(c, "目录条目已截断（仅显示前 1000 个条目）").
 					FontSize(TypeFootnote).
 					TextColor(ThemeWarning(c)).
@@ -720,6 +760,31 @@ func renderFileManagerTreeHeader(c *ui.Context, s *chatState, query *string, thr
 					ui.Icon(c, IconPlus()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 				})
 			}
+			if threadID != "" {
+				onlyChanged := fileTreeOnlyChangedActive(getFileManagerState(s))
+				onlyBtn := ui.ButtonBase(c.Key("file-manager-only-changed"))
+				onlyBtn.Label("只看改动").
+					Tooltip("只看改动").
+					Size(ControlSM, ControlSM).
+					Radius(RadiusSM).
+					Center().
+					Shrink(0)
+				if onlyChanged {
+					onlyBtn.Background(ThemeSelected(c))
+				} else if onlyBtn.Hovered() {
+					onlyBtn.Background(ThemeHover(c))
+				}
+				if onlyBtn.Clicked() {
+					s.fileTreeToggleOnlyChanged(threadID)
+				}
+				onlyBtn.Children(func() {
+					color := ThemeSecondaryText(c)
+					if onlyChanged {
+						color = ThemeAccent(c)
+					}
+					ui.Icon(c, IconFileDiff()).Size(IconSM, IconSM).TextColor(color)
+				})
+			}
 		})
 }
 
@@ -732,9 +797,22 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 
 	fileManagerMu.Lock()
 	tree := ensureFileTreeLocked(st)
-	loads := fileTreeDirsToLoadLocked(st)
-	roots := append([]string(nil), tree.children[""]...)
-	before := fileTreeOpenSnapshot(tree)
+	onlyChanged := tree.onlyChanged
+	var outline *ui.OutlineState[string]
+	var loads []string
+	var roots []string
+	var changedChildren map[string][]string
+	var changedEntries map[string]FileEntry
+	var before map[string]struct{}
+	if onlyChanged {
+		roots, changedChildren, changedEntries = fileTreeChangedRowsLocked(tree)
+		outline = fileTreeChangedOutlineLocked(tree)
+	} else {
+		loads = fileTreeDirsToLoadLocked(st)
+		roots = append([]string(nil), tree.children[""]...)
+		before = fileTreeOpenSnapshot(tree)
+		outline = &tree.outline
+	}
 	tree.rowBuilds = 0
 	fileManagerMu.Unlock()
 
@@ -743,6 +821,9 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 	}
 
 	children := func(path string) []string {
+		if onlyChanged {
+			return changedChildren[path]
+		}
 		fileManagerMu.Lock()
 		kids := tree.children[path]
 		fileManagerMu.Unlock()
@@ -750,7 +831,7 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 	}
 
 	// 自定义前缀：箭头用 springSnappy 旋转；树只构建视口内的行。
-	tree.outline.Prefix = func(r ui.OutlineRow) {
+	outline.Prefix = func(r ui.OutlineRow) {
 		if r.Depth > 0 {
 			indent := float32(r.Depth) * Space3
 			ui.Box(c).Width(indent).Shrink(0)
@@ -775,33 +856,59 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 		ui.Box(c).Width(Space1).Shrink(0)
 	}
 
-	ui.Outline(c.Key("file-manager-tree"), &tree.outline, roots, children, func(path string) {
+	ui.Outline(c.Key("file-manager-tree"), outline, roots, children, func(path string) {
 		fileManagerMu.Lock()
 		entry, ok := tree.entries[path]
+		if onlyChanged {
+			entry, ok = changedEntries[path]
+		}
+		status, hasStatus := fileTreeStatusLocked(tree, path, entry.IsDir)
+		deleted := onlyChanged && hasStatus && status.Status == "D"
 		tree.rowBuilds++
 		fileManagerMu.Unlock()
 		if !ok {
 			return
 		}
-		ui.Row(c.Key("file-tree-content-" + path)).Grow(1).MinWidth(0).Children(func() {
-			renderFileManagerRow(c, s, fileManagerRowProps{
-				key:       "file-tree-row-" + path,
-				icon:      fileManagerEntryIcon(entry),
-				name:      truncateMiddle(entry.Name, 40),
-				size:      fileManagerEntrySize(entry),
-				ignored:   entry.Ignored,
-				protected: entry.Protected,
-				symlink:   entry.IsSymlink,
-				isDir:     entry.IsDir,
-				threadID:  threadID,
-				entry:     entry,
-				onOpen: func(pin bool, mods ui.Modifiers) {
-					s.fileTreeClickEntry(threadID, entry, pin, mods)
-				},
-				onMention: fileManagerMentionHandler(s, entry.IsDir, entry.Path),
+		props := fileManagerRowProps{
+			key:       "file-tree-row-" + path,
+			icon:      fileManagerEntryIcon(entry),
+			name:      truncateMiddle(entry.Name, 40),
+			size:      fileManagerEntrySize(entry),
+			ignored:   entry.Ignored || deleted,
+			protected: entry.Protected,
+			symlink:   entry.IsSymlink,
+			isDir:     entry.IsDir,
+			threadID:  threadID,
+			entry:     entry,
+			onOpen: func(pin bool, mods ui.Modifiers) {
+				s.fileTreeClickEntry(threadID, entry, pin, mods)
+			},
+			onMention: fileManagerMentionHandler(s, entry.IsDir, entry.Path),
+		}
+		if onlyChanged {
+			props.size = ""
+		}
+		if deleted {
+			props.onOpen = nil
+			props.onMention = nil
+		}
+		ui.Row(c.Key("file-tree-content-" + path)).
+			Grow(1).
+			MinWidth(0).
+			AlignItems(ui.Center).
+			Gap(Space1).
+			Transition(motionListItem(c)).
+			Children(func() {
+				renderFileManagerRow(c, s, props)
+				if hasStatus {
+					renderFileTreeGitTag(c, "file-tree-git-"+path, status)
+				}
 			})
-		})
 	}).Grow(1).FillWidth().Padding(Space2, Space2).ContextMenu(fileManagerDirMenu(c, s))
+
+	if onlyChanged {
+		return
+	}
 
 	// 箭头与键盘操作由 Outline 内部处理，构建后比较展开集合即可接上懒加载与落盘。
 	fileManagerMu.Lock()
@@ -815,14 +922,14 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 			needLoad = append(needLoad, dir)
 		}
 	}
-	if tree.outline.Rows() > 0 {
-		if first, _ := tree.outline.List.Visible(); first >= 0 && first < tree.outline.Rows() {
-			tree.anchor = tree.outline.Item(first)
+	if outline.Rows() > 0 {
+		if first, _ := outline.List.Visible(); first >= 0 && first < outline.Rows() {
+			tree.anchor = outline.Item(first)
 		}
 	}
 	if tree.restoreAnchor != "" {
 		if idx := fileTreeRowIndexLocked(tree, tree.restoreAnchor); idx >= 0 {
-			tree.outline.List.ScrollTo(idx, ui.Start)
+			outline.List.ScrollTo(idx, ui.Start)
 			tree.restoreAnchor = ""
 		} else if tree.children[""] != nil && len(tree.loading) == 0 {
 			tree.restoreAnchor = ""
