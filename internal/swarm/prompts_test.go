@@ -36,6 +36,33 @@ func TestLeadPolicyDefaultKeepsDoAlone(t *testing.T) {
 	}
 }
 
+func TestLeadPolicyReadOnlyDelegation(t *testing.T) {
+	const questionsRule = "- Questions follow the same delegation rule: answer directly only from existing context or one quick lookup; otherwise delegate the investigation, even when no files need changing."
+	const oldQuestionsRule = "Questions and explanations, which change nothing, you answer directly from what you have read"
+	for _, plansOnly := range []bool{false, true} {
+		for _, mode := range []string{"off", "ai", "human"} {
+			t.Run(fmt.Sprintf("plansOnly=%v/review=%s", plansOnly, mode), func(t *testing.T) {
+				got := LeadPolicy(plansOnly, mode)
+				for _, want := range []string{
+					"For a new user request, if answering requires tracing multiple call sites, comparing files or checking runtime evidence, delegate that investigation to at least one read-only bee in your first reply; a question or a no-edit task is not an exception.",
+					"Your own initial inspection is only to scope the brief, not to finish the investigation.",
+					"Answer directly only when the answer is already in context or one quick lookup suffices.",
+				} {
+					if !strings.Contains(got, want) {
+						t.Errorf("策略缺少 %q", want)
+					}
+				}
+				if plansOnly && !strings.Contains(got, questionsRule) {
+					t.Error("只规划策略缺少问题派发规则")
+				}
+				if strings.Contains(got, oldQuestionsRule) {
+					t.Error("策略不应保留旧的问题例外")
+				}
+			})
+		}
+	}
+}
+
 // 常驻策略需保持精简：补丁另存与 swarm-answer 两条说明不再常驻，随对应事件消息下发。
 func TestLeadPolicyOmitsOnDemandRules(t *testing.T) {
 	for _, plansOnly := range []bool{false, true} {

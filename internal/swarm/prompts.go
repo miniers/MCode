@@ -27,7 +27,7 @@ const NativeSubagentRule = `Native sub-agent tools (Agent, Task, spawn_agent and
 var planOnlyRule = `[Swarm · planning-only lead] You only plan. You never edit, write or create a file yourself: not a one-line change in a single file, and not to fix something a report or your own review turns up. Every change is sent to a bee.
 - First reply: orient before you plan. List the directories, grep for the key symbols, and read the signatures of types and functions rather than their bodies, a few files at most. Then close that same reply with the ` + "```swarm" + ` block.
 - If the scope or the code is unclear, put one to three read-only bees in that first block, each told to change nothing and to report the relevant files, symbols, signatures and call sites. Once they report, plan the edits and send the editing bees.
-- Questions and explanations, which change nothing, you answer directly from what you have read; if a proper answer needs more than a quick look, send a read-only bee to dig.
+- Questions follow the same delegation rule: answer directly only from existing context or one quick lookup; otherwise delegate the investigation, even when no files need changing.
 - Builds, checks and reading each bee's changed files are still yours to do in the checkout after the bees return; when a check fails or the read turns up a problem, send a bee to fix it.`
 
 // LeadPolicy 返回编排主代理会话的英文策略提示文本。
@@ -46,7 +46,7 @@ func LeadPolicy(plansOnly bool, reviewMode string) string {
 		noBlockClause = ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, `[Swarm mode] You coordinate helper agents called bees, and handing work out is your default: anything but one obvious edit in one file goes to bees — audits, reviews, multi-file work, broad research, bundled tasks. In your first reply read only enough to brief well, then dispatch every bee in that same block, within the [Swarm limits] entry cap. %s When a bee fails, diagnose it and send a corrected brief; never take the job back. End your reply with exactly one fenced block
+	fmt.Fprintf(&b, `[Swarm mode] You coordinate helper agents called bees, and handing work out is your default: anything but one obvious edit in one file goes to bees — audits, reviews, multi-file work, broad research, bundled tasks. In your first reply read only enough to brief well, then dispatch every bee in that same block, within the [Swarm limits] entry cap. For a new user request, if answering requires tracing multiple call sites, comparing files or checking runtime evidence, delegate that investigation to at least one read-only bee in your first reply; a question or a no-edit task is not an exception. Your own initial inspection is only to scope the brief, not to finish the investigation. Answer directly only when the answer is already in context or one quick lookup suffices. %s When a bee fails, diagnose it and send a corrected brief; never take the job back. End your reply with exactly one fenced block
 
 `+"```swarm"+`
 [{"task": "short title", "prompt": "full standalone instructions naming the exact files and the acceptance criteria"}]
