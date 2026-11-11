@@ -711,6 +711,25 @@ func (c *Client) KillRunningCommand(ctx context.Context, threadID, messageID str
 	return c.backend.KillRunningCommand(ctx, threadID, messageID)
 }
 
+// RunningCommandActivity 返回按工具消息 ID 归集的命令进程快照。
+func (c *Client) RunningCommandActivity(ctx context.Context, threadID string) (map[string][]mcodeui.CommandProc, error) {
+	if c.backend == nil {
+		return nil, errors.New("backend 不可用")
+	}
+	activity, err := c.backend.RunningCommandActivity(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string][]mcodeui.CommandProc, len(activity))
+	for id, processes := range activity {
+		result[id] = make([]mcodeui.CommandProc, len(processes))
+		for i, p := range processes {
+			result[id][i] = mcodeui.CommandProc{PID: p.PID, PPID: p.PPID, StartTime: p.StartTime, CPUTime: p.CPUTime, RSS: p.RSS, Command: p.Command}
+		}
+	}
+	return result, nil
+}
+
 // BackgroundTaskLog 获取指定后台任务的日志。
 func (c *Client) BackgroundTaskLog(ctx context.Context, threadID, messageID string) (string, bool, error) {
 	if c.backend == nil {

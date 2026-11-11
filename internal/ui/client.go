@@ -1021,6 +1021,15 @@ func QuotaThread(ctx context.Context) string {
 	return id
 }
 
+// CommandProc 是运行中命令的一条进程采样。
+type CommandProc struct {
+	PID, PPID int
+	StartTime time.Time
+	CPUTime   time.Duration
+	RSS       int64
+	Command   string
+}
+
 // Client 定义与后端服务通信的客户端接口。
 type Client interface {
 	// Projects 获取所有项目列表。
@@ -1053,6 +1062,8 @@ type Client interface {
 	// KillRunningCommand 只终止该工具消息对应的正在运行的命令子进程，不中断本轮；
 	// killed 为 0 表示没找到进程。
 	KillRunningCommand(ctx context.Context, threadID, messageID string) (killed int, err error)
+	// RunningCommandActivity 按工具消息 ID 返回运行中命令的进程快照。
+	RunningCommandActivity(ctx context.Context, threadID string) (map[string][]CommandProc, error)
 	// BackgroundTaskLog 获取指定后台任务的日志。
 	BackgroundTaskLog(ctx context.Context, threadID, messageID string) (text string, available bool, err error)
 	// StopBackgroundTask 停止指定的后台任务。

@@ -13,11 +13,11 @@ import (
 	"mcode/internal/procattr"
 )
 
-// procTable 执行 ps 读取整机进程表。LC_ALL=C 保证 lstart 用英文星期与月份，便于按固定格式解析。
-func procTable() ([]Proc, error) {
+// Snapshot 执行 ps 读取整机进程表。LC_ALL=C 保证 lstart 用英文星期与月份，便于按固定格式解析。
+func Snapshot() ([]Proc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, "ps", "-axo", "pid=,ppid=,pgid=,lstart=,command="))
+	cmd := procattr.HideWindow(exec.CommandContext(ctx, "ps", "-axo", "pid=,ppid=,pgid=,time=,rss=,lstart=,command="))
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 	out, err := cmd.Output()
 	if err != nil {
@@ -36,7 +36,7 @@ func KillTreesStartedAfter(rootPID int, since time.Time, grace time.Duration) (i
 	if since.IsZero() {
 		return 0, fmt.Errorf("procs: since 不能为空")
 	}
-	table, err := procTable()
+	table, err := Snapshot()
 	if err != nil {
 		return 0, err
 	}
@@ -102,3 +102,6 @@ func waitExit(pids []int, grace time.Duration) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// PopulateTreeTimes 在 Unix 上无需额外读取，Snapshot 已包含时间信息。
+func PopulateTreeTimes(table []Proc, rootPID int) {}

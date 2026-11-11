@@ -1,22 +1,24 @@
 package procs
 
 import (
+	"slices"
+	"sort"
 	"testing"
 	"time"
 )
 
-// 伪造的进程表输出：列顺序与 `ps -axo pid=,ppid=,pgid=,lstart=,command=` 一致。
-const fakeTable = `    1     0     1 Wed Oct 22 09:00:00 2025 /sbin/launchd
-  400     1   400 Wed Oct 22 10:00:00 2025 /usr/local/bin/claude --print
-  401   400   400 Wed Oct 22 10:00:00 2025 node /usr/local/lib/mcp-server.js
-  402   401   400 Wed Oct 22 10:00:00 2025 sh -c tail -f
-  500   400   400 Wed Oct 22 10:05:10 2025 git commit
-  501   500   400 Wed Oct 22 10:05:10 2025 /usr/bin/vim
-  600   400   400 Wed Oct 22 10:05:12 2025 npm test
-  601   600   400 Wed Oct 22 10:05:12 2025 node jest
-  602   601   400 Wed Oct 22 10:05:13 2025 sh -c sleep 100
-  700   400   400 Wed Oct 22 10:05:20 2025 /usr/bin/ssh-keygen -A
-  800   400   400 Wed Oct 22 10:07:00 2025 make build
+// 伪造的进程表输出：列顺序与 `ps -axo pid=,ppid=,pgid=,time=,rss=,lstart=,command=` 一致。
+const fakeTable = `    1     0     1 0:00.01 128 Wed Oct 22 09:00:00 2025 /sbin/launchd
+  400     1   400 0:00.01 128 Wed Oct 22 10:00:00 2025 /usr/local/bin/claude --print
+  401   400   400 0:00.01 128 Wed Oct 22 10:00:00 2025 node /usr/local/lib/mcp-server.js
+  402   401   400 0:00.01 128 Wed Oct 22 10:00:00 2025 sh -c tail -f
+  500   400   400 0:00.01 128 Wed Oct 22 10:05:10 2025 git commit
+  501   500   400 0:00.01 128 Wed Oct 22 10:05:10 2025 /usr/bin/vim
+  600   400   400 0:00.01 128 Wed Oct 22 10:05:12 2025 npm test
+  601   600   400 0:00.01 128 Wed Oct 22 10:05:12 2025 node jest
+  602   601   400 0:00.01 128 Wed Oct 22 10:05:13 2025 sh -c sleep 100
+  700   400   400 0:00.01 128 Wed Oct 22 10:05:20 2025 /usr/bin/ssh-keygen -A
+  800   400   400 0:00.01 128 Wed Oct 22 10:07:00 2025 make build
 `
 
 func TestParseProcTable(t *testing.T) {
@@ -150,5 +152,81 @@ func TestSubtreeLeafFirst(t *testing.T) {
 	}
 	if !(pos[602] < pos[601] && pos[601] < pos[600]) {
 		t.Fatalf("顺序应为叶到根，实际 %v", order)
+	}
+}
+
+func TestParseProcResources(t *testing.T) {
+	for _, tc := range []struct {
+		cpu  string
+		want time.Duration
+	}{
+		{"12:03.45", 12*time.Minute + 3450*time.Millisecond},
+		{"0:00.01", 10 * time.Millisecond},
+		{"00:01:02", 62 * time.Second},
+		{"2-03:04:05", 51*time.Hour + 4*time.Minute + 5*time.Second},
+	} {
+		t.Run(tc.cpu, func(t *testing.T) {
+			p, ok := parseProcLine("1 0 1 " + tc.cpu + " 2048 Wed Oct 22 09:00:00 2025 sh -c  echo\t'hello world'")
+			if !ok || p.CPUTime != tc.want || p.RSS != 2*1024*1024 || p.Command != "sh -c  echo\t'hello world'" {
+				t.Fatalf("解析错误: %+v, ok=%v", p, ok)
+			}
+		})
+	}
+	for _, fields := range []string{"bad 1", "-1:00 1", "1:-01 1", "999999999999:00 1", "1:00 -1", "1:00 bad", "1:00 9223372036854775807", "999999999999-01:02:03 1"} {
+		if p, ok := parseProcLine("1 0 1 " + fields + " Wed Oct 22 09:00:00 2025 foo"); ok {
+			t.Errorf("非法资源列应拒绝: %q => %+v", fields, p)
+		}
+	}
+}
+
+func TestTreesStartedAfterIn(t *testing.T) {
+	table := parseProcTable(fakeTable)
+	base := time.Date(2025, time.October, 22, 10, 5, 10, 0, time.Local)
+	for _, tc := range []struct {
+		name  string
+		root  int
+		since time.Time
+		want  []int
+	}{
+		{"排除常驻进程", 400, base, []int{500, 501, 600, 601, 602, 700, 800}},
+		{"两秒容差边界", 400, base.Add(2 * time.Second), []int{500, 501, 600, 601, 602, 700, 800}},
+		{"容差外", 400, base.Add(3 * time.Second), []int{600, 601, 602, 700, 800}},
+		{"命令本身为根", 600, base, []int{600, 601, 602}},
+		{"根没有后代", 700, base, []int{700}},
+		{"根过早", 600, base.Add(time.Minute), nil},
+		{"根不存在", 999, base, nil},
+		{"非法根", 0, base, nil},
+		{"缺少时间", 400, time.Time{}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := append([]Proc(nil), table...)
+			got := TreesStartedAfterIn(table, tc.root, tc.since)
+			pids := make([]int, len(got))
+			for i, p := range got {
+				pids[i] = p.PID
+			}
+			sort.Ints(pids)
+			if !slices.Equal(pids, tc.want) {
+				t.Fatalf("PIDs=%v, want %v", pids, tc.want)
+			}
+			if !slices.Equal(table, before) {
+				t.Fatal("筛选修改了输入")
+			}
+		})
+	}
+}
+
+func TestTreesStartedAfterInIncludesLateDescendants(t *testing.T) {
+	since := time.Now()
+	table := []Proc{
+		{PID: 1, StartTime: since.Add(-time.Hour)},
+		{PID: 2, PPID: 1, StartTime: since, CPUTime: time.Second, RSS: 4096},
+		{PID: 3, PPID: 2, StartTime: since.Add(time.Minute)},
+		{PID: 4, PPID: 1, StartTime: since.Add(-time.Hour)},
+		{PID: 5, PPID: 4, StartTime: since.Add(time.Minute)},
+	}
+	got := TreesStartedAfterIn(table, 1, since)
+	if len(got) != 3 || got[0] != table[1] || got[1] != table[2] || got[2] != table[4] {
+		t.Fatalf("子树及资源信息丢失: %+v", got)
 	}
 }

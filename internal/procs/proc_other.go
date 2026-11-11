@@ -16,3 +16,9 @@ func Descendants(rootPID int) ([]Proc, error) {
 func KillTreesStartedAfter(rootPID int, since time.Time, grace time.Duration) (int, error) {
 	return 0, fmt.Errorf("procs: KillTreesStartedAfter(%d): %w", rootPID, ErrNotSupported)
 }
+
+// Snapshot 在当前平台不支持。
+func Snapshot() ([]Proc, error) { return nil, ErrNotSupported }
+
+// PopulateTreeTimes 在当前平台无需操作。
+func PopulateTreeTimes(table []Proc, rootPID int) {}

@@ -18,10 +18,10 @@ import (
 // stillActive 是 GetExitCodeProcess 表示「进程仍在运行」的返回码，x/sys/windows 未导出该常量。
 const stillActive = 259
 
-// procTable 用 Toolhelp32 进程快照读取整机进程表。
+// Snapshot 用 Toolhelp32 进程快照读取整机进程表。
 // Windows 上拿不到进程组 ID 与完整命令行：PGID 置 0，Command 只填可执行文件名。
 // 启动时间不在这里填，由 fillStartTimes 按需读取，避免为整机每个进程都打开句柄。
-func procTable() ([]Proc, error) {
+func Snapshot() ([]Proc, error) {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return nil, fmt.Errorf("procs: 创建进程快照失败: %w", err)
@@ -52,7 +52,7 @@ func Descendants(rootPID int) ([]Proc, error) {
 	if rootPID <= 0 {
 		return nil, fmt.Errorf("procs: 非法 rootPID %d", rootPID)
 	}
-	table, err := procTable()
+	table, err := Snapshot()
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func KillTreesStartedAfter(rootPID int, since time.Time, grace time.Duration) (i
 	if since.IsZero() {
 		return 0, fmt.Errorf("procs: since 不能为空")
 	}
-	table, err := procTable()
+	table, err := Snapshot()
 	if err != nil {
 		return 0, err
 	}
@@ -124,25 +124,28 @@ func fillStartTimes(table []Proc, descendants []Proc) {
 		need[d.PPID] = true
 	}
 	for i := range table {
-		if need[table[i].PID] {
-			table[i].StartTime = processStartTime(table[i].PID)
+		if need[table[i].PID] && table[i].StartTime.IsZero() {
+			table[i].StartTime, table[i].CPUTime = processStartTime(table[i].PID)
 		}
 	}
 }
 
 // processStartTime 读取进程创建时间；拿不到（已退出或无权限）时返回零值。
-func processStartTime(pid int) time.Time {
+func processStartTime(pid int) (time.Time, time.Duration) {
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, 0
 	}
 	defer windows.CloseHandle(h)
 
 	var creation, exit, kernel, user windows.Filetime
 	if err := windows.GetProcessTimes(h, &creation, &exit, &kernel, &user); err != nil {
-		return time.Time{}
+		return time.Time{}, 0
 	}
-	return time.Unix(0, creation.Nanoseconds())
+	// FILETIME 的累计时长单位是 100ns，不能用转换绝对日期的 Nanoseconds。
+	cpuTicks := (uint64(kernel.HighDateTime)<<32 | uint64(kernel.LowDateTime)) +
+		(uint64(user.HighDateTime)<<32 | uint64(user.LowDateTime))
+	return time.Unix(0, creation.Nanoseconds()), time.Duration(cpuTicks) * 100
 }
 
 // taskkill 请求整棵进程树正常退出（不带 /F）；taskkill 自身也隐藏控制台窗口。
@@ -198,4 +201,11 @@ func waitExit(pids []int, grace time.Duration) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
+
+// PopulateTreeTimes 只为指定根及后代读取时间，整机快照不逐个打开进程句柄。
+func PopulateTreeTimes(table []Proc, rootPID int) {
+	processes := collectDescendants(rootPID, table)
+	processes = append(processes, Proc{PID: rootPID})
+	fillStartTimes(table, processes)
 }

@@ -19,6 +19,8 @@ type Proc struct {
 	PPID      int
 	PGID      int
 	StartTime time.Time
+	CPUTime   time.Duration
+	RSS       int64
 	Command   string
 }
 
@@ -26,7 +28,7 @@ type Proc struct {
 // ps 的 lstart 只精确到秒，且 agent 派生的子进程可能比工具消息记录时刻略早。
 const startSlack = 2 * time.Second
 
-// parseProcTable 解析 `ps -axo pid=,ppid=,pgid=,lstart=,command=` 的输出。
+// parseProcTable 解析 `ps -axo pid=,ppid=,pgid=,time=,rss=,lstart=,command=` 的输出。
 // lstart 形如 "Wed Oct 22 15:04:05 2026"，需在 LC_ALL=C 下解析。
 func parseProcTable(out string) []Proc {
 	lines := strings.Split(out, "\n")
@@ -42,8 +44,8 @@ func parseProcTable(out string) []Proc {
 // parseProcLine 解析单行 ps 输出；字段数不足或数字字段非法时返回 ok=false。
 func parseProcLine(line string) (Proc, bool) {
 	fields := strings.Fields(line)
-	// 前 8 个字段固定为 pid、ppid、pgid、星期、月份、日、时间、年，其后全部是命令行。
-	if len(fields) < 8 {
+	// 前 10 个字段为 pid、ppid、pgid、CPU 时间、RSS 与 lstart 的五段。
+	if len(fields) < 10 {
 		return Proc{}, false
 	}
 	pid, err := strconv.Atoi(fields[0])
@@ -58,15 +60,109 @@ func parseProcLine(line string) (Proc, bool) {
 	if err != nil {
 		return Proc{}, false
 	}
-	start, ok := parseLStart(fields[3], fields[4], fields[5], fields[6], fields[7])
+	cpuTime, err := parseCPUTime(fields[3])
+	if err != nil {
+		return Proc{}, false
+	}
+	rss, err := strconv.ParseInt(fields[4], 10, 64)
+	if err != nil || rss < 0 || rss > (1<<63-1)/1024 {
+		return Proc{}, false
+	}
+	start, ok := parseLStart(fields[5], fields[6], fields[7], fields[8], fields[9])
 	if !ok {
 		return Proc{}, false
 	}
 	command := ""
-	if len(fields) > 8 {
-		command = strings.Join(fields[8:], " ")
+	if len(fields) > 10 {
+		// 保留命令行内部的空白，避免改变 shell 参数。
+		rest := strings.TrimSpace(line)
+		for range 10 {
+			i := strings.IndexAny(rest, " \t")
+			rest = strings.TrimLeft(rest[i:], " \t")
+		}
+		command = rest
 	}
-	return Proc{PID: pid, PPID: ppid, PGID: pgid, StartTime: start, Command: command}, true
+	return Proc{PID: pid, PPID: ppid, PGID: pgid, StartTime: start, CPUTime: cpuTime, RSS: rss * 1024, Command: command}, true
+}
+
+// parseCPUTime 兼容 macOS M:SS.ss 与 Linux [DD-]HH:MM:SS。
+func parseCPUTime(raw string) (time.Duration, error) {
+	var days int64
+	if i := strings.IndexByte(raw, '-'); i >= 0 {
+		var err error
+		days, err = strconv.ParseInt(raw[:i], 10, 64)
+		if err != nil || days < 0 {
+			return 0, errors.New("procs: 非法 CPU 时间")
+		}
+		raw = raw[i+1:]
+	}
+	parts := strings.Split(raw, ":")
+	if len(parts) != 2 && len(parts) != 3 || days > 0 && len(parts) != 3 {
+		return 0, errors.New("procs: 非法 CPU 时间")
+	}
+	// 用 Duration 的解析器保留小数秒，并检查溢出。
+	units := []string{"h", "m", "s"}[3-len(parts):]
+	var duration strings.Builder
+	if days > 0 {
+		if days > (1<<63-1)/int64(24*time.Hour) {
+			return 0, errors.New("procs: CPU 时间溢出")
+		}
+	}
+	for i, part := range parts {
+		if part == "" || strings.ContainsAny(part, "+-hmsµnu ") || i < len(parts)-1 && strings.Contains(part, ".") {
+			return 0, errors.New("procs: 非法 CPU 时间")
+		}
+		duration.WriteString(part)
+		duration.WriteString(units[i])
+	}
+	d, err := time.ParseDuration(duration.String())
+	dayTime := time.Duration(days) * 24 * time.Hour
+	if err != nil || d < 0 || d > time.Duration(1<<63-1)-dayTime {
+		return 0, errors.New("procs: 非法 CPU 时间")
+	}
+	return dayTime + d, nil
+}
+
+// TreesStartedAfterIn 从快照选择本次启动的子树，返回根及全部后代；不修改输入。
+// rootPID 自身为本次启动的命令时，也包含它（mcode provider 直接返回命令 PID）。
+func TreesStartedAfterIn(table []Proc, rootPID int, since time.Time) []Proc {
+	if rootPID <= 0 || since.IsZero() {
+		return nil
+	}
+	descendants := collectDescendants(rootPID, table)
+	roots := selectSubtreeRoots(table, descendants, since)
+	for _, p := range table {
+		if p.PID == rootPID && !p.StartTime.IsZero() && !p.StartTime.Before(since.Add(-startSlack)) {
+			roots = []Proc{p}
+			break
+		}
+	}
+	var out []Proc
+	seen := make(map[int]bool)
+	for _, root := range roots {
+		out = append(out, root)
+		seen[root.PID] = true
+		for _, p := range collectDescendants(root.PID, descendants) {
+			if !seen[p.PID] {
+				seen[p.PID] = true
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
+// TreesStartedAfter 读取一次快照，返回 rootPID 下本次启动的子树。
+func TreesStartedAfter(rootPID int, since time.Time) ([]Proc, error) {
+	if rootPID <= 0 || since.IsZero() {
+		return nil, errors.New("procs: rootPID 必须为正数，since 不能为空")
+	}
+	table, err := Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	PopulateTreeTimes(table, rootPID)
+	return TreesStartedAfterIn(table, rootPID, since), nil
 }
 
 // parseLStart 解析 lstart 的五段字段（星期 月份 日 时刻 年）。

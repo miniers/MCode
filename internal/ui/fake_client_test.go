@@ -268,7 +268,9 @@ type FakeClient struct {
 	respondAnswersCalls []respondAnswersCall
 	interruptCalls      []string
 	// killRunningCommandCalls 记录 KillRunningCommand 的调用（格式为「threadID/messageID」）。
-	killRunningCommandCalls []string
+	killRunningCommandCalls   []string
+	runningCommandActivity    map[string]map[string][]CommandProc
+	runningCommandActivityErr error
 	// killRunningCommandKilled 让 FakeClient.KillRunningCommand 模拟后端返回的终止进程数。
 	killRunningCommandKilled   int
 	backgroundTaskLogCalls     []string
@@ -1107,6 +1109,35 @@ func (f *FakeClient) KillRunningCommand(ctx context.Context, threadID, messageID
 	defer f.mu.Unlock()
 	f.killRunningCommandCalls = append(f.killRunningCommandCalls, threadID+"/"+messageID)
 	return f.killRunningCommandKilled, nil
+}
+
+func (f *FakeClient) RunningCommandActivity(ctx context.Context, threadID string) (map[string][]CommandProc, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return cloneCommandActivity(f.runningCommandActivity[threadID]), f.runningCommandActivityErr
+}
+
+func (f *FakeClient) SetRunningCommandActivity(threadID string, activity map[string][]CommandProc) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.runningCommandActivity == nil {
+		f.runningCommandActivity = make(map[string]map[string][]CommandProc)
+	}
+	f.runningCommandActivity[threadID] = cloneCommandActivity(activity)
+}
+
+func (f *FakeClient) SetRunningCommandActivityError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.runningCommandActivityErr = err
+}
+
+func cloneCommandActivity(activity map[string][]CommandProc) map[string][]CommandProc {
+	result := make(map[string][]CommandProc, len(activity))
+	for id, processes := range activity {
+		result[id] = append([]CommandProc(nil), processes...)
+	}
+	return result
 }
 
 func (f *FakeClient) BackgroundTaskLog(ctx context.Context, threadID, messageID string) (string, bool, error) {
