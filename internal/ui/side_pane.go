@@ -277,8 +277,16 @@ func sidePaneReleasedWidth(width, minWidth, defaultWidth, maxWidth float32) (flo
 	return min(max(width, minWidth), maxWidth), false
 }
 
+// inspectorTopInset 仅在窗口右上角有系统按钮时将右栏下移让位。
+func inspectorTopInset(c *ui.Context) float32 {
+	if titleBarTrailingInset(c) > 0 {
+		return headerInsetFor(paneMain)
+	}
+	return 0
+}
+
 // renderSidePaneHandle 渲染分栏拖拽手柄：7 DIP 命中区、1 DIP 常驻分割线，以及悬停/拖动时
-// 叠加的 2 DIP 高亮竖线。手柄是分栏行的第二列，上边距让出标题栏、一直铺到窗口底部，
+// 叠加的 2 DIP 高亮竖线。手柄是分栏行的第二列，按需让出系统按钮、一直铺到窗口底部，
 // 拖动产生的宽度变化同一帧就作用到右侧面板上。
 //
 // 为什么手柄必须显式参与纵向拉伸：Row/Column 在交叉轴上按内容自然高度对齐（mygo 的
@@ -294,7 +302,7 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 	handle := ui.Box(c.Key(key)).
 		Width(sidePaneHandleWidth).
 		Shrink(0).
-		Margin(headerInsetFor(paneMain), 0, 0, 0).
+		Margin(inspectorTopInset(c), 0, 0, 0).
 		Focusable().
 		Role(ui.RoleSplitter).
 		Label(sidePaneHandleLabel).
@@ -369,14 +377,8 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 
 // renderSidePaneSplit 渲染主区与其右侧面板的分栏：没有面板打开时只渲染会话主区，
 // 否则先夹取宽度，再按「主区 Grow(1) + 7 DIP 手柄 + 面板 Width(宽度)」排一行；
-// 手柄与面板都从标题栏下沿开始，把标题栏那条横带整条让给主区。
+// 手柄与面板仅在右上角有系统按钮时从标题栏下沿开始。
 // 拖动结束（含方向键调整）写盘持久化宽度，沿用 persistUIState 的节流落盘。
-//
-// 为什么主区不设 Clip、为什么面板要让出标题栏：聊天标题栏自身的内容（侧栏开关、新建、
-// 编排、权限、Git 胶囊、标题、动作组、辅助面板组）接近整行宽度，主区被面板压窄后右侧
-// 辅助组按钮会越出主区右边界。主区一旦 Clip，这些按钮的命中矩形就被裁掉，点击会落到
-// 右侧面板上（表现是面板展开后再点头部按钮没反应，例如「浏览器预览」关不掉）；
-// 面板若从窗口顶部铺到底部，也会盖住标题栏那条横带，同样会抢走头部按钮的点击。
 func renderSidePaneSplit(c *ui.Context, s *chatState, renderChat func()) {
 	if renderChat == nil {
 		return
@@ -421,7 +423,7 @@ func renderSidePaneSplit(c *ui.Context, s *chatState, renderChat func()) {
 			actual = min(*width, available-inspectorChatMinWidth-sidePaneHandleWidth)
 		}
 		ui.Column(c.Key("inspector-shell")).Width(actual).Shrink(0).Clip().
-			Margin(headerInsetFor(paneMain), 0, 0, 0).
+			Margin(inspectorTopInset(c), 0, 0, 0).
 			Transition(motionSidePanel(c, false)).Children(func() { renderInspectorBody(c, s, actual) })
 	})
 	if overlay {

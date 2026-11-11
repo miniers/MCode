@@ -439,6 +439,63 @@ func openFilePaneForTest(t *testing.T, s *chatState) float32 {
 	return inspectorSession(s).Width
 }
 
+func TestInspectorTopInsetByPlatform(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		goos      string
+		bar       ui.TitleBar
+		width     int
+		inset     float32
+		tabHeight float32
+		overlay   bool
+	}{
+		{"macOS", "darwin", ui.TitleBar{Height: 32, Left: 78}, 1000, 0, HeaderHeight, false},
+		{"Windows 窗口", "windows", ui.TitleBar{Height: 53, Right: 138}, 1000, HeaderHeight, diffHeaderHeight, false},
+		{"Windows 全屏", "windows", ui.TitleBar{}, 1000, 0, HeaderHeight, false},
+		{"macOS 浮层", "darwin", ui.TitleBar{}, 600, HeaderHeight, HeaderHeight, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withTitleBarGOOS(t, tc.goos)
+			s := sidePaneTestState(t)
+			defer s.close()
+			stubSidePanePanelRender(t, sidePaneFileID)
+			openFilePaneForTest(t, s)
+			tt := ui.NewTester(func(c *ui.Context) {
+				renderSidePaneSplit(c, s, func() {
+					ui.Column(c).Fill().Children(func() {
+						ui.Row(c.Key("chat-header")).FillWidth().Height(HeaderHeight).Label("测试聊天标题栏")
+					})
+				})
+			}, tc.width, 700)
+			tt.SetTitleBar(tc.bar)
+			tt.Advance(DurSheet + 50*time.Millisecond)
+			chat, ok := tt.Find("测试聊天标题栏")
+			if !ok {
+				t.Fatal("找不到聊天标题栏")
+			}
+			tab, ok := tt.Find("文件")
+			if !ok {
+				t.Fatal("找不到文件标签")
+			}
+			if tab.Y != chat.Y+tc.inset || tab.H != tc.tabHeight {
+				t.Fatalf("标签位置和高度 = %+v，聊天标题栏 = %+v，期望顶部偏移 %v、高度 %v", tab, chat, tc.inset, tc.tabHeight)
+			}
+			if !tc.overlay {
+				handle, ok := tt.Find(sidePaneHandleLabel)
+				if !ok || handle.Y != chat.Y+tc.inset {
+					t.Fatalf("分栏手柄顶部 = %+v，存在=%v，期望 %v", handle, ok, chat.Y+tc.inset)
+				}
+			}
+			if err := tt.Click("改动"); err != nil || inspectorSession(s).Active != sidePaneDiffID {
+				t.Fatalf("标签点击失败: %v", err)
+			}
+			if err := tt.Click("关闭右栏"); err != nil || inspectorSession(s).Open {
+				t.Fatalf("关闭按钮点击失败: %v", err)
+			}
+		})
+	}
+}
+
 // sidePaneHandlePoint 用无障碍标签找到分栏手柄，返回它的中心点。
 func sidePaneHandlePoint(t *testing.T, tt *ui.Tester) (float32, float32) {
 	t.Helper()
