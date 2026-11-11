@@ -424,7 +424,7 @@ func renderSidePaneSplit(c *ui.Context, s *chatState, renderChat func()) {
 		}
 		ui.Column(c.Key("inspector-shell")).Width(actual).Shrink(0).Clip().
 			Margin(inspectorTopInset(c), 0, 0, 0).
-			Transition(motionSidePanel(c, false)).Children(func() { renderInspectorBody(c, s, actual) })
+			Transition(motionSidePanel(c, false)).Children(func() { renderInspectorBody(c, s, actual, inspectorTopInset(c) == 0) })
 	})
 	if overlay {
 		open := true
@@ -437,7 +437,7 @@ func renderSidePaneSplit(c *ui.Context, s *chatState, renderChat func()) {
 			panel.Absolute().Right(0).Top(0).Bottom(0).MaxWidth(actual).MaxHeight(max(0, bounds.H-headerInsetFor(paneMain)))
 			ui.Column(c.Key("inspector-overlay-card")).Width(actual).FillHeight().Clip().
 				Background(ThemeWindowBg(c)).Transition(motionSidePanel(c, false)).
-				Children(func() { renderInspectorBody(c, s, actual) })
+				Children(func() { renderInspectorBody(c, s, actual, false) })
 		})
 		if !open {
 			inspectorClose(s)
@@ -445,12 +445,12 @@ func renderSidePaneSplit(c *ui.Context, s *chatState, renderChat func()) {
 	}
 }
 
-func renderInspectorBody(c *ui.Context, s *chatState, width float32) {
+func renderInspectorBody(c *ui.Context, s *chatState, width float32, topAligned bool) {
 	st := inspectorSession(s)
 	if st == nil {
 		return
 	}
-	renderInspectorHeader(c, s, st)
+	renderInspectorHeader(c, s, st, topAligned)
 	if !st.Open {
 		return
 	}

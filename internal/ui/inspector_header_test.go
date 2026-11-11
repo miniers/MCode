@@ -103,7 +103,7 @@ func TestInspectorHeaderShortcutOverride(t *testing.T) {
 	t.Cleanup(func() { setShortcutOverrides(nil) })
 	s := sidePaneTestState(t)
 	defer s.close()
-	tt := ui.NewTester(func(c *ui.Context) { renderInspectorHeader(c, s, inspectorSession(s)) }, 500, 60)
+	tt := ui.NewTester(func(c *ui.Context) { renderInspectorHeader(c, s, inspectorSession(s), false) }, 500, 60)
 	if node, ok := tt.Access("关闭右栏"); !ok || node.Description != "关闭" {
 		t.Fatalf("默认关闭按钮说明：%+v %v", node, ok)
 	}
@@ -127,7 +127,7 @@ func TestInspectorHeaderAccessibleTabs(t *testing.T) {
 	s := sidePaneTestState(t)
 	defer s.close()
 	inspectorSelect(s, sidePaneFileID, false)
-	tt := ui.NewTester(func(c *ui.Context) { renderInspectorHeader(c, s, inspectorSession(s)) }, 500, 60)
+	tt := ui.NewTester(func(c *ui.Context) { renderInspectorHeader(c, s, inspectorSession(s), false) }, 500, 60)
 	if err := tt.Click("文件"); err != nil {
 		t.Fatal(err)
 	}

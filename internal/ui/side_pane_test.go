@@ -452,7 +452,7 @@ func TestInspectorTopInsetByPlatform(t *testing.T) {
 		{"macOS", "darwin", ui.TitleBar{Height: 32, Left: 78}, 1000, 0, HeaderHeight, false},
 		{"Windows 窗口", "windows", ui.TitleBar{Height: 53, Right: 138}, 1000, HeaderHeight, diffHeaderHeight, false},
 		{"Windows 全屏", "windows", ui.TitleBar{}, 1000, 0, HeaderHeight, false},
-		{"macOS 浮层", "darwin", ui.TitleBar{}, 600, HeaderHeight, HeaderHeight, true},
+		{"macOS 浮层", "darwin", ui.TitleBar{}, 600, HeaderHeight, diffHeaderHeight, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			withTitleBarGOOS(t, tc.goos)
@@ -479,6 +479,13 @@ func TestInspectorTopInsetByPlatform(t *testing.T) {
 			}
 			if tab.Y != chat.Y+tc.inset || tab.H != tc.tabHeight {
 				t.Fatalf("标签位置和高度 = %+v，聊天标题栏 = %+v，期望顶部偏移 %v、高度 %v", tab, chat, tc.inset, tc.tabHeight)
+			}
+			if tc.overlay {
+				img := tt.Image()
+				x, y := tc.width-3, int(tab.Y+tab.H)-1
+				if img.At(x, y) != img.At(x, y-1) {
+					t.Fatal("浮层标签行底部不应有分隔线")
+				}
 			}
 			if !tc.overlay {
 				handle, ok := tt.Find(sidePaneHandleLabel)
