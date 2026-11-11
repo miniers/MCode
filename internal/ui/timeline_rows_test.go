@@ -3038,6 +3038,21 @@ func TestTimelineRows_ForwardedContextCard(t *testing.T) {
 		}
 		clickText(t, tt, "更早 2 条")
 		waitFor(t, tt, func() bool { return tt.HasText("更早的问题") })
+		clickText(t, tt, "更早 2 条")
+		waitFor(t, tt, func() bool { return !tt.HasText("更早的问题") })
+	})
+
+	t.Run("历史包含用户和助手消息", func(t *testing.T) {
+		fake := newFake("Continued: 原会话", false)
+		fake.forwardedContexts["t1"] = ForwardedContext{SourceTitle: "原会话", Content: "User:\n历史问题\n\nAssistant:\n**历史回答**"}
+		tt := ui.NewTester(Root(fake), 1000, 700)
+		waitFor(t, tt, func() bool { return tt.HasText("历史问题") && tt.HasText("历史回答") && tt.HasText(dockLabel) })
+		user, userOK := tt.Find("历史问题")
+		assistant, assistantOK := tt.Find("历史回答")
+		origin, originOK := tt.Find(dockLabel)
+		if !userOK || !assistantOK || !originOK || user.Y >= assistant.Y || assistant.Y >= origin.Y {
+			t.Fatalf("历史消息应按用户、助手、来源顺序显示: %q", tt.Texts())
+		}
 	})
 
 	t.Run("截断时不显示说明", func(t *testing.T) {

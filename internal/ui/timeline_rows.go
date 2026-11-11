@@ -2043,7 +2043,7 @@ func renderForwardedContextRow(c *ui.Context, s *chatState, item timelineItem) {
 		}
 	}
 	ui.Column(c.Key(item.id + "-context")).FillWidth().Gap(turnGap).Children(func() {
-		ui.Column(c.Key(item.id + "-history")).FillWidth().Opacity(0.7).Gap(turnGap).Children(func() {
+		ui.Column(c.Key(item.id + "-history")).FillWidth().Opacity(0.7).Gap(turnGap).Selectable().Children(func() {
 			expanded := s.forwardedContextExpanded(item.threadID, false)
 			if count > 0 {
 				label := fmt.Sprintf("更早 %d 条", count)
@@ -2060,7 +2060,7 @@ func renderForwardedContextRow(c *ui.Context, s *chatState, item timelineItem) {
 						icon = IconChevronDown()
 					}
 					ui.Icon(c, icon).Size(10, 10).TextColor(ThemeSecondaryText(c))
-					ui.Text(c, label).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+					ui.Text(c, label).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).Unselectable()
 				})
 			}
 			renderEarlier := func() {
@@ -2096,7 +2096,7 @@ func renderForwardedTurn(c *ui.Context, s *chatState, key string, turn forwarded
 	case "omitted":
 		ui.Row(c.Key(key)).FillWidth().AlignItems(ui.Center).Gap(Space3).Children(func() {
 			ui.Box(c.Key(key + "-left")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
-			ui.Text(c, "…").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "…").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).Unselectable()
 			ui.Box(c.Key(key + "-right")).Height(Hairline).Grow(1).Background(ThemeDivider(c))
 		})
 	}

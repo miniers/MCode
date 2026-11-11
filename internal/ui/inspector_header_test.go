@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -120,6 +121,21 @@ func TestInspectorHeaderShortcutOverride(t *testing.T) {
 	}
 	if id, _, ok := matchShortcut(ui.Cmd|ui.Shift, ui.KeyY); !ok || id != "toggle-inspector" {
 		t.Fatalf("覆盖绑定：%q %v", id, ok)
+	}
+}
+
+func TestInspectorHeaderCloseRightInset(t *testing.T) {
+	for _, topAligned := range []bool{false, true} {
+		t.Run(fmt.Sprintf("topAligned=%t", topAligned), func(t *testing.T) {
+			s := sidePaneTestState(t)
+			defer s.close()
+			const width = 500
+			tt := ui.NewTester(func(c *ui.Context) { renderInspectorHeader(c, s, inspectorSession(s), topAligned) }, width, 60)
+			button, ok := tt.Find("关闭右栏")
+			if !ok || button.X+button.W >= width {
+				t.Fatalf("关闭按钮右侧没有间距：%+v，找到=%v", button, ok)
+			}
+		})
 	}
 }
 
