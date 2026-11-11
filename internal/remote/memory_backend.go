@@ -6709,7 +6709,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 		harnessPrompt = continuationText + "\n\n" + harnessPrompt
 	}
 	if !compactOnly && interactionMode == "plan" {
-		harnessPrompt = "当前为 Plan 模式：仅分析并制定计划，不修改文件、不执行写操作、不派发执行型子任务。\n\n" + harnessPrompt
+		harnessPrompt = "当前为 Plan 模式：仅分析并制定计划，不修改文件、不执行写操作、不派发会改文件的子任务。\n\n" + harnessPrompt
 	}
 	if !compactOnly && len(imagePaths) > 0 {
 		var filePrompt strings.Builder

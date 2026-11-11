@@ -181,3 +181,67 @@ func TestDelegateToolFollowsSetting(t *testing.T) {
 		t.Fatalf("DelegateTool 开启后提示词应以工具为首选:\n%s", captured)
 	}
 }
+
+func TestSwarmPlanGate(t *testing.T) {
+	settings := swarm.Settings{DefaultTier: "edit", Tiers: []swarm.Tier{{ID: "edit"}, {ID: "read", ReadOnly: true}}}
+	for _, tc := range []struct {
+		tier, def, want string
+		allowed         bool
+	}{
+		{"read", "edit", "read", true}, {"edit", "edit", "edit", false},
+		{"missing", "edit", "missing", false}, {"", "edit", "read", true},
+		{"", "read", "", true}, {"", "missing", "read", true},
+	} {
+		settings.DefaultTier = tc.def
+		got, ok := swarmPlanGate(settings, swarm.Delegation{Tier: tc.tier})
+		if ok != tc.allowed || got.Tier != tc.want {
+			t.Errorf("tier=%q default=%q: got %q, %v", tc.tier, tc.def, got.Tier, ok)
+		}
+	}
+	settings.Tiers = nil
+	if _, ok := swarmPlanGate(settings, swarm.Delegation{}); ok {
+		t.Fatal("没有只读档时必须拒绝")
+	}
+}
+
+func TestSwarmPlanDispatcher(t *testing.T) {
+	h, d := newRoundLimitHarness(t, 1)
+	settings := swarm.Settings{DefaultTier: "edit", Tiers: []swarm.Tier{{ID: "edit"}, {ID: "read", ReadOnly: true}}}
+	d.planGate = func(_ string, entry swarm.Delegation) (swarm.Delegation, bool) { return swarmPlanGate(settings, entry) }
+	d.reset("lead")
+	blocked := "```swarm\n[{\"prompt\":\"blocked\",\"tier\":\"edit\"}]\n```"
+	d.feed("lead", "project", blocked)
+	d.settleTurn("lead", "project", blocked)
+	if h.rounds != 0 || h.dispatched != 0 || len(h.notices) != 1 || !strings.Contains(h.notices[0], "Plan 模式") {
+		t.Fatalf("拒绝结果异常: %+v", h)
+	}
+	d.reset("lead")
+	full := "```swarm\n[{\"prompt\":\"allowed\",\"tier\":\"read\"},{\"prompt\":\"blocked2\",\"tier\":\"edit\"}]\n```"
+	d.feed("lead", "project", full)
+	d.settleTurn("lead", "project", full)
+	if h.rounds != 1 || h.dispatched != 1 || len(h.notices) != 2 {
+		t.Fatalf("混合派发结果异常: %+v", h)
+	}
+}
+
+func TestSwarmPlanSubmitAndSettle(t *testing.T) {
+	h := newSubmitHarness(t, 0)
+	d := h.dispatcher
+	d.planGate = func(_ string, entry swarm.Delegation) (swarm.Delegation, bool) { return entry, entry.Tier != "edit" }
+	d.reset("lead")
+	got := d.submit("lead", "project", []swarm.Delegation{{Prompt: "blocked", Tier: "edit"}})
+	if !strings.Contains(got, "plan mode allows only read-only") || h.rounds != 0 {
+		t.Fatalf("工具拒绝结果异常: %q", got)
+	}
+	d.settleTurn("lead", "project", "```swarm\n[{\"prompt\":\"blocked\",\"tier\":\"edit\"},{\"prompt\":\"read\",\"tier\":\"read\"}]\n```")
+	if got := h.dispatched(); len(got) != 1 || got[0] != "read" || h.rounds != 1 {
+		t.Fatalf("补派结果异常: %v", got)
+	}
+	d.planGate = nil
+	d.reset("lead")
+	d.submit("lead", "project", []swarm.Delegation{{Prompt: "edit", Tier: "edit"}})
+	d.settleTurn("lead", "project", "")
+	if got := h.dispatched(); len(got) != 2 || got[1] != "edit" {
+		t.Fatalf("非 Plan 派发异常: %v", got)
+	}
+}

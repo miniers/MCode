@@ -322,14 +322,15 @@ type swarmStreamJob struct {
 
 // swarmStreamState 维护单个主会话当前轮次的流式解析状态。
 type swarmStreamState struct {
-	parser     *swarm.StreamParser
-	streamed   int             // 本轮已派发的条目数
-	suppressed bool            // 本轮已达委派轮次上限，后续条目全部丢弃
-	limitHit   int             // 触发抑制的轮次上限，供回合末回送主代理时说明原因
-	counted    bool            // 本轮是否已计入委派轮次
-	overCap    int             // 本回合因超过单块条目上限而未派发的条目数
-	settled    int             // 本回合由 settleRemaining 补派的条目数（不计入 streamed，只用于回送时统计已启动数）
-	dispatched map[string]bool // 本轮已派发条目的 prompt（TrimSpace 后），用于回合末按整段回复补派
+	parser      *swarm.StreamParser
+	streamed    int             // 本轮已派发的条目数
+	suppressed  bool            // 本轮已达委派轮次上限，后续条目全部丢弃
+	limitHit    int             // 触发抑制的轮次上限，供回合末回送主代理时说明原因
+	counted     bool            // 本轮是否已计入委派轮次
+	overCap     int             // 本回合因超过单块条目上限而未派发的条目数
+	planRefused int             // 本回合因 Plan 模式限制而未派发的条目数
+	settled     int             // 本回合由 settleRemaining 补派的条目数（不计入 streamed，只用于回送时统计已启动数）
+	dispatched  map[string]bool // 本轮已派发条目的 prompt（TrimSpace 后），用于回合末按整段回复补派
 
 	// 跨回合去重与本回合回送所需的记录：本回合启动过哪些条目、因去重跳过了哪些。
 	started     []*swarmStartedEntry
@@ -386,6 +387,7 @@ type swarmStreamDispatcher struct {
 	// maxEntries 返回单个 swarm 块允许的条目数上限（即并发上限），为 nil 或返回非正数表示不限制；
 	// 构造后由调用方赋值，使用中只读。
 	maxEntries func() int
+	planGate   func(threadID string, entry swarm.Delegation) (swarm.Delegation, bool)
 	// bees 返回该主会话名下的 bee 快照，用于判断跨回合去重时同一条目的 bee 是否还在跑；
 	// 构造后由调用方赋值，使用中只读。
 	bees func(leadThreadID string) []swarm.Bee
@@ -671,6 +673,41 @@ func (d *swarmStreamDispatcher) clear(threadID string) {
 	d.mu.Unlock()
 }
 
+func swarmPlanGate(settings swarm.Settings, entry swarm.Delegation) (swarm.Delegation, bool) {
+	if strings.TrimSpace(entry.Tier) == "" {
+		if tier, ok := swarm.FindTier(settings.Tiers, settings.DefaultTier); ok && tier.ReadOnly {
+			return entry, true
+		}
+		for _, tier := range settings.Tiers {
+			if tier.ReadOnly {
+				entry.Tier = tier.ID
+				return entry, true
+			}
+		}
+		return entry, false
+	}
+	tier, ok := swarm.FindTier(settings.Tiers, entry.Tier)
+	return entry, ok && tier.ReadOnly
+}
+
+func (d *swarmStreamDispatcher) gateEntry(threadID string, st *swarmStreamState, entry swarm.Delegation, report bool) (swarm.Delegation, bool) {
+	if d.planGate == nil {
+		return entry, true
+	}
+	gated, ok := d.planGate(threadID, entry)
+	if !ok {
+		if st.dispatched == nil {
+			st.dispatched = make(map[string]bool)
+		}
+		key := strings.TrimSpace(entry.Prompt)
+		if report && !st.dispatched[key] {
+			st.planRefused++
+		}
+		st.dispatched[key] = true
+	}
+	return gated, ok
+}
+
 // feed 追加一段助手正文增量，条目在闭合大括号到达时立即入队派发。
 // 本轮首个条目先校验委派轮次上限；超限后置抑制标记并丢弃本轮全部条目，
 // 原因在回合末由 settleTurn 回送主代理，feed 里只记录，不阻塞流回调。
@@ -683,6 +720,11 @@ func (d *swarmStreamDispatcher) feed(threadID, projectID, delta string) {
 	}
 	var entries []swarmPendingEntry
 	for _, entry := range st.parser.Feed(delta) {
+		var allowed bool
+		entry, allowed = d.gateEntry(threadID, st, entry, true)
+		if !allowed {
+			continue
+		}
 		// 跨回合去重先于轮次与条目上限：跳过的条目既不占名额，也不消耗派发轮次。
 		// 带 replaces 的条目本来就要换掉在跑的 bee，跨回合去重会让取代失效，只保留同回合的 prompt 去重。
 		if strings.TrimSpace(entry.Replaces) != "" {
@@ -730,8 +772,14 @@ func (d *swarmStreamDispatcher) submit(threadID, projectID string, entries []swa
 	}
 	var queued []swarmPendingEntry
 	var skippedEntries []*swarmStartedEntry
-	var duplicates, overCap, refused, skipped int
-	for i, entry := range entries {
+	var duplicates, overCap, refused, skipped, planRefused int
+	for _, entry := range entries {
+		var allowed bool
+		entry, allowed = d.gateEntry(threadID, st, entry, false)
+		if !allowed {
+			planRefused++
+			continue
+		}
 		key := strings.TrimSpace(entry.Prompt)
 		if st.dispatched[key] {
 			duplicates++
@@ -748,8 +796,8 @@ func (d *swarmStreamDispatcher) submit(threadID, projectID string, entries []swa
 			}
 		}
 		if !d.beginRoundLocked(st, threadID) {
-			refused = len(entries) - i
-			break
+			refused++
+			continue
 		}
 		if limit := d.entryCap(); limit > 0 && st.streamed >= limit {
 			overCap++
@@ -766,6 +814,9 @@ func (d *swarmStreamDispatcher) submit(threadID, projectID string, entries []swa
 	d.enqueue(threadID, projectID, queued)
 
 	parts := []string{fmt.Sprintf("Started %d bee(s).", len(queued))}
+	if planRefused > 0 {
+		parts = append(parts, fmt.Sprintf("%d entry(ies) not started: plan mode allows only read-only tier bees.", planRefused))
+	}
 	if duplicates > 0 {
 		parts = append(parts, fmt.Sprintf("%d entry(ies) skipped: same prompt already dispatched this turn.", duplicates))
 	}
@@ -813,6 +864,7 @@ func (d *swarmStreamDispatcher) settleTurn(threadID, projectID, fullText string)
 	}
 	d.settleRemaining(threadID, projectID, fullText, st)
 	d.reportOverCap(threadID, st)
+	d.reportPlanRefused(threadID, st)
 	d.reportSkipped(threadID, st)
 	d.drain(threadID, swarmDrainTimeout)
 	return st.streamed, st.suppressed
@@ -827,6 +879,13 @@ func (d *swarmStreamDispatcher) reportOverCap(threadID string, st *swarmStreamSt
 	limit := d.entryCap()
 	started := st.streamed + st.settled
 	d.reportBlockProblem(threadID, fmt.Sprintf("本块条目数超过并发上限 %d：已启动前 %d 个，其余 %d 个条目未派发。请等这批子代理汇报后，在新的 swarm 块里重新发送剩余条目，每个块的条目数不要超过 %d。", limit, started, st.overCap, limit))
+}
+
+// reportPlanRefused 汇总本回合被 Plan 模式限制的条目。
+func (d *swarmStreamDispatcher) reportPlanRefused(threadID string, st *swarmStreamState) {
+	if st.planRefused > 0 {
+		d.reportBlockProblem(threadID, fmt.Sprintf("当前为 Plan 模式：只能派发只读档的 bee，本回合有 %d 个其他档的条目没有派发。请把调研改派只读档，改动等计划获批后再派。", st.planRefused))
+	}
 }
 
 // reportParseFailure 在委派块整块解析失败时回送主代理。本回合已经流式派出的条目必须点名：
@@ -853,6 +912,18 @@ func (d *swarmStreamDispatcher) reportSkipped(threadID string, st *swarmStreamSt
 // 因此不依赖流式计数与整块解析结果是否一致。块本身没有生效时把原因回送主代理。
 func (d *swarmStreamDispatcher) settleRemaining(threadID, projectID, fullText string, st *swarmStreamState) {
 	entries, found, err := swarm.ParseDelegations(fullText)
+	if err == nil {
+		d.mu.Lock()
+		allowed := entries[:0]
+		for _, entry := range entries {
+			entry, ok := d.gateEntry(threadID, st, entry, true)
+			if ok {
+				allowed = append(allowed, entry)
+			}
+		}
+		entries = allowed
+		d.mu.Unlock()
+	}
 	if st.suppressed {
 		bee := "本轮委派块没有派出"
 		if err == nil && len(entries) > 0 {
@@ -1161,16 +1232,12 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 		return err == nil && (thread.ParentThreadID == nil || *thread.ParentThreadID == "")
 	})
 
-	// canAutoDelegate 判断该会话是否允许自动委派：两个开关开启、会话启用、不是 bee，
-	// 且不处于 plan 模式（plan 回复只供审阅，不触发执行型子任务派发）。
+	// canAutoDelegate 判断该会话是否允许自动委派：两个开关开启、会话启用且不是 bee。
 	canAutoDelegate := func(threadID string) bool {
 		if !mgr.Settings().Enabled || !mgr.Settings().AutoDelegate || !mgr.State(threadID).Enabled {
 			return false
 		}
 		if isBeeThread(threadID) {
-			return false
-		}
-		if thread, err := backend.GetThread(ctx, threadID); err == nil && thread.InteractionMode == "plan" {
 			return false
 		}
 		return true
@@ -1196,6 +1263,13 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 	}
 	// 单个 swarm 块的条目数硬上限取用户设置的并发上限：超出的条目不入队，回合末回送主代理另发一块。
 	dispatcher.maxEntries = mgr.MaxBeesLimit
+	dispatcher.planGate = func(threadID string, entry swarm.Delegation) (swarm.Delegation, bool) {
+		thread, err := backend.GetThread(ctx, threadID)
+		if err != nil || thread.InteractionMode != "plan" {
+			return entry, true
+		}
+		return swarmPlanGate(mgr.Settings(), entry)
+	}
 	// 跨回合去重要看 bee 的实时状态：同一条目已经派出且仍在跑时不再派第二次。
 	dispatcher.bees = func(threadID string) []swarm.Bee {
 		return mgr.State(threadID).Bees
@@ -1237,6 +1311,9 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 		plansOnly = effectiveMode(threadID) == swarm.ModeLeadPlansOnly
 		delegateTool = settings.DelegateTool
 		leadPolicy = swarm.LeadPolicy(plansOnly, settings.ReviewMode, delegateTool)
+		if thread, err := backend.GetThread(ctx, threadID); err == nil && thread.InteractionMode == "plan" {
+			leadPolicy += "\n\n[Swarm · plan mode] This turn is in plan mode: only read-only tier bees may be dispatched; entries for other tiers are refused. Send editing bees after the plan is approved."
+		}
 		tiers = swarm.TierPromptSection(settings.Tiers, settings.DefaultTier, mgr.TierPreview(threadID))
 		return
 	}
