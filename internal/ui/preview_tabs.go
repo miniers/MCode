@@ -17,6 +17,7 @@ var browserNextTabID uint64
 // browserTab 的页面、输入和采集状态统一由 previewMu 保护。
 type browserTab struct {
 	tabID                          uint64
+	threadID                       string
 	owner                          *previewState
 	title, localPath               string
 	addressEditing                 bool
@@ -58,11 +59,13 @@ type browserTab struct {
 }
 
 type previewState struct {
-	tabs        []*browserTab
-	activeTabID uint64
-	empty       *browserTab
-	visible     bool
-	lastUsed    time.Time
+	tabs            []*browserTab
+	activeTabID     uint64
+	empty           *browserTab
+	threadID        string
+	captureMenuOpen bool
+	visible         bool
+	lastUsed        time.Time
 }
 
 type browserHistoryPage interface {
@@ -88,7 +91,7 @@ func browserActiveTabLocked(st *previewState) *browserTab {
 		}
 	}
 	if st.empty == nil {
-		st.empty = &browserTab{owner: st, viewport: previewViewportDesktop, visible: st.visible}
+		st.empty = &browserTab{owner: st, threadID: st.threadID, viewport: previewViewportDesktop, visible: st.visible}
 	}
 	return st.empty
 }
@@ -114,7 +117,7 @@ func browserNewTab(s *chatState) *browserTab {
 	st := current.owner
 	hideBrowserTab(s, current)
 	previewMu.Lock()
-	tab := &browserTab{owner: st, viewport: previewViewportDesktop, visible: st.visible}
+	tab := &browserTab{owner: st, threadID: st.threadID, viewport: previewViewportDesktop, visible: st.visible}
 	browserPromoteTabLocked(tab)
 	previewMu.Unlock()
 	s.invalidate()

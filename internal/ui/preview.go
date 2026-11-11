@@ -152,9 +152,15 @@ func getPreviewState(s *chatState) *browserTab {
 	if slot == nil {
 		return nil
 	}
+	s.mu.Lock()
+	threadID := s.selectedThreadID
+	s.mu.Unlock()
 	previewMu.Lock()
 	defer previewMu.Unlock()
 	st := slot.Browser
+	if st.threadID == "" {
+		st.threadID = threadID
+	}
 	previewStates[s] = st
 	return browserActiveTabLocked(st)
 }
@@ -770,10 +776,14 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						})
 					}
 
-					// 标注按钮：进入/退出元素标注模式，有标注时在图标后显示数量
+					// 标注与截图共用附件入口。
 					annotBtn := ui.ButtonBase(c.Key("preview-annotate-btn")).
-						Label("标注").
-						Tooltip("标注页面元素并向 Agent 留言").
+						Label(func() string {
+							if len(snap.annotations) > 0 {
+								return "添加到对话"
+							}
+							return "选择元素"
+						}()).
 						Radius(RadiusXS).
 						Padding(Space0, Space2).
 						Background(ThemeOverlay(c, 0.06))
@@ -784,7 +794,11 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						annotBtn.Background(ThemeHover(c))
 					}
 					if annotBtn.Clicked() {
-						togglePreviewAnnotate(s, st)
+						if len(snap.annotations) > 0 {
+							previewSendAnnotations(s, snap.token)
+						} else {
+							togglePreviewAnnotate(s, st)
+						}
 					}
 					annotBtn.Children(func() {
 						color := ThemeSecondaryText(c)
@@ -793,11 +807,36 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						}
 						ui.Row(c.Key("preview-annotate-btn-row")).Gap(Space0).AlignItems(ui.Center).Children(func() {
 							ui.Icon(c, IconHighlighter()).Size(IconSM, IconSM).TextColor(color)
+							label := "选择元素"
 							if len(snap.annotations) > 0 {
-								ui.Text(c, fmt.Sprintf("%d", len(snap.annotations))).
-									FontSize(TypeCaption).
-									FontWeight(600).
-									TextColor(color)
+								label = "添加到对话"
+							}
+							ui.Text(c, label).FontSize(TypeCaption).FontWeight(600).TextColor(color)
+						})
+					})
+					menuBtn := ui.ButtonBase(c.Key("preview-capture-menu-btn")).Label("截图与元素菜单").Tooltip("更多").Padding(Space0, Space1)
+					menuBtn.Children(func() { ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)) })
+					if menuBtn.Clicked() {
+						st.owner.captureMenuOpen = !st.owner.captureMenuOpen
+					}
+					background := ThemeSurfacePopover(c)
+					native := flyoutHostWindow(c.Services()) != nil
+					appFlyoutPopover(c, "preview-capture-menu", menuBtn, &st.owner.captureMenuOpen, func() { st.owner.captureMenuOpen = false }, appFlyoutProps{Width: 150, Background: &background}, func(fc *ui.Context) {
+						card := ui.Column(fc.Key("preview-capture-menu-panel"))
+						if !native {
+							card = popoverCard(fc, card)
+						}
+						card.Padding(Space1).Transition(motionPopover(fc, motionRiseOffset)).Children(func() {
+							for _, action := range []struct{ label, key string }{{"截图", "capture"}, {"选择元素", "annotate"}} {
+								a := action
+								Button(fc.Key("preview-capture-menu-"+a.key), ButtonOpts{Text: a.label, Variant: ButtonGhost, OnClick: func() {
+									st.owner.captureMenuOpen = false
+									if a.key == "capture" {
+										previewCaptureScreenshot(s, st)
+									} else {
+										togglePreviewAnnotate(s, st)
+									}
+								}})
 							}
 						})
 					})

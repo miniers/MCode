@@ -17,6 +17,7 @@ type previewTestPage struct {
 
 func (p *previewTestPage) Eval(script string) (any, error) { return p.eval(script) }
 func (p *previewTestPage) Destroy()                        {}
+func (p *previewTestPage) CapturePage() ([]byte, error)    { return nil, nil }
 
 type previewTestEventPage struct {
 	previewTestPage

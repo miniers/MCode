@@ -17,7 +17,10 @@ type nativePreviewPage struct {
 	web *mygo.WebView
 }
 
-func (p *nativePreviewPage) Destroy() { p.web.Destroy() }
+func (p *nativePreviewPage) Destroy()                     { p.web.Destroy() }
+func (p *nativePreviewPage) CapturePage() ([]byte, error) { return p.web.CapturePage() }
+
+type previewCapturePage interface{ CapturePage() ([]byte, error) }
 
 type previewPageEvents interface {
 	previewPage

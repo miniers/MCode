@@ -32,13 +32,14 @@ func (p *browserTestPage) URL() string {
 	}
 	return p.entries[p.index]
 }
-func (p *browserTestPage) CanGoBack() bool    { return p.index > 0 }
-func (p *browserTestPage) CanGoForward() bool { return p.index+1 < len(p.entries) }
-func (p *browserTestPage) GoBack()            { p.backCalls++; p.index--; p.navigate(p.entries[p.index]) }
-func (p *browserTestPage) GoForward()         { p.forwardCalls++; p.index++; p.navigate(p.entries[p.index]) }
-func (p *browserTestPage) Reload()            { p.reloadCalls++ }
-func (p *browserTestPage) Stop()              { p.stopCalls++ }
-func (p *browserTestPage) IsLoading() bool    { return p.loading }
+func (p *browserTestPage) CanGoBack() bool              { return p.index > 0 }
+func (p *browserTestPage) CanGoForward() bool           { return p.index+1 < len(p.entries) }
+func (p *browserTestPage) GoBack()                      { p.backCalls++; p.index--; p.navigate(p.entries[p.index]) }
+func (p *browserTestPage) GoForward()                   { p.forwardCalls++; p.index++; p.navigate(p.entries[p.index]) }
+func (p *browserTestPage) Reload()                      { p.reloadCalls++ }
+func (p *browserTestPage) Stop()                        { p.stopCalls++ }
+func (p *browserTestPage) IsLoading() bool              { return p.loading }
+func (p *browserTestPage) CapturePage() ([]byte, error) { return []byte("invalid"), nil }
 func (p *browserTestPage) LoadURL(target string) error {
 	p.loaded.Add(1)
 	p.entries = append(p.entries[:p.index+1], target)

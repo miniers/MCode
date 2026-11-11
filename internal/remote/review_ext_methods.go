@@ -11,7 +11,10 @@ type reviewExtBackend interface {
 	ReviewGet(context.Context, wire.ThreadsReviewGetParams) (wire.ThreadsReviewGetResult, error)
 }
 
-func init() { RegisterMethod("threads.review.get", handleThreadsReviewGet) }
+func init() {
+	RegisterMethod("threads.review.get", handleThreadsReviewGet)
+	RegisterMethod("threads.review.revertHunk", handleThreadsReviewRevertHunk)
+}
 
 func handleThreadsReviewGet(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
 	var p wire.ThreadsReviewGetParams

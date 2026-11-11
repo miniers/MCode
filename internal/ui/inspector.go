@@ -122,6 +122,7 @@ func inspectorSelect(s *chatState, id string, toggle bool) bool {
 	s.mu.Unlock()
 	if wasBrowser && (!open || id != sidePanePreviewID) {
 		hidePreviewState(s, st.Browser)
+		browserServerDiscoveryStop(s)
 	}
 	inspectorSyncVisibility(st)
 	inspectorRemember(s)
@@ -138,6 +139,7 @@ func inspectorClose(s *chatState) {
 	st.Open = false
 	s.mu.Unlock()
 	hidePreviewState(s, st.Browser)
+	browserServerDiscoveryStop(s)
 	inspectorSyncVisibility(st)
 	inspectorRemember(s)
 	s.invalidate()
@@ -264,6 +266,7 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 	current := inspectorExistingSessionLocked(s, s.selectedThreadID)
 	s.mu.Unlock()
 	if old != nil {
+		browserServerDiscoveryStop(s)
 		fileTreeWatchSetVisible(old.Files, false)
 		fileManagerMu.Lock()
 		old.Files.opsSeq++
@@ -321,6 +324,7 @@ func inspectorDisposeSession(s *chatState, st *inspectorSessionState) {
 	if st == nil {
 		return
 	}
+	browserServerDiscoveryDispose(s)
 	fileTreeWatchDispose(st.Files)
 	fileManagerMu.Lock()
 	st.Files.gen++

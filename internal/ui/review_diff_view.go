@@ -103,7 +103,7 @@ func renderReviewDiffView(c *ui.Context, key string, view *reviewDiffView, split
 	if view.restore {
 		c.Invalidate()
 	}
-	view.state.Font.Size = scaledFont(TypeCode)
+	view.state.Font.Size = TypeCode
 	return editor.DiffView(c.Key(key), view.state).Grow(1).MinHeight(0).FillWidth()
 }
 
@@ -337,5 +337,6 @@ func renderReviewFile(c *ui.Context, s *chatState, dp *diffPanelState, tid strin
 		key.surface = surface[0]
 	}
 	view := reviewViewFor(dp, key, *entry.content, file.Language)
+	configureReviewHunkActions(c, s, dp, tid, snapshot, file, *entry.content, view)
 	renderReviewDiffView(c, fmt.Sprintf("review-diff-%s-%s", key.head, key.path), view, split, width)
 }

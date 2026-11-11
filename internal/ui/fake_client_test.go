@@ -187,19 +187,22 @@ type gitSelectedCommitCall struct {
 type FakeClient struct {
 	mu sync.Mutex
 
-	projects          []Project
-	providers         []ProviderInfo
-	threads           map[string][]Thread
-	threadsCalls      map[string]int // 按项目统计 Threads 调用次数，用于断言列表重拉的次数
-	archivedThreads   []Thread
-	messages          map[string][]Message
-	forwardedContexts map[string]ForwardedContext
-	approvals         map[string][]Approval
-	usage             map[string]ThreadUsage
-	diffs             map[string]ThreadDiff
-	reviewSnapshots   map[ReviewGetCall]ReviewSnapshot
-	reviewGetCalls    []ReviewGetCall
-	reviewGetErr      error
+	projects           []Project
+	providers          []ProviderInfo
+	threads            map[string][]Thread
+	threadsCalls       map[string]int // 按项目统计 Threads 调用次数，用于断言列表重拉的次数
+	archivedThreads    []Thread
+	messages           map[string][]Message
+	forwardedContexts  map[string]ForwardedContext
+	approvals          map[string][]Approval
+	usage              map[string]ThreadUsage
+	diffs              map[string]ThreadDiff
+	reviewSnapshots    map[ReviewGetCall]ReviewSnapshot
+	reviewGetCalls     []ReviewGetCall
+	reviewGetErr       error
+	reviewRevertResult ReviewRevertHunkResult
+	reviewRevertErr    error
+	reviewRevertCalls  []ReviewRevertHunkParams
 
 	kanbanBoard         KanbanBoard
 	kanbanBoardHook     func(context.Context, string) (KanbanBoard, error)
@@ -1648,6 +1651,19 @@ func (f *FakeClient) ReviewGetCalls() []ReviewGetCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]ReviewGetCall{}, f.reviewGetCalls...)
+}
+
+func (f *FakeClient) SetReviewRevertHunkResult(result ReviewRevertHunkResult, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reviewRevertResult, f.reviewRevertErr = result, err
+}
+
+func (f *FakeClient) ReviewRevertHunk(ctx context.Context, p ReviewRevertHunkParams) (ReviewRevertHunkResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reviewRevertCalls = append(f.reviewRevertCalls, p)
+	return f.reviewRevertResult, f.reviewRevertErr
 }
 
 var _ reviewClient = (*FakeClient)(nil)

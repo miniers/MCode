@@ -10,7 +10,6 @@ import (
 	"unicode"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/richtext"
 )
 
 // 标注列表与各字段的上限：页面由用户随手点击产生，本地必须限长限数，
@@ -388,26 +387,7 @@ func previewResetAnnotationsLocked(st *browserTab) {
 	st.annotLastPoll = time.Time{}
 }
 
-// previewAnnotateIntoComposer 把标注提示追加到当前会话的输入框草稿末尾。
-// 与 quoteIntoDraft 同一套路（同步 draft 与 richtext 状态），避免只改字符串导致输入框内容不同步。
-func previewAnnotateIntoComposer(s *chatState, text string) {
-	text = strings.TrimSpace(text)
-	if s == nil || text == "" {
-		return
-	}
-	s.mu.Lock()
-	if strings.TrimSpace(s.draft) == "" {
-		s.draft = text
-	} else {
-		s.draft = strings.TrimRight(s.draft, "\n") + "\n\n" + text
-	}
-	s.draftText = richtext.NewText(s.draft)
-	s.completionKind = completionNone
-	s.mu.Unlock()
-	s.invalidate()
-}
-
-// previewSendAnnotations 把已标注元素整理成提示送入当前 Composer，随后退出标注模式并清空列表。
+// previewSendAnnotations 把已标注元素作为附件加入发起时的会话。
 func previewSendAnnotations(s *chatState, token previewPageToken) {
 	if s == nil {
 		return
@@ -420,10 +400,6 @@ func previewSendAnnotations(s *chatState, token previewPageToken) {
 	}
 	items := append([]previewAnnotation(nil), st.annotations...)
 	page := st.page
-	previewResetAnnotationsLocked(st)
-	st.annotPolling = false
-	st.annotRevision++
-	token = previewPageTokenLocked(st)
 	previewMu.Unlock()
 
 	prompt := previewAnnotationsPrompt(items)
@@ -431,11 +407,27 @@ func previewSendAnnotations(s *chatState, token previewPageToken) {
 		s.setToast("还没有标注任何元素")
 		return
 	}
-	previewAnnotateIntoComposer(s, prompt)
-	if page != nil {
-		go previewEvalAnnotations(s, token, page, previewAnnotateStopScript)
+	threadID := st.owner.threadID
+	if !s.addAttachmentToThread(threadID, "浏览器标注.txt", "text/plain", []byte(prompt), nil) {
+		s.setToast("添加标注附件失败")
+		return
 	}
-	s.setToast(fmt.Sprintf("已把 %d 条浏览器标注送入输入框", len(items)))
+	previewMu.Lock()
+	current := previewStateForTokenLocked(s, token)
+	if current == nil || current.annotRevision != token.annotRevision {
+		previewMu.Unlock()
+		s.setToast("页面已变化，标注未清除")
+		return
+	}
+	previewResetAnnotationsLocked(current)
+	current.annotPolling = false
+	current.annotRevision++
+	stopToken := previewPageTokenLocked(current)
+	previewMu.Unlock()
+	if page != nil {
+		go previewEvalAnnotations(s, stopToken, page, previewAnnotateStopScript)
+	}
+	s.setToast(fmt.Sprintf("已添加 %d 条标注", len(items)))
 }
 
 // renderPreviewAnnotateDrawer 渲染底部标注抽屉：已选元素 chip（可删除）、单行评论与发送按钮。
@@ -470,8 +462,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 					ui.Spacer(c)
 
 					sendBtn := ui.ButtonBase(c.Key("preview-annotate-send")).
-						Label("发送给 Agent").
-						Tooltip("把标注整理成提示追加到输入框").
+						Label("添加到对话").
 						Radius(RadiusXS).
 						Padding(Space0, Space3)
 					if sendBtn.Hovered() {
@@ -481,7 +472,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 						sendItems = true
 					}
 					sendBtn.Children(func() {
-						ui.Text(c, "发送给 Agent").FontSize(TypeCaption).FontWeight(600).TextColor(ThemeAccent(c))
+						ui.Text(c, "添加到对话").FontSize(TypeCaption).FontWeight(600).TextColor(ThemeAccent(c))
 					})
 
 					clearBtn := ui.ButtonBase(c.Key("preview-annotate-clear")).

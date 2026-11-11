@@ -45,3 +45,16 @@ type ReviewFileContent struct {
 type reviewClient interface {
 	ReviewGet(ctx context.Context, threadID, scope, turnID, path string) (ReviewSnapshot, error)
 }
+
+type ReviewRevertHunkParams struct {
+	ThreadID, Scope, TurnID, Path string
+	BaseRevision, HeadRevision    string
+	StartLine, LineCount          int
+	HunkHash, ExpectedFileHash    string
+}
+
+type ReviewRevertHunkResult struct{ FileHash string }
+
+type reviewHunkReverter interface {
+	ReviewRevertHunk(context.Context, ReviewRevertHunkParams) (ReviewRevertHunkResult, error)
+}
