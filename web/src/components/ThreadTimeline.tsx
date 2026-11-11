@@ -1168,6 +1168,17 @@ export interface MessageMoreMenuItem {
   danger?: boolean;
 }
 
+export function quoteMessageMenuItem(
+  isAssistant: boolean,
+  canQuote: boolean,
+  messageID: string,
+  onQuote: (messageID: string) => void
+): MessageMoreMenuItem | null {
+  return isAssistant && canQuote
+    ? { key: 'quote', label: '引用', onSelect: () => onQuote(messageID) }
+    : null;
+}
+
 /** 消息菜单上的附加操作：由 ThreadView 提供，缺省时对应按钮不渲染 */
 export interface MessageMenuActions {
   /** 引用到回复：把消息正文按桌面 quoteIntoDraft 的格式插进输入框草稿（timeline_menu.go:35） */
@@ -2118,8 +2129,15 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
   const revertTurnID = isAssistant && message.isFinalResponse && message.turnID ? message.turnID : null;
   // 发送到主会话：仅子会话里对助手答复开放（桌面 timeline_menu.go:63 的 sendToParentThread）
   const canSendToParent = isAssistant && hasNonEmptyText && Boolean(messageMenu?.onSendToParent);
-  // 「更多」只收次要操作，行内因此只留复制、分支、引用、编辑这类高频按钮（移动端也不会挤爆一行）
+  // 「更多」只收次要操作；助手引用只加到最终答复的菜单。
   const moreItems: MessageMoreMenuItem[] = [];
+  const quoteItem = quoteMessageMenuItem(
+    isAssistant,
+    showCopyButton && canQuote,
+    message.id,
+    (messageID) => messageMenu?.onQuote(messageID)
+  );
+  if (quoteItem) moreItems.push(quoteItem);
   if (revertTurnID && messageMenu?.onRevertTurn) {
     moreItems.push({
       key: 'revert-turn',
@@ -2359,17 +2377,6 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
             </button>
           )}
 
-          {canQuote && (
-            <button
-              type="button"
-              onClick={() => messageMenu?.onQuote(message.id)}
-              aria-label="引用到回复"
-              title="引用到回复"
-              className="min-h-[32px] px-2.5 rounded-lg text-xs font-medium border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--card-alt,var(--card))] text-[var(--foreground-muted)] hover:text-[var(--foreground)] transition active:scale-95"
-            >
-              引用
-            </button>
-          )}
           {showCopyButton && (
             <>
               {canBranch && onBranchMessage && (
