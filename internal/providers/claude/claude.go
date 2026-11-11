@@ -410,9 +410,7 @@ func buildMCPArgs(turn harness.Turn, approvalURL, approvalToken string, builtin 
 // buildEnv 构造子进程环境变量列表：
 // 1. 从 base 中剔除所有以 "PWD=" 开头的项，避免原样继承父进程的环境变量 PWD；
 // 2. 当 workDir 非空时追加 "PWD=" + workDir，保证子进程 PWD 与工作目录一致；
-// 3. 默认追加 "CLAUDE_CODE_SUBAGENT_MODEL=haiku"，把 Claude Code 的原生子代理固定为 haiku；
-// 如果 base 中已存在同名项（用户在外部环境里设置过）则尊重它、不重复追加；
-// 4. 最后追加 extra（即 turn.Env）。如果 turn.Env 中自带了 PWD 或 CLAUDE_CODE_SUBAGENT_MODEL，由于追加在末尾，其优先级高于此处注入的值（在子进程中以最后出现的项为准）。
+// 3. 最后追加 extra（即 turn.Env）。如果 turn.Env 中自带了 PWD 或其他变量，追加在末尾的值优先。
 func buildEnv(base []string, workDir string, extra []string) []string {
 	env := make([]string, 0, len(base)+2+len(extra))
 	for _, e := range base {
@@ -422,9 +420,6 @@ func buildEnv(base []string, workDir string, extra []string) []string {
 	}
 	if workDir != "" {
 		env = append(env, "PWD="+workDir)
-	}
-	if !hasEnvKey(env, "CLAUDE_CODE_SUBAGENT_MODEL=") {
-		env = append(env, "CLAUDE_CODE_SUBAGENT_MODEL=haiku")
 	}
 	// 让模型使用 TaskCreate/TaskUpdate 记录待办，界面据此显示待办进度。
 	if !hasEnvKey(env, "CLAUDE_CODE_ENABLE_TODO_TOOLS=") {

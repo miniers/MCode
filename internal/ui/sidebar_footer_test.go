@@ -97,3 +97,41 @@ func TestSidebarFooter_KanbanBadgeSkipsNilClient(t *testing.T) {
 		t.Fatalf("无 client 时缓存应保持 0，got %d", got)
 	}
 }
+
+func TestSidebarFooter_AttentionBadge(t *testing.T) {
+	fake := newAttentionFakeClient(
+		AttentionItem{ID: "review", Kind: "kanban_review"},
+		AttentionItem{ID: "failed", Kind: "kanban_failed"},
+		AttentionItem{ID: "thread", Kind: "thread_failed"},
+	)
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	tt := ui.NewTester(func(c *ui.Context) { renderSidebarBottomBar(c, s) }, 500, 100)
+	waitFor(t, tt, func() bool { _, ok := tt.Find("2"); return ok })
+	if fake.KanbanBoardCalls() != 0 || fake.watchCount() != 1 {
+		t.Fatal("收件箱可用时应订阅收件箱，不应轮询看板")
+	}
+
+	s.resolveAttentionItem("review")
+	waitFor(t, tt, func() bool { _, ok := tt.Find("1"); return ok })
+	waitFor(t, tt, func() bool { return len(fake.resolvedIDs()) == 1 })
+
+	fake.addItems(AttentionItem{ID: "again", Kind: "kanban_review"})
+	fake.triggerAttentionChange()
+	waitFor(t, tt, func() bool { _, ok := tt.Find("2"); return ok })
+}
+
+func TestSidebarFooter_AttentionBadgeFallback(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{{ID: "review", Column: "review"}}})
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	if count, ok := sidebarKanbanAttentionCount(s); ok || count != 0 {
+		t.Fatalf("无收件箱客户端时应返回 (0, false)，得到 (%d, %v)", count, ok)
+	}
+	tt := ui.NewTester(func(c *ui.Context) { renderSidebarBottomBar(c, s) }, 500, 100)
+	waitFor(t, tt, func() bool { _, ok := tt.Find("1"); return ok })
+	if fake.KanbanBoardCalls() != 1 {
+		t.Fatalf("应轮询看板一次，实际 %d 次", fake.KanbanBoardCalls())
+	}
+}

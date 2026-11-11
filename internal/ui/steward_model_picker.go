@@ -10,6 +10,8 @@ import (
 	"mcode/internal/frontdesk"
 )
 
+var newStewardSecretStore = func() config.SecretStore { return config.NewSecretStore("mcode") }
+
 func (st *SettingsState) stewardAutoLabel(catalog modelPickerCatalog, sel ModelSelection) string {
 	var key strings.Builder
 	add := func(value string) { key.WriteString(strconv.Quote(value)) }
@@ -27,7 +29,7 @@ func (st *SettingsState) stewardAutoLabel(catalog modelPickerCatalog, sel ModelS
 	defer st.stewardLabelMu.Unlock()
 	if st.stewardLabelKey != cacheKey {
 		if st.stewardSecrets == nil {
-			st.stewardSecrets = config.NewSecretStore("mcode")
+			st.stewardSecrets = newStewardSecretStore()
 		}
 		st.stewardLabel = stewardModelEmptyLabel(st.cfg, catalog, sel, st.stewardSecrets)
 		st.stewardLabelKey = cacheKey

@@ -49,8 +49,12 @@ func insertStewardTaskRows(items []timelineItem, idx stewardTaskIndex) []timelin
 	var messageID string
 	var turn int
 	flush := func() {
-		for _, task := range idx.source[messageID] {
+		tasks := idx.source[messageID]
+		if len(tasks) == 1 {
+			task := tasks[0]
 			out = append(out, timelineItem{kind: timelineItemStewardTask, id: "steward-task-" + messageID + "-" + task.ID, turnIndex: turn, stewardTask: task})
+		} else if len(tasks) > 1 {
+			out = append(out, timelineItem{kind: timelineItemStewardTaskChips, id: "steward-tasks-" + messageID, turnIndex: turn, stewardTasks: tasks})
 		}
 		for _, task := range idx.amend[messageID] {
 			out = append(out, timelineItem{kind: timelineItemStewardAmend, id: "steward-amend-" + messageID + "-" + task.ID, turnIndex: turn, stewardTask: task})
@@ -127,5 +131,13 @@ func renderStewardTaskChip(c *ui.Context, s *chatState, key string, task KanbanT
 	chip.Children(func() {
 		renderStewardTaskDot(c, key+"-dot", task)
 		ui.Text(c, task.Title).FontSize(TypeFootnote).TextColor(ThemePrimaryText(c)).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+	})
+}
+
+func renderStewardTaskChips(c *ui.Context, s *chatState, key string, tasks []KanbanTask) {
+	ui.Row(c.Key(key)).FillWidth().MaxWidth(timelineContentMaxWidth(s)).AlignSelf(ui.Center).Wrap().Gap(Space2).Children(func() {
+		for _, task := range tasks {
+			renderStewardTaskChip(c, s, key+"-"+task.ID, task)
+		}
 	})
 }

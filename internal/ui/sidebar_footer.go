@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,8 +63,11 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
 	}
-	// 异步刷新看板待审阅数量，供本帧与后续帧的圆点使用（30 秒节流，出错静默）。
-	refreshKanbanBadge(s)
+	count, ok := sidebarKanbanAttentionCount(s)
+	if !ok {
+		refreshKanbanBadge(s)
+		count = sidebarKanbanReviewCount(s)
+	}
 
 	fs := getSidebarFooterState(s)
 
@@ -109,7 +113,7 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 						s.openTasksWindow("tasks")
 					},
 				})
-				if count := sidebarKanbanReviewCount(s); count > 0 {
+				if count > 0 {
 					ui.Box(c.Key("sidebar-kanban-review-dot")).
 						Background(ThemeHover(c)).Radius(RadiusSM).
 						Attach(ui.AnchorTopRight, ui.AnchorCenter).Children(func() {
@@ -228,6 +232,25 @@ func sidebarKanbanReviewCount(s *chatState) int {
 	return st.kanbanReviewCount
 }
 
+func sidebarKanbanAttentionCount(s *chatState) (int, bool) {
+	if _, ok := s.attentionClient(); !ok {
+		return 0, false
+	}
+	s.refreshAttentionInbox()
+	s.ensureAttentionWatch()
+	st := getAttentionInboxState(s)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	count := 0
+	for _, item := range st.items {
+		if strings.HasPrefix(item.Kind, "kanban_") {
+			count++
+		}
+	}
+	return count, true
+}
+
+// sidebarAttentionCount 合并统计看板中需要处理的任务和待审阅目标，并按 ID 去重。
 func sidebarAttentionCount(board KanbanBoard) int {
 	tasks, goals := make(map[string]bool), make(map[string]bool)
 	for _, task := range board.Tasks {

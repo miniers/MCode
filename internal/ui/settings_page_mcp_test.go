@@ -24,7 +24,7 @@ func TestSettings_MCPAddAndDelete(t *testing.T) {
 	memSecrets := config.NewMemorySecretStore()
 	agentconf.SetSecretStore(memSecrets)
 	defer func() {
-		agentconf.SetSecretStore(config.NewSecretStore("mcode.mcp"))
+		agentconf.SetSecretStore(config.NewMemorySecretStore())
 	}()
 
 	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 6000)
@@ -111,7 +111,7 @@ func TestMCPServerDeleteRequiresConfirm(t *testing.T) {
 	memSecrets := config.NewMemorySecretStore()
 	agentconf.SetSecretStore(memSecrets)
 	defer func() {
-		agentconf.SetSecretStore(config.NewSecretStore("mcode.mcp"))
+		agentconf.SetSecretStore(config.NewMemorySecretStore())
 	}()
 
 	home, _ := os.UserHomeDir()
@@ -297,7 +297,7 @@ func TestMCPServerRowShowsProbeError(t *testing.T) {
 	memSecrets := config.NewMemorySecretStore()
 	agentconf.SetSecretStore(memSecrets)
 	defer func() {
-		agentconf.SetSecretStore(config.NewSecretStore("mcode.mcp"))
+		agentconf.SetSecretStore(config.NewMemorySecretStore())
 	}()
 
 	home, _ := os.UserHomeDir()

@@ -5,10 +5,13 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo"
+	"mcode/internal/config"
 )
 
 func TestMain(m *testing.M) {
 	applyThemeSource = func(mygo.ThemeSource) {}
+	// 测试使用内存密钥存储，避免访问本机钥匙串。
+	newStewardSecretStore = func() config.SecretStore { return config.NewMemorySecretStore() }
 	// 休眠提示音在测试里静音，避免测试进程打开音频设备。
 	playDormantChimeFn = func() {}
 

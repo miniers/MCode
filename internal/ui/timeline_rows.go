@@ -760,6 +760,7 @@ const (
 	timelineItemTurnTime
 	timelineItemStewardTask
 	timelineItemStewardAmend
+	timelineItemStewardTaskChips
 )
 
 // runningIndicatorItem 构造时间线末尾的“回复中”指示项：会话运行期间常驻展示。
@@ -811,6 +812,7 @@ func forwardedContextItem(threadID string) timelineItem {
 type timelineItem struct {
 	kind         timelineItemKind
 	stewardTask  KanbanTask
+	stewardTasks []KanbanTask
 	msg          Message
 	tools        []Message // 组头项与组内各节拍共用的整组消息
 	reportMsgs   []Message // 合并后的连续 Swarm 汇报消息（汇报行专有，首条与 msg 相同）
@@ -1890,6 +1892,8 @@ func renderTimelineItem(c *ui.Context, s *chatState, item timelineItem, liveID, 
 					renderStewardTaskCard(c, s, item.id, item.stewardTask)
 				case timelineItemStewardAmend:
 					renderStewardTaskChip(c, s, item.id, item.stewardTask)
+				case timelineItemStewardTaskChips:
+					renderStewardTaskChips(c, s, item.id, item.stewardTasks)
 				case timelineItemTurnTime:
 					renderTurnTimeRow(c, s, item)
 				case timelineItemToolGroup:

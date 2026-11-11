@@ -27,6 +27,52 @@ func TestStewardTaskRowsByMessage(t *testing.T) {
 	}
 }
 
+func TestStewardTaskRowsMultiple(t *testing.T) {
+	tasks := []KanbanTask{
+		{ID: "t1", Origin: "owner", SourceMessageID: "u1", AmendMessageIDs: []string{"u2"}},
+		{ID: "t2", Origin: "owner", SourceMessageID: "u1"},
+		{ID: "t3", Origin: "owner", SourceMessageID: "u1"},
+	}
+	items := []timelineItem{
+		{kind: timelineItemSingle, msg: Message{ID: "u1", Role: "user"}, turnIndex: 2},
+		{kind: timelineItemSingle, msg: Message{ID: "u2", Role: "user"}, turnIndex: 3},
+	}
+	out := insertStewardTaskRows(items, indexStewardTasks(tasks))
+	if len(out) != 4 || out[1].kind != timelineItemStewardTaskChips || out[1].id != "steward-tasks-u1" || out[1].turnIndex != 2 || !reflect.DeepEqual(out[1].stewardTasks, tasks) {
+		t.Fatalf("多任务行错误: %+v", out)
+	}
+	if out[3].kind != timelineItemStewardAmend || out[3].stewardTask.ID != "t1" || out[3].turnIndex != 3 {
+		t.Fatalf("追加任务行错误: %+v", out[3])
+	}
+}
+
+func TestStewardTaskChipsOpen(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	tasks := []KanbanTask{
+		{ID: "t1", ThreadID: "worker1", Title: "任务一"},
+		{ID: "t2", ThreadID: "worker2", Title: "任务二"},
+		{ID: "t3", ThreadID: "worker3", Title: "任务三"},
+	}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		renderStewardTaskChips(c, s, "tasks", tasks)
+	}, 500, 200, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	for _, task := range tasks {
+		if !tt.HasText(task.Title) {
+			t.Fatalf("缺少任务标题 %q", task.Title)
+		}
+	}
+	if err := tt.Click("任务二"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	selected := s.selectedThreadID
+	s.mu.Unlock()
+	if selected != "worker2" {
+		t.Fatalf("会话=%q", selected)
+	}
+}
+
 func TestStewardTaskBoardRefreshAndOtherThread(t *testing.T) {
 	task := KanbanTask{ID: "t", Origin: "owner", SourceMessageID: "u1", Title: "同步任务", Status: "todo"}
 	fake := newStewardFakeClient("steward")
@@ -77,7 +123,7 @@ func TestStewardTaskBoardRefreshAndOtherThread(t *testing.T) {
 	s.selectedThreadID = "other"
 	s.mu.Unlock()
 	for _, item := range s.assembledTimelineItems(nil) {
-		if item.kind == timelineItemStewardTask || item.kind == timelineItemStewardAmend {
+		if item.kind == timelineItemStewardTask || item.kind == timelineItemStewardAmend || item.kind == timelineItemStewardTaskChips {
 			t.Fatal("普通会话出现任务")
 		}
 	}
