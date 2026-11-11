@@ -132,8 +132,8 @@ func TestInspectorHeaderCloseRightInset(t *testing.T) {
 			const width = 500
 			tt := ui.NewTester(func(c *ui.Context) { renderInspectorHeader(c, s, inspectorSession(s), topAligned) }, width, 60)
 			button, ok := tt.Find("关闭右栏")
-			if !ok || button.X+button.W >= width {
-				t.Fatalf("关闭按钮右侧没有间距：%+v，找到=%v", button, ok)
+			if !ok || width-(button.X+button.W) < Space3 {
+				t.Fatalf("关闭按钮右侧间距不足：%+v，找到=%v", button, ok)
 			}
 		})
 	}

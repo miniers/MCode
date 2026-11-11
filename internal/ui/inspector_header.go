@@ -21,7 +21,7 @@ func toggleInspector(s *chatState) {
 func renderInspectorHeader(c *ui.Context, s *chatState, st *inspectorSessionState, topAligned bool) {
 	inspectorFollowTick(s, st)
 	height := diffHeaderHeight
-	header := ui.Row(c.Key("inspector-header")).Shrink(0).FillWidth()
+	header := ui.Row(c.Key("inspector-header")).Shrink(0).FillWidth().Padding(0, Space3, 0, 0).AlignItems(ui.Center)
 	if topAligned {
 		height = HeaderHeight
 		header.DragWindow()
