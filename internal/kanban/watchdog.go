@@ -123,6 +123,9 @@ func (w *Watchdog) Check(ctx context.Context) error {
 	if w.svc == nil || w.svc.opts.Store == nil {
 		return nil
 	}
+	if !w.svc.isLeader() {
+		return nil
+	}
 
 	tasks, err := w.svc.opts.Store.ListTasks(ctx, "")
 	if err != nil {

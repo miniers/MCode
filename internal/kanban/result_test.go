@@ -29,6 +29,10 @@ func TestExecutorResultValidate(t *testing.T) {
 		{ExecutorResult{Status: ResultDelegated, Followups: []Followup{{Title: "子任务"}}}, true},
 		{ExecutorResult{Status: ResultWaiting, WaitKind: "other"}, false},
 		{ExecutorResult{Status: ResultWaiting, WaitKind: "machine"}, false},
+		{ExecutorResult{Status: ResultWaiting, WaitKind: "machine", WaitCheck: "Aspen 和 Birch 两个 bee 都已通过编排通知回报调查结果"}, false},
+		{ExecutorResult{Status: ResultWaiting, WaitKind: "machine", WaitCheck: "Aspen 已回报 [编排]"}, false},
+		{ExecutorResult{Status: ResultWaiting, WaitKind: "machine", WaitCheck: "rm marker"}, false},
+		{ExecutorResult{Status: ResultWaiting, WaitKind: "machine", WaitCheck: "ls marker"}, true},
 		{ExecutorResult{Status: ResultWaiting, WaitKind: "machine", WaitCheck: "true"}, true},
 		{ExecutorResult{Status: ResultWaiting, WaitKind: "human"}, true},
 	}

@@ -575,6 +575,12 @@ func Open(opts Options) (*App, error) {
 		})
 	}
 
+	var kanbanLeader *kanban.Leader
+	var kanbanLeaderHeld func() bool
+	if opts.DataDir != "" {
+		kanbanLeader = kanban.NewLeader(filepath.Join(opts.DataDir, "kanban-scheduler.lock"))
+		kanbanLeaderHeld = kanbanLeader.Held
+	}
 	kanbanSvc := kanban.NewService(kanban.Options{
 		Store:       dbStore,
 		Git:         gitRunner,
@@ -583,6 +589,7 @@ func Open(opts Options) (*App, error) {
 		Projects:    backend,
 		WorktreeDir: filepath.Join(opts.DataDir, "worktrees"),
 		DataDir:     opts.DataDir,
+		Leader:      kanbanLeaderHeld,
 		AutoMerge: func() bool {
 			if c, err := config.Load(opts.DataDir); err == nil {
 				config.ApplyEnv(&c, os.LookupEnv)
@@ -690,6 +697,11 @@ func Open(opts Options) (*App, error) {
 		watchdog.Stop()
 		goalScheduler.Stop()
 		kanbanSvc.Close()
+		if kanbanLeader != nil {
+			if err := kanbanLeader.Close(); err != nil {
+				log.Printf("kanban: 释放调度锁失败: %v", err)
+			}
+		}
 		hub.Close()
 		backend.Close()
 		_ = dbStore.Close()

@@ -451,7 +451,7 @@ func (r *Registry) registerKanbanTools(s *Server) {
 				"waiting_on":     map[string]any{"type": "string"},
 				"wait_kind":      map[string]any{"type": "string", "enum": []string{"human", "machine"}},
 				"wait_minutes":   map[string]any{"type": "integer"},
-				"wait_check":     map[string]any{"type": "string"},
+				"wait_check":     map[string]any{"type": "string", "description": "Read-only shell command run from the project root; exit code 0 ends the wait. Do not use natural language."},
 				"question":       map[string]any{"type": "string"},
 				"recommendation": map[string]any{"type": "string"},
 				"options":        map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type": "string"}, "text": map[string]any{"type": "string"}}, "required": []string{"key", "text"}}},

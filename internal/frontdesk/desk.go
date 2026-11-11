@@ -266,6 +266,12 @@ func (d *Desk) Enqueue(in Inbound) {
 						message = "处理超时，请重试"
 					} else if errors.Is(err, errModelUnavailable) {
 						message = "模型暂时不可用，请重试"
+					} else if reason := strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(strings.TrimSpace(err.Error())); reason != "" {
+						runes := []rune(reason)
+						if len(runes) > 120 {
+							runes = runes[:120]
+						}
+						message = "任务未能保存：" + string(runes)
 					}
 					d.reply(context.Background(), next.ThreadID, message)
 				}

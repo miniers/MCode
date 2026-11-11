@@ -937,7 +937,7 @@ func TestQueueRecoversAndContinues(t *testing.T) {
 	f.mu.Lock()
 	events := append([]string(nil), f.events...)
 	f.mu.Unlock()
-	if !reflect.DeepEqual(events, []string{"busy:true", "reply:任务未能保存，请重试", "busy:false", "busy:true", "answer:D-0002:B", "busy:false"}) {
+	if !reflect.DeepEqual(events, []string{"busy:true", "reply:任务未能保存：处理消息异常", "busy:false", "busy:true", "answer:D-0002:B", "busy:false"}) {
 		t.Fatal(events)
 	}
 	deadline := time.After(time.Second)
@@ -997,7 +997,9 @@ func TestQueueErrorMessages(t *testing.T) {
 		err    error
 		want   string
 	}{
-		{"保存失败", nil, true, errors.New("写入失败"), "任务未能保存，请重试"},
+		{"保存失败", nil, true, errors.New("写入失败"), "任务未能保存：写入失败"},
+		{"多行长错误", nil, true, errors.New("  原因\r\n" + strings.Repeat("错", 130) + "  "), "任务未能保存：原因 " + strings.Repeat("错", 117)},
+		{"空白错误", nil, true, errors.New(" \n\t "), "任务未能保存，请重试"},
 		{"处理超时", &scripted{err: context.DeadlineExceeded}, true, nil, "处理超时，请重试"},
 		{"模型失败且无法兜底", &scripted{err: errors.New("模型失败")}, false, nil, "模型暂时不可用，请重试"},
 	} {

@@ -9,8 +9,61 @@ import (
 	"sync"
 	"time"
 
+	"mcode/internal/filelock"
 	"mcode/internal/store"
 )
+
+// Leader 在首次调度时尝试获取跨进程锁，持有至 Close。
+type Leader struct {
+	mu          sync.Mutex
+	path        string
+	lock        *filelock.Lock
+	closed      bool
+	lastLogErr  string
+	lastLogTime time.Time
+}
+
+func NewLeader(path string) *Leader { return &Leader{path: path} }
+
+// Held 未持锁时每次重试，重复错误每十分钟最多记录一次。
+func (l *Leader) Held() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return false
+	}
+	if l.lock != nil {
+		return true
+	}
+	lock, err := filelock.TryAcquire(l.path)
+	if err != nil {
+		now := time.Now()
+		if l.lastLogErr != err.Error() || now.Sub(l.lastLogTime) >= 10*time.Minute {
+			log.Printf("kanban: scheduler lock unavailable: %v", err)
+			l.lastLogErr, l.lastLogTime = err.Error(), now
+		}
+		return false
+	}
+	l.lock = lock
+	return true
+}
+
+// Close 释放锁且禁止重新获取；调用方须先停止调度和巡视。
+func (l *Leader) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.closed = true
+	if l.lock == nil {
+		return nil
+	}
+	err := l.lock.Close()
+	l.lock = nil
+	return err
+}
+
+func (s *Service) isLeader() bool {
+	return s.opts.Leader == nil || s.opts.Leader()
+}
 
 // stewardTaskRetention 是总管终态任务的保留期限。
 const stewardTaskRetention = 7 * 24 * time.Hour
@@ -87,7 +140,9 @@ func (g *GoalScheduler) Start() {
 	go func() {
 		defer g.wg.Done()
 		// 启动时先恢复执行会话已丢失的孤儿任务，使其能被正常调度
-		_, _ = g.svc.RecoverOrphanTasks(context.Background())
+		if g.svc.isLeader() {
+			_, _ = g.svc.RecoverOrphanTasks(context.Background())
+		}
 		ticker := time.NewTicker(g.interval)
 		defer ticker.Stop()
 		for {
@@ -118,6 +173,9 @@ func (g *GoalScheduler) Stop() {
 func (g *GoalScheduler) Tick(ctx context.Context) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if !g.svc.isLeader() {
+		return
+	}
 	if err := g.svc.CheckWaits(ctx, g.svc.nowTime()); err != nil {
 		log.Printf("kanban: 检查等待失败: %v", err)
 	}

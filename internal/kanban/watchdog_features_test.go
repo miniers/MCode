@@ -14,6 +14,33 @@ func TestStewardOwnerCompletionWatchdog(t *testing.T) {
 	testStewardOwnerCompletion(t, true)
 }
 
+func TestWatchdogLeaderGate(t *testing.T) {
+	ctx := context.Background()
+	svc, db, _, watchdog := setupWatchdogTestService(t, true, false, true, time.Minute, time.Hour, nil)
+	leader := false
+	svc.opts.Leader = func() bool { return leader }
+	threadID := "missing-session"
+	svc.opts.Driver = &orphanDriver{missing: map[string]bool{threadID: true}}
+	if err := db.CreateTask(ctx, store.Task{ID: "running", Title: "task", Status: "in_progress", ThreadID: &threadID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := watchdog.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "running")
+	if err != nil || task.Status != "in_progress" || task.ThreadID == nil || *task.ThreadID != threadID {
+		t.Fatalf("未持锁仍重置任务: %+v, %v", task, err)
+	}
+	leader = true
+	if err := watchdog.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, err = db.GetTask(ctx, "running")
+	if err != nil || task.Status != "todo" || task.ThreadID != nil {
+		t.Fatalf("持锁后未重置丢失会话: %+v, %v", task, err)
+	}
+}
+
 // setupWatchdogTestService 辅助创建用于测试自动化特性的看板服务。
 func setupWatchdogTestService(t *testing.T, autoReview, autoStart, autoRescue bool, nudgeTimeout, interruptTimeout time.Duration, nowFn func() time.Time) (*Service, *store.Store, *mockDriver, *Watchdog) {
 	t.Helper()

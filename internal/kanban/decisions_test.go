@@ -75,10 +75,106 @@ func TestAnswerDecision(t *testing.T) {
 				t.Fatalf("窗口内改答: %+v, %v", reanswered, err)
 			}
 			again, err := db.GetTask(ctx, task.ID)
-			if err != nil || !strings.Contains(again.Notes, "决策 D-0001：改答为 停下") || reflect.DeepEqual(got, again) {
+			if err != nil || again.Status != string(TaskStatusCancelled) || !strings.Contains(again.Notes, "决策 D-0001：改答为 停下") || reflect.DeepEqual(got, again) {
 				t.Fatalf("改答未记录到任务: %+v, %v", again, err)
 			}
 		})
+	}
+}
+
+func TestAnswerDecisionStop(t *testing.T) {
+	for _, status := range []string{"waiting", "needs_approval", "todo", "in_progress"} {
+		t.Run(status, func(t *testing.T) {
+			ctx := context.Background()
+			svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
+			thread := "executor"
+			stopped := ""
+			svc.opts.StopSession = func(_ context.Context, id string) error { stopped = id; return nil }
+			task := store.Task{ID: "task", Status: status, ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{DecisionID: "D-0001", WaitKind: "machine", WakeAt: "later", WaitCheck: "check", WaitBase: "base", Wakes: 2})}
+			if err := db.CreateTask(ctx, task); err != nil {
+				t.Fatal(err)
+			}
+			options := `[{"key":"A","text":"继续等"},{"key":"B","text":"停下"}]`
+			other, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: task.ID, Question: "其他"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: task.ID, Question: "继续吗", OptionsJSON: options})
+			if err != nil {
+				t.Fatal(err)
+			}
+			answered, err := svc.AnswerDecision(ctx, d.ID, "B", "user")
+			if err != nil || answered.Status != store.DecisionStatusAnswered {
+				t.Fatalf("答卡: %+v, %v", answered, err)
+			}
+			got, err := db.GetTask(ctx, task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta, err := ParseTaskMeta(got.Meta)
+			if err != nil || got.Status != "cancelled" || meta.DecisionID != "" || meta.WaitKind != "" || meta.WakeAt != "" || meta.WaitCheck != "" || meta.WaitBase != "" || meta.Wakes != 0 || meta.GateOverride != "" || !strings.Contains(got.Notes, "B · 停下") {
+				t.Fatalf("任务: %+v, 元数据: %+v, 错误: %v", got, meta, err)
+			}
+			if (status == "in_progress" && stopped != thread) || (status != "in_progress" && stopped != "") {
+				t.Fatalf("停止会话: %q", stopped)
+			}
+			other, err = db.GetStewardDecision(ctx, other.ID)
+			if err != nil || other.Status != store.DecisionStatusSuperseded {
+				t.Fatalf("其他决策: %+v, %v", other, err)
+			}
+		})
+	}
+}
+
+func TestDecisionStopScheduler(t *testing.T) {
+	ctx := context.Background()
+	driver := newPokeDriver()
+	svc, db, _, scheduler := setupReceiptTestService(t, driver, true, true, nil)
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: "目标"}, store.Task{ID: "task", Status: "waiting"})
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task", OptionsJSON: `[{"key":"B","text":"停下"}]`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AnswerDecision(ctx, d.ID, "B", "user"); err != nil {
+		t.Fatal(err)
+	}
+	scheduler.Tick(ctx)
+	task, err := db.GetTask(ctx, "task")
+	driver.mu.Lock()
+	starts := len(driver.states)
+	driver.mu.Unlock()
+	if err != nil || task.Status != "cancelled" || starts != 0 {
+		t.Fatalf("任务: %+v, 启动数: %d, 错误: %v", task, starts, err)
+	}
+}
+
+func TestDecisionAnswerOptions(t *testing.T) {
+	d := store.StewardDecision{OptionsJSON: `[{"key":"A","text":"继续等"},{"key":"B","text":"停下"}]`}
+	for _, tc := range []struct{ input, text, display string }{{" a ", "继续等", "A · 继续等"}, {"停下", "停下", "B · 停下"}, {"其他", "其他", "其他"}} {
+		text, display := decisionAnswer(d, tc.input)
+		if text != tc.text || display != tc.display {
+			t.Fatalf("%q: %q, %q", tc.input, text, display)
+		}
+	}
+}
+
+func TestAnswerDecisionContinueOption(t *testing.T) {
+	ctx := context.Background()
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
+	if err := db.CreateTask(ctx, store.Task{ID: "task", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{WaitKind: "machine"})}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task", OptionsJSON: `[{"key":"A","text":"继续等"},{"key":"B","text":"停下"}]`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AnswerDecision(ctx, d.ID, "A", "user"); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "task")
+	meta, metaErr := ParseTaskMeta(task.Meta)
+	if err != nil || metaErr != nil || task.Status != "todo" || meta.WaitKind != "" || !strings.Contains(task.Notes, "A · 继续等") {
+		t.Fatalf("任务: %+v, 元数据: %+v, 错误: %v, %v", task, meta, err, metaErr)
 	}
 }
 

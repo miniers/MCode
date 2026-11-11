@@ -167,6 +167,8 @@ type Options struct {
 	// DataDir 为 mcode 数据根目录；非空时超长目标 Prompt 落盘到 <DataDir>/goals（D-KB-015），
 	// 为空时该功能退化为全部存库。
 	DataDir string
+	// Leader 返回当前进程是否持有调度锁；nil 时允许调度。
+	Leader func() bool
 	// AutoMerge 返回验收通过后是否自动合并 worktree；nil 时视为默认开启。
 	AutoMerge func() bool
 	// AutoCleanupMergedWorktrees 返回合并成功后是否自动清理 worktree；nil 时视为默认开启。
@@ -699,6 +701,13 @@ func (s *Service) startTaskInternal(ctx context.Context, taskID string, expected
 
 	updated, err := s.opts.Store.UpdateTask(ctx, task, expectedRevision)
 	if err != nil {
+		if s.opts.StopSession != nil {
+			stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			if stopErr := s.opts.StopSession(stopCtx, threadID); stopErr != nil {
+				log.Printf("kanban: 停止未绑定任务的会话 %s 失败: %v", threadID, stopErr)
+			}
+		}
 		return store.Task{}, err
 	}
 	// 新一轮执行开始：清掉上一轮可能残留的回执、追问计数与求助标记

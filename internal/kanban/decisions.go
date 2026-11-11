@@ -2,6 +2,7 @@ package kanban
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,6 +14,22 @@ import (
 const decisionReanswerWindow = 5 * time.Minute
 
 var ErrDecisionLocked = errors.New("任务已开始执行，不能改答")
+
+func decisionAnswer(d store.StewardDecision, answer string) (string, string) {
+	var options []struct {
+		Key  string `json:"key"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal([]byte(d.OptionsJSON), &options) == nil {
+		trimmed := strings.TrimSpace(answer)
+		for _, option := range options {
+			if strings.EqualFold(trimmed, option.Key) || trimmed == option.Text {
+				return option.Text, option.Key + " · " + option.Text
+			}
+		}
+	}
+	return answer, answer
+}
 
 // AnswerDecision 回答决策卡，并将答案追加到关联任务。
 // 已答卡在五分钟内允许改答，其他已关闭状态不能再答。
@@ -45,6 +62,9 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 	default:
 		return d, store.ErrDecisionClosed
 	}
+	answerText, answerDisplay := decisionAnswer(d, answer)
+	stop := answerText == "停下" || answerText == "停止" || answerText == "取消"
+	cancelled := false
 	if d.TaskID != "" {
 		task, err := s.opts.Store.GetTask(ctx, d.TaskID)
 		if err != nil {
@@ -62,26 +82,45 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		if err != nil {
 			return d, err
 		}
-		line := fmt.Sprintf("决策 %s：%s → %s", d.ID, d.Question, answer)
+		line := fmt.Sprintf("决策 %s：%s → %s", d.ID, d.Question, answerDisplay)
 		if reanswer {
-			line = fmt.Sprintf("决策 %s：改答为 %s", d.ID, answer)
+			line = fmt.Sprintf("决策 %s：改答为 %s", d.ID, answerDisplay)
 		}
 		task.Notes = strings.TrimSpace(task.Notes + "\n\n" + line)
-		switch TaskStatus(task.Status) {
-		case TaskStatusNeedsApproval:
-			if meta.DecisionID == d.ID {
-				task.Status = string(TaskStatusTodo)
-				meta.GateOverride, meta.DecisionID = d.ID, ""
+		status := TaskStatus(task.Status)
+		if stop && (status == TaskStatusNeedsApproval || status == TaskStatusWaiting || status == TaskStatusTodo || status == TaskStatusInProgress) {
+			if !CanTransition(status, TaskStatusCancelled) {
+				return d, ErrInvalidTransition
 			}
-		case TaskStatusWaiting:
-			task.Status = string(TaskStatusTodo)
+			if status == TaskStatusInProgress && task.ThreadID != nil && *task.ThreadID != "" && s.opts.StopSession != nil {
+				if err := s.opts.StopSession(ctx, *task.ThreadID); err != nil {
+					return d, err
+				}
+			}
+			task.Status = string(TaskStatusCancelled)
 			meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+			meta.DecisionID = ""
+			cancelled = true
+		} else {
+			switch status {
+			case TaskStatusNeedsApproval:
+				if meta.DecisionID == d.ID {
+					task.Status = string(TaskStatusTodo)
+					meta.GateOverride, meta.DecisionID = d.ID, ""
+				}
+			case TaskStatusWaiting:
+				task.Status = string(TaskStatusTodo)
+				meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+			}
 		}
 		task.Meta = EncodeTaskMeta(meta)
 		if _, err := s.opts.Store.UpdateTask(ctx, task, task.Revision); err != nil {
 			return d, err
 		}
 		changed = true
+		if cancelled && task.GoalID != nil && *task.GoalID != "" {
+			s.updateGoalProgressLocked(ctx, *task.GoalID)
+		}
 	}
 
 	var answered store.StewardDecision
@@ -98,6 +137,11 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		return d, err
 	}
 	changed = true
+	if cancelled {
+		if err := s.opts.Store.SupersedeOpenDecisionsForTask(ctx, d.TaskID); err != nil {
+			return answered, err
+		}
+	}
 	return answered, nil
 }
 

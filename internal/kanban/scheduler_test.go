@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +17,138 @@ import (
 type mockPlanner struct {
 	result PlanResult
 	err    error
+}
+
+func TestLeaderExclusiveAndTakeover(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kanban-scheduler.lock")
+	leaders := []*Leader{NewLeader(path), NewLeader(path)}
+	for _, leader := range leaders {
+		t.Cleanup(func() { _ = leader.Close() })
+	}
+	start := make(chan struct{})
+	results := make(chan int, 2)
+	for i, leader := range leaders {
+		go func() {
+			<-start
+			if leader.Held() {
+				results <- i
+			} else {
+				results <- -1
+			}
+		}()
+	}
+	close(start)
+	a, b := <-results, <-results
+	if (a >= 0) == (b >= 0) {
+		t.Fatalf("应恰好一个实例持锁: %d, %d", a, b)
+	}
+	winner := max(a, b)
+	loser := 1 - winner
+	if !leaders[winner].Held() || leaders[loser].Held() {
+		t.Fatal("持锁角色未保持")
+	}
+	if err := leaders[winner].Close(); err != nil {
+		t.Fatal(err)
+	}
+	if leaders[winner].Held() || !leaders[loser].Held() {
+		t.Fatal("关闭后应由另一实例接管，已关闭实例不得重新取锁")
+	}
+}
+
+func TestLeaderRetriesAfterError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "parent")
+	if err := os.WriteFile(dir, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	leader := NewLeader(filepath.Join(dir, "scheduler.lock"))
+	t.Cleanup(func() { _ = leader.Close() })
+	if leader.Held() {
+		t.Fatal("路径不可用时不应持锁")
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	if !leader.Held() {
+		t.Fatal("路径恢复后未重试取锁")
+	}
+}
+
+func TestLeaderConcurrentClose(t *testing.T) {
+	leader := NewLeader(filepath.Join(t.TempDir(), "scheduler.lock"))
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			leader.Held()
+			if err := leader.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if leader.Held() {
+		t.Fatal("关闭后仍持锁")
+	}
+	next := NewLeader(leader.path)
+	defer next.Close()
+	if !next.Held() {
+		t.Fatal("并发关闭后锁未释放")
+	}
+}
+
+func TestGoalSchedulerLeaderGate(t *testing.T) {
+	ctx := context.Background()
+	svc, db, driver, scheduler := setupSchedulerTestService(t, false)
+	leader := false
+	svc.opts.Leader = func() bool { return leader }
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", Title: "goal"}, store.Task{ID: "todo", Title: "dispatch"})
+	wakeAt := time.Now().Add(-time.Minute).Format(time.RFC3339)
+	projectID := "p"
+	if err := db.CreateTask(ctx, store.Task{ID: "wait", ProjectID: &projectID, Title: "waiting", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{WaitKind: "machine", WaitCheck: "true", WakeAt: wakeAt})}); err != nil {
+		t.Fatal(err)
+	}
+	scheduler.Tick(ctx)
+	todo, err := db.GetTask(ctx, "todo")
+	if err != nil || todo.Status != "todo" || len(driver.starts) != 0 {
+		t.Fatalf("未持锁仍派发: %+v, %v", todo, err)
+	}
+	wait, err := db.GetTask(ctx, "wait")
+	if err != nil || wait.Status != "waiting" {
+		t.Fatalf("未持锁仍检查等待: %+v, %v", wait, err)
+	}
+	leader = true
+	scheduler.Tick(ctx)
+	todo, err = db.GetTask(ctx, "todo")
+	if err != nil || todo.Status != "in_progress" || len(driver.starts) != 1 {
+		t.Fatalf("持锁后未派发: %+v, %v", todo, err)
+	}
+	wait, err = db.GetTask(ctx, "wait")
+	if err != nil || wait.Status != "todo" {
+		t.Fatalf("持锁后未检查等待: %+v, %v", wait, err)
+	}
+}
+
+func TestGoalSchedulerStartupRecoveryLeaderGate(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		t.Run(fmt.Sprint(held), func(t *testing.T) {
+			ctx := context.Background()
+			svc, db, _, scheduler := setupSchedulerTestService(t, false)
+			checked := make(chan struct{})
+			var once sync.Once
+			svc.opts.Leader = func() bool { once.Do(func() { close(checked) }); return held }
+			seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", Title: "goal"}, store.Task{ID: "orphan", Title: "orphan", Status: "in_progress"})
+			scheduler.Start()
+			<-checked
+			scheduler.Stop()
+			task, err := db.GetTask(ctx, "orphan")
+			want := "in_progress"
+			if held {
+				want = "todo"
+			}
+			if err != nil || task.Status != want {
+				t.Fatalf("启动恢复状态=%s，期望 %s: %v", task.Status, want, err)
+			}
+		})
+	}
 }
 
 func TestStewardOwnerCompletionScheduler(t *testing.T) {

@@ -62,6 +62,83 @@ type mockProjects struct {
 	dir string
 }
 
+type startHookDriver struct {
+	*mockDriver
+	start func(context.Context, SessionRequest) (string, error)
+}
+
+func (d *startHookDriver) StartSession(ctx context.Context, req SessionRequest) (string, error) {
+	return d.start(ctx, req)
+}
+
+func TestStartTaskStopsSessionOnUpdateFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name                         string
+		conflict, cancelled, nilStop bool
+		stopErr                      error
+	}{
+		{name: "revision conflict", conflict: true},
+		{name: "stop failure preserves conflict", conflict: true, stopErr: errors.New("stop failed")},
+		{name: "optional stop", conflict: true, nilStop: true},
+		{name: "cancelled request", cancelled: true},
+		{name: "successful update keeps session"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, db, driver := setupTestService(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			task, err := svc.CreateTask(ctx, CreateTaskInput{Title: "dispatch"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			const threadID = "new-session"
+			svc.opts.Driver = &startHookDriver{mockDriver: driver, start: func(ctx context.Context, _ SessionRequest) (string, error) {
+				if tc.conflict {
+					other := task
+					other.Title = "changed by another instance"
+					if _, err := db.UpdateTask(ctx, other, other.Revision); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if tc.cancelled {
+					cancel()
+				}
+				return threadID, nil
+			}}
+			var stopped []string
+			if !tc.nilStop {
+				svc.opts.StopSession = func(ctx context.Context, id string) error {
+					if ctx.Err() != nil {
+						t.Fatalf("清理使用了已取消的上下文: %v", ctx.Err())
+					}
+					if _, ok := ctx.Deadline(); !ok {
+						t.Fatal("清理缺少超时")
+					}
+					stopped = append(stopped, id)
+					return tc.stopErr
+				}
+			}
+			_, err = svc.StartTask(ctx, task.ID, task.Revision)
+			var wantErr error
+			if tc.conflict {
+				wantErr = store.ErrRevisionConflict
+			} else if tc.cancelled {
+				wantErr = context.Canceled
+			}
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("启动错误=%v，期望 %v", err, wantErr)
+			}
+			if wantErr != nil && !tc.nilStop {
+				if len(stopped) != 1 || stopped[0] != threadID {
+					t.Fatalf("停止会话=%v，期望 [%s]", stopped, threadID)
+				}
+			} else if len(stopped) != 0 {
+				t.Fatalf("不应停止会话: %v", stopped)
+			}
+		})
+	}
+}
+
 func (m *mockProjects) ProjectRoot(ctx context.Context, projectID string) (string, error) {
 	return m.dir, nil
 }
