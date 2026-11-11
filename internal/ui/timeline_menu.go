@@ -13,6 +13,11 @@ import (
 
 // messageContextMenu 返回时间线消息的右键菜单构建函数，由 timeline_rows.go 挂载到消息元素上。
 func messageContextMenu(c *ui.Context, s *chatState, m Message) func(*ui.Menu) {
+	return messageContextMenuWithSelection(c, s, m, nil)
+}
+
+// messageContextMenuWithSelection 在消息可选区存在时优先引用选中的正文片段。
+func messageContextMenuWithSelection(c *ui.Context, s *chatState, m Message, sel func() []ui.SelectedText) func(*ui.Menu) {
 	return func(menu *ui.Menu) {
 		if menu.Item("复制").Chosen() {
 			c.WriteClipboard(markdownToPlain(m.Text))
@@ -32,7 +37,13 @@ func messageContextMenu(c *ui.Context, s *chatState, m Message) func(*ui.Menu) {
 			}
 		}
 		if menu.Item("引用到回复").Chosen() {
-			s.quoteIntoDraft(m.Text)
+			quote := m.Text
+			if sel != nil {
+				if selected := selectedQuoteText(sel()); selected != "" {
+					quote = selected
+				}
+			}
+			s.quoteIntoDraft(quote)
 		}
 		if m.Role == "user" {
 			menu.Separator()
@@ -63,6 +74,29 @@ func messageContextMenu(c *ui.Context, s *chatState, m Message) func(*ui.Menu) {
 			}
 		}
 	}
+}
+
+// selectedQuoteText 将可选区按 rune 截取后拼成引用正文。
+func selectedQuoteText(parts []ui.SelectedText) string {
+	quotes := make([]string, 0, len(parts))
+	for _, part := range parts {
+		runes := []rune(part.Text)
+		start, end := part.Start, part.End
+		if start < 0 {
+			start = 0
+		}
+		if end > len(runes) {
+			end = len(runes)
+		}
+		if end <= start {
+			continue
+		}
+		text := string(runes[start:end])
+		if strings.TrimSpace(text) != "" {
+			quotes = append(quotes, text)
+		}
+	}
+	return strings.TrimSpace(strings.Join(quotes, "\n\n"))
 }
 
 // markdownToPlain 复用视图的 Markdown 解析器，保留代码内容，避免误删标识符中的下划线等字面字符。

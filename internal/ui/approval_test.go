@@ -220,6 +220,9 @@ func TestCmdReturnApprovalTarget(t *testing.T) {
 	if got, ok := cmdReturnApprovalTarget([]Approval{q, plan, cmd}, false, false); !ok || got.RequestID != "plan" {
 		t.Errorf("混合列表应取第一个非提问审批，got %q ok=%v", got.RequestID, ok)
 	}
+	if got, ok := cmdReturnApprovalTarget([]Approval{cmd, plan}, false, true); !ok || got.RequestID != "plan" {
+		t.Errorf("输入框聚焦时应允许计划批准，got %q ok=%v", got.RequestID, ok)
+	}
 }
 
 func TestCmdReturnApprovesFirstApproval(t *testing.T) {
@@ -743,21 +746,55 @@ func TestPlanCardDeclineWithFeedback(t *testing.T) {
 	if got := planDeclineAnswers("  "); got != nil {
 		t.Errorf("空反馈应返回 nil，got %v", got)
 	}
-	fake, tt := newApprovalTester(t, []Approval{planApproval()})
-	waitFor(t, tt, func() bool { return tt.HasText("驳回") })
-	if err := tt.Click("写修改意见…"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Type("请补充测试")
-	tt.Frame()
-	if err := tt.Click("驳回"); err != nil {
-		t.Fatal(err)
-	}
+	fake := NewFakeClient()
+	s := newChatState(fake)
+	s.selectedThreadID = "t1"
+	s.mu.Lock()
+	s.approvals = []Approval{planApproval()}
+	s.draft = "请补充测试"
+	s.mu.Unlock()
+	s.declinePlanDraft(planApproval(), false)
 	want := map[string][]string{"feedback": {"请补充测试"}}
-	waitFor(t, tt, func() bool {
+	waitForAutoDormant(t, func() bool {
 		call, ok := fake.LastRespondAnswers()
 		return ok && call.OptionID == "deny" && !call.Skip && reflect.DeepEqual(call.Answers, want)
 	})
+	s.mu.Lock()
+	draft := s.draft
+	s.mu.Unlock()
+	if draft != "" {
+		t.Fatalf("驳回计划后草稿应清空，got %q", draft)
+	}
+}
+
+func TestSendPlanFeedback(t *testing.T) {
+	fake := NewFakeClient()
+	s := newChatState(fake)
+	s.mu.Lock()
+	s.approvals = []Approval{planApproval()}
+	s.mu.Unlock()
+	if !s.sendPlanFeedback("t1", "请补充测试") {
+		t.Fatal("计划审批应接管反馈发送")
+	}
+	want := map[string][]string{"feedback": {"请补充测试"}}
+	waitForAutoDormant(t, func() bool {
+		call, ok := fake.LastRespondAnswers()
+		return ok && call.OptionID == "deny" && !call.Skip && reflect.DeepEqual(call.Answers, want)
+	})
+}
+
+func TestSendPlanFeedbackEmptyDraft(t *testing.T) {
+	fake := NewFakeClient()
+	s := newChatState(fake)
+	s.mu.Lock()
+	s.approvals = []Approval{planApproval()}
+	s.mu.Unlock()
+	if !s.sendPlanFeedback("t1", "  ") {
+		t.Fatal("空草稿仍应由计划审批接管发送")
+	}
+	if _, ok := fake.LastRespondAnswers(); ok {
+		t.Fatal("空草稿不应调用 RespondAnswers")
+	}
 }
 
 func TestApprovalShortcutAction(t *testing.T) {
@@ -771,6 +808,13 @@ func TestApprovalShortcutAction(t *testing.T) {
 			{ID: "allow_always", Title: "始终允许", Role: "approveAlways"},
 			{ID: "deny", Title: "拒绝", Role: "decline"},
 		},
+	}
+	planAppr := Approval{RequestID: "req-plan", Kind: ApprovalKindPlan, Options: allowDenyOptions()}
+	if got := approvalShortcutAction(planAppr, ui.KeyEnter, 0, false, false, false, false, false, false, 0); got.Kind != ApprovalActionNone {
+		t.Fatalf("计划 Enter 不应触发审批，got %+v", got)
+	}
+	if got := approvalShortcutAction(planAppr, ui.Key1, 0, false, false, false, false, false, false, 0); got.Kind != ApprovalActionNone {
+		t.Fatalf("计划数字键不应触发审批，got %+v", got)
 	}
 
 	// 1~9 触发对应的 Options
@@ -957,6 +1001,9 @@ func TestResolvedPlans_ApprovedAndDismissed(t *testing.T) {
 		Detail:    "第二阶段实施计划",
 		Options:   allowDenyOptions(),
 	}
+	s.mu.Lock()
+	s.approvals = append(s.approvals, plan2)
+	s.mu.Unlock()
 	s.respondAnswers(plan2, "deny", nil, false)
 
 	for time.Now().Before(deadline.Add(2 * time.Second)) {

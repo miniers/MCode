@@ -10,6 +10,20 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func TestSelectedQuoteText(t *testing.T) {
+	parts := []ui.SelectedText{
+		{Text: "  第一段内容  ", Start: 2, End: 5},
+		{Text: "\n\n", Start: 0, End: 2},
+		{Text: "中文片段", Start: 1, End: 3},
+	}
+	if got, want := selectedQuoteText(parts), "第一段\n\n文片"; got != want {
+		t.Fatalf("selectedQuoteText = %q, want %q", got, want)
+	}
+	if got := selectedQuoteText([]ui.SelectedText{{Text: "空", Start: 1, End: 1}}); got != "" {
+		t.Fatalf("空选区 = %q, want empty", got)
+	}
+}
+
 func TestMarkdownToPlain(t *testing.T) {
 	cases := []struct {
 		name, in, want string

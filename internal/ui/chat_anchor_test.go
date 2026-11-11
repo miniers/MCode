@@ -177,6 +177,13 @@ func TestAnchorRowIndex(t *testing.T) {
 	}
 }
 
+func TestAnchorRowIndexPendingPlanUsesItemID(t *testing.T) {
+	items := []timelineItem{{kind: timelineItemPendingPlan, id: pendingPlanCardID("plan-1")}}
+	if got := anchorRowIndex(items, pendingPlanCardID("plan-1")); got != 0 {
+		t.Fatalf("待审批计划锚点行 = %d, want 0", got)
+	}
+}
+
 // TestAnchorShouldRelease 验证回复超过一屏后解除锚定。
 func TestAnchorShouldRelease(t *testing.T) {
 	cases := []struct {

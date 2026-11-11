@@ -2259,9 +2259,12 @@ func renderTimelinePlanCard(c *ui.Context, s *chatState, plan resolvedPlan, pend
 			renderPlanCopyButton(c, key+"-copy", plan.Plan)
 		})
 		if !collapsed {
-			ui.Column(c.Key(key + "-body")).FillWidth().Gap(Space3).
-				Transition(motionCollapse(c)).
-				ContextMenu(messageContextMenu(c, s, Message{Role: "assistant", Text: plan.Plan})).Children(func() {
+			body := ui.Column(c.Key(key + "-body")).FillWidth().Gap(Space3).
+				Transition(motionCollapse(c)).Selectable()
+			body = body.ContextMenu(messageContextMenuWithSelection(c, s, Message{Role: "assistant", Text: plan.Plan}, func() []ui.SelectedText {
+				return body.SelectedTexts()
+			}))
+			body.Children(func() {
 				renderPlanMarkdown(c, s, key+"-markdown", plan.Plan, 0)
 				if !pending && !plan.Approved && plan.Feedback != "" {
 					ui.Row(c.Key(key+"-feedback")).BorderStartWidth(Space1).BorderColor(ThemeBorder(c)).Padding(0, Space3).Children(func() {
@@ -2878,7 +2881,10 @@ func renderAssistantMessage(c *ui.Context, s *chatState, m Message, liveID, last
 	// 流式中先不播；IsFinal 一置位就算完成态，即便 liveID 还没切走也补播一次。
 	enter := s.beginMessageEnter(m, isStreamingNow && !m.IsFinal, c.Now())
 
-	col := ui.Column(c.Key("msg-md-" + m.ID)).FillWidth().MaxWidth(timelineContentMaxWidth(s)).Gap(Space1).Selectable().ContextMenu(messageContextMenu(c, s, m))
+	col := ui.Column(c.Key("msg-md-" + m.ID)).FillWidth().MaxWidth(timelineContentMaxWidth(s)).Gap(Space1).Selectable()
+	col = col.ContextMenu(messageContextMenuWithSelection(c, s, m, func() []ui.SelectedText {
+		return col.SelectedTexts()
+	}))
 	// 整行 hover：指针停在这条消息的正文、元信息或操作栏上都算，操作栏据此显隐
 	rowHovered := col.Hovered()
 

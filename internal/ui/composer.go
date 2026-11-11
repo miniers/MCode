@@ -422,10 +422,12 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 // planFeedbackTarget 仅在当前会话的全部待办都是计划时，将发送改为驳回并附意见。
 func planFeedbackTarget(approvals []Approval, threadID string) (Approval, bool) {
 	var target Approval
+	seen := false
 	for _, a := range approvals {
 		if a.ThreadID != "" && a.ThreadID != threadID {
 			continue
 		}
+		seen = true
 		if a.Kind != ApprovalKindPlan {
 			return Approval{}, false
 		}
@@ -433,7 +435,7 @@ func planFeedbackTarget(approvals []Approval, threadID string) (Approval, bool) 
 			target = a
 		}
 	}
-	return target, target.RequestID != ""
+	return target, seen && target.RequestID != ""
 }
 
 func composerApprovalDisabled(hasPending bool, approvals []Approval, threadID string) bool {
