@@ -181,7 +181,7 @@ func FetchModels(ctx context.Context, binary string) ([]Model, error) {
 	// initialize 握手流程
 	initParams := map[string]any{
 		"clientInfo": map[string]any{
-			"name":    "mcode",
+			"name":    clientName,
 			"version": "0.1.0",
 		},
 		"capabilities": map[string]any{

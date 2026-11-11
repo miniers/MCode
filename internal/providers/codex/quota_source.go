@@ -199,7 +199,7 @@ func startQuotaSession(ctx context.Context, binPath string, opts QuotaOptions) (
 
 	initParams := map[string]any{
 		"clientInfo": map[string]any{
-			"name":    "mcode",
+			"name":    clientName,
 			"version": "0.1.0",
 		},
 		"capabilities": map[string]any{

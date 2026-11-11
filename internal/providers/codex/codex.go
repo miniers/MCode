@@ -69,6 +69,10 @@ const codexRunMaxAttempts = 3
 // 与 codexRunMaxAttempts 对应：启动阶段最多 3 次尝试，退避序列为 0、1s、2s。
 var defaultRetryBackoffs = []time.Duration{time.Second, 2 * time.Second}
 
+// clientName 是 initialize 握手里 clientInfo 的名字，Codex 用它生成 User-Agent 和 originator；
+// 必须以 codex 开头，网关才会把请求认成 Codex，不能用 mcode（Magpie 里是 MiniMax Code 的别名）。
+const clientName = "codex-mcode"
+
 // Harness 实现了基于 Codex app-server 的 harness.Harness 接口。
 type Harness struct {
 	opts Options
@@ -942,7 +946,7 @@ func (h *Harness) startProcess(ctx context.Context, turn harness.Turn, route *Ma
 	// 初始化握手（仅在常驻进程启动时执行一次）
 	initParams := map[string]any{
 		"clientInfo": map[string]any{
-			"name":    "mcode",
+			"name":    clientName,
 			"version": "0.1.0",
 		},
 		"capabilities": map[string]any{
