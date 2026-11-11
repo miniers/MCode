@@ -1,18 +1,16 @@
-// @ts-ignore Vitest is provided by the test runner, not declared as a project dependency.
-import { describe, expect, it, vi } from 'vitest';
+// web 测试不使用测试框架（见 scripts/run-tests.mjs）：断言失败直接抛 Error。
 import { quoteMessageMenuItem } from './ThreadTimeline';
 
-describe('assistant quote menu item', () => {
-  it('does not create a quote action for a non-final assistant message', () => {
-    expect(quoteMessageMenuItem(true, false, 'message-1', vi.fn())).toBeNull();
-  });
+if (quoteMessageMenuItem(true, false, 'message-1', () => {}) !== null) {
+  throw new Error('非最终答复不应生成引用项');
+}
 
-  it('creates a quote action that passes the message id', () => {
-    const onQuote = vi.fn();
-    const item = quoteMessageMenuItem(true, true, 'message-2', onQuote);
-
-    expect(item).toMatchObject({ key: 'quote', label: '引用' });
-    item?.onSelect();
-    expect(onQuote).toHaveBeenCalledWith('message-2');
-  });
-});
+const quoted: string[] = [];
+const item = quoteMessageMenuItem(true, true, 'message-2', (messageID) => quoted.push(messageID));
+if (item?.key !== 'quote' || item.label !== '引用') {
+  throw new Error(`引用项错误：${JSON.stringify(item)}`);
+}
+item.onSelect();
+if (quoted.length !== 1 || quoted[0] !== 'message-2') {
+  throw new Error(`引用回调参数错误：${JSON.stringify(quoted)}`);
+}
