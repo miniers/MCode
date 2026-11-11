@@ -728,7 +728,7 @@ var pageSwarm = settingsPage{
 			},
 			{
 				ID: "row-swarm-auto-merge", Title: "自动合并", Lock: "swarm-auto-merge",
-				Aliases: []string{"默认开启；全部完成后合并到当前分支并清理副本"},
+				Aliases: []string{"默认开启；每个子代理完成后单独提交到当前分支并清理副本"},
 				Control: toggle(val(func(c *config.Config) *bool { return &c.Orchestration.AutoMerge }, true)),
 			},
 			{

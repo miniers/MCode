@@ -110,6 +110,8 @@ type Bee struct {
 	SharedNoGitReason string `json:"shared_no_git_reason,omitempty"`
 	// LandedPatchPath 记录本 bee 落地补丁的存档路径，供后续自动合并使用。
 	LandedPatchPath string `json:"landed_patch_path,omitempty"`
+	// LandedCommit 是本 bee 落地时已创建的提交，批次结束后无需再重放补丁。
+	LandedCommit string `json:"landed_commit,omitempty"`
 	// ArchivedPatchPath 是副本回收前把未落地改动存档到 swarm-patches 的补丁路径。
 	ArchivedPatchPath string   `json:"archivedPatchPath,omitempty"`
 	WorktreePath      string   `json:"worktreePath"`

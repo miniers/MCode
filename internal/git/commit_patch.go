@@ -120,45 +120,17 @@ func (r *Runner) commitPatchesOnHead(ctx context.Context, root string, patches [
 	// (e) 执行 commit-tree <tree> -p oldHead -m message。
 	// commit-tree 为底层的 plumbing 命令，不触发 pre-commit 等客户端钩子。
 	// 作者和提交者身份使用用户自己的 git 配置（保持 env 为 nil），与 CommitPaths 一致，不强制注入 mcode 身份。
-	commitArgs := []string{"commit-tree", tree, "-p", oldHead, "-m", message}
-	shaOut, err := r.run(ctx, root, nil, commitArgs...)
+	newSHA, err := r.CommitTree(ctx, root, tree, oldHead, message)
 	if err != nil {
-		return CommitPatchResult{}, fmt.Errorf("commit-tree: %w", err)
+		return CommitPatchResult{}, err
 	}
-	newSHA := strings.TrimSpace(string(shaOut))
-
-	// (f) 执行 git update-ref -m mcode-swarm HEAD <new> <oldHead>，以比较并交换的方式更新；
-	// HEAD 被别人移动过时返回包装后的错误，并说明分支未改动。
-	if _, err := r.run(ctx, root, nil, "update-ref", "-m", "mcode-swarm", "HEAD", newSHA, oldHead); err != nil {
-		return CommitPatchResult{}, fmt.Errorf("update-ref HEAD (CAS 失败，HEAD 已被移动，分支未改动): %w", err)
-	}
-
-	// (g) 同步用户的真实 index：用 diff-tree -r --name-only oldHead new 得到 Paths。
-	// 对每个路径，比较用户 index 中的条目（ls-files -s）和 oldHead 中的条目（ls-tree）：
-	// 两者相同（或都不存在），说明用户没有暂存这个路径，就执行 git reset -q <new> -- <path>，
-	// 把 index 条目更新为新提交的内容（删除的情况也要正确处理）；两者不同，就保持不动，记入 StagedKept。
-	// 路径多时分批执行。整个过程绝不写工作区文件。
-	diffOut, err := r.run(ctx, root, nil, "diff-tree", "-r", "--name-only", "-z", oldHead, newSHA)
+	paths, err := r.DiffTreeNames(ctx, root, oldHead, newSHA)
 	if err != nil {
-		return CommitPatchResult{}, fmt.Errorf("diff-tree %s %s: %w", oldHead, newSHA, err)
+		return CommitPatchResult{}, err
 	}
-
-	var paths []string
-	seenPaths := make(map[string]bool)
-	for _, p := range strings.Split(string(diffOut), "\x00") {
-		if p != "" && !seenPaths[p] {
-			seenPaths[p] = true
-			paths = append(paths, p)
-		}
-	}
-	sort.Strings(paths)
-	if paths == nil {
-		paths = []string{}
-	}
-
-	stagedKept, syncErr := r.syncRealIndex(ctx, root, oldHead, newSHA, paths)
-	if syncErr != nil {
-		return CommitPatchResult{}, fmt.Errorf("sync real index: %w", syncErr)
+	stagedKept, err := r.AdvanceHead(ctx, root, oldHead, newSHA)
+	if err != nil {
+		return CommitPatchResult{}, err
 	}
 
 	return CommitPatchResult{

@@ -1144,7 +1144,10 @@ func (m *Manager) ownerForWorkDir(workDir string) (workDirOwner, bool) {
 	return workDirOwner{}, false
 }
 
-func (m *Manager) getBaseCommit(ctx context.Context, dir, leadPrefix string) (string, error) {
+func (m *Manager) getBaseCommit(ctx context.Context, dir, leadPrefix string, checkpointOnly bool) (string, error) {
+	if !checkpointOnly && m.commitLandingEnabled(ctx, dir) {
+		return m.opts.Git.RevParse(ctx, dir, "HEAD")
+	}
 	ref := fmt.Sprintf("refs/mcode/swarm-base/%s", leadPrefix)
 	c, err := m.opts.Git.Checkpoint(ctx, dir, ref, "mcode swarm base checkpoint")
 	if err != nil {
@@ -1219,7 +1222,7 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 	}
 	if !isShared && !reusedWorktree {
 		var err error
-		baseCommit, err = m.getBaseCommit(ctx, beeWorkDir, leadPrefix)
+		baseCommit, err = m.getBaseCommit(ctx, beeWorkDir, leadPrefix, spec.ReadOnly || shadowRepo)
 		if err != nil {
 			return Bee{}, err
 		}
@@ -3671,11 +3674,18 @@ func (m *Manager) applyMerge(ctx context.Context, leadThreadID, targetWorkDir st
 	// 保证主工作区（含用户的未提交改动）与落地前完全一致。
 	snap, snapErr := snapshotFiles(targetWorkDir, h.ChangedFiles)
 	if snapErr != nil {
-		log.Printf("swarm: 落地前给补丁路径拍快照失败: %v", snapErr)
+		h.Merged = false
+		h.MergeError = fmt.Sprintf("落地前给补丁路径拍快照失败: %v", snapErr)
+		return
 	}
 
 	result, err := m.opts.Git.ApplyPatch3Way(ctx, targetWorkDir, patch)
 	if err != nil {
+		if snapErr == nil {
+			if restoreErr := snap.restore(); restoreErr != nil {
+				err = fmt.Errorf("%w；复原工作区失败：%v", err, restoreErr)
+			}
+		}
 		patchPath, saveErr := m.savePatch(leadThreadID, h.Index, patch)
 		if saveErr != nil || patchPath == "" {
 			h.MergeError = fmt.Sprintf("git apply --3way failed: %v", err)
@@ -3712,25 +3722,6 @@ func (m *Manager) applyMerge(ctx context.Context, leadThreadID, targetWorkDir st
 		return
 	}
 
-	conflicts, err := git.ScanConflictMarkers(targetWorkDir, h.ChangedFiles)
-	if err != nil {
-		h.MergeError = fmt.Sprintf("scan conflict markers failed: %v", err)
-		h.Merged = false
-		return
-	}
-	if len(conflicts) > 0 {
-		// 补丁本身合并成功，但工作区这些文件里带着冲突标记（通常来自别的 bee 未解决的冲突）：
-		// 同样不能算已合入，否则自动合并批次会把冲突标记一起提交。
-		h.ConflictFiles = conflicts
-		h.Merged = false
-		reason := fmt.Sprintf("改动文件存在冲突标记：%s", strings.Join(conflicts, "、"))
-		if patchPath, saveErr := m.savePatch(leadThreadID, h.Index, patch); saveErr == nil && patchPath != "" {
-			reason = fmt.Sprintf("%s，补丁已保存到 %s", reason, patchPath)
-		}
-		h.MergeError = reason
-		return
-	}
-
 	h.ConflictFiles = []string{}
 	h.Merged = true
 }
@@ -3750,6 +3741,11 @@ const (
 // awaitSettledCheckout 在落地前检查主工作区是否落定：Lead 正在编辑补丁涉及的文件或正在进行 merge/rebase 时，
 // 记录等待起点并延后落地；等待超过 SettleTimeout 时把补丁保存为 .patch 文件。绝不阻塞或休眠。
 func (m *Manager) awaitSettledCheckout(ctx context.Context, leadThreadID, targetWorkDir string, h *Bee, patch []byte) settleDecision {
+	if conflicts, err := m.uncommittedConflictMarkers(ctx, targetWorkDir, "HEAD", h.ChangedFiles); err != nil {
+		return m.deferMerge(leadThreadID, h, patch, fmt.Sprintf("检查冲突标记失败：%v", err))
+	} else if len(conflicts) > 0 {
+		return m.deferMerge(leadThreadID, h, patch, "改动文件存在未提交的冲突标记："+strings.Join(conflicts, "、"))
+	}
 	busy := false
 	if m.opts.LeadTouchedPaths != nil {
 		if paths, active := m.opts.LeadTouchedPaths(leadThreadID); active && pathsIntersect(h.ChangedFiles, paths) {
@@ -4169,6 +4165,202 @@ func (m *Manager) handbackConflict(ctx context.Context, leadThreadID, targetWork
 	return true
 }
 
+// commitLandingEnabled 仅对开启自动合并且有 HEAD 的真实仓库启用逐 bee 提交。
+func (m *Manager) commitLandingEnabled(ctx context.Context, root string) bool {
+	settings := m.Settings()
+	if !settings.AutoMerge || settings.WorkspaceMode == "shared" || m.opts.Git == nil || !m.opts.Git.IsRealRepo(ctx, root) {
+		return false
+	}
+	head, err := m.opts.Git.RevParse(ctx, root, "HEAD")
+	return err == nil && head != ""
+}
+
+func (m *Manager) canLandBeeCommit(ctx context.Context, root string, h *Bee) bool {
+	return !h.ReadOnly && !h.ShadowRepo && !h.SharedNoGit && h.WorktreePath != "" && m.commitLandingEnabled(ctx, root)
+}
+
+// uncommittedConflictMarkers 只拦截工作区新增的冲突标记，允许 HEAD 中原有的示例文本。
+func (m *Manager) uncommittedConflictMarkers(ctx context.Context, root, head string, paths []string) ([]string, error) {
+	conflicts, err := git.ScanConflictMarkers(root, paths)
+	if err != nil {
+		return nil, err
+	}
+	var pending []string
+	for _, path := range conflicts {
+		data, err := m.runGitCmd(ctx, root, "show", head+":"+path)
+		if err != nil {
+			// 新文件在 HEAD 中不存在；其他读取错误不能被当作已存在的标记放行。
+			pending = append(pending, path)
+			continue
+		}
+		var start, middle, end bool
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSuffix(line, "\r")
+			start = start || strings.HasPrefix(line, "<<<<<<<")
+			middle = middle || line == "======="
+			end = end || strings.HasPrefix(line, ">>>>>>>")
+		}
+		if !start || !middle || !end {
+			pending = append(pending, path)
+		}
+	}
+	return pending, nil
+}
+
+// landBeeCommit 只把 bee 的改动提交到 HEAD；用户的未提交改动仅参与工作区预检。
+// done=false 由后续 tick 重试；fallback=true 仅表示用户身份不可用等 commit-tree 失败。
+// 调用方已持有 lead mergeMu，HEAD 锁内不等待落定、不调用通知回调。
+func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee, rawPatch []byte) (done, fallback bool) {
+	fail := func(err error) (bool, bool) {
+		h.Merged = false
+		h.MergeWaitSince = nil
+		h.MergeError = err.Error()
+		if path, saveErr := m.savePatch(leadID, h.Index, rawPatch); saveErr == nil {
+			h.MergeError += "，补丁已保存到 " + path
+		}
+		return true, false
+	}
+	wait := func(cause string) (bool, bool) {
+		h.Merged = false
+		if m.deferMerge(leadID, h, rawPatch, cause) == settleExpired {
+			h.MergeWaitSince = nil
+			return true, false
+		}
+		return false, false
+	}
+	beeCommit, err := m.opts.Git.CommitIndexTree(ctx, h.WorktreePath, h.BaseCommit, fmt.Sprintf("mcode swarm bee %d", h.Index))
+	if err != nil {
+		return fail(err)
+	}
+
+	var stagedKept []string
+	defer func() {
+		if len(stagedKept) > 0 && h.LandedCommit != "" && m.opts.OnReport != nil {
+			_ = m.opts.OnReport(leadID, NoticePrefix+"已提交 "+shortSHA(h.LandedCommit)+"；这些路径你另有已暂存内容，未同步暂存区："+strings.Join(stagedKept, "、"))
+		}
+	}()
+	unlock := lockHead(root)
+	locked := true
+	defer func() {
+		if locked {
+			unlock()
+		}
+	}()
+	oldHead, err := m.opts.Git.RevParse(ctx, root, "HEAD")
+	if err != nil {
+		return fail(err)
+	}
+	merged, err := m.opts.Git.MergeTreeOnto(ctx, root, h.BaseCommit, oldHead, beeCommit)
+	if err != nil {
+		return fail(err)
+	}
+	if len(merged.Conflicts) > 0 {
+		// 交回会启动会话并调用通知；先释放 HEAD 锁。
+		unlock()
+		locked = false
+		if m.handbackConflict(ctx, leadID, root, h, merged.Conflicts, beeCommit, oldHead) {
+			return true, false
+		}
+		h.ConflictFiles = merged.Conflicts
+		return fail(fmt.Errorf("与 HEAD 最新内容冲突：%s，主工作区未改动", strings.Join(merged.Conflicts, "、")))
+	}
+	oldTree, err := m.opts.Git.RevParse(ctx, root, oldHead+"^{tree}")
+	if err != nil {
+		return fail(err)
+	}
+	if merged.Tree == oldTree {
+		h.Merged, h.MergeError, h.MergeWaitSince = true, "", nil
+		h.ConflictFiles = []string{}
+		return true, false
+	}
+	_, message := defaultCommitMessage([]Bee{*h})
+	newSHA, err := m.opts.Git.CommitTree(ctx, root, merged.Tree, oldHead, message)
+	if err != nil {
+		log.Printf("swarm: 创建落地提交失败，退回未提交落地流程: %v", err)
+		return false, true
+	}
+	prefix := leadID
+	if len(prefix) > 8 {
+		prefix = prefix[:8]
+	}
+	wtSnap, err := m.opts.Git.Checkpoint(ctx, root, fmt.Sprintf("refs/mcode/swarm-land/%s/%d", prefix, h.Index), "mcode swarm landing checkpoint")
+	if err != nil {
+		return fail(err)
+	}
+	preflight, err := m.opts.Git.MergeTreeOnto(ctx, root, oldHead, wtSnap, newSHA)
+	if err != nil {
+		return fail(err)
+	}
+	if len(preflight.Conflicts) > 0 {
+		return wait("与未提交改动冲突：" + strings.Join(preflight.Conflicts, "、"))
+	}
+	paths, err := m.opts.Git.DiffTreeNames(ctx, root, oldHead, newSHA)
+	if err != nil {
+		return fail(err)
+	}
+	if conflicts, err := m.uncommittedConflictMarkers(ctx, root, oldHead, paths); err != nil {
+		return fail(err)
+	} else if len(conflicts) > 0 {
+		return wait("改动文件存在未提交的冲突标记：" + strings.Join(conflicts, "、"))
+	}
+	switch m.awaitSettledCheckout(ctx, leadID, root, h, rawPatch) {
+	case settleWaiting:
+		return false, false
+	case settleExpired:
+		h.MergeWaitSince = nil
+		return true, false
+	}
+	patch, err := m.opts.Git.DiffTreesBinary(ctx, root, wtSnap, preflight.Tree)
+	if err != nil {
+		return fail(err)
+	}
+	snap, err := snapshotFiles(root, paths)
+	if err != nil {
+		return fail(err)
+	}
+	restore := func(cause error) error {
+		if err := snap.restore(); err != nil {
+			return fmt.Errorf("%w；复原工作区失败：%v", cause, err)
+		}
+		return cause
+	}
+	if len(bytes.TrimSpace(patch)) > 0 {
+		result, err := m.opts.Git.ApplyPatch3Way(ctx, root, patch)
+		if err != nil || result.Conflicted {
+			if err == nil {
+				err = fmt.Errorf("补丁合并冲突：%s", result.Output)
+				h.ConflictFiles = paths
+			}
+			return fail(restore(err))
+		}
+	}
+	stagedKept, err = m.opts.Git.AdvanceHead(ctx, root, oldHead, newSHA)
+	if err != nil {
+		if errors.Is(err, git.ErrHeadMoved) {
+			if restoreErr := snap.restore(); restoreErr != nil {
+				return fail(fmt.Errorf("%w；复原工作区失败：%v", err, restoreErr))
+			}
+			return wait("HEAD 已被移动，等待重试")
+		}
+		// CAS 成功后的索引错误不能复原工作区，否则文件会与新 HEAD 不一致。
+		if head, readErr := m.opts.Git.RevParse(context.WithoutCancel(ctx), root, "HEAD"); readErr != nil || head != newSHA {
+			return fail(restore(err))
+		}
+		log.Printf("swarm: 落地提交已创建，但同步索引失败: %v", err)
+		h.MergeError = fmt.Sprintf("提交已创建，但同步索引失败：%v", err)
+	} else {
+		h.MergeError = ""
+	}
+	h.Merged, h.MergeWaitSince, h.LandedCommit = true, nil, newSHA
+	h.ConflictFiles = []string{}
+	if path, err := m.saveLandedPatch(leadID, h.Index, rawPatch); err != nil {
+		log.Printf("swarm: 保存落地补丁失败: %v", err)
+	} else {
+		h.LandedPatchPath = path
+	}
+	return true, false
+}
+
 // mergeBee 准备补丁并落地到目标工作区；主工作区尚未落定返回 false，由调用方保持 bee 处于 running 并在后续 tick 重试。
 func (m *Manager) mergeBee(ctx context.Context, leadThreadID, targetWorkDir string, h *Bee) bool {
 	if m.opts.Git == nil || h.WorktreePath == "" {
@@ -4185,6 +4377,12 @@ func (m *Manager) mergeBee(ctx context.Context, leadThreadID, targetWorkDir stri
 	if len(bytes.TrimSpace(rawPatch)) == 0 {
 		h.MergeWaitSince = nil
 		return true
+	}
+
+	if m.canLandBeeCommit(ctx, targetWorkDir, h) {
+		if done, fallback := m.landBeeCommit(ctx, leadThreadID, targetWorkDir, h, rawPatch); !fallback {
+			return done
+		}
 	}
 
 	patch := rawPatch
@@ -4675,6 +4873,33 @@ func (m *Manager) approveMerge(ctx context.Context, leadThreadID, beeThreadID st
 				if len(origChanged) > 0 {
 					h.ChangedFiles = origChanged
 				}
+			}
+		}
+
+		if m.canLandBeeCommit(ctx, targetDir, &h) {
+			// 审查通过后仍须确认当前暂存内容就是获批补丁。
+			current, err := m.opts.Git.DiffCachedBinary(ctx, h.WorktreePath, h.BaseCommit)
+			if err != nil || !bytes.Equal(current, h.MergePatch) {
+				return h.clone(), errors.New("审查补丁已变化，请重新审查")
+			}
+			done, fallback := m.landBeeCommit(ctx, leadThreadID, targetDir, &h, h.MergePatch)
+			if !fallback {
+				h.PendingMerge = !h.Merged && h.ConflictHandbacks == 0
+				if h.Merged || h.ConflictHandbacks > 0 {
+					h.ReviewState = ReviewApproved
+				}
+				m.mu.Lock()
+				m.replaceBeeLocked(leadThreadID, h)
+				m.mu.Unlock()
+				m.notifyChange(leadThreadID)
+				m.maybeFireBatchLanded(ctx, leadThreadID)
+				if !done {
+					return h.clone(), errMergeNotSettled
+				}
+				if h.MergeError != "" {
+					return h.clone(), errors.New(h.MergeError)
+				}
+				return h.clone(), nil
 			}
 		}
 

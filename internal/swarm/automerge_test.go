@@ -908,13 +908,12 @@ func setupPatchConflictRepo(t *testing.T) (*git.Runner, string, LandedBatch) {
 	return runner, dir, b
 }
 
-// (n) 补丁在 HEAD 上冲突时，回退为按工作区内容只提交本批次涉及的路径，并通知 lead 涉及的路径。
+// (n) 补丁与 HEAD 冲突时停止，工作区内容不能作为回退提交。
 func TestPipeline_CommitPatchesConflictFallsBackToWorktree(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	runner, dir, b := setupPatchConflictRepo(t)
-	ctx := context.Background()
 	before := gitTestRun(t, dir, "rev-parse", "HEAD")
-
+	index := gitTestRun(t, dir, "write-tree")
 	var notified []string
 	var results []BatchResult
 	p := NewPipeline(PipelineOptions{
@@ -922,56 +921,42 @@ func TestPipeline_CommitPatchesConflictFallsBackToWorktree(t *testing.T) {
 		Settings: func() Settings { return Settings{AutoMerge: true} },
 		Notify:   func(_, msg string) { notified = append(notified, msg) },
 		OnResult: func(_ LandedBatch, r BatchResult) { results = append(results, r) },
-		Push:     func(context.Context, string, string, string, string) error { return nil },
 	})
-	if err := p.RunBatch(ctx, b, false); err != nil {
-		t.Fatalf("补丁冲突时应回退提交，RunBatch 不应返回错误: %v", err)
+	if err := p.RunBatch(context.Background(), b, false); err == nil {
+		t.Fatal("补丁冲突应返回错误")
 	}
-
-	after := gitTestRun(t, dir, "rev-parse", "HEAD")
-	if after == before {
-		t.Fatal("回退路径应创建本地提交")
+	if after := gitTestRun(t, dir, "rev-parse", "HEAD"); after != before {
+		t.Fatal("补丁冲突移动了 HEAD")
 	}
-	committed := gitTestRun(t, dir, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")
-	if committed != "a.txt" {
-		t.Errorf("提交内容 = %q, 只应包含补丁涉及的 a.txt", committed)
+	if after := gitTestRun(t, dir, "write-tree"); after != index {
+		t.Fatal("补丁冲突改写了 index")
 	}
-	if got := gitTestRun(t, dir, "show", "HEAD:a.txt"); got != "line 1: user\nline 2: bee" {
-		t.Errorf("HEAD 中的 a.txt = %q，期望为工作区内容", got)
+	if got := gitTestRun(t, dir, "diff", "--name-only"); got != "a.txt\nb.txt" {
+		t.Fatalf("用户改动未保留: %s", got)
 	}
-	if got := gitTestRun(t, dir, "show", "HEAD:b.txt"); got != "b base" {
-		t.Errorf("HEAD 中的 b.txt = %q，本批次没碰过的文件不应提交", got)
+	data, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if err != nil || string(data) != "line 1: user\nline 2: bee\n" {
+		t.Fatalf("工作区被改写: %q err=%v", data, err)
 	}
-	status := gitTestRun(t, dir, "status", "--porcelain")
-	if !strings.Contains(status, "b.txt") {
-		t.Errorf("b.txt 的未提交改动应保留在工作区，status:\n%s", status)
+	if !anyContains(notified, "合并已停止") || !anyContains(notified, "需要手动处理") {
+		t.Fatalf("通知=%v", notified)
 	}
-	if strings.Contains(status, "a.txt") {
-		t.Errorf("a.txt 提交后应干净，status:\n%s", status)
+	if anyContains(notified, "按工作区内容提交") {
+		t.Fatal("不应按工作区内容提交")
 	}
-
-	if !anyContains(notified, "按工作区内容提交") || !anyContains(notified, "a.txt") {
-		t.Errorf("应通知 lead 按工作区内容提交的路径，实际通知: %v", notified)
-	}
-	if anyContains(notified, "b.txt") {
-		t.Errorf("通知不应列出本批次没碰过的 b.txt，实际通知: %v", notified)
-	}
-	if anyContains(notified, "合并已停止") {
-		t.Errorf("回退成功时不应发送合并已停止通知，实际通知: %v", notified)
-	}
-	if len(results) != 1 || results[0].State != AutoMergeDone || results[0].SHA != after {
-		t.Errorf("results = %+v, want 一次 done 且 SHA 为 %s", results, after)
+	if len(results) != 1 || results[0].State != AutoMergeFailed {
+		t.Fatalf("结果=%+v", results)
 	}
 }
 
-// (o) 补丁冲突且按工作区内容回退提交也失败时，保留合并已停止通知并上报 AutoMergeFailed。
+// (o) 补丁冲突且引用被锁时，仍直接停止，不尝试按工作区提交。
 func TestPipeline_CommitPatchesConflictFallbackFailureReportsFailed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	runner, dir, b := setupPatchConflictRepo(t)
 	ctx := context.Background()
 	before := gitTestRun(t, dir, "rev-parse", "HEAD")
 
-	// 锁住当前分支引用，使回退路径的 update-ref 失败
+	// 锁住当前分支引用；补丁冲突分支不应尝试移动它
 	ref := gitTestRun(t, dir, "symbolic-ref", "HEAD")
 	lockPath := filepath.Join(dir, ".git", filepath.FromSlash(ref)+".lock")
 	if err := os.WriteFile(lockPath, nil, 0644); err != nil {
@@ -1017,6 +1002,40 @@ func TestPipeline_CommitPatchesConflictFallbackFailureReportsFailed(t *testing.T
 	}
 	if string(data) != "line 1: user\nline 2: bee\n" {
 		t.Errorf("工作区 a.txt = %q，改动应保留", string(data))
+	}
+}
+
+func TestPipeline_AllBeesAlreadyCommitted(t *testing.T) {
+	runner, root := initTestRepo(t)
+	sha := gitTestRun(t, root, "rev-parse", "HEAD")
+	// 将 bee 路径替换为目录；若读取工作区或扫描标记就会失败。
+	if err := os.Mkdir(filepath.Join(root, "unreadable.txt"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	var results []BatchResult
+	var notices []string
+	p := NewPipeline(PipelineOptions{
+		Git:      runner,
+		Settings: func() Settings { return Settings{AutoMerge: true} },
+		Describe: func(context.Context, string) (string, error) {
+			t.Fatal("已提交批次不应读取 diff")
+			return "", nil
+		},
+		Notify:   func(_, msg string) { notices = append(notices, msg) },
+		OnResult: func(_ LandedBatch, result BatchResult) { results = append(results, result) },
+	})
+	b := newPipelineFileBatch(root, Bee{Name: "Bee", Merged: true, LandedCommit: sha, ChangedFiles: []string{"unreadable.txt"}, LandedPatchPath: "/不存在的补丁"})
+	if err := p.RunBatch(context.Background(), b, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitTestRun(t, root, "rev-parse", "HEAD"); got != sha {
+		t.Fatal("重复创建了提交")
+	}
+	if len(results) != 1 || results[0].State != AutoMergeDone || results[0].SHA != sha {
+		t.Fatalf("结果=%+v", results)
+	}
+	if !anyContains(notices, "1 个提交") || !anyContains(notices, shortSHA(sha)) {
+		t.Fatalf("通知=%v", notices)
 	}
 }
 

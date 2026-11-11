@@ -64,6 +64,8 @@ Claude 和 mcode 原生 Provider 的主会话将静态主代理规则与档位�
 - `workspace_mode`：`worktree` 或 `shared`。写入白名单不为空的 bee 和只读 bee 不能走共享工作区，否则无法过滤白名单外的改动。
 - 非 git 项目用影子仓库（`ShadowRepo`，放在 `shadow-git/`），不可用时退到 `SharedNoGit`。
 - 工作副本放在 `swarm-worktrees/`。
+- 自动合并默认开启。bee 的基线是启动时的 HEAD，看不到用户未提交的编辑。需要这些编辑的任务应先提交再派发。
+- 自动合并关闭、使用 `shared` 工作区、非 git 项目或仓库没有提交时，基线是主工作区快照，改动以未提交形式落到主工作区。
 - `sweep.go` 的 `SweepOrphanCopies` 清理孤儿副本。`reclaimBeeCopies` 回收。
 - 重试（`RetryBee`）会接管上一个 bee 失败时保留的副本，跳过基线检查点和 `worktree add`，启动失败也保留现场。
 
@@ -79,8 +81,9 @@ Claude 和 mcode 原生 Provider 的主会话将静态主代理规则与档位�
 
 进入待人工审查（`PendingMerge` 且不在审查中）时会产生一条「有改动待审查」的注意力提醒，桌面端会话头显示「待审查 N」。
 
-- `integratePatch` 在对象层整合 bee 工作区和主工作区的最新内容。
-- `handbackConflict` 把冲突交回 bee 的 worktree，并启动接手的新 bee 解决冲突。
+- `integratePatch` 用 bee 暂存区生成提交对象，并获取目标目录的 HEAD 锁。同一目标目录的落地全局串行。以 bee 基线为共同祖先，通过 `merge-tree` 在对象层合并当前 HEAD。无冲突时通过 `commit-tree` 创建独立提交，提交说明来自任务标题，可以单独用 `git revert` 撤销。
+- `handbackConflict` 将 HEAD 合并冲突交回 bee 的副本解决，最多一次。冲突期间不改 HEAD 和主工作区。
+- 写入前，将新提交与包含用户未提交改动的主工作区快照在对象层预检。预检冲突或文件已有冲突标记时不写文件，进入等待并在下次轮询重试。预检通过后，用三方 apply 写入工作区，再用 `update-ref` 以 CAS 方式更新 HEAD，并同步暂存区；用户已暂存的路径保持不动。CAS 失败时复原工作区，下次重试。用户未提交的改动不会被提交或清掉。
 - `deferMerge` 记录本次不落地的等待起点。等待超时后把补丁另存为 `.patch` 文件，标记 bee 未合入，放弃本次落地。
 - `maybeFireBatchLanded` 在一批全部落地后触发回调。
 
@@ -102,7 +105,7 @@ Claude 和 mcode 原生 Provider 的主会话将静态主代理规则与档位�
 
 结论处理：
 
-- `approve`：只合入审查过的那份快照。合入前重新比对补丁文件的 SHA 与 bee 当前的 `MergePatch`，不一致就转人工，绝不合入未审查的内容。与主工作区冲突时按自动合并的路径交回新 bee 处理，交回失败则转人工；主工作区还没落定时本次不合入，下一次轮询重试。
+- `approve`：只合入审查过的那份快照。合入前重新比对补丁文件的 SHA 与 bee 当前的 `MergePatch`，不一致就转人工，绝不合入未审查的内容。HEAD 合并冲突时按自动合并路径交回 bee 处理，交回失败则转人工；主工作区预检未通过时等待下一次轮询。
 - `reject`：不合入，保留补丁（MergePatch 与 swarm-reviews 下的补丁文件），汇报后按放弃的规则回收工作副本，不自动返工。汇报里写明审查意见和补丁路径，由主代理决定返工还是放弃。
 - `needs_human`：转人工，补丁继续待审，等用户批准或放弃。
 
@@ -116,11 +119,9 @@ Claude 和 mcode 原生 Provider 的主会话将静态主代理规则与档位�
 
 ### 自动合并流水线
 
-`automerge.go` 分 7 个阶段，可在重启后续做（`ResumeBatch`）：
+开启 `auto_merge` 时，每个 bee 完成并通过审查后单独提交到当前分支。批次全部结束后，流水线不再重放补丁，也不按工作区内容提交。
 
-`Gathering → Committing → Describing → Pushing → Opening → Merging → Syncing`
-
-只有开启 `auto_push` 才做远端操作（push、用 `gh`/`glab` 开 PR）。`auto_merge` 只做本地提交和 squash 合并。
+只有开启 `auto_push`，批次结束后才执行推送、开 PR、合入和同步。流水线可在重启后续做（`ResumeBatch`）。
 
 ## 汇报
 

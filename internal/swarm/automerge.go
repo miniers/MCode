@@ -100,6 +100,7 @@ type preparedBatch struct {
 	forge      git.Forge
 	prURL      string
 	stagedKept []string
+	commits    []string // 本批次已创建的提交，含逐 bee 落地提交
 }
 
 // retryJob 表示一个等待延时重试的远端阶段任务（C-HY-16）。
@@ -114,7 +115,7 @@ type retryJob struct {
 }
 
 // Pipeline 是编排自动合并/自动推送流水线（C-HY-15/16）。
-// 两个开关默认关闭：AutoMerge 仅控制本地提交，AutoPush 是唯一允许自动
+// AutoMerge 默认开启，仅控制本地提交；AutoPush 默认关闭，是唯一允许自动
 // push 与创建/合入 PR/MR 的开关；手动触发（Trigger）不受开关限制。
 type Pipeline struct {
 	git       *git.Runner
@@ -221,7 +222,15 @@ func (p *Pipeline) RunBatch(ctx context.Context, b LandedBatch, manual bool) err
 			if len(prep.stagedKept) > 0 {
 				extra = fmt.Sprintf("；这些路径你另有已暂存内容，未同步暂存区：%s", strings.Join(prep.stagedKept, "、"))
 			}
-			p.notifyf(b.LeadThreadID, NoticePrefix+"已在本地提交 %s%s；自动推送未开启，可在 Git 菜单手动推送", shortSHA(prep.sha), extra)
+			commits := prep.commits
+			if len(commits) == 0 {
+				commits = []string{prep.sha}
+			}
+			shorts := make([]string, len(commits))
+			for i, sha := range commits {
+				shorts[i] = shortSHA(sha)
+			}
+			p.notifyf(b.LeadThreadID, NoticePrefix+"已在本地提交 %d 个提交（%s）%s；自动推送未开启，可在 Git 菜单手动推送", len(commits), strings.Join(shorts, "、"), extra)
 		} else {
 			p.notifyf(b.LeadThreadID, NoticePrefix+"合并：没有需要提交的改动")
 		}
@@ -427,7 +436,23 @@ func (p *Pipeline) runLocal(ctx context.Context, b LandedBatch) (*preparedBatch,
 	if len(validBees) == 0 {
 		return prep, nil
 	}
-	b.Bees = validBees
+	prep.subject, prep.message = defaultCommitMessage(validBees)
+	var uncommitted []Bee
+	for _, bee := range validBees {
+		if bee.LandedCommit != "" {
+			prep.commits = append(prep.commits, bee.LandedCommit)
+		} else {
+			uncommitted = append(uncommitted, bee)
+		}
+	}
+	if len(uncommitted) == 0 {
+		unlock := lockHead(root)
+		defer unlock()
+		var err error
+		prep.sha, err = p.git.RevParse(ctx, root, "HEAD")
+		return prep, err
+	}
+	b.Bees = uncommitted
 
 	paths, err := p.gatherPaths(ctx, root, b.Bees)
 	if err != nil {
@@ -448,12 +473,10 @@ func (p *Pipeline) runLocal(ctx context.Context, b LandedBatch) (*preparedBatch,
 		}
 	}
 
-	prep.subject, prep.message = defaultCommitMessage(b.Bees)
-
 	// 检查是否所有 bee 都有非空的 LandedPatchPath 且文件可读
 	patches, canUsePatches := p.readBeePatches(b.Bees)
 	if canUsePatches {
-		prep, fallback, err := p.commitWithPatches(ctx, root, b, patches, paths, prep)
+		prep, fallback, err := p.commitWithPatches(ctx, root, b, patches, prep)
 		if err != nil {
 			return nil, err
 		}
@@ -488,8 +511,7 @@ func (p *Pipeline) readBeePatches(bees []Bee) ([][]byte, bool) {
 
 // commitWithPatches 按补丁列表仅向 HEAD 提交，不写工作区。
 // 若返回 fallback 为 true，表示应回退到兼容路径（如 git.ErrNoHead）。
-// paths 为 gatherPaths 得到的本批次改动路径；补丁与 HEAD 冲突时只按工作区内容提交这些路径。
-func (p *Pipeline) commitWithPatches(ctx context.Context, root string, b LandedBatch, patches [][]byte, paths []string, prep *preparedBatch) (*preparedBatch, bool, error) {
+func (p *Pipeline) commitWithPatches(ctx context.Context, root string, b LandedBatch, patches [][]byte, prep *preparedBatch) (*preparedBatch, bool, error) {
 	// 新路径下用补丁拼成的文本作为 diff 输入生成提交说明，不混入用户的未提交改动
 	var diffBuilder strings.Builder
 	for _, patch := range patches {
@@ -506,7 +528,9 @@ func (p *Pipeline) commitWithPatches(ctx context.Context, root string, b LandedB
 		}
 	}
 
+	unlock := lockHead(root)
 	res, err := p.git.CommitPatchesOnHead(ctx, root, patches, prep.message)
+	unlock()
 	if err != nil {
 		if errors.Is(err, git.ErrNoHead) {
 			// 仓库尚无 HEAD 提交，退回兼容路径
@@ -518,33 +542,20 @@ func (p *Pipeline) commitWithPatches(ctx context.Context, root string, b LandedB
 	}
 
 	if len(res.Conflicts) > 0 {
-		conflictsStr := strings.Join(res.Conflicts, "、")
-		err := fmt.Errorf("swarm: 补丁应用存在冲突：%s", conflictsStr)
-		if len(paths) == 0 {
-			// 工作区里这些文件已没有改动，无法按工作区内容回退
-			p.notifyf(b.LeadThreadID, NoticePrefix+"合并已停止（%s）：%v；改动仍保留在工作区 %s，需要手动处理", StageCommitting.Label(), err, root)
-			return nil, false, err
-		}
-		// 主工作区同一文件有未提交改动时，补丁上下文对不上 HEAD；
-		// 改为按工作区内容只提交本批次涉及的路径，避免改动残留后反复冲突。
-		log.Printf("swarm: %v；改为按工作区内容提交：%s", err, strings.Join(paths, "、"))
-		fprep, ferr := p.commitPathsFallback(ctx, root, b, paths, prep)
-		if ferr != nil {
-			// commitPathsFallback 已发送「合并已停止…需要手动处理」通知
-			return nil, false, fmt.Errorf("%v；按工作区内容回退提交也失败: %w", err, ferr)
-		}
-		if fprep.sha != "" {
-			p.notifyf(b.LeadThreadID, NoticePrefix+"补丁无法直接应用到 HEAD（冲突：%s），已按工作区内容提交 %s，可能带有此前未提交的改动：%s", conflictsStr, shortSHA(fprep.sha), strings.Join(paths, "、"))
-		}
-		return fprep, false, nil
+		err := fmt.Errorf("swarm: 补丁应用存在冲突：%s", strings.Join(res.Conflicts, "、"))
+		p.notifyf(b.LeadThreadID, NoticePrefix+"合并已停止（%s）：%v；需要手动处理", StageCommitting.Label(), err)
+		return nil, false, err
 	}
 
 	if res.SHA == "" {
-		// SHA 为空表示没有可提交的内容，按现有「paths 为空」的分支处理
-		return prep, false, nil
+		if len(prep.commits) > 0 {
+			prep.sha, err = p.git.RevParse(ctx, root, "HEAD")
+		}
+		return prep, false, err
 	}
 
 	prep.sha = res.SHA
+	prep.commits = append(prep.commits, res.SHA)
 	prep.stagedKept = res.StagedKept
 	if len(res.StagedKept) > 0 {
 		log.Printf("swarm: 这些路径你另有已暂存内容，未同步暂存区：%s", strings.Join(res.StagedKept, "、"))
@@ -552,8 +563,7 @@ func (p *Pipeline) commitWithPatches(ctx context.Context, root string, b LandedB
 	return prep, false, nil
 }
 
-// commitPathsFallback 是兼容路径：当仓库无 HEAD（git.ErrNoHead）、bee 缺少 LandedPatchPath 存档
-// 或补丁与 HEAD 冲突时，回退到基于工作区文件改动的 gatherPaths + CommitPaths 提交。
+// commitPathsFallback 仅供无 HEAD 或缺少补丁存档的兼容批次按工作区路径提交。
 func (p *Pipeline) commitPathsFallback(ctx context.Context, root string, b LandedBatch, paths []string, prep *preparedBatch) (*preparedBatch, error) {
 	if len(paths) > 0 {
 		if p.describe != nil {
@@ -564,13 +574,21 @@ func (p *Pipeline) commitPathsFallback(ctx context.Context, root string, b Lande
 				}
 			}
 		}
+		unlock := lockHead(root)
 		sha, err := p.git.CommitPaths(ctx, root, paths, prep.message)
+		unlock()
 		if err != nil {
 			wrapped := fmt.Errorf("swarm: 创建提交失败: %w", err)
 			p.notifyf(b.LeadThreadID, NoticePrefix+"合并已停止（%s）：%v；改动仍保留在工作区 %s，需要手动处理", StageCommitting.Label(), wrapped, root)
 			return nil, wrapped
 		}
 		prep.sha = sha
+		if sha != "" {
+			prep.commits = append(prep.commits, sha)
+		}
+	}
+	if prep.sha == "" && len(prep.commits) > 0 {
+		prep.sha, _ = p.git.RevParse(ctx, root, "HEAD")
 	}
 	return prep, nil
 }
@@ -642,7 +660,9 @@ func (p *Pipeline) runRemote(ctx context.Context, b LandedBatch, manual bool, pr
 		p.report(b, BatchResult{State: AutoMergeDone, SHA: prep.sha})
 		return nil
 	}
+	unlock := lockHead(root)
 	synced, err := p.git.SyncDefaultBranch(ctx, root, p.remote, base)
+	unlock()
 	switch {
 	case err != nil:
 		p.notifyf(b.LeadThreadID, NoticePrefix+"远端合入完成，但本地检出未同步（可稍后手动 git pull）：%v", err)
