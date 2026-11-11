@@ -40,31 +40,36 @@ var (
 
 // diffPanelState 维护改动面板的状态。
 type diffPanelState struct {
-	owner      *chatState
-	requestGen uint64
-	threadID   string
-	turnID     string
-	loading    bool
-	err        string
-	data       ThreadDiff
-	files      []git.FileDiff
-	collapsed  map[string]bool
+	// 审阅正文与编辑器均有上限；编辑器只在 UI 线程创建和使用。
+	scope         string
+	scopeMenuOpen bool
+	snapshot      ReviewSnapshot
+	selectedPath  string
+	pendingPath   string
+	preferSplit   bool
+	reviewWidth   float32
+	contents      map[reviewDiffKey]*reviewContentEntry
+	contentOrder  []reviewDiffKey
+	views         map[reviewDiffKey]*reviewDiffView
+	viewOrder     []reviewDiffKey
+	patchLists    map[string]*ui.ListState
+	patchOrder    []string
+	owner         *chatState
+	requestGen    uint64
+	threadID      string
+	turnID        string
+	loading       bool
+	err           string
+	data          ThreadDiff
+	files         []git.FileDiff
+	collapsed     map[string]bool
 	// expandedDeferred 缓存大文件延迟补丁点开后的展开结果，键为文件路径（见 expandDeferredDiffFile）。
 	expandedDeferred map[string]git.FileDiff
 	// expandingDeferred 记录正在后台展开的大文件，重复点开只排队一次解析。
 	expandingDeferred map[string]bool
 	// expandedLarge 记录用户显式展开过的大文件（超过 diffLargeFileLineThreshold 行），跨轮次保留。
 	expandedLarge map[string]bool
-	// hunksOnly 记录用户选了「只显示改动块」的大文件：按 hunk 逐块展示，跨轮次保留。
-	hunksOnly map[string]bool
-	// expandedHunks 记录「只显示改动块」模式下已整块展开的 hunk，键见 diffHunkStateKey。
-	expandedHunks map[string]bool
-	// rows 是摊平后的行模型缓存（见 diff_rows.go），rowsSig 用于判断能否复用，
-	// rowsRev 在数据或折叠状态变化时自增，让签名失效。
-	rows    []diffDisplayRow
-	rowsSig uint64
-	rowsRev uint64
-	// rowsList 是行模型虚拟列表的滚动状态。
+	// rowsList 只虚拟化文件列表，代码行由 DiffView 自身虚拟化。
 	rowsList     ui.ListState
 	turnMenuOpen bool
 	// worktreePath 是加载这批改动时识别到的 AI 自建 worktree；
@@ -132,6 +137,11 @@ func (s *chatState) loadDiff(threadID, turnID string) {
 		return
 	}
 
+	if client, ok := s.client.(reviewClient); ok {
+		s.loadReview(dp, client, threadID, turnID)
+		return
+	}
+
 	diffPanelMu.Lock()
 	dp.requestGen++
 	gen := dp.requestGen
@@ -144,8 +154,6 @@ func (s *chatState) loadDiff(threadID, turnID string) {
 		dp.files = nil
 		dp.worktreePath = ""
 		dp.worktreeResolved = false
-		dp.rowsRev++
-		dp.rebuildDiffRowsLocked()
 		diffPanelMu.Unlock()
 		s.invalidate()
 		return
@@ -199,12 +207,10 @@ func (s *chatState) loadDiff(threadID, turnID string) {
 		} else {
 			dp.err = ""
 			dp.data = data
-			// 加载阶段就补齐增删统计并摊平出行模型，渲染期不再逐帧扫描 hunk 与行
+			// 加载阶段补齐增删统计。
 			prefillDiffStats(files)
 			dp.files = files
 		}
-		dp.rowsRev++
-		dp.rebuildDiffRowsLocked()
 		s.invalidate()
 	}(threadID, turnID)
 }
@@ -239,6 +245,10 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 	if dp == nil {
 		return
 	}
+	if _, ok := s.client.(reviewClient); ok {
+		renderReviewPanel(c, s, dp)
+		return
+	}
 
 	s.mu.Lock()
 	selectedTid := s.selectedThreadID
@@ -257,8 +267,6 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 		dp.worktreeResolved = false
 		dp.data = ThreadDiff{}
 		dp.files = nil
-		dp.rowsRev++
-		dp.rebuildDiffRowsLocked()
 	}
 	panelLoading := dp.loading
 	diffPanelMu.Unlock()
@@ -352,16 +360,11 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 				return
 			}
 
-			// 文件行：虚拟列表，只构建视口附近的若干行（见 diff_rows.go）
-			rows := diffPanelRowsFor(dp, files)
 			dp.rowsList.Key = func(i int) any {
-				if i >= 0 && i < len(rows) {
-					return rows[i].Key
-				}
-				return i
+				return diffRowFilePath(files[i])
 			}
-			ui.List(c.Key("diff-rows"), &dp.rowsList, len(rows), func(i int) {
-				renderDiffRow(c, s, dp, rows[i])
+			ui.List(c.Key("diff-rows"), &dp.rowsList, len(files), func(i int) {
+				renderLegacyDiffFile(c, s, dp, files[i])
 			}).
 				Grow(1).
 				MinHeight(0).
@@ -441,8 +444,14 @@ func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID,
 		Children(func() {
 			ui.Spacer(c)
 
-			// 轮次选择
-			renderDiffTurnSelector(c, s, dp, data, turnID)
+			if _, ok := s.client.(reviewClient); ok {
+				renderReviewScope(c, s, dp)
+				if reviewScope(dp.scope) == "turn" {
+					renderDiffTurnSelector(c, s, dp, data, turnID)
+				}
+			} else {
+				renderDiffTurnSelector(c, s, dp, data, turnID)
+			}
 
 			// 无边框刷新按钮
 			refreshBtn := ui.ButtonBase(c.Key("diff-refresh-btn")).
@@ -497,6 +506,13 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 	}
 
 	currentTitle := "整个会话"
+	_, modern := s.client.(reviewClient)
+	if modern {
+		if len(changedTurns) == 0 {
+			return
+		}
+		currentTitle = fmt.Sprintf("第 %d 轮", changedTurns[len(changedTurns)-1].Index+1)
+	}
 	if currentTurnID != "" {
 		for _, t := range changedTurns {
 			if t.TurnID == currentTurnID {
@@ -556,7 +572,12 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 				// “整个会话”选项
 				isAllSelected := (currentTurnID == "")
 				allBtn := ui.ButtonBase(c.Key("diff-turn-opt-all")).
-					Label("整个会话").
+					Label(func() string {
+						if modern {
+							return "本轮"
+						}
+						return "整个会话"
+					}()).
 					Padding(Space1, Space3).
 					Radius(RadiusXS).
 					FillWidth()
@@ -574,7 +595,12 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 					s.loadDiff(dp.threadID, "")
 				}
 				allBtn.Children(func() {
-					ui.Text(c, "整个会话").
+					ui.Text(c, func() string {
+						if modern {
+							return "本轮"
+						}
+						return "整个会话"
+					}()).
 						FontSize(TypeFootnote).
 						TextColor(ThemePrimaryText(c))
 				})
@@ -650,19 +676,16 @@ func renderDiffStatusBadge(c *ui.Context, status string) {
 		})
 }
 
-// renderDiffFileList 渲染文件差异列表（供 Swarm 合并审查器与看板复用）。
-// 与改动面板共用同一份行模型与行渲染，但调用方已经提供了滚动容器，
-// 所以这里按普通列表逐个渲染行，不另起一层虚拟列表。
+// renderDiffFileList 供合并审查器与看板复用；patch 使用各自有界的虚拟视口。
 func renderDiffFileList(c *ui.Context, s *chatState, dp *diffPanelState, files []git.FileDiff) {
 	if len(files) == 0 {
 		return
 	}
-	rows := diffPanelRowsFor(dp, files)
 	ui.Column(c.Key("diff-files-col")).
 		FillWidth().
 		Children(func() {
-			for _, row := range rows {
-				renderDiffRow(c, s, dp, row)
+			for _, file := range files {
+				renderLegacyDiffFile(c, s, dp, file)
 			}
 		})
 }
@@ -688,11 +711,16 @@ func expandDeferredDiffFile(s *chatState, dp *diffPanelState, filePath string, f
 		return
 	}
 	dp.expandingDeferred[filePath] = true
+	gen := dp.requestGen
 	diffPanelMu.Unlock()
 
 	go func() {
 		expanded, err := git.ExpandDeferred(file)
 		diffPanelMu.Lock()
+		if dp.requestGen != gen {
+			diffPanelMu.Unlock()
+			return
+		}
 		delete(dp.expandingDeferred, filePath)
 		if err != nil {
 			diffPanelMu.Unlock()
@@ -702,15 +730,20 @@ func expandDeferredDiffFile(s *chatState, dp *diffPanelState, filePath string, f
 			dp.expandedDeferred = make(map[string]git.FileDiff)
 		}
 		dp.expandedDeferred[filePath] = expanded
+		if len(dp.expandedDeferred) > reviewDiffCacheLimit {
+			for path := range dp.expandedDeferred {
+				if path != filePath {
+					delete(dp.expandedDeferred, path)
+					break
+				}
+			}
+		}
 		// 用户是主动点开这个文件的：记进显式展开集合，
 		// 免得展开后立刻又被「大文件默认折叠」收起来
 		if dp.expandedLarge == nil {
 			dp.expandedLarge = make(map[string]bool)
 		}
 		dp.expandedLarge[filePath] = true
-		// 展开结果写回后重建行模型，下一帧就能看到真实的行内容
-		dp.rowsRev++
-		dp.rebuildDiffRowsLocked()
 		diffPanelMu.Unlock()
 		s.invalidate()
 	}()

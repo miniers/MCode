@@ -1632,7 +1632,16 @@ func (f *FakeClient) ReviewGet(ctx context.Context, threadID, scope, turnID, pat
 	defer f.mu.Unlock()
 	call := ReviewGetCall{threadID, scope, turnID, path}
 	f.reviewGetCalls = append(f.reviewGetCalls, call)
-	return cloneReviewSnapshot(f.reviewSnapshots[call]), f.reviewGetErr
+	if snapshot, ok := f.reviewSnapshots[call]; ok {
+		return cloneReviewSnapshot(snapshot), f.reviewGetErr
+	}
+	// 旧 fixture 只有路径和 patch，没有历史 blob；只迁移元数据，不捏造全文。
+	diff := f.diffs[threadID+"|"+turnID]
+	snapshot := ReviewSnapshot{Scope: scope, TurnID: turnID, Unavailable: diff.FailureReason}
+	for _, name := range diff.FilesChanged {
+		snapshot.Files = append(snapshot.Files, ReviewFile{Path: name, Missing: true})
+	}
+	return snapshot, f.reviewGetErr
 }
 
 func (f *FakeClient) ReviewGetCalls() []ReviewGetCall {

@@ -19,11 +19,39 @@ type inspectorPreviewCall struct {
 type inspectorPreviewTestClient struct {
 	*FakeClient
 
-	mu      sync.Mutex
-	calls   []inspectorPreviewCall
-	target  string
-	err     error
-	revoked []string
+	mu          sync.Mutex
+	calls       []inspectorPreviewCall
+	target      string
+	err         error
+	revoked     []string
+	revokedURLs []string
+}
+
+func (c *inspectorPreviewTestClient) RevokeInspectorPreviewURL(target string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.revokedURLs = append(c.revokedURLs, target)
+}
+
+func TestLocalPreviewCloseRevokesSingleToken(t *testing.T) {
+	client := &inspectorPreviewTestClient{FakeClient: NewFakeClient()}
+	s := newInspectorPreviewState(t, client)
+	first := getPreviewState(s)
+	openPreviewLocalURL(s, "t1", "http://127.0.0.1:4321/p/one/index.html")
+	second := browserNewTab(s)
+	openPreviewLocalURL(s, "t1", "http://127.0.0.1:4321/p/two/index.html")
+	previewMu.Lock()
+	first.url = "https://example.test/redirect"
+	previewMu.Unlock()
+	browserCloseTab(s, first.owner, first.tabID)
+	client.mu.Lock()
+	if len(client.revokedURLs) != 1 || client.revokedURLs[0] != "http://127.0.0.1:4321/p/one/index.html" || len(client.revoked) != 0 {
+		t.Error("关闭单个标签未撤销自己的 Token，或撤销了整个会话")
+	}
+	client.mu.Unlock()
+	if second.localPreviewURL != "http://127.0.0.1:4321/p/two/index.html" {
+		t.Fatal("兄弟标签被改变")
+	}
 }
 
 func (c *inspectorPreviewTestClient) InspectorPreviewURL(_ context.Context, threadID, relPath string) (string, error) {
@@ -261,8 +289,8 @@ func TestLocalPreviewUntrustedNoBindings(t *testing.T) {
 	if !opts.Page.Untrusted {
 		t.Fatal("本地内容未以 Untrusted 创建")
 	}
-	if len(opts.Page.TrustedOrigins) != 0 || opts.Page.PreloadScript != "" {
-		t.Fatalf("本地内容带了信任来源或预加载脚本: %+v", opts.Page)
+	if len(opts.Page.TrustedOrigins) != 0 || opts.Page.PreloadScript == "" || opts.Page.PreloadAllFrames {
+		t.Fatal("本地内容扩大了权限，或缺少预装脚本")
 	}
 	// 创建入口不注册任何绑定：此路径只传 PageOptions，Untrusted 页面也无法调用 Go 方法。
 

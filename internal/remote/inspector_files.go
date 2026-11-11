@@ -183,6 +183,27 @@ func (b *MemoryBackend) InspectorPreviewURL(ctx context.Context, threadID, relPa
 	return "http://" + srv.addr + inspectorPreviewURLPrefix + token + "/" + escapeInspectorPreviewPath(entry), nil
 }
 
+// RevokeInspectorPreviewURL 只撤销本服务签发的单个 Token，不影响同会话的兄弟标签。
+func (b *MemoryBackend) RevokeInspectorPreviewURL(previewURL string) {
+	u, err := url.Parse(previewURL)
+	if err != nil || u.Scheme != "http" || u.User != nil {
+		return
+	}
+	token, _, ok := inspectorPreviewRequestPath(u.Path)
+	if !ok {
+		return
+	}
+	b.inspectorPreviewMu.Lock()
+	srv := b.inspectorPreview
+	b.inspectorPreviewMu.Unlock()
+	if srv == nil || u.Host != srv.addr {
+		return
+	}
+	srv.mu.Lock()
+	delete(srv.grants, token)
+	srv.mu.Unlock()
+}
+
 // RevokeInspectorPreviews 撤销某个会话的全部预览 Token；服务未启动时无事发生。
 func (b *MemoryBackend) RevokeInspectorPreviews(threadID string) {
 	if threadID == "" {

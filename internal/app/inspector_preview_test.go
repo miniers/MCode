@@ -19,6 +19,7 @@ func TestInspectorPreviewNilBackend(t *testing.T) {
 		t.Fatal("nil backend 未返回错误")
 	}
 	client.RevokeInspectorPreviews("thread")
+	client.RevokeInspectorPreviewURL("http://127.0.0.1/p/token/index.html")
 }
 
 func TestInspectorPreviewDelegatesToBackend(t *testing.T) {
@@ -49,7 +50,11 @@ func TestInspectorPreviewDelegatesToBackend(t *testing.T) {
 		t.Fatalf("预览响应 %d %q", resp.StatusCode, body)
 	}
 
-	client.RevokeInspectorPreviews("thread-a")
+	secondURL, err := client.InspectorPreviewURL(context.Background(), "thread-a", "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.RevokeInspectorPreviewURL(previewURL)
 	resp, err = httpClient.Get(previewURL)
 	if err != nil {
 		t.Fatal(err)
@@ -58,4 +63,13 @@ func TestInspectorPreviewDelegatesToBackend(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("撤销后状态=%d，期望 404", resp.StatusCode)
 	}
+	resp, err = httpClient.Get(secondURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatal("撤销单个 URL 影响了兄弟 Token")
+	}
+	client.RevokeInspectorPreviews("thread-a")
 }

@@ -32,11 +32,19 @@ type browserTab struct {
 	webCreating                    bool
 	pageOff                        func()
 	// 本地内容一律 Untrusted；信任级别变化时重建页面。
-	untrusted, pageUntrusted bool
-	localPreview             bool
-	previewThreadID          string
-	nextAnnotationID         uint64
-	addr, err                string
+	untrusted, pageUntrusted              bool
+	localPreview                          bool
+	previewThreadID                       string
+	localPreviewURL                       string
+	consoleConfigured, pageConsoleCapture bool
+	consoleDocument                       string
+	consoleWatermark, locationSequence    uint64
+	consoleAvailable                      bool
+	consoleClearPending                   bool
+	consoleFilter                         string
+	consoleSelected                       map[uint64]bool
+	nextAnnotationID                      uint64
+	addr, err                             string
 	// 创建失败后只由显式打开或刷新重试，避免按帧重建。
 	webFailed                   bool
 	viewport                    previewViewportMode
@@ -216,14 +224,14 @@ func browserBindTitle(s *chatState, token previewPageToken, page previewPage) fu
 func browserMaybeSyncNavigation(s *chatState, tab *browserTab) {
 	previewMu.Lock()
 	page, ok := tab.page.(browserHistoryPage)
-	if !ok || !tab.visible || time.Since(tab.navigationLastPoll) < time.Second {
+	if !ok || !tab.visible || tab.consoleAvailable || time.Since(tab.navigationLastPoll) < time.Second {
 		previewMu.Unlock()
 		return
 	}
 	tab.navigationLastPoll = time.Now()
 	token := previewPageTokenLocked(tab)
 	previewMu.Unlock()
-	// shortcut: OnDidNavigate 未承诺覆盖 SPA；P3.2 改用预加载脚本的 location 序号。
+	// 仅在 drain 尚不可用时兜底；空闲且关闭采集时不为此安排定时重绘。
 	target, back, forward, loading := page.URL(), page.CanGoBack(), page.CanGoForward(), page.IsLoading()
 	previewMu.Lock()
 	current := previewStateForTokenLocked(s, token)
@@ -304,12 +312,16 @@ func browserReloadOrStop(s *chatState, tab *browserTab) {
 
 func renderBrowserHistory(c *ui.Context, s *chatState, tab *browserTab, snap previewSnapshot) {
 	IconButton(c, IconButtonProps{Key: "preview-back", Icon: IconArrowLeft(), Label: "后退", Size: ControlXS, Variant: ButtonGhost, Disabled: !snap.canGoBack, OnClick: func() { browserNavigateHistory(s, tab, false) }})
-	IconButton(c, IconButtonProps{Key: "preview-forward", Icon: IconChevronRight(), Label: "前进", Size: ControlXS, Variant: ButtonGhost, Disabled: !snap.canGoForward, OnClick: func() { browserNavigateHistory(s, tab, true) }})
+	IconButton(c, IconButtonProps{Key: "preview-forward", Icon: IconArrowRight(), Label: "前进", Size: ControlXS, Variant: ButtonGhost, Disabled: !snap.canGoForward, OnClick: func() { browserNavigateHistory(s, tab, true) }})
 	label, icon := "刷新", IconRefreshCw()
 	if snap.loading {
 		label, icon = "停止", IconX()
 	}
 	IconButton(c, IconButtonProps{Key: "preview-reload-btn", Icon: icon, Label: label, Size: ControlXS, Variant: ButtonGhost, Disabled: snap.url == "" && snap.html == "", OnClick: func() { browserReloadOrStop(s, tab) }})
+}
+
+func browserNeedsTickLocked(tab *browserTab, capture bool) bool {
+	return tab.visible && tab.page != nil && (tab.loading || tab.annotating || capture)
 }
 
 func renderBrowserTabs(c *ui.Context, s *chatState, st *previewState) {
@@ -367,7 +379,13 @@ func renderBrowserTabs(c *ui.Context, s *chatState, st *previewState) {
 	} else if *selection >= 0 && *selection < len(items) && *selection != selected {
 		browserActivateTab(s, st, items[*selection].id)
 	}
-	c.After(time.Second)
+	capture := previewConsoleCaptureEnabled(s)
+	previewMu.Lock()
+	needsTick := browserNeedsTickLocked(browserActiveTabLocked(st), capture)
+	previewMu.Unlock()
+	if needsTick {
+		c.After(previewConsolePollInterval)
+	}
 }
 
 func browserEnforceSessionLimit(s *chatState) {

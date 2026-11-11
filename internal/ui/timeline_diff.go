@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"hash/maphash"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
@@ -17,113 +16,7 @@ import (
 // toolDiffMaxLines 为内嵌 diff 中单个文件最多显示的行数，超出部分提示已截断。
 const toolDiffMaxLines = 200
 
-// toolDiffLineNumberWidth 保证四位行号有足够空间。 // token-exempt: diff 行号列的固定宽度
-const toolDiffLineNumberWidth float32 = 32
-
-// timelineDiffLineMarkWidth 是改动行里 +− 标记列的固定宽度。
-const timelineDiffLineMarkWidth float32 = 14
-
-// toolDiffFoldKeep 为折叠上下文时靠近改动一侧保留的行数，
-// toolDiffFoldMinKeep 为触发折叠的最少连续上下文行数。
-const (
-	toolDiffFoldKeep    = 3
-	toolDiffFoldMinKeep = 6
-)
-
-// toolDiffFoldState 记录内嵌 diff 中被折叠上下文段的展开状态，按 "消息-文件-段" 定位。
-var (
-	toolDiffFoldMu    sync.Mutex
-	toolDiffFoldState = map[string]bool{}
-)
-
-// toolDiffFoldSnapshot 复制一份已展开的折叠段，渲染期间只用快照，
-// 避免每个折叠段各加一次锁。
-func toolDiffFoldSnapshot() map[string]bool {
-	toolDiffFoldMu.Lock()
-	defer toolDiffFoldMu.Unlock()
-	if len(toolDiffFoldState) == 0 {
-		return nil
-	}
-	folds := make(map[string]bool, len(toolDiffFoldState))
-	for key, open := range toolDiffFoldState {
-		if open {
-			folds[key] = true
-		}
-	}
-	return folds
-}
-
-// toggleToolDiffFold 切换某段被折叠上下文的展开状态。
-func toggleToolDiffFold(c *ui.Context, s *chatState, key string) {
-	toolDiffFoldMu.Lock()
-	if toolDiffFoldState == nil {
-		toolDiffFoldState = make(map[string]bool)
-	}
-	toolDiffFoldState[key] = !toolDiffFoldState[key]
-	toolDiffFoldMu.Unlock()
-	s.holdChatPlace()
-	c.Invalidate()
-}
-
-// toolDiffDisplayLine 表示内嵌 diff 的一行显示内容：普通 diff 行，或被折叠的上下文占位行。
-type toolDiffDisplayLine struct {
-	Line   git.Line // 普通行是对应的 diff 行；折叠占位行取被折叠区间的首行，用于对齐行号
-	Fold   int      // 折叠占位行折叠掉的行数，0 表示普通行
-	FoldID int      // 折叠占位行在该 hunk 内的序号（从 0 开始），展开状态按它记录
-}
-
-// toolDiffDisplayLines 把一个 hunk 的行序列转成显示行序列：连续未改动的上下文行超过
-// toolDiffFoldMinKeep 行时，只保留靠近改动的一侧各 toolDiffFoldKeep 行，中间合并成一行折叠占位行。
-// hunk 首尾的连续上下文只保留靠近改动的那侧；expanded 返回 true 的折叠段完整显示，可为 nil。
-func toolDiffDisplayLines(lines []git.Line, expanded func(foldID int) bool) []toolDiffDisplayLine {
-	out := make([]toolDiffDisplayLine, 0, len(lines))
-	foldID := 0
-	for i := 0; i < len(lines); {
-		if lines[i].Kind != ' ' {
-			out = append(out, toolDiffDisplayLine{Line: lines[i]})
-			i++
-			continue
-		}
-		start := i
-		for i < len(lines) && lines[i].Kind == ' ' {
-			i++
-		}
-		run := lines[start:i]
-		if len(run) <= toolDiffFoldMinKeep {
-			for _, line := range run {
-				out = append(out, toolDiffDisplayLine{Line: line})
-			}
-			continue
-		}
-		// 折叠段序号按候选段分配，与是否已展开无关，展开时编号保持稳定
-		id := foldID
-		foldID++
-		if expanded != nil && expanded(id) {
-			for _, line := range run {
-				out = append(out, toolDiffDisplayLine{Line: line})
-			}
-			continue
-		}
-		head, tail := toolDiffFoldKeep, toolDiffFoldKeep
-		switch {
-		case start == 0 && i == len(lines):
-			// 整个 hunk 都是上下文行，首尾都保留
-		case start == 0:
-			head = 0 // hunk 开头的上下文只保留靠近改动的尾部
-		case i == len(lines):
-			tail = 0 // hunk 结尾的上下文只保留靠近改动的头部
-		}
-		for _, line := range run[:head] {
-			out = append(out, toolDiffDisplayLine{Line: line})
-		}
-		hidden := run[head : len(run)-tail]
-		out = append(out, toolDiffDisplayLine{Line: hidden[0], Fold: len(hidden), FoldID: id})
-		for _, line := range run[len(run)-tail:] {
-			out = append(out, toolDiffDisplayLine{Line: line})
-		}
-	}
-	return out
-}
+const timelineReviewViewportHeight float32 = 280
 
 // toolDiffInlineCacheLimit 限制内嵌 diff 缓存的消息条数，防止长会话内存只增不减。
 const toolDiffInlineCacheLimit = 32
@@ -136,21 +29,21 @@ var toolDiffHashSeed = maphash.MakeSeed()
 
 // toolDiffState 保存文件修改工具步骤的内嵌 diff 状态，读写需持有 chatState.mu。
 type toolDiffState struct {
+	reviews    map[string]*toolDiffEntry
+	reviewSeq  []string
 	generation uint64
 	open       map[string]bool                 // 按消息 ID 记录是否展开
 	turnKey    map[string]string               // "threadID|#轮次序号" → "threadID|turnID"
 	entries    map[string]*toolDiffEntry       // 按 "threadID|turnID" 缓存；轮次尚未解析出时按 "threadID|#轮次序号" 临时记录
-	inline     map[string]*toolDiffInlineEntry // 按消息 ID 缓存内嵌 diff 的解析结果与显示行
+	inline     map[string]*toolDiffInlineEntry // 按消息 ID 缓存 patch 解析结果
 	inlineSeq  []string                        // 内嵌 diff 缓存的最近使用顺序，超出上限时淘汰最旧条目
 }
 
-// toolDiffInlineEntry 缓存一条消息内嵌 diff 的解析结果：文件、增删统计与各 hunk 的显示行。
-// 指纹不一致时整条缓存作废；折叠状态变化时只重算受影响的 hunk。
+// toolDiffInlineEntry 缓存一条消息的 patch 文件与增删统计；指纹变化时作废。
 type toolDiffInlineEntry struct {
 	fingerprint string
 	files       []git.FileDiff
 	stats       []toolDiffFileStats
-	display     map[string]toolDiffHunkLines // "文件序号-hunk 序号" → 显示行
 }
 
 // toolDiffFileStats 记录单个文件的增删与总行数，避免每帧重扫全部行。
@@ -160,22 +53,10 @@ type toolDiffFileStats struct {
 	total int
 }
 
-// toolDiffHunkLines 是某个 hunk 的显示行缓存，foldSig 为折叠状态指纹。
-type toolDiffHunkLines struct {
-	foldSig string
-	lines   []toolDiffDisplayLine
-}
-
 // toolDiffInlineData 是一次渲染所需的缓存数据副本。
 type toolDiffInlineData struct {
-	files   []git.FileDiff
-	stats   []toolDiffFileStats
-	display map[string][]toolDiffDisplayLine // "文件序号-hunk 序号" → 显示行
-}
-
-// toolDiffHunkCacheKey 返回某个 hunk 在缓存中的键。
-func toolDiffHunkCacheKey(fileIdx, hunkIdx int) string {
-	return strconv.Itoa(fileIdx) + "-" + strconv.Itoa(hunkIdx)
+	files []git.FileDiff
+	stats []toolDiffFileStats
 }
 
 // toolDiffFileStatsFor 统计单个文件的增删与总行数，只在解析或加载时调用一次。
@@ -204,59 +85,6 @@ func toolDiffFingerprint(source, text, toolInput string) string {
 	return source + ":" + strconv.Itoa(len(text)) + ":" + strconv.FormatUint(sum, 16)
 }
 
-// toolDiffFoldSignature 返回某个 hunk 已展开折叠段的指纹，指纹不变时显示行可直接复用。
-func toolDiffFoldSignature(folds map[string]bool, hunkKey string) string {
-	if len(folds) == 0 {
-		return ""
-	}
-	prefix := hunkKey + "-fold-"
-	ids := make([]int, 0, len(folds))
-	for key, open := range folds {
-		if !open || !strings.HasPrefix(key, prefix) {
-			continue
-		}
-		if id, err := strconv.Atoi(key[len(prefix):]); err == nil {
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) == 0 {
-		return ""
-	}
-	sort.Ints(ids)
-	var b strings.Builder
-	for _, id := range ids {
-		b.WriteString(strconv.Itoa(id))
-		b.WriteByte(',')
-	}
-	return b.String()
-}
-
-// view 返回渲染数据；折叠状态变了才重算对应 hunk 的显示行，其余 hunk 直接复用。
-// 调用方需持有 chatState.mu。
-func (e *toolDiffInlineEntry) view(msgID string, folds map[string]bool) toolDiffInlineData {
-	display := make(map[string][]toolDiffDisplayLine, len(e.display))
-	fresh := make(map[string]toolDiffHunkLines, len(e.display))
-	for fileIdx, file := range e.files {
-		for hunkIdx, hunk := range file.Hunks {
-			cacheKey := toolDiffHunkCacheKey(fileIdx, hunkIdx)
-			hunkKey := fmt.Sprintf("%s-%d-%d", msgID, fileIdx, hunkIdx)
-			sig := toolDiffFoldSignature(folds, hunkKey)
-			if cached, ok := e.display[cacheKey]; ok && cached.foldSig == sig {
-				fresh[cacheKey] = cached
-				display[cacheKey] = cached.lines
-				continue
-			}
-			lines := toolDiffDisplayLines(hunk.Lines, func(foldID int) bool {
-				return folds[fmt.Sprintf("%s-fold-%d", hunkKey, foldID)]
-			})
-			fresh[cacheKey] = toolDiffHunkLines{foldSig: sig, lines: lines}
-			display[cacheKey] = lines
-		}
-	}
-	e.display = fresh
-	return toolDiffInlineData{files: e.files, stats: e.stats, display: display}
-}
-
 // touchToolDiffInlineLocked 记录内嵌 diff 缓存的最近使用顺序，调用方需持有 s.mu。
 func (s *chatState) touchToolDiffInlineLocked(key string) {
 	for i, existing := range s.toolDiff.inlineSeq {
@@ -279,7 +107,7 @@ func (s *chatState) trimToolDiffInlineLocked() {
 
 // toolDiffDataFor 返回一条消息内嵌 diff 的渲染数据。命中缓存时不再解析补丁、不再筛选路径；
 // load 只在未命中时调用，调用期间不持有 s.mu，避免阻塞其它读写。
-func (s *chatState) toolDiffDataFor(m Message, source string, folds map[string]bool, load func() []git.FileDiff) (toolDiffInlineData, bool) {
+func (s *chatState) toolDiffDataFor(m Message, source string, load func() []git.FileDiff) (toolDiffInlineData, bool) {
 	fingerprint := toolDiffFingerprint(source, m.Text, m.ToolInput)
 	key := m.ID
 	if key == "" {
@@ -289,7 +117,7 @@ func (s *chatState) toolDiffDataFor(m Message, source string, folds map[string]b
 	s.mu.Lock()
 	if e := s.toolDiff.inline[key]; e != nil && e.fingerprint == fingerprint {
 		s.touchToolDiffInlineLocked(key)
-		data := e.view(m.ID, folds)
+		data := toolDiffInlineData{files: e.files, stats: e.stats}
 		s.mu.Unlock()
 		return data, true
 	}
@@ -312,18 +140,20 @@ func (s *chatState) toolDiffDataFor(m Message, source string, folds map[string]b
 	s.toolDiff.inline[key] = entry
 	s.touchToolDiffInlineLocked(key)
 	s.trimToolDiffInlineLocked()
-	data := entry.view(m.ID, folds)
+	data := toolDiffInlineData{files: entry.files, stats: entry.stats}
 	s.mu.Unlock()
 	return data, true
 }
 
 // toolDiffEntry 是某一轮改动的加载结果。
 type toolDiffEntry struct {
-	loading   bool
-	err       string
-	failure   string
-	files     []git.FileDiff
-	truncated bool
+	generation uint64
+	snapshot   *ReviewSnapshot
+	loading    bool
+	err        string
+	failure    string
+	files      []git.FileDiff
+	truncated  bool
 }
 
 // fileEditToolNames 为算作文件修改的工具名（已转小写并去掉 _ 与 -）。
@@ -518,6 +348,13 @@ func (s *chatState) toggleToolDiff(m Message) {
 			delete(s.toolDiff.entries, key)
 			delete(s.toolDiff.turnKey, tid+"|#"+strconv.Itoa(m.TurnIndex))
 		}
+		reviewKey := tid + "|#" + strconv.Itoa(m.TurnIndex)
+		if m.TurnID != "" {
+			reviewKey = tid + "|" + m.TurnID
+		}
+		if e := s.toolDiff.reviews[reviewKey]; e != nil && !e.loading && (e.err != "" || e.failure != "") {
+			delete(s.toolDiff.reviews, reviewKey)
+		}
 	}
 	s.mu.Unlock()
 	s.holdChatPlace()
@@ -568,7 +405,7 @@ func (s *chatState) toolDiffEntryFor(threadID string, m Message) toolDiffEntry {
 func (s *chatState) loadToolDiff(threadID string, turnIndex int, turnID string, generation uint64) {
 	ctx := context.Background()
 	idxKey := threadID + "|#" + strconv.Itoa(turnIndex)
-	entry := &toolDiffEntry{}
+	entry := &toolDiffEntry{generation: generation}
 	resolved := ""
 
 	var all ThreadDiff
@@ -637,7 +474,10 @@ func (s *chatState) loadToolDiff(threadID string, turnIndex int, turnID string, 
 
 // renderInlineToolDiff 在文件修改工具步骤下方渲染该步骤涉及文件的行级 diff。
 func renderInlineToolDiff(c *ui.Context, s *chatState, m Message) {
-	folds := toolDiffFoldSnapshot()
+	if _, ok := s.client.(reviewClient); ok && (m.TurnID != "" || toolEmbeddedDiff(m.Text) == "") {
+		renderTimelineReview(c, s, m)
+		return
+	}
 	var (
 		data     toolDiffInlineData
 		entry    toolDiffEntry
@@ -645,7 +485,7 @@ func renderInlineToolDiff(c *ui.Context, s *chatState, m Message) {
 	)
 	if raw := toolEmbeddedDiff(m.Text); raw != "" {
 		// 工具输出自带 unified diff 时直接解析，解析结果按消息与补丁内容缓存
-		if d, ok := s.toolDiffDataFor(m, "embedded", folds, func() []git.FileDiff {
+		if d, ok := s.toolDiffDataFor(m, "embedded", func() []git.FileDiff {
 			files, err := toolDiffParse([]byte(raw))
 			if err != nil {
 				return nil
@@ -665,7 +505,7 @@ func renderInlineToolDiff(c *ui.Context, s *chatState, m Message) {
 			// 路径筛选与统计只算一次；来源带上轮次与文件数，重新加载后自动失效
 			source := "turn:" + tid + "|" + strconv.Itoa(m.TurnIndex) + "|" + m.TurnID + "|" + strconv.Itoa(len(entry.files))
 			files := entry.files
-			if d, ok := s.toolDiffDataFor(m, source, folds, func() []git.FileDiff {
+			if d, ok := s.toolDiffDataFor(m, source, func() []git.FileDiff {
 				return filterToolDiffFiles(files, toolEditedPaths(m))
 			}); ok {
 				data = d
@@ -724,9 +564,7 @@ func renderInlineToolDiff(c *ui.Context, s *chatState, m Message) {
 				if idx < len(data.stats) {
 					stats = data.stats[idx]
 				}
-				renderInlineToolDiffFileData(c, s, m.ID, idx, file, stats, func(hunkIdx int) []toolDiffDisplayLine {
-					return data.display[toolDiffHunkCacheKey(idx, hunkIdx)]
-				})
+				renderInlineToolDiffFileData(c, s, m.ID, idx, file, stats, m.TurnID)
 			}
 			if entry.truncated {
 				ui.Text(c, "改动过多，已截断").
@@ -736,30 +574,172 @@ func renderInlineToolDiff(c *ui.Context, s *chatState, m Message) {
 		})
 }
 
+func (s *chatState) toolReviewEntryFor(tid string, m Message) toolDiffEntry {
+	s.mu.Lock()
+	key := tid + "|#" + strconv.Itoa(m.TurnIndex)
+	if m.TurnID != "" {
+		key = tid + "|" + m.TurnID
+	}
+	gen := s.toolDiff.generation
+	if entry := s.toolDiff.reviews[key]; entry != nil && entry.generation == gen {
+		result := *entry
+		s.mu.Unlock()
+		return result
+	}
+	if s.toolDiff.reviews == nil {
+		s.toolDiff.reviews = map[string]*toolDiffEntry{}
+	}
+	pending := &toolDiffEntry{generation: gen, loading: true}
+	s.toolDiff.reviews[key] = pending
+	for i, old := range s.toolDiff.reviewSeq {
+		if old == key {
+			s.toolDiff.reviewSeq = append(s.toolDiff.reviewSeq[:i], s.toolDiff.reviewSeq[i+1:]...)
+			break
+		}
+	}
+	s.toolDiff.reviewSeq = append(s.toolDiff.reviewSeq, key)
+	for len(s.toolDiff.reviewSeq) > toolDiffInlineCacheLimit {
+		delete(s.toolDiff.reviews, s.toolDiff.reviewSeq[0])
+		s.toolDiff.reviewSeq = s.toolDiff.reviewSeq[1:]
+	}
+	s.mu.Unlock()
+	go s.loadToolReview(s.client.(reviewClient), tid, m.TurnIndex, m.TurnID, gen, pending)
+	return toolDiffEntry{loading: true}
+}
+
+func (s *chatState) loadToolReview(client reviewClient, tid string, index int, turn string, generation uint64, pending ...*toolDiffEntry) {
+	requestKey := tid + "|#" + strconv.Itoa(index)
+	if turn != "" {
+		requestKey = tid + "|" + turn
+	}
+	if turn == "" {
+		s.mu.Lock()
+		for _, m := range s.messages {
+			if m.TurnIndex == index && m.TurnID != "" {
+				turn = m.TurnID
+				break
+			}
+		}
+		s.mu.Unlock()
+	}
+	entry := &toolDiffEntry{generation: generation}
+	if turn == "" {
+		entry.failure = "该轮次的文件版本不可用"
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		snapshot, err := client.ReviewGet(ctx, tid, "turn", turn, "")
+		if err != nil {
+			entry.err = err.Error()
+		} else {
+			snapshot.Scope, snapshot.TurnID = "turn", turn
+			entry.snapshot = &snapshot
+			entry.failure = snapshot.Unavailable
+		}
+	}
+	s.mu.Lock()
+	if s.toolDiff.generation == generation && (len(pending) == 0 || s.toolDiff.reviews[requestKey] == pending[0]) {
+		if s.toolDiff.reviews == nil {
+			s.toolDiff.reviews = map[string]*toolDiffEntry{}
+		}
+		s.toolDiff.reviews[requestKey] = entry
+	}
+	s.mu.Unlock()
+	s.invalidate()
+}
+
+// 工具摘要只在拿不到该轮完整版本时回退为 patch，绝不把上下文片段交给 DiffState。
+func renderTimelineReview(c *ui.Context, s *chatState, m Message) {
+	s.mu.Lock()
+	tid := s.selectedThreadID
+	s.mu.Unlock()
+	entry := s.toolReviewEntryFor(tid, m)
+	ui.Column(c.Key("timeline-review-" + m.ID)).FillWidth().Transition(motionCollapse(c)).Children(func() {
+		if entry.loading {
+			reviewBusy(c, "timeline-review-loading")
+			return
+		}
+		if entry.snapshot == nil || entry.failure != "" || entry.err != "" {
+			if raw := toolEmbeddedDiff(m.Text); raw != "" {
+				data, ok := s.toolDiffDataFor(m, "embedded", func() []git.FileDiff { files, _ := toolDiffParse([]byte(raw)); return files })
+				if ok {
+					for i, file := range data.files {
+						renderInlineToolDiffFileData(c, s, m.ID, i, file, data.stats[i], m.TurnID)
+					}
+					return
+				}
+			}
+			reason := entry.failure
+			if entry.err != "" {
+				reason = entry.err
+			}
+			if reason == "" {
+				reason = "文件版本不可用"
+			}
+			renderDiffStatusState(c, "timeline-review-unavailable", IconFile(), reason, "", nil)
+			for _, path := range toolEditedPaths(m) {
+				path := path
+				Button(c, ButtonOpts{Key: "timeline-open-" + path, Text: "在改动中打开", Variant: ButtonSecondary, OnClick: func() { openReviewPath(s, m.TurnID, path) }})
+			}
+			return
+		}
+		snapshot := *entry.snapshot
+		paths := toolEditedPaths(m)
+		dp := getDiffPanelState(s)
+		shown := false
+		for _, file := range snapshot.Files {
+			matched := len(paths) == 0
+			for _, path := range paths {
+				matched = matched || toolDiffPathMatch(file.Path, path) || toolDiffPathMatch(file.OrigPath, path)
+			}
+			if !matched {
+				continue
+			}
+			file := file
+			ui.Text(c, file.Path).FontSize(TypeFootnote).SingleLine()
+			if !shown {
+				shown = true
+				ui.Column(c.Key("timeline-review-file-" + m.ID)).FillWidth().Height(timelineReviewViewportHeight).Children(func() { renderReviewFile(c, s, dp, tid, snapshot, file, false, 0, m.ID) })
+			}
+			Button(c, ButtonOpts{Key: "timeline-open-" + m.ID + file.Path, Text: "在改动中打开", Variant: ButtonSecondary, OnClick: func() { openReviewPath(s, m.TurnID, file.Path) }})
+		}
+		if !shown {
+			ui.Text(c, "这一步没有可显示的改动").FontSize(TypeFootnote)
+		}
+	})
+}
+
+func openReviewPath(s *chatState, turn, path string) {
+	inspectorSelect(s, sidePaneDiffID, false)
+	dp := getDiffPanelState(s)
+	if dp == nil {
+		return
+	}
+	s.mu.Lock()
+	tid := s.selectedThreadID
+	s.mu.Unlock()
+	diffPanelMu.Lock()
+	dp.scope = "turn"
+	dp.pendingPath = path
+	diffPanelMu.Unlock()
+	s.loadDiff(tid, turn)
+}
+
 // renderInlineToolDiffFile 按当前折叠状态现算统计与显示行，供未接入缓存的调用方使用。
 func renderInlineToolDiffFile(c *ui.Context, s *chatState, msgID string, fileIdx int, file git.FileDiff) {
-	folds := toolDiffFoldSnapshot()
-	renderInlineToolDiffFileData(c, s, msgID, fileIdx, file, toolDiffFileStatsFor(file), func(hunkIdx int) []toolDiffDisplayLine {
-		if hunkIdx >= len(file.Hunks) {
-			return nil
-		}
-		hunkKey := fmt.Sprintf("%s-%d-%d", msgID, fileIdx, hunkIdx)
-		return toolDiffDisplayLines(file.Hunks[hunkIdx].Lines, func(foldID int) bool {
-			return folds[fmt.Sprintf("%s-fold-%d", hunkKey, foldID)]
-		})
-	})
+	renderInlineToolDiffFileData(c, s, msgID, fileIdx, file, toolDiffFileStatsFor(file))
 }
 
 // renderInlineToolDiffFileData 渲染单个文件：一行路径与 +N/-M，下面逐行显示 hunk，行样式与改动面板一致。
 // stats 为预先算好的增删统计，hunkLines 返回某个 hunk 的显示行，两者由调用方从缓存取出。
-func renderInlineToolDiffFileData(c *ui.Context, s *chatState, msgID string, fileIdx int, file git.FileDiff, stats toolDiffFileStats, hunkLines func(hunkIdx int) []toolDiffDisplayLine) {
+func renderInlineToolDiffFileData(c *ui.Context, s *chatState, msgID string, fileIdx int, file git.FileDiff, stats toolDiffFileStats, turn ...string) {
 	filePath := file.NewPath
 	if file.Status == "deleted" || filePath == "" {
 		filePath = file.OldPath
 	}
 	fileKey := fmt.Sprintf("%s-%d", msgID, fileIdx)
 
-	adds, dels, total := stats.adds, stats.dels, stats.total
+	adds, dels := stats.adds, stats.dels
 
 	ui.Column(c.Key("tool-diff-file-"+fileKey)).
 		Radius(RadiusMD).
@@ -791,142 +771,13 @@ func renderInlineToolDiffFileData(c *ui.Context, s *chatState, msgID string, fil
 						TextColor(ThemeDanger(c))
 				})
 
-			if file.Binary {
-				ui.Row(c.Key("tool-diff-binary-"+fileKey)).
-					Padding(Space2, Space3).
-					Children(func() {
-						ui.Text(c, "二进制文件").
-							FontSize(scaledFont(TypeFootnote)).
-							TextColor(ThemeSecondaryText(c))
-					})
-				return
+			renderPatchSummary(c, "tool-patch-"+fileKey, file)
+			if s != nil {
+				turnID := ""
+				if len(turn) > 0 {
+					turnID = turn[0]
+				}
+				Button(c, ButtonOpts{Key: "tool-open-review-" + fileKey, Text: "在改动中打开", Variant: ButtonSecondary, OnClick: func() { openReviewPath(s, turnID, filePath) }})
 			}
-
-			ui.Column(c.Key("tool-diff-hunks-"+fileKey)).
-				FillWidth().
-				BorderWidth(Hairline, 0, 0, 0).
-				BorderColor(ThemeBorder(c)).
-				Children(func() {
-					shown := 0
-					for hunkIdx, hunk := range file.Hunks {
-						if shown >= toolDiffMaxLines {
-							break
-						}
-						hunkKey := fmt.Sprintf("%s-%d", fileKey, hunkIdx)
-
-						ui.Row(c.Key("tool-diff-hunk-hdr-"+hunkKey)).
-							FillWidth().
-							Height(ControlMD).
-							AlignItems(ui.Center).
-							Padding(Space0, Space3).
-							Background(ThemeHover(c)).
-							Children(func() {
-								ui.Text(c, hunk.Header).
-									Font("monospace").
-									FontSize(scaledFont(TypeCode)).
-									TextColor(ThemeSecondaryText(c)).
-									SingleLine()
-							})
-
-						displayLines := hunkLines(hunkIdx)
-						for lineIdx, disp := range displayLines {
-							if shown >= toolDiffMaxLines {
-								break
-							}
-							shown++
-
-							if disp.Fold > 0 {
-								foldKey := fmt.Sprintf("%s-fold-%d", hunkKey, disp.FoldID)
-								foldText := fmt.Sprintf("⋯ %d 行未变", disp.Fold)
-								foldRow := ui.Row(c.Key("tool-diff-fold-"+foldKey)).
-									FillWidth().
-									Padding(Hairline, Space3, Hairline, Space2).
-									AlignItems(ui.Center).
-									Cursor(ui.CursorPointer).
-									Label(foldText).
-									OnClick(func() {
-										toggleToolDiffFold(c, s, foldKey)
-									}).
-									Children(func() {
-										ui.Text(c, foldText).
-											Font("monospace").
-											FontSize(scaledFont(TypeCode)).
-											TextColor(ThemeSecondaryText(c))
-									})
-								if foldRow.Hovered() {
-									foldRow.Background(ThemeHover(c))
-								}
-								continue
-							}
-
-							line := disp.Line
-							lineBg := ui.Transparent
-							markColor := ThemeSecondaryText(c)
-							markStr := " "
-							switch line.Kind {
-							case '+':
-								lineBg = ThemeSuccess(c).Alpha(0.12)
-								markColor = ThemeSuccess(c)
-								markStr = "+"
-							case '-':
-								lineBg = ThemeDanger(c).Alpha(0.12)
-								markColor = ThemeDanger(c)
-								markStr = "-"
-							}
-
-							oldNoStr := ""
-							if line.OldNo > 0 {
-								oldNoStr = strconv.Itoa(line.OldNo)
-							}
-							newNoStr := ""
-							if line.NewNo > 0 {
-								newNoStr = strconv.Itoa(line.NewNo)
-							}
-
-							ui.Row(c.Key(fmt.Sprintf("tool-diff-line-%s-%d", hunkKey, lineIdx))).
-								FillWidth().
-								Background(lineBg).
-								Padding(Hairline, Space3, Hairline, Space2).
-								AlignItems(ui.Center).
-								Children(func() {
-									ui.Text(c, oldNoStr).
-										Width(toolDiffLineNumberWidth).
-										Font("monospace").
-										FontSize(scaledFont(TypeCode)).
-										SingleLine().
-										TextColor(ThemeSecondaryText(c))
-									ui.Text(c, newNoStr).
-										Width(toolDiffLineNumberWidth).
-										Font("monospace").
-										FontSize(scaledFont(TypeCode)).
-										SingleLine().
-										TextColor(ThemeSecondaryText(c))
-									ui.Text(c, markStr).
-										Width(timelineDiffLineMarkWidth).
-										Font("monospace").
-										FontSize(scaledFont(TypeCode)).
-										TextColor(markColor)
-									ui.Text(c, line.Text).
-										Font("monospace").
-										FontSize(scaledFont(TypeCode)).
-										TextColor(ThemePrimaryText(c)).
-										Grow(1).
-										Selectable()
-								})
-						}
-					}
-
-					if total > shown {
-						ui.Row(c.Key("tool-diff-cut-"+fileKey)).
-							FillWidth().
-							Padding(Space1, Space3).
-							Background(ThemeWarning(c).Alpha(0.12)).
-							Children(func() {
-								ui.Text(c, fmt.Sprintf("已截断，还有 %d 行未显示", total-shown)).
-									FontSize(scaledFont(TypeCaption)).
-									TextColor(ThemeWarning(c))
-							})
-					}
-				})
 		})
 }

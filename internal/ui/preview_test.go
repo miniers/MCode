@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -198,7 +199,7 @@ func TestPreviewPollResults(t *testing.T) {
 						return nil, errors.New("读取失败")
 					}
 					if kind == "console" {
-						return `[{"message":"新错误"}]`, nil
+						return `{"document":"doc","sequence":1,"entries":[{"sequence":1,"kind":"error","message":"新错误"}]}`, nil
 					}
 					return `[{"selector":"#new"}]`, nil
 				}}
@@ -232,20 +233,19 @@ func TestPreviewPollResults(t *testing.T) {
 func TestPreviewConsoleClearDropsPendingPoll(t *testing.T) {
 	s := &chatState{}
 	st := getPreviewState(s)
-	started, release, cleared, reread, done := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
+	started, release, cleared, done := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
 	page := &previewTestPage{eval: func(script string) (any, error) {
-		if script == previewConsoleClearScript {
+		if strings.HasPrefix(script, previewConsoleClearScript) {
 			close(cleared)
-			return nil, errors.New("清空脚本失败")
+			return `{"document":"doc","sequence":1,"entries":[]}`, nil
 		}
 		select {
 		case <-started:
-			close(reread)
-			return `[]`, nil
+			return `{"document":"doc","sequence":1,"entries":[]}`, nil
 		default:
 			close(started)
 			<-release
-			return `[{"message":"清空前的旧错误"}]`, nil
+			return `{"document":"doc","sequence":1,"entries":[{"sequence":1,"kind":"error","message":"清空前的旧错误"}]}`, nil
 		}
 	}}
 	previewMu.Lock()
@@ -259,7 +259,7 @@ func TestPreviewConsoleClearDropsPendingPoll(t *testing.T) {
 		t.Fatal("旧轮询未启动")
 	}
 	clearPreviewConsoleErrors(s, st)
-	for _, signal := range []chan struct{}{cleared, reread} {
+	for _, signal := range []chan struct{}{cleared} {
 		select {
 		case <-signal:
 		case <-time.After(time.Second):

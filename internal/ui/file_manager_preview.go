@@ -24,6 +24,11 @@ type inspectorPreviewClient interface {
 	RevokeInspectorPreviews(threadID string)
 }
 
+// 不扩充旧客户端接口，旧客户端仍能按会话撤销。
+type inspectorPreviewURLRevoker interface {
+	RevokeInspectorPreviewURL(previewURL string)
+}
+
 func isInspectorPDFPath(relPath string) bool {
 	return strings.EqualFold(path.Ext(relPath), ".pdf")
 }

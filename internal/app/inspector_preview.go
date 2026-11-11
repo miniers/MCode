@@ -5,6 +5,13 @@ import (
 	"errors"
 )
 
+// RevokeInspectorPreviewURL 撤销单个本地预览 URL。
+func (c *Client) RevokeInspectorPreviewURL(previewURL string) {
+	if c.backend != nil {
+		c.backend.RevokeInspectorPreviewURL(previewURL)
+	}
+}
+
 // InspectorPreviewURL 为会话工作区里的文件签发本地内容服务的 URL。
 func (c *Client) InspectorPreviewURL(ctx context.Context, threadID, relPath string) (string, error) {
 	if c.backend == nil {

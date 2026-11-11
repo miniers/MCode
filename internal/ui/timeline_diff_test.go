@@ -82,92 +82,6 @@ func TestInlineToolDiffLineLimitAndBinary(t *testing.T) {
 	}
 }
 
-// TestToolDiffDisplayLines 验证内嵌 diff 把连续未改动的上下文行折叠成占位行。
-func TestToolDiffDisplayLines(t *testing.T) {
-	ctxRun := func(n int) []git.Line {
-		lines := make([]git.Line, n)
-		for i := range lines {
-			lines[i] = git.Line{Kind: ' ', Text: fmt.Sprintf("C%d", i)}
-		}
-		return lines
-	}
-	join := func(parts ...[]git.Line) []git.Line {
-		var out []git.Line
-		for _, p := range parts {
-			out = append(out, p...)
-		}
-		return out
-	}
-	summarize := func(lines []toolDiffDisplayLine) []string {
-		out := make([]string, 0, len(lines))
-		for _, dl := range lines {
-			if dl.Fold > 0 {
-				out = append(out, fmt.Sprintf("⋯%d", dl.Fold))
-				continue
-			}
-			out = append(out, fmt.Sprintf("%c%s", dl.Line.Kind, dl.Line.Text))
-		}
-		return out
-	}
-
-	cases := []struct {
-		name     string
-		lines    []git.Line
-		expanded func(int) bool
-		want     []string
-	}{
-		{
-			name:  "没有上下文行",
-			lines: []git.Line{{Kind: '-', Text: "OLD"}, {Kind: '+', Text: "NEW"}},
-			want:  []string{"-OLD", "+NEW"},
-		},
-		{
-			name:  "连续上下文正好 6 行不折叠",
-			lines: join([]git.Line{{Kind: '-', Text: "OLD"}}, ctxRun(6), []git.Line{{Kind: '+', Text: "NEW"}}),
-			want:  []string{"-OLD", " C0", " C1", " C2", " C3", " C4", " C5", "+NEW"},
-		},
-		{
-			name:  "中间 10 行折叠为 3 加占位行加 3",
-			lines: join([]git.Line{{Kind: '-', Text: "OLD"}}, ctxRun(10), []git.Line{{Kind: '+', Text: "NEW"}}),
-			want:  []string{"-OLD", " C0", " C1", " C2", "⋯4", " C7", " C8", " C9", "+NEW"},
-		},
-		{
-			name:  "hunk 开头 8 行上下文只保留最后 3 行",
-			lines: join(ctxRun(8), []git.Line{{Kind: '+', Text: "NEW"}}),
-			want:  []string{"⋯5", " C5", " C6", " C7", "+NEW"},
-		},
-		{
-			name: "多段折叠",
-			lines: join(
-				[]git.Line{{Kind: '-', Text: "A"}}, ctxRun(8),
-				[]git.Line{{Kind: '+', Text: "B"}}, ctxRun(9),
-				[]git.Line{{Kind: '-', Text: "C"}},
-			),
-			want: []string{
-				"-A", " C0", " C1", " C2", "⋯2", " C5", " C6", " C7", "+B",
-				" C0", " C1", " C2", "⋯3", " C6", " C7", " C8", "-C",
-			},
-		},
-		{
-			name:     "展开后该段完整显示",
-			lines:    join([]git.Line{{Kind: '-', Text: "OLD"}}, ctxRun(10), []git.Line{{Kind: '+', Text: "NEW"}}),
-			expanded: func(id int) bool { return id == 0 },
-			want: []string{
-				"-OLD", " C0", " C1", " C2", " C3", " C4",
-				" C5", " C6", " C7", " C8", " C9", "+NEW",
-			},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := summarize(toolDiffDisplayLines(tc.lines, tc.expanded))
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("toolDiffDisplayLines() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 const toolDiffTestUnified = `diff --git a/pkg/math.go b/pkg/math.go
 --- a/pkg/math.go
 +++ b/pkg/math.go
@@ -203,7 +117,7 @@ func TestInlineDiffFourDigitLineNumbers(t *testing.T) {
 // newToolDiffTester 用给定消息与客户端启动 Root，并等待 ready 文本出现。
 func newToolDiffTester(t *testing.T, client Client, ready string) *ui.Tester {
 	t.Helper()
-	tt := ui.NewTester(Root(client), 1000, 700)
+	tt := ui.NewTester(Root(legacyDiffClient{client}), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText(ready) })
 	return tt
 }
@@ -348,7 +262,10 @@ func TestInlineToolDiffRefreshesAfterToolUpdate(t *testing.T) {
 		{ID: "u1", Role: "user", Text: "等待修改", TurnIndex: 1}, m,
 	})
 	fake.SetThreadDiff("t1", "turn-1", ThreadDiff{})
-	s, tt := newMenuTestState(t, fake, 2)
+	s, view := buildRoot(legacyDiffClient{fake})
+	t.Cleanup(s.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("等待修改") })
 	clickText(t, tt, "查看改动 math.go")
 	waitFor(t, tt, func() bool { return tt.HasText("这一步没有可显示的改动") })
 	fake.SetThreadDiff("t1", "turn-1", ThreadDiff{Diff: toolDiffTestUnified})
@@ -388,7 +305,7 @@ func inlineToolDiffTinyPatch(body string) string {
 // inlineToolDiffLoadForTest 走一遍内嵌 diff 的缓存取数路径，返回是否拿到可渲染数据。
 func inlineToolDiffLoadForTest(s *chatState, m Message) bool {
 	raw := toolEmbeddedDiff(m.Text)
-	_, ok := s.toolDiffDataFor(m, "embedded", nil, func() []git.FileDiff {
+	_, ok := s.toolDiffDataFor(m, "embedded", func() []git.FileDiff {
 		files, err := toolDiffParse([]byte(raw))
 		if err != nil {
 			return nil
@@ -482,35 +399,17 @@ const inlineToolDiffFoldPatch = `diff --git a/pkg/fold.go b/pkg/fold.go
  CTX-A9
 `
 
-// TestInlineToolDiffFoldUpdatesDisplayLines 验证折叠状态变化后显示行缓存失效并重算。
-func TestInlineToolDiffFoldUpdatesDisplayLines(t *testing.T) {
+// 摘要不再自行折叠；完整版本的上下文展开由共享 DiffView 管理。
+func TestInlineToolDiffPatchContext(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	msg := inlineToolDiffMsg("fold-1", inlineToolDiffFoldPatch)
-
-	toolDiffFoldMu.Lock()
-	toolDiffFoldState = map[string]bool{}
-	toolDiffFoldMu.Unlock()
-	t.Cleanup(func() {
-		toolDiffFoldMu.Lock()
-		toolDiffFoldState = map[string]bool{}
-		toolDiffFoldMu.Unlock()
-	})
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() { renderInlineToolDiff(c, s, msg) })
 	}, 900, 700)
 	tt.Frame()
-	if !tt.HasText("⋯ 7 行未变") || !tt.HasText("CTX-A2") || tt.HasText("CTX-A9") {
-		t.Fatalf("默认应折叠尾部 7 行上下文: %q", tt.Texts())
-	}
-
-	toolDiffFoldMu.Lock()
-	toolDiffFoldState["fold-1-0-0-fold-0"] = true
-	toolDiffFoldMu.Unlock()
-
-	tt.Frame()
-	if tt.HasText("⋯ 7 行未变") || !tt.HasText("CTX-A3") || !tt.HasText("CTX-A9") {
-		t.Fatalf("展开后应显示被折叠的上下文行: %q", tt.Texts())
+	if !tt.HasText("CTX-A2") || !tt.HasText("CTX-A9") || !tt.HasText("在改动中打开") {
+		t.Fatalf("patch 摘要应保留真实上下文并提供全文入口: %q", tt.Texts())
 	}
 }
 

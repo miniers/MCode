@@ -51,6 +51,8 @@ type previewSnapshot struct {
 	viewport                         previewViewportMode
 	consoleErrors                    []previewConsoleError
 	consoleOpen                      bool
+	consoleFilter                    string
+	consoleSelected                  map[uint64]bool
 	annotating                       bool
 	annotations                      []previewAnnotation
 	annotOpen                        bool
@@ -58,6 +60,10 @@ type previewSnapshot struct {
 
 // previewSnapshotLocked 调用方须持有 previewMu。
 func previewSnapshotLocked(st *browserTab) previewSnapshot {
+	selected := make(map[uint64]bool, len(st.consoleSelected))
+	for seq, value := range st.consoleSelected {
+		selected[seq] = value
+	}
 	return previewSnapshot{
 		token: previewPageTokenLocked(st), visible: st.visible,
 		url: st.url, html: st.html, web: st.web,
@@ -65,6 +71,7 @@ func previewSnapshotLocked(st *browserTab) previewSnapshot {
 		addressEditing: st.addressEditing, canGoBack: st.canGoBack, canGoForward: st.canGoForward, loading: st.loading,
 		consoleErrors: append([]previewConsoleError(nil), st.consoleErrors...),
 		consoleOpen:   st.consoleOpen, annotating: st.annotating,
+		consoleFilter: st.consoleFilter, consoleSelected: selected,
 		annotations: append([]previewAnnotation(nil), st.annotations...), annotOpen: st.annotOpen,
 	}
 }
@@ -88,6 +95,7 @@ func previewAdvanceGenerationLocked(st *browserTab) {
 	st.consoleOpen = false
 	st.consolePolling = false
 	st.consoleLastPoll = time.Time{}
+	// 隐藏也会换代但文档未变，保留水位；新文档由 drain 的 document 标识重置。
 	st.annotPolling = false
 	previewResetAnnotationsLocked(st)
 }

@@ -140,6 +140,7 @@ func IconChevronRight() *ui.SVG    { return iconChevronRight }
 func IconChevronDown() *ui.SVG     { return iconChevronDown }
 func IconX() *ui.SVG               { return iconX }
 func IconArrowLeft() *ui.SVG       { return iconArrowLeft }
+func IconArrowRight() *ui.SVG      { return iconArrowRight }
 func IconPaperclip() *ui.SVG       { return iconPaperclip }
 func IconArrowUp() *ui.SVG         { return iconArrowUp }
 func IconSend() *ui.SVG            { return iconSend }

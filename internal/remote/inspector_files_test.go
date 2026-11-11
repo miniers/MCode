@@ -16,6 +16,32 @@ import (
 
 const inspectorPreviewTestTimeout = 5 * time.Second
 
+func TestInspectorPreviewRevokeSingleToken(t *testing.T) {
+	root := t.TempDir()
+	writeInspectorPreviewTestFile(t, root, "index.html", "ok")
+	b := newInspectorPreviewTestBackend(t, map[string]string{"t1": root, "t2": root})
+	var urls []string
+	for _, threadID := range []string{"t1", "t1", "t2"} {
+		u, err := b.InspectorPreviewURL(context.Background(), threadID, "index.html")
+		if err != nil {
+			t.Fatal(err)
+		}
+		urls = append(urls, u)
+	}
+	for _, malformed := range []string{"", "://", "https://example.test/p/token/a", strings.Replace(urls[0], "127.0.0.1", "localhost", 1)} {
+		b.RevokeInspectorPreviewURL(malformed)
+	}
+	expectInspectorPreviewStatus(t, urls[0], http.StatusOK)
+	b.RevokeInspectorPreviewURL(urls[0])
+	b.RevokeInspectorPreviewURL(urls[0])
+	expectInspectorPreviewStatus(t, urls[0], http.StatusNotFound)
+	expectInspectorPreviewStatus(t, urls[1], http.StatusOK)
+	expectInspectorPreviewStatus(t, urls[2], http.StatusOK)
+	b.RevokeInspectorPreviews("t1")
+	expectInspectorPreviewStatus(t, urls[1], http.StatusNotFound)
+	expectInspectorPreviewStatus(t, urls[2], http.StatusOK)
+}
+
 func newInspectorPreviewTestBackend(t *testing.T, roots map[string]string) *MemoryBackend {
 	t.Helper()
 	hub := NewStreamHub(StreamHubOptions{})
