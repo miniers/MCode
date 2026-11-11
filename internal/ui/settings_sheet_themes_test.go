@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"math"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -16,7 +17,13 @@ func newThemesTester(t *testing.T) (*SettingsState, *ui.Tester) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Appearance.Theme = config.ThemeLight
 	t.Cleanup(st.Close)
-	return st, ui.NewTester(func(c *ui.Context) { renderThemesSheet(c, st) }, 1000, 4000)
+	return st, ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Children(func() {
+			renderThemesHeader(c, st)
+			renderThemesSheet(c, st)
+			renderThemeActions(c, st, getThemesSheetState(st))
+		})
+	}, 1000, 4000)
 }
 
 func TestThemeControl_CustomSelectionAndReset(t *testing.T) {
@@ -94,6 +101,10 @@ func TestThemesSheet_BuiltinAndAdd(t *testing.T) {
 			t.Fatalf("内置主题 %s 不应提供删除按钮", name)
 		}
 	}
+	if err := tt.Click("添加主题"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
 	if err := tt.Click("新增"); err != nil {
 		t.Fatal(err)
 	}
@@ -214,5 +225,75 @@ func TestThemesSheet_StateLifecycle(t *testing.T) {
 	}
 	if getThemesSheetState(st) == page {
 		t.Fatal("关闭后仍复用旧编辑态")
+	}
+}
+
+func TestThemesSheet_LayoutAndValues(t *testing.T) {
+	st, tt := newThemesTester(t)
+	for _, name := range []string{"浅色", "深色"} {
+		info, ok := tt.AccessByRole(ui.RoleButton, name)
+		if !ok || info.Checked != (name == "浅色") {
+			t.Fatalf("主题选择状态 %s: %+v, %v", name, info, ok)
+		}
+	}
+	if err := tt.Click("深色"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	info, ok := tt.AccessByRole(ui.RoleButton, "深色")
+	if !ok || !info.Checked || getThemesSheetState(st).editingID != config.ThemeDark {
+		t.Fatalf("未选中深色: %+v", info)
+	}
+	mutateTheme(st, func(a *config.AppearanceConfig) {
+		_ = a.SetThemeColor(config.ThemeDark, "accent", "#123456")
+		_ = a.SetThemeFont(config.ThemeDark, "sidebar", 107)
+	})
+	tt.Frame()
+	if !tt.HasText("#123456") || !tt.HasText("107%") {
+		t.Fatal("未显示颜色或字号")
+	}
+	if err := tt.Click("强调色跟随系统"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("系统") {
+		t.Fatal("未显示系统强调色")
+	}
+	if st.cfg.Appearance.ThemeFonts(config.ThemeDark)["sidebar"] != 107 {
+		t.Fatal("非档位字号未保留")
+	}
+	if err := tt.Click("sidebar字号"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	if got := st.cfg.Appearance.ThemeFonts(config.ThemeDark)["sidebar"]; got == 107 || got < config.MinTextScale || got > config.MaxTextScale {
+		t.Fatalf("滑块未更新字号: %d", got)
+	}
+
+	mutateTheme(st, func(a *config.AppearanceConfig) { _ = a.SetThemeFont(config.ThemeDark, "sidebar", 200) })
+	tt.Frame()
+	if !tt.HasText("150%") {
+		t.Fatal("字号未限制到上限")
+	}
+	reference := ui.NewTester(func(c *ui.Context) {
+		SettingRow(c, "reference", "普通行", func() { ui.Box(c).Size(Space6, Space6) }).Label("reference")
+	}, 1000, 200)
+	normal, ok := reference.Find("reference")
+	if !ok {
+		t.Fatal("缺少普通行")
+	}
+	for _, test := range []struct {
+		key   string
+		count int
+	}{{"设置卡片 theme-section-canvas", 5}, {"设置卡片 theme-fonts", 6}} {
+		rect, ok := tt.Find(test.key)
+		if !ok {
+			t.Fatalf("缺少卡片 %s", test.key)
+		}
+		height := (rect.H - 2*Hairline - float32(test.count-1)*Hairline) / float32(test.count)
+		if math.Abs(float64(height-normal.H)) > 1 {
+			t.Errorf("卡片 %s 的行高=%v，普通行=%v", test.key, height, normal.H)
+		}
 	}
 }

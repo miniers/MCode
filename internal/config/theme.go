@@ -37,7 +37,7 @@ func IsThemeScaleFont(key string) bool {
 
 func ThemeFontRange(key string) (min, max, def int, ok bool) {
 	if IsThemeScaleFont(key) {
-		return TextScaleLevels[0], TextScaleLevels[len(TextScaleLevels)-1], DefaultTextScale, true
+		return MinTextScale, MaxTextScale, DefaultTextScale, true
 	}
 	switch key {
 	case "code":
@@ -57,23 +57,7 @@ func NormalizeThemeFont(key string, v int) (int, bool) {
 		return 0, false
 	}
 	v = min(max(v, lower), upper)
-	if IsThemeScaleFont(key) {
-		nearest := TextScaleLevels[0]
-		for _, level := range TextScaleLevels {
-			if absThemeDistance(v, level) < absThemeDistance(v, nearest) {
-				nearest = level
-			}
-		}
-		v = nearest
-	}
 	return v, true
-}
-
-func absThemeDistance(a, b int) int {
-	if a < b {
-		return b - a
-	}
-	return a - b
 }
 
 var themeColorPattern = regexp.MustCompile(`^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$`)

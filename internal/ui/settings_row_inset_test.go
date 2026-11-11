@@ -14,10 +14,10 @@ func TestSettingsRowInset_AllBlocksAndSheets(t *testing.T) {
 		render        func(*ui.Context, *SettingsState)
 	}
 	fixtures := map[string]fixture{
-		"block-themes": {"设置卡片 themes.editor", "窗口", func(c *ui.Context, st *SettingsState) {
+		"block-themes": {"设置卡片 theme-section-canvas", "窗口", func(c *ui.Context, st *SettingsState) {
 			renderSettingsTreeSection(c, st, sheetThemes.Sections[0], false)
 		}},
-		"sheet:themes": {"设置卡片 themes.editor", "窗口", func(c *ui.Context, st *SettingsState) {
+		"sheet:themes": {"设置卡片 theme-section-canvas", "窗口", func(c *ui.Context, st *SettingsState) {
 			renderSettingsTreeSheet(c, st, sheetThemes)
 		}},
 		"block-swarm-pairs": {"设置卡片 swarm.pairs", "添加配对", func(c *ui.Context, st *SettingsState) {

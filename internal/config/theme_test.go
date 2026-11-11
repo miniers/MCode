@@ -66,7 +66,7 @@ func TestThemeSetResetSparseOverrides(t *testing.T) {
 	if err := a.SetThemeFont(ThemeDark, "sidebar", 128); err != nil {
 		t.Fatal(err)
 	}
-	if len(a.Themes) != 1 || a.Themes[0].Base != ThemeDark || a.Themes[0].Fonts["sidebar"] != 130 {
+	if len(a.Themes) != 1 || a.Themes[0].Base != ThemeDark || a.Themes[0].Fonts["sidebar"] != 128 {
 		t.Fatalf("内置覆盖项：%+v", a.Themes)
 	}
 	a.ResetThemeColor(ThemeDark, "accent")
@@ -146,7 +146,7 @@ func TestNormalizeThemeFont(t *testing.T) {
 		key         string
 		value, want int
 	}{
-		{"sidebar", 127, 130}, {"conversation", 110, 115}, {"interface", 140, 130},
+		{"sidebar", 107, 107}, {"conversation", 110, 110}, {"interface", 140, 140},
 		{"sidebar", -100, 85}, {"sidebar", 1000, 150}, {"code", 0, 10},
 		{"code", 100, 24}, {"terminal", -10, 9}, {"terminal", 100, 28},
 		{"editor", 0, 10}, {"editor", 100, 18},
@@ -226,7 +226,7 @@ func TestThemeExportImport(t *testing.T) {
 	}
 	imported, err = a.ImportTheme([]byte(`{"base":"light","name":" ","colors":{"future":"invalid","accent":"system"},"fonts":{"future":1,"sidebar":127,"code":999,"editor":12}}`))
 	if err != nil || imported.Name != "导入的主题" || !reflect.DeepEqual(imported.Colors, map[string]string{"accent": "system"}) ||
-		!reflect.DeepEqual(imported.Fonts, map[string]int{"sidebar": 130, "code": 24}) {
+		!reflect.DeepEqual(imported.Fonts, map[string]int{"sidebar": 127, "code": 24}) {
 		t.Fatalf("导入归一化错误：%+v, %v", imported, err)
 	}
 }
@@ -260,7 +260,7 @@ func TestValidateThemes(t *testing.T) {
 		func(c *Config) { c.Appearance.Themes[0].Colors = map[string]string{"future": "#123456"} },
 		func(c *Config) { c.Appearance.Themes[0].Fonts = map[string]int{"future": 12} },
 		func(c *Config) { c.Appearance.Themes[0].Fonts = map[string]int{"code": 1} },
-		func(c *Config) { c.Appearance.Themes[0].Fonts = map[string]int{"sidebar": 120} },
+		func(c *Config) { c.Appearance.Themes[0].Fonts = map[string]int{"sidebar": 151} },
 	} {
 		bad := cfg
 		bad.Appearance.Themes = append([]ThemeDef(nil), cfg.Appearance.Themes...)
@@ -288,7 +288,7 @@ func TestRepairThemes(t *testing.T) {
 	}
 	custom, _ := cfg.Appearance.ThemeByID("custom")
 	if custom.Base != ThemeDark || custom.Name != "未命名主题" || !reflect.DeepEqual(custom.Colors, map[string]string{"accent": "system"}) ||
-		!reflect.DeepEqual(custom.Fonts, map[string]int{"sidebar": 130, "code": 24}) {
+		!reflect.DeepEqual(custom.Fonts, map[string]int{"sidebar": 127, "code": 24}) {
 		t.Fatalf("用户主题未修复：%+v", custom)
 	}
 	if dark, _ := cfg.Appearance.ThemeByID(ThemeDark); dark.Base != ThemeDark {

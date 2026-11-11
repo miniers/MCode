@@ -191,9 +191,11 @@ const (
 	DefaultStewardName = "总管"
 )
 
-// TextScaleLevels 是「文字大小」的可选档位（百分比）：
-// 只有这几个档位，其他值（含缺省 0）一律按 100 处理。
-var TextScaleLevels = []int{85, 100, 115, 130, 150}
+// 文字缩放范围，单位为百分比。
+const (
+	MinTextScale = 85
+	MaxTextScale = 150
+)
 
 // 快捷回复的长度上限：标题按「按钮上那行字」来定，正文按「填进草稿的一段话」来定。
 const (
