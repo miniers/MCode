@@ -133,7 +133,7 @@ func localFileLinkPreview(c *ui.Context, dest string) func(tip ui.Element) {
 						row.Children(func() {
 							ui.Text(c, line).
 								Font("monospace").
-								FontSize(TypeCode).
+								FontSize(codeFontSize()).
 								NoWrap().
 								TextColor(ThemePrimaryText(c))
 						})

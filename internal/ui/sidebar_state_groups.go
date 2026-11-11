@@ -146,7 +146,7 @@ func renderSidebarStateGroupHeader(c *ui.Context, projectID, projectName, title 
 		AlignItems(ui.Center).
 		Children(func() {
 			ui.Text(c, fmt.Sprintf("%s  %d", title, count)).
-				FontSize(scaledFont(TypeCaption)).
+				FontSize(sidebarFont(TypeCaption)).
 				FontWeight(600).
 				TextColor(ThemeTertiaryText(c)).
 				SingleLine()

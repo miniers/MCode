@@ -201,7 +201,7 @@ func renderActivityThreadList(c *ui.Context, s *chatState, o sidebarActivityList
 		}
 		ui.Text(c, "暂无会话").
 			TextColor(ThemeSecondaryText(c)).
-			FontSize(scaledFont(TypeFootnote)).
+			FontSize(sidebarFont(TypeFootnote)).
 			Padding(Space1, sidebarEmptyPadX)
 		return
 	}
@@ -239,7 +239,7 @@ func renderActivityGroupHeader(c *ui.Context, title string, isFirst bool, padX f
 		AlignItems(ui.Center).
 		Children(func() {
 			ui.Text(c, title).
-				FontSize(scaledFont(FontSizeDormantTitle)).
+				FontSize(sidebarFont(FontSizeDormantTitle)).
 				FontWeight(600).
 				TextColor(ThemeSecondaryText(c)).
 				Grow(1).

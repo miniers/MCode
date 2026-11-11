@@ -96,7 +96,7 @@ func renderToolOutputDialog(c *ui.Context, s *chatState) {
 		appCfg = st.cfg.Appearance
 	}
 	fontFam := codeFontFamily(appCfg)
-	codeSz := codeFontSize(appCfg)
+	codeSz := codeFontSize()
 
 	winW, winH := c.Size()
 	width, height := modalResizeSize(toolOutputDialogKey, 640, max(360, winH-toolDialogMargin), 360, 240, winW, winH)

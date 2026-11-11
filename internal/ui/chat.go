@@ -1007,11 +1007,11 @@ func ensureChatMarkdown(c *ui.Context, s *chatState) {
 		appCfg = st.cfg.Appearance
 	}
 	wantedCodeFont := codeFontFamily(appCfg)
-	wantedCodeSize := codeFontSize(appCfg) / 13.0 // 13 为基础字号，CodeSize 为 em 单位
+	wantedCodeSize := codeFontSize() / 13.0 // 13 为基础字号，CodeSize 为 em 单位
 	// 助手正文的字号跟随「文字大小」；标题与代码块按 em 相对字号，自然一起缩放。
 	wantedTextSize := scaledFont(13)
 
-	if s.mdOpts.Theme == nil || s.mdOpts.Theme.Text != ThemePrimaryText(c) {
+	if markdownThemeChanged(c, s.mdOpts.Theme) {
 		mdTheme := buildMarkdownTheme(c, wantedTextSize, wantedCodeFont, wantedCodeSize)
 		s.mdOpts.Theme = mdTheme
 		s.mdStaticOpts.Theme = mdTheme
@@ -1036,6 +1036,11 @@ func ensureChatMarkdown(c *ui.Context, s *chatState) {
 	if s.mdStaticOpts.Reveal == nil {
 		s.mdStaticOpts.Reveal = &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}
 	}
+}
+
+func markdownThemeChanged(c *ui.Context, theme *markdown.Theme) bool {
+	return theme == nil || theme.Text != ThemePrimaryText(c) || theme.Link != ThemeAccent(c) ||
+		theme.CodeBlockBackground != ThemeSurface(c) || theme.CodeBlockBorder != ThemeBorder(c) || theme.Muted != ThemeSecondaryText(c)
 }
 
 func buildMarkdownTheme(c *ui.Context, textSize float32, codeFont string, codeSize float32) *markdown.Theme {

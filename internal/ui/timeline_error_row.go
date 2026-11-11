@@ -110,7 +110,7 @@ func renderErrorMessage(c *ui.Context, s *chatState, m Message) ui.Element {
 		appCfg = st.cfg.Appearance
 	}
 	fontFam := codeFontFamily(appCfg)
-	codeSz := codeFontSize(appCfg)
+	codeSz := codeFontSize()
 
 	// 「继续」只在「这条错误仍是最新一条消息且线程没在跑」时出现：点击发送的是
 	// 一条从中断处继续的提示，不再重发上一条用户消息。

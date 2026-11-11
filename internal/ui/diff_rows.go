@@ -115,7 +115,7 @@ func renderLegacyPatch(c *ui.Context, dp *diffPanelState, path string, file git.
 	ui.List(c.Key("legacy-patch-"+path), list, total, func(index int) {
 		for _, hunk := range file.Hunks {
 			if index == 0 {
-				ui.Text(c, hunk.Header).Font("monospace").FontSize(TypeCode).SingleLine()
+				ui.Text(c, hunk.Header).Font("monospace").FontSize(codeFontSize()).SingleLine()
 				return
 			}
 			index--
@@ -142,10 +142,10 @@ func renderPatchLine(c *ui.Context, line git.Line) {
 			if no > 0 {
 				text = strconv.Itoa(no)
 			}
-			ui.Text(c, text).Width(toolDiffLineNumberWidth).Font("monospace").FontSize(TypeCode).SingleLine().TextColor(ThemeSecondaryText(c))
+			ui.Text(c, text).Width(toolDiffLineNumberWidth).Font("monospace").FontSize(codeFontSize()).SingleLine().TextColor(ThemeSecondaryText(c))
 		}
-		ui.Text(c, string(line.Kind)).Width(Space4).Font("monospace").FontSize(TypeCode)
-		ui.Text(c, line.Text).Font("monospace").FontSize(TypeCode).SingleLine().Selectable().TextColor(ThemePrimaryText(c))
+		ui.Text(c, string(line.Kind)).Width(Space4).Font("monospace").FontSize(codeFontSize())
+		ui.Text(c, line.Text).Font("monospace").FontSize(codeFontSize()).SingleLine().Selectable().TextColor(ThemePrimaryText(c))
 	})
 }
 
@@ -164,7 +164,7 @@ func renderPatchSummary(c *ui.Context, key string, file git.FileDiff) {
 		if shown >= toolDiffMaxLines {
 			break
 		}
-		ui.Text(c.Key(fmt.Sprintf("%s-hunk-%d", key, hi)), hunk.Header).Font("monospace").FontSize(TypeCode).SingleLine().TextColor(ThemeSecondaryText(c))
+		ui.Text(c.Key(fmt.Sprintf("%s-hunk-%d", key, hi)), hunk.Header).Font("monospace").FontSize(codeFontSize()).SingleLine().TextColor(ThemeSecondaryText(c))
 		for li, line := range hunk.Lines {
 			if shown >= toolDiffMaxLines {
 				break

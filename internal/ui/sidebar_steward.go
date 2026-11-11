@@ -62,7 +62,7 @@ func renderSidebarStewardDisabledRow(c *ui.Context, s *chatState) {
 	row.Children(func() {
 		renderStewardSectionAvatar(c, "sidebar-steward-avatar-disabled", avatar)
 		ui.Text(c, label).
-			FontSize(scaledFont(FontSizeThreadTitle)).
+			FontSize(sidebarFont(FontSizeThreadTitle)).
 			TextColor(ThemeSecondaryText(c)).
 			Grow(1).
 			SingleLine()
@@ -161,7 +161,7 @@ func renderSidebarStewardRow(c *ui.Context, s *chatState, threadID string) {
 			renderStewardSectionAvatar(c, "sidebar-steward-avatar", avatar)
 		}
 		ui.Text(c, label).
-			FontSize(scaledFont(FontSizeThreadTitle)).
+			FontSize(sidebarFont(FontSizeThreadTitle)).
 			TextColor(ThemePrimaryText(c).Alpha(0.92)).
 			Grow(1).
 			SingleLine()

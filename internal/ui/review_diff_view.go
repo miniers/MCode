@@ -50,7 +50,7 @@ func newReviewDiffView(file ReviewFileContent, language string) *reviewDiffView 
 	}
 	old.SetLanguage(lang)
 	next.SetLanguage(lang)
-	return &reviewDiffView{state: &editor.DiffState{Old: old, New: next, Layout: editor.DiffUnified, Inline: editor.DiffInlineWordAlt, Indicators: editor.DiffClassic, Font: ui.Font{Size: TypeCode}}}
+	return &reviewDiffView{state: &editor.DiffState{Old: old, New: next, Layout: editor.DiffUnified, Inline: editor.DiffInlineWordAlt, Indicators: editor.DiffClassic, Font: ui.Font{Size: codeFontSize()}}}
 }
 
 // 布局切换保留同一全文状态，并用新侧行锚点恢复定位，不能沿用布局相关的像素距离。

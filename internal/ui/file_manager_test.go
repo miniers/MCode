@@ -326,6 +326,7 @@ func TestFileManagerPreviewCloseButton(t *testing.T) {
 
 // 预览字号跟随设置里的编辑器字号，未设置回退默认值，越界时被夹到上下限。
 func TestFileManagerPreviewFontSize(t *testing.T) {
+	t.Cleanup(func() { setActiveTheme(config.AppearanceConfig{}) })
 	tests := []struct {
 		name       string
 		configured int
@@ -339,7 +340,7 @@ func TestFileManagerPreviewFontSize(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newChatState(nil)
 			settings := NewSettingsState(settingsTestDir(t), nil, s)
-			settings.cfg.Workbench.EditorFontSize = tc.configured
+			setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeLight, Fonts: map[string]int{"editor": tc.configured}}}})
 			setChatSettings(s, settings)
 			if got := fileManagerPreviewFontSize(s); got != tc.want {
 				t.Errorf("EditorFontSize=%d 时预览字号 = %v, want %v", tc.configured, got, tc.want)

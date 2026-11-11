@@ -531,7 +531,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 									doc = item.Tag + "/" + item.Role
 								}
 								ui.Text(c, doc).
-									FontSize(TypeCode).
+									FontSize(codeFontSize()).
 									Font("monospace").
 									TextColor(ThemeAccent(c))
 
@@ -540,7 +540,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 									label = item.Name
 								}
 								ui.Text(c, previewClipRunes(label, 60)).
-									FontSize(TypeCode).
+									FontSize(codeFontSize()).
 									Font("monospace").
 									TextColor(ThemeSecondaryText(c)).
 									Tooltip(item.Selector)

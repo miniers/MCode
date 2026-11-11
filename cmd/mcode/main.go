@@ -414,7 +414,15 @@ func main() {
 
 	// 在主线程、App.Run 之前应用主题；放进 UI 构造会在无事件循环的测试里死锁
 	if cfg.Appearance.Theme != "" {
-		mygo.Theme.SetSource(mygo.ThemeSource(cfg.Appearance.Theme))
+		source := cfg.Appearance.Theme
+		if !config.IsBuiltinTheme(source) && source != config.ThemeSystem {
+			if theme, ok := cfg.Appearance.ThemeByID(source); ok {
+				source = theme.Base
+			} else {
+				source = config.ThemeSystem
+			}
+		}
+		mygo.Theme.SetSource(mygo.ThemeSource(source))
 	}
 	startuptrace.Mark("theme set")
 

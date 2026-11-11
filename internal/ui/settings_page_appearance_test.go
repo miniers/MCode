@@ -13,6 +13,7 @@ func TestSettingsDetail_SyncAppearanceTheme(t *testing.T) {
 	t.Cleanup(func() {
 		applyThemeSource = previousApply
 		appearanceThemeApplied = previousTheme
+		setActiveTheme(config.AppearanceConfig{})
 	})
 	var applied []mygo.ThemeSource
 	applyThemeSource = func(source mygo.ThemeSource) { applied = append(applied, source) }
@@ -36,12 +37,28 @@ func TestSettingsDetail_SyncAppearanceTheme(t *testing.T) {
 	if len(applied) != 2 {
 		t.Fatalf("主题未变化时不应重复调用：%v", applied)
 	}
+
+	st.cfg.Appearance.Theme = "custom"
+	st.cfg.Appearance.Themes = []config.ThemeDef{{ID: "custom", Base: config.ThemeLight, Colors: map[string]string{"accent": "#123456"}}}
+	tt.Frame()
+	if len(applied) != 3 || applied[2] != mygo.ThemeSource(config.ThemeLight) || activeTheme.Load().fixed.Accent != ui.Hex("#123456") {
+		t.Fatalf("用户主题未使用明暗基底: %v", applied)
+	}
+	st.cfg.Appearance.Themes[0].Colors["accent"] = "#654321"
+	tt.Frame()
+	if len(applied) != 4 || activeTheme.Load().fixed.Accent != ui.Hex("#654321") {
+		t.Fatalf("同一主题颜色修改未刷新: %v", applied)
+	}
+	tt.Frame()
+	if len(applied) != 4 {
+		t.Fatalf("主题内容未变却重复同步: %v", applied)
+	}
 }
 
 // TestAppearanceSettings_TextScale 验证「文字大小」档位切换会写回配置并落盘，
-// 且进程内的缩放值与 EffectiveTextScale 的夹取规则一致。
+// 旧字段仍可保存；运行时字号改由主题提供。
 func TestAppearanceSettings_TextScale(t *testing.T) {
-	t.Cleanup(func() { setTextScale(config.DefaultTextScale) })
+	t.Cleanup(func() { setActiveTheme(config.AppearanceConfig{}) })
 
 	dataDir := settingsTestDir(t)
 	s := newChatState(NewFakeClient())
@@ -71,11 +88,11 @@ func TestAppearanceSettings_TextScale(t *testing.T) {
 	if cfg.Appearance.TextScale != 130 {
 		t.Fatalf("落盘的文字大小 = %d，想要 130", cfg.Appearance.TextScale)
 	}
-	if got := textScaleFactor(); got < 1.299 || got > 1.301 {
-		t.Fatalf("进程内缩放倍数 = %v，想要 1.3", got)
+	if got := textScaleFactor(); got != 1 {
+		t.Fatalf("旧字段不应影响运行时缩放，实际 %v", got)
 	}
-	if got := scaledFont(10); got < 12.9 || got > 13.1 {
-		t.Fatalf("scaledFont(10) = %v，想要约 13", got)
+	if got := scaledFont(10); got != 10 {
+		t.Fatalf("scaledFont(10) = %v，想要 10", got)
 	}
 
 	// 越界值（含缺省的 0）一律按 100 处理。
@@ -93,7 +110,7 @@ func TestAppearanceSettings_TextScale(t *testing.T) {
 // TestSettingsPageAppearance_Tree 验证「外观」页已经走声明式页面树：
 // 两节标题都在、原高级区三行直接可见、锁定档位显示徽标、切换主题写回配置。
 func TestSettingsPageAppearance_Tree(t *testing.T) {
-	t.Cleanup(func() { setTextScale(config.DefaultTextScale) })
+	t.Cleanup(func() { setActiveTheme(config.AppearanceConfig{}) })
 
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, map[string]bool{"code-font-size": true}, newChatState(NewFakeClient()))

@@ -11,6 +11,7 @@ import (
 // TestSettingsResetTree_ThemeApplied 覆盖外观页重置：
 // 主题、文字大小与终端字号回到默认值，并立刻把默认主题应用到运行时。
 func TestSettingsResetTree_ThemeApplied(t *testing.T) {
+	resetRuntimeTheme(t)
 	tt, st := newSettingsAdvancedTester(t)
 	openSettingsAdvancedPage(t, tt, st, "appearance")
 	def := config.Defaults()
@@ -44,8 +45,10 @@ func TestSettingsResetTree_ThemeApplied(t *testing.T) {
 	if len(applied) != 1 || applied[0] != mygo.ThemeSource(def.Appearance.Theme) {
 		t.Fatalf("重置后应立即应用默认主题 %q，实际应用 %v", def.Appearance.Theme, applied)
 	}
-	if appearanceThemeApplied != def.Appearance.Theme {
-		t.Fatalf("主题缓存应更新为默认值 %q，实际 %q", def.Appearance.Theme, appearanceThemeApplied)
+	synced := appearanceThemeApplied
+	syncAppearanceTheme(st)
+	if appearanceThemeApplied != synced || len(applied) != 1 {
+		t.Fatalf("重置后的主题缓存应避免重复应用：%q %v", appearanceThemeApplied, applied)
 	}
 }
 

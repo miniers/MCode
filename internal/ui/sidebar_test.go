@@ -519,8 +519,8 @@ func TestSidebarCompactModeSingleLineTitle(t *testing.T) {
 		t.Fatalf("expected to find long thread title in sidebar")
 	}
 	row, ok := tt.Find("打开会话 " + longTitle)
-	if !ok || row.H != HeightThreadRowCompact*textScaleFactor() {
-		t.Fatalf("紧凑会话行高度 = %.1f，期望 %.1f", row.H, HeightThreadRowCompact*textScaleFactor())
+	if !ok || row.H != HeightThreadRowCompact*sidebarScaleFactor() {
+		t.Fatalf("紧凑会话行高度 = %.1f，期望 %.1f", row.H, HeightThreadRowCompact*sidebarScaleFactor())
 	}
 	// 在紧凑模式下 SingleLine 渲染，标题文本高度应限制在单行范围内 (<= 22)
 	if rect.H > 22 {

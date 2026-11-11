@@ -753,7 +753,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 							previous := ui.Local(badgeBtn, "error-count", func() int { return count })
 							_, fade := motionNumberProgress(c, badgeBtn, *previous != count)
 							*previous = count
-							ui.Text(c, fmt.Sprint(count)).FontSize(TypeCode).TextColor(ThemeDanger(c).Alpha(fade))
+							ui.Text(c, fmt.Sprint(count)).FontSize(codeFontSize()).TextColor(ThemeDanger(c).Alpha(fade))
 						})
 					}
 

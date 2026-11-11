@@ -66,7 +66,7 @@ func swarmReportMarkdownOptions(c *ui.Context, s *chatState, baseSize float32) *
 		appCfg = st.cfg.Appearance
 	}
 	th.CodeFont = codeFontFamily(appCfg)
-	th.CodeSize = codeFontSize(appCfg) / baseSize
+	th.CodeSize = codeFontSize() / baseSize
 
 	if opts.Reveal == nil {
 		opts.Reveal = &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}

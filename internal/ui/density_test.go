@@ -60,10 +60,10 @@ func TestSidebarRowHeightFollowsDensity(t *testing.T) {
 	if compact >= comfortable {
 		t.Fatalf("紧凑会话行高 %.1f 应小于舒适 %.1f", compact, comfortable)
 	}
-	if want := DensityCompact.RowH * textScaleFactor(); compact != want {
+	if want := DensityCompact.RowH * sidebarScaleFactor(); compact != want {
 		t.Fatalf("紧凑会话行高 = %.1f，期望 %.1f", compact, want)
 	}
-	if want := DensityComfortable.RowH * textScaleFactor(); comfortable != want {
+	if want := DensityComfortable.RowH * sidebarScaleFactor(); comfortable != want {
 		t.Fatalf("舒适会话行高 = %.1f，期望 %.1f", comfortable, want)
 	}
 }

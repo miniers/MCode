@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -182,14 +181,9 @@ func applySettingsPageReset(st *SettingsState, page string) {
 	}
 	resetSettingsTreePage(st, p)
 
-	// save 只同步文字大小；外观页重置后主题也要立刻生效，否则要重启才换回默认主题。
 	if page == "appearance" {
 		st.mu.Lock()
-		theme := st.cfg.Appearance.Theme
+		syncAppearanceTheme(st)
 		st.mu.Unlock()
-		if theme != "" {
-			appearanceThemeApplied = theme
-			applyThemeSource(mygo.ThemeSource(theme))
-		}
 	}
 }

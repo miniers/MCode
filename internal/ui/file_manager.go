@@ -713,7 +713,7 @@ func narrowFileManager(s *chatState) bool {
 
 // fileManagerPreviewFontSize 返回文件预览正文的字号：跟随设置里的编辑器字号，每帧读取以便即时生效。
 func fileManagerPreviewFontSize(s *chatState) float32 {
-	return clampEditorFontSize(float32(currentWorkbenchConfig(s).EditorFontSize))
+	return editorFontSize()
 }
 
 // renderFileManagerMarkdownToggle 渲染 Markdown 文件的「预览/源码」切换。

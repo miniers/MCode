@@ -1,7 +1,9 @@
 package mcodeui
 
 import (
+	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
@@ -201,35 +203,155 @@ func ThemeIdentity(key string) ui.Color {
 	return ColorTextSecondaryLight
 }
 
-func ThemeSurfaceCanvas(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorSurfaceCanvasDark
-	}
-	return ColorSurfaceCanvasLight
+type themePalette struct {
+	Canvas, Main, Card, Raised, Popover, Text, TextSecondary, TextTertiary, Accent, Danger, Warning, Success, Caution, Plan, Border, Divider ui.Color
+	AccentSystem                                                                                                                             bool
 }
-func ThemeSurfaceMain(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorSurfaceMainDark
-	}
-	return ColorSurfaceMainLight
+
+var builtinPalettes = map[string]themePalette{
+	config.ThemeLight: {
+		Canvas:        ColorSurfaceCanvasLight,
+		Main:          ColorSurfaceMainLight,
+		Card:          ColorSurfaceCardLight,
+		Raised:        ColorSurfaceRaisedLight,
+		Popover:       ColorSurfacePopoverLight,
+		Text:          ColorTextPrimaryLight,
+		TextSecondary: ColorTextSecondaryLight,
+		TextTertiary:  ColorTextTertiaryLight,
+		Accent:        ColorAccentLight,
+		Danger:        ColorDangerLight,
+		Warning:       ColorWarningLight,
+		Success:       ColorSuccessLight,
+		Caution:       ColorCautionLight,
+		Plan:          ColorPlanLight,
+		Border:        ColorBorderLight,
+		Divider:       ColorDividerLight,
+	},
+	config.ThemeDark: {
+		Canvas:        ColorSurfaceCanvasDark,
+		Main:          ColorSurfaceMainDark,
+		Card:          ColorSurfaceCardDark,
+		Raised:        ColorSurfaceRaisedDark,
+		Popover:       ColorSurfacePopoverDark,
+		Text:          ColorTextPrimaryDark,
+		TextSecondary: ColorTextSecondaryDark,
+		TextTertiary:  ColorTextTertiaryDark,
+		Accent:        ColorAccentDark,
+		Danger:        ColorDangerDark,
+		Warning:       ColorWarningDark,
+		Success:       ColorSuccessDark,
+		Caution:       ColorCautionDark,
+		Plan:          ColorPlanDark,
+		Border:        ColorBorderDark,
+		Divider:       ColorDividerDark,
+	},
 }
-func ThemeSurfaceCard(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorSurfaceCardDark
-	}
-	return ColorSurfaceCardLight
+
+type resolvedTheme struct {
+	light, dark           themePalette
+	fixed                 *themePalette
+	lightFonts, darkFonts themeFonts
+	fixedFonts            *themeFonts
 }
-func ThemeSurfaceRaised(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorSurfaceRaisedDark
+
+// 发布后不再修改调色板或字号，渲染与配置回调可并发读取。
+var activeTheme atomic.Pointer[resolvedTheme]
+var themeDark atomic.Bool
+
+func init() { setActiveTheme(config.AppearanceConfig{}) }
+
+func parseThemeColor(value string) (ui.Color, bool) {
+	if (len(value) != 7 && len(value) != 9) || value[0] != '#' {
+		return ui.Color{}, false
 	}
-	return ColorSurfaceRaisedLight
+	n, err := strconv.ParseUint(value[1:], 16, 32)
+	if err != nil {
+		return ui.Color{}, false
+	}
+	if len(value) == 7 {
+		n = n<<8 | 255
+	}
+	return ui.Color{R: uint8(n >> 24), G: uint8(n >> 16), B: uint8(n >> 8), A: uint8(n)}, true
 }
+
+func resolvePalette(cfg config.AppearanceConfig, id string) themePalette {
+	def, _ := cfg.ThemeByID(id)
+	base := def.Base
+	if !config.IsBuiltinTheme(base) {
+		base = config.ThemeDark
+	}
+	p := builtinPalettes[base]
+	fields := map[string]*ui.Color{
+		"canvas":         &p.Canvas,
+		"main":           &p.Main,
+		"card":           &p.Card,
+		"raised":         &p.Raised,
+		"popover":        &p.Popover,
+		"text":           &p.Text,
+		"text_secondary": &p.TextSecondary,
+		"text_tertiary":  &p.TextTertiary,
+		"accent":         &p.Accent,
+		"danger":         &p.Danger,
+		"warning":        &p.Warning,
+		"success":        &p.Success,
+		"caution":        &p.Caution,
+		"plan":           &p.Plan,
+		"border":         &p.Border,
+		"divider":        &p.Divider,
+	}
+	for key, value := range def.Colors {
+		if key == "accent" && value == config.ThemeAccentSystem {
+			p.AccentSystem = true
+			continue
+		}
+		if field := fields[key]; field != nil {
+			if color, ok := parseThemeColor(value); ok {
+				*field = color
+			}
+		}
+	}
+	return p
+}
+
+func setActiveTheme(cfg config.AppearanceConfig) {
+	next := &resolvedTheme{
+		light: resolvePalette(cfg, config.ThemeLight), dark: resolvePalette(cfg, config.ThemeDark),
+		lightFonts: resolveThemeFonts(cfg, config.ThemeLight), darkFonts: resolveThemeFonts(cfg, config.ThemeDark),
+	}
+	if cfg.Theme != config.ThemeSystem && !config.IsBuiltinTheme(cfg.Theme) {
+		if _, ok := cfg.ThemeByID(cfg.Theme); ok {
+			palette, fonts := resolvePalette(cfg, cfg.Theme), resolveThemeFonts(cfg, cfg.Theme)
+			next.fixed, next.fixedFonts = &palette, &fonts
+		}
+	}
+	activeTheme.Store(next)
+}
+
+func paletteOf(c *ui.Context) themePalette {
+	theme := activeTheme.Load()
+	if theme.fixed != nil {
+		return *theme.fixed
+	}
+	if isDark(c) {
+		return theme.dark
+	}
+	return theme.light
+}
+
+// 动画状态由窗口根节点持有，窗口关闭时随节点释放，不共享多窗口的过渡进度。
+func themeColor(c *ui.Context, key string, target ui.Color) ui.Color {
+	if c == nil || reduceMotion(c) {
+		return target
+	}
+	return c.Root().AnimateColor("app-theme/"+key, target, ui.Animation{Duration: motionFast, Ease: motionEaseStandard})
+}
+
+func ThemeSurfaceCanvas(c *ui.Context) ui.Color { return themeColor(c, "Canvas", paletteOf(c).Canvas) }
+func ThemeSurfaceMain(c *ui.Context) ui.Color   { return themeColor(c, "Main", paletteOf(c).Main) }
+func ThemeSurfaceCard(c *ui.Context) ui.Color   { return themeColor(c, "Card", paletteOf(c).Card) }
+func ThemeSurfaceRaised(c *ui.Context) ui.Color { return themeColor(c, "Raised", paletteOf(c).Raised) }
 func ThemeSurfacePopover(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorSurfacePopoverDark
-	}
-	return ColorSurfacePopoverLight
+	return themeColor(c, "Popover", paletteOf(c).Popover)
 }
 func ThemeOverlayHover(c *ui.Context) ui.Color    { return ThemeOverlay(c, 0.05) }
 func ThemeOverlaySelected(c *ui.Context) ui.Color { return ThemeOverlay(c, 0.10) }
@@ -291,6 +413,7 @@ func applyAppTheme(c *ui.Context) {
 	if base == nil {
 		return
 	}
+	themeDark.Store(base.Dark)
 	colors := nativeThemeColors(c)
 	highContrast := c.Preferences().HighContrast
 	if appThemeCache.theme == nil || appThemeCache.base != *base || appThemeCache.colors != colors || appThemeCache.highContrast != highContrast {
@@ -310,83 +433,48 @@ func isDark(c *ui.Context) bool {
 
 // ThemeOverlay 返回指定不透明度的主文本遮罩色 (浅色黑色遮罩，深色白色遮罩)。
 func ThemeOverlay(c *ui.Context, opacity float32) ui.Color {
-	if isDark(c) {
-		return ui.RGBA(255, 255, 255, opacity)
-	}
-	return ui.RGBA(0, 0, 0, opacity)
+	color := ThemePrimaryText(c)
+	return ui.RGBA(color.R, color.G, color.B, opacity)
 }
 
 // ThemePrimaryText 返回当前模式的主文本色。
-func ThemePrimaryText(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorTextPrimaryDark
-	}
-	return ColorTextPrimaryLight
-}
+func ThemePrimaryText(c *ui.Context) ui.Color { return themeColor(c, "Text", paletteOf(c).Text) }
 
 // ThemeSecondaryText 返回当前模式的次要文本色。
 func ThemeSecondaryText(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorTextSecondaryDark
-	}
-	return ColorTextSecondaryLight
+	return themeColor(c, "TextSecondary", paletteOf(c).TextSecondary)
 }
 
 // ThemeAccent 返回当前模式的强调色 (#0A84FF 深色 / #007AFF 浅色)。
 func ThemeAccent(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorAccentDark
+	p := paletteOf(c)
+	if p.AccentSystem && c != nil {
+		if accent := c.Preferences().Accent; accent.A != 0 {
+			return themeColor(c, "Accent", accent)
+		}
 	}
-	return ColorAccentLight
+	return themeColor(c, "Accent", p.Accent)
 }
 
 // ThemeDanger 返回当前模式的危险色。
-func ThemeDanger(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorDangerDark
-	}
-	return ColorDangerLight
-}
+func ThemeDanger(c *ui.Context) ui.Color { return themeColor(c, "Danger", paletteOf(c).Danger) }
 
 // ThemeWarning 返回当前模式的警告/审批等待色 (#FF9500 / #FF9F0A)。
-func ThemeWarning(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorWarningDark
-	}
-	return ColorWarningLight
-}
+func ThemeWarning(c *ui.Context) ui.Color { return themeColor(c, "Warning", paletteOf(c).Warning) }
 
 // ThemeSuccess 返回当前模式的成功/完成色。
-func ThemeSuccess(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorSuccessDark
-	}
-	return ColorSuccessLight
-}
+func ThemeSuccess(c *ui.Context) ui.Color { return themeColor(c, "Success", paletteOf(c).Success) }
 
 // ThemeCaution 返回当前模式的配额黄色档色 (#C9A227 / #E8C15A)：配额使用过半但尚未进入警告。
-func ThemeCaution(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorCautionDark
-	}
-	return ColorCautionLight
-}
+func ThemeCaution(c *ui.Context) ui.Color { return themeColor(c, "Caution", paletteOf(c).Caution) }
 
 // ThemeTertiaryText 返回当前模式的三级文本色 (38% 透明度)，用于低优先级的辅助读数。
 func ThemeTertiaryText(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorTextTertiaryDark
-	}
-	return ColorTextTertiaryLight
+	return themeColor(c, "TextTertiary", paletteOf(c).TextTertiary)
 }
 
 // ThemePlan 返回当前模式的 Plan 模式高亮紫色 (#AF52DE / #BF5AF2)。
-func ThemePlan(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorPlanDark
-	}
-	return ColorPlanLight
-}
+func ThemePlan(c *ui.Context) ui.Color { return themeColor(c, "Plan", paletteOf(c).Plan) }
 
 // ThemeWindowBg 返回当前模式的窗口底色。
 func ThemeWindowBg(c *ui.Context) ui.Color {
@@ -404,36 +492,16 @@ func ThemeSurface(c *ui.Context) ui.Color {
 }
 
 // ThemeHover 返回当前模式的悬停态叠加色 (8%)。
-func ThemeHover(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorHoverDark
-	}
-	return ColorHoverLight
-}
+func ThemeHover(c *ui.Context) ui.Color { return ThemeOverlay(c, 0.08) }
 
 // ThemeSelected 返回当前模式的选中态叠加色 (12%)。
-func ThemeSelected(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorSelectedDark
-	}
-	return ColorSelectedLight
-}
+func ThemeSelected(c *ui.Context) ui.Color { return ThemeOverlay(c, 0.12) }
 
 // ThemeDivider 返回当前模式的分隔线颜色 (22%)。
-func ThemeDivider(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorDividerDark
-	}
-	return ColorDividerLight
-}
+func ThemeDivider(c *ui.Context) ui.Color { return themeColor(c, "Divider", paletteOf(c).Divider) }
 
 // ThemeBorder 返回当前模式的边框颜色 (14%)。
-func ThemeBorder(c *ui.Context) ui.Color {
-	if isDark(c) {
-		return ColorBorderDark
-	}
-	return ColorBorderLight
-}
+func ThemeBorder(c *ui.Context) ui.Color { return themeColor(c, "Border", paletteOf(c).Border) }
 
 // effortBrandColor 返回推理强度最高档使用的 Provider 品牌色（集中原先散落在
 // effort_slider.go 的硬编码映射）：
@@ -475,17 +543,4 @@ func codeFontFamily(cfg config.AppearanceConfig) string {
 		return "monospace"
 	}
 	return f
-}
-
-// codeFontSize 返回钳位到 [MinCodeFontSize, MaxCodeFontSize] 范围内的代码字号（默认 12pt）。
-func codeFontSize(cfg config.AppearanceConfig) float32 {
-	sz := cfg.CodeFontSize
-	if sz <= 0 {
-		sz = config.DefaultCodeFontSize
-	} else if sz < config.MinCodeFontSize {
-		sz = config.MinCodeFontSize
-	} else if sz > config.MaxCodeFontSize {
-		sz = config.MaxCodeFontSize
-	}
-	return float32(sz)
 }

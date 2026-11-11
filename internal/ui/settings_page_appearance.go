@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/egoist/mygo"
@@ -64,12 +65,32 @@ var appearanceThemeApplied string
 
 // syncAppearanceTheme 把配置里的主题同步到运行时主题源；值没变就不重复设置。
 func syncAppearanceTheme(st *SettingsState) {
-	theme := st.cfg.Appearance.Theme
-	if theme == "" || theme == appearanceThemeApplied {
+	st.cfgMu.Lock()
+	appearance := st.cfg.Appearance
+	source := appearance.Theme
+	if source == "" {
+		source = config.ThemeSystem
+	}
+	if !config.IsBuiltinTheme(source) && source != config.ThemeSystem {
+		if theme, ok := appearance.ThemeByID(source); ok {
+			source = theme.Base
+		} else {
+			source = config.ThemeSystem
+		}
+	}
+	content, _ := json.Marshal(struct {
+		Theme  string
+		Themes []config.ThemeDef
+	}{appearance.Theme, appearance.Themes})
+	key := source + string(content)
+	if key == appearanceThemeApplied {
+		st.cfgMu.Unlock()
 		return
 	}
-	appearanceThemeApplied = theme
-	applyThemeSource(mygo.ThemeSource(theme))
+	appearanceThemeApplied = key
+	setActiveTheme(appearance)
+	st.cfgMu.Unlock()
+	applyThemeSource(mygo.ThemeSource(source))
 }
 
 // appearanceThemeSection 是「主题与排版」节：主题、文字大小、密度、内容宽度与侧边栏。

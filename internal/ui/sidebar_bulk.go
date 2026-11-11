@@ -83,13 +83,13 @@ func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 		Children(func() {
 			// 标题
 			ui.Text(c, "整理会话").
-				FontSize(scaledFont(TypeProse)).
+				FontSize(sidebarFont(TypeProse)).
 				FontWeight(600).
 				TextColor(primaryText)
 
 			// 时间范围分段选择器
 			ui.Text(c, "最后活跃于").
-				FontSize(scaledFont(TypeFootnote)).
+				FontSize(sidebarFont(TypeFootnote)).
 				TextColor(secondaryText)
 
 			ranges := []struct {
@@ -136,7 +136,7 @@ func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 								textColor = ThemeAccent(c)
 							}
 							t := ui.Text(c, rVal.label).
-								FontSize(scaledFont(TypeFootnote)).
+								FontSize(sidebarFont(TypeFootnote)).
 								TextColor(textColor)
 							if isSelected {
 								t.FontWeight(600)
@@ -182,7 +182,7 @@ func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 								Background(ThemeHover(c).Alpha(0.1))
 						}
 						ui.Text(c, "包含置顶").
-							FontSize(scaledFont(TypeFootnote)).
+							FontSize(sidebarFont(TypeFootnote)).
 							TextColor(primaryText)
 					})
 
@@ -218,14 +218,14 @@ func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 								Background(ThemeHover(c).Alpha(0.1))
 						}
 						ui.Text(c, "包含已休眠").
-							FontSize(scaledFont(TypeFootnote)).
+							FontSize(sidebarFont(TypeFootnote)).
 							TextColor(primaryText)
 					})
 				})
 
 			// 预览文字
 			ui.Text(c, previewText).
-				FontSize(scaledFont(TypeFootnote)).
+				FontSize(sidebarFont(TypeFootnote)).
 				TextColor(secondaryText).
 				Padding(Space0, 0)
 
@@ -304,7 +304,7 @@ func renderBulkUndoNotice(c *ui.Context, s *chatState) {
 		AlignItems(ui.Center).
 		Children(func() {
 			ui.Text(c, noticeText).
-				FontSize(scaledFont(TypeFootnote)).
+				FontSize(sidebarFont(TypeFootnote)).
 				TextColor(ThemePrimaryText(c)).
 				Grow(1).
 				SingleLine()

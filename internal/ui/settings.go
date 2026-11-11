@@ -282,6 +282,9 @@ func (s *SettingsState) handleConfigChanged() {
 		chat.invalidateConfigCache()
 	}
 	s.refreshFromDisk()
+	s.cfgMu.Lock()
+	setActiveTheme(s.cfg.Appearance)
+	s.cfgMu.Unlock()
 }
 
 // refreshFromDisk 重新读盘并刷新设置页的配置快照。
@@ -324,8 +327,8 @@ func WithSettings(dataDir string, lockedKeys map[string]bool) Option {
 		// 启动即应用持久化的快捷键覆盖（此处是 UI 启动时唯一加载 config.Config 的位置），
 		// 避免必须先打开一次设置面板才生效。
 		setShortcutOverrides(st.cfg.Shortcuts.ShortcutOverrides)
-		// 文字大小同样在这一处进入 UI：没打开过设置页也要按配置生效。
-		setTextScale(st.cfg.Appearance.TextScale)
+		// 主题与区域字号在启动时同步，无需先打开设置页。
+		setActiveTheme(st.cfg.Appearance)
 	}
 }
 
@@ -404,7 +407,7 @@ func (s *SettingsState) Open() {
 	s.cfgMu.Unlock()
 	if err == nil {
 		setShortcutOverrides(cfg.Shortcuts.ShortcutOverrides)
-		setTextScale(cfg.Appearance.TextScale)
+		setActiveTheme(cfg.Appearance)
 	}
 	s.remote.statusLoaded = false
 	// 设备列表也每次都重读：web 端可能已通过 session.renameDevice 改过名称。
@@ -550,12 +553,10 @@ func (s *SettingsState) saveSnapshot(cfg, base config.Config) bool {
 	applyConfigDiff(reflect.ValueOf(&s.cfg).Elem(), reflect.ValueOf(next))
 	// base 记的是「磁盘上已确认的值」，所以取 merged 而不是 next：写盘期间的新改动仍是待保存状态。
 	s.base = cloneConfig(merged)
-	textScale := s.cfg.Appearance.TextScale
+	// 发布整份主题快照，颜色与区域字号在下一帧生效。
+	setActiveTheme(s.cfg.Appearance)
 	s.noteErrorLocked("")
 	s.cfgMu.Unlock()
-
-	// 设置改动后同步进程内的文字大小，侧栏与时间线下一帧即按新档位渲染。
-	setTextScale(textScale)
 	return true
 }
 

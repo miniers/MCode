@@ -357,10 +357,12 @@ func (st *miniEditorState) view(c *ui.Context) {
 			ui.Scroll(c.Key("mini-editor-preview-scroll")).Grow(1).FillWidth().Children(func() {
 				ui.Column(c.Key("mini-editor-preview")).FillWidth().Padding(Space6).Children(func() {
 					st.mu.Lock()
-					if st.mdOpts == nil {
-						theme := markdown.DefaultTheme(c.Theme())
+					if st.mdOpts == nil || markdownThemeChanged(c, st.mdOpts.Theme) {
+						theme := buildMarkdownTheme(c, uiFont(13), "monospace", codeFontSize()/13)
 						st.mdOpts = &markdown.Options{Theme: theme}
 					}
+					st.mdOpts.Theme.FontSize = uiFont(13)
+					st.mdOpts.Theme.CodeSize = codeFontSize() / 13
 					opts := st.mdOpts
 					text := st.text
 					st.mu.Unlock()
@@ -412,23 +414,9 @@ func (st *miniEditorState) view(c *ui.Context) {
 	})
 }
 
-// clampEditorFontSize 把配置里的编辑器字号规范到可渲染范围：0 或未设置回退默认值，
-// 再夹到 MinEditorFontSize 与 MaxEditorFontSize 之间。
-func clampEditorFontSize(size float32) float32 {
-	switch {
-	case size <= 0:
-		size = float32(config.DefaultEditorFontSize)
-	case size < float32(config.MinEditorFontSize):
-		size = float32(config.MinEditorFontSize)
-	case size > float32(config.MaxEditorFontSize):
-		size = float32(config.MaxEditorFontSize)
-	}
-	return size
-}
-
-// editorFontSizeLocked 返回编辑器等宽字号；调用方持有 st.mu。
+// editorFontSizeLocked 每帧读取主题字号；调用方持有 st.mu。
 func (st *miniEditorState) editorFontSizeLocked() float32 {
-	return clampEditorFontSize(float32(st.workbench.EditorFontSize))
+	return editorFontSize()
 }
 
 // miniEditorStatusText 返回保存状态文案。

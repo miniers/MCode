@@ -279,7 +279,7 @@ func renderBrowserServerCandidates(c *ui.Context, s *chatState, threadID string,
 			openPreviewURL(s, target)
 		}
 		btn.Children(func() {
-			ui.Text(c, label).FontSize(TypeCode).Font("monospace").FontWeight(500).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, label).FontSize(codeFontSize()).Font("monospace").FontWeight(500).TextColor(ThemeSecondaryText(c))
 		})
 	}
 	for _, x := range discovered {
@@ -296,7 +296,7 @@ func renderBrowserServerCandidates(c *ui.Context, s *chatState, threadID string,
 			prev := ui.Local(badge, "server-count", func() int { return count })
 			_, fade := motionNumberProgress(c, badge, *prev != count)
 			*prev = count
-			ui.Text(c, strconv.Itoa(count)).FontSize(TypeCode).TextColor(ThemeAccent(c).Alpha(fade))
+			ui.Text(c, strconv.Itoa(count)).FontSize(codeFontSize()).TextColor(ThemeAccent(c).Alpha(fade))
 		})
 	}
 }

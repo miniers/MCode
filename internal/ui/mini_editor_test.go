@@ -193,6 +193,7 @@ func TestMiniEditorDebouncedAutoSave(t *testing.T) {
 
 // TestMiniEditorEditorFontSize 验证字号读取配置、0 值回退默认并限制在 10 到 18 之间。
 func TestMiniEditorEditorFontSize(t *testing.T) {
+	t.Cleanup(func() { setActiveTheme(config.AppearanceConfig{}) })
 	tests := []struct {
 		configured int
 		want       float32
@@ -204,7 +205,8 @@ func TestMiniEditorEditorFontSize(t *testing.T) {
 		{99, float32(config.MaxEditorFontSize)},
 	}
 	for _, tc := range tests {
-		st := &miniEditorState{workbench: config.WorkbenchConfig{EditorFontSize: tc.configured}}
+		setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeLight, Fonts: map[string]int{"editor": tc.configured}}}})
+		st := &miniEditorState{}
 		st.mu.Lock()
 		got := st.editorFontSizeLocked()
 		st.mu.Unlock()

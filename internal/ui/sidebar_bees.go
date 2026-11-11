@@ -560,7 +560,7 @@ func renderSidebarBeeFoldLine(c *ui.Context, s *chatState, o sidebarThreadRowOpt
 					Size(Space3, Space3).
 					TextColor(secondaryText)
 				ui.Text(c, label).
-					FontSize(scaledFont(FontSizeProjectName)).
+					FontSize(sidebarFont(FontSizeProjectName)).
 					TextColor(secondaryText).
 					SingleLine()
 				if hasRunning {

@@ -68,7 +68,7 @@ func TestSettingsVisual_SwarmNoDoubleInset(t *testing.T) {
 }
 
 func TestSettingsVisual_RowHeightsUniform(t *testing.T) {
-	t.Cleanup(func() { setTextScale(config.DefaultTextScale) })
+	t.Cleanup(func() { setActiveTheme(config.AppearanceConfig{}) })
 
 	tt, st := newSettingsAdvancedTester(t)
 	openSettingsAdvancedPage(t, tt, st, "appearance")

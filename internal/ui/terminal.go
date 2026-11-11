@@ -282,18 +282,8 @@ func clampTerminalFontSize(size int) int {
 	return size
 }
 
-// getTerminalFontSize 从 chatState 关联的设置状态读取当前配置的终端字号，返回夹取后的值。
-func getTerminalFontSize(s *chatState) int {
-	if s != nil {
-		if st := getChatSettings(s); st != nil {
-			st.mu.Lock()
-			size := st.cfg.Workbench.TerminalFontSize
-			st.mu.Unlock()
-			return clampTerminalFontSize(size)
-		}
-	}
-	return config.DefaultTerminalFontSize
-}
+// getTerminalFontSize 读取当前主题的终端字号。
+func getTerminalFontSize(s *chatState) int { return terminalFontSize() }
 
 // getTerminalConfiguredShell 从 chatState 关联的设置状态读取当前配置的终端 Shell。
 func getTerminalConfiguredShell(s *chatState) string {

@@ -7,28 +7,13 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/config"
 )
 
 // 本文件把桌面端设计令牌导出为 web/src/tokens.css，两端同名同值。
 // 同步由 web_tokens_test.go 的 TestWebTokensInSync 校验；改过令牌后重新生成：
 //
 //	UPDATE_WEB_TOKENS=1 go test ./internal/ui -run TestWebTokensInSync
-
-// webThemeHex 镜像 theme.go 的状态色常量。
-// visual_style_guard_test.go 禁止在 theme.go 之外裸用这些常量名，因此按值镜像；
-// TestWebTokenPaletteMatchesTheme 解析 theme.go 校验两边一致。
-var webThemeHex = map[string]string{
-	"ColorAccentLight":  "#007AFF",
-	"ColorAccentDark":   "#0A84FF",
-	"ColorDangerLight":  "#FF3B30",
-	"ColorDangerDark":   "#FF453A",
-	"ColorWarningLight": "#FF9500",
-	"ColorWarningDark":  "#FF9F0A",
-	"ColorSuccessLight": "#28CD41",
-	"ColorSuccessDark":  "#30D158",
-	"ColorPlanLight":    "#AF52DE",
-	"ColorPlanDark":     "#BF5AF2",
-}
 
 // webVar 是 tokens.css 里的一行变量。
 type webVar struct {
@@ -67,26 +52,27 @@ func writeWebVars(b *strings.Builder, vars []webVar) {
 
 // webLightVars 是浅色主题变量与主题无关的尺寸、字号、时长。
 func webLightVars() []webVar {
-	accent := webThemeColor("ColorAccentLight")
-	text := ColorTextPrimaryLight
+	palette := builtinPalettes[config.ThemeLight]
+	accent := palette.Accent
+	text := palette.Text
 	return []webVar{
-		{"表面", "surface-canvas", webCSSColor(ColorSurfaceCanvasLight)},
-		{"表面", "surface-main", webCSSColor(ColorSurfaceMainLight)},
-		{"表面", "surface-card", webCSSColor(ColorSurfaceCardLight)},
-		{"表面", "surface-raised", webCSSColor(ColorSurfaceRaisedLight)},
-		{"表面", "surface-popover", webCSSColor(ColorSurfacePopoverLight)},
+		{"表面", "surface-canvas", webCSSColor(palette.Canvas)},
+		{"表面", "surface-main", webCSSColor(palette.Main)},
+		{"表面", "surface-card", webCSSColor(palette.Card)},
+		{"表面", "surface-raised", webCSSColor(palette.Raised)},
+		{"表面", "surface-popover", webCSSColor(palette.Popover)},
 
-		{"文字", "text-primary", webCSSColor(ColorTextPrimaryLight)},
-		{"文字", "text-secondary", webCSSColor(ColorTextSecondaryLight)},
-		{"文字", "text-tertiary", webCSSColor(ColorTextTertiaryLight)},
+		{"文字", "text-primary", webCSSColor(palette.Text)},
+		{"文字", "text-secondary", webCSSColor(palette.TextSecondary)},
+		{"文字", "text-tertiary", webCSSColor(palette.TextTertiary)},
 
 		{"叠加", "overlay-hover", webCSSColor(webAlpha(text, 5))},
 		{"叠加", "overlay-selected", webCSSColor(webAlpha(text, 10))},
 		{"叠加", "overlay-pressed", webCSSColor(webAlpha(text, 14))},
 		{"叠加", "hairline", webCSSColor(webAlpha(text, 10))},
 
-		{"描边", "border", webCSSColor(ColorBorderLight)},
-		{"描边", "border-strong", webCSSColor(ColorDividerLight)},
+		{"描边", "border", webCSSColor(palette.Border)},
+		{"描边", "border-strong", webCSSColor(palette.Divider)},
 
 		{"强调", "accent", webCSSColor(accent)},
 		{"强调", "accent-hover", webCSSColor(webMix(accent, text, 10))},
@@ -94,11 +80,11 @@ func webLightVars() []webVar {
 		{"强调", "accent-subtle", webCSSColor(webAlpha(accent, 12))},
 		{"强调", "on-accent", webCSSColor(ThemeOnAccent(nil))},
 
-		{"语义", "danger", webCSSColor(webThemeColor("ColorDangerLight"))},
-		{"语义", "warning", webCSSColor(webThemeColor("ColorWarningLight"))},
-		{"语义", "success", webCSSColor(webThemeColor("ColorSuccessLight"))},
-		{"语义", "caution", webCSSColor(ColorCautionLight)},
-		{"语义", "plan", webCSSColor(webThemeColor("ColorPlanLight"))},
+		{"语义", "danger", webCSSColor(palette.Danger)},
+		{"语义", "warning", webCSSColor(palette.Warning)},
+		{"语义", "success", webCSSColor(palette.Success)},
+		{"语义", "caution", webCSSColor(palette.Caution)},
+		{"语义", "plan", webCSSColor(palette.Plan)},
 
 		{"阴影", "elev-popover", webShadow(ElevPopover, false)},
 		{"阴影", "elev-dialog", webShadow(ElevDialog, false)},
@@ -149,26 +135,27 @@ func webLightVars() []webVar {
 
 // webDarkVars 只覆盖随主题变化的颜色与阴影，尺寸、字号、时长沿用 :root。
 func webDarkVars() []webVar {
-	accent := webThemeColor("ColorAccentDark")
-	text := ColorTextPrimaryDark
+	palette := builtinPalettes[config.ThemeDark]
+	accent := palette.Accent
+	text := palette.Text
 	return []webVar{
-		{"表面", "surface-canvas", webCSSColor(ColorSurfaceCanvasDark)},
-		{"表面", "surface-main", webCSSColor(ColorSurfaceMainDark)},
-		{"表面", "surface-card", webCSSColor(ColorSurfaceCardDark)},
-		{"表面", "surface-raised", webCSSColor(ColorSurfaceRaisedDark)},
-		{"表面", "surface-popover", webCSSColor(ColorSurfacePopoverDark)},
+		{"表面", "surface-canvas", webCSSColor(palette.Canvas)},
+		{"表面", "surface-main", webCSSColor(palette.Main)},
+		{"表面", "surface-card", webCSSColor(palette.Card)},
+		{"表面", "surface-raised", webCSSColor(palette.Raised)},
+		{"表面", "surface-popover", webCSSColor(palette.Popover)},
 
-		{"文字", "text-primary", webCSSColor(ColorTextPrimaryDark)},
-		{"文字", "text-secondary", webCSSColor(ColorTextSecondaryDark)},
-		{"文字", "text-tertiary", webCSSColor(ColorTextTertiaryDark)},
+		{"文字", "text-primary", webCSSColor(palette.Text)},
+		{"文字", "text-secondary", webCSSColor(palette.TextSecondary)},
+		{"文字", "text-tertiary", webCSSColor(palette.TextTertiary)},
 
 		{"叠加", "overlay-hover", webCSSColor(webAlpha(text, 5))},
 		{"叠加", "overlay-selected", webCSSColor(webAlpha(text, 10))},
 		{"叠加", "overlay-pressed", webCSSColor(webAlpha(text, 14))},
 		{"叠加", "hairline", webCSSColor(webAlpha(text, 10))},
 
-		{"描边", "border", webCSSColor(ColorBorderDark)},
-		{"描边", "border-strong", webCSSColor(ColorDividerDark)},
+		{"描边", "border", webCSSColor(palette.Border)},
+		{"描边", "border-strong", webCSSColor(palette.Divider)},
 
 		{"强调", "accent", webCSSColor(accent)},
 		{"强调", "accent-hover", webCSSColor(webMix(accent, text, 10))},
@@ -176,34 +163,16 @@ func webDarkVars() []webVar {
 		{"强调", "accent-subtle", webCSSColor(webAlpha(accent, 12))},
 		{"强调", "on-accent", webCSSColor(ThemeOnAccent(nil))},
 
-		{"语义", "danger", webCSSColor(webThemeColor("ColorDangerDark"))},
-		{"语义", "warning", webCSSColor(webThemeColor("ColorWarningDark"))},
-		{"语义", "success", webCSSColor(webThemeColor("ColorSuccessDark"))},
-		{"语义", "caution", webCSSColor(ColorCautionDark)},
-		{"语义", "plan", webCSSColor(webThemeColor("ColorPlanDark"))},
+		{"语义", "danger", webCSSColor(palette.Danger)},
+		{"语义", "warning", webCSSColor(palette.Warning)},
+		{"语义", "success", webCSSColor(palette.Success)},
+		{"语义", "caution", webCSSColor(palette.Caution)},
+		{"语义", "plan", webCSSColor(palette.Plan)},
 
 		{"阴影", "elev-popover", webShadow(ElevPopover, true)},
 		{"阴影", "elev-dialog", webShadow(ElevDialog, true)},
 		{"阴影", "elev-float", webShadow(ElevFloat, true)},
 	}
-}
-
-// webThemeColor 取 webThemeHex 里镜像的颜色。
-func webThemeColor(name string) ui.Color {
-	hex, ok := webThemeHex[name]
-	if !ok {
-		panic("web tokens: 未知主题色 " + name)
-	}
-	return webHex(hex)
-}
-
-// webHex 解析 #RRGGBB。不用 ui.Hex，避免在设计令牌守卫里被当成写死的颜色。
-func webHex(s string) ui.Color {
-	v, err := strconv.ParseUint(strings.TrimPrefix(s, "#"), 16, 32)
-	if err != nil {
-		panic("web tokens: 非法颜色 " + s)
-	}
-	return ui.Color{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v), A: 255}
 }
 
 // webAlpha 把颜色透明度设为 pct%。用整数百分比，生成结果可以逐字节核对。

@@ -455,7 +455,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 			// 行高与左右内边距跟「界面密度」走；行高再按「文字大小」缩放：
 			// 行内标题按比例变大，行高不跟上就会把文字截断；内边距与间距是间距，不缩放。
 			dens := currentDensity(c, s)
-			rowScale := textScaleFactor()
+			rowScale := sidebarScaleFactor()
 			var threadRowHeight float32 = dens.RowH * rowScale
 			var threadPadY float32 = 4
 			var threadPadX float32 = dens.PadX
@@ -512,7 +512,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 			if len(projects) == 0 {
 				ui.Text(c, "暂无项目").
 					TextColor(secondaryText).
-					FontSize(scaledFont(TypeFootnote)).
+					FontSize(sidebarFont(TypeFootnote)).
 					Padding(Space5, Space5)
 				return
 			}
@@ -749,7 +749,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							name = "未命名项目"
 						}
 						ui.Text(c, name).
-							FontSize(scaledFont(FontSizeThreadTitle)).
+							FontSize(sidebarFont(FontSizeThreadTitle)).
 							FontWeight(500).
 							TextColor(nameColor).
 							Grow(1).
@@ -759,7 +759,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 					// 右侧：会话计数（次要色、小号） + 新建会话 "+" 图标按钮（始终可点）
 					if len(ths) > 0 {
 						ui.Text(c, "("+strconv.Itoa(len(ths))+")").
-							FontSize(scaledFont(TypeCaption)).
+							FontSize(sidebarFont(TypeCaption)).
 							TextColor(ThemeTertiaryText(c)).
 							Margin(0, Space1, 0, 0)
 					}
@@ -870,7 +870,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						}
 						ui.Text(c, emptyTip).
 							TextColor(secondaryText).
-							FontSize(scaledFont(TypeFootnote)).
+							FontSize(sidebarFont(TypeFootnote)).
 							Padding(Space1, Space8)
 					} else {
 						// 状态分组：等你处理、运行中全量置顶；其余走下面的分页窗口。
@@ -947,7 +947,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 									}
 									btn.Children(func() {
 										ui.Text(c, label).
-											FontSize(scaledFont(FontSizeDormantTitle)).
+											FontSize(sidebarFont(FontSizeDormantTitle)).
 											TextColor(textColor).
 											SingleLine()
 									})
@@ -1021,7 +1021,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 									TextColor(secondaryText)
 
 								ui.Text(c, fmt.Sprintf("已休眠会话（%d）", len(dormantThs))).
-									FontSize(scaledFont(FontSizeDormantTitle)).
+									FontSize(sidebarFont(FontSizeDormantTitle)).
 									TextColor(secondaryText).
 									Grow(1).
 									SingleLine()
@@ -1161,14 +1161,14 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 			tTitle = ui.Text(c, title).Grow(1).Shrink(1).MinWidth(0).MaxLines(2).Ellipsis("…")
 		}
 		if o.dormant {
-			tTitle.FontSize(scaledFont(FontSizeDormantTitle))
+			tTitle.FontSize(sidebarFont(FontSizeDormantTitle))
 			if isSelected {
 				tTitle.TextColor(primaryText.Alpha(0.75))
 			} else {
 				tTitle.TextColor(secondaryText)
 			}
 		} else {
-			tTitle.FontSize(scaledFont(FontSizeThreadTitle))
+			tTitle.FontSize(sidebarFont(FontSizeThreadTitle))
 			if isSelected {
 				tTitle.TextColor(primaryText).FontWeight(500)
 			} else if turnDone != "" {
@@ -1182,7 +1182,7 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 		// 动态视图：标题后附带所属项目名（弱化色小字）
 		if o.projectName != "" {
 			ui.Text(c, o.projectName).
-				FontSize(scaledFont(FontSizeProjectName)).
+				FontSize(sidebarFont(FontSizeProjectName)).
 				TextColor(secondaryText).
 				SingleLine()
 		}
@@ -1311,14 +1311,14 @@ func renderSidebarStatusSlot(c *ui.Context, s *chatState, thVal Thread, secondar
 					Size(12, 12).
 					TextColor(ThemeWarning(c))
 				ui.Text(c, "等你审批").
-					FontSize(scaledFont(FontSizeRelativeTime)).
+					FontSize(sidebarFont(FontSizeRelativeTime)).
 					TextColor(ThemeWarning(c)).
 					SingleLine()
 			})
 	case sidebarStatusRunning:
 		// 运行中用相对时长说明这一轮已经跑了多久；同一时间只占行尾，不再显示相对时间。
 		ui.Text(c, sidebarRunningLabel(thVal, time.Now())).
-			FontSize(scaledFont(FontSizeRelativeTime)).
+			FontSize(sidebarFont(FontSizeRelativeTime)).
 			TextColor(secondaryText).
 			SingleLine()
 	case sidebarStatusWaiting:
@@ -1338,7 +1338,7 @@ func renderSidebarStatusSlot(c *ui.Context, s *chatState, thVal Thread, secondar
 					Size(11, 11).
 					TextColor(ThemeAccent(c))
 				ui.Text(c, label).
-					FontSize(scaledFont(FontSizeRelativeTime)).
+					FontSize(sidebarFont(FontSizeRelativeTime)).
 					TextColor(ThemeAccent(c)).
 					SingleLine()
 			})
@@ -1356,7 +1356,7 @@ func renderSidebarStatusSlot(c *ui.Context, s *chatState, thVal Thread, secondar
 			Margin(0, 2, 0, 0)
 	case sidebarStatusTime:
 		ui.Text(c, formatRelativeTime(threadActivityTime(thVal))).
-			FontSize(scaledFont(FontSizeRelativeTime)).
+			FontSize(sidebarFont(FontSizeRelativeTime)).
 			TextColor(secondaryText)
 	}
 }
@@ -1528,14 +1528,14 @@ func renderRenameThreadModal(c *ui.Context, s *chatState) {
 				// 标题行同时是弹窗的拖拽把手。
 				modalDragHandle(c, modalDragRenameThread, ui.Row(c.Key("modal-rename-title-row")).FillWidth().Children(func() {
 					ui.Text(c, "重命名会话").
-						FontSize(scaledFont(TypeTitle)).
+						FontSize(sidebarFont(TypeTitle)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 				}))
 
 				in := ui.TextInput(c.Key("modal-rename-input"), &s.renameThreadTitle).
 					Placeholder("输入会话标题...").
-					FontSize(scaledFont(TypeBody)).
+					FontSize(sidebarFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
 					Background(ThemeHover(c).Alpha(0.25)).
 					BorderColor(ThemeBorder(c)).
@@ -2029,13 +2029,13 @@ func renderWorktreeManageModal(c *ui.Context, s *chatState) {
 				// 标题行同时是弹窗的拖拽把手。
 				modalDragHandle(c, modalDragWorktreeManage, ui.Row(c.Key("modal-worktree-title-row")).FillWidth().Children(func() {
 					ui.Text(c, "Worktree 管理").
-						FontSize(scaledFont(TypeTitle)).
+						FontSize(sidebarFont(TypeTitle)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 				}))
 
 				ui.Text(c, "仅清理已合入、无未提交改动、且 10 分钟内无活动的 Worktree；使用中的不会被删除").
-					FontSize(scaledFont(TypeFootnote)).
+					FontSize(sidebarFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 
 				switch {
@@ -2046,7 +2046,7 @@ func renderWorktreeManageModal(c *ui.Context, s *chatState) {
 						Children(func() {
 							LoadingIndicator(c, nil, "", IconSM, ThemeAccent(c))
 							ui.Text(c, "扫描中…").
-								FontSize(scaledFont(TypeBody)).
+								FontSize(sidebarFont(TypeBody)).
 								TextColor(ThemeSecondaryText(c))
 						})
 				case scanErr != "":
@@ -2055,7 +2055,7 @@ func renderWorktreeManageModal(c *ui.Context, s *chatState) {
 						AlignItems(ui.Center).
 						Children(func() {
 							ui.Text(c, scanErr).
-								FontSize(scaledFont(TypeBody)).
+								FontSize(sidebarFont(TypeBody)).
 								TextColor(ThemeDanger(c))
 							Button(c.Key("modal-worktree-retry-btn"), ButtonOpts{
 								Text:    "重试",
@@ -2067,7 +2067,7 @@ func renderWorktreeManageModal(c *ui.Context, s *chatState) {
 						})
 				case len(items) == 0:
 					ui.Text(c, "没有额外的 Worktree").
-						FontSize(scaledFont(TypeBody)).
+						FontSize(sidebarFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				default:
 					ui.Scroll(c.Key("modal-worktree-scroll")).MaxHeight(max(0, height-180)).Grow(1).Children(func() {
@@ -2117,19 +2117,19 @@ func renderWorktreeRow(c *ui.Context, it WorktreeInfo) {
 		AlignItems(ui.Center).
 		Children(func() {
 			ui.Text(c, filepath.Base(it.Path)).
-				FontSize(scaledFont(TypeBody)).
+				FontSize(sidebarFont(TypeBody)).
 				TextColor(ThemePrimaryText(c)).
 				SingleLine()
 			ui.Text(c, it.Branch).
-				FontSize(scaledFont(TypeCaption)).
+				FontSize(sidebarFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c)).
 				SingleLine().
 				Grow(1)
 			ui.Text(c, formatFileSize(it.SizeBytes)).
-				FontSize(scaledFont(TypeCaption)).
+				FontSize(sidebarFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c))
 			ui.Text(c, strconv.Itoa(it.AgeDays)+" 天").
-				FontSize(scaledFont(TypeCaption)).
+				FontSize(sidebarFont(TypeCaption)).
 				TextColor(ThemeSecondaryText(c))
 			if it.Merged {
 				renderWorktreeTag(c, key+"-merged", "已合入", ThemeAccent(c))
@@ -2147,7 +2147,7 @@ func renderWorktreeTag(c *ui.Context, key, text string, color ui.Color) {
 		Background(color.Alpha(0.15)).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(scaledFont(TypeCaption)).
+				FontSize(sidebarFont(TypeCaption)).
 				TextColor(color)
 		})
 }
@@ -2186,14 +2186,14 @@ func renderWorktreeMoveModal(c *ui.Context, s *chatState) {
 				// 标题行同时是弹窗的拖拽把手。
 				modalDragHandle(c, modalDragWorktreeMove, ui.Row(c.Key("modal-worktree-move-title-row")).FillWidth().Children(func() {
 					ui.Text(c, "迁入 Worktree").
-						FontSize(scaledFont(TypeTitle)).
+						FontSize(sidebarFont(TypeTitle)).
 						FontWeight(600).
 						TextColor(ThemePrimaryText(c))
 				}))
 
 				in := ui.TextInput(c.Key("modal-worktree-move-input"), &ws.moveBranch).
 					Placeholder("留空自动生成").
-					FontSize(scaledFont(TypeBody)).
+					FontSize(sidebarFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
 					Background(ThemeHover(c).Alpha(0.25)).
 					BorderColor(ThemeBorder(c)).
@@ -2220,7 +2220,7 @@ func renderWorktreeMoveModal(c *ui.Context, s *chatState) {
 					Children(func() {
 						ui.Toggle(c.Key("modal-worktree-move-transfer-check"), &ws.moveTransfer, "同时迁移未提交的改动")
 						ui.Text(c, "同时迁移未提交的改动").
-							FontSize(scaledFont(TypeBody)).
+							FontSize(sidebarFont(TypeBody)).
 							TextColor(ThemePrimaryText(c))
 					})
 

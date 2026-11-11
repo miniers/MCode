@@ -7,6 +7,7 @@ import (
 )
 
 func TestChatMarkdownThemeSwitch(t *testing.T) {
+	resetRuntimeTheme(t)
 	s := &chatState{}
 	var expected ui.Color
 	tester := ui.NewTester(func(c *ui.Context) {
@@ -14,6 +15,7 @@ func TestChatMarkdownThemeSwitch(t *testing.T) {
 		expected = ThemePrimaryText(c)
 	}, 100, 100)
 
+	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tester.SetDark(true)
 	tester.Frame()
 	dark := s.mdOpts.Theme

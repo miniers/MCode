@@ -149,7 +149,7 @@ func renderSidebarHoverCardBody(c *ui.Context, s *chatState, thVal Thread) {
 	_, winH := c.Size()
 	ui.Scroll(c.Key("hover-card-title-scroll-" + thVal.ID)).FillWidth().MaxHeight(max(1, winH/3)).Children(func() {
 		ui.Text(c, title).
-			FontSize(scaledFont(FontSizeThreadTitle)).
+			FontSize(sidebarFont(FontSizeThreadTitle)).
 			FontWeight(500).
 			TextColor(ThemePrimaryText(c))
 	})
@@ -198,9 +198,9 @@ func renderSidebarHoverCardBody(c *ui.Context, s *chatState, thVal Thread) {
 		dot = StatusError
 	}
 	ui.Row(c.Key("hover-card-status-" + thVal.ID)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "状态").FontSize(scaledFont(FontSizeProjectName)).TextColor(ThemeSecondaryText(c)).MinWidth(52)
+		ui.Text(c, "状态").FontSize(sidebarFont(FontSizeProjectName)).TextColor(ThemeSecondaryText(c)).MinWidth(52)
 		StatusDot(c, nil, dot, status)
-		ui.Text(c, status).FontSize(scaledFont(FontSizeCallout)).TextColor(ThemePrimaryText(c)).SingleLine()
+		ui.Text(c, status).FontSize(sidebarFont(FontSizeCallout)).TextColor(ThemePrimaryText(c)).SingleLine()
 	})
 
 	if activity := threadActivityTime(thVal); !activity.IsZero() {
@@ -215,11 +215,11 @@ func hoverCardField(c *ui.Context, key, label, value string) {
 	}
 	ui.Row(c.Key(key)).FillWidth().Gap(8).Children(func() {
 		ui.Text(c, label).
-			FontSize(scaledFont(FontSizeProjectName)).
+			FontSize(sidebarFont(FontSizeProjectName)).
 			TextColor(ThemeSecondaryText(c)).
 			MinWidth(52)
 		ui.Text(c, value).
-			FontSize(scaledFont(FontSizeCallout)).
+			FontSize(sidebarFont(FontSizeCallout)).
 			TextColor(ThemePrimaryText(c)).
 			Grow(1).
 			MaxLines(2)

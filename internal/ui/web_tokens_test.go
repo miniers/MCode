@@ -1,13 +1,10 @@
 package mcodeui
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
-	"strconv"
-	"strings"
 	"testing"
+
+	"mcode/internal/config"
 )
 
 const webTokensCSSPath = "../../web/src/tokens.css"
@@ -29,57 +26,12 @@ func TestWebTokensInSync(t *testing.T) {
 	}
 }
 
-// TestWebTokenPaletteMatchesTheme 保证 webThemeHex 镜像的仍是 theme.go 里的值。
+// TestWebTokenPaletteMatchesTheme 保证导出使用内置值，不受当前自定义主题影响。
 func TestWebTokenPaletteMatchesTheme(t *testing.T) {
-	declared := themeHexDecls(t)
-	for name, hex := range webThemeHex {
-		want, ok := declared[name]
-		if !ok {
-			t.Errorf("theme.go 里找不到 %s，请同步 web_tokens.go", name)
-			continue
-		}
-		if !strings.EqualFold(want, hex) {
-			t.Errorf("%s 不一致：web_tokens.go 是 %s，theme.go 是 %s", name, hex, want)
-		}
+	before := webTokensCSS()
+	t.Cleanup(func() { setActiveTheme(config.AppearanceConfig{}) })
+	setActiveTheme(config.AppearanceConfig{Themes: []config.ThemeDef{{ID: config.ThemeLight, Base: config.ThemeLight, Colors: map[string]string{"accent": "#123456"}}}})
+	if got := webTokensCSS(); got != before {
+		t.Fatal("自定义主题不应改变内置 Web 令牌")
 	}
-}
-
-// themeHexDecls 读出 theme.go 里所有 ui.Hex("…") 形式的颜色常量。
-func themeHexDecls(t *testing.T) map[string]string {
-	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), "theme.go", nil, 0)
-	if err != nil {
-		t.Fatalf("解析 theme.go 失败：%v", err)
-	}
-	declared := map[string]string{}
-	ast.Inspect(file, func(n ast.Node) bool {
-		spec, ok := n.(*ast.ValueSpec)
-		if !ok {
-			return true
-		}
-		for i, name := range spec.Names {
-			if i >= len(spec.Values) {
-				continue
-			}
-			call, ok := spec.Values[i].(*ast.CallExpr)
-			if !ok || len(call.Args) != 1 {
-				continue
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "Hex" {
-				continue
-			}
-			lit, ok := call.Args[0].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				continue
-			}
-			hex, err := strconv.Unquote(lit.Value)
-			if err != nil {
-				continue
-			}
-			declared[name.Name] = hex
-		}
-		return true
-	})
-	return declared
 }

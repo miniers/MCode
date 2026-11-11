@@ -11,12 +11,9 @@ import (
 
 // TestTextScaleOnlyChatAndSidebar 限制文字缩放的适用范围。
 func TestTextScaleOnlyChatAndSidebar(t *testing.T) {
-	allowed := map[string]bool{
+	chat := map[string]bool{
 		"attention_inbox.go": true, "chat.go": true, "composer_changes_tab.go": true,
 		"composer_plan_pill.go": true, "kbd.go": true, "session_stats_popover.go": true,
-		"sidebar.go": true, "sidebar_activity.go": true, "sidebar_bees.go": true,
-		"sidebar_footer.go": true, "sidebar_hover_card.go": true, "sidebar_state_groups.go": true,
-		"sidebar_steward.go": true, "sidebar_bulk.go": true,
 		"steward_decision_card.go": true, "steward_reply.go": true, "steward_task_page.go": true,
 		"steward_split.go": true, "steward_timeline.go": true, "steward_turn_time.go": true,
 		"swarm_dispatch_placeholder.go": true, "swarm_mentions.go": true,
@@ -26,13 +23,19 @@ func TestTextScaleOnlyChatAndSidebar(t *testing.T) {
 		"timeline_rows.go": true, "timeline_diff.go": true, "tool_output_dialog.go": true,
 		"turn_files_card.go": true, "controls_message.go": true,
 	}
+	sidebar := map[string]bool{
+		"sidebar.go": true, "sidebar_activity.go": true, "sidebar_bees.go": true,
+		"sidebar_footer.go": true, "sidebar_hover_card.go": true, "sidebar_state_groups.go": true,
+		"sidebar_steward.go": true, "sidebar_bulk.go": true,
+	}
+
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || allowed[name] {
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		fset := token.NewFileSet()
@@ -46,8 +49,25 @@ func TestTextScaleOnlyChatAndSidebar(t *testing.T) {
 			if !ok {
 				return true
 			}
-			if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "scaledFont" {
-				t.Errorf("%s: 「文字大小」只缩放聊天内容与侧栏，其余界面请直接用字号令牌", fset.Position(call.Pos()))
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "FontSize" && sidebar[name] && len(call.Args) > 0 {
+				font, ok := call.Args[0].(*ast.CallExpr)
+				if !ok {
+					t.Errorf("%s: 侧栏 FontSize 必须经过 sidebarFont", fset.Position(call.Pos()))
+				} else if fn, ok := font.Fun.(*ast.Ident); !ok || fn.Name != "sidebarFont" {
+					t.Errorf("%s: 侧栏 FontSize 必须经过 sidebarFont", fset.Position(call.Pos()))
+				}
+			}
+			if ident, ok := call.Fun.(*ast.Ident); ok && name != "text_scale.go" {
+				switch ident.Name {
+				case "sidebarFont":
+					if !sidebar[name] {
+						t.Errorf("%s: sidebarFont 只能用于侧栏", fset.Position(call.Pos()))
+					}
+				case "scaledFont", "chatFont":
+					if !chat[name] {
+						t.Errorf("%s: 对话字号只能用于对话区域，侧栏请用 sidebarFont", fset.Position(call.Pos()))
+					}
+				}
 			}
 			return true
 		})

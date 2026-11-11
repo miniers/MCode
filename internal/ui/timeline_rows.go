@@ -4645,7 +4645,7 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 		appCfg = st.cfg.Appearance
 	}
 	fontFam := codeFontFamily(appCfg)
-	codeSz := codeFontSize(appCfg)
+	codeSz := codeFontSize()
 
 	// 详情区卡片的内边距跟界面密度走；outputMax 是正文滚动区的最大高度，紧凑档更矮，避免占满时间线。
 	dens := currentDensity(c, s)
