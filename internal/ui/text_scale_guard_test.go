@@ -10,7 +10,7 @@ import (
 )
 
 var chatScaleFiles = map[string]bool{
-	"attention_inbox.go": true, "chat.go": true, "composer_changes_tab.go": true,
+	"attention_inbox.go": true, "chat.go": true, "command_activity.go": true, "composer_changes_tab.go": true,
 	"composer_plan_pill.go": true, "kbd.go": true, "session_stats_popover.go": true,
 	"steward_decision_card.go": true, "steward_reply.go": true, "steward_task_page.go": true,
 	"steward_split.go": true, "steward_timeline.go": true, "steward_turn_time.go": true,

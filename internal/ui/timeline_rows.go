@@ -4726,7 +4726,7 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 						renderInlineToolDiff(c, s, m)
 					}
 
-					if toolIsRunningCommand(m) {
+					if isCommandTool(m) && isToolRunning(m) {
 						renderRunningCommandActivity(c, s, m, fontFam, outputMax)
 					} else if strings.TrimSpace(m.Text) != "" {
 						// 输出正文：等宽小号字，超长时保留前 300 个字符；

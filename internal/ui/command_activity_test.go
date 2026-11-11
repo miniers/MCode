@@ -150,3 +150,22 @@ func TestRunningCommandDetailUsesActivityLayout(t *testing.T) {
 		t.Fatalf("completed detail should preserve the original output: %v", tt.Texts())
 	}
 }
+
+func TestUnknownCommandDetailKeepsFirstOutputLine(t *testing.T) {
+	m := Message{
+		ID: "unknown-cmd", Role: "tool", ToolName: "Bash",
+		ToolInput: `{"command":"go test ./..."}`,
+		Text:      toolDetailTestLines(40),
+	}
+	s := newChatState(NewFakeClient())
+	s.expandedTool["tool-output-fold-"+m.ID] = true
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderToolDetail(c, s, m)
+	}, 900, 500)
+	for i := 0; i < 2; i++ {
+		tt.Frame()
+	}
+	if !tt.HasText("LINE-01") {
+		t.Fatalf("unknown-status command detail should preserve the first output line: %v", tt.Texts())
+	}
+}
