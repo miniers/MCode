@@ -97,7 +97,7 @@ func Capsule(c *ui.Context, p CapsuleProps) ui.Element {
 	} else {
 		capsule = ui.Row(ctx).Label(p.Text)
 	}
-	capsule = capsule.Height(height).Radius(RadiusPill).Padding(0, Space2).
+	capsule = capsule.Height(uiSize(height)).Radius(RadiusPill).Padding(0, Space2).
 		Gap(Space1).AlignItems(ui.Center).Background(bg)
 	if p.Tooltip != "" {
 		capsule = capsule.Tooltip(p.Tooltip)

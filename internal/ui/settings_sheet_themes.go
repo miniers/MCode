@@ -24,6 +24,25 @@ type themesSheetState struct {
 	message      string
 	messageUntil time.Time
 	copiedUntil  time.Time
+	names        map[string]*themeNameDraft
+	colors       map[string]*ui.Color
+	fonts        map[string]*float64
+}
+
+type themeNameDraft struct {
+	name, synced string
+	focused      bool
+}
+
+func getThemesSheetState(st *SettingsState) *themesSheetState {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.themesPage == nil {
+		st.themesPage = &themesSheetState{
+			names: make(map[string]*themeNameDraft), colors: make(map[string]*ui.Color), fonts: make(map[string]*float64),
+		}
+	}
+	return st.themesPage
 }
 
 // mutateTheme 保持与设置页相同的锁顺序；连续颜色改动共用文本防抖与关闭时强制保存。
@@ -65,9 +84,7 @@ func importSheetTheme(st *SettingsState, page *themesSheetState, data string) bo
 
 func renderThemesSheet(c *ui.Context, st *SettingsState) {
 	root := ui.Column(c.Key("themes-editor")).FillWidth().Gap(Space4)
-	page := ui.Local(root, st, func() themesSheetState {
-		return themesSheetState{editingID: st.cfg.Appearance.ActiveThemeID(isDark(c))}
-	})
+	page := getThemesSheetState(st)
 	if _, ok := st.cfg.Appearance.ThemeByID(page.editingID); !ok {
 		page.editingID = st.cfg.Appearance.ActiveThemeID(isDark(c))
 	}
@@ -114,7 +131,7 @@ func renderThemesSheet(c *ui.Context, st *SettingsState) {
 		themeSectionTitle(c, "theme-fonts", "字号")
 		fontTitles := []string{"侧栏字号", "对话字号", "界面字号", "代码字号", "终端字号", "编辑器字号"}
 		for i, key := range config.ThemeFontKeys {
-			renderSettingRow(c, "row-theme-font-"+key, fontTitles[i], func() { renderThemeFont(c, st, id, key) })
+			renderSettingRow(c, "row-theme-font-"+key, fontTitles[i], func() { renderThemeFont(c, st, page, id, key) })
 		}
 		renderThemeActions(c, st, page)
 	})
@@ -137,11 +154,11 @@ func renderThemeListItem(c *ui.Context, st *SettingsState, page *themesSheetStat
 		}
 		theme, _ := st.cfg.Appearance.ThemeByID(id)
 		holder := ui.Box(c.Key("theme-name-" + id)).Grow(1)
-		type nameDraft struct {
-			name, synced string
-			focused      bool
+		draft := page.names[id]
+		if draft == nil {
+			draft = &themeNameDraft{name: theme.Name, synced: theme.Name}
+			page.names[id] = draft
 		}
-		draft := ui.Local(holder, "draft", func() nameDraft { return nameDraft{name: theme.Name, synced: theme.Name} })
 		if draft.synced != theme.Name {
 			draft.name = theme.Name
 			draft.synced = theme.Name
@@ -184,7 +201,12 @@ func renderThemeColor(c *ui.Context, st *SettingsState, page *themesSheetState, 
 	}
 	// ColorWell 保留颜色地址供弹出面板持续写入，不能使用每帧新建的栈变量。
 	holder := ui.Box(c.Key("theme-color-" + id + "-" + key))
-	value := ui.Local(holder, "color", func() ui.Color { return color })
+	valueKey := id + "/" + key
+	value := page.colors[valueKey]
+	if value == nil {
+		value = new(ui.Color)
+		page.colors[valueKey] = value
+	}
 	*value = color
 	holder.Children(func() {
 		well := ui.ColorWell(c.Key("well"), value).Label("编辑" + key).Disabled(follows)
@@ -197,7 +219,7 @@ func renderThemeColor(c *ui.Context, st *SettingsState, page *themesSheetState, 
 	renderThemeReset(c, "theme-reset-color-"+key, changed, func() { mutateTheme(st, func(a *config.AppearanceConfig) { a.ResetThemeColor(id, key) }) })
 }
 
-func renderThemeFont(c *ui.Context, st *SettingsState, id, key string) {
+func renderThemeFont(c *ui.Context, st *SettingsState, page *themesSheetState, id, key string) {
 	value := st.cfg.Appearance.ThemeFonts(id)[key]
 	lower, upper, _, _ := config.ThemeFontRange(key)
 	if config.IsThemeScaleFont(key) {
@@ -216,7 +238,12 @@ func renderThemeFont(c *ui.Context, st *SettingsState, id, key string) {
 		}
 	} else {
 		holder := ui.Box(c.Key("theme-font-" + id + "-" + key))
-		input := ui.Local(holder, "size", func() float64 { return float64(value) })
+		valueKey := id + "/" + key
+		input := page.fonts[valueKey]
+		if input == nil {
+			input = new(float64)
+			page.fonts[valueKey] = input
+		}
 		*input = float64(value)
 		holder.Children(func() {
 			if ui.NumberInput(c.Key("input"), input, float64(lower), float64(upper), 1).Label(key + "字号").Width(ControlLG).Changed() {

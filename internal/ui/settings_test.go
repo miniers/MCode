@@ -915,7 +915,7 @@ func TestSettings_AppearanceSectionsUseCards(t *testing.T) {
 	}, 1200, 1600)
 	tt.Frame()
 
-	for _, title := range []string{"主题与排版", "字体与字号"} {
+	for _, title := range []string{"主题与排版", "字体"} {
 		if _, ok := tt.Find(title); !ok {
 			t.Fatalf("外观页缺少分节标题 %q：%v", title, tt.Texts())
 		}

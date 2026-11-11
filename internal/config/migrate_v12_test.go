@@ -70,8 +70,9 @@ func TestLoadMigratesV11ThemeFonts(t *testing.T) {
 		t.Fatalf("迁移结果：%+v", cfg.Appearance)
 	}
 	want := map[string]int{"sidebar": 130, "conversation": 130, "code": 14, "editor": 16}
-	for _, theme := range cfg.Appearance.Themes {
-		if !reflect.DeepEqual(theme.Fonts, want) {
+	for _, id := range []string{ThemeLight, ThemeDark} {
+		theme, ok := cfg.Appearance.ThemeByID(id)
+		if !ok || !reflect.DeepEqual(theme.Fonts, want) {
 			t.Fatalf("字号迁移错误：%v", theme.Fonts)
 		}
 	}
@@ -79,14 +80,29 @@ func TestLoadMigratesV11ThemeFonts(t *testing.T) {
 	if err != nil || string(backup) != string(data) {
 		t.Fatalf("迁移备份不一致：%s, %v", backup, err)
 	}
-	if cfg.Appearance.TextScale != 130 || cfg.Appearance.CodeFontSize != 14 || cfg.Workbench.EditorFontSize != 16 {
-		t.Fatal("旧字号行为被修改")
-	}
 	if err := Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := Load(dir)
 	if err != nil || !reflect.DeepEqual(loaded.Appearance.Themes, cfg.Appearance.Themes) {
 		t.Fatalf("保存加载不一致：%v", err)
+	}
+}
+
+func TestLoadV12WithLegacyFontKeys(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte(`{"version":12,"appearance":{"text_scale":130,"code_font_size":14},"workbench":{"terminal_font_size":15,"editor_font_size":16}}`)
+	if err := os.WriteFile(ConfigPath(dir), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, warnings, err := LoadWithWarnings(dir)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("旧键配置加载失败：warnings=%v, err=%v", warnings, err)
+	}
+	if cfg.Version != 12 || len(cfg.Appearance.Themes) != 0 {
+		t.Fatalf("v12 旧键不应再次迁移：%+v", cfg.Appearance)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
 	}
 }

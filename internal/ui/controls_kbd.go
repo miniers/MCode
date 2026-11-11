@@ -13,7 +13,7 @@ func Kbd(c *ui.Context, key any, text string) ui.Element {
 		ctx = c.Key(key)
 	}
 	return ui.Row(ctx).
-		Height(ControlKbd).
+		Height(uiSize(ControlKbd)).
 		MinWidth(ControlKbd).
 		Padding(Space1, Space2).
 		Radius(RadiusXS).

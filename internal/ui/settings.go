@@ -197,7 +197,7 @@ type SettingsState struct {
 	// reviewCheckSaved 表示本项目检查命令最近一次保存成功，用于显示已保存提示。
 	reviewCheckSaved bool
 
-	// 下面八个字段是各设置页自己的界面状态，替代原来按 *SettingsState 索引的包级 map：
+	// 下面字段是各设置页自己的界面状态，替代原来按 *SettingsState 索引的包级 map：
 	// 状态跟着面板走，面板关掉后不再由全局 map 长期持有。
 	// 读写都在 s.mu 锁内，各页 getter 在锁内懒初始化；Close 时清空。
 	mcpPage          *mcpPageUIState
@@ -208,6 +208,7 @@ type SettingsState struct {
 	openInPage       *openInPageState
 	quickRepliesPage *quickRepliesPageState
 	nowledgePage     *nowledgeSpacePageState
+	themesPage       *themesSheetState
 }
 
 // applyThemeSource 在测试中会替换为空操作，因为 headless 下 SetSource 会阻塞。
@@ -439,6 +440,7 @@ func (s *SettingsState) Close() {
 	s.openInPage = nil
 	s.quickRepliesPage = nil
 	s.nowledgePage = nil
+	s.themesPage = nil
 	s.mu.Unlock()
 	if disposeEditor != nil {
 		disposeEditor()

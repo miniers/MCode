@@ -31,9 +31,11 @@ func currentThemeFonts() themeFonts {
 
 func sidebarScaleFactor() float32      { return float32(currentThemeFonts().sidebar) / 100 }
 func chatScaleFactor() float32         { return float32(currentThemeFonts().conversation) / 100 }
+func uiScaleFactor() float32           { return float32(currentThemeFonts().inter) / 100 }
+func uiSize(size float32) float32      { return size * uiScaleFactor() }
 func sidebarFont(size float32) float32 { return size * sidebarScaleFactor() }
 func chatFont(size float32) float32    { return size * chatScaleFactor() }
-func uiFont(size float32) float32      { return size * float32(currentThemeFonts().inter) / 100 }
+func uiFont(size float32) float32      { return size * uiScaleFactor() }
 func scaledFont(size float32) float32  { return chatFont(size) }
 func textScaleFactor() float32         { return chatScaleFactor() }
 func codeFontSize() float32            { return float32(currentThemeFonts().code) }

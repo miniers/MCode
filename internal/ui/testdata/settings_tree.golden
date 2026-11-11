@@ -7,16 +7,13 @@ row row-about-changelog
 page appearance
 section appearance.theme 主题与排版
 row row-theme 主题
-row row-text-scale 文字大小
+row row-edit-themes 编辑主题
 row row-conversation-density 界面密度
 row row-content-width 内容宽度
 row row-content-width-percent 比例宽度
 row row-sidebar-compact 紧凑侧边栏
-section appearance.fonts 字体与字号
+section appearance.fonts 字体
 row row-code-font 代码字体
-row row-code-font-size 代码字号
-row row-terminal-font-size 终端字号
-row row-editor-font-size 编辑器字号
 page conversation
 section conversation.reply 回复与思考
 row row-show-reasoning 显示思考过程
@@ -238,4 +235,7 @@ section sec-agy-advanced-login
 row row-agy-terminal-login 终端登录（备用）
 sheet provider-add 添加供应商
 sheet shortcuts 快捷键
+sheet themes 主题
+section themes.editor 
+row block-themes 
 sheet worktree Worktree 清理

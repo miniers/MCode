@@ -74,7 +74,7 @@ func TestSettingsVisual_RowHeightsUniform(t *testing.T) {
 	openSettingsAdvancedPage(t, tt, st, "appearance")
 
 	rects := make(map[string]ui.Rect)
-	for _, title := range []string{"主题", "紧凑侧边栏", "代码字体", "代码字号"} {
+	for _, title := range []string{"主题", "界面密度", "内容宽度", "紧凑侧边栏", "代码字体"} {
 		rect, ok := tt.Find(title)
 		if !ok {
 			t.Fatalf("外观页缺少 %q: %v", title, tt.Texts())
@@ -86,8 +86,8 @@ func TestSettingsVisual_RowHeightsUniform(t *testing.T) {
 			t.Errorf("%s 左缘 X = %v，主题左缘 X = %v", title, rects[title].X, rects["主题"].X)
 		}
 	}
-	if gap := rects["代码字号"].Y - rects["代码字体"].Y; gap < settingsRowMinHeight {
-		t.Errorf("代码字体与代码字号标题的 Y 间距 = %v，小于 %v", gap, settingsRowMinHeight)
+	if gap := rects["内容宽度"].Y - rects["界面密度"].Y; gap < settingsRowMinHeight {
+		t.Errorf("界面密度与内容宽度标题的 Y 间距 = %v，小于 %v", gap, settingsRowMinHeight)
 	}
 }
 

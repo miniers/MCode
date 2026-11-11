@@ -25,7 +25,7 @@ func CopyButton(c *ui.Context, p CopyButtonProps) ui.Element {
 		ctx = c.Key(p.Key)
 	}
 	button := ui.ButtonBase(ctx).Label(p.Label).Tooltip(p.Tooltip).
-		Height(ControlXS).Padding(Space0, Space2).Radius(RadiusSM).
+		Height(uiSize(ControlXS)).Padding(Space0, Space2).Radius(RadiusSM).
 		Gap(Space1).AlignItems(ui.Center).Disabled(p.Disabled)
 	if p.Mode == CopyIcon {
 		button.Width(ControlXS).Justify(ui.Center)

@@ -1333,7 +1333,7 @@ func renderEditQueuedPill(c *ui.Context, s *chatState, tier composerChinSize) {
 	pill := ui.ButtonBase(c.Key("composer-editing-pill")).
 		Label("编辑排队消息 · Esc 取消").
 		Tooltip("取消编辑 (Esc)").
-		Height(ControlSM).
+		Height(uiSize(ControlSM)).
 		Radius(RadiusPill).
 		Padding(0, Space3).
 		Background(ThemeAccent(c).Alpha(0.14)).
