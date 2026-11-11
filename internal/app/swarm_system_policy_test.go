@@ -66,13 +66,13 @@ func TestSwarmSystemPolicyRouting(t *testing.T) {
 				if strings.Contains(turn.Prompt, leadPolicy) || strings.Contains(turn.Prompt, "Bee tiers:") || strings.Contains(turn.Prompt, swarm.LeadNoticeReminder) {
 					t.Fatalf("用户消息含静态规则: %s", turn.Prompt)
 				}
-				if !strings.Contains(turn.Prompt, "[Swarm limits]") || !strings.Contains(turn.Prompt, "kanban preface") {
+				if !strings.Contains(turn.Prompt, "rounds used so far") || !strings.Contains(turn.Prompt, "kanban preface") {
 					t.Fatalf("用户消息缺少动态段或看板 preface: %s", turn.Prompt)
 				}
 				if !strings.Contains(turn.SystemPolicy, policy.Marker) || !strings.Contains(turn.SystemPolicy, leadPolicy) || !strings.Contains(turn.SystemPolicy, "Bee tiers:") {
 					t.Fatalf("系统提示缺少静态规则: %s", turn.SystemPolicy)
 				}
-				if strings.Contains(turn.SystemPolicy, "[Swarm limits]") || strings.Contains(turn.SystemPolicy, "kanban preface") {
+				if strings.Contains(turn.SystemPolicy, "rounds used so far") || strings.Contains(turn.SystemPolicy, "kanban preface") {
 					t.Fatalf("系统提示混入动态规则: %s", turn.SystemPolicy)
 				}
 			}
