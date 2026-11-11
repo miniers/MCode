@@ -9,8 +9,8 @@ import (
 	"mcode/internal/providers/readhttp"
 )
 
-// UserAgent 是自研引擎对外 HTTP 请求的 User-Agent，启动时由 app 设置为 mcode/<版本>。
-var UserAgent = "mcode"
+// UserAgent 是自研引擎对外 HTTP 请求的 User-Agent，启动时由 app 设置为 mcode-app/<版本>。
+var UserAgent = "mcode-app"
 
 var streamIdleTimeout = 2 * time.Minute
 

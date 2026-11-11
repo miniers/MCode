@@ -390,7 +390,7 @@ func Open(opts Options) (*App, error) {
 	// 远程能力声明里带桌面端版本号，与「关于」页同一来源。
 	backend.SetAppVersion(AppVersion)
 	// 自研引擎请求的 UA 与「关于」页同一版本来源。
-	llm.UserAgent = "mcode/" + AppVersion
+	llm.UserAgent = "mcode-app/" + AppVersion
 	modelsdev.Start(opts.DataDir)
 	startuptrace.Mark("modelsdev started")
 

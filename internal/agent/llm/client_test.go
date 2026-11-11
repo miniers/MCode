@@ -2,6 +2,7 @@ package llm
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,5 +31,18 @@ func TestDefaultHTTPClientHTTP2HealthCheck(t *testing.T) {
 	}
 	if defaultHTTPClient.Timeout != 0 {
 		t.Fatalf("unexpected default client timeout: %v", defaultHTTPClient.Timeout)
+	}
+}
+
+func TestUserAgentIsNotMiniMaxAlias(t *testing.T) {
+	product := UserAgent
+	if i := strings.Index(product, "/"); i >= 0 {
+		product = product[:i]
+	}
+	if product != "mcode-app" {
+		t.Fatalf("UserAgent product = %q, want %q", product, "mcode-app")
+	}
+	if product == "mcode" {
+		t.Fatalf("UserAgent product = %q must not be the MiniMax Code alias", product)
 	}
 }
