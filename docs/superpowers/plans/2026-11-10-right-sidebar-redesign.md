@@ -253,7 +253,7 @@ internal/ui/preview_annotate.go:327 `func previewAnnotationsPrompt(items []previ
 
 pinned 版本以仓库 go.mod 为准，实施不升级 mygo，不增加 cgo。
 
-go.mod:8 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`
+mygo 版本见 `go.mod`
 
 ### 4.1 直接复用的 mygo 与仓库组件
 

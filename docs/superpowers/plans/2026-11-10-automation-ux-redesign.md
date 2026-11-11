@@ -285,7 +285,7 @@
 
 `internal/ui/modal_drag.go:85` — `modalDragPanel(c, key, ui.DialogBase(c, open, func(backdrop, panel ui.Element) {`
 
-`go.mod:8` — `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`
+mygo 版本见 `go.mod`
 
 ### 5.2 CrychicUI：必须完成核验才能引入
 
@@ -300,7 +300,7 @@
 #### 联网核验结果（2026-11-10）
 
 - module：`github.com/ELY-Open-Source/CrychicUI`。仓库没有 release 或 tag，只有 main 分支，引入时必须固定到具体 commit。
-- 版本基线：CrychicUI 依赖 `github.com/egoist/mygo v0.8.3`，要求 Go 1.27.3；mcode 的 `go.mod:8` 是 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`。兼容性在引入时用 `CGO_ENABLED=0 go build` 验证。
+- 版本基线：CrychicUI 依赖 mygo，要求 Go 1.27.3；mcode 依赖的 mygo 版本见 `go.mod`。兼容性在引入时用 `CGO_ENABLED=0 go build` 验证。
 - 共用底层包：sound、icon、kit；另有 overlay，按 AGENTS.md 不使用。
 - datetime 包文件：cron_field.go、recurrence.go、time_picker.go、date_picker.go、date_time_picker.go、duration_picker.go、zone_select.go、relative_date.go、time_ago.go、due_chip.go。
 - schedule 包文件：upcoming.go、next_event.go、week_view.go、month_view.go。

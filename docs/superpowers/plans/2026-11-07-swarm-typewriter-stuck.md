@@ -10,7 +10,7 @@
 
 ## 依赖库核对与证据边界
 
-- 当前依赖版本见 `go.mod:8` `	github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`。下列 `ui/markdown/...` 路径相对于该依赖模块根目录，不属于本仓库。
+- 当前依赖的 mygo 版本见 `go.mod`。下列 `ui/markdown/...` 路径相对于该依赖模块根目录，不属于本仓库。
 - 依赖库 `ui/markdown/reveal.go:82` `	edited := rs.shown > len(src) || !strings.HasPrefix(src, rs.src[:rs.shown])`；`ui/markdown/reveal.go:85` `	if !streaming && !pending || r.Unit == AtOnce || edited {`。源文本缩短或已显示前缀改变时立即显示全文，而非等待追赶。光标拼在源文本末尾，随增量到来可能改变已揭示前缀，导致动画跳显；它不宜参与 Markdown 源文本。
 - `internal/ui/chat.go:1002` `		s.mdOpts.Reveal = &markdown.Reveal{Unit: markdown.ByCharacter, CatchUp: 250 * time.Millisecond}`。字符模式不会等待句号或换行。依赖库 `ui/markdown/view.go:283` `		c.AnimationFrame()`，在揭示或淡入未完成时主动申请下一帧；`ui/markdown/reveal.go:265` `func (rs *revealState) revealed() bool { return rs.shown >= len(rs.src) && !rs.fading() }`。所以在组件持续挂载且动画帧正常交付的情况下，没有新增数据也应继续推进；源码本身不能证明截图中的半句永久不出现。需以实际视图回归测试区分帧未交付、虚拟列表重建和 Markdown 解析等原因，不能把原因武断归咎于长度不一致。
 - 依赖库 `ui/markdown/reveal.go:211` `	return rs.fadeAt(c.Now(), c.Preferences().ReduceMotion, r)` 只在淡入阶段读取 ReduceMotion；`step` 本身仍按 `ByCharacter` 推进。当前设置因此关闭淡入但未关闭逐字揭示，与项目减少动效要求不符。

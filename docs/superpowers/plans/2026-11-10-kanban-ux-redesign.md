@@ -304,7 +304,7 @@ internal/ui/kanban.go:2552 `activity := task.LastFailureReason`
 
 已核实的依赖基线没有 CrychicUI。不得把 GitHub 仓库目录名直接当 Go module path，也不得凭「1500 个组件」推断有某个子包。
 
-go.mod:8 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`
+mygo 版本见 `go.mod`
 
 CrychicUI 官方核对入口：https://github.com/ELY-Open-Source/CrychicUI 。MIT、sound 默认开启等信息来自 brief 与 AGENTS.md；module、版本与文件清单已由主代理于 2026-11-10 联网核对，见 5.1。
 
@@ -330,7 +330,7 @@ internal/ui/timeline_skeleton.go:14 `const timelineSkeletonMaxWait = 2 * motionS
 ### 5.1 联网核验结果（2026-11-10）
 
 - module：`github.com/ELY-Open-Source/CrychicUI`。仓库没有 release 或 tag，只有 main 分支，引入时必须固定到具体 commit。
-- 版本基线：CrychicUI 的 go.mod 依赖 `github.com/egoist/mygo v0.8.3`，要求 Go 1.27.3。mcode 的 go.mod:8 使用 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`；兼容性在引入时用 `CGO_ENABLED=0 go build` 验证。
+- 版本基线：CrychicUI 的 go.mod 依赖 mygo，要求 Go 1.27.3。mcode 依赖的 mygo 版本见 `go.mod`；兼容性在引入时用 `CGO_ENABLED=0 go build` 验证。
 - 共用底层包：sound、icon、kit；另有 overlay，按 AGENTS.md 不使用。
 - project 包文件：board.go、task_card.go、task_row.go、quick_add.go、priority.go、status.go、dependencies.go、subtasks.go、comments.go、checklist.go、labels.go、timeline.go。
 
@@ -518,7 +518,7 @@ internal/ui/tokens.go:95 `DurSheet = 280 * time.Millisecond`
 
 **0.1　核实组件与冻结小接口。**
 
-锚点：go.mod:8 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`
+锚点：mygo 版本见 `go.mod`
 
 改法：按第 5.1 节读取 CrychicUI 候选文件的导出 API；记录可复用组件、固定 commit、sound 关闭方法和 ReduceMotion 能力。API 或兼容性未确认时沿用既有组件，不编造「组件不存在」结论。冻结只含 board 快照、任务 ID、视图查询、动作回调的最小接口；不要引入事件总线或第二套 store。
 

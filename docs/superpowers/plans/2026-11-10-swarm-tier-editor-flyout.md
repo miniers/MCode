@@ -18,7 +18,7 @@ internal/ui/settings_page_swarm.go:911 `appPopover(c.Key("popover-swarm-tier-"+p
 
 ## 依赖核对
 
-go.mod:8 `github.com/egoist/mygo v0.8.4-0.20261107102458-435d9411845d`
+mygo 版本见 `go.mod`
 
 已按要求浅克隆 GitHub 最新源码到 `/tmp/mygo-latest`。对照 HEAD 为 `2834714907cbf2587bc22f6b2d69b6dda832b5b1`。锁定源码来自 `go env GOMODCACHE`，实际模块缓存位于 `/Users/liukai/.version-fox/sdks/golang/packages/pkg/mod`，不是默认的 `~/go/pkg/mod`。除这次 clone 外，调研均读取本地源码。
 
