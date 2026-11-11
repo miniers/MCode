@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const sample = `{"anthropic":{"models":{
@@ -24,6 +25,55 @@ func newFrom(t *testing.T, data string) *Catalog {
 		t.Fatal("load failed")
 	}
 	return c
+}
+
+func TestStartCancelStopsBeforeWrite(t *testing.T) {
+	started := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := start(ctx, dir, srv.Client(), srv.URL)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("请求未开始")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("刷新未退出")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("取消后目录不为空: %v, %v", entries, err)
+	}
+}
+
+func TestStartWritesCache(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(sample))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	select {
+	case <-start(context.Background(), dir, srv.Client(), srv.URL):
+	case <-time.After(5 * time.Second):
+		t.Fatal("刷新未退出")
+	}
+	if !cacheFresh(dir) {
+		t.Fatal("缓存未写入")
+	}
+	select {
+	case <-start(context.Background(), dir, srv.Client(), srv.URL):
+	default:
+		t.Fatal("新鲜缓存不应启动刷新")
+	}
 }
 
 func TestCostAndSummary(t *testing.T) {

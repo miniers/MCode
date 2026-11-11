@@ -59,6 +59,9 @@ func (c *Catalog) Refresh(ctx context.Context, client *http.Client, url, dataDir
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotModified {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// 数据未变：刷新缓存时间戳即可，下次启动在间隔内不再联网。
 		now := time.Now()
 		return os.Chtimes(cachePath, now, now)
@@ -87,10 +90,16 @@ func (c *Catalog) Refresh(ctx context.Context, client *http.Client, url, dataDir
 	if dataDir == "" {
 		return nil
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := writeFileAtomic(cachePath, trimmed); err != nil {
 		return err
 	}
 	if etag := resp.Header.Get("ETag"); etag != "" {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return writeFileAtomic(filepath.Join(dataDir, etagName), []byte(etag))
 	}
 	return nil
@@ -121,15 +130,24 @@ func cacheFresh(dataDir string) bool {
 var Default = New()
 
 // Start 加载缓存，并在缓存过期或缺失时于后台刷新；失败只影响本次刷新，不影响已加载的数据。
-func Start(dataDir string) {
+func Start(ctx context.Context, dataDir string) <-chan struct{} {
+	return start(ctx, dataDir, http.DefaultClient, APIURL)
+}
+
+func start(ctx context.Context, dataDir string, client *http.Client, url string) <-chan struct{} {
+	done := make(chan struct{})
 	if dataDir == "" {
-		return
+		close(done)
+		return done
 	}
 	Default.LoadCache(dataDir)
 	if cacheFresh(dataDir) {
-		return
+		close(done)
+		return done
 	}
 	go func() {
-		_ = Default.Refresh(context.Background(), http.DefaultClient, APIURL, dataDir)
+		defer close(done)
+		_ = Default.Refresh(ctx, client, url, dataDir)
 	}()
+	return done
 }

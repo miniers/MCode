@@ -244,7 +244,7 @@ func main() {
 	hub := remote.NewStreamHub(remote.StreamHubOptions{})
 	backend := remote.NewMemoryBackend(hub)
 	backend.SetDataDir(*dataFlag)
-	modelsdev.Start(*dataFlag)
+	modelsdev.Start(context.Background(), *dataFlag)
 
 	dbPath := filepath.Join(*dataFlag, "mcode.db")
 	dbStore, err := store.Open(dbPath)

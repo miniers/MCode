@@ -22,6 +22,40 @@ func init() {
 	quotaDebounceDuration = 15 * time.Second
 }
 
+func TestStartQuotaPollerDoneAfterCancel(t *testing.T) {
+	mgr, err := NewManager(Options{DataDir: t.TempDir(), HostHome: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := mgr.StartQuotaPoller(ctx)
+	select {
+	case <-mgr.StartQuotaPoller(ctx):
+	default:
+		t.Fatal("重复启动应立即返回已关闭的 channel")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("轮询未退出")
+	}
+}
+
+func TestRefreshFailureContextErrorsDoNotPersist(t *testing.T) {
+	mgr, err := NewManager(Options{DataDir: t.TempDir(), HostHome: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		err := mgr.handleRefreshFailure("不存在", errors.Join(errors.New("包装"), cause), false)
+		if !errors.Is(err, cause) {
+			t.Fatalf("取消错误被修改: %v", err)
+		}
+	}
+}
+
 func setupQuotaMockServer(t *testing.T) (*httptest.Server, *int32, *int32) {
 	var quotaCalls int32
 	var tokenCalls int32

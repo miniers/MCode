@@ -30,6 +30,34 @@ import (
 	mcodeui "mcode/internal/ui"
 )
 
+func TestCloseWaitsForBackgroundTasks(t *testing.T) {
+	quotaCtx, quotaCancel := context.WithCancel(context.Background())
+	modelsCtx, modelsCancel := context.WithCancel(context.Background())
+	quotaDone, modelsDone := make(chan struct{}), make(chan struct{})
+	a := &App{quotaCancel: quotaCancel, quotaDone: quotaDone, modelsCancel: modelsCancel, modelsDone: modelsDone}
+	closed := make(chan struct{})
+	go func() { _ = a.Close(); close(closed) }()
+	for _, ctx := range []context.Context{quotaCtx, modelsCtx} {
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+			t.Fatal("后台任务未取消")
+		}
+	}
+	select {
+	case <-closed:
+		t.Fatal("后台任务退出前关闭已返回")
+	default:
+	}
+	close(quotaDone)
+	close(modelsDone)
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("后台任务退出后关闭未返回")
+	}
+}
+
 func TestClient(t *testing.T) {
 	dataDir := t.TempDir()
 	workDir := t.TempDir()

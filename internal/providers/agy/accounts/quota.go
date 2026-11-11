@@ -28,12 +28,15 @@ func (m *Manager) DefaultAccountID() string {
 }
 
 // StartQuotaPoller 标记启用自动额度拉取，并启动后台每 5 分钟轮询所有有效账号额度。
-func (m *Manager) StartQuotaPoller(ctx context.Context) {
+func (m *Manager) StartQuotaPoller(ctx context.Context) <-chan struct{} {
+	done := make(chan struct{})
 	if !m.autoQuota.CompareAndSwap(false, true) {
-		return
+		close(done)
+		return done
 	}
 
 	go func() {
+		defer close(done)
 		// 启动后立即执行一次全量刷新
 		_ = m.RefreshQuota(ctx, "")
 
@@ -55,6 +58,7 @@ func (m *Manager) StartQuotaPoller(ctx context.Context) {
 			}
 		}
 	}()
+	return done
 }
 
 // QuotaUse 跟踪实际运行的子进程，不把已结束但仍绑定的历史会话计为活跃。
@@ -359,7 +363,7 @@ func (m *Manager) refreshQuota(ctx context.Context, acc Account) error {
 
 // handleRefreshFailure 处理刷新失败的分支状态持久化与防幽灵校验。
 func (m *Manager) handleRefreshFailure(id string, err error, isTokenRefreshFailure bool) error {
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
 	m.mu.Lock()

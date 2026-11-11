@@ -74,6 +74,8 @@ type StartupProgress struct {
 // StartupStageCompactDB 是首次把数据库切到增量 auto_vacuum 的预整理阶段。
 const StartupStageCompactDB = "compact_db"
 
+const backgroundShutdownTimeout = 5 * time.Second
+
 // providerMCP 是注入各 Provider 的内置与外部 MCP 接入方式。
 // 运行时重建 harness 的路径（设置页、自定义端点）复用同一份实例。
 type providerMCP struct {
@@ -99,6 +101,9 @@ type App struct {
 	mcpProxy      *mcp.Proxy
 	remote        *RemoteService
 	quotaCancel   context.CancelFunc
+	quotaDone     <-chan struct{}
+	modelsCancel  context.CancelFunc
+	modelsDone    <-chan struct{}
 	updateCancel  context.CancelFunc
 	// inboxMigrateCancel / inboxMigrateDone 是启动后旧收件箱迁移后台任务的取消函数与退出信号：
 	// 迁移会写 store，关闭前必须先取消并等它退出。
@@ -145,6 +150,14 @@ func (a *App) RecoveredStoreBackupPath() string {
 
 // Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close。
 func (a *App) Close() error {
+	if a.quotaCancel != nil {
+		a.quotaCancel()
+	}
+	if a.modelsCancel != nil {
+		a.modelsCancel()
+	}
+	waitBackground(a.quotaDone)
+	waitBackground(a.modelsDone)
 	if a.updateCancel != nil {
 		a.updateCancel()
 	}
@@ -164,9 +177,6 @@ func (a *App) Close() error {
 	}
 	if a.attentionSrc != nil {
 		a.attentionSrc.Stop()
-	}
-	if a.quotaCancel != nil {
-		a.quotaCancel()
 	}
 	if a.mcpProxy != nil {
 		_ = a.mcpProxy.Close()
@@ -210,6 +220,19 @@ func (a *App) Close() error {
 		return a.store.Close()
 	}
 	return nil
+}
+
+func waitBackground(done <-chan struct{}) {
+	if done == nil {
+		return
+	}
+	timer := time.NewTimer(backgroundShutdownTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		log.Print("后台任务关闭超时")
+	}
 }
 
 // claudeProbeResult 是 claude 登录检测（后台 goroutine）的结果。
@@ -391,7 +414,15 @@ func Open(opts Options) (*App, error) {
 	backend.SetAppVersion(AppVersion)
 	// 自研引擎请求的 UA 与「关于」页同一版本来源。
 	llm.UserAgent = "mcode-app/" + AppVersion
-	modelsdev.Start(opts.DataDir)
+	modelsCtx, modelsCancel := context.WithCancel(context.Background())
+	modelsDone := modelsdev.Start(modelsCtx, opts.DataDir)
+	modelsOwned := true
+	defer func() {
+		if modelsOwned {
+			modelsCancel()
+			waitBackground(modelsDone)
+		}
+	}()
 	startuptrace.Mark("modelsdev started")
 
 	if err := backend.AttachStore(context.Background(), dbStore); err != nil {
@@ -1373,6 +1404,8 @@ func Open(opts Options) (*App, error) {
 		mcpProxy:      mcpProxy,
 		remote:        rs,
 		updateCancel:  updateCancel,
+		modelsCancel:  modelsCancel,
+		modelsDone:    modelsDone,
 		attention:     attentionSvc,
 		attentionSrc:  attentionSrc,
 		// 旧收件箱迁移的取消函数与退出信号：App.Close 里先取消并等待，再关闭 store。
@@ -1382,10 +1415,11 @@ func Open(opts Options) (*App, error) {
 		automationSleep: autoSleep,
 	}
 	migrateOwned = false
+	modelsOwned = false
 	if agyAccountsMgr != nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		appInstance.quotaCancel = cancel
-		agyAccountsMgr.StartQuotaPoller(ctx)
+		appInstance.quotaDone = agyAccountsMgr.StartQuotaPoller(ctx)
 	}
 
 	// 总管接线：待处理事件服务与 MCP 服务都已就绪，钩子直接引用 App 的通知方法，
