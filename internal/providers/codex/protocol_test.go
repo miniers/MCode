@@ -240,6 +240,45 @@ func TestCommandExecution(t *testing.T) {
 	}
 }
 
+func TestCommandExecutionOutputDelta(t *testing.T) {
+	h := NewProtocolHandler(harness.Turn{Mode: harness.ModeAgent})
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	now := base
+	h.now = func() time.Time { return now }
+	var events []harness.Event
+	emit := func(e harness.Event) {
+		events = append(events, e)
+	}
+
+	lines := [][]byte{
+		[]byte(`{"jsonrpc":"2.0","method":"item/started","params":{"item":{"id":"cmd_delta_1","type":"commandExecution","command":"printf ok"}}}`),
+		[]byte(`{"jsonrpc":"2.0","method":"item/commandExecution/outputDelta","params":{"itemId":"cmd_delta_1","delta":"ok\n"}}`),
+		[]byte(`{"jsonrpc":"2.0","method":"item/commandExecution/outputDelta","params":{"itemId":"cmd_delta_1","delta":""}}`),
+	}
+	for _, line := range lines {
+		if _, err := h.HandleLine(context.Background(), line, emit); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	now = base.Add(time.Second)
+	if _, err := h.HandleLine(context.Background(), []byte(`{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"outputTokens":1}}}}`), emit); err != nil {
+		t.Fatalf("unexpected usage error: %v", err)
+	}
+
+	if len(events) != 3 {
+		t.Fatalf("expected tool_start, one tool_output, and usage, got %d: %+v", len(events), events)
+	}
+	if events[0].Type != harness.EventToolStart || events[0].ToolID != "cmd_delta_1" {
+		t.Fatalf("unexpected tool_start: %+v", events[0])
+	}
+	if got := events[1]; got.Type != harness.EventToolOutput || got.ToolID != "cmd_delta_1" || got.Text != "ok\n" {
+		t.Fatalf("unexpected tool_output: %+v", got)
+	}
+	if got := events[2]; got.Type != harness.EventUsage || got.Usage == nil || len(got.Usage.Requests) != 0 {
+		t.Fatalf("outputDelta must not add a request speed sample: %+v", got)
+	}
+}
+
 func TestFileChange(t *testing.T) {
 	lines := readLines(t, filepath.Join("testdata", "file_change.jsonl"))
 	h := NewProtocolHandler(harness.Turn{Mode: harness.ModeAgent})

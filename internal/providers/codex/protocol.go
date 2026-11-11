@@ -216,6 +216,19 @@ func (h *ProtocolHandler) HandleNotification(msg *JSONRPCMessage, emit func(harn
 			})
 		}
 
+	case "item/commandExecution/outputDelta":
+		var p struct {
+			ItemID string `json:"itemId"`
+			Delta  string `json:"delta"`
+		}
+		if err := json.Unmarshal(msg.Params, &p); err == nil && p.ItemID != "" && p.Delta != "" {
+			_ = harness.Emit(emit, harness.Event{
+				Type:   harness.EventToolOutput,
+				ToolID: p.ItemID,
+				Text:   p.Delta,
+			})
+		}
+
 	case "turn/plan/updated":
 		var p struct {
 			TurnID      string `json:"turnId"`
@@ -289,10 +302,10 @@ func (h *ProtocolHandler) HandleNotification(msg *JSONRPCMessage, emit func(harn
 
 	case "turn/started", "thread/started", "thread/status/changed", "thread/name/updated",
 		"account/rateLimits/updated", "warning", "configWarning",
-		"item/commandExecution/outputDelta", "item/fileChange/outputDelta",
+		"item/fileChange/outputDelta",
 		"turn/diff/updated":
 		// 已知但本层有意忽略：不映射事件，也不算未处理通知。
-		// outputDelta 类待接入；turn/diff/updated 是整轮聚合 diff，改动已由 item 级事件覆盖，不发事件。
+		// fileChange/outputDelta 暂不接入；turn/diff/updated 是整轮聚合 diff，改动已由 item 级事件覆盖，不发事件。
 
 	default:
 		h.logUnknownOnce(msg.Method)

@@ -113,7 +113,7 @@ func (h *ProtocolHandler) IsTurnDone() bool
   - 未知通知：按方法名只记一次日志，避免刷屏。
   - 展示类 item：`plan` 按文本输出（已流过 `item/plan/delta` 时只补尾部）、`exitedReviewMode` 输出审阅正文、`contextCompaction` 输出「上下文已压缩」、`enteredReviewMode` 只标记状态不发事件；四者都不发 `EventToolStart`。
   - 文件变更：`item/fileChange/patchUpdated` 增量与 `item/completed` 的 `fileChange` 都转成 `EventFileChange`，按 `(itemId, path)` 记住最近一次已发出的 patch，内容相同就不再重复发。
-  - 进行中：`item/commandExecution/outputDelta` 尚未转成 `EventToolOutput`，目前按「已知但有意忽略」处理。
+  - 进行中：`item/commandExecution/outputDelta` 转成 `EventToolOutput`，按 `itemId` 关联对应命令工具并推送增量输出；`item/fileChange/outputDelta` 仍按「已知但有意忽略」处理。
 - **Server Request 侧交互**：
   - `item/tool/requestUserInput`：转成 `harness.RequestKindQuestion` 的提问请求交给 `harness.Interactor`（即 `turn.Approver` 实现了 `Interact` 时），按 `ToolRequestUserInputResponse.answers` 回写；无 Interactor、用户跳过或交互出错时回空 `answers`（schema 要求该字段必填）。schema 没有多选字段，`AllowsMultiple` 固定为 false。
   - `mcpServer/elicitation/request`：一律回 `{"action": "decline"}`，让 codex 继续本轮而不是报请求失败。
