@@ -119,7 +119,11 @@ type SettingsState struct {
 	highlightItemID    string
 	highlightStartedAt time.Time
 
-	cfg config.Config
+	cfg             config.Config
+	stewardLabelMu  sync.Mutex
+	stewardLabelKey string
+	stewardLabel    string
+	stewardSecrets  config.SecretStore
 	// base 是设置页上次与磁盘同步时的配置快照，save 时用它判断本页到底改过哪些字段。
 	base            config.Config
 	remoteHostsText string
@@ -483,6 +487,9 @@ var settingsSaveHook func()
 // 回写只覆盖真正变了的字段。后台 goroutine（如 loadProjects → rememberUsedProvider）也会调
 // 这里，整份换掉 cfg 会和渲染路径的无锁读撞车。
 func (s *SettingsState) save() bool {
+	s.stewardLabelMu.Lock()
+	s.stewardLabelKey = ""
+	s.stewardLabelMu.Unlock()
 	if settingsSaveHook != nil {
 		settingsSaveHook()
 	}

@@ -7,6 +7,51 @@ import (
 	"mcode/internal/config"
 )
 
+type stewardCountingSecrets struct {
+	config.SecretStore
+	gets int
+}
+
+func (s *stewardCountingSecrets) Get(account string) (string, error) {
+	s.gets++
+	return "test-key", nil
+}
+
+func TestStewardComposerModelCachesAutoLabel(t *testing.T) {
+	s := newChatState(newStewardFakeClient(""))
+	t.Cleanup(s.close)
+	st := NewSettingsState(t.TempDir(), nil, s)
+	setChatSettings(s, st)
+	t.Cleanup(func() { setChatSettings(s, nil) })
+	secrets := &stewardCountingSecrets{SecretStore: config.NewMemorySecretStore()}
+	st.stewardSecrets = secrets
+	st.cfg.Providers.Anthropic.Enabled = nil
+	st.cfg.Providers.OpenAI.Enabled = true
+	st.cfg.Orchestration.Steward.Provider = "openai"
+	s.providers = []ProviderInfo{
+		{ID: "openai", Name: "OpenAI", Models: []ModelInfo{{ID: "gpt-test", Name: "GPT Test"}}},
+		{ID: "anthropic", Name: "Anthropic", Models: []ModelInfo{{ID: "claude-opus-5-5", Name: "Opus Test"}}},
+	}
+	tt := ui.NewTester(func(c *ui.Context) { renderStewardComposerModel(c, s) }, 1000, 700)
+	for i := 0; i < 20; i++ {
+		tt.Frame()
+	}
+	if !tt.HasText("GPT Test") || secrets.gets != 1 {
+		t.Fatalf("缓存标签或解析次数不正确: %v, %d", tt.Texts(), secrets.gets)
+	}
+	st.cfg.Orchestration.Steward.Provider = "anthropic"
+	st.save()
+	tt.Frame()
+	if !tt.HasText("Opus Test") || secrets.gets != 2 {
+		t.Fatalf("保存后标签或解析次数不正确: %v, %d", tt.Texts(), secrets.gets)
+	}
+	st.save()
+	tt.Frame()
+	if secrets.gets != 3 {
+		t.Fatalf("保存后未清除缓存: %d", secrets.gets)
+	}
+}
+
 func TestStewardModelSelectionUnavailable(t *testing.T) {
 	var cfg config.Config
 	cfg.Orchestration.Steward.Provider = "openai"
@@ -52,7 +97,7 @@ func TestStewardComposerModel(t *testing.T) {
 	t.Cleanup(func() { setChatSettings(s, nil) })
 	st.cfg.Providers.OpenAI.Enabled = true
 	s.providers = []ProviderInfo{
-		{ID: "openai", Name: "OpenAI", Available: true, Models: []ModelInfo{{ID: "gpt-test", Name: "GPT Test"}}},
+		{ID: "openai", Name: "OpenAI", Available: true, Models: []ModelInfo{{ID: "gpt-test", Name: "GPT Test"}, {ID: "gpt-other", Name: "GPT Other"}}},
 		{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "cli-test", Name: "CLI Test"}}},
 	}
 	s.selectedThreadID = "steward"
@@ -60,6 +105,9 @@ func TestStewardComposerModel(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { renderComposer(c, s) }, 1000, 700)
 	if _, ok := tt.Find("选择前台模型"); !ok {
 		t.Fatal("总管输入框缺少前台模型胶囊")
+	}
+	if !tt.HasText("GPT Test") {
+		t.Fatalf("自动模型显示不正确: %v", tt.Texts())
 	}
 	for _, label := range []string{"构建", "计划", "上下文用量"} {
 		if _, ok := tt.Find(label); ok {
@@ -73,10 +121,10 @@ func TestStewardComposerModel(t *testing.T) {
 	if tt.HasText("CLI Test") || !tt.HasText("GPT Test") {
 		t.Fatalf("前台模型候选不正确: %v", tt.Texts())
 	}
-	if err := tt.Click("GPT Test"); err != nil {
+	if err := tt.Click("GPT Other"); err != nil {
 		t.Fatal(err)
 	}
-	if st.cfg.Orchestration.Steward.Provider != "openai" || st.cfg.Orchestration.Steward.Model != "gpt-test" {
+	if st.cfg.Orchestration.Steward.Provider != "openai" || st.cfg.Orchestration.Steward.Model != "gpt-other" {
 		t.Fatalf("前台模型未保存: %+v", st.cfg.Orchestration.Steward)
 	}
 	s.selectedThreadID = "ordinary"
@@ -105,8 +153,8 @@ func TestStewardComposerModelLegacySelection(t *testing.T) {
 	st.cfg.Orchestration.Steward.Provider = "pi"
 	st.cfg.Orchestration.Steward.Model = "magpie-jp/auto/deepseek-v4.1-flash"
 	tt := ui.NewTester(func(c *ui.Context) { renderStewardComposerModel(c, s) }, 1000, 700)
-	if !tt.HasText("自动") || tt.HasText("pi") || tt.HasText(st.cfg.Orchestration.Steward.Model) {
-		t.Fatalf("旧来源应显示自动: %v", tt.Texts())
+	if !tt.HasText("GPT Test") || tt.HasText("pi") || tt.HasText(st.cfg.Orchestration.Steward.Model) {
+		t.Fatalf("旧来源应显示回退模型: %v", tt.Texts())
 	}
 	if st.cfg.Orchestration.Steward.Provider != "pi" || st.cfg.Orchestration.Steward.Model != "magpie-jp/auto/deepseek-v4.1-flash" {
 		t.Fatal("显示旧来源时不应修改配置")

@@ -14,13 +14,19 @@ import (
 )
 
 func cliModel(model string, known []string) string {
-	model = strings.TrimSpace(model)
-	if _, rest, ok := strings.Cut(model, "/"); ok {
-		model = rest
+	candidates := []string{strings.TrimSpace(model)}
+	if _, rest, ok := strings.Cut(candidates[0], "/"); ok {
+		candidates = append(candidates, rest)
 	}
-	for _, id := range known {
-		if id != "" && strings.EqualFold(model, id) {
-			return model
+	for _, candidate := range candidates {
+		for _, id := range known {
+			if id == "" {
+				continue
+			}
+			_, rest, hasPrefix := strings.Cut(id, "/")
+			if strings.EqualFold(candidate, id) || (hasPrefix && strings.EqualFold(candidate, rest)) {
+				return id
+			}
 		}
 	}
 	return ""
@@ -45,11 +51,6 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot, opts 
 	case "pi", "memory", "mcode":
 		for _, model := range remote.ProviderModels(provider) {
 			known = append(known, model.ID)
-			if provider == "pi" {
-				if _, id, ok := strings.Cut(model.ID, "/"); ok {
-					known = append(known, id)
-				}
-			}
 		}
 	}
 	known = append(known, textgen.CheapestModel(provider))

@@ -1,11 +1,39 @@
 package mcodeui
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/apisource"
 	"mcode/internal/config"
 	"mcode/internal/frontdesk"
 )
+
+func (st *SettingsState) stewardAutoLabel(catalog modelPickerCatalog, sel ModelSelection) string {
+	var key strings.Builder
+	add := func(value string) { key.WriteString(strconv.Quote(value)) }
+	add(st.cfg.Orchestration.Steward.Provider)
+	add(st.cfg.Orchestration.Steward.Model)
+	for _, provider := range catalog.Providers {
+		add(provider.ID)
+		for _, model := range provider.Models {
+			add(model.ID)
+		}
+		key.WriteByte(';')
+	}
+	cacheKey := key.String()
+	st.stewardLabelMu.Lock()
+	defer st.stewardLabelMu.Unlock()
+	if st.stewardLabelKey != cacheKey {
+		if st.stewardSecrets == nil {
+			st.stewardSecrets = config.NewSecretStore("mcode")
+		}
+		st.stewardLabel = stewardModelEmptyLabel(st.cfg, catalog, sel, st.stewardSecrets)
+		st.stewardLabelKey = cacheKey
+	}
+	return st.stewardLabel
+}
 
 func stewardModelSelection(cfg config.Config, catalog modelPickerCatalog) ModelSelection {
 	return catalogModelSelection(cfg.Orchestration.Steward.Provider, cfg.Orchestration.Steward.Model, catalog)
@@ -62,7 +90,7 @@ func renderStewardComposerModel(c *ui.Context, s *chatState) {
 	}
 	catalog := frontdeskModelPickerCatalog(settingsModelPickerCatalog(st), st.cfg)
 	sel := stewardModelSelection(st.cfg, catalog)
-	renderSwarmModelCapsuleCatalog(c, st, "composer-steward-model", "composer-steward-model", sel, stewardModelEmptyLabel(st.cfg, catalog, sel, config.NewSecretStore("mcode")), "选择前台模型", func(next ModelSelection) {
+	renderSwarmModelCapsuleCatalog(c, st, "composer-steward-model", "composer-steward-model", sel, st.stewardAutoLabel(catalog, sel), "选择前台模型", func(next ModelSelection) {
 		st.cfg.Orchestration.Steward.Provider = next.Provider
 		st.cfg.Orchestration.Steward.Model = next.Model
 		st.save()

@@ -179,8 +179,8 @@ func (s *chatState) startAutomationWatch(projectID string) {
 	stopAutomationWatch(s)
 	as := getAutomationState(s)
 	stop := s.client.WatchAutomations(func() {
-		s.loadAutomationList(projectID, false)
 		s.updateWorkspace(func() {
+			s.loadAutomationList(projectID, false)
 			if as.projectID == projectID && as.selectedID != "" {
 				s.loadAutomationRuns(as.selectedID)
 			}
@@ -291,41 +291,43 @@ func (s *chatState) loadAutomationRuns(automationID string) {
 		ctx := context.Background()
 		runs, runRead, runArchived, err := s.fetchAutomationRuns(ctx, id, 100, includeArchived)
 
-		automationMu.Lock()
-		defer automationMu.Unlock()
-		if as.selectedID != id || as.projectID != projectID || as.runsLoadID != loadID {
-			return
-		}
-		as.runsLoading = false
-		if err != nil {
-			as.runsErr = err.Error()
-			as.runs = nil
-			as.runRead = nil
-			as.runArchived = nil
-		} else {
-			if as.openRunID != "" {
-				found := false
-				for _, run := range runs {
-					if run.ID == as.openRunID {
-						found = true
-						break
-					}
-				}
-				if !found {
-					for _, run := range as.runs {
+		s.updateWorkspace(func() {
+			automationMu.Lock()
+			defer automationMu.Unlock()
+			if as.selectedID != id || as.projectID != projectID || as.runsLoadID != loadID {
+				return
+			}
+			as.runsLoading = false
+			if err != nil {
+				as.runsErr = err.Error()
+				as.runs = nil
+				as.runRead = nil
+				as.runArchived = nil
+			} else {
+				if as.openRunID != "" {
+					found := false
+					for _, run := range runs {
 						if run.ID == as.openRunID {
-							runs = append([]AutomationRun{run}, runs...)
+							found = true
 							break
 						}
 					}
+					if !found {
+						for _, run := range as.runs {
+							if run.ID == as.openRunID {
+								runs = append([]AutomationRun{run}, runs...)
+								break
+							}
+						}
+					}
 				}
+				as.runs = runs
+				as.runsErr = ""
+				as.runRead = runRead
+				as.runArchived = runArchived
 			}
-			as.runs = runs
-			as.runsErr = ""
-			as.runRead = runRead
-			as.runArchived = runArchived
-		}
-		s.invalidate()
+			s.invalidate()
+		})
 	}(automationID)
 }
 
@@ -633,21 +635,23 @@ func (s *chatState) saveAutomation() {
 			}
 			s.invalidate()
 		})
-		if err != nil {
-			if errors.Is(err, ErrRevisionConflict) {
-				automationMu.Lock()
-				if as.projectID == curPID && as.editSession == editSession {
-					as.conflict = true
+		s.updateWorkspace(func() {
+			if err != nil {
+				if errors.Is(err, ErrRevisionConflict) {
+					automationMu.Lock()
+					if as.projectID == curPID && as.editSession == editSession {
+						as.conflict = true
+					}
+					automationMu.Unlock()
+				} else {
+					s.setToast("保存自动化失败: " + err.Error())
 				}
-				automationMu.Unlock()
-			} else {
-				s.setToast("保存自动化失败: " + err.Error())
+				s.invalidate()
+				return
 			}
-			s.invalidate()
-			return
-		}
 
-		s.loadAutomationList(curPID, false)
+			s.loadAutomationList(curPID, false)
+		})
 	}()
 }
 
@@ -680,28 +684,27 @@ func (s *chatState) deleteAutomation(id string) {
 	go func() {
 		ctx := context.Background()
 		err := s.client.DeleteAutomation(ctx, id)
-		if err != nil {
-			if errors.Is(err, ErrRevisionConflict) {
-				automationMu.Lock()
-				as.conflict = true
-				automationMu.Unlock()
-			} else {
-				s.setToast("删除自动化失败: " + err.Error())
-			}
-			s.invalidate()
-			return
-		}
-
 		s.updateWorkspace(func() {
+			if err != nil {
+				if errors.Is(err, ErrRevisionConflict) {
+					automationMu.Lock()
+					as.conflict = true
+					automationMu.Unlock()
+				} else {
+					s.setToast("删除自动化失败: " + err.Error())
+				}
+				s.invalidate()
+				return
+			}
+
 			automationMu.Lock()
-			defer automationMu.Unlock()
 			if as.projectID == curPID && as.selectedID == id {
 				as.selectedID = ""
 				as.isNew = false
 			}
+			automationMu.Unlock()
+			s.loadAutomationList(curPID, false)
 		})
-
-		s.loadAutomationList(curPID, false)
 	}()
 }
 
@@ -736,42 +739,44 @@ func (s *chatState) runAutomationNow(id string) {
 	go func() {
 		ctx := context.Background()
 		run, err := s.client.RunAutomation(ctx, id)
-		automationMu.Lock()
-		if as.projectID != projectID {
-			automationMu.Unlock()
-			return
-		}
-		delete(as.runningIDs, id)
-		current := as.runRequest == request && as.selectedID == id && as.selectionVersion == selection
-		if current && err == nil {
-			openAutomationRun(as, run.ID)
-			as.runs = append([]AutomationRun{run}, as.runs...)
-		}
-		automationMu.Unlock()
-		s.invalidate()
-		if !current {
-			return
-		}
-
-		if err != nil {
-			if errors.Is(err, ErrAutomationSchedulerPassive) {
-				automationMu.Lock()
-				hint := automationSchedulerHint(as.schedulerStatus)
+		s.updateWorkspace(func() {
+			automationMu.Lock()
+			if as.projectID != projectID {
 				automationMu.Unlock()
-				if hint == "" {
-					hint = "定时任务已暂停：另一个 mcode 实例正在调度"
-				}
-				s.setToast(hint + "，无法立即运行")
-			} else {
-				s.setToast("运行自动化失败: " + err.Error())
+				return
 			}
+			delete(as.runningIDs, id)
+			current := as.runRequest == request && as.selectedID == id && as.selectionVersion == selection
+			if current && err == nil {
+				openAutomationRun(as, run.ID)
+				as.runs = append([]AutomationRun{run}, as.runs...)
+			}
+			automationMu.Unlock()
 			s.invalidate()
-			return
-		}
-		if run.Status == "failed" || run.Status == "error" {
-			s.setToast("运行自动化失败: " + run.Error)
-		}
-		s.loadAutomationRuns(id)
+			if !current {
+				return
+			}
+
+			if err != nil {
+				if errors.Is(err, ErrAutomationSchedulerPassive) {
+					automationMu.Lock()
+					hint := automationSchedulerHint(as.schedulerStatus)
+					automationMu.Unlock()
+					if hint == "" {
+						hint = "定时任务已暂停：另一个 mcode 实例正在调度"
+					}
+					s.setToast(hint + "，无法立即运行")
+				} else {
+					s.setToast("运行自动化失败: " + err.Error())
+				}
+				s.invalidate()
+				return
+			}
+			if run.Status == "failed" || run.Status == "error" {
+				s.setToast("运行自动化失败: " + run.Error)
+			}
+			s.loadAutomationRuns(id)
+		})
 	}()
 }
 
@@ -824,25 +829,25 @@ func (s *chatState) setAutomationEnabled(auto Automation, enabled bool) {
 			saved, err = s.client.UpdateAutomation(ctx, a.ID, automationInputFrom(a, enabled), a.Revision)
 		}
 
-		automationMu.Lock()
-		delete(as.busyIDs, a.ID)
-		automationMu.Unlock()
-		if err != nil {
-			if errors.Is(err, ErrRevisionConflict) {
-				automationMu.Lock()
-				as.conflict = true
-				automationMu.Unlock()
-			} else if enabled {
-				s.setToast("恢复自动化失败: " + err.Error())
-			} else {
-				s.setToast("暂停自动化失败: " + err.Error())
-			}
-			s.invalidate()
-			return
-		}
-
-		// 编辑区草稿同步到新状态，避免表单里的启用开关与卡片不一致。
 		s.updateWorkspace(func() {
+			automationMu.Lock()
+			delete(as.busyIDs, a.ID)
+			automationMu.Unlock()
+			if err != nil {
+				if errors.Is(err, ErrRevisionConflict) {
+					automationMu.Lock()
+					as.conflict = true
+					automationMu.Unlock()
+				} else if enabled {
+					s.setToast("恢复自动化失败: " + err.Error())
+				} else {
+					s.setToast("暂停自动化失败: " + err.Error())
+				}
+				s.invalidate()
+				return
+			}
+
+			// 编辑区草稿同步到新状态，避免表单里的启用开关与卡片不一致。
 			automationMu.Lock()
 			if as.projectID == projectID && as.editSession == editSession && saved.ID == as.selectedID && !as.isNew &&
 				as.editRevision == a.Revision && saved.Revision == a.Revision+1 {
@@ -851,8 +856,8 @@ func (s *chatState) setAutomationEnabled(auto Automation, enabled bool) {
 				as.editRevision = saved.Revision
 			}
 			automationMu.Unlock()
+			s.loadAutomationList(projectID, false)
 		})
-		s.loadAutomationList(projectID, false)
 	}(auto)
 }
 
@@ -888,28 +893,28 @@ func (s *chatState) duplicateAutomation(auto Automation) {
 		ctx := context.Background()
 		saved, err := s.client.CreateAutomation(ctx, in)
 
-		automationMu.Lock()
-		if as.saveID != saveID {
-			automationMu.Unlock()
-			return
-		}
-		as.saving = false
-		automationMu.Unlock()
-		if err != nil {
-			s.setToast("复制自动化失败: " + err.Error())
-			s.invalidate()
-			return
-		}
-
 		s.updateWorkspace(func() {
+			automationMu.Lock()
+			if as.saveID != saveID {
+				automationMu.Unlock()
+				return
+			}
+			as.saving = false
+			automationMu.Unlock()
+			if err != nil {
+				s.setToast("复制自动化失败: " + err.Error())
+				s.invalidate()
+				return
+			}
+
 			automationMu.Lock()
 			sameProject := as.projectID == projectID
 			automationMu.Unlock()
 			if sameProject {
 				as.selectAutomation(saved, s)
 			}
+			s.loadAutomationList(projectID, false)
 		})
-		s.loadAutomationList(projectID, false)
 	}(input)
 }
 

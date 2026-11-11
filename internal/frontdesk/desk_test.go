@@ -264,20 +264,27 @@ func TestCLIFallbackSettingsChange(t *testing.T) {
 	if !reflect.DeepEqual(f.events, []string{"create:第一轮:owner"}) || !reflect.DeepEqual(providers, []string{"codex", "codex", "codex", "codex"}) {
 		t.Fatal(f.events, providers)
 	}
-	if want := []string{remote.DefaultModel("codex"), "gpt-5.4-mini", "GPT-5.4-MINI", remote.DefaultModel("codex")}; !reflect.DeepEqual(models, want) {
+	if want := []string{remote.DefaultModel("codex"), "gpt-5.4-mini", "gpt-5.4-mini", remote.DefaultModel("codex")}; !reflect.DeepEqual(models, want) {
 		t.Fatalf("模型 %v，想要 %v", models, want)
 	}
 }
 
 func TestCLIModel(t *testing.T) {
-	for _, tc := range []struct{ input, want string }{
-		{"sonnet", "sonnet"},
-		{"anthropic/SoNnEt", "SoNnEt"},
-		{"anthropic/unknown", ""},
-		{"", ""},
-		{"anthropic/", ""},
+	for _, tc := range []struct {
+		input, want string
+		known       []string
+	}{
+		{"sonnet", "sonnet", []string{"sonnet"}},
+		{"Sonnet", "sonnet", []string{"sonnet"}},
+		{"anthropic/SoNnEt", "sonnet", []string{"sonnet"}},
+		{"magpie-jp/auto/deepseek-v4.1-flash", "magpie-jp/auto/deepseek-v4.1-flash", []string{"magpie-jp/auto/deepseek-v4.1-flash"}},
+		{"auto/deepseek-v4.1-flash", "magpie-jp/auto/deepseek-v4.1-flash", []string{"magpie-jp/auto/deepseek-v4.1-flash"}},
+		{" anthropic/sonnet ", "anthropic/sonnet", []string{"sonnet", "anthropic/sonnet"}},
+		{"anthropic/unknown", "", []string{"sonnet"}},
+		{"", "", []string{"", "sonnet"}},
+		{"anthropic/", "", []string{"sonnet"}},
 	} {
-		if got := cliModel(tc.input, []string{"sonnet"}); got != tc.want {
+		if got := cliModel(tc.input, tc.known); got != tc.want {
 			t.Errorf("cliModel(%q) = %q，想要 %q", tc.input, got, tc.want)
 		}
 	}

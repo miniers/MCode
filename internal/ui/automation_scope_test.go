@@ -51,8 +51,9 @@ func TestAutomationScopeAllProjects(t *testing.T) {
 	as.projectID, as.initialized = "", true
 	s.loadAutomationList("", true)
 	testUI := ui.NewTester(func(c *ui.Context) { s.applyWorkspaceUpdates() }, 800, 600)
-	waitFor(t, testUI, func() bool { return len(client.listScopes) > 0 })
+	waitFor(t, testUI, func() bool { return as.unreadKnown })
 	s.loadAutomationUnread("")
+	waitAutomationRunsQueued(t, s)
 	waitFor(t, testUI, func() bool { return as.unreadKnown })
 	if len(client.listScopes) == 0 || client.listScopes[0] != "" || len(client.counts) == 0 || client.counts[0] != "" {
 		t.Fatalf("未使用全项目范围: lists=%v counts=%v", client.listScopes, client.counts)
