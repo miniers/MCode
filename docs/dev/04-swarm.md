@@ -8,8 +8,8 @@
 
 主代理有两种派发方式：
 
-- 在回复里写 ` ```swarm ` JSON 代码块。字段：`task`、`prompt`，可选 `bee`、`tier`、`skills`、`project`、`replaces`。
-- 调 `swarm_delegate` 工具。需要开启 `orchestration.delegate_tool`，默认关闭。
+- 首选调用 `swarm_delegate` 工具。`orchestration.delegate_tool` 默认开启。
+- 工具不可用时，在回复里写 ` ```swarm ` JSON 代码块作为后备。字段：`task`、`prompt`，可选 `bee`、`tier`、`skills`、`project`、`replaces`。
 
 `StreamParser` 流式解析代码块，`swarmStreamDispatcher` 负责派发（`feed`、`settleTurn`、`roundLimit`、`entryCap`）。
 
@@ -28,7 +28,7 @@
 
 「关闭」不是模式，由 `Manager.State(threadID).Enabled` 决定。全局开关是 `orchestration.always_bees` 和 `orchestration.lead_plans_only`。`EffectiveMode` 解析最终模式。
 
-提示词在 `internal/swarm/prompts.go`：`LeadPolicy`、`LeadNoticePolicy`、`NativeSubagentRule`、`DelegateToolRule`。它们通过 `policy.Render` 注入，见 [02-session-runtime.md](02-session-runtime.md#提示词注入)。
+提示词在 `internal/swarm/prompts.go`：`LeadPolicy`、`LeadNoticePolicy`、`NativeSubagentRule`。它们通过 `policy.Render` 注入，见 [02-session-runtime.md](02-session-runtime.md#提示词注入)。
 
 ## 子代理生命周期
 

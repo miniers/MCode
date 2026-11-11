@@ -11,7 +11,7 @@ func TestSessionOrchestrationDefaultsAndDisabledRoundTrip(t *testing.T) {
 		t.Fatalf("提供方默认值不正确: %+v", cfg.Providers)
 	}
 	o := cfg.Orchestration
-	if o.MaxBees != 4 || o.MaxRounds != 10 || o.BeeTimeoutMinutes != 60 || !o.RetryFailed || !o.AutoMerge || !o.LeadPlansOnly || !o.AutoClearFinished || !o.AutoHidesIdleBees || !o.AutoPopsBees || o.AutoForwardQuestionSeconds != 180 {
+	if o.MaxBees != 4 || o.MaxRounds != 10 || o.BeeTimeoutMinutes != 60 || !o.RetryFailed || !o.AutoMerge || !o.LeadPlansOnly || !o.DelegateTool || !o.AutoClearFinished || !o.AutoHidesIdleBees || !o.AutoPopsBees || o.AutoForwardQuestionSeconds != 180 {
 		t.Fatalf("编排默认值不正确: %+v", o)
 	}
 	if o.Steward.Name != "MoCo" || o.Steward.Avatar != "🤖" || o.Steward.QuietStart != "00:00" || o.Steward.QuietEnd != "06:00" {
@@ -26,6 +26,7 @@ func TestSessionOrchestrationDefaultsAndDisabledRoundTrip(t *testing.T) {
 		c.Session.PinSentMessage = boolPtr(false)
 		c.Session.ConciseRepliesEnabled = boolPtr(false)
 		c.Orchestration.AutoForwardQuestionSeconds = 0
+		c.Orchestration.DelegateTool = false
 		c.Orchestration.Steward.Name = ""
 		c.Orchestration.Steward.Avatar = ""
 		c.Orchestration.Steward.QuietStart = ""
@@ -38,7 +39,7 @@ func TestSessionOrchestrationDefaultsAndDisabledRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Session.PinSentMessage == nil || *loaded.Session.PinSentMessage || loaded.Session.ConciseRepliesEnabled == nil || *loaded.Session.ConciseRepliesEnabled || loaded.Orchestration.AutoForwardQuestionSeconds != 0 {
+	if loaded.Session.PinSentMessage == nil || *loaded.Session.PinSentMessage || loaded.Session.ConciseRepliesEnabled == nil || *loaded.Session.ConciseRepliesEnabled || loaded.Orchestration.AutoForwardQuestionSeconds != 0 || loaded.Orchestration.DelegateTool {
 		t.Fatalf("关闭设置未保持: %+v", loaded)
 	}
 	s := loaded.Orchestration.Steward

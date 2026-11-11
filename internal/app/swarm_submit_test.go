@@ -169,7 +169,7 @@ func TestDelegateToolFollowsSetting(t *testing.T) {
 		}
 	}
 
-	if listed("lead-off") || strings.Contains(prompt("lead-off"), swarm.DelegateToolRule) {
+	if listed("lead-off") || strings.Contains(prompt("lead-off"), "swarm_delegate") {
 		t.Fatal("DelegateTool 关闭时不应列出工具，提示词也不应带工具说明")
 	}
 
@@ -177,7 +177,7 @@ func TestDelegateToolFollowsSetting(t *testing.T) {
 	if !listed("lead-on") {
 		t.Fatal("DelegateTool 开启后应列出 swarm_delegate")
 	}
-	if captured := prompt("lead-on"); !strings.Contains(captured, swarm.LeadPolicy(false, "off")+"\n\n"+swarm.DelegateToolRule) {
-		t.Fatalf("DelegateTool 开启后提示词应在主代理策略后带工具说明:\n%s", captured)
+	if captured := prompt("lead-on"); !strings.Contains(captured, swarm.LeadPolicy(false, "off", true)) {
+		t.Fatalf("DelegateTool 开启后提示词应以工具为首选:\n%s", captured)
 	}
 }

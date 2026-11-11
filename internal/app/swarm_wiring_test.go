@@ -503,11 +503,11 @@ func TestSwarmLeadPrefaceDecoratorAppendsTierSection(t *testing.T) {
 	}
 
 	sec := swarm.TierPromptSection(mgr.Settings().Tiers, mgr.Settings().DefaultTier, nil)
-	if !strings.Contains(captured, swarm.LeadPolicy(false, "off")) {
-		t.Fatalf("前言未包含 LeadPolicy:\ngot:\n%s\nwant:\n%s", captured, swarm.LeadPolicy(false, "off"))
+	if !strings.Contains(captured, swarm.LeadPolicy(false, "off", false)) {
+		t.Fatalf("前言未包含 LeadPolicy:\ngot:\n%s\nwant:\n%s", captured, swarm.LeadPolicy(false, "off", false))
 	}
-	if !strings.Contains(captured, swarm.LeadPolicy(false, "off")+"\n\n"+sec) {
-		t.Fatalf("前言未正确注入档位段落:\ngot:\n%s\nwant:\n%s", captured, swarm.LeadPolicy(false, "off")+"\n\n"+sec)
+	if !strings.Contains(captured, swarm.LeadPolicy(false, "off", false)+"\n\n"+sec) {
+		t.Fatalf("前言未正确注入档位段落:\ngot:\n%s\nwant:\n%s", captured, swarm.LeadPolicy(false, "off", false)+"\n\n"+sec)
 	}
 	if !strings.HasSuffix(captured, "\n\n---\n\nuser prompt") {
 		t.Fatalf("前言未以预期 prompt 结尾:\ngot:\n%s\nwant:\n%s", captured, "\n\n---\n\nuser prompt")
@@ -533,8 +533,8 @@ func TestSwarmLeadPrefaceDecoratorAppendsTierSection(t *testing.T) {
 		t.Fatalf("等待 lead-2 捕获 prompt 超时")
 	}
 
-	if !strings.Contains(capturedNoTiers, swarm.LeadPolicy(false, "off")) {
-		t.Fatalf("无档位时前言未包含 LeadPolicy:\ngot:\n%s\nwant:\n%s", capturedNoTiers, swarm.LeadPolicy(false, "off"))
+	if !strings.Contains(capturedNoTiers, swarm.LeadPolicy(false, "off", false)) {
+		t.Fatalf("无档位时前言未包含 LeadPolicy:\ngot:\n%s\nwant:\n%s", capturedNoTiers, swarm.LeadPolicy(false, "off", false))
 	}
 	if strings.Contains(capturedNoTiers, "Bee tiers:") {
 		t.Fatalf("无档位时前言不应包含档位段落:\ngot:\n%s\nunwanted:\n%s", capturedNoTiers, "Bee tiers:")
@@ -554,13 +554,13 @@ func TestSwarmLeadPolicyTracker(t *testing.T) {
 	tracker := newSwarmLeadPolicyTracker()
 	threadID := "thread-1"
 
-	leadPolicyDefault := swarm.LeadPolicy(false, "off")
-	leadPolicyPlansOnly := swarm.LeadPolicy(true, "off")
+	leadPolicyDefault := swarm.LeadPolicy(false, "off", false)
+	leadPolicyPlansOnly := swarm.LeadPolicy(true, "off", false)
 	tiers := swarm.TierPromptSection([]swarm.Tier{{ID: "t1", Description: "d1"}}, "t1", nil)
 	limits := swarm.LimitsPromptSection(swarm.RequestLimits{MaxRounds: 5})
 
 	// 1. 用户 prompt（非通知）：得到完整规则
-	sec1 := tracker.RenderSections(threadID, false, false, leadPolicyDefault, tiers, limits)
+	sec1 := tracker.RenderSections(threadID, false, false, false, leadPolicyDefault, tiers, limits)
 	if sec1.SwarmLead != leadPolicyDefault || sec1.SwarmTiers != tiers || sec1.SwarmLimits != limits {
 		t.Fatalf("非通知轮次应返回完整 sections: %+v", sec1)
 	}
@@ -570,9 +570,9 @@ func TestSwarmLeadPolicyTracker(t *testing.T) {
 	}
 
 	// 2. 紧接着的通知 prompt：静态文本未变，得到精简规则
-	sec2 := tracker.RenderSections(threadID, true, false, leadPolicyDefault, tiers, limits)
-	if sec2.SwarmLead != swarm.LeadNoticePolicy(false) {
-		t.Fatalf("通知轮次 SwarmLead 应换为提醒语:\ngot: %s\nwant: %s", sec2.SwarmLead, swarm.LeadNoticePolicy(false))
+	sec2 := tracker.RenderSections(threadID, true, false, false, leadPolicyDefault, tiers, limits)
+	if sec2.SwarmLead != swarm.LeadNoticePolicy(false, false) {
+		t.Fatalf("通知轮次 SwarmLead 应换为提醒语:\ngot: %s\nwant: %s", sec2.SwarmLead, swarm.LeadNoticePolicy(false, false))
 	}
 	if sec2.SwarmTiers != "" {
 		t.Fatalf("通知轮次 SwarmTiers 应留空，got: %s", sec2.SwarmTiers)
@@ -598,7 +598,7 @@ func TestSwarmLeadPolicyTracker(t *testing.T) {
 	}
 
 	// 3. 切换只规划模式后：通知 prompt 因静态文本变化重新得到完整规则
-	sec3 := tracker.RenderSections(threadID, true, true, leadPolicyPlansOnly, tiers, limits)
+	sec3 := tracker.RenderSections(threadID, true, true, false, leadPolicyPlansOnly, tiers, limits)
 	if sec3.SwarmLead != leadPolicyPlansOnly || sec3.SwarmTiers != tiers {
 		t.Fatalf("静态文本变化后通知轮次应重新获得完整规则: %+v", sec3)
 	}
@@ -611,8 +611,8 @@ func TestSwarmLeadPolicyTracker(t *testing.T) {
 	}
 
 	// 紧接着再次发送通知 prompt：进入只规划模式的精简版
-	sec3Compact := tracker.RenderSections(threadID, true, true, leadPolicyPlansOnly, tiers, limits)
-	if sec3Compact.SwarmLead != swarm.LeadNoticePolicy(true) || sec3Compact.SwarmTiers != "" {
+	sec3Compact := tracker.RenderSections(threadID, true, true, false, leadPolicyPlansOnly, tiers, limits)
+	if sec3Compact.SwarmLead != swarm.LeadNoticePolicy(true, false) || sec3Compact.SwarmTiers != "" {
 		t.Fatalf("只规划后续通知轮次应返回只规划精简版: %+v", sec3Compact)
 	}
 	block3Compact := policy.Render(hostPolicyCaps(), sec3Compact)
@@ -622,14 +622,14 @@ func TestSwarmLeadPolicyTracker(t *testing.T) {
 
 	// 4. 没有记录的线程收到通知 prompt 时得到完整规则
 	freshThread := "thread-fresh"
-	sec4 := tracker.RenderSections(freshThread, true, false, leadPolicyDefault, tiers, limits)
+	sec4 := tracker.RenderSections(freshThread, true, false, false, leadPolicyDefault, tiers, limits)
 	if sec4.SwarmLead != leadPolicyDefault || sec4.SwarmTiers != tiers {
 		t.Fatalf("无记录线程首次收到通知 prompt 应得到完整规则: %+v", sec4)
 	}
 
 	// 5. 清理记录后再次收到通知 prompt 重新得到完整规则
 	tracker.Forget(freshThread)
-	sec5 := tracker.RenderSections(freshThread, true, false, leadPolicyDefault, tiers, limits)
+	sec5 := tracker.RenderSections(freshThread, true, false, false, leadPolicyDefault, tiers, limits)
 	if sec5.SwarmLead != leadPolicyDefault || sec5.SwarmTiers != tiers {
 		t.Fatalf("清理记录后收到通知 prompt 应重新得到完整规则: %+v", sec5)
 	}
@@ -687,7 +687,7 @@ func TestSwarmLeadPromptDecoratorNoticeLifecycle(t *testing.T) {
 	if !strings.Contains(capturedUser, policy.Marker) {
 		t.Fatalf("用户 prompt 未包含 Marker:\n%s", capturedUser)
 	}
-	if !strings.Contains(capturedUser, swarm.LeadPolicy(false, "off")) {
+	if !strings.Contains(capturedUser, swarm.LeadPolicy(false, "off", false)) {
 		t.Fatalf("用户 prompt 未包含完整 LeadPolicy:\n%s", capturedUser)
 	}
 	if !strings.Contains(capturedUser, "Bee tiers:") {
@@ -712,7 +712,7 @@ func TestSwarmLeadPromptDecoratorNoticeLifecycle(t *testing.T) {
 	if !strings.Contains(capturedNotice, "[Swarm limits]") {
 		t.Fatalf("通知 prompt 未包含 limits 段落:\n%s", capturedNotice)
 	}
-	if strings.Contains(capturedNotice, swarm.LeadPolicy(false, "off")) {
+	if strings.Contains(capturedNotice, swarm.LeadPolicy(false, "off", false)) {
 		t.Fatalf("通知 prompt 不应包含完整 LeadPolicy 原文:\n%s", capturedNotice)
 	}
 	if strings.Contains(capturedNotice, "Bee tiers:") {
@@ -731,7 +731,7 @@ func TestSwarmLeadPromptDecoratorNoticeLifecycle(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("等待 lead-life 捕获只规划通知 prompt 超时")
 	}
-	if !strings.Contains(capturedNotice2, swarm.LeadPolicy(true, "off")) {
+	if !strings.Contains(capturedNotice2, swarm.LeadPolicy(true, "off", false)) {
 		t.Fatalf("切换只规划后通知 prompt 未重新得到完整只规划规则:\n%s", capturedNotice2)
 	}
 	if !strings.Contains(capturedNotice2, "Bee tiers:") {
@@ -752,7 +752,7 @@ func TestSwarmLeadPromptDecoratorNoticeLifecycle(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("等待 lead-fresh-lifecycle 捕获通知 prompt 超时")
 	}
-	if !strings.Contains(capturedFresh, swarm.LeadPolicy(true, "off")) {
+	if !strings.Contains(capturedFresh, swarm.LeadPolicy(true, "off", false)) {
 		t.Fatalf("无记录新线程收到通知 prompt 应得到完整规则:\n%s", capturedFresh)
 	}
 	if !strings.Contains(capturedFresh, "Bee tiers:") {

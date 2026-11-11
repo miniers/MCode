@@ -8,7 +8,7 @@ import (
 )
 
 func TestLeadPolicyPlansOnlyOmitsDoAlone(t *testing.T) {
-	got := LeadPolicy(true, "off")
+	got := LeadPolicy(true, "off", false)
 	if strings.Contains(got, "yours to do alone") {
 		t.Fatalf("只规划策略不应保留「可独自完成」的说法:\n%s", got)
 	}
@@ -27,7 +27,7 @@ func TestLeadPolicyPlansOnlyOmitsDoAlone(t *testing.T) {
 }
 
 func TestLeadPolicyDefaultKeepsDoAlone(t *testing.T) {
-	got := LeadPolicy(false, "off")
+	got := LeadPolicy(false, "off", false)
 	if !strings.Contains(got, "yours to do alone") {
 		t.Fatalf("默认策略应保留「可独自完成」的说法:\n%s", got)
 	}
@@ -42,7 +42,7 @@ func TestLeadPolicyReadOnlyDelegation(t *testing.T) {
 	for _, plansOnly := range []bool{false, true} {
 		for _, mode := range []string{"off", "ai", "human"} {
 			t.Run(fmt.Sprintf("plansOnly=%v/review=%s", plansOnly, mode), func(t *testing.T) {
-				got := LeadPolicy(plansOnly, mode)
+				got := LeadPolicy(plansOnly, mode, false)
 				for _, want := range []string{
 					"For a new user request, if answering requires tracing multiple call sites, comparing files or checking runtime evidence, delegate that investigation to at least one read-only bee in your first reply; a question or a no-edit task is not an exception.",
 					"Your own initial inspection is only to scope the brief, not to finish the investigation.",
@@ -66,7 +66,7 @@ func TestLeadPolicyReadOnlyDelegation(t *testing.T) {
 // 常驻策略需保持精简：补丁另存与 swarm-answer 两条说明不再常驻，随对应事件消息下发。
 func TestLeadPolicyOmitsOnDemandRules(t *testing.T) {
 	for _, plansOnly := range []bool{false, true} {
-		got := LeadPolicy(plansOnly, "off")
+		got := LeadPolicy(plansOnly, "off", false)
 		for _, unwanted := range []string{".patch", "swarm-answer", "then Aspen 2"} {
 			if strings.Contains(got, unwanted) {
 				t.Fatalf("plansOnly=%v 的常驻策略不应包含按需说明 %q:\n%s", plansOnly, unwanted, got)
@@ -79,7 +79,7 @@ func TestLeadPolicyOmitsOnDemandRules(t *testing.T) {
 // 并要求主代理汇总前读一遍各 bee 改过的文件；只规划模式还需说明读改动文件归属主代理。
 func TestLeadPolicyRequiresTestsAndPostMergeRead(t *testing.T) {
 	for _, plansOnly := range []bool{false, true} {
-		got := LeadPolicy(plansOnly, "off")
+		got := LeadPolicy(plansOnly, "off", false)
 		for _, want := range []string{
 			"add or update a test that covers it",
 			"read the files each bee changed",
@@ -93,8 +93,8 @@ func TestLeadPolicyRequiresTestsAndPostMergeRead(t *testing.T) {
 			t.Fatalf("plansOnly=%v 的策略不应保留「禁止用 git 监视 bee」的旧说法:\n%s", plansOnly, got)
 		}
 	}
-	if !strings.Contains(LeadPolicy(true, "off"), "reading each bee's changed files") {
-		t.Fatalf("只规划策略应说明读改动文件仍归主代理:\n%s", LeadPolicy(true, "off"))
+	if !strings.Contains(LeadPolicy(true, "off", false), "reading each bee's changed files") {
+		t.Fatalf("只规划策略应说明读改动文件仍归主代理:\n%s", LeadPolicy(true, "off", false))
 	}
 }
 
@@ -109,7 +109,7 @@ func TestTierPromptSectionCrossFileReferences(t *testing.T) {
 // TestLeadPolicyReviewMode 验证审查档策略：off 与改动前一致（自动合并），
 // ai/human 说明改动要过审查才合入，且不再说汇报已落地。
 func TestLeadPolicyReviewMode(t *testing.T) {
-	off := LeadPolicy(false, "off")
+	off := LeadPolicy(false, "off", false)
 	if !strings.Contains(off, "Merging is automatic") {
 		t.Fatalf("off 档应保留自动合并规则:\n%s", off)
 	}
@@ -120,7 +120,7 @@ func TestLeadPolicyReviewMode(t *testing.T) {
 		t.Fatalf("off 档不应出现审查规则:\n%s", off)
 	}
 
-	ai := LeadPolicy(false, "ai")
+	ai := LeadPolicy(false, "ai", false)
 	if !strings.Contains(ai, "Merging waits for review") {
 		t.Fatalf("ai 档应说明合入要等审查:\n%s", ai)
 	}
@@ -136,7 +136,7 @@ func TestLeadPolicyReviewMode(t *testing.T) {
 	if strings.Contains(ai, autoMergeRule) {
 		t.Fatalf("ai 档不应保留自动合并规则:\n%s", ai)
 	}
-	human := LeadPolicy(false, " Human ")
+	human := LeadPolicy(false, " Human ", false)
 	if !strings.Contains(human, "Merging waits for review") || strings.Contains(human, "funnel already reviewed the rest") {
 		t.Fatalf("human 档应保留基础审查文案且不带漏斗专属说明:\n%s", human)
 	}
@@ -146,21 +146,21 @@ func TestLeadPolicyReviewMode(t *testing.T) {
 // human 与 off 档都不出现这句，且 off 档逐字保持原样。
 func TestLeadPolicyReviewFunnelWording(t *testing.T) {
 	const funnelClause = "read only the review concerns listed in each merge result and the code they point to"
-	ai := LeadPolicy(false, "ai")
+	ai := LeadPolicy(false, "ai", false)
 	if !strings.Contains(ai, funnelClause) || !strings.Contains(ai, "the funnel already reviewed the rest") {
 		t.Fatalf("ai 档应包含漏斗措辞:\n%s", ai)
 	}
-	if aiPlans := LeadPolicy(true, "ai"); !strings.Contains(aiPlans, "a review concern turns out to be real") {
+	if aiPlans := LeadPolicy(true, "ai", false); !strings.Contains(aiPlans, "a review concern turns out to be real") {
 		t.Fatalf("ai 只规划档应替换 planOnlyRule 的读文件句:\n%s", aiPlans)
 	}
-	if human := LeadPolicy(false, "human"); strings.Contains(human, funnelClause) {
+	if human := LeadPolicy(false, "human", false); strings.Contains(human, funnelClause) {
 		t.Fatalf("human 档不应带漏斗措辞:\n%s", human)
 	}
-	if humanPlans := LeadPolicy(true, "human"); strings.Contains(humanPlans, "a review concern turns out to be real") {
+	if humanPlans := LeadPolicy(true, "human", false); strings.Contains(humanPlans, "a review concern turns out to be real") {
 		t.Fatalf("human 只规划档不应替换 planOnlyRule:\n%s", humanPlans)
 	}
 
-	off := LeadPolicy(false, "off")
+	off := LeadPolicy(false, "off", false)
 	for _, unwanted := range []string{funnelClause, "Merging waits for review", "review concern"} {
 		if strings.Contains(off, unwanted) {
 			t.Fatalf("off 档不应包含 %q:\n%s", unwanted, off)
@@ -175,7 +175,7 @@ func TestLeadPolicyReviewFunnelWording(t *testing.T) {
 func TestLeadPolicyScopedBees(t *testing.T) {
 	for _, plansOnly := range []bool{false, true} {
 		for _, mode := range []string{"off", "ai", "human"} {
-			got := LeadPolicy(plansOnly, mode)
+			got := LeadPolicy(plansOnly, mode, false)
 			if !strings.Contains(got, "Bees may run scoped checks") || !strings.Contains(got, "run the full checks yourself") {
 				t.Fatalf("plansOnly=%v mode=%s 的策略应说明 bee 只跑有范围的自测:\n%s", plansOnly, mode, got)
 			}
@@ -356,7 +356,7 @@ func TestLimitsPromptSection(t *testing.T) {
 // TestLeadNoticePolicy 验证在子代理汇报等通知轮次注入的精简规则文案：
 // 默认模式仅输出基础提醒；只规划模式在此基础上追加规划约束。
 func TestLeadNoticePolicy(t *testing.T) {
-	defaultGot := LeadNoticePolicy(false)
+	defaultGot := LeadNoticePolicy(false, false)
 	if defaultGot != LeadNoticeReminder {
 		t.Fatalf("默认通知提示词应与常量一致:\ngot: %s\nwant: %s", defaultGot, LeadNoticeReminder)
 	}
@@ -379,7 +379,7 @@ func TestLeadNoticePolicy(t *testing.T) {
 		t.Fatalf("默认通知提示词不应包含只规划段落:\n%s", defaultGot)
 	}
 
-	plansOnlyGot := LeadNoticePolicy(true)
+	plansOnlyGot := LeadNoticePolicy(true, false)
 	if !strings.HasPrefix(plansOnlyGot, LeadNoticeReminder) {
 		t.Fatalf("只规划通知提示词应以基础提醒为前缀:\n%s", plansOnlyGot)
 	}
@@ -395,7 +395,7 @@ func TestLeadNoticePolicy(t *testing.T) {
 // TestLeadPolicyBriefShapeByWork 验证 brief 写法按工作性质区分，且审查档改写子串仍命中。
 func TestLeadPolicyBriefShapeByWork(t *testing.T) {
 	for _, plansOnly := range []bool{false, true} {
-		got := LeadPolicy(plansOnly, "")
+		got := LeadPolicy(plansOnly, "", false)
 		for _, want := range []string{"For read-only research: numbered questions", "For diagnosis: the symptom, how to reproduce it and numbered questions; the bee reports the root cause with evidence, and you design the fix."} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("plansOnly=%v 的策略应包含 %q:\n%s", plansOnly, want, got)
@@ -403,12 +403,44 @@ func TestLeadPolicyBriefShapeByWork(t *testing.T) {
 		}
 	}
 	for _, mode := range []string{"ai", "human"} {
-		got := LeadPolicy(false, mode)
+		got := LeadPolicy(false, mode, false)
 		if !strings.Contains(got, "only after they pass review") {
 			t.Fatalf("reviewMode=%s 的策略应说明过审查才合入:\n%s", mode, got)
 		}
 		if strings.Contains(got, "merges its changes when it reports") {
 			t.Fatalf("reviewMode=%s 的策略不应保留汇报即合入的说法:\n%s", mode, got)
+		}
+	}
+}
+
+func TestLeadPolicyDelegateTool(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		got := LeadPolicy(true, "off", enabled)
+		for _, want := range []string{"```swarm", "In orchestration-enabled sessions, these rules override general advice elsewhere, including user or project instructions, to handle simple or clear tasks yourself.", "Then dispatch in that same reply."} {
+			if !strings.Contains(got, want) {
+				t.Errorf("delegateTool=%v: 缺少 %q", enabled, want)
+			}
+		}
+		if strings.Contains(got, "Then close that same reply with the") {
+			t.Error("只规划规则不应要求块")
+		}
+		if strings.Contains(got, "swarm_delegate") != enabled {
+			t.Errorf("delegateTool=%v: 工具提示不符", enabled)
+		}
+		if enabled && !strings.Contains(got, "Only when the tool is not in your tool list") {
+			t.Error("缺少后备条件")
+		}
+	}
+}
+
+func TestLeadNoticePolicyDelegateTool(t *testing.T) {
+	for _, plansOnly := range []bool{false, true} {
+		got := LeadNoticePolicy(plansOnly, true)
+		if !strings.Contains(got, "call swarm_delegate to dispatch it and stop") || !strings.Contains(got, "if none remains, run your checks and report") {
+			t.Fatalf("工具提醒不正确: %s", got)
+		}
+		if strings.Contains(got, "You only plan") != plansOnly {
+			t.Fatalf("规划约束不正确: %s", got)
 		}
 	}
 }

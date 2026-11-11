@@ -1098,7 +1098,7 @@ func (t *swarmLeadPolicyTracker) Forget(threadID string) {
 // RenderSections 根据是否为通知轮次及静态文本是否有变，返回本次需渲染的 policy.Sections。
 // 非通知轮次或静态文本无记录/变化时返回完整 Sections 并更新记录；
 // 通知轮次且静态文本与最近一次完整注入一致时返回精简 Sections（SwarmLead 换为精简提醒，SwarmTiers 留空）。
-func (t *swarmLeadPolicyTracker) RenderSections(threadID string, isNotice bool, plansOnly bool, leadPolicy, tiers, limits string) policy.Sections {
+func (t *swarmLeadPolicyTracker) RenderSections(threadID string, isNotice bool, plansOnly bool, delegateTool bool, leadPolicy, tiers, limits string) policy.Sections {
 	current := swarmStaticPolicy{
 		lead:  leadPolicy,
 		tiers: tiers,
@@ -1110,7 +1110,7 @@ func (t *swarmLeadPolicyTracker) RenderSections(threadID string, isNotice bool, 
 	last, ok := t.last[threadID]
 	if isNotice && ok && last == current {
 		return policy.Sections{
-			SwarmLead:   swarm.LeadNoticePolicy(plansOnly),
+			SwarmLead:   swarm.LeadNoticePolicy(plansOnly, delegateTool),
 			SwarmTiers:  "",
 			SwarmLimits: limits,
 		}
@@ -1152,6 +1152,14 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 		thread, err := backend.GetThread(ctx, threadID)
 		return err == nil && thread.IsHelper
 	}
+
+	backend.SetSwarmLeadPlansOnlyFunc(func(threadID string) bool {
+		if !mgr.Settings().Enabled || !mgr.State(threadID).Enabled || effectiveMode(threadID) != swarm.ModeLeadPlansOnly || isBeeThread(threadID) {
+			return false
+		}
+		thread, err := backend.GetThread(ctx, threadID)
+		return err == nil && (thread.ParentThreadID == nil || *thread.ParentThreadID == "")
+	})
 
 	// canAutoDelegate 判断该会话是否允许自动委派：两个开关开启、会话启用、不是 bee，
 	// 且不处于 plan 模式（plan 回复只供审阅，不触发执行型子任务派发）。
@@ -1242,13 +1250,11 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 				// 轮次上限取 maxRounds()，与派发器实际执行的拦截口径一致。
 				// 若当前为通知 prompt 且静态文本未变，只注入带提醒语的精简版规则，避免重复发送 2-4K 字符。
 				plansOnly := effectiveMode(threadID) == swarm.ModeLeadPlansOnly
-				leadPolicy := swarm.LeadPolicy(plansOnly, mgr.Settings().ReviewMode)
-				if mgr.Settings().DelegateTool {
-					leadPolicy += "\n\n" + swarm.DelegateToolRule
-				}
+				delegateTool := mgr.Settings().DelegateTool
+				leadPolicy := swarm.LeadPolicy(plansOnly, mgr.Settings().ReviewMode, delegateTool)
 				tiers := swarm.TierPromptSection(mgr.Settings().Tiers, mgr.Settings().DefaultTier, mgr.TierPreview(threadID))
 				limits := swarm.LimitsPromptSection(mgr.RequestLimits(threadID, maxRounds()))
-				sections := tracker.RenderSections(threadID, swarm.IsNotice(prompt), plansOnly, leadPolicy, tiers, limits)
+				sections := tracker.RenderSections(threadID, swarm.IsNotice(prompt), plansOnly, delegateTool, leadPolicy, tiers, limits)
 				// 在跑 bee 清单同样每轮都带、同样不参与静态段去重：bee 的进度一直在变，
 				// 去重会让主代理看不到谁还在跑，从而把同一件事又派一遍。
 				state := mgr.State(threadID)

@@ -790,8 +790,8 @@ type OrchestrationConfig struct {
 	ArchivesCodexBees     bool        `json:"archives_codex_bees"`      // Codex 子会话完成后自动归档，默认 false
 	// AutoForwardQuestionSeconds 子线程提问超过该秒数无人回答时自动交给主线程，0 表示关闭，默认 180。
 	AutoForwardQuestionSeconds int `json:"auto_forward_question_seconds"`
-	// DelegateTool 开启后，主代理除 ```swarm 块外还能用 swarm_delegate 工具派发子代理，默认 false。
-	DelegateTool bool `json:"delegate_tool,omitempty"`
+	// DelegateTool 开启后，主代理除 ```swarm 块外还能用 swarm_delegate 工具派发子代理，默认 true。
+	DelegateTool bool `json:"delegate_tool"`
 	// Steward 总管配置。
 	Steward StewardConfig `json:"steward"`
 }
@@ -1333,7 +1333,7 @@ type StewardConfig struct {
 	HomeDir       string `json:"home_dir,omitempty"`       // 总管主目录，空表示数据目录下的 steward 子目录
 	TaskProvider  string `json:"task_provider,omitempty"`  // 总管下发任务使用的提供方，空表示跟随默认
 	TaskModel     string `json:"task_model,omitempty"`     // 总管下发任务使用的模型，空表示该提供方的默认模型
-	TaskSwarm     bool   `json:"task_swarm,omitempty"`     // 总管下发任务是否开启编排
+	TaskPairID    string `json:"task_pair_id,omitempty"`   // 总管下发任务使用的编排配对，非空即开启编排并忽略 TaskProvider/TaskModel
 	QuietStart    string `json:"quiet_start"`              // 安静时段开始，HH:MM 本地时间，空表示关闭
 	QuietEnd      string `json:"quiet_end"`                // 安静时段结束，HH:MM 本地时间，空表示关闭；可早于开始表示跨午夜
 
@@ -2273,6 +2273,7 @@ func Defaults() Config {
 			RetryFailed:                true,
 			AutoMerge:                  true,
 			LeadPlansOnly:              true,
+			DelegateTool:               true,
 			AutoClearFinished:          true,
 			AutoHidesIdleBees:          true,
 			AutoPopsBees:               true,
