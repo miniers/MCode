@@ -1,6 +1,16 @@
 // web/ 目前没有测试运行器（package.json 里没有 vitest/jest，scripts/check.sh 只跑 tsc --noEmit），
 // 所以这里不引入任何测试框架与 node 内置模块：断言失败直接抛 Error，接入运行器后本文件即可直接执行。
-import { approvalShortcut, pickActiveRequestId } from './RemoteRequestPanel';
+import { approvalShortcut, pickActiveRequestId, requestPanelMaxHeight } from './RemoteRequestPanel';
+
+for (const [keyboardOpen, expected] of [
+  [true, 'calc(var(--app-height, 100dvh) * 0.45)'],
+  [false, 'calc(var(--app-height, 100dvh) * 0.6)']
+] as const) {
+  const actual = requestPanelMaxHeight(keyboardOpen);
+  if (actual !== expected || actual.includes('%') || !actual.includes('var(--app-height')) {
+    throw new Error(`授权卡高度错误：期望 ${expected}，实际 ${actual}`);
+  }
+}
 
 interface PickCase {
   name: string;

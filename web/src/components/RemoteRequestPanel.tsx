@@ -28,6 +28,11 @@ const approvalKindLabels: Record<string, string> = {
   commit: '提交确认'
 };
 
+// 百分比会按包裹层（即卡片自身）的高度解析，不能用作视口高度限制。
+export function requestPanelMaxHeight(keyboardOpen: boolean): string {
+  return keyboardOpen ? 'calc(var(--app-height, 100dvh) * 0.45)' : 'calc(var(--app-height, 100dvh) * 0.6)';
+}
+
 function requestLabel(request: RemoteRequest): string {
   if (request.reason === 'credential') return '读取凭证';
   if (request.reason === 'controlPlane') return '改动 mcode 数据';
@@ -303,8 +308,8 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
     <>
       <section
         ref={scrollAreaRef}
-        className="shrink-0 overflow-y-auto overscroll-contain px-3 sm:px-4 py-2 space-y-3 z-10"
-        style={{ maxHeight: keyboardOpen ? 'min(38dvh, 35%)' : 'min(60dvh, 45%)' }}
+        className="overflow-y-auto overscroll-contain px-3 sm:px-4 py-2 space-y-3"
+        style={{ maxHeight: requestPanelMaxHeight(keyboardOpen) }}
         aria-label="待处理请求"
       >
       {requests.filter((request) => request.requestID === activeRequestID).map((request) => {
