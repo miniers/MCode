@@ -90,6 +90,7 @@ func renderChat(c *ui.Context, s *chatState) {
 		copy(messages, s.messages)
 	}
 	curUsage := s.threadUsage
+	curApprovals := slices.Clone(s.approvals)
 	var curResolvedPlans []resolvedPlan
 	if s.resolvedPlans != nil && selectedID != "" {
 		curResolvedPlans = slices.Clone(s.resolvedPlans[selectedID])
@@ -155,6 +156,7 @@ func renderChat(c *ui.Context, s *chatState) {
 	// 问答记录消息已经进来时，同一请求的内存记录不再交给时间线：卡片由消息渲染，
 	// 内存记录只在消息到达前用于即时显示，两者同时出现就是两张卡片。
 	curAnsweredQuestions = dropAnsweredQuestionsRecordedInMessages(curAnsweredQuestions, messages)
+	curResolvedPlans = dropResolvedPlansRecordedInMessages(curResolvedPlans, messages)
 
 	// 没有选中会话时：待创建会话（尚未在后端建会话）照常显示空会话与 composer，否则显示空状态提示。
 	if selectedID == "" {
@@ -204,6 +206,7 @@ func renderChat(c *ui.Context, s *chatState) {
 			// 聚合并组织时间线渲染项（连续工具调用合并为汇总组，并插入已裁决的计划历史态）；
 			// 拼装结果按会话/消息版本/展开状态/计划指纹缓存，静止时直接复用上一帧的那份。
 			timelineItems := s.assembledTimelineItemsWithQuestions(curResolvedPlans, curAnsweredQuestions)
+			timelineItems = attachPendingPlanItems(slices.Clone(timelineItems), curApprovals, selectedID)
 			// 回合已结束但仍有后台任务在跑时，在最后一条回复下方贴一条等待条：会话不是在空闲，
 			// 而是在等这些任务。放在会话总用量之前，让它紧贴最后一条回复。
 			if waitData := backgroundTasksFor(s, selectedID); shouldShowBackgroundWait(isRunning, waitData) {

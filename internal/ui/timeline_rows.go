@@ -740,6 +740,7 @@ const (
 	timelineItemSwarmCapsules // 子线程胶囊行：每个 Swarm 子线程一枚，内容每帧读当前状态
 	timelineItemSwarmDispatch // 派发占位行：派单块正在写、或已写完但子代理还没出现时占位，不可点击
 	timelineItemResolvedPlan
+	timelineItemPendingPlan
 	timelineItemAnsweredQuestion // 已答复提问的历史态卡片：提问卡片消灭后在时间线里留一条问答记录
 	timelineItemRunning
 	timelineItemSessionUsage
@@ -998,6 +999,17 @@ func buildTimelineItemsFiltered(messages []Message, exp map[string]bool, liveGro
 				turnIndex:  run[0].TurnIndex,
 				msgIndex:   start,
 			})
+			continue
+		}
+
+		if isPlanDecisionMessage(m) {
+			if plan, ok := parsePlanDecisionMessage(m); ok {
+				items = append(items, timelineItem{kind: timelineItemResolvedPlan, msg: m,
+					id: "resolved-plan-" + plan.ID, turnIndex: m.TurnIndex,
+					resolvedPlan: plan, finishedAt: messageFinishedAt(m), msgIndex: i})
+			}
+			// 无效记录也不显示协议 JSON。
+			i++
 			continue
 		}
 
@@ -1616,6 +1628,8 @@ func resolvedPlansKey(plans []resolvedPlan) string {
 			b.WriteByte('-')
 		}
 		b.WriteString(strconv.Itoa(p.TurnIndex))
+		b.WriteString(strconv.Quote(p.Plan))
+		b.WriteString(strconv.Quote(p.Feedback))
 		b.WriteByte(';')
 	}
 	return b.String()
@@ -1914,6 +1928,8 @@ func renderTimelineItem(c *ui.Context, s *chatState, item timelineItem, liveID, 
 					renderSwarmTimelineCapsules(c, s, item.id, capsuleLeadID, capsuleBees)
 				case timelineItemSwarmDispatch:
 					renderSwarmDispatchPlaceholder(c, item.id, dispatchView)
+				case timelineItemPendingPlan:
+					renderTimelinePlanCard(c, s, item.resolvedPlan, true)
 				case timelineItemResolvedPlan:
 					renderResolvedPlanCard(c, s, item.resolvedPlan)
 				case timelineItemAnsweredQuestion:
@@ -2192,9 +2208,12 @@ func renderSessionUsageRow(c *ui.Context, s *chatState, threadID, key string) {
 		})
 }
 
-// renderResolvedPlanCard 渲染已裁决的计划静态历史态卡片：标头为绿色药丸 Approved 或灰色药丸 Dismissed。
-// 默认折叠，只露一行头部；展开后整篇 Markdown 铺开。
+// renderResolvedPlanCard 默认只显示一行，整行点击展开计划。
 func renderResolvedPlanCard(c *ui.Context, s *chatState, plan resolvedPlan) {
+	renderTimelinePlanCard(c, s, plan, false)
+}
+
+func renderTimelinePlanCard(c *ui.Context, s *chatState, plan resolvedPlan, pending bool) {
 	id := plan.ID
 	if id == "" {
 		id = fmt.Sprintf("plan-%d", plan.Time.UnixNano())
@@ -2202,67 +2221,56 @@ func renderResolvedPlanCard(c *ui.Context, s *chatState, plan resolvedPlan) {
 	s.mu.Lock()
 	collapsed, known := s.collapsedPlans[id]
 	if !known {
-		// 未记录折叠状态的历史条目（例如从旧版本恢复的）默认折叠。
 		collapsed = true
 	}
 	s.mu.Unlock()
-
-	accent := ThemeAccent(c)
-	statusText := "Approved"
-	statusBg := ThemeSuccess(c).Alpha(0.15)
-	statusFg := ThemeSuccess(c)
-	if !plan.Approved {
-		statusText = "Dismissed"
-		statusBg = ThemeSecondaryText(c).Alpha(0.15)
-		statusFg = ThemeSecondaryText(c)
+	key := "resolved-plan-" + id
+	if pending {
+		key = pendingPlanCardID(id)
+		collapsed = false
 	}
-
-	ui.Column(c.Key("resolved-plan-"+id)).
-		Radius(RadiusXL).
-		Background(ThemeSurface(c)).
-		Border(1, ThemeBorder(c)).
-		Padding(Space5).
-		Gap(Space4).
-		Children(func() {
-			ui.Row(c.Key("resolved-plan-header-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconClipboardList()).Size(14, 14).TextColor(accent)
-				ui.Text(c, "Plan").Bold().FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c))
-				ui.Row(c.Key("resolved-plan-pill-"+id)).Padding(Space0, Space3).Radius(RadiusLG).Background(statusBg).Children(func() {
-					ui.Text(c, statusText).FontSize(scaledFont(TypeCaption)).Bold().TextColor(statusFg)
-				})
-				ui.Spacer(c)
-				if plan.Plan != "" {
-					renderPlanCopyButton(c, "resolved-plan-copy-"+id, plan.Plan)
-					btnText := "折叠"
-					if collapsed {
-						btnText = "展开"
-					}
-					ui.ButtonBase(c.Key("resolved-plan-toggle-"+id)).
-						Label(btnText).
-						Tooltip(btnText).
-						Padding(Space0, Space2).
-						Radius(RadiusXS).
-						Background(ThemeHover(c)).
-						OnClick(func() {
-							s.mu.Lock()
-							if s.collapsedPlans == nil {
-								s.collapsedPlans = make(map[string]bool)
-							}
-							s.collapsedPlans[id] = !collapsed
-							s.mu.Unlock()
-							s.holdChatPlace()
-							s.invalidate()
-						}).
-						Children(func() {
-							ui.Text(c, btnText).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-						})
+	ui.Column(c.Key(key)).Radius(RadiusXL).Background(ThemeSurface(c)).
+		Border(Hairline, ThemeBorder(c)).Padding(Space4).Gap(Space3).
+		MaxWidth(timelineContentMaxWidth(s)).Children(func() {
+		header := ui.Row(c.Key(key + "-header")).Gap(Space3).AlignItems(ui.Center).FillWidth()
+		if !pending {
+			header.Cursor(ui.CursorPointer).OnClick(func() {
+				s.mu.Lock()
+				if s.collapsedPlans == nil {
+					s.collapsedPlans = make(map[string]bool)
+				}
+				s.collapsedPlans[id] = !collapsed
+				s.mu.Unlock()
+				s.holdChatPlace()
+				s.invalidate()
+			})
+		}
+		header.Children(func() {
+			ui.Icon(c, IconClipboardList()).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+			if !pending {
+				status := "计划 · 已驳回"
+				if plan.Approved {
+					status = "计划 · 已批准"
+				}
+				ui.Text(c, status).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c)).Shrink(0)
+			}
+			ui.Text(c, planTitle(plan.Plan)).Bold().FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).MaxLines(1).Shrink(1)
+			ui.Spacer(c)
+			renderPlanCopyButton(c, key+"-copy", plan.Plan)
+		})
+		if !collapsed {
+			ui.Column(c.Key(key + "-body")).FillWidth().Gap(Space3).
+				Transition(motionCollapse(c)).
+				ContextMenu(messageContextMenu(c, s, Message{Role: "assistant", Text: plan.Plan})).Children(func() {
+				renderPlanMarkdown(c, s, key+"-markdown", plan.Plan, 0)
+				if !pending && !plan.Approved && plan.Feedback != "" {
+					ui.Row(c.Key(key+"-feedback")).BorderLeft(Space1, ThemeBorder(c)).Padding(0, Space3).Children(func() {
+						ui.Text(c, plan.Feedback).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c)).Selectable()
+					})
 				}
 			})
-
-			if !collapsed {
-				renderPlanMarkdown(c, s, "resolved-plan-body-"+id, plan.Plan, 0)
-			}
-		})
+		}
+	})
 }
 
 // continuationStartPrefixes 是转发会话（Continued）与分支会话（Branch）标题的前缀及对应的来源提示语。

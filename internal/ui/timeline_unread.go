@@ -21,7 +21,7 @@ type timelineUnreadState struct {
 // unreadCountedMessage 判断消息是否计入未读条数：用户消息与助手正文各计 1 条，
 // 工具调用、思考过程、系统消息（含问答记录）不计。
 func unreadCountedMessage(m Message) bool {
-	if isQuestionAnswerMessage(m) {
+	if isQuestionAnswerMessage(m) || isPlanDecisionMessage(m) {
 		// 问答记录是用户自己刚答过的提问，不产生新消息提示。
 		return false
 	}

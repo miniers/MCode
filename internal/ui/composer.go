@@ -419,8 +419,71 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 	return false
 }
 
+// planFeedbackTarget 仅在当前会话的全部待办都是计划时，将发送改为驳回并附意见。
+func planFeedbackTarget(approvals []Approval, threadID string) (Approval, bool) {
+	var target Approval
+	for _, a := range approvals {
+		if a.ThreadID != "" && a.ThreadID != threadID {
+			continue
+		}
+		if a.Kind != ApprovalKindPlan {
+			return Approval{}, false
+		}
+		if target.RequestID == "" {
+			target = a
+		}
+	}
+	return target, target.RequestID != ""
+}
+
+func composerApprovalDisabled(hasPending bool, approvals []Approval, threadID string) bool {
+	if _, ok := planFeedbackTarget(approvals, threadID); ok {
+		return false
+	}
+	if hasPending {
+		return true
+	}
+	for _, a := range approvals {
+		if a.ThreadID == "" || a.ThreadID == threadID {
+			return true
+		}
+	}
+	return false
+}
+
+// sendPlanFeedback 返回 true 表示发送由计划审批接管，空草稿与在途裁决不做操作。
+func (s *chatState) sendPlanFeedback(threadID, text string) bool {
+	s.mu.Lock()
+	a, ok := planFeedbackTarget(s.approvals, threadID)
+	s.mu.Unlock()
+	if !ok {
+		return false
+	}
+	if strings.TrimSpace(text) != "" {
+		s.declinePlan(a, text)
+	}
+	return true
+}
+
+func (s *chatState) declinePlanDraft(a Approval, requireFeedback bool) {
+	s.mu.Lock()
+	text := s.draft
+	s.mu.Unlock()
+	if requireFeedback && strings.TrimSpace(text) == "" {
+		return
+	}
+	s.declinePlan(a, text)
+}
+
+func (s *chatState) declinePlan(a Approval, text string) {
+	s.respondAnswers(a, findApprovalOption(a, "decline"), planDeclineAnswers(text), false)
+}
+
 // sendDraft 发送草稿前优先拦截并本地执行斜杠命令。
 func (s *chatState) sendDraft(threadID, text string) bool {
+	if s.sendPlanFeedback(threadID, text) {
+		return true
+	}
 	if s.runLocalSlashCommand(threadID, text) {
 		return true
 	}
@@ -561,12 +624,11 @@ func renderComposer(c *ui.Context, s *chatState) {
 			pendingActive = true
 		}
 	}
-	// 有待处理审批（th.HasPendingRequest 或 len(s.approvals)>0）时无论是否运行都保持禁用输入框。
-	// 这是 ⌘Return 不冲突的前提：禁用状态下输入框不占用焦点（s.composerFocused 为 false），
-	// 窗口级快捷键 ⌘Return 才能直接批准待处理审批。
-	if (currentThread != nil && currentThread.HasPendingRequest) || len(s.approvals) > 0 {
+	_, planFeedbackMode := planFeedbackTarget(s.approvals, currentThreadID)
+	if composerApprovalDisabled(currentThread != nil && currentThread.HasPendingRequest, s.approvals, currentThreadID) {
 		disabledReason = "存在待处理的审批请求"
 	}
+	planResponding := s.respondingApproval > 0
 	var queueItems []QueuedFollowUp
 	if currentThreadID != "" && s.queue != nil {
 		queueItems = append([]QueuedFollowUp(nil), s.queue[currentThreadID]...)
@@ -660,6 +722,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 	// 发送键由设置决定：默认 Enter 发送，也可切成 Shift+Enter 发送。
 	sendKey := s.composerSendKey()
 	sendState := runningSendDraftState(isRunning, hasContent, canContinue, s.queueWhileRunningEnabled(), s.insertIntoRunningTurnEnabled(), isEditingQueued)
+	if planFeedbackMode {
+		sendState = sendStateSend
+	}
 	if isSteward && sendState == sendStateStop {
 		sendState = sendStateSend
 	}
@@ -667,7 +732,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 	// 这里按「有内容」再算一次，让运行中的占位符说明按下 Enter 后实际会执行的动作。
 	runningPlaceholderState := runningSendDraftState(isRunning, true, canContinue, s.queueWhileRunningEnabled(), s.insertIntoRunningTurnEnabled(), isEditingQueued)
 
-	isSendingDisabled := disabledReason != "" || sending || (currentThreadID == "" && !pendingActive) || prefsSaving
+	isSendingDisabled := disabledReason != "" || sending || (currentThreadID == "" && !pendingActive) || prefsSaving || (planFeedbackMode && planResponding)
 	interactionMode := "build"
 	if currentThread != nil {
 		interactionMode = normalizeInteractionMode(currentThread.InteractionMode)
@@ -812,6 +877,10 @@ func renderComposer(c *ui.Context, s *chatState) {
 						// 审批禁用、编辑排队消息等提示各有更重要的信息，保持原样。
 						waitingBackground := !isRunning && !isEditingQueued && disabledReason == "" &&
 							!backgroundTasksFor(s, currentThreadID).empty()
+						placeholder := composerWaitingPlaceholder(composerPlaceholder(interactionMode, isRunning, runningPlaceholderState, disabledReason, sendKey), waitingBackground)
+						if planFeedbackMode {
+							placeholder = "写修改意见…"
+						}
 						// 文字区使用统一内距，达到卡片上限后由输入框内部滚动。
 						in := ui.TextArea(c.Key("composer-textarea"), &s.draft).
 							Lines(1, int(textMaxHeight)).
@@ -819,7 +888,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 							LineHeight(1.3).
 							MinHeight(composerTextMinHeight).
 							MaxHeight(textMaxHeight).
-							Placeholder(composerWaitingPlaceholder(composerPlaceholder(interactionMode, isRunning, runningPlaceholderState, disabledReason, sendKey), waitingBackground)).
+							Placeholder(placeholder).
 							TextColor(ThemePrimaryText(c)).
 							Background(ui.Transparent).
 							BorderWidth(0).
@@ -971,6 +1040,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 								if s.isComposing {
 									return false
 								}
+								if planFeedbackMode {
+									return true
+								}
 								text := strings.TrimSpace(k.Text())
 
 								s.mu.Lock()
@@ -1017,7 +1089,17 @@ func renderComposer(c *ui.Context, s *chatState) {
 								if s.isComposing {
 									return false
 								}
-								text := strings.TrimSpace(k.Text())
+								text := k.Text()
+								if s.sendPlanFeedback(currentThreadID, text) {
+									s.mu.Lock()
+									cleared := s.draft == ""
+									s.mu.Unlock()
+									if cleared {
+										k.SetText("")
+									}
+									return true
+								}
+								text = strings.TrimSpace(text)
 
 								// 正在编辑排队项时按 Return 保存修改
 								if s.editingQueuedID() != "" {
@@ -1190,11 +1272,18 @@ func renderComposer(c *ui.Context, s *chatState) {
 						default: // sendStateSend
 							trimmed := strings.TrimSpace(s.draft)
 							canSend := (trimmed != "" || hasUploadedAttachment) && !hasUploadingAttachment && !isSendingDisabled && !s.isComposing
+							if planFeedbackMode {
+								canSend = trimmed != "" && !isSendingDisabled && !s.isComposing
+							}
 							sendBtnLabel = "发送"
 							sendBtnTooltip = "发送"
 							sendBtnDisabled = !canSend
 							sendBtnAction = func() {
-								text := strings.TrimSpace(s.draft)
+								text := s.draft
+								if s.sendPlanFeedback(currentThreadID, text) {
+									return
+								}
+								text = strings.TrimSpace(text)
 								if (text != "" || hasUploadedAttachment) && !hasUploadingAttachment && !isSendingDisabled {
 									s.sendDraft(currentThreadID, text)
 								}

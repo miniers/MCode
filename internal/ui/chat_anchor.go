@@ -287,6 +287,24 @@ func (s *chatState) syncChatAnchorLocked(selectedThreadID string, enabled bool) 
 		// 切了会话：上一个会话的锚定直接作废。
 		*a = chatAnchor{threadID: selectedThreadID}
 	}
+	// 计划沿用同一套垫高、贴顶和 ReduceMotion 逻辑，避免与发送锚定同时争夺滚动。
+	for _, approval := range s.approvals {
+		if approval.Kind != ApprovalKindPlan || approval.RequestID == "" ||
+			(approval.ThreadID != "" && approval.ThreadID != selectedThreadID) {
+			continue
+		}
+		key := pendingPlanCardID(approval.RequestID)
+		if s.planAnchorSeen == nil {
+			s.planAnchorSeen = make(map[string]bool)
+		}
+		if !s.planAnchorSeen[approval.RequestID] {
+			s.planAnchorSeen[approval.RequestID] = true
+			*a = chatAnchor{threadID: selectedThreadID, messageID: key, row: -1, holding: true}
+		}
+		if a.messageID == key {
+			return a.holding
+		}
+	}
 	if !enabled {
 		// 关掉开关：撤掉锚定并吞掉发送窗口，把 messageID 推进到最新一条用户消息，
 		// 这样重新打开开关也不会把已经发出去的旧消息补锚定到顶部。

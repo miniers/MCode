@@ -110,6 +110,12 @@ func threadExportMediaLabel(media MessageMedia) string {
 
 // threadExportMessageSection 渲染单条消息的小节（标题、正文、附件列表）。
 func threadExportMessageSection(m Message) string {
+	if isPlanDecisionMessage(m) {
+		if plan, ok := parsePlanDecisionMessage(m); ok {
+			return resolvedPlanExport(plan)
+		}
+		return ""
+	}
 	parts := []string{threadExportRoleHeading(m.Role)}
 	if m.Text != "" {
 		if threadExportShouldCollapse(m) {
@@ -235,6 +241,9 @@ func threadExportIsReasoning(m Message) bool {
 // 用户与助手的正文在任何等级都保留原文，只有工具 / 推理类内容递归降级。
 // 返回空串表示这条消息在该等级下被整条丢弃。
 func threadExportMessageSectionAt(m Message, level int) string {
+	if isPlanDecisionMessage(m) {
+		return threadExportMessageSection(m)
+	}
 	if level <= 0 || !threadExportShouldCollapse(m) || m.Text == "" {
 		return threadExportMessageSection(m)
 	}

@@ -36,18 +36,13 @@ func findApprovalOption(approval Approval, role string) string {
 	return ""
 }
 
-// cmdReturnApprovalTarget 返回 ⌘Return 应批准的审批请求。
-// 判定规则：仅当未在答复中（responding=false）、composer 输入框未聚焦（composerFocused=false），
-// 且列表中存在 Kind 不是 question 的待处理审批时返回第一个这样的审批与 true；计划也算可批准。
-// 原因：P0-06 让 composer 聚焦时的 ⌘Return 用于消息入队，而 MyGo 中窗口级快捷键一旦注册，
-// 聚焦输入框的 OnTextKey 就收不到 ⌘Return，所以 composer 聚焦时必须不注册，避免两者冲突；
-// 提问需要先选答案，不能一键批准。
+// cmdReturnApprovalTarget 在输入框聚焦时也允许批准计划，其它审批沿用原有规则。
 func cmdReturnApprovalTarget(approvals []Approval, responding, composerFocused bool) (Approval, bool) {
-	if responding || composerFocused {
+	if responding {
 		return Approval{}, false
 	}
 	for _, a := range approvals {
-		if a.Kind != ApprovalKindQuestion {
+		if a.Kind != ApprovalKindQuestion && (!composerFocused || a.Kind == ApprovalKindPlan) {
 			return a, true
 		}
 	}
@@ -119,7 +114,7 @@ func approvalShortcutAction(
 		return ApprovalShortcutAction{Kind: ApprovalActionDecline, OptionID: declineOpt}
 
 	case key == ui.KeyEnter:
-		if isTextInputBusy {
+		if isTextInputBusy || target.Kind == ApprovalKindPlan {
 			return ApprovalShortcutAction{}
 		}
 		if target.Kind == ApprovalKindQuestion {
@@ -138,7 +133,7 @@ func approvalShortcutAction(
 		return ApprovalShortcutAction{}
 
 	case key >= ui.Key1 && key <= ui.Key9:
-		if isTextInputBusy {
+		if isTextInputBusy || target.Kind == ApprovalKindPlan {
 			return ApprovalShortcutAction{}
 		}
 		idx := int(key - ui.Key1)
@@ -445,7 +440,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 		}
 
 		// Enter 键
-		if c.Shortcut(0, ui.KeyEnter) {
+		if top.Kind != ApprovalKindPlan && c.Shortcut(0, ui.KeyEnter) {
 			action := approvalShortcutAction(top, ui.KeyEnter, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, questionHasNext, curChoicesCount)
 			switch action.Kind {
 			case ApprovalActionNext:
@@ -477,6 +472,8 @@ func renderApproval(c *ui.Context, s *chatState) {
 			case ApprovalActionDecline:
 				if top.Kind == ApprovalKindQuestion {
 					s.respondAnswers(top, "", nil, true)
+				} else if top.Kind == ApprovalKindPlan {
+					s.declinePlanDraft(top, false)
 				} else {
 					if action.OptionID != "" {
 						if target, ok := pendingApprovalByID(s, top.RequestID); ok {
@@ -869,83 +866,27 @@ func renderApprovalButton(c *ui.Context, key, label, tooltip string, primary, di
 
 // renderPlanCopyButton 渲染计划复制按钮。
 func renderPlanCopyButton(c *ui.Context, key, planText string) {
-	CopyButton(c, CopyButtonProps{Key: key, Label: "复制计划", Tooltip: "复制计划", Text: "复制", Value: func() string { return planText }})
+	CopyButton(c, CopyButtonProps{Key: key, Label: "复制", Tooltip: "复制", Text: "复制", Value: func() string { return planText }})
 }
 
-// renderPlanCard 渲染计划卡：Markdown 正文在限高滚动区里就地阅读，底部为“驳回 / 批准计划”。
+// renderPlanCard 只提供裁决操作，正文在时间线中阅读。
 func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding bool) {
 	id := approval.RequestID
-	s.mu.Lock()
-	draft := s.planDraftFor(id)
-	declining := draft.declining
-	s.mu.Unlock()
-
-	_, winH := c.Size()
-	accent := ThemeAccent(c)
-	ui.Column(c.Key("approval-"+id)).
-		Radius(RadiusLG).
-		Background(accent.Alpha(0.06).Over(ThemeSurface(c))).
-		Border(Hairline, accent.Alpha(0.25)).
-		Padding(Space5).
-		Gap(Space3).
-		Children(func() {
-			// 头部：图标、标题、“待实施”状态胶囊与复制按钮
-			ui.Row(c.Key("approval-header-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconClipboardList()).Size(IconMD, IconMD).TextColor(accent)
-				ui.Text(c, approvalCardTitle(approval)).Bold().FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c)).Selectable()
-				ui.Spacer(c)
-				ui.Row(c.Key("plan-status-"+id)).Padding(Space0, Space3).Radius(RadiusMD).Background(accent.Alpha(0.15)).Children(func() {
-					ui.Text(c, "待实施").FontSize(uiFont(TypeCaption)).Bold().TextColor(accent)
-				})
-				renderPlanCopyButton(c, "plan-copy-"+id, approval.Detail)
-			})
-
-			renderPlanMarkdown(c, s, "plan-body-"+id, approval.Detail, max(planBodyMinHeight, winH*planBodyHeightRatio))
-			renderApprovalReason(c, approval)
-
-			if declining {
-				ui.TextArea(c.Key("plan-feedback-"+id), &draft.feedback).
-					Lines(2, 5).
-					FontSize(uiFont(TypeBody)).
-					LineHeight(1.3).
-					Placeholder("驳回理由（可选），将反馈给 Agent").
-					AutoFocus().
-					Padding(Space3, Space3).
-					Radius(RadiusMD).
-					Background(ThemeSurface(c)).
-					Border(Hairline, ThemeBorder(c))
-			}
-
-			ui.Row(c.Key("plan-actions-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				ui.Spacer(c)
-				if declining {
-					renderApprovalButton(c, "plan-cancel-"+id, "取消", "取消驳回 (Esc)", false, responding, func() {
-						s.mu.Lock()
-						draft.declining = false
-						s.mu.Unlock()
-						s.invalidate()
-					})
-					renderApprovalButton(c, "plan-confirm-decline-"+id, "确认驳回", "确认驳回", true, responding, func() {
-						s.mu.Lock()
-						answers := planDeclineAnswers(draft.feedback)
-						s.mu.Unlock()
-						s.respondAnswers(approval, findApprovalOption(approval, "decline"), answers, false)
-					})
-					return
-				}
-				renderApprovalButton(c, "plan-decline-"+id, "驳回", "驳回计划 (Esc)", false, responding, func() {
-					s.mu.Lock()
-					draft.declining = true
-					s.mu.Unlock()
-					s.invalidate()
-				})
-				renderApprovalButton(c, "plan-approve-"+id, "批准计划", "批准 (⌘↩ / ↩)", true, responding, func() {
-					if optID := findApprovalOption(approval, "approve"); optID != "" {
-						s.respondApproval(approval, optID)
-					}
-				})
-			})
+	ui.Row(c.Key("approval-"+id)).Radius(RadiusLG).
+		Background(ThemeSurface(c)).Border(Hairline, ThemeBorder(c)).
+		Padding(Space3).Gap(Space3).AlignItems(ui.Center).Children(func() {
+		ui.Icon(c, IconClipboardList()).Size(IconMD, IconMD).TextColor(ThemeAccent(c))
+		ui.Text(c, planTitle(approval.Detail)).Bold().FontSize(uiFont(TypeBody)).MaxLines(1).Shrink(1)
+		ui.Spacer(c)
+		renderApprovalButton(c, "plan-decline-"+id, "驳回", "驳回 (Esc)", false, responding, func() {
+			s.declinePlanDraft(approval, false)
 		})
+		renderApprovalButton(c, "plan-approve-"+id, "批准计划", "批准计划 (⌘↩)", true, responding, func() {
+			if optID := findApprovalOption(approval, "approve"); optID != "" {
+				s.respondApproval(approval, optID)
+			}
+		})
+	})
 }
 
 // renderQuestionCard 渲染提问卡片：分题显示单选/多选/填空，底部为未答计数、跳过与提交。

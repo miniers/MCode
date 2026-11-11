@@ -728,9 +728,9 @@ func planApproval() Approval {
 
 func TestPlanCardApprove(t *testing.T) {
 	fake, tt := newApprovalTester(t, []Approval{planApproval()})
-	// 计划卡：状态胶囊、Markdown 正文与底部按钮都应同屏可见。
+	// 操作条与时间线正文同时存在。
 	waitFor(t, tt, func() bool {
-		return tt.HasText("待实施") && tt.HasText("整体思路") && tt.HasText("预计跑通全部 UI 测试。") &&
+		return tt.HasText("整体思路") && !tt.HasText("待实施") &&
 			tt.HasText("驳回") && tt.HasText("批准计划") && !tt.HasText("阅读全文")
 	})
 	if err := tt.Click("批准计划"); err != nil {
@@ -745,14 +745,13 @@ func TestPlanCardDeclineWithFeedback(t *testing.T) {
 	}
 	fake, tt := newApprovalTester(t, []Approval{planApproval()})
 	waitFor(t, tt, func() bool { return tt.HasText("驳回") })
-	if err := tt.Click("驳回"); err != nil {
-		t.Fatalf("click '驳回' failed: %v", err)
+	if err := tt.Click("写修改意见…"); err != nil {
+		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("确认驳回") })
 	tt.Type("请补充测试")
 	tt.Frame()
-	if err := tt.Click("确认驳回"); err != nil {
-		t.Fatalf("click '确认驳回' failed: %v", err)
+	if err := tt.Click("驳回"); err != nil {
+		t.Fatal(err)
 	}
 	want := map[string][]string{"feedback": {"请补充测试"}}
 	waitFor(t, tt, func() bool {

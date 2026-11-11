@@ -356,12 +356,12 @@ type chatState struct {
 	watchSeq             uint64
 	respondingApproval   int                           // 在途审批响应数，归零才解锁批量/单卡按钮
 	questionDrafts       map[string]*questionDraft     // 提问卡片草稿，以 RequestID 为键
-	planDrafts           map[string]*planDraft         // 计划卡片驳回草稿，以 RequestID 为键
 	composerFocused      bool                          // composer 输入框是否聚焦，由 composer 渲染时写入，供 ⌘Return 判定
 	composerFocusRequest bool                          // 下一帧主动给 composer 输入框要一次焦点（待创建会话页用）
 	questionOtherFocused bool                          // 提问卡片“其他”文本框是否聚焦
 	resolvedPlans        map[string][]resolvedPlan     // 按 threadID 记录已裁决的计划历史态
 	answeredQuestions    map[string][]answeredQuestion // 按 threadID 记录已回答的提问历史态
+	planAnchorSeen       map[string]bool               // 同一请求只定位一次
 	collapsedPlans       map[string]bool               // 计划历史态卡片正文折叠状态（key 为 resolvedPlan.ID）
 	stopping             bool
 	stoppingSince        time.Time // 进入停止态的时刻，用于兜底超时判定
@@ -2287,7 +2287,8 @@ func (s *chatState) threadTitleByID(id string) string {
 // resolvedPlan 记录已完成审批（批准或驳回）的计划历史态。
 type resolvedPlan struct {
 	ID        string    // 审批请求 ID
-	Plan      string    // Plan 正文
+	Plan      string    // 计划正文
+	Feedback  string    // 驳回意见原文
 	Approved  bool      // true 表示 Approved，false 表示 Dismissed
 	Time      time.Time // 裁决时间
 	TurnIndex int       // 所属 turn 序号
@@ -2295,7 +2296,8 @@ type resolvedPlan struct {
 }
 
 // recordResolvedPlan 在内存中记录已批准或驳回的计划历史态；需在持锁状态下调用。
-func (s *chatState) recordResolvedPlan(a Approval, approved bool) {
+func (s *chatState) recordResolvedPlan(a Approval, approved bool, feedback ...string) {
+	comment := strings.Join(feedback, "\n")
 	threadID := a.ThreadID
 	if threadID == "" {
 		threadID = s.selectedThreadID
@@ -2320,16 +2322,14 @@ func (s *chatState) recordResolvedPlan(a Approval, approved bool) {
 	if s.resolvedPlans == nil {
 		s.resolvedPlans = make(map[string][]resolvedPlan)
 	}
-	planText := strings.TrimSpace(a.Detail)
 	for i, rp := range s.resolvedPlans[threadID] {
-		// 同一会话内 RequestID 相同、或计划正文相同都视为同一条：同一份计划被重复裁决时
-		// 只更新已有条目（保留它的 ID 与折叠状态），不追加第二张 Approved 卡。
+		// 只按请求去重，相同正文的新版计划仍须保留独立裁决。
 		sameID := rp.ID != "" && rp.ID == a.RequestID
-		samePlan := planText != "" && strings.TrimSpace(rp.Plan) == planText
-		if !sameID && !samePlan {
+		if !sameID {
 			continue
 		}
 		s.resolvedPlans[threadID][i].Approved = approved
+		s.resolvedPlans[threadID][i].Feedback = comment
 		s.resolvedPlans[threadID][i].Time = time.Now()
 		if s.resolvedPlans[threadID][i].ID == "" {
 			s.resolvedPlans[threadID][i].ID = a.RequestID
@@ -2349,6 +2349,7 @@ func (s *chatState) recordResolvedPlan(a Approval, approved bool) {
 		ID:        newID,
 		Plan:      a.Detail,
 		Approved:  approved,
+		Feedback:  comment,
 		Time:      time.Now(),
 		TurnIndex: turnIndex,
 		TurnID:    a.TurnID,
@@ -2460,6 +2461,21 @@ func (s *chatState) respondApproval(a Approval, optionID string) {
 // respondAnswers 在后台 goroutine 中携带答案响应提问或计划驳回。
 func (s *chatState) respondAnswers(a Approval, optionID string, answers map[string][]string, skip bool) {
 	s.mu.Lock()
+	if a.Kind == ApprovalKindPlan {
+		pending := false
+		for _, current := range s.approvals {
+			if current.RequestID == a.RequestID {
+				pending = true
+				break
+			}
+		}
+		if !pending || s.respondingApproval > 0 {
+			s.mu.Unlock()
+			return
+		}
+		// 只清正文，附件、粘贴卡片与会话引用仍留在输入框。
+		s.draft = ""
+	}
 	s.respondingApproval++
 	s.mu.Unlock()
 	s.invalidate()
@@ -2474,7 +2490,7 @@ func (s *chatState) respondAnswers(a Approval, optionID string, answers map[stri
 			if isApprovalAlreadyHandledErr(err) {
 				s.removeApprovalLocked(a.RequestID)
 				if a.Kind == ApprovalKindPlan {
-					s.recordResolvedPlan(a, false)
+					s.recordResolvedPlan(a, false, answers["feedback"]...)
 				}
 				s.recordAnsweredQuestion(a, answers, skip)
 			} else {
@@ -2483,7 +2499,7 @@ func (s *chatState) respondAnswers(a Approval, optionID string, answers map[stri
 		} else {
 			s.removeApprovalLocked(a.RequestID)
 			if a.Kind == ApprovalKindPlan {
-				s.recordResolvedPlan(a, false)
+				s.recordResolvedPlan(a, false, answers["feedback"]...)
 			}
 			s.recordAnsweredQuestion(a, answers, skip)
 		}
@@ -2499,12 +2515,6 @@ type questionDraft struct {
 	current  int
 }
 
-// planDraft 记录计划卡片的驳回反馈文本与驳回输入框是否展开。
-type planDraft struct {
-	feedback  string
-	declining bool
-}
-
 // questionDraftFor 返回指定提问请求的草稿，首次访问时按 recommended 预选初始化；调用方需持有 s.mu。
 func (s *chatState) questionDraftFor(a Approval) *questionDraft {
 	if s.questionDrafts == nil {
@@ -2518,19 +2528,6 @@ func (s *chatState) questionDraftFor(a Approval) *questionDraft {
 	return d
 }
 
-// planDraftFor 返回指定计划请求的驳回草稿；调用方需持有 s.mu。
-func (s *chatState) planDraftFor(requestID string) *planDraft {
-	if s.planDrafts == nil {
-		s.planDrafts = make(map[string]*planDraft)
-	}
-	d := s.planDrafts[requestID]
-	if d == nil {
-		d = &planDraft{}
-		s.planDrafts[requestID] = d
-	}
-	return d
-}
-
 // pruneApprovalDraftsLocked 清掉审批列表中已不存在的请求对应的卡片草稿；调用方需持有 s.mu。
 func (s *chatState) pruneApprovalDraftsLocked() {
 	alive := make(map[string]bool, len(s.approvals))
@@ -2540,11 +2537,6 @@ func (s *chatState) pruneApprovalDraftsLocked() {
 	for id := range s.questionDrafts {
 		if !alive[id] {
 			delete(s.questionDrafts, id)
-		}
-	}
-	for id := range s.planDrafts {
-		if !alive[id] {
-			delete(s.planDrafts, id)
 		}
 	}
 }
