@@ -2759,9 +2759,9 @@ export type ScriptsSetFavoriteResponse = {
   id: JSONRPCId;
 };
 
-export type JSONRPCBatchRequest = Array<SessionPairRequest | SessionAuthenticateRequest | SessionNewPairingCodeRequest | SessionRevokeDeviceRequest | SessionRenameDeviceRequest | KanbanGetBoardRequest | KanbanCreateTaskRequest | KanbanMoveTaskRequest | KanbanStartTaskRequest | KanbanReviewTaskRequest | GoalCreateRequest | GoalStartRequest | GoalPauseRequest | GoalCancelRequest | GoalReplanRequest | GoalRetryTaskRequest | GoalSkipTaskRequest | KanbanGetDiffRequest | RemoteThreadsCreateRequest | RemoteProvidersListRequest | RemoteProvidersRememberSelectionRequest | RemoteThreadsSendMessageRequest | RemoteThreadsSplitSessionRequest | RemoteThreadsActionStatusRequest | RemoteThreadsQueueListRequest | RemoteThreadsQueueMutationRequest | RemoteThreadsQueueMoveRequest | RemoteThreadsMCPDisabledSetRequest | RemoteThreadsQueueInterruptAndSendRequest | RemoteAttachmentUploadRequest | RemoteRequestsListRequest | RemoteRequestsRespondRequest | RemoteThreadsInterruptRequest | RemoteThreadsKillRunningCommandRequest | RemoteThreadsBackgroundTaskLogRequest | RemoteThreadsStopBackgroundTaskRequest | RemoteProvidersPersonasRequest | RemoteThreadsSetPersonaRequest | RemoteThreadsTurnRecallRequest | RemoteThreadsGetRequest | RemoteThreadsGetDiffRequest | RemoteFilesListRequest | RemoteFilesReadRequest | RemoteFilesSearchRequest | RemoteThreadsMediaReadRequest | RemoteGitStatusRequest | RemoteGitBranchesRequest | ScriptsListRequest | ScriptsRunRequest | ScriptsRunStatusRequest | ScriptsSetFavoriteRequest | RemoteThreadsBranchRequest | RemoteThreadsContinueRequest | RemoteThreadsCommandsRequest | RemoteThreadsSwarmStopAllRequest | RemoteThreadsSwarmClearFinishedRequest | RuntimeQueueEditRequest | RuntimeLimitTextRequest | RuntimeWorktreePreviewRequest | RuntimeWorktreeExecuteRequest | RuntimeCompactRequest | RemoteMessagesSearchRequest | RemoteGitChangedFilesRequest | RemoteGitCommitSelectedRequest | RemoteGitStashListRequest | RemoteGitStashPushRequest | RemoteGitStashPopRequest | RemoteGitStashApplyRequest | RemoteGitStashDropRequest | RemoteGitPRListRequest | RemoteGitPRDetailRequest | RemoteGitPushRequest | RemoteGitPullRequest | RemoteGitFetchRequest | RemoteGitCheckoutRequest | RemoteGitCreateBranchRequest | RemoteGitMergeRequest | RemoteGitGenerateCommitMessageRequest | RemoteGitPRCreateURLRequest | RemoteThreadsRevertPreviewRequest | RemoteThreadsReviewGetRequest | RemoteThreadsReviewRevertHunkRequest | RemoteThreadsRevertApplyRequest | RemoteThreadsSwarmInterruptedRequest | RemoteThreadsSwarmResumeRequest | RemoteThreadsSwarmDismissInterruptedRequest | RemoteThreadsSwarmRetryBeeRequest | RemoteRequestsAlwaysAllowedListRequest | RemoteRequestsAlwaysAllowedRevokeRequest | RemoteMemoryProposalsListRequest | RemoteMemoryProposalsAcceptRequest | RemoteMemoryProposalsRejectRequest | RemoteAttentionListRequest | RemoteAttentionResolveRequest | RemoteAttentionConfirmSuggestionRequest | RemoteStewardDecisionsListRequest | RemoteStewardDecisionsAnswerRequest | RemoteStewardOpenRequest | RemoteAutomationsPreviewRequest | RemoteAutomationsListRequest | RemoteAutomationsRunsRequest | RemoteAutomationsRunRequest | RemoteAutomationsMarkReadRequest | RemoteAutomationsArchiveRunRequest | RemoteAutomationsCreateRequest | RemoteAutomationsUpdateRequest | RemoteAutomationsDeleteRequest | RemoteAutomationsSetEnabledRequest | RemoteAutomationsResetRequest | RemoteProjectsAddRequest | RemoteProjectsValidatePathRequest | RemoteSettingsGetRequest | RemoteSettingsSetRequest | RemoteThreadsSwarmReportRequest | RemoteMCPServersListRequest | AppUpdateGetRequest | AppUpdateCheckRequest | AppUpdateInstallRequest | SessionDevicesListRequest | SessionDevicesRevokeRequest | RemoteFilesWriteRequest | RemoteFilesCreateRequest | RemoteFilesRenameRequest | RemoteFilesTrashRequest | RemoteFilesDuplicateRequest | RemoteProjectsCloneRequest | RemoteProjectsListDirRequest | ScriptsSaveRequest | KanbanDeleteTaskRequest | KanbanRescueTaskRequest | RemoteMemoryCreateRequest | RemoteMemorySearchRequest>;
+export type JSONRPCBatchRequest = Array<SessionPairRequest | SessionAuthenticateRequest | SessionNewPairingCodeRequest | SessionRevokeDeviceRequest | SessionRenameDeviceRequest | KanbanGetBoardRequest | KanbanCreateTaskRequest | KanbanMoveTaskRequest | KanbanStartTaskRequest | KanbanReviewTaskRequest | GoalCreateRequest | GoalStartRequest | GoalPauseRequest | GoalCancelRequest | GoalReplanRequest | GoalRetryTaskRequest | GoalSkipTaskRequest | KanbanGetDiffRequest | RemoteThreadsCreateRequest | RemoteProvidersListRequest | RemoteProvidersRememberSelectionRequest | RemoteThreadsSendMessageRequest | RemoteThreadsSplitSessionRequest | RemoteThreadsActionStatusRequest | RemoteThreadsQueueListRequest | RemoteThreadsQueueMutationRequest | RemoteThreadsQueueMoveRequest | RemoteThreadsMCPDisabledSetRequest | RemoteThreadsQueueInterruptAndSendRequest | RemoteAttachmentUploadRequest | RemoteRequestsListRequest | RemoteRequestsRespondRequest | RemoteThreadsInterruptRequest | RemoteThreadsKillRunningCommandRequest | RemoteThreadsBackgroundTaskLogRequest | RemoteThreadsStopBackgroundTaskRequest | RemoteProvidersPersonasRequest | RemoteThreadsSetPersonaRequest | RemoteThreadsTurnRecallRequest | RemoteThreadsGetRequest | RemoteThreadsGetDiffRequest | RemoteFilesListRequest | RemoteFilesReadRequest | RemoteFilesSearchRequest | RemoteThreadsMediaReadRequest | RemoteGitStatusRequest | RemoteGitBranchesRequest | ScriptsListRequest | ScriptsRunRequest | ScriptsRunStatusRequest | ScriptsSetFavoriteRequest | RemoteThreadsBranchRequest | RemoteThreadsContinueRequest | RemoteThreadsCommandsRequest | RemoteThreadsSwarmStopAllRequest | RemoteThreadsSwarmClearFinishedRequest | RuntimeQueueEditRequest | RuntimeLimitTextRequest | RuntimeWorktreePreviewRequest | RuntimeWorktreeExecuteRequest | RuntimeCompactRequest | RemoteMessagesSearchRequest | RemoteGitChangedFilesRequest | RemoteGitCommitSelectedRequest | RemoteGitStashListRequest | RemoteGitStashPushRequest | RemoteGitStashPopRequest | RemoteGitStashApplyRequest | RemoteGitStashDropRequest | RemoteGitPRListRequest | RemoteGitPRDetailRequest | RemoteGitPushRequest | RemoteGitPanelMethod0Request | RemoteGitPanelMethod1Request | RemoteGitPanelMethod2Request | RemoteGitPanelMethod3Request | RemoteGitPanelMethod4Request | RemoteGitPanelMethod5Request | RemoteGitPanelMethod6Request | RemoteGitPanelMethod7Request | RemoteGitPanelMethod8Request | RemoteGitPanelMethod9Request | RemoteGitPanelMethod10Request | RemoteGitPanelMethod11Request | RemoteGitPanelMethod12Request | RemoteGitPanelMethod13Request | RemoteGitPanelMethod14Request | RemoteGitPanelMethod15Request | RemoteGitPanelMethod16Request | RemoteGitPanelMethod17Request | RemoteGitPanelMethod18Request | RemoteGitPanelMethod19Request | RemoteGitPanelMethod20Request | RemoteGitPanelMethod21Request | RemoteGitPanelMethod22Request | RemoteGitPullRequest | RemoteGitFetchRequest | RemoteGitCheckoutRequest | RemoteGitCreateBranchRequest | RemoteGitMergeRequest | RemoteGitGenerateCommitMessageRequest | RemoteGitPRCreateURLRequest | RemoteThreadsRevertPreviewRequest | RemoteThreadsReviewGetRequest | RemoteThreadsReviewRevertHunkRequest | RemoteThreadsRevertApplyRequest | RemoteThreadsSwarmInterruptedRequest | RemoteThreadsSwarmResumeRequest | RemoteThreadsSwarmDismissInterruptedRequest | RemoteThreadsSwarmRetryBeeRequest | RemoteRequestsAlwaysAllowedListRequest | RemoteRequestsAlwaysAllowedRevokeRequest | RemoteMemoryProposalsListRequest | RemoteMemoryProposalsAcceptRequest | RemoteMemoryProposalsRejectRequest | RemoteAttentionListRequest | RemoteAttentionResolveRequest | RemoteAttentionConfirmSuggestionRequest | RemoteStewardDecisionsListRequest | RemoteStewardDecisionsAnswerRequest | RemoteStewardOpenRequest | RemoteAutomationsPreviewRequest | RemoteAutomationsListRequest | RemoteAutomationsRunsRequest | RemoteAutomationsRunRequest | RemoteAutomationsMarkReadRequest | RemoteAutomationsArchiveRunRequest | RemoteAutomationsCreateRequest | RemoteAutomationsUpdateRequest | RemoteAutomationsDeleteRequest | RemoteAutomationsSetEnabledRequest | RemoteAutomationsResetRequest | RemoteProjectsAddRequest | RemoteProjectsValidatePathRequest | RemoteSettingsGetRequest | RemoteSettingsSetRequest | RemoteThreadsSwarmReportRequest | RemoteMCPServersListRequest | AppUpdateGetRequest | AppUpdateCheckRequest | AppUpdateInstallRequest | SessionDevicesListRequest | SessionDevicesRevokeRequest | RemoteFilesWriteRequest | RemoteFilesCreateRequest | RemoteFilesRenameRequest | RemoteFilesTrashRequest | RemoteFilesDuplicateRequest | RemoteProjectsCloneRequest | RemoteProjectsListDirRequest | ScriptsSaveRequest | KanbanDeleteTaskRequest | KanbanRescueTaskRequest | RemoteMemoryCreateRequest | RemoteMemorySearchRequest>;
 
-export type JSONRPCBatchResponse = Array<JSONRPCErrorResponse | SessionPairResponse | SessionAuthenticateResponse | SessionNewPairingCodeResponse | SessionRevokeDeviceResponse | SessionRenameDeviceResponse | KanbanGetBoardResponse | KanbanTaskMutationResponse | KanbanGetDiffResponse | RemoteThreadsCreateResponse | RemoteProvidersListResponse | RemoteProvidersRememberSelectionResponse | RemoteThreadsSendMessageResponse | RemoteThreadsSplitSessionResponse | RemoteThreadsActionStatusResponse | RemoteThreadsQueueListResponse | RemoteThreadsQueueMutationResponse | RemoteThreadsQueueMoveResponse | RemoteThreadsMCPDisabledSetResponse | RemoteThreadsQueueInterruptAndSendResponse | RemoteAttachmentUploadResponse | RemoteRequestsListResponse | RemoteRequestsRespondResponse | RemoteThreadsInterruptResponse | RemoteThreadsKillRunningCommandResponse | RemoteThreadsBackgroundTaskLogResponse | RemoteThreadsStopBackgroundTaskResponse | RemoteProvidersPersonasResponse | RemoteThreadsSetPersonaResponse | RemoteThreadsTurnRecallResponse | RemoteThreadsGetResponse | RemoteThreadsGetDiffResponse | RemoteFilesListResponse | RemoteFilesReadResponse | RemoteFilesSearchResponse | RemoteThreadsMediaReadResponse | RemoteGitStatusResponse | RemoteGitBranchesResponse | ScriptsListResponse | ScriptsRunResponse | ScriptsRunStatusResponse | ScriptsSetFavoriteResponse | RemoteThreadsBranchResponse | RemoteThreadsContinueResponse | RemoteThreadsCommandsResponse | RemoteThreadsSwarmResponse | RemoteThreadsSwarmSetBeeTiersResponse | RuntimeQueueEditResponse | RuntimeLimitTextResponse | RuntimeWorktreePreviewResponse | RuntimeWorktreeExecuteResponse | RuntimeCompactResponse | RemoteMessagesSearchResponse | RemoteGitChangedFilesResponse | RemoteGitCommitSelectedResponse | RemoteGitStashListResponse | RemoteGitStashPushResponse | RemoteGitStashPopResponse | RemoteGitStashApplyResponse | RemoteGitStashDropResponse | RemoteGitPRListResponse | RemoteGitPRDetailResponse | RemoteGitPushResponse | RemoteGitPullResponse | RemoteGitFetchResponse | RemoteGitCheckoutResponse | RemoteGitCreateBranchResponse | RemoteGitMergeResponse | RemoteGitGenerateCommitMessageResponse | RemoteGitPRCreateURLResponse | RemoteThreadsRevertPreviewResponse | RemoteThreadsReviewGetResponse | RemoteThreadsReviewRevertHunkResponse | RemoteThreadsRevertApplyResponse | RemoteThreadsSwarmInterruptedResponse | RemoteThreadsSwarmResumeResponse | RemoteThreadsSwarmDismissInterruptedResponse | RemoteThreadsSwarmRetryBeeResponse | RemoteRequestsAlwaysAllowedListResponse | RemoteRequestsAlwaysAllowedRevokeResponse | RemoteMemoryProposalsListResponse | RemoteMemoryProposalsAcceptResponse | RemoteMemoryProposalsRejectResponse | RemoteAttentionListResponse | RemoteAttentionResolveResponse | RemoteAttentionConfirmSuggestionResponse | RemoteStewardDecisionsListResponse | RemoteStewardDecisionsAnswerResponse | RemoteStewardOpenResponse | RemoteAutomationsPreviewResponse | RemoteAutomationsListResponse | RemoteAutomationsRunsResponse | RemoteAutomationsRunResponse | RemoteAutomationsMarkReadResponse | RemoteAutomationsArchiveRunResponse | RemoteAutomationsCreateResponse | RemoteAutomationsUpdateResponse | RemoteAutomationsDeleteResponse | RemoteAutomationsSetEnabledResponse | RemoteAutomationsResetResponse | RemoteProjectsAddResponse | RemoteProjectsValidatePathResponse | RemoteSettingsGetResponse | RemoteSettingsSetResponse | RemoteThreadsSwarmReportResponse | RemoteMCPServersListResponse | AppUpdateGetResponse | AppUpdateCheckResponse | AppUpdateInstallResponse | SessionDevicesListResponse | SessionDevicesRevokeResponse | RemoteFilesWriteResponse | RemoteFilesCreateResponse | RemoteFilesRenameResponse | RemoteFilesTrashResponse | RemoteFilesDuplicateResponse | RemoteProjectsCloneResponse | RemoteProjectsListDirResponse | ScriptsSaveResponse | RemoteMemoryCreateResponse | RemoteMemorySearchResponse>;
+export type JSONRPCBatchResponse = Array<JSONRPCErrorResponse | SessionPairResponse | SessionAuthenticateResponse | SessionNewPairingCodeResponse | SessionRevokeDeviceResponse | SessionRenameDeviceResponse | KanbanGetBoardResponse | KanbanTaskMutationResponse | KanbanGetDiffResponse | RemoteThreadsCreateResponse | RemoteProvidersListResponse | RemoteProvidersRememberSelectionResponse | RemoteThreadsSendMessageResponse | RemoteThreadsSplitSessionResponse | RemoteThreadsActionStatusResponse | RemoteThreadsQueueListResponse | RemoteThreadsQueueMutationResponse | RemoteThreadsQueueMoveResponse | RemoteThreadsMCPDisabledSetResponse | RemoteThreadsQueueInterruptAndSendResponse | RemoteAttachmentUploadResponse | RemoteRequestsListResponse | RemoteRequestsRespondResponse | RemoteThreadsInterruptResponse | RemoteThreadsKillRunningCommandResponse | RemoteThreadsBackgroundTaskLogResponse | RemoteThreadsStopBackgroundTaskResponse | RemoteProvidersPersonasResponse | RemoteThreadsSetPersonaResponse | RemoteThreadsTurnRecallResponse | RemoteThreadsGetResponse | RemoteThreadsGetDiffResponse | RemoteFilesListResponse | RemoteFilesReadResponse | RemoteFilesSearchResponse | RemoteThreadsMediaReadResponse | RemoteGitStatusResponse | RemoteGitBranchesResponse | ScriptsListResponse | ScriptsRunResponse | ScriptsRunStatusResponse | ScriptsSetFavoriteResponse | RemoteThreadsBranchResponse | RemoteThreadsContinueResponse | RemoteThreadsCommandsResponse | RemoteThreadsSwarmResponse | RemoteThreadsSwarmSetBeeTiersResponse | RuntimeQueueEditResponse | RuntimeLimitTextResponse | RuntimeWorktreePreviewResponse | RuntimeWorktreeExecuteResponse | RuntimeCompactResponse | RemoteMessagesSearchResponse | RemoteGitChangedFilesResponse | RemoteGitCommitSelectedResponse | RemoteGitStashListResponse | RemoteGitStashPushResponse | RemoteGitStashPopResponse | RemoteGitStashApplyResponse | RemoteGitStashDropResponse | RemoteGitPRListResponse | RemoteGitPRDetailResponse | RemoteGitPushResponse | RemoteGitPanelMethod0Response | RemoteGitPanelMethod1Response | RemoteGitPanelMethod2Response | RemoteGitPanelMethod3Response | RemoteGitPanelMethod4Response | RemoteGitPanelMethod5Response | RemoteGitPanelMethod6Response | RemoteGitPanelMethod7Response | RemoteGitPanelMethod8Response | RemoteGitPanelMethod9Response | RemoteGitPanelMethod10Response | RemoteGitPanelMethod11Response | RemoteGitPanelMethod12Response | RemoteGitPanelMethod13Response | RemoteGitPanelMethod14Response | RemoteGitPanelMethod15Response | RemoteGitPanelMethod16Response | RemoteGitPanelMethod17Response | RemoteGitPanelMethod18Response | RemoteGitPanelMethod19Response | RemoteGitPanelMethod20Response | RemoteGitPanelMethod21Response | RemoteGitPanelMethod22Response | RemoteGitPullResponse | RemoteGitFetchResponse | RemoteGitCheckoutResponse | RemoteGitCreateBranchResponse | RemoteGitMergeResponse | RemoteGitGenerateCommitMessageResponse | RemoteGitPRCreateURLResponse | RemoteThreadsRevertPreviewResponse | RemoteThreadsReviewGetResponse | RemoteThreadsReviewRevertHunkResponse | RemoteThreadsRevertApplyResponse | RemoteThreadsSwarmInterruptedResponse | RemoteThreadsSwarmResumeResponse | RemoteThreadsSwarmDismissInterruptedResponse | RemoteThreadsSwarmRetryBeeResponse | RemoteRequestsAlwaysAllowedListResponse | RemoteRequestsAlwaysAllowedRevokeResponse | RemoteMemoryProposalsListResponse | RemoteMemoryProposalsAcceptResponse | RemoteMemoryProposalsRejectResponse | RemoteAttentionListResponse | RemoteAttentionResolveResponse | RemoteAttentionConfirmSuggestionResponse | RemoteStewardDecisionsListResponse | RemoteStewardDecisionsAnswerResponse | RemoteStewardOpenResponse | RemoteAutomationsPreviewResponse | RemoteAutomationsListResponse | RemoteAutomationsRunsResponse | RemoteAutomationsRunResponse | RemoteAutomationsMarkReadResponse | RemoteAutomationsArchiveRunResponse | RemoteAutomationsCreateResponse | RemoteAutomationsUpdateResponse | RemoteAutomationsDeleteResponse | RemoteAutomationsSetEnabledResponse | RemoteAutomationsResetResponse | RemoteProjectsAddResponse | RemoteProjectsValidatePathResponse | RemoteSettingsGetResponse | RemoteSettingsSetResponse | RemoteThreadsSwarmReportResponse | RemoteMCPServersListResponse | AppUpdateGetResponse | AppUpdateCheckResponse | AppUpdateInstallResponse | SessionDevicesListResponse | SessionDevicesRevokeResponse | RemoteFilesWriteResponse | RemoteFilesCreateResponse | RemoteFilesRenameResponse | RemoteFilesTrashResponse | RemoteFilesDuplicateResponse | RemoteProjectsCloneResponse | RemoteProjectsListDirResponse | ScriptsSaveResponse | RemoteMemoryCreateResponse | RemoteMemorySearchResponse>;
 
 export type RuntimeDraft = {
   text: string;
@@ -3199,6 +3199,7 @@ export type RemoteGitPushResponse = {
 
 export type RemoteGitPullParams = {
   threadID: UUID;
+  strategy?: "" | "ff-only" | "rebase" | "merge";
 };
 
 export type RemoteGitPullRequest = {
@@ -4543,4 +4544,554 @@ export type RemoteMemoryProposalsAcceptParams = {
   content?: string;
   type?: string;
   importance?: number;
+};
+
+export type RemoteGitPanelStatus = {
+  path: string;
+  origPath: string;
+  index: string;
+  worktree: string;
+};
+
+export type RemoteGitPanelLine = {
+  kind: number;
+  text: string;
+  oldNo: number;
+  newNo: number;
+};
+
+export type RemoteGitPanelHunk = {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  header: string;
+  lines: Array<RemoteGitPanelLine> | null;
+};
+
+export type RemoteGitPanelDiff = {
+  oldPath: string;
+  newPath: string;
+  status: string;
+  binary: boolean;
+  hunks: Array<RemoteGitPanelHunk> | null;
+  isDeferred: boolean;
+  deferredPatch: string;
+  additions: number;
+  deletions: number;
+};
+
+export type RemoteGitPanelRef = {
+  name: string;
+  kind: string;
+};
+
+export type RemoteGitPanelLog = {
+  sha: string;
+  parents: Array<string> | null;
+  author: string;
+  email: string;
+  authorTime: string;
+  subject: string;
+  refs: Array<RemoteGitPanelRef> | null;
+  unpushed: boolean;
+};
+
+export type RemoteGitPanelCommitFile = {
+  path: string;
+  origPath: string;
+  status: string;
+  added: number;
+  deleted: number;
+  binary: boolean;
+};
+
+export type RemoteGitPanelDetail = {
+  sha: string;
+  parents: Array<string> | null;
+  author: string;
+  email: string;
+  authorTime: string;
+  subject: string;
+  refs: Array<RemoteGitPanelRef> | null;
+  unpushed: boolean;
+  body: string;
+  committer: string;
+  commitTime: string;
+  files: Array<RemoteGitPanelCommitFile> | null;
+};
+
+export type RemoteGitPanelBlame = {
+  line: number;
+  sha: string;
+  author: string;
+  authorTime: string;
+  summary: string;
+  text: string;
+};
+
+export type RemoteGitPanelBranch = {
+  name: string;
+  fullRef: string;
+  remote: boolean;
+  head: boolean;
+  upstream: string;
+  ahead: number;
+  behind: number;
+  upstreamGone: boolean;
+  worktreePath: string;
+  commitTime: string;
+  subject: string;
+};
+
+export type RemoteGitPanelTag = {
+  name: string;
+  sha: string;
+  subject: string;
+  annotated: boolean;
+  time: string;
+};
+
+export type RemoteGitPanelRemote = {
+  name: string;
+  fetchUrl: string;
+  pushUrl: string;
+};
+
+export type RemoteGitPanelConflict = {
+  path: string;
+  code: string;
+};
+
+export type RemoteGitPanelState = {
+  kind: string;
+  branch: string;
+  onto: string;
+  step: number;
+  total: number;
+  conflicts: Array<RemoteGitPanelConflict> | null;
+  oursLabel: string;
+  theirsLabel: string;
+};
+
+export type RemoteGitPanelMethod0Params = {
+  threadID: UUID;
+};
+
+export type RemoteGitPanelMethod0Request = {
+  jsonrpc: "2.0";
+  method: "git.status.entries";
+  params: RemoteGitPanelMethod0Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod0Response = {
+  jsonrpc: "2.0";
+  result: Array<RemoteGitPanelStatus>;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod1Params = {
+  threadID: UUID;
+  path: string;
+  staged?: boolean;
+};
+
+export type RemoteGitPanelMethod1Request = {
+  jsonrpc: "2.0";
+  method: "git.diff.file";
+  params: RemoteGitPanelMethod1Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod1Response = {
+  jsonrpc: "2.0";
+  result: {
+  files: Array<RemoteGitPanelDiff>;
+};
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod2Params = {
+  threadID: UUID;
+  ref?: string;
+  all?: boolean;
+  path?: string;
+  query?: string;
+  skip?: number;
+  limit?: number;
+};
+
+export type RemoteGitPanelMethod2Request = {
+  jsonrpc: "2.0";
+  method: "git.log";
+  params: RemoteGitPanelMethod2Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod2Response = {
+  jsonrpc: "2.0";
+  result: Array<RemoteGitPanelLog>;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod3Params = {
+  threadID: UUID;
+  sha: string;
+};
+
+export type RemoteGitPanelMethod3Request = {
+  jsonrpc: "2.0";
+  method: "git.show";
+  params: RemoteGitPanelMethod3Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod3Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitPanelDetail;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod4Params = {
+  threadID: UUID;
+  path: string;
+  rev?: string;
+};
+
+export type RemoteGitPanelMethod4Request = {
+  jsonrpc: "2.0";
+  method: "git.blame";
+  params: RemoteGitPanelMethod4Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod4Response = {
+  jsonrpc: "2.0";
+  result: Array<RemoteGitPanelBlame>;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod5Params = {
+  threadID: UUID;
+};
+
+export type RemoteGitPanelMethod5Request = {
+  jsonrpc: "2.0";
+  method: "git.branch.list";
+  params: RemoteGitPanelMethod5Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod5Response = {
+  jsonrpc: "2.0";
+  result: Array<RemoteGitPanelBranch>;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod6Params = {
+  threadID: UUID;
+};
+
+export type RemoteGitPanelMethod6Request = {
+  jsonrpc: "2.0";
+  method: "git.tag.list";
+  params: RemoteGitPanelMethod6Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod6Response = {
+  jsonrpc: "2.0";
+  result: Array<RemoteGitPanelTag>;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod7Params = {
+  threadID: UUID;
+};
+
+export type RemoteGitPanelMethod7Request = {
+  jsonrpc: "2.0";
+  method: "git.remote.list";
+  params: RemoteGitPanelMethod7Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod7Response = {
+  jsonrpc: "2.0";
+  result: Array<RemoteGitPanelRemote>;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod8Params = {
+  threadID: UUID;
+};
+
+export type RemoteGitPanelMethod8Request = {
+  jsonrpc: "2.0";
+  method: "git.op.state";
+  params: RemoteGitPanelMethod8Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod8Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitPanelState;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod9Params = {
+  threadID: UUID;
+  paths: Array<string>;
+};
+
+export type RemoteGitPanelMethod9Request = {
+  jsonrpc: "2.0";
+  method: "git.stage";
+  params: RemoteGitPanelMethod9Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod9Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod10Params = {
+  threadID: UUID;
+  paths: Array<string>;
+};
+
+export type RemoteGitPanelMethod10Request = {
+  jsonrpc: "2.0";
+  method: "git.unstage";
+  params: RemoteGitPanelMethod10Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod10Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod11Params = {
+  threadID: UUID;
+  message: string;
+  amend?: boolean;
+};
+
+export type RemoteGitPanelMethod11Request = {
+  jsonrpc: "2.0";
+  method: "git.commit";
+  params: RemoteGitPanelMethod11Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod11Response = {
+  jsonrpc: "2.0";
+  result: {
+  sha: string;
+};
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod12Params = {
+  threadID: UUID;
+};
+
+export type RemoteGitPanelMethod12Request = {
+  jsonrpc: "2.0";
+  method: "git.push.forceWithLease";
+  params: RemoteGitPanelMethod12Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod12Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod13Params = {
+  threadID: UUID;
+  oldName: string;
+  newName: string;
+};
+
+export type RemoteGitPanelMethod13Request = {
+  jsonrpc: "2.0";
+  method: "git.branch.rename";
+  params: RemoteGitPanelMethod13Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod13Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod14Params = {
+  threadID: UUID;
+  name: string;
+  force?: boolean;
+};
+
+export type RemoteGitPanelMethod14Request = {
+  jsonrpc: "2.0";
+  method: "git.branch.delete";
+  params: RemoteGitPanelMethod14Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod14Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod15Params = {
+  threadID: UUID;
+  name: string;
+  rev?: string;
+  message?: string;
+};
+
+export type RemoteGitPanelMethod15Request = {
+  jsonrpc: "2.0";
+  method: "git.tag.create";
+  params: RemoteGitPanelMethod15Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod15Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod16Params = {
+  threadID: UUID;
+  name: string;
+};
+
+export type RemoteGitPanelMethod16Request = {
+  jsonrpc: "2.0";
+  method: "git.tag.delete";
+  params: RemoteGitPanelMethod16Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod16Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod17Params = {
+  threadID: UUID;
+};
+
+export type RemoteGitPanelMethod17Request = {
+  jsonrpc: "2.0";
+  method: "git.op.continue";
+  params: RemoteGitPanelMethod17Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod17Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod18Params = {
+  threadID: UUID;
+};
+
+export type RemoteGitPanelMethod18Request = {
+  jsonrpc: "2.0";
+  method: "git.op.skip";
+  params: RemoteGitPanelMethod18Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod18Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod19Params = {
+  threadID: UUID;
+};
+
+export type RemoteGitPanelMethod19Request = {
+  jsonrpc: "2.0";
+  method: "git.op.abort";
+  params: RemoteGitPanelMethod19Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod19Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod20Params = {
+  threadID: UUID;
+  sha: string;
+};
+
+export type RemoteGitPanelMethod20Request = {
+  jsonrpc: "2.0";
+  method: "git.cherryPick";
+  params: RemoteGitPanelMethod20Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod20Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod21Params = {
+  threadID: UUID;
+  sha: string;
+};
+
+export type RemoteGitPanelMethod21Request = {
+  jsonrpc: "2.0";
+  method: "git.revert";
+  params: RemoteGitPanelMethod21Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod21Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod22Params = {
+  threadID: UUID;
+  rev: string;
+  mode: "soft" | "mixed" | "hard";
+};
+
+export type RemoteGitPanelMethod22Request = {
+  jsonrpc: "2.0";
+  method: "git.reset";
+  params: RemoteGitPanelMethod22Params;
+  id: JSONRPCId;
+};
+
+export type RemoteGitPanelMethod22Response = {
+  jsonrpc: "2.0";
+  result: RemoteGitWriteActionResult;
+  id: JSONRPCId;
 };
