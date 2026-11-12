@@ -102,6 +102,9 @@ func (r *Runner) run(ctx context.Context, dir string, env []string, args ...stri
 		defer func() { <-r.sem }()
 	}
 
+	fn, _ := ctx.Value(progressKey{}).(func(Progress))
+	originalArgCount := len(args)
+	args = progressArgs(args, fn)
 	cmd := procattr.HideWindow(exec.CommandContext(ctx, r.Bin, args...))
 	cmd.Dir = dir
 
@@ -128,8 +131,19 @@ func (r *Runner) run(ctx context.Context, dir string, env []string, args ...stri
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	var progress *progressWriter
+	if len(args) != originalArgCount {
+		progress = &progressWriter{stderr: &stderr, fn: fn}
+		cmd.Stderr = progress
+	}
 
 	err := cmd.Run()
+	if progress != nil {
+		progress.flush()
+	}
+	if ctx.Err() != nil {
+		return stdout.Bytes(), ctx.Err()
+	}
 	if err != nil {
 		errText := strings.TrimSpace(stderr.String())
 		// 截取 stderr 末尾最多 500 个字符，防止错误信息过长冲刷日志
