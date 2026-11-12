@@ -664,6 +664,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 			chatHeaderMu.Unlock()
 			if hs.branchMenuOpen {
 				s.loadGitState(threadID)
+				openBranchPopover(s, threadID)
 			}
 		},
 		Variant: ButtonSecondary,
@@ -732,22 +733,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 							Gap(Space0).
 							FillWidth().
 							Children(func() {
-								ui.Text(c, "分支").
-									FontSize(uiFont(TypeCaption)).
-									Bold().
-									TextColor(ThemeSecondaryText(c)).
-									Padding(Space1, Space3, Space0, Space3)
-								// 分支选择与新建都在独立窗口里完成，菜单里只留入口
-								renderGitMenuOption(c, "chat-header-git-checkout-btn", "切换分支…", "切换分支…", "", false, busy, func() {
-									hs.branchMenuOpen = false
-									openGitForm(s, threadID, gitFormCheckout)
-									s.invalidate()
-								})
-								renderGitMenuOption(c, "chat-header-git-new-branch-btn", "新建分支…", "新建分支…", "", false, busy, func() {
-									hs.branchMenuOpen = false
-									openGitForm(s, threadID, gitFormNewBranch)
-									s.invalidate()
-								})
+								renderGitBranchPopoverContent(c, s, threadID, 360, &hs.branchMenuOpen)
 								// 复制当前分支名（detached 时复制短哈希），方便在终端里直接使用
 								copyBranch := st.Branch
 								if copyBranch == "" {

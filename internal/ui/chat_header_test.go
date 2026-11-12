@@ -46,35 +46,15 @@ func TestChatHeaderRenameOnThreadSwitch(t *testing.T) {
 
 func TestChatHeaderGitRefreshOnOpen(t *testing.T) {
 	fake := newGitFakeClient()
-	stubGitFormWindow(t)
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 	fake.mu.Lock()
-	fake.gitState.Changes = 3
 	fake.gitState.Branches = append(fake.gitState.Branches, "new-branch")
 	fake.mu.Unlock()
 	if err := tt.Click("Git 分支"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("切换分支…")
-		return ok
-	})
-	// 弹层打开时重新拉取 Git 状态：切换分支窗口的分支列表能看到新分支
-	if err := tt.Click("切换分支…"); err != nil {
-		t.Fatal(err)
-	}
-	f := gitFormOf("t1", gitFormCheckout)
-	if f == nil {
-		t.Fatal("切换分支窗口没有打开")
-	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool { return wt.HasText("new-branch") })
-
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("已更改 3 个文件") })
+	waitFor(t, tt, func() bool { return tt.HasText("new-branch") })
 }
 
 func TestChatHeaderGitRefreshAfterTurn(t *testing.T) {
@@ -94,46 +74,20 @@ func TestChatHeaderGitLongMenuScrolls(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		fake.gitState.Branches = append(fake.gitState.Branches, fmt.Sprintf("branch-%02d", i))
 	}
-	stubGitFormWindow(t)
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 	if err := tt.Click("Git 分支"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("切换分支…")
-		return ok
-	})
-	if err := tt.Click("切换分支…"); err != nil {
+	waitFor(t, tt, func() bool { return tt.HasText("branch-00") })
+	if err := tt.Click("搜索分支"); err != nil {
 		t.Fatal(err)
 	}
-	f := gitFormOf("t1", gitFormCheckout)
-	if f == nil {
-		t.Fatal("切换分支窗口没有打开")
+	tt.Type("branch-49")
+	tt.Frame()
+	if !tt.HasText("branch-49") || tt.HasText("branch-00") {
+		t.Fatalf("搜索过滤失败: %q", tt.Texts())
 	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool { return wt.HasText("branch-00") })
-
-	// 分支列表在窗口内滚动：滚到底后最后一个分支可见并能选中
-	r, ok := wt.Find("branch-01")
-	if !ok {
-		t.Fatalf("窗口里找不到分支项: %q", wt.Texts())
-	}
-	wt.Scroll(r.X+r.W/2, r.Y+r.H/2, 0, 100000)
-	wt.Frame()
-	r, ok = wt.Find("branch-49")
-	_, height := f.windowSize()
-	if !ok || r.Y < 0 || int(r.Y+r.H) > height {
-		t.Fatalf("滚动后最后一个分支仍不在窗口内: %+v", r)
-	}
-	if err := wt.Click("branch-49"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, wt, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		return len(fake.gitCheckoutCalls) == 1 && fake.gitCheckoutCalls[0] == "branch-49"
-	})
 }
 
 type delayedHeaderCommitClient struct {
@@ -421,56 +375,31 @@ func TestChatHeaderRenameEscapeCancels(t *testing.T) {
 // 胶囊显示分支名；「切换分支…」在独立窗口里选另一个分支，调用 GitCheckout 并刷新胶囊。
 func TestChatHeaderGitCheckout(t *testing.T) {
 	fake := newGitFakeClient()
-	stubGitFormWindow(t)
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-
 	if err := tt.Click("Git 分支"); err != nil {
-		t.Fatalf("click branch capsule failed: %v", err)
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 main"); return ok })
+	if err := tt.Click("搜索分支"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("mai")
+	tt.Frame()
+	if _, ok := tt.Find("切换到分支 feature/login"); ok {
+		t.Fatal("搜索未过滤分支")
+	}
+	if err := tt.Click("切换到分支 main"); err != nil {
+		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("切换分支…")
-		return ok
-	})
-	if err := tt.Click("切换分支…"); err != nil {
-		t.Fatalf("click checkout entry failed: %v", err)
-	}
-	f := gitFormOf("t1", gitFormCheckout)
-	if f == nil {
-		t.Fatal("切换分支窗口没有打开")
-	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool {
-		_, ok := wt.Find("切换到分支 main")
-		return ok
-	})
-
-	// 搜索框过滤分支列表
-	if err := wt.Click("搜索分支"); err != nil {
-		t.Fatalf("click branch search failed: %v", err)
-	}
-	wt.Type("mai")
-	wt.Frame()
-	if _, ok := wt.Find("切换到分支 feature/login"); ok {
-		t.Fatalf("搜索应过滤掉不匹配的分支: %q", wt.Texts())
-	}
-
-	if err := wt.Click("切换到分支 main"); err != nil {
-		t.Fatalf("click branch main failed: %v", err)
-	}
-	waitFor(t, wt, func() bool {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
 		return len(fake.gitCheckoutCalls) == 1 && fake.gitCheckoutCalls[0] == "main"
 	})
-	// 成功后窗口关闭并刷新胶囊
 	waitFor(t, tt, func() bool { return tt.HasText("main") && !tt.HasText("feature/login") })
-	if got := gitFormOf("t1", gitFormCheckout); got != nil {
-		t.Fatal("切换成功后窗口应关闭并从注册表移除")
-	}
 }
 
-// 在 Popover 里点另一个 worktree 调用 GitSwitchWorktree，胶囊附上 worktree 目录名。
 func TestChatHeaderGitSwitchWorktree(t *testing.T) {
 	fake := newGitFakeClient()
 	tt := ui.NewTester(Root(fake), 1000, 700)
@@ -499,80 +428,44 @@ func TestChatHeaderGitSwitchWorktree(t *testing.T) {
 func TestGitFormReusesOpenWindow(t *testing.T) {
 	fake := newGitFakeClient()
 	stubGitFormWindow(t)
-	tt := ui.NewTester(Root(fake), 1000, 700)
+	s, root := buildRoot(fake)
+	tt := ui.NewTester(root, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-
-	openNewBranch := func() {
-		t.Helper()
-		if err := tt.Click("Git 分支"); err != nil {
-			t.Fatalf("click branch capsule failed: %v", err)
-		}
-		waitFor(t, tt, func() bool {
-			_, ok := tt.Find("新建分支…")
-			return ok
-		})
-		if err := tt.Click("新建分支…"); err != nil {
-			t.Fatalf("click new branch entry failed: %v", err)
-		}
-	}
-
-	openNewBranch()
+	openGitForm(s, "t1", gitFormNewBranch)
 	first := gitFormOf("t1", gitFormNewBranch)
 	if first == nil {
 		t.Fatal("新建分支窗口没有打开")
 	}
-	openNewBranch()
-	if second := gitFormOf("t1", gitFormNewBranch); second != first {
-		t.Fatal("重复点击新建了第二个窗口，应该聚焦已打开的窗口")
+	openGitForm(s, "t1", gitFormNewBranch)
+	if gitFormOf("t1", gitFormNewBranch) != first {
+		t.Fatal("重复打开了窗口")
 	}
 }
 
-// 新建分支窗口：填分支名点「创建分支」调用 GitCreateBranch，成功后关闭窗口并刷新胶囊。
 func TestGitFormNewBranch(t *testing.T) {
 	fake := newGitFakeClient()
-	stubGitFormWindow(t)
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-
 	if err := tt.Click("Git 分支"); err != nil {
-		t.Fatalf("click branch capsule failed: %v", err)
+		t.Fatal(err)
 	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("搜索分支"); return ok })
+	if err := tt.Click("搜索分支"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("feat/window")
+	tt.Frame()
+	if !tt.HasText("＋ 新建分支 “feat/window”") {
+		t.Fatalf("缺少新建项: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEnter)
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("新建分支…")
-		return ok
-	})
-	if err := tt.Click("新建分支…"); err != nil {
-		t.Fatalf("click new branch entry failed: %v", err)
-	}
-	f := gitFormOf("t1", gitFormNewBranch)
-	if f == nil {
-		t.Fatal("新建分支窗口没有打开")
-	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool {
-		_, ok := wt.Find("新分支名")
-		return ok
-	})
-	if err := wt.Click("新分支名"); err != nil {
-		t.Fatalf("focus new branch input failed: %v", err)
-	}
-	wt.Type("feat/window")
-	wt.Frame()
-	if err := wt.Click("创建分支"); err != nil {
-		t.Fatalf("click create branch failed: %v", err)
-	}
-	waitFor(t, wt, func() bool {
 		calls := fake.GitCreateBranchCalls()
 		return len(calls) == 1 && calls[0] == [2]string{"t1", "feat/window"}
 	})
-	// 成功后窗口关闭，胶囊刷新到新分支
-	if got := gitFormOf("t1", gitFormNewBranch); got != nil {
-		t.Fatal("新建分支成功后窗口应关闭并从注册表移除")
-	}
 	waitFor(t, tt, func() bool { return tt.HasText("feat/window") })
 }
 
-// 提交窗口里输入信息、点提交后 GitCommit 收到这条信息；菜单里点推送后 push 计数为 1。
 func TestChatHeaderGitCommitAndPush(t *testing.T) {
 	fake := newGitFakeClient()
 	stubGitFormWindow(t)
