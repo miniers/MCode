@@ -371,7 +371,8 @@ func (c *Client) piMagpieQuotaReadingFor(ctx context.Context, providerID string)
 	if threadID := mcodeui.QuotaThread(ctx); threadID != "" && c.agySessionForThread != nil {
 		sessionID = c.agySessionForThread(ctx, threadID)
 	}
-	windows, err := c.readMagpieQuotaWindows(ctx, target.baseURL, target.apiKey, "pi", sessionID)
+	model := c.magpieQuotaModel(ctx, "pi", target.endpoint.ID, target.providerID)
+	windows, err := c.readMagpieQuotaWindows(ctx, target.baseURL, target.apiKey, "pi", sessionID, model)
 	if err != nil {
 		return piMagpieQuotaReading{}, err
 	}

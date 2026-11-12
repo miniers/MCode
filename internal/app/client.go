@@ -142,17 +142,19 @@ var (
 		return c.codexQuotaLimits(ctx, threadID)
 	}
 	codexMagpieRoutesForQuota = codexMagpieRoutes
-	readCodexThreadModel      = func(ctx context.Context, backend *remote.MemoryBackend, threadID string) (string, error) {
-		if backend == nil {
-			return "", nil
-		}
-		thread, err := backend.GetThread(ctx, threadID)
-		if err != nil {
-			return "", err
-		}
-		return derefString(thread.Model), nil
-	}
+	readCodexThreadModel      = readThreadModel
 )
+
+func readThreadModel(ctx context.Context, backend *remote.MemoryBackend, threadID string) (string, error) {
+	if backend == nil || strings.TrimSpace(threadID) == "" {
+		return "", nil
+	}
+	thread, err := backend.GetThread(ctx, threadID)
+	if err != nil {
+		return "", err
+	}
+	return derefString(thread.Model), nil
+}
 
 // NewClient 创建并返回一个新的 Client 实例。
 func NewClient(b *remote.MemoryBackend) *Client {
@@ -5144,7 +5146,24 @@ func (c *Client) ProviderQuota(ctx context.Context, provider string) ([]mcodeui.
 			if threadID != "" && c.agySessionForThread != nil {
 				sessionID = c.agySessionForThread(ctx, threadID)
 			}
-			return c.readMagpieQuotaWindows(ctx, baseURL, token, "codex", sessionID)
+			model := ""
+			if threadID != "" {
+				if current, modelErr := readCodexThreadModel(ctx, c.backend, threadID); modelErr == nil {
+					model = strings.TrimSpace(current)
+				}
+			}
+			for _, route := range codexMagpieRoutesForQuota() {
+				if route.ProviderID != "" {
+					if gatewayModel, ok := strings.CutPrefix(model, strings.TrimSpace(route.ProviderID)+"/"); ok {
+						model = gatewayModel
+						break
+					}
+				}
+			}
+			if model == "" {
+				model = c.magpieQuotaDefaultModel("codex", c.codexQuotaEndpointID(baseURL))
+			}
+			return c.readMagpieQuotaWindows(ctx, baseURL, token, "codex", sessionID, model)
 		}
 		windows := codexQuotaWindows(limits)
 		return windows, nil
@@ -5164,6 +5183,9 @@ func (c *Client) ProviderQuota(ctx context.Context, provider string) ([]mcodeui.
 				if threadID := mcodeui.QuotaThread(ctx); threadID != "" && c.agySessionForThread != nil {
 					sessionID := c.agySessionForThread(ctx, threadID)
 					route, hasRoute = tracker.routeFor(ctx, baseURL, token, "claude", sessionID, false)
+					if hasRoute && strings.TrimSpace(route.Provider) != "" && !strings.EqualFold(route.Provider, "claude") && !strings.EqualFold(route.Provider, "claude-tui") {
+						return c.readMagpieQuotaWindows(ctx, baseURL, token, "claude", sessionID, "")
+					}
 				}
 			}
 		}

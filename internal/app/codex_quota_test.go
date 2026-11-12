@@ -83,10 +83,17 @@ func codexQuotaTestClient(t *testing.T, srv *httptest.Server) *Client {
 
 func assertCodexQuotaActive(t *testing.T, windows []mcodeui.ProviderQuotaWindow, activeUser string) {
 	t.Helper()
-	if len(windows) != 3 {
-		t.Fatalf("窗口数 = %d，想要 3: %+v", len(windows), windows)
+	wantProvider, wantCount := "codex", 2
+	if activeUser == "sub@example.com" {
+		wantProvider, wantCount = "sub2api", 1
+	}
+	if len(windows) != wantCount {
+		t.Fatalf("窗口数 = %d，想要 %d: %+v", len(windows), wantCount, windows)
 	}
 	for _, w := range windows {
+		if w.Provider != wantProvider {
+			t.Errorf("供应商 = %q，想要 %q", w.Provider, wantProvider)
+		}
 		if w.Source != codex.QuotaSourceMagpie || w.User == "" {
 			t.Errorf("Magpie 卡片元数据不完整: %+v", w)
 		}

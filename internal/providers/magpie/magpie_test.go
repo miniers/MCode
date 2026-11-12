@@ -84,7 +84,7 @@ func TestFetchModels(t *testing.T) {
 		}
 		atomic.AddInt32(&hits, 1)
 		io.WriteString(w, `{"object":"list","data":[
-			{"id":"jp/auto/claude-sonnet-5-5","display_name":"Claude Sonnet 5.5",
+			{"id":"jp/auto/claude-sonnet-5-5","owned_by":" Claude ","display_name":"Claude Sonnet 5.5",
 			 "magpie_label":"Claude Sonnet 5.5 · routing group · jp","reasoning":true,
 			 "supported_reasoning_levels":[{"effort":"none"},{"effort":"low"},{"effort":"high"}],
 			 "context_window":1000000,"context_length":1000000,"max_input_tokens":1000000,"max_output_tokens":128000,
@@ -102,6 +102,13 @@ func TestFetchModels(t *testing.T) {
 	}
 
 	first := models[0]
+	if first.Provider != " Claude " {
+		t.Errorf("Provider = %q，想要保留原值", first.Provider)
+	}
+	encoded, err := json.Marshal(first)
+	if err != nil || strings.Contains(string(encoded), "provider") {
+		t.Errorf("pi 模型 JSON 不应包含 provider: %s，err=%v", encoded, err)
+	}
 	if first.ID != "jp/auto/claude-sonnet-5-5" {
 		t.Errorf("ID = %q", first.ID)
 	}

@@ -70,6 +70,23 @@ func engineQuotaTestClient(t *testing.T, endpoints []config.CustomEndpointConfig
 	return client, tracker
 }
 
+func TestFilterQuotaUpstream(t *testing.T) {
+	windows := []mcodeui.ProviderQuotaWindow{
+		{Provider: "claude", User: "a"},
+		{Provider: "codex", User: "b", Active: true},
+		{Provider: "codex", User: "c"},
+	}
+	if got := filterQuotaUpstream(windows, "CODEX"); len(got) != 2 || got[0].User != "b" || !got[0].Active || got[1].User != "c" {
+		t.Fatalf("筛选结果 = %+v", got)
+	}
+	if got := filterQuotaUpstream(windows, "missing"); len(got) != len(windows) {
+		t.Fatalf("无匹配时应返回全部: %+v", got)
+	}
+	if got := filterQuotaUpstream(windows, ""); len(got) != len(windows) {
+		t.Fatalf("空供应商应返回全部: %+v", got)
+	}
+}
+
 // TestEngineQuotaKey 校验引擎会话的额度 key 形状：mcode 带端点前缀，magpie 与
 // magpie2…magpie4 与 custom-<id> 直接用 provider 自身命名，其余都不算。
 func TestEngineQuotaKey(t *testing.T) {

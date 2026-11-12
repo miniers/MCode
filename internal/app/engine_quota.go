@@ -30,9 +30,11 @@ var engineMagpieKindPattern = regexp.MustCompile(`^magpie([2-4])?$`)
 
 // engineQuotaEndpoint 是一份 Magpie 额度对应的端点与额度 key。
 type engineQuotaEndpoint struct {
-	key     string
-	baseURL string
-	apiKey  string
+	key        string
+	baseURL    string
+	apiKey     string
+	endpointID string
+	providerID string
 }
 
 // engineQuotaKey 报告额度 key 是否属于内置引擎会话（mcode:<provider id>、magpie、magpie2…或 custom-<id>）。
@@ -69,9 +71,11 @@ func engineQuotaEndpointIn(cfg config.Config, secrets config.SecretStore, key st
 				continue
 			}
 			return engineQuotaEndpoint{
-				key:     engineMcodeQuotaPrefix + target.ProviderID,
-				baseURL: target.BaseURL,
-				apiKey:  target.APIKey,
+				key:        engineMcodeQuotaPrefix + target.ProviderID,
+				baseURL:    target.BaseURL,
+				apiKey:     target.APIKey,
+				endpointID: target.Endpoint,
+				providerID: target.ProviderID,
 			}, true
 		}
 		return engineQuotaEndpoint{}, false
@@ -87,7 +91,7 @@ func engineQuotaEndpointIn(cfg config.Config, secrets config.SecretStore, key st
 		if apiKey == "" {
 			return engineQuotaEndpoint{}, false
 		}
-		return engineQuotaEndpoint{key: key, baseURL: source.BaseURL, apiKey: apiKey}, true
+		return engineQuotaEndpoint{key: key, baseURL: source.BaseURL, apiKey: apiKey, endpointID: strings.TrimPrefix(source.Kind, "custom-")}, true
 	}
 	return engineQuotaEndpoint{}, false
 }
@@ -123,11 +127,12 @@ func magpieQuotaWindowsFrom(windows []magpie.QuotaWindow) []mcodeui.ProviderQuot
 	return out
 }
 
-// readMagpieQuotaWindows 读取一个端点的全部额度卡片，并按 trace 只给本会话实际应答的
-// 账号标「在用」。sessionID 是 Magpie trace 里的会话键：pi 是落盘的 provider 会话 ID，
+// readMagpieQuotaWindows 按真实路由供应商筛选额度卡片；没有路由时按 model 的 owned_by
+// 推断，都未知或没有匹配卡片时保留全部。只给本会话实际应答的账号标「在用」。
+// sessionID 是 Magpie trace 里的会话键：pi 是落盘的 provider 会话 ID，
 // 内置引擎是线程 ID（引擎把线程 ID 当会话亲和键发给网关）。agent 为空时不补读用量记录，
 // 只查 trace 与缓存：内置引擎的请求在网关侧没有可用的 agent 名。
-func (c *Client) readMagpieQuotaWindows(ctx context.Context, baseURL, apiKey, agent, sessionID string) ([]mcodeui.ProviderQuotaWindow, error) {
+func (c *Client) readMagpieQuotaWindows(ctx context.Context, baseURL, apiKey, agent, sessionID, model string) ([]mcodeui.ProviderQuotaWindow, error) {
 	quotaCtx, cancel := context.WithTimeout(ctx, piMagpieFetchTimeout)
 	defer cancel()
 	windows, err := magpie.ReadQuotas(quotaCtx, baseURL, apiKey)
@@ -146,7 +151,76 @@ func (c *Client) readMagpieQuotaWindows(ctx context.Context, baseURL, apiKey, ag
 	// 只有本会话的 trace 路由对得上 provider 与账号时才算在用；同一 provider 的其它
 	// 账号、以及查不到映射时都不标。
 	markRouteActive(out, route, hasRoute)
-	return out, nil
+	upstream := strings.TrimSpace(route.Provider)
+	if !hasRoute {
+		upstream = ""
+	}
+	if upstream == "" && model != "" {
+		upstream, _ = magpie.ModelProvider(quotaCtx, baseURL, apiKey, model)
+	}
+	return filterQuotaUpstream(out, upstream), nil
+}
+
+func filterQuotaUpstream(windows []mcodeui.ProviderQuotaWindow, upstream string) []mcodeui.ProviderQuotaWindow {
+	if upstream == "" {
+		return windows
+	}
+	var filtered []mcodeui.ProviderQuotaWindow
+	for _, w := range windows {
+		if strings.EqualFold(w.Provider, upstream) {
+			filtered = append(filtered, w)
+		}
+	}
+	if len(filtered) == 0 {
+		return windows
+	}
+	return filtered
+}
+
+// magpieQuotaModel 读取线程当前模型，只去掉已识别的端点前缀。
+func (c *Client) magpieQuotaModel(ctx context.Context, agent, endpointID, providerID string) string {
+	model, err := readThreadModel(ctx, c.backend, mcodeui.QuotaThread(ctx))
+	if err != nil {
+		model = ""
+	}
+	model = strings.TrimSpace(model)
+	if providerID != "" {
+		model = strings.TrimPrefix(model, providerID+"/")
+	}
+	if model == "" {
+		model = c.magpieQuotaDefaultModel(agent, endpointID)
+	}
+	return model
+}
+
+func (c *Client) magpieQuotaDefaultModel(agent, endpointID string) string {
+	cfg, ok := c.loadConfig()
+	if !ok || endpointID == "" {
+		return ""
+	}
+	setting := config.MagpieAgentSetting(cfg, agent)
+	if setting.DefaultEndpointID == endpointID {
+		return strings.TrimSpace(setting.DefaultModel)
+	}
+	return ""
+}
+
+// codexQuotaEndpointID 只在地址能唯一定位配置端点时用于默认模型兜底。
+func (c *Client) codexQuotaEndpointID(baseURL string) string {
+	cfg, ok := c.loadConfig()
+	if !ok {
+		return ""
+	}
+	id := ""
+	for _, ep := range cfg.Providers.Custom {
+		if ep.Enabled && ep.Magpie && strings.TrimRight(strings.TrimSpace(ep.BaseURL), "/") == strings.TrimRight(strings.TrimSpace(baseURL), "/") {
+			if id != "" {
+				return ""
+			}
+			id = ep.ID
+		}
+	}
+	return id
 }
 
 // engineQuotaWindows 读取引擎会话的额度窗口。key 形如 mcode:<provider id> 或 magpie 与
@@ -156,7 +230,8 @@ func (c *Client) engineQuotaWindows(ctx context.Context, key string) ([]mcodeui.
 	if !found {
 		return nil, fmt.Errorf("ProviderQuota: %w", mcodeui.ErrNotImplemented)
 	}
-	return c.readMagpieQuotaWindows(ctx, endpoint.baseURL, endpoint.apiKey, "", mcodeui.QuotaThread(ctx))
+	model := c.magpieQuotaModel(ctx, "mcode", endpoint.endpointID, endpoint.providerID)
+	return c.readMagpieQuotaWindows(ctx, endpoint.baseURL, endpoint.apiKey, "", mcodeui.QuotaThread(ctx), model)
 }
 
 // refreshEngineQuota 让网关重读端点上的全部额度卡片（手动刷新按钮用）：引擎会话在网关侧

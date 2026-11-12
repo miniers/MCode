@@ -83,6 +83,8 @@ func (c Cost) USD(input, output, cacheRead, cacheWrite int64) float64 {
 type Model struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Provider 只供额度筛选使用，不写进 pi 的 models.json。
+	Provider string `json:"-"`
 	// Reasoning 表示 pi 可以为该模型提供思考档位。
 	Reasoning bool `json:"reasoning"`
 	// Input 是该模型接受的输入种类，pi 只认 text 与 image。
@@ -167,7 +169,8 @@ type price struct {
 // modelRow 是 /v1/models 的一行，只解码用得到的字段：magpie 的条目比
 // OpenAI 标准的多（对照 magpie 的 internal/gateway/gateway.go 的 modelObject）。
 type modelRow struct {
-	ID string `json:"id"`
+	ID       string `json:"id"`
+	Provider string `json:"owned_by"`
 	// Name 是模型自己的名字。
 	Name string `json:"display_name"`
 	// Label 是 magpie 给各客户端列表用的名字，"模型名 · provider 名"。
@@ -191,6 +194,7 @@ type modelRow struct {
 func (row modelRow) model(id string) Model {
 	m := Model{
 		ID:            id,
+		Provider:      row.Provider,
 		Name:          firstNonEmpty(row.Label, row.Name),
 		Reasoning:     row.Reasoning == nil || *row.Reasoning,
 		Input:         piInputs(row.Modalities),
@@ -290,6 +294,21 @@ func FetchModels(ctx context.Context, baseURL, apiKey string) ([]Model, error) {
 		return models, nil
 	}
 	return fetchModels(ctx, base, key, cacheKey, now)
+}
+
+// ModelProvider 从缓存的模型目录精确查找模型所属的上游供应商。
+func ModelProvider(ctx context.Context, baseURL, apiKey, modelID string) (string, bool) {
+	models, err := FetchModels(ctx, baseURL, apiKey)
+	if err != nil {
+		return "", false
+	}
+	for _, model := range models {
+		if model.ID == modelID {
+			provider := strings.ToLower(strings.TrimSpace(model.Provider))
+			return provider, provider != ""
+		}
+	}
+	return "", false
 }
 
 // RefreshModels 绕过缓存重新读取模型目录，成功后覆盖缓存；失败时保留未过期的成功缓存，错误原样返回。
