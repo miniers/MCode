@@ -552,7 +552,7 @@ func renderRunningCommandActivity(c *ui.Context, s *chatState, m Message, fontFa
 	st := commandActivitySnapshot(s, m.ID)
 	if len(st.processes) > 0 {
 		_, stalled := s.runningCommandBadge(c, m)
-		ui.Column(c.Key("command-processes-"+m.ID)).FillWidth().Padding(0, 0, 0, 11+Space2).Gap(Space1).Children(func() {
+		ui.Column(c.Key("command-processes-"+m.ID)).FillWidth().Padding(0, 0, 0, Space5).Gap(Space1).Children(func() {
 			captionSize := scaledFont(TypeCaption)
 			for i, p := range st.processes {
 				ui.Row(c.Key(fmt.Sprintf("command-process-%s-%d", m.ID, i))).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
