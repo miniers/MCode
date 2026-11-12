@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -56,32 +58,43 @@ func changedFileStatus(entry StatusEntry) string {
 }
 
 // CommitSelected 只提交 paths 指定的路径，重命名需要同时包含新旧路径。
-// 与 Commit 的区别是不做 `git add -A`：先把用户真实索引复位到 HEAD，再只暂存所选路径，
-// 因此未选中的改动不会被带进这次提交。索引复位只改暂存区，工作区文件不会被动到；
-// 提交失败时最多留下一次未完成的暂存状态，不会丢失工作区改动。
+// 只暂存并提交所选路径，保留其他路径已有的暂存状态。
 func (r *Runner) CommitSelected(ctx context.Context, root string, paths []string, message string) error {
 	message = strings.TrimSpace(message)
 	if message == "" {
-		return errors.New("commit message is empty")
+		return errors.New("提交信息不能为空")
 	}
 	paths = normalizePaths(paths)
 	if len(paths) == 0 {
-		return errors.New("no paths to commit")
+		return errors.New("提交路径不能为空")
 	}
 
-	// 复位索引：有 HEAD 时对齐 HEAD 并保留工作区；空仓库没有 HEAD，直接把索引清空。
-	if r.hasCommits(ctx, root) {
-		if _, err := r.run(ctx, root, nil, "reset", "-q", "--", "."); err != nil {
-			return fmt.Errorf("reset index: %w", err)
+	var addPaths []string
+	for _, path := range paths {
+		rel, err := cleanAndVerifyPath(root, path)
+		if err != nil {
+			return err
 		}
-	} else if _, err := r.run(ctx, root, nil, "read-tree", "--empty"); err != nil {
-		return fmt.Errorf("clear index: %w", err)
+		// 已暂存的删除或重命名旧路径不再属于索引，不能再次 add。
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel))); os.IsNotExist(err) {
+			tracked, err := r.run(ctx, root, []string{"GIT_LITERAL_PATHSPECS=1"}, "ls-files", "-z", "--", rel)
+			if err != nil {
+				return err
+			}
+			if len(tracked) == 0 {
+				continue
+			}
+		} else if err != nil {
+			return err
+		}
+		addPaths = append(addPaths, rel)
 	}
-
-	addArgs := append([]string{"add", "-A", "--"}, paths...)
-	if _, err := r.run(ctx, root, nil, addArgs...); err != nil {
-		return fmt.Errorf("stage paths: %w", err)
+	if len(addPaths) > 0 {
+		if err := r.StageFiles(ctx, root, addPaths); err != nil {
+			return fmt.Errorf("暂存所选路径: %w", err)
+		}
 	}
-	_, err := r.run(ctx, root, nil, "commit", "-m", message)
+	args := append([]string{"commit", "--only", "-m", message, "--"}, paths...)
+	_, err := r.run(ctx, root, []string{"GIT_LITERAL_PATHSPECS=1"}, args...)
 	return err
 }

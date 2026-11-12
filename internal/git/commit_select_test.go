@@ -73,7 +73,7 @@ func TestRunner_CommitSelectedOnlyCommitsChosenPaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "chosen.txt"), []byte("选中的文件\n"), 0644); err != nil {
 		t.Fatalf("write chosen.txt: %v", err)
 	}
-	// 先把 README.md 暂存，确认 CommitSelected 会复位索引、不会顺带提交它。
+	// 先把 README.md 暂存，确认 CommitSelected 保留暂存状态且不会顺带提交它。
 	runGitOutput(t, runner, dir, "add", "README.md")
 
 	if err := runner.CommitSelected(ctx, dir, []string{"chosen.txt"}, "只提交 chosen.txt"); err != nil {
@@ -89,8 +89,8 @@ func TestRunner_CommitSelectedOnlyCommitsChosenPaths(t *testing.T) {
 		t.Fatalf("工作区内容被改动: %q, %v", content, err)
 	}
 	status := runGitOutput(t, runner, dir, "status", "--porcelain=v1")
-	if !strings.Contains(status, " M README.md") {
-		t.Errorf("未选中的改动应留在工作区: %q", status)
+	if !strings.Contains(status, "M  README.md") {
+		t.Errorf("未选中的改动应保持暂存: %q", status)
 	}
 }
 
@@ -156,5 +156,47 @@ func TestRunner_CommitSelectedFirstCommitInEmptyRepo(t *testing.T) {
 	files := headFiles(t, runner, dir)
 	if !files["a.txt"] || files["staged.txt"] {
 		t.Errorf("首次提交应只包含 a.txt: %v", files)
+	}
+	if status := runGitOutput(t, runner, dir, "status", "--porcelain=v1"); !strings.Contains(status, "A  staged.txt") {
+		t.Fatalf("首次提交应保留未选文件的暂存状态: %q", status)
+	}
+}
+
+func TestRunner_CommitSelectedPreservesOtherIndex(t *testing.T) {
+	for _, kind := range []string{"新增", "删除", "已暂存删除", "重命名"} {
+		t.Run(kind, func(t *testing.T) {
+			r, root := setupTestRepo(t)
+			writeTestFile(t, root, "other.txt", "已暂存内容\n")
+			runGitOutput(t, r, root, "add", "--", "other.txt")
+			writeTestFile(t, root, "other.txt", "工作区后续内容\n")
+			paths := []string{"chosen.txt"}
+			switch kind {
+			case "新增":
+				writeTestFile(t, root, "chosen.txt", "选择内容\n")
+			case "删除", "已暂存删除":
+				paths = []string{"README.md"}
+				if err := os.Remove(filepath.Join(root, "README.md")); err != nil {
+					t.Fatal(err)
+				}
+				if kind == "已暂存删除" {
+					runGitOutput(t, r, root, "add", "-A", "--", "README.md")
+				}
+			case "重命名":
+				paths = []string{"README.md", "chosen.txt"}
+				runGitOutput(t, r, root, "mv", "--", "README.md", "chosen.txt")
+			}
+			if err := r.CommitSelected(context.Background(), root, paths, kind); err != nil {
+				t.Fatal(err)
+			}
+			if headFiles(t, r, root)["other.txt"] {
+				t.Fatal("未选文件进入了提交")
+			}
+			if got := runGitOutput(t, r, root, "show", ":other.txt"); got != "已暂存内容\n" {
+				t.Fatalf("索引内容被修改: %q", got)
+			}
+			if got := readTestFile(t, root, "other.txt"); got != "工作区后续内容\n" {
+				t.Fatalf("工作区内容被修改: %q", got)
+			}
+		})
 	}
 }
