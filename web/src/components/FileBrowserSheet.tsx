@@ -9,6 +9,7 @@ import type {
 } from '../types/contract';
 import { useRemoteStatic } from '../context/RemoteContext';
 import { useRemoteFilesWriteApi } from '../context/remoteFilesWriteApi';
+import { useRemoteFilesOpsApi } from '../context/remoteFilesOpsApi';
 import type { RemoteFilesWriteResult } from '../context/remoteFilesWriteApi';
 import {
   parseMarkdown,
@@ -141,6 +142,11 @@ export const FileBrowserSheetBody = React.forwardRef<ThreadMenuPageHandle, FileB
   const [directoryLoading, setDirectoryLoading] = useState<boolean>(false);
   const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [directoryTruncated, setDirectoryTruncated] = useState<boolean>(false);
+  const [nameOperation, setNameOperation] = useState<{ kind: 'file' | 'directory' | 'rename'; path: string } | null>(null);
+  const [operationName, setOperationName] = useState('');
+  const [trashPath, setTrashPath] = useState<string | null>(null);
+  const [operationBusy, setOperationBusy] = useState(false);
+  const ops = useRemoteFilesOpsApi();
 
   // 搜索相关状态
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -755,6 +761,42 @@ export const FileBrowserSheetBody = React.forwardRef<ThreadMenuPageHandle, FileB
     }, 200);
   };
 
+  const runOperation = async (action: () => Promise<unknown>) => {
+    if (operationBusy) return;
+    setOperationBusy(true);
+    setDirectoryError(null);
+    try {
+      await action();
+      setNameOperation(null);
+      setTrashPath(null);
+      await loadDirectory(currentPath);
+      if (searchQuery.trim()) handleSearchChange(searchQuery);
+    } catch (err) {
+      setNameOperation(null);
+      setTrashPath(null);
+      setDirectoryError(err instanceof Error ? err.message : '文件操作失败');
+    } finally {
+      setOperationBusy(false);
+    }
+  };
+
+  const submitNameOperation = () => {
+    if (!nameOperation) return;
+    const name = operationName.trim();
+    if (!name || name.includes('/') || name === '.' || name === '..') {
+      setNameOperation(null);
+      setDirectoryError(!name ? '名字不能为空' : name.includes('/') ? '名字不能包含斜杠' : '名字不能是 . 或 ..');
+      return;
+    }
+    const parent = nameOperation.kind === 'rename'
+      ? nameOperation.path.slice(0, Math.max(0, nameOperation.path.lastIndexOf('/')))
+      : nameOperation.path;
+    const path = parent ? `${parent}/${name}` : name;
+    void runOperation(() => nameOperation.kind === 'rename'
+      ? ops.rename({ threadID, path: nameOperation.path, newPath: path })
+      : ops.create({ threadID, path, dir: nameOperation.kind === 'directory' }));
+  };
+
   // 面包屑段落
   const breadcrumbs = useMemo(() => {
     const list: Array<{ name: string; path: string; isFile?: boolean }> = [
@@ -1207,6 +1249,19 @@ export const FileBrowserSheetBody = React.forwardRef<ThreadMenuPageHandle, FileB
         ) : (
           /* 目录列表视图 */
           <div className="flex-1 min-h-0 flex flex-col min-w-0 max-w-full overflow-hidden space-y-2.5">
+            {ops.supported.create && (
+              <div className="flex gap-2">
+                <button type="button" disabled={operationBusy} className="secondary-button text-xs py-1 px-3" onClick={() => { setOperationName(''); setNameOperation({ kind: 'file', path: currentPath }); }}>新建文件</button>
+                <button type="button" disabled={operationBusy} className="secondary-button text-xs py-1 px-3" onClick={() => { setOperationName(''); setNameOperation({ kind: 'directory', path: currentPath }); }}>新建文件夹</button>
+              </div>
+            )}
+            {nameOperation && (
+              <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); submitNameOperation(); }} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setNameOperation(null); } }}>
+                <input autoFocus aria-label={nameOperation.kind === 'rename' ? '新名称' : '名称'} value={operationName} onChange={(event) => setOperationName(event.target.value)} disabled={operationBusy} className="min-w-0 flex-1 bg-[var(--input-surface,var(--card))] border border-[var(--border)] rounded-xl px-3 py-1.5 text-xs text-[var(--foreground)]" />
+                <button type="submit" disabled={operationBusy} className="secondary-button text-xs py-1 px-3">{nameOperation.kind === 'rename' ? '重命名' : '创建'}</button>
+                <button type="button" disabled={operationBusy} className="secondary-button text-xs py-1 px-3" onClick={() => setNameOperation(null)}>取消</button>
+              </form>
+            )}
             {/* 搜索框 */}
             <div className="shrink-0 relative">
               <SearchIcon className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--foreground-muted)]" />
@@ -1349,6 +1404,16 @@ export const FileBrowserSheetBody = React.forwardRef<ThreadMenuPageHandle, FileB
                           </button>
                         )}
 
+                        {!isProtected && (ops.supported.rename || ops.supported.trash || (ops.supported.duplicate && entry.kind === 'file')) && (
+                          <details className="relative">
+                            <summary aria-label={`${entry.name} 的操作`} className="cursor-pointer list-none px-2 py-1">···</summary>
+                            <div className="absolute right-0 z-10 w-36 rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-lg p-1">
+                              {ops.supported.rename && <button type="button" disabled={operationBusy} className="block w-full text-left px-3 py-2 text-xs" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setOperationName(entry.name); setNameOperation({ kind: 'rename', path: entry.path }); }}>重命名</button>}
+                              {ops.supported.duplicate && entry.kind === 'file' && <button type="button" disabled={operationBusy} className="block w-full text-left px-3 py-2 text-xs" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void runOperation(() => ops.duplicate({ threadID, path: entry.path })); }}>复制一份</button>}
+                              {ops.supported.trash && <button type="button" disabled={operationBusy} className="block w-full text-left px-3 py-2 text-xs text-[var(--danger-foreground)]" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setTrashPath(entry.path); }}>移到废纸篓</button>}
+                            </div>
+                          </details>
+                        )}
                         {isDir && !isProtected && (
                           <ChevronRightIcon className="w-3.5 h-3.5 text-[var(--foreground-muted)]" />
                         )}
@@ -1372,6 +1437,16 @@ export const FileBrowserSheetBody = React.forwardRef<ThreadMenuPageHandle, FileB
           </button>
         </div>
 
+        <ConfirmDialog
+          isOpen={trashPath !== null}
+          title="移到废纸篓"
+          message={`确定把 ${trashPath ?? ''} 移到废纸篓吗？`}
+          confirmLabel="移到废纸篓"
+          confirmVariant="danger"
+          isLoading={operationBusy}
+          onConfirm={() => { if (trashPath) void runOperation(() => ops.trash({ threadID, path: trashPath })); }}
+          onCancel={() => setTrashPath(null)}
+        />
         <ConfirmDialog
           isOpen={discardPrompt !== null}
           title="放弃未保存的修改？"
