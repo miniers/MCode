@@ -41,3 +41,20 @@ func (c *Client) GitBlame(ctx context.Context, threadID, path, rev string) ([]gi
 	}
 	return runner.Blame(ctx, root, path, rev)
 }
+
+// GitCommitDiff 返回提交相对于第一父提交的补丁，根提交使用空树。
+func (c *Client) GitCommitDiff(ctx context.Context, threadID, sha, path string) ([]git.FileDiff, error) {
+	runner, root, err := c.gitStashTarget(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	base, err := runner.CommitBase(ctx, root, sha)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	if path != "" {
+		paths = []string{path}
+	}
+	return runner.Diff(ctx, root, base, sha, paths)
+}
