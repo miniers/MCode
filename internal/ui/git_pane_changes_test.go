@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -360,6 +361,108 @@ func TestGitChangesNarrowDiffKeyboardAfterReopen(t *testing.T) {
 type gitChangesGenerateClient struct {
 	*gitChangesFakeClient
 	calls int
+}
+
+type gitChangesDelayedClient struct {
+	*gitChangesFakeClient
+	release chan struct{}
+	err     error
+	message string
+}
+
+func (f *gitChangesDelayedClient) GenerateCommitMessage(ctx context.Context, _ string) (string, error) {
+	select {
+	case <-f.release:
+		return "生成的信息", f.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func (f *gitChangesDelayedClient) GitCommitIndex(_ context.Context, _ string, message string, _ bool) (string, error) {
+	f.paneMu.Lock()
+	f.message = message
+	f.calls = append(f.calls, "commit")
+	f.paneMu.Unlock()
+	return "1234567", nil
+}
+
+func TestGitChangesCommitAfterGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		cancel, fail, push bool
+	}{
+		{name: "commit"},
+		{name: "cancel", cancel: true},
+		{name: "error", fail: true},
+		{name: "push", push: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, ps, base := gitPaneTestState(t)
+			client := &gitChangesDelayedClient{gitChangesFakeClient: &gitChangesFakeClient{gitPaneFakeClient: base}, release: make(chan struct{})}
+			if tc.fail {
+				client.err = errors.New("generation failed")
+			}
+			s.client = client
+			ps.state = GitState{WorkDir: t.TempDir()}
+			ps.entries = []git.StatusEntry{{Path: "a", Index: 'M'}}
+			st := gitChangesStateFor(ps)
+			tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, "git-test", ps) }, 600, 500)
+			tt.Frame()
+			tt.Frame()
+			if tc.push {
+				if err := tt.Click("提交选项"); err != nil {
+					t.Fatal(err)
+				}
+				tt.Frame()
+				if err := tt.Click("提交并推送"); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := tt.Click("提交 1 个文件"); err != nil {
+				t.Fatal(err)
+			}
+			st.mu.Lock()
+			queued := st.commitQueued
+			st.mu.Unlock()
+			if !queued {
+				t.Fatal("未排队")
+			}
+			base.paneMu.Lock()
+			calls := append([]string(nil), base.calls...)
+			base.paneMu.Unlock()
+			if len(calls) != 0 {
+				t.Fatalf("生成期间调用 Git: %v", calls)
+			}
+			if tc.cancel {
+				tt.Frame()
+				if err := tt.Click("生成后提交"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			close(client.release)
+			gitPaneWait(t, func() bool { st.mu.Lock(); defer st.mu.Unlock(); return st.cancel == nil })
+			tt.Frame()
+			if !tc.cancel && !tc.fail {
+				gitPaneWait(t, func() bool {
+					base.paneMu.Lock()
+					defer base.paneMu.Unlock()
+					return len(base.calls) >= 1 && (!tc.push || len(base.calls) >= 2)
+				})
+			}
+			base.paneMu.Lock()
+			defer base.paneMu.Unlock()
+			want := []string(nil)
+			if !tc.cancel && !tc.fail {
+				want = []string{"commit"}
+				if tc.push {
+					want = append(want, "push")
+				}
+			}
+			if !reflect.DeepEqual(base.calls, want) || (len(want) > 0 && client.message != "生成的信息") {
+				t.Fatalf("调用 = %v，信息 = %q，期望调用 = %v", base.calls, client.message, want)
+			}
+		})
+	}
 }
 
 func (f *gitChangesGenerateClient) GenerateCommitMessage(context.Context, string) (string, error) {
