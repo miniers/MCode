@@ -200,7 +200,7 @@ func Check(in Input) Verdict {
 			return Verdict{Action: Deny, Reason: "Blocked by mcode: plan mode only allows reading."}
 		}
 	}
-	if in.Mode == harness.ModeReadOnly && !reads && !in.ReadOnlyHint {
+	if in.Mode == harness.ModeReadOnly && !reads && !in.ReadOnlyHint && !(in.Plan && strings.HasPrefix(in.ToolName, "mcp__mcode__")) {
 		if in.ToolName == "bash" {
 			if in.Sandboxed {
 				return Verdict{Action: Deny, Reason: "只读档不能向远程或设备写入（git push、curl 提交数据、gh 写操作、ssh、adb install/push/shell 写操作等），请只做调研；本机只有 $TMPDIR 可写。"}
