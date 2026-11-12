@@ -70,3 +70,32 @@ func TestGitBranchPopoverForceDelete(t *testing.T) {
 		t.Fatal("强制删除确认判断错误")
 	}
 }
+
+func TestGitBranchPopoverActionMenu(t *testing.T) {
+	f := &branchPopoverFake{newGitFakeClient()}
+	tt := ui.NewTester(Root(f), 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
+	if err := tt.Click("Git 分支"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("分支操作 other"); return ok })
+	before, ok := tt.Find("切换到分支 unmerged")
+	if !ok {
+		t.Fatal("未找到后续分支")
+	}
+	if _, ok := tt.Find("复制名称"); ok {
+		t.Fatal("菜单打开前不应显示操作项")
+	}
+	if err := tt.Click("分支操作 other"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("复制名称"); return ok })
+	after, ok := tt.Find("切换到分支 unmerged")
+	if !ok || after.Y != before.Y {
+		t.Fatal("打开菜单不应改变列表中后续分支的位置")
+	}
+	if err := tt.Click("复制名称"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("复制名称"); return !ok })
+}

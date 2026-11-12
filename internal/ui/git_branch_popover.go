@@ -244,7 +244,7 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 	if selected >= len(items) {
 		selected = 0
 	}
-	ui.Column(c.Key("git-branch-content")).Width(width).Gap(Space1).Children(func() {
+	popoverCard(c, ui.Column(c.Key("git-branch-content"))).Width(max(280, min(width, 360))).Padding(Space2).Gap(Space1).Children(func() {
 		SearchField(c, TextFieldProps{Key: "git-branch-search", Value: &query, Label: "搜索分支", Placeholder: "切换或新建分支…", FillWidth: true, AutoFocus: edit == "", OnChange: func(v string) { p.mu.Lock(); p.query = v; p.selected = 0; p.mu.Unlock() }, OnKeyDown: func(k ui.TextKey) bool {
 			switch k.Key {
 			case ui.KeyEscape:
@@ -381,32 +381,43 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 							})
 						})
 						if advanced {
-							more := Button(c, ButtonOpts{Key: key + "-more", Text: "⋯", Label: "分支操作 " + item.name, Disabled: busy, Variant: ButtonSecondary, Size: ControlSM, OnClick: func() {
+							more := IconButton(c, IconButtonProps{Key: key + "-more", Icon: IconMoreHorizontal(), Label: "分支操作 " + item.name, Disabled: busy, Variant: ButtonGhost, Size: ControlSM, OnClick: func() {
 								p.mu.Lock()
-								if p.menu == key {
-									p.menu = ""
-								} else {
-									p.menu = key
-								}
+								p.menu = key
 								p.mu.Unlock()
 							}})
 							if !row.Hovered() && !more.Hovered() && menu != key {
 								more.Opacity(0)
 							}
+							menuOpen := menu == key
+							appPopover(c.Key(key+"-menu"), more, &menuOpen, func() {
+								p.mu.Lock()
+								if p.menu == key {
+									p.menu = ""
+								}
+								p.mu.Unlock()
+							}, func() {
+								popoverCard(c, ui.Column(c.Key(key+"-menu-content"))).Padding(Space1).Gap(Space0).Children(func() {
+									for _, a := range actions {
+										a := a
+										opt := ui.ButtonBase(c.Key(key+a.label)).Label(a.label).FillWidth().Height(RowHeight).Padding(0, Space3).Justify(ui.Start).Disabled(a.disabled || busy).Radius(RadiusSM)
+										if a.disabled {
+											opt.Tooltip("当前分支不可执行此操作")
+										} else if opt.Hovered() {
+											opt.Background(ThemeHover(c))
+										}
+										opt.OnClick(func() { p.mu.Lock(); p.menu = ""; p.mu.Unlock(); a.run() }).Children(func() {
+											color := ThemePrimaryText(c)
+											if a.label == "删除…" {
+												color = ThemeDanger(c)
+											}
+											ui.Text(c, a.label).FontSize(uiFont(TypeFootnote)).TextColor(color)
+										})
+									}
+								})
+							})
 						}
 					})
-					if menu == key && advanced {
-						for _, a := range actions {
-							a := a
-							opt := ui.ButtonBase(c.Key(key + a.label)).Label(a.label).FillWidth().Height(RowHeight).Justify(ui.Start).Disabled(a.disabled || busy).Radius(RadiusSM)
-							if a.disabled {
-								opt.Tooltip("当前分支不可执行此操作")
-							} else if opt.Hovered() {
-								opt.Background(ThemeHover(c))
-							}
-							opt.OnClick(a.run).Children(func() { ui.Text(c, a.label).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)) })
-						}
-					}
 				}
 				if needle != "" && !exists {
 					renderItem(items[0])
