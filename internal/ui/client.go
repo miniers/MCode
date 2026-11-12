@@ -1021,6 +1021,25 @@ func QuotaThread(ctx context.Context) string {
 	return id
 }
 
+type quotaModelKey struct{}
+
+// WithQuotaModel 显式指定本次额度请求对应的模型。
+func WithQuotaModel(ctx context.Context, model string) context.Context {
+	if ctx == nil || model == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, quotaModelKey{}, model)
+}
+
+// QuotaModel 取出额度请求显式指定的模型；没有时返回空串。
+func QuotaModel(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	model, _ := ctx.Value(quotaModelKey{}).(string)
+	return model
+}
+
 // CommandProc 是运行中命令的一条进程采样。
 type CommandProc struct {
 	PID, PPID int

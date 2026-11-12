@@ -128,7 +128,7 @@ func magpieQuotaWindowsFrom(windows []magpie.QuotaWindow) []mcodeui.ProviderQuot
 }
 
 // readMagpieQuotaWindows 按真实路由供应商筛选额度卡片；没有路由时按 model 的 owned_by
-// 推断，都未知或没有匹配卡片时保留全部。只给本会话实际应答的账号标「在用」。
+// 推断，只有都未知时保留全部；已知上游没有匹配卡片时返回空。只给本会话实际应答的账号标「在用」。
 // sessionID 是 Magpie trace 里的会话键：pi 是落盘的 provider 会话 ID，
 // 内置引擎是线程 ID（引擎把线程 ID 当会话亲和键发给网关）。agent 为空时不补读用量记录，
 // 只查 trace 与缓存：内置引擎的请求在网关侧没有可用的 agent 名。
@@ -161,6 +161,7 @@ func (c *Client) readMagpieQuotaWindows(ctx context.Context, baseURL, apiKey, ag
 	return filterQuotaUpstream(out, upstream), nil
 }
 
+// filterQuotaUpstream 只保留已知上游的卡片；上游未知时保留全部。
 func filterQuotaUpstream(windows []mcodeui.ProviderQuotaWindow, upstream string) []mcodeui.ProviderQuotaWindow {
 	if upstream == "" {
 		return windows
@@ -171,17 +172,17 @@ func filterQuotaUpstream(windows []mcodeui.ProviderQuotaWindow, upstream string)
 			filtered = append(filtered, w)
 		}
 	}
-	if len(filtered) == 0 {
-		return windows
-	}
 	return filtered
 }
 
-// magpieQuotaModel 读取线程当前模型，只去掉已识别的端点前缀。
+// magpieQuotaModel 优先使用显式模型，否则读取线程模型，只去掉已识别的端点前缀。
 func (c *Client) magpieQuotaModel(ctx context.Context, agent, endpointID, providerID string) string {
-	model, err := readThreadModel(ctx, c.backend, mcodeui.QuotaThread(ctx))
-	if err != nil {
-		model = ""
+	model := mcodeui.QuotaModel(ctx)
+	if strings.TrimSpace(model) == "" {
+		current, err := readThreadModel(ctx, c.backend, mcodeui.QuotaThread(ctx))
+		if err == nil {
+			model = current
+		}
 	}
 	model = strings.TrimSpace(model)
 	if providerID != "" {

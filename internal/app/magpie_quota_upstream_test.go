@@ -33,7 +33,7 @@ func upstreamQuotaGateway(t *testing.T) (*httptest.Server, *atomic.Int32) {
 			io.WriteString(w, upstreamQuotaJSON)
 		case "/v1/models":
 			modelsHits.Add(1)
-			io.WriteString(w, `{"data":[{"id":"auto/model","owned_by":" CODEX "},{"id":"unowned"}]}`)
+			io.WriteString(w, `{"data":[{"id":"auto/model","owned_by":" CODEX "},{"id":"unowned"},{"id":"auto/claude-model","owned_by":"claude"},{"id":"auto/balance-model","owned_by":"sub2api"}]}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -51,7 +51,8 @@ func TestReadMagpieQuotaWindowsUpstream(t *testing.T) {
 		{"路由优先于目录", "claude", "auto/model", 1, 0},
 		{"无路由按目录", "", "auto/model", 2, 1},
 		{"路由缺供应商按目录", " ", "auto/model", 2, 1},
-		{"路由无匹配保留全部", "missing", "auto/model", 3, 0},
+		{"路由无匹配返回空", "missing", "auto/model", 0, 0},
+		{"模型上游无匹配返回空", "", "auto/balance-model", 0, 1},
 		{"模型无供应商保留全部", "", "unowned", 3, 1},
 		{"模型不在目录保留全部", "", "missing", 3, 1},
 		{"都未知保留全部", "", "", 3, 0},
@@ -89,24 +90,42 @@ func TestProviderQuotaMagpieModelFallback(t *testing.T) {
 	for _, tc := range []struct {
 		name, agent, provider, model, defaultEndpoint string
 		want                                          int
+		explicitModel                                 string
+		withoutThread                                 bool
 	}{
-		{"pi 当前模型", "pi", "pi:magpie-jp", "magpie-jp/auto/model", "", 2},
-		{"引擎当前模型", "mcode", "mcode:magpie-jp", "magpie-jp/auto/model", "", 2},
-		{"端点当前模型", "mcode", "custom-jp", "auto/model", "", 2},
-		{"codex 注入模型", "codex", "codex", "magpie-jp/auto/model", "", 2},
-		{"pi 默认模型", "pi", "pi:magpie-jp", "", "jp", 2},
-		{"引擎默认模型", "mcode", "mcode:magpie-jp", "", "jp", 2},
-		{"codex 默认模型", "codex", "codex", "", "jp", 2},
-		{"pi 其他端点默认模型", "pi", "pi:magpie-jp", "", "other", 3},
-		{"引擎其他端点默认模型", "mcode", "mcode:magpie-jp", "", "other", 3},
-		{"codex 其他端点默认模型", "codex", "codex", "", "other", 3},
+		{"pi 当前模型", "pi", "pi:magpie-jp", "magpie-jp/auto/model", "", 2, "", false},
+		{"引擎当前模型", "mcode", "mcode:magpie-jp", "magpie-jp/auto/model", "", 2, "", false},
+		{"端点当前模型", "mcode", "custom-jp", "auto/model", "", 2, "", false},
+		{"codex 注入模型", "codex", "codex", "magpie-jp/auto/model", "", 2, "", false},
+		{"pi 默认模型", "pi", "pi:magpie-jp", "", "jp", 2, "", false},
+		{"引擎默认模型", "mcode", "mcode:magpie-jp", "", "jp", 2, "", false},
+		{"codex 默认模型", "codex", "codex", "", "jp", 2, "", false},
+		{"pi 其他端点默认模型", "pi", "pi:magpie-jp", "", "other", 3, "", false},
+		{"引擎其他端点默认模型", "mcode", "mcode:magpie-jp", "", "other", 3, "", false},
+		{"codex 其他端点默认模型", "codex", "codex", "", "other", 3, "", false},
+		{"codex 仅显式模型", "codex", "codex", "auto/claude-model", "", 2, "auto/model", true},
+		{"codex 显式模型优先", "codex", "codex", "auto/claude-model", "", 2, "auto/model", false},
+		{"codex 显式模型去端点前缀", "codex", "codex", "auto/claude-model", "", 2, "magpie-jp/auto/model", false},
+		{"pi 显式模型优先", "pi", "pi:magpie-jp", "magpie-jp/auto/claude-model", "", 2, "magpie-jp/auto/model", false},
+		{"引擎仅显式模型", "mcode", "mcode:magpie-jp", "magpie-jp/auto/claude-model", "", 2, "magpie-jp/auto/model", true},
+		{"引擎显式模型优先", "mcode", "mcode:magpie-jp", "magpie-jp/auto/claude-model", "", 2, "magpie-jp/auto/model", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, _ := upstreamQuotaGateway(t)
 			backend := remote.NewMemoryBackend(nil)
 			defer backend.Close()
-			backend.AddThread(wire.ThreadSummary{ID: "thread", Provider: tc.agent, Model: &tc.model}, nil)
+			threadProvider := tc.agent
+			if tc.agent == "codex" && tc.model == "auto/claude-model" {
+				threadProvider = "claude"
+			}
+			backend.AddThread(wire.ThreadSummary{ID: "thread", Provider: threadProvider, Model: &tc.model}, nil)
 			client := NewClient(backend)
+			client.SetAgySessionLookup(func(context.Context, string) string {
+				if tc.withoutThread {
+					t.Error("仅显式模型的请求不应解析会话路由")
+				}
+				return ""
+			})
 			dataDir := t.TempDir()
 			cfg := magpieTestConfig(config.CustomEndpointConfig{ID: "jp", Name: "Magpie JP", BaseURL: srv.URL + "/v1", Magpie: true, Enabled: true})
 			cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{
@@ -127,9 +146,18 @@ func TestProviderQuotaMagpieModelFallback(t *testing.T) {
 				}
 				t.Cleanup(func() { codexMagpieRoutesForQuota, readCodexQuotaLimits = previousRoutes, previousReader })
 			}
-			windows, err := client.ProviderQuota(mcodeui.WithQuotaThread(context.Background(), "thread"), tc.provider)
+			ctx := mcodeui.WithQuotaModel(context.Background(), tc.explicitModel)
+			if !tc.withoutThread {
+				ctx = mcodeui.WithQuotaThread(ctx, "thread")
+			}
+			windows, err := client.ProviderQuota(ctx, tc.provider)
 			if err != nil || len(windows) != tc.want {
 				t.Fatalf("窗口 = %+v，err=%v，想要 %d 个", windows, err, tc.want)
+			}
+			for _, w := range windows {
+				if tc.want == 2 && (w.Provider != "codex" || w.Active) {
+					t.Errorf("模型筛选应仅返回 codex 且不标在用: %+v", w)
+				}
 			}
 		})
 	}

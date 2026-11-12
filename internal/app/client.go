@@ -5064,14 +5064,18 @@ func (c *Client) codexQuotaLimits(ctx context.Context, threadID string) (codex.R
 // 有效配置判断直连或 Magpie 来源。
 func (c *Client) codexMagpieEndpoint(ctx context.Context, threadID string) (baseURL, apiKey string, ok bool, limits codex.RateLimits, err error) {
 	threadID = strings.TrimSpace(threadID)
-	if threadID != "" {
-		if model, modelErr := readCodexThreadModel(ctx, c.backend, threadID); modelErr == nil {
-			for _, route := range codexMagpieRoutesForQuota() {
-				providerID := strings.TrimSpace(route.ProviderID)
-				prefix := providerID + "/"
-				if providerID != "" && strings.HasPrefix(model, prefix) && strings.TrimSpace(strings.TrimPrefix(model, prefix)) != "" {
-					return route.BaseURL, route.APIKey, true, codex.RateLimits{}, nil
-				}
+	model := strings.TrimSpace(mcodeui.QuotaModel(ctx))
+	if model == "" && threadID != "" {
+		if current, modelErr := readCodexThreadModel(ctx, c.backend, threadID); modelErr == nil {
+			model = current
+		}
+	}
+	if model != "" {
+		for _, route := range codexMagpieRoutesForQuota() {
+			providerID := strings.TrimSpace(route.ProviderID)
+			prefix := providerID + "/"
+			if providerID != "" && strings.HasPrefix(model, prefix) && strings.TrimSpace(strings.TrimPrefix(model, prefix)) != "" {
+				return route.BaseURL, route.APIKey, true, codex.RateLimits{}, nil
 			}
 		}
 	}
@@ -5146,8 +5150,8 @@ func (c *Client) ProviderQuota(ctx context.Context, provider string) ([]mcodeui.
 			if threadID != "" && c.agySessionForThread != nil {
 				sessionID = c.agySessionForThread(ctx, threadID)
 			}
-			model := ""
-			if threadID != "" {
+			model := strings.TrimSpace(mcodeui.QuotaModel(ctx))
+			if model == "" && threadID != "" {
 				if current, modelErr := readCodexThreadModel(ctx, c.backend, threadID); modelErr == nil {
 					model = strings.TrimSpace(current)
 				}

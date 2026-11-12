@@ -79,8 +79,8 @@ func TestFilterQuotaUpstream(t *testing.T) {
 	if got := filterQuotaUpstream(windows, "CODEX"); len(got) != 2 || got[0].User != "b" || !got[0].Active || got[1].User != "c" {
 		t.Fatalf("筛选结果 = %+v", got)
 	}
-	if got := filterQuotaUpstream(windows, "missing"); len(got) != len(windows) {
-		t.Fatalf("无匹配时应返回全部: %+v", got)
+	if got := filterQuotaUpstream(windows, "missing"); len(got) != 0 {
+		t.Fatalf("无匹配时应返回空: %+v", got)
 	}
 	if got := filterQuotaUpstream(windows, ""); len(got) != len(windows) {
 		t.Fatalf("空供应商应返回全部: %+v", got)

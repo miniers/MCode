@@ -264,7 +264,7 @@ func composerQuotaStatus(s *chatState, provider string) (loading bool, errText s
 
 // loadComposerQuotaForProvider 按 provider 加载额度窗口：同一 provider 一分钟内不重复请求。
 // 没有 client（例如尚未接上后端的嵌入状态）时安全返回，额度条随之不渲染。
-func (s *chatState) loadComposerQuotaForProvider(provider, threadID string, force bool) {
+func (s *chatState) loadComposerQuotaForProvider(provider, threadID, model string, force bool) {
 	provider = strings.TrimSpace(provider)
 	if provider == "" || s == nil || s.client == nil {
 		return
@@ -282,10 +282,10 @@ func (s *chatState) loadComposerQuotaForProvider(provider, threadID string, forc
 	if s.quotaWindowsByProvider == nil {
 		s.quotaWindowsByProvider = make(map[string][]ProviderQuotaWindow)
 	}
-	if threadID == "" {
+	if threadID == "" && model == "" {
 		threadID = s.selectedThreadID
 	}
-	key := quotaGroupKey(chatQuotaCacheKey(s, provider), threadID, s.selectedThreadID)
+	key := quotaGroupKey(chatQuotaCacheKey(s, provider), threadID, model, s.selectedThreadID)
 	loadedAt := s.quotaLoadedProviders[key]
 	// 会话切走后「在用」账号可能变了：会话变了就当作缓存过期，重新拉一次。
 	if s.quotaLoadingProviders[key] {
@@ -313,7 +313,8 @@ func (s *chatState) loadComposerQuotaForProvider(provider, threadID string, forc
 		ctx, cancel := context.WithTimeout(context.Background(), composerQuotaLoadTimeout)
 		defer cancel()
 		// 带上会话 ID：agy 多账号按会话绑定账号，「在用」要标在当前会话真正用的那个号上。
-		windows, err := s.client.ProviderQuota(WithQuotaThread(ctx, threadID), provider)
+		ctx = WithQuotaModel(WithQuotaThread(ctx, threadID), model)
+		windows, err := s.client.ProviderQuota(ctx, provider)
 		s.mu.Lock()
 		s.quotaWindowsByProvider[key] = windows
 		delete(s.quotaErrs, key)
@@ -353,7 +354,7 @@ func composerQuotaRefreshErr(s *chatState, provider string) string {
 // refreshComposerQuotaForProvider 手动刷新某 provider 的额度：先让 Magpie 网关重新向厂商
 // 读取（直连 provider 是空操作），再重新拉额度与余额。刷新期间按钮显示「刷新中…」并忽略
 // 重复点击；刷新失败写进额度错误提示，但不阻止随后的读取。
-func (s *chatState) refreshComposerQuotaForProvider(provider, threadID string) {
+func (s *chatState) refreshComposerQuotaForProvider(provider, threadID, model string) {
 	provider = strings.TrimSpace(provider)
 	if provider == "" || s == nil || s.client == nil {
 		return
@@ -384,7 +385,7 @@ func (s *chatState) refreshComposerQuotaForProvider(provider, threadID string) {
 		}
 		s.mu.Unlock()
 		// 无论刷新成败都重新读取：成功时拿到网关刚写的卡片，失败时至少刷新一次缓存。
-		s.loadComposerQuotaForProvider(provider, threadID, true)
+		s.loadComposerQuotaForProvider(provider, threadID, model, true)
 		s.loadComposerCreditsForProvider(provider, true)
 		s.invalidate()
 	}()
@@ -950,9 +951,13 @@ const quotaPopoverWidth float32 = 440
 type quotaStripGroup struct {
 	provider string
 	threadID string
+	model    string
 }
 
-func quotaGroupKey(provider, threadID, selectedThreadID string) string {
+func quotaGroupKey(provider, threadID, model, selectedThreadID string) string {
+	if threadID == "" && model != "" {
+		return provider + "#" + model
+	}
 	if threadID != "" && threadID != selectedThreadID {
 		return provider + "@" + threadID
 	}
@@ -960,12 +965,12 @@ func quotaGroupKey(provider, threadID, selectedThreadID string) string {
 }
 
 func quotaGroupWindows(s *chatState, g quotaStripGroup) []ProviderQuotaWindow {
-	if g.threadID == "" || g.threadID == s.selectedThreadID {
+	if (g.threadID == "" && g.model == "") || (g.threadID != "" && g.threadID == s.selectedThreadID) {
 		return getChatQuotaWindowsForProvider(s, g.provider)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := quotaGroupKey(chatQuotaCacheKey(s, g.provider), g.threadID, s.selectedThreadID)
+	key := quotaGroupKey(chatQuotaCacheKey(s, g.provider), g.threadID, g.model, s.selectedThreadID)
 	return append([]ProviderQuotaWindow(nil), s.quotaWindowsByProvider[key]...)
 }
 
@@ -1002,24 +1007,36 @@ func quotaStripProviders(s *chatState, th *Thread) []quotaStripGroup {
 	// Swarm bee 的供应商：Lead 会话摘要里显式配置的 BeesProvider，或 Swarm 面板里
 	// 挂在该 Lead 下的 bee 所用的供应商。额度按 threadQuotaProvider 算 key，
 	// 所以 pi bee 也要分成到它自己的 magpie 端点。
-	if hp := threadQuotaProvider(&Thread{Provider: th.BeesProvider, Model: th.BeesModel}); hp != "" {
-		groups = append(groups, quotaStripGroup{provider: hp})
-	}
 	if s.embeddedBee {
+		if hp := threadQuotaProvider(&Thread{Provider: th.BeesProvider, Model: th.BeesModel}); hp != "" {
+			groups = append(groups, quotaStripGroup{provider: hp})
+		}
 		return groups
 	}
+	var beeGroups []quotaStripGroup
 	if panel := getSwarmPanelState(s); panel != nil {
 		swarmPanelMu.Lock()
-		state := panel.state
-		swarmPanelMu.Unlock()
-		for _, h := range state.Bees {
+		for _, h := range panel.state.Bees {
 			provider := threadQuotaProvider(&Thread{Provider: h.Provider, Model: h.Model})
-			if provider == "" {
-				continue
+			if provider != "" {
+				beeGroups = append(beeGroups, quotaStripGroup{provider: provider, threadID: h.ThreadID})
 			}
-			groups = append(groups, quotaStripGroup{provider: provider, threadID: h.ThreadID})
+		}
+		swarmPanelMu.Unlock()
+	}
+	if hp := threadQuotaProvider(&Thread{Provider: th.BeesProvider, Model: th.BeesModel}); hp != "" {
+		hasSession := false
+		for _, g := range beeGroups {
+			if g.provider == hp && g.threadID != "" {
+				hasSession = true
+				break
+			}
+		}
+		if !hasSession {
+			groups = append(groups, quotaStripGroup{provider: hp, model: th.BeesModel})
 		}
 	}
+	groups = append(groups, beeGroups...)
 	return groups
 }
 
@@ -1125,7 +1142,7 @@ func renderComposerQuotaStrip(c *ui.Context, s *chatState, th *Thread, tiers ...
 
 	groups := quotaStripProviders(s, th)
 	for _, g := range groups {
-		s.loadComposerQuotaForProvider(g.provider, g.threadID, false)
+		s.loadComposerQuotaForProvider(g.provider, g.threadID, g.model, false)
 	}
 
 	anyWindows := false
@@ -1259,6 +1276,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 
 	type readout struct {
 		label    string
+		text     string
 		used     float64
 		minutes  int // 推断出的周期时长，未知为 0
 		resetsAt time.Time
@@ -1278,7 +1296,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 	}
 	for _, w := range windows {
 		// MCP tools、附加用量等辅助窗口不是订阅额度，不能混进主额度条。
-		if quotaWindowIsAuxiliary(w) {
+		if quotaWindowIsAuxiliary(w) || w.Text {
 			continue
 		}
 		if provider == "agy" {
@@ -1328,6 +1346,12 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 		for i, w := range windows {
 			if i >= 2 {
 				break
+			}
+			if w.Text || w.Display != "" {
+				if w.Display != "" {
+					readouts = append(readouts, readout{text: w.Display, order: i})
+				}
+				continue
 			}
 			label := "额度"
 			if i > 0 {
@@ -1388,7 +1412,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 			}
 			s.composerView.quotaOpen = true
 			s.composerView.quotaPopoverProvider = provider
-			s.loadComposerQuotaForProvider(provider, plan.group.threadID, false)
+			s.loadComposerQuotaForProvider(provider, plan.group.threadID, plan.group.model, false)
 		})
 	if groupOpen || group.Hovered() {
 		group.Background(ThemeHover(c))
@@ -1426,6 +1450,14 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 					return
 				}
 				for _, r := range readouts {
+					if r.text != "" {
+						ui.Text(c, r.text).
+							FontSize(uiFont(FontSizeProjectName)).
+							FontWeight(500).
+							TextColor(ThemeSecondaryText(c)).
+							SingleLine()
+						continue
+					}
 					// 每个窗口自己一组：短标签、迷你进度条、已用百分比，窗口之间靠外层 Gap 留白。
 					ui.Row(c.Key(fmt.Sprintf("composer-quota-provider-window-%s-%s", keySuffix, r.label))).
 						Gap(Space0).
@@ -1470,7 +1502,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 		Width:     quotaPopoverWidth,
 		MaxHeight: popoverMaxHeight,
 	}, func() {
-		renderComposerQuotaPopover(c, s, th, provider, contentMaxHeight)
+		renderComposerQuotaPopover(c, s, th, provider, contentMaxHeight, plan.group)
 	})
 	popover.Margin(Space1, 0, 0, 0)
 	if groupOpen && popover.Dismissed() {
@@ -1854,7 +1886,11 @@ func composerQuotaPopoverMaxHeight(c *ui.Context, anchor ui.Element) float32 {
 // renderComposerQuotaPopover 渲染额度详情浮窗：标题行固定，下面是可滚动的按账户分组的
 // 额度列表。弹层由额度条里被点击的 provider 组锚定，因此只展示这一个 provider 的额度。
 // maxHeight 大于 0 时面板与列表都不超过它，供应商再多也不会长出窗口。
-func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provider string, maxHeight float32) {
+func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provider string, maxHeight float32, quotaGroups ...quotaStripGroup) {
+	g := quotaStripGroup{provider: provider}
+	if len(quotaGroups) > 0 {
+		g = quotaGroups[0]
+	}
 	settingsProvider := provider
 	if th != nil && (strings.HasPrefix(provider, "pi:") || strings.HasPrefix(provider, "mcode:")) {
 		settingsProvider = th.Provider
@@ -1869,7 +1905,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 	if maxHeight > 0 {
 		panel.MaxHeight(maxHeight)
 	}
-	windows := getChatQuotaWindowsForProvider(s, provider)
+	windows := quotaGroupWindows(s, g)
 	title := s.providerDisplayName(provider)
 	var groups []trayQuotaGroupModel
 	if len(windows) > 0 {
@@ -1917,7 +1953,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 					Background(ThemeSurface(c)).
 					OnClick(func() {
 						// 先让网关重新向厂商读取，结束后无论成败都会重新拉额度与余额。
-						s.refreshComposerQuotaForProvider(provider, "")
+						s.refreshComposerQuotaForProvider(provider, g.threadID, g.model)
 					})
 				if refresh.Hovered() {
 					refresh.Background(ThemeHover(c))
@@ -1975,7 +2011,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 			return
 		}
 
-		loading, quotaErr := composerQuotaStatus(s, provider)
+		loading, quotaErr := composerQuotaStatus(s, quotaGroupKey(provider, g.threadID, g.model, s.selectedThreadID))
 		status := chatUsageStatus(s, provider, usagePanelNow())
 		switch {
 		case quotaErr != "":

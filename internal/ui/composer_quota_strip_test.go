@@ -268,11 +268,11 @@ func TestRenderComposerQuotaStrip_SwarmOffHidesBeeGroup(t *testing.T) {
 	SetChatQuotaWindowsForProvider(s, "claude", []ProviderQuotaWindow{
 		{Label: "5h", Period: "5h", UsedPercent: 11, Account: "claude-acc", Active: true},
 	})
-	SetChatQuotaWindowsForProvider(s, "codex", []ProviderQuotaWindow{
+	SetChatQuotaWindowsForProvider(s, "codex#gpt-5", []ProviderQuotaWindow{
 		{Label: "5h", Period: "5h", UsedPercent: 77, Account: "codex-acc", Active: true},
 	})
 	defer SetChatQuotaWindowsForProvider(s, "claude", nil)
-	defer SetChatQuotaWindowsForProvider(s, "codex", nil)
+	defer SetChatQuotaWindowsForProvider(s, "codex#gpt-5", nil)
 	th := &Thread{ID: "t1", Provider: "claude", BeesProvider: "codex", BeesModel: "gpt-5"}
 
 	render := func() *ui.Tester {
@@ -335,14 +335,19 @@ func TestRenderComposerQuotaStrip_PaceMarker(t *testing.T) {
 
 type quotaThreadClient struct {
 	*FakeClient
-	mu    sync.Mutex
-	calls map[string]string
+	mu     sync.Mutex
+	calls  map[string]string
+	models map[string]string
 }
 
 func (c *quotaThreadClient) ProviderQuota(ctx context.Context, provider string) ([]ProviderQuotaWindow, error) {
 	thread := QuotaThread(ctx)
 	c.mu.Lock()
 	c.calls[thread] = provider
+	if c.models == nil {
+		c.models = make(map[string]string)
+	}
+	c.models[thread] = QuotaModel(ctx)
 	c.mu.Unlock()
 	return []ProviderQuotaWindow{{Label: "5h", Period: "5h", Account: thread, UsedPercent: map[string]float64{"lead": 10, "bee1": 70}[thread], Active: true}}, nil
 }
@@ -362,7 +367,7 @@ func TestQuotaStripSwarmUsesEachThread(t *testing.T) {
 		t.Fatalf("额度组会话不正确：%+v", groups)
 	}
 	for _, g := range groups {
-		s.loadComposerQuotaForProvider(g.provider, g.threadID, false)
+		s.loadComposerQuotaForProvider(g.provider, g.threadID, g.model, false)
 	}
 	waitForAutoDormant(t, func() bool {
 		s.mu.Lock()
@@ -378,5 +383,112 @@ func TestQuotaStripSwarmUsesEachThread(t *testing.T) {
 	plans := quotaStripPlans(s, groups)
 	if len(plans) != 2 || plans[0].account != "lead" || plans[0].windows[0].UsedPercent != 10 || plans[1].account != "bee1" || plans[1].windows[0].UsedPercent != 70 {
 		t.Fatalf("会话额度未隔离：%+v", plans)
+	}
+}
+
+func TestQuotaStripBeeModelWithoutSession(t *testing.T) {
+	client := &quotaThreadClient{FakeClient: NewFakeClient(), calls: make(map[string]string)}
+	s := newChatState(client)
+	t.Cleanup(s.close)
+	s.selectedThreadID = "lead"
+	setSwarmEnabledForTest(s, true)
+	th := &Thread{ID: "lead", Provider: "claude", BeesProvider: "codex", BeesModel: "auto/gpt-x"}
+	groups := quotaStripProviders(s, th)
+	if len(groups) != 2 || groups[1] != (quotaStripGroup{provider: "codex", model: "auto/gpt-x"}) {
+		t.Fatalf("未启动 bee 应按自己的模型分组: %+v", groups)
+	}
+	for _, g := range groups {
+		s.loadComposerQuotaForProvider(g.provider, g.threadID, g.model, false)
+	}
+	waitForAutoDormant(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.quotaLoadingProviders["claude"] && !s.quotaLoadingProviders["codex#auto/gpt-x"]
+	})
+	client.mu.Lock()
+	provider, model, lead := client.calls[""], client.models[""], client.calls["lead"]
+	client.mu.Unlock()
+	if provider != "codex" || model != "auto/gpt-x" || lead != "claude" {
+		t.Fatalf("模型请求不应借用 Lead 会话: provider=%q model=%q lead=%q", provider, model, lead)
+	}
+	if got := quotaGroupWindows(s, groups[1]); len(got) != 1 || got[0].Account != "" {
+		t.Fatalf("模型缓存读取不正确: %+v", got)
+	}
+	other := quotaStripGroup{provider: "codex", model: "auto/other"}
+	if got := quotaGroupWindows(s, other); len(got) != 0 {
+		t.Fatalf("不同模型不可共用缓存: %+v", got)
+	}
+	if got := getChatQuotaWindowsForProvider(s, "codex"); len(got) != 0 {
+		t.Fatalf("模型缓存不可写入 provider 共用缓存: %+v", got)
+	}
+	popover := ui.NewTester(func(c *ui.Context) {
+		renderComposerQuotaPopover(c, s, th, "codex", 0, groups[1])
+	}, 480, 400)
+	if !popover.HasText("0%") {
+		t.Fatalf("弹层应读取模型缓存: %q", popover.Texts())
+	}
+}
+
+func TestQuotaStripBeeSessionReplacesModelGroup(t *testing.T) {
+	client := &quotaThreadClient{FakeClient: NewFakeClient(), calls: make(map[string]string)}
+	s := newChatState(client)
+	t.Cleanup(s.close)
+	s.selectedThreadID = "lead"
+	setSwarmEnabledForTest(s, true)
+	panel := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	panel.state.Bees = []SwarmBee{{Provider: "codex", ThreadID: "bee1", Model: "auto/gpt-x"}}
+	swarmPanelMu.Unlock()
+	th := &Thread{ID: "lead", Provider: "claude", BeesProvider: "codex", BeesModel: "auto/gpt-x"}
+	groups := quotaStripProviders(s, th)
+	if len(groups) != 2 || groups[1] != (quotaStripGroup{provider: "codex", threadID: "bee1"}) {
+		t.Fatalf("已启动 bee 应只保留真实会话组: %+v", groups)
+	}
+	g := groups[1]
+	s.loadComposerQuotaForProvider(g.provider, g.threadID, g.model, false)
+	waitForAutoDormant(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.quotaLoadingProviders["codex@bee1"]
+	})
+	client.mu.Lock()
+	provider, model, count := client.calls["bee1"], client.models["bee1"], len(client.calls)
+	client.mu.Unlock()
+	if provider != "codex" || model != "" || count != 1 {
+		t.Fatalf("已启动 bee 应只请求自己的会话: provider=%q model=%q count=%d", provider, model, count)
+	}
+}
+
+func TestRenderComposerQuotaStrip_BalanceText(t *testing.T) {
+	for _, window := range []ProviderQuotaWindow{
+		{Display: "$12.30", Text: true},
+		{Display: "$12.30"},
+		{Display: "$12.30", Text: true, Period: "5h"},
+	} {
+		for _, tier := range []composerChinSize{composerChinFull, composerChinNarrow, composerChinIcons} {
+			s := newChatState(NewFakeClient())
+			t.Cleanup(s.close)
+			SetChatQuotaWindowsForProvider(s, "codex", []ProviderQuotaWindow{window})
+			tt := ui.NewTester(func(c *ui.Context) {
+				renderComposerQuotaStrip(c, s, &Thread{ID: "lead", Provider: "codex"}, tier)
+			}, 400, 400)
+			if !tt.HasText("$12.30") || tt.HasText("0%") {
+				t.Fatalf("余额应只显示文字: %q", tt.Texts())
+			}
+		}
+	}
+}
+
+func TestWithQuotaModelRoundTrip(t *testing.T) {
+	if QuotaModel(context.Background()) != "" || QuotaModel(nil) != "" {
+		t.Fatal("无模型上下文应返回空串")
+	}
+	ctx := WithQuotaThread(context.Background(), "lead")
+	ctx = WithQuotaModel(ctx, "auto/gpt-x")
+	if QuotaModel(ctx) != "auto/gpt-x" || QuotaThread(ctx) != "lead" {
+		t.Fatal("模型与会话上下文应各自保留")
+	}
+	if WithQuotaModel(nil, "auto/gpt-x") != nil || WithQuotaModel(ctx, "") != ctx {
+		t.Fatal("空上下文或空模型不应新增上下文")
 	}
 }
