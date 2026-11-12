@@ -39,6 +39,7 @@ type gitChangesState struct {
 	selection                                    map[string]bool
 	anchor                                       string
 	focus                                        string
+	focusDiff                                    bool
 	genSeq                                       uint64
 	menu                                         bool
 	history                                      []git.LogCommit
@@ -664,6 +665,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 													st.anchor = rowKey
 												}
 												st.selected, st.staged, st.group, st.detail = entry.Path, isStaged, i, mods == 0
+																st.focusDiff = mods == 0
 												st.mu.Unlock()
 											})
 											row.ContextMenu(func(m *ui.Menu) {
@@ -748,6 +750,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 												if row.Shortcut(0, ui.KeyEnter) {
 													st.mu.Lock()
 													st.selected, st.staged, st.group, st.detail = entry.Path, isStaged, i, true
+													st.focusDiff = true
 													st.mu.Unlock()
 												}
 												if i != 0 && row.Shortcut(0, ui.KeySpace) {
@@ -838,6 +841,13 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 		if wide || detail {
 			diff := ui.Column(c.Key("git-changes-diff")).Grow(1).FillHeight().MinWidth(0).Focusable().Transition(motionSidePanel(c, false))
 			if !wide && detail {
+				st.mu.Lock()
+				focus := st.focusDiff
+				st.focusDiff = false
+				st.mu.Unlock()
+				if focus {
+					diff.Focus()
+				}
 				if diff.Shortcut(0, ui.KeyEscape) {
 					st.mu.Lock()
 					st.detail = false

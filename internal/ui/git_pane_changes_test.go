@@ -283,3 +283,32 @@ func TestGitChangesNarrowDiffKeyboard(t *testing.T) {
 		t.Fatal("Esc 应返回文件列表")
 	}
 }
+
+func TestGitChangesNarrowDiffKeyboardAfterReopen(t *testing.T) {
+	s, ps, base := gitPaneTestState(t)
+	s.client = &gitChangesFakeClient{gitPaneFakeClient: base}
+	ps.state = GitState{WorkDir: t.TempDir()}
+	ps.entries = []git.StatusEntry{{Path: "a.txt", Worktree: 'M'}, {Path: "b.txt", Worktree: 'M'}}
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, "git-test", ps) }, 500, 600)
+	tt.Frame()
+	tt.Frame()
+	if err := tt.Click("a.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if err := tt.Click("b.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Key(0, ui.KeyBracketLeft)
+	tt.Frame()
+	st := gitChangesStateFor(ps)
+	st.mu.Lock()
+	selected, detail := st.selected, st.detail
+	st.mu.Unlock()
+	if selected != "a.txt" || !detail {
+		t.Fatalf("重新进入后 diff 选择 = %q，详情 = %v", selected, detail)
+	}
+}

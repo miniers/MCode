@@ -104,7 +104,7 @@ func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 	ours, theirs := gitConflictLabels(ps)
 	ui.Row(c.Key("git-conflict-toolbar")).FillWidth().Height(diffHeaderHeight).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
 		if onBack != nil {
-			IconButton(c, IconButtonProps{Key: "git-conflict-back", Icon: IconArrowLeft(), Label: "返回", Variant: ButtonGhost, Size: ControlSM, OnClick: onBack}).AutoFocus()
+			IconButton(c, IconButtonProps{Key: "git-conflict-back", Icon: IconArrowLeft(), Label: "返回", Variant: ButtonGhost, Size: ControlSM, OnClick: onBack})
 		}
 		gitDiffPath(c, key.path, width)
 		ready := gitConflictReady(cs)
