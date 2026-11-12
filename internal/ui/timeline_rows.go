@@ -4127,7 +4127,7 @@ func (s *chatState) runningCommandBadge(c *ui.Context, m Message) (text string, 
 		if activity.sampleCount >= 2 && elapsed >= toolRunStallMinRun && idleFor >= toolRunStallAfter && now.Sub(activity.lastBusyAt) >= toolRunStallAfter {
 			return text + " · 空闲", true
 		}
-		return text, false
+		return fmt.Sprintf("%s · CPU %.0f%%", text, activity.cpu), false
 	}
 	lastStep := ""
 	if len(activity.steps) > 0 {
@@ -4712,7 +4712,7 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 					}
 					// 运行中的命令：顶部给一个「终止此命令」次级按钮，只杀这一条命令，不中断本轮。
 					if toolIsRunningCommand(m) {
-						renderKillCommandButton(c, s, m)
+						renderRunningCommandHeader(c, s, m, fontFam)
 					}
 					// 编辑类工具：胶囊展开后直接看到这次改动的行级 diff，顶部保留收起入口
 					if diffOpen {
@@ -4777,40 +4777,6 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 						}
 					}
 				})
-		})
-}
-
-// renderKillCommandButton 渲染运行中命令上的「终止此命令」次级按钮：
-// 请求进行中禁用并显示「正在终止…」，避免重复点击。
-func renderKillCommandButton(c *ui.Context, s *chatState, m Message) {
-	s.mu.Lock()
-	killing := s.killingTools[m.ID]
-	s.mu.Unlock()
-
-	label := "终止此命令"
-	fg := ThemeDanger(c)
-	if killing {
-		label = "正在终止…"
-		fg = ThemeSecondaryText(c)
-	}
-
-	ui.ButtonBase(c.Key("tool-kill-"+m.ID)).
-		Label(label).
-		Tooltip("只终止这条命令，不中断本轮的其它执行").
-		Disabled(killing).
-		Padding(Space0, Space3).
-		Radius(RadiusSM).
-		Cursor(ui.CursorPointer).
-		Background(ThemeSurface(c)).
-		Border(1, ThemeBorder(c)).
-		OnClick(func() {
-			s.killRunningCommand(m.ID)
-		}).
-		Children(func() {
-			ui.Row(c.Key("tool-kill-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconCircleStop()).Size(9, 9).TextColor(fg)
-				ui.Text(c, label).FontSize(scaledFont(TypeCaption)).TextColor(fg)
-			})
 		})
 }
 

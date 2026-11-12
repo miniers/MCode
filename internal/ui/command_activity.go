@@ -33,6 +33,7 @@ type commandActivityState struct {
 	previousAt    time.Time
 	sampleCount   int
 	hasProcess    bool
+	cpu           float64
 	lastBusyAt    time.Time
 	maxStep       int
 	stepStartedAt time.Time
@@ -256,14 +257,17 @@ func commandActivityProcessViews(previous map[int]CommandProc, previousAt time.T
 	for _, p := range procs {
 		cpu := commandActivityCPU(previous, previousAt, p, now)
 		totalCPU += cpu
-		if children[p.PID] || commandActivityIgnored(p.Command) {
+		if children[p.PID] {
 			continue
 		}
 		argv := commandActivityWords(p.Command)
-		if len(argv) == 0 {
+		if len(argv) == 0 || commandActivityIgnored(argv[0]) {
 			continue
 		}
 		name := commandActivityBasename(argv[0])
+		if strings.HasPrefix(name, "(") && strings.HasSuffix(name, ")") {
+			name = strings.TrimSuffix(strings.TrimPrefix(name, "("), ")")
+		}
 		views = append(views, commandProcessView{name: name, object: commandActivityObject(argv, strings.ToLower(name)), cpu: cpu, rss: p.RSS})
 	}
 	sort.SliceStable(views, func(i, j int) bool { return views[i].cpu > views[j].cpu })
@@ -278,6 +282,7 @@ func updateCommandActivity(st *commandActivityState, procs []CommandProc, now ti
 		return
 	}
 	views, totalCPU := commandActivityProcessViews(st.previous, st.previousAt, procs, now)
+	st.cpu = totalCPU
 	if st.sampleCount == 0 {
 		st.lastBusyAt = now
 	}
@@ -504,18 +509,31 @@ func requestCommandActivity(c *ui.Context, s *chatState, threadID string, now ti
 	}()
 }
 
-func renderRunningCommandActivity(c *ui.Context, s *chatState, m Message, fontFam string, outputMax float32) {
+func renderRunningCommandHeader(c *ui.Context, s *chatState, m Message, fontFam string) {
 	s.mu.Lock()
 	ensureCommandActivityLocked(s, m)
+	killing := s.killingTools[m.ID]
 	s.mu.Unlock()
 	st := commandActivitySnapshot(s, m.ID)
-	if len(st.steps) >= 2 {
-		ui.Column(c.Key("command-steps-" + m.ID)).FillWidth().Gap(Space1).Children(func() {
+	ui.Row(c.Key("command-header-" + m.ID)).FillWidth().Gap(Space2).AlignItems(ui.Start).Children(func() {
+		ui.Column(c.Key("command-steps-" + m.ID)).Grow(1).MinWidth(0).Gap(Space1).Children(func() {
+			if len(st.steps) < 2 || !isToolRunning(m) {
+				return
+			}
 			for i, step := range st.steps {
 				status := commandStepStatus(i, st.maxStep)
 				ui.Row(c.Key(fmt.Sprintf("command-step-%s-%d", m.ID, i))).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 					renderTodoStatusIcon(c, fmt.Sprintf("command-step-icon-%s-%d", m.ID, i), status, isToolRunning(m))
-					ui.Text(c, step).Font(fontFam).FontSize(scaledFont(TypeCaption)).SingleLine().Grow(1).MinWidth(0)
+					color := ThemeSecondaryText(c)
+					if status == "completed" {
+						color = color.Alpha(0.75)
+					} else if status == "in_progress" {
+						color = ThemePrimaryText(c)
+					}
+					label := ui.Text(c, step).Font(fontFam).FontSize(scaledFont(TypeCaption)).SingleLine().Grow(1).MinWidth(0).TextColor(color)
+					if status == "in_progress" {
+						label.FontWeight(500)
+					}
 					if i == st.maxStep-1 && !st.stepStartedAt.IsZero() {
 						elapsed := c.Now().Sub(st.stepStartedAt)
 						if elapsed < 0 {
@@ -526,18 +544,33 @@ func renderRunningCommandActivity(c *ui.Context, s *chatState, m Message, fontFa
 				})
 			}
 		})
-	}
+		IconButton(c, IconButtonProps{Key: "tool-kill-" + m.ID, Icon: IconCircleStop(), Label: "终止此命令", Tooltip: "终止此命令", Size: ControlXS, Variant: ButtonGhost, Loading: killing, Disabled: killing, OnClick: func() { s.killRunningCommand(m.ID) }}).Shrink(0)
+	})
+}
+
+func renderRunningCommandActivity(c *ui.Context, s *chatState, m Message, fontFam string, outputMax float32) {
+	st := commandActivitySnapshot(s, m.ID)
 	if len(st.processes) > 0 {
-		ui.Column(c.Key("command-processes-" + m.ID)).FillWidth().Gap(Space1).Children(func() {
+		_, stalled := s.runningCommandBadge(c, m)
+		ui.Column(c.Key("command-processes-"+m.ID)).FillWidth().Padding(0, 0, 0, 11+Space2).Gap(Space1).Children(func() {
 			captionSize := scaledFont(TypeCaption)
 			for i, p := range st.processes {
 				ui.Row(c.Key(fmt.Sprintf("command-process-%s-%d", m.ID, i))).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, p.name).FontSize(captionSize).Width(captionSize * (90 / TypeCaption)).SingleLine().TextColor(ThemeSecondaryText(c))
+					ui.Text(c, p.name).FontSize(captionSize).Width(captionSize * (90 / TypeCaption)).SingleLine().TextColor(ThemePrimaryText(c))
 					ui.Text(c, p.object).FontSize(captionSize).Grow(1).MinWidth(0).SingleLine().TextColor(ThemeSecondaryText(c))
-					ui.Text(c, fmt.Sprintf("%.0f%%", p.cpu)).FontSize(captionSize).Width(captionSize * (42 / TypeCaption)).Shrink(0).TextColor(ThemeSecondaryText(c))
-					if p.rss >= 1024*1024 {
-						ui.Text(c, fmt.Sprintf("%d MB", p.rss/(1024*1024))).FontSize(captionSize).Width(captionSize * (58 / TypeCaption)).Shrink(0).TextColor(ThemeSecondaryText(c))
+					fill, cpuColor := ThemeAccent(c), ThemeSecondaryText(c)
+					if stalled {
+						fill, cpuColor = ThemeWarning(c), ThemeWarning(c)
 					}
+					ui.Box(c).Width(captionSize * (40 / TypeCaption)).Shrink(0).Children(func() {
+						ProgressBar(c, ProgressBarProps{Key: fmt.Sprintf("command-cpu-%s-%d", m.ID, i), Label: "CPU", Ratio: float32(p.cpu / 100), Height: Space1, Fill: fill, Track: ThemeBorder(c)})
+					})
+					ui.Text(c, fmt.Sprintf("%.0f%%", p.cpu)).FontSize(captionSize).Width(captionSize * (42 / TypeCaption)).Shrink(0).TextAlign(ui.End).TextColor(cpuColor)
+					memory := ""
+					if p.rss >= 1024*1024 {
+						memory = fmt.Sprintf("%d MB", p.rss/(1024*1024))
+					}
+					ui.Text(c, memory).FontSize(captionSize).Width(captionSize * (58 / TypeCaption)).Shrink(0).TextAlign(ui.End).TextColor(ThemeSecondaryText(c))
 				})
 			}
 		})

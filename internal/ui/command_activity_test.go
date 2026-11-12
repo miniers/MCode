@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +61,38 @@ func TestCommandActivityProcessObjects(t *testing.T) {
 	}, base.Add(time.Second))
 	if len(st.processes) != 3 || st.processes[0].object != "example.com/app" || st.processes[1].object != "example" || st.processes[2].object != "script.py" {
 		t.Fatalf("process views = %#v", st.processes)
+	}
+}
+
+func TestCommandActivityFilteredProcessesAndCPU(t *testing.T) {
+	base := time.Unix(100, 0)
+	procs := []CommandProc{
+		{PID: 1, Command: "tail -5", CPUTime: time.Second},
+		{PID: 2, Command: "/usr/bin/head -n 3", CPUTime: 2 * time.Second},
+		{PID: 3, Command: "(git)", CPUTime: 3 * time.Second},
+	}
+	previous := map[int]CommandProc{1: {PID: 1}, 2: {PID: 2}, 3: {PID: 3}}
+	views, total := commandActivityProcessViews(previous, base, procs, base.Add(10*time.Second))
+	if len(views) != 1 || views[0].name != "git" || total != 60 {
+		t.Fatalf("views = %#v, total CPU = %v", views, total)
+	}
+	st := &commandActivityState{previous: previous, previousAt: base}
+	updateCommandActivity(st, procs, base.Add(10*time.Second))
+	if st.cpu != total {
+		t.Fatalf("state CPU = %v, want %v", st.cpu, total)
+	}
+}
+
+func TestRunningCommandBadgeCPU(t *testing.T) {
+	m := Message{ID: "badge-cpu", Role: "tool", ToolName: "Bash", ToolStatus: "running", ToolInput: `{"command":"go test"}`, CreatedAt: time.Now().Add(-time.Second).Format(time.RFC3339Nano)}
+	s := newChatState(NewFakeClient())
+	s.commandActivity[m.ID] = &commandActivityState{hasProcess: true, cpu: 12}
+	var badge string
+	var stalled bool
+	tt := ui.NewTester(func(c *ui.Context) { badge, stalled = s.runningCommandBadge(c, m) }, 400, 200)
+	tt.Frame()
+	if stalled || !strings.Contains(badge, "CPU 12%") {
+		t.Fatalf("badge = %q, stalled = %v", badge, stalled)
 	}
 }
 
@@ -129,6 +162,9 @@ func TestRunningCommandDetailUsesActivityLayout(t *testing.T) {
 	}, 900, 500)
 	for i := 0; i < 2; i++ {
 		tt.Frame()
+	}
+	if _, ok := tt.Find("终止此命令"); !ok {
+		t.Fatal("running detail should have a stop button")
 	}
 	if tt.HasText(`Bash {"command":"go build ./... && go test ./..."}`) {
 		t.Fatalf("running detail should hide the input header: %v", tt.Texts())
