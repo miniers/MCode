@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/git"
 )
 
 const (
@@ -17,14 +18,14 @@ const (
 
 // 输入和生成结果共用锁，关闭后取消生成并丢弃迟到结果。
 type gitPRCreateDialog struct {
-	mu               sync.Mutex
-	s                *chatState
-	threadID         string
-	state            GitState
-	open, generating bool
-	title, body, err string
-	revision         uint64
-	cancel           context.CancelFunc
+	mu                         sync.Mutex
+	s                          *chatState
+	threadID                   string
+	state                      GitState
+	open, generating, pushing  bool
+	title, body, err, readyURL string
+	revision                   uint64
+	cancel                     context.CancelFunc
 }
 
 func openGitPRCreateDialog(s *chatState, threadID string) {
@@ -58,7 +59,7 @@ func (d *gitPRCreateDialog) close() {
 		d.cancel()
 		d.cancel = nil
 	}
-	d.generating = false
+	d.generating, d.pushing = false, false
 	d.mu.Unlock()
 	modalDragReset(modalDragGitPRCreate)
 	d.s.invalidate()
@@ -75,11 +76,12 @@ func (d *gitPRCreateDialog) generate() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	d.cancel, d.generating = cancel, true
+	d.err = ""
 	revision := d.revision
 	d.mu.Unlock()
 	go func() {
 		defer cancel()
-		message, err := d.s.client.GenerateCommitMessage(ctx, d.threadID)
+		message, err := d.s.client.GeneratePRDescription(ctx, d.threadID)
 		if err == nil {
 			err = ctx.Err()
 		}
@@ -105,9 +107,15 @@ func renderGitPRCreateDialog(c *ui.Context, d *gitPRCreateDialog) {
 		return
 	}
 	d.mu.Lock()
-	open, title, body, generating, errText := d.open, d.title, d.body, d.generating, d.err
+	open, title, body, generating, pushing, errText, readyURL := d.open, d.title, d.body, d.generating, d.pushing, d.err, d.readyURL
+	d.readyURL = ""
 	d.mu.Unlock()
 	if !open {
+		return
+	}
+	if readyURL != "" {
+		c.OpenURL(readyURL)
+		d.close()
 		return
 	}
 	winW, _ := c.Size()
@@ -131,6 +139,9 @@ func renderGitPRCreateDialog(c *ui.Context, d *gitPRCreateDialog) {
 			area.OnChange(func() { d.mu.Lock(); d.body = body; d.revision++; d.mu.Unlock() })
 			if errText != "" {
 				renderGitError(c, "git-pr-create-error", errText)
+				if strings.HasPrefix(errText, "AI 生成失败:") {
+					Button(c, ButtonOpts{Key: "git-pr-create-retry", Text: "重试", Variant: ButtonGhost, Disabled: generating || pushing, OnClick: d.generate})
+				}
 			}
 			FormActions(c, "git-pr-create-actions", func() {
 				Button(c, ButtonOpts{Key: "git-pr-create-cancel", Text: "取消", Variant: ButtonSecondary, OnClick: d.close})
@@ -138,19 +149,44 @@ func renderGitPRCreateDialog(c *ui.Context, d *gitPRCreateDialog) {
 				if generating {
 					tip = "正在生成 PR 内容"
 				}
-				Button(c, ButtonOpts{Key: "git-pr-create-submit", Text: "创建", Variant: ButtonPrimary, Disabled: generating, Tooltip: tip, OnClick: func() {
+				Button(c, ButtonOpts{Key: "git-pr-create-submit", Text: "创建", Variant: ButtonPrimary, Disabled: generating || pushing, Loading: pushing, Tooltip: tip, OnClick: func() {
 					d.mu.Lock()
 					target := gitPullRequestFormURL(normalizeGitRemoteURL(d.state.RemoteURL), d.state.Branch, d.title, d.body)
 					if target == "" {
 						d.err = "没有识别到可用的远端仓库地址"
-					}
-					d.mu.Unlock()
-					if target == "" {
+						d.mu.Unlock()
 						d.s.invalidate()
 						return
 					}
-					c.OpenURL(target)
-					d.close()
+					if d.state.HasUpstream && d.state.Ahead <= 0 {
+						d.mu.Unlock()
+						c.OpenURL(target)
+						d.close()
+						return
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+					d.cancel, d.pushing, d.err = cancel, true, ""
+					d.mu.Unlock()
+					d.s.invalidate()
+					go func() {
+						defer cancel()
+						err := d.s.client.GitPush(ctx, d.threadID)
+						d.mu.Lock()
+						if !d.open || ctx.Err() == context.Canceled {
+							d.mu.Unlock()
+							return
+						}
+						d.cancel, d.pushing = nil, false
+						if err != nil {
+							d.err = git.ClassifyError(err).Title
+						} else if ctx.Err() != nil {
+							d.err = git.ClassifyError(ctx.Err()).Title
+						} else {
+							d.readyURL = target
+						}
+						d.mu.Unlock()
+						d.s.invalidate()
+					}()
 				}})
 			})
 		})

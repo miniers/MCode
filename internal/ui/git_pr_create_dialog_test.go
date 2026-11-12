@@ -14,7 +14,7 @@ import (
 func TestGitPRCreatePrefillsAndOpensURL(t *testing.T) {
 	s, ps, client := gitPaneTestState(t)
 	client.SetGenerateCommitMessageResult("feat: 登录\n\n修复登录流程", nil)
-	ps.state = GitState{WorkDir: "/repo", RemoteURL: "git@github.com:owner/repo.git", Branch: "feature/login"}
+	ps.state = GitState{WorkDir: "/repo", RemoteURL: "git@github.com:owner/repo.git", Branch: "feature/login", HasUpstream: true}
 	openGitPRCreateDialog(s, ps.threadID)
 	d := ps.prCreate
 	gitPaneWait(t, func() bool { d.mu.Lock(); defer d.mu.Unlock(); return !d.generating })
@@ -84,7 +84,7 @@ type gitPRDelayedClient struct {
 	returned chan struct{}
 }
 
-func (f *gitPRDelayedClient) GenerateCommitMessage(ctx context.Context, threadID string) (string, error) {
+func (f *gitPRDelayedClient) GeneratePRDescription(ctx context.Context, threadID string) (string, error) {
 	f.started <- ctx
 	<-f.release
 	defer close(f.returned)
@@ -158,5 +158,68 @@ func TestGitPullRequestFormURLPreservesProviderFields(t *testing.T) {
 	}
 	if got := GitPullRequestCreateURL("", "feature"); got != "" {
 		t.Fatalf("空远端生成了 URL：%s", got)
+	}
+}
+
+type gitPRPushClient struct {
+	*gitPaneFakeClient
+	started chan struct{}
+	release chan struct{}
+	pushErr error
+}
+
+func (f *gitPRPushClient) GitPush(ctx context.Context, _ string) error {
+	close(f.started)
+	select {
+	case <-f.release:
+		return f.pushErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestGitPRCreatePushBeforeOpen(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "成功", true: "失败"}[fail], func(t *testing.T) {
+			s, ps, base := gitPaneTestState(t)
+			client := &gitPRPushClient{gitPaneFakeClient: base, started: make(chan struct{}), release: make(chan struct{})}
+			if fail {
+				client.pushErr = errors.New("push failed")
+			}
+			s.client = client
+			ps.state = GitState{WorkDir: "/repo", RemoteURL: "git@github.com:owner/repo.git", Branch: "feature"}
+			openGitPRCreateDialog(s, ps.threadID)
+			d := ps.prCreate
+			gitPaneWait(t, func() bool { d.mu.Lock(); defer d.mu.Unlock(); return !d.generating })
+			tt := ui.NewTester(func(c *ui.Context) { renderGitPRCreateDialog(c, d) }, 800, 700)
+			tt.Advance(DurSheet)
+			if err := tt.Click("创建"); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-client.started:
+			case <-time.After(time.Second):
+				t.Fatal("推送未开始")
+			}
+			if len(tt.OpenedURLs()) != 0 {
+				t.Fatal("推送前打开网页")
+			}
+			close(client.release)
+			gitPaneWait(t, func() bool { d.mu.Lock(); defer d.mu.Unlock(); return !d.pushing })
+			tt.Frame()
+			if fail {
+				if len(tt.OpenedURLs()) != 0 {
+					t.Fatal("推送失败后打开网页")
+				}
+				d.mu.Lock()
+				errText := d.err
+				d.mu.Unlock()
+				if errText == "" {
+					t.Fatal("推送错误未显示")
+				}
+			} else if len(tt.OpenedURLs()) != 1 {
+				t.Fatal("推送成功后未打开网页")
+			}
+		})
 	}
 }

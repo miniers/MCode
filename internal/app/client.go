@@ -2945,6 +2945,87 @@ func (c *Client) GenerateCommitMessage(ctx context.Context, threadID string) (st
 	return cleaned, nil
 }
 
+// GeneratePRDescription 根据分支提交或未提交的改动生成 PR 描述。
+func (c *Client) GeneratePRDescription(ctx context.Context, threadID string) (string, error) {
+	if c.backend == nil {
+		return "", errors.New("backend 不可用")
+	}
+	cfg, ok := c.loadConfig()
+	if !ok {
+		cfg = config.Defaults()
+	}
+	if !cfg.SourceControl.GenerateCommitMessageEnabled() {
+		return "", errors.New("未启用")
+	}
+	workDir, ok := c.ThreadWorkDir(threadID)
+	if !ok || workDir == "" {
+		return "", fmt.Errorf("会话 %s 没有工作目录", threadID)
+	}
+	commits, stat, patch, err := gitPRChanges(ctx, workDir)
+	if err != nil {
+		return "", err
+	}
+	provider, model, effort := textgenModelSelection(cfg)
+	prompt := textgen.PRDescriptionPrompt(commits, stat, patch, cfg.SourceControl.CommitInstructions)
+	ctx = withThreadTextgenNotice(ctx, c.backend, threadID)
+	ctx = withTextgenGlobalSelection(ctx, cfg)
+	out, err := generateText(ctx, cfg, c.textgenSecrets(), provider, model, effort, prompt)
+	if err != nil {
+		return "", err
+	}
+	cleaned := textgen.CleanCommitMessage(out)
+	if cleaned == "" {
+		return "", errors.New("生成 PR 描述为空")
+	}
+	return cleaned, nil
+}
+
+func gitPRChanges(ctx context.Context, workDir string) (string, string, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	run := func(args ...string) (string, error) {
+		cmd := procattr.HideWindow(exec.CommandContext(ctx, "git", args...))
+		cmd.Dir = workDir
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	head, _ := run("rev-parse", "HEAD")
+	for _, base := range []string{"origin/HEAD", "origin/main", "origin/master", "main", "master"} {
+		baseHead, err := run("rev-parse", "--verify", base+"^{commit}")
+		if err != nil || baseHead == head {
+			continue
+		}
+		mergeBase, err := run("merge-base", "HEAD", base)
+		if err != nil {
+			continue
+		}
+		commits, err := run("log", "--format=%s%n%b", mergeBase+"..HEAD")
+		if err != nil {
+			continue
+		}
+		if commits != "" {
+			stat, err := run("diff", "--stat", mergeBase+"...HEAD")
+			if err != nil {
+				return "", "", "", err
+			}
+			patch, err := run("diff", "--no-color", mergeBase+"...HEAD")
+			return commits, stat, patch, err
+		}
+		break
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", "", err
+	}
+	stat, patch := runGitDiffForCommit(ctx, workDir, "--stat"), runGitDiffForCommit(ctx, workDir)
+	if err := ctx.Err(); err != nil {
+		return "", "", "", err
+	}
+	if stat == "" && patch == "" {
+		return "", "", "", errors.New("当前分支没有可描述的改动")
+	}
+	return "", stat, patch, nil
+}
+
 func runGitDiffForCommit(ctx context.Context, workDir string, extraArgs ...string) string {
 	args := append([]string{"diff", "HEAD", "--no-color"}, extraArgs...)
 	cmd := procattr.HideWindow(exec.CommandContext(ctx, "git", args...))

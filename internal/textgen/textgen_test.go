@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestCheapestModel(t *testing.T) {
@@ -268,4 +269,18 @@ func TestGeneratePiUsesStdinAndFlags(t *testing.T) {
 			t.Errorf("args must not contain --model: %q", args)
 		}
 	})
+}
+
+func TestPRDescriptionPrompt(t *testing.T) {
+	prompt := PRDescriptionPrompt("feat: 新功能", "1 file changed", "diff --git a/a b/a", "自定义规范")
+	for _, want := range []string{"feat: 新功能", "1 file changed", "diff --git", "自定义规范", "72", "Markdown", "语言跟随提交信息"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("缺少 %q", want)
+		}
+	}
+	long := strings.Repeat("界", 5000)
+	prompt = PRDescriptionPrompt(long, long, long, "")
+	if !utf8.ValidString(prompt) || len(prompt) > 28000 {
+		t.Fatalf("截断错误，长度 %d", len(prompt))
+	}
 }

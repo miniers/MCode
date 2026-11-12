@@ -3156,6 +3156,10 @@ func (f *FakeClient) GenerateCommitMessage(ctx context.Context, threadID string)
 	return "feat: 桩实现生成的提交信息", nil
 }
 
+func (f *FakeClient) GeneratePRDescription(ctx context.Context, threadID string) (string, error) {
+	return f.GenerateCommitMessage(ctx, threadID)
+}
+
 // SetBranchResult 配置 BranchThread 返回的新会话 ID 与错误；id 为空时自动生成。
 func (f *FakeClient) SetBranchResult(id string, err error) {
 	f.mu.Lock()

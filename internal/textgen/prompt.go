@@ -105,6 +105,22 @@ func CommitMessagePrompt(diffStat, diffPatch, instructions string) string {
 	return sb.String()
 }
 
+// PRDescriptionPrompt 根据分支提交和差异构造 PR 描述提示词。
+func PRDescriptionPrompt(commits, diffStat, diffPatch, instructions string) string {
+	var sb strings.Builder
+	sb.WriteString("请根据提交记录和代码改动撰写 PR 描述。\n规则：\n")
+	sb.WriteString("- 第一行为 PR 标题，不超过 72 个字符，末尾不加句号\n")
+	sb.WriteString("- 空一行后用 Markdown 列表列出改动要点\n")
+	sb.WriteString("- 语言跟随提交信息，只输出标题和正文，不要代码围栏或解释\n")
+	if inst := strings.TrimSpace(instructions); inst != "" {
+		sb.WriteString("\n用户补充规范：\n" + inst + "\n")
+	}
+	sb.WriteString("\n提交记录：\n" + truncateUTF8(strings.TrimSpace(commits), 12000))
+	sb.WriteString("\n\n改动文件概览：\n" + truncateUTF8(strings.TrimSpace(diffStat), 3000))
+	sb.WriteString("\n\nDiff 详情：\n" + truncateUTF8(strings.TrimSpace(diffPatch), 12000))
+	return sb.String()
+}
+
 // MemoryCondensePrompt 构造记忆精简提示词。
 // mergeWith 非空时是要合并进来的已有记忆全文，要求把两者合并为一条后精简。
 func MemoryCondensePrompt(title, content, mergeWith string) string {

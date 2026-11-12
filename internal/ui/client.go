@@ -1252,6 +1252,7 @@ type Client interface {
 	GitStashPop(ctx context.Context, threadID string) error
 	// GenerateCommitMessage 为指定会话的未提交变更生成提交信息。
 	GenerateCommitMessage(ctx context.Context, threadID string) (string, error)
+	GeneratePRDescription(ctx context.Context, threadID string) (string, error)
 	// BranchThread 从指定的助手最终答复分支出新会话，返回新会话 ID。
 	BranchThread(ctx context.Context, threadID, messageID string) (string, error)
 	// ForwardThread 将已有会话的历史上下文转发为新会话，返回新会话 ID。
