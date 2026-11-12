@@ -1,7 +1,9 @@
 package mcodeui
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -328,5 +330,50 @@ func TestRenderComposerQuotaStrip_PaceMarker(t *testing.T) {
 	}, 400, 400)
 	if _, ok := tt.Find("composer-quota-gauge-claude-5h-marker"); ok {
 		t.Fatalf("must not render pace marker without reset time, texts: %q", tt.Texts())
+	}
+}
+
+type quotaThreadClient struct {
+	*FakeClient
+	mu    sync.Mutex
+	calls map[string]string
+}
+
+func (c *quotaThreadClient) ProviderQuota(ctx context.Context, provider string) ([]ProviderQuotaWindow, error) {
+	thread := QuotaThread(ctx)
+	c.mu.Lock()
+	c.calls[thread] = provider
+	c.mu.Unlock()
+	return []ProviderQuotaWindow{{Label: "5h", Period: "5h", Account: thread, UsedPercent: map[string]float64{"lead": 10, "bee1": 70}[thread], Active: true}}, nil
+}
+
+func TestQuotaStripSwarmUsesEachThread(t *testing.T) {
+	client := &quotaThreadClient{FakeClient: NewFakeClient(), calls: make(map[string]string)}
+	s := newChatState(client)
+	s.selectedThreadID = "lead"
+	setSwarmEnabledForTest(s, true)
+	panel := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	panel.state.Bees = []SwarmBee{{Provider: "codex", ThreadID: "bee1"}}
+	swarmPanelMu.Unlock()
+	th := &Thread{ID: "lead", Provider: "codex"}
+	groups := quotaStripProviders(s, th)
+	for _, g := range groups {
+		s.loadComposerQuotaForProvider(g.provider, g.threadID, false)
+	}
+	waitForAutoDormant(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.quotaLoadingProviders["codex"] && !s.quotaLoadingProviders["codex@bee1"]
+	})
+	client.mu.Lock()
+	lead, bee := client.calls["lead"], client.calls["bee1"]
+	client.mu.Unlock()
+	if lead != "codex" || bee != "codex" {
+		t.Fatalf("请求会话不正确：lead=%q bee=%q", lead, bee)
+	}
+	plans := quotaStripPlans(s, groups)
+	if len(plans) != 2 || plans[0].account != "lead" || plans[0].windows[0].UsedPercent != 10 || plans[1].account != "bee1" || plans[1].windows[0].UsedPercent != 70 {
+		t.Fatalf("会话额度未隔离：%+v", plans)
 	}
 }

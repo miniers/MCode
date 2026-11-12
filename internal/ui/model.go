@@ -1746,7 +1746,7 @@ func (s *chatState) onWatchUpdate(update ThreadUpdate) {
 				if err := s.client.RefreshThreadQuota(ctx, threadID, provider); err != nil {
 					log.Printf("刷新会话额度失败: %v", err)
 				}
-				s.loadComposerQuotaForProvider(provider, true)
+				s.loadComposerQuotaForProvider(provider, "", true)
 				s.invalidate()
 			}(update.ThreadID, endedQuotaKey)
 		}
