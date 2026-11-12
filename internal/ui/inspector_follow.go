@@ -199,11 +199,14 @@ func inspectorFollowObserve(s *chatState, update ThreadUpdate) {
 	var f *inspectorFollowState
 	for _, m := range update.Messages {
 		for _, target := range inspectorFollowTargets(m, root) {
+			if target.path == "" {
+				continue
+			}
 			if st == nil {
 				st = inspectorSessionLocked(s, update.ThreadID)
 				f = inspectorFollowLocked(st)
 			}
-			key := m.ID + "\x00" + m.ToolStatus + "\x00" + target.path
+			key := m.ID + "\x00" + target.path
 			if f.seen[key] {
 				continue
 			}
@@ -269,6 +272,12 @@ func inspectorFollowTick(s *chatState, st *inspectorSessionState) {
 		if st.follow == f && f.latest[id] == target {
 			delete(f.badges, id)
 			delete(f.pending, id)
+		}
+		s.mu.Unlock()
+	} else {
+		s.mu.Lock()
+		if st.follow == f && f.latest[id] == target && !f.paused {
+			delete(f.badges, id)
 		}
 		s.mu.Unlock()
 	}

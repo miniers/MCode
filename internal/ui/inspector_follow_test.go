@@ -165,7 +165,7 @@ func TestInspectorFollowDeduplicatesToolUpdates(t *testing.T) {
 	}
 	inspectorFollowUpdate(s, "t1", "same", "read", `{"path":"a.txt"}`, "completed")
 	inspectorFollowUpdate(s, "t1", "same", "read", `{"path":"a.txt"}`, "completed")
-	if got := inspectorFollowBadge(s, "t1", sidePaneFileID); got != 2 {
+	if got := inspectorFollowBadge(s, "t1", sidePaneFileID); got != 1 {
 		t.Fatalf("重复工具增量未去重: %d", got)
 	}
 	clickText(t, tt, "文件")
@@ -210,7 +210,7 @@ func TestInspectorFollowRejectsStaleThreadAndUnsafePath(t *testing.T) {
 	inspectorFollowUpdate(s, "t1", "truncated", "read", `{"path":"a.txt`, "completed")
 	time.Sleep(inspectorFollowInterval + 10*time.Millisecond)
 	tt.Frame()
-	if len(fileManagerTabPaths(s)) != 0 || inspectorFollowBadge(s, "t2", sidePaneFileID) != 1 || inspectorFollowBadge(s, "t1", sidePaneFileID) != 8 {
+	if len(fileManagerTabPaths(s)) != 0 || inspectorFollowBadge(s, "t2", sidePaneFileID) != 1 || inspectorFollowBadge(s, "t1", sidePaneFileID) != 0 {
 		t.Fatal("不安全路径被打开或跨会话活动串入当前会话")
 	}
 	inspectorFollowUpdate(s, "t1", "absolute", "read", `{"path":"/tmp/mcode-file-manager-test/a.txt"}`, "completed")
@@ -221,6 +221,43 @@ func TestInspectorFollowRejectsStaleThreadAndUnsafePath(t *testing.T) {
 	inspectorSwitchThread(s, "t1")
 	if inspectorFollowBadge(s, "t2", sidePaneFileID) != 1 || len(fileManagerTabPaths(s)) != 0 {
 		t.Fatal("切会话时丢失徽标或带入另一会话的文件")
+	}
+}
+
+func TestInspectorFollowIgnoresUnrevealableTargets(t *testing.T) {
+	_, s, _ := inspectorFollowTestState(t)
+	inspectorFollowUpdate(s, "t1", "outside", "read", `{"path":"/tmp/mcode-swarm-worktrees-elsewhere/a.txt"}`, "completed")
+	inspectorFollowUpdate(s, "t1", "failed", "read", `{"path":"a.txt"}`, "failed")
+	for _, id := range []string{sidePaneFileID, sidePaneDiffID} {
+		if got := inspectorFollowBadge(s, "t1", id); got != 0 {
+			t.Fatalf("不可定位事件产生徽标 %s: %d", id, got)
+		}
+	}
+	inspectorFollowPause(s, "t1")
+	inspectorFollowUpdate(s, "t1", "write", "write", `{"path":"a.txt"}`, "running")
+	inspectorFollowUpdate(s, "t1", "write", "write", `{"path":"a.txt"}`, "completed")
+	for _, id := range []string{sidePaneFileID, sidePaneDiffID} {
+		if got := inspectorFollowBadge(s, "t1", id); got != 1 {
+			t.Fatalf("写入事件徽标错误 %s: %d", id, got)
+		}
+	}
+}
+
+func TestInspectorFollowClearsBadgeWhenRevealFails(t *testing.T) {
+	_, s, _ := inspectorFollowTestState(t)
+	inspectorFollowUpdate(s, "t1", "read", "read", `{"path":"a.txt"}`, "completed")
+	s.mu.Lock()
+	st := inspectorExistingSessionLocked(s, "t1")
+	st.Open = true
+	st.Active = sidePaneFileID
+	target := st.follow.latest[sidePaneFileID]
+	target.workspace = "stale"
+	st.follow.latest[sidePaneFileID] = target
+	st.follow.due = time.Time{}
+	s.mu.Unlock()
+	inspectorFollowTick(s, st)
+	if got := inspectorFollowBadge(s, "t1", sidePaneFileID); got != 0 {
+		t.Fatalf("定位失败后徽标未清除: %d", got)
 	}
 }
 
