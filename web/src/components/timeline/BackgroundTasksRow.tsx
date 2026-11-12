@@ -7,15 +7,15 @@ import type { useRemoteBackgroundTaskApi } from '../../context/remoteBackgroundT
 // 时间线末尾的后台任务聚合行，两种形态：
 // - 会话在跑：显示「后台 · N 项任务 · M 个子智能体」，统计回合已结束但仍在跑的命令与运行中的 bee；
 // - 会话空闲：显示「等待 N 个后台任务 · 任务名 · 1:05」，带秒级计时，告诉用户还在等什么。
-// provider 托管的后台任务（toolStatus='background'）也在列，但只读：宿主拿不到输出、也不能单独中止，
-// 所以不提供停止入口。拿不到 swarm 状态时就只做命令部分，不为此改协议。
+// provider 托管的后台任务（toolStatus='background'）也在列，可查看日志并停止。
+// 拿不到 swarm 状态时就只做命令部分，不为此改协议。
 
 /** 一条仍在运行的后台命令（只保留短标题，完整命令在工具详情里）。 */
 export interface BackgroundTaskCommand {
   id: string;
   /** 命令短标题：优先取工具输入的 description，否则取命令首段，已截断 */
   snippet: string;
-  /** running：回合结束后仍在跑的本地命令；background：provider 托管、只读列出的后台任务 */
+  /** running：回合结束后仍在跑的本地命令；background：provider 托管、可查看日志并停止的后台任务 */
   status: 'running' | 'background';
   /** 命令开始的 ISO 时间，用于空闲时的等待计时 */
   startedAt?: string;
@@ -108,6 +108,10 @@ export function stopBackgroundTask(threadID: string, messageID: string, stop: (t
   return stop(threadID, messageID);
 }
 
+export function backgroundTaskStopLabel(status: BackgroundTaskCommand['status'], supported: boolean): string | null {
+  return supported && status === 'background' ? '停止' : null;
+}
+
 /** 最早启动的那条命令：优先按 startedAt，缺时间戳时退回第一条命令。 */
 function leadCommand(commands: BackgroundTaskCommand[]): BackgroundTaskCommand | undefined {
   let earliest: BackgroundTaskCommand | undefined;
@@ -137,10 +141,12 @@ export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
   const [logText, setLogText] = React.useState('');
   const [logAvailable, setLogAvailable] = React.useState(false);
   const [stopping, setStopping] = React.useState<string | null>(null);
+  const [stopFailure, setStopFailure] = React.useState<string | null>(null);
   const pendingLog = React.useRef(false);
   const lead = leadCommand(commands);
   const startedAtMs = lead && lead.startedAt ? Date.parse(lead.startedAt) : Number.NaN;
   const hasStartedAt = !Number.isNaN(startedAtMs);
+  const expandedCommandPresent = commands.some((item) => item.id === expandedTaskID);
 
   // 只在等待且拿得到开始时间时每秒刷新，卸载或切回运行态就停
   const [now, setNow] = React.useState(() => Date.now());
@@ -170,7 +176,7 @@ export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
     void poll();
     const timer = window.setInterval(() => void poll(), 1000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [expanded, expandedTaskID, threadID, taskApi, commands]);
+  }, [expanded, expandedTaskID, threadID, taskApi, expandedCommandPresent]);
 
   const count = commands.length + bees.length;
   if (count === 0) return null;
@@ -235,8 +241,31 @@ export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
                 <span className="min-w-0 flex-1 truncate font-mono text-[var(--foreground)]">{command.snippet}</span>
                 <span className="shrink-0">{command.status === 'background' ? '后台' : '运行中'}</span>
               </button>
-              {taskApi?.supported && command.status === 'running' && threadID && (
-                <button type="button" disabled={stopping === command.id} onClick={() => { setStopping(command.id); void stopBackgroundTask(threadID, command.id, taskApi.stop).catch(() => {}).finally(() => setStopping(null)); }} className="shrink-0 text-[var(--danger-foreground)] disabled:opacity-50">{stopping === command.id ? '停止中…' : '停止'}</button>
+              {taskApi?.supported && backgroundTaskStopLabel(command.status, taskApi.supported) && threadID && (
+                <>
+                  <button
+                    type="button"
+                    disabled={stopping === command.id}
+                    onClick={() => {
+                      setStopping(command.id);
+                      setStopFailure(null);
+                      void stopBackgroundTask(threadID, command.id, taskApi.stop)
+                        .then((result) => {
+                          const stopped = Boolean(result && typeof result === 'object' && 'stopped' in result && (result as { stopped?: unknown }).stopped === true);
+                          if (stopped) {
+                            setExpanded(false);
+                            setExpandedTaskID(null);
+                          } else {
+                            setStopFailure(command.id);
+                          }
+                        })
+                        .catch(() => setStopFailure(command.id))
+                        .finally(() => setStopping(null));
+                    }}
+                    className="shrink-0 text-[var(--danger-foreground)] disabled:opacity-50"
+                  >{stopping === command.id ? '停止中…' : backgroundTaskStopLabel(command.status, taskApi.supported)}</button>
+                  {stopFailure === command.id && <span className="shrink-0 text-[var(--danger-foreground)]">未能停止</span>}
+                </>
               )}
             </li>
             {expandedTaskID === command.id && logAvailable && <li className="ml-5 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[var(--foreground)]">{logText}</li>}

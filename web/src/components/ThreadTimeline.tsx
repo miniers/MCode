@@ -327,7 +327,6 @@ function truncatedReportsOfDispatch(
 function isMergedSwarmReportRow(item: TimelineItem, index?: SwarmDispatchReportIndex): boolean {
   if (item.type !== 'message') return false;
   const message = item.message;
-
   if (message.kind === 'host_event') return false;
   if (message.kind !== 'user' && message.role !== 'user') return false;
   const reports = parseSwarmReport(message.text || '');
@@ -649,7 +648,7 @@ function turnWorkEnded(status: TurnStatus | undefined, isRunning: boolean): bool
 /**
  * B7 后台命令：回合已结束、命令仍在跑的命令类工具。当前回合还在跑的命令归 A9 的组头，不在这里重复。
  * provider 托管的后台任务（toolStatus='background'）也列进来，且不受回合是否结束限制（它们本就跨回合存活）；
- * 但只读：宿主拿不到输出、也不能单独中止，所以不提供停止入口。
+ * background 任务可查看日志并停止。
  */
 export function collectBackgroundCommands(
   items: readonly TimelineItem[],

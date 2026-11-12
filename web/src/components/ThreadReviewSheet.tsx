@@ -512,7 +512,7 @@ export const ThreadReviewSheetBody = forwardRef<ThreadMenuPageHandle, ThreadRevi
             comments={commentsMap}
             onAddComment={handleAddComment}
             onDeleteComment={handleDeleteComment}
-            onRevertHunk={reviewApi.revertHunkSupported && !revertingHunk && reviewSnapshot && !reviewSnapshot.running ? handleRevertHunk : undefined}
+            onRevertHunk={reviewApi.revertHunkSupported && typeof crypto !== 'undefined' && crypto.subtle !== undefined && !revertingHunk && reviewSnapshot && !reviewSnapshot.running ? handleRevertHunk : undefined}
             canRevertHunk={(file) => Boolean(
               reviewSnapshot?.files.some((item) => item.path === file.displayPath && !item.binary && !item.tooLarge && !item.missing && !item.origPath && item.status !== 'A' && item.status !== 'D' && item.status !== 'R')
             )}

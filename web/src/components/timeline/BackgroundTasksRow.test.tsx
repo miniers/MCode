@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { pickByHash, SwarmAvatar } from '../swarmAvatar';
 import {
   BackgroundTasksRow,
+  backgroundTaskStopLabel,
   backgroundTasksLabel,
   backgroundWaitTitle,
   requestBackgroundTaskLog,
@@ -77,9 +78,13 @@ const runningHtml = renderToStaticMarkup(
 assertIncludes(runningHtml, '后台 · 1 项任务');
 assertExcludes(runningHtml, '等待 1 个后台任务');
 
-// 后台任务只读：任何形态都不出现停止入口。
-assertExcludes(waitingHtml, '停止');
-assertExcludes(runningHtml, '停止');
+const taskApi = {
+  supported: true,
+  log: async () => ({ text: '', available: false }),
+  stop: async () => ({ stopped: true })
+};
+assertEqual(backgroundTaskStopLabel(backgroundCommand.status, taskApi.supported), '停止', '后台状态的停止入口');
+assertEqual(backgroundTaskStopLabel('running', taskApi.supported), null, '运行状态没有停止入口');
 
 const calls: string[] = [];
 const logResult = await requestBackgroundTaskLog('thread-1', 'cmd-1', async (threadID, messageID) => {

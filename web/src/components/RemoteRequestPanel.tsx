@@ -56,7 +56,7 @@ function errorMessage(error: unknown): string {
 export function planFeedbackPayload(options: RemoteRequest['options'], text: string): { optionID: string; answers: { feedback: string[] } } | null {
   const feedback = text.trim();
   if (!feedback) return null;
-  const decline = options.find((option) => option.role === 'decline') ?? options.find((option) => option.title.includes('拒绝')) ?? options[options.length - 1];
+  const decline = options.find((option) => option.role === 'decline') ?? options.find((option) => option.title.includes('拒绝'));
   return decline ? { optionID: decline.id, answers: { feedback: [feedback] } } : null;
 }
 

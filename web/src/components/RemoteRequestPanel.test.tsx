@@ -78,3 +78,6 @@ if (JSON.stringify(feedbackPayload) !== JSON.stringify({ optionID: 'decline', an
 if (planFeedbackPayload([{ id: 'decline', title: '驳回', role: 'decline' }], '  ') !== null) {
   throw new Error('空修改意见必须保留原选项行为');
 }
+if (planFeedbackPayload([{ id: 'approve', title: '批准', role: 'approve' }], '请调整') !== null) {
+  throw new Error('没有驳回选项时不得把意见挂到批准选项');
+}
