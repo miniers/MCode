@@ -96,13 +96,16 @@ func gitConflictLabels(ps *gitPaneState) (string, string) {
 	return ours, theirs
 }
 
-func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDiffViewState, client gitDiffClient, key gitDiffKey, result *gitDiffResult, disabled bool, width float32) {
+func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDiffViewState, client gitDiffClient, key gitDiffKey, result *gitDiffResult, disabled bool, width float32, onBack func()) {
 	cs := (*gitConflictState)(nil)
 	if result != nil {
 		cs = result.conflict
 	}
 	ours, theirs := gitConflictLabels(ps)
 	ui.Row(c.Key("git-conflict-toolbar")).FillWidth().Height(diffHeaderHeight).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
+		if onBack != nil {
+			IconButton(c, IconButtonProps{Key: "git-conflict-back", Icon: IconArrowLeft(), Label: "返回", Variant: ButtonGhost, Size: ControlSM, OnClick: onBack}).AutoFocus()
+		}
 		gitDiffPath(c, key.path, width)
 		ready := gitConflictReady(cs)
 		busy := gitPaneAgentBusy(s, key.threadID)

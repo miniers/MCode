@@ -300,7 +300,7 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 	width := container.Bounds().W
 	container.Children(func() {
 		if key.conflict {
-			renderGitConflict(c, s, ps, st, client, key, result, loading || pending, width)
+			renderGitConflict(c, s, ps, st, client, key, result, loading || pending, width, onBack)
 			if result == nil && showLoading {
 				LoadingIndicator(c, "git-conflict-loading", "", IconMD)
 			}
@@ -312,7 +312,7 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 		}
 		ui.Row(c.Key("git-diff-toolbar")).FillWidth().Height(diffHeaderHeight).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
 			if onBack != nil {
-				IconButton(c, IconButtonProps{Key: "git-diff-back", Icon: IconArrowLeft(), Label: "返回", Variant: ButtonGhost, Size: ControlSM, OnClick: onBack})
+				IconButton(c, IconButtonProps{Key: "git-diff-back", Icon: IconArrowLeft(), Label: "返回", Variant: ButtonGhost, Size: ControlSM, OnClick: onBack}).AutoFocus()
 			}
 			gitDiffPath(c, path, width)
 			adds, dels := f.Additions, f.Deletions

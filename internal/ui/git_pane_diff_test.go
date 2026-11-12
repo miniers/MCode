@@ -144,6 +144,24 @@ func TestGitDiffBackButton(t *testing.T) {
 	}
 }
 
+func TestGitConflictBackButton(t *testing.T) {
+	s, ps, _, withoutBack := newGitDiffTester(t, git.FileDiff{}, "<<<<<<< ours\nA\n=======\nB\n>>>>>>> theirs\n")
+	if _, ok := withoutBack.Find("返回"); ok {
+		t.Fatal("unexpected back button without callback")
+	}
+	called := false
+	withBack := ui.NewTester(func(c *ui.Context) {
+		renderGitPaneDiff(c, s, "diff-test", ps, "a.go", false, func() { called = true })
+	}, 500, 400)
+	withBack.Frame()
+	if err := withBack.Click("返回"); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("back callback was not called")
+	}
+}
+
 func TestGitDiffHunkLineSelections(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
