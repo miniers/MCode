@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	backgroundTaskPattern   = regexp.MustCompile(`moved to the background as task ([A-Za-z0-9]+)(\s|\.|$)`)
+	backgroundTaskPattern   = regexp.MustCompile(`(?:moved to the background as task|Command running in background with ID:) ([A-Za-z0-9]+)(\s|\.|$)`)
 	taskNotificationPattern = regexp.MustCompile(`(?s)<task-notification>.*?</task-notification>`)
 	taskIDPattern           = regexp.MustCompile(`<task-id>\s*([^<\s]+)\s*</task-id>`)
 	toolUseIDPattern        = regexp.MustCompile(`<tool-use-id>\s*([^<\s]+)\s*</tool-use-id>`)

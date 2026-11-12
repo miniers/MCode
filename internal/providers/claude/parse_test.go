@@ -274,6 +274,25 @@ func TestParser_MCPBackgroundTasks(t *testing.T) {
 	}
 }
 
+func TestParser_BashBackgroundTask(t *testing.T) {
+	result := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_bash","content":"Command running in background with ID: bvq98tixu. Output is being written to: /tmp/x.output."}]}}`
+	events := feedParserLines(t, result,
+		`{"type":"user","message":{"content":"<task-notification><task-id>bvq98tixu</task-id><status>completed</status></task-notification>"}}`,
+	)
+	if len(events) != 3 || events[1].Type != harness.EventBackgroundTaskStart || events[1].ToolID != "toolu_bash" || events[1].TaskID != "bvq98tixu" || events[2].Type != harness.EventBackgroundTaskEnd || events[2].ToolID != "toolu_bash" || events[2].TaskID != "bvq98tixu" {
+		t.Fatalf("Bash 后台任务事件不对: %+v", events)
+	}
+
+	events = feedParserLines(t,
+		`{"type":"user","parent_tool_use_id":"parent","message":{"content":[{"type":"tool_result","tool_use_id":"child","content":"Command running in background with ID: bvq98tixu. Output is being written to: /tmp/x.output."}]}}`,
+	)
+	for _, event := range events {
+		if event.Type == harness.EventBackgroundTaskStart {
+			t.Fatalf("子代理不应发后台任务开始事件: %+v", events)
+		}
+	}
+}
+
 func TestParser_BackgroundTaskNotifications(t *testing.T) {
 	events := feedParserLines(t,
 		`{"type":"system","subtype":"task_started","task_id":"task-1","tool_use_id":"toolu_bg","is_backgrounded":true}`,
