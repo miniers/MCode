@@ -433,3 +433,21 @@ func TestTurnFilesCardPartialStats(t *testing.T) {
 		}
 	}
 }
+
+func TestTurnFilesCardOpensTurnDiff(t *testing.T) {
+	fake := setupTurnFilesDiffFake(t, []string{"first.go"}, turnFilesTestDiff(map[string][2]int{"first.go": {1, 0}}))
+	fake.SetReviewSnapshot("t1", "turn", "turn-1", "", ReviewSnapshot{Files: []ReviewFile{{Path: "first.go"}}})
+	s, root := buildRoot(fake)
+	tt := ui.NewTester(root, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("first.go") })
+	if err := tt.Click("first.go"); err != nil {
+		t.Fatal(err)
+	}
+	dp := getDiffPanelState(s)
+	diffPanelMu.Lock()
+	scope, path, selected, turn := dp.scope, dp.pendingPath, dp.selectedPath, dp.turnID
+	diffPanelMu.Unlock()
+	if scope != "turn" || turn != "turn-1" || (path != "first.go" && selected != "first.go") {
+		t.Fatalf("范围=%q 回合=%q 路径=%q 已选=%q", scope, turn, path, selected)
+	}
+}

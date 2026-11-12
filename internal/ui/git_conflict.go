@@ -200,6 +200,16 @@ func saveGitConflict(s *chatState, ps *gitPaneState, st *gitDiffViewState, clien
 	}, "")
 }
 
+func gitConflictPaths(ps *gitPaneState) []string {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	paths := make([]string, 0, len(ps.op.Conflicts))
+	for _, conflict := range ps.op.Conflicts {
+		paths = append(paths, conflict.Path)
+	}
+	return paths
+}
+
 func renderGitConflictMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDiffViewState, client gitDiffClient, key gitDiffKey, cs *gitConflictState, disabled bool) {
 	ours, theirs := gitConflictLabels(ps)
 	busy := gitPaneAgentBusy(s, key.threadID)
@@ -207,6 +217,7 @@ func renderGitConflictMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gi
 	if busy {
 		tip = "Agent 正在修改此工作区"
 	}
+	paths := gitConflictPaths(ps)
 	for _, side := range []struct {
 		ours  bool
 		label string
@@ -220,6 +231,19 @@ func renderGitConflictMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gi
 				return nil, client.GitMarkResolved(ctx, key.threadID, []string{key.path})
 			}, "")
 		}})
+		if len(paths) > 1 {
+			Button(c, ButtonOpts{Text: "全部用 " + side.label, Variant: ButtonGhost, Disabled: disabled || busy, Tooltip: tip, OnClick: func() {
+				st.menuOpen = false
+				runGitDiffWrite(s, ps, st, key, true, func(ctx context.Context) (*git.Snapshot, error) {
+					for _, path := range paths {
+						if err := client.GitResolveFileSide(ctx, key.threadID, path, side.ours); err != nil {
+							return nil, err
+						}
+					}
+					return nil, client.GitMarkResolved(ctx, key.threadID, paths)
+				}, "")
+			}})
+		}
 	}
 	Button(c, ButtonOpts{Text: "交给 AI 解决", Variant: ButtonGhost, Disabled: disabled || cs.err != nil || cs.binary || cs.tooLarge, OnClick: func() {
 		st.menuOpen = false
@@ -232,12 +256,10 @@ func renderGitConflictMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gi
 			for _, region := range cs.regions {
 				prompt += strings.Join(lines[region.Start:region.End+1], "") + "\n"
 			}
-			// 引用入口会先解析 Markdown；代码围栏保留冲突标记与正文原文。
+			// 代码围栏保留冲突标记与正文原文。
 			fence := threadExportFence(prompt)
-			s.quoteIntoDraft(fence + "\n" + prompt + "\n" + fence)
-			s.mu.Lock()
-			s.composerFocusRequest = true
-			s.mu.Unlock()
+			s.sendDraft(key.threadID, fence+"\n"+prompt+"\n"+fence)
+			s.setToast("已交给 AI")
 		}
 	}})
 }

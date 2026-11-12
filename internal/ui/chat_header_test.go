@@ -994,22 +994,25 @@ func TestChatHeaderManualPushPR(t *testing.T) {
 	defer release()
 
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
+	swarmPanelMu.Lock()
+	swarmPanelStates[s] = &swarmPanelState{state: SwarmState{LeadThreadID: "t1", Bees: []SwarmBee{{Status: "completed"}}}}
+	swarmPanelMu.Unlock()
 	ps := getGitPaneState(s)
 	state := GitState{WorkDir: "/repo", Branch: "feature/login"}
 	tt = ui.NewTester(func(c *ui.Context) { renderGitPaneToolbar(c, s, ps, state, 600) }, 1000, 700)
 	if err := tt.Click("Git 更多操作"); err != nil {
 		t.Fatalf("click commit button failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("推送并创建 PR") })
-	if err := tt.Click("推送并创建 PR"); err != nil {
+	waitFor(t, tt, func() bool { return tt.HasText("合并子代理改动（PR）") })
+	if err := tt.Click("合并子代理改动（PR）"); err != nil {
 		t.Fatalf("click push-pr failed: %v", err)
 	}
 	// 点击后先在菜单内弹出确认区，确认后才推送
-	waitFor(t, tt, func() bool { return tt.HasText("确认推送") })
+	waitFor(t, tt, func() bool { return tt.HasText("确认合并") })
 	if calls := triggerAutoMergeCallsOf(client.FakeClient); len(calls) != 0 {
 		t.Fatalf("确认前不应触发推送, calls=%v", calls)
 	}
-	if err := tt.Click("确认推送"); err != nil {
+	if err := tt.Click("确认合并"); err != nil {
 		t.Fatalf("click push-pr confirm failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return len(triggerAutoMergeCallsOf(client.FakeClient)) == 1 })
@@ -1048,19 +1051,26 @@ func TestChatHeaderManualPushPRUsesSwarmLeadID(t *testing.T) {
 	s.loadSwarm("t1")
 	waitFor(t, tt, func() bool { return s.swarmTargetLeadID() == "t9" })
 
+	swarmPanelMu.Lock()
+	swarmPanelStates[s] = &swarmPanelState{state: SwarmState{LeadThreadID: "t1", Bees: []SwarmBee{{Status: "completed"}}}}
+	swarmPanelMu.Unlock()
 	ps := getGitPaneState(s)
 	state := GitState{WorkDir: "/repo", Branch: "feature/login"}
 	tt = ui.NewTester(func(c *ui.Context) { renderGitPaneToolbar(c, s, ps, state, 600) }, 1000, 700)
 	if err := tt.Click("Git 更多操作"); err != nil {
 		t.Fatalf("click commit button failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("推送并创建 PR") })
-	if err := tt.Click("推送并创建 PR"); err != nil {
+	waitFor(t, tt, func() bool { return tt.HasText("合并子代理改动（PR）") })
+	if err := tt.Click("合并子代理改动（PR）"); err != nil {
 		t.Fatalf("click push-pr failed: %v", err)
 	}
 	// 点击后先在菜单内弹出确认区，确认后才推送
-	waitFor(t, tt, func() bool { return tt.HasText("确认推送") })
-	if err := tt.Click("确认推送"); err != nil {
+	swarmPanelMu.Lock()
+	swarmPanelStates[s].loadedFor = "t1"
+	swarmPanelStates[s].state.LeadThreadID = "t9"
+	swarmPanelMu.Unlock()
+	waitFor(t, tt, func() bool { return tt.HasText("确认合并") })
+	if err := tt.Click("确认合并"); err != nil {
 		t.Fatalf("click push-pr confirm failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return len(triggerAutoMergeCallsOf(fake)) == 1 })
@@ -1465,5 +1475,33 @@ func TestChatHeaderCommitOpensGitChanges(t *testing.T) {
 	ps.mu.Unlock()
 	if segment != 0 || !inspectorPaneOpen(s, sidePaneGitID) {
 		t.Fatal("重复点击应保持 Git 变更面板打开")
+	}
+}
+
+func TestChatHeaderWorktreeVisibility(t *testing.T) {
+	for _, tc := range []struct {
+		branch string
+		want   bool
+	}{{"mcode/swarm/bee", false}, {"main", true}, {"mcode/swarmish", true}, {"", true}} {
+		if got := visibleHeaderWorktree(tc.branch); got != tc.want {
+			t.Errorf("visibleHeaderWorktree(%q) = %v", tc.branch, got)
+		}
+	}
+}
+
+func TestChatHeaderNoUnmergedBeesMenu(t *testing.T) {
+	s, root := buildRoot(newGitFakeClient())
+	tt := ui.NewTester(root, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
+	ps := getGitPaneState(s)
+	tt = ui.NewTester(func(c *ui.Context) {
+		renderGitPaneToolbar(c, s, ps, GitState{WorkDir: "/repo", Branch: "feature/login"}, 600)
+	}, 1000, 700)
+	if err := tt.Click("Git 更多操作"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("合并子代理改动（PR）") {
+		t.Fatal("没有待合并子代理时不应显示菜单项")
 	}
 }

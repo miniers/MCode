@@ -637,6 +637,10 @@ func renderChatHeaderActionGroup(c *ui.Context, s *chatState, threadID string) {
 		})
 }
 
+func visibleHeaderWorktree(branch string) bool {
+	return !strings.HasPrefix(branch, "mcode/swarm/")
+}
+
 // renderGitBranchCapsule 渲染分支胶囊及分支/Worktree 菜单：切换与新建分支在独立窗口里完成
 // （见 git_form_windows_ui.go），Worktree 切换仍在菜单内直接执行。
 func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, threadID string, st GitState) {
@@ -651,24 +655,30 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 		label = name + " · AI Worktree"
 	}
 
-	trigger := Button(c.Key("chat-header-git-branch-btn"), ButtonOpts{
-		Icon:  IconGitBranch(),
-		Text:  label,
-		Label: "Git 分支",
-		OnClick: func() {
-			hs.branchMenuOpen = !hs.branchMenuOpen
-			hs.titleMenuOpen = false
-			hs.commitMenuOpen = false
-			chatHeaderMu.Lock()
-			hs.branchErr = ""
-			chatHeaderMu.Unlock()
-			if hs.branchMenuOpen {
-				s.loadGitState(threadID)
-				openBranchPopover(s, threadID)
-			}
-		},
-		Variant: ButtonSecondary,
-		Size:    ControlSM,
+	trigger := ui.ButtonBase(c.Key("chat-header-git-branch-btn")).Label("Git 分支").Height(ControlSM).Padding(0, Space3).Radius(RadiusSM).Gap(Space2).AlignItems(ui.Center).Border(Hairline, ThemeBorder(c)).Background(ThemeOverlay(c, OverlaySubtle)).Transition(motionFeedback(c)).OnClick(func() {
+		hs.branchMenuOpen = !hs.branchMenuOpen
+		hs.titleMenuOpen = false
+		hs.commitMenuOpen = false
+		chatHeaderMu.Lock()
+		hs.branchErr = ""
+		chatHeaderMu.Unlock()
+		if hs.branchMenuOpen {
+			s.loadGitState(threadID)
+			openBranchPopover(s, threadID)
+		}
+	})
+	if trigger.Hovered() {
+		trigger.Background(ThemeHover(c))
+	}
+	trigger.Children(func() {
+		ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c))
+		ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
+		if st.Ahead > 0 {
+			ui.Text(c, fmt.Sprintf("↑%d", st.Ahead)).FontSize(uiFont(TypeCaption)).TextColor(ThemeSuccess(c))
+		}
+		if st.Behind > 0 {
+			ui.Text(c, fmt.Sprintf("↓%d", st.Behind)).FontSize(uiFont(TypeCaption)).TextColor(ThemeWarning(c))
+		}
 	})
 	if aiWT.Path != "" {
 		trigger = trigger.Tooltip(label + "\n" + aiWT.Path)
@@ -756,6 +766,9 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 										Padding(Space3, Space3, Space0, Space3)
 									for _, w := range st.Worktrees {
 										wt := w
+										if !visibleHeaderWorktree(wt.Branch) {
+											continue
+										}
 										name := filepath.Base(wt.Path)
 										renderGitMenuOption(c, "chat-header-git-wt-"+wt.Path, "切换到 worktree "+name, name, wt.Branch, wt.Current, busy, func() {
 											run(func() error {
@@ -989,7 +1002,7 @@ func renderGitPushPRConfirm(c *ui.Context, s *chatState, st GitState) {
 		Gap(Space2).
 		Padding(Space0, Space3).
 		Children(func() {
-			ui.Text(c, fmt.Sprintf("推送分支 %s 并创建 PR？", gitBranchLabel(st))).
+			ui.Text(c, "合并子代理改动（PR）？").
 				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c))
 			ui.Row(c.Key("chat-header-push-pr-confirm-actions")).
@@ -997,7 +1010,7 @@ func renderGitPushPRConfirm(c *ui.Context, s *chatState, st GitState) {
 				AlignItems(ui.Center).
 				Children(func() {
 					Button(c.Key("chat-header-push-pr-confirm-ok"), ButtonOpts{
-						Text: "确认推送",
+						Text: "确认合并",
 						OnClick: func() {
 							s.cancelPushPRConfirm()
 							// bee 会话回到所属 lead，普通会话即当前会话

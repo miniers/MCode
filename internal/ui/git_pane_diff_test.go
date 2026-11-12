@@ -582,9 +582,15 @@ func TestGitDiffLoadingDelay(t *testing.T) {
 	gitPaneWait(t, func() bool { st.mu.Lock(); defer st.mu.Unlock(); return !st.loading && !st.showLoading })
 }
 
-func TestGitConflictAIOnlyFillsDraft(t *testing.T) {
+func TestGitConflictAISendsMessage(t *testing.T) {
 	text := "before\n<<<<<<< ours\n**A**\n=======\nB\n>>>>>>> theirs\nafter\n"
-	s, _, f, tt := newGitDiffTester(t, git.FileDiff{}, text)
+	s, ps, f, tt := newGitDiffTester(t, git.FileDiff{}, text)
+	ps.mu.Lock()
+	ps.op.Conflicts = []git.ConflictFile{{Path: "a.go"}, {Path: "b.go"}}
+	ps.mu.Unlock()
+	if got := gitConflictPaths(ps); !reflect.DeepEqual(got, []string{"a.go", "b.go"}) {
+		t.Fatalf("冲突路径: %v", got)
+	}
 	if err := tt.Click("差异菜单"); err != nil {
 		t.Fatal(err)
 	}
@@ -592,19 +598,21 @@ func TestGitConflictAIOnlyFillsDraft(t *testing.T) {
 	if err := tt.Click("交给 AI 解决"); err != nil {
 		t.Fatal(err)
 	}
-	tt.Frame()
+	waitFor(t, tt, func() bool { return len(sendCallsOf(f.FakeClient)) == 1 })
+	calls := sendCallsOf(f.FakeClient)
+	if calls[0].ThreadID != "diff-test" {
+		t.Fatalf("发送会话: %q", calls[0].ThreadID)
+	}
+	for _, raw := range []string{"a.go", "<<<<<<< ours", "=======", ">>>>>>> theirs", "**A**"} {
+		if !strings.Contains(calls[0].Text, raw) {
+			t.Fatalf("消息缺少原文 %q: %q", raw, calls[0].Text)
+		}
+	}
 	s.mu.Lock()
 	draft := s.draft
 	s.mu.Unlock()
-	for _, raw := range []string{"a.go", "<<<<<<< ours", "=======", ">>>>>>> theirs", "**A**"} {
-		if !strings.Contains(draft, raw) {
-			t.Fatalf("草稿缺少原文 %q: %q", raw, draft)
-		}
-	}
-	f.diffMu.Lock()
-	defer f.diffMu.Unlock()
-	if len(f.diffCalls) != 0 {
-		t.Fatalf("填入草稿发生写入: %v", f.diffCalls)
+	if draft != "" {
+		t.Fatalf("草稿不应改变: %q", draft)
 	}
 }
 

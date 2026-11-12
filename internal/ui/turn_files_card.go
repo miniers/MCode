@@ -336,7 +336,7 @@ func openTurnFileAt(s *chatState, threadID, workDir string, f turnEditedFile, fi
 // turnFileContextMenu 是文件胶囊的右键菜单：打开、在访达中显示、复制路径。
 func turnFileContextMenu(c *ui.Context, s *chatState, threadID, workDir string, f turnEditedFile) func(*ui.Menu) {
 	return func(m *ui.Menu) {
-		if m.Item("打开").Chosen() {
+		if m.Item("在文件面板打开").Chosen() {
 			openTurnFile(s, threadID, workDir, f)
 		}
 		if m.Item("在访达中显示").Chosen() {
@@ -374,7 +374,7 @@ func turnFileStatColumnWidth(c *ui.Context) float32 {
 // renderTurnFileRow 渲染改动卡里的一行文件：状态字母胶囊、文件图标、单行省略的文件名，
 // 右侧两列定宽的 +N / -N。statusShown 为真时每一行都给状态列留出同样宽度，
 // 状态未知的文件空着，保证图标与文件名上下对齐。
-func renderTurnFileRow(c *ui.Context, s *chatState, threadID, workDir string, f turnEditedFile, key string, statusShown bool) {
+func renderTurnFileRow(c *ui.Context, s *chatState, threadID, workDir, turnID string, f turnEditedFile, key string, statusShown bool) {
 	row := ui.Row(c.Key("turn-file-"+key)).
 		FillWidth().
 		Height(ControlSM).
@@ -385,7 +385,11 @@ func renderTurnFileRow(c *ui.Context, s *chatState, threadID, workDir string, f 
 		Cursor(ui.CursorPointer).
 		Tooltip(f.abs).
 		OnClick(func() {
-			openTurnFile(s, threadID, workDir, f)
+			if rel := turnFilePreviewPath(workDir, f); turnID != "" && rel != "" {
+				openReviewPath(s, turnID, rel)
+			} else {
+				openTurnFile(s, threadID, workDir, f)
+			}
 		}).
 		ContextMenu(turnFileContextMenu(c, s, threadID, workDir, f))
 	if row.Hovered() {
@@ -565,7 +569,7 @@ func renderTurnFilesCard(c *ui.Context, s *chatState, m Message) {
 				Gap(Space0).
 				Children(func() {
 					for i := 0; i < visible; i++ {
-						renderTurnFileRow(c, s, threadID, workDir, files[i],
+						renderTurnFileRow(c, s, threadID, workDir, m.TurnID, files[i],
 							fmt.Sprintf("%s-%d", m.ID, i), statusShown)
 					}
 				})
