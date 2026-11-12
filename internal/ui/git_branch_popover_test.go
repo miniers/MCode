@@ -86,6 +86,12 @@ func TestGitBranchPopoverActionMenu(t *testing.T) {
 	if _, ok := tt.Find("复制名称"); ok {
 		t.Fatal("菜单打开前不应显示操作项")
 	}
+	row, ok := tt.Find("切换到分支 other")
+	if !ok {
+		t.Fatal("未找到分支 other")
+	}
+	tt.Move(row.X+row.W/2, row.Y+row.H/2)
+	tt.Frame()
 	if err := tt.Click("分支操作 other"); err != nil {
 		t.Fatal(err)
 	}

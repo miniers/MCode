@@ -173,6 +173,19 @@ func TestGitPaneSyncButtonLabels(t *testing.T) {
 	}
 }
 
+func TestGitPaneToolbarBackgroundRefresh(t *testing.T) {
+	s, ps, _ := gitPaneTestState(t)
+	ps.state = GitState{WorkDir: "/repo", Branch: "feature"}
+	ps.loading = true
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneToolbar(c, s, ps, ps.state, 600) }, 600, 100)
+	if _, ok := tt.Find("加载中"); ok {
+		t.Fatal("后台刷新时分支按钮不应显示加载指示器")
+	}
+	if !tt.HasText("feature") {
+		t.Fatal("后台刷新时分支名应保持可见")
+	}
+}
+
 func TestGitPaneDetachedAndNarrowToolbar(t *testing.T) {
 	s, ps, _ := gitPaneTestState(t)
 	state := GitState{WorkDir: "/repo", Detached: true, Head: "0123456789", HasUpstream: true, Ahead: 1}

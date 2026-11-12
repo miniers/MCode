@@ -537,9 +537,6 @@ func renderGitPane(c *ui.Context, s *chatState) {
 }
 
 func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state GitState, width float32) {
-	ps.mu.Lock()
-	loading := ps.loading
-	ps.mu.Unlock()
 	ui.Row(c.Key("git-pane-toolbar")).FillWidth().Height(diffHeaderHeight).Shrink(0).Padding(0, Space3).Gap(Space2).AlignItems(ui.Center).Children(func() {
 		branch := state.Branch
 		if state.Detached {
@@ -559,11 +556,7 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 			ps.branchOpen = true
 		}
 		btn.Children(func() {
-			if loading && state.WorkDir != "" {
-				LoadingIndicator(c, "git-pane-refresh-loading", "", IconSM)
-			} else {
-				ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-			}
+			ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 			ui.Text(c, branch).FontSize(uiFont(TypeFootnote)).SingleLine().Shrink(1).MinWidth(0)
 			if state.HasUpstream {
 				if state.Ahead > 0 {
