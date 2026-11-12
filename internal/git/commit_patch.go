@@ -211,7 +211,7 @@ func (r *Runner) syncRealIndex(ctx context.Context, root, oldHead, newSHA string
 		}
 		batch := resetPaths[i:end]
 		resetArgs := append([]string{"reset", "-q", newSHA, "--"}, batch...)
-		if _, err := r.run(ctx, root, nil, resetArgs...); err != nil {
+		if _, err := r.runWithLockRetry(ctx, root, nil, resetArgs...); err != nil {
 			return stagedKept, fmt.Errorf("git reset paths: %w", err)
 		}
 	}

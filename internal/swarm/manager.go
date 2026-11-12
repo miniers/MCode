@@ -4348,9 +4348,12 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 	}
 	stagedKept, err = m.opts.Git.AdvanceHead(ctx, root, oldHead, newSHA)
 	if err != nil {
-		if errors.Is(err, git.ErrHeadMoved) {
+		if errors.Is(err, git.ErrHeadMoved) || errors.Is(err, git.ErrIndexLocked) {
 			if restoreErr := snap.restore(); restoreErr != nil {
 				return fail(fmt.Errorf("%w；复原工作区失败：%v", err, restoreErr))
+			}
+			if errors.Is(err, git.ErrIndexLocked) {
+				return wait("暂存区被 index.lock 锁定，等待重试")
 			}
 			return wait("HEAD 已被移动，等待重试")
 		}
