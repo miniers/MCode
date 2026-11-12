@@ -1011,8 +1011,10 @@ func buildThreadParams(turn harness.Turn, sandbox, approvalPolicy string, thread
 			headers["X-Mcode-Workdir"] = turn.WorkDir
 		}
 		mcpServers["mcode"] = map[string]any{
-			"url":          url,
-			"http_headers": headers,
+			"url":                         url,
+			"http_headers":                headers,
+			// mcode 自带工具的权限由服务端校验。
+			"default_tools_approval_mode": "approve",
 		}
 	}
 	for _, ep := range external {

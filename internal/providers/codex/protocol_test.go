@@ -1482,6 +1482,9 @@ func TestBuildThreadParams_Config(t *testing.T) {
 		if mcodeServer["url"] != "http://127.0.0.1:12345/mcp" {
 			t.Errorf("expected url http://127.0.0.1:12345/mcp, got %v", mcodeServer["url"])
 		}
+		if mcodeServer["default_tools_approval_mode"] != "approve" {
+			t.Errorf("expected default_tools_approval_mode approve, got %v", mcodeServer["default_tools_approval_mode"])
+		}
 		headers, ok := mcodeServer["http_headers"].(map[string]any)
 		if !ok {
 			t.Fatalf("expected http_headers map, got %T", mcodeServer["http_headers"])
