@@ -26,16 +26,18 @@ type gitBranchClient interface {
 }
 
 type gitBranchPopupState struct {
-	mu                                        sync.Mutex
-	query, err, edit, editName, confirm, menu string
-	branches                                  []git.BranchInfo
-	recent                                    []string
-	tags                                      []git.TagInfo
-	loaded, loading, busy                     bool
-	loadStarted                               time.Time
-	local, remote, tag                        bool
-	selected                                  int
-	seq                                       uint64
+	mu                                   sync.Mutex
+	query, edit, editName, confirm, menu string
+	err                                  git.Failure
+	retryBranch                          string
+	branches                             []git.BranchInfo
+	recent                               []string
+	tags                                 []git.TagInfo
+	loaded, loading, busy                bool
+	loadStarted                          time.Time
+	local, remote, tag                   bool
+	selected                             int
+	seq                                  uint64
 }
 
 var gitBranchPopups sync.Map
@@ -73,15 +75,16 @@ func loadBranchPopover(s *chatState, id string, p *gitBranchPopupState) {
 		}
 		p.mu.Lock()
 		if seq == p.seq {
+			p.retryBranch = ""
 			p.loading = false
 			p.loaded = err == nil
 			if err != nil {
-				p.err = git.ClassifyError(err).Title
+				p.err = git.ClassifyError(err)
 			} else {
 				p.branches = branches
 				p.recent = recent
 				p.tags = tags
-				p.err = ""
+				p.err = git.Failure{}
 			}
 		}
 		p.mu.Unlock()
@@ -121,7 +124,7 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 	client, advanced := s.client.(gitBranchClient)
 	state := s.headerGitState(threadID)
 	p.mu.Lock()
-	query, errMsg, edit, editName, confirm, menu := p.query, p.err, p.edit, p.editName, p.confirm, p.menu
+	query, failure, retryBranch, edit, editName, confirm, menu := p.query, p.err, p.retryBranch, p.edit, p.editName, p.confirm, p.menu
 	branches := append([]git.BranchInfo(nil), p.branches...)
 	recent := append([]string(nil), p.recent...)
 	tags := append([]git.TagInfo(nil), p.tags...)
@@ -134,14 +137,15 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 			branches = append(branches, git.BranchInfo{Name: name, Head: name == state.Branch})
 		}
 	}
-	run := func(closeOnSuccess bool, op func(context.Context) error) {
+	runWithBranch := func(closeOnSuccess bool, branch string, op func(context.Context) error) {
 		p.mu.Lock()
 		if p.busy {
 			p.mu.Unlock()
 			return
 		}
 		p.busy = true
-		p.err = ""
+		p.err = git.Failure{}
+		p.retryBranch = ""
 		p.mu.Unlock()
 		s.invalidate()
 		go func() {
@@ -151,7 +155,10 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 			p.mu.Lock()
 			p.busy = false
 			if err != nil {
-				p.err = git.ClassifyError(err).Title
+				p.err = git.ClassifyError(err)
+				if p.err.Kind == git.FailureWorktree {
+					p.retryBranch = branch
+				}
 			} else if closeOnSuccess {
 				p.confirm = "close"
 			}
@@ -164,6 +171,9 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 			}
 			s.invalidate()
 		}()
+	}
+	run := func(closeOnSuccess bool, op func(context.Context) error) {
+		runWithBranch(closeOnSuccess, "", op)
 	}
 	if confirm == "close" {
 		*open = false
@@ -187,12 +197,13 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 		case "tag":
 			run(true, func(ctx context.Context) error { return s.client.GitCheckout(ctx, threadID, item.name) })
 		default:
-			run(true, func(ctx context.Context) error {
-				if branchOtherWorktree(item.branch, state.WorkDir) {
+			if branchOtherWorktree(item.branch, state.WorkDir) {
+				run(true, func(ctx context.Context) error {
 					return s.client.GitSwitchWorktree(ctx, threadID, item.branch.WorktreePath)
-				}
-				return s.client.GitCheckout(ctx, threadID, item.name)
-			})
+				})
+			} else {
+				runWithBranch(true, item.name, func(ctx context.Context) error { return s.client.GitCheckout(ctx, threadID, item.name) })
+			}
 		}
 	}
 	needle := strings.TrimSpace(query)
@@ -476,8 +487,30 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 				return false
 			}})
 		}
-		if errMsg != "" {
-			renderGitError(c, "branch-error", errMsg)
+		if failure.Title != "" {
+			renderGitError(c, "branch-error", failure.Title)
+			if failure.Hint != "" {
+				ui.Text(c, failure.Hint).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+			}
+			push, canPush := s.client.(gitStashPushClient)
+			stash, canPop := s.client.(gitStashClient)
+			if retryBranch != "" && canPush && canPop {
+				Button(c, ButtonOpts{Key: "branch-stash-switch", Text: "贮藏后切换", Variant: ButtonSecondary, Disabled: busy, OnClick: func() {
+					runWithBranch(true, "", func(ctx context.Context) error {
+						if err := push.GitStashPush(ctx, threadID, gitSwitchStashMarker); err != nil {
+							return err
+						}
+						if err := s.client.GitCheckout(ctx, threadID, retryBranch); err != nil {
+							if popErr := stash.GitStashPopAt(ctx, threadID, 0); popErr != nil {
+								s.setToast("恢复贮藏失败，改动保留在贮藏中")
+							}
+							return err
+						}
+						s.setToast("已贮藏改动并切换")
+						return nil
+					})
+				}})
+			}
 		}
 	})
 	if strings.HasPrefix(confirm, "branch:") || strings.HasPrefix(confirm, "tag:") {

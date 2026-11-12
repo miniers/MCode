@@ -3,8 +3,10 @@ package mcodeui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -115,4 +117,69 @@ func TestGitBranchPopoverActionMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("复制名称"); return !ok })
+}
+
+type branchStashFake struct {
+	*branchPopoverFake
+	calls     []string
+	failRetry bool
+}
+
+func (f *branchStashFake) GitCheckout(_ context.Context, _ string, branch string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "checkout:"+branch)
+	if len(f.calls) == 1 || f.failRetry {
+		return errors.New("would be overwritten by checkout")
+	}
+	return nil
+}
+func (f *branchStashFake) GitStashPush(_ context.Context, _ string, message string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "push:"+message)
+	return nil
+}
+func (f *branchStashFake) GitStashList(context.Context, string) ([]git.StashEntry, error) {
+	return nil, nil
+}
+func (f *branchStashFake) GitStashApply(context.Context, string, int) error { return nil }
+func (f *branchStashFake) GitStashDrop(context.Context, string, int) error  { return nil }
+func (f *branchStashFake) GitStashPopAt(_ context.Context, _ string, index int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fmt.Sprintf("pop:%d", index))
+	return nil
+}
+
+func TestGitBranchPopoverStashSwitch(t *testing.T) {
+	for _, failRetry := range []bool{false, true} {
+		t.Run(fmt.Sprintf("retry_failure_%v", failRetry), func(t *testing.T) {
+			f := &branchStashFake{branchPopoverFake: &branchPopoverFake{newGitFakeClient()}, failRetry: failRetry}
+			tt := ui.NewTester(Root(f), 1000, 700)
+			waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
+			if err := tt.Click("Git 分支"); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 unmerged"); return ok })
+			if err := tt.Click("切换到分支 unmerged"); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, tt, func() bool { return tt.HasText("先提交或贮藏改动") })
+			if err := tt.Click("贮藏后切换"); err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"checkout:unmerged", "push:" + gitSwitchStashMarker, "checkout:unmerged"}
+			if failRetry {
+				want = append(want, "pop:0")
+			}
+			waitFor(t, tt, func() bool { f.mu.Lock(); defer f.mu.Unlock(); return len(f.calls) >= len(want) })
+			f.mu.Lock()
+			got := append([]string(nil), f.calls...)
+			f.mu.Unlock()
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("调用顺序：%v，期望 %v", got, want)
+			}
+		})
+	}
 }
