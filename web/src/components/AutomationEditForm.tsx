@@ -3,12 +3,14 @@
 // 以及模型供应商/模型/推理强度/权限模式）。
 // 校验写成导出的纯函数，Web 端没有测试框架，这里只保证调用方能直接复用。
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRemote } from '../context/RemoteContext';
+import { useRemoteAutomationApi } from '../context/remoteAutomationApi';
 import type {
   RemoteAutomationExtAutomation,
   RemoteAutomationExtInput,
-  RemoteAutomationExtSchedule
+  RemoteAutomationExtSchedule,
+  RemoteAutomationExtPreviewResult
 } from '../context/remoteAutomationApi';
 
 /** 调度类型选项，文案与桌面端 scheduleTypeOptions 一致（internal/ui/automation.go:860）。 */
@@ -234,6 +236,10 @@ export function validateAutomationForm(values: AutomationFormValues): string | n
   const iterations = values.maxIterations.trim() === '' ? 0 : parseIntStrict(values.maxIterations);
   if (iterations === null || iterations < 0) return '最大运行次数须为非负整数';
 
+  return validateAutomationSchedule(values);
+}
+
+function validateAutomationSchedule(values: AutomationFormValues): string | null {
   switch (values.scheduleType) {
     case 'interval': {
       const minutes = Number(values.intervalMinutes.trim());
@@ -261,6 +267,48 @@ export function validateAutomationForm(values: AutomationFormValues): string | n
     default:
       return '请选择有效的调度类型';
   }
+}
+
+export function createDebouncedPreview<T, R>(
+  request: (input: T) => Promise<R>,
+  onResult: (result: R | null) => void,
+  delay = 300
+): { update: (input: T | null) => void; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let requestID = 0;
+  const cancel = () => {
+    requestID += 1;
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
+  return {
+    update(input) {
+      cancel();
+      const id = requestID;
+      onResult(null);
+      if (input === null) {
+        return;
+      }
+      timer = setTimeout(() => {
+        void request(input).then(
+          (result) => {
+            if (id === requestID) onResult(result);
+          },
+          () => {
+            if (id === requestID) onResult(null);
+          }
+        );
+      }, delay);
+    },
+    cancel
+  };
+}
+
+export function shouldShowAutomationPreview(
+  supported: boolean,
+  preview: RemoteAutomationExtPreviewResult | null
+): boolean {
+  return supported && preview !== null && (preview.times.length > 0 || preview.exhausted);
 }
 
 /** 用表单值组装 RemoteAutomationExtInput；调用前应先通过 validateAutomationForm。 */
@@ -352,6 +400,8 @@ export const AutomationEditForm: React.FC<AutomationEditFormProps> = ({
     automationFormValues(defaultProjectID, automation)
   );
   const [formError, setFormError] = useState<string | null>(null);
+  const { supportsPreview, previewAutomationSchedule } = useRemoteAutomationApi();
+  const [preview, setPreview] = useState<RemoteAutomationExtPreviewResult | null>(null);
 
   const patch = useCallback((partial: Partial<AutomationFormValues>) => {
     setValues((prev) => ({ ...prev, ...partial }));
@@ -420,6 +470,20 @@ export const AutomationEditForm: React.FC<AutomationEditFormProps> = ({
   }, [onSubmit, values]);
 
   const timeLabel = values.scheduleType === 'weekly' ? '时间 (HH:MM)' : '运行时间 (HH:MM)';
+  const schedule = useMemo(
+    () => (validateAutomationSchedule(values) ? null : buildAutomationInput(values).schedule),
+    [values]
+  );
+
+  useEffect(() => {
+    if (!supportsPreview) {
+      setPreview(null);
+      return;
+    }
+    const runner = createDebouncedPreview(previewAutomationSchedule, setPreview);
+    runner.update(schedule);
+    return runner.cancel;
+  }, [previewAutomationSchedule, schedule, supportsPreview]);
 
   return (
     <div className="space-y-3 pb-2">
@@ -698,6 +762,17 @@ export const AutomationEditForm: React.FC<AutomationEditFormProps> = ({
           </div>
         )}
       </div>
+
+      {shouldShowAutomationPreview(supportsPreview, preview) && preview && (
+        <div className="space-y-1">
+          <p className={LABEL_CLASS}>预计运行</p>
+          <div className="space-y-1 text-mc-caption text-[var(--foreground-muted)]">
+            {preview.times.length > 0
+              ? preview.times.map((time) => <div key={time}>{formatLocalDateTime(new Date(time))}</div>)
+              : '没有即将到来的运行'}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-1">
         <label className={LABEL_CLASS} htmlFor="automation-form-stop-when">

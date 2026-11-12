@@ -16,7 +16,8 @@ import type {
   RemoteAutomationExtRun,
   RemoteAutomationExtRunResult,
   RemoteAutomationExtRunsResult,
-  RemoteAutomationExtSchedule
+  RemoteAutomationExtSchedule,
+  RemoteAutomationExtPreviewResult
 } from '../types/generated';
 import { useRemoteCall, useRemoteNotification } from './useRemoteCall';
 
@@ -32,7 +33,8 @@ export type {
   RemoteAutomationExtRun,
   RemoteAutomationExtRunResult,
   RemoteAutomationExtRunsResult,
-  RemoteAutomationExtSchedule
+  RemoteAutomationExtSchedule,
+  RemoteAutomationExtPreviewResult
 };
 
 export const REMOTE_AUTOMATIONS_LIST_METHOD = 'automations.list';
@@ -45,6 +47,7 @@ export const REMOTE_AUTOMATIONS_UPDATE_METHOD = 'automations.update';
 export const REMOTE_AUTOMATIONS_DELETE_METHOD = 'automations.delete';
 export const REMOTE_AUTOMATIONS_SET_ENABLED_METHOD = 'automations.setEnabled';
 export const REMOTE_AUTOMATIONS_RESET_METHOD = 'automations.reset';
+export const REMOTE_AUTOMATIONS_PREVIEW_METHOD = 'automations.preview';
 export const REMOTE_AUTOMATIONS_CHANGED_METHOD = 'automations.changed';
 
 /** 宿主返回的版本冲突错误码（wire.ErrCodeVersionConflict）。 */
@@ -84,6 +87,7 @@ export interface RemoteAutomationApi {
   supportsDelete: boolean;
   supportsSetEnabled: boolean;
   supportsReset: boolean;
+  supportsPreview: boolean;
   listAutomations: (projectID: string) => Promise<RemoteAutomationExtAutomation[]>;
   listRuns: (automationID: string, options?: RemoteAutomationRunsOptions) => Promise<RemoteAutomationExtRun[]>;
   runNow: (automationID: string) => Promise<RemoteAutomationExtRun>;
@@ -107,6 +111,7 @@ export interface RemoteAutomationApi {
   ) => Promise<RemoteAutomationExtAutomation>;
   /** 重置：等价于 setEnabled(true)，与桌面端「重置」语义一致。 */
   resetAutomation: (automationID: string, revision?: number) => Promise<RemoteAutomationExtAutomation>;
+  previewAutomationSchedule: (schedule: RemoteAutomationExtSchedule) => Promise<RemoteAutomationExtPreviewResult>;
 }
 
 /** 取远程扩展调用集合；能力未变化前返回同一对象，可直接作为 effect 依赖。 */
@@ -122,6 +127,7 @@ export function useRemoteAutomationApi(): RemoteAutomationApi {
   const supportsDelete = supportsMethod(REMOTE_AUTOMATIONS_DELETE_METHOD);
   const supportsSetEnabled = supportsMethod(REMOTE_AUTOMATIONS_SET_ENABLED_METHOD);
   const supportsReset = supportsMethod(REMOTE_AUTOMATIONS_RESET_METHOD);
+  const supportsPreview = supportsMethod(REMOTE_AUTOMATIONS_PREVIEW_METHOD);
 
   const listAutomations = useCallback(
     async (projectID: string): Promise<RemoteAutomationExtAutomation[]> => {
@@ -247,6 +253,12 @@ export function useRemoteAutomationApi(): RemoteAutomationApi {
     [call]
   );
 
+  const previewAutomationSchedule = useCallback(
+    (schedule: RemoteAutomationExtSchedule): Promise<RemoteAutomationExtPreviewResult> =>
+      call<RemoteAutomationExtPreviewResult>(REMOTE_AUTOMATIONS_PREVIEW_METHOD, { schedule, count: 3 }),
+    [call]
+  );
+
   return useMemo<RemoteAutomationApi>(
     () => ({
       supportsList,
@@ -259,6 +271,7 @@ export function useRemoteAutomationApi(): RemoteAutomationApi {
       supportsDelete,
       supportsSetEnabled,
       supportsReset,
+      supportsPreview,
       listAutomations,
       listRuns,
       runNow,
@@ -268,7 +281,8 @@ export function useRemoteAutomationApi(): RemoteAutomationApi {
       updateAutomation,
       deleteAutomation,
       setAutomationEnabled,
-      resetAutomation
+      resetAutomation,
+      previewAutomationSchedule
     }),
     [
       supportsList,
@@ -281,6 +295,7 @@ export function useRemoteAutomationApi(): RemoteAutomationApi {
       supportsDelete,
       supportsSetEnabled,
       supportsReset,
+      supportsPreview,
       listAutomations,
       listRuns,
       runNow,
@@ -290,7 +305,8 @@ export function useRemoteAutomationApi(): RemoteAutomationApi {
       updateAutomation,
       deleteAutomation,
       setAutomationEnabled,
-      resetAutomation
+      resetAutomation,
+      previewAutomationSchedule
     ]
   );
 }
