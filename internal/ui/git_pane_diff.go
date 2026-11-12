@@ -58,6 +58,7 @@ type gitDiffViewState struct {
 	view            *editor.DiffState
 	split, menuOpen bool
 	conflictScroll  ui.ScrollState
+	currentHunk     int
 }
 
 var gitDiffStates sync.Map // *gitPaneState → *gitDiffViewState
@@ -159,7 +160,7 @@ func gitFilePatch(f git.FileDiff) editor.FilePatch {
 }
 
 func gitDiffTooLarge(f git.FileDiff) bool {
-	if f.IsDeferred || len(f.DeferredPatch) > gitDiffMaxBytes {
+	if len(f.DeferredPatch) > gitDiffMaxBytes {
 		return true
 	}
 	n := 0
@@ -240,6 +241,9 @@ func loadGitDiff(s *chatState, ps *gitPaneState, st *gitDiffViewState, client gi
 			if info, err := os.Stat(filepath.Join(key.root, filepath.FromSlash(key.path))); err == nil {
 				result.large = info.Size() > gitDiffMaxBytes
 			}
+			if result.err == nil && result.file.IsDeferred && !result.large && !gitDiffTooLarge(result.file) {
+				result.file, result.err = git.ExpandDeferred(result.file)
+			}
 		}
 		if ctx.Err() != nil {
 			result.err = ctx.Err()
@@ -286,6 +290,7 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 		}
 		if !sameFile {
 			st.view = nil
+			st.currentHunk = 0
 		}
 		st.applied, st.appliedKey, st.menuOpen = result, key, false
 		if !sameKey {
@@ -352,7 +357,7 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 			return
 		}
 		if result.err != nil {
-			renderGitPaneEmpty(c, result.err.Error(), IconGitBranch())
+			renderGitPaneEmpty(c, git.ClassifyError(result.err).Title, IconGitBranch())
 			return
 		}
 		if f.Binary {
@@ -389,9 +394,27 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 		d.HunkActions, d.LineSelection = true, true
 		d.OnLineSelection = func(editor.DiffLineRange) { s.invalidate() }
 		d.RenderHunkActions = func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions) {
+			if a.Index == st.currentHunk {
+				bar.Background(ThemeSelected(c))
+			}
 			renderGitHunkActions(c, bar, s, ps, st, client, key, f, a.Hunk, loading || pending)
 		}
 		editor.DiffView(c.Key("git-diff-view"), d).Grow(1).FillWidth().MinHeight(0).Label("文件差异")
+		hunks := d.Hunks()
+		if len(hunks) > 0 {
+			st.currentHunk = moveGitHunk(st.currentHunk, 0, len(hunks))
+			move := func(delta int) {
+				st.currentHunk = moveGitHunk(st.currentHunk, delta, len(hunks))
+				d.GoToHunk(st.currentHunk)
+			}
+			container.OnShortcut(0, ui.KeyJ, func() { move(1) })
+			container.OnShortcut(0, ui.KeyK, func() { move(-1) })
+			container.OnShortcut(0, ui.KeyS, func() {
+				if !loading && !pending {
+					applyGitSelections(s, ps, st, client, key, diffHunkSelections(f, hunks[st.currentHunk]), false, true)
+				}
+			})
+		}
 		if selection, has := d.SelectedLines(); has {
 			container.OnShortcut(0, ui.KeyEscape, func() { d.SetSelectedLines(editor.DiffLineRange{}, false) })
 			container.OnShortcut(0, ui.KeySpace, func() {
@@ -406,10 +429,64 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 				if c.Shortcut(0, ui.KeySpace) && !loading && !pending {
 					applyGitSelections(s, ps, st, client, key, sels, false, false)
 				}
-				renderGitSelectionBar(c, s, ps, st, client, key, sels, selection.End-selection.Start+1, loading || pending)
+				renderGitSelectionBar(c, s, ps, st, client, key, f, selection, sels, selection.End-selection.Start+1, loading || pending)
 			}
 		}
 	})
+}
+
+func moveGitHunk(current, delta, count int) int {
+	if count <= 0 {
+		return 0
+	}
+	return max(0, min(count-1, current+delta))
+}
+
+func addGitDiffSelectionToConversation(s *chatState, key gitDiffKey, file git.FileDiff, selection editor.DiffLineRange) bool {
+	if selection.Start < 0 || selection.End < selection.Start {
+		return false
+	}
+	s.mu.Lock()
+	current := s.selectedThreadID == key.threadID
+	s.mu.Unlock()
+	if !current {
+		return false
+	}
+	old := selection.Side == editor.DiffOld
+	index, first, last := 0, 0, 0
+	var lines []string
+	for _, h := range file.Hunks {
+		for _, line := range h.Lines {
+			if line.Kind != ' ' && line.Kind != '-' && line.Kind != '+' || old && line.Kind == '+' || !old && line.Kind == '-' {
+				continue
+			}
+			if index >= selection.Start && index <= selection.End {
+				no := line.NewNo
+				if old {
+					no = line.OldNo
+				}
+				if first == 0 {
+					first = no
+				}
+				last = no
+				lines = append(lines, line.Text)
+			}
+			index++
+		}
+	}
+	if first == 0 || last < first {
+		return false
+	}
+	ref := inspectorFileReference(s, key.threadID, key.path, first, last)
+	name := fmt.Sprintf("%s:%d-%d", key.path, first, last)
+	content := fmt.Sprintf("工作区相对路径：%q\n行范围：%d-%d（从 1 开始，含首尾）\n%s\n", key.path, first, last, strings.Join(lines, "\n"))
+	if !s.addAttachmentToThread(key.threadID, name, "text/plain", []byte(content), &ref) {
+		return false
+	}
+	s.mu.Lock()
+	s.composerFocusRequest = true
+	s.mu.Unlock()
+	return true
 }
 
 func gitDiffPath(c *ui.Context, path string, width float32) {
@@ -492,18 +569,29 @@ func runGitDiffWrite(s *chatState, ps *gitPaneState, st *gitDiffViewState, key g
 		}
 		st.mu.Unlock()
 		if err == nil {
+			ps.mu.Lock()
+			ps.failure = nil
+			ps.mu.Unlock()
 			ps.requestRefresh()
 		}
 		s.invalidate()
 	}()
 }
 
-func renderGitSelectionBar(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDiffViewState, client gitDiffClient, key gitDiffKey, sels []git.LineSel, selectedCount int, disabled bool) {
+func renderGitSelectionBar(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDiffViewState, client gitDiffClient, key gitDiffKey, file git.FileDiff, selection editor.DiffLineRange, sels []git.LineSel, selectedCount int, disabled bool) {
 	n := 0
 	for _, sel := range sels {
 		n += sel.End - sel.Start + 1
 	}
 	ui.Row(c.Key("git-diff-selection")).Radius(RadiusPill).Background(ThemeSurface(c)).Border(Hairline, ThemeBorder(c)).Padding(Space2, Space3).Gap(Space2).AlignItems(ui.Center).Transition(motionPopover(c, motionRiseOffset)).Children(func() {
+		s.mu.Lock()
+		current := s.selectedThreadID == key.threadID
+		s.mu.Unlock()
+		Button(c, ButtonOpts{Text: "添加到对话", Size: ControlSM, Disabled: !current, OnClick: func() {
+			if addGitDiffSelectionToConversation(s, key, file, selection) {
+				st.view.SetSelectedLines(editor.DiffLineRange{}, false)
+			}
+		}})
 		ui.Text(c, fmt.Sprintf("已选 %d 行", selectedCount)).FontSize(uiFont(TypeFootnote))
 		label := "暂存"
 		if key.staged {

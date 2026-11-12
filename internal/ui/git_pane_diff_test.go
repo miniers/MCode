@@ -475,7 +475,7 @@ func TestGitDiffSpecialFilesAndConflictFallback(t *testing.T) {
 		name string
 		file git.FileDiff
 		text string
-	}{{"二进制文件", git.FileDiff{Binary: true}, ""}, {"文件过大", git.FileDiff{IsDeferred: true}, ""}, {"二进制文件", git.FileDiff{}, "a\x00b"}} {
+	}{{"二进制文件", git.FileDiff{Binary: true}, ""}, {"文件过大", git.FileDiff{IsDeferred: true, DeferredPatch: strings.Repeat("x", 3<<20)}, ""}, {"二进制文件", git.FileDiff{}, "a\x00b"}} {
 		t.Run(tc.name+tc.text, func(t *testing.T) {
 			_, _, _, tt := newGitDiffTester(t, tc.file, tc.text)
 			if !tt.HasText(tc.name) {
@@ -485,6 +485,17 @@ func TestGitDiffSpecialFilesAndConflictFallback(t *testing.T) {
 	}
 	if !gitDiffTooLarge(git.FileDiff{Hunks: []git.Hunk{{Lines: []git.Line{{Kind: '+', Text: strings.Repeat("x", gitDiffMaxBytes)}}}}}) {
 		t.Fatal("未限制补丁大小")
+	}
+}
+
+func TestGitDiffDeferredSizeAndHunkMovement(t *testing.T) {
+	if gitDiffTooLarge(git.FileDiff{IsDeferred: true, DeferredPatch: strings.Repeat("x", 1<<20)}) || !gitDiffTooLarge(git.FileDiff{IsDeferred: true, DeferredPatch: strings.Repeat("x", 3<<20)}) {
+		t.Fatal("延迟补丁大小判断错误")
+	}
+	for _, tc := range []struct{ current, delta, count, want int }{{0, 1, 3, 1}, {0, -1, 3, 0}, {2, 1, 3, 2}, {4, 0, 3, 2}, {0, 1, 0, 0}} {
+		if got := moveGitHunk(tc.current, tc.delta, tc.count); got != tc.want {
+			t.Fatalf("moveGitHunk(%d, %d, %d) = %d", tc.current, tc.delta, tc.count, got)
+		}
 	}
 }
 
