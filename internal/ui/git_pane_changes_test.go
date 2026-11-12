@@ -312,3 +312,72 @@ func TestGitChangesNarrowDiffKeyboardAfterReopen(t *testing.T) {
 		t.Fatalf("重新进入后 diff 选择 = %q，详情 = %v", selected, detail)
 	}
 }
+
+type gitChangesGenerateClient struct {
+	*gitChangesFakeClient
+	calls int
+}
+
+func (f *gitChangesGenerateClient) GenerateCommitMessage(context.Context, string) (string, error) {
+	f.paneMu.Lock()
+	f.calls++
+	f.paneMu.Unlock()
+	return "生成的信息", nil
+}
+
+func TestGitChangesAutoGenerate(t *testing.T) {
+	for _, initial := range []string{"", "已有草稿"} {
+		t.Run(initial, func(t *testing.T) {
+			s, ps, base := gitPaneTestState(t)
+			client := &gitChangesGenerateClient{gitChangesFakeClient: &gitChangesFakeClient{gitPaneFakeClient: base}}
+			s.client = client
+			ps.state = GitState{WorkDir: t.TempDir()}
+			ps.entries = []git.StatusEntry{{Path: "a", Worktree: 'M'}}
+			st := gitChangesStateFor(ps)
+			st.root, st.draft = ps.state.WorkDir, initial
+			tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, "git-test", ps) }, 600, 500)
+			tt.Frame()
+			if initial == "" {
+				gitPaneWait(t, func() bool { st.mu.Lock(); defer st.mu.Unlock(); return st.draft == "生成的信息" })
+			}
+			for i := 0; i < 3; i++ {
+				tt.Frame()
+			}
+			base.paneMu.Lock()
+			calls := client.calls
+			base.paneMu.Unlock()
+			want := 0
+			if initial == "" {
+				want = 1
+			}
+			if calls != want {
+				t.Fatalf("生成次数 = %d，期望 %d", calls, want)
+			}
+		})
+	}
+}
+
+func TestGitChangesCommitButtons(t *testing.T) {
+	s, ps, base := gitPaneTestState(t)
+	s.client = &gitChangesFakeClient{gitPaneFakeClient: base}
+	ps.state = GitState{WorkDir: t.TempDir()}
+	ps.entries = []git.StatusEntry{{Path: "a", Worktree: 'M'}}
+	st := gitChangesStateFor(ps)
+	st.root, st.draft = ps.state.WorkDir, "已有草稿"
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, "git-test", ps) }, 600, 500)
+	tt.Frame()
+	tt.Frame()
+	for _, label := range []string{"生成提交信息", "提交选项"} {
+		r, ok := tt.Find(label)
+		if !ok || r.W <= 0 || r.H <= 0 {
+			t.Fatalf("按钮 %s 的尺寸 = %+v，存在 = %v", label, r, ok)
+		}
+	}
+	if err := tt.Click("提交选项"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("提交并推送"); !ok {
+		t.Fatal("未显示提交并推送")
+	}
+}
