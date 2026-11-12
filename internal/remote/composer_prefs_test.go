@@ -329,7 +329,7 @@ func TestCreateThread_BeesOptionsPersistAndApply(t *testing.T) {
 	}
 }
 
-func TestComposerPrefs_TurnSnapshotAndNoPlanDelegation(t *testing.T) {
+func TestComposerPrefs_TurnSnapshotAndPlanHook(t *testing.T) {
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{})
 	defer hub.Close()
@@ -351,12 +351,12 @@ func TestComposerPrefs_TurnSnapshotAndNoPlanDelegation(t *testing.T) {
 	if _, err := b.SetThreadComposerPrefs(ctx, res.ThreadID, ThreadComposerPrefs{InteractionMode: "build", Effort: "high"}); err != nil {
 		t.Fatal(err)
 	}
-	reported := false
-	b.SetTurnFinishedHook(func(string, string, string, bool) { reported = true })
+	reported, completed := false, false
+	b.SetTurnFinishedHook(func(_ string, _ string, _ string, done bool) { reported, completed = true, done })
 	b.runHarness(st.runCtx, res.ThreadID, st.turnID, "制定计划", st.turnIndex, nil, nil, st.interactionMode, st.effort)
 	calls := mock.getTurnCalls()
-	if len(calls) != 1 || calls[0].InteractionMode != "plan" || calls[0].Effort != "low" || reported {
-		t.Fatalf("启动前的切换不得改变本轮偏好，Plan 不应触发委派: calls=%+v, reported=%v", calls, reported)
+	if len(calls) != 1 || calls[0].InteractionMode != "plan" || calls[0].Effort != "low" || !reported || !completed {
+		t.Fatalf("启动前的切换不得改变本轮偏好，Plan 正常结束应调用钩子: calls=%+v, reported=%v, completed=%v", calls, reported, completed)
 	}
 	delegated := false
 	b.SetSwarmQueueHooks(nil, func(context.Context, string, string) (string, error) {

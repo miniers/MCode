@@ -7826,8 +7826,8 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 
 		// 派发完成前仍视为运行中，避免跟进消息抢在 bee 前启动。
 		b.mu.Unlock()
-		// Plan 回复只供审阅，不触发执行型子任务派发。
-		if turnHook != nil && interactionMode != "plan" {
+		// Plan 模式的派发限制由派发器门禁负责。
+		if turnHook != nil {
 			turnHook(threadID, hookProjectID, hookLastAssistantText, hookCompleted)
 		}
 		hasBees := b.hasWorkingSwarmBees(threadID)
