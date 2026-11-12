@@ -16,6 +16,8 @@ import {
 } from '../utils/diff';
 import { setTaskRejectFeedbackPrefill } from './TaskDetailModal';
 import type { ThreadMenuPageHandle } from './thread/menu/menuPages';
+import { useRemoteReviewApi, reviewContentHash, reviewHunkHash, type ReviewScope } from '../context/remoteReviewApi';
+import type { RemoteThreadsReviewGetResult } from '../types/generated';
 
 export interface ThreadReviewSheetProps {
   isOpen: boolean;
@@ -65,16 +67,20 @@ export const ThreadReviewSheetBody = forwardRef<ThreadMenuPageHandle, ThreadRevi
     ref
   ) {
     const { capabilities, connectionState, getThreadDiff } = useRemoteStatic();
+    const reviewApi = useRemoteReviewApi();
     const isConnected = connectionState === 'connected';
     // 宿主是否同时声明了审阅能力；作为拉取 effect 的依赖，能力上线/下线才重新拉取
     const reviewSupported = Boolean(
-      capabilities?.features?.includes('threads.review') &&
-        capabilities?.methods?.includes('threads.getDiff')
+      capabilities?.methods?.includes('threads.review.get') ||
+        (capabilities?.features?.includes('threads.review') && capabilities?.methods?.includes('threads.getDiff'))
     );
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [diffResult, setDiffResult] = useState<ThreadsGetDiffResult | null>(null);
+    const [reviewSnapshot, setReviewSnapshot] = useState<RemoteThreadsReviewGetResult | null>(null);
+    const [reviewError, setReviewError] = useState<string | null>(null);
+    const [revertingHunk, setRevertingHunk] = useState(false);
     const [turns, setTurns] = useState<RemoteReviewTurn[]>([]);
     const [selectedTurnID, setSelectedTurnID] = useState<string | null>(null);
 
@@ -106,6 +112,7 @@ export const ThreadReviewSheetBody = forwardRef<ThreadMenuPageHandle, ThreadRevi
     });
 
     const requestIdRef = useRef(0);
+    const reviewRequestIdRef = useRef(0);
     const mountedRef = useRef(true);
     // 当前选中轮次的镜像：effect 与稳定回调里读取，避免把它们绑到 selectedTurnID 上
     const selectedTurnIDRef = useRef<string | null>(null);
@@ -122,6 +129,36 @@ export const ThreadReviewSheetBody = forwardRef<ThreadMenuPageHandle, ThreadRevi
     const inFlightRef = useRef(new Map<string, Promise<ThreadsGetDiffResult>>());
     // 最近一次整会话结果里的轮次列表镜像：用来判断某轮是否还在运行（运行中 diff 会变，不写入缓存）
     const turnsRef = useRef<RemoteReviewTurn[]>([]);
+
+    const fetchReviewSnapshot = useCallback(async (targetTurnID: string | null) => {
+      const requestID = ++reviewRequestIdRef.current;
+      if (!capabilities?.methods.includes('threads.review.get')) {
+        setReviewSnapshot(null);
+        setReviewError(null);
+        return;
+      }
+      if (!isConnected) {
+        setReviewSnapshot(null);
+        setReviewError(null);
+        return;
+      }
+      try {
+        const scope: ReviewScope = targetTurnID ? 'turn' : 'session';
+        const result = await reviewApi.get({ threadID, scope, ...(targetTurnID ? { turnID: targetTurnID } : {}) });
+        if (requestID !== reviewRequestIdRef.current) return;
+        if (result.unavailable) {
+          setReviewSnapshot(result);
+          setReviewError(result.unavailable);
+          return;
+        }
+        setReviewSnapshot(result);
+        setReviewError(null);
+      } catch (err) {
+        if (requestID !== reviewRequestIdRef.current) return;
+        setReviewSnapshot(null);
+        setReviewError(err instanceof Error ? err.message : '获取审阅快照失败');
+      }
+    }, [capabilities, isConnected, reviewApi, threadID]);
 
     useEffect(() => {
       mountedRef.current = true;
@@ -253,6 +290,11 @@ export const ThreadReviewSheetBody = forwardRef<ThreadMenuPageHandle, ThreadRevi
       void fetchDiffRef.current(selectedTurnIDRef.current, { revalidate: true });
     }, [isConnected, reviewSupported, threadID]);
 
+    useEffect(() => {
+      void fetchReviewSnapshot(selectedTurnIDRef.current);
+      return () => { reviewRequestIdRef.current++; };
+    }, [capabilities, fetchReviewSnapshot, isConnected, selectedTurnID, threadID]);
+
     // 无关闭守卫：评论草稿直接丢弃，确认弹窗自己管，允许出栈
     useImperativeHandle(ref, () => ({ requestClose: () => true }), []);
 
@@ -268,7 +310,57 @@ export const ThreadReviewSheetBody = forwardRef<ThreadMenuPageHandle, ThreadRevi
     // 重试与截断后的“重新获取”：绕过缓存强制重拉
     const handleRetryDiff = useCallback(() => {
       void fetchDiff(selectedTurnIDRef.current, { force: true });
-    }, [fetchDiff]);
+      void fetchReviewSnapshot(selectedTurnIDRef.current);
+    }, [fetchDiff, fetchReviewSnapshot]);
+
+    const handleRevertHunk = useCallback((file: ParsedFileDiff, startLine: number, lineCount: number) => {
+      const snapshot = reviewSnapshot;
+      const metadata = snapshot?.files.find((item) => item.path === file.displayPath);
+      if (!reviewApi.revertHunkSupported || !snapshot || !metadata || snapshot.running || snapshot.unavailable) return;
+      setConfirmDialog({
+        isOpen: true,
+        title: '撤销此块？',
+        message: '',
+        confirmLabel: '撤销',
+        confirmVariant: 'danger',
+        action: () => {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          setRevertingHunk(true);
+          void (async () => {
+            try {
+              const scope = snapshot.scope;
+              const fileSnapshot = await reviewApi.get({
+                threadID, scope, ...(scope === 'turn' ? { turnID: snapshot.turnID } : {}), path: metadata.path
+              });
+              const content = fileSnapshot.file;
+              if (fileSnapshot.unavailable || fileSnapshot.running || !content || content.binary || content.tooLarge || content.missing) {
+                throw new Error(fileSnapshot.unavailable || '审阅快照不可用');
+              }
+              const [hunkHash, expectedFileHash] = await Promise.all([
+                reviewHunkHash(content.newText, startLine, lineCount),
+                reviewContentHash(content.newText)
+              ]);
+              await reviewApi.revertHunk({
+                threadID, scope, ...(scope === 'turn' ? { turnID: fileSnapshot.turnID } : {}),
+                path: metadata.path, baseRevision: fileSnapshot.baseRevision, headRevision: fileSnapshot.headRevision,
+                startLine, lineCount, hunkHash, expectedFileHash
+              });
+              resultCacheRef.current.delete(diffCacheKey(threadID, selectedTurnIDRef.current));
+              inFlightRef.current.delete(diffCacheKey(threadID, selectedTurnIDRef.current));
+              await fetchReviewSnapshot(selectedTurnIDRef.current);
+              await fetchDiff(selectedTurnIDRef.current, { force: true });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : '撤销改动块失败';
+              await fetchReviewSnapshot(selectedTurnIDRef.current);
+              await fetchDiff(selectedTurnIDRef.current, { force: true });
+              setReviewError(message);
+            } finally {
+              setRevertingHunk(false);
+            }
+          })();
+        }
+      });
+    }, [fetchDiff, fetchReviewSnapshot, reviewApi, reviewSnapshot, threadID]);
 
     // 添加评论
     const handleAddComment = useCallback(
@@ -415,11 +507,15 @@ export const ThreadReviewSheetBody = forwardRef<ThreadMenuPageHandle, ThreadRevi
             truncated={diffResult?.truncated}
             metadataTruncated={diffResult?.metadataTruncated}
             filesChanged={diffResult?.filesChanged}
-            failureReason={error || diffResult?.failureReason}
+            failureReason={error || reviewError || diffResult?.failureReason}
             onRetry={handleRetryDiff}
             comments={commentsMap}
             onAddComment={handleAddComment}
             onDeleteComment={handleDeleteComment}
+            onRevertHunk={reviewApi.revertHunkSupported && !revertingHunk && reviewSnapshot && !reviewSnapshot.running ? handleRevertHunk : undefined}
+            canRevertHunk={(file) => Boolean(
+              reviewSnapshot?.files.some((item) => item.path === file.displayPath && !item.binary && !item.tooLarge && !item.missing && !item.origPath && item.status !== 'A' && item.status !== 'D' && item.status !== 'R')
+            )}
           />
         </div>
 

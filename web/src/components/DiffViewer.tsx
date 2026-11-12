@@ -26,6 +26,8 @@ export interface DiffViewerProps {
   comments?: Record<string, DiffComment>;
   onAddComment?: (line: ParsedDiffLine, file: ParsedFileDiff, content: string) => void;
   onDeleteComment?: (commentId: string) => void;
+  onRevertHunk?: (file: ParsedFileDiff, startLine: number, lineCount: number) => void;
+  canRevertHunk?: (file: ParsedFileDiff) => boolean;
   readOnly?: boolean;
   /** 改动行数超过该值的文件初始折叠（默认 400；<= 0 表示不做阈值折叠） */
   defaultCollapsedWhenOver?: number;
@@ -53,6 +55,49 @@ const LINE_CONTENT_NOWRAP_CLASS = 'flex-1 min-w-0 font-mono text-mc-caption whit
 interface DiffBlock {
   key: string;
   lines: ParsedDiffLine[];
+}
+
+export interface RevertHunkRange {
+  hunkLineId: string;
+  startLine: number;
+  lineCount: number;
+}
+
+export function getRevertHunkRanges(lines: ParsedDiffLine[]): RevertHunkRange[] {
+  const ranges: RevertHunkRange[] = [];
+  let hunkLineId = '';
+  let newLine = 0;
+  let active: RevertHunkRange | null = null;
+  const finish = () => {
+    if (active) ranges.push(active);
+    active = null;
+  };
+
+  for (const line of lines) {
+    if (line.type === 'hunk') {
+      finish();
+      hunkLineId = line.id;
+      const match = line.text.match(/^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+      newLine = match ? Number(match[1]) : 0;
+      continue;
+    }
+    if (line.type === 'add' || line.type === 'del') {
+      if (!active) active = { hunkLineId, startLine: newLine || 1, lineCount: 0 };
+      if (line.type === 'add') {
+        newLine++;
+        active.lineCount++;
+      }
+      continue;
+    }
+    if (line.type === 'context') {
+      finish();
+      if (line.newLineNumber != null) newLine = line.newLineNumber + 1;
+      continue;
+    }
+    finish();
+  }
+  finish();
+  return ranges;
 }
 
 interface CommentEditorProps {
@@ -115,6 +160,9 @@ interface DiffRowProps {
   onCancelComment: () => void;
   onSaveComment: (file: ParsedFileDiff, line: ParsedDiffLine, content: string) => void;
   onDeleteComment?: (commentId: string) => void;
+  revertHunks?: RevertHunkRange[];
+  onRevertHunk?: (file: ParsedFileDiff, startLine: number, lineCount: number) => void;
+  canRevertHunk?: (file: ParsedFileDiff) => boolean;
 }
 
 // 单行渲染：memo 化后，父级或其它行的状态变化不会重建这一行
@@ -129,7 +177,10 @@ const DiffRow = React.memo(function DiffRow({
   onToggleComment,
   onCancelComment,
   onSaveComment,
-  onDeleteComment
+  onDeleteComment,
+  revertHunks = [],
+  onRevertHunk,
+  canRevertHunk
 }: DiffRowProps) {
   const rowClass = ROW_BASE_CLASS + (ROW_TYPE_CLASS[line.type] ?? ROW_TYPE_CLASS.context);
   const oldLineLabel = line.oldLineNumber != null ? String(line.oldLineNumber) : '';
@@ -160,6 +211,21 @@ const DiffRow = React.memo(function DiffRow({
 
         {/* 行内容 */}
         <div className={contentClass}>{line.text || ' '}</div>
+        {line.type === 'hunk' && onRevertHunk && canRevertHunk?.(file) !== false && revertHunks.map((hunk) => (
+          <button
+            key={`${hunk.startLine}:${hunk.lineCount}`}
+            type="button"
+            title="撤销此块"
+            aria-label="撤销此块"
+            onClick={(event) => {
+              event.stopPropagation();
+              onRevertHunk(file, hunk.startLine, hunk.lineCount);
+            }}
+            className="ml-2 shrink-0 rounded px-1.5 py-0.5 text-mc-caption text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            撤销此块
+          </button>
+        ))}
 
         {/* 行内评论触发按钮 */}
         {canComment && line.isCommentable && (
@@ -241,6 +307,8 @@ export const DiffViewer = React.memo(function DiffViewer({
   comments,
   onAddComment,
   onDeleteComment,
+  onRevertHunk,
+  canRevertHunk,
   readOnly = false,
   defaultCollapsedWhenOver = 400,
   initialCollapseAll = false
@@ -544,6 +612,7 @@ export const DiffViewer = React.memo(function DiffViewer({
         {parsedFiles.map((file) => {
           const isCollapsed = Boolean(collapsedFiles[file.id]);
           const blocks = diffBlocks.get(file.id) ?? [];
+          const revertHunks = getRevertHunkRanges(file.lines);
 
           return (
             <div
@@ -653,6 +722,9 @@ export const DiffViewer = React.memo(function DiffViewer({
                                     onCancelComment={handleCancelComment}
                                     onSaveComment={handleSaveComment}
                                     onDeleteComment={onDeleteComment}
+                                    revertHunks={line.type === 'hunk' ? revertHunks.filter((hunk) => hunk.hunkLineId === line.id) : undefined}
+                                    onRevertHunk={onRevertHunk}
+                                    canRevertHunk={canRevertHunk}
                                   />
                                 );
                               })}
