@@ -68,6 +68,144 @@ func assertLandingCommit(t *testing.T, m *Manager, root string, bee Bee) {
 	}
 }
 
+func TestManager_CommitLanding_Describe(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message string
+		err     error
+		nilFunc bool
+	}{
+		{name: "生成成功", message: "  fix: 更新文本\n\n保留提交正文\n  "},
+		{name: "生成失败", message: "不可使用", err: fmt.Errorf("模型不可用")},
+		{name: "空说明", message: " \n\t"},
+		{name: "未配置", nilFunc: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _, root := newCommitLandingManager(t)
+			const lead = "lead-describe"
+			bee := startCommitLandingBee(t, m, root, lead, 0)
+			writePipelineFile(t, root, "lines.txt", strings.Replace(landingBase, "one\n", "user one\n", 1))
+			writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
+			// 预先建好锁，回调中直接检查是否被持有。
+			lockHead(root)()
+			called := false
+			if !tc.nilFunc {
+				m.opts.Describe = func(ctx context.Context, diff string) (string, error) {
+					called = true
+					deadline, ok := ctx.Deadline()
+					if left := time.Until(deadline); !ok || left <= 0 || left > 30*time.Second {
+						t.Errorf("生成超时未限制在 30 秒内: %v, %v", deadline, ok)
+					}
+					if !strings.Contains(diff, "+bee nine") || strings.Contains(diff, "+user one") {
+						t.Errorf("生成输入未隔离 bee 改动: %s", diff)
+					}
+					value, _ := headLocks.Load(filepath.Clean(root))
+					mu := value.(*sync.Mutex)
+					if !mu.TryLock() {
+						t.Error("生成时持有 HEAD 锁")
+					} else {
+						mu.Unlock()
+					}
+					if !m.mu.TryLock() {
+						t.Error("生成时持有 Manager 状态锁")
+					} else {
+						m.mu.Unlock()
+					}
+					return tc.message, tc.err
+				}
+			}
+			if !landCommitBee(m, root, lead, &bee) {
+				t.Fatal("落地不应等待")
+			}
+			assertLandingCommit(t, m, root, bee)
+			_, want := defaultCommitMessage([]Bee{bee})
+			if tc.err == nil && strings.TrimSpace(tc.message) != "" {
+				want = strings.TrimSpace(tc.message)
+			}
+			if got := gitTestRun(t, root, "show", "-s", "--format=%B", bee.LandedCommit); got != strings.TrimSpace(want) {
+				t.Fatalf("提交说明=%q want=%q", got, want)
+			}
+			if called == tc.nilFunc {
+				t.Fatalf("生成调用=%v nil=%v", called, tc.nilFunc)
+			}
+		})
+	}
+}
+
+func TestManager_CommitLanding_DescribeHeadMoved(t *testing.T) {
+	m, _, root := newCommitLandingManager(t)
+	const lead = "lead-describe-head"
+	bee := startCommitLandingBee(t, m, root, lead, 0)
+	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
+	var movedHead string
+	m.opts.Describe = func(context.Context, string) (string, error) {
+		unlock := lockHead(root)
+		defer unlock()
+		writePipelineFile(t, root, "other.txt", "other lead\n")
+		gitTestRun(t, root, "add", "other.txt")
+		gitTestRun(t, root, "commit", "-qm", "其他 lead 提交")
+		movedHead = gitTestRun(t, root, "rev-parse", "HEAD")
+		return "fix: 更新文本", nil
+	}
+	if !landCommitBee(m, root, lead, &bee) {
+		t.Fatal("落地不应等待")
+	}
+	assertLandingCommit(t, m, root, bee)
+	if parent := gitTestRun(t, root, "rev-parse", "HEAD^"); parent != movedHead {
+		t.Fatalf("落地父提交=%s want=%s", parent, movedHead)
+	}
+	if got := gitTestRun(t, root, "show", "HEAD:other.txt"); got != "other lead" {
+		t.Fatalf("其他 lead 改动丢失: %s", got)
+	}
+}
+
+func TestManager_CommitLanding_DescribeBoundedDiff(t *testing.T) {
+	m, _, root := newCommitLandingManager(t)
+	const lead = "lead-describe-limit"
+	bee := startCommitLandingBee(t, m, root, lead, 0)
+	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Repeat("新增文本\n", 4000))
+	called := false
+	m.opts.Describe = func(_ context.Context, diff string) (string, error) {
+		called = true
+		if len(diff) > 12000 || !strings.Contains(diff, "+新增文本") || !strings.HasSuffix(diff, "\n") {
+			t.Errorf("diff 未按完整行截断: 字节数=%d", len(diff))
+		}
+		return "feat: 新增文本", nil
+	}
+	if !landCommitBee(m, root, lead, &bee) {
+		t.Fatal("落地不应等待")
+	}
+	assertLandingCommit(t, m, root, bee)
+	if !called {
+		t.Fatal("未生成提交说明")
+	}
+}
+
+func TestManager_CommitLanding_DescribeTimeout(t *testing.T) {
+	m, _, root := newCommitLandingManager(t)
+	const lead = "lead-describe-timeout"
+	bee := startCommitLandingBee(t, m, root, lead, 0)
+	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
+	called := false
+	m.opts.Describe = func(ctx context.Context, _ string) (string, error) {
+		called = true
+		<-ctx.Done()
+		// 超时后的响应即使没有返回错误，也不能覆盖默认说明。
+		return "超时响应", nil
+	}
+	if !landCommitBee(m, root, lead, &bee) {
+		t.Fatal("生成超时后应继续落地")
+	}
+	assertLandingCommit(t, m, root, bee)
+	_, want := defaultCommitMessage([]Bee{bee})
+	if got := gitTestRun(t, root, "show", "-s", "--format=%B", bee.LandedCommit); got != strings.TrimSpace(want) {
+		t.Fatalf("提交说明=%q want=%q", got, want)
+	}
+	if !called {
+		t.Fatal("未调用生成器")
+	}
+}
+
 func TestManager_CommitLanding_TwoBees(t *testing.T) {
 	m, _, root := newCommitLandingManager(t)
 	before := gitTestRun(t, root, "rev-parse", "HEAD")

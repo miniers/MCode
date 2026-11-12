@@ -4233,6 +4233,19 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 		return fail(err)
 	}
 
+	_, message := defaultCommitMessage([]Bee{*h})
+	if m.opts.Describe != nil {
+		// 模型调用必须在 HEAD 锁外，避免阻塞其他 lead 移动 HEAD。
+		describeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		diff, _, diffErr := m.opts.Git.DiffText(describeCtx, h.WorktreePath, h.BaseCommit, beeCommit, nil, 12000)
+		if diffErr == nil && strings.TrimSpace(diff) != "" {
+			if msg, err := m.opts.Describe(describeCtx, diff); err == nil && describeCtx.Err() == nil && strings.TrimSpace(msg) != "" {
+				message = strings.TrimSpace(msg)
+			}
+		}
+		cancel()
+	}
+
 	var stagedKept []string
 	defer func() {
 		if len(stagedKept) > 0 && h.LandedCommit != "" && m.opts.OnReport != nil {
@@ -4273,7 +4286,6 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 		h.ConflictFiles = []string{}
 		return true, false
 	}
-	_, message := defaultCommitMessage([]Bee{*h})
 	newSHA, err := m.opts.Git.CommitTree(ctx, root, merged.Tree, oldHead, message)
 	if err != nil {
 		log.Printf("swarm: 创建落地提交失败，退回未提交落地流程: %v", err)

@@ -411,9 +411,11 @@ type Options struct {
 	NormalizeBee     func(provider, model string) (string, string)
 	DefaultBeeSource func(lead ThreadContext) (provider, model string, err error)
 	Git              *git.Runner
-	Driver           kanban.SessionDriver
-	StopSession      func(ctx context.Context, threadID string) error
-	WorktreeDir      string
+	// Describe 为可选的提交说明生成器，入参为限定路径的 git diff 文本。
+	Describe    func(ctx context.Context, diff string) (string, error)
+	Driver      kanban.SessionDriver
+	StopSession func(ctx context.Context, threadID string) error
+	WorktreeDir string
 	// ProfilesPath 是子代理 Profile 定义文件路径；为空时默认取
 	// filepath.Join(filepath.Dir(WorktreeDir), ProfilesFileName)，即 <DataDir>/hydra-profiles.json
 	// （该文件名是旧版遗留命名，仅用于导入旧数据）。

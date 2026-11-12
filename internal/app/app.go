@@ -46,6 +46,7 @@ import (
 	"mcode/internal/startuptrace"
 	"mcode/internal/store"
 	"mcode/internal/swarm"
+	"mcode/internal/textgen"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -439,7 +440,30 @@ func Open(opts Options) (*App, error) {
 	var swarmPipeline *swarm.Pipeline
 	var swarmMgr *swarm.Manager
 	var swarmRestored bool
+	secrets := config.NewSecretStore("mcode")
 	if gitRunner != nil {
+		describe := func(ctx context.Context, diff string) (string, error) {
+			cfg, err := config.Load(opts.DataDir)
+			if err != nil {
+				return "", err
+			}
+			config.ApplyEnv(&cfg, os.LookupEnv)
+			if !cfg.SourceControl.GenerateCommitMessageEnabled() {
+				return "", fmt.Errorf("未启用")
+			}
+			provider, model, effort := textgenModelSelection(cfg)
+			prompt := textgen.CommitMessagePrompt("", diff, cfg.SourceControl.CommitInstructions)
+			ctx = withTextgenGlobalSelection(ctx, cfg)
+			out, err := generateText(ctx, cfg, secrets, provider, model, effort, prompt)
+			if err != nil {
+				return "", err
+			}
+			cleaned := textgen.CleanCommitMessage(out)
+			if cleaned == "" {
+				return "", fmt.Errorf("生成提交信息为空")
+			}
+			return cleaned, nil
+		}
 		beeTimeout := swarm.DefaultBeeTimeout
 		if c, err := config.Load(opts.DataDir); err == nil {
 			config.ApplyEnv(&c, os.LookupEnv)
@@ -450,6 +474,7 @@ func Open(opts Options) (*App, error) {
 		swarmGitRunner.ShadowRoot = filepath.Join(opts.DataDir, "shadow-git")
 		swarmMgr = swarm.NewManager(swarm.Options{
 			Git:       swarmGitRunner,
+			Describe:  describe,
 			Driver:    backend,
 			ReadPaths: backend.ThreadReadPaths,
 			NormalizeBee: func(provider, model string) (string, string) {
@@ -515,6 +540,7 @@ func Open(opts Options) (*App, error) {
 		// Cleanup 保持为空，让已完成的 bee 继续显示在团队面板中。
 		swarmPipeline = swarm.NewPipeline(swarm.PipelineOptions{
 			Git:      gitRunner,
+			Describe: describe,
 			Settings: swarmMgr.Settings,
 			Notify:   func(lead, msg string) { _ = backend.AppendNotice(lead, msg) },
 			// 合并进度回写到各 bee：应用退出后仍能看出合并做到哪一步，并在重启后续做。
@@ -1299,7 +1325,6 @@ func Open(opts Options) (*App, error) {
 		// 待处理事件变更推 attention.changed，让 web 端的收件箱角标与列表跟着刷新。
 		rs.SetAttentionWatcher(client.WatchAttention, client.AttentionUnresolvedCount)
 	}
-	secrets := config.NewSecretStore("mcode")
 	client.SetProviderStore(opts.DataDir, secrets)
 	// 装配层与 Client 共用同一个 Git 执行器：Client 自己懒建一个会让全局并发上限从 4 变 8，
 	// 而「新建工作树时初始化子模块」的回推也挂在 SetGit 上，没有被调用就永远不会同步。
