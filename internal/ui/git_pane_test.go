@@ -629,8 +629,8 @@ func TestGitPaneMoreMenuConsolidatedActions(t *testing.T) {
 	if tt.HasText("打开仓库") {
 		t.Fatal("无远端时不应显示打开仓库")
 	}
-	if tt.HasText("远端…") {
-		t.Fatal("未接入远端弹窗时不应显示入口")
+	if !tt.HasText("远端…") {
+		t.Fatal("接入远端弹窗后应显示入口")
 	}
 	state.RemoteURL = "git@github.com:owner/repo.git"
 	tt.Frame()

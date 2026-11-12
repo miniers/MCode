@@ -9,6 +9,16 @@ import (
 	"mcode/internal/config"
 )
 
+func TestPaletteGitCommands(t *testing.T) {
+	items := buildPaletteItems(newChatState(NewFakeClient()))
+	for id, title := range map[string]string{"cmd-git-commit": "Git：提交", "cmd-git-push": "Git：推送", "cmd-git-pull": "Git：拉取", "cmd-git-fetch": "Git：抓取", "cmd-git-switch-branch": "Git：切换分支", "cmd-git-history": "Git：历史"} {
+		item := paletteItemByID(items, id)
+		if item == nil || item.title != title || item.run == nil {
+			t.Errorf("命令 %s 不正确", id)
+		}
+	}
+}
+
 func TestPaletteTaskCommands(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	s.openTasksWindowFn = func(string) {}

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -42,6 +43,18 @@ func fileManagerWorkspacePath(s *chatState, threadID, relPath string) string {
 		return ""
 	}
 	return filepath.Join(workDir, filepath.FromSlash(relPath))
+}
+
+// gitRelativeFilePath 将绝对文件路径限制在仓库根目录内。
+func gitRelativeFilePath(root, file string) (string, bool) {
+	if !filepath.IsAbs(root) || !filepath.IsAbs(file) {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, file)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }
 
 // fileManagerLocalPath 判断绝对路径在本机是否存在（远程工作区的文件本机没有）。
@@ -100,6 +113,30 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 			}
 			if m.Item("在右侧分栏打开").Chosen() {
 				openFileManagerInSplit(s, threadID, entry.Path)
+			}
+		}
+		if !entry.IsDir {
+			root := turnFilesWorkDir(s, threadID)
+			if ps := getGitPaneState(s); ps != nil && ps.threadID == threadID {
+				ps.mu.Lock()
+				if ps.state.WorkDir != "" {
+					root = ps.state.WorkDir
+				}
+				ps.mu.Unlock()
+			}
+			if rel, ok := gitRelativeFilePath(root, fileManagerWorkspacePath(s, threadID, entry.Path)); ok {
+				if m.Item("文件历史").Chosen() {
+					inspectorSelect(s, sidePaneGitID, false)
+					if ps := getGitPaneState(s); ps != nil {
+						openGitFileHistory(ps, rel)
+					}
+				}
+				if m.Item("逐行追溯").Chosen() {
+					inspectorSelect(s, sidePaneGitID, false)
+					if ps := getGitPaneState(s); ps != nil {
+						openGitBlame(ps, rel)
+					}
+				}
 			}
 		}
 		if m.Item("引用到输入框").Disabled(!canReference).Chosen() {

@@ -570,9 +570,9 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 								continue
 							}
 							i, group := i, group
-							groupRow := ui.Row(c.Key(fmt.Sprintf("git-changes-group-row-%d", i))).FillWidth().Height(ControlSM + Space0).AlignItems(ui.Center)
+							groupRow := ui.Row(c.Key(fmt.Sprintf("git-changes-group-row-%d", i))).FillWidth().Height(gitGroupHeaderHeight).AlignItems(ui.Center)
 							groupRow.Children(func() {
-								header := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-group-%d", i))).Label(group.name).Grow(1).Height(ControlSM+Space0).Padding(0, Space3).Radius(RadiusSM)
+								header := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-group-%d", i))).Label(group.name).Grow(1).Height(gitGroupHeaderHeight).Padding(0, Space3).Radius(RadiusSM)
 								header.OnClick(func() { st.mu.Lock(); st.collapsed[i] = !st.collapsed[i]; st.mu.Unlock() })
 								header.Children(func() {
 									ui.Text(c, group.name+" (").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
@@ -667,6 +667,17 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 												st.mu.Unlock()
 											})
 											row.ContextMenu(func(m *ui.Menu) {
+												if m.Item("文件历史").Chosen() {
+													openGitFileHistory(ps, entry.Path)
+												}
+												blocked := code == '?' || entry.Index == 'D' || entry.Worktree == 'D'
+												tip := ""
+												if blocked {
+													tip = "未跟踪或已删除的文件无法逐行追溯"
+												}
+												if m.Item("逐行追溯").Disabled(blocked).Tooltip(tip).Chosen() {
+													openGitBlame(ps, entry.Path)
+												}
 												if m.Item("在编辑器打开").Disabled(entry.Worktree == 'D').Chosen() {
 													s.openFileManagerFileExternal(threadID, entry.Path)
 												}

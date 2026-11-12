@@ -234,3 +234,5 @@ func shortBlameSHA(sha string) string {
 	}
 	return sha
 }
+
+func init() { gitPaneBlameView = renderGitBlameView }

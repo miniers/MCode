@@ -320,3 +320,5 @@ func gitRemoteInputs(c *ui.Context, st *gitRemotesState, key string, busy bool, 
 	ui.TextInput(c.Key(key+"-name"), &st.name).Label("名称").Placeholder("origin").Grow(1).MinWidth(0).Disabled(busy).OnTextKey(keyHandler(&st.name))
 	ui.TextInput(c.Key(key+"-url"), &st.url).Label("URL").Placeholder("https://… 或 git@…").Grow(2).MinWidth(0).Disabled(busy).OnTextKey(keyHandler(&st.url))
 }
+
+func init() { gitPaneRemotesDialog = renderGitRemotesDialog }

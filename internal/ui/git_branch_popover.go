@@ -501,3 +501,5 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 		}
 	}
 }
+
+func init() { gitPaneBranchPopover = renderGitBranchPopoverContent }

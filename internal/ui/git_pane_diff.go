@@ -310,7 +310,7 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 		if result != nil {
 			f = result.file
 		}
-		ui.Row(c.Key("git-diff-toolbar")).FillWidth().Height(Space8+Space3).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
+		ui.Row(c.Key("git-diff-toolbar")).FillWidth().Height(diffHeaderHeight).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
 			gitDiffPath(c, path, width)
 			adds, dels := f.Additions, f.Deletions
 			if !f.IsDeferred {
@@ -523,6 +523,27 @@ func renderGitDiffMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 	trigger := Button(c, ButtonOpts{Text: "⋯", Label: "差异菜单", Variant: ButtonGhost, Size: ControlSM, OnClick: func() { st.menuOpen = true }})
 	appPopover(c, trigger, &st.menuOpen, nil, func() {
 		popoverCard(c, ui.Column(c)).Padding(Space1).Children(func() {
+			Button(c, ButtonOpts{Text: "文件历史", Variant: ButtonGhost, OnClick: func() {
+				st.menuOpen = false
+				openGitFileHistory(ps, key.path)
+			}})
+			ps.mu.Lock()
+			blocked := false
+			for _, entry := range ps.entries {
+				if entry.Path == key.path {
+					blocked = entry.Index == '?' || entry.Worktree == '?' || entry.Index == 'D' || entry.Worktree == 'D'
+					break
+				}
+			}
+			ps.mu.Unlock()
+			tip := ""
+			if blocked {
+				tip = "未跟踪或已删除的文件无法逐行追溯"
+			}
+			Button(c, ButtonOpts{Text: "逐行追溯", Variant: ButtonGhost, Disabled: blocked, Tooltip: tip, OnClick: func() {
+				st.menuOpen = false
+				openGitBlame(ps, key.path)
+			}})
 			Button(c, ButtonOpts{Text: "在编辑器打开", Variant: ButtonGhost, OnClick: func() {
 				st.menuOpen = false
 				openInDefaultEditor(s, filepath.Join(key.root, filepath.FromSlash(key.path)))
@@ -533,3 +554,5 @@ func renderGitDiffMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 		})
 	})
 }
+
+func init() { gitPaneDiffView = renderGitPaneDiff }

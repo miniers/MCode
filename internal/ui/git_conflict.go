@@ -102,7 +102,7 @@ func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 		cs = result.conflict
 	}
 	ours, theirs := gitConflictLabels(ps)
-	ui.Row(c.Key("git-conflict-toolbar")).FillWidth().Height(Space8+Space3).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
+	ui.Row(c.Key("git-conflict-toolbar")).FillWidth().Height(diffHeaderHeight).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
 		gitDiffPath(c, key.path, width)
 		ready := gitConflictReady(cs)
 		busy := gitPaneAgentBusy(s, key.threadID)
@@ -149,7 +149,7 @@ func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 			lines := strings.SplitAfter(cs.text, "\n")
 			for i, region := range cs.regions {
 				renderGitConflictText(c, lines[pos:region.Start])
-				ui.Row(c.Key(fmt.Sprintf("git-conflict-region-%d", i))).Height(ControlSM + Space0).Gap(Space1).AlignItems(ui.Center).Children(func() {
+				ui.Row(c.Key(fmt.Sprintf("git-conflict-region-%d", i))).Height(gitGroupHeaderHeight).Gap(Space1).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, fmt.Sprintf("第 %d/%d 处", i+1, len(cs.regions))).FontSize(uiFont(TypeFootnote))
 					for _, choice := range []struct {
 						value git.ConflictChoice

@@ -31,7 +31,7 @@ func TestFileManagerEntryMenuCopyRelativePath(t *testing.T) {
 		t.Fatalf("right click file row failed: %v", err)
 	}
 	want := fmt.Sprint([]string{
-		"打开", "在右侧分栏打开", "引用到输入框", "复制路径", "复制相对路径",
+		"打开", "在右侧分栏打开", "文件历史", "逐行追溯", "引用到输入框", "复制路径", "复制相对路径",
 		"-", "重命名…", "复制一份", "移到废纸篓…",
 	})
 	if got := fmt.Sprint(tt.Menu()); got != want {
@@ -259,7 +259,7 @@ func TestFileManagerProtectedEntryHidesWriteItems(t *testing.T) {
 		t.Fatalf("right click protected row failed: %v", err)
 	}
 	want := fmt.Sprint([]string{
-		"打开", "在右侧分栏打开", "引用到输入框", "复制路径", "复制相对路径",
+		"打开", "在右侧分栏打开", "文件历史", "逐行追溯", "引用到输入框", "复制路径", "复制相对路径",
 	})
 	if got := fmt.Sprint(tt.Menu()); got != want {
 		t.Fatalf("受保护条目的菜单应等于 %s，得到 %s", want, got)

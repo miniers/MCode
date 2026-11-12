@@ -5,6 +5,9 @@ import (
 	"mcode/internal/git"
 )
 
+// gitGroupHeaderHeight 是 Git 改动分组标题的高度。
+const gitGroupHeaderHeight float32 = 26
+
 // gitStatusPresentation 是文件树、改动与 Git 面板共用的状态色来源。
 func gitStatusPresentation(c *ui.Context, code byte) (letter string, color ui.Color) {
 	switch code {
