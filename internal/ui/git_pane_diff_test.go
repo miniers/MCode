@@ -115,7 +115,7 @@ func newGitDiffTester(t *testing.T, file git.FileDiff, conflictText string) (*ch
 	ps.entries = base.entries
 	ps.mu.Unlock()
 	t.Cleanup(func() { s.close(); gitDiffStates.Delete(ps) })
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneDiff(c, s, "diff-test", ps, "a.go", false) }, 900, 500)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneDiff(c, s, "diff-test", ps, "a.go", false, nil) }, 900, 500)
 	waitFor(t, tt, func() bool {
 		st := gitDiffStateFor(ps)
 		st.mu.Lock()
@@ -124,6 +124,24 @@ func newGitDiffTester(t *testing.T, file git.FileDiff, conflictText string) (*ch
 	})
 	tt.Frame()
 	return s, ps, f, tt
+}
+
+func TestGitDiffBackButton(t *testing.T) {
+	s, ps, _, withoutBack := newGitDiffTester(t, gitDiffFixture(t), "")
+	if _, ok := withoutBack.Find("返回"); ok {
+		t.Fatal("unexpected back button without callback")
+	}
+	called := false
+	withBack := ui.NewTester(func(c *ui.Context) {
+		renderGitPaneDiff(c, s, "diff-test", ps, "a.go", false, func() { called = true })
+	}, 900, 500)
+	withBack.Frame()
+	if err := withBack.Click("返回"); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("back callback was not called")
+	}
 }
 
 func TestGitDiffHunkLineSelections(t *testing.T) {
@@ -470,7 +488,7 @@ func TestGitDiffRefreshReloadsSameStatus(t *testing.T) {
 
 func TestGitDiffStagedAndNarrowLayout(t *testing.T) {
 	s, ps, f, _ := newGitDiffTester(t, gitDiffFixture(t), "")
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneDiff(c, s, "diff-test", ps, "a.go", true) }, 500, 400)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneDiff(c, s, "diff-test", ps, "a.go", true, nil) }, 500, 400)
 	waitFor(t, tt, func() bool {
 		st := gitDiffStateFor(ps)
 		st.mu.Lock()
@@ -568,7 +586,7 @@ func TestGitDiffSelectionEscapePrecedesWindowShortcut(t *testing.T) {
 		if c.Shortcut(0, ui.KeyEscape) {
 			escaped = true
 		}
-		renderGitPaneDiff(c, s, "diff-test", ps, "a.go", false)
+		renderGitPaneDiff(c, s, "diff-test", ps, "a.go", false, nil)
 	}, 900, 500)
 	tt.Frame()
 	d := gitDiffStateFor(ps).view

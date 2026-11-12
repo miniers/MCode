@@ -25,7 +25,7 @@ type gitChangesClient interface {
 	GitLog(context.Context, string, git.LogOptions) ([]git.LogCommit, error)
 }
 
-var gitPaneDiffView func(c *ui.Context, s *chatState, threadID string, ps *gitPaneState, path string, staged bool)
+var gitPaneDiffView func(c *ui.Context, s *chatState, threadID string, ps *gitPaneState, path string, staged bool, onBack func())
 
 type gitChangesState struct {
 	mu                                           sync.Mutex
@@ -572,7 +572,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 							i, group := i, group
 							groupRow := ui.Row(c.Key(fmt.Sprintf("git-changes-group-row-%d", i))).FillWidth().Height(gitGroupHeaderHeight).AlignItems(ui.Center)
 							groupRow.Children(func() {
-								header := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-group-%d", i))).Label(group.name).Grow(1).Height(gitGroupHeaderHeight).Padding(0, Space3).Radius(RadiusSM)
+								header := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-group-%d", i))).Label(group.name).Grow(1).Height(gitGroupHeaderHeight).Padding(0, Space3).Radius(RadiusSM).Justify(ui.Start).AlignItems(ui.Center)
 								header.OnClick(func() { st.mu.Lock(); st.collapsed[i] = !st.collapsed[i]; st.mu.Unlock() })
 								header.Children(func() {
 									ui.Text(c, group.name+" (").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
@@ -629,7 +629,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 										letter, color := gitStatusPresentation(c, code)
 										fileRow := ui.Row(c.Key(fmt.Sprintf("git-changes-row-%d-%s", i, entry.Path))).FillWidth().Height(RowHeight).AlignItems(ui.Center).Transition(motionListItem(c))
 										fileRow.Children(func() {
-											row := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-file-%d-%s", i, entry.Path))).Label(entry.Path).Grow(1).MinWidth(0).Height(RowHeight).Padding(0, Space2).Gap(Space2).Radius(RadiusSM).Transition(motionFeedback(c))
+											row := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-file-%d-%s", i, entry.Path))).Label(entry.Path).Grow(1).MinWidth(0).Height(RowHeight).Padding(0, Space2).Gap(Space2).Radius(RadiusSM).Justify(ui.Start).AlignItems(ui.Center).Transition(motionFeedback(c))
 											st.mu.Lock()
 											multiSelected := st.selection[fmt.Sprintf("%d:%s", i, entry.Path)]
 											st.mu.Unlock()
@@ -859,14 +859,12 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 				}
 			}
 			diff.Children(func() {
-				if !wide {
-					b := ui.ButtonBase(c.Key("git-changes-back")).Label("返回").Height(ControlMD)
-					b.AutoFocus()
-					b.OnClick(func() { st.mu.Lock(); st.detail = false; st.mu.Unlock() })
-					b.Children(func() { ui.Text(c, "‹ 返回").FontSize(uiFont(TypeFootnote)) })
-				}
 				if selected != "" && gitPaneDiffView != nil {
-					gitPaneDiffView(c, s, threadID, ps, selected, staged)
+					var back func()
+					if !wide {
+						back = func() { st.mu.Lock(); st.detail = false; st.mu.Unlock() }
+					}
+					gitPaneDiffView(c, s, threadID, ps, selected, staged, back)
 				} else {
 					name := ""
 					if selected != "" {
