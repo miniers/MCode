@@ -608,10 +608,27 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 				}
 			} else {
 				for _, opt := range p.Options {
-					if opt.Kind == "reject_once" || opt.Kind == "reject_always" ||
-						strings.Contains(strings.ToLower(opt.Name), "reject") ||
+					if opt.Kind == "reject_once" {
+						selectedID = opt.OptionID
+						break
+					}
+				}
+				for _, opt := range p.Options {
+					if selectedID != "" {
+						break
+					}
+					if opt.Kind != "reject_always" && (strings.Contains(strings.ToLower(opt.Name), "reject") ||
 						strings.Contains(strings.ToLower(opt.Name), "cancel") ||
-						strings.Contains(strings.ToLower(opt.Name), "deny") {
+						strings.Contains(strings.ToLower(opt.Name), "deny")) {
+						selectedID = opt.OptionID
+						break
+					}
+				}
+				for _, opt := range p.Options {
+					if selectedID != "" {
+						break
+					}
+					if opt.Kind == "reject_always" {
 						selectedID = opt.OptionID
 						break
 					}

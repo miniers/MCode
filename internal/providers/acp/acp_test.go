@@ -159,6 +159,19 @@ func runFakeACP(mode string) {
 
 			// 4. ACP agent 主动向 client 发送权限审批请求
 			reqID := 10001
+			options := []any{
+				map[string]any{"optionId": "opt_allow", "name": "Allow this action", "kind": "allow_once"},
+				map[string]any{"optionId": "opt_reject", "name": "Reject this action", "kind": "reject_once"},
+			}
+			if mode == "reject_once_priority" {
+				options = []any{
+					map[string]any{"optionId": "opt_allow", "kind": "allow_once"},
+					map[string]any{"optionId": "opt_always", "name": "Reject always", "kind": "reject_always"},
+					map[string]any{"optionId": "opt_once", "kind": "reject_once"},
+				}
+			} else if mode == "reject_always_only" {
+				options = []any{map[string]any{"optionId": "opt_always", "kind": "reject_always"}}
+			}
 			writeMsg(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      reqID,
@@ -168,18 +181,7 @@ func runFakeACP(mode string) {
 						"toolCallId": "call-999",
 						"name":       "bash",
 					},
-					"options": []any{
-						map[string]any{
-							"optionId": "opt_allow",
-							"name":     "Allow this action",
-							"kind":     "allow_once",
-						},
-						map[string]any{
-							"optionId": "opt_reject",
-							"name":     "Reject this action",
-							"kind":     "reject_once",
-						},
-					},
+					"options": options,
 				},
 			})
 
@@ -192,6 +194,18 @@ func runFakeACP(mode string) {
 			if fmt.Sprint(reply["id"]) != fmt.Sprint(reqID) {
 				_, _ = fmt.Fprintf(os.Stderr, "unexpected approval response id: %v\n", reply["id"])
 				os.Exit(2)
+			}
+			if mode == "reject_once_priority" || mode == "reject_always_only" {
+				result, _ := reply["result"].(map[string]any)
+				outcome, _ := result["outcome"].(map[string]any)
+				want := "opt_once"
+				if mode == "reject_always_only" {
+					want = "opt_always"
+				}
+				if outcome["optionId"] != want {
+					writeMsg(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32603, "message": fmt.Sprintf("selected %v, want %s", outcome["optionId"], want)}})
+					return
+				}
 			}
 
 			// 5. 发送 tool_call_update 通知
@@ -406,6 +420,17 @@ func TestACPHarnessAvailable(t *testing.T) {
 }
 
 // runFakeTurn 以假 Agent 执行一轮对话并返回收集到的事件。
+func TestACPRejectOptionPriority(t *testing.T) {
+	for _, mode := range []string{"reject_once_priority", "reject_always_only"} {
+		t.Run(mode, func(t *testing.T) {
+			_, err := runFakeTurn(t, mode, harness.Turn{WorkDir: t.TempDir(), Approver: &mockApprover{decision: harness.DecisionDeny}})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func runFakeTurn(t *testing.T, mode string, turn harness.Turn) ([]harness.Event, error) {
 	t.Helper()
 	h := New(Options{
