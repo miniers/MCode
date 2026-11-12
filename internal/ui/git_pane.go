@@ -27,6 +27,9 @@ type gitPaneClient interface {
 // 分支浮层由分支模块接入；未接入时分支按钮不打开浮层。
 var gitPaneBranchPopover func(c *ui.Context, s *chatState, threadID string, width float32, open *bool)
 
+// 远端弹窗由远端模块接入。
+var gitPaneRemotesDialog func(c *ui.Context, s *chatState, threadID string, open *bool)
+
 type gitPaneState struct {
 	mu                           sync.Mutex
 	owner                        *chatState
@@ -54,7 +57,9 @@ type gitPaneState struct {
 	// 浮层与弹窗只由 UI 线程读写。
 	branchOpen, menuOpen, forceOpen, detailOpen bool
 	forceBranch                                 string
-	stash                                       *gitForm
+	stash                                       *gitStashDialog
+	prCreate                                    *gitPRCreateDialog
+	remotesOpen                                 bool
 }
 
 func getGitPaneState(s *chatState) *gitPaneState {
@@ -220,6 +225,13 @@ func (ps *gitPaneState) setVisible(visible bool) {
 		ps.pending, ps.loading = false, false
 		ps.refreshSeq++ // 隐藏前的读取结果不得覆盖重新打开后的状态。
 		ps.mu.Unlock()
+		if ps.stash != nil {
+			ps.stash.closeStashDialog()
+		}
+		if ps.prCreate != nil {
+			ps.prCreate.close()
+		}
+		ps.owner.cancelPushPRConfirm()
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -329,7 +341,10 @@ func (ps *gitPaneState) dispose() {
 	}
 	ps.mu.Unlock()
 	if ps.stash != nil {
-		ps.stash.dropStashDialogState()
+		ps.stash.closeStashDialog()
+	}
+	if ps.prCreate != nil {
+		ps.prCreate.close()
 	}
 }
 
@@ -515,6 +530,10 @@ func renderGitPane(c *ui.Context, s *chatState) {
 	if ps.stash != nil {
 		renderGitStashDialog(c, ps.stash)
 	}
+	renderGitPRCreateDialog(c, ps.prCreate)
+	if gitPaneRemotesDialog != nil && ps.remotesOpen {
+		gitPaneRemotesDialog(c, s, ps.threadID, &ps.remotesOpen)
+	}
 }
 
 func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state GitState, width float32) {
@@ -630,7 +649,7 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 			}
 		})
 		more := IconButton(c, IconButtonProps{Key: "git-pane-more", Icon: IconMoreHorizontal(), Label: "Git 更多操作", Variant: ButtonGhost, Size: ControlMD, OnClick: func() { ps.menuOpen = true }})
-		appPopover(c.Key("git-pane-more-popover"), more, &ps.menuOpen, nil, func() {
+		appPopover(c.Key("git-pane-more-popover"), more, &ps.menuOpen, func() { s.cancelPushPRConfirm() }, func() {
 			popoverCard(c, ui.Column(c.Key("git-pane-menu"))).Padding(Space1).Gap(Space0).Children(func() {
 				for _, item := range []struct{ label, action string }{{"抓取", "fetch"}, {"拉取（变基）", "rebase"}, {"拉取（合并）", "merge"}, {"强制推送…", "force"}, {"贮藏…", "stash"}} {
 					item := item
@@ -647,22 +666,59 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 					}
 					Button(c, ButtonOpts{Key: "git-pane-menu-" + item.action, Text: item.label, Variant: ButtonGhost, Disabled: blocked, Tooltip: tip, OnClick: func() {
 						ps.menuOpen = false
+						s.cancelPushPRConfirm()
 						switch item.action {
 						case "force":
 							ps.forceBranch, ps.forceOpen = state.Branch, true
 						case "stash":
 							if ps.stash == nil {
-								ps.stash = &gitForm{s: s, threadID: ps.threadID}
+								ps.stash = &gitStashDialog{s: s, threadID: ps.threadID, confirmAt: -1}
 							}
-							ps.stash.mu.Lock()
-							ps.stash.services = c.Services()
-							ps.stash.mu.Unlock()
 							ps.stash.openStashDialog()
 						default:
 							ps.run(item.action)
 						}
 					}})
 				}
+				repoURL := normalizeGitRemoteURL(state.RemoteURL)
+				hs := getChatHeaderState(s)
+				chatHeaderMu.Lock()
+				pushBusy, pushConfirm := hs.pushBusy, hs.pushConfirm
+				chatHeaderMu.Unlock()
+				for _, item := range []struct{ label, action string }{{"创建 PR…", "pr-create"}, {"推送并创建 PR", "push-pr"}, {"查看 Pull Request…", "pr-view"}, {"打开仓库", "repo"}, {"远端…", "remotes"}} {
+					if item.action == "repo" && repoURL == "" || item.action == "remotes" && gitPaneRemotesDialog == nil {
+						continue
+					}
+					blocked, tip := false, ""
+					if item.action == "pr-create" && repoURL == "" {
+						blocked, tip = true, "没有可用的远端仓库地址"
+					}
+					if item.action == "push-pr" && (syncing || pushBusy || state.WorkDir == "" || state.Detached) {
+						blocked, tip = true, "Git 操作进行中或分支不可用"
+					}
+					Button(c, ButtonOpts{Key: "git-pane-menu-" + item.action, Text: item.label, Variant: ButtonGhost, Disabled: blocked, Tooltip: tip, OnClick: func() {
+						ps.menuOpen = false
+						s.cancelPushPRConfirm()
+						switch item.action {
+						case "pr-create":
+							openGitPRCreateDialog(s, ps.threadID)
+						case "push-pr":
+							ps.menuOpen = true
+							s.requestPushPRConfirm()
+						case "pr-view":
+							s.openGitPRDialog()
+						case "repo":
+							c.OpenURL(repoURL)
+						case "remotes":
+							ps.remotesOpen = true
+						}
+						s.invalidate()
+					}})
+				}
+				if pushConfirm {
+					renderGitPushPRConfirm(c, s, state)
+				}
+
 			})
 		})
 	})

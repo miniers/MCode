@@ -104,18 +104,6 @@ func TestHiddenTitleBarHeight(t *testing.T) {
 	}
 }
 
-// TestGitFormTitleBarHeight 验证 Git 操作窗口按有无标题行取不同的标题栏高度。
-func TestGitFormTitleBarHeight(t *testing.T) {
-	if got := gitFormTitleBarHeight(gitFormCommit); got != gitFormCommitTitleBarHeight {
-		t.Errorf("commit = %v, want %v", got, gitFormCommitTitleBarHeight)
-	}
-	for _, kind := range []gitFormKind{gitFormNewBranch, gitFormCheckout, gitFormPullRequest, gitFormMerge} {
-		if got := gitFormTitleBarHeight(kind); got != gitFormHeaderHeight {
-			t.Errorf("%s = %v, want %v", kind, got, gitFormHeaderHeight)
-		}
-	}
-}
-
 // TestChatHeaderLeadingInsetFrom 验证前导边距插值：Windows 上从 0 起步，macOS 与旧函数一致。
 func TestChatHeaderLeadingInsetFrom(t *testing.T) {
 	tests := []struct {

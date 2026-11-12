@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
@@ -29,47 +30,28 @@ type gitStashClient interface {
 	GitStashPopAt(ctx context.Context, threadID string, index int) error
 }
 
-// gitStashDialogState 是「贮藏列表」弹窗的状态，按 gitForm 附加：
-// 同一个 Git 操作窗口里的弹窗共用一份状态。
-type gitStashDialogState struct {
-	mu sync.Mutex
-
-	open      bool
-	loading   bool
-	err       string
-	busy      string // 正在执行的条目操作文字，非空时禁用全部按钮
-	entries   []git.StashEntry
-	confirmAt int    // 等待二次确认删除的序号，-1 表示没有
-	seq       uint64 // 递增序号，丢弃过期的异步结果
+// gitStashDialog 独立保存贮藏弹窗状态，不创建原生窗口。
+type gitStashDialog struct {
+	mu            sync.Mutex
+	s             *chatState
+	threadID      string
+	open, loading bool
+	err, busy     string
+	entries       []git.StashEntry
+	confirmAt     int
+	seq           uint64
+	cancel        context.CancelFunc
+	message       string // 只在 UI 线程读写。
 }
 
-var (
-	gitStashDialogMu sync.Mutex
-	gitStashDialogs  = make(map[*gitForm]*gitStashDialogState)
-)
-
-// getGitStashDialogState 取得或初始化指定 Git 窗口的贮藏列表状态。
-func getGitStashDialogState(f *gitForm) *gitStashDialogState {
-	gitStashDialogMu.Lock()
-	defer gitStashDialogMu.Unlock()
-	st, ok := gitStashDialogs[f]
-	if !ok {
-		st = &gitStashDialogState{confirmAt: -1}
-		gitStashDialogs[f] = st
-	}
-	return st
+type gitStashPushClient interface {
+	GitStashPush(ctx context.Context, threadID, message string) error
 }
 
-// dropStashDialogState 在 Git 窗口关闭时清掉它的贮藏列表弹窗状态。
-func (f *gitForm) dropStashDialogState() {
-	gitStashDialogMu.Lock()
-	delete(gitStashDialogs, f)
-	gitStashDialogMu.Unlock()
-	modalDragReset(modalDragGitStash)
-}
+func (f *gitStashDialog) invalidate() { f.s.invalidate() }
 
 // stashClient 从当前会话客户端里取出贮藏能力，客户端不支持时返回 false。
-func (f *gitForm) stashClient() (gitStashClient, bool) {
+func (f *gitStashDialog) stashClient() (gitStashClient, bool) {
 	if f == nil || f.s == nil || f.s.client == nil {
 		return nil, false
 	}
@@ -78,12 +60,16 @@ func (f *gitForm) stashClient() (gitStashClient, bool) {
 }
 
 // openStashDialog 打开贮藏列表弹窗并异步读取列表。
-func (f *gitForm) openStashDialog() {
+func (f *gitStashDialog) openStashDialog() {
 	if f == nil {
 		return
 	}
-	st := getGitStashDialogState(f)
+	st := f
 	st.mu.Lock()
+	if st.cancel != nil {
+		st.cancel()
+		st.cancel = nil
+	}
 	st.open = true
 	st.loading = true
 	st.err = ""
@@ -97,12 +83,16 @@ func (f *gitForm) openStashDialog() {
 }
 
 // closeStashDialog 关闭贮藏列表弹窗，并丢弃在途请求的结果。
-func (f *gitForm) closeStashDialog() {
+func (f *gitStashDialog) closeStashDialog() {
 	if f == nil {
 		return
 	}
-	st := getGitStashDialogState(f)
+	st := f
 	st.mu.Lock()
+	if st.cancel != nil {
+		st.cancel()
+		st.cancel = nil
+	}
 	st.open = false
 	st.loading = false
 	st.err = ""
@@ -115,8 +105,8 @@ func (f *gitForm) closeStashDialog() {
 }
 
 // fetchStashEntries 在后台读取贮藏列表；只保留最后一次请求的结果。
-func (f *gitForm) fetchStashEntries() {
-	st := getGitStashDialogState(f)
+func (f *gitStashDialog) fetchStashEntries() {
+	st := f
 	client, ok := f.stashClient()
 	if !ok {
 		st.mu.Lock()
@@ -128,6 +118,15 @@ func (f *gitForm) fetchStashEntries() {
 	}
 
 	st.mu.Lock()
+	if !st.open || st.busy != "" {
+		st.mu.Unlock()
+		return
+	}
+	if st.cancel != nil {
+		st.cancel()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	st.cancel = cancel
 	st.loading = true
 	st.seq++
 	seq := st.seq
@@ -135,7 +134,8 @@ func (f *gitForm) fetchStashEntries() {
 
 	threadID := f.threadID
 	go func() {
-		entries, err := client.GitStashList(context.Background(), threadID)
+		defer cancel()
+		entries, err := client.GitStashList(ctx, threadID)
 		st.mu.Lock()
 		if st.seq != seq {
 			// 弹窗已关闭或有更新的请求：丢弃这次结果。
@@ -143,6 +143,7 @@ func (f *gitForm) fetchStashEntries() {
 			return
 		}
 		st.loading = false
+		st.cancel = nil
 		if err != nil {
 			st.err = "读取贮藏列表失败: " + err.Error()
 		} else {
@@ -155,16 +156,30 @@ func (f *gitForm) fetchStashEntries() {
 }
 
 // runStashOp 在后台执行一条贮藏操作，成功后刷新贮藏列表与 Git 状态。
-func (f *gitForm) runStashOp(name, doneToast string, op func(ctx context.Context) error) {
+func (f *gitStashDialog) runStashOp(name, doneToast string, op func(ctx context.Context) error) {
 	if f == nil {
 		return
 	}
-	st := getGitStashDialogState(f)
+	st := f
 	st.mu.Lock()
-	if st.busy != "" {
+	if !st.open || st.busy != "" {
 		st.mu.Unlock()
 		return
 	}
+	if name != "删除贮藏" && f.s.isThreadRunning(f.threadID) {
+		st.err = "Agent 正在修改此工作区"
+		st.mu.Unlock()
+		f.invalidate()
+		return
+	}
+	if st.cancel != nil {
+		st.cancel()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	st.cancel = cancel
+	st.seq++
+	seq := st.seq
+	st.loading = false
 	st.busy = name
 	st.err = ""
 	st.confirmAt = -1
@@ -172,8 +187,17 @@ func (f *gitForm) runStashOp(name, doneToast string, op func(ctx context.Context
 	f.invalidate()
 
 	go func() {
-		err := op(context.Background())
+		defer cancel()
+		err := op(ctx)
+		if err == nil {
+			f.s.loadGitState(f.threadID)
+		}
 		st.mu.Lock()
+		if seq != st.seq || !st.open {
+			st.mu.Unlock()
+			return
+		}
+		st.cancel = nil
 		st.busy = ""
 		if err != nil {
 			st.err = name + "失败: " + err.Error()
@@ -183,7 +207,6 @@ func (f *gitForm) runStashOp(name, doneToast string, op func(ctx context.Context
 			f.invalidate()
 			return
 		}
-		f.s.loadGitState(f.threadID)
 		if doneToast != "" {
 			f.s.setToast(doneToast)
 		}
@@ -191,8 +214,19 @@ func (f *gitForm) runStashOp(name, doneToast string, op func(ctx context.Context
 	}()
 }
 
+func (f *gitStashDialog) pushStash() {
+	client, ok := f.s.client.(gitStashPushClient)
+	if !ok {
+		return
+	}
+	message := strings.TrimSpace(f.message)
+	f.runStashOp("贮藏", "已贮藏改动", func(ctx context.Context) error {
+		return client.GitStashPush(ctx, f.threadID, message)
+	})
+}
+
 // applyStash 应用指定序号的贮藏，记录保留。
-func (f *gitForm) applyStash(index int) {
+func (f *gitStashDialog) applyStash(index int) {
 	client, ok := f.stashClient()
 	if !ok {
 		return
@@ -204,7 +238,7 @@ func (f *gitForm) applyStash(index int) {
 }
 
 // popStash 应用并删除指定序号的贮藏。
-func (f *gitForm) popStash(index int) {
+func (f *gitStashDialog) popStash(index int) {
 	client, ok := f.stashClient()
 	if !ok {
 		return
@@ -216,7 +250,7 @@ func (f *gitForm) popStash(index int) {
 }
 
 // dropStash 删除指定序号的贮藏记录。
-func (f *gitForm) dropStash(index int) {
+func (f *gitStashDialog) dropStash(index int) {
 	client, ok := f.stashClient()
 	if !ok {
 		return
@@ -228,8 +262,8 @@ func (f *gitForm) dropStash(index int) {
 }
 
 // confirmDropStash 把某一行的删除按钮切换成二次确认。
-func (f *gitForm) confirmDropStash(index int) {
-	st := getGitStashDialogState(f)
+func (f *gitStashDialog) confirmDropStash(index int) {
+	st := f
 	st.mu.Lock()
 	st.confirmAt = index
 	st.mu.Unlock()
@@ -237,20 +271,20 @@ func (f *gitForm) confirmDropStash(index int) {
 }
 
 // cancelDropStash 取消删除的二次确认。
-func (f *gitForm) cancelDropStash() {
-	st := getGitStashDialogState(f)
+func (f *gitStashDialog) cancelDropStash() {
+	st := f
 	st.mu.Lock()
 	st.confirmAt = -1
 	st.mu.Unlock()
 	f.invalidate()
 }
 
-// renderGitStashDialog 渲染「贮藏列表」弹窗，由 Git 操作窗口每帧调用。
-func renderGitStashDialog(c *ui.Context, f *gitForm) {
+// renderGitStashDialog 渲染「贮藏列表」弹窗，由 Git 面板每帧调用。
+func renderGitStashDialog(c *ui.Context, f *gitStashDialog) {
 	if f == nil {
 		return
 	}
-	st := getGitStashDialogState(f)
+	st := f
 	st.mu.Lock()
 	open := st.open
 	loading := st.loading
@@ -279,6 +313,7 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 			BorderColor(ThemeBorder(c)).
 			BorderWidth(Hairline).
 			Radius(RadiusLG).
+			Transition(motionDialog(c)).
 			Padding(Space5).
 			Gap(Space4).
 			Children(func() {
@@ -293,6 +328,21 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 						LoadingIndicator(c, nil, "", IconSM)
 					}
 				}))
+
+				ui.Row(c.Key("modal-git-stash-create")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
+					TextField(c, TextFieldProps{Key: "modal-git-stash-message", Value: &f.message, Label: "贮藏信息", Placeholder: "贮藏信息", FillWidth: true})
+					_, supported := f.s.client.(gitStashPushClient)
+					running := f.s.isThreadRunning(f.threadID)
+					tip := ""
+					if !supported {
+						tip = "当前客户端不支持创建贮藏"
+					} else if running {
+						tip = "Agent 正在修改此工作区"
+					} else if busy != "" {
+						tip = "Git 操作进行中"
+					}
+					Button(c, ButtonOpts{Key: "modal-git-stash-push", Text: "贮藏", Variant: ButtonPrimary, Disabled: !supported || running || busy != "", Tooltip: tip, OnClick: f.pushStash})
+				})
 
 				switch {
 				case loading:
@@ -323,9 +373,6 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 					AlignItems(ui.Center).
 					Justify(ui.End).
 					Children(func() {
-						ui.Text(c, "Esc 关闭").
-							FontSize(uiFont(TypeCaption)).
-							TextColor(ThemeSecondaryText(c))
 						Button(c, ButtonOpts{
 							Key:      "modal-git-stash-refresh",
 							Text:     "刷新",
@@ -354,7 +401,7 @@ func renderGitStashDialog(c *ui.Context, f *gitForm) {
 }
 
 // renderGitStashList 渲染贮藏条目列表：消息在上，序号、分支与相对时间在下，右侧是操作按钮。
-func renderGitStashList(c *ui.Context, f *gitForm, entries []git.StashEntry, busy string, confirmAt int, winH float32) {
+func renderGitStashList(c *ui.Context, f *gitStashDialog, entries []git.StashEntry, busy string, confirmAt int, winH float32) {
 	ui.Scroll(c.Key("modal-git-stash-scroll")).
 		FillWidth().
 		Grow(1).
@@ -372,7 +419,7 @@ func renderGitStashList(c *ui.Context, f *gitForm, entries []git.StashEntry, bus
 }
 
 // renderGitStashRow 渲染一条贮藏记录；待确认删除的那一行把按钮换成「确认删除 / 取消」。
-func renderGitStashRow(c *ui.Context, f *gitForm, entry git.StashEntry, busy string, confirming bool) {
+func renderGitStashRow(c *ui.Context, f *gitStashDialog, entry git.StashEntry, busy string, confirming bool) {
 	key := fmt.Sprintf("modal-git-stash-row-%d", entry.Index)
 	title := strings.TrimSpace(entry.Message)
 	if title == "" {
@@ -424,11 +471,17 @@ func renderGitStashRow(c *ui.Context, f *gitForm, entry git.StashEntry, busy str
 				return
 			}
 
+			running := f.s.isThreadRunning(f.threadID)
+			tip := ""
+			if running {
+				tip = "Agent 正在修改此工作区"
+			}
 			Button(c, ButtonOpts{
 				Key:      key + "-apply",
 				Text:     "应用",
 				Variant:  ButtonSecondary,
-				Disabled: disabled,
+				Disabled: disabled || running,
+				Tooltip:  tip,
 				OnClick: func() {
 					f.applyStash(entry.Index)
 				},
@@ -437,7 +490,8 @@ func renderGitStashRow(c *ui.Context, f *gitForm, entry git.StashEntry, busy str
 				Key:      key + "-pop",
 				Text:     "弹出",
 				Variant:  ButtonSecondary,
-				Disabled: disabled,
+				Disabled: disabled || running,
+				Tooltip:  tip,
 				OnClick: func() {
 					f.popStash(entry.Index)
 				},

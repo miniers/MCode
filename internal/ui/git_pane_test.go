@@ -610,3 +610,244 @@ func TestGitPaneWatchUsesRepositoryRoot(t *testing.T) {
 		t.Fatalf("监听回退目录 = %q", root)
 	}
 }
+
+func TestGitPaneMoreMenuConsolidatedActions(t *testing.T) {
+	s, ps, _ := gitPaneTestState(t)
+	state := GitState{WorkDir: "/repo", Branch: "feature"}
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneToolbar(c, s, ps, state, 600) }, 1000, 800)
+	if err := tt.Click("Git 更多操作"); err != nil {
+		t.Fatal(err)
+	}
+	for _, label := range []string{"创建 PR…", "推送并创建 PR", "查看 Pull Request…", "贮藏…"} {
+		if _, ok := tt.Access(label); !ok {
+			t.Fatalf("菜单缺少 %q", label)
+		}
+	}
+	if node, ok := tt.Access("创建 PR…"); !ok || !node.Disabled || node.Description != "没有可用的远端仓库地址" {
+		t.Fatalf("无远端创建 PR 状态 = %+v", node)
+	}
+	if tt.HasText("打开仓库") {
+		t.Fatal("无远端时不应显示打开仓库")
+	}
+	if tt.HasText("远端…") {
+		t.Fatal("未接入远端弹窗时不应显示入口")
+	}
+	state.RemoteURL = "git@github.com:owner/repo.git"
+	tt.Frame()
+	if node, ok := tt.Access("创建 PR…"); !ok || node.Disabled {
+		t.Fatal("有远端时创建 PR 仍禁用")
+	}
+	if err := tt.Click("打开仓库"); err != nil {
+		t.Fatal(err)
+	}
+	if urls := tt.OpenedURLs(); len(urls) != 1 || urls[0] != "https://github.com/owner/repo" {
+		t.Fatalf("仓库 URL = %v", urls)
+	}
+}
+
+type gitPaneStageFailureClient struct{ *gitChangesFakeClient }
+
+func (f *gitPaneStageFailureClient) GitStageFiles(context.Context, string, []string) error {
+	f.record("stage")
+	return errors.New("暂存被拒绝")
+}
+
+// 迁移旧表单的保护断言：选取文件失败后不得继续提交或退回全量提交。
+func TestGitPaneStageFailureDoesNotCommit(t *testing.T) {
+	s, ps, base := gitPaneTestState(t)
+	client := &gitPaneStageFailureClient{&gitChangesFakeClient{gitPaneFakeClient: base}}
+	s.client = client
+	root := t.TempDir()
+	ps.state = GitState{WorkDir: root}
+	ps.entries = []git.StatusEntry{{Path: "a.go", Worktree: 'M'}}
+	st := gitChangesStateFor(ps)
+	st.root, st.draft = root, "保留草稿"
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, ps.threadID, ps) }, 600, 600)
+	if err := tt.Click("提交全部 1 个文件"); err != nil {
+		t.Fatal(err)
+	}
+	gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return ps.failure != nil })
+	base.paneMu.Lock()
+	calls := append([]string(nil), base.calls...)
+	base.paneMu.Unlock()
+	if len(calls) != 1 || calls[0] != "stage" {
+		t.Fatalf("暂存失败后执行了提交：%v", calls)
+	}
+	st.mu.Lock()
+	draft := st.draft
+	st.mu.Unlock()
+	if draft != "保留草稿" {
+		t.Fatalf("暂存失败后草稿丢失：%q", draft)
+	}
+	ps.mu.Lock()
+	failure := ps.failure
+	ps.mu.Unlock()
+	if failure == nil {
+		t.Fatal("暂存失败没有保留错误")
+	}
+}
+
+type gitStashPaneTestClient struct {
+	*gitPaneFakeClient
+	list func(context.Context) ([]git.StashEntry, error)
+	push func(context.Context, string, string) error
+}
+
+func (f *gitStashPaneTestClient) GitStashList(ctx context.Context, _ string) ([]git.StashEntry, error) {
+	if f.list != nil {
+		return f.list(ctx)
+	}
+	return nil, nil
+}
+func (f *gitStashPaneTestClient) GitStashPush(ctx context.Context, threadID, message string) error {
+	if f.push != nil {
+		return f.push(ctx, threadID, message)
+	}
+	return nil
+}
+func (f *gitStashPaneTestClient) GitStashApply(context.Context, string, int) error { return nil }
+func (f *gitStashPaneTestClient) GitStashDrop(context.Context, string, int) error  { return nil }
+func (f *gitStashPaneTestClient) GitStashPopAt(context.Context, string, int) error { return nil }
+
+func TestGitStashDialogCreatesWithMessage(t *testing.T) {
+	s, ps, base := gitPaneTestState(t)
+	calls := make(chan [2]string, 2)
+	release := make(chan struct{})
+	defer close(release)
+	s.client = &gitStashPaneTestClient{gitPaneFakeClient: base, push: func(ctx context.Context, threadID, message string) error {
+		calls <- [2]string{threadID, message}
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}}
+	d := &gitStashDialog{s: s, threadID: ps.threadID}
+	ps.stash = d
+	d.openStashDialog()
+	gitPaneWait(t, func() bool { d.mu.Lock(); defer d.mu.Unlock(); return !d.loading })
+	tt := ui.NewTester(func(c *ui.Context) { renderGitStashDialog(c, d) }, 800, 700)
+	tt.Advance(DurSheet)
+	if err := tt.Click("贮藏信息"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("  用户说明  ")
+	tt.Frame()
+	if tt.HasText("Esc 关闭") {
+		t.Fatal("弹窗不应显示快捷键提示")
+	}
+	if err := tt.Click("贮藏"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case call := <-calls:
+		if call != [2]string{ps.threadID, "用户说明"} {
+			t.Fatalf("贮藏参数 = %v", call)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("没有创建贮藏")
+	}
+	if err := tt.Click("贮藏"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-calls:
+		t.Fatal("重复提交了贮藏")
+	default:
+	}
+	d.closeStashDialog()
+}
+
+func TestGitStashDialogCloseDiscardsLateList(t *testing.T) {
+	s, ps, base := gitPaneTestState(t)
+	started := make(chan context.Context, 1)
+	release, returned := make(chan struct{}), make(chan struct{})
+	s.client = &gitStashPaneTestClient{gitPaneFakeClient: base, list: func(ctx context.Context) ([]git.StashEntry, error) {
+		started <- ctx
+		<-release
+		defer close(returned)
+		return []git.StashEntry{{Message: "迟到记录"}}, nil
+	}}
+	d := &gitStashDialog{s: s, threadID: ps.threadID}
+	ps.stash = d
+	d.openStashDialog()
+	var ctx context.Context
+	select {
+	case ctx = <-started:
+	case <-time.After(time.Second):
+		t.Fatal("列表请求未开始")
+	}
+	ps.dispose()
+	close(release)
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("列表请求未结束")
+	}
+	d.mu.Lock()
+	open, entries, loading := d.open, append([]git.StashEntry(nil), d.entries...), d.loading
+	d.mu.Unlock()
+	if ctx.Err() != context.Canceled || open || loading || len(entries) != 0 {
+		t.Fatalf("关闭后状态被旧请求覆盖：%v %v %+v", open, loading, entries)
+	}
+}
+
+type gitPaneCommitFailureClient struct {
+	*gitChangesFakeClient
+	started chan [2]string
+	release chan struct{}
+}
+
+func (f *gitPaneCommitFailureClient) GitCommitIndex(ctx context.Context, threadID, message string, amend bool) (string, error) {
+	f.started <- [2]string{threadID, message}
+	select {
+	case <-f.release:
+		return "", errors.New("提交被拒绝")
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func TestGitPaneCommitFailureKeepsThreadDraft(t *testing.T) {
+	s, ps, base := gitPaneTestState(t)
+	client := &gitPaneCommitFailureClient{gitChangesFakeClient: &gitChangesFakeClient{gitPaneFakeClient: base}, started: make(chan [2]string, 1), release: make(chan struct{})}
+	s.client = client
+	ps.state = GitState{WorkDir: t.TempDir()}
+	ps.entries = []git.StatusEntry{{Path: "a.go", Index: 'M'}}
+	st := gitChangesStateFor(ps)
+	st.root, st.draft = ps.state.WorkDir, "原会话草稿"
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, ps.threadID, ps) }, 600, 600)
+	if err := tt.Click("提交 1 个文件"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case call := <-client.started:
+		if call != [2]string{ps.threadID, "原会话草稿"} {
+			t.Fatalf("提交参数 = %v", call)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("提交未开始")
+	}
+	s.mu.Lock()
+	s.selectedThreadID = "other"
+	s.mu.Unlock()
+	other := getGitPaneState(s)
+	close(client.release)
+	gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return ps.failure != nil })
+	st.mu.Lock()
+	draft := st.draft
+	st.mu.Unlock()
+	other.mu.Lock()
+	failure := other.failure
+	other.mu.Unlock()
+	if draft != "原会话草稿" || failure != nil {
+		t.Fatalf("提交失败丢失草稿或污染其他会话：%q，%+v", draft, failure)
+	}
+	base.mu.Lock()
+	fullCommits := len(base.gitCommitMessages)
+	base.mu.Unlock()
+	if fullCommits != 0 {
+		t.Fatal("索引提交失败退回了全量提交")
+	}
+}

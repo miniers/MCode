@@ -90,88 +90,6 @@ func TestChatHeaderGitLongMenuScrolls(t *testing.T) {
 	}
 }
 
-type delayedHeaderCommitClient struct {
-	*FakeClient
-	started chan struct{}
-	release chan struct{}
-}
-
-func (f delayedHeaderCommitClient) GitCommit(context.Context, string, string) error {
-	close(f.started)
-	<-f.release
-	return errors.New("旧会话提交失败")
-}
-
-func TestChatHeaderGitResultStaysWithThread(t *testing.T) {
-	fake := newGitFakeClient()
-	fake.threads["p1"] = append(fake.threads["p1"], Thread{ID: "t2", ProjectID: "p1", Title: "第二个会话"})
-	client := delayedHeaderCommitClient{fake, make(chan struct{}), make(chan struct{})}
-	stubGitFormWindow(t)
-	s, root := buildRoot(client)
-	tt := ui.NewTester(root, 1000, 700)
-	var releaseOnce sync.Once
-	release := func() { releaseOnce.Do(func() { close(client.release) }) }
-	defer release()
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("已更改 2 个文件") })
-	if err := tt.Click("提交…"); err != nil {
-		t.Fatal(err)
-	}
-	f := gitFormOf("t1", gitFormCommit)
-	if f == nil {
-		t.Fatal("提交窗口没有打开")
-	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool {
-		_, ok := wt.Find("提交信息")
-		return ok
-	})
-	if err := wt.Click("提交信息"); err != nil {
-		t.Fatal(err)
-	}
-	wt.Type("旧会话提交")
-	wt.Frame()
-	if err := wt.Click("提交"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, wt, func() bool {
-		select {
-		case <-client.started:
-			return true
-		default:
-			return false
-		}
-	})
-
-	// 切到另一个会话：旧会话的进行中提交不会污染新会话的头部状态
-	s.selectThread("t2")
-	waitFor(t, tt, func() bool {
-		chatHeaderMu.Lock()
-		defer chatHeaderMu.Unlock()
-		return chatHeaderStates[s] != nil && chatHeaderStates[s].gitThreadID == "t2"
-	})
-	hs := getChatHeaderState(s)
-	chatHeaderMu.Lock()
-	busy := hs.commitBusy
-	chatHeaderMu.Unlock()
-	if busy != "" {
-		t.Fatal("旧会话的提交状态污染了新会话")
-	}
-	release()
-
-	// 提交失败只留在旧会话自己的窗口里，提交信息不丢
-	waitFor(t, wt, func() bool { return wt.HasText("提交失败: 旧会话提交失败") })
-	if got := f.commitMsg; got != "旧会话提交" {
-		t.Fatalf("提交失败后窗口丢了提交信息: %q", got)
-	}
-	if got := gitFormOf("t1", gitFormCommit); got != f {
-		t.Fatal("提交失败后窗口应保持打开")
-	}
-}
-
 type failedHeaderClient struct{ *FakeClient }
 
 func (failedHeaderClient) RenameThread(string, string) error {
@@ -198,42 +116,6 @@ func TestChatHeaderRenameFailureRollsBack(t *testing.T) {
 	})
 }
 
-func TestChatHeaderGitCommitFailureKeepsDraft(t *testing.T) {
-	stubGitFormWindow(t)
-	_, root := buildRoot(failedHeaderClient{newGitFakeClient()})
-	tt := ui.NewTester(root, 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("已更改 2 个文件") })
-	if err := tt.Click("提交…"); err != nil {
-		t.Fatal(err)
-	}
-	f := gitFormOf("t1", gitFormCommit)
-	if f == nil {
-		t.Fatal("提交窗口没有打开")
-	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool {
-		_, ok := wt.Find("提交信息")
-		return ok
-	})
-	if err := wt.Click("提交信息"); err != nil {
-		t.Fatal(err)
-	}
-	wt.Type("保留草稿")
-	wt.Frame()
-	if err := wt.Click("提交"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, wt, func() bool { return wt.HasText("提交失败: 提交被拒绝") })
-	if got := f.commitMsg; got != "保留草稿" {
-		t.Fatalf("提交失败后丢失草稿: %q", got)
-	}
-}
-
-// editingHeaderState 返回正在编辑指定会话标题的头部状态，没有时返回 nil。
 func editingHeaderState(threadID string) *chatHeaderState {
 	chatHeaderMu.Lock()
 	defer chatHeaderMu.Unlock()
@@ -269,37 +151,6 @@ func newGitFakeClient() *FakeClient {
 	return fake
 }
 
-// stubGitFormWindow 让 Git 菜单里的窗口路径在测试里可用：用不放真窗口的桩代替开窗，
-// 并在测试结束后清空注册表。
-func stubGitFormWindow(t *testing.T) {
-	t.Helper()
-	orig := gitFormWindowHook
-	gitFormWindowHook = func(*gitForm) {}
-	t.Cleanup(func() {
-		gitFormWindowHook = orig
-		gitFormMu.Lock()
-		for key := range gitFormWindows {
-			delete(gitFormWindows, key)
-		}
-		gitFormMu.Unlock()
-	})
-}
-
-// gitFormOf 返回指定会话与操作类型已打开的 Git 操作窗口。
-func gitFormOf(threadID string, kind gitFormKind) *gitForm {
-	gitFormMu.Lock()
-	defer gitFormMu.Unlock()
-	return gitFormWindows[gitFormKey{threadID: threadID, kind: kind}]
-}
-
-// gitFormTester 为窗口内容单独建一个 tester，尺寸用窗口自身的默认尺寸。
-func gitFormTester(t *testing.T, f *gitForm) *ui.Tester {
-	t.Helper()
-	width, height := f.windowSize()
-	return ui.NewTester(f.view, width, height)
-}
-
-// startHeaderTitleEdit 右键标题打开菜单并点击「重命名」进入编辑态，并把输入框清空。
 func startHeaderTitleEdit(t *testing.T, tt *ui.Tester) *chatHeaderState {
 	t.Helper()
 	startHeaderTitleEditOf(t, tt, "测试会话1")
@@ -372,7 +223,7 @@ func TestChatHeaderRenameEscapeCancels(t *testing.T) {
 	}
 }
 
-// 胶囊显示分支名；「切换分支…」在独立窗口里选另一个分支，调用 GitCheckout 并刷新胶囊。
+// 胶囊显示分支名，在分支浮层中切换后调用 GitCheckout 并刷新胶囊。
 func TestChatHeaderGitCheckout(t *testing.T) {
 	fake := newGitFakeClient()
 	tt := ui.NewTester(Root(fake), 1000, 700)
@@ -424,25 +275,7 @@ func TestChatHeaderGitSwitchWorktree(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("hotfix · hotfix") })
 }
 
-// 同一会话的同一操作重复点击时复用已打开的窗口，不再开第二个。
-func TestGitFormReusesOpenWindow(t *testing.T) {
-	fake := newGitFakeClient()
-	stubGitFormWindow(t)
-	s, root := buildRoot(fake)
-	tt := ui.NewTester(root, 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	openGitForm(s, "t1", gitFormNewBranch)
-	first := gitFormOf("t1", gitFormNewBranch)
-	if first == nil {
-		t.Fatal("新建分支窗口没有打开")
-	}
-	openGitForm(s, "t1", gitFormNewBranch)
-	if gitFormOf("t1", gitFormNewBranch) != first {
-		t.Fatal("重复打开了窗口")
-	}
-}
-
-func TestGitFormNewBranch(t *testing.T) {
+func TestChatHeaderGitNewBranch(t *testing.T) {
 	fake := newGitFakeClient()
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
@@ -464,65 +297,6 @@ func TestGitFormNewBranch(t *testing.T) {
 		return len(calls) == 1 && calls[0] == [2]string{"t1", "feat/window"}
 	})
 	waitFor(t, tt, func() bool { return tt.HasText("feat/window") })
-}
-
-func TestChatHeaderGitCommitAndPush(t *testing.T) {
-	fake := newGitFakeClient()
-	stubGitFormWindow(t)
-	tt := ui.NewTester(Root(fake), 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatalf("click commit button failed: %v", err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("已更改 2 个文件") })
-	if err := tt.Click("提交…"); err != nil {
-		t.Fatalf("click commit item failed: %v", err)
-	}
-	f := gitFormOf("t1", gitFormCommit)
-	if f == nil {
-		t.Fatal("提交窗口没有打开")
-	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool {
-		_, ok := wt.Find("提交信息")
-		return ok
-	})
-	if err := wt.Click("提交信息"); err != nil {
-		t.Fatalf("focus commit input failed: %v", err)
-	}
-	wt.Type("修复登录")
-	wt.Frame()
-	if err := wt.Click("提交"); err != nil {
-		t.Fatalf("click commit failed: %v", err)
-	}
-	waitFor(t, wt, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		return len(fake.gitCommitMessages) == 1 && fake.gitCommitMessages[0] == "修复登录"
-	})
-	// 提交成功后窗口关闭，菜单里的改动数归零
-	if got := gitFormOf("t1", gitFormCommit); got != nil {
-		t.Fatal("提交成功后窗口应关闭并从注册表移除")
-	}
-	// 改动数归零后 badge 消失，右侧动作组整体右移；等新布局画出来再点，否则会按旧坐标点空
-	waitFor(t, tt, func() bool {
-		_, hasBadge := tt.Find("2")
-		return !hasBadge
-	})
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatalf("reopen commit menu failed: %v", err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("已更改 0 个文件") })
-
-	if err := tt.Click("推送"); err != nil {
-		t.Fatalf("click push failed: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		return fake.gitPushCalls == 1
-	})
 }
 
 func TestChatHeaderCopyTitle(t *testing.T) {
@@ -585,177 +359,6 @@ func TestChatHeaderTitleContextMenuRename(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		calls := renameCallsOf(fake)
 		return len(calls) == 1 && calls[0].Title == "右键改名"
-	})
-}
-
-// 新的 Git 菜单：标题行显示改动文件数，各操作项齐全，点击抓取/贮藏调用对应 Client 方法并刷新状态。
-func TestChatHeaderGitMenuActions(t *testing.T) {
-	fake := newGitFakeClient()
-	fake.mu.Lock()
-	fake.gitState.ChangedFiles = 2
-	fake.gitState.HasUpstream = true
-	fake.gitState.CanFastForward = true
-	fake.gitState.Behind = 1
-	fake.gitState.HasStash = true
-	fake.gitState.RemoteURL = "https://github.com/example/repo.git"
-	fake.mu.Unlock()
-
-	tt := ui.NewTester(Root(fake), 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("已更改 2 个文件") })
-	for _, label := range []string{"提交…", "推送", "创建合并请求…", "抓取", "拉取（快进） ↓1", "合并…", "贮藏改动", "恢复贮藏"} {
-		if _, ok := tt.Find(label); !ok {
-			t.Fatalf("Git 菜单缺少 %q: %q", label, tt.Texts())
-		}
-	}
-
-	if err := tt.Click("抓取"); err != nil {
-		t.Fatalf("click fetch failed: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		return len(fake.gitOpCalls) == 1 && fake.gitOpCalls[0] == "GitFetch"
-	})
-	// 抓取成功后菜单关闭，重新打开再点贮藏
-	waitFor(t, tt, func() bool {
-		_, open := tt.Find("贮藏改动")
-		return !open
-	})
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatalf("reopen commit menu failed: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("贮藏改动")
-		return ok
-	})
-
-	if err := tt.Click("贮藏改动"); err != nil {
-		t.Fatalf("click stash failed: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		return len(fake.gitOpCalls) == 2 && fake.gitOpCalls[1] == "GitStash"
-	})
-	// 贮藏成功后菜单关闭、状态刷新：重新打开菜单，改动数已归零
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatalf("reopen commit menu failed: %v", err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("已更改 0 个文件") })
-}
-
-// 本地还没抓取过（CanFastForward=false、Behind=0）时，配了上游的「拉取（快进）」仍可点击并调用 GitPull。
-func TestChatHeaderGitPullEnabledWithoutFetchedState(t *testing.T) {
-	fake := newGitFakeClient()
-	fake.mu.Lock()
-	fake.gitState.HasUpstream = true
-	fake.gitState.CanFastForward = false
-	fake.gitState.Behind = 0
-	fake.mu.Unlock()
-
-	tt := ui.NewTester(Root(fake), 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("拉取（快进）")
-		return ok
-	})
-
-	if err := tt.Click("拉取（快进）"); err != nil {
-		t.Fatalf("click pull failed: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		for _, call := range fake.gitOpCalls {
-			if call == "GitPull" {
-				return true
-			}
-		}
-		return false
-	})
-	waitFor(t, tt, func() bool { return tt.HasText("已快进拉取") })
-}
-
-// 点「合并…」打开独立的合并窗口：窗口里能选方向、搜索并选中分支，不立即执行。
-func TestChatHeaderGitMergeOpensForm(t *testing.T) {
-	fake := newGitFakeClient()
-	stubGitFormWindow(t)
-	tt := ui.NewTester(Root(fake), 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("合并…") })
-	if err := tt.Click("合并…"); err != nil {
-		t.Fatalf("click merge item failed: %v", err)
-	}
-	waitFor(t, tt, func() bool { return gitFormOf("t1", gitFormMerge) != nil })
-	f := gitFormOf("t1", gitFormMerge)
-	if f == nil {
-		t.Fatal("合并窗口没有打开")
-	}
-
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool { return wt.HasText("main") })
-	if err := wt.Click("快进合并到所选分支"); err != nil {
-		t.Fatalf("click fast-forward mode failed: %v", err)
-	}
-	wt.Frame()
-	if !f.mergeFastForward {
-		t.Fatal("点「快进合并到所选分支」后没有切到快进模式")
-	}
-	if err := wt.Click("main"); err != nil {
-		t.Fatalf("click branch main failed: %v", err)
-	}
-	wt.Frame()
-	if f.mergeBranch != "main" {
-		t.Fatalf("选中的分支 = %q, want main", f.mergeBranch)
-	}
-	// 选中分支不立即执行，要再点主按钮
-	fake.mu.Lock()
-	calls := len(fake.gitOpCalls)
-	fake.mu.Unlock()
-	if calls != 0 {
-		t.Fatalf("选中分支就执行了 Git 操作: %v", fake.gitOpCalls)
-	}
-	if err := wt.Click("快进合并"); err != nil {
-		t.Fatalf("click submit failed: %v", err)
-	}
-	waitFor(t, wt, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		return len(fake.gitOpCalls) == 1 && fake.gitOpCalls[0] == "GitFastForwardInto:main"
-	})
-}
-
-// submitMerge 按窗口里的方向调对应的 Client 方法：快进模式快进到所选分支，非快进模式合并进当前分支。
-func TestGitFormSubmitMerge(t *testing.T) {
-	fake := newGitFakeClient()
-	s := newChatState(fake)
-
-	ff := &gitForm{s: s, threadID: "t1", kind: gitFormMerge, mergeFastForward: true, mergeBranch: "main"}
-	wt := gitFormTester(t, ff)
-	ff.submitMerge()
-	waitFor(t, wt, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		return len(fake.gitOpCalls) == 1 && fake.gitOpCalls[0] == "GitFastForwardInto:main"
-	})
-
-	into := &gitForm{s: s, threadID: "t1", kind: gitFormMerge, mergeBranch: "main"}
-	wt2 := gitFormTester(t, into)
-	into.submitMerge()
-	waitFor(t, wt2, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		return len(fake.gitOpCalls) == 2 && fake.gitOpCalls[1] == "GitMergeFrom:main"
 	})
 }
 
@@ -922,228 +525,6 @@ func TestGitPullRequestURL(t *testing.T) {
 			}
 		})
 	}
-}
-
-// RemoteURL 不为空时，Git 菜单提供创建合并请求与打开仓库；
-// 创建合并请求在独立窗口里填写标题，再把地址连同标题一起打开。
-func TestChatHeaderGitPullRequestWhenRemoteURLPresent(t *testing.T) {
-	fake := newGitFakeClient()
-	fake.mu.Lock()
-	fake.gitState.RemoteURL = "https://github.com/example/repo.git"
-	fake.gitState.Branch = "feature/login"
-	fake.mu.Unlock()
-	stubGitFormWindow(t)
-
-	tt := ui.NewTester(Root(fake), 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool {
-		return tt.HasText("创建合并请求…") && tt.HasText("打开仓库")
-	})
-	if err := tt.Click("打开仓库"); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("创建合并请求…") })
-	if err := tt.Click("创建合并请求…"); err != nil {
-		t.Fatal(err)
-	}
-	f := gitFormOf("t1", gitFormPullRequest)
-	if f == nil {
-		t.Fatal("创建合并请求窗口没有打开")
-	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool {
-		_, ok := wt.Find("标题")
-		return ok
-	})
-	if err := wt.Click("标题"); err != nil {
-		t.Fatal(err)
-	}
-	wt.Type("add login")
-	wt.Frame()
-	if err := wt.Click("打开创建页"); err != nil {
-		t.Fatal(err)
-	}
-
-	if got, want := tt.OpenedURLs(), []string{"https://github.com/example/repo"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("opened URLs = %q, want %q", got, want)
-	}
-	want := []string{"https://github.com/example/repo/compare/feature/login?expand=1&title=add+login"}
-	if got := wt.OpenedURLs(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("opened URLs = %q, want %q", got, want)
-	}
-	if got := gitFormOf("t1", gitFormPullRequest); got != nil {
-		t.Fatal("打开创建页后窗口应关闭并从注册表移除")
-	}
-}
-
-// 验证「AI 帮我写」按钮会把生成结果填入提交窗口的提交信息输入框
-func TestChatHeaderAIGenerateCommitMessageFillsInput(t *testing.T) {
-	fake := newGitFakeClient()
-	fake.SetGenerateCommitMessageResult("feat: 自动生成的提交信息", nil)
-	stubGitFormWindow(t)
-	_, root := buildRoot(fake)
-	tt := ui.NewTester(root, 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("已更改 2 个文件") })
-	if err := tt.Click("提交…"); err != nil {
-		t.Fatal(err)
-	}
-	f := gitFormOf("t1", gitFormCommit)
-	if f == nil {
-		t.Fatal("提交窗口没有打开")
-	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool {
-		_, ok := wt.Find("提交信息")
-		return ok && wt.HasText("AI 帮我写")
-	})
-
-	if err := wt.Click("AI 帮我写"); err != nil {
-		t.Fatal(err)
-	}
-
-	waitFor(t, wt, func() bool {
-		return f.commitMsg == "feat: 自动生成的提交信息"
-	})
-}
-
-// generateCommitCounter 在内嵌假 Client 之外统计 GenerateCommitMessage 的调用次数，
-// 其余接口方法全部沿用假 Client 的实现。
-type generateCommitCounter struct {
-	*FakeClient
-	genMu    sync.Mutex
-	genCalls int
-}
-
-// GenerateCommitMessage 记录一次调用后交给假 Client 返回配置的结果。
-func (c *generateCommitCounter) GenerateCommitMessage(ctx context.Context, threadID string) (string, error) {
-	c.genMu.Lock()
-	c.genCalls++
-	c.genMu.Unlock()
-	return c.FakeClient.GenerateCommitMessage(ctx, threadID)
-}
-
-// GenerateCommitMessageCalls 返回已收到的生成请求次数。
-func (c *generateCommitCounter) GenerateCommitMessageCalls() int {
-	c.genMu.Lock()
-	defer c.genMu.Unlock()
-	return c.genCalls
-}
-
-// 验证生成功能关闭时，提交窗口里的「AI 帮我写」按钮仍然可见，但点击不会触发生成
-func TestChatHeaderAIGenerateCommitMessageHiddenWhenDisabled(t *testing.T) {
-	fake := &generateCommitCounter{FakeClient: newGitFakeClient()}
-	s, root := buildRoot(fake, WithSettings(settingsTestDir(t), nil))
-	stubGitFormWindow(t)
-
-	falseVal := false
-	st := getChatSettings(s)
-	if st == nil {
-		t.Fatal("expected settings to be initialized")
-	}
-	st.mu.Lock()
-	st.cfg.SourceControl.GenerateCommitMessage = &falseVal
-	st.mu.Unlock()
-
-	tt := ui.NewTester(root, 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-
-	if err := tt.Click("提交与推送"); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("已更改 2 个文件") })
-	if err := tt.Click("提交…"); err != nil {
-		t.Fatal(err)
-	}
-	f := gitFormOf("t1", gitFormCommit)
-	if f == nil {
-		t.Fatal("提交窗口没有打开")
-	}
-	wt := gitFormTester(t, f)
-	waitFor(t, wt, func() bool {
-		_, ok := wt.Find("提交信息")
-		return ok && wt.HasText("AI 帮我写")
-	})
-
-	// 按钮可见但处于禁用状态：点击不会发出生成请求，也不会填入提交信息。
-	if err := wt.Click("AI 帮我写"); err != nil {
-		t.Fatal(err)
-	}
-	wt.Frame()
-	if got := fake.GenerateCommitMessageCalls(); got != 0 {
-		t.Fatalf("生成功能关闭时点击按钮不应调用生成接口, 实际调用 %d 次", got)
-	}
-	if got := f.commitMsg; got != "" {
-		t.Fatalf("生成功能关闭时提交信息不应被填入, got %q", got)
-	}
-}
-
-// 验证提交窗口打开时会自动生成一次提交信息：重复调用只触发一次，用户已有草稿时不触发。
-func TestGitCommitFormAutoGeneratesOnOpen(t *testing.T) {
-	// openCommitForm 走头部 Git 菜单打开提交窗口，此时头部已缓存改动数（2 个文件）。
-	openCommitForm := func(t *testing.T) (*generateCommitCounter, *gitForm, *ui.Tester) {
-		t.Helper()
-		fake := &generateCommitCounter{FakeClient: newGitFakeClient()}
-		fake.SetGenerateCommitMessageResult("feat: 打开窗口自动生成", nil)
-		stubGitFormWindow(t)
-		_, root := buildRoot(fake)
-		tt := ui.NewTester(root, 1000, 700)
-		waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-		if err := tt.Click("提交与推送"); err != nil {
-			t.Fatal(err)
-		}
-		waitFor(t, tt, func() bool { return tt.HasText("已更改 2 个文件") })
-		if err := tt.Click("提交…"); err != nil {
-			t.Fatal(err)
-		}
-		f := gitFormOf("t1", gitFormCommit)
-		if f == nil {
-			t.Fatal("提交窗口没有打开")
-		}
-		wt := gitFormTester(t, f)
-		waitFor(t, wt, func() bool {
-			_, ok := wt.Find("提交信息")
-			return ok
-		})
-		return fake, f, wt
-	}
-
-	t.Run("只自动生成一次", func(t *testing.T) {
-		fake, f, wt := openCommitForm(t)
-		f.autoGenerateOnOpen()
-		f.autoGenerateOnOpen()
-		waitFor(t, wt, func() bool {
-			return f.commitMsg == "feat: 打开窗口自动生成"
-		})
-		if got := fake.GenerateCommitMessageCalls(); got != 1 {
-			t.Fatalf("autoGenerateOnOpen 应只触发一次生成, 实际调用 %d 次", got)
-		}
-	})
-
-	t.Run("已有草稿时不生成", func(t *testing.T) {
-		fake, f, wt := openCommitForm(t)
-		f.commitMsg = "feat: 用户草稿"
-		f.autoGenerateOnOpen()
-		wt.Frame()
-		if got := fake.GenerateCommitMessageCalls(); got != 0 {
-			t.Fatalf("提交信息已有内容时不应触发生成, 实际调用 %d 次", got)
-		}
-		if got := f.commitMsg; got != "feat: 用户草稿" {
-			t.Fatalf("提交信息已有内容时应保留草稿, got %q", got)
-		}
-	})
 }
 
 // ---------------------------------------------------------------------------
@@ -1598,7 +979,7 @@ func (f *delayedPushPRClient) TriggerAutoMerge(ctx context.Context, leadThreadID
 	return nil
 }
 
-// 提交弹层里的「推送并建 PR/MR」先弹确认区，确认后用当前会话 ID 调 TriggerAutoMerge，执行中不重复调用。
+// Git 面板的「推送并创建 PR」先显示确认区，确认后用当前会话 ID 调 TriggerAutoMerge，执行中不重复调用。
 func TestChatHeaderManualPushPR(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -1613,11 +994,14 @@ func TestChatHeaderManualPushPR(t *testing.T) {
 	defer release()
 
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("提交与推送"); err != nil {
+	ps := getGitPaneState(s)
+	state := GitState{WorkDir: "/repo", Branch: "feature/login"}
+	tt = ui.NewTester(func(c *ui.Context) { renderGitPaneToolbar(c, s, ps, state, 600) }, 1000, 700)
+	if err := tt.Click("Git 更多操作"); err != nil {
 		t.Fatalf("click commit button failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("推送并建 PR/MR") })
-	if err := tt.Click("推送并建 PR/MR"); err != nil {
+	waitFor(t, tt, func() bool { return tt.HasText("推送并创建 PR") })
+	if err := tt.Click("推送并创建 PR"); err != nil {
 		t.Fatalf("click push-pr failed: %v", err)
 	}
 	// 点击后先在菜单内弹出确认区，确认后才推送
@@ -1648,7 +1032,7 @@ func TestChatHeaderManualPushPR(t *testing.T) {
 	waitFor(t, tt, func() bool { return !pushBusyOf(s) })
 	s.triggerManualPushPR("t1")
 	waitFor(t, tt, func() bool { return len(triggerAutoMergeCallsOf(client.FakeClient)) == 2 })
-	waitFor(t, tt, func() bool { return tt.HasText("已推送并创建 PR/MR") })
+	waitFor(t, tt, func() bool { return !pushBusyOf(s) })
 }
 
 // Swarm bee 会话里的手动推送用 swarmTargetLeadID 返回的 lead ID。
@@ -1664,11 +1048,14 @@ func TestChatHeaderManualPushPRUsesSwarmLeadID(t *testing.T) {
 	s.loadSwarm("t1")
 	waitFor(t, tt, func() bool { return s.swarmTargetLeadID() == "t9" })
 
-	if err := tt.Click("提交与推送"); err != nil {
+	ps := getGitPaneState(s)
+	state := GitState{WorkDir: "/repo", Branch: "feature/login"}
+	tt = ui.NewTester(func(c *ui.Context) { renderGitPaneToolbar(c, s, ps, state, 600) }, 1000, 700)
+	if err := tt.Click("Git 更多操作"); err != nil {
 		t.Fatalf("click commit button failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("推送并建 PR/MR") })
-	if err := tt.Click("推送并建 PR/MR"); err != nil {
+	waitFor(t, tt, func() bool { return tt.HasText("推送并创建 PR") })
+	if err := tt.Click("推送并创建 PR"); err != nil {
 		t.Fatalf("click push-pr failed: %v", err)
 	}
 	// 点击后先在菜单内弹出确认区，确认后才推送
@@ -2042,5 +1429,41 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	inside, outside = pixel(int(commit.X+commit.W)+1, y), pixel(int(commit.X+commit.W)+3, y)
 	if colorNear(inside, outside, 2) {
 		t.Fatalf("动作组没有胶囊底色：胶囊内 %v 与头部底色 %v 相同", inside, outside)
+	}
+}
+
+func TestChatHeaderCommitOpensGitChanges(t *testing.T) {
+	s, ps, _ := gitPaneTestState(t)
+	hs := getChatHeaderState(s)
+	ps.segment = 1
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderGitCommitButton(c, s, hs, ps.threadID, GitState{Changes: 2})
+	}, 400, 100)
+	if err := tt.Click("提交与推送"); err != nil {
+		t.Fatal(err)
+	}
+	if !inspectorPaneOpen(s, sidePaneGitID) {
+		t.Fatal("没有打开 Git 面板")
+	}
+	ps.mu.Lock()
+	segment := ps.segment
+	ps.mu.Unlock()
+	if segment != 0 {
+		t.Fatalf("变更分段 = %d", segment)
+	}
+	if !tt.HasText("2") {
+		t.Fatal("缺少改动数角标")
+	}
+	ps.mu.Lock()
+	ps.segment = 1
+	ps.mu.Unlock()
+	if err := tt.Click("提交与推送"); err != nil {
+		t.Fatal(err)
+	}
+	ps.mu.Lock()
+	segment = ps.segment
+	ps.mu.Unlock()
+	if segment != 0 || !inspectorPaneOpen(s, sidePaneGitID) {
+		t.Fatal("重复点击应保持 Git 变更面板打开")
 	}
 }

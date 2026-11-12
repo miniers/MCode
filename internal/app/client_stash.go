@@ -61,3 +61,12 @@ func (c *Client) GitStashPopAt(ctx context.Context, threadID string, index int) 
 	}
 	return runner.StashPopAt(ctx, root, index)
 }
+
+// GitStashPush 创建带说明的贮藏，Runner 始终包含未跟踪文件。
+func (c *Client) GitStashPush(ctx context.Context, threadID, message string) error {
+	runner, root, err := c.gitStashTarget(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	return runner.StashPush(ctx, root, message)
+}

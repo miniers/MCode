@@ -960,265 +960,25 @@ func renderGitError(c *ui.Context, key, msg string) {
 		})
 }
 
-// renderGitCommitButton 渲染提交与推送按钮及其 Popover。菜单结构：
-// 标题「已更改 N 个文件」→ 提交…/推送/创建合并请求 → 抓取/拉取（快进）→ 合并…
-// → 贮藏改动/恢复贮藏，各段之间用分隔线隔开。
+// renderGitCommitButton 打开 Git 面板的变更分段，角标保留当前改动数。
 func renderGitCommitButton(c *ui.Context, s *chatState, hs *chatHeaderState, threadID string, st GitState) {
-	chatHeaderMu.Lock()
-	busy := hs.commitBusy
-	errMsg := hs.commitErr
-	pushConfirm := hs.pushConfirm
-	// 菜单未展开（关闭、切换会话或其他菜单顶掉）时不保留二次确认态
-	if !hs.commitMenuOpen {
-		hs.pushConfirm = false
-		pushConfirm = false
-	}
-	chatHeaderMu.Unlock()
-
-	// run 在后台执行提交、推送或同步类操作，name 用于显示进行中状态与失败提示；
-	// 成功后关闭菜单，失败时把错误留在菜单里。
-	run := func(name string, op func() error, onSuccess func()) {
-		chatHeaderMu.Lock()
-		if hs.commitBusy != "" || hs.branchBusy {
-			chatHeaderMu.Unlock()
-			return
-		}
-		hs.commitBusy = name
-		hs.commitErr = ""
-		generation := hs.gitGeneration
-		chatHeaderMu.Unlock()
-		s.invalidate()
-
-		go func() {
-			err := op()
-			chatHeaderMu.Lock()
-			if hs.gitGeneration == generation {
-				hs.commitBusy = ""
-				if err != nil {
-					hs.commitErr = name + "失败: " + err.Error()
-				} else {
-					hs.closeMenus = true
-					if onSuccess != nil {
-						onSuccess()
-					}
-				}
-			}
-			chatHeaderMu.Unlock()
-			s.loadGitState(threadID)
-			s.invalidate()
-		}()
-	}
-
-	changed := st.ChangedFiles
-	if changed == 0 {
-		changed = st.Changes
-	}
-	canRewrite := busy == "" && !s.isThreadRunning(threadID)
-	others := gitOtherBranches(st)
-
-	// 容器只包住按钮本身，改动数角标绝对定位叠在右上角，不参与布局。
-	ui.Row(c.Key("chat-header-commit")).
-		AlignItems(ui.Center).
-		Children(func() {
-			trigger := IconButton(c.Key("chat-header-commit-btn"), IconButtonProps{
-				Icon:   IconArrowUpToLine(),
-				Label:  "提交与推送",
-				Active: hs.commitMenuOpen,
-				OnClick: func() {
-					hs.commitMenuOpen = !hs.commitMenuOpen
-					hs.titleMenuOpen = false
-					hs.branchMenuOpen = false
-					chatHeaderMu.Lock()
-					hs.commitErr = ""
-					chatHeaderMu.Unlock()
-					if hs.commitMenuOpen {
-						s.loadGitState(threadID)
-					}
-				},
-				Variant: ButtonGhost,
-				Size:    ControlSM,
-			})
-			if st.Changes > 0 {
-				renderGitCountBadge(c, "chat-header-commit-badge", st.Changes)
-			}
-
-			appPopover(c.Key("chat-header-commit-popover"), trigger, &hs.commitMenuOpen, func() {
-				hs.commitMenuOpen = false
-			}, func() {
-				popoverCard(c, ui.Column(c.Key("chat-header-commit-menu"))).
-					Gap(Space0).
-					Padding(Space2).
-					Width(gitMenuWidth).
-					Children(func() {
-						ui.Text(c, fmt.Sprintf("已更改 %d 个文件", changed)).
-							FontSize(uiFont(TypeFootnote)).
-							FontWeight(600).
-							TextColor(ThemePrimaryText(c)).
-							Padding(Space1, Space3)
-
-						gitMenuDivider(c)
-
-						renderGitMenuBranch1(c, s, hs, threadID, st, gitMenuRun{run: run, busy: busy})
-						if pushConfirm {
-							renderGitPushPRConfirm(c, s, st)
-						}
-						gitMenuDivider(c)
-						renderGitMenuBranch2(c, s, hs, threadID, st, gitMenuRun{run: run, busy: busy, canRewrite: canRewrite, others: others})
-
-						if busy != "" {
-							ui.Row(c.Key("chat-header-commit-busy")).
-								Gap(Space2).
-								Padding(Space2, Space3).
-								AlignItems(ui.Center).
-								Children(func() {
-									LoadingIndicator(c, nil, busy+"中…", IconSM)
-								})
-						}
-						if errMsg != "" {
-							renderGitError(c, "chat-header-commit-error", errMsg)
-						}
-					})
-			})
-		})
-}
-
-// renderGitMenuBranch1 渲染提交、推送与合并请求相关操作。
-func renderGitMenuBranch1(c *ui.Context, s *chatState, hs *chatHeaderState, threadID string, st GitState, m gitMenuRun) {
-	// 提交…：无改动时禁用，点击在独立窗口里填写提交信息
-	renderGitMenuItem(c, "chat-header-git-commit-item", gitMenuItemProps{
-		Label:    "提交…",
-		Icon:     IconGitCommitVertical(),
-		Disabled: m.busy != "" || st.Changes == 0,
-		OnClick: func() {
-			hs.commitMenuOpen = false
-			openGitForm(s, threadID, gitFormCommit)
-			s.invalidate()
-		},
-	})
-	renderGitMenuItem(c, "chat-header-git-push-item", gitMenuItemProps{
-		Label:    "推送",
-		Icon:     IconArrowUpToLine(),
-		Busy:     m.busy == "推送",
-		Disabled: m.busy != "" || st.Branch == "",
-		OnClick: func() {
-			m.run("推送", func() error {
-				return s.client.GitPush(context.Background(), threadID)
-			}, nil)
-		},
-	})
-	renderGitMenuItem(c, "chat-header-git-pr-item", gitMenuItemProps{
-		Label:    "创建合并请求…",
-		Icon:     IconGitPullRequestCreate(),
-		Disabled: normalizeGitRemoteURL(st.RemoteURL) == "",
-		OnClick: func() {
-			hs.commitMenuOpen = false
-			openGitForm(s, threadID, gitFormPullRequest)
-			s.invalidate()
-		},
-	})
-	chatHeaderMu.Lock()
-	pushBusy := hs.pushBusy
-	chatHeaderMu.Unlock()
-	renderGitMenuItem(c, "chat-header-push-pr-btn", gitMenuItemProps{
-		Label:    "推送并建 PR/MR",
-		Icon:     IconGitPullRequestCreate(),
-		Busy:     pushBusy,
-		Disabled: m.busy != "" || pushBusy,
-		OnClick:  s.requestPushPRConfirm,
-	})
-	// 查看 PR/MR 是只读操作：不限平台、也不看工作区是否有改动，
-	// 没有远端或 CLI 不可用时由弹窗给出具体原因；放在写操作之后。
-	renderGitMenuItem(c, "chat-header-git-pr-view-item", gitMenuItemProps{
-		Label: "查看 Pull Request…",
-		Icon:  IconExternalLink(),
-		OnClick: func() {
-			hs.commitMenuOpen = false
-			s.openGitPRDialog()
-		},
-	})
-	if repoURL := normalizeGitRemoteURL(st.RemoteURL); repoURL != "" {
-		renderGitMenuItem(c, "chat-header-open-repo-btn", gitMenuItemProps{
-			Label: "打开仓库",
-			Icon:  IconExternalLink(),
+	ui.Row(c.Key("chat-header-commit")).AlignItems(ui.Center).Children(func() {
+		IconButton(c.Key("chat-header-commit-btn"), IconButtonProps{
+			Icon: IconArrowUpToLine(), Label: "提交与推送", Active: inspectorPaneOpen(s, sidePaneGitID),
 			OnClick: func() {
-				hs.commitMenuOpen = false
-				c.OpenURL(repoURL)
+				inspectorSelect(s, sidePaneGitID, false)
+				if ps := getGitPaneState(s); ps != nil {
+					ps.mu.Lock()
+					ps.segment = 0
+					ps.mu.Unlock()
+				}
+				hs.titleMenuOpen, hs.branchMenuOpen = false, false
 				s.invalidate()
-			},
+			}, Variant: ButtonGhost, Size: ControlSM,
 		})
-	}
-}
-
-// renderGitMenuBranch2 渲染抓取/拉取、快进合并/合并与贮藏两组操作及分支选择器。
-func renderGitMenuBranch2(c *ui.Context, s *chatState, hs *chatHeaderState, threadID string, st GitState, m gitMenuRun) {
-	renderGitMenuItem(c, "chat-header-git-fetch-item", gitMenuItemProps{
-		Label:    "抓取",
-		Icon:     IconRefreshCw(),
-		Busy:     m.busy == "抓取",
-		Disabled: m.busy != "",
-		OnClick: func() {
-			m.run("抓取", func() error {
-				return s.client.GitFetch(context.Background(), threadID)
-			}, func() { s.setToast("已抓取远程分支") })
-		},
-	})
-	pullLabel := "拉取（快进）"
-	if st.Behind > 0 {
-		pullLabel = fmt.Sprintf("拉取（快进） ↓%d", st.Behind)
-	}
-	// 不依赖 CanFastForward：本地还没抓取时 AheadBehind 看不到落后，点击时仍会先 fetch 再快进
-	renderGitMenuItem(c, "chat-header-git-pull-item", gitMenuItemProps{
-		Label:    pullLabel,
-		Icon:     IconArrowDownCircle(),
-		Busy:     m.busy == "拉取",
-		Disabled: m.busy != "" || !m.canRewrite || !st.HasUpstream,
-		OnClick: func() {
-			m.run("拉取", func() error {
-				return s.client.GitPull(context.Background(), threadID)
-			}, func() { s.setToast("已快进拉取") })
-		},
-	})
-
-	gitMenuDivider(c)
-
-	renderGitMenuItem(c, "chat-header-git-merge-item", gitMenuItemProps{
-		Label:    "合并…",
-		Icon:     IconMerge(),
-		Disabled: m.busy != "" || len(m.others) == 0,
-		OnClick: func() {
-			hs.commitMenuOpen = false
-			openGitForm(s, threadID, gitFormMerge)
-			s.invalidate()
-		},
-	})
-
-	gitMenuDivider(c)
-
-	changed := st.ChangedFiles
-	if changed == 0 {
-		changed = st.Changes
-	}
-	renderGitMenuItem(c, "chat-header-git-stash-item", gitMenuItemProps{
-		Label:    "贮藏改动",
-		Icon:     IconPackage(),
-		Busy:     m.busy == "贮藏改动",
-		Disabled: !m.canRewrite || changed == 0,
-		OnClick: func() {
-			m.run("贮藏改动", func() error {
-				return s.client.GitStash(context.Background(), threadID)
-			}, func() { s.setToast("已贮藏改动") })
-		},
-	})
-	renderGitMenuItem(c, "chat-header-git-stash-pop-item", gitMenuItemProps{
-		Label:    "恢复贮藏",
-		Icon:     IconPackage(),
-		Busy:     m.busy == "恢复贮藏",
-		Disabled: !m.canRewrite || !st.HasStash,
-		OnClick: func() {
-			m.run("恢复贮藏", func() error {
-				return s.client.GitStashPop(context.Background(), threadID)
-			}, func() { s.setToast("已恢复贮藏") })
-		},
+		if st.Changes > 0 {
+			renderGitCountBadge(c, "chat-header-commit-badge", st.Changes)
+		}
 	})
 }
 
@@ -1229,7 +989,7 @@ func renderGitPushPRConfirm(c *ui.Context, s *chatState, st GitState) {
 		Gap(Space2).
 		Padding(Space0, Space3).
 		Children(func() {
-			ui.Text(c, fmt.Sprintf("将推送当前分支 %s 到远端，并用 gh/glab 创建 PR/MR。确认继续？", gitBranchLabel(st))).
+			ui.Text(c, fmt.Sprintf("推送分支 %s 并创建 PR？", gitBranchLabel(st))).
 				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c))
 			ui.Row(c.Key("chat-header-push-pr-confirm-actions")).
@@ -1272,69 +1032,8 @@ func (s *chatState) isThreadRunning(threadID string) bool {
 	return false
 }
 
-// gitMenuItemHeight 是 Git 菜单单项的行高；gitMenuWidth 是菜单宽度。
-const (
-	gitMenuItemHeight = 26
-	gitMenuWidth      = 248 // 菜单宽度：窄到 240~260，长文本靠截断显示
-)
-
-// gitMenuRun 汇总 Git 菜单渲染所需的运行状态，避免把大量参数逐个传递。
-type gitMenuRun struct {
-	run        func(name string, op func() error, onSuccess func()) // 后台执行操作
-	busy       string                                               // 进行中的操作名
-	canRewrite bool                                                 // 会话空闲且没有进行中的操作，允许改写工作区
-	others     []string                                             // 除当前分支外的本地分支
-}
-
-// gitMenuItemProps 描述 Git 菜单中的单个操作项。
-type gitMenuItemProps struct {
-	Label    string
-	Icon     *ui.SVG
-	Busy     bool
-	Disabled bool
-	OnClick  func()
-}
-
-// renderGitMenuItem 渲染 Git 菜单中的一项：左侧 16pt 图标、26 行高，内容靠左，长文本截断，
-// hover 高亮，禁用时 Opacity(0.4)。
-func renderGitMenuItem(c *ui.Context, key string, p gitMenuItemProps) {
-	item := ui.ButtonBase(c.Key(key)).
-		Label(p.Label).
-		Gap(Space3).
-		Padding(0, Space3).
-		Radius(RadiusSM).
-		FillWidth().
-		Justify(ui.Start).
-		AlignItems(ui.Center).
-		Height(gitMenuItemHeight)
-	if p.Disabled || p.Busy {
-		item.Disabled(true)
-	} else {
-		if item.Hovered() {
-			item.Background(ThemeHover(c))
-		}
-		if p.OnClick != nil {
-			item.OnClick(p.OnClick)
-		}
-	}
-	if p.Disabled {
-		item.Opacity(0.4)
-	}
-	item.Children(func() {
-		if p.Busy {
-			LoadingIndicator(c, nil, "", IconSM)
-		} else if p.Icon != nil {
-			ui.Icon(c, p.Icon).Size(16, 16).TextColor(ThemeSecondaryText(c))
-		} else {
-			ui.Box(c.Key(key+"-icon-placeholder")).Size(16, 16)
-		}
-		ui.Text(c, p.Label).
-			FontSize(uiFont(TypeBody)).
-			TextColor(ThemePrimaryText(c)).
-			Grow(1).
-			SingleLine()
-	})
-}
+// gitMenuWidth 是分支菜单宽度。
+const gitMenuWidth = 248
 
 // gitMenuDivider 是 Git 菜单内的水平分隔线。
 func gitMenuDivider(c *ui.Context) {
@@ -1343,18 +1042,6 @@ func gitMenuDivider(c *ui.Context) {
 		FillWidth().
 		Margin(4, 0, 4, 0).
 		Background(ThemeBorder(c))
-}
-
-// gitOtherBranches 返回除当前分支外的所有本地分支，用作合并选择器的候选项。
-func gitOtherBranches(st GitState) []string {
-	out := make([]string, 0, len(st.Branches))
-	for _, b := range st.Branches {
-		if b == "" || b == st.Branch {
-			continue
-		}
-		out = append(out, b)
-	}
-	return out
 }
 
 // normalizeGitRemoteURL 将 ssh 或 https 格式的 Git remote URL 规范化为 https 网页仓库地址。
