@@ -547,8 +547,8 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 								return label + "  ⌘⏎"
 							}()).FontSize(uiFont(TypeFootnote)).TextColor(ThemeOnAccent(c))
 						})
-						more := ui.ButtonBase(c.Key("git-changes-commit-more")).Label("提交选项").Height(ControlLG).Width(ControlLG).Radius(RadiusSM).Disabled(disabled).Background(ThemeAccent(c)).Transition(motionFeedback(c))
-						if more.Hovered() && !disabled {
+						more := ui.ButtonBase(c.Key("git-changes-commit-more")).Label("提交选项").Height(ControlLG).Width(ControlLG).Radius(RadiusSM).Disabled(busy).Background(ThemeAccent(c)).Transition(motionFeedback(c))
+						if more.Hovered() && !busy {
 							more.Background(ThemeAccent(c).Alpha(0.85))
 						}
 						more.OnClick(func() { st.menu = true })
@@ -646,16 +646,16 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 											code = '?'
 										}
 										letter, color := gitStatusPresentation(c, code)
-										fileRow := ui.Row(c.Key(fmt.Sprintf("git-changes-row-%d-%s", i, entry.Path))).FillWidth().Height(RowHeight).AlignItems(ui.Center).Transition(motionListItem(c))
+										fileRow := ui.Row(c.Key(fmt.Sprintf("git-changes-row-%d-%s", i, entry.Path))).FillWidth().Height(RowHeight).Radius(RadiusSM).AlignItems(ui.Center).Transition(motionListItem(c))
 										fileRow.Children(func() {
 											row := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-file-%d-%s", i, entry.Path))).Label(entry.Path).Grow(1).MinWidth(0).Height(RowHeight).Padding(0, Space2).Gap(Space2).Radius(RadiusSM).Justify(ui.Start).AlignItems(ui.Center).Transition(motionFeedback(c))
 											st.mu.Lock()
 											multiSelected := st.selection[fmt.Sprintf("%d:%s", i, entry.Path)]
 											st.mu.Unlock()
 											if multiSelected || (selected == entry.Path && staged == isStaged) {
-												row.Background(ThemeSelected(c))
-											} else if row.Hovered() {
-												row.Background(ThemeHover(c))
+												fileRow.Background(ThemeSelected(c))
+											} else if fileRow.Hovered() {
+												fileRow.Background(ThemeHover(c))
 											}
 											rowKey := fmt.Sprintf("%d:%s", i, entry.Path)
 											st.mu.Lock()
