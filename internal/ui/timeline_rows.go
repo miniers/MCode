@@ -4710,7 +4710,7 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 					if toolMessageState(m) == ToolPending && strings.TrimSpace(m.ToolInput) != "" {
 						ui.Text(c, m.ToolInput).Font(fontFam).FontSize(scaledFont(codeSz)).TextColor(ThemeSecondaryText(c)).Selectable()
 					}
-					// 运行中的命令：顶部给一个「终止此命令」次级按钮，只杀这一条命令，不中断本轮。
+					// 运行中的命令：顶部是步骤列表，右上角是「终止此命令」图标按钮，只杀这一条命令，不中断本轮。
 					if toolIsRunningCommand(m) {
 						renderRunningCommandHeader(c, s, m, fontFam)
 					}

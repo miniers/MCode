@@ -86,7 +86,7 @@ func TestCommandActivityFilteredProcessesAndCPU(t *testing.T) {
 func TestRunningCommandBadgeCPU(t *testing.T) {
 	m := Message{ID: "badge-cpu", Role: "tool", ToolName: "Bash", ToolStatus: "running", ToolInput: `{"command":"go test"}`, CreatedAt: time.Now().Add(-time.Second).Format(time.RFC3339Nano)}
 	s := newChatState(NewFakeClient())
-	s.commandActivity[m.ID] = &commandActivityState{hasProcess: true, cpu: 12}
+	s.commandActivity = map[string]*commandActivityState{m.ID: {hasProcess: true, cpu: 12}}
 	var badge string
 	var stalled bool
 	tt := ui.NewTester(func(c *ui.Context) { badge, stalled = s.runningCommandBadge(c, m) }, 400, 200)
