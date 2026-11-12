@@ -30,6 +30,7 @@ type inspectorSessionState struct {
 	Width          float32
 	Files          *fileManagerState
 	Review         *diffPanelState
+	Git            *gitPaneState
 	Browser        *previewState
 	follow         *inspectorFollowState
 	workspace      string
@@ -85,7 +86,7 @@ func inspectorSessionLocked(s *chatState, threadID string) *inspectorSessionStat
 func inspectorInitialWidth(s *chatState) float32 {
 	sidePanePrefsMu.Lock()
 	defer sidePanePrefsMu.Unlock()
-	for _, id := range []string{sidePanePreviewID, sidePaneFileID, sidePaneDiffID} {
+	for _, id := range []string{sidePanePreviewID, sidePaneFileID, sidePaneDiffID, sidePaneGitID} {
 		if w := sidePanePrefs[s][id]; w > 0 && !math.IsNaN(float64(w)) && !math.IsInf(float64(w), 0) {
 			return min(max(w, inspectorMinWidth), inspectorMaxWidth)
 		}
@@ -161,6 +162,9 @@ func inspectorSyncVisibility(st *inspectorSessionState) {
 	browserActiveTabLocked(st.Browser).visible = st.Browser.visible
 	previewMu.Unlock()
 	fileTreeWatchSetVisible(st.Files, st.Open && st.Active == sidePaneFileID)
+	if st.Git != nil {
+		st.Git.setVisible(st.Open && st.Active == sidePaneGitID)
+	}
 }
 
 func inspectorRemember(s *chatState) {
@@ -283,6 +287,9 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 	s.mu.Unlock()
 	if old != nil {
 		browserServerDiscoveryStop(s)
+		if old.Git != nil {
+			old.Git.setVisible(false)
+		}
 		fileTreeWatchSetVisible(old.Files, false)
 		fileManagerMu.Lock()
 		old.Files.opsSeq++
@@ -320,6 +327,10 @@ func inspectorValidateWorkspace(s *chatState) {
 	changed := st.workspaceKnown && st.workspace != identity
 	s.mu.Unlock()
 	if changed {
+		if st.Git != nil {
+			st.Git.dispose()
+			st.Git = nil
+		}
 		inspectorFollowReset(s, st)
 		fileManagerMu.Lock()
 		st.Files.gen++
@@ -348,6 +359,9 @@ func inspectorValidateWorkspace(s *chatState) {
 func inspectorDisposeSession(s *chatState, st *inspectorSessionState) {
 	if st == nil {
 		return
+	}
+	if st.Git != nil {
+		st.Git.dispose()
 	}
 	s.mu.Lock()
 	st.generation++
@@ -390,6 +404,9 @@ func inspectorSuspend(s *chatState) {
 	s.mu.Unlock()
 	if st == nil {
 		return
+	}
+	if st.Git != nil {
+		st.Git.setVisible(false)
 	}
 	previewMu.Lock()
 	visible := st.Browser.visible

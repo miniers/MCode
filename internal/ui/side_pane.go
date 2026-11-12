@@ -13,6 +13,7 @@ const (
 	sidePaneFileID    = "file"
 	sidePanePreviewID = "preview"
 	sidePaneDiffID    = "diff"
+	sidePaneGitID     = "git"
 )
 
 // sidePane 只描述目的和旧入口；开关、选择和宽度由 Inspector 拥有。
@@ -67,6 +68,12 @@ func init() {
 			menuAccel:    "CmdOrCtrl+D",
 			paletteID:    "cmd-toggle-diff",
 			paletteTitle: "显示/隐藏改动",
+		},
+		{
+			id: sidePaneGitID, title: "Git", splitKey: "chat-inspector-split",
+			render: renderGitPane, actionID: "toggle-git-pane", toggle: toggleGitPane,
+			menuLabel: "显示/隐藏 Git", menuAccel: "Shift+CmdOrCtrl+G",
+			paletteID: "cmd-toggle-git-pane", paletteTitle: "显示/隐藏 Git 面板",
 		},
 		{
 			id: sidePanePreviewID, title: "浏览器", splitKey: "chat-inspector-split",

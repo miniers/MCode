@@ -69,6 +69,7 @@ func shortcutDefaults() []appShortcut {
 		{id: "open-settings", title: "打开设置", group: "窗口", keys: "⌘,", mods: ui.Cmd, key: ui.KeyComma, bound: true, customizable: true, registered: true},
 		{id: "close-settings", title: "关闭设置", group: "窗口", keys: "Esc"},
 		{id: "toggle-diff", title: "显示/隐藏改动", group: "窗口", keys: "⌘D", mods: ui.Cmd, key: ui.KeyD, bound: true, customizable: true, registered: true},
+		{id: "toggle-git-pane", title: "显示/隐藏 Git", group: "窗口", keys: "⇧⌘G", mods: ui.Cmd | ui.Shift, key: ui.KeyG, bound: true, customizable: true, registered: true},
 		{id: "toggle-inspector", title: "显示/隐藏右栏", group: "窗口", customizable: true, registered: true},
 		{id: "toggle-terminal", title: "显示/隐藏终端", group: "窗口", keys: "⌘J", mods: ui.Cmd, key: ui.KeyJ, bound: true, customizable: true, registered: true},
 		{id: "toggle-preview", title: "显示/隐藏浏览器", group: "窗口", keys: "⇧⌘B", mods: ui.Cmd | ui.Shift, key: ui.KeyB, bound: true, customizable: true, registered: true},

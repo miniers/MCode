@@ -78,6 +78,7 @@ func TestBuildAppMenu(t *testing.T) {
 	requireMenuItem(t, viewMenu, "命令面板…", "CmdOrCtrl+K")
 	requireMenuItem(t, viewMenu, "显示/隐藏终端", "CmdOrCtrl+J")
 	requireMenuItem(t, viewMenu, "显示/隐藏改动", "CmdOrCtrl+D")
+	requireMenuItem(t, viewMenu, "显示/隐藏 Git", "Shift+CmdOrCtrl+G")
 	requireMenuItem(t, viewMenu, "显示/隐藏浏览器", "Shift+CmdOrCtrl+B")
 	requireMenuItem(t, viewMenu, "显示/隐藏文件", "Shift+CmdOrCtrl+F")
 	requireMenuItem(t, viewMenu, "显示/隐藏右栏", "")

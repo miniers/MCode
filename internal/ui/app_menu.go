@@ -439,8 +439,12 @@ func sidePaneMenuItems() []*mygo.MenuItem {
 	for i := range sidePanes {
 		p := &sidePanes[i]
 		id := p.actionID
+		label := "显示/隐藏" + p.title
+		if p.id == sidePaneGitID {
+			label = p.menuLabel
+		}
 		items = append(items, &mygo.MenuItem{
-			Label:       "显示/隐藏" + p.title,
+			Label:       label,
 			Accelerator: menuAccelerator(id, p.menuAccel),
 			Click: func(*mygo.MenuItem, *mygo.Window) {
 				DispatchMenuAction(id, 0)

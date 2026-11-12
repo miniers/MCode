@@ -354,12 +354,12 @@ func TestShortcutReservedCombos(t *testing.T) {
 
 // TestShortcutOverrideMatching 覆盖生效后命中新键、旧键失效，注册表与展示键位同步更新。
 func TestShortcutOverrideMatching(t *testing.T) {
-	// 示例键位改用 ⇧⌘G：⇧⌘D 已归「转发到新会话」，再拿它做覆盖示例会同键重复。
-	setShortcutOverrides(map[string]string{"toggle-diff": "Cmd+Shift+G"})
+	// 示例键位使用空闲的 ⇧⌘H。
+	setShortcutOverrides(map[string]string{"toggle-diff": "Cmd+Shift+H"})
 	t.Cleanup(func() { setShortcutOverrides(nil) })
 
-	if id, _, ok := matchShortcut(ui.Cmd|ui.Shift, ui.KeyG); !ok || id != "toggle-diff" {
-		t.Fatalf("覆盖后 ⇧⌘G 应命中 toggle-diff，得到 id=%q ok=%v", id, ok)
+	if id, _, ok := matchShortcut(ui.Cmd|ui.Shift, ui.KeyH); !ok || id != "toggle-diff" {
+		t.Fatalf("覆盖后 ⇧⌘H 应命中 toggle-diff，得到 id=%q ok=%v", id, ok)
 	}
 	if _, _, ok := matchShortcut(ui.Cmd, ui.KeyD); ok {
 		t.Fatal("覆盖后旧键 ⌘D 应失效")
@@ -372,8 +372,8 @@ func TestShortcutOverrideMatching(t *testing.T) {
 	for _, sc := range registeredShortcutsList {
 		registered[sc] = true
 	}
-	if !registered[registeredShortcut{ui.Cmd | ui.Shift, ui.KeyG}] {
-		t.Fatal("registeredShortcutsList 未包含覆盖后的 ⇧⌘G")
+	if !registered[registeredShortcut{ui.Cmd | ui.Shift, ui.KeyH}] {
+		t.Fatal("registeredShortcutsList 未包含覆盖后的 ⇧⌘H")
 	}
 	if registered[registeredShortcut{ui.Cmd, ui.KeyD}] {
 		t.Fatal("registeredShortcutsList 仍包含旧键 ⌘D")
@@ -385,8 +385,8 @@ func TestShortcutOverrideMatching(t *testing.T) {
 			continue
 		}
 		found = true
-		if sc.keys != "⇧⌘G" {
-			t.Errorf("toggle-diff 展示键位应为 ⇧⌘G，得到 %q", sc.keys)
+		if sc.keys != "⇧⌘H" {
+			t.Errorf("toggle-diff 展示键位应为 ⇧⌘H，得到 %q", sc.keys)
 		}
 	}
 	if !found {
@@ -464,6 +464,7 @@ func TestAppShortcutsKeysFollowDefaults(t *testing.T) {
 		"new-worktree-thread":  "⌥⌘N",
 		"toggle-plan-mode":     "⇧⌘P",
 		"toggle-file-manager":  "⇧⌘F",
+		"toggle-git-pane":      "⇧⌘G",
 		"add-project":          "⇧⌘O",
 		"jump-to-latest":       "⌘↓",
 		"open-attention-inbox": "⇧⌘I",
@@ -495,6 +496,7 @@ func TestRegisteredShortcutsDefaultSet(t *testing.T) {
 		{ui.Cmd, ui.KeyN},
 		{ui.Cmd | ui.Alt, ui.KeyN},
 		{ui.Cmd, ui.KeyD},
+		{ui.Cmd | ui.Shift, ui.KeyG},
 		{ui.Cmd, ui.KeyJ},
 		{ui.Ctrl, ui.KeyBackquote},
 		{ui.Cmd | ui.Shift, ui.KeyP},

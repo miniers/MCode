@@ -74,10 +74,14 @@ func sidePanePaletteItems() []paletteItem {
 	for i := range sidePanes {
 		p := &sidePanes[i]
 		toggle := p.toggle
+		title := "显示/隐藏" + p.title
+		if p.id == sidePaneGitID {
+			title = p.paletteTitle
+		}
 		items = append(items, paletteItem{
 			id:    p.paletteID,
 			kind:  "command",
-			title: "显示/隐藏" + p.title,
+			title: title,
 			run: func(cs *chatState) {
 				if toggle != nil {
 					toggle(cs)

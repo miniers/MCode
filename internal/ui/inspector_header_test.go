@@ -65,7 +65,11 @@ func TestInspectorEntryRouting(t *testing.T) {
 	menu := sidePaneMenuItems()
 	palette := sidePanePaletteItems()
 	for i, pane := range sidePanes {
-		if menu[i].Label != "显示/隐藏"+pane.title || palette[i].title != menu[i].Label {
+		menuLabel, paletteTitle := "显示/隐藏"+pane.title, "显示/隐藏"+pane.title
+		if pane.id == sidePaneGitID {
+			menuLabel, paletteTitle = pane.menuLabel, pane.paletteTitle
+		}
+		if menu[i].Label != menuLabel || palette[i].title != paletteTitle {
 			t.Fatalf("入口名称不一致：%s", pane.id)
 		}
 		inspectorClose(s)
@@ -154,6 +158,11 @@ func TestInspectorHeaderAccessibleTabs(t *testing.T) {
 	}
 	if node, ok := tt.AccessByRole(ui.RoleTab, "改动"); !ok || !node.Selected {
 		t.Fatalf("改动标签的无障碍状态：%+v %v", node, ok)
+	}
+	tt.Key(0, ui.KeyRight)
+	tt.Advance(0)
+	if st := inspectorSession(s); st.Active != sidePaneGitID {
+		t.Fatalf("右方向键后标签：%s", st.Active)
 	}
 	tt.Key(0, ui.KeyRight)
 	tt.Advance(0)

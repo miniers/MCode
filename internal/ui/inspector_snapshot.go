@@ -58,7 +58,7 @@ func inspectorSnapshotFor(s *chatState) (InspectorSnapshot, bool) {
 	if f := st.follow; f != nil {
 		snap.Paused, snap.Following = f.paused, !f.paused
 		// 目的集合固定，避免任意键或无限徽标进入快照。
-		for _, id := range []string{sidePaneFileID, sidePaneDiffID, sidePanePreviewID} {
+		for _, id := range []string{sidePaneFileID, sidePaneDiffID, sidePaneGitID, sidePanePreviewID} {
 			if count, ok := f.badges[id]; ok {
 				snap.Badges[id] = count
 			}

@@ -540,20 +540,15 @@ func fileTreeChangedRootCountLocked(tree *fileTreeState) int {
 
 // fileTreeStatusPresentation 把 Git 状态映射成单字符标记、完整名称与主题色。
 func fileTreeStatusPresentation(c *ui.Context, status string) (letter, label string, color ui.Color) {
-	switch status {
-	case "M":
-		return "M", "已修改", ThemeWarning(c)
-	case "A":
-		return "A", "新增", ThemeSuccess(c)
-	case "D":
-		return "D", "已删除", ThemeDanger(c)
-	case "R":
-		return "R", "已重命名", ThemeAccent(c)
-	case "C":
-		return "C", "已复制", ThemeAccent(c)
-	default:
-		return "?", "未跟踪", ThemeSecondaryText(c)
+	code := byte('?')
+	if len(status) == 1 {
+		code = status[0]
 	}
+	letter, color = gitStatusPresentation(c, code)
+	if letter == "" {
+		letter, color = gitStatusPresentation(c, '?')
+	}
+	return letter, fileTreeStatusLabel(status), color
 }
 
 // fileTreeStatusLabel 返回状态字符的完整名称。
@@ -569,6 +564,8 @@ func fileTreeStatusLabel(status string) string {
 		return "已重命名"
 	case "C":
 		return "已复制"
+	case "U":
+		return "冲突"
 	default:
 		return "未跟踪"
 	}

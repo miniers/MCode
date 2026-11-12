@@ -649,28 +649,21 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 
 // renderDiffStatusBadge 渲染文件状态小标签（新增/删除/修改/重命名）。
 func renderDiffStatusBadge(c *ui.Context, status string) {
-	label := "修改"
-	bg := ThemeSecondaryText(c).Alpha(0.12)
-	fg := ThemeSecondaryText(c)
-
+	label, code := "修改", byte('M')
 	switch status {
 	case "added":
-		label = "新增"
-		bg = ThemeSuccess(c).Alpha(0.12)
-		fg = ThemeSuccess(c)
+		label, code = "新增", 'A'
 	case "deleted":
-		label = "删除"
-		bg = ThemeDanger(c).Alpha(0.12)
-		fg = ThemeDanger(c)
+		label, code = "删除", 'D'
 	case "renamed":
-		label = "重命名"
-		bg = ThemeAccent(c).Alpha(0.12)
-		fg = ThemeAccent(c)
-	default: // "modified"
-		label = "修改"
-		bg = ThemeSecondaryText(c).Alpha(0.12)
-		fg = ThemeSecondaryText(c)
+		label, code = "重命名", 'R'
+	case "copied":
+		label, code = "复制", 'C'
+	case "unmerged", "conflicted":
+		label, code = "冲突", 'U'
 	}
+	_, fg := gitStatusPresentation(c, code)
+	bg := fg.Alpha(0.12)
 
 	ui.Row(c.Key("diff-badge-"+status)).
 		Padding(Hairline, Space2).

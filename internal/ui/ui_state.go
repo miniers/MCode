@@ -57,7 +57,7 @@ type InspectorPreference struct {
 
 func normalizeInspectorPreference(pref InspectorPreference) InspectorPreference {
 	switch pref.Active {
-	case sidePaneFileID, sidePaneDiffID, sidePanePreviewID:
+	case sidePaneFileID, sidePaneDiffID, sidePaneGitID, sidePanePreviewID:
 	default:
 		pref.Active = sidePaneFileID
 	}

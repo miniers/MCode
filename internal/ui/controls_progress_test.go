@@ -39,3 +39,20 @@ func TestProgressBarRatio(t *testing.T) {
 		})
 	}
 }
+
+func TestProgressBarReduceMotionUsesTarget(t *testing.T) {
+	ratio := float32(0.2)
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		ui.Column(c).Width(200).Children(func() {
+			ProgressBar(c, ProgressBarProps{Key: "reduced-progress", Label: "进度", Ratio: ratio, Height: Space0})
+		})
+	}, 300, 100, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	for _, target := range []float32{0.8, 0.1, 1} {
+		ratio = target
+		tt.Frame()
+		fill, ok := tt.Find("进度 填充")
+		if !ok || math.Abs(float64(fill.W-200*target)) > 0.01 {
+			t.Fatalf("减少动效后的填充 = %+v，目标 = %v", fill, target)
+		}
+	}
+}

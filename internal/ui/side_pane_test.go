@@ -51,6 +51,7 @@ func TestSidePaneMutualExclusion(t *testing.T) {
 		{"file", toggleFileManager, sidePaneFileID},
 		{"preview", togglePreview, sidePanePreviewID},
 		{"diff", func(s *chatState) { s.toggleDiffPanel() }, sidePaneDiffID},
+		{"git", toggleGitPane, sidePaneGitID},
 	}
 	// 每个用例都从“另一个面板已打开”开始，覆盖所有有向组合。
 	for _, from := range cases {
@@ -65,7 +66,7 @@ func TestSidePaneMutualExclusion(t *testing.T) {
 				to.open(s)
 
 				file, preview, diff := paneOpenFlags(s)
-				got := map[string]bool{sidePaneFileID: file, sidePanePreviewID: preview, sidePaneDiffID: diff}
+				got := map[string]bool{sidePaneFileID: file, sidePanePreviewID: preview, sidePaneDiffID: diff, sidePaneGitID: inspectorPaneOpen(s, sidePaneGitID)}
 				if !got[to.want] {
 					t.Fatalf("打开 %s 后它应为打开状态, got %+v", to.want, got)
 				}
@@ -86,7 +87,7 @@ func TestActiveSidePanePriority(t *testing.T) {
 		t.Fatalf("没有面板打开时应返回 nil, got %q", p.id)
 	}
 
-	for _, id := range []string{sidePaneDiffID, sidePanePreviewID, sidePaneFileID} {
+	for _, id := range []string{sidePaneDiffID, sidePaneGitID, sidePanePreviewID, sidePaneFileID} {
 		inspectorSelect(s, id, false)
 		if p := activeSidePane(s); p == nil || p.id != id {
 			t.Fatalf("Active=%s, got %+v", id, p)
@@ -277,7 +278,7 @@ func TestSidePaneWidthPersistSkippedWithoutPersistence(t *testing.T) {
 
 // 保证注册表覆盖三个面板且顺序即优先级。
 func TestSidePanesRegistryOrder(t *testing.T) {
-	want := []string{sidePaneFileID, sidePaneDiffID, sidePanePreviewID}
+	want := []string{sidePaneFileID, sidePaneDiffID, sidePaneGitID, sidePanePreviewID}
 	if len(sidePanes) != len(want) {
 		t.Fatalf("注册表应包含 %d 个面板, got %d", len(want), len(sidePanes))
 	}
@@ -331,6 +332,7 @@ func TestSidePaneByAction(t *testing.T) {
 		"toggle-file-manager": sidePaneFileID,
 		"toggle-preview":      sidePanePreviewID,
 		"toggle-diff":         sidePaneDiffID,
+		"toggle-git-pane":     sidePaneGitID,
 	}
 	for actionID, wantID := range cases {
 		p := sidePaneByAction(actionID)
@@ -361,7 +363,11 @@ func TestSidePanePaletteItems(t *testing.T) {
 	for i := range sidePanes {
 		p := &sidePanes[i]
 		it := items[i]
-		if it.id != p.paletteID || it.title != "显示/隐藏"+p.title || it.kind != "command" {
+		title := "显示/隐藏" + p.title
+		if p.id == sidePaneGitID {
+			title = p.paletteTitle
+		}
+		if it.id != p.paletteID || it.title != title || it.kind != "command" {
 			t.Fatalf("第 %d 条命令面板项 = {%q %q %q}, want {%q %q command}",
 				i, it.id, it.title, it.kind, p.paletteID, "显示/隐藏"+p.title)
 		}
@@ -384,7 +390,11 @@ func TestSidePaneMenuItems(t *testing.T) {
 	for i := range sidePanes {
 		p := &sidePanes[i]
 		it := items[i]
-		if it.Label != "显示/隐藏"+p.title {
+		label := "显示/隐藏" + p.title
+		if p.id == sidePaneGitID {
+			label = p.menuLabel
+		}
+		if it.Label != label {
 			t.Fatalf("第 %d 个菜单项标签 = %q, want %q", i, it.Label, "显示/隐藏"+p.title)
 		}
 		if it.Accelerator == "" || it.Click == nil {
