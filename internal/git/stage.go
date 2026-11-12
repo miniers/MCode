@@ -340,3 +340,38 @@ func (r *Runner) DiscardLines(ctx context.Context, root, path string, sels []Lin
 	err = r.applySelectedLines(ctx, root, path, sels, false, true)
 	return s, err
 }
+
+// IndexDiff 返回索引或工作区中指定文件的差异。
+func (r *Runner) IndexDiff(ctx context.Context, root, path string, staged bool) ([]FileDiff, error) {
+	rel, err := snapshotPath(root, path)
+	if err != nil {
+		return nil, err
+	}
+	env := []string{"GIT_LITERAL_PATHSPECS=1"}
+	args := []string{"diff", "--no-color", "--no-ext-diff", "-M", "--unified=3"}
+	if staged {
+		args = append(args, "--cached")
+	} else {
+		tracked, err := r.run(ctx, root, env, "ls-files", "-z", "--", rel)
+		if err != nil {
+			return nil, err
+		}
+		if len(tracked) == 0 {
+			if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel))); os.IsNotExist(err) {
+				return []FileDiff{}, nil
+			} else if err != nil {
+				return nil, err
+			}
+			out, err := r.runAllowExit1(ctx, root, env, "diff", "--no-index", "--no-color", "--no-ext-diff", "-M", "--unified=3", "--", os.DevNull, rel)
+			if err != nil {
+				return nil, err
+			}
+			return ParseUnifiedDiff(out)
+		}
+	}
+	out, err := r.run(ctx, root, env, append(args, "--", rel)...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUnifiedDiff(out)
+}

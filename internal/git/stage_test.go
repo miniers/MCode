@@ -379,3 +379,36 @@ func TestHeadPushed(t *testing.T) {
 		t.Fatalf("已推送: %v %v", pushed, err)
 	}
 }
+
+func TestIndexDiff(t *testing.T) {
+	for _, kind := range []string{"已暂存", "未暂存", "未跟踪", "无提交"} {
+		t.Run(kind, func(t *testing.T) {
+			r, root := initGitRepo(t)
+			ctx := context.Background()
+			path := "中文 空格.txt"
+			if kind != "无提交" && kind != "未跟踪" {
+				writeTestFile(t, root, path, "原内容\n")
+				if err := r.CommitSelected(ctx, root, []string{path}, "准备"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			writeTestFile(t, root, path, "新内容\n")
+			staged := kind == "已暂存" || kind == "无提交"
+			if staged {
+				if err := r.StageFiles(ctx, root, []string{path}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			diffs, err := r.IndexDiff(ctx, root, path, staged)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(diffs) != 1 || diffs[0].NewPath != path || len(diffs[0].Hunks) != 1 {
+				t.Fatalf("差异不符: %+v", diffs)
+			}
+			if (kind == "未跟踪" || kind == "无提交") && diffs[0].Status != "added" {
+				t.Fatalf("应为新增: %+v", diffs[0])
+			}
+		})
+	}
+}
