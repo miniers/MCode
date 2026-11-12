@@ -108,7 +108,7 @@ func TestProviderQuotaMagpieModelFallback(t *testing.T) {
 			backend.AddThread(wire.ThreadSummary{ID: "thread", Provider: tc.agent, Model: &tc.model}, nil)
 			client := NewClient(backend)
 			dataDir := t.TempDir()
-			cfg := magpieTestConfig(config.CustomEndpointConfig{ID: "jp", BaseURL: srv.URL + "/v1", Magpie: true, Enabled: true})
+			cfg := magpieTestConfig(config.CustomEndpointConfig{ID: "jp", Name: "Magpie JP", BaseURL: srv.URL + "/v1", Magpie: true, Enabled: true})
 			cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{
 				tc.agent: {DefaultEndpointID: tc.defaultEndpoint, DefaultModel: "auto/model"},
 			}
