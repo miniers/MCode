@@ -487,12 +487,21 @@ func handleGitExtPush(ctx context.Context, d *Dispatcher, c Conn, params json.Ra
 
 // handleGitExtPull 实现 git.pull：快进拉取当前分支的上游（有冲突时不改写工作区，由 git 层报错）。
 func handleGitExtPull(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
-	var p wire.GitExtPullParams
+	var p struct {
+		ThreadID string `json:"threadID"`
+		Strategy string `json:"strategy"`
+	}
 	if err := decodeExtParams(params, &p); err != nil {
 		return nil, err
 	}
 	if err := gitExtThreadIDParam(p.ThreadID); err != nil {
 		return nil, err
+	}
+	if p.Strategy != "" && p.Strategy != "ff-only" && p.Strategy != "rebase" && p.Strategy != "merge" {
+		return nil, ExtInvalidParams("无效的拉取策略")
+	}
+	if p.Strategy != "" && p.Strategy != "ff-only" && p.Strategy != "rebase" && p.Strategy != "merge" {
+		return nil, ExtInvalidParams("无效的拉取策略")
 	}
 	svc, ok := gitExtServiceFrom(d)
 	if !ok {
@@ -500,8 +509,20 @@ func handleGitExtPull(ctx context.Context, d *Dispatcher, c Conn, params json.Ra
 	}
 	pullCtx, cancel := context.WithTimeout(ctx, gitExtNetworkTimeout)
 	defer cancel()
-	if err := svc.GitPull(pullCtx, p.ThreadID); err != nil {
-		return nil, err
+	if p.Strategy == "" {
+		if err := svc.GitPull(pullCtx, p.ThreadID); err != nil {
+			return nil, err
+		}
+	} else {
+		with, ok := any(svc).(interface {
+			GitPullWith(context.Context, string, string) error
+		})
+		if !ok {
+			return nil, ExtNotImplemented()
+		}
+		if err := with.GitPullWith(pullCtx, p.ThreadID, p.Strategy); err != nil {
+			return nil, err
+		}
 	}
 	return wire.GitExtWriteActionResult{OK: true}, nil
 }

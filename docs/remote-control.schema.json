@@ -609,6 +609,75 @@
       "$ref": "#/$defs/RemoteGitPushRequest"
     },
     {
+      "$ref": "#/$defs/RemoteGitPanelMethod0Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod1Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod2Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod3Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod4Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod5Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod6Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod7Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod8Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod9Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod10Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod11Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod12Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod13Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod14Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod15Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod16Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod17Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod18Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod19Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod20Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod21Request"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod22Request"
+    },
+    {
       "$ref": "#/$defs/RemoteGitPullRequest"
     },
     {
@@ -634,6 +703,75 @@
     },
     {
       "$ref": "#/$defs/RemoteGitPushResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod0Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod1Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod2Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod3Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod4Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod5Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod6Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod7Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod8Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod9Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod10Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod11Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod12Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod13Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod14Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod15Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod16Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod17Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod18Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod19Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod20Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod21Response"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPanelMethod22Response"
     },
     {
       "$ref": "#/$defs/RemoteGitPullResponse"
@@ -10836,6 +10974,75 @@
             "$ref": "#/$defs/RemoteGitPushRequest"
           },
           {
+            "$ref": "#/$defs/RemoteGitPanelMethod0Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod1Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod2Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod3Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod4Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod5Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod6Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod7Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod8Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod9Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod10Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod11Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod12Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod13Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod14Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod15Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod16Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod17Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod18Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod19Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod20Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod21Request"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod22Request"
+          },
+          {
             "$ref": "#/$defs/RemoteGitPullRequest"
           },
           {
@@ -11200,6 +11407,75 @@
           },
           {
             "$ref": "#/$defs/RemoteGitPushResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod0Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod1Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod2Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod3Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod4Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod5Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod6Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod7Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod8Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod9Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod10Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod11Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod12Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod13Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod14Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod15Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod16Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod17Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod18Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod19Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod20Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod21Response"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPanelMethod22Response"
           },
           {
             "$ref": "#/$defs/RemoteGitPullResponse"
@@ -12863,6 +13139,10 @@
       "properties": {
         "threadID": {
           "$ref": "#/$defs/UUID"
+        },
+        "strategy": {
+          "type": "string",
+          "enum": ["", "ff-only", "rebase", "merge"]
         }
       },
       "required": [
@@ -17174,6 +17454,2006 @@
           }
         },
         "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelStatus": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "origPath": {
+            "type": "string"
+          },
+          "index": {
+            "type": "string"
+          },
+          "worktree": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "origPath",
+          "index",
+          "worktree"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelLine": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "kind": {
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          },
+          "oldNo": {
+            "type": "integer"
+          },
+          "newNo": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "oldNo",
+          "newNo"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelHunk": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "oldStart": {
+            "type": "integer"
+          },
+          "oldLines": {
+            "type": "integer"
+          },
+          "newStart": {
+            "type": "integer"
+          },
+          "newLines": {
+            "type": "integer"
+          },
+          "header": {
+            "type": "string"
+          },
+          "lines": {
+            "type": ["array", "null"],
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelLine"
+            }
+          }
+        },
+        "required": [
+          "oldStart",
+          "oldLines",
+          "newStart",
+          "newLines",
+          "header",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelDiff": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "oldPath": {
+            "type": "string"
+          },
+          "newPath": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "binary": {
+            "type": "boolean"
+          },
+          "hunks": {
+            "type": ["array", "null"],
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelHunk"
+            }
+          },
+          "isDeferred": {
+            "type": "boolean"
+          },
+          "deferredPatch": {
+            "type": "string"
+          },
+          "additions": {
+            "type": "integer"
+          },
+          "deletions": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "oldPath",
+          "newPath",
+          "status",
+          "binary",
+          "hunks",
+          "isDeferred",
+          "deferredPatch",
+          "additions",
+          "deletions"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelRef": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelLog": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "sha": {
+            "type": "string"
+          },
+          "parents": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            }
+          },
+          "author": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "authorTime": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "refs": {
+            "type": ["array", "null"],
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelRef"
+            }
+          },
+          "unpushed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sha",
+          "parents",
+          "author",
+          "email",
+          "authorTime",
+          "subject",
+          "refs",
+          "unpushed"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelCommitFile": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "origPath": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "added": {
+            "type": "integer"
+          },
+          "deleted": {
+            "type": "integer"
+          },
+          "binary": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "origPath",
+          "status",
+          "added",
+          "deleted",
+          "binary"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelDetail": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "sha": {
+            "type": "string"
+          },
+          "parents": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            }
+          },
+          "author": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "authorTime": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "refs": {
+            "type": ["array", "null"],
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelRef"
+            }
+          },
+          "unpushed": {
+            "type": "boolean"
+          },
+          "body": {
+            "type": "string"
+          },
+          "committer": {
+            "type": "string"
+          },
+          "commitTime": {
+            "type": "string"
+          },
+          "files": {
+            "type": ["array", "null"],
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelCommitFile"
+            }
+          }
+        },
+        "required": [
+          "sha",
+          "parents",
+          "author",
+          "email",
+          "authorTime",
+          "subject",
+          "refs",
+          "unpushed",
+          "body",
+          "committer",
+          "commitTime",
+          "files"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelBlame": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "line": {
+            "type": "integer"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "authorTime": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "line",
+          "sha",
+          "author",
+          "authorTime",
+          "summary",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelBranch": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "fullRef": {
+            "type": "string"
+          },
+          "remote": {
+            "type": "boolean"
+          },
+          "head": {
+            "type": "boolean"
+          },
+          "upstream": {
+            "type": "string"
+          },
+          "ahead": {
+            "type": "integer"
+          },
+          "behind": {
+            "type": "integer"
+          },
+          "upstreamGone": {
+            "type": "boolean"
+          },
+          "worktreePath": {
+            "type": "string"
+          },
+          "commitTime": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "fullRef",
+          "remote",
+          "head",
+          "upstream",
+          "ahead",
+          "behind",
+          "upstreamGone",
+          "worktreePath",
+          "commitTime",
+          "subject"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelTag": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "annotated": {
+            "type": "boolean"
+          },
+          "time": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "sha",
+          "subject",
+          "annotated",
+          "time"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelRemote": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "fetchUrl": {
+            "type": "string"
+          },
+          "pushUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "fetchUrl",
+          "pushUrl"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelConflict": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelState": {
+        "type": "object",
+        "description": "Git 面板数据。",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "onto": {
+            "type": "string"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "conflicts": {
+            "type": ["array", "null"],
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelConflict"
+            }
+          },
+          "oursLabel": {
+            "type": "string"
+          },
+          "theirsLabel": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "branch",
+          "onto",
+          "step",
+          "total",
+          "conflicts",
+          "oursLabel",
+          "theirsLabel"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod0Params": {
+        "type": "object",
+        "description": "git.status.entries 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod0Request": {
+        "type": "object",
+        "description": "git.status.entries 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.status.entries"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod0Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod0Response": {
+        "type": "object",
+        "description": "git.status.entries 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelStatus"
+            }
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod1Params": {
+        "type": "object",
+        "description": "git.diff.file 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "path": {
+            "type": "string"
+          },
+          "staged": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "threadID",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod1Request": {
+        "type": "object",
+        "description": "git.diff.file 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.diff.file"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod1Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod1Response": {
+        "type": "object",
+        "description": "git.diff.file 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "files": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/RemoteGitPanelDiff"
+                }
+              }
+            },
+            "required": [
+              "files"
+            ],
+            "additionalProperties": false
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod2Params": {
+        "type": "object",
+        "description": "git.log 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "all": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "skip": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod2Request": {
+        "type": "object",
+        "description": "git.log 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.log"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod2Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod2Response": {
+        "type": "object",
+        "description": "git.log 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelLog"
+            }
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod3Params": {
+        "type": "object",
+        "description": "git.show 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "sha": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadID",
+          "sha"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod3Request": {
+        "type": "object",
+        "description": "git.show 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.show"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod3Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod3Response": {
+        "type": "object",
+        "description": "git.show 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitPanelDetail"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod4Params": {
+        "type": "object",
+        "description": "git.blame 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "path": {
+            "type": "string"
+          },
+          "rev": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadID",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod4Request": {
+        "type": "object",
+        "description": "git.blame 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.blame"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod4Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod4Response": {
+        "type": "object",
+        "description": "git.blame 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelBlame"
+            }
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod5Params": {
+        "type": "object",
+        "description": "git.branch.list 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod5Request": {
+        "type": "object",
+        "description": "git.branch.list 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.branch.list"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod5Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod5Response": {
+        "type": "object",
+        "description": "git.branch.list 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelBranch"
+            }
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod6Params": {
+        "type": "object",
+        "description": "git.tag.list 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod6Request": {
+        "type": "object",
+        "description": "git.tag.list 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.tag.list"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod6Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod6Response": {
+        "type": "object",
+        "description": "git.tag.list 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelTag"
+            }
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod7Params": {
+        "type": "object",
+        "description": "git.remote.list 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod7Request": {
+        "type": "object",
+        "description": "git.remote.list 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.remote.list"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod7Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod7Response": {
+        "type": "object",
+        "description": "git.remote.list 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteGitPanelRemote"
+            }
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod8Params": {
+        "type": "object",
+        "description": "git.op.state 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod8Request": {
+        "type": "object",
+        "description": "git.op.state 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.op.state"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod8Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod8Response": {
+        "type": "object",
+        "description": "git.op.state 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitPanelState"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod9Params": {
+        "type": "object",
+        "description": "git.stage 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "threadID",
+          "paths"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod9Request": {
+        "type": "object",
+        "description": "git.stage 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.stage"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod9Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod9Response": {
+        "type": "object",
+        "description": "git.stage 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod10Params": {
+        "type": "object",
+        "description": "git.unstage 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "threadID",
+          "paths"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod10Request": {
+        "type": "object",
+        "description": "git.unstage 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.unstage"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod10Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod10Response": {
+        "type": "object",
+        "description": "git.unstage 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod11Params": {
+        "type": "object",
+        "description": "git.commit 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "message": {
+            "type": "string"
+          },
+          "amend": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "threadID",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod11Request": {
+        "type": "object",
+        "description": "git.commit 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.commit"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod11Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod11Response": {
+        "type": "object",
+        "description": "git.commit 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "sha": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sha"
+            ],
+            "additionalProperties": false
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod12Params": {
+        "type": "object",
+        "description": "git.push.forceWithLease 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod12Request": {
+        "type": "object",
+        "description": "git.push.forceWithLease 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.push.forceWithLease"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod12Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod12Response": {
+        "type": "object",
+        "description": "git.push.forceWithLease 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod13Params": {
+        "type": "object",
+        "description": "git.branch.rename 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "oldName": {
+            "type": "string"
+          },
+          "newName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadID",
+          "oldName",
+          "newName"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod13Request": {
+        "type": "object",
+        "description": "git.branch.rename 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.branch.rename"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod13Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod13Response": {
+        "type": "object",
+        "description": "git.branch.rename 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod14Params": {
+        "type": "object",
+        "description": "git.branch.delete 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "name": {
+            "type": "string"
+          },
+          "force": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "threadID",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod14Request": {
+        "type": "object",
+        "description": "git.branch.delete 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.branch.delete"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod14Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod14Response": {
+        "type": "object",
+        "description": "git.branch.delete 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod15Params": {
+        "type": "object",
+        "description": "git.tag.create 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rev": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadID",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod15Request": {
+        "type": "object",
+        "description": "git.tag.create 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.tag.create"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod15Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod15Response": {
+        "type": "object",
+        "description": "git.tag.create 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod16Params": {
+        "type": "object",
+        "description": "git.tag.delete 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadID",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod16Request": {
+        "type": "object",
+        "description": "git.tag.delete 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.tag.delete"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod16Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod16Response": {
+        "type": "object",
+        "description": "git.tag.delete 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod17Params": {
+        "type": "object",
+        "description": "git.op.continue 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod17Request": {
+        "type": "object",
+        "description": "git.op.continue 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.op.continue"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod17Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod17Response": {
+        "type": "object",
+        "description": "git.op.continue 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod18Params": {
+        "type": "object",
+        "description": "git.op.skip 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod18Request": {
+        "type": "object",
+        "description": "git.op.skip 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.op.skip"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod18Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod18Response": {
+        "type": "object",
+        "description": "git.op.skip 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod19Params": {
+        "type": "object",
+        "description": "git.op.abort 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod19Request": {
+        "type": "object",
+        "description": "git.op.abort 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.op.abort"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod19Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod19Response": {
+        "type": "object",
+        "description": "git.op.abort 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod20Params": {
+        "type": "object",
+        "description": "git.cherryPick 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "sha": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadID",
+          "sha"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod20Request": {
+        "type": "object",
+        "description": "git.cherryPick 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.cherryPick"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod20Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod20Response": {
+        "type": "object",
+        "description": "git.cherryPick 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod21Params": {
+        "type": "object",
+        "description": "git.revert 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "sha": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadID",
+          "sha"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod21Request": {
+        "type": "object",
+        "description": "git.revert 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.revert"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod21Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod21Response": {
+        "type": "object",
+        "description": "git.revert 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod22Params": {
+        "type": "object",
+        "description": "git.reset 的请求参数。",
+        "properties": {
+          "threadID": {
+            "$ref": "#/$defs/UUID"
+          },
+          "rev": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "soft",
+              "mixed",
+              "hard"
+            ]
+          }
+        },
+        "required": [
+          "threadID",
+          "rev",
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod22Request": {
+        "type": "object",
+        "description": "git.reset 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "git.reset"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteGitPanelMethod22Params"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteGitPanelMethod22Response": {
+        "type": "object",
+        "description": "git.reset 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteGitWriteActionResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
           "id"
         ],
         "additionalProperties": false

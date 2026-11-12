@@ -17,6 +17,7 @@ import (
 // remoteGitService 实现 remote 包定义的 git 扩展服务接口。
 type remoteGitService struct {
 	client *Client
+	*Client
 }
 
 func init() {
@@ -35,7 +36,7 @@ func newRemoteGitService(client *Client) *remoteGitService {
 	if client == nil {
 		return nil
 	}
-	return &remoteGitService{client: client}
+	return &remoteGitService{client: client, Client: client}
 }
 
 // GitStashList 列出会话所在仓库的贮藏记录，最新一条在最前。
