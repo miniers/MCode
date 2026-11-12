@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +16,7 @@ import (
 type gitChangesFakeClient struct {
 	*gitPaneFakeClient
 	snapshot *git.Snapshot
+	paths    []string
 }
 
 func TestGitChangesSelectionAcrossGroups(t *testing.T) {
@@ -80,15 +82,24 @@ func TestGitChangesDiscardConfirmFocus(t *testing.T) {
 	}
 }
 
-func (f *gitChangesFakeClient) GitStageFiles(context.Context, string, []string) error {
+func (f *gitChangesFakeClient) GitStageFiles(_ context.Context, _ string, paths []string) error {
+	f.paneMu.Lock()
+	f.paths = append([]string(nil), paths...)
+	f.paneMu.Unlock()
 	f.record("stage")
 	return nil
 }
-func (f *gitChangesFakeClient) GitUnstageFiles(context.Context, string, []string) error {
+func (f *gitChangesFakeClient) GitUnstageFiles(_ context.Context, _ string, paths []string) error {
+	f.paneMu.Lock()
+	f.paths = append([]string(nil), paths...)
+	f.paneMu.Unlock()
 	f.record("unstage")
 	return nil
 }
-func (f *gitChangesFakeClient) GitDiscardFiles(context.Context, string, []string) (*git.Snapshot, error) {
+func (f *gitChangesFakeClient) GitDiscardFiles(_ context.Context, _ string, paths []string) (*git.Snapshot, error) {
+	f.paneMu.Lock()
+	f.paths = append([]string(nil), paths...)
+	f.paneMu.Unlock()
 	f.record("discard")
 	return f.snapshot, nil
 }
@@ -526,5 +537,188 @@ func TestGitChangesCommitButtons(t *testing.T) {
 	tt.Frame()
 	if _, ok := tt.Find("提交并推送"); !ok {
 		t.Fatal("未显示提交并推送")
+	}
+}
+
+func TestGitChangesFilterBehavior(t *testing.T) {
+	groups := gitChangesGroups([]git.StatusEntry{{Path: "Dir/Alpha.go", Worktree: 'M'}, {Path: "beta.go", Worktree: 'M'}})
+	if got := gitChangesFilter(groups, ""); !reflect.DeepEqual(got, groups) {
+		t.Fatalf("空过滤 = %v", got)
+	}
+	if got := gitChangesPaths(gitChangesFilter(groups, "ALPHA")[2].entries); !reflect.DeepEqual(got, []string{"Dir/Alpha.go"}) {
+		t.Fatalf("大小写过滤 = %v", got)
+	}
+}
+
+func TestGitChangesCommitConfirmationAndShortcut(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		busy   bool
+		action string
+	}{
+		{"idle", false, "click"}, {"confirm", true, "提交"}, {"cancel", true, "取消"},
+		{"message shortcut", false, "提交信息"}, {"list shortcut", false, "a.txt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, ps, base := gitPaneTestState(t)
+			s.client = &gitChangesFakeClient{gitPaneFakeClient: base}
+			s.threads[0].IsRunning = tc.busy
+			ps.state = GitState{WorkDir: t.TempDir()}
+			ps.entries = []git.StatusEntry{{Path: "a.txt", Index: 'M'}}
+			st := gitChangesStateFor(ps)
+			st.root, st.draft = ps.state.WorkDir, "message"
+			tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, "git-test", ps) }, 800, 600)
+			tt.Frame()
+			tt.Frame()
+			if tc.action == "提交信息" || tc.action == "a.txt" {
+				if err := tt.Click(tc.action); err != nil {
+					t.Fatal(err)
+				}
+				tt.Key(ui.Cmd, ui.KeyEnter)
+			} else if err := tt.Click("提交 1 个文件"); err != nil {
+				t.Fatal(err)
+			}
+			tt.Frame()
+			if tc.busy {
+				if _, ok := tt.Find("Agent 仍在修改，仍要提交？"); !ok {
+					t.Fatal("未显示确认窗")
+				}
+				base.paneMu.Lock()
+				n := len(base.calls)
+				base.paneMu.Unlock()
+				if n != 0 {
+					t.Fatalf("确认前调用 Git: %d", n)
+				}
+				if err := tt.Click(tc.action); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.action != "取消" {
+				gitPaneWait(t, func() bool { base.paneMu.Lock(); defer base.paneMu.Unlock(); return len(base.calls) > 0 })
+			}
+			base.paneMu.Lock()
+			calls := append([]string(nil), base.calls...)
+			base.paneMu.Unlock()
+			want := []string{"commit"}
+			if tc.action == "取消" {
+				want = nil
+			}
+			if !reflect.DeepEqual(calls, want) {
+				t.Fatalf("调用 = %v，期望 %v", calls, want)
+			}
+		})
+	}
+}
+
+func TestGitChangesFilterShortcutAndWideNavigation(t *testing.T) {
+	s, ps, base := gitPaneTestState(t)
+	s.client = &gitChangesFakeClient{gitPaneFakeClient: base}
+	ps.state = GitState{WorkDir: t.TempDir()}
+	ps.entries = []git.StatusEntry{{Path: "a.txt", Worktree: 'M'}, {Path: "b.txt", Worktree: 'M'}}
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, "git-test", ps) }, 800, 600)
+	tt.Frame()
+	tt.Frame()
+	if err := tt.Click("a.txt"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(0, ui.KeyBracketRight)
+	tt.Frame()
+	st := gitChangesStateFor(ps)
+	st.mu.Lock()
+	selected := st.selected
+	st.mu.Unlock()
+	if selected != "b.txt" {
+		t.Fatalf("向后选择 = %q", selected)
+	}
+	tt.Key(0, ui.KeyBracketLeft)
+	tt.Frame()
+	st.mu.Lock()
+	selected = st.selected
+	st.mu.Unlock()
+	if selected != "a.txt" {
+		t.Fatalf("向前选择 = %q", selected)
+	}
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	if _, ok := tt.Find("过滤"); !ok {
+		t.Fatal("未显示过滤框")
+	}
+	st.mu.Lock()
+	st.filter = "a.txt"
+	st.mu.Unlock()
+	tt.Frame()
+	if _, ok := tt.Find("b.txt"); ok {
+		t.Fatal("过滤后仍显示 b.txt")
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if _, ok := tt.Find("过滤"); ok {
+		t.Fatal("过滤框未关闭")
+	}
+	if _, ok := tt.Find("b.txt"); !ok {
+		t.Fatal("列表未恢复")
+	}
+}
+
+func TestGitChangesWriteFailureState(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			_, ps, _ := gitPaneTestState(t)
+			ps.failure = &git.Failure{Title: "旧错误"}
+			st := gitChangesStateFor(ps)
+			done := make(chan struct{})
+			gitChangesRun(ps, st, func(context.Context) error {
+				defer close(done)
+				if fail {
+					return errors.New("写入失败")
+				}
+				return nil
+			})
+			<-done
+			gitPaneWait(t, func() bool {
+				ps.mu.Lock()
+				defer ps.mu.Unlock()
+				return !fail && ps.failure == nil || fail && ps.failure != nil && ps.failure.Title != "旧错误"
+			})
+		})
+	}
+}
+
+func TestGitChangesFilteredGroupActions(t *testing.T) {
+	for _, action := range []string{"全部暂存", "全部取消暂存", "全部丢弃"} {
+		t.Run(action, func(t *testing.T) {
+			s, ps, base := gitPaneTestState(t)
+			client := &gitChangesFakeClient{gitPaneFakeClient: base, snapshot: &git.Snapshot{}}
+			s.client = client
+			ps.state = GitState{WorkDir: t.TempDir()}
+			ps.entries = []git.StatusEntry{{Path: "show.txt", Worktree: 'M'}, {Path: "hide.txt", Worktree: 'M'}}
+			if action == "全部取消暂存" {
+				ps.entries = []git.StatusEntry{{Path: "show.txt", Index: 'M'}, {Path: "hide.txt", Index: 'M'}}
+			}
+			st := gitChangesStateFor(ps)
+			st.root, st.filter = ps.state.WorkDir, "show"
+			tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, "git-test", ps) }, 800, 600)
+			tt.Frame()
+			tt.Frame()
+			if err := tt.Click(action); err != nil {
+				t.Fatal(err)
+			}
+			if action == "全部丢弃" {
+				tt.Frame()
+				if _, ok := tt.Find("丢弃全部 1 个文件的更改？"); !ok {
+					t.Fatal("确认数量错误")
+				}
+				if err := tt.Click("丢弃"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			gitPaneWait(t, func() bool { base.paneMu.Lock(); defer base.paneMu.Unlock(); return len(base.calls) > 0 })
+			base.paneMu.Lock()
+			paths := append([]string(nil), client.paths...)
+			base.paneMu.Unlock()
+			if !reflect.DeepEqual(paths, []string{"show.txt"}) {
+				t.Fatalf("操作范围 = %v", paths)
+			}
+		})
 	}
 }
