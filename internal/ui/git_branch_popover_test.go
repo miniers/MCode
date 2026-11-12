@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
+	"strings"
 	"testing"
 )
 
@@ -23,7 +24,7 @@ func TestGitBranchPopoverOtherWorktree(t *testing.T) {
 type branchPopoverFake struct{ *FakeClient }
 
 func (f *branchPopoverFake) GitBranches(context.Context, string) ([]git.BranchInfo, error) {
-	return []git.BranchInfo{{Name: "feature/login", Head: true}, {Name: "other", WorktreePath: "/repo-wt/hotfix"}, {Name: "unmerged"}}, nil
+	return []git.BranchInfo{{Name: "feature/login", Head: true}, {Name: "other", WorktreePath: "/repo-wt/hotfix"}, {Name: "unmerged"}, {Name: strings.Repeat("a", 60)}}, nil
 }
 func (f *branchPopoverFake) GitRecentBranches(context.Context, string, int) ([]string, error) {
 	return nil, nil
@@ -79,6 +80,7 @@ func TestGitBranchPopoverActionMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("分支操作 other"); return ok })
+	waitFor(t, tt, func() bool { r, ok := tt.Find("分支操作 other"); return ok && r.W > 0 })
 	before, ok := tt.Find("切换到分支 unmerged")
 	if !ok {
 		t.Fatal("未找到后续分支")
@@ -92,6 +94,15 @@ func TestGitBranchPopoverActionMenu(t *testing.T) {
 	}
 	tt.Move(row.X+row.W/2, row.Y+row.H/2)
 	tt.Frame()
+	more, _ := tt.Find("分支操作 other")
+	if more.W <= 0 {
+		t.Fatalf("分支操作按钮宽度应大于零：%v，行 %v", more, row)
+	}
+	longMore, ok := tt.Find("分支操作 " + strings.Repeat("a", 60))
+	card, cardOK := tt.Find("分支列表")
+	if !ok || !cardOK || longMore.W <= 0 || longMore.X+longMore.W > card.X+card.W {
+		t.Fatalf("长分支操作按钮应位于卡片内且有正宽度：按钮 %v，卡片 %v", longMore, card)
+	}
 	if err := tt.Click("分支操作 other"); err != nil {
 		t.Fatal(err)
 	}

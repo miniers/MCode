@@ -244,7 +244,7 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 	if selected >= len(items) {
 		selected = 0
 	}
-	popoverCard(c, ui.Column(c.Key("git-branch-content"))).Width(max(280, min(width, 360))).Padding(Space2).Gap(Space1).Children(func() {
+	popoverCard(c, ui.Column(c.Key("git-branch-content"))).Label("分支列表").Width(max(280, min(width, 360))).MaxWidthPercent(100).Padding(Space2).Gap(Space1).Children(func() {
 		SearchField(c, TextFieldProps{Key: "git-branch-search", Value: &query, Label: "搜索分支", Placeholder: "切换或新建分支…", FillWidth: true, AutoFocus: edit == "", OnChange: func(v string) { p.mu.Lock(); p.query = v; p.selected = 0; p.mu.Unlock() }, OnKeyDown: func(k ui.TextKey) bool {
 			switch k.Key {
 			case ui.KeyEscape:
@@ -337,7 +337,7 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 					}
 					row := ui.Row(c.Key(key + "-row")).FillWidth().Height(RowHeight).AlignItems(ui.Center)
 					row.Children(func() {
-						btn := ui.ButtonBase(c.Key(key)).Label("切换到分支 " + item.name).Grow(1).Height(RowHeight).Radius(RadiusSM).Justify(ui.Start).Disabled(busy).Transition(motionFeedback(c))
+						btn := ui.ButtonBase(c.Key(key)).Label("切换到分支 " + item.name).Grow(1).Shrink(1).MinWidth(0).Height(RowHeight).Radius(RadiusSM).Justify(ui.Start).Disabled(busy).Transition(motionFeedback(c))
 						if idx == selected {
 							btn.Background(ThemeSelected(c))
 						} else if btn.Hovered() {
@@ -359,13 +359,13 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 						}
 
 						btn.Children(func() {
-							ui.Row(c.Key(key + "-text")).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
+							ui.Row(c.Key(key + "-text")).FillWidth().MinWidth(0).AlignItems(ui.Center).Gap(Space2).Children(func() {
 								mark := ""
 								if item.branch.Head || (item.kind == "local" && item.name == state.Branch) {
 									mark = "✓"
 								}
 								ui.Text(c, mark).FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
-								ui.Text(c, item.name).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).Grow(1).SingleLine()
+								ui.Text(c, item.name).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine()
 								if item.branch.Ahead > 0 {
 									ui.Text(c, fmt.Sprintf("↑%d", item.branch.Ahead)).FontSize(uiFont(TypeCaption)).TextColor(ThemeSuccess(c))
 								}
@@ -385,7 +385,7 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 								p.mu.Lock()
 								p.menu = key
 								p.mu.Unlock()
-							}})
+							}}).Shrink(0)
 							if !row.Hovered() && !more.Hovered() && menu != key {
 								more.Opacity(0)
 							}
