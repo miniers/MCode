@@ -53,6 +53,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '请求答复失败，请刷新后重试';
 }
 
+export function planFeedbackPayload(options: RemoteRequest['options'], text: string): { optionID: string; answers: { feedback: string[] } } | null {
+  const feedback = text.trim();
+  if (!feedback) return null;
+  const decline = options.find((option) => option.role === 'decline') ?? options.find((option) => option.title.includes('拒绝')) ?? options[options.length - 1];
+  return decline ? { optionID: decline.id, answers: { feedback: [feedback] } } : null;
+}
+
 /**
  * 多条待处理请求时只展开一条：记住的当前项还在列表里就保持，
  * 否则回到第一条；列表为空返回 null。
@@ -143,6 +150,7 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
   const [error, setError] = useState<{ requestID: string; message: string } | null>(null);
   const [answers, setAnswers] = useState<Record<string, Record<string, string[]>>>({});
   const [otherAnswers, setOtherAnswers] = useState<Record<string, Record<string, string>>>({});
+  const [planFeedback, setPlanFeedback] = useState<Record<string, string>>({});
   const [staleRequestIDs, setStaleRequestIDs] = useState<Set<string>>(() => new Set());
   const [handledRequestIDs, setHandledRequestIDs] = useState<Set<string>>(() => new Set());
   const [expandedCommandIDs, setExpandedCommandIDs] = useState<Set<string>>(() => new Set());
@@ -322,6 +330,7 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
         const isDetailLong = (request.detail?.length ?? 0) > 120;
         const deliveryNoticeText = deliveryNotice(request.deliveryError);
         const reason = request.reason === 'credential' || request.reason === 'controlPlane' ? '' : (request.reason ?? '').trim();
+        const feedback = planFeedbackPayload(request.options, planFeedback[request.requestID] ?? '');
 
         return (
           <article
@@ -402,7 +411,10 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
               </p>
             )}
 
-            {request.kind !== 'question' ? (
+            {request.kind === 'plan' && <textarea value={planFeedback[request.requestID] ?? ''} onChange={(event) => setPlanFeedback((previous) => ({ ...previous, [request.requestID]: event.target.value }))} placeholder="写修改意见…" disabled={busy || stale || !isConnected} className="min-h-[44px] w-full rounded-mc-lg border border-[var(--input-border)] bg-[var(--card)] p-3 text-sm text-[var(--foreground)] placeholder:text-[var(--foreground-muted)]" />}
+            {request.kind === 'plan' && feedback ? (
+              <button type="button" disabled={busy || stale || !isConnected} onClick={() => void submit(request, feedback)} className="min-h-[44px] w-full rounded-mc-lg bg-[var(--primary)] px-4 text-sm font-bold text-white disabled:opacity-50">{busy ? '提交中…' : '提交修改意见'}</button>
+            ) : request.kind !== 'question' ? (
               <OptionButtonRow
                 options={request.options}
                 busy={busy}

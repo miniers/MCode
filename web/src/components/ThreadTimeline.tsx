@@ -36,6 +36,8 @@ import {
   commandSnippet,
   type BackgroundTaskCommand
 } from './timeline/BackgroundTasksRow';
+import { PlanDecisionMessage } from './timeline/PlanDecisionMessage';
+import { useRemoteBackgroundTaskApi } from '../context/remoteBackgroundTaskApi';
 import { PlanReaderSheet } from './PlanReaderSheet';
 import {
   PLAN_OUTLINE_MAX_ITEMS,
@@ -325,6 +327,7 @@ function truncatedReportsOfDispatch(
 function isMergedSwarmReportRow(item: TimelineItem, index?: SwarmDispatchReportIndex): boolean {
   if (item.type !== 'message') return false;
   const message = item.message;
+
   if (message.kind === 'host_event') return false;
   if (message.kind !== 'user' && message.role !== 'user') return false;
   const reports = parseSwarmReport(message.text || '');
@@ -1972,6 +1975,8 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
 
   const message = item.message;
 
+  if ((message.kind as string) === 'plan_decision') return <PlanDecisionMessage text={message.text} />;
+
   // 总管协议消息必须在普通助手分支之前处理；解析失败则继续落到下面的原文渲染。
   if (message.kind === 'steward_decision_answer') return null;
   if (message.kind === 'steward_reply' && message.role === 'assistant') {
@@ -2678,6 +2683,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
   }, []);
 
   const autoCollapse = useAutoCollapseReasoning();
+  const backgroundTaskApi = useRemoteBackgroundTaskApi();
   const { toggleWorkRecord } = useWorkRecordHandlers(threadID, autoCollapse, onToggleWorkRecord);
   // 时间线最后一条可见消息：错误卡片的自动重试只认它
   const lastMessageID = React.useMemo(() => lastVisibleMessageID(items), [items]);
@@ -2856,6 +2862,8 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
                 ref={virtualizer.measureElement}
               >
                 <BackgroundTasksRow
+                  threadID={threadID}
+                  taskApi={backgroundTaskApi}
                   commands={backgroundCommands}
                   bees={runningBees}
                   waiting={!isRunning}
@@ -2918,6 +2926,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
   onOpenThread
 }) => {
   const autoCollapse = useAutoCollapseReasoning();
+  const backgroundTaskApi = useRemoteBackgroundTaskApi();
   const { toggleWorkRecord } = useWorkRecordHandlers(threadID, autoCollapse, onToggleWorkRecord);
 
   // 回合内各段（连续工具调用）的开合：按段内首条消息的稳定 key 记，流式更新时不会丢
@@ -3204,6 +3213,8 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
     <>
       {visibleItems.map((item, index) => <React.Fragment key={timelineItemKey(item)}>{renderEntry(item)}<TurnTasks group={turnTasks.get(index)} onOpenThread={onOpenThread} /></React.Fragment>)}
       <BackgroundTasksRow
+        threadID={threadID}
+        taskApi={backgroundTaskApi}
         commands={backgroundCommands}
         bees={runningBees}
         waiting={!isRunning}

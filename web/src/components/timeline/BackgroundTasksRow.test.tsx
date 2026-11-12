@@ -6,6 +6,8 @@ import {
   BackgroundTasksRow,
   backgroundTasksLabel,
   backgroundWaitTitle,
+  requestBackgroundTaskLog,
+  stopBackgroundTask,
   type BackgroundTaskCommand
 } from './BackgroundTasksRow';
 
@@ -78,6 +80,18 @@ assertExcludes(runningHtml, '等待 1 个后台任务');
 // 后台任务只读：任何形态都不出现停止入口。
 assertExcludes(waitingHtml, '停止');
 assertExcludes(runningHtml, '停止');
+
+const calls: string[] = [];
+const logResult = await requestBackgroundTaskLog('thread-1', 'cmd-1', async (threadID, messageID) => {
+  calls.push(`log:${threadID}:${messageID}`);
+  return { text: 'process output', available: true };
+});
+assertEqual(logResult.text, 'process output', '后台日志');
+await stopBackgroundTask('thread-1', 'cmd-1', async (threadID, messageID) => {
+  calls.push(`stop:${threadID}:${messageID}`);
+  return { stopped: true };
+});
+assertEqual(calls.join(','), 'log:thread-1:cmd-1,stop:thread-1:cmd-1', '日志与停止远程调用');
 
 // 子智能体行改用与派单胶囊同一套头像：名字首字母 + 按名字哈希的底色。
 // 展开列表要到点击后才渲染，静态渲染拿不到，这里直接断言行内使用的头像组件。

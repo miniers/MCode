@@ -2,6 +2,7 @@ import React from 'react';
 import { ChevronRightIcon, CodeBracketIcon } from '../Icons';
 import { SwarmAvatar, pickByHash } from '../swarmAvatar';
 import type { RemoteSwarmBee } from '../../types/swarm';
+import type { useRemoteBackgroundTaskApi } from '../../context/remoteBackgroundTaskApi';
 
 // 时间线末尾的后台任务聚合行，两种形态：
 // - 会话在跑：显示「后台 · N 项任务 · M 个子智能体」，统计回合已结束但仍在跑的命令与运行中的 bee；
@@ -21,6 +22,8 @@ export interface BackgroundTaskCommand {
 }
 
 export interface BackgroundTasksRowProps {
+  threadID?: string;
+  taskApi?: ReturnType<typeof useRemoteBackgroundTaskApi>;
   commands: BackgroundTaskCommand[];
   bees: RemoteSwarmBee[];
   /** 会话已不在运行：标题改为等待文案，时钟图标加计时 */
@@ -97,6 +100,14 @@ export function backgroundWaitTitle(
   return parts.join(' · ');
 }
 
+export function requestBackgroundTaskLog(threadID: string, messageID: string, log: (threadID: string, messageID: string) => Promise<{ text: string; available: boolean }>) {
+  return log(threadID, messageID);
+}
+
+export function stopBackgroundTask(threadID: string, messageID: string, stop: (threadID: string, messageID: string) => Promise<unknown>) {
+  return stop(threadID, messageID);
+}
+
 /** 最早启动的那条命令：优先按 startedAt，缺时间戳时退回第一条命令。 */
 function leadCommand(commands: BackgroundTaskCommand[]): BackgroundTaskCommand | undefined {
   let earliest: BackgroundTaskCommand | undefined;
@@ -114,12 +125,19 @@ function leadCommand(commands: BackgroundTaskCommand[]): BackgroundTaskCommand |
 }
 
 export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
+  threadID,
+  taskApi,
   commands,
   bees,
   waiting = false,
   onOpenSwarmBee
 }) => {
   const [expanded, setExpanded] = React.useState(false);
+  const [expandedTaskID, setExpandedTaskID] = React.useState<string | null>(null);
+  const [logText, setLogText] = React.useState('');
+  const [logAvailable, setLogAvailable] = React.useState(false);
+  const [stopping, setStopping] = React.useState<string | null>(null);
+  const pendingLog = React.useRef(false);
   const lead = leadCommand(commands);
   const startedAtMs = lead && lead.startedAt ? Date.parse(lead.startedAt) : Number.NaN;
   const hasStartedAt = !Number.isNaN(startedAtMs);
@@ -132,6 +150,27 @@ export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [waiting, hasStartedAt, startedAtMs]);
+
+  React.useEffect(() => {
+    const command = commands.find((item) => item.id === expandedTaskID);
+    if (!expanded || !command || !threadID || !taskApi?.supported) return;
+    let active = true;
+    const poll = async () => {
+      if (pendingLog.current) return;
+      pendingLog.current = true;
+      try {
+        const result = await requestBackgroundTaskLog(threadID, command.id, taskApi.log);
+        if (active) {
+          setLogText(result.text);
+          setLogAvailable(result.available);
+        }
+      } catch { /* 日志暂不可用时保留已有内容 */ }
+      finally { pendingLog.current = false; }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [expanded, expandedTaskID, threadID, taskApi, commands]);
 
   const count = commands.length + bees.length;
   if (count === 0) return null;
@@ -189,21 +228,19 @@ export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
       {expanded && (
         <ul className="mt-1.5 min-w-0 space-y-0.5 rounded-xl border border-[var(--border)] bg-[var(--card)] px-2 py-1.5 text-mc-caption text-[var(--foreground-muted)]">
           {commands.map((command) => (
-            <li
-              key={command.id}
-              className="flex min-w-0 items-center gap-1.5 px-1 py-0.5"
-              title={command.snippet}
-            >
-              <CodeBracketIcon className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate font-mono text-[var(--foreground)]">
-                {command.snippet}
-              </span>
-              {command.status === 'background' ? (
-                <span className="shrink-0 text-mc-caption text-[var(--foreground-muted)]">后台</span>
-              ) : (
-                <span className="shrink-0">运行中</span>
+            <React.Fragment key={command.id}>
+            <li className="flex min-w-0 items-center gap-1.5 px-1 py-0.5" title={command.snippet}>
+              <button type="button" aria-expanded={expandedTaskID === command.id} onClick={() => { setExpandedTaskID((current) => current === command.id ? null : command.id); setLogAvailable(false); setLogText(''); }} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+                <CodeBracketIcon className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate font-mono text-[var(--foreground)]">{command.snippet}</span>
+                <span className="shrink-0">{command.status === 'background' ? '后台' : '运行中'}</span>
+              </button>
+              {taskApi?.supported && command.status === 'running' && threadID && (
+                <button type="button" disabled={stopping === command.id} onClick={() => { setStopping(command.id); void stopBackgroundTask(threadID, command.id, taskApi.stop).catch(() => {}).finally(() => setStopping(null)); }} className="shrink-0 text-[var(--danger-foreground)] disabled:opacity-50">{stopping === command.id ? '停止中…' : '停止'}</button>
               )}
             </li>
+            {expandedTaskID === command.id && logAvailable && <li className="ml-5 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[var(--foreground)]">{logText}</li>}
+            </React.Fragment>
           ))}
           {bees.map((bee) => {
             // 头像用与派单胶囊同一套名字与配色，方便把两处的 bee 对上

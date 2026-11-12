@@ -1,6 +1,6 @@
 // web/ 目前没有测试运行器（package.json 里没有 vitest/jest，scripts/check.sh 只跑 tsc --noEmit），
 // 所以这里不引入任何测试框架与 node 内置模块：断言失败直接抛 Error，接入运行器后本文件即可直接执行。
-import { approvalShortcut, pickActiveRequestId, requestPanelMaxHeight } from './RemoteRequestPanel';
+import { approvalShortcut, pickActiveRequestId, planFeedbackPayload, requestPanelMaxHeight } from './RemoteRequestPanel';
 
 for (const [keyboardOpen, expected] of [
   [true, 'calc(var(--app-height, 100dvh) * 0.45)'],
@@ -66,4 +66,15 @@ const shortcutCases: Array<{
 for (const testCase of shortcutCases) {
   const actual = approvalShortcut(testCase.event, testCase.tag ?? 'DIV', testCase.editable ?? false, testCase.dialog ?? false, testCase.interactive ?? false);
   if (actual !== testCase.expected) throw new Error(`快捷键结果错误：期望 ${String(testCase.expected)}，实际 ${String(actual)}`);
+}
+
+const feedbackPayload = planFeedbackPayload([
+  { id: 'approve', title: '批准', role: 'approve' },
+  { id: 'decline', title: '驳回', role: 'decline' }
+], '  调整范围  ');
+if (JSON.stringify(feedbackPayload) !== JSON.stringify({ optionID: 'decline', answers: { feedback: ['调整范围'] } })) {
+  throw new Error(`计划驳回意见参数错误：${JSON.stringify(feedbackPayload)}`);
+}
+if (planFeedbackPayload([{ id: 'decline', title: '驳回', role: 'decline' }], '  ') !== null) {
+  throw new Error('空修改意见必须保留原选项行为');
 }
