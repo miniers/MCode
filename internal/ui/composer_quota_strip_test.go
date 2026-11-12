@@ -356,8 +356,11 @@ func TestQuotaStripSwarmUsesEachThread(t *testing.T) {
 	swarmPanelMu.Lock()
 	panel.state.Bees = []SwarmBee{{Provider: "codex", ThreadID: "bee1"}}
 	swarmPanelMu.Unlock()
-	th := &Thread{ID: "lead", Provider: "codex"}
+	th := &Thread{ID: "different", Provider: "codex"}
 	groups := quotaStripProviders(s, th)
+	if len(groups) != 2 || groups[0].threadID != "" || groups[1].threadID != "bee1" {
+		t.Fatalf("额度组会话不正确：%+v", groups)
+	}
 	for _, g := range groups {
 		s.loadComposerQuotaForProvider(g.provider, g.threadID, false)
 	}

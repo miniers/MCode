@@ -183,6 +183,7 @@ func getChatQuotaWindowsForProvider(s *chatState, provider string) []ProviderQuo
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	provider = chatQuotaCacheKey(s, provider)
 	return append([]ProviderQuotaWindow(nil), s.quotaWindowsByProvider[provider]...)
 }
 
@@ -284,7 +285,7 @@ func (s *chatState) loadComposerQuotaForProvider(provider, threadID string, forc
 	if threadID == "" {
 		threadID = s.selectedThreadID
 	}
-	key := quotaGroupKey(provider, threadID, s.selectedThreadID)
+	key := quotaGroupKey(chatQuotaCacheKey(s, provider), threadID, s.selectedThreadID)
 	loadedAt := s.quotaLoadedProviders[key]
 	// 会话切走后「在用」账号可能变了：会话变了就当作缓存过期，重新拉一次。
 	if s.quotaLoadingProviders[key] {
@@ -959,9 +960,12 @@ func quotaGroupKey(provider, threadID, selectedThreadID string) string {
 }
 
 func quotaGroupWindows(s *chatState, g quotaStripGroup) []ProviderQuotaWindow {
+	if g.threadID == "" || g.threadID == s.selectedThreadID {
+		return getChatQuotaWindowsForProvider(s, g.provider)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := quotaGroupKey(g.provider, g.threadID, s.selectedThreadID)
+	key := quotaGroupKey(chatQuotaCacheKey(s, g.provider), g.threadID, s.selectedThreadID)
 	return append([]ProviderQuotaWindow(nil), s.quotaWindowsByProvider[key]...)
 }
 
@@ -990,7 +994,7 @@ func quotaStripProviders(s *chatState, th *Thread) []quotaStripGroup {
 	if s == nil || th == nil {
 		return nil
 	}
-	groups := []quotaStripGroup{{provider: threadQuotaProvider(th), threadID: th.ID}}
+	groups := []quotaStripGroup{{provider: threadQuotaProvider(th)}}
 	if !s.embeddedBee && !quotaStripSwarmOn(s, th) {
 		return groups
 	}
