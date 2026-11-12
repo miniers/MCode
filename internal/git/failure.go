@@ -16,6 +16,7 @@ const (
 	FailureHostKey        FailureKind = "host_key"
 	FailureNetwork        FailureKind = "network"
 	FailureRejected       FailureKind = "rejected"
+	FailureDiverged       FailureKind = "diverged"
 	FailureLease          FailureKind = "lease"
 	FailureProtected      FailureKind = "protected"
 	FailureNoUpstream     FailureKind = "no_upstream"
@@ -77,6 +78,8 @@ func ClassifyError(err error) Failure {
 		f.Kind, f.Title, f.Hint = FailureHook, "Git 钩子拒绝了操作", "检查钩子的错误信息"
 	case has("non-fast-forward", "fetch first", "[rejected]", "failed to push some refs"):
 		f.Kind, f.Title, f.Hint = FailureRejected, "远端有新的提交", "先拉取再推送"
+	case has("not possible to fast-forward", "divergent branches", "have diverged"):
+		f.Kind, f.Title, f.Hint = FailureDiverged, "本地与远端已分叉", "选择变基或合并来拉取"
 	}
 	return f
 }

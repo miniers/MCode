@@ -30,6 +30,43 @@ var gitPaneBranchPopover func(c *ui.Context, s *chatState, threadID string, widt
 // 远端弹窗由远端模块接入。
 var gitPaneRemotesDialog func(c *ui.Context, s *chatState, threadID string, open *bool)
 
+const gitSwitchStashMarker = "mcode 切换前自动贮藏"
+
+var gitPaneFetchThrottle = struct {
+	sync.Mutex
+	last map[string]time.Time
+}{last: make(map[string]time.Time)}
+
+func gitPaneFetchDue(last, now time.Time) bool {
+	return last.IsZero() || now.Sub(last) >= 5*time.Minute
+}
+
+func gitPaneSwitchStash(entries []git.StashEntry, branch string) *git.StashEntry {
+	if branch == "" {
+		return nil
+	}
+	var latest *git.StashEntry
+	for _, entry := range entries {
+		if entry.Branch == branch && strings.HasSuffix(entry.Message, gitSwitchStashMarker) && (latest == nil || entry.Index < latest.Index) {
+			copy := entry
+			latest = &copy
+		}
+	}
+	return latest
+}
+
+func gitPaneHasUnmergedBees(threadID string, state SwarmState) bool {
+	if threadID == "" || state.LeadThreadID != threadID || state.IsBee {
+		return false
+	}
+	for _, bee := range state.Bees {
+		if bee.Status == "completed" && !bee.Merged {
+			return true
+		}
+	}
+	return false
+}
+
 type gitPaneState struct {
 	mu                           sync.Mutex
 	owner                        *chatState
@@ -42,6 +79,8 @@ type gitPaneState struct {
 	cancel                       context.CancelFunc
 	progress                     git.Progress
 	failure                      *git.Failure
+	switchStash                  *git.StashEntry
+	fetchPending                 bool
 	refreshing, pending, loading bool
 	refreshCancel                context.CancelFunc
 	refreshSeq                   uint64
@@ -151,11 +190,19 @@ func (ps *gitPaneState) refresh(client gitPaneClient, seq uint64) {
 		state, err := ps.owner.client.GitState(ctx, ps.threadID)
 		var entries []git.StatusEntry
 		var op git.OpState
+		var switchStash *git.StashEntry
 		if err == nil {
 			entries, err = client.GitStatusEntries(ctx, ps.threadID)
 		}
 		if err == nil {
 			op, err = client.GitOpState(ctx, ps.threadID)
+		}
+		if err == nil && state.HasStash && !state.Detached {
+			if stashClient, ok := ps.owner.client.(gitStashClient); ok {
+				if list, listErr := stashClient.GitStashList(ctx, ps.threadID); listErr == nil {
+					switchStash = gitPaneSwitchStash(list, state.Branch)
+				}
+			}
 		}
 		cancel()
 		timer.Stop()
@@ -164,9 +211,11 @@ func (ps *gitPaneState) refresh(client gitPaneClient, seq uint64) {
 		if valid {
 			if err == nil {
 				ps.state, ps.entries, ps.op = state, entries, op
+				ps.switchStash = switchStash
 			}
 			if errors.Is(err, git.ErrNotRepo) {
 				ps.state, ps.entries, ps.op = GitState{}, nil, git.OpState{}
+				ps.switchStash = nil
 			}
 			if err != nil && !errors.Is(err, git.ErrNotRepo) && !errors.Is(err, context.Canceled) {
 				f := git.ClassifyError(err)
@@ -174,6 +223,10 @@ func (ps *gitPaneState) refresh(client gitPaneClient, seq uint64) {
 			}
 		}
 		ps.loading = false
+		fetch := valid && err == nil && ps.fetchPending
+		if fetch {
+			ps.fetchPending = false
+		}
 		ps.refreshCancel = nil
 		again := ps.pending && !ps.disposed
 		if !again {
@@ -191,6 +244,9 @@ func (ps *gitPaneState) refresh(client gitPaneClient, seq uint64) {
 			ps.ensureWatch(root)
 		}
 		ps.owner.invalidate()
+		if fetch {
+			ps.backgroundFetch()
+		}
 		if !again {
 			return
 		}
@@ -246,7 +302,42 @@ func (ps *gitPaneState) setVisible(visible bool) {
 	ps.mu.Unlock()
 	ps.observe(ctx)
 	ps.ensureWatch(root)
+	ps.requestBackgroundFetch()
+}
+
+func (ps *gitPaneState) requestBackgroundFetch() {
+	ps.mu.Lock()
+	ps.fetchPending = true
+	ps.mu.Unlock()
 	ps.requestRefresh()
+}
+
+func (ps *gitPaneState) backgroundFetch() {
+	ps.mu.Lock()
+	if ps.disposed || !ps.visible || ps.syncing || ps.state.WorkDir == "" || ps.state.Detached || ps.lifeCtx == nil || ps.lifeCtx.Err() != nil {
+		ps.mu.Unlock()
+		return
+	}
+	root, lifeCtx := gitPaneWatchRoot(ps.state), ps.lifeCtx
+	gitPaneFetchThrottle.Lock()
+	now := time.Now()
+	if !gitPaneFetchDue(gitPaneFetchThrottle.last[root], now) {
+		gitPaneFetchThrottle.Unlock()
+		ps.mu.Unlock()
+		return
+	}
+	gitPaneFetchThrottle.last[root] = now
+	gitPaneFetchThrottle.Unlock()
+	ps.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(lifeCtx, 30*time.Second)
+		defer cancel()
+		if ps.owner.client.GitFetch(ctx, ps.threadID) != nil || ctx.Err() != nil {
+			return
+		}
+		ps.requestRefresh()
+		ps.owner.loadGitState(ps.threadID)
+	}()
 }
 
 func (ps *gitPaneState) observe(ctx context.Context) {
@@ -259,7 +350,7 @@ func (ps *gitPaneState) observe(ctx context.Context) {
 	if win := ps.owner.currentWindow(); win != nil {
 		off = win.OnFocus(func() {
 			if ctx.Err() == nil {
-				ps.requestRefresh()
+				ps.requestBackgroundFetch()
 			}
 		})
 	}
@@ -441,6 +532,33 @@ func (ps *gitPaneState) run(action string) {
 			if state.Branch != "" {
 				toast += "到 " + state.Branch
 			}
+		case "restore-switch-stash":
+			stashClient, ok := ps.owner.client.(gitStashClient)
+			if !ok {
+				err = errors.New("贮藏不可用")
+				break
+			}
+			// 分支与贮藏序号都可能变化，恢复前重新核对。
+			var current GitState
+			current, err = ps.owner.client.GitState(ctx, ps.threadID)
+			if err == nil && (current.Detached || current.Branch != state.Branch || current.WorkDir != state.WorkDir) {
+				err = errors.New("分支已变化，请刷新后重试")
+			}
+			if err == nil && !current.HasStash {
+				err = errors.New("切换前的贮藏已变化，请刷新后重试")
+			}
+			if err == nil {
+				var entries []git.StashEntry
+				entries, err = stashClient.GitStashList(ctx, ps.threadID)
+				if err == nil {
+					if entry := gitPaneSwitchStash(entries, current.Branch); entry != nil {
+						err = stashClient.GitStashPopAt(ctx, ps.threadID, entry.Index)
+					} else {
+						err = errors.New("切换前的贮藏已变化，请刷新后重试")
+					}
+				}
+			}
+			toast = "已恢复改动"
 		case "force":
 			err = client.GitPushForceWithLease(ctx, ps.threadID)
 			toast = "已强制推送"
@@ -515,6 +633,7 @@ func renderGitPane(c *ui.Context, s *chatState) {
 		}
 		renderGitPaneOpBanner(c, s, ps)
 		renderGitPaneFailure(c, ps)
+		renderGitPaneSwitchStash(c, ps)
 		ui.Column(c.Key("git-pane-content")).Grow(1).MinHeight(0).FillWidth().Children(func() {
 			if loading && state.WorkDir == "" {
 				LoadingIndicator(c, "git-pane-loading", "", IconMD)
@@ -684,7 +803,16 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 				chatHeaderMu.Lock()
 				pushBusy, pushConfirm := hs.pushBusy, hs.pushConfirm
 				chatHeaderMu.Unlock()
-				for _, item := range []struct{ label, action string }{{"创建 PR…", "pr-create"}, {"推送并创建 PR", "push-pr"}, {"查看 Pull Request…", "pr-view"}, {"打开仓库", "repo"}, {"远端…", "remotes"}} {
+				swarmPanelMu.Lock()
+				canMergeBees := false
+				if swarm := swarmPanelStates[ps.owner]; swarm != nil {
+					canMergeBees = gitPaneHasUnmergedBees(ps.threadID, swarm.state)
+				}
+				swarmPanelMu.Unlock()
+				for _, item := range []struct{ label, action string }{{"创建 PR…", "pr-create"}, {"合并子代理改动（PR）", "push-pr"}, {"查看 Pull Request…", "pr-view"}, {"打开仓库", "repo"}, {"远端…", "remotes"}} {
+					if item.action == "push-pr" && !canMergeBees {
+						continue
+					}
 					if item.action == "repo" && repoURL == "" || item.action == "remotes" && gitPaneRemotesDialog == nil {
 						continue
 					}
@@ -738,9 +866,6 @@ func gitPaneOpTitle(op git.OpState) string {
 	case git.OpRevert:
 		title = "正在还原"
 	}
-	if len(op.Conflicts) > 0 {
-		title += fmt.Sprintf(" · %d 个冲突", len(op.Conflicts))
-	}
 	if op.Total > 0 {
 		title += fmt.Sprintf(" · %d/%d", op.Step, op.Total)
 	}
@@ -757,6 +882,18 @@ func renderGitPaneOpBanner(c *ui.Context, s *chatState, ps *gitPaneState) {
 	busy := gitPaneAgentBusy(s, ps.threadID)
 	ui.Row(c.Key("git-pane-op-banner")).FillWidth().Height(ControlLG).Shrink(0).Radius(RadiusMD).Background(ThemeWarning(c).Alpha(0.12)).Padding(0, Space3).Gap(Space2).AlignItems(ui.Center).Transition(motionCollapse(c)).Children(func() {
 		ui.Text(c, gitPaneOpTitle(op)).FontSize(uiFont(TypeFootnote)).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+		if len(op.Conflicts) > 0 {
+			Button(c, ButtonOpts{Key: "git-pane-op-conflicts", Text: fmt.Sprintf("· %d 个冲突", len(op.Conflicts)), Variant: ButtonGhost, Size: ControlSM, OnClick: func() {
+				ps.mu.Lock()
+				ps.segment = 0
+				ps.mu.Unlock()
+				st := gitChangesStateFor(ps)
+				st.mu.Lock()
+				st.selected, st.staged, st.group, st.detail = op.Conflicts[0].Path, false, 0, true
+				st.mu.Unlock()
+				s.invalidate()
+			}})
+		}
 		for _, item := range []struct{ label, action string }{{"中止", "abort"}, {"跳过", "skip"}, {"继续", "continue"}} {
 			item := item
 			if item.action == "skip" && op.Kind == git.OpMerge {
@@ -802,6 +939,13 @@ func renderGitPaneFailure(c *ui.Context, ps *gitPaneState) {
 			IconButton(c, IconButtonProps{Icon: IconX(), Label: "关闭 Git 错误", Size: ControlSM, Variant: ButtonGhost, OnClick: func() { ps.fail(nil) }})
 		})
 		switch failure.Kind {
+		case git.FailureDiverged:
+			ui.Row(c).Gap(Space2).Children(func() {
+				Button(c, ButtonOpts{Text: "变基拉取", Variant: ButtonSecondary, Disabled: syncing, Tooltip: tip, OnClick: func() { ps.run("rebase") }})
+				Button(c, ButtonOpts{Text: "合并拉取", Variant: ButtonSecondary, Disabled: syncing, Tooltip: tip, OnClick: func() { ps.run("merge") }})
+			})
+		case git.FailureNoUpstream:
+			Button(c, ButtonOpts{Text: "发布", Variant: ButtonSecondary, Disabled: syncing, Tooltip: tip, OnClick: func() { ps.run("push") }})
 		case git.FailureRejected:
 			Button(c, ButtonOpts{Text: "拉取并重试", Variant: ButtonSecondary, Disabled: syncing, Tooltip: tip, OnClick: func() { ps.run("retry") }})
 		case git.FailureLease:
@@ -816,6 +960,19 @@ func renderGitPaneFailure(c *ui.Context, ps *gitPaneState) {
 				ui.Text(c, failure.Detail).Font("monospace").FontSize(uiFont(TypeCode)).Selectable()
 			})
 		}
+	})
+}
+
+func renderGitPaneSwitchStash(c *ui.Context, ps *gitPaneState) {
+	ps.mu.Lock()
+	entry, syncing := ps.switchStash, ps.syncing
+	ps.mu.Unlock()
+	if entry == nil {
+		return
+	}
+	ui.Row(c.Key("git-pane-switch-stash")).FillWidth().Height(ControlLG).Shrink(0).Padding(0, Space3).Gap(Space2).AlignItems(ui.Center).Background(ThemeSelected(c)).Transition(motionCollapse(c)).Children(func() {
+		ui.Text(c, "有切换分支前的改动").FontSize(uiFont(TypeFootnote)).Grow(1).Shrink(1).MinWidth(0)
+		Button(c, ButtonOpts{Text: "恢复", Variant: ButtonGhost, Size: ControlSM, Disabled: syncing, OnClick: func() { ps.run("restore-switch-stash") }})
 	})
 }
 

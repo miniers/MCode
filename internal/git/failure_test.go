@@ -24,3 +24,15 @@ func TestClassifyError(t *testing.T) {
 		t.Fatal("取消未分类")
 	}
 }
+
+func TestClassifyErrorDiverged(t *testing.T) {
+	for _, message := range []string{"fatal: Not possible to fast-forward, aborting.", "fatal: Need to specify how to reconcile divergent branches.", "Your branch and 'origin/main' have diverged"} {
+		f := ClassifyError(fmt.Errorf("%s", message))
+		if f.Kind != FailureDiverged || f.Title != "本地与远端已分叉" || f.Hint != "选择变基或合并来拉取" {
+			t.Fatalf("分叉分类 = %+v", f)
+		}
+	}
+	if f := ClassifyError(fmt.Errorf("[rejected] (non-fast-forward): branches have diverged")); f.Kind != FailureRejected {
+		t.Fatalf("推送拒绝被分叉分类覆盖：%+v", f)
+	}
+}

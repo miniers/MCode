@@ -20,6 +20,7 @@ type gitPaneFakeClient struct {
 	op        git.OpState
 	stateHook func(context.Context) (GitState, error)
 	pullHook  func(context.Context) error
+	fetchHook func(context.Context) error
 	pullErr   error
 	calls     []string
 }
@@ -58,8 +59,17 @@ func (f *gitPaneFakeClient) GitPullWith(ctx context.Context, _, strategy string)
 	}
 	return err
 }
-func (f *gitPaneFakeClient) GitPush(context.Context, string) error  { f.record("push"); return nil }
-func (f *gitPaneFakeClient) GitFetch(context.Context, string) error { f.record("fetch"); return nil }
+func (f *gitPaneFakeClient) GitPush(context.Context, string) error { f.record("push"); return nil }
+func (f *gitPaneFakeClient) GitFetch(ctx context.Context, _ string) error {
+	f.record("fetch")
+	f.paneMu.Lock()
+	hook := f.fetchHook
+	f.paneMu.Unlock()
+	if hook != nil {
+		return hook(ctx)
+	}
+	return nil
+}
 func (f *gitPaneFakeClient) GitPushForceWithLease(context.Context, string) error {
 	f.record("force")
 	return nil
@@ -631,10 +641,21 @@ func TestGitPaneMoreMenuConsolidatedActions(t *testing.T) {
 	if err := tt.Click("Git 更多操作"); err != nil {
 		t.Fatal(err)
 	}
-	for _, label := range []string{"创建 PR…", "推送并创建 PR", "查看 Pull Request…", "贮藏…"} {
+	for _, label := range []string{"创建 PR…", "查看 Pull Request…", "贮藏…"} {
 		if _, ok := tt.Access(label); !ok {
 			t.Fatalf("菜单缺少 %q", label)
 		}
+	}
+	if _, ok := tt.Access("合并子代理改动（PR）"); ok {
+		t.Fatal("没有可合并子代理时不应显示 PR 合并入口")
+	}
+	hp := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	hp.setStateLocked(SwarmState{LeadThreadID: ps.threadID, Bees: []SwarmBee{{Status: "completed"}}})
+	swarmPanelMu.Unlock()
+	tt.Frame()
+	if _, ok := tt.Access("合并子代理改动（PR）"); !ok {
+		t.Fatal("缺少 PR 合并入口")
 	}
 	if node, ok := tt.Access("创建 PR…"); !ok || !node.Disabled || node.Description != "没有可用的远端仓库地址" {
 		t.Fatalf("无远端创建 PR 状态 = %+v", node)
@@ -704,6 +725,7 @@ type gitStashPaneTestClient struct {
 	*gitPaneFakeClient
 	list func(context.Context) ([]git.StashEntry, error)
 	push func(context.Context, string, string) error
+	pop  func(context.Context, int) error
 }
 
 func (f *gitStashPaneTestClient) GitStashList(ctx context.Context, _ string) ([]git.StashEntry, error) {
@@ -720,7 +742,12 @@ func (f *gitStashPaneTestClient) GitStashPush(ctx context.Context, threadID, mes
 }
 func (f *gitStashPaneTestClient) GitStashApply(context.Context, string, int) error { return nil }
 func (f *gitStashPaneTestClient) GitStashDrop(context.Context, string, int) error  { return nil }
-func (f *gitStashPaneTestClient) GitStashPopAt(context.Context, string, int) error { return nil }
+func (f *gitStashPaneTestClient) GitStashPopAt(ctx context.Context, _ string, index int) error {
+	if f.pop != nil {
+		return f.pop(ctx, index)
+	}
+	return nil
+}
 
 func TestGitStashDialogCreatesWithMessage(t *testing.T) {
 	s, ps, base := gitPaneTestState(t)
@@ -862,5 +889,270 @@ func TestGitPaneCommitFailureKeepsThreadDraft(t *testing.T) {
 	base.mu.Unlock()
 	if fullCommits != 0 {
 		t.Fatal("索引提交失败退回了全量提交")
+	}
+}
+
+func TestGitPaneFailureRecoveryButtons(t *testing.T) {
+	for _, tc := range []struct {
+		kind        git.FailureKind
+		label, call string
+	}{
+		{git.FailureDiverged, "变基拉取", "pull:rebase"},
+		{git.FailureDiverged, "合并拉取", "pull:merge"},
+		{git.FailureNoUpstream, "发布", "push"},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			_, ps, client := gitPaneTestState(t)
+			ps.failure = &git.Failure{Kind: tc.kind, Title: "操作失败"}
+			ps.syncing = true
+			tt := ui.NewTester(func(c *ui.Context) { renderGitPaneFailure(c, ps) }, 600, 240)
+			if node, ok := tt.Access(tc.label); !ok || !node.Disabled {
+				t.Fatalf("同步时按钮未禁用：%+v", node)
+			}
+			ps.mu.Lock()
+			ps.syncing = false
+			ps.mu.Unlock()
+			tt.Frame()
+			if err := tt.Click(tc.label); err != nil {
+				t.Fatal(err)
+			}
+			gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return !ps.syncing && !ps.refreshing })
+			client.paneMu.Lock()
+			defer client.paneMu.Unlock()
+			if !slices.Equal(client.calls, []string{tc.call}) {
+				t.Fatalf("恢复动作 = %v", client.calls)
+			}
+		})
+	}
+}
+
+func TestGitPaneConflictOpensFirstFile(t *testing.T) {
+	s, ps, _ := gitPaneTestState(t)
+	ps.segment = 1
+	ps.op = git.OpState{Kind: git.OpRebase, Conflicts: []git.ConflictFile{{Path: "first.go"}, {Path: "second.go"}}}
+	st := gitChangesStateFor(ps)
+	st.selected, st.staged, st.group = "old.go", true, 2
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneOpBanner(c, s, ps) }, 800, 120)
+	if err := tt.Click("· 2 个冲突"); err != nil {
+		t.Fatal(err)
+	}
+	if ps.segment != 0 || st.selected != "first.go" || st.staged || st.group != 0 || !st.detail {
+		t.Fatalf("冲突跳转状态 = %d/%+v", ps.segment, st)
+	}
+}
+
+func TestGitPaneFetchThrottle(t *testing.T) {
+	now := time.Unix(1000, 0)
+	for _, tc := range []struct {
+		last time.Time
+		want bool
+	}{
+		{time.Time{}, true}, {now.Add(-4 * time.Minute), false},
+		{now.Add(-5 * time.Minute), true}, {now.Add(-6 * time.Minute), true}, {now.Add(time.Minute), false},
+	} {
+		if got := gitPaneFetchDue(tc.last, now); got != tc.want {
+			t.Errorf("节流 %v = %v", tc.last, got)
+		}
+	}
+}
+
+func TestGitPaneBackgroundFetchLifecycle(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "成功", true: "失败静默"}[fail], func(t *testing.T) {
+			s, ps, client := gitPaneTestState(t)
+			root := t.TempDir()
+			client.state = GitState{WorkDir: root, Branch: "main", Ahead: 2, Behind: 3}
+			started, release := make(chan context.Context, 1), make(chan struct{})
+			client.fetchHook = func(ctx context.Context) error {
+				started <- ctx
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				if fail {
+					return errors.New("network is unreachable")
+				}
+				return nil
+			}
+			ps.setVisible(true)
+			var ctx context.Context
+			select {
+			case ctx = <-started:
+			case <-time.After(3 * time.Second):
+				t.Fatal("激活后没有抓取")
+			}
+			deadline, ok := ctx.Deadline()
+			if !ok || time.Until(deadline) > 30*time.Second {
+				t.Fatal("抓取没有 30 秒超时")
+			}
+			ps.mu.Lock()
+			if ps.syncing || ps.failure != nil {
+				t.Error("后台抓取改变了前台状态")
+			}
+			ps.mu.Unlock()
+			var wg sync.WaitGroup
+			for range 12 {
+				wg.Add(1)
+				go func() { defer wg.Done(); ps.backgroundFetch() }()
+			}
+			wg.Wait()
+			client.paneMu.Lock()
+			if !slices.Equal(client.calls, []string{"fetch"}) {
+				t.Errorf("同仓库重复抓取：%v", client.calls)
+			}
+			client.paneMu.Unlock()
+			close(release)
+			gitPaneWait(t, func() bool { return ctx.Err() != nil })
+			if !fail {
+				hs := getChatHeaderState(s)
+				gitPaneWait(t, func() bool { chatHeaderMu.Lock(); defer chatHeaderMu.Unlock(); return hs.git[ps.threadID].Behind == 3 })
+			}
+			ps.mu.Lock()
+			defer ps.mu.Unlock()
+			if ps.syncing || ps.failure != nil {
+				t.Fatal("后台抓取结果改变了错误或同步状态")
+			}
+		})
+	}
+}
+
+func TestGitPaneBackgroundFetchEligibilityAndCancellation(t *testing.T) {
+	_, ps, client := gitPaneTestState(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ps.visible, ps.lifeCtx, ps.lifeCancel = true, ctx, cancel
+	for _, state := range []GitState{{}, {WorkDir: t.TempDir(), Detached: true}} {
+		ps.state = state
+		ps.backgroundFetch()
+	}
+	ps.state = GitState{WorkDir: t.TempDir(), Branch: "main"}
+	ps.syncing = true
+	ps.backgroundFetch()
+	client.paneMu.Lock()
+	if len(client.calls) != 0 {
+		t.Error("不满足条件仍抓取")
+	}
+	client.paneMu.Unlock()
+	ps.syncing = false
+	started := make(chan context.Context, 1)
+	client.fetchHook = func(ctx context.Context) error { started <- ctx; <-ctx.Done(); return ctx.Err() }
+	ps.backgroundFetch()
+	var fetchCtx context.Context
+	select {
+	case fetchCtx = <-started:
+	case <-time.After(time.Second):
+		t.Fatal("抓取未开始")
+	}
+	ps.setVisible(false)
+	gitPaneWait(t, func() bool { return fetchCtx.Err() == context.Canceled })
+}
+
+func TestGitPaneSwitchStashMatch(t *testing.T) {
+	entries := []git.StashEntry{
+		{Index: 0, Branch: "other", Message: gitSwitchStashMarker},
+		{Index: 1, Branch: "main", Message: "普通贮藏"},
+		{Index: 4, Branch: "main", Message: gitSwitchStashMarker},
+		{Index: 2, Branch: "main", Message: "prefix " + gitSwitchStashMarker},
+		{Index: 3, Branch: "main", Message: gitSwitchStashMarker + " suffix"},
+	}
+	if got := gitPaneSwitchStash(entries, "main"); got == nil || got.Index != 2 {
+		t.Fatalf("最新贮藏 = %+v", got)
+	}
+	for _, branch := range []string{"", "missing"} {
+		if gitPaneSwitchStash(entries, branch) != nil {
+			t.Errorf("误匹配分支 %q", branch)
+		}
+	}
+	if gitPaneSwitchStash(nil, "main") != nil {
+		t.Fatal("空列表误匹配")
+	}
+}
+
+func TestGitPaneSwitchStashRefreshAndRestore(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "恢复成功", true: "冲突横幅"}[fail], func(t *testing.T) {
+			s, ps, base := gitPaneTestState(t)
+			base.state = GitState{WorkDir: t.TempDir(), Branch: "main"}
+			var mu sync.Mutex
+			lists, popped := 0, -1
+			s.client = &gitStashPaneTestClient{gitPaneFakeClient: base,
+				list: func(context.Context) ([]git.StashEntry, error) {
+					mu.Lock()
+					defer mu.Unlock()
+					lists++
+					return []git.StashEntry{{Index: lists, Branch: "main", Message: gitSwitchStashMarker}}, nil
+				},
+				pop: func(_ context.Context, index int) error {
+					mu.Lock()
+					popped = index
+					mu.Unlock()
+					if fail {
+						return errors.New("unmerged files")
+					}
+					base.paneMu.Lock()
+					base.state.HasStash = false
+					base.paneMu.Unlock()
+					return nil
+				},
+			}
+			ps.requestRefresh()
+			gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return !ps.refreshing })
+			mu.Lock()
+			count := lists
+			mu.Unlock()
+			if count != 0 {
+				t.Fatal("没有贮藏时读取列表")
+			}
+			base.paneMu.Lock()
+			base.state.HasStash = true
+			base.paneMu.Unlock()
+			ps.requestRefresh()
+			gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return !ps.refreshing && ps.switchStash != nil })
+			tt := ui.NewTester(func(c *ui.Context) { renderGitPaneSwitchStash(c, ps) }, 600, 100)
+			if !tt.HasText("有切换分支前的改动") {
+				t.Fatal("缺少恢复横幅")
+			}
+			if err := tt.Click("恢复"); err != nil {
+				t.Fatal(err)
+			}
+			gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return !ps.syncing && !ps.refreshing })
+			mu.Lock()
+			index := popped
+			mu.Unlock()
+			if index != 2 {
+				t.Fatalf("没有重新读取最新序号：%d", index)
+			}
+			ps.mu.Lock()
+			failure, entry := ps.failure, ps.switchStash
+			ps.mu.Unlock()
+			if fail {
+				if failure == nil || failure.Kind != git.FailureConflict {
+					t.Fatalf("失败分类 = %+v", failure)
+				}
+			} else if entry != nil || failure != nil {
+				t.Fatal("恢复后没有刷新横幅")
+			}
+		})
+	}
+}
+
+func TestGitPaneHasUnmergedBees(t *testing.T) {
+	for _, tc := range []struct {
+		state SwarmState
+		want  bool
+	}{
+		{SwarmState{LeadThreadID: "lead", Bees: []SwarmBee{{Status: "completed"}}}, true},
+		{SwarmState{LeadThreadID: "other", Bees: []SwarmBee{{Status: "completed"}}}, false},
+		{SwarmState{LeadThreadID: "lead", IsBee: true, Bees: []SwarmBee{{Status: "completed"}}}, false},
+		{SwarmState{LeadThreadID: "lead", Bees: []SwarmBee{{Status: "completed", Merged: true}, {Status: "running"}}}, false},
+		{SwarmState{LeadThreadID: "lead"}, false},
+	} {
+		if got := gitPaneHasUnmergedBees("lead", tc.state); got != tc.want {
+			t.Errorf("合并入口判定 = %v，状态 %+v", got, tc.state)
+		}
+	}
+	if gitPaneHasUnmergedBees("", SwarmState{Bees: []SwarmBee{{Status: "completed"}}}) {
+		t.Fatal("空会话误匹配")
 	}
 }
