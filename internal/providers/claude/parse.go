@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	backgroundTaskPattern   = regexp.MustCompile(`(?:moved to the background as task|Command running in background with ID:) ([A-Za-z0-9]+)(\s|\.|$)`)
+	// 锚定新版文案，避免普通命令输出中恰好包含该文案时误判。
+	backgroundTaskPattern   = regexp.MustCompile(`(?:moved to the background as task|^\s*Command running in background with ID:) ([A-Za-z0-9]+)(\s|\.|$)`)
 	taskNotificationPattern = regexp.MustCompile(`(?s)<task-notification>.*?</task-notification>`)
 	taskIDPattern           = regexp.MustCompile(`<task-id>\s*([^<\s]+)\s*</task-id>`)
 	toolUseIDPattern        = regexp.MustCompile(`<tool-use-id>\s*([^<\s]+)\s*</tool-use-id>`)

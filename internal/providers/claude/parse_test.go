@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -281,6 +282,17 @@ func TestParser_BashBackgroundTask(t *testing.T) {
 	)
 	if len(events) != 3 || events[1].Type != harness.EventBackgroundTaskStart || events[1].ToolID != "toolu_bash" || events[1].TaskID != "bvq98tixu" || events[2].Type != harness.EventBackgroundTaskEnd || events[2].ToolID != "toolu_bash" || events[2].TaskID != "bvq98tixu" {
 		t.Fatalf("Bash 后台任务事件不对: %+v", events)
+	}
+
+	content, err := json.Marshal("internal/providers/claude/parse_test.go:278: Command running in background with ID: abc. Output is being written to: /tmp/x.output.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events = feedParserLines(t, `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_bash","content":`+string(content)+`}]}}`)
+	for _, event := range events {
+		if event.Type == harness.EventBackgroundTaskStart {
+			t.Fatalf("普通命令输出不应发后台任务开始事件: %+v", events)
+		}
 	}
 
 	events = feedParserLines(t,
