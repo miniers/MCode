@@ -1,39 +1,893 @@
 package mcodeui
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
 	"path"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
 )
 
+type gitChangesClient interface {
+	GitStageFiles(context.Context, string, []string) error
+	GitUnstageFiles(context.Context, string, []string) error
+	GitDiscardFiles(context.Context, string, []string) (*git.Snapshot, error)
+	GitCommitIndex(context.Context, string, string, bool) (string, error)
+	GitLastCommitMessage(context.Context, string) (string, error)
+	GitHeadPushed(context.Context, string) (bool, error)
+	GitLog(context.Context, string, git.LogOptions) ([]git.LogCommit, error)
+}
+
+var gitPaneDiffView func(c *ui.Context, s *chatState, threadID string, ps *gitPaneState, path string, staged bool)
+
+type gitChangesState struct {
+	mu                                           sync.Mutex
+	selected                                     string
+	group                                        int
+	staged, detail, amend, pushed, busy, confirm bool
+	collapsed                                    [3]bool
+	draft                                        string
+	root                                         string
+	cancel                                       context.CancelFunc
+	selection                                    map[string]bool
+	anchor                                       string
+	focus                                        string
+	genSeq                                       uint64
+	menu                                         bool
+	history                                      []git.LogCommit
+	historyIndex                                 int
+	successUntil                                 time.Time
+}
+
+// shortcut: 面板销毁时不清理，按会话数量级可忽略；若会话量很大再接到 dispose
+var gitChangesStates sync.Map // *gitPaneState → *gitChangesState
+var gitChangesDrafts sync.Map // 工作目录 → 提交草稿
+
+func gitChangesStateFor(ps *gitPaneState) *gitChangesState {
+	st, _ := gitChangesStates.LoadOrStore(ps, &gitChangesState{})
+	return st.(*gitChangesState)
+}
+
+type gitChangesGroup struct {
+	name    string
+	entries []git.StatusEntry
+}
+
+type gitChangesItem struct {
+	group int
+	path  string
+}
+
+func (item gitChangesItem) key() string { return fmt.Sprintf("%d:%s", item.group, item.path) }
+
+func gitChangesVisibleItems(groups [3]gitChangesGroup, collapsed [3]bool) []gitChangesItem {
+	var items []gitChangesItem
+	for i, group := range groups {
+		if !collapsed[i] {
+			for _, e := range group.entries {
+				items = append(items, gitChangesItem{i, e.Path})
+			}
+		}
+	}
+	return items
+}
+
+func gitChangesRange(items []gitChangesItem, anchor, current string) map[string]bool {
+	start, end := -1, -1
+	for i, item := range items {
+		if item.key() == anchor {
+			start = i
+		}
+		if item.key() == current {
+			end = i
+		}
+	}
+	if start < 0 || end < 0 {
+		return map[string]bool{current: true}
+	}
+	if start > end {
+		start, end = end, start
+	}
+	selection := make(map[string]bool, end-start+1)
+	for _, item := range items[start : end+1] {
+		selection[item.key()] = true
+	}
+	return selection
+}
+
+func gitChangesTruncateStart(text string, fits func(string) bool) string {
+	if fits(text) {
+		return text
+	}
+	runes := []rune(text)
+	for i := 1; i < len(runes); i++ {
+		if fits("…" + string(runes[i:])) {
+			return "…" + string(runes[i:])
+		}
+	}
+	return "…"
+}
+
+func gitChangesMove(items []gitChangesItem, current string, delta int) gitChangesItem {
+	for i, item := range items {
+		if item.key() == current {
+			return items[max(0, min(len(items)-1, i+delta))]
+		}
+	}
+	return gitChangesItem{}
+}
+
+func gitChangesGroups(entries []git.StatusEntry) [3]gitChangesGroup {
+	groups := [3]gitChangesGroup{{name: "冲突"}, {name: "已暂存"}, {name: "更改"}}
+	for _, e := range entries {
+		if gitEntryConflicted(e) {
+			groups[0].entries = append(groups[0].entries, e)
+			continue
+		}
+		if e.Index != 0 && e.Index != ' ' && e.Index != '?' {
+			groups[1].entries = append(groups[1].entries, e)
+		}
+		if (e.Worktree != 0 && e.Worktree != ' ') || e.Index == '?' {
+			groups[2].entries = append(groups[2].entries, e)
+		}
+	}
+	return groups
+}
+
+func gitChangesCommitLabel(staged, changed int, amend bool) string {
+	if amend {
+		return "修改上次提交"
+	}
+	if staged > 0 {
+		return fmt.Sprintf("提交 %d 个文件", staged)
+	}
+	return fmt.Sprintf("提交全部 %d 个文件", changed)
+}
+
+func gitChangesCommitDisabled(message string, changes int, amend, busy bool) bool {
+	return busy || strings.TrimSpace(message) == "" || changes == 0
+}
+
+func gitChangesPaths(entries []git.StatusEntry) []string {
+	paths := make([]string, 0, len(entries))
+	for _, e := range entries {
+		paths = append(paths, e.Path)
+	}
+	return paths
+}
+
+func gitChangesIgnore(root, name string) error {
+	if root == "" || name == "" || strings.ContainsAny(name, "\r\n") {
+		return fmt.Errorf("无法忽略此路径")
+	}
+	file := filepath.Join(root, ".gitignore")
+	data, err := os.ReadFile(file)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	prefix := ""
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		prefix = "\n"
+	}
+	escaped := strings.NewReplacer("\\", "\\\\", "*", "\\*", "?", "\\?", "[", "\\[").Replace(name)
+	if strings.HasSuffix(escaped, " ") {
+		escaped = strings.TrimRight(escaped, " ") + strings.Repeat("\\ ", len(escaped)-len(strings.TrimRight(escaped, " ")))
+	}
+	_, err = f.WriteString(prefix + "/" + escaped + "\n")
+	return err
+}
+
+func gitChangesRun(ps *gitPaneState, st *gitChangesState, op func(context.Context) error) {
+	st.mu.Lock()
+	if st.busy {
+		st.mu.Unlock()
+		return
+	}
+	st.busy = true
+	st.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		err := op(ctx)
+		st.mu.Lock()
+		st.busy = false
+		st.mu.Unlock()
+		if err != nil {
+			ps.fail(err)
+		} else {
+			ps.requestRefresh()
+		}
+		ps.owner.invalidate()
+	}()
+}
+
+func gitChangesDiscard(ps *gitPaneState, st *gitChangesState, client gitChangesClient, threadID string, paths []string) {
+	if len(paths) == 0 || gitPaneAgentBusy(ps.owner, threadID) {
+		return
+	}
+	gitChangesRun(ps, st, func(ctx context.Context) error {
+		snap, err := client.GitDiscardFiles(ctx, threadID, paths)
+		if err == nil {
+			label := fmt.Sprintf("已丢弃 %d 个文件", len(paths))
+			if len(paths) == 1 {
+				label = "已丢弃 " + path.Base(paths[0])
+			}
+			ps.showUndo(label, snap)
+		}
+		return err
+	})
+}
+
+func gitChangesStageSelected(ps *gitPaneState, st *gitChangesState, client gitChangesClient, threadID string, groups [3]gitChangesGroup, selection map[string]bool, current gitChangesItem) {
+	var stage, unstage []string
+	for i := 1; i <= 2; i++ {
+		for _, entry := range groups[i].entries {
+			if selection[(gitChangesItem{i, entry.Path}).key()] {
+				if i == 1 {
+					unstage = append(unstage, entry.Path)
+				} else {
+					stage = append(stage, entry.Path)
+				}
+			}
+		}
+	}
+	if len(stage) == 0 && len(unstage) == 0 {
+		if current.group == 1 {
+			unstage = []string{current.path}
+		} else {
+			stage = []string{current.path}
+		}
+	}
+	next := ""
+	entries := groups[current.group].entries
+	index := -1
+	for i, entry := range entries {
+		if entry.Path == current.path {
+			index = i
+			break
+		}
+	}
+	for i := index + 1; i < len(entries); i++ {
+		if !selection[(gitChangesItem{current.group, entries[i].Path}).key()] {
+			next = entries[i].Path
+			break
+		}
+	}
+	if next == "" {
+		for i := index - 1; i >= 0; i-- {
+			if !selection[(gitChangesItem{current.group, entries[i].Path}).key()] {
+				next = entries[i].Path
+				break
+			}
+		}
+	}
+	gitChangesRun(ps, st, func(ctx context.Context) error {
+		if len(unstage) > 0 {
+			if err := client.GitUnstageFiles(ctx, threadID, unstage); err != nil {
+				return err
+			}
+		}
+		if len(stage) > 0 {
+			if err := client.GitStageFiles(ctx, threadID, stage); err != nil {
+				if len(unstage) > 0 {
+					ps.requestRefresh()
+				}
+				return err
+			}
+		}
+		st.mu.Lock()
+		st.selected, st.staged, st.group = next, current.group == 1, current.group
+		if next != "" {
+			st.focus = (gitChangesItem{current.group, next}).key()
+		}
+		st.selection = nil
+		st.mu.Unlock()
+		return nil
+	})
+}
+
 func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitPaneState) {
 	ps.mu.Lock()
 	entries := append([]git.StatusEntry(nil), ps.entries...)
+	state := ps.state
 	ps.mu.Unlock()
-	if len(entries) == 0 {
-		renderGitPaneEmpty(c, "工作区干净", IconCheck())
+	client, ok := s.client.(gitChangesClient)
+	if !ok {
+		renderGitPaneEmpty(c, "Git", IconGitBranch())
 		return
 	}
-	ui.Scroll(c.Key("git-pane-changes")).Fill().Children(func() {
-		ui.Column(c).FillWidth().Children(func() {
-			for _, entry := range entries {
-				code := entry.Worktree
-				if code == ' ' || code == 0 {
-					code = entry.Index
-				}
-				if gitEntryConflicted(entry) {
-					code = 'U'
-				}
-				letter, color := gitStatusPresentation(c, code)
-				ui.Row(c.Key("git-pane-file-"+entry.Path)).FillWidth().Height(RowHeight).Padding(0, Space3).Gap(Space3).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, letter).Width(IconMD).FontSize(uiFont(TypeFootnote)).TextColor(color)
-					ui.Text(c, path.Base(entry.Path)).FontSize(uiFont(TypeBody)).SingleLine().Shrink(1).MinWidth(0)
-					if dir := path.Dir(entry.Path); dir != "." {
-						ui.Text(c, dir).FontSize(uiFont(TypeFootnote)).TextColor(ThemeTertiaryText(c)).SingleLine().Shrink(1).MinWidth(0)
-					}
+	groups := gitChangesGroups(entries)
+	st := gitChangesStateFor(ps)
+	st.mu.Lock()
+	if st.root != state.WorkDir {
+		st.root = state.WorkDir
+		st.draft = ""
+		if v, ok := gitChangesDrafts.Load(state.WorkDir); ok {
+			st.draft = v.(string)
+		}
+	}
+	selected, staged, detail, amend, pushed, busy, confirm, draft := st.selected, st.staged, st.detail, st.amend, st.pushed, st.busy, st.confirm, st.draft
+	selectedGroup := st.group
+	generating := st.cancel != nil
+	collapsed := st.collapsed
+	items := gitChangesVisibleItems(groups, collapsed)
+	success := time.Now().Before(st.successUntil)
+	st.mu.Unlock()
+	if len(entries) == 0 && !amend && !success {
+		ui.Column(c).Fill().Center().Gap(Space3).Children(func() {
+			ui.Icon(c, IconCheck()).Size(Space8, Space8).TextColor(ThemeTertiaryText(c))
+			ui.Text(c, "工作区干净").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+			if state.HasUpstream && state.Ahead > 0 {
+				label := fmt.Sprintf("推送 %d 个提交", state.Ahead)
+				b := ui.ButtonBase(c.Key("git-changes-push")).Label(label).Padding(Space2, Space3).Radius(RadiusSM)
+				b.OnClick(func() {
+					gitChangesRun(ps, st, func(ctx context.Context) error { return s.client.GitPush(ctx, threadID) })
 				})
+				b.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeFootnote)) })
 			}
 		})
+		return
+	}
+	pane := ui.Row(c.Key("git-changes-pane")).Fill().MinWidth(0)
+	width := pane.Bounds().W
+	if width <= 0 {
+		width = inspectorSession(s).Width
+	}
+	wide := width >= 640
+	pane.Children(func() {
+		if wide || !detail {
+			list := ui.Column(c.Key("git-changes-list")).FillHeight().MinWidth(0)
+			if wide {
+				list.Width(240).Shrink(0)
+			} else {
+				list.FillWidth()
+			}
+			list.Children(func() {
+				ui.Column(c.Key("git-changes-commit-card")).FillWidth().Padding(Space3).Gap(Space2).Radius(RadiusMD).Background(ThemeSurface(c)).Children(func() {
+					if amend {
+						chip := ui.ButtonBase(c.Key("git-changes-amend-chip")).Label("关闭修改上次提交").Tooltip("修改上次提交").Radius(RadiusSM)
+						chip.OnClick(func() { st.mu.Lock(); st.amend = false; st.mu.Unlock() })
+						chip.Children(func() {
+							text := "修改上次提交 ×"
+							if pushed {
+								text = "⚠ " + text
+							}
+							ui.Text(c, text).FontSize(uiFont(TypeCaption))
+						})
+						if pushed {
+							chip.Tooltip("上次提交已推送，修改后需要强制推送")
+						}
+					}
+					var area ui.Element
+					ui.Row(c.Key("git-changes-input-row")).FillWidth().AlignItems(ui.Start).Children(func() {
+						area = ui.TextArea(c.Key("git-changes-message"), &draft).Label("提交信息").Placeholder("提交信息").FontSize(uiFont(TypeBody)).Grow(1).MinWidth(0)
+						textWidth := area.Bounds().W - Space6
+						if textWidth <= 0 {
+							textWidth = max(ControlLG, width-Space8*2)
+						}
+						lineHeight := uiFont(TypeBody) * 1.4
+						_, textHeight := c.MeasureText(textWidth, ui.Span{Text: draft + "\n", Size: uiFont(TypeBody)})
+						area.Height(min(max(textHeight+Space5, lineHeight*2+Space5), lineHeight*6+Space5))
+						area.OnChange(func() {
+							st.mu.Lock()
+							st.draft = draft
+							st.historyIndex = 0
+							st.mu.Unlock()
+							gitChangesDrafts.Store(state.WorkDir, draft)
+						})
+						aiLabel, aiSymbol := "生成提交信息", "✦"
+						if generating {
+							aiLabel, aiSymbol = "取消生成", "■"
+						}
+						ai := ui.ButtonBase(c.Key("git-changes-ai")).Label(aiLabel).Tooltip(aiLabel).Disabled(!generating && !isGenerateCommitMessageEnabled(s)).Radius(RadiusSM)
+						ai.OnClick(func() {
+							st.mu.Lock()
+							if st.cancel != nil {
+								st.cancel()
+								st.cancel = nil
+								st.genSeq++
+								st.mu.Unlock()
+								return
+							}
+							ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+							st.cancel = cancel
+							st.genSeq++
+							seq := st.genSeq
+							originalDraft := st.draft
+							st.mu.Unlock()
+							go func() {
+								msg, err := s.client.GenerateCommitMessage(ctx, threadID)
+								canceled := errors.Is(ctx.Err(), context.Canceled)
+								st.mu.Lock()
+								if seq != st.genSeq {
+									st.mu.Unlock()
+									cancel()
+									return
+								}
+								if ctx.Err() == nil && err == nil && st.draft == originalDraft {
+									st.draft = msg
+									gitChangesDrafts.Store(state.WorkDir, msg)
+								}
+								st.cancel = nil
+								st.mu.Unlock()
+								cancel()
+								if err != nil && !canceled {
+									ps.fail(err)
+								}
+								s.invalidate()
+							}()
+						})
+						ai.Children(func() { ui.Text(c, aiSymbol).FontSize(uiFont(TypeBody)) })
+					})
+					commit := func(push bool) {
+						msg := strings.TrimSpace(draft)
+						if msg == "" || len(entries) == 0 || len(groups[0].entries) > 0 {
+							return
+						}
+						gitChangesRun(ps, st, func(ctx context.Context) error {
+							if len(groups[1].entries) == 0 && len(groups[2].entries) > 0 {
+								if err := client.GitStageFiles(ctx, threadID, gitChangesPaths(groups[2].entries)); err != nil {
+									return err
+								}
+								ps.requestRefresh()
+							}
+							sha, err := client.GitCommitIndex(ctx, threadID, msg, amend)
+							if err != nil {
+								return err
+							}
+							st.mu.Lock()
+							if st.draft == draft {
+								st.draft = ""
+								gitChangesDrafts.Store(state.WorkDir, "")
+							}
+							st.amend = false
+							st.successUntil = time.Now().Add(600 * time.Millisecond)
+							st.mu.Unlock()
+							time.AfterFunc(600*time.Millisecond, s.invalidate)
+							if len(sha) > 7 {
+								sha = sha[:7]
+							}
+							s.setToast("已提交 " + sha)
+							ps.requestRefresh()
+							if push {
+								return s.client.GitPush(ctx, threadID)
+							}
+							return nil
+						})
+					}
+					area.OnTextKey(func(k ui.TextKey) bool {
+						if k.Key == ui.KeyEnter && k.Mods&ui.Cmd != 0 {
+							commit(false)
+							return true
+						}
+						if k.Key == ui.KeyUp && k.Mods == 0 {
+							st.mu.Lock()
+							if draft != "" && st.historyIndex == 0 {
+								st.mu.Unlock()
+								return false
+							}
+							if len(st.history) > 0 {
+								if st.historyIndex < len(st.history) {
+									st.draft = st.history[st.historyIndex].Subject
+									st.historyIndex++
+									gitChangesDrafts.Store(state.WorkDir, st.draft)
+								}
+								st.mu.Unlock()
+								return true
+							}
+							st.mu.Unlock()
+							gitChangesRun(ps, st, func(ctx context.Context) error {
+								history, err := client.GitLog(ctx, threadID, git.LogOptions{Limit: 20})
+								if err != nil {
+									return err
+								}
+								st.mu.Lock()
+								st.history = history
+								if len(history) > 0 && st.draft == "" {
+									st.draft = history[0].Subject
+									st.historyIndex = 1
+									gitChangesDrafts.Store(state.WorkDir, st.draft)
+								}
+								st.mu.Unlock()
+								return nil
+							})
+							return true
+						}
+						return false
+					})
+					label := gitChangesCommitLabel(len(groups[1].entries), len(groups[2].entries), amend)
+					if success {
+						label = "✓"
+					}
+					disabled := gitChangesCommitDisabled(draft, len(entries), amend, busy) || len(groups[0].entries) > 0
+
+					ui.Row(c.Key("git-changes-commit-actions")).FillWidth().Gap(Space1).Children(func() {
+						b := ui.ButtonBase(c.Key("git-changes-commit")).Label(label).Grow(1).Height(ControlLG).Radius(RadiusSM).Disabled(disabled).Background(ThemeAccent(c)).Transition(motionFeedback(c))
+						if strings.TrimSpace(draft) == "" {
+							b.Tooltip("请输入提交信息")
+						} else if len(entries) == 0 {
+							b.Tooltip("没有改动")
+						} else if len(groups[0].entries) > 0 {
+							b.Tooltip("请先解决冲突")
+						}
+						b.OnClick(func() { commit(false) })
+						b.Children(func() {
+							ui.Text(c, func() string {
+								if success {
+									return "✓"
+								}
+								return label + "  ⌘⏎"
+							}()).FontSize(uiFont(TypeFootnote))
+						})
+						more := ui.ButtonBase(c.Key("git-changes-commit-more")).Label("提交选项").Height(ControlLG).Width(ControlLG).Radius(RadiusSM).Disabled(busy)
+						more.OnClick(func() { st.menu = true })
+						more.Children(func() { ui.Text(c, "▾").FontSize(uiFont(TypeFootnote)) })
+						appPopover(c, more, &st.menu, nil, func() {
+							popoverCard(c, ui.Column(c.Key("git-changes-commit-menu"))).Padding(Space1).Children(func() {
+								push := ui.ButtonBase(c.Key("git-changes-commit-push")).Label("提交并推送").FillWidth().Height(ControlMD).Padding(0, Space3).Disabled(disabled)
+								push.OnClick(func() { st.menu = false; commit(true) })
+								push.Children(func() { ui.Text(c, "提交并推送").FontSize(uiFont(TypeFootnote)) })
+								edit := ui.ButtonBase(c.Key("git-changes-commit-amend")).Label("修改上次提交").FillWidth().Height(ControlMD).Padding(0, Space3).Disabled(busy)
+								edit.OnClick(func() {
+									st.menu = false
+									gitChangesRun(ps, st, func(ctx context.Context) error {
+										msg, err := client.GitLastCommitMessage(ctx, threadID)
+										if err != nil {
+											return err
+										}
+										pushed, err := client.GitHeadPushed(ctx, threadID)
+										if err != nil {
+											return err
+										}
+										st.mu.Lock()
+										st.draft, st.amend, st.pushed = msg, true, pushed
+										st.mu.Unlock()
+										gitChangesDrafts.Store(state.WorkDir, msg)
+										return nil
+									})
+								})
+								edit.Children(func() { ui.Text(c, "修改上次提交").FontSize(uiFont(TypeFootnote)) })
+							})
+						})
+					})
+				})
+				ui.Scroll(c.Key("git-changes-scroll")).Fill().Children(func() {
+					ui.Column(c).FillWidth().Children(func() {
+						for i, group := range groups {
+							if len(group.entries) == 0 {
+								continue
+							}
+							i, group := i, group
+							groupRow := ui.Row(c.Key(fmt.Sprintf("git-changes-group-row-%d", i))).FillWidth().Height(ControlSM + Space0).AlignItems(ui.Center)
+							groupRow.Children(func() {
+								header := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-group-%d", i))).Label(group.name).Grow(1).Height(ControlSM+Space0).Padding(0, Space3).Radius(RadiusSM)
+								header.OnClick(func() { st.mu.Lock(); st.collapsed[i] = !st.collapsed[i]; st.mu.Unlock() })
+								header.Children(func() {
+									ui.Text(c, group.name+" (").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+									rollingNumber(c, fmt.Sprintf("git-changes-count-%p-%d", ps, i), len(group.entries))
+									ui.Text(c, ")").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+								})
+								if i == 1 || i == 2 {
+									label := "全部暂存"
+									symbol := "+"
+									if i == 1 {
+										label, symbol = "全部取消暂存", "−"
+									}
+									b := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-group-action-%d", i))).Label(label).Tooltip(label).Size(ControlXS, ControlXS).Disabled(busy)
+									if !groupRow.Hovered() && !b.Focused() {
+										b.Opacity(0)
+									}
+									b.OnClick(func() {
+										gitChangesRun(ps, st, func(ctx context.Context) error {
+											if i == 1 {
+												return client.GitUnstageFiles(ctx, threadID, gitChangesPaths(group.entries))
+											}
+											return client.GitStageFiles(ctx, threadID, gitChangesPaths(group.entries))
+										})
+									})
+									b.Children(func() { ui.Text(c, symbol).FontSize(uiFont(TypeFootnote)) })
+								}
+								if i == 2 {
+									b := ui.ButtonBase(c.Key("git-changes-discard-all")).Label("全部丢弃").Tooltip("全部丢弃").Size(ControlXS, ControlXS).Disabled(busy || gitPaneAgentBusy(s, threadID))
+									if !groupRow.Hovered() && !b.Focused() {
+										b.Opacity(0)
+									}
+									if gitPaneAgentBusy(s, threadID) {
+										b.Tooltip("Agent 正在修改此工作区")
+									}
+									b.OnClick(func() { st.mu.Lock(); st.confirm = true; st.mu.Unlock() })
+									b.Children(func() { ui.Text(c, "↺").FontSize(uiFont(TypeFootnote)) })
+								}
+							})
+							motionUnfoldBody(c, fmt.Sprintf("git-changes-group-body-%d", i), !collapsed[i], func() {
+								ui.Column(c).FillWidth().Children(func() {
+									for _, entry := range group.entries {
+										entry := entry
+										isStaged := i == 1
+										code := entry.Worktree
+										if isStaged {
+											code = entry.Index
+										}
+										if i == 0 {
+											code = 'U'
+										}
+										if code == 0 || code == ' ' {
+											code = '?'
+										}
+										letter, color := gitStatusPresentation(c, code)
+										fileRow := ui.Row(c.Key(fmt.Sprintf("git-changes-row-%d-%s", i, entry.Path))).FillWidth().Height(RowHeight).AlignItems(ui.Center).Transition(motionListItem(c))
+										fileRow.Children(func() {
+											row := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-file-%d-%s", i, entry.Path))).Label(entry.Path).Grow(1).MinWidth(0).Height(RowHeight).Padding(0, Space2).Gap(Space2).Radius(RadiusSM).Transition(motionFeedback(c))
+											st.mu.Lock()
+											multiSelected := st.selection[fmt.Sprintf("%d:%s", i, entry.Path)]
+											st.mu.Unlock()
+											if multiSelected || (selected == entry.Path && staged == isStaged) {
+												row.Background(ThemeSelected(c))
+											} else if row.Hovered() {
+												row.Background(ThemeHover(c))
+											}
+											rowKey := fmt.Sprintf("%d:%s", i, entry.Path)
+											st.mu.Lock()
+											focus := st.focus == rowKey
+											if focus {
+												st.focus = ""
+											}
+											st.mu.Unlock()
+											if focus {
+												row.Focus()
+											}
+											row.OnClick(func() {
+												mods := row.ClickModifiers()
+												st.mu.Lock()
+												if st.selection == nil {
+													st.selection = make(map[string]bool)
+												}
+												if mods&ui.Shift != 0 && st.anchor != "" {
+													st.selection = gitChangesRange(items, st.anchor, rowKey)
+												} else if mods&ui.Cmd != 0 {
+													st.selection[rowKey] = !st.selection[rowKey]
+													st.anchor = rowKey
+												} else {
+													st.selection = map[string]bool{rowKey: true}
+													st.anchor = rowKey
+												}
+												st.selected, st.staged, st.group, st.detail = entry.Path, isStaged, i, mods == 0
+												st.mu.Unlock()
+											})
+											row.ContextMenu(func(m *ui.Menu) {
+												if m.Item("在编辑器打开").Disabled(entry.Worktree == 'D').Chosen() {
+													s.openFileManagerFileExternal(threadID, entry.Path)
+												}
+												if m.Item("在文件面板中显示").Disabled(entry.Worktree == 'D').Chosen() {
+													inspectorSelect(s, sidePaneFileID, false)
+													dir := path.Dir(entry.Path)
+													if dir == "." {
+														dir = ""
+													}
+													s.fileTreeRevealDir(threadID, dir)
+													s.fileTreeSelect(entry.Path, 0)
+												}
+												label := "暂存"
+												if isStaged {
+													label = "取消暂存"
+												}
+												if i != 0 && m.Item(label).Disabled(busy).Chosen() {
+													gitChangesRun(ps, st, func(ctx context.Context) error {
+														if isStaged {
+															return client.GitUnstageFiles(ctx, threadID, []string{entry.Path})
+														}
+														return client.GitStageFiles(ctx, threadID, []string{entry.Path})
+													})
+												}
+												if i == 2 && m.Item("丢弃更改").Disabled(busy || gitPaneAgentBusy(s, threadID)).Chosen() {
+													gitChangesDiscard(ps, st, client, threadID, []string{entry.Path})
+												}
+												if m.Item("复制路径").Chosen() {
+													c.WriteClipboard(entry.Path)
+												}
+												if m.Item("加入 .gitignore").Disabled(busy).Chosen() {
+													gitChangesRun(ps, st, func(context.Context) error { return gitChangesIgnore(state.WorkDir, entry.Path) })
+												}
+											})
+											if row.Focused() {
+												for _, key := range []ui.Key{ui.KeyUp, ui.KeyDown} {
+													plain := row.Shortcut(0, key)
+													shifted := row.Shortcut(ui.Shift, key)
+													if plain || shifted {
+														delta := 1
+														if key == ui.KeyUp {
+															delta = -1
+														}
+														next := gitChangesMove(items, rowKey, delta)
+														st.mu.Lock()
+														if st.anchor == "" {
+															st.anchor = rowKey
+														}
+														st.selected, st.staged, st.group, st.focus = next.path, next.group == 1, next.group, next.key()
+														if shifted {
+															st.selection = gitChangesRange(items, st.anchor, next.key())
+														} else {
+															st.selection = map[string]bool{next.key(): true}
+															st.anchor = next.key()
+														}
+														st.mu.Unlock()
+													}
+												}
+												if row.Shortcut(ui.Cmd, ui.KeyA) {
+													st.mu.Lock()
+													st.selection = make(map[string]bool)
+													for _, item := range items {
+														st.selection[item.key()] = true
+													}
+													st.mu.Unlock()
+												}
+
+												if row.Shortcut(0, ui.KeyEnter) {
+													st.mu.Lock()
+													st.selected, st.staged, st.group, st.detail = entry.Path, isStaged, i, true
+													st.mu.Unlock()
+												}
+												if i != 0 && row.Shortcut(0, ui.KeySpace) {
+													st.mu.Lock()
+													selection := make(map[string]bool, len(st.selection))
+													for k, v := range st.selection {
+														selection[k] = v
+													}
+													st.mu.Unlock()
+													gitChangesStageSelected(ps, st, client, threadID, groups, selection, gitChangesItem{i, entry.Path})
+												}
+												if i == 2 && row.Shortcut(0, ui.KeyBackspace) {
+													st.mu.Lock()
+													var paths []string
+													for _, e := range group.entries {
+														if st.selection[fmt.Sprintf("%d:%s", i, e.Path)] {
+															paths = append(paths, e.Path)
+														}
+													}
+													st.mu.Unlock()
+													if len(paths) == 0 {
+														paths = []string{entry.Path}
+													}
+													gitChangesDiscard(ps, st, client, threadID, paths)
+												}
+											}
+											row.Children(func() {
+												ui.Text(c, letter).Font("monospace").FontSize(uiFont(TypeCaption)).TextColor(color)
+												ui.Text(c, path.Base(entry.Path)).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).SingleLine().Shrink(1).MinWidth(0)
+												if dir := path.Dir(entry.Path); dir != "." {
+													nameWidth, _ := c.MeasureText(0, ui.Span{Text: path.Base(entry.Path), Size: uiFont(TypeFootnote)})
+													available := row.Bounds().W - nameWidth - Space6 - Space4
+													if available > 0 {
+														dir = gitChangesTruncateStart(dir, func(value string) bool {
+															w, _ := c.MeasureText(0, ui.Span{Text: value, Size: uiFont(TypeCaption)})
+															return w <= available
+														})
+													}
+													ui.Text(c, dir).FontSize(uiFont(TypeCaption)).TextColor(ThemeTertiaryText(c)).SingleLine().Shrink(1).MinWidth(0)
+												}
+											})
+											if i != 0 {
+												action := "+"
+												label := "暂存"
+												if isStaged {
+													action, label = "−", "取消暂存"
+												}
+												b := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-action-%d-%s", i, entry.Path))).Label(label).Tooltip(label).Size(ControlXS, ControlXS).Disabled(busy)
+												if !fileRow.Hovered() && !row.Focused() && !b.Focused() {
+													b.Opacity(0)
+												}
+												b.OnClick(func() {
+													gitChangesRun(ps, st, func(ctx context.Context) error {
+														if isStaged {
+															return client.GitUnstageFiles(ctx, threadID, []string{entry.Path})
+														}
+														return client.GitStageFiles(ctx, threadID, []string{entry.Path})
+													})
+												})
+												b.Children(func() { ui.Text(c, action).FontSize(uiFont(TypeFootnote)) })
+											}
+											if i == 2 {
+												b := ui.ButtonBase(c.Key("git-changes-discard-"+entry.Path)).Label("丢弃更改").Tooltip("丢弃更改").Size(ControlXS, ControlXS).Disabled(busy || gitPaneAgentBusy(s, threadID))
+												if !fileRow.Hovered() && !row.Focused() && !b.Focused() {
+													b.Opacity(0)
+												}
+												if gitPaneAgentBusy(s, threadID) {
+													b.Tooltip("Agent 正在修改此工作区")
+												}
+												b.OnClick(func() { gitChangesDiscard(ps, st, client, threadID, []string{entry.Path}) })
+												b.Children(func() { ui.Text(c, "↺").FontSize(uiFont(TypeFootnote)) })
+											}
+											if i == 1 {
+												ui.Box(c).Size(ControlXS, ControlXS).Shrink(0)
+											}
+											if i == 0 {
+												ui.Box(c).Size(ControlXS*2, ControlXS).Shrink(0)
+											}
+										})
+									}
+								})
+							})
+						}
+					})
+				})
+			})
+		}
+		if wide || detail {
+			diff := ui.Column(c.Key("git-changes-diff")).Grow(1).FillHeight().MinWidth(0).Focusable().Transition(motionSidePanel(c, false))
+			if !wide && detail {
+				if diff.Shortcut(0, ui.KeyEscape) {
+					st.mu.Lock()
+					st.detail = false
+					st.mu.Unlock()
+				}
+				for _, key := range []ui.Key{ui.KeyBracketLeft, ui.KeyBracketRight} {
+					if diff.Shortcut(0, key) {
+						delta := 1
+						if key == ui.KeyBracketLeft {
+							delta = -1
+						}
+						next := gitChangesMove(items, (gitChangesItem{selectedGroup, selected}).key(), delta)
+						if next.path != "" {
+							st.mu.Lock()
+							st.selected, st.staged, st.group = next.path, next.group == 1, next.group
+							st.mu.Unlock()
+						}
+					}
+				}
+			}
+			diff.Children(func() {
+				if !wide {
+					b := ui.ButtonBase(c.Key("git-changes-back")).Label("返回").Height(ControlMD)
+					b.AutoFocus()
+					b.OnClick(func() { st.mu.Lock(); st.detail = false; st.mu.Unlock() })
+					b.Children(func() { ui.Text(c, "‹ 返回").FontSize(uiFont(TypeFootnote)) })
+				}
+				if selected != "" && gitPaneDiffView != nil {
+					gitPaneDiffView(c, s, threadID, ps, selected, staged)
+				} else {
+					name := ""
+					if selected != "" {
+						name = path.Base(selected)
+					}
+					renderGitPaneEmpty(c, name, IconGitBranch())
+				}
+			})
+		}
 	})
+	if confirm {
+		open := true
+		modalDragModal(c, "git-changes-discard-confirm", &open, func() {
+			ui.Column(c.Key("git-changes-discard-card")).Width(KanbanDetailMinWidth).Padding(Space6).Gap(Space5).Radius(RadiusLG).Background(ThemeSurface(c)).Children(func() {
+				ui.Text(c, fmt.Sprintf("丢弃全部 %d 个文件的更改？", len(groups[2].entries))).FontSize(uiFont(TypeTitle)).TextColor(ThemePrimaryText(c))
+				ui.Row(c).FillWidth().Justify(ui.End).Gap(Space3).Children(func() {
+					Button(c.Key("git-changes-discard-cancel"), ButtonOpts{Text: "取消", Variant: ButtonSecondary, OnClick: func() { st.mu.Lock(); st.confirm = false; st.mu.Unlock() }}).AutoFocus()
+					Button(c.Key("git-changes-discard-confirm-button"), ButtonOpts{Text: "丢弃", Variant: ButtonDanger, OnClick: func() {
+						st.mu.Lock()
+						st.confirm = false
+						st.mu.Unlock()
+						gitChangesDiscard(ps, st, client, threadID, gitChangesPaths(groups[2].entries))
+					}})
+				})
+			})
+		})
+		if !open {
+			st.mu.Lock()
+			st.confirm = false
+			st.mu.Unlock()
+		}
+	} else {
+		modalDragReset("git-changes-discard-confirm")
+	}
 }
