@@ -87,3 +87,55 @@ func TestConflictSidesAndResolveFileSide(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteWorktreeFile(t *testing.T) {
+	r, dir := setupTestRepo(t)
+	path := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(path, []byte("old\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.WriteWorktreeFile(context.Background(), dir, "README.md", []byte("new\n")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "new\n" {
+		t.Fatalf("写入内容 = %q, %v", got, err)
+	}
+	info, _ := os.Stat(path)
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("权限未保留: %o", info.Mode().Perm())
+	}
+	for _, p := range []string{"../x", ".git/config"} {
+		if err := r.WriteWorktreeFile(context.Background(), dir, p, []byte("x")); err == nil {
+			t.Fatalf("路径应被拒绝: %s", p)
+		}
+	}
+}
+
+func TestWriteWorktreeFileRejectsLinksAndCanceledContext(t *testing.T) {
+	r, dir := setupTestRepo(t)
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"outside-link": outside, "git-link": filepath.Join(dir, ".git", "config")} {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.WriteWorktreeFile(context.Background(), dir, name, []byte("changed")); err == nil {
+			t.Fatalf("应拒绝链接 %s", name)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := r.WriteWorktreeFile(ctx, dir, "README.md", []byte("changed")); err == nil {
+		t.Fatal("已取消请求仍然写入")
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil || string(data) != "keep" {
+		t.Fatalf("越界文件被修改: %q %v", data, err)
+	}
+}

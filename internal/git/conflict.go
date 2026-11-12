@@ -3,7 +3,11 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+
+	"mcode/internal/fsutil"
 )
 
 type ConflictFile struct{ Path, Code string }
@@ -191,4 +195,38 @@ func (r *Runner) MarkResolved(ctx context.Context, root string, paths []string) 
 	}
 	_, err := r.run(ctx, root, []string{"GIT_LITERAL_PATHSPECS=1"}, append([]string{"add", "--"}, paths...)...)
 	return err
+}
+
+// WriteWorktreeFile 原子写入工作区文件，并保留原有权限。
+func (r *Runner) WriteWorktreeFile(ctx context.Context, root, path string, data []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	rel, err := snapshotPath(root, path)
+	if err != nil {
+		return err
+	}
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	if info, err := os.Lstat(full); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(full)
+		if err != nil {
+			return err
+		}
+		if _, err := snapshotPath(root, target); err != nil {
+			return err
+		}
+		full = target
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	mode := os.FileMode(0o644)
+	if info, statErr := os.Stat(full); statErr == nil {
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(statErr) {
+		return statErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fsutil.WriteFileAtomic(full, data, mode)
 }
