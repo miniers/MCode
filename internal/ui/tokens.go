@@ -86,6 +86,8 @@ const (
 	Hairline         float32 = 1 // 发丝线粗细
 )
 
+const gitCommitMoreHoverOpacity float32 = 0.85
+
 // 字号：一律经 scaledFont 使用。
 const (
 	TypeCaption   float32 = 11

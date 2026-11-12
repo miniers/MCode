@@ -421,11 +421,12 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 					}
 					var area ui.Element
 					ui.Column(c.Key("git-changes-input-row")).FillWidth().Children(func() {
+						const messageRightPadding = ControlSM + Space3
 						placeholder := "提交信息"
 						if generating || autoGenerate {
 							placeholder = "正在生成…"
 						}
-						area = ui.TextArea(c.Key("git-changes-message"), &draft).Label("提交信息").Placeholder(placeholder).FontSize(uiFont(TypeBody)).FillWidth().MinWidth(0).Padding(Space2, ControlSM+Space3, Space2, Space3)
+						area = ui.TextArea(c.Key("git-changes-message"), &draft).Label("提交信息").Placeholder(placeholder).FontSize(uiFont(TypeBody)).FillWidth().MinWidth(0).Padding(Space2, messageRightPadding, Space2, Space3)
 						textWidth := area.Bounds().W - ControlSM - Space3*2
 						if textWidth <= 0 {
 							textWidth = max(ControlLG, width-Space8*2)
@@ -529,7 +530,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 					}
 					disabled := gitChangesCommitDisabled(draft, len(entries), amend, busy) || len(groups[0].entries) > 0
 
-					ui.Row(c.Key("git-changes-commit-actions")).FillWidth().Gap(1).Children(func() {
+					ui.Row(c.Key("git-changes-commit-actions")).FillWidth().Gap(Hairline).Children(func() {
 						b := ui.ButtonBase(c.Key("git-changes-commit")).Label(label).Grow(1).Height(ControlLG).Radius(RadiusSM).Disabled(disabled).Background(ThemeAccent(c)).Transition(motionFeedback(c))
 						if strings.TrimSpace(draft) == "" {
 							b.Tooltip("请输入提交信息")
@@ -549,7 +550,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 						})
 						more := ui.ButtonBase(c.Key("git-changes-commit-more")).Label("提交选项").Height(ControlLG).Width(ControlLG).Radius(RadiusSM).Disabled(busy).Background(ThemeAccent(c)).Transition(motionFeedback(c))
 						if more.Hovered() && !busy {
-							more.Background(ThemeAccent(c).Alpha(0.85))
+							more.Background(ThemeAccent(c).Alpha(gitCommitMoreHoverOpacity))
 						}
 						more.OnClick(func() { st.menu = true })
 						more.Children(func() { ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).TextColor(ThemeOnAccent(c)) })
