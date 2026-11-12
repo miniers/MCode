@@ -898,6 +898,9 @@ func (h *gitHistoryState) write(ps *gitPaneState, client gitHistoryClient, workt
 		cancel()
 		ps.mu.Lock()
 		ps.syncing, ps.cancel = false, nil
+		if err == nil {
+			ps.failure = nil
+		}
 		disposed := ps.disposed
 		ps.mu.Unlock()
 		h.mu.Lock()
