@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // effectiveTierModel 优先级单元测试：session override > pair override > global tier > 跟随 Bee 模型。
@@ -106,7 +107,7 @@ func TestTierModelDiffLines(t *testing.T) {
 
 // 档位列表渲染、档位编辑、选择模型下发 SetThreadBeeTiers 及全部恢复重置测试。
 func TestComposerBeeTiers_RenderAndPick(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(func() {
 		resetComposerModelPickerState("t1")
 	})
@@ -227,7 +228,7 @@ func TestComposerBeeTiers_RenderAndPick(t *testing.T) {
 
 // 单档位重置按钮测试：点击重置按钮单项清除会话档位覆盖。
 func TestComposerBeeTiers_SingleTierReset(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(func() {
 		resetComposerModelPickerState("t1")
 	})

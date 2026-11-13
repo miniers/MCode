@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestSettingsNav_MagpieEntry(t *testing.T) {
@@ -16,7 +18,7 @@ func TestSettingsNav_MagpieEntry(t *testing.T) {
 		{"已连接", true, "Magpie"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			fake := NewFakeClient()
 			if tc.connected {
 				fake.customEndpoints = []CustomEndpoint{{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true, HasAPIKey: true}}

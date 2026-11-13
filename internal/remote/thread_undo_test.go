@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // 测试归档带 helper 子会话的会话后，用 token 撤销：父子会话都恢复为未归档，
 // 置顶、休眠、未读状态与操作前一致。
 func TestUpdateThreadWithUndo_ArchiveUndoRestoresFamily(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
@@ -128,7 +129,7 @@ func TestUpdateThreadWithUndo_ArchiveUndoRestoresFamily(t *testing.T) {
 
 // 测试休眠后时钟前移 11 秒再撤销，返回 ErrBulkUndoExpired。
 func TestUpdateThreadWithUndo_DormantUndoExpired(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
@@ -180,7 +181,7 @@ func TestUpdateThreadWithUndo_DormantUndoExpired(t *testing.T) {
 
 // 测试 Archived=false 透传 UpdateThread 时不产生撤销 token。
 func TestUpdateThreadWithUndo_NoTokenWhenNotArchiving(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})

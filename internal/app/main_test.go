@@ -11,11 +11,12 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// 隔离 HOME 与数据目录，避免测试读取开发者真实的 ~/.agents/skills 技能清单、
+	// 隔离 HOME/USERPROFILE 与数据目录，避免测试读取开发者真实的 ~/.agents/skills 技能清单、
 	// ~/.mcode 配置（agentconf 会读 MCODE_DATA 或回退到 ~/.mcode），污染 prompt 与用例结果。
 	root, err := os.MkdirTemp("", "mcode-app-test-home-")
 	if err == nil {
 		_ = os.Setenv("HOME", root)
+		_ = os.Setenv("USERPROFILE", root)
 		_ = os.Setenv("MCODE_DATA", filepath.Join(root, "mcode-data"))
 	}
 

@@ -10,6 +10,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 // 1. providers.list 带模型
@@ -227,7 +228,7 @@ func TestThreadAgent_UpdateModelReflectedInNextTurn(t *testing.T) {
 
 // 4. 空闲时允许更换 provider，下一轮携带历史交接。
 func TestThreadAgent_ChangeProviderAfterTurns(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
 	defer hub.Close()
 

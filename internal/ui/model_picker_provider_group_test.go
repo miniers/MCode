@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func modelPickerProviderGroupTester(t *testing.T, items []modelPickerItem, query string) *ui.Tester {
@@ -136,7 +138,7 @@ func Test模型选择浮层_显示模型ID且不重复(t *testing.T) {
 }
 
 func Test添加收藏浮层_隐藏关闭和空模型供应商(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{
 		{ID: "claude", Name: "Claude Code", Models: []ModelInfo{{ID: "claude-sonnet", Name: "Sonnet"}}},

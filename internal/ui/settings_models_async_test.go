@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func modelsAsyncRowTester(t *testing.T, client Client, pins []ModelPin) (*ui.Tester, *SettingsState, *modelsPageState) {
@@ -29,7 +31,7 @@ func modelsAsyncRowTester(t *testing.T, client Client, pins []ModelPin) (*ui.Tes
 func TestSettingsModelsAsyncAddBusy(t *testing.T) {
 	for _, phase := range []string{"preferences", "add"} {
 		t.Run(phase, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			fake := NewFakeClient()
 			pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 			release := make(chan struct{})
@@ -90,7 +92,7 @@ func TestSettingsModelsAsyncAddBusy(t *testing.T) {
 }
 
 func TestSettingsModelsAsyncRemoveFailure(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 	release := make(chan struct{})
 	var once sync.Once
@@ -125,7 +127,7 @@ func TestSettingsModelsAsyncRemoveFailure(t *testing.T) {
 func TestSettingsModelsAsyncReorderIgnoresOlderResult(t *testing.T) {
 	for _, olderErr := range []error{nil, errors.New("old failure")} {
 		t.Run(map[bool]string{true: "failure", false: "success"}[olderErr != nil], func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			pins := []ModelPin{{Provider: "claude", ModelID: "a"}, {Provider: "claude", ModelID: "b"}, {Provider: "claude", ModelID: "c"}}
 			type request struct {
 				pins []ModelPin
@@ -202,7 +204,7 @@ func waitModelsOperationQueued(t *testing.T, ps *modelsPageState) {
 }
 
 func TestSettingsModelsAsyncReorderFailureReloads(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pins := []ModelPin{{Provider: "claude", ModelID: "a"}, {Provider: "claude", ModelID: "b"}}
 	for _, pin := range pins {
@@ -219,7 +221,7 @@ func TestSettingsModelsAsyncReorderFailureReloads(t *testing.T) {
 }
 
 func TestSettingsModelsAsyncCompletionAfterClose(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 	release := make(chan struct{})
 	var once sync.Once

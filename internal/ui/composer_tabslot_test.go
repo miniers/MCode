@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // TestComposerTabSlot_FollowUpQueue 测试输入框上方 TabSlot 与排队面板交互：
@@ -11,7 +13,7 @@ import (
 // 2. 点击展开后按顺序展示两行排队消息；
 // 3. 点击删除按钮调用 RemoveQueued，传入对应的 followUpID。
 func TestComposerTabSlot_FollowUpQueue(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)

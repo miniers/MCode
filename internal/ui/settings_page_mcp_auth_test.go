@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
+	"mcode/internal/testenv"
 )
 
 // stubMCPAuthScans 打桩技能、MCP 与静态鉴权三个扫描函数，测试结束后恢复。
@@ -41,7 +42,7 @@ func waitAgentConfLoaded(t *testing.T, st *SettingsState) {
 // TestSettingsMCPAuth_StaticAuthHidesSignInButton 覆盖：静态请求头鉴权的远程服务不显示「登录」按钮、
 // 徽标改为「请求头认证」；没有鉴权头的远程服务仍保留「登录」按钮。
 func TestSettingsMCPAuth_StaticAuthHidesSignInButton(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	staticSrv := agentconf.MCPServer{
 		Agent:     "claude",
@@ -107,7 +108,7 @@ func countExactText(texts []string, want string) int {
 
 // TestSettingsMCPAuth_StaticAuthMapFilledAfterLoad 覆盖：loadAgentConf 成功后把静态鉴权集合写进状态。
 func TestSettingsMCPAuth_StaticAuthMapFilledAfterLoad(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	stubMCPAuthScans(t,
 		func(agentconf.Options) ([]agentconf.MCPServer, error) {
@@ -139,7 +140,7 @@ func TestSettingsMCPAuth_StaticAuthMapFilledAfterLoad(t *testing.T) {
 
 // TestSettingsMCPAuth_ScanErrorClearsStaticAuth 覆盖：列表扫描失败时不采信静态鉴权结果。
 func TestSettingsMCPAuth_ScanErrorClearsStaticAuth(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	stubMCPAuthScans(t,
 		func(agentconf.Options) ([]agentconf.MCPServer, error) {

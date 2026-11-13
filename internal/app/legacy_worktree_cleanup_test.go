@@ -10,12 +10,13 @@ import (
 
 	"mcode/internal/git"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 // newLegacyCleanupRepo 建一个带一次提交的临时仓库，并把它用的 git runner 一起返回。
 func newLegacyCleanupRepo(t *testing.T) (*git.Runner, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("GIT_AUTHOR_NAME", "test-user")
 	t.Setenv("GIT_AUTHOR_EMAIL", "test@localhost")
 	t.Setenv("GIT_COMMITTER_NAME", "test-user")

@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // newStewardScoreTestStore 建一个临时库，供总管建议计分测试使用。
 func newStewardScoreTestStore(t *testing.T) *Store {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s, err := Open(filepath.Join(t.TempDir(), "steward_scores.db"))
 	if err != nil {
 		t.Fatalf("Open 失败: %v", err)

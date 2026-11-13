@@ -7,13 +7,15 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // TestComposerQueueCollapsedRowAndExpand 覆盖 D-14：
 // 1. 三条排队消息时默认只显示 28pt 折叠行「排队 3」和首条摘要，看不到第二、三条；
 // 2. 点开折叠行后三条和原有操作按钮（编辑/删除/立即发送）都按原 Label 出现。
 func TestComposerQueueCollapsedRowAndExpand(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)

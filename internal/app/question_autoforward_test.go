@@ -11,13 +11,14 @@ import (
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
 	"mcode/internal/swarm"
+	"mcode/internal/testenv"
 )
 
 // newAutoForwardFixture 造一个带待答提问的子线程，并按 seconds 写入自动转交配置。
 // 循环通过 SetSwarmManager 启动后立即停止，测试里只手动驱动单次检查。
 func newAutoForwardFixture(t *testing.T, seconds int) (*Client, *remote.MemoryBackend) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 

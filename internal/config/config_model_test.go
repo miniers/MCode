@@ -6,6 +6,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 func strPtr(s string) *string {
@@ -14,7 +16,7 @@ func strPtr(s string) *string {
 
 // 1. Defaults 的新默认值。
 func TestModelDefaults(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cfg := Defaults()
 
@@ -61,7 +63,7 @@ func TestModelDefaults(t *testing.T) {
 
 // 2. 旧配置 JSON：v7 的 general 双写字段在迁移时兜底到 orchestration。
 func TestLegacyConfigMigration(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	loadRaw := func(t *testing.T, raw string) Config {
 		t.Helper()
@@ -131,7 +133,7 @@ func TestLegacyConfigMigration(t *testing.T) {
 
 // 3. JSON 往返测试。
 func TestConfigJSONRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cfg := Defaults()
 	cfg.Models.Pins = []ModelPin{
@@ -188,7 +190,7 @@ func TestConfigJSONRoundTrip(t *testing.T) {
 
 // 4. ModelList 30 项上限、去重与操作测试。
 func TestModelListLimitAndOperations(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cfg := Defaults()
 
@@ -301,7 +303,7 @@ func TestHasModelPin(t *testing.T) {
 
 // 5. 模型偏好设置读写与深拷贝测试。
 func TestModelPreferences(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cfg := Defaults()
 	pin := ModelPin{Provider: "claude", ModelID: "claude-3-7-sonnet"}
@@ -354,7 +356,7 @@ func TestModelPreferences(t *testing.T) {
 
 // 6. Swarm 配对增删改测试。
 func TestSwarmPairs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cfg := Defaults()
 
@@ -417,7 +419,7 @@ func TestSwarmPairs(t *testing.T) {
 
 // 7. 配置持久化与磁盘读写往返测试。
 func TestConfigPersistenceRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	dataDir := t.TempDir()
 
@@ -463,7 +465,7 @@ func TestConfigPersistenceRoundTrip(t *testing.T) {
 
 // 8. Normalize 过滤 Pairs 无效项测试。
 func TestNormalizePairsFilter(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cfg := Defaults()
 	cfg.Orchestration.Pairs = []SwarmPair{
@@ -487,7 +489,7 @@ func TestNormalizePairsFilter(t *testing.T) {
 
 // 9. Defaults 经 Normalize 后切片与映射字段仍保持 nil。
 func TestDefaultsNormalizeNilFields(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cfg := Normalize(Defaults())
 	if cfg.Models.Pins != nil {
@@ -502,7 +504,7 @@ func TestDefaultsNormalizeNilFields(t *testing.T) {
 }
 
 func TestModelPreferenceReadIsIndependent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	var g ModelsConfig
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
@@ -515,7 +517,7 @@ func TestModelPreferenceReadIsIndependent(t *testing.T) {
 }
 
 func TestSwarmPairEditsAreIndependent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	var h OrchestrationConfig
 	input := SwarmPair{LeadProvider: "claude", LeadEffort: strPtr("high"), WorkerEffort: strPtr("medium")}
@@ -542,7 +544,7 @@ func TestSwarmPairEditsAreIndependent(t *testing.T) {
 }
 
 func TestModelListDeduplicationAndCustomLimit(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	a := ModelPin{Provider: "claude", ModelID: "a"}
 	b := ModelPin{Provider: "codex", ModelID: "b"}
@@ -559,7 +561,7 @@ func TestModelListDeduplicationAndCustomLimit(t *testing.T) {
 }
 
 func TestNewDefaultEnabledSwitchesCanBeDisabled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cfg := Defaults()
 	if err := json.Unmarshal([]byte(`{

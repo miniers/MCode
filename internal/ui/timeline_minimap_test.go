@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // minimapTestEntries 构造 n 条等间隔的合成条目，用于刻度规划与轨道几何测试。
@@ -451,7 +453,7 @@ func TestMinimapRailSpacing_Compresses(t *testing.T) {
 // TestTimelineMinimapMore_PlusCountRolls 验证「+N」的 N 接上 rollingNumber：
 // 隐藏条数变化时数字滚动，滚动结束后显示新数字，未变化的那一位不位移。
 func TestTimelineMinimapMore_PlusCountRolls(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := sidePaneTestState(t)
 	defer s.close()
 

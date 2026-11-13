@@ -13,6 +13,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // setLastModelSelection 在测试里直接写入“上次模型选择”的进程内缓存，sel 为 nil 表示清空。
@@ -236,7 +237,7 @@ func TestSettings_CreateThreadIgnoresRoles(t *testing.T) {
 }
 
 func TestModelPureFunctions_ReorderPins(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	pins := []ModelPin{
 		{Provider: "p", ModelID: "m0"},
@@ -273,7 +274,7 @@ func TestModelPureFunctions_ReorderPins(t *testing.T) {
 }
 
 func TestModelPureFunctions_DragTargetIndex(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	// 向下移动
 	if target := modelDragTargetIndex(1, 50, 50, 4); target != 2 {
@@ -297,7 +298,7 @@ func TestModelPureFunctions_DragTargetIndex(t *testing.T) {
 }
 
 func TestModelPureFunctions_FilterProviderModels(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	providers := []ProviderInfo{
 		{
@@ -337,7 +338,7 @@ func TestModelPureFunctions_FilterProviderModels(t *testing.T) {
 }
 
 func TestModelPureFunctions_CanAddModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	pins := []ModelPin{
 		{Provider: "claude", ModelID: "sonnet"},
@@ -372,7 +373,7 @@ func TestModelPureFunctions_CanAddModel(t *testing.T) {
 }
 
 func TestSettings_ModelsPage_CommitModelReorder(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	pins := []ModelPin{
@@ -399,7 +400,7 @@ func TestSettings_ModelsPage_CommitModelReorder(t *testing.T) {
 }
 
 func TestSettings_ModelsPage_AddAndRemoveModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.SetProviders([]ProviderInfo{
@@ -462,7 +463,7 @@ func TestSettings_ModelsPage_AddAndRemoveModel(t *testing.T) {
 
 // 添加收藏浮层始终显示独立 Magpie 端点。
 func TestSettings_ModelsPage_AddPinShowsMagpieModels(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	gateway := config.CustomEndpointConfig{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true}
 	providers := []ProviderInfo{
 		{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "sonnet", Name: "Sonnet"}}},
@@ -488,7 +489,7 @@ func TestSettings_ModelsPage_AddPinShowsMagpieModels(t *testing.T) {
 
 // 从收藏模型区移除模型后，页面配置与持久化列表同步更新。
 func TestSettings_ModelsPage_RemoveFromProviderRow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 	fake := NewFakeClient()
@@ -529,7 +530,7 @@ func TestSettings_ModelsPage_RemoveFromProviderRow(t *testing.T) {
 }
 
 func TestSettings_ModelsPage_LimitAndCollapse(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	for i := 0; i < 30; i++ {
@@ -771,7 +772,7 @@ func TestBackgroundCatalogUpdateInvalidatesSettingsSnapshot(t *testing.T) {
 func TestSettingsModelsRefreshUpdatesCatalogAndPreservesPins(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		t.Run(fmt.Sprintf("partial_failure_%t", fail), func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			fake := NewFakeClient()
 			pin := ModelPin{Provider: "claude", ModelID: "old"}
 			_, _ = fake.AddModelToList(context.Background(), pin)
@@ -838,7 +839,7 @@ func TestSettingsModelsRefreshUpdatesCatalogAndPreservesPins(t *testing.T) {
 }
 
 func TestSettingsModelsRefreshIgnoresOlderPageLoad(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	old := []ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "old", Name: "Old Model"}}}}
 	updated := []ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "new", Name: "New Model"}}}}
@@ -1000,7 +1001,7 @@ func modelsDialogWithProvidersTester(t *testing.T, client Client, providers []Pr
 // TestSettingsModelsFirstFrameShowsConfigPins 首帧就用配置里的固定模型画出「收藏模型」，
 // 不等后台加载，也不再显示「正在加载模型…」。
 func TestSettingsModelsFirstFrameShowsConfigPins(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pin := ModelPin{Provider: "claude", ModelID: "configured"}
 	started, release := make(chan struct{}), make(chan struct{})
@@ -1044,7 +1045,7 @@ func TestSettingsModelsFirstFrameShowsConfigPins(t *testing.T) {
 // TestSettingsModelsCatalogStaleKeepsPinsAndCatalog 目录作废只重载目录：
 // 「收藏模型」和旧目录在重载期间保持显示，也不会重新拉固定模型列表。
 func TestSettingsModelsCatalogStaleKeepsPinsAndCatalog(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 	if _, err := fake.AddModelToList(context.Background(), pin); err != nil {
@@ -1096,7 +1097,7 @@ func TestSettingsModelsCatalogStaleKeepsPinsAndCatalog(t *testing.T) {
 }
 
 func TestSettings_ModelsPage_PinnedModelAccessibilityNames(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{
 		{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "shared", Name: "Shared"}}},
@@ -1123,7 +1124,7 @@ func TestSettings_ModelsPage_PinnedModelAccessibilityNames(t *testing.T) {
 }
 
 func TestSettings_ModelsPage_DragGesture(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pins := []ModelPin{
 		{Provider: "claude", ModelID: "first"},
@@ -1177,7 +1178,7 @@ func TestSettings_ModelsPage_DragGesture(t *testing.T) {
 }
 
 func TestSettings_ModelsPage_PreferencesAndBudgetPersistence(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 	providers := []ProviderInfo{{ID: "claude", Name: "Claude", Models: []ModelInfo{{
@@ -1244,7 +1245,7 @@ func TestSettings_ModelsPage_PreferencesAndBudgetPersistence(t *testing.T) {
 }
 
 func TestSettings_ModelsPage_WriteFailures(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	failure := errors.New("disk full")
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 	providers := []ProviderInfo{{ID: "claude", Models: []ModelInfo{{ID: "sonnet", Name: "Sonnet", Efforts: []string{"low", "high"}}}}}
@@ -1302,7 +1303,7 @@ func TestSettings_ModelsPage_WriteFailures(t *testing.T) {
 }
 
 func TestSettings_ModelsPage_LoadFailureAndRetry(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fail := true
 	client := modelsPageTestClient{Client: fake, list: func(ctx context.Context) ([]ModelPin, int, error) {
@@ -1324,7 +1325,7 @@ func TestSettings_ModelsPage_LoadFailureAndRetry(t *testing.T) {
 }
 
 func TestSettings_ModelsPage_LoadingDisablesAdd(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 	_, _ = fake.AddModelToList(context.Background(), pin)
@@ -1380,7 +1381,7 @@ func TestFilterProviderModelsDropsProvidersWithoutModels(t *testing.T) {
 
 // 添加模型浮层里，次要模型与主模型一起展示，不再折叠在“更多模型（N）”里。
 func TestSettings_ModelsPage_SecondaryModelsInPicker(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{{ID: "cline", Name: "Cline", Models: []ModelInfo{
 		{ID: "cline-pass/deepseek-v4.1-flash", Name: "DeepSeek V4.1 Flash", IsDefault: true},
@@ -1424,7 +1425,7 @@ func TestProviderModelsFor(t *testing.T) {
 // 模型库并入供应商行：折叠时不渲染模型小节，展开后只列已添加的模型，
 // 其余模型从「添加模型」浮层勾选。
 func TestSettings_ModelsPage_ProviderRowShowsModels(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "sonnet", Name: "Sonnet"}}}}
 	fake.SetProviders(providers)
@@ -1441,7 +1442,7 @@ func TestSettings_ModelsPage_ProviderRowShowsModels(t *testing.T) {
 
 // 添加模型浮层的搜索只过滤本供应商的候选模型，不影响别的供应商。
 func TestSettings_ModelsPage_ProviderPickerSearchFiltersOwnProvider(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	providers := []ProviderInfo{
@@ -1472,7 +1473,7 @@ func TestSettings_ModelsPage_ProviderPickerSearchFiltersOwnProvider(t *testing.T
 
 // 添加模型浮层的搜索也能命中次要模型。
 func TestSettings_ModelsPage_ProviderPickerSearchShowsSecondaryModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	providers := []ProviderInfo{
@@ -1539,7 +1540,7 @@ func (c *piMagpieTestClient) SetPiMagpieModels(endpointID string, modelIDs []str
 // TestSettings_ModelsPage_PiWithoutMagpieHasNoInjectHint 覆盖：没有 Magpie 端点时 pi 走通用模型列表，
 // 底部不显示「已启用的模型会注入…」这段说明（列表里没有 Magpie 勾选框）。
 func TestSettings_ModelsPage_PiWithoutMagpieHasNoInjectHint(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	prevDelays := piMagpieCatalogRefreshDelays
 	piMagpieCatalogRefreshDelays = nil
 	t.Cleanup(func() { piMagpieCatalogRefreshDelays = prevDelays })
@@ -1563,7 +1564,7 @@ func TestSettings_ModelsPage_PiWithoutMagpieHasNoInjectHint(t *testing.T) {
 
 // 搜索词命中目录里的模型 ID 时，不显示「添加自定义模型」入口。
 func TestSettings_ModelsPage_PickerHidesCustomEntryForCatalogModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{
 		{ID: "sonnet", Name: "Sonnet"},
@@ -1587,7 +1588,7 @@ func TestSettings_ModelsPage_PickerHidesCustomEntryForCatalogModel(t *testing.T)
 
 // 目录为空但可用（已登录）的供应商显示模型区和空状态。
 func TestSettings_ModelsPage_ShowsModelsSectionForEmptyCatalogWhenAvailable(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{{ID: "codex", Name: "Codex", Available: true}}
 	fake.SetProviders(providers)
@@ -1604,7 +1605,7 @@ func TestSettings_ModelsPage_ShowsModelsSectionForEmptyCatalogWhenAvailable(t *t
 
 // 未登录（Available=false）且目录为空的供应商保持原样：不显示模型区。
 func TestSettings_ModelsPage_EmptyCatalogUnavailableStaysHidden(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{{ID: "codex", Name: "Codex", Available: false}}
 	fake.SetProviders(providers)

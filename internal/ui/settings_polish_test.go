@@ -6,10 +6,11 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 func TestSettingsNavGroupHeadersAndMagpieDot(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.customEndpoints = []CustomEndpoint{{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true, HasAPIKey: true}}
 	fake.SetPiMagpieEndpoints([]PiMagpieEndpoint{{ID: "gw"}})

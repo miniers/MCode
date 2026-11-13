@@ -14,6 +14,7 @@ import (
 
 	"mcode/internal/git"
 	"mcode/internal/kanban"
+	"mcode/internal/testenv"
 )
 
 type fakeDriver struct {
@@ -2188,7 +2189,7 @@ func TestIsNoticeAndBeePrompt(t *testing.T) {
 // 而队列只在「正常结束且没有进行中 bee」的那一轮末尾派发，那一轮早已结束，汇报就会永久滞留，
 // bee 却已被标记为已汇报而不再重发。汇报应等主会话空闲后的下一个 tick 才发送。
 func TestCheckReports_WaitsForIdleLead(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()
@@ -2265,7 +2266,7 @@ func TestCheckReports_WaitsForIdleLead(t *testing.T) {
 
 // 同一批多个 bee 只有部分完成时不汇报：必须等全部 bee 落定后再一次性汇报并推进。
 func TestCheckReports_WaitsForWholeBatch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()
@@ -2383,7 +2384,7 @@ func TestCheckReports_WaitsForWholeBatch(t *testing.T) {
 // 待审查（PendingMerge）的 bee 在审查有结论前不汇报；ApproveMerge 之后的下一个 Tick
 // 汇报一次，正文给出落地状态并标记 Reported。
 func TestCheckReports_ReportsPendingMergeBee(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()
@@ -2467,7 +2468,7 @@ func TestCheckReports_ReportsPendingMergeBee(t *testing.T) {
 
 // 子代理全部结束时每个 tick 都回调 OnBeesIdle，幂等由接收方保证。
 func TestCheckReports_FiresOnBeesIdle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()

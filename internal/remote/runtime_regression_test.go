@@ -18,11 +18,12 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 func runtimeBackend(t *testing.T, h harness.Harness) *MemoryBackend {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	hub := NewStreamHub(StreamHubOptions{})
 	t.Cleanup(hub.Close)
 	b := NewMemoryBackend(hub)
@@ -173,7 +174,7 @@ func TestRuntimeRegression_ProviderCrashRecoveryLogsCause(t *testing.T) {
 }
 
 func TestRuntimeRegression_RecallThenSend(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	s, err := store.Open(filepath.Join(t.TempDir(), "turns.db"))
 	if err != nil {
@@ -626,7 +627,7 @@ func (h *watchdogStateHarness) ForceStopTurn(turnID string) {
 }
 
 func TestRuntimeRegression_WatchdogForcesProviderAtEightSeconds(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	h := &watchdogStateHarness{started: make(chan struct{}), forced: make(chan string, 1), release: make(chan struct{})}
 	s, err := store.Open(filepath.Join(t.TempDir(), "watchdog.db"))
 	if err != nil {
@@ -748,7 +749,7 @@ func TestRuntimeRegression_CompactSuggestionAndLimitText(t *testing.T) {
 }
 
 func TestRuntimeRegression_PersistCheckpointFilesTokensAndError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	root := t.TempDir()
 	gitBin, err := exec.LookPath("git")

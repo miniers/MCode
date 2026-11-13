@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"mcode/internal/providers/magpie"
+	"mcode/internal/testenv"
 )
 
 // piTestEnv 把 HOME 与 PI_CODING_AGENT_DIR 指到临时目录，返回 pi 配置目录。
@@ -14,7 +15,7 @@ func piTestEnv(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	dir := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("PI_CODING_AGENT_DIR", dir)
 	return dir
 }
@@ -38,7 +39,7 @@ func piFileField(t *testing.T, plan Plan, file, path string) (any, bool) {
 // TestPiPaths 校验默认目录、PI_CODING_AGENT_DIR 覆盖与相对路径拒绝。
 func TestPiPaths(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("PI_CODING_AGENT_DIR", "")
 
 	modelsPath, settingsPath, err := PiPaths()

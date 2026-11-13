@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"mcode/internal/testenv"
 )
 
 var testAssets = fstest.MapFS{
@@ -685,7 +687,7 @@ func TestServer_MaxConnectionsLimit(t *testing.T) {
 }
 
 func TestServer_BackpressureQueueFullClose(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	// 设置发送队列容量为 1
 	server := NewServer(ServerOptions{
 		Assets:        testAssets,

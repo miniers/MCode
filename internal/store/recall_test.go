@@ -5,10 +5,12 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 func TestRecallMessage_GuardsLatestMessageAndRollsBackOnFailure(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	s, err := Open(filepath.Join(t.TempDir(), "mcode.db"))
 	if err != nil {

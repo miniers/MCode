@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // fakeProjectPath 是 NewFakeClient 的默认项目路径。buildRoot 渲染时会把面板同步到当前项目，
@@ -565,7 +567,7 @@ func TestContextPanel_ToggleKeepsProject(t *testing.T) {
 
 func TestContextPanel_GlobalLayer(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	fake := NewFakeClient()
 	// 全局层只有本地记忆后端会读，层切换与全局读写都按本地后端模拟。
 	fake.memoryBackend = "local"
@@ -652,7 +654,7 @@ func TestContextPanel_LayerSwitchOnlyForLocalBackend(t *testing.T) {
 		{name: "nmem", backend: "nmem", want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			fake := NewFakeClient()
 			fake.memoryBackend = tc.backend
 			s, view := buildRoot(fake)
@@ -706,7 +708,7 @@ func TestContextPanel_CloseTimesOutOnStuckWork(t *testing.T) {
 
 // 全局层的头部标题与副标题改为全局记忆文案。
 func TestContextPanel_GlobalLayerHeader(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.memoryBackend = "local"
 	s, view := buildRoot(fake)
@@ -738,7 +740,7 @@ func TestContextPanel_GlobalLayerHeader(t *testing.T) {
 
 // 取不到用户主目录时，全局层要把原因写进错误条，而不是留一片空白清单。
 func TestContextPanel_GlobalPathUnavailable(t *testing.T) {
-	t.Setenv("HOME", "")
+	testenv.SetHome(t, "")
 	if home, err := os.UserHomeDir(); err == nil {
 		t.Skipf("当前平台 os.UserHomeDir 不依赖 HOME（返回 %q），跳过全局路径错误断言", home)
 	}

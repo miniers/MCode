@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 func TestPlanSlashRequest(t *testing.T) {
@@ -179,7 +180,7 @@ func findSlashRequest(t *testing.T, reqs []slashLogRequest, method string) slash
 // runSlashTurn 用给定的 prompt 与会话跑一轮，返回事件文本与请求日志。
 func runSlashTurn(t *testing.T, prompt, sessionID, script string) (string, []slashLogRequest) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")
 	script = withRequestLog(script, logPath)
 

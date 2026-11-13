@@ -7,11 +7,12 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
+	"mcode/internal/testenv"
 )
 
 func TestMCP_UnifiedListAndDetail(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	dataDir := settingsTestDir(t)
 	servers := []agentconf.MCPServer{
 		{Agent: "custom", Scope: "global", Name: "shared-service", Transport: "http", URL: "https://example.com/mcp"},
@@ -68,7 +69,7 @@ func TestMCP_UnifiedListAndDetail(t *testing.T) {
 
 func TestMCP_AddSheet(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	dataDir := settingsTestDir(t)
 	useMCPToolLister(t, func(context.Context, agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) { return nil, nil })
 	tt := ui.NewTester(Root(NewFakeClient(), WithSettings(dataDir, nil)), 1200, 6000)

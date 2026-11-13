@@ -9,6 +9,7 @@ import (
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // 原生 /compact 一律原样送达，其它消息保留「人设前缀 + 装饰正文」的既有拼法。
@@ -23,7 +24,7 @@ func TestHarnessTurnPrompt(t *testing.T) {
 
 // 斜杠命令轮次不能夹带人设前缀、decorator 与简洁回复引导，否则 Provider 认不出 /compact。
 func TestMemoryBackend_CompactCommandSkipsDecorations(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	project := t.TempDir()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})

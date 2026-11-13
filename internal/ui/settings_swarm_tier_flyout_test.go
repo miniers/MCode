@@ -5,6 +5,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 type swarmTierFlyoutCapture struct {
@@ -20,7 +22,7 @@ type swarmTierFlyoutCapture struct {
 
 func setupSwarmTierFlyoutTest(t *testing.T) (*SettingsState, *ui.Tester, *swarmTierFlyoutCapture, *mygo.Window) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.currentPage = "swarm"
 	parent := &mygo.Window{}

@@ -16,10 +16,11 @@ import (
 	"mcode/internal/providers/agy/quota"
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 func TestClientProviderQuota_UsesAccountSnapshots(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dir := t.TempDir()
 	reset := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	reset7d := time.Now().Add(48 * time.Hour).UTC().Truncate(time.Second)
@@ -64,7 +65,7 @@ func TestClientProviderQuota_UsesAccountSnapshots(t *testing.T) {
 }
 
 func TestClientRecallTurn_DelegatesToBackend(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := remote.NewStreamHub(remote.StreamHubOptions{})
 	defer hub.Close()
@@ -78,7 +79,7 @@ func TestClientRecallTurn_DelegatesToBackend(t *testing.T) {
 }
 
 func TestClientQueuedAttachments_LoadAndRemove(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := remote.NewStreamHub(remote.StreamHubOptions{})
 	defer hub.Close()

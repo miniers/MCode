@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestStewardBoardGroups(t *testing.T) {
@@ -92,7 +94,7 @@ func TestStewardBoardSignal(t *testing.T) {
 
 func newStewardBoardTester(t *testing.T, width int, selected string, tasks []KanbanTask) (*ui.Tester, *chatState, *stewardFakeClient) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := newStewardFakeClient("steward")
 	fake.SetKanbanBoard(KanbanBoard{Tasks: tasks})
 	s := newChatState(fake)

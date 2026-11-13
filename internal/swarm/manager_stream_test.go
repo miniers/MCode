@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"mcode/internal/kanban"
+	"mcode/internal/testenv"
 )
 
 // testClock 提供可手动推进的注入时钟，驱动看门狗与落地等待超时。
@@ -50,7 +51,7 @@ func beeByThread(t *testing.T, m *Manager, leadThreadID, threadID string) Bee {
 
 // 流式逐条派发：连续三次 DispatchSingleEntry 产生递增 Index 与按顺序的花名册名字。
 func TestDispatchSingleEntry_StreamedOrder(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -101,7 +102,7 @@ func TestDispatchSingleEntry_StreamedOrder(t *testing.T) {
 
 // bee 预算：只统计 RequestStartedAt 之后启动的 bee，达到 DefaultBeeBudget 后返回 ErrBeeBudget。
 func TestDispatchSingleEntry_BeeBudget(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	clock := newTestClock()
@@ -165,7 +166,7 @@ func TestDispatchSingleEntry_BeeBudget(t *testing.T) {
 
 // 委派轮次：BeginLeadRequest 重置计数，NoteDelegationRound 递增并随 LeadRecord 持久化、可恢复。
 func TestLeadRequestRounds_PersistRestore(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	clock := newTestClock()
 	persister := newFakePersister()
 
@@ -212,7 +213,7 @@ func TestLeadRequestRounds_PersistRestore(t *testing.T) {
 
 // 看门狗：2 分钟无输出标记思考中、出现进展立即归零、默认 15 分钟无输出且无文件改动熔断。
 func TestWatchdog_ThinkingAndNoEditStall(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	clock := newTestClock()
@@ -299,7 +300,7 @@ func TestWatchdog_ThinkingAndNoEditStall(t *testing.T) {
 
 // 落地等待：Lead 正在编辑同一文件时保持 running 等待，落定后合入；持续占用则超时并保存补丁。
 func TestTick_SettledCheckoutWaitAndTimeout(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	clock := newTestClock()
@@ -440,7 +441,7 @@ func TestTick_SettledCheckoutWaitAndTimeout(t *testing.T) {
 
 // 目标工作区有未提交改动时：与 bee 改动不在同一行则可以直接落地，两处改动同时保留在目标工作区。
 func TestTick_MergeWaitsForLocalEdits(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()
@@ -502,7 +503,7 @@ func TestTick_MergeWaitsForLocalEdits(t *testing.T) {
 // 主工作区文件与落地前完全一致、不含冲突标记，冲突被交回给 bee 在其 worktree 中解决（包含冲突标记），
 // Driver 收到一次新的 StartSession，新 bee 的 ConflictHandbacks 为 1。
 func TestTick_MergeConflictsWithCommittedUserEdits(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()
@@ -581,7 +582,7 @@ func TestTick_MergeConflictsWithCommittedUserEdits(t *testing.T) {
 
 // 批次落地回调：全部 bee 结束且合入后按分组回调一次，重复 Tick 不重复回调。
 func TestBatchLandedCallback_FiresOnce(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()
@@ -666,7 +667,7 @@ func TestBatchLandedCallback_FiresOnce(t *testing.T) {
 
 // 脏路径不再触发等待：未提交改动无冲突时直接落地合入；Lead 忙碌类等待仍用 SettleTimeout（默认 30 分钟）。
 func TestTick_DirtyPathWaitUsesShortTimeout(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	clock := newTestClock()

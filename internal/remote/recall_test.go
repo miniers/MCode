@@ -10,10 +10,11 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 func TestRecallTurn_PersistsRemovalAndRebuildsContext(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	db, err := store.Open(filepath.Join(t.TempDir(), "mcode.db"))
 	if err != nil {
@@ -80,7 +81,7 @@ func TestRecallTurn_PersistsRemovalAndRebuildsContext(t *testing.T) {
 }
 
 func TestRecallTurn_RejectsOutputAndCancellationRace(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, lateOutput := range []bool{false, true} {
 		t.Run(map[bool]string{false: "already_output", true: "output_during_cancel"}[lateOutput], func(t *testing.T) {
 			ctx := context.Background()

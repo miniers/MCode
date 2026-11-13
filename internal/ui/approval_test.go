@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestApprovalBatchApprove(t *testing.T) {
@@ -798,7 +800,7 @@ func TestSendPlanFeedbackEmptyDraft(t *testing.T) {
 }
 
 func TestApprovalShortcutAction(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	normalAppr := Approval{
 		RequestID: "req-normal",
@@ -927,7 +929,7 @@ func TestApprovalShortcutAction(t *testing.T) {
 
 // 数字键批准后，同一帧随后命中的 Enter/Esc 不得再对同一张卡片回调后端。
 func TestApprovalShortcut_SingleFrameDoesNotRespondTwice(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	s := newChatState(fake)
@@ -951,7 +953,7 @@ func TestApprovalShortcut_SingleFrameDoesNotRespondTwice(t *testing.T) {
 }
 
 func TestResolvedPlans_ApprovedAndDismissed(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	s := newChatState(fake)

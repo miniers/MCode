@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // clearLastSelectionGlobals 把最近选择的缓存、脏标记与待写侧栏状态恢复成初始值。
@@ -34,7 +36,7 @@ func resetLastSelectionMergeState(t *testing.T) string {
 	waitUIStateWrites()
 	dir := t.TempDir()
 	t.Setenv("MCODE_DATA", dir)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(func() {
 		waitUIStateWrites()
 		clearLastSelectionGlobals()

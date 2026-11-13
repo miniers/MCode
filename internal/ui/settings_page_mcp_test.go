@@ -13,11 +13,12 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // TestSettings_MCPAddAndDelete 测试自定义 MCP 服务的表单新增与删除 UI 交互流程
 func TestSettings_MCPAddAndDelete(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	dataDir := settingsTestDir(t)
 
@@ -104,7 +105,7 @@ func TestSettings_MCPAddAndDelete(t *testing.T) {
 
 // TestMCPServerDeleteRequiresConfirm 覆盖：删除要二次确认（S-076），取消后服务仍在，确认后才消失。
 func TestMCPServerDeleteRequiresConfirm(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	dataDir := settingsTestDir(t)
 
@@ -164,7 +165,7 @@ func TestMCPServerDeleteRequiresConfirm(t *testing.T) {
 }
 
 func TestMCPServerDeleteModalRenderedOnce(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	home, _ := os.UserHomeDir()
 	if err := agentconf.SaveMCPServer(agentconf.Options{Home: home, DataDir: dataDir}, agentconf.MCPServer{
@@ -290,7 +291,7 @@ func TestMCPToolPolicySaveErrorSurfaces(t *testing.T) {
 
 // TestMCPServerRowShowsProbeError 覆盖：探测失败要在行内显示错误与「重新检测」，而不是一律写「连接后可见」。
 func TestMCPServerRowShowsProbeError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	dataDir := settingsTestDir(t)
 
@@ -336,7 +337,7 @@ func TestMCPServerRowShowsProbeError(t *testing.T) {
 // 必须显示「只读 · 外部配置」徽章，且没有启停开关、编辑、删除按钮。
 func TestMCPServerRowReadOnly(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	fake := NewFakeClient()
 	dataDir := settingsTestDir(t)
 
@@ -418,7 +419,7 @@ func clickNewThreadToggle(t *testing.T, tt *ui.Tester, label string) {
 // 切换开关写入全局配置，再切一次从名单移除。
 func TestMCPNewThreadDefaults(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	dataDir := settingsTestDir(t)
 
 	origScanMCP := scanMCP
@@ -465,7 +466,7 @@ func TestMCPNewThreadDefaults(t *testing.T) {
 // TestMCPServerRowShowsEngineDisabledBadge 覆盖 A11：引擎侧（Claude Code）关闭的服务
 // 要显示徽标，展开区说明原因，且不影响 mcode 自己的开关。
 func TestMCPServerRowShowsEngineDisabledBadge(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 
 	origScanMCP := scanMCP
@@ -518,7 +519,7 @@ func TestMCPPageStateOwnedBySettingsState(t *testing.T) {
 
 // TestMCPToolBatchSwitchWritesPolicy 覆盖：展开工具后的单工具与批量开关都改内存并写盘。
 func TestMCPToolBatchSwitchWritesPolicy(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	useMCPToolLister(t, func(ctx context.Context, srv agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) {
 		return []agentconf.MCPToolInfo{{Name: "tool-a"}, {Name: "tool-b"}}, nil

@@ -11,6 +11,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	git "mcode/internal/git"
+
+	"mcode/internal/testenv"
 )
 
 func TestComposerKeyPrefix(t *testing.T) {
@@ -46,7 +48,7 @@ func seedCapsuleThread(s *chatState, running bool, lastStatus string) {
 // TestComposerRunningChangesCapsule 验证运行中回合的改动胶囊：有 2 个改动文件时
 // 显示文件数与增删行数，点击区域在同一个胶囊行里；回合结束后胶囊与整行一起消失。
 func TestComposerRunningChangesCapsule(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)
@@ -131,7 +133,7 @@ func TestComposerPlanCapsuleEmbeddedBee(t *testing.T) {
 }
 
 func TestComposerCapsulesShareOneRow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)
@@ -182,7 +184,7 @@ func TestComposerCapsulesShareOneRow(t *testing.T) {
 
 // TestComposerCapsuleRowHiddenWhenEmpty 验证没有任何胶囊时整行不渲染。
 func TestComposerCapsuleRowHiddenWhenEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)
@@ -269,7 +271,7 @@ func TestComposerBackgroundTasksCapsule(t *testing.T) {
 // TestComposerBackgroundTasksCapsuleOpensPanel 验证点击后台任务胶囊会打开浮层：
 // 浮层里显示「后台任务」表头与运行中计数。
 func TestComposerBackgroundTasksCapsuleOpensPanel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)
@@ -301,7 +303,7 @@ func TestComposerBackgroundTasksCapsuleOpensPanel(t *testing.T) {
 // TestComposerCapsulesMergeIntoChangesRow 验证有改动统计行时状态胶囊并入同一行：
 // 胶囊与「N 个文件」tab 垂直居中于一行，并排在 tab 右侧，不再单独占一行。
 func TestComposerCapsulesMergeIntoChangesRow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	capsules := []composerCapsule{{
 		Key:   "test-pill",
@@ -336,7 +338,7 @@ func TestComposerCapsulesMergeIntoChangesRow(t *testing.T) {
 // TestComposerCapsulePopoverOpensAbove 验证胶囊浮层向上展开：
 // 胶囊行贴在窗口底部时，浮层整体落在胶囊上方，不会遮住输入框。
 func TestComposerCapsulePopoverOpensAbove(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	open := true
 	tt := ui.NewTester(func(c *ui.Context) {
 		capsules := []composerCapsule{{

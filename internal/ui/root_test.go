@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // waitFor 辅助循环等待异步状态就绪并触发重绘帧。
@@ -659,7 +661,7 @@ func TestRootSidebarStatePersisted(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	state, view := buildRoot(fake, WithUIStatePersistence())
 	t.Cleanup(state.close)

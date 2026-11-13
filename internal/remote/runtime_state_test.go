@@ -13,6 +13,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 type blockableStateHarness struct {
@@ -51,7 +52,7 @@ func (h *blockableStateHarness) Run(ctx context.Context, turn harness.Turn, emit
 
 // 1. phase 依次经过 idle -> starting -> running -> idle
 func TestRuntimeState_PhaseTransitions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()
@@ -131,7 +132,7 @@ func TestRuntimeState_PhaseTransitions(t *testing.T) {
 
 // 2. starting 阶段打断会立即结束，不需要看门狗
 func TestRuntimeState_InterruptStarting(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()
@@ -204,7 +205,7 @@ func TestRuntimeState_InterruptStarting(t *testing.T) {
 
 // 3. running 阶段 harness 忽略 ctx 时，手动触发注入的 afterFunc 后强制结束，晚到的旧事件不会写回
 func TestRuntimeState_InterruptWatchdog_IgnoresCtx(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()
@@ -310,7 +311,7 @@ func TestRuntimeState_InterruptWatchdog_IgnoresCtx(t *testing.T) {
 
 // 4. recall 返回原 prompt，且该轮消息被移除，turns 表标记为 taken_back
 func TestRuntimeState_Recall(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()
@@ -390,7 +391,7 @@ func TestRuntimeState_Recall(t *testing.T) {
 
 // 5. epoch 递增后旧 goroutine 的事件被丢弃
 func TestRuntimeState_EpochDiscardOldEvents(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()
@@ -466,7 +467,7 @@ func TestRuntimeState_EpochDiscardOldEvents(t *testing.T) {
 
 // 6. 会话失效时重建并重跑一次
 func TestRuntimeState_LostSessionRecovery(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()
@@ -530,7 +531,7 @@ func TestRuntimeState_LostSessionRecovery(t *testing.T) {
 
 // 7. 配置了 store 的情况下，ListTurns 能读到一行，且 Status 和 tokens 正确
 func TestRuntimeState_Store_ListTurns(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()
@@ -603,7 +604,7 @@ func TestRuntimeState_Store_ListTurns(t *testing.T) {
 
 // 8. 瞬态网络错误重试仍然生效
 func TestRuntimeState_TransientNetworkRetry(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
 	defer hub.Close()

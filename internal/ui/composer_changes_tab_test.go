@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // changesTabDiff 是改动统计 Tab 测试用的统一 diff：1 个文件、+1/-1。
@@ -20,7 +22,7 @@ const changesTabDiff = `diff --git a/pkg/math.go b/pkg/math.go
 // TestComposerChangesTab_ShowsStatsAndOpensDiffPanel 测试无排队消息时输入框上方显示改动统计 Tab，
 // 点击后打开改动面板。
 func TestComposerChangesTab_ShowsStatsAndOpensDiffPanel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetThreadDiff("t1", "", ThreadDiff{
 		Diff:         changesTabDiff,
@@ -53,7 +55,7 @@ func TestComposerChangesTab_ShowsStatsAndOpensDiffPanel(t *testing.T) {
 // TestComposerChangesTab_QueueTakesPrecedence 测试有排队消息时优先显示排队 Tab，
 // 改动统计 Tab 让位。
 func TestComposerChangesTab_QueueTakesPrecedence(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetThreadDiff("t1", "", ThreadDiff{
 		Diff:         changesTabDiff,

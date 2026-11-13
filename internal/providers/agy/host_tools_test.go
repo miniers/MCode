@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 // TestHostToolsAvailableFollowsGeminiDir 验证宿主工具可用性与 MCP 注入的跳过条件一致：
 // 源 gemini 目录不存在或为空时没有注入，也就没有回执工具；目录非空时才有。
 func TestHostToolsAvailableFollowsGeminiDir(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	builtin := harness.BuiltinMCP{URL: "http://127.0.0.1:9000/mcp"}
 	h := New(Options{BuiltinMCP: builtin})

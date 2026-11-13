@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
 	"mcode/internal/mcp"
+	"mcode/internal/testenv"
 )
 
 // stubMCPMenuScan 用固定列表替换磁盘扫描，并清空菜单缓存，返回复位函数。
@@ -26,7 +27,7 @@ func stubMCPMenuScan(t *testing.T, servers []agentconf.MCPServer) {
 // newMCPMenuTestRoot 造一个 provider 可配、带一条会话的根视图。
 func newMCPMenuTestRoot(t *testing.T, provider string) (*FakeClient, *chatState, *ui.Tester) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	now := time.Now()
 	fake.SetProjectsAndThreads(

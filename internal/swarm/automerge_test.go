@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"mcode/internal/git"
+	"mcode/internal/testenv"
 )
 
 // gitTestRun 在指定目录直接执行 git 命令，仅用于测试准备与断言。
@@ -118,7 +119,7 @@ func addNewFilePatch(t *testing.T, b *LandedBatch) {
 
 // (a) 两个开关都关闭时，自动批次不做任何事：无提交、不 push、不调用 forge。
 func TestPipeline_BothSwitchesOffDoesNothing(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -157,7 +158,7 @@ func TestPipeline_BothSwitchesOffDoesNothing(t *testing.T) {
 
 // (b) AutoMerge 开、AutoPush 关：只创建本地提交，push 与 forge 零调用。
 func TestPipeline_AutoMergeOnlyCommitsLocally(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -227,7 +228,7 @@ func TestPipeline_AutoMergeOnlyCommitsLocally(t *testing.T) {
 // origin 指向 github URL（供 DetectForge 识别），push 使用 fake 实现，绝不触网；
 // initTestRepo 的 protocol.https.allow=never 让同步阶段的 fetch 立即被拒绝，保证测试完全离线。
 func TestPipeline_AutoPushPushesAndOpensThenMerges(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -297,7 +298,7 @@ func TestPipeline_AutoPushPushesAndOpensThenMerges(t *testing.T) {
 
 // (d) 手动 Trigger 在两个开关关闭时仍会提交、push 并调用 forge。
 func TestPipeline_ManualTriggerIgnoresSwitches(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -342,7 +343,7 @@ func TestPipeline_ManualTriggerIgnoresSwitches(t *testing.T) {
 
 // (e) 可重试的 forge 错误会安排 60s 后的重试；重试触发前关闭 AutoPush 则直接丢弃。
 func TestPipeline_RetryScheduledAndDroppedWhenAutoPushOff(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -406,7 +407,7 @@ func TestPipeline_RetryScheduledAndDroppedWhenAutoPushOff(t *testing.T) {
 
 // (f) 重试触发时 AutoPush 仍开启：从失败阶段恢复，不重复 push 与本地提交。
 func TestPipeline_RetryResumesFromFailedStage(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -479,7 +480,7 @@ func TestPipeline_RetryResumesFromFailedStage(t *testing.T) {
 
 // 手动触发且没有可提交改动时，仍然推送当前 HEAD。
 func TestPipeline_ManualTriggerWithoutCommitPushesBee(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -519,7 +520,7 @@ func TestPipeline_ManualTriggerWithoutCommitPushesBee(t *testing.T) {
 }
 
 func TestBatchesFromState_GroupsByTargetWorkDir(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	st := State{
 		LeadThreadID: "lead-1",
@@ -562,7 +563,7 @@ func TestBatchesFromState_GroupsByTargetWorkDir(t *testing.T) {
 }
 
 func TestPipeline_StartStop(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	p := NewPipeline(PipelineOptions{Settings: func() Settings { return Settings{} }})
 	p.Start()
 	p.Start() // 重复启动应无害
@@ -572,7 +573,7 @@ func TestPipeline_StartStop(t *testing.T) {
 
 // (g) AutoMerge 开、AutoPush 关：本地提交完成后上报 done，并带上本批次的提交 sha。
 func TestPipeline_ReportsDoneAfterLocalCommit(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -606,7 +607,7 @@ func TestPipeline_ReportsDoneAfterLocalCommit(t *testing.T) {
 
 // (h) AutoMerge 关闭：批次不上报 done 而是 skipped，也不产生提交。
 func TestPipeline_ReportsSkippedWhenAutoMergeOff(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -642,7 +643,7 @@ func TestPipeline_ReportsSkippedWhenAutoMergeOff(t *testing.T) {
 
 // (i) 补丁提交：用户未提交改动保留在工作区，HEAD 仅合入补丁改动。
 func TestPipeline_AutoMergeWithPatchesPreservesUncommittedChanges(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -718,7 +719,7 @@ func TestPipeline_AutoMergeWithPatchesPreservesUncommittedChanges(t *testing.T) 
 
 // (j) 批次内全为 SharedNoGit 或 ShadowRepo 的 bee 时，不创建提交、不返回错误且不发通知。
 func TestPipeline_SkipsNonGitBees(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -820,7 +821,7 @@ func TestPipeline_AlreadyCommittedAndMissingPatch(t *testing.T) {
 
 // (l) 走补丁提交时，describe 生成提交说明使用补丁文本，不混入工作区未提交改动。
 func TestPipeline_DescribeUsesPatchContent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -876,7 +877,7 @@ func TestPipeline_DescribeUsesPatchContent(t *testing.T) {
 
 // (m) 补丁在 HEAD 上应用冲突且工作区里这些文件已没有改动时，停止合并、发送冲突通知并保留工作区改动。
 func TestPipeline_CommitPatchesConflictReportsError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -947,7 +948,7 @@ func setupPatchConflictRepo(t *testing.T) (*git.Runner, string, LandedBatch) {
 
 // (n) 补丁与 HEAD 冲突时停止，工作区内容不能作为回退提交。
 func TestPipeline_CommitPatchesConflictFallsBackToWorktree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir, b := setupPatchConflictRepo(t)
 	before := gitTestRun(t, dir, "rev-parse", "HEAD")
 	index := gitTestRun(t, dir, "write-tree")
@@ -988,7 +989,7 @@ func TestPipeline_CommitPatchesConflictFallsBackToWorktree(t *testing.T) {
 
 // (o) 补丁冲突且引用被锁时，仍直接停止，不尝试按工作区提交。
 func TestPipeline_CommitPatchesConflictFallbackFailureReportsFailed(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir, b := setupPatchConflictRepo(t)
 	ctx := context.Background()
 	before := gitTestRun(t, dir, "rev-parse", "HEAD")

@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 func TestClient_BulkArchiveAndUndo(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := t.TempDir()
 	workDir := t.TempDir()
 

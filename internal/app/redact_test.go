@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 func TestRedact(t *testing.T) {
@@ -32,7 +34,7 @@ func TestRedactWriter(t *testing.T) {
 
 func TestExportDiagnostics(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	dir := t.TempDir()
 	log1 := filepath.Join(dir, "a.log")
 	content := "open " + home + "/proj from 192.168.1.20\npassword=hunter2hunter2\n"

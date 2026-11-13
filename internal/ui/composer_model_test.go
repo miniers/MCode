@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // findTextRect 返回首个包含 text 的文本所在矩形；找不到时返回 false。
@@ -67,7 +69,7 @@ func waitText(t *testing.T, tt *ui.Tester, text string) bool {
 
 // 场景 1：初始渲染显示当前模型名。
 func TestComposerModel_ShowCurrentModelName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	composerModelPickerState.MenuOpen = false
@@ -109,7 +111,7 @@ func TestComposerModel_ShowCurrentModelName(t *testing.T) {
 
 // 场景 2：新会话切换到 codex 的某个模型后，假 Client 收到 (threadID, "codex", modelID)。
 func TestComposerModel_SwitchToOtherAgent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	composerModelPickerState.MenuOpen = false
@@ -201,7 +203,7 @@ func TestComposerModel_SwitchToOtherAgent(t *testing.T) {
 
 // 场景 3：已有消息的会话里，其他 Agent 的模型点不了，不会产生调用。
 func TestComposerModel_HasMessagesCannotSwitchAgent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	composerModelPickerState.MenuOpen = false
@@ -287,7 +289,7 @@ func TestComposerModel_HasMessagesCannotSwitchAgent(t *testing.T) {
 
 // 场景 4：同一个 Agent 内换模型时，收到的 provider 为空。
 func TestComposerModel_SwitchWithinSameAgent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	composerModelPickerState.MenuOpen = false
@@ -360,7 +362,7 @@ func TestComposerModel_SwitchWithinSameAgent(t *testing.T) {
 
 // 场景 5：没有选中会话时不显示模型胶囊。
 func TestComposerModel_HiddenWhenNoThread(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	composerModelPickerState.MenuOpen = false
@@ -383,7 +385,7 @@ func TestComposerModel_HiddenWhenNoThread(t *testing.T) {
 // composerModelPrefsFixture 构造带 claude/codex 两个 Agent、且已设置 Bees 偏好的会话。
 func composerModelPrefsFixture(t *testing.T, withMessages bool) (*FakeClient, *ui.Tester) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	t.Cleanup(func() { composerModelPickerState.MenuOpen = false })
@@ -542,7 +544,7 @@ func TestComposerModel_BeesEffort(t *testing.T) {
 
 // 场景 9：纯函数 modelCapsuleLabel 测试：拼接模型名与首字母大写的推理强度，为空时不追加。
 func TestModelCapsuleLabel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	cases := []struct {
@@ -572,7 +574,7 @@ func TestModelCapsuleLabel(t *testing.T) {
 
 // 场景 10：上下文用量比例与百分比计算纯函数测试。
 func TestContextUsageCalculation(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	fracCases := []struct {
@@ -608,7 +610,7 @@ func TestContextUsageCalculation(t *testing.T) {
 
 // 场景 11：重置只清空强度与快速模式，不改变已选模型。
 func TestComposerModel_ResetToDefault(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	composerModelPickerState.MenuOpen = false
@@ -677,7 +679,7 @@ func TestComposerModel_ResetToDefault(t *testing.T) {
 
 // 覆盖：Swarm 开启时卡片顶部渲染出“主导 · <档位>”和“执行 · <档位>”两段标签。
 func TestComposerModel_SwarmSideTabs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	composerModelPickerState.MenuOpen = false
@@ -728,7 +730,7 @@ func TestComposerModel_SwarmSideTabs(t *testing.T) {
 
 // 覆盖：Efforts 为空时出现“该模型未提供可调的推理强度”且不渲染滑条。
 func TestComposerModel_EffortsEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	composerModelPickerState.MenuOpen = false
@@ -776,7 +778,7 @@ func TestComposerModel_EffortsEmpty(t *testing.T) {
 }
 
 func TestComposerModel_FastModeClickPersistsDefaultModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	composerModelPickerState.MenuOpen = false
@@ -816,7 +818,7 @@ func TestComposerModel_FastModeClickPersistsDefaultModel(t *testing.T) {
 }
 
 func TestComposerModel_BeesOffTabEnablesSwarm(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	fake := NewFakeClient()
@@ -841,7 +843,7 @@ func TestComposerModel_BeesOffTabEnablesSwarm(t *testing.T) {
 
 // 覆盖：toggleModelFastMode 之后 fake client 收到 UpdateModelPreference 且 FastMode 为 true。
 func TestComposerModel_ToggleModelFastMode(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	fake := NewFakeClient()
@@ -878,7 +880,7 @@ func TestComposerModel_ToggleModelFastMode(t *testing.T) {
 
 // 覆盖：resetModelPreference 之后收到空的 ModelPreference，并且会话 Effort 被清空。
 func TestComposerModel_ResetModelPreference(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	fake := NewFakeClient()
@@ -947,7 +949,7 @@ func TestComposerModel_ResetModelPreference(t *testing.T) {
 
 // 覆盖：setModelEffortPreference 之后持久化的 Effort 正确。
 func TestComposerModel_SetModelEffortPreference(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(lastSelectionWriteWG.Wait)
 	fake := NewFakeClient()

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestMagpieModelPanelShowsOperationError(t *testing.T) {
@@ -34,7 +36,7 @@ func magpieModelPanelTester(t *testing.T, fake *FakeClient, setting AgentMagpieS
 		delete(magpieOwnModelGroups.expanded, setting.Agent)
 		magpieOwnModelGroups.Unlock()
 	})
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	prevDelays := piMagpieCatalogRefreshDelays
 	piMagpieCatalogRefreshDelays = nil
 	t.Cleanup(func() { piMagpieCatalogRefreshDelays = prevDelays })
@@ -112,7 +114,7 @@ func magpieTestHasModelIDs(calls []setAgentMagpieModelsCall, endpointID string, 
 // TestMagpieModelPanelShowsOnlyEnabled 覆盖：已启用列表只显示勾选的模型，
 // 44 个未勾选模型不会平铺到页面上。
 func TestMagpieModelPanelShowsOnlyEnabled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 
 	models := make([]PiMagpieModel, 0, 44)
@@ -147,7 +149,7 @@ func TestMagpieModelPanelShowsOnlyEnabled(t *testing.T) {
 
 // TestMagpieModelPanelDisableUnchecks 覆盖：点击「停用 X」会把模型从勾选里去掉。
 func TestMagpieModelPanelDisableUnchecks(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	setting := agentMagpieTestSetting()
 	setting.Endpoints[0].Selected = []string{"auto/sonnet", "auto/haiku"}
@@ -164,7 +166,7 @@ func TestMagpieModelPanelDisableUnchecks(t *testing.T) {
 
 // TestMagpieModelPanel_默认模型下拉框保存 覆盖：claude 的默认模型下拉框选择后保存。
 func TestMagpieModelPanel_默认模型下拉框保存(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	setting := agentMagpieTestSetting()
 	setting.Endpoints[0].Selected = []string{"auto/sonnet", "auto/haiku"}
@@ -185,7 +187,7 @@ func TestMagpieModelPanel_默认模型下拉框保存(t *testing.T) {
 
 // TestMagpieModelPanel_pi没有默认模型下拉框 覆盖：pi 只显示注入说明。
 func TestMagpieModelPanel_pi没有默认模型下拉框(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	piEndpoints := []PiMagpieEndpoint{{
 		ID:         "jp",
 		Name:       "JP 网关",
@@ -204,7 +206,7 @@ func TestMagpieModelPanel_pi没有默认模型下拉框(t *testing.T) {
 
 // TestMagpieModelPanelAddPopover 覆盖：添加模型浮层列出未勾选模型、勾选会启用、搜索可过滤。
 func TestMagpieModelPanelAddPopover(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 
 	tt, _ := magpieModelPanelTester(t, fake, agentMagpieTestSetting(), ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
@@ -239,7 +241,7 @@ func TestMagpieModelPanelAddPopover(t *testing.T) {
 
 // Magpie 面板里的同一个浮层也要能被 Esc 关掉，关掉后能再次打开。
 func TestMagpieModelPanelAddPopoverClosesOnEscape(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	tt, _ := magpieModelPanelTester(t, fake, agentMagpieTestSetting(), ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
 	waitFor(t, tt, func() bool { return tt.HasText("已启用（1）") })
@@ -265,7 +267,7 @@ func TestMagpieModelPanelAddPopoverClosesOnEscape(t *testing.T) {
 
 // TestMagpieModelPanelOwnGroupPicksNativeModel 覆盖：自身配置分组显示目录里的模型。
 func TestMagpieModelPanelOwnGroupPicksNativeModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	tt, _ := magpieModelPanelTester(t, fake, agentMagpieTestSetting(), ProviderInfo{
 		ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "claude-native-x", Name: "Native X"}},
@@ -283,7 +285,7 @@ func TestMagpieModelPanelOwnGroupPicksNativeModel(t *testing.T) {
 
 // TestMagpieModelPanelOwnGroupExcludesMagpiePins 覆盖：Magpie 模型属于网关组，不属于自身配置组。
 func TestMagpieModelPanelOwnGroupExcludesMagpiePins(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pin := ModelPin{Provider: "claude", ModelID: "magpie-jp/auto/sonnet"}
 	if _, err := fake.AddModelToList(context.Background(), pin); err != nil {
@@ -339,7 +341,7 @@ func TestMagpieModelPanelFamily(t *testing.T) {
 
 // TestMagpieModelPanelRestoreAuto 覆盖：手动默认可恢复为自动。
 func TestMagpieModelPanelRestoreAuto(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	setting := agentMagpieTestSetting()
 	setting.Endpoints[1].Selected = []string{"auto/opus"}
@@ -389,7 +391,7 @@ func magpieTierTestSetting(mode string) AgentMagpieSetting {
 // TestMagpieModelPanelShowsTiersInGlobalMode 覆盖：写全局配置时列出各档位映射，
 // 模型显示名称而不是 ID，空档位提示用 Claude Code 自带，haiku 追加后述说明。
 func TestMagpieModelPanelShowsTiersInGlobalMode(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 
 	tt, _ := magpieModelPanelTester(t, fake, magpieTierTestSetting("global"), ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
@@ -411,7 +413,7 @@ func TestMagpieModelPanelShowsTiersInGlobalMode(t *testing.T) {
 
 // TestMagpieModelPanelHidesTiersInInjectMode 覆盖：运行时注入不渲染档位映射。
 func TestMagpieModelPanelHidesTiersInInjectMode(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 
 	tt, _ := magpieModelPanelTester(t, fake, magpieTierTestSetting("inject"), ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
@@ -423,7 +425,7 @@ func TestMagpieModelPanelHidesTiersInInjectMode(t *testing.T) {
 
 // TestMagpieModelPanelPiHidesTiers 覆盖：pi 不渲染档位映射，即使后端给了 Tiers。
 func TestMagpieModelPanelPiHidesTiers(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetAgentMagpie(AgentMagpieSetting{
 		Agent:  "pi",
@@ -449,7 +451,7 @@ func TestMagpieModelPanelPiHidesTiers(t *testing.T) {
 // TestMagpieModelPanelToggleReloadsTiers 覆盖：写全局配置时勾选变化会重读设置，
 // 让后端按新勾选推导的档位映射跟着刷新。
 func TestMagpieModelPanelToggleReloadsTiers(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 
 	setting := magpieTierTestSetting("global")

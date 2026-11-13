@@ -6,11 +6,12 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // 测试 Bee 档位区块默认展示三种档位（只读、执行、攻坚）及“跟随会话子代理模型”胶囊文案。
 func TestSwarmTiers_DefaultRender(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 
@@ -36,7 +37,7 @@ func TestSwarmTiers_DefaultRender(t *testing.T) {
 }
 
 func TestSwarmTierRowCustomizedIndicator(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	def := config.DefaultSwarmTiers()[2]
 	description := def
@@ -71,7 +72,7 @@ func TestSwarmTierRowCustomizedIndicator(t *testing.T) {
 
 // 测试添加档位持久化保存至磁盘。
 func TestSwarmTiers_AddTierPersists(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 
@@ -119,7 +120,7 @@ func TestSwarmTiers_AddTierPersists(t *testing.T) {
 
 // 测试默认档位删除被禁用/拦截。
 func TestSwarmTiers_DeleteDefaultTierBlocked(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 
@@ -173,7 +174,7 @@ func TestSwarmTiers_DeleteDefaultTierBlocked(t *testing.T) {
 
 // 测试配对中配置档位映射持久化保存，且重置按钮能清除该映射。
 func TestSwarmTiers_PairOverridePersistenceAndReset(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 
@@ -272,7 +273,7 @@ func TestSwarmTierColor_Stable(t *testing.T) {
 
 // 删除守卫必须看运行态配置里的只读位：草稿里刚勾上只读不能绕过「至少保留一个可写档位」（S-095）。
 func TestSwarmTierDeleteGuard_UsesRuntimeReadOnly(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.Tiers = []config.SwarmTier{
 		{ID: "read", Name: "只读", ReadOnly: true},
@@ -299,7 +300,7 @@ func TestSwarmTierDeleteGuard_UsesRuntimeReadOnly(t *testing.T) {
 
 // deleteTier 遇到校验失败时不改内存，并且配对里的档位映射写在新副本上（S-095）。
 func TestDeleteTier_RejectsLastWritableAndKeepsPairs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 	st.cfg.Orchestration.Tiers = []config.SwarmTier{
@@ -405,7 +406,7 @@ func TestWritePathsFormatParseRoundTrip(t *testing.T) {
 
 // 带 WritePaths 的草稿保存后写入配置并落盘。
 func TestSaveTier_PersistsWritePaths(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 
@@ -507,7 +508,7 @@ func TestSwarmTierDraftIsDefault(t *testing.T) {
 }
 
 func TestSaveTier_ResetToDefault(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	defaultTier, ok := defaultSwarmTier("edit")
 	if !ok {

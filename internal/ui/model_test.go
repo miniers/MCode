@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 func TestUpsertMessages(t *testing.T) {
@@ -502,7 +504,7 @@ func TestModel_RefreshProviderCatalogAfterPlaceholder(t *testing.T) {
 // TestModel_ResyncFrameReloadsMessages 覆盖 U-014：消息帧体超过上限时后端改发 resync 帧，
 // 帧里只有摘要没有消息，UI 收到后必须按会话重拉全量消息并替换，否则这一批消息永久缺失。
 func TestModel_ResyncFrameReloadsMessages(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetMessages("t1", []Message{
 		{ID: "m1", Role: "user", Text: "旧消息", TurnIndex: 1},

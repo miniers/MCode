@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // waitRecallAllQueued 通过包级钩子等待「全部退回编辑」的后台 goroutine 结束，
@@ -41,7 +42,7 @@ type queueSeeder interface {
 // newRecallTestState 造一个选中 t1、队列已同步到 chatState 与 FakeClient 的实例。
 func newRecallTestState(t *testing.T, client Client, items []QueuedFollowUp) *chatState {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(client)
 	t.Cleanup(s.close)
 	s.mu.Lock()
@@ -418,7 +419,7 @@ func TestRecallAllQueued_BlockedWhileEditing(t *testing.T) {
 }
 
 func TestComposerQueue_RecallAllButton(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)
@@ -459,7 +460,7 @@ func TestComposerQueue_RecallAllButton(t *testing.T) {
 }
 
 func TestComposerQueue_IntentLabels(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)
@@ -496,7 +497,7 @@ func TestComposerQueue_IntentLabels(t *testing.T) {
 }
 
 func TestComposerQueue_RecallAllLabelUnique(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)

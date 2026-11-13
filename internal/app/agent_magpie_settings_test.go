@@ -16,6 +16,7 @@ import (
 
 	"mcode/internal/config"
 	"mcode/internal/magpiecfg"
+	"mcode/internal/testenv"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -64,7 +65,7 @@ func newAgentMagpieTestEnv(t *testing.T, baseURL string) agentMagpieTestEnv {
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
 	t.Setenv("CODEX_HOME", codexDir)
 	t.Setenv("CLINE_DATA_DIR", clineDir)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("PI_CODING_AGENT_DIR", piDir)
 
 	cfg := config.Defaults()

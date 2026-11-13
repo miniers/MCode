@@ -8,13 +8,14 @@ import (
 
 	"mcode/internal/agentconf"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // commandsForSkills 用给定的技能列表与 provider 打桩 scanSkills，调用一次 threads.commands 并返回结果。
 // 复用 thread_ops_test.go 里的 fakeThreadOps 与 RPC 执行辅助，命令名集合由调用方断言。
 func commandsForSkills(t *testing.T, provider string, mockSkills []agentconf.Skill) wire.ThreadsCommandsResult {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake, hub := newTestFakeThreadOps()
 	defer hub.Close()
@@ -227,7 +228,7 @@ func TestThreadCommandsSkills_ScanOptionsCarryDataDir(t *testing.T) {
 		return nil, nil
 	}
 
-	t.Setenv("HOME", homeDir)
+	testenv.SetHome(t, homeDir)
 	req := fmt.Sprintf(`{"jsonrpc":"2.0","method":"threads.commands","params":{"threadID":"%s"},"id":901}`, newUUID())
 	if resp := execThreadOpsRPC(t, d, conn, req); resp.Error != nil {
 		t.Fatalf("threads.commands failed: %v", resp.Error.Message)

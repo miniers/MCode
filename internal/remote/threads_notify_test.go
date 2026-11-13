@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 type notifyTestConn struct {
@@ -63,7 +64,7 @@ func (c *notifyTestConn) Close() error {
 }
 
 func TestStreamHub_OversizedSummaryDisconnects(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
 	defer hub.Close()
 	conn := newNotifyTestConn("device", "client")
@@ -79,7 +80,7 @@ func TestStreamHub_OversizedSummaryDisconnects(t *testing.T) {
 }
 
 func TestDispatcherMoveNotifiesReorderedNeighbors(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
 	defer hub.Close()
 	backend := NewMemoryBackend(hub)
@@ -108,7 +109,7 @@ func TestDispatcherMoveNotifiesReorderedNeighbors(t *testing.T) {
 }
 
 func TestDispatcherSummaryDedupAndAuthentication(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	d := NewDispatcher(&fakeAuth{}, &fakeBackend{})
 	conn := newNotifyTestConn("device", "client")
 	d.addAuthedConn(conn)
@@ -148,7 +149,7 @@ func (c *notifyTestConn) getNotifications() []struct {
 
 // TestStreamHub_ResyncOnOversizedFrame 测试超大帧下发时降级为 resync 事件 (D-REM-063)。
 func TestStreamHub_ResyncOnOversizedFrame(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
 	defer hub.Close()
 
@@ -217,7 +218,7 @@ func TestStreamHub_ResyncOnOversizedFrame(t *testing.T) {
 }
 
 func TestStreamHub_FrameLimitIncludesEnvelope(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
 	defer hub.Close()
 	conn := newNotifyTestConn("device", "client")
@@ -247,7 +248,7 @@ func TestStreamHub_FrameLimitIncludesEnvelope(t *testing.T) {
 }
 
 func TestThreadEventPayloadContract(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, kind := range []string{"projection", "resync"} {
 		t.Run(kind, func(t *testing.T) {
 			event := wire.ThreadEvent{Kind: kind}
@@ -275,7 +276,7 @@ func TestThreadEventPayloadContract(t *testing.T) {
 }
 
 func TestDispatcher_LocalMutationsAndTurnCompletion(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
 	defer hub.Close()
@@ -340,7 +341,7 @@ func TestDispatcher_LocalMutationsAndTurnCompletion(t *testing.T) {
 
 // TestDispatcher_ThreadsChangedBroadcast 测试创建和更新会话后向所有已认证连接广播 threads.changed (D-REM-064)。
 func TestDispatcher_ThreadsChangedBroadcast(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	ctx := context.Background()
 	conn1 := newNotifyTestConn("dev-1", "Client 1")

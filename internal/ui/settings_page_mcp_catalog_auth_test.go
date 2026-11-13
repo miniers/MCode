@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mcode/internal/agentconf"
+	"mcode/internal/testenv"
 )
 
 // deviceAuthCatalogEntry 返回一条声明设备码登录方式的目录条目。
@@ -36,7 +37,7 @@ func stubCatalogInstallProbe(t *testing.T) {
 // newCatalogInstallState 构造一个只扫描到空列表的设置状态。
 func newCatalogInstallState(t *testing.T) (*SettingsState, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubMCPAuthScans(t,
 		func(agentconf.Options) ([]agentconf.MCPServer, error) { return nil, nil },
 		func(agentconf.Options) map[string]bool { return nil },

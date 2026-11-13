@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // fixtureBuildSkillsSelect 铺一个含全局与项目级技能的临时目录，返回 (project, home)。
@@ -11,7 +13,7 @@ func fixtureBuildSkillsSelect(t *testing.T) (string, string) {
 	t.Helper()
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	globalDir := filepath.Join(home, ".agents", "skills")
 	writeSkill(t, globalDir, "alpha", "---\nname: alpha\ndescription: 全局 alpha\n---\n正文")

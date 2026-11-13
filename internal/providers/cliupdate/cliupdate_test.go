@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 func TestRunCommandTimeout(t *testing.T) {
@@ -99,7 +101,7 @@ func stubNPMRegistryBase(t *testing.T, base string) {
 }
 
 func TestParseVersion(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tests := []struct {
 		name   string
 		output string
@@ -126,7 +128,7 @@ func TestParseVersion(t *testing.T) {
 }
 
 func TestCompareVersions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tests := []struct {
 		name string
 		a    string
@@ -162,7 +164,7 @@ func TestCompareVersions(t *testing.T) {
 }
 
 func TestInstalled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	var calledName string
 	var calledArgs []string
 	stubRunCommand(t, func(_ context.Context, name string, args ...string) (string, error) {
@@ -186,7 +188,7 @@ func TestInstalled(t *testing.T) {
 }
 
 func TestInstalledErrors(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Run("命令失败", func(t *testing.T) {
 		stubRunCommand(t, func(context.Context, string, ...string) (string, error) {
 			return "", errors.New("exec: not found")
@@ -217,7 +219,7 @@ func TestInstalledErrors(t *testing.T) {
 }
 
 func TestUpdateCommand(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tests := []struct {
 		provider string
 		want     []string
@@ -253,7 +255,7 @@ func TestUpdateCommand(t *testing.T) {
 }
 
 func TestCheckUpdateAvailable(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"version":"2.0.15"}`)
 	}))
@@ -281,7 +283,7 @@ func TestCheckUpdateAvailable(t *testing.T) {
 }
 
 func TestCheckUpToDate(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Run("最新版相同", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, `{"version":"2.0.14"}`)
@@ -322,7 +324,7 @@ func TestCheckUpToDate(t *testing.T) {
 }
 
 func TestCheckHTTPError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
@@ -344,7 +346,7 @@ func TestCheckHTTPError(t *testing.T) {
 }
 
 func TestCheckConnectionError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	url := server.URL
 	server.Close()
@@ -358,7 +360,7 @@ func TestCheckConnectionError(t *testing.T) {
 }
 
 func TestCheckBadPayload(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "not json")
 	}))
@@ -373,7 +375,7 @@ func TestCheckBadPayload(t *testing.T) {
 }
 
 func TestCheckNotInstalled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubRunCommand(t, func(context.Context, string, ...string) (string, error) {
 		return "", errors.New(`exec: "claude": executable file not found in $PATH`)
 	})
@@ -388,7 +390,7 @@ func TestCheckNotInstalled(t *testing.T) {
 }
 
 func TestCheckUnsupportedProvider(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	called := false
 	stubRunCommand(t, func(context.Context, string, ...string) (string, error) {
 		called = true
@@ -410,7 +412,7 @@ func TestCheckUnsupportedProvider(t *testing.T) {
 }
 
 func TestCheckGrok(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubRunCommand(t, func(_ context.Context, name string, args ...string) (string, error) {
 		if len(args) == 1 && args[0] == "--version" {
 			return "1.0.46", nil
@@ -434,7 +436,7 @@ func TestCheckGrok(t *testing.T) {
 }
 
 func TestCheckGrokWithoutAvailableVersion(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubRunCommand(t, func(_ context.Context, name string, args ...string) (string, error) {
 		if len(args) == 1 && args[0] == "--version" {
 			return "1.0.46", nil
@@ -458,7 +460,7 @@ func TestCheckGrokWithoutAvailableVersion(t *testing.T) {
 }
 
 func TestCheckAntigravityAlias(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"version":"1.21.0"}`)
 	}))
@@ -483,7 +485,7 @@ func TestCheckAntigravityAlias(t *testing.T) {
 }
 
 func TestCheckOpenCodePackages(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Run("2.x 走 @opencode/cli", func(t *testing.T) {
 		var path string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

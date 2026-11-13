@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 func TestArchiveStopsStewardTaskWatch(t *testing.T) {
@@ -32,7 +33,7 @@ func TestArchiveStopsStewardTaskWatch(t *testing.T) {
 
 // TestSidebarBulk_MarkAllAsRead 测试项目右键菜单在有未读会话时显示「全部标记为已读」，点击后调用 BulkMarkRead。
 func TestSidebarBulk_MarkAllAsRead(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.projects = []Project{
 		{ID: "p1", Name: "mcode-test", Path: "/tmp/test"},
@@ -99,7 +100,7 @@ func TestSidebarBulk_MarkAllAsRead(t *testing.T) {
 
 // TestSidebarBulk_ArchiveDormantAndUndo 测试归档休眠会话后显示撤销条，点击撤销调用 UndoBulkOperation。
 func TestSidebarBulk_ArchiveDormantAndUndo(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.projects = []Project{
 		{ID: "p1", Name: "mcode-test", Path: "/tmp/test"},
@@ -190,7 +191,7 @@ func TestSidebarBulk_PopoverPreviewSkipsRunning(t *testing.T) {
 	if err := config.Save(dataDir, cfg); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.projects = []Project{
 		{ID: "p1", Name: "mcode-test", Path: "/tmp/test"},
@@ -257,7 +258,7 @@ func TestSidebarBulk_PopoverPreviewSkipsRunning(t *testing.T) {
 
 // TestSidebarBulk_DormantCollapsedGroup 测试已休眠会话收进折叠组，默认折叠，展开后才可见。
 func TestSidebarBulk_DormantCollapsedGroup(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.projects = []Project{
 		{ID: "p1", Name: "mcode-test", Path: "/tmp/test"},
@@ -303,7 +304,7 @@ func TestSidebarBulk_DormantCollapsedGroup(t *testing.T) {
 
 // TestSidebarBulk_SearchKeyboardNavigation 测试搜索过滤后按上下方向键移动高亮，按回车打开对应会话。
 func TestSidebarBulk_SearchKeyboardNavigation(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.projects = []Project{
 		{ID: "p1", Name: "mcode-test", Path: "/tmp/test"},

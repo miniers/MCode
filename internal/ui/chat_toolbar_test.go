@@ -5,11 +5,13 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // 点击头部圆形新建会话按钮进入待创建会话：不立即建会话，输入首个字符后才建。
 func TestChatToolbarNewThreadButton(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	var state *chatState
 	tt := ui.NewTester(Root(fake, func(s *chatState) { state = s }), 1000, 700)
@@ -30,7 +32,7 @@ func TestChatToolbarNewThreadButton(t *testing.T) {
 
 // 侧栏收起时点会话列表按钮弹出 Popover；点某项切换选中会话、关闭弹层，侧栏保持收起。
 func TestChatToolbarThreadsPopover(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.threads["p1"] = append(fake.threads["p1"], Thread{ID: "t2", ProjectID: "p1", Title: "第二个会话"})
 	s, root := buildRoot(fake)
@@ -76,7 +78,7 @@ func TestChatToolbarThreadsPopover(t *testing.T) {
 
 // 胶囊组按钮分别切换项目文档、终端、浏览器预览与看板状态。
 func TestChatToolbarAuxGroupButtons(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubTerminals(t)
 	fake := NewFakeClient()
 	s, root := buildRoot(fake)
@@ -132,7 +134,7 @@ func TestChatToolbarAuxGroupButtons(t *testing.T) {
 
 // 头部动作方法直接切换终端、项目文档、预览、改动与看板状态。
 func TestChatToolbarAuxActions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 
@@ -173,7 +175,7 @@ func TestChatToolbarAuxActions(t *testing.T) {
 // 项目动作组在标题右侧、辅助面板组左侧：「打开方式」「执行命令」「Git 操作」同属一个胶囊组，
 // 有项目工作目录时执行命令按钮显示（无脚本时菜单给出空态与添加入口）。
 func TestChatToolbarActionGroupPlacement(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := newGitFakeClient()
 	s, root := buildRoot(fake)
 	tt := ui.NewTester(root, 1000, 700)

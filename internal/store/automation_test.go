@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 func TestAutomationCRUDAndJSON(t *testing.T) {
@@ -464,7 +466,7 @@ func TestAutomationRunReadAndArchiveState(t *testing.T) {
 }
 
 func TestAutomationRunReadBackfillForExistingRows(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "run_read_backfill.db")
 

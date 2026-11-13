@@ -8,10 +8,11 @@ import (
 	"mcode/internal/providers/claude"
 	"mcode/internal/providers/codex"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 func TestProviderModelsReturnsIndependentCapabilities(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	first := ProviderModels("openai")
 	if len(first) == 0 || len(first[0].Efforts) == 0 || first[0].DefaultEffort == nil {
 		t.Fatal("OpenAI default model must expose reasoning capabilities")
@@ -38,7 +39,7 @@ func TestOpenAIEmptyRegisteredCatalogUsesSeed(t *testing.T) {
 
 // 非 claude/codex 的 Provider 也要给出可选模型目录，否则模型面板整列为空。
 func TestProviderModelsCoverDeclaredProviders(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, provider := range []string{"agy", "antigravity", "openai"} {
 		models := ProviderModels(provider)
 		if len(models) == 0 {
@@ -122,7 +123,7 @@ func TestProviderModelsOpenAICompatibleStayEmpty(t *testing.T) {
 // 目录只认运行时探测：没有探测结果时 claude/codex 返回空数组，
 // 具体原因由 ModelCatalogNotice 给出。
 func TestProviderModelsRequireRuntimeCatalog(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	// 同包其他用例可能已经触发过真实探测、把进程级缓存写满；先重置成「从未探测」，
 	// 并让后台探测走测试桩，保证断言不依赖本机 CLI 与测试执行顺序。
 	t.Cleanup(claude.ResetCatalogCacheForTest())
@@ -158,7 +159,7 @@ func TestIsValidModelPlaceholderCatalog(t *testing.T) {
 
 // 目录改为只认运行时探测后，旧会话存的别名/静态目录 ID 仍要通过校验。
 func TestIsValidModelLegacyCatalogIDs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, model := range []string{"default", "opus", "sonnet", "haiku", "claude-fable-5-1[1m]", ""} {
 		if !IsValidModel("claude", model) {
 			t.Errorf("IsValidModel(claude, %q) = false, want true", model)
@@ -173,7 +174,7 @@ func TestIsValidModelLegacyCatalogIDs(t *testing.T) {
 
 // agy 目录保留完整强度档位；gemini-3.1-pro 不含 medium（上游会解析为 high）。
 func TestAgyModelEfforts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, m := range ProviderModels("agy") {
 		if m.ID != "gemini-3.1-pro" {
 			continue
@@ -190,7 +191,7 @@ func TestAgyModelEfforts(t *testing.T) {
 
 // 配置里的 OpenAI 模型并入目录并置为首选，绝不替换整张目录。
 func TestWithConfiguredModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	base := ProviderModels("openai")
 
 	unchanged := withConfiguredModel(base, "  ")
@@ -309,7 +310,7 @@ func TestReconcileDefaultEffort(t *testing.T) {
 
 // 用户固定的自定义模型 ID 不在目录里，只有 validModel 放行；IsValidModel 本身不受影响。
 func TestValidModelAllowsPinnedModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	b := &MemoryBackend{}
 	b.SetGeneralSettingsFunc(func() config.Config {
 		return config.Config{Models: config.ModelsConfig{Pins: []config.ModelPin{

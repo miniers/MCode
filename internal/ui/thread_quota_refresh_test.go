@@ -5,12 +5,14 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // TestModel_TurnEndRefreshesThreadQuota 校验 pi 线程从运行中变为空闲时，先按会话
 // 让网关重读本会话实际应答账号的额度，然后再强制重取面板数据。
 func TestModel_TurnEndRefreshesThreadQuota(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	state := newChatState(fake)
 	t.Cleanup(state.close)
@@ -57,7 +59,7 @@ func TestModel_TurnEndRefreshesThreadQuota(t *testing.T) {
 // TestModel_TurnEndRefreshesClaudeQuota 校验 claude 线程从运行中变为空闲时，同样按会话
 // 让网关重读额度，并把强制重取发给 claude。
 func TestModel_TurnEndRefreshesClaudeQuota(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	state := newChatState(fake)
 	t.Cleanup(state.close)

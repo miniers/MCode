@@ -17,11 +17,12 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // 场景 1：正常添加图片与非图片附件并成功异步上传回填 ID。
 func TestAttachment_AddSuccess(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 
@@ -68,7 +69,7 @@ func TestAttachment_AddSuccess(t *testing.T) {
 
 // 场景 2：detectAttachmentMime 对 png、pdf、md、go 返回允许，未知扩展名的二进制也兜底接受。
 func TestDetectAttachmentMime(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	// PNG 图片
 	pngData := []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}
@@ -118,7 +119,7 @@ func TestDetectAttachmentMime(t *testing.T) {
 
 // 任意文件类型都被接受：docx、zip 与无扩展名二进制不会再报「不支持的文件类型」。
 func TestDetectAttachmentMime_ArbitraryFilesAccepted(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	// docx 是 zip 容器，内容含非 UTF-8 字节；MIME 允许取扩展名表或内容嗅探的兜底值
 	docxData := append([]byte("PK\x03\x04"), 0x14, 0x00, 0x06, 0x00, 0xff, 0xfe, 0x00, 0x80)
@@ -175,7 +176,7 @@ func TestEstimateAttachmentTokens_BinaryFiles(t *testing.T) {
 
 // 场景 3：单文件超过 20MB (maxAttachmentBytes) 被拒绝并出现 notice。
 func TestAttachment_ExceedMaxSize(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 
@@ -206,7 +207,7 @@ func TestAttachment_ExceedMaxSize(t *testing.T) {
 
 // 场景 4：达到配置的附件数量上限后，继续添加会被拒绝。
 func TestAttachment_ExceedMaxCount(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	cfg := config.Defaults()
@@ -244,7 +245,7 @@ func TestAttachment_ExceedMaxCount(t *testing.T) {
 
 // 场景 5：总大小超过 50MB (maxTotalAttachmentBytes) 被拒绝并出现 notice。
 func TestAttachment_ExceedTotalSize(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 
@@ -296,7 +297,7 @@ func waitAttachmentFiles(t *testing.T, s *chatState, want int, noticePart string
 
 // 场景 6：addAttachmentFiles 传入临时目录时递归展开目录、跳过隐藏文件并按名称排序。
 func TestAttachment_AddFiles_DirectoryExpansion(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tmpDir := t.TempDir()
 
 	// 创建测试目录结构：
@@ -358,7 +359,7 @@ func TestAttachment_AddFiles_DirectoryExpansion(t *testing.T) {
 
 // 场景 7：替换包变量 clipboardReader 后，粘贴文件路径列表能把附件入队。
 func TestAttachment_PasteFilePaths(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tmpFile := filepath.Join(t.TempDir(), "paste_test.go")
 	if err := os.WriteFile(tmpFile, []byte("package paste"), 0644); err != nil {
 		t.Fatal(err)
@@ -391,7 +392,7 @@ func TestAttachment_PasteFilePaths(t *testing.T) {
 
 // 场景 7b：粘贴回调只在剪贴板含文件或图片时吞掉粘贴，纯文本交给输入框。
 func TestAttachment_HandlePaste(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	newFile := func(t *testing.T) string {
 		t.Helper()
@@ -502,7 +503,7 @@ func TestAttachment_HandlePaste(t *testing.T) {
 
 // 场景 9：图片附件生成缩略图位图，非图片附件不生成。
 func TestAttachment_Thumbnail(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	var buf bytes.Buffer
 	img := image.NewRGBA(image.Rect(0, 0, 120, 80))
@@ -541,7 +542,7 @@ func TestAttachment_Thumbnail(t *testing.T) {
 
 // 场景 8：任意二进制文件（含 ELF）都被接受，不再出现「不支持的文件类型」提示。
 func TestAttachment_ArbitraryBinaryAccepted(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 
@@ -566,7 +567,7 @@ func TestAttachment_ArbitraryBinaryAccepted(t *testing.T) {
 
 // 场景 9：删除附件（removeAttachment）。
 func TestAttachment_Remove(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 
@@ -592,7 +593,7 @@ func TestAttachment_Remove(t *testing.T) {
 
 // 场景 10：发送时带上已上传附件 ID，发送后清空附件列表。
 func TestAttachment_SendWithAttachmentsAndClear(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	s.selectedThreadID = "t1"
@@ -644,7 +645,7 @@ func (f failingSendClient) SendWithAttachments(context.Context, string, string, 
 }
 
 func TestAttachmentFailedSendKeepsDraft(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(failingSendClient{NewFakeClient()})
 	s.draft = "不要丢失"
 	s.attachments = []composerAttachment{{LocalID: "local", ID: "att-1", Name: "test.png"}}
@@ -663,7 +664,7 @@ func TestAttachmentFailedSendKeepsDraft(t *testing.T) {
 }
 
 func TestAttachmentSendBlockedUntilAllReady(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, att := range []composerAttachment{
 		{LocalID: "uploading", Uploading: true},
 		{LocalID: "failed", Err: "offline"},
@@ -680,7 +681,7 @@ func TestAttachmentSendBlockedUntilAllReady(t *testing.T) {
 }
 
 func TestAttachmentOnlySendAndRemoveUI(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	s.attachments = []composerAttachment{
@@ -708,7 +709,7 @@ func TestAttachmentOnlySendAndRemoveUI(t *testing.T) {
 }
 
 func TestAttachmentTotalLimitAndBoundedFileRead(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.attachments = []composerAttachment{{Size: maxTotalAttachmentBytes}}
 	if s.addAttachment("extra.png", "image/png", []byte{1}) {
@@ -737,7 +738,7 @@ func TestAttachmentTotalLimitAndBoundedFileRead(t *testing.T) {
 // 目录枚举封顶：拖入超过 attachmentScanLimit 个文件的目录时只枚举前 attachmentScanLimit 个，
 // 并在提示里说明结果被截断，避免遍历整棵树后拼出上千条拒绝项。
 func TestAttachment_AddFiles_ScanLimit(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tmpDir := t.TempDir()
 	for i := 0; i < attachmentScanLimit+5; i++ {
 		name := filepath.Join(tmpDir, fmt.Sprintf("f%04d.txt", i))
@@ -761,7 +762,7 @@ func TestAttachment_AddFiles_ScanLimit(t *testing.T) {
 }
 
 func TestComposerPasteImage(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	old := clipboardReader
 	t.Cleanup(func() { clipboardReader = old })
 	clipboardReader = func() (bool, string, string, []byte, []string) {
@@ -884,7 +885,7 @@ func TestAttachmentTokenNotice(t *testing.T) {
 
 // 附件 token 估算缓存：addAttachment 写入、removeAttachment 删除。
 func TestAttachmentTokenCacheLifecycle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 
 	var buf bytes.Buffer

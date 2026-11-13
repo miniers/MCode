@@ -5,11 +5,13 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // 测试 effortSliderSnapIndex 的边界情况与最近刻度吸附。
 func TestEffortSliderSnapIndex(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	// n <= 1 或异常宽度的边界情况
 	if got := effortSliderSnapIndex(50, 100, 0); got != 0 {
@@ -51,7 +53,7 @@ func TestEffortSliderSnapIndex(t *testing.T) {
 }
 
 func TestEffortSliderCardInteraction(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	efforts := []string{"low", "medium", "high", "max"}
 	current := "low"
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -91,7 +93,7 @@ func TestEffortSliderCardInteraction(t *testing.T) {
 }
 
 func TestEffortSliderCardSingleLevel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	// 无档位时只显示说明文字；单档模型仍渲染滑轨，不出现说明。
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderEffortSliderCard(c, EffortSliderCardProps{})
@@ -117,7 +119,7 @@ func TestEffortSliderCardSingleLevel(t *testing.T) {
 }
 
 func TestEffortCardTitle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	p := EffortSliderCardProps{Efforts: []string{"low", "medium", "high"}}
 	if got := effortCardTitle(p); got != "Medium" {
 		t.Fatalf("default title = %q", got)
@@ -134,7 +136,7 @@ func TestEffortCardTitle(t *testing.T) {
 
 // 测试 effortTickPositions 等距分布与边界。
 func TestEffortTickPositions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	if got := effortTickPositions(0, 100); got != nil {
 		t.Fatalf("tickPositions(0, 100) = %v, want nil", got)
@@ -158,7 +160,7 @@ func TestEffortTickPositions(t *testing.T) {
 
 // 测试当前值、默认值、中档和首档的回退规则。
 func TestEffortIndexFallback(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	efforts := []string{"low", "medium", "high"}
 
@@ -189,7 +191,7 @@ func TestEffortIndexFallback(t *testing.T) {
 
 // 测试 swarmSideTabLabel 的文案规则：档位用 modelEffortTitle 的英文名，关闭的执行侧为“执行 · 关闭”。
 func TestSwarmSideTabLabel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cases := []struct {
 		role, effort string
@@ -214,7 +216,7 @@ func TestSwarmSideTabLabel(t *testing.T) {
 
 // 测试 effortLabel 中英文档位映射。
 func TestEffortLabel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cases := map[string]string{
 		"minimal": "最低",
@@ -397,7 +399,7 @@ func TestEffortTitleColors(t *testing.T) {
 
 // 测试卡片大标题显示当前档位英文名，并在切换档位后同步更新；不再有“当前：”行。
 func TestEffortSliderCardShowsCurrentTierTitle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	current := "low"
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderEffortSliderCard(c, EffortSliderCardProps{
@@ -439,7 +441,7 @@ func TestEffortLockedTip(t *testing.T) {
 
 // 测试配对说明行：主模型、加号与子代理模型均能在卡片中正确渲染。
 func TestEffortSliderCardPairedSubtitleRow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderEffortSliderCard(c, EffortSliderCardProps{
 			Paired:         true,

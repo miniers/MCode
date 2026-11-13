@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 type fakeQueueUpdaterClient struct {
@@ -52,7 +53,7 @@ func (f *fakeSteerSenderClient) InterruptAndSend(ctx context.Context, threadID, 
 }
 
 func TestComposer_StopOrRecall_RecallTurnSuccess(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.recallTurnText = "user prompt to retract"
 	s := newChatState(fake)
@@ -83,7 +84,7 @@ func TestComposer_StopOrRecall_RecallTurnSuccess(t *testing.T) {
 }
 
 func TestComposer_StopOrRecall_RecallTurnNonEmptyDraftKeepsOriginal(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.recallTurnText = "retracted user prompt"
 	s := newChatState(fake)
@@ -116,7 +117,7 @@ func TestComposer_StopOrRecall_RecallTurnNonEmptyDraftKeepsOriginal(t *testing.T
 }
 
 func TestComposer_StopOrRecall_FallbackToInterrupt(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.recallTurnErr = ErrNotImplemented
 	s := newChatState(fake)
@@ -147,7 +148,7 @@ func TestComposer_StopOrRecall_FallbackToInterrupt(t *testing.T) {
 }
 
 func TestComposer_BeginEditAndSaveQueuedEdit_UpdateQueuedSupported(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := &fakeQueueUpdaterClient{FakeClient: NewFakeClient()}
 	s := newChatState(fake)
 	t.Cleanup(s.close)
@@ -212,7 +213,7 @@ func TestComposer_BeginEditAndSaveQueuedEdit_UpdateQueuedSupported(t *testing.T)
 }
 
 func TestComposer_UnsupportedEditPreservesQueue(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	t.Cleanup(s.close)
@@ -234,7 +235,7 @@ func TestComposer_UnsupportedEditPreservesQueue(t *testing.T) {
 }
 
 func TestComposer_CancelQueuedEdit_RestoresStash(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	t.Cleanup(s.close)
@@ -270,7 +271,7 @@ func TestComposer_CancelQueuedEdit_RestoresStash(t *testing.T) {
 }
 
 func TestComposer_ClearQueue_RemovesAllIDsInOrder(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	t.Cleanup(s.close)
@@ -304,7 +305,7 @@ func TestComposer_ClearQueue_RemovesAllIDsInOrder(t *testing.T) {
 }
 
 func TestComposer_SteerMessage_UsesInterruptAndSendWhenSupported(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := &fakeSteerSenderClient{FakeClient: NewFakeClient()}
 	s := newChatState(fake)
 	t.Cleanup(s.close)
@@ -347,7 +348,7 @@ func TestComposer_SteerMessage_UsesInterruptAndSendWhenSupported(t *testing.T) {
 }
 
 func TestComposer_UnsupportedSteerPreservesDraft(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	t.Cleanup(s.close)
@@ -864,7 +865,7 @@ func TestCmdReturnApprovalTarget_ComposerFocusedReturnsFalse(t *testing.T) {
 
 // TestComposer_StopCurrent_AlreadyStoppedClearsStopping 测试后端返回 already_stopped 时清掉停止态并按空闲处理。
 func TestComposer_StopCurrent_AlreadyStoppedClearsStopping(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.interruptAlreadyStopped = true
 	s := newChatState(fake)
@@ -906,7 +907,7 @@ func TestComposer_StopCurrent_AlreadyStoppedClearsStopping(t *testing.T) {
 
 // TestSendMessage_DelegatedSkipsOptimisticRunning 测试消息被交给子线程时主线程不做乐观运行中标记。
 func TestSendMessage_DelegatedSkipsOptimisticRunning(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.sendDelegated = true
 	s := newChatState(fake)

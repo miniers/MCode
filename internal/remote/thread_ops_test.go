@@ -12,6 +12,7 @@ import (
 
 	"mcode/internal/agentconf"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 type threadOpsRecordConn struct {
@@ -777,7 +778,7 @@ func TestThreadOps_CommandsAssembly(t *testing.T) {
 
 // 内置命令目录与 Provider 专有命令过滤及去重验证
 func TestThreadOps_SlashCommands_CatalogAndProviders(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake, hub := newTestFakeThreadOps()
 	defer hub.Close()
@@ -1013,7 +1014,7 @@ func TestThreadOps_Capabilities(t *testing.T) {
 
 // 6. 父会话取消休眠时级联取消其名下 helper 子会话的休眠状态，普通子会话不受影响
 func TestThreadOps_UnsettleCascadesToHelperThreads(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	fake, hub := newTestFakeThreadOps()

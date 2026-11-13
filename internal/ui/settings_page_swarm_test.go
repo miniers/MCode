@@ -8,10 +8,11 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
 	"mcode/internal/reviewcheck"
+	"mcode/internal/testenv"
 )
 
 func TestSwarmPairs_SaveUpdateDeletePersistence(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 
@@ -82,7 +83,7 @@ func TestSwarmPairs_SaveUpdateDeletePersistence(t *testing.T) {
 }
 
 func TestSwarmPairTitle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	providers := []ProviderInfo{
 		{
 			ID:   config.ProviderClaude,
@@ -129,7 +130,7 @@ func TestSwarmPairTitle(t *testing.T) {
 }
 
 func TestSwarmAutoMergeAndAutoPush_Independent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 	st.cfg.Orchestration.AutoMerge = false
@@ -196,7 +197,7 @@ func newSwarmPageTester(st *SettingsState) *ui.Tester {
 
 // 页面状态按 SettingsState 复用同一个指针，Close 后清零。
 func TestSettingsState_SwarmPagePointers(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 
 	first := getSwarmUIState(st)
@@ -218,7 +219,7 @@ func TestSettingsState_SwarmPagePointers(t *testing.T) {
 }
 
 func TestSwarmSettings_ConflictingMessageModesCanBeDisabled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.AlwaysBees = true
 	st.cfg.Orchestration.LeadPlansOnly = true
@@ -239,7 +240,7 @@ func TestSwarmSettings_ConflictingMessageModesCanBeDisabled(t *testing.T) {
 }
 
 func TestSwarmSettings_AdditionalControlsPersist(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.AutoPopsBees = false
 	tt := newSwarmPageTester(st)
@@ -256,7 +257,7 @@ func TestSwarmSettings_AdditionalControlsPersist(t *testing.T) {
 
 // 子线程提问自动转交：档位选择后写回配置并落盘。
 func TestSwarmSettings_AutoForwardQuestionDelay(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.AutoForwardQuestionSeconds = 0
 	// 转交行位于消息流向分组的末尾。
@@ -295,7 +296,7 @@ func TestSwarmSettings_AutoForwardQuestionDelay(t *testing.T) {
 
 // 最多派发轮次：行标题、说明文字与当前取值按配置渲染，0 显示为不限制。
 func TestSwarmSettings_MaxRoundsRow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreeSection(c, st, advancedOrchestration, false) }, 1000, 4000)
@@ -324,7 +325,7 @@ func TestSwarmSettings_MaxRoundsRow(t *testing.T) {
 }
 
 func TestSwarmSettings_PairEditorAndPreset(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	tt := newSwarmPageTester(st)
 	if err := tt.Click("添加配对"); err != nil {
@@ -375,7 +376,7 @@ func TestSwarmSettings_PairEditorAndPreset(t *testing.T) {
 }
 
 func TestSwarmSettings_LockedAutoActions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), map[string]bool{
 		"swarm-auto-merge": true,
 		"swarm-auto-push":  true,
@@ -392,7 +393,7 @@ func TestSwarmSettings_LockedAutoActions(t *testing.T) {
 }
 
 func TestSwarmPairCapabilitiesResetOnModelChange(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	pair := config.SwarmPair{
 		LeadProvider: config.ProviderClaude,
 		LeadEffort:   swarmStringPtr("max"), LeadFastMode: true,
@@ -415,7 +416,7 @@ func TestSwarmPairCapabilitiesResetOnModelChange(t *testing.T) {
 }
 
 func TestSwarmSettings_PageRenderTexts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	dataDir := settingsTestDir(t)
 
@@ -446,7 +447,7 @@ func TestSwarmSettings_PageRenderTexts(t *testing.T) {
 
 // 「合并前审查」三档选择映射到 ReviewMode（off/ai/human，S-092）。
 func TestSwarmReviewModePicker_WritesConsumedField(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 
@@ -498,7 +499,7 @@ func TestSwarmReviewModePicker_WritesConsumedField(t *testing.T) {
 
 // AI 审查档才显示「审查模型」行。
 func TestSwarmReviewModeAIShowsReviewModelRow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.ReviewMode = config.ReviewModeAI
 
@@ -510,7 +511,7 @@ func TestSwarmReviewModeAIShowsReviewModelRow(t *testing.T) {
 
 // 编辑配对时草稿是深拷贝：弹层里清掉的档位映射不能写穿到运行态配置（S-094）。
 func TestSwarmPairEdit_DraftDoesNotMutateRuntimeConfig(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 	st.cfg.Orchestration.Pairs = []config.SwarmPair{{
@@ -561,7 +562,7 @@ func newSwarmReviewSettingsWithProject(t *testing.T, dataDir, projectDir string)
 
 // AI 审查档显示漏斗的两项设置；没有打开项目时检查命令行提示先打开项目。
 func TestSwarmReviewFunnelRowsInAIMode(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.ReviewMode = config.ReviewModeAI
 
@@ -575,7 +576,7 @@ func TestSwarmReviewFunnelRowsInAIMode(t *testing.T) {
 
 // off 与 human 档都不显示漏斗的两项设置。
 func TestSwarmReviewFunnelRowsHiddenInOffMode(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, mode := range []string{config.ReviewModeOff, config.ReviewModeHuman} {
 		st := NewSettingsState(settingsTestDir(t), nil, nil)
 		st.cfg.Orchestration.ReviewMode = mode
@@ -591,7 +592,7 @@ func TestSwarmReviewFunnelRowsHiddenInOffMode(t *testing.T) {
 
 // 保存检查命令只覆盖 Command，项目配置里原有的超时与跑测试开关必须保留。
 func TestSwarmReviewCheckCommandSave(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	projectDir := t.TempDir()
 	if err := reviewcheck.SaveProjectConfig(dataDir, projectDir, reviewcheck.ProjectConfig{
@@ -634,7 +635,7 @@ func TestSwarmReviewCheckCommandSave(t *testing.T) {
 
 // 输入行数上限后写入 cfg.Orchestration.ReviewMaxChangedLines 并落盘。
 func TestSwarmReviewMaxChangedLinesSave(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.ReviewMode = config.ReviewModeAI
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreeSection(c, st, advancedOrchestration, false) }, 1000, 4000)

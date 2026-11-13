@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 const steerAppServerScript = `
@@ -47,7 +48,7 @@ while True:
 `
 
 func TestCodexHarnessSteer(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	logPath := filepath.Join(t.TempDir(), "steer_requests.jsonl")
 	pathJSON, _ := json.Marshal(logPath)
 	script := strings.Replace(steerAppServerScript, `    method = msg.get("method")`,

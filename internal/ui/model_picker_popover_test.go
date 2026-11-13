@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // TestModelPickerDarkPanelTextColors 守卫深色模型面板的文字与图标配色。
@@ -59,7 +61,7 @@ func modelPickerPageTester(t *testing.T, fake *FakeClient, providers []ProviderI
 }
 
 func TestModelPicker_OnlyAddedModelsListed(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 	if _, err := fake.AddModelToList(context.Background(), pin); err != nil {
@@ -82,7 +84,7 @@ func TestModelPicker_OnlyAddedModelsListed(t *testing.T) {
 }
 
 func TestModelPicker_RemoveButtonCallsClient(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pin := ModelPin{Provider: "claude", ModelID: "sonnet"}
 	if _, err := fake.AddModelToList(context.Background(), pin); err != nil {
@@ -98,7 +100,7 @@ func TestModelPicker_RemoveButtonCallsClient(t *testing.T) {
 }
 
 func TestModelPicker_AddAndSearch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "Sonnet"}, {ID: "haiku", Name: "Haiku"}}}}
 	tt := modelPickerPageTester(t, fake, providers)
@@ -123,7 +125,7 @@ func TestModelPicker_AddAndSearch(t *testing.T) {
 }
 
 func TestModelPicker_Flyout(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	entry, capture := setupPopoverFlyoutTest(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	ps := newModelsPageState()
@@ -183,7 +185,7 @@ func TestModelPicker_Flyout(t *testing.T) {
 }
 
 func TestModelPicker_LimitDisablesUnchecked(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	for i := 0; i < 30; i++ {
 		if _, err := fake.AddModelToList(context.Background(), ModelPin{Provider: "test", ModelID: fmt.Sprintf("model-%d", i)}); err != nil {
@@ -205,7 +207,7 @@ func TestModelPicker_LimitDisablesUnchecked(t *testing.T) {
 }
 
 func TestModelPicker_GlobalSearchStillListsModels(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "Sonnet"}, {ID: "haiku", Name: "Haiku"}}}}
 	tt := modelPickerPageTester(t, fake, providers)
@@ -224,7 +226,7 @@ func TestModelPicker_GlobalSearchStillListsModels(t *testing.T) {
 }
 
 func TestModelPicker_PopoverClosesOnEscapeAndOutsideClick(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	providers := []ProviderInfo{{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "Sonnet"}, {ID: "haiku", Name: "Haiku"}}}}
 	tt := modelPickerPageTester(t, fake, providers)

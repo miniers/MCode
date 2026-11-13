@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 // TestAutoAcceptMergesFinishedTask 覆盖自动接受：无 [命令]/[你验] 的任务完成后走评审接受触发合并，
 // 最终状态为 done，改动进入主工作区。
 func TestAutoAcceptMergesFinishedTask(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	repo := initMergeTestRepo(t)
@@ -79,7 +80,7 @@ func TestAutoAcceptKeepsGatedTaskInReview(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			ctx := context.Background()
 
 			repo := initMergeTestRepo(t)
@@ -138,7 +139,7 @@ func TestAutoAcceptKeepsGatedTaskInReview(t *testing.T) {
 // TestReviewAcceptMergeFailureStaysReview 覆盖合并失败：任务留在 review，ReviewStatus 为 merge_failed，
 // 失败原因同时写入 LastActivityText，主工作区保持原样。
 func TestReviewAcceptMergeFailureStaysReview(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	repo := initMergeTestRepo(t)

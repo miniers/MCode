@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
 	"mcode/internal/swarm"
+	"mcode/internal/testenv"
 )
 
 type delayedSwarmClient struct {
@@ -1633,7 +1634,7 @@ func TestSwarmPopOutBeeID(t *testing.T) {
 
 // TestSwarmSwitchCallsClient 覆盖会话开关与只规划：调用 client 并带着正确的值，随后状态刷新。
 func TestSwarmSwitchCallsClient(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := &recordingSwarmClient{FakeClient: NewFakeClient()}
 	s := newChatState(fake)
 	s.selectedThreadID = "t1"
@@ -1691,7 +1692,7 @@ func TestSwarmSwitchCallsClient(t *testing.T) {
 
 // TestSwarmPopOutBeeUsesOpener 覆盖弹出 bee：以 bee 的线程 ID 调用窗口打开器，空 bee ID 不调用。
 func TestSwarmPopOutBeeUsesOpener(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.selectedThreadID = "t1"
 	hp := getSwarmPanelState(s)
@@ -1740,7 +1741,7 @@ func TestSwarmPopoverDismissHelpers(t *testing.T) {
 
 // TestSwarmIdlePopover 覆盖没有 bee 时的编排按钮：左键切换浮窗显示，第二次点击收起。
 func TestSwarmIdlePopover(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.selectedThreadID = "t1"
 	hp := getSwarmPanelState(s)
@@ -1779,7 +1780,7 @@ func TestSwarmIdlePopover(t *testing.T) {
 
 // TestSwarmHeaderToggleHitArea 验证「编排」开关的命中区是 32×32，绘制直径仍是 ControlMD。
 func TestSwarmHeaderToggleHitArea(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	if swarmToggleSize != ControlMD {
 		t.Fatalf("swarmToggleSize = %v, 期望 ControlMD(%v)", swarmToggleSize, ControlMD)
 	}
@@ -1804,7 +1805,7 @@ func TestSwarmHeaderToggleHitArea(t *testing.T) {
 
 // TestSwarmHeaderWaitingBadge 验证编排按钮的「等你回答」角标：有子线程等回答时显示等待数量。
 func TestSwarmHeaderWaitingBadge(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.selectedThreadID = "t1"
 	s.threads = []Thread{
@@ -1843,7 +1844,7 @@ func TestSwarmHeaderWaitingBadge(t *testing.T) {
 
 // TestSwarmHeaderReviewBadge 验证会话头显示「待审查 N」：统计 PendingMerge 的非 bee 子代理。
 func TestSwarmHeaderReviewBadge(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetSwarmState("t1", SwarmState{
 		LeadThreadID: "t1", Available: true, Enabled: true,

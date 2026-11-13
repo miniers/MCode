@@ -12,12 +12,13 @@ import (
 	"mcode/internal/git"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 // newRevertTestEnv 构造撤销轮次测试所需的临时环境：git 仓库、store、带 git runner 的 MemoryBackend。
 func newRevertTestEnv(t *testing.T) (*MemoryBackend, *store.Store, *git.Runner, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	gitBin, err := exec.LookPath("git")
 	if err != nil {

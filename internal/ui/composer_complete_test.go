@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
+	"mcode/internal/testenv"
 )
 
 // 场景 1：覆盖 detectCompletion 各类触发与不触发情形。
@@ -514,7 +515,7 @@ func TestCompletion_IsComposing(t *testing.T) {
 
 // filterCommands 对 "mo" 前缀过滤与排序测试。
 func TestFilterCommands_ModeAndModelPrefix(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	cmds := []SlashCommand{
 		{Name: "compact", Detail: "Summarize conversation (more context)"},
@@ -550,7 +551,7 @@ func TestFilterCommands_ModeAndModelPrefix(t *testing.T) {
 
 // detectCompletion 加 confirmCompletion 的选择流程测试。
 func TestComposerCompletion_DetectAndConfirmFlow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	s := newChatState(fake)
@@ -590,7 +591,7 @@ func TestComposerCompletion_DetectAndConfirmFlow(t *testing.T) {
 
 // runLocalSlashCommand 对本地命令执行、清空草稿及非本地命令转发测试。
 func TestRunLocalSlashCommand_FastAndCompact(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(waitUIStateWrites)
 
 	fake := NewFakeClient()
@@ -686,7 +687,7 @@ func TestRunLocalSlashCommand_ClearResetsStewardOnly(t *testing.T) {
 
 // /export 已接入导出功能，必须本地拦截并触发导出，不能当作普通消息发给 Agent。
 func TestRunLocalSlashCommand_ExportNotForwarded(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	s := newChatState(NewFakeClient())
 	s.threads = []Thread{{ID: "t1", ProjectID: "p1", Title: "会话1", Provider: "claude", Model: "claude-sonnet-4"}}

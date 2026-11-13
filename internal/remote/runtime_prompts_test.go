@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 func TestBundleFollowUpText(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	tests := []struct {
 		name     string
@@ -79,7 +80,7 @@ func TestBundleFollowUpText(t *testing.T) {
 }
 
 func TestBuildLimitHandoffText(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	longText := strings.Repeat("A", 500)
 	toolKind := "tool"
@@ -159,7 +160,7 @@ func TestBuildLimitHandoffText(t *testing.T) {
 }
 
 func TestBuildMentionContext(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	tests := []struct {
 		name     string
@@ -241,7 +242,7 @@ func TestBuildMentionContext(t *testing.T) {
 }
 
 func TestProviderHandoffBudget(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	var history []wire.ThreadMessage
 	for i := 0; i < 300; i++ {
 		history = append(history, wire.ThreadMessage{Role: "user", Text: strings.Repeat("界", 5000)})
@@ -252,7 +253,7 @@ func TestProviderHandoffBudget(t *testing.T) {
 }
 
 func TestBuildProviderHandoffPrompt(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	tests := []struct {
 		name     string

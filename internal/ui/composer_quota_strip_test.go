@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestRenderComposerQuotaStrip_WithWindows(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	now := time.Now()
 	usagePanelNow = func() time.Time { return now }
@@ -96,7 +98,7 @@ func TestRenderComposerQuotaStrip_WithWindows(t *testing.T) {
 }
 
 func TestRenderComposerQuotaStrip_MultipleAccounts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	s := newChatState(NewFakeClient())
 	setSwarmEnabledForTest(s, true)
@@ -159,7 +161,7 @@ func TestRenderComposerQuotaStrip_MultipleAccounts(t *testing.T) {
 }
 
 func TestRenderComposerQuotaStrip_WithoutWindows(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	s := newChatState(NewFakeClient())
 	SetChatQuotaWindowsForProvider(s, "claude", nil)
@@ -174,7 +176,7 @@ func TestRenderComposerQuotaStrip_WithoutWindows(t *testing.T) {
 }
 
 func TestRenderComposerQuotaStrip_AgyGeminiOnly(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	s := newChatState(NewFakeClient())
 	th := &Thread{ID: "t1", Provider: "agy"}
@@ -220,7 +222,7 @@ func TestRenderComposerQuotaStrip_AgyGeminiOnly(t *testing.T) {
 // 额度条不再按模型名映射订阅账户：bee 用 magpie 下 claude 账户的模型时，额度条仍只展示
 // 后端唯一标为 Active 的账户，不会跳到 claude/cline 的数字。
 func TestRenderComposerQuotaStrip_IgnoresBeeModelForAccount(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	windows := []ProviderQuotaWindow{
 		{ID: "commandcode-plan/session", Period: "5h", Label: "session", Account: "commandcode-plan", UsedPercent: 12, Active: true},
@@ -262,7 +264,7 @@ func setSwarmEnabledForTest(s *chatState, enabled bool) {
 
 // 子代理关闭时额度条只展示主代理的额度，不列 bee 供应商的那一组。
 func TestRenderComposerQuotaStrip_SwarmOffHidesBeeGroup(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	s := newChatState(NewFakeClient())
 	SetChatQuotaWindowsForProvider(s, "claude", []ProviderQuotaWindow{
@@ -300,7 +302,7 @@ func TestRenderComposerQuotaStrip_SwarmOffHidesBeeGroup(t *testing.T) {
 
 // 有重置时间与可推断周期的额度窗口，迷你条在时间进度位置显示竖线；没有重置时间时不显示。
 func TestRenderComposerQuotaStrip_PaceMarker(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	now := time.Now()
 	usagePanelNow = func() time.Time { return now }

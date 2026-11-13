@@ -11,13 +11,14 @@ import (
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // TestQueueDispatch_QueueWhileRunning_Order 验证在 QueueWhileRunning=true 时：
 // 运行中依次发送 'A' 和 'B'，两者按序排队；当前轮次结束后自动派发 'A'，随后派发 'B'；
 // 最终在会话历史中用户消息顺序为 original, A, B。
 func TestQueueDispatch_QueueWhileRunning_Order(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
@@ -194,7 +195,7 @@ func TestQueueDispatch_QueueWhileRunning_Order(t *testing.T) {
 // TestQueueDispatch_QueueWhileRunning_Rejected 验证在 QueueWhileRunning=false 时：
 // 轮次运行中调用 SendMessage 会直接返回 ErrCodeOperationRejected 的 RPCError，且队列保持为空。
 func TestQueueDispatch_QueueWhileRunning_Rejected(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
@@ -287,7 +288,7 @@ func TestQueueDispatch_QueueWhileRunning_Rejected(t *testing.T) {
 
 // TestQueueDispatch_QueueUpdate_InPlace 验证 QueueUpdate 在原地修改排队项内容且保持其队列位置不变。
 func TestQueueDispatch_QueueUpdate_InPlace(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 type fakeDeliveryAckerApprover struct {
@@ -32,7 +33,7 @@ func (f *fakeDeliveryAckerApprover) AckDelivery(req harness.ApprovalRequest, err
 }
 
 func TestClaudeDeliveryAck_Success(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	acker := &fakeDeliveryAckerApprover{decision: harness.DecisionAllow}
 	server, cleanup := newTestApprovalServer(t, acker)
@@ -86,7 +87,7 @@ func (b *brokenResponseWriter) Write([]byte) (int, error) {
 func (b *brokenResponseWriter) WriteHeader(int) {}
 
 func TestClaudeDeliveryAck_WriteFailure(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	acker := &fakeDeliveryAckerApprover{decision: harness.DecisionAllow}
 	server, cleanup := newTestApprovalServer(t, acker)
@@ -119,7 +120,7 @@ func TestClaudeDeliveryAck_WriteFailure(t *testing.T) {
 }
 
 func TestClaudeDeliveryAck_ApproveError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	approveErr := errors.New("user dismissed")
 	acker := &fakeDeliveryAckerApprover{
@@ -156,7 +157,7 @@ func TestClaudeDeliveryAck_ApproveError(t *testing.T) {
 }
 
 func TestClaudeHarness_ConfirmsApprovalDelivery(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	h := New(Options{})
 	if !h.ConfirmsApprovalDelivery() {
 		t.Fatal("expected ConfirmsApprovalDelivery to return true")

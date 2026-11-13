@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // 测试批量归档后在注入时钟的 9 秒时撤销成功，状态完全恢复（包括置顶）；
 // 在 11 秒时撤销返回 ErrBulkUndoExpired。
 func TestBulkArchive_UndoWithinWindowAndExpired(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
@@ -108,7 +109,7 @@ func TestBulkArchive_UndoWithinWindowAndExpired(t *testing.T) {
 
 // 测试运行中的线程被跳过并计入 skippedRunning。
 func TestBulkOperations_SkipRunningThreads(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
@@ -175,7 +176,7 @@ func TestBulkOperations_SkipRunningThreads(t *testing.T) {
 
 // 测试 BulkMarkRead 清除未读，撤销后恢复未读。
 func TestBulkMarkRead_AndUndo(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
@@ -230,7 +231,7 @@ func TestBulkMarkRead_AndUndo(t *testing.T) {
 
 // 测试 BulkMarkDormant 的 dormantAt 按顺序递减。
 func TestBulkMarkDormant_DormantAtDecreasing(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
@@ -284,7 +285,7 @@ func TestBulkMarkDormant_DormantAtDecreasing(t *testing.T) {
 
 // 测试错误的 token 返回 NotFound。
 func TestBulkUndo_NotFound(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})

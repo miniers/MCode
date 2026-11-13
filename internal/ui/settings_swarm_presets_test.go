@@ -6,10 +6,11 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 func TestSwarmPreset_AllAvailableReady(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	providers := []ProviderInfo{
 		{
@@ -78,7 +79,7 @@ func TestSwarmPreset_AllAvailableReady(t *testing.T) {
 }
 
 func TestSwarmPreset_CodexUnavailable(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	providers := []ProviderInfo{
 		{
@@ -144,7 +145,7 @@ func TestSwarmPreset_CodexUnavailable(t *testing.T) {
 }
 
 func TestSwarmPreset_AddedDetection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	target := swarmPresets[0] // claude-fable-opus
 	existing := []config.SwarmPair{
@@ -182,7 +183,7 @@ func TestSwarmPreset_AddedDetection(t *testing.T) {
 }
 
 func TestSwarmPreset_AddPresetPersistence(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
@@ -236,7 +237,7 @@ func TestSwarmPreset_AddPresetPersistence(t *testing.T) {
 }
 
 func TestSwarmPreset_MissingModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	providers := []ProviderInfo{
 		{
@@ -272,7 +273,7 @@ func TestSwarmPreset_MissingModel(t *testing.T) {
 }
 
 func TestSwarmPreset_ResolvesCatalogIDsAndSupportedEfforts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	providers := []ProviderInfo{
 		{ID: config.ProviderClaude, Available: true, Models: []ModelInfo{
 			{ID: "claude-opus-5-4", Name: "Opus 5.4", Efforts: []string{"high"}},
@@ -312,7 +313,7 @@ func TestSwarmPreset_ResolvesCatalogIDsAndSupportedEfforts(t *testing.T) {
 }
 
 func TestSwarmPreset_AddedWithInheritedWorkerProvider(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	pair := swarmPresets[0].Pair
 	existing := pair
 	existing.WorkerProvider = ""
@@ -322,7 +323,7 @@ func TestSwarmPreset_AddedWithInheritedWorkerProvider(t *testing.T) {
 }
 
 func TestSwarmPreset_ReadyPresetClickPersists(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	providers := []ProviderInfo{
 		{ID: config.ProviderClaude, Available: true, Models: []ModelInfo{
@@ -356,7 +357,7 @@ func TestSwarmPreset_ReadyPresetClickPersists(t *testing.T) {
 }
 
 func TestSwarmPreset_Flyout(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	entry, capture := setupPopoverFlyoutTest(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	providers := []ProviderInfo{{ID: config.ProviderClaude, Available: true, Models: []ModelInfo{

@@ -6,6 +6,7 @@ import (
 
 	"mcode/internal/config"
 	"mcode/internal/providers/claude"
+	"mcode/internal/testenv"
 )
 
 // missingCLIBin 是一个必然不存在于 PATH 的可执行文件名，避免用例受开发机已装 CLI 的影响。
@@ -14,7 +15,7 @@ const missingCLIBin = "mcode-not-installed-cli-测试占位"
 // TestOpenContinuesWhenProviderCLIUnavailable 覆盖「所选 provider 的 CLI 缺失时仍能启动」：
 // 以前这些情况会让 Open 直接返回致命错误，桌面端在没装 CLI 的机器上根本打不开。
 func TestOpenContinuesWhenProviderCLIUnavailable(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	existingBin := testClaudeBin(t)
 
 	cases := []struct {
@@ -97,7 +98,7 @@ func TestOpenContinuesWhenProviderCLIUnavailable(t *testing.T) {
 // TestOpenContinuesWhenClaudeLoggedOut 覆盖「claude 已安装但未登录」：以前 Open 返回 ErrNotLoggedIn，
 // 现在只记警告，不注册 claude harness。
 func TestOpenContinuesWhenClaudeLoggedOut(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	// 进程环境与登录环境都没有凭据，登录态检测上报「未登录」。
 	notLoggedIn := func(ctx context.Context, binary string, env []string) (claude.AuthStatus, bool) {
 		return claude.AuthStatus{}, true

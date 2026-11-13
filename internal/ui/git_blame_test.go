@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
+	"mcode/internal/testenv"
 )
 
 type gitBlameFakeClient struct {
@@ -37,7 +38,7 @@ func TestGitBlameAlpha(t *testing.T) {
 	}
 }
 func TestGitBlameView(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	client := &gitBlameFakeClient{FakeClient: NewFakeClient()}
 	s := newChatState(client)
 	defer s.close()

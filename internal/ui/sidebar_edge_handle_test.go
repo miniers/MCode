@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // edgeDragShouldExpand 只在向右累计位移达到阈值时返回真。
@@ -28,7 +30,7 @@ func TestEdgeDragShouldExpand(t *testing.T) {
 // 折叠态下渲染窗口左缘热区；向右拖拽超过阈值展开侧边栏，未达阈值保持折叠，
 // 展开后不再渲染热区。
 func TestSidebarEdgeHandleDrag(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	s.sidebarCollapsed = true
@@ -81,7 +83,7 @@ func TestSidebarEdgeHandleDrag(t *testing.T) {
 
 // worktreeTargetProjectID 优先选中会话所属项目，其次第一个项目，无项目时为空串。
 func TestWorktreeTargetProjectID(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 

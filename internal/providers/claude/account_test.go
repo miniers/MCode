@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // writeClaudeConfig 在 dir 下写入一个 .claude.json fixture，测试不读取真实登录。
@@ -16,7 +18,7 @@ func writeClaudeConfig(t *testing.T, dir, content string) {
 
 func TestReadAccount(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	writeClaudeConfig(t, home, `{"oauthAccount":{"emailAddress":"a@b.c","organizationType":"claude_max"},"mcpServers":{}}`)
 
@@ -31,7 +33,7 @@ func TestReadAccount(t *testing.T) {
 
 // home 参数优先于当前用户主目录：多账号 home 场景直接读该目录下的 .claude.json。
 func TestReadAccountExplicitHome(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	other := t.TempDir()
 	writeClaudeConfig(t, other, `{"oauthAccount":{"emailAddress":"other@example.com","organizationType":"claude_pro"}}`)
@@ -48,7 +50,7 @@ func TestReadAccountExplicitHome(t *testing.T) {
 // 配置目录被搬迁时（CLAUDE_CONFIG_DIR），.claude.json 位于该目录下而不是用户主目录。
 func TestReadAccountRelocatedConfigDir(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	writeClaudeConfig(t, home, `{"oauthAccount":{"emailAddress":"default@example.com"}}`)
 	relocated := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", relocated)
@@ -65,7 +67,7 @@ func TestReadAccountRelocatedConfigDir(t *testing.T) {
 
 func TestReadAccountErrors(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 
 	if _, _, err := ReadAccount(""); err == nil {

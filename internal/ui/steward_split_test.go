@@ -5,11 +5,13 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // 时间线里 Kind 为 split_session 的消息渲染成分割线，线上的历史照常显示。
 func TestSplitDivider_RendersAndKeepsEarlierMessages(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(waitUIStateWrites)
 	fake := NewFakeClient()
 	fake.SetMessages("t1", []Message{
@@ -57,7 +59,7 @@ func TestSplitDividerText(t *testing.T) {
 
 // 带计数的分割线在时间线上渲染出标题与「已带走」两段文字。
 func TestSplitDivider_RendersCarriedCounts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(waitUIStateWrites)
 	const counts = "已带走：账本 12 条、话题 3 个、待处理 2 条"
 	fake := NewFakeClient()

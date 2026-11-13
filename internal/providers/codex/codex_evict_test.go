@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 // newEvictHarness 创建使用假 app-server 脚本的 Harness。
 func newEvictHarness(t *testing.T, script string) *Harness {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	h := New(Options{})
 	t.Cleanup(func() {
 		if err := h.Close(); err != nil {

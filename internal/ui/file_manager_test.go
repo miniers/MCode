@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // fileManagerTestTree 构造测试用的目录树：根目录含一个文件、一个子目录和一个受保护文件，
@@ -80,7 +81,7 @@ func waitForFileManagerText(t *testing.T, tt *ui.Tester, s *chatState, path, wan
 // openFileManagerForTest 启动界面、设置工作目录与目录树并点开文件面板。
 func openFileManagerForTest(t *testing.T) (*FakeClient, *chatState, *ui.Tester) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetThreadWorkDir("/tmp/mcode-file-manager-test")
 	fake.SetFileTree(fileManagerTestTree())

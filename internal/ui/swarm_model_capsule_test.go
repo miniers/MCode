@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/apisource"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 func TestSwarmLegacySelectionShowsSource(t *testing.T) {
@@ -28,7 +29,7 @@ func TestSwarmLegacySelectionShowsSource(t *testing.T) {
 // newSwarmCapsuleTester 构造带有 Mock 供应商及可用模型数据的 SettingsState 与 ui.Tester。
 func newSwarmCapsuleTester(t *testing.T) (*SettingsState, *ui.Tester) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	t.Cleanup(func() {
 		modelPickerStatesMu.Lock()

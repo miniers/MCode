@@ -13,6 +13,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 // syncPendingAskTrace 把留痕写库换成同步执行，断言不靠 sleep；测试结束后恢复默认实现。
@@ -26,7 +27,7 @@ func syncPendingAskTrace(t *testing.T) {
 // newAskTraceBackend 建一个挂了真实 store 的后端，返回后端与库文件路径。
 func newAskTraceBackend(t *testing.T) (*MemoryBackend, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dbPath := filepath.Join(t.TempDir(), "pending_asks.db")
 	s, err := store.Open(dbPath)
 	if err != nil {

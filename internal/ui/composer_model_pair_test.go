@@ -6,11 +6,12 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // currentSwarmPair 按 Lead 与 Bees 配置精确匹配配对模板。
 func TestCurrentSwarmPair(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	pairs := []SwarmPair{
 		{
 			ID:             "pair-1",
@@ -69,7 +70,7 @@ func TestCurrentSwarmPair(t *testing.T) {
 
 // 会话显式选中配对时按 PairID 认定：同组合的多条配对可分别高亮，模型被换掉时回退到按模型推断。
 func TestCurrentSwarmPair_PrefersThreadPairID(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	first := SwarmPair{
 		ID:             "pair-1",
 		LeadProvider:   "claude",
@@ -160,7 +161,7 @@ func TestCurrentSwarmPair_PrefersThreadPairID(t *testing.T) {
 
 // readySwarmPairs 只保留两侧 provider 与模型都能解析的配对。
 func TestReadySwarmPairs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	providers := []ProviderInfo{
 		{
 			ID:        "claude",
@@ -232,7 +233,7 @@ func TestReadySwarmPairsLegacyMcodeWorker(t *testing.T) {
 
 // 会话开启 Swarm 时联动打开全局总开关；关闭时不动全局开关；锁定时不写全局。
 func TestEnableSwarmWithGlobal_EnablesGlobalSwitch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetSwarmState("t1", SwarmState{LeadThreadID: "t1", Enabled: false})
 	state, view := buildRoot(fake)
@@ -270,7 +271,7 @@ func TestEnableSwarmWithGlobal_EnablesGlobalSwitch(t *testing.T) {
 
 // 全局开关被启动参数锁定时不写入全局配置，仅切换会话。
 func TestEnableSwarmWithGlobal_LockedGlobalKeepsValue(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetSwarmState("t1", SwarmState{LeadThreadID: "t1", Enabled: false})
 	state, view := buildRoot(fake)
@@ -300,7 +301,7 @@ func TestEnableSwarmWithGlobal_LockedGlobalKeepsValue(t *testing.T) {
 
 // C-HY-19：applySwarmPair 切换 Lead provider/model、写入 Bees 偏好、联动开启 Swarm 并关闭弹层。
 func TestApplySwarmPair_SwitchesLeadAndWritesBeesPrefs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	composerModelPickerState.MenuOpen = false
 	t.Cleanup(func() {
 		composerModelPickerState.MenuOpen = false

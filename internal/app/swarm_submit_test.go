@@ -16,6 +16,7 @@ import (
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
 	"mcode/internal/swarm"
+	"mcode/internal/testenv"
 )
 
 // submitHarness 是 submit 测试用的派发器：dispatch 记录收到的 prompt，轮次计数由 rounds 驱动。
@@ -122,7 +123,7 @@ func TestSubmitHonorsRoundLimit(t *testing.T) {
 // TestDelegateToolFollowsSetting 验证 Swarm.DelegateTool 同时控制主代理提示词里的工具说明
 // 与 swarm_delegate 在 tools/list 里的可见性。
 func TestDelegateToolFollowsSetting(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dir := swarmRepo(t)
 	hub := remote.NewStreamHub(remote.StreamHubOptions{})

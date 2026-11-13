@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestComposer_EditingCmdReturnSavesWhileRunning(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := &fakeQueueUpdaterClient{FakeClient: NewFakeClient()}
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)
@@ -36,7 +38,7 @@ func TestComposer_EditingCmdReturnSavesWhileRunning(t *testing.T) {
 }
 
 func TestComposer_SwitchEditingItemRestoresOriginalDraft(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	s.selectedThreadID = "t1"
@@ -68,7 +70,7 @@ func (f *blockedQueueUpdateClient) UpdateQueued(ctx context.Context, threadID, f
 }
 
 func TestComposer_AsyncSaveDoesNotOverwriteNewSession(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := &blockedQueueUpdateClient{NewFakeClient(), make(chan struct{}), make(chan struct{}), make(chan struct{})}
 	s := newChatState(fake)
 	t.Cleanup(s.close)
@@ -103,7 +105,7 @@ func TestComposer_AsyncSaveDoesNotOverwriteNewSession(t *testing.T) {
 }
 
 func TestComposer_RemovedEditingItemRestoresStash(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	t.Cleanup(s.close)
@@ -124,7 +126,7 @@ func TestComposer_RemovedEditingItemRestoresStash(t *testing.T) {
 }
 
 func TestComposer_HeroFitsNarrowViewport(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	s.selectedThreadID = "t1"
@@ -157,7 +159,7 @@ func (f *composerQuotaClient) ProviderCredits(ctx context.Context, provider stri
 }
 
 func TestComposer_QuotaLoadsFromClientAndChangesProvider(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := &composerQuotaClient{NewFakeClient(), make(chan string, 2)}
 	s := newChatState(fake)
 	t.Cleanup(s.close)
@@ -197,7 +199,7 @@ func (f *queueAttachmentsClient) UpdateQueuedWithAttachments(ctx context.Context
 }
 
 func TestComposer_QueueAttachmentEditingRestoresDraftAttachments(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := &queueAttachmentsClient{fakeQueueUpdaterClient: &fakeQueueUpdaterClient{FakeClient: NewFakeClient()}}
 	s := newChatState(fake)
 	t.Cleanup(s.close)

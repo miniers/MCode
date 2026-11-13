@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestComposerQuotaPopoverHorizontalPadding(t *testing.T) {
@@ -29,7 +31,7 @@ func TestComposerQuotaPopoverHorizontalPadding(t *testing.T) {
 
 // 场景 1：formatTokenCount 紧凑格式化各量级 token 数量。
 func TestFormatTokenCount(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	tests := []struct {
 		input int64
@@ -60,7 +62,7 @@ func TestFormatTokenCount(t *testing.T) {
 
 // 场景 3：验证上下文用量比例、百分比计算与格式化组合。
 func TestUsageContextCalculation(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	used := int64(76000)
 	limit := int64(200000)
@@ -84,7 +86,7 @@ func TestUsageContextCalculation(t *testing.T) {
 // 场景 4：模型目录里没有该模型的上限时，renderUsagePanel 不再用固定默认预算顶分母，
 // 直接显示“暂无上下文窗口数据”；没有额度数据时省略额度分段。
 func TestRenderUsagePanel_UnknownContextLimit(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	s := newChatState(fake)
@@ -112,7 +114,7 @@ func TestRenderUsagePanel_UnknownContextLimit(t *testing.T) {
 
 // 上下文用量取最新一轮的输入 + 输出；会话累计计费仍在下方“输入/输出/缓存”里单独展示。
 func TestRenderUsagePanel_UsesLatestTurnForContext(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.providers = []ProviderInfo{{
 		ID:     "claude",
@@ -136,7 +138,7 @@ func TestRenderUsagePanel_UsesLatestTurnForContext(t *testing.T) {
 
 // agy 一轮里的输入是整轮多步累计（可远超窗口上限），面板占用要取单次请求的 ContextTokens。
 func TestRenderUsagePanel_PrefersSingleRequestContext(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.providers = []ProviderInfo{{
 		ID:     "claude",
@@ -156,7 +158,7 @@ func TestRenderUsagePanel_PrefersSingleRequestContext(t *testing.T) {
 }
 
 func TestRenderUsagePanel_OmitsQuota(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	th := &Thread{ID: "t1", Provider: "claude"}
 	SetChatQuotaWindowsForProvider(s, th.Provider, []ProviderQuotaWindow{{Label: "5 小时限额", UsedPercent: 62}})
@@ -172,7 +174,7 @@ func TestRenderUsagePanel_OmitsQuota(t *testing.T) {
 // 场景 7：会话 provider 有余额缓存时用量面板展示余额行；余额不足时金额用错误色并标注「余额不足」，
 // 没有余额数据（不支持或未加载）时整行省略。
 func TestRenderUsagePanel_Credits(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	th := &Thread{ID: "t1", Provider: "deepseek"}
 
@@ -218,7 +220,7 @@ func TestRenderUsagePanel_Credits(t *testing.T) {
 // threadQuotaProvider 决定额度 key：pi 与 mcode 线程按模型第一段折算成 magpie 端点 key，
 // magpie 与 magpie2…magpie4 端点会话本身就以 provider 命名。
 func TestThreadQuotaProvider(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	tests := []struct {
 		name string
@@ -298,7 +300,7 @@ func TestQuotaAccountsSameProvider(t *testing.T) {
 // TestQuotaInUseAccountSkipsDisabled 校验已停用（Disabled）的账号不参与在用账号判定：
 // 有 Active 账号时用它，全部停用时不判在用。
 func TestQuotaInUseAccountSkipsDisabled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	windows := []ProviderQuotaWindow{
 		{ID: "gemini", Period: "5h", Label: "系统账号 · Gemini Models", Account: "系统账号", UsedPercent: 40, Disabled: true},
@@ -410,7 +412,7 @@ func TestQuotaMagpieAccountAttribution(t *testing.T) {
 // （如 workbuddy 的 Credits）与只有一张 Magpie 卡片的单账号 provider 都直接展示读数，
 // 不再因为找不到在用账号而显示额度未知；多账号且没有 Active/Last 时仍然未知。
 func TestQuotaSoleAccountReadouts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	readAt := time.Now().Add(-3 * time.Minute)
 	email := "a@x.com"
@@ -546,7 +548,7 @@ func TestQuotaSoleAccountReadouts(t *testing.T) {
 
 // 该轮上报了费用时，用量面板在累计 token 行下方多显示一行“本轮费用”，金额保留 4 位小数。
 func TestRenderUsagePanel_TurnCost(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.providers = []ProviderInfo{{
 		ID:     "claude",
@@ -570,7 +572,7 @@ func TestRenderUsagePanel_TurnCost(t *testing.T) {
 
 // provider 未上报费用（CostUSD 为 0）时整行不出现，面板与改造前一致。
 func TestRenderUsagePanel_TurnCostHiddenWhenZero(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.providers = []ProviderInfo{{
 		ID:     "claude",
@@ -594,7 +596,7 @@ func TestRenderUsagePanel_TurnCostHiddenWhenZero(t *testing.T) {
 
 // 上下文窗口上限来自后端上报的 ContextWindow，优先于模型目录里的静态值。
 func TestRenderUsagePanel_PrefersReportedContextWindow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.providers = []ProviderInfo{{
 		ID:     "claude",

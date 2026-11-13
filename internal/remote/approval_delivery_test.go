@@ -9,6 +9,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // fakeDeliveryHarness 用于测试审批送达确认链路的模拟 harness。
@@ -34,7 +35,7 @@ func (f *fakeDeliveryHarness) Run(ctx context.Context, turn harness.Turn, emit f
 
 // TestApprovalDelivery_Success 覆盖：送达成功时移除卡片。
 func TestApprovalDelivery_Success(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
 	defer hub.Close()
@@ -135,7 +136,7 @@ func TestApprovalDelivery_Success(t *testing.T) {
 
 // TestApprovalDelivery_Failure_CardRetained 覆盖：送达失败时保留卡片并带 deliveryError，RespondRequest 返回错误。
 func TestApprovalDelivery_Failure_CardRetained(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
 	defer hub.Close()
@@ -235,7 +236,7 @@ func TestApprovalDelivery_Failure_CardRetained(t *testing.T) {
 
 // TestApprovalDelivery_Timeout_CardRetained 覆盖：超时同样保留卡片并记录 deliveryError。
 func TestApprovalDelivery_Timeout_CardRetained(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
 	defer hub.Close()
@@ -329,7 +330,7 @@ func TestApprovalDelivery_Timeout_CardRetained(t *testing.T) {
 
 // TestApprovalDelivery_Retry_Success 覆盖：再次答复后成功。
 func TestApprovalDelivery_Retry_Success(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
 	defer hub.Close()
@@ -463,7 +464,7 @@ func TestApprovalDelivery_Retry_Success(t *testing.T) {
 
 // TestApprovalDelivery_NoConfirmation_Fallback 覆盖：不支持确认的 harness 保持原行为。
 func TestApprovalDelivery_NoConfirmation_Fallback(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
 	defer hub.Close()

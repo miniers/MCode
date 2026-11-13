@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 type stopSwarmClient struct {
@@ -38,7 +40,7 @@ func TestStopCurrentSwarm(t *testing.T) {
 		{name: "idle", calls: []string{"interrupt:t1"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			fake := &stopSwarmClient{FakeClient: NewFakeClient()}
 			s := newChatState(fake)
 			t.Cleanup(s.close)

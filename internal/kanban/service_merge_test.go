@@ -11,6 +11,7 @@ import (
 
 	"mcode/internal/git"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 // orphanDriver 模拟执行会话已丢失的驱动：missing 中的线程返回 store.ErrNotFound，其余视为运行中。
@@ -115,7 +116,7 @@ func taskBranchPrefix(taskID string) string {
 }
 
 func TestAutoMergeSquashSuccess(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	repo := initMergeTestRepo(t)
@@ -177,7 +178,7 @@ func TestAutoMergeSquashSuccess(t *testing.T) {
 }
 
 func TestAutoMergeRejectsDirtyMainWorktree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	repo := initMergeTestRepo(t)
@@ -233,7 +234,7 @@ func TestAutoMergeRejectsDirtyMainWorktree(t *testing.T) {
 }
 
 func TestAutoMergeConflictRollsBack(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	repo := initMergeTestRepo(t)
@@ -287,7 +288,7 @@ func TestAutoMergeConflictRollsBack(t *testing.T) {
 }
 
 func TestRecoverOrphanTasks(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 
 	st := openMergeTestStore(t)

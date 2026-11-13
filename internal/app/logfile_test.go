@@ -5,14 +5,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // isolateLogDir 把用户配置目录指向临时目录，并清空已记录的日志路径。
 func isolateLogDir(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testenv.SetHome(t, home)
 	config := filepath.Join(home, ".config")
 	t.Setenv("XDG_CONFIG_HOME", config)
 	t.Setenv("APPDATA", config)

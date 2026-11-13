@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mcode/internal/kanban"
+	"mcode/internal/testenv"
 )
 
 // countingPersister 记录 SaveLead 的调用次数，用于验证进度类变更是否被合并落盘。
@@ -186,7 +187,7 @@ func (d *usageDriver) SessionUsage(ctx context.Context, threadID string) (int, i
 
 // TestManager_TickRecordsBeeUsage 验证运行中的 bee 把会话累计用量写回记录并经合并窗口落盘。
 func TestManager_TickRecordsBeeUsage(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newUsageDriver()
@@ -238,7 +239,7 @@ func TestManager_TickRecordsBeeUsage(t *testing.T) {
 
 // TestManager_BeeUsageSurvivesRestart 验证 bee 结束时落盘的最终用量在重新加载后仍然保留。
 func TestManager_BeeUsageSurvivesRestart(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newUsageDriver()
@@ -294,7 +295,7 @@ func TestManager_BeeUsageSurvivesRestart(t *testing.T) {
 
 // TestManager_RunningBeesReturnsOnlyRunning 验证 RunningBees 只返回 running 状态的 bee 副本，按 lead 分组。
 func TestManager_RunningBeesReturnsOnlyRunning(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()
@@ -351,7 +352,7 @@ func TestManager_RunningBeesReturnsOnlyRunning(t *testing.T) {
 
 // TestManager_PollCopiesLastFileChangeAt 验证轮询把会话的文件改动时刻复制到 bee 记录并落盘。
 func TestManager_PollCopiesLastFileChangeAt(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()

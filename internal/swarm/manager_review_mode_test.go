@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mcode/internal/kanban"
+	"mcode/internal/testenv"
 )
 
 // collectReports 让管理器把汇报收进切片，返回读取函数；主会话显式登记为未运行，
@@ -195,7 +196,7 @@ func TestReviewMode_BusyDuringAIReviewOnly(t *testing.T) {
 
 // 重启后审查会话已消失：审查中的 bee 改交人工，并清掉旧审查线程。
 func TestReviewMode_RestoreHandsInterruptedReviewToHuman(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	persister := newFakePersister()
@@ -243,7 +244,7 @@ func TestReviewMode_RestoreHandsInterruptedReviewToHuman(t *testing.T) {
 
 // AI 审查通过时主工作区尚未落定：保持审查中并保留待审查，落定后重试即合入，不转人工。
 func TestManager_ReviewAI_ApproveRetriesWhenCheckoutUnsettled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 	driver := newFakeDriver()

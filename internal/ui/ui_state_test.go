@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // TestUIStateRoundTrip 验证 ui-state.json 的保存与读取往返。
@@ -100,7 +102,7 @@ func TestMainAreaWidth(t *testing.T) {
 func TestApplyUIState(t *testing.T) {
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	WithUIStatePersistence()(s)
 	applyUIState(s, UIState{SidebarWidth: 320, SidebarHidden: true})
@@ -119,7 +121,7 @@ func TestToggleSidebarPersisted(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	WithUIStatePersistence()(s)
 
@@ -149,7 +151,7 @@ func TestPersistUIStateWritesWidth(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	WithUIStatePersistence()(s)
 

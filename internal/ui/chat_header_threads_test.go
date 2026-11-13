@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestChatHeaderPanelButtonsResponsive(t *testing.T) {
@@ -17,7 +19,7 @@ func TestChatHeaderPanelButtonsResponsive(t *testing.T) {
 		{name: "窄窗口", width: 1000, collapsed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			stubTerminals(t)
 			fake := NewFakeClient()
 			s, root := buildRoot(fake)
@@ -57,7 +59,7 @@ func TestChatHeaderPanelButtonsResponsive(t *testing.T) {
 }
 
 func TestChatHeaderPanelButtonsRemainVisibleWithPreview(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubTerminals(t)
 	fake := NewFakeClient()
 	s, root := buildRoot(fake)
@@ -74,7 +76,7 @@ func TestChatHeaderPanelButtonsRemainVisibleWithPreview(t *testing.T) {
 }
 
 func TestChatHeaderClickRenameAndCancel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	_, root := buildRoot(fake)
 	tt := ui.NewTester(root, 1000, 700)
@@ -103,7 +105,7 @@ func TestChatHeaderClickRenameAndCancel(t *testing.T) {
 }
 
 func TestChatHeaderThreadsLongTitle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	title := strings.Repeat("长", 30)
 	fake.threads["p1"] = append(fake.threads["p1"], Thread{ID: "t2", ProjectID: "p1", Title: title})
@@ -121,7 +123,7 @@ func TestChatHeaderThreadsLongTitle(t *testing.T) {
 // TestChatHeaderIconButtonsHaveNoFill 验证头部图标按钮常态透明：按钮内缘与按钮左侧的头部底色一致。
 // 漏传 Variant 时按钮落到主按钮样式，内缘是主色或灰块，这里会失败。
 func TestChatHeaderIconButtonsHaveNoFill(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubTerminals(t)
 	fake := NewFakeClient()
 	s, root := buildRoot(fake)

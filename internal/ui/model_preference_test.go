@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 type preferenceTestClient struct {
@@ -45,7 +47,7 @@ func awaitPreferenceWrites(t *testing.T, s *chatState, pin ModelPin) {
 }
 
 func TestModelPreferenceOrderedWrites(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pin := modelPreferencePin("claude", "")
 	if pin.ModelID != "default" {
@@ -73,7 +75,7 @@ func TestModelPreferenceOrderedWrites(t *testing.T) {
 }
 
 func TestModelPreferenceLoadCannotOverwriteWrite(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	started, release := make(chan struct{}), make(chan struct{})
 	var reads atomic.Int32
@@ -111,7 +113,7 @@ func TestModelPreferenceLoadCannotOverwriteWrite(t *testing.T) {
 }
 
 func TestModelPreferenceWriteFailurePreservesCache(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	client := preferenceTestClient{
 		Client: NewFakeClient(),
 		write: func(context.Context, ModelPin, ModelPreference) error {
@@ -132,7 +134,7 @@ func TestModelPreferenceWriteFailurePreservesCache(t *testing.T) {
 
 // 覆盖：选中会话的 Lead 模型与 pin 匹配时，toggleModelFastMode 同时把快速模式写穿到该会话。
 func TestToggleModelFastModeSyncsSelectedThread(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	pin := modelPreferencePin("claude", "")
@@ -157,7 +159,7 @@ func TestToggleModelFastModeSyncsSelectedThread(t *testing.T) {
 
 // 覆盖：选中会话的 Lead 模型与 pin 不匹配时，toggleModelFastMode 不写穿快速模式。
 func TestToggleModelFastModeSkipsMismatchedThread(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	pin := ModelPin{Provider: "codex", ModelID: "o3-mini"}

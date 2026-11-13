@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // SystemTokenPath 指向宿主 home 下的 antigravity-oauth-token（文件存储模式）。
@@ -70,7 +72,7 @@ func TestTokenFileHasCredentials(t *testing.T) {
 // 反例（没有文件、也没有钥匙串条目）依赖运行测试的机器，这里不覆盖。
 func TestSystemLoginAvailableReadsHostToken(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	path := SystemTokenPath(home)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

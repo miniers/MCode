@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // TestComposerDraftsSaveLoadRoundTrip 验证 composer-drafts.json 的保存与读取往返。
@@ -13,7 +15,7 @@ func TestComposerDraftsSaveLoadRoundTrip(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	want := map[string]string{"t1": "草稿A", "": "新会话草稿"}
 	if err := saveComposerDrafts(want); err != nil {
@@ -49,7 +51,7 @@ func TestComposerDraftsLoadMissingOrCorrupt(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	got := loadComposerDrafts()
 	if got == nil || len(got) != 0 {
@@ -67,7 +69,7 @@ func TestComposerDraftsLoadMissingOrCorrupt(t *testing.T) {
 func TestComposerDraftsStashTakeClear(t *testing.T) {
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 
@@ -117,7 +119,7 @@ func TestComposerDraftsStashTakeClear(t *testing.T) {
 func TestComposerDraftsSwapOnSelectThread(t *testing.T) {
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 
@@ -166,7 +168,7 @@ func TestComposerDraftNoteUpdatesMemoryAndSkipsWriteWhenDisabled(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 
@@ -197,7 +199,7 @@ func TestComposerDraftPersistWhenEnabled(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	WithUIStatePersistence()(s)
 	t.Cleanup(s.close)
@@ -219,7 +221,7 @@ func TestComposerDraftPersistWhenEnabled(t *testing.T) {
 func TestComposerDraftFlushOnClose(t *testing.T) {
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(waitUIStateWrites)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	WithUIStatePersistence()(s)
 

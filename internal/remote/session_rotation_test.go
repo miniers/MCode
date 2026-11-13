@@ -14,6 +14,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 const rotationGuidance = "<rotation_guidance>"
@@ -22,7 +23,7 @@ const rotationGuidance = "<rotation_guidance>"
 // withSession 为 true 时仅在第一次调用时建立 provider 会话 sess-1。
 func rotationTestBackend(t *testing.T, withSession bool) (*MemoryBackend, *store.Store, *mockHarness, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
 	t.Cleanup(hub.Close)

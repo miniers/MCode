@@ -5,10 +5,12 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestSidebarSearchProjectsAndCollapsedState(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetProjectsAndThreads(
 		[]Project{{ID: "p1", Name: "命中项目"}, {ID: "p2", Name: "其他项目"}},
@@ -63,7 +65,7 @@ func TestSidebarSearchProjectsAndCollapsedState(t *testing.T) {
 }
 
 func TestSidebarSearchNoMatches(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	state, view := buildRoot(fake)
 	tt := ui.NewTester(view, 1000, 700)
@@ -83,7 +85,7 @@ func TestSidebarSearchNoMatches(t *testing.T) {
 }
 
 func TestSidebarSearchProjectName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetProjectsAndThreads(
 		[]Project{{ID: "p1", Name: "Alpha 项目"}, {ID: "p2", Name: "其他项目"}},
@@ -115,7 +117,7 @@ func TestSidebarSearchProjectName(t *testing.T) {
 }
 
 func TestSidebarSearchKeyboardVisibleResults(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetProjectsAndThreads(
 		[]Project{{ID: "p1", Name: "项目一"}, {ID: "p2", Name: "项目二"}},

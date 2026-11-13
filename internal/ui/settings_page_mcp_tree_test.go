@@ -5,10 +5,11 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
+	"mcode/internal/testenv"
 )
 
 func TestSettingsPageMCP_Tree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	original := scanMCP
 	t.Cleanup(func() { scanMCP = original })
 	scanMCP = func(agentconf.Options) ([]agentconf.MCPServer, error) {

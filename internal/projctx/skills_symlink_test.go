@@ -4,13 +4,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // 全局技能常以符号链接安装（如 ~/.agents/skills/ego-browser -> 真实目录），应被发现。
 func TestDiscoverSkills_全局符号链接技能目录被发现(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	// 真实技能目录放在技能根目录之外，通过符号链接挂进全局根。
 	sourceDir := filepath.Join(t.TempDir(), "ego-browser")
@@ -41,7 +43,7 @@ func TestDiscoverSkills_全局符号链接技能目录被发现(t *testing.T) {
 func TestDiscoverSkills_项目符号链接技能目录不被发现(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	sourceDir := filepath.Join(t.TempDir(), "outside")
 	writeSkill(t, filepath.Dir(sourceDir), "outside", "---\nname: outside\ndescription: 仓库外的技能\n---\n正文")
@@ -62,7 +64,7 @@ func TestDiscoverSkills_项目符号链接技能目录不被发现(t *testing.T)
 func TestDiscoverSkills_目录符号链接成环时可终止且不重复(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	globalDir := filepath.Join(home, ".agents", "skills")
 	writeSkill(t, globalDir, "loop-skill", "---\nname: loop-skill\ndescription: 成环技能\n---\n正文")

@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
+	"mcode/internal/testenv"
 )
 
 // useMCPToolLister 临时替换工具探测钩子，测试结束后恢复。
@@ -64,7 +65,7 @@ func openMCPAddSheet(t *testing.T, tt *ui.Tester) {
 
 // TestMCPCatalogCardShowsConnectedToolCount 覆盖：已安装且无需登录的预设探测成功后显示「已连接 · N 个工具」。
 func TestMCPCatalogCardShowsConnectedToolCount(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	installMCPCatalogPreset(t)
 	useMCPToolLister(t, func(ctx context.Context, srv agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) {
 		return []agentconf.MCPToolInfo{
@@ -84,7 +85,7 @@ func TestMCPCatalogCardShowsConnectedToolCount(t *testing.T) {
 
 // TestMCPCatalogCardShowsProbeFailure 覆盖：探测失败时预设卡片显示「连接失败」与错误详情。
 func TestMCPCatalogCardShowsProbeFailure(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	installMCPCatalogPreset(t)
 	useMCPToolLister(t, func(ctx context.Context, srv agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) {
 		return nil, errors.New("连接被拒绝")
@@ -146,7 +147,7 @@ func countMCPCatalogPlanRows(plan mcpCatalogPlan) int {
 
 // TestMCPCatalogSearchFiltersCards 覆盖：预设目录的搜索框按关键词过滤卡片。
 func TestMCPCatalogSearchFiltersCards(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tt := ui.NewTester(Root(NewFakeClient(), WithSettings(settingsTestDir(t), nil)), 1000, 4000)
 	openMCPPage(t, tt)
 	openMCPAddSheet(t, tt)

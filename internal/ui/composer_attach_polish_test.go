@@ -2,11 +2,13 @@ package mcodeui
 
 import (
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // 上传中的图片卡片在底部进度条上显示百分比：Progress 0.4 时出现「40%」。
 func TestAttachmentUploadProgressShowsPercent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.attachments = []composerAttachment{{
 		LocalID:   "progress",
@@ -22,7 +24,7 @@ func TestAttachmentUploadProgressShowsPercent(t *testing.T) {
 
 // 上传失败时卡片上有「重试上传 文件名」按钮，点击后复用现有上传路径重新上传。
 func TestAttachmentRetryButtonReusesUpload(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	s.attachments = []composerAttachment{{
@@ -58,7 +60,7 @@ func TestAttachmentRetryButtonReusesUpload(t *testing.T) {
 
 // 删除按钮平时透明，但仍能按 a11y Label 找到并点击（非 hover 状态）。
 func TestAttachmentRemoveButtonClickableWhileHidden(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	s.attachments = []composerAttachment{{
 		LocalID:  "one",

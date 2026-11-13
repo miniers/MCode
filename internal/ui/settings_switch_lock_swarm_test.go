@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // 编排页这几个开关改为持锁写 cfg 后，行为必须保持不变：
@@ -14,7 +15,7 @@ import (
 
 // TestSwarmSwitchRetryFailedPersists 覆盖「失败时自动重试」：从关闭切换到开启并落盘。
 func TestSwarmSwitchRetryFailedPersists(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.RetryFailed = false
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -42,7 +43,7 @@ func TestSwarmSwitchRetryFailedPersists(t *testing.T) {
 
 // TestSwarmSwitchAutoMergePersists 覆盖「自动合并」：从关闭切换到开启并落盘。
 func TestSwarmSwitchAutoMergePersists(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Orchestration.AutoMerge = false
 	tt := ui.NewTester(func(c *ui.Context) {

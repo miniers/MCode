@@ -17,6 +17,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/providers/loginenv"
+	"mcode/internal/testenv"
 )
 
 func TestResolveBinaryLocalFallback(t *testing.T) {
@@ -26,7 +27,7 @@ func TestResolveBinaryLocalFallback(t *testing.T) {
 	const bin = "mcode-test-agy-local-fallback"
 	_, _ = loginenv.LookPath(bin)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	candidate := filepath.Join(home, ".local", "bin", bin)
 	if err := os.MkdirAll(filepath.Dir(candidate), 0o755); err != nil {
 		t.Fatal(err)

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // headerPermissionCapsuleLabel 是默认档位下权限圆钮的 Label，点击它打开权限菜单。
@@ -32,7 +34,7 @@ func localThreadPersona(s *chatState, threadID string) (persona string, saving b
 
 // 有人设时，权限菜单底部出现「人设」标题、「无人设」与两个人设项。
 func TestChatHeaderPermissionPersonaMenu(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.SetMagpiePersonas(personaMenuTestPersonas())
@@ -59,7 +61,7 @@ func TestChatHeaderPermissionPersonaMenu(t *testing.T) {
 
 // 人设列表为空时整块不渲染：菜单里只有「权限」标题，没有「人设」标题与「无人设」项。
 func TestChatHeaderPermissionHidesPersonaSection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	_, root := buildRoot(fake)
@@ -83,7 +85,7 @@ func TestChatHeaderPermissionHidesPersonaSection(t *testing.T) {
 
 // 点人设项写入其 id，再点「无人设」写入 none；从未设置时点「无人设」不产生写入。
 func TestChatHeaderPermissionPersonaSelect(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.SetMagpiePersonas(personaMenuTestPersonas())

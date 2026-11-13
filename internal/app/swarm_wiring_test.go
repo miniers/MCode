@@ -21,6 +21,7 @@ import (
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
 	"mcode/internal/swarm"
+	"mcode/internal/testenv"
 )
 
 type swarmFlowHarness struct {
@@ -116,7 +117,7 @@ func TestSwarmChatReviewBeforeReportAndQueuedFollowUp(t *testing.T) {
 
 func testSwarmChatDispatchMergeReportAndQueuedFollowUp(t *testing.T, review bool) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dir := swarmRepo(t)
 	hub := remote.NewStreamHub(remote.StreamHubOptions{})
@@ -907,7 +908,7 @@ func TestSwarmDirectMessageRoutingEnabled(t *testing.T) {
 // TestSwarmStreamDispatcherDispatchesInOrderAsEntriesClose 验证流式条目在各自闭合大括号到达时按顺序派发，
 // 且同一轮委派只累计一次轮次。
 func TestSwarmStreamDispatcherDispatchesInOrderAsEntriesClose(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	var (
 		mu      sync.Mutex
@@ -970,7 +971,7 @@ func TestSwarmStreamDispatcherDispatchesInOrderAsEntriesClose(t *testing.T) {
 
 // TestSwarmStreamDispatcherSuppressesAfterRoundLimit 验证达到 3 轮委派上限后本轮条目被抑制且不再派发。
 func TestSwarmStreamDispatcherSuppressesAfterRoundLimit(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	var (
 		mu         sync.Mutex
@@ -1044,7 +1045,7 @@ type roundLimitHarness struct {
 // newRoundLimitHarness 构造一个按固定上限拦截的派发器；limit 为 0 表示不限轮次。
 func newRoundLimitHarness(t *testing.T, limit int) (*roundLimitHarness, *swarmStreamDispatcher) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	h := &roundLimitHarness{limit: limit}
 	d := newSwarmStreamDispatcher(context.Background(),
 		func(ctx context.Context, req swarm.SingleEntryRequest) (swarm.Bee, []string, error) {
@@ -1127,7 +1128,7 @@ func TestSwarmStreamDispatcherBlocksAtConfiguredLimit(t *testing.T) {
 
 // TestSwarmStreamDispatcherReportsRequestTimeout 验证超出总时长预算的条目被拒绝时，主代理收到带预算说明的回送。
 func TestSwarmStreamDispatcherReportsRequestTimeout(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	var (
 		mu      sync.Mutex
@@ -1165,7 +1166,7 @@ func TestSwarmStreamDispatcherReportsRequestTimeout(t *testing.T) {
 
 // TestSwarmStreamDispatcherSettleEnqueuesRemainingEntries 验证轮次结束时只补派发未流式派出的尾部条目。
 func TestSwarmStreamDispatcherSettleEnqueuesRemainingEntries(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	var (
 		mu      sync.Mutex
@@ -1210,7 +1211,7 @@ func TestSwarmStreamDispatcherSettleEnqueuesRemainingEntries(t *testing.T) {
 // TestSwarmStreamDispatcherCapsEntriesPerBlock 验证单个 swarm 块的条目数超过并发上限时只派发前 N 个，
 // 未派发的条目不入队，并在回合末回送一次 [编排] 提示让 lead 等这批 bee 汇报后另发一块。
 func TestSwarmStreamDispatcherCapsEntriesPerBlock(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	var (
 		mu      sync.Mutex
@@ -1270,7 +1271,7 @@ func TestSwarmStreamDispatcherCapsEntriesPerBlock(t *testing.T) {
 
 // TestSwarmStreamDispatcherWithoutEntryCapDispatchesWholeBlock 验证未注入并发上限时整块条目全部派发。
 func TestSwarmStreamDispatcherWithoutEntryCapDispatchesWholeBlock(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	var (
 		mu      sync.Mutex
@@ -1514,7 +1515,7 @@ func (h *swarmDedupHarness) noticeTexts() []string {
 
 func newSwarmDedupHarness(t *testing.T) (*swarmDedupHarness, *swarmStreamDispatcher) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	h := &swarmDedupHarness{}
 	d := newSwarmStreamDispatcher(context.Background(),
 		h.dispatch,

@@ -15,6 +15,7 @@ import (
 	"mcode/internal/providers/claude"
 	"mcode/internal/providers/codex"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // seedClaudeModelsForTest 用 shell 脚本冒充 claude CLI 的一次性 initialize 握手，
@@ -24,7 +25,7 @@ func seedClaudeModelsForTest(t *testing.T, ids ...string) {
 	if runtime.GOOS == "windows" {
 		t.Skip("测试用 CLI 为 shell 脚本")
 	}
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(claude.ResetCatalogCacheForTest())
 
 	rows := make([]string, 0, len(ids))

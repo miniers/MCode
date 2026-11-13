@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // fakeQueueFailClient 让 Send/MoveQueued 按需失败，其余行为沿用 FakeClient。
@@ -42,7 +44,7 @@ func (f *fakeQueueFailClient) MoveQueued(ctx context.Context, threadID, followUp
 // newQueueTestState 造一个选中 t1、带排队消息且正在跑的 chatState。
 func newQueueTestState(t *testing.T, client Client, provider string, items []QueuedFollowUp) *chatState {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	state := newChatState(client)
 	t.Cleanup(state.close)
 	state.mu.Lock()

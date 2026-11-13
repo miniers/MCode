@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestSortableNativeDrop(t *testing.T) {
@@ -107,7 +109,7 @@ func TestSortableQueueWindowScopes(t *testing.T) {
 }
 
 func TestSidebarSortableSearchFilter(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(waitUIStateWrites)
 	fake := NewFakeClient()

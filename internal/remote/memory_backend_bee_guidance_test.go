@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"mcode/internal/projctx"
+	"mcode/internal/testenv"
 )
 
 // writeBeeGuidanceSkill 在 home 下写一个全局技能，供技能清单注入用例使用。
@@ -26,7 +27,7 @@ func writeBeeGuidanceSkill(t *testing.T, home, name, description string) {
 func TestBuildGuidance_CompactSkillIndexLimits(t *testing.T) {
 	home := t.TempDir()
 	workDir := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	longDescription := strings.Repeat("很长的技能描述", 40)
 	writeBeeGuidanceSkill(t, home, "demo", longDescription)
 

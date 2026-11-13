@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // 测试用例 1：点击齿轮设置按钮后进入设置面板，页面名按顺序排列。
@@ -369,7 +370,7 @@ func TestSettings_NavRealPages(t *testing.T) {
 
 // 测试用例 9：模型页不再提供采样温度与上下文预算滑块，这些值不再由界面写入配置。
 func TestSettings_ModelsPageBudget(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.SetProviders([]ProviderInfo{

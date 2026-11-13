@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
 	"mcode/internal/mcp"
+	"mcode/internal/testenv"
 )
 
 // deviceAuthClient 给 FakeClient 补上授权查看与设备码能力，并让登录一直挂起：
@@ -115,7 +116,7 @@ func remoteOAuthServer() agentconf.MCPServer {
 // newDeviceAuthTester 启动设置页并进入 MCP 页，等待目标服务与「登录」按钮出现。
 func newDeviceAuthTester(t *testing.T, client *deviceAuthClient, srv agentconf.MCPServer) *ui.Tester {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubMCPAuthScans(t,
 		func(agentconf.Options) ([]agentconf.MCPServer, error) {
 			return []agentconf.MCPServer{srv}, nil
@@ -223,7 +224,7 @@ func TestMCPAuthLinkStillShownForLoopback(t *testing.T) {
 
 // TestMCPSignInPassesAuth 覆盖：服务行上的「登录」把保存的 Auth 传给客户端。
 func TestMCPSignInPassesAuth(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	srv := remoteOAuthServer()
 	stubMCPAuthScans(t,
 		func(agentconf.Options) ([]agentconf.MCPServer, error) {

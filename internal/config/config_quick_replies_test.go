@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // 快捷回复配置的序列化与反序列化：顺序、字段名（label/message）、空列表省略都要对得上。
 func TestQuickReplies_RoundTripThroughConfig(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := t.TempDir()
 
 	cfg := Defaults()

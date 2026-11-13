@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // quotaPopoverWindows 造出多账号、多窗口的额度数据，用来把弹层撑高。
@@ -32,7 +34,7 @@ func quotaPopoverTester(s *chatState, th *Thread, width, height int) *ui.Tester 
 }
 
 func TestComposerQuotaPopoverHeightCappedAndScrolls(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	th := &Thread{ID: "t1", Provider: "pi:magpie-jp"}
@@ -68,7 +70,7 @@ func TestComposerQuotaPopoverHeightCappedAndScrolls(t *testing.T) {
 }
 
 func TestComposerQuotaPopoverRefreshRequestsProviderReload(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	gate := make(chan struct{})
 	fake.refreshProviderQuotaGate = gate
@@ -119,7 +121,7 @@ func quotaPopoverRowWindows(now time.Time) []ProviderQuotaWindow {
 }
 
 func TestComposerQuotaPopoverUsesSharedGroups(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	th := &Thread{ID: "t1", Provider: "pi:magpie-jp"}

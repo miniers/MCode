@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestSidePaneWindowsChatBounds(t *testing.T) {
@@ -40,7 +42,7 @@ func TestSidePaneWindowsChatBounds(t *testing.T) {
 // sidePaneTestState 构造一个带工作目录的 chatState，供三个右侧面板的互斥与优先级用例使用。
 func sidePaneTestState(t *testing.T) *chatState {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetThreadWorkDir("/tmp/mcode-side-pane-test")
 	fake.SetFileTree(fileManagerTestTree())
@@ -188,7 +190,7 @@ func sidePaneByID(id string) *sidePane {
 func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(waitUIStateWrites)
 
 	s := newChatState(NewFakeClient())
@@ -291,7 +293,7 @@ func TestWindowCloseReleasesSidePaneStates(t *testing.T) {
 func TestSidePaneWidthPersistSkippedWithoutPersistence(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	t.Setenv("MCODE_DATA", dataDir)
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(waitUIStateWrites)
 
 	s := newChatState(NewFakeClient())

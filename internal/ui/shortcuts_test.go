@@ -7,6 +7,8 @@ import (
 
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestMatchShortcut_TableDriven(t *testing.T) {
@@ -70,7 +72,7 @@ func TestMatchShortcut_TableDriven(t *testing.T) {
 }
 
 func TestRootThreadShortcutDispatch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.mu.Lock()
 	fake.threads["p1"] = []Thread{
@@ -125,7 +127,7 @@ func TestRootThreadShortcutDispatch(t *testing.T) {
 
 // TestRootForwardThreadShortcut 选中会话后按 ⇧⌘D 转发，参数是当前会话 ID。
 func TestRootForwardThreadShortcut(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	state, root := buildRoot(fake)
 	tt := ui.NewTester(root, 1000, 700)
@@ -171,7 +173,7 @@ func TestForwardThreadSkipsInflight(t *testing.T) {
 }
 
 func TestDispatchActiveShortcutRegistersEveryFrame(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	var got []string
 	tt := ui.NewTester(func(c *ui.Context) {
 		if id, _, ok := dispatchActiveShortcut(c); ok {
@@ -187,7 +189,7 @@ func TestDispatchActiveShortcutRegistersEveryFrame(t *testing.T) {
 }
 
 func TestRootRunScriptLoadsCurrentThreadScripts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubTerminals(t)
 	fake := NewFakeClient()
 	fake.SetScripts([]Script{{Name: "current", Runner: "npm"}})

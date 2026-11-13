@@ -5,6 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/providers/agy/accounts"
+	"mcode/internal/testenv"
 )
 
 func TestProviderSheetSectionForRow(t *testing.T) {
@@ -55,7 +56,7 @@ func Test供应商面板_身份区(t *testing.T) {
 }
 
 func Test供应商面板_单页与高级折叠(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetProviders([]ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "test-model", Name: "测试模型"}}}})
 	tt, st := openProvidersPageTest(t, fake)
@@ -132,7 +133,7 @@ func Test供应商面板_搜索命令行自动展开高级(t *testing.T) {
 }
 
 func Test供应商面板_模型目录只读并显示模型ID(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetProviders([]ProviderInfo{{
 		ID: "claude", Name: "Claude", Available: true,
@@ -166,7 +167,7 @@ func Test供应商面板_预设没有高级折叠区(t *testing.T) {
 }
 
 func Test供应商面板_agy滚动后展开高级(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.agyAccounts = []accounts.Account{{ID: "acc-1", Email: "agy-user@example.com", Status: accounts.StatusActive}}
 	fake.agyDefaultAccountID = "acc-1"

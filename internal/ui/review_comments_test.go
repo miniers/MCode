@@ -12,6 +12,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+
+	"mcode/internal/testenv"
 )
 
 type reviewCommentUpload struct {
@@ -48,7 +50,7 @@ func (client *reviewCommentsClient) UploadAttachment(ctx context.Context, name, 
 
 func reviewCommentsSetup(t *testing.T) (*chatState, *reviewCommentsClient, *diffPanelState, reviewDiffKey, ReviewFileContent) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	client := &reviewCommentsClient{FakeClient: NewFakeClient(), uploads: make(chan reviewCommentUpload, 8)}
 	s := newChatState(client)
 	s.selectedThreadID = "t1"

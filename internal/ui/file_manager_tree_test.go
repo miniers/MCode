@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 type treeListCall struct {
@@ -127,7 +129,7 @@ func treeTestBase() *FakeClient {
 
 func openFileTreeForTest(t *testing.T, client Client) (*chatState, *ui.Tester) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s, root := buildRoot(client)
 	tt := ui.NewTester(root, 1400, 800)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })

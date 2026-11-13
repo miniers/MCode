@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // TestIsLongPastedText 覆盖行数与字数两条阈值的边界值。
@@ -131,7 +133,7 @@ func TestSnippetDraftLifecycle(t *testing.T) {
 
 // TestSendMessageIncludesSnippets 覆盖发送时卡片接在正文后面发出，成功后卡片清空。
 func TestSendMessageIncludesSnippets(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	s := newChatState(fake)
 	t.Cleanup(s.close)

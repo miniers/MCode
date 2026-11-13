@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"mcode/internal/git"
+	"mcode/internal/testenv"
 )
 
 // reclaimFixture 搭一个用真实 git 仓库与注入时钟的 Manager，副本一律建在 WorktreeDir 之下。
@@ -26,7 +27,7 @@ type reclaimFixture struct {
 
 func newReclaimFixture(t *testing.T) *reclaimFixture {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	clock := newTestClock()
 	runner, repoDir := initTestRepo(t)
 	wtRoot := t.TempDir()
@@ -521,7 +522,7 @@ func TestManager_ReclaimBeeCopies_ThrottledToOneRunPerMinute(t *testing.T) {
 
 // 审查模式下结果还没汇报给用户的 bee 不回收，汇报后才回收。
 func TestManager_ReclaimBeeCopies_ReviewModeWaitsForReport(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	clock := newTestClock()
 	runner, repoDir := initTestRepo(t)
 	wtRoot := t.TempDir()
@@ -574,7 +575,7 @@ func TestManager_ReclaimBeeCopies_ReviewModeWaitsForReport(t *testing.T) {
 
 // 审查模式下用户放弃合并后，bee 副本可以回收：目录与分支消失，MergeDiscarded 保留；尚未汇报的仍不回收。
 func TestManager_ReclaimBeeCopies_DiscardedReviewBee(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	clock := newTestClock()
 	runner, repoDir := initTestRepo(t)
 	wtRoot := t.TempDir()
@@ -666,7 +667,7 @@ func TestManager_ReclaimBeeCopies_DiscardedReviewBee(t *testing.T) {
 
 // 审查未通过的 bee 汇报后按放弃的规则回收副本，补丁仍可查 diff。
 func TestManager_ReclaimBeeCopies_RejectedReviewBee(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	clock := newTestClock()
 	runner, repoDir := initTestRepo(t)
 	wtRoot := t.TempDir()

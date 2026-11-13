@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 // codexRetryScript 生成假 app-server 脚本：前 failTimes 个进程按 mode 制造启动阶段失败，之后正常完成一轮。
@@ -83,7 +84,7 @@ while True:
 // retryRun 用给定脚本跑一轮，返回 Run 的错误与向上发出的事件。
 func retryRun(t *testing.T, script string, backoffs []time.Duration, retrySleep func(ctx context.Context, d time.Duration) error) (error, []harness.Event) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
 		return exec.CommandContext(ctx, "python3", "-u", "-c", script)

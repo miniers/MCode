@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"golang.org/x/text/unicode/norm"
+
+	"mcode/internal/testenv"
 )
 
 // runTestGit 在测试仓库中直接执行 git 命令（仅用于测试准备与断言）。
@@ -70,7 +72,7 @@ func readTestFile(t *testing.T, dir, name string) string {
 }
 
 func TestPreviewRestoreKeepsSecondEdits(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 
@@ -125,7 +127,7 @@ func TestPreviewRestoreKeepsSecondEdits(t *testing.T) {
 }
 
 func TestExecuteRevertRestoresUnmodifiedFiles(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 
@@ -165,7 +167,7 @@ func TestExecuteRevertRestoresUnmodifiedFiles(t *testing.T) {
 }
 
 func TestDeleteCheckpointsRemovesOnlyTargetThread(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 
@@ -199,7 +201,7 @@ func TestDeleteCheckpointsRemovesOnlyTargetThread(t *testing.T) {
 }
 
 func TestPreviewRestoreNormalizesNFDPaths(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 
@@ -250,7 +252,7 @@ func TestPreviewRestoreNormalizesNFDPaths(t *testing.T) {
 }
 
 func TestDeferredPatchExpansion(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 
@@ -340,7 +342,7 @@ func TestDeferredPatchExpansion(t *testing.T) {
 // RestoreFiles 按 ls-tree 给出的模式还原：可执行位保留、符号链接重建、子模块跳过；
 // ls-tree 本身出错时向上返回，而不是把路径当成「检查点中不存在」删掉工作区文件。
 func TestRestoreFilesKeepsFileTypes(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 

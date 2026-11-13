@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // TestModelBrandKey 验证按模型名/ID 判断品牌，未命中已知品牌时回退 Provider 图标键。
@@ -216,7 +218,7 @@ func capsuleTestProps(providers []ProviderInfo) ModelPickerProps {
 
 // TestModelCapsuleShortNames 验证胶囊显示主代理与子代理短名，不再出现品牌全名与 (auto) 后缀。
 func TestModelCapsuleShortNames(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	providers := capsuleTestProviders()
 
 	render := func(props ModelPickerProps) *ui.Tester {

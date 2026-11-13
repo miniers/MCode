@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 // pokeCall 记录一次催促投递。
@@ -112,7 +113,7 @@ func setupPokeWatchdog(t *testing.T, driver SessionDriver, autoRescue bool, nudg
 
 // TestWatchdogPokeSendsFollowUpOnce 验证超过 nudge 超时后只发送一次催促，且文案为 StuckPokeMessage。
 func TestWatchdogPokeSendsFollowUpOnce(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	currTime := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	driver := newPokeDriver()
@@ -169,7 +170,7 @@ func TestWatchdogPokeSendsFollowUpOnce(t *testing.T) {
 
 // TestWatchdogInterruptPutsTaskBackToTodo 验证超过 interrupt 超时且开启 AutoRescueStuck 时中断会话并把任务置回待办。
 func TestWatchdogInterruptPutsTaskBackToTodo(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	currTime := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	driver := newPokeDriver()
@@ -221,7 +222,7 @@ func TestWatchdogInterruptPutsTaskBackToTodo(t *testing.T) {
 
 // TestWatchdogResetsTaskWhenSessionNotFound 验证会话不存在（store.ErrNotFound）时任务被重置为待办。
 func TestWatchdogResetsTaskWhenSessionNotFound(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	currTime := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	driver := newPokeDriver()
@@ -257,7 +258,7 @@ func TestWatchdogResetsTaskWhenSessionNotFound(t *testing.T) {
 
 // TestWatchdogNudgeWithoutMessengerDriver 验证驱动仅实现 SessionDriver 时催促不 panic，文案为发送失败。
 func TestWatchdogNudgeWithoutMessengerDriver(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	currTime := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	driver := newMockDriver() // 仅实现 SessionDriver，不支持催促与中断
@@ -295,7 +296,7 @@ func TestWatchdogNudgeWithoutMessengerDriver(t *testing.T) {
 // TestWatchdogInterruptFailureKeepsTaskAndRetries 验证驱动不支持中断时保留任务与 ThreadID，
 // 下一轮巡视继续重试，且同一失败文案不重复写库。
 func TestWatchdogInterruptFailureKeepsTaskAndRetries(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	currTime := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	driver := newMockDriver() // 仅实现 SessionDriver，不支持中断

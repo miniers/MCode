@@ -8,11 +8,12 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
+	"mcode/internal/testenv"
 )
 
 // TestSettings_SkillToggle 测试技能启停开关的 UI 交互与持久化
 func TestSettings_SkillToggle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	origScanSkills := scanSkills
 	origScanMCP := scanMCP
 	defer func() {
@@ -62,7 +63,7 @@ func TestSettings_SkillToggle(t *testing.T) {
 }
 
 func TestSkills_SingleCard(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.agentConfLoaded = true
 	st.skills = []agentconf.Skill{
@@ -91,7 +92,7 @@ func TestSkills_SingleCard(t *testing.T) {
 }
 
 func TestSettingsPageSkills_Tree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 	st.agentConfLoaded = true
@@ -251,7 +252,7 @@ func TestSameSkillDistinguishesPlugin(t *testing.T) {
 // TestRenderSkillListShowsPluginBadge 覆盖：插件技能在列表里显示「插件 · <插件名>」标签，
 // 并把本页的停用影响提示渲染出来。
 func TestRenderSkillListShowsPluginBadge(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	origScanSkills := scanSkills
 	origScanMCP := scanMCP
 	defer func() {
@@ -290,7 +291,7 @@ func TestRenderSkillListShowsPluginBadge(t *testing.T) {
 // 即使两者的 Agent 标签都不是注入主力也不按 Agent 判定（M-301）。
 func TestRenderSkillListShowsInjectBadge(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	origScanSkills := scanSkills
 	origScanMCP := scanMCP
 	defer func() {
@@ -336,7 +337,7 @@ func TestRenderSkillListShowsInjectBadge(t *testing.T) {
 // TestSettingsPageSkills_SearchFiltersByTitle 覆盖顶部搜索框：按标题过滤、无匹配时给空态提示。
 // 搜索文本住在 SettingsState 上（见 getSkillsSearchText），所以直接改它也能驱动过滤。
 func TestSettingsPageSkills_SearchFiltersByTitle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.agentConfLoaded = true
 	st.skills = []agentconf.Skill{
@@ -372,7 +373,7 @@ func TestSettingsPageSkills_SearchFiltersByTitle(t *testing.T) {
 }
 
 func TestSkillsEmptyAndSheetClose(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.agentConfLoaded = true
 	sh := settingsSheet{ID: "skills-test", Title: "技能", Body: renderSkillsContent}

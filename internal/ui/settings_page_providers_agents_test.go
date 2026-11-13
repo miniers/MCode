@@ -13,6 +13,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/providers/agy/accounts"
+	"mcode/internal/testenv"
 )
 
 // 内置 mcode 只为已有 mcode 会话保留：名称还在，供应商列表与状态判定不再为它特判。
@@ -185,7 +186,7 @@ func openProvidersPageDataDirTest(t *testing.T, fake *FakeClient) (*ui.Tester, *
 
 // (a) orderedProviderIDs 已配置居前：例如 codex 可用、claude 不可用、agy 有账号 → 已配置组在前且组内保持原生顺序。
 func TestProviders_OrderedProviderIDsConfiguredFirst(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	st := &SettingsState{}
 	st.providerRows = providerRowsState{
@@ -245,7 +246,7 @@ func TestSettingsModels_MagpieSettingsLinkInModelsSection(t *testing.T) {
 
 // agy 面板包含账号列表与调度设置，不再需要独立设置页。
 func TestProviders_AgySettingsInExpandedRow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, p := range settingsPages() {
 		if p.id == "agy" {
 			t.Fatal("settingsPages() should not contain independent agy page")
@@ -269,7 +270,7 @@ func TestProviders_AgySettingsInExpandedRow(t *testing.T) {
 
 // (d) 多账号增删切换：FakeClient 预置两个 agy 账号，展开后点设为默认断言 AgySetDefault 被调用，删除确认后断言 AgyRemove 被调用，通过已有登录流程测试写法断言添加账号入口能触发登录调用。
 func TestProviders_MultiAccountSwitchDeleteAdd(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.agyAccounts = []accounts.Account{
@@ -323,7 +324,7 @@ func TestProviders_MultiAccountSwitchDeleteAdd(t *testing.T) {
 
 // (e) providerRowSubtitle 在版本有更新时包含 "有新版本"。
 func TestProviders_RowSubtitleUpdateAvailable(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	st := &SettingsState{}
 	st.providerRows.loaded = true
@@ -484,7 +485,7 @@ func TestProviders_ProviderStatusSummary(t *testing.T) {
 
 // (g) loadProviderRows 填充 CLI harness 的 settings/cliIDs/credits，忽略 Kind=="api" 的项，并为所有 Provider 请求余额。
 func TestProviders_CLIRowsLoadSettingsAndCredits(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -541,7 +542,7 @@ func TestProviders_CLIRowsLoadSettingsAndCredits(t *testing.T) {
 
 // 内置 mcode 不再作为供应商出现：即使后端仍以 Kind=cli 下发也要过滤掉。
 func TestProviders_McodeHiddenFromList(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -565,7 +566,7 @@ func TestProviders_McodeHiddenFromList(t *testing.T) {
 
 // Anthropic 是普通 API 行：只显示 API Key，保存后进入已配置状态。
 func TestProviders_AnthropicAPIKeyOnly(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -625,7 +626,7 @@ func TestProviders_AnthropicAPIKeyOnly(t *testing.T) {
 
 // (g2) 已启用的 API 预设也查余额，未启用的不查，重复 ID 只查一次。
 func TestProviders_APIPresetCredits(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.mu.Lock()
@@ -665,7 +666,7 @@ func TestProviders_APIPresetCredits(t *testing.T) {
 
 // (h) orderedProviderIDs 在原生 Provider 之后追加 CLI harness，并保持 ProviderSettings 返回顺序。
 func TestProviders_OrderedProviderIDsIncludeCLI(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	st := &SettingsState{}
 	st.providerRows = providerRowsState{
@@ -697,7 +698,7 @@ func TestProviders_OrderedProviderIDsIncludeCLI(t *testing.T) {
 
 // (j) 保存「可执行文件路径」后 SaveProviderSetting 收到带 Bin 的设置。
 func TestProviders_SaveBinSendsProviderSetting(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -742,7 +743,7 @@ func TestProviders_SaveBinSendsProviderSetting(t *testing.T) {
 
 // (k) 未登录的 copilot 展开区显示登录引导；Depleted 余额显示「余额不足」。
 func TestProviders_CopilotLoginGuidanceAndDepletedBalance(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -772,7 +773,7 @@ func TestProviders_CopilotLoginGuidanceAndDepletedBalance(t *testing.T) {
 
 // (l) 余额充足时显示金额，不显示「余额不足」。
 func TestProviders_BalancePanelShowsAmount(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -811,7 +812,7 @@ func TestProviders_ProviderAuthMapping(t *testing.T) {
 
 // (n) droid 展开区显示认证方式与 ACP 重启提示。
 func TestProviders_DroidAuthAndRestartNote(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -835,7 +836,7 @@ func TestProviders_DroidAuthAndRestartNote(t *testing.T) {
 
 // (f) 检查更新返回 ErrNotImplemented 时显示 "暂不支持检查更新"。
 func TestProviders_CheckUpdateNotImplemented(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.checkProviderUpdateErr = ErrNotImplemented
@@ -860,7 +861,7 @@ func TestProviders_CheckUpdateNotImplemented(t *testing.T) {
 
 // (o) provider-status-cache.json：落盘后可原样读回；文件缺失、损坏或版本不符时视为无效。
 func TestProviders_StatusCacheRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 
 	updateProviderStatusCache(dataDir, func(cache *providerStatusCache) {
@@ -1008,7 +1009,7 @@ func TestProviders_ApplyStatusCacheSwarmtesRows(t *testing.T) {
 
 // (q) 后台刷新完成后把结果写回 provider-status-cache.json，供下次打开页面立即渲染。
 func TestProviders_LoadWritesStatusCache(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -1087,7 +1088,7 @@ func TestProviders_CommandCodeDefaultBin(t *testing.T) {
 
 // (t) 展开 CLI harness 后版本信息行显示检测到的可执行文件路径。
 func TestProviders_VersionRowShowsDetectedPath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -1182,7 +1183,7 @@ func TestProviders_AgyNotInstalledSubtitle(t *testing.T) {
 
 // (v) 设置读取失败时保留上一次的缓存快照，避免把一次失败的加载固化下来。
 func TestProviders_FailedLoadKeepsStatusCache(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 
 	updateProviderStatusCache(dataDir, func(cache *providerStatusCache) {
@@ -1214,7 +1215,7 @@ func TestProviders_FailedLoadKeepsStatusCache(t *testing.T) {
 
 // (w) 供应商设置读取失败时在区块顶部提示，并保留上次的 CLI 行（不能整页变「未安装」或整块消失）。
 func TestProviders_SettingsLoadFailureShowsError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.mu.Lock()
@@ -1243,7 +1244,7 @@ func TestProviders_SettingsLoadFailureShowsError(t *testing.T) {
 // Codex 经 Magpie 时限额面板按卡片账号分组，套餐用卡片自带的，不拼本机登录套餐；
 // 本机登录账号单独标成「本机登录」。
 func TestProviders_CodexMagpieQuotaGroupsPerAccount(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	readAt := time.Now().Add(-2 * time.Minute)
 	fake := NewFakeClient()
@@ -1277,7 +1278,7 @@ func TestProviders_CodexMagpieQuotaGroupsPerAccount(t *testing.T) {
 
 // 直连 OpenAI 时限额面板沿用本机登录套餐（与 Magpie 卡片分组互不影响）。
 func TestProviders_CodexDirectQuotaUsesLocalPlan(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerAccountResult = ProviderAccountInfo{Provider: "codex", Email: "a@b.com", Plan: "Pro 20x"}
@@ -1304,7 +1305,7 @@ func TestProviders_QuotaRefreshFailureAndRecovery(t *testing.T) {
 		{id: "copilot"},
 	} {
 		t.Run(tc.id+"/"+tc.source, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			oldQuota := []ProviderQuotaWindow{{
 				ID: "primary", Label: "旧额度窗口", UsedPercent: 37,
 				Source: tc.source, Account: "quota@example.com", Plan: "Plus",
@@ -1368,7 +1369,7 @@ func TestProviders_QuotaRefreshFailureAndRecovery(t *testing.T) {
 func TestProviders_QuotaInitialFailureShowsError(t *testing.T) {
 	for _, id := range []string{"codex", "claude", "copilot"} {
 		t.Run(id, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			fake := NewFakeClient()
 			fake.providerSettings = []ProviderSetting{{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true}}
 			fake.providerQuotaErr = errors.New("额度服务暂时不可用")
@@ -1389,7 +1390,7 @@ func TestProviders_QuotaInitialFailureShowsError(t *testing.T) {
 func TestProviders_DirectQuotaReadAtStale(t *testing.T) {
 	for _, id := range []string{"codex", "claude", "copilot"} {
 		t.Run(id, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testenv.TempHome(t)
 			fake := NewFakeClient()
 			fake.providerSettings = []ProviderSetting{{ID: "copilot", Name: "GitHub Copilot", Kind: "cli", Enabled: true}}
 			fake.providerQuotaResult = []ProviderQuotaWindow{
@@ -1463,7 +1464,7 @@ func TestProviders_ProviderStatusSummaryClaudeLogin(t *testing.T) {
 
 // 登录态：providerStatusFor 从 providerRows.login 取状态，claude 行变、codex 行不变。
 func TestProviders_ClaudeLoginStateFromRows(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	st := &SettingsState{}
 	st.providerRows.loaded = true
@@ -1499,7 +1500,7 @@ func (c *loginStateClient) ProviderLoginState(ctx context.Context, provider stri
 
 // 登录态：可选接口实现后，后台刷新把 claude 登录态写进 providerRows.login。
 func TestProviders_LoadProviderRowsReadsLoginState(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	client := &loginStateClient{
 		FakeClient: NewFakeClient(),
@@ -1541,7 +1542,7 @@ func TestProviders_LoadProviderRowsReadsLoginState(t *testing.T) {
 
 // TestProviders_TrayQuotaSwitchToggle 覆盖：关闭某个供应商的菜单栏额度开关后，st.cfg.Startup.TrayQuotaHidden 包含该 id。
 func TestProviders_TrayQuotaSwitchToggle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	tt, st := openProvidersPageTest(t, fake)
@@ -1583,7 +1584,7 @@ func TestProviders_TrayQuotaSwitchToggle(t *testing.T) {
 
 // (j2) pi 表单里有「长缓存」开关与「视觉模型」输入框：改动后保存会带上新值。
 func TestProviders_PiTuningRowsSaveValues(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -1654,7 +1655,7 @@ func TestProviders_PiTuningRowsSaveValues(t *testing.T) {
 
 // (j3) 非 pi 的 Provider 表单里不出现 pi 专有设置。
 func TestProviders_PiTuningRowsOnlyForPi(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{
@@ -1674,7 +1675,7 @@ func TestProviders_PiTuningRowsOnlyForPi(t *testing.T) {
 
 // TestSettingsPageProviders_AgentMagpieSettingsLink 覆盖跳转入口和模型只读目录。
 func TestSettingsPageProviders_AgentMagpieSettingsLink(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.customEndpoints = []CustomEndpoint{{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true, HasAPIKey: true}}
 	fake.SetPiMagpieEndpoints([]PiMagpieEndpoint{{ID: "gw"}})
@@ -1724,7 +1725,7 @@ func TestSettingsPageProviders_AgentMagpieSettingsLink(t *testing.T) {
 
 // TestSettingsPageProviders_CodexMagpieSettingsRow 覆盖 Codex 的只读 Magpie 接入行。
 func TestSettingsPageProviders_CodexMagpieSettingsRow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetAgentMagpie(routeTestSetting("codex", agentMagpieModeOff))
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
@@ -1810,7 +1811,7 @@ func TestProviders_GroupProviderIDs(t *testing.T) {
 
 // 未安装的供应商也出现在统一列表里。
 func TestProviders_UninstalledGroupCollapsedByDefault(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{{ID: "pi", Name: "Pi", Kind: "cli"}, {ID: "copilot", Name: "GitHub Copilot", Kind: "cli"}}
 	fake.SetProviders([]ProviderInfo{{ID: "pi", Available: false}, {ID: "copilot", Available: false}})
@@ -1825,7 +1826,7 @@ func TestProviders_UninstalledGroupCollapsedByDefault(t *testing.T) {
 
 // Claude 面板的菜单栏额度开关位于账号节。
 func TestProviders_TrayQuotaSwitchLivesInAccountTab(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tt, st := openProvidersPageTest(t, NewFakeClient())
 	clickProviderDetailTabForTest(t, tt, "claude", "")
 	panel := ui.NewTester(func(c *ui.Context) { renderCLIProviderSheetSections(c, st, "claude", nil) }, 1000, 4000)
@@ -1908,7 +1909,7 @@ func TestSettingsItemProviderSheet(t *testing.T) {
 
 // Cline 供应商面板不显示 Magpie 设置行。
 func Test供应商面板_Cline不显示Magpie设置行(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.providerSettings = []ProviderSetting{{ID: "cline", Name: "Cline", Kind: "cli", Enabled: true}}
 	fake.SetAgentMagpie(AgentMagpieSetting{Agent: "cline", Mode: agentMagpieModeOff})
@@ -1922,7 +1923,7 @@ func Test供应商面板_Cline不显示Magpie设置行(t *testing.T) {
 
 // claude 的节定义顺序固定：账号 → 模型 → 命令行，命令行归入高级。
 func TestCLIProviderSheetSectionsOrder(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	lib := &modelsLibraryView{providers: []ProviderInfo{{ID: "claude", Models: []ModelInfo{{ID: "test-model", Name: "测试模型"}}}}}
 	defs := cliProviderSheetSections(st, "claude", lib)
@@ -1943,7 +1944,7 @@ func TestCLIProviderSheetSectionsOrder(t *testing.T) {
 
 // Magpie 网关已连接时，非 Magpie agent 的 CLI 供应商仍显示自己的模型目录，不套用 Magpie 勾选面板。
 func TestCLIProviderSheetSectionsNonMagpieAgentKeepsOwnModels(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.customEndpoints = []CustomEndpoint{{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true, HasAPIKey: true}}
 	fake.SetPiMagpieEndpoints([]PiMagpieEndpoint{{ID: "gw"}})

@@ -13,6 +13,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/projctx"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // guidanceTestBackend 构建一个绑定了 mock harness 与临时项目目录的后端。
@@ -44,7 +45,7 @@ func sendGuidanceMessage(t *testing.T, backend *MemoryBackend, threadID, text, a
 }
 
 func TestMemoryBackend_InjectsGuidanceOnFirstTurnOnly(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	project := t.TempDir()
 	ctxSvc, err := projctx.New(project)
 	if err != nil {
@@ -92,7 +93,7 @@ func TestMemoryBackend_InjectsGuidanceOnFirstTurnOnly(t *testing.T) {
 }
 
 func TestMemoryBackend_SlashCommandSkipsGuidance(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	project := t.TempDir()
 	ctxSvc, err := projctx.New(project)
 	if err != nil {
@@ -125,7 +126,7 @@ func TestMemoryBackend_SlashCommandSkipsGuidance(t *testing.T) {
 }
 
 func TestMemoryBackend_RetriesGuidanceAfterFailedTurn(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	project := t.TempDir()
 	ctxSvc, err := projctx.New(project)
 	if err != nil {
@@ -165,7 +166,7 @@ func TestMemoryBackend_RetriesGuidanceAfterFailedTurn(t *testing.T) {
 func TestDisabledSkillPathsSkipsDeactivatedSkill(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	skillDir := filepath.Join(home, ".agents", "skills", "foo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {

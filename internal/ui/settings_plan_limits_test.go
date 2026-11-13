@@ -3,10 +3,12 @@ package mcodeui
 import (
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 func TestFormatLimitReset(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	// 固定的 now: 2026-10-18 14:30:00 (周日)
 	now := time.Date(2026, 10, 18, 14, 30, 0, 0, time.Local)

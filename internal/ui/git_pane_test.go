@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
+	"mcode/internal/testenv"
 )
 
 type gitPaneFakeClient struct {
@@ -87,7 +88,7 @@ func (f *gitPaneFakeClient) GitRestoreSnapshot(context.Context, string, *git.Sna
 
 func gitPaneTestState(t *testing.T) (*chatState, *gitPaneState, *gitPaneFakeClient) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	client := &gitPaneFakeClient{FakeClient: NewFakeClient()}
 	s := newChatState(client)
 	s.mu.Lock()

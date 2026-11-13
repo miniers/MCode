@@ -4,10 +4,11 @@ import (
 	"testing"
 
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 func TestProviderWireToUICapabilities(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	effort := "medium"
 	src := wire.Provider{Models: []wire.ProviderModel{{
 		ID: "opus", Efforts: []string{"low", "medium", "high"},

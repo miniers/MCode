@@ -6,11 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 func setGitTestEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("GIT_AUTHOR_NAME", "test-user")
 	t.Setenv("GIT_AUTHOR_EMAIL", "test@localhost")
 	t.Setenv("GIT_COMMITTER_NAME", "test-user")

@@ -9,11 +9,13 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // 场景 1：recentDownloads 按修改时间降序排序。
 func TestRecentDownloads_Ordering(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	dir := filepath.Join(t.TempDir(), "Downloads")
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -49,7 +51,7 @@ func TestRecentDownloads_Ordering(t *testing.T) {
 
 // 场景 2：recentDownloads 跳过以 '.' 开头的隐藏文件与子目录。
 func TestRecentDownloads_HiddenFileAndDirSkip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	dir := filepath.Join(t.TempDir(), "Downloads")
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -75,7 +77,7 @@ func TestRecentDownloads_HiddenFileAndDirSkip(t *testing.T) {
 
 // 场景 3：recentDownloads 在有 20 个普通文件时正确截取最近 15 项。
 func TestRecentDownloads_Limit15OutOf20(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	dir := filepath.Join(t.TempDir(), "Downloads")
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -112,7 +114,7 @@ func TestRecentDownloads_Limit15OutOf20(t *testing.T) {
 // 场景 4：downloadsDir 返回基于 HOME 的 ~/Downloads。
 func TestDownloadsDir(t *testing.T) {
 	temp := t.TempDir()
-	t.Setenv("HOME", temp)
+	testenv.SetHome(t, temp)
 
 	expected := filepath.Join(temp, "Downloads")
 	if got := downloadsDir(); got != expected {
@@ -123,7 +125,7 @@ func TestDownloadsDir(t *testing.T) {
 // 场景 5：renderDownloadsPanel 空状态与底部操作测试。
 func TestRenderDownloadsPanel_Empty(t *testing.T) {
 	temp := t.TempDir()
-	t.Setenv("HOME", temp)
+	testenv.SetHome(t, temp)
 	clearDownloadsCache()
 
 	dir := filepath.Join(temp, "Downloads")
@@ -151,7 +153,7 @@ func TestRenderDownloadsPanel_Empty(t *testing.T) {
 }
 
 func TestComposerDownloadFlyout(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	clearDownloadsCache()
 	dir := downloadsDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -187,7 +189,7 @@ func TestComposerDownloadFlyout(t *testing.T) {
 // 场景 6：renderDownloadsPanel 点击条目添加附件并触发 onDone。
 func TestRenderDownloadsPanel_ClickItemAndFooter(t *testing.T) {
 	temp := t.TempDir()
-	t.Setenv("HOME", temp)
+	testenv.SetHome(t, temp)
 	clearDownloadsCache()
 
 	dir := filepath.Join(temp, "Downloads")
@@ -259,7 +261,7 @@ func TestRenderDownloadsPanel_ClickItemAndFooter(t *testing.T) {
 
 // 场景 7：recentDownloads 跳过未完成下载的临时文件（.crdownload/.download/.part）。
 func TestRecentDownloads_IncompleteDownloadSkip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	dir := filepath.Join(t.TempDir(), "Downloads")
 	if err := os.MkdirAll(dir, 0755); err != nil {

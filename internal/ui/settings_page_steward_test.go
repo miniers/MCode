@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 func clearStewardTestDefaults(st *SettingsState) {
@@ -315,7 +316,7 @@ func TestStewardSettings_MovedRows(t *testing.T) {
 }
 
 func TestSettingsSteward_PageOperations(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	if err := config.Update(st.dataDir, func(cfg *config.Config) error {
 		cfg.Orchestration.Steward.Enabled = false

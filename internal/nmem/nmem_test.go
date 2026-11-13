@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 const testKey = "nmem_testkey_1234567890"
@@ -86,7 +88,7 @@ func TestDefaultFallback(t *testing.T) {
 	t.Run("环境变量", func(t *testing.T) {
 		home := t.TempDir()
 		writeConfig(t, home, `{"apiUrl":"https://from-file.example","apiKey":"nmem_file"}`)
-		t.Setenv("HOME", home)
+		testenv.SetHome(t, home)
 		t.Setenv(envAPIURL, "https://from-env.example/")
 		t.Setenv(envAPIKey, "nmem_env")
 
@@ -106,7 +108,7 @@ func TestDefaultFallback(t *testing.T) {
 	t.Run("配置文件", func(t *testing.T) {
 		home := t.TempDir()
 		writeConfig(t, home, `{"apiUrl":"https://from-file.example/","apiKey":"nmem_file"}`)
-		t.Setenv("HOME", home)
+		testenv.SetHome(t, home)
 		t.Setenv(envAPIURL, "")
 		t.Setenv(envAPIKey, "")
 
@@ -124,7 +126,7 @@ func TestDefaultFallback(t *testing.T) {
 
 	// 有 key 但没写地址时回落到本机默认地址。
 	t.Run("缺少地址回落默认地址", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		testenv.TempHome(t)
 		t.Setenv(envAPIURL, "")
 		t.Setenv(envAPIKey, "nmem_env")
 
@@ -142,7 +144,7 @@ func TestDefaultFallback(t *testing.T) {
 
 	// 环境变量和配置文件都没有 key 时不创建客户端，也不发请求。
 	t.Run("缺少密钥不创建客户端", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		testenv.TempHome(t)
 		t.Setenv(envAPIURL, "")
 		t.Setenv(envAPIKey, "")
 
@@ -159,7 +161,7 @@ func TestDefaultFallback(t *testing.T) {
 	t.Run("配置文件无密钥", func(t *testing.T) {
 		home := t.TempDir()
 		writeConfig(t, home, `{"apiUrl":"https://from-file.example"}`)
-		t.Setenv("HOME", home)
+		testenv.SetHome(t, home)
 		t.Setenv(envAPIURL, "")
 		t.Setenv(envAPIKey, "")
 
@@ -176,7 +178,7 @@ func TestDefaultFallback(t *testing.T) {
 	t.Run("配置文件损坏", func(t *testing.T) {
 		home := t.TempDir()
 		writeConfig(t, home, `{not json`)
-		t.Setenv("HOME", home)
+		testenv.SetHome(t, home)
 		t.Setenv(envAPIURL, "")
 		t.Setenv(envAPIKey, "")
 

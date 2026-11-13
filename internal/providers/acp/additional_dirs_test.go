@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // TestResolveWorkDirPathWithAdditionalDirs 覆盖附加目录白名单：附加目录内的绝对路径放行且 rel
@@ -80,7 +82,7 @@ func TestResolveWorkDirPathWithAdditionalDirs(t *testing.T) {
 func TestReadOutsideAndProtectCredentials(t *testing.T) {
 	workDir := t.TempDir()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	file := filepath.Join(t.TempDir(), "file.txt")
 	if err := os.WriteFile(file, []byte("content"), 0644); err != nil {
 		t.Fatal(err)

@@ -9,11 +9,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // TestTurnsAndThreads_NewDB 验证全新数据库中 14 个新列、turns 表及其索引全部存在，user_version 正确。
 func TestTurnsAndThreads_NewDB(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "new_db.db")
 
@@ -78,7 +80,7 @@ func TestTurnsAndThreads_NewDB(t *testing.T) {
 
 // TestMigrationIdempotency_OldDB 模拟部分迁移的旧库，验证增量迁移幂等性。
 func TestMigrationIdempotency_OldDB(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "partial_old.db")
 
@@ -180,7 +182,7 @@ func TestMigrationIdempotency_OldDB(t *testing.T) {
 
 // TestThreadNewFieldsRoundTrip 验证 Thread 新字段在 CreateThread 后通过 GetThread/ListThreads 往返一致，SwarmMode 默认为 'inherited'。
 func TestThreadNewFieldsRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "thread_roundtrip.db")
 
@@ -287,7 +289,7 @@ func TestThreadNewFieldsRoundTrip(t *testing.T) {
 
 // TestTurnsCRUDAndRecent 验证 turns 的 CRUD、排序与 ListRecentTurns 懒加载。
 func TestTurnsCRUDAndRecent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "turns_crud.db")
 
@@ -418,7 +420,7 @@ func TestTurnsCRUDAndRecent(t *testing.T) {
 
 // TestTurnsCascadeDelete 验证级联删除：删除线程后 turns 记录自动清空。
 func TestTurnsCascadeDelete(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "turns_cascade.db")
 
@@ -551,7 +553,7 @@ func TestTurnUsageWindowCostRoundTrip(t *testing.T) {
 // TestTurnUsageWindowCostMigrationFromOldDB 模拟缺列的旧库：打开时迁移补上两列，
 // 历史行读回 0（与零值路径一致），补列后新写入的窗口上限与费用能正常读回。
 func TestTurnUsageWindowCostMigrationFromOldDB(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "usage_legacy.db")
 
@@ -665,7 +667,7 @@ func TestTurnUsageWindowCostMigrationFromOldDB(t *testing.T) {
 // newCrashRecoveryStore 建一个带项目和线程的临时库，供崩溃收尾测试共用。
 func newCrashRecoveryStore(t *testing.T) (*Store, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	s, err := Open(filepath.Join(t.TempDir(), "crash_recovery.db"))
 	if err != nil {

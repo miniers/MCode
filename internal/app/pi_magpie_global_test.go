@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // piProviderDoc 返回 pi 写入的 models.json 里某个 provider 的对象。
@@ -160,7 +161,7 @@ func TestPiGlobalPlanWritesAllEndpoints(t *testing.T) {
 	old := agentMagpieFetchTimeout
 	agentMagpieFetchTimeout = 50 * time.Millisecond
 	defer func() { agentMagpieFetchTimeout = old }()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
 
 	cfg := config.Defaults()

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // 本文件守护「切换模型时套用该模型默认推理强度」这一新行为：
@@ -15,7 +17,7 @@ import (
 func defaultEffortState(t *testing.T, threadEffort string, threadFast bool) (*FakeClient, *chatState) {
 	t.Helper()
 	// 记住最近一次模型选择会落盘，隔离到临时 HOME，避免污染真实配置。
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	project := Project{ID: "p1", Name: "mcode-test", Path: "/path/to/test"}
 	th := Thread{
@@ -166,7 +168,7 @@ func TestComposerDefaultEffortDropsDisallowedDefault(t *testing.T) {
 
 // 用例 4：待创建会话路径一致，占位会话强度与创建选项强度必须同时写成模型默认档，否则创建时下发会漂移。
 func TestComposerDefaultEffortPendingThreadSyncsOptions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	_, state := newPendingTestState(t)
 	state.createThread("p1")
 	m := ModelInfo{ID: "model-p", Name: "Model P", Efforts: []string{"low", "medium", "high"}, DefaultEffort: "medium"}

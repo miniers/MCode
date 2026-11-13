@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
 	"mcode/internal/magpieinject"
+	"mcode/internal/testenv"
 )
 
 func TestModelPickerKeepsMagpieModels(t *testing.T) {
@@ -234,7 +235,7 @@ func TestModelPickerSideEffort(t *testing.T) {
 
 // 测试卡片渲染：卡片说明行展示模型名，档位名以文字呈现。
 func TestRenderModelPickerCard_DefaultIdentityVisible(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(func() {
 		modelPickerStatesMu.Lock()
 		modelPickerStates = make(map[string]*ModelPickerState)
@@ -273,7 +274,7 @@ func TestRenderModelPickerCard_DefaultIdentityVisible(t *testing.T) {
 }
 
 func TestModelPickerFlyoutSelection(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	entry, capture := setupPopoverFlyoutTest(t)
 	providers := modelPickerTestProviders()
 	providers[0].Models[0].SupportsFast = true
@@ -321,7 +322,7 @@ func TestModelPickerFlyoutSelection(t *testing.T) {
 
 // 测试模型行：默认行显示实际解析出的模型名，不再带“默认”徽章。
 func TestRenderModelRow_DefaultIdentity(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	providers := modelPickerTestProviders()
 	props := ModelPickerProps{KeyPrefix: "t-row-"}
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -440,7 +441,7 @@ func TestModelPickerMenuBody_KeepsBeesTabUntilSwarmOn(t *testing.T) {
 // provider 前缀的裸 id。两种形状都要查到目录行，否则推理强度卡片会退化成
 // “该模型未提供可调的推理强度”，用户看不到滑杆。
 func TestModelPickerCard_PiSlashModelIDKeepsEfforts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(func() {
 		modelPickerStatesMu.Lock()
 		modelPickerStates = make(map[string]*ModelPickerState)
@@ -613,7 +614,7 @@ func TestModelPickerListPageSkipsMissingPinnedModel(t *testing.T) {
 
 // 二级列表默认只展示当前渠道的主模型，其余收进分组底部的“更多模型（N）”，点击后展开。
 func TestRenderModelListSecondaryModelsCollapsed(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(func() {
 		setModelPanelProviderMoreOpen("t-secondary", "lead", "cline", false)
 	})
@@ -715,7 +716,7 @@ func TestModelPanelProviderCollapsed(t *testing.T) {
 
 // TestModelCapsuleTwoLine 验证编组胶囊的双行布局：主代理在上、子代理在下，且不出现 · 分隔符。
 func TestModelCapsuleTwoLine(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	providers := capsuleTestProviders()
 
 	render := func(props ModelPickerProps) *ui.Tester {
@@ -775,7 +776,7 @@ func TestModelCapsuleTwoLine(t *testing.T) {
 // 可用但模型目录为空的供应商在选择器里给出原因和“重新探测”入口；
 // 没有原因文案的空目录仍不画分组，搜索态也不画说明块。
 func TestRenderModelList_ProviderCatalogNotice(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Cleanup(func() {
 		modelPickerStatesMu.Lock()
 		modelPickerStates = make(map[string]*ModelPickerState)

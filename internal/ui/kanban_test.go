@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // (a) TestKanbanWorkspace_Empty：SetKanbanBoard 设空看板，打开任务工作区，断言出现“还没有任务”。
@@ -1160,7 +1161,7 @@ func TestKanbanProjectListOptions(t *testing.T) {
 // 原先点「保存任务」的命中路径失效、按钮不在命中树里，交互验证改用状态层：
 // 弹窗内下拉与看板头部项目菜单各用各的开关，关闭弹窗 / 提交时只清理弹窗内下拉，不动头部菜单。
 func TestKanbanWorkspace_NewTaskPickerIndependent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetKanbanBoard(KanbanBoard{})
 	// 项目在挂载前注入，避免在 UI 线程之外写 fake.projects 与渲染并发读写切片。

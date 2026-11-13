@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 	mcodeui "mcode/internal/ui"
 )
 
 func TestClientModelAndSwarmConfigContract(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 	client := &Client{dataDir: dir}
@@ -66,7 +67,7 @@ func TestClientModelAndSwarmConfigContract(t *testing.T) {
 }
 
 func TestClientConfigReadsPropagateErrors(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
@@ -86,7 +87,7 @@ func TestClientConfigReadsPropagateErrors(t *testing.T) {
 }
 
 func TestClientUnimplementedContract(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	client := &Client{}
 	ctx := context.Background()
 	checks := map[string]func() error{

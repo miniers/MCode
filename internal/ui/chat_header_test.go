@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func TestChatHeaderRenameOnBlur(t *testing.T) {
@@ -548,7 +550,7 @@ func pushBusyOf(s *chatState) bool {
 
 // detectOpenInApps：访达始终第一项，其余按固定顺序只保留已安装的应用。
 func TestDetectOpenInApps(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	installed := map[string]bool{
 		"/Applications/Cursor.app":       true,
@@ -643,7 +645,7 @@ func TestOpenInWindows(t *testing.T) {
 
 // 打开方式菜单：点访达传目录，点应用传 -a 加应用路径，复制路径写入剪贴板并 toast。
 func TestChatHeaderOpenInMenu(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := newGitFakeClient()
 	_, root := buildRoot(fake)
@@ -716,7 +718,7 @@ func TestChatHeaderOpenInMenu(t *testing.T) {
 // 权限圆钮：Label 为「档位 · 说明」，菜单单行只显示勾选列、档位图标与标题；
 // 选「监督」后调用设置函数并持久化，圆钮 Label 随之更新。
 func TestChatHeaderPermissionSwitch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	s, root := buildRoot(fake)
@@ -784,7 +786,7 @@ func TestChatHeaderOmitsSessionTokenTotal(t *testing.T) {
 // loadHeaderScripts 把 fake 返回的脚本缓存在头部状态里，菜单会列出脚本：只有 package.json 脚本时
 // 仍是「添加脚本…」，有项目脚本时改为「编辑脚本…」并排在 package 脚本之前。
 func TestChatHeaderScriptsMenu(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := newGitFakeClient()
 	s, root := buildRoot(fake)
@@ -885,7 +887,7 @@ func TestChatHeaderScriptsMenu(t *testing.T) {
 // 项目动作组的分隔线只在两组都非空且相邻时出现：只有 Git 一组时不画线。
 // 规则本身集中在 headerRenderDividerBetween 的渲染计数里，这里直接校验计数逻辑。
 func TestChatHeaderActionGroupDivider(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	// 按 headerRenderDividerBetween 的规则计算：分隔线数 = 非空分组数 - 1，且只在相邻的两个非空组之间。
 	dividerCount := func(visible []bool) (order []string, divs int) {
@@ -946,7 +948,7 @@ func TestChatHeaderActionGroupDivider(t *testing.T) {
 
 // 非 Git 项目只隐藏 Git 相关控件：只要有工作目录，打开方式与执行命令按钮照常显示。
 func TestChatHeaderNonGitProjectKeepsOpenInAndScripts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetThreadWorkDir("/path/to/test")
 	_, root := buildRoot(fake)
@@ -981,7 +983,7 @@ func (f *delayedPushPRClient) TriggerAutoMerge(ctx context.Context, leadThreadID
 
 // Git 面板的「推送并创建 PR」先显示确认区，确认后用当前会话 ID 调 TriggerAutoMerge，执行中不重复调用。
 func TestChatHeaderManualPushPR(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	client := &delayedPushPRClient{
 		FakeClient: newGitFakeClient(),
@@ -1054,7 +1056,7 @@ func TestChatHeaderManualPushPR(t *testing.T) {
 
 // Swarm bee 会话里的手动推送用 swarmTargetLeadID 返回的 lead ID。
 func TestChatHeaderManualPushPRUsesSwarmLeadID(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := newGitFakeClient()
 	fake.SetSwarmState("t1", SwarmState{LeadThreadID: "t9", Available: true, Enabled: true})
@@ -1260,7 +1262,7 @@ func scriptsOf(s *chatState, threadID string) []Script {
 
 // 验证非 Git 项目下 Bee 线程与 Lead 线程正确渲染提示胶囊，Git 项目不渲染。
 func TestChatHeaderNonGitSwarmCapsule(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	t.Run("BeeSharedNoGit", func(t *testing.T) {
 		fake := NewFakeClient()
@@ -1388,7 +1390,7 @@ func TestHeaderCollapseLevelBoundary(t *testing.T) {
 // TestChatHeaderLeftClusterOrder 验证头部左右布局：编排、权限、分支胶囊依次排在标题左侧，
 // 右侧是两个胶囊组（动作组、辅助面板组）。
 func TestChatHeaderLeftClusterOrder(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubTerminals(t)
 	fake := newGitFakeClient()
 	s, root := buildRoot(fake)

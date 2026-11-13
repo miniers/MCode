@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 type fakeCodexDeliveryAcker struct {
@@ -37,7 +38,7 @@ type nopWriteCloser struct {
 func (nopWriteCloser) Close() error { return nil }
 
 func TestCodexDeliveryAck_Success(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	acker := &fakeCodexDeliveryAcker{decision: harness.DecisionAllow}
 	handler := NewProtocolHandler(harness.Turn{
@@ -80,7 +81,7 @@ func TestCodexDeliveryAck_Success(t *testing.T) {
 }
 
 func TestCodexDeliveryAck_PipeFailure(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	acker := &fakeCodexDeliveryAcker{decision: harness.DecisionAllow}
 	handler := NewProtocolHandler(harness.Turn{
@@ -123,7 +124,7 @@ func TestCodexDeliveryAck_PipeFailure(t *testing.T) {
 }
 
 func TestCodexDeliveryAck_ApproveError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	approveErr := errors.New("approver context timeout")
 	acker := &fakeCodexDeliveryAcker{
@@ -161,7 +162,7 @@ func TestCodexDeliveryAck_ApproveError(t *testing.T) {
 }
 
 func TestCodexHarness_ConfirmsApprovalDelivery(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	h := New(Options{})
 	if !h.ConfirmsApprovalDelivery() {
 		t.Fatal("expected ConfirmsApprovalDelivery to return true")

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 type routeTestClient struct {
@@ -364,7 +366,7 @@ func TestSettings_AgentMagpie_PiGlobalRoute(t *testing.T) {
 
 // TestSettings_AgentMagpie_ToggleFailureReloads 覆盖：勾选保存失败后回滚勾选并重读设置。
 func TestSettings_AgentMagpie_ToggleFailureReloads(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.setAgentMagpieModelsErr = errors.New("保存失败")
 	tt, _ := agentMagpieClaudeTester(t, fake, agentMagpieTestSetting())
@@ -479,7 +481,7 @@ func TestSettings_AgentMagpie_UnifiedModelList(t *testing.T) {
 // TestSettings_AgentMagpie_GlobalModeHidesOwnGroup 覆盖：写全局配置且有端点时，
 // claude 自身配置组只是全局配置的回显，不再渲染；运行时注入时仍保留自身配置组。
 func TestSettings_AgentMagpie_GlobalModeHidesOwnGroup(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	t.Run("global", func(t *testing.T) {
 		fake := NewFakeClient()
@@ -510,7 +512,7 @@ func TestSettings_AgentMagpie_GlobalModeHidesOwnGroup(t *testing.T) {
 // TestSettings_AgentMagpie_ToggleModel 覆盖：在「添加模型」浮层里勾选模型后，
 // FakeClient 收到该端点的完整已选列表，且浮层保持打开。
 func TestSettings_AgentMagpie_ToggleModel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	tt, _ := agentMagpieClaudeTester(t, fake, agentMagpieTestSetting())
 
@@ -788,7 +790,7 @@ func TestAgentMagpieEffectiveDefault(t *testing.T) {
 
 // TestSettings_AgentMagpie_下拉框选择默认模型 覆盖：选择模型后保存默认并显示标签。
 func TestSettings_AgentMagpie_下拉框选择默认模型(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	setting := agentMagpieTestSetting()
 	setting.Endpoints[1].Selected = []string{"auto/opus"}
@@ -813,7 +815,7 @@ func TestSettings_AgentMagpie_下拉框选择默认模型(t *testing.T) {
 
 // TestSettings_AgentMagpie_下拉框恢复自动 覆盖：选择自动清空手设默认。
 func TestSettings_AgentMagpie_下拉框恢复自动(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	setting := agentMagpieTestSetting()
 	setting.Endpoints[1].Selected = []string{"auto/opus"}
@@ -837,7 +839,7 @@ func TestSettings_AgentMagpie_下拉框恢复自动(t *testing.T) {
 // TestSettings_AgentMagpie_InjectDefaultLine 覆盖：运行时注入且没手设默认模型时，
 // 显示「使用 claude 自己的默认」，页面上不再出现旧的「默认」徽标。
 func TestSettings_AgentMagpie_InjectDefaultLine(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	setting := agentMagpieTestSetting()
 	setting.Endpoints[1].Selected = []string{"auto/opus"}
@@ -856,7 +858,7 @@ func TestSettings_AgentMagpie_InjectDefaultLine(t *testing.T) {
 
 // TestSettings_AgentMagpie_GlobalAutoDefaultLine 覆盖：写全局配置时下拉框显示自动选出的模型。
 func TestSettings_AgentMagpie_GlobalAutoDefaultLine(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	setting := agentMagpieTestSetting()
 	setting.Mode = "global"

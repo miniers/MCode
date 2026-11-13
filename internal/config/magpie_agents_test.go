@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // magpieAgentsTestConfig 构造一份带一个 Magpie 端点的配置，端点模型按参数给。
@@ -272,7 +274,7 @@ func TestMagpieAgentsJSONOmitsEmpty(t *testing.T) {
 
 // 旧配置写完再读回来：magpieAgents 与 piModels 都还在，且两边一致。
 func TestMagpieAgentsSaveLoadKeepsPiModels(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := t.TempDir()
 
 	cfg := Normalize(magpieAgentsTestConfig("jp", []string{"cline/gpt-x", "acme/a"}))
@@ -325,7 +327,7 @@ func TestSetMagpieAgentDefault(t *testing.T) {
 
 // 默认模型的 JSON 字段名是 defaultEndpointID / defaultModel，保存再读取后不变。
 func TestMagpieAgentDefaultSaveLoad(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := t.TempDir()
 
 	cfg := Normalize(magpieAgentsTestConfig("jp", []string{"a"}))
@@ -398,7 +400,7 @@ func TestSetMagpieAgentNewSelectionDefaultsOff(t *testing.T) {
 }
 
 func TestPiLastSelectionDoesNotReturnAfterLoad(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := t.TempDir()
 	cfg := Normalize(magpieAgentsTestConfig("jp", []string{"model"}))
 	SetMagpieAgentModels(&cfg, ProviderPi, "jp", nil)

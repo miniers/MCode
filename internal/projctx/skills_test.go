@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 func writeSkill(t *testing.T, dir, folder, content string) {
@@ -119,7 +121,7 @@ func TestParseSkillFrontmatterMultiline(t *testing.T) {
 func TestBuildSkillsGuidance_NoSkills(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	if guidance := BuildSkillsGuidance(project, home); guidance != "" {
 		t.Fatalf("expected empty guidance without skills, got %q", guidance)
@@ -129,7 +131,7 @@ func TestBuildSkillsGuidance_NoSkills(t *testing.T) {
 func TestBuildSkillsGuidance_GlobalAndProjectOverride(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	globalDir := filepath.Join(home, ".agents", "skills")
 	writeSkill(t, globalDir, "alpha", "---\nname: alpha\ndescription: 全局 alpha\n---\n正文")
@@ -165,7 +167,7 @@ func TestBuildSkillsGuidance_GlobalAndProjectOverride(t *testing.T) {
 func TestBuildSkillsGuidanceExcluding_DropsProjectSkillWithoutGlobalFallback(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	globalDir := filepath.Join(home, ".agents", "skills")
 	writeSkill(t, globalDir, "alpha", "---\nname: alpha\ndescription: 全局 alpha\n---\n正文")
@@ -202,7 +204,7 @@ func TestBuildSkillsGuidanceExcluding_DropsProjectSkillWithoutGlobalFallback(t *
 func TestBuildSkillsGuidanceExcluding_NilMatchesDefault(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	writeSkill(t, filepath.Join(home, ".agents", "skills"), "gamma", "---\nname: gamma\ndescription: 全局 gamma\n---\n正文")
 	writeSkill(t, filepath.Join(project, "skills"), "delta", "---\nname: delta\ndescription: 项目 delta\n---\n正文")
@@ -221,7 +223,7 @@ func TestBuildSkillsGuidanceExcluding_NilMatchesDefault(t *testing.T) {
 func TestDiscoverSkillsIncludesPiRoots(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	globalDir := filepath.Join(home, ".pi", "agent", "skills")
 	writeSkill(t, globalDir, "pi-global", "---\nname: pi-global\ndescription: pi 全局技能\n---\n正文")
@@ -253,7 +255,7 @@ func TestDiscoverSkillsIncludesPiRoots(t *testing.T) {
 func TestDiscoverSkills_FallsBackToFolderName(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	globalDir := filepath.Join(home, ".agents", "skills")
 	writeSkill(t, globalDir, "fallback", "没有 frontmatter 的技能")
@@ -272,7 +274,7 @@ func TestDiscoverSkills_FallsBackToFolderName(t *testing.T) {
 func TestDiscoverSkillsIgnoresSymlinkedSkillFile(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	outside := filepath.Join(t.TempDir(), "secret.md")
 	if err := os.WriteFile(outside, []byte("-----BEGIN PRIVATE KEY-----"), 0o600); err != nil {

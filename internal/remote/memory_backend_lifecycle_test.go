@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // 1. 临时线程发消息或调用 RetainThread 后转为正式线程，定时器不会删除它
 func TestLifecycle_ProvisionalThread_Retained(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{})
 	defer hub.Close()
@@ -91,7 +92,7 @@ func TestLifecycle_ProvisionalThread_Retained(t *testing.T) {
 
 // 2. 空的临时线程在 ScheduleProvisionalCleanup 后被删除（把延迟设为 10ms，轮询等待）
 func TestLifecycle_ProvisionalThread_CleanupEmpty(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{})
 	defer hub.Close()
@@ -133,7 +134,7 @@ func TestLifecycle_ProvisionalThread_CleanupEmpty(t *testing.T) {
 
 // 3. 已休眠线程收到 SendMessage 后取消休眠
 func TestLifecycle_DormantThread_UndormantOnSendMessage(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{})
 	defer hub.Close()
@@ -188,7 +189,7 @@ func TestLifecycle_DormantThread_UndormantOnSendMessage(t *testing.T) {
 
 // 4. 归档父线程时子线程级联归档，并清除置顶和休眠
 func TestLifecycle_ArchiveParent_CascadesFamily(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{})
 	defer hub.Close()
@@ -269,7 +270,7 @@ func TestLifecycle_ArchiveParent_CascadesFamily(t *testing.T) {
 
 // 5. 删除父线程时级联删除子线程，hook 对每个线程都被调用一次
 func TestLifecycle_DeleteParent_CascadesFamilyAndHooks(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{})
 	defer hub.Close()

@@ -11,6 +11,7 @@ import (
 	"mcode/internal/providers/claude"
 	"mcode/internal/providers/codex"
 	"mcode/internal/providers/magpie"
+	"mcode/internal/testenv"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -18,7 +19,7 @@ import (
 // 避免读到开发机上的 settings.json 或登录凭据。
 func setClaudeGatewayEnv(t *testing.T, base, token string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("ANTHROPIC_BASE_URL", base)
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", token)

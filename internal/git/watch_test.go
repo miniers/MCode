@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // TestPollWatcherGeneration 验证轮询监听器：未改动时代次不变，改文件后递增，.git 内的变化不计入。
 func TestPollWatcherGeneration(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	root := t.TempDir()
 
@@ -94,7 +96,7 @@ func TestPollWatcherGeneration(t *testing.T) {
 
 // TestCheckpointWatchedReusesTree 验证监听命中时复用 tree、未命中时重新快照。
 func TestCheckpointWatchedReusesTree(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -172,7 +174,7 @@ func (errWatcher) Close() error { return nil }
 
 // TestCheckpointWatchedFallsBackWithoutWatcher 验证监听缺失或失败时仍能完成快照。
 func TestCheckpointWatchedFallsBackWithoutWatcher(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -201,7 +203,7 @@ func TestCheckpointWatchedFallsBackWithoutWatcher(t *testing.T) {
 
 // TestNewWatcherMissingRootFallsBack 验证不存在的路径会退回轮询实现且不 panic。
 func TestNewWatcherMissingRootFallsBack(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	root := filepath.Join(t.TempDir(), "missing")
 
 	w := NewWatcher(root)

@@ -6,12 +6,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // /export 接线测试：runLocalSlashCommand 必须清空草稿并调用 exportThread，
 // 在注入的保存对话框配合下把会话历史写成 Markdown 文件。
 func TestRunLocalSlashCommand_ExportWritesMarkdown(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	s := newChatState(fake)

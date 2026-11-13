@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 func TestMagpieRouteFor(t *testing.T) {
@@ -86,7 +87,7 @@ func (s *magpieCaptureSandbox) Command(ctx context.Context, workDir string, mode
 }
 
 func TestMagpieProcessRoutingAndResume(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "requests.jsonl")
 	sandbox := &magpieCaptureSandbox{script: codexRetryScript("", 0, filepath.Join(dir, "count"), logPath)}

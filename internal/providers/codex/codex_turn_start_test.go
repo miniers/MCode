@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 func TestBuildTurnInput(t *testing.T) {
@@ -316,7 +317,7 @@ func firstTurnStart(t *testing.T, logPath string) turnStartLogRequest {
 }
 
 func TestRunSendsLocalImages(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")
 	script := withRequestLog(codexTurnLogScript, logPath)
 
@@ -365,7 +366,7 @@ func TestRunSendsLocalImages(t *testing.T) {
 }
 
 func TestRunSendsPlanCollaborationMode(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")
 	script := withRequestLog(codexTurnLogScript, logPath)
 

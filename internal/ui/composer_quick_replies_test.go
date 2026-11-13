@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // configQuickReplyStub 模拟任务 4 将要加到 config.Config 里的 QuickReplies 元素结构。
@@ -37,7 +39,7 @@ func TestDecodeQuickReplies(t *testing.T) {
 // TestQuickReplies_ClickFillsDraftWithoutSending 验证点击快捷回复只把正文填进草稿、不发请求，
 // 且填入后这一行因为草稿不为空而消失。
 func TestQuickReplies_ClickFillsDraftWithoutSending(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	prev := quickReplyItemsFor
 	quickReplyItemsFor = func(*chatState) []quickReplyItem {
 		return []quickReplyItem{{Label: "快捷一", Message: "继续按计划推进"}}
@@ -75,7 +77,7 @@ func TestQuickReplies_ClickFillsDraftWithoutSending(t *testing.T) {
 
 // TestQuickRepliesVisibleRules 验证显示条件：无历史消息、运行中、草稿非空都不显示。
 func TestQuickRepliesVisibleRules(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	state := newChatState(fake)
 	t.Cleanup(state.close)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 func TestAPIProviderListEntries_ExcludesGateways(t *testing.T) {
@@ -567,7 +568,7 @@ func setModelSettingEnabled(st *SettingsState, provider string, enabled bool) {
 // TestSettingsProviders_DisabledProviderHidesPinnedModels 覆盖：关闭的供应商在「模型」页隐藏，
 // 「我的模型」的持久化数据仍保留；重新启用后条目重新出现。
 func TestSettingsProviders_DisabledProviderHidesPinnedModels(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	fake := NewFakeClient()
 	pins := []ModelPin{
 		{Provider: "claude", ModelID: "sonnet"},

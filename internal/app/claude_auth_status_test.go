@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"mcode/internal/providers/claude"
+	"mcode/internal/testenv"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -106,7 +107,7 @@ func TestClaudeLoginStateSettingsAPIKey(t *testing.T) {
 
 // TestProviderLoginStateOnlyClaude 验证可选接口只对 claude 起检测，其他 Provider 返回空串。
 func TestProviderLoginStateOnlyClaude(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubProviderBinaryFinder(t)
 
 	probes := 0

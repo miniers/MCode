@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 type inspectorUploadRequest struct {
@@ -36,7 +38,7 @@ func (f *inspectorContextClient) UploadAttachment(ctx context.Context, name, mim
 
 func inspectorContextSetup(t *testing.T) (*chatState, *inspectorContextClient) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	client := &inspectorContextClient{FakeClient: treeTestBase(), requests: make(chan inspectorUploadRequest, 64)}
 	s := newChatState(client)
 	s.selectedThreadID = "t1"

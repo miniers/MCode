@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 func TestReadOnlyDirs(t *testing.T) {
@@ -58,7 +60,7 @@ func TestReadOnlyDirs(t *testing.T) {
 
 func TestResolveExpandsTilde(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	workDir := t.TempDir()
 	put(t, filepath.Join(home, "file.txt"), "home content\n")
 	env := Env{WorkDir: workDir, ReadOnlyDirs: []string{home}}
@@ -89,7 +91,7 @@ func TestResolveExpandsTilde(t *testing.T) {
 
 func TestCredentialPaths(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	workDir := t.TempDir()
 	secret := filepath.Join(home, ".ssh", "id_test")
 	media := filepath.Join(home, ".mcode", "media", "a.txt")
@@ -143,7 +145,7 @@ func TestEditOutsideWorkDirDenied(t *testing.T) {
 
 func TestSecretPathResolvesProtectedSymlink(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	actual := t.TempDir()
 	if err := os.Symlink(actual, filepath.Join(home, ".ssh")); err != nil {
 		t.Fatal(err)
@@ -160,7 +162,7 @@ func TestSecretPathCacheChangesWithHome(t *testing.T) {
 	var previous string
 	for i := 0; i < 2; i++ {
 		home := t.TempDir()
-		t.Setenv("HOME", home)
+		testenv.SetHome(t, home)
 		key := filepath.Join(home, ".ssh", "key")
 		if err := os.MkdirAll(filepath.Dir(key), 0755); err != nil {
 			t.Fatal(err)

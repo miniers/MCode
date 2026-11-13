@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // 精简目录的固定格式：标题、第二行，每个技能一行且含名称与 path。
@@ -40,7 +42,7 @@ func TestBuildSkillsIndexExcluding_Format(t *testing.T) {
 func TestBuildSkillsIndexExcluding_TruncatesLongDescription(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	long := strings.Repeat("长", 150)
 	writeSkill(t, filepath.Join(home, ".agents", "skills"), "long", "---\nname: long\ndescription: "+long+"\n---\n正文")
@@ -58,7 +60,7 @@ func TestBuildSkillsIndexExcluding_TruncatesLongDescription(t *testing.T) {
 func TestBuildSkillsIndexWithLimitExcluding_LeadLimit(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	long := strings.Repeat("长", 250)
 	writeSkill(t, filepath.Join(home, ".agents", "skills"), "long", "---\nname: long\ndescription: "+long+"\n---\n正文")
@@ -76,7 +78,7 @@ func TestBuildSkillsIndexWithLimitExcluding_LeadLimit(t *testing.T) {
 func TestBuildSkillsIndexExcluding_CollapsesWhitespace(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	writeSkill(t, filepath.Join(home, ".agents", "skills"), "wrapped",
 		"---\nname: wrapped\ndescription: 第一行  第二行\t第三行\n---\n正文")
@@ -110,7 +112,7 @@ func TestBuildSkillsIndexExcluding_FiltersExcluded(t *testing.T) {
 func TestBuildSkillsIndexExcluding_NoSkillsReturnsEmpty(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	if got := BuildSkillsIndexExcluding(project, home, nil); got != "" {
 		t.Fatalf("没有技能时应返回空串，实际 %q", got)
@@ -121,7 +123,7 @@ func TestBuildSkillsIndexExcluding_NoSkillsReturnsEmpty(t *testing.T) {
 func TestBuildSkillsIndexExcluding_ShorterThanGuidance(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	root := filepath.Join(home, ".agents", "skills")
 	description := strings.Repeat("很长的技能描述", 40)
@@ -147,7 +149,7 @@ func TestBuildSkillsIndexExcluding_ShorterThanGuidance(t *testing.T) {
 func TestBuildSkillsIndexExcluding_AppliesClaudeSkillOverrides(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 
 	for _, name := range []string{"keep", "hidden", "disabled", "brief"} {
 		writeSkill(t, filepath.Join(home, ".agents", "skills"), name, "---\nname: "+name+"\ndescription: 描述 "+name+"\n---\n正文")

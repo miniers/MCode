@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 func TestSandboxedReadOnly(t *testing.T) {
@@ -92,7 +93,7 @@ func TestIsLookOnlyNamedTools(t *testing.T) {
 func TestCheck(t *testing.T) {
 	work := t.TempDir()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	gateFile := filepath.Join(t.TempDir(), "gate.json")
 	type testCase struct {
 		name               string
@@ -207,7 +208,7 @@ func TestCheck(t *testing.T) {
 // TestWorkDirInsideControlPlane 覆盖子代理副本位于 ~/.mcode 内时的控制面判断。
 func TestWorkDirInsideControlPlane(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	proj := filepath.Join(home, ".mcode", "wt", "proj")
 	if err := os.MkdirAll(proj, 0o755); err != nil {
 		t.Fatal(err)
@@ -243,7 +244,7 @@ func TestWorkDirInsideControlPlane(t *testing.T) {
 }
 
 func TestSensitiveFor(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	// Claude 风格的 read 请求使用 file_path 键，且不带 Sensitive 标记。
 	got := SensitiveFor(harness.RequestKindTool, "Read", json.RawMessage(`{"file_path":"~/.ssh/id_rsa"}`), "", "")
 	if got != "credential" {
@@ -413,7 +414,7 @@ func TestSession(t *testing.T) {
 }
 
 func TestReadOnlyGate(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	work := t.TempDir()
 	for _, tc := range []struct {
 		name string
@@ -471,7 +472,7 @@ func TestReadOnlyRejectsRememberedWrite(t *testing.T) {
 // TestCheckApplyPatch 覆盖 apply_patch 的多文件敏感判断与模式放行。
 func TestCheckApplyPatch(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	work := t.TempDir()
 	run := func(mode harness.PermissionMode, plan bool, input string) Verdict {
 		raw, _ := json.Marshal(map[string]any{"input": input})

@@ -5,12 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // newAskDeliveryTestStore 建一个带项目和线程的临时库，供 pending_asks 与 thread_deliveries 测试共用。
 func newAskDeliveryTestStore(t *testing.T) (*Store, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	s, err := Open(filepath.Join(t.TempDir(), "asks_deliveries.db"))
 	if err != nil {
@@ -55,7 +57,7 @@ func countRows(t *testing.T, s *Store, table string) int {
 // TestPendingAskAndDeliveryMigrationsIdempotent 重复 Open 同一个库不应重复建表或报错，
 // 两个迁移都应落在迁移数组末尾并推进 user_version。
 func TestPendingAskAndDeliveryMigrationsIdempotent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	path := filepath.Join(t.TempDir(), "migrations.db")
 	for attempt := 0; attempt < 3; attempt++ {
 		s, err := Open(path)

@@ -15,6 +15,7 @@ import (
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 func TestApprovals_AllowAndChangedNotification(t *testing.T) {
@@ -1337,7 +1338,7 @@ func TestFileApprovalShowsPathAndChanges(t *testing.T) {
 }
 
 func TestInferRequestKind_CommitAndPermissions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	commitTools := []string{"commit", "git_commit", "gitCommit", "push", "git_push", "gitPush"}
 	for _, tool := range commitTools {
@@ -1355,7 +1356,7 @@ func TestInferRequestKind_CommitAndPermissions(t *testing.T) {
 }
 
 func TestRequestOptions_CommitExcludesAllowAlways(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	opts := requestOptions(harness.RequestKindCommit, harness.ApprovalRequest{})
 	for _, opt := range opts {
@@ -1381,7 +1382,7 @@ func TestRequestOptions_CommitExcludesAllowAlways(t *testing.T) {
 }
 
 func TestInteract_QuestionApproval_AnswersRoundtrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	threadID := "00000000-0000-0000-0000-000000000099"
 	turnID := "00000000-0000-0000-0000-000000000909"
@@ -1808,7 +1809,7 @@ func TestApprovals_HelperThreadAutoApprovesUnattended(t *testing.T) {
 // TestApprovals_ChildThreadSensitiveFallback 覆盖未填 Sensitive 的子会话请求：
 // 只有 parentThreadID、isHelper=false 时也按输入补算，凭证读取自动拒绝，普通只读命令放行。
 func TestApprovals_ChildThreadSensitiveFallback(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
 	defer hub.Close()
 	backend := NewMemoryBackend(hub)

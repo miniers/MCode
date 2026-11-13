@@ -13,6 +13,7 @@ import (
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -21,7 +22,7 @@ import (
 // internal/remote/memory_backend_revert_test.go 的 newRevertTestEnv）。
 func newClientRevertEnv(t *testing.T) (*Client, *store.Store, *git.Runner, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	gitBin, err := exec.LookPath("git")
 	if err != nil {
@@ -179,7 +180,7 @@ func TestClient_PreviewAndExecuteRevert(t *testing.T) {
 
 // TestClient_RevertWithoutBackend 验证 backend 缺失时返回普通错误，而不是 ErrNotImplemented。
 func TestClient_RevertWithoutBackend(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	client := &Client{}
 	ctx := context.Background()
 

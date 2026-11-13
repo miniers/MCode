@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // claude 模型目录为空（CLI 不可用）时 ListProviders 仍下发 available=true，
@@ -14,7 +15,7 @@ import (
 func TestListProviders_CatalogNoticeAsUnavailableReason(t *testing.T) {
 	// 隔离环境，避免真跑 CLI 或读到本机缓存里的目录。
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 
 	hub := NewStreamHub(StreamHubOptions{})
 	defer hub.Close()

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 func hasExactQuotaText(tt *ui.Tester, want string) bool {
@@ -37,7 +39,7 @@ func TestComposerChinTier(t *testing.T) {
 // TestComposerChinTierForEmbedded 验证浮动面板里的子代理输入框放宽一档：
 // 同一宽度下比主输入框少收一档，主干档位逻辑本身不变。
 func TestComposerChinTierForEmbedded(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	plain := &chatState{}
@@ -81,7 +83,7 @@ func TestComposerChinTierForEmbedded(t *testing.T) {
 }
 
 func TestComposerChinQuotaReadouts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	th := &Thread{ID: "t1", Provider: "agy"}

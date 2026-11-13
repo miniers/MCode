@@ -11,12 +11,14 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // setGatewayEnv 配置网关所需的环境变量，并隔离真实的 HOME 与 Claude 配置目录。
 func setGatewayEnv(t *testing.T, base, token string) {
 	t.Helper()
-	setTestHome(t, t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("ANTHROPIC_BASE_URL", base)
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", token)
@@ -303,7 +305,7 @@ func TestReadGatewayPlanLimits_SettingsEnvironment(t *testing.T) {
 	useGatewayTestServer(t, srv)
 
 	dir := t.TempDir()
-	setTestHome(t, t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")

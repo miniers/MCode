@@ -5,6 +5,8 @@ import (
 	"go/parser"
 	"go/token"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // parseUIFile 解析 internal/ui 下的源文件，供样式断言逐个节点检查。
@@ -61,7 +63,7 @@ func TestUsagePanelHasNoHardcodedBlackShadow(t *testing.T) {
 
 // 额度浮层已迁到 PopoverCard：打开后标题与列表可见，点面板外部即关闭并清空打开状态。
 func TestComposerQuotaPopoverOpensAndClosesOnOutsideClick(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	th := &Thread{ID: "t1", Provider: "pi:magpie-jp"}

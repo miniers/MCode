@@ -6,12 +6,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // newFollowUpTestStore 建一个带项目和线程的临时库，供队列审计测试共用。
 func newFollowUpTestStore(t *testing.T) (*Store, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	s, err := Open(filepath.Join(t.TempDir(), "follow_up_events.db"))
 	if err != nil {

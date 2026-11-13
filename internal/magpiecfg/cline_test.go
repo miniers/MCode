@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"mcode/internal/testenv"
 )
 
 // clineFileField 返回 cline 计划里某个文件、某个字段的值。
@@ -160,7 +162,7 @@ func TestClinePaths(t *testing.T) {
 	}
 
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("CLINE_DATA_DIR", "")
 	legacy := filepath.Join(home, ".cline", "settings", "providers.json")
 	writeTestFile(t, legacy, "{}")
@@ -176,7 +178,7 @@ func TestClinePaths(t *testing.T) {
 	}
 
 	home = t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	providersPath, _, err = ClinePaths()
 	if err != nil {
 		t.Fatalf("ClinePaths: %v", err)

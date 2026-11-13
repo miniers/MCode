@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 // writeFakeProvider 在 dir 下写一个假的 provider CLI：只接受 --version 并输出固定版本，
@@ -52,7 +53,7 @@ func stubProviderBinaryFinder(t *testing.T) {
 }
 
 func TestProviderVersionFromPath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubProviderBinaryFinder(t)
 	binDir := t.TempDir()
 	want := writeFakeProvider(t, binDir, "claude", "1.2.3")
@@ -71,7 +72,7 @@ func TestProviderVersionFromPath(t *testing.T) {
 }
 
 func TestProviderVersionPrefersConfiguredBinary(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("MCODE_CLAUDE_BIN", "")
 	pathDir := t.TempDir()
 	writeFakeProvider(t, pathDir, "claude", "9.9.9")
@@ -97,7 +98,7 @@ func TestProviderVersionPrefersConfiguredBinary(t *testing.T) {
 }
 
 func TestProviderVersionUsesACPDroidBinary(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("PATH", t.TempDir())
 	binDir := t.TempDir()
 	configured := writeFakeProvider(t, binDir, "droid", "1.2.3")
@@ -120,7 +121,7 @@ func TestProviderVersionUsesACPDroidBinary(t *testing.T) {
 }
 
 func TestProviderVersionErrors(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("PATH", t.TempDir())
 	stubProviderBinaryFinder(t)
 	t.Run("PATH 里没有可执行文件", func(t *testing.T) {
@@ -138,7 +139,7 @@ func TestProviderVersionErrors(t *testing.T) {
 // 登录 shell 的 PATH 里找不到时回退到常见安装目录。
 func TestProviderVersionUsesFallbackDirs(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("PATH", t.TempDir())
 	stubProviderBinaryFinder(t)
 
@@ -159,7 +160,7 @@ func TestProviderVersionUsesFallbackDirs(t *testing.T) {
 
 // Command Code 的候选命令名：command-code → commandcode → cmd。
 func TestProviderVersionCommandCodeAliases(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	binDir := t.TempDir()
 	t.Setenv("PATH", binDir)
 
@@ -189,7 +190,7 @@ func TestProviderVersionCommandCodeAliases(t *testing.T) {
 }
 
 func TestCheckProviderUpdateFallsBackForUnsupportedProvider(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubProviderBinaryFinder(t)
 	binDir := t.TempDir()
 	want := writeFakeProvider(t, binDir, "droid", "1.2.3")
@@ -210,7 +211,7 @@ func TestCheckProviderUpdateFallsBackForUnsupportedProvider(t *testing.T) {
 }
 
 func TestCheckProviderUpdateErrors(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("PATH", t.TempDir())
 	stubProviderBinaryFinder(t)
 	if _, err := (&Client{}).CheckProviderUpdate(context.Background(), "claude"); err == nil {

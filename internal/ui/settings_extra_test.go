@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
 	"mcode/internal/config"
+	"mcode/internal/testenv"
 )
 
 func init() {
@@ -516,7 +517,7 @@ func TestSettingsExtra_ShortcutReservedOverride(t *testing.T) {
 // TestSettingsState_AgentConfWriteOptionsFollowScanDir 覆盖：技能/MCP 的写盘参数沿用扫描时记下的
 // 项目目录，切项目（当前目录与扫描目录不一致）后重新扫描（J-07）。
 func TestSettingsState_AgentConfWriteOptionsFollowScanDir(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	origScanSkills, origScanMCP := scanSkills, scanMCP
 	defer func() {
 		scanSkills, scanMCP = origScanSkills, origScanMCP

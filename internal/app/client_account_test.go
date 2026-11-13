@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"mcode/internal/providers/copilot"
+	"mcode/internal/testenv"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -41,7 +42,7 @@ func writeCodexAuth(t *testing.T, home, email, planType string) {
 
 func TestProviderAccountCodex(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("CODEX_HOME", "")
 	writeCodexAuth(t, filepath.Join(home, ".codex"), "a@b.c", "pro")
 
@@ -67,7 +68,7 @@ func TestProviderAccountCodex(t *testing.T) {
 }
 
 func TestProviderAccountCodexNotLoggedIn(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	t.Setenv("CODEX_HOME", "")
 	_, err := (&Client{}).ProviderAccount(context.Background(), "codex")
 	if err == nil || errors.Is(err, mcodeui.ErrNotImplemented) {
@@ -77,7 +78,7 @@ func TestProviderAccountCodexNotLoggedIn(t *testing.T) {
 
 func TestProviderAccountClaude(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(
 		`{"oauthAccount":{"emailAddress":"a@b.c","organizationType":"claude_max"}}`), 0o600); err != nil {
@@ -102,7 +103,7 @@ func TestProviderAccountClaude(t *testing.T) {
 }
 
 func TestProviderAccountCopilot(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubProviderBinaryFinder(t)
 	binDir := t.TempDir()
 	writeFakeProvider(t, binDir, "copilot", "1.0.0")
@@ -145,7 +146,7 @@ func TestProviderAccountCopilot(t *testing.T) {
 
 // 不提供账户信息的提供方返回包级 errProviderAccountUnsupported，而不是 ErrNotImplemented。
 func TestProviderAccountUnsupportedProvider(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, provider := range []string{"droid", "cline", "pi", "omp", "commandcode", "openai"} {
 		_, err := (&Client{}).ProviderAccount(context.Background(), provider)
 		if err == nil || !errors.Is(err, errProviderAccountUnsupported) {

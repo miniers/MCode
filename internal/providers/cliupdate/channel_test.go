@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"mcode/internal/testenv"
 )
 
 // stubEvalSymlinks 替换软链解析，测试结束自动恢复。
@@ -39,7 +41,7 @@ func writeClaudeSettings(t *testing.T, content string) string {
 }
 
 func TestDetectChannel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tests := []struct {
 		name       string
 		provider   string
@@ -214,7 +216,7 @@ func TestClaudeReleaseChannel(t *testing.T) {
 	})
 	t.Run("默认路径是 ~/.claude/settings.json", func(t *testing.T) {
 		home := t.TempDir()
-		t.Setenv("HOME", home)
+		testenv.SetHome(t, home)
 		if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 			t.Fatalf("建目录出错: %v", err)
 		}
@@ -229,7 +231,7 @@ func TestClaudeReleaseChannel(t *testing.T) {
 }
 
 func TestUpdateCommandFor(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	missing := filepath.Join(t.TempDir(), "settings.json")
 	tests := []struct {
 		name     string
@@ -363,7 +365,7 @@ func TestUpdateCommandFor(t *testing.T) {
 }
 
 func TestDetectInstall(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	tests := []struct {
 		name       string
 		provider   string
@@ -447,7 +449,7 @@ func TestDetectInstall(t *testing.T) {
 
 // TestUpdateCommandForInstall 验证路径里认出来的 token/包名/prefix 确实进了升级命令。
 func TestUpdateCommandForInstall(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	stubClaudeSettings(t, filepath.Join(t.TempDir(), "settings.json"))
 	tests := []struct {
 		name     string
@@ -508,7 +510,7 @@ func TestUpdateCommandForInstall(t *testing.T) {
 }
 
 func TestCheckStableChannel(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	const (
 		latestPath = "/@anthropic-ai%2fclaude-code/latest"
 		stablePath = "/@anthropic-ai%2fclaude-code/stable"

@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/providers/agy/accounts"
 	"mcode/internal/providers/agy/quota"
+	"mcode/internal/testenv"
 )
 
 type blockingAgySubmitClient struct {
@@ -344,7 +345,7 @@ func TestSettingsAgy_EmptyAccounts(t *testing.T) {
 // (e) 页面打开时先用 provider-status-cache.json 里的账号快照渲染：
 // 账号管理器未接线（AgyAccounts 报错）时也不应显示「未登录」。
 func TestSettingsAgy_SwarmtesAccountsFromCache(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	dataDir := settingsTestDir(t)
 
 	updateProviderStatusCache(dataDir, func(cache *providerStatusCache) {
@@ -615,7 +616,7 @@ func TestSettingsAgy_WarmupButtonBusyState(t *testing.T) {
 
 // agy 面板的节定义顺序固定：账号 → 调度策略 → 会话保持模式 → 调度 → 终端登录。
 func TestAgyProviderSheetSectionsOrder(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	defs := agyProviderSheetSections(st)
 	wantIDs := []string{"sec-agy-accounts", "sec-agy-strategy", "sec-agy-affinity", "sec-agy-routing", "sec-agy-advanced-login"}

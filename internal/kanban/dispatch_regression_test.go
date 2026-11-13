@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mcode/internal/store"
+	"mcode/internal/testenv"
 )
 
 type blockingDispatchDriver struct {
@@ -32,7 +33,7 @@ func (d *blockingDispatchDriver) StartSession(ctx context.Context, req SessionRe
 }
 
 func TestBoardDuringRealDispatch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	for _, fail := range []bool{false, true} {
 		t.Run(map[bool]string{false: "success", true: "failure"}[fail], func(t *testing.T) {
 			svc, _, mock := setupTestService(t)
@@ -102,7 +103,7 @@ func TestBoardDuringRealDispatch(t *testing.T) {
 }
 
 func TestReviewProgressStalledNotifications(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	ctx := context.Background()
 	svc, db, driver := setupTestService(t)
 	goal := store.Goal{ID: "review-goal", ProjectID: "p", Title: "review", Status: string(GoalStatusRunning)}

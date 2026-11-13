@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
 )
 
 // hoverRow 把指针移到 title 所在会话行的左侧，并渲染一帧。
@@ -217,7 +219,7 @@ func TestSidebarCompactTitleEllipsis(t *testing.T) {
 
 // TestSidebarHoverCardFullTitle 验证悬停卡标题可显示超过两行。
 func TestSidebarHoverCardFullTitle(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	state, _ := buildRoot(NewFakeClient())
 	title := strings.Repeat("这是可以换行的完整会话标题 ", 12)
 	th := Thread{ID: "title-test", Title: title}

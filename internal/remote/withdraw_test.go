@@ -8,6 +8,7 @@ import (
 
 	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
+	"mcode/internal/testenv"
 )
 
 // withdrawHarness 是撤卡测试用的可控 harness：Interact 的结论写进 resultCh，Run 结束时关闭 runDone。
@@ -170,7 +171,7 @@ func assertNoInteractResult(t *testing.T, ch <-chan interactResult) {
 
 // 空闲会话上的待处理卡片（已答复、等送达确认）在归档时被撤下，且不写时间线提示。
 func TestArchiveWithdrawsPendingCardOnIdleThread(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testenv.TempHome(t)
 	backend := newWithdrawBackend(t)
 	backend.SetApprovalDeliveryTimeout(10 * time.Millisecond)
 
