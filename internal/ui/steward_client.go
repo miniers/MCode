@@ -34,6 +34,8 @@ type StewardClient interface {
 	StewardThreadID() string
 	// OpenStewardThread 确保总管会话存在并返回其 ID；未启用总管时返回错误。
 	OpenStewardThread(ctx context.Context) (string, error)
+	// ResetStewardThread 归档当前总管会话并创建新的主会话。
+	ResetStewardThread(ctx context.Context) (string, error)
 }
 
 // stewardEnabledClient 是总管启用状态的可选客户端能力：客户端支持总管但总管还没启用时，
@@ -282,6 +284,49 @@ func (s *chatState) openStewardThread() {
 		}
 		id, err := client.OpenStewardThread(context.Background())
 
+		s.mu.Lock()
+		closed := s.closed
+		s.mu.Unlock()
+
+		st.mu.Lock()
+		st.creating = false
+		if err == nil && id != "" && !closed {
+			st.pending = id
+		}
+		st.mu.Unlock()
+
+		if err != nil {
+			if !closed {
+				s.setToast(err.Error())
+			}
+			return
+		}
+		s.invalidate()
+	}()
+}
+
+// resetStewardThread 在后台归档当前总管会话并创建新会话，完成后沿用 pending 机制跳转。
+func (s *chatState) resetStewardThread() {
+	client, ok := s.stewardClient()
+	if !ok {
+		return
+	}
+	st := getStewardOpenState(s)
+	if st == nil {
+		return
+	}
+	st.mu.Lock()
+	if st.creating {
+		st.mu.Unlock()
+		return
+	}
+	st.creating = true
+	st.mu.Unlock()
+
+	nickname, _ := s.stewardIdentity()
+	s.setToast("正在重开" + stewardName(nickname) + "会话…")
+	go func() {
+		id, err := client.ResetStewardThread(context.Background())
 		s.mu.Lock()
 		closed := s.closed
 		s.mu.Unlock()

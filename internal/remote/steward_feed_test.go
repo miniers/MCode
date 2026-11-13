@@ -82,8 +82,8 @@ func TestStewardFeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	thread, err = db.GetThread(ctx, id)
-	if err != nil || thread.HasUnread {
-		t.Fatalf("系统结果不应置未读: %+v %v", thread, err)
+	if err != nil || !thread.HasUnread {
+		t.Fatalf("系统结果应置未读: %+v %v", thread, err)
 	}
 	if err = b.AppendStewardMessage(ctx, id, "system", "other", "提醒"); err != nil {
 		t.Fatal(err)
@@ -102,6 +102,50 @@ func TestStewardFeed(t *testing.T) {
 	ordinary, err := b.GetThread(ctx, "ordinary")
 	if err != nil || ordinary.InteractionMode != "plan" {
 		t.Fatalf("普通会话未执行原有命令: %+v %v", ordinary, err)
+	}
+}
+
+func TestResetStewardFeedThreadArchivesHistory(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "mcode.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	hub := NewStreamHub(StreamHubOptions{})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+	if err := b.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	b.AddProject(wire.ProjectSummary{ID: "p", Name: "项目", Path: t.TempDir()})
+	oldID, err := b.EnsureStewardFeedThread(ctx, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.AppendStewardMessage(ctx, oldID, "user", "", "保留的历史"); err != nil {
+		t.Fatal(err)
+	}
+	newID, err := b.ResetStewardFeedThread(ctx, "p")
+	if err != nil || newID == "" || newID == oldID {
+		t.Fatalf("重置结果错误: old=%q new=%q err=%v", oldID, newID, err)
+	}
+	old, err := db.GetThread(ctx, oldID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTitle := "总管 · 归档 " + time.Now().UTC().Format("2006-01-02")
+	if old.Title != wantTitle || !old.Archived {
+		t.Fatalf("旧会话未归档: title=%q archived=%v", old.Title, old.Archived)
+	}
+	messages, _, err := db.ListMessages(ctx, oldID, 0, 10)
+	if err != nil || len(messages) != 1 || messages[0].Text != "保留的历史" {
+		t.Fatalf("旧消息未保留: %+v %v", messages, err)
+	}
+	stored, _, err := db.GetSetting(ctx, "steward.feed_thread_id")
+	if err != nil || stored != newID {
+		t.Fatalf("新会话设置错误: %q %v", stored, err)
 	}
 }
 

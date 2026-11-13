@@ -76,6 +76,95 @@ func TestReceiptDoneMovesTaskToReview(t *testing.T) {
 	}
 }
 
+func TestWaitingTaskCanSubmitReceiptOnlyFromItsThread(t *testing.T) {
+	ctx := context.Background()
+	driver := newPokeDriver()
+	svc, db, wd, _ := setupReceiptTestService(t, driver, true, false, nil)
+	thread := "waiting-executor"
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g-waiting-receipt", ProjectID: "p", Title: "waiting receipt"},
+		store.Task{ID: "t-waiting-receipt", Title: "任务", Status: string(TaskStatusWaiting), ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{WaitKind: "machine", WakeAt: time.Now().Add(time.Hour).Format(time.RFC3339), WaitCheck: "true", WaitBase: "base", Wakes: 2})})
+
+	if err := svc.SubmitTaskResult(ctx, "t-waiting-receipt", "other-thread", ReceiptOutcomeDone, "done"); err == nil {
+		t.Fatal("其他会话不应提交 waiting 任务结果")
+	}
+	if err := svc.SubmitTaskResult(ctx, "t-waiting-receipt", thread, ReceiptOutcomeDone, "完成"); err != nil {
+		t.Fatalf("任务执行会话应能提交结果: %v", err)
+	}
+	latest, err := db.GetTask(ctx, "t-waiting-receipt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ParseTaskMeta(latest.Meta)
+	if err != nil || latest.Status != string(TaskStatusInProgress) || meta.WaitKind != "" || meta.WakeAt != "" || meta.WaitCheck != "" || meta.WaitBase != "" || meta.Wakes != 0 {
+		t.Fatalf("提交时应恢复执行并清理等待元数据: task=%+v meta=%+v err=%v", latest, meta, err)
+	}
+	driver.setThreadState(thread, SessionState{})
+	if err := wd.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	latest, err = db.GetTask(ctx, "t-waiting-receipt")
+	if err != nil || latest.Status != string(TaskStatusReview) {
+		t.Fatalf("waiting 任务应由回执结算至 review: task=%+v err=%v", latest, err)
+	}
+	meta, err = ParseTaskMeta(latest.Meta)
+	if err != nil || meta.ResultStatus != string(ResultDone) {
+		t.Fatalf("waiting 回执应记录为 done: meta=%+v err=%v", meta, err)
+	}
+}
+
+func TestDelegatingBeesSuppressReceiptFollowUp(t *testing.T) {
+	ctx := context.Background()
+	driver := newPokeDriver()
+	svc, db, _, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+	thread := "delegating-lead"
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g-delegating", ProjectID: "p", Title: "目标"},
+		store.Task{ID: "t-delegating", Title: "任务", Status: string(TaskStatusInProgress), ThreadID: &thread})
+	driver.setThreadState(thread, SessionState{})
+	var checked string
+	svc.opts.DelegatingBees = func(id string) bool { checked = id; return true }
+	scheduler.Tick(ctx)
+	if checked != thread || len(driver.sentFollowUps()) != 0 {
+		t.Fatalf("lead 有运行中的 bee 时应跳过催交: checked=%q followups=%v", checked, driver.sentFollowUps())
+	}
+	task, err := db.GetTask(ctx, "t-delegating")
+	if err != nil || task.Status != string(TaskStatusInProgress) {
+		t.Fatalf("等待 bee 结果时任务应保持执行中: task=%+v err=%v", task, err)
+	}
+}
+
+func TestOpenDecisionKeepsOrdinaryGoalTaskInApproval(t *testing.T) {
+	ctx := context.Background()
+	driver := newPokeDriver()
+	_, db, _, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+	thread := "ordinary-goal-executor"
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g-open-decision", ProjectID: "p", Title: "普通目标"},
+		store.Task{ID: "t-open-decision", Title: "任务", Status: string(TaskStatusNeedsApproval), ThreadID: &thread})
+	decision, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "t-open-decision", Question: "继续？"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "t-open-decision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Meta = EncodeTaskMeta(TaskMeta{DecisionID: decision.ID})
+	if _, err := db.UpdateTask(ctx, task, task.Revision); err != nil {
+		t.Fatal(err)
+	}
+	driver.setThreadState(thread, SessionState{Running: true})
+
+	scheduler.Tick(ctx)
+
+	task, err = db.GetTask(ctx, "t-open-decision")
+	if err != nil || task.Status != string(TaskStatusNeedsApproval) {
+		t.Fatalf("open 决策期间任务应保持 needs_approval: task=%+v err=%v", task, err)
+	}
+	decision, err = db.GetStewardDecision(ctx, decision.ID)
+	if err != nil || decision.Status != store.DecisionStatusOpen {
+		t.Fatalf("会话运行中不得关闭 open 决策: decision=%+v err=%v", decision, err)
+	}
+}
+
 func TestExecutorResultFailedAndDecision(t *testing.T) {
 	for _, status := range []ResultStatus{ResultFailed, ResultNeedsDecision} {
 		t.Run(string(status), func(t *testing.T) {
@@ -406,15 +495,15 @@ func TestReceiptSchedulerBlockedAndResume(t *testing.T) {
 		t.Fatalf("期望求助文案，实际: %v", task.LastActivityText)
 	}
 
-	// 用户回复后会话重新运行：任务回到 in_progress，求助标记清除
+	// 会话恢复运行但决策尚未回答时，仍停在 needs_approval。
 	driver.setThreadState(threadID, SessionState{Running: true})
 	scheduler.Tick(ctx)
 	task, _ = s.GetTask(ctx, "task-blocked")
-	if task.Status != string(TaskStatusInProgress) {
-		t.Fatalf("会话恢复后应回到 in_progress，实际: %s", task.Status)
+	if task.Status != string(TaskStatusNeedsApproval) {
+		t.Fatalf("未回答的决策应保持 needs_approval，实际: %s", task.Status)
 	}
-	if svc.isReceiptBlocked(task.ID) {
-		t.Fatal("会话恢复后应清除求助标记")
+	if !svc.isReceiptBlocked(task.ID) {
+		t.Fatal("未回答的决策仍应保留求助标记")
 	}
 }
 

@@ -145,7 +145,7 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text, sourceMessa
 			return s.AnswerDecision(ctx, d.ID, text, "owner")
 		}
 	}
-	addSource := sourceMessageID != ""
+	addSource := sourceMessageID != "" && sourceMessageID != meta.SourceMessageID
 	for _, messageID := range meta.AmendMessageIDs {
 		if messageID == sourceMessageID {
 			addSource = false

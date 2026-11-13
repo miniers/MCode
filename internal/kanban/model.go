@@ -115,7 +115,7 @@ func CanTransition(from, to TaskStatus) bool {
 	switch from {
 	case TaskStatusTodo:
 		switch to {
-		case TaskStatusInProgress, TaskStatusDone, TaskStatusRejected, TaskStatusReview, TaskStatusCancelled:
+		case TaskStatusInProgress, TaskStatusDone, TaskStatusRejected, TaskStatusReview, TaskStatusFailed, TaskStatusCancelled:
 			return true
 		default:
 			return false
@@ -142,7 +142,7 @@ func CanTransition(from, to TaskStatus) bool {
 			return false
 		}
 	case TaskStatusWaiting:
-		return to == TaskStatusTodo || to == TaskStatusCancelled || to == TaskStatusNeedsApproval
+		return to == TaskStatusTodo || to == TaskStatusCancelled || to == TaskStatusNeedsApproval || to == TaskStatusInProgress
 	case TaskStatusFailed, TaskStatusCancelled:
 		return to == TaskStatusTodo
 	case TaskStatusDone:

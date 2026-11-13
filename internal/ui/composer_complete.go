@@ -1030,7 +1030,17 @@ func (s *chatState) runLocalSlashCommand(threadID, draft string) bool {
 		return true
 
 	case "/clear":
-		s.createNewThread()
+		tid := threadID
+		if tid == "" {
+			s.mu.Lock()
+			tid = s.selectedThreadID
+			s.mu.Unlock()
+		}
+		if stewardSelected(s, tid) {
+			s.resetStewardThread()
+		} else {
+			s.createNewThread()
+		}
 		s.clearDraftAndCompletion()
 		return true
 

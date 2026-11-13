@@ -11,3 +11,16 @@ func (a *App) SetOwnerNotifier(fn func(title, body, threadID string) error) {
 	defer a.notifyMu.Unlock()
 	a.ownerNotify = fn
 }
+
+// notifyAttention 同时通知已订阅的网页设备与桌面端；桌面端自身负责前台和安静时段规则。
+func (a *App) notifyAttention(title, body, threadID string) {
+	if a.remote != nil {
+		a.remote.SendOwnerPush(title, body, threadID)
+	}
+	a.notifyMu.RLock()
+	fn := a.ownerNotify
+	a.notifyMu.RUnlock()
+	if fn != nil {
+		_ = fn(title, body, threadID)
+	}
+}

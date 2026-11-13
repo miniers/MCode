@@ -12,7 +12,7 @@ import (
 
 type tasksRootCountingClient struct {
 	*FakeClient
-	projects, threads, queue, swarm, foreground atomic.Int32
+	projects, threads, queue, swarm atomic.Int32
 }
 
 func (c *tasksRootCountingClient) Projects(ctx context.Context) ([]Project, error) {
@@ -31,8 +31,6 @@ func (c *tasksRootCountingClient) WatchSwarm(fn func(string)) func() {
 	c.swarm.Add(1)
 	return c.FakeClient.WatchSwarm(fn)
 }
-func (c *tasksRootCountingClient) SetForegroundThread(string) { c.foreground.Add(1) }
-
 func TestTasksRootDoesNotInitializeChat(t *testing.T) {
 	client := &tasksRootCountingClient{FakeClient: NewFakeClient()}
 	s, view := buildRoot(client, WithTasksWindowMode("tasks"))
@@ -55,7 +53,7 @@ func TestTasksRootDoesNotInitializeChat(t *testing.T) {
 	if !loaded || client.projects.Load() != 1 {
 		t.Fatal("任务根未加载项目")
 	}
-	if client.threads.Load() != 0 || client.queue.Load() != 0 || client.swarm.Load() != 0 || client.foreground.Load() != 0 {
+	if client.threads.Load() != 0 || client.queue.Load() != 0 || client.swarm.Load() != 0 {
 		t.Fatal("任务根启动了聊天初始化")
 	}
 	s.close()

@@ -11,6 +11,10 @@ func (f *fakeStewardClient) OpenStewardThread(context.Context) (string, error) {
 	return f.openThreadID, nil
 }
 
+func (f *fakeStewardClient) ResetStewardThread(context.Context) (string, error) {
+	return f.openThreadID, nil
+}
+
 func TestStewardServiceOpen(t *testing.T) {
 	svc := remoteStewardService{client: &fakeStewardClient{openThreadID: "feed"}}
 	id, err := svc.Open(context.Background(), "project")
@@ -18,6 +22,17 @@ func TestStewardServiceOpen(t *testing.T) {
 		t.Fatalf("打开前台: %q %v", id, err)
 	}
 	if _, err := (remoteStewardService{}).Open(context.Background(), "project"); err != errStewardServiceUnavailable {
+		t.Fatalf("缺少客户端: %v", err)
+	}
+}
+
+func TestStewardServiceReset(t *testing.T) {
+	svc := remoteStewardService{client: &fakeStewardClient{openThreadID: "feed-new"}}
+	id, err := svc.Reset(context.Background(), "project")
+	if err != nil || id != "feed-new" {
+		t.Fatalf("重置前台: %q %v", id, err)
+	}
+	if _, err := (remoteStewardService{}).Reset(context.Background(), "project"); err != errStewardServiceUnavailable {
 		t.Fatalf("缺少客户端: %v", err)
 	}
 }

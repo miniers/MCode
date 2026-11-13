@@ -176,6 +176,28 @@ func countAttentionEvents(t *testing.T, svc *attention.Service, kind attention.K
 	return count
 }
 
+func TestAttentionWiringNotifiesUserEventsOnce(t *testing.T) {
+	rig := newAttentionTestRig(t)
+	var got []string
+	rig.wiring.notify = func(title, body, threadID string) {
+		got = append(got, title+"|"+body+"|"+threadID)
+	}
+	enteredAt := time.Date(2026, 1, 2, 9, 0, 0, 0, time.UTC)
+	inputs := []attention.Input{
+		{Kind: attention.KindKanbanReview, SubjectType: attention.SubjectKanbanTask, SubjectID: "task-review", Title: "验收任务", Detail: "任务已完成，等待验收", ThreadID: "thread-review", EnteredAt: enteredAt},
+		{Kind: attention.KindKanbanFailed, SubjectType: attention.SubjectKanbanTask, SubjectID: "task-failed", Title: "失败任务", Detail: "构建失败", ThreadID: "thread-failed", EnteredAt: enteredAt},
+		{Kind: attention.KindBeeFailed, SubjectType: attention.SubjectBee, SubjectID: "bee-failed", Title: "Bee 任务", Detail: "测试失败", ThreadID: "thread-bee", EnteredAt: enteredAt},
+	}
+	for _, input := range inputs {
+		if !rig.wiring.record(input) || rig.wiring.record(input) {
+			t.Fatalf("expected first record only for %s", input.Kind)
+		}
+	}
+	if len(got) != len(inputs) {
+		t.Fatalf("got %d notifications, want %d: %v", len(got), len(inputs), got)
+	}
+}
+
 // 会话事件源：出错记录、重新运行消解、审批记录与消解。
 func TestAttentionWiringThreadEvents(t *testing.T) {
 	rig := newAttentionTestRig(t)
@@ -220,6 +242,7 @@ func TestAttentionWiringThreadEvents(t *testing.T) {
 	// 审批：新请求出现时记录一条审批事件。
 	requestTitle := "允许执行 git push"
 	rig.hub.Notify(threadID, "thread.summary", summary(true, true))
+	rig.hub.Notify(threadID, "requests.changed", wire.RequestsChangedParams{ThreadID: threadID})
 	rig.hub.Notify(threadID, "requests.changed", wire.RequestsChangedParams{
 		ThreadID: threadID,
 		Requests: []wire.RemoteRequest{{ThreadID: threadID, RequestID: "req-1", Title: &requestTitle}},

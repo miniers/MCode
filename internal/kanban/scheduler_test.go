@@ -986,6 +986,8 @@ func (d *failingStartDriver) StartSession(ctx context.Context, req SessionReques
 func TestGoalSchedulerStartFailureRecordedOnce(t *testing.T) {
 	ctx := context.Background()
 	svc, s, mock, scheduler := setupSchedulerTestService(t, true)
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	svc.opts.Now = func() time.Time { return now }
 	startErr := errors.New("session boom")
 	svc.opts.Driver = &failingStartDriver{mockDriver: mock, err: startErr}
 
@@ -997,12 +999,16 @@ func TestGoalSchedulerStartFailureRecordedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("获取任务失败: %v", err)
 	}
-	if first.Status != string(TaskStatusTodo) {
+	if first.Status != string(TaskStatusTodo) || first.AttemptCount != 1 {
 		t.Fatalf("启动失败后任务应保持 todo，实际: %s", first.Status)
 	}
 	if first.LastFailureReason == nil || !strings.Contains(*first.LastFailureReason, "启动任务失败") ||
 		!strings.Contains(*first.LastFailureReason, startErr.Error()) {
 		t.Fatalf("期望写入启动失败原因，实际: %v", first.LastFailureReason)
+	}
+	meta, err := ParseTaskMeta(first.Meta)
+	if err != nil || meta.NextAttemptAt != now.Add(5*time.Minute).Format(time.RFC3339) {
+		t.Fatalf("首次失败应安排五分钟后重试，meta=%+v err=%v", meta, err)
 	}
 
 	scheduler.Tick(ctx)
@@ -1011,6 +1017,64 @@ func TestGoalSchedulerStartFailureRecordedOnce(t *testing.T) {
 		t.Fatalf("获取任务失败: %v", err)
 	}
 	if second.Revision != first.Revision {
-		t.Fatalf("同一错误不应重复写库，版本号 %d -> %d", first.Revision, second.Revision)
+		t.Fatalf("退避窗口内不应重试或写库，版本号 %d -> %d", first.Revision, second.Revision)
+	}
+}
+
+func TestGoalSchedulerStartFailureBackoffRejectsAtLimit(t *testing.T) {
+	ctx := context.Background()
+	svc, db, mock, scheduler := setupSchedulerTestService(t, true)
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	svc.opts.Now = func() time.Time { return now }
+	svc.opts.Driver = &failingStartDriver{mockDriver: mock, err: errors.New("start failed")}
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "goal-backoff", ProjectID: "p", Title: "退避目标"},
+		store.Task{ID: "task-backoff", Title: "启动失败任务"})
+
+	scheduler.Tick(ctx)
+	task, err := db.GetTask(ctx, "task-backoff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.AttemptCount != 1 || task.Status != string(TaskStatusTodo) {
+		t.Fatalf("首次失败应增加次数并保持 todo: %+v", task)
+	}
+	meta, err := ParseTaskMeta(task.Meta)
+	if err != nil || meta.NextAttemptAt != now.Add(5*time.Minute).Format(time.RFC3339) {
+		t.Fatalf("首次失败退避时间错误: meta=%+v err=%v", meta, err)
+	}
+	now = now.Add(5 * time.Minute)
+	scheduler.Tick(ctx)
+	task, err = db.GetTask(ctx, "task-backoff")
+	if err != nil || task.AttemptCount != 2 || task.Status != string(TaskStatusRejected) {
+		t.Fatalf("达到默认重试上限后应 rejected: task=%+v err=%v", task, err)
+	}
+	goal, err := db.GetGoal(ctx, "goal-backoff")
+	if err != nil || goal.Status != string(GoalStatusPaused) {
+		t.Fatalf("重试耗尽应暂停目标: goal=%+v err=%v", goal, err)
+	}
+}
+
+func TestGoalSchedulerClearsBackoffAfterSuccessfulStart(t *testing.T) {
+	ctx := context.Background()
+	svc, db, driver, scheduler := setupSchedulerTestService(t, true)
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	svc.opts.Now = func() time.Time { return now }
+	driver.defaultState = SessionState{Running: true}
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "goal-retry-success", ProjectID: "p", Title: "重试目标"},
+		store.Task{ID: "task-retry-success", Title: "重试任务", Meta: EncodeTaskMeta(TaskMeta{NextAttemptAt: now.Add(5 * time.Minute).Format(time.RFC3339)})})
+
+	scheduler.Tick(ctx)
+	if len(driver.starts) != 0 {
+		t.Fatal("退避时间未到时不应启动任务")
+	}
+	now = now.Add(5 * time.Minute)
+	scheduler.Tick(ctx)
+	task, err := db.GetTask(ctx, "task-retry-success")
+	if err != nil || task.Status != string(TaskStatusInProgress) || len(driver.starts) != 1 {
+		t.Fatalf("退避到期后应启动任务: task=%+v starts=%d err=%v", task, len(driver.starts), err)
+	}
+	meta, err := ParseTaskMeta(task.Meta)
+	if err != nil || meta.NextAttemptAt != "" {
+		t.Fatalf("启动成功后应清空重试时间: meta=%+v err=%v", meta, err)
 	}
 }

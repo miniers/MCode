@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -21,7 +22,7 @@ func indexStewardTasks(tasks []KanbanTask) stewardTaskIndex {
 		}
 		seen := make(map[string]bool)
 		for _, id := range task.AmendMessageIDs {
-			if id != "" && !seen[id] {
+			if id != "" && id != task.SourceMessageID && !seen[id] {
 				idx.amend[id] = append(idx.amend[id], task)
 				seen[id] = true
 			}
@@ -52,7 +53,11 @@ func insertStewardTaskRows(items []timelineItem, idx stewardTaskIndex) []timelin
 		tasks := idx.source[messageID]
 		if len(tasks) == 1 {
 			task := tasks[0]
-			out = append(out, timelineItem{kind: timelineItemStewardTask, id: "steward-task-" + messageID + "-" + task.ID, turnIndex: turn, stewardTask: task})
+			kind := timelineItemStewardTask
+			if stewardTaskShouldCollapse(task, time.Now()) {
+				kind = timelineItemStewardAmend
+			}
+			out = append(out, timelineItem{kind: kind, id: "steward-task-" + messageID + "-" + task.ID, turnIndex: turn, stewardTask: task})
 		} else if len(tasks) > 1 {
 			out = append(out, timelineItem{kind: timelineItemStewardTaskChips, id: "steward-tasks-" + messageID, turnIndex: turn, stewardTasks: tasks})
 		}
@@ -85,7 +90,113 @@ func stewardTaskSignal(task KanbanTask) string {
 }
 
 func stewardTaskOpen(s *chatState, task KanbanTask) {
+	markStewardTaskSeen(s, task)
 	openStewardTask(s, stewardResult{Task: task.ID, Thread: task.ThreadID, Status: task.Status, Summary: task.ResultSummary})
+}
+
+func stewardTaskShouldCollapse(task KanbanTask, now time.Time) bool {
+	if task.UpdatedAt.IsZero() || now.Sub(task.UpdatedAt) <= stewardBoardDoneWindow {
+		return false
+	}
+	switch task.Status {
+	case "done", "failed", "cancelled", "rejected":
+		return true
+	default:
+		return false
+	}
+}
+
+func markStewardTaskSeen(s *chatState, task KanbanTask) {
+	if s == nil || task.ID == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.stewardTaskSeen == nil {
+		s.stewardTaskSeen = make(map[string]time.Time)
+	}
+	s.stewardTaskSeen[task.ID] = task.UpdatedAt
+	s.mu.Unlock()
+}
+
+func markStewardTaskSeenByID(s *chatState, id string) {
+	if s == nil || id == "" {
+		return
+	}
+	s.mu.Lock()
+	for _, task := range s.stewardBoard.tasks {
+		if task.ID == id {
+			if s.stewardTaskSeen == nil {
+				s.stewardTaskSeen = make(map[string]time.Time)
+			}
+			s.stewardTaskSeen[id] = task.UpdatedAt
+			break
+		}
+	}
+	s.mu.Unlock()
+}
+
+func stewardTaskUnread(s *chatState, task KanbanTask) bool {
+	if s == nil || task.ID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stewardTaskSeen == nil {
+		s.stewardTaskSeen = make(map[string]time.Time)
+	}
+	baseline, ok := s.stewardTaskSeen[task.ID]
+	if !ok {
+		s.stewardTaskSeen[task.ID] = task.UpdatedAt
+		return false
+	}
+	switch task.Status {
+	case "done", "failed", "needs_approval":
+		return task.UpdatedAt.After(baseline)
+	default:
+		return false
+	}
+}
+
+func stewardFocusTasks(groups stewardGroups) []KanbanTask {
+	const maxTasks = 3
+	tasks := make([]KanbanTask, 0, maxTasks)
+	for _, task := range groups[0] {
+		if len(tasks) == maxTasks {
+			return tasks
+		}
+		tasks = append(tasks, task)
+	}
+	for _, task := range groups[1] {
+		if len(tasks) == maxTasks {
+			break
+		}
+		if task.Status == "in_progress" {
+			tasks = append(tasks, task)
+		}
+	}
+	return tasks
+}
+
+func renderStewardFocusStrip(c *ui.Context, s *chatState, groups stewardGroups) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	selectedID := s.selectedThreadID
+	s.mu.Unlock()
+	if !stewardSelected(s, selectedID) || (stewardBoardWide(chatAreaWidth(c, s)) && stewardBoardCount(groups) > 0) {
+		return
+	}
+	tasks := stewardFocusTasks(groups)
+	if len(tasks) == 0 {
+		return
+	}
+	ui.Row(c.Key("steward-focus-strip")).FillWidth().MaxWidth(timelineContentMaxWidth(s)).AlignSelf(ui.Center).
+		Gap(Space2).Wrap().Transition(motionListItem(c)).Children(func() {
+		for _, task := range tasks {
+			renderStewardTaskChip(c, s, "steward-focus-task-"+task.ID, task)
+		}
+	})
 }
 
 func renderStewardTaskDot(c *ui.Context, key string, task KanbanTask) {
@@ -104,6 +215,9 @@ func renderStewardTaskCard(c *ui.Context, s *chatState, key string, task KanbanT
 	}
 	card.Children(func() {
 		ui.Row(c.Key(key + "-title")).FillWidth().MinWidth(0).AlignItems(ui.Center).Gap(Space2).Children(func() {
+			if stewardTaskUnread(s, task) {
+				ui.Box(c.Key(key+"-unread")).Size(Space1, Space1).Radius(RadiusPill).Background(ThemeAccent(c)).Shrink(0)
+			}
 			renderStewardTaskDot(c, key+"-dot", task)
 			ui.Text(c, task.Title).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 			status := kanbanStatusBadge(task)
@@ -129,6 +243,9 @@ func renderStewardTaskChip(c *ui.Context, s *chatState, key string, task KanbanT
 		stewardTaskOpen(s, task)
 	}
 	chip.Children(func() {
+		if stewardTaskUnread(s, task) {
+			ui.Box(c.Key(key+"-unread")).Size(Space1, Space1).Radius(RadiusPill).Background(ThemeAccent(c)).Shrink(0)
+		}
 		renderStewardTaskDot(c, key+"-dot", task)
 		ui.Text(c, task.Title).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 	})

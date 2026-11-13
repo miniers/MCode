@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mcode/internal/agent/gate"
+	"mcode/internal/store"
 )
 
 const MaxWaitWakes = 6
@@ -27,39 +28,80 @@ func (s *Service) CheckWaits(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	var firstErr error
 	for _, t := range tasks {
 		if t.Status != string(TaskStatusWaiting) {
 			continue
 		}
 		meta, err := ParseTaskMeta(t.Meta)
 		if err != nil {
-			return err
+			failure := fmt.Errorf("等待任务 %s 元数据无效: %w", t.ID, err)
+			if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
+				firstErr = updateErr
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
-		if meta.WaitKind != "machine" {
+		if meta.WaitKind != "machine" && meta.WaitKind != "human" {
+			continue
+		}
+		if meta.WaitKind == "human" && strings.TrimSpace(meta.WakeAt) == "" {
 			continue
 		}
 		wake, err := time.Parse(time.RFC3339, meta.WakeAt)
 		if err != nil {
-			return err
+			failure := fmt.Errorf("等待任务 %s 的 WakeAt 无效: %w", t.ID, err)
+			if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
+				firstErr = updateErr
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 		if wake.After(now) {
 			continue
 		}
 		question := ""
-		if !gate.IsReadOnlyCommand(meta.WaitCheck) {
+		if meta.WaitKind == "human" {
+			question = "等待的人工处理已到期，是否继续等"
+		} else if !gate.IsReadOnlyCommand(meta.WaitCheck) {
 			question = "等待检查命令不是只读命令，是否继续"
 		} else {
 			if t.ProjectID == nil || s.opts.Projects == nil {
-				return fmt.Errorf("等待任务 %s 缺少项目目录", t.ID)
+				failure := fmt.Errorf("等待任务 %s 缺少项目目录", t.ID)
+				if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
+					firstErr = updateErr
+				}
+				if firstErr == nil {
+					firstErr = failure
+				}
+				continue
 			}
 			root, err := s.opts.Projects.ProjectRoot(ctx, *t.ProjectID)
 			if err != nil {
-				return err
+				failure := fmt.Errorf("等待任务 %s 获取项目目录失败: %w", t.ID, err)
+				if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
+					firstErr = updateErr
+				}
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
 			}
 			if strings.TrimSpace(root) == "" {
-				return fmt.Errorf("等待任务 %s 的项目目录为空", t.ID)
+				failure := fmt.Errorf("等待任务 %s 的项目目录为空", t.ID)
+				if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
+					firstErr = updateErr
+				}
+				if firstErr == nil {
+					firstErr = failure
+				}
+				continue
 			}
-			checkCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 			cmd := exec.CommandContext(checkCtx, "sh", "-c", meta.WaitCheck)
 			cmd.Dir = root
 			err = cmd.Run()
@@ -97,6 +139,22 @@ func (s *Service) CheckWaits(ctx context.Context, now time.Time) error {
 		s.revision.Add(1)
 		s.notifyChange()
 	}
+	return firstErr
+}
+
+func (s *Service) recordWaitFailure(ctx context.Context, t *store.Task, failure error) error {
+	reason := failure.Error()
+	if t.LastFailureReason != nil && *t.LastFailureReason == reason {
+		return nil
+	}
+	t.LastFailureReason = &reason
+	updated, err := s.opts.Store.UpdateTask(ctx, *t, t.Revision)
+	if err != nil {
+		return err
+	}
+	*t = updated
+	s.revision.Add(1)
+	s.notifyChange()
 	return nil
 }
 
@@ -128,7 +186,7 @@ func (s *Service) WakeParents(ctx context.Context) error {
 		ready := true
 		for _, id := range meta.Children {
 			child, ok := byID[id]
-			if !ok || child.status != string(TaskStatusDone) && child.status != string(TaskStatusFailed) && child.status != string(TaskStatusCancelled) {
+			if !ok || child.status != string(TaskStatusDone) && child.status != string(TaskStatusFailed) && child.status != string(TaskStatusCancelled) && child.status != string(TaskStatusRejected) {
 				ready = false
 				break
 			}

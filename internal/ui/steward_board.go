@@ -225,10 +225,13 @@ func renderStewardBoardList(c *ui.Context, s *chatState, groups stewardGroups) {
 							row.Background(ThemeHover(c))
 						}
 						if row.Clicked() {
-							openStewardTask(s, stewardResult{Task: task.ID, Thread: task.ThreadID, Status: task.Status, Summary: task.ResultSummary})
+							stewardTaskOpen(s, task)
 						}
 						row.Children(func() {
 							ui.Row(c.Key("steward-board-task-title-" + task.ID)).FillWidth().MinWidth(0).AlignItems(ui.Center).Gap(Space2).Children(func() {
+								if stewardTaskUnread(s, task) {
+									ui.Box(c.Key("steward-board-unread-"+task.ID)).Size(Space1, Space1).Radius(RadiusPill).Background(ThemeAccent(c)).Shrink(0)
+								}
 								ui.Box(c.Key("steward-board-dot-"+task.ID)).Size(Space2, Space2).Radius(RadiusPill).Background(kanbanStatusColor(c, kanbanDisplayColumn(task))).Shrink(0)
 								ui.Text(c, task.Title).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
 							})

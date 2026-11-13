@@ -39,7 +39,7 @@ func TestDelegationAndWakeParents(t *testing.T) {
 		}
 		cm, _ := ParseTaskMeta(child.Meta)
 		cm.Summary = []string{"摘要一", "摘要二"}[i]
-		child.Meta, child.Status = EncodeTaskMeta(cm), "done"
+		child.Meta, child.Status = EncodeTaskMeta(cm), []string{"done", "rejected"}[i]
 		if _, err := db.UpdateTask(ctx, child, child.Revision); err != nil {
 			t.Fatal(err)
 		}

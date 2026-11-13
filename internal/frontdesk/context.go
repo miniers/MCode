@@ -9,6 +9,10 @@ import (
 
 const decisionReanswerWindow = 5 * time.Minute
 
+const snapshotMaxRunes = 24000
+
+const snapshotTruncated = "…（已截断）"
+
 const systemPrompt = `你是 MoCo · 总管主会话的前台。每次处理一条用户消息，判断是直接回答、读取信息、交代工作、补充工作、回答决策卡，还是记住用户明确要求的长期偏好。
 
 闲聊、致谢，以及能从当前上下文回答的简单问题，直接回复，不调用工具，不创建任务。
@@ -28,22 +32,54 @@ const systemPrompt = `你是 MoCo · 总管主会话的前台。每次处理一�
 
 func truncate(s string, n int) string {
 	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
+	if len(r) <= n {
+		return s
 	}
-	return s
+	marker := []rune(snapshotTruncated)
+	if n <= len(marker) {
+		return string(marker[:max(n, 0)])
+	}
+	return string(r[:n-len(marker)]) + snapshotTruncated
 }
+
+type snapshotSection struct {
+	name string
+	text string
+}
+
+func joinSnapshotSections(sections []snapshotSection) string {
+	drop := map[string]bool{}
+	for _, name := range []string{"memory", "conversation", "done"} {
+		var total int
+		for _, section := range sections {
+			if !drop[section.name] {
+				total += len([]rune(section.text))
+			}
+		}
+		if total <= snapshotMaxRunes {
+			break
+		}
+		drop[name] = true
+	}
+	var b strings.Builder
+	for _, section := range sections {
+		if !drop[section.name] {
+			b.WriteString(section.text)
+		}
+	}
+	return b.String()
+}
+
 func (d *Desk) snapshot(ctx context.Context, in Inbound) Snapshot {
 	var s Snapshot
-	var b strings.Builder
 	now := d.now()
-	fmt.Fprintf(&b, "%s\n当前时间：%s\n", systemPrompt, now.Format("2006-01-02 15:04:05 MST"))
+	sections := []snapshotSection{{name: "base", text: fmt.Sprintf("%s\n当前时间：%s\n", systemPrompt, now.Format("2006-01-02 15:04:05 MST"))}}
 	d.mu.Lock()
 	recentAnswerID, recentAnswerAt := d.recentAnswerID, d.recentAnswerAt
 	d.mu.Unlock()
 	if recentAnswerID != "" && now.Sub(recentAnswerAt) <= decisionReanswerWindow {
 		s.Answered = recentAnswerID
-		fmt.Fprintf(&b, "刚答过 %s，这条可能是在改答\n", recentAnswerID)
+		sections = append(sections, snapshotSection{name: "answer", text: fmt.Sprintf("刚答过 %s，这条可能是在改答\n", recentAnswerID)})
 	}
 	if d.Tasks != nil {
 		if tasks, err := d.Tasks.ListTasks(ctx, ""); err == nil {
@@ -62,7 +98,10 @@ func (d *Desk) snapshot(ctx context.Context, in Inbound) Snapshot {
 					na++
 				}
 			}
-			fmt.Fprintf(&b, "进行中任务：\n%s最近完成：\n%s", truncate(active.String(), 8000), truncate(done.String(), 2000))
+			sections = append(sections,
+				snapshotSection{name: "active", text: fmt.Sprintf("进行中任务：\n%s", truncate(active.String(), 8000))},
+				snapshotSection{name: "done", text: fmt.Sprintf("最近完成：\n%s", truncate(done.String(), 2000))},
+			)
 		}
 	}
 	if d.Decisions != nil {
@@ -74,7 +113,7 @@ func (d *Desk) snapshot(ctx context.Context, in Inbound) Snapshot {
 				}
 				fmt.Fprintf(&x, "%s %s\n", c.ID, truncate(c.Question, 200))
 			}
-			fmt.Fprintf(&b, "待决策：\n%s", truncate(x.String(), 3000))
+			sections = append(sections, snapshotSection{name: "decisions", text: fmt.Sprintf("待决策：\n%s", truncate(x.String(), 3000))})
 		}
 	}
 	if d.Memory != nil {
@@ -86,7 +125,7 @@ func (d *Desk) snapshot(ctx context.Context, in Inbound) Snapshot {
 				}
 				fmt.Fprintf(&x, "%s %s\n", h.ID, truncate(h.Content, 200))
 			}
-			fmt.Fprintf(&b, "相关记忆：\n%s", truncate(x.String(), 3000))
+			sections = append(sections, snapshotSection{name: "memory", text: fmt.Sprintf("相关记忆：\n%s", truncate(x.String(), 3000))})
 		}
 	}
 	if d.Feed != nil {
@@ -102,13 +141,13 @@ func (d *Desk) snapshot(ctx context.Context, in Inbound) Snapshot {
 					}
 				}
 			}
-			fmt.Fprintf(&b, "最近对话：\n%s", truncate(x.String(), 4000))
+			sections = append(sections, snapshotSection{name: "conversation", text: fmt.Sprintf("最近对话：\n%s", truncate(x.String(), 4000))})
 		}
 	}
 	if in.ReplyTo != "" {
-		fmt.Fprintf(&b, "回复任务：%s\n", truncate(in.ReplyTo, 200))
+		sections = append(sections, snapshotSection{name: "reply", text: fmt.Sprintf("回复任务：%s\n", truncate(in.ReplyTo, 200))})
 	}
-	fmt.Fprintf(&b, "用户原话：%s", truncate(in.Text, 4000))
-	s.Text = b.String()
+	sections = append(sections, snapshotSection{name: "user", text: fmt.Sprintf("用户原话：%s", truncate(in.Text, 4000))})
+	s.Text = joinSnapshotSections(sections)
 	return s
 }

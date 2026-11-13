@@ -609,7 +609,7 @@ func Open(opts Options) (*App, error) {
 		kanbanLeader = kanban.NewLeader(filepath.Join(opts.DataDir, "kanban-scheduler.lock"))
 		kanbanLeaderHeld = kanbanLeader.Held
 	}
-	kanbanSvc := kanban.NewService(kanban.Options{
+	kanbanOpts := kanban.Options{
 		Store:       dbStore,
 		Git:         gitRunner,
 		Driver:      backend,
@@ -682,7 +682,11 @@ func Open(opts Options) (*App, error) {
 			}
 			return time.Duration(config.DefaultStuckInterruptTimeout) * time.Second
 		},
-	})
+	}
+	if swarmMgr != nil {
+		kanbanOpts.DelegatingBees = func(id string) bool { return len(swarmMgr.RunningBees()[id]) > 0 }
+	}
+	kanbanSvc := kanban.NewService(kanbanOpts)
 
 	goalScheduler := kanban.NewGoalScheduler(kanbanSvc, 10*time.Second)
 	goalScheduler.Start()
@@ -700,6 +704,8 @@ func Open(opts Options) (*App, error) {
 	// 构造阶段为空时回调也不会出现空指针。
 	var attentionSvc *attention.Service
 	var attentionSrc *attentionWiring
+	var appInstance *App
+	var appInstanceMu sync.RWMutex
 	cleanup := func() {
 		if attentionSrc != nil {
 			attentionSrc.Stop()
@@ -1310,6 +1316,14 @@ func Open(opts Options) (*App, error) {
 		Sessions:             backend,
 		DataDir:              opts.DataDir,
 		AppendStewardMessage: backend.AppendStewardMessage,
+		Notify: func(title, body, threadID string) {
+			appInstanceMu.RLock()
+			instance := appInstance
+			appInstanceMu.RUnlock()
+			if instance != nil {
+				instance.notifyAttention(title, body, threadID)
+			}
+		},
 	})
 	attentionSrc.Start()
 	rs := NewRemoteService(opts.DataDir, backend)
@@ -1430,7 +1444,8 @@ func Open(opts Options) (*App, error) {
 		}
 	}
 
-	appInstance := &App{
+	appInstanceMu.Lock()
+	appInstance = &App{
 		client:        client,
 		dataDir:       opts.DataDir,
 		hub:           hub,
@@ -1456,6 +1471,7 @@ func Open(opts Options) (*App, error) {
 		// automationSleep 与 autoSvc 同时创建，这里只做保存，清理时统一 Stop。
 		automationSleep: autoSleep,
 	}
+	appInstanceMu.Unlock()
 	migrateOwned = false
 	modelsOwned = false
 	if agyAccountsMgr != nil {

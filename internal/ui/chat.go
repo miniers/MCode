@@ -312,6 +312,7 @@ func renderChat(c *ui.Context, s *chatState) {
 						}
 						// 总管会话还没开口时，输入框上方给三枚起步胶囊。
 						renderStewardStarterCapsules(c, s)
+						renderStewardFocusStrip(c, s, boardGroups)
 					})
 					renderComposer(c, s)
 					ui.Spacer(c)
@@ -405,6 +406,7 @@ func renderChat(c *ui.Context, s *chatState) {
 
 					// 总管会话的起步胶囊：用户还没开口时停在输入框上方，发出后条件不再满足自然消失。
 					renderStewardStarterCapsules(c, s)
+					renderStewardFocusStrip(c, s, boardGroups)
 
 					// 底部输入框区域
 					renderComposer(c, s)

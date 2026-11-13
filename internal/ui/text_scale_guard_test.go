@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,7 +19,10 @@ var chatScaleFiles = map[string]bool{
 	"swarm_report_markdown.go": true, "swarm_timeline_capsule.go": true, "text_scale.go": true,
 	"timeline_answered_question.go": true, "timeline_background_tasks.go": true, "timeline_banner.go": true,
 	"timeline_error_row.go": true, "timeline_mention.go": true, "timeline_minimap.go": true,
-	"timeline_rows.go": true, "timeline_diff.go": true, "tool_output_dialog.go": true,
+	"timeline_rows.go": true, "timeline_rows_assembly.go": true, "timeline_rows_assistant.go": true,
+	"timeline_rows_context.go": true, "timeline_rows_notice.go": true, "timeline_rows_todo.go": true,
+	"timeline_rows_tool.go": true, "timeline_rows_tool_group.go": true, "timeline_rows_turn_work.go": true,
+	"timeline_rows_user.go": true, "timeline_diff.go": true, "tool_output_dialog.go": true,
 	"turn_files_card.go": true, "controls_message.go": true,
 }
 var sidebarScaleFiles = map[string]bool{
@@ -78,7 +82,19 @@ func TestTextScaleOnlyChatAndSidebar(t *testing.T) {
 // 每一处 FontSize 都必须来自 scaledFont（或按字号算出的变量），不能写死数字常量，
 // 否则调大「文字大小」后同一条消息里会一半大一半小。
 func TestChatBodyFontSizeUsesScale(t *testing.T) {
-	for _, path := range []string{"swarm_mentions.go", "timeline_rows.go"} {
+	paths, err := filepath.Glob("timeline_rows*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var targets []string
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		targets = append(targets, path)
+	}
+	targets = append(targets, "swarm_mentions.go")
+	for _, path := range targets {
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {

@@ -154,7 +154,21 @@ func (w *Watchdog) Check(ctx context.Context) error {
 		}
 		activeIDs[t.ID] = true
 
-		if t.ThreadID == nil || *t.ThreadID == "" || w.svc.opts.Driver == nil {
+		if t.ThreadID == nil || *t.ThreadID == "" {
+			if t.Status == string(TaskStatusInProgress) && now.Sub(t.UpdatedAt) >= 2*time.Minute {
+				reason := "执行会话丢失"
+				t.Status = string(TaskStatusTodo)
+				t.LastFailureReason = &reason
+				w.svc.mu.Lock()
+				if _, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
+					w.svc.revision.Add(1)
+					changed = true
+				}
+				w.svc.mu.Unlock()
+			}
+			continue
+		}
+		if w.svc.opts.Driver == nil {
 			continue
 		}
 
@@ -231,13 +245,22 @@ func (w *Watchdog) Check(ctx context.Context) error {
 					}
 					continue
 				}
-				t.LastFailureReason = &st.FailureReason
-				w.svc.mu.Lock()
-				if _, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
-					w.svc.revision.Add(1)
-					changed = true
+				reasonChanged := t.LastFailureReason == nil || *t.LastFailureReason != st.FailureReason
+				statusChanged := t.Status == string(TaskStatusInProgress) && t.GoalID == nil
+				if statusChanged {
+					t.Status = string(TaskStatusFailed)
 				}
-				w.svc.mu.Unlock()
+				if reasonChanged {
+					t.LastFailureReason = &st.FailureReason
+				}
+				if reasonChanged || statusChanged {
+					w.svc.mu.Lock()
+					if _, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
+						w.svc.revision.Add(1)
+						changed = true
+					}
+					w.svc.mu.Unlock()
+				}
 			} else {
 				// 会话已停止：有回执按回执收尾；没有回执时按驱动能力决定是否追问
 				decision := w.svc.decideFinished(ctx, t, now, st.HostToolsUnavailable)

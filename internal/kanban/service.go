@@ -189,6 +189,8 @@ type Options struct {
 	StuckInterruptTimeout func() time.Duration
 	// IsReviewActive 返回审查会话是否正在运行；nil 时查询 ReviewThreadID 的会话状态。
 	IsReviewActive func(taskID string) bool
+	// DelegatingBees reports whether the task's lead currently has running swarm bees.
+	DelegatingBees func(threadID string) bool
 	Now            func() time.Time
 }
 
@@ -711,6 +713,10 @@ func (s *Service) startTaskInternal(ctx context.Context, taskID string, expected
 	task.IsDraft = false
 	task.AttemptCount++
 	task.LastFailureReason = nil
+	if meta, err := ParseTaskMeta(task.Meta); err == nil && meta.NextAttemptAt != "" {
+		meta.NextAttemptAt = ""
+		task.Meta = EncodeTaskMeta(meta)
+	}
 
 	updated, err := s.opts.Store.UpdateTask(ctx, task, expectedRevision)
 	if err != nil {

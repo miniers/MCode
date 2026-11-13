@@ -7,9 +7,13 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"mcode/internal/agent/llm"
 )
+
+// roundTimeout 是单轮模型调用的超时。
+var roundTimeout = 90 * time.Second
 
 func (d *Desk) toolbox(in Inbound) *Toolbox {
 	if d.Tools != nil {
@@ -36,6 +40,14 @@ func result(call llm.ToolCall, value any, err error) llm.Message {
 		s = e.Error()
 		err = e
 	}
+	if runes := []rune(s); len(runes) > 8000 {
+		marker := snapshotTruncated
+		keep := 8000 - len([]rune(marker))
+		if keep < 0 {
+			keep = 0
+		}
+		s = string(runes[:keep]) + marker
+	}
 	return llm.Message{Role: "tool", ToolCallID: call.ID, IsError: err != nil, Content: []llm.Part{{Type: "text", Text: s}}}
 }
 func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
@@ -44,19 +56,25 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 	}
 	tools := d.toolbox(in)
 	parts := []llm.Part{{Type: "text", Text: in.Text}}
-	parts = append(parts, in.Images...)
+	if len(in.Images) > 4 {
+		parts = append(parts, in.Images[:4]...)
+	} else {
+		parts = append(parts, in.Images...)
+	}
 	req := llm.Request{Model: d.Model, System: snap.Text, Messages: []llm.Message{{Role: "user", Content: parts}}, Tools: tools.Specs()}
 	rounds := d.MaxRounds
 	if rounds <= 0 || rounds > 4 {
 		rounds = 4
 	}
 	for i := 0; i < rounds; i++ {
-		resp, text, err := d.stream(ctx, req)
+		roundCtx, cancel := context.WithTimeout(ctx, roundTimeout)
+		resp, text, err := d.stream(roundCtx, req)
+		cancel()
 		if err != nil || resp == nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if errors.Is(err, context.DeadlineExceeded) {
+			if errors.Is(err, context.DeadlineExceeded) && !errors.Is(roundCtx.Err(), context.DeadlineExceeded) {
 				return err
 			}
 			if err == nil {
@@ -87,6 +105,7 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 			}
 			var firstErr error
 			succeeded := 0
+			created := false
 			for _, call := range resp.Message.ToolCalls {
 				tool, _ := tools.Get(call.Name)
 				_, err := tool.Run(ctx, call.Arguments)
@@ -97,7 +116,11 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 					}
 				} else {
 					succeeded++
+					created = created || call.Name == "create_task"
 				}
+			}
+			if created && strings.TrimSpace(text) == "" {
+				d.reply(ctx, in.ThreadID, createdTaskReply)
 			}
 			if succeeded > 0 {
 				return nil

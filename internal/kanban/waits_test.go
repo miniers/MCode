@@ -62,3 +62,47 @@ func TestCheckWaits(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckWaitsBadTaskDoesNotStopRound(t *testing.T) {
+	ctx := context.Background()
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
+	project := "p"
+	now := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	if err := db.CreateTask(ctx, store.Task{ID: "bad", ProjectID: &project, Status: "waiting", Meta: "{"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "good", ProjectID: &project, Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{WaitKind: "machine", WaitCheck: "true", WakeAt: now.Format(time.RFC3339)})}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckWaits(ctx, now); err == nil {
+		t.Fatal("损坏任务应汇总返回错误")
+	}
+	bad, err := db.GetTask(ctx, "bad")
+	if err != nil || bad.LastFailureReason == nil {
+		t.Fatalf("损坏任务应记录失败原因: %+v, %v", bad, err)
+	}
+	good, err := db.GetTask(ctx, "good")
+	if err != nil || good.Status != string(TaskStatusTodo) {
+		t.Fatalf("后续等待任务未唤醒: %+v, %v", good, err)
+	}
+}
+
+func TestCheckWaitsHumanExpiryCreatesDecision(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, func() time.Time { return now })
+	if err := db.CreateTask(ctx, store.Task{ID: "human", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{WaitKind: "human", WakeAt: now.Add(-time.Minute).Format(time.RFC3339), Summary: "人工确认"})}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckWaits(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "human")
+	if err != nil || task.Status != string(TaskStatusNeedsApproval) {
+		t.Fatalf("人工等待应升级: %+v, %v", task, err)
+	}
+	decisions, err := db.ListStewardDecisions(ctx, "open", 0)
+	if err != nil || len(decisions) != 1 || decisions[0].Question != "等待的人工处理已到期，是否继续等" {
+		t.Fatalf("人工等待决策卡: %+v, %v", decisions, err)
+	}
+}

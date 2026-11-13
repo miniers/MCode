@@ -87,6 +87,7 @@ func openStewardTask(s *chatState, result stewardResult) {
 	if s == nil || result.Thread == "" || result.Task == "" {
 		return
 	}
+	markStewardTaskSeenByID(s, result.Task)
 	s.mu.Lock()
 	s.stewardTaskThreadID = result.Thread
 	s.stewardTask = stewardTaskSnapshot{ID: result.Task, Status: result.Status, ResultSummary: result.Summary}

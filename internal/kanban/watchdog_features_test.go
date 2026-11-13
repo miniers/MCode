@@ -42,6 +42,47 @@ func TestWatchdogLeaderGate(t *testing.T) {
 	}
 }
 
+func TestWatchdogFailedSessionFailsStandaloneTaskOnce(t *testing.T) {
+	ctx := context.Background()
+	_, db, driver, watchdog := setupWatchdogTestService(t, true, false, true, time.Minute, time.Hour, nil)
+	thread := "failed-standalone"
+	if err := db.CreateTask(ctx, store.Task{ID: "failed-task", Title: "失败任务", Status: string(TaskStatusInProgress), ThreadID: &thread}); err != nil {
+		t.Fatal(err)
+	}
+	driver.setThreadState(thread, SessionState{Failed: true, FailureReason: "provider failed"})
+	if err := watchdog.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first, err := db.GetTask(ctx, "failed-task")
+	if err != nil || first.Status != string(TaskStatusFailed) || first.LastFailureReason == nil || *first.LastFailureReason != "provider failed" {
+		t.Fatalf("失败会话应将独立任务收尾为 failed: task=%+v err=%v", first, err)
+	}
+	if err := watchdog.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.GetTask(ctx, "failed-task")
+	if err != nil || second.Revision != first.Revision {
+		t.Fatalf("原因和状态未变化时不应重复写库: revision=%d -> %d err=%v", first.Revision, second.Revision, err)
+	}
+}
+
+func TestWatchdogRequeuesOldTaskWithoutThread(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	_, db, _, watchdog := setupWatchdogTestService(t, true, false, true, time.Minute, time.Hour, func() time.Time { return now })
+	old := now.Add(-3 * time.Minute)
+	if err := db.CreateTask(ctx, store.Task{ID: "lost-thread", Title: "会话丢失", Status: string(TaskStatusInProgress), UpdatedAt: old}); err != nil {
+		t.Fatal(err)
+	}
+	if err := watchdog.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "lost-thread")
+	if err != nil || task.Status != string(TaskStatusTodo) || task.LastFailureReason == nil || *task.LastFailureReason != "执行会话丢失" {
+		t.Fatalf("超过两分钟且无会话的任务应回到 todo: task=%+v err=%v", task, err)
+	}
+}
+
 // setupWatchdogTestService 辅助创建用于测试自动化特性的看板服务。
 func setupWatchdogTestService(t *testing.T, autoReview, autoStart, autoRescue bool, nudgeTimeout, interruptTimeout time.Duration, nowFn func() time.Time) (*Service, *store.Store, *mockDriver, *Watchdog) {
 	t.Helper()

@@ -61,6 +61,7 @@ type fake struct {
 	amendErr     error
 	getErr       error
 	recentErr    error
+	tasks        []store.Task
 	created      chan CreateTaskInput
 	amended      chan string
 }
@@ -77,7 +78,7 @@ func (f *fake) AppendAssistant(_ context.Context, _, _, text string) error {
 func (f *fake) Recent(context.Context, string, int) ([]llm.Message, error) { return nil, nil }
 func (f *fake) ListTasks(context.Context, string) ([]store.Task, error) {
 	f.event("list")
-	return nil, nil
+	return f.tasks, nil
 }
 func (f *fake) GetTask(_ context.Context, id string) (store.Task, error) {
 	return store.Task{ID: id, Status: "done"}, f.getErr
@@ -121,6 +122,21 @@ func call(name, args string) llm.ToolCall {
 func response(calls ...llm.ToolCall) *llm.Response {
 	return &llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: calls}}
 }
+
+type roundDeadlineClient struct {
+	deadline time.Time
+	images   int
+}
+
+func (c *roundDeadlineClient) Stream(ctx context.Context, req llm.Request, _ func(llm.Delta)) (*llm.Response, error) {
+	c.deadline, _ = ctx.Deadline()
+	if len(req.Messages) > 0 {
+		c.images = len(req.Messages[0].Content) - 1
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func TestLoop(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -136,7 +152,7 @@ func TestLoop(t *testing.T) {
 		{"无效JSON", []*llm.Response{response(call("create_task", `{`)), response()}, []string{"丢弃", "修正"}, []string{"reply:修正"}, 2},
 		{"未知", []*llm.Response{response(call("missing", `{}`)), response()}, []string{"丢弃", "修正"}, []string{"reply:修正"}, 2},
 		{"轮数耗尽", []*llm.Response{response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`)), response(call("list_tasks", `{}`))}, []string{"丢弃", "丢弃", "丢弃", "丢弃"}, []string{"list", "list", "list", "list", "create:原话:owner"}, 4},
-		{"写工具无文字", []*llm.Response{response(call("create_task", `{"title":"工作"}`))}, []string{""}, []string{"create:工作:owner"}, 1},
+		{"写工具无文字", []*llm.Response{response(call("create_task", `{"title":"工作"}`))}, []string{""}, []string{"create:工作:owner", "reply:已创建任务"}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -166,6 +182,93 @@ func TestLoop(t *testing.T) {
 	}
 }
 
+func TestLoopRoundTimeoutAndImageLimit(t *testing.T) {
+	if roundTimeout != 90*time.Second {
+		t.Fatalf("单轮超时=%v", roundTimeout)
+	}
+	oldTimeout := roundTimeout
+	roundTimeout = 20 * time.Millisecond
+	defer func() { roundTimeout = oldTimeout }()
+	client := &roundDeadlineClient{}
+	f := &fake{}
+	d := Desk{Client: client, Feed: f, Tasks: f}
+	images := make([]llm.Part, 6)
+	for i := range images {
+		images[i] = llm.Part{Type: "image", Text: fmt.Sprintf("image-%d", i)}
+	}
+	if err := d.loop(context.Background(), Inbound{Text: "工作", Images: images}, Snapshot{}); err != nil {
+		t.Fatal(err)
+	}
+	if client.deadline.IsZero() {
+		t.Fatal("单轮调用没有设置 deadline")
+	}
+	if client.images != 4 {
+		t.Fatalf("图片数量=%d", client.images)
+	}
+	if !reflect.DeepEqual(f.events, []string{"create:工作:owner"}) {
+		t.Fatalf("超时后未走降级: %v", f.events)
+	}
+}
+
+func TestToolTaskResultsAreCompact(t *testing.T) {
+	f := &fake{}
+	for i := 0; i < 45; i++ {
+		f.tasks = append(f.tasks, store.Task{ID: fmt.Sprintf("t-%02d", i), Status: "todo", Title: "标题", UpdatedAt: time.Unix(int64(i), 0)})
+	}
+	for _, name := range []string{"get_status", "list_tasks"} {
+		t.Run(name, func(t *testing.T) {
+			tool, ok := NewToolbox(&Desk{Tasks: f}).Get(name)
+			if !ok {
+				t.Fatal("工具不存在")
+			}
+			value, err := tool.Run(context.Background(), json.RawMessage(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rows []map[string]any
+			if err := json.Unmarshal(encoded, &rows); err != nil || len(rows) != 40 {
+				t.Fatalf("任务摘要=%s, 错误=%v", encoded, err)
+			}
+			if rows[0]["id"] != "t-44" || len(rows[0]) != 4 || rows[0]["updated_at"] == nil {
+				t.Fatalf("任务摘要字段错误: %+v", rows[0])
+			}
+		})
+	}
+}
+
+func TestResultAndSnapshotTruncationMarkers(t *testing.T) {
+	msg := result(call("list_tasks", `{}`), strings.Repeat("x", 9000), nil)
+	text := msg.Content[0].Text
+	if len([]rune(text)) != 8000 || !strings.HasSuffix(text, snapshotTruncated) {
+		t.Fatalf("工具结果截断错误: 长度=%d, 后缀=%q", len([]rune(text)), text[len(text)-len(snapshotTruncated):])
+	}
+	if got := truncate(strings.Repeat("x", 20), 10); len([]rune(got)) != 10 || !strings.HasSuffix(got, snapshotTruncated) {
+		t.Fatalf("文本截断错误: %q", got)
+	}
+	sections := []snapshotSection{
+		{name: "base", text: strings.Repeat("b", 8000)},
+		{name: "active", text: strings.Repeat("a", 8000)},
+		{name: "done", text: strings.Repeat("d", 2000)},
+		{name: "decisions", text: strings.Repeat("q", 3000)},
+		{name: "memory", text: strings.Repeat("m", 3000)},
+		{name: "conversation", text: strings.Repeat("c", 4000)},
+		{name: "user", text: strings.Repeat("u", 4000)},
+	}
+	joined := joinSnapshotSections(sections)
+	if len([]rune(joined)) > snapshotMaxRunes || strings.Contains(joined, "m") || strings.Contains(joined, "c") || strings.Contains(joined, "d") {
+		t.Fatalf("快照分段裁剪错误: 长度=%d", len([]rune(joined)))
+	}
+	for _, marker := range []string{"a", "q", "u"} {
+		if !strings.Contains(joined, marker) {
+			t.Fatalf("快照丢失保留段 %q", marker)
+		}
+	}
+}
+
 func TestHandleMessageWriteFailures(t *testing.T) {
 	writeErr := errors.New("写入失败")
 	for _, tc := range []struct {
@@ -175,7 +278,7 @@ func TestHandleMessageWriteFailures(t *testing.T) {
 		wantErr   error
 		want      []string
 	}{
-		{"部分成功", []llm.ToolCall{call("create_task", `{"title":"任务"}`), call("amend_task", `{"task_id":"t","text":"继续"}`)}, nil, nil, []string{"list", "create:任务:owner", "amend:t:继续"}},
+		{"部分成功", []llm.ToolCall{call("create_task", `{"title":"任务"}`), call("amend_task", `{"task_id":"t","text":"继续"}`)}, nil, nil, []string{"list", "create:任务:owner", "amend:t:继续", "reply:已创建任务"}},
 		{"全部失败", []llm.ToolCall{call("create_task", `{"title":"任务"}`)}, writeErr, writeErr, []string{"list", "create:任务:owner"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -196,7 +299,7 @@ func TestCLIWritePartialSuccess(t *testing.T) {
 		return `{"reply":"","calls":[{"tool":"create_task","args":{"title":"任务"}},{"tool":"amend_task","args":{"task_id":"t","text":"继续"}}]}`, nil
 	}}
 	err := d.HandleMessage(context.Background(), Inbound{Text: "工作"})
-	if err != nil || !reflect.DeepEqual(f.events, []string{"list", "create:任务:owner", "amend:t:继续"}) {
+	if err != nil || !reflect.DeepEqual(f.events, []string{"list", "create:任务:owner", "amend:t:继续", "reply:已创建任务"}) {
 		t.Fatal(err, f.events)
 	}
 }
@@ -302,7 +405,7 @@ func TestCLI(t *testing.T) {
 		{"损坏", "{", true, []string{"create:工作:owner"}, 1},
 		{"丢弃读", `{"reply":"收到","calls":[{"tool":"list_tasks","args":{}}]}`, true, []string{"create:工作:owner"}, 1},
 		{"空答", `{"reply":"","calls":[]}`, true, nil, 1},
-		{"空答写入", `{"reply":"","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, true, []string{"create:任务:owner"}, 1},
+		{"空答写入", `{"reply":"","calls":[{"tool":"create_task","args":{"title":"任务"}}]}`, true, []string{"create:任务:owner", "reply:已创建任务"}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fake{}

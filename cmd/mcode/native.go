@@ -406,7 +406,7 @@ func handleDesktopAlert(dataDir string, fallback config.Config, alert remote.Ses
 		enabled = cfg.Notifications.NotifyWhenFinished
 	}
 	if enabled {
-		if !cfg.Notifications.NotifyWhenForeground && isForeground != nil && isForeground() {
+		if !cfg.Notifications.NotifyWhenForeground && alertInForeground(alert, isForeground) {
 			return
 		}
 		// 安静时段不弹系统通知：徽标与收件箱照常由 attention 数据驱动。
@@ -417,6 +417,16 @@ func handleDesktopAlert(dataDir string, fallback config.Config, alert remote.Ses
 			log.Printf("failed to send %s notification: %v", alert.Kind, err)
 		}
 	}
+}
+
+// viewingThreadForAlert 可在测试中替换；有会话 ID 时只抑制用户正在看的那条会话。
+var viewingThreadForAlert = mcodeui.IsViewingThread
+
+func alertInForeground(alert remote.SessionAlert, isForeground func() bool) bool {
+	if alert.ThreadID != "" {
+		return viewingThreadForAlert != nil && viewingThreadForAlert(alert.ThreadID)
+	}
+	return isForeground != nil && isForeground()
 }
 
 // notificationThreadID 从通知 tag 中取回会话 ID：tag 形如 "done:<会话 ID>"、"failed:<会话 ID>"，
