@@ -142,6 +142,12 @@ func setPlanLimitsEnv(t *testing.T, env []string) {
 	t.Cleanup(func() { planLimitsEnv = original })
 }
 
+func setTestHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
 // isolateGatewayEnv 清空网关相关环境变量，避免宿主机的 ANTHROPIC 配置
 // 让无凭据路径意外请求真实网关。
 func isolateGatewayEnv(t *testing.T) {
@@ -155,7 +161,7 @@ func isolateGatewayEnv(t *testing.T) {
 // stubLogin 写入假凭据并让读取走该临时目录，不触碰真实 HOME 与钥匙串。
 func stubLogin(t *testing.T, login claudeLogin) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dir := os.Getenv("CLAUDE_CONFIG_DIR")
 	t.Cleanup(func() {
@@ -248,7 +254,7 @@ func TestReadPlanLimits_FetchAndCache(t *testing.T) {
 
 func TestReadPlanLimits_KeychainFallback(t *testing.T) {
 	isolateGatewayEnv(t)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	ResetPlanLimitsCache()
 	t.Cleanup(func() {
@@ -283,7 +289,7 @@ func TestReadPlanLimits_KeychainFallback(t *testing.T) {
 func TestReadPlanLimits_NoCredentialsAndHTTPError(t *testing.T) {
 	isolateGatewayEnv(t)
 	// 凭据文件缺失且钥匙串没有条目时报错
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	ResetPlanLimitsCache()
 	origKeychain := keychainLogin

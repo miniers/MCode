@@ -12,7 +12,10 @@ func isolateLogDir(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("USERPROFILE", home)
+	config := filepath.Join(home, ".config")
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("APPDATA", config)
 	logFileMu.Lock()
 	logFilePath = ""
 	logFileMu.Unlock()
@@ -22,6 +25,18 @@ func isolateLogDir(t *testing.T) string {
 		logFileMu.Unlock()
 	})
 	return home
+}
+
+func TestLogDirUsesTemporaryConfig(t *testing.T) {
+	home := isolateLogDir(t)
+	dir, err := logDir("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(home, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		t.Fatalf("log directory %q is outside temporary directory %q: %v", dir, home, err)
+	}
 }
 
 func TestOpenLogFileRotatesWhenOversized(t *testing.T) {

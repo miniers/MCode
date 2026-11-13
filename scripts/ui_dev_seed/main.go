@@ -21,6 +21,17 @@ func inside(path, root string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
+func checkSandboxDir(path, temp, systemTemp, defaultDir string) error {
+	if !(inside(path, temp) || inside(path, systemTemp)) || path == temp || path == systemTemp || inside(path, defaultDir) {
+		dirs := temp
+		if systemTemp != temp {
+			dirs += " 或 " + systemTemp
+		}
+		return fmt.Errorf("数据目录必须位于系统临时目录内（%s），且不能位于默认数据目录", dirs)
+	}
+	return nil
+}
+
 func run() error {
 	data := flag.String("data", "", "临时数据目录")
 	showcase := flag.Bool("showcase", false, "灌入展示数据")
@@ -51,11 +62,13 @@ func run() error {
 	}
 	systemTemp, err := filepath.EvalSymlinks("/tmp")
 	if err != nil {
-		return err
+		if !os.IsNotExist(err) {
+			return err
+		}
+		systemTemp = temp
 	}
-	inSystemTemp := inside(path, temp) || inside(path, systemTemp)
-	if !inSystemTemp || path == temp || path == systemTemp || inside(path, defaultDir) {
-		return fmt.Errorf("数据目录必须位于系统临时目录内（%s 或 %s），且不能位于默认数据目录", temp, systemTemp)
+	if err := checkSandboxDir(path, temp, systemTemp, defaultDir); err != nil {
+		return err
 	}
 	for _, name := range []string{"mcode.db", "mcode.db-wal", "mcode.db-shm", "config.json"} {
 		if info, e := os.Lstat(filepath.Join(path, name)); e == nil && !info.Mode().IsRegular() {
