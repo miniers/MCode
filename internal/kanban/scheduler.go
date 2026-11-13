@@ -339,7 +339,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 		if (t.Status != string(TaskStatusInProgress) && t.Status != string(TaskStatusNeedsApproval)) || t.ThreadID == nil || *t.ThreadID == "" || g.svc.opts.Driver == nil {
 			continue
 		}
-		if t.Status == string(TaskStatusNeedsApproval) && isStewardOwnerIn(goal, t) {
+		if t.Status == string(TaskStatusNeedsApproval) && !g.svc.hasReceipt(t.ID, threadIDOf(t)) {
 			meta, err := ParseTaskMeta(t.Meta)
 			if err == nil && meta.DecisionID != "" {
 				d, err := g.svc.opts.Store.GetStewardDecision(ctx, meta.DecisionID)
@@ -532,6 +532,11 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 					if _, err := g.svc.ensureDependenciesDone(ctx, t); err != nil {
 						continue
 					}
+					if meta, err := ParseTaskMeta(t.Meta); err == nil && meta.NextAttemptAt != "" {
+						if next, err := time.Parse(time.RFC3339, meta.NextAttemptAt); err == nil && next.After(now) {
+							continue
+						}
+					}
 					g.svc.mu.Lock()
 					started, err := g.svc.startTaskInternal(ctx, t.ID, t.Revision)
 					g.svc.mu.Unlock()
@@ -564,17 +569,27 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 						}
 						continue
 					}
-					// 同一任务同一错误只记录一次，避免每轮调度重复写库与刷日志
-					if g.lastStartErrors[t.ID] == reason {
-						continue
-					}
-					g.lastStartErrors[t.ID] = reason
 					log.Printf("kanban: 目标 %s 调度启动任务 %s 失败: %v", goal.ID, t.ID, err)
+					t.AttemptCount++
 					t.LastFailureReason = &reason
+					if t.AttemptCount >= maxAttempts {
+						t.Status = string(TaskStatusRejected)
+						goal.Status = string(GoalStatusPaused)
+						goalReason := fmt.Sprintf("task %s failed: %s", t.Title, reason)
+						goal.StatusReason = &goalReason
+					} else if meta, merr := ParseTaskMeta(t.Meta); merr == nil {
+						meta.NextAttemptAt = now.Add(time.Duration(BackoffMinutes(t.AttemptCount-1)) * time.Minute).Format(time.RFC3339)
+						t.Meta = EncodeTaskMeta(meta)
+					}
 					if up, uerr := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); uerr == nil {
 						tasks[i] = up
 						tasksByID[t.ID] = up
 						goalChanged = true
+						if up.Status == string(TaskStatusRejected) {
+							if upGoal, gerr := g.svc.opts.Store.UpdateGoal(ctx, goal, goal.Revision); gerr == nil {
+								goal = upGoal
+							}
+						}
 					}
 				}
 			}

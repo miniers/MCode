@@ -170,11 +170,30 @@ func (s *Service) SubmitExecutorResult(ctx context.Context, taskID, callerThread
 	if err != nil {
 		return err
 	}
-	if task.Status != string(TaskStatusInProgress) && task.Status != string(TaskStatusNeedsApproval) {
+	if task.Status != string(TaskStatusInProgress) && task.Status != string(TaskStatusNeedsApproval) && task.Status != string(TaskStatusWaiting) {
 		return fmt.Errorf("%w: 任务 %s 当前状态为 %s，不在执行中", ErrInvalidTransition, task.ID, task.Status)
 	}
 	if callerThreadID == "" || threadIDOf(task) != callerThreadID {
 		return fmt.Errorf("%w: 只有任务当前的执行会话可以提交结果", ErrInvalidTransition)
+	}
+	if task.Status == string(TaskStatusWaiting) {
+		meta, err := ParseTaskMeta(task.Meta)
+		if err != nil {
+			return err
+		}
+		if !CanTransition(TaskStatusWaiting, TaskStatusInProgress) {
+			return fmt.Errorf("%w: waiting 任务无法恢复执行", ErrInvalidTransition)
+		}
+		task.Status = string(TaskStatusInProgress)
+		meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+		task.Meta = EncodeTaskMeta(meta)
+		s.mu.Lock()
+		updated, err := s.opts.Store.UpdateTask(ctx, task, task.Revision)
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		task = updated
 	}
 
 	rs := &s.receipts
@@ -401,6 +420,9 @@ func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Tim
 
 	// 追问前重读任务：另一路巡视可能在同一轮里刚把这张卡片收尾，避免给已结束的会话补发追问
 	if !s.taskOpenForReceipt(ctx, t.ID) {
+		return finishDecision{kind: finishWait}
+	}
+	if s.opts.DelegatingBees != nil && s.opts.DelegatingBees(threadIDOf(t)) {
 		return finishDecision{kind: finishWait}
 	}
 

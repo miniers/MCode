@@ -609,7 +609,7 @@ func Open(opts Options) (*App, error) {
 		kanbanLeader = kanban.NewLeader(filepath.Join(opts.DataDir, "kanban-scheduler.lock"))
 		kanbanLeaderHeld = kanbanLeader.Held
 	}
-	kanbanSvc := kanban.NewService(kanban.Options{
+	kanbanOpts := kanban.Options{
 		Store:       dbStore,
 		Git:         gitRunner,
 		Driver:      backend,
@@ -682,7 +682,11 @@ func Open(opts Options) (*App, error) {
 			}
 			return time.Duration(config.DefaultStuckInterruptTimeout) * time.Second
 		},
-	})
+	}
+	if swarmMgr != nil {
+		kanbanOpts.DelegatingBees = func(id string) bool { return len(swarmMgr.RunningBees()[id]) > 0 }
+	}
+	kanbanSvc := kanban.NewService(kanbanOpts)
 
 	goalScheduler := kanban.NewGoalScheduler(kanbanSvc, 10*time.Second)
 	goalScheduler.Start()
