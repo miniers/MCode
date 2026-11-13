@@ -567,10 +567,6 @@ type chatState struct {
 
 	// attentionInbox 是侧栏「待处理」收件箱的数量、列表与订阅状态，懒创建（受 s.mu 保护）。
 	attentionInbox *attentionInboxState
-
-	// reportedForegroundThread 是上一次上报给应用层的前台会话 ID（受 s.mu 保护）：
-	// 与当前值相同时跳过上报，避免每帧都跨层调用一遍（见 foreground_reporter.go）。
-	reportedForegroundThread string
 }
 
 func newChatState(client Client) *chatState {

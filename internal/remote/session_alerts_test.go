@@ -37,25 +37,10 @@ func TestSessionAlertDetector_ApprovalOnce(t *testing.T) {
 		},
 	}
 
-	// 首次出现审批请求，应触发
+	// 首次收到快照只建立基线，不应把已有审批误报成新请求。
 	alert, ok := d.Observe(threadID, "requests.changed", params1)
-	if !ok {
-		t.Fatalf("expected alert for first approval request")
-	}
-	if alert.Kind != SessionAlertApproval {
-		t.Errorf("expected kind %s, got %s", SessionAlertApproval, alert.Kind)
-	}
-	if alert.ThreadID != threadID {
-		t.Errorf("expected threadID %s, got %s", threadID, alert.ThreadID)
-	}
-	if alert.Title != "需要你的审批" {
-		t.Errorf("expected title '需要你的审批', got %s", alert.Title)
-	}
-	if alert.Body != reqTitle {
-		t.Errorf("expected body %s, got %s", reqTitle, alert.Body)
-	}
-	if alert.Tag != "approval:"+threadID {
-		t.Errorf("expected tag approval:%s, got %s", threadID, alert.Tag)
+	if ok {
+		t.Fatalf("unexpected alert for initial approval snapshot: %+v", alert)
 	}
 
 	// 再次收到相同请求，不应触发
@@ -395,6 +380,7 @@ func TestWatchSessionAlerts(t *testing.T) {
 
 	// 审批事件
 	reqTitle := "是否继续"
+	hub.Notify("t-1", "requests.changed", wire.RequestsChangedParams{ThreadID: "t-1"})
 	hub.Notify("t-1", "requests.changed", wire.RequestsChangedParams{
 		ThreadID: "t-1",
 		Requests: []wire.RemoteRequest{

@@ -164,6 +164,14 @@ func IsViewingThread(threadID string) bool {
 	return state.chatSelectedThreadID() == threadID
 }
 
+// currentWindow 返回该状态所属的窗口；窗口回调未注入时返回 nil。
+func (s *chatState) currentWindow() *mygo.Window {
+	if s == nil || s.window == nil {
+		return nil
+	}
+	return s.window()
+}
+
 // initialThreadID 返回窗口首次选中的会话：显式传入优先，否则消费通知点击留下的待定位会话。
 func initialThreadID(threadID string) string {
 	if threadID != "" {
@@ -368,17 +376,13 @@ func openThreadWindow(client Client, threadID, title string, opts ...Option) (*m
 			markFirstFrameShown()
 		})
 		registerChatWindow(win, state)
-		// mygo 按需出帧：失焦或隐藏后这个窗口通常不再重绘，光靠每帧上报无法把「没在看」
-		// 告诉应用层，所以在这几个焦点/可见性回调里各补一次上报（值没变时内部跳过）。
+		// 维护窗口激活状态，供界面内的交互逻辑使用。
 		win.OnFocus(func() {
 			state.setWindowActive(true)
-			state.reportForegroundThread()
 		})
 		win.OnBlur(func() {
 			state.setWindowActive(false)
-			state.reportForegroundThread()
 		})
-		win.OnHide(func() { state.reportForegroundThread() })
 
 		win.OnClose(func(e *mygo.CloseEvent) {
 			if threadID == "" {

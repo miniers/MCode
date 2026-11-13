@@ -416,6 +416,7 @@ func TestWebPushService_ObserveHub(t *testing.T) {
 
 	// 测试 1: requests.changed 触发审批推送
 	reqTitle := "是否允许运行脚本"
+	hub.Notify("t-1", "requests.changed", wire.RequestsChangedParams{ThreadID: "t-1"})
 	hub.Notify("t-1", "requests.changed", wire.RequestsChangedParams{
 		ThreadID: "t-1",
 		Requests: []wire.RemoteRequest{
@@ -993,6 +994,7 @@ func newPushCapture(t *testing.T) (*WebPushService, <-chan []byte) {
 func TestPushPayloadInlineAnswer(t *testing.T) {
 	svc, plainCh := newPushCapture(t)
 	req := answerableQuestionRequest()
+	svc.HandleNotification(context.Background(), "t-1", "requests.changed", wire.RequestsChangedParams{ThreadID: "t-1"})
 	svc.HandleNotification(context.Background(), "t-1", "requests.changed", wire.RequestsChangedParams{
 		ThreadID: "t-1",
 		Requests: []wire.RemoteRequest{req},
@@ -1050,6 +1052,7 @@ func TestPushPayloadInlineAnswerOmitsButtons(t *testing.T) {
 		req.RequestID = "req-" + tc.name
 		tc.mutate(&req)
 
+		svc.HandleNotification(context.Background(), threadID, "requests.changed", wire.RequestsChangedParams{ThreadID: threadID})
 		svc.HandleNotification(context.Background(), threadID, "requests.changed", wire.RequestsChangedParams{
 			ThreadID: threadID,
 			Requests: []wire.RemoteRequest{req},

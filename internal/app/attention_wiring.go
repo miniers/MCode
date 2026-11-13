@@ -58,6 +58,8 @@ type attentionWiringOptions struct {
 	// DataDir 是配置目录，卡住巡检每次从这里现读阈值与开关。
 	DataDir              string
 	AppendStewardMessage func(context.Context, string, string, string, string) error
+	// Notify 在面向用户的看板或 Bee 事件首次写入时发送通知；为空时不发送。
+	Notify func(title, body, threadID string)
 	// Now 提供当前时间，测试可注入；为空时使用 time.Now。
 	Now func() time.Time
 }
@@ -75,6 +77,7 @@ type attentionWiring struct {
 	now                  func() time.Time
 	store                *store.Store
 	appendStewardMessage func(context.Context, string, string, string, string) error
+	notify               func(title, body, threadID string)
 	automationResultMu   sync.Mutex
 	automationResults    map[string]struct{}
 	// sessions 是会话状态读取入口，无进展看门狗按它确认会话是否仍在跑。
@@ -143,6 +146,7 @@ func newAttentionWiring(opts attentionWiringOptions) *attentionWiring {
 		now:                  opts.Now,
 		store:                opts.Store,
 		appendStewardMessage: opts.AppendStewardMessage,
+		notify:               opts.Notify,
 		sessions:             opts.Sessions,
 		alerts:               remote.NewSessionAlertDetector(),
 		threads:              make(map[string]*threadAlertState),
@@ -274,6 +278,12 @@ func (w *attentionWiring) record(input attention.Input) bool {
 	if err != nil {
 		log.Printf("attention: 记录待处理事件失败（%s/%s）: %v", input.Kind, input.SubjectID, err)
 		return false
+	}
+	if created && w.notify != nil {
+		switch input.Kind {
+		case attention.KindKanbanReview, attention.KindKanbanFailed, attention.KindBeeFailed:
+			w.notify(input.Title, input.Detail, input.ThreadID)
+		}
 	}
 	return created
 }

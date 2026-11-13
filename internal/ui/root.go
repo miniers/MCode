@@ -74,9 +74,6 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 		applyAppTheme(c)
 		state.init(c)
 		state.applyWorkspaceUpdates()
-		// 每帧把「用户正在看的会话」同步给应用层，值没变时内部直接跳过。
-		state.reportForegroundThread()
-
 		// 后台建好的总管会话每帧在这里跳到前台，侧栏折叠时也不会漏跳。
 		consumeStewardPendingThread(state)
 

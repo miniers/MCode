@@ -137,8 +137,14 @@ func (d *SessionAlertDetector) Observe(threadID, method string, params any) (Ses
 		d.mu.Lock()
 		seen, ok := d.seenRequests[threadID]
 		if !ok {
-			seen = make(map[string]bool)
-			d.seenRequests[threadID] = seen
+			// 首次快照只建立基线，避免启动或重连时把已有审批误报成新请求。
+			newSeen := make(map[string]bool, len(reqs))
+			for i := range reqs {
+				newSeen[reqs[i].RequestID] = true
+			}
+			d.seenRequests[threadID] = newSeen
+			d.mu.Unlock()
+			return SessionAlert{}, false
 		}
 
 		var newReq *wire.RemoteRequest

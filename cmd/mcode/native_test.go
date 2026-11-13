@@ -111,6 +111,41 @@ func TestDesktopAlertForegroundNotification(t *testing.T) {
 	}
 }
 
+func TestDesktopAlertForegroundUsesThread(t *testing.T) {
+	dataDir := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Notifications.NotifyWhenFinished = true
+	cfg.Notifications.NotifyWhenForeground = false
+	if err := config.Save(dataDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	oldViewing := viewingThreadForAlert
+	t.Cleanup(func() { viewingThreadForAlert = oldViewing })
+	viewingThreadForAlert = func(threadID string) bool { return threadID == "t1" }
+
+	for _, tc := range []struct {
+		threadID string
+		want     bool
+	}{
+		{threadID: "t1", want: false},
+		{threadID: "t2", want: true},
+	} {
+		notified := false
+		handleDesktopAlert(dataDir, config.Defaults(), remote.SessionAlert{
+			Kind: remote.SessionAlertDone, ThreadID: tc.threadID, Tag: "done:" + tc.threadID,
+		}, func(string, string, string) error {
+			notified = true
+			return nil
+		}, func() {}, func() {}, func() bool {
+			t.Fatalf("会话提醒不应读取全局前台状态")
+			return true
+		})
+		if notified != tc.want {
+			t.Fatalf("thread %q: got notification %v, want %v", tc.threadID, notified, tc.want)
+		}
+	}
+}
+
 func TestNotificationThreadID(t *testing.T) {
 	for _, tc := range []struct {
 		tag  string
