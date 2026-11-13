@@ -5,26 +5,64 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"mcode/internal/config"
+	"mcode/internal/git"
 )
 
-// SweepOrphanCopies 清理 WorktreeDir 下的孤儿副本目录：既没有被任何 Bee 的
+// SweepOrphanCopies 清理集中目录与已知项目内的孤儿副本目录：既没有被任何 Bee 的
 // WorktreePath 引用（按 filepath.Clean 与 filepath.EvalSymlinks 比较，兼容 macOS
 // 的 /var 到 /private/var 映射），也不在 startingWorkDirs 中登记。
 // 返回已移除的目录列表；单个目录失败时继续处理其余目录，并返回首个错误。
 func (m *Manager) SweepOrphanCopies(ctx context.Context) ([]string, error) {
-	root := m.opts.WorktreeDir
-	if root == "" {
-		return nil, nil
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+	// 持锁收集已知项目，仓库探测与目录读取放在锁外。
+	m.mu.Lock()
+	leadDirs := make(map[string]struct{})
+	for _, lead := range m.leads {
+		if lead.leadWorkDir != "" {
+			leadDirs[lead.leadWorkDir] = struct{}{}
 		}
-		return nil, err
+	}
+	m.mu.Unlock()
+
+	var roots []string
+	if m.opts.WorktreeDir != "" {
+		roots = append(roots, m.opts.WorktreeDir)
+	}
+	seen := sweepPathSet(roots)
+	if m.opts.Git != nil {
+		for dir := range leadDirs {
+			repoRoot, err := m.opts.Git.RepoRoot(ctx, dir)
+			if err != nil {
+				continue
+			}
+			root := filepath.Join(git.WorktreeBase("", repoRoot, config.WorktreeLocationProject), "swarm")
+			if !sweepPathReferenced(seen, root) {
+				roots = append(roots, root)
+				seen = sweepPathSet(roots)
+			}
+		}
 	}
 
-	// 持锁收集被引用的路径，随后释放锁再做文件系统操作。
+	var candidates []string
+	var firstErr error
+	for _, root := range roots {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			if !os.IsNotExist(err) && firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			candidates = append(candidates, filepath.Join(root, entry.Name()))
+		}
+	}
+
+	// 扫描之后再收集引用，保护扫描期间完成启动登记的副本。
 	m.mu.Lock()
 	referenced := make([]string, 0, len(m.startingWorkDirs))
 	for _, lead := range m.leads {
@@ -38,16 +76,9 @@ func (m *Manager) SweepOrphanCopies(ctx context.Context) ([]string, error) {
 		referenced = append(referenced, path)
 	}
 	m.mu.Unlock()
-
 	referencedSet := sweepPathSet(referenced)
-
 	var removed []string
-	var firstErr error
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		dir := filepath.Join(root, entry.Name())
+	for _, dir := range candidates {
 		if sweepPathReferenced(referencedSet, dir) {
 			continue
 		}

@@ -563,10 +563,18 @@ projectInitialized:
 
 	if gitRunner != nil {
 		swarmMgr := swarm.NewManager(swarm.Options{
-			Git:          gitRunner,
-			Driver:       backend,
-			StopSession:  func(ctx context.Context, id string) error { _, err := backend.InterruptCurrent(ctx, id); return err },
-			WorktreeDir:  filepath.Join(*dataFlag, "swarm-worktrees"),
+			Git:         gitRunner,
+			Driver:      backend,
+			StopSession: func(ctx context.Context, id string) error { _, err := backend.InterruptCurrent(ctx, id); return err },
+			WorktreeDir: filepath.Join(*dataFlag, "swarm-worktrees"),
+			DataDir:     *dataFlag,
+			WorktreeLocation: func() string {
+				cfg, err := config.Load(*dataFlag)
+				if err != nil {
+					return ""
+				}
+				return cfg.SourceControl.WorktreeLocation
+			},
 			PollInterval: 2 * time.Second,
 			// 只有声明了 skills 的 bee 才带上对应技能的索引块；取不到 home 时不注入。
 			SkillsGuidance: func(workDir string, names []string) string {

@@ -127,7 +127,7 @@ func (m *Manager) reviewRuntime(ctx context.Context, leadThreadID string) (provi
 
 // saveReviewPatch 把待审查的补丁快照写到 <数据目录>/swarm-reviews/<leadID>-<index>.patch。
 func (m *Manager) saveReviewPatch(leadID string, index int, patch []byte) (string, error) {
-	patchDir := filepath.Join(filepath.Dir(m.opts.WorktreeDir), "swarm-reviews")
+	patchDir := filepath.Join(m.DataDir(), "swarm-reviews")
 	if err := os.MkdirAll(patchDir, 0755); err != nil {
 		return "", fmt.Errorf("create review patch dir failed: %w", err)
 	}

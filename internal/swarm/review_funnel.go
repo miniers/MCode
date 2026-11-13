@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -366,7 +365,7 @@ type reviewRuntimeInfo struct {
 // reviewProjectRuntime 解析项目配置：项目配置 Command 优先，其次 Settings.ReviewCheckCommand，
 // 都为空时交给 ResolveCommand 自动识别。
 func (m *Manager) reviewProjectRuntime(ctx context.Context, leadThreadID, beeWorktree string) reviewRuntimeInfo {
-	dataDir := filepath.Dir(m.opts.WorktreeDir)
+	dataDir := m.DataDir()
 	m.mu.Lock()
 	projectDir := beeWorktree
 	leadWorkDir, projectID := "", ""

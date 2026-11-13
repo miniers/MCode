@@ -9,12 +9,14 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"mcode/internal/config"
 	"mcode/internal/git"
 	"mcode/internal/harness"
 	"mcode/internal/kanban"
@@ -279,8 +281,12 @@ func (m *Manager) memoryRecallHook() func(ctx context.Context, workDir, query st
 	return m.memoryRecall
 }
 
-// DataDir 返回管理器使用的数据目录：取 WorktreeDir 的父目录，WorktreeDir 为空时返回空串。
+// DataDir 返回管理器使用的数据目录。
 func (m *Manager) DataDir() string {
+	if m.opts.DataDir != "" {
+		return m.opts.DataDir
+	}
+	// shortcut: 未传 DataDir 时按旧约定推导，测试与旧调用方依赖，所有调用方都传 DataDir 后可删
 	if m.opts.WorktreeDir == "" {
 		return ""
 	}
@@ -315,15 +321,15 @@ func (m *Manager) BeeTimeout() time.Duration {
 }
 
 // profilesPath 返回 Bee Profile 定义文件路径：Options.ProfilesPath 非空时直接使用；
-// 否则取 filepath.Join(filepath.Dir(WorktreeDir), ProfilesFileName)，即 <DataDir>/hydra-profiles.json（旧版遗留文件名，仅用于导入）；WorktreeDir 也为空时返回空串。
+// 否则取 <DataDir>/hydra-profiles.json（旧版遗留文件名，仅用于导入）；数据目录为空时返回空串。
 func (m *Manager) profilesPath() string {
 	if m.opts.ProfilesPath != "" {
 		return m.opts.ProfilesPath
 	}
-	if m.opts.WorktreeDir == "" {
+	if m.DataDir() == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(m.opts.WorktreeDir), ProfilesFileName)
+	return filepath.Join(m.DataDir(), ProfilesFileName)
 }
 
 // ResolvedTier 是某个档位在当前会话里实际会跑到的服务商、模型与推理强度。
@@ -1228,6 +1234,16 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 		}
 
 		wtPath = filepath.Join(m.opts.WorktreeDir, fmt.Sprintf("%s-%d", leadPrefix, index))
+		if !shadowRepo && m.opts.WorktreeLocation != nil && m.opts.WorktreeLocation() == config.WorktreeLocationProject {
+			if repoRoot, err := m.opts.Git.RepoRoot(ctx, beeWorkDir); err == nil {
+				git.EnsureGitExclude(repoRoot, "/.mcode/worktrees/")
+				root := filepath.Join(git.WorktreeBase("", repoRoot, config.WorktreeLocationProject), "swarm")
+				if err := os.MkdirAll(root, 0o755); err != nil {
+					return Bee{}, fmt.Errorf("create bee worktree dir failed: %w", err)
+				}
+				wtPath = filepath.Join(root, fmt.Sprintf("%s-%d", leadPrefix, index))
+			}
+		}
 		if abs, err := filepath.Abs(wtPath); err == nil {
 			wtPath = abs
 		}
@@ -3639,7 +3655,7 @@ func (m *Manager) isMergeOrRebaseInProgress(ctx context.Context, targetWorkDir s
 }
 
 func (m *Manager) savePatch(leadID string, beeIndex int, patch []byte) (string, error) {
-	patchDir := filepath.Join(filepath.Dir(m.opts.WorktreeDir), "swarm-patches")
+	patchDir := filepath.Join(m.DataDir(), "swarm-patches")
 	if err := os.MkdirAll(patchDir, 0755); err != nil {
 		return "", fmt.Errorf("create patch dir failed: %w", err)
 	}
@@ -3651,7 +3667,7 @@ func (m *Manager) savePatch(leadID string, beeIndex int, patch []byte) (string, 
 }
 
 func (m *Manager) saveLandedPatch(leadID string, beeIndex int, patch []byte) (string, error) {
-	landedDir := filepath.Join(filepath.Dir(m.opts.WorktreeDir), "swarm-landed")
+	landedDir := filepath.Join(m.DataDir(), "swarm-landed")
 	if err := os.MkdirAll(landedDir, 0755); err != nil {
 		return "", fmt.Errorf("create landed patch dir failed: %w", err)
 	}
@@ -5363,7 +5379,7 @@ func (m *Manager) reclaimCandidatesLocked() []reclaimCandidate {
 				continue
 			}
 			path := filepath.Clean(h.WorktreePath)
-			if !pathUnderDir(m.opts.WorktreeDir, path) {
+			if !m.isBeeCopyPath(path) {
 				continue
 			}
 			if references[path] > 1 || sweepPathReferenced(protected, path) {
@@ -5511,7 +5527,7 @@ func (m *Manager) removeBeeCopy(ctx context.Context, targetDir, worktreePath, br
 func (m *Manager) reclaimLeadBeeCopies(ctx context.Context, leadID string, copies []leadBeeCopy, protected map[string]struct{}) {
 	for _, c := range copies {
 		path := filepath.Clean(c.bee.WorktreePath)
-		if !pathUnderDir(m.opts.WorktreeDir, path) || sweepPathReferenced(protected, path) {
+		if !m.isBeeCopyPath(path) || sweepPathReferenced(protected, path) {
 			continue
 		}
 		// 删除 lead 时正在运行的 bee 的 ChangedFiles 可能还没更新，不能据此判断副本里没有成果，
@@ -5588,6 +5604,20 @@ func beeCopyGitDirMissing(path string) bool {
 	}
 	_, err = os.Stat(gitDir)
 	return os.IsNotExist(err)
+}
+
+// isBeeCopyPath 识别集中目录或项目内 swarm 目录下的副本。
+func (m *Manager) isBeeCopyPath(value string) bool {
+	if pathUnderDir(m.opts.WorktreeDir, value) {
+		return true
+	}
+	parts := strings.Split(path.Clean(strings.ReplaceAll(value, `\`, "/")), "/")
+	for i := 0; i+3 < len(parts); i++ {
+		if parts[i] == ".mcode" && parts[i+1] == "worktrees" && parts[i+2] == "swarm" {
+			return true
+		}
+	}
+	return false
 }
 
 // pathUnderDir 判断路径是否位于 root 之下：Clean 与解析符号链接后都必须命中，

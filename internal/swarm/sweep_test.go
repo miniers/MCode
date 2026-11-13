@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"mcode/internal/git"
 )
@@ -101,5 +102,62 @@ func TestManager_SweepOrphanCopies_MissingWorktreeDir(t *testing.T) {
 	removed, err = empty.SweepOrphanCopies(context.Background())
 	if err != nil || removed != nil {
 		t.Fatalf("expected nil, nil for empty WorktreeDir, got %v, %v", removed, err)
+	}
+}
+
+func TestManager_SweepOrphanCopies_Project(t *testing.T) {
+	runner, repo := initTestRepo(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	repo, err := runner.RepoRoot(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(repo, ".mcode", "worktrees", "swarm")
+	referenced := filepath.Join(root, "referenced")
+	orphan := filepath.Join(root, "orphan")
+	starting := filepath.Join(root, "starting")
+	for _, copy := range []struct{ path, branch string }{
+		{referenced, "mcode/test-project-referenced"},
+		{orphan, "mcode/test-project-orphan"},
+	} {
+		if err := runner.WorktreeAdd(ctx, repo, copy.path, copy.branch, "HEAD"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(starting, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(repo, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, central := range []string{"", filepath.Join(t.TempDir(), "missing")} {
+		t.Run(central, func(t *testing.T) {
+			// 两个 lead 指向同一仓库；默认集中模式也要清理之前创建的项目内副本。
+			m := NewManager(Options{Git: runner, WorktreeDir: central})
+			m.leads["lead"] = &leadState{leadWorkDir: repo, bees: []Bee{{WorktreePath: referenced}}}
+			m.leads["nested"] = &leadState{leadWorkDir: nested}
+			m.leads["non-git"] = &leadState{leadWorkDir: t.TempDir()}
+			m.startingWorkDirs[starting] = workDirOwner{leadThreadID: "lead"}
+			if err := os.MkdirAll(orphan, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			removed, err := m.SweepOrphanCopies(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(removed) != 1 || !sweepPathReferenced(sweepPathSet([]string{orphan}), removed[0]) {
+				t.Fatalf("应仅清理项目内孤儿副本：%v", removed)
+			}
+			for _, keep := range []string{referenced, starting} {
+				if _, err := os.Stat(keep); err != nil {
+					t.Errorf("受保护的副本被删除 %q：%v", keep, err)
+				}
+			}
+			if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+				t.Errorf("孤儿副本未删除：%v", err)
+			}
+		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"mcode/internal/config"
 	"mcode/internal/git"
 )
 
@@ -413,6 +414,9 @@ func TestManager_Landing_ShadowRepoBeeOnNonGitDir(t *testing.T) {
 		Git:         runner,
 		Driver:      driver,
 		WorktreeDir: t.TempDir(),
+		WorktreeLocation: func() string {
+			return config.WorktreeLocationProject
+		},
 	})
 
 	leadID := "lead-land-shadow"
@@ -432,6 +436,9 @@ func TestManager_Landing_ShadowRepoBeeOnNonGitDir(t *testing.T) {
 	}
 	if bee.WorktreePath == "" {
 		t.Errorf("expected non-empty WorktreePath for shadowed non-git dir")
+	}
+	if !pathUnderDir(mgr.opts.WorktreeDir, bee.WorktreePath) {
+		t.Errorf("影子仓库副本应保持集中存储：%q", bee.WorktreePath)
 	}
 }
 

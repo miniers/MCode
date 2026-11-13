@@ -516,8 +516,16 @@ func Open(opts Options) (*App, error) {
 				}
 				return tc
 			},
-			StopSession:        func(ctx context.Context, id string) error { _, err := backend.InterruptCurrent(ctx, id); return err },
-			WorktreeDir:        filepath.Join(opts.DataDir, "swarm-worktrees"),
+			StopSession: func(ctx context.Context, id string) error { _, err := backend.InterruptCurrent(ctx, id); return err },
+			WorktreeDir: filepath.Join(opts.DataDir, "swarm-worktrees"),
+			DataDir:     opts.DataDir,
+			WorktreeLocation: func() string {
+				cfg, err := config.Load(opts.DataDir)
+				if err != nil {
+					return ""
+				}
+				return cfg.SourceControl.WorktreeLocation
+			},
 			PollInterval:       2 * time.Second,
 			NoEditStallTimeout: beeTimeout,
 			Persister:          swarmStoreAdapter{s: dbStore},

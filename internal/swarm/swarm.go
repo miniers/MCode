@@ -418,8 +418,11 @@ type Options struct {
 	Driver      kanban.SessionDriver
 	StopSession func(ctx context.Context, threadID string) error
 	WorktreeDir string
+	DataDir     string
+	// WorktreeLocation 返回新副本的存储位置；nil 时使用集中目录。
+	WorktreeLocation func() string
 	// ProfilesPath 是子代理 Profile 定义文件路径；为空时默认取
-	// filepath.Join(filepath.Dir(WorktreeDir), ProfilesFileName)，即 <DataDir>/hydra-profiles.json
+	// <DataDir>/hydra-profiles.json
 	// （该文件名是旧版遗留命名，仅用于导入旧数据）。
 	ProfilesPath string
 	PollInterval time.Duration
