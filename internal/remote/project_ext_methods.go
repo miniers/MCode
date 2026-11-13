@@ -112,10 +112,11 @@ func projectExtNormalizePath(raw string) (string, string) {
 		return "", "无法解析当前用户主目录"
 	}
 	if !filepath.IsAbs(expanded) {
-		return "", "路径必须是绝对路径（以 / 开头）"
+		return "", "路径必须是绝对路径"
 	}
 	cleanPath := filepath.Clean(expanded)
-	if cleanPath == string(filepath.Separator) {
+	// 根目录（/、C:\、\\server\share\）的父目录就是它自己。
+	if filepath.Dir(cleanPath) == cleanPath {
 		return "", "不能把根目录添加为项目"
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" && cleanPath == filepath.Clean(home) {

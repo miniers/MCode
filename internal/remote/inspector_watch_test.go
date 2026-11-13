@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"mcode/internal/git"
 	"mcode/internal/remote/wire"
 )
 
@@ -190,5 +191,45 @@ func TestInspectorWatchIndexOnlyChange(t *testing.T) {
 	}
 	if indexOnly == headOnly {
 		t.Fatalf("只改 index 时代次没有变化")
+	}
+}
+
+// 只移动分支引用（空提交）时，Git 元数据代次必须变化；直接调用代次计算，不依赖文件系统事件。
+func TestGitMetadataGenerationTracksBranchRef(t *testing.T) {
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git 可执行文件在 PATH 中未找到，跳过测试")
+	}
+	repoDir := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		ctx, cancel := watchTestContext(t)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, gitBin, args...)
+		cmd.Dir = repoDir
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, string(out))
+		}
+	}
+	runGit("init")
+	runGit("config", "user.name", "test-user")
+	runGit("config", "user.email", "test@localhost")
+	runGit("config", "core.autocrlf", "false")
+	runGit("commit", "--allow-empty", "-m", "initial")
+
+	ctx, cancel := watchTestContext(t)
+	defer cancel()
+	indexPath, err := git.NewRunner(gitBin, 1).IndexPath(ctx, repoDir)
+	if err != nil {
+		t.Fatalf("IndexPath failed: %v", err)
+	}
+	before := gitMetadataGeneration(indexPath)
+	// 部分文件系统的 mtime 分辨率较粗，留出间隔再重写分支引用。
+	time.Sleep(20 * time.Millisecond)
+	runGit("commit", "--allow-empty", "-m", "second")
+	after := gitMetadataGeneration(indexPath)
+	if after == before {
+		t.Fatal("空提交只改分支引用，元数据代次没有变化")
 	}
 }
