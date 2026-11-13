@@ -340,6 +340,8 @@ func kanbanCreateMenu(c *ui.Context, s *chatState, ks *kanbanState) {
 	ui.Row(c.Key("kanban-create-menu")).AlignItems(ui.Center).Gap(Space0).Children(func() {
 		IconButton(c.Key("kanban-new-task-toggle"), IconButtonProps{Icon: IconPlus(), Label: "新建任务", OnClick: func() { kanbanNewTaskAction(s) }, Variant: ButtonSecondary})
 		btn := ui.ButtonBase(c.Key("kanban-create-toggle")).Label("新建菜单").Size(ControlSM, ControlSM).Center().OnClick(func() { kanbanMu.Lock(); ks.newMenuOpen = !ks.newMenuOpen; kanbanMu.Unlock(); s.invalidate() })
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
 		btn.Children(func() { ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)) })
 		kanbanMu.Lock()
 		open := ks.newMenuOpen
@@ -470,6 +472,8 @@ func kanbanSearchRow(c *ui.Context, s *chatState, ks *kanbanState, query *string
 				Label("清除搜索").
 				Tooltip("清除搜索").
 				Cursor(ui.CursorPointer)
+			scale := motionPressScale(c, clear, "button-press-scale", clear.Pressed())
+			clear.Scale(scale, scale)
 			if clear.Hovered() {
 				clear.Background(ThemeOverlay(c, 0.20))
 			} else {

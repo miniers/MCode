@@ -187,6 +187,8 @@ func kanbanSheetProjectPicker(c *ui.Context, s *chatState, projectID string, onS
 			OnClick(func() {
 				setKanbanPickerMenuOpen(s, nextOpen)
 			})
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
 		btn.Children(func() {
 			ui.Icon(c, IconFolder()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 			ui.Text(c, name).

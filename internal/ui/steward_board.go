@@ -256,6 +256,8 @@ func renderStewardBoardBadge(c *ui.Context, s *chatState) {
 		count = len(groups[1])
 	}
 	btn := ui.ButtonBase(c.Key("steward-board-badge")).Label("总管任务 "+strconv.Itoa(count)).Padding(Space1, Space2).Radius(RadiusSM).OnClick(func() { s.stewardBoard.open = !s.stewardBoard.open })
+	scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(scale, scale)
 	btn.Children(func() { rollingNumber(c, "steward-board-badge-count", count) })
 	appPopover(c.Key("steward-board-popover"), btn, &s.stewardBoard.open, nil, func() {
 		popoverCard(c, ui.Column(c.Key("steward-board-popover-card"))).Width(stewardBoardWidth).MaxHeight(480).Children(func() {

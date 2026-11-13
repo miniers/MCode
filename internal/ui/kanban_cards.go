@@ -268,7 +268,7 @@ func kanbanQuickAddAction(s *chatState) {
 // renderTodoQuickAdd 渲染待办列底部的「+ 添加任务」：点击展开单行输入，回车提交、Esc 取消。
 func renderTodoQuickAdd(c *ui.Context, s *chatState, ks *kanbanState) {
 	kanbanMu.Lock()
-	open := ks.quickAddOpen
+	open, busy := ks.quickAddOpen, ks.quickAddBusy
 	kanbanMu.Unlock()
 
 	if !open {
@@ -313,6 +313,10 @@ func renderTodoQuickAdd(c *ui.Context, s *chatState, ks *kanbanState) {
 				}
 				return false
 			})
+
+			if busy {
+				LoadingIndicator(c, nil, "", IconSM)
+			}
 
 			// Esc 登记为输入框自己的快捷键：根窗口的 Esc（关闭工作区）会先于 OnTextKey 收到按键。
 			if in.Shortcut(0, ui.KeyEscape) {
@@ -360,7 +364,8 @@ func kanbanToneBadge(c *ui.Context, key, label string, color ui.Color) {
 func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTask, st kanbanTaskCardState) {
 	primaryText := ThemePrimaryText(c)
 	secondaryText := ThemeSecondaryText(c)
-	actions := kanbanActions(task, kanbanTaskBusy(ks, task.ID))
+	busy := kanbanTaskBusy(ks, task.ID)
+	actions := kanbanActions(task, false)
 
 	var card ui.Element
 	card = ui.Column(c.Key("kanban-task-card-"+task.ID)).
@@ -477,14 +482,14 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 			ui.Text(c, task.Title).Label(task.Title).Tooltip(task.Title).FontSize(uiFont(TypeBody)).FontWeight(500).
 				MaxLines(2).TextColor(primaryText).Grow(1).MinWidth(0)
 			ui.Row(c.Key("kanban-task-actions-" + task.ID)).Width(KanbanCardActionSlotWidth).Height(ControlXS).Shrink(0).AlignItems(ui.Center).Children(func() {
-				if card.Hovered() || card.FocusWithin() || menuOpen {
+				if card.Hovered() || card.FocusWithin() || menuOpen || busy {
 					if actions.primary == "开始" {
 						label := "开始"
 						if kanbanDisplayColumn(task) == "in_progress" {
 							label = "继续"
 						}
 						btn := Button(c.Key("kanban-task-"+task.ID+"-start"), ButtonOpts{
-							Text: label, Label: "kanban-task-" + task.ID + "-start", Size: ControlXS, Variant: ButtonPrimary,
+							Text: label, Label: "kanban-task-" + task.ID + "-start", Size: ControlXS, Variant: ButtonPrimary, Loading: busy, Disabled: busy,
 							OnClick: func() {
 								if kanbanTaskBusy(ks, task.ID) {
 									return

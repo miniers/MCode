@@ -34,6 +34,7 @@ func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 	kanbanMu.Lock()
 	goalID, board, reviewGoalID := ks.goalID, ks.board, ks.planReviewGoalID
 	replanID, feedback := ks.replanGoalID, ks.replanFeedback
+	busy := ks.goalBusy[goalID]
 	kanbanMu.Unlock()
 	var goal *KanbanGoal
 	for i := range board.Goals {
@@ -86,28 +87,28 @@ func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 				}
 				if replanID == goalID {
 					ui.TextInput(c.Key("goal-replan-input-"+goalID), &ks.replanFeedback).Label("goal-replan-input").FillWidth()
-					Button(c.Key("goal-replan-submit-"+goalID), ButtonOpts{Text: "提交", Label: "提交重新规划", OnClick: func() { s.replanGoal(goalID, feedback, goal.Revision) }})
+					Button(c.Key("goal-replan-submit-"+goalID), ButtonOpts{Disabled: busy != "", Loading: busy == "replan", Text: "提交", Label: "提交重新规划", OnClick: func() { s.replanGoal(goalID, feedback, goal.Revision) }})
 				}
 			})
 		})
 		ui.Row(c.Key("kanban-goal-detail-actions")).Padding(Space4, Space5).Gap(Space2).Children(func() {
 			if goal.Status == "plan_review" && reviewGoalID != goalID {
-				Button(c.Key("goal-plan-review"), ButtonOpts{Text: "审阅计划", Label: "审阅计划", OnClick: func() { kanbanMu.Lock(); ks.planReviewGoalID = goalID; kanbanMu.Unlock(); s.invalidate() }})
+				Button(c.Key("goal-plan-review"), ButtonOpts{Disabled: busy != "", Text: "审阅计划", Label: "审阅计划", OnClick: func() { kanbanMu.Lock(); ks.planReviewGoalID = goalID; kanbanMu.Unlock(); s.invalidate() }})
 			}
 			if goal.Status == "plan_review" && reviewGoalID == goalID {
-				Button(c.Key("goal-plan-start"), ButtonOpts{Text: "确认并开始", Label: "确认并开始", Variant: ButtonPrimary, OnClick: func() { s.startGoal(goalID, goal.Revision) }})
+				Button(c.Key("goal-plan-start"), ButtonOpts{Disabled: busy != "", Loading: busy == "start", Text: "确认并开始", Label: "确认并开始", Variant: ButtonPrimary, OnClick: func() { s.startGoal(goalID, goal.Revision) }})
 			}
 			if goal.Status == "paused" {
-				Button(c.Key("goal-resume"), ButtonOpts{Text: "继续", Label: "继续", OnClick: func() { s.startGoal(goalID, goal.Revision) }})
+				Button(c.Key("goal-resume"), ButtonOpts{Disabled: busy != "", Loading: busy == "start", Text: "继续", Label: "继续", OnClick: func() { s.startGoal(goalID, goal.Revision) }})
 			}
 			if goal.Status == "running" {
-				Button(c.Key("goal-pause"), ButtonOpts{Text: "暂停", Label: "暂停", OnClick: func() { s.pauseGoal(goalID, goal.Revision) }})
+				Button(c.Key("goal-pause"), ButtonOpts{Disabled: busy != "", Loading: busy == "pause", Text: "暂停", Label: "暂停", OnClick: func() { s.pauseGoal(goalID, goal.Revision) }})
 			}
 			if goal.Status == "plan_review" || goal.Status == "plan_failed" || goal.Status == "paused" {
-				Button(c.Key("goal-replan-toggle"), ButtonOpts{Text: "重新规划", Label: "重新规划", OnClick: func() { kanbanMu.Lock(); ks.replanGoalID = goalID; kanbanMu.Unlock(); s.invalidate() }})
+				Button(c.Key("goal-replan-toggle"), ButtonOpts{Disabled: busy != "", Text: "重新规划", Label: "重新规划", OnClick: func() { kanbanMu.Lock(); ks.replanGoalID = goalID; kanbanMu.Unlock(); s.invalidate() }})
 			}
 			if goal.Status != "completed" && goal.Status != "cancelled" {
-				Button(c.Key("goal-cancel"), ButtonOpts{Text: "取消目标", Label: "取消目标", Variant: ButtonDanger, OnClick: func() { s.cancelGoal(goalID, goal.Revision) }})
+				Button(c.Key("goal-cancel"), ButtonOpts{Disabled: busy != "", Loading: busy == "cancel", Text: "取消目标", Label: "取消目标", Variant: ButtonDanger, OnClick: func() { s.cancelGoal(goalID, goal.Revision) }})
 			}
 		})
 	})
@@ -195,6 +196,7 @@ func planLayers(tasks []KanbanTask) [][]KanbanTask {
 
 // renderGoalCard 渲染单个目标卡片。
 func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoal, replanID, replanFeedback string) {
+	busy := kanbanGoalBusy(ks, goal.ID)
 	primaryText := ThemePrimaryText(c)
 	secondaryText := ThemeSecondaryText(c)
 
@@ -300,6 +302,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 					// plan_review 或 paused 时显示开始
 					if goal.Status == "plan_review" || goal.Status == "paused" {
 						Button(c.Key("goal-start-"+goal.ID), ButtonOpts{
+							Disabled: busy != "", Loading: busy == "start",
 							Text:    "开始",
 							Label:   "开始",
 							Variant: ButtonPrimary,
@@ -311,7 +314,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 
 					// plan_review 时提供规划审查入口
 					if goal.Status == "plan_review" {
-						Button(c.Key("goal-plan-review-"+goal.ID), ButtonOpts{
+						Button(c.Key("goal-plan-review-"+goal.ID), ButtonOpts{Disabled: busy != "",
 							Text:    "审查规划",
 							Label:   "审查规划",
 							Variant: ButtonSecondary,
@@ -333,6 +336,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 					// running 时显示暂停
 					if goal.Status == "running" {
 						Button(c.Key("goal-pause-"+goal.ID), ButtonOpts{
+							Disabled: busy != "", Loading: busy == "pause",
 							Text:    "暂停",
 							Label:   "暂停",
 							Variant: ButtonSecondary,
@@ -345,6 +349,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 					// 未完成时显示取消
 					if goal.Status != "completed" && goal.Status != "cancelled" {
 						Button(c.Key("goal-cancel-"+goal.ID), ButtonOpts{
+							Disabled: busy != "", Loading: busy == "cancel",
 							Text:    "取消",
 							Label:   "取消",
 							Variant: ButtonDanger,
@@ -355,7 +360,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 					}
 
 					if goal.Status == "plan_failed" || goal.Status == "paused" || goal.Status == "plan_review" {
-						Button(c.Key("goal-replan-toggle-"+goal.ID), ButtonOpts{
+						Button(c.Key("goal-replan-toggle-"+goal.ID), ButtonOpts{Disabled: busy != "",
 							Text:    "重新规划",
 							Label:   "重新规划",
 							Variant: ButtonSecondary,
@@ -398,6 +403,7 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 							Label("goal-replan-input").
 							Grow(1)
 						Button(c.Key("goal-replan-submit-"+goal.ID), ButtonOpts{
+							Disabled: busy != "", Loading: busy == "replan",
 							Text:    "提交",
 							Label:   "提交",
 							Variant: ButtonPrimary,

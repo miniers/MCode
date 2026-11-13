@@ -296,30 +296,31 @@ func (s *chatState) submitQuickAdd() {
 		return
 	}
 	ks.quickAddBusy = true
+	ks.quickAddText = ""
 	kanbanMu.Unlock()
+	s.invalidate()
 
 	go func() {
 		ctx := context.Background()
 		_, err := s.client.CreateTask(ctx, projectID, title, "")
 		kanbanMu.Lock()
 		ks.quickAddBusy = false
+		if err != nil && ks.scopeID == projectID && ks.quickAddText == "" {
+			ks.quickAddText = draft
+		}
 		kanbanMu.Unlock()
 		if err != nil {
 			if errors.Is(err, ErrRevisionConflict) {
 				kanbanMu.Lock()
 				ks.conflict = true
 				kanbanMu.Unlock()
-			} else {
-				s.setToast("创建任务失败: " + err.Error())
 			}
+			s.setToast("创建任务失败: " + err.Error())
 			s.invalidate()
 			return
 		}
 		s.updateWorkspace(func() {
 			kanbanMu.Lock()
-			if ks.scopeID == projectID && ks.quickAddText == draft {
-				ks.quickAddText = ""
-			}
 			scope := ks.scopeID
 			kanbanMu.Unlock()
 			s.loadKanban(scope)
@@ -446,8 +447,17 @@ func (s *chatState) moveTask(taskID, status string, revision int) {
 	if !beginKanbanTask(ks, taskID) {
 		return
 	}
+	kanbanMu.Lock()
+	for i := range ks.board.Tasks {
+		if ks.board.Tasks[i].ID == taskID {
+			ks.board.Tasks[i].Column = status
+			break
+		}
+	}
+	kanbanMu.Unlock()
+	s.invalidate()
 	go func() {
-		defer endKanbanTask(ks, taskID)
+		defer func() { endKanbanTask(ks, taskID); s.invalidate() }()
 		ctx := context.Background()
 		_, err := s.client.MoveTask(ctx, taskID, status, revision)
 		if err != nil {
@@ -458,6 +468,7 @@ func (s *chatState) moveTask(taskID, status string, revision int) {
 			} else {
 				s.setToast("移动任务失败: " + err.Error())
 			}
+			s.refreshKanban()
 			s.invalidate()
 			return
 		}
@@ -479,8 +490,17 @@ func (s *chatState) startTask(taskID string, revision int) {
 	if !beginKanbanTask(ks, taskID) {
 		return
 	}
+	kanbanMu.Lock()
+	for i := range ks.board.Tasks {
+		if ks.board.Tasks[i].ID == taskID {
+			ks.board.Tasks[i].Column = "in_progress"
+			break
+		}
+	}
+	kanbanMu.Unlock()
+	s.invalidate()
 	go func() {
-		defer endKanbanTask(ks, taskID)
+		defer func() { endKanbanTask(ks, taskID); s.invalidate() }()
 		ctx := context.Background()
 		_, err := s.client.StartTask(ctx, taskID, revision)
 		if err != nil {
@@ -491,6 +511,7 @@ func (s *chatState) startTask(taskID string, revision int) {
 			} else {
 				s.setToast("启动任务失败: " + err.Error())
 			}
+			s.refreshKanban()
 			s.invalidate()
 			return
 		}
@@ -696,7 +717,12 @@ func (s *chatState) startGoal(goalID string, revision int) {
 		return
 	}
 
+	if !beginKanbanGoal(ks, goalID, "start") {
+		return
+	}
+	s.invalidate()
 	go func() {
+		defer func() { endKanbanGoal(ks, goalID); s.invalidate() }()
 		ctx := context.Background()
 		_, err := s.client.StartGoal(ctx, goalID, revision)
 		if err != nil {
@@ -724,7 +750,12 @@ func (s *chatState) pauseGoal(goalID string, revision int) {
 		return
 	}
 
+	if !beginKanbanGoal(ks, goalID, "pause") {
+		return
+	}
+	s.invalidate()
 	go func() {
+		defer func() { endKanbanGoal(ks, goalID); s.invalidate() }()
 		ctx := context.Background()
 		_, err := s.client.PauseGoal(ctx, goalID, revision)
 		if err != nil {
@@ -752,7 +783,12 @@ func (s *chatState) cancelGoal(goalID string, revision int) {
 		return
 	}
 
+	if !beginKanbanGoal(ks, goalID, "cancel") {
+		return
+	}
+	s.invalidate()
 	go func() {
+		defer func() { endKanbanGoal(ks, goalID); s.invalidate() }()
 		ctx := context.Background()
 		_, err := s.client.CancelGoal(ctx, goalID, revision)
 		if err != nil {
@@ -781,7 +817,12 @@ func (s *chatState) replanGoal(goalID, feedback string, revision int) {
 	}
 
 	pid := ks.projectID
+	if !beginKanbanGoal(ks, goalID, "replan") {
+		return
+	}
+	s.invalidate()
 	go func() {
+		defer func() { endKanbanGoal(ks, goalID); s.invalidate() }()
 		ctx := context.Background()
 		_, err := s.client.ReplanGoal(ctx, goalID, feedback, revision)
 		if err != nil {

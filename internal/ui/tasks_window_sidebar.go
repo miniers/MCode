@@ -138,7 +138,10 @@ func tasksSidebarRow(c *ui.Context, key, title string, count int, selected bool,
 			ui.Text(c, fmt.Sprint(count)).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 		}
 		if confirm != nil {
-			ui.ButtonBase(c.Key(key+"-confirm")).Label("确认目标计划 "+title).Size(IconMD, IconMD).OnClick(confirm).Children(func() {
+			btn := ui.ButtonBase(c.Key(key+"-confirm")).Label("确认目标计划 "+title).Size(IconMD, IconMD).OnClick(confirm)
+			scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+			btn.Scale(scale, scale)
+			btn.Children(func() {
 				ui.Icon(c, IconOctagonAlert()).Size(IconMD, IconMD).TextColor(ThemeWarning(c))
 			})
 		}

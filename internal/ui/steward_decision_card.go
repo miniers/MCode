@@ -86,12 +86,13 @@ func (s *chatState) answerStewardDecision(id, answer string) {
 	if st.decisionErrors == nil {
 		st.decisionErrors = make(map[string]string)
 	}
-	if st.decisionErrors[id] == stewardDecisionSubmitting {
+	if strings.HasPrefix(st.decisionErrors[id], stewardDecisionSubmitting) {
 		st.mu.Unlock()
 		return
 	}
-	st.decisionErrors[id] = stewardDecisionSubmitting
+	st.decisionErrors[id] = stewardDecisionSubmitting + answer
 	st.mu.Unlock()
+	s.invalidate()
 	go func() {
 		err := client.AnswerStewardDecision(context.Background(), id, answer)
 		st.mu.Lock()
@@ -150,10 +151,12 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 	st.mu.Lock()
 	answerError := st.decisionErrors[decision.ID]
 	st.mu.Unlock()
-	if answerError == stewardDecisionSubmitting {
+	submitting := strings.HasPrefix(answerError, stewardDecisionSubmitting)
+	selected := strings.TrimPrefix(answerError, stewardDecisionSubmitting)
+	if submitting {
 		answerError = ""
 	}
-	if !answered && draftEmpty && lastInteractiveStewardDecision(messages) == m.ID {
+	if !answered && !submitting && draftEmpty && lastInteractiveStewardDecision(messages) == m.ID {
 		for key := ui.Key1; key <= ui.Key9; key++ {
 			if answer, valid := stewardDecisionShortcut(key, decision.Options); valid && c.Shortcut(0, key) {
 				s.answerStewardDecision(decision.ID, answer)
@@ -179,6 +182,8 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 				if decision.Thread != "" && decision.TaskID != "" {
 					btn := ui.ButtonBase(c.Key("steward-decision-task-" + m.ID)).Label(decision.Task).Shrink(1).MinWidth(0).
 						OnClick(func() { openStewardTask(s, stewardResult{Task: decision.TaskID, Thread: decision.Thread}) })
+					scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+					btn.Scale(scale, scale)
 					color := ThemeSecondaryText(c)
 					if btn.Hovered() {
 						color = ThemePrimaryText(c)
@@ -207,7 +212,7 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 			option := option
 			label := option.Key + " " + option.Text
 			btn := ui.ButtonBase(c.Key("steward-decision-option-"+m.ID+"-"+option.Key)).
-				Label(label).FillWidth().Padding(Space2, Space3).Radius(RadiusSM).
+				Label(label).Disabled(submitting).FillWidth().Padding(Space2, Space3).Radius(RadiusSM).
 				Border(Hairline, ThemeBorder(c)).OnClick(func() {
 				s.answerStewardDecision(decision.ID, option.Key)
 			})
@@ -219,17 +224,19 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 			btn.Background(ThemeSurface(c).Mix(ThemeHover(c), press)).Children(func() {
 				ui.Row(c.Key("steward-decision-option-row-" + m.ID + "-" + option.Key)).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, label).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1)
-					if option.Key == decision.Recommended {
+					if submitting && option.Key == selected {
+						LoadingIndicator(c, nil, "", IconSM)
+					} else if option.Key == decision.Recommended {
 						renderRecommendedBadge(c, "steward-decision-recommended-"+m.ID+"-"+option.Key)
 					}
 				})
 			})
 		}
 		ui.Row(c.Key("steward-decision-actions-" + m.ID)).Gap(Space2).Children(func() {
-			Button(c, ButtonProps{Key: "steward-decision-ignore-" + m.ID, Text: "忽略", Variant: ButtonSecondary, Size: ControlMD, OnClick: func() {
+			Button(c, ButtonProps{Key: "steward-decision-ignore-" + m.ID, Text: "忽略", Disabled: submitting, Loading: submitting && selected == "忽略", Variant: ButtonSecondary, Size: ControlMD, OnClick: func() {
 				s.answerStewardDecision(decision.ID, "忽略")
 			}})
-			Button(c, ButtonProps{Key: "steward-decision-other-" + m.ID, Text: "其他指示", Variant: ButtonSecondary, Size: ControlMD, OnClick: func() {
+			Button(c, ButtonProps{Key: "steward-decision-other-" + m.ID, Text: "其他指示", Disabled: submitting, Variant: ButtonSecondary, Size: ControlMD, OnClick: func() {
 				s.mu.Lock()
 				s.draft = stewardDecisionDraft(s.draft, decision.ID)
 				s.composerFocusRequest = true

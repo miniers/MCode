@@ -271,7 +271,7 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 					Button(c.Key("kanban-task-detail-accept"), ButtonOpts{Text: "接受", Label: "kanban-task-detail-accept", Variant: ButtonPrimary, Disabled: busy || !task.CanApprove, OnClick: func() { s.reviewTask(task.ID, "accept", ks.detailFeedback, task.Revision) }})
 				})
 			} else if kanbanActions(*task, false).primary == "开始" {
-				Button(c.Key("kanban-task-detail-start"), ButtonOpts{Text: "开始", Label: "kanban-task-detail-start", Variant: ButtonPrimary, Disabled: kanbanTaskBusy(ks, task.ID) || task.Blocked, OnClick: func() { s.performKanbanTarget(*task, "in_progress") }})
+				Button(c.Key("kanban-task-detail-start"), ButtonOpts{Text: "开始", Label: "kanban-task-detail-start", Variant: ButtonPrimary, Loading: kanbanTaskBusy(ks, task.ID), Disabled: kanbanTaskBusy(ks, task.ID) || task.Blocked, OnClick: func() { s.performKanbanTarget(*task, "in_progress") }})
 			}
 		})
 	})

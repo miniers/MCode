@@ -68,6 +68,7 @@ type kanbanState struct {
 	watchPending  bool
 	loadingScope  string
 	taskBusy      map[string]bool
+	goalBusy      map[string]string
 	// viewMode 保存任务的展示方式，destination 独立保存窗口目的。
 	viewMode                string
 	viewFilter              string
@@ -175,6 +176,31 @@ func beginKanbanTask(ks *kanbanState, taskID string) bool {
 func endKanbanTask(ks *kanbanState, taskID string) {
 	kanbanMu.Lock()
 	delete(ks.taskBusy, taskID)
+	kanbanMu.Unlock()
+}
+
+func kanbanGoalBusy(ks *kanbanState, goalID string) string {
+	kanbanMu.Lock()
+	defer kanbanMu.Unlock()
+	return ks.goalBusy[goalID]
+}
+
+func beginKanbanGoal(ks *kanbanState, goalID, action string) bool {
+	kanbanMu.Lock()
+	defer kanbanMu.Unlock()
+	if ks.goalBusy[goalID] != "" {
+		return false
+	}
+	if ks.goalBusy == nil {
+		ks.goalBusy = make(map[string]string)
+	}
+	ks.goalBusy[goalID] = action
+	return true
+}
+
+func endKanbanGoal(ks *kanbanState, goalID string) {
+	kanbanMu.Lock()
+	delete(ks.goalBusy, goalID)
 	kanbanMu.Unlock()
 }
 
