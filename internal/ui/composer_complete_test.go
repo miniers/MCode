@@ -648,6 +648,42 @@ func TestRunLocalSlashCommand_FastAndCompact(t *testing.T) {
 	}
 }
 
+func TestRunLocalSlashCommand_ClearResetsStewardOnly(t *testing.T) {
+	fake := newStewardFakeClient("t2")
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.threads = []Thread{{ID: "t1", ProjectID: "p1"}, {ID: "t2", ProjectID: "p1"}}
+	s.selectedThreadID = "t2"
+	if !s.runLocalSlashCommand("t2", "/clear") {
+		t.Fatal("总管 /clear 应被本地处理")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && fake.resetCalls() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	if got := fake.resetCalls(); got != 1 {
+		t.Fatalf("总管 /clear 应调用一次 ResetStewardThread，实际 %d", got)
+	}
+
+	ordinary := newStewardFakeClient("t2")
+	o := newChatState(ordinary)
+	t.Cleanup(o.close)
+	o.threads = []Thread{{ID: "t1", ProjectID: "p1"}, {ID: "t2", ProjectID: "p1"}}
+	o.selectedThreadID = "t1"
+	if !o.runLocalSlashCommand("t1", "/clear") {
+		t.Fatal("普通会话 /clear 应被本地处理")
+	}
+	if got := ordinary.resetCalls(); got != 0 {
+		t.Fatalf("普通会话 /clear 不应调用 ResetStewardThread，实际 %d", got)
+	}
+	o.mu.Lock()
+	pending := o.pendingThread != nil
+	o.mu.Unlock()
+	if !pending {
+		t.Fatal("普通会话 /clear 应创建新会话")
+	}
+}
+
 // /export 已接入导出功能，必须本地拦截并触发导出，不能当作普通消息发给 Agent。
 func TestRunLocalSlashCommand_ExportNotForwarded(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())

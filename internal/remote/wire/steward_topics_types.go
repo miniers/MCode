@@ -9,3 +9,9 @@ type StewardOpenParams struct {
 type StewardOpenResult struct {
 	ThreadID string `json:"threadID"`
 }
+
+// StewardResetParams 对应 steward.reset 请求参数。
+type StewardResetParams = StewardOpenParams
+
+// StewardResetResult 对应 steward.reset 成功返回。
+type StewardResetResult = StewardOpenResult

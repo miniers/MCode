@@ -85,6 +85,38 @@ func (b *MemoryBackend) EnsureStewardFeedThread(ctx context.Context, projectID s
 	return summary.ID, nil
 }
 
+// ResetStewardFeedThread 归档当前总管会话并创建新的主会话，保留旧会话及其消息。
+func (b *MemoryBackend) ResetStewardFeedThread(ctx context.Context, projectID string) (string, error) {
+	b.stewardFeedMu.Lock()
+	if b.store == nil {
+		b.stewardFeedMu.Unlock()
+		return "", errors.New("会话存储未接入")
+	}
+	oldID, _, err := b.store.GetSetting(ctx, "steward.feed_thread_id")
+	if err != nil {
+		b.stewardFeedMu.Unlock()
+		return "", err
+	}
+	if oldID != "" {
+		title := "总管 · 归档 " + time.Now().UTC().Format("2006-01-02")
+		archived := true
+		if _, err := b.UpdateThread(ctx, wire.ThreadUpdateParams{ThreadID: oldID, Title: &title, Archived: &archived}); err != nil {
+			b.stewardFeedMu.Unlock()
+			return "", err
+		}
+	}
+	if err := b.store.SetSetting(ctx, "steward.feed_thread_id", ""); err != nil {
+		b.stewardFeedMu.Unlock()
+		return "", err
+	}
+	b.mu.Lock()
+	b.stewardFeedID = ""
+	b.stewardFeedLoaded = true
+	b.mu.Unlock()
+	b.stewardFeedMu.Unlock()
+	return b.EnsureStewardFeedThread(ctx, projectID)
+}
+
 // AppendStewardMessage 将前台消息落库并广播。
 func (b *MemoryBackend) AppendStewardMessage(ctx context.Context, threadID, role, kind, text string) error {
 	_, _, err := b.appendStewardMessage(ctx, threadID, role, kind, text, nil)
@@ -144,7 +176,7 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 	if role == "user" {
 		td.summary.LastUserMessageAt = &msg.CreatedAt
 	}
-	unread := role != "user" && kind != "steward_reply" && kind != "steward_decision_answer" && !(role == "system" && kind == "steward_result")
+	unread := role != "user" && kind != "steward_reply" && kind != "steward_decision_answer"
 	if unread {
 		td.summary.HasUnread = true
 	}

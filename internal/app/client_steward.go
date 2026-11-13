@@ -63,3 +63,16 @@ func (c *Client) OpenStewardThread(ctx context.Context) (string, error) {
 	}
 	return c.backend.EnsureStewardFeedThread(ctx, projectID)
 }
+
+// ResetStewardThread 归档当前总管会话并创建新的主会话。
+func (c *Client) ResetStewardThread(ctx context.Context) (string, error) {
+	cfg, ok := c.loadConfig()
+	if !ok || !cfg.Orchestration.Steward.Enabled {
+		return "", errors.New("总管未启用，请先在设置 → 总管中启用")
+	}
+	projectID, err := ensureFrontdeskProject(ctx, c.backend, cfg.Orchestration.Steward.ResolvedHomeDir(c.effectiveDataDir()))
+	if err != nil {
+		return "", err
+	}
+	return c.backend.ResetStewardFeedThread(ctx, projectID)
+}

@@ -20,6 +20,9 @@ type stewardFakeClient struct {
 	openID    string        // OpenStewardThread 成功后返回并写入 threadID 的 ID
 	openErr   error         // 非 nil 时创建返回该错误
 	opens     int           // OpenStewardThread 被调用的次数
+	resetID   string        // ResetStewardThread 成功后返回并写入 threadID 的 ID
+	resetErr  error         // 非 nil 时重置返回该错误
+	resets    int           // ResetStewardThread 被调用的次数
 	gate      chan struct{} // 非 nil 时创建阻塞到它被关闭
 	name      string        // StewardIdentity 返回的昵称原文，空串表示让界面回落「总管」
 	avatar    string        // StewardIdentity 返回的头像字符，空串表示取 stewardName(nickname) 首字
@@ -28,7 +31,7 @@ type stewardFakeClient struct {
 var _ StewardClient = (*stewardFakeClient)(nil)
 
 func newStewardFakeClient(threadID string) *stewardFakeClient {
-	return &stewardFakeClient{FakeClient: NewFakeClient(), threadID: threadID, openID: "t1"}
+	return &stewardFakeClient{FakeClient: NewFakeClient(), threadID: threadID, openID: "t1", resetID: stewardTestThreadID}
 }
 
 // stewardTestThreadID 是总管用例里用的会话 ID：故意和默认选中的 t1 区分开，
@@ -74,6 +77,20 @@ func (f *stewardFakeClient) OpenStewardThread(_ context.Context) (string, error)
 	return f.openID, nil
 }
 
+func (f *stewardFakeClient) ResetStewardThread(_ context.Context) (string, error) {
+	f.stewardMu.Lock()
+	f.resets++
+	if f.resetErr != nil {
+		err := f.resetErr
+		f.stewardMu.Unlock()
+		return "", err
+	}
+	id := f.resetID
+	f.threadID = id
+	f.stewardMu.Unlock()
+	return id, nil
+}
+
 func (f *stewardFakeClient) StewardIdentity() (string, string) {
 	f.stewardMu.Lock()
 	defer f.stewardMu.Unlock()
@@ -85,6 +102,12 @@ func (f *stewardFakeClient) openCalls() int {
 	f.stewardMu.Lock()
 	defer f.stewardMu.Unlock()
 	return f.opens
+}
+
+func (f *stewardFakeClient) resetCalls() int {
+	f.stewardMu.Lock()
+	defer f.stewardMu.Unlock()
+	return f.resets
 }
 
 // 场景 1：客户端没实现总管接口时不渲染总管段，侧栏其余内容照常。

@@ -98,6 +98,38 @@ func TestClientOpenStewardThreadEnsureError(t *testing.T) {
 	}
 }
 
+func TestClientResetStewardThreadCreatesNewThread(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Orchestration.Steward.Enabled = true
+	cfg.Orchestration.Steward.HomeDir = filepath.Join(dir, "home")
+	if err := config.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	hub := remote.NewStreamHub(remote.StreamHubOptions{})
+	defer hub.Close()
+	backend := remote.NewMemoryBackend(hub)
+	defer backend.Close()
+	if err := backend.AttachStore(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{dataDir: dir, backend: backend}
+	oldID, err := client.OpenStewardThread(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newID, err := client.ResetStewardThread(ctx)
+	if err != nil || newID == oldID || newID == "" {
+		t.Fatalf("重置结果错误: old=%q new=%q err=%v", oldID, newID, err)
+	}
+}
+
 // TestClientStewardIdentity 覆盖总管的昵称与头像读取：读不到配置时两者都为空（昵称空由界面显示「总管」），
 // 读到配置时返回昵称原文与头像。
 func TestClientStewardIdentity(t *testing.T) {

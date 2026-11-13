@@ -905,6 +905,12 @@
       "$ref": "#/$defs/RemoteStewardOpenResponse"
     },
     {
+      "$ref": "#/$defs/RemoteStewardResetRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteStewardResetResponse"
+    },
+    {
       "$ref": "#/$defs/RemoteAutomationsPreviewRequest"
     },
     {
@@ -11119,6 +11125,9 @@
             "$ref": "#/$defs/RemoteStewardOpenRequest"
           },
           {
+            "$ref": "#/$defs/RemoteStewardResetRequest"
+          },
+          {
             "$ref": "#/$defs/RemoteAutomationsPreviewRequest"
           },
           {
@@ -11552,6 +11561,9 @@
           { "$ref": "#/$defs/RemoteStewardDecisionsAnswerResponse" },
           {
             "$ref": "#/$defs/RemoteStewardOpenResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteStewardResetResponse"
           },
           {
             "$ref": "#/$defs/RemoteAutomationsPreviewResponse"
@@ -14859,6 +14871,76 @@
         },
         "result": {
           "$ref": "#/$defs/RemoteStewardOpenResult"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "result",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteStewardResetParams": {
+      "type": "object",
+      "description": "steward.reset 请求参数；projectID 用于声明从哪个项目进入总管",
+      "properties": {
+        "projectID": {
+          "$ref": "#/$defs/UUID"
+        }
+      },
+      "required": [
+        "projectID"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteStewardResetResult": {
+      "type": "object",
+      "description": "steward.reset 成功返回；threadID 是新的总管主会话",
+      "properties": {
+        "threadID": {
+          "$ref": "#/$defs/UUID"
+        }
+      },
+      "required": [
+        "threadID"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteStewardResetRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "steward.reset"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteStewardResetParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteStewardResetResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteStewardResetResult"
         },
         "id": {
           "$ref": "#/$defs/JSONRPCId"

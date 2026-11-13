@@ -150,6 +150,15 @@ func (f *attentionFakeClient) OpenStewardThread(_ context.Context) (string, erro
 	return f.stewardID, nil
 }
 
+func (f *attentionFakeClient) ResetStewardThread(_ context.Context) (string, error) {
+	f.inboxMu.Lock()
+	defer f.inboxMu.Unlock()
+	if f.stewardID == "" {
+		f.stewardID = "t1"
+	}
+	return f.stewardID, nil
+}
+
 // stewardOpenCount 在锁内读取总管会话的创建次数。
 func (f *attentionFakeClient) stewardOpenCount() int {
 	f.inboxMu.Lock()
