@@ -80,8 +80,6 @@ func renderInspectorHeader(c *ui.Context, s *chatState, st *inspectorSessionStat
 			inspectorSelect(s, selectionState.active, false)
 		}
 		IconButton(c, IconButtonProps{Key: "inspector-close", Icon: IconX(), Label: "关闭右栏", Tooltip: shortcutTitleWithKey("toggle-inspector", "关闭"), Size: ControlXS, Variant: ButtonGhost, OnClick: func() { inspectorClose(s) }})
-		if topAligned {
-			ui.Box(c.Key("inspector-header-border")).Absolute().Left(0).Right(0).Bottom(0).Height(Hairline).Background(ThemeBorder(c))
-		}
+		ui.Box(c.Key("inspector-header-border")).Absolute().Left(0).Right(0).Bottom(0).Height(Hairline).Background(ThemeBorder(c))
 	})
 }

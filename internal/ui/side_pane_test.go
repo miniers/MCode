@@ -2,11 +2,40 @@ package mcodeui
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+func TestSidePaneWindowsChatBounds(t *testing.T) {
+	withTitleBarGOOS(t, "windows")
+	s := sidePaneTestState(t)
+	defer s.close()
+	message := strings.Repeat("长消息", 100)
+	s.mu.Lock()
+	s.messages = []Message{{ID: "m1", Role: "user", Text: message, TurnIndex: 1}}
+	s.mu.Unlock()
+	stubSidePanePanelRender(t, sidePaneFileID)
+	openFilePaneForTest(t, s)
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderSidePaneSplit(c, s, func() { renderChat(c, s) })
+	}, 900, 700)
+	tt.SetTitleBar(ui.TitleBar{Height: HeaderHeight, Right: 138})
+	tt.Frame()
+	handle, ok := tt.Find(sidePaneHandleLabel)
+	if !ok {
+		t.Fatal("找不到分栏手柄")
+	}
+	node, ok := tt.Find(message)
+	if !ok {
+		t.Fatal("找不到用户消息")
+	}
+	if node.X+node.W > handle.X {
+		t.Errorf("用户消息右缘 %v 超出聊天主区右缘 %v", node.X+node.W, handle.X)
+	}
+}
 
 // sidePaneTestState 构造一个带工作目录的 chatState，供三个右侧面板的互斥与优先级用例使用。
 func sidePaneTestState(t *testing.T) *chatState {
@@ -493,8 +522,8 @@ func TestInspectorTopInsetByPlatform(t *testing.T) {
 			if tc.overlay {
 				img := tt.Image()
 				x, y := tc.width-3, int(tab.Y+tab.H)-1
-				if img.At(x, y) != img.At(x, y-1) {
-					t.Fatal("浮层标签行底部不应有分隔线")
+				if img.At(x, y) == img.At(x, y-1) {
+					t.Fatal("浮层标签行底部应有分隔线")
 				}
 			}
 			if !tc.overlay {

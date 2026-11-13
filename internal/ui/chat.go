@@ -178,7 +178,7 @@ func renderChat(c *ui.Context, s *chatState) {
 		setChatPaneWidth(s, chatAreaWidth(c, s)-stewardBoardWidth)
 	}
 	ui.Row(c.Key("steward-chat-layout")).Grow(1).FillHeight().Children(func() {
-		ui.Column(c.Key("chat-main")).Grow(1).FillHeight().Children(func() {
+		ui.Column(c.Key("chat-main")).Grow(1).MinWidth(0).FillHeight().Children(func() {
 			// 会话头部：显示会话标题与项目动作
 			renderChatHeader(c, s, selectedID, curUsage, sidebarVisibleProgress(s))
 			renderStewardTaskBand(c, s, selectedID)

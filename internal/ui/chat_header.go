@@ -1755,6 +1755,8 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 	s.mu.Lock()
 	sidebarCollapsed := s.sidebarCollapsed
 	sidebarWidth := s.sidebarWidth
+	inspector := inspectorExistingSessionLocked(s, s.selectedThreadID)
+	inspectorOpen := inspector != nil && inspector.Open
 	for _, th := range s.threads {
 		if th.ID == selectedID {
 			selectedThread = th
@@ -1763,9 +1765,13 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 	}
 	s.mu.Unlock()
 
+	rightInset := chatHeaderBaseInset
+	if !inspectorOpen {
+		rightInset += titleBarTrailingInset(c)
+	}
 	ts := getChatToolbarState(s)
 	header := ui.Row(c.Key("chat-header")).DragWindow().FillWidth().Height(HeaderHeight).
-		Padding(Space3, chatHeaderBaseInset+titleBarTrailingInset(c), Space3, chatHeaderLeadingInsetFrom(titleBarLeadingInset(c), sidebarSlide)).
+		Padding(Space3, rightInset, Space3, chatHeaderLeadingInsetFrom(titleBarLeadingInset(c), sidebarSlide)).
 		BorderWidth(0, 0, 1, 0).BorderColor(ThemeBorder(c)).AlignItems(ui.Center).Gap(Space2)
 	windowWidth, _ := c.Size()
 	collapsed := headerCollapseLevel(headerCollapseWidth(windowWidth, sidebarWidth, sidebarSlide)) > 0
