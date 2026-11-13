@@ -249,7 +249,7 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 			c.Invalidate()
 		}
 	}).Children(func() {
-		renderDiffHeader(c, s, dp, tid, turn, reviewTurns(s))
+		renderDiffHeader(c, s, dp, tid, turn, reviewTurns(s), loading)
 		renderReviewCommentsAction(c, s, dp, tid)
 		if loading {
 			ui.Row(c.Key("review-busy")).Height(Space4).Children(func() { reviewBusy(c, "review-loading") })

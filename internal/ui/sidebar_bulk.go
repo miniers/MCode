@@ -120,13 +120,13 @@ func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 							Center().
 							Label(rVal.label).
 							OnClick(func() {
-								btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
-								btn.Scale(btnScale, btnScale)
 								s.mu.Lock()
 								s.bulkRangeDays = rVal.days
 								s.mu.Unlock()
 								s.invalidate()
 							})
+						btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+						btn.Scale(btnScale, btnScale)
 						if isSelected {
 							btn.Background(ThemeSelected(c))
 						} else if btn.Hovered() {

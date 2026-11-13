@@ -111,6 +111,21 @@ func waitInspectorPreviewTab(t *testing.T, s *chatState, path string) fileManage
 	return fileManagerTabSnapshot{}
 }
 
+func waitInspectorPreview(t *testing.T, s *chatState, threadID, path string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		previewMu.Lock()
+		loading := inspectorPreviewInflight[s][threadID+"\x00"+path]
+		previewMu.Unlock()
+		if !loading {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("预览 %s 未完成", path)
+}
+
 func TestFilePreviewRoutesPDFAndHTML(t *testing.T) {
 	client := &inspectorPreviewTestClient{
 		FakeClient: NewFakeClient(),
@@ -123,6 +138,7 @@ func TestFilePreviewRoutesPDFAndHTML(t *testing.T) {
 
 	// PDF 点击直接进浏览器目的，不创建内容标签（客户端不支持时才退回二进制提示）。
 	s.openFileManagerFile("t1", "doc.pdf", false)
+	waitInspectorPreview(t, s, "t1", "doc.pdf")
 	st := getFileManagerState(s)
 	fileManagerMu.Lock()
 	tabs := len(st.tabs)
@@ -162,6 +178,7 @@ func TestFilePreviewRoutesPDFAndHTML(t *testing.T) {
 	if err := tester.Click("在浏览器打开"); err != nil {
 		t.Fatal(err)
 	}
+	waitInspectorPreview(t, s, "t1", "index.html")
 	calls = client.callsSnapshot()
 	if len(calls) != 2 || calls[1].path != "index.html" {
 		t.Fatalf("HTML 预览调用=%+v", calls)

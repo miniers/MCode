@@ -542,13 +542,13 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 		Radius(RadiusSM).
 		Background(ThemeHover(c)).
 		OnClick(func() {
-			triggerScale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
-			trigger.Scale(triggerScale, triggerScale)
 			diffPanelMu.Lock()
 			dp.turnMenuOpen = !dp.turnMenuOpen
 			diffPanelMu.Unlock()
 			s.invalidate()
 		})
+	triggerScale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
+	trigger.Scale(triggerScale, triggerScale)
 	trigger.Children(func() {
 		ui.Row(c.Key("diff-turn-trigger-content")).
 			Gap(Space1).

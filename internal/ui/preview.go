@@ -764,8 +764,6 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					// 标注与截图共用附件入口。
 					annotBtn := ui.ButtonBase(c.Key("preview-annotate-btn")).
 						Label(func() string {
-							annotBtnScale := motionPressScale(c, annotBtn, "button-press-scale", annotBtn.Pressed())
-							annotBtn.Scale(annotBtnScale, annotBtnScale)
 							if len(snap.annotations) > 0 {
 								return "添加到对话"
 							}
@@ -774,6 +772,8 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						Radius(RadiusXS).
 						Padding(Space0, Space2).
 						Background(ThemeOverlay(c, 0.06))
+					annotBtnScale := motionPressScale(c, annotBtn, "button-press-scale", annotBtn.Pressed())
+					annotBtn.Scale(annotBtnScale, annotBtnScale)
 					if snap.annotating {
 						annotBtn.Background(ThemeSelected(c))
 					}
