@@ -112,6 +112,8 @@ type Bee struct {
 	LandedPatchPath string `json:"landed_patch_path,omitempty"`
 	// LandedCommit 是本 bee 落地时已创建的提交，批次结束后无需再重放补丁。
 	LandedCommit string `json:"landed_commit,omitempty"`
+	// LandMessage 是落地提交信息，生成一次后在重试中复用。
+	LandMessage string `json:"land_message,omitempty"`
 	// ArchivedPatchPath 是副本回收前把未落地改动存档到 swarm-patches 的补丁路径。
 	ArchivedPatchPath string   `json:"archivedPatchPath,omitempty"`
 	WorktreePath      string   `json:"worktreePath"`

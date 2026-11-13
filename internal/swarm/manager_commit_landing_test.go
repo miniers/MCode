@@ -132,6 +132,39 @@ func TestManager_CommitLanding_Describe(t *testing.T) {
 	}
 }
 
+func TestManager_CommitLanding_DescribeWaitReuse(t *testing.T) {
+	m, _, root := newCommitLandingManager(t)
+	const lead = "lead-describe-wait"
+	const message = "fix: 更新文本"
+	bee := startCommitLandingBee(t, m, root, lead, 0)
+	writePipelineFile(t, root, "lines.txt", strings.Replace(landingBase, "nine\n", "user nine\n", 1))
+	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
+	calls := 0
+	m.opts.Describe = func(context.Context, string) (string, error) {
+		calls++
+		return message, nil
+	}
+	for i := 0; i < 2; i++ {
+		if landCommitBee(m, root, lead, &bee) {
+			t.Fatal("冲突时应等待")
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("生成调用次数=%d want=1", calls)
+	}
+	writePipelineFile(t, root, "lines.txt", landingBase)
+	if !landCommitBee(m, root, lead, &bee) {
+		t.Fatal("冲突解除后应落地")
+	}
+	assertLandingCommit(t, m, root, bee)
+	if calls != 1 {
+		t.Fatalf("生成调用次数=%d want=1", calls)
+	}
+	if got := gitTestRun(t, root, "show", "-s", "--format=%B", bee.LandedCommit); got != message {
+		t.Fatalf("提交说明=%q want=%q", got, message)
+	}
+}
+
 func TestManager_CommitLanding_DescribeHeadMoved(t *testing.T) {
 	m, _, root := newCommitLandingManager(t)
 	const lead = "lead-describe-head"

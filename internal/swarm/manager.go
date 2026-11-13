@@ -2342,6 +2342,7 @@ func (m *Manager) Tick(ctx context.Context) {
 									lead.bees[i].LastProgressAt = now
 									lead.bees[i].FinishedAt = nil
 									lead.bees[i].Status = StatusRunning
+									lead.bees[i].LandMessage = ""
 									break
 								}
 							}
@@ -2456,6 +2457,7 @@ func (m *Manager) Tick(ctx context.Context) {
 								lead.bees[i].LastProgressAt = now
 								lead.bees[i].FinishedAt = nil
 								lead.bees[i].Status = StatusRunning
+								lead.bees[i].LandMessage = ""
 								break
 							}
 						}
@@ -2710,6 +2712,7 @@ func (m *Manager) detectReactivatedBees(ctx context.Context) {
 		bee.Reported = false
 		bee.Merged = false
 		bee.MergeError = ""
+		bee.LandMessage = ""
 		bee.Delivered = false
 		// 上一轮的合并进度属于已落地的旧成果，续跑后要重新走流水线。
 		bee.AutoMergeState = AutoMergeNone
@@ -4233,14 +4236,18 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 		return fail(err)
 	}
 
-	_, message := defaultCommitMessage([]Bee{*h})
-	if m.opts.Describe != nil {
+	message := h.LandMessage
+	if message == "" {
+		_, message = defaultCommitMessage([]Bee{*h})
+	}
+	if h.LandMessage == "" && m.opts.Describe != nil {
 		// 模型调用必须在 HEAD 锁外，避免阻塞其他 lead 移动 HEAD。
 		describeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		diff, _, diffErr := m.opts.Git.DiffText(describeCtx, h.WorktreePath, h.BaseCommit, beeCommit, nil, 12000)
 		if diffErr == nil && strings.TrimSpace(diff) != "" {
 			if msg, err := m.opts.Describe(describeCtx, diff); err == nil && describeCtx.Err() == nil && strings.TrimSpace(msg) != "" {
 				message = strings.TrimSpace(msg)
+				h.LandMessage = message
 			}
 		}
 		cancel()
@@ -5946,6 +5953,7 @@ func (m *Manager) continueInterruptedBee(ctx context.Context, leadThreadID strin
 		return true, false
 	}
 	bee.Status = StatusRunning
+	bee.LandMessage = ""
 	bee.Interrupted = false
 	bee.Reported = false
 	bee.Delivered = false
