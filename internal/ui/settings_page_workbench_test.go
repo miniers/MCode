@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -105,6 +106,104 @@ func TestSettingsWorkbenchReviewValueUnchanged(t *testing.T) {
 	ui.NewTester(func(c *ui.Context) { renderPageWorkbench(c, st) }, 1000, 4000)
 	if st.cfg.Workbench.KanbanAutoReview == nil || *st.cfg.Workbench.KanbanAutoReview {
 		t.Fatal("渲染设置页改变了自动送审配置")
+	}
+}
+
+func TestSettingsWorkbenchCommandShellPlatform(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+	visible := runtime.GOOS == "windows"
+	tt := ui.NewTester(func(c *ui.Context) { renderPageWorkbench(c, st) }, 1000, 4000)
+	if got := tt.HasText("命令 shell"); got != visible {
+		t.Errorf("命令 shell 行可见性为 %v，期望 %v", got, visible)
+	}
+	items := settingsItems()
+	found := false
+	for _, item := range items {
+		if item.ID != "row-command-shell" {
+			continue
+		}
+		found = true
+		if got := settingsItemVisible(st, item); got != visible {
+			t.Errorf("命令 shell 搜索条目可见性为 %v，期望 %v", got, visible)
+		}
+	}
+	if !found {
+		t.Fatal("命令 shell 未注册到设置搜索树")
+	}
+	found = false
+	for _, hit := range matchVisibleSettingsItemsIn(st, "命令 shell", items) {
+		if hit.Item.ID == "row-command-shell" {
+			found = true
+		}
+	}
+	if found != visible {
+		t.Errorf("命令 shell 搜索命中为 %v，期望 %v", found, visible)
+	}
+}
+
+func TestSettingsWorkbenchCommandShellOptions(t *testing.T) {
+	for _, tc := range []struct {
+		current   string
+		available []string
+		options   []string
+		selected  string
+	}{
+		{"pwsh", nil, []string{"自动"}, "自动"},
+		{"pwsh", []string{"git-bash", "powershell"}, []string{"自动", "Git Bash", "Windows PowerShell"}, "自动"},
+		{"pwsh", []string{"git-bash", "pwsh", "powershell"}, []string{"自动", "Git Bash", "PowerShell 7", "Windows PowerShell"}, "PowerShell 7"},
+		{"", []string{"powershell"}, []string{"自动", "Windows PowerShell"}, "自动"},
+	} {
+		options, selected := commandShellOptions(tc.current, tc.available)
+		if !slices.Equal(options, tc.options) || selected != tc.selected {
+			t.Errorf("偏好 %q，可用 %q：得到 %q %q，期望 %q %q", tc.current, tc.available, options, selected, tc.options, tc.selected)
+		}
+	}
+	for _, tc := range []struct{ label, pref string }{
+		{"自动", ""}, {"Git Bash", "git-bash"}, {"PowerShell 7", "pwsh"}, {"Windows PowerShell", "powershell"},
+	} {
+		if got := commandShellPreference(tc.label); got != tc.pref {
+			t.Errorf("选项 %q 保存为 %q，期望 %q", tc.label, got, tc.pref)
+		}
+	}
+	cfg := config.Defaults()
+	cfg.Workbench.CommandShell = "pwsh"
+	cfg.Workbench.TerminalShell = "external-terminal"
+	commandShellControl{}.reset(&cfg)
+	if cfg.Workbench.CommandShell != "" || cfg.Workbench.TerminalShell != "external-terminal" {
+		t.Fatal("恢复命令 shell 默认值影响了默认终端")
+	}
+}
+
+type commandShellSettingsClient struct {
+	*FakeClient
+	dir         string
+	reloads     int
+	appliedPref string
+}
+
+func (c *commandShellSettingsClient) ReloadCommandShell() {
+	c.reloads++
+	if cfg, err := config.Load(c.dir); err == nil {
+		c.appliedPref = cfg.Workbench.CommandShell
+	}
+}
+
+func TestSettingsWorkbenchCommandShellAppliesAfterSave(t *testing.T) {
+	dir := settingsTestDir(t)
+	client := &commandShellSettingsClient{FakeClient: NewFakeClient(), dir: dir}
+	st := NewSettingsState(dir, nil, newChatState(client))
+	commitSettingsControl(st, func(cfg *config.Config) {
+		cfg.Workbench.CommandShell = "pwsh"
+	})
+	if client.reloads != 1 || client.appliedPref != "pwsh" {
+		t.Fatalf("保存后未通知应用层重读：次数 %d，偏好 %q", client.reloads, client.appliedPref)
+	}
+	st.cfg.Models.Provider = "unknown-provider"
+	if st.save() {
+		t.Fatal("非法配置不应保存成功")
+	}
+	if client.reloads != 1 {
+		t.Fatal("保存失败仍通知了应用层")
 	}
 }
 

@@ -547,6 +547,12 @@ func (s *SettingsState) saveSnapshot(cfg, base config.Config) bool {
 		return false
 	}
 
+	if s.chat != nil {
+		if client, ok := s.chat.client.(interface{ ReloadCommandShell() }); ok {
+			client.ReloadCommandShell()
+		}
+	}
+
 	// 写盘期间用户可能又改过配置：merged 只覆盖和快照一致（也就是没再动过）的字段，
 	// 新改动留在内存里，下次保存再落盘，不会被旧快照盖回去。
 	s.cfgMu.Lock()

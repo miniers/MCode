@@ -3,7 +3,6 @@
 package loginenv
 
 import (
-	"mcode/internal/procattr"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,8 +12,6 @@ import (
 
 // GitBash 返回缓存的 Git Bash 路径。
 var GitBash = sync.OnceValue(findBash)
-
-func init() { procattr.SetWindowsBashResolver(GitBash) }
 
 // findBash 返回 bash 工具使用的 bash.exe，找不到时返回空串（回退 PowerShell）。
 // 优先用 Git for Windows 自带的 bash：GUI 进程的 PATH 通常只有 <Git>\cmd，没有 bash。

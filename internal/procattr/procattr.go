@@ -12,18 +12,25 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"sync/atomic"
 )
 
 // shellGOOS 是 ShellCommand 选择 shell 的平台标识，测试中可替换。
 var shellGOOS = runtime.GOOS
-var windowsBash = func() string { return "" }
+var windowsShell atomic.Pointer[func(string) (string, []string)]
 var shellLookPath = exec.LookPath
 
-// SetWindowsBashResolver 注册 Windows 下的 Git Bash 查找函数。
-func SetWindowsBashResolver(resolve func() string) { windowsBash = resolve }
+// SetWindowsShellResolver 注册 Windows 命令 shell 及其参数的解析函数；nil 恢复默认选择。
+func SetWindowsShellResolver(resolve func(string) (string, []string)) {
+	if resolve == nil {
+		windowsShell.Store(nil)
+		return
+	}
+	windowsShell.Store(&resolve)
+}
 
 // ShellCommand 返回用平台 shell 执行 command 的 *exec.Cmd，已隐藏 Windows 控制台窗口。
-// Windows 没有 /bin/sh，用 PowerShell；其余平台用 /bin/sh -c。
+// Windows 使用已注册的命令 shell，未注册时回退 PowerShell；其余平台用 /bin/sh -c。
 func ShellCommand(ctx context.Context, command string) *exec.Cmd {
 	name, args := ShellArgs(command)
 	cmd := HideWindow(exec.CommandContext(ctx, name, args...))
@@ -38,8 +45,8 @@ func ShellArgs(command string) (string, []string) {
 
 func shellArgs(goos, command string) (string, []string) {
 	if goos == "windows" {
-		if bash := windowsBash(); bash != "" {
-			return bash, []string{"-c", command}
+		if resolve := windowsShell.Load(); resolve != nil {
+			return (*resolve)(command)
 		}
 		if pwsh, err := shellLookPath("pwsh.exe"); err == nil {
 			return pwsh, []string{"-NoProfile", "-Command", command}

@@ -16,10 +16,8 @@ import (
 )
 
 func shellCommand(command string) (string, []string) {
-	if path := loginenv.GitBash(); path != "" {
-		return path, []string{"-c", command}
-	}
-	return "powershell", []string{"-NoProfile", "-NonInteractive", "-Command", command}
+	name, args, _ := loginenv.CommandShell(command)
+	return name, args
 }
 
 func setProcessGroup(cmd *exec.Cmd) {

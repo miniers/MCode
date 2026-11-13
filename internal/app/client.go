@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,8 @@ type Client struct {
 	agyLoginMu     sync.Mutex
 	agyLogin       *accounts.LoginSession
 	contextWriteMu sync.Mutex
+	// commandShellMu 串行化配置重读与应用，避免并发保存让旧快照覆盖新偏好。
+	commandShellMu sync.Mutex
 
 	// memoryMu 保护记忆面板的懒加载资源：仅在无后端 store 时自行打开的第二个 store 连接，
 	// 以及 Nowledge Mem 客户端，两者都只建一次。
@@ -580,6 +583,7 @@ const goalOwnerSteward = "steward"
 
 // notifyConfigChanged 通知所有配置订阅者：配置文件已被改写（远程设置、档位写入等）。
 func (c *Client) notifyConfigChanged() {
+	c.ReloadCommandShell()
 	c.kanbanMu.Lock()
 	watchers := make([]func(), 0, len(c.configWatchers))
 	for _, fn := range c.configWatchers {
@@ -590,6 +594,20 @@ func (c *Client) notifyConfigChanged() {
 	c.kanbanMu.Unlock()
 	for _, fn := range watchers {
 		fn()
+	}
+}
+
+// ReloadCommandShell 在设置保存成功后应用磁盘上的最新命令 shell，重读失败时保留当前值。
+func (c *Client) ReloadCommandShell() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	c.commandShellMu.Lock()
+	defer c.commandShellMu.Unlock()
+	if dir := c.configDir(); dir != "" {
+		if cfg, err := config.Load(dir); err == nil {
+			loginenv.SetCommandShell(cfg.Workbench.CommandShell)
+		}
 	}
 }
 

@@ -12,16 +12,17 @@ import (
 )
 
 func TestShellCommandCancelsProcessTree(t *testing.T) {
-	oldBash := windowsBash
-	t.Cleanup(func() { windowsBash = oldBash })
+	oldResolver := windowsShell.Load()
+	t.Cleanup(func() { windowsShell.Store(oldResolver) })
+	SetWindowsShellResolver(nil)
 	command := "ping -n 6 127.0.0.1"
 	git, _ := exec.LookPath("git.exe")
 	bash := filepath.Join(filepath.Dir(filepath.Dir(git)), "bin", "bash.exe")
 	if info, err := os.Stat(bash); err == nil && !info.IsDir() {
-		windowsBash = func() string { return bash }
+		SetWindowsShellResolver(func(command string) (string, []string) {
+			return bash, []string{"-c", command}
+		})
 		command = "while true; do echo running; sleep 1; done"
-	} else {
-		windowsBash = func() string { return "" }
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()

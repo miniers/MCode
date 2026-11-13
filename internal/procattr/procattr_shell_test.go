@@ -4,14 +4,15 @@ import (
 	"context"
 	"os/exec"
 	"reflect"
+	"sync"
 	"testing"
 )
 
-// TestShellArgs 验证各平台执行用户命令的 shell：Windows 用 PowerShell，其余用 /bin/sh -c。
+// TestShellArgs 验证未注册解析器时的平台 shell。
 func TestShellArgs(t *testing.T) {
-	oldBash, oldLook := windowsBash, shellLookPath
-	t.Cleanup(func() { windowsBash, shellLookPath = oldBash, oldLook })
-	windowsBash = func() string { return "" }
+	oldResolver, oldLook := windowsShell.Load(), shellLookPath
+	t.Cleanup(func() { windowsShell.Store(oldResolver); shellLookPath = oldLook })
+	SetWindowsShellResolver(nil)
 	shellLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	cases := []struct {
 		goos     string
@@ -43,10 +44,10 @@ func TestShellCommandUsesPlatformShell(t *testing.T) {
 }
 
 func TestWindowsShellFallbacks(t *testing.T) {
-	oldBash, oldLook := windowsBash, shellLookPath
-	t.Cleanup(func() { windowsBash, shellLookPath = oldBash, oldLook })
-	for _, tc := range []struct{ bash, pwsh, want string }{{"git-bash", "pwsh", "git-bash"}, {"", "pwsh", "pwsh"}, {"", "", "powershell.exe"}} {
-		windowsBash = func() string { return tc.bash }
+	oldResolver, oldLook := windowsShell.Load(), shellLookPath
+	t.Cleanup(func() { windowsShell.Store(oldResolver); shellLookPath = oldLook })
+	SetWindowsShellResolver(nil)
+	for _, tc := range []struct{ pwsh, want string }{{"pwsh", "pwsh"}, {"", "powershell.exe"}} {
 		shellLookPath = func(string) (string, error) {
 			if tc.pwsh == "" {
 				return "", exec.ErrNotFound
@@ -55,11 +56,49 @@ func TestWindowsShellFallbacks(t *testing.T) {
 		}
 		name, args := shellArgs("windows", "a && b")
 		wantArgs := []string{"-NoProfile", "-Command", "a && b"}
-		if tc.bash != "" {
-			wantArgs = []string{"-c", "a && b"}
-		}
 		if name != tc.want || !reflect.DeepEqual(args, wantArgs) {
 			t.Fatalf("got %q %q", name, args)
 		}
 	}
+}
+
+func TestWindowsShellResolver(t *testing.T) {
+	oldResolver, oldGOOS := windowsShell.Load(), shellGOOS
+	t.Cleanup(func() { windowsShell.Store(oldResolver); shellGOOS = oldGOOS })
+	shellGOOS = "windows"
+	SetWindowsShellResolver(func(command string) (string, []string) {
+		return "custom-shell", []string{"custom-flag", command}
+	})
+	const command = `echo "a & b"`
+	name, args := ShellArgs(command)
+	want := []string{"custom-shell", "custom-flag", command}
+	if name != want[0] || !reflect.DeepEqual(args, want[1:]) {
+		t.Fatalf("解析器未生效：%q %q", name, args)
+	}
+	if cmd := ShellCommand(context.Background(), command); !reflect.DeepEqual(cmd.Args, want) {
+		t.Fatalf("ShellCommand 未使用解析器：%q", cmd.Args)
+	}
+	if name, _ := shellArgs("linux", command); name != "/bin/sh" {
+		t.Fatalf("Windows 解析器改变了其他平台：%q", name)
+	}
+}
+
+func TestWindowsShellResolverConcurrent(t *testing.T) {
+	old := windowsShell.Load()
+	t.Cleanup(func() { windowsShell.Store(old) })
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for range 100 {
+				SetWindowsShellResolver(func(command string) (string, []string) {
+					return "custom-shell", []string{"-c", command}
+				})
+				name, args := shellArgs("windows", "echo hi")
+				if name != "custom-shell" || !reflect.DeepEqual(args, []string{"-c", "echo hi"}) {
+					t.Errorf("并发解析返回异常：%q %q", name, args)
+				}
+			}
+		})
+	}
+	wg.Wait()
 }

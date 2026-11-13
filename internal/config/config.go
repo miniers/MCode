@@ -914,6 +914,7 @@ type WorkbenchConfig struct {
 	EditorAutoSave          *bool  `json:"editor_auto_save,omitempty"`   // 编辑器自动保存，nil 视为开启
 	TerminalScrollbackLines int    `json:"terminal_scrollback_lines"`    // 终端缓冲区行数，默认 1000
 	TerminalShell           string `json:"terminal_shell"`               // 默认终端 shell，空表示跟随系统 SHELL
+	CommandShell            string `json:"command_shell"`                // Windows 命令 shell，空表示自动
 	KanbanAutoReview        *bool  `json:"kanban_auto_review,omitempty"` // 看板任务完成后自动转为 Review，nil 视为开启
 	KanbanAutoStartOnCreate bool   `json:"kanban_auto_start_on_create"`  // 看板任务创建后自动启动，默认 false
 	BrowserQuickPorts       string `json:"browser_quick_ports"`          // 浏览器快捷端口列表，默认 "3000, 5173, 8080, 4321"
@@ -1624,6 +1625,12 @@ func Normalize(cfg Config) Config {
 		cfg.Startup.QuitAction = QuitActionQuit
 	}
 	cfg.Workbench.TerminalShell = strings.TrimSpace(cfg.Workbench.TerminalShell)
+	cfg.Workbench.CommandShell = strings.TrimSpace(cfg.Workbench.CommandShell)
+	switch cfg.Workbench.CommandShell {
+	case "", "git-bash", "pwsh", "powershell":
+	default:
+		cfg.Workbench.CommandShell = ""
+	}
 
 	cfg.Appearance.CodeFont = strings.TrimSpace(cfg.Appearance.CodeFont)
 	switch cfg.Appearance.ConversationDensity {

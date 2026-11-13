@@ -348,6 +348,7 @@ func Open(opts Options) (*App, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 	config.ApplyEnv(&cfg, os.LookupEnv)
+	loginenv.SetCommandShell(cfg.Workbench.CommandShell)
 
 	claudeBin := opts.ClaudeBin
 	if claudeBin == "" {

@@ -2,11 +2,13 @@ package mcodeui
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
 	"mcode/internal/projctx"
+	"mcode/internal/providers/loginenv"
 )
 
 // advancedWorkbench 是工作台页的高级设置。
@@ -150,6 +152,13 @@ var pageWorkbench = settingsPage{
 					Title:   "默认终端",
 					Aliases: []string{"终端", "shell", "zsh", "bash", "fish", "iterm"},
 					Control: terminalShellControl{},
+				},
+				{
+					ID:      "row-command-shell",
+					Title:   "命令 shell",
+					Aliases: []string{"命令", "shell", "bash", "Git Bash", "PowerShell", "pwsh"},
+					Visible: func(*SettingsState) bool { return runtime.GOOS == "windows" },
+					Control: commandShellControl{},
 				},
 			},
 		},
@@ -340,6 +349,64 @@ func (t terminalShellControl) renderDisabled(c *ui.Context, st *SettingsState, s
 
 func (t terminalShellControl) reset(cfg *config.Config) {
 	cfg.Workbench.TerminalShell = ""
+}
+
+type commandShellControl struct{}
+
+func (t commandShellControl) render(c *ui.Context, st *SettingsState, s setting) {
+	t.renderDisabled(c, st, s, false)
+}
+
+func (t commandShellControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, disabled bool) {
+	options, current := commandShellOptions(st.cfg.Workbench.CommandShell, loginenv.AvailableCommandShells())
+	old := current
+	sel := ui.Select(c.Key(s.ID+"-select"), &current, options).
+		Label(s.Title).
+		Width(settingsSidePanelWidth).
+		Disabled(disabled)
+	if disabled || (current == old && !sel.Changed()) {
+		return
+	}
+	pref := commandShellPreference(current)
+	commitSettingsControl(st, func(cfg *config.Config) { cfg.Workbench.CommandShell = pref })
+}
+
+func (t commandShellControl) reset(cfg *config.Config) {
+	cfg.Workbench.CommandShell = ""
+}
+
+func commandShellOptions(current string, available []string) (options []string, selected string) {
+	options, selected = []string{"自动"}, "自动"
+	for _, pref := range available {
+		var label string
+		switch pref {
+		case "git-bash":
+			label = "Git Bash"
+		case "pwsh":
+			label = "PowerShell 7"
+		case "powershell":
+			label = "Windows PowerShell"
+		default:
+			continue
+		}
+		options = append(options, label)
+		if pref == current {
+			selected = label
+		}
+	}
+	return options, selected
+}
+
+func commandShellPreference(label string) string {
+	switch label {
+	case "Git Bash":
+		return "git-bash"
+	case "PowerShell 7":
+		return "pwsh"
+	case "Windows PowerShell":
+		return "powershell"
+	}
+	return ""
 }
 
 type workbenchInjectDoc struct {

@@ -204,6 +204,7 @@ row row-kanban-stuck-nudge-timeout 无活动提醒
 row row-kanban-stuck-interrupt-timeout 无活动中断
 section workbench.terminal 终端
 row row-terminal-shell 默认终端
+row row-command-shell 命令 shell
 section workbench.preview Web 预览
 row row-browser-start-url 起始地址
 row row-browser-console-capture 捕获控制台输出

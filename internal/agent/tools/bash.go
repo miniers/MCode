@@ -4,17 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"mcode/internal/agent/gate"
 	"mcode/internal/agent/shell"
+	"mcode/internal/providers/loginenv"
 )
 
 // BashTool 返回在工作目录中执行命令的工具。
 func BashTool() Tool {
+	description := "Run a command in the working directory. Long output retains the end. Set run_in_background for long-running services or watchers."
+	if runtime.GOOS == "windows" {
+		_, _, kind := loginenv.CommandShell("")
+		description += " Commands run in " + kind
+		if kind != "Git Bash" {
+			description += "; use PowerShell syntax"
+		}
+		description += "."
+	}
 	return Tool{
 		Name:        "bash",
-		Description: "Run a command in the working directory. Long output retains the end. Set run_in_background for long-running services or watchers.",
+		Description: description,
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"number"},"run_in_background":{"type":"boolean"}},"required":["command"]}`),
 		ReadOnly:    false,
 		Run:         runBash,
