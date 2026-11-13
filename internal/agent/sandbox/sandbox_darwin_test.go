@@ -157,6 +157,20 @@ func TestReadOnlyCommand(t *testing.T) {
 			t.Fatalf("nested JSON read: %v: %s", err, out)
 		}
 	})
+	t.Run("migrated data JSON is unreadable", func(t *testing.T) {
+		data := filepath.Join(t.TempDir(), "data.+[test]")
+		t.Setenv("MCODE_DATA", data)
+		path := filepath.Join(data, "config.JSON")
+		writeFile(path)
+		if out, err := run(t, `exec /bin/cat "$1"`, path); err == nil {
+			t.Fatalf("migrated credential read: %v: %s", err, out)
+		}
+		path = filepath.Join(data, "nested", "config.json")
+		writeFile(path)
+		if out, err := run(t, `exec /bin/cat "$1"`, path); err != nil || out != "readable" {
+			t.Fatalf("nested JSON read: %v: %s", err, out)
+		}
+	})
 	t.Run("outside process cannot be signaled", func(t *testing.T) {
 		sleep := exec.Command("/bin/sleep", "30")
 		if err := sleep.Start(); err != nil {

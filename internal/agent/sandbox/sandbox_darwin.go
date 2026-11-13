@@ -90,9 +90,24 @@ func newReadOnly(home string) (*readOnly, error) {
 }
 
 func (s *readOnly) Command(_ context.Context, workDir string, _ harness.PermissionMode, name string, args ...string) (*exec.Cmd, func(), error) {
-	argv := []string{"-p", readOnlyProfile, "-D", "SCRATCH=" + s.scratch, "-D", "HOME=" + s.home,
-		"/usr/bin/env", "TMPDIR=" + filepath.Join(s.scratch, "tmp"), "GOCACHE=" + filepath.Join(s.scratch, "gocache"),
-		"XDG_CACHE_HOME=" + filepath.Join(s.scratch, "cache"), "GIT_OPTIONAL_LOCKS=0", name}
+	profile := readOnlyProfile
+	params := []string{"-D", "SCRATCH=" + s.scratch, "-D", "HOME=" + s.home}
+	if data := os.Getenv("MCODE_DATA"); data != "" {
+		data = filepath.Clean(data)
+		if real, err := filepath.EvalSymlinks(data); err == nil {
+			data = real
+		}
+		if data != filepath.Join(s.home, ".mcode") {
+			profile += `
+(deny file-read* file-write*
+    (regex (string-append "^" (regex-quote (param "MCODE_DATA")) "/[^/]+\\.[jJ][sS][oO][nN]$")))`
+			params = append(params, "-D", "MCODE_DATA="+data)
+		}
+	}
+	argv := append([]string{"-p", profile}, params...)
+	argv = append(argv,
+		"/usr/bin/env", "TMPDIR="+filepath.Join(s.scratch, "tmp"), "GOCACHE="+filepath.Join(s.scratch, "gocache"),
+		"XDG_CACHE_HOME="+filepath.Join(s.scratch, "cache"), "GIT_OPTIONAL_LOCKS=0", name)
 	cmd := exec.Command("/usr/bin/sandbox-exec", append(argv, args...)...)
 	cmd.Dir = workDir
 	return cmd, nil, nil

@@ -862,6 +862,9 @@ func controlPaths(in Input) []string {
 	if home != "" {
 		dirs = append(dirs, filepath.Join(home, ".pi", "agent"), filepath.Join(home, ".mcode"))
 	}
+	if data := os.Getenv("MCODE_DATA"); data != "" && filepath.Clean(data) != filepath.Join(home, ".mcode") {
+		dirs = append(dirs, data)
+	}
 	var out []string
 	for _, d := range dirs {
 		if d == "" {
@@ -1081,6 +1084,9 @@ func mcodeConfigJSON(text, home string) bool {
 	roots := []string{"~/.mcode/"}
 	if home != "" {
 		roots = append(roots, filepath.Join(home, ".mcode")+string(filepath.Separator))
+	}
+	if data := os.Getenv("MCODE_DATA"); data != "" {
+		roots = append(roots, filepath.Clean(data)+string(filepath.Separator))
 	}
 	for _, root := range roots {
 		for rest := text; ; {
