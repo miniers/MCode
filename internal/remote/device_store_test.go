@@ -3,6 +3,7 @@ package remote
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func TestDeviceStore_AddAndFind_PermissionsAndNoPlaintext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat failed: %v", err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0600 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0600 {
 		t.Fatalf("expected file permission 0600, got %04o", perm)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -87,7 +88,7 @@ func TestPairingAuth_SingleUseAndTokenStorage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat failed: %v", err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0600 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0600 {
 		t.Fatalf("expected 0600 permission, got %04o", perm)
 	}
 

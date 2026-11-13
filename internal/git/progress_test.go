@@ -4,11 +4,19 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	if os.Getenv("GO_WANT_GIT_RUN_HELPER") == "1" {
+		// 测试二进制充当 git 替身：阻塞到调用方取消上下文。
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 func TestProgressParsing(t *testing.T) {
 	p := parseProgress("Receiving objects:  45% (9/20)")
@@ -43,16 +51,13 @@ func TestFetchProgressAndCancel(t *testing.T) {
 
 func TestRunningCommandCancellation(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "git")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexec sleep 30\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	bin := os.Args[0]
 	r := NewRunner(bin, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	timer := time.AfterFunc(100*time.Millisecond, cancel)
 	defer timer.Stop()
 	defer cancel()
-	_, err := r.run(WithProgress(ctx, func(Progress) {}), dir, nil, "fetch")
+	_, err := r.run(WithProgress(ctx, func(Progress) {}), dir, []string{"GO_WANT_GIT_RUN_HELPER=1"}, "fetch")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}

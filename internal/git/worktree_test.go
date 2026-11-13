@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -288,7 +289,11 @@ func TestWorktreeSpecialPathAndBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "中文 space\tline\nnext")
+	name := "中文 space\tline\nnext"
+	if runtime.GOOS == "windows" {
+		name = "中文 space"
+	}
+	path := filepath.Join(t.TempDir(), name)
 	if err := runner.WorktreeAdd(ctx, root, path, "special-path", "HEAD"); err != nil {
 		t.Fatal(err)
 	}

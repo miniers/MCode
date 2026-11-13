@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -105,7 +106,7 @@ func TestWriteWorktreeFile(t *testing.T) {
 		t.Fatalf("写入内容 = %q, %v", got, err)
 	}
 	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0o640 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 		t.Fatalf("权限未保留: %o", info.Mode().Perm())
 	}
 	for _, p := range []string{"../x", ".git/config"} {

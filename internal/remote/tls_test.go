@@ -19,6 +19,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -53,7 +54,7 @@ func TestTLSManager_SelfSignedAndHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat selfsigned key file: %v", err)
 	}
-	if fiKey.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && fiKey.Mode().Perm() != 0o600 {
 		t.Errorf("expected key file mode 0600, got %v", fiKey.Mode().Perm())
 	}
 
@@ -61,7 +62,7 @@ func TestTLSManager_SelfSignedAndHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat selfsigned cert file: %v", err)
 	}
-	if fiCert.Mode().Perm() != 0o644 {
+	if runtime.GOOS != "windows" && fiCert.Mode().Perm() != 0o644 {
 		t.Errorf("expected cert file mode 0644, got %v", fiCert.Mode().Perm())
 	}
 

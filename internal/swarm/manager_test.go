@@ -130,6 +130,7 @@ func initTestRepo(t *testing.T) (*git.Runner, string) {
 	}
 
 	runCmd("init")
+	runCmd("config", "core.autocrlf", "false")
 	runCmd("config", "user.name", "test-user")
 	runCmd("config", "user.email", "test@localhost")
 	// Runner 使用缓存的登录环境；用仓库配置隔离测试，避免后续 t.Setenv 失效而访问真实远端。

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -52,13 +53,18 @@ func TestReviewRevertSchemaAndInvalidParams(t *testing.T) {
 		t.Fatal(err)
 	}
 	valid := string(raw)
+	// 用平台绝对路径验证越界路径被拒：Windows 上 "/tmp/a.go" 并不是绝对路径。
+	absPath, err := json.Marshal(filepath.Join(t.TempDir(), "a.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, params := range []string{
 		strings.Replace(valid, `"scope":"turn"`, `"scope":"invalid"`, 1),
 		strings.Replace(valid, `"threadID":"`+p.ThreadID+`",`, "", 1),
 		strings.Replace(valid, p.ThreadID, "invalid", 1),
 		strings.TrimSuffix(valid, "}") + `,"unknown":1}`,
 		strings.Replace(valid, `"path":"a.go"`, `"path":"../a.go"`, 1),
-		strings.Replace(valid, `"path":"a.go"`, `"path":"/tmp/a.go"`, 1),
+		strings.Replace(valid, `"path":"a.go"`, `"path":`+string(absPath), 1),
 		strings.Replace(valid, p.TurnID, "invalid", 1),
 		strings.Replace(valid, `"scope":"turn"`, `"scope":"session"`, 1),
 	} {

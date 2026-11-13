@@ -50,7 +50,7 @@ func TestFilesCreate_FileAndDirectory(t *testing.T) {
 	if !fi.Mode().IsRegular() || fi.Size() != 0 {
 		t.Fatalf("created file must be an empty regular file, got mode=%v size=%d", fi.Mode(), fi.Size())
 	}
-	if perm := fi.Mode().Perm(); perm != 0o644 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o644 {
 		t.Fatalf("unexpected file permission: %04o", perm)
 	}
 
@@ -197,7 +197,7 @@ func TestFilesDuplicate_GeneratesSuffixes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat copy: %v", err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0o600 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Fatalf("copy must preserve source permission, got %04o", perm)
 	}
 

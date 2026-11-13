@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -87,7 +88,7 @@ func TestAlwaysAllowStore_AtomicWriteAndPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat store file failed: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Fatalf("store file perm = %v, want 0600", perm)
 	}
 

@@ -45,6 +45,9 @@ func TestRevertHunkTouchesOnlySelectedBlock(t *testing.T) {
 func TestRevertHunkPreservesIndexAndOtherEdits(t *testing.T) {
 	d := t.TempDir()
 	testGit(t, d, "init")
+	testGit(t, d, "config", "core.autocrlf", "false")
+	testGit(t, d, "config", "user.name", "test-user")
+	testGit(t, d, "config", "user.email", "test@localhost")
 	p := filepath.Join(d, "a.txt")
 	old := "a\nb\nc\n"
 	next := "a\nB\nc\n"

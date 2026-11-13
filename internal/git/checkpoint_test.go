@@ -41,6 +41,9 @@ func initGitRepo(t *testing.T) (*Runner, string) {
 	// 防止初始主分支由于旧版本 git 默认分支名不一致问题
 	_, _ = runner.run(ctx, dir, testEnv, "config", "user.name", "test-user")
 	_, _ = runner.run(ctx, dir, testEnv, "config", "user.email", "test@localhost")
+	if _, err := runner.run(ctx, dir, nil, "config", "core.autocrlf", "false"); err != nil {
+		t.Fatalf("git config core.autocrlf: %v", err)
+	}
 
 	return runner, dir
 }
@@ -259,7 +262,7 @@ func TestCheckpointAndDiffWorkflow(t *testing.T) {
 	escapePaths := []string{
 		"../outside.txt",
 		"../../etc/passwd",
-		"/tmp/outside_repo.txt",
+		filepath.Join(t.TempDir(), "outside_repo.txt"),
 	}
 	for _, ep := range escapePaths {
 		if err := runner.RestoreFiles(ctx, dir, cp2Commit, []string{ep}); err == nil {

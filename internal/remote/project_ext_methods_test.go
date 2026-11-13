@@ -137,7 +137,7 @@ func TestProjectExtAdd_RejectsInvalidPath(t *testing.T) {
 		{"relative", "code/app", "路径必须是绝对路径"},
 		{"missing", filepath.Join(t.TempDir(), "missing"), "路径不存在"},
 		{"file", existFile, "不是目录"},
-		{"root", "/", "不能把根目录添加为项目"},
+		{"root", filepath.VolumeName(existFile) + string(filepath.Separator), "不能把根目录添加为项目"},
 	}
 	// 拿不到主目录的环境（极少数 CI）分别跳过这两条，不影响其它用例。
 	if homeErr == nil && home != "" {

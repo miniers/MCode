@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -375,7 +376,7 @@ func TestRestoreFilesKeepsFileTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat 脚本失败: %v", err)
 	}
-	if info.Mode().Perm()&0100 == 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0100 == 0 {
 		t.Errorf("可执行位应被还原，实际 %v", info.Mode())
 	}
 	if got := readTestFile(t, dir, "scripts/run.sh"); got != "#!/bin/sh\necho ok\n" {
@@ -388,7 +389,7 @@ func TestRestoreFilesKeepsFileTypes(t *testing.T) {
 	if linkInfo.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("符号链接应重建为链接，实际 %v", linkInfo.Mode())
 	}
-	if target, err := os.Readlink(linkPath); err != nil || target != "scripts/run.sh" {
+	if target, err := os.Readlink(linkPath); err != nil || target != filepath.FromSlash("scripts/run.sh") {
 		t.Errorf("链接目标 = %q, %v", target, err)
 	}
 

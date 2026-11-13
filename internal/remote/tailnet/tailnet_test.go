@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -284,7 +285,7 @@ func TestPrepareDirTightensExistingPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat 目录失败: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o700 {
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o700 {
 		t.Fatalf("目录权限 = %o，期望 700", got)
 	}
 }

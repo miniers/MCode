@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -33,7 +34,7 @@ func TestSnapshotRestore(t *testing.T) {
 		t.Fatalf("内容不符: %q", got)
 	}
 	info, err := os.Stat(filepath.Join(root, "bin/tool"))
-	if err != nil || info.Mode().Perm() != 0751 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0751) {
 		t.Fatalf("权限未恢复: %v %v", info, err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "absent.txt")); !os.IsNotExist(err) {

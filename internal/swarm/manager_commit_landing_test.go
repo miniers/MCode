@@ -3,7 +3,9 @@ package swarm
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,6 +17,90 @@ import (
 )
 
 const landingBase = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\n"
+
+// TestMain 在测试二进制被临时链接成 git 替身时走替身分支，否则正常跑测试。
+func TestMain(m *testing.M) {
+	if cfg, ok := gitWrapperConfigPath(); ok {
+		os.Exit(runGitWrapperHelper(cfg))
+	}
+	os.Exit(m.Run())
+}
+
+// gitWrapperConfigPath 判断当前进程是否是 git 替身：替身旁边放着配置文件。
+func gitWrapperConfigPath() (string, bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	cfg := filepath.Join(filepath.Dir(exe), "git-wrapper.conf")
+	if _, err := os.Stat(cfg); err != nil {
+		return "", false
+	}
+	return cfg, true
+}
+
+// runGitWrapperHelper 把命令转发给真实 git；首次 update-ref HEAD 时改用配置里的外部提交，
+// 用于模拟落地期间 HEAD 被外部移动。
+func runGitWrapperHelper(cfg string) int {
+	realGit, other, flag := "", "", ""
+	if data, err := os.ReadFile(cfg); err == nil {
+		fields := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(fields) == 3 {
+			realGit, other, flag = fields[0], fields[1], fields[2]
+		}
+	}
+	if realGit == "" {
+		if path, err := exec.LookPath("git"); err == nil {
+			realGit = path
+		}
+	}
+	if realGit == "" {
+		return 127
+	}
+	args := os.Args[1:]
+	if len(args) >= 6 && args[0] == "update-ref" && args[3] == "HEAD" && other != "" {
+		if err := os.Remove(flag); err == nil {
+			// 先替外部把 HEAD 挪走，再让原来的 update-ref 因旧值不匹配而失败。
+			if code := runGitCommand(realGit, []string{"update-ref", "HEAD", other, args[5]}); code != 0 {
+				return code
+			}
+		}
+	}
+	return runGitCommand(realGit, args)
+}
+
+func runGitCommand(realGit string, args []string) int {
+	cmd := exec.Command(realGit, args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return exitErr.ExitCode()
+		}
+		return 1
+	}
+	return 0
+}
+
+// linkOrCopyFile 优先硬链接测试二进制，跨卷时退回复制。
+func linkOrCopyFile(src, dst string) error {
+	if err := os.Link(src, dst); err == nil {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
 
 func newCommitLandingManager(t *testing.T) (*Manager, *fakeDriver, string) {
 	t.Helper()
@@ -388,15 +474,13 @@ func TestManager_CommitLanding_HeadMoved(t *testing.T) {
 	if err := os.WriteFile(flag, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	wrapper := filepath.Join(scriptDir, "git")
-	script := fmt.Sprintf(`#!/bin/sh
-if [ "$1" = update-ref ] && [ "$4" = HEAD ] && [ -f %q ]; then
- rm %q
- %q update-ref HEAD %q "$6" || exit 1
-fi
-exec %q "$@"
-`, flag, flag, realGit, other, realGit)
-	if err := os.WriteFile(wrapper, []byte(script), 0700); err != nil {
+	// 测试二进制充当 git 替身：脚本在 Windows 上无法直接执行，且替身需要自己的入口分支。
+	wrapper := filepath.Join(scriptDir, "git.exe")
+	if err := linkOrCopyFile(os.Args[0], wrapper); err != nil {
+		t.Fatalf("创建 git 替身失败: %v", err)
+	}
+	cfg := filepath.Join(scriptDir, "git-wrapper.conf")
+	if err := os.WriteFile(cfg, []byte(realGit+"\n"+other+"\n"+flag+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	m.opts.Git = git.NewRunner(wrapper, 4)

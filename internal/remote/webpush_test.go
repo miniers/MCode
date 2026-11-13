@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -109,7 +110,7 @@ func TestVAPIDKey_PersistenceAndReuse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat key file: %v", err)
 	}
-	if fi.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0600 {
 		t.Errorf("expected file mode 0600, got %o", fi.Mode().Perm())
 	}
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -80,7 +81,7 @@ func TestFilesWrite_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0o644 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o644 {
 		t.Fatalf("permission must be preserved, got %04o", perm)
 	}
 	// 原子写不应残留临时文件。
@@ -132,7 +133,7 @@ func TestFilesWrite_ExpectedHashRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0o600 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Fatalf("permission must be preserved, got %04o", perm)
 	}
 }

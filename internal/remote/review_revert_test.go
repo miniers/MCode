@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -257,10 +258,12 @@ func TestReviewRevertSnapshotSaved(t *testing.T) {
 		t.Fatal("快照不是写入前的原始内容")
 	}
 	info, err := os.Stat(filepath.Join(dir, oldest))
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatalf("快照权限不符: %v %v", info, err)
 	}
 	for i := range 20 {
+		// Windows clock resolution can reuse/non-monotonically order adjacent UnixNano values.
+		time.Sleep(time.Millisecond)
 		if err := saveReviewRevertSnapshot(f.b, f.id, "a.go", []byte{byte(i)}); err != nil {
 			t.Fatal(err)
 		}

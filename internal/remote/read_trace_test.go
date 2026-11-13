@@ -10,7 +10,7 @@ import (
 
 // TestExtractReadPath_Keys 验证各候选键的提取与优先级顺序。
 func TestExtractReadPath_Keys(t *testing.T) {
-	workDir := "/workspace/project"
+	workDir := t.TempDir()
 
 	tests := []struct {
 		name     string
@@ -42,14 +42,14 @@ func TestExtractReadPath_Keys(t *testing.T) {
 		},
 		{
 			name:     "absolute_path key under workDir",
-			input:    `{"absolute_path": "/workspace/project/pkg/util.go"}`,
+			input:    fmt.Sprintf(`{"absolute_path": %q}`, filepath.Join(workDir, "pkg", "util.go")),
 			workDir:  workDir,
 			wantPath: "pkg/util.go",
 			wantOK:   true,
 		},
 		{
 			name:     "AbsolutePath key under workDir",
-			input:    `{"AbsolutePath": "/workspace/project/pkg/clean.go"}`,
+			input:    fmt.Sprintf(`{"AbsolutePath": %q}`, filepath.Join(workDir, "pkg", "clean.go")),
 			workDir:  workDir,
 			wantPath: "pkg/clean.go",
 			wantOK:   true,

@@ -321,8 +321,18 @@ func TestCompactForIncrementalVacuumRewrite(t *testing.T) {
 			} else if err := os.Remove(markerPath); err != nil {
 				t.Fatalf("删除标记失败: %v", err)
 			}
-			before, err := os.Stat(path)
+			// Windows 上 os.Stat 的 FileInfo 会按路径延迟取 file id，替换前后比较永远相同；
+			// 先通过打开的句柄取到并缓存 file id，再立刻关闭句柄让重写可以替换文件。
+			beforeFile, err := os.Open(path)
 			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := beforeFile.Stat()
+			if err != nil {
+				_ = beforeFile.Close()
+				t.Fatal(err)
+			}
+			if err := beforeFile.Close(); err != nil {
 				t.Fatal(err)
 			}
 			compactRewriteMinBytes = before.Size()
