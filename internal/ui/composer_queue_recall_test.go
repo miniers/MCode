@@ -116,6 +116,75 @@ type gatedQueueFailureClient struct {
 	release chan struct{}
 }
 
+type batchQueueFailureClient struct {
+	*FakeClient
+	done chan struct{}
+}
+
+func (f *batchQueueFailureClient) RemoveQueued(_ context.Context, _, id string) error {
+	if id == "q3" {
+		close(f.done)
+		return nil
+	}
+	return errors.New("删除失败")
+}
+
+func TestQueueClearPartialFailurePreservesOrder(t *testing.T) {
+	client := &batchQueueFailureClient{FakeClient: NewFakeClient(), done: make(chan struct{})}
+	s := newChatState(client)
+	t.Cleanup(s.close)
+	s.selectedThreadID = "t1"
+	s.queue["t1"] = []QueuedFollowUp{{ID: "q1"}, {ID: "system", System: true}, {ID: "q2"}, {ID: "q3"}}
+	s.clearQueue()
+	select {
+	case <-client.done:
+	case <-time.After(uiWaitTimeout):
+		t.Fatal("等待清空队列超时")
+	}
+	if got := strings.Join(recallTestQueueIDs(s, "t1"), ","); got != "q1,system,q2" {
+		t.Fatalf("回滚后队列 = %q", got)
+	}
+	if toast := recallTestToast(s); !strings.Contains(toast, "清空排队消息失败") {
+		t.Fatalf("失败 toast = %q", toast)
+	}
+}
+
+func TestQueueSteerFailureRollbackAndPush(t *testing.T) {
+	client := &gatedQueueFailureClient{FakeClient: NewFakeClient(), started: make(chan struct{}), release: make(chan struct{})}
+	s := newChatState(client)
+	t.Cleanup(s.close)
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{ID: "t1", Provider: "codex"}}
+	items := []QueuedFollowUp{{ID: "q1", Text: "hello"}, {ID: "q2"}}
+	s.queue["t1"] = items
+	s.steerQueued(items[0])
+	select {
+	case <-client.started:
+	case <-time.After(uiWaitTimeout):
+		t.Fatal("等待插入请求超时")
+	}
+	s.mu.Lock()
+	s.queue["t1"] = s.filterRemovingQueuedLocked("t1", items[1:])
+	s.queue["t1"] = s.filterRemovingQueuedLocked("t1", items)
+	s.mu.Unlock()
+	if got := strings.Join(recallTestQueueIDs(s, "t1"), ","); got != "q2" {
+		t.Fatalf("请求期间队列 = %q", got)
+	}
+	close(client.release)
+	deadline := time.After(uiWaitTimeout)
+	for !strings.Contains(recallTestToast(s), "插入排队消息失败") {
+		select {
+		case <-deadline:
+			t.Fatal("等待插入失败超时")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if got := strings.Join(recallTestQueueIDs(s, "t1"), ","); got != "q1,q2" {
+		t.Fatalf("回滚后队列 = %q", got)
+	}
+}
+
 func (f *gatedQueueFailureClient) RemoveQueued(ctx context.Context, threadID, followUpID string) error {
 	close(f.started)
 	<-f.release

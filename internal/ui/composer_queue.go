@@ -70,6 +70,7 @@ func (s *chatState) steerQueued(item QueuedFollowUp) {
 			s.setToast("插入排队消息失败: " + err.Error())
 			return
 		}
+		s.finishRemovingQueued(threadID, item.ID)
 		if _, err := s.client.Send(ctx, threadID, item.Text); err != nil {
 			// 回填：宁可顺序变到队尾，也不能把用户写的内容弄丢。
 			if qErr := s.client.Enqueue(ctx, threadID, item.Text, nil); qErr != nil {
@@ -189,6 +190,27 @@ func (s *chatState) takeQueuedLocked(tid, id string) (QueuedFollowUp, int, bool)
 func (s *chatState) restoreQueued(tid string, item QueuedFollowUp, index int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.restoreQueuedLocked(tid, item, index)
+}
+
+func (s *chatState) restoreQueuedFromSnapshot(tid string, item QueuedFollowUp, snapshot []QueuedFollowUp) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	positions := make(map[string]int, len(snapshot))
+	for i, original := range snapshot {
+		positions[original.ID] = i
+	}
+	index := len(s.queue[tid])
+	for i, existing := range s.queue[tid] {
+		if pos, ok := positions[existing.ID]; ok && pos > positions[item.ID] {
+			index = i
+			break
+		}
+	}
+	s.restoreQueuedLocked(tid, item, index)
+}
+
+func (s *chatState) restoreQueuedLocked(tid string, item QueuedFollowUp, index int) {
 	delete(s.queueRemoving[tid], item.ID)
 	for _, existing := range s.queue[tid] {
 		if existing.ID == item.ID {
@@ -205,6 +227,14 @@ func (s *chatState) restoreQueued(tid string, item QueuedFollowUp, index int) {
 	s.queue[tid] = items
 }
 
+func (s *chatState) finishRemovingQueued(tid, id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.queueRemoving[tid][id]; ok {
+		s.queueRemoving[tid][id] = false
+	}
+}
+
 func (s *chatState) filterRemovingQueuedLocked(tid string, items []QueuedFollowUp) []QueuedFollowUp {
 	pending := s.queueRemoving[tid]
 	if len(pending) == 0 {
@@ -213,14 +243,14 @@ func (s *chatState) filterRemovingQueuedLocked(tid string, items []QueuedFollowU
 	seen := make(map[string]bool)
 	filtered := make([]QueuedFollowUp, 0, len(items))
 	for _, item := range items {
-		if pending[item.ID] {
+		if _, ok := pending[item.ID]; ok {
 			seen[item.ID] = true
 			continue
 		}
 		filtered = append(filtered, item)
 	}
-	for id := range pending {
-		if !seen[id] {
+	for id, inflight := range pending {
+		if !inflight && !seen[id] {
 			delete(pending, id)
 		}
 	}

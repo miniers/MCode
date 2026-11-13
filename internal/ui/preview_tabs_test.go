@@ -357,6 +357,7 @@ func TestBrowserLocalFilesReuseTabsAndRevoke(t *testing.T) {
 	if !s.openInspectorPreview("t1", "a.pdf") {
 		t.Fatal("本地预览失败")
 	}
+	waitInspectorPreview(t, s, "t1", "a.pdf")
 	first := getPreviewState(s)
 	if !first.untrusted {
 		t.Fatal("本地页没有 Untrusted")
@@ -365,12 +366,17 @@ func TestBrowserLocalFilesReuseTabsAndRevoke(t *testing.T) {
 	if !s.openInspectorPreview("t1", "b.html") {
 		t.Fatal("第二本地预览失败")
 	}
+	waitInspectorPreview(t, s, "t1", "b.html")
 	second := getPreviewState(s)
 	pageB := inspectorAttachPage(s)
 	if first == second || len(first.owner.tabs) != 2 {
 		t.Fatal("本地文件没有独立标签")
 	}
-	if !s.openInspectorPreview("t1", "a.pdf") || getPreviewState(s) != first || len(client.callsSnapshot()) != 2 {
+	if !s.openInspectorPreview("t1", "a.pdf") {
+		t.Fatal("重复打开本地预览失败")
+	}
+	waitInspectorPreview(t, s, "t1", "a.pdf")
+	if getPreviewState(s) != first || len(client.callsSnapshot()) != 2 {
 		t.Fatal("重复打开同一文件重新签发或新建标签")
 	}
 	browserCloseTab(s, first.owner, first.tabID)

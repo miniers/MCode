@@ -3181,6 +3181,7 @@ func (s *chatState) clearQueue() {
 		return
 	}
 	var ids []string
+	snapshot := append([]QueuedFollowUp(nil), s.queue[tid]...)
 	skippedSystem := 0
 	for _, item := range s.queue[tid] {
 		// 系统消息后端不允许撤回，清空时跳过并提示。
@@ -3211,8 +3212,10 @@ func (s *chatState) clearQueue() {
 		ctx := context.Background()
 		for i, id := range ids {
 			if err := s.client.RemoveQueued(ctx, tid, id); err != nil {
-				s.restoreQueued(tid, removed[i], i)
+				s.restoreQueuedFromSnapshot(tid, removed[i], snapshot)
 				s.setToast("清空排队消息失败: " + err.Error())
+			} else {
+				s.finishRemovingQueued(tid, id)
 			}
 		}
 		s.invalidate()
@@ -3277,12 +3280,12 @@ func (s *chatState) recallAllQueued() {
 		texts := make([]string, 0, len(recallable))
 		recalledAttachments := make([]composerAttachment, 0)
 		failed := false
-		for index, item := range recallable {
+		for _, item := range recallable {
 			var itemAttachments []composerAttachment
 			if item.AttachmentCount > 0 {
 				attachments, err := editor.QueuedAttachments(ctx, tid, item.ID)
 				if err != nil {
-					s.restoreQueued(tid, item, index)
+					s.restoreQueuedFromSnapshot(tid, item, items)
 					s.setToast("退回排队消息失败: " + err.Error())
 					failed = true
 					continue
@@ -3302,17 +3305,18 @@ func (s *chatState) recallAllQueued() {
 			fits := len(s.attachments)+len(recalledAttachments)+len(itemAttachments) <= limit
 			s.mu.Unlock()
 			if !fits {
-				s.restoreQueued(tid, item, index)
+				s.restoreQueuedFromSnapshot(tid, item, items)
 				s.setToast(fmt.Sprintf("退回后附件将超过 %d 个上限", limit))
 				failed = true
 				continue
 			}
 			if err := s.client.RemoveQueued(ctx, tid, item.ID); err != nil {
-				s.restoreQueued(tid, item, index)
+				s.restoreQueuedFromSnapshot(tid, item, items)
 				s.setToast("退回排队消息失败: " + err.Error())
 				failed = true
 				continue
 			}
+			s.finishRemovingQueued(tid, item.ID)
 			texts = append(texts, item.Text)
 			recalledAttachments = append(recalledAttachments, itemAttachments...)
 		}
@@ -3397,6 +3401,8 @@ func (s *chatState) removeQueued(id string) {
 		if err := s.client.RemoveQueued(context.Background(), tid, id); err != nil {
 			s.restoreQueued(tid, item, index)
 			s.setToast("删除排队消息失败: " + err.Error())
+		} else {
+			s.finishRemovingQueued(tid, id)
 		}
 	}()
 }
