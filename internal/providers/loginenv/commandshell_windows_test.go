@@ -74,6 +74,14 @@ func TestAvailableCommandShells(t *testing.T) {
 	}
 }
 
+func TestAvailableCommandShellsCached(t *testing.T) {
+	first := AvailableCommandShells()
+	second := AvailableCommandShells()
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("两次调用结果不一致：%q 与 %q", first, second)
+	}
+}
+
 func TestCommandShellPreferenceAndProcattr(t *testing.T) {
 	old, _ := commandShellPreference.Load().(string)
 	t.Cleanup(func() { SetCommandShell(old) })

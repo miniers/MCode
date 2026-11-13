@@ -4,6 +4,7 @@ package loginenv
 
 import (
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"mcode/internal/procattr"
@@ -54,10 +55,10 @@ func selectCommandShell(pref, command string, gitBash func() string, lookPath fu
 	return "powershell.exe", []string{"-NoProfile", "-NonInteractive", "-Command", command}, "Windows PowerShell"
 }
 
-// AvailableCommandShells 返回本机可用的 Windows 命令 shell 偏好值，不含自动选项。
-func AvailableCommandShells() []string {
+// AvailableCommandShells 返回本机可用的 Windows 命令 shell 偏好值，不含自动选项；首次调用后缓存。
+var AvailableCommandShells = sync.OnceValue(func() []string {
 	return availableCommandShells(GitBash, LookPath)
-}
+})
 
 func availableCommandShells(gitBash func() string, lookPath func(string) (string, error)) []string {
 	var available []string
