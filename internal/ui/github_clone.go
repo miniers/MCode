@@ -20,6 +20,12 @@ import (
 // githubReposLimit 是 gh repo list 拉取的仓库数量上限。
 const githubReposLimit = 50
 
+var errGitMissing = errors.New("未找到 git 命令")
+
+func showGitInstallButton(gitMissing bool, goos string) bool {
+	return gitMissing && goos == "windows"
+}
+
 // GitHub 克隆面板的卡片宽度与仓库列表高度。
 const (
 	githubCloneCardWidth   float32 = 460
@@ -49,6 +55,7 @@ type githubCloneState struct {
 	cloning     bool
 	cloningName string
 	errMsg      string
+	gitMissing  bool
 	results     chan githubCloneResult
 }
 
@@ -69,6 +76,7 @@ func openGitHubClonePanel(s *chatState) {
 	}
 	cs.open = true
 	cs.errMsg = ""
+	cs.gitMissing = false
 	if !cs.reposLoaded {
 		loadGitHubRepos(s, cs)
 	}
@@ -83,6 +91,7 @@ func closeGitHubClonePanel(s *chatState) {
 	}
 	cs.open = false
 	cs.errMsg = ""
+	cs.gitMissing = false
 	s.invalidate()
 }
 
@@ -237,7 +246,7 @@ func runGitClone(ctx context.Context, url, dir string) error {
 	// GUI 进程的 PATH 不带登录 Shell 的目录，用登录环境查找 git。
 	gitPath, err := loginenv.LookPath("git")
 	if err != nil {
-		return errors.New("未找到 git 命令")
+		return errGitMissing
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
@@ -311,6 +320,7 @@ func startGitHubClone(s *chatState, cs *githubCloneState) {
 	if cs == nil || cs.cloning {
 		return
 	}
+	cs.gitMissing = false
 	fullName, ok := parseGitHubRepo(cs.search)
 	if !ok {
 		cs.errMsg = "请输入 Git URL 或 owner/repo"
@@ -395,6 +405,10 @@ func drainGitHubCloneResults(s *chatState, cs *githubCloneState) {
 				cs.cloning = false
 				cs.cloningName = ""
 				cs.errMsg = "克隆失败: " + res.err.Error()
+				cs.gitMissing = errors.Is(res.err, errGitMissing)
+			case "install-error":
+				cs.errMsg = "打开终端失败：" + res.err.Error()
+				cs.gitMissing = false
 			}
 		default:
 			return
@@ -575,6 +589,20 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 						} else {
 							ui.Spacer(c)
 						}
+						if cs.errMsg != "" && showGitInstallButton(cs.gitMissing, providerTerminalGOOS) {
+							Button(c.Key("github-clone-install-git-btn"), ButtonOpts{
+								Text:    "安装 Git",
+								Variant: ButtonSecondary,
+								OnClick: func() {
+									go func() {
+										if err := openTerminalScript("install-git", "winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements"); err != nil {
+											cs.results <- githubCloneResult{kind: "install-error", err: err}
+											s.invalidate()
+										}
+									}()
+								},
+							})
+						}
 
 						cloneLabel := "克隆"
 						if cs.cloning {
@@ -611,6 +639,7 @@ func renderGitHubRepoRow(c *ui.Context, s *chatState, cs *githubCloneState, full
 	if row.Clicked() {
 		cs.search = fullName
 		cs.errMsg = ""
+		cs.gitMissing = false
 		s.invalidate()
 	}
 	if row.DoubleClicked() {

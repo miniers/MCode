@@ -130,6 +130,18 @@ func TestWindowsCommonPathDirsIncludesAgy(t *testing.T) {
 	t.Fatalf("windowsCommonPathDirs 缺少 %q", want)
 }
 
+func TestWindowsCommonPathDirsIncludesGit(t *testing.T) {
+	programFiles := t.TempDir()
+	t.Setenv("ProgramFiles", programFiles)
+	want := filepath.Join(programFiles, "Git", "cmd")
+	for _, dir := range windowsCommonPathDirs(t.TempDir()) {
+		if dir == want {
+			return
+		}
+	}
+	t.Fatalf("windowsCommonPathDirs 缺少 %q", want)
+}
+
 func TestFallbackEnvironment(t *testing.T) {
 	resetState(t)
 	defer resetState(t)

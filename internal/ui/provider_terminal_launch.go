@@ -50,38 +50,35 @@ func launchProviderTerminalAction(st *SettingsState, id, action string) {
 	}
 
 	go func() {
-		dir := filepath.Join(os.TempDir(), "mcode-login")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := openTerminalScript(fmt.Sprintf("%s-%s", action, id), cmd); err != nil {
 			fail(err)
-			return
-		}
-		// darwin/linux 写 .command 交给终端执行；windows 写 .ps1 由新窗口的 powershell 执行。
-		ext := ".command"
-		if runtime.GOOS == "windows" {
-			ext = ".ps1"
-		}
-		scriptPath := filepath.Join(dir, fmt.Sprintf("%s-%s%s", action, id, ext))
-		content := providerInstallScript(runtime.GOOS, cmd)
-		if runtime.GOOS == "windows" {
-			content = "\ufeff" + content
-		}
-		if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
-			fail(err)
-			return
-		}
-		switch runtime.GOOS {
-		case "windows":
-			if err := procattr.HideWindow(exec.Command("cmd", "/c", "start", "", "powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", scriptPath)).Run(); err != nil {
-				fail(err)
-			}
-		case "darwin":
-			if err := exec.Command("open", scriptPath).Run(); err != nil {
-				fail(err)
-			}
-		default:
-			if err := mygo.Shell.OpenPath(scriptPath); err != nil {
-				fail(err)
-			}
 		}
 	}()
+}
+
+func openTerminalScript(name, cmd string) error {
+	dir := filepath.Join(os.TempDir(), "mcode-login")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	ext := ".command"
+	if runtime.GOOS == "windows" {
+		ext = ".ps1"
+	}
+	scriptPath := filepath.Join(dir, name+ext)
+	content := providerInstallScript(runtime.GOOS, cmd)
+	if runtime.GOOS == "windows" {
+		content = "\ufeff" + content
+	}
+	if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
+		return err
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return procattr.HideWindow(exec.Command("cmd", "/c", "start", "", "powershell.exe", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", scriptPath)).Run()
+	case "darwin":
+		return exec.Command("open", scriptPath).Run()
+	default:
+		return mygo.Shell.OpenPath(scriptPath)
+	}
 }

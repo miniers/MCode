@@ -605,7 +605,7 @@ func commonPathDirs(home string) []string {
 	}
 }
 
-// windowsCommonPathDirs 覆盖 npm 全局 bin、WindowsApps、Program Files\nodejs 等目录。
+// windowsCommonPathDirs 覆盖 npm 全局 bin、WindowsApps、Program Files 下的 nodejs 和 Git 等目录。
 func windowsCommonPathDirs(home string) []string {
 	var dirs []string
 	if appData := os.Getenv("APPDATA"); appData != "" {
@@ -620,7 +620,7 @@ func windowsCommonPathDirs(home string) []string {
 		)
 	}
 	if programFiles := os.Getenv("ProgramFiles"); programFiles != "" {
-		dirs = append(dirs, filepath.Join(programFiles, "nodejs"))
+		dirs = append(dirs, filepath.Join(programFiles, "nodejs"), filepath.Join(programFiles, "Git", "cmd"))
 	}
 	if home != "" {
 		dirs = append(dirs,

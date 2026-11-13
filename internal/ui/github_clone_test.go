@@ -9,6 +9,23 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func TestCloneInstallButton(t *testing.T) {
+	for _, tc := range []struct {
+		missing bool
+		goos    string
+		want    bool
+	}{
+		{true, "windows", true},
+		{false, "windows", false},
+		{true, "darwin", false},
+		{false, "linux", false},
+	} {
+		if got := showGitInstallButton(tc.missing, tc.goos); got != tc.want {
+			t.Errorf("showGitInstallButton(%v, %q) = %v, want %v", tc.missing, tc.goos, got, tc.want)
+		}
+	}
+}
+
 // TestParseGitHubRepo 验证 Git URL 与 owner/repo 的解析。
 func TestParseGitHubRepo(t *testing.T) {
 	tests := []struct {
