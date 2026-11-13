@@ -979,7 +979,7 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 	inside := insideControlPlaneWorkDir(in, dirs)
 	var insideRoots []string
 	if inside {
-		insideRoots = []string{wd, realWD}
+		insideRoots = []string{filepath.ToSlash(wd), filepath.ToSlash(realWD)}
 	}
 	get := func(key string) string {
 		return argString(args, key)
@@ -1007,13 +1007,13 @@ func checkSensitive(in Input, args map[string]any, kind harness.RequestKind, com
 	}
 	// 沙箱下写入由内核拦截、凭证文件读取已被 profile 禁止，不再按控制面路径判敏感。
 	if kind == harness.RequestKindCommand && !in.Sandboxed && !OnlyReads(command) {
-		probe := normalizeHome(command)
+		probe := filepath.ToSlash(normalizeHome(command))
 		if inside {
 			// 先把副本自身路径折叠成 "."，只引用副本的命令不再误判。
 			probe = stripWorkDir(probe, insideRoots...)
 		}
 		for _, d := range dirs {
-			if containsPath(probe, d) {
+			if containsPath(probe, filepath.ToSlash(d)) {
 				return "controlPlane"
 			}
 		}
@@ -1081,9 +1081,10 @@ var envFile = regexp.MustCompile(`(^|[\\/\s"'` + "`" + `=])\.env(\.[^\s\\/'"` + 
 
 // mcodeConfigJSON 判断 text 是否指向 mcode 数据目录下的 JSON 配置文件。
 func mcodeConfigJSON(text, home string) bool {
+	text = filepath.ToSlash(text)
 	roots := []string{"~/.mcode/"}
 	if home != "" {
-		roots = append(roots, filepath.Join(home, ".mcode")+string(filepath.Separator))
+		roots = append(roots, filepath.ToSlash(filepath.Join(home, ".mcode"))+"/")
 	}
 	if data := os.Getenv("MCODE_DATA"); data != "" {
 		roots = append(roots, filepath.Clean(data)+string(filepath.Separator))
@@ -1112,12 +1113,12 @@ func mcodeConfigJSON(text, home string) bool {
 func credential(text, project string, insideRoots []string) bool {
 	home, _ := os.UserHomeDir()
 	original := text
-	text = normalizeHome(text)
+	text = filepath.ToSlash(normalizeHome(text))
 	for _, s := range []string{"~/.ssh/", "/.ssh/", "id_rsa", "id_ed25519", "~/.aws/", "~/.config/gcloud", "~/.docker/config.json", "~/.kube/config", "~/.netrc", "~/.pi/agent/auth.json", "~/.mcode/config.json", "~/.ssh", "~/.aws"} {
 		if strings.Contains(original, s) || strings.Contains(text, s) {
 			return true
 		}
-		if home != "" && strings.HasPrefix(s, "~/") && strings.Contains(text, filepath.Join(home, s[2:])) {
+		if home != "" && strings.HasPrefix(s, "~/") && strings.Contains(text, filepath.ToSlash(filepath.Join(home, s[2:]))) {
 			return true
 		}
 	}
@@ -1146,7 +1147,14 @@ func credential(text, project string, insideRoots []string) bool {
 		for tokenStart > 0 && !strings.ContainsRune(" \t\r\n\"'`=;:,&|", rune(text[tokenStart-1])) {
 			tokenStart--
 		}
+		// 保留 Windows 盘符，避免把 C:/... 截成 /...。
+		if tokenStart >= 2 && text[tokenStart-1] == ':' && filepath.IsAbs(text[tokenStart-2:end]) {
+			tokenStart -= 2
+		}
 		token := text[tokenStart:end]
+		if strings.HasPrefix(token, "/") && !filepath.IsAbs(token) {
+			return true
+		}
 		if project != "" && !strings.HasPrefix(token, "~") && within(absolute(project, token), project) {
 			continue
 		}

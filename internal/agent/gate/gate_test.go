@@ -110,6 +110,7 @@ func TestCheck(t *testing.T) {
 		{"env_write_full", harness.ModeFullAccess, false, false, "write", "path", ".env", Allow, ""},
 		{"env_ssh_full", harness.ModeFullAccess, false, false, "bash", "command", "cat ~/.ssh/id_rsa", Ask, "credential"},
 		{"env_absolute_outside_full", harness.ModeFullAccess, false, false, "bash", "command", "cat /tmp/elsewhere/.env", Ask, "credential"},
+		{"env_native_absolute_outside_full", harness.ModeFullAccess, false, false, "bash", "command", "cat " + filepath.Join(t.TempDir(), ".env"), Ask, "credential"},
 		{"env_relative_outside_full", harness.ModeFullAccess, false, false, "bash", "command", "cat ../x/.env", Ask, "credential"},
 		{"env_mixed_full", harness.ModeFullAccess, false, false, "bash", "command", "cat .env ../x/.env", Ask, "credential"},
 		{"env_read_outside_full", harness.ModeFullAccess, false, false, "read", "path", "../x/.env", Ask, "credential"},

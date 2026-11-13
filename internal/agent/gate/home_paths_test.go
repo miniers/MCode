@@ -2,22 +2,22 @@ package gate
 
 import (
 	"encoding/json"
-	"os"
+	"path/filepath"
 	"testing"
 
 	"mcode/internal/harness"
+	"mcode/internal/testenv"
 )
 
 func TestHomeControlAndCredentials(t *testing.T) {
-	if home, _ := os.UserHomeDir(); home == "" {
-		t.Skip("没有主目录")
-	}
+	home := testenv.TempHome(t)
 	for _, tc := range []struct{ command, want string }{
 		{"rm -rf ~/.mcode", "controlPlane"},
 		{"rm -rf $HOME/.mcode", "controlPlane"},
 		{"rm -rf ${HOME}/.mcode", "controlPlane"},
 		{"rm -rf \"$HOME\"/.mcode", "controlPlane"},
 		{"rm -rf \"${HOME}/.mcode\"", "controlPlane"},
+		{"rm -rf " + filepath.Join(home, ".mcode"), "controlPlane"},
 		{"cat ~/.pi/agent/file", ""},
 		{"ls -l ~/.mcode", ""},
 		{"rm -rf $HOME/.pi/agent", "controlPlane"},
@@ -25,7 +25,10 @@ func TestHomeControlAndCredentials(t *testing.T) {
 		{"cat \"$HOME/.ssh/id_rsa\"", "credential"},
 		{"cat ~/.aws/credentials", "credential"},
 		{"cat $HOME/.aws/credentials", "credential"},
+		{"cat " + filepath.Join(home, ".aws", "credentials"), "credential"},
 		{"cat \"${HOME}\"/.kube/config", "credential"},
+		{"cat ~/.mcode/always_allow.json", "credential"},
+		{"cat " + filepath.Join(home, ".mcode", "always_allow.json"), "credential"},
 		{"cat ~/.ssh/id_ed25519", "credential"},
 		{"rm -rf ~/.mcode-foo", ""},
 		{"rm -rf ~/.pi/agent-other", ""},
