@@ -136,3 +136,31 @@ func TestAutomationRunNowAppliesQueuedResult(t *testing.T) {
 		})
 	}
 }
+
+func TestAutomationCopyDeleteSuccessToast(t *testing.T) {
+	for _, action := range []string{"copy", "delete"} {
+		t.Run(action, func(t *testing.T) {
+			fake := NewFakeClient()
+			a := testAutomation("a", "p1")
+			fake.SetAutomations([]Automation{a})
+			s := &chatState{client: fake}
+			as := getAutomationState(s)
+			as.projectID, as.selectedID = "p1", "a"
+			want := "已复制自动化"
+			if action == "copy" {
+				s.duplicateAutomation(a)
+			} else {
+				want = "已删除自动化"
+				s.deleteAutomation("a")
+			}
+			waitAutomationRunsQueued(t, s)
+			s.applyWorkspaceUpdates()
+			s.mu.Lock()
+			toast := s.toastMessage
+			s.mu.Unlock()
+			if toast != want {
+				t.Fatalf("提示: %q, 期望 %q", toast, want)
+			}
+		})
+	}
+}

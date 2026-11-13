@@ -958,6 +958,10 @@ func renderSwarmPanelStrip(c *ui.Context, s *chatState, f swarmFloatFrame, id pa
 				Label("子代理列表，共 " + strconv.Itoa(len(bees)) + " 个").
 				Role(ui.RoleMenuButton).
 				Tooltip("切换正在查看的子代理")
+			{
+				scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+				btn.Scale(scale, scale)
+			}
 			if btn.Hovered() {
 				btn.Background(ThemeHover(c).Alpha(0.85))
 			}
@@ -1022,6 +1026,10 @@ func renderSwarmPanelStrip(c *ui.Context, s *chatState, f swarmFloatFrame, id pa
 		trackSwarmPanelDrag(s, f, id, key, rest, handle)
 
 		pop := ui.ButtonBase(c.Key("swarm-strip-pop")).Radius(RadiusXS).Padding(Space1).Label("在独立窗口打开 " + cur.Name).Role(ui.RoleButton).Tooltip("在独立会话窗口打开此子代理")
+		{
+			scale := motionPressScale(c, pop, "button-press-scale", pop.Pressed())
+			pop.Scale(scale, scale)
+		}
 		if pop.Hovered() {
 			pop.Background(ThemeHover(c))
 		}
@@ -1051,6 +1059,10 @@ func renderSwarmPanelStrip(c *ui.Context, s *chatState, f swarmFloatFrame, id pa
 			Label(label).
 			Role(ui.RoleButton).
 			Tooltip(tip)
+		{
+			scale := motionPressScale(c, closeBtn, "button-press-scale", closeBtn.Pressed())
+			closeBtn.Scale(scale, scale)
+		}
 		if closeBtn.Hovered() {
 			closeBtn.Background(ThemeHover(c).Alpha(0.85))
 		}
@@ -1263,10 +1275,19 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 							Label("停止 " + bee.Name).
 							Role(ui.RoleButton).
 							Tooltip("停止此子代理")
+						{
+							scale := motionPressScale(c, stop, "button-press-scale", !s.swarmActionBusy("stop:"+bee.ThreadID) && stop.Pressed())
+							stop.Scale(scale, scale)
+						}
+						stop.Disabled(s.swarmActionBusy("stop:" + bee.ThreadID))
 						if stop.Clicked() {
 							s.stopSwarmBee(bee.ThreadID)
 						}
 						stop.Children(func() {
+							if s.swarmActionBusy("stop:" + bee.ThreadID) {
+								LoadingIndicator(c, nil, "", IconSM)
+								return
+							}
 							ui.Icon(c, IconSquare()).Size(8, 8).TextColor(ThemeDanger(c))
 						})
 					}
@@ -1274,6 +1295,10 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 						Label("在独立窗口打开 " + bee.Name).
 						Role(ui.RoleButton).
 						Tooltip("在独立窗口中打开")
+					{
+						scale := motionPressScale(c, pop, "button-press-scale", pop.Pressed())
+						pop.Scale(scale, scale)
+					}
 					if pop.Hovered() {
 						pop.Background(ThemeHover(c))
 					}
@@ -1295,11 +1320,19 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 				all := ui.ButtonBase(c.Key("swarm-menu-stop-all")).Radius(RadiusXS).Padding(Space1, Space2).
 					Label("停止全部子代理").
 					Role(ui.RoleButton)
+				{
+					scale := motionPressScale(c, all, "button-press-scale", !s.swarmActionBusy("stop-all") && all.Pressed())
+					all.Scale(scale, scale)
+				}
+				all.Disabled(s.swarmActionBusy("stop-all"))
 				if all.Clicked() {
 					s.stopAllSwarmBees()
-					*open = false
 				}
 				all.Children(func() {
+					if s.swarmActionBusy("stop-all") {
+						LoadingIndicator(c, nil, "", IconSM)
+						return
+					}
 					ui.Text(c, "停止全部").FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
 				})
 			}
@@ -1307,11 +1340,19 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 			clear := ui.ButtonBase(c.Key("swarm-menu-clear")).Radius(RadiusXS).Padding(Space1, Space2).
 				Label("清理已结束的子代理").
 				Role(ui.RoleButton)
+			{
+				scale := motionPressScale(c, clear, "button-press-scale", !s.swarmActionBusy("clear") && clear.Pressed())
+				clear.Scale(scale, scale)
+			}
+			clear.Disabled(s.swarmActionBusy("clear"))
 			if clear.Clicked() {
 				s.clearFinishedSwarmBees()
-				*open = false
 			}
 			clear.Children(func() {
+				if s.swarmActionBusy("clear") {
+					LoadingIndicator(c, nil, "", IconSM)
+					return
+				}
 				ui.Text(c, "清理已结束").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 			})
 		})

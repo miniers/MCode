@@ -703,6 +703,7 @@ func (s *chatState) deleteAutomation(id string) {
 				as.isNew = false
 			}
 			automationMu.Unlock()
+			s.setToast("已删除自动化")
 			s.loadAutomationList(curPID, false)
 		})
 	}()
@@ -913,6 +914,7 @@ func (s *chatState) duplicateAutomation(auto Automation) {
 			if sameProject {
 				as.selectAutomation(saved, s)
 			}
+			s.setToast("已复制自动化")
 			s.loadAutomationList(projectID, false)
 		})
 	}(input)

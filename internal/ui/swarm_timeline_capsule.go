@@ -437,6 +437,7 @@ func renderSwarmCapsuleButton(c *ui.Context, key string, view swarmCapsuleView, 
 		Padding(Space1, Space3, Space1, Space3).
 		Border(1, ThemeBorder(c)).
 		Background(ThemeSurface(c))
+
 	if opened {
 		btn.Background(ThemeSelected(c))
 	} else if btn.Hovered() {
@@ -447,6 +448,11 @@ func renderSwarmCapsuleButton(c *ui.Context, key string, view swarmCapsuleView, 
 		// 这里不能再把它打开，否则会互相抵消（同 renderSwarmReportCapsule）。
 		open = shouldKeepSwarmReportOpen(opened, dismissed)
 	}
+	if !native {
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
+
 	btn.Children(func() {
 		ui.Row(c.Key("swarm-capsule-content-" + key)).
 			AlignItems(ui.Center).
@@ -646,6 +652,10 @@ func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID strin
 		Radius(RadiusSM).
 		Padding(Space1, Space3).
 		Background(ThemeAccent(c).Alpha(0.14))
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if btn.Hovered() {
 		btn.Background(ThemeAccent(c).Alpha(0.24))
 	}

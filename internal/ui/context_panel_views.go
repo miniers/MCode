@@ -102,6 +102,10 @@ func (s *chatState) completeContextPanel() {
 // contextBaseButton 是弹窗内不带外观的按钮基座。
 func contextBaseButton(c *ui.Context, key any, label string) ui.Element {
 	b := ui.ButtonBase(c.Key(key)).Radius(RadiusSM).Gap(Space2).AlignItems(ui.Center)
+	{
+		scale := motionPressScale(c, b, "button-press-scale", b.Pressed())
+		b.Scale(scale, scale)
+	}
 	if label != "" {
 		b.Label(label)
 	}

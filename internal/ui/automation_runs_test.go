@@ -333,3 +333,21 @@ func TestAutomationRunHistoryLimit(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("仅显示最近 100 条") })
 }
+
+func TestAutomationRefreshLoading(t *testing.T) {
+	for _, runs := range [][]AutomationRun{nil, {{ID: "r1", Status: "running", StartedAt: time.Now()}}} {
+		s := &chatState{client: NewFakeClient()}
+		as := getAutomationState(s)
+		tt := ui.NewTester(func(c *ui.Context) {
+			renderAutomationRunHistory(c, s, as, false, "a", 0, false, true, "", runs, nil, nil, "")
+		}, 1000, 800)
+		tt.Frame()
+		if err := tt.Click("运行记录更多操作"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if node, ok := tt.Access("刷新记录"); !ok || !node.Disabled {
+			t.Fatalf("刷新按钮未显示加载禁用状态: %+v", node)
+		}
+	}
+}

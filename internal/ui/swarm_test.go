@@ -619,7 +619,7 @@ func TestSwarmReportTruncatedCodeBlock(t *testing.T) {
 	})
 	_, entries := parseSwarmReport(text)
 	if len(entries) != 2 || entries[1].Summary != "通过" {
-		t.Fatalf("未闭合代码块吞掉了后续 bee: %+v", entries)
+		t.Fatalf("未闭合代码块吞掉了后续 stop: %+v", entries)
 	}
 }
 
@@ -1922,5 +1922,54 @@ func TestLoadSwarmKeepsStateOnError(t *testing.T) {
 	if !st.Enabled || st.LeadThreadID != "t1" || len(st.Bees) != 1 {
 		t.Fatalf("失败后应保留上次成功的编排状态，实际 Enabled=%v lead=%q bees=%d",
 			st.Enabled, st.LeadThreadID, len(st.Bees))
+	}
+}
+
+type busyStopSwarmClient struct {
+	*FakeClient
+	started chan struct{}
+	release chan struct{}
+	calls   int
+	muCalls sync.Mutex
+}
+
+func (f *busyStopSwarmClient) StopSwarmBee(ctx context.Context, lead, bee string) error {
+	f.muCalls.Lock()
+	f.calls++
+	f.muCalls.Unlock()
+	select {
+	case f.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-f.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestSwarmStopBusy(t *testing.T) {
+	f := &busyStopSwarmClient{FakeClient: NewFakeClient(), started: make(chan struct{}, 2), release: make(chan struct{})}
+	defer close(f.release)
+	s := newChatState(f)
+	s.selectedThreadID = "t1"
+	s.stopSwarmBee("b1")
+	select {
+	case <-f.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("停止请求未开始")
+	}
+	s.stopSwarmBee("b1")
+	f.muCalls.Lock()
+	calls := f.calls
+	f.muCalls.Unlock()
+	if calls != 1 || !s.swarmActionBusy("stop:b1") {
+		t.Fatalf("busy=%v calls=%d", s.swarmActionBusy("stop:b1"), calls)
+	}
+	tt := ui.NewTester(func(c *ui.Context) { renderSwarmBeeRow(c, s, SwarmBee{ThreadID: "b1", Status: "running"}, 0) }, 800, 500)
+	tt.Frame()
+	if node, ok := tt.Access("停止"); !ok || !node.Disabled {
+		t.Fatalf("停止按钮未禁用: %+v", node)
 	}
 }

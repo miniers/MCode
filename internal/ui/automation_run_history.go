@@ -209,7 +209,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 			appPopover(c.Key("automation-runs-more-popover"), more, &popovers.more, nil, func() {
 				popoverCard(c, ui.Column(c.Key("automation-runs-more-menu"))).Padding(Space2).Gap(Space1).Children(func() {
 					Button(c.Key("automation-runs-mark-all-read"), ButtonOpts{Text: "全部标为已读", Label: "全部标为已读", Disabled: selectedUnread == 0, OnClick: func() { popovers.more = false; s.markAllAutomationRunsRead(selectedID) }, Variant: ButtonGhost, Size: ControlXS})
-					Button(c.Key("automation-runs-refresh"), ButtonOpts{Text: "刷新记录", Label: "刷新记录", OnClick: func() { popovers.more = false; s.loadAutomationRuns(selectedID) }, Variant: ButtonGhost, Size: ControlXS})
+					Button(c.Key("automation-runs-refresh"), ButtonOpts{Text: "刷新记录", Label: "刷新记录", Loading: runsLoading, OnClick: func() { popovers.more = false; s.loadAutomationRuns(selectedID) }, Variant: ButtonGhost, Size: ControlXS})
 				})
 			})
 		})

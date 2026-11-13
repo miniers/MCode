@@ -63,6 +63,7 @@ type swarmPanelState struct {
 	stateRev    int
 	view        *swarmStateView
 	loadPending bool
+	busy        map[string]bool
 }
 
 func getSwarmPanelState(s *chatState) *swarmPanelState {
@@ -77,6 +78,37 @@ func getSwarmPanelState(s *chatState) *swarmPanelState {
 		swarmPanelStates[s] = st
 	}
 	return st
+}
+
+func (s *chatState) swarmActionBusy(key string) bool {
+	st := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	defer swarmPanelMu.Unlock()
+	return st.busy[key]
+}
+
+func (s *chatState) beginSwarmAction(key string) bool {
+	st := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	if st.busy == nil {
+		st.busy = make(map[string]bool)
+	}
+	if st.busy[key] {
+		swarmPanelMu.Unlock()
+		return false
+	}
+	st.busy[key] = true
+	swarmPanelMu.Unlock()
+	s.invalidate()
+	return true
+}
+
+func (s *chatState) endSwarmAction(key string) {
+	st := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	delete(st.busy, key)
+	swarmPanelMu.Unlock()
+	s.invalidate()
 }
 
 // setStateLocked 落地新的 Swarm 状态并让派生视图失效，调用方需持有 swarmPanelMu。
@@ -392,9 +424,13 @@ func (s *chatState) setSwarmEnabled(enabled bool) {
 		return
 	}
 
+	if !s.beginSwarmAction("enabled") {
+		return
+	}
 	go func(lid string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		defer s.endSwarmAction("enabled")
 
 		_, err := s.client.SetSwarmEnabled(ctx, lid, enabled)
 		if err != nil {
@@ -416,9 +452,13 @@ func (s *chatState) setSwarmPlansOnly(plansOnly bool) {
 		return
 	}
 
+	if !s.beginSwarmAction("plans") {
+		return
+	}
 	go func(lid string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		defer s.endSwarmAction("plans")
 
 		_, err := s.client.SetSwarmPlansOnly(ctx, lid, plansOnly)
 		if err != nil {
@@ -438,9 +478,13 @@ func (s *chatState) stopSwarmBee(beeID string) {
 		return
 	}
 
+	if !s.beginSwarmAction("stop:" + beeID) {
+		return
+	}
 	go func(lid, hid string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		defer s.endSwarmAction("stop:" + beeID)
 
 		err := s.client.StopSwarmBee(ctx, lid, hid)
 		if err != nil {
@@ -460,9 +504,13 @@ func (s *chatState) stopAllSwarmBees() {
 		return
 	}
 
+	if !s.beginSwarmAction("stop-all") {
+		return
+	}
 	go func(lid string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		defer s.endSwarmAction("stop-all")
 
 		err := s.client.StopAllSwarmBees(ctx, lid)
 		if err != nil {
@@ -482,9 +530,13 @@ func (s *chatState) clearFinishedSwarmBees() {
 		return
 	}
 
+	if !s.beginSwarmAction("clear") {
+		return
+	}
 	go func(lid string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		defer s.endSwarmAction("clear")
 
 		err := s.client.ClearFinishedSwarmBees(ctx, lid)
 		if err != nil {
@@ -971,6 +1023,10 @@ func renderSwarmHeaderButton(c *ui.Context, s *chatState) {
 				Size(swarmToggleHitSize, swarmToggleHitSize).
 				Radius(swarmToggleHitSize / 2).
 				Center()
+			{
+				scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+				btn.Scale(scale, scale)
+			}
 
 			hovered := btn.Hovered()
 			glow := swarmToggleGlow
@@ -1227,6 +1283,10 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 						Tooltip("关闭审查器").
 						Radius(RadiusSM).
 						Padding(Space1, Space3)
+					{
+						scale := motionPressScale(c, closeBtn, "button-press-scale", closeBtn.Pressed())
+						closeBtn.Scale(scale, scale)
+					}
 					if closeBtn.Hovered() {
 						closeBtn.Background(ThemeHover(c))
 					}
@@ -1274,6 +1334,10 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 							Label(beeItem.Name).
 							Radius(RadiusSM).
 							Padding(Space1, Space3)
+						{
+							scale := motionPressScale(c, tabBtn, "button-press-scale", tabBtn.Pressed())
+							tabBtn.Scale(scale, scale)
+						}
 						if isSelected {
 							tabBtn.Background(ThemeSelected(c))
 						} else if tabBtn.Hovered() {
@@ -1372,6 +1436,10 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 											Radius(RadiusXS).
 											Padding(Space1, Space3).
 											Background(ThemeAccent(c))
+										{
+											scale := motionPressScale(c, approveBtn, "button-press-scale", !(reviewLoading || len(reviewFiles) == 0) && approveBtn.Pressed())
+											approveBtn.Scale(scale, scale)
+										}
 										if approveBtn.Hovered() {
 											approveBtn.Background(ThemeAccent(c).Alpha(0.85))
 										}
@@ -1389,6 +1457,10 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 											Label("放弃").
 											Radius(RadiusXS).
 											Padding(Space1, Space3)
+										{
+											scale := motionPressScale(c, discardBtn, "button-press-scale", discardBtn.Pressed())
+											discardBtn.Scale(scale, scale)
+										}
 										if discardBtn.Hovered() {
 											discardBtn.Background(ThemeHover(c))
 										}
@@ -1427,6 +1499,10 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 									Tooltip("在独立窗口中打开").
 									Radius(RadiusXS).
 									Padding(Space1, Space2)
+								{
+									scale := motionPressScale(c, popOutBtn, "button-press-scale", popOutBtn.Pressed())
+									popOutBtn.Scale(scale, scale)
+								}
 								if popOutBtn.Hovered() {
 									popOutBtn.Background(ThemeHover(c))
 								}
@@ -1482,6 +1558,10 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 								Tooltip("查看审查会话").
 								Radius(RadiusXS).
 								Padding(Space1, Space2)
+							{
+								scale := motionPressScale(c, reviewThreadBtn, "button-press-scale", reviewThreadBtn.Pressed())
+								reviewThreadBtn.Scale(scale, scale)
+							}
 							if reviewThreadBtn.Hovered() {
 								reviewThreadBtn.Background(ThemeHover(c))
 							}
@@ -1641,6 +1721,10 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 										Label("重试").
 										Radius(RadiusXS).
 										Padding(Space1, Space2)
+									{
+										scale := motionPressScale(c, retryBtn, "button-press-scale", retryBtn.Pressed())
+										retryBtn.Scale(scale, scale)
+									}
 									if retryBtn.Hovered() {
 										retryBtn.Background(ThemeHover(c))
 									}
@@ -1788,6 +1872,11 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 					Label(plansOnlyLabel).
 					Radius(RadiusSM).
 					Padding(Space1, Space3)
+				{
+					scale := motionPressScale(c, plansOnlyBtn, "button-press-scale", !s.swarmActionBusy("plans") && plansOnlyBtn.Pressed())
+					plansOnlyBtn.Scale(scale, scale)
+				}
+				plansOnlyBtn.Disabled(s.swarmActionBusy("plans"))
 				if st.PlansOnly {
 					plansOnlyBtn.Background(ThemeAccent(c).Alpha(0.12)).
 						Border(1, ThemeAccent(c).Alpha(0.4))
@@ -1798,6 +1887,10 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 					s.setSwarmPlansOnly(!st.PlansOnly)
 				}
 				plansOnlyBtn.Children(func() {
+					if s.swarmActionBusy("plans") {
+						LoadingIndicator(c, nil, "", IconSM)
+						return
+					}
 					txt := ui.Text(c, plansOnlyLabel).
 						FontSize(uiFont(TypeFootnote))
 					if st.PlansOnly {
@@ -1816,6 +1909,11 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 				Label(toggleLabel).
 				Radius(RadiusSM).
 				Padding(Space1, Space3)
+			{
+				scale := motionPressScale(c, toggleBtn, "button-press-scale", !s.swarmActionBusy("enabled") && toggleBtn.Pressed())
+				toggleBtn.Scale(scale, scale)
+			}
+			toggleBtn.Disabled(s.swarmActionBusy("enabled"))
 			if toggleBtn.Hovered() {
 				toggleBtn.Background(ThemeHover(c))
 			}
@@ -1823,6 +1921,10 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 				s.setSwarmEnabled(!st.Enabled)
 			}
 			toggleBtn.Children(func() {
+				if s.swarmActionBusy("enabled") {
+					LoadingIndicator(c, nil, "", IconSM)
+					return
+				}
 				ui.Text(c, toggleLabel).
 					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemePrimaryText(c))
@@ -1833,6 +1935,11 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 					Label("停止全部").
 					Radius(RadiusSM).
 					Padding(Space1, Space3)
+				{
+					scale := motionPressScale(c, stopAllBtn, "button-press-scale", !s.swarmActionBusy("stop-all") && stopAllBtn.Pressed())
+					stopAllBtn.Scale(scale, scale)
+				}
+				stopAllBtn.Disabled(s.swarmActionBusy("stop-all"))
 				if stopAllBtn.Hovered() {
 					stopAllBtn.Background(ThemeHover(c))
 				}
@@ -1840,6 +1947,10 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 					s.stopAllSwarmBees()
 				}
 				stopAllBtn.Children(func() {
+					if s.swarmActionBusy("stop-all") {
+						LoadingIndicator(c, nil, "", IconSM)
+						return
+					}
 					ui.Text(c, "停止全部").
 						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeDanger(c))
@@ -1851,6 +1962,11 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 					Label("清理已结束").
 					Radius(RadiusSM).
 					Padding(Space1, Space3)
+				{
+					scale := motionPressScale(c, clearBtn, "button-press-scale", !s.swarmActionBusy("clear") && clearBtn.Pressed())
+					clearBtn.Scale(scale, scale)
+				}
+				clearBtn.Disabled(s.swarmActionBusy("clear"))
 				if clearBtn.Hovered() {
 					clearBtn.Background(ThemeHover(c))
 				}
@@ -1858,6 +1974,10 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 					s.clearFinishedSwarmBees()
 				}
 				clearBtn.Children(func() {
+					if s.swarmActionBusy("clear") {
+						LoadingIndicator(c, nil, "", IconSM)
+						return
+					}
 					ui.Text(c, "清理已结束").
 						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))
@@ -1871,6 +1991,10 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 					Tooltip("在独立窗口中打开").
 					Radius(RadiusSM).
 					Padding(Space1, Space2)
+				{
+					scale := motionPressScale(c, popOutBtn, "button-press-scale", popOutBtn.Pressed())
+					popOutBtn.Scale(scale, scale)
+				}
 				if popOutBtn.Hovered() {
 					popOutBtn.Background(ThemeHover(c))
 				}
@@ -2115,6 +2239,10 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Radius(RadiusXS).
 							Padding(Space1, Space2).
 							Background(ThemeAccent(c))
+						{
+							scale := motionPressScale(c, reviewBtn, "button-press-scale", reviewBtn.Pressed())
+							reviewBtn.Scale(scale, scale)
+						}
 						if reviewBtn.Hovered() {
 							reviewBtn.Background(ThemeAccent(c).Alpha(0.85))
 						}
@@ -2131,6 +2259,10 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Label("查看改动").
 							Radius(RadiusXS).
 							Padding(Space1, Space2)
+						{
+							scale := motionPressScale(c, viewBtn, "button-press-scale", viewBtn.Pressed())
+							viewBtn.Scale(scale, scale)
+						}
 						if viewBtn.Hovered() {
 							viewBtn.Background(ThemeHover(c))
 						}
@@ -2150,6 +2282,11 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							Label("停止").
 							Radius(RadiusXS).
 							Padding(Space1, Space2)
+						{
+							scale := motionPressScale(c, stopBtn, "button-press-scale", !s.swarmActionBusy("stop:"+h.ThreadID) && stopBtn.Pressed())
+							stopBtn.Scale(scale, scale)
+						}
+						stopBtn.Disabled(s.swarmActionBusy("stop:" + h.ThreadID))
 						if stopBtn.Hovered() {
 							stopBtn.Background(ThemeHover(c))
 						}
@@ -2157,6 +2294,10 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							s.stopSwarmBee(h.ThreadID)
 						}
 						stopBtn.Children(func() {
+							if s.swarmActionBusy("stop:" + h.ThreadID) {
+								LoadingIndicator(c, nil, "", IconSM)
+								return
+							}
 							ui.Text(c, "停止").
 								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeDanger(c))
