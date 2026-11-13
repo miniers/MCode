@@ -49,6 +49,7 @@ type gitDiffViewState struct {
 	seq, refreshSeq                      uint64
 	loadedDuringRefresh                  bool
 	loading, showLoading, dirty, pending bool
+	pendingAction                        string
 	cancel                               context.CancelFunc
 	result                               *gitDiffResult
 	clearSelection                       bool
@@ -349,6 +350,9 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 				split.Background(ThemeSelected(c))
 			}
 			renderGitDiffMenu(c, s, ps, st, client, key, nil, loading || pending)
+			if result != nil && loading && showLoading {
+				LoadingIndicator(c, "git-diff-refresh", "", IconSM)
+			}
 		})
 		if result == nil {
 			if showLoading {
@@ -371,7 +375,7 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 				label = "取消暂存整个文件"
 			}
 			Button(c, ButtonOpts{Text: label, Disabled: loading || pending, OnClick: func() {
-				runGitDiffWrite(s, ps, st, key, false, func(ctx context.Context) (*git.Snapshot, error) {
+				runGitDiffWrite(s, ps, st, key, false, "", func(ctx context.Context) (*git.Snapshot, error) {
 					if staged {
 						return nil, client.GitUnstageFiles(ctx, threadID, []string{path})
 					}
@@ -523,7 +527,7 @@ func applyGitSelections(s *chatState, ps *gitPaneState, st *gitDiffViewState, cl
 	if hunk {
 		label = "已丢弃 1 块"
 	}
-	runGitDiffWrite(s, ps, st, key, discard, func(ctx context.Context) (*git.Snapshot, error) {
+	runGitDiffWrite(s, ps, st, key, discard, "", func(ctx context.Context) (*git.Snapshot, error) {
 		if discard {
 			return client.GitDiscardLines(ctx, key.threadID, key.path, sels)
 		}
@@ -535,7 +539,7 @@ func applyGitSelections(s *chatState, ps *gitPaneState, st *gitDiffViewState, cl
 }
 
 // 在 UI 线程先占用写入槽，防止连点启动多个并发写；后台不接触编辑器状态。
-func runGitDiffWrite(s *chatState, ps *gitPaneState, st *gitDiffViewState, key gitDiffKey, destructive bool, write func(context.Context) (*git.Snapshot, error), undoLabel string) {
+func runGitDiffWrite(s *chatState, ps *gitPaneState, st *gitDiffViewState, key gitDiffKey, destructive bool, action string, write func(context.Context) (*git.Snapshot, error), undoLabel string) {
 	_, _, _, disposed := gitDiffIdentity(ps, key.threadID, key.path, key.staged)
 	if disposed || destructive && gitPaneAgentBusy(s, key.threadID) {
 		return
@@ -545,7 +549,7 @@ func runGitDiffWrite(s *chatState, ps *gitPaneState, st *gitDiffViewState, key g
 		st.mu.Unlock()
 		return
 	}
-	st.pending = true
+	st.pending, st.pendingAction = true, action
 	st.mu.Unlock()
 	s.invalidate()
 	go func() {
@@ -559,7 +563,7 @@ func runGitDiffWrite(s *chatState, ps *gitPaneState, st *gitDiffViewState, key g
 			ps.showUndo(undoLabel, snap)
 		}
 		st.mu.Lock()
-		st.pending = false
+		st.pending, st.pendingAction = false, ""
 		if st.key == key && key.conflict {
 			st.dirty = true
 		}
@@ -569,6 +573,9 @@ func runGitDiffWrite(s *chatState, ps *gitPaneState, st *gitDiffViewState, key g
 		}
 		st.mu.Unlock()
 		if err == nil {
+			if key.conflict {
+				s.setToast("已标记解决")
+			}
 			ps.mu.Lock()
 			ps.failure = nil
 			ps.mu.Unlock()

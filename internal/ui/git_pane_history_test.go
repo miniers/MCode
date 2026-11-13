@@ -459,7 +459,7 @@ func TestGitHistoryWritesSharePaneOperationSlot(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	var mu sync.Mutex
 	second := false
-	h.write(ps, client, true, func(context.Context) error { close(started); <-release; return nil })
+	h.write(ps, client, true, "已重置", func(context.Context) error { close(started); <-release; return nil })
 	<-started
 	ps.mu.Lock()
 	syncing := ps.syncing
@@ -467,7 +467,7 @@ func TestGitHistoryWritesSharePaneOperationSlot(t *testing.T) {
 	if !syncing {
 		t.Fatal("历史写操作没有占用面板操作槽")
 	}
-	h.write(ps, client, true, func(context.Context) error { mu.Lock(); second = true; mu.Unlock(); return nil })
+	h.write(ps, client, true, "已重置", func(context.Context) error { mu.Lock(); second = true; mu.Unlock(); return nil })
 	close(release)
 	gitPaneWait(t, func() bool { return !h.isWriting() })
 	mu.Lock()
@@ -475,6 +475,23 @@ func TestGitHistoryWritesSharePaneOperationSlot(t *testing.T) {
 	if second {
 		t.Fatal("并行执行了两个写操作")
 	}
+}
+
+func TestGitHistoryWriteFeedback(t *testing.T) {
+	s, ps, h, client := gitHistoryTestState(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	h.write(ps, client, true, "已重置", func(context.Context) error { close(started); <-release; return nil })
+	<-started
+	gitPaneWait(t, func() bool { h.mu.Lock(); defer h.mu.Unlock(); return h.writing && h.writeIndicator })
+	tt := ui.NewTester(func(c *ui.Context) { renderGitHistoryFilters(c, ps, h) }, 500, 100)
+	tt.Frame()
+	if _, ok := tt.Find("加载中"); !ok {
+		t.Fatal("写入时未显示加载状态")
+	}
+	once.Do(func() { close(release) })
+	gitPaneWait(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.toastMessage == "已重置" })
 }
 
 func TestGitHistoryKeyboardOpensSelectedCommit(t *testing.T) {

@@ -468,6 +468,7 @@ func TestGitConflictRejectsChangedContentAndDuplicateSave(t *testing.T) {
 	f.diffMu.Unlock()
 	once.Do(func() { close(release) })
 	gitPaneWait(t, func() bool { st.mu.Lock(); defer st.mu.Unlock(); return !st.pending })
+	gitPaneWait(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.toastMessage == "已标记解决" })
 }
 
 func TestGitDiffSpecialFilesAndConflictFallback(t *testing.T) {

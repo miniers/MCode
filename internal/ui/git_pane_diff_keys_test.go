@@ -129,7 +129,7 @@ func TestGitDiffWriteFailureState(t *testing.T) {
 			ps.failure = &git.Failure{Title: "旧错误"}
 			ps.mu.Unlock()
 			st := gitDiffStateFor(ps)
-			runGitDiffWrite(s, ps, st, st.key, false, func(context.Context) (*git.Snapshot, error) {
+			runGitDiffWrite(s, ps, st, st.key, false, "", func(context.Context) (*git.Snapshot, error) {
 				if fail {
 					return nil, errors.New("写入失败")
 				}

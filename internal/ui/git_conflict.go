@@ -102,6 +102,9 @@ func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 		cs = result.conflict
 	}
 	ours, theirs := gitConflictLabels(ps)
+	st.mu.Lock()
+	pendingAction := st.pendingAction
+	st.mu.Unlock()
 	ui.Row(c.Key("git-conflict-toolbar")).FillWidth().Height(diffHeaderHeight).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Children(func() {
 		if onBack != nil {
 			IconButton(c, IconButtonProps{Key: "git-conflict-back", Icon: IconArrowLeft(), Label: "返回", Variant: ButtonGhost, Size: ControlSM, OnClick: onBack})
@@ -123,7 +126,7 @@ func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 		if busy {
 			tip = "Agent 正在修改此工作区"
 		}
-		Button(c, ButtonOpts{Text: "保存并标记已解决", Size: ControlSM, Disabled: disabled || !ready || busy, Tooltip: tip, OnClick: func() { saveGitConflict(s, ps, st, client, key, cs) }})
+		Button(c, ButtonOpts{Text: "保存并标记已解决", Loading: pendingAction == "save", Size: ControlSM, Disabled: disabled || !ready || busy, Tooltip: tip, OnClick: func() { saveGitConflict(s, ps, st, client, key, cs) }})
 		menuState := cs
 		if menuState == nil {
 			menuState = &gitConflictState{}
@@ -185,7 +188,7 @@ func saveGitConflict(s *chatState, ps *gitPaneState, st *gitDiffViewState, clien
 	// 在启动后台写入前固定正文与选择，避免改选与 ResolveRegions 并发读 map。
 	content := []byte(git.ResolveRegions(cs.text, cs.choices))
 	original := cs.text
-	runGitDiffWrite(s, ps, st, key, true, func(ctx context.Context) (*git.Snapshot, error) {
+	runGitDiffWrite(s, ps, st, key, true, "save", func(ctx context.Context) (*git.Snapshot, error) {
 		current := readGitConflict(key.root, key.path)
 		if current.err != nil {
 			return nil, current.err
@@ -218,13 +221,16 @@ func renderGitConflictMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gi
 		tip = "Agent 正在修改此工作区"
 	}
 	paths := gitConflictPaths(ps)
+	st.mu.Lock()
+	pendingAction := st.pendingAction
+	st.mu.Unlock()
 	for _, side := range []struct {
 		ours  bool
 		label string
 	}{{true, ours}, {false, theirs}} {
-		Button(c, ButtonOpts{Text: "整个文件用 " + side.label, Variant: ButtonGhost, Disabled: disabled || busy, Tooltip: tip, OnClick: func() {
-			st.menuOpen = false
-			runGitDiffWrite(s, ps, st, key, true, func(ctx context.Context) (*git.Snapshot, error) {
+		action := fmt.Sprintf("file-%t", side.ours)
+		Button(c, ButtonOpts{Text: "整个文件用 " + side.label, Loading: pendingAction == action, Variant: ButtonGhost, Disabled: disabled || busy, Tooltip: tip, OnClick: func() {
+			runGitDiffWrite(s, ps, st, key, true, action, func(ctx context.Context) (*git.Snapshot, error) {
 				if err := client.GitResolveFileSide(ctx, key.threadID, key.path, side.ours); err != nil {
 					return nil, err
 				}
@@ -232,9 +238,9 @@ func renderGitConflictMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gi
 			}, "")
 		}})
 		if len(paths) > 1 {
-			Button(c, ButtonOpts{Text: "全部用 " + side.label, Variant: ButtonGhost, Disabled: disabled || busy, Tooltip: tip, OnClick: func() {
-				st.menuOpen = false
-				runGitDiffWrite(s, ps, st, key, true, func(ctx context.Context) (*git.Snapshot, error) {
+			action := fmt.Sprintf("all-%t", side.ours)
+			Button(c, ButtonOpts{Text: "全部用 " + side.label, Loading: pendingAction == action, Variant: ButtonGhost, Disabled: disabled || busy, Tooltip: tip, OnClick: func() {
+				runGitDiffWrite(s, ps, st, key, true, action, func(ctx context.Context) (*git.Snapshot, error) {
 					for _, path := range paths {
 						if err := client.GitResolveFileSide(ctx, key.threadID, path, side.ours); err != nil {
 							return nil, err

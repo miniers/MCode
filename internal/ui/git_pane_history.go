@@ -62,7 +62,8 @@ type gitHistoryState struct {
 	copiedUntil                                               time.Time
 	clipboardMessage                                          *string
 	dialog, dialogSHA, dialogName                             string
-	writing                                                   bool
+	writing, writeIndicator                                   bool
+	writeSeq                                                  uint64
 	// 以下状态只在 UI 线程访问；后台只交付不可变的数据快照。
 	list      ui.ListState
 	selected  int
@@ -414,6 +415,7 @@ func renderGitPaneHistory(c *ui.Context, s *chatState, threadID string, ps *gitP
 	h.mu.Unlock()
 	if clipboardMessage != nil {
 		c.WriteClipboard(*clipboardMessage)
+		s.setToast("已复制")
 	}
 	ps.mu.Lock()
 	head, root, branch := ps.state.Head, ps.state.WorkDir, ps.state.Branch
@@ -523,7 +525,7 @@ func (h *gitHistoryState) back(ps *gitPaneState) {
 
 func renderGitHistoryFilters(c *ui.Context, ps *gitPaneState, h *gitHistoryState) {
 	h.mu.Lock()
-	searchOpen, search, all, path := h.searchOpen, h.search, h.opts.All, h.opts.Path
+	searchOpen, search, all, path, writeIndicator := h.searchOpen, h.search, h.opts.All, h.opts.Path, h.writeIndicator
 	h.mu.Unlock()
 	closeSearch := func() { h.mu.Lock(); h.searchOpen = false; h.mu.Unlock(); h.setSearch(ps, "", true) }
 	if searchOpen && c.Shortcut(0, ui.KeyEscape) {
@@ -572,6 +574,9 @@ func renderGitHistoryFilters(c *ui.Context, ps *gitPaneState, h *gitHistoryState
 				ui.Icon(c, IconX()).Size(IconSM, IconSM)
 			})
 			chip.OnClick(func() { h.mu.Lock(); h.opts.Path = ""; h.resetLocked(); h.mu.Unlock(); gitHistoryInvalidate(ps) })
+		}
+		if writeIndicator {
+			LoadingIndicator(c, "git-history-writing", "", IconSM)
 		}
 	})
 }
@@ -795,6 +800,7 @@ func gitHistoryMenu(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistory
 	return func(m *ui.Menu) {
 		if m.Item("复制 SHA").Chosen() {
 			c.WriteClipboard(commit.SHA)
+			s.setToast("已复制")
 		}
 		if m.Item("复制信息").Chosen() {
 			go func() {
@@ -817,7 +823,7 @@ func gitHistoryMenu(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistory
 		blocked, tip := gitHistoryWriteBlocked(s, ps, h, true)
 		item := m.Item("检出（分离 HEAD）").Disabled(blocked).Tooltip(tip)
 		if item.Chosen() {
-			h.write(ps, client, true, func(ctx context.Context) error { return s.client.GitCheckout(ctx, ps.threadID, commit.SHA) })
+			h.write(ps, client, true, "已检出 "+gitHistoryShortSHA(commit.SHA), func(ctx context.Context) error { return s.client.GitCheckout(ctx, ps.threadID, commit.SHA) })
 		}
 		for _, kind := range []string{"branch", "tag"} {
 			label := "基于此新建分支…"
@@ -832,10 +838,10 @@ func gitHistoryMenu(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistory
 			}
 		}
 		if m.Item("cherry-pick").Disabled(blocked).Tooltip(tip).Chosen() {
-			h.write(ps, client, true, func(ctx context.Context) error { return client.GitCherryPick(ctx, ps.threadID, commit.SHA) })
+			h.write(ps, client, true, "已 cherry-pick", func(ctx context.Context) error { return client.GitCherryPick(ctx, ps.threadID, commit.SHA) })
 		}
 		if m.Item("还原（revert）").Disabled(blocked).Tooltip(tip).Chosen() {
-			h.write(ps, client, true, func(ctx context.Context) error { return client.GitRevertCommit(ctx, ps.threadID, commit.SHA) })
+			h.write(ps, client, true, "已还原", func(ctx context.Context) error { return client.GitRevertCommit(ctx, ps.threadID, commit.SHA) })
 		}
 		if m.Item("让 AI 解释此提交").Chosen() {
 			s.applyQuickReply("解释提交 " + commit.SHA + "：" + commit.Subject)
@@ -872,7 +878,7 @@ func gitHistoryWriteBlocked(s *chatState, ps *gitPaneState, h *gitHistoryState, 
 	return disposed, ""
 }
 
-func (h *gitHistoryState) write(ps *gitPaneState, client gitHistoryClient, worktree bool, op func(context.Context) error) {
+func (h *gitHistoryState) write(ps *gitPaneState, client gitHistoryClient, worktree bool, toast string, op func(context.Context) error) {
 	if blocked, _ := gitHistoryWriteBlocked(ps.owner, ps, h, worktree); blocked {
 		return
 	}
@@ -890,11 +896,22 @@ func (h *gitHistoryState) write(ps *gitPaneState, client gitHistoryClient, workt
 	ps.syncing, ps.cancel, ps.failure, ps.progress = true, cancel, nil, git.Progress{Percent: -1}
 	ps.mu.Unlock()
 	h.mu.Lock()
-	h.writing = true
+	h.writing, h.writeIndicator = true, false
+	h.writeSeq++
+	seq := h.writeSeq
 	h.mu.Unlock()
 	gitHistoryInvalidate(ps)
 	go func() {
+		timer := time.AfterFunc(150*time.Millisecond, func() {
+			h.mu.Lock()
+			if h.writing && h.writeSeq == seq {
+				h.writeIndicator = true
+			}
+			h.mu.Unlock()
+			gitHistoryInvalidate(ps)
+		})
 		err := op(ctx)
+		timer.Stop()
 		cancel()
 		ps.mu.Lock()
 		ps.syncing, ps.cancel = false, nil
@@ -904,7 +921,7 @@ func (h *gitHistoryState) write(ps *gitPaneState, client gitHistoryClient, workt
 		disposed := ps.disposed
 		ps.mu.Unlock()
 		h.mu.Lock()
-		h.writing = false
+		h.writing, h.writeIndicator = false, false
 		if err == nil {
 			h.resetLocked()
 		}
@@ -915,6 +932,7 @@ func (h *gitHistoryState) write(ps *gitPaneState, client gitHistoryClient, workt
 		if err != nil {
 			ps.fail(err)
 		} else {
+			ps.owner.setToast(toast)
 			ps.requestRefresh()
 		}
 		gitHistoryInvalidate(ps)
@@ -932,7 +950,7 @@ func (h *gitHistoryState) resetTo(ps *gitPaneState, client gitHistoryClient, sha
 		gitHistoryInvalidate(ps)
 		return
 	}
-	h.write(ps, client, true, func(ctx context.Context) error { return client.GitReset(ctx, ps.threadID, sha, mode) })
+	h.write(ps, client, true, "已重置", func(ctx context.Context) error { return client.GitReset(ctx, ps.threadID, sha, mode) })
 }
 
 func renderGitHistoryDialog(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistoryState, client gitHistoryClient) {
@@ -973,7 +991,13 @@ func renderGitHistoryDialog(c *ui.Context, s *chatState, ps *gitPaneState, h *gi
 				}
 				Button(c, ButtonOpts{Key: "git-history-dialog-confirm", Text: confirm, Variant: variant, Disabled: disabled, OnClick: func() {
 					close()
-					h.write(ps, client, kind == "hard", func(ctx context.Context) error {
+					toast := "已重置"
+					if kind == "branch" {
+						toast = "已创建分支 " + strings.TrimSpace(name)
+					} else if kind == "tag" {
+						toast = "已创建标签 " + strings.TrimSpace(name)
+					}
+					h.write(ps, client, kind == "hard", toast, func(ctx context.Context) error {
 						switch kind {
 						case "hard":
 							return client.GitReset(ctx, ps.threadID, sha, "hard")
