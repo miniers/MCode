@@ -81,6 +81,8 @@ export default defineConfig({
       const html = readFileSync(indexPath, 'utf8');
       writeFileSync(indexPath, html.replace(/(<meta name="mcode-build-id" content=")[^"]*(")/, `$1${webBuildID}$2`));
       renameSync(indexPath, `${resourceDirectory}remote-index.html`);
+      // emptyOutDir 会清空占位文件；不重建会导致提交删除，干净 worktree 的 go:embed all:dist 编译失败。
+      writeFileSync(`${resourceDirectory}.gitkeep`, '');
     }
   }],
   base: './',
