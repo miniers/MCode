@@ -38,7 +38,9 @@ Go 代码内嵌 `internal/webassets/dist`，改了 Web 要重新构建才能在�
 | `scripts/check-deps.sh` | 依赖方向检查 |
 | `scripts/package_personal.sh` | 个人包：Developer ID 签名、不公证，先构建 Web，默认沿用 `mygo.json` 的版本，传 `--bump` 或 `BUMP=1` 时版本 patch 加 1，装到 `/Applications`。参数 `--clean --dmg --relaunch/--no-relaunch` |
 | `scripts/package_release.sh` | 发布包 |
+| `scripts/package_windows.ps1` | Windows 个人包：先构建 Web 与 Windows 安装程序，默认沿用 `mygo.json` 的版本，静默覆盖安装并重启 MCode。参数 `-Clean -Bump -NoRelaunch` |
 | `scripts/relaunch_app.sh` | 重启应用。调用方可能是 MCode 自己（内置终端或脚本菜单），应用退出时会杀掉子进程，所以脚本先用 `setsid` 脱离当前会话 |
+| `scripts/relaunch_app.ps1` | Windows 重启应用：等调用方退出后静默运行安装程序，再启动安装目录里的 MCode |
 | `scripts/fetch_models_dev_snapshot.sh` | 更新 models.dev 快照 |
 
 ## 守卫测试

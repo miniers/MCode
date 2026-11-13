@@ -70,6 +70,7 @@ MCode 是一款 AI 编码桌面客户端，用一个窗口管理多个 AI coding
 - **统一检查**：`scripts/check.sh`，依次执行 gofmt、构建、go vet、依赖检查、单元测试和前端类型检查；加 `--race` 时额外运行 race 测试。会自动排除被 git 忽略的打包产物目录 `build.noindex/` 与 `dist/`。
 - **发布打包**：`scripts/package_release.sh`
 - **个人分发打包**：`scripts/package_personal.sh`，用 Developer ID 签名、不做公证，构建产物安装到 /Applications，支持 `--clean`、`--dmg`、`--relaunch`
+- **Windows 个人打包**：`scripts/package_windows.ps1`，构建 Web 与 Windows 安装程序，默认静默覆盖安装并重启，支持 `-Clean`、`-Bump`、`-NoRelaunch`
 - **数据与日志**：数据目录默认 `~/.mcode`（`MCODE_DATA` 或 `-data` 可改），日志在 `<数据目录>/logs`（`mcode.log`、`startup.log`、`crash.log`）
 - **测试**：`go test -timeout 60s ./...`、`go test -race -timeout 120s ./...`（显式超时，避免 UI 死锁时空等默认的 10 分钟）
 
