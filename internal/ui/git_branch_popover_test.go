@@ -10,11 +10,52 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestGitBranchPopoverFilter(t *testing.T) {
 	if !branchMatches("Feature/Login", "LOGIN") || branchMatches("main", "login") {
 		t.Fatal("分支搜索应忽略大小写并按子串匹配")
+	}
+}
+
+type blockedBranchLoadFake struct {
+	*branchPopoverFake
+	release chan struct{}
+}
+
+func (f *blockedBranchLoadFake) GitBranches(ctx context.Context, _ string) ([]git.BranchInfo, error) {
+	select {
+	case <-f.release:
+		return []git.BranchInfo{{Name: "new-branch"}}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func TestGitBranchPopoverReopenCached(t *testing.T) {
+	f := &blockedBranchLoadFake{branchPopoverFake: &branchPopoverFake{newGitFakeClient()}, release: make(chan struct{})}
+	s := newChatState(f)
+	defer s.close()
+	defer close(f.release)
+	p := branchPopoverFor(s, "thread")
+	p.loaded = true
+	p.branches = []git.BranchInfo{{Name: "cached-branch"}}
+	openBranchPopover(s, "thread")
+	p.mu.Lock()
+	p.loadStarted = time.Now().Add(-time.Second)
+	p.mu.Unlock()
+	open := true
+	tt := ui.NewTester(func(c *ui.Context) { renderGitBranchPopoverContent(c, s, "thread", 300, &open) }, 800, 600)
+	if !tt.HasText("cached-branch") || tt.HasText("正在加载…") {
+		t.Fatal("后台刷新时应显示缓存分支且不显示加载行")
+	}
+	p.mu.Lock()
+	p.loaded = false
+	p.mu.Unlock()
+	tt.Frame()
+	if !tt.HasText("正在加载…") {
+		t.Fatal("首次加载应显示加载行")
 	}
 }
 func TestGitBranchPopoverOtherWorktree(t *testing.T) {

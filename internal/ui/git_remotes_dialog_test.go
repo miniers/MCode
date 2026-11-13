@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
@@ -15,6 +16,64 @@ type gitRemotesFake struct {
 	mu      sync.Mutex
 	calls   []string
 	entries []git.RemoteInfo
+}
+
+type blockedRemotesFake struct {
+	*gitRemotesFake
+	release chan struct{}
+}
+
+func (f *blockedRemotesFake) GitRemotes(ctx context.Context, _ string) ([]git.RemoteInfo, error) {
+	select {
+	case <-f.release:
+		return []git.RemoteInfo{{Name: "new-remote"}}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func TestGitRemotesDialogReopenCached(t *testing.T) {
+	f := &blockedRemotesFake{gitRemotesFake: &gitRemotesFake{FakeClient: NewFakeClient()}, release: make(chan struct{})}
+	s := newChatState(f)
+	defer s.close()
+	defer close(f.release)
+	open := true
+	st := gitRemotesStateFor(&open)
+	st.entries = []git.RemoteInfo{{Name: "cached-remote", FetchURL: "cached-url"}}
+	tt := ui.NewTester(func(c *ui.Context) { renderGitRemotesDialog(c, s, "thread", &open) }, 800, 600)
+	st.mu.Lock()
+	st.editing, st.name, st.url, st.confirm, st.err = "cached-remote", "draft", "draft-url", "cached-remote", "error"
+	st.adding, st.busy, st.completed = true, true, true
+	st.mu.Unlock()
+	open = false
+	tt.Frame()
+	st.mu.Lock()
+	if st.active || st.loading || st.busy || st.completed || st.adding || st.editing != "" || st.name != "" || st.url != "" || st.confirm != "" || st.err != "" {
+		st.mu.Unlock()
+		t.Fatal("关闭时应清空临时状态")
+	}
+	st.mu.Unlock()
+	open = true
+	tt.Frame()
+	st.mu.Lock()
+	st.loadingSince = time.Now().Add(-time.Second)
+	st.mu.Unlock()
+	tt.Frame()
+	if !tt.HasText("cached-remote") || !tt.HasText("cached-url") {
+		t.Fatal("刷新完成前应显示缓存远端")
+	}
+	if _, ok := tt.Find("加载中"); ok {
+		t.Fatal("缓存远端存在时不应显示加载行")
+	}
+	st.mu.Lock()
+	st.entries = nil
+	st.mu.Unlock()
+	tt.Frame()
+	if _, ok := tt.Find("加载中"); !ok {
+		t.Fatal("没有缓存远端时应显示加载行")
+	}
+	open = false
+	tt.Frame()
 }
 
 func (f *gitRemotesFake) GitRemotes(context.Context, string) ([]git.RemoteInfo, error) {

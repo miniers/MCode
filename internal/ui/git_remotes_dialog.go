@@ -185,10 +185,11 @@ func renderGitRemotesDialog(c *ui.Context, s *chatState, threadID string, open *
 		st.mu.Lock()
 		st.active = false
 		st.seq++
+		st.loading, st.busy, st.completed = false, false, false
+		st.editing, st.name, st.url, st.confirm, st.err = "", "", "", "", ""
+		st.adding = false
+		st.confirmUntil = time.Time{}
 		st.mu.Unlock()
-		gitRemotesStates.Lock()
-		delete(gitRemotesStates.states, open)
-		gitRemotesStates.Unlock()
 		modalDragReset(modalDragGitRemotes)
 		return
 	}
@@ -222,7 +223,7 @@ func renderGitRemotesDialog(c *ui.Context, s *chatState, threadID string, open *
 					LoadingIndicator(c, nil, "", IconSM)
 				}
 			}))
-			if showLoading {
+			if showLoading && len(entries) == 0 {
 				LoadingIndicator(c, nil, "", IconSM)
 			}
 			if len(entries) == 0 && !loading {

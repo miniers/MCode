@@ -59,6 +59,7 @@ func loadBranchPopover(s *chatState, id string, p *gitBranchPopupState) {
 	seq := p.seq
 	p.loading = true
 	p.loadStarted = time.Now()
+	p.err = git.Failure{}
 	p.mu.Unlock()
 	time.AfterFunc(150*time.Millisecond, s.invalidate)
 	go func() {
@@ -77,10 +78,10 @@ func loadBranchPopover(s *chatState, id string, p *gitBranchPopupState) {
 		if seq == p.seq {
 			p.retryBranch = ""
 			p.loading = false
-			p.loaded = err == nil
 			if err != nil {
 				p.err = git.ClassifyError(err)
 			} else {
+				p.loaded = true
 				p.branches = branches
 				p.recent = recent
 				p.tags = tags
@@ -99,7 +100,6 @@ func openBranchPopover(s *chatState, id string) {
 	p.edit = ""
 	p.menu = ""
 	p.confirm = ""
-	p.loaded = false
 	p.mu.Unlock()
 	loadBranchPopover(s, id, p)
 }
@@ -474,7 +474,7 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 				}
 			})
 		})
-		if loading {
+		if loading && !loaded {
 			LoadingIndicator(c, nil, "正在加载…", IconSM)
 		}
 		if edit != "" {
