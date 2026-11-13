@@ -3,10 +3,13 @@ package mcodeui
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/datadir"
 )
 
 // fakeUpdateClient 同时实现 mcodeui.Client（内嵌 FakeClient）与 appUpdateClient，
@@ -18,6 +21,88 @@ type fakeUpdateClient struct {
 	err     error
 	calls   int
 	latest  AppUpdateStatus
+}
+
+func TestAboutDataDirTargetAppendsMCode(t *testing.T) {
+	base := t.TempDir()
+	if err := os.WriteFile(filepath.Join(base, "existing"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := aboutDataDirTarget("  " + base + "  "); got != filepath.Join(base, "MCode") {
+		t.Fatalf("目标目录 = %q", got)
+	}
+}
+
+func TestAboutDataDirTargetKeepsEmptyDir(t *testing.T) {
+	base := t.TempDir()
+	if got := aboutDataDirTarget("  " + base + "  "); got != base {
+		t.Fatalf("空目录目标 = %q", got)
+	}
+}
+
+func TestAboutDataDirTargetKeepsMissingDir(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "missing")
+	if got := aboutDataDirTarget("  " + base + "  "); got != base {
+		t.Fatalf("不存在目录目标 = %q", got)
+	}
+}
+
+func TestAboutDataDirPinnedHidesChange(t *testing.T) {
+	resetAboutPageStateForTest()
+	dir := t.TempDir()
+	if err := datadir.Export(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = datadir.Export("", false) })
+	st := NewSettingsState(dir, nil, nil)
+	tt := ui.NewTester(func(c *ui.Context) { renderAboutDataDirValue(c, st) }, 800, 120)
+	tt.Frame()
+	if _, ok := tt.Find("btn-about-change-data-dir"); ok {
+		t.Fatal("固定目录不应显示更改按钮")
+	}
+}
+
+func TestAboutDataDirMoveFailureKeepsConfirm(t *testing.T) {
+	resetAboutPageStateForTest()
+	old := t.TempDir()
+	st := NewSettingsState(old, nil, nil)
+	globalAboutState.mu.Lock()
+	globalAboutState.dataDirConfirm = true
+	globalAboutState.mu.Unlock()
+	confirmAboutDataDirMove(st, filepath.Join(old, "child", "MCode"))
+	globalAboutState.mu.Lock()
+	open, errMsg := globalAboutState.dataDirConfirm, globalAboutState.dataDirErr
+	globalAboutState.mu.Unlock()
+	if !open || errMsg == "" {
+		t.Fatalf("失败后确认框状态错误: open=%v err=%q", open, errMsg)
+	}
+}
+
+func TestAboutDataDirMoveSuccessPreparesRelaunch(t *testing.T) {
+	resetAboutPageStateForTest()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("AppData", filepath.Join(home, "config"))
+	old := t.TempDir()
+	parent := t.TempDir()
+	t.Setenv("MCODE_DATA", old)
+	if err := datadir.Export(old, false); err != nil {
+		t.Fatal(err)
+	}
+	var relaunched bool
+	oldRelaunch := appRelaunch
+	appRelaunch = func() { relaunched = true }
+	t.Cleanup(func() { appRelaunch = oldRelaunch })
+	st := NewSettingsState(old, nil, nil)
+	confirmAboutDataDirMove(st, filepath.Join(parent, "MCode"))
+	if !relaunched {
+		t.Fatal("成功迁移后应重启")
+	}
+	if got := os.Getenv("MCODE_DATA"); got != "" {
+		t.Fatalf("非固定目录重启前应清理环境变量: %q", got)
+	}
 }
 
 func (f *fakeUpdateClient) LatestUpdate() AppUpdateStatus { return f.latest }

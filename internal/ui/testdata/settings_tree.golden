@@ -133,6 +133,7 @@ row row-sc-commit-instructions 提交信息附加说明
 row row-sc-commit-model 生成提交信息与会话标题的模型
 section sourceControl.worktrees 工作区与工作树
 row row-sc-default-workspace-mode 默认工作区模式
+row row-sc-worktree-location 工作树位置
 row row-sc-auto-cleanup-delete 删除会话时自动清理工作树
 row row-sc-auto-cleanup-merged 自动清理已合并的工作树
 row row-sc-worktree-cleanup Worktree 清理

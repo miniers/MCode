@@ -21,6 +21,7 @@ func isolateConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("AppData", filepath.Join(home, "config"))
 	t.Setenv("MCODE_DATA", "")
+	exportedPinned = false
 }
 
 func writeTestFile(t *testing.T, path, content string) {
@@ -74,6 +75,34 @@ func TestPointerAndResolve(t *testing.T) {
 	}
 	if got := Resolve("", true); got != "" {
 		t.Fatalf("显式空参数 = %q", got)
+	}
+}
+
+func TestExportAndPrepareRelaunch(t *testing.T) {
+	isolateConfig(t)
+	if err := Export(filepath.Join(t.TempDir(), "data"), false); err != nil {
+		t.Fatal(err)
+	}
+	if Pinned() {
+		t.Fatal("未固定目录不应被标记为 pinned")
+	}
+	if os.Getenv("MCODE_DATA") == "" {
+		t.Fatal("Export 应设置 MCODE_DATA")
+	}
+	PrepareRelaunch()
+	if got := os.Getenv("MCODE_DATA"); got != "" {
+		t.Fatalf("非固定目录重启前应清理 MCODE_DATA: %q", got)
+	}
+
+	if err := Export(filepath.Join(t.TempDir(), "data"), true); err != nil {
+		t.Fatal(err)
+	}
+	if !Pinned() {
+		t.Fatal("固定目录应被标记为 pinned")
+	}
+	PrepareRelaunch()
+	if got := os.Getenv("MCODE_DATA"); got == "" {
+		t.Fatal("固定目录重启前不应清理 MCODE_DATA")
 	}
 }
 

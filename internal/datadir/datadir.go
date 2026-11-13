@@ -21,6 +21,8 @@ type pointer struct {
 
 var mu sync.Mutex
 
+var exportedPinned bool
+
 func pointerPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -86,6 +88,33 @@ func Resolve(flagValue string, flagSet bool) string {
 		return p.Path
 	}
 	return defaultDir()
+}
+
+// Export 设置当前进程的数据目录，并记录它是否由用户固定。
+func Export(dir string, pinned bool) error {
+	if err := os.Setenv("MCODE_DATA", dir); err != nil {
+		return err
+	}
+	mu.Lock()
+	exportedPinned = pinned
+	mu.Unlock()
+	return nil
+}
+
+// Pinned 报告当前数据目录是否由启动参数或环境变量固定。
+func Pinned() bool {
+	mu.Lock()
+	defer mu.Unlock()
+	return exportedPinned
+}
+
+// PrepareRelaunch 清理非固定目录的环境变量，让新进程重新应用待迁移指针。
+func PrepareRelaunch() {
+	mu.Lock()
+	defer mu.Unlock()
+	if !exportedPinned {
+		_ = os.Unsetenv("MCODE_DATA")
+	}
 }
 
 // SetPending 保存重启后要应用的迁移；此时不改动旧数据。

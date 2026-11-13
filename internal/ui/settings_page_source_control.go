@@ -131,6 +131,16 @@ var pageSourceControl = settingsPage{
 					}),
 				},
 				{
+					ID:      "row-sc-worktree-location",
+					Title:   "工作树位置",
+					Aliases: []string{"工作树", "worktree", "目录", "数据目录", "项目内"},
+					Lock:    "worktree-location",
+					Control: choice(val(func(c *config.Config) *string { return &c.SourceControl.WorktreeLocation }, config.WorktreeLocationCentral), []choiceOption{
+						{Value: config.WorktreeLocationCentral, Label: "数据目录"},
+						{Value: config.WorktreeLocationProject, Label: "项目内"},
+					}),
+				},
+				{
 					ID:      "row-sc-auto-cleanup-delete",
 					Title:   "删除会话时自动清理工作树",
 					Aliases: []string{"工作树", "删除", "清理", "cleanup", "会话", "分支", "移除"},

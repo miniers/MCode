@@ -3,7 +3,9 @@ package mcodeui
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"mcode/internal/config"
+	"mcode/internal/datadir"
 )
 
 // AppUpdateStatus 描述一次更新检查的结果。
@@ -78,6 +81,10 @@ type aboutPageState struct {
 	exporting bool
 	diagMsg   string
 	diagErr   string
+
+	dataDirTarget  string
+	dataDirConfirm bool
+	dataDirErr     string
 }
 
 var globalAboutState aboutPageState
@@ -99,6 +106,9 @@ func resetAboutPageStateForTest() {
 	globalAboutState.exporting = false
 	globalAboutState.diagMsg = ""
 	globalAboutState.diagErr = ""
+	globalAboutState.dataDirTarget = ""
+	globalAboutState.dataDirConfirm = false
+	globalAboutState.dataDirErr = ""
 }
 
 // aboutUpdateClient 取设置面板关联的 Client，并在其支持更新检查时返回对应接口。
@@ -333,7 +343,105 @@ func renderAboutVersionValue(c *ui.Context, st *SettingsState) {
 }
 
 func renderAboutDataDirValue(c *ui.Context, st *SettingsState) {
-	ui.Text(c, st.dataDir).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+	ui.Row(c.Key("about-data-dir-value")).AlignItems(ui.Center).Gap(Space3).Children(func() {
+		ui.Text(c, st.dataDir).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine().Grow(1)
+		if datadir.Pinned() {
+			return
+		}
+		change := ui.ButtonBase(c.Key("btn-about-change-data-dir")).
+			Label("更改…").
+			Padding(Space2, Space3).
+			Radius(RadiusSM).
+			Background(ThemeOverlay(c, 0.06))
+		{
+			scale := motionPressScale(c, change, "button-press-scale", change.Pressed())
+			change.Scale(scale, scale)
+		}
+		if change.Hovered() {
+			change.Background(ThemeHover(c))
+		}
+		if change.Clicked() {
+			startAboutDataDirChange(st)
+		}
+		change.Children(func() {
+			ui.Text(c, "更改…").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
+		})
+	})
+
+	globalAboutState.mu.Lock()
+	target := globalAboutState.dataDirTarget
+	open := globalAboutState.dataDirConfirm
+	errMsg := globalAboutState.dataDirErr
+	globalAboutState.mu.Unlock()
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:          "about-data-dir-move",
+		Open:         open,
+		Tone:         ConfirmSafe,
+		Title:        "移动数据目录",
+		Body:         target,
+		ConfirmLabel: "移动并重启",
+		Footer: func() {
+			if errMsg != "" {
+				ui.Text(c, errMsg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
+			}
+		},
+		OnCancel: func() {
+			clearAboutDataDirChange()
+			st.invalidate()
+		},
+		OnConfirm: func() {
+			confirmAboutDataDirMove(st, target)
+		},
+	})
+}
+
+func confirmAboutDataDirMove(st *SettingsState, target string) {
+	if err := datadir.SetPending(st.dataDir, target); err != nil {
+		globalAboutState.mu.Lock()
+		globalAboutState.dataDirErr = err.Error()
+		globalAboutState.mu.Unlock()
+		st.invalidate()
+		return
+	}
+	clearAboutDataDirChange()
+	datadir.PrepareRelaunch()
+	appRelaunch()
+}
+
+func startAboutDataDirChange(st *SettingsState) {
+	time.AfterFunc(0, func() {
+		picker := pickFolderDialog
+		if picker == nil {
+			picker = defaultPickFolder
+		}
+		path, ok, err := picker()
+		if err != nil || !ok || strings.TrimSpace(path) == "" {
+			return
+		}
+		globalAboutState.mu.Lock()
+		globalAboutState.dataDirTarget = aboutDataDirTarget(path)
+		globalAboutState.dataDirErr = ""
+		globalAboutState.dataDirConfirm = true
+		globalAboutState.mu.Unlock()
+		st.invalidate()
+	})
+}
+
+func aboutDataDirTarget(path string) string {
+	path = strings.TrimSpace(path)
+	entries, err := os.ReadDir(path)
+	if err == nil && len(entries) > 0 {
+		return filepath.Join(path, "MCode")
+	}
+	return path
+}
+
+func clearAboutDataDirChange() {
+	globalAboutState.mu.Lock()
+	globalAboutState.dataDirTarget = ""
+	globalAboutState.dataDirErr = ""
+	globalAboutState.dataDirConfirm = false
+	globalAboutState.mu.Unlock()
 }
 
 // renderAboutUpdateControls 渲染「检查更新」行的状态文本与按钮，只读快照。

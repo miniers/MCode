@@ -193,6 +193,7 @@ func main() {
 	flag.Visit(func(f *flag.Flag) {
 		setFlags[f.Name] = true
 	})
+	pinned := setFlags["data"] || os.Getenv("MCODE_DATA") != ""
 	var migrationErr error
 	var pendingDir string
 	if !setFlags["data"] && os.Getenv("MCODE_DATA") == "" {
@@ -202,7 +203,7 @@ func main() {
 	if migrationErr != nil {
 		*dataFlag = pendingDir
 	}
-	if err := os.Setenv("MCODE_DATA", *dataFlag); err != nil {
+	if err := datadir.Export(*dataFlag, pinned); err != nil {
 		fatalExit("设置数据目录环境变量失败: %v", err)
 	}
 	// 先确定数据目录再预热，避免登录环境缓存尚未同步的 MCODE_DATA。
