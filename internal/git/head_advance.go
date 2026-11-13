@@ -53,7 +53,10 @@ func (r *Runner) AdvanceHead(ctx context.Context, root, oldHead, newSHA string) 
 	}
 	lockPath := indexPath + ".lock"
 	if _, err := os.Stat(lockPath); err == nil {
-		return nil, fmt.Errorf("%w: %s", ErrIndexLocked, lockPath)
+		cleared, clearErr := r.ClearStaleIndexLock(ctx, root)
+		if clearErr != nil || !cleared {
+			return nil, fmt.Errorf("%w: %s", ErrIndexLocked, lockPath)
+		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}

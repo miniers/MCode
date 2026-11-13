@@ -133,7 +133,7 @@ func (r *Runner) runAllowExit1(ctx context.Context, dir string, env []string, ar
 		defer func() { <-r.sem }()
 	}
 
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, r.Bin, args...))
+	cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, r.Bin, args...)))
 	cmd.Dir = dir
 	cmd.Env = append(loginenv.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 	if len(env) > 0 {

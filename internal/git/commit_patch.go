@@ -442,7 +442,7 @@ func (r *Runner) runWithStdin(ctx context.Context, dir string, env []string, std
 		defer func() { <-r.sem }()
 	}
 
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, r.Bin, args...))
+	cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, r.Bin, args...)))
 	cmd.Dir = dir
 	if len(stdin) > 0 {
 		cmd.Stdin = bytes.NewReader(stdin)

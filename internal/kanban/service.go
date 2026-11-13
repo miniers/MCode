@@ -1159,7 +1159,7 @@ func (s *Service) gitCmd(ctx context.Context, dir string, args ...string) ([]byt
 	if s.opts.Git != nil && s.opts.Git.Bin != "" {
 		bin = s.opts.Git.Bin
 	}
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, bin, args...))
+	cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, bin, args...)))
 	cmd.Dir = dir
 	// 继承登录 Shell 环境变量，保证 git hooks 能用到用户 PATH 下的工具
 	cmd.Env = append(loginenv.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")

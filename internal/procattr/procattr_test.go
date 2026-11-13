@@ -3,8 +3,11 @@
 package procattr
 
 import (
+	"context"
 	"os/exec"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestHideWindowNoop 验证非 Windows 平台上 HideWindow 是空操作：
@@ -24,5 +27,24 @@ func TestHideWindowNoop(t *testing.T) {
 	}
 	if cmd.Args[0] != "git" || cmd.Args[1] != "status" {
 		t.Fatalf("HideWindow 改动了命令参数：%v", cmd.Args)
+	}
+}
+
+func TestTerminateOnCancelSendsSIGTERM(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := TerminateOnCancel(exec.CommandContext(ctx, "sh", "-c", `trap 'exit 7' TERM; while :; do sleep 0.1; done`))
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	started := time.Now()
+	cancel()
+	err := cmd.Wait()
+	if err == nil || !strings.Contains(err.Error(), "exit status 7") {
+		t.Fatalf("取消后退出错误=%v，期望 SIGTERM 处理后的退出码 7", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("取消后进程退出过慢: %s", elapsed)
 	}
 }

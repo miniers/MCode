@@ -36,3 +36,8 @@ func HideWindow(cmd *exec.Cmd) *exec.Cmd {
 	cmd.SysProcAttr.HideWindow = true
 	return cmd
 }
+
+// TerminateOnCancel 在 Windows 上保持默认行为：Windows 没有可用的 SIGTERM。
+func TerminateOnCancel(cmd *exec.Cmd) *exec.Cmd {
+	return cmd
+}

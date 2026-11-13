@@ -61,7 +61,7 @@ func (r *Runner) PreviewWorktreeMove(ctx context.Context, repoDir string) (Workt
 
 // runStdin 与 run 类似，但允许向 git 传入标准输入。
 func (r *Runner) runStdin(ctx context.Context, dir string, stdin []byte, args ...string) error {
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, r.Bin, args...))
+	cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, r.Bin, args...)))
 	cmd.Dir = dir
 	// 继承登录 Shell 环境变量，保证 git hooks 能用到用户 PATH 下的工具
 	cmd.Env = append(loginenv.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")

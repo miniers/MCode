@@ -69,8 +69,21 @@ func Environ() []string {
 	ensureLoaded()
 	cacheMu.RLock()
 	defer cacheMu.RUnlock()
-	res := make([]string, len(cachedEnv))
-	copy(res, cachedEnv)
+	res := make([]string, 0, len(cachedEnv)+1)
+	foundGitLocks := false
+	for _, item := range cachedEnv {
+		if strings.HasPrefix(item, "GIT_OPTIONAL_LOCKS=") {
+			if !foundGitLocks {
+				res = append(res, "GIT_OPTIONAL_LOCKS=0")
+				foundGitLocks = true
+			}
+			continue
+		}
+		res = append(res, item)
+	}
+	if !foundGitLocks {
+		res = append(res, "GIT_OPTIONAL_LOCKS=0")
+	}
 	return res
 }
 

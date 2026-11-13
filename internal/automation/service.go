@@ -1385,8 +1385,9 @@ func (s *Service) settleRun(ctx context.Context, autoID, runID, status, summary,
 
 // gitOutput 在 workDir 执行 git 命令并返回标准输出。
 func gitOutput(ctx context.Context, workDir string, args ...string) ([]byte, error) {
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, "git", args...))
+	cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", args...)))
 	cmd.Dir = workDir
+	cmd.Env = loginenv.Environ()
 	// 继承登录 Shell 环境变量，保证 git hooks 能用到用户 PATH 下的工具
 	cmd.Env = append(loginenv.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 	return cmd.Output()

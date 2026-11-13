@@ -726,8 +726,9 @@ func gitPRChanges(ctx context.Context, workDir string) (string, string, string, 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	run := func(args ...string) (string, error) {
-		cmd := procattr.HideWindow(exec.CommandContext(ctx, "git", args...))
+		cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", args...)))
 		cmd.Dir = workDir
+		cmd.Env = loginenv.Environ()
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), err
 	}
@@ -770,8 +771,9 @@ func gitPRChanges(ctx context.Context, workDir string) (string, string, string, 
 
 func runGitDiffForCommit(ctx context.Context, workDir string, extraArgs ...string) string {
 	args := append([]string{"diff", "HEAD", "--no-color"}, extraArgs...)
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, "git", args...))
+	cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", args...)))
 	cmd.Dir = workDir
+	cmd.Env = loginenv.Environ()
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err == nil {
@@ -780,8 +782,9 @@ func runGitDiffForCommit(ctx context.Context, workDir string, extraArgs ...strin
 
 	var sb strings.Builder
 	cachedArgs := append([]string{"diff", "--cached", "--no-color"}, extraArgs...)
-	cachedCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", cachedArgs...))
+	cachedCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", cachedArgs...)))
 	cachedCmd.Dir = workDir
+	cachedCmd.Env = loginenv.Environ()
 	var cachedOut bytes.Buffer
 	cachedCmd.Stdout = &cachedOut
 	if err := cachedCmd.Run(); err == nil && cachedOut.Len() > 0 {
@@ -789,8 +792,9 @@ func runGitDiffForCommit(ctx context.Context, workDir string, extraArgs ...strin
 	}
 
 	unstagedArgs := append([]string{"diff", "--no-color"}, extraArgs...)
-	unstagedCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", unstagedArgs...))
+	unstagedCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", unstagedArgs...)))
 	unstagedCmd.Dir = workDir
+	unstagedCmd.Env = loginenv.Environ()
 	var unstagedOut bytes.Buffer
 	unstagedCmd.Stdout = &unstagedOut
 	if err := unstagedCmd.Run(); err == nil && unstagedOut.Len() > 0 {

@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"mcode/internal/procattr"
+	"mcode/internal/providers/loginenv"
 	"mcode/internal/remote/wire"
 )
 
@@ -205,8 +206,9 @@ func gitCheckIgnored(ctx context.Context, root string, paths []string) map[strin
 	if len(paths) == 0 {
 		return nil
 	}
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "check-ignore", "-z", "--stdin"))
+	cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "check-ignore", "-z", "--stdin")))
 	cmd.Dir = root
+	cmd.Env = loginenv.Environ()
 	var stdin bytes.Buffer
 	for _, p := range paths {
 		stdin.WriteString(p)
@@ -801,8 +803,9 @@ func (b *MemoryBackend) GitStatus(ctx context.Context, p wire.RemoteGitStatusPar
 		_, gerr := b.git.RepoRoot(ctx, root)
 		isRepo = (gerr == nil)
 	} else {
-		cmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel"))
+		cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")))
 		cmd.Dir = root
+		cmd.Env = loginenv.Environ()
 		if err := cmd.Run(); err == nil {
 			isRepo = true
 		}
@@ -828,8 +831,9 @@ func (b *MemoryBackend) GitStatus(ctx context.Context, p wire.RemoteGitStatusPar
 			branchPtr = &br
 		}
 	} else {
-		cmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "branch", "--show-current"))
+		cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "branch", "--show-current")))
 		cmd.Dir = root
+		cmd.Env = loginenv.Environ()
 		if out, err := cmd.Output(); err == nil {
 			br := strings.TrimSpace(string(out))
 			if br != "" {
@@ -840,8 +844,9 @@ func (b *MemoryBackend) GitStatus(ctx context.Context, p wire.RemoteGitStatusPar
 
 	// 2. 探测 upstream 分支
 	var upstreamPtr *string
-	uCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "@{u}"))
+	uCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "@{u}")))
 	uCmd.Dir = root
+	uCmd.Env = loginenv.Environ()
 	if uOut, err := uCmd.Output(); err == nil {
 		up := strings.TrimSpace(string(uOut))
 		if up != "" {
@@ -853,8 +858,9 @@ func (b *MemoryBackend) GitStatus(ctx context.Context, p wire.RemoteGitStatusPar
 	ahead := 0
 	behind := 0
 	if upstreamPtr != nil {
-		cCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...@{u}"))
+		cCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-list", "--left-right", "--count", "HEAD...@{u}")))
 		cCmd.Dir = root
+		cCmd.Env = loginenv.Environ()
 		if cOut, err := cCmd.Output(); err == nil {
 			parts := strings.Fields(strings.TrimSpace(string(cOut)))
 			if len(parts) >= 2 {
@@ -866,8 +872,9 @@ func (b *MemoryBackend) GitStatus(ctx context.Context, p wire.RemoteGitStatusPar
 
 	// 4. 解析 defaultBranch（纯本地探测，不触发任何网络 fetch）
 	defaultBranch := "main"
-	headCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"))
+	headCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")))
 	headCmd.Dir = root
+	headCmd.Env = loginenv.Environ()
 	if hOut, err := headCmd.Output(); err == nil {
 		hStr := strings.TrimSpace(string(hOut))
 		if strings.HasPrefix(hStr, "origin/") {
@@ -880,8 +887,9 @@ func (b *MemoryBackend) GitStatus(ctx context.Context, p wire.RemoteGitStatusPar
 		resolved := false
 		for _, prefix := range []string{"refs/remotes/origin/", "refs/heads/"} {
 			for _, candidate := range []string{"main", "master"} {
-				vCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-parse", "--verify", "--quiet", prefix+candidate))
+				vCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-parse", "--verify", "--quiet", prefix+candidate)))
 				vCmd.Dir = root
+				vCmd.Env = loginenv.Environ()
 				if vCmd.Run() == nil {
 					defaultBranch = candidate
 					resolved = true
@@ -916,8 +924,9 @@ func (b *MemoryBackend) GitStatus(ctx context.Context, p wire.RemoteGitStatusPar
 			}
 		}
 	} else {
-		sCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all"))
+		sCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all")))
 		sCmd.Dir = root
+		sCmd.Env = loginenv.Environ()
 		sOut, err := sCmd.Output()
 		if err != nil {
 			statusErr = err
@@ -1039,8 +1048,9 @@ func (b *MemoryBackend) GitBranches(ctx context.Context, p wire.RemoteGitBranche
 		_, gerr := b.git.RepoRoot(ctx, root)
 		isRepo = (gerr == nil)
 	} else {
-		cmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel"))
+		cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")))
 		cmd.Dir = root
+		cmd.Env = loginenv.Environ()
 		if err := cmd.Run(); err == nil {
 			isRepo = true
 		}
@@ -1062,8 +1072,9 @@ func (b *MemoryBackend) GitBranches(ctx context.Context, p wire.RemoteGitBranche
 			currentPtr = &cur
 		}
 	} else {
-		cCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "symbolic-ref", "--short", "-q", "HEAD"))
+		cCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "symbolic-ref", "--short", "-q", "HEAD")))
 		cCmd.Dir = root
+		cCmd.Env = loginenv.Environ()
 		if cOut, err := cCmd.Output(); err == nil {
 			cur := strings.TrimSpace(string(cOut))
 			if cur != "" {
@@ -1074,8 +1085,9 @@ func (b *MemoryBackend) GitBranches(ctx context.Context, p wire.RemoteGitBranche
 
 	// 本地分支
 	var localBranches []string
-	lCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "for-each-ref", "refs/heads", "--format=%(refname:short)"))
+	lCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "for-each-ref", "refs/heads", "--format=%(refname:short)")))
 	lCmd.Dir = root
+	lCmd.Env = loginenv.Environ()
 	if lOut, err := lCmd.Output(); err == nil {
 		lines := strings.Split(string(lOut), "\n")
 		for _, line := range lines {
@@ -1088,8 +1100,9 @@ func (b *MemoryBackend) GitBranches(ctx context.Context, p wire.RemoteGitBranche
 
 	// 远程分支
 	var remoteBranches []string
-	rCmd := procattr.HideWindow(exec.CommandContext(ctx, "git", "for-each-ref", "refs/remotes", "--format=%(refname:short)"))
+	rCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", "for-each-ref", "refs/remotes", "--format=%(refname:short)")))
 	rCmd.Dir = root
+	rCmd.Env = loginenv.Environ()
 	if rOut, err := rCmd.Output(); err == nil {
 		lines := strings.Split(string(rOut), "\n")
 		for _, line := range lines {

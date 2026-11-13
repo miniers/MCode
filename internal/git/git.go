@@ -95,57 +95,66 @@ func (r *Runner) run(ctx context.Context, dir string, env []string, args ...stri
 		defer lockRepo(dir)()
 	}
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case r.sem <- struct{}{}:
-		defer func() { <-r.sem }()
-	}
-
 	fn, _ := ctx.Value(progressKey{}).(func(Progress))
 	originalArgCount := len(args)
 	args = progressArgs(args, fn)
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, r.Bin, args...))
-	cmd.Dir = dir
-
-	// 组合环境变量：继承登录 Shell 环境变量（保证 git hooks 能用到 node 等用户 PATH 下的工具），
-	// 注入 Git 非交互与固定语言环境，若调用方未指定 GIT_DIR 则按需注入影子仓库环境，最后追加自定义变量
-	mergedEnv := append(loginenv.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
-	hasGitDir := false
-	for _, item := range env {
-		if strings.HasPrefix(item, "GIT_DIR=") {
-			hasGitDir = true
-			break
+	// 每次尝试独立获取并释放并发信号量，清理残留锁时可以安全调用 r.IndexPath。
+	runOnce := func() ([]byte, string, error) {
+		select {
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
+		case r.sem <- struct{}{}:
+			defer func() { <-r.sem }()
 		}
-	}
-	if !hasGitDir {
-		if sEnv := r.shadowEnv(dir); len(sEnv) > 0 {
-			mergedEnv = append(mergedEnv, sEnv...)
+
+		cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, r.Bin, args...)))
+		cmd.Dir = dir
+		// 组合环境变量：继承登录 Shell 环境变量（保证 git hooks 能用到 node 等用户 PATH 下的工具），
+		// 注入 Git 非交互与固定语言环境，若调用方未指定 GIT_DIR 则按需注入影子仓库环境，最后追加自定义变量
+		mergedEnv := append(loginenv.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+		hasGitDir := false
+		for _, item := range env {
+			if strings.HasPrefix(item, "GIT_DIR=") {
+				hasGitDir = true
+				break
+			}
 		}
-	}
-	if len(env) > 0 {
-		mergedEnv = append(mergedEnv, env...)
-	}
-	cmd.Env = mergedEnv
+		if !hasGitDir {
+			if sEnv := r.shadowEnv(dir); len(sEnv) > 0 {
+				mergedEnv = append(mergedEnv, sEnv...)
+			}
+		}
+		if len(env) > 0 {
+			mergedEnv = append(mergedEnv, env...)
+		}
+		cmd.Env = mergedEnv
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	var progress *progressWriter
-	if len(args) != originalArgCount {
-		progress = &progressWriter{stderr: &stderr, fn: fn}
-		cmd.Stderr = progress
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		var progress *progressWriter
+		if len(args) != originalArgCount {
+			progress = &progressWriter{stderr: &stderr, fn: fn}
+			cmd.Stderr = progress
+		}
+		err := cmd.Run()
+		if progress != nil {
+			progress.flush()
+		}
+		return stdout.Bytes(), stderr.String(), err
 	}
 
-	err := cmd.Run()
-	if progress != nil {
-		progress.flush()
+	out, stderrText, err := runOnce()
+	if err != nil && isRepoWriteCall(env, args) && strings.Contains(stderrText, "index.lock") {
+		if cleared, clearErr := r.ClearStaleIndexLock(ctx, dir); clearErr == nil && cleared {
+			out, stderrText, err = runOnce()
+		}
 	}
 	if ctx.Err() != nil {
-		return stdout.Bytes(), ctx.Err()
+		return out, ctx.Err()
 	}
 	if err != nil {
-		errText := strings.TrimSpace(stderr.String())
+		errText := strings.TrimSpace(stderrText)
 		// 截取 stderr 末尾最多 500 个字符，防止错误信息过长冲刷日志
 		if len(errText) > 500 {
 			errText = errText[len(errText)-500:]
@@ -155,10 +164,10 @@ func (r *Runner) run(ctx context.Context, dir string, env []string, args ...stri
 			cmdName = "git " + args[0]
 		}
 		if errText != "" {
-			return stdout.Bytes(), fmt.Errorf("%s: %w: %s", cmdName, err, errText)
+			return out, fmt.Errorf("%s: %w: %s", cmdName, err, errText)
 		}
-		return stdout.Bytes(), fmt.Errorf("%s: %w", cmdName, err)
+		return out, fmt.Errorf("%s: %w", cmdName, err)
 	}
 
-	return stdout.Bytes(), nil
+	return out, nil
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestAdvanceHead(t *testing.T) {
@@ -60,6 +61,44 @@ func TestAdvanceHead(t *testing.T) {
 	}
 	if got := runTestGit(t, root, "rev-parse", "HEAD"); got != sha {
 		t.Fatalf("CAS 失败后 HEAD 被改写: %s", got)
+	}
+}
+
+func TestAdvanceHeadClearsStaleIndexLock(t *testing.T) {
+	r, root := newRevertTestRepo(t)
+	ctx := context.Background()
+	writeTestFile(t, root, "a.txt", "base\n")
+	runTestGit(t, root, "add", ".")
+	runTestGit(t, root, "commit", "-qm", "base")
+	old := runTestGit(t, root, "rev-parse", "HEAD")
+	writeTestFile(t, root, "a.txt", "bee\n")
+	runTestGit(t, root, "add", ".")
+	tree := runTestGit(t, root, "write-tree")
+	sha, err := r.CommitTree(ctx, root, tree, old, "bee")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, root, "read-tree", old)
+	indexPath, err := r.IndexPath(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := indexPath + ".lock"
+	if err := os.WriteFile(lockPath, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-staleIndexLockAge - time.Second)
+	if err := os.Chtimes(lockPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	original := gitProcessRunning
+	t.Cleanup(func() { gitProcessRunning = original })
+	gitProcessRunning = func(context.Context) (bool, error) { return false, nil }
+	if _, err := r.AdvanceHead(ctx, root, old, sha); err != nil {
+		t.Fatal(err)
+	}
+	if got := runTestGit(t, root, "rev-parse", "HEAD"); got != sha {
+		t.Fatalf("HEAD=%s want=%s", got, sha)
 	}
 }
 

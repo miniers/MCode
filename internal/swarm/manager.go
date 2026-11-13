@@ -3995,7 +3995,7 @@ func (m *Manager) runGitPaths(ctx context.Context, worktree string, gitArgs, pat
 			end = len(paths)
 		}
 		args := append(append([]string(nil), gitArgs...), paths[start:end]...)
-		cmd := procattr.HideWindow(exec.CommandContext(ctx, bin, args...))
+		cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, bin, args...)))
 		cmd.Dir = worktree
 		// 继承登录 Shell 环境变量，保证 git hooks 能用到用户 PATH 下的工具
 		cmd.Env = append(loginenv.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
@@ -4012,7 +4012,7 @@ func (m *Manager) runGitCmd(ctx context.Context, dir string, args ...string) ([]
 	if m.opts.Git != nil && m.opts.Git.Bin != "" {
 		bin = m.opts.Git.Bin
 	}
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, bin, args...))
+	cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, bin, args...)))
 	cmd.Dir = dir
 	cmd.Env = append(loginenv.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 	return cmd.CombinedOutput()

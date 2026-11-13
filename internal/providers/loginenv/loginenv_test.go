@@ -214,6 +214,24 @@ func TestFallbackEnvironment(t *testing.T) {
 	}
 }
 
+func TestEnvironDisablesGitOptionalLocks(t *testing.T) {
+	resetState(t)
+	defer resetState(t)
+	loadFunc = func() ([]string, error) {
+		return []string{"PATH=/bin", "GIT_OPTIONAL_LOCKS=1"}, nil
+	}
+	env := Environ()
+	var values []string
+	for _, item := range env {
+		if strings.HasPrefix(item, "GIT_OPTIONAL_LOCKS=") {
+			values = append(values, item)
+		}
+	}
+	if len(values) != 1 || values[0] != "GIT_OPTIONAL_LOCKS=0" {
+		t.Fatalf("GIT_OPTIONAL_LOCKS=%v，期望唯一的 GIT_OPTIONAL_LOCKS=0", values)
+	}
+}
+
 func TestFallbackEnvironmentKeepsUserProxy(t *testing.T) {
 	resetState(t)
 	defer resetState(t)
