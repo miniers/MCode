@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,39 @@ import (
 
 	"github.com/egoist/mygo/ui"
 )
+
+func TestGitHubCloneReposLoadingAndRows(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	state, view := buildRoot(NewFakeClient())
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1200, 800)
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+	cs := getGitHubCloneState(state)
+	cs.open = true
+	cs.reposLoading = true
+	tt.Frame()
+	if _, ok := tt.Access("加载中"); !ok {
+		t.Fatal("仓库请求未返回时应显示加载状态")
+	}
+	for _, res := range []githubCloneResult{
+		{kind: "repos", repos: []string{"ada/mcode"}},
+		{kind: "repos", err: errors.New("gh 不可用")},
+	} {
+		cs.reposLoaded = false
+		cs.reposLoading = true
+		cs.results <- res
+		drainGitHubCloneResults(state, cs)
+		if !cs.reposLoaded || cs.reposLoading {
+			t.Fatalf("仓库请求返回后应结束加载: %+v", res)
+		}
+	}
+	cs.cloning = true
+	tt.Frame()
+	if node, ok := tt.Access("ada/mcode"); !ok || !node.Disabled {
+		t.Fatalf("克隆中仓库行应禁用: %+v, found=%v", node, ok)
+	}
+}
 
 func TestCloneInstallButton(t *testing.T) {
 	for _, tc := range []struct {

@@ -46,17 +46,18 @@ type githubCloneResult struct {
 // githubCloneState 是 GitHub 克隆面板的界面状态，仅 UI 线程读写；
 // 后台 goroutine 通过 results 通道回传结果。
 type githubCloneState struct {
-	open        bool
-	search      string // 输入框：Git URL 或 owner/repo
-	parentDir   string // 克隆到的父目录
-	repos       []string
-	reposLoaded bool
-	reposErr    string
-	cloning     bool
-	cloningName string
-	errMsg      string
-	gitMissing  bool
-	results     chan githubCloneResult
+	open         bool
+	search       string // 输入框：Git URL 或 owner/repo
+	parentDir    string // 克隆到的父目录
+	repos        []string
+	reposLoaded  bool
+	reposLoading bool
+	reposErr     string
+	cloning      bool
+	cloningName  string
+	errMsg       string
+	gitMissing   bool
+	results      chan githubCloneResult
 }
 
 // getGitHubCloneState 返回 chatState 上的克隆面板状态。
@@ -269,10 +270,10 @@ func runGitClone(ctx context.Context, url, dir string) error {
 
 // loadGitHubRepos 在后台用 gh 列出仓库，结果通过 results 通道回到 UI 线程。
 func loadGitHubRepos(s *chatState, cs *githubCloneState) {
-	if cs == nil || cs.reposLoaded {
+	if cs == nil || cs.reposLoaded || cs.reposLoading {
 		return
 	}
-	cs.reposLoaded = true
+	cs.reposLoading = true
 	results := cs.results
 	go func() {
 		repos, err := listGitHubRepos(context.Background())
@@ -380,6 +381,8 @@ func drainGitHubCloneResults(s *chatState, cs *githubCloneState) {
 		case res := <-cs.results:
 			switch res.kind {
 			case "repos":
+				cs.reposLoading = false
+				cs.reposLoaded = true
 				if res.err != nil {
 					cs.reposErr = res.err.Error()
 				} else {
@@ -513,6 +516,10 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 					Children(func() {
 						ui.Scroll(c.Key("github-clone-repos-scroll")).Fill().Children(func() {
 							ui.Column(c.Key("github-clone-repos-col")).FillWidth().Padding(Space1).Gap(Space0).Children(func() {
+								if !cs.reposLoaded {
+									LoadingIndicator(c, "github-clone-repos-loading", "", IconSM)
+									return
+								}
 								query := strings.TrimSpace(cs.search)
 								hasPasted, _ := parseGitHubRepo(query)
 								matches := 0
@@ -612,6 +619,7 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 						Button(c.Key("github-clone-submit-btn"), ButtonOpts{
 							Text:     cloneLabel,
 							Disabled: !canClone,
+							Loading:  cs.cloning,
 							OnClick: func() {
 								startGitHubClone(s, cs)
 							},
@@ -630,7 +638,10 @@ func renderGitHubRepoRow(c *ui.Context, s *chatState, cs *githubCloneState, full
 		Label(title).
 		Padding(Space2, Space3).
 		Radius(RadiusSM).
-		FillWidth()
+		FillWidth().
+		Disabled(cs.cloning)
+	scale := motionPressScale(c, row, "button-press-scale", !cs.cloning && row.Pressed())
+	row.Scale(scale, scale)
 	if selected {
 		row.Background(ThemeSelected(c).Alpha(0.4))
 	} else if row.Hovered() {

@@ -409,10 +409,10 @@ func renderGitPRListPane(c *ui.Context, s *chatState, prs []git.PRSummary, selec
 						SingleLine()
 					ui.Spacer(c)
 					Button(c, ButtonOpts{
-						Key:      "modal-git-pr-refresh",
-						Text:     "刷新",
-						Variant:  ButtonSecondary,
-						Disabled: loading,
+						Key:     "modal-git-pr-refresh",
+						Text:    "刷新",
+						Variant: ButtonSecondary,
+						Loading: loading,
 						OnClick: func() {
 							s.refreshGitPRList()
 						},
@@ -475,6 +475,8 @@ func renderGitPRListRow(c *ui.Context, s *chatState, pr git.PRSummary, active bo
 		OnClick(func() {
 			s.selectGitPR(pr.Number)
 		})
+	scale := motionPressScale(c, row, "button-press-scale", row.Pressed())
+	row.Scale(scale, scale)
 	if active {
 		row.Background(ThemeSelected(c))
 	} else if row.Hovered() {

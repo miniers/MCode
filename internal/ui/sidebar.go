@@ -2107,7 +2107,8 @@ func renderWorktreeManageModal(c *ui.Context, s *chatState) {
 						Button(c.Key("modal-worktree-clean-btn"), ButtonOpts{
 							Text:     "清理安全的 Worktree",
 							Variant:  ButtonPrimary,
-							Disabled: cleaning || scanning,
+							Disabled: scanning,
+							Loading:  cleaning,
 							OnClick: func() {
 								s.cleanSafeWorktrees()
 							},
@@ -2247,9 +2248,9 @@ func renderWorktreeMoveModal(c *ui.Context, s *chatState) {
 							},
 						})
 						Button(c.Key("modal-worktree-move-confirm-btn"), ButtonOpts{
-							Text:     "迁入",
-							Variant:  ButtonPrimary,
-							Disabled: moving,
+							Text:    "迁入",
+							Variant: ButtonPrimary,
+							Loading: moving,
 							OnClick: func() {
 								s.submitWorktreeMove()
 							},
