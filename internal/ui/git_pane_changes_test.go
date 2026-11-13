@@ -685,7 +685,7 @@ func TestGitChangesWriteFailureState(t *testing.T) {
 			ps.failure = &git.Failure{Title: "旧错误"}
 			st := gitChangesStateFor(ps)
 			done := make(chan struct{})
-			gitChangesRun(ps, st, func(context.Context) error {
+			gitChangesRun(ps, st, "test", func(context.Context) error {
 				defer close(done)
 				if fail {
 					return errors.New("写入失败")
@@ -738,5 +738,41 @@ func TestGitChangesFilteredGroupActions(t *testing.T) {
 				t.Fatalf("操作范围 = %v", paths)
 			}
 		})
+	}
+}
+
+func TestGitChangesPending(t *testing.T) {
+	_, ps, _ := gitPaneTestState(t)
+	st := gitChangesStateFor(ps)
+	release := make(chan struct{})
+	gitChangesRun(ps, st, "stage:2:a", func(context.Context) error { <-release; return nil })
+	st.mu.Lock()
+	if !st.busy || st.pending != "stage:2:a" || st.pendingShown {
+		t.Errorf("初始状态：busy=%v pending=%q shown=%v", st.busy, st.pending, st.pendingShown)
+	}
+	st.mu.Unlock()
+	gitPaneWait(t, func() bool { st.mu.Lock(); defer st.mu.Unlock(); return st.pendingShown })
+	close(release)
+	gitPaneWait(t, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return !st.busy && st.pending == "" && !st.pendingShown
+	})
+}
+
+func TestGitChangesCleanPushBusy(t *testing.T) {
+	s, ps, base := gitPaneTestState(t)
+	s.client = &gitChangesFakeClient{gitPaneFakeClient: base}
+	ps.state = GitState{WorkDir: t.TempDir(), HasUpstream: true, Ahead: 1}
+	st := gitChangesStateFor(ps)
+	st.busy = true
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, "git-test", ps) }, 800, 600)
+	if err := tt.Click("推送 1 个提交"); err != nil {
+		t.Fatal(err)
+	}
+	base.paneMu.Lock()
+	defer base.paneMu.Unlock()
+	if len(base.calls) != 0 {
+		t.Fatalf("忙碌时触发推送: %v", base.calls)
 	}
 }

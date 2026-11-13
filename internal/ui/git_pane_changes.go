@@ -50,6 +50,9 @@ type gitChangesState struct {
 	history                                      []git.LogCommit
 	historyIndex                                 int
 	successUntil                                 time.Time
+	pending                                      string
+	pendingShown                                 bool
+	pendingSeq                                   uint64
 }
 
 // shortcut: 面板销毁时不清理，按会话数量级可忽略；若会话量很大再接到 dispose
@@ -212,20 +215,34 @@ func gitChangesIgnore(root, name string) error {
 	return err
 }
 
-func gitChangesRun(ps *gitPaneState, st *gitChangesState, op func(context.Context) error) {
+func gitChangesRun(ps *gitPaneState, st *gitChangesState, key string, op func(context.Context) error) {
 	st.mu.Lock()
 	if st.busy {
 		st.mu.Unlock()
 		return
 	}
-	st.busy = true
+	st.busy, st.pending, st.pendingShown = true, key, key == "push" || key == "commit"
+	st.pendingSeq++
+	seq := st.pendingSeq
 	st.mu.Unlock()
+	ps.owner.invalidate()
+	timer := time.AfterFunc(150*time.Millisecond, func() {
+		st.mu.Lock()
+		if st.busy && st.pendingSeq == seq && st.pending == key {
+			st.pendingShown = true
+			st.mu.Unlock()
+			ps.owner.invalidate()
+			return
+		}
+		st.mu.Unlock()
+	})
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		err := op(ctx)
+		timer.Stop()
 		st.mu.Lock()
-		st.busy = false
+		st.busy, st.pending, st.pendingShown = false, "", false
 		st.mu.Unlock()
 		if err != nil {
 			ps.fail(err)
@@ -243,7 +260,7 @@ func gitChangesDiscard(ps *gitPaneState, st *gitChangesState, client gitChangesC
 	if len(paths) == 0 || gitPaneAgentBusy(ps.owner, threadID) {
 		return
 	}
-	gitChangesRun(ps, st, func(ctx context.Context) error {
+	gitChangesRun(ps, st, "discard:"+paths[0], func(ctx context.Context) error {
 		snap, err := client.GitDiscardFiles(ctx, threadID, paths)
 		if err == nil {
 			label := fmt.Sprintf("已丢弃 %d 个文件", len(paths))
@@ -299,7 +316,7 @@ func gitChangesStageSelected(ps *gitPaneState, st *gitChangesState, client gitCh
 			}
 		}
 	}
-	gitChangesRun(ps, st, func(ctx context.Context) error {
+	gitChangesRun(ps, st, fmt.Sprintf("stage:%d:%s", current.group, current.path), func(ctx context.Context) error {
 		if len(unstage) > 0 {
 			if err := client.GitUnstageFiles(ctx, threadID, unstage); err != nil {
 				return err
@@ -354,6 +371,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 	selectedGroup := st.group
 	generating := st.cancel != nil
 	queued := st.commitQueued
+	pending, pendingShown := st.pending, st.pendingShown
 	collapsed := st.collapsed
 	filter, filterOpen, filterFocus := st.filter, st.filterOpen, st.filterFocus
 	st.filterFocus = false
@@ -417,11 +435,24 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 			ui.Text(c, "工作区干净").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 			if state.HasUpstream && state.Ahead > 0 {
 				label := fmt.Sprintf("推送 %d 个提交", state.Ahead)
-				b := ui.ButtonBase(c.Key("git-changes-push")).Label(label).Padding(Space2, Space3).Radius(RadiusSM)
+				b := ui.ButtonBase(c.Key("git-changes-push")).Label(label).Padding(Space2, Space3).Radius(RadiusSM).Disabled(busy)
+				scale := motionPressScale(c, b, "git-changes-push-press", !busy && b.Pressed())
+				b.Scale(scale, scale)
 				b.OnClick(func() {
-					gitChangesRun(ps, st, func(ctx context.Context) error { return s.client.GitPush(ctx, threadID) })
+					gitChangesRun(ps, st, "push", func(ctx context.Context) error {
+						err := s.client.GitPush(ctx, threadID)
+						if err == nil {
+							s.setToast("已推送")
+						}
+						return err
+					})
 				})
-				b.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeFootnote)) })
+				b.Children(func() {
+					if pending == "push" {
+						LoadingIndicator(c, "git-changes-push-loading", "", IconSM, ThemePrimaryText(c))
+					}
+					ui.Text(c, label).FontSize(uiFont(TypeFootnote))
+				})
 			}
 		})
 		return
@@ -444,7 +475,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 			return
 		}
 		run := func() {
-			gitChangesRun(ps, st, func(ctx context.Context) error {
+			gitChangesRun(ps, st, "commit", func(ctx context.Context) error {
 				if len(groups[1].entries) == 0 && len(groups[2].entries) > 0 {
 					if err := client.GitStageFiles(ctx, threadID, gitChangesPaths(groups[2].entries)); err != nil {
 						return err
@@ -471,7 +502,15 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 				s.setToast("已提交 " + sha)
 				ps.requestRefresh()
 				if push {
-					return s.client.GitPush(ctx, threadID)
+					st.mu.Lock()
+					st.pending, st.pendingShown = "push", true
+					st.mu.Unlock()
+					s.invalidate()
+					err := s.client.GitPush(ctx, threadID)
+					if err == nil {
+						s.setToast("已推送")
+					}
+					return err
 				}
 				return nil
 			})
@@ -592,7 +631,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 								return true
 							}
 							st.mu.Unlock()
-							gitChangesRun(ps, st, func(ctx context.Context) error {
+							gitChangesRun(ps, st, "history", func(ctx context.Context) error {
 								history, err := client.GitLog(ctx, threadID, git.LogOptions{Limit: 20})
 								if err != nil {
 									return err
@@ -621,6 +660,8 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 
 					ui.Row(c.Key("git-changes-commit-actions")).FillWidth().Gap(Hairline).Children(func() {
 						b := ui.ButtonBase(c.Key("git-changes-commit")).Label(label).Grow(1).Height(ControlLG).Radius(RadiusSM).Disabled(disabled).Background(ThemeAccent(c)).Transition(motionFeedback(c))
+						scale := motionPressScale(c, b, "git-changes-commit-press", !disabled && b.Pressed())
+						b.Scale(scale, scale)
 						if strings.TrimSpace(draft) == "" && !generating {
 							b.Tooltip("请输入提交信息")
 						} else if len(entries) == 0 {
@@ -630,7 +671,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 						}
 						b.OnClick(func() { commit(false) })
 						b.Children(func() {
-							if queued {
+							if queued || pending == "commit" || pending == "push" {
 								LoadingIndicator(c, "git-changes-commit-loading", "", IconSM, ThemeOnAccent(c))
 							}
 							ui.Text(c, func() string {
@@ -644,11 +685,19 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 							}()).FontSize(uiFont(TypeFootnote)).TextColor(ThemeOnAccent(c))
 						})
 						more := ui.ButtonBase(c.Key("git-changes-commit-more")).Label("提交选项").Height(ControlLG).Width(ControlLG).Radius(RadiusSM).Disabled(busy).Background(ThemeAccent(c)).Transition(motionFeedback(c))
+						scale = motionPressScale(c, more, "git-changes-more-press", !busy && more.Pressed())
+						more.Scale(scale, scale)
 						if more.Hovered() && !busy {
 							more.Background(ThemeAccent(c).Alpha(gitCommitMoreHoverOpacity))
 						}
 						more.OnClick(func() { st.menu = true })
-						more.Children(func() { ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).TextColor(ThemeOnAccent(c)) })
+						more.Children(func() {
+							if pending == "amend" && pendingShown {
+								LoadingIndicator(c, "git-changes-amend-loading", "", IconSM, ThemeOnAccent(c))
+							} else {
+								ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).TextColor(ThemeOnAccent(c))
+							}
+						})
 						appPopover(c, more, &st.menu, nil, func() {
 							popoverCard(c, ui.Column(c.Key("git-changes-commit-menu"))).Padding(Space1).Children(func() {
 								push := ui.ButtonBase(c.Key("git-changes-commit-push")).Label("提交并推送").FillWidth().Height(ControlMD).Padding(0, Space3).Disabled(disabled)
@@ -657,7 +706,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 								edit := ui.ButtonBase(c.Key("git-changes-commit-amend")).Label("修改上次提交").FillWidth().Height(ControlMD).Padding(0, Space3).Disabled(busy)
 								edit.OnClick(func() {
 									st.menu = false
-									gitChangesRun(ps, st, func(ctx context.Context) error {
+									gitChangesRun(ps, st, "amend", func(ctx context.Context) error {
 										msg, err := client.GitLastCommitMessage(ctx, threadID)
 										if err != nil {
 											return err
@@ -718,18 +767,27 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 										label, symbol = "全部取消暂存", "−"
 									}
 									b := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-group-action-%d", i))).Label(label).Tooltip(label).Size(ControlXS, ControlXS).Disabled(busy)
-									if !groupRow.Hovered() && !b.Focused() {
+									key := fmt.Sprintf("group:%d", i)
+									scale := motionPressScale(c, b, "git-changes-group-press", !busy && b.Pressed())
+									b.Scale(scale, scale)
+									if !groupRow.Hovered() && !b.Focused() && !(pending == key && pendingShown) {
 										b.Opacity(0)
 									}
 									b.OnClick(func() {
-										gitChangesRun(ps, st, func(ctx context.Context) error {
+										gitChangesRun(ps, st, key, func(ctx context.Context) error {
 											if i == 1 {
 												return client.GitUnstageFiles(ctx, threadID, gitChangesPaths(group.entries))
 											}
 											return client.GitStageFiles(ctx, threadID, gitChangesPaths(group.entries))
 										})
 									})
-									b.Children(func() { ui.Text(c, symbol).FontSize(uiFont(TypeFootnote)) })
+									b.Children(func() {
+										if pending == key && pendingShown {
+											LoadingIndicator(c, "git-changes-group-loading", "", IconSM, ThemePrimaryText(c))
+										} else {
+											ui.Text(c, symbol).FontSize(uiFont(TypeFootnote))
+										}
+									})
 								}
 								if i == 2 {
 									b := ui.ButtonBase(c.Key("git-changes-discard-all")).Label("全部丢弃").Tooltip("全部丢弃").Size(ControlXS, ControlXS).Disabled(busy || gitPaneAgentBusy(s, threadID))
@@ -828,7 +886,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 													label = "取消暂存"
 												}
 												if i != 0 && m.Item(label).Disabled(busy).Chosen() {
-													gitChangesRun(ps, st, func(ctx context.Context) error {
+													gitChangesRun(ps, st, fmt.Sprintf("stage:%d:%s", i, entry.Path), func(ctx context.Context) error {
 														if isStaged {
 															return client.GitUnstageFiles(ctx, threadID, []string{entry.Path})
 														}
@@ -842,7 +900,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 													c.WriteClipboard(entry.Path)
 												}
 												if m.Item("加入 .gitignore").Disabled(busy).Chosen() {
-													gitChangesRun(ps, st, func(context.Context) error { return gitChangesIgnore(state.WorkDir, entry.Path) })
+													gitChangesRun(ps, st, "ignore:"+entry.Path, func(context.Context) error { return gitChangesIgnore(state.WorkDir, entry.Path) })
 												}
 											})
 											if row.Focused() {
@@ -930,29 +988,48 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 													action, label = "−", "取消暂存"
 												}
 												b := ui.ButtonBase(c.Key(fmt.Sprintf("git-changes-action-%d-%s", i, entry.Path))).Label(label).Tooltip(label).Size(ControlXS, ControlXS).Disabled(busy)
-												if !fileRow.Hovered() && !row.Focused() && !b.Focused() {
+												key := fmt.Sprintf("stage:%d:%s", i, entry.Path)
+												scale := motionPressScale(c, b, "git-changes-action-press", !busy && b.Pressed())
+												b.Scale(scale, scale)
+												if !fileRow.Hovered() && !row.Focused() && !b.Focused() && !(pending == key && pendingShown) {
 													b.Opacity(0)
 												}
 												b.OnClick(func() {
-													gitChangesRun(ps, st, func(ctx context.Context) error {
+													gitChangesRun(ps, st, fmt.Sprintf("stage:%d:%s", i, entry.Path), func(ctx context.Context) error {
 														if isStaged {
 															return client.GitUnstageFiles(ctx, threadID, []string{entry.Path})
 														}
 														return client.GitStageFiles(ctx, threadID, []string{entry.Path})
 													})
 												})
-												b.Children(func() { ui.Text(c, action).FontSize(uiFont(TypeFootnote)) })
+												b.Children(func() {
+													if pending == key && pendingShown {
+														LoadingIndicator(c, "git-changes-action-loading", "", IconSM, ThemePrimaryText(c))
+													} else {
+														ui.Text(c, action).FontSize(uiFont(TypeFootnote))
+													}
+												})
 											}
 											if i == 2 {
 												b := ui.ButtonBase(c.Key("git-changes-discard-"+entry.Path)).Label("丢弃更改").Tooltip("丢弃更改").Size(ControlXS, ControlXS).Disabled(busy || gitPaneAgentBusy(s, threadID))
-												if !fileRow.Hovered() && !row.Focused() && !b.Focused() {
+												key := "discard:" + entry.Path
+												disabled := busy || gitPaneAgentBusy(s, threadID)
+												scale := motionPressScale(c, b, "git-changes-discard-press", !disabled && b.Pressed())
+												b.Scale(scale, scale)
+												if !fileRow.Hovered() && !row.Focused() && !b.Focused() && !(pending == key && pendingShown) {
 													b.Opacity(0)
 												}
 												if gitPaneAgentBusy(s, threadID) {
 													b.Tooltip("Agent 正在修改此工作区")
 												}
 												b.OnClick(func() { gitChangesDiscard(ps, st, client, threadID, []string{entry.Path}) })
-												b.Children(func() { ui.Text(c, "↺").FontSize(uiFont(TypeFootnote)) })
+												b.Children(func() {
+													if pending == key && pendingShown {
+														LoadingIndicator(c, "git-changes-discard-loading", "", IconSM, ThemePrimaryText(c))
+													} else {
+														ui.Text(c, "↺").FontSize(uiFont(TypeFootnote))
+													}
+												})
 											}
 											if i == 1 {
 												ui.Box(c).Size(ControlXS, ControlXS).Shrink(0)

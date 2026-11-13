@@ -570,14 +570,18 @@ func (ps *gitPaneState) run(action string) {
 			switch action {
 			case "continue":
 				err = client.GitContinueOp(ctx, ps.threadID)
+				toast = "已继续"
 			case "skip":
 				err = client.GitSkipOp(ctx, ps.threadID)
+				toast = "已跳过"
 			case "abort":
 				err = client.GitAbortOp(ctx, ps.threadID)
+				toast = "已中止"
 			}
 		case "undo":
 			if undoSnap != nil {
 				err = client.GitRestoreSnapshot(ctx, ps.threadID, undoSnap)
+				toast = "已撤销"
 			}
 			if err == nil {
 				ps.mu.Lock()
@@ -674,6 +678,8 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 			branch = "Git"
 		}
 		btn := ui.ButtonBase(c.Key("git-pane-branch-btn")).Label(branch).Height(ControlMD).Padding(0, Space2).Radius(RadiusSM).MaxWidth(width * 0.4).MinWidth(0).Shrink(1).Gap(Space2).AlignItems(ui.Center).Transition(motionFeedback(c))
+		scale := motionPressScale(c, btn, "git-pane-branch-press", btn.Pressed())
+		btn.Scale(scale, scale)
 		if btn.Hovered() {
 			btn.Background(ThemeHover(c))
 		}
@@ -705,6 +711,8 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 		ui.Row(c.Key("git-pane-segments")).Gap(Space0).AlignItems(ui.Center).Children(func() {
 			for i, label := range []string{"变更", "历史"} {
 				b := ui.ButtonBase(c.Key(fmt.Sprintf("git-pane-segment-%d", i))).Label(label).Height(ControlMD).Padding(0, Space2).Radius(RadiusSM).Gap(Space1).AlignItems(ui.Center).Transition(motionFeedback(c))
+				scale := motionPressScale(c, b, "git-pane-segment-press", b.Pressed())
+				b.Scale(scale, scale)
 				if i == segment {
 					b.Background(ThemeSelected(c))
 				}
@@ -733,6 +741,8 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 			tip = "分离 HEAD 时无法同步"
 		}
 		b := ui.ButtonBase(c.Key("git-pane-sync")).Label(label).Tooltip(tip).Height(ControlMD).Padding(0, Space2).Radius(RadiusSM).Gap(Space1).AlignItems(ui.Center).Disabled(disabled).Transition(motionFeedback(c))
+		scale = motionPressScale(c, b, "git-pane-sync-press", !disabled && b.Pressed())
+		b.Scale(scale, scale)
 		if b.Hovered() {
 			b.Background(ThemeHover(c))
 		}

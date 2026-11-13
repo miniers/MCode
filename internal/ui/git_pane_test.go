@@ -425,7 +425,7 @@ func TestGitPaneForceConfirmFocusesCancel(t *testing.T) {
 }
 
 func TestGitPaneUndoExpiresAndRestores(t *testing.T) {
-	_, ps, client := gitPaneTestState(t)
+	s, ps, client := gitPaneTestState(t)
 	ps.showUndo("已丢弃改动", &git.Snapshot{})
 	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneUndo(c, ps) }, 400, 80)
 	if !tt.HasText("撤销") {
@@ -435,6 +435,7 @@ func TestGitPaneUndoExpiresAndRestores(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return !ps.syncing && ps.undoSnap == nil })
+	gitPaneWait(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.toastMessage == "已撤销" })
 	client.paneMu.Lock()
 	calls := append([]string(nil), client.calls...)
 	client.paneMu.Unlock()
