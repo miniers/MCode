@@ -94,12 +94,12 @@ func localFileLinkPreview(c *ui.Context, dest string) func(tip ui.Element) {
 	case localPreviewImage:
 		return func(tip ui.Element) {
 			card := localPreviewCard(c, tip)
+			localPreviewPathText(c, card, dest)
 			if resolved, ok := localFileLinkPath(dest); ok {
 				path = resolved
 			}
 			src, err := loadLocalImage(path)
 			if err != nil {
-				localPreviewPathText(c, card, path)
 				return
 			}
 			card.Children(func() {
@@ -111,6 +111,7 @@ func localFileLinkPreview(c *ui.Context, dest string) func(tip ui.Element) {
 	case localPreviewText:
 		return func(tip ui.Element) {
 			card := localPreviewCard(c, tip)
+			localPreviewPathText(c, card, dest)
 			if resolved, ok := localFileLinkPath(dest); ok {
 				path = resolved
 			}
@@ -120,7 +121,6 @@ func localFileLinkPreview(c *ui.Context, dest string) func(tip ui.Element) {
 			}
 			lines := localPreviewLineWindow(localTextPreviewLines(path), start)
 			if len(lines) == 0 {
-				localPreviewPathText(c, card, path)
 				return
 			}
 			card.Children(func() {
@@ -149,18 +149,19 @@ func localFileLinkPreview(c *ui.Context, dest string) func(tip ui.Element) {
 func localPreviewCard(c *ui.Context, tip ui.Element) ui.Element {
 	card := tip.MaxWidth(localPreviewMaxWidth).
 		Padding(Space2).
+		Gap(Space2).
 		Radius(RadiusSM).
 		Background(ThemeSurfacePopover(c)).
 		Border(Hairline, ThemeBorder(c))
 	return applyElevation(c, card, ElevPopover)
 }
 
-// localPreviewPathText 在没有可显示的内容时只显示路径，与默认的地址提示一致。
+// localPreviewPathText 渲染悬停卡片中的完整路径。
 func localPreviewPathText(c *ui.Context, card ui.Element, path string) {
 	card.Children(func() {
-		ui.Text(c, localPreviewTruncateLine(path)).
+		ui.Text(c, path).
+			MaxWidth(localPreviewMaxWidth - 2*Space2).
 			FontSize(uiFont(TypeFootnote)).
-			NoWrap().
 			TextColor(ThemeSecondaryText(c))
 	})
 }
