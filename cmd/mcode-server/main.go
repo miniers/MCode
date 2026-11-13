@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"mcode/internal/config"
+	"mcode/internal/datadir"
 	"mcode/internal/git"
 	"mcode/internal/harness"
 	"mcode/internal/kanban"
@@ -140,13 +141,7 @@ func (x headlessSwarmExtras) SaveSwarmTiers(ctx context.Context, tiers []wire.Sw
 }
 
 func main() {
-	defaultDataDir := ""
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatalf("failed to resolve user home directory: %v", err)
-	}
-	defaultDataDir = filepath.Join(homeDir, ".mcode")
-	defaultDataDir = envOrDefault("MCODE_DATA", defaultDataDir)
+	defaultDataDir := datadir.Resolve("", false)
 
 	defaultWorkDir, err := os.Getwd()
 	if err != nil {
@@ -169,6 +164,14 @@ func main() {
 	acmeEmailFlag := flag.String("acme-email", defaults.Remote.ACMEEmail, "ACME account email")
 	acmeDirectoryFlag := flag.String("acme-directory", defaults.Remote.ACMEDirectory, "ACME directory URL")
 	flag.Parse()
+	setFlags := make(map[string]bool)
+	flag.Visit(func(f *flag.Flag) {
+		setFlags[f.Name] = true
+	})
+	*dataFlag = datadir.Resolve(*dataFlag, setFlags["data"])
+	if err := os.Setenv("MCODE_DATA", *dataFlag); err != nil {
+		log.Fatalf("设置数据目录环境变量失败: %v", err)
+	}
 
 	// 服务端的 worktree 清理只认实际数据目录下的受管目录，避免误删别处的 worktree。
 	if strings.TrimSpace(*dataFlag) != "" {
@@ -188,11 +191,6 @@ func main() {
 	if err := config.Validate(cfg); err != nil {
 		log.Fatalf("invalid config: %v", err)
 	}
-
-	setFlags := make(map[string]bool)
-	flag.Visit(func(f *flag.Flag) {
-		setFlags[f.Name] = true
-	})
 
 	settings := resolveSettings(cfg, setFlags, flagValues{
 		Provider:  *providerFlag,

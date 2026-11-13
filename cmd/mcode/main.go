@@ -20,6 +20,7 @@ import (
 	"mcode/internal/agentconf"
 	"mcode/internal/app"
 	"mcode/internal/config"
+	"mcode/internal/datadir"
 	"mcode/internal/git"
 	"mcode/internal/harness"
 	"mcode/internal/mcp"
@@ -167,16 +168,7 @@ func main() {
 
 	home, _ := os.UserHomeDir()
 	_ = os.Setenv("PATH", augmentedPath(os.Getenv("PATH"), home, runtime.GOOS))
-	// 预热登录环境：首次读取会同步执行登录 shell（首次约 200～430ms），放后台与数据库打开并行；
-	// 后面的 claude 登录检测和启动 CLI 都复用这份缓存，loginenv 内部已做好并发保护。
-	go func() { _ = loginenv.Environ() }()
-
-	defaultDataDir := ""
-
-	if homeDir, err := os.UserHomeDir(); err == nil {
-		defaultDataDir = filepath.Join(homeDir, ".mcode")
-	}
-	defaultDataDir = envOrDefault("MCODE_DATA", defaultDataDir)
+	defaultDataDir := datadir.Resolve("", false)
 
 	defaultWorkDir, err := os.Getwd()
 	if err != nil {
@@ -197,11 +189,32 @@ func main() {
 	claudeBinFlag := flag.String("claude-bin", "claude", "path to claude executable")
 	codexBinFlag := flag.String("codex-bin", "codex", "path to codex executable")
 	flag.Parse()
+	setFlags := make(map[string]bool)
+	flag.Visit(func(f *flag.Flag) {
+		setFlags[f.Name] = true
+	})
+	var migrationErr error
+	var pendingDir string
+	if !setFlags["data"] && os.Getenv("MCODE_DATA") == "" {
+		pendingDir, migrationErr = datadir.ApplyPending()
+	}
+	*dataFlag = datadir.Resolve(*dataFlag, setFlags["data"])
+	if migrationErr != nil {
+		*dataFlag = pendingDir
+	}
+	if err := os.Setenv("MCODE_DATA", *dataFlag); err != nil {
+		fatalExit("设置数据目录环境变量失败: %v", err)
+	}
+	// 先确定数据目录再预热，避免登录环境缓存尚未同步的 MCODE_DATA。
+	go func() { _ = loginenv.Environ() }()
 
 	// GUI 程序没有控制台：先把日志接到 startup.log，再把崩溃输出接到 crash.log，
 	// 之后任何启动失败（包括 panic）都能在文件里查到。放在 flag.Parse 之后，
 	// 日志才能与 mcode.log 一起落在数据目录下的 logs。
 	initStartupLog(*dataFlag)
+	if migrationErr != nil {
+		log.Printf("数据目录迁移失败，继续使用 %s: %v", *dataFlag, migrationErr)
+	}
 	startPprofFromEnv()
 
 	autoOpen, err := mcodeui.PrepareOnboarding(*dataFlag)
@@ -219,11 +232,6 @@ func main() {
 		fatalExit("invalid config: %v", err)
 	}
 	startuptrace.Mark("config loaded")
-
-	setFlags := make(map[string]bool)
-	flag.Visit(func(f *flag.Flag) {
-		setFlags[f.Name] = true
-	})
 
 	lockedKeys := make(map[string]bool)
 	if setFlags["provider"] {
