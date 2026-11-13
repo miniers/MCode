@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"mcode/internal/config"
@@ -267,9 +268,23 @@ func stubProviderBinaryFinder(t *testing.T, available ...string) *[]finderCall {
 
 func TestProviderBinaryAvailable(t *testing.T) {
 	t.Run("configured absolute path that is executable", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows 不提供 Unix 权限位，绝对路径可执行性由产品层另行处理")
+		}
 		calls := stubProviderBinaryFinder(t)
 		bin := filepath.Join(t.TempDir(), "claude")
-		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		if runtime.GOOS == "windows" {
+			bin += ".exe"
+		}
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(executable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(bin, data, 0o755); err != nil {
 			t.Fatalf("failed to write stub binary: %v", err)
 		}
 

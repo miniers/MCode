@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -17,11 +18,43 @@ import (
 func writeFakeProvider(t *testing.T, dir, name, version string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	script := "#!/bin/sh\n[ \"$1\" = \"--version\" ] || exit 1\necho " + version + "\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".version", []byte(version+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func runFakeProvider() bool {
+	base := filepath.Base(os.Args[0])
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	switch base {
+	case "claude", "codex", "copilot", "droid", "pi", "cmd":
+	default:
+		return false
+	}
+	if len(os.Args) != 2 || os.Args[1] != "--version" {
+		os.Exit(1)
+	}
+	data, err := os.ReadFile(os.Args[0] + ".version")
+	if err != nil {
+		os.Exit(1)
+	}
+	_, _ = os.Stdout.Write(data)
+	return true
 }
 
 // stubProviderBinaryFinder 把登录 shell 的 PATH 查找替换成进程 PATH + 显式回退目录，
@@ -41,8 +74,11 @@ func stubProviderBinaryFinder(t *testing.T) {
 		for _, dir := range fallbackDirs {
 			for _, name := range names {
 				candidate := filepath.Join(dir, name)
+				if runtime.GOOS == "windows" && filepath.Ext(candidate) == "" {
+					candidate += ".exe"
+				}
 				info, err := os.Stat(candidate)
-				if err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0 {
+				if err == nil && !info.IsDir() && fakeProviderExecutable(candidate, info) {
 					return candidate, true
 				}
 			}
@@ -50,6 +86,13 @@ func stubProviderBinaryFinder(t *testing.T) {
 		return "", false
 	}
 	t.Cleanup(func() { providerBinaryFinder = original })
+}
+
+func fakeProviderExecutable(path string, info os.FileInfo) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(filepath.Ext(path), ".exe")
+	}
+	return info.Mode().Perm()&0o111 != 0
 }
 
 func TestProviderVersionFromPath(t *testing.T) {

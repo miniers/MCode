@@ -64,12 +64,28 @@ func (h *swarmFlowHarness) Run(ctx context.Context, turn harness.Turn, emit func
 func swarmRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, args := range [][]string{{"init"}, {"commit", "--allow-empty", "-m", "initial"}} {
+	for _, args := range [][]string{{"init"}} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
+	}
+	for _, args := range [][]string{
+		{"config", "user.name", "mcode tests"},
+		{"config", "user.email", "mcode-tests@example.invalid"},
+		{"config", "core.autocrlf", "false"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	cmd := exec.Command("git", "commit", "--allow-empty", "-m", "initial")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
 	}
 	return dir
 }

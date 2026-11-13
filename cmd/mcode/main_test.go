@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -71,6 +72,9 @@ func TestAugmentedPath(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" && tc.goos != "windows" {
+				t.Skip("darwin/linux 路径分隔符用例不适用于 Windows 宿主")
+			}
 			got := augmentedPath(tc.path, tc.home, tc.goos)
 			entries := strings.Split(got, pathListSeparator(tc.goos))
 

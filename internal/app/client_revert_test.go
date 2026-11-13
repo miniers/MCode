@@ -36,6 +36,17 @@ func newClientRevertEnv(t *testing.T) (*Client, *store.Store, *git.Runner, strin
 	if out, err := exec.Command(gitBin, "init", repoDir).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
+	for _, args := range [][]string{
+		{"config", "user.name", "mcode tests"},
+		{"config", "user.email", "mcode-tests@example.invalid"},
+		{"config", "core.autocrlf", "false"},
+	} {
+		cmd := exec.Command(gitBin, args...)
+		cmd.Dir = repoDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
 
 	runner := git.NewRunner(gitBin, 4)
 
