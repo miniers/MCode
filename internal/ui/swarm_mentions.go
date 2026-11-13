@@ -568,7 +568,7 @@ func splitTextByCodeBlocks(text string) []contentChunk {
 	return chunks
 }
 
-// mentionBlockKind 区分渲染块类型：只有非代码块才可能走「文字+徽标」行内混排。
+// mentionBlockKind 区分渲染块类型：只有正文块才可能走「文字+徽标」行内混排。
 type mentionBlockKind int
 
 const (
@@ -581,7 +581,7 @@ const (
 type mentionBlock struct {
 	kind mentionBlockKind
 	text string
-	// hasBee 表示块内出现已派出的 bee 名字：为真才走行内混排，否则整块交给 Markdown。
+	// hasBee 表示块内出现已派出的 bee 名字。
 	hasBee bool
 }
 
@@ -599,6 +599,23 @@ func splitMentionBlocks(text string, bees []SwarmBee) []mentionBlock {
 		blocks = append(blocks, splitProseMentionBlocks(chunk.text, bees)...)
 	}
 	return blocks
+}
+
+// isMentionTableDelimiter 判断是否为表格分隔行。
+func isMentionTableDelimiter(line string) bool {
+	hasPipe, hasDash := false, false
+	for _, ch := range strings.TrimSpace(line) {
+		switch ch {
+		case '|':
+			hasPipe = true
+		case '-':
+			hasDash = true
+		case ':', ' ':
+		default:
+			return false
+		}
+	}
+	return hasPipe && hasDash
 }
 
 // splitProseMentionBlocks 把非代码区正文按空行切块；以 | 开头的表格行即使被空行分开也留在同一块内。
@@ -619,7 +636,8 @@ func splitProseMentionBlocks(text string, bees []SwarmBee) []mentionBlock {
 		inTable = false
 	}
 
-	for _, line := range strings.Split(text, "\n") {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			// 表格行之间的空行不打断表格
@@ -629,7 +647,9 @@ func splitProseMentionBlocks(text string, bees []SwarmBee) []mentionBlock {
 			flush()
 			continue
 		}
-		isTable := strings.HasPrefix(trimmed, "|")
+		isTable := strings.HasPrefix(trimmed, "|") ||
+			(inTable && strings.Contains(trimmed, "|")) ||
+			(i+1 < len(lines) && isMentionTableDelimiter(lines[i+1]))
 		if isTable != inTable && len(cur) > 0 {
 			flush()
 		}
@@ -675,12 +695,9 @@ type mentionLineStyle struct {
 }
 
 // parseMentionLineStyle 剥离行首的标题井号与无序列表圆点标记，让行内混排按语义渲染，
-// 不再显示字面的 ## 与 - **。表格行（以 | 开头）与普通正文原样返回。
+// 不再显示字面的 ## 与 - **。
 func parseMentionLineStyle(line string) mentionLineStyle {
 	trimmed := strings.TrimLeft(line, " \t")
-	if strings.HasPrefix(trimmed, "|") {
-		return mentionLineStyle{content: trimmed}
-	}
 
 	// 标题：1-6 个 # 后紧跟空格（或行尾）
 	if n := countLeadingHashes(trimmed); n > 0 {
@@ -711,6 +728,11 @@ func countLeadingHashes(trimmed string) int {
 	return n
 }
 
+// mentionBlockUsesMarkdown 判断渲染块是否交给 Markdown。
+func mentionBlockUsesMarkdown(block mentionBlock) bool {
+	return block.kind == mentionBlockCode || block.kind == mentionBlockTable || !block.hasBee
+}
+
 // renderAssistantContentWithMentions 为助手回复正文渲染 Markdown 与 Swarm Bee 提及富文本，
 // 返回正文这一帧是否已完全显示（markdown.Revealed），供上层决定何时露出时间与操作栏。
 func renderAssistantContentWithMentions(c *ui.Context, s *chatState, m Message, isStreamingNow bool, lastLiveID string) bool {
@@ -720,8 +742,8 @@ func renderAssistantContentWithMentions(c *ui.Context, s *chatState, m Message, 
 		return renderAssistantMarkdownDefault(c, s, m, isStreamingNow, lastLiveID)
 	}
 
-	// 按块渲染：代码块与不含 bee 名字的块交给 Markdown（标题、列表、表格、链接照常渲染），
-	// 含 bee 名字的块才做「文字+徽标」行内混排。块 key 只按块序号区分，
+	// 按块渲染：代码块、表格块与不含 bee 名字的块交给 Markdown，表格中的 bee 名字显示为普通文字，
+	// 含 bee 名字的正文块做「文字+徽标」行内混排。块 key 只按块序号区分，
 	// 流式只会在末尾追加新块，已有块的 key 不变，避免整段重建闪烁。
 	blocks := splitMentionBlocks(m.Text, bees)
 	if len(blocks) == 0 {
@@ -731,7 +753,7 @@ func renderAssistantContentWithMentions(c *ui.Context, s *chatState, m Message, 
 	revealed := true
 	for blockIdx, block := range blocks {
 		blockKey := fmt.Sprintf("mention-block-%s-%d", m.ID, blockIdx)
-		if block.kind == mentionBlockCode || !block.hasBee {
+		if mentionBlockUsesMarkdown(block) {
 			if !markdown.Revealed(markdown.View(c.Key(blockKey), block.text, &s.mdStaticOpts)) {
 				revealed = false
 			}

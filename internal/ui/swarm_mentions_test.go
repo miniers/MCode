@@ -203,6 +203,49 @@ func TestSwarmFenceDispatchInfo_LegacyAndNewFence(t *testing.T) {
 	}
 }
 
+// TestMentionTableMarkdown 验证表格和前后正文各自的渲染方式。
+func TestMentionTableMarkdown(t *testing.T) {
+	bees := []SwarmBee{{Name: "Aspen", ThreadID: "tid-aspen"}}
+	tests := []struct {
+		name  string
+		input string
+		want  []mentionBlock
+	}{
+		{
+			name:  "带前导竖线的表格",
+			input: "| 名称 | 说明 |\n| --- | --- |\n| Aspen | 完成 |",
+			want:  []mentionBlock{{kind: mentionBlockTable, text: "| 名称 | 说明 |\n| --- | --- |\n| Aspen | 完成 |", hasBee: true}},
+		},
+		{
+			name:  "无前导竖线的表格和前后正文",
+			input: "Aspen 开始。\n名称 | 说明\n--- | ---\nAspen | 完成\n\nAspen 结束。",
+			want: []mentionBlock{
+				{kind: mentionBlockProse, text: "Aspen 开始。", hasBee: true},
+				{kind: mentionBlockTable, text: "名称 | 说明\n--- | ---\nAspen | 完成", hasBee: true},
+				{kind: mentionBlockProse, text: "Aspen 结束。", hasBee: true},
+			},
+		},
+		{
+			name:  "含竖线的普通正文",
+			input: "Aspen 选择 A | B。\n继续处理。",
+			want:  []mentionBlock{{kind: mentionBlockProse, text: "Aspen 选择 A | B。\n继续处理。", hasBee: true}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitMentionBlocks(tt.input, bees)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("splitMentionBlocks() = %+v, want %+v", got, tt.want)
+			}
+			for _, block := range got {
+				if markdown := mentionBlockUsesMarkdown(block); markdown != (block.kind == mentionBlockTable) {
+					t.Errorf("mentionBlockUsesMarkdown(%+v) = %v", block, markdown)
+				}
+			}
+		})
+	}
+}
+
 // TestSplitMentionBlocks 表驱动验证正文分块：围栏代码块内部空行不拆、连续表格行不拆、
 // 其余按空行分块，并判定每块是否含已派出的 bee 名字。
 func TestSplitMentionBlocks(t *testing.T) {
