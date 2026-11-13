@@ -72,6 +72,24 @@ func TestPollWatcherGeneration(t *testing.T) {
 	if gen5 != gen4 {
 		t.Fatalf(".git 内的写入不应改变 generation: %d -> %d", gen4, gen5)
 	}
+	wtDir := filepath.Join(root, ".mcode", "worktrees", "task")
+	if err := os.MkdirAll(wtDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtDir, "change.txt"), []byte("worktree"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gen6, err := w.Generation(ctx)
+	if err != nil || gen6 != gen5 {
+		t.Fatalf("项目内 worktree 不应改变 generation: %d -> %d，错误 %v", gen5, gen6, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".mcode", "settings.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gen7, err := w.Generation(ctx)
+	if err != nil || gen7 <= gen6 {
+		t.Fatalf(".mcode 其他文件仍应被监听: %d -> %d，错误 %v", gen6, gen7, err)
+	}
 }
 
 // TestCheckpointWatchedReusesTree 验证监听命中时复用 tree、未命中时重新快照。

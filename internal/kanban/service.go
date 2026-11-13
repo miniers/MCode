@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"mcode/internal/config"
 	"mcode/internal/git"
 	"mcode/internal/procattr"
 	"mcode/internal/providers/loginenv"
@@ -739,7 +740,39 @@ func (s *Service) TaskWorktreePath(taskID string) string {
 	if s == nil || strings.TrimSpace(s.opts.WorktreeDir) == "" {
 		return ""
 	}
-	return filepath.Join(s.opts.WorktreeDir, taskID)
+	central := filepath.Join(s.opts.WorktreeDir, taskID)
+	// 换位置只影响新任务；已有分支必须继续使用原目录。
+	if fi, err := os.Stat(central); err == nil && fi.IsDir() {
+		return central
+	}
+	if s.opts.Store == nil || s.opts.Projects == nil {
+		return central
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	task, err := s.opts.Store.GetTask(ctx, taskID)
+	if err != nil || task.ProjectID == nil {
+		return central
+	}
+	root, err := s.opts.Projects.ProjectRoot(ctx, *task.ProjectID)
+	if err != nil || root == "" {
+		return central
+	}
+	if s.opts.Git != nil {
+		if repoRoot, err := s.opts.Git.RepoRoot(ctx, root); err == nil {
+			root = repoRoot
+		}
+	}
+	project := filepath.Join(git.WorktreeBase(s.opts.DataDir, root, config.WorktreeLocationProject), taskID)
+	if fi, err := os.Stat(project); err == nil && fi.IsDir() {
+		return project
+	}
+	if s.opts.DataDir != "" {
+		if cfg, err := config.Load(s.opts.DataDir); err == nil && cfg.SourceControl.WorktreeLocation == config.WorktreeLocationProject {
+			return project
+		}
+	}
+	return central
 }
 
 // runWorktreeSetup 异步执行项目里勾选了「新建工作树时运行」的脚本；失败只记日志，不影响任务启动。

@@ -2,8 +2,90 @@ package remote
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"mcode/internal/config"
+	"mcode/internal/remote/wire"
 )
+
+func TestWorktreeMoveLocations(t *testing.T) {
+	orig := generateWorktreeMoveBranch
+	generateWorktreeMoveBranch = func(context.Context, string, string) string { return "" }
+	t.Cleanup(func() { generateWorktreeMoveBranch = orig })
+	for _, location := range []string{config.WorktreeLocationCentral, config.WorktreeLocationProject} {
+		for _, transfer := range []bool{false, true} {
+			name := location + "/keep"
+			if transfer {
+				name = location + "/transfer"
+			}
+			t.Run(name, func(t *testing.T) {
+				b, threadID, repo, runGit := setupGitOpsBackend(t)
+				data := t.TempDir()
+				b.SetDataDir(data)
+				cfg := config.Defaults()
+				cfg.SourceControl.WorktreeLocation = location
+				if err := config.Save(data, cfg); err != nil {
+					t.Fatal(err)
+				}
+				root := runGit("rev-parse", "--show-toplevel")
+				base := filepath.Join(data, "worktrees")
+				if location == config.WorktreeLocationProject {
+					base = filepath.Join(root, ".mcode", "worktrees")
+				}
+				// 项目路径指向子目录时，仍在仓库根下创建。
+				subdir := filepath.Join(repo, "src")
+				if err := os.MkdirAll(subdir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				want := filepath.Join(base, "git-ops-project-"+worktreeMoveShortID(threadID))
+				if got, err := b.worktreeMovePath(context.Background(), "git-ops-project", subdir, threadID); err != nil || got != want {
+					t.Fatalf("迁移路径 %q，期望 %q，错误 %v", got, want, err)
+				}
+				if err := os.WriteFile(filepath.Join(repo, "change.txt"), []byte("change"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				preview, err := b.WorktreeMovePreview(context.Background(), threadID)
+				if err != nil || !preview.Eligible || preview.WorktreePath != want {
+					t.Fatalf("预览异常：%+v，错误 %v", preview, err)
+				}
+				result, err := b.WorktreeMoveExecute(context.Background(), wire.ThreadsWorktreeExecuteParams{
+					ThreadID: threadID, Branch: "move-location", TransferFiles: transfer,
+				})
+				if err != nil || result.WorktreePath != want {
+					t.Fatalf("迁移异常：%+v，错误 %v", result, err)
+				}
+				if wd, ok := b.ThreadWorkDir(threadID); !ok || wd != want {
+					t.Fatalf("会话未切换目录：%q", wd)
+				}
+				if transfer {
+					if _, err := os.Stat(filepath.Join(want, "change.txt")); err != nil {
+						t.Fatal(err)
+					}
+					if status := runGit("status", "--porcelain"); status != "" {
+						t.Fatalf("转移后主仓库应保持干净：%s", status)
+					}
+				}
+				if location == config.WorktreeLocationProject {
+					exclude, err := os.ReadFile(filepath.Join(root, ".git", "info", "exclude"))
+					if err != nil || !strings.Contains(string(exclude), "/.mcode/worktrees/\n") {
+						t.Fatalf("项目内 worktree 未被排除：%s，错误 %v", exclude, err)
+					}
+				}
+				// 切换偏好不会改动已持久化的会话绝对路径。
+				cfg.SourceControl.WorktreeLocation = config.WorktreeLocationCentral
+				if err := config.Save(data, cfg); err != nil {
+					t.Fatal(err)
+				}
+				if wd, _ := b.ThreadWorkDir(threadID); wd != want {
+					t.Fatalf("已有会话路径不应变化：%q", wd)
+				}
+			})
+		}
+	}
+}
 
 // TestWorktreeMoveSuggestedBranch_ModelGeneratedSlug 验证模型风格输出（原文多词文本）
 // 会被归一化为本地 slug。

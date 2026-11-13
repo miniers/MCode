@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"mcode/internal/git"
 	"mcode/internal/store"
 )
 
@@ -118,6 +119,9 @@ func (s *Service) IsTaskWorktreeDir(dir string) bool {
 	}
 	target = filepath.Clean(target)
 
+	if git.IsProjectWorktreePath(target) {
+		return true
+	}
 	rel, err := filepath.Rel(root, target)
 	if err != nil {
 		return false

@@ -1135,8 +1135,15 @@ func normalizeOpenInApps(apps []OpenInAppConfig) []OpenInAppConfig {
 // DefaultCloneIgnoredPatterns 默认的克隆依赖目录名单：新建 worktree 时把这些被 Git 忽略的条目写时复制进去。
 const DefaultCloneIgnoredPatterns = "node_modules, .env, .env.*, .next, .turbo, target, Pods, .gradle"
 
+// worktree 存储位置；空值沿用集中存储。
+const (
+	WorktreeLocationCentral = ""
+	WorktreeLocationProject = "project"
+)
+
 // SourceControlConfig 版本控制设置。
 type SourceControlConfig struct {
+	WorktreeLocation             string               `json:"worktree_location,omitempty"`                // 新 worktree 的存储位置：空为集中，project 为项目内
 	AutoCleanupMergedWorktrees   *bool                `json:"auto_cleanup_merged_worktrees,omitempty"`    // 合并后自动清理 worktree，nil 视为开启
 	AutoCleanupWorktreesOnDelete *bool                `json:"auto_cleanup_worktrees_on_delete,omitempty"` // 删除会话时清理 worktree，nil 视为开启
 	InitSubmodules               *bool                `json:"init_submodules,omitempty"`                  // 新 worktree 初始化子模块，nil 视为开启
@@ -1630,6 +1637,13 @@ func Normalize(cfg Config) Config {
 	case "", "git-bash", "pwsh", "powershell":
 	default:
 		cfg.Workbench.CommandShell = ""
+	}
+
+	cfg.SourceControl.WorktreeLocation = strings.TrimSpace(cfg.SourceControl.WorktreeLocation)
+	switch cfg.SourceControl.WorktreeLocation {
+	case WorktreeLocationCentral, WorktreeLocationProject:
+	default:
+		cfg.SourceControl.WorktreeLocation = WorktreeLocationCentral
 	}
 
 	cfg.Appearance.CodeFont = strings.TrimSpace(cfg.Appearance.CodeFont)

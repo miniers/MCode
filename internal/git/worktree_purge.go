@@ -77,8 +77,8 @@ func (r *Runner) PurgeWorktree(ctx context.Context, root string, item WorktreeSc
 	return nil
 }
 
-// 受管 worktree 基目录：mcode 只在 <DataDir>/worktrees、<DataDir>/swarm-worktrees 与
-// 旧版 <DataDir>/hydra-worktrees 下创建 worktree（见 app、swarm、kanban 的 WorktreeDir 注入）。清理孤立目录前用它兜底校验，
+// 受管 worktree 基目录：集中存储、项目内 .mcode/worktrees 与编排目录。
+// 清理孤立目录前用它兜底校验，
 // 避免过期注册信息把删除操作引向基目录之外的任意路径。
 var (
 	purgeRootsMu       sync.RWMutex
@@ -140,6 +140,9 @@ func pathUnderBase(path, base string) bool {
 
 // underWorktreePurgeRoots 判断路径是否位于任一受管 worktree 基目录之下。
 func underWorktreePurgeRoots(path string) bool {
+	if IsProjectWorktreePath(resolvePath(path)) {
+		return true
+	}
 	for _, base := range worktreePurgeRoots() {
 		if pathUnderBase(path, base) {
 			return true

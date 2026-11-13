@@ -72,6 +72,10 @@ func (r *Runner) WorktreeAdd(ctx context.Context, root, path, branch, base strin
 		return fmt.Errorf("worktree path must be absolute: %s", path)
 	}
 
+	if pathUnderBase(path, filepath.Join(root, ".mcode", "worktrees")) {
+		EnsureGitExclude(root, "/.mcode/worktrees/")
+	}
+
 	var args []string
 	if runtime.GOOS == "windows" {
 		args = append(args, "-c", "core.longpaths=true")

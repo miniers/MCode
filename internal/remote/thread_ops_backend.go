@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"mcode/internal/config"
 	"mcode/internal/git"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
@@ -2541,12 +2542,26 @@ func worktreeMoveSuggestedBranch(ctx context.Context, provider, title, threadID 
 	return worktreeMoveBranchName(title, threadID)
 }
 
-func (b *MemoryBackend) worktreeMovePath(projectName, threadID string) string {
+func (b *MemoryBackend) worktreeMovePath(ctx context.Context, projectName, projectPath, threadID string) (string, error) {
+	b.mu.Lock()
+	dataDir := b.dataDir
+	b.mu.Unlock()
+	cfg, err := config.Load(dataDir)
+	if err != nil {
+		return "", err
+	}
+	var repoRoot string
+	if cfg.SourceControl.WorktreeLocation == config.WorktreeLocationProject {
+		repoRoot, err = b.worktreeMoveRunner().RepoRoot(ctx, projectPath)
+		if err != nil {
+			return "", err
+		}
+	}
 	name := worktreeMoveSlug(projectName)
 	if name == "" {
 		name = "project"
 	}
-	return filepath.Join(b.dataDir, "worktrees", name+"-"+worktreeMoveShortID(threadID))
+	return filepath.Join(git.WorktreeBase(dataDir, repoRoot, cfg.SourceControl.WorktreeLocation), name+"-"+worktreeMoveShortID(threadID)), nil
 }
 
 func (b *MemoryBackend) worktreeMoveRunner() *git.Runner {
@@ -2573,11 +2588,18 @@ func (b *MemoryBackend) WorktreeMovePreview(ctx context.Context, threadID string
 	res := wire.ThreadsWorktreePreviewResult{
 		ThreadID:        threadID,
 		SuggestedBranch: worktreeMoveSuggestedBranch(ctx, provider, title, threadID),
-		WorktreePath:    b.worktreeMovePath(projectName, threadID),
 		Files:           []string{},
 		Untracked:       []string{},
 	}
 
+	wtPath, err := b.worktreeMovePath(ctx, projectName, projectPath, threadID)
+	if err != nil {
+		if reason == "" {
+			res.Reason = err.Error()
+		}
+		return res, nil
+	}
+	res.WorktreePath = wtPath
 	if reason != "" {
 		res.Reason = reason
 		return res, nil
@@ -2614,9 +2636,13 @@ func (b *MemoryBackend) WorktreeMoveExecute(ctx context.Context, p wire.ThreadsW
 	if branch == "" {
 		branch = worktreeMoveBranchName(td.summary.Title, p.ThreadID)
 	}
-	wtPath := b.worktreeMovePath(b.projects[td.summary.ProjectID].Name, p.ThreadID)
+	projectName := b.projects[td.summary.ProjectID].Name
 	projectID := td.summary.ProjectID
 	b.mu.Unlock()
+	wtPath, err := b.worktreeMovePath(ctx, projectName, projectPath, p.ThreadID)
+	if err != nil {
+		return wire.ThreadsWorktreeExecuteResult{}, err
+	}
 	if !filepath.IsAbs(wtPath) {
 		return wire.ThreadsWorktreeExecuteResult{}, errors.New("数据目录未初始化，无法创建 Worktree")
 	}

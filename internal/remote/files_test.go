@@ -295,6 +295,35 @@ func TestFilesPathSecurity(t *testing.T) {
 }
 
 // 4. files.search 成功用例、200 条截断与超长 query 报错
+func TestFilesSearch_SkipsProjectWorktrees(t *testing.T) {
+	b, _, root, _, threadID := setupWorkspaceTestEnv(t)
+	for _, name := range []string{
+		".mcode/worktrees/task/needle.txt",
+		".mcode/context/needle.txt",
+		"worktrees/needle.txt",
+	} {
+		file := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("test"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := b.FilesSearch(context.Background(), wire.RemoteFilesSearchParams{ThreadID: threadID, Query: "needle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Entries) != 2 {
+		t.Fatalf("应跳过项目内 worktree 并保留其他目录：%+v", res)
+	}
+	for _, entry := range res.Entries {
+		if strings.Contains(filepath.ToSlash(entry.Path), ".mcode/worktrees/") {
+			t.Fatalf("不应搜索 worktree：%+v", entry)
+		}
+	}
+}
+
 func TestFilesSearch_SuccessAndBounds(t *testing.T) {
 	ctx := context.Background()
 	b, _, workDir, _, threadID := setupWorkspaceTestEnv(t)

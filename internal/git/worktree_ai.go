@@ -7,7 +7,7 @@ import (
 )
 
 // IsManagedWorktreePath 报告 path 是否位于应用自管的 worktree 基目录
-// （<DataDir>/worktrees、<DataDir>/swarm-worktrees、旧版 <DataDir>/hydra-worktrees）之下。
+// （<DataDir>/worktrees、<仓库根>/.mcode/worktrees、<DataDir>/swarm-worktrees、旧版 <DataDir>/hydra-worktrees）之下。
 // 这些 worktree 由 mcode 为会话、看板任务或编排子代理（head）创建，不算「AI 自建」。
 func IsManagedWorktreePath(path string) bool {
 	return underWorktreePurgeRoots(strings.TrimSpace(path))

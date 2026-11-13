@@ -711,7 +711,7 @@ func (b *MemoryBackend) FilesSearch(ctx context.Context, p wire.RemoteFilesSearc
 		}
 
 		if d.IsDir() {
-			if name == ".git" || name == "node_modules" || isCredentialDirectoryName(name) || isProtectedPathString(rel) {
+			if name == ".git" || name == "node_modules" || (name == "worktrees" && filepath.Base(filepath.Dir(path)) == ".mcode") || isCredentialDirectoryName(name) || isProtectedPathString(rel) {
 				return filepath.SkipDir
 			}
 		}

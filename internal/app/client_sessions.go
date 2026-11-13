@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"mcode/internal/git"
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
 	mcodeui "mcode/internal/ui"
@@ -748,6 +749,10 @@ func (c *Client) DeleteThread(threadID string) error {
 						break
 					}
 				}
+			}
+			if !isMcodeWT && git.IsProjectWorktreePath(workDir) {
+				wtPath = workDir
+				isMcodeWT = true
 			}
 			if !isMcodeWT {
 				dataDir := c.effectiveDataDir()

@@ -84,7 +84,7 @@ func (w *pollWatcher) hashTree(ctx context.Context) (uint64, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			if d.Name() == ".git" || (d.Name() == "worktrees" && filepath.Base(filepath.Dir(path)) == ".mcode") {
 				return filepath.SkipDir
 			}
 			return nil

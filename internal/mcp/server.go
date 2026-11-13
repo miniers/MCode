@@ -410,9 +410,22 @@ func (s *Server) ProjectForWorkDir(ctx context.Context, workDir string) (store.P
 	if workDir != "" {
 		cleanWorkDir := filepath.Clean(workDir)
 
-		// 看板任务会话运行在 <WorktreeDir>/<taskID>，据任务归属项目回解。
-		if s.opts.WorktreeDir != "" {
-			cleanRoot := filepath.Clean(s.opts.WorktreeDir)
+		// 项目可指向仓库子目录，项目内 worktree 需按任务归属回解。
+		roots := []string{s.opts.WorktreeDir}
+		for dir := filepath.Dir(cleanWorkDir); ; dir = filepath.Dir(dir) {
+			if filepath.Base(dir) == "worktrees" && filepath.Base(filepath.Dir(dir)) == ".mcode" {
+				roots = append(roots, dir)
+				break
+			}
+			if filepath.Dir(dir) == dir {
+				break
+			}
+		}
+		for _, root := range roots {
+			if root == "" {
+				continue
+			}
+			cleanRoot := filepath.Clean(root)
 			if rel, err := filepath.Rel(cleanRoot, cleanWorkDir); err == nil &&
 				rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				taskID := rel

@@ -766,6 +766,25 @@ func TestWorktreeProjectResolution(t *testing.T) {
 		t.Fatalf("创建任务失败: %v", err)
 	}
 
+	for _, workDir := range []string{
+		filepath.Join(proj2.Path, ".mcode", "worktrees", task.ID),
+		filepath.Join(proj2.Path, ".mcode", "worktrees", task.ID, "src"),
+	} {
+		project, err := srv.ProjectForWorkDir(ctx, workDir)
+		if err != nil || project.ID != proj2.ID {
+			t.Fatalf("项目内路径 %q 解析错误：%+v，错误 %v", workDir, project, err)
+		}
+	}
+	// 项目登记在仓库子目录时，不能依赖项目路径前缀。
+	proj2.Path = filepath.Join(proj2.Path, "src")
+	if err := s.UpsertProject(ctx, proj2); err != nil {
+		t.Fatal(err)
+	}
+	projectWorkDir := filepath.Join(filepath.Dir(proj2.Path), ".mcode", "worktrees", task.ID, "src")
+	if project, err := srv.ProjectForWorkDir(ctx, projectWorkDir); err != nil || project.ID != proj2.ID {
+		t.Fatalf("仓库子目录项目解析错误：%+v，错误 %v", project, err)
+	}
+
 	// 任务会话运行在 <WorktreeDir>/<taskID>，应能解析回所属项目
 	worktreePath := filepath.Join(worktreeDir, task.ID)
 	status, res := postRPC(t, mcpURL, token, worktreePath, map[string]any{
