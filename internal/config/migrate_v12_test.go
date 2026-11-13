@@ -66,7 +66,7 @@ func TestLoadMigratesV11ThemeFonts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Version != 12 || len(cfg.Appearance.Themes) != 2 {
+	if cfg.Version != Version || len(cfg.Appearance.Themes) != 2 {
 		t.Fatalf("迁移结果：%+v", cfg.Appearance)
 	}
 	want := map[string]int{"sidebar": 130, "conversation": 130, "code": 14, "editor": 16}
@@ -99,7 +99,7 @@ func TestLoadV12WithLegacyFontKeys(t *testing.T) {
 	if err != nil || len(warnings) != 0 {
 		t.Fatalf("旧键配置加载失败：warnings=%v, err=%v", warnings, err)
 	}
-	if cfg.Version != 12 || len(cfg.Appearance.Themes) != 0 {
+	if cfg.Version != Version || len(cfg.Appearance.Themes) != 0 {
 		t.Fatalf("v12 旧键不应再次迁移：%+v", cfg.Appearance)
 	}
 	if err := Validate(cfg); err != nil {

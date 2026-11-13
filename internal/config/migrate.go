@@ -13,7 +13,7 @@ import (
 type MigrationFunc func(raw map[string]any) (map[string]any, error)
 
 // migrations 是有序迁移链。每一步将版本 v 升级至 v+1。
-// 当前 Version 为 12。
+// 当前 Version 为 13。
 var migrations = []MigrationFunc{
 	migrateV1ToV2,
 	migrateV2ToV3,
@@ -26,6 +26,26 @@ var migrations = []MigrationFunc{
 	migrateV9ToV10,
 	migrateV10ToV11,
 	migrateV11ToV12,
+	migrateV12ToV13,
+}
+
+// migrateV12ToV13 一次性打开旧版本写入文件的默认 false 开关。
+func migrateV12ToV13(raw map[string]any) (map[string]any, error) {
+	orchestration, ok := raw["orchestration"].(map[string]any)
+	if !ok {
+		return raw, nil
+	}
+	for _, key := range []string{"retry_failed", "auto_clear_finished", "auto_hides_idle_bees", "auto_pops_bees"} {
+		if _, exists := orchestration[key]; exists {
+			orchestration[key] = true
+		}
+	}
+	if always, _ := orchestration["always_bees"].(bool); !always {
+		if _, exists := orchestration["lead_plans_only"]; exists {
+			orchestration["lead_plans_only"] = true
+		}
+	}
+	return raw, nil
 }
 
 // migrateV11ToV12 将旧字号复制到两个内置主题，保留旧键供旧界面读取。

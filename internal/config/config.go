@@ -16,7 +16,7 @@ import (
 )
 
 // Version 是当前支持的 config.json 结构版本。
-const Version = 12
+const Version = 13
 
 // 模型角色常量，分别对应设置 -> 模型的 规划角色 (Lead Agent)、编码角色 (Coder)、快搜角色 (Research)、视觉角色 (Vision)。
 // 模型角色概念已弃用，运行时不再读取，仅为兼容旧配置文件保留。
