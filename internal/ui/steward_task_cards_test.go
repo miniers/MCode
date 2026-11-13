@@ -154,3 +154,20 @@ func TestStewardTaskCardAndChipOpen(t *testing.T) {
 		})
 	}
 }
+
+func TestStewardTaskRowsSkipSourceAmend(t *testing.T) {
+	task := KanbanTask{ID: "t", Origin: "owner", SourceMessageID: "u1", AmendMessageIDs: []string{"u1", "u1"}, Status: "done"}
+	items := []timelineItem{
+		{kind: timelineItemSingle, id: "u1", msg: Message{ID: "u1", Role: "user"}},
+		{kind: timelineItemSingle, id: "a1", msg: Message{ID: "a1", Role: "assistant"}},
+	}
+	out := insertStewardTaskRows(items, indexStewardTasks([]KanbanTask{task}))
+	var ids []string
+	for _, item := range out {
+		ids = append(ids, item.id)
+	}
+	want := []string{"u1", "a1", "steward-task-u1-t"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Fatalf("同一消息的任务胶囊重复: %v", ids)
+	}
+}

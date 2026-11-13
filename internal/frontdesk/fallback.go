@@ -10,6 +10,9 @@ import (
 	"mcode/internal/store"
 )
 
+// createdTaskReply 是创建任务但模型没有给文字时的前台回复，任务卡片会附在它下方。
+const createdTaskReply = "已创建任务"
+
 func (d *Desk) reply(ctx context.Context, threadID, text string) {
 	if d.Feed == nil {
 		log.Printf("frontdesk: 回复存储不可用")

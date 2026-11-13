@@ -114,6 +114,7 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot, opts 
 	}
 	var firstErr error
 	succeeded := 0
+	created := false
 	for _, call := range calls {
 		tool, _ := tools.Get(call.Tool)
 		_, err := tool.Run(ctx, call.Args)
@@ -124,7 +125,11 @@ func (d *Desk) cliFallback(ctx context.Context, in Inbound, snap Snapshot, opts 
 			}
 		} else {
 			succeeded++
+			created = created || call.Tool == "create_task"
 		}
+	}
+	if created && strings.TrimSpace(reply) == "" {
+		d.reply(ctx, in.ThreadID, createdTaskReply)
 	}
 	if succeeded > 0 {
 		return true, nil

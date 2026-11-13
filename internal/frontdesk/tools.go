@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"mcode/internal/agent/llm"
+	"mcode/internal/store"
 )
 
 // Tool 定义一个前台工具。
@@ -46,10 +48,12 @@ func newToolbox(d *Desk, in Inbound) *Toolbox {
 		t.tools[name] = tool
 	}
 	add("get_status", "查看任务状态", false, nil, nil, func(c context.Context, a map[string]string) (any, error) {
-		return d.Tasks.ListTasks(c, "")
+		tasks, err := d.Tasks.ListTasks(c, "")
+		return compactTasks(tasks), err
 	})
 	add("list_tasks", "列出任务", false, nil, []string{"project_id"}, func(c context.Context, a map[string]string) (any, error) {
-		return d.Tasks.ListTasks(c, a["project_id"])
+		tasks, err := d.Tasks.ListTasks(c, a["project_id"])
+		return compactTasks(tasks), err
 	})
 	add("get_task", "读取任务", false, []string{"task_id"}, nil, func(c context.Context, a map[string]string) (any, error) {
 		return d.Tasks.GetTask(c, a["task_id"])
@@ -111,6 +115,29 @@ func newToolbox(d *Desk, in Inbound) *Toolbox {
 		return nil, d.answerDecision(c, a["id"], a["answer"], "frontdesk")
 	})
 	return t
+}
+
+type compactTask struct {
+	ID        string    `json:"id"`
+	Status    string    `json:"status"`
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func compactTasks(tasks []store.Task) []compactTask {
+	if tasks == nil {
+		return nil
+	}
+	tasks = append([]store.Task(nil), tasks...)
+	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt) })
+	if len(tasks) > 40 {
+		tasks = tasks[:40]
+	}
+	out := make([]compactTask, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, compactTask{ID: task.ID, Status: task.Status, Title: task.Title, UpdatedAt: task.UpdatedAt})
+	}
+	return out
 }
 
 // Specs 返回按名称排序的模型工具定义。

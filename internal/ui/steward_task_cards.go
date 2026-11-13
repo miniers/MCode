@@ -21,7 +21,7 @@ func indexStewardTasks(tasks []KanbanTask) stewardTaskIndex {
 		}
 		seen := make(map[string]bool)
 		for _, id := range task.AmendMessageIDs {
-			if id != "" && !seen[id] {
+			if id != "" && id != task.SourceMessageID && !seen[id] {
 				idx.amend[id] = append(idx.amend[id], task)
 				seen[id] = true
 			}
