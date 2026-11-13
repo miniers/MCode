@@ -454,7 +454,10 @@ func applySettingsRowFocus(c *ui.Context, row ui.Element, key string) ui.Element
 		settingsRowFocus.highlightID = key
 	}
 	if settingsRowFocus.highlightID != "" && key == settingsRowFocus.highlightID {
-		pulse := row.Keyframes(fmt.Sprintf("settings-search-pulse-%d", settingsRowFocus.pulseSeq), settingsSearchPulseKeyframes())
+		pulse := float32(0)
+		if !reduceMotion(c) {
+			pulse = row.Keyframes(fmt.Sprintf("settings-search-pulse-%d", settingsRowFocus.pulseSeq), settingsSearchPulseKeyframes())
+		}
 		paint := settingsRowHighlightPaintFor(key, settingsRowFocus.highlightID, pulse)
 		row = row.Border(paint.BorderWidth, ThemeAccent(c).Alpha(paint.BorderAlpha)).Radius(settingsSearchPulseRadius)
 		if paint.SelectedBackground {

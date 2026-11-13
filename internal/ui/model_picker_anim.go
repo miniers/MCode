@@ -65,5 +65,9 @@ func modelPickerPageTransition(c *ui.Context, el ui.Element, state *ModelPickerS
 // 返回当前帧插值出的位置。切换分段时框架按 springSnappy 逐帧
 // 滑动，动画结束后停止请求重绘。
 func modelPickerTabSlide(c *ui.Context, el ui.Element, sel float32) float32 {
+	if reduceMotion(c) {
+		el.Jump(modelPickerTabSlideKey, sel)
+		return sel
+	}
 	return el.AnimateTo(modelPickerTabSlideKey, sel, springSnappy)
 }

@@ -3485,3 +3485,17 @@ func TestReviewFunnelConfigDefaults(t *testing.T) {
 		t.Fatalf("显式 0 读回后 = %d, 期望 0", reloaded.Orchestration.ReviewMaxChangedLines)
 	}
 }
+
+func TestLoadLegacyAppearanceMotion(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(ConfigPath(dir), []byte(`{"appearance":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Appearance.ReduceMotion {
+		t.Fatal("旧配置默认应显示动效")
+	}
+}

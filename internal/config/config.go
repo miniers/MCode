@@ -725,6 +725,7 @@ type AppearanceConfig struct {
 	ContentWidth        string     `json:"content_width"`         // 对话内容宽度：standard | wide | full（按比例），默认 standard
 	ContentWidthPercent int        `json:"content_width_percent"` // 按比例档的内容宽度百分比，60..100，默认 85
 	SidebarCompact      bool       `json:"sidebar_compact"`       // 侧边栏紧凑密度，默认 false
+	ReduceMotion        bool       `json:"reduce_motion"`         // 关闭动效，默认 false（显示动效）
 }
 
 // EffectiveContentWidthPercent 返回归一化后的按比例档内容宽度百分比：
@@ -2197,6 +2198,7 @@ func Defaults() Config {
 			ContentWidth:        ContentWidthStandard,
 			ContentWidthPercent: DefaultContentWidthPercent,
 			SidebarCompact:      false,
+			ReduceMotion:        false,
 		},
 		Providers: ProvidersConfig{
 			Claude: ProviderConfig{Enabled: true, Bin: ""},

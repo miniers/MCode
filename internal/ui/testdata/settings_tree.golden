@@ -12,6 +12,7 @@ row row-conversation-density 界面密度
 row row-content-width 内容宽度
 row row-content-width-percent 比例宽度
 row row-sidebar-compact 紧凑侧边栏
+row row-motion 动效
 section appearance.fonts 字体
 row row-code-font 代码字体
 page conversation

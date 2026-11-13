@@ -75,6 +75,21 @@ func syncAppearanceTheme(st *SettingsState) {
 	applyThemeSource(mygo.ThemeSource(source))
 }
 
+type motionControl struct{}
+
+func (motionControl) render(c *ui.Context, st *SettingsState, s setting) {
+	motionControl{}.renderDisabled(c, st, s, false)
+}
+
+func (motionControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, disabled bool) {
+	toggleFunc(func(st *SettingsState) (bool, bool) { return !st.cfg.Appearance.ReduceMotion, false },
+		func(st *SettingsState, on bool) {
+			commitSettingsControl(st, func(cfg *config.Config) { cfg.Appearance.ReduceMotion = !on })
+		}).renderDisabled(c, st, s, disabled)
+}
+
+func (motionControl) reset(cfg *config.Config) { cfg.Appearance.ReduceMotion = false }
+
 // appearanceThemeSection 是主题、布局与主题编辑入口。
 var appearanceThemeSection = settingsSection{
 	ID:    "appearance.theme",
@@ -138,6 +153,9 @@ var appearanceThemeSection = settingsSection{
 			Aliases: []string{"侧边栏", "紧凑", "行高", "内边距", "截断", "单行", "会话标题"},
 			Lock:    "sidebar-compact",
 			Control: toggle(val(func(c *config.Config) *bool { return &c.Appearance.SidebarCompact }, false)),
+		},
+		{
+			ID: "row-motion", Title: "动效", Aliases: []string{"动画", "减少动效", "过渡", "ReduceMotion"}, Lock: "motion", Control: motionControl{},
 		},
 	},
 }

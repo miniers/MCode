@@ -110,3 +110,36 @@ func TestSettingsAppearance_FontSettingsMoved(t *testing.T) {
 		t.Fatal("缺少主题入口")
 	}
 }
+
+func TestSettingsAppearanceMotion(t *testing.T) {
+	previous := appReduceMotion.Load()
+	t.Cleanup(func() { appReduceMotion.Store(previous) })
+	appReduceMotion.Store(false)
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+	var reduced bool
+	tt := ui.NewTester(func(c *ui.Context) { renderPageAppearance(c, st); reduced = reduceMotion(c) }, 1000, 3000)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: false})
+	tt.Frame()
+	info, ok := tt.Access("切换动效")
+	if !ok || !info.Checked {
+		t.Fatal("动效默认应开启")
+	}
+	if err := tt.Click("切换动效"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !st.cfg.Appearance.ReduceMotion || !reduced {
+		t.Fatal("关闭动效后应立即生效")
+	}
+	applySettingsPageReset(st, "appearance")
+	tt.Frame()
+	info, ok = tt.Access("切换动效")
+	if !ok || !info.Checked || st.cfg.Appearance.ReduceMotion || reduced {
+		t.Fatal("重置后动效应恢复开启")
+	}
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	if !reduced {
+		t.Fatal("系统减少动效偏好应生效")
+	}
+}

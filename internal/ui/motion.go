@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -40,8 +41,10 @@ var motionEaseStandard = EaseSnap
 // motionEaseEmphasis 给需要「落定感」的位移用（数字滚动、展开）：后段比标准曲线更慢。
 var motionEaseEmphasis = ui.CubicBezier(0.2, 0.9, 0.1, 1)
 
+var appReduceMotion atomic.Bool
+
 func reduceMotion(c *ui.Context) bool {
-	return c.Preferences().ReduceMotion
+	return c.Preferences().ReduceMotion || appReduceMotion.Load()
 }
 
 func animateDuration(c *ui.Context, d time.Duration) time.Duration {

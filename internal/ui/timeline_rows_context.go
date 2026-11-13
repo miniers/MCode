@@ -136,7 +136,7 @@ func flashTimelineRow(c *ui.Context, s *chatState, item timelineItem, row ui.Ele
 	s.mu.Lock()
 	flashID, flashSeq := s.flashMessageID, s.flashSeq
 	s.mu.Unlock()
-	if flashID == "" || !timelineItemContainsMessageID(item, flashID) {
+	if reduceMotion(c) || flashID == "" || !timelineItemContainsMessageID(item, flashID) {
 		return row
 	}
 	k := row.Keyframes(fmt.Sprintf("jump-flash-%d", flashSeq), []ui.Keyframe{

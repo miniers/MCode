@@ -314,6 +314,7 @@ func resolvePalette(cfg config.AppearanceConfig, id string) themePalette {
 }
 
 func setActiveTheme(cfg config.AppearanceConfig) {
+	appReduceMotion.Store(cfg.ReduceMotion)
 	next := &resolvedTheme{
 		light: resolvePalette(cfg, config.ThemeLight), dark: resolvePalette(cfg, config.ThemeDark),
 		lightFonts: resolveThemeFonts(cfg, config.ThemeLight), darkFonts: resolveThemeFonts(cfg, config.ThemeDark),
