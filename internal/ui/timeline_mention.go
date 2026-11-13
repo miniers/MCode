@@ -124,6 +124,7 @@ type mentionPreviewLine struct {
 // 近期对话与结论（最后一条助手答复），裁剪上限与发给模型的引用块一致。
 type mentionPreviewDigest struct {
 	loading    bool   // 正在从后端读取历史
+	refreshing bool   // 保留缓存并在后台刷新
 	missing    bool   // 读取失败后会话已不在列表里，视为已被删除
 	err        string // 读取失败的原因
 	goal       string
@@ -200,11 +201,17 @@ func startMentionPreviewLoad(s *chatState, threadID string) {
 		return
 	}
 	mentionPreviewMu.Lock()
-	if cached := mentionPreviewDigests[threadID]; cached != nil && (cached.loading || cached.err == "") {
+	cached := mentionPreviewDigests[threadID]
+	if cached != nil && (cached.loading || cached.refreshing) {
 		mentionPreviewMu.Unlock()
 		return
 	}
-	mentionPreviewDigests[threadID] = &mentionPreviewDigest{loading: true}
+	if cached != nil && cached.err == "" {
+		cached.refreshing = true
+	} else {
+		cached = nil
+		mentionPreviewDigests[threadID] = &mentionPreviewDigest{loading: true}
+	}
 	mentionPreviewMu.Unlock()
 
 	client := s.client
@@ -220,6 +227,10 @@ func startMentionPreviewLoad(s *chatState, threadID string) {
 			}
 		}
 		mentionPreviewMu.Lock()
+		if cached != nil && digest.err != "" {
+			cached.refreshing = false
+			digest = cached
+		}
 		mentionPreviewDigests[threadID] = digest
 		mentionPreviewMu.Unlock()
 		s.invalidate()

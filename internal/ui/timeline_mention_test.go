@@ -1,10 +1,108 @@
 package mcodeui
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
 )
+
+type mentionRefreshClient struct {
+	*FakeClient
+	started chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+	err     error
+}
+
+func (f *mentionRefreshClient) History(ctx context.Context, threadID string) ([]Message, error) {
+	f.calls.Add(1)
+	select {
+	case f.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-f.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return []Message{{Role: "user", Text: "新摘要"}}, f.err
+}
+
+func TestMentionPreviewRefresh(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		name := "成功"
+		if fail {
+			name = "失败"
+		}
+		t.Run(name, func(t *testing.T) {
+			client := &mentionRefreshClient{FakeClient: NewFakeClient(), started: make(chan struct{}, 2), release: make(chan struct{})}
+			if fail {
+				client.err = errors.New("读取失败")
+			}
+			s := newChatState(client)
+			defer s.close()
+			id, key := "mention-refresh-"+name, "mention-refresh-preview-"+name
+			s.threads = []Thread{{ID: id, Title: "目标会话"}}
+			mentionPreviewMu.Lock()
+			mentionPreviewOpen[key] = true
+			mentionPreviewDigests[id] = &mentionPreviewDigest{goal: "旧摘要"}
+			mentionPreviewMu.Unlock()
+			t.Cleanup(func() {
+				mentionPreviewMu.Lock()
+				delete(mentionPreviewOpen, key)
+				delete(mentionPreviewDigests, id)
+				mentionPreviewMu.Unlock()
+			})
+			tt := ui.NewTester(func(c *ui.Context) {
+				anchor := ui.Box(c.Key("anchor")).Size(50, 30)
+				renderMentionPreview(c, s, anchor, key, mentionSegment{ThreadID: id, Text: "@目标会话"})
+			}, 800, 600)
+			startMentionPreviewLoad(s, id)
+			select {
+			case <-client.started:
+			case <-time.After(time.Second):
+				t.Fatal("未发起读取")
+			}
+			startMentionPreviewLoad(s, id)
+			tt.Frame()
+			if !tt.HasText("旧摘要") || mentionPreviewDigestOf(id).loading {
+				t.Fatal("刷新期间未显示旧摘要")
+			}
+			close(client.release)
+			deadline := time.Now().Add(time.Second)
+			for {
+				mentionPreviewMu.Lock()
+				digest := mentionPreviewDigests[id]
+				done := digest != nil && !digest.refreshing
+				mentionPreviewMu.Unlock()
+				if done {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("刷新未完成")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			tt.Frame()
+			want := "新摘要"
+			if fail {
+				want = "旧摘要"
+			}
+			if !tt.HasText(want) || tt.HasText("会话摘要读取失败：读取失败") {
+				t.Fatalf("刷新后未显示 %q", want)
+			}
+			if got := client.calls.Load(); got != 1 {
+				t.Fatalf("读取次数 = %d，期望 1", got)
+			}
+		})
+	}
+}
 
 // TestSplitThreadMentions 验证 @会话引用的命中、未命中与最长匹配规则（对齐后端 mentions 收集）。
 func TestSplitThreadMentions(t *testing.T) {
