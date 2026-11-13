@@ -133,6 +133,8 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 			chevronRotation = 180
 		}
 
+		scale := motionPressScale(c, tabBtn, "button-press-scale", true && tabBtn.Pressed())
+		tabBtn.Scale(scale, scale)
 		tabBtn.Children(func() {
 			ui.Row(c.Key("composer-queue-tab-content")).
 				Gap(Space2).
@@ -192,7 +194,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 								Gap(Space3).
 								AlignItems(ui.Center).
 								Children(func() {
-									ui.ButtonBase(c.Key("composer-queue-clear-all")).
+									pressButton0 := ui.ButtonBase(c.Key("composer-queue-clear-all")).
 										Label("清空全部").
 										Tooltip("清空全部").
 										Height(uiSize(ControlXS)).
@@ -202,12 +204,14 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 										Border(Hairline, ThemeBorder(c)).
 										OnClick(func() {
 											s.clearQueue()
-										}).
-										Children(func() {
-											ui.Text(c, "清空全部").
-												FontSize(uiFont(TypeCaption)).
-												TextColor(ThemeSecondaryText(c))
 										})
+									pressScale0 := motionPressScale(c, pressButton0, "button-press-scale", true && pressButton0.Pressed())
+									pressButton0.Scale(pressScale0, pressScale0)
+									pressButton0.Children(func() {
+										ui.Text(c, "清空全部").
+											FontSize(uiFont(TypeCaption)).
+											TextColor(ThemeSecondaryText(c))
+									})
 
 									// 正在编辑排队项时不提供全部退回，避免编辑态与草稿合并互相覆盖。
 									if !isEditing {
@@ -342,7 +346,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 
 										// 编辑按钮：系统条目只读，不提供。
 										if !item.System {
-											ui.ButtonBase(c.Key("composer-queue-edit-"+item.ID)).
+											pressButton1 := ui.ButtonBase(c.Key("composer-queue-edit-"+item.ID)).
 												Label("编辑").
 												Tooltip("编辑").
 												Height(uiSize(ControlXS)).
@@ -352,19 +356,21 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 												Border(Hairline, ThemeBorder(c)).
 												OnClick(func() {
 													s.beginEditQueued(item.ID)
-												}).
-												Children(func() {
-													ui.Text(c, "编辑").
-														FontSize(uiFont(TypeCaption)).
-														TextColor(ThemePrimaryText(c))
 												})
+											pressScale1 := motionPressScale(c, pressButton1, "button-press-scale", true && pressButton1.Pressed())
+											pressButton1.Scale(pressScale1, pressScale1)
+											pressButton1.Children(func() {
+												ui.Text(c, "编辑").
+													FontSize(uiFont(TypeCaption)).
+													TextColor(ThemePrimaryText(c))
+											})
 										}
 
 										// 插入按钮：把这条排队消息插进当前轮次（不打断正在执行的回复）。
 										// 带附件的排队项后端无法插入当前轮；系统条目不可撤回，插入流程也无从进行。
 										// 已被降级为排队的项（Intent=insert）不再提供插入，避免重复点击。
 										if !item.System && item.Intent != "insert" && canSteer && isRunning && item.AttachmentCount == 0 {
-											ui.ButtonBase(c.Key("composer-queue-steer-"+item.ID)).
+											pressButton2 := ui.ButtonBase(c.Key("composer-queue-steer-"+item.ID)).
 												Label("插入到当前轮次 "+item.Text).
 												Tooltip("把这条排队消息插入当前轮次").
 												Height(uiSize(ControlXS)).
@@ -374,16 +380,18 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 												Border(Hairline, ThemeBorder(c)).
 												OnClick(func() {
 													s.steerQueued(item)
-												}).
-												Children(func() {
-													ui.Text(c, "插入").
-														FontSize(uiFont(TypeCaption)).
-														TextColor(ThemeAccent(c))
 												})
+											pressScale2 := motionPressScale(c, pressButton2, "button-press-scale", true && pressButton2.Pressed())
+											pressButton2.Scale(pressScale2, pressScale2)
+											pressButton2.Children(func() {
+												ui.Text(c, "插入").
+													FontSize(uiFont(TypeCaption)).
+													TextColor(ThemeAccent(c))
+											})
 										}
 
 										// 立即发送按钮
-										ui.ButtonBase(c.Key("composer-queue-send-"+item.ID)).
+										pressButton3 := ui.ButtonBase(c.Key("composer-queue-send-"+item.ID)).
 											Label("立即发送").
 											Tooltip("立即发送").
 											Height(uiSize(ControlXS)).
@@ -393,16 +401,18 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 											Border(Hairline, ThemeBorder(c)).
 											OnClick(func() {
 												s.sendQueuedNow(item.ID)
-											}).
-											Children(func() {
-												ui.Text(c, "立即发送").
-													FontSize(uiFont(TypeCaption)).
-													TextColor(ThemePrimaryText(c))
 											})
+										pressScale3 := motionPressScale(c, pressButton3, "button-press-scale", true && pressButton3.Pressed())
+										pressButton3.Scale(pressScale3, pressScale3)
+										pressButton3.Children(func() {
+											ui.Text(c, "立即发送").
+												FontSize(uiFont(TypeCaption)).
+												TextColor(ThemePrimaryText(c))
+										})
 
 										// 删除按钮：系统条目只读，不提供。
 										if !item.System {
-											ui.ButtonBase(c.Key("composer-queue-remove-"+item.ID)).
+											pressButton4 := ui.ButtonBase(c.Key("composer-queue-remove-"+item.ID)).
 												Label("删除").
 												Tooltip("删除").
 												Height(uiSize(ControlXS)).
@@ -412,12 +422,14 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 												Border(Hairline, ThemeBorder(c)).
 												OnClick(func() {
 													s.removeQueued(item.ID)
-												}).
-												Children(func() {
-													ui.Text(c, "删除").
-														FontSize(uiFont(TypeCaption)).
-														TextColor(ThemeSecondaryText(c))
 												})
+											pressScale4 := motionPressScale(c, pressButton4, "button-press-scale", true && pressButton4.Pressed())
+											pressButton4.Scale(pressScale4, pressScale4)
+											pressButton4.Children(func() {
+												ui.Text(c, "删除").
+													FontSize(uiFont(TypeCaption)).
+													TextColor(ThemeSecondaryText(c))
+											})
 										}
 									})
 								}
@@ -1174,6 +1186,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 						Label("添加附件").Tooltip("添加附件").Disabled(isSendingDisabled).
 						Size(composerActionBtnSize, composerActionBtnSize).Radius(buttonRadius).
 						OnClick(func() { s.composerView.downloadsOpen = !s.composerView.downloadsOpen })
+					scale := motionPressScale(c, attachBtn, "button-press-scale", !isSendingDisabled && attachBtn.Pressed())
+					attachBtn.Scale(scale, scale)
 					composerHoverBg(c, attachBtn, s.composerView.downloadsOpen || attachBtn.Hovered())
 					attachBtn.Children(func() {
 						ui.Icon(c, IconPaperclip()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
@@ -1317,6 +1331,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 							Size(composerActionBtnSize, composerActionBtnSize).
 							Radius(buttonRadius).
 							Transition(motionFeedback(c))
+						scale := motionPressScale(c, btn, "button-press-scale", !sendBtnDisabled && btn.Pressed())
+						btn.Scale(scale, scale)
 						if iconChanged {
 							// 把淡入进度拉回起点，下一帧起按 90ms ease-out 插值到 1。
 							btn.Jump(composerSendIconFadeKey, 0)
@@ -1441,6 +1457,8 @@ func renderEditQueuedPill(c *ui.Context, s *chatState, tier composerChinSize) {
 		OnClick(func() {
 			s.cancelQueuedEdit()
 		})
+	scale := motionPressScale(c, pill, "button-press-scale", true && pill.Pressed())
+	pill.Scale(scale, scale)
 	pill.Children(func() {
 		ui.Text(c, text).
 			FontSize(uiFont(TypeFootnote)).
@@ -1527,6 +1545,8 @@ func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disab
 	} else {
 		composerHoverBg(c, btn, hovered)
 	}
+	scale := motionPressScale(c, btn, "button-press-scale", !disabled && btn.Pressed())
+	btn.Scale(scale, scale)
 	btn.Children(func() {
 		ui.Icon(c, interactionModeIcon(mode)).Size(composerControlIconSize, composerControlIconSize).TextColor(textColor)
 	})
@@ -2738,6 +2758,8 @@ func renderContextMeter(c *ui.Context, s *chatState, currentThread *Thread) {
 		})
 	composerHoverBg(c, meter, s.composerView.usageOpen || meter.Hovered())
 
+	scale := motionPressScale(c, meter, "button-press-scale", true && meter.Pressed())
+	meter.Scale(scale, scale)
 	meter.Children(func() {
 		ui.Image(c, makeContextMeterSVG(isDark(c), fraction, isWarning)).
 			Size(composerContextMeterImageSize, composerContextMeterImageSize).

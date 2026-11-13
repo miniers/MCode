@@ -17,6 +17,8 @@ func renderMessageMoreButton(c *ui.Context, s *chatState, m Message) {
 		Background(ThemeHover(c)).
 		Cursor(ui.CursorPointer)
 	btn.Menu(messageContextMenu(c, s, m))
+	scale := motionPressScale(c, btn, "button-press-scale", true && btn.Pressed())
+	btn.Scale(scale, scale)
 	btn.Children(func() {
 		ui.Row(c.Key("msg-more-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, IconMoreHorizontal()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))

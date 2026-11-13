@@ -100,6 +100,8 @@ func renderComposerCapsule(c *ui.Context, s *chatState, capsule composerCapsule)
 	if capsule.OnClick != nil {
 		btn.OnClick(capsule.OnClick)
 	}
+	scale := motionPressScale(c, btn, "button-press-scale", true && btn.Pressed())
+	btn.Scale(scale, scale)
 	btn.Children(func() {
 		ui.Row(c.Key(capsule.Key + "-content")).
 			Gap(composerCapsuleGap).
@@ -150,6 +152,8 @@ func renderComposerCapsuleDismiss(c *ui.Context, capsule composerCapsule) {
 		Background(ui.Transparent).
 		OnClick(capsule.OnDismiss)
 	composerHoverBg(c, closeBtn, closeBtn.Hovered())
+	scale := motionPressScale(c, closeBtn, "button-press-scale", true && closeBtn.Pressed())
+	closeBtn.Scale(scale, scale)
 	closeBtn.Children(func() {
 		ui.Icon(c, IconX()).
 			Size(composerCapsuleIconSize, composerCapsuleIconSize).

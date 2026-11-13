@@ -221,6 +221,8 @@ func renderErrorActionButton(c *ui.Context, key, label, tooltip string, icon *ui
 	if btn.Hovered() {
 		btn.Background(ThemeSecondaryText(c).Alpha(0.12))
 	}
+	scale := motionPressScale(c, btn, "button-press-scale", true && btn.Pressed())
+	btn.Scale(scale, scale)
 	btn.Children(func() {
 		ui.Icon(c, icon).Size(inlineIconSize, inlineIconSize).TextColor(iconColor)
 		ui.Text(c, label).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))

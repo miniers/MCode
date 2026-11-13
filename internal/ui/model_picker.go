@@ -984,6 +984,8 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 				Tooltip(p.Tooltip).
 				Padding(triggerPadY, Space3).
 				Radius(RadiusXL)
+			scale := motionPressScale(c, trigger, "button-press-scale", !p.Disabled && trigger.Pressed())
+			trigger.Scale(scale, scale)
 			if p.KeyPrefix != "composer-" {
 				trigger.Margin(0, Space2, 0, 0)
 			}
@@ -1353,6 +1355,8 @@ func renderModelPickerSideTabs(c *ui.Context, p ModelPickerProps, state *ModelPi
 					modelPickerInvalidate(p)
 				})
 			// 选中态的实心胶囊由上面的滑块层绘制，按钮自身始终透明。
+			scale := motionPressScale(c, tabBtn, "button-press-scale", true && tabBtn.Pressed())
+			tabBtn.Scale(scale, scale)
 			tabBtn.Background(ui.Transparent)
 			if item.id == "bees" && !p.SwarmOn {
 				tabBtn.Tooltip("未开启编排时执行侧不可设置，点击会先开启编排")

@@ -659,6 +659,8 @@ func renderToolChip(c *ui.Context, s *chatState, m Message, beatTools []Message)
 		chip.Border(1, ThemeOverlay(c, toolPendingBorderOpacity))
 	}
 
+	scale := motionPressScale(c, chip, "button-press-scale", true && chip.Pressed())
+	chip.Scale(scale, scale)
 	chip.Children(func() {
 		renderToolChipStatus(c, m)
 		renderToolChipCategoryMark(c, category, cmdInfo.IsCommand, fontFam)
@@ -751,19 +753,21 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 					}
 					// 编辑类工具：胶囊展开后直接看到这次改动的行级 diff，顶部保留收起入口
 					if diffOpen {
-						ui.ButtonBase(c.Key("tool-detail-diff-toggle-"+m.ID)).
+						pressButton0 := ui.ButtonBase(c.Key("tool-detail-diff-toggle-"+m.ID)).
 							Label("收起改动").
 							Tooltip("收起改动").
 							Padding(0, Space0).
 							Cursor(ui.CursorPointer).
 							OnClick(func() {
 								s.hideToolDetail(m)
-							}).
-							Children(func() {
-								ui.Text(c, "收起改动").
-									FontSize(scaledFont(TypeCaption)).
-									TextColor(ThemeAccent(c))
 							})
+						pressScale0 := motionPressScale(c, pressButton0, "button-press-scale", true && pressButton0.Pressed())
+						pressButton0.Scale(pressScale0, pressScale0)
+						pressButton0.Children(func() {
+							ui.Text(c, "收起改动").
+								FontSize(scaledFont(TypeCaption)).
+								TextColor(ThemeAccent(c))
+						})
 						renderInlineToolDiff(c, s, m)
 					}
 

@@ -370,6 +370,7 @@ type chatState struct {
 
 	// 队列与中断状态
 	queue             map[string][]QueuedFollowUp // 按会话 ID 存排队消息
+	queueRemoving     map[string]map[string]bool
 	recallAllInflight bool
 	queueChanges      map[string]uint64 // 防止初次加载覆盖监听期间的新快照
 	interrupted       map[string]bool   // 成功中断后可继续标记（按会话 ID 存）
@@ -692,7 +693,7 @@ func (s *chatState) startQueueWatch() {
 			s.queueChanges = make(map[string]uint64)
 		}
 		s.queueChanges[threadID]++
-		s.queue[threadID] = items
+		s.queue[threadID] = s.filterRemovingQueuedLocked(threadID, items)
 		if s.editingFollowUpThread == threadID && s.editingFollowUpID != "" {
 			found := false
 			for _, item := range items {
@@ -1478,7 +1479,7 @@ func (s *chatState) selectThread(threadID string) {
 			if s.queue == nil {
 				s.queue = make(map[string][]QueuedFollowUp)
 			}
-			s.queue[tid] = queueItems
+			s.queue[tid] = s.filterRemovingQueuedLocked(tid, queueItems)
 		}
 		s.mu.Unlock()
 		s.invalidate()
@@ -3210,11 +3211,8 @@ func (s *chatState) clearQueue() {
 		ctx := context.Background()
 		for i, id := range ids {
 			if err := s.client.RemoveQueued(ctx, tid, id); err != nil {
-				for j := i; j < len(removed); j++ {
-					s.restoreQueued(tid, removed[j], j)
-				}
+				s.restoreQueued(tid, removed[i], i)
 				s.setToast("清空排队消息失败: " + err.Error())
-				break
 			}
 		}
 		s.invalidate()
@@ -3222,7 +3220,7 @@ func (s *chatState) clearQueue() {
 }
 
 // recallAllQueued 把当前会话队列里的普通消息按顺序退回输入框。
-// 带附件的条目先取回附件再从队列移除；任一步失败就中止，草稿只累积已成功退回的条目。
+// 带附件的条目先取回附件再从队列移除；失败的条目留在队列中。
 func (s *chatState) recallAllQueued() {
 	// editingQueuedID 会自己加锁，必须在持有 s.mu 之前调用。
 	if s.editingQueuedID() != "" {
@@ -3280,21 +3278,14 @@ func (s *chatState) recallAllQueued() {
 		recalledAttachments := make([]composerAttachment, 0)
 		failed := false
 		for index, item := range recallable {
-			completed := false
-			defer func() {
-				if !completed {
-					for j := index; j < len(recallable); j++ {
-						s.restoreQueued(tid, recallable[j], j)
-					}
-				}
-			}()
 			var itemAttachments []composerAttachment
 			if item.AttachmentCount > 0 {
 				attachments, err := editor.QueuedAttachments(ctx, tid, item.ID)
 				if err != nil {
+					s.restoreQueued(tid, item, index)
 					s.setToast("退回排队消息失败: " + err.Error())
 					failed = true
-					break
+					continue
 				}
 				for _, att := range attachments {
 					itemAttachments = append(itemAttachments, composerAttachment{
@@ -3311,16 +3302,17 @@ func (s *chatState) recallAllQueued() {
 			fits := len(s.attachments)+len(recalledAttachments)+len(itemAttachments) <= limit
 			s.mu.Unlock()
 			if !fits {
+				s.restoreQueued(tid, item, index)
 				s.setToast(fmt.Sprintf("退回后附件将超过 %d 个上限", limit))
 				failed = true
-				break
+				continue
 			}
 			if err := s.client.RemoveQueued(ctx, tid, item.ID); err != nil {
+				s.restoreQueued(tid, item, index)
 				s.setToast("退回排队消息失败: " + err.Error())
 				failed = true
-				break
+				continue
 			}
-			completed = true
 			texts = append(texts, item.Text)
 			recalledAttachments = append(recalledAttachments, itemAttachments...)
 		}

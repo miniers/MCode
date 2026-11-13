@@ -508,7 +508,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 						ui.Spacer(c)
 						ui.Row(c.Key("approval-batch-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
 							// 批量允许：主色实心胶囊
-							ui.ButtonBase(c.Key("approval-batch-allow")).
+							pressButton0 := ui.ButtonBase(c.Key("approval-batch-allow")).
 								Label("全部允许").
 								Tooltip("全部允许").
 								Disabled(responding).
@@ -522,16 +522,18 @@ func renderApproval(c *ui.Context, s *chatState) {
 											s.respondApproval(appr, optID)
 										}
 									}
-								}).
-								Children(func() {
-									ui.Text(c, "全部允许").
-										FontSize(uiFont(TypeFootnote)).
-										Bold().
-										TextColor(ThemeOnAccent(c))
 								})
+							pressScale0 := motionPressScale(c, pressButton0, "button-press-scale", !responding && pressButton0.Pressed())
+							pressButton0.Scale(pressScale0, pressScale0)
+							pressButton0.Children(func() {
+								ui.Text(c, "全部允许").
+									FontSize(uiFont(TypeFootnote)).
+									Bold().
+									TextColor(ThemeOnAccent(c))
+							})
 
 							// 批量拒绝：浅底胶囊
-							ui.ButtonBase(c.Key("approval-batch-decline")).
+							pressButton1 := ui.ButtonBase(c.Key("approval-batch-decline")).
 								Label("全部拒绝").
 								Tooltip("全部拒绝").
 								Disabled(responding).
@@ -545,12 +547,14 @@ func renderApproval(c *ui.Context, s *chatState) {
 											s.respondApproval(appr, optID)
 										}
 									}
-								}).
-								Children(func() {
-									ui.Text(c, "全部拒绝").
-										FontSize(uiFont(TypeFootnote)).
-										TextColor(ThemePrimaryText(c))
 								})
+							pressScale1 := motionPressScale(c, pressButton1, "button-press-scale", !responding && pressButton1.Pressed())
+							pressButton1.Scale(pressScale1, pressScale1)
+							pressButton1.Children(func() {
+								ui.Text(c, "全部拒绝").
+									FontSize(uiFont(TypeFootnote)).
+									TextColor(ThemePrimaryText(c))
+							})
 						})
 					})
 				}
@@ -748,7 +752,7 @@ func renderApprovalOptions(c *ui.Context, s *chatState, approval Approval, respo
 				if shortcutHint != "" {
 					tooltip = fmt.Sprintf("批准 (%s / %s / %s)", shortcutDisplay("⌘↩"), shortcutDisplay("↩"), shortcutHint)
 				}
-				ui.ButtonBase(c.Key("approval-opt-"+approval.RequestID+"-"+opt.ID)).
+				pressButton2 := ui.ButtonBase(c.Key("approval-opt-"+approval.RequestID+"-"+opt.ID)).
 					Label(opt.Title).
 					Tooltip(tooltip).
 					Disabled(responding).
@@ -757,18 +761,20 @@ func renderApprovalOptions(c *ui.Context, s *chatState, approval Approval, respo
 					Background(ThemeAccent(c)).
 					OnClick(func() {
 						s.respondApproval(approval, optID)
-					}).
-					Children(func() {
-						ui.Row(c.Key("approval-opt-row-" + approval.RequestID + "-" + opt.ID)).Gap(Space2).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, opt.Title).
-								FontSize(uiFont(TypeFootnote)).
-								Bold().
-								TextColor(ThemeOnAccent(c))
-							if shortcutHint != "" {
-								accentKeyBadge(c, "approval-opt-badge-"+approval.RequestID+"-"+opt.ID, shortcutHint)
-							}
-						})
 					})
+				pressScale2 := motionPressScale(c, pressButton2, "button-press-scale", !responding && pressButton2.Pressed())
+				pressButton2.Scale(pressScale2, pressScale2)
+				pressButton2.Children(func() {
+					ui.Row(c.Key("approval-opt-row-" + approval.RequestID + "-" + opt.ID)).Gap(Space2).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, opt.Title).
+							FontSize(uiFont(TypeFootnote)).
+							Bold().
+							TextColor(ThemeOnAccent(c))
+						if shortcutHint != "" {
+							accentKeyBadge(c, "approval-opt-badge-"+approval.RequestID+"-"+opt.ID, shortcutHint)
+						}
+					})
+				})
 			default:
 				// 次级样式：浅底胶囊（含 decline 及始终允许等选项）
 				tooltip := opt.Title
@@ -780,7 +786,7 @@ func renderApprovalOptions(c *ui.Context, s *chatState, approval Approval, respo
 				} else if shortcutHint != "" {
 					tooltip = fmt.Sprintf("%s (%s)", opt.Title, shortcutHint)
 				}
-				ui.ButtonBase(c.Key("approval-opt-"+approval.RequestID+"-"+opt.ID)).
+				pressButton3 := ui.ButtonBase(c.Key("approval-opt-"+approval.RequestID+"-"+opt.ID)).
 					Label(opt.Title).
 					Tooltip(tooltip).
 					Disabled(responding).
@@ -789,17 +795,19 @@ func renderApprovalOptions(c *ui.Context, s *chatState, approval Approval, respo
 					Background(ThemeHover(c)).
 					OnClick(func() {
 						s.respondApproval(approval, optID)
-					}).
-					Children(func() {
-						ui.Row(c.Key("approval-opt-row-" + approval.RequestID + "-" + opt.ID)).Gap(Space2).AlignItems(ui.Center).Children(func() {
-							ui.Text(c, opt.Title).
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemePrimaryText(c))
-							if shortcutHint != "" {
-								Kbd(c, "approval-opt-badge-"+approval.RequestID+"-"+opt.ID, shortcutHint)
-							}
-						})
 					})
+				pressScale3 := motionPressScale(c, pressButton3, "button-press-scale", !responding && pressButton3.Pressed())
+				pressButton3.Scale(pressScale3, pressScale3)
+				pressButton3.Children(func() {
+					ui.Row(c.Key("approval-opt-row-" + approval.RequestID + "-" + opt.ID)).Gap(Space2).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, opt.Title).
+							FontSize(uiFont(TypeFootnote)).
+							TextColor(ThemePrimaryText(c))
+						if shortcutHint != "" {
+							Kbd(c, "approval-opt-badge-"+approval.RequestID+"-"+opt.ID, shortcutHint)
+						}
+					})
+				})
 			}
 		}
 	})
@@ -848,20 +856,22 @@ func renderApprovalButton(c *ui.Context, key, label, tooltip string, primary, di
 			bg = bg.Alpha(0.45)
 		}
 	}
-	ui.ButtonBase(c.Key(key)).
+	btn := ui.ButtonBase(c.Key(key)).
 		Label(label).
 		Tooltip(tooltip).
 		Disabled(disabled).
 		Padding(Space1, Space4).
 		Radius(RadiusXL).
 		Background(bg).
-		OnClick(onClick).
-		Children(func() {
-			t := ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(fg)
-			if primary {
-				t.Bold()
-			}
-		})
+		OnClick(onClick)
+	scale := motionPressScale(c, btn, "button-press-scale", !disabled && btn.Pressed())
+	btn.Scale(scale, scale)
+	btn.Children(func() {
+		t := ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(fg)
+		if primary {
+			t.Bold()
+		}
+	})
 }
 
 // renderPlanCopyButton 渲染计划复制按钮。
@@ -1127,6 +1137,8 @@ func renderOtherInstructionButton(c *ui.Context, key string, disabled bool, onCl
 	if btn.Hovered() && !disabled {
 		btn.Background(ThemeHover(c))
 	}
+	scale := motionPressScale(c, btn, "button-press-scale", !disabled && btn.Pressed())
+	btn.Scale(scale, scale)
 	btn.Children(func() {
 		ui.Text(c, "其他指示…").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 	})

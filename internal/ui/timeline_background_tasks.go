@@ -506,6 +506,8 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 			})
 			if canStop {
 				stop := ui.ButtonBase(c.Key(rowKey+"/stop")).Size(18, 18).Label("停止").Tooltip("停止").Cursor(ui.CursorPointer)
+				scale := motionPressScale(c, stop, "button-press-scale", !stopping && stop.Pressed())
+				stop.Scale(scale, scale)
 				if stopping {
 					stop.Opacity(0.5)
 				}

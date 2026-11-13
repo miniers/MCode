@@ -1031,6 +1031,8 @@ func renderAttachmentRemoveButton(c *ui.Context, s *chatState, a composerAttachm
 		OnClick(func() {
 			s.removeAttachment(a.LocalID)
 		})
+	scale := motionPressScale(c, btn, "button-press-scale", !sending && btn.Pressed())
+	btn.Scale(scale, scale)
 	if overlay {
 		// 叠在缩略图上时用半透明深色底，保证 × 在任何图片上都可见。
 		// 淡入进度挂在按钮自身上：透明不影响命中检测与焦点顺序，键盘与 a11y 照常可用。
@@ -1069,6 +1071,8 @@ func renderAttachmentRetryButton(c *ui.Context, s *chatState, a composerAttachme
 		OnClick(func() {
 			s.retryAttachment(a.LocalID)
 		})
+	scale := motionPressScale(c, btn, "button-press-scale", true && btn.Pressed())
+	btn.Scale(scale, scale)
 	if overlay {
 		btn.Absolute().
 			Left(2).
@@ -1165,6 +1169,8 @@ func renderImageAttachmentCard(c *ui.Context, s *chatState, a composerAttachment
 				Background(ui.Transparent).
 				Cursor(ui.CursorPointer).
 				Tooltip("点击放大\n" + tip)
+			scale := motionPressScale(c, previewBtn, "button-press-scale", true && previewBtn.Pressed())
+			previewBtn.Scale(scale, scale)
 			previewBtn.Children(func() {
 				ui.Image(c, a.Thumb).
 					Key("composer-attach-thumb-" + a.LocalID).

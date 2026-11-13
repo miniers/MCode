@@ -548,7 +548,7 @@ func (s *chatState) sendToParentThread(leadID string, m Message) {
 
 // renderSendToParentButton 渲染助手操作栏的「回报父会话」按钮，只在子会话中显示。
 func renderSendToParentButton(c *ui.Context, s *chatState, m Message, leadID string) {
-	ui.ButtonBase(c.Key("send-parent-btn-"+m.ID)).
+	pressButton0 := ui.ButtonBase(c.Key("send-parent-btn-"+m.ID)).
 		Label("回报父会话").
 		Tooltip("发送回父会话").
 		Padding(Space0, Space2).
@@ -556,13 +556,15 @@ func renderSendToParentButton(c *ui.Context, s *chatState, m Message, leadID str
 		Background(ThemeHover(c)).
 		OnClick(func() {
 			s.sendToParentThread(leadID, m)
-		}).
-		Children(func() {
-			ui.Row(c.Key("send-parent-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconReply()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-				ui.Text(c, "回报父会话").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-			})
 		})
+	pressScale0 := motionPressScale(c, pressButton0, "button-press-scale", true && pressButton0.Pressed())
+	pressButton0.Scale(pressScale0, pressScale0)
+	pressButton0.Children(func() {
+		ui.Row(c.Key("send-parent-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, IconReply()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "回报父会话").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+		})
+	})
 }
 
 var (
@@ -573,7 +575,7 @@ var (
 // renderEditMessageButton 渲染用户消息操作栏的「修改」按钮：进入就地编辑，
 // 与右键菜单的「编辑」项同一条件（仅用户消息）与同一入口 startInlineEdit。
 func renderEditMessageButton(c *ui.Context, s *chatState, m Message) {
-	ui.ButtonBase(c.Key("edit-btn-"+m.ID)).
+	pressButton1 := ui.ButtonBase(c.Key("edit-btn-"+m.ID)).
 		Label("修改").
 		Tooltip("修改这条提问").
 		Padding(Space0, Space2).
@@ -581,13 +583,15 @@ func renderEditMessageButton(c *ui.Context, s *chatState, m Message) {
 		Background(ThemeHover(c)).
 		OnClick(func() {
 			startInlineEdit(s, m)
-		}).
-		Children(func() {
-			ui.Row(c.Key("edit-btn-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconPencilLine()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-				ui.Text(c, "修改").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-			})
 		})
+	pressScale1 := motionPressScale(c, pressButton1, "button-press-scale", true && pressButton1.Pressed())
+	pressButton1.Scale(pressScale1, pressScale1)
+	pressButton1.Children(func() {
+		ui.Row(c.Key("edit-btn-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, IconPencilLine()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, "修改").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+		})
+	})
 }
 
 // branchPopoverState 返回某条消息分支确认浮层的开合状态；每条消息一份，跨帧地址稳定。
@@ -616,6 +620,8 @@ func renderBranchActionButton(c *ui.Context, s *chatState, m Message) {
 			*open = true
 			s.invalidate()
 		})
+	scale := motionPressScale(c, btn, "button-press-scale", true && btn.Pressed())
+	btn.Scale(scale, scale)
 	btn.Children(func() {
 		ui.Row(c.Key("branch-btn-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, IconGitBranch()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))

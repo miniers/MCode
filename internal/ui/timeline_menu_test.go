@@ -664,3 +664,22 @@ func TestBranchFromMessageErrorShowsToast(t *testing.T) {
 		t.Fatalf("selectedThreadID = %q, want t1", got)
 	}
 }
+
+func TestBranchDuplicateIgnored(t *testing.T) {
+	client := &delayedMessageBranchClient{FakeClient: NewFakeClient(), started: make(chan struct{}, 2), release: make(chan struct{})}
+	s := newChatState(client)
+	t.Cleanup(s.close)
+	s.selectedThreadID = "t1"
+	s.forkFromMessage("a1")
+	<-client.started
+	s.forkFromMessage("a1")
+	select {
+	case <-client.started:
+		t.Fatal("重复分支发出了请求")
+	default:
+	}
+	if got := recallTestToast(s); got != "正在创建分支…" {
+		t.Fatalf("toast = %q", got)
+	}
+	close(client.release)
+}

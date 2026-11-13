@@ -184,6 +184,8 @@ func renderEffortResetButton(c *ui.Context, p EffortSliderCardProps) {
 		Radius(RadiusPill).
 		Center()
 
+	scale := motionPressScale(c, btn, "button-press-scale", !p.Disabled && btn.Pressed())
+	btn.Scale(scale, scale)
 	if btn.Hovered() && !p.Disabled {
 		btn.Background(effortOnDark.Alpha(0.10))
 	}
@@ -233,6 +235,8 @@ func renderPairFavButton(c *ui.Context, p EffortSliderCardProps) {
 		Size(effortPairFavSize, effortPairFavSize).
 		Radius(RadiusPill).
 		Center()
+	scale := motionPressScale(c, btn, "button-press-scale", true && btn.Pressed())
+	btn.Scale(scale, scale)
 	if btn.Hovered() {
 		btn.Background(effortOnDark.Alpha(0.10))
 	}
@@ -328,6 +332,8 @@ func renderFastModeButton(c *ui.Context, p EffortSliderCardProps) {
 		// Colors 只插值背景与描边色：开/关切换时底色在系统黄与白色微光之间渐变，悬停的加深也一并变柔和。
 		Transition(motionFeedback(c))
 
+	scale := motionPressScale(c, btn, "button-press-scale", !p.Disabled && btn.Pressed())
+	btn.Scale(scale, scale)
 	switch {
 	case p.FastMode:
 		btn.Background(effortBoltYellow.Alpha(0.18))
@@ -375,6 +381,8 @@ func renderProviderRainbowAvatar(c *ui.Context, p EffortSliderCardProps) {
 		Size(effortCardButtonSize, effortCardButtonSize).
 		Radius(effortCardButtonSize / 2).
 		Center()
+	scale := motionPressScale(c, btn, "button-press-scale", interactive && btn.Pressed())
+	btn.Scale(scale, scale)
 	if interactive {
 		btn.OnClick(p.OnToggleSwarm)
 	}
@@ -842,6 +850,8 @@ func renderEffortTitleRow(c *ui.Context, p EffortSliderCardProps) {
 				Disabled(p.Disabled || !canOpen).
 				Padding(Space0, Space3).
 				Radius(RadiusSM)
+			scale := motionPressScale(c, titleBtn, "button-press-scale", !p.Disabled && canOpen && titleBtn.Pressed())
+			titleBtn.Scale(scale, scale)
 			if titleBtn.Hovered() && canOpen && !p.Disabled {
 				titleBtn.Background(ColorHoverDark)
 			}

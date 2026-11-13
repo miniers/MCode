@@ -307,19 +307,21 @@ func renderMCPSelectionPanel(c *ui.Context, s *chatState, threadID string, onBac
 			AlignItems(ui.Center).
 			Gap(Space2).
 			Children(func() {
-				ui.ButtonBase(c.Key("composer-mcp-back")).
+				pressButton0 := ui.ButtonBase(c.Key("composer-mcp-back")).
 					Label("返回").
 					Tooltip("返回").
 					Height(ControlXS).
 					Radius(RadiusPill).
 					Padding(0, Space3).
 					Background(ui.Transparent).
-					OnClick(onBack).
-					Children(func() {
-						ui.Text(c, "‹ 返回").
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemeSecondaryText(c))
-					})
+					OnClick(onBack)
+				pressScale0 := motionPressScale(c, pressButton0, "button-press-scale", true && pressButton0.Pressed())
+				pressButton0.Scale(pressScale0, pressScale0)
+				pressButton0.Children(func() {
+					ui.Text(c, "‹ 返回").
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeSecondaryText(c))
+				})
 				ui.Text(c, "MCP 服务器").
 					FontSize(uiFont(TypeBody)).
 					FontWeight(600).
@@ -381,6 +383,8 @@ func renderMCPSelectionPanel(c *ui.Context, s *chatState, threadID string, onBac
 						s.applyThreadMCPDisabled(threadID, mcpDisabledKeys(s.composerView.mcpPendingDisabled))
 					})
 				applyBtn.Disabled(saving)
+				scale := motionPressScale(c, applyBtn, "button-press-scale", true && applyBtn.Pressed())
+				applyBtn.Scale(scale, scale)
 				applyBtn.Children(func() {
 					ui.Text(c, "应用").
 						FontSize(uiFont(TypeFootnote)).

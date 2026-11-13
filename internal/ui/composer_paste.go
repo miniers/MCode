@@ -228,6 +228,8 @@ func renderSnippetChip(c *ui.Context, s *chatState, sn composerSnippet, previewO
 	} else {
 		chip.Background(ThemeHover(c))
 	}
+	scale := motionPressScale(c, chip, "button-press-scale", true && chip.Pressed())
+	chip.Scale(scale, scale)
 	chip.Children(func() {
 		ui.Row(c.Key(key + "-content")).
 			Gap(Space2).
@@ -235,16 +237,18 @@ func renderSnippetChip(c *ui.Context, s *chatState, sn composerSnippet, previewO
 			Children(func() {
 				ui.Icon(c, IconFile()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 				ui.Text(c, title).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).SingleLine()
-				ui.ButtonBase(c.Key(key+"-remove")).
+				pressButton0 := ui.ButtonBase(c.Key(key+"-remove")).
 					Label("移除粘贴的文本 "+title).
 					Disabled(sending).
 					Size(IconMD, IconMD).
 					Radius(RadiusMD).
 					Background(ui.Transparent).
-					OnClick(func() { s.removeSnippet(sn.ID) }).
-					Children(func() {
-						ui.Text(c, "×").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
-					})
+					OnClick(func() { s.removeSnippet(sn.ID) })
+				pressScale0 := motionPressScale(c, pressButton0, "button-press-scale", true && pressButton0.Pressed())
+				pressButton0.Scale(pressScale0, pressScale0)
+				pressButton0.Children(func() {
+					ui.Text(c, "×").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+				})
 			})
 	})
 

@@ -172,6 +172,13 @@ func (s *chatState) moveQueued(followUpID, beforeFollowUpID string) {
 func (s *chatState) takeQueuedLocked(tid, id string) (QueuedFollowUp, int, bool) {
 	for i, item := range s.queue[tid] {
 		if item.ID == id {
+			if s.queueRemoving == nil {
+				s.queueRemoving = make(map[string]map[string]bool)
+			}
+			if s.queueRemoving[tid] == nil {
+				s.queueRemoving[tid] = make(map[string]bool)
+			}
+			s.queueRemoving[tid][id] = true
 			s.queue[tid] = append(append([]QueuedFollowUp(nil), s.queue[tid][:i]...), s.queue[tid][i+1:]...)
 			return item, i, true
 		}
@@ -182,6 +189,7 @@ func (s *chatState) takeQueuedLocked(tid, id string) (QueuedFollowUp, int, bool)
 func (s *chatState) restoreQueued(tid string, item QueuedFollowUp, index int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	delete(s.queueRemoving[tid], item.ID)
 	for _, existing := range s.queue[tid] {
 		if existing.ID == item.ID {
 			return
@@ -195,4 +203,26 @@ func (s *chatState) restoreQueued(tid string, item QueuedFollowUp, index int) {
 	copy(items[index+1:], items[index:])
 	items[index] = item
 	s.queue[tid] = items
+}
+
+func (s *chatState) filterRemovingQueuedLocked(tid string, items []QueuedFollowUp) []QueuedFollowUp {
+	pending := s.queueRemoving[tid]
+	if len(pending) == 0 {
+		return items
+	}
+	seen := make(map[string]bool)
+	filtered := make([]QueuedFollowUp, 0, len(items))
+	for _, item := range items {
+		if pending[item.ID] {
+			seen[item.ID] = true
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	for id := range pending {
+		if !seen[id] {
+			delete(pending, id)
+		}
+	}
+	return filtered
 }

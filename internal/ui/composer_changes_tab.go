@@ -153,6 +153,8 @@ func renderThreadChangesTab(c *ui.Context, s *chatState, add, del, files int, ca
 				})
 			// 改动 tab 与排队胶囊同为浅底胶囊，悬停时提亮一级。
 			composerHoverBg(c, tab, tab.Hovered())
+			scale := motionPressScale(c, tab, "button-press-scale", true && tab.Pressed())
+			tab.Scale(scale, scale)
 			tab.Children(func() {
 				ui.Row(c.Key("composer-changes-tab-content")).
 					Gap(Space2).

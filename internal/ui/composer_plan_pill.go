@@ -304,6 +304,8 @@ func renderComposerPlanPill(c *ui.Context, s *chatState, threadID string) {
 	// 与排队、改动胶囊同一套浅底胶囊的悬停/展开反馈。
 	composerHoverBg(c, pill, pill.Hovered() || s.composerView.planPillOpen)
 
+	scale := motionPressScale(c, pill, "button-press-scale", true && pill.Pressed())
+	pill.Scale(scale, scale)
 	pill.Children(func() {
 		ui.Row(c.Key("composer-plan-pill-content")).
 			Gap(Space2).

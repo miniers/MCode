@@ -110,6 +110,47 @@ type recallFailClient struct {
 	failID string
 }
 
+type gatedQueueFailureClient struct {
+	*FakeClient
+	started chan struct{}
+	release chan struct{}
+}
+
+func (f *gatedQueueFailureClient) RemoveQueued(ctx context.Context, threadID, followUpID string) error {
+	close(f.started)
+	<-f.release
+	return errors.New("删除失败")
+}
+
+func TestQueueOptimisticRemoveRollback(t *testing.T) {
+	client := &gatedQueueFailureClient{FakeClient: NewFakeClient(), started: make(chan struct{}), release: make(chan struct{})}
+	s := newChatState(client)
+	t.Cleanup(s.close)
+	s.selectedThreadID = "t1"
+	s.queue["t1"] = []QueuedFollowUp{{ID: "q1"}, {ID: "q2"}}
+	s.removeQueued("q1")
+	<-client.started
+	if got := strings.Join(recallTestQueueIDs(s, "t1"), ","); got != "q2" {
+		t.Fatalf("请求期间队列 = %q", got)
+	}
+	close(client.release)
+	deadline := time.After(uiWaitTimeout)
+	for {
+		if strings.Contains(recallTestToast(s), "删除失败") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("等待删除失败超时")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if got := strings.Join(recallTestQueueIDs(s, "t1"), ","); got != "q1,q2" {
+		t.Fatalf("回滚后队列 = %q", got)
+	}
+}
+
 func (f *recallFailClient) RemoveQueued(ctx context.Context, threadID, followUpID string) error {
 	if followUpID == f.failID {
 		// 也要记录这次调用，断言失败发生在哪一条。
@@ -233,7 +274,7 @@ func TestRecallAllQueued_AppendsToExistingDraft(t *testing.T) {
 	}
 }
 
-func TestRecallAllQueued_StopsOnRemoveFailure(t *testing.T) {
+func TestRecallAllQueued_ContinuesOnRemoveFailure(t *testing.T) {
 	fake := &recallFailClient{FakeClient: NewFakeClient(), failID: "q2"}
 	s := newRecallTestState(t, fake, []QueuedFollowUp{
 		{ID: "q1", Text: "第一条"},
@@ -243,15 +284,15 @@ func TestRecallAllQueued_StopsOnRemoveFailure(t *testing.T) {
 
 	waitRecallAllQueued(t, s.recallAllQueued)
 
-	// 失败中止：只有第 1 条成功退回，草稿只累积已成功的条目。
-	if got := recallTestDraft(s); got != "第一条" {
-		t.Fatalf("草稿 = %q, want 第一条", got)
+	// 失败条目留在队列，其余条目继续退回。
+	if got := recallTestDraft(s); got != "第一条\n\n第三条" {
+		t.Fatalf("草稿 = %q, want 第一条和第三条", got)
 	}
-	if got := strings.Join(recallTestRemoveIDs(fake.FakeClient), ","); got != "q1,q2" {
-		t.Fatalf("删除调用 = %q, want q1,q2", got)
+	if got := strings.Join(recallTestRemoveIDs(fake.FakeClient), ","); got != "q1,q2,q3" {
+		t.Fatalf("删除调用 = %q, want q1,q2,q3", got)
 	}
-	if got := strings.Join(recallTestFakeQueueIDs(fake.FakeClient, "t1"), ","); got != "q2,q3" {
-		t.Fatalf("失败后队列应保留第 2、3 条，got %q", got)
+	if got := strings.Join(recallTestFakeQueueIDs(fake.FakeClient, "t1"), ","); got != "q2" {
+		t.Fatalf("失败后队列应保留第 2 条，got %q", got)
 	}
 	if toast := recallTestToast(s); !strings.Contains(toast, "失败") {
 		t.Fatalf("失败 toast = %q", toast)
