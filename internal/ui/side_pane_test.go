@@ -646,6 +646,28 @@ func TestSidePaneSplit_HandleHighlightsAfterDelay(t *testing.T) {
 	}
 }
 
+// 右栏让出 Windows 标题栏时顶部有横向分割线；顶到窗口顶部（macOS）时没有。
+func TestSidePaneSplit_TopDividerBelowTitleBar(t *testing.T) {
+	resetSidePaneHandlesForTest()
+	s := sidePaneTestState(t)
+	defer s.close()
+	stubSidePanePanelRender(t, sidePaneFileID)
+	openFilePaneForTest(t, s)
+
+	tt := newSidePaneSplitTester(t, s)
+	withTitleBarGOOS(t, "windows")
+	tt.SetTitleBar(ui.TitleBar{Height: 53, Right: 138})
+	if _, ok := tt.Find(sidePaneTopDividerLabel); !ok {
+		t.Fatal("Windows 右栏让出标题栏时应有顶部分割线")
+	}
+
+	withTitleBarGOOS(t, "darwin")
+	tt.SetTitleBar(ui.TitleBar{Height: 32, Left: 78})
+	if _, ok := tt.Find(sidePaneTopDividerLabel); ok {
+		t.Fatal("macOS 右栏顶到窗口顶部时不应有顶部分割线")
+	}
+}
+
 // 拖到最小宽度一半以下松手：面板收起，宽度复位到默认值。
 func TestSidePaneSplit_AutoCollapsesWhenTooNarrow(t *testing.T) {
 	resetSidePaneHandlesForTest()

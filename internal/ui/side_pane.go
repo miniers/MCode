@@ -184,6 +184,8 @@ const (
 	sidePaneHandleLabel = "调整面板宽度"
 	// sidePaneHandleHighlightLabel 是高亮竖线的无障碍标签：只在亮起时存在，headless 测试靠它确认可见性。
 	sidePaneHandleHighlightLabel = "分栏高亮"
+	// sidePaneTopDividerLabel 是右栏让出标题栏时顶部横向分割线的标签，headless 测试靠它确认存在。
+	sidePaneTopDividerLabel = "右栏顶部分割线"
 )
 
 // sidePaneHandleEntry 是一个分栏手柄的跨帧状态。
@@ -368,6 +370,16 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 			Left((sidePaneHandleWidth - 1) / 2).
 			Width(1).
 			Background(ThemeBorder(c))
+		// 右栏让出标题栏时，顶部横线从竖线接到面板，与面板的顶部分割线连成一体。
+		if inspectorTopInset(c) > 0 {
+			ui.Box(c.Key(key + "/top")).
+				Absolute().
+				Top(0).
+				Left((sidePaneHandleWidth - 1) / 2).
+				Right(0).
+				Height(Hairline).
+				Background(ThemeBorder(c))
+		}
 		// 高亮竖线：2 DIP，透明度由动画值驱动，淡到 0 后不再建节点。
 		if ink > 0 {
 			ui.Box(c.Key(key + "/ink")).
@@ -431,7 +443,13 @@ func renderSidePaneSplit(c *ui.Context, s *chatState, renderChat func()) {
 		}
 		ui.Column(c.Key("inspector-shell")).Width(actual).Shrink(0).Clip().
 			Margin(inspectorTopInset(c), 0, 0, 0).
-			Transition(motionSidePanel(c, false)).Children(func() { renderInspectorBody(c, s, actual, inspectorTopInset(c) == 0) })
+			Transition(motionSidePanel(c, false)).Children(func() {
+				renderInspectorBody(c, s, actual, inspectorTopInset(c) == 0)
+				if inspectorTopInset(c) > 0 {
+					ui.Box(c.Key("inspector-top-border")).Absolute().Left(0).Right(0).Top(0).Height(Hairline).
+						Background(ThemeBorder(c)).Label(sidePaneTopDividerLabel)
+				}
+			})
 	})
 	if overlay {
 		open := true

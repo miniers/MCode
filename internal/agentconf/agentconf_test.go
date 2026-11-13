@@ -13,6 +13,60 @@ import (
 	"mcode/internal/config"
 )
 
+func TestParseCodexTOMLSubtables(t *testing.T) {
+	tests := []struct {
+		name, content, serverName, command string
+		args                               []string
+		env                                map[string]string
+	}{
+		{
+			name: "tool approval is ignored",
+			content: `[mcp_servers.fetch]
+command = "uvx"
+args = ["mcp-server-fetch"]
+[mcp_servers.fetch.tools.fetch]
+approval_mode = "approve"
+enabled = false
+command = "wrong"
+url = "wrong"
+`,
+			serverName: "fetch", command: "uvx", args: []string{"mcp-server-fetch"},
+		},
+		{
+			name: "double quoted dotted name",
+			content: `[mcp_servers."a.b"]
+command = "x"
+[mcp_servers."a.b".env]
+KEY = "value"
+`,
+			serverName: "a.b", command: "x", env: map[string]string{"KEY": "value"},
+		},
+		{
+			name: "single quoted dotted name and unknown subtable",
+			content: `[mcp_servers.'a.b']
+command = "x"
+[mcp_servers.'a.b'.unknown]
+enabled = false
+[mcp_servers.'a.b'.env]
+KEY = "value"
+`,
+			serverName: "a.b", command: "x", env: map[string]string{"KEY": "value"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			servers := parseCodexTOML(tt.content, "codex", "global", "config.toml")
+			if len(servers) != 1 {
+				t.Fatalf("got %d servers: %+v", len(servers), servers)
+			}
+			server := servers[0]
+			if server.Name != tt.serverName || server.Command != tt.command || server.Disabled || server.URL != "" || !reflect.DeepEqual(server.Args, tt.args) || !reflect.DeepEqual(server.Env, tt.env) {
+				t.Errorf("unexpected server: %+v", server)
+			}
+		})
+	}
+}
+
 func TestEmptyConfig(t *testing.T) {
 	home := t.TempDir()
 	proj := t.TempDir()

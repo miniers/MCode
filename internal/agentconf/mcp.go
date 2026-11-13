@@ -1221,6 +1221,7 @@ func parseCodexTOML(content, agent, scope, source string) []MCPServer {
 
 	currentServer := ""
 	inEnvSubtable := false
+	ignoreSubtable := false
 	subtable := ""
 
 	getOrCreate := func(name string) *tomlServerEntry {
@@ -1258,28 +1259,22 @@ func parseCodexTOML(content, agent, scope, source string) []MCPServer {
 				continue
 			}
 
-			sub := strings.TrimPrefix(header, "mcp_servers.")
+			parts := splitTOMLDottedKey(strings.TrimPrefix(header, "mcp_servers."))
+			currentServer = parts[0]
+			getOrCreate(currentServer)
 			subtable = ""
-			for _, suffix := range []string{"env", "http_headers", "env_http_headers"} {
-				if strings.HasSuffix(sub, "."+suffix) {
-					subtable = suffix
-					sub = strings.TrimSuffix(sub, "."+suffix)
-					break
+			if len(parts) == 2 {
+				switch parts[1] {
+				case "env", "http_headers", "env_http_headers":
+					subtable = parts[1]
 				}
 			}
-			if subtable != "" {
-				inEnvSubtable = true
-				currentServer = parseTOMLTableName(sub)
-				getOrCreate(currentServer)
-			} else {
-				inEnvSubtable = false
-				currentServer = parseTOMLTableName(sub)
-				getOrCreate(currentServer)
-			}
+			inEnvSubtable = subtable != ""
+			ignoreSubtable = len(parts) > 1 && !inEnvSubtable
 			continue
 		}
 
-		if currentServer == "" {
+		if currentServer == "" || ignoreSubtable {
 			continue
 		}
 
@@ -1356,6 +1351,32 @@ func parseCodexTOML(content, agent, scope, source string) []MCPServer {
 	}
 
 	return result
+}
+
+// splitTOMLDottedKey 按引号外的点拆分表名。
+func splitTOMLDottedKey(s string) []string {
+	var parts []string
+	start, quote, escaped := 0, byte(0), false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quote != 0 {
+			if ch == '\\' && quote == '"' {
+				escaped = true
+			} else if ch == quote {
+				quote = 0
+			}
+		} else if ch == '"' || ch == '\'' {
+			quote = ch
+		} else if ch == '.' {
+			parts = append(parts, parseTOMLTableName(s[start:i]))
+			start = i + 1
+		}
+	}
+	return append(parts, parseTOMLTableName(s[start:]))
 }
 
 func expandValues(values map[string]string) map[string]string {
