@@ -148,6 +148,30 @@ func TestQuoteIntoEmptyDraft(t *testing.T) {
 	}
 }
 
+func TestMessageContextMenusCopySelection(t *testing.T) {
+	for _, role := range []string{"user", "assistant"} {
+		t.Run(role, func(t *testing.T) {
+			fake := NewFakeClient()
+			fake.SetMessages("t1", []Message{{ID: "m1", Role: role, Text: "alpha target omega", IsFinal: true}})
+			_, tt := newMenuTestState(t, fake, 1)
+			r, ok := tt.Find("alpha target omega")
+			if !ok {
+				t.Fatal("找不到消息正文")
+			}
+			x, y := r.X+40, r.Y+r.H/2
+			tt.ClickAt(x, y)
+			tt.ClickAt(x, y)
+			tt.RightClickAt(x, y)
+			if err := tt.ChooseMenuItem("复制"); err != nil {
+				t.Fatal(err)
+			}
+			if got := tt.Clipboard(); got != "target" {
+				t.Fatalf("clipboard = %q, want target (rect %+v)", got, r)
+			}
+		})
+	}
+}
+
 func TestMessageContextMenusOnSelectableContent(t *testing.T) {
 	for _, role := range []string{"user", "assistant"} {
 		t.Run(role, func(t *testing.T) {

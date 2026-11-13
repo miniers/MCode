@@ -455,8 +455,6 @@ func renderMentionPreviewJump(c *ui.Context, s *chatState, key string, seg menti
 func renderUserMentionParagraph(c *ui.Context, s *chatState, m Message, segments []mentionSegment) {
 	para := ui.RichText(c).
 		MaxWidthPercent(100).
-		Selectable().
-		ContextMenu(messageContextMenu(c, s, m)).
 		FontSize(scaledFont(TypeBody)).
 		LineHeight(1.45).
 		TextColor(ThemePrimaryText(c))

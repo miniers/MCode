@@ -16,11 +16,19 @@ func messageContextMenu(c *ui.Context, s *chatState, m Message) func(*ui.Menu) {
 	return messageContextMenuWithSelection(c, s, m, nil)
 }
 
-// messageContextMenuWithSelection 在消息可选区存在时优先引用选中的正文片段。
+// messageContextMenuWithSelection 在消息可选区存在时优先使用选中的正文片段。
 func messageContextMenuWithSelection(c *ui.Context, s *chatState, m Message, sel func() []ui.SelectedText) func(*ui.Menu) {
 	return func(menu *ui.Menu) {
+		selected := ""
+		if sel != nil {
+			selected = selectedQuoteText(sel())
+		}
 		if menu.Item("复制").Chosen() {
-			c.WriteClipboard(markdownToPlain(m.Text))
+			text := selected
+			if text == "" {
+				text = markdownToPlain(m.Text)
+			}
+			c.WriteClipboard(text)
 			s.setToast("已复制")
 		}
 		if menu.Item("复制 Markdown").Chosen() {
@@ -38,10 +46,8 @@ func messageContextMenuWithSelection(c *ui.Context, s *chatState, m Message, sel
 		}
 		if menu.Item("引用到回复").Chosen() {
 			quote := m.Text
-			if sel != nil {
-				if selected := selectedQuoteText(sel()); selected != "" {
-					quote = selected
-				}
+			if selected != "" {
+				quote = selected
 			}
 			s.quoteIntoDraft(quote)
 		}

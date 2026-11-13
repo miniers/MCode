@@ -384,7 +384,10 @@ func renderUserMessage(c *ui.Context, s *chatState, m Message) ui.Element {
 				// 固有宽度又是 min-content（最长不可断词）算的；含超宽表格行、长行内代码的正文
 				// min-content 远大于气泡宽度，展开后会按那个宽度排版并因右对齐而向左溢出气泡。
 				// 用百分比上限把正文宽度压回气泡内容宽度，随气泡/窗口变窄一起缩小。
-				body := ui.Column(c.Key("msg-user-body-" + m.ID)).AlignItems(ui.End).MaxWidthPercent(100)
+				body := ui.Column(c.Key("msg-user-body-" + m.ID)).AlignItems(ui.End).MaxWidthPercent(100).Selectable()
+				body = body.ContextMenu(messageContextMenuWithSelection(c, s, m, func() []ui.SelectedText {
+					return body.SelectedTexts()
+				}))
 				body.Children(func() {
 					// 正文里命中当前会话列表的 @会话引用渲染为可点击胶囊，其余文本原样渲染
 					if segments := splitThreadMentions(displayText, mentionThreadsSnapshot(s)); hasThreadMention(segments) {
@@ -392,8 +395,6 @@ func renderUserMessage(c *ui.Context, s *chatState, m Message) ui.Element {
 					} else {
 						ui.Text(c, displayText).
 							MaxWidthPercent(100).
-							Selectable().
-							ContextMenu(messageContextMenu(c, s, m)).
 							FontSize(scaledFont(TypeBody)).
 							LineHeight(1.45).
 							TextColor(ThemePrimaryText(c))
