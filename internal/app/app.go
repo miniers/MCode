@@ -2027,11 +2027,11 @@ func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, da
 			if strings.EqualFold(strings.TrimSpace(pCfg.Auth), string(acp.DroidAuthAPIKey)) {
 				mode = acp.DroidAuthAPIKey
 			}
-			apiKey := ""
-			if val, err := secrets.Get(droidAPIKeyAccount); err == nil {
-				apiKey = val
+			opts.DroidAuth = mode
+			opts.DroidAPIKey = func() string {
+				v, _ := secrets.Get(droidAPIKeyAccount)
+				return v
 			}
-			opts.Env = acp.DroidAuthEnv(loginenv.Environ(), mode, apiKey)
 		}
 		backend.RegisterHarness(acp.New(opts))
 	}

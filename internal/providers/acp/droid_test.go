@@ -109,6 +109,36 @@ func TestDroidAuthEnv(t *testing.T) {
 	}
 }
 
+func TestHarnessDroidAuthEnv(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		agent Agent
+		mode  DroidAuthMode
+		want  []string
+		calls int
+	}{
+		{"apiKey", AgentDroid, DroidAuthAPIKey, []string{"PATH=/bin", "FACTORY_API_KEY=secret"}, 1},
+		{"browser", AgentDroid, DroidAuthWeb, []string{"PATH=/bin"}, 0},
+		{"default", AgentDroid, "", []string{"PATH=/bin"}, 0},
+		{"other agent", AgentCline, DroidAuthAPIKey, []string{"PATH=/bin", "FACTORY_API_KEY=old"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			h := New(Options{Agent: tc.agent, DroidAuth: tc.mode, DroidAPIKey: func() string {
+				calls++
+				return "secret"
+			}})
+			if calls != 0 {
+				t.Fatal("API key read during registration")
+			}
+			got := buildEnv(h.authEnv([]string{"PATH=/bin", "FACTORY_API_KEY=old"}), "", nil, nil)
+			if !reflect.DeepEqual(got, tc.want) || calls != tc.calls {
+				t.Errorf("env = %v, calls = %d; want %v, %d", got, calls, tc.want, tc.calls)
+			}
+		})
+	}
+}
+
 func TestDroidRequestedMode(t *testing.T) {
 	allModes := []string{"normal", "spec", "auto-low", "auto-medium", "auto-high"}
 

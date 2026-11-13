@@ -29,10 +29,12 @@ var _ harness.HostToolsReporter = (*Harness)(nil)
 
 // Options 包含 ACP 适配器的配置选项。
 type Options struct {
-	Agent     Agent
-	Binary    string
-	ExtraArgs []string
-	Env       []string
+	Agent       Agent
+	Binary      string
+	ExtraArgs   []string
+	Env         []string
+	DroidAuth   DroidAuthMode
+	DroidAPIKey func() string
 	// BuiltinMCP/ExternalMCP 决定 session/new 与 session/load 中注入的 MCP 服务，
 	// 内置服务按会话路由（BuiltinMCP.Endpoint(turn)）。
 	BuiltinMCP  harness.BuiltinMCP
@@ -177,6 +179,17 @@ func buildEnv(base []string, workDir string, extraOpts []string, extraTurn []str
 	env = append(env, extraOpts...)
 	env = append(env, extraTurn...)
 	return env
+}
+
+func (h *Harness) authEnv(base []string) []string {
+	if h.opts.Agent != AgentDroid {
+		return base
+	}
+	key := ""
+	if h.opts.DroidAuth == DroidAuthAPIKey && h.opts.DroidAPIKey != nil {
+		key = h.opts.DroidAPIKey()
+	}
+	return DroidAuthEnv(base, h.opts.DroidAuth, key)
 }
 
 func resolveReadPath(workDir, path string) (string, error) {
@@ -395,7 +408,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	cmd.Dir = turn.WorkDir
 
 	combinedOptsEnv := append(ExtraEnv(h.opts.Agent), h.opts.Env...)
-	cmd.Env = buildEnv(loginenv.Environ(), turn.WorkDir, combinedOptsEnv, turn.Env)
+	cmd.Env = buildEnv(h.authEnv(loginenv.Environ()), turn.WorkDir, combinedOptsEnv, turn.Env)
 
 	stderrBuf := procutil.NewTailBuffer(8192)
 	cmd.Stderr = stderrBuf
