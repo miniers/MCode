@@ -3,7 +3,6 @@ package codex
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,64 +20,8 @@ import (
 // mode 取值：error=thread/start 返回 JSON-RPC 错误；exit=thread/start 应答后立刻退出（拿不到 turn/start 响应）；
 // emit_then_exit=turn/start 应答并推一条文本后退出（不推 turn/completed）。
 func codexRetryScript(mode string, failTimes int, countPath, logPath string) string {
-	countJSON, _ := json.Marshal(countPath)
-	logJSON, _ := json.Marshal(logPath)
-	return fmt.Sprintf(`
-import sys, json
-
-mode = %q
-fail_times = %d
-count_path = %s
-log_path = %s
-thread_id = "th_mock_123"
-turn_id = "turn_mock_abc"
-
-try:
-    with open(count_path) as f:
-        attempt = int((f.read().strip() or "0"))
-except FileNotFoundError:
-    attempt = 0
-attempt += 1
-with open(count_path, "w") as f:
-    f.write(str(attempt))
-failing = attempt <= fail_times
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    with open(log_path, 'a') as log:
-        log.write(json.dumps(msg) + '\n')
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        if failing and mode == "error":
-            sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"error":{"code":-32000,"message":"boom"}}) + "\n")
-            sys.stdout.flush()
-        else:
-            sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":thread_id}}}) + "\n")
-            sys.stdout.flush()
-            if failing and mode == "exit":
-                break
-    elif method == "turn/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":turn_id}}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"OK"}}) + "\n")
-        sys.stdout.flush()
-        if failing and mode == "emit_then_exit":
-            break
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":turn_id,"status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-`, mode, failTimes, string(countJSON), string(logJSON))
+	config, _ := json.Marshal(retryHelperConfig{Mode: mode, FailTimes: failTimes, CountPath: countPath, LogPath: logPath})
+	return string(config)
 }
 
 // retryRun 用给定脚本跑一轮，返回 Run 的错误与向上发出的事件。
@@ -87,7 +30,7 @@ func retryRun(t *testing.T, script string, backoffs []time.Duration, retrySleep 
 	testenv.TempHome(t)
 
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return retryHelperCommand(ctx, script)
 	}}
 
 	h := New(Options{})
@@ -272,7 +215,7 @@ func TestRunRetryAbortsWhenContextCancelled(t *testing.T) {
 	script := codexRetryScript("error", 99, countPath, logPath)
 
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return retryHelperCommand(ctx, script)
 	}}
 
 	h := New(Options{})
@@ -300,39 +243,8 @@ func TestRunRetryAbortsWhenContextCancelled(t *testing.T) {
 // codexAcceptedScript 生成假 app-server：turn/start 应答后依次推 turn/started、一条文本和 turn/completed。
 // turn/started 让读取协程先上报送达信号，从而能稳定断言 accepted 排在正文之前。
 func codexAcceptedScript() string {
-	return `
-import sys, json
-
-thread_id = "th_mock_123"
-turn_id = "turn_mock_abc"
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":thread_id}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":turn_id}}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/started","params":{"threadId":thread_id,"turn":{"id":turn_id}}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"OK"}}) + "\n")
-        sys.stdout.flush()
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":turn_id,"status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-`
+	config, _ := json.Marshal(retryHelperConfig{Mode: "accepted"})
+	return string(config)
 }
 
 // TestRunEmitsTurnAcceptedOnce 验证 turn/start 成功、turn/started 到达后恰好上报一次

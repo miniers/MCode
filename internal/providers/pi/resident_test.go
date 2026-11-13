@@ -105,7 +105,7 @@ func TestPiResidentHelperProcess(t *testing.T) {
 	}
 }
 
-// residentFake 是驻留测试用的假 pi：与 fakePi 同样走 shell 包装脚本重入测试二进制。
+// residentFake 是驻留测试用的假 pi，使用测试二进制作为替身。
 type residentFake struct {
 	binary    string
 	startFile string
@@ -120,11 +120,7 @@ func newResidentFake(t *testing.T) *residentFake {
 	if err != nil {
 		t.Fatalf("解析测试二进制路径失败: %v", err)
 	}
-	binary := filepath.Join(dir, "pi")
-	wrapper := "#!/bin/sh\nexec '" + self + "' -test.run='^TestPiResidentHelperProcess$' -- \"$@\"\n"
-	if err := os.WriteFile(binary, []byte(wrapper), 0o755); err != nil {
-		t.Fatalf("写入替身启动脚本失败: %v", err)
-	}
+	binary := self
 	fake := &residentFake{
 		binary:    binary,
 		startFile: filepath.Join(dir, "starts.txt"),

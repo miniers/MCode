@@ -79,12 +79,12 @@ func runGateDriver(t *testing.T, nodePath, driverPath, gatePath, homeDir, gateFi
 	cmd := exec.Command(nodePath, driverPath, gatePath)
 	var env []string
 	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "MCODE_PI_GATE=") || strings.HasPrefix(e, "MCODE_PI_VISION_MODEL=") {
+		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "USERPROFILE=") || strings.HasPrefix(e, "MCODE_PI_GATE=") || strings.HasPrefix(e, "MCODE_PI_VISION_MODEL=") {
 			continue
 		}
 		env = append(env, e)
 	}
-	cmd.Env = append(env, "HOME="+homeDir, "MCODE_PI_GATE="+gateFile)
+	cmd.Env = append(env, "HOME="+homeDir, "USERPROFILE="+homeDir, "MCODE_PI_GATE="+gateFile)
 	cmd.Stdin = bytes.NewReader(inputBytes)
 
 	var stdout, stderr bytes.Buffer

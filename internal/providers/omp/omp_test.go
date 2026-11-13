@@ -13,6 +13,13 @@ import (
 	"mcode/internal/procutil"
 )
 
+func TestMain(m *testing.M) {
+	if os.Getenv("GO_WANT_OMP_RUN_HELPER") == "1" {
+		TestOmpRunHelperProcess(nil)
+	}
+	os.Exit(m.Run())
+}
+
 // TestOmpRunHelperProcess 是 Run 测试里替换 omp 的假进程（GO_WANT_OMP_RUN_HELPER=1 时生效，
 // 否则正常测试运行时直接返回）：记录命令行参数与门禁环境变量，并按请求类型逐行回放 fixture。
 //
@@ -25,13 +32,7 @@ func TestOmpRunHelperProcess(t *testing.T) {
 	}
 
 	// (a) 把 `--` 之后的参数逐行写进参数记录文件。
-	var args []string
-	for i, arg := range os.Args {
-		if arg == "--" {
-			args = os.Args[i+1:]
-			break
-		}
-	}
+	args := os.Args[1:]
 	if path := os.Getenv("FAKE_OMP_ARGS_FILE"); path != "" {
 		if err := os.WriteFile(path, []byte(strings.Join(args, "\n")), 0o644); err != nil {
 			os.Exit(2)
@@ -109,7 +110,7 @@ func TestOmpRunHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-// fakeOmp 是一个不联网、不依赖真实 omp 的替身：shell 包装脚本把参数转发给 Go helper 进程。
+// fakeOmp 使用测试二进制作为不联网、不依赖真实 omp 的替身。
 type fakeOmp struct {
 	binary   string
 	argsFile string
@@ -129,11 +130,7 @@ func newFakeOmp(t *testing.T, fixture string) *fakeOmp {
 		t.Fatalf("解析测试二进制路径失败: %v", err)
 	}
 
-	binary := filepath.Join(dir, "omp")
-	wrapper := "#!/bin/sh\nexec '" + self + "' -test.run='^TestOmpRunHelperProcess$' -- \"$@\"\n"
-	if err := os.WriteFile(binary, []byte(wrapper), 0o755); err != nil {
-		t.Fatalf("写入替身启动脚本失败: %v", err)
-	}
+	binary := self
 
 	absoluteFixture, err := filepath.Abs(filepath.Join("testdata", fixture))
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -352,6 +353,9 @@ func TestBinaryAvailable(t *testing.T) {
 
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "mcode-pi-test-binary")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("写假二进制失败: %v", err)
 	}

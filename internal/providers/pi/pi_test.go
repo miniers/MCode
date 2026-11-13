@@ -14,6 +14,16 @@ import (
 	"mcode/internal/procutil"
 )
 
+func TestMain(m *testing.M) {
+	switch {
+	case os.Getenv("GO_WANT_PI_RUN_HELPER") == "1":
+		TestPiRunHelperProcess(nil)
+	case os.Getenv("GO_WANT_PI_RESIDENT_HELPER") == "1":
+		TestPiResidentHelperProcess(nil)
+	}
+	os.Exit(m.Run())
+}
+
 // TestPiRunHelperProcess 是 Run 测试里替换 pi 的假进程（GO_WANT_PI_RUN_HELPER=1 时生效，
 // 否则正常测试运行时直接返回）：记录命令行参数，并按 fixture 回放事件流。
 //
@@ -27,13 +37,7 @@ func TestPiRunHelperProcess(t *testing.T) {
 	}
 
 	// (a) 把 `--` 之后的参数逐行写进参数记录文件。
-	var args []string
-	for i, arg := range os.Args {
-		if arg == "--" {
-			args = os.Args[i+1:]
-			break
-		}
-	}
+	args := os.Args[1:]
 	if path := os.Getenv("FAKE_PI_ARGS_FILE"); path != "" {
 		if err := os.WriteFile(path, []byte(strings.Join(args, "\n")), 0o644); err != nil {
 			os.Exit(2)
@@ -116,8 +120,7 @@ func TestPiRunHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-// fakePi 是一个不联网、不依赖真实 pi 的替身：shell 包装脚本把参数转发给 Go helper 进程。
-// 用 helper 进程而不是 TestMain 重入，避免与本包其他测试文件争抢唯一的 TestMain。
+// fakePi 使用测试二进制作为不联网、不依赖真实 pi 的替身。
 type fakePi struct {
 	binary   string
 	argsFile string
@@ -137,11 +140,7 @@ func newFakePi(t *testing.T, fixture string) *fakePi {
 		t.Fatalf("解析测试二进制路径失败: %v", err)
 	}
 
-	binary := filepath.Join(dir, "pi")
-	wrapper := "#!/bin/sh\nexec '" + self + "' -test.run='^TestPiRunHelperProcess$' -- \"$@\"\n"
-	if err := os.WriteFile(binary, []byte(wrapper), 0o755); err != nil {
-		t.Fatalf("写入替身启动脚本失败: %v", err)
-	}
+	binary := self
 
 	absoluteFixture, err := filepath.Abs(filepath.Join("testdata", fixture))
 	if err != nil {
