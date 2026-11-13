@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,8 +92,17 @@ const handshakeTimeout = 20 * time.Second
 var (
 	catalogMu     sync.RWMutex
 	catalogBinary string
-	modelCache    = &modelcache.Cache[Model]{}
+	modelCache    = &modelcache.Cache[Model]{File: catalogCacheFile("")}
 )
+
+func catalogCacheFile(binary string) string {
+	name := "claude"
+	if binary != "" {
+		hash := sha256.Sum256([]byte(binary))
+		name += fmt.Sprintf("-%x", hash[:6])
+	}
+	return modelcache.DefaultFile(name)
+}
 
 // SetCatalogBinary 更新自动探测使用的 CLI，路径变化时丢弃旧目录与失败退避。
 func SetCatalogBinary(binary string) {
@@ -100,7 +110,7 @@ func SetCatalogBinary(binary string) {
 	defer catalogMu.Unlock()
 	if catalogBinary != binary {
 		catalogBinary = binary
-		modelCache = &modelcache.Cache[Model]{}
+		modelCache = &modelcache.Cache[Model]{File: catalogCacheFile(binary)}
 	}
 }
 

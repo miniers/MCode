@@ -32,7 +32,7 @@ type Model struct {
 	FastTierID string
 }
 
-var modelCache = &modelcache.Cache[Model]{}
+var modelCache = &modelcache.Cache[Model]{File: modelcache.DefaultFile("codex")}
 
 // catalogFetch 是后台探测入口；单独抽成变量便于测试替换，避免真的启动本机 CLI。
 var catalogFetch = fetchCachedModels

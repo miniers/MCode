@@ -3,9 +3,15 @@ package modelcache
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
+
+	"mcode/internal/fsutil"
 )
 
 const retryDelay = 10 * time.Minute
@@ -22,20 +28,44 @@ type Snapshot[T any] struct {
 }
 
 type Cache[T any] struct {
-	mu       sync.Mutex
-	models   []T
-	lastErr  error
-	failedAt time.Time
-	fetching bool
-	gen      uint64
+	File      string
+	mu        sync.Mutex
+	models    []T
+	lastErr   error
+	failedAt  time.Time
+	fetching  bool
+	gen       uint64
+	loaded    bool
+	attempted bool
+}
+
+// DefaultFile 返回模型目录的默认缓存路径。
+func DefaultFile(name string) string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "mcode", "models", name+".json")
 }
 
 // Peek 立即返回缓存与最近一次探测状态；首次读取或失败重试时在后台拉取。
 func (c *Cache[T]) Peek(fetch func(context.Context) ([]T, error)) Snapshot[T] {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.models) == 0 && !c.fetching && (c.failedAt.IsZero() || time.Since(c.failedAt) >= retryDelay) {
+	if !c.loaded {
+		c.loaded = true
+		if c.File != "" && len(c.models) == 0 {
+			if data, err := os.ReadFile(c.File); err == nil {
+				var models []T
+				if json.Unmarshal(data, &models) == nil {
+					c.models = models
+				}
+			}
+		}
+	}
+	if (len(c.models) == 0 || (c.File != "" && !c.attempted)) && !c.fetching && (c.failedAt.IsZero() || time.Since(c.failedAt) >= retryDelay) {
 		c.fetching = true
+		c.attempted = true
 		go c.fetch(context.Background(), c.gen, fetch)
 	}
 	return Snapshot[T]{
@@ -54,6 +84,7 @@ func (c *Cache[T]) Get(fetch func(context.Context) ([]T, error)) []T {
 func (c *Cache[T]) Refresh(ctx context.Context, fetch func(context.Context) ([]T, error)) error {
 	c.mu.Lock()
 	c.gen++
+	c.attempted = true
 	gen := c.gen
 	c.fetching = true
 	c.mu.Unlock()
@@ -79,6 +110,18 @@ func (c *Cache[T]) fetch(ctx context.Context, gen uint64, fetch func(context.Con
 		c.failedAt = time.Now()
 	} else {
 		c.models, c.failedAt = append([]T(nil), models...), time.Time{}
+		if c.File != "" {
+			data, writeErr := json.Marshal(models)
+			if writeErr == nil {
+				writeErr = os.MkdirAll(filepath.Dir(c.File), 0o700)
+			}
+			if writeErr == nil {
+				writeErr = fsutil.WriteFileAtomic(c.File, data, 0o600)
+			}
+			if writeErr != nil {
+				log.Printf("modelcache: 写入缓存失败: %v", writeErr)
+			}
+		}
 	}
 	return err
 }
