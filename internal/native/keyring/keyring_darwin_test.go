@@ -57,6 +57,76 @@ func TestSecurityGetCache(t *testing.T) {
 	}
 }
 
+func TestSecurityGetConcurrent(t *testing.T) {
+	backend := fakeSecurity(t, "sleep 0.3; printf 'token\\n'")
+	start := time.Now()
+	results := make(chan error, 4)
+	for i := 0; i < 4; i++ {
+		go func(account string) {
+			value, err := backend.Get("mcode", account)
+			if err == nil && value != "token" {
+				err = fmt.Errorf("unexpected value %q", value)
+			}
+			results <- err
+		}(fmt.Sprint(i))
+	}
+	for i := 0; i < 4; i++ {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if elapsed := time.Since(start); elapsed >= 900*time.Millisecond {
+		t.Fatalf("concurrent Gets took %v", elapsed)
+	}
+}
+
+func TestSecurityGetDoesNotCacheBeforeSet(t *testing.T) {
+	dir := t.TempDir()
+	started := filepath.Join(dir, "started")
+	release := filepath.Join(dir, "release")
+	backend := fakeSecurity(t, fmt.Sprintf(`
+if [ "$1" = "-i" ]; then exit 0; fi
+if [ ! -f %[1]s ]; then
+  touch %[1]s
+  while [ ! -f %[2]s ]; do sleep 0.01; done
+  printf 'old\n'
+else
+  printf 'new\n'
+fi`, QuoteArg(started), QuoteArg(release)))
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
+	type result struct {
+		value string
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		value, err := backend.Get("mcode", "key")
+		done <- result{value, err}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Get did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := backend.Set("mcode", "key", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-done; got.err != nil || got.value != "old" {
+		t.Fatalf("first Get: %q, %v", got.value, got.err)
+	}
+	if value, err := backend.Get("mcode", "key"); err != nil || value != "new" {
+		t.Fatalf("second Get: %q, %v", value, err)
+	}
+}
+
 func TestSecurityCacheInvalidation(t *testing.T) {
 	count := filepath.Join(t.TempDir(), "count")
 	backend := fakeSecurity(t, fmt.Sprintf("if [ \"$1\" = find-generic-password ]; then printf 'x\\n' >> %s; printf 'token\\n'; fi", QuoteArg(count)))
