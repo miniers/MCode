@@ -28,6 +28,7 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,6 +46,7 @@ import (
 var _ harness.Harness = (*Harness)(nil)
 var _ harness.Steerer = (*Harness)(nil)
 var _ harness.ThreadEvictor = (*Harness)(nil)
+var isWindowsHost = runtime.GOOS == "windows"
 
 // Options 包含 Codex 适配器的配置选项。
 type Options struct {
@@ -1011,8 +1013,8 @@ func buildThreadParams(turn harness.Turn, sandbox, approvalPolicy string, thread
 			headers["X-Mcode-Workdir"] = turn.WorkDir
 		}
 		mcpServers["mcode"] = map[string]any{
-			"url":                         url,
-			"http_headers":                headers,
+			"url":          url,
+			"http_headers": headers,
 			// mcode 自带工具的权限由服务端校验。
 			"default_tools_approval_mode": "approve",
 		}
@@ -1062,6 +1064,16 @@ func buildThreadParams(turn harness.Turn, sandbox, approvalPolicy string, thread
 			cfg["sandbox_workspace_write"] = map[string]any{"writable_roots": roots}
 			threadParams["config"] = cfg
 		}
+	}
+
+	// elevated 沙箱每次 spawn 都需要 UAC setup helper，GUI 下无法完成。
+	if isWindowsHost && sandbox != "danger-full-access" {
+		cfg, _ := threadParams["config"].(map[string]any)
+		if cfg == nil {
+			cfg = map[string]any{}
+		}
+		cfg["windows"] = map[string]any{"sandbox": "unelevated"}
+		threadParams["config"] = cfg
 	}
 
 	threadMethod := "thread/start"

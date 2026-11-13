@@ -26,10 +26,10 @@ func TestBuildThreadParamsWritableRoots(t *testing.T) {
 		t.Fatalf("sandbox_workspace_write = %#v, want %#v", section, want)
 	}
 
-	// 没有附加目录时不带 config。
+	// 没有附加目录时不带 writable_roots。
 	empty, _ := buildThreadParams(harness.Turn{WorkDir: "/work/main"}, "workspace-write", "on-request", "", harness.BuiltinMCP{}, nil, nil)
-	if _, exists := empty["config"]; exists {
-		t.Fatalf("没有附加目录时不应带 config: %v", empty)
+	if cfg, _ := empty["config"].(map[string]any); cfg["sandbox_workspace_write"] != nil {
+		t.Fatalf("没有附加目录时不应带 sandbox_workspace_write: %v", empty)
 	}
 
 	// read-only 与 danger-full-access 档不带 writable_roots。
@@ -40,5 +40,41 @@ func TestBuildThreadParamsWritableRoots(t *testing.T) {
 				t.Fatalf("%s 档不应带 writable_roots: %v", sandbox, got)
 			}
 		}
+	}
+}
+
+func TestBuildThreadParamsWindowsSandbox(t *testing.T) {
+	original := isWindowsHost
+	t.Cleanup(func() { isWindowsHost = original })
+	turn := harness.Turn{WorkDir: "/work/main", AdditionalDirs: []string{"/proj/a"}}
+	for _, tc := range []struct {
+		name    string
+		windows bool
+		sandbox string
+		want    bool
+	}{
+		{"windows workspace-write", true, "workspace-write", true},
+		{"windows read-only", true, "read-only", true},
+		{"windows full access", true, "danger-full-access", false},
+		{"other host", false, "workspace-write", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isWindowsHost = tc.windows
+			params, _ := buildThreadParams(turn, tc.sandbox, "on-request", "", harness.BuiltinMCP{URL: "http://builtin", Token: "token"}, nil, nil)
+			cfg := params["config"].(map[string]any)
+			windows, exists := cfg["windows"]
+			if exists != tc.want || (exists && !reflect.DeepEqual(windows, map[string]any{"sandbox": "unelevated"})) {
+				t.Fatalf("windows = %#v, exists = %v, want %v", windows, exists, tc.want)
+			}
+			if _, exists := cfg["mcp_servers"]; !exists {
+				t.Fatal("mcp_servers missing")
+			}
+			if tc.sandbox == "workspace-write" {
+				want := map[string]any{"writable_roots": []string{"/proj/a"}}
+				if !reflect.DeepEqual(cfg["sandbox_workspace_write"], want) {
+					t.Fatalf("sandbox_workspace_write = %#v, want %#v", cfg["sandbox_workspace_write"], want)
+				}
+			}
+		})
 	}
 }

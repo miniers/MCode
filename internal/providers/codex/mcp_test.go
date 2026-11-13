@@ -55,7 +55,7 @@ func TestBuildThreadParams_BlockedMCP(t *testing.T) {
 
 	t.Run("没有内置与外部端点且 blocked 为空时不生成 config", func(t *testing.T) {
 		params, _ := buildThreadParams(turn, "read-only", "never", "", harness.BuiltinMCP{}, nil, nil)
-		if _, ok := params["config"]; ok {
+		if _, ok := params["config"]; ok && !isWindowsHost {
 			t.Fatalf("expected no config, got %v", params["config"])
 		}
 	})

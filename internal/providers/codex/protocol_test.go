@@ -1502,7 +1502,7 @@ func TestBuildThreadParams_Config(t *testing.T) {
 		if method != "thread/start" {
 			t.Fatalf("expected thread/start, got %s", method)
 		}
-		if _, ok := params["config"]; ok {
+		if _, ok := params["config"]; ok && !isWindowsHost {
 			t.Errorf("expected no config when builtin endpoint is empty, got %+v", params["config"])
 		}
 	})

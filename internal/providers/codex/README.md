@@ -78,6 +78,8 @@ func (h *ProtocolHandler) IsTurnDone() bool
 | `ModeFullAccess` (`"fullAccess"`) | `"danger-full-access"` | `"never"` | 自动同意 (`"accept"`) |
 | 未知模式 | `"read-only"` | `"on-request"` | 自动拒绝 (`"decline"`) |
 
+Windows 上除 `danger-full-access` 外，mcode 强制使用 `unelevated` 沙箱，因为 `elevated` 模式需要 GUI 无法完成的 UAC setup helper。
+
 ## 5. 与 mygo-agent 的协议差异
 
 1. **生命周期中断控制**：mygo-agent 未调用 `turn/interrupt`，在取消时直接关闭标准输入或强杀进程组；当前适配器在 `ctx` 取消时优先调用 schema 中的 `turn/interrupt` RPC，给进程 2 秒优雅中止时间后再收尾。
