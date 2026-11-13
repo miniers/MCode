@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -74,7 +75,7 @@ func TestExternalizeMCPConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("临时配置文件不存在: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Errorf("临时配置文件权限应为 0600，实际 %o", perm)
 	}
 	data, err := os.ReadFile(configPath)

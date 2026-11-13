@@ -3,6 +3,7 @@ package agentconf
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -45,7 +46,7 @@ func TestMCPToolPolicySaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("策略文件应存在: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Fatalf("策略文件权限应为 0600, got %o", perm)
 	}
 

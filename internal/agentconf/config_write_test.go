@@ -3,6 +3,7 @@ package agentconf
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -53,7 +54,7 @@ func TestSaveMCPServerWritesAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取配置文件属性失败：%v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0600 {
 		t.Fatalf("配置文件权限应为 0600，实际 %o", perm)
 	}
 }

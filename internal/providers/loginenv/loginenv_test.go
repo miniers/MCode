@@ -109,6 +109,9 @@ func TestAugmentedPath(t *testing.T) {
 		"/usr/bin",
 		"/bin",
 	}
+	if runtime.GOOS == "windows" {
+		commonDirs = []string{filepath.Join(os.Getenv("USERPROFILE"), ".local", "bin")}
+	}
 	for _, dir := range commonDirs {
 		if !strings.Contains(res, dir) {
 			t.Errorf("expected PATH to contain %q, but got: %s", dir, res)
@@ -117,7 +120,7 @@ func TestAugmentedPath(t *testing.T) {
 
 	// 再次传入已包含 common 目录的路径，验证不会发生重复追加
 	res2 := augmentedPath(res)
-	parts := strings.Split(res2, ":")
+	parts := filepath.SplitList(res2)
 	seen := make(map[string]int)
 	for _, p := range parts {
 		seen[p]++
@@ -209,7 +212,7 @@ func TestFallbackEnvironment(t *testing.T) {
 	if envMap["LANG"] == "" {
 		t.Error("expected LANG to be set in fallback environment")
 	}
-	if !strings.Contains(PATH(), "/usr/bin") {
+	if runtime.GOOS != "windows" && !strings.Contains(PATH(), "/usr/bin") {
 		t.Errorf("expected PATH to contain /usr/bin, got: %s", PATH())
 	}
 }
@@ -272,16 +275,23 @@ func TestFallbackEnvironmentKeepsUserProxy(t *testing.T) {
 }
 
 func TestFindBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows requires PE test binaries; shell fixture is Unix-only")
+	}
 	resetState(t)
 	defer resetState(t)
 
 	binDir := t.TempDir()
 	fallbackDir := t.TempDir()
-	onPath := filepath.Join(binDir, "mcode-find-test")
+	suffix := ""
+	if runtime.GOOS == "windows" {
+		suffix = ".exe"
+	}
+	onPath := filepath.Join(binDir, "mcode-find-test"+suffix)
 	if err := os.WriteFile(onPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	inFallback := filepath.Join(fallbackDir, "mcode-find-fallback")
+	inFallback := filepath.Join(fallbackDir, "mcode-find-fallback"+suffix)
 	if err := os.WriteFile(inFallback, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +343,11 @@ func TestProbePath(t *testing.T) {
 	}
 
 	// 显式路径不需要登录环境，结论立即确定。
-	if found, decided := ProbePath("/bin/sh"); !found || !decided {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found, decided := ProbePath(executable); !found || !decided {
 		t.Fatalf("显式路径应立刻确定: found=%v decided=%v", found, decided)
 	}
 	// 登录环境还在后台加载：没找到的名字不能当作最终结论。

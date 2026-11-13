@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -176,7 +177,7 @@ func TestApplyPatchToolRollback(t *testing.T) {
 		}
 	}
 	info, err := os.Stat(file)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatalf("mode = %v, error = %v", info, err)
 	}
 	for _, name := range []string{"moved.txt", "new", "blocker"} {

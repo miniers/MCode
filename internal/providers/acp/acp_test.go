@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -575,6 +576,10 @@ func TestWaitLaunchSlotSpacingAndCancel(t *testing.T) {
 
 func TestResolveWorkDirPath(t *testing.T) {
 	workDir := t.TempDir()
+	absoluteOutside := "/etc/passwd"
+	if runtime.GOOS == "windows" {
+		absoluteOutside = filepath.VolumeName(workDir) + `\Windows\win.ini`
+	}
 
 	tests := []struct {
 		name     string
@@ -587,7 +592,7 @@ func TestResolveWorkDirPath(t *testing.T) {
 		{name: "cleaned inside", path: "sub/../other.txt", wantRel: "other.txt"},
 		{name: "escape parent", path: "../secret.txt", wantFail: true},
 		{name: "escape deep", path: "sub/../../secret.txt", wantFail: true},
-		{name: "absolute outside", path: "/etc/passwd", wantFail: true},
+		{name: "absolute outside", path: absoluteOutside, wantFail: true},
 	}
 
 	for _, tc := range tests {

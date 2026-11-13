@@ -26,8 +26,11 @@ func TestEditBOMAndPermissions(t *testing.T) {
 		t.Fatalf("content=%q err=%v", content, err)
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil {
 		t.Fatalf("info=%v err=%v", info, err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+		t.Fatalf("mode=%o, want 0600", info.Mode().Perm())
 	}
 }
 
@@ -44,7 +47,7 @@ func TestWriteDirectoriesAndPermissions(t *testing.T) {
 	}
 	result = runTool(t, env, "write", map[string]any{"path": "nested/file", "content": "second"})
 	info, err := os.Stat(path)
-	if result.IsError || err != nil || info.Mode().Perm() != 0600 {
+	if result.IsError || err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatalf("result=%+v info=%v err=%v", result, info, err)
 	}
 }

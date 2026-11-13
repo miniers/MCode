@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"reflect"
 	"strconv"
 	"strings"
@@ -121,7 +122,7 @@ func TestIndexAtomicAndSystemAccount(t *testing.T) {
 		t.Fatalf("stat index file: %v", err)
 	}
 
-	if perm := fi.Mode().Perm(); perm != 0600 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0600 {
 		t.Errorf("expected index file permission 0600, got %o", perm)
 	}
 
@@ -182,7 +183,7 @@ func TestLoginSuccess_RawCodeAndCallbackURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat token file: %v", err)
 	}
-	if tokenFI.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && tokenFI.Mode().Perm() != 0600 {
 		t.Errorf("token file perm must be 0600, got %o", tokenFI.Mode().Perm())
 	}
 
@@ -202,7 +203,7 @@ func TestLoginSuccess_RawCodeAndCallbackURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat installation_id: %v", err)
 	}
-	if instFI.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && instFI.Mode().Perm() != 0600 {
 		t.Errorf("installation_id perm must be 0600, got %o", instFI.Mode().Perm())
 	}
 
@@ -499,7 +500,7 @@ func TestGhostWriteProtection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat token file: %v", err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0600 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0600 {
 		t.Errorf("expected token file permission 0600, got %o", perm)
 	}
 

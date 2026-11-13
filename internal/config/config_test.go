@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -265,7 +266,7 @@ func TestSaveAndLoadRoundtripAndPermissions(t *testing.T) {
 	}
 
 	perm := fi.Mode().Perm()
-	if perm != 0o600 {
+	if runtime.GOOS != "windows" && perm != 0o600 {
 		t.Errorf("expected file permission 0600, got %04o", perm)
 	}
 
@@ -2468,18 +2469,26 @@ func TestWorkbenchOpenInAppsDefaults(t *testing.T) {
 			t.Errorf("%s should be enabled by default", app.Name)
 		}
 	}
-	for _, name := range []string{"Visual Studio Code", "Cursor", "Zed", "Xcode", "Windsurf", "Sublime Text"} {
+	names := []string{"Visual Studio Code", "Cursor", "Zed", "Windsurf", "Sublime Text"}
+	if runtime.GOOS == "darwin" {
+		names = append(names, "Xcode")
+	}
+	for _, name := range names {
 		if _, ok := byName[name]; !ok {
 			t.Errorf("default open-in apps missing %s", name)
 		}
 	}
-	if iterm := byName["iTerm2"]; iterm.BundleID != "com.googlecode.iterm2" || iterm.AppPath != "/Applications/iTerm.app" {
-		t.Errorf("iTerm2 default = %+v", iterm)
+	if runtime.GOOS == "darwin" {
+		if iterm := byName["iTerm2"]; iterm.BundleID != "com.googlecode.iterm2" || iterm.AppPath != "/Applications/iTerm.app" {
+			t.Errorf("iTerm2 default = %+v", iterm)
+		}
 	}
-	if qs := byName["QSpace Pro"]; qs.AppPath != "/Applications/QSpace Pro.app" || qs.BundleID == "" {
-		t.Errorf("QSpace Pro default = %+v", qs)
+	if runtime.GOOS == "darwin" {
+		if qs := byName["QSpace Pro"]; qs.AppPath != "/Applications/QSpace Pro.app" || qs.BundleID == "" {
+			t.Errorf("QSpace Pro default = %+v", qs)
+		}
 	}
-	if byName["Visual Studio Code"].BundleID != "com.microsoft.VSCode" {
+	if runtime.GOOS == "darwin" && byName["Visual Studio Code"].BundleID != "com.microsoft.VSCode" {
 		t.Errorf("Visual Studio Code bundle id = %q", byName["Visual Studio Code"].BundleID)
 	}
 

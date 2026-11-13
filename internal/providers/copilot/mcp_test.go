@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -143,7 +144,7 @@ func TestExternalizeMCPConfig_WritesOwnerOnlyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("临时文件应存在: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != mcpConfigFileMode {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != mcpConfigFileMode {
 		t.Errorf("临时文件权限 = %o，期望 %o", perm, mcpConfigFileMode)
 	}
 	if !filepath.IsAbs(path) {
