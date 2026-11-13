@@ -23,6 +23,17 @@ func (d *Desk) reply(ctx context.Context, threadID, text string) {
 	}
 }
 
+func clipRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
+
 func (d *Desk) tryCLIFallback(ctx context.Context, in Inbound, snap Snapshot) (bool, error) {
 	enabled, opts := d.CLIFallback, d.CLIOptions
 	if d.Settings != nil {
@@ -72,7 +83,7 @@ func (d *Desk) fallback(ctx context.Context, in Inbound, snap Snapshot, reasons 
 			return err
 		}
 	} else {
-		title := truncate(strings.TrimSpace(strings.SplitN(in.Text, "\n", 2)[0]), 80)
+		title := clipRunes(strings.TrimSpace(strings.SplitN(in.Text, "\n", 2)[0]), 80)
 		if _, err := d.Tasks.CreateTask(ctx, CreateTaskInput{Title: title, Body: in.Text, Origin: "owner", SourceMessageID: in.MessageID}); err != nil {
 			return err
 		}

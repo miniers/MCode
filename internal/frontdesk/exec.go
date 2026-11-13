@@ -3,6 +3,7 @@ package frontdesk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -69,6 +70,9 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 		if err != nil || resp == nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			if errors.Is(err, context.DeadlineExceeded) && !errors.Is(roundCtx.Err(), context.DeadlineExceeded) {
+				return err
 			}
 			if err == nil {
 				err = fmt.Errorf("模型返回空响应")
