@@ -180,23 +180,95 @@ func truncateDiffLines(s string, maxBytes int) (string, bool) {
 }
 
 // rewriteNoIndexPaths 把 git diff --no-index 输出中的绝对路径改写为仓库相对路径。
-// git 会把绝对路径去掉开头的 "/" 后放在 a/、b/ 前缀之后，因此分别替换两侧路径。
+//
+// git 通常把绝对路径去掉开头的 "/" 后放在 a/、b/ 前缀之后；路径含反斜杠、双引号
+// 或控制字符时整个 a/<path> 会被引号包住并按 C 风格转义（Windows 的盘符路径必然如此）。
+// 两种形式分别替换两侧路径，改写结果统一为 a/<rel>、b/<rel>。
 func rewriteNoIndexPaths(out, oldAbs, newAbs, rel string) string {
 	rel = filepath.ToSlash(rel)
-	var pairs []string
+	if rel == "" {
+		return out
+	}
+	pairs := make(map[string]string, 8)
 	for _, abs := range []string{oldAbs, newAbs} {
 		trimmed := strings.TrimPrefix(filepath.ToSlash(abs), "/")
 		if trimmed == "" {
 			continue
 		}
 		for _, prefix := range []string{"a/", "b/"} {
-			pairs = append(pairs, prefix+trimmed, prefix+rel)
+			target := noIndexPathToken(prefix, rel)
+			pairs[prefix+trimmed] = target
+			pairs[quoteNoIndexPath(prefix, abs)] = target
+			pairs[quoteNoIndexPath(prefix, trimmed)] = target
 		}
 	}
 	if len(pairs) == 0 {
 		return out
 	}
-	return strings.NewReplacer(pairs...).Replace(out)
+	replacements := make([]string, 0, len(pairs)*2)
+	for old, new := range pairs {
+		replacements = append(replacements, old, new)
+	}
+	return strings.NewReplacer(replacements...).Replace(out)
+}
+
+// noIndexPathToken 按 git 的引用规则渲染 a/<path> 或 b/<path>。
+func noIndexPathToken(prefix, path string) string {
+	if !needsGitQuoting(path) {
+		return prefix + path
+	}
+	return quoteNoIndexPath(prefix, path)
+}
+
+// quoteNoIndexPath 返回 git 在需要时输出的带引号形式。
+func quoteNoIndexPath(prefix, path string) string {
+	return "\"" + prefix + quoteGitPath(path) + "\""
+}
+
+// needsGitQuoting 判断 git 是否会为路径加引号。core.quotePath=false 时非 ASCII
+// 字符保持原样，只有双引号、反斜杠和控制字符需要 C 风格转义。
+func needsGitQuoting(path string) bool {
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		if c == '"' || c == '\\' || c < 0x20 || c == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+// quoteGitPath 按 git 的 C 风格规则转义路径。
+func quoteGitPath(path string) string {
+	var b strings.Builder
+	for i := 0; i < len(path); i++ {
+		switch c := path[i]; c {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\a':
+			b.WriteString(`\a`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\t':
+			b.WriteString(`\t`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\v':
+			b.WriteString(`\v`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			if c < 0x20 || c == 0x7f {
+				fmt.Fprintf(&b, `\%03o`, c)
+			} else {
+				b.WriteByte(c)
+			}
+		}
+	}
+	return b.String()
 }
 
 func isExistingDir(path string) bool {

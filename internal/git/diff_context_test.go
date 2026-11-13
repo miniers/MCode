@@ -251,3 +251,126 @@ func TestDiffBetweenWorktreesAddedAndDeleted(t *testing.T) {
 		}
 	}
 }
+
+func TestRewriteNoIndexPaths(t *testing.T) {
+	const (
+		winOldKeep = `C:\work\old\pkg\keep.go`
+		winNewKeep = `C:\work\new\pkg\keep.go`
+	)
+	cases := []struct {
+		name   string
+		in     string
+		oldAbs string
+		newAbs string
+		rel    string
+		want   []string
+		leaks  []string
+	}{
+		{
+			name: "windows modified file",
+			in: `diff --git "a/C:\\work\\old\\pkg\\keep.go" "b/C:\\work\\new\\pkg\\keep.go"
+index b98b1bc..141a104 100644
+--- "a/C:\\work\\old\\pkg\\keep.go"
++++ "b/C:\\work\\new\\pkg\\keep.go"
+@@ -1,3 +1,3 @@
+ package pkg
+`,
+			oldAbs: winOldKeep,
+			newAbs: winNewKeep,
+			rel:    "pkg/keep.go",
+			want: []string{
+				`diff --git a/pkg/keep.go b/pkg/keep.go`,
+				`--- a/pkg/keep.go`,
+				`+++ b/pkg/keep.go`,
+			},
+			leaks: []string{`C:\work`, `C:\\work`},
+		},
+		{
+			name: "windows added file",
+			in: `diff --git "a/C:\\work\\new\\pkg\\added.go" "b/C:\\work\\new\\pkg\\added.go"
+new file mode 100644
+index 0000000..468e1ce
+--- /dev/null
++++ "b/C:\\work\\new\\pkg\\added.go"
+@@ -0,0 +1,3 @@
++package pkg
+`,
+			oldAbs: `C:\work\old\pkg\added.go`,
+			newAbs: `C:\work\new\pkg\added.go`,
+			rel:    "pkg/added.go",
+			want: []string{
+				`diff --git a/pkg/added.go b/pkg/added.go`,
+				`--- /dev/null`,
+				`+++ b/pkg/added.go`,
+			},
+			leaks: []string{`C:\work`, `C:\\work`},
+		},
+		{
+			name: "windows deleted file",
+			in: `diff --git "a/C:\\work\\old\\pkg\\deleted.go" "b/C:\\work\\old\\pkg\\deleted.go"
+deleted file mode 100644
+index 7594520..0000000
+--- "a/C:\\work\\old\\pkg\\deleted.go"
++++ /dev/null
+@@ -1,3 +0,0 @@
+-package pkg
+`,
+			oldAbs: `C:\work\old\pkg\deleted.go`,
+			newAbs: `C:\work\new\pkg\deleted.go`,
+			rel:    "pkg/deleted.go",
+			want: []string{
+				`diff --git a/pkg/deleted.go b/pkg/deleted.go`,
+				`--- a/pkg/deleted.go`,
+				`+++ /dev/null`,
+			},
+			leaks: []string{`C:\work`, `C:\\work`},
+		},
+		{
+			name: "unix unquoted paths",
+			in: `diff --git a/tmp/old/pkg/keep.go b/tmp/new/pkg/keep.go
+--- a/tmp/old/pkg/keep.go
++++ b/tmp/new/pkg/keep.go
+`,
+			oldAbs: "/tmp/old/pkg/keep.go",
+			newAbs: "/tmp/new/pkg/keep.go",
+			rel:    "pkg/keep.go",
+			want: []string{
+				`diff --git a/pkg/keep.go b/pkg/keep.go`,
+				`--- a/pkg/keep.go`,
+				`+++ b/pkg/keep.go`,
+			},
+			leaks: []string{"/tmp/old", "/tmp/new"},
+		},
+		{
+			name: "relative path needs quoting",
+			in: `diff --git "a/C:\\work\\old\\pkg\\tab\tname.go" "b/C:\\work\\new\\pkg\\tab\tname.go"
+--- "a/C:\\work\\old\\pkg\\tab\tname.go"
++++ "b/C:\\work\\new\\pkg\\tab\tname.go"
+`,
+			oldAbs: "C:\\work\\old\\pkg\\tab\tname.go",
+			newAbs: "C:\\work\\new\\pkg\\tab\tname.go",
+			rel:    "pkg/tab\tname.go",
+			want: []string{
+				`diff --git "a/pkg/tab\tname.go" "b/pkg/tab\tname.go"`,
+				`--- "a/pkg/tab\tname.go"`,
+				`+++ "b/pkg/tab\tname.go"`,
+			},
+			leaks: []string{`C:\\work`, `C:\\\\work`},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rewriteNoIndexPaths(tc.in, tc.oldAbs, tc.newAbs, tc.rel)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("missing %q:\n%s", want, got)
+				}
+			}
+			for _, leak := range tc.leaks {
+				if strings.Contains(got, leak) {
+					t.Fatalf("leaked absolute path %q:\n%s", leak, got)
+				}
+			}
+		})
+	}
+}
