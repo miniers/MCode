@@ -22,6 +22,8 @@ type SwarmBeeSummary struct {
 	Task   string
 	Tier   string
 	Status string
+	// Summary 是 bee 当前的汇报总结，可能为空。
+	Summary string
 	// StartedAt 是派发时刻，列表按它升序排列。
 	StartedAt time.Time
 	// FinishedAt 为 nil 表示尚未结束。
@@ -35,7 +37,8 @@ func (r *Registry) registerSwarmReportTools(s *Server) {
 		Name: swarmReportGetToolName,
 		Description: "Without bee_id, list every bee of the calling lead session with its status (running, completed, failed, stopped), " +
 			"so you can tell a bee still at work from one that failed. " +
-			"With bee_id, fetch the full archived report of a finished bee; reports longer than 1500 characters are cut short in the report message, " +
+			"With bee_id, fetch the archived report, or the current status and latest output if it failed, stopped, or has not reported yet; " +
+			"reports longer than 1500 characters are cut short in the report message, " +
 			"which then carries a '- ID：' line. Only bees of the calling lead session, or of the sessions it was continued or forked from, can be read.",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -64,6 +67,29 @@ func handleSwarmReportGet(tc ToolContext, args map[string]any) ToolResult {
 	}
 	rec, err := tc.Server.opts.Store.GetSwarmReport(tc.Context, beeID)
 	if errors.Is(err, store.ErrNotFound) {
+		if tc.Server.opts.SwarmBees != nil {
+			for _, bee := range tc.Server.opts.SwarmBees(leadThreadID) {
+				if bee.ID != beeID {
+					continue
+				}
+				summary := bee.Summary
+				if summary == "" {
+					messages, _, err := tc.Server.opts.Store.ListMessages(tc.Context, beeID, 0, 50)
+					if err == nil {
+						for i := len(messages) - 1; i >= 0; i-- {
+							if messages[i].Role == "assistant" && strings.TrimSpace(messages[i].Text) != "" {
+								summary = messages[i].Text
+								break
+							}
+						}
+					}
+				}
+				return toolSuccess(map[string]any{
+					"bee_id": bee.ID, "name": bee.Name, "task": bee.Task,
+					"status": bee.Status, "summary": summary,
+				})
+			}
+		}
 		return toolError(CodeNotFound, "No archived report for bee "+beeID, false)
 	}
 	if err != nil {

@@ -106,6 +106,56 @@ func TestSwarmReportGetContinuedSession(t *testing.T) {
 	}
 }
 
+func TestSwarmReportGetFallsBackToBee(t *testing.T) {
+	srv, st, _ := setupTestMCPWithOptions(t, func(o *Options) {
+		o.SwarmBees = func(leadThreadID string) []SwarmBeeSummary {
+			if leadThreadID != "lead-1" {
+				return nil
+			}
+			return []SwarmBeeSummary{
+				{ID: "bee-summary", Name: "Ada", Task: "改造", Status: "failed", Summary: "当前总结"},
+				{ID: "bee-messages", Name: "Lin", Task: "检查", Status: "stopped"},
+			}
+		}
+	})
+	registerThread(t, st, "lead-1", "proj-test-1")
+	registerThread(t, st, "bee-messages", "proj-test-1")
+	for _, msg := range []store.Message{
+		{ID: "msg-1", ThreadID: "bee-messages", Role: "assistant", Text: "旧输出"},
+		{ID: "msg-2", ThreadID: "bee-messages", Role: "assistant", Text: " 最新输出 "},
+		{ID: "msg-3", ThreadID: "bee-messages", Role: "assistant", Text: " \n "},
+		{ID: "msg-4", ThreadID: "bee-messages", Role: "user", Text: "用户消息"},
+	} {
+		if _, err := st.AppendMessage(context.Background(), msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		id, name, task, status, summary string
+	}{
+		{"bee-summary", "Ada", "改造", "failed", "当前总结"},
+		{"bee-messages", "Lin", "检查", "stopped", " 最新输出 "},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			text, isError := callSwarmReportGet(t, srv, "lead-1", map[string]any{"bee_id": tc.id})
+			if isError {
+				t.Fatalf("读取 bee 状态失败: %s", text)
+			}
+			var got map[string]string
+			if err := json.Unmarshal([]byte(text), &got); err != nil {
+				t.Fatalf("结果不是 JSON: %v", err)
+			}
+			if got["bee_id"] != tc.id || got["name"] != tc.name || got["task"] != tc.task || got["status"] != tc.status || got["summary"] != tc.summary {
+				t.Fatalf("返回内容不符: %v", got)
+			}
+		})
+	}
+	text, isError := callSwarmReportGet(t, srv, "lead-1", map[string]any{"bee_id": "bee-missing"})
+	if !isError || !strings.Contains(text, CodeNotFound) {
+		t.Fatalf("不存在的 bee 应返回 not_found, 实际: %v %s", isError, text)
+	}
+}
+
 // TestSwarmReportGetListSorted bees 列表按 StartedAt 升序返回，字段齐全，未结束时不含 finished_at。
 func TestSwarmReportGetListSorted(t *testing.T) {
 	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)

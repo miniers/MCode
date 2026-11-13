@@ -822,6 +822,7 @@ func Open(opts Options) (*App, error) {
 					Task:           bee.Task,
 					Tier:           bee.Tier,
 					Status:         string(bee.Status),
+					Summary:        bee.Summary,
 					StartedAt:      bee.StartedAt,
 					FinishedAt:     bee.FinishedAt,
 					LastProgressAt: bee.LastProgressAt,
