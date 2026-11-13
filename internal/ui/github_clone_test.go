@@ -43,6 +43,27 @@ func TestGitHubCloneReposLoadingAndRows(t *testing.T) {
 	}
 }
 
+func TestGitHubCloneReposLoadingShowsPastedRow(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	state, view := buildRoot(NewFakeClient())
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1200, 800)
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+	cs := getGitHubCloneState(state)
+	cs.open = true
+	cs.search = "ada/mcode"
+	cs.reposLoading = true
+	cs.reposLoaded = false
+	tt.Frame()
+	if _, ok := tt.Access("克隆 ada/mcode"); !ok {
+		t.Fatal("仓库列表加载中时应显示粘贴的 URL 行")
+	}
+	if _, ok := tt.Access("加载中"); !ok {
+		t.Fatal("仓库列表加载中时应显示加载状态")
+	}
+}
+
 func TestCloneInstallButton(t *testing.T) {
 	for _, tc := range []struct {
 		missing bool

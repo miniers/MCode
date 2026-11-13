@@ -516,16 +516,16 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 					Children(func() {
 						ui.Scroll(c.Key("github-clone-repos-scroll")).Fill().Children(func() {
 							ui.Column(c.Key("github-clone-repos-col")).FillWidth().Padding(Space1).Gap(Space0).Children(func() {
-								if !cs.reposLoaded {
-									LoadingIndicator(c, "github-clone-repos-loading", "", IconSM)
-									return
-								}
 								query := strings.TrimSpace(cs.search)
 								hasPasted, _ := parseGitHubRepo(query)
 								matches := 0
 								if hasPasted != "" {
 									renderGitHubRepoRow(c, s, cs, hasPasted, "克隆 "+hasPasted)
 									matches++
+								}
+								if !cs.reposLoaded {
+									LoadingIndicator(c, "github-clone-repos-loading", "", IconSM)
+									return
 								}
 								for _, repo := range cs.repos {
 									if query != "" && !strings.Contains(strings.ToLower(repo), strings.ToLower(query)) {
