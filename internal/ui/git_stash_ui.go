@@ -190,6 +190,9 @@ func (f *gitStashDialog) runStashOp(name, doneToast string, op func(ctx context.
 		defer cancel()
 		err := op(ctx)
 		if err == nil {
+			if doneToast != "" {
+				f.s.setToast(doneToast)
+			}
 			f.s.loadGitState(f.threadID)
 		}
 		st.mu.Lock()
@@ -206,9 +209,6 @@ func (f *gitStashDialog) runStashOp(name, doneToast string, op func(ctx context.
 		if err != nil {
 			f.invalidate()
 			return
-		}
-		if doneToast != "" {
-			f.s.setToast(doneToast)
 		}
 		f.fetchStashEntries()
 	}()
@@ -427,6 +427,7 @@ func renderGitStashRow(c *ui.Context, f *gitStashDialog, entry git.StashEntry, b
 	}
 
 	ui.Row(c.Key(key)).
+		Transition(motionListItem(c)).
 		FillWidth().
 		Padding(Space3, Space3).
 		Radius(RadiusMD).

@@ -123,3 +123,12 @@ func TestGitRemotesUnsupported(t *testing.T) {
 	open = false
 	tt.Frame()
 }
+
+func TestGitRemotesAddToast(t *testing.T) {
+	f := &gitRemotesFake{FakeClient: NewFakeClient()}
+	s := newChatState(f)
+	defer s.close()
+	st := &gitRemotesState{active: true}
+	st.run(s, f, "thread", "已添加远端 origin", func(ctx context.Context) error { return f.GitRemoteAdd(ctx, "thread", "origin", "url") })
+	gitPaneWait(t, func() bool { return recallTestToast(s) == "已添加远端 origin" })
+}

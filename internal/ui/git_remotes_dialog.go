@@ -86,7 +86,7 @@ func (st *gitRemotesState) fetch(s *chatState, client gitRemotesClient, threadID
 	}()
 }
 
-func (st *gitRemotesState) run(s *chatState, client gitRemotesClient, threadID string, op func(context.Context) error) {
+func (st *gitRemotesState) run(s *chatState, client gitRemotesClient, threadID, toast string, op func(context.Context) error) {
 	st.mu.Lock()
 	if st.busy {
 		st.mu.Unlock()
@@ -104,6 +104,9 @@ func (st *gitRemotesState) run(s *chatState, client gitRemotesClient, threadID s
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		err := op(ctx)
+		if err == nil && toast != "" {
+			s.setToast(toast)
+		}
 		entries, loadErr := client.GitRemotes(ctx, threadID)
 		st.mu.Lock()
 		if !st.active || st.seq != seq {
@@ -156,7 +159,7 @@ func (st *gitRemotesState) deleteClick(s *chatState, client gitRemotesClient, th
 	deadline := st.confirmUntil
 	st.mu.Unlock()
 	if confirmed {
-		st.run(s, client, threadID, func(ctx context.Context) error { return client.GitRemoteRemove(ctx, threadID, name) })
+		st.run(s, client, threadID, "已删除远端 "+name, func(ctx context.Context) error { return client.GitRemoteRemove(ctx, threadID, name) })
 		return
 	}
 	time.AfterFunc(3*time.Second, func() {
@@ -215,6 +218,9 @@ func renderGitRemotesDialog(c *ui.Context, s *chatState, threadID string, open *
 			modalDragHandle(c, modalDragGitRemotes, ui.Row(c.Key("git-remotes-title")).FillWidth().AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "远端").FontSize(uiFont(TypeTitle)).FontWeight(600).TextColor(ThemePrimaryText(c))
 				ui.Spacer(c)
+				if busy {
+					LoadingIndicator(c, nil, "", IconSM)
+				}
 			}))
 			if showLoading {
 				LoadingIndicator(c, nil, "", IconSM)
@@ -233,7 +239,7 @@ func renderGitRemotesDialog(c *ui.Context, s *chatState, threadID string, open *
 								gitRemoteInputs(c, st, key, busy, func() {
 									if gitRemoteValid(st.name, st.url) {
 										name, url := st.name, st.url
-										st.run(s, client, threadID, func(ctx context.Context) error { return gitRemoteSave(ctx, client, threadID, entry, name, url) })
+										st.run(s, client, threadID, "已更新远端 "+name, func(ctx context.Context) error { return gitRemoteSave(ctx, client, threadID, entry, name, url) })
 									}
 								})
 								return
@@ -282,12 +288,12 @@ func renderGitRemotesDialog(c *ui.Context, s *chatState, threadID string, open *
 						gitRemoteInputs(c, st, "git-remotes-add", busy, func() {
 							if gitRemoteValid(st.name, st.url) {
 								name, url := st.name, st.url
-								st.run(s, client, threadID, func(ctx context.Context) error { return client.GitRemoteAdd(ctx, threadID, name, url) })
+								st.run(s, client, threadID, "已添加远端 "+name, func(ctx context.Context) error { return client.GitRemoteAdd(ctx, threadID, name, url) })
 							}
 						})
 						Button(c, ButtonOpts{Key: "git-remotes-add-submit", Text: "添加", Variant: ButtonPrimary, Disabled: busy || !gitRemoteValid(st.name, st.url), OnClick: func() {
 							name, url := st.name, st.url
-							st.run(s, client, threadID, func(ctx context.Context) error { return client.GitRemoteAdd(ctx, threadID, name, url) })
+							st.run(s, client, threadID, "已添加远端 "+name, func(ctx context.Context) error { return client.GitRemoteAdd(ctx, threadID, name, url) })
 						}})
 					})
 				} else {

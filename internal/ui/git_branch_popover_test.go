@@ -8,6 +8,7 @@ import (
 	"mcode/internal/git"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -182,4 +183,43 @@ func TestGitBranchPopoverStashSwitch(t *testing.T) {
 			}
 		})
 	}
+}
+
+type delayedBranchPopoverFake struct {
+	*branchPopoverFake
+	started chan struct{}
+	release chan struct{}
+}
+
+func (f *delayedBranchPopoverFake) GitCheckout(context.Context, string, string) error {
+	close(f.started)
+	<-f.release
+	return nil
+}
+func TestGitBranchPopoverBusyAndToast(t *testing.T) {
+	f := &delayedBranchPopoverFake{branchPopoverFake: &branchPopoverFake{newGitFakeClient()}, started: make(chan struct{}), release: make(chan struct{})}
+	s, root := buildRoot(f)
+	tt := ui.NewTester(root, 1000, 700)
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(f.release) }) }
+	defer release()
+	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
+	if err := tt.Click("Git 分支"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 unmerged"); return ok })
+	if err := tt.Click("切换到分支 unmerged"); err != nil {
+		t.Fatal(err)
+	}
+	<-f.started
+	p := branchPopoverFor(s, "t1")
+	p.mu.Lock()
+	busy, name := p.busy, p.busyName
+	p.mu.Unlock()
+	if !busy || name != "unmerged" {
+		t.Fatalf("busy = %v, busyName = %q", busy, name)
+	}
+	release()
+	waitFor(t, tt, func() bool { p.mu.Lock(); defer p.mu.Unlock(); return !p.busy && p.busyName == "" })
+	waitFor(t, tt, func() bool { return tt.HasText("已切换到 unmerged") })
 }

@@ -29,12 +29,12 @@ type gitBranchPopupState struct {
 	mu                                   sync.Mutex
 	query, edit, editName, confirm, menu string
 	err                                  git.Failure
-	retryBranch                          string
+	retryBranch, busyName                string
 	branches                             []git.BranchInfo
 	recent                               []string
 	tags                                 []git.TagInfo
 	loaded, loading, busy                bool
-	loadStarted                          time.Time
+	loadStarted, busyStarted             time.Time
 	local, remote, tag                   bool
 	selected                             int
 	seq                                  uint64
@@ -130,6 +130,8 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 	tags := append([]git.TagInfo(nil), p.tags...)
 	loaded, busy, local, remote, tag, selected := p.loaded, p.busy, p.local, p.remote, p.tag, p.selected
 	loading := p.loading && time.Since(p.loadStarted) >= 150*time.Millisecond
+	busyName := p.busyName
+	showBusy := p.busy && time.Since(p.busyStarted) >= 150*time.Millisecond
 	p.mu.Unlock()
 	if !advanced || !loaded {
 		branches = nil
@@ -137,23 +139,27 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 			branches = append(branches, git.BranchInfo{Name: name, Head: name == state.Branch})
 		}
 	}
-	runWithBranch := func(closeOnSuccess bool, branch string, op func(context.Context) error) {
+	runWithBranch := func(closeOnSuccess bool, branch, toast string, op func(context.Context) error) {
 		p.mu.Lock()
 		if p.busy {
 			p.mu.Unlock()
 			return
 		}
 		p.busy = true
+		p.busyName = branch
+		p.busyStarted = time.Now()
 		p.err = git.Failure{}
 		p.retryBranch = ""
 		p.mu.Unlock()
 		s.invalidate()
+		time.AfterFunc(150*time.Millisecond, s.invalidate)
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			err := op(ctx)
 			p.mu.Lock()
 			p.busy = false
+			p.busyName = ""
 			if err != nil {
 				p.err = git.ClassifyError(err)
 				if p.err.Kind == git.FailureWorktree {
@@ -164,6 +170,9 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 			}
 			p.mu.Unlock()
 			if err == nil {
+				if toast != "" {
+					s.setToast(toast)
+				}
 				s.loadGitState(threadID)
 				if !closeOnSuccess {
 					loadBranchPopover(s, threadID, p)
@@ -172,8 +181,8 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 			s.invalidate()
 		}()
 	}
-	run := func(closeOnSuccess bool, op func(context.Context) error) {
-		runWithBranch(closeOnSuccess, "", op)
+	run := func(closeOnSuccess bool, branch, toast string, op func(context.Context) error) {
+		runWithBranch(closeOnSuccess, branch, toast, op)
 	}
 	if confirm == "close" {
 		*open = false
@@ -188,21 +197,21 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 		}
 		switch item.kind {
 		case "create":
-			run(true, func(ctx context.Context) error { return s.client.GitCreateBranch(ctx, threadID, item.name) })
+			run(true, item.name, "已创建分支 "+item.name, func(ctx context.Context) error { return s.client.GitCreateBranch(ctx, threadID, item.name) })
 		case "remote":
-			run(true, func(ctx context.Context) error {
+			run(true, item.name, "已切换到 "+item.name, func(ctx context.Context) error {
 				_, err := client.GitCheckoutRemoteBranch(ctx, threadID, item.name)
 				return err
 			})
 		case "tag":
-			run(true, func(ctx context.Context) error { return s.client.GitCheckout(ctx, threadID, item.name) })
+			run(true, item.name, "已切换到 "+item.name, func(ctx context.Context) error { return s.client.GitCheckout(ctx, threadID, item.name) })
 		default:
 			if branchOtherWorktree(item.branch, state.WorkDir) {
-				run(true, func(ctx context.Context) error {
+				run(true, item.name, "已切换到 "+item.name, func(ctx context.Context) error {
 					return s.client.GitSwitchWorktree(ctx, threadID, item.branch.WorktreePath)
 				})
 			} else {
-				runWithBranch(true, item.name, func(ctx context.Context) error { return s.client.GitCheckout(ctx, threadID, item.name) })
+				runWithBranch(true, item.name, "已切换到 "+item.name, func(ctx context.Context) error { return s.client.GitCheckout(ctx, threadID, item.name) })
 			}
 		}
 	}
@@ -310,20 +319,20 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 					if item.kind == "local" {
 						actions = append(actions,
 							rowAction{"合并到当前", current, func() {
-								run(false, func(ctx context.Context) error { return s.client.GitMergeFrom(ctx, threadID, item.name) })
+								run(false, item.name, "已合并 "+item.name, func(ctx context.Context) error { return s.client.GitMergeFrom(ctx, threadID, item.name) })
 							}},
 							rowAction{"将当前变基到此", current, func() {
-								run(false, func(ctx context.Context) error { return client.GitRebase(ctx, threadID, item.name) })
+								run(false, item.name, "已变基到 "+item.name, func(ctx context.Context) error { return client.GitRebase(ctx, threadID, item.name) })
 							}},
 							rowAction{"基于此新建分支", false, func() { p.mu.Lock(); p.edit = "create:" + item.name; p.editName = ""; p.mu.Unlock() }},
 							rowAction{"重命名", false, func() { p.mu.Lock(); p.edit = "rename:" + item.name; p.editName = item.name; p.mu.Unlock() }},
 						)
 					}
 					if item.kind != "tag" {
-						actions = append(actions, rowAction{"复制名称", false, func() { c.WriteClipboard(item.name) }})
+						actions = append(actions, rowAction{"复制名称", false, func() { c.WriteClipboard(item.name); s.setToast("已复制") }})
 					} else {
 						actions = append(actions, rowAction{"推送", false, func() {
-							run(false, func(ctx context.Context) error { return client.GitPushTag(ctx, threadID, "origin", item.name) })
+							run(false, item.name, "已推送标签 "+item.name, func(ctx context.Context) error { return client.GitPushTag(ctx, threadID, "origin", item.name) })
 						}})
 					}
 					if item.kind != "remote" {
@@ -334,13 +343,16 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 								p.mu.Unlock()
 								return
 							}
-							run(false, func(ctx context.Context) error {
+							run(false, item.name, "", func(ctx context.Context) error {
 								err := client.GitBranchDelete(ctx, threadID, item.name, false)
 								if branchDeleteNeedsForce(err) {
 									p.mu.Lock()
 									p.confirm = "branch:" + item.name
 									p.mu.Unlock()
 									return nil
+								}
+								if err == nil {
+									s.setToast("已删除 " + item.name)
 								}
 								return err
 							})
@@ -349,6 +361,8 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 					row := ui.Row(c.Key(key + "-row")).FillWidth().Height(RowHeight).AlignItems(ui.Center)
 					row.Children(func() {
 						btn := ui.ButtonBase(c.Key(key)).Label("切换到分支 " + item.name).Grow(1).Shrink(1).MinWidth(0).Height(RowHeight).Radius(RadiusSM).Justify(ui.Start).Disabled(busy).Transition(motionFeedback(c))
+						scale := motionPressScale(c, btn, "button-press-scale", !busy && btn.Pressed())
+						btn.Scale(scale, scale)
 						if idx == selected {
 							btn.Background(ThemeSelected(c))
 						} else if btn.Hovered() {
@@ -377,6 +391,9 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 								}
 								ui.Text(c, mark).FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
 								ui.Text(c, item.name).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine()
+								if showBusy && busyName == item.name {
+									LoadingIndicator(c, nil, "", IconSM)
+								}
 								if item.branch.Ahead > 0 {
 									ui.Text(c, fmt.Sprintf("↑%d", item.branch.Ahead)).FontSize(uiFont(TypeCaption)).TextColor(ThemeSuccess(c))
 								}
@@ -475,7 +492,11 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 						p.mu.Lock()
 						p.edit = ""
 						p.mu.Unlock()
-						run(kind == "create", func(ctx context.Context) error {
+						toast := "已重命名为 " + name
+						if kind == "create" {
+							toast = "已创建分支 " + name
+						}
+						run(kind == "create", old, toast, func(ctx context.Context) error {
 							if kind == "create" {
 								return client.GitCreateBranchAt(ctx, threadID, name, old, true)
 							}
@@ -496,7 +517,7 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 			stash, canPop := s.client.(gitStashClient)
 			if retryBranch != "" && canPush && canPop {
 				Button(c, ButtonOpts{Key: "branch-stash-switch", Text: "贮藏后切换", Variant: ButtonSecondary, Disabled: busy, OnClick: func() {
-					runWithBranch(true, "", func(ctx context.Context) error {
+					runWithBranch(true, retryBranch, "", func(ctx context.Context) error {
 						if err := push.GitStashPush(ctx, threadID, gitSwitchStashMarker); err != nil {
 							return err
 						}
@@ -530,7 +551,7 @@ func renderGitBranchPopoverContent(c *ui.Context, s *chatState, threadID string,
 					Button(c, ButtonOpts{Key: "git-branch-confirm-cancel", Text: "取消", Variant: ButtonSecondary, OnClick: cancel}).AutoFocus()
 					Button(c, ButtonOpts{Key: "git-branch-confirm-accept", Text: label, Variant: ButtonDanger, OnClick: func() {
 						cancel()
-						run(false, func(ctx context.Context) error {
+						run(false, name, "已删除 "+name, func(ctx context.Context) error {
 							if kind == "branch" {
 								return client.GitBranchDelete(ctx, threadID, name, true)
 							}

@@ -1020,6 +1020,17 @@ func TestChatHeaderManualPushPR(t *testing.T) {
 		t.Fatalf("TriggerAutoMerge lead = %q, want t1", got)
 	}
 
+	tt.Frame()
+	if !pushConfirmOf(s) {
+		t.Fatal("执行中确认区应保持打开")
+	}
+	if node, ok := tt.Access("确认合并"); !ok || !node.Disabled {
+		t.Fatalf("执行中确认按钮应禁用：%+v", node)
+	}
+	if node, ok := tt.Access("取消"); !ok || !node.Disabled {
+		t.Fatalf("执行中取消按钮应禁用：%+v", node)
+	}
+
 	// 执行中（尚未返回）再触发不会重复调用
 	s.triggerManualPushPR("t1")
 	tt.Frame()
@@ -1033,6 +1044,9 @@ func TestChatHeaderManualPushPR(t *testing.T) {
 	// 完成后可以再次触发
 	release()
 	waitFor(t, tt, func() bool { return !pushBusyOf(s) })
+	if pushConfirmOf(s) {
+		t.Fatal("完成后确认区应关闭")
+	}
 	s.triggerManualPushPR("t1")
 	waitFor(t, tt, func() bool { return len(triggerAutoMergeCallsOf(client.FakeClient)) == 2 })
 	waitFor(t, tt, func() bool { return !pushBusyOf(s) })

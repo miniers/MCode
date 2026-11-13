@@ -667,11 +667,20 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 			openBranchPopover(s, threadID)
 		}
 	})
+	scale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
+	trigger.Scale(scale, scale)
+	chatHeaderMu.Lock()
+	switching := hs.branchBusy
+	chatHeaderMu.Unlock()
 	if trigger.Hovered() {
 		trigger.Background(ThemeHover(c))
 	}
 	trigger.Children(func() {
-		ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c))
+		if switching {
+			LoadingIndicator(c, nil, "", IconSM)
+		} else {
+			ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c))
+		}
 		ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 		if st.Ahead > 0 {
 			ui.Text(c, fmt.Sprintf("↑%d", st.Ahead)).FontSize(uiFont(TypeCaption)).TextColor(ThemeSuccess(c))
@@ -685,7 +694,6 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 	}
 
 	chatHeaderMu.Lock()
-	switching := hs.branchBusy
 	busy := switching || hs.commitBusy != ""
 	errMsg := hs.branchErr
 	chatHeaderMu.Unlock()
@@ -997,6 +1005,10 @@ func renderGitCommitButton(c *ui.Context, s *chatState, hs *chatHeaderState, thr
 
 // renderGitPushPRConfirm 渲染「推送并建 PR/MR」的二次确认区，确认后才真正推送。
 func renderGitPushPRConfirm(c *ui.Context, s *chatState, st GitState) {
+	hs := getChatHeaderState(s)
+	chatHeaderMu.Lock()
+	pushBusy := hs.pushBusy
+	chatHeaderMu.Unlock()
 	ui.Column(c.Key("chat-header-push-pr-confirm")).
 		FillWidth().
 		Gap(Space2).
@@ -1010,9 +1022,9 @@ func renderGitPushPRConfirm(c *ui.Context, s *chatState, st GitState) {
 				AlignItems(ui.Center).
 				Children(func() {
 					Button(c.Key("chat-header-push-pr-confirm-ok"), ButtonOpts{
-						Text: "确认合并",
+						Text:    "确认合并",
+						Loading: pushBusy,
 						OnClick: func() {
-							s.cancelPushPRConfirm()
 							// bee 会话回到所属 lead，普通会话即当前会话
 							lead := s.selectedThreadID
 							if target := s.swarmTargetLeadID(); target != "" {
@@ -1023,7 +1035,8 @@ func renderGitPushPRConfirm(c *ui.Context, s *chatState, st GitState) {
 						Variant: ButtonPrimary,
 					})
 					Button(c.Key("chat-header-push-pr-confirm-cancel"), ButtonOpts{
-						Text: "取消",
+						Text:     "取消",
+						Disabled: pushBusy,
 						OnClick: func() {
 							s.cancelPushPRConfirm()
 						},
@@ -1744,6 +1757,7 @@ func (s *chatState) triggerManualPushPR(leadThreadID string) {
 		err := s.client.TriggerAutoMerge(context.Background(), leadThreadID)
 		chatHeaderMu.Lock()
 		hs.pushBusy = false
+		hs.pushConfirm = false
 		chatHeaderMu.Unlock()
 		if err != nil {
 			s.setToast("推送并创建 PR/MR 失败: " + err.Error())
