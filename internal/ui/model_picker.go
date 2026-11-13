@@ -129,8 +129,9 @@ type ModelPickerProps struct {
 	OnSetTierOverride    func(tierID string, ov *config.SwarmTierOverride)
 	OnResetTierOverrides func()
 	// OnRefreshCatalog 请求重新拉取供应商目录；只有传了它，目录为空的供应商才画出“重新探测”按钮。
-	OnRefreshCatalog func()
-	Invalidate       func()
+	OnRefreshCatalog  func()
+	CatalogRefreshing bool
+	Invalidate        func()
 }
 
 type modelPickerMagpieFilter struct{}
@@ -2530,8 +2531,15 @@ func renderProviderCatalogNotice(c *ui.Context, p ModelPickerProps, prefix strin
 			} else {
 				btn.Background(ui.Transparent)
 			}
+			btn.Disabled(p.CatalogRefreshing)
+			scale := motionPressScale(c, btn, "button-press-scale", !p.CatalogRefreshing && btn.Pressed())
+			btn.Scale(scale, scale)
 			btn.OnClick(p.OnRefreshCatalog)
 			btn.Children(func() {
+				if p.CatalogRefreshing {
+					LoadingIndicator(c, nil, "", IconSM)
+					return
+				}
 				ui.Text(c, "重新探测").
 					FontSize(uiFont(TypeBody)).
 					TextColor(modelPickerTextPrimary).

@@ -276,6 +276,7 @@ type chatState struct {
 	// forwardInflight 记录正在转发中的源会话 ID，由 s.mu 保护。
 	// 按住快捷键或连点菜单时用来挡住第二次转发，避免同一会话建出多条新会话。
 	forwardInflight             map[string]bool
+	branchInflight              map[string]bool
 	messages                    []Message
 	messagesRev                 uint64 // 每次改写 s.messages 时递增，受 s.mu 保护
 	timelineCacheRev            uint64
@@ -368,9 +369,10 @@ type chatState struct {
 	watchStop            func()
 
 	// 队列与中断状态
-	queue        map[string][]QueuedFollowUp // 按会话 ID 存排队消息
-	queueChanges map[string]uint64           // 防止初次加载覆盖监听期间的新快照
-	interrupted  map[string]bool             // 成功中断后可继续标记（按会话 ID 存）
+	queue             map[string][]QueuedFollowUp // 按会话 ID 存排队消息
+	recallAllInflight bool
+	queueChanges      map[string]uint64 // 防止初次加载覆盖监听期间的新快照
+	interrupted       map[string]bool   // 成功中断后可继续标记（按会话 ID 存）
 	// continueDismissed 记录「继续」胶囊被忽略的异常结束（会话 ID -> 忽略时最后一条消息 ID）：
 	// 最后一条消息 ID 变化后该记录自动失效，胶囊重新出现；随 ui-state.json 持久化。
 	continueDismissed map[string]string
@@ -793,15 +795,20 @@ func (s *chatState) refreshProviders() {
 	s.catalogRequestSeq++
 	seq := s.catalogRequestSeq
 	s.mu.Unlock()
+	s.invalidate()
 	go func() {
 		defer func() {
 			s.mu.Lock()
 			s.catalogRefreshing = false
 			s.mu.Unlock()
+			s.invalidate()
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), modelsRefreshTimeout)
 		defer cancel()
 		providers, err := s.client.RefreshProviders(ctx)
+		if err != nil {
+			s.setToast("刷新模型目录失败: " + err.Error())
+		}
 		if err == nil || providers != nil {
 			s.applyProviderCatalog(seq, providers, getChatSettings(s))
 		}
@@ -3182,7 +3189,15 @@ func (s *chatState) clearQueue() {
 		}
 		ids = append(ids, item.ID)
 	}
+	var removed []QueuedFollowUp
+	for _, id := range ids {
+		item, _, ok := s.takeQueuedLocked(tid, id)
+		if ok {
+			removed = append(removed, item)
+		}
+	}
 	s.mu.Unlock()
+	s.invalidate()
 
 	if len(ids) == 0 {
 		if skippedSystem > 0 {
@@ -3193,8 +3208,11 @@ func (s *chatState) clearQueue() {
 
 	go func() {
 		ctx := context.Background()
-		for _, id := range ids {
+		for i, id := range ids {
 			if err := s.client.RemoveQueued(ctx, tid, id); err != nil {
+				for j := i; j < len(removed); j++ {
+					s.restoreQueued(tid, removed[j], j)
+				}
 				s.setToast("清空排队消息失败: " + err.Error())
 				break
 			}
@@ -3214,6 +3232,10 @@ func (s *chatState) recallAllQueued() {
 
 	s.mu.Lock()
 	tid := s.selectedThreadID
+	if s.recallAllInflight {
+		s.mu.Unlock()
+		return
+	}
 	items := append([]QueuedFollowUp(nil), s.queue[tid]...)
 	currentAttachments := len(s.attachments)
 	editor, supportsAttachments := s.client.(queueAttachmentEditor)
@@ -3237,7 +3259,19 @@ func (s *chatState) recallAllQueued() {
 		recallable = append(recallable, item)
 	}
 
+	s.mu.Lock()
+	if s.recallAllInflight {
+		s.mu.Unlock()
+		return
+	}
+	s.recallAllInflight = true
+	for _, item := range recallable {
+		s.takeQueuedLocked(tid, item.ID)
+	}
+	s.mu.Unlock()
+	s.invalidate()
 	go func() {
+		defer func() { s.mu.Lock(); s.recallAllInflight = false; s.mu.Unlock(); s.invalidate() }()
 		if recallAllQueuedDoneHook != nil {
 			defer recallAllQueuedDoneHook()
 		}
@@ -3245,7 +3279,15 @@ func (s *chatState) recallAllQueued() {
 		texts := make([]string, 0, len(recallable))
 		recalledAttachments := make([]composerAttachment, 0)
 		failed := false
-		for _, item := range recallable {
+		for index, item := range recallable {
+			completed := false
+			defer func() {
+				if !completed {
+					for j := index; j < len(recallable); j++ {
+						s.restoreQueued(tid, recallable[j], j)
+					}
+				}
+			}()
 			var itemAttachments []composerAttachment
 			if item.AttachmentCount > 0 {
 				attachments, err := editor.QueuedAttachments(ctx, tid, item.ID)
@@ -3278,6 +3320,7 @@ func (s *chatState) recallAllQueued() {
 				failed = true
 				break
 			}
+			completed = true
 			texts = append(texts, item.Text)
 			recalledAttachments = append(recalledAttachments, itemAttachments...)
 		}
@@ -3352,14 +3395,15 @@ func (s *chatState) continueLastTurn() {
 func (s *chatState) removeQueued(id string) {
 	s.mu.Lock()
 	tid := s.selectedThreadID
+	item, index, ok := s.takeQueuedLocked(tid, id)
 	s.mu.Unlock()
-	if tid == "" || id == "" {
+	if !ok {
 		return
 	}
-
+	s.invalidate()
 	go func() {
-		ctx := context.Background()
-		if err := s.client.RemoveQueued(ctx, tid, id); err != nil {
+		if err := s.client.RemoveQueued(context.Background(), tid, id); err != nil {
+			s.restoreQueued(tid, item, index)
 			s.setToast("删除排队消息失败: " + err.Error())
 		}
 	}()

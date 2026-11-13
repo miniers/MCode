@@ -56,9 +56,17 @@ func (s *chatState) steerQueued(item QueuedFollowUp) {
 		s.setToast("当前 Agent 不支持插入到正在执行的轮次，消息仍留在队列里")
 		return
 	}
+	s.mu.Lock()
+	removed, index, ok := s.takeQueuedLocked(threadID, item.ID)
+	s.mu.Unlock()
+	if !ok {
+		return
+	}
+	s.invalidate()
 	go func() {
 		ctx := context.Background()
 		if err := s.client.RemoveQueued(ctx, threadID, item.ID); err != nil {
+			s.restoreQueued(threadID, removed, index)
 			s.setToast("插入排队消息失败: " + err.Error())
 			return
 		}
@@ -158,4 +166,33 @@ func (s *chatState) moveQueued(followUpID, beforeFollowUpID string) {
 			s.invalidate()
 		}
 	}()
+}
+
+// takeQueuedLocked removes one item while holding s.mu.
+func (s *chatState) takeQueuedLocked(tid, id string) (QueuedFollowUp, int, bool) {
+	for i, item := range s.queue[tid] {
+		if item.ID == id {
+			s.queue[tid] = append(append([]QueuedFollowUp(nil), s.queue[tid][:i]...), s.queue[tid][i+1:]...)
+			return item, i, true
+		}
+	}
+	return QueuedFollowUp{}, 0, false
+}
+
+func (s *chatState) restoreQueued(tid string, item QueuedFollowUp, index int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.queue[tid] {
+		if existing.ID == item.ID {
+			return
+		}
+	}
+	items := s.queue[tid]
+	if index > len(items) {
+		index = len(items)
+	}
+	items = append(items, QueuedFollowUp{})
+	copy(items[index+1:], items[index:])
+	items[index] = item
+	s.queue[tid] = items
 }

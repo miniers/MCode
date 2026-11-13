@@ -158,7 +158,7 @@ func renderQuickReplies(c *ui.Context, s *chatState) {
 		Children(func() {
 			for i, item := range items {
 				item := item
-				ui.ButtonBase(c.Key(fmt.Sprintf("composer-quick-reply-%d", i))).
+				btn := ui.ButtonBase(c.Key(fmt.Sprintf("composer-quick-reply-%d", i))).
 					Label(item.Label).
 					Tooltip(item.Message).
 					Height(ControlLG).
@@ -169,13 +169,18 @@ func renderQuickReplies(c *ui.Context, s *chatState) {
 					Border(Hairline, ThemeBorder(c)).
 					OnClick(func() {
 						s.applyQuickReply(item.Message)
-					}).
-					Children(func() {
-						ui.Text(c, item.Label).
-							FontSize(uiFont(TypeFootnote)).
-							MaxLines(1).
-							TextColor(ThemeSecondaryText(c))
 					})
+				if btn.Hovered() {
+					btn.Background(ThemeHover(c))
+				}
+				scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+				btn.Scale(scale, scale)
+				btn.Children(func() {
+					ui.Text(c, item.Label).
+						FontSize(uiFont(TypeFootnote)).
+						MaxLines(1).
+						TextColor(ThemeSecondaryText(c))
+				})
 			}
 		})
 }

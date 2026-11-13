@@ -564,6 +564,7 @@ func (s *chatState) exportThread(threadID string) {
 		thread = Thread{ID: id}
 	}
 
+	s.setToast("正在导出…")
 	go func() {
 		// 无论成功、取消还是失败，结束时都刷新一次界面。
 		defer s.invalidate()
@@ -647,6 +648,7 @@ func (s *chatState) copyThreadMarkdown(c *ui.Context, threadID string) {
 		return
 	}
 
+	s.setToast("正在复制…")
 	go func() {
 		if client == nil {
 			s.setToast("复制失败：会话客户端未初始化")

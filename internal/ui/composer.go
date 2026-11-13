@@ -89,7 +89,10 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 		s.ensureThreadChangeStats(threadID, isRunning)
 	}
 
-	if len(items) == 0 {
+	s.mu.Lock()
+	recalling := s.recallAllInflight
+	s.mu.Unlock()
+	if len(items) == 0 && !recalling {
 		if s.embeddedBee {
 			return false
 		}
@@ -208,7 +211,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 
 									// 正在编辑排队项时不提供全部退回，避免编辑态与草稿合并互相覆盖。
 									if !isEditing {
-										ui.ButtonBase(c.Key("composer-queue-recall-all")).
+										recallBtn := ui.ButtonBase(c.Key("composer-queue-recall-all")).
 											Label("全部退回编辑").
 											Tooltip("把排队消息按顺序放回输入框").
 											Height(uiSize(ControlXS)).
@@ -218,12 +221,19 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 											Border(Hairline, ThemeBorder(c)).
 											OnClick(func() {
 												s.recallAllQueued()
-											}).
-											Children(func() {
-												ui.Text(c, "全部退回编辑").
-													FontSize(uiFont(TypeCaption)).
-													TextColor(ThemeSecondaryText(c))
 											})
+										recallBtn.Disabled(recalling)
+										scale := motionPressScale(c, recallBtn, "button-press-scale", !recalling && recallBtn.Pressed())
+										recallBtn.Scale(scale, scale)
+										recallBtn.Children(func() {
+											if recalling {
+												LoadingIndicator(c, nil, "", IconSM)
+												return
+											}
+											ui.Text(c, "全部退回编辑").
+												FontSize(uiFont(TypeCaption)).
+												TextColor(ThemeSecondaryText(c))
+										})
 									}
 								})
 						})

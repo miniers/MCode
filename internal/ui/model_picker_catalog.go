@@ -6,12 +6,13 @@ import (
 )
 
 type modelPickerCatalog struct {
-	Providers        []ProviderInfo
-	Pins             []ModelPin
-	ProviderEnabled  map[string]bool
-	MagpieFilter     modelPickerMagpieFilter
-	QuotaUsed        func(string) (float64, bool)
-	OnRefreshCatalog func()
+	Providers         []ProviderInfo
+	Pins              []ModelPin
+	ProviderEnabled   map[string]bool
+	MagpieFilter      modelPickerMagpieFilter
+	QuotaUsed         func(string) (float64, bool)
+	OnRefreshCatalog  func()
+	CatalogRefreshing bool
 }
 
 func frontdeskModelPickerCatalog(cat modelPickerCatalog, cfg config.Config) modelPickerCatalog {
@@ -38,6 +39,7 @@ func (cat modelPickerCatalog) apply(p ModelPickerProps) ModelPickerProps {
 	p.MagpieFilter = cat.MagpieFilter
 	p.QuotaUsed = cat.QuotaUsed
 	p.OnRefreshCatalog = cat.OnRefreshCatalog
+	p.CatalogRefreshing = cat.CatalogRefreshing
 	return p
 }
 
@@ -48,6 +50,7 @@ func modelPickerCatalogFor(s *chatState) modelPickerCatalog {
 	}
 	s.mu.Lock()
 	cat.Providers = append([]ProviderInfo(nil), s.providers...)
+	cat.CatalogRefreshing = s.catalogRefreshing
 	s.mu.Unlock()
 	if st := getChatSettings(s); st != nil {
 		st.cfgMu.Lock()

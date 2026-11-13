@@ -198,6 +198,25 @@ func fenceRun(line string) (byte, int) {
 	return ch, n
 }
 
+func (s *chatState) beginMessageBranch(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.branchInflight[id] {
+		return false
+	}
+	if s.branchInflight == nil {
+		s.branchInflight = make(map[string]bool)
+	}
+	s.branchInflight[id] = true
+	return true
+}
+
+func (s *chatState) endMessageBranch(id string) {
+	s.mu.Lock()
+	delete(s.branchInflight, id)
+	s.mu.Unlock()
+}
+
 // branchFromMessage 从指定的助手最终答复分支出新会话并切换过去。
 func (s *chatState) branchFromMessage(m Message) {
 	s.forkFromMessage(m.ID)
@@ -229,7 +248,12 @@ func (s *chatState) forkFromMessage(messageID string) {
 		return
 	}
 
+	if !s.beginMessageBranch(messageID) {
+		return
+	}
+	s.setToast("正在创建分支…")
 	go func() {
+		defer s.endMessageBranch(messageID)
 		ctx := context.Background()
 		newThreadID, err := s.branchOrCreateThread(ctx, tid, projectID, provider, messageID)
 		if err != nil {
@@ -391,7 +415,12 @@ func (s *chatState) submitInlineEdit(msgID, text string) {
 		return
 	}
 
+	if !s.beginMessageBranch(msgID) {
+		return
+	}
+	s.setToast("正在创建分支…")
 	go func() {
+		defer s.endMessageBranch(msgID)
 		ctx := context.Background()
 		newThreadID, err := s.branchOrCreateThread(ctx, tid, projectID, provider, anchorID)
 		if err != nil {
