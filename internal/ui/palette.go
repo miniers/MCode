@@ -34,6 +34,7 @@ type paletteState struct {
 
 	// 消息正文搜索结果：msgHits 是 msgQuery 的命中，msgPending 是已经排上防抖的查询串，
 	// msgSeq 是请求序号（只有最新一次的异步结果会被采纳），msgTimer 是防抖定时器。
+	msgErr     string
 	msgHits    []MessageSearchHit
 	msgQuery   string
 	msgPending string
@@ -702,7 +703,11 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 						Padding(Space7, 0).
 						Justify(ui.Center).
 						Children(func() {
-							ui.Text(c, "没有匹配项").
+							title := "没有匹配项"
+							if p.msgErr != "" {
+								title = "搜索失败"
+							}
+							ui.Text(c, title).
 								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						})

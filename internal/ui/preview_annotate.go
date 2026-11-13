@@ -465,6 +465,8 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 						Label("添加到对话").
 						Radius(RadiusXS).
 						Padding(Space0, Space3)
+					sendBtnScale := motionPressScale(c, sendBtn, "button-press-scale", sendBtn.Pressed())
+					sendBtn.Scale(sendBtnScale, sendBtnScale)
 					if sendBtn.Hovered() {
 						sendBtn.Background(ThemeHover(c))
 					}
@@ -480,6 +482,8 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 						Tooltip("清空所有标注").
 						Radius(RadiusXS).
 						Padding(Space0, Space3)
+					clearBtnScale := motionPressScale(c, clearBtn, "button-press-scale", clearBtn.Pressed())
+					clearBtn.Scale(clearBtnScale, clearBtnScale)
 					if clearBtn.Hovered() {
 						clearBtn.Background(ThemeHover(c))
 					}
@@ -495,6 +499,8 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 						Tooltip("收起标注抽屉").
 						Radius(RadiusXS).
 						Padding(Space0, Space3)
+					hideBtnScale := motionPressScale(c, hideBtn, "button-press-scale", hideBtn.Pressed())
+					hideBtn.Scale(hideBtnScale, hideBtnScale)
 					if hideBtn.Hovered() {
 						hideBtn.Background(ThemeHover(c))
 					}
@@ -555,6 +561,8 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 									Tooltip("删除这条标注").
 									Radius(RadiusXS).
 									Padding(Space0, Space1)
+								removeBtnScale := motionPressScale(c, removeBtn, "button-press-scale", removeBtn.Pressed())
+								removeBtn.Scale(removeBtnScale, removeBtnScale)
 								if removeBtn.Hovered() {
 									removeBtn.Background(ThemeHover(c))
 								}

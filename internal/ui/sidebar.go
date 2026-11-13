@@ -948,6 +948,8 @@ func renderSidebar(c *ui.Context, s *chatState) {
 									btn := ui.ButtonBase(c.Key(key)).
 										Padding(Space0, 0).
 										Label(label)
+									btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+									btn.Scale(btnScale, btnScale)
 									if btn.Clicked() {
 										onClick()
 									}
@@ -1482,6 +1484,8 @@ func renderThreadRowHoverActions(c *ui.Context, s *chatState, o sidebarThreadRow
 		Tooltip("更多操作").
 		Radius(RadiusSM).
 		Padding(Space0, Space1)
+	moreBtnScale := motionPressScale(c, moreBtn, "button-press-scale", moreBtn.Pressed())
+	moreBtn.Scale(moreBtnScale, moreBtnScale)
 	if moreBtn.Hovered() {
 		moreBtn.Background(hoverBg)
 	}
@@ -1687,6 +1691,7 @@ func (s *chatState) forwardThread(projectID, threadID string) {
 	if s.forwardInflight[threadID] {
 		// 同一会话已在转发中，直接忽略本次触发。
 		s.mu.Unlock()
+		s.setToast("正在转发…")
 		return
 	}
 	if s.forwardInflight == nil {
@@ -1695,6 +1700,7 @@ func (s *chatState) forwardThread(projectID, threadID string) {
 	s.forwardInflight[threadID] = true
 	s.mu.Unlock()
 	go func() {
+		s.setToast("正在转发…")
 		// defer 在 goroutine 退出时执行，与下面的持锁段、selectThread 天然错开，不会重入。
 		defer func() {
 			s.mu.Lock()

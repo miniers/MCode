@@ -54,8 +54,10 @@ func inspectorPreviewAvailable(s *chatState) bool {
 	return ok
 }
 
+var inspectorPreviewInflight = make(map[*chatState]map[string]bool) // guarded by previewMu
+
 // openInspectorPreview 请求后端签发本地内容 URL，并切到浏览器目的。
-// 返回 false 表示客户端不支持或签发失败；调用方仍可按原有方式预览文件。
+// 返回 false 表示客户端不支持；调用方仍可按原有方式预览文件。
 func (s *chatState) openInspectorPreview(threadID, filePath string) bool {
 	if s == nil || s.client == nil || threadID == "" {
 		return false
@@ -76,36 +78,66 @@ func (s *chatState) openInspectorPreview(threadID, filePath string) bool {
 			break
 		}
 	}
+	key := threadID + "\x00" + filePath
+	if existingID == 0 && inspectorPreviewInflight[s][key] {
+		previewMu.Unlock()
+		return true
+	}
+	if existingID == 0 {
+		if inspectorPreviewInflight[s] == nil {
+			inspectorPreviewInflight[s] = make(map[string]bool)
+		}
+		inspectorPreviewInflight[s][key] = true
+	}
 	previewMu.Unlock()
 	if existingID != 0 {
 		browserActivateTab(s, active.owner, existingID)
 		inspectorSelect(s, sidePanePreviewID, false)
 		return true
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), fileManagerPreviewTimeout)
-	defer cancel()
-	target, err := client.InspectorPreviewURL(ctx, threadID, filePath)
-	if err != nil {
-		s.setToast(err.Error())
-		return false
-	}
-	tab := browserNewTab(s)
-	openPreviewLocalURL(s, threadID, target)
-	previewMu.Lock()
-	tab.localPath, tab.title = filePath, path.Base(filePath)
-	previewMu.Unlock()
+	s.invalidate()
+	go func() {
+		defer func() {
+			previewMu.Lock()
+			delete(inspectorPreviewInflight[s], key)
+			if len(inspectorPreviewInflight[s]) == 0 {
+				delete(inspectorPreviewInflight, s)
+			}
+			previewMu.Unlock()
+			s.invalidate()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), fileManagerPreviewTimeout)
+		defer cancel()
+		target, err := client.InspectorPreviewURL(ctx, threadID, filePath)
+		if err != nil {
+			s.setToast(err.Error())
+			return
+		}
+		tab := browserNewTab(s)
+		openPreviewLocalURL(s, threadID, target)
+		previewMu.Lock()
+		tab.localPath, tab.title = filePath, path.Base(filePath)
+		previewMu.Unlock()
+	}()
 	return true
 }
 
 // renderFileManagerBrowserOpenButton 渲染文件头的「在浏览器打开」图标按钮。
 func renderFileManagerBrowserOpenButton(c *ui.Context, s *chatState, tab fileManagerTabSnapshot, keyPrefix string) {
+	threadID := fileManagerThreadID(s)
+	previewMu.Lock()
+	loading := inspectorPreviewInflight[s][threadID+"\x00"+tab.path]
+	previewMu.Unlock()
 	btn := ui.ButtonBase(c.Key(keyPrefix+"file-manager-open-browser")).
 		Label("在浏览器打开").
+		Disabled(loading).
 		Tooltip("在浏览器打开").
 		Size(ControlSM, ControlSM).
 		Radius(RadiusSM).
 		Center().
 		Shrink(0)
+	scale := motionPressScale(c, btn, "button-press-scale", !loading && btn.Pressed())
+	btn.Scale(scale, scale)
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c))
 	}
@@ -115,7 +147,11 @@ func renderFileManagerBrowserOpenButton(c *ui.Context, s *chatState, tab fileMan
 		}
 	}
 	btn.Children(func() {
-		ui.Icon(c, IconExternalLink()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+		if loading {
+			LoadingIndicator(c, nil, "", IconSM)
+		} else {
+			ui.Icon(c, IconExternalLink()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+		}
 	})
 }
 
@@ -207,6 +243,8 @@ func renderFileManagerSVGTab(c *ui.Context, s *chatState, tab fileManagerTabSnap
 		Label(label).
 		Radius(RadiusXS).
 		Padding(Space0, Space2)
+	btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(btnScale, btnScale)
 	if previewMode == current {
 		btn.Background(ThemeSurface(c))
 	} else if btn.Hovered() {

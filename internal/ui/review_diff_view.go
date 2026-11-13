@@ -300,6 +300,8 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 					ui.Row(c.Key("review-file-toolbar")).FillWidth().Height(diffHeaderHeight).AlignItems(ui.Center).Gap(Space2).Children(func() {
 						if !wide {
 							btn := ui.ButtonBase(c.Key("review-back")).Label("返回改动列表").Padding(Space2)
+							btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+							btn.Scale(btnScale, btnScale)
 							if btn.Clicked() {
 								selectReviewFile(s, dp, tid, "")
 							}
@@ -318,6 +320,8 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 								label = "统一"
 							}
 							btn := ui.ButtonBase(c.Key("review-layout")).Label(label).Padding(Space2)
+							btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+							btn.Scale(btnScale, btnScale)
 							if btn.Clicked() {
 								dp.preferSplit = !dp.preferSplit
 								c.Invalidate()

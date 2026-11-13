@@ -269,12 +269,7 @@ func (s *chatState) duplicateFileManagerEntry(path string) {
 
 	go func() {
 		if _, err := client.FilesDuplicate(context.Background(), threadID, path); err != nil {
-			fileManagerMu.Lock()
-			if st.threadID == threadID {
-				st.err = err.Error()
-			}
-			fileManagerMu.Unlock()
-			s.invalidate()
+			s.setToast("复制失败: " + err.Error())
 			return
 		}
 		fileTreeInvalidate(s, threadID, []string{fileManagerParentPath(path)})

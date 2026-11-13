@@ -77,6 +77,8 @@ func configureReviewHunkActions(c *ui.Context, s *chatState, dp *diffPanelState,
 		state.mu.Unlock()
 		bar.Children(func() {
 			btn := ui.ButtonBase(c.Key(fmt.Sprintf("review-revert-hunk-%d", a.Index))).Label("撤销此块").Padding(Space1, Space2).Radius(RadiusXS).Disabled(pending)
+			btnScale := motionPressScale(c, btn, "button-press-scale", !pending && btn.Pressed())
+			btn.Scale(btnScale, btnScale)
 			btn.Children(func() { ui.Icon(c, iconRotateCcw).Size(IconSM, IconSM) })
 			if btn.Clicked() && !pending {
 				state.mu.Lock()

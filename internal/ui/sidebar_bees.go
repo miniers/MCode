@@ -542,6 +542,8 @@ func renderSidebarBeeFoldLine(c *ui.Context, s *chatState, o sidebarThreadRowOpt
 		Justify(ui.Start).
 		AlignItems(ui.Center).
 		Label(label)
+	btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(btnScale, btnScale)
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c))
 	}
@@ -603,6 +605,8 @@ func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 			Shrink(0).
 			Label("收起子会话").
 			Tooltip("收起子会话")
+		connectorBtnScale := motionPressScale(c, connectorBtn, "button-press-scale", connectorBtn.Pressed())
+		connectorBtn.Scale(connectorBtnScale, connectorBtnScale)
 
 		connectorHovered := connectorBtn.Hovered()
 		connectorBtn.Draw(func(painter *ui.Painter, r ui.Rect) {
@@ -684,6 +688,8 @@ func renderSidebarSingleBeeAvatar(c *ui.Context, s *chatState, parentID string, 
 		AlignItems(ui.Center).
 		Label(persona.Name).
 		Tooltip(fmt.Sprintf("%s · %s", persona.Name, bee.Title))
+	btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(btnScale, btnScale)
 
 	if isSelected {
 		btn.Background(ThemeAccent(c).Alpha(0.24)).

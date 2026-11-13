@@ -707,6 +707,8 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 							Radius(RadiusXS).
 							Padding(Space0, Space2).
 							Background(ThemeOverlay(c, 0.06))
+						viewportBtnScale := motionPressScale(c, viewportBtn, "button-press-scale", viewportBtn.Pressed())
+						viewportBtn.Scale(viewportBtnScale, viewportBtnScale)
 						if selected {
 							viewportBtn.Background(ThemeSelected(c))
 						}
@@ -739,6 +741,8 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 							Radius(RadiusXS).
 							Padding(Space0, Space2).
 							Background(ThemeDanger(c).Alpha(0.18))
+						badgeBtnScale := motionPressScale(c, badgeBtn, "button-press-scale", badgeBtn.Pressed())
+						badgeBtn.Scale(badgeBtnScale, badgeBtnScale)
 						if badgeBtn.Clicked() {
 							previewMu.Lock()
 							if current := previewStateForTokenLocked(s, snap.token); current != nil {
@@ -760,6 +764,8 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					// 标注与截图共用附件入口。
 					annotBtn := ui.ButtonBase(c.Key("preview-annotate-btn")).
 						Label(func() string {
+							annotBtnScale := motionPressScale(c, annotBtn, "button-press-scale", annotBtn.Pressed())
+							annotBtn.Scale(annotBtnScale, annotBtnScale)
 							if len(snap.annotations) > 0 {
 								return "添加到对话"
 							}
@@ -796,6 +802,8 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						})
 					})
 					menuBtn := ui.ButtonBase(c.Key("preview-capture-menu-btn")).Label("截图与元素菜单").Tooltip("更多").Padding(Space0, Space1)
+					menuBtnScale := motionPressScale(c, menuBtn, "button-press-scale", menuBtn.Pressed())
+					menuBtn.Scale(menuBtnScale, menuBtnScale)
 					menuBtn.Children(func() { ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)) })
 					if menuBtn.Clicked() {
 						st.owner.captureMenuOpen = !st.owner.captureMenuOpen
@@ -828,6 +836,8 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 						Label("在系统浏览器打开").
 						Radius(RadiusXS).
 						Padding(Space1, Space2)
+					openExternalBtnScale := motionPressScale(c, openExternalBtn, "button-press-scale", openExternalBtn.Pressed())
+					openExternalBtn.Scale(openExternalBtnScale, openExternalBtnScale)
 					if openExternalBtn.Hovered() {
 						openExternalBtn.Background(ThemeHover(c))
 					}

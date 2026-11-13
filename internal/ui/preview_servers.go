@@ -272,6 +272,8 @@ func renderBrowserServerCandidates(c *ui.Context, s *chatState, threadID string,
 	d.mu.Unlock()
 	render := func(key, label, target string) {
 		btn := ui.ButtonBase(c.Key(key)).Label(label).Tooltip(target).Radius(RadiusXS).Padding(Space0, Space2).Background(ThemeOverlay(c, .06)).Transition(motionListItem(c))
+		btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(btnScale, btnScale)
 		if btn.Hovered() {
 			btn.Background(ThemeHover(c))
 		}

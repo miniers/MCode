@@ -48,6 +48,7 @@ type fileTreeState struct {
 	git         map[string]GitChangedFile
 	gitLoaded   bool
 	gitTried    bool
+	gitErr      string
 	gitTriedGen uint64
 	gitSeq      int
 
@@ -179,6 +180,9 @@ func (s *chatState) fileTreeLoadDir(threadID, dir string) {
 				delete(tree.restoreExpanded, sub)
 			}
 			fileManagerMu.Unlock()
+			if sub != "" {
+				s.setToast(err.Error())
+			}
 			s.invalidate()
 			return
 		}
@@ -672,6 +676,7 @@ func renderFileManagerNavigation(c *ui.Context, s *chatState, threadID, workDir 
 	onlyChanged := false
 	gitLoaded := false
 	gitTried := false
+	gitErr := ""
 	if st.tree != nil {
 		rootLoading = st.tree.loading[""]
 		rootTruncated = st.tree.rootTruncated
@@ -679,6 +684,7 @@ func renderFileManagerNavigation(c *ui.Context, s *chatState, threadID, workDir 
 		onlyChanged = st.tree.onlyChanged
 		gitLoaded = st.tree.gitLoaded
 		gitTried = st.tree.gitTried
+		gitErr = st.tree.gitErr
 		if onlyChanged {
 			rootCount = fileTreeChangedRootCountLocked(st.tree)
 		}
@@ -709,6 +715,8 @@ func renderFileManagerNavigation(c *ui.Context, s *chatState, threadID, workDir 
 			switch {
 			case onlyChanged && rootCount == 0 && !gitLoaded && !gitTried:
 				LoadingIndicator(c, "file-manager-only-changed-loading", "正在读取改动…", IconSM).Margin(ui.Auto)
+			case onlyChanged && gitErr != "":
+				renderFileManagerError(c, s, "", gitErr, func() { fileTreeRefreshGit(s, threadID) })
 			case onlyChanged && rootCount == 0:
 				EmptyState(c, EmptyStateProps{Icon: IconFileDiff(), Title: "没有改动", Compact: true}).Margin(ui.Auto)
 			case !onlyChanged && rootErr != "" && rootCount == 0:
@@ -755,6 +763,8 @@ func renderFileManagerTreeHeader(c *ui.Context, s *chatState, query *string, thr
 					Radius(RadiusSM).
 					Center().
 					Shrink(0)
+				newBtnScale := motionPressScale(c, newBtn, "button-press-scale", newBtn.Pressed())
+				newBtn.Scale(newBtnScale, newBtnScale)
 				if newBtn.Hovered() {
 					newBtn.Background(ThemeHover(c))
 				}
@@ -766,6 +776,8 @@ func renderFileManagerTreeHeader(c *ui.Context, s *chatState, query *string, thr
 			if threadID != "" {
 				onlyChanged := fileTreeOnlyChangedActive(getFileManagerState(s))
 				onlyBtn := ui.ButtonBase(c.Key("file-manager-only-changed"))
+				onlyBtnScale := motionPressScale(c, onlyBtn, "button-press-scale", onlyBtn.Pressed())
+				onlyBtn.Scale(onlyBtnScale, onlyBtnScale)
 				onlyBtn.Label("只看改动").
 					Tooltip("只看改动").
 					Size(ControlSM, ControlSM).

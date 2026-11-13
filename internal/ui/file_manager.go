@@ -524,6 +524,8 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 				Radius(RadiusXS).
 				Padding(Hairline, Space1).
 				Cursor(ui.CursorPointer)
+			mentionScale := motionPressScale(c, mention, "button-press-scale", mention.Pressed())
+			mention.Scale(mentionScale, mentionScale)
 			if mention.Hovered() {
 				mention.Background(ThemeSelected(c))
 			}
@@ -546,6 +548,8 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 				Radius(RadiusXS).
 				Padding(Hairline, Space1).
 				Cursor(ui.CursorPointer)
+			moreScale := motionPressScale(c, more, "button-press-scale", more.Pressed())
+			more.Scale(moreScale, moreScale)
 			if more.Hovered() {
 				more.Background(ThemeSelected(c))
 			}
@@ -735,6 +739,8 @@ func renderFileManagerMdTab(c *ui.Context, s *chatState, tab fileManagerTabSnaps
 		Label(label).
 		Radius(RadiusXS).
 		Padding(Space0, Space2)
+	btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(btnScale, btnScale)
 	if previewMode == current {
 		btn.Background(ThemeSurface(c))
 	} else if btn.Hovered() {
@@ -828,6 +834,7 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 			Button(c, ButtonOpts{
 				Key:     keyPrefix + "file-manager-load-more",
 				Text:    "加载更多",
+				Loading: tab.fileLoading,
 				Variant: ButtonSecondary,
 				OnClick: func() { s.loadMoreFileManagerTab(tab.path) },
 			})

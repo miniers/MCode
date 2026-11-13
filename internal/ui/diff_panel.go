@@ -318,7 +318,7 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 		BorderColor(ThemeBorder(c)).
 		Children(func() {
 			// 顶部标题栏与控制项
-			renderDiffHeader(c, s, dp, threadID, turnID, data)
+			renderDiffHeader(c, s, dp, threadID, turnID, data, loading)
 
 			// AI 在自建 worktree 里干活时，说明改动取自哪个目录
 			renderDiffWorktreeNotice(c, worktreePath, turnID)
@@ -438,7 +438,7 @@ func renderDiffStatusState(c *ui.Context, key string, icon *ui.SVG, title, subti
 }
 
 // renderDiffHeader 渲染顶部标题栏、轮次选择、刷新按钮和关闭按钮。
-func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID, turnID string, data ThreadDiff) {
+func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID, turnID string, data ThreadDiff, loading bool) {
 	ui.Row(c.Key("diff-panel-header")).
 		FillWidth().
 		Height(diffHeaderHeight).
@@ -463,8 +463,11 @@ func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID,
 			refreshBtn := ui.ButtonBase(c.Key("diff-refresh-btn")).
 				Label("刷新").
 				Tooltip("刷新改动").
+				Disabled(loading).
 				Radius(RadiusSM).
 				Padding(Space1, Space3)
+			scale := motionPressScale(c, refreshBtn, "button-press-scale", !loading && refreshBtn.Pressed())
+			refreshBtn.Scale(scale, scale)
 			if refreshBtn.Hovered() {
 				refreshBtn.Background(ThemeHover(c))
 			}
@@ -472,6 +475,10 @@ func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID,
 				s.loadDiff(threadID, turnID)
 			}
 			refreshBtn.Children(func() {
+				if loading {
+					LoadingIndicator(c, nil, "", IconSM)
+					return
+				}
 				ui.Text(c, "刷新").
 					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
@@ -535,6 +542,8 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 		Radius(RadiusSM).
 		Background(ThemeHover(c)).
 		OnClick(func() {
+			triggerScale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
+			trigger.Scale(triggerScale, triggerScale)
 			diffPanelMu.Lock()
 			dp.turnMenuOpen = !dp.turnMenuOpen
 			diffPanelMu.Unlock()

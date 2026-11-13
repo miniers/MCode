@@ -120,6 +120,8 @@ func configureReviewComments(c *ui.Context, s *chatState, dp *diffPanelState, ke
 				popoverCard(c, ui.Column(c.Key("review-comment-card"))).Width(reviewCommentPopoverWidth).Padding(Space3).Gap(Space2).Children(func() {
 					ui.TextArea(c.Key("review-comment-input"), &draft.body).Label("评论").FillWidth().Height(reviewCommentBodyHeight)
 					button := ui.ButtonBase(c.Key("review-comment-add")).Label("添加").Disabled(strings.TrimSpace(draft.body) == "").Padding(Space2)
+					buttonScale := motionPressScale(c, button, "button-press-scale", strings.TrimSpace(draft.body) != "" && button.Pressed())
+					button.Scale(buttonScale, buttonScale)
 					if button.Clicked() && addReviewComment(dp, *draft) {
 						draft.open = false
 						s.invalidate()
@@ -163,6 +165,8 @@ func renderReviewComment(c *ui.Context, s *chatState, dp *diffPanelState, commen
 			}
 			summary.Children(func() { ui.Text(c, comment.body).SingleLine().FontSize(uiFont(TypeFootnote)).TextColor(color) })
 			button := ui.ButtonBase(c.Key("delete")).Label("删除评论").Padding(Space1)
+			buttonScale := motionPressScale(c, button, "button-press-scale", button.Pressed())
+			button.Scale(buttonScale, buttonScale)
 			if button.Clicked() {
 				diffPanelMu.Lock()
 				dp.comments = slices.DeleteFunc(dp.comments, func(item *reviewComment) bool { return item.id == comment.id })
@@ -372,6 +376,8 @@ func renderReviewCommentsAction(c *ui.Context, s *chatState, dp *diffPanelState,
 		return
 	}
 	button := ui.ButtonBase(c.Key("review-comments-attach")).Label(fmt.Sprintf("添加到对话 %d", count)).Disabled(busy || queueable == 0).Padding(Space2).Transition(motionListItem(c))
+	buttonScale := motionPressScale(c, button, "button-press-scale", !busy && queueable != 0 && button.Pressed())
+	button.Scale(buttonScale, buttonScale)
 	if button.Clicked() {
 		reviewCommentsAddToConversation(s, dp, tid)
 	}
@@ -412,6 +418,8 @@ func renderReviewReadButton(c *ui.Context, s *chatState, dp *diffPanelState, tid
 		label = "标记为未读"
 	}
 	button := ui.ButtonBase(c.Key("review-read-" + surface + file.Path)).Label(label).Tooltip(label).Padding(Space1)
+	buttonScale := motionPressScale(c, button, "button-press-scale", button.Pressed())
+	button.Scale(buttonScale, buttonScale)
 	target := float32(0)
 	if read {
 		target = 1

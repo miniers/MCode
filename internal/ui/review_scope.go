@@ -107,6 +107,8 @@ func renderReviewScope(c *ui.Context, s *chatState, dp *diffPanelState) {
 	scope, open := reviewScope(dp.scope), dp.scopeMenuOpen
 	diffPanelMu.Unlock()
 	trigger := ui.ButtonBase(c.Key("review-scope-trigger")).Label(reviewScopeTitle(scope)).Padding(Space1, Space3).Radius(RadiusSM)
+	triggerScale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
+	trigger.Scale(triggerScale, triggerScale)
 	if trigger.Clicked() {
 		open = !open
 		diffPanelMu.Lock()

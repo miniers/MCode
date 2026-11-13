@@ -53,6 +53,7 @@ func scheduleMessageSearch(s *chatState, p *paletteState, query string) {
 	if p.msgPending == query {
 		return
 	}
+	p.msgErr = ""
 	p.msgPending = query
 
 	if p.msgTimer != nil {
@@ -83,6 +84,10 @@ func scheduleMessageSearch(s *chatState, p *paletteState, query string) {
 			p.msgTimer = nil
 			p.msgQuery = q
 			p.msgHits = hits
+			p.msgErr = ""
+			if err != nil {
+				p.msgErr = err.Error()
+			}
 		})
 	})
 }
@@ -96,6 +101,7 @@ func clearMessageSearch(p *paletteState) {
 		p.msgTimer.Stop()
 		p.msgTimer = nil
 	}
+	p.msgErr = ""
 	p.msgPending = ""
 	p.msgSeq++
 	p.msgQuery = ""

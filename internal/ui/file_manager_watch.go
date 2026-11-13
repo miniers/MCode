@@ -251,6 +251,10 @@ func fileTreeWatchCheck(s *chatState, st *fileManagerState, client workspaceGene
 		return
 	}
 	if needGit && tree.gitSeq == gitSeq {
+		tree.gitErr = ""
+		if gitErr != nil {
+			tree.gitErr = gitErr.Error()
+		}
 		if gitErr == nil {
 			fileTreeApplyGitLocked(tree, files)
 			tree.gitLoaded = true
@@ -383,16 +387,18 @@ func fileTreeRefreshGit(s *chatState, threadID string) {
 		ctx, cancel := context.WithTimeout(context.Background(), fileTreeWatchTimeout)
 		defer cancel()
 		files, err := s.client.GitChangedFiles(ctx, threadID)
-		if err != nil {
-			return
-		}
 		fileManagerMu.Lock()
 		if st.gen != sessionGen || st.threadID != threadID || tree.gitSeq != seq {
 			fileManagerMu.Unlock()
 			return
 		}
-		fileTreeApplyGitLocked(tree, files)
-		tree.gitLoaded = true
+		tree.gitErr = ""
+		if err != nil {
+			tree.gitErr = err.Error()
+		} else {
+			fileTreeApplyGitLocked(tree, files)
+			tree.gitLoaded = true
+		}
 		tree.gitTried = true
 		fileManagerMu.Unlock()
 		s.invalidate()

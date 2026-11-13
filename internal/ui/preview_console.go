@@ -209,6 +209,8 @@ func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *browserTab, sna
 						label = "全部"
 					}
 					btn := ui.ButtonBase(c.Key("preview-console-filter-"+level)).Label(label).Padding(Space0, Space1)
+					btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+					btn.Scale(btnScale, btnScale)
 					if snap.consoleFilter == level {
 						btn.Background(ThemeSelected(c))
 					}
@@ -226,23 +228,32 @@ func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *browserTab, sna
 				ui.Spacer(c)
 				selected := previewConsoleSelectedEntries(snap)
 				copyBtn := ui.ButtonBase(c.Key("preview-console-copy")).Label("复制").Disabled(len(selected) == 0)
+				copyBtnScale := motionPressScale(c, copyBtn, "button-press-scale", len(selected) != 0 && copyBtn.Pressed())
+				copyBtn.Scale(copyBtnScale, copyBtnScale)
 				if copyBtn.Clicked() {
 					var lines []string
 					for _, entry := range selected {
 						lines = append(lines, entry.Time+" "+previewConsoleEntryLine(entry))
 					}
 					c.WriteClipboard(strings.Join(lines, "\n"))
+					s.setToast("已复制")
 				}
 				copyBtn.Children(func() { ui.Text(c, "复制").FontSize(uiFont(TypeCaption)) })
 				add := ui.ButtonBase(c.Key("preview-console-add")).Label("添加到对话").Disabled(len(selected) == 0)
+				addScale := motionPressScale(c, add, "button-press-scale", len(selected) != 0 && add.Pressed())
+				add.Scale(addScale, addScale)
 				s.mu.Lock()
 				threadID := s.selectedThreadID
 				s.mu.Unlock()
 				if add.Clicked() {
-					previewConsoleAddToConversation(s, threadID, snap)
+					if !previewConsoleAddToConversation(s, threadID, snap) {
+						s.setToast("添加失败")
+					}
 				}
 				add.Children(func() { ui.Text(c, "添加到对话").FontSize(uiFont(TypeCaption)) })
 				clear := ui.ButtonBase(c.Key("preview-console-clear")).Label("清空")
+				clearScale := motionPressScale(c, clear, "button-press-scale", clear.Pressed())
+				clear.Scale(clearScale, clearScale)
 				if clear.Clicked() {
 					clearPreviewConsoleErrors(s, st)
 				}

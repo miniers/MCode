@@ -135,6 +135,8 @@ func renderFileManagerNavToggle(c *ui.Context, s *chatState, narrow, navOpen boo
 		Radius(RadiusSM).
 		Center().
 		Shrink(0)
+	btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(btnScale, btnScale)
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c))
 	}
@@ -209,6 +211,8 @@ func fileManagerBarButton(c *ui.Context, key, label string, onClick func()) {
 		Radius(RadiusSM).
 		Padding(Space1, Space2).
 		Shrink(0)
+	btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(btnScale, btnScale)
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c))
 	}
@@ -271,6 +275,8 @@ func renderFileManagerTabItem(c *ui.Context, s *chatState, snap fileManagerPanel
 						Label("关闭 " + name).
 						Tooltip("关闭 " + name).
 						Cursor(ui.CursorPointer)
+					closeBtnScale := motionPressScale(c, closeBtn, "button-press-scale", closeBtn.Pressed())
+					closeBtn.Scale(closeBtnScale, closeBtnScale)
 					if showClose {
 						if closeBtn.Hovered() {
 							closeBtn.Background(ThemeOverlay(c, 0.20))
