@@ -12,6 +12,9 @@ import (
 	"mcode/internal/agent/llm"
 )
 
+// roundTimeout 是单轮模型调用的超时。
+var roundTimeout = 90 * time.Second
+
 func (d *Desk) toolbox(in Inbound) *Toolbox {
 	if d.Tools != nil {
 		return d.Tools
@@ -64,7 +67,7 @@ func (d *Desk) loop(ctx context.Context, in Inbound, snap Snapshot) error {
 		rounds = 4
 	}
 	for i := 0; i < rounds; i++ {
-		roundCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		roundCtx, cancel := context.WithTimeout(ctx, roundTimeout)
 		resp, text, err := d.stream(roundCtx, req)
 		cancel()
 		if err != nil || resp == nil {

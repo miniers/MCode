@@ -133,7 +133,8 @@ func (c *roundDeadlineClient) Stream(ctx context.Context, req llm.Request, _ fun
 	if len(req.Messages) > 0 {
 		c.images = len(req.Messages[0].Content) - 1
 	}
-	return nil, context.DeadlineExceeded
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 func TestLoop(t *testing.T) {
@@ -182,6 +183,12 @@ func TestLoop(t *testing.T) {
 }
 
 func TestLoopRoundTimeoutAndImageLimit(t *testing.T) {
+	if roundTimeout != 90*time.Second {
+		t.Fatalf("单轮超时=%v", roundTimeout)
+	}
+	oldTimeout := roundTimeout
+	roundTimeout = 20 * time.Millisecond
+	defer func() { roundTimeout = oldTimeout }()
 	client := &roundDeadlineClient{}
 	f := &fake{}
 	d := Desk{Client: client, Feed: f, Tasks: f}
@@ -192,9 +199,8 @@ func TestLoopRoundTimeoutAndImageLimit(t *testing.T) {
 	if err := d.loop(context.Background(), Inbound{Text: "工作", Images: images}, Snapshot{}); err != nil {
 		t.Fatal(err)
 	}
-	remaining := time.Until(client.deadline)
-	if remaining < 89*time.Second || remaining > 91*time.Second {
-		t.Fatalf("单轮超时不是 90 秒: %v", remaining)
+	if client.deadline.IsZero() {
+		t.Fatal("单轮调用没有设置 deadline")
 	}
 	if client.images != 4 {
 		t.Fatalf("图片数量=%d", client.images)
