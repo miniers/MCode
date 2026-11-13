@@ -81,8 +81,7 @@ func TestProviderInstallScript(t *testing.T) {
 	for _, want := range []string{
 		"Get-Command npm -ErrorAction SilentlyContinue",
 		"winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements",
-		"[Environment]::GetEnvironmentVariable('Path', 'Machine')",
-		"[Environment]::GetEnvironmentVariable('Path', 'User')",
+		"[Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path",
 		"需要先安装 Node.js：https://nodejs.org",
 		"exit 1",
 		cmd + "\n",
@@ -99,6 +98,25 @@ func TestProviderInstallScript(t *testing.T) {
 	}
 	if got := providerInstallScript("darwin", cmd); got != "#!/bin/zsh -l\n"+cmd+"\n" {
 		t.Errorf("macOS 脚本 = %q", got)
+	}
+}
+
+func TestRecheckProvidersOnFocus(t *testing.T) {
+	for _, tc := range []struct {
+		name                         string
+		pending, loading, wantLoaded bool
+	}{
+		{name: "pending", pending: true, wantLoaded: false},
+		{name: "no pending", wantLoaded: true},
+		{name: "loading", pending: true, loading: true, wantLoaded: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &SettingsState{providerRows: providerRowsState{loaded: true, loading: tc.loading, recheckOnFocus: tc.pending}}
+			st.recheckProvidersOnFocus()
+			if st.providerRows.loaded != tc.wantLoaded || st.providerRows.recheckOnFocus {
+				t.Errorf("loaded = %v, recheckOnFocus = %v", st.providerRows.loaded, st.providerRows.recheckOnFocus)
+			}
+		})
 	}
 }
 

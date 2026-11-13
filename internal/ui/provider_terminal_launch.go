@@ -21,7 +21,7 @@ func providerInstallScript(goos, cmd string) string {
 	if strings.HasPrefix(strings.TrimSpace(cmd), "npm ") || strings.TrimSpace(cmd) == "npm" {
 		return `if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
-    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
         Write-Host '需要先安装 Node.js：https://nodejs.org'
         exit 1
@@ -52,7 +52,11 @@ func launchProviderTerminalAction(st *SettingsState, id, action string) {
 	go func() {
 		if err := openTerminalScript(fmt.Sprintf("%s-%s", action, id), cmd); err != nil {
 			fail(err)
+			return
 		}
+		st.mu.Lock()
+		st.providerRows.recheckOnFocus = true
+		st.mu.Unlock()
 	}()
 }
 

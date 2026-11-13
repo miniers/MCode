@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/fsutil"
 	"mcode/internal/providers/agy/accounts"
@@ -28,6 +29,8 @@ type providerRowsState struct {
 	currentProviderKind string
 	loaded              bool
 	loading             bool
+	recheckOnFocus      bool
+	focusWindow         *mygo.Window
 	available           map[string]bool
 	versions            map[string]ProviderVersionInfo
 	login               map[string]string // Provider 登录态，取值见 ProviderLoginState*（目前只有 claude 有值）
@@ -1586,6 +1589,21 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 
 // renderProvidersCard 渲染全部模型供应商单卡片折叠行列表；lib 用于在供应商行里展示各自的模型。
 func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryView) {
+	settingsWindowMu.Lock()
+	var win *mygo.Window
+	if settingsWindow != nil && settingsWindow.state == st {
+		win = settingsWindow.win
+	}
+	settingsWindowMu.Unlock()
+	if win != nil {
+		st.mu.Lock()
+		install := st.providerRows.focusWindow != win
+		st.providerRows.focusWindow = win
+		st.mu.Unlock()
+		if install {
+			win.OnFocus(st.recheckProvidersOnFocus)
+		}
+	}
 	st.mu.Lock()
 	load := !st.providerRows.loaded && !st.providerRows.loading
 	loadErr := st.providerRows.loadErr
@@ -1678,6 +1696,21 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 	})
 	if row.Clicked() {
 		openSettingsSheet(st, "provider-add", "")
+	}
+}
+
+func (st *SettingsState) recheckProvidersOnFocus() {
+	st.mu.Lock()
+	recheck := st.providerRows.recheckOnFocus
+	if recheck {
+		st.providerRows.recheckOnFocus = false
+		if !st.providerRows.loading {
+			st.providerRows.loaded = false
+		}
+	}
+	st.mu.Unlock()
+	if recheck {
+		st.invalidate()
 	}
 }
 
