@@ -354,9 +354,6 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 		if currentID != sh.ID {
 			modalDragReset(key)
 		}
-		settingsSheetMeasureMu.Lock()
-		delete(settingsSheetMeasures, sh.ID)
-		settingsSheetMeasureMu.Unlock()
 		if !open {
 			closeSettingsSheet(st)
 		}
@@ -623,9 +620,6 @@ func closeSettingsSheet(st *SettingsState) {
 	st.mu.Unlock()
 	if sheetID != "" {
 		modalDragReset("settings-sheet-" + sheetID)
-		settingsSheetMeasureMu.Lock()
-		delete(settingsSheetMeasures, sheetID)
-		settingsSheetMeasureMu.Unlock()
 	}
 	if !changed {
 		return

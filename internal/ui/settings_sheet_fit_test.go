@@ -7,6 +7,40 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func TestSettingsSheet_重新打开保留实测高度(t *testing.T) {
+	const id = "fit-reopen-fixture"
+	reset := func() {
+		modalDragReset("settings-sheet-" + id)
+		settingsSheetMeasureMu.Lock()
+		delete(settingsSheetMeasures, id)
+		settingsSheetMeasureMu.Unlock()
+	}
+	reset()
+	t.Cleanup(reset)
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+	sh := settingsSheet{ID: id, Title: "重新打开", FitContent: true, Body: func(c *ui.Context, st *SettingsState) {
+		ui.Text(c, "短正文")
+	}}
+	openSettingsSheet(st, id, "")
+	t.Cleanup(func() { closeSettingsSheet(st) })
+	tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreeSheet(c, st, sh) }, 1200, 1000)
+	for i := 0; i < 5; i++ {
+		tt.Frame()
+	}
+	card, ok := tt.Find("设置面板 重新打开")
+	if !ok || card.H <= 0 || card.H == 640 {
+		t.Fatalf("未获得贴合内容的高度：card=%+v，found=%v", card, ok)
+	}
+	closeSettingsSheet(st)
+	tt.Frame()
+	openSettingsSheet(st, id, "")
+	tt.Frame()
+	reopened, ok := tt.Find("设置面板 重新打开")
+	if !ok || reopened.H != card.H {
+		t.Fatalf("重新打开的首帧高度 = %v，found=%v，期望 %v", reopened.H, ok, card.H)
+	}
+}
+
 func Test供应商面板_正文高度贴合且不显示空底栏(t *testing.T) {
 	modalDragReset("settings-sheet-provider")
 	t.Cleanup(func() { modalDragReset("settings-sheet-provider") })
