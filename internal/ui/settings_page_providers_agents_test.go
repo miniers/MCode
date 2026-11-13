@@ -734,6 +734,10 @@ func TestProviders_SaveBinSendsProviderSetting(t *testing.T) {
 	if draft != "/opt/homebrew/bin/copilot" {
 		t.Fatalf("expected trimmed draft synced from save result, got %q", draft)
 	}
+	saved := ui.NewTester(func(c *ui.Context) { renderProviderCLIExpanded(c, st, "copilot", false, false) }, 1000, 4000)
+	if !saved.HasText("已保存") {
+		t.Fatal("保存成功后缺少已保存状态")
+	}
 }
 
 // (k) 未登录的 copilot 展开区显示登录引导；Depleted 余额显示「余额不足」。

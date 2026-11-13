@@ -90,6 +90,9 @@ func renderMagpieModelPanel(c *ui.Context, st *SettingsState, lib *modelsLibrary
 	ui.Column(c.Key(agent + "-magpie-model-panel")).
 		FillWidth().
 		Children(func() {
+			if ps.opErr != "" {
+				ui.Text(c, ps.opErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c)).Padding(0, Space5, Space1, Space5)
+			}
 			renderMagpieEnabledSection(c, st, ps, client, catalog, agent, endpoints, opts, loading, saveErr)
 			// 档位映射区块插在这里：位于「已启用」与 agent 自身配置分组之间。
 			if opts.ShowTiers {

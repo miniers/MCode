@@ -52,6 +52,7 @@ type providerRowsState struct {
 	binDraft map[string]string          // 「可执行文件路径」输入框草稿
 	saveErr  map[string]string          // 最近一次保存失败信息
 	saving   map[string]bool            // 保存中（禁用该行控件）
+	savedAt  map[string]time.Time
 	// visionDraft 是 pi 「视觉模型」输入框草稿（其他 Provider 不用）。
 	visionDraft map[string]string
 
@@ -1107,6 +1108,10 @@ func saveProviderRowSetting(st *SettingsState, id string, mutate func(s *Provide
 
 // saveProviderRowSettingWithKey 与 saveProviderRowSetting 相同，并同时保存非空的 API Key。
 func saveProviderRowSettingWithKey(st *SettingsState, id, apiKey string, mutate func(s *ProviderSetting)) {
+	saveProviderRowSettingMarked(st, id, apiKey, "", mutate)
+}
+
+func saveProviderRowSettingMarked(st *SettingsState, id, apiKey, marker string, mutate func(s *ProviderSetting)) {
 	client := st.agyClient()
 	if client == nil {
 		return
@@ -1144,6 +1149,13 @@ func saveProviderRowSettingWithKey(st *SettingsState, id, apiKey string, mutate 
 			st.providerRows.saveErr[id] = err.Error()
 		} else {
 			st.providerRows.settings[id] = saved
+			if marker != "" {
+				if st.providerRows.savedAt == nil {
+					st.providerRows.savedAt = make(map[string]time.Time)
+				}
+				st.providerRows.savedAt[id+":"+marker] = time.Now()
+				time.AfterFunc(1500*time.Millisecond, st.invalidate)
+			}
 			// 草稿未被继续编辑时同步为保存结果
 			if st.providerRows.binDraft != nil && strings.TrimSpace(st.providerRows.binDraft[id]) == strings.TrimSpace(s.Bin) {
 				st.providerRows.binDraft[id] = saved.Bin
@@ -1176,7 +1188,7 @@ func saveProviderRowBin(st *SettingsState, id string) {
 	st.providerRows.binDraft[id] = draft
 	st.mu.Unlock()
 
-	saveProviderRowSetting(st, id, func(s *ProviderSetting) { s.Bin = draft })
+	saveProviderRowSettingMarked(st, id, "", "bin", func(s *ProviderSetting) { s.Bin = draft })
 }
 
 // saveProviderRowVision 提交 pi 「视觉模型」草稿（其他 Provider 不用）。
@@ -1189,7 +1201,7 @@ func saveProviderRowVision(st *SettingsState, id string) {
 	st.providerRows.visionDraft[id] = draft
 	st.mu.Unlock()
 
-	saveProviderRowSetting(st, id, func(s *ProviderSetting) { s.PiVisionModel = draft })
+	saveProviderRowSettingMarked(st, id, "", "vision", func(s *ProviderSetting) { s.PiVisionModel = draft })
 }
 
 // providerAuthIndex 把认证方式映射为分段控件下标：browser（网页登录）为 0，apiKey 为 1。
@@ -1307,6 +1319,8 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 		visionValue = st.providerRows.visionDraft[id]
 	}
 	saving := st.providerRows.saving != nil && st.providerRows.saving[id]
+	binSaved := time.Since(st.providerRows.savedAt[id+":bin"]) < 1500*time.Millisecond
+	visionSaved := time.Since(st.providerRows.savedAt[id+":vision"]) < 1500*time.Millisecond
 	saveErr := ""
 	if st.providerRows.saveErr != nil {
 		saveErr = st.providerRows.saveErr[id]
@@ -1370,6 +1384,8 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 						Radius(RadiusSM).
 						Padding(settingsPillPadX, Space4).
 						Background(ThemeHover(c))
+					scale := motionPressScale(c, saveBtn, "button-press-scale", !saving && !locked && saveBtn.Pressed())
+					saveBtn.Scale(scale, scale)
 					if saveBtn.Hovered() {
 						saveBtn.Background(ThemeOverlay(c, 0.15))
 					}
@@ -1377,7 +1393,11 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 						saveProviderRowBin(st, id)
 					}
 					saveBtn.Children(func() {
-						ui.Text(c, "保存").
+						label := "保存"
+						if binSaved {
+							label = "已保存"
+						}
+						ui.Text(c, label).
 							FontSize(uiFont(TypeBody)).
 							TextColor(ThemeAccent(c))
 					})
@@ -1432,6 +1452,8 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 							Radius(RadiusSM).
 							Padding(settingsPillPadX, Space4).
 							Background(ThemeHover(c))
+						scale := motionPressScale(c, saveBtn, "button-press-scale", !saving && !locked && saveBtn.Pressed())
+						saveBtn.Scale(scale, scale)
 						if saveBtn.Hovered() {
 							saveBtn.Background(ThemeOverlay(c, 0.15))
 						}
@@ -1439,7 +1461,11 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 							saveProviderRowVision(st, id)
 						}
 						saveBtn.Children(func() {
-							ui.Text(c, "保存").
+							label := "保存"
+							if visionSaved {
+								label = "已保存"
+							}
+							ui.Text(c, label).
 								FontSize(uiFont(TypeBody)).
 								TextColor(ThemeAccent(c))
 						})
@@ -1613,6 +1639,9 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 	}
 	agents := cliProviderListEntries(st, lib)
 	api := apiProviderListEntries(st)
+	st.mu.Lock()
+	presetErr := st.presets.saveErr
+	st.mu.Unlock()
 	for i := range api {
 		if api[i].Kind == "preset" {
 			switch api[i].ID {
@@ -1637,6 +1666,9 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 		entries []providerListEntry
 	}{{"智能体", agents}, {"API Key", api}} {
 		renderSkillGroupTitle(c, group.title)
+		if groupIndex == 1 && presetErr != "" {
+			ui.Text(c, presetErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c)).Margin(Space2, settingsRowPadX)
+		}
 		for i, entry := range group.entries {
 			if i > 0 {
 				renderSettingsDivider(c, fmt.Sprintf("div-provider-list-%d-%d", groupIndex, i))

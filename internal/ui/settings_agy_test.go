@@ -12,6 +12,45 @@ import (
 	"mcode/internal/providers/agy/quota"
 )
 
+type blockingAgySubmitClient struct {
+	*FakeClient
+	started chan struct{}
+	done    chan struct{}
+}
+
+func (c *blockingAgySubmitClient) AgyLoginSubmit(string) error {
+	c.started <- struct{}{}
+	<-c.done
+	return nil
+}
+
+func TestSettingsAgySubmitBusy(t *testing.T) {
+	client := &blockingAgySubmitClient{FakeClient: NewFakeClient(), started: make(chan struct{}, 2), done: make(chan struct{})}
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(client))
+	st.agy.loginBrowserURL = "https://example.com"
+	tt := ui.NewTester(func(c *ui.Context) { renderAgyBrowserLoginBody(c, st) }, 1000, 1000)
+	if err := tt.Click("提交"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("提交未启动")
+	}
+	tt.Frame()
+	if !tt.HasText("提交中…") {
+		t.Fatal("缺少提交中状态")
+	}
+	_ = tt.Click("提交")
+	select {
+	case <-client.started:
+		t.Fatal("重复提交")
+	default:
+	}
+	close(client.done)
+	waitFor(t, tt, func() bool { st.mu.Lock(); defer st.mu.Unlock(); return !st.agy.loginSubmitBusy })
+}
+
 func openAgySettingsTest(t *testing.T, fake *FakeClient) (*ui.Tester, *SettingsState) {
 	t.Helper()
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))

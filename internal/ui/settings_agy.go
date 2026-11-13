@@ -49,6 +49,7 @@ type agyPageState struct {
 
 	// 浏览器登录状态
 	loginBrowserBusy bool
+	loginSubmitBusy  bool
 	loginBrowserURL  string
 	loginInputCode   string
 	loginBrowserErr  string
@@ -1070,6 +1071,7 @@ var agyLoginSection = settingsSection{
 func renderAgyBrowserLoginBody(c *ui.Context, st *SettingsState) {
 	st.mu.Lock()
 	busy := st.agy.loginBrowserBusy
+	submitBusy := st.agy.loginSubmitBusy
 	loginURL := st.agy.loginBrowserURL
 	loginErr := st.agy.loginBrowserErr
 	pasted := st.agy.loginInputCode
@@ -1175,17 +1177,29 @@ func renderAgyBrowserLoginBody(c *ui.Context, st *SettingsState) {
 
 						submitBtn := ui.ButtonBase(c.Key("agy-btn-browser-submit")).
 							Label("提交").
+							Disabled(submitBusy || client == nil).
 							Radius(RadiusSM).
 							Padding(Space2, Space4).
 							Background(ThemeHover(c))
+						scale := motionPressScale(c, submitBtn, "button-press-scale", !submitBusy && client != nil && submitBtn.Pressed())
+						submitBtn.Scale(scale, scale)
 						if submitBtn.Hovered() {
 							submitBtn.Background(ThemeOverlay(c, 0.15))
 						}
-						if submitBtn.Clicked() && client != nil {
+						if submitBtn.Clicked() && client != nil && !submitBusy {
 							code := strings.TrimSpace(pasted)
+							st.mu.Lock()
+							if st.agy.loginSubmitBusy {
+								st.mu.Unlock()
+								return
+							}
+							st.agy.loginSubmitBusy = true
+							st.mu.Unlock()
+							st.invalidate()
 							go func(cInput string) {
 								err := client.AgyLoginSubmit(cInput)
 								st.mu.Lock()
+								st.agy.loginSubmitBusy = false
 								if err != nil {
 									st.agy.loginBrowserErr = err.Error()
 								} else {
@@ -1196,7 +1210,11 @@ func renderAgyBrowserLoginBody(c *ui.Context, st *SettingsState) {
 							}(code)
 						}
 						submitBtn.Children(func() {
-							ui.Text(c, "提交").
+							label := "提交"
+							if submitBusy {
+								label = "提交中…"
+							}
+							ui.Text(c, label).
 								FontSize(uiFont(TypeBody)).
 								TextColor(ThemePrimaryText(c))
 						})

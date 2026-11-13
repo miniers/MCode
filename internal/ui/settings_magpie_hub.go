@@ -262,6 +262,8 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(Space1, Space4).
 					Background(ThemeHover(c)).
 					Disabled(busy)
+				scale := motionPressScale(c, personaTestBtn, "button-press-scale", !busy && personaTestBtn.Pressed())
+				personaTestBtn.Scale(scale, scale)
 				if !busy && personaTestBtn.Hovered() {
 					personaTestBtn.Background(ThemeOverlay(c, 0.15))
 				}
@@ -269,7 +271,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					testMagpiePersonas(st)
 				}
 				personaTestBtn.Children(func() {
-					ui.Text(c, "测试并刷新").
+					ui.Text(c, testLabel).
 						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeAccent(c))
 				})
@@ -450,6 +452,8 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(Space2, Space4).
 					Background(ThemeHover(c)).
 					Disabled(busy)
+				scale := motionPressScale(c, testBtn, "button-press-scale", !busy && testBtn.Pressed())
+				testBtn.Scale(scale, scale)
 				if !busy && testBtn.Hovered() {
 					testBtn.Background(ThemeOverlay(c, 0.15))
 				}
@@ -457,7 +461,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					testCustomEndpoint(st)
 				}
 				testBtn.Children(func() {
-					ui.Text(c, "测试连接").
+					ui.Text(c, testLabel).
 						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c))
 				})
@@ -476,6 +480,8 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				Padding(Space2, Space4).
 				Background(ThemeAccent(c)).
 				Disabled(busy)
+			scale := motionPressScale(c, saveBtn, "button-press-scale", !busy && saveBtn.Pressed())
+			saveBtn.Scale(scale, scale)
 			if !busy && saveBtn.Hovered() {
 				saveBtn.Background(ThemeAccent(c).Alpha(0.85))
 			}
@@ -500,6 +506,8 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Padding(Space2, Space4).
 					Background(ThemeHover(c)).
 					Disabled(busy)
+				scale := motionPressScale(c, cancelBtn, "button-press-scale", !busy && cancelBtn.Pressed())
+				cancelBtn.Scale(scale, scale)
 				if cancelBtn.Hovered() {
 					cancelBtn.Background(ThemeOverlay(c, 0.15))
 				}

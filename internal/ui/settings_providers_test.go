@@ -28,6 +28,28 @@ type failingEndpointListClient struct {
 	calls chan struct{}
 }
 
+type failingPresetSaveClient struct{ *FakeClient }
+
+func (c *failingPresetSaveClient) SaveProviderSetting(context.Context, ProviderSetting, string) (ProviderSetting, error) {
+	return ProviderSetting{}, errors.New("preset save failed")
+}
+
+func TestSettingsPresetToggleShowsSaveError(t *testing.T) {
+	client := &failingPresetSaveClient{NewFakeClient()}
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(client))
+	p := ProviderSetting{ID: "api", Kind: "api", Enabled: true}
+	st.presets.loaded, st.endpoints.loaded = true, true
+	st.presets.items = []ProviderSetting{p}
+	togglePresetProviderEnabled(st, p, false)
+	tt := ui.NewTester(func(c *ui.Context) { renderProvidersCard(c, st, nil) }, 1000, 2000)
+	waitFor(t, tt, func() bool { return tt.HasText("preset save failed") })
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if !st.presets.items[0].Enabled || st.presets.saveErr == "" {
+		t.Fatal("预设开关未回滚或缺少错误")
+	}
+}
+
 func (c *failingEndpointListClient) CustomEndpoints(context.Context) ([]CustomEndpoint, error) {
 	c.calls <- struct{}{}
 	return nil, errors.New("无法加载")

@@ -8,6 +8,21 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func TestMagpieModelPanelShowsOperationError(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	ps := newModelsPageState()
+	ps.opErr = "模型操作失败"
+	lib := &modelsLibraryView{ps: &ps}
+	st.piMagpie.loaded = true
+	st.piMagpie.endpoints = []PiMagpieEndpoint{{ID: "gateway"}}
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderMagpieModelPanel(c, st, lib, ProviderInfo{}, "pi", magpieModelPanelOptions{})
+	}, 1000, 2000)
+	if !tt.HasText(ps.opErr) {
+		t.Fatal("面板没有显示模型操作错误")
+	}
+}
+
 // magpieModelPanelTester 直接渲染指定 agent 的 Magpie 模型面板。
 func magpieModelPanelTester(t *testing.T, fake *FakeClient, setting AgentMagpieSetting, catalog ProviderInfo) (*ui.Tester, *SettingsState) {
 	t.Helper()

@@ -611,6 +611,7 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 	}
 	testErr := st.endpoints.testErr
 	deleteConfirmID := st.endpoints.deleteConfirmID
+	deletingID := st.endpoints.deletingID
 	// API Key 草稿在后台保存成功的协程里会被清空，输入框不能绑裸指针，
 	// 否则 UI 线程与协程会同时读写同一个字符串（数据竞争）。
 	keyDraft := st.endpoints.editAPIKey
@@ -690,11 +691,16 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 						if isConfirm {
 							delLabel = "确认删除"
 						}
+						if deletingID == epVal.ID {
+							delLabel = "删除中…"
+						}
 						delBtn := ui.ButtonBase(c.Key("btn-del-ep-"+epVal.ID)).
 							Label(delLabel+" "+epVal.Name).
 							Disabled(busy).
 							Radius(RadiusSM).
 							Padding(Space1, Space4)
+						scale := motionPressScale(c, delBtn, "button-press-scale", !busy && delBtn.Pressed())
+						delBtn.Scale(scale, scale)
 						if isConfirm {
 							delBtn.Background(ThemeDanger(c).Alpha(0.12))
 						} else {
@@ -1451,6 +1457,9 @@ func loadPresetProviders(st *SettingsState) {
 		st.presets.loaded = true
 		if err == nil {
 			st.presets.items = presetProviderItems(list)
+			st.presets.saveErr = ""
+		} else {
+			st.presets.saveErr = err.Error()
 		}
 		st.mu.Unlock()
 		st.invalidate()
@@ -1533,6 +1542,7 @@ func togglePresetProviderEnabled(st *SettingsState, s ProviderSetting, enabled b
 		_, err := client.SaveProviderSetting(context.Background(), s, "")
 		if err != nil {
 			st.mu.Lock()
+			st.presets.saveErr = err.Error()
 			for i, item := range st.presets.items {
 				if item.ID == s.ID {
 					st.presets.items[i].Enabled = !enabled
