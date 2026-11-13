@@ -63,7 +63,9 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		return d, store.ErrDecisionClosed
 	}
 	answerText, answerDisplay := decisionAnswer(d, answer)
-	stop := answerText == "停下" || answerText == "停止" || answerText == "取消"
+	trimmedAnswer := strings.TrimSpace(answerText)
+	stop := strings.HasPrefix(trimmedAnswer, "停下") || strings.HasPrefix(trimmedAnswer, "停止") || strings.HasPrefix(trimmedAnswer, "取消")
+	continueWaiting := trimmedAnswer == "继续等"
 	cancelled := false
 	if d.TaskID != "" {
 		task, err := s.opts.Store.GetTask(ctx, d.TaskID)
@@ -109,8 +111,14 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 					meta.GateOverride, meta.DecisionID = d.ID, ""
 				}
 			case TaskStatusWaiting:
-				task.Status = string(TaskStatusTodo)
-				meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+				meta.DecisionID = ""
+				if continueWaiting {
+					meta.WakeAt = now.Add(time.Duration(BackoffMinutes(0)) * time.Minute).Format(time.RFC3339)
+					meta.Wakes = 0
+				} else {
+					task.Status = string(TaskStatusTodo)
+					meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+				}
 			}
 		}
 		task.Meta = EncodeTaskMeta(meta)

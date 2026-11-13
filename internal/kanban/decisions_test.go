@@ -160,8 +160,9 @@ func TestDecisionAnswerOptions(t *testing.T) {
 
 func TestAnswerDecisionContinueOption(t *testing.T) {
 	ctx := context.Background()
-	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
-	if err := db.CreateTask(ctx, store.Task{ID: "task", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{WaitKind: "machine"})}); err != nil {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, func() time.Time { return now })
+	if err := db.CreateTask(ctx, store.Task{ID: "task", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{WaitKind: "machine", WakeAt: "old", WaitCheck: "check", WaitBase: "base", Wakes: 2})}); err != nil {
 		t.Fatal(err)
 	}
 	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task", OptionsJSON: `[{"key":"A","text":"继续等"},{"key":"B","text":"停下"}]`})
@@ -173,8 +174,27 @@ func TestAnswerDecisionContinueOption(t *testing.T) {
 	}
 	task, err := db.GetTask(ctx, "task")
 	meta, metaErr := ParseTaskMeta(task.Meta)
-	if err != nil || metaErr != nil || task.Status != "todo" || meta.WaitKind != "" || !strings.Contains(task.Notes, "A · 继续等") {
+	if err != nil || metaErr != nil || task.Status != "waiting" || meta.WaitKind != "machine" || meta.WaitCheck != "check" || meta.WaitBase != "base" || meta.Wakes != 0 || meta.WakeAt != now.Add(5*time.Minute).Format(time.RFC3339) || !strings.Contains(task.Notes, "A · 继续等") {
 		t.Fatalf("任务: %+v, 元数据: %+v, 错误: %v, %v", task, meta, err, metaErr)
+	}
+}
+
+func TestAnswerDecisionStopPrefix(t *testing.T) {
+	ctx := context.Background()
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
+	if err := db.CreateTask(ctx, store.Task{ID: "task-stop-prefix", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{WaitKind: "human", WakeAt: "later"})}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-stop-prefix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AnswerDecision(ctx, d.ID, "取消发布", "user"); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "task-stop-prefix")
+	if err != nil || task.Status != string(TaskStatusCancelled) {
+		t.Fatalf("取消前缀应停止任务: %+v, %v", task, err)
 	}
 }
 
