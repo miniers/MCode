@@ -550,6 +550,10 @@ func pushBusyOf(s *chatState) bool {
 
 // detectOpenInApps：访达始终第一项，其余按固定顺序只保留已安装的应用。
 func TestDetectOpenInApps(t *testing.T) {
+	origGOOS := openInGOOS
+	defer func() { openInGOOS = origGOOS }()
+	openInGOOS = "darwin"
+
 	testenv.TempHome(t)
 
 	installed := map[string]bool{
@@ -645,6 +649,10 @@ func TestOpenInWindows(t *testing.T) {
 
 // 打开方式菜单：点访达传目录，点应用传 -a 加应用路径，复制路径写入剪贴板并 toast。
 func TestChatHeaderOpenInMenu(t *testing.T) {
+	origGOOS := openInGOOS
+	defer func() { openInGOOS = origGOOS }()
+	openInGOOS = "darwin"
+
 	testenv.TempHome(t)
 
 	fake := newGitFakeClient()
@@ -1565,6 +1573,10 @@ func TestChatHeaderRuntimeModeOptimisticRollback(t *testing.T) {
 }
 
 func TestOpenInFailureToast(t *testing.T) {
+	origGOOS := openInGOOS
+	defer func() { openInGOOS = origGOOS }()
+	openInGOOS = "darwin"
+
 	original := openInRunner
 	defer func() { openInRunner = original }()
 	openInRunner = func(...string) error { return errors.New("启动失败") }

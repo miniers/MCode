@@ -1143,6 +1143,10 @@ func TestTerminal_ShellConfiguration(t *testing.T) {
 
 // 测试已安装终端应用的检测：Terminal 始终列举，其余按固定顺序只保留检测到的应用
 func TestTerminal_DetectInstalledTerminalApps(t *testing.T) {
+	origGOOS := terminalGOOS
+	defer func() { terminalGOOS = origGOOS }()
+	terminalGOOS = "darwin"
+
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		t.Fatalf("os.UserHomeDir failed: %v", err)
@@ -1172,6 +1176,10 @@ func TestTerminal_DetectInstalledTerminalApps(t *testing.T) {
 
 // 测试「默认终端」下拉选项：已安装应用在列，旧的配置值保留为一项并保持选中
 func TestTerminal_AppOptions(t *testing.T) {
+	origGOOS := terminalGOOS
+	defer func() { terminalGOOS = origGOOS }()
+	terminalGOOS = "darwin"
+
 	options, selected := terminalAppOptions("Ghostty")
 	if selected != "Ghostty" {
 		t.Fatalf("expected selection Ghostty, got %q", selected)
@@ -1206,6 +1214,10 @@ func TestTerminal_AppOptions(t *testing.T) {
 
 // 测试配置值到终端应用的解析：应用名、.app 名称与路径都识别，未知值不识别
 func TestTerminal_ResolveTerminalApp(t *testing.T) {
+	origGOOS := terminalGOOS
+	defer func() { terminalGOOS = origGOOS }()
+	terminalGOOS = "darwin"
+
 	for _, tc := range []struct {
 		conf string
 		want string
@@ -1234,6 +1246,15 @@ func TestTerminal_ResolveTerminalApp(t *testing.T) {
 
 // 测试外部打开目录：每个取出的应用都用 open -a <App名> <目录> 打开，未知值退回 Terminal
 func TestTerminal_OpenDirInExternalTerminal(t *testing.T) {
+	origGOOS := terminalGOOS
+	defer func() { terminalGOOS = origGOOS }()
+	terminalGOOS = "darwin"
+	origExec := externalTerminalExecRunner
+	defer func() { externalTerminalExecRunner = origExec }()
+	externalTerminalExecRunner = func(name string, args ...string) error {
+		t.Fatalf("unexpected external terminal command: %s %v", name, args)
+		return nil
+	}
 	origRunner := externalTerminalRunner
 	defer func() { externalTerminalRunner = origRunner }()
 
