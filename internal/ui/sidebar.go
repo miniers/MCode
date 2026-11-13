@@ -221,6 +221,13 @@ func refreshProjectPathStatus(s *chatState) {
 	}()
 }
 
+func sidebarTopBarHeight(topOffset float32) float32 {
+	if topOffset == 0 {
+		return HeaderHeight
+	}
+	return 0
+}
+
 func renderSidebar(c *ui.Context, s *chatState) {
 	if win := s.currentWindow(); win != nil {
 		s.mu.Lock()
@@ -382,64 +389,67 @@ func renderSidebar(c *ui.Context, s *chatState) {
 		ui.Box(c.Key("traffic-light-pad")).Height(titleBarTopOffset(c)).DragWindow()
 
 		// 2. 顶部工具栏：搜索输入框占满剩余宽度，右侧是动态视图开关。
-		// 占位为 0 时（Windows）这一行就是窗口顶部，行内空白处（非输入框、按钮）仍能拖动窗口。
-		ui.Row(c.Key("sidebar-top-bar")).
+		// 顶部无占位时与聊天标题栏等高，行内空白处仍能拖动窗口。
+		topBar := ui.Row(c.Key("sidebar-top-bar")).
 			DragWindow().
 			Padding(Space1, ListInset, Space1, ListInset).
 			Gap(Space2).
-			AlignItems(ui.Center).
-			Children(func() {
-				searchFocused := false
-				s.mu.Lock()
-				if s.searchFocusInput {
-					searchFocused = true
-					s.searchFocusInput = false
-				}
-				if len(matchingThreads) == 0 {
-					s.searchHighlightIndex = 0
-				} else if s.searchHighlightIndex >= len(matchingThreads) {
-					s.searchHighlightIndex = len(matchingThreads) - 1
-				} else if s.searchHighlightIndex < 0 {
-					s.searchHighlightIndex = 0
-				}
-				s.mu.Unlock()
+			AlignItems(ui.Center)
+		if height := sidebarTopBarHeight(titleBarTopOffset(c)); height > 0 {
+			topBar.Height(height)
+		}
+		topBar.Children(func() {
+			searchFocused := false
+			s.mu.Lock()
+			if s.searchFocusInput {
+				searchFocused = true
+				s.searchFocusInput = false
+			}
+			if len(matchingThreads) == 0 {
+				s.searchHighlightIndex = 0
+			} else if s.searchHighlightIndex >= len(matchingThreads) {
+				s.searchHighlightIndex = len(matchingThreads) - 1
+			} else if s.searchHighlightIndex < 0 {
+				s.searchHighlightIndex = 0
+			}
+			s.mu.Unlock()
 
-				// 搜索输入框（根据标题即时过滤，上下键移动高亮，回车打开会话）
-				SearchField(c.Key("sidebar-search-field"), TextFieldProps{
-					Value:       searchQueryPtr,
-					Placeholder: "搜索对话...",
-					Label:       "搜索对话...",
-					Clearable:   true,
-					Focused:     searchFocused,
-					OnChange: func(val string) {
-						s.mu.Lock()
-						s.searchHighlightIndex = 0
-						s.mu.Unlock()
-						s.invalidate()
-					},
-					// 上下键移动高亮，回车打开高亮会话。
-					OnKeyDown: func(k ui.TextKey) bool {
-						return s.handleSearchKey(k, matchingThreads)
-					},
-				}).Grow(1)
+			// 搜索输入框（根据标题即时过滤，上下键移动高亮，回车打开会话）
+			SearchField(c.Key("sidebar-search-field"), TextFieldProps{
+				Value:       searchQueryPtr,
+				Placeholder: "搜索对话...",
+				Label:       "搜索对话...",
+				Clearable:   true,
+				Focused:     searchFocused,
+				OnChange: func(val string) {
+					s.mu.Lock()
+					s.searchHighlightIndex = 0
+					s.mu.Unlock()
+					s.invalidate()
+				},
+				// 上下键移动高亮，回车打开高亮会话。
+				OnKeyDown: func(k ui.TextKey) bool {
+					return s.handleSearchKey(k, matchingThreads)
+				},
+			}).Grow(1)
 
-				// 动态视图开关：铃铛图标按钮（开启时用强调色高亮底），与 ⌥⌘U 共用入口
-				activityOn := s.activityViewEnabled()
-				activityTip := "开启动态视图 (⌥⌘U)"
-				if activityOn {
-					activityTip = "关闭动态视图 (⌥⌘U)"
-				}
-				IconButton(c.Key("sidebar-activity-btn"), IconButtonProps{
-					Icon:    IconBell(),
-					Size:    ControlMD,
-					Variant: ButtonGhost,
-					Label:   activityTip,
-					Active:  activityOn,
-					OnClick: func() {
-						s.toggleActivityView()
-					},
-				})
+			// 动态视图开关：铃铛图标按钮（开启时用强调色高亮底），与 ⌥⌘U 共用入口
+			activityOn := s.activityViewEnabled()
+			activityTip := "开启动态视图 (⌥⌘U)"
+			if activityOn {
+				activityTip = "关闭动态视图 (⌥⌘U)"
+			}
+			IconButton(c.Key("sidebar-activity-btn"), IconButtonProps{
+				Icon:    IconBell(),
+				Size:    ControlMD,
+				Variant: ButtonGhost,
+				Label:   activityTip,
+				Active:  activityOn,
+				OnClick: func() {
+					s.toggleActivityView()
+				},
 			})
+		})
 
 		// 总管段：头像、「昵称 · 总管」与待处理数徽标合成一行；
 		// 客户端不支持总管或会话还没建好时退回只渲染待处理行。

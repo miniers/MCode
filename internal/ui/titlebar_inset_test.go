@@ -91,6 +91,25 @@ func TestTitleBarInsetsHelpers(t *testing.T) {
 	}
 }
 
+func TestSidebarTopBarHeight(t *testing.T) {
+	var height float32
+	tt := ui.NewTester(func(c *ui.Context) {
+		height = sidebarTopBarHeight(titleBarTopOffset(c))
+	}, 800, 600)
+
+	withTitleBarGOOS(t, "windows")
+	tt.SetTitleBar(ui.TitleBar{Height: 53, Right: 138})
+	if height != HeaderHeight {
+		t.Errorf("windows sidebarTopBarHeight = %v, want %v", height, HeaderHeight)
+	}
+
+	withTitleBarGOOS(t, "darwin")
+	tt.SetTitleBar(ui.TitleBar{Height: 32, Left: 78})
+	if height != 0 {
+		t.Errorf("darwin sidebarTopBarHeight = %v, want 0", height)
+	}
+}
+
 // TestHiddenTitleBarHeight 验证只有 Windows 设置 TitleBarHeight。
 func TestHiddenTitleBarHeight(t *testing.T) {
 	if got := hiddenTitleBarHeight("windows", 53); got != 53 {
