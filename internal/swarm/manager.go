@@ -1149,7 +1149,7 @@ func (m *Manager) getBaseCommit(ctx context.Context, dir, leadPrefix string, che
 		return m.opts.Git.RevParse(ctx, dir, "HEAD")
 	}
 	ref := fmt.Sprintf("refs/mcode/swarm-base/%s", leadPrefix)
-	c, err := m.opts.Git.Checkpoint(ctx, dir, ref, "mcode swarm base checkpoint")
+	c, err := m.opts.Git.CheckpointNormalized(ctx, dir, ref, "mcode swarm base checkpoint")
 	if err != nil {
 		c, err = m.opts.Git.RevParse(ctx, dir, "HEAD")
 		if err != nil {
@@ -4033,7 +4033,7 @@ func (m *Manager) integratePatch(ctx context.Context, leadThreadID, targetWorkDi
 		leadPrefix = leadPrefix[:8]
 	}
 	ref := fmt.Sprintf("refs/mcode/swarm-land/%s/%d", leadPrefix, h.Index)
-	onto, err := m.opts.Git.Checkpoint(ctx, targetWorkDir, ref, fmt.Sprintf("mcode swarm landing checkpoint %d", h.Index))
+	onto, err := m.opts.Git.CheckpointNormalized(ctx, targetWorkDir, ref, fmt.Sprintf("mcode swarm landing checkpoint %d", h.Index))
 	if err != nil {
 		return integratedPatchResult{}, fmt.Errorf("integrate patch: checkpoint target workdir: %w", err)
 	}
@@ -4302,7 +4302,7 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 	if len(prefix) > 8 {
 		prefix = prefix[:8]
 	}
-	wtSnap, err := m.opts.Git.Checkpoint(ctx, root, fmt.Sprintf("refs/mcode/swarm-land/%s/%d", prefix, h.Index), "mcode swarm landing checkpoint")
+	wtSnap, err := m.opts.Git.CheckpointNormalized(ctx, root, fmt.Sprintf("refs/mcode/swarm-land/%s/%d", prefix, h.Index), "mcode swarm landing checkpoint")
 	if err != nil {
 		return fail(err)
 	}

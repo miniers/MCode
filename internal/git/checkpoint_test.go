@@ -45,6 +45,38 @@ func initGitRepo(t *testing.T) (*Runner, string) {
 	return runner, dir
 }
 
+func TestCheckpointNormalizedLineEndings(t *testing.T) {
+	runner, dir := initGitRepo(t)
+	ctx := context.Background()
+	runTestGit(t, dir, "config", "core.autocrlf", "true")
+	writeTestFile(t, dir, "lines.txt", "first\nsecond\n")
+	runTestGit(t, dir, "add", "lines.txt")
+	runTestGit(t, dir, "commit", "-m", "initial")
+	if err := os.Remove(filepath.Join(dir, "lines.txt")); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, dir, "checkout", "--", "lines.txt")
+	if readTestFile(t, dir, "lines.txt") != "first\r\nsecond\r\n" {
+		t.Skip("git 检出未生成 CRLF")
+	}
+
+	normalized, err := runner.CheckpointNormalized(ctx, dir, "refs/mcode/test/normalized", "normalized")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := runner.Checkpoint(ctx, dir, "refs/mcode/test/raw", "raw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	headTree := runTestGit(t, dir, "rev-parse", "HEAD^{tree}")
+	if tree := runTestGit(t, dir, "rev-parse", normalized+"^{tree}"); tree != headTree {
+		t.Fatalf("规范化快照树 %s 不等于 HEAD 树 %s", tree, headTree)
+	}
+	if tree := runTestGit(t, dir, "rev-parse", raw+"^{tree}"); tree == headTree {
+		t.Fatalf("原样快照树不应等于 HEAD 树 %s", headTree)
+	}
+}
+
 func TestCheckpointAndDiffWorkflow(t *testing.T) {
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()

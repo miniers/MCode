@@ -29,7 +29,6 @@ func CheckpointRef(threadID, turnID string) string {
 }
 
 // checkpointIndexConfig 是创建检查点时全部 git 命令统一附加的临时 index 配置（-c 前缀）：
-//   - core.autocrlf / core.safecrlf：快照内容不受换行符转换影响；
 //   - core.fsmonitor / core.untrackedCache：临时 index 不需要用户仓库的缓存加速，
 //     关闭后避免临时 index 写入与用户仓库缓存（fsmonitor token、untracked 缓存）互相干扰；
 //   - core.splitIndex / splitIndex.sharedIndexExpire：core.splitIndex 影响 git 写出的每个
@@ -39,8 +38,6 @@ func CheckpointRef(threadID, turnID string) string {
 //
 // 参考 t3code apps/server/src/vcs/GitVcsDriver.ts 的 captureCheckpoint（indexConfig 与 longPaths）。
 var checkpointIndexConfig = []string{
-	"-c", "core.autocrlf=false",
-	"-c", "core.safecrlf=false",
 	"-c", "core.fsmonitor=false",
 	"-c", "core.splitIndex=false",
 	"-c", "splitIndex.sharedIndexExpire=never",
@@ -49,9 +46,16 @@ var checkpointIndexConfig = []string{
 	"-c", "sparse.expectFilesOutsideOfPatterns=false",
 }
 
-// checkpointArgs 把临时 index 配置与额外参数拼接成完整的 git 参数列表。
+// checkpointArgs 保留原样字节并拼接临时 index 配置与额外参数。
 func checkpointArgs(extra ...string) []string {
-	args := make([]string, 0, len(checkpointIndexConfig)+len(extra))
+	return checkpointArgsWithLineEndings(false, extra...)
+}
+
+func checkpointArgsWithLineEndings(normalized bool, extra ...string) []string {
+	args := make([]string, 0, 4+len(checkpointIndexConfig)+len(extra))
+	if !normalized {
+		args = append(args, "-c", "core.autocrlf=false", "-c", "core.safecrlf=false")
+	}
 	args = append(args, checkpointIndexConfig...)
 	return append(args, extra...)
 }
@@ -105,6 +109,16 @@ func (r *Runner) hasCommits(ctx context.Context, root string) bool {
 // 将当前工作区的全部文件状态（含未跟踪但未被 .gitignore 忽略的新文件）快照为一个新的 commit，
 // 并将其更新到指定的 ref（通常由 CheckpointRef 生成）。
 func (r *Runner) Checkpoint(ctx context.Context, root, ref string, message string) (string, error) {
+	return r.checkpoint(ctx, root, ref, message, false)
+}
+
+// CheckpointNormalized 按用户的换行配置规范化，结果与 git add 一致，用于与提交对象做 merge-tree 的场景。
+func (r *Runner) CheckpointNormalized(ctx context.Context, root, ref, message string) (string, error) {
+	return r.checkpoint(ctx, root, ref, message, true)
+}
+
+func (r *Runner) checkpoint(ctx context.Context, root, ref, message string, normalized bool) (string, error) {
+	args := func(extra ...string) []string { return checkpointArgsWithLineEndings(normalized, extra...) }
 	// 创建隔离的临时目录存放专用的 GIT_INDEX_FILE，用完后立即清理
 	tmpDir, err := os.MkdirTemp("", "mcode-git-checkpoint-*")
 	if err != nil {
@@ -137,9 +151,9 @@ func (r *Runner) Checkpoint(ctx context.Context, root, ref string, message strin
 	if hasHead {
 		var readTreeArgs []string
 		if sparse {
-			readTreeArgs = checkpointArgs("-c", "index.sparse=true", "read-tree", "--reset", "HEAD")
+			readTreeArgs = args("-c", "index.sparse=true", "read-tree", "--reset", "HEAD")
 		} else {
-			readTreeArgs = checkpointArgs("read-tree", "HEAD")
+			readTreeArgs = args("read-tree", "HEAD")
 		}
 		if _, err := r.run(ctx, root, checkpointEnv, readTreeArgs...); err != nil {
 			return "", fmt.Errorf("checkpoint read-tree: %w", err)
@@ -147,7 +161,7 @@ func (r *Runner) Checkpoint(ctx context.Context, root, ref string, message strin
 	}
 
 	// 2. 将工作区变更同步进临时 index（遵守 .gitignore）
-	addBase := checkpointArgs("add")
+	addBase := args("add")
 	addTail := []string{"-A", "--", "."}
 	stageArgs := func(withSparse bool) []string {
 		args := append([]string{}, addBase...)
@@ -167,7 +181,7 @@ func (r *Runner) Checkpoint(ctx context.Context, root, ref string, message strin
 	}
 
 	// 3. 基于临时 index 生成 tree 对象
-	writeTreeArgs := checkpointArgs("write-tree")
+	writeTreeArgs := args("write-tree")
 	treeOut, err := r.run(ctx, root, checkpointEnv, writeTreeArgs...)
 	if err != nil {
 		return "", fmt.Errorf("checkpoint write-tree: %w", err)
@@ -178,7 +192,7 @@ func (r *Runner) Checkpoint(ctx context.Context, root, ref string, message strin
 	if message == "" {
 		message = "mcode checkpoint"
 	}
-	commitArgs := checkpointArgs("commit-tree", tree, "-m", message)
+	commitArgs := args("commit-tree", tree, "-m", message)
 	if hasHead {
 		commitArgs = append(commitArgs, "-p", "HEAD")
 	}
@@ -190,7 +204,7 @@ func (r *Runner) Checkpoint(ctx context.Context, root, ref string, message strin
 	commit := strings.TrimSpace(string(commitOut))
 
 	// 5. 更新目标引用指向该 commit（refs 下的锁文件可能被并发 git 进程短暂占用，做一次短重试）
-	updateRefArgs := checkpointArgs("update-ref", ref, commit)
+	updateRefArgs := args("update-ref", ref, commit)
 	if _, err := r.runWithLockRetry(ctx, root, checkpointEnv, updateRefArgs...); err != nil {
 		return "", fmt.Errorf("checkpoint update-ref %s: %w", ref, err)
 	}
