@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -34,11 +35,18 @@ type modelsPageLoadResult struct {
 }
 
 type modelsPageState struct {
-	pins      []ModelPin
-	limit     int
-	loaded    bool
-	load      chan modelsPageLoadResult
-	loadSince time.Time // 本次加载的发起时间，用于超时放弃
+	// 后台仅提交完成回调；列表与错误仍只由 UI 线程读写。
+	opMu        sync.Mutex
+	busy        map[string]bool
+	completed   []func()
+	pinsVersion uint64
+	reorderSeq  uint64
+	reorderTail <-chan struct{}
+	pins        []ModelPin
+	limit       int
+	loaded      bool
+	load        chan modelsPageLoadResult
+	loadSince   time.Time // 本次加载的发起时间，用于超时放弃
 	// loadErr 是加载失败（固定模型列表/偏好读取不出来），会隐藏「你的模型」；
 	// catalogErr 是供应商目录读取失败，只提示不隐藏列表；opErr 是添加/排序/移除失败。
 	loadErr     string
@@ -53,6 +61,7 @@ type modelsPageState struct {
 	providers          []ProviderInfo
 	catalogVersion     uint64
 	loadCatalogVersion uint64
+	loadPinsVersion    uint64
 	providerSettings   []ProviderSetting
 	dragFrom           int
 	dragDy             float32
@@ -157,46 +166,83 @@ func (ps *modelsPageState) syncSettings(st *SettingsState) {
 	st.mu.Unlock()
 }
 
-func (ps *modelsPageState) refreshPins(st *SettingsState, client Client) {
-	pins, limit, err := client.ModelList(context.Background())
-	if err != nil {
-		ps.loadErr = "加载模型失败：" + err.Error()
+// changePin 将收藏读写放到后台；不同模型的结果合并，旧列表快照不能覆盖较新的操作。
+func (ps *modelsPageState) changePin(st *SettingsState, client Client, pin ModelPin, adding bool, after func()) {
+	if client == nil || ps.pinBusy(pin) {
 		return
 	}
-	ps.pins = pins
-	ps.limit = config.MaxModelListLimit
-	if limit > 0 && limit < ps.limit {
-		ps.limit = limit
-	}
-	ps.loadErr = ""
-	ps.syncSettings(st)
-}
-
-// removePin 从「你的模型」移除一个模型，成功后同步配置与列表，失败时提示。
-func (ps *modelsPageState) removePin(st *SettingsState, client Client, pin ModelPin) {
-	if client == nil {
-		return
-	}
-	removed, err := client.RemoveModelFromList(context.Background(), pin)
-	if err != nil {
-		ps.opErr = "移除模型失败：" + err.Error()
-		st.invalidate()
-		return
-	}
-	if removed {
-		var kept []ModelPin
-		for _, p := range ps.pins {
-			if p != pin {
-				kept = append(kept, p)
+	ps.pinsVersion++
+	version := ps.pinsVersion
+	ps.runOperation(st, pin.Key(), func(ctx context.Context) func() {
+		var pref ModelPreference
+		var changed bool
+		var err error
+		if adding {
+			pref, err = client.ModelPreferences(ctx, pin)
+			if err == nil {
+				changed, err = client.AddModelToList(ctx, pin)
+			}
+		} else {
+			changed, err = client.RemoveModelFromList(ctx, pin)
+		}
+		var pins []ModelPin
+		var limit int
+		var loadErr error
+		if err == nil {
+			pins, limit, loadErr = client.ModelList(ctx)
+		}
+		return func() {
+			if err != nil {
+				action := "移除"
+				if adding {
+					action = "添加"
+				}
+				ps.opErr = action + "模型失败：" + err.Error()
+				return
+			}
+			if changed {
+				if adding {
+					if !modelPinPresent(ps.pins, pin) {
+						ps.pins = append(ps.pins, pin)
+					}
+					ps.preferences[pin.Key()] = pref
+				} else {
+					kept := make([]ModelPin, 0, len(ps.pins))
+					for _, p := range ps.pins {
+						if p.Key() != pin.Key() {
+							kept = append(kept, p)
+						}
+					}
+					ps.pins = kept
+				}
+			}
+			if version == ps.pinsVersion {
+				if loadErr != nil {
+					ps.loadErr = "加载模型失败：" + loadErr.Error()
+				} else {
+					ps.pins = pins
+					ps.limit = config.MaxModelListLimit
+					if limit > 0 && limit < ps.limit {
+						ps.limit = limit
+					}
+					ps.loadErr = ""
+				}
+			}
+			ps.pinsVersion++
+			ps.opErr = ""
+			ps.syncSettings(st)
+			if !adding && ps.openPopoverKey == pin.Key() {
+				ps.openPopoverKey = ""
+			}
+			if after != nil {
+				after()
 			}
 		}
-		ps.pins = kept
-		ps.opErr = ""
-		ps.syncSettings(st)
-	}
-	ps.refreshPins(st, client)
-	ps.openPopoverKey = ""
-	st.invalidate()
+	})
+}
+
+func (ps *modelsPageState) removePin(st *SettingsState, client Client, pin ModelPin) {
+	ps.changePin(st, client, pin, false, nil)
 }
 
 func (ps *modelsPageState) savePreference(st *SettingsState, client Client, pin ModelPin, pref ModelPreference) {
@@ -542,6 +588,8 @@ func renderAddModelPin(c *ui.Context, st *SettingsState) {
 	const key = "models-add-pin"
 	// 外层自定义行已经提供 settingsRowPadX，按钮不再叠加水平内边距。
 	btn := ui.ButtonBase(c.Key(key+"-button")).Label("添加收藏").Padding(Space4, 0)
+	scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(scale, scale)
 	btn.OnClick(func() {
 		if ps.openPopoverKey == key {
 			ps.openPopoverKey = ""
@@ -740,14 +788,7 @@ func renderPinnedModelRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 						to = i
 					}
 				}
-				pins, err := commitModelReorder(client, ps.pins, from, to)
-				if err != nil {
-					ps.opErr = "保存模型顺序失败：" + err.Error()
-				} else {
-					ps.pins = pins
-					ps.opErr = ""
-					ps.syncSettings(st)
-				}
+				ps.reorder(st, client, from, to)
 				ps.dragFrom, ps.dragDy = -1, 0
 				st.invalidate()
 			}
@@ -855,12 +896,20 @@ func renderPinnedModelRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 				btnRemove.Background(ui.Transparent)
 			}
 
-			btnRemove.Disabled(client == nil)
+			busy := ps.pinBusy(pin)
+			disabled := client == nil || busy
+			btnRemove.Disabled(disabled)
+			scale := motionPressScale(c, btnRemove, "button-press-scale", !disabled && btnRemove.Pressed())
+			btnRemove.Scale(scale, scale)
 			btnRemove.OnClick(func() {
 				ps.removePin(st, client, pin)
 			})
 
 			btnRemove.Children(func() {
+				if busy {
+					LoadingIndicator(c, nil, "", IconSM)
+					return
+				}
 				ui.Icon(c, iconMinusCircle).
 					Size(IconMD, IconMD).
 					TextColor(ThemeSecondaryText(c))
@@ -977,7 +1026,7 @@ func providerModelPickerItems(ps *modelsPageState, client Client, p ProviderInfo
 				ID:       m.ID,
 				Detail:   m.Detail,
 				Checked:  checked,
-				Disabled: !editable || (!checked && !canAddModel(ps.pins, ps.limit, pin)),
+				Disabled: ps.pinBusy(pin) || !editable || (!checked && !canAddModel(ps.pins, ps.limit, pin)),
 			})
 		}
 	}
@@ -1047,7 +1096,8 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 			break
 		}
 	}
-	canAdd := ps.canEdit() && ps.loadErr == "" && client != nil && canAddModel(ps.pins, ps.limit, pin)
+	busy := ps.pinBusy(pin)
+	canAdd := !busy && ps.canEdit() && ps.loadErr == "" && client != nil && canAddModel(ps.pins, ps.limit, pin)
 
 	ui.Row(c.Key("row-provider-model-"+pinKey)).
 		Padding(Space4, providerModelRowInset(extras.inset)).
@@ -1076,7 +1126,7 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 				// 已添加的模型可以在这里直接移除：高度固定 24 与「+」按钮一致，行高不变。
 				// 宽度也固定 72 并右对齐内容：悬停时文字从「已收藏」换成「移除」，若宽度随内容收缩，
 				// 按钮左边缘会移动，指针停在左侧那一段时会在悬停/非悬停之间来回切换而闪烁。
-				canRemove := ps.canEdit() && ps.loadErr == "" && client != nil
+				canRemove := !busy && ps.canEdit() && ps.loadErr == "" && client != nil
 				btnAdded := ui.ButtonBase(c.Key("models-added-"+pinKey)).
 					Label("models-added-"+pinKey).
 					Size(settingsModelPickerWidth, ControlSM).
@@ -1086,6 +1136,9 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 					Gap(Space1).
 					Radius(RadiusXS).
 					Disabled(!canRemove)
+
+				scale := motionPressScale(c, btnAdded, "button-press-scale", canRemove && btnAdded.Pressed())
+				btnAdded.Scale(scale, scale)
 
 				if btnAdded.Hovered() && canRemove {
 					btnAdded.Background(ThemeHover(c))
@@ -1100,6 +1153,10 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 				}
 
 				btnAdded.Children(func() {
+					if busy {
+						LoadingIndicator(c, nil, "", IconSM)
+						return
+					}
 					// 悬停且可移除时显示危险色的「移除」，其余时候保持静态的「已收藏」。
 					if canRemove && btnAdded.Hovered() {
 						ui.Icon(c, iconMinusCircle).
@@ -1125,6 +1182,8 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 					Justify(ui.Center).
 					Disabled(!canAdd).
 					Radius(RadiusXS)
+				scale := motionPressScale(c, btnAdd, "button-press-scale", canAdd && btnAdd.Pressed())
+				btnAdd.Scale(scale, scale)
 				if extras.addTooltip != "" {
 					btnAdd.Tooltip(extras.addTooltip)
 				}
@@ -1137,7 +1196,7 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 
 				if canAdd {
 					btnAdd.OnClick(func() {
-						if !canAddModel(ps.pins, ps.limit, pin) {
+						if ps.pinBusy(pin) || !canAddModel(ps.pins, ps.limit, pin) {
 							return
 						}
 						if extras.beforeAdd != nil {
@@ -1147,27 +1206,15 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 								return
 							}
 						}
-						pref, err := client.ModelPreferences(context.Background(), pin)
-						if err == nil {
-							var added bool
-							added, err = client.AddModelToList(context.Background(), pin)
-							if err == nil && added {
-								ps.pins = append(ps.pins, pin)
-								ps.preferences[pinKey] = pref
-								ps.syncSettings(st)
-							}
-						}
-						if err != nil {
-							ps.opErr = "添加模型失败：" + err.Error()
-						} else {
-							ps.opErr = ""
-							ps.refreshPins(st, client)
-						}
-						st.invalidate()
+						magpieAddModelPin(st, ps, client, pin)
 					})
 				}
 
 				btnAdd.Children(func() {
+					if busy {
+						LoadingIndicator(c, nil, "", IconSM)
+						return
+					}
 					col := ThemeAccent(c)
 					op := float32(1.0)
 					if !canAdd {

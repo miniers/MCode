@@ -1,7 +1,6 @@
 package mcodeui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -161,6 +160,11 @@ func renderMagpieEnabledSection(c *ui.Context, st *SettingsState, ps *modelsPage
 				renderMagpieDefaultSummary(c, st, catalog, agent, endpoints, opts.Footer)
 			}
 			items, targets := magpieModelPickerItems(endpoints)
+			for i, item := range items {
+				target := targets[item.Key]
+				pin := ModelPin{Provider: agent, ModelID: target.providerID + "/" + item.ID}
+				items[i].Disabled = items[i].Disabled || ps.pinBusy(pin)
+			}
 			onToggle := func(item modelPickerItem, checked bool) {
 				target, ok := targets[item.Key]
 				if !ok {
@@ -170,9 +174,10 @@ func renderMagpieEnabledSection(c *ui.Context, st *SettingsState, ps *modelsPage
 					// 取消勾选一个已固定的模型时先移除固定，避免留下无法解析的模型。
 					pin := ModelPin{Provider: agent, ModelID: target.providerID + "/" + item.ID}
 					if modelPinPresent(ps.pins, pin) {
-						ps.removePin(st, client, pin)
-						// removePin 会关闭固定浮层；这里重新打开「添加模型」，让勾选可以连续操作。
-						ps.openPopoverKey = addKey
+						ps.changePin(st, client, pin, false, func() {
+							magpieToggleFor(st, agent)(target.endpointID, item.ID, false)
+						})
+						return
 					}
 				}
 				magpieToggleFor(st, agent)(target.endpointID, item.ID, checked)
@@ -270,13 +275,27 @@ func renderMagpieDisableButton(c *ui.Context, st *SettingsState, ps *modelsPageS
 		Label("停用 "+name).
 		Radius(RadiusXS).
 		Padding(Space1, Space1)
+	busy := ps.pinBusy(pin)
+	disabled := client == nil || busy
+	btn.Disabled(disabled)
+	scale := motionPressScale(c, btn, "button-press-scale", !disabled && btn.Pressed())
+	btn.Scale(scale, scale)
 	btn.OnClick(func() {
-		if modelPinPresent(ps.pins, pin) {
-			ps.removePin(st, client, pin)
+		if ps.pinBusy(pin) || client == nil {
+			return
 		}
-		magpieToggleFor(st, agent)(endpointID, modelID, false)
+		disable := func() { magpieToggleFor(st, agent)(endpointID, modelID, false) }
+		if modelPinPresent(ps.pins, pin) {
+			ps.changePin(st, client, pin, false, disable)
+		} else {
+			disable()
+		}
 	})
 	btn.Children(func() {
+		if busy {
+			LoadingIndicator(c, nil, "", IconSM)
+			return
+		}
 		color := ThemeSecondaryText(c)
 		if btn.Hovered() {
 			color = ThemeDanger(c)
@@ -291,23 +310,7 @@ func magpieAddModelPin(st *SettingsState, ps *modelsPageState, client Client, pi
 	if client == nil || ps == nil || !ps.canEdit() || !canAddModel(ps.pins, ps.limit, pin) {
 		return
 	}
-	pref, err := client.ModelPreferences(context.Background(), pin)
-	if err == nil {
-		var added bool
-		added, err = client.AddModelToList(context.Background(), pin)
-		if err == nil && added {
-			ps.pins = append(ps.pins, pin)
-			ps.preferences[pin.Key()] = pref
-			ps.syncSettings(st)
-		}
-	}
-	if err != nil {
-		ps.opErr = "添加模型失败：" + err.Error()
-	} else {
-		ps.opErr = ""
-		ps.refreshPins(st, client)
-	}
-	st.invalidate()
+	ps.changePin(st, client, pin, true, nil)
 }
 
 // renderMagpieDefaultSummary 渲染默认模型下拉框、说明与失效警示。
@@ -586,6 +589,8 @@ func renderMagpieOwnModelGroup(c *ui.Context, st *SettingsState, ps *modelsPageS
 				Label(toggleLabel).
 				FillWidth().
 				Padding(Space2, Space5)
+			scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+			btn.Scale(scale, scale)
 			btn.OnClick(func() {
 				magpieOwnModelGroups.Lock()
 				magpieOwnModelGroups.expanded[agent] = !expanded

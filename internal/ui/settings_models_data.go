@@ -10,6 +10,7 @@ import (
 // renderPageModels 渲染模型设置页：已启用模型列表、搜索过滤及采样参数，并把过滤后的供应商目录交给模型供应商卡片渲染。
 func modelsPageLibrary(c *ui.Context, st *SettingsState) *modelsLibraryView {
 	ps := modelsPageStateOf(st)
+	ps.applyOperations()
 	if modelsPageStateHook != nil {
 		modelsPageStateHook(ps)
 	}
@@ -78,6 +79,7 @@ func modelsPageLibrary(c *ui.Context, st *SettingsState) *modelsLibraryView {
 	// 后台只写结果通道，所有页面状态均由 UI 线程更新。
 	if !ps.loaded && ps.load == nil {
 		ps.loadCatalogVersion = catalogVersion
+		ps.loadPinsVersion = ps.pinsVersion
 		ps.load = make(chan modelsPageLoadResult, 1)
 		ps.loadSince = time.Now()
 		results := ps.load
@@ -149,7 +151,7 @@ func modelsPageLibrary(c *ui.Context, st *SettingsState) *modelsLibraryView {
 				ps.catalogErr = ""
 			}
 			// 只刷新目录时不动固定模型、偏好和上限，也不回写配置。
-			if !catalogOnly {
+			if !catalogOnly && ps.loadPinsVersion == ps.pinsVersion {
 				if r.err != nil {
 					ps.loadErr = "加载模型失败：" + r.err.Error()
 				} else {
@@ -178,4 +180,94 @@ func modelsPageStateOf(st *SettingsState) *modelsPageState {
 		st.modelsPage = &state
 	}
 	return st.modelsPage
+}
+
+// pinBusy 与完成队列共用锁，不能在此锁内调用 RPC、回调或 invalidate。
+func (ps *modelsPageState) pinBusy(pin ModelPin) bool {
+	ps.opMu.Lock()
+	defer ps.opMu.Unlock()
+	return ps.busy[pin.Key()]
+}
+
+// runOperation 的 work 只读捕获的快照，返回的回调在下一帧由 UI 线程执行。
+// 队列不依赖窗口存活，也不会在窗口关闭后阻塞后台请求。
+func (ps *modelsPageState) runOperation(st *SettingsState, key string, work func(context.Context) func()) bool {
+	ps.opMu.Lock()
+	if key != "" {
+		if ps.busy[key] {
+			ps.opMu.Unlock()
+			return false
+		}
+		if ps.busy == nil {
+			ps.busy = make(map[string]bool)
+		}
+		ps.busy[key] = true
+	}
+	ps.opMu.Unlock()
+	st.invalidate()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), modelsPageLoadTimeout)
+		defer cancel()
+		apply := work(ctx)
+		ps.opMu.Lock()
+		ps.completed = append(ps.completed, func() {
+			apply()
+			ps.opMu.Lock()
+			delete(ps.busy, key)
+			ps.opMu.Unlock()
+		})
+		ps.opMu.Unlock()
+		st.invalidate()
+	}()
+	return true
+}
+
+func (ps *modelsPageState) applyOperations() {
+	ps.opMu.Lock()
+	completed := ps.completed
+	ps.completed = nil
+	ps.opMu.Unlock()
+	for _, apply := range completed {
+		apply()
+	}
+}
+
+// reorder 立即更新本地顺序，只有最新排序请求的完成结果可以更新页面。
+func (ps *modelsPageState) reorder(st *SettingsState, client Client, from, to int) {
+	ps.pins = reorderPins(ps.pins, from, to)
+	ps.pinsVersion++
+	ps.reorderSeq++
+	seq := ps.reorderSeq
+	previous := ps.reorderTail
+	done := make(chan struct{})
+	ps.reorderTail = done
+	pins := append([]ModelPin(nil), ps.pins...)
+	ps.opErr = ""
+	ps.syncSettings(st)
+	ps.runOperation(st, "", func(ctx context.Context) func() {
+		defer close(done)
+		var err error
+		// 按拖拽顺序落盘，避免较慢的旧请求最后写入配置。
+		if previous != nil {
+			select {
+			case <-previous:
+			case <-ctx.Done():
+				err = ctx.Err()
+			}
+		}
+		if err == nil && client != nil {
+			err = client.ReorderModelList(ctx, pins)
+		}
+		return func() {
+			if seq != ps.reorderSeq {
+				return
+			}
+			if err != nil {
+				ps.opErr = "保存模型顺序失败：" + err.Error()
+				ps.loaded = false
+				ps.load = nil
+				ps.loadCatalogOnly = false
+			}
+		}
+	})
 }

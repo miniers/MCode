@@ -585,10 +585,11 @@ func TestSettings_ModelsPage_LimitAndCollapse(t *testing.T) {
 
 type modelsPageTestClient struct {
 	Client
-	list    func(context.Context) ([]ModelPin, int, error)
-	add     func(context.Context, ModelPin) (bool, error)
-	remove  func(context.Context, ModelPin) (bool, error)
-	reorder func(context.Context, []ModelPin) error
+	list        func(context.Context) ([]ModelPin, int, error)
+	add         func(context.Context, ModelPin) (bool, error)
+	remove      func(context.Context, ModelPin) (bool, error)
+	reorder     func(context.Context, []ModelPin) error
+	preferences func(context.Context, ModelPin) (ModelPreference, error)
 }
 
 // countingModelsClient 统计 ModelList 调用次数，用于断言目录作废只重载目录。
@@ -884,6 +885,13 @@ func (c modelsPageTestClient) ModelList(ctx context.Context) ([]ModelPin, int, e
 	return c.Client.ModelList(ctx)
 }
 
+func (c modelsPageTestClient) ModelPreferences(ctx context.Context, pin ModelPin) (ModelPreference, error) {
+	if c.preferences != nil {
+		return c.preferences(ctx, pin)
+	}
+	return c.Client.ModelPreferences(ctx, pin)
+}
+
 func (c modelsPageTestClient) AddModelToList(ctx context.Context, pin ModelPin) (bool, error) {
 	if c.add != nil {
 		return c.add(ctx, pin)
@@ -1145,6 +1153,10 @@ func TestSettings_ModelsPage_DragGesture(t *testing.T) {
 	}
 	tt.Release(x, y+118)
 	want := []ModelPin{pins[1], pins[2], pins[0]}
+	waitFor(t, tt, func() bool {
+		persisted, _, _ := fake.ModelList(context.Background())
+		return reflect.DeepEqual(persisted, want)
+	})
 	persisted, _, err := fake.ModelList(context.Background())
 	if err != nil || !reflect.DeepEqual(persisted, want) || !reflect.DeepEqual(st.cfg.Models.Pins, want) {
 		t.Fatalf("拖动松手未持久化顺序: %+v, %v", persisted, err)
@@ -1154,6 +1166,10 @@ func TestSettings_ModelsPage_DragGesture(t *testing.T) {
 	tt.Press(x, y)
 	tt.Move(x, y-118)
 	tt.Release(x, y-118)
+	waitFor(t, tt, func() bool {
+		persisted, _, _ := fake.ModelList(context.Background())
+		return reflect.DeepEqual(persisted, pins)
+	})
 	persisted, _, _ = fake.ModelList(context.Background())
 	if !reflect.DeepEqual(persisted, pins) {
 		t.Fatalf("第二次反向拖动失败: %+v", persisted)
@@ -1177,6 +1193,9 @@ func TestSettings_ModelsPage_PreferencesAndBudgetPersistence(t *testing.T) {
 	click("添加收藏")
 	waitFor(t, tt, func() bool { return tt.HasText("Sonnet") })
 	click("Sonnet")
+	waitFor(t, tt, func() bool {
+		return !modelsPageStateOf(st).pinBusy(pin) && modelPinPresent(modelsPageStateOf(st).pins, pin)
+	})
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	click("Claude Sonnet")
@@ -1201,9 +1220,15 @@ func TestSettings_ModelsPage_PreferencesAndBudgetPersistence(t *testing.T) {
 	}
 	tt.Key(0, ui.KeyEscape)
 	click("移除收藏 Claude Sonnet")
+	waitFor(t, tt, func() bool {
+		return !modelsPageStateOf(st).pinBusy(pin) && !modelPinPresent(modelsPageStateOf(st).pins, pin)
+	})
 	click("添加收藏")
 	waitFor(t, tt, func() bool { return tt.HasText("Sonnet") })
 	click("Sonnet")
+	waitFor(t, tt, func() bool {
+		return !modelsPageStateOf(st).pinBusy(pin) && modelPinPresent(modelsPageStateOf(st).pins, pin)
+	})
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	click("Claude Sonnet")
@@ -1238,6 +1263,7 @@ func TestSettings_ModelsPage_WriteFailures(t *testing.T) {
 			if err := tt.Click("Sonnet"); err != nil {
 				t.Fatal(err)
 			}
+			waitFor(t, tt, func() bool { return !modelsPageStateOf(st).pinBusy(pin) })
 			if len(st.cfg.Models.Pins) != 0 || tt.HasText("移除收藏 Claude Sonnet") {
 				t.Fatal("添加失败仍显示已收藏")
 			}
@@ -1260,6 +1286,7 @@ func TestSettings_ModelsPage_WriteFailures(t *testing.T) {
 	if err := tt.Click("移除收藏 Claude Sonnet"); err != nil {
 		t.Fatal(err)
 	}
+	waitFor(t, tt, func() bool { return tt.HasText("移除模型失败：disk full") })
 	if !tt.HasText("移除模型失败：disk full") || len(st.cfg.Models.Pins) != 1 {
 		t.Fatal("移除失败没有保留配置或显示提示")
 	}
