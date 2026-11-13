@@ -737,6 +737,10 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 				Center().
 				Label("上一个匹配 " + shortcutDisplay("⇧↩")).
 				Tooltip("上一个匹配 " + shortcutDisplay("⇧↩"))
+			{
+				scale := motionPressScale(c, prevBtn, "button-press-scale", prevBtn.Pressed())
+				prevBtn.Scale(scale, scale)
+			}
 			if prevBtn.Hovered() {
 				prevBtn.Background(ThemeHover(c))
 			}
@@ -754,6 +758,10 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 				Center().
 				Label("下一个匹配 " + shortcutDisplay("↩")).
 				Tooltip("下一个匹配 " + shortcutDisplay("↩"))
+			{
+				scale := motionPressScale(c, nextBtn, "button-press-scale", nextBtn.Pressed())
+				nextBtn.Scale(scale, scale)
+			}
 			if nextBtn.Hovered() {
 				nextBtn.Background(ThemeHover(c))
 			}
@@ -772,6 +780,10 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 				Center().
 				Label("区分大小写").
 				Tooltip("区分大小写")
+			{
+				scale := motionPressScale(c, caseBtn, "button-press-scale", caseBtn.Pressed())
+				caseBtn.Scale(scale, scale)
+			}
 			if f.caseSensitive {
 				caseBtn.Background(ThemeSelected(c))
 			} else if caseBtn.Hovered() {

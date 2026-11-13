@@ -477,6 +477,10 @@ func renderImagePreviewNavButton(c *ui.Context, key, glyph, tip string, left boo
 	} else {
 		btn.Right(Space3)
 	}
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if btn.Hovered() {
 		btn.Background(imagePreviewNavHoverBg)
 	}
@@ -522,6 +526,10 @@ func previewActionButton(c *ui.Context, key, label, tip string, onClick func()) 
 		Label(label).
 		Tooltip(tip).
 		Cursor(ui.CursorPointer)
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if btn.Hovered() {
 		btn.Background(imagePreviewBtnHoverBg)
 	}

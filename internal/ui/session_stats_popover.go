@@ -78,6 +78,10 @@ func renderSessionStatsButton(c *ui.Context, s *chatState, threadID, key string)
 		OnClick(func() {
 			setSessionStatsOpen(s, !sessionStatsOpen(s))
 		})
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	composerHoverBg(c, btn, btn.Hovered() || open)
 	btn.Children(func() {
 		ui.Row(c.Key(key + "-stats-btn-content")).

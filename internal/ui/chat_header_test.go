@@ -1519,3 +1519,56 @@ func TestChatHeaderNoUnmergedBeesMenu(t *testing.T) {
 		t.Fatal("没有待合并子代理时不应显示菜单项")
 	}
 }
+
+type blockingRuntimeModeClient struct {
+	*FakeClient
+	started chan struct{}
+	release chan struct{}
+}
+
+func (f *blockingRuntimeModeClient) SetThreadRuntimeMode(threadID, mode string) error {
+	close(f.started)
+	<-f.release
+	return errors.New("保存失败")
+}
+
+func TestChatHeaderRuntimeModeOptimisticRollback(t *testing.T) {
+	client := &blockingRuntimeModeClient{FakeClient: NewFakeClient(), started: make(chan struct{}), release: make(chan struct{})}
+	s := newChatState(client)
+	s.threads = []Thread{{ID: "t1", RuntimeMode: "auto"}}
+	s.threadsByProj = map[string][]Thread{"p1": {{ID: "t1", RuntimeMode: "auto"}}}
+	s.setHeaderRuntimeMode("t1", "supervised")
+	<-client.started
+	if got := s.threadRuntimeMode("t1"); got != "supervised" {
+		t.Fatalf("RPC 返回前档位 = %q", got)
+	}
+	close(client.release)
+	deadline := time.After(time.Second)
+	for {
+		s.mu.Lock()
+		mode, cached, toast := s.threads[0].RuntimeMode, s.threadsByProj["p1"][0].RuntimeMode, s.toastMessage
+		s.mu.Unlock()
+		if toast != "" {
+			if mode != "auto" || cached != "auto" || toast != "设置权限模式失败: 保存失败" {
+				t.Fatalf("恢复状态 = %q, %q, %q", mode, cached, toast)
+			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("未收到失败提示")
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+func TestOpenInFailureToast(t *testing.T) {
+	original := openInRunner
+	defer func() { openInRunner = original }()
+	openInRunner = func(...string) error { return errors.New("启动失败") }
+	s := newChatState(NewFakeClient())
+	s.openInWithApp(openInApp{}, "/tmp")
+	if s.toastMessage != "打开失败: 启动失败" {
+		t.Fatalf("toast = %q", s.toastMessage)
+	}
+}

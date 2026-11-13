@@ -256,6 +256,10 @@ func renderTableExpandButton(c *ui.Context, s *chatState, key, src string, opts 
 		Cursor(ui.CursorPointer).
 		Label("展开表格").
 		Tooltip(tablePopupExpandTooltip)
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c))
 	} else {

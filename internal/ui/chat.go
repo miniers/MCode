@@ -766,6 +766,10 @@ func renderNewThreadPrompt(c *ui.Context, s *chatState, selectedID string) {
 						Label("切换项目").
 						Padding(0)
 					nameColor := ThemeSecondaryText(c)
+					{
+						scale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
+						trigger.Scale(scale, scale)
+					}
 					if trigger.Hovered() {
 						nameColor = ThemeAccent(c)
 					}
@@ -898,6 +902,10 @@ func renderProjectChoicesPopover(c *ui.Context, s *chatState, currentProjectID s
 				Padding(Space2, Space3).
 				Radius(RadiusSM).
 				FillWidth()
+			{
+				scale := motionPressScale(c, addBtn, "button-press-scale", addBtn.Pressed())
+				addBtn.Scale(scale, scale)
+			}
 			if addBtn.Hovered() {
 				addBtn.Background(ThemeHover(c))
 			}
@@ -927,6 +935,10 @@ func renderProjectChoicesPopover(c *ui.Context, s *chatState, currentProjectID s
 				Padding(Space2, Space3).
 				Radius(RadiusSM).
 				FillWidth()
+			{
+				scale := motionPressScale(c, cloneBtn, "button-press-scale", cloneBtn.Pressed())
+				cloneBtn.Scale(scale, scale)
+			}
 			if cloneBtn.Hovered() {
 				cloneBtn.Background(ThemeHover(c))
 			}

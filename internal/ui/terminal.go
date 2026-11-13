@@ -1364,6 +1364,10 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 											Tooltip("新建终端").
 											Radius(RowCornerRadius).
 											Padding(Space1, Space1)
+										{
+											scale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
+											trigger.Scale(scale, scale)
+										}
 										if trigger.Hovered() {
 											trigger.Background(ThemeHover(c))
 										}
@@ -1393,6 +1397,10 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 														Padding(Space1, Space3).
 														Radius(RadiusXS).
 														FillWidth()
+													{
+														scale := motionPressScale(c, worktreeBtn, "button-press-scale", worktreeBtn.Pressed())
+														worktreeBtn.Scale(scale, scale)
+													}
 													if worktreeBtn.Hovered() {
 														worktreeBtn.Background(ThemeHover(c))
 													}
@@ -1413,6 +1421,10 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 														Padding(Space1, Space3).
 														Radius(RadiusXS).
 														FillWidth()
+													{
+														scale := motionPressScale(c, mainBtn, "button-press-scale", mainBtn.Pressed())
+														mainBtn.Scale(scale, scale)
+													}
 													if mainBtn.Hovered() {
 														mainBtn.Background(ThemeHover(c))
 													}
@@ -1593,12 +1605,18 @@ func (s *chatState) runScriptInTerminal(sc Script) {
 
 	threadID, workDir := getSelectedThreadWorkDir(s)
 	if workDir == "" {
+		s.setToast("没有可用的工作目录")
 		s.invalidate()
 		return
 	}
 
 	term, err := getOrCreateTerminal(s, st, workDir)
 	if err != nil || term == nil {
+		message := "打开终端失败"
+		if err != nil {
+			message += ": " + err.Error()
+		}
+		s.setToast(message)
 		s.invalidate()
 		return
 	}

@@ -1583,3 +1583,11 @@ func TestTerminalDockOccupiedHeight(t *testing.T) {
 		t.Fatalf("计算占用高度不应改写 st.height, got %v", height)
 	}
 }
+
+func TestTerminalScriptWithoutWorkDirToast(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.runScriptInTerminal(Script{Name: "build", Runner: "npm"})
+	if s.toastMessage != "没有可用的工作目录" {
+		t.Fatalf("toast = %q", s.toastMessage)
+	}
+}

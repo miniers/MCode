@@ -191,6 +191,10 @@ func renderHeaderScriptsExpandRow(c *ui.Context, s *chatState, mn *headerScripts
 		Padding(Space2, Space3).
 		Radius(RadiusPill).
 		FillWidth()
+	{
+		scale := motionPressScale(c, more, "button-press-scale", more.Pressed())
+		more.Scale(scale, scale)
+	}
 	if more.Hovered() {
 		more.Background(ThemeHover(c))
 	}
@@ -265,6 +269,12 @@ func installedOpenInApps(wb config.WorkbenchConfig, statFn func(string) bool) []
 	return apps
 }
 
+func (s *chatState) openInWithApp(app openInApp, dir string) {
+	if err := openInWithApp(app, dir); err != nil {
+		s.setToast("打开失败: " + err.Error())
+	}
+}
+
 // openInDefaultEditor 用「打开方式」列表里第一个可用应用打开目录（默认列表首位是编辑器），
 // 一个可用应用都没有时退回系统文件管理器打开目录本身。
 func openInDefaultEditor(s *chatState, dir string) {
@@ -272,10 +282,10 @@ func openInDefaultEditor(s *chatState, dir string) {
 		return
 	}
 	if apps := installedOpenInApps(currentWorkbenchConfig(s), openInStatFn); len(apps) > 0 {
-		openInWithApp(apps[0], dir)
+		s.openInWithApp(apps[0], dir)
 		return
 	}
-	openInWithApp(openInApp{Name: openInFileManagerName()}, dir)
+	s.openInWithApp(openInApp{Name: openInFileManagerName()}, dir)
 }
 
 // renderHeaderOpenInButton 渲染标题栏「打开方式」按钮：菜单列出配置中已启用且已安装的应用，
@@ -329,7 +339,7 @@ func renderHeaderOpenInButton(c *ui.Context, s *chatState, threadID string) {
 					Padding(Space1, Space3, Space0, Space3)
 				headerGitMenuOption(c, "chat-header-open-in-unified-finder", openInFileManagerName(), openInFileManagerName(), "", IconFolderOpen(), func() {
 					hs.openInMenuOpen = false
-					openInWithApp(openInApp{Name: openInFileManagerName()}, dir)
+					s.openInWithApp(openInApp{Name: openInFileManagerName()}, dir)
 					s.invalidate()
 				})
 				// 终端读取 General.TerminalShell 配置的终端应用，空则默认 Terminal。
@@ -344,7 +354,7 @@ func renderHeaderOpenInButton(c *ui.Context, s *chatState, threadID string) {
 					a := app
 					headerGitMenuOption(c, "chat-header-open-in-unified-"+a.Name, a.Name, a.Name, "", IconExternalLink(), func() {
 						hs.openInMenuOpen = false
-						openInWithApp(a, dir)
+						s.openInWithApp(a, dir)
 						s.invalidate()
 					})
 				}

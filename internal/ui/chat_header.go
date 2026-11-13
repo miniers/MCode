@@ -193,6 +193,10 @@ func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 		Justify(ui.Start).
 		Radius(RadiusSM).
 		Padding(Space0, Space2)
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", !renameBusy && btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c))
 	}
@@ -269,6 +273,10 @@ func renderChatHeaderParentChip(c *ui.Context, s *chatState) {
 		Radius(RadiusXL).
 		MaxWidth(180).
 		Background(ThemeAccent(c).Alpha(0.12))
+	{
+		scale := motionPressScale(c, chip, "button-press-scale", chip.Pressed())
+		chip.Scale(scale, scale)
+	}
 	if chip.Hovered() {
 		chip.Background(ThemeAccent(c).Alpha(0.18))
 	}
@@ -1527,43 +1535,54 @@ func renderHeaderPersonaOption(c *ui.Context, s *chatState, hs *chatHeaderState,
 	})
 }
 
-// setHeaderRuntimeMode 切换指定会话的权限档位并持久化，成功后更新本地会话列表。
+// setHeaderRuntimeMode 切换指定会话的权限档位并持久化。
 func (s *chatState) setHeaderRuntimeMode(threadID, mode string) {
 	if mode == "" {
 		return
 	}
 	s.mu.Lock()
-	pending := s.isPendingThreadLocked(threadID)
-	if pending {
-		// 待创建会话没有后端会话可写：先记下，创建后补写。
+	if s.isPendingThreadLocked(threadID) {
 		s.setPendingRuntimeModeLocked(mode)
 		s.mu.Unlock()
 		s.invalidate()
 		return
 	}
+	var oldMode string
+	for i := range s.threads {
+		if s.threads[i].ID == threadID {
+			oldMode = s.threads[i].RuntimeMode
+			s.threads[i].RuntimeMode = mode
+			break
+		}
+	}
+	for _, list := range s.threadsByProj {
+		for i := range list {
+			if list[i].ID == threadID {
+				list[i].RuntimeMode = mode
+			}
+		}
+	}
 	s.mu.Unlock()
+	s.invalidate()
 	go func() {
 		if err := s.client.SetThreadRuntimeMode(threadID, mode); err != nil {
-			s.setToast("设置权限模式失败: " + err.Error())
-			return
-		}
-		s.mu.Lock()
-		for i := range s.threads {
-			if s.threads[i].ID == threadID {
-				s.threads[i].RuntimeMode = mode
-				break
-			}
-		}
-		for _, list := range s.threadsByProj {
-			for i := range list {
-				if list[i].ID == threadID {
-					list[i].RuntimeMode = mode
-					break
+			s.mu.Lock()
+			for i := range s.threads {
+				if s.threads[i].ID == threadID && s.threads[i].RuntimeMode == mode {
+					s.threads[i].RuntimeMode = oldMode
 				}
 			}
+			for _, list := range s.threadsByProj {
+				for i := range list {
+					if list[i].ID == threadID && list[i].RuntimeMode == mode {
+						list[i].RuntimeMode = oldMode
+					}
+				}
+			}
+			s.mu.Unlock()
+			s.setToast("设置权限模式失败: " + err.Error())
+			s.invalidate()
 		}
-		s.mu.Unlock()
-		s.invalidate()
 	}()
 }
 
@@ -1663,40 +1682,34 @@ func windowsOpenInAppCandidates() []openInApp {
 
 // openInWithApp 在指定应用中打开目录；AppPath 与 BundleID 都为空表示系统文件管理器，直接打开目录本身。
 // 应用路径不存在（或未配置）但 macOS 上有 BundleID 时，改用 open -b <bundleID> <dir> 唤起。
-func openInWithApp(app openInApp, dir string) {
+func openInWithApp(app openInApp, dir string) error {
 	if dir == "" {
-		return
+		return nil
 	}
 	path := strings.TrimSpace(app.AppPath)
 	if openInGOOS == "windows" {
-		openInWithAppWindows(path, dir)
-		return
+		return openInWithAppWindows(path, dir)
 	}
 	bundle := strings.TrimSpace(app.BundleID)
 	bundleFallback := bundle != "" && runtime.GOOS == "darwin"
 	if path == "" {
 		if bundleFallback {
-			_ = openInRunner("-b", bundle, dir)
-			return
+			return openInRunner("-b", bundle, dir)
 		}
-		_ = openInRunner(dir)
-		return
+		return openInRunner(dir)
 	}
 	if !openInStatFn(path) && bundleFallback {
-		_ = openInRunner("-b", bundle, dir)
-		return
+		return openInRunner("-b", bundle, dir)
 	}
-	_ = openInRunner("-a", path, dir)
+	return openInRunner("-a", path, dir)
 }
 
 // openInWithAppWindows 在 Windows 上用资源管理器或应用可执行文件打开目录。
-// 可执行文件路径有效时直接启动，路径缺失或不是可执行文件时退回资源管理器。
-func openInWithAppWindows(path, dir string) {
+func openInWithAppWindows(path, dir string) error {
 	if path != "" && (strings.EqualFold(filepath.Ext(path), ".exe") || openInStatFn(path)) {
-		_ = openInLaunchRunner(path, dir)
-		return
+		return openInLaunchRunner(path, dir)
 	}
-	_ = openInLaunchRunner("explorer.exe", dir)
+	return openInLaunchRunner("explorer.exe", dir)
 }
 
 // defaultOpenInAppStat 检查应用路径是否存在；Windows 上还要求是普通文件（可执行文件）。
