@@ -428,8 +428,9 @@ type chatState struct {
 	// 按比例档的内容宽度每帧按它换算，时间线逐行渲染时用原子量读取，不抢 s.mu。
 	chatPaneWidthBits       atomic.Uint32
 	stewardBoard            stewardBoardState
-	embeddedBee             bool              // 为浮动面板里某个子代理嵌入的会话状态：复用 composer（含额度条），但改动标签与 Hero 布局不同
-	embeddedPicker          *ModelPickerState // 嵌入 composer 自己的模型选择展开状态，避免与主 composer 的全局状态联动
+	stewardTaskSeen         map[string]time.Time // 任务未读基线，由 s.mu 保护
+	embeddedBee             bool                 // 为浮动面板里某个子代理嵌入的会话状态：复用 composer（含额度条），但改动标签与 Hero 布局不同
+	embeddedPicker          *ModelPickerState    // 嵌入 composer 自己的模型选择展开状态，避免与主 composer 的全局状态联动
 	pendingDraftFill        *string
 	pendingDraftFillIfEmpty bool
 
@@ -598,6 +599,7 @@ func newChatState(client Client) *chatState {
 		resolvedPlans:       make(map[string][]resolvedPlan),
 		answeredQuestions:   make(map[string][]answeredQuestion),
 		collapsedPlans:      make(map[string]bool),
+		stewardTaskSeen:     make(map[string]time.Time),
 	}
 	s.windowActive.Store(true)
 	s.inspector.Persist = func(tid string, st *inspectorSessionState) { inspectorPersistSession(s, tid, st) }

@@ -3,9 +3,66 @@ package mcodeui
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+func TestStewardFocusTasks(t *testing.T) {
+	groups := stewardGroups{
+		{{ID: "needs-1", Status: "failed"}, {ID: "needs-2", Status: "needs_approval"}},
+		{{ID: "todo", Status: "todo"}, {ID: "doing-1", Status: "in_progress"}, {ID: "doing-2", Status: "in_progress"}},
+	}
+	got := stewardFocusTasks(groups)
+	want := []string{"needs-1", "needs-2", "doing-1"}
+	if len(got) != len(want) {
+		t.Fatalf("任务数=%d, want %d", len(got), len(want))
+	}
+	for i, task := range got {
+		if task.ID != want[i] {
+			t.Errorf("任务 %d=%q, want %q", i, task.ID, want[i])
+		}
+	}
+}
+
+func TestStewardTaskUnreadBaselineAndSeen(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	task := KanbanTask{ID: "task", Status: "done", UpdatedAt: base}
+	if stewardTaskUnread(s, task) {
+		t.Fatal("首次出现的任务不应未读")
+	}
+	task.UpdatedAt = base.Add(time.Minute)
+	if !stewardTaskUnread(s, task) {
+		t.Fatal("完成任务更新时间变化后应未读")
+	}
+	markStewardTaskSeen(s, task)
+	if stewardTaskUnread(s, task) {
+		t.Fatal("打开任务后应清除未读")
+	}
+}
+
+func TestStewardTaskShouldCollapse(t *testing.T) {
+	now := time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		status string
+		age    time.Duration
+		want   bool
+	}{
+		{status: "done", age: 25 * time.Hour, want: true},
+		{status: "failed", age: 25 * time.Hour, want: true},
+		{status: "cancelled", age: 25 * time.Hour, want: true},
+		{status: "rejected", age: 25 * time.Hour, want: true},
+		{status: "done", age: 24 * time.Hour, want: false},
+		{status: "in_progress", age: 25 * time.Hour, want: false},
+	} {
+		task := KanbanTask{Status: tc.status, UpdatedAt: now.Add(-tc.age)}
+		if got := stewardTaskShouldCollapse(task, now); got != tc.want {
+			t.Errorf("%s age %s = %v, want %v", tc.status, tc.age, got, tc.want)
+		}
+	}
+}
 
 func TestStewardTaskRowsByMessage(t *testing.T) {
 	task := KanbanTask{ID: "t", Origin: "owner", SourceMessageID: "u1", AmendMessageIDs: []string{"u2", "u2"}, Status: "cancelled"}
