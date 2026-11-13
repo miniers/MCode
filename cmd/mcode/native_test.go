@@ -12,6 +12,15 @@ import (
 	"mcode/internal/remote"
 )
 
+// alertTestConfig 返回关闭安静时段的默认配置：安静时段按本地时钟生效，
+// 默认 00:00–06:00 会让夜间运行的这些用例收不到通知。
+func alertTestConfig() config.Config {
+	cfg := config.Defaults()
+	cfg.Orchestration.Steward.QuietStart = ""
+	cfg.Orchestration.Steward.QuietEnd = ""
+	return cfg
+}
+
 func TestDesktopAlertSettings(t *testing.T) {
 	bTrue := true
 	bFalse := false
@@ -39,7 +48,7 @@ func TestDesktopAlertSettings(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := t.TempDir()
-			cfg := config.Defaults()
+			cfg := alertTestConfig()
 			cfg.Notifications.NotifyWhenFinished = tc.finished
 			cfg.Notifications.NotifyOnApproval = tc.approval
 			cfg.Notifications.PlayFinishSound = tc.finishSound
@@ -89,7 +98,7 @@ func TestDesktopAlertForegroundNotification(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := t.TempDir()
-			cfg := config.Defaults()
+			cfg := alertTestConfig()
 			cfg.Notifications.NotifyWhenFinished = true
 			cfg.Notifications.NotifyWhenForeground = tc.notifyWhenForeground
 			if err := config.Save(dataDir, cfg); err != nil {
@@ -113,7 +122,7 @@ func TestDesktopAlertForegroundNotification(t *testing.T) {
 
 func TestDesktopAlertForegroundUsesThread(t *testing.T) {
 	dataDir := t.TempDir()
-	cfg := config.Defaults()
+	cfg := alertTestConfig()
 	cfg.Notifications.NotifyWhenFinished = true
 	cfg.Notifications.NotifyWhenForeground = false
 	if err := config.Save(dataDir, cfg); err != nil {
@@ -165,7 +174,7 @@ func TestNotificationThreadID(t *testing.T) {
 
 func TestDesktopAlertReloadsSettings(t *testing.T) {
 	dataDir := t.TempDir()
-	cfg := config.Defaults()
+	cfg := alertTestConfig()
 	calls := 0
 	alert := remote.SessionAlert{Kind: remote.SessionAlertDone}
 	run := func() {
@@ -202,7 +211,7 @@ func TestDesktopAlertStalled(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := t.TempDir()
-			cfg := config.Defaults()
+			cfg := alertTestConfig()
 			cfg.Notifications.NotifyWhenStalled = tc.setting
 			if err := config.Save(dataDir, cfg); err != nil {
 				t.Fatal(err)
@@ -248,7 +257,7 @@ func TestDesktopAlertQuota(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := t.TempDir()
-			cfg := config.Defaults()
+			cfg := alertTestConfig()
 			cfg.Notifications.NotifyWhenFinished = true
 			cfg.Notifications.PlayFinishSound = true
 			cfg.Session.AutoContinueAfterLimit = tc.autoContinue
@@ -299,7 +308,7 @@ func TestOwnerNotificationSender(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := t.TempDir()
-			cfg := config.Defaults()
+			cfg := alertTestConfig()
 			cfg.Notifications.NotifyWhenForeground = tc.notifyWhenForeground
 			if err := config.Save(dataDir, cfg); err != nil {
 				t.Fatal(err)
@@ -562,7 +571,7 @@ func TestDesktopAlertBackgroundLinger(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dataDir := t.TempDir()
-			cfg := config.Defaults()
+			cfg := alertTestConfig()
 			cfg.Notifications.NotifyWhenFinished = tc.notify
 			cfg.Notifications.PlayFinishSound = true
 			if err := config.Save(dataDir, cfg); err != nil {

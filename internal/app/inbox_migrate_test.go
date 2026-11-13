@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"mcode/internal/projctx"
@@ -102,6 +103,9 @@ func countInboxProposals(t *testing.T, st *store.Store) int {
 // TestMigrateLegacyInboxRetryAfterDiscardFailure 覆盖「建提议成功、删备忘失败」后的重试：
 // 重跑不重复建提议，恢复权限后再跑一次清空收件箱且提议仍只有一条。
 func TestMigrateLegacyInboxRetryAfterDiscardFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 不支持通过权限位模拟收件箱删除失败")
+	}
 	ctx := context.Background()
 	path := t.TempDir()
 	svc, err := projctx.New(path)

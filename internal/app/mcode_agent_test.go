@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -569,11 +570,11 @@ func TestMcodeModelCatalogAnthropicRequiresKey(t *testing.T) {
 }
 
 func TestMcodeModelCatalogLoadFailureReturnsNil(t *testing.T) {
-	invalidPath := t.TempDir() + "/not-a-directory"
-	if err := os.WriteFile(invalidPath, []byte("file"), 0600); err != nil {
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "config.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	setMcodeAgentRuntime(invalidPath, nil)
+	setMcodeAgentRuntime(dataDir, nil)
 	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
 	if got := mcodeModelCatalog(); got != nil {
 		t.Fatalf("catalog after config load failure = %#v, want nil", got)
@@ -583,11 +584,11 @@ func TestMcodeModelCatalogLoadFailureReturnsNil(t *testing.T) {
 func TestMcodeCurrentConfigLoadFailureUsesFallback(t *testing.T) {
 	fallback := config.Defaults()
 	fallback.Providers.Pi.Bin = "fallback-pi"
-	invalidPath := t.TempDir() + "/not-a-directory"
-	if err := os.WriteFile(invalidPath, []byte("file"), 0600); err != nil {
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "config.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	setMcodeAgentRuntime(invalidPath, nil)
+	setMcodeAgentRuntime(dataDir, nil)
 	t.Cleanup(func() { setMcodeAgentRuntime("", nil) })
 	if got := mcodeCurrentConfig(fallback, nil); got.Providers.Pi.Bin != "fallback-pi" {
 		t.Fatalf("config load failure lost fallback: %+v", got.Providers.Pi)

@@ -15,7 +15,17 @@ import (
 
 func memoryExtTestClient(t *testing.T) *Client {
 	t.Helper()
-	return &Client{dataDir: t.TempDir()}
+	client := &Client{dataDir: t.TempDir()}
+	// memoryStoreConn 惰性打开 SQLite，先关闭连接再让 TempDir 在 Windows 上清理。
+	t.Cleanup(func() {
+		client.memoryMu.Lock()
+		defer client.memoryMu.Unlock()
+		if client.memoryStore != nil {
+			_ = client.memoryStore.Close()
+			client.memoryStore = nil
+		}
+	})
+	return client
 }
 
 func memoryExtTestPtrFloat(v float64) *float64 { return &v }
