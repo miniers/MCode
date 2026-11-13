@@ -589,10 +589,7 @@ func renderAttentionInboxPopover(c *ui.Context, s *chatState) {
 			if !loaded {
 				// 首次加载失败时上面已经显示错误行与重试按钮，不能再显示「加载中…」。
 				if errText == "" {
-					ui.Text(c, "加载中…").
-						FontSize(scaledFont(TypeCaption)).
-						TextColor(ThemeSecondaryText(c)).
-						Padding(Space2, Space2)
+					renderSkeletonRows(c, "attention-inbox-skeleton", 3, max(ControlXS, scaledFont(TypeFootnote)+scaledFont(TypeCaption))+2*Space1, Space0)
 				}
 				return
 			}

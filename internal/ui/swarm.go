@@ -28,6 +28,7 @@ type swarmPanelState struct {
 	open       bool
 	loadedFor  string
 	loading    bool
+	loaded     bool
 	err        string
 	state      SwarmState
 	watchStop  func()
@@ -326,6 +327,7 @@ func (s *chatState) loadSwarm(threadID string) {
 	changed := hp.loadedFor != threadID
 	hp.loadedFor = threadID
 	if changed {
+		hp.loaded = false
 		hp.setStateLocked(SwarmState{})
 		hp.reviewOpen = false
 		hp.reviewBeeID = ""
@@ -374,6 +376,7 @@ func (s *chatState) loadSwarm(threadID string) {
 			hp.err = err.Error()
 		} else {
 			hp.err = ""
+			hp.loaded = true
 			hp.setStateLocked(st)
 		}
 		pending := hp.loadPending
@@ -1665,6 +1668,7 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 
 	swarmPanelMu.Lock()
 	loading = hp.loading
+	loaded := hp.loaded
 	errMsg := hp.err
 	st := hp.state
 	reviewOpen := hp.reviewOpen
@@ -1692,17 +1696,8 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 					MaxHeight(panelMaxH).
 					Padding(Space3, Space5).
 					Children(func() {
-						if loading && st.LeadThreadID == "" {
-							ui.Row(c.Key("swarm-loading-row")).
-								Gap(Space3).
-								AlignItems(ui.Center).
-								Margin(Space1, 0).
-								Children(func() {
-									renderRunningGlyph(c, "swarm-panel-run-loading", 14, ThemeAccent(c))
-									ui.Text(c, "正在加载…").
-										FontSize(uiFont(TypeBody)).
-										TextColor(ThemeSecondaryText(c))
-								})
+						if loading && !loaded {
+							renderSkeletonRows(c, "swarm-skeleton", 3, uiFont(TypeBody)+2*Space3, Space2)
 							return
 						}
 

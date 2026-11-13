@@ -142,7 +142,6 @@ func TestSwarmPanelStates(t *testing.T) {
 		loading bool
 		want    string
 	}{
-		{name: "loading", loading: true, want: "正在加载…"},
 		{name: "error", err: "读取失败", want: "读取失败"},
 		{name: "unavailable", want: "编排不可用"},
 		{name: "head", state: SwarmState{Available: true, IsBee: true, LeadThreadID: "lead"}, want: "这是子代理会话"},

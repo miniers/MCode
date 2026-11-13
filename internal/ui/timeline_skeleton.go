@@ -1,11 +1,31 @@
 package mcodeui
 
 import (
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+func renderSkeletonRows(c *ui.Context, key string, rows int, rowHeight, gap float32) {
+	widths := [...]float32{78, 56, 70}
+	ui.Column(c.Key(key)).FillWidth().Gap(gap).Children(func() {
+		for i := 0; i < rows; i++ {
+			line := ui.Box(c.Key(key + "-" + strconv.Itoa(i))).
+				WidthPercent(widths[i%len(widths)]).Height(rowHeight).
+				Radius(timelineSkeletonRadius).Background(ThemeHover(c).Alpha(timelineSkeletonFillAlpha))
+			if reduceMotion(c) {
+				line.Opacity(1)
+				continue
+			}
+			line.Opacity(line.Keyframes(key+"-breath", []ui.Keyframe{
+				{At: 0, Value: 0.55, Ease: motionEaseStandard},
+				{At: motionSweep, Value: 1, Ease: motionEaseStandard},
+			}, ui.KeyframeOptions{Repeat: ui.RepeatForever, Alternate: true}))
+		}
+	})
+}
 
 // timelineSkeletonMaxWait 是首帧骨架等待历史落地的上限。
 // 历史加载失败时 selectThread 只弹 toast、不会推进 messagesRev；

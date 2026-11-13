@@ -194,15 +194,13 @@ func mentionThreadExists(s *chatState, threadID string) bool {
 	return false
 }
 
-// startMentionPreviewLoad 打开浮层时读取被引用会话的摘要：每次打开都重新读一次，
-// 只有正在读取时才不重复拉取。读取在后台进行，完成后触发重绘，
-// 浮层里的「正在读取会话摘要…」随之换成摘要正文。
+// startMentionPreviewLoad 打开浮层时读取并缓存被引用会话的摘要。
 func startMentionPreviewLoad(s *chatState, threadID string) {
 	if s == nil || threadID == "" {
 		return
 	}
 	mentionPreviewMu.Lock()
-	if cached := mentionPreviewDigests[threadID]; cached != nil && cached.loading {
+	if cached := mentionPreviewDigests[threadID]; cached != nil && (cached.loading || cached.err == "") {
 		mentionPreviewMu.Unlock()
 		return
 	}
@@ -313,7 +311,7 @@ func renderMentionPreview(c *ui.Context, s *chatState, anchor ui.Element, key st
 				case !exists || (digest != nil && digest.missing):
 					ui.Text(c, "该会话已不存在").FontSize(scaledFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 				case digest == nil || digest.loading:
-					ui.Text(c, "正在读取会话摘要…").FontSize(scaledFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+					renderSkeletonRows(c, "mention-preview-skeleton-"+key, 3, scaledFont(TypeCaption)+scaledFont(TypeFootnote)*1.45, Space3)
 				case digest.err != "":
 					ui.Text(c, "会话摘要读取失败："+digest.err).
 						FontSize(scaledFont(TypeFootnote)).
