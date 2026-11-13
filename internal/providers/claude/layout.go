@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"mcode/internal/fsutil"
 )
 
 // sharedEntries 定义主目录与各账号配置目录之间需要共享的文件及子目录。
@@ -94,8 +96,8 @@ func ensureSharedLayout(hostDir, configDir string) error {
 			continue
 		}
 
-		// 创建指向主目录项的符号链接
-		if err := os.Symlink(srcPath, dstPath); err != nil {
+		// 创建指向主目录项的符号链接（Windows 无权限时退化为目录联接、硬链接或复制）
+		if err := fsutil.LinkOrCopy(srcPath, dstPath); err != nil {
 			errs = append(errs, fmt.Errorf("claude: 创建软链接 %s -> %s 失败: %w", dstPath, srcPath, err))
 		}
 	}

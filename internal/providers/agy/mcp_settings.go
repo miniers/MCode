@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/harness"
 )
 
@@ -197,7 +198,7 @@ func linkEntriesExcept(sourceDir, targetDir string, skip ...string) error {
 		if _, statErr := os.Lstat(linkPath); statErr == nil {
 			continue
 		}
-		if err := os.Symlink(filepath.Join(sourceDir, name), linkPath); err != nil {
+		if err := fsutil.LinkOrCopy(filepath.Join(sourceDir, name), linkPath); err != nil {
 			return fmt.Errorf("link %s: %w", linkPath, err)
 		}
 	}

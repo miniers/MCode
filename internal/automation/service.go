@@ -871,7 +871,7 @@ func (s *Service) triggerDue(ctx context.Context, auto store.Automation, now tim
 			s.logf("自动化 %s 无法获取项目目录，跳过前置检查: %v", auto.ID, err)
 		} else {
 			checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			cmd := exec.CommandContext(checkCtx, "sh", "-c", spec.Check)
+			cmd := procattr.ShellCommand(checkCtx, spec.Check)
 			cmd.Dir = root
 			err = cmd.Run()
 			cancel()

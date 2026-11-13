@@ -210,7 +210,7 @@ func renderSidebarMoreMenu(c *ui.Context, s *chatState) {
 		Padding(Space1).
 		MinWidth(190).
 		Children(func() {
-			renderGitMenuOption(c, "sidebar-more-editor", "源码编辑器", "源码编辑器", "⇧⌘E", false, false, func() {
+			renderGitMenuOption(c, "sidebar-more-editor", "源码编辑器", "源码编辑器", shortcutDisplay("⇧⌘E"), false, false, func() {
 				fs.moreMenuOpen = false
 				openMiniEditorFromPicker(s)
 				s.invalidate()

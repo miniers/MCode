@@ -178,7 +178,7 @@ func localFileLinkItems(s *chatState, menu *ui.Menu, path string, first, last in
 			openLocalFile(path)
 		}
 	})
-	if menu.Item("在访达中显示").Chosen() {
+	if menu.Item(revealInFileManagerLabel()).Chosen() {
 		openItemInFinder(path)
 	}
 	if menu.Item("复制路径").Chosen() {

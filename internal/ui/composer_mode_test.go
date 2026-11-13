@@ -63,7 +63,7 @@ func TestInteractionModeToggleIconAndTooltip(t *testing.T) {
 				}
 				tt.Move(bounds.X+bounds.W/2, bounds.Y+bounds.H/2)
 				tt.Advance(time.Second)
-				if want := tc.title + " · ⌘⇧M"; !tt.HasText(want) {
+				if want := tc.title + " · " + shortcutDisplay("⇧⌘M"); !tt.HasText(want) {
 					t.Fatalf("缺少提示 %q: %v", want, tt.Texts())
 				}
 			})

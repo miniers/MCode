@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"mcode/internal/procattr"
 )
 
 // writeGoMod 在目录里写一个最小 go.mod。
@@ -91,7 +94,7 @@ func TestResolveCommandSkipsNonGoProject(t *testing.T) {
 	}
 }
 
-// TestResolveCommandConfiguredOverrides 验证配置命令优先于自动识别，并用 sh -c 执行。
+// TestResolveCommandConfiguredOverrides 验证配置命令优先于自动识别，并用平台 shell 执行。
 func TestResolveCommandConfiguredOverrides(t *testing.T) {
 	dir := t.TempDir()
 	writeGoMod(t, dir)
@@ -99,11 +102,12 @@ func TestResolveCommandConfiguredOverrides(t *testing.T) {
 	if !ok {
 		t.Fatal("配置命令返回 false，期望执行")
 	}
-	if cmd.Shell != "sh" {
-		t.Errorf("Shell = %q，期望 sh", cmd.Shell)
+	wantShell, wantArgs := procattr.ShellArgs("make check")
+	if cmd.Shell != wantShell {
+		t.Errorf("Shell = %q，期望 %q", cmd.Shell, wantShell)
 	}
-	if len(cmd.Args) != 1 || len(cmd.Args[0]) != 2 || cmd.Args[0][0] != "-c" || cmd.Args[0][1] != "make check" {
-		t.Errorf("Args = %#v，期望 [[-c make check]]", cmd.Args)
+	if len(cmd.Args) != 1 || !reflect.DeepEqual(cmd.Args[0], wantArgs) {
+		t.Errorf("Args = %#v，期望 [%q]", cmd.Args, wantArgs)
 	}
 	if cmd.Display != "make check" || cmd.Timeout != 45*time.Second {
 		t.Errorf("Display/Timeout = %q/%v", cmd.Display, cmd.Timeout)

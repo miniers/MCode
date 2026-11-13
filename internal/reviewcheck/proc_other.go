@@ -2,15 +2,17 @@
 
 package reviewcheck
 
-import "os/exec"
+import (
+	"os"
+	"os/exec"
 
-// setProcessGroup 在非 unix 平台上为空操作；Windows 回退为直接杀主进程。
-func setProcessGroup(cmd *exec.Cmd) {}
+	"mcode/internal/procutil"
+)
 
-// killProcessGroup 在没有进程组语义的平台上直接结束主进程。
+// setProcessGroup 让检查命令自成进程组，Windows 上同时不弹控制台窗口。
+var setProcessGroup = procutil.SetProcessGroup
+
+// killProcessGroup 结束检查命令的整棵进程树（Windows 上为 taskkill /T /F），避免 go build 等子进程残留。
 func killProcessGroup(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	return cmd.Process.Kill()
+	return procutil.KillProcessGroup(cmd, os.Kill)
 }

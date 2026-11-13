@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -32,6 +33,18 @@ type shortcutBinding struct {
 	registered bool
 }
 
+// shortcutGOOS 是快捷键展示使用的平台标识，测试中可替换。
+var shortcutGOOS = runtime.GOOS
+
+// archiveThreadMods 返回归档会话的默认修饰键：macOS 为 ⌃⌘A；其他平台 Cmd 与 Ctrl 是同一个修饰位，
+// ⌃⌘A 会退化成 Ctrl+A，与输入框的全选冲突，改用 Ctrl+Shift+A。
+func archiveThreadMods() ui.Modifiers {
+	if ui.Cmd != ui.Ctrl {
+		return ui.Cmd | ui.Ctrl
+	}
+	return ui.Cmd | ui.Shift
+}
+
 // shortcutDefaults 返回内置快捷键表（默认绑定，不含覆盖）。
 func shortcutDefaults() []appShortcut {
 	return []appShortcut{
@@ -57,7 +70,7 @@ func shortcutDefaults() []appShortcut {
 		{id: "dormant-thread", title: "休眠/重新激活会话", group: "会话", keys: "⇧⌘S", mods: ui.Cmd | ui.Shift, key: ui.KeyS, bound: true, customizable: true, registered: true},
 		// ⌘W 由「文件」菜单的自定义「关闭」项占用：文件面板有预览 tab 时关当前 tab，
 		// 否则关窗口；归档仍用 ⌃⌘A。
-		{id: "archive-thread", title: "归档会话", group: "会话", keys: "⌃⌘A", mods: ui.Cmd | ui.Ctrl, key: ui.KeyA, bound: true, customizable: true, registered: true},
+		{id: "archive-thread", title: "归档会话", group: "会话", keys: "⌃⌘A", mods: archiveThreadMods(), key: ui.KeyA, bound: true, customizable: true, registered: true},
 		// ⌘F 默认未被占用（⇧⌘F 归文件面板）；与 ⌘K、⌘B 一样不进每帧注册集合，
 		// 由 chat.go 按有效绑定直接检测，避免被 dispatchActiveShortcut 每帧抢占。
 		{id: "find-in-thread", title: "会话内查找", group: "会话", keys: "⌘F", mods: ui.Cmd, key: ui.KeyF, bound: true, customizable: true},
@@ -209,6 +222,8 @@ func appShortcuts() []appShortcut {
 		if !list[i].bound {
 			if mods, key, err := parseShortcutSpec(overrides[list[i].id]); list[i].customizable && err == nil {
 				list[i].keys = formatShortcutKeys(mods, key)
+			} else {
+				list[i].keys = shortcutDisplay(list[i].keys)
 			}
 			continue
 		}
@@ -221,7 +236,7 @@ func appShortcuts() []appShortcut {
 // defaultShortcutKeys 返回条目默认绑定的展示键位，作为设置页输入框的占位文案。
 func defaultShortcutKeys(sc appShortcut) string {
 	if !sc.bound {
-		return sc.keys
+		return shortcutDisplay(sc.keys)
 	}
 	return formatShortcutKeys(sc.mods, sc.key)
 }
@@ -538,7 +553,7 @@ func parseShortcutKey(token string) (ui.Key, error) {
 	return ui.KeyUnknown, fmt.Errorf("不支持的按键：%s", token)
 }
 
-// formatShortcutKeys 将修饰键与按键格式化为符号形式（如 ⇧⌘P），与列表展示一致。
+// formatShortcutKeys 将修饰键与按键格式化为展示文案：macOS 为符号形式（如 ⇧⌘P），其他平台见 shortcutDisplay。
 func formatShortcutKeys(mods ui.Modifiers, key ui.Key) string {
 	var b strings.Builder
 	// 非 macOS 上 Cmd 与 Ctrl 是同一个修饰位，只输出 ⌘ 避免重复。
@@ -555,7 +570,40 @@ func formatShortcutKeys(mods ui.Modifiers, key ui.Key) string {
 		b.WriteString("⌘")
 	}
 	b.WriteString(formatShortcutKey(key))
-	return b.String()
+	return shortcutDisplay(b.String())
+}
+
+// shortcutDisplay 把 macOS 符号形式的键位（如 ⇧⌘P）转成当前平台的写法：macOS 原样返回；
+// 其他平台写成 Ctrl+Shift+P（⌘ 与 ⌃ 都是 Ctrl），回车写成 Enter。没有修饰符号的文案原样返回。
+func shortcutDisplay(keys string) string {
+	if shortcutGOOS == "darwin" {
+		return keys
+	}
+	var mods ui.Modifiers
+	for matched := true; matched; {
+		matched = false
+		for _, m := range shortcutModifierSymbols {
+			if strings.HasPrefix(keys, m.symbol) {
+				mods |= m.mod
+				keys = strings.TrimPrefix(keys, m.symbol)
+				matched = true
+			}
+		}
+	}
+	if keys == "↩" || keys == "⏎" {
+		keys = "Enter"
+	}
+	parts := make([]string, 0, 4)
+	if mods&(ui.Cmd|ui.Ctrl) != 0 {
+		parts = append(parts, "Ctrl")
+	}
+	if mods&ui.Alt != 0 {
+		parts = append(parts, "Alt")
+	}
+	if mods&ui.Shift != 0 {
+		parts = append(parts, "Shift")
+	}
+	return strings.Join(append(parts, keys), "+")
 }
 
 // formatShortcutKey 返回单个按键的展示文案。

@@ -100,10 +100,10 @@ func TestBuildAppMenu(t *testing.T) {
 	}
 	requireMenuItem(t, threadMenu, "休眠/重新激活会话", "Shift+CmdOrCtrl+S")
 	requireMenuItem(t, threadMenu, "转发到新会话", "Shift+CmdOrCtrl+D")
-	// 归档默认键位 ⌃⌘A（U-043）；非 macOS 上 Cmd 与 Ctrl 是同一修饰位，只显示 CmdOrCtrl。
+	// 归档默认键位 ⌃⌘A（U-043）；非 macOS 上 Cmd 与 Ctrl 是同一修饰位，⌃⌘A 会变成 Ctrl+A（全选），改用 Ctrl+Shift+A。
 	archiveAccel := "Ctrl+CmdOrCtrl+A"
 	if ui.Cmd == ui.Ctrl {
-		archiveAccel = "CmdOrCtrl+A"
+		archiveAccel = "Shift+CmdOrCtrl+A"
 	}
 	requireMenuItem(t, threadMenu, "归档会话", archiveAccel)
 }

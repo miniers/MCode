@@ -41,7 +41,7 @@ func TestMatchShortcut_TableDriven(t *testing.T) {
 		{name: "⌥⌘↑ previous-thread", mods: ui.Cmd | ui.Alt, key: ui.KeyUp, wantID: "previous-thread", wantOK: true},
 		{name: "⌥⌘↓ next-thread", mods: ui.Cmd | ui.Alt, key: ui.KeyDown, wantID: "next-thread", wantOK: true},
 		{name: "⇧⌘S dormant-thread", mods: ui.Cmd | ui.Shift, key: ui.KeyS, wantID: "dormant-thread", wantOK: true},
-		{name: "⌃⌘A archive-thread", mods: ui.Cmd | ui.Ctrl, key: ui.KeyA, wantID: "archive-thread", wantOK: true},
+		{name: "归档 archive-thread", mods: archiveThreadMods(), key: ui.KeyA, wantID: "archive-thread", wantOK: true},
 		{name: "⇧⌘D forward-thread", mods: ui.Cmd | ui.Shift, key: ui.KeyD, wantID: "forward-thread", wantOK: true},
 
 		// 未注册组合
@@ -295,8 +295,8 @@ func TestParseFormatShortcutSpec(t *testing.T) {
 			if mods != tc.mods || key != tc.key {
 				t.Fatalf("parseShortcutSpec(%q) = (%v, %v), want (%v, %v)", tc.spec, mods, key, tc.mods, tc.key)
 			}
-			if got := formatShortcutKeys(mods, key); got != tc.keys {
-				t.Errorf("formatShortcutKeys(%v, %v) = %q, want %q", mods, key, got, tc.keys)
+			if got := formatShortcutKeys(mods, key); got != shortcutDisplay(tc.keys) {
+				t.Errorf("formatShortcutKeys(%v, %v) = %q, want %q", mods, key, got, shortcutDisplay(tc.keys))
 			}
 			// 格式化结果可再次解析（符号形式往返）
 			mods2, key2, err := parseShortcutSpec(formatShortcutKeys(mods, key))
@@ -412,7 +412,7 @@ func TestShortcutOverrideInvalidFallsBack(t *testing.T) {
 func TestArchiveThreadDefaultShortcut(t *testing.T) {
 	setShortcutOverrides(nil)
 
-	if id, _, ok := matchShortcut(ui.Cmd|ui.Ctrl, ui.KeyA); !ok || id != "archive-thread" {
+	if id, _, ok := matchShortcut(archiveThreadMods(), ui.KeyA); !ok || id != "archive-thread" {
 		t.Fatalf("⌃⌘A 应命中 archive-thread，得到 id=%q ok=%v", id, ok)
 	}
 	if id, _, ok := matchShortcut(ui.Cmd, ui.KeyW); ok {
@@ -472,13 +472,14 @@ func TestAppShortcutsKeysFollowDefaults(t *testing.T) {
 		"select-thread-1-9":    "⌘1…9",
 		"send-message":         "↩",
 		"close-settings":       "Esc",
-		"archive-thread":       formatShortcutKeys(ui.Cmd|ui.Ctrl, ui.KeyA),
+		"archive-thread":       formatShortcutKeys(archiveThreadMods(), ui.KeyA),
 	}
 	for _, sc := range appShortcuts() {
 		w, ok := want[sc.id]
 		if !ok {
 			continue
 		}
+		w = shortcutDisplay(w)
 		if sc.keys != w {
 			t.Errorf("%s 默认展示键位应为 %q，得到 %q", sc.id, w, sc.keys)
 		}

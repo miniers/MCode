@@ -1463,7 +1463,7 @@ func composerPlaceholder(mode string, isRunning bool, state sendDraftState, disa
 		case sendStateInject:
 			action = "插入当前回合"
 		}
-		return "回复中 · " + sendKeyLabel + " " + action + "，⌘. 停止"
+		return "回复中 · " + sendKeyLabel + " " + action + "，" + shortcutDisplay("⌘.") + " 停止"
 	}
 	if normalizeInteractionMode(mode) == "plan" {
 		return "描述你要规划的任务，" + sendKeyLabel + " 发送，" + newlineKeyLabel + " 换行"
@@ -1499,7 +1499,7 @@ func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disab
 	btn := ui.ButtonBase(c.Key("composer-interaction-toggle")).
 		Label(title).
 		Disabled(disabled).
-		Tooltip(title+" · ⌘⇧M").
+		Tooltip(title+" · "+shortcutDisplay("⇧⌘M")).
 		Size(composerActionBtnSize, composerActionBtnSize).
 		Radius(buttonRadius).
 		OnClick(func() {

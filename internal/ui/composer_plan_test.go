@@ -207,9 +207,9 @@ func TestComposerPlan_PlaceholderShiftEnterSend(t *testing.T) {
 		{"build", composerPlaceholder("build", false, sendStateSend, "", key), "输入消息，Shift+Enter 发送，Enter 换行"},
 		{"plan", composerPlaceholder("plan", false, sendStateSend, "", key), "描述你要规划的任务，Shift+Enter 发送，Enter 换行"},
 		{"save-edit", composerPlaceholder("build", false, sendStateSaveEdit, "", key), "编辑排队消息 · Shift+Enter 保存，Esc 取消"},
-		{"queue", composerPlaceholder("build", true, sendStateQueue, "", key), "回复中 · Shift+Enter 加入队列，⌘. 停止"},
-		{"steer", composerPlaceholder("build", true, sendStateSteer, "", key), "回复中 · Shift+Enter 打断并发送，⌘. 停止"},
-		{"inject", composerPlaceholder("build", true, sendStateInject, "", key), "回复中 · Shift+Enter 插入当前回合，⌘. 停止"},
+		{"queue", composerPlaceholder("build", true, sendStateQueue, "", key), "回复中 · Shift+Enter 加入队列，" + shortcutDisplay("⌘.") + " 停止"},
+		{"steer", composerPlaceholder("build", true, sendStateSteer, "", key), "回复中 · Shift+Enter 打断并发送，" + shortcutDisplay("⌘.") + " 停止"},
+		{"inject", composerPlaceholder("build", true, sendStateInject, "", key), "回复中 · Shift+Enter 插入当前回合，" + shortcutDisplay("⌘.") + " 停止"},
 	}
 	for _, tc := range cases {
 		if tc.got != tc.want {

@@ -20,7 +20,7 @@ func TestChatHeaderRenameOnBlur(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
 	startHeaderTitleEdit(t, tt)
 	tt.Type("失焦标题")
-	if err := tt.Click("显示/隐藏侧边栏 ⌘B"); err != nil {
+	if err := tt.Click("显示/隐藏侧边栏 " + shortcutDisplay("⌘B")); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {

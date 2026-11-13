@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -670,10 +669,7 @@ func (b *MemoryBackend) ScriptsRun(ctx context.Context, p wire.ScriptsRunParams)
 		// 项目脚本直接在工作区根目录用 shell 执行用户填写的命令。
 		command := target.Command
 		runID := b.runScriptAsync(p.ThreadID, root, target.Name, func(runCtx context.Context) *exec.Cmd {
-			if runtime.GOOS == "windows" {
-				return procattr.HideWindow(exec.CommandContext(runCtx, "powershell.exe", "-NoProfile", "-Command", command))
-			}
-			return procattr.HideWindow(exec.CommandContext(runCtx, "sh", "-c", command))
+			return procattr.ShellCommand(runCtx, command)
 		})
 
 		return wire.ScriptsRunResult{OK: true, RunID: runID}, nil

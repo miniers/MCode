@@ -640,7 +640,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 								if queued {
 									return label
 								}
-								return label + "  ⌘⏎"
+								return label + "  " + shortcutDisplay("⌘⏎")
 							}()).FontSize(uiFont(TypeFootnote)).TextColor(ThemeOnAccent(c))
 						})
 						more := ui.ButtonBase(c.Key("git-changes-commit-more")).Label("提交选项").Height(ControlLG).Width(ControlLG).Radius(RadiusSM).Disabled(busy).Background(ThemeAccent(c)).Transition(motionFeedback(c))

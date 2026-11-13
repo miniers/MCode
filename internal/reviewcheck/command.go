@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"mcode/internal/procattr"
 	"mcode/internal/procutil"
 )
 
@@ -65,7 +66,7 @@ type Result struct {
 }
 
 // ResolveCommand 决定本次 L0 要执行的检查命令：
-// configured 非空时用 sh -c 执行它；否则在 worktree 根有 go.mod 时，
+// configured 非空时用平台 shell（procattr.ShellArgs）执行它；否则在 worktree 根有 go.mod 时，
 // 只为 changed 里 .go 文件所在的受影响包生成 go build 和 go vet（最多 MaxPackages 个）；
 // 其他项目返回 false，表示跳过命令检查。
 func ResolveCommand(worktree string, changed []string, configured string, timeout time.Duration) (Command, bool) {
@@ -73,9 +74,10 @@ func ResolveCommand(worktree string, changed []string, configured string, timeou
 		timeout = DefaultTimeout
 	}
 	if configured = strings.TrimSpace(configured); configured != "" {
+		shell, args := procattr.ShellArgs(configured)
 		return Command{
-			Shell:   "sh",
-			Args:    [][]string{{"-c", configured}},
+			Shell:   shell,
+			Args:    [][]string{args},
 			Display: configured,
 			Timeout: timeout,
 		}, true

@@ -267,33 +267,26 @@ func TestFileManagerProtectedEntryHidesWriteItems(t *testing.T) {
 	tt.CloseMenu()
 }
 
-// 「在访达中显示」依赖 macOS 的 open 命令：非 macOS 时即使文件就在本机也不显示。
-func TestFileManagerRevealInFinderOnlyOnMacOS(t *testing.T) {
+// 本机存在的文件在各平台都提供「在访达/资源管理器中显示」与「用默认应用打开」（走 mygo.Shell）。
+func TestFileManagerRevealLocalFile(t *testing.T) {
 	workDir := t.TempDir()
 	localPath := filepath.Join(workDir, "a.txt")
 	if err := os.WriteFile(localPath, []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write temp file failed: %v", err)
 	}
 
-	prev := fileManagerOpenGOOS
-	t.Cleanup(func() { fileManagerOpenGOOS = prev })
-
 	fake, _, tt := openFileManagerForTest(t)
-	// 指向真实存在的本地目录，确保「在访达中显示」确实是按平台而不是按路径隐藏的。
 	fake.SetThreadWorkDir(workDir)
 	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
 
-	fileManagerOpenGOOS = "darwin"
-	if !fileManagerCanRevealLocally(localPath) {
-		t.Fatal("macOS 下本机存在的文件应能显示在访达")
-	}
-
-	fileManagerOpenGOOS = "windows"
 	if err := tt.RightClick("a.txt"); err != nil {
 		t.Fatalf("right click file row failed: %v", err)
 	}
-	if got := tt.Menu(); slices.Contains(got, "在访达中显示") {
-		t.Fatalf("非 macOS 不应显示「在访达中显示」，得到 %v", got)
+	got := tt.Menu()
+	for _, want := range []string{revealInFileManagerLabel(), "用默认应用打开"} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("本机文件菜单应包含「%s」，得到 %v", want, got)
+		}
 	}
 	tt.CloseMenu()
 }

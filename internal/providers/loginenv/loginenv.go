@@ -513,6 +513,11 @@ func fallbackEnvironment() []string {
 			continue
 		}
 		key := kv[:eq]
+		// Windows 的环境变量名不区分大小写，系统里通常叫 Path。统一成 PATH，否则下面会另加一个
+		// 只含扩充目录的 PATH，与原来的 Path 并存，子进程最终拿到哪个取决于 map 遍历顺序。
+		if runtime.GOOS == "windows" && strings.EqualFold(key, "PATH") {
+			key = "PATH"
+		}
 		val := kv[eq+1:]
 		if excludedKeys[key] {
 			continue

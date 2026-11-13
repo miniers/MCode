@@ -51,6 +51,12 @@ func kbdKeys(shortcut string) []string {
 	}
 	if mods, key, err := parseShortcutSpec(shortcut); err == nil {
 		shortcut = formatShortcutKeys(mods, key)
+	} else {
+		shortcut = shortcutDisplay(shortcut)
+	}
+	// 非 macOS 的键位写成 Ctrl+Shift+P，按加号拆成键帽。
+	if shortcutGOOS != "darwin" {
+		return strings.Split(shortcut, "+")
 	}
 	var keys []string
 	for len(shortcut) > 0 {

@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"mcode/internal/fsutil"
 )
 
 // macOnlyLinks 是只在 macOS 上存在的宿主配置项，Windows 上没有共享意义。
@@ -84,32 +86,13 @@ func (m *Manager) setupAccountLayout(id string) error {
 			return fmt.Errorf("mkdir parent of %s: %w", linkPath, err)
 		}
 
-		if err := os.Symlink(target, linkPath); err != nil {
-			// Windows 未开启开发者模式时创建软链接会失败。共享宿主配置只是便利，
-			// 不阻断账号创建：普通文件降级为复制一份，目录（已在上面的 Symlink 尝试过）直接跳过。
-			if copyErr := shareHostFile(target, linkPath); copyErr != nil {
-				log.Printf("agy accounts: 无法共享宿主配置 %s（%v），已跳过", rel, err)
-			}
+		// 共享宿主配置只是便利，失败不阻断账号创建；Windows 无权限建软链接时由 LinkOrCopy 退化。
+		if err := fsutil.LinkOrCopy(target, linkPath); err != nil {
+			log.Printf("agy accounts: 无法共享宿主配置 %s（%v），已跳过", rel, err)
 		}
 	}
 
 	return nil
-}
-
-// shareHostFile 在软链接不可用时把宿主普通文件复制到隔离目录；目录无法在不建链接的前提下共享，返回错误。
-func shareHostFile(target, linkPath string) error {
-	info, err := os.Stat(target)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() {
-		return fmt.Errorf("%s 是目录，无法在不创建链接的情况下共享", target)
-	}
-	data, err := os.ReadFile(target)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(linkPath, data, filePerm0600)
 }
 
 // generateDeviceProfile 按照规划 §6.1 生成独立的设备指纹。

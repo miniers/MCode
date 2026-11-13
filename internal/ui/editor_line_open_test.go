@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"runtime"
 	"testing"
 )
 
@@ -71,17 +72,14 @@ func TestEditorLineURL(t *testing.T) {
 }
 
 // withOpenLineStubs 临时替换打开编辑器相关的包级变量。
-func withOpenLineStubs(t *testing.T, goos string, apps []openInApp, runner func(string) error) {
+func withOpenLineStubs(t *testing.T, apps []openInApp, runner func(string) error) {
 	t.Helper()
-	origGOOS := openLineGOOS
 	origApps := openLineInstalledApps
 	origRunner := openEditorURLRunner
 	t.Cleanup(func() {
-		openLineGOOS = origGOOS
 		openLineInstalledApps = origApps
 		openEditorURLRunner = origRunner
 	})
-	openLineGOOS = goos
 	openLineInstalledApps = func(*chatState) []openInApp { return apps }
 	openEditorURLRunner = runner
 }
@@ -93,18 +91,22 @@ func TestOpenPathAtLineUsesCursorURL(t *testing.T) {
 		{Name: "Cursor", AppPath: "/Applications/Cursor.app"},
 		{Name: "Zed", AppPath: "/Applications/Zed.app"},
 	}
-	withOpenLineStubs(t, "darwin", apps, func(target string) error {
+	withOpenLineStubs(t, apps, func(target string) error {
 		got = append(got, target)
 		return nil
 	})
 
-	if !openPathAtLine(nil, "/Users/me/My Project/main.go", 42, 3) {
+	path, want := "/Users/me/My Project/main.go", "cursor://file/Users/me/My%20Project/main.go:42:3"
+	if runtime.GOOS == "windows" {
+		path, want = `C:\Users\me\My Project\main.go`, "cursor://file/C:/Users/me/My%20Project/main.go:42:3"
+	}
+	if !openPathAtLine(nil, path, 42, 3) {
 		t.Fatal("期望打开成功")
 	}
 	if len(got) != 1 {
 		t.Fatalf("应只调用一次，实际 %d 次: %v", len(got), got)
 	}
-	if want := "cursor://file/Users/me/My%20Project/main.go:42:3"; got[0] != want {
+	if got[0] != want {
 		t.Fatalf("URL 不符，期望 %q 实际 %q", want, got[0])
 	}
 }
@@ -112,7 +114,7 @@ func TestOpenPathAtLineUsesCursorURL(t *testing.T) {
 func TestOpenPathAtLineSkipsWithoutLine(t *testing.T) {
 	called := 0
 	apps := []openInApp{{Name: "Cursor", AppPath: "/Applications/Cursor.app"}}
-	withOpenLineStubs(t, "darwin", apps, func(string) error {
+	withOpenLineStubs(t, apps, func(string) error {
 		called++
 		return nil
 	})
@@ -127,24 +129,12 @@ func TestOpenPathAtLineSkipsWithoutLine(t *testing.T) {
 
 func TestOpenPathAtLineWithoutEditor(t *testing.T) {
 	apps := []openInApp{{Name: "Xcode", AppPath: "/Applications/Xcode.app"}}
-	withOpenLineStubs(t, "darwin", apps, func(string) error {
+	withOpenLineStubs(t, apps, func(string) error {
 		t.Fatal("不支持跳行的应用不应被调用")
 		return nil
 	})
 
 	if openPathAtLine(nil, "/tmp/a.go", 5, 1) {
 		t.Fatal("没有支持跳行的编辑器时应返回 false")
-	}
-}
-
-func TestOpenPathAtLineNonDarwin(t *testing.T) {
-	apps := []openInApp{{Name: "Cursor", AppPath: "/Applications/Cursor.app"}}
-	withOpenLineStubs(t, "linux", apps, func(string) error {
-		t.Fatal("非 darwin 平台不应调用打开命令")
-		return nil
-	})
-
-	if openPathAtLine(nil, "/tmp/a.go", 5, 1) {
-		t.Fatal("非 darwin 平台应返回 false")
 	}
 }

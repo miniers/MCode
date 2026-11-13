@@ -339,7 +339,7 @@ func turnFileContextMenu(c *ui.Context, s *chatState, threadID, workDir string, 
 		if m.Item("在文件面板打开").Chosen() {
 			openTurnFile(s, threadID, workDir, f)
 		}
-		if m.Item("在访达中显示").Chosen() {
+		if m.Item(revealInFileManagerLabel()).Chosen() {
 			openItemInFinder(f.abs)
 		}
 		if m.Item("复制路径").Chosen() {

@@ -2,30 +2,12 @@ package mcodeui
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
-
-// fileManagerOpenGOOS 是外部打开使用的平台标识，测试中可替换；
-// 「在访达中显示」和「用默认应用打开」依赖 macOS 的 open 命令。
-var fileManagerOpenGOOS = runtime.GOOS
-
-// fileManagerOpenRunner 执行 macOS 的 open 命令（在访达中显示 / 用默认应用打开），
-// 只在 fileManagerOpenGOOS 为 darwin 时被调用。包级变量方便测试替换。
-var fileManagerOpenRunner = func(args ...string) error {
-	cmd := exec.Command("open", args...)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go func() {
-		_ = cmd.Wait()
-	}()
-	return nil
-}
 
 // fileManagerEntryEditable 判断条目能否做写操作：受保护条目和服务端不支持文件操作时都不行。
 func fileManagerEntryEditable(s *chatState, entry FileEntry) bool {
@@ -64,12 +46,6 @@ func fileManagerLocalPath(abs string) bool {
 	}
 	_, err := os.Stat(abs)
 	return err == nil
-}
-
-// fileManagerCanRevealLocally 判断条目能否用系统文件管理器打开：
-// 只有 macOS 且路径在本机存在时才支持。
-func fileManagerCanRevealLocally(abs string) bool {
-	return fileManagerOpenGOOS == "darwin" && fileManagerLocalPath(abs)
 }
 
 // fileManagerLocation 返回面板当前绑定的会话与目录。
@@ -152,14 +128,14 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 			c.WriteClipboard(entry.Path)
 			s.setToast("已复制相对路径")
 		}
-		// 远程工作区里的文件本机不存在、非 macOS 没有 open 命令，不提供外部打开。
-		if fileManagerCanRevealLocally(abs) {
-			if m.Item("在访达中显示").Chosen() {
-				_ = fileManagerOpenRunner("-R", abs)
+		// 远程工作区里的文件本机不存在，不提供外部打开。
+		if fileManagerLocalPath(abs) {
+			if m.Item(revealInFileManagerLabel()).Chosen() {
+				openItemInFinder(abs)
 			}
 			if !entry.IsDir {
 				if m.Item("用默认应用打开").Chosen() {
-					_ = fileManagerOpenRunner(abs)
+					_ = mygo.Shell.OpenPath(abs)
 				}
 			}
 		}
@@ -229,9 +205,9 @@ func fileManagerTabMenu(c *ui.Context, s *chatState, snap fileManagerPanelSnapsh
 			c.WriteClipboard(tab.path)
 			s.setToast("已复制相对路径")
 		}
-		if fileManagerCanRevealLocally(abs) {
-			if m.Item("在访达中显示").Chosen() {
-				_ = fileManagerOpenRunner("-R", abs)
+		if fileManagerLocalPath(abs) {
+			if m.Item(revealInFileManagerLabel()).Chosen() {
+				openItemInFinder(abs)
 			}
 		}
 	}

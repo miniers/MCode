@@ -574,13 +574,13 @@ func TestComposer_RunningCmdReturnEnqueues(t *testing.T) {
 		return running && !tt.HasText("运行中：⌘Return 加入队列，⌘. 停止")
 	})
 	// 占位符文本不进 labels，HasText 读不到，这里直接断言返回值。
-	if got := composerPlaceholder("build", true, sendStateQueue, "", config.ComposerSendKeyEnter); got != "回复中 · Enter 加入队列，⌘. 停止" {
+	if got := composerPlaceholder("build", true, sendStateQueue, "", config.ComposerSendKeyEnter); got != "回复中 · Enter 加入队列，"+shortcutDisplay("⌘.")+" 停止" {
 		t.Fatalf("unexpected running queue placeholder: %q", got)
 	}
-	if got := composerPlaceholder("build", true, sendStateSteer, "", config.ComposerSendKeyEnter); got != "回复中 · Enter 打断并发送，⌘. 停止" {
+	if got := composerPlaceholder("build", true, sendStateSteer, "", config.ComposerSendKeyEnter); got != "回复中 · Enter 打断并发送，"+shortcutDisplay("⌘.")+" 停止" {
 		t.Fatalf("unexpected running steer placeholder: %q", got)
 	}
-	if got := composerPlaceholder("build", true, sendStateInject, "", config.ComposerSendKeyEnter); got != "回复中 · Enter 插入当前回合，⌘. 停止" {
+	if got := composerPlaceholder("build", true, sendStateInject, "", config.ComposerSendKeyEnter); got != "回复中 · Enter 插入当前回合，"+shortcutDisplay("⌘.")+" 停止" {
 		t.Fatalf("unexpected running inject placeholder: %q", got)
 	}
 

@@ -744,9 +744,9 @@ func renderApprovalOptions(c *ui.Context, s *chatState, approval Approval, respo
 			switch opt.Role {
 			case "approve":
 				// 主高亮样式：强调色实心胶囊
-				tooltip := "批准 (⌘↩ / ↩)"
+				tooltip := "批准 (" + shortcutDisplay("⌘↩") + " / " + shortcutDisplay("↩") + ")"
 				if shortcutHint != "" {
-					tooltip = fmt.Sprintf("批准 (⌘↩ / ↩ / %s)", shortcutHint)
+					tooltip = fmt.Sprintf("批准 (%s / %s / %s)", shortcutDisplay("⌘↩"), shortcutDisplay("↩"), shortcutHint)
 				}
 				ui.ButtonBase(c.Key("approval-opt-"+approval.RequestID+"-"+opt.ID)).
 					Label(opt.Title).
@@ -881,7 +881,7 @@ func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding b
 		renderApprovalButton(c, "plan-decline-"+id, "驳回", "驳回 (Esc)", false, responding, func() {
 			s.declinePlanDraft(approval, false)
 		})
-		renderApprovalButton(c, "plan-approve-"+id, "批准计划", "批准计划 (⌘↩)", true, responding, func() {
+		renderApprovalButton(c, "plan-approve-"+id, "批准计划", "批准计划 ("+shortcutDisplay("⌘↩")+")", true, responding, func() {
 			if optID := findApprovalOption(approval, "approve"); optID != "" {
 				s.respondApproval(approval, optID)
 			}

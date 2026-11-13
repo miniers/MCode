@@ -540,7 +540,7 @@ func renderGitHistoryFilters(c *ui.Context, ps *gitPaneState, h *gitHistoryState
 				return false
 			}})
 		} else {
-			b := ui.ButtonBase(c.Key("git-history-search-button")).Label("搜索提交").Tooltip("搜索提交 ⌘F").Size(ControlMD, ControlMD).Radius(RadiusSM).Transition(motionFeedback(c))
+			b := ui.ButtonBase(c.Key("git-history-search-button")).Label("搜索提交").Tooltip("搜索提交 "+shortcutDisplay("⌘F")).Size(ControlMD, ControlMD).Radius(RadiusSM).Transition(motionFeedback(c))
 			b.Children(func() { ui.Icon(c, IconSearch()).Size(IconSM, IconSM) })
 			b.OnClick(func() { h.mu.Lock(); h.searchOpen = true; h.mu.Unlock(); gitHistoryInvalidate(ps) })
 			ui.Spacer(c)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"math/rand"
 	"os"
@@ -131,7 +132,10 @@ func (m *Manager) RefreshQuota(ctx context.Context, id string) error {
 				}
 			}
 			if err := m.RefreshQuota(ctx, accID); err != nil {
-				log.Printf("agy: refresh quota for %s: %v", accID, err)
+				// 宿主没登录 agy（没有 token 文件，系统凭据也读不到）是常态，不必每轮记一条错误。
+				if accID != SystemAccountID || !errors.Is(err, fs.ErrNotExist) {
+					log.Printf("agy: refresh quota for %s: %v", accID, err)
+				}
 				errs = append(errs, fmt.Errorf("%s: %w", accID, err))
 			}
 		}

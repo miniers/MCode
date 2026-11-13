@@ -15,7 +15,7 @@ func TestChatToolbarNewThreadButton(t *testing.T) {
 	tt := ui.NewTester(Root(fake, func(s *chatState) { state = s }), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
 
-	if err := tt.Click("新建会话 ⌘N"); err != nil {
+	if err := tt.Click("新建会话 " + shortcutDisplay("⌘N")); err != nil {
 		t.Fatalf("click new-thread button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {

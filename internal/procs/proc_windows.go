@@ -209,3 +209,35 @@ func PopulateTreeTimes(table []Proc, rootPID int) {
 	processes = append(processes, Proc{PID: rootPID})
 	fillStartTimes(table, processes)
 }
+
+// KillTree 结束 rootPID 及其全部后代：先 taskkill /T 请求整棵树退出，grace 之后
+// 对仍存活的进程 TerminateProcess。rootPID 已不在运行时返回 false。
+func KillTree(rootPID int, grace time.Duration) (bool, error) {
+	if rootPID <= 0 || rootPID == os.Getpid() {
+		return false, fmt.Errorf("procs: 非法 rootPID %d", rootPID)
+	}
+	if !alive(rootPID) {
+		return false, nil
+	}
+	table, err := Snapshot()
+	if err != nil {
+		return false, err
+	}
+	pids := []int{rootPID}
+	for _, p := range collectDescendants(rootPID, table) {
+		if p.PID > 0 && p.PID != os.Getpid() {
+			pids = append(pids, p.PID)
+		}
+	}
+	_ = taskkill(rootPID)
+	waitExit(pids, grace)
+	var firstErr error
+	for _, pid := range pids {
+		if alive(pid) {
+			if err := terminate(pid); err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("procs: 强制结束进程 %d: %w", pid, err)
+			}
+		}
+	}
+	return true, firstErr
+}

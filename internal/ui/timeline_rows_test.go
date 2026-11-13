@@ -586,7 +586,7 @@ func TestTimelineRows_UserMessageActions(t *testing.T) {
 		t.Fatalf("点击'修改'按钮失败: %v", err)
 	}
 	// 点击后原位换成就地编辑输入框，操作栏随行消失
-	waitFor(t, tt, func() bool { return tt.HasText("Esc 取消 · ⌘Enter 发送") })
+	waitFor(t, tt, func() bool { return tt.HasText("Esc 取消 · " + shortcutDisplay("⌘Enter") + " 发送") })
 	if tt.HasText("修改") {
 		t.Fatalf("就地编辑中不应再显示操作栏: %q", tt.Texts())
 	}

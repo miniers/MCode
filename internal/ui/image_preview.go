@@ -498,7 +498,7 @@ func renderImagePreviewActions(c *ui.Context, s *chatState, pv *imagePreviewStat
 	}
 	ui.Row(c.Key("image-preview-actions")).Gap(Space3).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
 		if localPath != "" {
-			previewActionButton(c, "image-preview-reveal", "在访达中显示", "在访达中显示", func() {
+			previewActionButton(c, "image-preview-reveal", revealInFileManagerLabel(), revealInFileManagerLabel(), func() {
 				openItemInFinder(localPath)
 			})
 		}

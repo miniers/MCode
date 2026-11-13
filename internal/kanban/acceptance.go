@@ -143,7 +143,7 @@ func (s *Service) RunAcceptanceCommands(ctx context.Context, taskID string) ([]A
 
 		started := time.Now()
 		runCtx, cancel := context.WithTimeout(ctx, timeout)
-		cmd := procattr.HideWindow(exec.CommandContext(runCtx, "/bin/sh", "-c", command))
+		cmd := procattr.ShellCommand(runCtx, command)
 		cmd.Dir = dir
 		// 与 gitCmd 一致继承登录 Shell 环境变量，并告知命令自己运行在任务 worktree 里。
 		cmd.Env = append(loginenv.Environ(), "MCODE_WORKTREE_PATH="+dir)

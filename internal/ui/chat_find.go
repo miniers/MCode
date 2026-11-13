@@ -735,8 +735,8 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 				Size(ControlXS, ControlXS).
 				Radius(RadiusXS).
 				Center().
-				Label("上一个匹配 ⇧↩").
-				Tooltip("上一个匹配 ⇧↩")
+				Label("上一个匹配 " + shortcutDisplay("⇧↩")).
+				Tooltip("上一个匹配 " + shortcutDisplay("⇧↩"))
 			if prevBtn.Hovered() {
 				prevBtn.Background(ThemeHover(c))
 			}
@@ -752,8 +752,8 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 				Size(ControlXS, ControlXS).
 				Radius(RadiusXS).
 				Center().
-				Label("下一个匹配 ↩").
-				Tooltip("下一个匹配 ↩")
+				Label("下一个匹配 " + shortcutDisplay("↩")).
+				Tooltip("下一个匹配 " + shortcutDisplay("↩"))
 			if nextBtn.Hovered() {
 				nextBtn.Background(ThemeHover(c))
 			}

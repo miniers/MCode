@@ -217,7 +217,7 @@ func TestLocalFileLinkContextMenu(t *testing.T) {
 			}
 			tt.Frame()
 			menu := tt.Menu()
-			for _, want := range []string{"在访达中显示", "复制路径"} {
+			for _, want := range []string{revealInFileManagerLabel(), "复制路径"} {
 				if !slices.Contains(menu, want) {
 					t.Fatalf("链接菜单缺少 %q: %v", want, menu)
 				}
@@ -230,7 +230,7 @@ func TestLocalFileLinkContextMenu(t *testing.T) {
 			tt.Frame()
 			menu = tt.Menu()
 			for _, item := range menu {
-				if item == "在访达中显示" || item == "复制路径" {
+				if item == revealInFileManagerLabel() || item == "复制路径" {
 					t.Fatalf("普通文字不应弹出文件菜单: %v", menu)
 				}
 			}

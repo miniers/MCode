@@ -8,6 +8,7 @@ import (
 )
 
 func TestKbdKeys(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	tests := []struct {
 		shortcut string
 		want     []string
@@ -33,7 +34,7 @@ func TestKbdRowVisibleKeys(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		KbdRow(c, "test-kbd", "Cmd+Shift+P", "Esc")
 	}, 400, 100)
-	for _, label := range []string{"⇧", "⌘", "P", "Esc"} {
+	for _, label := range append(kbdKeys("Cmd+Shift+P"), "Esc") {
 		if _, ok := tt.Find(label); !ok {
 			t.Errorf("未找到键帽 %q，当前文字：%q", label, tt.Texts())
 		}

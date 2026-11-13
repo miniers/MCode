@@ -4,8 +4,6 @@ import (
 	"context"
 	"log"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -73,13 +71,7 @@ func runWorktreeSetupScripts(ctx context.Context, projectRoot, worktreePath stri
 		res := WorktreeScriptResult{Name: sc.Name}
 
 		runCtx, cancel := context.WithTimeout(ctx, worktreeSetupTimeout)
-		// Windows 没有 /bin/sh，改用 PowerShell；其余平台保持 sh -c。
-		var cmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			cmd = procattr.HideWindow(exec.CommandContext(runCtx, "powershell.exe", "-NoProfile", "-Command", sc.Command))
-		} else {
-			cmd = procattr.HideWindow(exec.CommandContext(runCtx, "/bin/sh", "-c", sc.Command))
-		}
+		cmd := procattr.ShellCommand(runCtx, sc.Command)
 		cmd.Dir = worktreePath
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()

@@ -536,7 +536,7 @@ func renderUserMessageInlineEdit(c *ui.Context, s *chatState, m Message, st *inl
 			})
 
 			ui.Row(c.Key("msg-user-edit-actions-" + m.ID)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "Esc 取消 · ⌘Enter 发送").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "Esc 取消 · "+shortcutDisplay("⌘Enter")+" 发送").FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 				ui.Spacer(c)
 				Button(c, ButtonOpts{
 					Key:     "msg-user-edit-cancel-" + m.ID,

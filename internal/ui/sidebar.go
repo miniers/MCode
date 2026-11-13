@@ -435,9 +435,9 @@ func renderSidebar(c *ui.Context, s *chatState) {
 
 			// 动态视图开关：铃铛图标按钮（开启时用强调色高亮底），与 ⌥⌘U 共用入口
 			activityOn := s.activityViewEnabled()
-			activityTip := "开启动态视图 (⌥⌘U)"
+			activityTip := "开启动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
 			if activityOn {
-				activityTip = "关闭动态视图 (⌥⌘U)"
+				activityTip = "关闭动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
 			}
 			IconButton(c.Key("sidebar-activity-btn"), IconButtonProps{
 				Icon:    IconBell(),
@@ -573,7 +573,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							s.setToast("打开终端失败: " + err.Error())
 						}
 					}
-					if m.Item("在访达中显示").Chosen() {
+					if m.Item(revealInFileManagerLabel()).Chosen() {
 						if pVal.Path != "" {
 							mygo.Shell.ShowItemInFolder(pVal.Path)
 						}
@@ -1449,7 +1449,7 @@ func threadContextMenu(c *ui.Context, s *chatState, projectID string, thVal Thre
 				c.WriteClipboard(threadDir)
 				s.setToast("已复制路径")
 			}
-			if m.Item("在访达中显示").Chosen() {
+			if m.Item(revealInFileManagerLabel()).Chosen() {
 				mygo.Shell.ShowItemInFolder(threadDir)
 			}
 		}

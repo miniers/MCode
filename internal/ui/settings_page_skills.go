@@ -430,7 +430,7 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 								openItemInFinder(skVal.Path)
 							}
 							revealBtn.Children(func() {
-								ui.Text(c, "在访达中显示").
+								ui.Text(c, revealInFileManagerLabel()).
 									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c))
 							})

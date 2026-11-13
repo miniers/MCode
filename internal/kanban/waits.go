@@ -3,11 +3,11 @@ package kanban
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
 	"mcode/internal/agent/gate"
+	"mcode/internal/procattr"
 	"mcode/internal/store"
 )
 
@@ -102,7 +102,7 @@ func (s *Service) CheckWaits(ctx context.Context, now time.Time) error {
 				continue
 			}
 			checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			cmd := exec.CommandContext(checkCtx, "sh", "-c", meta.WaitCheck)
+			cmd := procattr.ShellCommand(checkCtx, meta.WaitCheck)
 			cmd.Dir = root
 			err = cmd.Run()
 			cancel()

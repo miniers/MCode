@@ -3,24 +3,14 @@ package mcodeui
 import (
 	"fmt"
 	"net/url"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
+
+	"github.com/egoist/mygo"
 )
 
-// openLineGOOS 是「按行打开」使用的平台标识，测试中可替换；只有 macOS 的编辑器支持这种 URL scheme。
-var openLineGOOS = runtime.GOOS
-
-// openEditorURLRunner 执行打开编辑器 URL 的命令，测试中可替换。
-var openEditorURLRunner = func(target string) error {
-	cmd := exec.Command("open", target)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go func() { _ = cmd.Wait() }()
-	return nil
-}
+// openEditorURLRunner 用系统默认处理程序打开编辑器 URL，测试中可替换。
+var openEditorURLRunner = func(target string) error { return mygo.Shell.OpenExternal(target) }
 
 // openLineInstalledApps 返回「打开方式」里已安装的应用列表，测试中可替换。
 // 单独抽出是因为 installedOpenInApps 依赖文件存在判断，测试里不便构造真实 .app 目录。
@@ -66,9 +56,9 @@ func editorLineURL(app openInApp, path string, line, col int) (string, bool) {
 }
 
 // openPathAtLine 用「打开方式」里第一个支持跳行的编辑器打开文件并跳到指定行。
-// 非 macOS、没有行号、找不到编辑器或打开失败时返回 false，调用方沿用原有打开方式。
+// 没有行号、找不到编辑器或打开失败时返回 false，调用方沿用原有打开方式。
 func openPathAtLine(s *chatState, path string, line, col int) bool {
-	if line < 1 || strings.TrimSpace(path) == "" || openLineGOOS != "darwin" {
+	if line < 1 || strings.TrimSpace(path) == "" {
 		return false
 	}
 	target := path

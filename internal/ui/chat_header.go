@@ -1573,6 +1573,11 @@ func openInFileManagerName() string {
 	return "访达"
 }
 
+// revealInFileManagerLabel 返回「在系统文件管理器中定位」动作在当前平台的文案。
+func revealInFileManagerLabel() string {
+	return "在" + openInFileManagerName() + "中显示"
+}
+
 // openInRunner 执行 open 命令，测试中可替换。
 var openInRunner = func(args ...string) error {
 	cmd := exec.Command("open", args...)
@@ -1781,7 +1786,7 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 		ui.Row(c.Key("chat-header-left")).Gap(Space4).AlignItems(ui.Center).Grow(1).Children(func() {
 			renderChatHeaderParentChip(c, s)
 			IconButton(c, IconButtonProps{Key: "chat-header-toggle-sidebar-btn", Icon: IconPanelLeft(), Size: ControlMD, Variant: ButtonGhost,
-				Label: "显示/隐藏侧边栏 ⌘B", OnClick: func() { toggleSidebarPersisted(s) }})
+				Label: "显示/隐藏侧边栏 " + shortcutDisplay("⌘B"), OnClick: func() { toggleSidebarPersisted(s) }})
 			if sidebarCollapsed {
 				threadsBtn := IconButton(c, IconButtonProps{Key: "chat-header-threads-btn", Icon: IconChevronDown(), Size: ControlMD, Variant: ButtonGhost,
 					Label: "会话列表", Active: ts.threadsPopoverOpen, OnClick: func() { s.headerToggleThreadsPopover() }})
@@ -1790,7 +1795,7 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 				})
 			}
 			IconButton(c, IconButtonProps{Key: "chat-header-new-thread-btn", Icon: IconMessageSquarePlus(), Size: ControlMD, Variant: ButtonGhost,
-				Label: "新建会话 ⌘N", OnClick: s.headerNewThread})
+				Label: "新建会话 " + shortcutDisplay("⌘N"), OnClick: s.headerNewThread})
 			renderSwarmHeaderButton(c, s)
 			renderHeaderPermissionCapsule(c, s, selectedID)
 			renderChatHeaderGit(c, s, selectedID)

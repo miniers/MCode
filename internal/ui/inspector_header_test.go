@@ -117,10 +117,10 @@ func TestInspectorHeaderShortcutOverride(t *testing.T) {
 	}
 	setShortcutOverrides(map[string]string{"toggle-inspector": "Cmd+Shift+Y"})
 	tt.Frame()
-	if node, ok := tt.Access("关闭右栏"); !ok || node.Description != "关闭（⇧⌘Y）" {
+	if node, ok := tt.Access("关闭右栏"); !ok || node.Description != "关闭（"+shortcutDisplay("⇧⌘Y")+"）" {
 		t.Fatalf("覆盖后的关闭按钮说明：%+v %v", node, ok)
 	}
-	if got := shortcutTitleWithKey("toggle-inspector", "关闭"); got != "关闭（⇧⌘Y）" {
+	if got := shortcutTitleWithKey("toggle-inspector", "关闭"); got != "关闭（"+shortcutDisplay("⇧⌘Y")+"）" {
 		t.Fatalf("覆盖提示：%q", got)
 	}
 	if id, _, ok := matchShortcut(ui.Cmd|ui.Shift, ui.KeyY); !ok || id != "toggle-inspector" {

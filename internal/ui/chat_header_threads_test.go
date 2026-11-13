@@ -45,7 +45,7 @@ func TestChatHeaderPanelButtonsResponsive(t *testing.T) {
 			if _, ok := tt.Find("更多头部操作"); ok != tc.collapsed {
 				t.Fatalf("更多按钮可见状态 = %v，收起 = %v", ok, tc.collapsed)
 			}
-			if _, ok := tt.Find("新建会话 ⌘N"); !ok {
+			if _, ok := tt.Find("新建会话 " + shortcutDisplay("⌘N")); !ok {
 				t.Fatal("新建会话按钮不可见")
 			}
 			if tc.collapsed {
@@ -136,7 +136,7 @@ func TestChatHeaderIconButtonsHaveNoFill(t *testing.T) {
 		i := img.PixOffset(x, y)
 		return [3]int{int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])}
 	}
-	for _, label := range []string{"显示/隐藏侧边栏 ⌘B", "新建会话 ⌘N", "终端", "右栏", "更多工具"} {
+	for _, label := range []string{"显示/隐藏侧边栏 " + shortcutDisplay("⌘B"), "新建会话 " + shortcutDisplay("⌘N"), "终端", "右栏", "更多工具"} {
 		r, ok := tt.Find(label)
 		if !ok {
 			t.Fatalf("按钮 %q 不可见", label)
