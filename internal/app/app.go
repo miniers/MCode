@@ -1050,7 +1050,13 @@ func Open(opts Options) (*App, error) {
 	if codexBin == "" {
 		codexBin = "codex"
 	}
-	_, codexErr := exec.LookPath(codexBin)
+	resolvedCodex, codexErr := loginenv.LookPath(codexBin)
+	if codexErr == nil {
+		resolvedCodex, codexErr = filepath.Abs(resolvedCodex)
+		if codexErr == nil {
+			codexBin = resolvedCodex
+		}
+	}
 
 	probe := <-claudeProbe
 	claudeErr, claudeAuthErr := probe.lookPathErr, probe.authErr

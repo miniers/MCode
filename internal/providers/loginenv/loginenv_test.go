@@ -60,6 +60,40 @@ func resetState(t *testing.T) {
 	loadFunc = nil
 }
 
+func TestLookPathInWindowsExecutable(t *testing.T) {
+	original := goos
+	goos = "windows"
+	t.Cleanup(func() { goos = original })
+
+	dir := t.TempDir()
+	plain := filepath.Join(dir, "codex")
+	cmd := filepath.Join(dir, "codex.cmd")
+	exe := filepath.Join(dir, "codex.exe")
+	for _, path := range []string{plain, cmd, exe} {
+		if err := os.WriteFile(path, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, ok := lookPathIn(dir, "codex"); !ok || got != exe {
+		t.Fatalf("got %q, %v; want %q", got, ok, exe)
+	}
+	if got, ok := lookPathIn("", exe); !ok || got != exe {
+		t.Fatalf("got %q, %v; want %q", got, ok, exe)
+	}
+	if err := os.Remove(exe); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := lookPathIn(dir, "codex"); !ok || got != cmd {
+		t.Fatalf("got %q, %v; want %q", got, ok, cmd)
+	}
+	if err := os.Remove(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := lookPathIn(dir, "codex"); ok {
+		t.Fatalf("got %q, want 未找到", got)
+	}
+}
+
 func TestAugmentedPath(t *testing.T) {
 	customDir := "/custom/bin"
 	res := augmentedPath(customDir)

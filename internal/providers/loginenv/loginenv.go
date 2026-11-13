@@ -167,19 +167,27 @@ func lookPathIn(path, name string) (string, bool) {
 
 // windowsExecutableExts 是 Windows 上按 PATHEXT 习惯补全的可执行后缀。
 var windowsExecutableExts = []string{".exe", ".cmd", ".bat"}
+var goos = runtime.GOOS
 
 // resolveExecutable 在候选路径上解析出真正可执行的文件。
 // Unix 校验执行权限位；Windows 没有权限位，额外按 .exe/.cmd/.bat 补全同名命令。
 func resolveExecutable(candidate string) (string, bool) {
-	if isExecutable(candidate) {
-		return candidate, true
-	}
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
+		for _, ext := range windowsExecutableExts {
+			if strings.EqualFold(filepath.Ext(candidate), ext) {
+				if isExecutable(candidate) {
+					return candidate, true
+				}
+				return "", false
+			}
+		}
 		for _, ext := range windowsExecutableExts {
 			if path := candidate + ext; isExecutable(path) {
 				return path, true
 			}
 		}
+	} else if isExecutable(candidate) {
+		return candidate, true
 	}
 	return "", false
 }
@@ -642,7 +650,7 @@ func isExecutable(path string) bool {
 	if info.IsDir() {
 		return false
 	}
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		// Windows 没有 Unix 的执行权限位，存在且不是目录即视为可执行。
 		return true
 	}
