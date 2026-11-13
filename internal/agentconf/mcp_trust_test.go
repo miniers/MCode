@@ -3,6 +3,7 @@ package agentconf
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -485,10 +486,18 @@ func TestSetMCPServerEnabledReportsWriteError(t *testing.T) {
 		t.Fatalf("SaveMCPServer 失败：%v", err)
 	}
 	// 目录设为只读：配置照样能读，原子写入的临时文件却建不出来。
-	if err := os.Chmod(dataDir, 0500); err != nil {
-		t.Fatalf("修改目录权限失败：%v", err)
+	mcpPath := filepath.Join(dataDir, "mcp.json")
+	if runtime.GOOS == "windows" {
+		if err := os.Chmod(mcpPath, 0444); err != nil {
+			t.Skip("cannot mark MCP config read-only on Windows")
+		}
+		t.Cleanup(func() { _ = os.Chmod(mcpPath, 0644) })
+	} else {
+		if err := os.Chmod(dataDir, 0500); err != nil {
+			t.Fatalf("修改目录权限失败：%v", err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dataDir, 0700) })
 	}
-	t.Cleanup(func() { _ = os.Chmod(dataDir, 0700) })
 
 	if err := SetMCPServerEnabled(opts, "keep", false); err == nil {
 		t.Fatal("写盘失败时 SetMCPServerEnabled 应返回错误")

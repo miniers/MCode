@@ -2,9 +2,9 @@ package claude
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -114,14 +114,33 @@ func TestAuthNotRequired(t *testing.T) {
 }
 
 // writeAuthScript 写一个假的 claude 可执行脚本：向 stdout 输出 stdout 内容后以 exitCode 退出。
+const (
+	fakeClaudeAuthEnv       = "MCODE_TEST_FAKE_CLAUDE_AUTH"
+	fakeClaudeAuthStdoutEnv = "MCODE_TEST_FAKE_CLAUDE_AUTH_STDOUT"
+	fakeClaudeAuthExitEnv   = "MCODE_TEST_FAKE_CLAUDE_AUTH_EXIT"
+)
+
+func setTestEnv(t *testing.T, key, value string) {
+	t.Helper()
+	old, ok := os.LookupEnv(key)
+	if err := os.Setenv(key, value); err != nil {
+		t.Fatalf("set %s: %v", key, err)
+	}
+	t.Cleanup(func() {
+		if ok {
+			_ = os.Setenv(key, old)
+		} else {
+			_ = os.Unsetenv(key)
+		}
+	})
+}
+
 func writeAuthScript(t *testing.T, stdout string, exitCode int) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "claude-fake")
-	script := "#!/bin/sh\nprintf '%s' '" + stdout + "'\nexit " + strconv.Itoa(exitCode) + "\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("写假 claude 脚本失败: %v", err)
-	}
-	return path
+	setTestEnv(t, fakeClaudeAuthEnv, "1")
+	setTestEnv(t, fakeClaudeAuthStdoutEnv, stdout)
+	setTestEnv(t, fakeClaudeAuthExitEnv, fmt.Sprintf("%d", exitCode))
+	return os.Args[0]
 }
 
 func TestReadAuthStatus(t *testing.T) {

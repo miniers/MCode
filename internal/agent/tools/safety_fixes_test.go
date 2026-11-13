@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -54,9 +55,11 @@ func TestAtomicWritePreservesLinkAndMode(t *testing.T) {
 	if err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("link: %v %v", info, err)
 	}
-	info, err = os.Stat(target)
-	if err != nil || info.Mode().Perm() != 0600 {
-		t.Fatalf("mode: %v %v", info, err)
+	if runtime.GOOS != "windows" {
+		info, err = os.Stat(target)
+		if err != nil || info.Mode().Perm() != 0600 {
+			t.Fatalf("mode: %v %v", info, err)
+		}
 	}
 	data, err := os.ReadFile(target)
 	if err != nil || string(data) != "new" {
@@ -95,9 +98,11 @@ func TestAtomicToolWritesThroughSymlink(t *testing.T) {
 		if err != nil || info.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("link: %v %v", info, err)
 		}
-		info, err = os.Stat(target)
-		if err != nil || info.Mode().Perm() != 0600 {
-			t.Fatalf("mode: %v %v", info, err)
+		if runtime.GOOS != "windows" {
+			info, err = os.Stat(target)
+			if err != nil || info.Mode().Perm() != 0600 {
+				t.Fatalf("mode: %v %v", info, err)
+			}
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1726,12 +1727,17 @@ func TestSetAutoWarmup_SaveFailureRollback(t *testing.T) {
 	_ = os.WriteFile(routingPath, []byte(`{"autoWarmup":true}`), 0600)
 
 	// 将目录设为不可写使其保存失败
-	if err := os.Chmod(dataDir, 0500); err != nil {
-		t.Skip("cannot chmod directory, skipping permission test")
+	if runtime.GOOS == "windows" {
+		if err := os.Chmod(routingPath, 0444); err != nil {
+			t.Skip("cannot mark routing file read-only on Windows")
+		}
+		defer func() { _ = os.Chmod(routingPath, 0644) }()
+	} else {
+		if err := os.Chmod(dataDir, 0500); err != nil {
+			t.Skip("cannot chmod directory, skipping permission test")
+		}
+		defer func() { _ = os.Chmod(dataDir, 0700) }()
 	}
-	defer func() {
-		_ = os.Chmod(dataDir, 0700)
-	}()
 
 	// 尝试修改为 false，落盘失败必须回滚内存状态
 	err = mgr.SetAutoWarmup(false)
@@ -1745,7 +1751,9 @@ func TestSetAutoWarmup_SaveFailureRollback(t *testing.T) {
 	}
 
 	// 恢复写权限后验证原文件未损坏
-	_ = os.Chmod(dataDir, 0700)
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(dataDir, 0700)
+	}
 	data, readErr := os.ReadFile(routingPath)
 	if readErr != nil {
 		t.Fatalf("routing file was corrupted or missing: %v", readErr)

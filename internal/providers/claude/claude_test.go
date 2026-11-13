@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,11 +23,21 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv(fakeClaudeAuthEnv) == "1" {
+		runFakeClaudeAuth()
+		return
+	}
 	if mode := os.Getenv(fakeClaudeEnv); mode != "" {
 		runFakeClaude(mode)
 		return
 	}
 	os.Exit(m.Run())
+}
+
+func runFakeClaudeAuth() {
+	_, _ = os.Stdout.WriteString(os.Getenv(fakeClaudeAuthStdoutEnv))
+	code, _ := strconv.Atoi(os.Getenv(fakeClaudeAuthExitEnv))
+	os.Exit(code)
 }
 
 func runFakeClaude(mode string) {

@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -17,6 +18,23 @@ import (
 
 	"mcode/internal/harness"
 )
+
+const (
+	fakeCopilotEnv     = "MCODE_TEST_FAKE_COPILOT"
+	fakeCopilotLogEnv  = "MCODE_TEST_FAKE_COPILOT_LOG"
+	fakeCopilotHangEnv = "MCODE_TEST_FAKE_COPILOT_HANG"
+)
+
+func TestMain(m *testing.M) {
+	if os.Getenv(fakeCopilotHangEnv) == "1" {
+		select {}
+	}
+	if os.Getenv(fakeCopilotEnv) == "1" {
+		runFakeCopilot()
+		return
+	}
+	os.Exit(m.Run())
+}
 
 // readFixtureLines 读取 testdata 下的 JSONL 录制 fixture（每行一条服务端消息）。
 func readFixtureLines(t *testing.T, name string) [][]byte {
@@ -260,9 +278,10 @@ func TestExitPlanModeRestoresRunMode(t *testing.T) {
 // TestRollbackSendsRewindCalls 用假进程验证原生回滚走 listRewindPoints + rewind。
 func TestRollbackSendsRewindCalls(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")
-	script := strings.Replace(fakeCopilotScript, "__LOG_PATH__", strconv.Quote(logPath), 1)
+	t.Setenv(fakeCopilotEnv, "1")
+	t.Setenv(fakeCopilotLogEnv, logPath)
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return exec.CommandContext(ctx, os.Args[0])
 	}}
 
 	h := New(Options{})
@@ -389,78 +408,80 @@ func newRecordingProc(t *testing.T) (*sessionProc, <-chan recordedCall) {
 	return proc, recorded
 }
 
-// fakeCopilotScript 是一个最小的假 copilot headless server：按 Content-Length 分帧收发。
-const fakeCopilotScript = `
-import sys, json
-
-LOG = __LOG_PATH__
-
-def read_frame():
-    length = None
-    while True:
-        line = sys.stdin.buffer.readline()
-        if not line:
-            return None
-        stripped = line.strip()
-        if stripped == b'':
-            break
-        if stripped.lower().startswith(b'content-length:'):
-            try:
-                length = int(stripped.split(b':', 1)[1])
-            except Exception:
-                length = None
-    if length is None:
-        return None
-    body = sys.stdin.buffer.read(length)
-    if not body:
-        return None
-    try:
-        return json.loads(body)
-    except Exception:
-        return None
-
-def write(obj):
-    data = json.dumps(obj).encode('utf-8')
-    sys.stdout.buffer.write(b'Content-Length: ' + str(len(data)).encode('ascii') + b'\r\n\r\n' + data)
-    sys.stdout.buffer.flush()
-
-def log(msg):
-    try:
-        with open(LOG, 'a') as f:
-            f.write(json.dumps(msg) + '\n')
-    except Exception:
-        pass
-
-while True:
-    msg = read_frame()
-    if msg is None:
-        break
-    log(msg)
-    method = msg.get('method')
-    mid = msg.get('id')
-    if method == 'ping':
-        write({'jsonrpc': '2.0', 'id': mid, 'result': {'protocolVersion': 3}})
-    elif method in ('session.create', 'session.resume'):
-        write({'jsonrpc': '2.0', 'id': mid, 'result': {}})
-    elif method == 'session.history.listRewindPoints':
-        write({'jsonrpc': '2.0', 'id': mid, 'result': {'points': [
-            {'eventId': 'e1'}, {'eventId': 'e2'}, {'eventId': 'e3'}]}})
-    elif method == 'session.history.rewind':
-        write({'jsonrpc': '2.0', 'id': mid, 'result': {'outcome': 'success'}})
-    elif method == 'session.send':
-        write({'jsonrpc': '2.0', 'id': mid, 'result': {}})
-        sid = msg.get('params', {}).get('sessionId', '')
-        write({'jsonrpc': '2.0', 'method': 'session.event', 'params': {'sessionId': sid, 'event': {
-            'type': 'assistant.message_delta', 'data': {'messageId': 'm1', 'deltaContent': 'PONG'}}}})
-        write({'jsonrpc': '2.0', 'method': 'session.event', 'params': {'sessionId': sid, 'event': {
-            'type': 'session.idle', 'data': {'aborted': False}}}})
-    else:
-        write({'jsonrpc': '2.0', 'id': mid, 'result': {}})
-`
+// runFakeCopilot 是本包测试用的假 copilot headless server：按 Content-Length 分帧收发，
+// 需要记录客户端请求时把 fakeCopilotLogEnv 指向一个文件。
+func runFakeCopilot() {
+	logPath := os.Getenv(fakeCopilotLogEnv)
+	reader := bufio.NewReader(os.Stdin)
+	write := func(message map[string]any) {
+		data, _ := json.Marshal(message)
+		_, _ = fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n%s", len(data), data)
+	}
+	for {
+		length := -1
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+			if line == "" {
+				break
+			}
+			if strings.HasPrefix(strings.ToLower(line), "content-length:") {
+				_, _ = fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(strings.ToLower(line), "content-length:")), "%d", &length)
+			}
+		}
+		if length < 0 {
+			return
+		}
+		body := make([]byte, length)
+		if _, err := io.ReadFull(reader, body); err != nil {
+			return
+		}
+		var msg map[string]any
+		if json.Unmarshal(body, &msg) != nil {
+			continue
+		}
+		if logPath != "" {
+			if file, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+				data, _ := json.Marshal(msg)
+				_, _ = file.Write(append(data, '\n'))
+				_ = file.Close()
+			}
+		}
+		id := msg["id"]
+		method, _ := msg["method"].(string)
+		switch method {
+		case "ping":
+			write(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"protocolVersion": 3}})
+		case "session.create", "session.resume":
+			write(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{}})
+		case "session.history.listRewindPoints":
+			write(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"points": []map[string]string{{"eventId": "e1"}, {"eventId": "e2"}, {"eventId": "e3"}}}})
+		case "session.history.rewind":
+			write(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"outcome": "success"}})
+		case "session.send":
+			write(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{}})
+			params, _ := msg["params"].(map[string]any)
+			sid, _ := params["sessionId"].(string)
+			write(map[string]any{"jsonrpc": "2.0", "method": "session.event", "params": map[string]any{"sessionId": sid, "event": map[string]any{"type": "assistant.message_delta", "data": map[string]any{"messageId": "m1", "deltaContent": "PONG"}}}})
+			write(map[string]any{"jsonrpc": "2.0", "method": "session.event", "params": map[string]any{"sessionId": sid, "event": map[string]any{"type": "session.idle", "data": map[string]any{"aborted": false}}}})
+		default:
+			if id != nil {
+				write(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{}})
+			}
+		}
+	}
+}
 
 // TestKillTerminatesProcessAfterMarkDead 验证连接先断开（markDead 已触发）后 kill 仍会杀进程，不会卡在 Wait。
 func TestKillTerminatesProcessAfterMarkDead(t *testing.T) {
 	cmd := exec.Command("sleep", "60")
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command(os.Args[0])
+		cmd.Env = append(os.Environ(), fakeCopilotHangEnv+"=1")
+	}
 	setProcessGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -566,6 +587,10 @@ func TestRequestSpeedSamples(t *testing.T) {
 // TestCloseAndKillReclaimOnce 验证 close 与 kill 并发时只 Wait 一次、沙箱回收只执行一次。
 func TestCloseAndKillReclaimOnce(t *testing.T) {
 	cmd := exec.Command("sleep", "60")
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command(os.Args[0])
+		cmd.Env = append(os.Environ(), fakeCopilotHangEnv+"=1")
+	}
 	setProcessGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

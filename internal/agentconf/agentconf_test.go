@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -745,12 +746,16 @@ func TestSkillLegacyExpandScanFailure(t *testing.T) {
 	home := t.TempDir()
 	dataDir := t.TempDir()
 
-	// 把所有技能来源目录换成普通文件，ScanSkills 的每一次 ReadDir 都会失败（ENOTDIR）。
+	// 把所有技能来源目录换成指向自己的符号链接，ScanSkills 的每一次 ReadDir 都会失败（循环链接）。
+	// 用符号链接而不是普通文件：Windows 上对普通文件 ReadDir 会得到空目录而非错误。
 	for _, src := range globalSkillSources(home) {
 		if err := os.MkdirAll(filepath.Dir(src.path), 0755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(src.path, []byte("not a directory"), 0644); err != nil {
+		if err := os.Symlink(src.path, src.path); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skipf("cannot create symlink loop on Windows: %v", err)
+			}
 			t.Fatal(err)
 		}
 	}

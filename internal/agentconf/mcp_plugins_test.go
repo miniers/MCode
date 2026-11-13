@@ -24,8 +24,8 @@ func TestScanMCPEnabledPluginServers(t *testing.T) {
 	writeTestFile(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"), `{
   "version": 2,
   "plugins": {
-    "context-mode@cm": [{"scope": "user", "installPath": "`+root+`"}],
-    "off@cm": [{"scope": "user", "installPath": "`+off+`"}]
+    "context-mode@cm": [{"scope": "user", "installPath": `+jsonStringLiteral(root)+`}],
+    "off@cm": [{"scope": "user", "installPath": `+jsonStringLiteral(off)+`}]
   }
 }`)
 	writeTestFile(t, filepath.Join(home, ".claude", "settings.json"),
@@ -43,7 +43,7 @@ func TestScanMCPEnabledPluginServers(t *testing.T) {
 	if srv.Agent != "claude" || srv.Scope != "global" || srv.Transport != "stdio" || srv.Command != "node" {
 		t.Fatalf("插件服务字段不对：%+v", srv)
 	}
-	if len(srv.Args) != 1 || srv.Args[0] != filepath.Join(root, "start.mjs") {
+	if len(srv.Args) != 1 || filepath.Clean(filepath.FromSlash(srv.Args[0])) != filepath.Clean(filepath.Join(root, "start.mjs")) {
 		t.Fatalf("${CLAUDE_PLUGIN_ROOT} 未展开：%v", srv.Args)
 	}
 	if srv.Env["CLAUDE_PLUGIN_ROOT"] != root {
@@ -61,7 +61,7 @@ func TestScanMCPPluginFallbackMCPJSON(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".claude", "plugins", "cache", "p")
 	writeTestFile(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"),
-		`{"plugins": {"p@m": [{"installPath": "`+root+`"}]}, "enabledPlugins": {"p@m": true}}`)
+		`{"plugins": {"p@m": [{"installPath": `+jsonStringLiteral(root)+`}]}, "enabledPlugins": {"p@m": true}}`)
 	writeTestFile(t, filepath.Join(root, ".mcp.json"),
 		`{"remote": {"type": "http", "url": "https://example.com/mcp"}}`)
 

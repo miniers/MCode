@@ -297,23 +297,31 @@ func TestSaveFailureDoesNotCorruptOriginal(t *testing.T) {
 	}
 
 	// 将目录置为只读（0500），使得无法在目录中创建临时文件
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatalf("failed to chmod dir to 0500: %v", err)
+	if runtime.GOOS == "windows" {
+		// Windows ignores directory mode bits; a read-only target rejects atomic replacement.
+		if err := os.Chmod(cfgPath, 0o444); err != nil {
+			t.Fatalf("failed to chmod config to 0444: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(cfgPath, 0o644) })
+	} else {
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatalf("failed to chmod dir to 0500: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	}
-	t.Cleanup(func() {
-		_ = os.Chmod(dir, 0o700)
-	})
 
 	newCfg := origCfg
 	newCfg.Appearance.Theme = ThemeDark
 	saveErr := Save(dir, newCfg)
 	if saveErr == nil {
-		t.Fatalf("expected Save to fail on read-only directory")
+		t.Fatalf("expected Save to fail on read-only target")
 	}
 
 	// 恢复目录权限以校验原文件
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatalf("failed to restore dir permissions: %v", err)
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatalf("failed to restore dir permissions: %v", err)
+		}
 	}
 
 	afterBytes, err := os.ReadFile(cfgPath)

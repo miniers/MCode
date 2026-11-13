@@ -1,10 +1,16 @@
 package agentconf
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func jsonStringLiteral(value string) string {
+	b, _ := json.Marshal(value)
+	return string(b)
+}
 
 // pluginSkillWriteFile 写测试文件并建好父目录；本文件自包含，不依赖其它测试文件里的辅助函数。
 func pluginSkillWriteFile(t *testing.T, path, content string) {
@@ -48,8 +54,8 @@ func TestScanPluginSkillsOnlyEnabled(t *testing.T) {
 	offRoot := pluginSkillTestRoot(t, home, "off", "skills", "off-skill", "")
 
 	installed := `{"plugins": {
-  "on@market": [{"installPath": "` + onRoot + `"}],
-  "off@market": [{"installPath": "` + offRoot + `"}]
+  "on@market": [{"installPath": ` + jsonStringLiteral(onRoot) + `}],
+  "off@market": [{"installPath": ` + jsonStringLiteral(offRoot) + `}]
 }}`
 	pluginSkillWriteFile(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"), installed)
 	pluginSkillWriteFile(t, filepath.Join(home, ".claude", "settings.json"),
@@ -83,7 +89,7 @@ func TestScanPluginSkillsEnabledFallback(t *testing.T) {
 	home := t.TempDir()
 	root := pluginSkillTestRoot(t, home, "solo", "skills", "solo-skill", "")
 	pluginSkillWriteFile(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"),
-		`{"plugins": {"solo@m": [{"installPath": "`+root+`"}]}, "enabledPlugins": {"solo@m": true}}`)
+		`{"plugins": {"solo@m": [{"installPath": `+jsonStringLiteral(root)+`}]}, "enabledPlugins": {"solo@m": true}}`)
 
 	skills, err := ScanSkills(Options{Home: home, DataDir: t.TempDir()})
 	if err != nil {
@@ -115,7 +121,7 @@ func TestScanPluginSkillsCustomDir(t *testing.T) {
 	}
 
 	pluginSkillWriteFile(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"),
-		`{"plugins": {"custom@m": [{"installPath": "`+root+`"}]}, "enabledPlugins": {"custom@m": true}}`)
+		`{"plugins": {"custom@m": [{"installPath": `+jsonStringLiteral(root)+`}]}, "enabledPlugins": {"custom@m": true}}`)
 
 	skills, err := ScanSkills(Options{Home: home, DataDir: t.TempDir()})
 	if err != nil {
@@ -162,7 +168,7 @@ func TestSetPluginSkillDisabled(t *testing.T) {
 	rootA := pluginSkillTestRoot(t, home, "a", "skills", "shared", "")
 	rootB := pluginSkillTestRoot(t, home, "b", "skills", "shared", "")
 	pluginSkillWriteFile(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"),
-		`{"plugins": {"a@m": [{"installPath": "`+rootA+`"}], "b@m": [{"installPath": "`+rootB+`"}]},
+		`{"plugins": {"a@m": [{"installPath": `+jsonStringLiteral(rootA)+`}], "b@m": [{"installPath": `+jsonStringLiteral(rootB)+`}]},
   "enabledPlugins": {"a@m": true, "b@m": true}}`)
 
 	opts := Options{Home: home, DataDir: t.TempDir()}
