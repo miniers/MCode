@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"mcode/internal/procattr"
 )
 
 func globMatch(pattern, path string) (bool, error) {
@@ -63,7 +65,7 @@ func candidates(ctx context.Context, env Env, root string) ([]string, error) {
 	var files []string
 	gitCtx, cancel := context.WithTimeout(ctx, gitSearchTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(gitCtx, "git", "-C", work, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	cmd := procattr.HideWindow(exec.CommandContext(gitCtx, "git", "-C", work, "ls-files", "--cached", "--others", "--exclude-standard", "-z"))
 	out, e := cmd.Output()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
