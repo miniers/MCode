@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -44,14 +45,15 @@ func sidePaneTestState(t *testing.T) *chatState {
 	t.Helper()
 	testenv.TempHome(t)
 	fake := NewFakeClient()
-	fake.SetThreadWorkDir("/tmp/mcode-side-pane-test")
+	workDir := filepath.Join(t.TempDir(), "workspace")
+	fake.SetThreadWorkDir(workDir)
 	fake.SetFileTree(fileManagerTestTree())
 	fake.SetFileContents(map[string]FileContent{
 		"a.txt": {Path: "a.txt", Kind: "text", Text: "hello", TotalSize: 5},
 	})
 	s := newChatState(fake)
 	s.mu.Lock()
-	s.projects = []Project{{ID: "p1", Name: "mcode-test", Path: "/tmp/mcode-side-pane-test"}}
+	s.projects = []Project{{ID: "p1", Name: "mcode-test", Path: workDir}}
 	s.threads = []Thread{{ID: "t1", ProjectID: "p1", Title: "测试会话1"}}
 	s.selectedThreadID = "t1"
 	s.mu.Unlock()

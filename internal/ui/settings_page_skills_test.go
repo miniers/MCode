@@ -44,9 +44,9 @@ func TestSettings_SkillToggle(t *testing.T) {
 	st := NewSettingsState(dataDir, nil, nil)
 	tt := ui.NewTester(func(c *ui.Context) { renderPageExtensions(c, st) }, 1000, 2000)
 
-	// 确认技能名称与在访达中显示按钮存在
+	// 确认技能名称与在系统文件管理器中显示按钮存在
 	waitFor(t, tt, func() bool {
-		return tt.HasText("toggleable-skill") && tt.HasText("在访达中显示")
+		return tt.HasText("toggleable-skill") && tt.HasText(revealInFileManagerLabel())
 	})
 
 	// 点击技能启停开关

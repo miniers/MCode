@@ -145,6 +145,7 @@ func TestShortcutHelpGroupsKeepTableOrder(t *testing.T) {
 
 // TestShowShortcutsDefaultBindingIsConflictFree ⌘/ 默认绑定不与既有快捷键冲突（D-15）。
 func TestShowShortcutsDefaultBindingIsConflictFree(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	setShortcutOverrides(nil)
 
 	if got := shortcutConflicts(effectiveShortcutBindings())["show-shortcuts"]; len(got) != 0 {

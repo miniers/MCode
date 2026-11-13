@@ -3,6 +3,8 @@ package mcodeui
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -83,7 +85,14 @@ func openFileManagerForTest(t *testing.T) (*FakeClient, *chatState, *ui.Tester) 
 	t.Helper()
 	testenv.TempHome(t)
 	fake := NewFakeClient()
-	fake.SetThreadWorkDir("/tmp/mcode-file-manager-test")
+	workDir := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake.SetThreadWorkDir(workDir)
 	fake.SetFileTree(fileManagerTestTree())
 	fake.SetFileContents(map[string]FileContent{
 		"a.txt": {Path: "a.txt", Kind: "text", Text: "hello", TotalSize: 5},

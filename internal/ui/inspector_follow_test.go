@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -204,7 +205,7 @@ func TestInspectorFollowRejectsStaleThreadAndUnsafePath(t *testing.T) {
 		t.Fatal("过期会话增量创建了右栏槽")
 	}
 	inspectorFollowUpdate(s, "t2", "other", "read", `{"path":"sub/b.go"}`, "completed")
-	for i, path := range []string{"", "../secret", "sub/../a.txt", "/etc/passwd", "sub/…", "sub/file...", "a\n.txt"} {
+	for i, path := range []string{"", "../secret", "sub/../a.txt", filepath.ToSlash(filepath.Join(t.TempDir(), "etc", "passwd")), filepath.Join(t.TempDir(), "etc", "passwd"), "sub/…", "sub/file...", "a\n.txt"} {
 		inspectorFollowUpdate(s, "t1", fmt.Sprint("unsafe-", i), "read", fmt.Sprintf(`{"path":%q}`, path), "completed")
 	}
 	inspectorFollowUpdate(s, "t1", "truncated", "read", `{"path":"a.txt`, "completed")
@@ -213,7 +214,8 @@ func TestInspectorFollowRejectsStaleThreadAndUnsafePath(t *testing.T) {
 	if len(fileManagerTabPaths(s)) != 0 || inspectorFollowBadge(s, "t2", sidePaneFileID) != 1 || inspectorFollowBadge(s, "t1", sidePaneFileID) != 0 {
 		t.Fatal("不安全路径被打开或跨会话活动串入当前会话")
 	}
-	inspectorFollowUpdate(s, "t1", "absolute", "read", `{"path":"/tmp/mcode-file-manager-test/a.txt"}`, "completed")
+	workDir := turnFilesWorkDir(s, "t1")
+	inspectorFollowUpdate(s, "t1", "absolute", "read", fmt.Sprintf(`{"path":%q}`, filepath.ToSlash(filepath.Join(workDir, "a.txt"))), "completed")
 	inspectorFollowWaitFile(t, tt, s, "a.txt")
 	s.mu.Lock()
 	s.selectedThreadID = "t2"
@@ -226,7 +228,7 @@ func TestInspectorFollowRejectsStaleThreadAndUnsafePath(t *testing.T) {
 
 func TestInspectorFollowIgnoresUnrevealableTargets(t *testing.T) {
 	_, s, _ := inspectorFollowTestState(t)
-	inspectorFollowUpdate(s, "t1", "outside", "read", `{"path":"/tmp/mcode-swarm-worktrees-elsewhere/a.txt"}`, "completed")
+	inspectorFollowUpdate(s, "t1", "outside", "read", fmt.Sprintf(`{"path":%q}`, filepath.ToSlash(filepath.Join(t.TempDir(), "elsewhere", "a.txt"))), "completed")
 	inspectorFollowUpdate(s, "t1", "failed", "read", `{"path":"a.txt"}`, "failed")
 	for _, id := range []string{sidePaneFileID, sidePaneDiffID} {
 		if got := inspectorFollowBadge(s, "t1", id); got != 0 {

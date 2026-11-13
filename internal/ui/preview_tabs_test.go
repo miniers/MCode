@@ -219,6 +219,11 @@ func TestBrowserSessionEvictionReleasesViews(t *testing.T) {
 		inspectorSwitchThread(s, old)
 		tab, page := browserAttachTestPage(s, fmt.Sprintf("https://example.test/%d", i))
 		tab.title = fmt.Sprintf("页面 %d", i)
+		// 淘汰按 lastUsed 排队：Windows 时钟粒度粗，相邻标签可能拿到同一时间戳，
+		// 排序就会退化成 map 迭代顺序；这里给出严格递增的时间，锁定“最旧先淘汰”。
+		previewMu.Lock()
+		tab.owner.lastUsed = time.Unix(0, int64(i+1))
+		previewMu.Unlock()
 		tabs, pages = append(tabs, tab), append(pages, page)
 	}
 	browserEnforceSessionLimit(s)

@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,6 +44,7 @@ func TestRootInitialRenderTitle(t *testing.T) {
 
 // 场景 2：点击头部“新建会话 ⌘N”进入待创建会话，输入首个字符后才调 CreateThread
 func TestRootCreateThread(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	fake := NewFakeClient()
 	var state *chatState
 	tt := ui.NewTester(Root(fake, func(s *chatState) { state = s }), 1000, 700)
@@ -386,7 +388,7 @@ func TestRootCreateThreadForProject(t *testing.T) {
 // 场景 10：通过注入的假对话框“添加项目”后，AddProject 收到对应路径，新项目名可见
 func TestRootAddProjectWithDialog(t *testing.T) {
 	fake := NewFakeClient()
-	fakePath := "/Users/test/new-awesome-project"
+	fakePath := filepath.Join(t.TempDir(), "new-awesome-project")
 	var dialogInvoked atomic.Bool
 
 	state, view := buildRoot(fake, WithPickFolder(func() (string, bool) {
@@ -599,6 +601,7 @@ func TestSidebarAnimatedWidth(t *testing.T) {
 
 // TestRootSidebarSlideAnimation 验证侧边栏折叠/展开的过渡动画与动画结束后的静态布局切换。
 func TestRootSidebarSlideAnimation(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(waitUIStateWrites)
 	fake := NewFakeClient()

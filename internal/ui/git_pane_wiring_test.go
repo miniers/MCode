@@ -1,6 +1,9 @@
 package mcodeui
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestGitPaneWiring(t *testing.T) {
 	if gitPaneDiffView == nil || gitPaneBlameView == nil || gitPaneBranchPopover == nil || gitPaneRemotesDialog == nil {
@@ -9,15 +12,16 @@ func TestGitPaneWiring(t *testing.T) {
 }
 
 func TestGitRelativeFilePath(t *testing.T) {
+	root := t.TempDir()
 	for _, tc := range []struct {
 		root, file, want string
 		ok               bool
 	}{
-		{"/repo", "/repo/src/a.go", "src/a.go", true},
-		{"/repo", "/repo/../other/a.go", "", false},
-		{"/repo", "/repo-other/a.go", "", false},
-		{"/repo", "/repo", "", false},
-		{"", "/repo/a", "", false},
+		{root, filepath.Join(root, "src", "a.go"), "src/a.go", true},
+		{root, filepath.Join(root, "..", "other", "a.go"), "", false},
+		{root, filepath.Join(root+"-other", "a.go"), "", false},
+		{root, root, "", false},
+		{"", filepath.Join(root, "a"), "", false},
 	} {
 		got, ok := gitRelativeFilePath(tc.root, tc.file)
 		if got != tc.want || ok != tc.ok {

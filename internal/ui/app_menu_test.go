@@ -26,6 +26,9 @@ func TestMemoryEntryLabelFollowsBackend(t *testing.T) {
 
 // TestBuildAppMenu 验证原生顶栏菜单的结构、顺序与快捷键绑定。
 func TestBuildAppMenu(t *testing.T) {
+	prev := appMenuGOOS
+	appMenuGOOS = "darwin"
+	t.Cleanup(func() { appMenuGOOS = prev })
 	menu := BuildAppMenu()
 	if menu == nil {
 		t.Fatal("BuildAppMenu 不应返回 nil")
@@ -111,6 +114,9 @@ func TestBuildAppMenu(t *testing.T) {
 // TestBuildAppMenuFollowsShortcutOverrides 覆盖 U-044：改键后菜单构建读取当前有效绑定，
 // Accelerator 跟着变化（不再显示旧键位）。
 func TestBuildAppMenuFollowsShortcutOverrides(t *testing.T) {
+	prev := appMenuGOOS
+	appMenuGOOS = "darwin"
+	t.Cleanup(func() { appMenuGOOS = prev })
 	setShortcutOverrides(map[string]string{
 		"archive-thread": "Cmd+Shift+Y",
 		"toggle-diff":    "Alt+Cmd+D",

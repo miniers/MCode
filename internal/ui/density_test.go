@@ -60,8 +60,10 @@ func TestSidebarRowHeightFollowsDensity(t *testing.T) {
 	if compact >= comfortable {
 		t.Fatalf("紧凑会话行高 %.1f 应小于舒适 %.1f", compact, comfortable)
 	}
-	if want := DensityCompact.RowH * sidebarScaleFactor(); compact != want {
-		t.Fatalf("紧凑会话行高 = %.1f，期望 %.1f", compact, want)
+	// 行高是 MinHeight 下限：紧凑档文字行高可能把行撑高（Windows 字体行高比 macOS 高），
+	// 但不会低于该档位，也不会超过舒适档。
+	if want := DensityCompact.RowH * sidebarScaleFactor(); compact < want {
+		t.Fatalf("紧凑会话行高 = %.1f，不应低于 %.1f", compact, want)
 	}
 	if want := DensityComfortable.RowH * sidebarScaleFactor(); comfortable != want {
 		t.Fatalf("舒适会话行高 = %.1f，期望 %.1f", comfortable, want)

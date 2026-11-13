@@ -152,6 +152,7 @@ func TestSettingsExtra_MCPPage(t *testing.T) {
 
 // TestSettingsExtra_ShortcutsPage 覆盖：快捷键页能看到“新建会话”和“⌘N”。
 func TestSettingsExtra_ShortcutsPage(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	fake := NewFakeClient()
 	dataDir := settingsTestDir(t)
 	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 3000)
@@ -385,6 +386,7 @@ func clickShortcutControl(t *testing.T, tt *ui.Tester, label string) {
 
 // TestSettingsExtra_ShortcutsCustomizeAndReset 覆盖：输入框改键立即生效并落盘，行重置与全部恢复默认清空覆盖。
 func TestSettingsExtra_ShortcutsCustomizeAndReset(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	t.Cleanup(func() { setShortcutOverrides(nil) })
 	fake := NewFakeClient()
 	dataDir := settingsTestDir(t)

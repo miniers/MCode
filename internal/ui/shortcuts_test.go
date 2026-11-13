@@ -356,6 +356,7 @@ func TestShortcutReservedCombos(t *testing.T) {
 
 // TestShortcutOverrideMatching 覆盖生效后命中新键、旧键失效，注册表与展示键位同步更新。
 func TestShortcutOverrideMatching(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	// 示例键位使用空闲的 ⇧⌘H。
 	setShortcutOverrides(map[string]string{"toggle-diff": "Cmd+Shift+H"})
 	t.Cleanup(func() { setShortcutOverrides(nil) })
@@ -493,8 +494,11 @@ func TestAppShortcutsKeysFollowDefaults(t *testing.T) {
 // 不含 Esc、⌘K、⌘B（这三者若注册会被 dispatchActiveShortcut 每帧抢占）。
 // 「跳到最新」⌘↓ 与「打开待处理收件箱」⇧⌘I 也在默认注册集合里。
 func TestRegisteredShortcutsDefaultSet(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	setShortcutOverrides(nil)
 
+	// ui.Cmd 在包初始化时按宿主平台解析（非 macOS 等于 Ctrl），归档键位因此随平台
+	// 退化成 Cmd+Shift+A，这里按实际的默认绑定取模。
 	want := []registeredShortcut{
 		{ui.Cmd, ui.KeyN},
 		{ui.Cmd | ui.Alt, ui.KeyN},
@@ -512,7 +516,7 @@ func TestRegisteredShortcutsDefaultSet(t *testing.T) {
 		{ui.Cmd, ui.KeyDown},
 		{ui.Cmd | ui.Shift, ui.KeyI},
 		{ui.Cmd | ui.Shift, ui.KeyS},
-		{ui.Cmd | ui.Ctrl, ui.KeyA},
+		{archiveThreadMods(), ui.KeyA},
 		{ui.Cmd, ui.KeyComma},
 		{ui.Cmd | ui.Shift, ui.KeyO},
 		{ui.Cmd | ui.Shift, ui.KeyK},
@@ -556,6 +560,7 @@ func TestRegisteredShortcutsDefaultSet(t *testing.T) {
 // TestStewardStartTopicShortcut 新增的「打开总管」快捷键：默认键 ⇧⌘T（⌘⇧S 已被休眠会话占用），
 // 分组与会话类一致、参与注册与匹配，且不与既有绑定冲突。
 func TestStewardStartTopicShortcut(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	setShortcutOverrides(nil)
 	t.Cleanup(func() { setShortcutOverrides(nil) })
 
@@ -607,6 +612,7 @@ func TestStewardStartTopicShortcut(t *testing.T) {
 // TestJumpLatestAndAttentionInboxShortcuts 验证新增的「跳到最新」⌘↓ 与「打开待处理收件箱」⇧⌘I：
 // 都参与绑定、注册与匹配，分组与会话类一致，且不与既有绑定或系统保留组合冲突。
 func TestJumpLatestAndAttentionInboxShortcuts(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	setShortcutOverrides(nil)
 	t.Cleanup(func() { setShortcutOverrides(nil) })
 
@@ -673,6 +679,7 @@ func TestJumpLatestAndAttentionInboxShortcuts(t *testing.T) {
 
 // TestShortcutTitleWithKey 验证悬停提示带当前有效键位，未绑定时只显示标题。
 func TestShortcutTitleWithKey(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
 	setShortcutOverrides(nil)
 	t.Cleanup(func() { setShortcutOverrides(nil) })
 

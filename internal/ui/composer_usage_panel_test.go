@@ -23,7 +23,7 @@ func TestComposerQuotaPopoverHorizontalPadding(t *testing.T) {
 		"ui.Column(c.Key(\"composer-quota-popover-panel\")).\n\t\tLabel(\"额度详情\").\n\t\tFillWidth().\n\t\tPadding(Space4, 0)",
 		"ui.Row(c.Key(\"composer-quota-popover-header\")).\n\t\t\tFillWidth().\n\t\t\tPadding(0, Space4)",
 	} {
-		if !strings.Contains(string(src), want) {
+		if !strings.Contains(strings.ReplaceAll(string(src), "\r\n", "\n"), want) {
 			t.Errorf("额度浮层水平内边距约定缺失: %s", want)
 		}
 	}

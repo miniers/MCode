@@ -90,24 +90,27 @@ func TestArchiveWtCanConfirm(t *testing.T) {
 }
 
 func TestArchiveWorktreePathInUse(t *testing.T) {
-	if archiveWorktreePathInUse(nil, "/wt/a") {
+	base := t.TempDir()
+	a := filepath.Join(base, "a")
+	b := filepath.Join(base, "b")
+	if archiveWorktreePathInUse(nil, a) {
 		t.Fatal("空集合不应命中")
 	}
-	inUse := map[string]bool{"/wt/a": true}
-	if !archiveWorktreePathInUse(inUse, "/wt/a") {
+	inUse := map[string]bool{a: true}
+	if !archiveWorktreePathInUse(inUse, a) {
 		t.Fatal("完全匹配应命中")
 	}
-	if archiveWorktreePathInUse(inUse, "/wt/b") {
+	if archiveWorktreePathInUse(inUse, b) {
 		t.Fatal("不相关路径不应命中")
 	}
 
 	// 符号链接指向使用中的目录时应命中。
-	base := t.TempDir()
-	real := filepath.Join(base, "real")
+	symlinkBase := t.TempDir()
+	real := filepath.Join(symlinkBase, "real")
 	if err := os.MkdirAll(real, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(base, "link")
+	link := filepath.Join(symlinkBase, "link")
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("当前环境不支持创建符号链接: %v", err)
 	}

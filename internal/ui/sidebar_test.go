@@ -121,7 +121,7 @@ func TestSidebarToggleCollapse(t *testing.T) {
 	}
 
 	// 通过聊天头部的图标按钮点击切换
-	if err := tt.Click("显示/隐藏侧边栏 ⌘B"); err != nil {
+	if err := tt.Click("显示/隐藏侧边栏 " + shortcutDisplay("⌘B")); err != nil {
 		t.Fatalf("click toggle button failed: %v", err)
 	}
 	tt.Frame()
@@ -386,7 +386,7 @@ func TestSidebarProjectContextMenuRemove(t *testing.T) {
 	tt.Frame()
 
 	menu := tt.Menu()
-	expectedItems := []string{"新建会话", "在访达中显示", "复制路径", "从侧边栏移除…"}
+	expectedItems := []string{"新建会话", revealInFileManagerLabel(), "复制路径", "从侧边栏移除…"}
 	for _, exp := range expectedItems {
 		found := false
 		for _, m := range menu {
@@ -663,7 +663,7 @@ func TestSidebarThreadContextMenuGroups(t *testing.T) {
 	wantGroups := [][]string{
 		{"转发到新会话", "在新窗口打开"},
 		{"重命名…", "置顶", "标记休眠", "迁入 Worktree…"},
-		{"导出会话…", "复制为 Markdown", "复制会话 ID", "复制路径", "在访达中显示"},
+		{"导出会话…", "复制为 Markdown", "复制会话 ID", "复制路径", revealInFileManagerLabel()},
 		{"归档", "删除…"},
 	}
 	for i, want := range wantGroups {

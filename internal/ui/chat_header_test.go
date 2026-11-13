@@ -13,6 +13,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"mcode/internal/config"
 	"mcode/internal/testenv"
 )
 
@@ -656,7 +657,13 @@ func TestChatHeaderOpenInMenu(t *testing.T) {
 	testenv.TempHome(t)
 
 	fake := newGitFakeClient()
-	_, root := buildRoot(fake)
+	s, root := buildRoot(fake)
+	t.Cleanup(s.close)
+	// 默认打开方式列表在包初始化时按宿主编译平台确定，测试显式给出 macOS 的应用，
+	// 以便在任意平台验证「open -a」分支。
+	st := NewSettingsState(settingsTestDir(t), nil, s)
+	st.cfg.Workbench.OpenInApps = []config.OpenInAppConfig{{Name: "Cursor", AppPath: "/Applications/Cursor.app", Enabled: true}}
+	setChatSettings(s, st)
 	tt := ui.NewTester(root, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 

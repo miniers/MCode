@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"mcode/internal/config"
@@ -21,7 +22,7 @@ func TestWebTokensInSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读取 %s 失败：%v", webTokensCSSPath, err)
 	}
-	if string(got) != want {
+	if strings.ReplaceAll(string(got), "\r\n", "\n") != strings.ReplaceAll(want, "\r\n", "\n") {
 		t.Fatal("web/src/tokens.css 与 Go 令牌不一致，请运行：UPDATE_WEB_TOKENS=1 go test ./internal/ui -run TestWebTokensInSync")
 	}
 }

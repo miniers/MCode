@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -42,7 +43,8 @@ func TestInspectorSnapshotImmutableAndBounded(t *testing.T) {
 	if !ok || snap.Timestamp.Before(before) || snap.Timestamp.After(time.Now()) || snap.Generation == 0 {
 		t.Fatal("快照缺少时间或代次")
 	}
-	if !snap.Open || snap.Active != sidePaneFileID || snap.Workspace != "/tmp/mcode-side-pane-test\x00/tmp/mcode-side-pane-test" || snap.FilePath != "src/main.go" || snap.FirstLine != 12 || snap.LastLine != 18 {
+	workspace := turnFilesWorkDir(s, "t1")
+	if !snap.Open || snap.Active != sidePaneFileID || snap.Workspace != workspace+"\x00"+workspace || snap.FilePath != "src/main.go" || snap.FirstLine != 12 || snap.LastLine != 18 {
 		t.Fatalf("容器或文件位置错误：%+v", snap)
 	}
 	if snap.ReviewScope != "session" || snap.ReviewTurnID != "" || snap.ReviewBaseRevision != "base-1" || snap.ReviewHeadRevision != "head-1" || snap.ReviewPath != "src/review.go" || snap.Following || !snap.Paused {
@@ -69,7 +71,7 @@ func TestInspectorSnapshotImmutableAndBounded(t *testing.T) {
 	st.Review.snapshot.BaseRevision, st.Review.snapshot.HeadRevision = long, long
 	diffPanelMu.Unlock()
 	s.mu.Lock()
-	st.workspace = "/workspace/" + long + "\x00/main"
+	st.workspace = filepath.Join(t.TempDir(), "workspace", long) + "\x00/main"
 	st.Active = long
 	s.mu.Unlock()
 	snap, ok = inspectorSnapshotFor(s)
@@ -82,12 +84,13 @@ func TestInspectorSnapshotImmutableAndBounded(t *testing.T) {
 			t.Errorf("字符串 %s 未限制长度或被截断成无效 UTF-8", fields.Type().Field(i).Name)
 		}
 	}
+	pathRoot := filepath.Join(t.TempDir(), "workspace")
 	for _, tc := range []struct{ root, path, want string }{
-		{"/workspace", "/workspace/src/a.go", "src/a.go"},
-		{"/workspace", "/private/secret", ""},
-		{"", "/private/secret", ""},
-		{"/workspace", "../secret", ""},
-		{"/workspace", "https://example.test/token", ""},
+		{pathRoot, filepath.Join(pathRoot, "src", "a.go"), "src/a.go"},
+		{pathRoot, filepath.Join(t.TempDir(), "private", "secret"), ""},
+		{"", filepath.Join(t.TempDir(), "private", "secret"), ""},
+		{pathRoot, filepath.Join("..", "secret"), ""},
+		{pathRoot, "https://example.test/token", ""},
 	} {
 		if got := inspectorSnapshotPath(tc.root, tc.path); got != tc.want {
 			t.Errorf("路径 %q 的相对结果=%q，期望 %q", tc.path, got, tc.want)

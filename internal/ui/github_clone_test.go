@@ -135,7 +135,8 @@ func TestGitHubCloneURLAndName(t *testing.T) {
 			t.Errorf("repoDirName(%q) = %q, want %q", input, got, want)
 		}
 	}
-	if got := cloneTargetDir("/tmp/clones", "ada/mcode.git"); got != "/tmp/clones/mcode" {
+	base := t.TempDir()
+	if got := cloneTargetDir(base, "ada/mcode.git"); got != filepath.Join(base, "mcode") {
 		t.Errorf("cloneTargetDir = %q", got)
 	}
 	if got := cloneTargetDir("/tmp/clones", "   "); got != "" {

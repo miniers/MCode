@@ -177,7 +177,8 @@ func TestTurnFilePreviewPath(t *testing.T) {
 	if got := turnFilePreviewPath(dir, inside); got != filepath.Join("internal/ui", "a.go") {
 		t.Fatalf("工作目录内的绝对路径应换算成相对路径，实际 %q", got)
 	}
-	outside := turnEditedFile{path: "/elsewhere/b.go", abs: "/elsewhere/b.go"}
+	outsideDir := t.TempDir()
+	outside := turnEditedFile{path: filepath.Join(outsideDir, "b.go"), abs: filepath.Join(outsideDir, "b.go")}
 	if got := turnFilePreviewPath(dir, outside); got != "" {
 		t.Fatalf("工作目录外的绝对路径应返回空串，实际 %q", got)
 	}

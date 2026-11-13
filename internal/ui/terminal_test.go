@@ -1166,10 +1166,10 @@ func TestTerminal_DetectInstalledTerminalApps(t *testing.T) {
 	if len(apps) != 3 || apps[0] != "Terminal" || apps[1] != "Ghostty" || apps[2] != "kitty" {
 		t.Fatalf("expected [Terminal Ghostty kitty], got %v", apps)
 	}
-	if !queried["/Applications/Ghostty.app"] {
+	if !queried[filepath.Join("/Applications", "Ghostty.app")] {
 		t.Fatalf("expected /Applications to be checked, queried %v", queried)
 	}
-	if !queried["/Applications/Warp.app"] || !queried[filepath.Join(home, "Applications", "Warp.app")] {
+	if !queried[filepath.Join("/Applications", "Warp.app")] || !queried[filepath.Join(home, "Applications", "Warp.app")] {
 		t.Fatalf("expected /Applications and ~/Applications to be checked, queried %v", queried)
 	}
 }

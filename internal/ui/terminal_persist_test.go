@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -44,8 +45,10 @@ func TestTerminalThreadSnapshotRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("快照文件不存在: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("快照权限 = %o，想要 600", perm)
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("快照权限 = %o，想要 600", perm)
+		}
 	}
 }
 

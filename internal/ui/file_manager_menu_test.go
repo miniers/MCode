@@ -32,6 +32,7 @@ func TestFileManagerEntryMenuCopyRelativePath(t *testing.T) {
 	}
 	want := fmt.Sprint([]string{
 		"打开", "在右侧分栏打开", "文件历史", "逐行追溯", "引用到输入框", "复制路径", "复制相对路径",
+		revealInFileManagerLabel(), "用默认应用打开",
 		"-", "重命名…", "复制一份", trashActionLabel() + "…",
 	})
 	if got := fmt.Sprint(tt.Menu()); got != want {
@@ -224,7 +225,7 @@ func TestFileManagerTabMenuCloseOthersAndAll(t *testing.T) {
 	}
 	want := fmt.Sprint([]string{
 		"关闭", "关闭其他", "关闭右侧", "全部关闭",
-		"-", "复制路径", "复制相对路径",
+		"-", "复制路径", "复制相对路径", revealInFileManagerLabel(),
 	})
 	if got := fmt.Sprint(tt.Menu()); got != want {
 		t.Fatalf("tab 菜单应等于 %s，得到 %s", want, got)
