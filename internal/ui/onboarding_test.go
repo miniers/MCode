@@ -255,3 +255,39 @@ func TestOnboardingFinishReadyWithMagpie(t *testing.T) {
 		t.Fatal("Magpie 未连接时不应就绪")
 	}
 }
+
+func TestOnboardingProviderErrorMessage(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	st := NewSettingsState(settingsTestDir(t), nil, s)
+	st.mu.Lock()
+	st.providerRows.updateMsg = map[string]string{"claude": "打开终端失败：测试"}
+	st.mu.Unlock()
+	tt := ui.NewTester(func(c *ui.Context) { onboardingProviderRow(c, s, st, "claude", 0) }, 800, 700)
+	if !tt.HasText("打开终端失败：测试") {
+		t.Fatalf("未显示错误：%v", tt.Texts())
+	}
+}
+
+func TestOnboardingProbingDisablesRefresh(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	u := onboardingState(s)
+	u.open, u.step, u.probing = true, onboardingAgents, true
+	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
+	if !tt.HasText("检测中…") {
+		t.Fatalf("未显示检测状态：%v", tt.Texts())
+	}
+	tt.UseScreenReader()
+	info, ok := tt.AccessByRole(ui.RoleButton, "检测中…")
+	if !ok || !info.Disabled {
+		t.Fatalf("检测按钮未禁用：%+v", info)
+	}
+	_ = tt.Click("检测中…")
+	u.mu.Lock()
+	probing := u.probing
+	u.mu.Unlock()
+	if !probing {
+		t.Fatal("检测中按钮不应启动新的检测")
+	}
+}

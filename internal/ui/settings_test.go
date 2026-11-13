@@ -931,3 +931,14 @@ func TestSettings_AppearanceSectionsUseCards(t *testing.T) {
 		t.Fatalf("外观页应至少有两张卡片，实际 %d 张：%v", cards, tt.Texts())
 	}
 }
+
+func TestSettings_ExtensionsRefreshLoading(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.open = true
+	st.currentPage = "extensions"
+	st.agentConfLoading = true
+	tt := ui.NewTester(func(c *ui.Context) { renderSettingsDetail(c, st) }, 1200, 1600)
+	if !tt.HasText("刷新中…") {
+		t.Fatalf("未显示刷新状态：%v", tt.Texts())
+	}
+}

@@ -492,6 +492,10 @@ func renderMagpieRefreshButton(c *ui.Context, st *SettingsState, agent, key stri
 		Label("刷新").
 		Radius(RadiusXS).
 		Padding(0, Space0)
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if loading {
 		btn.Disabled(true)
 	}

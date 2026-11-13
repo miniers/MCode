@@ -114,6 +114,10 @@ func openInIconButton(c *ui.Context, key, label string, icon *ui.SVG, danger boo
 		Size(ControlSM, ControlSM).
 		Radius(RadiusSM).
 		Center()
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if btn.Hovered() {
 		if danger {
 			btn.Background(ThemeDanger(c).Alpha(0.12))
@@ -199,6 +203,10 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				Padding(Space2, Space4).
 				Radius(RadiusSM).
 				Border(Hairline, ThemeBorder(c))
+			{
+				scale := motionPressScale(c, addBtn, "button-press-scale", addBtn.Pressed())
+				addBtn.Scale(scale, scale)
+			}
 			if addBtn.Hovered() {
 				addBtn.Background(ThemeHover(c))
 			}
@@ -234,6 +242,10 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				Padding(Space2, settingsCompactPadX).
 				Radius(RadiusSM).
 				Border(Hairline, ThemeBorder(c))
+			{
+				scale := motionPressScale(c, chooseBtn, "button-press-scale", chooseBtn.Pressed())
+				chooseBtn.Scale(scale, scale)
+			}
 			if chooseBtn.Hovered() {
 				chooseBtn.Background(ThemeHover(c))
 			}
@@ -265,6 +277,10 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				Padding(Space2, Space4).
 				Radius(RadiusSM).
 				Background(ThemeAccent(c))
+			{
+				scale := motionPressScale(c, add, "button-press-scale", add.Pressed())
+				add.Scale(scale, scale)
+			}
 			if add.Clicked() {
 				name := strings.TrimSpace(ps.draftName)
 				path := strings.TrimSpace(ps.draftPath)
@@ -297,6 +313,10 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				Label("取消").
 				Padding(Space2, Space4).
 				Radius(RadiusSM)
+			{
+				scale := motionPressScale(c, cancel, "button-press-scale", cancel.Pressed())
+				cancel.Scale(scale, scale)
+			}
 			if cancel.Hovered() {
 				cancel.Background(ThemeHover(c))
 			}

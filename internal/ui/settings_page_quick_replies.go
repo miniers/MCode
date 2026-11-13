@@ -283,6 +283,10 @@ func renderQuickReplyAddRow(c *ui.Context, st *SettingsState, page *quickReplies
 			Padding(settingsBadgePadY, settingsCompactPadX).
 			Radius(RadiusSM).
 			Border(Hairline, ThemeBorder(c))
+		{
+			scale := motionPressScale(c, addBtn, "button-press-scale", addBtn.Pressed())
+			addBtn.Scale(scale, scale)
+		}
 		if addBtn.Hovered() {
 			addBtn.Background(ThemeHover(c))
 		}
@@ -336,6 +340,10 @@ func quickReplyIconButton(c *ui.Context, key, label string, icon *ui.SVG, danger
 		Size(ControlSM, ControlSM).
 		Radius(RadiusSM).
 		Center()
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if disabled {
 		btn.Disabled(true)
 	}

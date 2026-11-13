@@ -1490,7 +1490,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 
 							if st.currentPage == "extensions" || st.currentPage == "models" {
 								st.mu.Lock()
-								refreshing := st.currentPage == "models" && st.modelsRefreshing
+								refreshing := (st.currentPage == "models" && st.modelsRefreshing) || (st.currentPage == "extensions" && st.agentConfLoading)
 								st.mu.Unlock()
 								refreshLabel := "刷新"
 								if refreshing {
@@ -1501,6 +1501,8 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 									Disabled(refreshing).
 									Radius(RadiusSM).
 									Padding(Space1, Space3)
+								scale := motionPressScale(c, refreshBtn, "button-press-scale", !refreshing && refreshBtn.Pressed())
+								refreshBtn.Scale(scale, scale)
 								if refreshBtn.Hovered() {
 									refreshBtn.Background(ThemeHover(c))
 								}

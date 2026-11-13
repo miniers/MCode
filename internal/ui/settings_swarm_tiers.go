@@ -382,6 +382,10 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 								Padding(Space1, Space4).
 								Radius(RadiusSM).
 								Background(ui.Transparent)
+							{
+								scale := motionPressScale(c, btnClear, "button-press-scale", btnClear.Pressed())
+								btnClear.Scale(scale, scale)
+							}
 							if btnClear.Hovered() {
 								btnClear.Background(ThemeHover(c))
 							}
@@ -452,6 +456,10 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 							Padding(Space1, Space4).
 							Radius(RadiusSM).
 							Background(ui.Transparent)
+						{
+							scale := motionPressScale(c, btnDelete, "button-press-scale", !deleteDisabled && btnDelete.Pressed())
+							btnDelete.Scale(scale, scale)
+						}
 						if !deleteDisabled && btnDelete.Hovered() {
 							btnDelete.Background(ThemeDanger(c).Alpha(0.12))
 						}
@@ -478,6 +486,10 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 								Padding(Space1, Space4).
 								Radius(RadiusSM).
 								Background(ui.Transparent)
+							{
+								scale := motionPressScale(c, btnReset, "button-press-scale", !resetDisabled && btnReset.Pressed())
+								btnReset.Scale(scale, scale)
+							}
 							if !resetDisabled && btnReset.Hovered() {
 								btnReset.Background(ThemeHover(c))
 							}
@@ -509,6 +521,10 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 							Padding(Space1, Space4).
 							Radius(RadiusSM).
 							Background(ThemeHover(c))
+						{
+							scale := motionPressScale(c, btnCancel, "button-press-scale", btnCancel.Pressed())
+							btnCancel.Scale(scale, scale)
+						}
 						if btnCancel.Clicked() {
 							disposeSwarmTierEditor(st)
 							st.invalidate()
@@ -522,6 +538,10 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 							Padding(Space1, Space4).
 							Radius(RadiusSM).
 							Background(ThemeAccent(c))
+						{
+							scale := motionPressScale(c, btnSave, "button-press-scale", btnSave.Pressed())
+							btnSave.Scale(scale, scale)
+						}
 						if btnSave.Clicked() {
 							uiSt.draft.ID = strings.ToLower(strings.TrimSpace(uiSt.draft.ID))
 							if uiSt.draft.ReadOnly {

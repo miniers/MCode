@@ -274,12 +274,14 @@ func renderNowledgeSpaceList(c *ui.Context, st *SettingsState) {
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, ps.loadErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Grow(1)
-					ui.ButtonBase(c.Key("btn-nowledge-space-retry")).Label("重试").Padding(Space2, settingsCompactPadX).Radius(RadiusSM).OnClick(func() {
+					btn := ui.ButtonBase(c.Key("btn-nowledge-space-retry")).Label("重试").Padding(Space2, settingsCompactPadX).Radius(RadiusSM).OnClick(func() {
 						ps.loaded = false
 						ps.loadErr = ""
 						ps.load = nil
 						st.invalidate()
 					})
+					scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+					btn.Scale(scale, scale)
 				})
 			return
 		}

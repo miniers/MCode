@@ -231,6 +231,10 @@ func (remoteTLSTokenControl) renderDisabled(c *ui.Context, st *SettingsState, s 
 				Radius(RadiusSM).
 				Padding(Space1, settingsCompactPadX).
 				Background(ThemeHover(c))
+			{
+				scale := motionPressScale(c, saveBtn, "button-press-scale", saveBtn.Pressed())
+				saveBtn.Scale(scale, scale)
+			}
 			if disabled || busy || trimmed == "" {
 				saveBtn.Disabled(true)
 			}
@@ -248,6 +252,10 @@ func (remoteTLSTokenControl) renderDisabled(c *ui.Context, st *SettingsState, s 
 					Radius(RadiusSM).
 					Padding(Space1, settingsCompactPadX).
 					Background(ThemeHover(c))
+				{
+					scale := motionPressScale(c, clearBtn, "button-press-scale", clearBtn.Pressed())
+					clearBtn.Scale(scale, scale)
+				}
 				if disabled || busy {
 					clearBtn.Disabled(true)
 				}
@@ -346,6 +354,10 @@ func (remoteTLSActionsControl) render(c *ui.Context, st *SettingsState, s settin
 				Radius(RadiusSM).
 				Padding(Space1, settingsCompactPadX).
 				Background(ThemeHover(c))
+			{
+				scale := motionPressScale(c, issueBtn, "button-press-scale", issueBtn.Pressed())
+				issueBtn.Scale(scale, scale)
+			}
 			if tlsBusy || cfgDomain == "" || !hasToken {
 				issueBtn.Disabled(true)
 			}
@@ -362,6 +374,10 @@ func (remoteTLSActionsControl) render(c *ui.Context, st *SettingsState, s settin
 				Radius(RadiusSM).
 				Padding(Space1, settingsCompactPadX).
 				Background(ThemeHover(c))
+			{
+				scale := motionPressScale(c, importBtn, "button-press-scale", importBtn.Pressed())
+				importBtn.Scale(scale, scale)
+			}
 			if tlsBusy {
 				importBtn.Disabled(true)
 			}
@@ -378,6 +394,10 @@ func (remoteTLSActionsControl) render(c *ui.Context, st *SettingsState, s settin
 				Radius(RadiusSM).
 				Padding(Space1, settingsCompactPadX).
 				Background(ThemeHover(c))
+			{
+				scale := motionPressScale(c, removeBtn, "button-press-scale", removeBtn.Pressed())
+				removeBtn.Scale(scale, scale)
+			}
 			if tlsBusy || !certInstalled {
 				removeBtn.Disabled(true)
 			}

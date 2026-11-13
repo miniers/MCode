@@ -279,6 +279,10 @@ func renderSkillBatchButton(c *ui.Context, st *SettingsState, key, label string,
 		Radius(RadiusSM).
 		Padding(settingsBadgePadY, Space3).
 		Background(ThemeOverlay(c, 0.06))
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c))
 	}
@@ -423,6 +427,10 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 							revealBtn := ui.ButtonBase(c.Key(skillKey+"-btn-reveal")).
 								Radius(RadiusSM).
 								Padding(settingsBadgePadY, Space3)
+							{
+								scale := motionPressScale(c, revealBtn, "button-press-scale", revealBtn.Pressed())
+								revealBtn.Scale(scale, scale)
+							}
 							if revealBtn.Hovered() {
 								revealBtn.Background(ThemeHover(c))
 							}
@@ -455,6 +463,10 @@ func renderSkillsActions(c *ui.Context, st *SettingsState, count int) {
 				Radius(RadiusSM).
 				Padding(settingsPillPadX, Space4).
 				Background(ThemeOverlay(c, 0.06))
+			{
+				scale := motionPressScale(c, openBtn, "button-press-scale", openBtn.Pressed())
+				openBtn.Scale(scale, scale)
+			}
 			if openBtn.Hovered() {
 				openBtn.Background(ThemeHover(c))
 			}
@@ -471,6 +483,10 @@ func renderSkillsActions(c *ui.Context, st *SettingsState, count int) {
 				Radius(RadiusSM).
 				Padding(settingsPillPadX, Space4).
 				Background(ThemeOverlay(c, 0.06))
+			{
+				scale := motionPressScale(c, rescanBtn, "button-press-scale", rescanBtn.Pressed())
+				rescanBtn.Scale(scale, scale)
+			}
 			if rescanBtn.Hovered() {
 				rescanBtn.Background(ThemeHover(c))
 			}

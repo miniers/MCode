@@ -1006,6 +1006,10 @@ func renderRemoteRestartButton(c *ui.Context, st *SettingsState, busy bool) {
 		Radius(RadiusSM).
 		Padding(Space1, Space4).
 		Background(ThemeHover(c))
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", !busy && btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if busy {
 		btn.Disabled(true)
 	} else if btn.Hovered() {
@@ -1031,6 +1035,10 @@ func renderRemoteRetryButton(c *ui.Context, st *SettingsState, busy bool) {
 		Radius(RadiusSM).
 		Padding(Space1, Space4).
 		Background(ThemeAccent(c).Alpha(0.12))
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", !busy && btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if busy {
 		btn.Disabled(true)
 	} else if btn.Hovered() {
@@ -1069,6 +1077,10 @@ func (remotePairControl) render(c *ui.Context, st *SettingsState, s setting) {
 		Radius(RadiusSM).
 		Padding(Space2, Space4).
 		Background(ThemeAccent(c).Alpha(0.12))
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", !busy && running && btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	stylePairingButton(c, btn, busy || !running)
 	if btn.Clicked() && !busy && running {
 		loadRemotePairing(st, false, false)
@@ -1350,6 +1362,10 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 							Radius(RadiusSM).
 							Padding(Space1, Space4).
 							Background(ThemeAccent(c).Alpha(0.12))
+						{
+							scale := motionPressScale(c, saveBtn, "button-press-scale", renameBusyID != devVal.ID && saveBtn.Pressed())
+							saveBtn.Scale(scale, scale)
+						}
 						if renameBusyID == devVal.ID {
 							saveBtn.Disabled(true)
 						}
@@ -1369,6 +1385,10 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 							Radius(RadiusSM).
 							Padding(Space1, Space4).
 							Background(ThemeHover(c))
+						{
+							scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
+							cancelBtn.Scale(scale, scale)
+						}
 						if cancelBtn.Clicked() {
 							st.mu.Lock()
 							st.remote.renameDeviceID = ""
@@ -1388,6 +1408,10 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 						Radius(RadiusSM).
 						Padding(Space1, Space4).
 						Background(ThemeHover(c))
+					{
+						scale := motionPressScale(c, renameBtn, "button-press-scale", renameBtn.Pressed())
+						renameBtn.Scale(scale, scale)
+					}
 					if renameBtn.Hovered() {
 						renameBtn.Background(ThemeOverlay(c, 0.15))
 					}
@@ -1416,6 +1440,10 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 						Disabled(isBusy).
 						Radius(RadiusSM).
 						Padding(Space1, Space4)
+					{
+						scale := motionPressScale(c, delBtn, "button-press-scale", !isBusy && delBtn.Pressed())
+						delBtn.Scale(scale, scale)
+					}
 
 					if isConfirm {
 						delBtn.Background(ThemeDanger(c).Alpha(0.12))
@@ -1457,6 +1485,10 @@ func renderRemoteDeviceRow(c *ui.Context, st *SettingsState, dev RemoteDevice, r
 							Radius(RadiusSM).
 							Padding(Space1, Space4).
 							Background(ThemeHover(c))
+						{
+							scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
+							cancelBtn.Scale(scale, scale)
+						}
 						if cancelBtn.Hovered() {
 							cancelBtn.Background(ThemeOverlay(c, 0.15))
 						}
@@ -1591,6 +1623,10 @@ func renderPushTestButton(c *ui.Context, st *SettingsState, running, busy bool) 
 		Radius(RadiusSM).
 		Padding(Space2, Space4).
 		Background(ThemeAccent(c).Alpha(0.12))
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", running && !busy && btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if !running || busy {
 		btn.Disabled(true)
 	} else if btn.Hovered() {

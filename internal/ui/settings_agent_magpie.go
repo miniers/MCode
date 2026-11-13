@@ -805,6 +805,10 @@ func renderAgentMagpieGlobalStatus(c *ui.Context, st *SettingsState, agent strin
 					Label("重新写入").
 					Radius(RadiusSM).
 					Padding(Space1, Space4)
+				{
+					scale := motionPressScale(c, reapply, "button-press-scale", reapply.Pressed())
+					reapply.Scale(scale, scale)
+				}
 				if reapply.Hovered() {
 					reapply.Background(ThemeHover(c))
 				}
@@ -822,6 +826,10 @@ func renderAgentMagpieGlobalStatus(c *ui.Context, st *SettingsState, agent strin
 					Radius(RadiusSM).
 					Padding(Space1, Space4).
 					Background(ThemeHover(c))
+				{
+					scale := motionPressScale(c, keep, "button-press-scale", keep.Pressed())
+					keep.Scale(scale, scale)
+				}
 				if keep.Hovered() {
 					keep.Background(ThemeOverlay(c, 0.12))
 				}

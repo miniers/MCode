@@ -243,6 +243,10 @@ func renderShortcutResetAll(c *ui.Context, st *SettingsState) {
 		Radius(RadiusSM).
 		Padding(settingsPillPadX, Space4).
 		Background(ThemeHover(c))
+	{
+		scale := motionPressScale(c, resetAll, "button-press-scale", resetAll.Pressed())
+		resetAll.Scale(scale, scale)
+	}
 	if resetAll.Hovered() {
 		resetAll.Background(ThemeOverlay(c, 0.15))
 	}
@@ -335,6 +339,10 @@ func renderShortcutOverrideControl(c *ui.Context, st *SettingsState, sc appShort
 							Radius(RadiusSM).
 							Padding(settingsBadgePadY, settingsCompactPadX).
 							Background(ThemeOverlay(c, 0.06))
+						{
+							scale := motionPressScale(c, reset, "button-press-scale", reset.Pressed())
+							reset.Scale(scale, scale)
+						}
 						if reset.Hovered() {
 							reset.Background(ThemeHover(c))
 						}

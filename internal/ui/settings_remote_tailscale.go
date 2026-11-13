@@ -281,6 +281,10 @@ func renderRemoteTailscaleRetryButton(c *ui.Context, busy bool, tooltip string, 
 		Radius(RadiusSM).
 		Padding(Space1, settingsCompactPadX).
 		Background(ThemeHover(c))
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if busy {
 		btn.Disabled(true)
 	}
@@ -535,6 +539,10 @@ func (remoteTailscaleStateControl) render(c *ui.Context, st *SettingsState, s se
 				Radius(RadiusSM).
 				Padding(Space1, settingsCompactPadX).
 				Background(ThemeHover(c))
+			{
+				scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+				btn.Scale(scale, scale)
+			}
 			if btn.Clicked() {
 				c.OpenURL(tailscaleAdminConsoleURL)
 			}
@@ -578,6 +586,10 @@ func (remoteTailscaleLoginControl) render(c *ui.Context, st *SettingsState, s se
 			Radius(RadiusSM).
 			Padding(Space1, settingsCompactPadX).
 			Background(ThemeHover(c))
+		{
+			scale := motionPressScale(c, openBtn, "button-press-scale", openBtn.Pressed())
+			openBtn.Scale(scale, scale)
+		}
 		if openBtn.Clicked() {
 			c.OpenURL(authURL)
 		}
@@ -666,6 +678,10 @@ func (remoteTailscaleResetControl) render(c *ui.Context, st *SettingsState, s se
 		Radius(RadiusSM).
 		Padding(Space1, settingsCompactPadX).
 		Background(ThemeHover(c))
+	{
+		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+		btn.Scale(scale, scale)
+	}
 	if busy || !running {
 		btn.Disabled(true)
 	}

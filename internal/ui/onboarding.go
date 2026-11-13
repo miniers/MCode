@@ -294,6 +294,12 @@ func onboardingProviderRow(c *ui.Context, s *chatState, st *SettingsState, id st
 	u.mu.Lock()
 	node, npm, probing := u.nodeOK, u.npmOK, u.probing
 	u.mu.Unlock()
+	msg := ""
+	if st != nil {
+		st.mu.Lock()
+		msg = st.providerRows.updateMsg[id]
+		st.mu.Unlock()
+	}
 	row := ui.Column(c.Key("onboarding-provider-" + id)).FillWidth().Gap(Space1).Padding(Space3).Radius(RadiusMD).Background(ThemeSurfaceCard(c))
 	onboardingEntry(c, row, index)
 	row.Children(func() {
@@ -315,6 +321,9 @@ func onboardingProviderRow(c *ui.Context, s *chatState, st *SettingsState, id st
 				}
 			}})
 		})
+		if msg != "" {
+			ui.Text(c, msg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
+		}
 		if missing && onboardingNeedsNode(id) && !probing && (!node || !npm) {
 			ui.Text(c, "需要先安装 Node.js：https://nodejs.org/").FontSize(uiFont(TypeCaption)).TextColor(ThemeWarning(c))
 		}
@@ -344,7 +353,7 @@ func renderOnboardingDialog(c *ui.Context, s *chatState) {
 	}
 	u := onboardingState(s)
 	u.mu.Lock()
-	step, route, saveError := u.step, u.route, u.saveError
+	step, route, saveError, probing := u.step, u.route, u.saveError, u.probing
 	u.mu.Unlock()
 	open := true
 	width, height := c.Size()
@@ -434,8 +443,12 @@ func renderOnboardingDialog(c *ui.Context, s *chatState) {
 						onboardingButton(c, "onboarding-settings", "打开设置", false, func() { onboardingSuspend(s, "providers", false) })
 						onboardingButton(c, "onboarding-start", "开始使用", true, func() { closeOnboarding(s, true) })
 					default:
-						onboardingButton(c, "onboarding-refresh", "重新检测", false, func() { refreshOnboarding(s) })
-						label := "继续"
+						label := "重新检测"
+						if probing {
+							label = "检测中…"
+						}
+						Button(c, ButtonOpts{Key: "onboarding-refresh", Text: label, Variant: ButtonSecondary, Disabled: probing, OnClick: func() { refreshOnboarding(s) }})
+						label = "继续"
 						if step == onboardingMagpie {
 							label = "跳过"
 						}

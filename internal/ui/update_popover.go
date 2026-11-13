@@ -97,7 +97,8 @@ func renderUpdateCapsule(c *ui.Context, s *chatState, st *SettingsState, fs *sid
 		}
 		progress = btn.AnimateTo("update-capsule-in", 1, ui.Animation{Duration: animateDuration(c, DurBase), Ease: motionEaseStandard})
 	}
-	btn.Scale(0.95+0.05*progress, 0.95+0.05*progress).Translate(0, (1-progress)*motionRiseOffset).Opacity(progress).Children(func() {
+	scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale((0.95+0.05*progress)*scale, (0.95+0.05*progress)*scale).Translate(0, (1-progress)*motionRiseOffset).Opacity(progress).Children(func() {
 		ui.Text(c, status.Latest).FontSize(uiFont(TypeCaption)).TextColor(ThemeAccent(c))
 	})
 	appPopoverAbove(c.Key("sidebar-update-popover"), btn, &fs.updateOpen, nil, func() {

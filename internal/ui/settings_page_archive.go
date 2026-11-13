@@ -41,6 +41,8 @@ type archivePageState struct {
 	picked map[string]bool
 	// bulkRunning 表示批量恢复/删除正在执行，期间禁用批量按钮。
 	bulkRunning bool
+	bulkAction  string
+	rowBusy     map[string]string
 	// bulkResult/bulkFailed 是批量操作的结果汇总与逐条失败原因。
 	bulkResult string
 	bulkFailed []string
@@ -72,6 +74,8 @@ func resetArchivePageStateForTest() {
 	globalArchiveState.query = ""
 	globalArchiveState.picked = nil
 	globalArchiveState.bulkRunning = false
+	globalArchiveState.bulkAction = ""
+	globalArchiveState.rowBusy = nil
 	globalArchiveState.bulkResult = ""
 	globalArchiveState.bulkFailed = nil
 	globalArchiveState.bulkDeleteConfirm = false
@@ -210,6 +214,32 @@ func archiveConfirmDelete(st *SettingsState) bool {
 	return st.cfg.Archive.ConfirmBeforeDeleting
 }
 
+func beginArchiveRow(st *SettingsState, id, action string) bool {
+	globalArchiveState.mu.Lock()
+	if globalArchiveState.rowBusy == nil {
+		globalArchiveState.rowBusy = make(map[string]string)
+	}
+	if globalArchiveState.rowBusy[id] != "" {
+		globalArchiveState.mu.Unlock()
+		return false
+	}
+	globalArchiveState.rowBusy[id] = action
+	globalArchiveState.mu.Unlock()
+	if st != nil {
+		st.invalidate()
+	}
+	return true
+}
+
+func endArchiveRow(st *SettingsState, id string) {
+	globalArchiveState.mu.Lock()
+	delete(globalArchiveState.rowBusy, id)
+	globalArchiveState.mu.Unlock()
+	if st != nil {
+		st.invalidate()
+	}
+}
+
 // deleteArchivedThread 永久删除单个已归档会话，成功后刷新列表。
 func deleteArchivedThread(st *SettingsState, target *Thread) {
 	if target == nil {
@@ -217,10 +247,11 @@ func deleteArchivedThread(st *SettingsState, target *Thread) {
 	}
 	targetID := target.ID
 	client := archiveClient(st)
-	if client == nil {
+	if client == nil || !beginArchiveRow(st, targetID, archiveBulkDelete) {
 		return
 	}
 	go func() {
+		defer endArchiveRow(st, targetID)
 		if err := client.DeleteThread(targetID); err != nil {
 			setArchiveOpErr(st, "删除失败："+err.Error())
 			return
@@ -381,6 +412,8 @@ type archivePageView struct {
 	deleteAllDeleted   int
 	deleteAllFailed    []string
 	bulkRunning        bool
+	bulkAction         string
+	rowBusy            map[string]string
 	bulkResult         string
 	bulkFailed         []string
 	bulkDeleteConfirm  bool
@@ -417,6 +450,11 @@ func archivePageData(st *SettingsState) archivePageView {
 		view.picked[k] = v
 	}
 	view.bulkRunning = globalArchiveState.bulkRunning
+	view.bulkAction = globalArchiveState.bulkAction
+	view.rowBusy = make(map[string]string, len(globalArchiveState.rowBusy))
+	for id, action := range globalArchiveState.rowBusy {
+		view.rowBusy[id] = action
+	}
 	view.bulkResult = globalArchiveState.bulkResult
 	view.bulkFailed = append([]string(nil), globalArchiveState.bulkFailed...)
 	view.bulkDeleteConfirm = globalArchiveState.bulkDeleteConfirm
@@ -434,7 +472,11 @@ func restoreArchivedThread(st *SettingsState, client Client, target Thread) {
 		return
 	}
 	targetID := target.ID
+	if !beginArchiveRow(st, targetID, archiveBulkRestore) {
+		return
+	}
 	go func() {
+		defer endArchiveRow(st, targetID)
 		if err := client.SetThreadArchived(targetID, false); err != nil {
 			setArchiveOpErr(st, "恢复失败："+err.Error())
 			return
@@ -485,7 +527,7 @@ func requestArchiveBulkDelete(st *SettingsState) {
 }
 
 // renderArchiveThreadRow 渲染一条归档会话：小号灰字归档时间 + 多选 + 恢复 + 删除。
-func renderArchiveThreadRow(c *ui.Context, st *SettingsState, client Client, th Thread, picked map[string]bool) {
+func renderArchiveThreadRow(c *ui.Context, st *SettingsState, client Client, th Thread, picked map[string]bool, busy string) {
 	ui.Row(c.Key("row-archive-actions-" + th.ID)).Gap(Space3).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, th.UpdatedAt.Local().Format("2006-01-02 15:04")).
 			FontSize(uiFont(TypeCaption)).
@@ -501,19 +543,23 @@ func renderArchiveThreadRow(c *ui.Context, st *SettingsState, client Client, th 
 		}
 
 		Button(c.Key("btn-restore-"+th.ID), ButtonOpts{
-			Text:    "恢复",
-			Label:   "恢复会话 " + th.Title,
-			Variant: ButtonSecondary,
-			Size:    ControlMD,
-			OnClick: func() { restoreArchivedThread(st, client, th) },
+			Text:     "恢复",
+			Disabled: busy != "",
+			Loading:  busy == archiveBulkRestore,
+			Label:    "恢复会话 " + th.Title,
+			Variant:  ButtonSecondary,
+			Size:     ControlMD,
+			OnClick:  func() { restoreArchivedThread(st, client, th) },
 		})
 
 		Button(c.Key("btn-delete-"+th.ID), ButtonOpts{
-			Text:    "删除",
-			Label:   "删除会话 " + th.Title,
-			Variant: ButtonDanger,
-			Size:    ControlMD,
-			OnClick: func() { requestArchiveDelete(st, th) },
+			Text:     "删除",
+			Disabled: busy != "",
+			Loading:  busy == archiveBulkDelete,
+			Label:    "删除会话 " + th.Title,
+			Variant:  ButtonDanger,
+			Size:     ControlMD,
+			OnClick:  func() { requestArchiveDelete(st, th) },
 		})
 	})
 }
@@ -621,7 +667,7 @@ func renderPageArchive(c *ui.Context, st *SettingsState) {
 		}
 
 		// 头部批量条：无论是否搜索都渲染，避免过滤后无法取消选择；无选中项时批量按钮禁用。
-		renderArchiveBulkBar(c, st, view.threads, view.pickedCount, view.bulkRunning, view.client)
+		renderArchiveBulkBar(c, st, view.threads, view.pickedCount, view.bulkRunning, view.bulkAction, view.client)
 		if len(view.visible) == 0 {
 			renderArchiveNoMatch(c)
 			return
@@ -639,7 +685,7 @@ func renderPageArchive(c *ui.Context, st *SettingsState) {
 					ID:    "row-archive-" + thVal.ID,
 					Title: thVal.Title,
 					Control: custom(func(c *ui.Context, st *SettingsState) {
-						renderArchiveThreadRow(c, st, view.client, thVal, view.picked)
+						renderArchiveThreadRow(c, st, view.client, thVal, view.picked, view.rowBusy[thVal.ID])
 					}),
 				})
 			}
@@ -951,7 +997,7 @@ func setArchivePickedAll(st *SettingsState, threads []Thread, selected bool) {
 
 // renderArchiveBulkBar 渲染头部批量条：「已选 N 项」+ 全选 / 取消选择 / 恢复 / 删除。
 // 没有选中项或正在批量执行时，恢复与删除禁用。
-func renderArchiveBulkBar(c *ui.Context, st *SettingsState, threads []Thread, count int, running bool, client Client) {
+func renderArchiveBulkBar(c *ui.Context, st *SettingsState, threads []Thread, count int, running bool, action string, client Client) {
 	disabled := count == 0 || running
 
 	ui.Row(c.Key("archive-bulk-bar")).
@@ -988,6 +1034,7 @@ func renderArchiveBulkBar(c *ui.Context, st *SettingsState, threads []Thread, co
 			Button(c.Key("btn-archive-bulk-restore"), ButtonOpts{
 				Text:     "恢复",
 				Label:    "批量恢复",
+				Loading:  running && action == archiveBulkRestore,
 				Variant:  ButtonPrimary,
 				Size:     ControlMD,
 				Disabled: disabled,
@@ -998,6 +1045,7 @@ func renderArchiveBulkBar(c *ui.Context, st *SettingsState, threads []Thread, co
 			Button(c.Key("btn-archive-bulk-delete"), ButtonOpts{
 				Text:     "删除",
 				Label:    "批量删除",
+				Loading:  running && action == archiveBulkDelete,
 				Variant:  ButtonDanger,
 				Size:     ControlMD,
 				Disabled: disabled,
@@ -1069,6 +1117,7 @@ func runArchiveBulk(st *SettingsState, client Client, action string) {
 		return
 	}
 	globalArchiveState.bulkRunning = true
+	globalArchiveState.bulkAction = action
 	globalArchiveState.bulkResult = ""
 	globalArchiveState.bulkFailed = nil
 	globalArchiveState.bulkDeleteConfirm = false
@@ -1092,6 +1141,7 @@ func runArchiveBulk(st *SettingsState, client Client, action string) {
 
 		globalArchiveState.mu.Lock()
 		globalArchiveState.bulkRunning = false
+		globalArchiveState.bulkAction = ""
 		globalArchiveState.bulkResult = archiveBulkResultText(action, done, failed)
 		globalArchiveState.bulkFailed = failed
 		if globalArchiveState.picked == nil {

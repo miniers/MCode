@@ -293,3 +293,50 @@ func TestSettingsArchive_DataLoadOnce(t *testing.T) {
 		t.Fatalf("重试应再加载一次，实际 %d 次", got)
 	}
 }
+
+type archiveBlockingRestoreClient struct {
+	*FakeClient
+	calls   chan string
+	release chan struct{}
+}
+
+func (f *archiveBlockingRestoreClient) SetThreadArchived(id string, archived bool) error {
+	f.calls <- id
+	<-f.release
+	return errors.New("failed")
+}
+
+func TestSettingsArchive_SingleRestoreBusy(t *testing.T) {
+	resetArchivePageStateForTest()
+	t.Cleanup(resetArchivePageStateForTest)
+	f := &archiveBlockingRestoreClient{FakeClient: NewFakeClient(), calls: make(chan string, 2), release: make(chan struct{})}
+	th := Thread{ID: "busy"}
+	restoreArchivedThread(nil, f, th)
+	select {
+	case <-f.calls:
+	case <-time.After(time.Second):
+		t.Fatal("恢复未开始")
+	}
+	restoreArchivedThread(nil, f, th)
+	select {
+	case <-f.calls:
+		t.Fatal("重复发送恢复请求")
+	default:
+	}
+	close(f.release)
+	wait := time.After(time.Second)
+	for {
+		globalArchiveState.mu.Lock()
+		busy := globalArchiveState.rowBusy[th.ID]
+		globalArchiveState.mu.Unlock()
+		if busy == "" {
+			break
+		}
+		select {
+		case <-wait:
+			t.Fatal("未清除执行态")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+}

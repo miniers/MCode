@@ -106,6 +106,8 @@ func renderThemesHeader(c *ui.Context, st *SettingsState) {
 			renderThemeListItem(c, st, page, id)
 		}
 		trigger := ui.ButtonBase(c.Key("theme-add-menu")).Label("添加主题").OnClick(func() { page.menuOpen = true })
+		scale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
+		trigger.Scale(scale, scale)
 		trigger.Children(func() {
 			ui.Box(c).Size(settingsPreviewTileW, settingsPreviewTileH).Radius(RadiusMD).Border(Hairline, ThemeBorder(c)).Center().Children(func() { ui.Text(c, "+").FontSize(uiFont(TypeHeading)).TextColor(ThemeSecondaryText(c)) })
 		})
@@ -260,6 +262,8 @@ func renderThemeColor(c *ui.Context, st *SettingsState, page *themesSheetState, 
 		page.colorOpen[valueKey] = open
 	}
 	trigger := ui.ButtonBase(c.Key("theme-color-" + id + "-" + key)).Label("编辑" + key).Disabled(follows).OnClick(func() { *open = true })
+	scale := motionPressScale(c, trigger, "button-press-scale", !follows && trigger.Pressed())
+	trigger.Scale(scale, scale)
 	trigger.Children(func() {
 		ui.Box(c).Size(Space6, Space6).Radius(RadiusXS).Background(color).Border(Hairline, ThemeBorder(c))
 	})

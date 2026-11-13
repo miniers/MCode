@@ -340,6 +340,10 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 										Padding(settingsBadgePadY, Space3).
 										Radius(RadiusSM).
 										Background(ui.Transparent)
+									{
+										scale := motionPressScale(c, btnClear, "button-press-scale", btnClear.Pressed())
+										btnClear.Scale(scale, scale)
+									}
 									if btnClear.Hovered() {
 										btnClear.Background(ThemeHover(c))
 									}
@@ -431,6 +435,10 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 														Size(ControlXS, ControlXS).
 														Radius(RadiusPill).
 														Center()
+													{
+														scale := motionPressScale(c, btnReset, "button-press-scale", btnReset.Pressed())
+														btnReset.Scale(scale, scale)
+													}
 													if btnReset.Hovered() {
 														btnReset.Background(ThemeHover(c))
 													} else {
@@ -465,6 +473,10 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 							Padding(settingsPillPadX, Space4).
 							Radius(RadiusSM).
 							Background(ThemeHover(c))
+						{
+							scale := motionPressScale(c, btnCancel, "button-press-scale", btnCancel.Pressed())
+							btnCancel.Scale(scale, scale)
+						}
 						if btnCancel.Clicked() {
 							uiSt.openPopoverKey = ""
 							st.invalidate()
@@ -478,6 +490,10 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 							Padding(settingsPillPadX, Space4).
 							Radius(RadiusSM).
 							Background(ThemeAccent(c))
+						{
+							scale := motionPressScale(c, btnSave, "button-press-scale", btnSave.Pressed())
+							btnSave.Scale(scale, scale)
+						}
 						if btnSave.Clicked() {
 							swarmPairSave(st, uiSt.draft, uiSt.isNew)
 							uiSt.openPopoverKey = ""
@@ -547,6 +563,10 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
 						Background(ThemeHover(c))
+					{
+						scale := motionPressScale(c, btnEdit, "button-press-scale", btnEdit.Pressed())
+						btnEdit.Scale(scale, scale)
+					}
 					// 只在编辑器尚未打开时初始化草稿：弹层打开期间再次点“编辑”不能把
 					// 已修改的草稿重置回配对原值。
 					if btnEdit.Clicked() && uiSt.openPopoverKey != "edit-"+p.ID {
@@ -577,6 +597,10 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
 						Background(ui.Transparent)
+					{
+						scale := motionPressScale(c, btnDelete, "button-press-scale", btnDelete.Pressed())
+						btnDelete.Scale(scale, scale)
+					}
 					if btnDelete.Hovered() {
 						btnDelete.Background(ThemeDanger(c).Alpha(0.12))
 					}
@@ -793,6 +817,10 @@ func renderSwarmPairsBody(c *ui.Context, st *SettingsState) {
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
 						Background(ThemeHover(c))
+					{
+						scale := motionPressScale(c, btnAdd, "button-press-scale", btnAdd.Pressed())
+						btnAdd.Scale(scale, scale)
+					}
 					// 只在编辑器尚未打开时初始化草稿：弹层打开期间再次点触发按钮（含落在
 					// 嵌套模型选择器背后、穿透到按钮的点击）不能丢弃已选模型。
 					if btnAdd.Clicked() && uiSt.openPopoverKey != "add" {
@@ -913,6 +941,10 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
 						Background(ThemeHover(c))
+					{
+						scale := motionPressScale(c, btnAdd, "button-press-scale", btnAdd.Pressed())
+						btnAdd.Scale(scale, scale)
+					}
 					if btnAdd.Clicked() {
 						openSwarmTierEditor(c, st, uiSt, btnAdd, "add", config.SwarmTier{})
 					}
@@ -1026,6 +1058,10 @@ func (m swarmModelControl) renderDisabled(c *ui.Context, st *SettingsState, s se
 			Padding(settingsBadgePadY, Space3).
 			Radius(RadiusSM).
 			Background(ui.Transparent)
+		{
+			scale := motionPressScale(c, btnClear, "button-press-scale", btnClear.Pressed())
+			btnClear.Scale(scale, scale)
+		}
 		if btnClear.Hovered() {
 			btnClear.Background(ThemeHover(c))
 		}
@@ -1084,6 +1120,10 @@ func (swarmReviewCheckControl) renderDisabled(c *ui.Context, st *SettingsState, 
 				Padding(Space1, settingsCompactPadX).
 				Radius(RadiusSM).
 				Background(ThemeAccent(c))
+			{
+				scale := motionPressScale(c, btnSave, "button-press-scale", checkDir != "" && !disabled && btnSave.Pressed())
+				btnSave.Scale(scale, scale)
+			}
 			if checkDir == "" || disabled {
 				btnSave.Disabled(true)
 			}

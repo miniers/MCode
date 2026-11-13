@@ -169,6 +169,10 @@ func renderStewardTaskModelControl(c *ui.Context, st *SettingsState) {
 					Padding(settingsBadgePadY, Space3).
 					Radius(RadiusSM).
 					Background(ui.Transparent)
+				{
+					scale := motionPressScale(c, btnClear, "button-press-scale", btnClear.Pressed())
+					btnClear.Scale(scale, scale)
+				}
 				if btnClear.Hovered() {
 					btnClear.Background(ThemeHover(c))
 				}
@@ -208,6 +212,10 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 					Padding(settingsBadgePadY, Space3).
 					Radius(RadiusSM).
 					Background(ui.Transparent)
+				{
+					scale := motionPressScale(c, btnClear, "button-press-scale", btnClear.Pressed())
+					btnClear.Scale(scale, scale)
+				}
 				if btnClear.Hovered() {
 					btnClear.Background(ThemeHover(c))
 				}

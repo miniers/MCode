@@ -195,6 +195,10 @@ func renderMCPCatalogCard(
 							reprobeBtn := ui.ButtonBase(c.Key(key+"-btn-reprobe")).
 								Radius(RadiusSM).
 								Padding(Space0, Space3)
+							{
+								scale := motionPressScale(c, reprobeBtn, "button-press-scale", reprobeBtn.Pressed())
+								reprobeBtn.Scale(scale, scale)
+							}
 							if reprobeBtn.Hovered() {
 								reprobeBtn.Background(ThemeHover(c))
 							}
@@ -216,6 +220,10 @@ func renderMCPCatalogCard(
 						Radius(RadiusSM).
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Background(ThemeOverlay(c, 0.06))
+					{
+						scale := motionPressScale(c, addBtn, "button-press-scale", addBtn.Pressed())
+						addBtn.Scale(scale, scale)
+					}
 					if addBtn.Hovered() {
 						addBtn.Background(ThemeHover(c))
 					}
@@ -276,6 +284,10 @@ func renderMCPCatalogCard(
 							docsBtn := ui.ButtonBase(c.Key(key+"-btn-docs")).
 								Radius(RadiusSM).
 								Padding(Space0, Space2)
+							{
+								scale := motionPressScale(c, docsBtn, "button-press-scale", docsBtn.Pressed())
+								docsBtn.Scale(scale, scale)
+							}
 							if docsBtn.Hovered() {
 								docsBtn.Background(ThemeHover(c))
 							}
@@ -292,6 +304,10 @@ func renderMCPCatalogCard(
 							keysBtn := ui.ButtonBase(c.Key(key+"-btn-keys")).
 								Radius(RadiusSM).
 								Padding(Space0, Space2)
+							{
+								scale := motionPressScale(c, keysBtn, "button-press-scale", keysBtn.Pressed())
+								keysBtn.Scale(scale, scale)
+							}
 							if keysBtn.Hovered() {
 								keysBtn.Background(ThemeHover(c))
 							}
@@ -361,6 +377,10 @@ func renderMCPCatalogCard(
 								Radius(RadiusSM).
 								Padding(Space1, Space4).
 								Background(ThemeAccent(c))
+							{
+								scale := motionPressScale(c, saveBtn, "button-press-scale", saveBtn.Pressed())
+								saveBtn.Scale(scale, scale)
+							}
 							if saveBtn.Clicked() {
 								addMCPCatalogEntry(st, catSt, entryVal, client)
 							}
@@ -375,6 +395,10 @@ func renderMCPCatalogCard(
 								Radius(RadiusSM).
 								Padding(Space1, Space4).
 								Background(ThemeOverlay(c, 0.06))
+							{
+								scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
+								cancelBtn.Scale(scale, scale)
+							}
 							if cancelBtn.Clicked() {
 								catSt.mu.Lock()
 								catSt.openEntry = ""

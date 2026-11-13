@@ -374,6 +374,10 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 					Radius(RadiusSM).
 					Padding(settingsPillPadX, Space4).
 					Background(ThemeOverlay(c, 0.06))
+				{
+					scale := motionPressScale(c, installBtn, "button-press-scale", installBtn.Pressed())
+					installBtn.Scale(scale, scale)
+				}
 				if installBtn.Hovered() {
 					installBtn.Background(ThemeHover(c))
 				}
@@ -388,6 +392,10 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 					Radius(RadiusSM).
 					Padding(settingsPillPadX, Space4).
 					Background(ThemeOverlay(c, 0.06))
+				{
+					scale := motionPressScale(c, downloadBtn, "button-press-scale", downloadBtn.Pressed())
+					downloadBtn.Scale(scale, scale)
+				}
 				if downloadBtn.Hovered() {
 					downloadBtn.Background(ThemeHover(c))
 				}
@@ -401,9 +409,14 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 
 			checkBtn := ui.ButtonBase(c.Key("btn-about-check-update")).
 				Label("btn-about-check-update").
+				Disabled(checking).
 				Radius(RadiusSM).
 				Padding(settingsPillPadX, Space4).
 				Background(ThemeOverlay(c, 0.06))
+			{
+				scale := motionPressScale(c, checkBtn, "button-press-scale", !checking && checkBtn.Pressed())
+				checkBtn.Scale(scale, scale)
+			}
 			if checkBtn.Hovered() {
 				checkBtn.Background(ThemeHover(c))
 			}
@@ -439,9 +452,14 @@ func renderAboutDiagnosticsControls(c *ui.Context, st *SettingsState) {
 
 			exportBtn := ui.ButtonBase(c.Key("btn-about-export-diag")).
 				Label("btn-about-export-diag").
+				Disabled(exporting).
 				Radius(RadiusSM).
 				Padding(settingsPillPadX, Space4).
 				Background(ThemeOverlay(c, 0.06))
+			{
+				scale := motionPressScale(c, exportBtn, "button-press-scale", !exporting && exportBtn.Pressed())
+				exportBtn.Scale(scale, scale)
+			}
 			if exportBtn.Hovered() {
 				exportBtn.Background(ThemeHover(c))
 			}

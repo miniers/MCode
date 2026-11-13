@@ -418,6 +418,10 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 					Radius(RadiusSM).
 					Padding(Space1, Space4).
 					Background(ThemeOverlay(c, 0.08))
+				{
+					scale := motionPressScale(c, addBtn, "button-press-scale", addBtn.Pressed())
+					addBtn.Scale(scale, scale)
+				}
 				if addBtn.Hovered() {
 					addBtn.Background(ThemeHover(c))
 				}

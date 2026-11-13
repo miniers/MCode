@@ -168,6 +168,10 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 					stdioBtn := ui.ButtonBase(c.Key("btn-form-trans-stdio")).
 						Radius(RadiusXS).
 						Padding(Space1, Space4)
+					{
+						scale := motionPressScale(c, stdioBtn, "button-press-scale", stdioBtn.Pressed())
+						stdioBtn.Scale(scale, scale)
+					}
 					if strings.EqualFold(trans, "stdio") {
 						stdioBtn.Background(ThemeOverlay(c, 0.15))
 					} else {
@@ -186,6 +190,10 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 					httpBtn := ui.ButtonBase(c.Key("btn-form-trans-http")).
 						Radius(RadiusXS).
 						Padding(Space1, Space4)
+					{
+						scale := motionPressScale(c, httpBtn, "button-press-scale", httpBtn.Pressed())
+						httpBtn.Scale(scale, scale)
+					}
 					if strings.EqualFold(trans, "http") || strings.EqualFold(trans, "sse") {
 						httpBtn.Background(ThemeOverlay(c, 0.15))
 					} else {
@@ -250,6 +258,10 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 						Radius(RadiusSM).
 						Padding(Space1, Space4).
 						Background(ThemeAccent(c))
+					{
+						scale := motionPressScale(c, saveBtn, "button-press-scale", saveBtn.Pressed())
+						saveBtn.Scale(scale, scale)
+					}
 					if saveBtn.Clicked() {
 						uiSt.mu.Lock()
 						trimmedName := strings.TrimSpace(uiSt.nameInput)
@@ -378,6 +390,10 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 						Radius(RadiusSM).
 						Padding(Space1, Space4).
 						Background(ThemeOverlay(c, 0.06))
+					{
+						scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
+						cancelBtn.Scale(scale, scale)
+					}
 					if cancelBtn.Clicked() {
 						uiSt.mu.Lock()
 						uiSt.isFormOpen = false
@@ -511,6 +527,10 @@ func renderMCPServerRow(
 										Radius(RadiusSM).
 										Padding(Space1, Space3).
 										Disabled(true)
+									{
+										scale := motionPressScale(c, btn, "button-press-scale", false)
+										btn.Scale(scale, scale)
+									}
 									btn.Children(func() {
 										busyLabel := "授权中…"
 										if hasDevice {
@@ -526,6 +546,10 @@ func renderMCPServerRow(
 										cancelBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-auth-cancel")).
 											Radius(RadiusSM).
 											Padding(Space1, Space3)
+										{
+											scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
+											cancelBtn.Scale(scale, scale)
+										}
 										if cancelBtn.Hovered() {
 											cancelBtn.Background(ThemeHover(c))
 										}
@@ -543,6 +567,10 @@ func renderMCPServerRow(
 									btn := ui.ButtonBase(c.Key(mcpKey+"-btn-signin")).
 										Radius(RadiusSM).
 										Padding(Space1, Space3)
+									{
+										scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+										btn.Scale(scale, scale)
+									}
 									if btn.Hovered() {
 										btn.Background(ThemeHover(c))
 									}
@@ -560,6 +588,10 @@ func renderMCPServerRow(
 									reauthBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-reauth")).
 										Radius(RadiusSM).
 										Padding(Space1, Space3)
+									{
+										scale := motionPressScale(c, reauthBtn, "button-press-scale", reauthBtn.Pressed())
+										reauthBtn.Scale(scale, scale)
+									}
 									if reauthBtn.Hovered() {
 										reauthBtn.Background(ThemeHover(c))
 									}
@@ -577,6 +609,10 @@ func renderMCPServerRow(
 									signoutBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-signout")).
 										Radius(RadiusSM).
 										Padding(Space1, Space3)
+									{
+										scale := motionPressScale(c, signoutBtn, "button-press-scale", signoutBtn.Pressed())
+										signoutBtn.Scale(scale, scale)
+									}
 									if signoutBtn.Hovered() {
 										signoutBtn.Background(ThemeHover(c))
 									}
@@ -602,6 +638,10 @@ func renderMCPServerRow(
 					toolsToggleBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-tools")).
 						Radius(RadiusSM).
 						Padding(Space1, Space3)
+					{
+						scale := motionPressScale(c, toolsToggleBtn, "button-press-scale", toolsToggleBtn.Pressed())
+						toolsToggleBtn.Scale(scale, scale)
+					}
 					if toolsToggleBtn.Hovered() {
 						toolsToggleBtn.Background(ThemeHover(c))
 					}
@@ -631,6 +671,10 @@ func renderMCPServerRow(
 						editBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-edit")).
 							Radius(RadiusSM).
 							Padding(Space1, Space3)
+						{
+							scale := motionPressScale(c, editBtn, "button-press-scale", editBtn.Pressed())
+							editBtn.Scale(scale, scale)
+						}
 						if editBtn.Hovered() {
 							editBtn.Background(ThemeHover(c))
 						}
@@ -689,6 +733,10 @@ func renderMCPServerRow(
 						delBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-delete")).
 							Radius(RadiusSM).
 							Padding(Space1, Space3)
+						{
+							scale := motionPressScale(c, delBtn, "button-press-scale", delBtn.Pressed())
+							delBtn.Scale(scale, scale)
+						}
 						if delBtn.Hovered() {
 							delBtn.Background(ThemeHover(c))
 						}
@@ -987,6 +1035,10 @@ func renderMCPServerRow(
 										Label("重新检测").
 										Radius(RadiusSM).
 										Padding(Space1, Space3)
+									{
+										scale := motionPressScale(c, retryBtn, "button-press-scale", retryBtn.Pressed())
+										retryBtn.Scale(scale, scale)
+									}
 									if retryBtn.Hovered() {
 										retryBtn.Background(ThemeHover(c))
 									}
