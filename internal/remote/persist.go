@@ -352,12 +352,18 @@ func (b *MemoryBackend) AttachStore(ctx context.Context, s *store.Store) error {
 		log.Printf("store thread row decode warning (thread %s): skipped", id)
 	}
 
+	allFollowUps, followUpsErr := s.ListAllFollowUps(ctx)
+	allUsage, usageErr := s.ListAllTurnUsage(ctx)
+
 	loadedThreads := make(map[string]*memoryThread, len(threads))
 	loadedUsage := make(map[string]map[int]harness.Usage)
 	for _, t := range threads {
 		summary := threadFromStore(t)
-		storeFollowUps, err := s.ListFollowUps(ctx, t.ID)
-		if err != nil {
+		storeFollowUps := allFollowUps[t.ID]
+		if followUpsErr != nil {
+			storeFollowUps, err = s.ListFollowUps(ctx, t.ID)
+		}
+		if followUpsErr != nil && err != nil {
 			// follow-up 解码失败不再中止整体加载：隔离该会话并跳过 follow-up 数据
 			if qErr := s.QuarantineThread(ctx, t.ID, "follow ups decode failed", nil); qErr != nil {
 				log.Printf("store quarantine thread error (thread %s): %v", t.ID, qErr)
@@ -426,9 +432,12 @@ func (b *MemoryBackend) AttachStore(ctx context.Context, s *store.Store) error {
 			dormantAt:        t.DormantAt,
 		}
 
-		usages, err := s.ListTurnUsage(ctx, t.ID)
-		if err != nil {
-			return fmt.Errorf("list turn usage for thread %s: %w", t.ID, err)
+		usages := allUsage[t.ID]
+		if usageErr != nil {
+			usages, err = s.ListTurnUsage(ctx, t.ID)
+			if err != nil {
+				return fmt.Errorf("list turn usage for thread %s: %w", t.ID, err)
+			}
 		}
 		if len(usages) > 0 {
 			threadUsage := make(map[int]harness.Usage, len(usages))
@@ -464,6 +473,7 @@ func (b *MemoryBackend) AttachStore(ctx context.Context, s *store.Store) error {
 	// 启动纠正：上次进程被杀或崩溃时，可能留下 status 为 running/starting 的轮次。
 	// 只由主宿主收尾为 interrupted，非主宿主不能把其他进程的活跃轮次视为残留。
 	b.finalizeOrphanTurns(ctx, s, loadedThreads)
+	startuptrace.Mark("AttachStore finalizeOrphanTurns")
 
 	// 排队审计事件只保留 30 天；启动清理失败不影响加载。
 	pruneCtx, pruneCancel := persistCtx()
@@ -473,6 +483,7 @@ func (b *MemoryBackend) AttachStore(ctx context.Context, s *store.Store) error {
 		log.Printf("store pruned %d follow-up events", n)
 	}
 	pruneCancel()
+	startuptrace.Mark("AttachStore prune follow-up events")
 
 	b.mu.Lock()
 	b.store = s
@@ -487,6 +498,7 @@ func (b *MemoryBackend) AttachStore(ctx context.Context, s *store.Store) error {
 	// 启动对账：上次进程遗留的待答卡片标失效、停在途中的投递标 unknown，各写一条时间线提示。
 	// 必须在 store 与内存线程表挂载之后调用：提示走 appendSystemNotice，依赖 b.threads 定位会话。
 	b.reconcileBoot(ctx, s)
+	startuptrace.Mark("AttachStore reconcileBoot")
 	return nil
 }
 

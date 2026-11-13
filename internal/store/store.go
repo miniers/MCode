@@ -539,6 +539,11 @@ var migrations = []string{
 	CREATE INDEX IF NOT EXISTS idx_steward_decisions_task ON steward_decisions(task_id);
 	CREATE INDEX IF NOT EXISTS idx_steward_decisions_status ON steward_decisions(status);
 	`,
+	`
+	CREATE INDEX IF NOT EXISTS idx_messages_tool_background ON messages(thread_id, seq) WHERE role = 'tool' AND tool_status = 'background';
+	CREATE INDEX IF NOT EXISTS idx_messages_tool_running ON messages(thread_id, seq) WHERE role = 'tool' AND tool_status = 'running';
+	CREATE INDEX IF NOT EXISTS idx_turns_status ON turns(status);
+	`,
 }
 
 // Store 封装 SQLite 数据库操作。
@@ -918,54 +923,19 @@ func (s *Store) backfillSwarmLeadHelpers(ctx context.Context) error {
 		return nil
 	}
 
-	rows, err := s.db.QueryContext(ctx, "SELECT lead_thread_id, heads_json FROM hydra_leads;")
-	if err != nil {
-		return fmt.Errorf("query hydra_leads for backfill: %w", err)
-	}
-	defer rows.Close()
-
-	type beeRef struct {
-		ThreadID string `json:"threadId"`
-	}
-
-	type backfillItem struct {
-		leadThreadID string
-		beeThreadID  string
-	}
-	var items []backfillItem
-
-	for rows.Next() {
-		var leadID, beesJSON string
-		if err := rows.Scan(&leadID, &beesJSON); err != nil {
-			return fmt.Errorf("scan hydra_leads for backfill: %w", err)
-		}
-		beesJSON = strings.TrimSpace(beesJSON)
-		if beesJSON == "" || beesJSON == "[]" {
-			continue
-		}
-		var bees []beeRef
-		if err := json.Unmarshal([]byte(beesJSON), &bees); err != nil {
-			continue
-		}
-		for _, h := range bees {
-			if h.ThreadID != "" {
-				items = append(items, backfillItem{leadThreadID: leadID, beeThreadID: h.ThreadID})
-			}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate hydra_leads for backfill: %w", err)
-	}
-	_ = rows.Close()
-
-	for _, it := range items {
-		_, err := s.db.ExecContext(ctx,
-			"UPDATE threads SET parent_thread_id = ?, is_helper = 1 WHERE id = ? AND (parent_thread_id IS NULL OR parent_thread_id = '');",
-			it.leadThreadID, it.beeThreadID,
+	_, err = s.db.ExecContext(ctx, `
+		WITH refs AS (
+			SELECT json_extract(head.value, '$.threadId') AS thread_id, lead.lead_thread_id,
+			       row_number() OVER (PARTITION BY json_extract(head.value, '$.threadId') ORDER BY lead.rowid) AS rank
+			FROM hydra_leads AS lead, json_each(CASE WHEN json_valid(lead.heads_json) THEN lead.heads_json ELSE '[]' END) AS head
+			WHERE json_type(CASE WHEN json_valid(lead.heads_json) THEN lead.heads_json ELSE '[]' END) = 'array'
+			  AND head.type = 'object' AND json_type(head.value, '$.threadId') = 'text'
 		)
-		if err != nil {
-			return fmt.Errorf("backfill swarm helper thread %s: %w", it.beeThreadID, err)
-		}
+		UPDATE threads SET parent_thread_id = refs.lead_thread_id, is_helper = 1
+		FROM refs WHERE refs.rank = 1 AND refs.thread_id <> '' AND threads.id = refs.thread_id
+		  AND (threads.parent_thread_id IS NULL OR threads.parent_thread_id = '')`)
+	if err != nil {
+		return fmt.Errorf("backfill swarm helper threads: %w", err)
 	}
 	return nil
 }
@@ -2451,9 +2421,13 @@ func (s *Store) ListTurnUsage(ctx context.Context, threadID string) ([]TurnUsage
 	WHERE thread_id = ?
 	ORDER BY turn_index ASC
 	`
-	rows, err := s.db.QueryContext(ctx, query, threadID)
+	return s.listTurnUsage(ctx, query, threadID)
+}
+
+func (s *Store) listTurnUsage(ctx context.Context, query string, args ...any) ([]TurnUsage, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list turn usage for thread %s: %w", threadID, err)
+		return nil, fmt.Errorf("list turn usage: %w", err)
 	}
 	defer rows.Close()
 
@@ -2471,6 +2445,19 @@ func (s *Store) ListTurnUsage(ctx context.Context, threadID string) ([]TurnUsage
 	return usages, nil
 }
 
+// ListAllTurnUsage 按会话分组列出所有轮次用量。
+func (s *Store) ListAllTurnUsage(ctx context.Context) (map[string][]TurnUsage, error) {
+	items, err := s.listTurnUsage(ctx, `SELECT thread_id, turn_index, input_tokens, output_tokens, cached_tokens, context_tokens, context_window, cost_usd, requests_json FROM turn_usage ORDER BY thread_id, turn_index ASC`)
+	if err != nil {
+		return nil, err
+	}
+	grouped := make(map[string][]TurnUsage)
+	for _, item := range items {
+		grouped[item.ThreadID] = append(grouped[item.ThreadID], item)
+	}
+	return grouped, nil
+}
+
 // ListFollowUps 按 position 升序查询指定会话的所有 follow-up 实体。
 func (s *Store) ListFollowUps(ctx context.Context, threadID string) ([]FollowUp, error) {
 	query := `
@@ -2479,9 +2466,13 @@ func (s *Store) ListFollowUps(ctx context.Context, threadID string) ([]FollowUp,
 	WHERE thread_id = ?
 	ORDER BY position ASC
 	`
-	rows, err := s.db.QueryContext(ctx, query, threadID)
+	return s.listFollowUps(ctx, query, threadID)
+}
+
+func (s *Store) listFollowUps(ctx context.Context, query string, args ...any) ([]FollowUp, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list follow ups for thread %s: %w", threadID, err)
+		return nil, fmt.Errorf("list follow ups: %w", err)
 	}
 	defer rows.Close()
 
@@ -2514,6 +2505,19 @@ func (s *Store) ListFollowUps(ctx context.Context, threadID string) ([]FollowUp,
 		return nil, fmt.Errorf("iterate follow ups: %w", err)
 	}
 	return items, nil
+}
+
+// ListAllFollowUps 按会话分组列出所有 follow-up。
+func (s *Store) ListAllFollowUps(ctx context.Context) (map[string][]FollowUp, error) {
+	items, err := s.listFollowUps(ctx, `SELECT id, thread_id, position, text, kind, intent, attachments, created_at, updated_at, attachment_meta FROM thread_follow_ups ORDER BY thread_id, position ASC`)
+	if err != nil {
+		return nil, err
+	}
+	grouped := make(map[string][]FollowUp)
+	for _, item := range items {
+		grouped[item.ThreadID] = append(grouped[item.ThreadID], item)
+	}
+	return grouped, nil
 }
 
 // ReplaceFollowUps 保留原签名，审计关闭时等价于 ReplaceFollowUpsWithAudit(..., nil)。

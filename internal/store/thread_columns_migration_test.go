@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -85,7 +86,14 @@ func TestMigrateAddsMCPDisabledToLegacyThreads(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, "ALTER TABLE threads DROP COLUMN mcp_disabled;"); err != nil {
 		t.Fatalf("删除 mcp_disabled 失败: %v", err)
 	}
-	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d;", len(migrations)-1)); err != nil {
+	migrationIndex := 0
+	for i, migration := range migrations {
+		if strings.Contains(migration, "ADD COLUMN mcp_disabled") {
+			migrationIndex = i
+			break
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d;", migrationIndex)); err != nil {
 		t.Fatalf("回退 user_version 失败: %v", err)
 	}
 	if err := s.Close(); err != nil {

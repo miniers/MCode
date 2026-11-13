@@ -150,7 +150,7 @@ func (s *Store) FinalizeBackgroundToolMessages(ctx context.Context, completedAt 
 	defer tx.Rollback()
 
 	// 先把行全部读进内存并关闭游标，再逐条写回：SQLite 单连接下边读边写会锁住游标。
-	rows, err := tx.QueryContext(ctx, "SELECT "+messageSelectCols+" FROM messages WHERE role = 'tool' AND COALESCE(tool_status, '') = 'background' ORDER BY thread_id, seq")
+	rows, err := tx.QueryContext(ctx, "SELECT "+messageSelectCols+" FROM messages WHERE role = 'tool' AND tool_status = 'background' ORDER BY thread_id, seq")
 	if err != nil {
 		return 0, fmt.Errorf("query background tool messages: %w", err)
 	}
@@ -192,7 +192,7 @@ func (s *Store) ListOrphanRunningToolMessages(ctx context.Context, activeTurnIDs
 	rows, err := s.db.QueryContext(ctx, `
 	SELECT `+messageSelectCols+`
 	FROM messages
-	WHERE role = 'tool' AND COALESCE(tool_status, '') = 'running'
+	WHERE role = 'tool' AND tool_status = 'running'
 	ORDER BY thread_id, seq
 	`)
 	if err != nil {

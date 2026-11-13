@@ -146,3 +146,46 @@ func TestBackfillSwarmLeadHelpers(t *testing.T) {
 		t.Error("ListThreads 未能找到 bee-1")
 	}
 }
+
+func TestBackfillSwarmLeadHelpersDuplicateAndInvalidJSON(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "backfill_duplicate.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.UpsertProject(ctx, Project{ID: "p", Name: "p", Path: "/p"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"bee", "untouched"} {
+		if err := s.CreateThread(ctx, Thread{ID: id, ProjectID: "p", Title: id, Provider: "codex"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, lead := range []SwarmLeadRecord{
+		{LeadThreadID: "z-first", BeesJSON: `[{"threadId":"bee"}]`},
+		{LeadThreadID: "a-second", BeesJSON: `[{"threadId":"bee"}]`},
+		{LeadThreadID: "invalid", BeesJSON: `[{"threadId":"untouched"}`},
+	} {
+		if err := s.SaveSwarmLead(ctx, lead); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.backfillSwarmLeadHelpers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	bee, err := s.GetThread(ctx, "bee")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bee.ParentThreadID != "z-first" || !bee.IsHelper {
+		t.Fatalf("bee: %+v", bee)
+	}
+	untouched, err := s.GetThread(ctx, "untouched")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if untouched.ParentThreadID != "" || untouched.IsHelper {
+		t.Fatalf("untouched: %+v", untouched)
+	}
+}
