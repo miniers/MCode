@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"mcode/internal/fsutil"
 )
 
 var ErrSnapshotTooNew = errors.New("store: backup snapshot schema is newer than this build")
@@ -20,7 +21,7 @@ func backupDSN(path, mode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	u := &url.URL{Scheme: "file", Path: filepath.ToSlash(abs)}
+	u := fsutil.FileURL(abs)
 	q := u.Query()
 	q.Set("mode", mode)
 	q.Add("_pragma", "busy_timeout(5000)")

@@ -2,7 +2,6 @@ package mcodeui
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +11,8 @@ import (
 	"unicode"
 
 	"github.com/egoist/mygo/ui/markdown/parser"
+
+	"mcode/internal/fsutil"
 )
 
 // inlinePathSuffix 匹配行内代码路径末尾的行号定位后缀。
@@ -139,7 +140,9 @@ func linkifyInlinePaths(text, workDir string) string {
 		b.WriteString("[")
 		b.WriteString(text[sp.start:sp.end])
 		b.WriteString("](")
-		b.WriteString((&url.URL{Scheme: "file", Path: sp.target, Fragment: sp.fragment}).String())
+		u := fsutil.FileURL(sp.target)
+		u.Fragment = sp.fragment
+		b.WriteString(u.String())
 		b.WriteString(")")
 		last = sp.end
 	}

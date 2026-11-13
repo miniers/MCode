@@ -12,6 +12,8 @@ import (
 	"os"
 	"runtime"
 	"time"
+
+	"mcode/internal/fsutil"
 )
 
 // tries 和 pause 把等待限制在半秒内：占住文件的只是另一次读或 rename，
@@ -27,7 +29,7 @@ var onWindows = runtime.GOOS == "windows"
 
 // rename 和 Sync 是 os.Rename 与 (*os.File).Sync；测试用它们注入失败。
 var (
-	rename = os.Rename
+	rename = fsutil.Rename
 	Sync   = (*os.File).Sync
 )
 
@@ -52,5 +54,5 @@ func ReadFile(p string) ([]byte, error) {
 
 // Rename 是 os.Rename，在 Windows 上等过读的人放开 newpath。
 func Rename(oldpath, newpath string) error {
-	return retry(func() error { return rename(oldpath, newpath) })
+	return rename(oldpath, newpath)
 }

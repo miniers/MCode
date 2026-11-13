@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -70,6 +71,9 @@ func bkAtomicWrite(name string, data []byte) (err error) {
 	return bkSyncDir(filepath.Dir(name))
 }
 func bkSyncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	f, err := os.Open(dir)
 	if err != nil {
 		return err

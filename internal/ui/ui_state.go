@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"mcode/internal/fsutil"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1110,7 +1111,7 @@ func writeUIStateBytes(path string, data []byte) (time.Time, error) {
 		os.Remove(tmpName)
 		return time.Time{}, err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := fsutil.Rename(tmpName, path); err != nil {
 		os.Remove(tmpName)
 		return time.Time{}, err
 	}

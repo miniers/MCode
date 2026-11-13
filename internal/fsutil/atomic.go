@@ -39,7 +39,7 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
 	}
-	if err := os.Rename(f.Name(), path); err != nil {
+	if err := Rename(f.Name(), path); err != nil {
 		return fmt.Errorf("rename temp file to %s: %w", path, err)
 	}
 	if runtime.GOOS != "windows" {

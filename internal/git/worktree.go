@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,7 +72,11 @@ func (r *Runner) WorktreeAdd(ctx context.Context, root, path, branch, base strin
 		return fmt.Errorf("worktree path must be absolute: %s", path)
 	}
 
-	args := []string{"worktree", "add"}
+	var args []string
+	if runtime.GOOS == "windows" {
+		args = append(args, "-c", "core.longpaths=true")
+	}
+	args = append(args, "worktree", "add")
 	if branch != "" {
 		args = append(args, "-b", branch, "--", path)
 	} else {

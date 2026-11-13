@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"mcode/internal/fsutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -288,5 +289,5 @@ func atomicReviewWrite(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	return fsutil.Rename(tmpName, path)
 }

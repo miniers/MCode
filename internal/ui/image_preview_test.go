@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"mcode/internal/fsutil"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -51,7 +53,7 @@ func TestLoadLocalImage_LoadsLocalPNG(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "a.png")
 	writeTestPNG(t, path)
 
-	for _, url := range []string{path, "file://" + filepath.ToSlash(path)} {
+	for _, url := range []string{path, fsutil.FileURL(path).String()} {
 		src, err := loadLocalImage(url)
 		if err != nil {
 			t.Fatalf("loadLocalImage(%q) 返回错误：%v", url, err)

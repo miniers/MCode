@@ -165,6 +165,20 @@ func TestKeyringSecretStore_LazyMigration(t *testing.T) {
 // 模拟 ErrUnsupported 的 primary 后端
 type unsupportedKeyringBackend struct{}
 
+func TestMigrateLegacySecrets_PrimaryUnsupported(t *testing.T) {
+	legacy := NewMemorySecretStore()
+	if err := legacy.Set("account", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	errs := migrateLegacySecrets([]SecretRef{{Service: "mcode", Account: "account"}}, &unsupportedKeyringBackend{}, func(string) SecretStore { return legacy })
+	if len(errs) != 0 {
+		t.Fatalf("迁移错误: %v", errs)
+	}
+	if got, err := legacy.Get("account"); err != nil || got != "secret" {
+		t.Fatalf("旧凭据: %q, %v", got, err)
+	}
+}
+
 func (u *unsupportedKeyringBackend) Get(service, account string) (string, error) {
 	return "", keyring.ErrUnsupported
 }

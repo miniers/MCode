@@ -1,7 +1,7 @@
 package mcodeui
 
 import (
-	"net/url"
+	"mcode/internal/fsutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +18,25 @@ func writeTestFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func TestInlinePathLinkRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTestFile(t, filepath.Join(dir, "a.go"))
+	got := linkifyInlinePaths("`a.go:12`", dir)
+	start := strings.Index(got, "](file://")
+	if start < 0 || !strings.HasSuffix(got, ")") {
+		t.Fatalf("链接: %q", got)
+	}
+	dest := got[start+2 : len(got)-1]
+	parsed, err := localImagePath(dest)
+	if err != nil || parsed != path {
+		t.Fatalf("路径: %q, %v; 期望 %q", parsed, err, path)
+	}
+	candidates := localFileLinkCandidates(dest)
+	if len(candidates) == 0 || candidates[0] != path {
+		t.Fatalf("候选路径: %v", candidates)
+	}
 }
 
 func TestResolveInlinePath(t *testing.T) {
@@ -78,7 +97,9 @@ func TestLinkifyInlinePathsLineRanges(t *testing.T) {
 		{"a.go:20-12", "L12-L20"},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
-			want := "[`" + tc.code + "`](" + (&url.URL{Scheme: "file", Path: file, Fragment: tc.fragment}).String() + ")"
+			u := fsutil.FileURL(file)
+			u.Fragment = tc.fragment
+			want := "[`" + tc.code + "`](" + u.String() + ")"
 			if got := linkifyInlinePaths("`"+tc.code+"`", dir); got != want {
 				t.Fatalf("得到 %q，期望 %q", got, want)
 			}
@@ -90,7 +111,7 @@ func TestLinkifyInlinePathsRewritesRelativePath(t *testing.T) {
 	dir := t.TempDir()
 	file := writeTestFile(t, filepath.Join(dir, "docs", "plans", "x.md"))
 	got := linkifyInlinePaths("见 `docs/plans/x.md` 与 `docs/none.md`。", dir)
-	want := "见 [`docs/plans/x.md`](" + (&url.URL{Scheme: "file", Path: file}).String() + ") 与 `docs/none.md`。"
+	want := "见 [`docs/plans/x.md`](" + fsutil.FileURL(file).String() + ") 与 `docs/none.md`。"
 	if got != want {
 		t.Fatalf("linkifyInlinePaths = %q, want %q", got, want)
 	}
@@ -129,7 +150,7 @@ func TestLinkifyInlinePathsAbsoluteAndHome(t *testing.T) {
 	file := writeTestFile(t, filepath.Join(dir, "x.md"))
 	text := "看 `" + file + "`。"
 	got := linkifyInlinePaths(text, t.TempDir())
-	want := "看 [`" + file + "`](" + (&url.URL{Scheme: "file", Path: file}).String() + ")。"
+	want := "看 [`" + file + "`](" + fsutil.FileURL(file).String() + ")。"
 	if got != want {
 		t.Fatalf("linkifyInlinePaths = %q, want %q", got, want)
 	}
@@ -141,7 +162,7 @@ func TestLinkifyInlinePathsAbsoluteAndHome(t *testing.T) {
 	if !strings.Contains(got, "](file://") {
 		t.Fatalf("linkifyInlinePaths(~/ ) = %q，未改写成链接", got)
 	}
-	if !strings.Contains(got, (&url.URL{Scheme: "file", Path: filepath.Clean(home)}).String()) {
+	if !strings.Contains(got, fsutil.FileURL(filepath.Clean(home)).String()) {
 		t.Fatalf("linkifyInlinePaths(~/ ) = %q, 目标不是用户主目录", got)
 	}
 }

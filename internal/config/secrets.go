@@ -257,6 +257,9 @@ func migrateLegacySecrets(refs []SecretRef, primary keyring.Backend, legacyFor f
 
 		// legacy 存在，检查 primary 是否已有
 		current, err := primary.Get(ref.Service, ref.Account)
+		if errors.Is(err, keyring.ErrUnsupported) {
+			continue
+		}
 		if err == nil {
 			if current != val {
 				errs = append(errs, fmt.Errorf("verify primary secret (%s/%s): existing value mismatch", ref.Service, ref.Account))

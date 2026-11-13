@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mcode/internal/fsutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -120,7 +121,7 @@ func (s *Store) Rewrite(id string, entries ...any) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), path)
+	return fsutil.Rename(f.Name(), path)
 }
 
 // Load 读取会话，并忽略末尾不完整的条目。

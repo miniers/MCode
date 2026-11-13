@@ -2,12 +2,13 @@ package mcodeui
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"mcode/internal/fsutil"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -24,9 +25,9 @@ func TestLocalFileLinkPath(t *testing.T) {
 		want       bool
 	}{
 		{"绝对路径", file, true},
-		{"file URL 百分号编码", "file://" + dir + "/%E6%9C%88%E6%8A%A5%20(2026%E5%B9%B410%E6%9C%88).docx", true},
+		{"file URL 百分号编码", fsutil.FileURL(file).String(), true},
 		{"位置后缀", file + "#L12", true},
-		{"URL 行号范围", (&url.URL{Scheme: "file", Path: file, Fragment: "L12-L20"}).String(), true},
+		{"URL 行号范围", fsutil.FileURL(file).String() + "#L12-L20", true},
 		{"不存在", filepath.Join(dir, "none.docx"), false},
 		{"网页", "https://example.com/a", false},
 		{"相对路径", "a.docx", false},
@@ -201,7 +202,7 @@ func TestLocalFileLinkContextMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 真实消息里两种写法都会出现：绝对路径与 file:// URL。
-	for _, dest := range []string{file, "file://" + file} {
+	for _, dest := range []string{file, fsutil.FileURL(file).String()} {
 		t.Run(dest, func(t *testing.T) {
 			// 链接文字不能是整段文字：Tester.RightClick 取第一个文字相同的元素，
 			// 段落文字与链接文字相同时会点到段落的宽标签上，落点在链接外。

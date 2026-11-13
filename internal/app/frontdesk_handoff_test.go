@@ -10,6 +10,14 @@ import (
 	"mcode/internal/store"
 )
 
+func TestFrontdeskHandoffShortcut(t *testing.T) {
+	for _, tc := range []struct{ goos, want string }{{"windows", "Ctrl+Shift+T"}, {"darwin", "⇧⌘T"}} {
+		if got := frontdeskHandoffShortcut(tc.goos); got != tc.want {
+			t.Errorf("%s: %q", tc.goos, got)
+		}
+	}
+}
+
 func TestFrontdeskHandoffSection(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Defaults()

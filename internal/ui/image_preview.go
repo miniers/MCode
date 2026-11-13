@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"mcode/internal/fsutil"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/egoist/mygo/ui/markdown/parser"
@@ -79,15 +81,11 @@ func localImagePath(url string) (string, error) {
 		return filepath.Join(home, filepath.FromSlash(url[2:])), nil
 	}
 	if strings.HasPrefix(strings.ToLower(url), "file://") {
-		path := url[len("file://"):]
-		// file://localhost/path 这类写法只取路径部分。
-		if i := strings.Index(path, "/"); i > 0 && !strings.HasPrefix(path, "/") {
-			path = path[i:]
-		}
-		if !filepath.IsAbs(path) {
+		path, ok := fsutil.PathFromFileURL(url)
+		if !ok || !filepath.IsAbs(path) {
 			return "", errImageUnsupported
 		}
-		return filepath.FromSlash(path), nil
+		return path, nil
 	}
 	// 带其他 scheme 的地址（http、https、data 等）都不加载。
 	if strings.Contains(url, "://") || strings.HasPrefix(strings.ToLower(url), "data:") {
