@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -89,4 +90,24 @@ func TestSettingsGeneral_AboutFooter(t *testing.T) {
 	if !tt.HasText("检查更新") || !tt.HasText("导出…") {
 		t.Fatalf("关于操作不可达: %v", tt.Texts())
 	}
+}
+
+func TestSettingsTrayPlatform(t *testing.T) {
+	if got := trayIconTitle("windows"); got != "托盘图标" {
+		t.Errorf("Windows 托盘标题: %q", got)
+	}
+	if got := trayIconTitle("darwin"); got != "菜单栏图标" {
+		t.Errorf("macOS 托盘标题: %q", got)
+	}
+	for _, section := range pageGeneral.Sections {
+		for _, row := range section.Rows {
+			if row.ID == "row-tray-quota" {
+				if got := settingVisible(nil, row); got != (runtime.GOOS == "darwin") {
+					t.Errorf("额度开关可见性: %v", got)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("缺少额度开关")
 }

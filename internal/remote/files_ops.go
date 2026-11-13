@@ -177,9 +177,12 @@ func (b *MemoryBackend) FilesRename(ctx context.Context, p wire.FilesRenameParam
 	return wire.FilesRenameResult{Path: workspaceRelPath(root, target)}, nil
 }
 
-// FilesTrash 把工作区内的条目移到系统废纸篓（仅 macOS）。
+// windowsTrashPath 由 Windows 平台实现初始化。
+var windowsTrashPath func(string) error
+
+// FilesTrash 把工作区内的条目移到系统废纸篓或回收站。
 func (b *MemoryBackend) FilesTrash(ctx context.Context, p wire.FilesTrashParams) (wire.FilesTrashResult, error) {
-	if runtime.GOOS != "darwin" {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
 		return wire.FilesTrashResult{}, &wire.RPCError{
 			Code:    wire.InvalidParams,
 			Message: "trash is not supported on this platform",
@@ -204,6 +207,13 @@ func (b *MemoryBackend) FilesTrash(ctx context.Context, p wire.FilesTrashParams)
 	}
 	if err := ensureWorkspaceMutablePath(rel, source); err != nil {
 		return wire.FilesTrashResult{}, err
+	}
+
+	if runtime.GOOS == "windows" {
+		if err := windowsTrashPath(source); err != nil {
+			return wire.FilesTrashResult{}, &wire.RPCError{Code: wire.ErrCodeOperationRejected, Message: fmt.Sprintf("failed to move to trash: %v", err)}
+		}
+		return wire.FilesTrashResult{}, nil
 	}
 
 	trashRoot, err := filesTrashDir()

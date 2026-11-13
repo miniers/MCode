@@ -276,6 +276,13 @@ func (s *chatState) duplicateFileManagerEntry(path string) {
 	}()
 }
 
+func trashActionLabel() string {
+	if openInGOOS == "windows" {
+		return "移到回收站"
+	}
+	return "移到废纸篓"
+}
+
 // renderFileManagerOpsDialog 渲染新建 / 重命名 / 移到废纸篓的弹窗卡片。
 func renderFileManagerOpsDialog(c *ui.Context, s *chatState) {
 	st := getFileManagerState(s)
@@ -300,7 +307,7 @@ func renderFileManagerOpsDialog(c *ui.Context, s *chatState) {
 	case fileManagerOpsRename:
 		title, confirm, inputLabel, placeholder = "重命名", "重命名", "新名称", "输入新名称"
 	case fileManagerOpsTrash:
-		title, confirm, destructive = "移到废纸篓", "移到废纸篓", true
+		title, confirm, destructive = trashActionLabel(), trashActionLabel(), true
 	default:
 		return
 	}
@@ -320,7 +327,7 @@ func renderFileManagerOpsDialog(c *ui.Context, s *chatState) {
 					TextColor(ThemePrimaryText(c))
 
 				if destructive {
-					ui.Text(c, "确定把 "+ops.targetPath+" 移到废纸篓吗？").
+					ui.Text(c, "确定把 "+ops.targetPath+" "+trashActionLabel()+"吗？").
 						FontSize(uiFont(TypeBody)).
 						TextColor(ThemePrimaryText(c)).
 						Wrap()

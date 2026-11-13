@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
@@ -28,6 +29,13 @@ func permissionModeKnown(mode string) bool {
 		}
 	}
 	return false
+}
+
+func trayIconTitle(goos string) string {
+	if goos == "windows" {
+		return "托盘图标"
+	}
+	return "菜单栏图标"
 }
 
 // pageGeneral 是「通用」页：系统级配置。会话相关的开关在「会话」页，
@@ -141,12 +149,13 @@ var pageGeneral = settingsPage{
 			Rows: []setting{
 				{
 					ID:      "row-tray",
-					Title:   "菜单栏图标",
+					Title:   trayIconTitle(runtime.GOOS),
 					Aliases: []string{"菜单栏", "托盘", "图标", "重启", "会话数"},
 					Control: toggle(val(func(c *config.Config) *bool { return &c.Startup.ShowTrayIcon }, true)),
 				},
 				{
 					ID:      "row-tray-quota",
+					Visible: func(*SettingsState) bool { return runtime.GOOS == "darwin" },
 					Title:   "菜单栏显示额度百分比",
 					Aliases: []string{"菜单栏", "额度", "百分比", "账号"},
 					Enabled: func(st *SettingsState) bool { return st.cfg.Startup.ShowTrayIcon },

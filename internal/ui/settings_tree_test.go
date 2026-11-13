@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -415,6 +416,10 @@ func TestSettingsTree_Snapshot(t *testing.T) {
 	want, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("读取 golden 失败: %v", err)
+	}
+	want = []byte(strings.ReplaceAll(string(want), "\r\n", "\n"))
+	if runtime.GOOS == "windows" {
+		want = []byte(strings.Replace(string(want), "row row-tray 菜单栏图标", "row row-tray 托盘图标", 1))
 	}
 	if string(want) != got {
 		t.Fatalf("页面树快照不一致，运行 go test ./internal/ui -run TestSettingsTree_Snapshot -update 重写\n--- want ---\n%s\n--- got ---\n%s", want, got)

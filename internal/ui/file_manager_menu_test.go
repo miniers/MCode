@@ -32,7 +32,7 @@ func TestFileManagerEntryMenuCopyRelativePath(t *testing.T) {
 	}
 	want := fmt.Sprint([]string{
 		"打开", "在右侧分栏打开", "文件历史", "逐行追溯", "引用到输入框", "复制路径", "复制相对路径",
-		"-", "重命名…", "复制一份", "移到废纸篓…",
+		"-", "重命名…", "复制一份", trashActionLabel() + "…",
 	})
 	if got := fmt.Sprint(tt.Menu()); got != want {
 		t.Fatalf("文件菜单应等于 %s，得到 %s", want, got)
@@ -161,13 +161,13 @@ func TestFileManagerTrashClosesTabAndKeepsDialogOnError(t *testing.T) {
 	if err := tt.RightClick("sub/b.go"); err != nil {
 		t.Fatalf("right click result row failed: %v", err)
 	}
-	if err := tt.ChooseMenuItem("移到废纸篓…"); err != nil {
+	if err := tt.ChooseMenuItem(trashActionLabel() + "…"); err != nil {
 		t.Fatalf("choose trash failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("确定把 sub/b.go 移到废纸篓吗？") })
+	waitFor(t, tt, func() bool { return tt.HasText("确定把 sub/b.go " + trashActionLabel() + "吗？") })
 
 	fake.SetFileOpsError(errors.New("删除失败"))
-	if err := tt.Click("确认移到废纸篓"); err != nil {
+	if err := tt.Click("确认" + trashActionLabel()); err != nil {
 		t.Fatalf("click confirm trash failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("删除失败") })
@@ -179,7 +179,7 @@ func TestFileManagerTrashClosesTabAndKeepsDialogOnError(t *testing.T) {
 	}
 
 	fake.SetFileOpsError(nil)
-	if err := tt.Click("确认移到废纸篓"); err != nil {
+	if err := tt.Click("确认" + trashActionLabel()); err != nil {
 		t.Fatalf("click confirm trash again failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return !fileManagerOpsOpen(s) })

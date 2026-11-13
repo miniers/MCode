@@ -142,7 +142,7 @@ func TestRenderDownloadsPanel_Empty(t *testing.T) {
 	if !tt.HasText("下载目录中没有文件") {
 		t.Fatalf("expected empty note '下载目录中没有文件'")
 	}
-	if !tt.HasText("在 Finder 中显示") {
+	if !tt.HasText(revealInFileManagerLabel()) {
 		t.Fatalf("expected '在 Finder 中显示'")
 	}
 	if !tt.HasText("选择文件…") {

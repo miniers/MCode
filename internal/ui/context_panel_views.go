@@ -228,7 +228,7 @@ func renderContextHeader(c *ui.Context, s *chatState) {
 
 			Button(c.Key("context-open-finder-btn"), ButtonOpts{
 				Icon:     IconFolderOpen(),
-				Text:     "在 Finder 中打开",
+				Text:     "在" + openInFileManagerName() + "中打开",
 				Disabled: snap.path == "",
 				OnClick: func() {
 					if snap.path != "" {

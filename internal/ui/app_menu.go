@@ -256,6 +256,8 @@ func buildWindowsAppMenu() *mygo.Menu {
 				mygo.Separator(),
 				settingsMenuItem(),
 				mygo.Separator(),
+				closeMenuItem(),
+				mygo.Separator(),
 				&mygo.MenuItem{Role: mygo.RoleQuit, Label: "退出"},
 			),
 		},

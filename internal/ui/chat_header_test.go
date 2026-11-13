@@ -1572,3 +1572,23 @@ func TestOpenInFailureToast(t *testing.T) {
 		t.Fatalf("toast = %q", s.toastMessage)
 	}
 }
+
+func TestFileManagerPlatformLabels(t *testing.T) {
+	old := openInGOOS
+	t.Cleanup(func() { openInGOOS = old })
+	for _, tc := range []struct{ goos, reveal, open, trash string }{
+		{"darwin", "在访达中显示", "访达", "移到废纸篓"},
+		{"windows", "在资源管理器中显示", "资源管理器", "移到回收站"},
+	} {
+		openInGOOS = tc.goos
+		if got := revealInFileManagerLabel(); got != tc.reveal {
+			t.Errorf("%s: %q", tc.goos, got)
+		}
+		if got := openInFileManagerName(); got != tc.open {
+			t.Errorf("%s: %q", tc.goos, got)
+		}
+		if got := trashActionLabel(); got != tc.trash {
+			t.Errorf("%s: %q", tc.goos, got)
+		}
+	}
+}

@@ -321,7 +321,7 @@ func renderDownloadsPanel(c *ui.Context, s *chatState, onDone func()) {
 							ui.Icon(c, IconFolderOpen()).
 								Size(IconSM, IconSM).
 								TextColor(ThemeSecondaryText(c))
-							ui.Text(c, "在 Finder 中显示").
+							ui.Text(c, revealInFileManagerLabel()).
 								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemePrimaryText(c))
 						})

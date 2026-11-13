@@ -32,7 +32,7 @@ type TrayQuotaPanelOptions struct {
 	OnSummary    func(text string)
 }
 
-// TrayQuotaPanel 控制 macOS 菜单栏托盘的全部账号额度浮动面板。
+// TrayQuotaPanel 控制系统托盘的全部账号额度浮动面板。
 type TrayQuotaPanel struct {
 	opts TrayQuotaPanelOptions
 

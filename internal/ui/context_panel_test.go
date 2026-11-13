@@ -391,7 +391,7 @@ func TestContextPanel_UIIntegration(t *testing.T) {
 	tt.Key(ui.Cmd|ui.Shift, ui.KeyK)
 	waitFor(t, tt, func() bool {
 		return tt.HasText("项目文档") && tt.HasText(".mcode/context/ • CAS 并发保护") &&
-			tt.HasText("Instructions") && tt.HasText("Decisions") && tt.HasText("在 Finder 中打开")
+			tt.HasText("Instructions") && tt.HasText("Decisions") && tt.HasText("在"+openInFileManagerName()+"中打开")
 	})
 
 	if tt.HasText("收件箱") {

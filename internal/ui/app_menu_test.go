@@ -167,6 +167,7 @@ func TestBuildWindowsAppMenu(t *testing.T) {
 	requireMenuItem(t, fileMenu, "在 Worktree 新建会话", "Alt+CmdOrCtrl+N")
 	requireMenuItem(t, fileMenu, "添加项目…", "Shift+CmdOrCtrl+O")
 	requireMenuItem(t, fileMenu, "偏好设置…", "CmdOrCtrl+,")
+	requireMenuItem(t, fileMenu, "关闭", "CmdOrCtrl+W")
 	requireMenuRole(t, fileMenu, mygo.RoleQuit)
 	if last := fileMenu[len(fileMenu)-1]; last.Role != mygo.RoleQuit {
 		t.Errorf("文件菜单最后一项应为退出，得到 Label=%q Role=%q", last.Label, last.Role)
