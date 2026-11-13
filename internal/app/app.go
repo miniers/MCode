@@ -239,6 +239,7 @@ func waitBackground(done <-chan struct{}) {
 
 // claudeProbeResult 是 claude 登录检测（后台 goroutine）的结果。
 type claudeProbeResult struct {
+	binary      string
 	lookPathErr error
 	authErr     error
 }
@@ -268,7 +269,7 @@ var (
 // 因此只在登录 Shell 里才有 API key / 网关令牌 / Bedrock / Vertex 变量的用户，判断结果与原来一致。
 // 已知边界：在 .zshrc 里设置的 CLAUDE_CONFIG_DIR 只在登录环境可见，快路径可能读到另一个配置目录。
 func probeClaudeBinary(claudeBin string) (lookPathErr, authErr error) {
-	if _, lookPathErr = exec.LookPath(claudeBin); lookPathErr != nil {
+	if claudeBin, lookPathErr = loginenv.LookPath(claudeBin); lookPathErr != nil {
 		return lookPathErr, nil
 	}
 	if claudeProbeFastPathLoggedIn(claudeBin) {
@@ -359,9 +360,17 @@ func Open(opts Options) (*App, error) {
 	// 因错误提前返回时 goroutine 仍能写完退出，不会泄漏。goroutine 只读入参、只写通道。
 	claudeProbe := make(chan claudeProbeResult, 1)
 	go func() {
-		lookPathErr, authErr := probeClaudeBinary(claudeBin)
+		resolved, resolveErr := loginenv.LookPath(claudeBin)
+		if resolveErr == nil {
+			resolved, resolveErr = filepath.Abs(resolved)
+		}
+		if resolveErr != nil {
+			claudeProbe <- claudeProbeResult{lookPathErr: resolveErr}
+			return
+		}
+		lookPathErr, authErr := probeClaudeBinary(resolved)
 		startuptrace.Mark("claude auth probe finished (bg)")
-		claudeProbe <- claudeProbeResult{lookPathErr: lookPathErr, authErr: authErr}
+		claudeProbe <- claudeProbeResult{lookPathErr: lookPathErr, authErr: authErr, binary: resolved}
 	}()
 
 	dbPath := filepath.Join(opts.DataDir, "mcode.db")
@@ -1071,6 +1080,9 @@ func Open(opts Options) (*App, error) {
 
 	probe := <-claudeProbe
 	claudeErr, claudeAuthErr := probe.lookPathErr, probe.authErr
+	if probe.binary != "" {
+		claudeBin = probe.binary
+	}
 	startuptrace.Mark("claude auth probed")
 	claudeAvailable := claudeErr == nil && claudeAuthErr == nil
 
@@ -1986,6 +1998,9 @@ func buildProviderHarness(cfg config.Config, secrets config.SecretStore, id stri
 		bin := cfg.Providers.CommandCode.Bin
 		if bin == "" {
 			bin = commandcode.DefaultBinary
+			if resolved, err := commandcode.ResolveBinary(); err == nil {
+				bin = resolved
+			}
 		}
 		return commandcode.New(commandcode.Options{Binary: bin, BuiltinMCP: mcpInjection.Builtin, ExternalMCP: mcpInjection.External}), true
 	}

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"mcode/internal/procattr"
+	"mcode/internal/providers/commandcode"
 	"mcode/internal/providers/loginenv"
 )
 
@@ -153,6 +154,14 @@ func Installed(ctx context.Context, provider, executable string) (Info, error) {
 	if executable == "" {
 		return info, errors.New("cliupdate: executable 为空")
 	}
+	if runtime.GOOS == "windows" && normalizeProvider(provider) == "commandcode" && strings.EqualFold(executable, commandcode.DefaultBinary) {
+		resolved, err := commandcode.ResolveBinary()
+		if err != nil {
+			return info, err
+		}
+		executable = resolved
+		info.ExecutablePath = resolved
+	}
 	install := DetectInstall(provider, executable)
 	info.Channel = string(install.Channel)
 	info.UpdateCommand = strings.Join(UpdateCommandFor(provider, install), " ")
@@ -199,7 +208,15 @@ func UpdateCommand(provider string) []string {
 	if !ok {
 		return nil
 	}
-	return append([]string(nil), command...)
+	result := append([]string(nil), command...)
+	if runtime.GOOS == "windows" && normalizeProvider(provider) == "commandcode" {
+		resolved, err := commandcode.ResolveBinary()
+		if err != nil {
+			return nil
+		}
+		result[0] = resolved
+	}
+	return result
 }
 
 // normalizeProvider 归一化 provider 名: 忽略大小写与 -/_/空格；"agy" 是 antigravity 的 CLI 名。

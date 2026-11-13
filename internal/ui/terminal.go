@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/procattr"
 )
 
 var (
@@ -304,6 +305,9 @@ func defaultFallbackShell() string {
 		return "/bin/zsh"
 	}
 	if runtime.GOOS == "windows" {
+		if _, err := exec.LookPath("pwsh.exe"); err == nil {
+			return "pwsh.exe"
+		}
 		return "powershell.exe"
 	}
 	return "/bin/sh"
@@ -327,7 +331,7 @@ func shellPathExists(path string) bool {
 // 为空或路径不存在时退回默认 shell（$SHELL 或系统默认值），保证终端不启动失败。
 func resolveTerminalShell(configured, envShell string) string {
 	defShell := strings.TrimSpace(envShell)
-	if defShell == "" {
+	if defShell == "" || !shellPathExists(defShell) {
 		defShell = defaultFallbackShell()
 	}
 
@@ -517,7 +521,7 @@ var externalTerminalRunner = func(args ...string) error {
 
 // externalTerminalExecRunner 在 Windows 上直接启动外部终端命令，测试中可替换。
 var externalTerminalExecRunner = func(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	cmd := procattr.HideWindow(exec.Command(name, args...))
 	if err := cmd.Start(); err != nil {
 		return err
 	}

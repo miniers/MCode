@@ -2,12 +2,17 @@ package procattr
 
 import (
 	"context"
+	"os/exec"
 	"reflect"
 	"testing"
 )
 
 // TestShellArgs 验证各平台执行用户命令的 shell：Windows 用 PowerShell，其余用 /bin/sh -c。
 func TestShellArgs(t *testing.T) {
+	oldBash, oldLook := windowsBash, shellLookPath
+	t.Cleanup(func() { windowsBash, shellLookPath = oldBash, oldLook })
+	windowsBash = func() string { return "" }
+	shellLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	cases := []struct {
 		goos     string
 		wantName string
@@ -34,5 +39,27 @@ func TestShellCommandUsesPlatformShell(t *testing.T) {
 	cmd := ShellCommand(context.Background(), "echo hi")
 	if want := []string{"/bin/sh", "-c", "echo hi"}; !reflect.DeepEqual(cmd.Args, want) {
 		t.Fatalf("ShellCommand Args = %q，期望 %q", cmd.Args, want)
+	}
+}
+
+func TestWindowsShellFallbacks(t *testing.T) {
+	oldBash, oldLook := windowsBash, shellLookPath
+	t.Cleanup(func() { windowsBash, shellLookPath = oldBash, oldLook })
+	for _, tc := range []struct{ bash, pwsh, want string }{{"git-bash", "pwsh", "git-bash"}, {"", "pwsh", "pwsh"}, {"", "", "powershell.exe"}} {
+		windowsBash = func() string { return tc.bash }
+		shellLookPath = func(string) (string, error) {
+			if tc.pwsh == "" {
+				return "", exec.ErrNotFound
+			}
+			return tc.pwsh, nil
+		}
+		name, args := shellArgs("windows", "a && b")
+		wantArgs := []string{"-NoProfile", "-Command", "a && b"}
+		if tc.bash != "" {
+			wantArgs = []string{"-c", "a && b"}
+		}
+		if name != tc.want || !reflect.DeepEqual(args, wantArgs) {
+			t.Fatalf("got %q %q", name, args)
+		}
 	}
 }

@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +50,36 @@ var (
 
 // DefaultBinary 是 Command Code CLI 的默认可执行文件名。
 const DefaultBinary = "cmd"
+
+// ResolveBinary 查找 Command Code，避免误用 Windows 系统命令。
+func ResolveBinary() (string, error) {
+	if runtime.GOOS != "windows" {
+		return loginenv.LookPath(DefaultBinary)
+	}
+	return resolveBinaryIn("windows", filepath.SplitList(loginenv.PATH()), os.Getenv("SystemRoot"))
+}
+func resolveBinaryIn(goos string, dirs []string, systemRoot string) (string, error) {
+	if goos != "windows" {
+		return loginenv.LookPath(DefaultBinary)
+	}
+	root, _ := filepath.Abs(systemRoot)
+	for _, dir := range dirs {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		if systemRoot != "" && (strings.EqualFold(abs, root) || strings.HasPrefix(strings.ToLower(abs), strings.ToLower(root+string(filepath.Separator)))) {
+			continue
+		}
+		for _, ext := range []string{".cmd", ".exe", ".bat"} {
+			candidate := filepath.Join(abs, DefaultBinary+ext)
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate, nil
+			}
+		}
+	}
+	return "", exec.ErrNotFound
+}
 
 // maxTurns 是一轮 headless 运行最多往返多少回；CLI 自己的默认值是 100，
 // 对长任务偏短。
@@ -273,6 +304,13 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	if binary == "" {
 		binary = DefaultBinary
 	}
+	if runtime.GOOS == "windows" && strings.EqualFold(binary, DefaultBinary) {
+		var err error
+		binary, err = ResolveBinary()
+		if err != nil {
+			return fmt.Errorf("commandcode: %w", err)
+		}
+	}
 
 	sessionID := h.resolveSession(turn.SessionID)
 
@@ -434,7 +472,7 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 	}
 
 	waitErr := cmd.Wait()
-	state.finishRun(exitStatus(waitErr), killedByStopSignal(waitErr), stderrTail.String(), emit)
+	state.finishRun(exitStatus(waitErr), isStopped(ctx, waitErr), stderrTail.String(), emit)
 	return nil
 }
 
@@ -597,6 +635,10 @@ func exitStatus(waitErr error) int {
 
 // killedByStopSignal 判断进程是否被 SIGTERM / SIGKILL 结束：这类结束是用户或上层
 // 中止（ForceStopTurn、ctx 取消），不是运行失败。
+func isStopped(ctx context.Context, waitErr error) bool {
+	return errors.Is(ctx.Err(), context.Canceled) || killedByStopSignal(waitErr)
+}
+
 func killedByStopSignal(waitErr error) bool {
 	var exitErr *exec.ExitError
 	if !errors.As(waitErr, &exitErr) {

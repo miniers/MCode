@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -257,7 +258,13 @@ func fetchModelsWithBinary(ctx context.Context, binary string) ([]Model, error) 
 		binary = DefaultBinary
 	}
 	var models []Model
-	bin, err := loginenv.LookPath(binary)
+	var bin string
+	var err error
+	if runtime.GOOS == "windows" && strings.EqualFold(binary, DefaultBinary) {
+		bin, err = ResolveBinary()
+	} else {
+		bin, err = loginenv.LookPath(binary)
+	}
 	if err == nil {
 		models, err = FetchModels(ctx, bin)
 		if err == nil {

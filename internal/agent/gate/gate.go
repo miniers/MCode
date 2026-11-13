@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -460,7 +461,7 @@ func onlyReads(command string, allowGoChecks bool) bool {
 		}
 		p := t[0]
 		if strings.HasPrefix(p, "/") {
-			if filepath.Dir(p) != "/bin" && filepath.Dir(p) != "/usr/bin" {
+			if path.Dir(p) != "/bin" && path.Dir(p) != "/usr/bin" {
 				return false
 			}
 			p = filepath.Base(p)

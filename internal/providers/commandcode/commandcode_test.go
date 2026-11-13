@@ -2,8 +2,10 @@ package commandcode
 
 import (
 	"context"
+	"mcode/internal/providers/loginenv"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -148,6 +150,18 @@ func newFakeCommand(t *testing.T, fixture, exitCode string) (binary, argsFile, p
 		"cat > \"$FAKE_CMD_PROMPT\"\n" +
 		"cat \"$FAKE_CMD_FIXTURE\"\n" +
 		"exit \"${FAKE_CMD_EXIT:-0}\"\n"
+	if runtime.GOOS == "windows" {
+		bash := loginenv.GitBash()
+		if bash == "" {
+			t.Skip("Git Bash unavailable")
+		}
+		scriptPath := binary + ".sh"
+		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+		binary += ".cmd"
+		script = "@echo off\r\n\"" + bash + "\" \"" + scriptPath + "\" %*\r\n"
+	}
 	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
 		t.Fatalf("写入替身脚本失败: %v", err)
 	}

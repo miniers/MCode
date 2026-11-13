@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -445,6 +446,9 @@ func readLogin() (claudeLogin, error) {
 // readLoginFromKeychain 读取 macOS 钥匙串中的 Claude Code 登录；
 // 配置目录被搬迁时，钥匙串条目的服务名后带该目录 SHA-256 的前 8 位十六进制。
 func readLoginFromKeychain(configDir string) (claudeLogin, bool) {
+	if runtime.GOOS != "darwin" {
+		return claudeLogin{}, false
+	}
 	service := "Claude Code-credentials"
 	if configDir != "" {
 		sum := sha256.Sum256([]byte(configDir))

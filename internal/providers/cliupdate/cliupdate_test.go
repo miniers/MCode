@@ -239,6 +239,13 @@ func TestUpdateCommand(t *testing.T) {
 		{provider: "unknown", want: nil},
 	}
 	for _, test := range tests {
+		if runtime.GOOS == "windows" && test.provider == "commandcode" {
+			got := UpdateCommand(test.provider)
+			if len(got) > 0 && (len(got) != 2 || got[1] != "update" || strings.EqualFold(got[0], "cmd")) {
+				t.Fatalf("unexpected command: %v", got)
+			}
+			continue
+		}
 		if got := UpdateCommand(test.provider); !slices.Equal(got, test.want) {
 			t.Fatalf("UpdateCommand(%q) = %v, want %v", test.provider, got, test.want)
 		}

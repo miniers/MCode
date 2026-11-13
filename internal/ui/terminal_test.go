@@ -1042,17 +1042,12 @@ func TestTerminal_ScrollbackConfiguration(t *testing.T) {
 
 // 测试 resolveTerminalShell 纯函数的选择逻辑与兜底机制
 func TestTerminal_ResolveTerminalShell(t *testing.T) {
-	defaultSysShell := "/bin/sh"
-	if runtime.GOOS == "darwin" {
-		defaultSysShell = "/bin/zsh"
-	} else if runtime.GOOS == "windows" {
-		defaultSysShell = "powershell.exe"
-	}
+	defaultSysShell := defaultFallbackShell()
 
 	// 1. 配置了有效且存在的 shell 绝对路径
 	validShell := "/bin/sh"
 	if runtime.GOOS == "windows" {
-		validShell = "cmd.exe"
+		validShell, _ = os.Executable()
 	}
 	if got := resolveTerminalShell(validShell, "/bin/other"); got != validShell {
 		t.Fatalf("expected configured valid shell %q, got %q", validShell, got)
@@ -1064,12 +1059,12 @@ func TestTerminal_ResolveTerminalShell(t *testing.T) {
 	}
 
 	// 3. 配置为空字符串时，回退到 envShell
-	if got := resolveTerminalShell("", "/bin/bash"); got != "/bin/bash" {
+	if got := resolveTerminalShell("", validShell); got != validShell {
 		t.Fatalf("expected envShell /bin/bash, got %q", got)
 	}
 
 	// 4. 配置为纯空白字符串时，回退到 envShell
-	if got := resolveTerminalShell("   ", "/bin/bash"); got != "/bin/bash" {
+	if got := resolveTerminalShell("   ", validShell); got != validShell {
 		t.Fatalf("expected envShell /bin/bash, got %q", got)
 	}
 
@@ -1083,7 +1078,7 @@ func TestTerminal_ResolveTerminalShell(t *testing.T) {
 
 	// 6. 配置了不存在的路径时，回退到 envShell
 	nonexistent := "/path/to/definitely/nonexistent/shell"
-	if got := resolveTerminalShell(nonexistent, "/bin/bash"); got != "/bin/bash" {
+	if got := resolveTerminalShell(nonexistent, validShell); got != validShell {
 		t.Fatalf("expected fallback to envShell /bin/bash for nonexistent path, got %q", got)
 	}
 
@@ -1094,7 +1089,7 @@ func TestTerminal_ResolveTerminalShell(t *testing.T) {
 
 	// 8. 配置的是一个目录时，不应作为可执行 shell，回退到 envShell
 	tmpDir := t.TempDir()
-	if got := resolveTerminalShell(tmpDir, "/bin/bash"); got != "/bin/bash" {
+	if got := resolveTerminalShell(tmpDir, validShell); got != validShell {
 		t.Fatalf("expected directory path to fallback to envShell, got %q", got)
 	}
 }
@@ -1103,7 +1098,7 @@ func TestTerminal_ResolveTerminalShell(t *testing.T) {
 func TestTerminal_ShellConfiguration(t *testing.T) {
 	validShell := "/bin/sh"
 	if runtime.GOOS == "windows" {
-		validShell = "cmd.exe"
+		validShell, _ = os.Executable()
 	}
 
 	origNewTerminal := newTerminal
@@ -1589,5 +1584,11 @@ func TestTerminalScriptWithoutWorkDirToast(t *testing.T) {
 	s.runScriptInTerminal(Script{Name: "build", Runner: "npm"})
 	if s.toastMessage != "没有可用的工作目录" {
 		t.Fatalf("toast = %q", s.toastMessage)
+	}
+}
+
+func TestTerminal_InvalidEnvShell(t *testing.T) {
+	if got := resolveTerminalShell("", filepath.Join(t.TempDir(), "missing-shell")); got != defaultFallbackShell() {
+		t.Fatalf("?? SHELL ????: %q", got)
 	}
 }
