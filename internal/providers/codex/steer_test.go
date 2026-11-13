@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,50 +12,12 @@ import (
 	"mcode/internal/testenv"
 )
 
-const steerAppServerScript = `
-import sys, json
-
-thread_id = "th_mock_123"
-turn_id = "turn_mock_abc"
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":thread_id}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":turn_id}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/steer":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":turn_id,"status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-`
-
 func TestCodexHarnessSteer(t *testing.T) {
 	testenv.TempHome(t)
 	logPath := filepath.Join(t.TempDir(), "steer_requests.jsonl")
-	pathJSON, _ := json.Marshal(logPath)
-	script := strings.Replace(steerAppServerScript, `    method = msg.get("method")`,
-		"    with open("+string(pathJSON)+", 'a') as log:\n        log.write(json.dumps(msg) + '\\n')\n"+
-			`    method = msg.get("method")`, 1)
 
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return codexAppServerCommand(ctx, appServerSteer, logPath)
 	}}
 
 	h := New(Options{})

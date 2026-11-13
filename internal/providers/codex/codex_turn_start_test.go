@@ -237,47 +237,6 @@ func TestBuildTurnStartParamsPlanMode(t *testing.T) {
 	}
 }
 
-// codexTurnLogScript 是带请求日志的假 app-server：记录收到的每条请求，并按固定值应答一轮。
-const codexTurnLogScript = `
-import sys, json
-
-thread_id = "th_mock_123"
-turn_id = "turn_mock_abc"
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{},"userAgent":"codex-mock/0.165.0"}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":thread_id}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":turn_id}}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"OK"}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":turn_id,"status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-`
-
-// withRequestLog 在假 app-server 脚本里注入请求日志写入，便于断言实际下发的 JSON-RPC 请求。
-func withRequestLog(script, logPath string) string {
-	pathJSON, _ := json.Marshal(logPath)
-	return strings.Replace(script, `    method = msg.get("method")`,
-		"    with open("+string(pathJSON)+", 'a') as log:\n        log.write(json.dumps(msg) + '\\n')\n"+
-			`    method = msg.get("method")`, 1)
-}
-
 // turnStartLogRequest 是日志里 turn/start 请求的可断言视图。
 type turnStartLogRequest struct {
 	Method string `json:"method"`
@@ -319,10 +278,9 @@ func firstTurnStart(t *testing.T, logPath string) turnStartLogRequest {
 func TestRunSendsLocalImages(t *testing.T) {
 	testenv.TempHome(t)
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")
-	script := withRequestLog(codexTurnLogScript, logPath)
 
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return codexAppServerCommand(ctx, appServerTurnLog, logPath)
 	}}
 
 	h := New(Options{})
@@ -368,10 +326,9 @@ func TestRunSendsLocalImages(t *testing.T) {
 func TestRunSendsPlanCollaborationMode(t *testing.T) {
 	testenv.TempHome(t)
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")
-	script := withRequestLog(codexTurnLogScript, logPath)
 
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return codexAppServerCommand(ctx, appServerTurnLog, logPath)
 	}}
 
 	h := New(Options{})

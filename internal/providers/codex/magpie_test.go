@@ -83,7 +83,7 @@ type magpieCaptureSandbox struct {
 
 func (s *magpieCaptureSandbox) Command(ctx context.Context, workDir string, mode harness.PermissionMode, name string, args ...string) (*exec.Cmd, func(), error) {
 	s.args = append(s.args, append([]string(nil), args...))
-	return exec.CommandContext(ctx, "python3", "-u", "-c", s.script), nil, nil
+	return retryHelperCommand(ctx, s.script), nil, nil
 }
 
 func TestMagpieProcessRoutingAndResume(t *testing.T) {

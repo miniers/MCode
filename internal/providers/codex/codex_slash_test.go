@@ -90,50 +90,6 @@ func TestBuildReviewParams(t *testing.T) {
 	}
 }
 
-// codexSlashLogScript 是带请求日志的假 app-server：支持 thread/compact/start 与 review/start。
-const codexSlashLogScript = `
-import sys, json
-
-thread_id = "th_mock_123"
-turn_id = "turn_mock_abc"
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":thread_id}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/compact/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/started","params":{"threadId":thread_id,"turn":{"id":turn_id}}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"COMPACTED"}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":turn_id,"status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "review/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"reviewThreadId":thread_id,"turn":{"id":turn_id}}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"REVIEWED"}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":turn_id,"status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":turn_id}}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"PLAIN"}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":turn_id,"status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-`
-
 // slashLogRequest 是日志里一条请求的可断言视图。
 type slashLogRequest struct {
 	Method string `json:"method"`
@@ -178,14 +134,13 @@ func findSlashRequest(t *testing.T, reqs []slashLogRequest, method string) slash
 }
 
 // runSlashTurn 用给定的 prompt 与会话跑一轮，返回事件文本与请求日志。
-func runSlashTurn(t *testing.T, prompt, sessionID, script string) (string, []slashLogRequest) {
+func runSlashTurn(t *testing.T, prompt, sessionID, mode string) (string, []slashLogRequest) {
 	t.Helper()
 	testenv.TempHome(t)
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")
-	script = withRequestLog(script, logPath)
 
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return codexAppServerCommand(ctx, mode, logPath)
 	}}
 
 	h := New(Options{})
@@ -213,7 +168,7 @@ func runSlashTurn(t *testing.T, prompt, sessionID, script string) (string, []sla
 }
 
 func TestRunCompactUsesNativeRequest(t *testing.T) {
-	text, reqs := runSlashTurn(t, "/compact", "th_mock_123", codexSlashLogScript)
+	text, reqs := runSlashTurn(t, "/compact", "th_mock_123", appServerSlash)
 	if text != "COMPACTED" {
 		t.Fatalf("expected compacted text, got %q", text)
 	}
@@ -232,38 +187,7 @@ func TestRunCompactUsesNativeRequest(t *testing.T) {
 func TestRunCompactWithoutTurnStartedStillCompletes(t *testing.T) {
 	// thread/compact/start 的响应是空对象，turnId 只能来自 turn/started 通知；
 	// 即使一条 turn/started 都没收到，也必须在 turn/completed 后正常收尾而不是卡住。
-	const script = `
-import sys, json
-
-thread_id = "th_mock_123"
-turn_id = "turn_mock_abc"
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":thread_id}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/compact/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"NOS"}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":turn_id,"status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-`
-	text, _ := runSlashTurn(t, "/compact", "th_mock_123", script)
+	text, _ := runSlashTurn(t, "/compact", "th_mock_123", appServerCompactWithoutStart)
 	if text != "NOS" {
 		t.Fatalf("expected streamed text, got %q", text)
 	}
@@ -271,7 +195,7 @@ while True:
 
 func TestRunReviewUsesNativeRequest(t *testing.T) {
 	t.Run("带说明文字用 custom 目标", func(t *testing.T) {
-		text, reqs := runSlashTurn(t, "/review 只看并发问题", "th_mock_123", codexSlashLogScript)
+		text, reqs := runSlashTurn(t, "/review 只看并发问题", "th_mock_123", appServerSlash)
 		if text != "REVIEWED" {
 			t.Fatalf("expected reviewed text, got %q", text)
 		}
@@ -297,7 +221,7 @@ func TestRunReviewUsesNativeRequest(t *testing.T) {
 	})
 
 	t.Run("无说明文字审阅未提交改动", func(t *testing.T) {
-		_, reqs := runSlashTurn(t, "/review", "th_mock_123", codexSlashLogScript)
+		_, reqs := runSlashTurn(t, "/review", "th_mock_123", appServerSlash)
 		review := findSlashRequest(t, reqs, "review/start")
 		if review.Params.Target.Type != "uncommittedChanges" {
 			t.Fatalf("expected uncommittedChanges target, got %q", review.Params.Target.Type)
@@ -310,7 +234,7 @@ func TestRunReviewUsesNativeRequest(t *testing.T) {
 
 func TestRunCompactWithoutSessionFallsBackToTurnStart(t *testing.T) {
 	// 新会话还没有可恢复的 thread：不拦截 /compact，按普通文本发给 turn/start。
-	text, reqs := runSlashTurn(t, "/compact", "", codexSlashLogScript)
+	text, reqs := runSlashTurn(t, "/compact", "", appServerSlash)
 	if text != "PLAIN" {
 		t.Fatalf("expected plain turn text, got %q", text)
 	}

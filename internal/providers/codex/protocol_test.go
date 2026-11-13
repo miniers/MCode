@@ -25,12 +25,8 @@ type mockApprover struct {
 
 func TestHarnessComposerPrefsWithCachedThread(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")
-	pathJSON, _ := json.Marshal(logPath)
-	script := strings.Replace(pongAppServerScript, `    method = msg.get("method")`,
-		"    with open("+string(pathJSON)+", 'a') as log:\n        log.write(json.dumps(msg) + '\\n')\n"+
-			`    method = msg.get("method")`, 1)
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return codexAppServerCommand(ctx, appServerPong, logPath)
 	}}
 	h := New(Options{})
 	defer h.Close()
@@ -73,12 +69,8 @@ func TestHarnessComposerPrefsWithCachedThread(t *testing.T) {
 // 快速模式优先使用会话指定的速率档位，即使模型目录查不到档位也按 SpeedTier 下发。
 func TestHarnessFastModeSpeedTierPrecedence(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "requests.jsonl")
-	pathJSON, _ := json.Marshal(logPath)
-	script := strings.Replace(pongAppServerScript, `    method = msg.get("method")`,
-		"    with open("+string(pathJSON)+", 'a') as log:\n        log.write(json.dumps(msg) + '\\n')\n"+
-			`    method = msg.get("method")`, 1)
 	sb := &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return codexAppServerCommand(ctx, appServerPong, logPath)
 	}}
 	h := New(Options{})
 	defer h.Close()
@@ -1003,47 +995,15 @@ func (h *Harness) busyProcCount() int {
 	return n
 }
 
-// pongAppServerScript 是一个最小的假 app-server：initialize/thread.*/turn/start 都以固定值应答并立即完成一轮。
-const pongAppServerScript = `
-import sys, json
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":"th_mock_123"}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":"turn_mock_abc"}}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"PONG"}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn_mock_abc","status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-`
-
 func TestMalformedLinesDoNotStopTurn(t *testing.T) {
 	var logs bytes.Buffer
 	oldOutput := log.Writer()
 	log.SetOutput(&logs)
 	defer log.SetOutput(oldOutput)
-	script := strings.Replace(pongAppServerScript, `    elif method == "turn/start":`,
-		"    elif method == \"turn/start\":\n        sys.stdout.write('bad token=secretvalue\\nsecond bad line\\nthird bad line\\n')", 1)
-	h := newEvictHarness(t, script)
+	h := newEvictHarness(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err := h.Run(ctx, harness.Turn{WorkDir: t.TempDir(), Mode: harness.ModeAgent, Prompt: "test", Sandbox: evictSandbox(script)}, nil)
+	err := h.Run(ctx, harness.Turn{WorkDir: t.TempDir(), Mode: harness.ModeAgent, Prompt: "test", Sandbox: evictSandbox(appServerMalformed)}, nil)
 	if err != nil {
 		t.Fatalf("轮次失败: %v", err)
 	}
@@ -1061,81 +1021,10 @@ func TestMalformedLinesDoNotStopTurn(t *testing.T) {
 	}
 }
 
-// slowAppServerScript 与 pongAppServerScript 相同，但当轮输入包含 SLOW 时延迟 2 秒才结束该轮，
-// 用于验证并发轮次不会被串行化。
-const slowAppServerScript = `
-import sys, json, time
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":"th_mock_123"}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/start":
-        try:
-            text = msg.get("params", {}).get("input", [{}])[0].get("text", "")
-        except:
-            text = ""
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":"turn_mock_abc"}}}) + "\n")
-        sys.stdout.flush()
-        if "SLOW" in text:
-            time.sleep(2)
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"PONG"}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn_mock_abc","status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-`
-
 func TestHarnessResidentProcessReuse(t *testing.T) {
-	pythonScript := `
-import sys, json
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":"th_mock_123"}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":"turn_mock_abc"}}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"PONG"}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn_mock_abc","status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/interrupt":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn_mock_abc","status":"interrupted"}}}) + "\n")
-        sys.stdout.flush()
-`
-
 	sb := &mockSandbox{
 		cmdFunc: func(ctx context.Context) *exec.Cmd {
-			cmd := exec.CommandContext(ctx, "python3", "-u", "-c", pythonScript)
+			cmd := codexAppServerCommand(ctx, appServerPong, "")
 			cmd.Stderr = os.Stderr
 			return cmd
 		},
@@ -1244,7 +1133,7 @@ while True:
 func TestHarnessProcessPoolSeparatesWorkDirs(t *testing.T) {
 	sb := &mockSandbox{
 		cmdFunc: func(ctx context.Context) *exec.Cmd {
-			return exec.CommandContext(ctx, "python3", "-u", "-c", pongAppServerScript)
+			return codexAppServerCommand(ctx, appServerPong, "")
 		},
 	}
 
@@ -1325,7 +1214,7 @@ func TestHarnessProcessPoolSeparatesWorkDirs(t *testing.T) {
 func TestHarnessProcessPoolConcurrentTurns(t *testing.T) {
 	sb := &mockSandbox{
 		cmdFunc: func(ctx context.Context) *exec.Cmd {
-			return exec.CommandContext(ctx, "python3", "-u", "-c", slowAppServerScript)
+			return codexAppServerCommand(ctx, appServerSlow, "")
 		},
 	}
 
@@ -1373,42 +1262,9 @@ func TestHarnessProcessPoolConcurrentTurns(t *testing.T) {
 }
 
 func TestHarnessTurnInterrupt(t *testing.T) {
-	pythonScript := `
-import sys, json, time
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":"th_mock_123"}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":"turn_mock_abc"}}}) + "\n")
-        sys.stdout.flush()
-        # 挂起不完成，等待中断
-        time.sleep(10)
-    elif method == "turn/interrupt":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn_mock_abc","status":"interrupted"}}}) + "\n")
-        sys.stdout.flush()
-`
-
 	sb := &mockSandbox{
 		cmdFunc: func(ctx context.Context) *exec.Cmd {
-			return exec.CommandContext(ctx, "python3", "-u", "-c", pythonScript)
+			return codexAppServerCommand(ctx, appServerInterrupt, "")
 		},
 	}
 

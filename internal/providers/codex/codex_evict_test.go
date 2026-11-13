@@ -10,8 +10,8 @@ import (
 	"mcode/internal/testenv"
 )
 
-// newEvictHarness 创建使用假 app-server 脚本的 Harness。
-func newEvictHarness(t *testing.T, script string) *Harness {
+// newEvictHarness 创建使用假 app-server 的 Harness。
+func newEvictHarness(t *testing.T) *Harness {
 	t.Helper()
 	testenv.TempHome(t)
 	h := New(Options{})
@@ -23,15 +23,15 @@ func newEvictHarness(t *testing.T, script string) *Harness {
 	return h
 }
 
-// evictSandbox 返回运行给定脚本的沙箱。
-func evictSandbox(script string) *mockSandbox {
+// evictSandbox 返回运行给定模式的假 app-server 的沙箱。
+func evictSandbox(mode string) *mockSandbox {
 	return &mockSandbox{cmdFunc: func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, "python3", "-u", "-c", script)
+		return codexAppServerCommand(ctx, mode, "")
 	}}
 }
 
 func TestEvictThreadClosesIdleProcess(t *testing.T) {
-	h := newEvictHarness(t, pongAppServerScript)
+	h := newEvictHarness(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -40,7 +40,7 @@ func TestEvictThreadClosesIdleProcess(t *testing.T) {
 		WorkDir:  t.TempDir(),
 		Mode:     harness.ModeAgent,
 		Prompt:   "Ping",
-		Sandbox:  evictSandbox(pongAppServerScript),
+		Sandbox:  evictSandbox(appServerPong),
 	}, nil); err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestEvictThreadClosesIdleProcess(t *testing.T) {
 }
 
 func TestEvictThreadKeepsUnrelatedProcesses(t *testing.T) {
-	h := newEvictHarness(t, pongAppServerScript)
+	h := newEvictHarness(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -84,7 +84,7 @@ func TestEvictThreadKeepsUnrelatedProcesses(t *testing.T) {
 		WorkDir:  t.TempDir(),
 		Mode:     harness.ModeAgent,
 		Prompt:   "Ping",
-		Sandbox:  evictSandbox(pongAppServerScript),
+		Sandbox:  evictSandbox(appServerPong),
 	}, nil); err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -102,43 +102,8 @@ func TestEvictThreadKeepsUnrelatedProcesses(t *testing.T) {
 	}
 }
 
-// evictSlowScript 在 turn/start 后延迟一秒才结束该轮，便于在轮次进行中观察进程池。
-const evictSlowScript = `
-import sys, json, time
-
-thread_id = "th_mock_123"
-turn_id = "turn_mock_abc"
-
-while True:
-    line = sys.stdin.readline()
-    if not line:
-        break
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        msg = json.loads(line)
-    except:
-        continue
-    method = msg.get("method")
-    mid = msg.get("id")
-    if method == "initialize":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"capabilities":{}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "thread/start" or method == "thread/resume":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"thread":{"id":thread_id}}}) + "\n")
-        sys.stdout.flush()
-    elif method == "turn/start":
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":{"turn":{"id":turn_id}}}) + "\n")
-        sys.stdout.flush()
-        time.sleep(1)
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"msg_1","delta":"SLOW"}}) + "\n")
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":turn_id,"status":"completed"}}}) + "\n")
-        sys.stdout.flush()
-`
-
 func TestEvictThreadSkipsBusyProcess(t *testing.T) {
-	h := newEvictHarness(t, evictSlowScript)
+	h := newEvictHarness(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -150,7 +115,7 @@ func TestEvictThreadSkipsBusyProcess(t *testing.T) {
 			WorkDir:  t.TempDir(),
 			Mode:     harness.ModeAgent,
 			Prompt:   "Ping",
-			Sandbox:  evictSandbox(evictSlowScript),
+			Sandbox:  evictSandbox(appServerEvictSlow),
 		}, nil)
 	}()
 
@@ -196,7 +161,7 @@ func TestEvictThreadSkipsBusyProcess(t *testing.T) {
 }
 
 func TestTransientTurnRetiresProcess(t *testing.T) {
-	h := newEvictHarness(t, pongAppServerScript)
+	h := newEvictHarness(t)
 
 	var texts []string
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -205,7 +170,7 @@ func TestTransientTurnRetiresProcess(t *testing.T) {
 		WorkDir:   t.TempDir(),
 		Mode:      harness.ModeAgent,
 		Prompt:    "Ping",
-		Sandbox:   evictSandbox(pongAppServerScript),
+		Sandbox:   evictSandbox(appServerPong),
 		Transient: true,
 	}, func(e harness.Event) {
 		if e.Type == harness.EventText {
@@ -224,10 +189,10 @@ func TestTransientTurnRetiresProcess(t *testing.T) {
 }
 
 func TestTransientTurnRetiresReusedIdleProcess(t *testing.T) {
-	h := newEvictHarness(t, pongAppServerScript)
+	h := newEvictHarness(t)
 
 	// 两轮共用同一个沙箱实例与工作目录，才能命中同一个 (workDir, sandbox) 分组复用空闲进程。
-	sb := evictSandbox(pongAppServerScript)
+	sb := evictSandbox(appServerPong)
 	workDir := t.TempDir()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
