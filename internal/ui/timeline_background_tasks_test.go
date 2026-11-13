@@ -620,6 +620,7 @@ func TestRenderBackgroundTasksPanelBeeAlignedLeft(t *testing.T) {
 
 // TestRenderBackgroundTasksPanelReduceMotion 验证减少动效时不注册扫光动画，只显示静态标题。
 func TestRenderBackgroundTasksPanelReduceMotion(t *testing.T) {
+	setAppReduceMotion(t, true)
 	s := newChatState(NewFakeClient())
 	data := backgroundTasksItem{
 		threadID: "t1",

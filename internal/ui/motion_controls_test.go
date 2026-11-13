@@ -9,6 +9,7 @@ import (
 )
 
 func TestMotionControlsReducedFeedback(t *testing.T) {
+	setAppReduceMotion(t, true)
 	copied, active, ratio, selected, count := false, false, float32(0), 0, 4
 	tester := ui.NewTesterWith(func(c *ui.Context) {
 		ui.Column(c).Width(200).Children(func() {

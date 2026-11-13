@@ -456,6 +456,7 @@ func TestReviewCommentPopoverAndReadButton(t *testing.T) {
 }
 
 func TestReviewReadButtonReduceMotion(t *testing.T) {
+	setAppReduceMotion(t, true)
 	s, _, dp, _, _ := reviewCommentsSetup(t)
 	snapshot, _ := reviewFixture()
 	file := snapshot.Files[0]

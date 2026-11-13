@@ -8,6 +8,7 @@ import (
 )
 
 func TestMotionLoadingMigrationReduced(t *testing.T) {
+	setAppReduceMotion(t, true)
 	cases := []struct {
 		name  string
 		label string

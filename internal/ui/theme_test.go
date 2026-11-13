@@ -9,6 +9,7 @@ import (
 )
 
 func TestSurfaceAndAccentTokens(t *testing.T) {
+	setAppReduceMotion(t, true)
 	for _, dark := range []bool{false, true} {
 		var colors [5]ui.Color
 		var accent, hover, pressed, subtle, onAccent, hairline ui.Color
@@ -149,6 +150,7 @@ func resetRuntimeTheme(t *testing.T) {
 
 func TestThemeRuntimeDefaultPalette(t *testing.T) {
 	resetRuntimeTheme(t)
+	setAppReduceMotion(t, true)
 	getters := []func(*ui.Context) ui.Color{
 		ThemeSurfaceCanvas, ThemeSurfaceMain, ThemeSurfaceCard, ThemeSurfaceRaised, ThemeSurfacePopover,
 		ThemePrimaryText, ThemeSecondaryText, ThemeTertiaryText, ThemeAccent, ThemeDanger, ThemeWarning,
@@ -174,6 +176,7 @@ func TestThemeRuntimeDefaultPalette(t *testing.T) {
 				got = append(got, get(c))
 			}
 		}, 100, 100)
+		appReduceMotion.Store(true)
 		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 		tt.SetDark(dark)
 		tt.Frame()
@@ -187,13 +190,16 @@ func TestThemeRuntimeDefaultPalette(t *testing.T) {
 
 func TestThemeRuntimeOverridesAndFixed(t *testing.T) {
 	resetRuntimeTheme(t)
+	setAppReduceMotion(t, true)
 	cfg := config.AppearanceConfig{Theme: config.ThemeSystem, Themes: []config.ThemeDef{
 		{ID: config.ThemeLight, Base: config.ThemeLight, Colors: map[string]string{"accent": "#123456"}},
 		{ID: "custom", Base: config.ThemeLight, Colors: map[string]string{"text": "#345678AA"}, Fonts: map[string]int{"conversation": 150}},
 	}}
 	setActiveTheme(cfg)
+	appReduceMotion.Store(true)
 	var accent, text, canvas ui.Color
 	tt := ui.NewTester(func(c *ui.Context) { accent, text, canvas = ThemeAccent(c), ThemePrimaryText(c), ThemeSurfaceCanvas(c) }, 100, 100)
+	appReduceMotion.Store(true)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.SetDark(false)
 	tt.Frame()
@@ -207,6 +213,7 @@ func TestThemeRuntimeOverridesAndFixed(t *testing.T) {
 	}
 	cfg.Theme = "custom"
 	setActiveTheme(cfg)
+	appReduceMotion.Store(true)
 	for _, dark := range []bool{false, true} {
 		tt.SetDark(dark)
 		tt.Frame()
@@ -229,6 +236,7 @@ func TestThemeRuntimeOverridesAndFixed(t *testing.T) {
 
 func TestThemeRuntimeSystemAccentAndInvalidColors(t *testing.T) {
 	resetRuntimeTheme(t)
+	setAppReduceMotion(t, true)
 	for _, base := range []string{config.ThemeLight, config.ThemeDark} {
 		setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: base, Colors: map[string]string{
 			"accent": config.ThemeAccentSystem, "canvas": "#oops", "text": "#12345", "border": "#GGGGGG",
@@ -238,11 +246,13 @@ func TestThemeRuntimeSystemAccentAndInvalidColors(t *testing.T) {
 			accent, canvas, text, border = ThemeAccent(c), ThemeSurfaceCanvas(c), ThemePrimaryText(c), ThemeBorder(c)
 		}, 100, 100)
 		system := ui.Hex("#ABCDEF80")
+		appReduceMotion.Store(true)
 		tt.SetPreferences(ui.Preferences{ReduceMotion: true, Accent: system})
 		tt.Frame()
 		if accent != system {
 			t.Fatalf("系统强调色未使用: %v", accent)
 		}
+		appReduceMotion.Store(true)
 		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 		tt.Frame()
 		p := builtinPalettes[base]
@@ -288,14 +298,17 @@ func TestThemeRuntimeRegionalFonts(t *testing.T) {
 
 func TestThemeRuntimeMarkdownRefresh(t *testing.T) {
 	resetRuntimeTheme(t)
+	setAppReduceMotion(t, true)
 	chat := newChatState(nil)
 	mini := &miniEditorState{path: "test.md", text: "# Test", baseline: "# Test", preview: true}
 	tt := ui.NewTester(func(c *ui.Context) { ensureChatMarkdown(c, chat); mini.view(c) }, 600, 400)
+	appReduceMotion.Store(true)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
 	for _, key := range []string{"accent", "card", "border", "text_secondary"} {
 		oldChat, oldMini := chat.mdOpts.Theme, mini.mdOpts.Theme
 		setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeDark, Colors: map[string]string{key: "#123456"}}}})
+		appReduceMotion.Store(true)
 		tt.Frame()
 		if chat.mdOpts.Theme == oldChat || mini.mdOpts.Theme == oldMini || chat.mdStaticOpts.Theme != chat.mdOpts.Theme {
 			t.Fatalf("%s 变化后 Markdown 缓存未重建", key)
@@ -313,6 +326,7 @@ func TestThemeRuntimeMarkdownRefresh(t *testing.T) {
 }
 
 func TestThemeRuntimeTransitionReduceMotion(t *testing.T) {
+	setAppReduceMotion(t, false)
 	resetRuntimeTheme(t)
 	var got ui.Color
 	tt := ui.NewTester(func(c *ui.Context) { applyAppTheme(c); got = ThemeAccent(c) }, 100, 100)
@@ -325,12 +339,14 @@ func TestThemeRuntimeTransitionReduceMotion(t *testing.T) {
 	if got == start || got == target {
 		t.Fatalf("主题颜色缺少中间态: %v", got)
 	}
+	appReduceMotion.Store(true)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
 	if got != target {
 		t.Fatalf("减少动效时应立即到终点: %v", got)
 	}
 	cfg.Themes[0].Colors["accent"] = "#30E040"
+	cfg.ReduceMotion = true
 	setActiveTheme(cfg)
 	tt.Frame()
 	if got != ui.Hex("#30E040") {

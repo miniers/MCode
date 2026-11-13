@@ -20,6 +20,7 @@ func TestMotionSystemReduceMotion(t *testing.T) {
 		{"negative period", false, -time.Second, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			setAppReduceMotion(t, tc.reduced)
 			var phase float32
 			tester := ui.NewTesterWith(func(c *ui.Context) {
 				phase = motionLoop(c, ui.Box(c.Key("loop")), "phase", tc.period, ui.Linear)
@@ -42,6 +43,7 @@ func TestMotionSystemReduceMotion(t *testing.T) {
 }
 
 func TestMotionSystemPresets(t *testing.T) {
+	setAppReduceMotion(t, true)
 	presets := []struct {
 		name string
 		make func(*ui.Context) ui.ElementTransition
@@ -143,6 +145,7 @@ func TestMotionSystemPreferenceChange(t *testing.T) {
 	if !tester.FramePending() {
 		t.Fatal("普通动效应请求帧")
 	}
+	setAppReduceMotion(t, true)
 	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tester.Frame()
 	if phase != 0 || enter != 1 {
@@ -152,6 +155,7 @@ func TestMotionSystemPreferenceChange(t *testing.T) {
 	if tester.FramePending() {
 		t.Fatal("切换后仍持续请求帧")
 	}
+	appReduceMotion.Store(false)
 	tester.SetPreferences(ui.Preferences{})
 	tester.Frame()
 	if !tester.FramePending() {
@@ -189,6 +193,7 @@ func TestMotionSystemCustomTransitions(t *testing.T) {
 			}
 		}
 	}, 100, 100)
+	setAppReduceMotion(t, true)
 	ui.NewTesterWith(func(c *ui.Context) {
 		original := ui.ElementTransition{Animation: &springSnappy, Position: true, Exit: &ui.Motion{Opacity: 0}}
 		got := motionTransition(c, original)
@@ -214,6 +219,7 @@ func TestMotionSystemTransitionPreferenceChange(t *testing.T) {
 	if rect, ok := tester.Find("item"); !ok || rect.W != 40 || rect.H != 20 {
 		t.Fatalf("进入后几何不正确：%+v，存在=%v", rect, ok)
 	}
+	setAppReduceMotion(t, true)
 	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tester.Frame()
 	show = false
@@ -247,10 +253,12 @@ func TestMotionSystemScalars(t *testing.T) {
 	if progress <= 0 || progress >= 1 || fade <= 0 {
 		t.Fatalf("数字应继续滚动：%v, %v", progress, fade)
 	}
+	setAppReduceMotion(t, true)
 	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 	if press != 1 || hover != 1 || progress != 1 || fade != 1 {
 		t.Fatalf("减少动效标量未到终态：%v, %v, %v, %v", press, hover, progress, fade)
 	}
+	appReduceMotion.Store(false)
 	tester.SetPreferences(ui.Preferences{})
 	if progress != 1 || fade != 1 {
 		t.Fatalf("恢复偏好后旧数字不应重播：%v, %v", progress, fade)
@@ -258,6 +266,7 @@ func TestMotionSystemScalars(t *testing.T) {
 }
 
 func TestMotionSystemReducedUnfold(t *testing.T) {
+	setAppReduceMotion(t, true)
 	open := false
 	tester := ui.NewTesterWith(func(c *ui.Context) {
 		motionUnfoldBody(c, "unfold", open, func() { ui.Text(c, "body") })

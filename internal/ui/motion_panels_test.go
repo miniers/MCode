@@ -27,6 +27,7 @@ func TestMotionPanelsQuotaBounds(t *testing.T) {
 }
 
 func TestMotionPanelsQuotaReducedJump(t *testing.T) {
+	setAppReduceMotion(t, true)
 	used := float64(0)
 	options := ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}}
 	actual := ui.NewTesterWith(func(c *ui.Context) {
@@ -51,6 +52,7 @@ func TestMotionPanelsQuotaReducedJump(t *testing.T) {
 }
 
 func TestMotionPanelsReducedFeedback(t *testing.T) {
+	setAppReduceMotion(t, true)
 	x := float32(0)
 	color := ui.Color{R: 255, A: 255}
 	options := ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}}
@@ -72,6 +74,7 @@ func TestMotionPanelsReducedFeedback(t *testing.T) {
 }
 
 func TestMotionPanelsModelPageReduced(t *testing.T) {
+	setAppReduceMotion(t, true)
 	depth, selected := 0, float32(0)
 	state := &ModelPickerState{}
 	var slide float32
@@ -119,6 +122,7 @@ func TestMotionPanelsModelPageRapidReverse(t *testing.T) {
 }
 
 func TestMotionPanelsSwarmReduced(t *testing.T) {
+	setAppReduceMotion(t, true)
 	const lead = "motion-panels-test"
 	key := lead + "|" + string(teamPanelID)
 	defer func() {

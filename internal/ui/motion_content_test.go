@@ -9,6 +9,7 @@ import (
 )
 
 func TestMotionContentReducedAttachment(t *testing.T) {
+	setAppReduceMotion(t, true)
 	show := false
 	tester := ui.NewTesterWith(func(c *ui.Context) {
 		ui.Column(c.Key("attachment-shell")).Fill().Children(func() {
@@ -31,6 +32,7 @@ func TestMotionContentReducedAttachment(t *testing.T) {
 }
 
 func TestMotionContentReducedNumber(t *testing.T) {
+	setAppReduceMotion(t, true)
 	const key = "motion-content-reduced-number"
 	t.Cleanup(func() {
 		rollingNumbers.mu.Lock()
@@ -85,6 +87,7 @@ func TestMotionContentNumberAnimation(t *testing.T) {
 	}
 	value = 9
 	tester.Frame()
+	setAppReduceMotion(t, true)
 	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tester.Frame()
 	if rollingLabelShown(tester, "0") || !rollingLabelShown(tester, "9") {
@@ -97,6 +100,7 @@ func TestMotionContentNumberAnimation(t *testing.T) {
 }
 
 func TestMotionContentReducedOnboardingStep(t *testing.T) {
+	setAppReduceMotion(t, true)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	u := onboardingState(s)

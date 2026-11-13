@@ -35,6 +35,7 @@ func TestMotionBusyLoops(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			setAppReduceMotion(t, true)
 			visible := true
 			view := func(c *ui.Context) {
 				ui.Column(c).Fill().Children(func() {
@@ -57,9 +58,11 @@ func TestMotionBusyLoops(t *testing.T) {
 				t.Fatal("减少动效时不应请求后续帧")
 			}
 
+			appReduceMotion.Store(false)
 			tester.SetPreferences(ui.Preferences{})
 			tester.Frame()
 			// 正常模式通过 After 定时器低频刷新，不经过 FramePending。
+			appReduceMotion.Store(true)
 			tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 			tester.Frame()
 			tester.Advance(2 * time.Second)
@@ -86,6 +89,7 @@ func TestMotionBusyMarqueePreferenceChange(t *testing.T) {
 	if !tester.FramePending() {
 		t.Fatal("悬停溢出标题应请求跑马灯帧")
 	}
+	setAppReduceMotion(t, true)
 	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tester.Frame()
 	tester.Advance(2 * time.Second)

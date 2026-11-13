@@ -8,12 +8,14 @@ import (
 )
 
 func TestSkeletonRowsReduceMotion(t *testing.T) {
+	setAppReduceMotion(t, true)
 	view := func(c *ui.Context) { renderSkeletonRows(c, "test-skeleton", 3, 30, Space2) }
 	reduced := ui.NewTesterWith(view, 300, 200, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 	reduced.Frame()
 	if reduced.FramePending() {
 		t.Fatal("减少动效时骨架仍请求帧")
 	}
+	appReduceMotion.Store(false)
 	normal := ui.NewTester(view, 300, 200)
 	normal.Advance(50 * time.Millisecond)
 	if !normal.FramePending() {

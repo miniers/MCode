@@ -165,6 +165,7 @@ func TestTasksAcceptanceMatrix(t *testing.T) {
 		for _, dark := range []bool{false, true} {
 			for _, reduced := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%dx%d/dark=%t/reduceMotion=%t", size[0], size[1], dark, reduced), func(t *testing.T) {
+					setAppReduceMotion(t, reduced)
 					s, view := buildTasksRoot(nil, WithTasksWindowMode("tasks"))
 					defer s.close()
 					project := "一个非常长的项目名称，用于检查边界截断"

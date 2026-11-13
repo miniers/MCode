@@ -8,6 +8,7 @@ import (
 
 func TestChatMarkdownThemeSwitch(t *testing.T) {
 	resetRuntimeTheme(t)
+	setAppReduceMotion(t, true)
 	s := &chatState{}
 	var expected ui.Color
 	tester := ui.NewTester(func(c *ui.Context) {

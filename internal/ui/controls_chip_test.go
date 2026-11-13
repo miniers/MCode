@@ -76,6 +76,7 @@ func TestCapsuleSelectedColors(t *testing.T) {
 }
 
 func TestStatusDotReduceMotion(t *testing.T) {
+	setAppReduceMotion(t, true)
 	var duration time.Duration
 	tt := ui.NewTester(func(c *ui.Context) {
 		duration = animateDuration(c, statusDotPulsePeriod)

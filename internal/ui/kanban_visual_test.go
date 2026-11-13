@@ -91,6 +91,7 @@ func TestKanbanMorePopoverStableAndEscape(t *testing.T) {
 }
 
 func TestKanbanDoneRailReduceMotion(t *testing.T) {
+	setAppReduceMotion(t, true)
 	s := newChatState(NewFakeClient())
 	defer s.close()
 	ks := &kanbanState{}

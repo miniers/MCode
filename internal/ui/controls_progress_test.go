@@ -41,6 +41,7 @@ func TestProgressBarRatio(t *testing.T) {
 }
 
 func TestProgressBarReduceMotionUsesTarget(t *testing.T) {
+	setAppReduceMotion(t, true)
 	ratio := float32(0.2)
 	tt := ui.NewTesterWith(func(c *ui.Context) {
 		ui.Column(c).Width(200).Children(func() {

@@ -8,6 +8,7 @@ import (
 
 func TestLoadingIndicatorLabels(t *testing.T) {
 	for _, reduced := range []bool{false, true} {
+		setAppReduceMotion(t, reduced)
 		for _, text := range []string{"", "正在读取"} {
 			tester := ui.NewTesterWith(func(c *ui.Context) {
 				LoadingIndicator(c, "loading", text, IconSM)

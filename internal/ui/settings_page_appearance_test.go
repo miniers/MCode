@@ -139,7 +139,7 @@ func TestSettingsAppearanceMotion(t *testing.T) {
 	}
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
-	if !reduced {
-		t.Fatal("系统减少动效偏好应生效")
+	if reduced {
+		t.Fatal("系统减少动效偏好不应覆盖应用开关")
 	}
 }

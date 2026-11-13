@@ -67,6 +67,7 @@ func TestAutomationClosedStopsWork(t *testing.T) {
 func TestAutomationMotionReduceMotion(t *testing.T) {
 	for _, reduced := range []bool{true, false} {
 		t.Run(map[bool]string{true: "reduced", false: "normal"}[reduced], func(t *testing.T) {
+			setAppReduceMotion(t, reduced)
 			s := &chatState{client: NewFakeClient()}
 			as := getAutomationState(s)
 			runs := []AutomationRun{{ID: "r1", Status: "running", StartedAt: time.Now()}}

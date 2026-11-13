@@ -42,6 +42,7 @@ func TestSheetDismissAndBounds(t *testing.T) {
 }
 
 func TestSheetReduceMotionDoesNotScheduleFrames(t *testing.T) {
+	setAppReduceMotion(t, true)
 	open := true
 	tt := ui.NewTesterWith(func(c *ui.Context) {
 		Sheet(c, SheetProps{Key: "sheet-reduce-motion", Label: "测试卡片", Open: &open, Width: 300, Height: 200}, nil)

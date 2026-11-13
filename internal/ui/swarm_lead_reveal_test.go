@@ -76,6 +76,7 @@ func TestSwarmLeadRevealFinishesWhileBeeRuns(t *testing.T) {
 }
 
 func TestSwarmLeadReduceMotionAndHistory(t *testing.T) {
+	setAppReduceMotion(t, true)
 	s := newLeadRevealState()
 	visible := true
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -93,6 +94,7 @@ func TestSwarmLeadReduceMotionAndHistory(t *testing.T) {
 	if s.mdOpts.Reveal.Unit != markdown.AtOnce || s.mdOpts.Reveal.Fade != -1 {
 		t.Fatal("减少动效时应立即揭示且关闭淡入")
 	}
+	appReduceMotion.Store(false)
 	tt.SetPreferences(ui.Preferences{TextScale: 1})
 	tt.Frame()
 	if s.mdOpts.Reveal.Unit != markdown.ByCharacter {

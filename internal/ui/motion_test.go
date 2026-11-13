@@ -7,6 +7,27 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func setAppReduceMotion(t *testing.T, value bool) {
+	t.Helper()
+	previous := appReduceMotion.Swap(value)
+	t.Cleanup(func() { appReduceMotion.Store(previous) })
+}
+
+func TestReduceMotionUsesAppPreference(t *testing.T) {
+	setAppReduceMotion(t, false)
+	var reduced bool
+	tt := ui.NewTesterWith(func(c *ui.Context) { reduced = reduceMotion(c) }, 100, 100,
+		ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	if reduced {
+		t.Fatal("系统偏好不应覆盖应用开关")
+	}
+	appReduceMotion.Store(true)
+	tt.Frame()
+	if !reduced {
+		t.Fatal("应用减少动效开关应生效")
+	}
+}
+
 // 动效 token 是全局过渡的唯一来源：时长必须为正且有序，位移量要与设计稿一致。
 func TestMotionTokens_OrderedAndBounded(t *testing.T) {
 	durations := map[string]time.Duration{
@@ -74,6 +95,7 @@ func TestStaggerDelayForReduceMotion(t *testing.T) {
 	if want := 3 * staggerStep; normalThird != want {
 		t.Fatalf("正常动效时第 3 项延迟应为 %v，实际 %v", want, normalThird)
 	}
+	setAppReduceMotion(t, true)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
 	if reducedThird != 0 {
 		t.Fatalf("减少动效时交错入场应关闭，实际 %v", reducedThird)
@@ -94,6 +116,7 @@ func TestAnimateDurationReduceMotion(t *testing.T) {
 	if normal != motionUnfold {
 		t.Fatalf("正常动效时应返回原时长 %v，实际 %v", motionUnfold, normal)
 	}
+	setAppReduceMotion(t, true)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
 	if reduced != 0 {
 		t.Fatalf("减少动效时应返回 0，实际 %v", reduced)
