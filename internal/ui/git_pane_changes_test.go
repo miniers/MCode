@@ -483,6 +483,24 @@ func (f *gitChangesGenerateClient) GenerateCommitMessage(context.Context, string
 	return "生成的信息", nil
 }
 
+func TestGitChangesGenerateNoChanges(t *testing.T) {
+	s, ps, base := gitPaneTestState(t)
+	client := &gitChangesDelayedClient{gitChangesFakeClient: &gitChangesFakeClient{gitPaneFakeClient: base}, release: make(chan struct{}), err: git.ErrNoChanges}
+	s.client = client
+	ps.state = GitState{WorkDir: t.TempDir()}
+	ps.entries = []git.StatusEntry{{Path: "a", Worktree: 'M'}}
+	st := gitChangesStateFor(ps)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneChanges(c, s, "git-test", ps) }, 600, 500)
+	tt.Frame()
+	close(client.release)
+	gitPaneWait(t, func() bool { st.mu.Lock(); defer st.mu.Unlock(); return st.cancel == nil })
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if ps.failure != nil {
+		t.Fatalf("没有改动时出现错误：%+v", ps.failure)
+	}
+}
+
 func TestGitChangesAutoGenerate(t *testing.T) {
 	for _, initial := range []string{"", "已有草稿"} {
 		t.Run(initial, func(t *testing.T) {

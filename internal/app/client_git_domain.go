@@ -197,7 +197,7 @@ func (c *Client) GenerateCommitMessage(ctx context.Context, threadID string) (st
 	diffPatch := runGitDiffForCommit(ctx, workDir)
 
 	if strings.TrimSpace(diffStat) == "" && strings.TrimSpace(diffPatch) == "" {
-		return "", errors.New("没有检测到未提交的代码改动")
+		return "", git.ErrNoChanges
 	}
 
 	// 与会话标题自动生成共用同一套模型选择。

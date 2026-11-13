@@ -18,6 +18,9 @@ import (
 // ErrNoHead 表示仓库还没有任何提交。
 var ErrNoHead = errors.New("仓库还没有任何提交")
 
+// ErrNoChanges 表示工作区没有未提交的改动。
+var ErrNoChanges = errors.New("没有检测到未提交的代码改动")
+
 // CommitPatchResult 描述只基于补丁向 HEAD 提交的执行结果。
 type CommitPatchResult struct {
 	SHA        string   // 没有实际改动时为空

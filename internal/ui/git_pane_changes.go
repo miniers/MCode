@@ -395,7 +395,7 @@ func renderGitPaneChanges(c *ui.Context, s *chatState, threadID string, ps *gitP
 			st.cancel = nil
 			st.mu.Unlock()
 			cancel()
-			if err != nil && !canceled {
+			if err != nil && !canceled && !errors.Is(err, git.ErrNoChanges) {
 				ps.fail(err)
 			}
 			s.invalidate()
