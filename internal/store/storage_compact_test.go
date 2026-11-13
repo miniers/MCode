@@ -398,6 +398,42 @@ func TestCompactForIncrementalVacuumSkipsConvertedDB(t *testing.T) {
 	}
 }
 
+func TestCompactForIncrementalVacuumEarlyReturnReleasesDB(t *testing.T) {
+	oldMinBytes := compactRewriteMinBytes
+	t.Cleanup(func() { compactRewriteMinBytes = oldMinBytes })
+
+	for _, tc := range []struct {
+		name     string
+		minBytes int64
+	}{
+		{name: "标记新鲜"},
+		{name: "小于阈值", minBytes: 1 << 62},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			path := createCompactTestDB(t)
+			if converted, err := CompactForIncrementalVacuum(ctx, path, nil); err != nil || !converted {
+				t.Fatalf("初始化增量库失败: converted=%v err=%v", converted, err)
+			}
+			compactRewriteMinBytes = tc.minBytes
+
+			converted, err := CompactForIncrementalVacuum(ctx, path, nil)
+			if err != nil || converted {
+				t.Fatalf("提前返回路径不符: converted=%v err=%v", converted, err)
+			}
+
+			// 连接没放掉时库文件句柄仍被占用，Windows 上这里会报 being used by another process。
+			moved := path + ".moved"
+			if err := os.Rename(path, moved); err != nil {
+				t.Fatalf("提前返回后库文件应可改名: %v", err)
+			}
+			if err := os.Rename(moved, path); err != nil {
+				t.Fatalf("改回库文件名失败: %v", err)
+			}
+		})
+	}
+}
+
 func TestCompactForIncrementalVacuumMarkerWriteFailure(t *testing.T) {
 	path := createCompactTestDB(t)
 	if err := os.Mkdir(path+compactMarkerSuffix, 0o700); err != nil {

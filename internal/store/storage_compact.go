@@ -89,12 +89,39 @@ func CompactForIncrementalVacuum(ctx context.Context, path string, progress func
 	if err != nil {
 		return false, fmt.Errorf("open db %s for compact: %w", cleanPath, err)
 	}
-	defer db.Close()
 	db.SetMaxOpenConns(1)
 	conn, err := db.Conn(ctx)
 	if err != nil {
+		_ = db.Close()
 		return false, fmt.Errorf("connect db %s for compact: %w", cleanPath, err)
 	}
+	// 借出的 conn 不算空闲连接，db.Close 关不到它：每条返回路径都要放掉，
+	// 否则库文件句柄会一直挂着（Windows 上表现为无法删除/替换库文件）。
+	connClosed := false
+	closeConn := func() error {
+		if connClosed {
+			return nil
+		}
+		connClosed = true
+		return conn.Close()
+	}
+	dbClosed := false
+	closeDB := func() error {
+		if dbClosed {
+			return nil
+		}
+		dbClosed = true
+		return db.Close()
+	}
+	defer func() {
+		// 顺序不能反：db.Close 只关空闲连接，得先把借出的 conn 还掉。
+		if err := closeConn(); err != nil {
+			log.Printf("store: 释放预整理连接 %s 失败: %v", cleanPath, err)
+		}
+		if err := closeDB(); err != nil {
+			log.Printf("store: 关闭预整理库 %s 失败: %v", cleanPath, err)
+		}
+	}()
 
 	readPragma := func(name string) (int64, error) {
 		var v int64
@@ -214,11 +241,11 @@ func CompactForIncrementalVacuum(ctx context.Context, path string, progress func
 
 	// 先彻底放掉源库连接（conn.Close 只是归还连接池，db.Close 才会关闭文件句柄），
 	// 再以只读方式校验新文件，避免替换时源库仍开着旧文件。
-	if err := conn.Close(); err != nil {
+	if err := closeConn(); err != nil {
 		cleanupTmp()
 		return false, fmt.Errorf("close source db %s: %w", cleanPath, err)
 	}
-	if err := db.Close(); err != nil {
+	if err := closeDB(); err != nil {
 		cleanupTmp()
 		return false, fmt.Errorf("close source db handle %s: %w", cleanPath, err)
 	}
