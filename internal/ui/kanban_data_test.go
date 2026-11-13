@@ -2,9 +2,118 @@ package mcodeui
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 )
+
+type actionKanbanClient struct {
+	*controlledKanbanClient
+	actions chan chan error
+}
+
+func (c *actionKanbanClient) waitAction() error {
+	reply := make(chan error, 1)
+	c.actions <- reply
+	return <-reply
+}
+func (c *actionKanbanClient) MoveTask(context.Context, string, string, int) (KanbanTask, error) {
+	return KanbanTask{}, c.waitAction()
+}
+func (c *actionKanbanClient) StartTask(context.Context, string, int) (KanbanTask, error) {
+	return KanbanTask{}, c.waitAction()
+}
+func (c *actionKanbanClient) PauseGoal(context.Context, string, int) (KanbanGoal, error) {
+	return KanbanGoal{}, c.waitAction()
+}
+func (c *actionKanbanClient) CancelGoal(context.Context, string, int) (KanbanGoal, error) {
+	return KanbanGoal{}, c.waitAction()
+}
+func (c *actionKanbanClient) ReplanGoal(context.Context, string, string, int) (KanbanGoal, error) {
+	return KanbanGoal{}, c.waitAction()
+}
+
+func nextAction(t *testing.T, c *actionKanbanClient) chan error {
+	t.Helper()
+	select {
+	case r := <-c.actions:
+		return r
+	case <-time.After(3 * time.Second):
+		t.Fatal("未收到操作请求")
+		return nil
+	}
+}
+
+func TestKanbanTaskOptimisticMoveFailureReloads(t *testing.T) {
+	for _, tc := range []struct {
+		name, column string
+		run          func(*chatState)
+	}{
+		{"move", "done", func(s *chatState) { s.moveTask("t", "done", 1) }},
+		{"start", "in_progress", func(s *chatState) { s.startTask("t", 1) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &actionKanbanClient{controlledKanbanClient: &controlledKanbanClient{FakeClient: NewFakeClient(), boards: make(chan boardRequest, 1)}, actions: make(chan chan error, 1)}
+			s := newChatState(c)
+			ks := getKanbanState(s)
+			ks.scopeID = "p1"
+			ks.board.Tasks = []KanbanTask{{ID: "t", Column: "todo"}}
+			tc.run(s)
+			reply := nextAction(t, c)
+			kanbanMu.Lock()
+			column := ks.board.Tasks[0].Column
+			kanbanMu.Unlock()
+			if column != tc.column {
+				t.Fatalf("本地列 = %q", column)
+			}
+			reply <- errors.New("failed")
+			board := nextBoard(t, c.boards)
+			if board.project != "p1" {
+				t.Fatalf("刷新范围 = %q", board.project)
+			}
+			board.reply <- KanbanBoard{Tasks: []KanbanTask{{ID: "t", Column: "todo"}}}
+			awaitKanban(t, s, func() bool {
+				kanbanMu.Lock()
+				defer kanbanMu.Unlock()
+				return !ks.loading && ks.board.Tasks[0].Column == "todo"
+			})
+		})
+	}
+}
+
+func TestKanbanGoalActionsBusyDisableButtons(t *testing.T) {
+	for _, tc := range []struct {
+		name, status, label string
+		run                 func(*chatState)
+	}{
+		{"pause", "running", "暂停", func(s *chatState) { s.pauseGoal("g", 1) }},
+		{"cancel", "running", "取消目标", func(s *chatState) { s.cancelGoal("g", 1) }},
+		{"replan", "paused", "提交重新规划", func(s *chatState) { s.replanGoal("g", "feedback", 1) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &actionKanbanClient{controlledKanbanClient: &controlledKanbanClient{FakeClient: NewFakeClient()}, actions: make(chan chan error, 1)}
+			s := newChatState(c)
+			ks := getKanbanState(s)
+			ks.goalID = "g"
+			ks.replanGoalID = "g"
+			ks.board.Goals = []KanbanGoal{{ID: "g", Status: tc.status}}
+			tc.run(s)
+			reply := nextAction(t, c)
+			if got := kanbanGoalBusy(ks, "g"); got != tc.name {
+				t.Fatalf("busy = %q", got)
+			}
+			tt := ui.NewTester(func(c *ui.Context) { renderGoalDetailContent(c, s, ks) }, 840, 520)
+			tt.Frame()
+			if node, ok := tt.Access(tc.label); !ok || !node.Disabled {
+				t.Fatalf("%s 未禁用: %+v", tc.label, node)
+			}
+			reply <- errors.New("failed")
+			awaitKanban(t, s, func() bool { return kanbanGoalBusy(ks, "g") == "" })
+		})
+	}
+}
 
 type boardRequest struct {
 	project string

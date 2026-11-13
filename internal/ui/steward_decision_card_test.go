@@ -43,6 +43,27 @@ func TestStewardDecisionIgnoresDuplicateSubmission(t *testing.T) {
 	close(client.release)
 }
 
+func TestStewardDecisionSubmittingDisablesOptions(t *testing.T) {
+	client := &blockingDecisionClient{FakeClient: NewFakeClient(), entered: make(chan struct{}, 1), release: make(chan struct{})}
+	s := newChatState(client)
+	m := Message{ID: "m1", Kind: stewardDecisionKind, Text: `{"id":"D-1","question":"选择？","options":[{"key":"A","text":"方案一"},{"key":"B","text":"方案二"}]}`}
+	s.messages = []Message{m}
+	s.answerStewardDecision("D-1", "A")
+	select {
+	case <-client.entered:
+	case <-time.After(time.Second):
+		t.Fatal("提交未开始")
+	}
+	tt := ui.NewTester(func(c *ui.Context) { renderStewardDecisionCard(c, s, m) }, 840, 520)
+	tt.Frame()
+	for _, label := range []string{"A 方案一", "B 方案二", "忽略", "其他指示"} {
+		if node, ok := tt.Access(label); !ok || !node.Disabled {
+			t.Errorf("%s 未禁用: %+v", label, node)
+		}
+	}
+	close(client.release)
+}
+
 func (c *answerChannelClient) AnswerStewardDecision(_ context.Context, id, answer string) error {
 	c.answers <- id + " " + answer
 	return nil

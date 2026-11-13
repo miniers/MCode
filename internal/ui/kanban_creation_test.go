@@ -167,7 +167,11 @@ func TestKanbanCreation_QuickAddContinuous(t *testing.T) {
 	default:
 	}
 	r.reply <- nil
-	awaitKanban(t, s, func() bool { return ks.quickAddText == "" })
+	awaitKanban(t, s, func() bool {
+		kanbanMu.Lock()
+		defer kanbanMu.Unlock()
+		return ks.quickAddText == "" && !ks.quickAddBusy
+	})
 	if !ks.quickAddOpen {
 		t.Fatal("输入框被关闭")
 	}
@@ -178,7 +182,50 @@ func TestKanbanCreation_QuickAddContinuous(t *testing.T) {
 		t.Fatal("第二次创建失败")
 	}
 	r.reply <- nil
-	awaitKanban(t, s, func() bool { return ks.quickAddText == "" })
+	awaitKanban(t, s, func() bool {
+		kanbanMu.Lock()
+		defer kanbanMu.Unlock()
+		return ks.quickAddText == "" && !ks.quickAddBusy
+	})
+}
+
+func TestKanbanCreation_QuickAddFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		err      error
+		conflict bool
+	}{
+		{"failure", errors.New("failed"), false}, {"conflict", ErrRevisionConflict, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, ks, c := creationSetup()
+			ks.quickAddText = "draft"
+			s.submitQuickAdd()
+			r := nextCreate(t, c.tasks)
+			kanbanMu.Lock()
+			cleared := ks.quickAddText == "" && ks.quickAddBusy
+			kanbanMu.Unlock()
+			if !cleared {
+				t.Fatal("提交时未立即清空草稿")
+			}
+			r.reply <- tc.err
+			awaitKanban(t, s, func() bool {
+				kanbanMu.Lock()
+				done := !ks.quickAddBusy && ks.quickAddText == "draft" && ks.conflict == tc.conflict
+				kanbanMu.Unlock()
+				s.mu.Lock()
+				toast := s.toastMessage
+				s.mu.Unlock()
+				return done && (tc.conflict || toast != "")
+			})
+			s.mu.Lock()
+			toast := s.toastMessage
+			s.mu.Unlock()
+			if tc.conflict && toast != "" {
+				t.Fatalf("冲突不应显示 toast: %q", toast)
+			}
+		})
+	}
 }
 
 func TestKanbanQuickAddUsesSelectedScope(t *testing.T) {

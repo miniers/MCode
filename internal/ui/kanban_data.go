@@ -314,8 +314,9 @@ func (s *chatState) submitQuickAdd() {
 				kanbanMu.Lock()
 				ks.conflict = true
 				kanbanMu.Unlock()
+			} else {
+				s.setToast("创建任务失败: " + err.Error())
 			}
-			s.setToast("创建任务失败: " + err.Error())
 			s.invalidate()
 			return
 		}
