@@ -27,6 +27,7 @@ import (
 	"mcode/internal/harness/policy"
 	"mcode/internal/kanban"
 	"mcode/internal/localmem"
+	"mcode/internal/magpiecfg"
 	"mcode/internal/mcp"
 	"mcode/internal/modelsdev"
 	"mcode/internal/nmem"
@@ -912,6 +913,15 @@ func Open(opts Options) (*App, error) {
 	}
 	if err := migrateMagpieRoutingV1(opts.DataDir, &cfg); err != nil {
 		log.Printf("failed to migrate magpie routing: %v", err)
+	}
+	// 掉电可能把被接管的配置文件写成整份 0x00：长度在、数据没落盘。codex 这类
+	// agent 会因此直接起不来，启动时按 applied 记录补回 mcode 管理的字段。
+	if repaired, err := magpiecfg.RepairZeroed(opts.DataDir); err != nil {
+		log.Printf("failed to repair zeroed agent config: %v", err)
+	} else {
+		for _, path := range repaired {
+			log.Printf("repaired zeroed agent config %s", path)
+		}
 	}
 	if err := migrateLegacySwarmProfiles(opts.DataDir, &cfg); err != nil {
 		log.Printf("failed to migrate legacy swarm profiles: %v", err)
