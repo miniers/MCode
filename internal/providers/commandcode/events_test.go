@@ -351,3 +351,48 @@ func TestRequestSpeedSamples(t *testing.T) {
 		t.Fatalf("只有 message_end 整段文本的请求不应产生样本，得到 %+v", usages[3].Requests)
 	}
 }
+
+// 整轮累计用量：后端每轮只保留最后一条 usage 事件，所以每次 model_request_end 都要带
+// 整轮累计值；新一轮由新的 streamState 从 0 重新累计。
+func TestUsageAccumulatesAcrossRequests(t *testing.T) {
+	state := newStreamState("")
+	usages := replayUsages(t, state, []string{
+		`{"type":"event","event":{"type":"model_request_end","usage":{"inputTokens":10,"outputTokens":100,"cacheReadInputTokens":5}}}`,
+		`{"type":"event","event":{"type":"model_request_end","usage":{"inputTokens":20,"outputTokens":250,"cacheCreationInputTokens":7}}}`,
+	})
+	if len(usages) != 2 {
+		t.Fatalf("want 2 usage events, got %d: %+v", len(usages), usages)
+	}
+	if usages[0].InputTokens != 10 || usages[0].OutputTokens != 100 || usages[0].CachedTokens != 5 {
+		t.Fatalf("第一次请求的用量 = %+v, want 10 / 100 / 5", usages[0])
+	}
+	if usages[1].InputTokens != 30 || usages[1].OutputTokens != 350 || usages[1].CachedTokens != 12 {
+		t.Fatalf("第二次请求应带上整轮累计用量 30 / 350 / 12，得到 %+v", usages[1])
+	}
+
+	next := replayUsages(t, newStreamState(""), []string{
+		`{"type":"event","event":{"type":"model_request_end","usage":{"inputTokens":4,"outputTokens":40}}}`,
+	})
+	if len(next) != 1 || next[0].InputTokens != 4 || next[0].OutputTokens != 40 {
+		t.Fatalf("新一轮应从 0 重新累计，得到 %+v", next)
+	}
+}
+
+// replayUsages 把帧喂给 state，返回收到的用量事件（按顺序）。
+func replayUsages(t *testing.T, state *streamState, frames []string) []harness.Usage {
+	t.Helper()
+	var usages []harness.Usage
+	emit := func(event harness.Event) {
+		if event.Type == harness.EventUsage && event.Usage != nil {
+			usages = append(usages, *event.Usage)
+		}
+	}
+	for _, raw := range frames {
+		frame, err := parseFrame([]byte(raw))
+		if err != nil {
+			t.Fatalf("解析帧失败: %v", err)
+		}
+		state.handle(frame, emit)
+	}
+	return usages
+}

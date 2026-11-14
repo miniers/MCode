@@ -72,6 +72,9 @@ type streamState struct {
 	// clock 为本次模型请求计时；requestSpeeds 是本轮已完成的请求速度样本。
 	clock         harness.RequestClock
 	requestSpeeds []harness.RequestSpeed
+	// turnUsage 是本轮已结束请求的用量累计。后端每轮只保留最后一条 usage 事件，
+	// 所以每次上报都要带整轮累计值，而不是本次请求的用量。每轮由 newStreamState 归零。
+	turnUsage harness.Usage
 	// now 返回当前时间；nil 时用 time.Now，测试可注入假时钟。
 	now func() time.Time
 
@@ -105,6 +108,14 @@ func (s *streamState) appendRequestSpeed(outputTokens int64) {
 	if speed, ok := s.clock.Finish(s.nowTime(), outputTokens); ok {
 		s.requestSpeeds = append(s.requestSpeeds, speed)
 	}
+}
+
+// addUsage 把本次请求的计费类 token 累加进本轮累计值。commandcode 不上报上下文占用
+// 快照，所以这里没有需要「只取最后一次请求」的字段。
+func (s *streamState) addUsage(request harness.Usage) {
+	s.turnUsage.InputTokens += request.InputTokens
+	s.turnUsage.OutputTokens += request.OutputTokens
+	s.turnUsage.CachedTokens += request.CachedTokens
 }
 
 // requestSpeedSamples 返回本轮样本的拷贝，避免事件里带上内部切片。
@@ -200,8 +211,10 @@ func (s *streamState) handleEvent(raw json.RawMessage, emit func(harness.Event))
 			return
 		}
 		s.appendRequestSpeed(usage.OutputTokens)
-		usage.Requests = requestSpeedSamples(s.requestSpeeds)
-		_ = harness.Emit(emit, harness.Event{Type: harness.EventUsage, Usage: &usage})
+		s.addUsage(usage)
+		total := s.turnUsage
+		total.Requests = requestSpeedSamples(s.requestSpeeds)
+		_ = harness.Emit(emit, harness.Event{Type: harness.EventUsage, Usage: &total})
 	case "tool_queued":
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return
