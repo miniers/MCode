@@ -1174,11 +1174,23 @@ func TestTerminal_DetectInstalledTerminalApps(t *testing.T) {
 	}
 }
 
+// resetTerminalAppsCache 清空终端应用探测的一次性缓存，避免测试间按宿主平台得到的结果串味。
+func resetTerminalAppsCache(t *testing.T) {
+	t.Helper()
+	terminalAppsOnce = sync.Once{}
+	terminalAppsCache = nil
+	t.Cleanup(func() {
+		terminalAppsOnce = sync.Once{}
+		terminalAppsCache = nil
+	})
+}
+
 // 测试「默认终端」下拉选项：已安装应用在列，旧的配置值保留为一项并保持选中
 func TestTerminal_AppOptions(t *testing.T) {
 	origGOOS := terminalGOOS
 	defer func() { terminalGOOS = origGOOS }()
 	terminalGOOS = "darwin"
+	resetTerminalAppsCache(t)
 
 	options, selected := terminalAppOptions("Ghostty")
 	if selected != "Ghostty" {
