@@ -9,6 +9,7 @@ import (
 )
 
 func TestRunner_Checkout(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	ctx := context.Background()
 
@@ -35,6 +36,7 @@ func TestRunner_Checkout(t *testing.T) {
 }
 
 func TestRunner_CheckoutDoesNotRestoreFile(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	path := filepath.Join(dir, "README.md")
 	if err := os.WriteFile(path, []byte("未提交的内容\n"), 0644); err != nil {
@@ -50,6 +52,7 @@ func TestRunner_CheckoutDoesNotRestoreFile(t *testing.T) {
 }
 
 func TestRunner_PushUsesConfiguredUpstream(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	ctx := context.Background()
 	remoteDir := filepath.Join(t.TempDir(), "upstream.git")
@@ -86,6 +89,7 @@ func TestRunner_PushUsesConfiguredUpstream(t *testing.T) {
 }
 
 func TestRunner_Commit(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	ctx := context.Background()
 
@@ -122,6 +126,7 @@ func TestRunner_Commit(t *testing.T) {
 }
 
 func TestRunner_Push(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	ctx := context.Background()
 
@@ -176,6 +181,7 @@ func TestRunner_Push(t *testing.T) {
 }
 
 func TestRunner_PushDetachedHead(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	ctx := context.Background()
 
@@ -189,6 +195,7 @@ func TestRunner_PushDetachedHead(t *testing.T) {
 
 // IsRealRepo 必须绕过影子仓库判断：影子仓库已存在的普通目录不能算真实仓库。
 func TestRunner_IsRealRepo(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, repoDir := setupTestRepo(t)
 

@@ -43,6 +43,7 @@ const ghPRListJSON = `[
 
 // TestParseGHPRList 覆盖：编号、作者、分支、URL、草稿、评审结论与检查汇总。
 func TestParseGHPRList(t *testing.T) {
+	t.Parallel()
 	items, err := parseGHPRList([]byte(ghPRListJSON))
 	if err != nil {
 		t.Fatalf("parseGHPRList 失败: %v", err)
@@ -114,6 +115,7 @@ const ghPRViewJSON = `{
 
 // TestParseGHPRDetail 覆盖：正文去空白、增删行数、逐项检查与空评论过滤。
 func TestParseGHPRDetail(t *testing.T) {
+	t.Parallel()
 	detail, err := parseGHPRDetail([]byte(ghPRViewJSON))
 	if err != nil {
 		t.Fatalf("parseGHPRDetail 失败: %v", err)
@@ -182,6 +184,7 @@ const glabMRListJSON = `[
 
 // TestParseGLabMRList 覆盖：iid 映射为编号、作者回退到 name、draft、流水线状态与缺失字段。
 func TestParseGLabMRList(t *testing.T) {
+	t.Parallel()
 	items, err := parseGLabMRList([]byte(glabMRListJSON))
 	if err != nil {
 		t.Fatalf("parseGLabMRList 失败: %v", err)
@@ -245,6 +248,7 @@ const glabMRViewJSON = `{
 
 // TestParseGLabMRDetail 覆盖：正文映射自 description，增删行数与检查留空。
 func TestParseGLabMRDetail(t *testing.T) {
+	t.Parallel()
 	detail, err := parseGLabMRDetail([]byte(glabMRViewJSON))
 	if err != nil {
 		t.Fatalf("parseGLabMRDetail 失败: %v", err)
@@ -265,6 +269,7 @@ func TestParseGLabMRDetail(t *testing.T) {
 
 // TestSummarizeCheckStates 覆盖四种汇总结果与未知状态的兜底。
 func TestSummarizeCheckStates(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		states []string
@@ -289,6 +294,7 @@ func TestSummarizeCheckStates(t *testing.T) {
 
 // TestNormalizePRState 覆盖各平台状态到统一状态的映射。
 func TestNormalizePRState(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"OPEN":    "open",
 		"opened":  "open",
@@ -306,6 +312,7 @@ func TestNormalizePRState(t *testing.T) {
 
 // TestParseGHPRListInvalid 覆盖：非法 JSON 返回中文错误而不是 panic。
 func TestParseGHPRListInvalid(t *testing.T) {
+	t.Parallel()
 	if _, err := parseGHPRList([]byte("not json")); err == nil {
 		t.Fatal("非法 JSON 应返回错误")
 	} else if !strings.Contains(err.Error(), "解析 gh pr list 输出失败") {

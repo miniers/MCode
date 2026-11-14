@@ -49,6 +49,7 @@ func initGitRepo(t *testing.T) (*Runner, string) {
 }
 
 func TestCheckpointNormalizedLineEndings(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 	runTestGit(t, dir, "config", "core.autocrlf", "true")
@@ -81,6 +82,7 @@ func TestCheckpointNormalizedLineEndings(t *testing.T) {
 }
 
 func TestCheckpointAndDiffWorkflow(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -272,6 +274,7 @@ func TestCheckpointAndDiffWorkflow(t *testing.T) {
 }
 
 func TestPruneCheckpoints(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -365,6 +368,7 @@ func treePaths(t *testing.T, runner *Runner, dir, commit string) []string {
 // 仓库开启了 core.fsmonitor / core.splitIndex / core.untrackedCache 时，
 // 临时 index 仍应写出内容正确的检查点，且不影响用户索引。
 func TestCheckpointWithFsmonitorAndSplitIndex(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -436,6 +440,7 @@ func TestCheckpointWithFsmonitorAndSplitIndex(t *testing.T) {
 
 // 空仓库（HEAD 未出生）的首次检查点应能写出包含子目录文件的树，且不给提交加父提交。
 func TestCheckpointEmptyRepoSnapshot(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -476,6 +481,7 @@ func TestCheckpointEmptyRepoSnapshot(t *testing.T) {
 
 // 同一仓库并发执行 add 时，写锁应把它们串行化，不出现 index.lock 冲突。
 func TestConcurrentAddSerializedByRepoLock(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -532,6 +538,7 @@ func TestConcurrentAddSerializedByRepoLock(t *testing.T) {
 
 // 稀疏检出仓库里，模式外的已跟踪文件不能被写成假删除。
 func TestCheckpointWithSparseCheckoutKeepsOutsideFiles(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 

@@ -12,6 +12,7 @@ import (
 // TestRunner_DiffPathspecFilter 验证 Diff/DiffText/NumStat 的路径过滤：
 // 只返回指定路径，包含空格的路径按字面量匹配，空 paths 保持全量行为。
 func TestRunner_DiffPathspecFilter(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -85,6 +86,7 @@ func TestRunner_DiffPathspecFilter(t *testing.T) {
 
 // TestRunner_DiffPathspecChunking 验证路径数超过 maxPathspecChunk 时分块执行并拼接结果。
 func TestRunner_DiffPathspecChunking(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 

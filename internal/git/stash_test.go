@@ -8,6 +8,7 @@ import (
 // TestStashListOrderAndMessage 覆盖：连续两次贮藏后，列表顺序是最新在前，
 // 序号、说明、来源分支与创建时间都能解析出来。
 func TestStashListOrderAndMessage(t *testing.T) {
+	t.Parallel()
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 
@@ -51,6 +52,7 @@ func TestStashListOrderAndMessage(t *testing.T) {
 
 // TestStashListEmpty 覆盖：没有贮藏记录时返回空列表且不报错。
 func TestStashListEmpty(t *testing.T) {
+	t.Parallel()
 	runner, dir := newRevertTestRepo(t)
 	entries, err := runner.StashList(context.Background(), dir)
 	if err != nil {
@@ -63,6 +65,7 @@ func TestStashListEmpty(t *testing.T) {
 
 // TestStashApplyDropPopAt 覆盖：应用指定序号的贮藏、删除指定序号、应用并删除。
 func TestStashApplyDropPopAt(t *testing.T) {
+	t.Parallel()
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 
@@ -130,6 +133,7 @@ func TestStashApplyDropPopAt(t *testing.T) {
 
 // TestStashIndexValidation 覆盖：负数序号在真正执行 git 之前就被拒绝。
 func TestStashIndexValidation(t *testing.T) {
+	t.Parallel()
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 	if err := runner.StashApply(ctx, dir, -1); err == nil {

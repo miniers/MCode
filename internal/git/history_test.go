@@ -9,6 +9,7 @@ import (
 )
 
 func TestLogShowCommitAndCommitBase(t *testing.T) {
+	t.Parallel()
 	r, dir := setupTestRepo(t)
 	ctx := context.Background()
 	first := strings.TrimSpace(runGitOutput(t, r, dir, "rev-parse", "HEAD"))
@@ -50,6 +51,7 @@ func TestLogShowCommitAndCommitBase(t *testing.T) {
 	}
 }
 func TestLogEmptyAndUnpushed(t *testing.T) {
+	t.Parallel()
 	r := NewRunner("", 4)
 	dir := t.TempDir()
 	runGitOutput(t, r, dir, "init", "-q")
@@ -75,6 +77,7 @@ func TestLogEmptyAndUnpushed(t *testing.T) {
 }
 
 func TestLogRefs(t *testing.T) {
+	t.Parallel()
 	refs := parseRefs("HEAD -> refs/heads/main, refs/remotes/origin/main, tag: refs/tags/v1")
 	want := []LogRef{{"HEAD", "head"}, {"main", "local"}, {"origin/main", "remote"}, {"v1", "tag"}}
 	if len(refs) != len(want) {

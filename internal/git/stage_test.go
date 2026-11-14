@@ -10,6 +10,7 @@ import (
 )
 
 func TestPartialPatch(t *testing.T) {
+	t.Parallel()
 	header := "diff --git a/f b/f\n--- a/f\n+++ b/f\n"
 	add := "@@ -1,1 +1,3 @@\n c\n+one\n+two\n"
 	del := "@@ -1,3 +1,1 @@\n c\n-one\n-two\n"
@@ -60,6 +61,7 @@ func TestPartialPatch(t *testing.T) {
 }
 
 func TestStageUnstageLines(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"新增行", "删除行", "未跟踪文件", "无末尾换行", "中文 空格.txt"} {
 		t.Run(kind, func(t *testing.T) {
 			r, root := setupTestRepo(t)
@@ -110,6 +112,7 @@ func TestStageUnstageLines(t *testing.T) {
 }
 
 func TestUnstageLinesPartialNewFile(t *testing.T) {
+	t.Parallel()
 	r, root := setupTestRepo(t)
 	writeTestFile(t, root, "new.txt", "one\ntwo\n")
 	if err := r.StageFiles(context.Background(), root, []string{"new.txt"}); err != nil {
@@ -124,6 +127,7 @@ func TestUnstageLinesPartialNewFile(t *testing.T) {
 }
 
 func TestStageUnstageLinesWholeDeletion(t *testing.T) {
+	t.Parallel()
 	for _, partial := range []bool{false, true} {
 		t.Run(map[bool]string{false: "整文件删除", true: "部分删除"}[partial], func(t *testing.T) {
 			r, root := setupTestRepo(t)
@@ -162,6 +166,7 @@ func TestStageUnstageLinesWholeDeletion(t *testing.T) {
 }
 
 func TestStageLinesMultipleHunks(t *testing.T) {
+	t.Parallel()
 	r, root := setupTestRepo(t)
 	ctx := context.Background()
 	var lines []string
@@ -197,6 +202,7 @@ func TestStageLinesMultipleHunks(t *testing.T) {
 }
 
 func TestStageLinesNoNewlineReplacement(t *testing.T) {
+	t.Parallel()
 	for _, reverse := range []bool{false, true} {
 		t.Run(map[bool]string{false: "暂存", true: "丢弃"}[reverse], func(t *testing.T) {
 			r, root := setupTestRepo(t)
@@ -240,6 +246,7 @@ func TestStageLinesNoNewlineReplacement(t *testing.T) {
 }
 
 func TestDiscardLines(t *testing.T) {
+	t.Parallel()
 	r, root := setupTestRepo(t)
 	ctx := context.Background()
 	writeTestFile(t, root, "file.txt", "base\n")
@@ -266,6 +273,7 @@ func TestDiscardLines(t *testing.T) {
 }
 
 func TestStageUnstageFiles(t *testing.T) {
+	t.Parallel()
 	for _, initial := range []bool{false, true} {
 		t.Run(map[bool]string{false: "空仓库", true: "已有提交"}[initial], func(t *testing.T) {
 			r, root := initGitRepo(t)
@@ -295,6 +303,7 @@ func TestStageUnstageFiles(t *testing.T) {
 }
 
 func TestDiscardFiles(t *testing.T) {
+	t.Parallel()
 	r, root := setupTestRepo(t)
 	ctx := context.Background()
 	writeTestFile(t, root, "README.md", "暂存内容\n")
@@ -328,6 +337,7 @@ func TestDiscardFiles(t *testing.T) {
 }
 
 func TestCommitIndexLastCommit(t *testing.T) {
+	t.Parallel()
 	r, root := setupTestRepo(t)
 	ctx := context.Background()
 	writeTestFile(t, root, "new.txt", "内容\n")
@@ -363,6 +373,7 @@ func TestCommitIndexLastCommit(t *testing.T) {
 }
 
 func TestHeadPushed(t *testing.T) {
+	t.Parallel()
 	r, root, bare := initSyncRemote(t)
 	ctx := context.Background()
 	writeTestFile(t, root, "new.txt", "内容\n")
@@ -381,6 +392,7 @@ func TestHeadPushed(t *testing.T) {
 }
 
 func TestIndexDiff(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"已暂存", "未暂存", "未跟踪", "无提交"} {
 		t.Run(kind, func(t *testing.T) {
 			r, root := initGitRepo(t)

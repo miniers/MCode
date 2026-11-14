@@ -9,6 +9,7 @@ import (
 )
 
 func TestBranchManagement(t *testing.T) {
+	t.Parallel()
 	r, dir, bare := initSyncRemote(t)
 	ctx := context.Background()
 	if e := r.CreateBranchAt(ctx, dir, "feature", "HEAD", true); e != nil {
@@ -102,6 +103,7 @@ func TestBranchManagement(t *testing.T) {
 	}
 }
 func TestTagManagement(t *testing.T) {
+	t.Parallel()
 	r, dir, _ := initSyncRemote(t)
 	ctx := context.Background()
 	if e := r.TagCreate(ctx, dir, "v1", "HEAD", "版本一"); e != nil {
@@ -122,6 +124,7 @@ func TestTagManagement(t *testing.T) {
 	}
 }
 func TestPullStrategies(t *testing.T) {
+	t.Parallel()
 	for _, strategy := range []string{"", "ff-only", "rebase", "merge"} {
 		t.Run(strategy, func(t *testing.T) {
 			r, dir, _ := initSyncRemote(t)
@@ -132,6 +135,7 @@ func TestPullStrategies(t *testing.T) {
 	}
 }
 func TestForceLease(t *testing.T) {
+	t.Parallel()
 	r, dir, bare := initSyncRemote(t)
 	ctx := context.Background()
 	runTestGit(t, dir, "commit", "--allow-empty", "-m", "local")
@@ -152,6 +156,7 @@ func TestForceLease(t *testing.T) {
 	}
 }
 func TestRemoteBranchOperations(t *testing.T) {
+	t.Parallel()
 	r, dir, bare := initSyncRemote(t)
 	ctx := context.Background()
 	runTestGit(t, dir, "push", "origin", "HEAD:refs/heads/other")

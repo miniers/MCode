@@ -28,6 +28,7 @@ func Other() {
 `
 
 func TestDiffContextIncludesEnclosingFunction(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -78,6 +79,7 @@ func TestDiffContextIncludesEnclosingFunction(t *testing.T) {
 }
 
 func TestDiffContextTruncates(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -127,6 +129,7 @@ func TestDiffContextTruncates(t *testing.T) {
 }
 
 func TestDiffContextLeavesIndexUntouched(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -196,6 +199,7 @@ func TestDiffContextLeavesIndexUntouched(t *testing.T) {
 }
 
 func TestDiffBetweenWorktreesAddedAndDeleted(t *testing.T) {
+	t.Parallel()
 	gitBin, err := exec.LookPath("git")
 	if err != nil {
 		t.Skip("git 可执行文件在 PATH 中未找到，跳过测试")
@@ -253,6 +257,7 @@ func TestDiffBetweenWorktreesAddedAndDeleted(t *testing.T) {
 }
 
 func TestRewriteNoIndexPaths(t *testing.T) {
+	t.Parallel()
 	const (
 		winOldKeep = `C:\work\old\pkg\keep.go`
 		winNewKeep = `C:\work\new\pkg\keep.go`

@@ -19,6 +19,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestProgressParsing(t *testing.T) {
+	t.Parallel()
 	p := parseProgress("Receiving objects:  45% (9/20)")
 	if p.Phase != "Receiving objects" || p.Percent != 45 {
 		t.Fatal(p)
@@ -32,6 +33,7 @@ func TestProgressParsing(t *testing.T) {
 	}
 }
 func TestFetchProgressAndCancel(t *testing.T) {
+	t.Parallel()
 	r, dir, _ := initSyncRemote(t)
 	runTestGit(t, dir, "update-ref", "-d", "refs/remotes/origin/main")
 	var lines []Progress
@@ -50,6 +52,7 @@ func TestFetchProgressAndCancel(t *testing.T) {
 }
 
 func TestRunningCommandCancellation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	bin := os.Args[0]
 	r := NewRunner(bin, 1)

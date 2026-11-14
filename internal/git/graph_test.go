@@ -3,6 +3,7 @@ package git
 import "testing"
 
 func TestGraph(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		commits []LogCommit
@@ -36,6 +37,7 @@ func TestGraph(t *testing.T) {
 }
 
 func TestGraphEdges(t *testing.T) {
+	t.Parallel()
 	rows := ComputeGraph([]LogCommit{
 		{SHA: "a", Parents: []string{"b", "c"}},
 		{SHA: "b", Parents: []string{"d"}},

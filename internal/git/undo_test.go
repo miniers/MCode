@@ -9,6 +9,7 @@ import (
 )
 
 func TestSnapshotRestore(t *testing.T) {
+	t.Parallel()
 	r, root := setupTestRepo(t)
 	ctx := context.Background()
 	writeTestFile(t, root, "bin/tool", "原始\x00内容\r\n")
@@ -43,6 +44,7 @@ func TestSnapshotRestore(t *testing.T) {
 }
 
 func TestSnapshotSymlinksAndBoundary(t *testing.T) {
+	t.Parallel()
 	r, root := setupTestRepo(t)
 	ctx := context.Background()
 	outside := t.TempDir()
@@ -85,6 +87,7 @@ func TestSnapshotSymlinksAndBoundary(t *testing.T) {
 }
 
 func TestSnapshotRestoreReplacesSymlink(t *testing.T) {
+	t.Parallel()
 	r, root := setupTestRepo(t)
 	ctx := context.Background()
 	writeTestFile(t, root, "file", "原始\n")

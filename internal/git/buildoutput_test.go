@@ -6,6 +6,7 @@ import (
 )
 
 func TestIsBuildOutput(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		path string
@@ -41,6 +42,7 @@ func TestIsBuildOutput(t *testing.T) {
 }
 
 func TestFilterBuildOutputs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		paths []string

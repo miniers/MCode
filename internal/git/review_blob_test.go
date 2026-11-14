@@ -11,6 +11,7 @@ import (
 )
 
 func TestReviewMissingBlobAndFixedRevision(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -10,6 +10,7 @@ import (
 )
 
 func TestRunner_ListRefs(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git 可执行文件在 PATH 中未找到，跳过测试")
 	}
@@ -66,6 +67,7 @@ func TestRunner_ListRefs(t *testing.T) {
 }
 
 func TestRunner_DiffText_Truncation(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git 可执行文件在 PATH 中未找到，跳过测试")
 	}

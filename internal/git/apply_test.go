@@ -9,6 +9,7 @@ import (
 )
 
 func TestRunner_ApplyPatch3Way_Clean(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -84,6 +85,7 @@ func TestRunner_ApplyPatch3Way_Clean(t *testing.T) {
 }
 
 func TestRunner_ApplyPatch3Way_Conflict(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -149,6 +151,7 @@ func TestRunner_ApplyPatch3Way_Conflict(t *testing.T) {
 
 // 冲突合并只写工作区：真实索引不留下未合并条目，也不暂存任何内容。
 func TestRunner_ApplyPatch3Way_KeepsRealIndexClean(t *testing.T) {
+	t.Parallel()
 	runner, dir, patch := setupConflictingApply(t)
 
 	res, err := runner.ApplyPatch3Way(context.Background(), dir, patch)
@@ -178,6 +181,7 @@ func TestRunner_ApplyPatch3Way_KeepsRealIndexClean(t *testing.T) {
 
 // 首个补丁留下冲突标记后，后续针对同一文件的补丁仍能走三方合并，而不是因索引缺条目硬失败。
 func TestRunner_ApplyPatch3Way_SecondPatchAfterConflict(t *testing.T) {
+	t.Parallel()
 	runner, dir, patch := setupConflictingApply(t)
 	ctx := context.Background()
 
@@ -212,6 +216,7 @@ func TestRunner_ApplyPatch3Way_SecondPatchAfterConflict(t *testing.T) {
 
 // 非 ASCII 文件名经 -z 输出原始路径，冲突扫描能命中对应文件。
 func TestRunner_DiffCachedNames_NonASCIIPath(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -304,6 +309,7 @@ func setupConflictingApply(t *testing.T) (*Runner, string, []byte) {
 }
 
 func TestScanConflictMarkers(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fileA := filepath.Join(dir, "z_conflict.txt")
 	contentA := "top\n<<<<<<< HEAD\nlocal\n=======\nremote\n>>>>>>> branch\nbottom\n"

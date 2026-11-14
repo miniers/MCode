@@ -32,6 +32,7 @@ func headFiles(t *testing.T, runner *Runner, dir string) map[string]bool {
 
 // ChangedFiles 要给出单字符状态，重命名带来源路径，带空格的路径保持原样。
 func TestRunner_ChangedFiles(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	ctx := context.Background()
 
@@ -63,6 +64,7 @@ func TestRunner_ChangedFiles(t *testing.T) {
 
 // 只提交所选路径：没选中的改动留在工作区，且不会被带进这次提交。
 func TestRunner_CommitSelectedOnlyCommitsChosenPaths(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	ctx := context.Background()
 
@@ -96,6 +98,7 @@ func TestRunner_CommitSelectedOnlyCommitsChosenPaths(t *testing.T) {
 
 // 重命名要同时提交新旧路径，提交后工作区干净。
 func TestRunner_CommitSelectedRename(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	ctx := context.Background()
 
@@ -116,6 +119,7 @@ func TestRunner_CommitSelectedRename(t *testing.T) {
 
 // 空路径或空提交信息直接报错，不动仓库。
 func TestRunner_CommitSelectedRejectsEmptyInput(t *testing.T) {
+	t.Parallel()
 	runner, dir := setupTestRepo(t)
 	ctx := context.Background()
 
@@ -132,6 +136,7 @@ func TestRunner_CommitSelectedRejectsEmptyInput(t *testing.T) {
 
 // 空仓库（还没有任何提交）也能用 CommitSelected 完成首次提交。
 func TestRunner_CommitSelectedFirstCommitInEmptyRepo(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -163,6 +168,7 @@ func TestRunner_CommitSelectedFirstCommitInEmptyRepo(t *testing.T) {
 }
 
 func TestRunner_CommitSelectedPreservesOtherIndex(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"新增", "删除", "已暂存删除", "重命名"} {
 		t.Run(kind, func(t *testing.T) {
 			r, root := setupTestRepo(t)

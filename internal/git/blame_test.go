@@ -8,6 +8,7 @@ import (
 )
 
 func TestBlame(t *testing.T) {
+	t.Parallel()
 	r, dir := setupTestRepo(t)
 	p := filepath.Join(dir, "README.md")
 	if e := os.WriteFile(p, []byte("first\nsecond\n"), 0644); e != nil {

@@ -9,6 +9,7 @@ import (
 )
 
 func TestOpStateOperations(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []OpKind{OpMerge, OpRebase, OpCherryPick, OpRevert} {
 		t.Run(string(kind), func(t *testing.T) {
 			r, dir := setupTestRepo(t)
@@ -92,6 +93,7 @@ func TestOpStateOperations(t *testing.T) {
 	}
 }
 func TestResetModes(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"soft", "mixed", "hard"} {
 		t.Run(mode, func(t *testing.T) {
 			r, dir := setupTestRepo(t)
@@ -123,6 +125,7 @@ func TestResetModes(t *testing.T) {
 }
 
 func TestSkipOpRebase(t *testing.T) {
+	t.Parallel()
 	r, dir := setupTestRepo(t)
 	ctx := context.Background()
 	branch := strings.TrimSpace(runGitOutput(t, r, dir, "branch", "--show-current"))

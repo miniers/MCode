@@ -10,6 +10,7 @@ import (
 )
 
 func TestParseConflictsAndResolve(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, text   string
 		count        int
@@ -45,6 +46,7 @@ func TestParseConflictsAndResolve(t *testing.T) {
 	}
 }
 func TestConflictSidesAndResolveFileSide(t *testing.T) {
+	t.Parallel()
 	for _, deleted := range []bool{false, true} {
 		t.Run(map[bool]string{false: "UU", true: "DU"}[deleted], func(t *testing.T) {
 			r, dir := setupTestRepo(t)
@@ -90,6 +92,7 @@ func TestConflictSidesAndResolveFileSide(t *testing.T) {
 }
 
 func TestWriteWorktreeFile(t *testing.T) {
+	t.Parallel()
 	r, dir := setupTestRepo(t)
 	path := filepath.Join(dir, "README.md")
 	if err := os.WriteFile(path, []byte("old\n"), 0o640); err != nil {
@@ -117,6 +120,7 @@ func TestWriteWorktreeFile(t *testing.T) {
 }
 
 func TestWriteWorktreeFileRejectsLinksAndCanceledContext(t *testing.T) {
+	t.Parallel()
 	r, dir := setupTestRepo(t)
 	outside := filepath.Join(t.TempDir(), "outside")
 	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {

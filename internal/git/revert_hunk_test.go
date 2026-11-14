@@ -24,6 +24,7 @@ func testGit(t *testing.T, dir string, args ...string) {
 	}
 }
 func TestRevertHunkTouchesOnlySelectedBlock(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	p := filepath.Join(d, "a.txt")
 	old := "one\ntwo\nthree\nfour\nfive\n"
@@ -43,6 +44,7 @@ func TestRevertHunkTouchesOnlySelectedBlock(t *testing.T) {
 	}
 }
 func TestRevertHunkPreservesIndexAndOtherEdits(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	testGit(t, d, "init")
 	testGit(t, d, "config", "core.autocrlf", "false")
@@ -76,6 +78,7 @@ func TestRevertHunkPreservesIndexAndOtherEdits(t *testing.T) {
 	}
 }
 func TestRevertHunkExpectedHashConflict(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	old, next := "a\nb\n", "a\nB\n"
 	os.WriteFile(filepath.Join(d, "a"), []byte("changed\n"), 0644)
@@ -85,6 +88,7 @@ func TestRevertHunkExpectedHashConflict(t *testing.T) {
 	}
 }
 func TestRevertHunkCRLFAndNoFinalNewline(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	old, next := "a\r\nb\r\nc", "a\r\nB\r\nc"
 	os.WriteFile(filepath.Join(d, "a"), []byte(next), 0644)

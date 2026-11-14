@@ -12,6 +12,7 @@ import (
 // base 上 a.txt 有三行；onto 改第 1 行（模拟主工作区之后的未提交改动，用 Checkpoint 生成）；change 改第 3 行；
 // MergeTreeOnto 无冲突，DiffTreesBinary(onto, tree) 用 ApplyPatch3Way 应用到工作内容等于 onto 的工作区后，文件同时含两处改动。
 func TestMergeTreeOnto_CleanMerge(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -107,6 +108,7 @@ func TestMergeTreeOnto_CleanMerge(t *testing.T) {
 // TestMergeTreeOnto_Conflict 覆盖场景 (b)：
 // onto 和 change 改同一行，Conflicts 包含 a.txt，且主工作区文件不变。
 func TestMergeTreeOnto_Conflict(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 
@@ -196,6 +198,7 @@ func TestMergeTreeOnto_Conflict(t *testing.T) {
 // TestCommitIndexTree 覆盖场景 (c)：
 // CommitIndexTree 生成的 commit 的父提交等于 parent，且 HEAD 没变。
 func TestCommitIndexTree(t *testing.T) {
+	t.Parallel()
 	runner, dir := initGitRepo(t)
 	ctx := context.Background()
 

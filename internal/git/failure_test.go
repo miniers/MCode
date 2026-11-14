@@ -8,6 +8,7 @@ import (
 )
 
 func TestClassifyError(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		s string
 		k FailureKind
@@ -26,6 +27,7 @@ func TestClassifyError(t *testing.T) {
 }
 
 func TestClassifyErrorDiverged(t *testing.T) {
+	t.Parallel()
 	for _, message := range []string{"fatal: Not possible to fast-forward, aborting.", "fatal: Need to specify how to reconcile divergent branches.", "Your branch and 'origin/main' have diverged"} {
 		f := ClassifyError(fmt.Errorf("%s", message))
 		if f.Kind != FailureDiverged || f.Title != "本地与远端已分叉" || f.Hint != "选择变基或合并来拉取" {
