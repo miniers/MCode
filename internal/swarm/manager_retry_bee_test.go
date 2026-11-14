@@ -43,6 +43,7 @@ func newRetryBeeManager(t *testing.T, leadID string, bees ...Bee) (*Manager, *fa
 // 验证 RetryBee 成功复用失败 bee 的原 worktree 与半成品：新 bee 替换旧条目、沿用 Index、
 // 提示里带上改动文件清单，并且只给一次重试机会。
 func TestManager_RetryBee_ReusesWorktreeWithPartialWork(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-retry-reuse"
 	ctx := context.Background()
 
@@ -127,6 +128,7 @@ func TestManager_RetryBee_ReusesWorktreeWithPartialWork(t *testing.T) {
 
 // 验证状态不是 failed/stopped 的 bee（这里用已完成的）不允许沿用改动续做。
 func TestManager_RetryBee_RejectsFinishedStatus(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-retry-status"
 	ctx := context.Background()
 
@@ -163,6 +165,7 @@ func TestManager_RetryBee_RejectsFinishedStatus(t *testing.T) {
 
 // 验证 bee 不属于该主会话时不重试：既接不住别的 lead 的 bee，也接不住不存在的线程。
 func TestManager_RetryBee_RejectsBeeFromOtherLead(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-retry-owner"
 	const otherLeadID = "lead-retry-other"
 	ctx := context.Background()
@@ -204,6 +207,7 @@ func TestManager_RetryBee_RejectsBeeFromOtherLead(t *testing.T) {
 
 // 验证原 worktree 已被删除时退回新建 worktree，并在提示里说明半成品已丢失。
 func TestManager_RetryBee_FallsBackWhenWorktreeGone(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-retry-gone"
 	ctx := context.Background()
 

@@ -15,6 +15,7 @@ import (
 
 // (a) 主工作区第 1 行有未提交改动，bee 改第 3 行，落地后主工作区同时有两处改动且 Merged 为 true。
 func TestManager_Landing_MergeTreeNoConflict(t *testing.T) {
+	t.Parallel()
 	runner, repoDir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -123,6 +124,7 @@ func TestManager_Landing_MergeTreeNoConflict(t *testing.T) {
 
 // (b) 两边改同一行时，Merged 为 false、ConflictFiles 非空、主工作区文件与落地前完全一致、没有冲突标记。
 func TestManager_Landing_MergeTreeConflict(t *testing.T) {
+	t.Parallel()
 	runner, repoDir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -232,6 +234,7 @@ func TestManager_Landing_MergeTreeConflict(t *testing.T) {
 
 // (d) ConflictHandbacks 已经为 1 时不再交回，退回原行为只保存补丁。
 func TestManager_Landing_ConflictHandbacksExceeded_SavesPatch(t *testing.T) {
+	t.Parallel()
 	runner, repoDir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -347,6 +350,7 @@ func TestManager_Landing_ConflictHandbacksExceeded_SavesPatch(t *testing.T) {
 
 // (c) beeWorkDir 是非 git 临时目录、ShadowRoot 为空时，startSingleBee 返回 SharedNoGit 为 true、WorktreePath 为空。
 func TestManager_Landing_NonGitSharedFallback(t *testing.T) {
+	t.Parallel()
 	nonGitDir := t.TempDir()
 	ctx := context.Background()
 
@@ -394,6 +398,7 @@ func TestManager_Landing_NonGitSharedFallback(t *testing.T) {
 // 影子仓库已存在的非 git 目录：bee 应标记 ShadowRepo，否则自动合并流水线会拿普通 runner
 // 在该目录执行 git status 并报 not a git repository；真实仓库上 ShadowRepo 仍为 false。
 func TestManager_Landing_ShadowRepoBeeOnNonGitDir(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	gitBin, err := exec.LookPath("git")
@@ -444,6 +449,7 @@ func TestManager_Landing_ShadowRepoBeeOnNonGitDir(t *testing.T) {
 
 // 同样的影子仓库配置下，真实 git 仓库的 bee 不应被标记 ShadowRepo（走普通 worktree）。
 func TestManager_Landing_RealRepoBeeOnShadowRunner(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	_, repoDir := initTestRepo(t)
@@ -485,6 +491,7 @@ func TestManager_Landing_RealRepoBeeOnShadowRunner(t *testing.T) {
 // 退回 git apply --3way 落地时发生冲突：补丁涉及的文件（含带未提交改动的冲突文件、
 // 已正常改动的其他文件、补丁新增的文件）都要复原到落地前的样子，冲突标记不留在主工作区。
 func TestManager_ApplyMerge_ConflictRestoresDirtyFiles(t *testing.T) {
+	t.Parallel()
 	runner, repoDir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -565,6 +572,7 @@ func TestManager_ApplyMerge_ConflictRestoresDirtyFiles(t *testing.T) {
 // 写入白名单非空时，prepareMerge 只把白名单内的改动放进补丁，
 // 白名单外的改动记入 DiscardedPaths 并移出暂存区，且不算合并失败。
 func TestManager_PrepareMergeFiltersWritePaths(t *testing.T) {
+	t.Parallel()
 	runner, repoDir := initTestRepo(t)
 	ctx := context.Background()
 

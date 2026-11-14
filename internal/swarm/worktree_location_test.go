@@ -13,6 +13,7 @@ import (
 )
 
 func TestManager_DataDir(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		opts Options
@@ -40,6 +41,7 @@ func TestManager_DataDir(t *testing.T) {
 }
 
 func TestManager_DataDirArtifacts(t *testing.T) {
+	t.Parallel()
 	dataDir := t.TempDir()
 	m := NewManager(Options{DataDir: dataDir, WorktreeDir: filepath.Join(t.TempDir(), "copies")})
 	for _, tc := range []struct {
@@ -64,6 +66,7 @@ func TestManager_DataDirArtifacts(t *testing.T) {
 }
 
 func TestManager_IsBeeCopyPath(t *testing.T) {
+	t.Parallel()
 	m := NewManager(Options{WorktreeDir: filepath.Join("central", "copies")})
 	for _, tc := range []struct {
 		path string
@@ -87,6 +90,7 @@ func TestManager_IsBeeCopyPath(t *testing.T) {
 }
 
 func TestManager_ProjectBeeCopy(t *testing.T) {
+	t.Parallel()
 	runner, repo := initTestRepo(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -135,6 +139,7 @@ func TestManager_ProjectBeeCopy(t *testing.T) {
 }
 
 func TestManager_ProjectBeeCopyStartFailure(t *testing.T) {
+	t.Parallel()
 	runner, repo := initTestRepo(t)
 	m := NewManager(Options{
 		Git: runner, Driver: &resumeFailDriver{fakeDriver: newFakeDriver()}, WorktreeDir: t.TempDir(),
@@ -158,6 +163,7 @@ func TestManager_ProjectBeeCopyStartFailure(t *testing.T) {
 }
 
 func TestManager_ProjectBeeCopyConcurrentSweep(t *testing.T) {
+	t.Parallel()
 	runner, repo := initTestRepo(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

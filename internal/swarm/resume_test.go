@@ -73,6 +73,7 @@ func restoreLeadForResume(t *testing.T, leadThreadID string) (*Manager, *fakePer
 }
 
 func TestManager_Restore_ClearsReportedInterruption(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-resume-reported"
 	ctx := context.Background()
 	mgr, persister, _ := restoreLeadForResume(t, leadID)
@@ -105,6 +106,7 @@ func TestManager_Restore_ClearsReportedInterruption(t *testing.T) {
 // 验证 Restore 给被中断的 bee 打上 Interrupted 标记、排队条目进 heldQueue 而不进派发队列，
 // 并且 State.Interrupted 同时统计两者。
 func TestManager_Restore_MarksInterruptedAndHoldsQueue(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-resume-restore"
 	mgr, persister, _ := restoreLeadForResume(t, leadID)
 
@@ -144,6 +146,7 @@ func TestManager_Restore_MarksInterruptedAndHoldsQueue(t *testing.T) {
 }
 
 func TestManager_Restore_InterruptedDoesNotReportOrFinishBatch(t *testing.T) {
+	t.Parallel()
 	for _, pending := range []string{"被打断的 bee", "暂存队列", "两者都有"} {
 		t.Run(pending, func(t *testing.T) {
 			const leadID = "lead-resume-no-report"
@@ -186,6 +189,7 @@ func TestManager_Restore_InterruptedDoesNotReportOrFinishBatch(t *testing.T) {
 }
 
 func TestManager_ResumeAllInterrupted_ContinuesAllLeads(t *testing.T) {
+	t.Parallel()
 	const firstID = "lead-resume-all-first"
 	const secondID = "lead-resume-all-second"
 	ctx := context.Background()
@@ -261,6 +265,7 @@ func (d *resumeFailDriver) StartSession(context.Context, kanban.SessionRequest) 
 }
 
 func TestManager_ResumeAllInterrupted_FailureReportsStopped(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-resume-all-failed"
 	const secondID = "lead-resume-all-failed-second"
 	ctx := context.Background()
@@ -316,6 +321,7 @@ func TestManager_ResumeAllInterrupted_FailureReportsStopped(t *testing.T) {
 }
 
 func TestManager_ResumeAllInterrupted_RequeuesHeldOnlyLead(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-resume-all-held"
 	ctx := context.Background()
 	mgr, persister, _ := restoreLeadForResume(t, leadID)
@@ -339,6 +345,7 @@ func TestManager_ResumeAllInterrupted_RequeuesHeldOnlyLead(t *testing.T) {
 }
 
 func TestManager_Restore_PreservesFinishedAt(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-resume-finished-at"
 	ctx := context.Background()
 	finishedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -372,6 +379,7 @@ func TestManager_Restore_PreservesFinishedAt(t *testing.T) {
 
 // 验证 DismissInterrupted 清掉中断标记与 heldQueue，并写回持久化记录。
 func TestManager_DismissInterrupted(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-resume-dismiss"
 	mgr, persister, _ := restoreLeadForResume(t, leadID)
 
@@ -404,6 +412,7 @@ func TestManager_DismissInterrupted(t *testing.T) {
 
 // 验证没有中断项时 ResumeInterrupted 返回 0 且不报错；主会话不存在时返回 ErrLeadNotFound。
 func TestManager_ResumeInterrupted_NoInterrupted(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	mgr := NewManager(Options{Persister: newFakePersister()})
 	mgr.SetEnabled("lead-resume-none", true)
@@ -424,6 +433,7 @@ func TestManager_ResumeInterrupted_NoInterrupted(t *testing.T) {
 // 验证 ResumeInterrupted 续跑被打断的 bee：新 bee 替换旧条目且不再带 Interrupted，
 // 旧 worktree 已不存在时按新建处理，续跑出的 bee 不再自动重试。
 func TestManager_ResumeInterrupted_ReplacesInterruptedBee(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-resume-ok"
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
@@ -519,6 +529,7 @@ func TestManager_ResumeInterrupted_ReplacesInterruptedBee(t *testing.T) {
 }
 
 func TestManager_ResumeInterrupted_ContinuesOriginalSession(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name         string
 		readOnly     bool
@@ -651,6 +662,7 @@ func TestManager_ResumeInterrupted_ContinuesOriginalSession(t *testing.T) {
 }
 
 func TestManager_ContinueInterruptedBee_RechecksStateAfterFollowUp(t *testing.T) {
+	t.Parallel()
 	for _, change := range []string{"放弃续跑", "状态变化", "移除条目", "移除主会话"} {
 		t.Run(change, func(t *testing.T) {
 			const leadID = "lead-resume-race"
@@ -697,6 +709,7 @@ func TestManager_ContinueInterruptedBee_RechecksStateAfterFollowUp(t *testing.T)
 }
 
 func TestManager_ResumeInterrupted_DismissedDuringFollowUp(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-resume-dismiss-during-follow-up"
 	old := Bee{ThreadID: "bee-old", Status: StatusStopped, Interrupted: true, ReadOnly: true}
 	driver := newFakeDriver()
@@ -727,6 +740,7 @@ func TestManager_ResumeInterrupted_DismissedDuringFollowUp(t *testing.T) {
 }
 
 func TestManager_ContinueInterruptedBee_OriginalTaskFallback(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		task string
@@ -758,6 +772,7 @@ func TestManager_ContinueInterruptedBee_OriginalTaskFallback(t *testing.T) {
 
 // 验证 ResumeInterrupted 会把 heldQueue 里的排队条目重新排入派发队列，从而真正派发出去。
 func TestManager_ResumeInterrupted_RequeuesHeldQueue(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-resume-queue"
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
@@ -817,6 +832,7 @@ func TestManager_ResumeInterrupted_RequeuesHeldQueue(t *testing.T) {
 // 验证 AutoClearFinished 打开时，被打断的 bee 与待决定的 heldQueue 都不会被自动清理，
 // 否则用户来不及续跑或放弃就被清掉了。
 func TestManager_AutoClearFinished_KeepsInterrupted(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	mgr := NewManager(Options{})
 	mgr.SetSettingsFunc(func() Settings {
@@ -854,6 +870,7 @@ func TestManager_AutoClearFinished_KeepsInterrupted(t *testing.T) {
 
 // 验证 ClearFinished 只清掉真正结束的 bee，被打断的 bee 保留到用户续跑或放弃。
 func TestManager_ClearFinished_KeepsInterruptedBee(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-clear-interrupted"
 	ctx := context.Background()
 	mgr, _, _ := restoreLeadForResume(t, leadID)

@@ -148,6 +148,7 @@ func initTestRepo(t *testing.T) (*git.Runner, string) {
 
 // (a) 两个 bee 改不同文件，Tick 后两者都 Merged，主工作区出现两处改动，ConflictFiles 为空
 func TestManager_TwoBees_DifferentFiles(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -262,6 +263,7 @@ func TestManager_TwoBees_DifferentFiles(t *testing.T) {
 
 // (b) 两个 bee 改同一文件的同一行：第二个三方冲突，ConflictFiles 包含该文件且不算已合入
 func TestManager_TwoBees_SameLineConflict(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -390,6 +392,7 @@ func TestManager_TwoBees_SameLineConflict(t *testing.T) {
 
 // (c) ClearFinished 后 worktree 目录不存在，git worktree list 里也没有它，对应分支也被删除。
 func TestManager_ClearFinished(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -479,6 +482,7 @@ func TestManager_ClearFinished(t *testing.T) {
 
 // (d) ClearFinished 只清理已结束的 bee：仍在运行的 bee 及其 worktree 保留。
 func TestManager_ClearFinished_KeepsRunningBees(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -537,6 +541,7 @@ func TestManager_ClearFinished_KeepsRunningBees(t *testing.T) {
 
 // (e) StopAll 只停止 running 的 bee：已完成的不被改写，会话中断只发给 running 的 bee。
 func TestManager_StopAll_SkipsFinishedBees(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -600,6 +605,7 @@ func TestManager_StopAll_SkipsFinishedBees(t *testing.T) {
 
 // 测试 StopBee、StopAll、ErrBeeNotFound 及 ErrLeadNotFound
 func TestManager_StopBee_And_Errors(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -794,6 +800,7 @@ func (p *fakePersister) LoadLeads(ctx context.Context) ([]LeadRecord, error) {
 
 // 验证 DispatchFromReply 派发后，bee 结束时 Tick 只调用一次 OnReport，消息以 ReportPrefix 开头且包含 bee 名
 func TestManager_DispatchFromReply_OnReport(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -889,6 +896,7 @@ func TestManager_DispatchFromReply_OnReport(t *testing.T) {
 
 // 验证 Restore 会把 running 改为 stopped，更新 Summary 并恢复 nextIndex
 func TestManager_Restore_StopsRunningAndRestoresNextIndex(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -998,6 +1006,7 @@ func TestManager_Restore_StopsRunningAndRestoresNextIndex(t *testing.T) {
 
 // 验证 DispatchFromReply 中 "dune"、"Ember 2" 精确采用名字与项目解析
 func TestManager_DispatchFromReply_NameAndProject(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -1126,6 +1135,7 @@ func TestBuildReportIncludesStats(t *testing.T) {
 // 审查未出结论前不汇报。接着 ApproveMerge → Merged=true、PendingMerge=false、目标仓库文件内容已变；
 // 再 Tick 一次汇报一次且含「已合入（审查通过）」。
 func TestManager_HumanReview_Approve(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -1265,6 +1275,7 @@ func TestManager_HumanReview_Approve(t *testing.T) {
 
 // (c) DiscardMerge → MergeDiscarded=true、目标仓库未改变；待审查期间不汇报，放弃后下一个 Tick 汇报一次且含「已放弃合并」。
 func TestManager_HumanReview_Discard(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -1383,6 +1394,7 @@ func TestManager_HumanReview_Discard(t *testing.T) {
 
 // (d) 对非待审查 bee 调用 ApproveMerge/DiscardMerge 返回 ErrNoPendingMerge（errors.Is）。
 func TestManager_HumanReview_ErrNoPendingMerge(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -1422,6 +1434,7 @@ func TestManager_HumanReview_ErrNoPendingMerge(t *testing.T) {
 
 // (e) ClearFinished 不移除 PendingMerge 的 bee。
 func TestManager_HumanReview_ClearFinished_PreservesPending(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -1491,6 +1504,7 @@ func TestManager_HumanReview_ClearFinished_PreservesPending(t *testing.T) {
 
 // (f) 冲突用例：目标仓库在 bee 完成后修改同一行，ApproveMerge 后 ConflictFiles 非空、不置 Merged。
 func TestManager_HumanReview_Conflict(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	ctx := context.Background()
 
@@ -1603,6 +1617,7 @@ func TestManager_HumanReview_Conflict(t *testing.T) {
 
 // 补齐单元测试 1：MaxBees 排队测试。并发上限为 1 时，超出上限的 bee 进入排队，前序 bee 完成后自动出队启动。
 func TestManager_MaxBeesQueue(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()
@@ -1687,6 +1702,7 @@ func TestManager_MaxBeesQueue(t *testing.T) {
 
 // 补齐单元测试 2：WorkspaceMode=shared 共享主工作区测试。不建 worktree，直接在主工作区执行且不需要合并。
 func TestManager_WorkspaceModeShared(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()
@@ -1761,6 +1777,7 @@ func TestManager_WorkspaceModeShared(t *testing.T) {
 // 补齐单元测试 3：RetryFailed 失败自动重试测试。bee 失败后先续接原会话；续接之后再失败仍可换新 bee 重试一次。
 // 续接不占用新 bee 的重试额度，所以「续接一次 + 新 bee 一次」都能走到。
 func TestManager_RetryFailed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()
@@ -1866,6 +1883,7 @@ func TestManager_RetryFailed(t *testing.T) {
 
 // TestManager_RetryFailed_NoThirdAttempt：续接与新 bee 各只有一次机会，之后直接失败，不会无限重试。
 func TestManager_RetryFailed_NoThirdAttempt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()
@@ -1947,6 +1965,7 @@ func TestManager_RetryFailed_NoThirdAttempt(t *testing.T) {
 
 // TestManager_RetryFailed_FollowUpErrorFallsBackToNewBee：续接催促发不出去时，退化为新开一个 bee 重试。
 func TestManager_RetryFailed_FollowUpErrorFallsBackToNewBee(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()
@@ -2054,6 +2073,7 @@ func (p *fakePersisterWithRelation) SetThreadRelation(ctx context.Context, threa
 
 // 验证派发 bee 时写入 ParentThreadID 与 IsHelper=true
 func TestManager_BeeParentThreadRelation(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()
 	persister := &fakePersisterWithRelation{}
@@ -2109,6 +2129,7 @@ func TestManager_BeeParentThreadRelation(t *testing.T) {
 
 // 验证 LastAssistantText 为空时先追问，仍为空则标记失败
 func TestManager_EmptyAssistantNudgeAndFallback(t *testing.T) {
+	t.Parallel()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()
 
@@ -2527,6 +2548,7 @@ func TestCheckReports_FiresOnBeesIdle(t *testing.T) {
 // TestManager_BeeFailure_ReportsErrorReasonToLead 验证 bee 一轮以启动错误等失败时，
 // lead 收到的回报文本和 bee 的 Summary 都包含错误原因。
 func TestManager_BeeFailure_ReportsErrorReasonToLead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()

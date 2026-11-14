@@ -414,11 +414,13 @@ type Options struct {
 	DefaultBeeSource func(lead ThreadContext) (provider, model string, err error)
 	Git              *git.Runner
 	// Describe 为可选的提交说明生成器，入参为限定路径的 git diff 文本。
-	Describe    func(ctx context.Context, diff string) (string, error)
-	Driver      kanban.SessionDriver
-	StopSession func(ctx context.Context, threadID string) error
-	WorktreeDir string
-	DataDir     string
+	Describe func(ctx context.Context, diff string) (string, error)
+	// DescribeTimeout 限制单次提交说明生成的耗时；零值时默认 30 秒。
+	DescribeTimeout time.Duration
+	Driver          kanban.SessionDriver
+	StopSession     func(ctx context.Context, threadID string) error
+	WorktreeDir     string
+	DataDir         string
 	// WorktreeLocation 返回新副本的存储位置；nil 时使用集中目录。
 	WorktreeLocation func() string
 	// ProfilesPath 是子代理 Profile 定义文件路径；为空时默认取

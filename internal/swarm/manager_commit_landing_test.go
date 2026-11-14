@@ -155,6 +155,7 @@ func assertLandingCommit(t *testing.T, m *Manager, root string, bee Bee) {
 }
 
 func TestManager_CommitLanding_Describe(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		message string
@@ -179,8 +180,8 @@ func TestManager_CommitLanding_Describe(t *testing.T) {
 				m.opts.Describe = func(ctx context.Context, diff string) (string, error) {
 					called = true
 					deadline, ok := ctx.Deadline()
-					if left := time.Until(deadline); !ok || left <= 0 || left > 30*time.Second {
-						t.Errorf("生成超时未限制在 30 秒内: %v, %v", deadline, ok)
+					if left := time.Until(deadline); !ok || left <= 0 || left > defaultDescribeTimeout {
+						t.Errorf("生成超时未限制在默认 30 秒内: %v, %v", deadline, ok)
 					}
 					if !strings.Contains(diff, "+bee nine") || strings.Contains(diff, "+user one") {
 						t.Errorf("生成输入未隔离 bee 改动: %s", diff)
@@ -219,6 +220,7 @@ func TestManager_CommitLanding_Describe(t *testing.T) {
 }
 
 func TestManager_CommitLanding_DescribeWaitReuse(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
 	const lead = "lead-describe-wait"
 	const message = "fix: 更新文本"
@@ -252,6 +254,7 @@ func TestManager_CommitLanding_DescribeWaitReuse(t *testing.T) {
 }
 
 func TestManager_CommitLanding_DescribeHeadMoved(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
 	const lead = "lead-describe-head"
 	bee := startCommitLandingBee(t, m, root, lead, 0)
@@ -279,6 +282,7 @@ func TestManager_CommitLanding_DescribeHeadMoved(t *testing.T) {
 }
 
 func TestManager_CommitLanding_DescribeBoundedDiff(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
 	const lead = "lead-describe-limit"
 	bee := startCommitLandingBee(t, m, root, lead, 0)
@@ -301,7 +305,10 @@ func TestManager_CommitLanding_DescribeBoundedDiff(t *testing.T) {
 }
 
 func TestManager_CommitLanding_DescribeTimeout(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
+	// 缩短生成超时，避免用默认 30 秒真实等待。
+	m.opts.DescribeTimeout = 200 * time.Millisecond
 	const lead = "lead-describe-timeout"
 	bee := startCommitLandingBee(t, m, root, lead, 0)
 	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
@@ -326,6 +333,7 @@ func TestManager_CommitLanding_DescribeTimeout(t *testing.T) {
 }
 
 func TestManager_CommitLanding_TwoBees(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
 	before := gitTestRun(t, root, "rev-parse", "HEAD")
 	a := startCommitLandingBee(t, m, root, "lead-two", 0)
@@ -357,6 +365,7 @@ func TestManager_CommitLanding_TwoBees(t *testing.T) {
 }
 
 func TestManager_CommitLanding_Handback(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
 	before := gitTestRun(t, root, "rev-parse", "HEAD")
 	a := startCommitLandingBee(t, m, root, "lead-conflict", 0)
@@ -383,6 +392,7 @@ func TestManager_CommitLanding_Handback(t *testing.T) {
 }
 
 func TestManager_CommitLanding_UserChanges(t *testing.T) {
+	t.Parallel()
 	for _, staged := range []bool{false, true} {
 		t.Run(fmt.Sprintf("staged=%v", staged), func(t *testing.T) {
 			m, _, root := newCommitLandingManager(t)
@@ -420,6 +430,7 @@ func TestManager_CommitLanding_UserChanges(t *testing.T) {
 }
 
 func TestManager_CommitLanding_UserConflictWaitsForTick(t *testing.T) {
+	t.Parallel()
 	m, driver, root := newCommitLandingManager(t)
 	bee := startCommitLandingBee(t, m, root, "lead-wait", 0)
 	before := gitTestRun(t, root, "rev-parse", "HEAD")
@@ -445,6 +456,7 @@ func TestManager_CommitLanding_UserConflictWaitsForTick(t *testing.T) {
 }
 
 func TestManager_CommitLanding_BaseIsHead(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
 	head := gitTestRun(t, root, "rev-parse", "HEAD")
 	writePipelineFile(t, root, "lines.txt", "user dirty\n")
@@ -460,6 +472,7 @@ func TestManager_CommitLanding_BaseIsHead(t *testing.T) {
 }
 
 func TestManager_CommitLanding_HeadMoved(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
 	bee := startCommitLandingBee(t, m, root, "lead-cas", 0)
 	old := gitTestRun(t, root, "rev-parse", "HEAD")
@@ -504,6 +517,7 @@ func TestManager_CommitLanding_HeadMoved(t *testing.T) {
 }
 
 func TestManager_CommitLanding_SerialAcrossManagers(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
 	second := NewManager(Options{Git: m.opts.Git, Driver: newFakeDriver(), WorktreeDir: filepath.Join(t.TempDir(), "worktrees")})
 	second.SetSettingsFunc(func() Settings { return Settings{AutoMerge: true} })
@@ -529,6 +543,7 @@ func TestManager_CommitLanding_SerialAcrossManagers(t *testing.T) {
 }
 
 func TestManager_CommitLanding_ConflictMarkersAndTimeout(t *testing.T) {
+	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
 	now := time.Now()
 	m.opts.Now = func() time.Time { return now }

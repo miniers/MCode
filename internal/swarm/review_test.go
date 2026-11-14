@@ -18,6 +18,7 @@ const testReviewFence = "```" + "swarm-review"
 const testFenceClose = "`" + "`" + "`"
 
 func TestParseReviewVerdict(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		text string
@@ -100,6 +101,7 @@ func TestParseReviewVerdict(t *testing.T) {
 }
 
 func TestReviewPrompt_IncludesInputs(t *testing.T) {
+	t.Parallel()
 	h := Bee{
 		Name:         "Aspen",
 		Task:         "add the review file",
@@ -138,6 +140,7 @@ func (d *leadRuntimeFakeDriver) LeadRuntime(ctx context.Context, leadThreadID st
 }
 
 func TestReviewRuntime(t *testing.T) {
+	t.Parallel()
 	defaults := Settings{DefaultProvider: "default-prov", DefaultModel: "default-model", DefaultEffort: "low"}
 	lead := &leadRuntimeFakeDriver{
 		fakeDriver: newFakeDriver(),
@@ -230,6 +233,7 @@ func currentReviewBee(t *testing.T, m *Manager, beeThreadID string) Bee {
 }
 
 func TestPollReviews_TimeoutStopsSession(t *testing.T) {
+	t.Parallel()
 	m, driver, h := reviewTestManager(t)
 	var stopped []string
 	m.opts.StopSession = func(ctx context.Context, threadID string) error {
@@ -254,6 +258,7 @@ func TestPollReviews_TimeoutStopsSession(t *testing.T) {
 }
 
 func TestPollReviews_FailedFallsBackToHuman(t *testing.T) {
+	t.Parallel()
 	m, driver, h := reviewTestManager(t)
 	markReviewRunning(t, m, h.ThreadID, "review-failed", time.Now())
 	driver.setSessionState("review-failed", kanban.SessionState{
@@ -274,6 +279,7 @@ func TestPollReviews_FailedFallsBackToHuman(t *testing.T) {
 }
 
 func TestPollReviews_ParseFailureFallsBackToHuman(t *testing.T) {
+	t.Parallel()
 	m, driver, h := reviewTestManager(t)
 	markReviewRunning(t, m, h.ThreadID, "review-parse", time.Now())
 	driver.setSessionState("review-parse", kanban.SessionState{
@@ -293,6 +299,7 @@ func TestPollReviews_ParseFailureFallsBackToHuman(t *testing.T) {
 }
 
 func TestPollReviews_NotStartedFallsBackToHuman(t *testing.T) {
+	t.Parallel()
 	m, _, h := reviewTestManager(t)
 	markReviewRunning(t, m, h.ThreadID, "", time.Now().Add(-3*time.Minute))
 
@@ -356,6 +363,7 @@ func prepareApprovedReview(t *testing.T, m *Manager, h Bee, reviewThreadID strin
 }
 
 func TestPollReviews_ApproveAdvancesReview(t *testing.T) {
+	t.Parallel()
 	m, driver, h := reviewTestManager(t)
 	prepareApprovedReview(t, m, h, "review-approve")
 	driver.setSessionState("review-approve", kanban.SessionState{
@@ -372,6 +380,7 @@ func TestPollReviews_ApproveAdvancesReview(t *testing.T) {
 }
 
 func TestPollReviews_ApproveStoresReason(t *testing.T) {
+	t.Parallel()
 	m, driver, h := reviewTestManager(t)
 	prepareApprovedReview(t, m, h, "review-approve-reason")
 	driver.setSessionState("review-approve-reason", kanban.SessionState{
@@ -394,6 +403,7 @@ func TestPollReviews_ApproveStoresReason(t *testing.T) {
 }
 
 func TestPollReviews_RejectAdvancesReview(t *testing.T) {
+	t.Parallel()
 	m, driver, h := reviewTestManager(t)
 	markReviewRunning(t, m, h.ThreadID, "review-reject", time.Now())
 	driver.setSessionState("review-reject", kanban.SessionState{
@@ -410,6 +420,7 @@ func TestPollReviews_RejectAdvancesReview(t *testing.T) {
 }
 
 func TestStartMergeReview_StartsReadOnlySession(t *testing.T) {
+	t.Parallel()
 	m, driver, h := reviewTestManager(t)
 	patch := []byte("diff --git a/review.txt b/review.txt\n")
 	started := time.Now()

@@ -42,6 +42,7 @@ func (d *archiveFakeDriver) archiveCount() int {
 
 // 开关关闭时不归档、不清理。
 func TestManager_LifecycleSwitchesOff(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newArchiveFakeDriver()
@@ -86,6 +87,7 @@ func TestManager_LifecycleSwitchesOff(t *testing.T) {
 
 // 开关打开后 bee 完成并汇报后被归档一次，再 tick 不会重复调用。
 func TestManager_ArchivesFinishedBeesOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newArchiveFakeDriver()
@@ -129,6 +131,7 @@ func TestManager_ArchivesFinishedBeesOnce(t *testing.T) {
 
 // AutoClearFinished 打开时，lead 全部 bee 结束并汇报后被移出 State。
 func TestManager_AutoClearFinished(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()
@@ -163,6 +166,7 @@ func TestManager_AutoClearFinished(t *testing.T) {
 
 // AutoClearFinished 打开但仍有 running bee 时不清理。
 func TestManager_AutoClearFinished_KeepsRunningLead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 	driver := newFakeDriver()
@@ -204,6 +208,7 @@ func TestManager_AutoClearFinished_KeepsRunningLead(t *testing.T) {
 
 // 落地失败或带冲突的 bee 不会被自动清理，避免丢掉唯一的成果副本。
 func TestManager_AutoClearFinished_KeepsFailedMerge(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	mgr := NewManager(Options{})
 	mgr.SetSettingsFunc(func() Settings {
@@ -231,6 +236,7 @@ func TestManager_AutoClearFinished_KeepsFailedMerge(t *testing.T) {
 // planEntry/DispatchSingleEntry 带 profile 时，Profile 文件通过 Options.ProfilesPath 指定，
 // Provider/Model/Effort 与 Prompt 前缀都来自 Profile。
 func TestManager_DispatchSingleEntryWithProfile(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -282,6 +288,7 @@ func TestManager_DispatchSingleEntryWithProfile(t *testing.T) {
 
 // 条目声明了 skills 且设置了 SkillsGuidance 时，bee 启动提示词追加该函数返回的技能块。
 func TestManager_DispatchSingleEntryWithSkills(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -335,6 +342,7 @@ func TestManager_DispatchSingleEntryWithSkills(t *testing.T) {
 
 // 条目不带 skills 时 SkillsGuidance 不被调用，提示词与 beePrompt 逐字一致。
 func TestManager_DispatchSingleEntryWithoutSkills(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -378,6 +386,7 @@ func TestManager_DispatchSingleEntryWithoutSkills(t *testing.T) {
 
 // Settings.Pairs 配合 Delegation.Pair 时，Provider/Model/Effort/FastMode 来自配对的 Bee 侧。
 func TestManager_DispatchSingleEntryWithPair(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -422,6 +431,7 @@ func TestManager_DispatchSingleEntryWithPair(t *testing.T) {
 
 // 验证当 ThreadContext 未授权配对（为 nil 或消息中未提及）时，产生未授权提示且不采用配对配置。
 func TestManager_DispatchSingleEntryWithPair_Unauthorized(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -463,6 +473,7 @@ func TestManager_DispatchSingleEntryWithPair_Unauthorized(t *testing.T) {
 
 // 停止全部时应一并清掉该 lead 的排队条目，其它 lead 的排队条目不受影响。
 func TestManager_StopAllClearsQueuedEntries(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, _ := initTestRepo(t)
 
@@ -504,6 +515,7 @@ func TestManager_StopAllClearsQueuedEntries(t *testing.T) {
 // InheritLead 把源会话的编排开关与只规划覆盖值继承给目标会话（转发会话场景）；
 // 继承后两边各自独立，改目标不影响源；源未开启编排时目标保持未开启。
 func TestManager_InheritLead(t *testing.T) {
+	t.Parallel()
 	mgr := NewManager(Options{})
 
 	plansOnly := true

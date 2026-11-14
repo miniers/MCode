@@ -55,6 +55,7 @@ func pendingReviewBee(t *testing.T) (*Manager, string, Bee) {
 }
 
 func TestReviewMerge_UsesPersistedSnapshot(t *testing.T) {
+	t.Parallel()
 	m, dir, bee := pendingReviewBee(t)
 	ctx := context.Background()
 	reviewed, err := m.MergeDiff(ctx, "lead-review", bee.ThreadID)
@@ -106,6 +107,7 @@ func TestReviewMerge_UsesPersistedSnapshot(t *testing.T) {
 }
 
 func TestReviewMerge_ApplyFailureRemainsPending(t *testing.T) {
+	t.Parallel()
 	m, dir, bee := pendingReviewBee(t)
 	ctx := context.Background()
 	m.mu.Lock()
@@ -167,6 +169,7 @@ func setupReviewBeeWithFile(t *testing.T, leadID, initialContent, beeContent str
 }
 
 func TestReviewMerge_RefusesWhenTargetHasLocalEdits(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	baseContent := "line 1\nline 2\nline 3\n"
 
@@ -229,6 +232,7 @@ func TestReviewMerge_RefusesWhenTargetHasLocalEdits(t *testing.T) {
 }
 
 func TestReviewMerge_ConcurrentDecisions(t *testing.T) {
+	t.Parallel()
 	m, _, bee := pendingReviewBee(t)
 	start := make(chan struct{})
 	results := make(chan error, 2)
@@ -268,6 +272,7 @@ func TestReviewMerge_ConcurrentDecisions(t *testing.T) {
 // TestReviewMerge_ReportsOnlyAfterAllDecisions 覆盖待审查期间的汇报语义：整批 bee 都等审查有结论，
 // 期间不汇报；最后一个决定做出后的下一个 Tick 一次性汇报全部 bee，之后不再重复投递。
 func TestReviewMerge_ReportsOnlyAfterAllDecisions(t *testing.T) {
+	t.Parallel()
 	m, dir, first := pendingReviewBee(t)
 	ctx := context.Background()
 	driver := m.opts.Driver.(*fakeDriver)
@@ -348,6 +353,7 @@ func TestReviewMerge_ReportsOnlyAfterAllDecisions(t *testing.T) {
 
 // TestBuildReport_DiscardedBeeMentionsAbandoned 确保已放弃合并的 bee 在汇报里标注落地状态。
 func TestBuildReport_DiscardedBeeMentionsAbandoned(t *testing.T) {
+	t.Parallel()
 	report := BuildReport([]Bee{{
 		Name:           "Aspen",
 		Task:           "新增文件",

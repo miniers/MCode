@@ -11,6 +11,7 @@ import (
 
 // 注入 MemoryRecall 且返回内容时，bee 启动提示词末尾追加带标题的记忆段落。
 func TestManager_DispatchSingleEntryWithMemoryRecall(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -66,6 +67,7 @@ func TestManager_DispatchSingleEntryWithMemoryRecall(t *testing.T) {
 
 // 钩子为 nil 或返回空串时，提示词与 beePrompt 逐字一致。
 func TestManager_DispatchSingleEntryWithoutMemoryRecall(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		recall func(ctx context.Context, workDir, query string) string
@@ -114,6 +116,7 @@ func TestManager_DispatchSingleEntryWithoutMemoryRecall(t *testing.T) {
 
 // SetMemoryRecall 在接线后注入的钩子同样生效。
 func TestManager_SetMemoryRecallAfterConstruction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -146,6 +149,7 @@ func TestManager_SetMemoryRecallAfterConstruction(t *testing.T) {
 
 // beeRecallQuery 由任务与提示词前 300 个 rune 组成。
 func TestBeeRecallQuery(t *testing.T) {
+	t.Parallel()
 	short := Delegation{Task: "修复派发", Prompt: "  让 bee 保留缩进  "}
 	if got, want := beeRecallQuery(short), "修复派发\n让 bee 保留缩进"; got != want {
 		t.Fatalf("beeRecallQuery = %q, want %q", got, want)
@@ -169,6 +173,7 @@ func TestBeeRecallQuery(t *testing.T) {
 
 // beeRecallBlock 把 3 秒预算写进 ctx 传给钩子，并原样带上标题。
 func TestBeeRecallBlockDeadline(t *testing.T) {
+	t.Parallel()
 	var deadline time.Time
 	block := beeRecallBlock(context.Background(), func(ctx context.Context, _, query string) string {
 		deadline, _ = ctx.Deadline()

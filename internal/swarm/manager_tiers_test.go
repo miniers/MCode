@@ -12,6 +12,7 @@ import (
 )
 
 func TestBeePreviewMatchesSessionAndReadOnly(t *testing.T) {
+	t.Parallel()
 	driver := newFakeDriver()
 	var request kanban.SessionRequest
 	driver.onStart = func(req kanban.SessionRequest) { request = req }
@@ -41,6 +42,7 @@ func TestBeePreviewMatchesSessionAndReadOnly(t *testing.T) {
 
 // 测试 ThreadContext 在 manager 派发链路中的注入（配对覆盖与用户消息指定模型授权）。
 func TestManager_ThreadContext_Wiring(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -119,6 +121,7 @@ func TestManager_ThreadContext_Wiring(t *testing.T) {
 
 // 验证 BuildReport 中的档位、模型、DirectModel、越权写入与重试提示输出。
 func TestBuildReport_TiersAndViolations(t *testing.T) {
+	t.Parallel()
 	bees := []Bee{
 		{
 			Name:        "Bee-1",
@@ -196,6 +199,7 @@ func TestBuildReport_TiersAndViolations(t *testing.T) {
 
 // 验证 shared 模式下只读档 bee 依然强制创建独立 worktree。
 func TestManager_ReadOnlyBee_SharedModeGetsWorktree(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -251,6 +255,7 @@ func TestManager_ReadOnlyBee_SharedModeGetsWorktree(t *testing.T) {
 
 // 验证只读档 bee 在 worktree 中产生脏改动时被标记违规丢弃且不合入主仓库，未改动时正常合入。
 func TestManager_ReadOnlyBee_DirtyWorktreeFlaggedAndNotMerged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -346,6 +351,7 @@ func TestManager_ReadOnlyBee_DirtyWorktreeFlaggedAndNotMerged(t *testing.T) {
 // 验证档位预览与真实派发共用同一套解析与回退规则：档位自带模型、会话子代理模型、
 // 配对 bee_tiers 覆盖以及默认 provider/model/effort 回退。
 func TestManager_TierPreview(t *testing.T) {
+	t.Parallel()
 	const leadID = "lead-tier-preview"
 	tiers := []Tier{
 		{ID: "fast", Provider: "openai", Model: "gpt-4o-mini"},
@@ -422,6 +428,7 @@ func TestManager_TierPreview(t *testing.T) {
 // 宿主代码直接指定 provider/model/effort 与写入白名单时，覆盖档位解析结果，
 // 且即使用户消息里没点名该模型也生效；Host 为 nil 时仍按档位解析。
 func TestManager_DispatchSingleEntry_HostOverride(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
 
@@ -504,6 +511,7 @@ func TestManager_DispatchSingleEntry_HostOverride(t *testing.T) {
 
 // 编排未开启时：宿主指定了覆盖项就返回 ErrSwarmDisabled，否则保持静默返回零值。
 func TestManager_DispatchSingleEntry_HostOverrideSwarmDisabled(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	mgr := NewManager(Options{})
 	mgr.SetSettingsFunc(func() Settings { return Settings{Enabled: false} })

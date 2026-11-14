@@ -44,6 +44,9 @@ const legacyBeePromptPrefix = "你是 Hydra head"
 // 不限制时也保留上限：即使不限制，一个块里二十条也不能同时起二十个 worktree 与 CLI。
 const defaultMaxBees = 8
 
+// defaultDescribeTimeout 是 DescribeTimeout 为零值时单次提交说明生成的超时时间。
+const defaultDescribeTimeout = 30 * time.Second
+
 // IsNotice 判断文本是否为 mcode 下发的系统通知（含汇报），兼容旧前缀。
 func IsNotice(text string) bool {
 	return strings.HasPrefix(text, strings.TrimSpace(NoticePrefix)) || strings.HasPrefix(text, legacyNoticePrefix)
@@ -4258,7 +4261,11 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 	}
 	if h.LandMessage == "" && m.opts.Describe != nil {
 		// 模型调用必须在 HEAD 锁外，避免阻塞其他 lead 移动 HEAD。
-		describeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		describeTimeout := m.opts.DescribeTimeout
+		if describeTimeout <= 0 {
+			describeTimeout = defaultDescribeTimeout
+		}
+		describeCtx, cancel := context.WithTimeout(ctx, describeTimeout)
 		diff, _, diffErr := m.opts.Git.DiffText(describeCtx, h.WorktreePath, h.BaseCommit, beeCommit, nil, 12000)
 		if diffErr == nil && strings.TrimSpace(diff) != "" {
 			if msg, err := m.opts.Describe(describeCtx, diff); err == nil && describeCtx.Err() == nil && strings.TrimSpace(msg) != "" {
