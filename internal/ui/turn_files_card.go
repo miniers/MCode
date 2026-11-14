@@ -110,9 +110,9 @@ func turnFilesWorkDir(s *chatState, threadID string) string {
 }
 
 // turnFilesForTurn 持锁拷贝本回合消息与工作目录，再收集本回合改动且存在的文件
-// （拷贝方式与 turnToolStatsFor 一致）。
+// （拷贝方式与 turnToolStatsFor 一致）；轮次序号为负（缺失）时返回空。
 func turnFilesForTurn(s *chatState, threadID string, turnIndex int) []turnEditedFile {
-	if s == nil || turnIndex <= 0 {
+	if s == nil || turnIndex < 0 {
 		return nil
 	}
 	s.mu.Lock()
@@ -248,7 +248,7 @@ type turnFileChangeSummary struct {
 // 与 turnFileDiffStats，和改动卡 renderTurnFilesCard 走同一条链路。缓存未命中时
 // toolDiffEntryFor 会在后台拉取并重绘，此处只返回「统计未就绪」。
 func turnFileChangeSummaryForTurn(s *chatState, threadID string, turnIndex int) turnFileChangeSummary {
-	if s == nil || threadID == "" || turnIndex <= 0 {
+	if s == nil || threadID == "" || turnIndex < 0 {
 		return turnFileChangeSummary{}
 	}
 	files := turnFilesForTurn(s, threadID, turnIndex)

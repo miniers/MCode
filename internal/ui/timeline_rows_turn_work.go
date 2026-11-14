@@ -260,23 +260,32 @@ func renderTurnWorkFooter(c *ui.Context, s *chatState, item timelineItem, usage 
 	if item.workRunning {
 		return
 	}
-	// 历史回合可能没有用量记录：用量为空时 formatTurnFinishedBlockTextWithInfo 会退回
+	// 历史回合可能没有用量记录：用量为空时 formatTurnFinishedSummary 会退回
 	// 模型/工具数/耗时，仍比整行完成信息丢掉更完整。
 	if !hasUsage {
 		usage = TokenUsage{}
 	}
-	stats := turnToolStatsFor(s, item.turnIndex)
-	endMsg := turnEndMessageFor(s, item.turnIndex)
-	start, end := turnFinishedSpanFor(s, endMsg)
-	duration := resolveTurnDuration(usage, end.Sub(start))
-	text := formatTurnFinishedBlockTextWithInfo("", stats, usage, duration)
+	text := turnWorkFooterText(s, item.turnIndex, usage)
 	if text == "" {
 		return
 	}
-	ui.Text(c, appendTurnEndClock(text, end)).
+	ui.Text(c, text).
 		FontSize(scaledFont(TypeCaption)).
 		TextColor(ThemeSecondaryText(c)).
 		Margin(4, 0, 0, 0)
+}
+
+// turnWorkFooterText 拼装展开体尾部的完成详情：模型、用时、工具数、改动、token 与输出速度，
+// 末尾追加与用时同源的结束时钟。用时与独立完成行走 turnFinishedDuration，
+// DurationMs 只作速度分母回退；全部数据缺失时返回空字符串。
+func turnWorkFooterText(s *chatState, turnIndex int, usage TokenUsage) string {
+	stats := turnToolStatsFor(s, turnIndex)
+	endMsg := turnEndMessageFor(s, turnIndex)
+	_, end := turnFinishedSpanFor(s, endMsg)
+	duration := turnFinishedDuration(s, endMsg, usage)
+	text := formatTurnFinishedSummary("", stats, usage, duration)
+	text = appendTurnOutputSpeed(text, usage, resolveTurnDuration(usage, duration))
+	return appendTurnEndClock(text, end)
 }
 
 // renderToolBeatItem 渲染工具组内的一个节拍：上方是思考叙事（这节拍没有前置思考时省略），

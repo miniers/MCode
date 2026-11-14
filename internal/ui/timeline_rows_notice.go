@@ -217,8 +217,9 @@ func turnOutputTokens(usage TokenUsage) (int, bool) {
 	return int(usage.Output), true
 }
 
-// resolveTurnDuration 返回本回合用于计算输出速度的生成时长：优先后端记录的耗时（TokenUsage.DurationMs），
-// 没有时用 fallback（从界面消息时间戳推导出的时长）。两者都没有时返回 0，调用方不显示速度。
+// resolveTurnDuration 返回本回合计算输出速度的分母：优先后端记录的耗时（TokenUsage.DurationMs，不落库），
+// 没有时用 fallback（本轮开始到结束的墙钟时长）。两者都没有时返回 0，调用方不显示速度。
+// 它只用于速度回退，完成行与折叠体尾部显示的「用时」走 turnFinishedDuration。
 func resolveTurnDuration(usage TokenUsage, fallback time.Duration) time.Duration {
 	if usage.DurationMs > 0 {
 		return time.Duration(usage.DurationMs) * time.Millisecond
@@ -226,30 +227,41 @@ func resolveTurnDuration(usage TokenUsage, fallback time.Duration) time.Duration
 	return fallback
 }
 
-// renderTurnFinishedBlock 渲染回合完成块：一条细分割线、完成图标、本回合的模型短名、
-// 用时、工具调用与改动文件数、token 统计与输出速度；悬停显示 token 明细、费用、常用工具与起止时间。
-// 只在该轮结束（非流式）时由该轮最后一条助手消息调用；时长优先取后端记录的耗时，没有时用 fallback。
-// Swarm 主会话仍有运行中或排队中的子代理时，最后一轮先不显示完成块，等它们全部结束后自动恢复。
-func renderTurnFinishedBlock(c *ui.Context, s *chatState, m Message, usage TokenUsage, fallbackDur time.Duration) {
-	if swarmTurnEndDeferred(s, m.TurnIndex) {
-		return
+// turnFinishedDuration 返回本回合完成行与折叠体尾部共用的用时：本轮开始到结束的墙钟时长。
+// 优先取消息上的权威起止时间（TurnStartedAt / TurnCompletedAt），其次从界面消息时间推导，
+// 最后才回退到 TokenUsage.DurationMs（不落库，只用于速度回退），保证折叠前后与重启前后一致。
+// 读取会话消息时自行加锁。
+func turnFinishedDuration(s *chatState, m Message, usage TokenUsage) time.Duration {
+	if s == nil {
+		return resolveTurnDuration(usage, 0)
 	}
 	start, end := turnFinishedSpanFor(s, m)
 	s.mu.Lock()
 	authoritativeStart, authoritativeEnd := turnAuthoritativeSpan(s.messages, m)
 	s.mu.Unlock()
 	if !authoritativeStart.IsZero() && !authoritativeEnd.IsZero() && !authoritativeEnd.Before(authoritativeStart) {
-		fallbackDur = authoritativeEnd.Sub(authoritativeStart)
-	} else if d, ok := turnEndDuration(start, end); ok {
-		fallbackDur = d
-	} else {
-		fallbackDur = resolveTurnDuration(usage, fallbackDur)
+		return authoritativeEnd.Sub(authoritativeStart)
 	}
-	renderTurnFinishedBlockWithDuration(c, s, m, usage, fallbackDur)
+	if d, ok := turnEndDuration(start, end); ok {
+		return d
+	}
+	return resolveTurnDuration(usage, 0)
 }
 
-// renderTurnFinishedBlockWithDuration 是完成块的实际渲染：duration 是已确定的本回合生成时长，
-// 没有逐请求样本时按整轮口径算速度，为 0 或不足 0.5 秒则不显示（见 formatTokensPerSecond）。
+// renderTurnFinishedBlock 渲染回合完成块：一条细分割线、完成图标、本回合的模型短名、
+// 用时、工具调用与改动文件数、token 统计与输出速度；悬停显示 token 明细、费用、常用工具与起止时间。
+// 只在该轮结束（非流式）时由该轮最后一条助手消息调用；用时见 turnFinishedDuration。
+// Swarm 主会话仍有运行中或排队中的子代理时，最后一轮先不显示完成块，等它们全部结束后自动恢复。
+func renderTurnFinishedBlock(c *ui.Context, s *chatState, m Message, usage TokenUsage, _ time.Duration) {
+	if swarmTurnEndDeferred(s, m.TurnIndex) {
+		return
+	}
+	renderTurnFinishedBlockWithDuration(c, s, m, usage, turnFinishedDuration(s, m, usage))
+}
+
+// renderTurnFinishedBlockWithDuration 是完成块的实际渲染：duration 是本轮开始到结束的墙钟用时，
+// 没有逐请求样本时速度按 TokenUsage.DurationMs 回退（见 resolveTurnDuration），
+// 为 0 或不足 0.5 秒则不显示（见 formatTokensPerSecond）。
 // 模型短名、工具调用与改动文件数都从已加载的会话状态里按回合统计，缺数据时相应分段自动省略。
 // 「已完成」行下面再挂一张本回合改动文件卡片（见 renderTurnFilesCard），没有改动时它不画。
 func renderTurnFinishedBlockWithDuration(c *ui.Context, s *chatState, m Message, usage TokenUsage, duration time.Duration) {

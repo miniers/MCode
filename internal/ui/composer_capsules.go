@@ -305,7 +305,7 @@ func composerRunningChangesCapsule(s *chatState, threadID string) (composerCapsu
 		return composerCapsule{}, false
 	}
 	running, turnIndex := s.runningTurn(threadID)
-	if !running || turnIndex <= 0 {
+	if !running || turnIndex < 0 {
 		return composerCapsule{}, false
 	}
 	summary := turnFileChangeSummaryForTurn(s, threadID, turnIndex)

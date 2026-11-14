@@ -21,10 +21,10 @@ type turnToolStats struct {
 
 // collectTurnToolStats 统计某一回合内的工具调用：次数按 tool 消息计（与 app.ThreadActivityFromMessages 一致），
 // 改动文件数从编辑 / 写入类工具的参数里取路径后去重，常用工具按次数降序、同次数按名称升序排列。
-// turnIndex 为 0（消息缺轮次信息）时不统计，避免把整段历史算到同一回合。
+// turnIndex 为负数（消息缺轮次信息）时不统计，避免把整段历史算到同一回合；首轮的 0 是有效轮次。
 func collectTurnToolStats(msgs []Message, turnIndex int) turnToolStats {
 	var st turnToolStats
-	if turnIndex <= 0 {
+	if turnIndex < 0 {
 		return st
 	}
 	counts := make(map[string]int)
@@ -82,9 +82,9 @@ type turnEditedFile struct {
 
 // collectTurnEditedPaths 收集本回合成功完成的编辑类工具触及的路径：按首次出现顺序去重，
 // TurnIndex 相同才算本回合；失败、被拦截与运行中的工具整条跳过。
-// turnIndex 为 0（消息缺轮次信息）时返回空，与 collectTurnToolStats 的约定一致。
+// turnIndex 为负数（消息缺轮次信息）时返回空，与 collectTurnToolStats 的约定一致。
 func collectTurnEditedPaths(msgs []Message, turnIndex int) []turnEditedPath {
-	if turnIndex <= 0 {
+	if turnIndex < 0 {
 		return nil
 	}
 	var out []turnEditedPath

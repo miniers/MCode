@@ -1928,9 +1928,9 @@ func TestCollectTurnToolStats(t *testing.T) {
 		}
 	}
 
-	// 回合序号缺失（0）时不统计，避免把整段历史算到同一回合
-	if stats := collectTurnToolStats(msgs, 0); stats.calls != 0 || stats.changedFiles != 0 || len(stats.topTools) != 0 {
-		t.Fatalf("回合序号为 0 时应为空，got %+v", stats)
+	// 回合序号为负（轮次信息缺失）时不统计，避免把整段历史算到同一回合；首轮的 0 是有效轮次。
+	if stats := collectTurnToolStats(msgs, -1); stats.calls != 0 || stats.changedFiles != 0 || len(stats.topTools) != 0 {
+		t.Fatalf("回合序号为 -1 时应为空，got %+v", stats)
 	}
 
 	// 超过 3 个工具时只保留次数最多的 3 项
@@ -1943,6 +1943,26 @@ func TestCollectTurnToolStats(t *testing.T) {
 	}
 	if stats := collectTurnToolStats(top4, 3); len(stats.topTools) != turnTopToolsLimit || stats.topTools[0] != (ToolCallCount{Name: "bash", Count: 2}) {
 		t.Fatalf("Top3 = %+v, want 3 项且 bash 居首", stats.topTools)
+	}
+}
+
+// TestCollectTurnToolStatsFirstTurn 验证首轮（TurnIndex 0）也统计工具调用与改动文件：
+// 后端首轮序号就是 0，只有负数才表示轮次信息缺失。
+func TestCollectTurnToolStatsFirstTurn(t *testing.T) {
+	msgs := []Message{
+		{ID: "u0", Role: "user", Text: "问题", TurnIndex: 0},
+		{ID: "t0", Role: "tool", ToolName: "bash", TurnIndex: 0},
+		{ID: "t1", Role: "tool", ToolName: "edit_file", ToolInput: `{"file_path":"/repo/a.go"}`, TurnIndex: 0},
+	}
+	got := collectTurnToolStats(msgs, 0)
+	if got.calls != 2 {
+		t.Fatalf("首轮工具调用次数 = %d, want 2", got.calls)
+	}
+	if got.changedFiles != 1 {
+		t.Fatalf("首轮改动文件数 = %d, want 1", got.changedFiles)
+	}
+	if paths := collectTurnEditedPaths(msgs, 0); len(paths) != 1 || paths[0].path != "/repo/a.go" {
+		t.Fatalf("首轮改动路径 = %+v, want /repo/a.go", paths)
 	}
 }
 
@@ -2228,6 +2248,38 @@ func TestTurnFinishedBlockShowsTokensPerSecond(t *testing.T) {
 	}
 	if got := formatTurnFinishedBlockText(usage, resolveTurnDuration(TokenUsage{Output: 456}, derived)); !strings.HasSuffix(got, " · 29 t/s") {
 		t.Fatalf("推导时长算出的速度不对: %q", got)
+	}
+}
+
+// TestTurnFinishedDurationUsesWallClock 验证完成行与展开体尾部共用同一用时口径：
+// 权威起止 10:00:00–10:01:40 就是 1m40s，TokenUsage.DurationMs 只用于速度回退，不覆盖显示的用时。
+func TestTurnFinishedDurationUsesWallClock(t *testing.T) {
+	start := time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
+	end := start.Add(100 * time.Second)
+	startText, endText := start.Format(time.RFC3339Nano), end.Format(time.RFC3339Nano)
+	msgs := []Message{
+		{ID: "u0", Role: "user", Text: "问题", TurnIndex: 0, TurnStartedAt: startText, TurnCompletedAt: endText},
+		{ID: "a0", Role: "assistant", Text: "答复", TurnIndex: 0, TurnStartedAt: startText, TurnCompletedAt: endText},
+	}
+	s := &chatState{messages: msgs}
+	usage := TokenUsage{Output: 4100, DurationMs: 28_000}
+	endMsg := turnEndMessageFor(s, 0)
+
+	if got := turnFinishedDuration(s, endMsg, usage); got != 100*time.Second {
+		t.Fatalf("完成行用时 = %v, want 1m40s", got)
+	}
+	// 独立完成行：用时取墙钟，速度分母回退到 DurationMs。
+	wantBlock := "已完成 · 用时 1m40s · 输出 4.1k · 146 t/s"
+	duration := turnFinishedDuration(s, endMsg, usage)
+	blockText := formatTurnFinishedSummary("", turnToolStats{}, usage, duration)
+	blockText = appendTurnOutputSpeed(blockText, usage, resolveTurnDuration(usage, duration))
+	if blockText != wantBlock {
+		t.Fatalf("独立完成行 = %q, want %q", blockText, wantBlock)
+	}
+	// 展开体尾部：用时与结束时钟同源，速度同样回退到 DurationMs。
+	wantFooter := wantBlock + " · 结束 " + end.Local().Format("01-02 15:04:05")
+	if got := turnWorkFooterText(s, 0, usage); got != wantFooter {
+		t.Fatalf("展开体尾部 = %q, want %q", got, wantFooter)
 	}
 }
 
