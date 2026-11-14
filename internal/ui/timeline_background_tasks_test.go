@@ -154,18 +154,50 @@ func TestBackgroundTaskExpandAndStop(t *testing.T) {
 
 // TestBackgroundTaskSingleLogScroll 验证切换任务时只有当前任务绑定日志滚动句柄。
 func TestBackgroundTaskSingleLogScroll(t *testing.T) {
-	s := newChatState(NewFakeClient())
+	client := NewFakeClient()
+	client.backgroundTaskLogText = "日志内容"
+	client.backgroundTaskLogAvailable = true
+	s := newChatState(client)
 	s.selectedThreadID = "t1"
 	s.composerView.backgroundTasksOpen = true
 	data := backgroundTasksItem{threadID: "t1", tasks: []Message{
 		backgroundTasksTestCommandLine("bg1", 1, "background", "first task"),
 		backgroundTasksTestCommandLine("bg2", 1, "background", "second task"),
 	}}
+	empty := newChatState(nil)
+	empty.composerView.backgroundTasksOpen = true
+	empty.composerView.backgroundTaskExpanded = "bg1"
+	emptyTester := ui.NewTester(func(c *ui.Context) { renderBackgroundTasksPanel(c, empty, "tasks", data, nil) }, 800, 500)
+	emptyTester.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
+	emptyTester.Frame()
+	if _, ok := emptyTester.Find("后台任务日志 bg1"); ok {
+		t.Fatal("空日志不应有滚动区")
+	}
+	if _, ok := emptyTester.Find("暂无输出"); ok {
+		t.Fatal("空日志不应显示暂无输出")
+	}
 	tt := ui.NewTester(func(c *ui.Context) { renderBackgroundTasksPanel(c, s, "tasks", data, nil) }, 800, 500)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
 	tt.Frame()
 	clickText(t, tt, "first task")
-	tt.Frame()
+	waitLog := func(id string) {
+		t.Helper()
+		deadline := time.Now().Add(time.Second)
+		for {
+			s.mu.Lock()
+			ready := s.composerView.backgroundTaskLogID == id && s.composerView.backgroundTaskLog != ""
+			s.mu.Unlock()
+			if ready {
+				tt.Frame()
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("未收到任务 %s 的日志", id)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	waitLog("bg1")
 	if _, ok := tt.Find("后台任务日志 bg1"); !ok {
 		t.Fatal("展开的任务应有日志滚动区")
 	}
@@ -173,7 +205,7 @@ func TestBackgroundTaskSingleLogScroll(t *testing.T) {
 		t.Fatal("收起的任务不应有日志滚动区")
 	}
 	clickText(t, tt, "second task")
-	tt.Frame()
+	waitLog("bg2")
 	if _, ok := tt.Find("后台任务日志 bg1"); ok {
 		t.Fatal("切换任务后旧任务不应占用日志滚动句柄")
 	}
