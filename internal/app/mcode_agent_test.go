@@ -505,13 +505,13 @@ func TestMcodeModelCatalogUsesFullCache(t *testing.T) {
 	}
 	prefix := targets[0].ProviderID
 
-	// pi 的勾选不影响完整目录。
+	// mcode 未配置时回退到 pi 的勾选。
 	cfg.Providers.MagpieAgents = map[string]config.MagpieAgentConfig{config.ProviderPi: {
 		Selections: []config.MagpieSelection{{EndpointID: "edge", Models: []string{"claude-sonnet-4.5"}}},
 	}}
 	got := mcodeModelsForConfig(cfg, secrets)
-	if len(got) != 2 || got[0].ID != prefix+"/claude-sonnet-4.5" || !got[0].IsDefault {
-		t.Fatalf("完整目录 = %#v", got)
+	if len(got) != 1 || got[0].ID != prefix+"/claude-sonnet-4.5" || !got[0].IsDefault {
+		t.Fatalf("回退目录 = %#v", got)
 	}
 
 	// 默认模型排在最前。

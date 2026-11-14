@@ -122,8 +122,12 @@ func mcodeDefaultModel(ctx context.Context, cfg config.Config, secrets config.Se
 		if !hit {
 			continue
 		}
+		rows := make([]wire.ProviderModel, 0, len(models))
 		for _, model := range models {
-			if id := strings.TrimSpace(model.ID); id != "" {
+			rows = append(rows, wire.ProviderModel{ID: model.ID})
+		}
+		for _, row := range mcodeSelectedRows(cfg, target.Endpoint, rows) {
+			if id := strings.TrimSpace(row.ID); id != "" {
 				return target.ProviderID + "/" + id, nil
 			}
 		}
@@ -405,7 +409,7 @@ func mcodeModelCatalog() []wire.ProviderModel {
 	return mcodeModelsForConfig(cfg, secrets)
 }
 
-// mcodeModelsForConfig 将各端点完整目录投影为旧线程使用的带前缀模型 ID。
+// mcodeModelsForConfig 将各端点目录投影为旧线程使用的带前缀模型 ID。
 func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.ProviderModel {
 	setting := config.MagpieAgentSetting(cfg, config.ProviderMcode)
 	defaultEndpointID := strings.TrimSpace(setting.DefaultEndpointID)
@@ -413,7 +417,7 @@ func mcodeModelsForConfig(cfg config.Config, secrets config.SecretStore) []wire.
 	rows := make([]wire.ProviderModel, 0)
 	defaultID := ""
 	for _, target := range apisource.MagpieTargets(cfg, secrets) {
-		for _, row := range magpieCatalogTarget(target) {
+		for _, row := range mcodeSelectedRows(cfg, target.Endpoint, magpieCatalogTarget(target)) {
 			if defaultID == "" && (defaultEndpointID == "" || target.Endpoint == defaultEndpointID) && row.ID == defaultModelID {
 				defaultID = target.ProviderID + "/" + row.ID
 			}

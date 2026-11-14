@@ -28,7 +28,7 @@ func apiSourceCatalog(cfg config.Config, secrets config.SecretStore, kind string
 				if endpoint.Enabled && endpoint.Magpie && config.CustomEndpointProviderKind(endpoint) == kind {
 					for _, target := range apisource.MagpieTargets(cfg, secrets) {
 						if target.Endpoint == endpoint.ID {
-							return orderCatalog(magpieCatalogTarget(target), source.DefaultModel)
+							return orderCatalog(mcodeSelectedRows(cfg, target.Endpoint, magpieCatalogTarget(target)), source.DefaultModel)
 						}
 					}
 				}
@@ -49,6 +49,24 @@ func apiSourceCatalog(cfg config.Config, secrets config.SecretStore, kind string
 		return orderCatalog(rows, source.DefaultModel)
 	}
 	return nil
+}
+
+func mcodeSelectedRows(cfg config.Config, endpointID string, rows []wire.ProviderModel) []wire.ProviderModel {
+	setting := config.MagpieAgentSetting(cfg, config.ProviderMcode)
+	if len(setting.Selections) == 0 {
+		return rows
+	}
+	selected := make(map[string]bool)
+	for _, id := range magpieSelectionModels(setting, endpointID) {
+		selected[id] = true
+	}
+	filtered := make([]wire.ProviderModel, 0, len(rows))
+	for _, row := range rows {
+		if selected[row.ID] {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
 }
 
 // magpieCatalogTarget 从端点缓存构造裸模型 ID 的目录。

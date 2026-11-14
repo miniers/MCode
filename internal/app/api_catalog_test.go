@@ -73,6 +73,28 @@ func TestAPISourceCatalogMagpieEndpoints(t *testing.T) {
 	if !seen[prefixes["a"]+"/shared"] || !seen[prefixes["b"]+"/shared"] {
 		t.Fatalf("同名模型缺少端点前缀：%#v", rows)
 	}
+	cfg.Providers.MagpieAgents[config.ProviderMcode] = config.MagpieAgentConfig{
+		Selections: []config.MagpieSelection{{EndpointID: "b", Models: []string{"three", "two"}}},
+	}
+	if got := apiSourceCatalog(cfg, secrets, "custom-a", nil); len(got) != 0 {
+		t.Fatalf("未勾选端点目录 = %#v", got)
+	}
+	if got := apiSourceCatalog(cfg, secrets, "custom-b", nil); len(got) != 2 || got[0].ID != "two" || got[1].ID != "three" {
+		t.Fatalf("勾选端点目录 = %#v", got)
+	}
+	if got := mcodeModelsForConfig(cfg, secrets); len(got) != 2 || got[0].ID != prefixes["b"]+"/two" || got[1].ID != prefixes["b"]+"/three" {
+		t.Fatalf("勾选聚合目录 = %#v", got)
+	}
+	if got, err := mcodeDefaultModel(context.Background(), cfg, secrets); err != nil || got != prefixes["b"]+"/two" {
+		t.Fatalf("勾选默认模型 = %q, %v", got, err)
+	}
+	cfg.Providers.MagpieAgents[config.ProviderMcode] = config.MagpieAgentConfig{}
+	if got := apiSourceCatalog(cfg, secrets, "custom-b", nil); len(got) != 3 {
+		t.Fatalf("空勾选端点目录 = %#v", got)
+	}
+	if got := mcodeModelsForConfig(cfg, secrets); len(got) != 5 {
+		t.Fatalf("空勾选聚合目录 = %#v", got)
+	}
 	cfg.Providers.Custom = cfg.Providers.Custom[1:]
 	if got := apiSourceCatalog(cfg, secrets, "custom-a", nil); len(got) != 0 {
 		t.Fatalf("删除后目录 = %#v", got)
