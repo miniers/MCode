@@ -13,6 +13,18 @@ const (
 
 var contextCandidates = []string{"AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"}
 
+// GlobalInstructionsPath 返回当前生效的全局指令文件路径。
+func GlobalInstructionsPath(home string) string {
+	dir := filepath.Join(home, ".agents")
+	for _, name := range contextCandidates {
+		path := filepath.Join(dir, name)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			return path
+		}
+	}
+	return filepath.Join(dir, "AGENTS.md")
+}
+
 // ContextFile 是已加载的项目指令文件。
 type ContextFile struct {
 	Path    string

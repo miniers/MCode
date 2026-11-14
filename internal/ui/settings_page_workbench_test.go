@@ -14,6 +14,50 @@ import (
 	"mcode/internal/projctx"
 )
 
+func TestGlobalInstructionsSave(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, ".agents", "CLAUDE.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("初值"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	if err := st.loadGlobalInstructions(); err != nil {
+		t.Fatal(err)
+	}
+	if st.globalInstructions.value != "初值" {
+		t.Fatal(st.globalInstructions.value)
+	}
+	st.globalInstructions.value = "修改"
+	st.globalInstructions.dirty = true
+	st.noteTextEdit()
+	if !st.prepareWindowClose() {
+		t.Fatal(st.errorMessage)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "修改" {
+		t.Fatalf("%q: %v", data, err)
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.loadGlobalInstructions(); err != nil {
+		t.Fatal(err)
+	}
+	st.globalInstructions.dirty = true
+	st.noteTextEdit()
+	if !st.prepareWindowClose() {
+		t.Fatal(st.errorMessage)
+	}
+	if _, err := os.Stat(st.globalInstructions.path); !os.IsNotExist(err) {
+		t.Fatalf("空内容不应创建文件: %v", err)
+	}
+}
+
 // newWorkbenchProject 在临时目录中搭建 .mcode/context：标准文档按给定内容落盘，customs 写入 docs/。
 func newWorkbenchProject(t *testing.T, standards map[string]string, customs map[string]string) string {
 	t.Helper()

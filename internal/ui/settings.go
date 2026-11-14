@@ -148,8 +148,9 @@ type SettingsState struct {
 
 	// 设置页的多行文本输入走防抖落盘：textSavePending 表示还有改过但未落盘的文本，
 	// textSaveDue 是允许落盘的时间点（输入期间只改内存）。
-	textSavePending bool
-	textSaveDue     time.Time
+	textSavePending    bool
+	textSaveDue        time.Time
+	globalInstructions globalInstructionsState
 	// globalShortcutDraft 是全局快捷键输入框的草稿指针（由 cfgMu 保护）：控件只改这里，
 	// 改动再在锁内写回 cfg，落盘交给设置页统一的文本防抖（E-06）。
 	// 用指针而不是 string，是为了让输入框每帧拿到的地址固定（textInput 按指针回写）。
@@ -387,6 +388,9 @@ func (s *SettingsState) IsOpen() bool {
 // Open 打开设置面板并重新从磁盘同步最新配置。
 func (s *SettingsState) Open() {
 	s.mu.Lock()
+	if !s.textSavePending {
+		s.globalInstructions = globalInstructionsState{}
+	}
 	s.open = true
 	s.endpoints.failedAt = time.Time{}
 	s.currentPage = normalizeSettingsPageID(s.currentPage)
@@ -617,6 +621,10 @@ func (s *SettingsState) flushTextSave(force bool) bool {
 	s.mu.Unlock()
 
 	if !s.save() {
+		return false
+	}
+	if err := s.saveGlobalInstructions(); err != nil {
+		s.noteError(err.Error())
 		return false
 	}
 	s.mu.Lock()

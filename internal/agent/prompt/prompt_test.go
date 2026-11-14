@@ -18,6 +18,23 @@ func put(t *testing.T, path, content string) {
 	}
 }
 
+func TestGlobalInstructionsPath(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".agents")
+	if got := GlobalInstructionsPath(home); got != filepath.Join(dir, "AGENTS.md") {
+		t.Fatal(got)
+	}
+	put(t, filepath.Join(dir, "CLAUDE.md"), "claude")
+	if got := GlobalInstructionsPath(home); got != filepath.Join(dir, "CLAUDE.md") {
+		t.Fatal(got)
+	}
+	put(t, filepath.Join(dir, "AGENTS.md"), "agents")
+	put(t, filepath.Join(dir, "AGENTS.override.md"), "override")
+	if got := GlobalInstructionsPath(home); got != filepath.Join(dir, "AGENTS.override.md") {
+		t.Fatal(got)
+	}
+}
+
 func TestContextCandidateOrderAndGitRoot(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")

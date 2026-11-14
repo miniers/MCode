@@ -2,11 +2,15 @@ package mcodeui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/agent/prompt"
 	"mcode/internal/config"
+	"mcode/internal/fsutil"
 	"mcode/internal/projctx"
 	"mcode/internal/providers/loginenv"
 )
@@ -52,6 +56,10 @@ var pageWorkbench = settingsPage{
 		"快捷回复", "常用语", "短语", "文件树",
 	},
 	Sections: []settingsSection{
+		{
+			ID: "workbench.instructions", Title: "全局指令",
+			Rows: []setting{{ID: "row-global-instructions", Title: "AGENTS.md", Aliases: []string{"全局指令", "全局提示词", "系统提示词", "AGENTS.md", "instructions", "prompt"}, Control: globalInstructionsControl{}}},
+		},
 		{
 			ID:    "workbench.context",
 			Title: "项目文档",
@@ -218,6 +226,75 @@ func init() {
 func renderPageWorkbench(c *ui.Context, st *SettingsState) {
 	renderSettingsTreePage(c, st, pageWorkbench)
 }
+
+type globalInstructionsState struct {
+	path, value   string
+	loaded, dirty bool
+}
+
+func (s *SettingsState) loadGlobalInstructions() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	path := prompt.GlobalInstructionsPath(home)
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	s.globalInstructions = globalInstructionsState{path: path, value: string(data), loaded: true}
+	return nil
+}
+
+func (s *SettingsState) saveGlobalInstructions() error {
+	draft := &s.globalInstructions
+	if !draft.loaded || !draft.dirty {
+		return nil
+	}
+	if draft.value == "" {
+		if _, err := os.Stat(draft.path); os.IsNotExist(err) {
+			draft.dirty = false
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(draft.path), 0o755); err != nil {
+		return err
+	}
+	if err := fsutil.WriteFileAtomic(draft.path, []byte(draft.value), 0o644); err != nil {
+		return err
+	}
+	draft.dirty = false
+	return nil
+}
+
+type globalInstructionsControl struct{}
+
+func (g globalInstructionsControl) render(c *ui.Context, st *SettingsState, s setting) {
+	g.renderDisabled(c, st, s, false)
+}
+
+func (globalInstructionsControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, disabled bool) {
+	if !st.globalInstructions.loaded {
+		if err := st.loadGlobalInstructions(); err != nil {
+			st.noteError(err.Error())
+			return
+		}
+	}
+	old := st.globalInstructions.value
+	TextField(c, TextFieldProps{
+		Key: s.ID + "-area", Value: &st.globalInstructions.value, Label: s.Title,
+		Multiline: true, MinLines: 3, MaxLines: 12, MinWidth: 420, FillWidth: true, Disabled: disabled,
+		OnChange: func(string) { st.globalInstructions.dirty = true; st.noteTextEdit() },
+	})
+	if !disabled && st.globalInstructions.value != old {
+		st.globalInstructions.dirty = true
+		st.noteTextEdit()
+	}
+}
+
+func (globalInstructionsControl) reset(*config.Config) {}
 
 // workbenchDocsControl 渲染项目文档的注入开关。文档清单随项目变化，无法静态声明成行，
 // 因此在这里按清单动态绘制开关，并把结果写回 ContextInjectCustomDocs。
