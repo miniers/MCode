@@ -12,11 +12,12 @@ import (
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
 	"mcode/internal/projctx"
+	"mcode/internal/testenv"
 )
 
 func TestGlobalInstructionsSave(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testenv.SetHome(t, home)
 	path := filepath.Join(home, ".agents", "CLAUDE.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)

@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -584,7 +585,7 @@ func TestMCPExternalServerDeleteUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("将从 ~/.claude.json 删除 claude-delete，删除后无法恢复。")
+		return tt.HasText("将从 ~" + string(filepath.Separator) + ".claude.json 删除 claude-delete，删除后无法恢复。")
 	})
 	if err := tt.Click("确认删除 MCP 服务"); err != nil {
 		t.Fatal(err)
@@ -606,8 +607,12 @@ func TestMCPPluginServerCannotDeleteUI(t *testing.T) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
 	}
+	rootJSON, err := json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for path, content := range map[string]string{
-		filepath.Join(home, ".claude", "plugins", "installed_plugins.json"): `{"plugins":{"p@m":[{"installPath":"` + root + `"}]},"enabledPlugins":{"p@m":true}}`,
+		filepath.Join(home, ".claude", "plugins", "installed_plugins.json"): `{"plugins":{"p@m":[{"installPath":` + string(rootJSON) + `}]},"enabledPlugins":{"p@m":true}}`,
 		filepath.Join(root, ".mcp.json"):                                    `{"remote":{"command":"echo"}}`,
 	} {
 		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
