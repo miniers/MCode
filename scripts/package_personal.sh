@@ -204,9 +204,9 @@ bump_version() {
     else
         next="$VERSION.1"
     fi
-    sed -i '' -E \
+    sed -i.bak -E \
         "s/^([[:space:]]*\"version\"[[:space:]]*:[[:space:]]*)\"[^\"]+\"/\1\"$next\"/" \
-        mygo.json
+        mygo.json && rm -f mygo.json.bak
     VERSION="$next"
 }
 
