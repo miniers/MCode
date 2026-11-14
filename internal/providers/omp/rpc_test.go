@@ -600,6 +600,168 @@ func TestApprovalRoundTrip(t *testing.T) {
 	}
 }
 
+// omp 17 的 extension_ui_request 把 title/options 放在帧顶层，不再嵌 params；
+// 之前只按 params 解析，提问到这里就成了没有题面的空白输入框。
+func TestAnswerQuestionTopLevelFrame(t *testing.T) {
+	run := func(t *testing.T, line string) (*recordingInteractor, map[string]any) {
+		t.Helper()
+		event, err := parseEvent([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sink := &bufferWriteCloser{}
+		interactor := &recordingInteractor{
+			response: harness.ApprovalResponse{Decision: harness.DecisionAllow},
+		}
+		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
+		return interactor, decodeSingleRequest(t, sink.String())
+	}
+
+	t.Run("选择题题面与候选项", func(t *testing.T) {
+		interactor, _ := run(t, `{"type":"extension_ui_request","id":"t-1","method":"select","title":"用哪种实现？","options":["内存表","文件"]}`)
+		questions := interactor.requests[0].Questions
+		if len(questions) != 1 {
+			t.Fatalf("应有一个提问: %+v", questions)
+		}
+		if questions[0].Prompt != "用哪种实现？" {
+			t.Fatalf("题面丢失: %+v", questions[0])
+		}
+		if len(questions[0].Choices) != 2 || questions[0].Choices[1].Label != "文件" {
+			t.Fatalf("候选项丢失: %+v", questions[0].Choices)
+		}
+	})
+
+	t.Run("填空类提问题面", func(t *testing.T) {
+		interactor, _ := run(t, `{"type":"extension_ui_request","id":"t-2","method":"editor","title":"写一段提交说明","promptStyle":true}`)
+		if prompt := interactor.requests[0].Questions[0].Prompt; prompt != "写一段提交说明" {
+			t.Fatalf("题面丢失: %q", prompt)
+		}
+	})
+
+	t.Run("带自填项的选择题接受自由文本", func(t *testing.T) {
+		event, err := parseEvent([]byte(`{"type":"extension_ui_request","id":"t-5","method":"select","title":"用哪种实现？","options":["内存表","文件","Other (type your own)"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sink := &bufferWriteCloser{}
+		interactor := &recordingInteractor{response: harness.ApprovalResponse{
+			Decision: harness.DecisionAllow,
+			Answers:  map[string][]string{"t-5": {"用读写锁"}},
+		}}
+		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), event)
+		if !interactor.requests[0].Questions[0].AllowsOther {
+			t.Fatalf("有自填项就该允许自由输入: %+v", interactor.requests[0].Questions[0])
+		}
+		choices := interactor.requests[0].Questions[0].Choices
+		if len(choices) != 2 || choices[1].Label != "文件" {
+			t.Fatalf("自填项不该再占一个选项位: %+v", choices)
+		}
+		if response := decodeSingleRequest(t, sink.String()); response["value"] != otherOptionLabel {
+			t.Fatalf("自填文本要先回写自填项: %+v", response)
+		}
+	})
+
+	t.Run("自填答案回写自填项再回填追问", func(t *testing.T) {
+		h := New(Options{})
+		interactor := &recordingInteractor{response: harness.ApprovalResponse{
+			Decision: harness.DecisionAllow,
+			Answers:  map[string][]string{"t-8": {"用读写锁"}},
+		}}
+		sink := &bufferWriteCloser{}
+		selectEvent, err := parseEvent([]byte(`{"type":"extension_ui_request","id":"t-8","method":"select","title":"用哪种实现？","options":["内存表","文件","Other (type your own)"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), selectEvent)
+		if response := decodeSingleRequest(t, sink.String()); response["value"] != otherOptionLabel {
+			t.Fatalf("自填答案要先回写成自填项: %+v", response)
+		}
+
+		sink = &bufferWriteCloser{}
+		inputEvent, err := parseEvent([]byte(`{"type":"extension_ui_request","id":"t-9","method":"input","title":"用哪种实现？"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), inputEvent)
+		if response := decodeSingleRequest(t, sink.String()); response["value"] != "用读写锁" {
+			t.Fatalf("追问输入应直接回填自填文字: %+v", response)
+		}
+		if len(interactor.requests) != 1 {
+			t.Fatalf("追问输入不该再弹一次提问: %+v", interactor.requests)
+		}
+	})
+
+	t.Run("选中自填项后仍按正常输入提问", func(t *testing.T) {
+		h := New(Options{})
+		interactor := &recordingInteractor{response: harness.ApprovalResponse{
+			Decision: harness.DecisionAllow,
+			Answers:  map[string][]string{"t-10": {otherOptionLabel}},
+		}}
+		sink := &bufferWriteCloser{}
+		selectEvent, err := parseEvent([]byte(`{"type":"extension_ui_request","id":"t-10","method":"select","title":"用哪种实现？","options":["内存表","文件","Other (type your own)"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), selectEvent)
+		if response := decodeSingleRequest(t, sink.String()); response["value"] != otherOptionLabel {
+			t.Fatalf("应原样回传自填项: %+v", response)
+		}
+
+		interactor.response.Answers = map[string][]string{"t-11": {"自旋锁"}}
+		sink = &bufferWriteCloser{}
+		inputEvent, err := parseEvent([]byte(`{"type":"extension_ui_request","id":"t-11","method":"input","title":"用哪种实现？"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.handleExtensionUI(context.Background(), harness.Turn{Approver: interactor}, procutil.NewLineWriter(sink), inputEvent)
+		if response := decodeSingleRequest(t, sink.String()); response["value"] != "自旋锁" {
+			t.Fatalf("追问输入应回传用户写的文字: %+v", response)
+		}
+		if len(interactor.requests) != 2 {
+			t.Fatalf("追问输入要弹一次提问: %+v", interactor.requests)
+		}
+	})
+
+	t.Run("无自填项的选择题不给填空", func(t *testing.T) {
+		interactor, _ := run(t, `{"type":"extension_ui_request","id":"t-6","method":"select","title":"继续吗？","options":["继续","停止"]}`)
+		if interactor.requests[0].Questions[0].AllowsOther {
+			t.Fatalf("没有自填项不该允许自由输入: %+v", interactor.requests[0].Questions[0])
+		}
+	})
+
+	t.Run("确认题不给填空", func(t *testing.T) {
+		interactor, _ := run(t, `{"type":"extension_ui_request","id":"t-7","method":"confirm","title":"删除这个文件？"}`)
+		if interactor.requests[0].Questions[0].AllowsOther {
+			t.Fatalf("确认题不该允许自由输入: %+v", interactor.requests[0].Questions[0])
+		}
+	})
+
+	t.Run("门禁帧仍按审批处理", func(t *testing.T) {
+		event, err := parseEvent([]byte(`{"type":"extension_ui_request","id":"t-3","method":"select","title":"mcode-gate {\"kind\":\"command\",\"toolName\":\"bash\",\"input\":{\"command\":\"ls\"}}","options":["Approve","Deny"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sink := &bufferWriteCloser{}
+		approver := &recordingApprover{decision: harness.DecisionAllow}
+		New(Options{}).handleExtensionUI(context.Background(), harness.Turn{Approver: approver}, procutil.NewLineWriter(sink), event)
+		if response := decodeSingleRequest(t, sink.String()); response["value"] != "Approve" {
+			t.Fatalf("门禁应答错误: %+v", response)
+		}
+		if len(approver.requests) != 1 || approver.requests[0].ToolName != "bash" {
+			t.Fatalf("门禁帧应走审批而不是提问: %+v", approver.requests)
+		}
+	})
+	t.Run("空白选择帧直接取消", func(t *testing.T) {
+		interactor, response := run(t, `{"type":"extension_ui_request","id":"t-4","method":"select"}`)
+		if response["cancelled"] != true {
+			t.Fatalf("空帧应取消: %+v", response)
+		}
+		if len(interactor.requests) != 0 {
+			t.Fatalf("空帧不该弹提问: %+v", interactor.requests)
+		}
+	})
+}
+
 func TestAnswerToolGateWithoutApprover(t *testing.T) {
 	lines := readFixtureLines(t, "rpc_approval_gate.jsonl")
 	event, err := parseEvent(lines[0])

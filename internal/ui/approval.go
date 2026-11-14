@@ -947,7 +947,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 				})
 			}
 			if len(qs) > 0 {
-				renderQuestionBody(c, s, approval, draft, current, responding)
+				renderQuestionBody(c, s, approval, draft, current)
 			}
 			renderApprovalReason(c, approval)
 
@@ -985,8 +985,8 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 		})
 }
 
-// renderQuestionBody 渲染当前题目：Header、Prompt、选项列表、自由指示出口与填空输入框。
-func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi int, responding bool) {
+// renderQuestionBody 渲染当前题目：Header、Prompt、选项列表与填空输入框。
+func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi int) {
 	id := approval.RequestID
 	q := approval.Questions[qi]
 	s.mu.Lock()
@@ -1099,17 +1099,6 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 			s.mu.Lock()
 			s.questionOtherFocused = false
 			s.mu.Unlock()
-			// provider 不一定接受自由文本，所以不显示输入框；仍留一个出口：跳过提问后
-			// 把焦点交给会话输入框，用户可以在下一条消息里补充指示。
-			if len(q.Choices) > 0 {
-				renderOtherInstructionButton(c, fmt.Sprintf("question-other-hint-%s-%d", id, qi), responding, func() {
-					s.respondAnswers(approval, "", nil, true)
-					s.mu.Lock()
-					s.composerFocusRequest = true
-					s.mu.Unlock()
-					s.invalidate()
-				})
-			}
 		}
 	})
 }
@@ -1119,27 +1108,5 @@ func renderRecommendedBadge(c *ui.Context, key string) {
 	accent := ThemeAccent(c)
 	ui.Row(c.Key(key)).Padding(Hairline, Space2).Radius(RadiusXS).Background(accent.Alpha(0.15)).Shrink(0).Label("推荐").Children(func() {
 		ui.Text(c, "推荐").FontSize(uiFont(TypeCaption)).TextColor(accent)
-	})
-}
-
-// renderOtherInstructionButton 渲染「其他指示…」文字按钮：虚线边框，点击后跳过提问并用下一条消息补充说明。
-func renderOtherInstructionButton(c *ui.Context, key string, disabled bool, onClick func()) {
-	btn := ui.ButtonBase(c.Key(key)).
-		Label("其他指示…").
-		Tooltip("跳过提问，用下一条消息补充指示").
-		Disabled(disabled).
-		Padding(Space1, Space3).
-		Radius(RadiusMD).
-		Border(Hairline, ThemeBorder(c)).
-		BorderStyle(ui.BorderDashed).
-		AlignSelf(ui.Start).
-		OnClick(onClick)
-	if btn.Hovered() && !disabled {
-		btn.Background(ThemeHover(c))
-	}
-	scale := motionPressScale(c, btn, "button-press-scale", !disabled && btn.Pressed())
-	btn.Scale(scale, scale)
-	btn.Children(func() {
-		ui.Text(c, "其他指示…").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 	})
 }

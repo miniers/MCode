@@ -167,9 +167,14 @@ type rpcEvent struct {
 	Result     *toolResult     `json:"result"`
 	IsError    bool            `json:"isError"`
 
-	// extension_ui_request：扩展交互请求
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params"`
+	// extension_ui_request：扩展交互请求。omp 把这些帧的内容放在顶层
+	// （select 的 title/options、confirm 的 message、input 的 placeholder），
+	// 早期版本放在 params 里，两种形态都要认。
+	Method      string          `json:"method"`
+	Params      json.RawMessage `json:"params"`
+	Title       string          `json:"title"`
+	Options     []string        `json:"options"`
+	Placeholder string          `json:"placeholder"`
 
 	// auto_retry_start / auto_retry_end：omp 自行重试失败请求的进度与结果
 	Attempt      int    `json:"attempt"`
@@ -787,6 +792,10 @@ const (
 	confirmMethod = "confirm"
 	// questionHeader 是提问类请求在审批卡片上的标题。
 	questionHeader = "omp"
+	// otherOptionLabel 是 omp 提问自带的自填项：ask 工具在带选项时也会追加它
+	// （pi-coding-agent 的 src/tools/ask.ts），选中后进入自由输入。
+	// 它出现就说明这次提问接受自由文本，卡片据此决定是否给填空输入框。
+	otherOptionLabel = "Other (type your own)"
 )
 
 // gatePayload 是门禁扩展在 select 标题里携带的工具调用信息。
@@ -909,13 +918,22 @@ func (h *Harness) handleExtensionUI(ctx context.Context, turn harness.Turn, writ
 		return
 	}
 	params := ev.Params
-	if len(params) == 0 {
-		params = ev.Message
-	}
 	var payload struct {
 		Title   string   `json:"title"`
 		Message string   `json:"message"`
 		Options []string `json:"options"`
+	}
+	// omp 把 title/options 放在帧顶层，旧格式放在 params 或整个塞进 message，三处都读，
+	// params 最后覆盖（与 pi 的 handleExtensionUI 同一套解析）。
+	payload.Title = ev.Title
+	payload.Options = ev.Options
+	if len(ev.Message) > 0 {
+		var message string
+		if err := json.Unmarshal(ev.Message, &message); err == nil {
+			payload.Message = message
+		} else if payload.Title == "" && len(payload.Options) == 0 {
+			_ = json.Unmarshal(ev.Message, &payload)
+		}
 	}
 	if len(params) > 0 {
 		_ = json.Unmarshal(params, &payload)
@@ -923,6 +941,13 @@ func (h *Harness) handleExtensionUI(ctx context.Context, turn harness.Turn, writ
 
 	switch ev.Method {
 	case "select":
+		if payload.Title == "" && len(payload.Options) == 0 {
+			// 没有标题也没有选项：问也问不出东西，直接取消，别弹空白提问。
+			if line, err := requestLine(cancelledResponse(id)); err == nil {
+				_ = writer.WriteLine(line)
+			}
+			return
+		}
 		if gate, ok := parseGatePayload(payload.Title); ok {
 			h.answerApproval(ctx, turn, writer, id, approvalFromGate(gate))
 			return
@@ -944,7 +969,16 @@ func (h *Harness) handleExtensionUI(ctx context.Context, turn harness.Turn, writ
 		}
 		h.answerQuestion(ctx, turn, writer, id, confirmMethod, prompt, []string{"Yes", "No"})
 	case "input", "editor":
-		h.answerQuestion(ctx, turn, writer, id, "", strings.TrimSpace(payload.Title), nil)
+		title := strings.TrimSpace(payload.Title)
+		if text, ok := h.takeCustomInput(title); ok {
+			// 自填项的回填：omp 在用户选中自填项后才追问这个输入，而用户在卡片里已经
+			// 写过答案了，直接送出去，别再问一遍。
+			if line, err := requestLine(valueResponse(id, text)); err == nil {
+				_ = writer.WriteLine(line)
+			}
+			return
+		}
+		h.answerQuestion(ctx, turn, writer, id, "", title, nil)
 	case "cancel":
 		// omp 撤回了对话框（超时、中断）：没有需要应答的东西。
 	default:
@@ -981,9 +1015,13 @@ func questionRequest(id, prompt string, options []string) harness.ApprovalReques
 		ID:          id,
 		Header:      questionHeader,
 		Prompt:      prompt,
-		AllowsOther: len(options) == 0,
+		AllowsOther: acceptsFreeText(options),
 	}
 	for _, option := range options {
+		// 自填项和卡片的填空框是同一个意思，留着就多一个点了还要再填一次的选项。
+		if strings.EqualFold(strings.TrimSpace(option), otherOptionLabel) {
+			continue
+		}
 		question.Choices = append(question.Choices, harness.QuestionChoice{Label: option})
 	}
 	return harness.ApprovalRequest{
@@ -992,6 +1030,21 @@ func questionRequest(id, prompt string, options []string) harness.ApprovalReques
 		Summary:   prompt,
 		Questions: []harness.Question{question},
 	}
+}
+
+// acceptsFreeText 判断这次提问是否接受自由文本：没有选项的 input/editor 一律接受，
+// 选项里带 omp 自填项的 select 也接受（用户可以直接在卡片里写答案）。
+// confirm 的 Yes/No 与不带自填项的扩展选择框不接受，免得把随意文字当选择结果送回去。
+func acceptsFreeText(options []string) bool {
+	if len(options) == 0 {
+		return true
+	}
+	for _, option := range options {
+		if strings.EqualFold(strings.TrimSpace(option), otherOptionLabel) {
+			return true
+		}
+	}
+	return false
 }
 
 // answerQuestion 应答 omp 的选择/确认/输入请求。
@@ -1010,6 +1063,11 @@ func (h *Harness) answerQuestion(ctx context.Context, turn harness.Turn, writer 
 	}
 
 	answers := answersFor(resp, id)
+	if len(answers) > 0 && customAnswerNeedsFollowUp(method, options, answers[0]) {
+		// omp 的 select 只认选项原文：自填文字要先回写成自填项，等它追问输入时再送原文。
+		h.rememberCustomInput(strings.TrimSpace(prompt), answers[0])
+		answers = []string{otherOptionLabel}
+	}
 	var line []byte
 	var err error
 	switch {
@@ -1024,6 +1082,47 @@ func (h *Harness) answerQuestion(ctx context.Context, turn harness.Turn, writer 
 		err = writer.WriteLine(line)
 	}
 	harness.AckDelivery(turn.Approver, req, err)
+}
+
+// customAnswerNeedsFollowUp 判断这次答复是不是写进了自填项的自由文本：选项里带自填项、
+// 答案又不在选项里，就只能先把自填项回给 omp，让它发那个追问输入的请求。
+func customAnswerNeedsFollowUp(method string, options []string, answer string) bool {
+	if method == confirmMethod {
+		return false
+	}
+	hasOther := false
+	for _, option := range options {
+		option = strings.TrimSpace(option)
+		if strings.EqualFold(strings.TrimSpace(answer), option) {
+			return false
+		}
+		if strings.EqualFold(option, otherOptionLabel) {
+			hasOther = true
+		}
+	}
+	return hasOther
+}
+
+// rememberCustomInput 记下自填项里写的文字，键是提问标题：omp 追问输入时给的是同一个标题
+// （ask 工具的 promptForCustomInput）。
+func (h *Harness) rememberCustomInput(title, text string) {
+	h.customMu.Lock()
+	defer h.customMu.Unlock()
+	if h.customInputs == nil {
+		h.customInputs = make(map[string]string)
+	}
+	h.customInputs[title] = text
+}
+
+// takeCustomInput 取走某个标题下待回填的自填文字，取过即删。
+func (h *Harness) takeCustomInput(title string) (string, bool) {
+	h.customMu.Lock()
+	defer h.customMu.Unlock()
+	text, ok := h.customInputs[title]
+	if ok {
+		delete(h.customInputs, title)
+	}
+	return text, ok
 }
 
 // answersFor 取某道题的答案；答案缺失时按题目 ID 排序展平全部答案兜底。

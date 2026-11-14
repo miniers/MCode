@@ -117,6 +117,10 @@ type Harness struct {
 	runs []*activeRun
 	// roots 按会话记录正在运行的 agent 进程 PID，供 ProcessRootPIDs 使用。
 	roots harness.ProcessRoots
+
+	// customMu 保护 customInputs：select 自填项里的文字要等 omp 追问输入时才送出。
+	customMu     sync.Mutex
+	customInputs map[string]string
 }
 
 // activeRun 是一轮正在执行的 omp 进程，供 Steer 与 ForceStopTurn 定位。

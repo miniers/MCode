@@ -17,6 +17,18 @@ omp CLI（oh-my-pi，可执行文件 `omp`，Pi 的分支）的 harness 适配�
   先确认命令表里有 `mcode-gate`，否则不启动这一轮（启动前校验）；没有配
   `Options.Extension` 时除 `fullAccess` 以外的权限模式直接拒绝启动（见 `omp.go:Harness.Run`），
   不带门禁裸跑等于把工具全部放行。
+- 交互对话帧 `extension_ui_request` 的内容在**帧顶层**（`select` 的 `title`/`options`、
+  `confirm` 的 `title`/`message`、`input` 的 `title`/`placeholder`）；`params` 是旧版本的
+  包法，两种都解析，只认 `params` 会让提问退化成没有题面的空白输入框。
+- 自由文本：`ask` 工具在带选项时也会追加自填项 `Other (type your own)`，见到它就把
+  `harness.Question.AllowsOther` 置真（`rpc.go:acceptsFreeText`），卡片因此直接给填空
+  输入框；自填项本身不再占一个选项位（`rpc.go:questionRequest` 跳过它），否则用户会看到
+  「Other」选项和填空框两个入口。`confirm` 的 Yes/No 与不带自填项的扩展选择框不给填空：
+  卡片只留题面、选项和底部的跳过/提交，不提供任何自由输入。
+  `select` 只认选项原文，所以卡片里写的文字不能直接当 `value` 送（omp 会判为无效并取消）：
+  先回写自填项原样文本，omp 随后发一个同标题的 `input` 请求（`ask` 工具的
+  `promptForCustomInput`），那里再把用户写的文字送出去（`rpc.go:customAnswerNeedsFollowUp`、
+  `Harness.rememberCustomInput`）。用户直接把自填项当选项选中时不预存文字，追问照常弹卡片。
 - 计划模式（`turn.InteractionMode == "plan"`）把只读规则追加进 `--append-system-prompt`。
 - 额度：`omp usage --json --no-extensions` 的 `reports[].limits[]` 归一化为
   `credits.Window`；断网时的 last-good 报告超过 6 小时即丢弃。

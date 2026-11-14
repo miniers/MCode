@@ -640,56 +640,35 @@ func TestQuestionRecommendedBadgeKeepsRawAnswer(t *testing.T) {
 	}
 }
 
-func TestQuestionOtherInstructionButton(t *testing.T) {
+func TestQuestionWithoutFreeTextShowsOnlyChoices(t *testing.T) {
 	a := questionApproval()
 	a.Questions = a.Questions[:1]
 	if a.Questions[0].AllowsOther {
 		t.Fatal("用例前提：题目不接受自由文本")
 	}
-	fake := NewFakeClient()
-	th := Thread{ID: "t1", ProjectID: "p1", Title: "ApprovalTest", Provider: "claude", UpdatedAt: time.Now()}
-	fake.SetProjectsAndThreads(
-		[]Project{{ID: "p1", Name: "Proj1", Path: "/workspace"}},
-		map[string][]Thread{"p1": {th}},
-	)
-	var s *chatState
-	tt := ui.NewTester(Root(fake, func(cs *chatState) { s = cs }), 1000, 700)
-	fake.TriggerApprovals("t1", []Approval{a})
-	waitFor(t, tt, func() bool { return tt.HasText("其他指示…") })
+	fake, tt := newApprovalTester(t, []Approval{a})
+	waitFor(t, tt, func() bool { return tt.HasText("选择实现方案") })
+
 	if tt.HasText("输入其他答案") {
 		t.Fatalf("不接受自由文本的题不应显示输入框：%q", tt.Texts())
 	}
+	if tt.HasText("其他指示…") {
+		t.Fatalf("不接受自由文本的题只该给选项：%q", tt.Texts())
+	}
 
-	if err := tt.Click("其他指示…"); err != nil {
-		t.Fatalf("click '其他指示…' failed: %v", err)
+	if err := tt.Click("方案乙"); err != nil {
+		t.Fatalf("click '方案乙' failed: %v", err)
+	}
+	if err := tt.Click("提交"); err != nil {
+		t.Fatalf("click '提交' failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		_, ok := fake.LastRespondAnswers()
 		return ok
 	})
 	call, _ := fake.LastRespondAnswers()
-	if !call.Skip {
-		t.Fatalf("其他指示应跳过提问，got %+v", call)
-	}
-	if len(call.Answers) != 0 {
-		t.Fatalf("其他指示不应提交答案，got %v", call.Answers)
-	}
-	// 跳过之后焦点应回到会话输入框，用户可以直接用下一条消息补充指示。
-	waitFor(t, tt, func() bool {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.composerFocused
-	})
-}
-
-func TestQuestionAllowsOtherHidesOtherInstructionButton(t *testing.T) {
-	a := questionApproval()
-	a.Questions = a.Questions[:1]
-	a.Questions[0].AllowsOther = true
-	_, tt := newApprovalTester(t, []Approval{a})
-	waitFor(t, tt, func() bool { return tt.HasText("输入其他答案") })
-	if tt.HasText("其他指示…") {
-		t.Fatalf("接受自由文本的题不应再显示「其他指示…」：%q", tt.Texts())
+	if want := map[string][]string{"q1": {"方案乙"}}; !reflect.DeepEqual(call.Answers, want) {
+		t.Fatalf("提交值错误：got %v, want %v", call.Answers, want)
 	}
 }
 
