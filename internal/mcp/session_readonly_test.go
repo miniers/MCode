@@ -12,6 +12,8 @@ import (
 // 不得进入会话注入；同名时仍以 claude 的配置为准。
 func TestSessionRouter_ReadOnlySourcesNotInjected(t *testing.T) {
 	home, projectDir := t.TempDir(), t.TempDir()
+	// 隔离宿主机的 mcode 数据目录，避免真实 mcp.json 的禁用名单影响结果。
+	t.Setenv("MCODE_DATA", t.TempDir())
 	writeSessionConfig(t, filepath.Join(home, ".claude.json"), `{
   "mcpServers": {
     "claude-only": {"command": "claude-command"},
