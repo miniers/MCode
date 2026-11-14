@@ -299,6 +299,10 @@ func TestApplyPendingRepairsWorktrees(t *testing.T) {
 	}
 	isolateConfig(t)
 	repo, old, next := t.TempDir(), t.TempDir(), t.TempDir()
+	nextResolved, err := filepath.EvalSymlinks(next)
+	if err != nil {
+		t.Fatal(err)
+	}
 	runGit := func(dir string, args ...string) string {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -326,7 +330,7 @@ func TestApplyPendingRepairsWorktrees(t *testing.T) {
 	list := runGit(repo, "worktree", "list", "--porcelain")
 	for _, root := range []string{"worktrees", "swarm-worktrees"} {
 		path := filepath.Join(next, root, "bee")
-		if !strings.Contains(list, filepath.ToSlash(path)) {
+		if !strings.Contains(list, filepath.ToSlash(filepath.Join(nextResolved, root, "bee"))) {
 			t.Errorf("worktree 未修复: %s", list)
 		}
 		runGit(path, "status", "--porcelain")
