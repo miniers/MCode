@@ -3,7 +3,6 @@ package mcodeui
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -425,15 +424,6 @@ func startAboutDataDirChange(st *SettingsState) {
 		globalAboutState.mu.Unlock()
 		st.invalidate()
 	})
-}
-
-func aboutDataDirTarget(path string) string {
-	path = strings.TrimSpace(path)
-	entries, err := os.ReadDir(path)
-	if err == nil && len(entries) > 0 {
-		return filepath.Join(path, "MCode")
-	}
-	return path
 }
 
 func clearAboutDataDirChange() {

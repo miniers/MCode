@@ -1,6 +1,11 @@
 package mcodeui
 
-import "context"
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 type appUpdateInstallClient interface {
 	InstallUpdate(ctx context.Context, progress func(float64)) error
@@ -25,6 +30,16 @@ func runAppUpdateInstall(st *SettingsState, client appUpdateInstallClient) {
 	if st != nil {
 		st.invalidate()
 	}
+}
+
+// aboutDataDirTarget 在选取目录后计算实际迁移目标：目录已有内容时追加 MCode 子目录。
+func aboutDataDirTarget(path string) string {
+	path = strings.TrimSpace(path)
+	entries, err := os.ReadDir(path)
+	if err == nil && len(entries) > 0 {
+		return filepath.Join(path, "MCode")
+	}
+	return path
 }
 
 // startAppUpdateInstall 在后台安装更新。
