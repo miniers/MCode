@@ -163,9 +163,9 @@ func startHeaderTitleEdit(t *testing.T, tt *ui.Tester) *chatHeaderState {
 // startHeaderTitleEditOf 右键指定标题打开菜单并点击「重命名」进入编辑态。
 func startHeaderTitleEditOf(t *testing.T, tt *ui.Tester, title string) {
 	t.Helper()
-	// 侧栏会话名先于异步选中完成出现，需等头部按钮就绪再操作。
-	waitFor(t, tt, func() bool { return tt.HasText("重命名会话") })
-	if err := tt.RightClick("重命名会话"); err != nil {
+	// 侧栏会话名先于异步选中完成出现，需等头部拖动区就绪再操作。
+	waitFor(t, tt, func() bool { return tt.HasText("会话标题拖动区") })
+	if err := tt.RightClick("会话标题拖动区"); err != nil {
 		t.Fatalf("right click title failed: %v", err)
 	}
 	if err := tt.ChooseMenuItem("重命名"); err != nil {
@@ -310,11 +310,11 @@ func TestChatHeaderCopyTitle(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
 
 	// 首帧之后标题栏还会异步补入 Git、用量、Swarm 等控件，布局未稳定就点击会按上一帧的坐标点空。
-	// 等标题按钮的位置连续几帧不变再点（整包运行时其它用例的残留异步会放大这种抖动）。
+	// 等标题拖动区的位置连续几帧不变再点（整包运行时其它用例的残留异步会放大这种抖动）。
 	var prev ui.Rect
 	stable := 0
 	waitFor(t, tt, func() bool {
-		r, ok := tt.Find("重命名会话")
+		r, ok := tt.Find("会话标题拖动区")
 		if !ok {
 			prev, stable = ui.Rect{}, 0
 			return false
@@ -327,7 +327,7 @@ func TestChatHeaderCopyTitle(t *testing.T) {
 		return stable >= 3
 	})
 
-	if err := tt.RightClick("重命名会话"); err != nil {
+	if err := tt.RightClick("会话标题拖动区"); err != nil {
 		t.Fatalf("right click title failed: %v", err)
 	}
 	if err := tt.ChooseMenuItem("复制名称"); err != nil {
@@ -344,7 +344,7 @@ func TestChatHeaderTitleContextMenuRename(t *testing.T) {
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
 
-	if err := tt.RightClick("重命名会话"); err != nil {
+	if err := tt.RightClick("会话标题拖动区"); err != nil {
 		t.Fatalf("right click title failed: %v", err)
 	}
 	menu := tt.Menu()
@@ -1428,8 +1428,8 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	if !ok {
 		t.Fatal("头部缺少分支胶囊")
 	}
-	// 标题按钮按 Grow(1) 占满左侧剩余宽度，左边紧接分支胶囊。
-	title, ok := tt.Find("重命名会话")
+	// 标题拖动区按 Grow(1) 占满左侧剩余宽度，左边紧接分支胶囊。
+	title, ok := tt.Find("会话标题拖动区")
 	if !ok {
 		t.Fatal("头部缺少会话标题")
 	}

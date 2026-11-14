@@ -111,13 +111,12 @@ func releaseChatHeaderState(s *chatState) {
 	delete(chatHeaderStates, s)
 }
 
-// renderChatHeaderTitle 渲染会话标题，单击进入编辑；回车或失焦提交，Esc 取消。
+// renderChatHeaderTitle 渲染可拖动的会话标题；右键重命名后，回车或失焦提交，Esc 取消。
 func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 	hs := getChatHeaderState(s)
 
 	chatHeaderMu.Lock()
 	editing := hs.editing && hs.editThreadID == th.ID
-	renameBusy := hs.renameBusy
 	switched := hs.editing && !editing
 	chatHeaderMu.Unlock()
 	if switched {
@@ -178,6 +177,10 @@ func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 
 	startEditing := func() {
 		chatHeaderMu.Lock()
+		if hs.renameBusy {
+			chatHeaderMu.Unlock()
+			return
+		}
 		hs.editing = true
 		hs.editThreadID = th.ID
 		hs.editOrig = th.Title
@@ -186,24 +189,13 @@ func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 		chatHeaderMu.Unlock()
 		s.invalidate()
 	}
-	btn := ui.ButtonBase(c.Key("chat-header-title-btn")).
-		Label("重命名会话").
-		Disabled(renameBusy).
+	titleArea := ui.Row(c.Key("chat-header-title-btn")).
+		Label("会话标题拖动区").
 		Grow(1).
 		Justify(ui.Start).
-		Radius(RadiusSM).
-		Padding(Space0, Space2)
-	{
-		scale := motionPressScale(c, btn, "button-press-scale", !renameBusy && btn.Pressed())
-		btn.Scale(scale, scale)
-	}
-	if btn.Hovered() {
-		btn.Background(ThemeHover(c))
-	}
-	if btn.Clicked() {
-		startEditing()
-	}
-	btn.ContextMenu(func(m *ui.Menu) {
+		Padding(Space0, Space2).
+		DragWindow()
+	titleArea.ContextMenu(func(m *ui.Menu) {
 		if m.Item("复制名称").Chosen() {
 			c.WriteClipboard(th.Title)
 			s.setToast("已复制会话名称")
@@ -221,7 +213,7 @@ func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 			startEditing()
 		}
 	})
-	btn.Children(func() {
+	titleArea.Children(func() {
 		ui.Text(c, title).
 			TextColor(textColor).
 			FontSize(uiFont(TypeTitle)).

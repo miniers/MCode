@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -78,20 +79,51 @@ func TestChatHeaderPanelButtonsRemainVisibleWithPreview(t *testing.T) {
 func TestChatHeaderClickRenameAndCancel(t *testing.T) {
 	testenv.TempHome(t)
 	fake := NewFakeClient()
-	_, root := buildRoot(fake)
+	s, root := buildRoot(fake)
 	tt := ui.NewTester(root, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
 
-	if err := tt.Click("重命名会话"); err != nil {
+	area, ok := tt.Find("会话标题拖动区")
+	if !ok {
+		t.Fatal("头部缺少会话标题拖动区")
+	}
+	for _, point := range []struct {
+		name string
+		x    float32
+	}{
+		{"文字", area.X + Space2 + 5},
+		{"空白", area.X + area.W - 2},
+	} {
+		tt.Advance(time.Second)
+		tt.ClickAt(point.x, area.Y+area.H/2)
+		if _, ok := tt.Find("会话标题"); ok {
+			t.Fatalf("单击%s后进入了编辑", point.name)
+		}
+		tt.ClickAt(point.x, area.Y+area.H/2)
+		if _, ok := tt.Find("会话标题"); ok {
+			t.Fatalf("双击%s后进入了编辑", point.name)
+		}
+	}
+
+	hs := getChatHeaderState(s)
+	chatHeaderMu.Lock()
+	hs.renameBusy = true
+	chatHeaderMu.Unlock()
+	tt.RightClickAt(area.X+Space2+5, area.Y+area.H/2)
+	if err := tt.ChooseMenuItem("重命名"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool { _, ok := tt.Find("会话标题"); return ok })
-	tt.Command("selectAll")
-	tt.Type("新的会话标题")
-	tt.Key(0, ui.KeyEnter)
-	waitFor(t, tt, func() bool { _, ok := tt.Find("打开会话 新的会话标题"); return ok })
+	if _, ok := tt.Find("会话标题"); ok {
+		t.Fatal("重命名进行中进入了编辑")
+	}
+	chatHeaderMu.Lock()
+	hs.renameBusy = false
+	chatHeaderMu.Unlock()
 
-	if err := tt.Click("重命名会话"); err != nil {
+	if err := tt.RightClick("会话标题拖动区"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("重命名"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("会话标题"); return ok })
@@ -99,9 +131,21 @@ func TestChatHeaderClickRenameAndCancel(t *testing.T) {
 	tt.Type("取消的标题")
 	tt.Key(0, ui.KeyEscape)
 	waitFor(t, tt, func() bool { _, ok := tt.Find("会话标题"); return !ok })
-	if _, ok := tt.Find("打开会话 新的会话标题"); !ok {
+	if _, ok := tt.Find("打开会话 测试会话1"); !ok {
 		t.Fatal("取消重命名后侧栏标题发生变化")
 	}
+
+	if err := tt.RightClick("会话标题拖动区"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("重命名"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("会话标题"); return ok })
+	tt.Command("selectAll")
+	tt.Type("新的会话标题")
+	tt.Key(0, ui.KeyEnter)
+	waitFor(t, tt, func() bool { _, ok := tt.Find("打开会话 新的会话标题"); return ok })
 }
 
 func TestChatHeaderThreadsLongTitle(t *testing.T) {
