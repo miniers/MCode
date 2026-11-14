@@ -94,6 +94,7 @@ type App struct {
 	backend       *remote.MemoryBackend
 	store         *store.Store
 	kanban        *kanban.Service
+	kanbanLeader  *kanban.Leader
 	scheduler     *kanban.GoalScheduler
 	automation    *automation.Service
 	swarm         *swarm.Manager
@@ -150,7 +151,7 @@ func (a *App) RecoveredStoreBackupPath() string {
 	return a.store.RecoveredBackupPath()
 }
 
-// Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close。
+// Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> kanbanLeader.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close。
 func (a *App) Close() error {
 	if a.quotaCancel != nil {
 		a.quotaCancel()
@@ -200,6 +201,11 @@ func (a *App) Close() error {
 	}
 	if a.kanban != nil {
 		a.kanban.Close()
+	}
+	if a.kanbanLeader != nil {
+		if err := a.kanbanLeader.Close(); err != nil {
+			log.Printf("kanban: 释放调度锁失败: %v", err)
+		}
 	}
 	if a.swarmPipeline != nil {
 		a.swarmPipeline.Stop()
@@ -1490,6 +1496,7 @@ func Open(opts Options) (*App, error) {
 		backend:       backend,
 		store:         dbStore,
 		kanban:        kanbanSvc,
+		kanbanLeader:  kanbanLeader,
 		scheduler:     goalScheduler,
 		automation:    autoSvc,
 		swarm:         swarmMgr,
