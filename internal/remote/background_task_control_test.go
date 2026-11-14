@@ -81,6 +81,82 @@ func TestBackgroundTaskLog(t *testing.T) {
 	}
 }
 
+func TestBackgroundTaskEndIncludesOutput(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		taskStatus string
+		fileState  string
+	}{
+		{name: "完成", taskStatus: "completed", fileState: "output"},
+		{name: "失败", taskStatus: "failed", fileState: "output"},
+		{name: "空文件", taskStatus: "completed", fileState: "empty"},
+		{name: "文件不存在", taskStatus: "completed", fileState: "missing"},
+		{name: "路径不合法", taskStatus: "completed", fileState: "invalid"},
+		{name: "读取出错", taskStatus: "failed", fileState: "error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "claude-x", "会话", "tasks")
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "abc.output")
+			var lines []string
+			for i := 0; i < 25; i++ {
+				lines = append(lines, fmt.Sprintf("输出 %02d", i))
+			}
+			switch tc.fileState {
+			case "output", "empty":
+				var data []byte
+				if tc.fileState == "output" {
+					data = []byte(strings.Join(lines, "\n") + "\n")
+				}
+				if err := os.WriteFile(path, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "invalid":
+				path = filepath.Join(filepath.Dir(dir), "abc.output")
+			case "error":
+				parent := filepath.Join(dir, "not-directory")
+				if err := os.WriteFile(parent, nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+				path = filepath.Join(parent, "tasks", "abc.output")
+			}
+			output := "Command running in background with ID: abc.\nOutput is being written to: " + path
+			const input = `{"command":"printf output"}`
+			wantText := "Bash " + input + "\n" + output
+			if tc.fileState == "output" {
+				wantText = "Bash " + input + "\n" + strings.Join(lines[5:], "\n") + "\n"
+			}
+			wantStatus := "completed"
+			if tc.taskStatus != "completed" {
+				wantStatus = "failed"
+				wantText += "\n[后台任务结束：" + tc.taskStatus + "]"
+			}
+			threadID := "00000000-0000-0000-0000-0000000000f1"
+			backend, ctx := newBackgroundTestBackend(t, threadID)
+			backend.SetHarness(&mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+				emit(harness.Event{Type: harness.EventToolStart, ToolID: "tool-1", ToolName: "Bash", Input: []byte(input)})
+				emit(harness.Event{Type: harness.EventToolEnd, ToolID: "tool-1", Output: output})
+				emit(harness.Event{Type: harness.EventBackgroundTaskStart, ToolID: "tool-1", TaskID: "abc"})
+				emit(harness.Event{Type: harness.EventBackgroundTaskEnd, ToolID: "tool-1", TaskID: "abc", TaskStatus: tc.taskStatus})
+				// 重复通知不得改写终态或重复追加失败标记。
+				emit(harness.Event{Type: harness.EventBackgroundTaskEnd, ToolID: "tool-1", TaskID: "abc", TaskStatus: "failed"})
+				emit(harness.Event{Type: harness.EventDone})
+				return nil
+			}}, t.TempDir(), harness.ModeAgent)
+			if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: threadID, Text: "启动", ActionID: "00000000-0000-0000-0000-0000000000f3"}); err != nil {
+				t.Fatal(err)
+			}
+			waitThreadIdle(t, backend, ctx, threadID)
+			msg := waitToolStatus(t, backend, ctx, threadID, "Bash", wantStatus)
+			if msg.Text != wantText {
+				t.Fatalf("任务结束后的正文 = %q，期望 %q", msg.Text, wantText)
+			}
+		})
+	}
+}
+
 type backgroundControlHarness struct {
 	*mockHarness
 	threadID string
@@ -143,6 +219,77 @@ func TestStopBackgroundTask(t *testing.T) {
 	waitThreadIdle(t, backend, ctx, threadID)
 	waitToolStatus(t, backend, ctx, threadID, "Bash", "stopped")
 	waitBackgroundTasks(t, backend, ctx, threadID, 0)
+}
+
+func TestBackgroundTaskEndConcurrentStop(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "claude-x", "会话", "tasks")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "abc.output")
+	if err := os.WriteFile(path, []byte("最终输出\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	threadID := "00000000-0000-0000-0000-0000000000f1"
+	backend, ctx := newBackgroundTestBackend(t, threadID)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseTask := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseTask()
+	output := "Command running in background with ID: abc.\nOutput is being written to: " + path
+	h := &backgroundControlHarness{mockHarness: &mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		emit(harness.Event{Type: harness.EventToolStart, ToolID: "tool-1", ToolName: "Bash"})
+		emit(harness.Event{Type: harness.EventToolEnd, ToolID: "tool-1", Output: output})
+		emit(harness.Event{Type: harness.EventBackgroundTaskStart, ToolID: "tool-1", TaskID: "abc"})
+		close(started)
+		<-release
+		emit(harness.Event{Type: harness.EventBackgroundTaskEnd, ToolID: "tool-1", TaskID: "abc", TaskStatus: "completed"})
+		return nil
+	}}}
+	backend.SetHarness(h, t.TempDir(), harness.ModeAgent)
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: threadID, Text: "启动", ActionID: "00000000-0000-0000-0000-0000000000f3"}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	msg := waitToolStatus(t, backend, ctx, threadID, "Bash", "background")
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		<-release
+		// 两个操作都可以先完成；后完成的一方不得覆盖已经落定的状态或正文。
+		_, _ = backend.StopBackgroundTask(ctx, threadID, msg.ID)
+	}()
+	releaseTask()
+	select {
+	case <-stopDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("停止后台任务超时")
+	}
+	waitThreadIdle(t, backend, ctx, threadID)
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	for _, final := range backend.threads[threadID].messages {
+		if final.ID != msg.ID {
+			continue
+		}
+		if final.ToolStatus == nil {
+			t.Fatal("缺少任务终态")
+		}
+		wantText := msg.Text
+		switch *final.ToolStatus {
+		case "completed":
+			wantText = "Bash\n最终输出\n"
+		case "stopped":
+		default:
+			t.Fatalf("任务终态 = %q", *final.ToolStatus)
+		}
+		if final.Text != wantText {
+			t.Fatalf("任务终态 %q 的正文 = %q，期望 %q", *final.ToolStatus, final.Text, wantText)
+		}
+		return
+	}
+	t.Fatal("后台任务消息丢失")
 }
 
 func TestStopBackgroundTaskUnsupported(t *testing.T) {

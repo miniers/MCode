@@ -969,6 +969,27 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					b.mu.Unlock()
 					return
 				}
+				text := td.messages[idx].Text
+				b.mu.Unlock()
+				output, available, readErr := readBackgroundTaskOutput(text)
+				b.mu.Lock()
+				td, ok = b.threads[threadID]
+				if !ok || td.sessionEpoch != attemptEpoch || td.runTurnID != turnID {
+					b.mu.Unlock()
+					return
+				}
+				// 读文件期间消息可能被移动、删除或结束，必须按 ID 重新定位并检查状态。
+				idx = -1
+				for i, m := range td.messages {
+					if m.ID == toolMsgID {
+						idx = i
+						break
+					}
+				}
+				if idx < 0 {
+					b.mu.Unlock()
+					return
+				}
 				// 只回写仍在运行或已标成 background 的条目，避免覆盖之后已经落定的结果。
 				current := ""
 				if td.messages[idx].ToolStatus != nil {
@@ -979,6 +1000,10 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					delete(td.backgroundPending, e.ToolID)
 					b.mu.Unlock()
 					return
+				}
+				if readErr == nil && available && output != "" {
+					firstLine, _, _ := strings.Cut(td.messages[idx].Text, "\n")
+					td.messages[idx].Text = firstLine + "\n" + output
 				}
 				status := "completed"
 				if e.TaskStatus != "" && !strings.EqualFold(e.TaskStatus, "completed") {

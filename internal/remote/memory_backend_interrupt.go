@@ -397,6 +397,11 @@ func (b *MemoryBackend) BackgroundTaskLog(ctx context.Context, threadID, message
 	if err != nil {
 		return "", false, err
 	}
+	return readBackgroundTaskOutput(text)
+}
+
+// readBackgroundTaskOutput 校验输出路径并读取后台任务日志的末尾，调用方不得持有 b.mu。
+func readBackgroundTaskOutput(text string) (string, bool, error) {
 	_, path := backgroundTaskDetails(text)
 	if !filepath.IsAbs(path) {
 		return "", false, nil
