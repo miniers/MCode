@@ -152,4 +152,25 @@ func TestBackgroundWaitBarOpensTasksPanel(t *testing.T) {
 	if !s.composerView.backgroundTasksOpen {
 		t.Fatalf("点击等待条后应打开后台任务浮层")
 	}
+	clickText(t, tt, "等待后台任务")
+	if s.composerView.backgroundTasksOpen {
+		t.Fatal("再次点击等待条应关闭后台任务浮层")
+	}
+}
+
+func TestBackgroundTaskExpandedCommandAndProcess(t *testing.T) {
+	m := backgroundTasksTestCommandLine("bg-view", 1, "background", "go build ./... | tail -10")
+	s := newChatState(nil)
+	s.composerView.backgroundTaskExpanded = m.ID
+	s.commandActivity = map[string]*commandActivityState{m.ID: {processes: []commandProcessView{{name: "compiler", cpu: 12}}}}
+	tt := ui.NewTester(func(c *ui.Context) { renderBackgroundTaskRow(c, s, "tasks", "", m, false) }, 800, 500)
+	for i := 0; i < 3; i++ {
+		tt.Frame()
+	}
+	if _, ok := tt.Find("go build ./... | tail -10"); !ok {
+		t.Fatal("未显示完整命令")
+	}
+	if _, ok := tt.Find("compiler"); !ok {
+		t.Fatal("未显示进程")
+	}
 }

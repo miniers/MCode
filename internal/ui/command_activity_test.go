@@ -205,3 +205,39 @@ func TestUnknownCommandDetailKeepsFirstOutputLine(t *testing.T) {
 		t.Fatalf("unknown-status command detail should preserve the first output line: %v", tt.Texts())
 	}
 }
+
+func TestCommandActivityHistoryAndRSS(t *testing.T) {
+	base := time.Unix(100, 0)
+	st := &commandActivityState{}
+	for i := 0; i < 35; i++ {
+		updateCommandActivity(st, []CommandProc{{PID: 1, CPUTime: time.Duration(i*i) * time.Second, RSS: 100}, {PID: 2, RSS: 200}}, base.Add(time.Duration(i)*time.Second))
+	}
+	if len(st.history) != 30 || st.history[0] != 900 || st.history[29] != 6700 {
+		t.Fatalf("history = %v", st.history)
+	}
+	if st.rss != 300 {
+		t.Fatalf("RSS = %d, want 300", st.rss)
+	}
+}
+
+func TestCommandActivityBackgroundCandidate(t *testing.T) {
+	m := backgroundTasksTestBackground("bg-candidate")
+	client := NewFakeClient()
+	client.SetRunningCommandActivity("t1", map[string][]CommandProc{m.ID: {{PID: 1, Command: "go build", RSS: 42}}})
+	s := newChatState(client)
+	s.messages = []Message{m}
+	s.selectedThreadID = "t1"
+	tt := ui.NewTester(func(c *ui.Context) { requestCommandActivity(c, s, "t1", c.Now()) }, 400, 200)
+	tt.Frame()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if st := commandActivitySnapshot(s, m.ID); st.sampleCount > 0 {
+			if st.rss != 42 {
+				t.Fatalf("RSS = %d", st.rss)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("后台命令未采样")
+}

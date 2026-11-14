@@ -258,8 +258,11 @@ func renderBackgroundWaitBar(c *ui.Context, s *chatState, key string) ui.Element
 			btn.Background(ThemeHover(c).Alpha(0.5))
 		}
 		if btn.Clicked() {
-			// 复用输入区胶囊的浮层状态：单击只负责打开，浮层的关闭仍由胶囊负责。
-			s.composerView.backgroundTasksOpen = true
+			if s.composerView.backgroundTasksOpen {
+				closeBackgroundTasks(s)
+			} else {
+				s.composerView.backgroundTasksOpen = true
+			}
 			s.invalidate()
 		}
 		btn.Children(func() {
@@ -463,6 +466,7 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 	if expanded {
 		c.After(time.Second)
 		requestBackgroundTaskLog(c, s, threadID, m.ID)
+		requestCommandActivity(c, s, threadID, c.Now())
 	}
 	row := ui.Column(c.Key(rowKey)).FillWidth().Clip()
 	target := float32(1)
@@ -503,6 +507,16 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 				if duration, ok := toolBackgroundRunDuration(c, m); ok {
 					ui.Text(c, duration).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine()
 				}
+				activity := commandActivitySnapshot(s, m.ID)
+				if activity.sampleCount > 0 {
+					ui.Text(c, fmt.Sprintf("%.0f%%", activity.cpu)).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine()
+				}
+				arrow := ui.Icon(c, IconChevronRight()).Size(9, 9).TextColor(ThemeSecondaryText(c))
+				angle := float32(0)
+				if expanded {
+					angle = 90
+				}
+				arrow.Rotate(arrow.AnimateTo("rotation", angle, ui.Animation{Duration: animateDuration(c, DurFast), Ease: ui.EaseOut}))
 			})
 			if canStop {
 				stop := ui.ButtonBase(c.Key(rowKey+"/stop")).Size(18, 18).Label("停止").Tooltip("停止").Cursor(ui.CursorPointer)
@@ -517,31 +531,23 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 				stop.Children(func() { ui.Icon(c, IconStopFilled()).Size(10, 10).TextColor(ThemeSecondaryText(c)) })
 			}
 		})
-		if log == "" {
-			log = "暂无输出"
-		}
-		lines := float32(strings.Count(log, "\n") + 1)
-		if lines > backgroundTaskLogMaxLines {
-			lines = backgroundTaskLogMaxLines
-		}
-		height := float32(0)
-		if expanded {
-			height = lines*scaledFont(TypeCaption)*backgroundTaskLogLineHeight + Space2
-		}
-		wrap := ui.Column(c.Key(rowKey + "/log-wrap")).FillWidth().Clip()
-		animatedHeight := wrap.AnimateTo("expand", height, ui.Animation{Duration: animateDuration(c, DurBase), Ease: ui.EaseOut})
-		wrap.Height(animatedHeight)
-		wrap.Children(func() {
-			if scrollOwner && (expanded || animatedHeight > 0.5) {
-				if v.backgroundTaskScrolledLog != log {
-					v.backgroundTaskScroll.Y = math.MaxFloat32
-					v.backgroundTaskScrolledLog = log
+		motionUnfoldBody(c, rowKey+"/details", expanded, func() {
+			ui.Column(c.Key(rowKey+"/content")).FillWidth().Padding(0, Space3, Space2, Space3).Gap(Space2).Children(func() {
+				if command, ok := toolFieldString(toolCallFields(m), "command"); ok && command != "" {
+					ui.Text(c, command).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).MaxLines(3).Selectable()
 				}
-				ui.Scroll(c.Key(rowKey + "/log")).FillWidth().Label("后台任务日志 " + m.ID).MaxHeight(backgroundTaskLogMaxLines * scaledFont(TypeCaption) * backgroundTaskLogLineHeight).
-					TrackScroll(&v.backgroundTaskScroll).Children(func() {
-					ui.Text(c, log).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).LineHeight(backgroundTaskLogLineHeight).TextColor(ThemeSecondaryText(c)).Selectable()
-				})
-			}
+				renderCommandActivityView(c, s, m)
+				if scrollOwner && log != "" {
+					if v.backgroundTaskScrolledLog != log {
+						v.backgroundTaskScroll.Y = math.MaxFloat32
+						v.backgroundTaskScrolledLog = log
+					}
+					ui.Scroll(c.Key(rowKey + "/log")).FillWidth().Label("后台任务日志 " + m.ID).MaxHeight(backgroundTaskLogMaxLines * scaledFont(TypeCaption) * backgroundTaskLogLineHeight).
+						TrackScroll(&v.backgroundTaskScroll).Children(func() {
+						ui.Text(c, log).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).LineHeight(backgroundTaskLogLineHeight).TextColor(ThemeSecondaryText(c)).Selectable()
+					})
+				}
+			})
 		})
 	})
 	if stopped {
