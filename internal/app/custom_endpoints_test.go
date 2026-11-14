@@ -227,6 +227,8 @@ func TestCustomEndpoints_TestCustomEndpoint(t *testing.T) {
 			return
 		}
 		receivedAuthHeader = r.Header.Get("Authorization")
+		// Windows 单调时钟精度粗，让请求耗时可测。
+		time.Sleep(20 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]string{
