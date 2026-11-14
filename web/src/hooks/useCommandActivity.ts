@@ -5,8 +5,8 @@ import { nextCommandActivity, type CommandActivityState } from '../utils/command
 export function useCommandActivity(threadID: string, enabled: boolean): Record<string, CommandActivityState> {
   const { supported, activity } = useRemoteCommandActivityApi();
   const [states, setStates] = useState<Record<string, CommandActivityState>>({});
+  useEffect(() => { setStates({}); }, [threadID]);
   useEffect(() => {
-    setStates({});
     if (!enabled || !supported) return;
     let active = true, pending = false;
     const poll = async () => {
