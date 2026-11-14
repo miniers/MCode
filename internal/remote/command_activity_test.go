@@ -83,9 +83,32 @@ func TestRunningCommandActivityConcurrentCommands(t *testing.T) {
 		return table, nil
 	})
 	got, err := b.RunningCommandActivity(context.Background(), "activity")
-	want := map[string][]procs.Proc{"first": {table[2], table[3]}, "second": {table[4], table[5], table[7], table[8], table[9]}}
+	want := map[string][]procs.Proc{"first": {table[2], table[3]}, "second": {table[4], table[5], table[7], table[8], table[9]}, "background": nil}
 	if err != nil || !reflect.DeepEqual(got, want) || calls != 1 {
 		t.Fatalf("activity=%+v, err=%v, snapshots=%d; want %+v", got, err, calls, want)
+	}
+}
+
+func TestRunningCommandActivityIdleBackground(t *testing.T) {
+	started := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	messages := []wire.ThreadMessage{
+		activityMessage("background", "Bash", "background", started),
+		activityMessage("running", "Bash", "running", started.Add(time.Second)),
+	}
+	b := activityBackend(t, []int{100}, messages)
+	b.mu.Lock()
+	b.threads["activity"].runTurnID = ""
+	b.mu.Unlock()
+	table := []procs.Proc{
+		{PID: 100, StartTime: started.Add(-time.Hour)},
+		{PID: 101, PPID: 100, StartTime: started.Add(time.Second), Command: "sh"},
+		{PID: 102, PPID: 101, StartTime: started.Add(2 * time.Second), Command: "sleep"},
+	}
+	replaceActivitySnapshot(t, func() ([]procs.Proc, error) { return table, nil })
+	got, err := b.RunningCommandActivity(context.Background(), "activity")
+	want := map[string][]procs.Proc{"background": {table[1], table[2]}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("activity=%+v, err=%v; want %+v", got, err, want)
 	}
 }
 

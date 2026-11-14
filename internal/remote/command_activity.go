@@ -15,7 +15,7 @@ import (
 
 var procSnapshot = procs.Snapshot
 
-// RunningCommandActivity 按工具消息归集运行中命令的进程快照，每次只读取一次整机进程表。
+// RunningCommandActivity 按工具消息归集运行中命令的进程快照，每次只读取一次整机进程表。后台任务也会参与采样。
 func (b *MemoryBackend) RunningCommandActivity(ctx context.Context, threadID string) (map[string][]procs.Proc, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -27,10 +27,6 @@ func (b *MemoryBackend) RunningCommandActivity(ctx context.Context, threadID str
 		b.mu.Unlock()
 		return nil, &wire.RPCError{Code: wire.ErrCodeResourceNotFound, Message: fmt.Sprintf("thread %s not found", threadID)}
 	}
-	if td.runTurnID == "" {
-		b.mu.Unlock()
-		return activity, nil
-	}
 	b.ensureMessagesLoadedLocked(td)
 	type command struct {
 		id      string
@@ -38,10 +34,10 @@ func (b *MemoryBackend) RunningCommandActivity(ctx context.Context, threadID str
 	}
 	var commands []command
 	for _, msg := range td.messages {
-		if msg.ToolStatus == nil || *msg.ToolStatus != "running" || !activityCommandTool(msg) {
+		if msg.ToolStatus == nil || !activityCommandTool(msg) {
 			continue
 		}
-		if msg.TurnID != nil && *msg.TurnID != td.runTurnID {
+		if *msg.ToolStatus != "background" && (*msg.ToolStatus != "running" || td.runTurnID == "" || (msg.TurnID != nil && *msg.TurnID != td.runTurnID)) {
 			continue
 		}
 		started, err := time.Parse(time.RFC3339Nano, msg.CreatedAt)
