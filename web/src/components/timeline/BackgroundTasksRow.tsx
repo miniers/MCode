@@ -10,15 +10,28 @@ import type { useRemoteBackgroundTaskApi } from '../../context/remoteBackgroundT
 // provider 托管的后台任务（toolStatus='background'）也在列，可查看日志并停止。
 // 拿不到 swarm 状态时就只做命令部分，不为此改协议。
 
-/** 一条仍在运行的后台命令（只保留短标题，完整命令在工具详情里）。 */
+/** 一条仍在运行的后台命令：显示短标题，展开后显示完整命令和日志。 */
 export interface BackgroundTaskCommand {
   id: string;
   /** 命令短标题：优先取工具输入的 description，否则取命令首段，已截断 */
   snippet: string;
+  toolInput?: string;
   /** running：回合结束后仍在跑的本地命令；background：provider 托管、可查看日志并停止的后台任务 */
   status: 'running' | 'background';
   /** 命令开始的 ISO 时间，用于空闲时的等待计时 */
   startedAt?: string;
+}
+
+function fullCommand(toolInput: string | undefined, snippet: string): string {
+  try {
+    const parsed: unknown = JSON.parse(toolInput ?? '');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const value = (parsed as Record<string, unknown>).command;
+      if (typeof value === 'string' && value.trim()) return value;
+      if (Array.isArray(value)) return value.filter((part): part is string => typeof part === 'string').join(' ').trim() || snippet;
+    }
+  } catch { /* 解析失败时使用短标题 */ }
+  return snippet;
 }
 
 export interface BackgroundTasksRowProps {
@@ -268,6 +281,7 @@ export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
                 </>
               )}
             </li>
+            {expandedTaskID === command.id && <li className="ml-5 max-h-[4.5em] overflow-auto whitespace-pre-wrap break-words font-mono text-[var(--foreground-muted)]">{fullCommand(command.toolInput, command.snippet)}</li>}
             {expandedTaskID === command.id && logAvailable && <li className="ml-5 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[var(--foreground)]">{logText}</li>}
             </React.Fragment>
           ))}

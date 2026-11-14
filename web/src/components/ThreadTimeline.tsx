@@ -666,6 +666,7 @@ export function collectBackgroundCommands(
       commands.push({
         id: entry.id,
         snippet: commandSnippet(entry.toolName, entry.toolInput),
+        toolInput: entry.toolInput,
         status: 'background',
         startedAt: entry.createdAt
       });
@@ -677,6 +678,7 @@ export function collectBackgroundCommands(
     commands.push({
       id: entry.id,
       snippet: commandSnippet(entry.toolName, entry.toolInput),
+      toolInput: entry.toolInput,
       status: 'running'
     });
   };

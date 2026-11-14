@@ -1,6 +1,7 @@
 // 同 LazyFallback.test.tsx：web/ 没有测试运行器，用 react-dom/server 渲染成字符串后顶层断言。
 // 这里校验等待标题的格式、空闲/运行两种形态的文案，以及后台任务只读（不出现停止入口）。
 import { renderToStaticMarkup } from 'react-dom/server';
+import React from 'react';
 import { pickByHash, SwarmAvatar } from '../swarmAvatar';
 import {
   BackgroundTasksRow,
@@ -77,6 +78,27 @@ const runningHtml = renderToStaticMarkup(
 );
 assertIncludes(runningHtml, '后台 · 1 项任务');
 assertExcludes(runningHtml, '等待 1 个后台任务');
+
+// 静态渲染时模拟展开聚合行和任务，验证无日志时仍显示完整命令。
+const originalUseState = React.useState;
+let stateIndex = 0;
+Object.assign(React, { useState: (initial: unknown) => {
+  const value = stateIndex++ === 0 ? true : stateIndex === 2 ? 'cmd-1' : typeof initial === 'function' ? initial() : initial;
+  return [value, () => {}];
+} });
+try {
+  const expandedHtml = renderToStaticMarkup(
+    <BackgroundTasksRow commands={[{ ...backgroundCommand, toolInput: JSON.stringify({ command: 'npm run dev -- --host 127.0.0.1' }) }]} bees={[]} />
+  );
+  assertIncludes(expandedHtml, 'npm run dev -- --host 127.0.0.1');
+  stateIndex = 0;
+  const fallbackHtml = renderToStaticMarkup(
+    <BackgroundTasksRow commands={[{ ...backgroundCommand, toolInput: '{' }]} bees={[]} />
+  );
+  assertIncludes(fallbackHtml, 'font-mono text-[var(--foreground-muted)]">npm run dev</li>');
+} finally {
+  Object.assign(React, { useState: originalUseState });
+}
 
 const taskApi = {
   supported: true,
