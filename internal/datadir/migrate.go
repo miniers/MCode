@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"mcode/internal/fsutil"
@@ -16,11 +17,23 @@ import (
 )
 
 var rename = fsutil.Rename
+var waitParentExit = waitProcessExit
+var migrationErr error
+
+// MigrationError 返回本进程最近一次 ApplyPending 的失败；成功或未迁移时为 nil。
+func MigrationError() error {
+	mu.Lock()
+	defer mu.Unlock()
+	return migrationErr
+}
 
 // ApplyPending 在数据库打开前迁移数据；失败时搬回已迁移条目并恢复旧指针。
 func ApplyPending() (dir string, err error) {
 	mu.Lock()
 	defer mu.Unlock()
+	parentPID := os.Getenv(relaunchParentEnv)
+	_ = os.Unsetenv(relaunchParentEnv)
+	defer func() { migrationErr = err }()
 	p, err := readPointer()
 	if err != nil {
 		return defaultDir(), err
@@ -30,6 +43,9 @@ func ApplyPending() (dir string, err error) {
 			return p.Path, nil
 		}
 		return defaultDir(), nil
+	}
+	if pid, parseErr := strconv.Atoi(parentPID); parseErr == nil && pid > 0 {
+		waitParentExit(pid, 30*time.Second)
 	}
 	oldDir, newDir := p.MoveFrom, p.Path
 	var moved []string

@@ -342,8 +342,16 @@ func renderAboutVersionValue(c *ui.Context, st *SettingsState) {
 }
 
 func renderAboutDataDirValue(c *ui.Context, st *SettingsState) {
+	migrationErr := datadir.MigrationError()
 	ui.Row(c.Key("about-data-dir-value")).AlignItems(ui.Center).Gap(Space3).Children(func() {
-		ui.Text(c, st.dataDir).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine().Grow(1)
+		if migrationErr != nil {
+			ui.Column(c.Key("about-data-dir-path")).Grow(1).Gap(Space1).Children(func() {
+				ui.Text(c, st.dataDir).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine()
+				ui.Text(c, "迁移失败："+migrationErr.Error()).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c)).FillWidth()
+			})
+		} else {
+			ui.Text(c, st.dataDir).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine().Grow(1)
+		}
 		if datadir.Pinned() {
 			return
 		}

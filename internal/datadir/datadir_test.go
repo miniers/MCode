@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,11 @@ func isolateConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("AppData", filepath.Join(home, "config"))
 	t.Setenv("MCODE_DATA", "")
+	t.Setenv(relaunchParentEnv, "")
+	mu.Lock()
 	exportedPinned = false
+	migrationErr = nil
+	mu.Unlock()
 }
 
 func writeTestFile(t *testing.T, path, content string) {
@@ -90,6 +95,9 @@ func TestExportAndPrepareRelaunch(t *testing.T) {
 		t.Fatal("Export 应设置 MCODE_DATA")
 	}
 	PrepareRelaunch()
+	if got := os.Getenv(relaunchParentEnv); got != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("重启父进程 PID = %q，期望 %d", got, os.Getpid())
+	}
 	if got := os.Getenv("MCODE_DATA"); got != "" {
 		t.Fatalf("非固定目录重启前应清理 MCODE_DATA: %q", got)
 	}
@@ -101,6 +109,9 @@ func TestExportAndPrepareRelaunch(t *testing.T) {
 		t.Fatal("固定目录应被标记为 pinned")
 	}
 	PrepareRelaunch()
+	if got := os.Getenv(relaunchParentEnv); got != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("固定目录重启父进程 PID = %q，期望 %d", got, os.Getpid())
+	}
 	if got := os.Getenv("MCODE_DATA"); got == "" {
 		t.Fatal("固定目录重启前不应清理 MCODE_DATA")
 	}
@@ -174,6 +185,121 @@ func TestApplyPendingMove(t *testing.T) {
 	}
 }
 
+func TestApplyPendingWaitsForParentBeforeMoving(t *testing.T) {
+	for _, parentPID := range []string{strconv.Itoa(os.Getpid()), "", "invalid", "0", "-1", "99999999999999999999999999"} {
+		t.Run("pid="+parentPID, func(t *testing.T) {
+			isolateConfig(t)
+			old, next := t.TempDir(), t.TempDir()
+			writeTestFile(t, filepath.Join(old, "data"), "keep")
+			if err := SetPending(old, next); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(relaunchParentEnv, parentPID)
+			original := waitParentExit
+			var calls int
+			waitParentExit = func(pid int, timeout time.Duration) {
+				calls++
+				if pid != os.Getpid() || timeout != 30*time.Second {
+					t.Errorf("等待参数 = (%d, %v)", pid, timeout)
+				}
+				if _, ok := os.LookupEnv(relaunchParentEnv); ok {
+					t.Error("等待前应已清理父进程环境变量")
+				}
+				checkFile(t, filepath.Join(old, "data"), "keep")
+				if _, err := os.Stat(filepath.Join(next, "data")); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("等待前不应搬动条目: %v", err)
+				}
+			}
+			t.Cleanup(func() { waitParentExit = original })
+			if got, err := ApplyPending(); err != nil || got != next {
+				t.Fatalf("迁移失败: %q, %v", got, err)
+			}
+			wantCalls := 0
+			if parentPID == strconv.Itoa(os.Getpid()) {
+				wantCalls = 1
+			}
+			if calls != wantCalls {
+				t.Errorf("等待次数 = %d，期望 %d", calls, wantCalls)
+			}
+			if _, ok := os.LookupEnv(relaunchParentEnv); ok {
+				t.Error("迁移后应已清理父进程环境变量")
+			}
+			checkFile(t, filepath.Join(next, "data"), "keep")
+		})
+	}
+}
+
+func TestApplyPendingWithoutMigrationSkipsParentWait(t *testing.T) {
+	for _, hasPointer := range []bool{false, true} {
+		t.Run(strconv.FormatBool(hasPointer), func(t *testing.T) {
+			isolateConfig(t)
+			want := defaultDir()
+			if hasPointer {
+				want = t.TempDir()
+				if err := writePointer(pointer{Path: want}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv(relaunchParentEnv, strconv.Itoa(os.Getpid()))
+			original := waitParentExit
+			waitParentExit = func(int, time.Duration) { t.Error("没有迁移时不应等待父进程") }
+			t.Cleanup(func() { waitParentExit = original })
+			if got, err := ApplyPending(); err != nil || got != want {
+				t.Fatalf("目录解析失败: %q, %v", got, err)
+			}
+			if _, ok := os.LookupEnv(relaunchParentEnv); ok {
+				t.Error("没有迁移时也应清理父进程环境变量")
+			}
+		})
+	}
+}
+
+func TestMigrationErrorTracksApplyPending(t *testing.T) {
+	isolateConfig(t)
+	if err := MigrationError(); err != nil {
+		t.Fatalf("迁移前不应有错误: %v", err)
+	}
+	path, err := pointerPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, path, "{")
+	t.Setenv(relaunchParentEnv, strconv.Itoa(os.Getpid()))
+	if _, err := ApplyPending(); err == nil || MigrationError() != err {
+		t.Fatalf("应记录读取指针失败: %v, %v", err, MigrationError())
+	}
+	if _, ok := os.LookupEnv(relaunchParentEnv); ok {
+		t.Error("读取指针失败时也应清理父进程环境变量")
+	}
+	old, next := t.TempDir(), t.TempDir()
+	writeTestFile(t, filepath.Join(old, "mcode.db"), "corrupt database")
+	if err := SetPending(old, next); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyPending(); err == nil || MigrationError() != err {
+		t.Fatalf("应记录迁移回滚后的错误: %v, %v", err, MigrationError())
+	}
+	if _, err := ApplyPending(); err != nil || MigrationError() != nil {
+		t.Fatalf("没有迁移时应清除错误: %v, %v", err, MigrationError())
+	}
+	if err := SetPending(old, next); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyPending(); err == nil {
+		t.Fatal("坏库应使迁移失败")
+	}
+	if err := os.Remove(filepath.Join(old, "mcode.db")); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(old, "data"), "keep")
+	if err := SetPending(old, next); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ApplyPending(); err != nil || got != next || MigrationError() != nil {
+		t.Fatalf("成功迁移后应清除错误: %q, %v, %v", got, err, MigrationError())
+	}
+}
+
 func TestApplyPendingRollback(t *testing.T) {
 	isolateConfig(t)
 	old, next := t.TempDir(), t.TempDir()
@@ -225,6 +351,19 @@ func TestApplyPendingConcurrent(t *testing.T) {
 	if err := SetPending(old, next); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv(relaunchParentEnv, strconv.Itoa(os.Getpid()))
+	original := waitParentExit
+	var waitCalls int
+	waitParentExit = func(pid int, timeout time.Duration) {
+		waitCalls++
+		if pid != os.Getpid() || timeout != 30*time.Second {
+			t.Errorf("并发迁移等待参数 = (%d, %v)", pid, timeout)
+		}
+		if b, err := os.ReadFile(filepath.Join(old, "config.json")); err != nil || string(b) != "config" {
+			t.Errorf("并发迁移必须先等待再搬动条目: %q, %v", b, err)
+		}
+	}
+	t.Cleanup(func() { waitParentExit = original })
 	type result struct {
 		dir string
 		err error
@@ -233,6 +372,7 @@ func TestApplyPendingConcurrent(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			dir, err := ApplyPending()
+			err = errors.Join(err, MigrationError())
 			results <- result{dir, err}
 		}()
 	}
@@ -240,6 +380,9 @@ func TestApplyPendingConcurrent(t *testing.T) {
 		if got := <-results; got.err != nil || got.dir != next {
 			t.Errorf("并发迁移失败: %+v", got)
 		}
+	}
+	if waitCalls != 1 {
+		t.Errorf("并发迁移等待次数 = %d，期望 1", waitCalls)
 	}
 	checkFile(t, filepath.Join(next, "config.json"), "config")
 }

@@ -78,6 +78,51 @@ func TestAboutDataDirMoveFailureKeepsConfirm(t *testing.T) {
 	}
 }
 
+func TestAboutDataDirMigrationError(t *testing.T) {
+	resetAboutPageStateForTest()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("AppData", filepath.Join(home, "config"))
+	t.Setenv("MCODE_RELAUNCH_PARENT", "")
+	t.Cleanup(func() {
+		if _, err := datadir.ApplyPending(); err != nil {
+			t.Error(err)
+		}
+	})
+	old, next := t.TempDir(), t.TempDir()
+	if err := datadir.SetPending(old, next); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(next, "occupied"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := datadir.ApplyPending(); err == nil {
+		t.Fatal("目标目录非空时应迁移失败")
+	}
+	err := datadir.MigrationError()
+	if err == nil {
+		t.Fatal("应记录迁移错误")
+	}
+	st := NewSettingsState(old, nil, nil)
+	tt := ui.NewTester(func(c *ui.Context) { renderAboutDataDirValue(c, st) }, 800, 200)
+	tt.Frame()
+	if !tt.HasText(old) || !tt.HasText("迁移失败："+err.Error()) {
+		t.Fatalf("应在数据目录下显示迁移错误: %v", tt.Texts())
+	}
+	if _, err := datadir.ApplyPending(); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("迁移失败：" + err.Error()) {
+		t.Fatal("错误清除后不应显示迁移失败")
+	}
+	if _, ok := tt.Find("about-data-dir-path"); ok {
+		t.Fatal("没有错误时应保留原有路径布局")
+	}
+}
+
 func TestAboutDataDirMoveSuccessPreparesRelaunch(t *testing.T) {
 	resetAboutPageStateForTest()
 	home := t.TempDir()
@@ -85,6 +130,7 @@ func TestAboutDataDirMoveSuccessPreparesRelaunch(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("AppData", filepath.Join(home, "config"))
+	t.Setenv("MCODE_RELAUNCH_PARENT", "")
 	old := t.TempDir()
 	parent := t.TempDir()
 	t.Setenv("MCODE_DATA", old)

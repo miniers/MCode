@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,6 +19,8 @@ type pointer struct {
 	Path     string `json:"path"`
 	MoveFrom string `json:"move_from,omitempty"`
 }
+
+const relaunchParentEnv = "MCODE_RELAUNCH_PARENT"
 
 var mu sync.Mutex
 
@@ -112,6 +115,7 @@ func Pinned() bool {
 func PrepareRelaunch() {
 	mu.Lock()
 	defer mu.Unlock()
+	_ = os.Setenv(relaunchParentEnv, strconv.Itoa(os.Getpid()))
 	if !exportedPinned {
 		_ = os.Unsetenv("MCODE_DATA")
 	}
