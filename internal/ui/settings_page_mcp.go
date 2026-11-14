@@ -3,7 +3,6 @@ package mcodeui
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -332,11 +331,7 @@ func renderMCPServerDeleteModal(c *ui.Context, st *SettingsState, uiSt *mcpPageU
 	body := fmt.Sprintf("将删除 %s（%s）的配置与已保存的凭据，删除后无法恢复。", name, mcpScopeLabel(scope))
 	if agentconf.CanDeleteExternalMCPServer(opts, srv) {
 		source := srv.Source
-		home := opts.Home
-		if home == "" {
-			home, _ = os.UserHomeDir()
-		}
-		if rel, err := filepath.Rel(home, source); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if rel, err := filepath.Rel(opts.Home, source); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			source = filepath.Join("~", rel)
 		}
 		body = fmt.Sprintf("将从 %s 删除 %s，删除后无法恢复。", source, name)
