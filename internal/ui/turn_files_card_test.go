@@ -452,3 +452,38 @@ func TestTurnFilesCardOpensTurnDiff(t *testing.T) {
 		t.Fatalf("范围=%q 回合=%q 路径=%q 已选=%q", scope, turn, path, selected)
 	}
 }
+
+// TestTurnFilesCardStatusHoldsAcrossUsageUpdate 验证后端每两秒发来的用量增量不会让已就绪的
+// 改动卡片退回加载态：状态字母与统计留在原处，也不再重取 diff。
+func TestTurnFilesCardStatusHoldsAcrossUsageUpdate(t *testing.T) {
+	fake := setupTurnFilesDiffFake(t, []string{"new.go", "edited.go"}, turnFilesTestDiffWithStatus(
+		map[string]string{"new.go": "A", "edited.go": "M"},
+		map[string][2]int{"new.go": {2, 0}, "edited.go": {1, 1}},
+	))
+	s, root := buildRoot(fake)
+	tt := ui.NewTester(root, 1000, 700)
+	waitFor(t, tt, func() bool { return turnFilesHasExactText(tt, "A") && turnFilesHasExactText(tt, "M") })
+	calls := len(fake.DiffCalls())
+
+	s.mu.Lock()
+	var thread Thread
+	for _, th := range s.threads {
+		if th.ID == "t1" {
+			thread = th
+			break
+		}
+	}
+	s.mu.Unlock()
+	s.onWatchUpdate(ThreadUpdate{ThreadID: "t1", Thread: thread})
+	tt.Frame()
+
+	if !turnFilesHasExactText(tt, "A") || !turnFilesHasExactText(tt, "M") {
+		t.Fatalf("用量增量后状态字母不应消失，实际 %q", tt.Texts())
+	}
+	if !tt.HasText("+2") || !tt.HasText("-1") {
+		t.Fatalf("用量增量后统计不应消失，实际 %q", tt.Texts())
+	}
+	if got := len(fake.DiffCalls()); got != calls {
+		t.Fatalf("用量增量不该触发重取 diff：之前 %d 次，之后 %d 次", calls, got)
+	}
+}

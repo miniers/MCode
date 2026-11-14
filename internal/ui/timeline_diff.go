@@ -150,10 +150,12 @@ type toolDiffEntry struct {
 	generation uint64
 	snapshot   *ReviewSnapshot
 	loading    bool
-	err        string
-	failure    string
-	files      []git.FileDiff
-	truncated  bool
+	// stale 表示这一轮的改动内容已经变了，缓存还能先显示，同时后台重取覆盖。
+	stale     bool
+	err       string
+	failure   string
+	files     []git.FileDiff
+	truncated bool
 }
 
 // fileEditToolNames 为算作文件修改的工具名（已转小写并去掉 _ 与 -）。
@@ -388,7 +390,16 @@ func (s *chatState) toolDiffEntryFor(threadID string, m Message) toolDiffEntry {
 	}
 	if e := s.toolDiff.entries[key]; e != nil {
 		res := *e
+		// 过期的缓存继续给界面用，同时补一次后台重取：卡片不会因为重新拉取而短暂没有状态。
+		revalidate := e.stale && !e.loading
+		if revalidate {
+			e.stale = false
+		}
+		generation := s.toolDiff.generation
 		s.mu.Unlock()
+		if revalidate {
+			go s.loadToolDiff(threadID, m.TurnIndex, m.TurnID, generation)
+		}
 		return res
 	}
 	idxKey := threadID + "|#" + strconv.Itoa(m.TurnIndex)
@@ -399,6 +410,39 @@ func (s *chatState) toolDiffEntryFor(threadID string, m Message) toolDiffEntry {
 
 	go s.loadToolDiff(threadID, m.TurnIndex, m.TurnID, generation)
 	return toolDiffEntry{loading: true}
+}
+
+// invalidateToolDiffTurnsLocked 只把本帧消息涉及的那些轮次标记为待重取。
+// 用量刷新、以及别的轮次里的工具调用都不该让一张已就绪的卡片丢掉状态。
+// 调用方需持有 s.mu。
+func (s *chatState) invalidateToolDiffTurnsLocked(threadID string, msgs []Message) {
+	if threadID == "" || len(msgs) == 0 {
+		return
+	}
+	for _, m := range msgs {
+		if m.Role != "tool" && !m.IsFinal {
+			continue
+		}
+		for _, key := range s.toolDiffKeysLocked(threadID, m) {
+			if e := s.toolDiff.entries[key]; e != nil {
+				e.stale = true
+			}
+		}
+	}
+}
+
+// toolDiffKeysLocked 列出某一轮改动可能占用的缓存键：轮次序号键、轮次 ID 键，
+// 以及从序号解析出来的真实键。调用方需持有 s.mu。
+func (s *chatState) toolDiffKeysLocked(threadID string, m Message) []string {
+	idxKey := threadID + "|#" + strconv.Itoa(m.TurnIndex)
+	keys := []string{idxKey}
+	if m.TurnID != "" {
+		keys = append(keys, threadID+"|"+m.TurnID)
+	}
+	if k, ok := s.toolDiff.turnKey[idxKey]; ok {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // loadToolDiff 优先按消息的 TurnID 取 diff；旧消息没有 ID 时才查询轮次摘要。

@@ -1709,14 +1709,14 @@ func (s *chatState) onWatchUpdate(update ThreadUpdate) {
 		if update.Resync {
 			resyncThreadID = update.ThreadID
 		}
-		refreshDiff := shouldFetchUsage || len(update.RemovedIDs) > 0
-		for _, msg := range update.Messages {
-			refreshDiff = refreshDiff || msg.Role == "tool" || msg.IsFinal
-		}
-		if refreshDiff {
+		// 用量刷新不改变任何轮次的改动内容，只有消息被替换时才需要重取 diff。
+		// 也只让本帧涉及的那些轮次失效：别的轮次的卡片不必为此丢掉已就绪的状态。
+		if len(update.RemovedIDs) > 0 {
 			s.toolDiff.entries = nil
 			s.toolDiff.turnKey = nil
 			s.toolDiff.generation++
+		} else {
+			s.invalidateToolDiffTurnsLocked(update.ThreadID, update.Messages)
 		}
 		if !update.Thread.IsRunning && !update.Thread.SwarmBusy {
 			// 只有主会话与名下子线程都空下来，这一轮才算真正结束。
