@@ -1,6 +1,7 @@
 package agentconf
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,7 +46,11 @@ func TestDeleteExternalMCPServerJSON(t *testing.T) {
 					}
 					key, _ = filepath.EvalSymlinks(opts.ProjectDir)
 				}
-				before = `{"z":1,"projects":{"` + key + `":{"mcpServers":{"keep":{"command":"keep"},"drop":{"command":"echo"}},"other":true}},"mcpServers":{"global":{"command":"echo"}},"a":2}`
+				quotedKey, err := json.Marshal(key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before = `{"z":1,"projects":{` + string(quotedKey) + `:{"mcpServers":{"keep":{"command":"keep"},"drop":{"command":"echo"}},"other":true}},"mcpServers":{"global":{"command":"echo"}},"a":2}`
 				after = strings.Replace(before, `,"drop":{"command":"echo"}`, "", 1)
 			}
 			if kind == "mcpjson" {
@@ -53,6 +58,11 @@ func TestDeleteExternalMCPServerJSON(t *testing.T) {
 				scope = "project"
 			}
 			writeExternalMCPTestFile(t, path, before)
+			origInfo, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			origPerm := origInfo.Mode().Perm()
 			srv := MCPServer{Agent: "claude", Scope: scope, Name: "drop", Source: path}
 			if !CanDeleteExternalMCPServer(opts, srv) {
 				t.Fatal("合法来源应可删除")
@@ -67,9 +77,12 @@ func TestDeleteExternalMCPServerJSON(t *testing.T) {
 			if string(got) != after {
 				t.Fatalf("其它内容改变：\ngot %s\nwant %s", got, after)
 			}
-			info, _ := os.Stat(path)
-			if info.Mode().Perm() != 0640 {
-				t.Fatalf("权限改变：%v", info.Mode())
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != origPerm {
+				t.Fatalf("权限改变：%v，原权限：%v", info.Mode(), origPerm)
 			}
 			if err := DeleteExternalMCPServer(opts, srv); err == nil {
 				t.Fatal("重复删除应报不存在")
@@ -90,6 +103,11 @@ func TestDeleteExternalMCPServerTOML(t *testing.T) {
 			before := "# 顶部注释\nmodel = 'gpt'\n\n[mcp_servers.'drop.name'] # 目标\ncommand = 'echo'\nargs = [\n 'one',\n 'two',\n]\n# 保留注释\n[mcp_servers.\"drop.name\".env]\nTOKEN = 'value'\n\n# 下一个服务\n[mcp_servers.keep]\ncommand = 'keep'\n[mcp_servers.keep.env]\nZ = 'last'\n"
 			after := "# 顶部注释\nmodel = 'gpt'\n\n# 保留注释\n\n# 下一个服务\n[mcp_servers.keep]\ncommand = 'keep'\n[mcp_servers.keep.env]\nZ = 'last'\n"
 			writeExternalMCPTestFile(t, path, before)
+			origInfo, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			origPerm := origInfo.Mode().Perm()
 			srv := MCPServer{Agent: "codex", Scope: scope, Name: "drop.name", Source: path}
 			if err := DeleteExternalMCPServer(opts, srv); err != nil {
 				t.Fatal(err)
@@ -98,9 +116,12 @@ func TestDeleteExternalMCPServerTOML(t *testing.T) {
 			if string(got) != after {
 				t.Fatalf("其它内容改变：\ngot %s\nwant %s", got, after)
 			}
-			info, _ := os.Stat(path)
-			if info.Mode().Perm() != 0640 {
-				t.Fatal("权限改变")
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != origPerm {
+				t.Fatalf("权限改变：%v，原权限：%v", info.Mode(), origPerm)
 			}
 		})
 	}
