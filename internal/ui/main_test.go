@@ -21,13 +21,13 @@ func TestMain(m *testing.M) {
 	aiWorktreeRedetectInterval = 0
 
 	// 配置会从数据目录读取，开启界面状态持久化的测试会读写 ui-state.json；
-	// 为避免测试受开发者本机数据（~/.mcode）影响，未显式指定时隔离到临时目录。
+	// 不论环境里是否已有 MCODE_DATA（比如从 MCode 内的终端继承），都隔离到临时目录，
+	// 避免测试读写开发者真实数据。
 	cleanup := func() {}
-	if os.Getenv("MCODE_DATA") == "" {
-		if dir, err := os.MkdirTemp("", "mcode-ui-test"); err == nil {
-			_ = os.Setenv("MCODE_DATA", dir)
-			cleanup = func() { _ = os.RemoveAll(dir) }
-		}
+	_ = os.Unsetenv("MCODE_DATA_INHERITED")
+	if dir, err := os.MkdirTemp("", "mcode-ui-test"); err == nil {
+		_ = os.Setenv("MCODE_DATA", dir)
+		cleanup = func() { _ = os.RemoveAll(dir) }
 	}
 
 	// 测试没有 mygo 主循环，RunOnMain 会阻塞。
