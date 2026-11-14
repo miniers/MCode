@@ -2,6 +2,7 @@
 // 这里校验等待标题的格式、空闲/运行两种形态的文案，以及后台任务只读（不出现停止入口）。
 import { renderToStaticMarkup } from 'react-dom/server';
 import React from 'react';
+import { nextCommandActivity } from '../../utils/commandActivity';
 import { pickByHash, SwarmAvatar } from '../swarmAvatar';
 import {
   BackgroundTasksRow,
@@ -91,6 +92,11 @@ try {
     <BackgroundTasksRow commands={[{ ...backgroundCommand, toolInput: JSON.stringify({ command: 'npm run dev -- --host 127.0.0.1' }) }]} bees={[]} />
   );
   assertIncludes(expandedHtml, 'npm run dev -- --host 127.0.0.1');
+  assertExcludes(expandedHtml, 'compiler');
+  stateIndex = 0;
+  const sample = nextCommandActivity(undefined, [{ pid: 1, ppid: 0, startTime: '2026-01-01T00:00:00Z', cpuTimeMs: 100, rss: 100, command: 'compiler file' }], Date.parse('2026-01-01T00:00:01Z'));
+  const activityHtml = renderToStaticMarkup(<BackgroundTasksRow commands={[backgroundCommand]} bees={[]} activity={{ 'cmd-1': sample }} />);
+  assertIncludes(activityHtml, 'compiler');
   stateIndex = 0;
   const fallbackHtml = renderToStaticMarkup(
     <BackgroundTasksRow commands={[{ ...backgroundCommand, toolInput: '{' }]} bees={[]} />

@@ -1,4 +1,6 @@
 import React from 'react';
+import { CommandActivityView } from './CommandActivityView';
+import type { CommandActivityState } from '../../utils/commandActivity';
 import { ChevronRightIcon, CodeBracketIcon } from '../Icons';
 import { SwarmAvatar, pickByHash } from '../swarmAvatar';
 import type { RemoteSwarmBee } from '../../types/swarm';
@@ -35,6 +37,8 @@ function fullCommand(toolInput: string | undefined, snippet: string): string {
 }
 
 export interface BackgroundTasksRowProps {
+  activity?: Record<string, CommandActivityState>;
+  onActivityExpanded?: (expanded: boolean) => void;
   threadID?: string;
   taskApi?: ReturnType<typeof useRemoteBackgroundTaskApi>;
   commands: BackgroundTaskCommand[];
@@ -144,6 +148,8 @@ function leadCommand(commands: BackgroundTaskCommand[]): BackgroundTaskCommand |
 export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
   threadID,
   taskApi,
+  activity,
+  onActivityExpanded,
   commands,
   bees,
   waiting = false,
@@ -160,6 +166,11 @@ export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
   const startedAtMs = lead && lead.startedAt ? Date.parse(lead.startedAt) : Number.NaN;
   const hasStartedAt = !Number.isNaN(startedAtMs);
   const expandedCommandPresent = commands.some((item) => item.id === expandedTaskID);
+
+  React.useEffect(() => {
+    onActivityExpanded?.(expanded && expandedCommandPresent);
+    return () => onActivityExpanded?.(false);
+  }, [expanded, expandedCommandPresent, onActivityExpanded]);
 
   // 只在等待且拿得到开始时间时每秒刷新，卸载或切回运行态就停
   const [now, setNow] = React.useState(() => Date.now());
@@ -252,6 +263,7 @@ export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
               <button type="button" aria-expanded={expandedTaskID === command.id} onClick={() => { setExpandedTaskID((current) => current === command.id ? null : command.id); setLogAvailable(false); setLogText(''); }} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
                 <CodeBracketIcon className="h-3.5 w-3.5 shrink-0" />
                 <span className="min-w-0 flex-1 truncate font-mono text-[var(--foreground)]">{command.snippet}</span>
+                {activity?.[command.id] && <span className="shrink-0 tabular-nums">{Math.round(activity[command.id].cpu)}%</span>}
                 <span className="shrink-0">{command.status === 'background' ? '后台' : '运行中'}</span>
               </button>
               {taskApi?.supported && backgroundTaskStopLabel(command.status, taskApi.supported) && threadID && (
@@ -282,6 +294,7 @@ export const BackgroundTasksRow: React.FC<BackgroundTasksRowProps> = ({
               )}
             </li>
             {expandedTaskID === command.id && <li className="ml-5 max-h-[4.5em] overflow-auto whitespace-pre-wrap break-words font-mono text-[var(--foreground-muted)]">{fullCommand(command.toolInput, command.snippet)}</li>}
+            {expandedTaskID === command.id && <li className="ml-5"><CommandActivityView activity={activity?.[command.id]} /></li>}
             {expandedTaskID === command.id && logAvailable && <li className="ml-5 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[var(--foreground)]">{logText}</li>}
             </React.Fragment>
           ))}

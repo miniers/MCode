@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"mcode/internal/config"
+	"mcode/internal/procs"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
 )
@@ -1050,6 +1052,40 @@ func (d *Dispatcher) handleSingle(ctx context.Context, c Conn, raw []byte) *wire
 			return replyWithBackendErr(err)
 		}
 		return replySuccess(wire.BackgroundTaskLogResult{Text: text, Available: available})
+
+	case "threads.commandActivity":
+		var p wire.CommandActivityParams
+		if err := decodeStrict(env.Params, &p); err != nil || !isValidUUID(p.ThreadID) {
+			return replyErr(wire.InvalidParams, "Invalid command activity params")
+		}
+		reader, ok := d.backend.(interface {
+			RunningCommandActivity(context.Context, string) (map[string][]procs.Proc, error)
+		})
+		if !ok {
+			return replyErr(wire.MethodNotFound, "Method not implemented")
+		}
+		activity, err := reader.RunningCommandActivity(ctx, p.ThreadID)
+		if err != nil {
+			return replyWithBackendErr(err)
+		}
+		ids := make([]string, 0, len(activity))
+		for id := range activity {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		commands := make([]wire.CommandActivity, 0, len(ids))
+		for _, id := range ids {
+			processes := make([]wire.CommandActivityProc, 0, len(activity[id]))
+			for _, proc := range activity[id] {
+				start := ""
+				if !proc.StartTime.IsZero() {
+					start = proc.StartTime.Format(time.RFC3339Nano)
+				}
+				processes = append(processes, wire.CommandActivityProc{PID: proc.PID, PPID: proc.PPID, StartTime: start, CPUTimeMs: proc.CPUTime.Milliseconds(), RSS: proc.RSS, Command: proc.Command})
+			}
+			commands = append(commands, wire.CommandActivity{MessageID: id, Processes: processes})
+		}
+		return replySuccess(wire.CommandActivityResult{Commands: commands})
 
 	case "threads.stopBackgroundTask":
 		var p wire.StopBackgroundTaskParams

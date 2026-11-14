@@ -2,8 +2,10 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -197,5 +199,43 @@ func TestActivityCommandTool(t *testing.T) {
 	}
 	if activityCommandTool(wire.ThreadMessage{Role: "assistant", ToolName: new("Bash")}) {
 		t.Fatal("错误识别 assistant")
+	}
+}
+
+type activityRPCBackend struct {
+	fakeBackend
+	activity map[string][]procs.Proc
+}
+
+func (b *activityRPCBackend) RunningCommandActivity(context.Context, string) (map[string][]procs.Proc, error) {
+	return b.activity, nil
+}
+
+func TestDispatcherCommandActivity(t *testing.T) {
+	start := time.Date(2026, 1, 2, 3, 4, 5, 123, time.UTC)
+	backend := &activityRPCBackend{activity: map[string][]procs.Proc{"b": nil, "a": {{PID: 2, PPID: 1, StartTime: start, CPUTime: 1500 * time.Millisecond, RSS: 4096, Command: "go test"}}}}
+	d := NewDispatcher(&fakeAuth{}, backend)
+	conn := &fakeConn{info: ClientInfo{Authenticated: true}}
+	bad := d.Handle(context.Background(), conn, []byte(`{"jsonrpc":"2.0","method":"threads.commandActivity","params":{"threadID":"bad"},"id":1}`))
+	var response wire.Response
+	if err := json.Unmarshal(bad, &response); err != nil || response.Error == nil || response.Error.Code != wire.InvalidParams {
+		t.Fatalf("invalid response: %s", bad)
+	}
+	good := d.Handle(context.Background(), conn, []byte(`{"jsonrpc":"2.0","method":"threads.commandActivity","params":{"threadID":"00000000-0000-0000-0000-000000000001"},"id":1}`))
+	var decoded struct {
+		Result wire.CommandActivityResult `json:"result"`
+	}
+	if err := json.Unmarshal(good, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"commands":[{"messageID":"a","processes":[{"pid":2,"ppid":1,"startTime":"2026-01-02T03:04:05.000000123Z","cpuTimeMs":1500,"rss":4096,"command":"go test"}]},{"messageID":"b","processes":[]}]}`
+	encoded, err := json.Marshal(decoded.Result)
+	if err != nil || string(encoded) != want {
+		t.Fatalf("got %s, response %s", encoded, good)
+	}
+	backend.activity = nil
+	empty := d.Handle(context.Background(), conn, []byte(`{"jsonrpc":"2.0","method":"threads.commandActivity","params":{"threadID":"00000000-0000-0000-0000-000000000001"},"id":1}`))
+	if !strings.Contains(string(empty), `"commands":[]`) {
+		t.Fatalf("empty: %s", empty)
 	}
 }

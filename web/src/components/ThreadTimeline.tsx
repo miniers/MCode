@@ -1,3 +1,6 @@
+import { useCommandActivity } from '../hooks/useCommandActivity';
+import { CommandActivityView } from './timeline/CommandActivityView';
+import type { CommandActivityState } from '../utils/commandActivity';
 import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type {
@@ -1346,6 +1349,7 @@ function useActiveFindScroll(
 }
 
 interface TimelineEntryProps {
+  activity: Record<string, CommandActivityState>;
   threadID: string;
   item: TimelineItem;
   expanded: boolean;
@@ -1657,6 +1661,7 @@ const MessageActionSheet: React.FC<MessageActionSheetProps> = ({ title, items, o
 const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
   const {
     threadID,
+    activity,
     item,
     expanded,
     copyState,
@@ -1940,6 +1945,7 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
                                 isToolEntry ? 'text-mc-footnote text-[var(--foreground-muted)]' : 'text-mc-body'
                               }`}
                             >
+                              {entry.toolStatus === 'running' && classifyToolName(entry.toolName) === 'command' && <CommandActivityView activity={activity[entry.id]} />}
                               <MarkdownView text={entry.text || ''} highlight={highlightFor(entry.id)} math={!isThinkingRow} />
                               {diffFiles && <ToolEntryDiff files={diffFiles} />}
                               {readThreadMedia && entry.media && entry.media.length > 0 && (
@@ -2488,6 +2494,7 @@ const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
   );
 }, (previous, next) =>
   previous.threadID === next.threadID &&
+  previous.activity === next.activity &&
   sameTimelineItem(previous.item, next.item) &&
   previous.expanded === next.expanded &&
   previous.copyState === next.copyState &&
@@ -2599,6 +2606,8 @@ interface ThreadTimelineProps {
 }
 
 interface VirtualTimelineProps extends ThreadTimelineProps {
+  activity: Record<string, CommandActivityState>;
+  onActivityExpanded: (expanded: boolean) => void;
   scrollRef: { current: HTMLDivElement | null };
   /** 当前需要绘高亮环的条目 key（由 ThreadTimeline 控制生命周期） */
   highlightedKey?: string | null;
@@ -2636,6 +2645,8 @@ function resultTaskForItem(item: TimelineItem, tasks?: TaskItem[]): TaskItem | u
 
 const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
   threadID,
+  activity,
+  onActivityExpanded,
   items,
   expandedIds,
   copyState,
@@ -2790,6 +2801,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
         } ${flashing ? 'push-target-flash' : ''}`}
       >
         <TimelineEntry
+          activity={activity}
           threadID={threadID}
           item={item}
           expanded={expanded}
@@ -2863,6 +2875,8 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
                 ref={virtualizer.measureElement}
               >
                 <BackgroundTasksRow
+                  activity={activity}
+                  onActivityExpanded={onActivityExpanded}
                   threadID={threadID}
                   taskApi={backgroundTaskApi}
                   commands={backgroundCommands}
@@ -3021,6 +3035,12 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
     () => collectBackgroundCommands(visibleItems, Boolean(isRunning)),
     [visibleItems, isRunning]
   );
+  const [activityExpanded, setActivityExpanded] = React.useState(false);
+  const hasRunningCommand = items.some((item) => {
+    const entries = item.type === 'workRecord' ? item.entries : item.type === 'message' ? [item.message] : [];
+    return entries.some((entry) => isToolCallEntry(entry) && entry.toolStatus === 'running' && classifyToolName(entry.toolName) === 'command' && !backgroundCommands.some((command) => command.id === entry.id));
+  });
+  const activity = useCommandActivity(threadID, hasRunningCommand || activityExpanded);
   const runningBees = React.useMemo(() => runningSwarmBees(swarmState), [swarmState]);
   // 被截断汇报的存档索引：用原始时间线算，并进胶囊的汇报行本身已被过滤掉了
   const swarmTruncatedReports = React.useMemo(() => buildTruncatedReportIndex(items), [items]);
@@ -3137,6 +3157,8 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
         isSteward={isSteward}
         stewardTasks={isSteward ? stewardTasks : undefined}
         turnTasks={turnTasks}
+        activity={activity}
+        onActivityExpanded={setActivityExpanded}
         backgroundCommands={backgroundCommands}
         runningBees={runningBees}
           decisionAnswers={decisionAnswers}
@@ -3168,6 +3190,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
         } ${flashKey === key ? 'push-target-flash' : ''}`}
       >
         <TimelineEntry
+          activity={activity}
           threadID={threadID}
           item={item}
           expanded={expanded}
@@ -3214,6 +3237,8 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
     <>
       {visibleItems.map((item, index) => <React.Fragment key={timelineItemKey(item)}>{renderEntry(item)}<TurnTasks group={turnTasks.get(index)} onOpenThread={onOpenThread} /></React.Fragment>)}
       <BackgroundTasksRow
+        activity={activity}
+        onActivityExpanded={setActivityExpanded}
         threadID={threadID}
         taskApi={backgroundTaskApi}
         commands={backgroundCommands}

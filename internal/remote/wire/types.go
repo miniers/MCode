@@ -583,6 +583,26 @@ type BackgroundTaskLogResult struct {
 	Available bool   `json:"available"`
 }
 
+// CommandActivityParams 对应进程活动请求。
+type CommandActivityParams struct {
+	ThreadID string `json:"threadID"`
+}
+type CommandActivityResult struct {
+	Commands []CommandActivity `json:"commands"`
+}
+type CommandActivity struct {
+	MessageID string                `json:"messageID"`
+	Processes []CommandActivityProc `json:"processes"`
+}
+type CommandActivityProc struct {
+	PID       int    `json:"pid"`
+	PPID      int    `json:"ppid"`
+	StartTime string `json:"startTime"`
+	CPUTimeMs int64  `json:"cpuTimeMs"`
+	RSS       int64  `json:"rss"`
+	Command   string `json:"command"`
+}
+
 // StopBackgroundTaskParams 对应 threads.stopBackgroundTask 请求参数。
 type StopBackgroundTaskParams struct {
 	ThreadID  string `json:"threadID"`
