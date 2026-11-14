@@ -168,6 +168,7 @@ func main() {
 
 	home, _ := os.UserHomeDir()
 	_ = os.Setenv("PATH", augmentedPath(os.Getenv("PATH"), home, runtime.GOOS))
+	datadir.ClearInherited()
 	defaultDataDir := datadir.Resolve("", false)
 
 	defaultWorkDir, err := os.Getwd()

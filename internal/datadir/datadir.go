@@ -21,6 +21,7 @@ type pointer struct {
 }
 
 const relaunchParentEnv = "MCODE_RELAUNCH_PARENT"
+const inheritedEnv = "MCODE_DATA_INHERITED"
 
 var mu sync.Mutex
 
@@ -98,10 +99,25 @@ func Export(dir string, pinned bool) error {
 	if err := os.Setenv("MCODE_DATA", dir); err != nil {
 		return err
 	}
+	if pinned {
+		if err := os.Unsetenv(inheritedEnv); err != nil {
+			return err
+		}
+	} else if err := os.Setenv(inheritedEnv, dir); err != nil {
+		return err
+	}
 	mu.Lock()
 	exportedPinned = pinned
 	mu.Unlock()
 	return nil
+}
+
+// ClearInherited 在启动时清除从未固定数据目录的 mcode 进程继承的 MCODE_DATA，让用户指针生效。
+func ClearInherited() {
+	if dir := os.Getenv("MCODE_DATA"); dir != "" && dir == os.Getenv(inheritedEnv) {
+		_ = os.Unsetenv("MCODE_DATA")
+	}
+	_ = os.Unsetenv(inheritedEnv)
 }
 
 // Pinned 报告当前数据目录是否由启动参数或环境变量固定。
@@ -118,6 +134,7 @@ func PrepareRelaunch() {
 	_ = os.Setenv(relaunchParentEnv, strconv.Itoa(os.Getpid()))
 	if !exportedPinned {
 		_ = os.Unsetenv("MCODE_DATA")
+		_ = os.Unsetenv(inheritedEnv)
 	}
 }
 

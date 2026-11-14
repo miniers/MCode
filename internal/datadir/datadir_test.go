@@ -22,8 +22,15 @@ func isolateConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
 	t.Setenv("AppData", filepath.Join(home, "config"))
 	t.Setenv("MCODE_DATA", "")
+	t.Setenv(inheritedEnv, "")
 	t.Setenv(relaunchParentEnv, "")
 	mu.Lock()
+	previousPinned := exportedPinned
+	t.Cleanup(func() {
+		mu.Lock()
+		exportedPinned = previousPinned
+		mu.Unlock()
+	})
 	exportedPinned = false
 	migrationErr = nil
 	mu.Unlock()
@@ -114,6 +121,60 @@ func TestExportAndPrepareRelaunch(t *testing.T) {
 	}
 	if got := os.Getenv("MCODE_DATA"); got == "" {
 		t.Fatal("固定目录重启前不应清理 MCODE_DATA")
+	}
+}
+
+func TestInheritedDataEnvironment(t *testing.T) {
+	isolateConfig(t)
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := Export(dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv(inheritedEnv); got != dir {
+		t.Fatalf("继承标记 = %q，期望 %q", got, dir)
+	}
+	PrepareRelaunch()
+	if got := os.Getenv(inheritedEnv); got != "" {
+		t.Fatalf("重启前应清除继承标记: %q", got)
+	}
+	if err := Export(dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := Export(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv(inheritedEnv); got != "" {
+		t.Fatalf("固定目录不应保留继承标记: %q", got)
+	}
+}
+
+func TestClearInherited(t *testing.T) {
+	isolateConfig(t)
+	next := filepath.Join(t.TempDir(), "next")
+	if err := SetPending(t.TempDir(), next); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, data, inherited, want string
+	}{
+		{"inherited", "inherited-dir", "inherited-dir", ""},
+		{"overridden", "user-dir", "inherited-dir", "user-dir"},
+		{"user", "user-dir", "", "user-dir"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MCODE_DATA", tc.data)
+			t.Setenv(inheritedEnv, tc.inherited)
+			ClearInherited()
+			if got := os.Getenv("MCODE_DATA"); got != tc.want {
+				t.Fatalf("MCODE_DATA = %q，期望 %q", got, tc.want)
+			}
+			if got := os.Getenv(inheritedEnv); got != "" {
+				t.Fatalf("继承标记应清除: %q", got)
+			}
+			if tc.name == "inherited" && Resolve("", false) != next {
+				t.Fatalf("应使用用户指针 %q", next)
+			}
+		})
 	}
 }
 

@@ -141,6 +141,7 @@ func (x headlessSwarmExtras) SaveSwarmTiers(ctx context.Context, tiers []wire.Sw
 }
 
 func main() {
+	datadir.ClearInherited()
 	defaultDataDir := datadir.Resolve("", false)
 
 	defaultWorkDir, err := os.Getwd()
