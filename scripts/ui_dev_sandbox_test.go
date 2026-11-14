@@ -313,8 +313,10 @@ func TestUISandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 用户主目录可能本身就在临时目录内（例如隔离测试环境），因此用临时目录的父目录
-	// 构造一个确实位于临时目录之外的路径。
-	for _, dir := range []string{filepath.Join(home, ".mcode"), filepath.Join(filepath.Dir(os.TempDir()), "mcode-ui-sandbox-test-not-created")} {
+	// 构造一个确实位于临时目录之外的路径。macOS 的 TMPDIR 带尾斜杠，需先 Clean，
+	// 否则 filepath.Dir 只会去掉末尾的空段。
+	outside := filepath.Join(filepath.Dir(filepath.Clean(os.TempDir())), "mcode-ui-sandbox-test-not-created")
+	for _, dir := range []string{filepath.Join(home, ".mcode"), outside} {
 		t.Run(filepath.Base(dir), func(t *testing.T) {
 			before, statErr := os.Stat(dir)
 			cmd := exec.Command("bash", script, "--seed-only")
@@ -349,7 +351,7 @@ func TestUISandbox(t *testing.T) {
 		t.Fatalf("缺少数据库: %v", err)
 	}
 
-	cmd = exec.Command("go", "run", "./ui_dev_seed", "-data", filepath.Join(filepath.Dir(os.TempDir()), "mcode-ui-sandbox-test-not-created"))
+	cmd = exec.Command("go", "run", "./ui_dev_seed", "-data", outside)
 	if out, err := cmd.CombinedOutput(); err == nil {
 		t.Fatalf("种子程序应拒绝非临时目录: %s", out)
 	}
