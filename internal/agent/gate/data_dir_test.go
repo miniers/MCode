@@ -24,6 +24,12 @@ func TestDataDirProtection(t *testing.T) {
 	if !slices.Contains(controlPaths(Input{}), data) || !mcodeConfigJSON(filepath.Join(data, "config.json"), home) {
 		t.Fatal("MCODE_DATA 未受保护")
 	}
+	if !mcodeConfigJSON(filepath.ToSlash(filepath.Join(data, "config.json")), home) {
+		t.Fatal("MCODE_DATA 正斜杠路径未受保护")
+	}
+	if !mcodeConfigJSON("cat "+filepath.Join(data, "config.json"), home) {
+		t.Fatal("MCODE_DATA 命令文本中的路径未受保护")
+	}
 	if mcodeConfigJSON(filepath.Join(data, "nested", "config.json"), home) {
 		t.Fatal("嵌套 JSON 不应匹配配置文件")
 	}

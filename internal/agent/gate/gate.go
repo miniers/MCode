@@ -1087,7 +1087,7 @@ func mcodeConfigJSON(text, home string) bool {
 		roots = append(roots, filepath.ToSlash(filepath.Join(home, ".mcode"))+"/")
 	}
 	if data := os.Getenv("MCODE_DATA"); data != "" {
-		roots = append(roots, filepath.Clean(data)+string(filepath.Separator))
+		roots = append(roots, filepath.ToSlash(filepath.Clean(data))+"/")
 	}
 	for _, root := range roots {
 		for rest := text; ; {
