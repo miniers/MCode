@@ -658,14 +658,16 @@ func resetSettingsTreePage(st *SettingsState, p settingsPage) {
 	for _, r := range controls {
 		r.reset(&st.cfg)
 	}
+	var loadErr error
 	if p.ID == "workbench" && !settingRowLocked(st, setting{ID: "row-global-instructions"}) {
-		st.globalInstructions.value = ""
-		st.globalInstructions.dirty = false
+		loadErr = st.loadGlobalInstructions()
 	}
 	st.cfgMu.Unlock()
 	st.mu.Unlock()
-
 	st.save()
+	if loadErr != nil {
+		st.noteError(loadErr.Error())
+	}
 	st.invalidate()
 }
 

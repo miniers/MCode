@@ -2,15 +2,11 @@ package mcodeui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
-	"mcode/internal/agent/prompt"
 	"mcode/internal/config"
-	"mcode/internal/fsutil"
 	"mcode/internal/projctx"
 	"mcode/internal/providers/loginenv"
 )
@@ -227,48 +223,6 @@ func renderPageWorkbench(c *ui.Context, st *SettingsState) {
 	renderSettingsTreePage(c, st, pageWorkbench)
 }
 
-type globalInstructionsState struct {
-	path, value   string
-	loaded, dirty bool
-}
-
-func (s *SettingsState) loadGlobalInstructions() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	path := prompt.GlobalInstructionsPath(home)
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	s.globalInstructions = globalInstructionsState{path: path, value: string(data), loaded: true}
-	return nil
-}
-
-func (s *SettingsState) saveGlobalInstructions() error {
-	draft := &s.globalInstructions
-	if !draft.loaded || !draft.dirty {
-		return nil
-	}
-	if draft.value == "" {
-		if _, err := os.Stat(draft.path); os.IsNotExist(err) {
-			draft.dirty = false
-			return nil
-		} else if err != nil {
-			return err
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(draft.path), 0o755); err != nil {
-		return err
-	}
-	if err := fsutil.WriteFileAtomic(draft.path, []byte(draft.value), 0o644); err != nil {
-		return err
-	}
-	draft.dirty = false
-	return nil
-}
-
 type globalInstructionsControl struct{}
 
 func (g globalInstructionsControl) render(c *ui.Context, st *SettingsState, s setting) {
@@ -276,12 +230,6 @@ func (g globalInstructionsControl) render(c *ui.Context, st *SettingsState, s se
 }
 
 func (globalInstructionsControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, disabled bool) {
-	if !st.globalInstructions.loaded {
-		if err := st.loadGlobalInstructions(); err != nil {
-			st.noteError(err.Error())
-			return
-		}
-	}
 	old := st.globalInstructions.value
 	TextField(c, TextFieldProps{
 		Key: s.ID + "-area", Value: &st.globalInstructions.value, Label: s.Title,

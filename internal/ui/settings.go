@@ -3,6 +3,8 @@ package mcodeui
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -10,8 +12,10 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/agent/prompt"
 	"mcode/internal/agentconf"
 	"mcode/internal/config"
+	"mcode/internal/fsutil"
 	"mcode/internal/mcp"
 )
 
@@ -385,12 +389,51 @@ func (s *SettingsState) IsOpen() bool {
 	return s.open
 }
 
+type globalInstructionsState struct {
+	path, value   string
+	loaded, dirty bool
+}
+
+func (s *SettingsState) loadGlobalInstructions() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	path := prompt.GlobalInstructionsPath(home)
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	s.globalInstructions = globalInstructionsState{path: path, value: string(data), loaded: true}
+	return nil
+}
+
+func (s *SettingsState) saveGlobalInstructions() error {
+	draft := &s.globalInstructions
+	if !draft.loaded || !draft.dirty {
+		return nil
+	}
+	if draft.value == "" {
+		if _, err := os.Stat(draft.path); os.IsNotExist(err) {
+			draft.dirty = false
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(draft.path), 0o755); err != nil {
+		return err
+	}
+	if err := fsutil.WriteFileAtomic(draft.path, []byte(draft.value), 0o644); err != nil {
+		return err
+	}
+	draft.dirty = false
+	return nil
+}
+
 // Open 打开设置面板并重新从磁盘同步最新配置。
 func (s *SettingsState) Open() {
 	s.mu.Lock()
-	if !s.textSavePending {
-		s.globalInstructions = globalInstructionsState{}
-	}
 	s.open = true
 	s.endpoints.failedAt = time.Time{}
 	s.currentPage = normalizeSettingsPageID(s.currentPage)
@@ -410,6 +453,11 @@ func (s *SettingsState) Open() {
 		s.configWarning = configWarningsText(warnings)
 	}
 	s.cfgMu.Unlock()
+	if !s.textSavePending {
+		if loadErr := s.loadGlobalInstructions(); loadErr != nil {
+			s.noteError(loadErr.Error())
+		}
+	}
 	if err == nil {
 		setShortcutOverrides(cfg.Shortcuts.ShortcutOverrides)
 		setActiveTheme(cfg.Appearance)

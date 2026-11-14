@@ -189,6 +189,8 @@ row row-swarm-bee-timeout 子代理运行超时
 row row-swarm-request-timeout 请求总时长预算
 row row-swarm-review-max-lines 自动通过行数上限
 page workbench
+section workbench.instructions 全局指令
+row row-global-instructions AGENTS.md
 section workbench.context 项目文档
 row row-context-guidance 注入项目说明
 row row-context-doc- 注入文档

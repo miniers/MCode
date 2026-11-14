@@ -25,9 +25,7 @@ func TestGlobalInstructionsSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
-	if err := st.loadGlobalInstructions(); err != nil {
-		t.Fatal(err)
-	}
+	st.Open()
 	if st.globalInstructions.value != "初值" {
 		t.Fatal(st.globalInstructions.value)
 	}
@@ -42,12 +40,17 @@ func TestGlobalInstructionsSave(t *testing.T) {
 		t.Fatalf("%q: %v", data, err)
 	}
 
+	st.globalInstructions.value = "未保存"
+	st.globalInstructions.dirty = true
+	resetSettingsTreePage(st, pageWorkbench)
+	if st.globalInstructions.value != string(data) {
+		t.Fatalf("重置后内容为 %q，期望 %q", st.globalInstructions.value, data)
+	}
+
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.loadGlobalInstructions(); err != nil {
-		t.Fatal(err)
-	}
+	st.Open()
 	st.globalInstructions.dirty = true
 	st.noteTextEdit()
 	if !st.prepareWindowClose() {
