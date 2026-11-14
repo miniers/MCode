@@ -12,6 +12,17 @@ import (
 	"mcode/internal/backup"
 )
 
+func TestRelaunching(t *testing.T) {
+	if Relaunching() {
+		t.Fatal("重启状态初始应为 false")
+	}
+	t.Cleanup(func() { relaunching.Store(false) })
+	relaunching.Store(true)
+	if !Relaunching() {
+		t.Fatal("重启状态应为 true")
+	}
+}
+
 func waitBackupIdle(t *testing.T) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)

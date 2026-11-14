@@ -492,7 +492,7 @@ func main() {
 	// 退出生命周期控制：QuitAction 为 minimize_to_tray 且托盘可用时，阻止 ⌘Q 并隐藏窗口；
 	// 托盘显式退出不受阻。托盘不可用时不能只隐藏窗口：Windows 上那会让进程既看不见也唤不回。
 	defer mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
-		if forceQuit {
+		if forceQuit || mcodeui.Relaunching() {
 			return
 		}
 		currentCfg, err := config.Load(*dataFlag)

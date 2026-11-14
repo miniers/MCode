@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -24,8 +25,16 @@ var (
 	backupOpenDialog = func() ([]string, error) {
 		return mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "恢复", Filters: []mygo.FileFilter{{Name: "mcode 备份", Extensions: []string{"mcodebackup"}}}})
 	}
-	appRelaunch = func() { mygo.App.Relaunch() }
+	appRelaunch = func() {
+		relaunching.Store(true)
+		mygo.App.Relaunch()
+	}
 )
+
+var relaunching atomic.Bool
+
+// Relaunching 表示用户发起的重启不应被「最小化到托盘」拦截。
+func Relaunching() bool { return relaunching.Load() }
 
 var backupResultOnce sync.Once
 var backupResultUI struct {
