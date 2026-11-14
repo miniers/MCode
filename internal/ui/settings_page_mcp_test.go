@@ -565,3 +565,112 @@ func TestMCPToolBatchSwitchWritesPolicy(t *testing.T) {
 		return err == nil && !policy.IsDisabled("batch-mcp", "tool-a") && !policy.IsDisabled("batch-mcp", "tool-b")
 	})
 }
+
+func TestMCPExternalServerDeleteUI(t *testing.T) {
+	home := testenv.TempHome(t)
+	dataDir := settingsTestDir(t)
+	path := filepath.Join(home, ".claude.json")
+	before := `{"mcpServers":{"claude-delete":{"command":"echo"},"claude-keep":{"command":"echo"}},"other":true}`
+	if err := os.WriteFile(path, []byte(before), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tt := newThreadDefaultsTestTester(t, dataDir)
+	openMCPDetail(t, tt, "claude-delete")
+	waitFor(t, tt, func() bool { _, ok := tt.Find("删除"); return ok })
+	if _, ok := tt.Find("编辑"); ok {
+		t.Fatal("Claude 来源不应显示编辑")
+	}
+	if err := tt.Click("删除"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("将从 ~/.claude.json 删除 claude-delete，删除后无法恢复。")
+	})
+	if err := tt.Click("确认删除 MCP 服务"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return !tt.HasText("claude-delete") })
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"mcpServers":{"claude-keep":{"command":"echo"}},"other":true}` {
+		t.Fatalf("删除后内容不符：%s", got)
+	}
+}
+
+func TestMCPPluginServerCannotDeleteUI(t *testing.T) {
+	home := testenv.TempHome(t)
+	dataDir := settingsTestDir(t)
+	root := filepath.Join(home, ".claude", "plugins", "cache", "p")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{
+		filepath.Join(home, ".claude", "plugins", "installed_plugins.json"): `{"plugins":{"p@m":[{"installPath":"` + root + `"}]},"enabledPlugins":{"p@m":true}}`,
+		filepath.Join(root, ".mcp.json"):                                    `{"remote":{"command":"echo"}}`,
+	} {
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tt := newThreadDefaultsTestTester(t, dataDir)
+	openMCPDetail(t, tt, "plugin_p_remote")
+	waitFor(t, tt, func() bool { return tt.HasText("plugin_p_remote") && tt.HasText("收起工具") })
+	if _, ok := tt.Find("删除"); ok {
+		t.Fatal("插件来源不应显示删除按钮")
+	}
+}
+
+func TestMCPCustomSourceBadge(t *testing.T) {
+	home := testenv.TempHome(t)
+	dataDir := settingsTestDir(t)
+	if err := agentconf.SaveMCPServer(agentconf.Options{Home: home, DataDir: dataDir}, agentconf.MCPServer{Agent: "custom", Scope: "global", Name: "badge-server", Command: "echo"}); err != nil {
+		t.Fatal(err)
+	}
+	tt := newThreadDefaultsTestTester(t, dataDir)
+	waitFor(t, tt, func() bool { return tt.HasText("badge-server") })
+	found := false
+	for _, text := range tt.Texts() {
+		if text == "custom" {
+			t.Fatal("徽章不应显示 custom")
+		}
+		found = found || text == "mcode"
+	}
+	if !found {
+		t.Fatal("未显示 mcode 徽章")
+	}
+	for _, agent := range []string{"custom", "CUSTOM", "mcode", "MCode", "claude", "codex"} {
+		want := agent
+		if strings.EqualFold(agent, "custom") || strings.EqualFold(agent, "mcode") {
+			want = "mcode"
+		}
+		if got := mcpSourceLabel(agent); got != want {
+			t.Fatalf("%s 标签为 %s", agent, got)
+		}
+	}
+}
+
+func TestMCPExternalDeleteRefreshesPolicyCache(t *testing.T) {
+	home := testenv.TempHome(t)
+	dataDir := settingsTestDir(t)
+	path := filepath.Join(home, ".claude.json")
+	if err := os.WriteFile(path, []byte(`{"mcpServers":{"drop":{"command":"echo"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentconf.SaveMCPToolPolicy(agentconf.MCPToolPolicyPath(dataDir), agentconf.MCPToolPolicy{Disabled: map[string]map[string]bool{"drop": {"tool": true}}, AutoApprove: map[string]map[string]bool{"drop": {"tool": true}}}); err != nil {
+		t.Fatal(err)
+	}
+	st := &SettingsState{dataDir: dataDir}
+	uiSt := getMCPUIState(st)
+	if !uiSt.disabledTools["drop"]["tool"] {
+		t.Fatal("未加载旧策略")
+	}
+	confirmMCPServerDelete(st, agentconf.Options{Home: home, DataDir: dataDir}, agentconf.MCPServer{Agent: "claude", Scope: "global", Name: "drop", Source: path})
+	waitAgentConfLoaded(t, st)
+	uiSt.mu.Lock()
+	defer uiSt.mu.Unlock()
+	if len(uiSt.disabledTools["drop"]) != 0 || len(uiSt.autoApproveTools["drop"]) != 0 {
+		t.Fatal("删除后旧策略仍在缓存")
+	}
+}

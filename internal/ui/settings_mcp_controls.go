@@ -666,7 +666,7 @@ func renderMCPServerRow(
 							TextColor(ThemeSecondaryText(c))
 					})
 
-					// 自定义服务专属的 编辑 与 删除 按钮；只读来源不允许改，按钮一并隐藏。
+					// 编辑只适用于自定义服务。
 					if isCustom && !srvVal.ReadOnly {
 						editBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-edit")).
 							Radius(RadiusSM).
@@ -729,7 +729,8 @@ func renderMCPServerRow(
 								FontSize(uiFont(TypeFootnote)).
 								TextColor(ThemeSecondaryText(c))
 						})
-
+					}
+					if isCustom && !srvVal.ReadOnly || agentconf.CanDeleteExternalMCPServer(st.agentConfWriteOptions(), srvVal) {
 						delBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-delete")).
 							Radius(RadiusSM).
 							Padding(Space1, Space3)
@@ -741,10 +742,11 @@ func renderMCPServerRow(
 							delBtn.Background(ThemeHover(c))
 						}
 						if delBtn.Clicked() {
-							// 删除会连同凭据库里的条目一起清掉且不可撤销，先弹确认框（S-076）。
+							// 删除会改写来源配置，先保存完整目标并弹确认框。
+							deleteOpts := st.agentConfWriteOptions()
 							uiSt.mu.Lock()
-							uiSt.deleteConfirmServer = srvVal.Name
-							uiSt.deleteConfirmScope = srvVal.Scope
+							uiSt.deleteConfirmTarget = srvVal
+							uiSt.deleteConfirmOptions = deleteOpts
 							uiSt.mu.Unlock()
 							st.invalidate()
 						}

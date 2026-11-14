@@ -3,6 +3,8 @@ package mcodeui
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -125,10 +127,10 @@ type mcpPageUIState struct {
 	envInput       string
 	headersInput   string
 	formError      string
-	// deleteConfirmServer/deleteConfirmScope 记录等待二次确认的删除目标：
+	// 删除确认同时保存完整来源与扫描选项，避免同名服务或切项目后删错配置。
 	// 删除会连凭据库条目一起清掉且无法撤销，点一下就删风险太大（S-076）。
-	deleteConfirmServer string
-	deleteConfirmScope  string
+	deleteConfirmTarget  agentconf.MCPServer
+	deleteConfirmOptions agentconf.Options
 
 	expandedServers map[string]bool
 	toolsCache      map[string][]agentconf.MCPToolInfo
@@ -306,11 +308,12 @@ func mcpScopeLabel(scope string) string {
 	return "全局"
 }
 
-// renderMCPServerDeleteModal 渲染删除自定义 MCP 服务前的确认框：写明要删的服务、作用域与凭据。
+// renderMCPServerDeleteModal 渲染删除确认框，外部服务写明将改写的来源文件。
 func renderMCPServerDeleteModal(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState) {
 	uiSt.mu.Lock()
-	name := uiSt.deleteConfirmServer
-	scope := uiSt.deleteConfirmScope
+	srv := uiSt.deleteConfirmTarget
+	opts := uiSt.deleteConfirmOptions
+	name, scope := srv.Name, srv.Scope
 	uiSt.mu.Unlock()
 
 	if name == "" {
@@ -320,25 +323,37 @@ func renderMCPServerDeleteModal(c *ui.Context, st *SettingsState, uiSt *mcpPageU
 
 	closeModal := func() {
 		uiSt.mu.Lock()
-		uiSt.deleteConfirmServer = ""
-		uiSt.deleteConfirmScope = ""
+		uiSt.deleteConfirmTarget = agentconf.MCPServer{}
+		uiSt.deleteConfirmOptions = agentconf.Options{}
 		uiSt.mu.Unlock()
 		st.invalidate()
 	}
 
+	body := fmt.Sprintf("将删除 %s（%s）的配置与已保存的凭据，删除后无法恢复。", name, mcpScopeLabel(scope))
+	if agentconf.CanDeleteExternalMCPServer(opts, srv) {
+		source := srv.Source
+		home := opts.Home
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
+		if rel, err := filepath.Rel(home, source); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			source = filepath.Join("~", rel)
+		}
+		body = fmt.Sprintf("将从 %s 删除 %s，删除后无法恢复。", source, name)
+	}
 	RenderConfirmDialog(c, ConfirmDialog{
 		Key:          modalDragMCPDelete,
 		Open:         true,
 		Tone:         ConfirmDanger,
 		Title:        "删除 MCP 服务",
-		Body:         fmt.Sprintf("将删除 %s（%s）的配置与已保存的凭据，删除后无法恢复。", name, mcpScopeLabel(scope)),
+		Body:         body,
 		ConfirmLabel: "删除",
 		ConfirmA11y:  "确认删除 MCP 服务",
 		CancelLabel:  "取消",
 		CancelA11y:   "取消删除 MCP 服务",
 		OnConfirm: func() {
 			closeModal()
-			confirmMCPServerDelete(st, name, scope)
+			confirmMCPServerDelete(st, opts, srv)
 		},
 		// 点遮罩或按 Esc 关闭时同样要清掉待删目标，否则下一帧又会打开。
 		OnCancel: closeModal,
@@ -346,12 +361,30 @@ func renderMCPServerDeleteModal(c *ui.Context, st *SettingsState, uiSt *mcpPageU
 }
 
 // confirmMCPServerDelete 按服务所在作用域删除配置与凭据，失败原因必须上屏。
-func confirmMCPServerDelete(st *SettingsState, name, scope string) {
-	// 写盘目标与列表扫描同源：切项目后也删在对的项目配置里（J-07）。
-	opts := st.agentConfWriteOptions()
-	if err := agentconf.DeleteMCPServerInScope(opts, scope, name); err != nil {
+func confirmMCPServerDelete(st *SettingsState, opts agentconf.Options, srv agentconf.MCPServer) {
+	var err error
+	if strings.EqualFold(srv.Agent, "custom") || strings.EqualFold(srv.Agent, "mcode") {
+		err = agentconf.DeleteMCPServerInScope(opts, srv.Scope, srv.Name)
+	} else {
+		err = agentconf.DeleteExternalMCPServer(opts, srv)
+		if err == nil {
+			uiSt := getMCPUIState(st)
+			uiSt.mu.Lock()
+			policy, policyErr := agentconf.LoadMCPToolPolicy(uiSt.policyPath)
+			if policyErr != nil {
+				uiSt.policyError = fmt.Sprintf("读取 MCP 工具策略失败：%v", policyErr)
+			} else {
+				uiSt.disabledTools = policy.Disabled
+				uiSt.autoApproveTools = policy.AutoApprove
+				uiSt.policyError = ""
+			}
+			uiSt.newThreadScanKey = ""
+			uiSt.mu.Unlock()
+		}
+	}
+	if err != nil {
 		st.mu.Lock()
-		st.errorMessage = fmt.Sprintf("删除 MCP 服务 %s 失败：%v", name, err)
+		st.errorMessage = fmt.Sprintf("删除 MCP 服务 %s 失败：%v", srv.Name, err)
 		st.mu.Unlock()
 		st.invalidate()
 		return
@@ -359,7 +392,7 @@ func confirmMCPServerDelete(st *SettingsState, name, scope string) {
 	st.mu.Lock()
 	st.errorMessage = ""
 	st.mu.Unlock()
-	st.loadAgentConf(opts.ProjectDir)
+	st.loadAgentConf(st.currentProjectDir())
 }
 
 // syncNewThreadDisabled 在 MCP 列表扫描完成后刷新「新会话默认停用」缓存。
@@ -472,7 +505,7 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 			row.Children(func() {
 				ui.Row(c.Key("mcp-list-content-" + key)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, srv.Name).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
-					Badge(c, "mcp-list-source-"+key, srv.Agent, ToneNeutral)
+					Badge(c, "mcp-list-source-"+key, mcpSourceLabel(srv.Agent), ToneNeutral)
 					if srv.ReadOnly {
 						Badge(c, "mcp-list-readonly-"+key, "只读", ToneNeutral)
 					}
@@ -710,4 +743,11 @@ func mcpAuthURLCopyLabel(c *ui.Context, uiSt *mcpPageUIState, serverID, idle, co
 	}
 	c.After(remaining)
 	return copied
+}
+
+func mcpSourceLabel(agent string) string {
+	if strings.EqualFold(agent, "custom") || strings.EqualFold(agent, "mcode") {
+		return "mcode"
+	}
+	return agent
 }
