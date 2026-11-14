@@ -101,7 +101,7 @@ esac
 			if err != nil {
 				t.Fatal(err)
 			}
-			commands := string(data)
+			commands := filepath.ToSlash(string(data))
 			target := "darwin-arm64"
 			if tc.name == "universal" {
 				target = "darwin-universal"
@@ -109,8 +109,8 @@ esac
 				target = "darwin-amd64"
 			}
 			for _, want := range []string{
-				"codesign --verify --deep --strict " + filepath.Join(out, target, "MCode.app"),
-				"hdiutil verify " + filepath.Join(out, target, "mcode-0.1.0-arm64.dmg"),
+				"codesign --verify --deep --strict " + filepath.ToSlash(filepath.Join(out, target, "MCode.app")),
+				"hdiutil verify " + filepath.ToSlash(filepath.Join(out, target, "mcode-0.1.0-arm64.dmg")),
 			} {
 				if !strings.Contains(commands, want) {
 					t.Fatalf("missing %q in:\n%s", want, commands)
