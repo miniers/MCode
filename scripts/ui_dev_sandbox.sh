@@ -37,27 +37,12 @@ else
   data="$(mktemp -d "${TMPDIR:-/tmp}/mcode-ui-sandbox.XXXXXX")"
 fi
 
-# 在创建目标目录之前检查符号链接和目录归属；同时接受 $TMPDIR 与 /tmp。
-data="$(python3 - "$data" "${TMPDIR:-/tmp}" "$HOME" <<'PY'
-import os
-import sys
-
-path, temp, home = (os.path.realpath(p) for p in sys.argv[1:])
-allowed = list(dict.fromkeys([temp, os.path.realpath('/tmp')]))
-def inside(path, root):
-    return os.path.commonpath((path, root)) == root
-if not any(inside(path, root) for root in allowed) or path in allowed or inside(path, os.path.realpath(os.path.join(home, '.mcode'))):
-    print('错误：沙箱必须位于临时目录内（%s 或 %s），且不能位于默认数据目录' % (allowed[0], allowed[1]), file=sys.stderr)
-    sys.exit(1)
-print(path)
-PY
-)"
-mkdir -p "$data"
 cd "$root"
+# 目录归属校验与创建都由 Go 完成，这里使用它输出（已解析符号链接）的绝对路径。
 seed_args=(-data "$data")
 if $showcase; then seed_args+=(-showcase); fi
 if [[ -n "$theme" ]]; then seed_args+=(-theme "$theme"); fi
-go run ./scripts/ui_dev_seed "${seed_args[@]}" >&2
+data="$(go run ./scripts/ui_dev_seed "${seed_args[@]}")"
 if $seed_only; then
   printf '%s\n' "$data"
   exit 0

@@ -32,6 +32,56 @@ func checkSandboxDir(path, temp, systemTemp, defaultDir string) error {
 	return nil
 }
 
+// resolveSandboxPath 解析可能尚不存在的目录：对最近的已存在祖先做 EvalSymlinks，再拼上剩余路径段。
+func resolveSandboxPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	var rest []string
+	for current := abs; ; {
+		resolved, evalErr := filepath.EvalSymlinks(current)
+		if evalErr == nil {
+			for i := len(rest) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, rest[i])
+			}
+			return resolved, nil
+		}
+		if !os.IsNotExist(evalErr) {
+			return "", evalErr
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", evalErr
+		}
+		rest = append(rest, filepath.Base(current))
+		current = parent
+	}
+}
+
+// prepareSandboxDir 解析并校验数据目录，通过后才创建；创建后再解析校验一次，
+// 防止目录在创建期间被换成符号链接。
+func prepareSandboxDir(path, temp, systemTemp, defaultDir string) (string, error) {
+	resolved, err := resolveSandboxPath(path)
+	if err != nil {
+		return "", fmt.Errorf("解析数据目录: %w", err)
+	}
+	if err := checkSandboxDir(resolved, temp, systemTemp, defaultDir); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(resolved, 0o700); err != nil {
+		return "", fmt.Errorf("创建数据目录: %w", err)
+	}
+	dir, err := filepath.EvalSymlinks(resolved)
+	if err != nil {
+		return "", fmt.Errorf("解析数据目录: %w", err)
+	}
+	if err := checkSandboxDir(dir, temp, systemTemp, defaultDir); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
 func run() error {
 	data := flag.String("data", "", "临时数据目录")
 	showcase := flag.Bool("showcase", false, "灌入展示数据")
@@ -39,14 +89,6 @@ func run() error {
 	flag.Parse()
 	if *data == "" {
 		return errors.New("必须指定数据目录")
-	}
-	path, err := filepath.EvalSymlinks(*data)
-	if err != nil {
-		return fmt.Errorf("解析数据目录: %w", err)
-	}
-	path, err = filepath.Abs(path)
-	if err != nil {
-		return err
 	}
 	temp, err := filepath.EvalSymlinks(os.TempDir())
 	if err != nil {
@@ -57,7 +99,7 @@ func run() error {
 		return err
 	}
 	defaultDir := filepath.Join(home, ".mcode")
-	if resolved, e := filepath.EvalSymlinks(defaultDir); e == nil {
+	if resolved, e := resolveSandboxPath(defaultDir); e == nil {
 		defaultDir = resolved
 	}
 	systemTemp, err := filepath.EvalSymlinks("/tmp")
@@ -67,9 +109,11 @@ func run() error {
 		}
 		systemTemp = temp
 	}
-	if err := checkSandboxDir(path, temp, systemTemp, defaultDir); err != nil {
+	path, err := prepareSandboxDir(*data, temp, systemTemp, defaultDir)
+	if err != nil {
 		return err
 	}
+	fmt.Println(path)
 	for _, name := range []string{"mcode.db", "mcode.db-wal", "mcode.db-shm", "config.json"} {
 		if info, e := os.Lstat(filepath.Join(path, name)); e == nil && !info.Mode().IsRegular() {
 			return fmt.Errorf("不允许使用特殊文件: %s", name)

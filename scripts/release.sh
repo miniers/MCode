@@ -63,7 +63,7 @@ if [[ -z "$NOTES_FILE" && -z "${MCODE_RELEASE_NOTES_CMD:-}" ]]; then
     esac
 fi
 cd "$ROOT_DIR"
-[[ "$(git rev-parse --show-toplevel 2>/dev/null)" == "$ROOT_DIR" ]] || { echo '错误: 脚本必须位于仓库根目录下的 scripts 中' >&2; exit 1; }
+top="$(git rev-parse --show-toplevel 2>/dev/null)" && [[ "$(cd "$top" && pwd -P)" == "$ROOT_DIR" ]] || { echo '错误: 脚本必须位于仓库根目录下的 scripts 中' >&2; exit 1; }
 [[ "$(git branch --show-current)" == main ]] || { echo '错误: 必须在 main 分支发布' >&2; exit 1; }
 [[ -z "$(git status --porcelain)" ]] || { echo '错误: 工作区不干净，请先处理所有改动' >&2; exit 1; }
 
