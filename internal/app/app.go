@@ -121,6 +121,10 @@ type App struct {
 	notifyMu    sync.RWMutex
 	// dataDir 是 mcode 数据目录。
 	dataDir string
+	// logFile / logOut 是 Open 打开的日志文件句柄与当时的日志输出；
+	// Close 时把输出切回 stderr 再关闭句柄。
+	logFile io.Closer
+	logOut  io.Writer
 	// retention 是 bee 消息保留任务的后台调度器：启动 2 分钟后跑第一次，之后每 24 小时一次。
 	retention *messageRetentionScheduler
 	// automationSleep 是自动化防休眠守卫：有自动化运行中或即将到期时阻止电脑休眠。
@@ -151,7 +155,7 @@ func (a *App) RecoveredStoreBackupPath() string {
 	return a.store.RecoveredBackupPath()
 }
 
-// Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> kanbanLeader.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close。
+// Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> kanbanLeader.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close -> 日志文件关闭。
 func (a *App) Close() error {
 	if a.quotaCancel != nil {
 		a.quotaCancel()
@@ -224,10 +228,26 @@ func (a *App) Close() error {
 	if a.backend != nil {
 		a.backend.Close()
 	}
+	// 日志最后关闭：store 关闭过程中打的日志仍写进 mcode.log。
+	var closeErr error
 	if a.store != nil {
-		return a.store.Close()
+		closeErr = a.store.Close()
 	}
-	return nil
+	closeLog(a.logOut, a.logFile)
+	return closeErr
+}
+
+// closeLog 把标准库日志输出从 logOut 切回 stderr，再关闭日志文件。
+// 先切走输出再关文件，避免文件关闭后仍有人往里写；只有输出仍是 logOut 时才切换，
+// 否则说明后续 Open 已接管了输出。
+func closeLog(logOut io.Writer, logFile io.Closer) {
+	if logFile == nil {
+		return
+	}
+	if log.Writer() == logOut {
+		log.SetOutput(redactWriter{os.Stderr})
+	}
+	_ = logFile.Close()
 }
 
 func waitBackground(done <-chan struct{}) {
@@ -319,11 +339,20 @@ func Open(opts Options) (*App, error) {
 	setAppDataDir(opts.DataDir)
 	// 日志同时写 stderr 与磁盘文件，整体先经过 redactWriter 脱敏；
 	// 日志文件打不开时只退回 stderr，不影响启动。
+	var logFile io.Closer
 	var logOut io.Writer = redactWriter{os.Stderr}
-	if logFile, _, err := openLogFile(opts.DataDir); err == nil {
-		logOut = redactWriter{io.MultiWriter(os.Stderr, logFile)}
+	if f, _, err := openLogFile(opts.DataDir); err == nil {
+		logFile = f
+		logOut = redactWriter{io.MultiWriter(os.Stderr, f)}
 	}
 	log.SetOutput(logOut)
+	// 打开失败时（包括 cleanup 之前就返回的路径）把日志输出切回 stderr 并关掉文件。
+	opened := false
+	defer func() {
+		if !opened {
+			closeLog(logOut, logFile)
+		}
+	}()
 	startuptrace.Flush()
 
 	workdir := opts.WorkDir
@@ -1492,6 +1521,8 @@ func Open(opts Options) (*App, error) {
 	appInstance = &App{
 		client:        client,
 		dataDir:       opts.DataDir,
+		logFile:       logFile,
+		logOut:        logOut,
 		hub:           hub,
 		backend:       backend,
 		store:         dbStore,
@@ -1580,6 +1611,7 @@ func Open(opts Options) (*App, error) {
 	wireRemoteExtensions(appInstance)
 
 	startuptrace.Mark("app.Open end")
+	opened = true
 	return appInstance, nil
 }
 
