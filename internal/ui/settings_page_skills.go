@@ -14,6 +14,118 @@ import (
 	"mcode/internal/projctx"
 )
 
+type skillsPageState struct {
+	busy        bool
+	deleteSkill *agentconf.Skill
+	deleteOpts  agentconf.Options
+}
+
+// 调用方持有 st.mu；状态跟随设置面板关闭释放。
+func getSkillsPageLocked(st *SettingsState) *skillsPageState {
+	if st.skillsPage == nil {
+		st.skillsPage = &skillsPageState{}
+	}
+	return st.skillsPage
+}
+
+var pickSkillFolder = func() (string, bool, error) {
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+		Title: "选择技能文件夹", Directory: true,
+	})
+	if err != nil || len(paths) == 0 {
+		return "", false, err
+	}
+	return paths[0], true, nil
+}
+
+func skillOperationBusy(st *SettingsState) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.agentConfLoading || (st.skillsPage != nil && st.skillsPage.busy)
+}
+
+func importSkillFolder(st *SettingsState) {
+	opts := st.agentConfWriteOptions()
+	pick := pickSkillFolder
+	runSkillOperation(st, func() (bool, error) {
+		path, ok, err := pick()
+		if err != nil || !ok {
+			return false, err
+		}
+		_, err = agentconf.ImportSkill(opts.Home, path)
+		return err == nil, err
+	})
+}
+
+func runSkillOperation(st *SettingsState, operation func() (bool, error)) {
+	st.mu.Lock()
+	page := getSkillsPageLocked(st)
+	if page.busy || st.agentConfLoading {
+		st.mu.Unlock()
+		return
+	}
+	page.busy = true
+	st.agentConfWriteErr = ""
+	st.mu.Unlock()
+	st.invalidate()
+	go func() {
+		changed, err := operation()
+		st.mu.Lock()
+		page.busy = false
+		// 关闭后到达的回调不能重新挂载页面或启动扫描。
+		if st.skillsPage != page {
+			st.mu.Unlock()
+			return
+		}
+		if err != nil {
+			st.agentConfWriteErr = err.Error()
+		}
+		st.mu.Unlock()
+		if changed {
+			st.loadAgentConf(st.currentProjectDir())
+			if err != nil {
+				st.setAgentConfWriteErr(err.Error())
+			}
+		}
+		st.invalidate()
+	}()
+}
+
+func renderSkillDeleteDialog(c *ui.Context, st *SettingsState) {
+	st.mu.Lock()
+	page := st.skillsPage
+	var skill *agentconf.Skill
+	var opts agentconf.Options
+	if page != nil {
+		skill = page.deleteSkill
+		opts = page.deleteOpts
+	}
+	st.mu.Unlock()
+	if skill == nil {
+		modalDragReset("skill-delete")
+		return
+	}
+	closeModal := func() {
+		st.mu.Lock()
+		page.deleteSkill = nil
+		st.mu.Unlock()
+		st.invalidate()
+	}
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key: "skill-delete", Open: true, Tone: ConfirmDanger,
+		Title: "删除技能", Body: fmt.Sprintf("将把 %s 移到废纸篓。", skill.Name),
+		ConfirmLabel: "移到废纸篓", ConfirmA11y: "确认删除技能",
+		CancelLabel: "取消", CancelA11y: "取消删除技能",
+		OnConfirm: func() {
+			closeModal()
+			runSkillOperation(st, func() (bool, error) {
+				return true, agentconf.DeleteSkill(opts, *skill)
+			})
+		},
+		OnCancel: closeModal,
+	})
+}
+
 // openItemInFinder 在系统访达中定位并高亮显示指定文件或目录。
 func openItemInFinder(path string) {
 	if path == "" {
@@ -37,9 +149,7 @@ func getGlobalSkillsDir() string {
 		return ""
 	}
 	dir := filepath.Join(home, ".agents", "skills")
-	if _, err := os.Stat(dir); err != nil {
-		_ = os.MkdirAll(dir, 0755)
-	}
+	_ = os.MkdirAll(dir, 0755)
 	return dir
 }
 
@@ -135,6 +245,7 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 	loading := st.agentConfLoading
 	errMsg := st.agentConfErr
 	writeErr := st.agentConfWriteErr
+	operating := st.skillsPage != nil && st.skillsPage.busy
 	skills := make([]agentconf.Skill, len(st.skills))
 	copy(skills, st.skills)
 	st.mu.Unlock()
@@ -147,6 +258,7 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 		st.mu.Unlock()
 	}
 
+	defer renderSkillDeleteDialog(c, st)
 	renderSkillsActions(c, st, len(skills))
 
 	// 按技能标题过滤，空值显示全部。
@@ -154,7 +266,7 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 	renderSkillsSearchBox(c, st, searchText)
 	searchQuery := strings.TrimSpace(*searchText)
 
-	if loading {
+	if loading || operating {
 		// 扫描中用转圈代替说明句。
 		LoadingIndicator(c, "skills-loading", "", IconSM).Margin(Space3, settingsRowPadX, Space1, settingsRowPadX)
 	}
@@ -443,6 +555,34 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 									TextColor(ThemeSecondaryText(c))
 							})
 
+							if skVal.Plugin == "" {
+								deleteBtn := ui.ButtonBase(c.Key(skillKey+"-btn-delete")).
+									Label("删除技能「"+skVal.Name+"」").
+									Tooltip("移到废纸篓").
+									Disabled(skillOperationBusy(st)).
+									Radius(RadiusSM).
+									Padding(settingsBadgePadY, Space3)
+								{
+									scale := motionPressScale(c, deleteBtn, "button-press-scale", deleteBtn.Pressed())
+									deleteBtn.Scale(scale, scale)
+								}
+								if deleteBtn.Hovered() {
+									deleteBtn.Background(ThemeHover(c))
+								}
+								if deleteBtn.Clicked() {
+									opts := st.agentConfWriteOptions()
+									st.mu.Lock()
+									page := getSkillsPageLocked(st)
+									page.deleteSkill = &skVal
+									page.deleteOpts = opts
+									st.mu.Unlock()
+									st.invalidate()
+								}
+								deleteBtn.Children(func() {
+									ui.Icon(c, IconTrash2()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+								})
+							}
+
 							renderSkillToggle(c, st, skillKey, skVal)
 						})
 					})
@@ -458,6 +598,26 @@ func renderSkillsActions(c *ui.Context, st *SettingsState, count int) {
 		Children(func() {
 			ui.Text(c, fmt.Sprintf("%d 个技能", count)).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 			ui.Spacer(c)
+
+			importBtn := ui.ButtonBase(c.Key("btn-skills-import")).
+				Label("导入").
+				Disabled(skillOperationBusy(st)).
+				Radius(RadiusSM).
+				Padding(settingsPillPadX, Space4).
+				Background(ThemeOverlay(c, 0.06))
+			{
+				scale := motionPressScale(c, importBtn, "button-press-scale", importBtn.Pressed())
+				importBtn.Scale(scale, scale)
+			}
+			if importBtn.Hovered() {
+				importBtn.Background(ThemeHover(c))
+			}
+			if importBtn.Clicked() {
+				importSkillFolder(st)
+			}
+			importBtn.Children(func() {
+				ui.Text(c, "导入").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
+			})
 
 			openBtn := ui.ButtonBase(c.Key("btn-skills-open-folder")).
 				Radius(RadiusSM).
@@ -480,6 +640,7 @@ func renderSkillsActions(c *ui.Context, st *SettingsState, count int) {
 			})
 
 			rescanBtn := ui.ButtonBase(c.Key("btn-skills-rescan")).
+				Disabled(skillOperationBusy(st)).
 				Radius(RadiusSM).
 				Padding(settingsPillPadX, Space4).
 				Background(ThemeOverlay(c, 0.06))

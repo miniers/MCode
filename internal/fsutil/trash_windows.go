@@ -1,4 +1,6 @@
-package remote
+//go:build windows
+
+package fsutil
 
 import (
 	"fmt"

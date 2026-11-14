@@ -10,12 +10,13 @@ import (
 	"strconv"
 	"testing"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/remote/wire"
 )
 
 // files_ops_test.go 覆盖工作区文件操作后端（files_ops.go）与对应 RPC 方法。
 // 所有用例都在 setupWorkspaceTestEnv 提供的临时工作区内进行；
-// 废纸篓通过替换 filesTrashDir 指到临时目录，绝不碰真实的 ~/.Trash。
+// 废纸篓通过替换 fsutil.TrashDir 指到临时目录，绝不碰真实的 ~/.Trash。
 
 func requireRPCError(t *testing.T, err error, wantCode int) *wire.RPCError {
 	t.Helper()
@@ -261,12 +262,9 @@ func TestFilesTrash_MovesIntoTrashAndSuffixesCollision(t *testing.T) {
 	if err := os.Mkdir(trashRoot, 0o700); err != nil {
 		t.Fatalf("create fake trash: %v", err)
 	}
-	original := filesTrashDir
-	filesTrashDir = func() (string, error) { return trashRoot, nil }
-	t.Cleanup(func() { filesTrashDir = original })
-	originalStamp := filesTrashStamp
-	filesTrashStamp = func() string { return "15.04.05" }
-	t.Cleanup(func() { filesTrashStamp = originalStamp })
+	original := fsutil.TrashDir
+	fsutil.TrashDir = func() (string, error) { return trashRoot, nil }
+	t.Cleanup(func() { fsutil.TrashDir = original })
 
 	if err := os.WriteFile(filepath.Join(workDir, "a.txt"), []byte("bye"), 0o644); err != nil {
 		t.Fatalf("seed file: %v", err)
@@ -293,7 +291,7 @@ func TestFilesTrash_MovesIntoTrashAndSuffixesCollision(t *testing.T) {
 		t.Fatalf("trash second time: %v", err)
 	}
 
-	got, err = os.ReadFile(filepath.Join(trashRoot, "a 15.04.05 2.txt"))
+	got, err = os.ReadFile(secondTrashFile(t, trashRoot))
 	if err != nil || string(got) != "again" {
 		t.Fatalf("expected sequence-suffixed trash entry, got %q err=%v", got, err)
 	}
@@ -315,9 +313,9 @@ func TestFilesTrash_RejectsWorkspaceRoot(t *testing.T) {
 	ctx := context.Background()
 
 	trashRoot := t.TempDir()
-	original := filesTrashDir
-	filesTrashDir = func() (string, error) { return trashRoot, nil }
-	t.Cleanup(func() { filesTrashDir = original })
+	original := fsutil.TrashDir
+	fsutil.TrashDir = func() (string, error) { return trashRoot, nil }
+	t.Cleanup(func() { fsutil.TrashDir = original })
 
 	_, err := b.FilesTrash(ctx, wire.FilesTrashParams{ThreadID: threadID, Path: "."})
 	rpcErr := requireRPCError(t, err, wire.InvalidParams)
@@ -381,4 +379,19 @@ func TestFilesOps_RPCValidation(t *testing.T) {
 			t.Fatalf("request must be rejected with InvalidParams: %s -> %+v", raw, resp.Error)
 		}
 	}
+}
+
+func secondTrashFile(t *testing.T, root string) string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 3 {
+		t.Fatalf("unexpected trash entries: %v, %v", entries, err)
+	}
+	for _, entry := range entries {
+		if entry.Name() != "a.txt" && entry.Name() != "a 15.04.05.txt" {
+			return filepath.Join(root, entry.Name())
+		}
+	}
+	t.Fatal("missing second trashed file")
+	return ""
 }

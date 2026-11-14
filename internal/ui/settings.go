@@ -209,6 +209,7 @@ type SettingsState struct {
 	mcpCatalogPage   *mcpCatalogUIState
 	swarmTiersPage   *swarmTiersUIState
 	swarmPage        *swarmPairsUIState
+	skillsPage       *skillsPageState
 	skillsSearch     *string
 	openInPage       *openInPageState
 	quickRepliesPage *quickRepliesPageState
@@ -488,6 +489,7 @@ func (s *SettingsState) Close() {
 	s.mcpCatalogPage = nil
 	s.swarmTiersPage = nil
 	s.swarmPage = nil
+	s.skillsPage = nil
 	s.skillsSearch = nil
 	s.openInPage = nil
 	s.quickRepliesPage = nil

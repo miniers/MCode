@@ -2,16 +2,14 @@ package remote
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
-	"time"
 
+	"mcode/internal/fsutil"
 	"mcode/internal/remote/wire"
 )
 
@@ -26,21 +24,6 @@ import (
 
 // filesOpsMaxPathLength 与 files.read / files.write 的路径长度上限一致。
 const filesOpsMaxPathLength = 4096
-
-// filesTrashDir 返回废纸篓目录，默认是用户主目录下的 .Trash。
-// 做成包级变量是为了测试能替换成临时目录，避免碰真实的废纸篓。
-var filesTrashDir = func() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".Trash"), nil
-}
-
-// filesTrashStamp 生成废纸篓重名后缀的时间戳，测试可替换成固定值。
-var filesTrashStamp = func() string {
-	return time.Now().Format("15.04.05")
-}
 
 // FilesCreate 在工作区内新建空文件或目录，父目录必须已经存在。
 func (b *MemoryBackend) FilesCreate(ctx context.Context, p wire.FilesCreateParams) (wire.FilesCreateResult, error) {
@@ -177,9 +160,6 @@ func (b *MemoryBackend) FilesRename(ctx context.Context, p wire.FilesRenameParam
 	return wire.FilesRenameResult{Path: workspaceRelPath(root, target)}, nil
 }
 
-// windowsTrashPath 由 Windows 平台实现初始化。
-var windowsTrashPath func(string) error
-
 // FilesTrash 把工作区内的条目移到系统废纸篓或回收站。
 func (b *MemoryBackend) FilesTrash(ctx context.Context, p wire.FilesTrashParams) (wire.FilesTrashResult, error) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
@@ -209,39 +189,10 @@ func (b *MemoryBackend) FilesTrash(ctx context.Context, p wire.FilesTrashParams)
 		return wire.FilesTrashResult{}, err
 	}
 
-	if runtime.GOOS == "windows" {
-		if err := windowsTrashPath(source); err != nil {
-			return wire.FilesTrashResult{}, &wire.RPCError{Code: wire.ErrCodeOperationRejected, Message: fmt.Sprintf("failed to move to trash: %v", err)}
-		}
-		return wire.FilesTrashResult{}, nil
-	}
-
-	trashRoot, err := filesTrashDir()
-	if err != nil {
+	if err := fsutil.MoveToTrash(source); err != nil {
 		return wire.FilesTrashResult{}, &wire.RPCError{
 			Code:    wire.ErrCodeOperationRejected,
-			Message: fmt.Sprintf("failed to locate trash: %v", err),
-		}
-	}
-	trashPath, err := uniqueTrashPath(trashRoot, filepath.Base(source))
-	if err != nil {
-		return wire.FilesTrashResult{}, &wire.RPCError{
-			Code:    wire.ErrCodeOperationRejected,
-			Message: fmt.Sprintf("failed to move to trash: %v", err),
-		}
-	}
-
-	if err := os.Rename(source, trashPath); err != nil {
-		if errors.Is(err, syscall.EXDEV) {
-			// 跨设备无法 rename，明确报错而不是退化成直接删除。
-			return wire.FilesTrashResult{}, &wire.RPCError{
-				Code:    wire.ErrCodeOperationRejected,
-				Message: fmt.Sprintf("cannot move to trash across devices: %v", err),
-			}
-		}
-		return wire.FilesTrashResult{}, &wire.RPCError{
-			Code:    wire.ErrCodeOperationRejected,
-			Message: fmt.Sprintf("failed to move to trash: %v", err),
+			Message: err.Error(),
 		}
 	}
 
@@ -428,38 +379,6 @@ func workspaceRelPath(root, target string) string {
 		return filepath.ToSlash(target)
 	}
 	return filepath.ToSlash(rel)
-}
-
-// uniqueTrashPath 在废纸篓里为 name 找一个不冲突的落点：
-// 先试原名，再试「名字 15.04.05.ext」，必要时追加序号「名字 15.04.05 2.ext」。
-func uniqueTrashPath(trashRoot, name string) (string, error) {
-	candidate := filepath.Join(trashRoot, name)
-	exists, err := workspacePathExists(candidate)
-	if err != nil {
-		return "", err
-	}
-	if !exists {
-		return candidate, nil
-	}
-
-	ext := filepath.Ext(name)
-	stem := strings.TrimSuffix(name, ext)
-	stamp := filesTrashStamp()
-	for i := 1; i <= 1000; i++ {
-		suffix := " " + stamp
-		if i > 1 {
-			suffix += fmt.Sprintf(" %d", i)
-		}
-		candidate = filepath.Join(trashRoot, stem+suffix+ext)
-		exists, err := workspacePathExists(candidate)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("too many files with the same name in trash")
 }
 
 // copyWorkspaceFile 逐字节复制文件并在落盘前保留源文件权限；

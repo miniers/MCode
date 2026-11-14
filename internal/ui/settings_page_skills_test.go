@@ -1,15 +1,172 @@
 package mcodeui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
+	"mcode/internal/fsutil"
 	"mcode/internal/testenv"
 )
+
+func TestSkillsDeleteButtonAndConfirm(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("仅 macOS 使用替换的废纸篓目录")
+	}
+	home := testenv.TempHome(t)
+	dir := filepath.Join(home, ".agents", "skills", "local-skill")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: local-skill\n---"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trash := t.TempDir()
+	previous := fsutil.TrashDir
+	fsutil.TrashDir = func() (string, error) { return trash, nil }
+	t.Cleanup(func() { fsutil.TrashDir = previous })
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.agentConfLoaded = true
+	st.skills = []agentconf.Skill{
+		{Agent: "codex", Scope: "global", Name: "local-skill", Path: filepath.Join(dir, "SKILL.md"), Enabled: true},
+		{Agent: "claude", Scope: "external", Plugin: "plugin", Name: "plugin-skill", Enabled: true},
+	}
+	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1200, 1000)
+	if _, ok := tt.Find("删除技能「local-skill」"); !ok {
+		t.Fatal("非插件技能缺少删除按钮")
+	}
+	if _, ok := tt.Find("删除技能「plugin-skill」"); ok {
+		t.Fatal("插件技能不应有删除按钮")
+	}
+	if err := tt.Click("删除技能「local-skill」"); err != nil {
+		t.Fatal(err)
+	}
+	if !tt.HasText("将把 local-skill 移到废纸篓。") {
+		t.Fatal("缺少删除确认正文")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatal("确认前不能删除技能")
+	}
+	if err := tt.Click("取消删除技能"); err != nil {
+		t.Fatal(err)
+	}
+	if tt.HasText("将把 local-skill 移到废纸篓。") {
+		t.Fatal("取消后确认框仍在")
+	}
+	if err := tt.Click("删除技能「local-skill」"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("确认删除技能"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return !st.agentConfLoading && len(st.skills) == 0 && st.skillsPage != nil && !st.skillsPage.busy
+	})
+	if _, err := os.Stat(filepath.Join(trash, "local-skill", "SKILL.md")); err != nil {
+		t.Fatalf("技能未移到测试废纸篓：%v", err)
+	}
+}
+
+func TestSkillsImportPicker(t *testing.T) {
+	home := testenv.TempHome(t)
+	source := filepath.Join(t.TempDir(), "imported-skill")
+	if err := os.Mkdir(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: imported-skill\n---"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	previous := pickSkillFolder
+	t.Cleanup(func() { pickSkillFolder = previous })
+	var calls atomic.Int32
+	release := make(chan struct{})
+	pickSkillFolder = func() (string, bool, error) {
+		calls.Add(1)
+		<-release
+		return source, true, nil
+	}
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.agentConfLoaded = true
+	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1200, 800)
+	if err := tt.Click("导入"); err != nil {
+		t.Fatal(err)
+	}
+	// 选择器还未返回，渲染和重复点击都应可完成，且只启动一次操作。
+	importSkillFolder(st)
+	close(release)
+	waitFor(t, tt, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return !st.agentConfLoading && st.skillsPage != nil && !st.skillsPage.busy && len(st.skills) == 1
+	})
+	if calls.Load() != 1 {
+		t.Fatalf("选择器调用次数：%d", calls.Load())
+	}
+	if !tt.HasText("imported-skill") {
+		t.Fatal("导入后未刷新技能列表")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "imported-skill", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSkillsImportPickerErrorAndCancel(t *testing.T) {
+	testenv.TempHome(t)
+	previous := pickSkillFolder
+	t.Cleanup(func() { pickSkillFolder = previous })
+	pickSkillFolder = func() (string, bool, error) { return "", false, errors.New("选择失败") }
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.agentConfLoaded = true
+	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1200, 800)
+	if err := tt.Click("导入"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("选择失败") })
+	pickSkillFolder = func() (string, bool, error) { return "", false, nil }
+	if err := tt.Click("导入"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return st.skillsPage != nil && !st.skillsPage.busy && st.agentConfWriteErr == ""
+	})
+}
+
+func TestSkillsOperationCompletionAfterClose(t *testing.T) {
+	testenv.TempHome(t)
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.agentConfLoaded = true
+	release := make(chan struct{})
+	runSkillOperation(st, func() (bool, error) {
+		<-release
+		return true, errors.New("关闭后的错误")
+	})
+	st.mu.Lock()
+	page := st.skillsPage
+	st.mu.Unlock()
+	st.Close()
+	close(release)
+	tt := ui.NewTester(func(c *ui.Context) {}, 100, 100)
+	waitFor(t, tt, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return !page.busy
+	})
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.skillsPage != nil || st.agentConfLoading || st.agentConfWriteErr != "" {
+		t.Fatal("关闭后的回调修改了设置页状态")
+	}
+}
 
 // TestSettings_SkillToggle 测试技能启停开关的 UI 交互与持久化
 func TestSettings_SkillToggle(t *testing.T) {
