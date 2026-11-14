@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -15,11 +16,12 @@ import (
 
 var localFileLineFragment = regexp.MustCompile(`^L([0-9]+)(?:-L([0-9]+))?$`)
 
-// localFileLinkLineRange 从链接片段提取从 1 开始的闭区间。
+// localFileLinkLineRange 从链接地址或片段提取从 1 开始的闭区间：
+// 支持 #L12[-L20]、:line、:line:column 与 :start-end，统一反向范围归一化。
 func localFileLinkLineRange(dest string) (int, int) {
 	_, fragment, ok := strings.Cut(dest, "#")
 	if !ok {
-		return 0, 0
+		return inlinePathLineRange(dest)
 	}
 	m := localFileLineFragment.FindStringSubmatch(fragment)
 	if m == nil {
@@ -50,7 +52,7 @@ var riskyOpenExts = map[string]bool{
 }
 
 // localFileLinkCandidates 把 Markdown 链接地址解析成可能的本地路径：
-// 接受 file:// URL、绝对路径与 ~/ 路径，兼容百分号编码与 #L12 这类位置后缀；其他地址返回 nil。
+// 接受 file:// URL、绝对路径与 ~/ 路径，兼容百分号编码与 #L12 这类位置后缀以及冒号行号；其他地址返回 nil。
 // 这里只做字符串解析，不访问文件系统，可以在每次构建视图时调用。
 func localFileLinkCandidates(dest string) []string {
 	path, err := localImagePath(dest)
@@ -66,6 +68,17 @@ func localFileLinkCandidates(dest string) []string {
 		candidates = append(candidates, p)
 		if dec, err := url.PathUnescape(p); err == nil && dec != p {
 			candidates = append(candidates, dec)
+		}
+	}
+	for _, p := range slices.Clone(candidates) {
+		if suffix := inlinePathSuffix.FindString(p); strings.HasPrefix(suffix, ":") {
+			stripped := p[:len(p)-len(suffix)]
+			if stripped != "" && !slices.Contains(candidates, stripped) {
+				candidates = append(candidates, stripped)
+				if dec, err := url.PathUnescape(stripped); err == nil && dec != stripped && !slices.Contains(candidates, dec) {
+					candidates = append(candidates, dec)
+				}
+			}
 		}
 	}
 	return candidates
