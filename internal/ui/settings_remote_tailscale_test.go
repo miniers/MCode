@@ -62,7 +62,7 @@ func TestSettingsRemoteTailscale_NodeAlwaysVisible(t *testing.T) {
 			if tc.running {
 				st.remote.status.State = RemoteStateRunning
 			}
-			tt := ui.NewTester(func(c *ui.Context) { renderPageRemote(c, st) }, 1000, 3000)
+			tt := newRemoteSettingsTester(t, func(c *ui.Context) { renderPageRemote(c, st) }, 1000, 3000)
 			tt.Frame()
 			for _, title := range []string{"节点名称", "重置节点"} {
 				if !tt.HasText(title) {

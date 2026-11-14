@@ -67,7 +67,7 @@ func TestSettingsRemote_ToggleEnabled(t *testing.T) {
 	fake.mu.Unlock()
 
 	dataDir := settingsTestDir(t)
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 700)
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(dataDir, nil)), 1000, 700)
 
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
 	if err := tt.Click("设置"); err != nil {
@@ -132,7 +132,7 @@ func TestSettingsRemote_LANURLs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 700)
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(dataDir, nil)), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
 	if err := tt.Click("设置"); err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestSettingsRemote_Pairing(t *testing.T) {
 	cfg.Remote.Enabled = true
 	_ = config.Save(dataDir, cfg)
 
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 700)
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(dataDir, nil)), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
 	if err := tt.Click("设置"); err != nil {
 		t.Fatal(err)
@@ -231,7 +231,7 @@ func TestSettingsRemote_SetRemoteEnabledError(t *testing.T) {
 	fake.mu.Unlock()
 
 	dataDir := settingsTestDir(t)
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 700)
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(dataDir, nil)), 1000, 700)
 
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
 	if err := tt.Click("设置"); err != nil {
@@ -312,7 +312,7 @@ func TestSettingsRemote_DevicesEmpty(t *testing.T) {
 	fake.mu.Unlock()
 
 	dataDir := settingsTestDir(t)
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 700)
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(dataDir, nil)), 1000, 700)
 
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
 	if err := tt.Click("设置"); err != nil {
@@ -338,7 +338,7 @@ func TestSettingsRemote_DevicesStackVertically(t *testing.T) {
 	}
 	fake.mu.Unlock()
 
-	tt := ui.NewTester(Root(fake, WithSettings(settingsTestDir(t), nil)), 1000, 700)
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(settingsTestDir(t), nil)), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
 	if err := tt.Click("设置"); err != nil {
 		t.Fatal(err)
@@ -388,7 +388,7 @@ func TestSettingsRemote_RevokeDevice(t *testing.T) {
 	fake.mu.Unlock()
 
 	dataDir := settingsTestDir(t)
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 700)
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(dataDir, nil)), 1000, 700)
 
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
 	if err := tt.Click("设置"); err != nil {
@@ -435,7 +435,7 @@ func TestSettingsRemote_DevicesError(t *testing.T) {
 	fake.mu.Unlock()
 
 	dataDir := settingsTestDir(t)
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 700)
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(dataDir, nil)), 1000, 700)
 
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
 	if err := tt.Click("设置"); err != nil {
@@ -460,10 +460,18 @@ func clickRemoteSettingsLabel(t *testing.T, tt *ui.Tester, label string) {
 	}
 }
 
+// newRemoteSettingsTester 创建远程设置页测试器并关闭动效：冻结时钟下动画不会结束，
+// 每次 settle 都会跑满帧数，拖慢整组测试。
+func newRemoteSettingsTester(t *testing.T, view func(c *ui.Context), width, height int) *ui.Tester {
+	t.Helper()
+	setAppReduceMotion(t, true)
+	return ui.NewTesterWith(view, width, height, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+}
+
 // openRemoteSettingsPage 打开设置面板并进入远程控制页。
 func openRemoteSettingsPage(t *testing.T, fake *FakeClient, dataDir string) *ui.Tester {
 	t.Helper()
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 700)
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(dataDir, nil)), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
 	if err := tt.Click("设置"); err != nil {
 		t.Fatal(err)
@@ -480,7 +488,7 @@ func openRemoteSettingsPage(t *testing.T, fake *FakeClient, dataDir string) *ui.
 func openRemoteSettingsPageState(t *testing.T, fake *FakeClient, dataDir string) (*ui.Tester, *SettingsState) {
 	t.Helper()
 	var st *SettingsState
-	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil), func(s *chatState) {
+	tt := newRemoteSettingsTester(t, Root(fake, WithSettings(dataDir, nil), func(s *chatState) {
 		st = getChatSettings(s)
 	}), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
