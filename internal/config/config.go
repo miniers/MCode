@@ -1151,6 +1151,7 @@ type SourceControlConfig struct {
 	CloneIgnoredPatterns         *string              `json:"clone_ignored_patterns,omitempty"`           // 逗号分隔的条目名模式，nil 用默认名单
 	DefaultWorkspaceMode         string               `json:"default_workspace_mode"`                     // 默认新会话工作区模式：local | worktree，默认 local
 	GenerateCommitMessage        *bool                `json:"generate_commit_message,omitempty"`          // 提交信息由 AI 生成，nil 视为开启
+	ShowChangeBadge              *bool                `json:"show_change_badge,omitempty"`                // Git 按钮上叠改动数角标，nil 视为显示
 	CommitInstructions           string               `json:"commit_instructions"`                        // 提交信息附加说明
 	CommitMessageModel           ModelSelectionConfig `json:"commit_message_model,omitempty"`             // 提交信息与会话标题生成模型；Provider 为空时沿用 utility 角色模型
 }
@@ -1219,6 +1220,14 @@ func (s SourceControlConfig) GenerateCommitMessageEnabled() bool {
 		return true
 	}
 	return *s.GenerateCommitMessage
+}
+
+// ShowChangeBadgeEnabled 返回 Git 按钮是否叠改动数角标，nil 视为显示。
+func (s SourceControlConfig) ShowChangeBadgeEnabled() bool {
+	if s.ShowChangeBadge == nil {
+		return true
+	}
+	return *s.ShowChangeBadge
 }
 
 // MemoryConfig Nowledge Mem 记忆集成设置。

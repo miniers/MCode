@@ -51,6 +51,28 @@ func TestSettingsPageSourceControl_Tree(t *testing.T) {
 	})
 }
 
+func TestSettingsPageSourceControlChangeBadgeToggle(t *testing.T) {
+	dataDir := settingsTestDir(t)
+	st := NewSettingsState(dataDir, nil, newChatState(NewFakeClient()))
+	tt := ui.NewTester(func(c *ui.Context) { renderPageSourceControl(c, st) }, 1000, 3000)
+
+	waitFor(t, tt, func() bool { return tt.HasText("显示改动数角标") })
+	if !st.cfg.SourceControl.ShowChangeBadgeEnabled() {
+		t.Fatal("改动数角标默认应显示")
+	}
+	if err := tt.Click("切换显示改动数角标"); err != nil {
+		t.Fatalf("click badge switch failed: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return st.cfg.SourceControl.ShowChangeBadge != nil && !*st.cfg.SourceControl.ShowChangeBadge
+	})
+	// 开关写回磁盘，重启后仍保持关闭。
+	waitFor(t, tt, func() bool {
+		saved, err := config.Load(dataDir)
+		return err == nil && !saved.SourceControl.ShowChangeBadgeEnabled()
+	})
+}
+
 func TestSettingsSourceControl_PageRows(t *testing.T) {
 	fake := NewFakeClient()
 	dataDir := settingsTestDir(t)

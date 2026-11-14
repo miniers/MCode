@@ -1473,6 +1473,29 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	}
 }
 
+// TestChatHeaderCommitBadgeFollowsSetting 验证设置页关掉「显示改动数角标」后工具栏不再叠改动数。
+func TestChatHeaderCommitBadgeFollowsSetting(t *testing.T) {
+	s, ps, _ := gitPaneTestState(t)
+	on, off := true, false
+	st := &SettingsState{cfg: config.Config{SourceControl: config.SourceControlConfig{ShowChangeBadge: &off}}}
+	setChatSettings(s, st)
+	t.Cleanup(func() { setChatSettings(s, nil) })
+
+	hs := getChatHeaderState(s)
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderGitCommitButton(c, s, hs, ps.threadID, GitState{Changes: 27})
+	}, 400, 100)
+	if tt.HasText("27") {
+		t.Fatalf("关掉角标后仍渲染出改动数: %v", tt.Texts())
+	}
+
+	st.cfg.SourceControl.ShowChangeBadge = &on
+	tt.Frame()
+	if !tt.HasText("27") {
+		t.Fatalf("打开角标后没有渲染出改动数: %v", tt.Texts())
+	}
+}
+
 func TestChatHeaderCommitOpensGitChanges(t *testing.T) {
 	s, ps, _ := gitPaneTestState(t)
 	hs := getChatHeaderState(s)
