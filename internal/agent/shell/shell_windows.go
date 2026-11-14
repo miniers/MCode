@@ -3,10 +3,8 @@
 package shell
 
 import (
-	"context"
 	"fmt"
 	"os/exec"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -29,10 +27,7 @@ func setProcessGroup(cmd *exec.Cmd) {
 }
 
 func stopProcess(cmd *exec.Cmd, done <-chan error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	killer := procattr.HideWindow(exec.CommandContext(ctx, "taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)))
-	if err := killer.Run(); err != nil {
+	if err := procattr.TerminateTree(cmd.Process.Pid); err != nil {
 		_ = cmd.Process.Kill()
 	}
 	select {

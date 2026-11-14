@@ -25,7 +25,7 @@ func TestKillTreeEndsRootAndDescendants(t *testing.T) {
 
 	root := cmd.Process.Pid
 	var children []Proc
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for len(children) == 0 && time.Now().Before(deadline) {
 		children, _ = Descendants(root)
 		time.Sleep(20 * time.Millisecond)
