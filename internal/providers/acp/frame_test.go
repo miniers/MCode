@@ -280,3 +280,33 @@ func TestContentLengthTooLarge(t *testing.T) {
 		t.Fatalf("expected ErrFrameTooLarge, got %v", err)
 	}
 }
+
+// Agent 常把上游失败的细节放在 JSON-RPC 的 error.data 里，只显示 message 会让
+// 用户看到没有信息量的 "Internal error"。
+func TestRPCErrorCarriesDetail(t *testing.T) {
+	err := &RPCError{
+		Code:    -32603,
+		Message: "Internal error",
+		Data:    json.RawMessage(`"API error (403): INSUFFICIENT_BALANCE"`),
+	}
+	got := err.Error()
+	if !strings.Contains(got, "INSUFFICIENT_BALANCE") {
+		t.Fatalf("错误文本应带上 data 里的原因，实际 %q", got)
+	}
+	if !strings.Contains(got, "code -32603") {
+		t.Fatalf("错误文本应保留 code，实际 %q", got)
+	}
+
+	plain := &RPCError{Code: -32601, Message: "Method not found"}
+	if strings.HasSuffix(plain.Error(), ":") || strings.Contains(plain.Error(), "  :  ") {
+		t.Fatalf("没有 data 时不应追加分隔符，实际 %q", plain.Error())
+	}
+	if plain.Error() != "rpc error: code -32601, message: Method not found" {
+		t.Fatalf("无 data 的错误文本被改动，实际 %q", plain.Error())
+	}
+
+	object := &RPCError{Code: -32000, Message: "boom", Data: json.RawMessage(`{"status":403}`)}
+	if !strings.Contains(object.Error(), `"status":403`) {
+		t.Fatalf("非字符串 data 应原样给出，实际 %q", object.Error())
+	}
+}

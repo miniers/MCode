@@ -31,11 +31,36 @@ type RPCError struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+// maxRPCErrorDetail 限制附加到错误文本的 data 长度，避免异常 Agent 用超长 data 淹没界面。
+const maxRPCErrorDetail = 512
+
 func (e *RPCError) Error() string {
 	if e == nil {
 		return ""
 	}
-	return fmt.Sprintf("rpc error: code %d, message: %s", e.Code, e.Message)
+	msg := fmt.Sprintf("rpc error: code %d, message: %s", e.Code, e.Message)
+	if detail := rpcErrorDetail(e.Data); detail != "" {
+		msg += ": " + detail
+	}
+	return msg
+}
+
+// rpcErrorDetail 取出 data 里可以直接展示的文本：JSON 字符串取其内容，
+// 其他形态保留原样。Agent 常把上游失败的原因放在 data 里（例如模型 API 的 403），
+// 只显示 message 会让用户看到没有信息量的 "Internal error"。
+func rpcErrorDetail(data json.RawMessage) string {
+	if len(data) == 0 {
+		return ""
+	}
+	detail := strings.TrimSpace(string(data))
+	var text string
+	if json.Unmarshal(data, &text) == nil {
+		detail = strings.TrimSpace(text)
+	}
+	if len(detail) > maxRPCErrorDetail {
+		detail = strings.TrimSuffix(detail[:maxRPCErrorDetail], " ") + "…"
+	}
+	return detail
 }
 
 // RequestHandler 处理对端发来的 RPC 请求，返回响应结果或错误。
