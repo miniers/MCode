@@ -1875,8 +1875,6 @@ func resetComposerModelPickerState(scopeKey string) {
 	}
 	if scopeKey != "" {
 		clearModelCapsuleSnapshot(scopeKey)
-		clearModelPanelMoreOpen(scopeKey, "lead")
-		clearModelPanelMoreOpen(scopeKey, "bees")
 	}
 }
 

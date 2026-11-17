@@ -99,7 +99,6 @@ func swarmModelCapsuleProps(st *SettingsState, key, scopeKey string, sel ModelSe
 			}
 			state.MenuOpen = false
 			state.setListOpen(scopeKey, ModelPickerSideLead, false)
-			clearModelPanelMoreOpen(scopeKey, "lead")
 			clearModelCapsuleSnapshot(scopeKey)
 		},
 		OnEffort: func(_ ModelPickerSide, effort string) {

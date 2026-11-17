@@ -199,6 +199,10 @@ func TestSwarmModelCapsule_TierMappingOverride(t *testing.T) {
 		t.Fatalf("click '选择攻坚档模型' capsule failed: %v", err)
 	}
 	tt.Frame()
+	// 列表按 Agent 分栏：切到 Codex 才能看到它的模型。
+	if err := tt.Click("Codex"); err != nil {
+		t.Fatalf("click Codex agent failed: %v", err)
+	}
 
 	// 3. 断言 fixture provider 中的模型名称出现在已展开的模型列表中
 	if !tt.HasText("o3-mini") {

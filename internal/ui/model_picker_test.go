@@ -1,9 +1,11 @@
 package mcodeui
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -307,17 +309,13 @@ func TestModelPickerFlyoutSelection(t *testing.T) {
 	if err := menu.Click("选择其他模型"); err != nil {
 		t.Fatal(err)
 	}
-	if err := menu.Click("返回"); err != nil {
-		t.Fatal(err)
-	}
-	if !state.MenuOpen || !menu.HasText("选择其他模型") {
-		t.Fatal("返回应保留弹层并显示强度卡片")
-	}
-	if err := menu.Click("选择其他模型"); err != nil {
-		t.Fatal(err)
-	}
-	if err := menu.Click("model-list-search-input"); err != nil {
-		t.Fatal(err)
+	// 换页入场动画还没跑完时内容仍在偏移中：推进时钟等它落位再点搜索框。
+	for i := 0; i < 20; i++ {
+		menu.Advance(50 * time.Millisecond)
+		menu.Frame()
+		if menu.Click("model-list-search-input") == nil {
+			break
+		}
 	}
 	menu.Type("Sonnet")
 	if state.searchQuery != "Sonnet" {
@@ -623,7 +621,8 @@ func TestModelPickerListPageSkipsMissingPinnedModel(t *testing.T) {
 				})
 			}, 320, 640)
 			tt.Frame()
-			if !tt.HasText("Claude 3.7 Sonnet") || tt.HasText("Magpie Old") != present || tt.HasText("magpie/old") {
+			// 目录缺失时列表里不应出现该收藏行（含它右侧的分组名标签）。
+			if !tt.HasText("Claude 3.7 Sonnet") || tt.HasText("Magpie Old") != present || tt.HasText("magpie") != present {
 				t.Fatalf("一级页收藏显示不符合目录状态：%v", tt.Texts())
 			}
 		})
@@ -654,7 +653,6 @@ func TestRenderModelListSecondaryModelsCollapsed(t *testing.T) {
 			renderModelList(c, props, "lead-more-", "lead", providers, "",
 				func(ProviderInfo, int, ModelInfo) bool { return false },
 				func(ProviderInfo) bool { return false },
-				nil,
 				nil)
 		})
 	}, 320, 640)
@@ -812,7 +810,6 @@ func TestRenderModelList_ProviderCatalogNotice(t *testing.T) {
 				renderModelList(c, props, "lead-more-", "lead", providers, query,
 					func(ProviderInfo, int, ModelInfo) bool { return false },
 					func(ProviderInfo) bool { return false },
-					nil,
 					nil)
 			})
 		}, 340, 360)
@@ -862,51 +859,37 @@ func TestRenderModelList_ProviderCatalogNotice(t *testing.T) {
 	}
 }
 
-func TestModelPickerSwarmPairHeaders(t *testing.T) {
-	pair := SwarmPair{ID: "legacy", Name: "旧配对", LeadProvider: "claude", LeadModel: "claude-3-7-sonnet", WorkerProvider: "mcode", WorkerModel: "magpie-jp/auto/deepseek-v4.1-flash"}
-	for _, hasPair := range []bool{false, true} {
-		name := "无配对"
-		if hasPair {
-			name = "旧配对"
-		}
-		t.Run(name, func(t *testing.T) {
+func TestModelPickerListPageLockedAgentRail(t *testing.T) {
+	providers := modelPickerTestProviders()
+	for _, locked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("hasMessages=%v", locked), func(t *testing.T) {
 			state := &ModelPickerState{}
-			var applied SwarmPair
+			state.setListOpen("agent-rail-lock-"+fmt.Sprint(locked), ModelPickerSideLead, true)
+			var switched bool
 			props := ModelPickerProps{
-				Mode: ModelPickerSwarm, KeyPrefix: "t-pair-", ScopeKey: "t-pair-" + name,
-				Providers: modelPickerTestProviders(), Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
-				OnApplyPair: func(p SwarmPair) { applied = p },
-			}
-			if hasPair {
-				props.Pairs = []SwarmPair{pair}
+				Mode: ModelPickerSwarm, KeyPrefix: "agent-rail-", ScopeKey: "agent-rail-lock-" + fmt.Sprint(locked),
+				Providers: providers, HasMessages: locked,
+				Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
 			}
 			tt := ui.NewTester(func(c *ui.Context) {
-				ui.Column(c).Width(300).Children(func() {
-					renderModelPickerListPage(c, props, state, ModelPickerSideLead)
-				})
-			}, 320, 640)
+				renderModelPickerListPage(c, props, state, ModelPickerSideLead)
+			}, 330, 640)
+			if !tt.HasText("Claude 3.7 Sonnet") {
+				t.Fatalf("应默认列出当前模型所属 Agent: %v", tt.Texts())
+			}
+			if err := tt.Click("Codex"); err != nil {
+				if !locked {
+					t.Fatalf("点击 Agent 失败：%v", err)
+				}
+				return
+			}
 			tt.Frame()
-			if present := tt.HasText("旧配对"); present != hasPair {
-				t.Fatalf("旧配对是否存在 = %v，期望 %v", present, hasPair)
+			switched = state.activeAgent == "codex"
+			if locked && switched {
+				t.Fatal("已有消息后不应能换 Agent 选模型")
 			}
-			for _, title := range []string{"配对", "模型"} {
-				count := 0
-				for _, text := range tt.Texts() {
-					if text == title {
-						count++
-					}
-				}
-				if hasPair && count != 1 || !hasPair && count != 0 {
-					t.Fatalf("标题 %q 出现 %d 次", title, count)
-				}
-			}
-			if hasPair {
-				if err := tt.Click("旧配对"); err != nil {
-					t.Fatalf("点击旧配对失败：%v", err)
-				}
-				if applied.WorkerProvider != pair.WorkerProvider || applied.WorkerModel != pair.WorkerModel {
-					t.Fatalf("套用应保留执行侧原值：%+v", applied)
-				}
+			if !locked && (!switched || !tt.HasText("o3-mini")) {
+				t.Fatalf("应切到 Codex 的模型: active=%q texts=%v", state.activeAgent, tt.Texts())
 			}
 		})
 	}
@@ -964,6 +947,7 @@ func TestModelPickerKeepsEndpointAndOldThreadLabel(t *testing.T) {
 	}
 }
 
+// 选中模型行后列表页关闭、回到强度卡片，档位调节发生在卡片上的滑块里。
 func TestModelPickerSelectedRowChangesEffort(t *testing.T) {
 	providers := modelPickerTestProviders()
 	providers[0].Models[0].Efforts = []string{"low", "high"}
@@ -975,17 +959,27 @@ func TestModelPickerSelectedRowChangesEffort(t *testing.T) {
 		OnPickModel: func(ModelPickerSide, ProviderInfo, ModelInfo) { picked = true },
 	}
 	props.State.setListOpen(props.ScopeKey, ModelPickerSideLead, true)
+	// 先把换页动画推到终点：动画期间列表页对命中测试失效，点击会落到滑块下面一页。
 	tt := ui.NewTester(func(c *ui.Context) { renderModelPickerMenuBody(c, props, props.State) }, 330, 600)
+	tt.Advance(time.Second)
+	tt.Frame()
 	if !tt.HasText("Claude 3.7 Sonnet") {
 		t.Fatalf("缺少模型列表: %v", tt.Texts())
 	}
-	if err := tt.Click("推理强度 低"); err != nil {
+	if err := tt.Click("Claude 3.7 Sonnet"); err != nil {
 		t.Fatal(err)
 	}
+	if !picked {
+		t.Fatalf("点击模型行应选用该模型")
+	}
+	if props.State.listOpen(props.ScopeKey, ModelPickerSideLead) {
+		t.Fatalf("选中模型后应回到强度卡片")
+	}
+	tt.Advance(time.Second)
 	tt.Frame()
 	clickEffortSlider(t, tt, 1)
-	if selected != "high" || picked {
-		t.Fatalf("强度=%q, 选模型=%v", selected, picked)
+	if selected != "high" {
+		t.Fatalf("强度=%q", selected)
 	}
 }
 
@@ -1021,10 +1015,267 @@ func TestModelPickerSelectedRowSubtitleFitsSingleLine(t *testing.T) {
 	props := ModelPickerProps{KeyPrefix: "row-fit-", OnReset: func(ModelPickerSide) {}, OnToggleFast: func(ModelPickerSide) {}, OnEffort: func(ModelPickerSide, string) {}}
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Width(330).Children(func() {
-			renderModelRow(c, props, modelRowOptions{Provider: provider, Model: model, IsChecked: true, ShowSubtitle: true, OnEffort: func() {}})
+			renderModelRow(c, props, modelRowOptions{Provider: provider, Model: model, IsChecked: true, ShowSubtitle: true})
 		})
 	}, 330, 200)
 	if r, ok := tt.Find(provider.Name); !ok || r.H > 20 {
 		t.Fatalf("副标题应为单行: rect=%+v, found=%v", r, ok)
+	}
+}
+
+func TestModelPickerAgentModelsPinnedFirstThenAll(t *testing.T) {
+	agent := ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{
+		{ID: "sonnet", Name: "Sonnet"},
+		{ID: "opus", Name: "Opus"},
+		{ID: "haiku", Name: "Haiku"},
+	}}
+	pinned := []modelPickerPinnedEntry{
+		{Provider: agent, Model: ModelInfo{ID: "opus"}},
+		{Provider: ProviderInfo{ID: "codex"}, Model: ModelInfo{ID: "o3-mini"}},
+		{Provider: agent, Model: ModelInfo{ID: "sonnet"}},
+	}
+	got := modelPickerAgentModels(agent, pinned)
+	want := []string{"opus", "sonnet", "haiku"}
+	if len(got) != len(want) {
+		t.Fatalf("模型数量 = %d，期望 %d: %+v", len(got), len(want), got)
+	}
+	for i, id := range want {
+		if got[i].Model.ID != id || got[i].Provider.ID != "claude" {
+			t.Fatalf("第 %d 个模型 = %+v，期望 %s", i, got[i], id)
+		}
+	}
+}
+
+func TestModelPickerFollowLeadOnlyOnBeesRail(t *testing.T) {
+	providers := modelPickerTestProviders()
+	for _, side := range []ModelPickerSide{ModelPickerSideLead, ModelPickerSideBees} {
+		state := &ModelPickerState{}
+		scope := "follow-rail-" + fmt.Sprint(side)
+		props := ModelPickerProps{
+			Mode: ModelPickerSwarm, KeyPrefix: "follow-rail-", ScopeKey: scope, State: state,
+			Providers: providers, SwarmOn: true,
+			Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+			Bees:      ModelSelection{Provider: "codex", Model: "o3-mini"},
+		}
+		state.setListOpen(scope, side, true)
+		tt := ui.NewTester(func(c *ui.Context) {
+			renderModelPickerListPage(c, props, state, side)
+		}, 330, 640)
+		if got := tt.HasText("跟随主导模型"); got != (side == ModelPickerSideBees) {
+			t.Fatalf("side=%v 的竖栏跟随入口存在=%v", side, got)
+		}
+	}
+}
+
+func TestModelPickerLeadListRestoresPairs(t *testing.T) {
+	providers := modelPickerTestProviders()
+	pair := SwarmPair{ID: "pair-1", Name: "深度思考", LeadProvider: "codex", LeadModel: "o3-mini",
+		WorkerProvider: "claude", WorkerModel: "claude-3-7-sonnet"}
+	var applied SwarmPair
+	state := &ModelPickerState{MenuOpen: true}
+	props := ModelPickerProps{
+		Mode: ModelPickerSwarm, KeyPrefix: "pairs-", ScopeKey: "pairs-test", State: state,
+		Providers: providers, SwarmOn: true, Pairs: []SwarmPair{pair},
+		Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+		OnApplyPair: func(p SwarmPair) {
+			applied = p
+		},
+	}
+	state.setListOpen(props.ScopeKey, ModelPickerSideLead, true)
+	tt := ui.NewTester(func(c *ui.Context) { renderModelPickerListPage(c, props, state, ModelPickerSideLead) }, 330, 640)
+	settleModelPickerPage(tt)
+	if !tt.HasText("配对") || !tt.HasText("模型") {
+		t.Fatalf("主导侧列表应保留配对分组: %v", tt.Texts())
+	}
+	if err := tt.Click("深度思考"); err != nil {
+		t.Fatalf("点击配对失败：%v", err)
+	}
+	if applied.ID != "pair-1" {
+		t.Fatalf("配对未应用: %+v", applied)
+	}
+	if state.MenuOpen || state.listOpen(props.ScopeKey, ModelPickerSideLead) {
+		t.Fatal("应用配对后应关闭整个弹层")
+	}
+}
+
+// 列表行的模型名右侧带分组名；收藏（固定的）模型额外带一枚实心星。
+func TestModelPickerListRowShowsGroupNameAndPinStar(t *testing.T) {
+	providers := modelPickerTestProviders()
+	prov := providers[0]
+	pinned := ModelInfo{ID: "claude-3-7-sonnet", Name: "Claude 3.7 Sonnet"}
+	plain := ModelInfo{ID: "dewuopenai/deepseek-v4.1-flash", Name: "DeepSeek V4.1 Flash"}
+	props := ModelPickerProps{KeyPrefix: "row-pin-", Pins: []ModelPin{{Provider: "claude", ModelID: pinned.ID}}}
+
+	render := func(m ModelInfo) *ui.Tester {
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Column(c).Width(300).Background(modelPickerPanelBg).Children(func() {
+				renderModelPickerListRow(c, props, modelRowOptions{KeyPrefix: "lead-", Provider: prov, Model: m})
+			})
+		}, 320, 120)
+		tt.Frame()
+		return tt
+	}
+
+	pinnedTT := render(pinned)
+	if !pinnedTT.HasText("Claude 3.7 Sonnet") || !pinnedTT.HasText("claude") {
+		t.Fatalf("行内应同时显示模型名与分组名: %v", pinnedTT.Texts())
+	}
+	if _, ok := pinnedTT.Find("已收藏"); !ok {
+		t.Fatalf("收藏模型应显示星标: %v", pinnedTT.AccessAll())
+	}
+
+	plainTT := render(plain)
+	// 模型 ID 自带网关前缀时，右侧只显示斜杠前的分组名。
+	if plainTT.HasText("dewuopenai/deepseek-v4.1-flash") || !plainTT.HasText("dewuopenai") {
+		t.Fatalf("分组名应只取斜杠前的部分: %v", plainTT.Texts())
+	}
+	if _, ok := plainTT.Find("已收藏"); ok {
+		t.Fatalf("未收藏模型不应显示星标")
+	}
+}
+
+func TestModelPickerTabSwitchKeepsListOpen(t *testing.T) {
+	providers := modelPickerTestProviders()
+	state := &ModelPickerState{MenuOpen: true}
+	props := ModelPickerProps{
+		Mode: ModelPickerSwarm, KeyPrefix: "tab-keep-", ScopeKey: "tab-keep-test", State: state,
+		Providers: providers, SwarmOn: true,
+		Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+		Bees:      ModelSelection{Provider: "codex", Model: "o3-mini"},
+	}
+	state.setListOpen(props.ScopeKey, ModelPickerSideLead, true)
+	tt := ui.NewTester(func(c *ui.Context) { renderModelPickerMenuBody(c, props, state) }, 330, 640)
+	settleModelPickerPage(tt)
+	if !tt.HasText("Claude 3.7 Sonnet") {
+		t.Fatalf("主导侧列表未展开: %v", tt.Texts())
+	}
+	if err := tapTextErr(t, tt, "子代理"); err != nil {
+		t.Fatalf("点击子代理分段失败：%v", err)
+	}
+	if state.Tab != "bees" {
+		t.Fatalf("分段未切换: %q", state.Tab)
+	}
+	if !state.listOpen(props.ScopeKey, ModelPickerSideBees) || state.listOpen(props.ScopeKey, ModelPickerSideLead) {
+		t.Fatalf("切换分段后应留在列表页: bees=%v lead=%v",
+			state.listOpen(props.ScopeKey, ModelPickerSideBees), state.listOpen(props.ScopeKey, ModelPickerSideLead))
+	}
+	settleModelPickerPage(tt)
+	if !tt.HasText("o3-mini") {
+		t.Fatalf("切换分段后应直接看到执行侧模型: %v", tt.Texts())
+	}
+}
+
+func TestModelPickerBackButtonReturnsToEffortCard(t *testing.T) {
+	providers := modelPickerTestProviders()
+	state := &ModelPickerState{}
+	props := ModelPickerProps{
+		Mode: ModelPickerSwarm, KeyPrefix: "back-", ScopeKey: "back-test", State: state,
+		Providers: providers,
+		Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+	}
+	state.setListOpen(props.ScopeKey, ModelPickerSideLead, true)
+	tt := ui.NewTester(func(c *ui.Context) { renderModelPickerListPage(c, props, state, ModelPickerSideLead) }, 330, 640)
+	settleModelPickerPage(tt)
+	if err := tt.Click("返回"); err != nil {
+		t.Fatalf("点击返回失败：%v", err)
+	}
+	if state.listOpen(props.ScopeKey, ModelPickerSideLead) {
+		t.Fatal("返回后应关闭模型列表页")
+	}
+	if state.searchQuery != "" || state.activeAgent != "" {
+		t.Fatalf("返回后应清空查询与所选 Agent: %q %q", state.searchQuery, state.activeAgent)
+	}
+}
+
+// 主代理入口打开列表后点「子代理」：编排是异步开启的，浮层会在宿主重建时被当成外部点击关掉。
+// 开关生效后弹层要自己回到执行侧，否则用户第一次点击看起来只是把列表关掉了。
+func TestModelPickerReopensBeesAfterSwarmEnable(t *testing.T) {
+	testenv.TempHome(t)
+	providers := modelPickerTestProviders()
+	state := &ModelPickerState{}
+	var toggles []bool
+	props := ModelPickerProps{
+		Mode:          ModelPickerSwarm,
+		SwarmOn:       false,
+		KeyPrefix:     "t-reopen-",
+		ScopeKey:      "t-reopen",
+		State:         state,
+		Providers:     providers,
+		Selection:     ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+		Bees:          ModelSelection{Provider: "codex", Model: "o3-mini"},
+		CapsuleLabel:  "Sonnet 3.7",
+		OnToggleSwarm: func(on bool) { toggles = append(toggles, on) },
+	}
+	render := func() *ui.Tester {
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Column(c).Width(420).Children(func() {
+				renderModelPicker(c, props)
+				ui.Text(c, "列表关闭探针")
+			})
+		}, 460, 320)
+		tt.Frame()
+		return tt
+	}
+
+	tt := render()
+	if err := tt.Click("选择模型"); err != nil {
+		t.Fatalf("打开模型列表失败: %v", err)
+	}
+	settleModelPickerPage(tt)
+	if !state.MenuOpen || !tt.HasText("子代理") {
+		t.Fatalf("列表未打开: open=%v texts=%v", state.MenuOpen, tt.Texts())
+	}
+
+	if err := tapTextErr(t, tt, "子代理 · 关闭"); err != nil {
+		t.Fatalf("点击子代理失败: %v", err)
+	}
+	if len(toggles) != 1 || !toggles[0] {
+		t.Fatalf("点击执行侧应请求开启编排, got %v", toggles)
+	}
+	if !state.reopenAfterSwarm {
+		t.Fatalf("点击执行侧应记下等开关生效后回到执行侧的意图")
+	}
+
+	// 模拟异步开启过程中的宿主重建把浮层关掉。
+	state.MenuOpen = false
+	props.SwarmOn = true
+	render()
+	if !state.MenuOpen || state.Tab != "bees" {
+		t.Fatalf("开关生效后弹层应回到执行侧, open=%v tab=%q", state.MenuOpen, state.Tab)
+	}
+
+	// 意图只兑现一次：用户再关掉就不再自己弹回来。
+	state.MenuOpen = false
+	render()
+	if state.MenuOpen {
+		t.Fatalf("重新打开意图不应反复触发")
+	}
+}
+
+// 等太久还没开出编排就不再拉回弹层，避免用户已经去做别的事时面板突然弹出。
+func TestModelPickerSwarmReopenExpires(t *testing.T) {
+	testenv.TempHome(t)
+	providers := modelPickerTestProviders()
+	state := &ModelPickerState{MenuOpen: false, reopenAfterSwarm: true, reopenDeadline: time.Now().Add(-time.Second)}
+	props := ModelPickerProps{
+		Mode:         ModelPickerSwarm,
+		SwarmOn:      true,
+		KeyPrefix:    "t-reopen-expire-",
+		ScopeKey:     "t-reopen-expire",
+		State:        state,
+		Providers:    providers,
+		Selection:    ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+		Bees:         ModelSelection{Provider: "codex", Model: "o3-mini"},
+		CapsuleLabel: "Sonnet 3.7",
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Width(420).Children(func() {
+			renderModelPicker(c, props)
+			ui.Text(c, "列表关闭探针")
+		})
+	}, 460, 320)
+	tt.Frame()
+	if state.MenuOpen {
+		t.Fatalf("等待窗口过期后不应把弹层拉回来")
 	}
 }

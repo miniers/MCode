@@ -127,11 +127,10 @@ func TestSwarmTierModelFlyout(t *testing.T) {
 	picker := modelPickerStateFor("swarm-tier-model-capsule-tier-model-add")
 	picker.searchQuery = "stale"
 	picker.setListOpen("tier-model-add", ModelPickerSideLead, true)
-	setModelPanelMoreOpen("tier-model-add", "lead", true)
 	setModelPanelProviderMoreOpen("tier-model-add", "lead", "claude", true)
 	oldClosed := capture.closed[len(capture.closed)-1]
 	oldClosed()
-	if state.draft.Name != "保留草稿" || picker.MenuOpen || picker.searchQuery != "" || picker.listOpen("tier-model-add", ModelPickerSideLead) || isModelPanelMoreOpen("tier-model-add", "lead") || isModelPanelProviderMoreOpen("tier-model-add", "lead", "claude") {
+	if state.draft.Name != "保留草稿" || picker.MenuOpen || picker.searchQuery != "" || picker.listOpen("tier-model-add", ModelPickerSideLead) || isModelPanelProviderMoreOpen("tier-model-add", "lead", "claude") {
 		t.Fatal("外部关闭未保留草稿或清除状态")
 	}
 	editor.Frame()

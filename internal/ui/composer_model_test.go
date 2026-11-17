@@ -45,6 +45,13 @@ func tapTextErr(t *testing.T, tt *ui.Tester, text string) error {
 	return err
 }
 
+// settleModelPickerPage 推进时钟到换页入场动画结束：动画期间列表页对命中测试失效，
+// 等它落位再点击才点得到真正的行。
+func settleModelPickerPage(tt *ui.Tester) {
+	tt.Advance(time.Second)
+	tt.Frame()
+}
+
 // clickEffortSlider 点击推理强度滑轨上 frac（0~1）处：滑轨左右各留半个滑块宽度（40）的内边距，
 // 取值范围在其间线性映射，frac=0 为最低档、frac=1 为最高档。
 func clickEffortSlider(t *testing.T, tt *ui.Tester, frac float32) {
@@ -168,6 +175,11 @@ func TestComposerModel_SwitchToOtherAgent(t *testing.T) {
 	if err := tapTextErr(t, tt, "选择其他模型"); err != nil {
 		t.Fatal(err)
 	}
+	// 列表按 Agent 分栏：先点竖栏的 Codex，右侧才列出它的模型。
+	settleModelPickerPage(tt)
+	if err := tt.Click("Codex"); err != nil {
+		t.Fatalf("click Codex agent failed: %v", err)
+	}
 
 	// 展开后能看到 "o3-mini"
 	waitFor(t, tt, func() bool {
@@ -257,14 +269,16 @@ func TestComposerModel_HasMessagesCannotSwitchAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 出现禁用提示 "下回合生效"
-	waitFor(t, tt, func() bool {
-		return tt.HasText("下回合生效")
-	})
-
-	// 尝试点击其他 Agent 的模型 "o3-mini"
-	_ = tt.Click("o3-mini")
+	// 列表按 Agent 竖栏切换；当前 Agent 已有消息后其他 Agent 在竖栏里禁用，点击不会切换。
+	settleModelPickerPage(tt)
+	if info, ok := tt.Access("Codex"); !ok || !info.Disabled {
+		t.Fatalf("已有消息时其他 Agent 应在竖栏禁用: %+v, %v", info, ok)
+	}
+	_ = tt.Click("Codex")
 	tt.Frame()
+	if !tt.HasText("Claude 3.7 Sonnet") {
+		t.Fatalf("点击被禁用的 Agent 不应切换列表")
+	}
 
 	// 验证假 Client 没有收到对 codex 的调用
 	fake.mu.Lock()
@@ -323,6 +337,7 @@ func TestComposerModel_SwitchWithinSameAgent(t *testing.T) {
 	}
 
 	// 展开后看到 "Claude 3.5 Haiku"
+	settleModelPickerPage(tt)
 	waitFor(t, tt, func() bool {
 		return tt.HasText("Claude 3.5 Haiku")
 	})
@@ -474,9 +489,17 @@ func TestComposerModel_BeesModel(t *testing.T) {
 	// 点击顶部“执行”分段进入执行侧卡片
 	tapText(t, tt, "子代理 · Medium")
 	tapText(t, tt, "选择其他模型")
-	waitFor(t, tt, func() bool {
-		return tt.HasText("跟随主导") && tt.HasText("o3-mini")
-	})
+	if !waitText(t, tt, "跟随主导模型") {
+		t.Fatalf("bees list should offer follow-lead")
+	}
+	// 执行侧列表按 Agent 分栏：切到 Codex 才能看到它的模型。
+	settleModelPickerPage(tt)
+	if err := tt.Click("Codex"); err != nil {
+		t.Fatalf("click Codex agent failed: %v", err)
+	}
+	if !waitText(t, tt, "o3-mini") {
+		t.Fatalf("codex models not listed")
+	}
 	if tt.HasText("已开始的会话不能切换 Agent") || tt.HasText("下回合生效") {
 		t.Fatalf("bees section should not restrict agent switching")
 	}

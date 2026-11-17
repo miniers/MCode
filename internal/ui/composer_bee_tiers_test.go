@@ -179,6 +179,7 @@ func TestComposerBeeTiers_RenderAndPick(t *testing.T) {
 	if err := tt.Click("选择其他模型"); err != nil {
 		t.Fatal(err)
 	}
+	settleModelPickerPage(tt)
 
 	// 1. 验证档位与徽章正常渲染
 	waitFor(t, tt, func() bool {
@@ -186,14 +187,18 @@ func TestComposerBeeTiers_RenderAndPick(t *testing.T) {
 	})
 
 	// 2. 点击「只读」档位行，进入该档位编辑状态，展示 Banner 行与取消按钮
-	if err := tt.Click("只读"); err != nil {
+	if err := tapTextErr(t, tt, "只读"); err != nil {
 		t.Fatalf("click 只读 tier row failed: %v", err)
 	}
-	waitFor(t, tt, func() bool {
-		return tt.HasText("正在为「只读」档选择模型") && tt.HasText("取消")
-	})
+	if !tt.HasText("正在为「只读」档选择模型") {
+		t.Fatalf("档位编辑 Banner 未出现: %v", tt.Texts())
+	}
 
-	// 3. 点击模型 "o3-mini"，应触发 OnSetTierOverride 并异步调用 SetThreadBeeTiers
+	// 3. 切到有 o3-mini 的 Codex 竖栏项，点击模型应触发 OnSetTierOverride 并异步调用 SetThreadBeeTiers
+	if err := tt.Click("Codex"); err != nil {
+		t.Fatalf("click Codex agent failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("o3-mini") })
 	if err := tt.Click("o3-mini"); err != nil {
 		t.Fatalf("click o3-mini failed: %v", err)
 	}
@@ -211,7 +216,7 @@ func TestComposerBeeTiers_RenderAndPick(t *testing.T) {
 		return exists && ov.Provider == "codex" && ov.Model == "o3-mini"
 	})
 
-	// 4. 点击「全部恢复」按钮，下发空字符串清空会话档位覆盖
+	// 4. 会话已有档位覆盖，档位分组底部出现「全部恢复」：点击下发空字符串清空覆盖。
 	waitFor(t, tt, func() bool {
 		return tt.HasText("全部恢复")
 	})
@@ -294,6 +299,7 @@ func TestComposerBeeTiers_SingleTierReset(t *testing.T) {
 	if err := tt.Click("选择其他模型"); err != nil {
 		t.Fatal(err)
 	}
+	settleModelPickerPage(tt)
 	waitFor(t, tt, func() bool {
 		return tt.HasText("恢复")
 	})

@@ -44,8 +44,6 @@ func swarmTierModelProps(st *SettingsState, state *swarmTiersUIState, key string
 func resetSwarmTierModelPicker(key string) {
 	scope := "tier-model-" + key
 	modelPickerStateFor("swarm-tier-model-capsule-" + scope).Reset()
-	clearModelPanelMoreOpen(scope, "lead")
-	clearModelPanelMoreOpen(scope, "bees")
 	modelPanelProviderMoreMu.Lock()
 	for key := range modelPanelProviderMore {
 		if strings.HasPrefix(key, scope+"/") {

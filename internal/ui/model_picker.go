@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -58,12 +59,18 @@ type ModelPickerState struct {
 	ListOpen    map[string]bool // 二级模型列表页展开状态，key 为 ScopeKey+"/"+side
 	MaxBeesOpen bool            // 并发 Bee 上限下拉菜单展开状态
 	TierEditing string          // 正在为其选择模型的档位 ID，空表示未编辑档位
+	activeAgent string          // 模型列表页竖栏选中的 Agent；空表示跟随当前模型所属 Agent
 	searchQuery string          // 列表页搜索框内容，按名称筛选模型
 
 	// pageDepth 是上一帧渲染的二级页深度（0 强度卡片、1 模型列表、2 更多模型），
 	// pageDir 是最近一次换页的方向（1 进入、-1 返回）；两者共同驱动换页的滑入淡入动画。
 	pageDepth int
 	pageDir   float32
+
+	// reopenAfterSwarm 记录「点了执行段、编排还在异步开启」：开关生效后要把弹层拉回来并停在执行侧，
+	// 否则宿主重建造成的浮层关闭会被当成用户主动关闭，第一次点击看起来就是列表自己关掉了。
+	reopenAfterSwarm bool
+	reopenDeadline   time.Time
 }
 
 // Reset 清空全部选择器展开、分段与临时编辑状态。
@@ -76,9 +83,12 @@ func (st *ModelPickerState) Reset() {
 	st.ListOpen = nil
 	st.MaxBeesOpen = false
 	st.TierEditing = ""
+	st.activeAgent = ""
 	st.searchQuery = ""
 	st.pageDepth = 0
 	st.pageDir = 0
+	st.reopenAfterSwarm = false
+	st.reopenDeadline = time.Time{}
 }
 
 // ModelPickerProps 定义模型选择组件的入参。
@@ -177,7 +187,6 @@ func modelPickerSideKey(side ModelPickerSide) string {
 	return "lead"
 }
 
-// listOpen 判断指定侧别的二级模型列表页是否展开。
 func (st *ModelPickerState) listOpen(scopeKey string, side ModelPickerSide) bool {
 	if st == nil || st.ListOpen == nil {
 		return false
@@ -250,35 +259,7 @@ const (
 	modelCapsuleLineGap        = Space0
 )
 
-// 二级“更多模型”列表页的展开状态（key: ScopeKey+"/"+side）。
-var (
-	modelPanelMoreOpenMu sync.Mutex
-	modelPanelMoreOpen   = make(map[string]bool)
-)
-
-func isModelPanelMoreOpen(scopeKey, side string) bool {
-	modelPanelMoreOpenMu.Lock()
-	defer modelPanelMoreOpenMu.Unlock()
-	return modelPanelMoreOpen[scopeKey+"/"+side]
-}
-
-func setModelPanelMoreOpen(scopeKey, side string, open bool) {
-	modelPanelMoreOpenMu.Lock()
-	defer modelPanelMoreOpenMu.Unlock()
-	if open {
-		modelPanelMoreOpen[scopeKey+"/"+side] = true
-	} else {
-		delete(modelPanelMoreOpen, scopeKey+"/"+side)
-	}
-}
-
-func clearModelPanelMoreOpen(scopeKey, side string) {
-	modelPanelMoreOpenMu.Lock()
-	defer modelPanelMoreOpenMu.Unlock()
-	delete(modelPanelMoreOpen, scopeKey+"/"+side)
-}
-
-// 二级“更多模型”列表里各 provider 分组的次要模型展开状态（key: ScopeKey+"/"+side+"/"+providerID）。
+// 模型列表里各 provider 分组的次要模型展开状态（key: ScopeKey+"/"+side+"/"+providerID）。
 var (
 	modelPanelProviderMoreMu sync.Mutex
 	modelPanelProviderMore   = make(map[string]bool)
@@ -921,6 +902,13 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 		renderModelPickerCard(c, p, state, ModelPickerSideLead)
 		return
 	}
+	// 点执行段会异步开启编排：开关生效前宿主已重建，浮层那次关闭会被当成用户主动关掉面板。
+	// 开关一到就把弹层拉回来并停在执行侧，这一次点击才算真正落在「子代理」上。
+	if state.reopenAfterSwarm && p.SwarmOn && time.Now().Before(state.reopenDeadline) {
+		state.reopenAfterSwarm = false
+		state.MenuOpen = true
+		state.Tab = "bees"
+	}
 
 	lead := modelPickerSideInfo(p, ModelPickerSideLead)
 	bees := modelPickerSideInfo(p, ModelPickerSideBees)
@@ -958,8 +946,6 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 			state.pageDepth = 0
 			state.pageDir = 0
 		}
-		clearModelPanelMoreOpen(p.ScopeKey, "lead")
-		clearModelPanelMoreOpen(p.ScopeKey, "bees")
 	}
 
 	// 触发按钮的无障碍名：调用方传了 TriggerLabel 就原样使用（如“选择主导模型”），
@@ -996,14 +982,15 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 
 			trigger.OnClick(func() {
 				state.MenuOpen = !state.MenuOpen
+				// 用户自己动手开关弹层：此前的「等编排生效再拉回弹层」意图作废。
+				state.reopenAfterSwarm = false
+				state.reopenDeadline = time.Time{}
 				if state.MenuOpen {
 					// 打开那一刻快照胶囊文案（展开宽度锁定），子代理短名同开同关。
 					setModelCapsuleSnapshot(p.ScopeKey, p.CapsuleLabel)
 					setModelCapsuleSnapshot(p.ScopeKey+modelCapsuleBeeSnapshotSuffix, beeLabel)
 					state.setListOpen(p.ScopeKey, ModelPickerSideLead, false)
 					state.setListOpen(p.ScopeKey, ModelPickerSideBees, false)
-					clearModelPanelMoreOpen(p.ScopeKey, "lead")
-					clearModelPanelMoreOpen(p.ScopeKey, "bees")
 					state.TierEditing = ""
 					state.Tab = ""
 				} else {
@@ -1012,8 +999,6 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 					state.Tab = ""
 					state.setListOpen(p.ScopeKey, ModelPickerSideLead, false)
 					state.setListOpen(p.ScopeKey, ModelPickerSideBees, false)
-					clearModelPanelMoreOpen(p.ScopeKey, "lead")
-					clearModelPanelMoreOpen(p.ScopeKey, "bees")
 				}
 				modelPickerInvalidate(p)
 			})
@@ -1232,8 +1217,18 @@ var (
 // modelPickerPanelRadius 是模型选择面板的圆角：面板宽 330、内容成组，取比浮层常规圆角更大的一档。
 const modelPickerPanelRadius = float32(22)
 
-// modelPickerRowHeight 是模型列表两行内容（名称 + 说明）的行高。
-const modelPickerRowHeight = float32(46)
+// modelPickerSwarmReopenWindow 是「点执行段后等编排开关生效」的时间窗：超过这段时间还没开成，
+// 不再把弹层拉回来，避免用户已经去做别的事时面板突然弹出。
+const modelPickerSwarmReopenWindow = 5 * time.Second
+
+// modelPickerRowHeight 是模型列表单行（只有模型名）的行高，与列表常规行高一致。
+const modelPickerRowHeight = float32(34)
+
+// modelPickerRowHeightTwoLine 是模型列表两行内容（名称 + 说明）的行高。
+const modelPickerRowHeightTwoLine = float32(46)
+
+// modelPickerAgentButtonSize 是竖栏里每个 Agent 按钮的边长。
+const modelPickerAgentButtonSize = float32(32)
 
 // modelPickerBeeLineHeight 是模型胶囊里子代理行的行高：11pt 字号的子代理名留出余量，
 // 与上行 IconSM、行距 Space0 相加正好等于发送按钮的 ControlMD。
@@ -1265,8 +1260,8 @@ func renderModelPickerMenuBody(c *ui.Context, p ModelPickerProps, state *ModelPi
 
 		depth := modelPickerPageDepth(p, state, side)
 		if depth > 0 {
+			// 换页过渡由列表页自己的容器负责，这里只给内边距，避免同一页动画挂在两层上。
 			wrap := ui.Box(c.Key(p.KeyPrefix + "model-list-wrap")).Padding(Space2)
-			modelPickerPageTransition(c, wrap, state, depth)
 			wrap.Children(func() { renderModelPickerListPage(c, p, state, side) })
 			return
 		}
@@ -1341,9 +1336,19 @@ func renderModelPickerSideTabs(c *ui.Context, p ModelPickerProps, state *ModelPi
 				Basis(0).
 				Center().
 				OnClick(func() {
+					// 列表页展开时切换分段要留在列表页：把展开状态一并带到目标分段，
+					// 否则第一次点击只是把列表关掉，要再点一次才回到列表。
+					if state.listOpen(p.ScopeKey, modelPickerSideFromTab(state.Tab)) {
+						state.setListOpen(p.ScopeKey, modelPickerSideFromTab(state.Tab), false)
+						state.setListOpen(p.ScopeKey, modelPickerSideFromTab(item.id), true)
+						state.activeAgent = ""
+					}
 					state.Tab = item.id
 					state.TierEditing = ""
 					if item.id == "bees" && !p.SwarmOn && p.OnToggleSwarm != nil {
+						// 开启编排是异步的，宿主重建会让浮层关闭；记下意图，开关生效时把弹层拉回来。
+						state.reopenAfterSwarm = true
+						state.reopenDeadline = time.Now().Add(modelPickerSwarmReopenWindow)
 						p.OnToggleSwarm(true)
 					}
 					modelPickerInvalidate(p)
@@ -1410,7 +1415,6 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 	if !p.Inline {
 		onOpenModelList = func() {
 			state.setListOpen(p.ScopeKey, side, true)
-			clearModelPanelMoreOpen(p.ScopeKey, modelPickerSideKey(side))
 			modelPickerInvalidate(p)
 		}
 	}
@@ -1470,8 +1474,6 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 	renderEffortSliderCard(c, props)
 }
 
-// effortCardLockedReason 返回某一侧卡片被禁用时给用户看的说明；未禁用时返回空串。
-// 判定条件与 renderModelPickerCard 中的 disabled 保持一致。
 func effortCardLockedReason(p ModelPickerProps, side ModelPickerSide) string {
 	sideDisabled := p.LeadDisabled
 	if side == ModelPickerSideBees {
@@ -1592,52 +1594,6 @@ func renderModelPickerMaxBeesCapsule(c *ui.Context, p ModelPickerProps, state *M
 	})
 }
 
-// renderModelPickerFollowLeadRow 渲染 Bees 模型选择列表顶部的“跟随主导模型”选项行（步骤 9）。
-func renderModelPickerFollowLeadRow(c *ui.Context, p ModelPickerProps, state *ModelPickerState, isSelected bool) {
-	row := ui.ButtonBase(c.Key(p.KeyPrefix+"bees-follow-lead-row")).
-		Label("跟随主导模型").
-		Tooltip("跟随主导模型").
-		Height(modelPickerRowHeight).
-		Padding(0, Space3).
-		Radius(RadiusMD).
-		Grow(1)
-	if p.Disabled || p.BeesDisabled {
-		row.Disabled(true).
-			Tooltip(modelSideDisabledReason(p.Disabled, p.BeesDisabled))
-	}
-	if row.Hovered() {
-		row.Background(ColorHoverDark)
-	} else {
-		row.Background(ui.Transparent)
-	}
-	row.OnClick(func() {
-		state.setListOpen(p.ScopeKey, ModelPickerSideBees, false)
-		clearModelPanelMoreOpen(p.ScopeKey, modelPickerSideKey(ModelPickerSideBees))
-		if p.OnFollowLead != nil {
-			p.OnFollowLead()
-		}
-		modelPickerInvalidate(p)
-	})
-	row.Children(func() {
-		ui.Row(c.Key(p.KeyPrefix + "bees-follow-lead-content")).
-			AlignItems(ui.Center).
-			Gap(Space3).
-			Grow(1).
-			Children(func() {
-				ui.Text(c, "跟随主导模型").
-					FontSize(uiFont(TypeProse)).
-					TextColor(modelPickerTextPrimary).
-					SingleLine().
-					Grow(1)
-				if isSelected {
-					ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(modelPickerTextPrimary)
-				} else {
-					ui.Box(c.Key(p.KeyPrefix+"bees-follow-lead-check-placeholder")).Size(IconSM, IconSM)
-				}
-			})
-	})
-}
-
 // effectiveTierModel 按 session override > pair override > global tier 的优先级解析档位最终模型配置。
 // 当所有层级均未指定 Model 时返回空字符串，调用方据此回退至跟随会话 Bee 模型。
 func effectiveTierModel(tier config.SwarmTier, pairOverrides, sessionOverrides map[string]config.SwarmTierOverride) (provider, model, effort string, fast bool) {
@@ -1730,10 +1686,6 @@ func renderTierEditingBanner(c *ui.Context, p ModelPickerProps, state *ModelPick
 
 func renderModelPickerTiersSection(c *ui.Context, p ModelPickerProps, state *ModelPickerState) {
 	renderProviderGroupHeader(c, p.KeyPrefix+"tier-group-header", "档位")
-
-	if state != nil && state.TierEditing != "" {
-		renderTierEditingBanner(c, p, state)
-	}
 
 	for _, t := range p.Tiers {
 		tier := t
@@ -1863,285 +1815,6 @@ func renderModelPickerTiersSection(c *ui.Context, p ModelPickerProps, state *Mod
 		})
 }
 
-// renderModelPickerListPage 渲染模型列表选择页（步骤 2~8：一级精选模型平铺，二级更多模型按 provider 分组）。
-func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPickerState, side ModelPickerSide) {
-	scopeKey := p.ScopeKey
-	sideKey := modelPickerSideKey(side)
-	isMoreOpen := isModelPanelMoreOpen(scopeKey, sideKey)
-	// 分组保留当前会话正在使用的供应商，精选仅显示已启用供应商的模型。
-	// 只影响展示，配置里的 ModelList 不做任何改动。
-	disabledProviders := modelPickerDisabledProviders(p, p.Selection.Provider, p.Bees.Provider)
-	providers := p.Providers
-	if len(disabledProviders) > 0 {
-		providers = filterProvidersByEnabled(providers, disabledProviders)
-	}
-	providers = filterModelPickerMagpie(providers, p.MagpieFilter)
-	pinned := modelPickerPinnedEntries(p.Pins, filterProvidersByEnabled(providers, p.ProviderEnabled))
-	if isMoreOpen && len(pinned) == 0 {
-		setModelPanelMoreOpen(scopeKey, sideKey, false)
-		isMoreOpen = false
-	}
-	// state 为 nil 时沿用包内按 key 复用的状态，避免搜索框绑定空指针。
-	if state == nil {
-		state = modelPickerStateFor(p.KeyPrefix + p.ScopeKey)
-	}
-	query := state.searchQuery
-	searching := strings.TrimSpace(query) != ""
-	// 有搜索词时强制按 Agent 分组展示，让一级精选页也能搜到全部 provider 的模型。
-	showGrouped := isMoreOpen || len(pinned) == 0 || searching
-
-	pageTitle := "选择模型"
-	if isMoreOpen {
-		pageTitle = "更多模型"
-	}
-
-	onBack := func() {
-		if isMoreOpen {
-			setModelPanelMoreOpen(scopeKey, sideKey, false)
-		} else {
-			state.setListOpen(scopeKey, side, false)
-			clearModelPanelMoreOpen(scopeKey, sideKey)
-		}
-		if state != nil {
-			state.TierEditing = ""
-			// 返回后下次打开不残留旧查询。
-			state.searchQuery = ""
-		}
-		modelPickerInvalidate(p)
-	}
-
-	onPick := func(prov ProviderInfo, m ModelInfo) {
-		// 偏好保存期间模型列表整体不可选，给出原因而不是静默忽略点击。
-		if effortCardLockedReason(p, side) != "" {
-			return
-		}
-		if side == ModelPickerSideBees && state != nil && state.TierEditing != "" {
-			tierID := state.TierEditing
-			state.TierEditing = ""
-			state.searchQuery = ""
-			if isMoreOpen {
-				setModelPanelMoreOpen(scopeKey, sideKey, false)
-			}
-			if p.OnSetTierOverride != nil {
-				p.OnSetTierOverride(tierID, &config.SwarmTierOverride{
-					Provider: prov.ID,
-					Model:    m.ID,
-				})
-			}
-			modelPickerInvalidate(p)
-			return
-		}
-		state.setListOpen(scopeKey, side, false)
-		clearModelPanelMoreOpen(scopeKey, sideKey)
-		// 选中后清空查询，下次打开列表不残留旧搜索。
-		state.searchQuery = ""
-		if p.OnPickModel != nil {
-			p.OnPickModel(side, prov, m)
-		}
-	}
-
-	onEffort := func() {
-		state.setListOpen(scopeKey, side, false)
-		modelPickerInvalidate(p)
-	}
-
-	lead := modelPickerSideInfo(p, ModelPickerSideLead)
-	bees := modelPickerSideInfo(p, ModelPickerSideBees)
-
-	ui.Column(c.Key(p.KeyPrefix + "model-list-page")).
-		FillWidth().
-		Children(func() {
-			// 步骤 2 列表头：ui.Row，Gap 6，Padding 上 8、右 8、下 4、左 8
-			ui.Row(c.Key(p.KeyPrefix+"model-list-header")).
-				Gap(Space2).
-				Padding(Space3, Space3, Space1, Space3).
-				AlignItems(ui.Center).
-				FillWidth().
-				Children(func() {
-					backBtn := ui.ButtonBase(c.Key(p.KeyPrefix+"model-list-back-btn")).
-						Label("返回").
-						Tooltip("返回").
-						Size(20, 20).
-						Radius(RadiusXS).
-						Center().
-						Background(ui.Transparent)
-					backBtn.OnClick(onBack)
-					backBtn.Children(func() {
-						ui.Icon(c, iconChevronLeft).
-							Size(12, 12).
-							TextColor(modelPickerTextSecondary)
-					})
-
-					ui.Text(c, pageTitle).
-						FontSize(uiFont(TypeBody)).
-						TextColor(modelPickerTextSecondary)
-					if side == ModelPickerSideBees && p.Mode == ModelPickerSwarm {
-						ui.Spacer(c)
-						renderModelPickerMaxBeesCapsule(c, p, state)
-					}
-				})
-
-			ui.Box(c.Key(p.KeyPrefix+"model-list-search-wrap")).Margin(0, Space3, Space2, Space3).FillWidth().Children(func() {
-				SearchField(c, TextFieldProps{Key: p.KeyPrefix + "model-list-search", Value: &state.searchQuery, Label: "model-list-search-input", Placeholder: "搜索模型", FillWidth: true, AutoFocus: true, OnChange: func(string) { modelPickerInvalidate(p) }})
-			})
-
-			var list ui.Element
-			if isAppFlyoutServices(c.Services()) && p.NativeMenu == nil {
-				list = ui.Column(c.Key(p.KeyPrefix + "model-list-scroll"))
-			} else {
-				list = ui.Scroll(c.Key(p.KeyPrefix+"model-list-scroll")).MaxHeight(440).ScrollbarInsets(4, 0, 4, 0)
-			}
-			list.FillWidth().Children(func() {
-				ui.Column(c.Key(p.KeyPrefix + "model-list-items")).
-					Gap(Space0).
-					FillWidth().
-					Children(func() {
-						// C-HY-19：Lead 段列表顶部展示就绪的 Swarm 配对模板，点击一键套用并关闭整个弹层。
-						// 搜索时只列匹配的模型，不展示配对段。
-						// Simple 模式传了 OnApplyPair 时同样列出配对，选中项直接认 PairID。
-						if (p.Mode == ModelPickerSwarm || p.OnApplyPair != nil) && side == ModelPickerSideLead && len(p.Pairs) > 0 && !searching {
-							curPair, hasCurPair := SwarmPair{}, false
-							if p.Mode != ModelPickerSwarm {
-								curPair, hasCurPair = SwarmPair{ID: p.PairID}, p.PairID != ""
-							} else if p.SwarmOn {
-								curPair, hasCurPair = currentSwarmPairFor(p.Pairs, p.PairID, lead.Selection.Provider, lead.Selection.Model, p.Bees.Provider, p.Bees.Model)
-							}
-							renderProviderGroupHeader(c, p.KeyPrefix+"pair-group-header", "配对")
-							for idx, pair := range p.Pairs {
-								pair := pair
-								selected := hasCurPair && curPair.ID == pair.ID
-								onEnter := func() {
-									// 应用配对后关闭整个弹层。
-									state.Reset()
-									clearModelPanelMoreOpen(scopeKey, "lead")
-									clearModelPanelMoreOpen(scopeKey, "bees")
-									clearModelCapsuleSnapshot(scopeKey)
-									if p.OnApplyPair != nil {
-										p.OnApplyPair(pair)
-									}
-								}
-								renderModelListPairRow(c, p, fmt.Sprintf("%spair-row-%d", p.KeyPrefix, idx), pair, selected, onEnter)
-							}
-							renderProviderGroupHeader(c, p.KeyPrefix+"pair-models-header", "模型")
-						}
-
-						if isMoreOpen && !searching && side == ModelPickerSideBees && state != nil && state.TierEditing != "" {
-							renderTierEditingBanner(c, p, state)
-						}
-
-						if showGrouped {
-							// 搜索时不展示档位段与跟随主导行，只列匹配的模型。
-							if !isMoreOpen && !searching && side == ModelPickerSideBees {
-								if len(p.Tiers) > 0 {
-									renderModelPickerTiersSection(c, p, state)
-								}
-								renderModelPickerFollowLeadRow(c, p, state, bees.FollowsLead)
-							}
-							// 二级页或无 pin 模型时的一级页：按 provider 分组
-							rendered := false
-							if side == ModelPickerSideBees {
-								rendered = renderModelList(c, p, "bees-more-", sideKey, providers, query,
-									func(prov ProviderInfo, mIdx int, m ModelInfo) bool {
-										return prov.ID == p.Bees.Provider && modelMatches(prov.Models, p.Bees.Model, mIdx, m)
-									},
-									func(ProviderInfo) bool { return false },
-									onPick, onEffort)
-							} else {
-								rendered = renderModelList(c, p, "lead-more-", sideKey, providers, query,
-									func(prov ProviderInfo, mIdx int, m ModelInfo) bool {
-										return prov.ID == lead.Selection.Provider && modelMatches(prov.Models, lead.Selection.Model, mIdx, m)
-									},
-									func(prov ProviderInfo) bool { return p.HasMessages && prov.ID != lead.Selection.Provider },
-									onPick, onEffort)
-							}
-							if searching && !rendered {
-								ui.Text(c, "没有匹配的模型").
-									FontSize(uiFont(TypeFootnote)).
-									TextColor(modelPickerTextSecondary).
-									Padding(Space2, Space3, Space1, Space3)
-							}
-						} else {
-							// 一级页（有 pin 模型）：平铺展示 pin 的模型
-							if side == ModelPickerSideBees {
-								if len(p.Tiers) > 0 {
-									renderModelPickerTiersSection(c, p, state)
-								}
-								renderModelPickerFollowLeadRow(c, p, state, bees.FollowsLead)
-							}
-
-							seenQuotaProvider := make(map[string]bool)
-
-							prefix := "lead-featured-"
-							if side == ModelPickerSideBees {
-								prefix = "bees-featured-"
-							}
-
-							for _, entry := range pinned {
-								prov := entry.Provider
-								modelItem := entry.Model
-
-								isChecked := false
-								isLocked := false
-								lockedReason := ""
-								if side == ModelPickerSideBees {
-									isChecked = (p.Bees.Provider != "" && prov.ID == p.Bees.Provider && modelItem.ID == p.Bees.Model)
-								} else {
-									isChecked = (prov.ID == lead.Selection.Provider && (modelItem.ID == lead.Selection.Model || (lead.Selection.Model == "" && modelItem.IsDefault)))
-									isLocked = (p.HasMessages && prov.ID != lead.Selection.Provider)
-									if isLocked {
-										lockedReason = "已有消息后只能切换到当前 Agent 的模型"
-									}
-								}
-								if reason := effortCardLockedReason(p, side); reason != "" {
-									isLocked = true
-									lockedReason = reason
-								}
-
-								showQuota := !seenQuotaProvider[prov.ID]
-								if showQuota {
-									seenQuotaProvider[prov.ID] = true
-								}
-
-								renderModelRow(c, p, modelRowOptions{
-									KeyPrefix:    prefix,
-									Provider:     prov,
-									Model:        modelItem,
-									IsChecked:    isChecked,
-									IsLocked:     isLocked,
-									LockedReason: lockedReason,
-									ShowSubtitle: true, // 一级页每行带 provider 副标题
-									SubtitleText: prov.Name,
-									ShowQuota:    showQuota,
-									OnPick:       onPick,
-									OnEffort:     onEffort,
-								})
-							}
-
-							// 一级页末尾：“更多模型…”行（步骤 7）
-							renderMoreModelsRow(c, p, prefix, func() {
-								setModelPanelMoreOpen(scopeKey, sideKey, true)
-								modelPickerInvalidate(p)
-							})
-						}
-					})
-			})
-		})
-}
-
-type modelRowOptions struct {
-	KeyPrefix    string
-	Provider     ProviderInfo
-	Model        ModelInfo
-	IsChecked    bool
-	IsLocked     bool
-	LockedReason string // 行被禁用时 Tooltip 显示的说明；为空时按锁定语义给默认文案
-	ShowSubtitle bool
-	SubtitleText string
-	ShowQuota    bool
-	OnPick       func(prov ProviderInfo, m ModelInfo)
-	OnEffort     func()
-}
-
 func defaultModelRowDisplayName(prov ProviderInfo, m ModelInfo) string {
 	name := m.Name
 	if name == "" {
@@ -2156,12 +1829,6 @@ func defaultModelRowDisplayName(prov ProviderInfo, m ModelInfo) string {
 	return name
 }
 
-// renderModelRow 渲染单个模型行（步骤 4）。
-// ui.ButtonBase，左右 Padding 10，Radius 9。只在 Hovered 时背景为 ColorHoverDark（固定深色面上的淡色悬停底）。
-// 行高：有副标题 46，单行 34。内容 Row Gap 10：左侧宽 18 图标盒，居中 renderProviderIcon(c, providerID, 14)；
-// 中间 Column Gap 1 Grow 1：主标题 14px ThemePrimaryText 单行截断，副标题 12px ThemeSecondaryText 单行截断；
-// 右侧依次：配额文字、SupportsFast 10px zap 图标、最右边对勾（13px 纯白，未选中放 13x13 占位）。
-// 锁定状态：透明度 0.45、Disabled，副标题换成“下回合生效”。
 func renderModelRow(c *ui.Context, p ModelPickerProps, opt modelRowOptions) {
 	prov := opt.Provider
 	modelItem := opt.Model
@@ -2174,7 +1841,6 @@ func renderModelRow(c *ui.Context, p ModelPickerProps, opt modelRowOptions) {
 	if modelDisplayName == "" {
 		modelDisplayName = "默认模型"
 	}
-	// 默认行显示实际解析出的模型名。
 	if modelItem.IsDefault {
 		modelDisplayName = defaultModelRowDisplayName(prov, modelItem)
 	}
@@ -2257,8 +1923,6 @@ func renderModelRow(c *ui.Context, p ModelPickerProps, opt modelRowOptions) {
 								TextColor(modelPickerTextSecondary).SingleLine().Ellipsis("…")
 						}
 					})
-
-				// 右侧依次是：配额文字、SupportsFast zap 图标、最右边的对勾
 				if opt.ShowQuota && p.QuotaUsed != nil {
 					if usedPercent, ok := p.QuotaUsed(prov.ID); ok {
 						clamped := math.Max(0, math.Min(100, usedPercent))
@@ -2275,43 +1939,7 @@ func renderModelRow(c *ui.Context, p ModelPickerProps, opt modelRowOptions) {
 						TextColor(modelPickerTextSecondary)
 				}
 
-				if opt.IsChecked && p.OnReset != nil {
-					side := ModelPickerSideLead
-					if strings.HasPrefix(opt.KeyPrefix, "bees-") {
-						side = ModelPickerSideBees
-					}
-					btn := ui.ButtonBase(c.Key(rowKey+"-reset")).Label("重置").Size(ControlXS, ControlXS).Shrink(0).Center().Disabled(opt.IsLocked || effortCardLockedReason(p, side) != "")
-					btn.OnClick(func() { p.OnReset(side); modelPickerInvalidate(p) })
-					btn.Children(func() { ui.Icon(c, iconRotateCcw).Size(10, 10).TextColor(modelPickerTextSecondary) })
-				}
-				if opt.IsChecked && modelItem.SupportsFast && p.OnToggleFast != nil {
-					side := ModelPickerSideLead
-					if strings.HasPrefix(opt.KeyPrefix, "bees-") {
-						side = ModelPickerSideBees
-					}
-					btn := ui.ButtonBase(c.Key(rowKey+"-fast")).Label("快速模式").Size(ControlXS, ControlXS).Shrink(0).Center().Disabled(opt.IsLocked || effortCardLockedReason(p, side) != "")
-					btn.OnClick(func() { p.OnToggleFast(side); modelPickerInvalidate(p) })
-					btn.Children(func() { ui.Icon(c, IconByName("zap")).Size(10, 10).TextColor(modelPickerTextSecondary) })
-				}
-				if opt.IsChecked && p.OnEffort != nil {
-					side := ModelPickerSideLead
-					if strings.HasPrefix(opt.KeyPrefix, "bees-") {
-						side = ModelPickerSideBees
-					}
-					label := "推理强度"
-					if len(modelItem.Efforts) > 0 {
-						current := modelPickerSideInfo(p, side)
-						idx := effortIndex(modelItem.Efforts, current.Selection.Effort, modelItem.DefaultEffort)
-						label = "推理强度 " + effortLabel(modelItem.Efforts[idx])
-					}
-					btn := ui.ButtonBase(c.Key(rowKey+"-effort")).Label(label).Padding(Space1, Space2).Radius(RadiusSM).Shrink(0).Disabled(opt.IsLocked || effortCardLockedReason(p, side) != "")
-					btn.OnClick(func() {
-						if opt.OnEffort != nil {
-							opt.OnEffort()
-						}
-					})
-					btn.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(modelPickerTextSecondary) })
-				}
+				// 行内不再就地显示推理强度/快速模式/重置：这些档位信息只在强度卡片里出现。
 				if opt.IsChecked {
 					ui.Icon(c, IconCheck()).
 						Size(13, 13).
@@ -2396,7 +2024,7 @@ func renderModelListPairRow(c *ui.Context, p ModelPickerProps, key string, pair 
 		Label(title).
 		Tooltip(swarmPairTooltip(pair, "", p.Providers)).
 		Checked(selected).
-		Height(modelPickerRowHeight).
+		Height(modelPickerRowHeightTwoLine).
 		Padding(0, Space3).
 		Radius(RadiusMD).
 		Grow(1)
@@ -2469,13 +2097,7 @@ func swarmPairListDetail(pair SwarmPair, providers []ProviderInfo) string {
 	return strings.Join(parts, " · ")
 }
 
-// renderMoreModelsRow 渲染一级模型列表底部的“更多模型…”行（步骤 7）。
-func renderMoreModelsRow(c *ui.Context, p ModelPickerProps, keyPrefix string, onClick func()) {
-	renderMoreModelsRowLabeled(c, p, keyPrefix, "更多模型…", onClick)
-}
-
-// renderMoreModelsRowLabeled 与 renderMoreModelsRow 外观一致，label 决定文案：
-// 一级页是“更多模型…”，provider 分组底部是“更多模型（N）”。
+// renderMoreModelsRowLabeled 渲染分组底部的「更多模型（N）」行：label 决定文案。
 func renderMoreModelsRowLabeled(c *ui.Context, p ModelPickerProps, keyPrefix, label string, onClick func()) {
 	key := p.KeyPrefix + keyPrefix
 	btn := ui.ButtonBase(c.Key(key+"more-models-btn")).
@@ -2572,12 +2194,12 @@ func renderProviderCatalogNotice(c *ui.Context, p ModelPickerProps, prefix strin
 // renderModelList 渲染按 Agent 分组的模型列表（二级页）；prefix 区分 Lead/Bees 段的控件 key，
 // sideKey 与 p.ScopeKey 一起定位各分组“更多模型”与折叠状态。
 // query 非空时只列出匹配的模型并忽略折叠状态（次要模型也直接展示，不画“更多模型（N）”行）。
-// isChecked 判定选中态，isDisabled 判定整组 Agent 是否不可选，onPick 处理点击，onEffort 打开推理强度卡片。
+// isChecked 判定选中态，isDisabled 判定整组 Agent 是否不可选，onPick 处理点击。
 // 返回是否至少渲染了一行模型，供调用方判断搜索空态。
 func renderModelList(c *ui.Context, p ModelPickerProps, prefix, sideKey string, providers []ProviderInfo, query string,
 	isChecked func(prov ProviderInfo, mIdx int, m ModelInfo) bool,
 	isDisabled func(prov ProviderInfo) bool,
-	onPick func(prov ProviderInfo, m ModelInfo), onEffort func()) bool {
+	onPick func(prov ProviderInfo, m ModelInfo)) bool {
 	searching := strings.TrimSpace(query) != ""
 	renderedAny := false
 	for _, pv := range providers {
@@ -2643,7 +2265,6 @@ func renderModelList(c *ui.Context, p ModelPickerProps, prefix, sideKey string, 
 				SubtitleText: provTitle,
 				ShowQuota:    idx == visible[0],
 				OnPick:       onPick,
-				OnEffort:     onEffort,
 			})
 		}
 

@@ -19,14 +19,10 @@ const (
 	modelPickerPageProgressKey = "page-progress"
 )
 
-// modelPickerPageDepth 返回某一侧当前渲染的页面深度：
-// 0 为推理强度卡片、1 为模型列表、2 为列表里的“更多模型”分组。
+// modelPickerPageDepth 返回某一侧当前渲染的页面深度：0 为推理强度卡片、1 为模型列表。
 func modelPickerPageDepth(p ModelPickerProps, state *ModelPickerState, side ModelPickerSide) int {
 	if !state.listOpen(p.ScopeKey, side) {
 		return 0
-	}
-	if isModelPanelMoreOpen(p.ScopeKey, modelPickerSideKey(side)) {
-		return 2
 	}
 	return 1
 }
