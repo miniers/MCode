@@ -374,6 +374,20 @@ func renderSidebar(c *ui.Context, s *chatState) {
 		projects = withoutProjects(projects, chatsProjID)
 	}
 
+	// 「对话」段标题行的过滤条件作用于整个侧栏会话列表：普通项目、动态视图与搜索命中
+	// 都按同一个条件收窄，避免筛选器只影响一个常年为空的段。
+	// bulkThreadsByProj 保留过滤前的会话，项目右键菜单的批量操作仍覆盖项目全部会话。
+	bulkThreadsByProj := threadsByProj
+	filter := s.sidebarFilter
+	if filter != sidebarFilterAll {
+		nowFilter := time.Now()
+		threads = s.filterSidebarThreads(threads, filter, nowFilter, s.threadStillBusy)
+		threadsByProj = make(map[string][]Thread, len(bulkThreadsByProj))
+		for pid, list := range bulkThreadsByProj {
+			threadsByProj[pid] = s.filterSidebarThreads(list, filter, nowFilter, s.threadStillBusy)
+		}
+	}
+
 	// 按保存的项目顺序渲染，未在顺序中的项目按原顺序追加到末尾。
 	projects = applyProjectOrder(projects, sidebarProjectOrder(s))
 	// 项目按“内部会话的最后用户消息时间”倒序：手拖顺序只作为同活跃时间与空项目的稳定兜底，
@@ -495,6 +509,10 @@ func renderSidebar(c *ui.Context, s *chatState) {
 
 			// 动态视图开关：铃铛图标按钮（开启时用强调色高亮底），与 ⌥⌘U 共用入口
 			activityOn := s.activityViewEnabled()
+			// 动态视图不渲染「对话」段，过滤入口移到顶栏，保证过滤状态可见、可清除。
+			if activityOn {
+				renderSidebarFilterControl(c, s)
+			}
 			activityTip := "开启动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
 			if activityOn {
 				activityTip = "关闭动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
@@ -526,7 +544,12 @@ func renderSidebar(c *ui.Context, s *chatState) {
 			projectGap := m.projectGap
 
 			// 搜索词非空且项目与会话全部未命中时，列表区居中显示「无结果」卡片。
-			if lowerQuery != "" && len(matchesByProject) == 0 && len(chatsMatches) == 0 {
+			// 过滤条件可能把命中的会话全部收窄掉，此时同样只显示「无结果」。
+			noMatch := len(matchesByProject) == 0 && len(chatsMatches) == 0
+			if filter != sidebarFilterAll {
+				noMatch = len(matchingThreads) == 0 && len(chatsMatches) == 0
+			}
+			if lowerQuery != "" && noMatch {
 				renderSidebarNoResultsCard(c)
 				return
 			}
@@ -576,11 +599,13 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				return
 			}
 
+			renderedProject := false
 			for _, p := range projects {
 				pVal := p
 				isCollapsed := collapsed[pVal.ID] && lowerQuery == ""
-				allThs := threadsByProj[pVal.ID]
-				ths := allThs
+				// allThs 保留过滤前的会话，项目菜单的批量操作仍覆盖全部会话。
+				allThs := bulkThreadsByProj[pVal.ID]
+				ths := threadsByProj[pVal.ID]
 				if lowerQuery != "" {
 					var ok bool
 					ths, ok = matchesByProject[pVal.ID]
@@ -588,6 +613,11 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						continue
 					}
 				}
+				// 过滤后没有命中会话的项目不再占位；关闭过滤时空项目仍保留，方便直接新建会话。
+				if filter != sidebarFilterAll && len(ths) == 0 {
+					continue
+				}
+				renderedProject = true
 
 				// 项目标题行：文件夹图标 + 名称（13 号 medium），右侧是会话数与“+”图标按钮
 				headerRow := ui.Row(c.Key("proj-header-"+pVal.ID)).
@@ -1089,6 +1119,11 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				// 项目行之间的间距（紧凑模式 6，常规模式 10）
 				ui.Box(c.Key("proj-gap-" + pVal.ID)).
 					Height(projectGap)
+			}
+
+			// 过滤把「对话」段和所有项目会话都收窄掉时，明确告诉用户列表为空的原因。
+			if filter != sidebarFilterAll && !renderedProject && len(threadsByProj[chatsProjID]) == 0 {
+				EmptyState(c, EmptyStateProps{Title: "没有符合过滤的会话", Compact: true}).Padding(Space1, sidebarEmptyPadX)
 			}
 		})
 

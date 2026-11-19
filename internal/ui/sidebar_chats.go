@@ -1,6 +1,10 @@
 package mcodeui
 
-import "github.com/egoist/mygo/ui"
+import (
+	"time"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // chatsClient 是「对话」内置项目的可选客户端能力，只返回内置对话项目 ID。
 type chatsClient interface {
@@ -20,7 +24,145 @@ func (s *chatState) chatsProjectID() string {
 	return c.ChatsProjectID()
 }
 
-// renderSidebarChatsSection 渲染侧栏顶部的「对话」段：段标题与右侧「+」按钮，
+// sidebarThreadFilter 是侧栏会话过滤条件；入口在「对话」段标题行，作用于整个侧栏会话列表。
+type sidebarThreadFilter int
+
+const (
+	sidebarFilterAll sidebarThreadFilter = iota
+	sidebarFilterRunning
+	sidebarFilterWaiting
+	sidebarFilterActive24h
+	sidebarFilterActive7d
+	sidebarFilterActive30d
+)
+
+// sidebarThreadFilterOptions 是下拉框的展示顺序；label 同时用于按钮可访问名称与菜单项标题。
+var sidebarThreadFilterOptions = []struct {
+	key   string
+	label string
+	value sidebarThreadFilter
+}{
+	{"all", "全部", sidebarFilterAll},
+	{"running", "运行中", sidebarFilterRunning},
+	{"waiting", "等待中", sidebarFilterWaiting},
+	{"24h", "最近 24 小时活跃", sidebarFilterActive24h},
+	{"7d", "最近 7 天活跃", sidebarFilterActive7d},
+	{"30d", "最近 30 天活跃", sidebarFilterActive30d},
+}
+
+// sidebarFilterActiveWindow 返回活跃时间过滤窗口；非时间类过滤返回 0。
+func sidebarFilterActiveWindow(filter sidebarThreadFilter) time.Duration {
+	switch filter {
+	case sidebarFilterActive24h:
+		return 24 * time.Hour
+	case sidebarFilterActive7d:
+		return 7 * 24 * time.Hour
+	case sidebarFilterActive30d:
+		return 30 * 24 * time.Hour
+	default:
+		return 0
+	}
+}
+
+// sidebarThreadWaiting 判断会话是否在等用户处理：待审批/提问，或这一轮已经结束但用户还没查看结果
+// （侧栏标题高亮、完成角标或未读点）。仍在运行的会话只有待审批算等待，避免旧的完成标记
+// 把新开的一轮误算进等待中。
+func (s *chatState) sidebarThreadWaiting(th Thread, children []Thread, busy func(Thread) bool) bool {
+	if th.HasPendingRequest {
+		return true
+	}
+	for _, child := range children {
+		if child.HasPendingRequest {
+			return true
+		}
+	}
+	if busy != nil && busy(th) {
+		return false
+	}
+	if s.sidebarThreadHasUnseenResult(th) {
+		return true
+	}
+	for _, child := range children {
+		if child.IsRunning || child.SwarmBusy {
+			continue
+		}
+		if s.sidebarThreadHasUnseenResult(child) {
+			return true
+		}
+	}
+	return false
+}
+
+// sidebarThreadHasUnseenResult 判断空闲会话是否有用户还没查看的结果。
+// turnFinished 在打开会话时清除；HasUnread 覆盖应用重启后仍存在的未读状态。
+func (s *chatState) sidebarThreadHasUnseenResult(th Thread) bool {
+	if s.threadTurnFinished(th.ID) != "" {
+		return true
+	}
+	return s.hasThreadUnread(th)
+}
+
+// sidebarThreadRunning 判断会话或其任一子代理是否仍在运行；等待中的会话归入等待中，与
+// 侧栏状态分组保持一致（等待优先于运行）。
+func (s *chatState) sidebarThreadRunning(th Thread, children []Thread, busy func(Thread) bool) bool {
+	if s.sidebarThreadWaiting(th, children, busy) {
+		return false
+	}
+	if busy != nil && busy(th) {
+		return true
+	}
+	for _, child := range children {
+		if child.IsRunning || child.SwarmBusy || (busy != nil && busy(child)) {
+			return true
+		}
+	}
+	return false
+}
+
+// sidebarThreadMatchesFilter 判断一个顶层会话是否满足过滤条件。
+func (s *chatState) sidebarThreadMatchesFilter(th Thread, children []Thread, filter sidebarThreadFilter, now time.Time, busy func(Thread) bool) bool {
+	switch filter {
+	case sidebarFilterRunning:
+		return s.sidebarThreadRunning(th, children, busy)
+	case sidebarFilterWaiting:
+		return s.sidebarThreadWaiting(th, children, busy)
+	default:
+		window := sidebarFilterActiveWindow(filter)
+		if window == 0 {
+			return true
+		}
+		at := threadActivityTime(th)
+		return !at.IsZero() && !at.Before(now.Add(-window))
+	}
+}
+
+// filterSidebarThreads 按过滤条件保留顶层会话及其全部子代理，保持入参顺序。
+// 侧栏「对话」段、普通项目与动态视图共用这份逻辑；子代理不单独作为匹配单位：
+// 父会话命中时整组保留，避免子代理被提升成顶层会话。
+func (s *chatState) filterSidebarThreads(threads []Thread, filter sidebarThreadFilter, now time.Time, busy func(Thread) bool) []Thread {
+	if filter == sidebarFilterAll || len(threads) == 0 {
+		return threads
+	}
+	topThs, beesByParent := GroupThreadsByParent(threads)
+	keep := make(map[string]bool, len(threads))
+	for _, th := range topThs {
+		if s.sidebarThreadMatchesFilter(th, beesByParent[th.ID], filter, now, busy) {
+			keep[th.ID] = true
+			for _, bee := range beesByParent[th.ID] {
+				keep[bee.ID] = true
+			}
+		}
+	}
+	filtered := make([]Thread, 0, len(threads))
+	for _, th := range threads {
+		if keep[th.ID] {
+			filtered = append(filtered, th)
+		}
+	}
+	return filtered
+}
+
+// renderSidebarChatsSection 渲染侧栏顶部的「对话」段：段标题与右侧过滤、「+」按钮，
 // 下方按最近活动平铺该项目的顶层会话；threadsFilter 非 nil 时只列传入的会话（搜索态过滤结果），
 // 为 nil 时取全部对话会话；没有会话时仅显示段标题，chatsProjectID 为空时整段不渲染。
 func renderSidebarChatsSection(c *ui.Context, s *chatState, threadsFilter []Thread) {
@@ -40,14 +182,18 @@ func renderSidebarChatsSection(c *ui.Context, s *chatState, threadsFilter []Thre
 	selectedID := s.selectedThreadID
 	s.mu.Unlock()
 
+	filter := s.sidebarFilter
+	rawThreads = s.filterSidebarThreads(rawThreads, filter, time.Now(), s.threadStillBusy)
+
 	m := currentSidebarMetrics(c, s)
 
-	// 一行段标题：左侧文字「对话」，右侧「+」图标按钮，不挂载项目右键菜单。
+	// 一行段标题：左侧文字「对话」，右侧过滤图标与「+」图标按钮，不挂载项目右键菜单。
 	headerRow := ui.Row(c.Key("chats-section-header")).
 		Height(m.rowHeight).
 		Padding(0, m.padX).
 		Margin(1, ListInset, 1, ListInset).
 		Radius(RowCornerRadius).
+		Gap(Space1).
 		AlignItems(ui.Center)
 
 	headerRow.Children(func() {
@@ -57,6 +203,8 @@ func renderSidebarChatsSection(c *ui.Context, s *chatState, threadsFilter []Thre
 			TextColor(ThemePrimaryText(c)).
 			Grow(1).
 			SingleLine()
+
+		renderSidebarFilterControl(c, s)
 
 		IconButton(c.Key("chats-add-thread"), IconButtonProps{
 			Icon:    IconPlus(),
@@ -95,4 +243,45 @@ func renderSidebarChatsSection(c *ui.Context, s *chatState, threadsFilter []Thre
 	}
 
 	ui.Box(c.Key("chats-section-gap")).Height(m.projectGap)
+}
+
+// renderSidebarFilterControl 渲染过滤按钮与下拉框。默认在「对话」段标题行；
+// 动态视图不渲染该段时由侧栏顶栏调用，保证过滤状态始终可见、可清除。
+func renderSidebarFilterControl(c *ui.Context, s *chatState) {
+	trigger := IconButton(c.Key("chats-filter"), IconButtonProps{
+		Icon:    IconFilter(),
+		Size:    ControlMD,
+		Variant: ButtonGhost,
+		Label:   "过滤对话",
+		Tooltip: "过滤对话 · " + sidebarFilterLabel(s.sidebarFilter),
+		Active:  s.sidebarFilter != sidebarFilterAll,
+		OnClick: func() { s.sidebarFilterOpen = true },
+	})
+	appPopover(c.Key("chats-filter-popover"), trigger, &s.sidebarFilterOpen, nil, func() {
+		popoverCard(c, ui.Column(c.Key("chats-filter-menu"))).
+			Padding(Space1).
+			Gap(Space0).
+			MinWidth(200).
+			Children(func() {
+				current := s.sidebarFilter
+				for _, opt := range sidebarThreadFilterOptions {
+					opt := opt
+					renderGitMenuOption(c, "chats-filter-"+opt.key, "过滤对话："+opt.label, opt.label, "", current == opt.value, false, func() {
+						s.sidebarFilter = opt.value
+						s.sidebarFilterOpen = false
+						s.invalidate()
+					})
+				}
+			})
+	})
+}
+
+// sidebarFilterLabel 返回过滤条件的展示文案；未知值按「全部」处理。
+func sidebarFilterLabel(filter sidebarThreadFilter) string {
+	for _, opt := range sidebarThreadFilterOptions {
+		if opt.value == filter {
+			return opt.label
+		}
+	}
+	return sidebarThreadFilterOptions[0].label
 }

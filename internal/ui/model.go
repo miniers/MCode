@@ -518,6 +518,10 @@ type chatState struct {
 	catalogAppliedSeq    uint64
 	catalogRefreshing    bool
 	newThreadProvider    string
+	// sidebarFilter/sidebarFilterOpen 是侧栏会话过滤条件与下拉框开合状态（入口在「对话」段标题行，
+	// 但条件作用于整个侧栏会话列表）。只在 UI 线程读写：渲染时直接读取，点击回调里写入后 invalidate。
+	sidebarFilter        sidebarThreadFilter
+	sidebarFilterOpen    bool
 	creatingThread       bool // 创建请求进行中，防止重复点击；受 s.mu 保护
 	provisionalWorktrees map[string]bool
 	provisionalRetains   map[string]*provisionalRetain

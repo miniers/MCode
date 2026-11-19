@@ -598,3 +598,339 @@ func TestChatsMoveToProjectMenu(t *testing.T) {
 		t.Fatalf("移动后应保持选中该会话 c1, got %q", selected)
 	}
 }
+
+// TestFilterSidebarThreads 验证过滤条件：等待优先于运行、子代理归属父会话、活跃时间窗口。
+func TestFilterSidebarThreads(t *testing.T) {
+	now := time.Now()
+	busy := func(th Thread) bool { return th.IsRunning }
+
+	threads := []Thread{
+		{ID: "running", ProjectID: "chats", Title: "运行", IsRunning: true, UpdatedAt: now},
+		{ID: "running-old", ProjectID: "chats", Title: "运行中带旧标记", IsRunning: true, UpdatedAt: now},
+		{ID: "waiting", ProjectID: "chats", Title: "等待", HasPendingRequest: true, UpdatedAt: now},
+		{ID: "finished", ProjectID: "chats", Title: "完成未看", UpdatedAt: now},
+		{ID: "unread", ProjectID: "chats", Title: "未读", HasUnread: true, UpdatedAt: now},
+		{ID: "parent", ProjectID: "chats", Title: "父会话", UpdatedAt: now},
+		{ID: "bee", ProjectID: "chats", Title: "子代理", IsHelper: true, ParentThreadID: "parent", HasPendingRequest: true, UpdatedAt: now},
+		{ID: "recent", ProjectID: "chats", Title: "今日", UpdatedAt: now.Add(-2 * time.Hour)},
+		{ID: "week", ProjectID: "chats", Title: "本周", UpdatedAt: now.Add(-5 * 24 * time.Hour)},
+		{ID: "old", ProjectID: "chats", Title: "陈旧", UpdatedAt: now.Add(-10 * 24 * time.Hour)},
+		{ID: "ancient", ProjectID: "chats", Title: "远古", UpdatedAt: now.Add(-40 * 24 * time.Hour)},
+	}
+	state := &chatState{turnFinished: map[string]string{
+		"finished":    turnDoneKindDone,
+		"running-old": turnDoneKindDone,
+	}}
+	ids := func(list []Thread) []string {
+		out := make([]string, 0, len(list))
+		for _, th := range list {
+			out = append(out, th.ID)
+		}
+		return out
+	}
+	cases := []struct {
+		filter sidebarThreadFilter
+		want   []string
+	}{
+		{sidebarFilterAll, []string{"running", "running-old", "waiting", "finished", "unread", "parent", "bee", "recent", "week", "old", "ancient"}},
+		{sidebarFilterRunning, []string{"running", "running-old"}},
+		{sidebarFilterWaiting, []string{"waiting", "finished", "unread", "parent", "bee"}},
+		{sidebarFilterActive24h, []string{"running", "running-old", "waiting", "finished", "unread", "parent", "bee", "recent"}},
+		{sidebarFilterActive7d, []string{"running", "running-old", "waiting", "finished", "unread", "parent", "bee", "recent", "week"}},
+		{sidebarFilterActive30d, []string{"running", "running-old", "waiting", "finished", "unread", "parent", "bee", "recent", "week", "old"}},
+	}
+	for _, tc := range cases {
+		got := ids(state.filterSidebarThreads(threads, tc.filter, now, busy))
+		if len(got) != len(tc.want) {
+			t.Fatalf("filter %d: got %v, want %v", tc.filter, got, tc.want)
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Fatalf("filter %d: got %v, want %v", tc.filter, got, tc.want)
+			}
+		}
+	}
+}
+
+// TestChatsSidebarFilterMenu 验证过滤按钮在「+」左侧打开下拉框，选择条件后列表即时收窄。
+func TestChatsSidebarFilterMenu(t *testing.T) {
+	testenv.TempHome(t)
+	fake := NewFakeClient()
+	fake.SetChatsProjectID("chats-builtin")
+	now := time.Now()
+	fake.SetProjectsAndThreads(
+		[]Project{{ID: "chats-builtin", Name: "对话"}},
+		map[string][]Thread{
+			"chats-builtin": {
+				{ID: "c1", ProjectID: "chats-builtin", Title: "运行对话", IsRunning: true, UpdatedAt: now},
+				{ID: "c2", ProjectID: "chats-builtin", Title: "等待对话", HasPendingRequest: true, UpdatedAt: now},
+				{ID: "c3", ProjectID: "chats-builtin", Title: "今日对话", UpdatedAt: now},
+				{ID: "c4", ProjectID: "chats-builtin", Title: "陈旧对话", UpdatedAt: now.Add(-10 * 24 * time.Hour)},
+				{ID: "c5", ProjectID: "chats-builtin", Title: "远古对话", UpdatedAt: now.Add(-40 * 24 * time.Hour)},
+			},
+		},
+	)
+
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+
+	waitFor(t, tt, func() bool {
+		return tt.HasText("运行对话") && tt.HasText("等待对话") && tt.HasText("今日对话") &&
+			tt.HasText("陈旧对话") && tt.HasText("远古对话")
+	})
+
+	choose := func(label string) {
+		t.Helper()
+		if err := tt.Click("过滤对话"); err != nil {
+			t.Fatalf("打开过滤下拉框失败: %v", err)
+		}
+		tt.Frame()
+		if err := tt.Click("过滤对话：" + label); err != nil {
+			t.Fatalf("选择过滤条件 %q 失败: %v", label, err)
+		}
+		tt.Frame()
+	}
+	expectVisible := func(want []string, hidden []string) {
+		t.Helper()
+		for _, s := range want {
+			if _, ok := tt.Find("打开会话 " + s); !ok {
+				t.Fatalf("过滤后应显示会话行 %q: %q", s, tt.Texts())
+			}
+		}
+		for _, s := range hidden {
+			if _, ok := tt.Find("打开会话 " + s); ok {
+				t.Fatalf("过滤后不应显示会话行 %q: %q", s, tt.Texts())
+			}
+		}
+	}
+
+	choose("运行中")
+	expectVisible([]string{"运行对话"}, []string{"等待对话", "今日对话", "陈旧对话", "远古对话"})
+
+	choose("等待中")
+	expectVisible([]string{"等待对话"}, []string{"运行对话", "今日对话", "陈旧对话", "远古对话"})
+
+	choose("最近 24 小时活跃")
+	expectVisible([]string{"运行对话", "等待对话", "今日对话"}, []string{"陈旧对话", "远古对话"})
+
+	choose("最近 7 天活跃")
+	expectVisible([]string{"今日对话"}, []string{"陈旧对话", "远古对话"})
+
+	choose("最近 30 天活跃")
+	expectVisible([]string{"今日对话", "陈旧对话"}, []string{"远古对话"})
+
+	choose("全部")
+	expectVisible([]string{"运行对话", "等待对话", "今日对话", "陈旧对话", "远古对话"}, nil)
+
+	state.mu.Lock()
+	filter := state.sidebarFilter
+	state.mu.Unlock()
+	if filter != sidebarFilterAll {
+		t.Fatalf("选择全部后过滤条件应重置, got %d", filter)
+	}
+}
+
+// TestSidebarFilterAppliesToProjectSessions 验证过滤不仅作用于「对话」段，也收窄普通项目下的会话；
+// 过滤后没有命中会话的项目不再显示。
+func TestSidebarFilterAppliesToProjectSessions(t *testing.T) {
+	testenv.TempHome(t)
+	fake := NewFakeClient()
+	fake.SetChatsProjectID("chats-builtin")
+	now := time.Now()
+	fake.SetProjectsAndThreads(
+		[]Project{
+			{ID: "chats-builtin", Name: "对话"},
+			{ID: "p1", Name: "项目一"},
+			{ID: "p2", Name: "项目二"},
+		},
+		map[string][]Thread{
+			"p1": {
+				{ID: "r1", ProjectID: "p1", Title: "项目运行", IsRunning: true, UpdatedAt: now},
+				{ID: "w1", ProjectID: "p1", Title: "项目等待", HasPendingRequest: true, UpdatedAt: now},
+			},
+			"p2": {
+				{ID: "o1", ProjectID: "p2", Title: "项目普通", UpdatedAt: now},
+			},
+		},
+	)
+
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+
+	waitFor(t, tt, func() bool {
+		return tt.HasText("项目运行") && tt.HasText("项目等待") && tt.HasText("项目普通")
+	})
+
+	if err := tt.Click("过滤对话"); err != nil {
+		t.Fatalf("打开过滤下拉框失败: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("过滤对话：运行中"); err != nil {
+		t.Fatalf("选择运行中失败: %v", err)
+	}
+	tt.Frame()
+
+	if _, ok := tt.Find("打开会话 项目运行"); !ok {
+		t.Fatalf("运行中的项目会话应显示: %q", tt.Texts())
+	}
+	for _, hidden := range []string{"打开会话 项目等待", "打开会话 项目普通"} {
+		if _, ok := tt.Find(hidden); ok {
+			t.Fatalf("过滤运行中后不应显示 %q: %q", hidden, tt.Texts())
+		}
+	}
+	if _, ok := tt.Find("收起项目 项目二"); ok {
+		t.Fatalf("没有命中会话的项目二不应显示: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("展开项目 项目二"); ok {
+		t.Fatalf("没有命中会话的项目二不应显示: %q", tt.Texts())
+	}
+}
+
+// TestSidebarFilterEmptyState 验证过滤把全部会话收窄掉时给出明确的空列表提示。
+func TestSidebarFilterEmptyState(t *testing.T) {
+	testenv.TempHome(t)
+	fake := NewFakeClient()
+	fake.SetChatsProjectID("chats-builtin")
+	fake.SetProjectsAndThreads(
+		[]Project{{ID: "chats-builtin", Name: "对话"}, {ID: "p1", Name: "项目一"}},
+		map[string][]Thread{
+			"p1": {{ID: "o1", ProjectID: "p1", Title: "项目普通", UpdatedAt: time.Now()}},
+		},
+	)
+
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("项目普通") })
+
+	if err := tt.Click("过滤对话"); err != nil {
+		t.Fatalf("打开过滤下拉框失败: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("过滤对话：运行中"); err != nil {
+		t.Fatalf("选择运行中失败: %v", err)
+	}
+	tt.Frame()
+
+	if _, ok := tt.Find("打开会话 项目普通"); ok {
+		t.Fatalf("过滤后不应显示普通会话: %q", tt.Texts())
+	}
+	if !tt.HasText("没有符合过滤的会话") {
+		t.Fatalf("过滤后全部隐藏时应显示空列表提示: %q", tt.Texts())
+	}
+}
+
+// TestSidebarFilterActivityView 验证动态视图沿用过滤条件，且在顶栏保留过滤入口。
+func TestSidebarFilterActivityView(t *testing.T) {
+	testenv.TempHome(t)
+	fake := NewFakeClient()
+	fake.SetChatsProjectID("chats-builtin")
+	now := time.Now()
+	fake.SetProjectsAndThreads(
+		[]Project{{ID: "chats-builtin", Name: "对话"}, {ID: "p1", Name: "项目一"}},
+		map[string][]Thread{
+			"p1": {
+				{ID: "r1", ProjectID: "p1", Title: "项目运行", IsRunning: true, UpdatedAt: now},
+				{ID: "o1", ProjectID: "p1", Title: "项目普通", UpdatedAt: now},
+			},
+		},
+	)
+
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+
+	waitFor(t, tt, func() bool {
+		return tt.HasText("项目运行") && tt.HasText("项目普通")
+	})
+
+	if err := tt.Click("过滤对话"); err != nil {
+		t.Fatalf("打开过滤下拉框失败: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("过滤对话：运行中"); err != nil {
+		t.Fatalf("选择运行中失败: %v", err)
+	}
+	tt.Frame()
+
+	state.toggleActivityView()
+	tt.Frame()
+	if _, ok := tt.Find("打开会话 项目运行"); !ok {
+		t.Fatalf("动态视图应保留运行中的会话: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("打开会话 项目普通"); ok {
+		t.Fatalf("动态视图不应显示被过滤掉的会话: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("过滤对话"); !ok {
+		t.Fatalf("动态视图应保留过滤入口: %q", tt.Texts())
+	}
+
+	if err := tt.Click("过滤对话"); err != nil {
+		t.Fatalf("动态视图打开过滤下拉框失败: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("过滤对话：全部"); err != nil {
+		t.Fatalf("选择全部失败: %v", err)
+	}
+	tt.Frame()
+	for _, want := range []string{"打开会话 项目运行", "打开会话 项目普通"} {
+		if _, ok := tt.Find(want); !ok {
+			t.Fatalf("清除过滤后动态视图应显示 %q: %q", want, tt.Texts())
+		}
+	}
+}
+
+// TestSidebarFilterWaitingIncludesFinishedUnseen 验证刚跑完但用户还没查看的会话归入等待中；
+// 它同时也应被「运行中」排除。
+func TestSidebarFilterWaitingIncludesFinishedUnseen(t *testing.T) {
+	testenv.TempHome(t)
+	fake := NewFakeClient()
+	fake.SetChatsProjectID("chats-builtin")
+	fake.SetProjectsAndThreads(
+		[]Project{{ID: "chats-builtin", Name: "对话"}, {ID: "p1", Name: "项目一"}},
+		map[string][]Thread{
+			"p1": {{ID: "f1", ProjectID: "p1", Title: "完成未看", UpdatedAt: time.Now()}},
+		},
+	)
+
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("打开会话 完成未看")
+		return ok
+	})
+
+	// 模拟这一轮刚结束、用户还没打开会话：侧栏会亮完成角标并把标题染成强调色。
+	state.mu.Lock()
+	state.markTurnFinishedLocked("f1", "completed")
+	state.mu.Unlock()
+	state.invalidate()
+	tt.Frame()
+
+	if err := tt.Click("过滤对话"); err != nil {
+		t.Fatalf("打开过滤下拉框失败: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("过滤对话：等待中"); err != nil {
+		t.Fatalf("选择等待中失败: %v", err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("打开会话 完成未看"); !ok {
+		t.Fatalf("刚结束未查看的会话应归入等待中: %q", tt.Texts())
+	}
+
+	if err := tt.Click("过滤对话"); err != nil {
+		t.Fatalf("再次打开过滤下拉框失败: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("过滤对话：运行中"); err != nil {
+		t.Fatalf("选择运行中失败: %v", err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("打开会话 完成未看"); ok {
+		t.Fatalf("已结束的会话不应归入运行中: %q", tt.Texts())
+	}
+}

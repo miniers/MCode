@@ -437,6 +437,7 @@ const (
 	svgPathCpu               = `<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>`
 	svgPathPuzzle            = `<path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>`
 	svgPathSlidersHorizontal = `<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="12" x2="12" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>`
+	svgPathFilter            = `<path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/>`
 	svgPathCommand           = `<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>`
 	svgPathArchive           = `<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>`
 	svgPathInfo              = `<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>`
@@ -546,6 +547,7 @@ var (
 	iconCpu               = parseLucideSVG(svgPathCpu)
 	iconPuzzle            = parseLucideSVG(svgPathPuzzle)
 	iconSlidersHorizontal = parseLucideSVG(svgPathSlidersHorizontal)
+	iconFilter            = parseLucideSVG(svgPathFilter)
 	iconCommand           = parseLucideSVG(svgPathCommand)
 	iconArchive           = parseLucideSVG(svgPathArchive)
 	iconInfo              = parseLucideSVG(svgPathInfo)
@@ -678,6 +680,7 @@ func IconPalette() *ui.SVG           { return iconPalette }
 func IconSmartphone() *ui.SVG        { return iconSmartphone }
 func IconCpu() *ui.SVG               { return iconCpu }
 func IconSlidersHorizontal() *ui.SVG { return iconSlidersHorizontal }
+func IconFilter() *ui.SVG            { return iconFilter }
 func IconArchive() *ui.SVG           { return iconArchive }
 func IconInfo() *ui.SVG              { return iconInfo }
 func IconCircleEllipsis() *ui.SVG    { return iconCircleEllipsis }
