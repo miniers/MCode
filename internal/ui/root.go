@@ -58,6 +58,8 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 		applyUIState(state, loadUIState())
 		// 恢复各会话草稿（仅文本），首次选中会话时回填输入框。
 		applyComposerDrafts(state, loadComposerDrafts())
+		// 重启后回到上次退出的会话。
+		applyStartupThread(state)
 	}
 	type scriptResult struct {
 		threadID string

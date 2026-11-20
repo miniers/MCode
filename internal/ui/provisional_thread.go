@@ -126,6 +126,8 @@ func (s *chatState) createProvisionalThread(projectID string, worktree bool) {
 			s.provisionalWorktrees[id] = true
 		}
 		s.mu.Unlock()
+		// 首页已切到新会话，重启后不该跳回旧会话。
+		clearLastThread(s)
 		// 请求期间切走后不抢回页面，刚创建的空会话仍按离开流程清理。
 		if !s.selectThreadState(id, true, &seq) {
 			s.mu.Lock()
