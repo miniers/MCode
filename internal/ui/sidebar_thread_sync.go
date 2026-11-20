@@ -113,6 +113,16 @@ func (s *chatState) applyThreadSummary(update Thread) {
 		if update.LastStatus != "" {
 			item.LastStatus = update.LastStatus
 		}
+		// Agent 会话 ID 与 provider 只以推送为准：会话列表快照不带 Agent 会话 ID，
+		// 且 CLI 回报新 ID、用户切换模型时都会变；右键菜单的 Resume 命令依赖两者。
+		if update.SessionID != "" && item.SessionID != update.SessionID {
+			item.SessionID = update.SessionID
+			changed = true
+		}
+		if update.Provider != "" && item.Provider != update.Provider {
+			item.Provider = update.Provider
+			changed = true
+		}
 	}
 	for i := range s.threads {
 		apply(&s.threads[i])

@@ -388,6 +388,17 @@ func TestThreadSummaryToUI_ComposerPrefs(t *testing.T) {
 	}
 }
 
+// TestThreadSummaryToUI_AgentSessionID covers the agent session id the resume command copies.
+func TestThreadSummaryToUI_AgentSessionID(t *testing.T) {
+	got := ThreadSummaryToUI(wire.ThreadSummary{ID: "t1", AgentSessionID: "agent-sess-1"})
+	if got.SessionID != "agent-sess-1" {
+		t.Errorf("SessionID = %q, want %q", got.SessionID, "agent-sess-1")
+	}
+	if empty := ThreadSummaryToUI(wire.ThreadSummary{ID: "t2"}); empty.SessionID != "" {
+		t.Errorf("未回报 Agent 会话 ID 时应为空，得到 %q", empty.SessionID)
+	}
+}
+
 func TestThreadSummaryToUI_ParentAndHelper(t *testing.T) {
 	parentID := "p-123"
 	got := ThreadSummaryToUI(wire.ThreadSummary{

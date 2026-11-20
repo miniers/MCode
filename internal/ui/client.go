@@ -113,6 +113,7 @@ type Thread struct {
 	IsHelper                     bool   // 是否为 helper / bee 会话
 	Provider                     string
 	Model                        string
+	SessionID                    string // agent CLI session id for resume; empty before the first turn
 	RuntimeMode                  string
 	InteractionMode              string // "build" 或 "plan"，空视为 build
 	Effort                       string // Lead 推理强度：low/medium/high，空为默认
@@ -1471,6 +1472,8 @@ type Client interface {
 	ProviderVersion(ctx context.Context, provider string) (ProviderVersionInfo, error)
 	// CheckProviderUpdate 检查指定提供方的版本更新。
 	CheckProviderUpdate(ctx context.Context, provider string) (ProviderVersionInfo, error)
+	// ProviderBinary 返回该提供方 CLI 的可执行文件路径（用户配置优先，否则从 PATH 查找）。
+	ProviderBinary(ctx context.Context, provider string) (string, error)
 	// ProviderAccount 获取指定提供方的当前登录账户及套餐信息。
 	ProviderAccount(ctx context.Context, provider string) (ProviderAccountInfo, error)
 	// ProviderQuota 获取指定提供方的额度使用窗口列表。

@@ -40,6 +40,11 @@ func (c *Client) ProviderVersion(ctx context.Context, provider string) (mcodeui.
 	}, err
 }
 
+// ProviderBinary 返回该提供方 CLI 的可执行文件路径，与启动会话时解析的结果一致。
+func (c *Client) ProviderBinary(ctx context.Context, provider string) (string, error) {
+	return c.providerExecutable(provider)
+}
+
 // CheckProviderUpdate 检查指定提供方的版本更新。
 func (c *Client) CheckProviderUpdate(ctx context.Context, provider string) (mcodeui.ProviderVersionInfo, error) {
 	if strings.EqualFold(strings.TrimSpace(provider), "agy") && c.backend != nil {

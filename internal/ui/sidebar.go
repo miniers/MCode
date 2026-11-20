@@ -15,6 +15,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/config"
+	"mcode/internal/harness"
 )
 
 var (
@@ -1447,6 +1448,85 @@ func (s *chatState) projectPathByID(projectID string) string {
 	return ""
 }
 
+// agentResumeTarget 返回拼 Resume 命令所需的 CLI 类型与会话 ID。
+// 侧边栏行的快照只在列表刷新时更新，增量推送只写 chatState.threads，
+// 故以 chatState 为准、快照兜底。
+func agentResumeTarget(s *chatState, th Thread) (provider, sessionID string) {
+	provider, sessionID = th.Provider, th.SessionID
+	if s == nil || th.ID == "" {
+		return provider, sessionID
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.threads {
+		if s.threads[i].ID != th.ID {
+			continue
+		}
+		if s.threads[i].Provider != "" {
+			provider = s.threads[i].Provider
+		}
+		if s.threads[i].SessionID != "" {
+			sessionID = s.threads[i].SessionID
+		}
+		break
+	}
+	return provider, sessionID
+}
+
+// providerBinaryFor 返回该 CLI 可执行文件路径（用户配置优先，否则从 PATH 查找）。
+// 渲染路径不能做 IO，所以由 prepareProviderBinary 异步备好；这里只读缓存，未备好时返回裸名。
+func (s *chatState) providerBinaryFor(provider string) string {
+	if provider == "" {
+		return ""
+	}
+	s.mu.Lock()
+	path, ok := s.providerBinaries[provider]
+	s.mu.Unlock()
+	if ok {
+		return path
+	}
+	s.prepareProviderBinary(provider)
+	// 还没解析出来：先按裸名给命令，命令本身就说明该跑哪个 CLI。
+	return provider
+}
+
+// prepareProviderBinary 异步解析一次并缓存，解析失败也缓存空串以免每次开菜单重复走 PATH。
+func (s *chatState) prepareProviderBinary(provider string) {
+	if provider == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.providerBinaries == nil {
+		s.providerBinaries = make(map[string]string)
+	}
+	if s.providerBinaryBusy == nil {
+		s.providerBinaryBusy = make(map[string]bool)
+	}
+	if s.providerBinaryBusy[provider] {
+		s.mu.Unlock()
+		return
+	}
+	s.providerBinaryBusy[provider] = true
+	s.mu.Unlock()
+	go func() {
+		binary, err := s.client.ProviderBinary(context.Background(), provider)
+		s.mu.Lock()
+		delete(s.providerBinaryBusy, provider)
+		if err != nil {
+			binary = ""
+		}
+		s.providerBinaries[provider] = binary
+		s.mu.Unlock()
+		s.invalidate()
+	}()
+}
+
+// agentResumeCommand builds the shell command for this provider's registered
+// resume template. An empty result means there is nothing to copy.
+func agentResumeCommand(provider, binary, sessionID string) string {
+	return harness.FormatResumeCommand(provider, binary, sessionID)
+}
+
 // threadContextMenu 返回会话行的上下文菜单构建函数：右键菜单与悬停时的「更多操作」按钮共用，
 // 保证两条入口的菜单项完全一致。
 func threadContextMenu(c *ui.Context, s *chatState, projectID string, thVal Thread) func(*ui.Menu) {
@@ -1510,6 +1590,19 @@ func threadContextMenu(c *ui.Context, s *chatState, projectID string, thVal Thre
 		if m.Item("复制会话 ID").Chosen() {
 			c.WriteClipboard(thVal.ID)
 			s.setToast("已复制会话 ID")
+		}
+		// The item is registered only when this agent has a resume template.
+		// The template does not change between the collect pass and the click
+		// pass, so omitting it does not shift later items. When a template
+		// exists the item stays registered and is disabled until a session id
+		// is known, because mygo matches the chosen item by position.
+		resumeProvider, resumeSessionID := agentResumeTarget(s, thVal)
+		if harness.ResumeTemplate(resumeProvider) != "" {
+			resume := harness.FormatResumeCommandIn(s.projectPathByID(projectID), resumeProvider, s.providerBinaryFor(resumeProvider), resumeSessionID)
+			if m.Item("复制 Resume 命令").Disabled(resume == "").Chosen() {
+				c.WriteClipboard(resume)
+				s.setToast("已复制 Resume 命令")
+			}
 		}
 		if threadDir != "" {
 			if m.Item("复制路径").Chosen() {

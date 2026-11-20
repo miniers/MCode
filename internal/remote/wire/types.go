@@ -328,6 +328,8 @@ type ThreadSummary struct {
 	BackgroundTasks int `json:"backgroundTasks,omitempty"`
 	// MCPDisabled 是会话级外部 MCP 禁用名单（元素为 agent:scope:name 键）；空表示沿用全局设置。
 	MCPDisabled []string `json:"mcpDisabled,omitempty"`
+	// AgentSessionID is the agent CLI session id used to resume. Empty until the first turn.
+	AgentSessionID string `json:"agentSessionID,omitempty"`
 }
 
 // ThreadList 对应 threads.list 成功结果

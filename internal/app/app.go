@@ -2082,10 +2082,31 @@ func buildExtraHarnesses(cfg config.Config, secrets config.SecretStore, mcpInjec
 	return res
 }
 
+// applyResumeTemplates records config-supplied resume commands. An empty
+// Resume field leaves the built-in default in place.
+func applyResumeTemplates(cfg config.Config) {
+	set := func(id string, pc config.ProviderConfig) {
+		if t := strings.TrimSpace(pc.Resume); t != "" {
+			harness.RegisterResumeTemplate(id, t)
+		}
+	}
+	set("claude", cfg.Providers.Claude)
+	set("codex", cfg.Providers.Codex)
+	set("agy", cfg.Providers.Agy)
+	set("copilot", cfg.Providers.Copilot)
+	set("pi", cfg.Providers.Pi)
+	set("omp", cfg.Providers.Omp)
+	set("commandcode", cfg.Providers.CommandCode)
+	for id, pc := range cfg.Providers.ACP {
+		set(id, pc)
+	}
+}
+
 // registerExtraProviders 注册 ACP 体系的各个 Agent、OpenAI 以及 Agy Provider。
 // 返回 agy 的账号管理器与 harness（未启用或初始化失败时为 nil），供调用方按需把 agy 设为默认 provider。
 func registerExtraProviders(backend *remote.MemoryBackend, cfg config.Config, dataDir string, agyOpts accounts.Options, mcpInjection providerMCP) (*accounts.Manager, harness.Harness) {
 	setAppDataDir(dataDir)
+	applyResumeTemplates(cfg)
 	secrets := config.NewSecretStore("mcode")
 
 	for _, a := range acp.Agents() {

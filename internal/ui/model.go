@@ -266,6 +266,8 @@ type chatState struct {
 	projectPathsWasActive bool
 	projectPathFocusHook  bool
 	threadsByProj         map[string][]Thread // 每个项目的会话列表
+	providerBinaries      map[string]string   // CLI 可执行文件路径缓存，空串表示解析不到
+	providerBinaryBusy    map[string]bool     // 正在解析可执行文件路径的 provider
 	collapsedProj         map[string]bool     // 组折叠状态（保存在内存中，true 为折叠）
 	threads               []Thread            // 全部会话的平铺视图，按时间倒序
 	selectedThreadID      string

@@ -628,6 +628,7 @@ func TestVisibleThreadWindow(t *testing.T) {
 // 各分组里的菜单项都还在，点「转发到新会话」会触发转发。
 func TestSidebarThreadContextMenuGroups(t *testing.T) {
 	fake := NewFakeClient()
+	fake.threads["p1"][0].Provider = "claude"
 	state, view := buildRoot(fake)
 	// 打开新窗口的回调在测试里默认没有装配，这里补上以覆盖第一组的第二项。
 	state.openThreadWindow = func(string) {}
@@ -663,7 +664,7 @@ func TestSidebarThreadContextMenuGroups(t *testing.T) {
 	wantGroups := [][]string{
 		{"转发到新会话", "在新窗口打开"},
 		{"重命名…", "置顶", "标记休眠", "迁入 Worktree…"},
-		{"导出会话…", "复制为 Markdown", "复制会话 ID", "复制路径", revealInFileManagerLabel()},
+		{"导出会话…", "复制为 Markdown", "复制会话 ID", "复制 Resume 命令", "复制路径", revealInFileManagerLabel()},
 		{"归档", "删除…"},
 	}
 	for i, want := range wantGroups {
@@ -680,6 +681,94 @@ func TestSidebarThreadContextMenuGroups(t *testing.T) {
 		defer fake.mu.Unlock()
 		return len(fake.ForwardCalls) == 1 && fake.ForwardCalls[0] == "t1"
 	})
+}
+
+// TestSidebarCopyResumeCommand 校验「复制 Resume 命令」拼出的是恢复该会话的完整命令行：
+// 还没跑过一轮或该 CLI 不支持恢复时菜单项禁用，Agent 回报后可从列表快照之外的热会话拿到最新值。
+func TestSidebarCopyResumeCommand(t *testing.T) {
+	fake := NewFakeClient()
+	fake.providerBinary = map[string]string{"omp": "/usr/local/bin/omp"}
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+
+	if err := tt.RightClick("测试会话1"); err != nil {
+		t.Fatalf("right click '测试会话1' failed: %v", err)
+	}
+	tt.Frame()
+	if err := tt.ChooseMenuItem("复制 Resume 命令"); err == nil {
+		t.Fatalf("没有 Agent 会话 ID 时菜单项应不可选: %v", tt.Menu())
+	}
+	tt.CloseMenu()
+
+	// 会话摘要只走 Watch 增量（列表快照不带 Agent 会话 ID），可执行文件路径由后端异步解析。
+	fake.UpdateThreadSummary(Thread{ID: "t1", ProjectID: "p1", Provider: "omp", SessionID: "/Users/me/sessions/agent-sess 42.jsonl"})
+	state.prepareProviderBinary("omp")
+	waitFor(t, tt, func() bool {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		snap := state.threadsByProj["p1"][0]
+		return snap.SessionID != "" && state.providerBinaries["omp"] == "/usr/local/bin/omp"
+	})
+
+	if err := tt.RightClick("测试会话1"); err != nil {
+		t.Fatalf("right click '测试会话1' failed: %v", err)
+	}
+	tt.Frame()
+	if err := tt.ChooseMenuItem("复制 Resume 命令"); err != nil {
+		t.Fatalf("choose copy resume command failed: %v", err)
+	}
+	want := "cd /path/to/test && /usr/local/bin/omp --resume '/Users/me/sessions/agent-sess 42.jsonl'"
+	if got := tt.Clipboard(); got != want {
+		t.Fatalf("剪贴板 = %q，应为 %q", got, want)
+	}
+}
+
+func TestSidebarResumeCommandHiddenWithoutTemplate(t *testing.T) {
+	fake := NewFakeClient()
+	fake.threads["p1"][0].Provider = "copilot"
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+
+	if err := tt.RightClick("测试会话1"); err != nil {
+		t.Fatalf("right click failed: %v", err)
+	}
+	tt.Frame()
+	for _, item := range tt.Menu() {
+		if item == "复制 Resume 命令" {
+			t.Fatalf("copilot has no resume template, menu = %v", tt.Menu())
+		}
+	}
+}
+
+// TestAgentResumeCommand 校验各 CLI 的恢复命令与不提供入口的情况。
+func TestAgentResumeCommand(t *testing.T) {
+	cases := []struct{ provider, binary, session, want string }{
+		{"omp", "/usr/local/bin/omp", "/tmp/a.jsonl", "/usr/local/bin/omp --resume /tmp/a.jsonl"},
+		{"pi", "pi", "/tmp/b.json", "pi --session /tmp/b.json"},
+		{"omp", "/usr/local/bin/omp", "a b.jsonl", "/usr/local/bin/omp --resume 'a b.jsonl'"},
+		{"claude", "claude", "sess-1", "claude --resume sess-1"},
+		{"commandcode", "cc", "sess-2", "cc --resume sess-2"},
+		{"acme", "acme", "sess-x", ""},
+		{"copilot", "copilot", "sess-c", ""},
+		{"codex", "/usr/local/bin/codex", "01a1d5e6-8759-7cf3-a032-6ee06dfae989", "/usr/local/bin/codex resume 01a1d5e6-8759-7cf3-a032-6ee06dfae989"},
+		{"cursor", "cursor-agent", "chat-1", "cursor-agent --resume chat-1"},
+		{"cline", "cline", "sess-cl", "cline --id sess-cl"},
+		{"opencode", "opencode", "ses_1", "opencode --session ses_1"},
+		{"grok", "grok", "sess-g", "grok --resume sess-g"},
+		{"agy", "agy", "conv-1", "agy --conversation conv-1"},
+		{"OMP", "omp", "/tmp/a.jsonl", "omp --resume /tmp/a.jsonl"},
+		{"omp", "", "/tmp/a.jsonl", ""},
+		{"omp", "/usr/local/bin/omp", "", ""},
+	}
+	for _, c := range cases {
+		if got := agentResumeCommand(c.provider, c.binary, c.session); got != c.want {
+			t.Errorf("agentResumeCommand(%q, %q, %q) = %q，应为 %q", c.provider, c.binary, c.session, got, c.want)
+		}
+	}
 }
 
 // TestSidebarSearchClearButton 校验搜索框输入后出现清空按钮，点击后查询串清空且按钮消失。

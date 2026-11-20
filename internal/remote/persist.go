@@ -230,6 +230,7 @@ func threadFromStore(t store.Thread) wire.ThreadSummary {
 
 		ForkedFromThreadID:  optionalString(t.ForkedFromThreadID),
 		ForkedFromMessageID: optionalString(t.ForkedFromMessageID),
+		AgentSessionID:      t.SessionID,
 	}
 }
 

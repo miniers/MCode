@@ -66,6 +66,7 @@ func ThreadSummaryToUI(s wire.ThreadSummary) mcodeui.Thread {
 		Title:             s.Title,
 		Provider:          s.Provider,
 		Model:             modelStr,
+		SessionID:         s.AgentSessionID,
 		RuntimeMode:       s.RuntimeMode,
 		InteractionMode:   interactionMode,
 		Effort:            derefString(s.Effort),

@@ -1918,7 +1918,12 @@ type ProviderConfig struct {
 	Enabled bool   `json:"enabled"`
 	Bin     string `json:"bin"` // 可执行文件路径，空表示从 PATH 查找
 	// Auth 仅 ACP droid 使用，取值 "apiKey" 或 "browser"，空视为 "browser"。
-	Auth string `json:"auth,omitempty"`
+	// Resume is the shell args after the binary for "Copy Resume command".
+	// The token sessionid is replaced with the agent session id.
+	// Example: "--resume sessionid" or "resume sessionid".
+	// Empty uses the built-in default; when that is also empty the menu item is hidden.
+	Resume string `json:"resume,omitempty"`
+	Auth   string `json:"auth,omitempty"`
 	// ResidentIdleMinutes 仅 claude 使用：常驻进程空闲多少分钟后回收。nil 表示默认 10，0 表示关闭常驻
 	// （每轮一个进程，用 --resume 续会话）。
 	ResidentIdleMinutes *int `json:"residentIdleMinutes,omitempty"`

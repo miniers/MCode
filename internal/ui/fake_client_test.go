@@ -572,6 +572,9 @@ type FakeClient struct {
 	checkProviderUpdateResult ProviderVersionInfo
 	checkProviderUpdateErr    error
 
+	providerBinary    map[string]string
+	providerBinaryErr error
+
 	providerAccountCalls  []string
 	providerAccountResult ProviderAccountInfo
 	providerAccountErr    error
@@ -4494,6 +4497,28 @@ func (f *FakeClient) CheckProviderUpdate(ctx context.Context, provider string) (
 		return f.checkProviderUpdateResult, nil
 	}
 	return ProviderVersionInfo{Provider: provider}, nil
+}
+
+// UpdateThreadSummary 模拟后端推送一条会话摘要，推给所有 WatchThreadSummaries 订阅者。
+func (f *FakeClient) UpdateThreadSummary(update Thread) {
+	f.mu.Lock()
+	callbacks := make([]func(Thread), 0, len(f.summaryWatchers))
+	for _, cb := range f.summaryWatchers {
+		callbacks = append(callbacks, cb)
+	}
+	f.mu.Unlock()
+	for _, cb := range callbacks {
+		cb(update)
+	}
+}
+
+func (f *FakeClient) ProviderBinary(ctx context.Context, provider string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.providerBinaryErr != nil {
+		return "", f.providerBinaryErr
+	}
+	return f.providerBinary[provider], nil
 }
 
 func (f *FakeClient) ProviderAccount(ctx context.Context, provider string) (ProviderAccountInfo, error) {
