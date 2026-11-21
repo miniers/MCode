@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -605,4 +606,117 @@ func TestMemoryHeaderEntryLabelLocalBackend(t *testing.T) {
 	if tt.HasText(memoryEntryLabelDefault) {
 		t.Fatalf("本地后端不应显示 Nowledge 文案：%v", tt.Texts())
 	}
+}
+
+// 记忆面板待审与搜索列表虚拟化：仅渲染视口及缓冲区域内的卡片，且编辑与两步忘掉交互正常。
+func TestMemoryPanelVirtualListP1(t *testing.T) {
+	t.Run("pending_virtualized", func(t *testing.T) {
+		fake := NewFakeClient()
+		s, view := buildRoot(fake)
+		t.Cleanup(s.close)
+
+		tt := ui.NewTester(view, 760, 480)
+		waitFor(t, tt, func() bool { return s.getSelectedProjectPath() != "" })
+		path := s.getSelectedProjectPath()
+
+		const total = 125
+		for i := 1; i <= total; i++ {
+			fake.SetMemoryProposal(MemoryProposal{
+				ID:          fmt.Sprintf("mp-virt-%03d", i),
+				ProjectPath: path,
+				ThreadID:    "t1",
+				Title:       fmt.Sprintf("待审提议-%03d", i),
+				Content:     fmt.Sprintf("待审内容-%03d", i),
+				UnitType:    "fact",
+				Importance:  0.7,
+				Source:      "agent",
+				Status:      "pending",
+			})
+		}
+
+		s.toggleMemoryPanel()
+		waitFor(t, tt, func() bool { return tt.HasText("待审提议-001") })
+		if tt.HasText("待审提议-115") {
+			t.Fatalf("远在视口外的第 115 条提议不应被渲染")
+		}
+
+		if err := tt.Click("待审提议-001"); err != nil {
+			t.Fatalf("click 待审提议-001 failed: %v", err)
+		}
+		waitFor(t, tt, func() bool { return tt.HasText("保存修改") })
+
+		if err := tt.Click("标题"); err != nil {
+			t.Fatalf("focus 标题 failed: %v", err)
+		}
+		tt.Type("-已改")
+		waitFor(t, tt, func() bool {
+			st := getMemoryPanelState(s)
+			if st == nil {
+				return false
+			}
+			memoryPanelMu.Lock()
+			defer memoryPanelMu.Unlock()
+			return st.expanded == "mp-virt-001" && strings.Contains(st.editTitle, "已改")
+		})
+		if tt.HasText("待审提议-115") {
+			t.Fatalf("展开编辑可见提议后，远在视口外的第 115 条提议仍不应被渲染")
+		}
+	})
+
+	t.Run("search_virtualized", func(t *testing.T) {
+		fake := NewFakeClient()
+		s, view := buildRoot(fake)
+		t.Cleanup(s.close)
+
+		tt := ui.NewTester(view, 760, 480)
+		waitFor(t, tt, func() bool { return s.getSelectedProjectPath() != "" })
+
+		const total = 125
+		items := make([]MemoryItem, 0, total)
+		for i := 1; i <= total; i++ {
+			items = append(items, MemoryItem{
+				ID:         fmt.Sprintf("mem-virt-%03d", i),
+				Title:      fmt.Sprintf("搜索结果-%03d", i),
+				Content:    fmt.Sprintf("搜索正文-%03d", i),
+				UnitType:   "fact",
+				Importance: 0.6,
+			})
+		}
+		fake.SetMemorySearchResults(items)
+
+		s.toggleMemoryPanel()
+		s.switchMemoryTab(memoryTabSearch)
+		waitFor(t, tt, func() bool { return tt.HasText("输入关键字后按「搜索」") })
+		s.editMemorySearchQuery("搜索")
+		if err := tt.Click("执行搜索"); err != nil {
+			t.Fatalf("click 执行搜索 failed: %v", err)
+		}
+
+		waitFor(t, tt, func() bool { return tt.HasText("搜索结果-001") })
+		if tt.HasText("搜索结果-115") {
+			t.Fatalf("远在视口外的第 115 条搜索结果不应被渲染")
+		}
+
+		if err := tt.Click("忘掉记忆：搜索结果-001"); err != nil {
+			t.Fatalf("click 忘掉记忆 failed: %v", err)
+		}
+		waitFor(t, tt, func() bool { return tt.HasText("确认忘掉") })
+		if calls := fake.MemoryForgetCalls(); len(calls) != 0 {
+			t.Fatalf("第一次点击不应调用 ForgetMemory，实际 %v", calls)
+		}
+
+		if err := tt.Click("忘掉记忆：搜索结果-001"); err != nil {
+			t.Fatalf("click 确认忘掉 failed: %v", err)
+		}
+		waitFor(t, tt, func() bool {
+			calls := fake.MemoryForgetCalls()
+			return len(calls) == 1 && calls[0][1] == "mem-virt-001" && !tt.HasText("搜索结果-001")
+		})
+		if !tt.HasText("搜索结果-002") {
+			t.Fatalf("其它可见搜索结果应保持渲染")
+		}
+		if tt.HasText("搜索结果-115") {
+			t.Fatalf("远在视口外的第 115 条搜索结果不应被渲染")
+		}
+	})
 }

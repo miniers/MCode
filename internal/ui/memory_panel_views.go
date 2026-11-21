@@ -288,7 +288,11 @@ func renderMemoryErrorBanner(c *ui.Context, s *chatState, key, msg string) {
 
 // renderMemoryPendingTab 渲染待审页：提议列表与底部「新建记忆」。
 func renderMemoryPendingTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot) {
-	ui.Column(c.Key("memory-pending-view")).Grow(1).FillWidth().Children(func() {
+	ms := getMemoryPanelState(s)
+	if ms != nil && takeMemoryListReset(ms, false) {
+		ms.pendingList = ui.ListState{}
+	}
+	ui.Column(c.Key("memory-pending-view")).Grow(1).MinHeight(0).FillWidth().Children(func() {
 		if snap.err != "" && !snap.creating {
 			renderMemoryErrorBanner(c, s, "panel", snap.err)
 		}
@@ -307,18 +311,16 @@ func renderMemoryPendingTab(c *ui.Context, s *chatState, snap memoryPanelSnapsho
 					}
 					EmptyState(c, EmptyStateProps{Icon: IconBrain(), Title: "暂无待审记忆", Description: "Agent 通过 memory_propose 提交提议后，会在这里等待你接受或拒绝。"})
 				})
-		} else {
-			ui.Scroll(c.Key("memory-pending-scroll")).
+		} else if ms != nil {
+			ms.pendingList.Key = func(i int) any { return snap.proposals[i].ID }
+			ui.List(c.Key("memory-pending-list"), &ms.pendingList, len(snap.proposals), func(i int) {
+				renderMemoryProposalCard(c, s, snap, snap.proposals[i])
+			}).
 				Grow(1).
+				MinHeight(0).
 				FillWidth().
-				Padding(memoryModalPadding).
-				Children(func() {
-					ui.Column(c.Key("memory-pending-list")).FillWidth().Gap(Space3).Children(func() {
-						for _, p := range snap.proposals {
-							renderMemoryProposalCard(c, s, snap, p)
-						}
-					})
-				})
+				Gap(Space3).
+				Padding(memoryModalPadding)
 		}
 
 		ui.Row(c.Key("memory-pending-footer")).
@@ -880,8 +882,12 @@ func renderMemoryCreateDialog(c *ui.Context, s *chatState, snap memoryPanelSnaps
 
 // renderMemorySearchTab 渲染搜索页：输入框、搜索按钮与结果列表。
 func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot) {
+	ms := getMemoryPanelState(s)
+	if ms != nil && takeMemoryListReset(ms, true) {
+		ms.searchList = ui.ListState{}
+	}
 	query := snap.searchQuery
-	ui.Column(c.Key("memory-search-view")).Grow(1).FillWidth().Children(func() {
+	ui.Column(c.Key("memory-search-view")).Grow(1).MinHeight(0).FillWidth().Children(func() {
 		ui.Row(c.Key("memory-search-bar")).
 			FillWidth().
 			Padding(Space3, memoryModalPadding).
@@ -955,17 +961,18 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 			return
 		}
 
-		ui.Scroll(c.Key("memory-search-scroll")).
+		if ms == nil {
+			return
+		}
+		ms.searchList.Key = func(i int) any { return snap.searchResults[i].ID }
+		ui.List(c.Key("memory-search-list"), &ms.searchList, len(snap.searchResults), func(i int) {
+			renderMemoryItemCard(c, s, snap, snap.searchResults[i])
+		}).
 			Grow(1).
+			MinHeight(0).
 			FillWidth().
-			Padding(memoryModalPadding).
-			Children(func() {
-				ui.Column(c.Key("memory-search-list")).FillWidth().Gap(Space3).Children(func() {
-					for _, item := range snap.searchResults {
-						renderMemoryItemCard(c, s, snap, item)
-					}
-				})
-			})
+			Gap(Space3).
+			Padding(memoryModalPadding)
 	})
 }
 

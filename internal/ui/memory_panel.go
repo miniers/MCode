@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 )
 
 const (
@@ -96,6 +97,29 @@ type memoryPanelState struct {
 	pendingBaselineSet bool
 	pendingCountAt     time.Time
 	pendingFetching    bool
+
+	// 虚拟化列表状态仅在渲染线程读写，reset* 标记用于在切项目或新搜索时于下一帧复位滚动位置。
+	pendingList      ui.ListState
+	searchList       ui.ListState
+	resetPendingList bool
+	resetSearchList  bool
+}
+
+// takeMemoryListReset 在渲染线程原子读取并清除列表复位标记，避免持锁操作 ui.ListState。
+func takeMemoryListReset(st *memoryPanelState, search bool) bool {
+	if st == nil {
+		return false
+	}
+	memoryPanelMu.Lock()
+	defer memoryPanelMu.Unlock()
+	if search {
+		reset := st.resetSearchList
+		st.resetSearchList = false
+		return reset
+	}
+	reset := st.resetPendingList
+	st.resetPendingList = false
+	return reset
 }
 
 // getMemoryPanelState 获取或初始化当前 chatState 的记忆面板状态；窗口已关闭时顺手清理。
@@ -197,6 +221,9 @@ func (s *chatState) reloadMemoryProposals() {
 	}
 	path := s.getSelectedProjectPath()
 	memoryPanelMu.Lock()
+	if st.projectPath != "" && st.projectPath != path {
+		st.resetPendingList = true
+	}
 	st.projectPath = path
 	st.generation++
 	gen := st.generation
@@ -827,6 +854,7 @@ func (s *chatState) searchMemories() {
 	if query == "" {
 		st.searchErr = "请输入搜索内容"
 		st.searchResults = nil
+		st.resetSearchList = true
 		memoryPanelMu.Unlock()
 		s.invalidate()
 		return
@@ -834,6 +862,7 @@ func (s *chatState) searchMemories() {
 	st.searchErr = ""
 	st.searchLoading = true
 	st.searched = true
+	st.resetSearchList = true
 	memoryPanelMu.Unlock()
 	if path == "" {
 		path = s.getSelectedProjectPath()
