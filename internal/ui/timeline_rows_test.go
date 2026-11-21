@@ -458,6 +458,8 @@ func TestTimelineRows_ToolBeatChips(t *testing.T) {
 	}
 	tt := newTimelineTester(t, msgs, "思考 · 命令")
 	clickText(t, tt, "思考 · 命令")
+	// 等待时间线列表 MoveAnimation 落定，避免下方「等待后台任务」条在冻结时钟 0ms 处停留在展开前位置覆盖新展开的胶囊
+	tt.Advance(time.Second)
 	if !tt.HasText("先看仓库状态") {
 		t.Fatalf("展开组后应显示思考叙事: %q", tt.Texts())
 	}
