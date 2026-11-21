@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"strings"
+	"sync"
 
 	mcode "mcode"
 )
@@ -11,7 +12,11 @@ type changelogVersion struct {
 	Body    string
 }
 
-func changelogVersions() []changelogVersion { return parseChangelogVersions(mcode.Changelog) }
+var changelogVersionsOnce = sync.OnceValue(func() []changelogVersion {
+	return parseChangelogVersions(mcode.Changelog)
+})
+
+func changelogVersions() []changelogVersion { return changelogVersionsOnce() }
 
 func parseChangelogVersions(text string) []changelogVersion {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
