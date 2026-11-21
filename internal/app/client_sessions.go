@@ -908,6 +908,22 @@ func (c *Client) Diff(ctx context.Context, threadID, turnID string) (mcodeui.Thr
 	}, nil
 }
 
+// DiffStats 调用 ThreadsGetDiff 的 statOnly 模式，只取会话整体改动统计：
+// 文件数来自 numstat，增删行数同样由 numstat 汇总，不生成 diff 正文，也不逐个轮次起子进程。
+func (c *Client) DiffStats(ctx context.Context, threadID string) (mcodeui.ThreadDiffStats, error) {
+	if c.backend == nil {
+		return mcodeui.ThreadDiffStats{}, errors.New("backend 不可用")
+	}
+	res, err := c.backend.GetDiff(ctx, wire.ThreadsGetDiffParams{ThreadID: threadID, StatOnly: true})
+	if err != nil {
+		return mcodeui.ThreadDiffStats{}, err
+	}
+	if res.FailureReason != nil && *res.FailureReason != "" {
+		return mcodeui.ThreadDiffStats{}, errors.New(*res.FailureReason)
+	}
+	return mcodeui.ThreadDiffStats{Files: len(res.FilesChanged), Additions: res.Additions, Deletions: res.Deletions}, nil
+}
+
 // BranchThread 调用 backend.BranchThread 从指定助手答复分支出新会话。
 func (c *Client) BranchThread(ctx context.Context, threadID, messageID string) (string, error) {
 	if c.backend == nil {

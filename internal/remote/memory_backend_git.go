@@ -406,12 +406,16 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 
 	// 构造 turns 摘要列表（只统计最近 turnMetadataLimit 轮：截断后的轮次不会下发，
 	// 长会话里为每一轮起一个 git numstat 子进程代价过高）。
+	// 只要统计时整段跳过：每个轮次一个 numstat 子进程正是大会话切换慢的来源。
 	statTurns := orderedTurns
 	if len(statTurns) > turnMetadataLimit {
 		statTurns = statTurns[:turnMetadataLimit]
 	}
 	var turns []wire.ReviewTurn
 	for idx, tr := range statTurns {
+		if params.StatOnly {
+			break
+		}
 		tIdx := idx
 		if ti, ok := turnIndices[tr.turnID]; ok {
 			tIdx = ti
@@ -511,13 +515,16 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		}
 	}
 
+	additions, deletions := 0, 0
 	if diffFrom != "" {
-		dt, trunc, dErr := gitRunner.DiffText(ctx, repoRoot, diffFrom, diffTo, diffPaths, maxDiffBytes)
-		if dErr != nil {
-			return neutralResult("git diff failed: " + dErr.Error())
+		if !params.StatOnly {
+			dt, trunc, dErr := gitRunner.DiffText(ctx, repoRoot, diffFrom, diffTo, diffPaths, maxDiffBytes)
+			if dErr != nil {
+				return neutralResult("git diff failed: " + dErr.Error())
+			}
+			diffText = dt
+			truncated = trunc
 		}
-		diffText = dt
-		truncated = trunc
 
 		stats, sErr := gitRunner.NumStat(ctx, repoRoot, diffFrom, diffTo, diffPaths)
 		if sErr == nil {
@@ -531,6 +538,13 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 					seenPaths[st.OldPath] = true
 					filesChanged = append(filesChanged, st.OldPath)
 				}
+				// 二进制文件的增删行是 -1，不计入总行数。
+				if st.Additions > 0 {
+					additions += st.Additions
+				}
+				if st.Deletions > 0 {
+					deletions += st.Deletions
+				}
 			}
 			sort.Strings(filesChanged)
 		}
@@ -542,6 +556,8 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		Diff:              diffText,
 		Truncated:         truncated,
 		FilesChanged:      filesChanged,
+		Additions:         additions,
+		Deletions:         deletions,
 		Turns:             turns,
 		MetadataTruncated: metadataTruncated,
 	}, nil

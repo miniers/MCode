@@ -280,7 +280,7 @@ func TestUIReview21FilesReadContextHasDeadline(t *testing.T) {
 		nFiles := len(client.filesDeadlines)
 		nDiff := len(client.diffDeadlines)
 		client.mu.Unlock()
-		if nFiles >= 4 && nDiff >= 2 {
+		if nFiles >= 4 && nDiff >= 1 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -299,8 +299,12 @@ func TestUIReview21FilesReadContextHasDeadline(t *testing.T) {
 			t.Fatalf("第 %d 次 FilesRead 的 ctx 缺少 Deadline", i)
 		}
 	}
-	if len(diffDeadlines) < 2 {
+	// 改动统计改走 DiffStats（只取三个数字），不再借 Diff 生成整会话补丁。
+	if len(diffDeadlines) < 1 {
 		t.Fatalf("Diff 调用次数不足: %d", len(diffDeadlines))
+	}
+	if len(fake.DiffStatsCalls()) == 0 {
+		t.Fatal("DiffStats 未被调用")
 	}
 	for i, hasDeadline := range diffDeadlines {
 		if !hasDeadline {

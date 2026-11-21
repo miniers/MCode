@@ -303,6 +303,22 @@ func TestMemoryBackend_GetDiffWorkflow(t *testing.T) {
 			t.Errorf("expected turn item field %q in JSON turn object", tf)
 		}
 	}
+
+	// statOnly：只回改动统计，不生成 diff 正文，也不逐个轮次起 numstat 子进程。
+	stat, err := backend.GetDiff(ctx, wire.ThreadsGetDiffParams{ThreadID: threadID, StatOnly: true})
+	if err != nil {
+		t.Fatalf("statOnly getDiff failed: %v", err)
+	}
+	if stat.Diff != "" {
+		t.Fatalf("statOnly 不应返回 diff 正文，实际 %d 字节", len(stat.Diff))
+	}
+	if len(stat.Turns) != 0 {
+		t.Fatalf("statOnly 不应返回轮次摘要，实际 %d 条", len(stat.Turns))
+	}
+	if len(stat.FilesChanged) == 0 || stat.Additions <= 0 {
+		t.Fatalf("statOnly 统计不完整: files=%d additions=%d deletions=%d",
+			len(stat.FilesChanged), stat.Additions, stat.Deletions)
+	}
 }
 
 // TestMemoryBackend_GetDiffOnlySessionTouchedFiles 验证 diff 面板只展示本会话工具实际触碰的文件：

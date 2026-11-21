@@ -227,6 +227,8 @@ type FakeClient struct {
 	demoteEmptyThreadErr    error
 	historyCalls            []string
 	diffCalls               []string
+	diffStats               map[string]ThreadDiffStats
+	diffStatsCalls          []string
 
 	automations               []Automation
 	automationRuns            map[string][]AutomationRun
@@ -1755,6 +1757,35 @@ func (f *FakeClient) Diff(ctx context.Context, threadID, turnID string) (ThreadD
 		return ThreadDiff{}, nil
 	}
 	return f.diffs[threadID+"|"+turnID], nil
+}
+
+func (f *FakeClient) SetThreadDiffStats(threadID string, stats ThreadDiffStats) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.diffStats == nil {
+		f.diffStats = make(map[string]ThreadDiffStats)
+	}
+	f.diffStats[threadID] = stats
+}
+
+// DiffStats 只取统计：调用按会话计数，便于测试确认切换会话不会重复拉取。
+func (f *FakeClient) DiffStats(ctx context.Context, threadID string) (ThreadDiffStats, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.diffStatsCalls = append(f.diffStatsCalls, threadID)
+	if f.diffStats == nil {
+		return ThreadDiffStats{}, nil
+	}
+	return f.diffStats[threadID], nil
+}
+
+// DiffStatsCalls 返回 DiffStats 的调用会话列表。
+func (f *FakeClient) DiffStatsCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	res := make([]string, len(f.diffStatsCalls))
+	copy(res, f.diffStatsCalls)
+	return res
 }
 
 func (f *FakeClient) DiffCalls() []string {
