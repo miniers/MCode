@@ -341,10 +341,10 @@ func closeMenuItem() *mygo.MenuItem {
 	}
 }
 
-// settingsMenuItem 返回「偏好设置…」菜单项：macOS 放在应用菜单，Windows 放在「文件」菜单。
+// settingsMenuItem 返回「打开设置…」菜单项：macOS 放在应用菜单，Windows 放在「文件」菜单。
 func settingsMenuItem() *mygo.MenuItem {
 	return &mygo.MenuItem{
-		Label:       "偏好设置…",
+		Label:       "打开设置…",
 		Accelerator: menuAccelerator("open-settings", "CmdOrCtrl+,"),
 		Click: func(*mygo.MenuItem, *mygo.Window) {
 			DispatchMenuAction("open-settings", 0)
@@ -381,7 +381,7 @@ func buildViewMenuItems() []*mygo.MenuItem {
 			},
 		},
 		{
-			Label:       "键盘快捷键…",
+			Label:       "显示快捷键…",
 			Accelerator: menuAccelerator("show-shortcuts", "CmdOrCtrl+/"),
 			Click: func(*mygo.MenuItem, *mygo.Window) {
 				DispatchMenuAction("show-shortcuts", 0)
@@ -402,7 +402,7 @@ func buildViewMenuItems() []*mygo.MenuItem {
 			DispatchMenuAction("toggle-inspector", 0)
 		}},
 		&mygo.MenuItem{
-			Label:       "项目文档 (.mcode/context)",
+			Label:       "项目文档",
 			Accelerator: menuAccelerator("toggle-context", "Shift+CmdOrCtrl+K"),
 			Click: func(*mygo.MenuItem, *mygo.Window) {
 				DispatchMenuAction("toggle-context", 0)
@@ -489,7 +489,7 @@ func buildThreadMenuItems() []*mygo.MenuItem {
 			},
 		},
 		{
-			Label:       "运行项目脚本",
+			Label:       "运行脚本",
 			Accelerator: menuAccelerator("run-script", "Alt+CmdOrCtrl+R"),
 			Click: func(*mygo.MenuItem, *mygo.Window) {
 				DispatchMenuAction("run-script", 0)

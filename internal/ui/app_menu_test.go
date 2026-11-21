@@ -52,7 +52,7 @@ func TestBuildAppMenu(t *testing.T) {
 	}
 
 	appMenu := items[0].Submenu
-	requireMenuItem(t, appMenu, "偏好设置…", "CmdOrCtrl+,")
+	requireMenuItem(t, appMenu, "打开设置…", "CmdOrCtrl+,")
 	requireMenuItem(t, appMenu, "关于 MCode", "")
 	requireMenuItem(t, appMenu, "检查更新…", "")
 	forbidMenuRole(t, appMenu, mygo.RoleAbout)
@@ -79,13 +79,14 @@ func TestBuildAppMenu(t *testing.T) {
 	viewMenu := items[3].Submenu
 	requireMenuItem(t, viewMenu, "显示/隐藏侧边栏", "CmdOrCtrl+B")
 	requireMenuItem(t, viewMenu, "命令面板…", "CmdOrCtrl+K")
+	requireMenuItem(t, viewMenu, "显示快捷键…", "CmdOrCtrl+/")
 	requireMenuItem(t, viewMenu, "显示/隐藏终端", "CmdOrCtrl+J")
 	requireMenuItem(t, viewMenu, "显示/隐藏改动", "CmdOrCtrl+D")
 	requireMenuItem(t, viewMenu, "显示/隐藏 Git", "Shift+CmdOrCtrl+G")
 	requireMenuItem(t, viewMenu, "显示/隐藏浏览器", "Shift+CmdOrCtrl+B")
 	requireMenuItem(t, viewMenu, "显示/隐藏文件", "Shift+CmdOrCtrl+F")
 	requireMenuItem(t, viewMenu, "显示/隐藏右栏", "Alt+CmdOrCtrl+B")
-	requireMenuItem(t, viewMenu, "项目文档 (.mcode/context)", "Shift+CmdOrCtrl+K")
+	requireMenuItem(t, viewMenu, "项目文档", "Shift+CmdOrCtrl+K")
 	requireMenuItem(t, viewMenu, "源码编辑器…", "Shift+CmdOrCtrl+E")
 	requireMenuItem(t, viewMenu, "动态视图", "Alt+CmdOrCtrl+U")
 	requireMenuRole(t, viewMenu, mygo.RoleToggleFullScreen)
@@ -95,7 +96,7 @@ func TestBuildAppMenu(t *testing.T) {
 	requireMenuItem(t, threadMenu, "切换 Build/Plan 模式", "Shift+CmdOrCtrl+P")
 	requireMenuItem(t, threadMenu, "上一会话", "Alt+CmdOrCtrl+Up")
 	requireMenuItem(t, threadMenu, "下一会话", "Alt+CmdOrCtrl+Down")
-	requireMenuItem(t, threadMenu, "运行项目脚本", "Alt+CmdOrCtrl+R")
+	requireMenuItem(t, threadMenu, "运行脚本", "Alt+CmdOrCtrl+R")
 	for i := 1; i <= 9; i++ {
 		requireMenuItem(t, threadMenu,
 			fmt.Sprintf("会话 %d", i),
@@ -125,7 +126,7 @@ func TestBuildAppMenuFollowsShortcutOverrides(t *testing.T) {
 	t.Cleanup(func() { setShortcutOverrides(nil) })
 
 	items := BuildAppMenu().Items()
-	requireMenuItem(t, items[0].Submenu, "偏好设置…", "Shift+CmdOrCtrl+,")
+	requireMenuItem(t, items[0].Submenu, "打开设置…", "Shift+CmdOrCtrl+,")
 	requireMenuItem(t, items[3].Submenu, "显示/隐藏改动", "Alt+CmdOrCtrl+D")
 	requireMenuItem(t, items[4].Submenu, "归档会话", "Shift+CmdOrCtrl+Y")
 
@@ -172,7 +173,7 @@ func TestBuildWindowsAppMenu(t *testing.T) {
 	requireMenuItem(t, fileMenu, "新建会话", "CmdOrCtrl+N")
 	requireMenuItem(t, fileMenu, "在 Worktree 新建会话", "Alt+CmdOrCtrl+N")
 	requireMenuItem(t, fileMenu, "添加项目…", "Shift+CmdOrCtrl+O")
-	requireMenuItem(t, fileMenu, "偏好设置…", "CmdOrCtrl+,")
+	requireMenuItem(t, fileMenu, "打开设置…", "CmdOrCtrl+,")
 	requireMenuItem(t, fileMenu, "关闭", "CmdOrCtrl+W")
 	requireMenuRole(t, fileMenu, mygo.RoleQuit)
 	if last := fileMenu[len(fileMenu)-1]; last.Role != mygo.RoleQuit {
@@ -265,4 +266,17 @@ func TestMenuCheckUpdateHelperOpensAboutPage(t *testing.T) {
 	if page != "about" {
 		t.Fatalf("设置页 = %q，期望 about", page)
 	}
+}
+
+// TestUIReview26_AppMenuMatchesShortcutTitles 验证改动后的菜单名称与 shortcuts.go 的 title 一致。
+func TestUIReview26_AppMenuMatchesShortcutTitles(t *testing.T) {
+	prev := appMenuGOOS
+	appMenuGOOS = "darwin"
+	t.Cleanup(func() { appMenuGOOS = prev })
+
+	items := BuildAppMenu().Items()
+	requireMenuItem(t, items[0].Submenu, shortcutTitle("open-settings")+"…", "CmdOrCtrl+,")
+	requireMenuItem(t, items[3].Submenu, shortcutTitle("show-shortcuts")+"…", "CmdOrCtrl+/")
+	requireMenuItem(t, items[3].Submenu, shortcutTitle("toggle-context"), "Shift+CmdOrCtrl+K")
+	requireMenuItem(t, items[4].Submenu, shortcutTitle("run-script"), "Alt+CmdOrCtrl+R")
 }

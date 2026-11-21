@@ -726,3 +726,32 @@ func TestAppShortcutsDoesNotMutateDefaults(t *testing.T) {
 		t.Fatalf("appShortcuts 修改了 shortcutDefaults 返回的共享切片")
 	}
 }
+
+// TestUIReview26_ToggleContextInAppShortcuts 验证 toggle-context 以「项目文档」出现在展示表，
+// 且保持固定绑定不受覆盖影响。
+func TestUIReview26_ToggleContextInAppShortcuts(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
+	setShortcutOverrides(map[string]string{"toggle-context": "Cmd+L"})
+	t.Cleanup(func() { setShortcutOverrides(nil) })
+
+	var found *appShortcut
+	for _, sc := range appShortcuts() {
+		if sc.id == "toggle-context" {
+			picked := sc
+			found = &picked
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("appShortcuts() 缺少 toggle-context")
+	}
+	if found.title != "项目文档" || found.group != "窗口" || found.keys != "⇧⌘K" {
+		t.Fatalf("toggle-context 展示信息不符: %+v", *found)
+	}
+	if found.customizable {
+		t.Fatalf("toggle-context 应保持固定绑定不可自定义")
+	}
+	if id, _, ok := matchShortcut(ui.Cmd|ui.Shift, ui.KeyK); !ok || id != "toggle-context" {
+		t.Fatalf("⇧⌘K 应继续命中 toggle-context: id=%q ok=%v", id, ok)
+	}
+}

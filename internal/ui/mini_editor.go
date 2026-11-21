@@ -59,14 +59,17 @@ type miniEditorState struct {
 	baseline string // 上次读写的磁盘内容基线，用于外部改动检测
 	loadErr  string // 读取失败（非 UTF-8/权限）时保持只读，永不写回
 	preview  bool   // Markdown 预览开关
-	saveErr      string
-	saving       bool
-	savedAt      time.Time
-	closeBlocked bool // 首次关窗保存失败后曾拦截关闭；无新输入再关一次放行
+	saveErr          string
+	saving           bool
+	savedAt          time.Time
+	closeBlocked     bool // 首次关窗保存失败后曾拦截关闭；无新输入再关一次弹出放弃确认
+	confirmDiscard   bool // 再次关窗时展示「放弃未保存的修改？」确认框
+	closingConfirmed bool // 用户确认放弃修改，放行接下来的关窗事件
 
 	timer        *time.Timer
 	scheduledFor string // 已排入防抖保存的文本，避免每帧重启计时器
 	services     ui.Services
+	win          *mygo.Window
 	mdOpts       *markdown.Options
 	workbench    config.WorkbenchConfig // 打开编辑器时的工作台设置快照
 }
@@ -219,17 +222,32 @@ func (st *miniEditorState) saveNow() {
 	st.saveIfUnchanged(text)
 }
 
-// onClose 在窗口关闭前同步落盘；文本等于基线或此前已拦截且无新输入时直接放行，
-// 否则首次保存失败时取消关闭并记下 closeBlocked，保留窗口与错误提示。
+// onClose 在窗口关闭前同步落盘；文本等于基线或用户已确认放弃时直接放行，
+// 首次保存失败时取消关闭并记下 closeBlocked；若此前已拦截且文本仍不等于基线，
+// 再次关窗会取消关闭并弹出放弃修改确认框。
 func (st *miniEditorState) onClose(e *mygo.CloseEvent) {
 	st.mu.Lock()
-	if st.text == st.baseline || st.closeBlocked {
+	if e != nil && e.Window != nil {
+		st.win = e.Window
+	}
+	if st.text == st.baseline || st.closingConfirmed {
 		if st.timer != nil {
 			st.timer.Stop()
 			st.timer = nil
 		}
 		st.closeBlocked = false
+		st.confirmDiscard = false
+		st.closingConfirmed = false
 		st.mu.Unlock()
+		return
+	}
+	if st.closeBlocked {
+		st.confirmDiscard = true
+		st.mu.Unlock()
+		if e != nil {
+			e.PreventDefault()
+		}
+		st.invalidate()
 		return
 	}
 	st.mu.Unlock()
@@ -301,14 +319,21 @@ func (st *miniEditorState) view(c *ui.Context) {
 	if st.services == (ui.Services{}) {
 		st.services = c.Services()
 	}
+	confirmDiscard := st.confirmDiscard
+	st.mu.Unlock()
+
+	// 窗口内 ⌘S 立即保存（关闭或开启自动保存均跳过防抖并复用冲突检测）。
+	if !confirmDiscard && c.Shortcut(ui.Cmd, ui.KeyS) {
+		st.saveNow()
+	}
+
+	st.mu.Lock()
 	loadErr := st.loadErr
 	saveErr := st.saveErr
 	preview := st.preview
 	path := st.path
-	st.mu.Unlock()
-
+	confirmDiscard = st.confirmDiscard
 	// 停止输入后自动保存：内容偏离基线且未排队时重置 800ms 计时器
-	st.mu.Lock()
 	dirty := st.text != st.baseline && st.loadErr == ""
 	needsSchedule := st.workbench.EditorAutoSaveEnabled() && dirty && st.text != st.scheduledFor
 	fontSize := st.editorFontSizeLocked()
@@ -333,7 +358,8 @@ func (st *miniEditorState) view(c *ui.Context) {
 					MinWidth(0).
 					Shrink(1).
 					SingleLine().
-					Ellipsis("…")
+					Ellipsis("…").
+					Tooltip(path)
 
 				ui.Text(c, miniEditorStatusText(st)).
 					FontSize(uiFont(TypeCaption)).
@@ -380,7 +406,9 @@ func (st *miniEditorState) view(c *ui.Context) {
 					ui.Text(c, saveErr).
 						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeWarning(c)).
-						Grow(1)
+						Grow(1).
+						Shrink(1).
+						MinWidth(0)
 					Button(c.Key("mini-editor-reload-btn"), ButtonOpts{
 						Text:    "重新加载",
 						Variant: ButtonSecondary,
@@ -457,6 +485,36 @@ func (st *miniEditorState) view(c *ui.Context) {
 				}
 			})
 		})
+	})
+
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:             "mini-editor-discard",
+		Open:            confirmDiscard,
+		Tone:            ConfirmDanger,
+		Title:           "放弃未保存的修改？",
+		ConfirmLabel:    "放弃",
+		CancelAutoFocus: true,
+		OnConfirm: func() {
+			st.mu.Lock()
+			if st.timer != nil {
+				st.timer.Stop()
+				st.timer = nil
+			}
+			st.confirmDiscard = false
+			st.closingConfirmed = true
+			win := st.win
+			st.mu.Unlock()
+			if win != nil && !win.IsDestroyed() {
+				win.Close()
+			}
+			st.invalidate()
+		},
+		OnCancel: func() {
+			st.mu.Lock()
+			st.confirmDiscard = false
+			st.mu.Unlock()
+			st.invalidate()
+		},
 	})
 }
 

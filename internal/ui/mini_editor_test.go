@@ -319,3 +319,247 @@ func TestMiniEditorOpenInjection(t *testing.T) {
 		t.Fatalf("空路径不应打开窗口, got %v", opened)
 	}
 }
+
+// TestUIReview20_MiniEditorOnCloseConfirmDiscard 验证保存失败后再次关窗弹出放弃确认框，
+// 取消保留窗口、确认后放行，且文本等于基线时直接放行。
+func TestUIReview20_MiniEditorOnCloseConfirmDiscard(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "discard.go")
+	if err := os.WriteFile(path, []byte("init\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := newMiniEditorState(path)
+	disabled := false
+	st.workbench.EditorAutoSave = &disabled
+	st.mu.Lock()
+	st.text = "edited\n"
+	st.mu.Unlock()
+
+	if err := os.WriteFile(path, []byte("external\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 首次关窗：保存失败并拦截关闭，暂不弹确认框。
+	ev1 := &mygo.CloseEvent{}
+	st.onClose(ev1)
+	if !ev1.DefaultPrevented() {
+		t.Fatalf("首次关窗保存失败应取消关闭")
+	}
+	st.mu.Lock()
+	blocked := st.closeBlocked
+	confirmOpen := st.confirmDiscard
+	st.mu.Unlock()
+	if !blocked || confirmOpen {
+		t.Fatalf("首次拦截状态不对: closeBlocked=%v confirmDiscard=%v", blocked, confirmOpen)
+	}
+
+	// 第二次关窗（仍未回到基线）：取消关闭并打开确认框。
+	ev2 := &mygo.CloseEvent{}
+	st.onClose(ev2)
+	if !ev2.DefaultPrevented() {
+		t.Fatalf("第二次关窗应取消关闭并弹出确认框")
+	}
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		applyAppTheme(c)
+		st.view(c)
+	}, MiniEditorDefaultWidth, MiniEditorDefaultHeight, ui.TesterOptions{
+		Preferences: ui.Preferences{ReduceMotion: true},
+	})
+	tt.Frame()
+	if !tt.HasText("放弃未保存的修改？") || !tt.HasText("放弃") || !tt.HasText("取消") {
+		t.Fatalf("第二次关窗后应展示放弃修改确认框: %v", tt.Texts())
+	}
+
+	// 点取消：关闭确认框，窗口保持打开（再关一次仍会拦截并重开确认框）。
+	if err := tt.Click("取消"); err != nil {
+		t.Fatalf("点击取消失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return !st.confirmDiscard && !tt.HasText("放弃未保存的修改？")
+	})
+	ev3 := &mygo.CloseEvent{}
+	st.onClose(ev3)
+	if !ev3.DefaultPrevented() {
+		t.Fatalf("取消确认框后再次关窗仍应取消关闭")
+	}
+	tt.Frame()
+	if !tt.HasText("放弃未保存的修改？") {
+		t.Fatalf("再次关窗后应重新打开确认框: %v", tt.Texts())
+	}
+
+	// 点放弃：确认关闭并放行后续关窗事件，不覆盖外部文件。
+	if err := tt.Click("放弃"); err != nil {
+		t.Fatalf("点击放弃失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return !st.confirmDiscard && st.closingConfirmed
+	})
+	ev4 := &mygo.CloseEvent{}
+	st.onClose(ev4)
+	if ev4.DefaultPrevented() {
+		t.Fatalf("确认放弃后应允许关闭窗口")
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "external\n" {
+		t.Fatalf("放弃修改不应覆盖磁盘内容: data=%q err=%v", data, err)
+	}
+
+	// 文本等于基线时，即使曾被拦截也直接放行且不弹确认框。
+	stSame := newMiniEditorState(path)
+	stSame.mu.Lock()
+	stSame.closeBlocked = true
+	stSame.saveErr = "旧错误"
+	stSame.mu.Unlock()
+	evSame := &mygo.CloseEvent{}
+	stSame.onClose(evSame)
+	if evSame.DefaultPrevented() {
+		t.Fatalf("文本等于基线时应直接放行")
+	}
+	stSame.mu.Lock()
+	sameConfirm := stSame.confirmDiscard
+	stSame.mu.Unlock()
+	if sameConfirm {
+		t.Fatalf("文本等于基线时不应弹出确认框")
+	}
+}
+
+// TestUIReview20_MiniEditorCmdSSaves 验证关闭与开启自动保存时 ⌘S 均立即落盘，失败走保存错误行。
+func TestUIReview20_MiniEditorCmdSSaves(t *testing.T) {
+	t.Run("关闭自动保存时⌘S立即保存", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manual.go")
+		if err := os.WriteFile(path, []byte("v1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		st := newMiniEditorState(path)
+		disabled := false
+		st.workbench.EditorAutoSave = &disabled
+		st.mu.Lock()
+		st.text = "v2\n"
+		st.mu.Unlock()
+
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			applyAppTheme(c)
+			st.view(c)
+		}, MiniEditorDefaultWidth, MiniEditorDefaultHeight, ui.TesterOptions{
+			Preferences: ui.Preferences{ReduceMotion: true},
+		})
+		tt.Frame()
+		if data, err := os.ReadFile(path); err != nil || string(data) != "v1\n" {
+			t.Fatalf("未按 ⌘S 前不应保存: data=%q err=%v", data, err)
+		}
+
+		tt.Key(ui.Cmd, ui.KeyS)
+		tt.Frame()
+		if data, err := os.ReadFile(path); err != nil || string(data) != "v2\n" {
+			t.Fatalf("关闭自动保存时 ⌘S 应立即保存: data=%q err=%v", data, err)
+		}
+	})
+
+	t.Run("关闭自动保存时⌘S失败走保存错误行", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "conflict.go")
+		if err := os.WriteFile(path, []byte("v1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		st := newMiniEditorState(path)
+		disabled := false
+		st.workbench.EditorAutoSave = &disabled
+		st.mu.Lock()
+		st.text = "mine\n"
+		st.mu.Unlock()
+		if err := os.WriteFile(path, []byte("other\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			applyAppTheme(c)
+			st.view(c)
+		}, MiniEditorDefaultWidth, MiniEditorDefaultHeight, ui.TesterOptions{
+			Preferences: ui.Preferences{ReduceMotion: true},
+		})
+		tt.Frame()
+		tt.Key(ui.Cmd, ui.KeyS)
+		tt.Frame()
+		if !tt.HasText("保存失败") || !tt.HasText("重新加载") {
+			t.Fatalf("⌘S 失败应走保存错误行: %v", tt.Texts())
+		}
+	})
+
+	t.Run("开启自动保存时⌘S跳过防抖立即保存", func(t *testing.T) {
+		old := miniEditorSaveDelay
+		miniEditorSaveDelay = 10 * time.Second
+		t.Cleanup(func() { miniEditorSaveDelay = old })
+
+		path := filepath.Join(t.TempDir(), "auto.go")
+		if err := os.WriteFile(path, []byte("v1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		st := newMiniEditorState(path)
+		enabled := true
+		st.workbench.EditorAutoSave = &enabled
+		st.mu.Lock()
+		st.text = "v2\n"
+		st.mu.Unlock()
+
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			applyAppTheme(c)
+			st.view(c)
+		}, MiniEditorDefaultWidth, MiniEditorDefaultHeight, ui.TesterOptions{
+			Preferences: ui.Preferences{ReduceMotion: true},
+		})
+		tt.Frame()
+		tt.Key(ui.Cmd, ui.KeyS)
+		tt.Frame()
+		if data, err := os.ReadFile(path); err != nil || string(data) != "v2\n" {
+			t.Fatalf("开启自动保存时 ⌘S 应跳过防抖立即保存: data=%q err=%v", data, err)
+		}
+	})
+}
+
+// TestUIReview20_MiniEditorTooltipAndErrorShrink 验证标题路径 Tooltip 与窄宽下错误条不挤掉重新加载按钮。
+func TestUIReview20_MiniEditorTooltipAndErrorShrink(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "very_long_directory_name_for_tooltip_check", "main.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := newMiniEditorState(path)
+	st.mu.Lock()
+	st.saveErr = "文件已被外部改动，未覆盖；可点“重新加载”查看磁盘内容，这是一段较长的错误提示用于验证窄窗口下不挤出按钮"
+	st.mu.Unlock()
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		applyAppTheme(c)
+		st.view(c)
+	}, 420, MiniEditorMinHeight, ui.TesterOptions{
+		Preferences: ui.Preferences{ReduceMotion: true},
+	})
+	tt.Frame()
+
+	reloadRect, ok := tt.Find("重新加载")
+	if !ok {
+		t.Fatalf("窄宽下应仍能找到重新加载按钮: %v", tt.Texts())
+	}
+	if reloadRect.X+reloadRect.W > 420 {
+		t.Fatalf("错误文字应收缩不挤出重新加载按钮: reloadRect=%+v", reloadRect)
+	}
+
+	pathRect, ok := tt.Find(path)
+	if !ok {
+		t.Fatalf("标题栏应能定位到路径元素: %v", tt.Texts())
+	}
+	tt.Move(pathRect.X+pathRect.W/2, pathRect.Y+pathRect.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	// 悬停后工具提示会把完整路径文本挂到浮层中；检查按钮与文本均正常渲染不崩溃。
+	if !tt.HasText(path) {
+		t.Fatalf("悬停标题栏路径后应保留完整路径展示: %v", tt.Texts())
+	}
+}

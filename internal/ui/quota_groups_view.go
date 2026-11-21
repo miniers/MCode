@@ -18,6 +18,49 @@ func quotaGroupTitleVisible(groupCount int, opts quotaGroupListOptions) bool {
 	return !opts.HideSingleGroupTitle || groupCount != 1
 }
 
+// quotaPercentWidth 按当前字体测量「100%」宽度并留出余量，确保不同字号与缩放下都能完整显示且按列对齐。
+func quotaPercentWidth(c *ui.Context) float32 {
+	w, _ := c.MeasureText(0, ui.Span{Text: "100%", Size: uiFont(TypeBody), Weight: 600, Features: "tnum"})
+	w = float32(math.Ceil(float64(w))) + Space1
+	minW := 40 * uiScaleFactor()
+	if w < minW {
+		return minW
+	}
+	return w
+}
+
+// renderQuotaPercent 渲染右对齐的等宽数字百分比，供整行与半格窗口共用。
+func renderQuotaPercent(c *ui.Context, winKey string, usedPercent float64) {
+	pct := int(math.Round(usedPercent))
+	ui.Row(c.Key(winKey + "-percent")).
+		Label(fmt.Sprintf("%d%%", pct)).
+		MinWidth(quotaPercentWidth(c)).
+		Shrink(0).
+		Justify(ui.End).
+		AlignItems(ui.Center).
+		FontSize(uiFont(TypeBody)).
+		FontWeight(600).
+		FontFeatures("tnum").
+		TextColor(quotaPercentColor(c, usedPercent)).
+		Children(func() {
+			rollingNumber(c, winKey+"-number", pct)
+			ui.Text(c, "%")
+		})
+}
+
+// renderQuotaGroupError 渲染分组报错文字，使用危险色并在悬停时提示完整报错。
+func renderQuotaGroupError(c *ui.Context, g trayQuotaGroupModel) {
+	errTooltip := g.ErrFull
+	if errTooltip == "" {
+		errTooltip = g.ErrText
+	}
+	ui.Text(c, g.ErrText).
+		FontSize(uiFont(TypeFootnote)).
+		TextColor(ThemeDanger(c)).
+		SingleLine().
+		Tooltip(errTooltip)
+}
+
 func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGroupModel, opts quotaGroupListOptions) {
 	selectable := opts.OnSelectAccount != nil
 	listPadX := Space4
@@ -62,6 +105,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									ui.Box(c.Key(groupKey+"-icon-box")).
 										Size(IconMD, IconMD).
 										Center().
+										Shrink(0).
 										Children(func() {
 											renderProviderIconColor(c, g.IconID, IconMD, ThemeSecondaryText(c))
 										})
@@ -70,22 +114,23 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 										FontSize(uiFont(TypeProse)).
 										Bold().
 										TextColor(ThemePrimaryText(c)).
-										SingleLine()
+										SingleLine().
+										Ellipsis("…").
+										Shrink(1).
+										MinWidth(0)
 
 									if !g.HasErr && g.Plan != "" {
 										ui.Text(c, "· "+g.Plan).
 											FontSize(uiFont(TypeFootnote)).
 											TextColor(ThemeSecondaryText(c)).
-											SingleLine()
+											SingleLine().
+											Shrink(0)
 									}
 
 									ui.Spacer(c)
 
 									if g.HasErr {
-										ui.Text(c, g.ErrText).
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeSecondaryText(c)).
-											SingleLine()
+										renderQuotaGroupError(c, g)
 										return
 									}
 
@@ -97,11 +142,12 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 										ui.Text(c, g.HeadText).
 											FontSize(uiFont(TypeFootnote)).
 											TextColor(textColor).
-											SingleLine()
+											SingleLine().
+											Shrink(0)
 									}
 								})
 						} else if g.HasErr {
-							ui.Text(c, g.ErrText).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine()
+							renderQuotaGroupError(c, g)
 						}
 
 						if g.HasErr {
@@ -266,10 +312,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 
 											renderBar(win, winKey, projected, 120)
 
-											ui.Row(c.Key(winKey + "-percent")).Label(fmt.Sprintf("%d%%", int(math.Round(win.UsedPercent)))).Width(40).Justify(ui.End).AlignItems(ui.Center).FontSize(uiFont(TypeBody)).FontWeight(600).TextColor(quotaPercentColor(c, win.UsedPercent)).Children(func() {
-												rollingNumber(c, winKey+"-number", int(math.Round(win.UsedPercent)))
-												ui.Text(c, "%")
-											})
+											renderQuotaPercent(c, winKey, win.UsedPercent)
 										})
 								})
 							}
@@ -310,10 +353,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 
 									renderBar(win, winKey, projected, 0)
 
-									ui.Row(c.Key(winKey + "-percent")).Label(fmt.Sprintf("%d%%", int(math.Round(win.UsedPercent)))).Width(36).Justify(ui.End).AlignItems(ui.Center).FontSize(uiFont(TypeBody)).FontWeight(600).TextColor(quotaPercentColor(c, win.UsedPercent)).Children(func() {
-										rollingNumber(c, winKey+"-number", int(math.Round(win.UsedPercent)))
-										ui.Text(c, "%")
-									})
+									renderQuotaPercent(c, winKey, win.UsedPercent)
 								})
 							}
 
@@ -377,7 +417,8 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 																SingleLine().
 																Ellipsis("…").
 																Shrink(1).
-																MinWidth(0)
+																MinWidth(0).
+																Tooltip(curAcc.DisplayName)
 
 															if curAcc.Plan != "" {
 																ui.Text(c, "· "+curAcc.Plan).

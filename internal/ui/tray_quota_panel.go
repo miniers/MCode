@@ -151,13 +151,16 @@ func (p *TrayQuotaPanel) Toggle() {
 
 // Close 关闭面板。
 func (p *TrayQuotaPanel) Close() {
-	mygo.RunOnMain(func() {
-		p.mu.Lock()
-		panel := p.panel
-		p.panel = nil
-		p.mu.Unlock()
+	p.mu.Lock()
+	panel := p.panel
+	p.panel = nil
+	p.mu.Unlock()
 
-		if panel != nil && !panel.IsDestroyed() {
+	if panel == nil {
+		return
+	}
+	mygo.RunOnMain(func() {
+		if !panel.IsDestroyed() {
 			panel.Close()
 		}
 	})
@@ -361,6 +364,7 @@ type trayQuotaGroupModel struct {
 	MultiAccount bool
 	HasErr       bool
 	ErrText      string
+	ErrFull      string
 	Accounts     []trayQuotaAccountModel
 }
 
@@ -474,12 +478,13 @@ func buildTrayQuotaModel(groups []TrayQuotaGroup, refreshedAt, now time.Time, lo
 			Title:    g.Title,
 		}
 
-		if strings.TrimSpace(g.Err) != "" {
+		if rawErr := strings.TrimSpace(g.Err); rawErr != "" {
 			gm.HasErr = true
+			gm.ErrFull = rawErr
 			if isUsageAuthError(g.Err) {
 				gm.ErrText = "需要重新登录"
 			} else {
-				gm.ErrText = truncateRunes(strings.TrimSpace(g.Err), 24)
+				gm.ErrText = truncateRunes(rawErr, 24)
 			}
 			m.Groups = append(m.Groups, gm)
 			continue
@@ -688,21 +693,16 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 					if m.Loading {
 						LoadingIndicator(c, nil, "", IconSM, ThemeSecondaryText(c))
 					} else {
-						refreshBtn := ui.ButtonBase(c.Key("tray-quota-refresh-btn")).
-							Label("刷新").
-							Tooltip("刷新额度").
-							Size(ControlXS, ControlXS).
-							Radius(RadiusXS).
-							Center().
-							Background(ui.Transparent).
-							OnClick(func() {
+						IconButton(c, IconButtonProps{
+							Key:     "tray-quota-refresh-btn",
+							Icon:    IconRefreshCw(),
+							Label:   "刷新",
+							Tooltip: "刷新额度",
+							Size:    Space7,
+							Variant: ButtonGhost,
+							OnClick: func() {
 								p.Refresh(true)
-							})
-						if refreshBtn.Hovered() {
-							refreshBtn.Background(ThemeHover(c))
-						}
-						refreshBtn.Children(func() {
-							ui.Icon(c, IconRefreshCw()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+							},
 						})
 					}
 				})
@@ -766,47 +766,33 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 				Padding(0, Space4).
 				AlignItems(ui.Center).
 				Children(func() {
-					btnShow := ui.ButtonBase(c.Key("tray-quota-btn-show-window")).
-						Label("显示窗口").
-						Height(ControlSM).
-						Radius(RadiusSM).
-						Padding(0, Space4).
-						Background(ui.Transparent).
-						OnClick(func() {
+					Button(c, ButtonOpts{
+						Key:     "tray-quota-btn-show-window",
+						Text:    "显示窗口",
+						Label:   "显示窗口",
+						Size:    ControlSM,
+						Variant: ButtonGhost,
+						OnClick: func() {
 							p.Close()
 							if p.opts.OnShowWindow != nil {
 								p.opts.OnShowWindow()
 							}
-						})
-					if btnShow.Hovered() {
-						btnShow.Background(ThemeHover(c))
-					}
-					btnShow.Children(func() {
-						ui.Text(c, "显示窗口").
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemePrimaryText(c))
+						},
 					})
 
 					ui.Spacer(c)
 
-					btnQuit := ui.ButtonBase(c.Key("tray-quota-btn-quit")).
-						Label("退出").
-						Height(ControlSM).
-						Radius(RadiusSM).
-						Padding(0, Space4).
-						Background(ui.Transparent).
-						OnClick(func() {
+					Button(c, ButtonOpts{
+						Key:     "tray-quota-btn-quit",
+						Text:    "退出",
+						Label:   "退出",
+						Size:    ControlSM,
+						Variant: ButtonGhost,
+						OnClick: func() {
 							if p.opts.OnQuit != nil {
 								p.opts.OnQuit()
 							}
-						})
-					if btnQuit.Hovered() {
-						btnQuit.Background(ThemeHover(c))
-					}
-					btnQuit.Children(func() {
-						ui.Text(c, "退出").
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemeSecondaryText(c))
+						},
 					})
 				})
 		})

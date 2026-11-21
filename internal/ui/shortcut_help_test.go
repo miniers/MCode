@@ -196,3 +196,27 @@ func TestShortcutHelpRowWithoutKey(t *testing.T) {
 		t.Fatal("无绑定时不应渲染空键帽")
 	}
 }
+
+// TestUIReview26_ShortcutHelpIncludesContextDoc 验证快捷键浮层包含「项目文档」⇧⌘K。
+func TestUIReview26_ShortcutHelpIncludesContextDoc(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
+	setShortcutOverrides(nil)
+	t.Cleanup(func() { setShortcutOverrides(nil) })
+
+	fake := NewFakeClient()
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+
+	state.toggleShortcutHelp()
+	st := getShortcutHelpState(state)
+	waitFor(t, tt, func() bool {
+		return st.IsOpen() && tt.HasText("显示快捷键") && tt.HasText("停止当前回复")
+	})
+
+	tt.Click("搜索快捷键")
+	tt.Type("项目文档")
+	waitFor(t, tt, func() bool {
+		return tt.HasText("项目文档") && tt.HasText("⇧⌘K") && !tt.HasText("停止当前回复")
+	})
+}

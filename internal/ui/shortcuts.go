@@ -90,6 +90,7 @@ var shortcutDefaultsOnce = sync.OnceValue(func() []appShortcut {
 		{id: "toggle-diff", title: "显示/隐藏改动", group: "窗口", keys: "⌘D", mods: ui.Cmd, key: ui.KeyD, bound: true, customizable: true, registered: true},
 		{id: "toggle-git-pane", title: "显示/隐藏 Git", group: "窗口", keys: "⇧⌘G", mods: ui.Cmd | ui.Shift, key: ui.KeyG, bound: true, customizable: true, registered: true},
 		{id: "toggle-inspector", title: "显示/隐藏右栏", group: "窗口", keys: "⌥⌘B", mods: ui.Cmd | ui.Alt, key: ui.KeyB, bound: true, customizable: true, registered: true},
+		{id: "toggle-context", title: "项目文档", group: "窗口", keys: "⇧⌘K", mods: ui.Cmd | ui.Shift, key: ui.KeyK, bound: true, registered: true},
 		{id: "toggle-terminal", title: "显示/隐藏终端", group: "窗口", keys: "⌘J", mods: ui.Cmd, key: ui.KeyJ, bound: true, customizable: true, registered: true},
 		{id: "toggle-preview", title: "显示/隐藏浏览器", group: "窗口", keys: "⇧⌘B", mods: ui.Cmd | ui.Shift, key: ui.KeyB, bound: true, customizable: true, registered: true},
 		// ⇧⌘E 已被源码编辑器占用，文件面板改用 ⇧⌘F，菜单 Accelerator 同源。
@@ -103,7 +104,6 @@ var shortcutDefaultsOnce = sync.OnceValue(func() []appShortcut {
 // fixedShortcutBindings 返回不在展示列表中的固定绑定（不受覆盖影响，保持既有行为）。
 func fixedShortcutBindings() []shortcutBinding {
 	return []shortcutBinding{
-		{id: "toggle-context", mods: ui.Cmd | ui.Shift, key: ui.KeyK, registered: true},
 		{id: "toggle-terminal", mods: ui.Ctrl, key: ui.KeyBackquote, registered: true},
 		// Esc 参与匹配与冲突检测，但不注册：注册后会被 dispatchActiveShortcut 每帧抢占，
 		// 吞掉输入框（如会话标题重命名）的 Esc 取消。
@@ -323,8 +323,6 @@ func shortcutTitle(id string) string {
 	switch id {
 	case "select-thread-n":
 		return "直达第 N 个会话"
-	case "toggle-context":
-		return "显示/隐藏项目文档"
 	case "close-or-escape":
 		return "关闭/退出"
 	}

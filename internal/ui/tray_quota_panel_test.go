@@ -1596,3 +1596,52 @@ func TestBuildTrayQuotaModel_Plan(t *testing.T) {
 		t.Errorf("多账号应各自填充 Account.Plan，got %+v", plans)
 	}
 }
+
+// TestUIReview26_TrayQuotaPanelButtons 验证刷新按钮为 24×24 命中区、显示窗口与退出按钮可点击，
+// 且界面静止时没有遗留动画重绘。
+func TestUIReview26_TrayQuotaPanelButtons(t *testing.T) {
+	showCalled := 0
+	quitCalled := 0
+	panel := NewTrayQuotaPanel(TrayQuotaPanelOptions{
+		OnShowWindow: func() { showCalled++ },
+		OnQuit:       func() { quitCalled++ },
+	})
+	panel.groups = []TrayQuotaGroup{
+		{
+			Provider: "claude",
+			Title:    "Claude",
+			Windows: []ProviderQuotaWindow{
+				{Account: "a@x.com", Label: "5h", Period: "5h", UsedPercent: 30},
+			},
+		},
+	}
+
+	tt := ui.NewTesterWith(panel.renderView, 400, 480, ui.TesterOptions{
+		Preferences: ui.Preferences{ReduceMotion: true},
+	})
+	tt.Frame()
+
+	refreshRect, ok := tt.Find("刷新")
+	if !ok {
+		t.Fatalf("未找到刷新按钮: %v", tt.Texts())
+	}
+	if refreshRect.W != Space7 || refreshRect.H != Space7 {
+		t.Fatalf("刷新按钮命中区应为 %v×%v，实际 %v×%v", Space7, Space7, refreshRect.W, refreshRect.H)
+	}
+
+	if err := tt.Click("显示窗口"); err != nil {
+		t.Fatalf("点击显示窗口失败: %v", err)
+	}
+	if err := tt.Click("退出"); err != nil {
+		t.Fatalf("点击退出失败: %v", err)
+	}
+	if showCalled != 1 || quitCalled != 1 {
+		t.Fatalf("按钮回调次数不符: show=%d quit=%d", showCalled, quitCalled)
+	}
+
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("托盘面板静止时不应有动画继续请求下一帧")
+	}
+}

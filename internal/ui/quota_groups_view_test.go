@@ -2,9 +2,12 @@ package mcodeui
 
 import (
 	"fmt"
-	"github.com/egoist/mygo/ui"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/config"
 )
 
 func TestQuotaWarningThreshold(t *testing.T) {
@@ -82,5 +85,95 @@ func TestQuotaBarSettlesWhileClockAdvances(t *testing.T) {
 				t.Fatal("时间在同一像素内推进时动画应结束")
 			}
 		})
+	}
+}
+
+// TestUIReview26_QuotaGroupErrorDangerColorAndPercentWidth 验证分组报错使用危险色、
+// 完整报错保留在模型里，且 100% 百分比列随字号缩放并能完整放下。
+func TestUIReview26_QuotaGroupErrorDangerColorAndPercentWidth(t *testing.T) {
+	t.Cleanup(func() { setActiveTheme(config.AppearanceConfig{}) })
+
+	longErr := "dial tcp 127.0.0.1:8080: connect: connection refused by upstream gateway"
+	model := buildTrayQuotaModel([]TrayQuotaGroup{
+		{
+			Provider: "claude",
+			Title:    "Claude With A Very Long Provider Title",
+			Err:      longErr,
+		},
+	}, time.Now(), time.Now(), false)
+	if len(model.Groups) != 1 || !model.Groups[0].HasErr {
+		t.Fatalf("应生成报错分组: %+v", model.Groups)
+	}
+	if model.Groups[0].ErrFull != longErr {
+		t.Fatalf("ErrFull = %q, want %q", model.Groups[0].ErrFull, longErr)
+	}
+
+	var wantDanger ui.Color
+	tt := ui.NewTester(func(c *ui.Context) {
+		applyAppTheme(c)
+		wantDanger = ThemeDanger(c)
+		renderQuotaGroupList(c, "u26-", model.Groups, quotaGroupListOptions{})
+	}, 360, 200)
+	tt.Frame()
+
+	errRect, ok := tt.Find(model.Groups[0].ErrText)
+	if !ok {
+		t.Fatalf("未找到报错文字 %q: %v", model.Groups[0].ErrText, tt.Texts())
+	}
+	img := tt.Image()
+	foundDanger := false
+	for y := int(errRect.Y); y < int(errRect.Y+errRect.H) && y < img.Bounds().Max.Y; y++ {
+		for x := int(errRect.X); x < int(errRect.X+errRect.W) && x < img.Bounds().Max.X; x++ {
+			if y < 0 || x < 0 {
+				continue
+			}
+			px := img.RGBAAt(x, y)
+			if px.R == wantDanger.R && px.G == wantDanger.G && px.B == wantDanger.B && px.A > 0 {
+				foundDanger = true
+				break
+			}
+		}
+		if foundDanger {
+			break
+		}
+	}
+	if !foundDanger {
+		t.Fatalf("报错文字未渲染为危险色 %+v", wantDanger)
+	}
+
+	// 放大界面字号后，半格 100% 与 20% 仍能完整放下且右对齐一致。
+	setActiveTheme(config.AppearanceConfig{
+		Theme: "custom",
+		Themes: []config.ThemeDef{{
+			ID:    "custom",
+			Base:  config.ThemeLight,
+			Fonts: map[string]int{"interface": 150},
+		}},
+	})
+	var scaledWidth float32
+	pctGroups := []trayQuotaGroupModel{{
+		Title: "Claude",
+		Accounts: []trayQuotaAccountModel{{
+			Windows: []trayQuotaWindowModel{
+				{ShortLabel: "5h", UsedPercent: 20},
+				{ShortLabel: "周", UsedPercent: 100},
+			},
+		}},
+	}}
+	ttPct := ui.NewTester(func(c *ui.Context) {
+		applyAppTheme(c)
+		scaledWidth = quotaPercentWidth(c)
+		renderQuotaGroupList(c, "u26-pct-", pctGroups, quotaGroupListOptions{})
+	}, 440, 200)
+	ttPct.Frame()
+	if scaledWidth <= 40 {
+		t.Fatalf("字号放大后百分比列宽应随之放大，实际 %v", scaledWidth)
+	}
+	r100, ok := ttPct.Find("100%")
+	if !ok {
+		t.Fatalf("放大字号后应完整显示 100%%: %v", ttPct.Texts())
+	}
+	if r100.W < scaledWidth-1 {
+		t.Fatalf("100%% 列宽应至少达到测量宽度 %v，实际 %v", scaledWidth, r100.W)
 	}
 }
