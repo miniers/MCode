@@ -33,11 +33,31 @@ type reviewComment struct {
 	failedAttachmentID string
 }
 
+type reviewCommentDraftKey struct {
+	key   reviewDiffKey
+	lines editor.DiffLineRange
+}
+
 type reviewCommentDraft struct {
 	key            reviewDiffKey
 	lines          editor.DiffLineRange
 	original, body string
 	open           bool
+}
+
+func saveReviewCommentDraft(dp *diffPanelState, draft *reviewCommentDraft) {
+	if dp == nil || draft == nil {
+		return
+	}
+	draftKey := reviewCommentDraftKey{key: draft.key, lines: draft.lines}
+	if strings.TrimSpace(draft.body) != "" {
+		if dp.commentDrafts == nil {
+			dp.commentDrafts = make(map[reviewCommentDraftKey]string)
+		}
+		dp.commentDrafts[draftKey] = draft.body
+		return
+	}
+	delete(dp.commentDrafts, draftKey)
 }
 
 func reviewSelectedText(content ReviewFileContent, lines editor.DiffLineRange) (string, bool) {
@@ -93,7 +113,9 @@ func configureReviewComments(c *ui.Context, s *chatState, dp *diffPanelState, ke
 	d.LineSelection = true
 	begin := func(lines editor.DiffLineRange) {
 		if text, ok := reviewSelectedText(content, lines); ok {
-			dp.commentDraft = &reviewCommentDraft{key: key, lines: lines, original: text, open: true}
+			saveReviewCommentDraft(dp, dp.commentDraft)
+			body := dp.commentDrafts[reviewCommentDraftKey{key: key, lines: lines}]
+			dp.commentDraft = &reviewCommentDraft{key: key, lines: lines, original: text, body: body, open: true}
 			s.invalidate()
 		}
 	}
@@ -118,14 +140,22 @@ func configureReviewComments(c *ui.Context, s *chatState, dp *diffPanelState, ke
 	d.RenderAnnotation = func(c *ui.Context, annotation editor.DiffAnnotation) {
 		if annotation.Key == "comment-draft" {
 			anchor := ui.Row(c.Key("review-comment-anchor")).FillWidth().Height(Space1)
-			appPopover(c, anchor, &draft.open, func() { draft.open = false }, func() {
+			appPopover(c, anchor, &draft.open, func() {
+				draft.open = false
+				saveReviewCommentDraft(dp, draft)
+			}, func() {
 				popoverCard(c, ui.Column(c.Key("review-comment-card"))).Width(reviewCommentPopoverWidth).Padding(Space3).Gap(Space2).Children(func() {
 					ui.TextArea(c.Key("review-comment-input"), &draft.body).Label("评论").FillWidth().Height(reviewCommentBodyHeight)
 					button := ui.ButtonBase(c.Key("review-comment-add")).Label("添加").Disabled(strings.TrimSpace(draft.body) == "").Padding(Space2)
 					buttonScale := motionPressScale(c, button, "button-press-scale", strings.TrimSpace(draft.body) != "" && button.Pressed())
 					button.Scale(buttonScale, buttonScale)
 					if button.Clicked() && addReviewComment(dp, *draft) {
+						delete(dp.commentDrafts, reviewCommentDraftKey{key: draft.key, lines: draft.lines})
+						draft.body = ""
 						draft.open = false
+						if dp.commentDraft == draft {
+							dp.commentDraft = nil
+						}
 						s.invalidate()
 					}
 					button.Children(func() { ui.Text(c, "添加").FontSize(uiFont(TypeFootnote)) })

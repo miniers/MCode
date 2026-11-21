@@ -48,6 +48,7 @@ type diffPanelState struct {
 	selectedPath  string
 	comments      []*reviewComment
 	commentDraft  *reviewCommentDraft
+	commentDrafts map[reviewCommentDraftKey]string
 	commentSerial uint64
 	commentBatch  bool
 	readKeys      []string
