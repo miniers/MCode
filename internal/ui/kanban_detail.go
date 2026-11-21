@@ -66,20 +66,11 @@ func (s *chatState) closeTaskDetail() {
 
 // renderTaskDetail 使用与宽屏详情栏相同的内容构建窄屏 sheet。
 func renderTaskDetail(c *ui.Context, s *chatState, ks *kanbanState) {
-	winWidth, winHeight := c.Size()
-	sheetWidth, sheetHeight := min(settingsSheetWidth, winWidth-Space8), winHeight-Space8
-	open := true
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))
-		panel.MaxWidth(winWidth - Space8).MaxHeight(winHeight - Space8).Padding(0)
-		ui.Column(c.Key("kanban-detail-sheet")).Width(sheetWidth).Height(sheetHeight).
-			Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(func() {
-			renderTaskDetailContent(c, s, ks)
-		})
+	renderTaskDetailDrawerSheet(c, taskDetailDrawerSheetOpts{
+		SheetKey: "kanban-detail-sheet",
+		OnClose:  s.closeTaskDetail,
+		Content:  func() { renderTaskDetailContent(c, s, ks) },
 	})
-	if !open || c.Shortcut(0, ui.KeyEscape) {
-		s.closeTaskDetail()
-	}
 }
 
 func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
@@ -104,22 +95,58 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 			break
 		}
 	}
+	var leading func()
+	if goalBack != "" {
+		label := "← 返回目标"
+		for _, goal := range goals {
+			if goal.ID == goalBack {
+				label = "← " + goal.Title
+				break
+			}
+		}
+		leading = func() {
+			Button(c.Key("kanban-task-detail-back"), ButtonOpts{Text: label, Label: "返回目标", Variant: ButtonGhost, OnClick: s.closeTaskDetail})
+		}
+	}
+	closeDetail := func() {
+		kanbanMu.Lock()
+		ks.goalDetailOpen = false
+		kanbanMu.Unlock()
+		s.closeTaskDetail()
+	}
 	ui.Column(c.Key("kanban-task-detail")).Label("kanban-task-detail").Fill().MinWidth(0).
 		Gap(0).Children(func() {
-		ui.Row(c.Key("kanban-detail-header")).FillWidth().Padding(Space4, Space5).AlignItems(ui.Center).Gap(Space3).Children(func() {
-			if goalBack != "" {
-				label := "← 返回目标"
-				for _, goal := range goals {
-					if goal.ID == goalBack {
-						label = "← " + goal.Title
-						break
-					}
-				}
-				Button(c.Key("kanban-task-detail-back"), ButtonOpts{Text: label, Label: "返回目标", Variant: ButtonGhost, OnClick: s.closeTaskDetail})
-			}
-			ui.Text(c, "任务详情").FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
-			if task != nil {
-				busy := kanbanTaskBusy(ks, task.ID)
+		if task == nil {
+			renderTaskDetailDrawerHeader(c, taskDetailDrawerHeaderOpts{
+				Key:           "kanban-detail-header",
+				Leading:       leading,
+				FallbackTitle: "任务详情",
+				CloseKey:      "kanban-task-detail-close",
+				CloseLabel:    "kanban-task-detail-close",
+				CloseTooltip:  "关闭任务详情",
+				OnClose:       closeDetail,
+			})
+			ui.Column(c.Key("kanban-task-detail-empty-wrap")).Grow(1).FillWidth().Center().Padding(Space5).Children(func() {
+				renderTaskDetailDrawerEmpty(c, "kanban-task-detail-empty", "任务已不存在")
+			})
+			return
+		}
+		busy := kanbanTaskBusy(ks, task.ID)
+		var onOpenThread func()
+		if task.ThreadID != "" {
+			openThreadID := task.ThreadID
+			onOpenThread = func() { s.revealThread(openThreadID) }
+		}
+		renderTaskDetailDrawerHeader(c, taskDetailDrawerHeaderOpts{
+			Key:           "kanban-detail-header",
+			Leading:       leading,
+			OriginSteward: isStewardTaskOrigin(task.Origin),
+			StatusLabel:   taskBadgeLabel(*task),
+			StatusColor:   kanbanStatusColor(c, task.Status),
+			ProjectName:   projectNameFor(s, task.ProjectID),
+			ThreadID:      task.ThreadID,
+			OnOpenThread:  onOpenThread,
+			ExtraActions: func() {
 				more := IconButton(c.Key("kanban-detail-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "任务更多操作", Variant: ButtonGhost, OnClick: func() { ks.detailMoreOpen = true }})
 				appPopover(c.Key("kanban-detail-more-popover"), more, &ks.detailMoreOpen, nil, func() {
 					popoverCard(c, ui.Column(c.Key("kanban-detail-more-menu"))).Padding(Space2).Gap(Space1).Children(func() {
@@ -134,18 +161,12 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 						Button(c.Key("kanban-detail-delete"), ButtonOpts{Text: "删除", Label: "kanban-detail-delete", Variant: ButtonDanger, Disabled: busy, OnClick: func() { ks.detailMoreOpen = false; ks.detailDeleteOpen = true }})
 					})
 				})
-			}
-			IconButton(c.Key("kanban-task-detail-close"), IconButtonProps{Icon: IconX(), Label: "kanban-task-detail-close", Tooltip: "关闭任务详情", Variant: ButtonGhost, OnClick: func() {
-				kanbanMu.Lock()
-				ks.goalDetailOpen = false
-				kanbanMu.Unlock()
-				s.closeTaskDetail()
-			}})
+			},
+			CloseKey:     "kanban-task-detail-close",
+			CloseLabel:   "kanban-task-detail-close",
+			CloseTooltip: "关闭任务详情",
+			OnClose:      closeDetail,
 		})
-		if task == nil {
-			ui.Text(c, "任务已不存在").TextColor(ThemeSecondaryText(c))
-			return
-		}
 		if ks.detailEditField == "title" && ks.detailEditTaskID == task.ID {
 			in := ui.TextInput(c.Key("kanban-detail-title-edit"), &ks.detailEditTitle).Label("任务标题").FillWidth().AutoFocus()
 			in.OnTextKey(func(k ui.TextKey) bool {
@@ -196,11 +217,17 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 		if task.ThreadID != threadID || task.Revision != revision {
 			s.loadTaskDetail(*task, false)
 		}
-		ui.Row(c.Key("kanban-detail-meta")).Padding(Space3, Space5).Gap(Space3).Children(func() {
-			ui.Text(c, goalOutputStatusLabel(task.Status)).TextColor(ThemeSecondaryText(c))
-			for _, goal := range goals {
-				if goal.ID == task.GoalID {
-					goal := goal
+		var goalLink *KanbanGoal
+		for i := range goals {
+			if goals[i].ID == task.GoalID {
+				goalLink = &goals[i]
+				break
+			}
+		}
+		if goalLink != nil || task.ReviewStatus == "merge_failed" {
+			ui.Row(c.Key("kanban-detail-meta")).Padding(Space3, Space5).Gap(Space3).Children(func() {
+				if goalLink != nil {
+					goal := *goalLink
 					Button(c.Key("kanban-detail-goal"), ButtonOpts{Text: goal.Title, Label: "打开目标", Variant: ButtonGhost, OnClick: func() {
 						kanbanMu.Lock()
 						ks.goalID = goal.ID
@@ -208,18 +235,17 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 						kanbanMu.Unlock()
 						s.closeTaskDetail()
 					}})
-					break
 				}
-			}
-			if task.ReviewStatus == "merge_failed" {
-				reason := task.LastFailureReason
-				if reason == "" {
-					reason = task.ReviewFeedback
+				if task.ReviewStatus == "merge_failed" {
+					reason := task.LastFailureReason
+					if reason == "" {
+						reason = task.ReviewFeedback
+					}
+					ui.Text(c, "合并失败: "+reason).TextColor(ThemeDanger(c))
 				}
-				ui.Text(c, "合并失败: "+reason).TextColor(ThemeDanger(c))
-			}
-		})
-		ui.Row(c.Key("kanban-detail-tabs")).Padding(0, Space5).Gap(Space2).Children(func() {
+			})
+		}
+		ui.Row(c.Key("kanban-detail-tabs")).Padding(Space3, Space5, 0, Space5).Gap(Space2).Children(func() {
 			for _, item := range []struct{ id, label string }{{"result", "结果"}, {"diff", "改动"}, {"session", "会话"}} {
 				item := item
 				variant := ButtonGhost

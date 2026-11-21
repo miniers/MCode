@@ -28,17 +28,40 @@ func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 			break
 		}
 	}
+	closeGoal := func() {
+		kanbanMu.Lock()
+		ks.goalDetailOpen = false
+		ks.cancelGoalID = ""
+		kanbanMu.Unlock()
+		s.invalidate()
+	}
 	ui.Column(c.Key("kanban-goal-detail")).Label("kanban-goal-detail").Fill().Children(func() {
-		ui.Row(c.Key("kanban-goal-detail-header")).FillWidth().Padding(Space4, Space5).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, "目标详情").FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1)
-			IconButton(c.Key("kanban-goal-detail-close"), IconButtonProps{Icon: IconX(), Label: "关闭目标详情", Tooltip: "关闭目标详情", Variant: ButtonGhost, OnClick: func() { kanbanMu.Lock(); ks.goalDetailOpen = false; ks.cancelGoalID = ""; kanbanMu.Unlock(); s.invalidate() }})
-		})
 		if goal == nil {
-			ui.Text(c, "目标已不存在").TextColor(ThemeSecondaryText(c))
+			renderTaskDetailDrawerHeader(c, taskDetailDrawerHeaderOpts{
+				Key:           "kanban-goal-detail-header",
+				FallbackTitle: "目标详情",
+				CloseKey:      "kanban-goal-detail-close",
+				CloseLabel:    "关闭目标详情",
+				CloseTooltip:  "关闭目标详情",
+				OnClose:       closeGoal,
+			})
+			ui.Column(c.Key("kanban-goal-detail-empty-wrap")).Grow(1).FillWidth().Center().Padding(Space5).Children(func() {
+				renderTaskDetailDrawerEmpty(c, "kanban-goal-detail-empty", "目标已不存在")
+			})
 			return
 		}
-		ui.Text(c, goal.Title).Padding(0, Space5).FontSize(uiFont(TypeTitle)).FontWeight(600).TextColor(ThemePrimaryText(c))
-		ui.Text(c, goalStatusBadgeText(goal.Status)).Padding(Space3, Space5).TextColor(ThemeSecondaryText(c))
+		renderTaskDetailDrawerHeader(c, taskDetailDrawerHeaderOpts{
+			Key:           "kanban-goal-detail-header",
+			StatusLabel:   goalStatusBadgeText(goal.Status),
+			StatusColor:   goalStatusBadgeColor(c, goal.Status),
+			Title:         goal.Title,
+			FallbackTitle: "目标详情",
+			ProjectName:   projectNameFor(s, goal.ProjectID),
+			CloseKey:      "kanban-goal-detail-close",
+			CloseLabel:    "关闭目标详情",
+			CloseTooltip:  "关闭目标详情",
+			OnClose:       closeGoal,
+		})
 		ui.Scroll(c.Key("kanban-goal-detail-scroll")).Grow(1).FillWidth().TrackScroll(&ks.goalDetailScroll).Children(func() {
 			ui.Column(c.Key("kanban-goal-detail-body")).FillWidth().Padding(Space3, Space5).Gap(Space3).Children(func() {
 				if goal.PlanSummary != "" {
