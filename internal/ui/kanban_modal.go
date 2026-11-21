@@ -46,8 +46,9 @@ func renderKanbanWorkspace(c *ui.Context, s *chatState) {
 		if !open {
 			return
 		}
+		panel.Key("kanban-modal-panel")
 		modalDragPanel(c, modalDragKanbanWorkspace, panel)
-		panel.Key("kanban-modal-panel").Label("kanban-modal-panel").Width(width).Height(height).Padding(0).Gap(0)
+		panel.Label("kanban-modal-panel").Width(width).Height(height).Padding(0).Gap(0)
 		card := ui.Column(c.Key("kanban-modal-card")).Label("kanban-modal-card").Fill().Radius(kanbanModalRadius).Background(ThemeWindowBg(c)).BorderWidth(Hairline).BorderColor(ThemeBorder(c)).Clip().Gap(0).Transition(motionDialog(c))
 		applyElevation(c, card, ElevDialog).Children(func() {
 			renderTasksShell(c, s)
