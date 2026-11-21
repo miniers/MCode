@@ -31,16 +31,30 @@ const (
 	planPopoverMinWidth float32 = 260
 	// planPopoverMaxWidth 是弹出清单的最大宽度，超出后正文换行。
 	planPopoverMaxWidth float32 = 380
+	// planPillMaxCurrentOps 是弹层里当前步下面最多展示的工具操作条数。
+	planPillMaxCurrentOps = 8
+	// planPillMilestoneMinItems / planPillMilestoneMaxItems 是胶囊展示里程碑圆点的项数范围。
+	planPillMilestoneMinItems = 2
+	planPillMilestoneMaxItems = 6
 )
+
+// planOpItem 是待办当前步下的一次工具操作摘要。
+type planOpItem struct {
+	Name     string       // 工具名或动词
+	Target   string       // 简短目标（文件路径或命令摘要）
+	Category toolCategory // 工具类别，决定图标
+	Command  bool         // 是否为命令类工具
+}
 
 // planPillView 是一帧待办进度胶囊要展示的内容。
 type planPillView struct {
-	Visible bool       // 是否显示胶囊
-	Items   []todoItem // 最新一份待办清单
-	Done    int        // 已完成项数
-	Total   int        // 总项数
-	Current string     // 进行中那一项的正文（没有进行中项时取第一项未完成的）
-	Running bool       // 会话是否正在运行，决定进度环是否呼吸
+	Visible    bool         // 是否显示胶囊
+	Items      []todoItem   // 最新一份待办清单
+	Done       int          // 已完成项数
+	Total      int          // 总项数
+	Current    string       // 进行中那一项的正文（没有进行中项时取第一项未完成的）
+	Running    bool         // 会话是否正在运行，决定进度环是否呼吸
+	CurrentOps []planOpItem // 当前步开始之后的最近若干条工具操作
 }
 
 // fraction 返回完成比例，用于画进度环。
@@ -59,12 +73,17 @@ func isTodoToolMessage(m Message) bool {
 var claudeTaskIDPattern = regexp.MustCompile(`Task #([0-9]+)`)
 
 type claudeTaskAccumulator struct {
-	items   []todoItem
-	ids     []string
-	created int
+	items         []todoItem
+	ids           []string
+	inProgressMsg []int
+	created       int
 }
 
 func (a *claudeTaskAccumulator) add(m Message) bool {
+	return a.addAt(m, -1)
+}
+
+func (a *claudeTaskAccumulator) addAt(m Message, msgIdx int) bool {
 	if !isTodoToolMessage(m) {
 		return false
 	}
@@ -94,6 +113,7 @@ func (a *claudeTaskAccumulator) add(m Message) bool {
 		}
 		a.ids = append(a.ids, id)
 		a.items = append(a.items, todoItem{Text: text, Status: "pending"})
+		a.inProgressMsg = append(a.inProgressMsg, -1)
 		return true
 	}
 	for j, id := range a.ids {
@@ -103,13 +123,20 @@ func (a *claudeTaskAccumulator) add(m Message) bool {
 		if strings.EqualFold(strings.TrimSpace(input.Status), "deleted") {
 			a.ids = append(a.ids[:j], a.ids[j+1:]...)
 			a.items = append(a.items[:j], a.items[j+1:]...)
+			a.inProgressMsg = append(a.inProgressMsg[:j], a.inProgressMsg[j+1:]...)
 			break
 		}
 		if input.Subject != nil {
 			a.items[j].Text = *input.Subject
 		}
 		if input.Status != "" {
-			a.items[j].Status = normalizeTodoStatus(input.Status)
+			st := normalizeTodoStatus(input.Status)
+			a.items[j].Status = st
+			if st == "in_progress" {
+				a.inProgressMsg[j] = msgIdx
+			} else {
+				a.inProgressMsg[j] = -1
+			}
 		}
 		break
 	}
@@ -118,14 +145,20 @@ func (a *claudeTaskAccumulator) add(m Message) bool {
 
 // claudeTaskPlan 按创建顺序聚合 Claude 的增量任务消息。
 func claudeTaskPlan(msgs []Message) ([]todoItem, int) {
+	items, _, last := claudeTaskPlanWithStarts(msgs)
+	return items, last
+}
+
+// claudeTaskPlanWithStarts 同时返回每条任务最近一次标为进行中的消息下标。
+func claudeTaskPlanWithStarts(msgs []Message) ([]todoItem, []int, int) {
 	var tasks claudeTaskAccumulator
 	last := -1
 	for i, m := range msgs {
-		if tasks.add(m) {
+		if tasks.addAt(m, i) {
 			last = i
 		}
 	}
-	return tasks.items, last
+	return tasks.items, tasks.inProgressMsg, last
 }
 
 // collapseTodoMessages 保留每轮各类待办的最后一条，Claude 任务跨轮累计。
@@ -183,17 +216,22 @@ func collapseTodoMessages(messages []Message) []Message {
 
 // latestTodoPlan 返回最新的整份清单或增量任务聚合结果及其下标。
 func latestTodoPlan(msgs []Message) ([]todoItem, int) {
-	tasks, taskIndex := claudeTaskPlan(msgs)
-	for i := len(msgs) - 1; i > taskIndex; i-- {
+	items, idx, _, _ := latestTodoPlanWithStarts(msgs)
+	return items, idx
+}
+
+func latestTodoPlanWithStarts(msgs []Message) (items []todoItem, latestIdx int, taskStarts []int, taskIndex int) {
+	tasks, starts, taskIdx := claudeTaskPlanWithStarts(msgs)
+	for i := len(msgs) - 1; i > taskIdx; i-- {
 		m := msgs[i]
 		if !isTodoToolMessage(m) {
 			continue
 		}
-		if items, ok := todoItemsFromMessage(m); ok {
-			return items, i
+		if parsed, ok := todoItemsFromMessage(m); ok {
+			return parsed, i, starts, taskIdx
 		}
 	}
-	return tasks, taskIndex
+	return tasks, taskIdx, starts, taskIdx
 }
 
 // todoPlanProgress 统计待办清单的已完成数与总项数。
@@ -253,18 +291,149 @@ func shouldShowPlanPill(msgs []Message, running bool) bool {
 // buildPlanPillView 汇总一帧胶囊要展示的内容。
 func buildPlanPillView(msgs []Message, running bool) planPillView {
 	planPillBuilds.Add(1)
-	if !shouldShowPlanPill(msgs, running) {
+	items, idx, taskStarts, taskIndex := latestTodoPlanWithStarts(msgs)
+	if len(items) == 0 || idx < 0 {
 		return planPillView{}
 	}
-	items, _ := latestTodoPlan(msgs)
 	done, total := todoPlanProgress(items)
+	if done >= total {
+		return planPillView{}
+	}
+	if !running && idx <= lastUserMessageIndex(msgs) {
+		return planPillView{}
+	}
 	return planPillView{
-		Visible: true,
-		Items:   items,
-		Done:    done,
-		Total:   total,
-		Current: todoPlanCurrentText(items),
-		Running: running,
+		Visible:    true,
+		Items:      items,
+		Done:       done,
+		Total:      total,
+		Current:    todoPlanCurrentText(items),
+		Running:    running,
+		CurrentOps: planCurrentOps(msgs, items, idx, taskStarts, taskIndex),
+	}
+}
+
+// planPillMilestones 返回胶囊内 2..6 项的步骤里程碑状态；超出范围返回 nil。
+func planPillMilestones(v planPillView) []milestoneState {
+	if v.Total < planPillMilestoneMinItems || v.Total > planPillMilestoneMaxItems || len(v.Items) != v.Total {
+		return nil
+	}
+	out := make([]milestoneState, len(v.Items))
+	for i, it := range v.Items {
+		switch it.Status {
+		case "completed":
+			out[i] = milestoneCompleted
+		case "in_progress":
+			out[i] = milestoneInProgress
+		default:
+			out[i] = milestonePending
+		}
+	}
+	return out
+}
+
+// isPlanTodoTool 判断工具消息是否属于待办清单工具本身，用于从当前步操作列表里排除。
+func isPlanTodoTool(m Message) bool {
+	if !isTodoToolMessage(m) {
+		return false
+	}
+	if _, ok := todoItemsFromMessage(m); ok {
+		return true
+	}
+	switch toolNameKey(toolMessageName(m)) {
+	case "todowrite", "updateplan", "taskcreate", "taskupdate":
+		return true
+	}
+	return false
+}
+
+// planCurrentOps 取最近一条把当前进行中项标为 in_progress 的待办消息，
+// 收集它之后的工具调用消息（排除待办工具本身），最多保留最近 8 条。
+func planCurrentOps(msgs []Message, items []todoItem, latestIdx int, taskStarts []int, taskIndex int) []planOpItem {
+	currentIdx := -1
+	currentText := ""
+	for i, it := range items {
+		if it.Status == "in_progress" {
+			currentIdx = i
+			currentText = it.Text
+			break
+		}
+	}
+	if currentIdx < 0 {
+		return nil
+	}
+
+	startIdx := -1
+	if latestIdx == taskIndex {
+		if currentIdx < len(taskStarts) {
+			startIdx = taskStarts[currentIdx]
+		}
+	} else {
+		for i := latestIdx; i > taskIndex; i-- {
+			m := msgs[i]
+			if !isTodoToolMessage(m) {
+				continue
+			}
+			prevItems, ok := todoItemsFromMessage(m)
+			if !ok {
+				continue
+			}
+			for _, it := range prevItems {
+				if it.Text == currentText && it.Status == "in_progress" {
+					startIdx = i
+					break
+				}
+			}
+			if startIdx >= 0 {
+				break
+			}
+		}
+	}
+	if startIdx < 0 {
+		return nil
+	}
+
+	var ops []planOpItem
+	for i := startIdx + 1; i < len(msgs); i++ {
+		m := msgs[i]
+		if !isTodoToolMessage(m) || isPlanTodoTool(m) {
+			continue
+		}
+		ops = append(ops, buildPlanOpItem(m))
+	}
+	if len(ops) > planPillMaxCurrentOps {
+		ops = ops[len(ops)-planPillMaxCurrentOps:]
+	}
+	return ops
+}
+
+// buildPlanOpItem 复用时间线工具行标题/摘要函数提取单条工具操作的工具名与简短目标。
+func buildPlanOpItem(m Message) planOpItem {
+	verb, target, _ := toolCallTitle(m)
+	name := strings.TrimSpace(toolMessageName(m))
+	category := classifyToolCategory(name)
+	isCmd := parseCommandToolInfo(m).IsCommand || category == toolCategoryCommand
+	shortTarget := target
+	switch {
+	case isCmd, category == toolCategoryRead, category == toolCategoryEdit, category == toolCategorySearch:
+		shortTarget = toolChipShortTitle(m, verb, target)
+	default:
+		if verb != "" {
+			name = verb
+		}
+		shortTarget = truncateCommandLine(target, 48)
+	}
+	if verb != "" && (category != toolCategoryOther || isCmd) {
+		name = verb
+	}
+	if name == "" {
+		name = "工具"
+	}
+	return planOpItem{
+		Name:     name,
+		Target:   shortTarget,
+		Category: category,
+		Command:  isCmd,
 	}
 }
 
@@ -368,6 +537,7 @@ func renderPlanPopover(c *ui.Context, view planPillView) {
 			ui.Scroll(c.Key("composer-plan-popover-scroll")).
 				MaxHeight(planPopoverMaxHeight).
 				Children(func() {
+					shownCurrentOps := false
 					ui.Column(c.Key("composer-plan-popover-list")).Gap(Space2).Children(func() {
 						for i, it := range view.Items {
 							it := it
@@ -388,8 +558,65 @@ func renderPlanPopover(c *ui.Context, view planPillView) {
 										text.Strikethrough()
 									}
 								})
+							if it.Status == "in_progress" && !shownCurrentOps {
+								shownCurrentOps = true
+								if len(view.CurrentOps) > 0 {
+									ui.Column(c.Key("composer-plan-popover-ops")).
+										FillWidth().
+										Padding(0, 0, 0, Space6).
+										Gap(Space1).
+										Transition(motionCollapse(c)).
+										Children(func() {
+											for j, op := range view.CurrentOps {
+												renderPlanPopoverOp(c, j, op)
+											}
+										})
+								}
+							}
 						}
 					})
 				})
+		})
+}
+
+// renderPlanPopoverOp 渲染进行中待办项下的一条工具操作：图标/工具名 + 路径芯片目标。
+func renderPlanPopoverOp(c *ui.Context, idx int, op planOpItem) {
+	label := strings.TrimSpace(op.Name + " " + op.Target)
+	ui.Row(c.Key(fmt.Sprintf("composer-plan-popover-op-%d", idx))).
+		Label(label).
+		FillWidth().
+		Gap(Space2).
+		AlignItems(ui.Center).
+		Transition(motionCollapse(c)).
+		Children(func() {
+			renderToolChipCategoryMark(c, op.Category, op.Command, "monospace")
+			if op.Name != "" && !op.Command {
+				ui.Text(c, op.Name).
+					FontSize(scaledFont(TypeCaption)).
+					TextColor(ThemeSecondaryText(c)).
+					SingleLine().
+					Shrink(0)
+			}
+			if op.Target != "" {
+				ui.Row(c.Key(fmt.Sprintf("composer-plan-popover-op-target-%d", idx))).
+					Label(op.Target).
+					Padding(Space0, Space2).
+					Radius(RadiusXS).
+					Background(ThemeOverlayHover(c)).
+					Shrink(1).
+					MinWidth(0).
+					Children(func() {
+						targetText := ui.Text(c, op.Target).
+							FontSize(scaledFont(TypeCaption)).
+							TextColor(ThemeSecondaryText(c)).
+							SingleLine().
+							Shrink(1).
+							MinWidth(0).
+							Ellipsis("…")
+						if op.Command {
+							targetText.Font("monospace")
+						}
+					})
+			}
 		})
 }

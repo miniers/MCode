@@ -22,6 +22,17 @@ const (
 	composerCapsuleDismissSize float32 = 18
 	// composerCapsuleLiveDotSize 是实时状态胶囊前导脉动圆点的边长。
 	composerCapsuleLiveDotSize float32 = 6
+	// composerCapsuleMilestoneSize 是计划胶囊里步骤里程碑圆点的边长。
+	composerCapsuleMilestoneSize float32 = 6
+)
+
+// milestoneState 表示胶囊里单个步骤里程碑点的状态。
+type milestoneState uint8
+
+const (
+	milestonePending milestoneState = iota
+	milestoneInProgress
+	milestoneCompleted
 )
 
 // composerCapsule 是输入区上方状态胶囊行里的一枚胶囊。
@@ -33,6 +44,11 @@ type composerCapsule struct {
 	Text     string  // 单行正文，超长截断
 	MaxWidth float32 // 正文最大宽度，0 表示不限制
 	OnClick  func()  // 点击胶囊主体，nil 表示不可点
+
+	// 可选的里程碑圆点与右端计数（例如待办进度）：只有 2..6 项时画点，排在正文与计数之间；
+	// 其它胶囊不填这两个字段时渲染完全不变。
+	Milestones []milestoneState
+	CountText  string
 
 	// Live 标记实时状态胶囊：前导位置换成脉动圆点，描边改用强调色。
 	Live bool
@@ -69,7 +85,7 @@ func renderComposerCapsuleRow(c *ui.Context, s *chatState, capsules []composerCa
 // renderComposerCapsule 渲染单枚胶囊：图标 + 单行正文 + 可选的关闭按钮，
 // 以及可选的锚定浮层（浮层只在 open 为真时构建）。
 func renderComposerCapsule(c *ui.Context, s *chatState, capsule composerCapsule) {
-	if capsule.Key == "" || capsule.Text == "" {
+	if capsule.Key == "" || (capsule.Text == "" && capsule.CountText == "") {
 		return
 	}
 	// 弹层展开时保持高亮，避免指针移进浮层后胶囊看起来被选中又落空。
@@ -112,12 +128,29 @@ func renderComposerCapsule(c *ui.Context, s *chatState, capsule composerCapsule)
 				} else if capsule.Icon != nil {
 					ui.Icon(c, capsule.Icon).
 						Size(composerCapsuleIconSize, composerCapsuleIconSize).
-						TextColor(ThemeSecondaryText(c))
+						TextColor(ThemeSecondaryText(c)).
+						Shrink(0)
 				}
-				ui.Text(c, capsule.Text).
-					FontSize(uiFont(TypeFootnote)).
-					TextColor(ThemePrimaryText(c)).
-					SingleLine()
+				if capsule.Text != "" {
+					text := ui.Text(c, capsule.Text).
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemePrimaryText(c)).
+						SingleLine()
+					if len(capsule.Milestones) > 0 || capsule.CountText != "" {
+						text.Shrink(1).MinWidth(0).Ellipsis("…")
+					}
+				}
+				if len(capsule.Milestones) >= 2 && len(capsule.Milestones) <= 6 {
+					renderComposerCapsuleMilestones(c, capsule.Key, capsule.Milestones)
+				}
+				if capsule.CountText != "" {
+					ui.Text(c, capsule.CountText).
+						FontSize(uiFont(TypeFootnote)).
+						FontFeatures("tnum").
+						TextColor(ThemeSecondaryText(c)).
+						SingleLine().
+						Shrink(0)
+				}
 				if capsule.OnDismiss != nil {
 					renderComposerCapsuleDismiss(c, capsule)
 				}
@@ -126,6 +159,43 @@ func renderComposerCapsule(c *ui.Context, s *chatState, capsule composerCapsule)
 	if capsule.PopoverOpen != nil && capsule.PopoverBody != nil && capsule.PopoverKey != "" {
 		appPopoverAbove(c.Key(capsule.PopoverKey), btn, capsule.PopoverOpen, capsule.PopoverDismiss, capsule.PopoverBody)
 	}
+}
+
+// milestoneStateLabel 返回单个里程碑点的无障碍状态文案。
+func milestoneStateLabel(st milestoneState) string {
+	switch st {
+	case milestoneCompleted:
+		return "已完成"
+	case milestoneInProgress:
+		return "进行中"
+	default:
+		return "未开始"
+	}
+}
+
+// renderComposerCapsuleMilestones 在正文与计数之间渲染一排步骤里程碑圆点。
+func renderComposerCapsuleMilestones(c *ui.Context, capsuleKey string, milestones []milestoneState) {
+	ui.Row(c.Key(capsuleKey + "-milestones")).
+		Label("里程碑").
+		Gap(Space1).
+		AlignItems(ui.Center).
+		Shrink(0).
+		Children(func() {
+			for i, st := range milestones {
+				dot := ui.Box(c.Key(fmt.Sprintf("%s-milestone-%d", capsuleKey, i))).
+					Label(fmt.Sprintf("步骤 %d %s", i+1, milestoneStateLabel(st))).
+					Size(composerCapsuleMilestoneSize, composerCapsuleMilestoneSize).
+					Radius(RadiusPill)
+				switch st {
+				case milestoneCompleted:
+					dot.Background(ThemeSecondaryText(c))
+				case milestoneInProgress:
+					dot.Background(ThemeAccent(c))
+				default:
+					dot.Border(Hairline, ThemeBorder(c))
+				}
+			}
+		})
 }
 
 // renderComposerCapsuleLiveDot 以派发占位胶囊的三角波重绘圆点，不重建视图。
@@ -208,12 +278,14 @@ func composerPlanCapsule(c *ui.Context, s *chatState, threadID string) (composer
 		return composerCapsule{}, false
 	}
 	return composerCapsule{
-		Key:      "composer-plan-pill",
-		Label:    fmt.Sprintf("待办进度 %d/%d", view.Done, view.Total),
-		Tooltip:  "查看待办清单",
-		Icon:     IconListTodo(),
-		Text:     planPillText(view),
-		MaxWidth: planPillMaxWidth,
+		Key:        "composer-plan-pill",
+		Label:      fmt.Sprintf("待办进度 %d/%d", view.Done, view.Total),
+		Tooltip:    "查看待办清单",
+		Icon:       IconListTodo(),
+		Text:       truncateRunes(view.Current, planPillTextMaxRunes),
+		Milestones: planPillMilestones(view),
+		CountText:  fmt.Sprintf("%d/%d", view.Done, view.Total),
+		MaxWidth:   planPillMaxWidth,
 		OnClick: func() {
 			s.composerView.planPillOpen = !s.composerView.planPillOpen
 		},
