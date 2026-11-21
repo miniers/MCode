@@ -1334,6 +1334,7 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 							selectBtn := ui.ButtonBase(c.Key("swarm-menu-select-"+bee.ThreadID)).
 								Grow(1).
 								MinWidth(0).
+								Shrink(1).
 								Justify(ui.Start).
 								Radius(RadiusXS).
 								Padding(Space1, Space2).
@@ -1361,7 +1362,7 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 											statusColor := swarmStatusColor(c, bee.Status)
 											ui.Row(c.Key("swarm-menu-status-"+bee.ThreadID)).
 												Shrink(0).
-												Padding(1, Space1).
+												Padding(Space0, Space1).
 												Radius(RadiusXS).
 												Background(statusColor.Alpha(0.12)).
 												Children(func() {
@@ -1419,22 +1420,21 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 										s.invalidate()
 									},
 								})
-							} else {
-								IconButton(c, IconButtonProps{
-									Key:     "swarm-menu-pop-" + bee.ThreadID,
-									Icon:    IconSquareArrowOutUpRight(),
-									Label:   "在独立窗口打开 " + bee.Name,
-									Tooltip: "在新窗口打开",
-									Size:    ControlSM,
-									Variant: ButtonGhost,
-									OnClick: func() {
-										s.popOutSwarmBee(bee.ThreadID)
-										markSwarmFailedBeeSeen(s, leadID, bee)
-										*open = false
-										s.invalidate()
-									},
-								})
 							}
+							IconButton(c, IconButtonProps{
+								Key:     "swarm-menu-pop-" + bee.ThreadID,
+								Icon:    IconSquareArrowOutUpRight(),
+								Label:   "在独立窗口打开 " + bee.Name,
+								Tooltip: "在新窗口打开",
+								Size:    ControlSM,
+								Variant: ButtonGhost,
+								OnClick: func() {
+									s.popOutSwarmBee(bee.ThreadID)
+									markSwarmFailedBeeSeen(s, leadID, bee)
+									*open = false
+									s.invalidate()
+								},
+							})
 						})
 					}
 				})

@@ -1740,11 +1740,6 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 		BorderWidth(0, 0, 1, 0).BorderColor(ThemeBorder(c)).AlignItems(ui.Center).Gap(Space2)
 	windowWidth, _ := c.Size()
 	headerWidth := headerCollapseWidth(windowWidth, sidebarWidth, sidebarSlide)
-	if inspectorOpen {
-		if paneW := chatAreaWidth(c, s); paneW > 0 && paneW < headerWidth {
-			headerWidth = paneW
-		}
-	}
 	collapseLevel := headerCollapseLevel(headerWidth)
 	if windowWidth > 0 && headerWidth <= 0 {
 		collapseLevel = 2

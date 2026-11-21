@@ -451,6 +451,10 @@ func TestReviewCommentPopoverAndReadButton(t *testing.T) {
 	clickText(t, tt, "收起评论")
 	tt.Advance(DurBase + 50*time.Millisecond)
 	clickText(t, tt, "删除评论")
+	if !tt.HasText("确认删除") {
+		t.Fatal("点击删除评论后应显示二次确认按钮")
+	}
+	clickText(t, tt, "确认删除")
 	tt.Advance(DurBase + 50*time.Millisecond)
 	if tt.HasText("添加到对话 1") {
 		t.Fatal("删除后批量入口应消失")

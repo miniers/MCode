@@ -115,22 +115,35 @@ func TestUIReview12ConflictMenuClosesOnBulkResolve(t *testing.T) {
 	ps.mu.Unlock()
 	tt.Frame()
 
-	for _, label := range []string{"整个文件用 当前", "全部用 当前"} {
+	for _, tc := range []struct {
+		label   string
+		confirm string
+	}{
+		{label: "整个文件用 当前", confirm: "覆盖文件"},
+		{label: "全部用 当前", confirm: "全部覆盖"},
+	} {
 		if err := tt.Click("差异菜单"); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
 		st := gitDiffStateFor(ps)
 		if !st.menuOpen {
-			t.Fatalf("%s 前菜单未打开", label)
+			t.Fatalf("%s 前菜单未打开", tc.label)
 		}
-		if err := tt.Click(label); err != nil {
+		if err := tt.Click(tc.label); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
 		if st.menuOpen {
-			t.Fatalf("点击 %s 后菜单应关闭", label)
+			t.Fatalf("点击 %s 后菜单应关闭", tc.label)
 		}
+		if !tt.HasText(tc.confirm) {
+			t.Fatalf("点击 %s 后未弹出确认弹窗：%v", tc.label, tt.Texts())
+		}
+		if err := tt.Click(tc.confirm); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
 		waitFor(t, tt, func() bool {
 			st.mu.Lock()
 			defer st.mu.Unlock()

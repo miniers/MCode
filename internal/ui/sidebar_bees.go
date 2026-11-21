@@ -633,7 +633,7 @@ func renderSidebarBeeFoldLine(c *ui.Context, s *chatState, o sidebarThreadRowOpt
 // renderSidebarBeeActionChip 渲染子代理容器末尾的紧凑胶囊按钮（如 "+N" 与 "收起"）。
 func renderSidebarBeeActionChip(c *ui.Context, s *chatState, key, text, label, tooltip string, onClick func()) {
 	btn := ui.ButtonBase(c.Key(key)).
-		Height(18).
+		Height(ControlKbd).
 		MinWidth(18).
 		Padding(0, Space1).
 		Radius(RadiusPill).
