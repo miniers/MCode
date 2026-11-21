@@ -1,7 +1,9 @@
 package mcodeui
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -51,6 +53,15 @@ type paletteState struct {
 	cachedItems []paletteItem
 	cachedQuery string
 	cacheValid  bool
+
+	// 任务、目标与自动化内存缓存（受 paletteMu 保护，避免与后台 goroutine 竞态）。
+	cachedTasks       []KanbanTask
+	cachedGoals       []KanbanGoal
+	cachedAutomations []Automation
+	taskCacheSeq      uint64
+	taskCacheVer      uint64
+	cachedTaskVer     uint64
+	taskCacheOpen     bool
 }
 
 // getPaletteState 获取或初始化当前 chatState 的命令面板状态。
@@ -71,13 +82,15 @@ func getPaletteState(s *chatState) *paletteState {
 // paletteItem 表示命令面板中的单个匹配候选条目。
 // keywords 是只参与搜索、不显示的关键词（别名、别称），用来让「总管」「话题」这类说法也能命中。
 type paletteItem struct {
-	id         string
-	kind       string
-	title      string
-	subtitle   string
-	keywords   string
-	shortcutID string
-	run        func(s *chatState)
+	id          string
+	kind        string
+	title       string
+	subtitle    string
+	statusText  string
+	statusColor func(c *ui.Context) ui.Color
+	keywords    string
+	shortcutID  string
+	run         func(s *chatState)
 }
 
 // sidePanePaletteItems 由 side_pane.go 的注册表生成右侧分栏面板的命令面板开关项。
@@ -105,6 +118,51 @@ func sidePanePaletteItems() []paletteItem {
 	}
 	items = append(items, paletteItem{id: "cmd-toggle-inspector", shortcutID: "toggle-inspector", kind: "command", title: "显示/隐藏右栏", run: toggleInspector})
 	return items
+}
+
+func readMemoryKanbanSnapshot(s *chatState) ([]KanbanTask, []KanbanGoal) {
+	if s == nil {
+		return nil, nil
+	}
+	kanbanMu.Lock()
+	defer kanbanMu.Unlock()
+	ks := kanbanStates[s]
+	if ks == nil {
+		return nil, nil
+	}
+	var tasks []KanbanTask
+	if len(ks.board.Tasks) > 0 {
+		tasks = make([]KanbanTask, len(ks.board.Tasks))
+		copy(tasks, ks.board.Tasks)
+	}
+	var goals []KanbanGoal
+	if len(ks.board.Goals) > 0 {
+		goals = make([]KanbanGoal, len(ks.board.Goals))
+		copy(goals, ks.board.Goals)
+	}
+	return tasks, goals
+}
+
+func readMemoryAutomationSnapshot(s *chatState) []Automation {
+	if s == nil {
+		return nil
+	}
+	automationMu.Lock()
+	defer automationMu.Unlock()
+	as := automationStates[s]
+	if as == nil || len(as.autos) == 0 {
+		return nil
+	}
+	autos := make([]Automation, len(as.autos))
+	copy(autos, as.autos)
+	return autos
+}
+
+func paletteSlicesEqual[T any](a, b []T) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+	return reflect.DeepEqual(a, b)
 }
 
 func paletteTasksState(s *chatState) *chatState {
@@ -436,6 +494,156 @@ func buildPaletteItems(s *chatState) []paletteItem {
 		})
 	}
 
+	// 2.5 任务、目标与自动化（只读内存快照，严禁 IO）
+	var (
+		tasks []KanbanTask
+		goals []KanbanGoal
+		autos []Automation
+	)
+	if p := getPaletteState(s); p != nil {
+		paletteMu.Lock()
+		if len(p.cachedTasks) > 0 {
+			tasks = make([]KanbanTask, len(p.cachedTasks))
+			copy(tasks, p.cachedTasks)
+		}
+		if len(p.cachedGoals) > 0 {
+			goals = make([]KanbanGoal, len(p.cachedGoals))
+			copy(goals, p.cachedGoals)
+		}
+		if len(p.cachedAutomations) > 0 {
+			autos = make([]Automation, len(p.cachedAutomations))
+			copy(autos, p.cachedAutomations)
+		}
+		paletteMu.Unlock()
+	}
+	if len(tasks) == 0 || len(goals) == 0 {
+		memTasks, memGoals := readMemoryKanbanSnapshot(s)
+		if len(tasks) == 0 {
+			tasks = memTasks
+		}
+		if len(goals) == 0 {
+			goals = memGoals
+		}
+	}
+	if len(autos) == 0 {
+		autos = readMemoryAutomationSnapshot(s)
+	}
+
+	for _, t := range tasks {
+		task := t
+		title := task.Title
+		if title == "" {
+			title = task.ID
+		}
+		projName := projNames[task.ProjectID]
+		badge := taskBadgeLabel(task)
+		kwParts := []string{
+			taskStatusLabel(task.Status),
+			kanbanColumnLabel(kanbanDisplayColumn(task)),
+			badge,
+			projName,
+			"任务 kanban task",
+		}
+		if isStewardTaskOrigin(task.Origin) {
+			kwParts = append(kwParts, "总管")
+		}
+		items = append(items, paletteItem{
+			id:         "task-" + task.ID,
+			kind:       "task",
+			title:      title,
+			subtitle:   projName,
+			statusText: badge,
+			statusColor: func(c *ui.Context) ui.Color {
+				return kanbanStatusColor(c, task.Status)
+			},
+			keywords: strings.Join(kwParts, " "),
+			run: func(cs *chatState) {
+				cs.openTasksWindowTarget(taskCenterTarget{
+					Kind:      "task",
+					ID:        task.ID,
+					ProjectID: task.ProjectID,
+					Title:     task.Title,
+				})
+			},
+		})
+	}
+
+	for _, g := range goals {
+		goal := g
+		title := goal.Title
+		if title == "" {
+			title = goal.Prompt
+		}
+		if title == "" {
+			title = goal.ID
+		}
+		projName := projNames[goal.ProjectID]
+		statusText := goalStatusLabel(goal.Status)
+		kwParts := []string{
+			statusText,
+			projName,
+			"目标 goal",
+		}
+		items = append(items, paletteItem{
+			id:         "goal-" + goal.ID,
+			kind:       "goal",
+			title:      title,
+			subtitle:   projName,
+			statusText: statusText,
+			statusColor: func(c *ui.Context) ui.Color {
+				return goalStatusBadgeColor(c, goal.Status)
+			},
+			keywords: strings.Join(kwParts, " "),
+			run: func(cs *chatState) {
+				cs.openTasksWindowTarget(taskCenterTarget{
+					Kind:      "goal",
+					ID:        goal.ID,
+					ProjectID: goal.ProjectID,
+					Title:     title,
+				})
+			},
+		})
+	}
+
+	for _, a := range autos {
+		auto := a
+		title := auto.Name
+		if title == "" {
+			title = auto.ID
+		}
+		projName := projNames[auto.ProjectID]
+		statusText, statusKind := automationCardStatus(auto, false)
+		runLabel, _ := automationRunStatusDict(auto.LastRunStatus)
+		kwParts := []string{
+			statusText,
+			runLabel,
+			projName,
+			"自动化 automation",
+		}
+		if isStewardAutomationOrigin(auto.Origin) {
+			kwParts = append(kwParts, "总管")
+		}
+		items = append(items, paletteItem{
+			id:         "automation-" + auto.ID,
+			kind:       "automation",
+			title:      title,
+			subtitle:   projName,
+			statusText: statusText,
+			statusColor: func(c *ui.Context) ui.Color {
+				return automationCardStatusColor(c, statusKind)
+			},
+			keywords: strings.Join(kwParts, " "),
+			run: func(cs *chatState) {
+				cs.openTasksWindowTarget(taskCenterTarget{
+					Kind:      "automation",
+					ID:        auto.ID,
+					ProjectID: auto.ProjectID,
+					Title:     title,
+				})
+			},
+		})
+	}
+
 	projects = withoutProjects(projects, s.stewardProjectID(), s.chatsProjectID())
 	for _, p := range projects {
 		pID := p.ID
@@ -569,14 +777,18 @@ func paletteVisibleItems(s *chatState, p *paletteState, query string) []paletteI
 	return merged
 }
 
-// paletteCachedVisibleItems 返回缓存的可见条目，仅在缓存失效或 query 变化时重算。
+// paletteCachedVisibleItems 返回缓存的可见条目，仅在缓存失效、任务缓存更新或 query 变化时重算。
 func paletteCachedVisibleItems(s *chatState, p *paletteState, query string) []paletteItem {
 	if p == nil {
 		return nil
 	}
-	if !p.cacheValid || p.cachedQuery != query {
+	paletteMu.Lock()
+	ver := p.taskCacheVer
+	paletteMu.Unlock()
+	if !p.cacheValid || p.cachedQuery != query || p.cachedTaskVer != ver {
 		p.cachedItems = paletteVisibleItems(s, p, query)
 		p.cachedQuery = query
+		p.cachedTaskVer = ver
 		p.cacheValid = true
 	}
 	return p.cachedItems
@@ -597,7 +809,7 @@ func (p *paletteState) move(delta, n int) {
 	}
 }
 
-// openPalette 打开命令面板，并重置查询与选中项。
+// openPalette 打开命令面板，并重置查询与选中项；同步预热并异步刷新任务/目标/自动化缓存。
 func openPalette(s *chatState) {
 	p := getPaletteState(s)
 	if p == nil {
@@ -612,6 +824,100 @@ func openPalette(s *chatState) {
 	p.cachedQuery = ""
 	p.cacheValid = false
 	clearMessageSearch(p)
+
+	var (
+		preTasks []KanbanTask
+		preGoals []KanbanGoal
+		preAutos []Automation
+	)
+	if s != nil {
+		tasksWindowMu.Lock()
+		ts := tasksWindowState
+		tasksWindowMu.Unlock()
+
+		preTasks, preGoals = readMemoryKanbanSnapshot(s)
+		if len(preTasks) == 0 && len(preGoals) == 0 && ts != nil && ts != s {
+			preTasks, preGoals = readMemoryKanbanSnapshot(ts)
+		}
+
+		preAutos = readMemoryAutomationSnapshot(s)
+		if len(preAutos) == 0 && ts != nil && ts != s {
+			preAutos = readMemoryAutomationSnapshot(ts)
+		}
+	}
+
+	paletteMu.Lock()
+	if len(preTasks) > 0 {
+		p.cachedTasks = preTasks
+	}
+	if len(preGoals) > 0 {
+		p.cachedGoals = preGoals
+	}
+	if len(preAutos) > 0 {
+		p.cachedAutomations = preAutos
+	}
+	p.taskCacheOpen = true
+	p.taskCacheSeq++
+	seq := p.taskCacheSeq
+	paletteMu.Unlock()
+
+	if s != nil && s.client != nil {
+		client := s.client
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			var (
+				board    KanbanBoard
+				boardErr error
+				autos    []Automation
+				autoErr  error
+				wg       sync.WaitGroup
+			)
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				board, boardErr = client.KanbanBoard(ctx, "")
+			}()
+			go func() {
+				defer wg.Done()
+				autos, autoErr = client.Automations(ctx, "")
+			}()
+			wg.Wait()
+
+			paletteMu.Lock()
+			if !p.taskCacheOpen || p.taskCacheSeq != seq {
+				paletteMu.Unlock()
+				return
+			}
+			changed := false
+			if boardErr == nil {
+				if !paletteSlicesEqual(p.cachedTasks, board.Tasks) {
+					p.cachedTasks = append([]KanbanTask(nil), board.Tasks...)
+					changed = true
+				}
+				if !paletteSlicesEqual(p.cachedGoals, board.Goals) {
+					p.cachedGoals = append([]KanbanGoal(nil), board.Goals...)
+					changed = true
+				}
+			}
+			if autoErr == nil {
+				if !paletteSlicesEqual(p.cachedAutomations, autos) {
+					p.cachedAutomations = append([]Automation(nil), autos...)
+					changed = true
+				}
+			}
+			if changed {
+				p.taskCacheVer++
+			}
+			paletteMu.Unlock()
+
+			if changed {
+				s.invalidate()
+			}
+		}()
+	}
+
 	if s != nil {
 		s.invalidate()
 	}
@@ -627,6 +933,10 @@ func closePalette(s *chatState) {
 	p.cachedItems = nil
 	p.cachedQuery = ""
 	p.cacheValid = false
+	paletteMu.Lock()
+	p.taskCacheOpen = false
+	p.taskCacheSeq++
+	paletteMu.Unlock()
 	clearMessageSearch(p)
 	if s != nil {
 		s.invalidate()
@@ -720,7 +1030,7 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 							TextColor(ThemeSecondaryText(c))
 
 						in := ui.TextInput(c.Key("palette-query-input"), &p.query).
-							Placeholder("搜索会话、项目、命令或消息").
+							Placeholder("搜索会话、任务、自动化、项目或消息").
 							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c)).
 							Background(ui.Transparent).
@@ -834,6 +1144,12 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 										switch item.kind {
 										case "thread":
 											kindLabel = "会话"
+										case "task":
+											kindLabel = "任务"
+										case "goal":
+											kindLabel = "目标"
+										case "automation":
+											kindLabel = "自动化"
 										case "project":
 											kindLabel = "项目"
 										case "message":
@@ -859,6 +1175,18 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 												MinWidth(0).
 												SingleLine().
 												Ellipsis("…")
+
+											if item.statusText != "" {
+												statusCol := ThemeSecondaryText(c)
+												if item.statusColor != nil {
+													statusCol = item.statusColor(c)
+												}
+												ui.Text(c, item.statusText).
+													FontSize(uiFont(TypeCaption)).
+													TextColor(statusCol).
+													Shrink(0).
+													SingleLine()
+											}
 
 											if item.subtitle != "" {
 												ui.Text(c, item.subtitle).
@@ -903,6 +1231,12 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 				})
 			})
 	})
+	if !p.open {
+		paletteMu.Lock()
+		p.taskCacheOpen = false
+		p.taskCacheSeq++
+		paletteMu.Unlock()
+	}
 	p.scrollSelection = false
 }
 

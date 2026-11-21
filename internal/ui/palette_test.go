@@ -1,7 +1,9 @@
 package mcodeui
 
 import (
+	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -649,4 +651,217 @@ func TestPaletteFooterShowsKeyHintsAndResultCount(t *testing.T) {
 		items := paletteVisibleItems(state, p, p.query)
 		return p.query == "测试会话2" && len(items) > 0 && tt.HasText(fmt.Sprintf("%d 项结果", len(items)))
 	})
+}
+
+type paletteSearchProbeClient struct {
+	*FakeClient
+	boardCalls atomic.Int32
+	autoCalls  atomic.Int32
+}
+
+func (c *paletteSearchProbeClient) KanbanBoard(ctx context.Context, projectID string) (KanbanBoard, error) {
+	c.boardCalls.Add(1)
+	return c.FakeClient.KanbanBoard(ctx, projectID)
+}
+
+func (c *paletteSearchProbeClient) Automations(ctx context.Context, projectID string) ([]Automation, error) {
+	c.autoCalls.Add(1)
+	return c.FakeClient.Automations(ctx, projectID)
+}
+
+func TestPaletteSearchesTasksGoalsAndAutomations(t *testing.T) {
+	probe := &paletteSearchProbeClient{FakeClient: NewFakeClient()}
+	probe.SetKanbanBoard(KanbanBoard{
+		Tasks: []KanbanTask{
+			{
+				ID:        "task-review-1",
+				ProjectID: "p1",
+				Title:     "代码审阅任务",
+				Status:    "review",
+				Column:    "review",
+				Origin:    "owner",
+			},
+		},
+		Goals: []KanbanGoal{
+			{
+				ID:        "goal-plan-1",
+				ProjectID: "p1",
+				Title:     "重构架构目标",
+				Status:    "plan_review",
+			},
+		},
+	})
+	probe.SetAutomations([]Automation{
+		{
+			ID:            "auto-fail-1",
+			ProjectID:     "p1",
+			Name:          "夜间巡检自动化",
+			Enabled:       true,
+			Status:        "active",
+			LastRunStatus: "failed",
+			Origin:        "steward",
+		},
+	})
+
+	state := newChatState(probe)
+	t.Cleanup(state.close)
+
+	var targets []taskCenterTarget
+	state.openTasksWindowTargetFn = func(target taskCenterTarget) {
+		targets = append(targets, target)
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		state.init(c)
+		if c.Shortcut(ui.Cmd, ui.KeyK) {
+			togglePalette(state)
+		}
+		renderCommandPalette(c, state)
+	}, 1000, 700)
+
+	waitFor(t, tt, func() bool {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return len(state.projects) > 0
+	})
+
+	tt.Key(ui.Cmd, ui.KeyK)
+	if !tt.HasText("搜索会话、任务、自动化、项目或消息") {
+		t.Fatalf("命令面板占位文案不正确：%v", tt.Texts())
+	}
+
+	waitFor(t, tt, func() bool {
+		return probe.boardCalls.Load() >= 1 &&
+			probe.autoCalls.Load() >= 1 &&
+			tt.HasText("代码审阅任务")
+	})
+
+	boardCallsBefore := probe.boardCalls.Load()
+	autoCallsBefore := probe.autoCalls.Load()
+
+	items := buildPaletteItems(state)
+	if probe.boardCalls.Load() != boardCallsBefore || probe.autoCalls.Load() != autoCallsBefore {
+		t.Fatalf("buildPaletteItems 不应触发 client IO：board %d->%d, auto %d->%d",
+			boardCallsBefore, probe.boardCalls.Load(), autoCallsBefore, probe.autoCalls.Load())
+	}
+	for _, tc := range []struct {
+		query string
+		want  string
+	}{
+		{"待审阅", "task-task-review-1"},
+		{"总管", "task-task-review-1"},
+		{"总管", "automation-auto-fail-1"},
+		{"失败", "automation-auto-fail-1"},
+		{"方案待审", "goal-goal-plan-1"},
+		{"代码审阅任务", "task-task-review-1"},
+		{"重构架构目标", "goal-goal-plan-1"},
+		{"夜间巡检自动化", "automation-auto-fail-1"},
+	} {
+		matched := filterPaletteItems(items, tc.query)
+		if !paletteItemsHaveID(matched, tc.want) {
+			t.Errorf("搜索 %q 未命中 %s，实际：%v", tc.query, tc.want, matched)
+		}
+	}
+
+	// 验证任务/目标/自动化排在会话之后、项目之前
+	var threadIdx, taskIdx, goalIdx, autoIdx, projectIdx int = -1, -1, -1, -1, -1
+	for i, it := range items {
+		switch it.kind {
+		case "thread":
+			threadIdx = i
+		case "task":
+			if taskIdx == -1 {
+				taskIdx = i
+			}
+		case "goal":
+			if goalIdx == -1 {
+				goalIdx = i
+			}
+		case "automation":
+			if autoIdx == -1 {
+				autoIdx = i
+			}
+		case "project":
+			if projectIdx == -1 {
+				projectIdx = i
+			}
+		}
+	}
+	if threadIdx != -1 && (taskIdx <= threadIdx || goalIdx <= threadIdx || autoIdx <= threadIdx) {
+		t.Errorf("任务/目标/自动化应排在会话之后：thread=%d task=%d goal=%d auto=%d", threadIdx, taskIdx, goalIdx, autoIdx)
+	}
+	if projectIdx != -1 && (taskIdx >= projectIdx || goalIdx >= projectIdx || autoIdx >= projectIdx) {
+		t.Errorf("任务/目标/自动化应排在项目之前：task=%d goal=%d auto=%d project=%d", taskIdx, goalIdx, autoIdx, projectIdx)
+	}
+
+	// 1. 回车选中任务条目
+	tt.Type("代码审阅任务")
+	tt.Frame()
+	if !tt.HasText("待审阅") {
+		t.Fatalf("任务行应渲染状态文本「待审阅」：%v", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEnter)
+	if len(targets) != 1 || targets[0] != (taskCenterTarget{
+		Kind:      "task",
+		ID:        "task-review-1",
+		ProjectID: "p1",
+		Title:     "代码审阅任务",
+	}) {
+		t.Fatalf("回车任务条目触发目标不匹配：%v", targets)
+	}
+
+	// 2. 回车选中目标条目
+	tt.Key(ui.Cmd, ui.KeyK)
+	waitFor(t, tt, func() bool { return tt.HasText("重构架构目标") })
+	tt.Type("方案待审")
+	tt.Frame()
+	if !tt.HasText("重构架构目标") {
+		t.Fatalf("搜索「方案待审」应显示目标「重构架构目标」：%v", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEnter)
+	if len(targets) != 2 || targets[1] != (taskCenterTarget{
+		Kind:      "goal",
+		ID:        "goal-plan-1",
+		ProjectID: "p1",
+		Title:     "重构架构目标",
+	}) {
+		t.Fatalf("回车目标条目触发目标不匹配：%v", targets)
+	}
+
+	// 3. 点击选中自动化条目
+	tt.Key(ui.Cmd, ui.KeyK)
+	waitFor(t, tt, func() bool { return tt.HasText("夜间巡检自动化") })
+	tt.Type("夜间巡检自动化")
+	tt.Frame()
+	if !tt.HasText("上次失败") {
+		t.Fatalf("自动化行应渲染状态文本「上次失败」：%v", tt.Texts())
+	}
+	if err := tt.Click("夜间巡检自动化"); err != nil {
+		t.Fatalf("点击「夜间巡检自动化」失败：%v", err)
+	}
+	tt.Frame()
+	if len(targets) != 3 || targets[2] != (taskCenterTarget{
+		Kind:      "automation",
+		ID:        "auto-fail-1",
+		ProjectID: "p1",
+		Title:     "夜间巡检自动化",
+	}) {
+		t.Fatalf("点击自动化条目触发目标不匹配：%v", targets)
+	}
+
+	// 连续执行 buildPaletteItems 与多帧渲染、输入过滤，断言客户端调用次数零增长。
+	tt.Key(ui.Cmd, ui.KeyK)
+	waitFor(t, tt, func() bool { return tt.HasText("代码审阅任务") })
+	bCalls := probe.boardCalls.Load()
+	aCalls := probe.autoCalls.Load()
+	for i := 0; i < 3; i++ {
+		_ = buildPaletteItems(state)
+		tt.Frame()
+	}
+	tt.Type("总管")
+	tt.Frame()
+	if probe.boardCalls.Load() != bCalls || probe.autoCalls.Load() != aCalls {
+		t.Fatalf("渲染或 buildPaletteItems 期间不应触发额外 client IO：board %d->%d, auto %d->%d",
+			bCalls, probe.boardCalls.Load(), aCalls, probe.autoCalls.Load())
+	}
 }
