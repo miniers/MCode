@@ -225,7 +225,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									pixels := math.Max(1, float64(width-quotaMarkerWidth))
 									used := math.Round(clamped/100*pixels) / pixels
 									elapsed := math.Round(win.elapsedRatio*pixels) / pixels
-									renderQuotaBarSegments(c, winKey, quotaBarSegments(used, elapsed, win.paceKnown, projected), quotaLevelColor(c, win.UsedPercent), keyPrefix+"pace-marker")
+									renderQuotaBar(c, winKey, used, elapsed, win.paceKnown, projected, quotaLevelColor(c, win.UsedPercent), keyPrefix+"pace-marker")
 								})
 							}
 

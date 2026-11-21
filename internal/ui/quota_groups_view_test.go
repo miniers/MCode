@@ -43,7 +43,7 @@ func TestQuotaBarMotion(t *testing.T) {
 			used := 0.2
 			tt := ui.NewTesterWith(func(c *ui.Context) {
 				ui.Row(c.Key("bar")).Width(200).Height(4).Children(func() {
-					renderQuotaBarSegments(c, "motion-quota", quotaBarSegments(used, 0.5, false, false), ThemeAccent(c), "marker")
+					renderQuotaBar(c, "motion-quota", used, 0.5, false, false, ThemeAccent(c), "marker")
 				})
 			}, 220, 50, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
 			tt.Frame()
@@ -244,5 +244,95 @@ func TestUIReview26_QuotaGroupErrorDangerColorAndPercentWidth(t *testing.T) {
 	}
 	if r100.W < scaledWidth-1 {
 		t.Fatalf("100%% 列宽应至少达到测量宽度 %v，实际 %v", scaledWidth, r100.W)
+	}
+}
+
+func TestQuotaBarGhostSingleFront(t *testing.T) {
+	slotGrow := func(slots []quotaBarSlot, key string) float64 {
+		for _, s := range slots {
+			if s.key == key {
+				return float64(s.grow)
+			}
+		}
+		t.Fatalf("未找到槽位 %q", key)
+		return 0
+	}
+	assertGrowSum := func(slots []quotaBarSlot) {
+		var sum float64
+		for _, s := range slots {
+			if s.kind == quotaBarSegmentMarker {
+				continue
+			}
+			sum += float64(s.grow)
+		}
+		if math.Abs(sum-1) > 1e-6 {
+			t.Fatalf("所有槽 grow 之和应为 1，got %v", sum)
+		}
+	}
+
+	const used, elapsed = 0.2, 0.4
+	for _, g := range []float64{0.3, 0.4, 0.7} {
+		slots := quotaBarSlots("t", quotaBarSegmentsTo(used, elapsed, g, true))
+		assertGrowSum(slots)
+		beforeGhost := slotGrow(slots, "t-before-ghost")
+		afterGhost := slotGrow(slots, "t-after-ghost")
+		if g <= elapsed {
+			if math.Abs(afterGhost) > 1e-6 {
+				t.Fatalf("g=%v <= elapsed=%v 时竖线后 ghost 应为 0，got %v", g, elapsed, afterGhost)
+			}
+			if math.Abs(beforeGhost-(g-used)) > 1e-6 {
+				t.Fatalf("g=%v <= elapsed=%v 时竖线前 ghost 应为 %v，got %v", g, elapsed, g-used, beforeGhost)
+			}
+		} else {
+			if math.Abs(beforeGhost-(elapsed-used)) > 1e-6 {
+				t.Fatalf("g=%v > elapsed=%v 时竖线前 ghost 应为 %v，got %v", g, elapsed, elapsed-used, beforeGhost)
+			}
+			if math.Abs(afterGhost-(g-elapsed)) > 1e-6 {
+				t.Fatalf("g=%v > elapsed=%v 时竖线后 ghost 应为 %v，got %v", g, elapsed, g-elapsed, afterGhost)
+			}
+		}
+	}
+
+	const overUsed, overElapsed = 0.6, 0.4
+	for _, g := range []float64{0.7, 1.0} {
+		slots := quotaBarSlots("t", quotaBarSegmentsTo(overUsed, overElapsed, g, true))
+		assertGrowSum(slots)
+		if math.Abs(slotGrow(slots, "t-before-ghost")) > 1e-6 || math.Abs(slotGrow(slots, "t-before-ghost-over")) > 1e-6 {
+			t.Fatalf("超速 g=%v 时竖线前不应有虚影", g)
+		}
+		if math.Abs(slotGrow(slots, "t-after-ghost")) > 1e-6 {
+			t.Fatalf("超速 g=%v 时不应使用普通 ghost 槽", g)
+		}
+		if got, want := slotGrow(slots, "t-after-ghost-over"), g-overUsed; math.Abs(got-want) > 1e-6 {
+			t.Fatalf("超速 g=%v 时竖线后 ghost-over 应为 %v，got %v", g, want, got)
+		}
+		if got, want := slotGrow(slots, "t-after-over"), overUsed-overElapsed; math.Abs(got-want) > 1e-6 {
+			t.Fatalf("超速 g=%v 时虚影应从 used 开始（over=%v），got %v", g, want, got)
+		}
+	}
+}
+
+func TestQuotaBarHoverSettles(t *testing.T) {
+	for _, reduced := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reduced=%v", reduced), func(t *testing.T) {
+			setAppReduceMotion(t, reduced)
+			projected := false
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				ui.Row(c.Key("bar")).Width(200).Height(4).Children(func() {
+					renderQuotaBar(c, "hover", 0.2, 0.4, true, projected, ThemeAccent(c), "marker")
+				})
+			}, 220, 50, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
+			tt.Frame()
+			projected = true
+			tt.Frame()
+			if tt.FramePending() == reduced {
+				t.Fatalf("减少动效=%v 时帧排队状态不正确", reduced)
+			}
+			tt.Advance(DurBase + time.Second)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("悬停虚影动效应结束")
+			}
+		})
 	}
 }

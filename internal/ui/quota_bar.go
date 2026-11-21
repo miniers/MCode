@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -68,12 +69,28 @@ func quotaBarSlots(keyPrefix string, segs []quotaBarSegment) []quotaBarSlot {
 	return slots
 }
 
-// renderQuotaBarSegments 渲染额度进度条的分段子元素（弹窗额度条与托盘额度条共用）。
-// 必须在调用方进度条 Row 的 Children 里调用：固定渲染竖线前后共 10 个按「侧+类型」命名的槽位，避免段数变化时 key 复用错位导致总 grow 偏离 1 而挤压闪动；
+// renderQuotaBar 渲染额度进度条的分段子元素（弹窗额度条使用）。
+// 对 used、elapsed、ghost 三个语义标量做动画而非分别动画各槽 grow，使虚影只从单一前沿扫过竖线并保持总 grow 为 1。
+// 必须在调用方进度条 Row 的 Children 里调用：固定渲染竖线前后共 10 个按「侧+类型」命名的槽位，避免段数变化时 key 复用错位；
 // Marker 段用固定宽度 quotaMarkerWidth 并带 markerLabel，方便测试按文字标签定位竖线。keyPrefix 是各段 key 的前缀。
 // fill 是整条额度条的分档色：正常段与超出时间进度的段同色，虚影段用同色 35% 透明。
-func renderQuotaBarSegments(c *ui.Context, keyPrefix string, segs []quotaBarSegment, fill ui.Color, markerLabel string) {
-	for _, slot := range quotaBarSlots(keyPrefix, segs) {
+func renderQuotaBar(c *ui.Context, keyPrefix string, used, elapsed float64, paceKnown, projected bool, fill ui.Color, markerLabel string) {
+	firstBox := ui.Box(c.Key(keyPrefix + "-before-normal")).Width(0).FillHeight()
+	anim := ui.Animation{Duration: animateDuration(c, DurBase), Ease: ui.EaseOut}
+	usedTarget := float32(math.Max(0, math.Min(1, used)))
+	elapsedTarget := float32(math.Max(0, math.Min(1, elapsed)))
+	ghostTarget := float32(quotaBarGhostEnd(used, elapsed, paceKnown, projected))
+	if reduceMotion(c) {
+		firstBox.Jump("used", usedTarget)
+		firstBox.Jump("elapsed", elapsedTarget)
+		firstBox.Jump("ghost", ghostTarget)
+	}
+	animUsed := float64(firstBox.AnimateTo("used", usedTarget, anim))
+	animElapsed := float64(firstBox.AnimateTo("elapsed", elapsedTarget, anim))
+	animGhost := float64(firstBox.AnimateTo("ghost", ghostTarget, anim))
+
+	segs := quotaBarSegmentsTo(animUsed, animElapsed, animGhost, paceKnown)
+	for i, slot := range quotaBarSlots(keyPrefix, segs) {
 		if slot.kind == quotaBarSegmentMarker {
 			ui.Box(c.Key(slot.key)).
 				Label(markerLabel).
@@ -82,12 +99,11 @@ func renderQuotaBarSegments(c *ui.Context, keyPrefix string, segs []quotaBarSegm
 				Background(ThemePrimaryText(c))
 			continue
 		}
-		box := ui.Box(c.Key(slot.key)).Width(0).FillHeight()
-		if reduceMotion(c) {
-			box.Jump("grow", slot.grow)
+		box := firstBox
+		if i > 0 {
+			box = ui.Box(c.Key(slot.key)).Width(0).FillHeight()
 		}
-		grow := box.AnimateTo("grow", slot.grow, ui.Animation{Duration: animateDuration(c, DurBase), Ease: ui.EaseOut})
-		box.Grow(grow)
+		box.Grow(slot.grow)
 		switch slot.kind {
 		case quotaBarSegmentNormal, quotaBarSegmentOver:
 			box.Background(fill)

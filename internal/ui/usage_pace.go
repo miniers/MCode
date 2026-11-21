@@ -109,14 +109,36 @@ type quotaBarSegment struct {
 	grow float32
 }
 
+// quotaBarGhostEnd 计算配速预测虚影的终点比例（0 到 1）。
+// 不满足 projected && paceKnown && elapsed > 0 时返回 used（即不显示虚影）；
+// 未超速返回 min(1, used/elapsed)，超速返回 1。
+func quotaBarGhostEnd(used, elapsed float64, paceKnown, projected bool) float64 {
+	used = math.Max(0, math.Min(1, used))
+	elapsed = math.Max(0, math.Min(1, elapsed))
+	if !(projected && paceKnown && elapsed > 0) {
+		return used
+	}
+	if used <= elapsed {
+		return math.Min(1, used/elapsed)
+	}
+	return 1
+}
+
 // quotaBarSegments 把额度进度条拆成按顺序渲染的段。
 // used 是已用比例，elapsed 是时间已过比例（两者都限制在 0 到 1）。竖线永远落在 elapsed 处；
 // paceKnown 为 false 时不区分超速段，0 到 used 都是正常填充；projected 为真时再叠加预测虚影：
 // 未超速时虚影覆盖 used 到 min(1, used/elapsed)，超速时虚影延伸到末端。
 // 返回的各段 grow 之和为 1，可直接放进同一行按比例排布；长度为 0 的段会被丢弃。
 func quotaBarSegments(used, elapsed float64, paceKnown, projected bool) []quotaBarSegment {
+	return quotaBarSegmentsTo(used, elapsed, quotaBarGhostEnd(used, elapsed, paceKnown, projected), paceKnown)
+}
+
+// quotaBarSegmentsTo 按给定的已用、时间进度与虚影终点拆出额度进度条各段。
+// ghostEnd <= used 时不生成虚影；超速（paceKnown && used > elapsed）时虚影类型为 GhostOver，否则为 Ghost。
+func quotaBarSegmentsTo(used, elapsed, ghostEnd float64, paceKnown bool) []quotaBarSegment {
 	used = math.Max(0, math.Min(1, used))
 	elapsed = math.Max(0, math.Min(1, elapsed))
+	ghostEnd = math.Max(0, math.Min(1, ghostEnd))
 
 	// 先按区间收集非空段，再由补空轨道与竖线拆分统一处理。
 	type span struct {
@@ -141,13 +163,12 @@ func quotaBarSegments(used, elapsed float64, paceKnown, projected bool) []quotaB
 	if over {
 		addSpan(quotaBarSegmentOver, elapsed, used)
 	}
-	if projected && paceKnown && elapsed > 0 {
-		projectedUsed := math.Min(1, used/elapsed)
-		if used <= elapsed {
-			addSpan(quotaBarSegmentGhost, used, projectedUsed)
-		} else {
-			addSpan(quotaBarSegmentGhostOver, used, 1)
+	if ghostEnd > used {
+		ghostKind := quotaBarSegmentGhost
+		if over {
+			ghostKind = quotaBarSegmentGhostOver
 		}
+		addSpan(ghostKind, used, ghostEnd)
 	}
 
 	// 段与段之间的空隙就是空轨道。
