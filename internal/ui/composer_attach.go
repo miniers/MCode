@@ -112,6 +112,10 @@ type composerAttachment struct {
 	Thumb *ui.Bitmap
 	// Data 保存图片附件的原始数据，点击缩略图时解码成全尺寸图片；非图片附件为 nil。
 	Data []byte
+	// ContextKind 标识上下文来源类别（review / annotation / console / selection / text）。
+	ContextKind string
+	// PreviewText 保存非图片可读文本附件的 UTF-8 快照（上限 256KB），用于草稿区预览与编辑。
+	PreviewText string
 }
 
 func (a composerAttachment) uploadName() string {
@@ -363,14 +367,114 @@ func fallbackAttachmentMime(ext string, data []byte, guessByExt bool) string {
 // attachmentUploadTimeout 是单次附件上传的 RPC 超时上限；包级变量便于测试缩短验证超时收尾。
 var attachmentUploadTimeout = 2 * time.Minute
 
+// composerPreviewTextLimit 限制文本附件预览快照的内存上限（256KB），超限截断为只读预览。
+const composerPreviewTextLimit = 256 * 1024
+
+const (
+	contextKindReview     = "review"
+	contextKindAnnotation = "annotation"
+	contextKindConsole    = "console"
+	contextKindSelection  = "selection"
+	contextKindText       = "text"
+)
+
+// classifyContextAttachment 按附件名、引用元信息与 MIME 类型归类上下文来源。
+func classifyContextAttachment(name, mime string, ref *inspectorFileRef) string {
+	switch filepath.Base(name) {
+	case "评论.txt":
+		return contextKindReview
+	case "浏览器标注.txt", "浏览器标注.png":
+		return contextKindAnnotation
+	case "console.txt":
+		return contextKindConsole
+	}
+	if ref != nil {
+		return contextKindSelection
+	}
+	if isAllowedImageMime(mime) {
+		return ""
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	if isTextLikeMime(mime) || ext == ".md" || ext == ".markdown" || ext == ".json" || ext == ".txt" {
+		return contextKindText
+	}
+	return ""
+}
+
+// isReadableTextAttachment 判断附件是否可安全提取 UTF-8 预览文本。
+func isReadableTextAttachment(name, mime string, ref *inspectorFileRef) bool {
+	if isAllowedImageMime(mime) {
+		return false
+	}
+	if ref != nil || isTextLikeMime(mime) {
+		return true
+	}
+	switch filepath.Base(name) {
+	case "评论.txt", "浏览器标注.txt", "console.txt":
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".md" || ext == ".markdown" || ext == ".json" || ext == ".txt"
+}
+
+// snapshotAttachmentPreviewText 提取非图片文本附件的 UTF-8 原文快照，超过 256KB 时按字符边界截断。
+func snapshotAttachmentPreviewText(name, mime string, data []byte, ref *inspectorFileRef) string {
+	if len(data) == 0 || !isReadableTextAttachment(name, mime, ref) {
+		return ""
+	}
+	sample := data
+	if len(sample) > composerPreviewTextLimit {
+		sample = sample[:composerPreviewTextLimit]
+		for trimmed := 0; len(sample) > 0 && !utf8.Valid(sample); trimmed++ {
+			if trimmed >= utf8.UTFMax {
+				return ""
+			}
+			sample = sample[:len(sample)-1]
+		}
+	} else if !utf8.Valid(sample) {
+		return ""
+	}
+	return string(sample)
+}
+
+var (
+	attachmentUploadSeq uint64
+	attachmentUploadGen sync.Map // map[string]uint64
+)
+
+// startAttachmentUpload 登记单条附件的最新上传代次并启动异步上传，避免旧上传覆盖编辑后的新上传结果。
+func (s *chatState) startAttachmentUpload(locID, attName, attMime string, attData []byte) {
+	gen := atomic.AddUint64(&attachmentUploadSeq, 1)
+	attachmentUploadGen.Store(locID, gen)
+	go s.uploadAttachmentTaskGen(locID, attName, attMime, attData, gen)
+}
+
 // uploadAttachmentTask 异步向后端上传附件并更新附件状态。
 func (s *chatState) uploadAttachmentTask(locID, attName, attMime string, attData []byte) {
+	s.uploadAttachmentTaskGen(locID, attName, attMime, attData, 0)
+}
+
+func (s *chatState) uploadAttachmentTaskGen(locID, attName, attMime string, attData []byte, gen uint64) {
 	ctx := context.WithValue(context.Background(), "local_upload", true)
 	ctx, cancel := context.WithTimeout(ctx, attachmentUploadTimeout)
 	defer cancel()
 	res, err := s.client.UploadAttachment(ctx, attName, attMime, attData)
+	if gen != 0 {
+		if v, ok := attachmentUploadGen.Load(locID); ok {
+			if cur, ok := v.(uint64); ok && cur != gen {
+				return
+			}
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if gen != 0 {
+		if v, ok := attachmentUploadGen.Load(locID); ok {
+			if cur, ok := v.(uint64); ok && cur != gen {
+				return
+			}
+		}
+	}
 	update := func(atts []composerAttachment) {
 		for i := range atts {
 			if atts[i].LocalID != locID {
@@ -483,6 +587,8 @@ func (s *chatState) addAttachmentToThread(threadID, name, mime string, data []by
 		Thumb:        attachmentThumbnail(mime, data),
 		Data:         attachmentPreviewData(mime, data),
 		RetryData:    data,
+		ContextKind:  classifyContextAttachment(name, mime, ref),
+		PreviewText:  snapshotAttachmentPreviewText(name, mime, data, ref),
 	}
 	atts = append(atts, att)
 	if threadID == s.selectedThreadID {
@@ -500,7 +606,7 @@ func (s *chatState) addAttachmentToThread(threadID, name, mime string, data []by
 	s.invalidate()
 
 	go s.retainProvisionalThread(threadID)
-	go s.uploadAttachmentTask(localID, att.uploadName(), mime, data)
+	s.startAttachmentUpload(localID, att.uploadName(), mime, data)
 	return true
 }
 
@@ -512,6 +618,7 @@ func (s *chatState) removeAttachment(localID string) {
 		if a.LocalID == localID {
 			s.attachments = append(s.attachments[:i], s.attachments[i+1:]...)
 			attachmentTokenCache.Delete(localID)
+			attachmentUploadGen.Delete(localID)
 			break
 		}
 	}
@@ -552,8 +659,227 @@ func (s *chatState) retryAttachment(localID string) bool {
 		return false
 	}
 	s.invalidate()
-	go s.uploadAttachmentTask(localID, name, mime, data)
+	s.startAttachmentUpload(localID, name, mime, data)
 	return true
+}
+
+// updateTextAttachment 更新指定文本附件的正文快照，并异步重新上传以替换其服务端 ID。
+func (s *chatState) updateTextAttachment(localID, newText string) bool {
+	if s == nil || localID == "" || len(newText) == 0 {
+		return false
+	}
+	data := []byte(newText)
+	if len(data) > maxAttachmentBytes {
+		s.setAttachmentNotice(fmt.Sprintf("修改内容超过单个 20MB 上限"))
+		return false
+	}
+
+	s.mu.Lock()
+	if s.sending {
+		s.mu.Unlock()
+		return false
+	}
+	targetIdx := -1
+	var totalSize int
+	for i := range s.attachments {
+		totalSize += s.attachments[i].Size
+		if s.attachments[i].LocalID == localID {
+			targetIdx = i
+		}
+	}
+	if targetIdx < 0 {
+		s.mu.Unlock()
+		return false
+	}
+	target := &s.attachments[targetIdx]
+	if isAllowedImageMime(target.MimeType) || target.Size > composerPreviewTextLimit {
+		s.mu.Unlock()
+		return false
+	}
+	if target.PreviewText == "" && !isReadableTextAttachment(target.Name, target.MimeType, target.InspectorRef) {
+		s.mu.Unlock()
+		return false
+	}
+	if totalSize-target.Size+len(data) > maxTotalAttachmentBytes {
+		name := target.Name
+		s.mu.Unlock()
+		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：超过总计 50MB 上限", name))
+		return false
+	}
+
+	target.PreviewText = newText
+	target.Size = len(data)
+	target.ID = ""
+	target.Uploading = true
+	target.Err = ""
+	target.Progress = 0
+	target.RetryData = data
+	if target.ContextKind == "" {
+		target.ContextKind = classifyContextAttachment(target.Name, target.MimeType, target.InspectorRef)
+	}
+	uploadName, mime := target.uploadName(), target.MimeType
+	if mime == "" {
+		mime = "text/plain"
+		target.MimeType = mime
+	}
+	s.mu.Unlock()
+
+	attachmentTokenCache.Store(localID, estimateAttachmentTokens(mime, data, len(data)))
+	s.invalidate()
+	s.startAttachmentUpload(localID, uploadName, mime, data)
+	return true
+}
+
+func isMergeableTextAttachment(a composerAttachment) bool {
+	if isAllowedImageMime(a.MimeType) || a.PreviewText == "" || a.Size > composerPreviewTextLimit {
+		return false
+	}
+	return !a.Uploading && a.Err == "" && a.ID != ""
+}
+
+func formatMergedContextSection(a composerAttachment) string {
+	var heading string
+	switch a.ContextKind {
+	case contextKindReview:
+		heading = "## 审阅评论"
+	case contextKindAnnotation:
+		heading = "## 浏览器标注"
+	case contextKindConsole:
+		heading = "## 控制台日志"
+	case contextKindSelection:
+		heading = "## 代码选区"
+		if a.Name != "" {
+			heading += "（" + a.Name + "）"
+		}
+	default:
+		heading = "## 文本附件"
+		if a.Name != "" {
+			heading += "（" + a.Name + "）"
+		}
+	}
+	return heading + "\n\n" + a.PreviewText
+}
+
+// mergeContextAttachments 将选定（localIDs 为空时取全部已完成上传）的文本上下文附件合并为单个「上下文草稿.txt」并触发上传，
+// 同时保留未被合并的附件（例如图片截图）。
+func (s *chatState) mergeContextAttachments(localIDs []string) bool {
+	if s == nil {
+		return false
+	}
+	var wanted map[string]bool
+	if len(localIDs) > 0 {
+		wanted = make(map[string]bool, len(localIDs))
+		for _, id := range localIDs {
+			if id != "" {
+				wanted[id] = true
+			}
+		}
+	}
+
+	s.mu.Lock()
+	if s.sending {
+		s.mu.Unlock()
+		return false
+	}
+	var selected []composerAttachment
+	var kept []composerAttachment
+	var keptSize int
+	for _, a := range s.attachments {
+		match := len(wanted) == 0 || wanted[a.LocalID]
+		if match && isMergeableTextAttachment(a) {
+			selected = append(selected, a)
+			continue
+		}
+		kept = append(kept, a)
+		keptSize += a.Size
+	}
+	if len(selected) < 2 {
+		s.mu.Unlock()
+		return false
+	}
+
+	sections := make([]string, 0, len(selected))
+	for _, a := range selected {
+		sections = append(sections, formatMergedContextSection(a))
+	}
+	mergedText := strings.Join(sections, "\n\n")
+	mergedBytes := []byte(mergedText)
+	if len(mergedBytes) > maxAttachmentBytes {
+		s.mu.Unlock()
+		s.setAttachmentNotice("合并结果超过单个 20MB 上限")
+		return false
+	}
+	if keptSize+len(mergedBytes) > maxTotalAttachmentBytes {
+		s.mu.Unlock()
+		s.setAttachmentNotice("合并结果超过总计 50MB 上限")
+		return false
+	}
+
+	for _, a := range selected {
+		attachmentTokenCache.Delete(a.LocalID)
+		attachmentUploadGen.Delete(a.LocalID)
+	}
+	newLocalID := nextLocalAttachmentID()
+	mergedAtt := composerAttachment{
+		LocalID:     newLocalID,
+		Name:        "上下文草稿.txt",
+		MimeType:    "text/plain",
+		Size:        len(mergedBytes),
+		Uploading:   true,
+		RetryData:   mergedBytes,
+		ContextKind: contextKindText,
+		PreviewText: snapshotAttachmentPreviewText("上下文草稿.txt", "text/plain", mergedBytes, nil),
+	}
+	s.attachments = append(kept, mergedAtt)
+	threadID := s.selectedThreadID
+	s.mu.Unlock()
+
+	attachmentTokenCache.Store(newLocalID, estimateAttachmentTokens("text/plain", mergedBytes, len(mergedBytes)))
+	s.invalidate()
+	go s.retainProvisionalThread(threadID)
+	s.startAttachmentUpload(newLocalID, mergedAtt.uploadName(), "text/plain", mergedBytes)
+	return true
+}
+
+// clearContextDrafts 清空当前会话中的全部上下文附件与长文本粘贴片段，并触发重绘。
+func (s *chatState) clearContextDrafts() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.sending {
+		s.mu.Unlock()
+		return
+	}
+	for _, a := range s.attachments {
+		attachmentTokenCache.Delete(a.LocalID)
+		attachmentUploadGen.Delete(a.LocalID)
+	}
+	s.attachments = nil
+	hadSnippets := len(s.snippets) > 0
+	s.snippets = nil
+	s.snippetPreviewID = 0
+	if s.editingFollowUpID == "" {
+		if s.drafts == nil {
+			s.drafts = make(map[string]composerDraft)
+		}
+		entry := s.drafts[s.selectedThreadID]
+		if len(entry.Snippets) > 0 {
+			hadSnippets = true
+		}
+		entry.Attachments = nil
+		entry.Snippets = nil
+		if strings.TrimSpace(entry.Text) == "" {
+			delete(s.drafts, s.selectedThreadID)
+		} else {
+			s.drafts[s.selectedThreadID] = entry
+		}
+	}
+	s.mu.Unlock()
+	if hadSnippets {
+		s.persistDraftsAsync()
+	}
+	s.invalidate()
 }
 
 // attachmentScanLimit 限制一次拖拽/粘贴里目录递归枚举的文件数。拖入大目录时先遍历整棵树再逐个拒绝
@@ -856,14 +1182,16 @@ func (s *chatState) readAttachmentFiles(paths []string, rejected []rejectedAttac
 
 		localID := nextLocalAttachmentID()
 		att := composerAttachment{
-			LocalID:   localID,
-			Name:      name,
-			MimeType:  mime,
-			Size:      len(data),
-			Uploading: true,
-			Thumb:     attachmentThumbnail(mime, data),
-			Data:      attachmentPreviewData(mime, data),
-			RetryData: data,
+			LocalID:     localID,
+			Name:        name,
+			MimeType:    mime,
+			Size:        len(data),
+			Uploading:   true,
+			Thumb:       attachmentThumbnail(mime, data),
+			Data:        attachmentPreviewData(mime, data),
+			RetryData:   data,
+			ContextKind: classifyContextAttachment(name, mime, nil),
+			PreviewText: snapshotAttachmentPreviewText(name, mime, data, nil),
 		}
 		s.attachments = append(s.attachments, att)
 		threadID := s.selectedThreadID
@@ -872,7 +1200,7 @@ func (s *chatState) readAttachmentFiles(paths []string, rejected []rejectedAttac
 		attachmentTokenCache.Store(localID, estimateAttachmentTokens(mime, data, len(data)))
 		s.invalidate()
 
-		go s.uploadAttachmentTask(localID, name, mime, data)
+		s.startAttachmentUpload(localID, name, mime, data)
 	}
 
 	if len(rejected) > 0 {
@@ -1401,6 +1729,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 	}
 
 	if notice == "" && tokenNotice == "" && !hasAtts && len(snippets) == 0 {
+		renderComposerContextDraftModal(c, s)
 		return
 	}
 
@@ -1466,23 +1795,11 @@ func renderAttachments(c *ui.Context, s *chatState) {
 								continue
 							}
 
-							card := ui.Row(c.Key("composer-attach-"+a.LocalID)).
-								Transition(motionListItem(c)).
-								Gap(Space2).
-								Padding(Space0, Space3, Space0, Space3).
-								Radius(RadiusLG).
-								Background(ThemeHover(c)).
-								Border(Hairline, ThemeBorder(c)).
-								AlignItems(ui.Center)
-							if a.InspectorRef != nil && !reduceMotion(c) {
-								scale := float32(1)
-								if a.Uploading {
-									scale = 0.97
-								}
-								scale = card.AnimateTo("reference-ready", scale, springSnappy)
-								card.Scale(scale, scale)
+							if srcTag := contextAttachmentBadge(a); srcTag != "" {
+								tag = srcTag
 							}
-							card.Children(func() {
+
+							renderCardContent := func() {
 								if a.Uploading {
 									LoadingIndicator(c, nil, "", IconSM, ThemeSecondaryText(c))
 								}
@@ -1514,9 +1831,78 @@ func renderAttachments(c *ui.Context, s *chatState) {
 
 								// 右侧 × 删除按钮
 								renderAttachmentRemoveButton(c, s, a, sending, false, true)
+							}
+
+							if a.PreviewText != "" {
+								card := ui.ButtonBase(c.Key("composer-attach-"+a.LocalID)).
+									Label("预览上下文 " + a.Name).
+									Transition(motionListItem(c)).
+									MinHeight(ControlSM).
+									Padding(Space0, Space3, Space0, Space3).
+									Radius(RadiusLG).
+									Border(Hairline, ThemeBorder(c)).
+									Cursor(ui.CursorPointer).
+									Tooltip("点击预览或编辑上下文").
+									OnClick(func() {
+										openComposerContextDraftForAttachment(s, a.LocalID)
+									})
+								if card.Hovered() {
+									card.Background(ThemeBorder(c))
+								} else {
+									card.Background(ThemeHover(c))
+								}
+								focusRing(c, card)
+								scale := motionPressScale(c, card, "button-press-scale", true && card.Pressed())
+								if a.InspectorRef != nil && !reduceMotion(c) {
+									refScale := float32(1)
+									if a.Uploading {
+										refScale = 0.97
+									}
+									refScale = card.AnimateTo("reference-ready", refScale, springSnappy)
+									scale *= refScale
+								}
+								card.Scale(scale, scale)
+								card.Children(func() {
+									ui.Row(c.Key("composer-attach-content-"+a.LocalID)).
+										Gap(Space2).
+										AlignItems(ui.Center).
+										Children(renderCardContent)
+								})
+								continue
+							}
+
+							card := ui.Row(c.Key("composer-attach-"+a.LocalID)).
+								Transition(motionListItem(c)).
+								Gap(Space2).
+								Padding(Space0, Space3, Space0, Space3).
+								Radius(RadiusLG).
+								Background(ThemeHover(c)).
+								Border(Hairline, ThemeBorder(c)).
+								AlignItems(ui.Center)
+							if a.InspectorRef != nil && !reduceMotion(c) {
+								scale := float32(1)
+								if a.Uploading {
+									scale = 0.97
+								}
+								scale = card.AnimateTo("reference-ready", scale, springSnappy)
+								card.Scale(scale, scale)
+							}
+							card.Children(renderCardContent)
+						}
+						if shouldShowContextDraftButton(attachments, snippets) {
+							Button(c.Key("composer-context-draft-btn"), ButtonOpts{
+								Text:    "草稿区",
+								Label:   "打开上下文草稿区",
+								Variant: ButtonSecondary,
+								Size:    ControlSM,
+								Tooltip: "预览、编辑或合并上下文草稿",
+								OnClick: func() {
+									openComposerContextDraftModal(s, "")
+								},
 							})
 						}
 					})
 			}
 		})
+	renderComposerContextDraftModal(c, s)
 }
