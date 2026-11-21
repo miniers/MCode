@@ -527,7 +527,7 @@ export const ComposerQuotaSheet: React.FC<ComposerQuotaSheetProps> = ({
   });
 
   return (
-    <SheetFrame onRequestClose={onClose} size="bare" cardClassName="settings-sheet flex flex-col max-h-[92dvh] outline-none w-full max-w-full min-w-0 overflow-x-hidden" ariaLabel={`${providerName} 额度`}>
+    <SheetFrame onRequestClose={onClose} size="bare" cardClassName="settings-sheet flex flex-col max-h-[calc(var(--app-height,100dvh)*0.92)] outline-none w-full max-w-full min-w-0 overflow-x-hidden" ariaLabel={`${providerName} 额度`}>
         <div className="sheet-handle shrink-0" aria-hidden="true" />
 
         {/* 标题栏：彩色图标 + 供应商名 + 套餐 + 刷新 */}

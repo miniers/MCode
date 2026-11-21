@@ -205,7 +205,7 @@ export const SwarmMergeReviewSheet: React.FC<SwarmMergeReviewSheetProps> = ({
 
   return (
     <>
-      <SheetFrame onRequestClose={() => { if (!isBusy) onClose(); }} size="bare" cardClassName="settings-sheet flex flex-col max-h-[92dvh] outline-none w-full max-w-full min-w-0 overflow-x-hidden" ariaLabel="审查子代理改动">
+      <SheetFrame onRequestClose={() => { if (!isBusy) onClose(); }} size="bare" cardClassName="settings-sheet flex flex-col max-h-[calc(var(--app-height,100dvh)*0.92)] outline-none w-full max-w-full min-w-0 overflow-x-hidden" ariaLabel="审查子代理改动">
           <div className="sheet-handle shrink-0" aria-hidden="true" />
 
           {/* 标题栏 */}

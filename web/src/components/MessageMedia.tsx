@@ -14,6 +14,7 @@ import {
   readMediaAsDataUrl
 } from '../utils/mediaChunks';
 import { ArrowDownIcon, ArrowPathIcon, ChevronRightIcon, DocumentTextIcon, XMarkIcon } from './Icons';
+import { SheetFrame } from './sheet/SheetFrame';
 import {
   createGalleryItem,
   getThreadGallery,
@@ -428,7 +429,10 @@ const ViewerContent: React.FC<ViewerContentProps> = ({ item, index, total, onClo
   readRef.current = item.readThreadMedia;
 
   React.useEffect(() => {
-    closeRef.current?.focus();
+    // 首次打开由 SheetFrame 接管焦点并记录打开前元素；翻页导致当前焦点按钮卸载时再落回关闭按钮
+    if (document.activeElement === document.body) {
+      closeRef.current?.focus();
+    }
   }, []);
 
   React.useEffect(() => {
@@ -602,13 +606,8 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose }) => {
   );
 
   React.useEffect(() => {
+    if (total <= 1) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        onClose();
-        return;
-      }
-      if (total <= 1) return;
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
         setIndex((prev) => Math.max(0, prev - 1));
@@ -619,7 +618,7 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose }) => {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose, total]);
+  }, [total]);
 
   // 触屏滑动：水平位移要够大且明显大于垂直位移，避免和纵向滚动、缩放与点击冲突
   const onTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
@@ -643,32 +642,37 @@ const MediaViewer: React.FC<MediaViewerProps> = ({ item, onClose }) => {
   };
 
   return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`图片预览 ${current.media.name}`}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black"
-      style={{
-        paddingTop: 'env(safe-area-inset-top, 0px)',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-        paddingLeft: 'env(safe-area-inset-left, 0px)',
-        paddingRight: 'env(safe-area-inset-right, 0px)'
-      }}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <SheetFrame
+      onRequestClose={onClose}
+      size="bare"
+      ariaLabel={`图片预览 ${current.media.name}`}
+      layerStyle={{ zIndex: 100, padding: 0, background: '#000', alignItems: 'center', justifyContent: 'center' }}
+      cardClassName="relative flex h-full w-full items-center justify-center outline-none"
     >
-      <ViewerContent
-        key={current.key}
-        item={current}
-        index={index}
-        total={total}
-        onClose={onClose}
-        onNavigate={navigate}
-      />
-    </div>,
+      <div
+        className="flex h-full w-full items-center justify-center"
+        style={{
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          paddingLeft: 'env(safe-area-inset-left, 0px)',
+          paddingRight: 'env(safe-area-inset-right, 0px)'
+        }}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
+      >
+        <ViewerContent
+          key={current.key}
+          item={current}
+          index={index}
+          total={total}
+          onClose={onClose}
+          onNavigate={navigate}
+        />
+      </div>
+    </SheetFrame>,
     document.body
   );
 };

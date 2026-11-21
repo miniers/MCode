@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import { CheckCircleIcon, LayoutIcon, XMarkIcon } from './Icons';
 import { MarkdownImage } from './MarkdownImage';
+import { SheetFrame } from './sheet/SheetFrame';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import type { Element, Root, RootContent } from 'hast';
@@ -257,13 +258,6 @@ function TableBlock({ tableProps, children }: { tableProps: TableElementProps; c
   React.useEffect(() => {
     if (!expanded) return;
     closeRef.current?.focus();
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      setExpanded(false);
-    };
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [expanded]);
 
   return (
@@ -285,12 +279,13 @@ function TableBlock({ tableProps, children }: { tableProps: TableElementProps; c
       </button>
       {expanded &&
         createPortal(
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="表格全屏查看"
-            className="fixed inset-0 z-[80] flex flex-col bg-[var(--screen)]"
-            style={{
+          <SheetFrame
+            onRequestClose={() => setExpanded(false)}
+            size="bare"
+            ariaLabel="表格全屏查看"
+            layerStyle={{ zIndex: 80, padding: 0, background: 'transparent', animation: 'none' }}
+            cardClassName="flex h-full w-full flex-col bg-[var(--screen)] outline-none"
+            cardStyle={{
               paddingTop: 'env(safe-area-inset-top, 0px)',
               paddingBottom: 'env(safe-area-inset-bottom, 0px)'
             }}
@@ -325,7 +320,7 @@ function TableBlock({ tableProps, children }: { tableProps: TableElementProps; c
                 </table>
               </div>
             </div>
-          </div>,
+          </SheetFrame>,
           document.body
         )}
     </div>

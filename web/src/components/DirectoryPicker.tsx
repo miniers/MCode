@@ -13,6 +13,7 @@ import {
   EyeIcon,
   XMarkIcon
 } from './Icons';
+import { SheetFrame } from './sheet/SheetFrame';
 
 export interface DirectoryPickerProps {
   isOpen: boolean;
@@ -82,17 +83,6 @@ export const DirectoryPicker: React.FC<DirectoryPickerProps> = ({
       });
   }, [call, isOpen, reloadToken, requestPath, showHidden]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      onCancel();
-    };
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [isOpen, onCancel]);
-
   // 进入子目录或返回上级：清掉旧列表，避免在加载失败时误选上一个目录。
   const navigateTo = useCallback((next: string | undefined) => {
     requestRef.current += 1;
@@ -114,21 +104,13 @@ export const DirectoryPicker: React.FC<DirectoryPickerProps> = ({
   const canConfirm = data !== null && !loading && error === null;
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40"
-      role="presentation"
-      onMouseDown={(event) => {
-        // 阻止冒泡到外层 sheet 的遮罩，否则会连外层面板一起关掉。
-        event.stopPropagation();
-        onCancel();
-      }}
-    >
-      <section
-        className="settings-sheet flex flex-col max-h-[92dvh] outline-none w-full min-w-0 overflow-hidden"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="directory-picker-title"
-        onMouseDown={(event) => event.stopPropagation()}
+    <div onMouseDown={(event) => event.stopPropagation()}>
+      <SheetFrame
+        onRequestClose={onCancel}
+        size="bare"
+        labelledBy="directory-picker-title"
+        layerClassName="justify-center !z-[60] !bg-black/40 !p-0"
+        cardClassName="settings-sheet flex flex-col max-h-[calc(var(--app-height,100dvh)*0.92)] outline-none w-full min-w-0 overflow-hidden"
       >
         <div className="sheet-handle shrink-0" aria-hidden="true" />
 
@@ -263,7 +245,7 @@ export const DirectoryPicker: React.FC<DirectoryPickerProps> = ({
             选择此目录
           </button>
         </div>
-      </section>
+      </SheetFrame>
     </div>
   );
 };

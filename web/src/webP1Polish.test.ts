@@ -74,3 +74,31 @@ assert(threadViewTsx.includes('LazyScreenFallback'), 'ThreadView.tsx 首屏加�
 
 const skeletonCss = readText('./styles/skeleton.css');
 assert(skeletonCss.includes('prefers-reduced-motion: reduce'), 'skeleton.css 应尊重 prefers-reduced-motion');
+
+// 7. 5 处弹窗收口到 SheetFrame，消除手写裸 role="dialog" 遮罩
+for (const path of [
+  './components/ScriptEditForm.tsx',
+  './components/DirectoryPicker.tsx',
+  './components/MarkdownView.tsx',
+  './components/composer/ComposerAttachments.tsx',
+  './components/MessageMedia.tsx'
+]) {
+  const source = readText(path);
+  assert(source.includes('<SheetFrame'), `${path} 应使用 SheetFrame`);
+  assert(!source.includes('role="dialog"'), `${path} 不应再手写裸 role="dialog"`);
+}
+
+// 8. SheetFrame size="bare" 限高对接 --app-height，不再写死 92dvh/85dvh
+for (const [path, forbidden] of [
+  ['./components/SwarmMergeReviewSheet.tsx', 'max-h-[92dvh]'],
+  ['./components/ComposerQuotaSheet.tsx', 'max-h-[92dvh]'],
+  ['./components/MemoryProposalsSheet.tsx', 'max-h-[85dvh]']
+] as const) {
+  const source = readText(path);
+  assert(source.includes('--app-height'), `${path} 应使用 --app-height 限高`);
+  assert(!source.includes(forbidden), `${path} 不应再写死 ${forbidden}`);
+}
+
+// 9. index.css：消除 .menu-stack 的 transition: height 布局重排动画
+const menuStackRule = indexCss.match(/\.menu-stack\s*\{[^}]*\}/)?.[0] ?? '';
+assert(menuStackRule !== '' && !menuStackRule.includes('transition: height'), 'web/src/index.css 中 .menu-stack 不应包含 transition: height');

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { RemoteAttachmentUploadResult } from '../../types/contract';
 import { PlusIcon, XMarkIcon } from '../Icons';
+import { SheetFrame } from '../sheet/SheetFrame';
 
 function formatByteCount(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '';
@@ -16,40 +17,36 @@ export function AttachmentPreviewOverlay({ url, name, onClose }: {
   name: string;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [onClose]);
-
   const dialog = (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`图片预览 ${name}`}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <SheetFrame
+      onRequestClose={onClose}
+      size="bare"
+      ariaLabel={`图片预览 ${name}`}
+      layerClassName="fixed inset-0"
+      layerStyle={{ zIndex: 100, padding: 0, background: '#000', alignItems: 'center', justifyContent: 'center' }}
+      cardClassName="relative flex h-full w-full items-center justify-center outline-none"
     >
-      <img src={url} alt={name} draggable={false} className="max-h-full max-w-full object-contain" />
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="关闭图片预览"
-        className="absolute flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur hover:bg-white/25"
-        style={{
-          top: 'calc(env(safe-area-inset-top, 0px) + 8px)',
-          right: 'calc(env(safe-area-inset-right, 0px) + 12px)'
+      <div
+        className="flex h-full w-full items-center justify-center"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) onClose();
         }}
       >
-        <XMarkIcon className="w-5 h-5" />
-      </button>
-    </div>
+        <img src={url} alt={name} draggable={false} className="max-h-full max-w-full object-contain" />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="关闭图片预览"
+          className="absolute flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur hover:bg-white/25"
+          style={{
+            top: 'calc(env(safe-area-inset-top, 0px) + 8px)',
+            right: 'calc(env(safe-area-inset-right, 0px) + 12px)'
+          }}
+        >
+          <XMarkIcon className="w-5 h-5" />
+        </button>
+      </div>
+    </SheetFrame>
   );
   // 输入区容器带 backdrop-blur，会成为 fixed 的包含块，必须挂到 body 才能全屏
   return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body);

@@ -238,7 +238,7 @@ const MemoryProposalsSheetBody: React.FC<MemoryProposalsSheetProps> = ({
 
   return (
     <>
-      <SheetFrame onRequestClose={onClose} size="bare" cardClassName="settings-sheet max-h-[85dvh] overflow-y-auto" labelledBy="memory-proposals-title">
+      <SheetFrame onRequestClose={onClose} size="bare" cardClassName="settings-sheet max-h-[calc(var(--app-height,100dvh)*0.85)] overflow-y-auto" labelledBy="memory-proposals-title">
           <div className="sheet-handle" aria-hidden="true" />
 
           {/* 标题栏 */}

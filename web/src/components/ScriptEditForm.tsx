@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ExclamationTriangleIcon, XMarkIcon } from './Icons';
+import { SheetFrame } from './sheet/SheetFrame';
 
 /** 表单值：id 为空表示新建；symbol 统一用字符串，空串表示不设图标。 */
 export interface ScriptDraft {
@@ -54,19 +55,10 @@ export const ScriptEditForm: React.FC<ScriptEditFormProps> = ({
   const [touched, setTouched] = useState(false);
 
   const nameRef = useRef<HTMLInputElement | null>(null);
-  const savingRef = useRef(saving);
-  savingRef.current = saving;
 
   useEffect(() => {
     nameRef.current?.focus();
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      if (!savingRef.current) onCancel();
-    };
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [onCancel]);
+  }, []);
 
   const draft: ScriptDraft = {
     ...(initial.id ? { id: initial.id } : {}),
@@ -99,20 +91,16 @@ export const ScriptEditForm: React.FC<ScriptEditFormProps> = ({
   }, [command, initial.id, name, onSubmit, otherNames, runOnWorktreeCreate, saving, symbol]);
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 px-3 pb-0 pt-12"
-      role="presentation"
-      onMouseDown={() => {
+    <SheetFrame
+      onRequestClose={() => {
         if (!saving) onCancel();
       }}
+      size="bare"
+      labelledBy="script-edit-title"
+      closeOnEscape={!saving}
+      layerClassName="justify-center !z-[60] !bg-black/40 !px-3 !pb-0 !pt-12"
+      cardClassName="settings-sheet flex w-full min-w-0 max-h-[calc(var(--app-height,100dvh)*0.9)] flex-col overflow-hidden outline-none"
     >
-      <section
-        className="settings-sheet flex w-full min-w-0 max-h-[90dvh] flex-col overflow-hidden outline-none"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="script-edit-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
         <div className="sheet-handle shrink-0" aria-hidden="true" />
 
         <div className="mb-3 flex w-full min-w-0 shrink-0 items-start justify-between gap-3">
@@ -251,7 +239,6 @@ export const ScriptEditForm: React.FC<ScriptEditFormProps> = ({
             )}
           </button>
         </div>
-      </section>
-    </div>
+      </SheetFrame>
   );
 };
