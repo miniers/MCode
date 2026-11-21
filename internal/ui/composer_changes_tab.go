@@ -10,9 +10,9 @@ import (
 )
 
 // threadChangeStatsTTL 是空闲状态下改动统计缓存的刷新间隔。
-// 一次统计要对最近 50 个轮次各起一个 git numstat，大会话上这是几十个子进程；
-// 数字只在一轮跑完时才会变（那种情况另有强制刷新），空闲期没有必要隔一分钟重算一次。
-const threadChangeStatsTTL = 5 * time.Minute
+// 统计走 statOnly 只跑一次 numstat，开销小；空闲 15 秒重取一次，
+// 覆盖会话在后台跑完、切回时 lastRunning 没经历 true→false 的情况。
+const threadChangeStatsTTL = 15 * time.Second
 
 var (
 	threadChangeStatsMu     sync.Mutex
@@ -32,6 +32,7 @@ type threadChangeStatsEntry struct {
 	deletions   int
 	files       int
 	loading     bool
+	dirty       bool
 	loadedAt    time.Time
 	lastRunning bool
 }
@@ -56,16 +57,23 @@ func (s *chatState) ensureThreadChangeStats(threadID string, isRunning bool) {
 	if entry == nil {
 		entry = &threadChangeStatsEntry{}
 		st.byThread[threadID] = entry
-		trimThreadChangeStatsLocked(st)
+		trimThreadChangeStatsLocked(st, threadID)
 	}
 	wasRunning := entry.lastRunning
 	entry.lastRunning = isRunning
+	if wasRunning && !isRunning && entry.loading {
+		entry.dirty = true
+	}
 	needLoad := false
 	switch {
 	case entry.loadedAt.IsZero() && !entry.loading:
 		needLoad = true
 	case entry.loading:
 		// 已有加载在途，等它落地。
+	case entry.dirty && !entry.loading:
+		// 在途加载期间运行刚结束，补刷一次。
+		entry.dirty = false
+		needLoad = true
 	case wasRunning && !isRunning:
 		// 运行刚结束，改动可能已经变化，强制刷新一次。
 		needLoad = true
@@ -81,7 +89,9 @@ func (s *chatState) ensureThreadChangeStats(threadID string, isRunning bool) {
 
 	go func(tid string) {
 		// 只要三个数字：统计走 statOnly，不生成 diff 正文，也不逐个轮次起 git 子进程。
-		stats, err := s.client.DiffStats(context.Background(), tid)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		stats, err := s.client.DiffStats(ctx, tid)
 		add, del, files := 0, 0, 0
 		if err == nil {
 			add, del, files = stats.Additions, stats.Deletions, stats.Files
@@ -100,13 +110,13 @@ func (s *chatState) ensureThreadChangeStats(threadID string, isRunning bool) {
 }
 
 // trimThreadChangeStatsLocked 把统计缓存裁剪到 kThreadChangeStatsCache 个会话。
-// 在途加载的条目没有加载时间，不参与淘汰。调用方需持有 threadChangeStatsMu。
-func trimThreadChangeStatsLocked(st *threadChangeStats) {
+// 在途加载及刚创建的当前会话条目不参与淘汰。调用方需持有 threadChangeStatsMu。
+func trimThreadChangeStatsLocked(st *threadChangeStats, keep string) {
 	for len(st.byThread) > kThreadChangeStatsCache {
 		oldestID := ""
 		var oldest time.Time
 		for id, e := range st.byThread {
-			if e.loading {
+			if id == keep || e.loading {
 				continue
 			}
 			if oldestID == "" || e.loadedAt.Before(oldest) {

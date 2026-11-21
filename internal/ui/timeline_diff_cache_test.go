@@ -132,7 +132,7 @@ func TestThreadChangeStatsCacheLimit(t *testing.T) {
 	for i := 0; i < kThreadChangeStatsCache+5; i++ {
 		st.byThread["t"+strconv.Itoa(i)] = &threadChangeStatsEntry{loadedAt: base.Add(time.Duration(i) * time.Second)}
 	}
-	trimThreadChangeStatsLocked(st)
+	trimThreadChangeStatsLocked(st, "")
 
 	if got := len(st.byThread); got != kThreadChangeStatsCache {
 		t.Fatalf("缓存条目数 = %d, 期望 %d", got, kThreadChangeStatsCache)
@@ -150,7 +150,7 @@ func TestThreadChangeStatsCacheLimit(t *testing.T) {
 	for _, e := range st.byThread {
 		e.loading = true
 	}
-	trimThreadChangeStatsLocked(st)
+	trimThreadChangeStatsLocked(st, "")
 	if got := len(st.byThread); got != kThreadChangeStatsCache {
 		t.Fatalf("全部条目在加载中时不应淘汰，实际 = %d", got)
 	}
