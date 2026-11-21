@@ -34,6 +34,61 @@ func newUIReview25SettingsTester(t *testing.T, page string, width, height int, s
 	return tt, st
 }
 
+func uiReview25AccessOnScreen(t *testing.T, tt *ui.Tester, role ui.Role, name string) ui.AccessInfo {
+	t.Helper()
+	winH := float32(tt.Image().Bounds().Dy())
+	var last ui.AccessInfo
+	var prevBounds ui.Rect
+	var prevDY float32
+	scale := float32(1)
+	for i := 0; i < 100; i++ {
+		info, ok := tt.AccessByRole(role, name)
+		if !ok {
+			t.Fatalf("找不到元素 (role=%v name=%q): %v", role, name, tt.AccessAll())
+		}
+		last = info
+		detail, ok := tt.Find("设置详情列")
+		if !ok {
+			t.Fatalf("找不到设置详情列: %v", tt.Texts())
+		}
+		vpTop := max(detail.Y, float32(0))
+		vpBot := min(detail.Y+detail.H, winH)
+		fullyInWindow := !info.Offscreen && info.Bounds.W > 0 && info.Bounds.H > 0 &&
+			info.Bounds.Y >= 0 && info.Bounds.Y+info.Bounds.H <= winH
+		if fullyInWindow && ((info.Bounds.Y > vpTop+0.5 && info.Bounds.Y+info.Bounds.H < vpBot-0.5) || (i > 0 && info.Bounds == prevBounds)) {
+			return info
+		}
+		prevBounds = info.Bounds
+
+		vpH := max(vpBot-vpTop, float32(1))
+		vpMid := vpTop + vpH/2
+		maxStep := max(vpH*0.6, float32(200))
+		fineStep := max(vpH*0.25, float32(120))
+		var dy float32
+		switch {
+		case info.Offscreen || info.Bounds.W <= 0 || info.Bounds.H <= 0:
+			if info.Bounds.Y >= vpBot {
+				dy = min(info.Bounds.Y-vpMid, maxStep)
+			} else {
+				dy = -max(vpH*0.5, float32(160))
+			}
+		case info.Bounds.Y <= vpTop+0.5:
+			dy = -fineStep
+		default:
+			dy = fineStep
+		}
+		if prevDY*dy < 0 {
+			scale = max(scale*0.5, float32(0.05))
+		}
+		dy *= scale
+		prevDY = dy
+		tt.Scroll(detail.X+detail.W/2, detail.Y+detail.H/2, 0, dy)
+		tt.Frame()
+	}
+	t.Fatalf("滚动后元素仍未完全进入可见区 (role=%v name=%q): %+v", role, name, last)
+	return last
+}
+
 func assertUIReview25DetailBounds(t *testing.T, tt *ui.Tester, winW float32, cardLabel string, skipNames ...string) {
 	t.Helper()
 	skip := make(map[string]bool, len(skipNames))
@@ -107,10 +162,7 @@ func assertUIReview25SheetBounds(t *testing.T, tt *ui.Tester, winW, winH float32
 func TestUIReview25_SettingsNarrow640_SourceControl(t *testing.T) {
 	tt, _ := newUIReview25SettingsTester(t, "workbench", 640, 700, nil)
 	assertUIReview25DetailBounds(t, tt, 640, "设置卡片 sourceControl.commit")
-	area, ok := tt.AccessByRole(ui.RoleTextField, "提交信息附加说明")
-	if !ok {
-		t.Fatal("找不到提交信息附加说明")
-	}
+	area := uiReview25AccessOnScreen(t, tt, ui.RoleTextField, "提交信息附加说明")
 	if area.Bounds.W < 100 {
 		t.Fatalf("640 提交信息附加说明宽度过窄: %+v", area.Bounds)
 	}
@@ -120,10 +172,7 @@ func TestUIReview25_SettingsNarrow640_Workbench(t *testing.T) {
 	tt, _ := newUIReview25SettingsTester(t, "workbench", 640, 700, nil)
 	assertUIReview25DetailBounds(t, tt, 640, "设置卡片 workbench.instructions")
 	assertUIReview25DetailBounds(t, tt, 640, "设置卡片 workbench.terminal")
-	area, ok := tt.AccessByRole(ui.RoleTextField, "AGENTS.md")
-	if !ok {
-		t.Fatal("找不到 AGENTS.md")
-	}
+	area := uiReview25AccessOnScreen(t, tt, ui.RoleTextField, "AGENTS.md")
 	if area.Bounds.W < 100 {
 		t.Fatalf("640 AGENTS.md 宽度过窄: %+v", area.Bounds)
 	}
@@ -207,10 +256,7 @@ func TestUIReview25_SettingsWide960_PreserveSelectWidths(t *testing.T) {
 
 	t.Run("工作台页Select保持220", func(t *testing.T) {
 		tt, _ := newUIReview25SettingsTester(t, "workbench", 960, 700, nil)
-		sel, ok := tt.AccessByRole(ui.RolePopUpButton, "默认终端")
-		if !ok {
-			t.Fatalf("找不到默认终端下拉框: %v", tt.AccessAll())
-		}
+		sel := uiReview25AccessOnScreen(t, tt, ui.RolePopUpButton, "默认终端")
 		if sel.Bounds.W != settingsSidePanelWidth {
 			t.Fatalf("960 宽窗口默认终端下拉框宽度 = %.1f，期望 %.0f", sel.Bounds.W, settingsSidePanelWidth)
 		}
@@ -222,10 +268,7 @@ func TestUIReview25_SettingsWide960_PreserveSelectWidths(t *testing.T) {
 			chat.projects = []Project{{ID: "p1", Name: "MCode", Path: "/repo/mcode"}}
 		})
 		waitFor(t, tt, func() bool { return tt.HasText("MCode") })
-		sel, ok := tt.AccessByRole(ui.RolePopUpButton, "MCode")
-		if !ok {
-			t.Fatalf("找不到项目记忆空间下拉框: %v", tt.AccessAll())
-		}
+		sel := uiReview25AccessOnScreen(t, tt, ui.RolePopUpButton, "MCode")
 		if sel.Bounds.W != settingsFieldMediumWidth {
 			t.Fatalf("960 宽窗口项目记忆空间下拉框宽度 = %.1f，期望 %.0f (all=%v)", sel.Bounds.W, settingsFieldMediumWidth, fmt.Sprintf("%+v", sel))
 		}
