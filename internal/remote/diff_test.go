@@ -452,3 +452,187 @@ func TestMemoryBackend_GetDiffOnlySessionTouchedFiles(t *testing.T) {
 	}
 	assertOnlySessionFile("single turn", diffTurn)
 }
+
+func TestMemoryBackend_GetDiffStatOnlyRename(t *testing.T) {
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git 可执行文件在 PATH 中未找到，跳过测试")
+	}
+
+	repoDir := t.TempDir()
+	runGit := func(args ...string) string {
+		cmd := exec.Command(gitBin, args...)
+		cmd.Dir = repoDir
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s failed: %v: %s", strings.Join(args, " "), err, string(out))
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	runGit("init")
+	runGit("config", "user.name", "test-user")
+	runGit("config", "user.email", "test@localhost")
+	oldFile := filepath.Join(repoDir, "old.txt")
+	if err := os.WriteFile(oldFile, []byte("line 1\nline 2\nline 3\n"), 0644); err != nil {
+		t.Fatalf("write old.txt: %v", err)
+	}
+	runGit("add", "old.txt")
+	runGit("commit", "-m", "initial commit")
+
+	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
+	defer hub.Close()
+
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+
+	ctx := context.Background()
+	projID := newUUID()
+	backend.AddProject(wire.ProjectSummary{
+		ID:   projID,
+		Name: "test-rename-project",
+		Path: repoDir,
+	})
+
+	mockH := &mockHarness{
+		kind: "mock",
+		runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+			// 删旧建新（内容相同）以触发 git diff -M 重命名识别，同时不修改用户暂存区。
+			if err := os.Rename(filepath.Join(turn.WorkDir, "old.txt"), filepath.Join(turn.WorkDir, "new.txt")); err != nil {
+				return err
+			}
+			emit(harness.Event{Type: harness.EventText, Text: "renamed"})
+			emit(harness.Event{Type: harness.EventDone})
+			return nil
+		},
+	}
+	backend.RegisterHarness(mockH)
+
+	thRes, err := backend.CreateThread(ctx, wire.ThreadCreateParams{
+		ProjectID: projID,
+		ActionID:  newUUID(),
+	})
+	if err != nil {
+		t.Fatalf("CreateThread failed: %v", err)
+	}
+	threadID := thRes.ThreadID
+
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+		ThreadID: threadID,
+		Text:     "rename file",
+		ActionID: newUUID(),
+	}); err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+	waitThreadIdle(t, backend, ctx, threadID)
+
+	stat, err := backend.GetDiff(ctx, wire.ThreadsGetDiffParams{ThreadID: threadID, StatOnly: true})
+	if err != nil {
+		t.Fatalf("statOnly GetDiff failed: %v", err)
+	}
+	if stat.FailureReason != nil {
+		t.Fatalf("expected nil failureReason, got %q", *stat.FailureReason)
+	}
+	if len(stat.FilesChanged) != 1 || stat.FilesChanged[0] != "new.txt" {
+		t.Fatalf("expected statOnly filesChanged=[new.txt], got %v", stat.FilesChanged)
+	}
+
+	diffAll, err := backend.GetDiff(ctx, wire.ThreadsGetDiffParams{ThreadID: threadID})
+	if err != nil {
+		t.Fatalf("GetDiff failed: %v", err)
+	}
+	if diffAll.FailureReason != nil {
+		t.Fatalf("expected nil failureReason, got %q", *diffAll.FailureReason)
+	}
+	if len(diffAll.FilesChanged) != 2 || diffAll.FilesChanged[0] != "new.txt" || diffAll.FilesChanged[1] != "old.txt" {
+		t.Fatalf("expected non-statOnly filesChanged=[new.txt old.txt], got %v", diffAll.FilesChanged)
+	}
+}
+
+func TestMemoryBackend_GetDiffStatOnlyNumStatError(t *testing.T) {
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git 可执行文件在 PATH 中未找到，跳过测试")
+	}
+
+	repoDir := t.TempDir()
+	runGit := func(args ...string) string {
+		cmd := exec.Command(gitBin, args...)
+		cmd.Dir = repoDir
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s failed: %v: %s", strings.Join(args, " "), err, string(out))
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	runGit("init")
+	runGit("config", "user.name", "test-user")
+	runGit("config", "user.email", "test@localhost")
+	if err := os.WriteFile(filepath.Join(repoDir, "base.txt"), []byte("baseline\n"), 0644); err != nil {
+		t.Fatalf("write base.txt: %v", err)
+	}
+	runGit("add", "base.txt")
+	runGit("commit", "-m", "initial commit")
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "turns.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+	ctx := context.Background()
+	if err := backend.AttachStore(ctx, st); err != nil {
+		t.Fatalf("AttachStore: %v", err)
+	}
+	backend.SetGitRunner(git.NewRunner(gitBin, 2))
+
+	var turnIDs []string
+	mock := &mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		turnIDs = append(turnIDs, turn.ID)
+		if err := os.WriteFile(filepath.Join(turn.WorkDir, "file1.txt"), []byte("hello\n"), 0644); err != nil {
+			return err
+		}
+		emit(harness.Event{Type: harness.EventDone})
+		return nil
+	}}
+	backend.SetHarness(mock, repoDir, harness.ModeAgent)
+
+	projID := newUUID()
+	backend.AddProject(wire.ProjectSummary{ID: projID, Name: "numstat-err", Path: repoDir})
+	thread, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: projID})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: thread.ThreadID, Text: "edit"}); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	waitThreadIdle(t, backend, ctx, thread.ThreadID)
+
+	if len(turnIDs) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(turnIDs))
+	}
+	rec, err := st.GetTurn(ctx, turnIDs[0])
+	if err != nil {
+		t.Fatalf("GetTurn: %v", err)
+	}
+	// 将持久化的 BaseCheckpoint 改为不存在的对象哈希，使 ListRefs 仍成功但 NumStat 失败。
+	rec.BaseCheckpoint = "0000000000000000000000000000000000000000"
+	if err := st.UpdateTurn(ctx, rec); err != nil {
+		t.Fatalf("UpdateTurn: %v", err)
+	}
+
+	res, err := backend.GetDiff(ctx, wire.ThreadsGetDiffParams{ThreadID: thread.ThreadID, StatOnly: true})
+	if err != nil {
+		t.Fatalf("GetDiff statOnly returned error instead of neutralResult: %v", err)
+	}
+	if res.FailureReason == nil || !strings.HasPrefix(*res.FailureReason, "git numstat failed: ") {
+		t.Fatalf("expected FailureReason with prefix %q, got %v", "git numstat failed: ", res.FailureReason)
+	}
+}

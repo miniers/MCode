@@ -527,14 +527,18 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		}
 
 		stats, sErr := gitRunner.NumStat(ctx, repoRoot, diffFrom, diffTo, diffPaths)
-		if sErr == nil {
+		if sErr != nil {
+			if params.StatOnly {
+				return neutralResult("git numstat failed: " + sErr.Error())
+			}
+		} else {
 			seenPaths := make(map[string]bool)
 			for _, st := range stats {
 				if st.Path != "" && !seenPaths[st.Path] {
 					seenPaths[st.Path] = true
 					filesChanged = append(filesChanged, st.Path)
 				}
-				if st.OldPath != "" && !seenPaths[st.OldPath] {
+				if !params.StatOnly && st.OldPath != "" && !seenPaths[st.OldPath] {
 					seenPaths[st.OldPath] = true
 					filesChanged = append(filesChanged, st.OldPath)
 				}

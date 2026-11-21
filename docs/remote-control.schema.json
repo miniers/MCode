@@ -7961,7 +7961,7 @@
         },
         "statOnly": {
           "type": "boolean",
-          "description": "只取改动统计（文件数、增删行数），不生成 diff 正文与轮次摘要。"
+          "description": "只取改动统计（文件数、增删行数），不生成 diff 正文与轮次摘要。statOnly 时 filesChanged 每个改动文件一条，重命名只记新路径。"
         }
       },
       "required": [
