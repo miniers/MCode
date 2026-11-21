@@ -29,6 +29,7 @@ type reviewComment struct {
 	original, body     string
 	stale, added       bool
 	expanded           bool
+	confirmDelete      bool
 	attachmentID       string
 	failedAttachmentID string
 }
@@ -196,16 +197,55 @@ func renderReviewComment(c *ui.Context, s *chatState, dp *diffPanelState, commen
 				s.invalidate()
 			}
 			summary.Children(func() { ui.Text(c, comment.body).SingleLine().FontSize(uiFont(TypeFootnote)).TextColor(color) })
-			button := ui.ButtonBase(c.Key("delete")).Label("删除评论").Padding(Space1)
-			buttonScale := motionPressScale(c, button, "button-press-scale", button.Pressed())
-			button.Scale(buttonScale, buttonScale)
-			if button.Clicked() {
-				diffPanelMu.Lock()
-				dp.comments = slices.DeleteFunc(dp.comments, func(item *reviewComment) bool { return item.id == comment.id })
-				diffPanelMu.Unlock()
-				s.invalidate()
+			if comment.confirmDelete {
+				Button(c, ButtonOpts{
+					Key:     "delete-confirm",
+					Text:    "确认删除",
+					Label:   "确认删除",
+					Variant: ButtonDanger,
+					Size:    ControlXS,
+					OnClick: func() {
+						diffPanelMu.Lock()
+						dp.comments = slices.DeleteFunc(dp.comments, func(item *reviewComment) bool { return item.id == comment.id })
+						diffPanelMu.Unlock()
+						s.invalidate()
+					},
+				})
+				Button(c, ButtonOpts{
+					Key:     "delete-cancel",
+					Text:    "取消",
+					Label:   "取消删除",
+					Variant: ButtonGhost,
+					Size:    ControlXS,
+					OnClick: func() {
+						diffPanelMu.Lock()
+						for _, current := range dp.comments {
+							if current.id == comment.id {
+								current.confirmDelete = false
+								break
+							}
+						}
+						diffPanelMu.Unlock()
+						s.invalidate()
+					},
+				})
+			} else {
+				button := ui.ButtonBase(c.Key("delete")).Label("删除评论").Padding(Space1)
+				buttonScale := motionPressScale(c, button, "button-press-scale", button.Pressed())
+				button.Scale(buttonScale, buttonScale)
+				if button.Clicked() {
+					diffPanelMu.Lock()
+					for _, current := range dp.comments {
+						if current.id == comment.id {
+							current.confirmDelete = true
+							break
+						}
+					}
+					diffPanelMu.Unlock()
+					s.invalidate()
+				}
+				button.Children(func() { ui.Icon(c, IconX()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)) })
 			}
-			button.Children(func() { ui.Icon(c, IconX()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)) })
 		})
 		if comment.expanded {
 			ui.Scroll(c.Key("body")).FillWidth().Height(reviewCommentBodyHeight).Padding(Space2).Transition(motionCollapse(c)).Children(func() {

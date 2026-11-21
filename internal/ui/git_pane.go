@@ -705,6 +705,7 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 		}
 		if btn.Clicked() && gitPaneBranchPopover != nil {
 			ps.branchOpen = true
+			s.invalidate()
 		}
 		btn.Children(func() {
 			ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
@@ -771,7 +772,7 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 				ui.Text(c, label).FontSize(uiFont(TypeFootnote))
 			}
 		})
-		more := IconButton(c, IconButtonProps{Key: "git-pane-more", Icon: IconMoreHorizontal(), Label: "Git 更多操作", Variant: ButtonGhost, Size: ControlMD, OnClick: func() { ps.menuOpen = true }})
+		more := IconButton(c, IconButtonProps{Key: "git-pane-more", Icon: IconMoreHorizontal(), Label: "Git 更多操作", Variant: ButtonGhost, Size: ControlMD, OnClick: func() { ps.menuOpen = true; s.invalidate() }})
 		appPopover(c.Key("git-pane-more-popover"), more, &ps.menuOpen, func() { s.cancelPushPRConfirm() }, func() {
 			repoURL := normalizeGitRemoteURL(state.RemoteURL)
 			hs := getChatHeaderState(s)
@@ -813,7 +814,12 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 						syncTip = "分离 HEAD 时无法执行此操作"
 					}
 					option("pull", "拉取", syncTip != "", syncTip, func() { ps.run("pull") })
-					option("force", "强制推送…", syncTip != "", syncTip, func() { ps.forceBranch, ps.forceOpen = state.Branch, true })
+					option("force", "强制推送…", syncTip != "", syncTip, func() {
+						ps.mu.Lock()
+						ps.forceBranch, ps.forceOpen = state.Branch, true
+						ps.mu.Unlock()
+						s.invalidate()
+					})
 					gitMenuDivider(c)
 					stashTip := ""
 					switch {
@@ -975,7 +981,12 @@ func renderGitPaneFailure(c *ui.Context, ps *gitPaneState) {
 	ui.Column(c.Key("git-pane-error")).FillWidth().Padding(Space3).Gap(Space2).Radius(RadiusMD).Background(ThemeDanger(c).Alpha(0.12)).Transition(motionCollapse(c)).Children(func() {
 		ui.Row(c).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, failure.Title).FontSize(uiFont(TypeBody)).Grow(1).Shrink(1).MinWidth(0)
-			Button(c, ButtonOpts{Text: "详情", Variant: ButtonGhost, Size: ControlSM, OnClick: func() { ps.detailOpen = !ps.detailOpen }})
+			Button(c, ButtonOpts{Text: "详情", Variant: ButtonGhost, Size: ControlSM, OnClick: func() {
+				ps.detailOpen = !ps.detailOpen
+				if ps.owner != nil {
+					ps.owner.invalidate()
+				}
+			}})
 			IconButton(c, IconButtonProps{Icon: IconX(), Label: "关闭 Git 错误", Size: ControlSM, Variant: ButtonGhost, OnClick: func() { ps.fail(nil) }})
 		})
 		switch failure.Kind {
@@ -989,7 +1000,14 @@ func renderGitPaneFailure(c *ui.Context, ps *gitPaneState) {
 		case git.FailureRejected:
 			Button(c, ButtonOpts{Text: "拉取并重试", Variant: ButtonSecondary, Disabled: syncing, Tooltip: tip, OnClick: func() { ps.run("retry") }})
 		case git.FailureLease:
-			Button(c, ButtonOpts{Text: "强制推送…", Variant: ButtonSecondary, Disabled: syncing, Tooltip: tip, OnClick: func() { ps.mu.Lock(); ps.forceBranch = ps.state.Branch; ps.mu.Unlock(); ps.forceOpen = true }})
+			Button(c, ButtonOpts{Text: "强制推送…", Variant: ButtonSecondary, Disabled: syncing, Tooltip: tip, OnClick: func() {
+				ps.mu.Lock()
+				ps.forceBranch, ps.forceOpen = ps.state.Branch, true
+				ps.mu.Unlock()
+				if ps.owner != nil {
+					ps.owner.invalidate()
+				}
+			}})
 		default:
 			if failure.Hint != "" {
 				ui.Text(c, failure.Hint).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
@@ -1019,6 +1037,7 @@ func renderGitPaneSwitchStash(c *ui.Context, ps *gitPaneState) {
 func renderGitPaneForceConfirm(c *ui.Context, ps *gitPaneState) {
 	ps.mu.Lock()
 	blocked := ps.syncing || ps.state.Detached || ps.state.Branch != ps.forceBranch
+	open, branch := ps.forceOpen, ps.forceBranch
 	ps.mu.Unlock()
 	tip := ""
 	if blocked {
@@ -1026,16 +1045,31 @@ func renderGitPaneForceConfirm(c *ui.Context, ps *gitPaneState) {
 	}
 	RenderConfirmDialog(c, ConfirmDialog{
 		Key:             "git-pane-force-dialog",
-		Open:            ps.forceOpen,
+		Open:            open,
 		Tone:            ConfirmDanger,
-		Title:           "强制推送 " + ps.forceBranch + "？",
+		Title:           "强制推送 " + branch + "？",
 		ConfirmLabel:    "强制推送",
 		CancelLabel:     "取消",
 		CancelAutoFocus: true,
 		ConfirmDisabled: blocked,
 		ConfirmTooltip:  tip,
-		OnConfirm:       func() { ps.forceOpen = false; ps.run("force") },
-		OnCancel:        func() { ps.forceOpen = false },
+		OnConfirm: func() {
+			ps.mu.Lock()
+			ps.forceOpen = false
+			ps.mu.Unlock()
+			if ps.owner != nil {
+				ps.owner.invalidate()
+			}
+			ps.run("force")
+		},
+		OnCancel: func() {
+			ps.mu.Lock()
+			ps.forceOpen = false
+			ps.mu.Unlock()
+			if ps.owner != nil {
+				ps.owner.invalidate()
+			}
+		},
 	})
 }
 

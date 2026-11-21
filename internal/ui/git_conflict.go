@@ -7,11 +7,32 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
 )
+
+type gitConflictConfirm struct {
+	key   gitDiffKey
+	all   bool
+	ours  bool
+	label string
+	paths []string
+}
+
+type gitConflictConfirmSlot struct {
+	mu      sync.Mutex
+	pending *gitConflictConfirm
+}
+
+var gitConflictConfirms sync.Map // *gitDiffViewState → *gitConflictConfirmSlot
+
+func gitConflictConfirmFor(st *gitDiffViewState) *gitConflictConfirmSlot {
+	v, _ := gitConflictConfirms.LoadOrStore(st, &gitConflictConfirmSlot{})
+	return v.(*gitConflictConfirmSlot)
+}
 
 type gitConflictState struct {
 	text             string
@@ -134,18 +155,22 @@ func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 		renderGitDiffMenu(c, s, ps, st, client, key, menuState, disabled)
 	})
 	if cs == nil {
+		renderGitConflictConfirm(c, s, ps, st, client, key, disabled)
 		return
 	}
 	if cs.err != nil {
 		renderGitPaneEmpty(c, "无法读取冲突文件", IconFile())
+		renderGitConflictConfirm(c, s, ps, st, client, key, disabled)
 		return
 	}
 	if cs.binary {
 		renderGitPaneEmpty(c, "二进制文件", IconFile())
+		renderGitConflictConfirm(c, s, ps, st, client, key, disabled)
 		return
 	}
 	if cs.tooLarge {
 		renderGitPaneEmpty(c, "文件过大", IconFile())
+		renderGitConflictConfirm(c, s, ps, st, client, key, disabled)
 		return
 	}
 	// 冲突需要在首行之前插入工具条；DiffAnnotation 只支持行后插入，因此使用等宽文本列表。
@@ -173,6 +198,7 @@ func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 			renderGitConflictText(c, lines[pos:])
 		})
 	})
+	renderGitConflictConfirm(c, s, ps, st, client, key, disabled)
 }
 
 func renderGitConflictText(c *ui.Context, lines []string) {
@@ -224,32 +250,39 @@ func renderGitConflictMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gi
 	st.mu.Lock()
 	pendingAction := st.pendingAction
 	st.mu.Unlock()
+	slot := gitConflictConfirmFor(st)
 	for _, side := range []struct {
 		ours  bool
 		label string
 	}{{true, ours}, {false, theirs}} {
 		action := fmt.Sprintf("file-%t", side.ours)
 		Button(c, ButtonOpts{Text: "整个文件用 " + side.label, Loading: pendingAction == action, Variant: ButtonGhost, Disabled: disabled || busy, Tooltip: tip, OnClick: func() {
-			runGitDiffWrite(s, ps, st, key, true, action, func(ctx context.Context) (*git.Snapshot, error) {
-				if err := client.GitResolveFileSide(ctx, key.threadID, key.path, side.ours); err != nil {
-					return nil, err
-				}
-				return nil, client.GitMarkResolved(ctx, key.threadID, []string{key.path})
-			}, "")
+			slot.mu.Lock()
+			slot.pending = &gitConflictConfirm{
+				key:   key,
+				all:   false,
+				ours:  side.ours,
+				label: side.label,
+				paths: []string{key.path},
+			}
+			slot.mu.Unlock()
 			st.menuOpen = false
+			s.invalidate()
 		}})
 		if len(paths) > 1 {
 			action := fmt.Sprintf("all-%t", side.ours)
 			Button(c, ButtonOpts{Text: "全部用 " + side.label, Loading: pendingAction == action, Variant: ButtonGhost, Disabled: disabled || busy, Tooltip: tip, OnClick: func() {
-				runGitDiffWrite(s, ps, st, key, true, action, func(ctx context.Context) (*git.Snapshot, error) {
-					for _, path := range paths {
-						if err := client.GitResolveFileSide(ctx, key.threadID, path, side.ours); err != nil {
-							return nil, err
-						}
-					}
-					return nil, client.GitMarkResolved(ctx, key.threadID, paths)
-				}, "")
+				slot.mu.Lock()
+				slot.pending = &gitConflictConfirm{
+					key:   key,
+					all:   true,
+					ours:  side.ours,
+					label: side.label,
+					paths: append([]string(nil), paths...),
+				}
+				slot.mu.Unlock()
 				st.menuOpen = false
+				s.invalidate()
 			}})
 		}
 	}
@@ -270,4 +303,73 @@ func renderGitConflictMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gi
 			s.setToast("已交给 AI")
 		}
 	}})
+}
+
+func renderGitConflictConfirm(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDiffViewState, client gitDiffClient, key gitDiffKey, disabled bool) {
+	slot := gitConflictConfirmFor(st)
+	slot.mu.Lock()
+	pending := slot.pending
+	if pending != nil && pending.key != key {
+		slot.pending = nil
+		pending = nil
+	}
+	slot.mu.Unlock()
+	if pending == nil {
+		RenderConfirmDialog(c, ConfirmDialog{Key: "git-conflict-resolve-confirm", Open: false})
+		return
+	}
+	clear := func() {
+		slot.mu.Lock()
+		slot.pending = nil
+		slot.mu.Unlock()
+		s.invalidate()
+	}
+	busy := gitPaneAgentBusy(s, key.threadID)
+	tip := ""
+	if busy {
+		tip = "Agent 正在修改此工作区"
+	}
+	title := fmt.Sprintf("整个文件用「%s」覆盖？", pending.label)
+	body := fmt.Sprintf("将用「%s」覆盖文件 %s 的全部冲突。", pending.label, key.path)
+	confirmLabel := "覆盖文件"
+	action := fmt.Sprintf("file-%t", pending.ours)
+	if pending.all {
+		title = fmt.Sprintf("全部 %d 个冲突文件用「%s」覆盖？", len(pending.paths), pending.label)
+		body = fmt.Sprintf("将用「%s」覆盖全部 %d 个冲突文件。", pending.label, len(pending.paths))
+		confirmLabel = "全部覆盖"
+		action = fmt.Sprintf("all-%t", pending.ours)
+	}
+	paths := append([]string(nil), pending.paths...)
+	ours := pending.ours
+	all := pending.all
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:             "git-conflict-resolve-confirm",
+		Open:            true,
+		Tone:            ConfirmDanger,
+		Title:           title,
+		Body:            body,
+		ConfirmLabel:    confirmLabel,
+		CancelLabel:     "取消",
+		CancelAutoFocus: true,
+		ConfirmDisabled: disabled || busy,
+		ConfirmTooltip:  tip,
+		OnConfirm: func() {
+			clear()
+			runGitDiffWrite(s, ps, st, key, true, action, func(ctx context.Context) (*git.Snapshot, error) {
+				if all {
+					for _, path := range paths {
+						if err := client.GitResolveFileSide(ctx, key.threadID, path, ours); err != nil {
+							return nil, err
+						}
+					}
+					return nil, client.GitMarkResolved(ctx, key.threadID, paths)
+				}
+				if err := client.GitResolveFileSide(ctx, key.threadID, key.path, ours); err != nil {
+					return nil, err
+				}
+				return nil, client.GitMarkResolved(ctx, key.threadID, []string{key.path})
+			}, "")
+		},
+		OnCancel: clear,
+	})
 }

@@ -827,7 +827,7 @@ func gitHistoryMenu(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistory
 		blocked, tip := gitHistoryWriteBlocked(s, ps, h, true)
 		item := m.Item("检出（分离 HEAD）").Disabled(blocked).Tooltip(tip)
 		if item.Chosen() {
-			h.write(ps, client, true, "已检出 "+gitHistoryShortSHA(commit.SHA), func(ctx context.Context) error { return s.client.GitCheckout(ctx, ps.threadID, commit.SHA) })
+			h.openConfirm(ps, "checkout", commit.SHA)
 		}
 		for _, kind := range []string{"branch", "tag"} {
 			label := "基于此新建分支…"
@@ -842,10 +842,10 @@ func gitHistoryMenu(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistory
 			}
 		}
 		if m.Item("cherry-pick").Disabled(blocked).Tooltip(tip).Chosen() {
-			h.write(ps, client, true, "已 cherry-pick", func(ctx context.Context) error { return client.GitCherryPick(ctx, ps.threadID, commit.SHA) })
+			h.openConfirm(ps, "cherry-pick", commit.SHA)
 		}
 		if m.Item("还原（revert）").Disabled(blocked).Tooltip(tip).Chosen() {
-			h.write(ps, client, true, "已还原", func(ctx context.Context) error { return client.GitRevertCommit(ctx, ps.threadID, commit.SHA) })
+			h.openConfirm(ps, "revert", commit.SHA)
 		}
 		if m.Item("让 AI 解释此提交").Chosen() {
 			s.applyQuickReply("解释提交 " + commit.SHA + "：" + commit.Subject)
@@ -943,18 +943,18 @@ func (h *gitHistoryState) write(ps *gitPaneState, client gitHistoryClient, workt
 	}()
 }
 
-func (h *gitHistoryState) resetTo(ps *gitPaneState, client gitHistoryClient, sha, mode string) {
+func (h *gitHistoryState) openConfirm(ps *gitPaneState, kind, sha string) {
 	if blocked, _ := gitHistoryWriteBlocked(ps.owner, ps, h, true); blocked {
 		return
 	}
-	if mode == "hard" {
-		h.mu.Lock()
-		h.dialog, h.dialogSHA = "hard", sha
-		h.mu.Unlock()
-		gitHistoryInvalidate(ps)
-		return
-	}
-	h.write(ps, client, true, "已重置", func(ctx context.Context) error { return client.GitReset(ctx, ps.threadID, sha, mode) })
+	h.mu.Lock()
+	h.dialog, h.dialogSHA = kind, sha
+	h.mu.Unlock()
+	gitHistoryInvalidate(ps)
+}
+
+func (h *gitHistoryState) resetTo(ps *gitPaneState, _ gitHistoryClient, sha, mode string) {
+	h.openConfirm(ps, mode, sha)
 }
 
 func renderGitHistoryDialog(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistoryState, client gitHistoryClient) {
@@ -966,23 +966,63 @@ func renderGitHistoryDialog(c *ui.Context, s *chatState, ps *gitPaneState, h *gi
 		return
 	}
 	close := func() { h.mu.Lock(); h.dialog = ""; h.mu.Unlock(); gitHistoryInvalidate(ps) }
-	if kind == "hard" {
+	short := gitHistoryShortSHA(sha)
+	var confirmTitle, confirmLabel, toast string
+	var confirmTone ConfirmTone
+	var op func(context.Context) error
+	switch kind {
+	case "hard":
+		confirmTone = ConfirmDanger
+		confirmTitle = "重置到 " + short + " 并丢弃全部改动？"
+		confirmLabel = "丢弃并重置"
+		toast = "已重置"
+		op = func(ctx context.Context) error { return client.GitReset(ctx, ps.threadID, sha, "hard") }
+	case "soft":
+		confirmTone = ConfirmSafe
+		confirmTitle = "重置到 " + short + "（soft）？"
+		confirmLabel = "重置"
+		toast = "已重置"
+		op = func(ctx context.Context) error { return client.GitReset(ctx, ps.threadID, sha, "soft") }
+	case "mixed":
+		confirmTone = ConfirmDanger
+		confirmTitle = "重置到 " + short + "（mixed）？"
+		confirmLabel = "重置"
+		toast = "已重置"
+		op = func(ctx context.Context) error { return client.GitReset(ctx, ps.threadID, sha, "mixed") }
+	case "checkout":
+		confirmTone = ConfirmDanger
+		confirmTitle = "检出 " + short + "（分离 HEAD）？"
+		confirmLabel = "检出"
+		toast = "已检出 " + short
+		op = func(ctx context.Context) error { return s.client.GitCheckout(ctx, ps.threadID, sha) }
+	case "cherry-pick":
+		confirmTone = ConfirmSafe
+		confirmTitle = "将提交 " + short + " cherry-pick 到当前分支？"
+		confirmLabel = "cherry-pick"
+		toast = "已 cherry-pick"
+		op = func(ctx context.Context) error { return client.GitCherryPick(ctx, ps.threadID, sha) }
+	case "revert":
+		confirmTone = ConfirmDanger
+		confirmTitle = "还原提交 " + short + "（revert）？"
+		confirmLabel = "还原"
+		toast = "已还原"
+		op = func(ctx context.Context) error { return client.GitRevertCommit(ctx, ps.threadID, sha) }
+	}
+	if op != nil {
 		disabled, tip := gitHistoryWriteBlocked(s, ps, h, true)
 		RenderConfirmDialog(c, ConfirmDialog{
 			Key:             "git-history-dialog",
 			Open:            true,
-			Tone:            ConfirmDanger,
-			Title:           "重置到 " + gitHistoryShortSHA(sha) + " 并丢弃全部改动？",
-			ConfirmLabel:    "丢弃并重置",
+			Tone:            confirmTone,
+			Title:           confirmTitle,
+			ConfirmLabel:    confirmLabel,
 			CancelLabel:     "取消",
 			CancelAutoFocus: true,
 			ConfirmDisabled: disabled,
 			ConfirmTooltip:  tip,
 			OnConfirm: func() {
 				close()
-				h.write(ps, client, true, "已重置", func(ctx context.Context) error {
-					return client.GitReset(ctx, ps.threadID, sha, "hard")
-				})
+				h.write(ps, client, true, toast, op)
 			},
 			OnCancel: close,
 		})

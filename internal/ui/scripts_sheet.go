@@ -37,14 +37,16 @@ type scriptsSheetRow struct {
 
 // scriptsSheetState 维护脚本编辑弹窗的状态，按 chatState 附加（同 revertDialogState）。
 type scriptsSheetState struct {
-	mu       sync.Mutex
-	open     bool
-	loading  bool
-	threadID string
-	dir      string
-	rows     []*scriptsSheetRow
-	saving   bool
-	err      string
+	mu             sync.Mutex
+	open           bool
+	loading        bool
+	threadID       string
+	dir            string
+	rows           []*scriptsSheetRow
+	initial        []scriptsSheetRow
+	confirmDiscard bool
+	saving         bool
+	err            string
 }
 
 var (
@@ -82,6 +84,8 @@ func openScriptsSheet(s *chatState, threadID string) {
 	st.threadID = threadID
 	st.dir = dir
 	st.rows = nil
+	st.initial = nil
+	st.confirmDiscard = false
 	st.saving = false
 	st.err = ""
 	st.mu.Unlock()
@@ -113,13 +117,39 @@ func openScriptsSheet(s *chatState, threadID string) {
 			}
 		}
 		st.rows = rows
+		st.initial = snapshotScriptsSheetRows(rows)
 		st.mu.Unlock()
 		s.invalidate()
 	}()
 }
 
-// closeScriptsSheet 关闭脚本编辑弹窗并丢弃未保存的编辑。
-func closeScriptsSheet(s *chatState) {
+func snapshotScriptsSheetRows(rows []*scriptsSheetRow) []scriptsSheetRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	snap := make([]scriptsSheetRow, len(rows))
+	for i, r := range rows {
+		if r != nil {
+			snap[i] = *r
+		}
+	}
+	return snap
+}
+
+func scriptsSheetDirtyLocked(st *scriptsSheetState) bool {
+	if len(st.rows) != len(st.initial) {
+		return true
+	}
+	for i, r := range st.rows {
+		if r == nil || *r != st.initial[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// forceCloseScriptsSheet 立即关闭脚本编辑弹窗并清空状态。
+func forceCloseScriptsSheet(s *chatState) {
 	if s == nil {
 		return
 	}
@@ -128,10 +158,33 @@ func closeScriptsSheet(s *chatState) {
 	st.open = false
 	st.loading = false
 	st.rows = nil
+	st.initial = nil
+	st.confirmDiscard = false
 	st.saving = false
 	st.err = ""
 	st.mu.Unlock()
 	s.invalidate()
+}
+
+// closeScriptsSheet 关闭脚本编辑弹窗；若有未保存修改则先弹出确认框。
+func closeScriptsSheet(s *chatState) {
+	if s == nil {
+		return
+	}
+	st := getScriptsSheetState(s)
+	st.mu.Lock()
+	if !st.open {
+		st.mu.Unlock()
+		return
+	}
+	if scriptsSheetDirtyLocked(st) {
+		st.confirmDiscard = true
+		st.mu.Unlock()
+		s.invalidate()
+		return
+	}
+	st.mu.Unlock()
+	forceCloseScriptsSheet(s)
 }
 
 // addScriptsSheetRow 在列表末尾追加一行空脚本。
@@ -221,6 +274,8 @@ func saveScriptsSheet(s *chatState) {
 		}
 		st.open = false
 		st.rows = nil
+		st.initial = nil
+		st.confirmDiscard = false
 		st.mu.Unlock()
 		s.setToast(fmt.Sprintf("已保存 %d 个项目脚本", len(scripts)))
 		// 复用标题栏脚本的加载入口刷新菜单里的脚本列表。
@@ -238,11 +293,13 @@ func renderScriptsSheet(c *ui.Context, s *chatState) {
 	open := st.open
 	loading := st.loading
 	rows := st.rows
+	confirmDiscard := st.confirmDiscard
 	saving := st.saving
 	errText := st.err
 	threadID := st.threadID
 	st.mu.Unlock()
 	if !open {
+		RenderConfirmDialog(c, ConfirmDialog{Key: "scripts-sheet-discard-confirm", Open: false})
 		modalDragReset(modalDragScriptsSheet)
 		return
 	}
@@ -251,7 +308,7 @@ func renderScriptsSheet(c *ui.Context, s *chatState) {
 	selected := s.selectedThreadID
 	s.mu.Unlock()
 	if selected != threadID {
-		closeScriptsSheet(s)
+		forceCloseScriptsSheet(s)
 		return
 	}
 
@@ -349,9 +406,28 @@ func renderScriptsSheet(c *ui.Context, s *chatState) {
 		modalResizeGrips(c, modalDragScriptsSheet, width, height)
 	})
 
-	if !open {
+	if !open && !confirmDiscard {
 		closeScriptsSheet(s)
 	}
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:             "scripts-sheet-discard-confirm",
+		Open:            confirmDiscard,
+		Tone:            ConfirmDanger,
+		Title:           "放弃未保存修改？",
+		Body:            "脚本配置有尚未保存的修改，放弃后将丢失这些更改。",
+		ConfirmLabel:    "放弃修改",
+		CancelLabel:     "取消",
+		CancelAutoFocus: true,
+		OnConfirm: func() {
+			forceCloseScriptsSheet(s)
+		},
+		OnCancel: func() {
+			st.mu.Lock()
+			st.confirmDiscard = false
+			st.mu.Unlock()
+			s.invalidate()
+		},
+	})
 }
 
 // renderScriptsSheetRow 渲染脚本弹窗里的一行：名称、删除按钮、命令输入与「新建 worktree 时运行」开关。

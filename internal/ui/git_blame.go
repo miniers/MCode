@@ -28,6 +28,8 @@ type gitBlameState struct {
 	seq              uint64
 	hoverBlock       int
 	hoverRow         int
+	hoverSeen        bool
+	hoverManaged     bool
 	earliest, latest time.Time
 	pending          bool
 }
@@ -68,6 +70,8 @@ func renderGitBlameView(c *ui.Context, s *chatState, threadID string, ps *gitPan
 	if changed {
 		st.path, st.lines, st.blocks, st.blockByRow, st.err = path, nil, nil, nil, nil
 		st.loading, st.pending = false, true
+		st.hoverBlock, st.hoverRow = -1, -1
+		st.hoverSeen = false
 		st.seq++
 		seq = st.seq
 		st.list = ui.ListState{}
@@ -104,10 +108,18 @@ func renderGitBlameView(c *ui.Context, s *chatState, threadID string, ps *gitPan
 	if st.path != path || st.seq != seq && changed {
 		return
 	}
+	st.hoverManaged = true
+	st.hoverSeen = false
 	st.list.Key = func(i int) any { return lines[i].Line }
-	ui.List(c.Key("git-blame-lines-"+path), &st.list, len(lines), func(i int) {
+	list := ui.List(c.Key("git-blame-lines-"+path), &st.list, len(lines), func(i int) {
 		renderGitBlameLine(c, st, lines, blocks, i, onOpenCommit)
 	}).FillWidth().FillHeight().MinHeight(0)
+	list.Draw(func(_ *ui.Painter, _ ui.Rect) {
+		if !st.hoverSeen && (st.hoverBlock != -1 || st.hoverRow != -1) {
+			st.hoverBlock, st.hoverRow = -1, -1
+			c.Invalidate()
+		}
+	})
 }
 
 func loadGitBlame(s *chatState, ps *gitPaneState, st *gitBlameState, threadID, path string, seq uint64) {
@@ -179,11 +191,13 @@ func renderGitBlameLine(c *ui.Context, st *gitBlameState, lines []git.BlameLine,
 		ui.Row(c).Width(Space0).Height(Space6).Background(ThemeAccent(c).Alpha(gitBlameTimeAlpha(st.earliest, st.latest, line.AuthorTime)))
 		info := ui.ButtonBase(c.Key(fmt.Sprintf("git-blame-info-%d", i))).Label(fmt.Sprintf("%s %d", line.SHA, line.Line)).Width(168).Height(Space6).Padding(0).Transition(motionFeedback(c))
 		if info.Hovered() {
-			if st.hoverBlock != blockIndex || st.hoverRow != i {
-				st.hoverBlock, st.hoverRow = blockIndex, i
+			st.hoverSeen = true
+			st.hoverRow = i
+			if st.hoverBlock != blockIndex {
+				st.hoverBlock = blockIndex
 				c.Invalidate()
 			}
-		} else if st.hoverRow == i {
+		} else if !st.hoverManaged && st.hoverRow == i {
 			st.hoverBlock, st.hoverRow = -1, -1
 			c.Invalidate()
 		}

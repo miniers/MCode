@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -239,6 +240,20 @@ func reviewBusy(c *ui.Context, key string) {
 	LoadingIndicator(c, key, "", IconSM)
 }
 
+func updateReviewPanelWidth(dp *diffPanelState, rawWidth float32) bool {
+	if dp == nil {
+		return false
+	}
+	w := float32(math.Round(float64(rawWidth)))
+	diffPanelMu.Lock()
+	changed := dp.reviewWidth != w
+	if changed {
+		dp.reviewWidth = w
+	}
+	diffPanelMu.Unlock()
+	return changed
+}
+
 func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 	s.mu.Lock()
 	tid := s.selectedThreadID
@@ -259,8 +274,7 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 	}
 	panel := ui.Column(c.Key("review-panel")).Fill().Background(ThemeWindowBg(c))
 	panel.Draw(func(_ *ui.Painter, r ui.Rect) {
-		if dp.reviewWidth != r.W {
-			dp.reviewWidth = r.W
+		if updateReviewPanelWidth(dp, r.W) {
 			c.Invalidate()
 		}
 	})

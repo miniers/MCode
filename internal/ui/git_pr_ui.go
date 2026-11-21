@@ -70,10 +70,11 @@ type gitPRDialogState struct {
 	detailErr     string
 	detail        *git.PRDetail
 	reviewBody    string
-	actionBusy    string
-	actionErr     string
-	mergeConfirm  string
-	mergeMenuOpen bool
+	actionBusy     string
+	actionErr      string
+	approveConfirm bool
+	mergeConfirm   string
+	mergeMenuOpen  bool
 
 	conflictNumber  int // 冲突结果对应的 PR 编号，0 表示没有结果
 	conflictFiles   []string
@@ -87,6 +88,7 @@ type gitPRDialogState struct {
 
 func (st *gitPRDialogState) resetActions() {
 	st.reviewBody, st.actionBusy, st.actionErr, st.mergeConfirm = "", "", "", ""
+	st.approveConfirm = false
 	st.mergeMenuOpen = false
 }
 
@@ -1101,10 +1103,23 @@ func gitPRActionTip(busy, self, reason string) string {
 	return reason
 }
 
+func gitPRMergeMethodLabel(method string) string {
+	switch method {
+	case "squash":
+		return "Squash 合并（squash）"
+	case "merge":
+		return "合并提交（merge）"
+	case "rebase":
+		return "变基合并（rebase）"
+	default:
+		return method
+	}
+}
+
 func renderGitPRActions(c *ui.Context, s *chatState, detail git.PRDetail) {
 	st := getGitPRDialogState(s)
 	st.mu.Lock()
-	body, busy, errText, confirm, menuOpen := st.reviewBody, st.actionBusy, st.actionErr, st.mergeConfirm, st.mergeMenuOpen
+	body, busy, errText, approveConfirm, confirm, menuOpen := st.reviewBody, st.actionBusy, st.actionErr, st.approveConfirm, st.mergeConfirm, st.mergeMenuOpen
 	st.mu.Unlock()
 	area := ui.TextArea(c.Key("modal-git-pr-review-body"), &body).Placeholder("评论").Lines(4, 10).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Background(ThemeHover(c)).Border(Hairline, ThemeBorder(c)).Radius(RadiusSM).Padding(Space2, Space3).FillWidth()
 	area.OnChange(func() { st.mu.Lock(); st.reviewBody = body; st.mu.Unlock() })
@@ -1116,16 +1131,23 @@ func renderGitPRActions(c *ui.Context, s *chatState, detail git.PRDetail) {
 	}
 	ui.Row(c.Key("modal-git-pr-review-actions")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 		if confirm != "" {
-			ui.Text(c, fmt.Sprintf("合并 #%d？", detail.Number)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+			ui.Text(c, fmt.Sprintf("使用 %s 合并 #%d？", gitPRMergeMethodLabel(confirm), detail.Number)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			ui.Spacer(c)
 			Button(c, ButtonOpts{Key: "modal-git-pr-merge-confirm", Text: "确认", Variant: ButtonPrimary, Loading: busy == "merge", Disabled: busy != "" && busy != "merge", Tooltip: gitPRActionTip(busy, "merge", ""), OnClick: func() { s.runGitPRAction("merge", confirm) }})
 			Button(c, ButtonOpts{Key: "modal-git-pr-merge-cancel", Text: "取消", Variant: ButtonSecondary, Disabled: busy != "", Tooltip: gitPRActionTip(busy, "", ""), OnClick: func() { st.mu.Lock(); st.mergeConfirm = ""; st.mu.Unlock(); s.invalidate() }})
 			return
 		}
+		if approveConfirm {
+			ui.Text(c, fmt.Sprintf("批准 #%d？", detail.Number)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+			ui.Spacer(c)
+			Button(c, ButtonOpts{Key: "modal-git-pr-approve-confirm", Text: "确认批准", Variant: ButtonPrimary, Loading: busy == "approve", Disabled: busy != "" && busy != "approve", Tooltip: gitPRActionTip(busy, "approve", ""), OnClick: func() { s.runGitPRAction("approve", "") }})
+			Button(c, ButtonOpts{Key: "modal-git-pr-approve-cancel", Text: "取消", Variant: ButtonSecondary, Disabled: busy != "", Tooltip: gitPRActionTip(busy, "", ""), OnClick: func() { st.mu.Lock(); st.approveConfirm = false; st.mu.Unlock(); s.invalidate() }})
+			return
+		}
 		if canCheckout {
 			Button(c, ButtonOpts{Key: "modal-git-pr-ai-review", Text: "AI 审查", Variant: ButtonSecondary, Loading: busy == "ai-review", Disabled: busy != "" && busy != "ai-review", Tooltip: gitPRActionTip(busy, "ai-review", ""), OnClick: func() { s.runGitPRAIReview() }})
 		}
-		Button(c, ButtonOpts{Key: "modal-git-pr-approve", Text: "批准", Variant: ButtonSecondary, Loading: busy == "approve", Disabled: busy != "" && busy != "approve", Tooltip: gitPRActionTip(busy, "approve", ""), OnClick: func() { s.runGitPRAction("approve", "") }})
+		Button(c, ButtonOpts{Key: "modal-git-pr-approve", Text: "批准", Variant: ButtonSecondary, Loading: busy == "approve", Disabled: busy != "" && busy != "approve", Tooltip: gitPRActionTip(busy, "approve", ""), OnClick: func() { st.mu.Lock(); st.approveConfirm = true; st.mu.Unlock(); s.invalidate() }})
 		Button(c, ButtonOpts{Key: "modal-git-pr-comment", Text: "评论", Variant: ButtonSecondary, Loading: busy == "comment", Disabled: (busy != "" && busy != "comment") || commentEmpty, Tooltip: gitPRActionTip(busy, "comment", commentTip), OnClick: func() { s.runGitPRAction("comment", "") }})
 		Button(c, ButtonOpts{Key: "modal-git-pr-request-changes", Text: "要求修改", Variant: ButtonSecondary, Loading: busy == "request-changes", Disabled: (busy != "" && busy != "request-changes") || commentEmpty, Tooltip: gitPRActionTip(busy, "request-changes", commentTip), OnClick: func() { s.runGitPRAction("request-changes", "") }})
 		if canCheckout {
