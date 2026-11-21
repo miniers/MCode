@@ -298,7 +298,7 @@ func TestModelPickerFlyoutSelection(t *testing.T) {
 	if err := host.Click("选择模型"); err != nil {
 		t.Fatal(err)
 	}
-	if len(capture.options) != 1 || capture.options[0].Width != 368 || capture.options[0].Placement != mygo.PlacementTopStart {
+	if len(capture.options) != 1 || capture.options[0].Width != 368 || capture.options[0].Placement != mygo.PlacementTop {
 		t.Fatalf("窗口参数: %+v", capture.options)
 	}
 	menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-model-model-popover"), 368, 600)

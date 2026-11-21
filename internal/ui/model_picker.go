@@ -1145,7 +1145,7 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 				renderSingleLine()
 			})
 
-			// 面板锚点：始终按触发胶囊的 Bounds 定位——面板水平居中于胶囊，箭头则对准胶囊中心
+			// 面板锚点：始终按触发胶囊的 Bounds 定位——面板水平居中于胶囊，PopoverBase 路径下箭头对准胶囊中心
 			// （见下方 DrawOver：用胶囊中心的绝对 x 减去面板左边缘得到偏移，再限制在圆角内）。
 			// 读不到 Bounds 时 PopoverBase 自身的居中兜底会让箭头保持正中。
 			anchor := trigger
@@ -1155,7 +1155,7 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 				return
 			}
 			if flyoutHostWindow(c.Services()) != nil {
-				appFlyoutPopover(c, p.KeyPrefix+"model-popover", anchor, &state.MenuOpen, nil, appFlyoutProps{Width: modelPickerPanelWidth, Placement: mygo.PlacementTopStart, Background: &modelPickerPanelBg, RiseY: Space4}, func(fc *ui.Context) {
+				appFlyoutPopover(c, p.KeyPrefix+"model-popover", anchor, &state.MenuOpen, nil, appFlyoutProps{Width: modelPickerPanelWidth, Placement: mygo.PlacementTop, Background: &modelPickerPanelBg, RiseY: Space4}, func(fc *ui.Context) {
 					renderModelPickerMenuBody(fc, p, state)
 				})
 				return
