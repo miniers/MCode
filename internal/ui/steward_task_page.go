@@ -60,14 +60,11 @@ func renderStewardResult(c *ui.Context, s *chatState, m Message, liveID, lastLiv
 		Children(func() {
 			renderAssistantMessage(c, s, m, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, turnDur, suppressTurnEnd)
 			if result.Thread != "" {
-				ui.Row(c.Key("steward-result-actions-"+m.ID)).Margin(2, 0, 0, 0).Children(func() {
+				ui.Row(c.Key("steward-result-actions-"+m.ID)).Margin(Space0, 0, 0, 0).Children(func() {
 					if result.Owner {
 						task := KanbanTask{ID: result.Task, ThreadID: result.Thread, Title: result.Title, Status: result.Status, ResultSummary: result.Summary}
-						for _, live := range s.stewardBoardTasks() {
-							if live.ID == result.Task {
-								task.Status, task.Column = live.Status, live.Column
-								break
-							}
+						if live, ok := s.stewardBoardTaskByID(result.Task); ok {
+							task.Status, task.Column = live.Status, live.Column
 						}
 						renderStewardTaskChip(c, s, "steward-result-open-"+m.ID, task)
 					} else {
@@ -217,7 +214,7 @@ func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
 	band.Opacity(alpha).Children(func() {
 		kanbanToneBadge(c, "steward-task-status-"+snapshot.ID, label, kanbanStatusColor(c, snapshot.Status))
 		if reason != "" {
-			ui.Text(c, reason).Grow(1).MinWidth(0).SingleLine().Ellipsis("…").
+			ui.Text(c, reason).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(reason).
 				FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 		}
 	})

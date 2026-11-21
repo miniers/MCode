@@ -51,7 +51,8 @@ func TestStewardSettingsModelLegacySelection(t *testing.T) {
 	st.cfg.Orchestration.Steward.Provider = "pi"
 	st.cfg.Orchestration.Steward.Model = "magpie-jp/auto/deepseek-v4.1-flash"
 	tt := ui.NewTester(func(c *ui.Context) { renderStewardModelControl(c, st) }, 1000, 700)
-	if !tt.HasText("GPT Test") || tt.HasText("自动") || tt.HasText("pi") || tt.HasText(st.cfg.Orchestration.Steward.Model) {
+	waitFor(t, tt, func() bool { return tt.HasText("GPT Test") })
+	if tt.HasText("自动") || tt.HasText("pi") || tt.HasText(st.cfg.Orchestration.Steward.Model) {
 		t.Fatalf("旧来源应显示自动解析出的模型: %v", tt.Texts())
 	}
 	if st.cfg.Orchestration.Steward.Provider != "pi" || st.cfg.Orchestration.Steward.Model != "magpie-jp/auto/deepseek-v4.1-flash" {
@@ -59,10 +60,7 @@ func TestStewardSettingsModelLegacySelection(t *testing.T) {
 	}
 	st.cfg.Orchestration.Steward.Provider = "openai"
 	st.cfg.Orchestration.Steward.Model = "gpt-test"
-	tt.Frame()
-	if !tt.HasText("GPT Test") {
-		t.Fatalf("API 模型应显示原值: %v", tt.Texts())
-	}
+	waitFor(t, tt, func() bool { return tt.HasText("GPT Test") })
 }
 
 func TestStewardSettings_SectionsAndKeys(t *testing.T) {

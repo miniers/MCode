@@ -228,3 +228,72 @@ func TestStewardTaskRowsSkipSourceAmend(t *testing.T) {
 		t.Fatalf("同一消息的任务胶囊重复: %v", ids)
 	}
 }
+
+func TestUIReview12_TaskCardAndChipTooltips(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	countText := func(tt *ui.Tester, target string) int {
+		n := 0
+		for _, txt := range tt.Texts() {
+			if txt == target {
+				n++
+			}
+		}
+		return n
+	}
+
+	t.Run("card-signal", func(t *testing.T) {
+		cardTask := KanbanTask{ID: "t1", ThreadID: "w1", Title: "任务卡片长标题", Status: "in_progress", LastActivity: "正在执行检查步骤"}
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			renderStewardTaskCard(c, s, "card-1", cardTask)
+		}, 500, 200, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		rect, ok := tt.Find("正在执行检查步骤")
+		if !ok {
+			t.Fatal("未找到进展文本")
+		}
+		before := countText(tt, "正在执行检查步骤")
+		tt.Move(rect.X+rect.W/2, rect.Y+rect.H/2)
+		tt.Advance(time.Second)
+		tt.Frame()
+		if countText(tt, "正在执行检查步骤") <= before {
+			t.Fatalf("悬停进展文本后未弹出 Tooltip: rect=%+v texts=%v", rect, tt.Texts())
+		}
+	})
+
+	t.Run("card-title", func(t *testing.T) {
+		cardTask := KanbanTask{ID: "t2", ThreadID: "w2", Title: "无进展长标题", Status: "todo"}
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			renderStewardTaskCard(c, s, "card-2", cardTask)
+		}, 500, 200, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		rect, ok := tt.Find("无进展长标题")
+		if !ok {
+			t.Fatal("未找到卡片标题")
+		}
+		before := countText(tt, "无进展长标题")
+		tt.Move(rect.X+rect.W/2, rect.Y+rect.H/2)
+		tt.Advance(time.Second)
+		tt.Frame()
+		if countText(tt, "无进展长标题") <= before {
+			t.Fatalf("悬停卡片标题后未弹出 Tooltip: rect=%+v texts=%v", rect, tt.Texts())
+		}
+	})
+
+	t.Run("chip-title", func(t *testing.T) {
+		longTitle := "这是一个非常非常长一定会发生截断的任务胶囊标题"
+		chipTask := KanbanTask{ID: "t3", ThreadID: "w3", Title: longTitle, Status: "todo"}
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			renderStewardTaskChip(c, s, "chip-1", chipTask)
+		}, 500, 200, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		rect, ok := tt.Find(longTitle)
+		if !ok {
+			t.Fatal("未找到胶囊标题")
+		}
+		before := countText(tt, longTitle)
+		tt.Move(rect.X+rect.W/2, rect.Y+rect.H/2)
+		tt.Advance(time.Second)
+		tt.Frame()
+		if countText(tt, longTitle) <= before {
+			t.Fatalf("悬停胶囊标题后未弹出 Tooltip: rect=%+v texts=%v", rect, tt.Texts())
+		}
+	})
+}

@@ -195,3 +195,126 @@ func TestStewardBoardStopsWatchOnLeaving(t *testing.T) {
 		t.Fatalf("active=%v stop=%v tasks=%v watchers=%d", active, stop != nil, tasks, watchers)
 	}
 }
+
+func TestUIReview12_BadgeHidesZeroWhenOnlyDone(t *testing.T) {
+	doneTask := KanbanTask{ID: "done-1", ThreadID: "worker", Title: "已完成任务", Origin: "owner", Status: "done", UpdatedAt: time.Now()}
+	tt, s, _ := newStewardBoardTester(t, 700, "steward", []KanbanTask{doneTask})
+	waitFor(t, tt, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.stewardBoard.active && !s.stewardBoard.loading })
+	tt.Frame()
+
+	if _, ok := tt.Find("总管任务"); !ok {
+		t.Fatal("只剩已完成任务时窄窗应保留总管任务徽标")
+	}
+	if _, ok := tt.Find("总管任务 0"); ok {
+		t.Fatal("只剩已完成任务时徽标标签不应出现 0")
+	}
+	if tt.HasText("0") {
+		t.Fatalf("只剩已完成任务时徽标不应显示数字 0: %v", tt.Texts())
+	}
+}
+
+func TestUIReview12_BadgePopoverClickCloses(t *testing.T) {
+	task := KanbanTask{ID: "t1", ThreadID: "worker", Title: "浮层任务", Origin: "owner", Status: "todo"}
+	tt, s, _ := newStewardBoardTester(t, 700, "steward", []KanbanTask{task})
+	waitFor(t, tt, func() bool { _, ok := tt.Find("总管任务 1"); return ok })
+
+	if err := tt.Click("总管任务 1"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("浮层任务"); return ok })
+	if !s.stewardBoard.open {
+		t.Fatal("点击徽标后浮层应打开")
+	}
+
+	if err := tt.Click("浮层任务"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if s.stewardBoard.open {
+		t.Fatal("从徽标浮层点击任务后 open 应为 false")
+	}
+	s.mu.Lock()
+	selected := s.selectedThreadID
+	s.mu.Unlock()
+	if selected != "worker" {
+		t.Fatalf("点击任务后应跳转到工作线程, got %q", selected)
+	}
+}
+
+func TestUIReview12_TaskByID(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.stewardBoard.tasks = []KanbanTask{
+		{ID: "t1", Title: "任务一", Status: "in_progress", Column: "doing"},
+		{ID: "t2", Title: "任务二", Status: "done", Column: "done"},
+	}
+	s.mu.Unlock()
+
+	got, ok := s.stewardBoardTaskByID("t1")
+	if !ok || got.ID != "t1" || got.Status != "in_progress" || got.Column != "doing" {
+		t.Fatalf("命中查找失败: got=%+v, ok=%v", got, ok)
+	}
+	if _, ok := s.stewardBoardTaskByID("missing"); ok {
+		t.Fatal("未命中 ID 不应返回 true")
+	}
+	if _, ok := s.stewardBoardTaskByID(""); ok {
+		t.Fatal("空 ID 不应返回 true")
+	}
+	var nilState *chatState
+	if _, ok := nilState.stewardBoardTaskByID("t1"); ok {
+		t.Fatal("nil chatState 不应返回 true")
+	}
+}
+
+func TestUIReview12_DoneUnfoldAnimationSettles(t *testing.T) {
+	testenv.TempHome(t)
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.stewardBoard.tasks = []KanbanTask{
+		{ID: "done-1", ThreadID: "worker", Title: "已完成任务", Origin: "owner", Status: "done", UpdatedAt: time.Now()},
+	}
+	s.stewardBoard.rev = 1
+	s.mu.Unlock()
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		renderStewardBoard(c, s, s.stewardBoardGroupsCached())
+	}, 300, 500, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: false}})
+	for i := 0; i < 30; i++ {
+		tt.Advance(16 * time.Millisecond)
+		tt.Frame()
+	}
+	if tt.FramePending() {
+		t.Fatal("初始静止状态下不应有未结束动画")
+	}
+	if acc, ok := tt.Access("已完成"); !ok || acc.Expanded {
+		t.Fatalf("初始折叠头应为未展开态: ok=%v, acc=%+v", ok, acc)
+	}
+	if tt.HasText("已完成任务") {
+		t.Fatal("未展开时不应显示已完成任务")
+	}
+
+	if err := tt.Click("已完成"); err != nil {
+		t.Fatal(err)
+	}
+	if !s.stewardBoard.doneOpen {
+		t.Fatal("点击折叠头后 doneOpen 应为 true")
+	}
+	if acc, ok := tt.Access("已完成"); !ok || !acc.Expanded {
+		t.Fatalf("展开后无障碍状态应标出 Expanded: ok=%v, acc=%+v", ok, acc)
+	}
+	if !tt.FramePending() {
+		t.Fatal("非 ReduceMotion 下点击展开应启动动画")
+	}
+	for i := 0; i < 30; i++ {
+		tt.Advance(16 * time.Millisecond)
+		tt.Frame()
+	}
+	if tt.FramePending() {
+		t.Fatal("「已完成」展开动画推进时钟到结束后不应再请求下一帧")
+	}
+	if !tt.HasText("已完成任务") {
+		t.Fatalf("展开动画完成后应显示已完成任务: %v", tt.Texts())
+	}
+}

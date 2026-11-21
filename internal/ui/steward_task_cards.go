@@ -220,7 +220,7 @@ func renderStewardTaskCard(c *ui.Context, s *chatState, key string, task KanbanT
 				ui.Box(c.Key(key+"-unread")).Size(Space1, Space1).Radius(RadiusPill).Background(ThemeAccent(c)).Shrink(0)
 			}
 			renderStewardTaskDot(c, key+"-dot", task)
-			ui.Text(c, task.Title).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+			ui.Text(c, task.Title).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(task.Title)
 			status := kanbanStatusBadge(task)
 			if status == "" && task.Status == "needs_approval" {
 				status = "待你处理"
@@ -228,7 +228,7 @@ func renderStewardTaskCard(c *ui.Context, s *chatState, key string, task KanbanT
 			ui.Text(c.Key(key+"-status-"+status), status).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Shrink(0).Transition(motionListItem(c))
 		})
 		if signal := stewardTaskSignal(task); signal != "" {
-			ui.Text(c, signal).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…")
+			ui.Text(c, signal).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…").Tooltip(signal)
 		}
 	})
 }
@@ -249,7 +249,7 @@ func renderStewardTaskChip(c *ui.Context, s *chatState, key string, task KanbanT
 			ui.Box(c.Key(key+"-unread")).Size(Space1, Space1).Radius(RadiusPill).Background(ThemeAccent(c)).Shrink(0)
 		}
 		renderStewardTaskDot(c, key+"-dot", task)
-		ui.Text(c, task.Title).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+		ui.Text(c, task.Title).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(task.Title)
 	})
 }
 

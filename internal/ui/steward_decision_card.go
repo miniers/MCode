@@ -218,19 +218,21 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 	return card.Children(func() {
 		ui.Row(c.Key("steward-decision-title-" + m.ID)).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, decision.ID).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
-			ui.Text(c, decision.Question).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1)
+			ui.Text(c, decision.Question).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Wrap().Shrink(1).MinWidth(0)
 			if decision.Task != "" {
 				if decision.Thread != "" && decision.TaskID != "" {
-					btn := ui.ButtonBase(c.Key("steward-decision-task-" + m.ID)).Label(decision.Task).Shrink(1).MinWidth(0).
+					btn := ui.ButtonBase(c.Key("steward-decision-task-" + m.ID)).Label(decision.Task).Radius(RadiusSM).Shrink(1).MinWidth(0).
 						OnClick(func() { openStewardTask(s, stewardResult{Task: decision.TaskID, Thread: decision.Thread}) })
+					focusRing(c, btn)
 					scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 					btn.Scale(scale, scale)
 					color := ThemeSecondaryText(c)
 					if btn.Hovered() {
 						color = ThemePrimaryText(c)
+						btn.Background(ThemeHover(c))
 					}
 					btn.Children(func() {
-						ui.Text(c, decision.Task).FontSize(scaledFont(TypeCaption)).TextColor(color).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+						ui.Text(c, decision.Task).FontSize(scaledFont(TypeCaption)).TextColor(color).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0).Tooltip(decision.Task)
 					})
 				} else {
 					ui.Text(c, decision.Task).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
@@ -247,7 +249,7 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 			return
 		}
 		if answerError != "" {
-			ui.Text(c, answerError).FontSize(scaledFont(TypeBody)).TextColor(ThemeDanger(c))
+			ui.Text(c, answerError).FontSize(scaledFont(TypeBody)).TextColor(ThemeDanger(c)).FillWidth().Wrap()
 		}
 		for _, option := range decision.Options {
 			option := option
@@ -257,14 +259,23 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 				Border(Hairline, ThemeBorder(c)).OnClick(func() {
 				s.answerStewardDecision(decision.ID, option.Key)
 			})
+			focusRing(c, btn)
 			pressed := float32(0)
-			if btn.Pressed() {
+			if !submitting && btn.Pressed() {
 				pressed = 1
 			}
 			press := btn.AnimateTo("press", pressed, ui.Animation{Duration: animateDuration(c, DurFast)})
-			btn.Background(ThemeSurface(c).Mix(ThemeHover(c), press)).Children(func() {
+			bg := ThemeSurface(c)
+			if !submitting && btn.Hovered() {
+				bg = ThemeHover(c)
+			}
+			fg := ThemePrimaryText(c)
+			if submitting {
+				fg = ThemeTertiaryText(c)
+			}
+			btn.Background(bg.Mix(ThemeHover(c), press)).Children(func() {
 				ui.Row(c.Key("steward-decision-option-row-" + m.ID + "-" + option.Key)).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, label).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1)
+					ui.Text(c, label).FontSize(scaledFont(TypeBody)).TextColor(fg).Grow(1).Wrap().Shrink(1).MinWidth(0)
 					if submitting && option.Key == selected {
 						LoadingIndicator(c, nil, "", IconSM)
 					} else if option.Key == decision.Recommended {

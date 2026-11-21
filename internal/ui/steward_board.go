@@ -81,6 +81,21 @@ func (s *chatState) stewardBoardTasks() []KanbanTask {
 	return append([]KanbanTask(nil), s.stewardBoard.tasks...)
 }
 
+// stewardBoardTaskByID 按任务 ID 查找看板任务，只拷贝命中的那一条，避免每帧复制整份切片。
+func (s *chatState) stewardBoardTaskByID(id string) (KanbanTask, bool) {
+	if s == nil || id == "" {
+		return KanbanTask{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, task := range s.stewardBoard.tasks {
+		if task.ID == id {
+			return task, true
+		}
+	}
+	return KanbanTask{}, false
+}
+
 func (s *chatState) stewardBoardRev() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -230,42 +245,60 @@ func renderStewardBoardList(c *ui.Context, s *chatState, groups stewardGroups) {
 				name := [...]string{"待你处理", "进行中", "已完成"}[group]
 				ui.Column(c.Key("steward-board-group-" + strconv.Itoa(group))).FillWidth().Children(func() {
 					header := ui.Row(c.Key("steward-board-title-"+strconv.Itoa(group))).FillWidth().AlignItems(ui.Center).Gap(Space2).Padding(Space2, Space2)
+					var chevronRotation float32
 					if group == 2 {
 						header.Radius(RadiusSM).Focusable().KeepFocus().Label(name).Cursor(ui.CursorPointer)
+						if header.Hovered() {
+							header.Background(ThemeHover(c))
+						}
 						focusRing(c, header)
 						if header.Clicked() {
 							s.stewardBoard.doneOpen = !s.stewardBoard.doneOpen
 						}
+						header.Expanded(s.stewardBoard.doneOpen)
+						chevronTarget := float32(0)
+						if s.stewardBoard.doneOpen {
+							chevronTarget = 90
+						}
+						chevronRotation = header.AnimateTo("steward-board-done-chevron", chevronTarget, ui.Animation{Duration: animateDuration(c, motionUnfold), Ease: motionEaseStandard})
 					}
 					header.Children(func() {
+						if group == 2 {
+							ui.Icon(c, IconChevronRight()).Size(11, 11).TextColor(ThemeSecondaryText(c)).Rotate(chevronRotation)
+						}
 						ui.Text(c, name).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 						rollingNumber(c, "steward-board-count-"+strconv.Itoa(group), len(tasks))
 					})
-					if group == 2 && !s.stewardBoard.doneOpen {
-						return
-					}
-					for _, task := range tasks {
-						task := task
-						row := ui.Column(c.Key("steward-board-task-"+task.ID)).FillWidth().MinWidth(0).Padding(Space2, Space2).Gap(Space1).Radius(RadiusSM).Focusable().KeepFocus().Label(task.Title).Cursor(ui.CursorPointer).Transition(motionListItem(c))
-						if row.Hovered() {
-							row.Background(ThemeHover(c))
-						}
-						focusRing(c, row)
-						if row.Clicked() {
-							stewardTaskOpen(s, task)
-						}
-						row.Children(func() {
-							ui.Row(c.Key("steward-board-task-title-" + task.ID)).FillWidth().MinWidth(0).AlignItems(ui.Center).Gap(Space2).Children(func() {
-								if stewardTaskUnread(s, task) {
-									ui.Box(c.Key("steward-board-unread-"+task.ID)).Size(Space1, Space1).Radius(RadiusPill).Background(ThemeAccent(c)).Shrink(0)
-								}
-								ui.Box(c.Key("steward-board-dot-"+task.ID)).Size(Space2, Space2).Radius(RadiusPill).Background(kanbanStatusColor(c, kanbanDisplayColumn(task))).Shrink(0)
-								ui.Text(c, task.Title).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
-							})
-							if signal := stewardBoardSignal(task, group); signal != "" {
-								ui.Text(c, signal).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…")
+					renderTasks := func() {
+						for _, task := range tasks {
+							task := task
+							row := ui.Column(c.Key("steward-board-task-"+task.ID)).FillWidth().MinWidth(0).Padding(Space2, Space2).Gap(Space1).Radius(RadiusSM).Focusable().KeepFocus().Label(task.Title).Cursor(ui.CursorPointer).Transition(motionListItem(c))
+							if row.Hovered() {
+								row.Background(ThemeHover(c))
 							}
-						})
+							focusRing(c, row)
+							if row.Clicked() {
+								stewardTaskOpen(s, task)
+								s.stewardBoard.open = false
+							}
+							row.Children(func() {
+								ui.Row(c.Key("steward-board-task-title-" + task.ID)).FillWidth().MinWidth(0).AlignItems(ui.Center).Gap(Space2).Children(func() {
+									if stewardTaskUnread(s, task) {
+										ui.Box(c.Key("steward-board-unread-"+task.ID)).Size(Space1, Space1).Radius(RadiusPill).Background(ThemeAccent(c)).Shrink(0)
+									}
+									ui.Box(c.Key("steward-board-dot-"+task.ID)).Size(Space2, Space2).Radius(RadiusPill).Background(kanbanStatusColor(c, kanbanDisplayColumn(task))).Shrink(0)
+									ui.Text(c, task.Title).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(task.Title)
+								})
+								if signal := stewardBoardSignal(task, group); signal != "" {
+									ui.Text(c, signal).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).FillWidth().MinWidth(0).SingleLine().Ellipsis("…").Tooltip(signal)
+								}
+							})
+						}
+					}
+					if group == 2 {
+						motionUnfoldBody(c, "steward-board-done-body", s.stewardBoard.doneOpen, renderTasks)
+					} else {
+						renderTasks()
 					}
 				})
 			}
@@ -278,14 +311,22 @@ func renderStewardBoardBadge(c *ui.Context, s *chatState) {
 	if stewardBoardCount(groups) == 0 {
 		return
 	}
-	count := len(groups[0])
-	if count == 0 {
-		count = len(groups[1])
+	count := len(groups[0]) + len(groups[1])
+	label := "总管任务"
+	if count > 0 {
+		label = "总管任务 " + strconv.Itoa(count)
 	}
-	btn := ui.ButtonBase(c.Key("steward-board-badge")).Label("总管任务 "+strconv.Itoa(count)).Padding(Space1, Space2).Radius(RadiusSM).OnClick(func() { s.stewardBoard.open = !s.stewardBoard.open })
+	btn := ui.ButtonBase(c.Key("steward-board-badge")).Label(label).Padding(Space1, Space2).Radius(RadiusSM).OnClick(func() { s.stewardBoard.open = !s.stewardBoard.open })
+	focusRing(c, btn)
 	scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 	btn.Scale(scale, scale)
-	btn.Children(func() { rollingNumber(c, "steward-board-badge-count", count) })
+	btn.Children(func() {
+		if count > 0 {
+			rollingNumber(c, "steward-board-badge-count", count)
+		} else {
+			ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+		}
+	})
 	appPopover(c.Key("steward-board-popover"), btn, &s.stewardBoard.open, nil, func() {
 		popoverCard(c, ui.Column(c.Key("steward-board-popover-card"))).Width(stewardBoardWidth).MaxHeight(480).Children(func() {
 			renderStewardBoardList(c, s, groups)

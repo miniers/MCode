@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/apisource"
@@ -10,9 +11,38 @@ import (
 	"mcode/internal/frontdesk"
 )
 
-var newStewardSecretStore = func() config.SecretStore { return config.NewSecretStore("mcode") }
+var (
+	newStewardSecretStore         = func() config.SecretStore { return config.NewSecretStore("mcode") }
+	computeStewardModelEmptyLabel = stewardModelEmptyLabel
+)
+
+type stewardLabelAsyncState struct {
+	loading    bool
+	loadingKey string
+	latestKey  string
+	gen        uint64
+}
+
+var (
+	stewardLabelAsyncMu     sync.Mutex
+	stewardLabelAsyncStates = make(map[*SettingsState]*stewardLabelAsyncState)
+)
+
+func getStewardLabelAsyncState(st *SettingsState) *stewardLabelAsyncState {
+	stewardLabelAsyncMu.Lock()
+	defer stewardLabelAsyncMu.Unlock()
+	state, ok := stewardLabelAsyncStates[st]
+	if !ok {
+		state = &stewardLabelAsyncState{}
+		stewardLabelAsyncStates[st] = state
+	}
+	return state
+}
 
 func (st *SettingsState) stewardAutoLabel(catalog modelPickerCatalog, sel ModelSelection) string {
+	if st == nil {
+		return ""
+	}
 	var key strings.Builder
 	add := func(value string) { key.WriteString(strconv.Quote(value)) }
 	add(st.cfg.Orchestration.Steward.Provider)
@@ -25,16 +55,57 @@ func (st *SettingsState) stewardAutoLabel(catalog modelPickerCatalog, sel ModelS
 		key.WriteByte(';')
 	}
 	cacheKey := key.String()
+
+	async := getStewardLabelAsyncState(st)
 	st.stewardLabelMu.Lock()
-	defer st.stewardLabelMu.Unlock()
-	if st.stewardLabelKey != cacheKey {
-		if st.stewardSecrets == nil {
-			st.stewardSecrets = newStewardSecretStore()
-		}
-		st.stewardLabel = stewardModelEmptyLabel(st.cfg, catalog, sel, st.stewardSecrets)
-		st.stewardLabelKey = cacheKey
+	async.latestKey = cacheKey
+	label := st.stewardLabel
+	needStart := st.stewardLabelKey != cacheKey && (!async.loading || async.loadingKey != cacheKey)
+	var secrets config.SecretStore
+	var gen uint64
+	if needStart {
+		async.loading = true
+		async.loadingKey = cacheKey
+		async.gen++
+		gen = async.gen
+		secrets = st.stewardSecrets
 	}
-	return st.stewardLabel
+	st.stewardLabelMu.Unlock()
+
+	if needStart {
+		st.cfgMu.Lock()
+		cfg := cloneConfig(st.cfg)
+		st.cfgMu.Unlock()
+		catCopy := modelPickerCatalog{
+			Providers:    append([]ProviderInfo(nil), catalog.Providers...),
+			MagpieFilter: catalog.MagpieFilter,
+		}
+		go func() {
+			if secrets == nil {
+				secrets = newStewardSecretStore()
+			}
+			computed := computeStewardModelEmptyLabel(cfg, catCopy, sel, secrets)
+
+			st.stewardLabelMu.Lock()
+			if st.stewardSecrets == nil {
+				st.stewardSecrets = secrets
+			}
+			stale := async.gen != gen || async.latestKey != cacheKey
+			if !stale {
+				st.stewardLabel = computed
+				st.stewardLabelKey = cacheKey
+				async.loading = false
+				async.loadingKey = ""
+			}
+			st.stewardLabelMu.Unlock()
+
+			if !stale {
+				st.invalidate()
+			}
+		}()
+	}
+
+	return label
 }
 
 func stewardModelSelection(cfg config.Config, catalog modelPickerCatalog) ModelSelection {

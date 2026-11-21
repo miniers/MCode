@@ -184,3 +184,29 @@ func TestStewardResultPlainTextFallback(t *testing.T) {
 		t.Fatal("旧纯文本结果不应显示打开任务按钮")
 	}
 }
+
+func TestUIReview12_TaskPageUsesByIDAndTooltip(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.stewardBoard.tasks = []KanbanTask{{ID: "task-1", ThreadID: "task-thread", Status: "in_progress", Column: "doing"}}
+	s.stewardTaskThreadID = "task-thread"
+	s.stewardTask = stewardTaskSnapshot{ID: "task-1", Status: "waiting", ResultSummary: "等待文件同步完成"}
+	s.mu.Unlock()
+
+	resultText, _ := json.Marshal(stewardResult{Task: "task-1", Thread: "task-thread", Title: "整理任务", Summary: "已完成", Status: "done", Owner: true})
+	msg := Message{ID: "r1", Role: "assistant", Kind: stewardResultKind, Text: string(resultText), IsFinal: true}
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderStewardResult(c, s, msg, "", "", true, false, TokenUsage{}, 0, false)
+		renderStewardTaskBand(c, s, "task-thread")
+	}, 800, 400)
+	if !tt.HasText("整理任务") || tt.HasText("打开任务") {
+		t.Fatalf("应使用实时任务芯片渲染结果: %v", tt.Texts())
+	}
+	if live, ok := s.stewardBoardTaskByID("task-1"); !ok || live.Status != "in_progress" || live.Column != "doing" {
+		t.Fatalf("stewardBoardTaskByID 未命中实时任务: ok=%v, live=%+v", ok, live)
+	}
+	if acc, ok := tt.Access("等待文件同步完成"); !ok || acc.Description != "等待文件同步完成" {
+		t.Fatalf("任务信息带原因文本应带 Tooltip: ok=%v, acc=%+v", ok, acc)
+	}
+}

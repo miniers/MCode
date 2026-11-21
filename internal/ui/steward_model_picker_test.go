@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -9,11 +10,11 @@ import (
 
 type stewardCountingSecrets struct {
 	config.SecretStore
-	gets int
+	gets atomic.Int64
 }
 
 func (s *stewardCountingSecrets) Get(account string) (string, error) {
-	s.gets++
+	s.gets.Add(1)
 	return "test-key", nil
 }
 
@@ -33,23 +34,18 @@ func TestStewardComposerModelCachesAutoLabel(t *testing.T) {
 		{ID: "anthropic", Name: "Anthropic", Models: []ModelInfo{{ID: "claude-opus-5-5", Name: "Opus Test"}}},
 	}
 	tt := ui.NewTester(func(c *ui.Context) { renderStewardComposerModel(c, s) }, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("GPT Test") && secrets.gets.Load() == 1 })
 	for i := 0; i < 20; i++ {
 		tt.Frame()
 	}
-	if !tt.HasText("GPT Test") || secrets.gets != 1 {
-		t.Fatalf("缓存标签或解析次数不正确: %v, %d", tt.Texts(), secrets.gets)
+	if !tt.HasText("GPT Test") || secrets.gets.Load() != 1 {
+		t.Fatalf("缓存标签或解析次数不正确: %v, %d", tt.Texts(), secrets.gets.Load())
 	}
 	st.cfg.Orchestration.Steward.Provider = "anthropic"
 	st.save()
-	tt.Frame()
-	if !tt.HasText("Opus Test") || secrets.gets != 2 {
-		t.Fatalf("保存后标签或解析次数不正确: %v, %d", tt.Texts(), secrets.gets)
-	}
+	waitFor(t, tt, func() bool { return tt.HasText("Opus Test") && secrets.gets.Load() == 2 })
 	st.save()
-	tt.Frame()
-	if secrets.gets != 3 {
-		t.Fatalf("保存后未清除缓存: %d", secrets.gets)
-	}
+	waitFor(t, tt, func() bool { return secrets.gets.Load() == 3 })
 }
 
 func TestStewardModelSelectionUnavailable(t *testing.T) {
@@ -106,9 +102,7 @@ func TestStewardComposerModel(t *testing.T) {
 	if _, ok := tt.Find("选择前台模型"); !ok {
 		t.Fatal("总管输入框缺少前台模型胶囊")
 	}
-	if !tt.HasText("GPT Test") {
-		t.Fatalf("自动模型显示不正确: %v", tt.Texts())
-	}
+	waitFor(t, tt, func() bool { return tt.HasText("GPT Test") })
 	for _, label := range []string{"构建", "计划", "上下文用量"} {
 		if _, ok := tt.Find(label); ok {
 			t.Fatalf("总管输入框不应显示 %s", label)
@@ -153,7 +147,8 @@ func TestStewardComposerModelLegacySelection(t *testing.T) {
 	st.cfg.Orchestration.Steward.Provider = "pi"
 	st.cfg.Orchestration.Steward.Model = "magpie-jp/auto/deepseek-v4.1-flash"
 	tt := ui.NewTester(func(c *ui.Context) { renderStewardComposerModel(c, s) }, 1000, 700)
-	if !tt.HasText("GPT Test") || tt.HasText("pi") || tt.HasText(st.cfg.Orchestration.Steward.Model) {
+	waitFor(t, tt, func() bool { return tt.HasText("GPT Test") })
+	if tt.HasText("pi") || tt.HasText(st.cfg.Orchestration.Steward.Model) {
 		t.Fatalf("旧来源应显示回退模型: %v", tt.Texts())
 	}
 	if st.cfg.Orchestration.Steward.Provider != "pi" || st.cfg.Orchestration.Steward.Model != "magpie-jp/auto/deepseek-v4.1-flash" {
@@ -238,5 +233,118 @@ func TestStewardTaskPair(t *testing.T) {
 	cfg.Orchestration.Steward.TaskPairID = "gone"
 	if _, ok := stewardTaskPair(cfg, ready); ok {
 		t.Fatal("已删除的配对不应命中")
+	}
+}
+
+func TestUIReview12_StewardAutoLabelAsyncNoRenderIO(t *testing.T) {
+	s := newChatState(newStewardFakeClient(""))
+	t.Cleanup(s.close)
+	st := NewSettingsState(t.TempDir(), nil, s)
+	setChatSettings(s, st)
+	t.Cleanup(func() { setChatSettings(s, nil) })
+	st.stewardSecrets = &stewardCountingSecrets{SecretStore: config.NewMemorySecretStore()}
+	st.cfg.Providers.OpenAI.Enabled = true
+	st.cfg.Orchestration.Steward.Provider = "openai"
+	s.providers = []ProviderInfo{
+		{ID: "openai", Name: "OpenAI", Models: []ModelInfo{{ID: "gpt-test", Name: "GPT Test"}}},
+	}
+
+	var calls atomic.Int64
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseClosed atomic.Bool
+	t.Cleanup(func() {
+		if releaseClosed.CompareAndSwap(false, true) {
+			close(release)
+		}
+	})
+
+	origCompute := computeStewardModelEmptyLabel
+	computeStewardModelEmptyLabel = func(cfg config.Config, catalog modelPickerCatalog, sel ModelSelection, secrets config.SecretStore) string {
+		if calls.Add(1) == 1 {
+			close(entered)
+		}
+		<-release
+		return origCompute(cfg, catalog, sel, secrets)
+	}
+	t.Cleanup(func() { computeStewardModelEmptyLabel = origCompute })
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderStewardComposerModel(c, s)
+	}, 1000, 700)
+
+	// 首帧返回时异步计算仍在阻塞，证明渲染线程未同步等待凭据读取；同 key 多次重绘不重复起 goroutine。
+	if tt.HasText("GPT Test") {
+		t.Fatalf("首帧不应同步完成模型标签计算: %v", tt.Texts())
+	}
+	for i := 0; i < 5; i++ {
+		tt.Frame()
+	}
+	<-entered
+	if tt.HasText("GPT Test") {
+		t.Fatalf("阻塞释放前不应出现计算后标签: %v", tt.Texts())
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("同一 key 重复触发了计算: got %d", got)
+	}
+
+	if releaseClosed.CompareAndSwap(false, true) {
+		close(release)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("GPT Test") })
+}
+
+func TestUIReview12_StewardAutoLabelDiscardsStale(t *testing.T) {
+	s := newChatState(newStewardFakeClient(""))
+	t.Cleanup(s.close)
+	st := NewSettingsState(t.TempDir(), nil, s)
+	setChatSettings(s, st)
+	t.Cleanup(func() { setChatSettings(s, nil) })
+	st.stewardSecrets = &stewardCountingSecrets{SecretStore: config.NewMemorySecretStore()}
+	st.cfg.Providers.OpenAI.Enabled = true
+	enabledTrue := true
+	st.cfg.Providers.Anthropic.Enabled = &enabledTrue
+	st.cfg.Orchestration.Steward.Provider = "openai"
+	s.providers = []ProviderInfo{
+		{ID: "openai", Name: "OpenAI", Models: []ModelInfo{{ID: "gpt-test", Name: "GPT Test"}}},
+		{ID: "anthropic", Name: "Anthropic", Models: []ModelInfo{{ID: "claude-opus-5-5", Name: "Opus Test"}}},
+	}
+
+	enteredOld := make(chan struct{})
+	releaseOld := make(chan struct{})
+	doneOld := make(chan struct{})
+	var releaseOldClosed atomic.Bool
+	t.Cleanup(func() {
+		if releaseOldClosed.CompareAndSwap(false, true) {
+			close(releaseOld)
+		}
+	})
+
+	origCompute := computeStewardModelEmptyLabel
+	computeStewardModelEmptyLabel = func(cfg config.Config, catalog modelPickerCatalog, sel ModelSelection, secrets config.SecretStore) string {
+		if cfg.Orchestration.Steward.Provider == "openai" {
+			close(enteredOld)
+			<-releaseOld
+			defer close(doneOld)
+			return "Stale OpenAI"
+		}
+		return origCompute(cfg, catalog, sel, secrets)
+	}
+	t.Cleanup(func() { computeStewardModelEmptyLabel = origCompute })
+
+	tt := ui.NewTester(func(c *ui.Context) { renderStewardComposerModel(c, s) }, 1000, 700)
+	<-enteredOld
+
+	st.cfg.Orchestration.Steward.Provider = "anthropic"
+	tt.Frame()
+	waitFor(t, tt, func() bool { return tt.HasText("Opus Test") })
+
+	if releaseOldClosed.CompareAndSwap(false, true) {
+		close(releaseOld)
+	}
+	<-doneOld
+	tt.Frame()
+	if !tt.HasText("Opus Test") || tt.HasText("Stale OpenAI") {
+		t.Fatalf("过期异步结果应被丢弃: %v", tt.Texts())
 	}
 }

@@ -204,3 +204,50 @@ func TestStewardDecisionAnswerHidden(t *testing.T) {
 		}
 	}
 }
+
+func TestUIReview12_DecisionCardTooltipAndSubmitting(t *testing.T) {
+	client := &blockingDecisionClient{FakeClient: NewFakeClient(), entered: make(chan struct{}, 1), release: make(chan struct{})}
+	s := newChatState(client)
+	t.Cleanup(s.close)
+	m := Message{
+		ID:   "m-ui12",
+		Kind: stewardDecisionKind,
+		Text: `{"id":"D-12","task":"很长的关联任务标题","task_id":"T-12","thread":"thread-12","question":"这是一个问题？","options":[{"key":"A","text":"方案一"}]}`,
+	}
+	s.messages = []Message{m}
+	tt := ui.NewTester(func(c *ui.Context) { renderStewardDecisionCard(c, s, m) }, 840, 520)
+	tt.Frame()
+
+	rect, ok := tt.Find("很长的关联任务标题")
+	if !ok {
+		t.Fatal("未找到关联任务名")
+	}
+	countTitle := func() int {
+		n := 0
+		for _, txt := range tt.Texts() {
+			if txt == "很长的关联任务标题" {
+				n++
+			}
+		}
+		return n
+	}
+	before := countTitle()
+	tt.Move(rect.X+rect.W/2, rect.Y+rect.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if countTitle() <= before {
+		t.Fatalf("悬停关联任务名后应显示 Tooltip: %v", tt.Texts())
+	}
+
+	s.answerStewardDecision("D-12", "A")
+	select {
+	case <-client.entered:
+	case <-time.After(time.Second):
+		t.Fatal("提交未开始")
+	}
+	tt.Frame()
+	if node, ok := tt.Access("A 方案一"); !ok || !node.Disabled {
+		t.Fatalf("提交中选项应禁用: %+v", node)
+	}
+	close(client.release)
+}
