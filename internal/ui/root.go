@@ -326,7 +326,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				case "toggle-memory":
 					state.toggleMemoryPanel()
 				case "command-palette":
-					if !terminalFocused(state) {
+					if !clearFocusedTerminal(state) {
 						togglePalette(state)
 					}
 				case "find-in-thread":

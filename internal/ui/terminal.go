@@ -976,6 +976,33 @@ func terminalFocused(s *chatState) bool {
 	return tab != nil && tab.term != nil
 }
 
+// terminalClearScreen 供测试替换，避免对零值终端调用真实清屏。
+var terminalClearScreen = func(t *terminal.Terminal) bool { return t.ClearScreen() }
+
+// clearFocusedTerminal 在终端视图可见、聚焦且存在活动标签时清屏并返回 true。
+func clearFocusedTerminal(s *chatState) bool {
+	if s == nil {
+		return false
+	}
+	// 取 threadID 要先拿 s.mu，不能在持有 terminalMu 时取，避免与别处的加锁顺序相反。
+	threadID, _ := getSelectedThreadWorkDir(s)
+	terminalMu.Lock()
+	st, ok := terminalStates[s]
+	if !ok || !st.visible || !st.focused {
+		terminalMu.Unlock()
+		return false
+	}
+	tab := activeTerminalTab(st, threadID)
+	if tab == nil || tab.term == nil {
+		terminalMu.Unlock()
+		return false
+	}
+	term := tab.term
+	terminalMu.Unlock()
+	terminalClearScreen(term)
+	return true
+}
+
 // openTerminalSearchIfFocused 在终端视图聚焦且存在活动标签时打开终端搜索条并返回 true。
 func openTerminalSearchIfFocused(s *chatState) bool {
 	return openTerminalSearch(s, true)

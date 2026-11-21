@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"testing"
 
+	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -107,12 +108,25 @@ func TestUIReview33TerminalCmdK(t *testing.T) {
 		}
 	})
 
-	t.Run("菜单动作 command-palette 同样尊重终端聚焦", func(t *testing.T) {
+	t.Run("菜单动作 command-palette 在终端聚焦时清屏且不打开命令面板", func(t *testing.T) {
 		tt, state, st := setupTerminalFindTester(t)
 		_ = openAndFocusTerminalTab(t, tt, state, st)
 
+		origClear := terminalClearScreen
+		clearCalls := 0
+		var clearedTerm *terminal.Terminal
+		terminalClearScreen = func(term *terminal.Terminal) bool {
+			clearCalls++
+			clearedTerm = term
+			return true
+		}
+		t.Cleanup(func() { terminalClearScreen = origClear })
+
 		state.enqueueAction("command-palette", 0)
 		tt.Frame()
+		if clearCalls != 1 || clearedTerm == nil {
+			t.Fatalf("终端聚焦时菜单动作 command-palette 应清屏 1 次，实际 clearCalls=%d clearedTerm=%v", clearCalls, clearedTerm)
+		}
 		if getPaletteState(state).open {
 			t.Fatal("终端聚焦时菜单动作 command-palette 不应打开命令面板")
 		}
@@ -122,8 +136,13 @@ func TestUIReview33TerminalCmdK(t *testing.T) {
 		}
 		tt.Frame()
 
+		clearCalls = 0
+		clearedTerm = nil
 		state.enqueueAction("command-palette", 0)
 		tt.Frame()
+		if clearCalls != 0 {
+			t.Fatalf("终端未聚焦时菜单动作 command-palette 不应清屏，实际=%d", clearCalls)
+		}
 		if !getPaletteState(state).open {
 			t.Fatal("终端失焦后菜单动作 command-palette 应打开命令面板")
 		}
