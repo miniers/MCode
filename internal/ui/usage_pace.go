@@ -252,3 +252,50 @@ func paceRunOutText(now, runOutAt time.Time, state paceState) string {
 	}
 	return "预计将提前用尽"
 }
+
+var quotaResetWeekdays = [7]string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
+
+// quotaResetDayLabel 按本地时区把时间点格式化成简短重置日标签：
+// 零值返回空串；同一天返回「15:04」；第二天返回「明天」；7 天内返回「周一」到「周日」；更远返回「1/2」。
+func quotaResetDayLabel(now, resetsAt time.Time) string {
+	if resetsAt.IsZero() {
+		return ""
+	}
+	loc := now.Location()
+	if loc == nil {
+		loc = time.Local
+	}
+	if now.IsZero() {
+		return resetsAt.In(time.Local).Format("1/2")
+	}
+	localNow := now.In(loc)
+	rAt := resetsAt.In(loc)
+	nowDay := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, loc)
+	resetDay := time.Date(rAt.Year(), rAt.Month(), rAt.Day(), 0, 0, 0, 0, loc)
+	days := int(math.Round(resetDay.Sub(nowDay).Hours() / 24))
+	switch {
+	case days == 0:
+		return rAt.Format("15:04")
+	case days == 1:
+		return "明天"
+	case days >= 2 && days < 7:
+		return quotaResetWeekdays[rAt.Weekday()]
+	default:
+		return rAt.Format("1/2")
+	}
+}
+
+// quotaPaceRunOutText 生成额度窗口的提前用尽提示：周窗口并排展示用尽日与重置日，其余窗口保持相对时长文案。
+func quotaPaceRunOutText(now, runOutAt, resetsAt time.Time, state paceState, isWeek bool) string {
+	if state != paceStateEarly {
+		return ""
+	}
+	if isWeek {
+		runOutDay := quotaResetDayLabel(now, runOutAt)
+		resetDay := quotaResetDayLabel(now, resetsAt)
+		if runOutDay != "" && resetDay != "" {
+			return runOutDay + "用尽 · " + resetDay + "重置"
+		}
+	}
+	return paceRunOutText(now, runOutAt, state)
+}

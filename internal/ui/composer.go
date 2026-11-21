@@ -33,7 +33,6 @@ type composerViewState struct {
 	usageOpen                 bool
 	quotaOpen                 bool                          // 额度弹层是否打开
 	quotaPopoverKey           string                        // 额度弹层当前锚定的组 key（关闭时清空）
-	quotaHoverAccount         string                        // 额度本周重置时间线悬停的账号
 	history                   composerHistoryState          // 方向键历史导航状态
 	lastThreadID              string                        // 上一帧的选中会话，用于切换会话时重置历史导航
 	dockThreadID              string                        // 上一帧 Hero/Docked 判定所属的会话

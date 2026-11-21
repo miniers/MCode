@@ -228,3 +228,96 @@ func TestQuotaGroupTitleVisible(t *testing.T) {
 		t.Fatal("供应商标题显示条件错误")
 	}
 }
+
+func TestQuotaResetDayInPopoverAndTray(t *testing.T) {
+	testenv.TempHome(t)
+	cst := time.FixedZone("CST", 8*3600)
+	// 2026-11-21 12:00:00 +08:00（周六）
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, cst)
+	oldNow := usagePanelNow
+	usagePanelNow = func() time.Time { return now }
+	t.Cleanup(func() { usagePanelNow = oldNow })
+
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	th := &Thread{ID: "t1", Provider: "pi:magpie-jp"}
+
+	// a@example.com：周窗口已用 60%，重置在 4 天后（周三），按当前速率 2 天后（周一）用尽。
+	// b@example.com：周窗口已用 18%，重置在 5 天后（周四），节奏正常。
+	// c@example.com：周窗口重置时刻为零，不占重置日列宽。
+	windows := []ProviderQuotaWindow{
+		{Label: "claude · a@example.com · 5 hours", Account: "claude · a@example.com", Source: "magpie", Provider: "claude", Period: "5h", UsedPercent: 10, ResetsAt: now.Add(4 * time.Hour)},
+		{Label: "claude · a@example.com · 7 days", Account: "claude · a@example.com", Source: "magpie", Provider: "claude", Period: "7d", UsedPercent: 60, ResetsAt: now.Add(4 * 24 * time.Hour)},
+		{Label: "claude · b@example.com · 5 hours", Account: "claude · b@example.com", Source: "magpie", Provider: "claude", Period: "5h", UsedPercent: 5, ResetsAt: now.Add(4 * time.Hour)},
+		{Label: "claude · b@example.com · 7 days", Account: "claude · b@example.com", Source: "magpie", Provider: "claude", Period: "7d", UsedPercent: 18, ResetsAt: now.Add(5 * 24 * time.Hour)},
+		{Label: "claude · c@example.com · 5 hours", Account: "claude · c@example.com", Source: "magpie", Provider: "claude", Period: "5h", UsedPercent: 15, ResetsAt: now.Add(3 * time.Hour)},
+		{Label: "claude · c@example.com · 7 days", Account: "claude · c@example.com", Source: "magpie", Provider: "claude", Period: "7d", UsedPercent: 20},
+	}
+	SetChatQuotaWindowsForProvider(s, th.Provider, windows)
+	t.Cleanup(func() { SetChatQuotaWindowsForProvider(s, th.Provider, nil) })
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+			renderComposerQuotaPopover(c, s, th, th.Provider, 0)
+		})
+	}, 480, 560)
+	tt.Frame()
+
+	if tt.HasText("本周重置") {
+		t.Fatalf("浮层里不应再出现「本周重置」: %q", tt.Texts())
+	}
+	if !tt.HasText("周: 周一用尽 · 周三重置") {
+		t.Fatalf("周窗口提前用尽应显示「周: 周一用尽 · 周三重置」: %q", tt.Texts())
+	}
+
+	mustFind := func(tester *ui.Tester, text string) ui.Rect {
+		r, ok := tester.Find(text)
+		if !ok {
+			t.Fatalf("缺少文字 %q: %q", text, tester.Texts())
+		}
+		return r
+	}
+	centerY := func(r ui.Rect) float32 { return r.Y + r.H/2 }
+
+	p60 := mustFind(tt, "60%")
+	p18 := mustFind(tt, "18%")
+	rWed := mustFind(tt, "周三")
+	rThu := mustFind(tt, "周四")
+
+	if !(rWed.X > p60.X) || !(rThu.X > p18.X) {
+		t.Fatalf("重置日应位于百分比右侧：p60=%+v wed=%+v p18=%+v thu=%+v", p60, rWed, p18, rThu)
+	}
+	if d := centerY(rWed) - centerY(p60); d > 2 || d < -2 {
+		t.Fatalf("周三应与 60%% 同行：wed=%+v p60=%+v", rWed, p60)
+	}
+	if d := centerY(rThu) - centerY(p18); d > 2 || d < -2 {
+		t.Fatalf("周四应与 18%% 同行：thu=%+v p18=%+v", rThu, p18)
+	}
+	if d := (rWed.X + rWed.W) - (rThu.X + rThu.W); d > 1 || d < -1 {
+		t.Fatalf("多账号周行重置日列右边缘应对齐：wed=%+v thu=%+v", rWed, rThu)
+	}
+
+	// 托盘宽度（400px）下不溢出、不换行。
+	trayModel := buildTrayQuotaModel([]TrayQuotaGroup{{
+		Provider: "claude",
+		Title:    "Claude",
+		Windows: []ProviderQuotaWindow{
+			{Account: "a@example.com", Label: "5h", Period: "5h", UsedPercent: 10, ResetsAt: now.Add(4 * time.Hour)},
+			{Account: "a@example.com", Label: "Weekly", Period: "7d", UsedPercent: 60, ResetsAt: now.Add(4 * 24 * time.Hour)},
+		},
+	}}, now, now, false)
+	panel := NewTrayQuotaPanel(TrayQuotaPanelOptions{})
+	ttTray := ui.NewTester(func(c *ui.Context) {
+		panel.renderModelView(c, trayModel)
+	}, 400, 480)
+	ttTray.Frame()
+
+	trayPct := mustFind(ttTray, "60%")
+	trayWed := mustFind(ttTray, "周三")
+	if trayWed.X+trayWed.W > 400 {
+		t.Fatalf("托盘宽度下重置日列不应溢出：wed=%+v", trayWed)
+	}
+	if d := centerY(trayWed) - centerY(trayPct); d > 2 || d < -2 {
+		t.Fatalf("托盘宽度下重置日列不应换行：wed=%+v pct=%+v", trayWed, trayPct)
+	}
+}

@@ -1974,7 +1974,6 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 	if groupOpen && popover.Dismissed() {
 		s.composerView.quotaOpen = false
 		s.composerView.quotaPopoverKey = ""
-		s.composerView.quotaHoverAccount = ""
 		s.clearComposerCreditsErr(provider)
 	}
 	return true
@@ -2481,9 +2480,6 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 			}
 			var accountSectionHeight float32
 			listOpts := quotaGroupListOptions{HideSingleGroupTitle: true}
-			if s != nil {
-				listOpts.HoveredAccount = s.composerView.quotaHoverAccount
-			}
 			isBeeGroup := s != nil && !s.embeddedBee && th != nil && (g.model != "" || (g.threadID != "" && g.threadID != th.ID))
 			var accountSelectable bool
 			if isBeeGroup {
@@ -2621,18 +2617,9 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 				list.MaxHeight(listMax)
 			}
 			list.Children(func() {
-				ui.Column(c.Key("composer-quota-popover-body")).
-					FillWidth().
-					Gap(Space4).
-					Children(func() {
-						renderQuotaGroupList(c, "composer-quota-", groups, listOpts)
-						renderComposerQuotaWeekTimeline(c, s, provider, windows, groups)
-					})
+				renderQuotaGroupList(c, "composer-quota-", groups, listOpts)
 			})
 			return
-		}
-		if s != nil {
-			s.composerView.quotaHoverAccount = ""
 		}
 
 		loading, quotaErr := composerQuotaStatus(s, quotaGroupKey(provider, g.threadID, g.model, s.selectedThreadID))

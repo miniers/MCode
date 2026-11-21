@@ -146,6 +146,57 @@ func TestFormatPaceRunOut(t *testing.T) {
 	}
 }
 
+func TestQuotaResetDayLabel(t *testing.T) {
+	cst := time.FixedZone("CST", 8*3600)
+	// 2026-11-21 14:30:00 +08:00（周六）
+	now := time.Date(2026, 11, 21, 14, 30, 0, 0, cst)
+
+	tests := []struct {
+		name     string
+		resetsAt time.Time
+		want     string
+	}{
+		{name: "零值", resetsAt: time.Time{}, want: ""},
+		{name: "同一天", resetsAt: time.Date(2026, 11, 21, 21, 5, 0, 0, cst), want: "21:05"},
+		{name: "UTC 换算后仍为同一天", resetsAt: time.Date(2026, 11, 21, 13, 5, 0, 0, time.UTC), want: "21:05"},
+		{name: "第二天不足24h", resetsAt: time.Date(2026, 11, 22, 8, 0, 0, 0, cst), want: "明天"},
+		{name: "UTC 跨零点到第二天", resetsAt: time.Date(2026, 11, 21, 18, 0, 0, 0, time.UTC), want: "明天"},
+		{name: "7天内周一", resetsAt: time.Date(2026, 11, 23, 10, 0, 0, 0, cst), want: "周一"},
+		{name: "7天内周三", resetsAt: time.Date(2026, 11, 25, 10, 0, 0, 0, cst), want: "周三"},
+		{name: "7天内周五", resetsAt: time.Date(2026, 11, 27, 10, 0, 0, 0, cst), want: "周五"},
+		{name: "第7天用月日", resetsAt: time.Date(2026, 11, 28, 10, 0, 0, 0, cst), want: "11/28"},
+		{name: "跨年更远用月日", resetsAt: time.Date(2027, 1, 2, 9, 0, 0, 0, cst), want: "1/2"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := quotaResetDayLabel(now, tc.resetsAt); got != tc.want {
+				t.Fatalf("quotaResetDayLabel(%s) = %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
+
+	// 另选周三验证周日也能正确输出。
+	wed := time.Date(2026, 11, 18, 10, 0, 0, 0, cst)
+	sun := time.Date(2026, 11, 22, 10, 0, 0, 0, cst)
+	if got := quotaResetDayLabel(wed, sun); got != "周日" {
+		t.Fatalf("周三看周日应为 %q，得到 %q", "周日", got)
+	}
+
+	// 周窗口提前用尽输出「<用尽日>用尽 · <重置日>重置」，5h 窗口保持相对时间文案。
+	weekRunOut := time.Date(2026, 11, 22, 12, 0, 0, 0, cst)
+	weekReset := time.Date(2026, 11, 25, 12, 0, 0, 0, cst)
+	if got, want := quotaPaceRunOutText(now, weekRunOut, weekReset, paceStateEarly, true), "明天用尽 · 周三重置"; got != want {
+		t.Fatalf("周窗口提前用尽文案 = %q, want %q", got, want)
+	}
+	if got, want := quotaPaceRunOutText(now, now.Add(time.Hour), now.Add(3*time.Hour), paceStateEarly, false), "预计约 1 小时后用尽"; got != want {
+		t.Fatalf("5h 窗口提前用尽文案 = %q, want %q", got, want)
+	}
+	if got := quotaPaceRunOutText(now, weekRunOut, weekReset, paceStateNormal, true); got != "" {
+		t.Fatalf("非提前用尽不应输出文案，得到 %q", got)
+	}
+}
+
 // quotaElapsedRatio 按「重置时间 - 窗口时长」倒推起点，算出时间已过比例。
 func TestQuotaElapsedRatio(t *testing.T) {
 	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)

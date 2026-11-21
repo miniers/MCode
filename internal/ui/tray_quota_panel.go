@@ -407,6 +407,7 @@ type trayQuotaWindowModel struct {
 	ShortLabel    string
 	UsedPercent   float64
 	RightText     string
+	ResetDayText  string
 	IsEarlyRunOut bool
 	Wide          bool
 	Tooltip       string
@@ -547,8 +548,9 @@ func buildTrayQuotaModel(groups []TrayQuotaGroup, refreshedAt, now time.Time, lo
 					}
 				}
 
+				isWeek := sortMinutes == quotaWeekMinutes
 				state, runOutAt := quotaPace(now, w)
-				rightText := paceRunOutText(now, runOutAt, state)
+				rightText := quotaPaceRunOutText(now, runOutAt, w.ResetsAt, state, isWeek)
 				elapsedRatio, hasElapsed := quotaElapsedRatio(now, w)
 				isEarly := false
 				if rightText != "" {
@@ -556,11 +558,16 @@ func buildTrayQuotaModel(groups []TrayQuotaGroup, refreshedAt, now time.Time, lo
 				} else {
 					rightText = formatLimitReset(now, w.ResetsAt)
 				}
+				resetDayText := ""
+				if isWeek && !w.ResetsAt.IsZero() {
+					resetDayText = quotaResetDayLabel(now, w.ResetsAt)
+				}
 
 				winModel := trayQuotaWindowModel{
 					ShortLabel:    shortLabel,
 					UsedPercent:   w.UsedPercent,
 					RightText:     rightText,
+					ResetDayText:  resetDayText,
 					IsEarlyRunOut: isEarly,
 					resetsAt:      w.ResetsAt,
 					sortMinutes:   sortMinutes,

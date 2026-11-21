@@ -12,7 +12,6 @@ type quotaGroupListOptions struct {
 	SelectedAccount      string
 	OnSelectAccount      func(account string)
 	AccountDisabled      func(account string) bool
-	HoveredAccount       string
 }
 
 func quotaGroupTitleVisible(groupCount int, opts quotaGroupListOptions) bool {
@@ -28,6 +27,61 @@ func quotaPercentWidth(c *ui.Context) float32 {
 		return minW
 	}
 	return w
+}
+
+// quotaResetDayWidth 按当前字体测量重置日列可能的最宽文本并留出余量，保证多账号周行上下对齐。
+func quotaResetDayWidth(c *ui.Context) float32 {
+	var maxW float32
+	for _, sample := range []string{"12/31", "23:59", "明天", "周三"} {
+		w, _ := c.MeasureText(0, ui.Span{Text: sample, Size: uiFont(TypeCaption)})
+		if w > maxW {
+			maxW = w
+		}
+	}
+	w := float32(math.Ceil(float64(maxW))) + Space1
+	minW := 34 * uiScaleFactor()
+	if w < minW {
+		return minW
+	}
+	return w
+}
+
+// quotaWindowResetDayText 返回周窗口行尾要显示的重置日标签；非周窗口或重置时刻为零时返回空串。
+func quotaWindowResetDayText(win trayQuotaWindowModel) string {
+	if win.ResetDayText != "" {
+		return win.ResetDayText
+	}
+	if win.resetsAt.IsZero() {
+		return ""
+	}
+	isWeek := win.sortMinutes == quotaWeekMinutes
+	if !isWeek && win.sortMinutes == 0 && win.ShortLabel != "" {
+		if minutes, ok := quotaWindowDurationMinutes(win.ShortLabel); ok && minutes == quotaWeekMinutes {
+			isWeek = true
+		}
+	}
+	if !isWeek {
+		return ""
+	}
+	return quotaResetDayLabel(usagePanelNow(), win.resetsAt)
+}
+
+// renderQuotaResetDay 渲染周窗口百分比右侧固定宽度的重置日标签。
+func renderQuotaResetDay(c *ui.Context, winKey, resetDay string) {
+	if resetDay == "" {
+		return
+	}
+	ui.Row(c.Key(winKey + "-reset-day")).
+		Width(quotaResetDayWidth(c)).
+		Shrink(0).
+		Justify(ui.End).
+		AlignItems(ui.Center).
+		Children(func() {
+			ui.Text(c, resetDay).
+				FontSize(uiFont(TypeCaption)).
+				TextColor(ThemeTertiaryText(c)).
+				SingleLine()
+		})
 }
 
 // renderQuotaPercent 渲染右对齐的等宽数字百分比，供整行与半格窗口共用。
@@ -314,6 +368,8 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 											renderBar(win, winKey, projected, 120)
 
 											renderQuotaPercent(c, winKey, win.UsedPercent)
+
+											renderQuotaResetDay(c, winKey, quotaWindowResetDayText(win))
 										})
 								})
 							}
@@ -355,6 +411,8 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									renderBar(win, winKey, projected, 0)
 
 									renderQuotaPercent(c, winKey, win.UsedPercent)
+
+									renderQuotaResetDay(c, winKey, quotaWindowResetDayText(win))
 								})
 							}
 
@@ -387,7 +445,6 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 
 							accDisabled := selectable && opts.AccountDisabled != nil && opts.AccountDisabled(curAcc.Account)
 							accSelected := selectable && opts.SelectedAccount != "" && curAcc.Account == opts.SelectedAccount
-							accHovered := opts.HoveredAccount != "" && curAcc.Account == opts.HoveredAccount
 							renderAccountBlock := func() ui.Element {
 								return ui.Column(c.Key(accKey)).
 									FillWidth().
@@ -470,13 +527,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									})
 							}
 							if !selectable {
-								accCol := renderAccountBlock()
-								accCol.Radius(RadiusSM).Transition(motionFeedback(c))
-								if accHovered {
-									accCol.Background(ThemeAccentSubtle(c))
-								} else {
-									accCol.Background(ui.Transparent)
-								}
+								renderAccountBlock()
 								continue
 							}
 							btn := ui.ButtonBase(c.Key(accKey+"-btn")).
@@ -487,9 +538,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 								Checked(accSelected).
 								Disabled(accDisabled).
 								Transition(motionFeedback(c))
-							if accHovered {
-								btn.Background(ThemeAccentSubtle(c))
-							} else if !accDisabled && btn.Hovered() {
+							if !accDisabled && btn.Hovered() {
 								btn.Background(ThemeHover(c))
 							} else {
 								btn.Background(ui.Transparent)
