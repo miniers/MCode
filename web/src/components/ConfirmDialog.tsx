@@ -69,7 +69,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       case 'success':
         return 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white focus-visible:ring-emerald-500';
       default:
-        return 'bg-sky-500 hover:bg-sky-600 active:bg-sky-700 text-white focus-visible:ring-sky-500';
+        return 'bg-[var(--primary)] hover:opacity-90 active:opacity-80 text-white focus-visible:ring-[var(--primary)]';
     }
   };
 
@@ -95,22 +95,22 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         if (e.target === e.currentTarget) requestDismiss();
       }}
     >
-      <div className="w-full max-w-md flex flex-col max-h-[calc(var(--app-height)-2rem)] bg-white dark:bg-surface-cardDark rounded-2xl shadow-2xl border border-slate-200 dark:border-surface-borderDark overflow-hidden transform transition-all">
+      <div className="w-full max-w-md flex flex-col max-h-[calc(var(--app-height)-2rem)] bg-[var(--card)] rounded-2xl shadow-2xl border border-[var(--border)] overflow-hidden transform transition-all">
         <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+          <h3 className="text-lg font-semibold text-[var(--foreground)]">
             {title}
           </h3>
 
-          <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+          <p className="text-sm text-[var(--foreground-muted)] leading-relaxed">
             {message}
           </p>
 
           {details && details.length > 0 && (
-            <ul className="max-h-[40vh] overflow-y-auto overscroll-contain space-y-1.5 rounded-xl border border-slate-200 dark:border-surface-borderDark bg-slate-50 dark:bg-zinc-900/60 p-2.5">
+            <ul className="max-h-[40vh] overflow-y-auto overscroll-contain space-y-1.5 rounded-xl border border-[var(--border)] bg-[var(--screen)] p-2.5">
               {details.map((line, index) => (
                 <li
                   key={`${index}-${line}`}
-                  className="text-sm leading-relaxed text-slate-700 dark:text-slate-200 break-words [overflow-wrap:anywhere]"
+                  className="text-sm leading-relaxed text-[var(--foreground)] break-words [overflow-wrap:anywhere]"
                 >
                   {line}
                 </li>
@@ -120,7 +120,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
           {withFeedbackInput && (
             <div className="space-y-1.5 pt-1">
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+              <label className="block text-xs font-medium text-[var(--foreground)]">
                 修改建议反馈:
               </label>
               <textarea
@@ -130,19 +130,19 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 placeholder={feedbackPlaceholder}
                 rows={3}
                 disabled={isLoading}
-                className="w-full rounded-lg border border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800/80 p-3 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:opacity-50"
+                className="w-full rounded-lg border border-[var(--input-border)] bg-[var(--screen)] p-3 text-sm text-[var(--foreground)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-50"
               />
             </div>
           )}
         </div>
 
-        <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3.5 bg-slate-50 dark:bg-zinc-900/60 border-t border-slate-200 dark:border-surface-borderDark">
+        <div className="shrink-0 flex items-center justify-end gap-3 px-5 py-3.5 bg-[var(--card-alt)] border-t border-[var(--border)]">
           {!isNotice && (
             <button
               type="button"
               disabled={isLoading}
               onClick={onCancel}
-              className="min-h-[44px] px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-700 active:bg-slate-200 rounded-xl border border-slate-300 dark:border-zinc-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:opacity-50"
+              className="min-h-[44px] px-4 py-2 text-sm font-medium text-[var(--foreground)] bg-[var(--card)] hover:bg-[var(--mc-overlay-hover)] active:bg-[var(--mc-overlay-pressed)] rounded-xl border border-[var(--border)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-50"
             >
               {cancelLabel}
             </button>

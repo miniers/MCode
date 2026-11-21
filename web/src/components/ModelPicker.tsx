@@ -41,7 +41,7 @@ export const EffortTrack: React.FC<EffortTrackProps> = ({ efforts, value, onChan
                 key={stop.key}
                 type="button"
                 onClick={stop.select}
-                className="relative z-10 flex flex-col items-center group cursor-pointer focus:outline-none"
+                className="relative z-10 flex flex-col items-center group cursor-pointer rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card)]"
                 aria-label={`思考档位: ${stop.label}`}
               >
                 <div

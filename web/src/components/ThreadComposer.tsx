@@ -1205,7 +1205,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   return (
     <div
       className="shrink-0 px-3 sm:px-4 pt-1"
-      style={{ paddingBottom: 'var(--composer-bottom-inset, 26px)' }}
+      style={{ paddingBottom: 'var(--composer-bottom-inset, max(16px, env(safe-area-inset-bottom, 0px)))' }}
     >
       <QuickReplyBar
         draft={draft}

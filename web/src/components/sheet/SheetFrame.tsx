@@ -3,7 +3,7 @@ import React, { useEffect, useRef } from 'react';
 export const SHEET_LAYER_CLASS = 'sheet-layer';
 export const SHEET_MENU_CARD_CLASS = 'thread-action-sheet';
 export const SHEET_PANEL_CARD_CLASS =
-  'settings-sheet flex flex-col max-h-[92dvh] outline-none w-full max-w-full min-w-0 overflow-hidden';
+  'settings-sheet flex flex-col max-h-[calc(var(--app-height,100dvh)*0.92)] outline-none w-full max-w-full min-w-0 overflow-hidden';
 
 export function pushSheet<T>(stack: readonly T[], item: T): T[] { return [...stack, item]; }
 export function removeSheet<T>(stack: readonly T[], item: T): T[] { return stack.filter((entry) => entry !== item); }

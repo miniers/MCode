@@ -28,7 +28,7 @@ const labelledHtml = renderToStaticMarkup(
 // 默认 panel：settings-sheet 与高度上限。
 assertIncludes(defaultHtml, SHEET_PANEL_CARD_CLASS, '默认 card class ');
 assertIncludes(defaultHtml, 'settings-sheet', '默认 card class ');
-assertIncludes(defaultHtml, 'max-h-[92dvh]', '默认 card class ');
+assertIncludes(defaultHtml, 'max-h-[calc(var(--app-height,100dvh)*0.92)]', '默认 card class ');
 assertIncludes(defaultHtml, '内容', '子节点');
 
 // 外层遮罩与 dialog 语义。

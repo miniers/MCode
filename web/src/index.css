@@ -47,6 +47,7 @@
     --sab: env(safe-area-inset-bottom, 0px);
     --sal: env(safe-area-inset-left, 0px);
     --sar: env(safe-area-inset-right, 0px);
+    --composer-bottom-inset: max(16px, env(safe-area-inset-bottom, 0px));
     --app-height: 100vh;
   }
   @supports (height: 100dvh) {
@@ -76,7 +77,8 @@
   button, input, select, textarea { color: inherit; font: inherit; }
   button { border: 0; cursor: pointer; }
   button:disabled { cursor: not-allowed; opacity: .55; }
-  input, select, textarea { outline: none; }
+  input:focus:not(:focus-visible), select:focus:not(:focus-visible), textarea:focus:not(:focus-visible) { outline: none; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
   :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
   /* iOS Safari 在 user-select: none 的输入框里无法输入。 */
   input, textarea, .select-text { user-select: text; -webkit-user-select: text; }
@@ -98,6 +100,7 @@
 }
 
 /* 键盘弹起时底部留白只有 8px，悬浮额度条放不下，先隐藏。 */
+html[data-keyboard-open] { --composer-bottom-inset: 8px; }
 html[data-keyboard-open] .composer-quota-floating { display: none; }
 
 /* ---- 页面级：过场动画（W-2）与左右滑动容器的公共约束（W-8） ---- */
@@ -156,6 +159,21 @@ html[data-mobile-direction] .settings-sheet { animation: none; }
 .icon-button, .row-action-button { display: inline-grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 8px; background: transparent; color: var(--foreground-muted); }
 .row-action-button { width: 40px; height: 40px; }
 .icon-button:hover, .row-action-button:hover { background: var(--mc-overlay-hover); color: var(--foreground); }
+@media (pointer: coarse), (max-width: 767px) {
+  .icon-button, .row-action-button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .sheet-layer input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  .sheet-layer select,
+  .sheet-layer textarea,
+  dialog input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  dialog select,
+  dialog textarea,
+  .menu-popover input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  .menu-popover select,
+  .menu-popover textarea,
+  .menu-side-panel input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  .menu-side-panel select,
+  .menu-side-panel textarea { font-size: 16px; }
+}
 
 .gutter-x { padding-left: max(16px, calc(16px + var(--sal))); padding-right: max(16px, calc(16px + var(--sar))); }
 .gutter-ml { margin-left: max(16px, calc(16px + var(--sal))); }
@@ -394,6 +412,7 @@ html[data-keyboard-open] .settings-sheet.model-sheet { padding-bottom: 0; }
 
 /* 开关统一 36×20、滑块 16px；打开时轨道取 accent。 */
 .settings-switch { position: relative; flex: 0 0 auto; width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--foreground-muted) 38%, var(--card)); transition: background .15s ease; }
+.settings-switch::after { content: ''; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
 .settings-switch.is-on { background: var(--mc-accent); }
 .settings-switch:disabled { opacity: .45; }
 .settings-switch:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 50%, transparent); outline-offset: 2px; }

@@ -42,11 +42,11 @@ const BLOCK_PREVIEW_LINES = 40;
 const ROW_BASE_CLASS =
   'flex items-start px-1.5 py-0.5 rounded leading-relaxed min-w-0 max-w-full w-full select-text group relative';
 const ROW_TYPE_CLASS: Record<ParsedDiffLine['type'], string> = {
-  add: ' bg-emerald-950/60 text-emerald-300',
-  del: ' bg-rose-950/60 text-rose-300',
-  hunk: ' bg-sky-950/50 text-sky-300 font-semibold',
-  header: ' text-slate-500 font-bold',
-  context: ' text-slate-300'
+  add: ' bg-emerald-500/10 text-emerald-800 dark:text-emerald-300',
+  del: ' bg-rose-500/10 text-rose-800 dark:text-rose-300',
+  hunk: ' bg-[var(--mc-accent-subtle)] text-[var(--primary)] font-semibold',
+  header: ' text-[var(--foreground-muted)] font-bold',
+  context: ' text-[var(--foreground)]'
 };
 const LINE_CONTENT_WRAP_CLASS =
   'flex-1 min-w-0 font-mono text-mc-caption whitespace-pre-wrap break-all [overflow-wrap:anywhere]';
@@ -113,8 +113,8 @@ function CommentEditor({ initialContent, lineLabel, onCancel, onSave }: CommentE
   const trimmed = draft.trim();
 
   return (
-    <div className="ml-16 sm:ml-20 my-2 p-2.5 rounded-xl bg-slate-800 border border-slate-700 shadow-md space-y-2">
-      <div className="text-mc-caption text-slate-300 font-medium">
+    <div className="ml-16 sm:ml-20 my-2 p-2.5 rounded-xl bg-[var(--card-alt)] border border-[var(--border)] shadow-md space-y-2">
+      <div className="text-mc-caption text-[var(--foreground)] font-medium">
         添加审阅意见 ·{' '}
         {lineLabel}
       </div>
@@ -123,13 +123,13 @@ function CommentEditor({ initialContent, lineLabel, onCancel, onSave }: CommentE
         onChange={(e) => setDraft(e.target.value)}
         placeholder="输入针对此代码行的审阅建议..."
         rows={2}
-        className="w-full p-2 text-xs rounded-lg border border-slate-600 bg-slate-900 text-slate-200 outline-none focus:border-sky-500 resize-y"
+        className="w-full p-2 text-xs rounded-lg border border-[var(--input-border)] bg-[var(--card)] text-[var(--foreground)] outline-none focus-visible:border-[var(--primary)] resize-y"
       />
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
           onClick={onCancel}
-          className="min-h-[28px] px-2.5 rounded-lg text-xs text-slate-400 hover:text-slate-200"
+          className="min-h-[28px] px-2.5 rounded-lg text-xs text-[var(--foreground-muted)] hover:text-[var(--foreground)]"
         >
           取消
         </button>
@@ -139,7 +139,7 @@ function CommentEditor({ initialContent, lineLabel, onCancel, onSave }: CommentE
           onClick={() => {
             if (trimmed) onSave(trimmed);
           }}
-          className="min-h-[28px] px-3 rounded-lg text-xs font-semibold bg-sky-600 text-white hover:bg-sky-500 disabled:opacity-40"
+          className="min-h-[28px] px-3 rounded-lg text-xs font-semibold bg-[var(--primary)] text-[var(--mc-on-accent)] hover:opacity-90 disabled:opacity-40"
         >
           保存评论
         </button>
@@ -195,7 +195,7 @@ const DiffRow = React.memo(function DiffRow({
       <div className={rowClass}>
         {/* 旧行号 */}
         <span
-          className="w-8 sm:w-10 text-right pr-2 text-slate-500 font-mono text-mc-caption shrink-0 select-none"
+          className="w-8 sm:w-10 text-right pr-2 text-[var(--foreground-muted)] font-mono text-mc-caption shrink-0 select-none"
           aria-hidden="true"
         >
           {oldLineLabel}
@@ -203,7 +203,7 @@ const DiffRow = React.memo(function DiffRow({
 
         {/* 新行号 */}
         <span
-          className="w-8 sm:w-10 text-right pr-2 text-slate-500 font-mono text-mc-caption shrink-0 select-none border-r border-slate-700/60 mr-2"
+          className="w-8 sm:w-10 text-right pr-2 text-[var(--foreground-muted)] font-mono text-mc-caption shrink-0 select-none border-r border-[var(--border)] mr-2"
           aria-hidden="true"
         >
           {newLineLabel}
@@ -221,7 +221,7 @@ const DiffRow = React.memo(function DiffRow({
               event.stopPropagation();
               onRevertHunk(file, hunk.startLine, hunk.lineCount);
             }}
-            className="ml-2 shrink-0 rounded px-1.5 py-0.5 text-mc-caption text-slate-300 hover:bg-slate-700 hover:text-white"
+            className="ml-2 shrink-0 rounded px-1.5 py-0.5 text-mc-caption text-[var(--foreground-muted)] hover:bg-[var(--mc-overlay-hover)] hover:text-[var(--foreground)]"
           >
             撤销此块
           </button>
@@ -234,7 +234,7 @@ const DiffRow = React.memo(function DiffRow({
             onClick={() => onToggleComment(line.id)}
             title="对此行发表评论"
             aria-label="添加评论"
-            className="ml-2 shrink-0 opacity-40 hover:opacity-100 group-hover:opacity-100 text-slate-400 hover:text-sky-300 px-1 py-0.5 rounded text-mc-caption transition"
+            className="ml-2 shrink-0 opacity-40 hover:opacity-100 group-hover:opacity-100 text-[var(--foreground-muted)] hover:text-[var(--primary)] px-1 py-0.5 rounded text-mc-caption transition"
           >
             {comment ? '💬' : '＋'}
           </button>
@@ -243,14 +243,14 @@ const DiffRow = React.memo(function DiffRow({
 
       {/* 已存在评论卡片 */}
       {comment && (
-        <div className="ml-16 sm:ml-20 my-1.5 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-slate-200 text-xs space-y-1">
-          <div className="flex items-center justify-between text-mc-caption text-amber-400 font-medium">
+        <div className="ml-16 sm:ml-20 my-1.5 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[var(--foreground)] text-xs space-y-1">
+          <div className="flex items-center justify-between text-mc-caption text-amber-700 dark:text-amber-400 font-medium">
             <span>💬 评论 · {positionLabel}</span>
             {!isReadOnly && onDeleteComment && (
               <button
                 type="button"
                 onClick={() => onDeleteComment(comment.id)}
-                className="text-rose-400 hover:underline text-mc-caption"
+                className="text-[var(--danger-foreground)] hover:underline text-mc-caption"
               >
                 删除
               </button>
@@ -490,9 +490,9 @@ export const DiffViewer = React.memo(function DiffViewer({
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 space-y-3 bg-slate-50 dark:bg-zinc-900/40 rounded-xl border border-slate-200 dark:border-zinc-800">
-        <span className="w-6 h-6 border-2 border-sky-500/30 border-t-sky-500 rounded-full animate-spin" />
-        <p className="text-xs text-slate-500 dark:text-slate-400">正在获取代码差异 (Diff)...</p>
+      <div className="flex flex-col items-center justify-center p-8 space-y-3 bg-[var(--card)] rounded-xl border border-[var(--border)]">
+        <span className="w-6 h-6 border-2 border-[var(--border)] border-t-[var(--primary)] rounded-full animate-spin" />
+        <p className="text-xs text-[var(--foreground-muted)]">正在获取代码差异 (Diff)...</p>
       </div>
     );
   }
@@ -519,7 +519,7 @@ export const DiffViewer = React.memo(function DiffViewer({
 
   if (!effectiveDiffText.trim() && parsedFiles.length === 0) {
     return (
-      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-slate-400">
+      <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 text-center text-xs text-[var(--foreground-muted)]">
         {effectiveTruncated || effectiveMetadataTruncated ? (
           <>
             <div className="flex items-center justify-center gap-2 text-amber-700 dark:text-amber-400">
@@ -561,7 +561,7 @@ export const DiffViewer = React.memo(function DiffViewer({
       )}
 
       {/* 顶部工具栏与统计 */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-100/70 dark:bg-zinc-900/70 text-slate-700 dark:text-slate-300">
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]">
         <div className="flex items-center gap-2 font-medium">
           <span>{parsedFiles.length} 个文件</span>
           <span className="text-emerald-600 dark:text-emerald-400">+{totalAdditions}</span>
@@ -572,14 +572,14 @@ export const DiffViewer = React.memo(function DiffViewer({
           <button
             type="button"
             onClick={() => setWrapLines((w) => !w)}
-            className="min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-700 transition"
+            className="min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium border border-[var(--border)] bg-[var(--card-alt)] hover:bg-[var(--mc-overlay-hover)] transition"
           >
             {wrapLines ? '自动换行: 开' : '自动换行: 关'}
           </button>
           <button
             type="button"
             onClick={hasCollapsedFiles ? handleExpandAll : handleCollapseAll}
-            className="min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-700 transition"
+            className="min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium border border-[var(--border)] bg-[var(--card-alt)] hover:bg-[var(--mc-overlay-hover)] transition"
           >
             {hasCollapsedFiles ? '全部展开' : '全部折叠'}
           </button>
@@ -594,7 +594,7 @@ export const DiffViewer = React.memo(function DiffViewer({
               key={file.id}
               type="button"
               onClick={() => jumpToFile(file.id)}
-              className="min-h-[28px] max-w-[200px] truncate px-2.5 py-1 rounded-full text-mc-caption font-mono border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-800/80 hover:bg-slate-200 dark:hover:bg-zinc-700 transition shrink-0"
+              className="min-h-[28px] max-w-[200px] truncate px-2.5 py-1 rounded-full text-mc-caption font-mono border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--mc-overlay-hover)] transition shrink-0"
             >
               <span className="truncate">{file.displayPath.split('/').pop()}</span>
               {file.hasHunks && (
@@ -618,51 +618,51 @@ export const DiffViewer = React.memo(function DiffViewer({
             <div
               key={file.id}
               id={file.id}
-              className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden bg-slate-900 text-slate-200 font-mono shadow-inner w-full min-w-0 max-w-full"
+              className="rounded-xl border border-[var(--border)] overflow-hidden bg-[var(--card)] text-[var(--foreground)] font-mono shadow-inner w-full min-w-0 max-w-full"
             >
               {/* 文件标题栏（可点击折叠/展开） */}
               <div
                 onClick={() => toggleFileCollapse(file.id)}
-                className="flex items-center justify-between px-3 py-2 bg-slate-800/90 border-b border-slate-700/60 cursor-pointer select-none hover:bg-slate-800 transition"
+                className="flex items-center justify-between px-3 py-2 bg-[var(--card-alt)] border-b border-[var(--border)] cursor-pointer select-none hover:bg-[var(--mc-overlay-hover)] transition"
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="text-slate-400 shrink-0">
+                  <span className="text-[var(--foreground-muted)] shrink-0">
                     {isCollapsed ? (
                       <ChevronRightIcon className="w-3.5 h-3.5" />
                     ) : (
                       <ChevronDownIcon className="w-3.5 h-3.5" />
                     )}
                   </span>
-                  <span className="font-semibold text-xs text-slate-200 truncate" title={file.displayPath}>
+                  <span className="font-semibold text-xs text-[var(--foreground)] truncate" title={file.displayPath}>
                     {file.displayPath}
                   </span>
                   {file.status === 'added' && (
-                    <span className="px-1.5 py-0.5 rounded text-mc-caption bg-emerald-950 text-emerald-400 shrink-0">
+                    <span className="px-1.5 py-0.5 rounded text-mc-caption bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 shrink-0">
                       新增
                     </span>
                   )}
                   {file.status === 'deleted' && (
-                    <span className="px-1.5 py-0.5 rounded text-mc-caption bg-rose-950 text-rose-400 shrink-0">
+                    <span className="px-1.5 py-0.5 rounded text-mc-caption bg-rose-500/15 text-rose-700 dark:text-rose-400 shrink-0">
                       删除
                     </span>
                   )}
                   {file.status === 'renamed' && (
-                    <span className="px-1.5 py-0.5 rounded text-mc-caption bg-sky-950 text-sky-400 shrink-0">
+                    <span className="px-1.5 py-0.5 rounded text-mc-caption bg-sky-500/15 text-sky-700 dark:text-sky-400 shrink-0">
                       重命名
                     </span>
                   )}
                   {file.status === 'binary' && (
-                    <span className="px-1.5 py-0.5 rounded text-mc-caption bg-amber-950 text-amber-400 shrink-0">
+                    <span className="px-1.5 py-0.5 rounded text-mc-caption bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0">
                       二进制
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 text-mc-caption shrink-0 text-slate-400">
+                <div className="flex items-center gap-2 text-mc-caption shrink-0 text-[var(--foreground-muted)]">
                   {file.hasHunks && (
                     <>
-                      <span className="text-emerald-400">+{file.additionsCount}</span>
-                      <span className="text-rose-400">-{file.deletionsCount}</span>
+                      <span className="text-emerald-600 dark:text-emerald-400">+{file.additionsCount}</span>
+                      <span className="text-rose-600 dark:text-rose-400">-{file.deletionsCount}</span>
                     </>
                   )}
                   <span>{isCollapsed ? '展开' : '折叠'}</span>
@@ -673,23 +673,23 @@ export const DiffViewer = React.memo(function DiffViewer({
               {!isCollapsed && (
                 <div className="p-2 space-y-0.5">
                   {file.isBinary ? (
-                    <div className="py-6 px-4 text-center text-xs text-slate-400 bg-slate-900/60 rounded">
+                    <div className="py-6 px-4 text-center text-xs text-[var(--foreground-muted)] bg-[var(--screen)] rounded">
                       二进制文件差异，不提供文本行对比
                     </div>
                   ) : file.status === 'renamed' && !file.hasHunks ? (
-                    <div className="py-6 px-4 text-center text-xs text-slate-400 bg-slate-900/60 rounded">
+                    <div className="py-6 px-4 text-center text-xs text-[var(--foreground-muted)] bg-[var(--screen)] rounded">
                       文件已重命名，内容无改动
                     </div>
                   ) : file.status === 'mode_change' && !file.hasHunks ? (
-                    <div className="py-6 px-4 text-center text-xs text-slate-400 bg-slate-900/60 rounded">
+                    <div className="py-6 px-4 text-center text-xs text-[var(--foreground-muted)] bg-[var(--screen)] rounded">
                       文件权限/模式变更，无内容改动
                     </div>
                   ) : !file.hasHunks ? (
-                    <div className="py-6 px-4 text-center text-xs text-slate-400 bg-slate-900/60 rounded">
+                    <div className="py-6 px-4 text-center text-xs text-[var(--foreground-muted)] bg-[var(--screen)] rounded">
                       无具体代码行变更
                     </div>
                   ) : (
-                    <div className="divide-y divide-slate-800/40">
+                    <div className="divide-y divide-[var(--border-subtle)]">
                       {blocks.map((block) => {
                         const isBlockExpanded = Boolean(expandedBlocks[block.key]);
                         const hiddenCount = isBlockExpanded
@@ -701,7 +701,7 @@ export const DiffViewer = React.memo(function DiffViewer({
 
                         return (
                           <div key={block.key}>
-                            <div className="divide-y divide-slate-800/40">
+                            <div className="divide-y divide-[var(--border-subtle)]">
                               {visibleLines.map((line) => {
                                 // 仅在存在评论时才拼接行级 key，省掉无谓的字符串拼接
                                 const comment = comments
@@ -733,7 +733,7 @@ export const DiffViewer = React.memo(function DiffViewer({
                               <button
                                 type="button"
                                 onClick={() => expandBlock(block.key)}
-                                className="w-full min-h-[32px] border-t border-slate-800/40 bg-slate-800/40 py-1.5 text-center text-mc-caption text-sky-300 hover:bg-slate-800/70 transition"
+                                className="w-full min-h-[32px] border-t border-[var(--border)] bg-[var(--card-alt)] py-1.5 text-center text-mc-caption text-[var(--primary)] hover:bg-[var(--mc-overlay-hover)] transition"
                               >
                                 {`展开本块（共 ${block.lines.length} 行，已显示前 ${BLOCK_PREVIEW_LINES} 行）`}
                               </button>

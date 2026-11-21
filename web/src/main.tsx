@@ -11,8 +11,8 @@ import { computeViewport, isEditableElement } from './utils/viewport';
 // window.innerHeight 会少算顶部安全区，底部空出一截，这里按物理屏幕高度补回；
 // default 状态栏安全区为 0，视口本来就完整，不做补偿（否则会多算一个状态栏高度）。
 // 已安装的 PWA 可能缓存旧的 black-translucent meta，所以以实际安全区为准。
-// --composer-bottom-inset 是输入面板下边缘到外壳底边的唯一底部间距：
-// 软键盘收起时固定 26px（留给 Home 条），弹起时距键盘 8px。
+// --composer-bottom-inset 是输入面板下边缘到外壳底边的唯一底部间距，
+// 由 index.css 基于 env(safe-area-inset-bottom, 0px) 与 data-keyboard-open 控制。
 if (typeof window !== 'undefined') {
   // iPhone/iPad/iPod；iPadOS 桌面模式的 UA 与 Mac 相同，靠触点数量区分
   const isIOS =
@@ -55,9 +55,7 @@ if (typeof window !== 'undefined') {
 
     const root = document.documentElement.style;
     root.setProperty('--app-height', `${Math.round(height)}px`);
-    // 唯一底部间距：键盘关闭时表单外框下缘到底边总计 26px（留给 Home 条），弹起时距键盘上缘 8px
-    root.setProperty('--composer-bottom-inset', keyboardOpen ? '8px' : '26px');
-    // 给只在键盘收起时显示的悬浮元素（如渠道额度条）用
+    // 给只在键盘收起时显示的悬浮元素（如渠道额度条）及底部安全区 CSS 变量用
     document.documentElement.toggleAttribute('data-keyboard-open', keyboardOpen);
     if (window.scrollY > 0 || window.scrollX > 0) window.scrollTo(0, 0);
     window.clearTimeout(keyboardWatchTimer);

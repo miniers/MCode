@@ -10,10 +10,14 @@ import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { TaskItem } from '../types/contract';
 import {
+  ArrowPathIcon,
   CheckCircleIcon,
   ChevronRightIcon,
   CircleIcon,
+  ClockIcon,
+  DocumentTextIcon,
   ExclamationTriangleIcon,
+  LockIcon,
   XMarkIcon
 } from './Icons';
 import { formatRelativeTime } from '../utils/date';
@@ -168,7 +172,10 @@ function useWorkRecordHandlers(
  */
 
 
+type ErrorKindIconKey = 'lock' | 'clock' | 'document' | 'refresh' | 'stop' | 'error';
+
 interface ErrorKindInfo {
+  icon: ErrorKindIconKey;
   title: string;
   hint: string;
 }
@@ -176,30 +183,78 @@ interface ErrorKindInfo {
 // 后端上报的失败类别（errKind）对应的标题与一句处理提示；未知或空值回落到原有「错误提示」。
 const ERROR_KIND_INFO: Record<string, ErrorKindInfo> = {
   auth_required: {
-    title: '🔐 需要登录',
+    icon: 'lock',
+    title: '需要登录',
     hint: '请在 Mac 端终端重新登录该 CLI 后再发送。'
   },
   rate_limited: {
-    title: '⏳ 额度或限流',
+    icon: 'clock',
+    title: '额度或限流',
     hint: '请求被限流或额度已用完，稍等片刻后重试。'
   },
   context_exhausted: {
-    title: '📚 上下文已满',
+    icon: 'document',
+    title: '上下文已满',
     hint: '建议压缩上下文或新开一个会话。'
   },
   max_turns: {
-    title: '🔁 达到最大轮数',
+    icon: 'refresh',
+    title: '达到最大轮数',
     hint: '本轮已达单轮最大往返次数，可以继续发送消息。'
   },
   cancelled: {
-    title: '⏹ 已取消',
+    icon: 'stop',
+    title: '已取消',
     hint: '本轮已被取消，可以重新发送。'
   },
   api_error: {
-    title: '❌ 接口错误',
+    icon: 'error',
+    title: '接口错误',
     hint: '接口调用失败，稍后可重试。'
   }
 };
+
+function renderErrorKindIcon(icon: ErrorKindIconKey): React.ReactNode {
+  const cls = 'w-3.5 h-3.5 shrink-0';
+  switch (icon) {
+    case 'lock':
+      return (
+        <span aria-hidden="true" className="inline-flex shrink-0">
+          <LockIcon className={cls} />
+        </span>
+      );
+    case 'clock':
+      return (
+        <span aria-hidden="true" className="inline-flex shrink-0">
+          <ClockIcon className={cls} />
+        </span>
+      );
+    case 'document':
+      return (
+        <span aria-hidden="true" className="inline-flex shrink-0">
+          <DocumentTextIcon className={cls} />
+        </span>
+      );
+    case 'refresh':
+      return (
+        <span aria-hidden="true" className="inline-flex shrink-0">
+          <ArrowPathIcon className={cls} />
+        </span>
+      );
+    case 'stop':
+      return (
+        <svg className={cls} fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+      );
+    case 'error':
+      return (
+        <span aria-hidden="true" className="inline-flex shrink-0">
+          <ExclamationTriangleIcon className={cls} />
+        </span>
+      );
+  }
+}
 
 function errorKindInfo(errKind?: string | null): ErrorKindInfo | null {
   const key = (errKind ?? '').trim().toLowerCase();
@@ -1652,8 +1707,15 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
       className={`${messageLayoutClass(message)} space-y-2 min-w-0 overflow-hidden mb-4 ${messageCardClass(message)}`}
     >
       <div className="flex items-center justify-between gap-2 text-mc-caption">
-        <span className="font-semibold text-[var(--foreground)]">
-          {errorInfo ? errorInfo.title : messageKindLabel(message)}
+        <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--foreground)]">
+          {errorInfo ? (
+            <>
+              {renderErrorKindIcon(errorInfo.icon)}
+              <span>{errorInfo.title}</span>
+            </>
+          ) : (
+            messageKindLabel(message)
+          )}
         </span>
       </div>
 

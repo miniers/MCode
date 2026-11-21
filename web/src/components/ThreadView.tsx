@@ -20,6 +20,7 @@ import {
   ChevronRightIcon,
   ArrowPathIcon,
   ChevronDownIcon,
+  DocumentTextIcon,
   XMarkIcon
 } from './Icons';
 import {
@@ -38,7 +39,7 @@ import { lastCodeBlock, toPlainText } from '../utils/markdown';
 import { modelDisplayName } from '../utils/modelLabel';
 import { ThreadComposer, composerAttachmentLimit } from './ThreadComposer';
 import type { ThreadComposerHandle } from './ThreadComposer';
-import { LazyBoundary } from './LazyFallback';
+import { LazyBoundary, LazyScreenFallback } from './LazyFallback';
 import { useThreadSwarm, isSwarmCapabilitySupported } from '../context/remoteSwarm';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ThreadViewHeader } from './thread/ThreadViewHeader';
@@ -2589,8 +2590,11 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
           {/* 历史读取失败提示（当没有已读消息时展示为空/错误状态） */}
           {errorMessage && timelineItems.length === 0 && (
             <div className="flex flex-col items-center justify-center text-center p-8 mt-6 bg-[var(--card)] rounded-3xl border border-[var(--border)] space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-[var(--user-bubble)] text-[var(--danger-foreground)] flex items-center justify-center text-xl font-bold">
-                ⚠️
+              <div
+                aria-hidden="true"
+                className="w-12 h-12 rounded-2xl bg-[var(--user-bubble)] text-[var(--danger-foreground)] flex items-center justify-center"
+              >
+                <ExclamationTriangleIcon className="w-6 h-6" />
               </div>
               <h3 className="text-base font-semibold text-[var(--foreground)]">会话历史加载失败</h3>
               <p className="text-xs text-[var(--foreground-muted)] max-w-sm">{errorMessage}</p>
@@ -2607,23 +2611,19 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
             </div>
           )}
 
-          {/* 加载中 */}
+          {/* 加载中：使用 skeleton.css 会话骨架条替代孤立旋转圈 */}
           {isLoading && timelineItems.length === 0 && !errorMessage && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="flex flex-col items-center justify-center gap-3 py-14 text-xs text-[var(--foreground-muted)]"
-            >
-              <span className="w-6 h-6 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin" />
-              <span>正在加载会话历史...</span>
-            </div>
+            <LazyScreenFallback label="正在加载会话历史..." variant="thread" />
           )}
 
           {/* 空会话 */}
           {!isLoading && !errorMessage && timelineItems.length === 0 && (
             <div className="flex flex-col items-center justify-center text-center p-8 mt-6 bg-[var(--card)] rounded-3xl border border-[var(--border)] space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-[var(--user-bubble)] flex items-center justify-center text-xl font-bold">
-                🗒️
+              <div
+                aria-hidden="true"
+                className="w-12 h-12 rounded-2xl bg-[var(--user-bubble)] text-[var(--foreground-muted)] flex items-center justify-center"
+              >
+                <DocumentTextIcon className="w-6 h-6" />
               </div>
               <h3 className="text-base font-semibold text-[var(--foreground)]">
                 该会话暂无消息
@@ -3094,7 +3094,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
         ) : (
           <div
             className="shrink-0 border-t border-[var(--border)] bg-[var(--screen)] px-4 py-3 text-center text-mc-caption text-[var(--foreground-muted)]"
-            style={{ paddingBottom: 'var(--composer-bottom-inset, 26px)' }}
+            style={{ paddingBottom: 'var(--composer-bottom-inset, max(16px, env(safe-area-inset-bottom, 0px)))' }}
           >
             当前 Mac 宿主未声明发送消息能力，保持只读浏览。
           </div>

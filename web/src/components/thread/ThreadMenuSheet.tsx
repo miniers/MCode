@@ -19,7 +19,7 @@ import type { ThreadSwarmMode } from './useThreadMetaActions';
 import { useRegenerateThreadTitle, useRemoteMethodSupport } from './useThreadMetaActions';
 import { WorktreeMoveSheetBody } from './WorktreeMoveSheet';
 import { ThreadMCPServersSheetBody } from './ThreadMCPServersSheet';
-import { SheetFrame } from '../sheet/SheetFrame';
+import { SheetFrame, nextFocusIndex } from '../sheet/SheetFrame';
 import { MenuGroup, MenuRow } from './menu/MenuRow';
 import { MenuSheetHeader } from './menu/MenuSheetHeader';
 import { MenuStackView } from './menu/MenuStackView';
@@ -72,6 +72,9 @@ const SUCCESS_NOTICE_CLASS = 'mt-1.5 text-mc-caption text-emerald-600 dark:text-
 
 /** 文件页的标题栏由 FileBrowserSheet 自带，外层 labelledBy 指向它的标题 id。 */
 const FILE_BROWSER_MENU_TITLE_ID = 'file-browser-title';
+
+const MENU_FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * 窄屏抽屉卡片的尺寸与附加 class：size 固定为 panel，与栈顶页面种类无关。
@@ -267,6 +270,46 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
   const wide = useIsWideSheet();
   const surface = sheetSurfaceFor(wide, topPage.kind);
   const size = pageSizeFor(topPage.kind);
+
+  // 桌面端 .menu-popover / .menu-side-panel 的焦点管理：挂载聚焦首元素或面板、Tab 循环、关闭恢复原焦点
+  const desktopPanelRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => {
+      const target =
+        (previousFocusRef.current?.isConnected ? previousFocusRef.current : null) ??
+        (menuButtonRef?.current?.isConnected ? menuButtonRef.current : null);
+      if (target && !document.activeElement?.closest('[role="dialog"][aria-modal="true"]')) {
+        target.focus();
+      }
+    };
+  }, [menuButtonRef]);
+
+  useEffect(() => {
+    if (surface !== 'popover' && surface !== 'side-panel') return;
+    const panel = desktopPanelRef.current;
+    if (!panel) return;
+    const focusable = () => {
+      const scope = panel.querySelector<HTMLElement>("[data-relation='active']") ?? panel;
+      return Array.from(scope.querySelectorAll<HTMLElement>(MENU_FOCUSABLE_SELECTOR)).filter(
+        (element) => element.getClientRects().length > 0 && !element.closest('.menu-page:not([data-relation="active"])')
+      );
+    };
+    if (!panel.contains(document.activeElement)) {
+      (focusable()[0] ?? panel).focus();
+    }
+    const handleTab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      if (document.querySelectorAll('[role="dialog"][aria-modal="true"]').length > 1) return;
+      const elements = focusable();
+      const next = nextFocusIndex(elements.indexOf(document.activeElement as HTMLElement), elements.length, event.shiftKey);
+      event.preventDefault();
+      (elements[next] ?? panel).focus();
+    };
+    window.addEventListener('keydown', handleTab);
+    return () => window.removeEventListener('keydown', handleTab);
+  }, [surface]);
 
   // popover 锚点：⋯ 按钮下方 8px、右边缘对齐；拿不到按钮时交给 CSS 兜底
   const [popoverOffset, setPopoverOffset] = useState<{ top: number; right: number } | null>(null);
@@ -821,10 +864,12 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
       {surface === 'popover' && (
         <div className="menu-popover-layer" role="presentation" onMouseDown={closeTop}>
           <div
+            ref={desktopPanelRef}
             className="menu-popover"
             role="dialog"
             aria-modal="true"
             aria-labelledby={labelledBy}
+            tabIndex={-1}
             style={popoverStyle}
             onMouseDown={(event) => event.stopPropagation()}
           >
@@ -836,10 +881,12 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
       {surface === 'side-panel' && (
         <div className="menu-side-layer" role="presentation" onMouseDown={closeTop}>
           <div
+            ref={desktopPanelRef}
             className="menu-side-panel"
             role="dialog"
             aria-modal="true"
             aria-labelledby={labelledBy}
+            tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <MenuStackView pages={pages} activeId={topPage.id} size="panel" fillParent />

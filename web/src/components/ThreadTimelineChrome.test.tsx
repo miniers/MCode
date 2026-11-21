@@ -18,7 +18,7 @@ for (const html of [assistant, user, error]) {
   if (html.includes('助手 · 答复') || />\s*#42(?:\s|<|·)/.test(html)) throw new Error('消息不应显示类型标签或轮次编号');
   if (!html.includes('title=')) throw new Error('消息应通过 title 提供时间');
 }
-if (!error.includes('❌ 接口错误')) throw new Error('错误标题应保留');
+if (!error.includes('接口错误') || !error.includes('<svg')) throw new Error('错误标题与图标应保留');
 
 const thinking = { ...base, id: 'thinking', role: 'assistant' as const, kind: 'thinking' as const };
 const renderWork = (running: boolean) => renderToStaticMarkup(
