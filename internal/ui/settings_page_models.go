@@ -559,11 +559,11 @@ type modelsLibraryView struct {
 var pageModels = settingsPage{
 	ID: "models", Title: "模型与供应商", Icon: IconSlidersHorizontal(),
 	Sections: []settingsSection{
-		{ID: "sec-models-pinned", Title: "收藏模型", Rows: []setting{
+		{ID: "sec-models-pinned", Title: "收藏模型", Module: "收藏模型", Rows: []setting{
 			{ID: "row-models-pinned", Aliases: []string{"收藏", "模型", "model", "pinned"}, Control: customFullWidth(renderPinnedModels)},
 			{ID: "row-models-add", Aliases: []string{"添加收藏", "添加模型", "add model"}, Control: custom(renderAddModelPin)},
 		}},
-		{ID: "sec-providers", Title: "供应商", Rows: []setting{
+		{ID: "sec-providers", Title: "供应商", Module: "供应商", Rows: []setting{
 			{ID: "row-providers-list", Aliases: []string{"供应商", "provider", "模型"}, Control: customFullWidth(func(c *ui.Context, st *SettingsState) {
 				renderProvidersCard(c, st, modelsPageLibrary(c, st))
 			})},

@@ -834,11 +834,13 @@ func swarmForwardQuestionSetting() setting {
 
 func init() {
 	// 并入总管全部 4 个分节，保持 advancedOrchestration 位于页面末尾。
-	base := pageSwarm.Sections[:len(pageSwarm.Sections)-1]
-	last := pageSwarm.Sections[len(pageSwarm.Sections)-1]
-	merged := make([]settingsSection, 0, len(base)+5)
+	base := withSettingsModule("编排", pageSwarm.Sections[:len(pageSwarm.Sections)-1]...)
+	steward := withSettingsModule("总管", stewardMainSection(), stewardModelSection, stewardQuietSection, stewardAdvancedSection)
+	last := withSettingsModule("高级", pageSwarm.Sections[len(pageSwarm.Sections)-1])
+	merged := make([]settingsSection, 0, len(base)+len(steward)+len(last))
 	merged = append(merged, base...)
-	merged = append(merged, stewardMainSection(), stewardModelSection, stewardQuietSection, stewardAdvancedSection, last)
+	merged = append(merged, steward...)
+	merged = append(merged, last...)
 	pageSwarm.Sections = merged
 	settingsTreePageDefs = append(settingsTreePageDefs, pageSwarm)
 }

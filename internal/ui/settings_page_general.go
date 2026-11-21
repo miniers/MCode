@@ -226,7 +226,10 @@ var pageGeneral = settingsPage{
 // 注册到页面树放在 init 里：包级变量不能引用页面的初始值，否则会和渲染链形成初始化循环。
 func init() {
 	// 将原外观页的主题与字体分节并入通用页末尾（保持原有 5 节的索引与位置不变）。
-	pageGeneral.Sections = append(pageGeneral.Sections, appearanceThemeSection, appearanceFontsSection)
+	pageGeneral.Sections = append(
+		withSettingsModule("通用", pageGeneral.Sections...),
+		withSettingsModule("外观", appearanceThemeSection, appearanceFontsSection)...,
+	)
 	settingsTreePageDefs = append(settingsTreePageDefs, pageGeneral)
 }
 

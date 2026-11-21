@@ -222,8 +222,12 @@ var pageWorkbench = settingsPage{
 
 func init() {
 	// 并入原版本控制与存储清理分节，保持 advancedWorkbench 位于页面末尾。
-	pageWorkbench.Sections = append(pageWorkbench.Sections, pageSourceControl.Sections...)
-	pageWorkbench.Sections = append(pageWorkbench.Sections, storageCleanupSection, advancedWorkbench)
+	pageWorkbench.Sections = append(
+		withSettingsModule("工作台", pageWorkbench.Sections...),
+		withSettingsModule("版本控制", pageSourceControl.Sections...)...,
+	)
+	pageWorkbench.Sections = append(pageWorkbench.Sections, withSettingsModule("存储清理", storageCleanupSection)...)
+	pageWorkbench.Sections = append(pageWorkbench.Sections, withSettingsModule("高级", advancedWorkbench)...)
 	settingsTreePageDefs = append(settingsTreePageDefs, pageWorkbench)
 }
 

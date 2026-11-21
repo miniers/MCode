@@ -308,3 +308,204 @@ func TestSettingsP2Slim_NoDuplicateOnboardingButtons(t *testing.T) {
 		t.Fatal("设置导航底部不应再显示重复的「新用户引导」按钮")
 	}
 }
+
+func TestSettingsModuleDividers_MergedPages(t *testing.T) {
+	type moduleExpect struct {
+		module     string
+		wantRule   bool
+		wantTitle  bool
+		prevCard   string
+		firstCard  string
+		exactCount int
+	}
+	cases := []struct {
+		pageID        string
+		omittedTitles []string
+		modules       []moduleExpect
+	}{
+		{
+			pageID:        "general",
+			omittedTitles: []string{"通用"},
+			modules: []moduleExpect{
+				{module: "通用", wantRule: false, wantTitle: false},
+				{module: "外观", wantRule: true, wantTitle: true, prevCard: "设置卡片 general.shortcuts", firstCard: "设置卡片 appearance.theme", exactCount: 1},
+			},
+		},
+		{
+			pageID: "models",
+			modules: []moduleExpect{
+				{module: "收藏模型", wantRule: false, wantTitle: true, exactCount: 1},
+				{module: "供应商", wantRule: true, wantTitle: true, prevCard: "设置卡片 sec-models-pinned", firstCard: "设置卡片 sec-providers", exactCount: 1},
+			},
+		},
+		{
+			pageID:        "swarm",
+			omittedTitles: []string{"编排"},
+			modules: []moduleExpect{
+				{module: "编排", wantRule: false, wantTitle: false},
+				{module: "总管", wantRule: true, wantTitle: true, prevCard: "设置卡片 swarm.done", firstCard: "设置卡片 sec-steward-main", exactCount: 1},
+				{module: "高级", wantRule: true, wantTitle: true, prevCard: "设置卡片 sec-steward-advanced", firstCard: "设置卡片 advanced.orchestration", exactCount: 1},
+			},
+		},
+		{
+			pageID: "extensions",
+			modules: []moduleExpect{
+				{module: "技能", wantRule: false, wantTitle: true, exactCount: 1},
+				{module: "MCP 服务", wantRule: true, wantTitle: true, prevCard: "设置卡片 skills.list", firstCard: "设置卡片 mcp.custom", exactCount: 1},
+				{module: "记忆", wantRule: true, wantTitle: true, prevCard: "设置卡片 mcp.custom", firstCard: "设置卡片 nowledge.memory", exactCount: 1},
+			},
+		},
+		{
+			pageID:        "workbench",
+			omittedTitles: []string{"工作台"},
+			modules: []moduleExpect{
+				{module: "工作台", wantRule: false, wantTitle: false},
+				{module: "版本控制", wantRule: true, wantTitle: true, prevCard: "设置卡片 workbench.openIn", firstCard: "设置卡片 sourceControl.commit", exactCount: 1},
+				{module: "存储清理", wantRule: true, wantTitle: true, prevCard: "设置卡片 advanced.sourceControl", firstCard: "设置卡片 storage.cleanup", exactCount: 1},
+				{module: "高级", wantRule: true, wantTitle: true, prevCard: "设置卡片 storage.cleanup", firstCard: "设置卡片 advanced.workbench", exactCount: 1},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.pageID, func(t *testing.T) {
+			testenv.TempHome(t)
+			page, ok := settingsTreePageOf(tc.pageID)
+			if !ok {
+				t.Fatalf("找不到设置页 %q", tc.pageID)
+			}
+			chat := newChatState(NewFakeClient())
+			t.Cleanup(chat.close)
+			st := NewSettingsState(settingsTestDir(t), nil, chat)
+			st.cfg.Orchestration.Steward.Enabled = true
+			st.agentConfLoaded = true
+
+			tt := ui.NewTester(func(c *ui.Context) {
+				ui.Column(c).FillWidth().MaxWidth(settingsContentMaxWidth).Children(func() {
+					renderSettingsTreePage(c, st, page)
+				})
+			}, 1000, 4000)
+			tt.Frame()
+
+			for _, omitted := range tc.omittedTitles {
+				if n := countExactText(tt.Texts(), omitted); n != 0 {
+					t.Errorf("%s 顶部不应出现重复模块标题 %q，实际出现 %d 次", tc.pageID, omitted, n)
+				}
+			}
+
+			for _, m := range tc.modules {
+				ruleName := "模块分隔 " + m.module
+				ruleBounds, hasRule := tt.Find(ruleName)
+				if hasRule != m.wantRule {
+					t.Errorf("%s %q 存在=%v，期望=%v", tc.pageID, ruleName, hasRule, m.wantRule)
+				}
+				if m.wantRule && hasRule {
+					prev, okPrev := tt.Find(m.prevCard)
+					next, okNext := tt.Find(m.firstCard)
+					if !okPrev || !okNext {
+						t.Fatalf("%s 找不到相邻卡片 %q(%v) 或 %q(%v)", tc.pageID, m.prevCard, okPrev, m.firstCard, okNext)
+					}
+					if ruleBounds.Y < prev.Y+prev.H-0.5 || ruleBounds.Y+ruleBounds.H > next.Y+0.5 {
+						t.Errorf("%s %q 纵坐标越界: prev=[%.1f,%.1f] rule=[%.1f,%.1f] next=[%.1f,%.1f]",
+							tc.pageID, ruleName, prev.Y, prev.Y+prev.H, ruleBounds.Y, ruleBounds.Y+ruleBounds.H, next.Y, next.Y+next.H)
+					}
+				}
+				if m.wantTitle {
+					if n := countExactText(tt.Texts(), m.module); n != m.exactCount {
+						t.Errorf("%s 模块标题 %q 出现 %d 次，期望 %d 次", tc.pageID, m.module, n, m.exactCount)
+					}
+					headingBounds, hasHeading := tt.Find(m.module)
+					if !hasHeading {
+						t.Errorf("%s 缺少模块标题 %q", tc.pageID, m.module)
+					} else if m.wantRule && hasRule {
+						if headingBounds.Y < ruleBounds.Y+ruleBounds.H-0.5 {
+							t.Errorf("%s 模块标题 %q 应位于分隔线下方: ruleY=%.1f headingY=%.1f",
+								tc.pageID, m.module, ruleBounds.Y, headingBounds.Y)
+						}
+					}
+				}
+			}
+
+			ttNarrow := ui.NewTester(func(c *ui.Context) {
+				ui.Column(c).FillWidth().MaxWidth(settingsContentMaxWidth).Children(func() {
+					renderSettingsTreePage(c, st, page)
+				})
+			}, 640, 4000)
+			ttNarrow.Frame()
+			for _, m := range tc.modules {
+				if m.wantRule {
+					ruleName := "模块分隔 " + m.module
+					if b, ok := ttNarrow.Find(ruleName); !ok || b.W <= 0 || b.X+b.W > 640+0.5 {
+						t.Errorf("%s 640px 窄窗分隔线 %q 越界或缺失: ok=%v bounds=%+v", tc.pageID, ruleName, ok, b)
+					}
+				}
+				if m.wantTitle {
+					if b, ok := ttNarrow.Find(m.module); !ok || b.W <= 0 || b.X+b.W > 640+0.5 {
+						t.Errorf("%s 640px 窄窗模块标题 %q 越界或缺失: ok=%v bounds=%+v", tc.pageID, m.module, ok, b)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSettingsModuleDividers_HiddenModuleNoOrphanRule(t *testing.T) {
+	chat := newChatState(NewFakeClient())
+	t.Cleanup(chat.close)
+	st := NewSettingsState(settingsTestDir(t), nil, chat)
+	ctl := toggle(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenFinished }, true))
+
+	t.Run("中间模块隐藏时只为可见相邻不同模块画分隔", func(t *testing.T) {
+		page := settingsPage{
+			ID:    "hidden-mid",
+			Title: "模块甲",
+			Sections: []settingsSection{
+				{ID: "sec-a", Title: "甲一", Module: "模块甲", Rows: []setting{{ID: "r-a", Title: "甲行", Control: ctl}}},
+				{ID: "sec-b", Title: "乙一", Module: "模块乙", Visible: func(*SettingsState) bool { return false }, Rows: []setting{{ID: "r-b", Title: "乙行", Control: ctl}}},
+				{ID: "sec-c", Title: "丙一", Module: "模块丙", Rows: []setting{{ID: "r-c", Title: "丙行", Control: ctl}}},
+			},
+		}
+		tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreePage(c, st, page) }, 1000, 1200)
+		tt.Frame()
+
+		if _, ok := tt.Find("模块分隔 模块乙"); ok || tt.HasText("模块乙") {
+			t.Fatalf("隐藏模块不应渲染分隔线或标题: %v", tt.Texts())
+		}
+		if _, ok := tt.Find("模块分隔 模块甲"); ok || countExactText(tt.Texts(), "模块甲") != 0 {
+			t.Fatalf("首模块与页标题相同时不应渲染顶部分隔线或标题: %v", tt.Texts())
+		}
+		ruleC, okRule := tt.Find("模块分隔 模块丙")
+		if !okRule || countExactText(tt.Texts(), "模块丙") != 1 {
+			t.Fatalf("可见的相邻不同模块应渲染分隔线和标题: okRule=%v texts=%v", okRule, tt.Texts())
+		}
+		cardA, _ := tt.Find("设置卡片 sec-a")
+		cardC, _ := tt.Find("设置卡片 sec-c")
+		if ruleC.Y < cardA.Y+cardA.H-0.5 || ruleC.Y+ruleC.H > cardC.Y+0.5 {
+			t.Fatalf("模块丙分隔线位置异常: cardA=%+v ruleC=%+v cardC=%+v", cardA, ruleC, cardC)
+		}
+	})
+
+	t.Run("同模块之间隔着隐藏模块时不画分隔", func(t *testing.T) {
+		page := settingsPage{
+			ID:    "hidden-same-module",
+			Title: "测试页",
+			Sections: []settingsSection{
+				{ID: "sec-h0", Title: "隐首", Module: "隐藏首", Visible: func(*SettingsState) bool { return false }, Rows: []setting{{ID: "r-h0", Title: "隐行", Control: ctl}}},
+				{ID: "sec-a1", Title: "甲一", Module: "测试页", Rows: []setting{{ID: "r-a1", Title: "行一", Control: ctl}}},
+				{ID: "sec-b", Title: "乙一", Module: "隐藏中", Visible: func(*SettingsState) bool { return false }, Rows: []setting{{ID: "r-b", Title: "隐二", Control: ctl}}},
+				{ID: "sec-a2", Title: "甲二", Module: "测试页", Rows: []setting{{ID: "r-a2", Title: "行二", Control: ctl}}},
+			},
+		}
+		tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreePage(c, st, page) }, 1000, 1200)
+		tt.Frame()
+
+		for _, forbidden := range []string{"隐藏首", "模块分隔 隐藏首", "隐藏中", "模块分隔 隐藏中", "模块分隔 测试页"} {
+			if tt.HasText(forbidden) {
+				t.Fatalf("不应出现 %q: %v", forbidden, tt.Texts())
+			}
+		}
+		if countExactText(tt.Texts(), "测试页") != 0 {
+			t.Fatalf("首可见模块与页标题相同时不应出现重复标题: %v", tt.Texts())
+		}
+	})
+}

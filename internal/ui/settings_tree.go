@@ -24,11 +24,23 @@ type settingsPage struct {
 }
 
 // settingsSection 是页面或面板里的一组行；Visible 非空时由渲染器判断是否渲染。
+// Module 为同页多模块时的模块分组名；相邻可见分节的 Module 变化时渲染模块分隔。
 type settingsSection struct {
 	ID      string
 	Title   string
+	Module  string
 	Rows    []setting
 	Visible func(st *SettingsState) bool
+}
+
+// withSettingsModule 批量复制分节并设置模块分组名。
+func withSettingsModule(module string, sections ...settingsSection) []settingsSection {
+	out := make([]settingsSection, len(sections))
+	for i, sec := range sections {
+		sec.Module = module
+		out[i] = sec
+	}
+	return out
 }
 
 // setting 是一行的唯一声明：标题、检索词、锁定键与控件。
@@ -233,9 +245,47 @@ func deriveSettingsTreeItems(pages []settingsPage, sheets []settingsSheet) []set
 // renderSettingsTreePage 遍历页面树画出整页。
 func renderSettingsTreePage(c *ui.Context, st *SettingsState, p settingsPage) {
 	ui.Column(c.Key("settings-tree-page-" + p.ID)).Gap(settingsSectionGap).Children(func() {
+		seenVisible := false
+		prevModule := ""
 		for _, section := range p.Sections {
 			section := section
-			renderSettingsTreeSection(c, st, section, false)
+			rows := visibleSettingsRows(st, section, false)
+			if len(rows) == 0 {
+				continue
+			}
+			moduleChanged := section.Module != "" && section.Module != prevModule
+			showRule := seenVisible && section.Module != prevModule && (section.Module != "" || prevModule != "")
+			showHeading := moduleChanged && (seenVisible || section.Module != p.Title)
+			title := section.Title
+			if showHeading && title == section.Module {
+				title = ""
+			}
+			if showRule || showHeading {
+				ui.Column(c.Key("settings-module-lead-" + section.ID)).FillWidth().Children(func() {
+					if showRule {
+						ui.Box(c.Key("settings-module-gap-" + section.ID)).Height(Space2)
+						ui.Box(c.Key("settings-module-rule-" + section.ID)).Label("模块分隔 " + section.Module).Height(Hairline).Background(ThemeDivider(c))
+						ui.Box(c.Key("settings-module-after-rule-" + section.ID)).Height(Space4)
+					}
+					if showHeading {
+						ui.Text(c.Key("settings-module-title-"+section.ID), section.Module).
+							FontSize(uiFont(TypeHeading)).
+							FontWeight(600).
+							TextColor(ThemePrimaryText(c)).
+							SingleLine()
+						afterTitleGap := Space4
+						if title == "" {
+							afterTitleGap = settingsSectionTitleGap
+						}
+						ui.Box(c.Key("settings-module-after-title-" + section.ID)).Height(afterTitleGap)
+					}
+					renderSettingsTreeSectionRows(c, st, section, title, rows)
+				})
+			} else {
+				renderSettingsTreeSectionRows(c, st, section, title, rows)
+			}
+			seenVisible = true
+			prevModule = section.Module
 		}
 	})
 }
@@ -494,13 +544,8 @@ func renderStackedSettingRow(c *ui.Context, key, title string, control func()) {
 	settingRow(c, key, title, true, func(row ui.Element) ui.Element { return applySettingsRowFocus(c, row, key) }, control)
 }
 
-// renderSettingsTreeSection 画一个 section：节标题、卡片与行之间的分隔线。
-func renderSettingsTreeSection(c *ui.Context, st *SettingsState, section settingsSection, inSheet bool) {
-	rows := visibleSettingsRows(st, section, inSheet)
-	if len(rows) == 0 {
-		return
-	}
-	renderSettingsSection(c, section.ID, section.Title, func() {
+func renderSettingsTreeSectionRows(c *ui.Context, st *SettingsState, section settingsSection, title string, rows []setting) {
+	renderSettingsSection(c, section.ID, title, func() {
 		for i, s := range rows {
 			if i > 0 {
 				renderSettingsDivider(c, section.ID+"-divider-"+s.ID)
@@ -508,6 +553,15 @@ func renderSettingsTreeSection(c *ui.Context, st *SettingsState, section setting
 			renderSettingsTreeSetting(c, st, s)
 		}
 	})
+}
+
+// renderSettingsTreeSection 画一个 section：节标题、卡片与行之间的分隔线。
+func renderSettingsTreeSection(c *ui.Context, st *SettingsState, section settingsSection, inSheet bool) {
+	rows := visibleSettingsRows(st, section, inSheet)
+	if len(rows) == 0 {
+		return
+	}
+	renderSettingsTreeSectionRows(c, st, section, section.Title, rows)
 }
 
 // settingRowLocked 判断一行是否被命令行参数锁定；st 为空时不锁定。
