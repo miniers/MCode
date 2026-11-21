@@ -287,7 +287,7 @@ func composerPlanCapsule(c *ui.Context, s *chatState, threadID string) (composer
 		CountText:  fmt.Sprintf("%d/%d", view.Done, view.Total),
 		MaxWidth:   planPillMaxWidth,
 		OnClick: func() {
-			s.composerView.planPillOpen = !s.composerView.planPillOpen
+			togglePopoverOpen(&s.composerView.planPillOpen)
 		},
 		PopoverKey:     "composer-plan-popover",
 		PopoverOpen:    &s.composerView.planPillOpen,

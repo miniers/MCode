@@ -1,6 +1,10 @@
 package mcodeui
 
-import "github.com/egoist/mygo/ui"
+import (
+	"sync"
+
+	"github.com/egoist/mygo/ui"
+)
 
 type PopoverAlign int
 
@@ -29,8 +33,66 @@ type anchoredPopoverProps struct {
 	OnDismiss                     func()
 }
 
+var (
+	popoverToggleMu        sync.Mutex
+	popoverAnchorDismissed = make(map[*bool]struct{})
+)
+
+// togglePopoverOpen 统一切换浮层开合状态并防止锚点二次点击「先关后开」：
+// 若当前已打开则置为 false；若刚因交互锚点被 PopoverBase 关闭则消费该标记并保持 false；
+// 其余情况置为 true。返回值表示调用后浮层是否处于打开状态。
+func togglePopoverOpen(open *bool) bool {
+	if open == nil {
+		return false
+	}
+	popoverToggleMu.Lock()
+	_, dismissedByAnchor := popoverAnchorDismissed[open]
+	delete(popoverAnchorDismissed, open)
+	popoverToggleMu.Unlock()
+	if *open {
+		*open = false
+		return false
+	}
+	if dismissedByAnchor {
+		*open = false
+		return false
+	}
+	*open = true
+	return true
+}
+
+func markPopoverAnchorDismissed(open *bool) {
+	if open == nil {
+		return
+	}
+	popoverToggleMu.Lock()
+	popoverAnchorDismissed[open] = struct{}{}
+	popoverToggleMu.Unlock()
+}
+
+func clearStalePopoverAnchorDismissed(open *bool, anchor ui.Element) {
+	if open == nil {
+		return
+	}
+	popoverToggleMu.Lock()
+	_, exists := popoverAnchorDismissed[open]
+	popoverToggleMu.Unlock()
+	if !exists {
+		return
+	}
+	if !anchor.Pressed() && !anchor.Clicked() {
+		popoverToggleMu.Lock()
+		delete(popoverAnchorDismissed, open)
+		popoverToggleMu.Unlock()
+	}
+}
+
 func anchoredPopover(c *ui.Context, anchor ui.Element, p anchoredPopoverProps, content func(ui.Element)) ui.Element {
-	if p.Open == nil || !*p.Open {
+	if p.Open == nil {
+		return ui.Element{}
+	}
+	if !*p.Open {
+		clearStalePopoverAnchorDismissed(p.Open, anchor)
 		return ui.Element{}
 	}
 	ctx := c
@@ -62,8 +124,13 @@ func anchoredPopover(c *ui.Context, anchor ui.Element, p anchoredPopoverProps, c
 			content(panel)
 		}
 	})
-	if panel.Dismissed() && p.OnDismiss != nil {
-		p.OnDismiss()
+	if panel.Dismissed() {
+		if anchor.Pressed() || anchor.Clicked() {
+			markPopoverAnchorDismissed(p.Open)
+		}
+		if p.OnDismiss != nil {
+			p.OnDismiss()
+		}
 	}
 	return panel
 }

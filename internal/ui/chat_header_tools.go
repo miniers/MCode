@@ -71,7 +71,7 @@ func renderHeaderScriptsMenuButton(c *ui.Context, s *chatState, threadID string)
 		Label:  "运行项目脚本",
 		Active: hs.scriptsMenuOpen,
 		OnClick: func() {
-			hs.scriptsMenuOpen = !hs.scriptsMenuOpen
+			togglePopoverOpen(&hs.scriptsMenuOpen)
 			closeProjectActionMenus(hs, "scripts")
 			hs.titleMenuOpen = false
 			hs.branchMenuOpen = false
@@ -289,7 +289,7 @@ func renderHeaderOpenInButton(c *ui.Context, s *chatState, threadID string) {
 		Label:  "在其它应用中打开",
 		Active: hs.openInMenuOpen,
 		OnClick: func() {
-			hs.openInMenuOpen = !hs.openInMenuOpen
+			togglePopoverOpen(&hs.openInMenuOpen)
 			closeProjectActionMenus(hs, "openin")
 			hs.titleMenuOpen = false
 			hs.branchMenuOpen = false

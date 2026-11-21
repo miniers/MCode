@@ -32,8 +32,8 @@ func popoverRiseOffset(panel, anchor ui.Element) float32 {
 // 调用方只需传入与原先一致的 c.Key(...) 作为锚点；onDismiss 可为 nil。
 //
 // 返回值在面板打开时非空，可用 Dismissed() 判断本轮是否因点外部或 Esc 被关闭。
-// 注意：按钮自己的 OnClick 里若把开合状态取反，点按钮本身时会与 PopoverBase 写入的
-// 关闭相互抵消（先关后开），需要 onDismiss 或“打开时不取反”的判断来避免。
+// 注意：按钮自己的 OnClick 里若直接把开合状态取反，点按钮本身时可能与 PopoverBase
+// 写入的关闭相互抵消（先关后开），应统一调用 togglePopoverOpen(open) 切换开合状态。
 func appPopover(c *ui.Context, anchor ui.Element, open *bool, onDismiss func(), fn func()) ui.Element {
 	return anchoredPopover(c, anchor, anchoredPopoverProps{Open: open, OnDismiss: onDismiss}, func(_ ui.Element) { fn() })
 }

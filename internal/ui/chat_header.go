@@ -664,13 +664,13 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 	}
 
 	trigger := ui.ButtonBase(c.Key("chat-header-git-branch-btn")).Label("Git 分支").Height(ControlSM).Padding(0, Space3).Radius(RadiusSM).Gap(Space2).AlignItems(ui.Center).Border(Hairline, ThemeBorder(c)).Background(ThemeOverlay(c, OverlaySubtle)).Transition(motionFeedback(c)).OnClick(func() {
-		hs.branchMenuOpen = !hs.branchMenuOpen
+		opened := togglePopoverOpen(&hs.branchMenuOpen)
 		hs.titleMenuOpen = false
 		hs.commitMenuOpen = false
 		chatHeaderMu.Lock()
 		hs.branchErr = ""
 		chatHeaderMu.Unlock()
-		if hs.branchMenuOpen {
+		if opened {
 			s.loadGitState(threadID)
 			openBranchPopover(s, threadID)
 		}
@@ -1349,12 +1349,12 @@ func renderHeaderPermissionCapsule(c *ui.Context, s *chatState, threadID string)
 		Label:  label,
 		Active: hs.permissionMenuOpen,
 		OnClick: func() {
-			hs.permissionMenuOpen = !hs.permissionMenuOpen
+			opened := togglePopoverOpen(&hs.permissionMenuOpen)
 			closeProjectActionMenus(hs, "permission")
 			hs.titleMenuOpen = false
 			hs.branchMenuOpen = false
 			hs.commitMenuOpen = false
-			if hs.permissionMenuOpen {
+			if opened {
 				// 打开菜单时强制刷新一次人设，网关上新增的人设不必等下次重启就能看到。
 				s.loadHeaderPersonas(provider, model, true)
 			}
@@ -1757,7 +1757,7 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 			renderChatHeaderActionGroup(c, s, selectedID)
 			if collapsed {
 				more := IconButton(c, IconButtonProps{Key: "chat-header-more-btn", Icon: IconMoreHorizontal(), Size: ControlMD, Variant: ButtonGhost,
-					Label: "更多头部操作", Active: ts.morePopoverOpen, OnClick: func() { ts.morePopoverOpen = !ts.morePopoverOpen }})
+					Label: "更多头部操作", Active: ts.morePopoverOpen, OnClick: func() { togglePopoverOpen(&ts.morePopoverOpen) }})
 				PopoverCard(c, more, PopoverProps{Key: "chat-header-more-popover", Open: &ts.morePopoverOpen, Align: BelowEnd}, func() {
 					renderChatHeaderAuxGroup(c, s)
 				})
@@ -1902,7 +1902,7 @@ func renderChatHeaderAuxGroup(c *ui.Context, s *chatState) {
 		}},
 		{true, func() {
 			ui.Row(c.Key("chat-header-aux-more-wrap")).Children(func() {
-				trigger := IconButton(c, IconButtonProps{Key: "chat-header-aux-more-btn", Icon: IconMoreHorizontal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "更多工具", Tooltip: "更多", Active: hs.auxMenuOpen, OnClick: func() { hs.auxMenuOpen = !hs.auxMenuOpen }})
+				trigger := IconButton(c, IconButtonProps{Key: "chat-header-aux-more-btn", Icon: IconMoreHorizontal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "更多工具", Tooltip: "更多", Active: hs.auxMenuOpen, OnClick: func() { togglePopoverOpen(&hs.auxMenuOpen) }})
 				if pendingProposals > 0 {
 					renderGitCountBadge(c, "chat-header-memory-badge", pendingProposals)
 				}

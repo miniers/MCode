@@ -184,7 +184,7 @@ func renderSidebarStewardRow(c *ui.Context, s *chatState, threadID string) {
 		if count > 0 {
 			renderAttentionCountBadge(c, "sidebar-steward-attention", fmt.Sprintf("待处理 %d 条", count), count).
 				OnClick(func() {
-					st.open = !st.open
+					togglePopoverOpen(&st.open)
 					s.invalidate()
 				})
 		}

@@ -473,7 +473,7 @@ func renderComposerPlanPill(c *ui.Context, s *chatState, threadID string) {
 		MaxWidth(planPillMaxWidth).
 		Border(Hairline, ThemeBorder(c)).
 		OnClick(func() {
-			s.composerView.planPillOpen = !s.composerView.planPillOpen
+			togglePopoverOpen(&s.composerView.planPillOpen)
 		})
 	// 与排队、改动胶囊同一套浅底胶囊的悬停/展开反馈。
 	composerHoverBg(c, pill, pill.Hovered() || s.composerView.planPillOpen)

@@ -87,7 +87,7 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 				Label:   "添加项目",
 				Tooltip: "添加项目",
 				OnClick: func() {
-					fs.addProjectOpen = !fs.addProjectOpen
+					togglePopoverOpen(&fs.addProjectOpen)
 					s.invalidate()
 				},
 			})
