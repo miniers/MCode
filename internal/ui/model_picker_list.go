@@ -488,15 +488,15 @@ func renderModelPickerAgentHeader(c *ui.Context, key string, icon func(), title 
 func renderModelPickerFollowLeadRow(c *ui.Context, p ModelPickerProps, state *ModelPickerState) {
 	selected := modelPickerSideInfo(p, ModelPickerSideBees).FollowsLead
 	disabled := p.Disabled || p.BeesDisabled
-	tip := "跟随主导模型"
+	tip := "跟随主"
 	if disabled {
 		tip = modelSideDisabledReason(p.Disabled, p.BeesDisabled)
 	}
 	row := menuRow(c, menuRowProps{
 		Key:         p.KeyPrefix + "follow-lead-row",
-		Label:       "跟随主导模型",
+		Label:       "跟随主",
 		Icon:        IconByName("merge"),
-		Title:       "跟随主导模型",
+		Title:       "跟随主",
 		Checked:     selected,
 		Disabled:    disabled,
 		Highlighted: !disabled && selected,
@@ -548,7 +548,7 @@ func renderModelPickerPairsSection(c *ui.Context, p ModelPickerProps, state *Mod
 func renderModelPickerBackButton(c *ui.Context, keyPrefix string, onBack func()) {
 	btn := ui.ButtonBase(c.Key(keyPrefix+"model-list-back")).
 		Label("返回").
-		Tooltip("返回推理强度").
+		Tooltip("返回").
 		Size(ControlMD, ControlMD).
 		Radius(RadiusSM).
 		Shrink(0).
@@ -663,7 +663,7 @@ func renderModelPickerListRow(c *ui.Context, p ModelPickerProps, opt modelRowOpt
 	if opt.IsLocked {
 		tip := opt.LockedReason
 		if tip == "" {
-			tip = "已有消息，只能切换到当前 Agent 的模型（下回合生效）"
+			tip = "仅可切换同一 Agent 的模型"
 		}
 		btn.Disabled(true).Opacity(0.45).Background(ui.Transparent).Tooltip(tip)
 	} else {

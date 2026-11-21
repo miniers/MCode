@@ -190,9 +190,9 @@ func effortThumbLabel(e string) string {
 // role 取 "lead" 或 "bees"；调用方应传入已回退到模型默认档位的 effort，
 // effort 仍为空时只显示角色名；bees 在 off 时返回“执行 · 关闭”。
 func swarmSideTabLabel(role string, effort string, off bool) string {
-	name := "子代理"
+	name := "子"
 	if role == "lead" {
-		name = "主代理"
+		name = "主"
 	}
 	effText := ""
 	if strings.TrimSpace(effort) != "" {
@@ -229,7 +229,7 @@ const effortResetButtonSize = float32(24)
 func renderEffortResetButton(c *ui.Context, p EffortSliderCardProps) {
 	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"effort-reset-btn")).
 		Label("重置强度与快速模式").
-		Tooltip(effortLockedTip(p, "重置强度与快速模式")).
+		Tooltip(effortLockedTip(p, "重置")).
 		Disabled(p.Disabled).
 		Size(effortResetButtonSize, effortResetButtonSize).
 		Radius(RadiusPill).
@@ -274,7 +274,7 @@ func renderPairFavButton(c *ui.Context, p EffortSliderCardProps) {
 	if fav.Matched {
 		icon = IconStarFilled()
 		label = "已保存为配对"
-		tip = "已保存为配对：" + fav.Name + "（点击取消）"
+		tip = "取消配对"
 		color = ColorAccentDark
 	}
 
@@ -385,15 +385,13 @@ func renderFastModeButton(c *ui.Context, p EffortSliderCardProps) {
 		return
 	}
 	state := "关闭"
-	tip := "快速模式"
 	if p.FastMode {
 		state = "开启"
-		tip = "快速模式已开启"
 	}
 	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"fast-mode-btn")).
 		Label("快速模式").
 		Value(state).
-		Tooltip(effortLockedTip(p, tip)).
+		Tooltip(effortLockedTip(p, "快速模式")).
 		Disabled(p.Disabled).
 		Checked(p.FastMode).
 		Size(effortCardButtonSize, effortCardButtonSize).
@@ -1104,7 +1102,7 @@ func renderEffortSliderSection(c *ui.Context, p EffortSliderCardProps) {
 			Center().
 			Height(effortThumbD).
 			Children(func() {
-				ui.Text(c, "该模型未提供可调的推理强度").
+				ui.Text(c, "不支持调节强度").
 					FontSize(uiFont(TypeFootnote)).
 					TextColor(ColorTextSecondaryDark)
 			})
@@ -1161,10 +1159,7 @@ func renderEffortRosterToolbar(c *ui.Context, p EffortSliderCardProps) {
 
 func renderEffortSwarmCapsule(c *ui.Context, p EffortSliderCardProps) {
 	interactive := p.OnToggleSwarm != nil && !p.Disabled
-	tip := "开启编排模式"
-	if p.SwarmOn {
-		tip = "关闭编排模式"
-	}
+	tip := "编排"
 	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"avatar-btn")).
 		Label("编排开关").
 		Value(map[bool]string{true: "开启", false: "关闭"}[p.SwarmOn]).
@@ -1255,7 +1250,7 @@ func renderToolbarPairFavButton(c *ui.Context, p EffortSliderCardProps) {
 	if fav.Matched {
 		icon = IconStarFilled()
 		label = "已保存为配对"
-		tip = "已保存为配对：" + fav.Name + "（点击取消）"
+		tip = "取消配对"
 		iconColor = effortBoltYellow
 	}
 
@@ -1295,15 +1290,13 @@ func renderToolbarPairFavButton(c *ui.Context, p EffortSliderCardProps) {
 
 func renderToolbarFastModeButton(c *ui.Context, p EffortSliderCardProps) {
 	state := "关闭"
-	tip := "快速模式"
 	if p.FastMode {
 		state = "开启"
-		tip = "快速模式已开启"
 	}
 	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"fast-mode-btn")).
 		Label("快速模式").
 		Value(state).
-		Tooltip(effortLockedTip(p, tip)).
+		Tooltip(effortLockedTip(p, "快速模式")).
 		Disabled(p.Disabled).
 		Checked(p.FastMode).
 		Size(effortToolbarBtnSize, effortToolbarBtnSize).
@@ -1339,7 +1332,7 @@ func renderToolbarFastModeButton(c *ui.Context, p EffortSliderCardProps) {
 func renderToolbarResetButton(c *ui.Context, p EffortSliderCardProps) {
 	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"effort-reset-btn")).
 		Label("重置强度与快速模式").
-		Tooltip(effortLockedTip(p, "重置强度与快速模式")).
+		Tooltip(effortLockedTip(p, "重置")).
 		Disabled(p.Disabled).
 		Size(effortToolbarBtnSize, effortToolbarBtnSize).
 		Radius(RadiusMD).

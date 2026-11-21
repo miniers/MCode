@@ -450,7 +450,7 @@ func TestComposerModel_LeadEffort(t *testing.T) {
 		t.Fatalf("click model trigger failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("主代理") && tt.HasText("子代理") && tt.HasText("Med")
+		return magpieTestHasExactText(tt, "主") && magpieTestHasExactText(tt, "子") && tt.HasText("Med")
 	})
 	// 滑轨拖到最右端选中最高档 High。
 	clickEffortSlider(t, tt, 1)
@@ -483,17 +483,17 @@ func TestComposerModel_BeesModel(t *testing.T) {
 	if err := tt.Click("选择模型"); err != nil {
 		t.Fatalf("click model trigger failed: %v", err)
 	}
-	if !waitText(t, tt, "子代理") {
-		t.Fatalf("bees slot not rendered")
-	}
-	// 点击“子代理”行切到执行侧，再点击进入模型列表
-	if err := tt.Click("子代理"); err != nil {
+	waitFor(t, tt, func() bool {
+		return magpieTestHasExactText(tt, "子")
+	})
+	// 点击“子”行切到执行侧，再点击进入模型列表
+	if err := tt.Click("子"); err != nil {
 		t.Fatalf("click bees slot failed: %v", err)
 	}
 	if err := tt.Click("选择其他模型"); err != nil {
 		t.Fatalf("click choose model failed: %v", err)
 	}
-	if !waitText(t, tt, "跟随主导模型") {
+	if !waitText(t, tt, "跟随主") {
 		t.Fatalf("bees list should offer follow-lead")
 	}
 	// 执行侧列表按 Agent 分栏：切到 Codex 才能看到它的模型。
@@ -537,9 +537,9 @@ func TestComposerModel_BeesEffort(t *testing.T) {
 		t.Fatalf("click model trigger failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("子代理") && tt.HasText("Med")
+		return magpieTestHasExactText(tt, "子") && tt.HasText("Med")
 	})
-	if err := tt.Click("子代理"); err != nil {
+	if err := tt.Click("子"); err != nil {
 		t.Fatalf("click Bees slot failed: %v", err)
 	}
 	tt.Frame()
@@ -731,14 +731,14 @@ func TestComposerModel_SwarmSideTabs(t *testing.T) {
 
 	// 卡片页以双槽同屏呈现主/子代理与英文短档位，不再渲染顶部重复分段栏。
 	waitFor(t, tt, func() bool {
-		return tt.HasText("主代理") && tt.HasText("子代理") && tt.HasText("Med") && tt.HasText("High")
+		return magpieTestHasExactText(tt, "主") && magpieTestHasExactText(tt, "子") && tt.HasText("Med") && tt.HasText("High")
 	})
-	if tt.HasText("主代理 · Medium") || tt.HasText("子代理 · High") {
+	if tt.HasText("主 · Medium") || tt.HasText("子 · High") {
 		t.Fatalf("card page should not render top segmented tabs: %v", tt.Texts())
 	}
 }
 
-// 覆盖：Efforts 为空时出现“该模型未提供可调的推理强度”且不渲染滑条。
+// 覆盖：Efforts 为空时出现“不支持调节强度”且不渲染滑条。
 func TestComposerModel_EffortsEmpty(t *testing.T) {
 	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
@@ -775,7 +775,7 @@ func TestComposerModel_EffortsEmpty(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("该模型未提供可调的推理强度")
+		return tt.HasText("不支持调节强度")
 	})
 
 	// 确认不渲染滑条刻度
@@ -836,7 +836,7 @@ func TestComposerModel_BeesOffTabEnablesSwarm(t *testing.T) {
 		renderSwarmSideTabs(c, s, &th, false)
 	}, 330, 100)
 	tt.Frame()
-	if err := tt.Click("子代理 · 关闭"); err != nil {
+	if err := tt.Click("子 · 关闭"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {

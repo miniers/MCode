@@ -106,7 +106,7 @@ func TestEffortSliderCardSingleLevel(t *testing.T) {
 		renderEffortSliderCard(c, EffortSliderCardProps{})
 	}, 330, 240)
 	tt.Frame()
-	if !tt.HasText("该模型未提供可调的推理强度") {
+	if !tt.HasText("不支持调节强度") {
 		t.Fatalf("expected no-effort hint: %v", tt.Texts())
 	}
 	if _, ok := tt.Find("推理强度"); ok {
@@ -117,7 +117,7 @@ func TestEffortSliderCardSingleLevel(t *testing.T) {
 		renderEffortSliderCard(c, EffortSliderCardProps{Efforts: []string{"medium"}})
 	}, 330, 240)
 	tt.Frame()
-	if tt.HasText("该模型未提供可调的推理强度") {
+	if tt.HasText("不支持调节强度") {
 		t.Fatalf("single-level model must not show the no-effort hint: %v", tt.Texts())
 	}
 	if _, ok := tt.Find("推理强度"); !ok {
@@ -210,14 +210,14 @@ func TestSwarmSideTabLabel(t *testing.T) {
 		off          bool
 		want         string
 	}{
-		{"lead", "medium", false, "主代理 · Medium"},
-		{"lead", "xhigh", false, "主代理 · Extra High"},
-		{"lead", "", false, "主代理"},
-		{"bees", "max", false, "子代理 · Max"},
-		{"bees", "HIGH", false, "子代理 · High"},
-		{"bees", "", false, "子代理"},
-		{"bees", "high", true, "子代理 · 关闭"},
-		{"bees", "", true, "子代理 · 关闭"},
+		{"lead", "medium", false, "主 · Medium"},
+		{"lead", "xhigh", false, "主 · Extra High"},
+		{"lead", "", false, "主"},
+		{"bees", "max", false, "子 · Max"},
+		{"bees", "HIGH", false, "子 · High"},
+		{"bees", "", false, "子"},
+		{"bees", "high", true, "子 · 关闭"},
+		{"bees", "", true, "子 · 关闭"},
 	}
 	for _, tc := range cases {
 		if got := swarmSideTabLabel(tc.role, tc.effort, tc.off); got != tc.want {
@@ -533,7 +533,7 @@ func TestEffortSliderCardShowsModelTitleAndPillTier(t *testing.T) {
 
 // 测试禁用时各控件 Tooltip 使用卡片给出的禁用原因。
 func TestEffortLockedTip(t *testing.T) {
-	if got := effortLockedTip(EffortSliderCardProps{LockedReason: "  "}, "重置强度与快速模式"); got != "重置强度与快速模式" {
+	if got := effortLockedTip(EffortSliderCardProps{LockedReason: "  "}, "重置"); got != "重置" {
 		t.Fatalf("empty reason should fall back, got %q", got)
 	}
 	if got := effortLockedTip(EffortSliderCardProps{LockedReason: "未开启 Swarm 时执行侧不可设置"}, "x"); got != "未开启 Swarm 时执行侧不可设置" {
@@ -596,7 +596,7 @@ func TestEffortSliderCardRosterPairedLayout(t *testing.T) {
 				Roster: []EffortRosterSlot{
 					{
 						Key:         "lead",
-						Role:        "主代理",
+						Role:        "主",
 						ProviderID:  "claude",
 						ModelTitle:  "Claude Opus 4.6",
 						EffortLabel: "High",
@@ -606,7 +606,7 @@ func TestEffortSliderCardRosterPairedLayout(t *testing.T) {
 					},
 					{
 						Key:         "bees",
-						Role:        "子代理",
+						Role:        "子",
 						ProviderID:  "codex",
 						ModelTitle:  "o3-mini",
 						EffortLabel: "Med",
@@ -620,8 +620,8 @@ func TestEffortSliderCardRosterPairedLayout(t *testing.T) {
 	}, modelPickerPanelWidth, 300)
 	tt.Frame()
 
-	for _, want := range []string{"编排", "主代理", "Claude Opus 4.6", "High", "子代理", "o3-mini", "Med"} {
-		if !tt.HasText(want) {
+	for _, want := range []string{"编排", "主", "Claude Opus 4.6", "High", "子", "o3-mini", "Med"} {
+		if !magpieTestHasExactText(tt, want) {
 			t.Fatalf("缺少文案 %q, texts=%v", want, tt.Texts())
 		}
 	}
@@ -635,7 +635,7 @@ func TestEffortSliderCardRosterPairedLayout(t *testing.T) {
 		t.Fatalf("缺少顶栏收藏配对按钮: %v", tt.AccessAll())
 	}
 
-	if err := tt.Click("子代理"); err != nil {
+	if err := tt.Click("子"); err != nil {
 		t.Fatalf("点击未激活子代理行失败: %v", err)
 	}
 	if selectBeesCalls != 1 {

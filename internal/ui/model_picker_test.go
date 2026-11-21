@@ -198,19 +198,19 @@ func TestModelSideDisabledReason(t *testing.T) {
 
 // 测试分段标签：档位用英文名（与 modelEffortTitle 一致），档位为空时只显示角色名，执行侧另给“关闭”态。
 func TestSwarmSideTabLabel_BeesOff(t *testing.T) {
-	if got := swarmSideTabLabel("bees", "high", true); got != "子代理 · 关闭" {
+	if got := swarmSideTabLabel("bees", "high", true); got != "子 · 关闭" {
 		t.Fatalf("bees off = %q", got)
 	}
-	if got := swarmSideTabLabel("bees", "high", false); got != "子代理 · High" {
+	if got := swarmSideTabLabel("bees", "high", false); got != "子 · High" {
 		t.Fatalf("bees on = %q", got)
 	}
-	if got := swarmSideTabLabel("bees", "", false); got != "子代理" {
+	if got := swarmSideTabLabel("bees", "", false); got != "子" {
 		t.Fatalf("bees without effort = %q", got)
 	}
-	if got := swarmSideTabLabel("lead", "medium", false); got != "主代理 · Medium" {
+	if got := swarmSideTabLabel("lead", "medium", false); got != "主 · Medium" {
 		t.Fatalf("lead with effort = %q", got)
 	}
-	if got := swarmSideTabLabel("lead", "", false); got != "主代理" {
+	if got := swarmSideTabLabel("lead", "", false); got != "主" {
 		t.Fatalf("lead without effort = %q", got)
 	}
 }
@@ -439,7 +439,7 @@ func TestModelPickerMenuBody_KeepsBeesTabUntilSwarmOn(t *testing.T) {
 		renderModelPickerMenuBody(c, props(), state)
 	}, modelPickerPanelWidth, 400)
 	tt.Frame()
-	if tt.HasText("子代理") {
+	if magpieTestHasExactText(tt, "子") {
 		t.Fatalf("Swarm 关闭时不应渲染子代理槽: %v", tt.Texts())
 	}
 	if err := tt.Click("编排开关"); err != nil {
@@ -454,7 +454,7 @@ func TestModelPickerMenuBody_KeepsBeesTabUntilSwarmOn(t *testing.T) {
 	}
 	swarmOn = true
 	tt.Frame()
-	if !tt.HasText("子代理") {
+	if !magpieTestHasExactText(tt, "子") {
 		t.Fatalf("Swarm 生效后应展示子代理槽: %v", tt.Texts())
 	}
 }
@@ -509,7 +509,7 @@ func TestModelPickerCard_PiSlashModelIDKeepsEfforts(t *testing.T) {
 				})
 			}, 320, 640)
 			tt.Frame()
-			if tt.HasText("该模型未提供可调的推理强度") {
+			if tt.HasText("不支持调节强度") {
 				t.Fatalf("模型 %q 应渲染滑杆，而不是空态文案: %v", model, tt.Texts())
 			}
 			info, ok := tt.Access("推理强度")
@@ -894,7 +894,7 @@ func TestModelPickerCardUsesSelectedSide(t *testing.T) {
 		OnEffort:  func(side ModelPickerSide, effort string) { gotSide, gotEffort = side, effort },
 	}
 	tt := ui.NewTester(func(c *ui.Context) { renderModelPickerMenuBody(c, props, state) }, modelPickerPanelWidth, 600)
-	if err := tt.Click("子代理"); err != nil {
+	if err := tt.Click("子"); err != nil {
 		t.Fatal(err)
 	}
 	if !tt.HasText("o3-mini") || !tt.HasText("Claude 3.7 Sonnet") {
@@ -921,7 +921,7 @@ func TestModelPickerFollowLeadOnlyOnBeesList(t *testing.T) {
 		tt := ui.NewTester(func(c *ui.Context) {
 			renderModelPickerListPage(c, props, state, side)
 		}, 330, 640)
-		if got := tt.HasText("跟随主导模型"); got != (side == ModelPickerSideBees) {
+		if got := tt.HasText("跟随主"); got != (side == ModelPickerSideBees) {
 			t.Fatalf("side=%v 的竖栏跟随入口存在=%v", side, got)
 		}
 	}
@@ -1032,7 +1032,7 @@ func TestModelPickerTabSwitchKeepsListOpen(t *testing.T) {
 	if !tt.HasText("Claude 3.7 Sonnet") {
 		t.Fatalf("主导侧列表未展开: %v", tt.Texts())
 	}
-	if err := tapTextErr(t, tt, "子代理"); err != nil {
+	if err := tapTextErr(t, tt, "子"); err != nil {
 		t.Fatalf("点击子代理分段失败：%v", err)
 	}
 	if state.Tab != "bees" {
@@ -1386,14 +1386,14 @@ func TestModelPickerGrouped_BeesSwarmFollowLeadRow(t *testing.T) {
 	}, 330, 640)
 	settleModelPickerPage(tt)
 
-	if !tt.HasText("跟随主导模型") {
-		t.Fatalf("Bees 侧 Swarm 模式应显示「跟随主导模型」行: %v", tt.Texts())
+	if !tt.HasText("跟随主") {
+		t.Fatalf("Bees 侧 Swarm 模式应显示「跟随主」行: %v", tt.Texts())
 	}
-	if err := tt.Click("跟随主导模型"); err != nil {
-		t.Fatalf("点击跟随主导模型失败: %v", err)
+	if err := tt.Click("跟随主"); err != nil {
+		t.Fatalf("点击跟随主失败: %v", err)
 	}
 	if !followed {
-		t.Fatal("点击「跟随主导模型」应调用 OnFollowLead")
+		t.Fatal("点击「跟随主」应调用 OnFollowLead")
 	}
 }
 
@@ -2508,17 +2508,17 @@ func TestMaxBeesMenuSelection(t *testing.T) {
 	}, 360, 400)
 	settleModelPickerPage(tt)
 
-	if err := tt.Click("最多 4 个"); err != nil {
+	if err := tt.Click("4 个"); err != nil {
 		t.Fatalf("打开并发上限菜单失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("自动（每个主代理最多 8 个）") && tt.HasText("最多 6 个")
+		return tt.HasText("自动（8）") && magpieTestHasExactText(tt, "6 个")
 	})
-	clickWhenSettled(t, tt, "最多 6 个")
+	clickWhenSettled(t, tt, "6 个")
 	tt.Frame()
 
 	if got != 6 {
-		t.Fatalf("选中「最多 6 个」后 OnSetMaxBees = %d，期望 6", got)
+		t.Fatalf("选中「6 个」后 OnSetMaxBees = %d，期望 6", got)
 	}
 	if state.MaxBeesOpen {
 		t.Fatal("选中并发上限后应关闭菜单")
@@ -2614,12 +2614,12 @@ func TestModelPickerPairedRosterShowsBothModelsAndToolbarStar(t *testing.T) {
 	tt.Frame()
 
 	// 卡片页不再渲染顶部重复分段栏。
-	if tt.HasText("主代理 · High") || tt.HasText("子代理 · High") {
+	if tt.HasText("主 · High") || tt.HasText("子 · High") {
 		t.Fatalf("卡片页不应渲染顶部重复分段栏: %v", tt.Texts())
 	}
 	// 主/子两行同屏展示，且顶栏存在收藏星标。
-	for _, want := range []string{"主代理", "Claude 3.7 Sonnet", "子代理", "o3-mini", "High"} {
-		if !tt.HasText(want) {
+	for _, want := range []string{"主", "Claude 3.7 Sonnet", "子", "o3-mini", "High"} {
+		if !magpieTestHasExactText(tt, want) {
 			t.Fatalf("缺少文案 %q: %v", want, tt.Texts())
 		}
 	}
@@ -2628,7 +2628,7 @@ func TestModelPickerPairedRosterShowsBothModelsAndToolbarStar(t *testing.T) {
 	}
 
 	// 切到子代理行后，主/子模型继续同屏展示，且顶栏收藏星标依然可见并可点击保存。
-	if err := tt.Click("子代理"); err != nil {
+	if err := tt.Click("子"); err != nil {
 		t.Fatalf("点击子代理行失败: %v", err)
 	}
 	tt.Frame()
@@ -2654,7 +2654,7 @@ func TestModelPickerPairedRosterShowsBothModelsAndToolbarStar(t *testing.T) {
 	if swarmOn {
 		t.Fatal("点击编排开关应关闭编排")
 	}
-	if !tt.HasText("Claude 3.7 Sonnet") || tt.HasText("o3-mini") || tt.HasText("子代理") {
+	if !tt.HasText("Claude 3.7 Sonnet") || tt.HasText("o3-mini") || magpieTestHasExactText(tt, "子") {
 		t.Fatalf("关闭编排后应只留主代理 1 行: %v", tt.Texts())
 	}
 }

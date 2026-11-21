@@ -1371,7 +1371,7 @@ func renderModelPickerSideTabs(c *ui.Context, p ModelPickerProps, state *ModelPi
 			tabBtn.Scale(scale, scale)
 			tabBtn.Background(ui.Transparent)
 			if item.id == "bees" && !p.SwarmOn {
-				tabBtn.Tooltip("未开启编排时执行侧不可设置，点击会先开启编排")
+				tabBtn.Tooltip("点击开启编排")
 			}
 			// 未开启 Swarm 时执行段整体半透明。
 			opacity := 1.0
@@ -1408,7 +1408,7 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 	modelTitle := modelPickerModelTitle(p.Providers, cur)
 	var subtitle string
 	if side == ModelPickerSideBees && bees.FollowsLead {
-		subtitle = "跟随主代理"
+		subtitle = "跟随主"
 	}
 	var subtitlePair string
 	if side == ModelPickerSideLead && paired {
@@ -1505,7 +1505,7 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 		}
 		leadRole := ""
 		if p.Mode == ModelPickerSwarm {
-			leadRole = "主代理"
+			leadRole = "主"
 		}
 		leadEffort := ""
 		if len(lead.Model.Efforts) > 0 {
@@ -1536,12 +1536,12 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 			}
 			beesPlaceholder := ""
 			if bees.FollowsLead {
-				beesPlaceholder = "跟随主代理"
+				beesPlaceholder = "跟随主"
 			}
 			beesBrand := modelBrandKey(bees.Selection.Provider, bees.Selection.Model, modelPickerDisplayName(p.Providers, bees.Selection.Provider, bees.Selection.Model))
 			roster = append(roster, EffortRosterSlot{
 				Key:         "bees",
-				Role:        "子代理",
+				Role:        "子",
 				BrandID:     beesBrand,
 				ProviderID:  bees.Selection.Provider,
 				ModelTitle:  modelPickerModelTitle(p.Providers, bees),
@@ -1587,15 +1587,15 @@ func renderModelPickerMaxBeesCapsule(c *ui.Context, p ModelPickerProps, state *M
 		curVal = 4
 	}
 
-	label := fmt.Sprintf("最多 %d 个", curVal)
+	label := fmt.Sprintf("%d 个", curVal)
 	if curVal == 0 {
 		// 0 实际按每个主代理最多 8 个执行（见 swarm.Manager 的 defaultMaxBees），不再是“不限”。
-		label = "自动（8）"
+		label = "自动"
 	}
 
 	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"bees-max-capsule")).
 		Label(label).
-		Tooltip("最多并发子代理数").
+		Tooltip("并发上限").
 		// 纵向 2 与卡片行内高度对齐，左右收紧为 Space2 使并发胶囊更紧凑。
 		Padding(Space0, Space2).
 		Radius(RadiusLG).
@@ -1643,13 +1643,13 @@ func renderModelPickerMaxBeesCapsule(c *ui.Context, p ModelPickerProps, state *M
 				val   int
 				label string
 			}{
-				{0, "自动（每个主代理最多 8 个）"},
-				{1, "最多 1 个"},
-				{2, "最多 2 个"},
-				{3, "最多 3 个"},
-				{4, "最多 4 个"},
-				{6, "最多 6 个"},
-				{8, "最多 8 个"},
+				{0, "自动（8）"},
+				{1, "1 个"},
+				{2, "2 个"},
+				{3, "3 个"},
+				{4, "4 个"},
+				{6, "6 个"},
+				{8, "8 个"},
 			}
 			for _, opt := range options {
 				o := opt

@@ -168,11 +168,11 @@ func TestComposerBeeTiers_RenderAndPick(t *testing.T) {
 	}
 
 	// 切换到 Bees 执行侧分段
-	// 该夹具的模型没有档位列表，子代理分段只显示角色名“子代理”。
+	// 该夹具的模型没有档位列表，子代理分段只显示角色名“子”。
 	waitFor(t, tt, func() bool {
-		return tt.HasText("子代理")
+		return magpieTestHasExactText(tt, "子")
 	})
-	if err := tt.Click("子代理"); err != nil {
+	if err := tt.Click("子"); err != nil {
 		t.Fatalf("click bees tab failed: %v", err)
 	}
 
@@ -298,9 +298,9 @@ func TestComposerBeeTiers_SingleTierReset(t *testing.T) {
 		t.Fatalf("click model trigger failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("子代理")
+		return magpieTestHasExactText(tt, "子")
 	})
-	if err := tt.Click("子代理"); err != nil {
+	if err := tt.Click("子"); err != nil {
 		t.Fatalf("click bees tab failed: %v", err)
 	}
 	if err := tt.Click("选择其他模型"); err != nil {
