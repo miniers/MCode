@@ -170,11 +170,42 @@ func TestStewardBoardClickTask(t *testing.T) {
 	if err := tt.Click("测试任务"); err != nil {
 		t.Fatal(err)
 	}
+	tt.Frame()
 	s.mu.Lock()
-	selected, snapshot := s.selectedThreadID, s.stewardTask
+	selected, detailID := s.selectedThreadID, s.stewardBoard.detailTaskID
+	s.mu.Unlock()
+	if selected != "steward" {
+		t.Fatalf("点击总管任务不应强行切离总管会话, got %q", selected)
+	}
+	if detailID != task.ID {
+		t.Fatalf("detailTaskID=%q, want %q", detailID, task.ID)
+	}
+	if _, ok := tt.Find("steward-task-detail-sheet"); !ok {
+		t.Fatal("应挂载 steward-task-detail-sheet")
+	}
+	if _, ok := tt.Find("kanban-task-detail"); !ok {
+		t.Fatal("应渲染 kanban-task-detail")
+	}
+	for _, want := range []string{"结果", "改动", "会话", "打开会话"} {
+		if !tt.HasText(want) {
+			t.Fatalf("详情抽屉缺少 %q: %v", want, tt.Texts())
+		}
+	}
+	if err := tt.Click("打开会话"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	s.mu.Lock()
+	selected, snapshot, detailID := s.selectedThreadID, s.stewardTask, s.stewardBoard.detailTaskID
 	s.mu.Unlock()
 	if selected != task.ThreadID || snapshot.ID != task.ID {
 		t.Fatalf("selected=%q task=%q", selected, snapshot.ID)
+	}
+	if detailID != "" {
+		t.Fatalf("打开会话后应关闭详情弹层, detailTaskID=%q", detailID)
+	}
+	if _, ok := tt.Find("kanban-task-detail"); ok {
+		t.Fatal("打开会话后详情弹层应已卸载")
 	}
 }
 
@@ -230,14 +261,33 @@ func TestUIReview12_BadgePopoverClickCloses(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if s.stewardBoard.open {
+	s.mu.Lock()
+	open, detailID, selected := s.stewardBoard.open, s.stewardBoard.detailTaskID, s.selectedThreadID
+	s.mu.Unlock()
+	if open {
 		t.Fatal("从徽标浮层点击任务后 open 应为 false")
 	}
+	if detailID != task.ID {
+		t.Fatalf("从徽标浮层点击任务后应打开详情, detailTaskID=%q", detailID)
+	}
+	if selected != "steward" {
+		t.Fatalf("点击浮层任务不应强行切离总管会话, got %q", selected)
+	}
+	if _, ok := tt.Find("kanban-task-detail"); !ok {
+		t.Fatal("点击浮层任务后应弹出统一任务详情")
+	}
+	if err := tt.Click("打开会话"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
 	s.mu.Lock()
-	selected := s.selectedThreadID
+	selected, detailID = s.selectedThreadID, s.stewardBoard.detailTaskID
 	s.mu.Unlock()
 	if selected != "worker" {
-		t.Fatalf("点击任务后应跳转到工作线程, got %q", selected)
+		t.Fatalf("点击打开会话后应跳转到工作线程, got %q", selected)
+	}
+	if detailID != "" {
+		t.Fatalf("点击打开会话后应关闭详情弹层, detailTaskID=%q", detailID)
 	}
 }
 

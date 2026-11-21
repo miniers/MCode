@@ -60,6 +60,9 @@ func (s *chatState) closeTaskDetail() {
 	ks.detailConflict = false
 	ks.detailLoadID++
 	kanbanMu.Unlock()
+	s.mu.Lock()
+	s.stewardBoard.detailTaskID = ""
+	s.mu.Unlock()
 	modalDragReset(modalDragKanbanTaskDetail)
 	s.invalidate()
 }
@@ -132,10 +135,28 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 			return
 		}
 		busy := kanbanTaskBusy(ks, task.ID)
+		openExecutionThread := func(target KanbanTask) {
+			if target.ThreadID == "" {
+				return
+			}
+			if s.tasksWindowView == "" {
+				s.closeTaskDetail()
+				if isStewardTaskOrigin(target.Origin) {
+					openStewardTask(s, stewardResult{
+						Task:    target.ID,
+						Thread:  target.ThreadID,
+						Status:  target.Status,
+						Summary: target.ResultSummary,
+					})
+					return
+				}
+			}
+			s.revealThread(target.ThreadID)
+		}
 		var onOpenThread func()
 		if task.ThreadID != "" {
-			openThreadID := task.ThreadID
-			onOpenThread = func() { s.revealThread(openThreadID) }
+			curTask := *task
+			onOpenThread = func() { openExecutionThread(curTask) }
 		}
 		renderTaskDetailDrawerHeader(c, taskDetailDrawerHeaderOpts{
 			Key:           "kanban-detail-header",
@@ -147,6 +168,24 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 			ThreadID:      task.ThreadID,
 			OnOpenThread:  onOpenThread,
 			ExtraActions: func() {
+				if s.tasksWindowView == "" && s.openTasksWindowTargetFn != nil {
+					curTask := *task
+					Button(c.Key("kanban-detail-open-tasks-window"), ButtonOpts{
+						Text:    "在任务窗打开",
+						Label:   "在任务窗打开",
+						Variant: ButtonGhost,
+						Size:    ControlSM,
+						OnClick: func() {
+							s.closeTaskDetail()
+							s.openTasksWindowTarget(taskCenterTarget{
+								Kind:      "task",
+								ID:        curTask.ID,
+								ProjectID: curTask.ProjectID,
+								Title:     curTask.Title,
+							})
+						},
+					})
+				}
 				more := IconButton(c.Key("kanban-detail-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "任务更多操作", Variant: ButtonGhost, OnClick: func() { ks.detailMoreOpen = true }})
 				appPopover(c.Key("kanban-detail-more-popover"), more, &ks.detailMoreOpen, nil, func() {
 					popoverCard(c, ui.Column(c.Key("kanban-detail-more-menu"))).Padding(Space2).Gap(Space1).Children(func() {
@@ -292,7 +331,8 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 					})
 				case "session":
 					if task.ThreadID != "" {
-						Button(c.Key("kanban-detail-execution-thread"), ButtonOpts{Text: "执行会话", Label: "执行会话", OnClick: func() { s.revealThread(task.ThreadID) }})
+						curTask := *task
+						Button(c.Key("kanban-detail-execution-thread"), ButtonOpts{Text: "执行会话", Label: "执行会话", OnClick: func() { openExecutionThread(curTask) }})
 					}
 					if task.ReviewThreadID != "" {
 						Button(c.Key("kanban-detail-review-thread"), ButtonOpts{Text: "评审会话", Label: "评审会话", OnClick: func() { s.revealThread(task.ReviewThreadID) }})

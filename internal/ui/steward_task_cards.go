@@ -91,7 +91,7 @@ func stewardTaskSignal(task KanbanTask) string {
 
 func stewardTaskOpen(s *chatState, task KanbanTask) {
 	markStewardTaskSeen(s, task)
-	openStewardTask(s, stewardResult{Task: task.ID, Thread: task.ThreadID, Status: task.Status, Summary: task.ResultSummary})
+	openStewardTaskDetail(s, task)
 }
 
 func stewardTaskShouldCollapse(task KanbanTask, now time.Time) bool {
@@ -242,7 +242,12 @@ func renderStewardTaskChip(c *ui.Context, s *chatState, key string, task KanbanT
 	}
 	focusRing(c, chip)
 	if chip.Clicked() {
-		stewardTaskOpen(s, task)
+		if strings.HasPrefix(key, "steward-result-open-") {
+			markStewardTaskSeen(s, task)
+			openStewardTask(s, stewardResult{Task: task.ID, Thread: task.ThreadID, Status: task.Status, Summary: task.ResultSummary})
+		} else {
+			stewardTaskOpen(s, task)
+		}
 	}
 	chip.Children(func() {
 		if stewardTaskUnread(s, task) {

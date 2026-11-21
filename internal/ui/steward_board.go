@@ -31,6 +31,7 @@ type stewardBoardState struct {
 	loading, pending bool
 	tasks            []KanbanTask
 	open, doneOpen   bool
+	detailTaskID     string
 }
 
 var stewardBoardGroupsBuildCount atomic.Int64
@@ -127,6 +128,7 @@ func stopStewardBoardWatch(s *chatState) {
 	b.generation++
 	b.loading, b.pending = false, false
 	b.tasks = nil
+	b.detailTaskID = ""
 	b.rev++
 	stop := b.stop
 	b.stop = nil
@@ -140,6 +142,7 @@ func (s *chatState) syncStewardBoard(active bool) {
 	if !active || s.client == nil {
 		s.mu.Lock()
 		wasActive := s.stewardBoard.active
+		s.stewardBoard.detailTaskID = ""
 		s.mu.Unlock()
 		if wasActive {
 			stopStewardBoardWatch(s)
@@ -333,5 +336,58 @@ func renderStewardBoardBadge(c *ui.Context, s *chatState) {
 		popoverCard(c, ui.Column(c.Key("steward-board-popover-card"))).Width(stewardBoardWidth).MaxHeight(480).Children(func() {
 			renderStewardBoardList(c, s, groups)
 		})
+	})
+}
+
+func openStewardTaskDetail(s *chatState, task KanbanTask) {
+	if s == nil || task.ID == "" {
+		return
+	}
+	if ks := getKanbanState(s); ks != nil {
+		kanbanMu.Lock()
+		updated := false
+		for i := range ks.board.Tasks {
+			if ks.board.Tasks[i].ID == task.ID {
+				ks.board.Tasks[i] = task
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			ks.board.Tasks = append(ks.board.Tasks, task)
+		}
+		kanbanMu.Unlock()
+	}
+	s.mu.Lock()
+	s.stewardBoard.detailTaskID = task.ID
+	s.stewardBoard.open = false
+	s.mu.Unlock()
+	s.openTaskDetail(task)
+}
+
+func renderStewardTaskDetailSheet(c *ui.Context, s *chatState) {
+	if s == nil || s.tasksWindowView != "" {
+		return
+	}
+	s.mu.Lock()
+	detailTaskID := s.stewardBoard.detailTaskID
+	s.mu.Unlock()
+	if detailTaskID == "" {
+		return
+	}
+	ks := getKanbanState(s)
+	if ks == nil {
+		return
+	}
+	kanbanMu.Lock()
+	ksDetailTaskID := ks.detailTaskID
+	kanbanMu.Unlock()
+	if ksDetailTaskID == "" {
+		return
+	}
+	renderTaskDetailDrawerSheet(c, taskDetailDrawerSheetOpts{
+		SheetKey: "steward-task-detail-sheet",
+		OnClose:  s.closeTaskDetail,
+		Content:  func() { renderTaskDetailContent(c, s, ks) },
 	})
 }

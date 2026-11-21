@@ -106,6 +106,9 @@ func TestStewardTaskRowsMultiple(t *testing.T) {
 func TestStewardTaskChipsOpen(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.selectedThreadID = "steward"
+	s.mu.Unlock()
 	tasks := []KanbanTask{
 		{ID: "t1", ThreadID: "worker1", Title: "任务一"},
 		{ID: "t2", ThreadID: "worker2", Title: "任务二"},
@@ -123,10 +126,17 @@ func TestStewardTaskChipsOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	selected := s.selectedThreadID
+	selected, detailID := s.selectedThreadID, s.stewardBoard.detailTaskID
 	s.mu.Unlock()
-	if selected != "worker2" {
-		t.Fatalf("会话=%q", selected)
+	if selected != "steward" {
+		t.Fatalf("点击胶囊不应强行切离总管会话, got %q", selected)
+	}
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	ksDetailID := ks.detailTaskID
+	kanbanMu.Unlock()
+	if detailID != "t2" || ksDetailID != "t2" {
+		t.Fatalf("detailTaskID=%q, ks.detailTaskID=%q, want %q", detailID, ksDetailID, "t2")
 	}
 }
 
@@ -191,6 +201,9 @@ func TestStewardTaskCardAndChipOpen(t *testing.T) {
 		t.Run(map[bool]string{false: "card", true: "chip"}[chip], func(t *testing.T) {
 			s := newChatState(NewFakeClient())
 			t.Cleanup(s.close)
+			s.mu.Lock()
+			s.selectedThreadID = "steward"
+			s.mu.Unlock()
 			task := KanbanTask{ID: "t", ThreadID: "worker", Title: "点击任务", Status: "todo"}
 			tt := ui.NewTesterWith(func(c *ui.Context) {
 				if chip {
@@ -203,12 +216,93 @@ func TestStewardTaskCardAndChipOpen(t *testing.T) {
 				t.Fatal(err)
 			}
 			s.mu.Lock()
-			selected := s.selectedThreadID
+			selected, detailID := s.selectedThreadID, s.stewardBoard.detailTaskID
 			s.mu.Unlock()
-			if selected != "worker" {
-				t.Fatalf("会话=%q", selected)
+			if selected != "steward" {
+				t.Fatalf("点击任务不应强行切离当前会话, got %q", selected)
+			}
+			ks := getKanbanState(s)
+			kanbanMu.Lock()
+			ksDetailID := ks.detailTaskID
+			kanbanMu.Unlock()
+			if detailID != task.ID || ksDetailID != task.ID {
+				t.Fatalf("detailTaskID=%q, ks.detailTaskID=%q, want %q", detailID, ksDetailID, task.ID)
 			}
 		})
+	}
+}
+
+func TestStewardTaskDetailSheetActions(t *testing.T) {
+	var gotTarget taskCenterTarget
+	var targetCalls int
+	s := newChatState(NewFakeClient())
+	s.openTasksWindowTargetFn = func(target taskCenterTarget) {
+		gotTarget = target
+		targetCalls++
+	}
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.selectedThreadID = "steward"
+	s.mu.Unlock()
+
+	task := KanbanTask{
+		ID:            "t-steward",
+		ProjectID:     "p1",
+		ThreadID:      "worker",
+		Title:         "总管任务卡",
+		Origin:        "owner",
+		Status:        "done",
+		ResultSummary: "汇总完成",
+	}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		s.mu.Lock()
+		cur := s.selectedThreadID
+		s.mu.Unlock()
+		renderStewardTaskBand(c, s, cur)
+		renderStewardTaskCard(c, s, "card", task)
+		renderStewardTaskDetailSheet(c, s)
+	}, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+
+	if err := tt.Click("总管任务卡"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("kanban-task-detail"); !ok {
+		t.Fatal("点击时间线任务卡应弹出统一任务详情")
+	}
+	if err := tt.Click("打开会话"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	s.mu.Lock()
+	selected, bandThread, snapshot, detailID := s.selectedThreadID, s.stewardTaskThreadID, s.stewardTask, s.stewardBoard.detailTaskID
+	s.mu.Unlock()
+	if selected != "worker" || bandThread != "worker" || snapshot.ID != task.ID {
+		t.Fatalf("点击打开会话应切到执行会话并挂载状态带: selected=%q bandThread=%q snapshot=%+v", selected, bandThread, snapshot)
+	}
+	if detailID != "" {
+		t.Fatalf("点击打开会话后应关闭详情弹层, detailTaskID=%q", detailID)
+	}
+	if !tt.HasText("汇总完成") {
+		t.Fatalf("切到执行会话后应显示总管任务状态带: %v", tt.Texts())
+	}
+
+	if err := tt.Click("总管任务卡"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("在任务窗打开"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if targetCalls != 1 || gotTarget != (taskCenterTarget{Kind: "task", ID: task.ID, ProjectID: task.ProjectID, Title: task.Title}) {
+		t.Fatalf("点击在任务窗打开回调不匹配: calls=%d target=%+v", targetCalls, gotTarget)
+	}
+	s.mu.Lock()
+	detailID = s.stewardBoard.detailTaskID
+	s.mu.Unlock()
+	if detailID != "" {
+		t.Fatalf("点击在任务窗打开后应关闭详情弹层, detailTaskID=%q", detailID)
 	}
 }
 

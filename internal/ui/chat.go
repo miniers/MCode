@@ -446,6 +446,7 @@ func renderChat(c *ui.Context, s *chatState) {
 			renderStewardBoard(c, s, boardGroups)
 		}
 	})
+	renderStewardTaskDetailSheet(c, s)
 }
 
 // 长会话压缩建议的判定阈值（空闲 1 小时，上下文占用达到窗口的 70%）。
