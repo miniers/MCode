@@ -77,12 +77,12 @@ func TestRenderComposerQuotaStrip_WithWindows(t *testing.T) {
 		}
 	}
 
-	// 每个供应商组各自可点击（可访问标签为「额度 <provider>」）：点击时记录被点的 provider 并打开只含该 provider 的弹层。
+	// 每个供应商组各自可点击（可访问标签为「额度 <provider>」）：点击时记录被点的组 key 并打开只含该 provider 的弹层。
 	if err := tt.Click("额度 agy"); err != nil {
 		t.Fatalf("click quota provider group failed: %v", err)
 	}
-	if !s.composerView.quotaOpen || s.composerView.quotaPopoverProvider != "agy" {
-		t.Fatalf("expected popover anchored on agy, open=%v provider=%q", s.composerView.quotaOpen, s.composerView.quotaPopoverProvider)
+	if !s.composerView.quotaOpen || s.composerView.quotaPopoverKey != "agy" {
+		t.Fatalf("expected popover anchored on agy, open=%v key=%q", s.composerView.quotaOpen, s.composerView.quotaPopoverKey)
 	}
 	if _, ok := tt.Find("额度详情"); !ok || !tt.HasText("58%") {
 		t.Fatalf("expected quota popover content, texts: %q", tt.Texts())
@@ -114,12 +114,12 @@ func TestRenderComposerQuotaStrip_WithWindows(t *testing.T) {
 		}
 	}
 
-	// 再次点击同一组关闭弹层并清空锚定的 provider。
+	// 再次点击同一组关闭弹层并清空锚定的组 key。
 	if err := tt.Click("额度 agy"); err != nil {
 		t.Fatalf("click quota provider group again failed: %v", err)
 	}
-	if s.composerView.quotaOpen || s.composerView.quotaPopoverProvider != "" {
-		t.Fatalf("expected popover closed and provider cleared, open=%v provider=%q", s.composerView.quotaOpen, s.composerView.quotaPopoverProvider)
+	if s.composerView.quotaOpen || s.composerView.quotaPopoverKey != "" {
+		t.Fatalf("expected popover closed and key cleared, open=%v key=%q", s.composerView.quotaOpen, s.composerView.quotaPopoverKey)
 	}
 }
 
@@ -172,11 +172,11 @@ func TestRenderComposerQuotaStrip_MultipleAccounts(t *testing.T) {
 	if err := tt.Click("额度 claude"); err != nil {
 		t.Fatalf("click claude group failed: %v", err)
 	}
-	if s.composerView.quotaPopoverProvider != "claude" {
-		t.Fatalf("expected popover anchored on claude, got %q", s.composerView.quotaPopoverProvider)
+	if s.composerView.quotaPopoverKey != "claude" {
+		t.Fatalf("expected popover anchored on claude, got %q", s.composerView.quotaPopoverKey)
 	}
 	popover := ui.NewTester(func(c *ui.Context) {
-		renderComposerQuotaPopover(c, s, th, s.composerView.quotaPopoverProvider, 0)
+		renderComposerQuotaPopover(c, s, th, s.composerView.quotaPopoverKey, 0)
 	}, 400, 400)
 	if !popover.HasText("90%") {
 		t.Fatalf("expected claude quota section, texts: %q", popover.Texts())
@@ -518,5 +518,118 @@ func TestWithQuotaModelRoundTrip(t *testing.T) {
 	}
 	if WithQuotaModel(nil, "auto/gpt-x") != nil || WithQuotaModel(ctx, "") != ctx {
 		t.Fatal("空上下文或空模型不应新增上下文")
+	}
+}
+
+func TestQuotaStripBeeGroupsFollowBeesAccount(t *testing.T) {
+	testenv.TempHome(t)
+
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.selectedThreadID = "lead-1"
+	setSwarmEnabledForTest(s, true)
+	panel := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	panel.state.Bees = []SwarmBee{
+		{Provider: "agy", ThreadID: "bee-1"},
+		{Provider: "agy", ThreadID: "bee-2"},
+	}
+	swarmPanelMu.Unlock()
+
+	th := &Thread{ID: "lead-1", Provider: "claude", BeesProvider: "agy", BeesAccount: "acc-2"}
+	SetChatQuotaWindowsForProvider(s, "claude", []ProviderQuotaWindow{
+		{Label: "5-hour limit", Period: "5h", UsedPercent: 15, Active: true},
+	})
+	w1 := agyAccountTestWindows(32) // acc-1 为 Active
+	w2 := agyAccountTestWindows(44)
+	for i := range w2 {
+		w2[i].Active = w2[i].AccountID == "acc-2"
+	}
+	SetChatQuotaWindowsForProvider(s, "agy@bee-1", w1)
+	SetChatQuotaWindowsForProvider(s, "agy@bee-2", w2)
+
+	plans := quotaStripPlans(s, quotaStripProviders(s, th))
+	var agyPlans []quotaStripPlan
+	for _, p := range plans {
+		if p.group.provider == "agy" {
+			agyPlans = append(agyPlans, p)
+		}
+	}
+	if len(agyPlans) != 1 {
+		t.Fatalf("agy 应合并为 1 组，实际=%d: %+v", len(agyPlans), agyPlans)
+	}
+	if agyPlans[0].account != "工作账号" || len(agyPlans[0].windows) == 0 {
+		t.Fatalf("agy 组应选中账号 2 且 windows 非空: %+v", agyPlans[0])
+	}
+}
+
+func TestComposerQuotaPopoverOpensOnlyClickedGroup(t *testing.T) {
+	testenv.TempHome(t)
+
+	fake := NewFakeClient()
+	fake.providerQuotaResult = agyAccountTestWindows(32)
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.selectedThreadID = "lead-1"
+	setSwarmEnabledForTest(s, true)
+	panel := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	panel.state.Bees = []SwarmBee{{Provider: "agy", ThreadID: "bee-1"}}
+	swarmPanelMu.Unlock()
+
+	th := &Thread{ID: "lead-1", Provider: "agy", Account: "acc-1", BeesProvider: "agy", BeesAccount: "acc-2"}
+	SetChatQuotaWindowsForProvider(s, "agy", agyAccountTestWindows(32))
+	SetChatQuotaWindowsForProvider(s, "agy@bee-1", agyAccountTestWindows(45))
+
+	tt := quotaPopoverTester(s, th, 560, 480)
+	waitForAutoDormant(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.quotaLoadingProviders["agy"] && !s.quotaLoadingProviders["agy@bee-1"]
+	})
+	tt.Frame()
+	if err := tt.Click("额度 agy"); err != nil {
+		t.Fatalf("点击第一组 agy 失败: %v", err)
+	}
+	if !s.composerView.quotaOpen || s.composerView.quotaPopoverKey != "agy-个人账号" {
+		t.Fatalf("应仅锚定第一组 key，open=%v key=%q", s.composerView.quotaOpen, s.composerView.quotaPopoverKey)
+	}
+	popoverCount := 0
+	for _, node := range tt.AccessAll() {
+		if node.Name == "额度详情" {
+			popoverCount++
+		}
+	}
+	if popoverCount != 1 {
+		t.Fatalf("同一 provider 多组时只应挂载 1 个额度弹层，实际=%d", popoverCount)
+	}
+}
+
+func TestEmbeddedBeeQuotaStripHidesAccountLabel(t *testing.T) {
+	testenv.TempHome(t)
+
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.embeddedBee = true
+	th := &Thread{ID: "bee-1", Provider: "agy", Account: "acc-2"}
+
+	windows := agyAccountTestWindows(32)
+	for i := range windows {
+		windows[i].Active = false
+	}
+	SetChatQuotaWindowsForProvider(s, "agy", windows)
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderComposerQuotaStrip(c, s, th)
+	}, 400, 400)
+
+	if tt.HasText("工作账号") || tt.HasText("个人账号") {
+		t.Fatalf("嵌入子代理额度条不应显示账号名，texts=%q", tt.Texts())
+	}
+	if !tt.HasText("5h") || !tt.HasText("32%") {
+		t.Fatalf("嵌入子代理额度条应显示 5h 读数，texts=%q", tt.Texts())
+	}
+	if tt.HasText("额度未知") {
+		t.Fatalf("已显式绑定 Account 时不应显示额度未知，texts=%q", tt.Texts())
 	}
 }

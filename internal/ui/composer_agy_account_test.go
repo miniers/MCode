@@ -133,8 +133,8 @@ func TestComposerAgyAccountSelectSwitchesAccountAndStripReadout(t *testing.T) {
 		t.Fatalf("点击「工作账号」失败: %v", err)
 	}
 
-	if s.composerView.quotaOpen || s.composerView.quotaPopoverProvider != "" {
-		t.Fatalf("选中账号后应关闭浮层，open=%v provider=%q", s.composerView.quotaOpen, s.composerView.quotaPopoverProvider)
+	if s.composerView.quotaOpen || s.composerView.quotaPopoverKey != "" {
+		t.Fatalf("选中账号后应关闭浮层，open=%v key=%q", s.composerView.quotaOpen, s.composerView.quotaPopoverKey)
 	}
 	waitFor(t, tt, func() bool {
 		calls := fake.SetThreadAccountCalls()

@@ -1083,9 +1083,10 @@ func clampPopoverWidth(c *ui.Context, ideal float32) float32 {
 
 // quotaStripGroup 是额度条里的一组读数：一个供应商对应一组。
 type quotaStripGroup struct {
-	provider string
-	threadID string
-	model    string
+	provider  string
+	threadID  string
+	model     string
+	accountID string
 }
 
 func quotaGroupKey(provider, threadID, model, selectedThreadID string) string {
@@ -1130,7 +1131,7 @@ func quotaStripProviders(s *chatState, th *Thread) []quotaStripGroup {
 	if s == nil || th == nil {
 		return nil
 	}
-	groups := []quotaStripGroup{{provider: threadQuotaProvider(th)}}
+	groups := []quotaStripGroup{{provider: threadQuotaProvider(th), accountID: strings.TrimSpace(th.Account)}}
 	if !s.embeddedBee && !quotaStripSwarmOn(s, th) {
 		return groups
 	}
@@ -1144,13 +1145,14 @@ func quotaStripProviders(s *chatState, th *Thread) []quotaStripGroup {
 		}
 		return groups
 	}
+	beesAccount := strings.TrimSpace(th.BeesAccount)
 	var beeGroups []quotaStripGroup
 	if panel := getSwarmPanelState(s); panel != nil {
 		swarmPanelMu.Lock()
 		for _, h := range panel.state.Bees {
 			provider := threadQuotaProvider(&Thread{Provider: h.Provider, Model: h.Model})
 			if provider != "" {
-				beeGroups = append(beeGroups, quotaStripGroup{provider: provider, threadID: h.ThreadID})
+				beeGroups = append(beeGroups, quotaStripGroup{provider: provider, threadID: h.ThreadID, accountID: beesAccount})
 			}
 		}
 		swarmPanelMu.Unlock()
@@ -1164,18 +1166,27 @@ func quotaStripProviders(s *chatState, th *Thread) []quotaStripGroup {
 			}
 		}
 		if !hasSession {
-			groups = append(groups, quotaStripGroup{provider: hp, model: th.BeesModel})
+			groups = append(groups, quotaStripGroup{provider: hp, model: th.BeesModel, accountID: beesAccount})
 		}
 	}
 	groups = append(groups, beeGroups...)
 	return groups
 }
 
-// quotaStripAccount 选额度条某个组要展示的订阅账户：只有一个未停用账户组时直接用它
-// （账号名可能为空串，如没有账号名的 Credits 窗口）；否则优先本会话确认在用的账户，
+// quotaStripAccount 选额度条某个组要展示的订阅账户：若组已显式指定 accountID
+// 且窗口里有对应 AccountID，直接返回该窗口的账户分组键；否则只有一个未停用账户组时直接用它
+// （账号名可能为空串，如没有账号名的 Credits 窗口）；再其次优先本会话确认在用的账户，
 // 没有时用 Magpie 记录的最近应答账户并返回 recent=true，让调用方标注「最近使用」；
 // 两者都没有时返回空串，不再从模型名或返回顺序推断账户。
-func quotaStripAccount(s *chatState, provider string, windows []ProviderQuotaWindow) (account string, recent bool) {
+func quotaStripAccount(s *chatState, provider, accountID string, windows []ProviderQuotaWindow) (account string, recent bool) {
+	if accountID = strings.TrimSpace(accountID); accountID != "" {
+		for _, w := range windows {
+			if strings.TrimSpace(w.AccountID) == accountID {
+				account, _ := quotaWindowAccount(w)
+				return account, false
+			}
+		}
+	}
 	// 只有一个账号时不存在猜测，单账号 provider 与没有账号名的分组都直接展示它的读数。
 	if account, ok := quotaSoleAccount(groupQuotaWindowsByAccount(windows)); ok {
 		return account, false
@@ -1232,7 +1243,7 @@ func quotaStripPlans(s *chatState, groups []quotaStripGroup) []quotaStripPlan {
 		if len(windows) == 0 {
 			continue
 		}
-		account, recent := quotaStripAccount(s, g.provider, windows)
+		account, recent := quotaStripAccount(s, g.provider, g.accountID, windows)
 		dedupe := g.provider + "\x00" + account
 		if seen[dedupe] {
 			continue
@@ -1555,7 +1566,7 @@ func selectComposerAgyAccount(s *chatState, th *Thread, provider, targetThreadID
 		return
 	}
 	s.composerView.quotaOpen = false
-	s.composerView.quotaPopoverProvider = ""
+	s.composerView.quotaPopoverKey = ""
 
 	prevAccount := ""
 	if th != nil && (targetThreadID == "" || th.ID == targetThreadID) {
@@ -1626,7 +1637,7 @@ func selectComposerBeesAccount(s *chatState, th *Thread, targetAccountID string)
 		return
 	}
 	s.composerView.quotaOpen = false
-	s.composerView.quotaPopoverProvider = ""
+	s.composerView.quotaPopoverKey = ""
 
 	leadID := ""
 	if th != nil {
@@ -1822,9 +1833,10 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 			})
 	}
 
-	groupOpen := s.composerView.quotaOpen && s.composerView.quotaPopoverProvider == provider
+	groupOpen := s.composerView.quotaOpen && s.composerView.quotaPopoverKey == keySuffix
 	accountLabel := ""
-	if th != nil && strings.TrimSpace(th.Account) != "" {
+	// 嵌入子代理浮窗很窄，不渲染账号名以免挤占或裁掉额度读数（账号仍可在悬停提示和弹层里看到）。
+	if (s == nil || !s.embeddedBee) && th != nil && strings.TrimSpace(th.Account) != "" {
 		allWindows := quotaGroupWindows(s, plan.group)
 		if agyAccountSelectable(th, provider, allWindows) {
 			accountLabel = agyAccountDisplayNameForID(provider, th.Account, allWindows)
@@ -1847,13 +1859,13 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 		Radius(RadiusXS).
 		Background(ui.Transparent).
 		OnClick(func() {
-			if s.composerView.quotaOpen && s.composerView.quotaPopoverProvider == provider {
+			if s.composerView.quotaOpen && s.composerView.quotaPopoverKey == keySuffix {
 				s.composerView.quotaOpen = false
-				s.composerView.quotaPopoverProvider = ""
+				s.composerView.quotaPopoverKey = ""
 				return
 			}
 			s.composerView.quotaOpen = true
-			s.composerView.quotaPopoverProvider = provider
+			s.composerView.quotaPopoverKey = keySuffix
 			s.clearComposerCreditsErr(provider)
 			s.loadComposerQuotaForProvider(provider, plan.group.threadID, plan.group.model, false)
 		})
@@ -1961,7 +1973,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 	popover.Margin(Space1, 0, 0, 0)
 	if groupOpen && popover.Dismissed() {
 		s.composerView.quotaOpen = false
-		s.composerView.quotaPopoverProvider = ""
+		s.composerView.quotaPopoverKey = ""
 		s.clearComposerCreditsErr(provider)
 	}
 	return true

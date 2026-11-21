@@ -714,7 +714,7 @@ func TestComposerQuotaPopoverAccountsMergedIntoList(t *testing.T) {
 	th := Thread{ID: "t1", ProjectID: "p1", Provider: "agy"}
 	fake, s := newAgyAccountTestState(t, th, agyAccountTestWindows(32))
 	s.composerView.quotaOpen = true
-	s.composerView.quotaPopoverProvider = "agy"
+	s.composerView.quotaPopoverKey = "agy"
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderComposerQuotaPopover(c, s, currentTestThreadSnapshot(s, th.ID, th), "agy", 0)
@@ -832,7 +832,7 @@ func TestComposerQuotaPopoverBeesAccountSelect(t *testing.T) {
 	s.messages = []Message{{ID: "m1", Role: "user", Text: "hello"}}
 	s.mu.Unlock()
 	s.composerView.quotaOpen = true
-	s.composerView.quotaPopoverProvider = "agy"
+	s.composerView.quotaPopoverKey = "agy"
 
 	beeGroup := quotaStripGroup{provider: "agy", model: "gemini-2.5-pro"}
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -858,8 +858,8 @@ func TestComposerQuotaPopoverBeesAccountSelect(t *testing.T) {
 	if err := tt.Click("工作账号"); err != nil {
 		t.Fatalf("点击「工作账号」失败: %v", err)
 	}
-	if s.composerView.quotaOpen || s.composerView.quotaPopoverProvider != "" {
-		t.Fatalf("切换子代理账号后应关闭弹层，open=%v provider=%q", s.composerView.quotaOpen, s.composerView.quotaPopoverProvider)
+	if s.composerView.quotaOpen || s.composerView.quotaPopoverKey != "" {
+		t.Fatalf("切换子代理账号后应关闭弹层，open=%v key=%q", s.composerView.quotaOpen, s.composerView.quotaPopoverKey)
 	}
 	if got := currentTestThreadSnapshot(s, th.ID, th).BeesAccount; got != "acc-2" {
 		t.Fatalf("点击「工作账号」后线程 BeesAccount = %q, want %q", got, "acc-2")
@@ -871,7 +871,7 @@ func TestComposerQuotaPopoverBeesAccountSelect(t *testing.T) {
 
 	// 重新打开并渲染弹层，验证选中态跟随 BeesAccount。
 	s.composerView.quotaOpen = true
-	s.composerView.quotaPopoverProvider = "agy"
+	s.composerView.quotaPopoverKey = "agy"
 	tt.Frame()
 	workBtn, ok = tt.AccessByRole(ui.RoleButton, "工作账号")
 	if !ok || !workBtn.Checked {

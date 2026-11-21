@@ -305,7 +305,7 @@ func TestUIReview29NarrowLayoutBounds(t *testing.T) {
 
 			// 关闭额度浮层再打开上下文用量浮层。
 			s.composerView.quotaOpen = false
-			s.composerView.quotaPopoverProvider = ""
+			s.composerView.quotaPopoverKey = ""
 			tt.Frame()
 
 			if err := tt.Click("上下文用量"); err != nil {
