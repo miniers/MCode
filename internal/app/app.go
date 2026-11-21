@@ -2211,7 +2211,7 @@ func stewardTaskDefaults(c config.Config) kanban.StewardTaskDefaults {
 	st := c.Orchestration.Steward
 	p, ok := c.Orchestration.Pair(st.TaskPairID)
 	if st.TaskPairID == "" || !ok {
-		return kanban.StewardTaskDefaults{Provider: st.TaskProvider, Model: st.TaskModel}
+		return kanban.StewardTaskDefaults{Provider: st.TaskProvider, Model: st.TaskModel, Effort: st.TaskEffort}
 	}
 	return kanban.StewardTaskDefaults{
 		Provider:     p.LeadProvider,

@@ -1361,9 +1361,11 @@ type StewardConfig struct {
 	Avatar        string `json:"avatar"`                   // 头像：一个 emoji 或一个字，空表示用昵称首字，无昵称用「总」
 	Provider      string `json:"provider"`                 // 总管使用的提供方，空表示跟随 Models.Provider
 	Model         string `json:"model"`                    // 总管使用的模型，空表示「自动」：该提供方的默认模型，没有默认时取目录第一个
+	Effort        string `json:"effort,omitempty"`         // 前台推理强度，空表示跟随模型默认
 	HomeDir       string `json:"home_dir,omitempty"`       // 总管主目录，空表示数据目录下的 steward 子目录
 	TaskProvider  string `json:"task_provider,omitempty"`  // 总管下发任务使用的提供方，空表示跟随默认
 	TaskModel     string `json:"task_model,omitempty"`     // 总管下发任务使用的模型，空表示该提供方的默认模型
+	TaskEffort    string `json:"task_effort,omitempty"`    // 下发任务推理强度，空表示跟随模型默认；TaskPairID 非空时忽略
 	TaskPairID    string `json:"task_pair_id,omitempty"`   // 总管下发任务使用的编排配对，非空即开启编排并忽略 TaskProvider/TaskModel
 	QuietStart    string `json:"quiet_start"`              // 安静时段开始，HH:MM 本地时间，空表示关闭
 	QuietEnd      string `json:"quiet_end"`                // 安静时段结束，HH:MM 本地时间，空表示关闭；可早于开始表示跨午夜
@@ -1751,9 +1753,11 @@ func Normalize(cfg Config) Config {
 	}
 	cfg.Orchestration.Steward.Provider = strings.TrimSpace(cfg.Orchestration.Steward.Provider)
 	cfg.Orchestration.Steward.Model = strings.TrimSpace(cfg.Orchestration.Steward.Model)
+	cfg.Orchestration.Steward.Effort = strings.TrimSpace(cfg.Orchestration.Steward.Effort)
 	cfg.Orchestration.Steward.HomeDir = strings.TrimSpace(cfg.Orchestration.Steward.HomeDir)
 	cfg.Orchestration.Steward.TaskProvider = strings.TrimSpace(cfg.Orchestration.Steward.TaskProvider)
 	cfg.Orchestration.Steward.TaskModel = strings.TrimSpace(cfg.Orchestration.Steward.TaskModel)
+	cfg.Orchestration.Steward.TaskEffort = strings.TrimSpace(cfg.Orchestration.Steward.TaskEffort)
 	// 安静时段：任一非法或首尾相等即视为关闭并清空，合法时规范成 HH:MM。
 	qs, okStart := ParseClock(cfg.Orchestration.Steward.QuietStart)
 	qe, okEnd := ParseClock(cfg.Orchestration.Steward.QuietEnd)

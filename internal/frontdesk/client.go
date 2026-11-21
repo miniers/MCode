@@ -24,5 +24,5 @@ func ClientFor(src apisource.Source, secrets config.SecretStore) (llm.Client, st
 		return nil, "", ErrNoModel
 	}
 	key := src.APIKey(secrets)
-	return apisource.NewClient(src, key, model, apisource.ClientOptions{}), model, nil
+	return apisource.NewClient(src, key, model, apisource.ClientOptions{Effort: apisource.ReasoningEffort(src.BaseURL)}), model, nil
 }

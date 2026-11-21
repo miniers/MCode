@@ -148,14 +148,16 @@ func renderStewardTaskModelControl(c *ui.Context, st *SettingsState) {
 				commitSettingsControl(st, func(cfg *config.Config) {
 					cfg.Orchestration.Steward.TaskProvider = next.Provider
 					cfg.Orchestration.Steward.TaskModel = next.Model
+					cfg.Orchestration.Steward.TaskEffort = next.Effort
 					cfg.Orchestration.Steward.TaskPairID = ""
 				})
-			}, catalog, true)
+			}, catalog, false)
 			props.Pairs = pairs
 			props.OnApplyPair = func(next SwarmPair) {
 				commitSettingsControl(st, func(cfg *config.Config) {
 					cfg.Orchestration.Steward.TaskProvider = ""
 					cfg.Orchestration.Steward.TaskModel = ""
+					cfg.Orchestration.Steward.TaskEffort = ""
 					cfg.Orchestration.Steward.TaskPairID = next.ID
 				})
 			}
@@ -183,6 +185,7 @@ func renderStewardTaskModelControl(c *ui.Context, st *SettingsState) {
 					commitSettingsControl(st, func(cfg *config.Config) {
 						cfg.Orchestration.Steward.TaskProvider = ""
 						cfg.Orchestration.Steward.TaskModel = ""
+						cfg.Orchestration.Steward.TaskEffort = ""
 						cfg.Orchestration.Steward.TaskPairID = ""
 					})
 				}
@@ -207,8 +210,9 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 				commitSettingsControl(st, func(cfg *config.Config) {
 					cfg.Orchestration.Steward.Provider = next.Provider
 					cfg.Orchestration.Steward.Model = next.Model
+					cfg.Orchestration.Steward.Effort = next.Effort
 				})
-			}, catalog, true)
+			}, catalog, false)
 
 			// 选过模型后可以退回自动选择。
 			if !swarmEmptySelection(sel) {
@@ -228,6 +232,7 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 					commitSettingsControl(st, func(cfg *config.Config) {
 						cfg.Orchestration.Steward.Provider = ""
 						cfg.Orchestration.Steward.Model = ""
+						cfg.Orchestration.Steward.Effort = ""
 					})
 				}
 				btnClear.Children(func() {

@@ -90,6 +90,9 @@ func (c frontdeskClient) Stream(ctx context.Context, req llm.Request, delta func
 		return nil, err
 	}
 	req.Model = model
+	if req.Effort == "" {
+		req.Effort = cfg.Orchestration.Steward.Effort
+	}
 	return client.Stream(ctx, req, delta)
 }
 

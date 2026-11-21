@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -352,5 +353,96 @@ func TestSettingsSteward_PageOperations(t *testing.T) {
 	cfg, err = config.Load(st.dataDir)
 	if err != nil || cfg.Orchestration.Steward.Enabled || !cfg.Orchestration.Steward.EnabledChoice {
 		t.Fatalf("关闭总管未落盘: %+v, %v", cfg.Orchestration.Steward, err)
+	}
+}
+
+// TestStewardEffort_ModelCapsules 验证前台模型与任务模型胶囊的推理强度选择、写入与清空行为。
+func TestStewardEffort_ModelCapsules(t *testing.T) {
+	testenv.TempHome(t)
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.providers = []ProviderInfo{{
+		ID:        "openai",
+		Name:      "OpenAI",
+		Available: true,
+		Models: []ModelInfo{{
+			ID:            "gpt-test",
+			Name:          "GPT Test",
+			Efforts:       []string{"low", "medium", "high"},
+			DefaultEffort: "medium",
+		}},
+	}}
+	st := NewSettingsState(settingsTestDir(t), nil, s)
+	st.cfg.Providers.OpenAI.Enabled = true
+	st.cfg.Orchestration.Steward.Provider = "openai"
+	st.cfg.Orchestration.Steward.Model = "gpt-test"
+	st.cfg.Orchestration.Steward.Effort = "low"
+	st.cfg.Orchestration.Steward.TaskProvider = "openai"
+	st.cfg.Orchestration.Steward.TaskModel = "gpt-test"
+	st.cfg.Orchestration.Steward.TaskEffort = "low"
+
+	t.Cleanup(func() {
+		for _, k := range []string{"steward-model-steward-model", "steward-task-model-steward-task-model", "composer-steward-model-composer-steward-model"} {
+			modelPickerStatesMu.Lock()
+			delete(modelPickerStates, k)
+			modelPickerStatesMu.Unlock()
+		}
+	})
+
+	// 1. 设置页「前台模型」胶囊通过 OnEffort 写入 Steward.Effort，点「自动」一并清空。
+	ttFront := ui.NewTester(func(c *ui.Context) { renderStewardModelControl(c, st) }, 1000, 700)
+	if err := ttFront.Click("选择前台模型"); err != nil {
+		t.Fatalf("打开前台模型胶囊失败: %v", err)
+	}
+	ttFront.Advance(time.Second)
+	ttFront.Frame()
+	clickEffortSlider(t, ttFront, 1)
+	if st.cfg.Orchestration.Steward.Effort != "high" {
+		t.Fatalf("前台模型推理强度未写入配置: %+v", st.cfg.Orchestration.Steward)
+	}
+	modelPickerStateFor("steward-model-steward-model").MenuOpen = false
+	ttFront.Frame()
+	if err := ttFront.Click("自动"); err != nil {
+		t.Fatalf("点击前台模型自动按钮失败: %v", err)
+	}
+	if st.cfg.Orchestration.Steward.Provider != "" || st.cfg.Orchestration.Steward.Model != "" || st.cfg.Orchestration.Steward.Effort != "" {
+		t.Fatalf("清空前台模型时应一并清空 Effort: %+v", st.cfg.Orchestration.Steward)
+	}
+
+	// 2. 设置页「任务模型」胶囊通过 OnEffort 写入 TaskEffort，点「自动」一并清空。
+	ttTask := ui.NewTester(func(c *ui.Context) { renderStewardTaskModelControl(c, st) }, 1000, 700)
+	if err := ttTask.Click("选择任务模型"); err != nil {
+		t.Fatalf("打开任务模型胶囊失败: %v", err)
+	}
+	ttTask.Advance(time.Second)
+	ttTask.Frame()
+	clickEffortSlider(t, ttTask, 1)
+	if st.cfg.Orchestration.Steward.TaskEffort != "high" {
+		t.Fatalf("任务模型推理强度未写入配置: %+v", st.cfg.Orchestration.Steward)
+	}
+	modelPickerStateFor("steward-task-model-steward-task-model").MenuOpen = false
+	ttTask.Frame()
+	if err := ttTask.Click("自动"); err != nil {
+		t.Fatalf("点击任务模型自动按钮失败: %v", err)
+	}
+	if st.cfg.Orchestration.Steward.TaskProvider != "" || st.cfg.Orchestration.Steward.TaskModel != "" || st.cfg.Orchestration.Steward.TaskEffort != "" {
+		t.Fatalf("清空任务模型时应一并清空 TaskEffort: %+v", st.cfg.Orchestration.Steward)
+	}
+
+	// 3. 输入区前台模型胶囊同样读取并保存 Steward.Effort。
+	setChatSettings(s, st)
+	t.Cleanup(func() { setChatSettings(s, nil) })
+	st.cfg.Orchestration.Steward.Provider = "openai"
+	st.cfg.Orchestration.Steward.Model = "gpt-test"
+	st.cfg.Orchestration.Steward.Effort = "low"
+	ttComp := ui.NewTester(func(c *ui.Context) { renderStewardComposerModel(c, s) }, 1000, 700)
+	if err := ttComp.Click("选择前台模型"); err != nil {
+		t.Fatalf("打开输入区前台模型胶囊失败: %v", err)
+	}
+	ttComp.Advance(time.Second)
+	ttComp.Frame()
+	clickEffortSlider(t, ttComp, 1)
+	if st.cfg.Orchestration.Steward.Effort != "high" {
+		t.Fatalf("输入区前台模型推理强度未写入配置: %+v", st.cfg.Orchestration.Steward)
 	}
 }

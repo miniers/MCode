@@ -109,12 +109,20 @@ func (st *SettingsState) stewardAutoLabel(catalog modelPickerCatalog, sel ModelS
 }
 
 func stewardModelSelection(cfg config.Config, catalog modelPickerCatalog) ModelSelection {
-	return catalogModelSelection(cfg.Orchestration.Steward.Provider, cfg.Orchestration.Steward.Model, catalog)
+	sel := catalogModelSelection(cfg.Orchestration.Steward.Provider, cfg.Orchestration.Steward.Model, catalog)
+	if sel.Model != "" {
+		sel.Effort = cfg.Orchestration.Steward.Effort
+	}
+	return sel
 }
 
 // stewardTaskModelSelection 返回总管下发任务的模型选择，提供方不在目录里时为空（自动）。
 func stewardTaskModelSelection(cfg config.Config, catalog modelPickerCatalog) ModelSelection {
-	return catalogModelSelection(cfg.Orchestration.Steward.TaskProvider, cfg.Orchestration.Steward.TaskModel, catalog)
+	sel := catalogModelSelection(cfg.Orchestration.Steward.TaskProvider, cfg.Orchestration.Steward.TaskModel, catalog)
+	if sel.Model != "" {
+		sel.Effort = cfg.Orchestration.Steward.TaskEffort
+	}
+	return sel
 }
 
 // stewardTaskPair 返回任务模型选中的编排配对；配对已删除或当前目录未就绪时视为没选。
@@ -177,6 +185,7 @@ func renderStewardComposerModel(c *ui.Context, s *chatState) {
 	renderSwarmModelCapsuleCatalog(c, st, "composer-steward-model", "composer-steward-model", sel, st.stewardAutoLabel(catalog, sel), "选择前台模型", func(next ModelSelection) {
 		st.cfg.Orchestration.Steward.Provider = next.Provider
 		st.cfg.Orchestration.Steward.Model = next.Model
+		st.cfg.Orchestration.Steward.Effort = next.Effort
 		st.save()
-	}, catalog, true)
+	}, catalog, false)
 }
