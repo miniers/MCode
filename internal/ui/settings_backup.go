@@ -95,6 +95,7 @@ var backupUI struct {
 	operation      string
 	cancel         context.CancelFunc
 	message        string
+	messageErr     bool
 	restoreMessage string
 	confirm        bool
 	relaunching    bool
@@ -132,7 +133,7 @@ func startBackup(st *SettingsState, password []byte, history bool) {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	backupUI.working, backupUI.operation, backupUI.cancel, backupUI.message = true, "backup", cancel, ""
+	backupUI.working, backupUI.operation, backupUI.cancel, backupUI.message, backupUI.messageErr = true, "backup", cancel, "", false
 	backupUI.mu.Unlock()
 	st.invalidate()
 	go func() {
@@ -148,9 +149,9 @@ func startBackup(st *SettingsState, password []byte, history bool) {
 		backupUI.mu.Lock()
 		backupUI.working, backupUI.operation, backupUI.cancel = false, "", nil
 		if err != nil {
-			backupUI.message = err.Error()
+			backupUI.message, backupUI.messageErr = err.Error(), true
 		} else if path != "" {
-			backupUI.message = "已备份"
+			backupUI.message, backupUI.messageErr = "已备份", false
 		}
 		backupUI.mu.Unlock()
 		st.invalidate()
@@ -232,19 +233,27 @@ func finishBackupRestore(st *SettingsState, confirm bool) {
 	st.invalidate()
 }
 
+func backupResultColor(c *ui.Context, isErr bool) ui.Color {
+	if isErr {
+		return ThemeDanger(c)
+	}
+	return ThemeSecondaryText(c)
+}
+
 func renderBackupControl(c *ui.Context, st *SettingsState) {
 	backupUI.mu.Lock()
-	working, operation, message := backupUI.working, backupUI.operation, backupUI.message
+	working, operation, message, messageErr := backupUI.working, backupUI.operation, backupUI.message, backupUI.messageErr
 	backupUI.mu.Unlock()
 	ui.Row(c.Key("backup-controls")).AlignItems(ui.Center).Gap(Space3).Children(func() {
 		if message != "" {
-			ui.Text(c, message).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+			isErr := messageErr || message != "已备份"
+			ui.Text(c, message).FontSize(uiFont(TypeFootnote)).TextColor(backupResultColor(c, isErr)).SingleLine().Shrink(1).MinWidth(0).Tooltip(message)
 		}
 		label := "备份…"
 		if operation == "backup" {
 			label = "备份中…"
 		}
-		Button(c.Key("backup-open"), ButtonOpts{Text: label, Variant: ButtonSecondary, Disabled: working, OnClick: func() {
+		Button(c.Key("backup-open"), ButtonOpts{Text: label, Variant: ButtonSecondary, Disabled: working, Loading: operation == "backup", OnClick: func() {
 			backupUI.mu.Lock()
 			backupUI.mode, backupUI.password, backupUI.repeat = "backup", "", ""
 			backupUI.mu.Unlock()
@@ -266,9 +275,9 @@ func renderRestoreControl(c *ui.Context, st *SettingsState) {
 		if operation == "restore" {
 			label = "验证中…"
 		}
-		Button(c.Key("restore-open"), ButtonOpts{Text: label, Variant: ButtonSecondary, Disabled: working, OnClick: func() { chooseBackupRestore(st) }})
+		Button(c.Key("restore-open"), ButtonOpts{Text: label, Variant: ButtonSecondary, Disabled: working, Loading: operation == "open" || operation == "restore", OnClick: func() { chooseBackupRestore(st) }})
 	})
-	RenderConfirmDialog(c, ConfirmDialog{Key: "backup-restore-confirm", Open: confirm, Tone: ConfirmDanger, Title: "恢复并重启？", ConfirmLabel: "恢复并重启", OnConfirm: func() { finishBackupRestore(st, true) }, OnCancel: func() { finishBackupRestore(st, false) }})
+	RenderConfirmDialog(c, ConfirmDialog{Key: "backup-restore-confirm", Open: confirm, Tone: ConfirmDanger, Title: "恢复并重启？", Body: "当前数据会被备份内容覆盖。", ConfirmLabel: "恢复并重启", CancelAutoFocus: true, OnConfirm: func() { finishBackupRestore(st, true) }, OnCancel: func() { finishBackupRestore(st, false) }})
 }
 
 func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
@@ -279,6 +288,19 @@ func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
 		return
 	}
 	open := true
+	submit := func() {
+		if !backupPasswordValid(mode, backupUI.password, backupUI.repeat) {
+			return
+		}
+		password := []byte(backupUI.password)
+		source, history := backupUI.source, backupUI.history
+		backupUI.mode, backupUI.password, backupUI.repeat = "", "", ""
+		if mode == "backup" {
+			startBackup(st, password, history)
+		} else {
+			startBackupRestore(st, source, password)
+		}
+	}
 	modalDragModal(c, "backup-password", &open, func() {
 		ui.Column(c.Key("backup-password-card")).Width(400).Background(ThemeSurface(c)).BorderColor(ThemeBorder(c)).BorderWidth(1).Radius(RadiusLG).Padding(Space5).Gap(Space4).Children(func() {
 			title := "设置备份密码"
@@ -286,9 +308,12 @@ func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
 				title = "输入备份密码"
 			}
 			modalDragHandle(c, "backup-password", ui.Row(c.Key("backup-password-title")).FillWidth().Children(func() { ui.Text(c, title).FontSize(uiFont(TypeTitle)).FontWeight(600).TextColor(ThemePrimaryText(c)) }))
-			TextField(c, TextFieldProps{Key: "backup-password-input", Value: &backupUI.password, Placeholder: "密码", Password: true, FillWidth: true, AutoFocus: true})
+			TextField(c, TextFieldProps{Key: "backup-password-input", Value: &backupUI.password, Placeholder: "密码", Password: true, FillWidth: true, AutoFocus: true, OnSubmit: func(string) { submit() }})
 			if mode == "backup" {
-				TextField(c, TextFieldProps{Key: "backup-password-repeat", Value: &backupUI.repeat, Placeholder: "确认密码", Password: true, FillWidth: true})
+				TextField(c, TextFieldProps{Key: "backup-password-repeat", Value: &backupUI.repeat, Placeholder: "确认密码", Password: true, FillWidth: true, OnSubmit: func(string) { submit() }})
+				if backupUI.repeat != "" && backupUI.password != backupUI.repeat {
+					ui.Text(c, "两次密码不一致").FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
+				}
 				ui.Row(c.Key("backup-history-row")).FillWidth().AlignItems(ui.Center).Children(func() {
 					ui.Text(c, "包含会话历史").Grow(1).TextColor(ThemePrimaryText(c))
 					Switch(c, "backup-history", &backupUI.history, "包含会话历史", nil)
@@ -297,16 +322,7 @@ func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
 			valid := backupPasswordValid(mode, backupUI.password, backupUI.repeat)
 			ui.Row(c.Key("backup-password-actions")).FillWidth().Justify(ui.End).Gap(Space3).Children(func() {
 				Button(c.Key("backup-password-cancel"), ButtonOpts{Text: "取消", Variant: ButtonSecondary, OnClick: func() { open = false }})
-				Button(c.Key("backup-password-confirm"), ButtonOpts{Text: "确认", Variant: ButtonPrimary, Disabled: !valid, OnClick: func() {
-					password := []byte(backupUI.password)
-					source, history := backupUI.source, backupUI.history
-					backupUI.mode, backupUI.password, backupUI.repeat = "", "", ""
-					if mode == "backup" {
-						startBackup(st, password, history)
-					} else {
-						startBackupRestore(st, source, password)
-					}
-				}})
+				Button(c.Key("backup-password-confirm"), ButtonOpts{Text: "确认", Variant: ButtonPrimary, Disabled: !valid, OnClick: submit})
 			})
 		})
 	})

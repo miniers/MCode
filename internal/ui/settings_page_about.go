@@ -247,9 +247,11 @@ func renderAboutChangelog(c *ui.Context, st *SettingsState) {
 		for _, version := range changelogVersions() {
 			expanded := aboutChangelogExpanded[version.Version]
 			header := ui.ButtonBase(c.Key("about-changelog-header-"+version.Version)).
-				Label("about-changelog-header-"+version.Version).
+				Label("版本 "+version.Version).
+				Expanded(expanded).
 				Padding(settingsRowPadY, settingsRowPadX).
 				Radius(RadiusLG)
+			focusRing(c, header)
 			if header.Hovered() {
 				header.Background(ThemeHover(c))
 			} else {
@@ -350,28 +352,16 @@ func renderAboutDataDirValue(c *ui.Context, st *SettingsState) {
 				ui.Text(c, "迁移失败："+migrationErr.Error()).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c)).FillWidth()
 			})
 		} else {
-			ui.Text(c, st.dataDir).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine().Grow(1)
+			ui.Text(c, st.dataDir).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine().Grow(1).Shrink(1).MinWidth(0).Tooltip(st.dataDir)
 		}
 		if datadir.Pinned() {
 			return
 		}
-		change := ui.ButtonBase(c.Key("btn-about-change-data-dir")).
-			Label("更改…").
-			Padding(Space2, Space3).
-			Radius(RadiusSM).
-			Background(ThemeOverlay(c, 0.06))
-		{
-			scale := motionPressScale(c, change, "button-press-scale", change.Pressed())
-			change.Scale(scale, scale)
-		}
-		if change.Hovered() {
-			change.Background(ThemeHover(c))
-		}
-		if change.Clicked() {
-			startAboutDataDirChange(st)
-		}
-		change.Children(func() {
-			ui.Text(c, "更改…").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
+		Button(c, ButtonOpts{
+			Key:     "btn-about-change-data-dir",
+			Text:    "更改…",
+			Variant: ButtonSecondary,
+			OnClick: func() { startAboutDataDirChange(st) },
 		})
 	})
 
@@ -475,62 +465,29 @@ func renderAboutUpdateControls(c *ui.Context, st *SettingsState) {
 				return
 			}
 			if done && status.Available && status.Installable && canInstall {
-				installBtn := ui.ButtonBase(c.Key("btn-about-install-update")).
-					Label("btn-about-install-update").
-					Radius(RadiusSM).
-					Padding(settingsPillPadX, Space4).
-					Background(ThemeOverlay(c, 0.06))
-				{
-					scale := motionPressScale(c, installBtn, "button-press-scale", installBtn.Pressed())
-					installBtn.Scale(scale, scale)
-				}
-				if installBtn.Hovered() {
-					installBtn.Background(ThemeHover(c))
-				}
-				if installBtn.Clicked() && !checking {
-					startAppUpdateInstall(st, installer)
-				}
-				installBtn.Children(func() {
-					ui.Text(c, "更新并重启").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
+				Button(c, ButtonOpts{
+					Key:      "btn-about-install-update",
+					Text:     "更新并重启",
+					Variant:  ButtonPrimary,
+					Disabled: checking,
+					OnClick:  func() { startAppUpdateInstall(st, installer) },
 				})
 			} else if done && status.Available && status.URL != "" {
-				downloadBtn := ui.ButtonBase(c.Key("btn-about-download")).
-					Radius(RadiusSM).
-					Padding(settingsPillPadX, Space4).
-					Background(ThemeOverlay(c, 0.06))
-				{
-					scale := motionPressScale(c, downloadBtn, "button-press-scale", downloadBtn.Pressed())
-					downloadBtn.Scale(scale, scale)
-				}
-				if downloadBtn.Hovered() {
-					downloadBtn.Background(ThemeHover(c))
-				}
-				if downloadBtn.Clicked() {
-					openExternalURL(status.URL)
-				}
-				downloadBtn.Children(func() {
-					ui.Text(c, "前往下载页").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
+				Button(c, ButtonOpts{
+					Key:     "btn-about-download",
+					Text:    "前往下载页",
+					Variant: ButtonSecondary,
+					OnClick: func() { openExternalURL(status.URL) },
 				})
 			}
 
-			checkBtn := ui.ButtonBase(c.Key("btn-about-check-update")).
-				Label("btn-about-check-update").
-				Disabled(checking).
-				Radius(RadiusSM).
-				Padding(settingsPillPadX, Space4).
-				Background(ThemeOverlay(c, 0.06))
-			{
-				scale := motionPressScale(c, checkBtn, "button-press-scale", !checking && checkBtn.Pressed())
-				checkBtn.Scale(scale, scale)
-			}
-			if checkBtn.Hovered() {
-				checkBtn.Background(ThemeHover(c))
-			}
-			if checkBtn.Clicked() && !checking {
-				startUpdateCheck(st)
-			}
-			checkBtn.Children(func() {
-				ui.Text(c, "检查更新").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
+			Button(c, ButtonOpts{
+				Key:      "btn-about-check-update",
+				Text:     "检查更新",
+				Variant:  ButtonSecondary,
+				Disabled: checking,
+				Loading:  checking,
+				OnClick:  func() { startUpdateCheck(st) },
 			})
 		})
 }
@@ -553,27 +510,16 @@ func renderAboutDiagnosticsControls(c *ui.Context, st *SettingsState) {
 			case diagErr != "":
 				ui.Text(c, diagErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 			case diagMsg != "":
-				ui.Text(c, diagMsg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, diagMsg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine().Shrink(1).MinWidth(0).Tooltip(diagMsg)
 			}
 
-			exportBtn := ui.ButtonBase(c.Key("btn-about-export-diag")).
-				Label("btn-about-export-diag").
-				Disabled(exporting).
-				Radius(RadiusSM).
-				Padding(settingsPillPadX, Space4).
-				Background(ThemeOverlay(c, 0.06))
-			{
-				scale := motionPressScale(c, exportBtn, "button-press-scale", !exporting && exportBtn.Pressed())
-				exportBtn.Scale(scale, scale)
-			}
-			if exportBtn.Hovered() {
-				exportBtn.Background(ThemeHover(c))
-			}
-			if exportBtn.Clicked() && !exporting {
-				startDiagnosticsExport(st, aboutDiagnosticsClient(st))
-			}
-			exportBtn.Children(func() {
-				ui.Text(c, "导出…").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
+			Button(c, ButtonOpts{
+				Key:      "btn-about-export-diag",
+				Text:     "导出…",
+				Variant:  ButtonSecondary,
+				Disabled: exporting,
+				Loading:  exporting,
+				OnClick:  func() { startDiagnosticsExport(st, aboutDiagnosticsClient(st)) },
 			})
 		})
 }

@@ -208,7 +208,7 @@ var pageGeneral = settingsPage{
 					Title:   "全局快捷键",
 					Aliases: []string{"快捷键组合", "唤起窗口", "全局热键", "重启"},
 					// 开关与组合输入框是一个整体，输入框的防抖草稿在 settings_extra.go 里维护。
-					Control: custom(renderGlobalShortcutControl),
+					Control: customFullWidth(renderGlobalShortcutControl),
 				},
 				{
 					ID:      "row-shortcuts-all",

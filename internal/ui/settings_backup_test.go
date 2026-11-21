@@ -42,7 +42,7 @@ func preserveBackupUI(t *testing.T) {
 	t.Helper()
 	backupUI.mu.Lock()
 	working, operation, cancel := backupUI.working, backupUI.operation, backupUI.cancel
-	message, restoreMessage := backupUI.message, backupUI.restoreMessage
+	message, messageErr, restoreMessage := backupUI.message, backupUI.messageErr, backupUI.restoreMessage
 	confirm, relaunching := backupUI.confirm, backupUI.relaunching
 	mode, password, repeat := backupUI.mode, backupUI.password, backupUI.repeat
 	history, source := backupUI.history, backupUI.source
@@ -50,7 +50,7 @@ func preserveBackupUI(t *testing.T) {
 	t.Cleanup(func() {
 		backupUI.mu.Lock()
 		backupUI.working, backupUI.operation, backupUI.cancel = working, operation, cancel
-		backupUI.message, backupUI.restoreMessage = message, restoreMessage
+		backupUI.message, backupUI.messageErr, backupUI.restoreMessage = message, messageErr, restoreMessage
 		backupUI.confirm, backupUI.relaunching = confirm, relaunching
 		backupUI.mode, backupUI.password, backupUI.repeat = mode, password, repeat
 		backupUI.history, backupUI.source = history, source
@@ -329,5 +329,133 @@ func TestRestoreOpenCanceled(t *testing.T) {
 	waitBackupIdle(t)
 	if calls != 0 {
 		t.Fatal("取消后验证了备份")
+	}
+}
+
+func TestUIReview14_BackupRestoreConfirmAndPasswordDialog(t *testing.T) {
+	preserveBackupUI(t)
+	oldConfirm, oldDiscard := backupConfirm, backupDiscard
+	oldSave, oldCreate := backupSaveDialog, backupCreate
+	t.Cleanup(func() {
+		backupConfirm, backupDiscard = oldConfirm, oldDiscard
+		backupSaveDialog, backupCreate = oldSave, oldCreate
+	})
+	backupConfirm = func(string) error { return nil }
+	backupDiscard = func(string) error { return nil }
+
+	st := NewSettingsState(t.TempDir(), nil, nil)
+	backupUI.mu.Lock()
+	backupUI.confirm = true
+	backupUI.mu.Unlock()
+
+	ttRestore := ui.NewTester(func(c *ui.Context) { renderRestoreControl(c, st) }, 800, 600)
+	ttRestore.Frame()
+	if !ttRestore.HasText("当前数据会被备份内容覆盖。") {
+		t.Fatalf("恢复确认框缺少说明 Body: %v", ttRestore.Texts())
+	}
+	if !ttRestore.Focused("取消") || ttRestore.Focused("恢复并重启") {
+		t.Fatalf("恢复确认框默认焦点应在取消按钮上，取消焦点=%v 确认焦点=%v", ttRestore.Focused("取消"), ttRestore.Focused("恢复并重启"))
+	}
+
+	backupUI.mu.Lock()
+	backupUI.confirm = false
+	backupUI.mode, backupUI.password, backupUI.repeat = "backup", "", ""
+	backupUI.mu.Unlock()
+
+	saveCalls := 0
+	backupSaveDialog = func(string) (string, error) {
+		saveCalls++
+		return "", nil
+	}
+	backupCreate = func(context.Context, backup.CreateOptions) error { return nil }
+
+	ttBackup := ui.NewTester(func(c *ui.Context) { renderBackupControl(c, st) }, 800, 600)
+	ttBackup.Frame()
+	if ttBackup.HasText("两次密码不一致") {
+		t.Fatal("初始空密码时不应显示不一致提示")
+	}
+
+	ttBackup.Type("secret")
+	ttBackup.Frame()
+	if ttBackup.HasText("两次密码不一致") {
+		t.Fatal("确认密码为空时不应显示不一致提示")
+	}
+	ttBackup.Key(0, ui.KeyEnter)
+	ttBackup.Frame()
+	if saveCalls != 0 || backupUI.mode != "backup" {
+		t.Fatalf("确认密码为空时按 Enter 不应提交: saveCalls=%d mode=%q", saveCalls, backupUI.mode)
+	}
+
+	if err := ttBackup.Click("确认密码"); err != nil {
+		t.Fatal(err)
+	}
+	ttBackup.Type("other")
+	ttBackup.Frame()
+	if !ttBackup.HasText("两次密码不一致") {
+		t.Fatalf("密码不一致时应显示提示: %v", ttBackup.Texts())
+	}
+	ttBackup.Key(0, ui.KeyEnter)
+	ttBackup.Frame()
+	if saveCalls != 0 || backupUI.mode != "backup" {
+		t.Fatalf("密码不一致时按 Enter 不应提交: saveCalls=%d mode=%q", saveCalls, backupUI.mode)
+	}
+
+	ttBackup.Key(ui.Cmd, ui.KeyA)
+	ttBackup.Type("secret")
+	ttBackup.Frame()
+	if ttBackup.HasText("两次密码不一致") {
+		t.Fatal("密码一致后不应显示不一致提示")
+	}
+	ttBackup.Key(0, ui.KeyEnter)
+	waitBackupIdle(t)
+	ttBackup.Frame()
+	if saveCalls != 1 || backupUI.mode != "" {
+		t.Fatalf("密码一致按 Enter 应提交并关闭弹窗: saveCalls=%d mode=%q", saveCalls, backupUI.mode)
+	}
+
+	backupUI.mu.Lock()
+	backupUI.mode, backupUI.password, backupUI.repeat = "backup", "", ""
+	backupUI.mu.Unlock()
+	ttBackup.Frame()
+	ttBackup.Key(0, ui.KeyEscape)
+	ttBackup.Frame()
+	if backupUI.mode != "" {
+		t.Fatalf("按 Esc 应关闭备份密码弹窗: mode=%q", backupUI.mode)
+	}
+}
+
+func TestUIReview14_BackupFailureColorAndLoading(t *testing.T) {
+	preserveBackupUI(t)
+	st := NewSettingsState(t.TempDir(), nil, nil)
+
+	var gotErrColor, gotOkColor, wantDanger, wantSecondary ui.Color
+	tt := ui.NewTester(func(c *ui.Context) {
+		gotErrColor = backupResultColor(c, true)
+		gotOkColor = backupResultColor(c, false)
+		wantDanger = ThemeDanger(c)
+		wantSecondary = ThemeSecondaryText(c)
+		renderBackupControl(c, st)
+	}, 800, 200)
+	tt.Frame()
+	if gotErrColor != wantDanger {
+		t.Fatalf("备份失败颜色 = %+v，期望危险色 %+v", gotErrColor, wantDanger)
+	}
+	if gotOkColor != wantSecondary {
+		t.Fatalf("备份成功颜色 = %+v，期望次要色 %+v", gotOkColor, wantSecondary)
+	}
+
+	backupUI.mu.Lock()
+	backupUI.message = "磁盘空间不足"
+	backupUI.messageErr = true
+	backupUI.working = true
+	backupUI.operation = "backup"
+	backupUI.mu.Unlock()
+	tt.Frame()
+	if !tt.HasText("磁盘空间不足") {
+		t.Fatal("应显示备份失败文本")
+	}
+	info, ok := tt.Access("备份中…")
+	if !ok || !info.Disabled {
+		t.Fatalf("备份进行中按钮应禁用并显示备份中…: %+v ok=%v", info, ok)
 	}
 }

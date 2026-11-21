@@ -123,3 +123,56 @@ func TestSettingsTrayPlatform(t *testing.T) {
 	}
 	t.Fatal("缺少额度开关")
 }
+
+func TestUIReview14_GeneralGlobalShortcutStackedLayout(t *testing.T) {
+	var found bool
+	for _, section := range pageGeneral.Sections {
+		for _, row := range section.Rows {
+			if row.ID != "row-global-shortcut" {
+				continue
+			}
+			found = true
+			cc, ok := row.Control.(customControl)
+			if !ok || !cc.fullWidth {
+				t.Fatalf("全局快捷键行应使用 customFullWidth 走堆叠布局，实际: %T %+v", row.Control, row.Control)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("缺少全局快捷键行声明")
+	}
+
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+	st.open = true
+	st.currentPage = "general"
+	tt := ui.NewTester(func(c *ui.Context) { renderSettingsWindow(c, st) }, 640, 1400)
+	tt.Frame()
+
+	titleRect, ok := tt.Find("全局快捷键")
+	if !ok {
+		t.Fatalf("找不到全局快捷键标题: %v", tt.Texts())
+	}
+	swRect, ok := tt.Find("切换全局快捷键")
+	if !ok {
+		t.Fatal("找不到切换全局快捷键开关")
+	}
+	inputRect, ok := tt.Find("全局快捷键输入")
+	if !ok {
+		t.Fatal("找不到全局快捷键输入框")
+	}
+	cardRect, ok := tt.Find("设置卡片 general.shortcuts")
+	if !ok {
+		t.Fatal("找不到快捷键设置卡片")
+	}
+
+	if swRect.Y <= titleRect.Y || inputRect.Y <= titleRect.Y {
+		t.Fatalf("全局快捷键行应上下堆叠: title=%+v sw=%+v input=%+v", titleRect, swRect, inputRect)
+	}
+	wantInputW := settingsTextFieldWidth - 2*Space3 - 2
+	if inputRect.W != wantInputW {
+		t.Fatalf("全局快捷键输入框宽度 = %v，期望 %v", inputRect.W, wantInputW)
+	}
+	if inputRect.X+inputRect.W > cardRect.X+cardRect.W || inputRect.X+inputRect.W > 640 {
+		t.Fatalf("640pt 窄窗下全局快捷键输入框溢出: input=%+v card=%+v", inputRect, cardRect)
+	}
+}

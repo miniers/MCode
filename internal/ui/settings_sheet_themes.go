@@ -106,6 +106,7 @@ func renderThemesHeader(c *ui.Context, st *SettingsState) {
 			renderThemeListItem(c, st, page, id)
 		}
 		trigger := ui.ButtonBase(c.Key("theme-add-menu")).Label("添加主题").OnClick(func() { page.menuOpen = true })
+		focusRing(c, trigger)
 		scale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
 		trigger.Scale(scale, scale)
 		trigger.Children(func() {
@@ -147,7 +148,7 @@ func renderThemesSheet(c *ui.Context, st *SettingsState) {
 					if i > section.start {
 						renderSettingsDivider(c, "theme-divider-"+key)
 					}
-					renderSettingRow(c, "row-theme-color-"+key, titles[i], func() { renderThemeColor(c, st, page, id, key, colors[i]) })
+					renderSettingRow(c, "row-theme-color-"+key, titles[i], func() { renderThemeColor(c, st, page, id, key, titles[i], colors[i]) })
 				}
 				if section.title == "强调" {
 					renderSettingsDivider(c, "theme-divider-system")
@@ -173,7 +174,7 @@ func renderThemesSheet(c *ui.Context, st *SettingsState) {
 				if i > 0 {
 					renderSettingsDivider(c, "theme-font-divider-"+key)
 				}
-				renderSettingRow(c, "row-theme-font-"+key, titles[i], func() { renderThemeFont(c, st, page, id, key) })
+				renderSettingRow(c, "row-theme-font-"+key, titles[i], func() { renderThemeFont(c, st, page, id, key, titles[i]) })
 			}
 		})
 	})
@@ -189,6 +190,7 @@ func renderThemeListItem(c *ui.Context, st *SettingsState, page *themesSheetStat
 	palette := resolvePalette(st.cfg.Appearance, id)
 	selected := page.editingID == id
 	button := ui.ButtonBase(c.Key("theme-list-" + id)).Label(name).AccessSelected(selected).OnClick(func() { page.editingID = id; st.invalidate() }).Transition(motionFeedback(c))
+	focusRing(c, button)
 	button.Children(func() {
 		ui.Column(c).Gap(Space2).AlignItems(ui.Center).Children(func() {
 			tile := ui.Box(c.Key("theme-preview-"+id)).Size(settingsPreviewTileW, settingsPreviewTileH).Radius(RadiusMD).Background(palette.Canvas).Border(Hairline, ThemeBorder(c)).Padding(Space2)
@@ -238,11 +240,11 @@ func renderThemeName(c *ui.Context, st *SettingsState, page *themesSheetState, i
 	}})
 }
 
-func renderThemeColor(c *ui.Context, st *SettingsState, page *themesSheetState, id, key string, color ui.Color) {
+func renderThemeColor(c *ui.Context, st *SettingsState, page *themesSheetState, id, key, title string, color ui.Color) {
 	theme, _ := st.cfg.Appearance.ThemeByID(id)
 	follows := theme.Colors[key] == config.ThemeAccentSystem
 	_, changed := theme.Colors[key]
-	renderThemeReset(c, "theme-reset-color-"+key, changed, func() { mutateTheme(st, func(a *config.AppearanceConfig) { a.ResetThemeColor(id, key) }) })
+	renderThemeReset(c, "theme-reset-color-"+key, title, changed, func() { mutateTheme(st, func(a *config.AppearanceConfig) { a.ResetThemeColor(id, key) }) })
 	label := formatThemeColor(color)
 	if follows {
 		label = "系统"
@@ -261,7 +263,8 @@ func renderThemeColor(c *ui.Context, st *SettingsState, page *themesSheetState, 
 		open = new(bool)
 		page.colorOpen[valueKey] = open
 	}
-	trigger := ui.ButtonBase(c.Key("theme-color-" + id + "-" + key)).Label("编辑" + key).Disabled(follows).OnClick(func() { *open = true })
+	trigger := ui.ButtonBase(c.Key("theme-color-" + id + "-" + key)).Label("编辑" + title).Disabled(follows).OnClick(func() { *open = true })
+	focusRing(c, trigger)
 	scale := motionPressScale(c, trigger, "button-press-scale", !follows && trigger.Pressed())
 	trigger.Scale(scale, scale)
 	trigger.Children(func() {
@@ -275,12 +278,12 @@ func renderThemeColor(c *ui.Context, st *SettingsState, page *themesSheetState, 
 	})
 }
 
-func renderThemeFont(c *ui.Context, st *SettingsState, page *themesSheetState, id, key string) {
+func renderThemeFont(c *ui.Context, st *SettingsState, page *themesSheetState, id, key, title string) {
 	value := st.cfg.Appearance.ThemeFonts(id)[key]
 	lower, upper, _, _ := config.ThemeFontRange(key)
 	theme, _ := st.cfg.Appearance.ThemeByID(id)
 	_, changed := theme.Fonts[key]
-	renderThemeReset(c, "theme-reset-font-"+key, changed, func() { mutateTheme(st, func(a *config.AppearanceConfig) { a.ResetThemeFont(id, key) }) })
+	renderThemeReset(c, "theme-reset-font-"+key, title, changed, func() { mutateTheme(st, func(a *config.AppearanceConfig) { a.ResetThemeFont(id, key) }) })
 	valueKey := id + "/" + key
 	input := page.fonts[valueKey]
 	if input == nil {
@@ -288,7 +291,7 @@ func renderThemeFont(c *ui.Context, st *SettingsState, page *themesSheetState, i
 		page.fonts[valueKey] = input
 	}
 	*input = float64(value)
-	if settingsSlider(c, "theme-font-"+key, input, float64(lower), float64(upper), key+"字号") {
+	if settingsSlider(c, "theme-font-"+key, input, float64(lower), float64(upper), title+"字号") {
 		next := int(math.Round(*input))
 		mutateTheme(st, func(a *config.AppearanceConfig) { _ = a.SetThemeFont(id, key, next) })
 	}
@@ -299,11 +302,12 @@ func renderThemeFont(c *ui.Context, st *SettingsState, page *themesSheetState, i
 	ui.Text(c, label).MinWidth(settingsPreviewTileW).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 }
 
-func renderThemeReset(c *ui.Context, key string, changed bool, reset func()) {
+func renderThemeReset(c *ui.Context, key, title string, changed bool, reset func()) {
 	if !changed {
+		ui.Box(c.Key(key + "-spacer")).Size(Space6, Space6).Shrink(0)
 		return
 	}
-	IconButton(c, IconButtonProps{Key: key, Icon: IconRefreshCw(), Label: key, Tooltip: "还原", Size: Space6, Variant: ButtonGhost, OnClick: reset}).Transition(themeFeedbackFade(c))
+	IconButton(c, IconButtonProps{Key: key, Icon: IconRefreshCw(), Label: "还原" + title, Tooltip: "还原", Size: Space6, Variant: ButtonGhost, OnClick: reset}).Transition(themeFeedbackFade(c))
 }
 
 func renderThemeActions(c *ui.Context, st *SettingsState, page *themesSheetState) {

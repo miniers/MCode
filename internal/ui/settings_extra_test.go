@@ -639,3 +639,27 @@ func TestSettingsExtra_ShortcutDraftDebouncedSave(t *testing.T) {
 		t.Fatalf("失焦后的落盘值应为 Alt+Cmd+K，实际 %q", got)
 	}
 }
+
+func TestUIReview14_GlobalShortcutInputWidth(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	t.Cleanup(st.Close)
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderStackedSettingRow(c, "row-global-shortcut", "全局快捷键", func() {
+			renderGlobalShortcutControl(c, st)
+		})
+	}, 640, 200)
+	tt.Frame()
+
+	inputRect, ok := tt.Find("全局快捷键输入")
+	if !ok {
+		t.Fatal("找不到全局快捷键输入框")
+	}
+	wantInputW := settingsTextFieldWidth - 2*Space3 - 2
+	if inputRect.W != wantInputW {
+		t.Fatalf("全局快捷键输入框宽度 = %v，期望 %v", inputRect.W, wantInputW)
+	}
+	if inputRect.X+inputRect.W > 640 {
+		t.Fatalf("全局快捷键输入框超出 640pt 宽度: %+v", inputRect)
+	}
+}

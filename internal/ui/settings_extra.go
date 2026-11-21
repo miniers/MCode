@@ -195,7 +195,7 @@ func renderGlobalShortcutControl(c *ui.Context, st *SettingsState) {
 				Value:       draft,
 				Label:       "全局快捷键输入",
 				Placeholder: "CmdOrCtrl+Shift+Space",
-				Width:       280,
+				Width:       settingsTextFieldWidth,
 				Disabled:    !st.cfg.Shortcuts.GlobalShortcutEnabled,
 				OnChange: func(text string) {
 					st.setGlobalShortcutDraft(text)

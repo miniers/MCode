@@ -57,7 +57,7 @@ func TestAboutDataDirPinnedHidesChange(t *testing.T) {
 	st := NewSettingsState(dir, nil, nil)
 	tt := ui.NewTester(func(c *ui.Context) { renderAboutDataDirValue(c, st) }, 800, 120)
 	tt.Frame()
-	if _, ok := tt.Find("btn-about-change-data-dir"); ok {
+	if _, ok := tt.Find("更改…"); ok {
 		t.Fatal("固定目录不应显示更改按钮")
 	}
 }
@@ -179,7 +179,7 @@ func TestAboutInstallUpdate(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fc))
 	tt := ui.NewTester(func(c *ui.Context) { renderPageAbout(c, st) }, 1000, 4000)
 	waitFor(t, tt, func() bool { return tt.HasText("更新并重启") })
-	if _, ok := tt.Find("btn-about-install-update"); !ok || tt.HasText("前往下载页") {
+	if _, ok := tt.Find("更新并重启"); !ok || tt.HasText("前往下载页") {
 		t.Fatal("可安装更新应显示更新按钮而不是下载页")
 	}
 	globalAboutState.mu.Lock()
@@ -400,11 +400,78 @@ func TestSettingsAbout_CheckUpdateRow(t *testing.T) {
 		return tt.HasText("1.2.3") && tt.HasText("检查更新")
 	})
 
-	if err := tt.Click("btn-about-check-update"); err != nil {
-		t.Fatalf("click '检查更新' failed: %v", err)
+	checkBtn, ok := tt.AccessByRole(ui.RoleButton, "检查更新")
+	if !ok {
+		t.Fatalf("找不到检查更新按钮: %v", tt.Texts())
 	}
+	tt.ClickAt(checkBtn.Bounds.X+checkBtn.Bounds.W/2, checkBtn.Bounds.Y+checkBtn.Bounds.H/2)
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("发现新版本 v1.2.4") && tt.HasText("前往下载页")
 	})
+}
+
+func TestUIReview14_AboutButtonsAndChangelogA11y(t *testing.T) {
+	resetAboutPageStateForTest()
+	t.Cleanup(resetAboutPageStateForTest)
+	aboutChangelogExpanded = map[string]bool{}
+	t.Cleanup(func() { aboutChangelogExpanded = map[string]bool{} })
+
+	versions := changelogVersions()
+	if len(versions) == 0 {
+		t.Fatal("缺少更新日志版本")
+	}
+	firstVer := versions[0].Version
+
+	fc := &generalAboutClient{&fakeUpdateClient{
+		FakeClient: NewFakeClient(),
+		version:    "1.2.3",
+		status:     AppUpdateStatus{Current: "1.2.3", Latest: "1.2.4", URL: "https://example.com/dl", Available: true},
+	}}
+	st := NewSettingsState(filepath.Join(t.TempDir(), "very/long/data/directory/path/for/mcode/settings"), nil, newChatState(fc))
+	tt := ui.NewTester(func(c *ui.Context) { renderPageAbout(c, st) }, 640, 4000)
+
+	label := "版本 " + firstVer
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Access(label)
+		return ok && tt.HasText("检查更新") && tt.HasText("导出…") && tt.HasText("更改…")
+	})
+	if _, ok := tt.Access("about-changelog-header-" + firstVer); ok {
+		t.Fatal("更新日志行无障碍标签不应暴露内部 key")
+	}
+
+	info, ok := tt.Access(label)
+	if !ok || info.Expanded {
+		t.Fatalf("初始版本行应为未展开状态: %+v ok=%v", info, ok)
+	}
+	if err := tt.Click(label); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	info, ok = tt.Access(label)
+	if !ok || !info.Expanded {
+		t.Fatalf("点击版本行后 Expanded 应为 true: %+v ok=%v", info, ok)
+	}
+	if err := tt.Click(label); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	info, ok = tt.Access(label)
+	if !ok || info.Expanded {
+		t.Fatalf("再次点击版本行后 Expanded 应恢复为 false: %+v ok=%v", info, ok)
+	}
+
+	globalAboutState.mu.Lock()
+	globalAboutState.checking = true
+	globalAboutState.exporting = true
+	globalAboutState.mu.Unlock()
+	tt.Frame()
+	checkInfo, ok := tt.AccessByRole(ui.RoleButton, "检查更新")
+	if !ok || !checkInfo.Disabled {
+		t.Fatalf("检查更新进行中按钮应禁用: %+v ok=%v", checkInfo, ok)
+	}
+	exportInfo, ok := tt.AccessByRole(ui.RoleButton, "导出…")
+	if !ok || !exportInfo.Disabled {
+		t.Fatalf("导出诊断日志进行中按钮应禁用: %+v ok=%v", exportInfo, ok)
+	}
 }

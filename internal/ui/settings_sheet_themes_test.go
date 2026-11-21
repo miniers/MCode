@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"math"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -60,10 +61,10 @@ func TestThemeControl_CustomSelectionAndReset(t *testing.T) {
 
 func TestThemesSheet_AccentEditAndReset(t *testing.T) {
 	st, tt := newThemesTester(t)
-	if _, ok := tt.Find("theme-reset-color-accent"); ok {
+	if _, ok := tt.Find("还原强调色"); ok {
 		t.Fatal("未编辑时不应显示还原按钮")
 	}
-	if err := tt.Click("编辑accent"); err != nil {
+	if err := tt.Click("编辑强调色"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tt.Click("Hex"); err != nil {
@@ -77,7 +78,7 @@ func TestThemesSheet_AccentEditAndReset(t *testing.T) {
 	if theme.Colors["accent"] != "#12345680" {
 		t.Fatalf("颜色编辑未写回配置：%v", theme.Colors)
 	}
-	if err := tt.Click("theme-reset-color-accent"); err != nil {
+	if err := tt.Click("还原强调色"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -85,7 +86,7 @@ func TestThemesSheet_AccentEditAndReset(t *testing.T) {
 	if _, ok := theme.Colors["accent"]; ok {
 		t.Fatal("还原后仍保留颜色覆盖项")
 	}
-	if _, ok := tt.Find("theme-reset-color-accent"); ok {
+	if _, ok := tt.Find("还原强调色"); ok {
 		t.Fatal("还原后仍显示还原按钮")
 	}
 }
@@ -269,7 +270,7 @@ func TestThemesSheet_LayoutAndValues(t *testing.T) {
 	if st.cfg.Appearance.ThemeFonts(config.ThemeDark)["sidebar"] != 107 {
 		t.Fatal("非档位字号未保留")
 	}
-	if err := tt.Click("sidebar字号"); err != nil {
+	if err := tt.Click("侧栏字号"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Key(0, ui.KeyRight)
@@ -278,7 +279,7 @@ func TestThemesSheet_LayoutAndValues(t *testing.T) {
 		t.Fatalf("滑块未更新字号: %d", got)
 	}
 
-	if err := tt.Click("sidebar字号"); err != nil {
+	if err := tt.Click("侧栏字号"); err != nil {
 		t.Fatal(err)
 	}
 	mutateTheme(st, func(a *config.AppearanceConfig) { _ = a.SetThemeFont(config.ThemeDark, "sidebar", 189) })
@@ -318,5 +319,108 @@ func TestThemesSheet_LayoutAndValues(t *testing.T) {
 		if math.Abs(float64(height-normal.H)) > 1 {
 			t.Errorf("卡片 %s 的行高=%v，普通行=%v", test.key, height, normal.H)
 		}
+	}
+}
+
+func TestUIReview14_ThemeSheetA11yAndResetPlaceholder(t *testing.T) {
+	st, tt := newThemesTester(t)
+
+	colorTitles := []string{"窗口", "主区域", "卡片", "浮起", "浮层", "主文字", "次要文字", "辅助文字", "强调色", "危险", "警告", "成功", "提醒", "Plan", "边框", "分隔线"}
+	fontTitles := []string{"侧栏", "对话", "界面", "代码", "终端", "编辑器"}
+
+	beforeColorRect, ok := tt.Find("编辑强调色")
+	if !ok {
+		t.Fatal("缺少色块按钮 编辑强调色")
+	}
+	beforeSliderRect, ok := tt.Find("侧栏字号")
+	if !ok {
+		t.Fatal("缺少字号滑块 侧栏字号")
+	}
+
+	mutateTheme(st, func(a *config.AppearanceConfig) {
+		for _, key := range config.ThemeColorKeys {
+			_ = a.SetThemeColor(config.ThemeLight, key, "#123456")
+		}
+		for _, key := range config.ThemeFontKeys {
+			lower, _, _, _ := config.ThemeFontRange(key)
+			_ = a.SetThemeFont(config.ThemeLight, key, lower)
+		}
+	})
+	tt.Frame()
+
+	for i, key := range config.ThemeColorKeys {
+		editLabel := "编辑" + colorTitles[i]
+		if _, ok := tt.Access(editLabel); !ok {
+			t.Errorf("缺少颜色按钮无障碍标签 %q", editLabel)
+		}
+		resetLabel := "还原" + colorTitles[i]
+		if _, ok := tt.Access(resetLabel); !ok {
+			t.Errorf("缺少颜色还原按钮无障碍标签 %q", resetLabel)
+		}
+		if _, ok := tt.Access("编辑" + key); ok {
+			t.Errorf("颜色按钮不应暴露内部 key: 编辑%s", key)
+		}
+		if _, ok := tt.Access("theme-reset-color-" + key); ok {
+			t.Errorf("颜色还原按钮不应暴露内部 key: theme-reset-color-%s", key)
+		}
+	}
+
+	for i, key := range config.ThemeFontKeys {
+		sliderLabel := fontTitles[i] + "字号"
+		if _, ok := tt.Access(sliderLabel); !ok {
+			t.Errorf("缺少字号滑块无障碍标签 %q", sliderLabel)
+		}
+		resetLabel := "还原" + fontTitles[i]
+		if _, ok := tt.Access(resetLabel); !ok {
+			t.Errorf("缺少字号还原按钮无障碍标签 %q", resetLabel)
+		}
+		if _, ok := tt.Access(key + "字号"); ok {
+			t.Errorf("字号滑块不应暴露内部 key: %s字号", key)
+		}
+		if _, ok := tt.Access("theme-reset-font-" + key); ok {
+			t.Errorf("字号还原按钮不应暴露内部 key: theme-reset-font-%s", key)
+		}
+	}
+
+	isASCIIOnly := func(s string) bool {
+		if s == "" {
+			return false
+		}
+		for _, r := range s {
+			if r > 127 {
+				return false
+			}
+		}
+		return true
+	}
+	for _, node := range tt.AccessAll() {
+		if strings.HasPrefix(node.Name, "还原") && isASCIIOnly(strings.TrimPrefix(node.Name, "还原")) && node.Name != "还原Plan" {
+			t.Errorf("还原按钮标签包含纯 ASCII 内部 key: %q", node.Name)
+		}
+		if strings.HasPrefix(node.Name, "编辑") && isASCIIOnly(strings.TrimPrefix(node.Name, "编辑")) && node.Name != "编辑Plan" {
+			t.Errorf("颜色按钮标签包含纯 ASCII 内部 key: %q", node.Name)
+		}
+		if isASCIIOnly(node.Name) {
+			for _, key := range append(append([]string(nil), config.ThemeColorKeys...), config.ThemeFontKeys...) {
+				if node.Name == key || strings.Contains(node.Name, "theme-reset-") {
+					t.Errorf("无障碍节点包含内部 key: %q", node.Name)
+				}
+			}
+		}
+	}
+
+	afterColorRect, ok := tt.Find("编辑强调色")
+	if !ok {
+		t.Fatal("修改后缺少色块按钮 编辑强调色")
+	}
+	if afterColorRect.X != beforeColorRect.X {
+		t.Errorf("出现还原按钮后色块按钮横向跳动: before=%v after=%v", beforeColorRect.X, afterColorRect.X)
+	}
+	afterSliderRect, ok := tt.Find("侧栏字号")
+	if !ok {
+		t.Fatal("修改后缺少字号滑块 侧栏字号")
+	}
+	if afterSliderRect.X != beforeSliderRect.X {
+		t.Errorf("出现还原按钮后字号滑块横向跳动: before=%v after=%v", beforeSliderRect.X, afterSliderRect.X)
 	}
 }
