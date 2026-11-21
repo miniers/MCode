@@ -158,7 +158,7 @@ func (m *Manager) Get(id string) (Account, bool) {
 	return Account{}, false
 }
 
-// effectiveAccountStateLocked 检查账号是否有效启用且未在冷却中。
+// effectiveAccountStateLocked 检查账号是否有效启用（未关闭、非停用/封禁/失效且未在冷却中）。
 // 调用方必须持有 m.mu。不得调用 Pick/Route 或更改绑定、权重、默认账号。
 func (m *Manager) effectiveAccountStateLocked(acc Account, now time.Time) (bool, string) {
 	override := m.routing.Accounts[acc.ID]
@@ -174,6 +174,9 @@ func (m *Manager) effectiveAccountStateLocked(acc Account, now time.Time) (bool,
 	}
 	if acc.Status == StatusForbidden {
 		return false, fmt.Sprintf("agy: account %s is forbidden (%s)", acc.ID, acc.StatusReason)
+	}
+	if acc.Status == StatusInvalid {
+		return false, fmt.Sprintf("agy: account %s needs re-login", acc.ID)
 	}
 	if m.router != nil && m.router.Cooling(acc.ID, now) {
 		coolingUntil := m.router.CoolingUntil(acc.ID)

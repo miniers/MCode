@@ -61,7 +61,52 @@ func (m *Manager) warmupAll(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-const maxWarmupAttempts = 3
+const (
+	maxWarmupAttempts = 3
+	// 服务端对未开始的 7 天周期每次返回读取时刻+7d，允许网络与时钟微小偏差。
+	floatingWindowTolerance = 2 * time.Minute
+)
+
+func isFloatingWeeklyWindow(b quota.Bucket, now time.Time) bool {
+	if b.UsedPercent != 0 || b.ResetAt.IsZero() {
+		return false
+	}
+	diff := b.ResetAt.Sub(now.Add(7 * 24 * time.Hour))
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= floatingWindowTolerance
+}
+
+func isSameWarmupCycle(lw *WarmupState, targetResetAt string, now time.Time) bool {
+	if lw == nil || lw.TargetResetAt != targetResetAt {
+		return false
+	}
+	if targetResetAt == "initial" && lw.ConfirmedResetAt != "" {
+		if crt, err := time.Parse(time.RFC3339, lw.ConfirmedResetAt); err == nil && !crt.After(now) {
+			return false
+		}
+	}
+	return true
+}
+
+func advanceWarmupConfirmation(lw *WarmupState, geminiWeekly quota.Bucket, targetResetAt string, targetResetTime time.Time, now time.Time) {
+	if lw == nil || geminiWeekly.ResetAt.IsZero() {
+		return
+	}
+	advanced := false
+	if targetResetAt == "initial" {
+		advanced = !isFloatingWeeklyWindow(geminiWeekly, now)
+	} else if !targetResetTime.IsZero() && geminiWeekly.ResetAt.After(targetResetTime) {
+		advanced = true
+	}
+	if advanced {
+		lw.Status = "success"
+		lw.ConfirmedResetAt = geminiWeekly.ResetAt.UTC().Format(time.RFC3339)
+		lw.Message = "新周期已生效"
+		lw.Attempts = 0
+	}
+}
 
 // warmupSingle 单账号预热调度与门闩串行控制
 func (m *Manager) warmupSingle(ctx context.Context, id string) error {
@@ -130,13 +175,15 @@ func (m *Manager) warmupSingle(ctx context.Context, id string) error {
 	}
 	m.mu.Unlock()
 
-	// 以最新拉取到的 reset 作为基线；若无旧周期重置时间，则以 "initial" 作为防重标识
-	targetResetTime := fetchRes.Groups[quota.GroupGemini+" 7d"].ResetAt
-	targetResetAt := ""
+	// 以最新拉取到的 reset 作为基线；若无旧周期重置时间或处于未开始的浮动周期，则以 "initial" 作为防重标识
+	geminiWeekly := fetchRes.Groups[quota.GroupGemini+" 7d"]
+	targetResetTime := geminiWeekly.ResetAt
+	if isFloatingWeeklyWindow(geminiWeekly, m.opts.Now()) {
+		targetResetTime = time.Time{}
+	}
+	targetResetAt := "initial"
 	if !targetResetTime.IsZero() {
 		targetResetAt = targetResetTime.UTC().Format(time.RFC3339)
-	} else {
-		targetResetAt = "initial"
 	}
 
 	return m.executeWarmup(ctx, id, qc, accessToken, fetchRes.ProjectID, fetchRes.Candidates, targetResetAt, targetResetTime)
@@ -180,7 +227,8 @@ func (m *Manager) executeWarmup(ctx context.Context, id string, qc *quota.Client
 	}
 
 	// 2. 周期去重与退避检查：针对当前到期周期 targetResetAt
-	if acc.LastWarmup != nil && acc.LastWarmup.TargetResetAt == targetResetAt {
+	sameCycle := isSameWarmupCycle(acc.LastWarmup, targetResetAt, now)
+	if sameCycle {
 		lw := acc.LastWarmup
 		switch lw.Status {
 		case "success":
@@ -209,7 +257,7 @@ func (m *Manager) executeWarmup(ctx context.Context, id string, qc *quota.Client
 		idx := m.findAccountIndexLocked(id)
 		if idx != -1 {
 			prevAttempts := 0
-			if m.index.Accounts[idx].LastWarmup != nil && m.index.Accounts[idx].LastWarmup.TargetResetAt == targetResetAt {
+			if sameCycle {
 				prevAttempts = m.index.Accounts[idx].LastWarmup.Attempts
 			}
 			m.index.Accounts[idx].LastWarmup = &WarmupState{
@@ -230,7 +278,7 @@ func (m *Manager) executeWarmup(ctx context.Context, id string, qc *quota.Client
 	prevAttempts := 0
 	if acc.LastWarmup != nil {
 		lastModel = acc.LastWarmup.Model
-		if acc.LastWarmup.TargetResetAt == targetResetAt {
+		if sameCycle {
 			prevAttempts = acc.LastWarmup.Attempts
 		}
 	}
@@ -313,21 +361,7 @@ func (m *Manager) verifyAndAdvanceReset(ctx context.Context, id string, qc *quot
 	}
 	m.applyQuotaResultLocked(idx, updatedRes)
 
-	newReset := updatedRes.Groups[quota.GroupGemini+" 7d"].ResetAt
-	if !newReset.IsZero() {
-		advanced := false
-		if targetResetAt == "initial" {
-			advanced = true
-		} else if !targetResetTime.IsZero() && newReset.After(targetResetTime) {
-			advanced = true
-		}
-		if advanced && m.index.Accounts[idx].LastWarmup != nil {
-			m.index.Accounts[idx].LastWarmup.Status = "success"
-			m.index.Accounts[idx].LastWarmup.ConfirmedResetAt = newReset.UTC().Format(time.RFC3339)
-			m.index.Accounts[idx].LastWarmup.Message = "新周期已生效"
-			m.index.Accounts[idx].LastWarmup.Attempts = 0
-		}
-	}
+	advanceWarmupConfirmation(m.index.Accounts[idx].LastWarmup, updatedRes.Groups[quota.GroupGemini+" 7d"], targetResetAt, targetResetTime, m.opts.Now())
 	return m.saveIndexLocked()
 }
 

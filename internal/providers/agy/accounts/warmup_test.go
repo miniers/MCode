@@ -897,7 +897,7 @@ func TestWarmup_AutoSwitchAndNonGeminiExpiry(t *testing.T) {
 	hostHome := t.TempDir()
 	now := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
 	oldReset := now.Add(-1 * time.Hour).Format(time.RFC3339)
-	futureReset := now.Add(7 * 24 * time.Hour).Format(time.RFC3339)
+	futureReset := now.Add(3 * 24 * time.Hour).Format(time.RFC3339)
 
 	var genCalls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1760,5 +1760,343 @@ func TestSetAutoWarmup_SaveFailureRollback(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"autoWarmup":true`) {
 		t.Fatalf("expected uncorrupted routing content, got: %s", string(data))
+	}
+}
+
+func TestWarmup_FloatingWindowAutoAndManual(t *testing.T) {
+	dataDir := t.TempDir()
+	startNow := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
+
+	var clockMu sync.Mutex
+	currNow := startNow
+	getNow := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return currNow
+	}
+	advanceClock := func(d time.Duration) {
+		clockMu.Lock()
+		currNow = currNow.Add(d)
+		clockMu.Unlock()
+	}
+
+	var genCalls atomic.Int32
+	var fixedResetMu sync.Mutex
+	var fixedReset time.Time
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1internal:loadCodeAssist":
+			_, _ = w.Write([]byte(`{"cloudaicompanionProject":"proj-floating"}`))
+		case "/v1internal:fetchAvailableModels":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": map[string]any{
+					"gemini-2.5-flash": map[string]any{
+						"displayName": "Gemini 2.5 Flash",
+					},
+				},
+			})
+		case "/v1internal:retrieveUserQuotaSummary":
+			fixedResetMu.Lock()
+			rAt := fixedReset
+			fixedResetMu.Unlock()
+			if rAt.IsZero() {
+				rAt = getNow().Add(7 * 24 * time.Hour)
+			}
+			testGeminiWeeklyQuotaResponse(w, rAt.UTC().Format(time.RFC3339))
+		case "/v1internal:generateContent":
+			genCalls.Add(1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"candidates":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	mgr, err := NewManager(Options{
+		DataDir:    dataDir,
+		HostHome:   t.TempDir(),
+		Now:        getNow,
+		QuotaHosts: []string{srv.URL},
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	accAuto := Account{
+		ID:     "acc-floating-auto",
+		Name:   "Floating Auto",
+		Status: StatusActive,
+		On:     true,
+	}
+	accManual := Account{
+		ID:     "acc-floating-manual",
+		Name:   "Floating Manual",
+		Status: StatusActive,
+		On:     true,
+	}
+	mgr.mu.Lock()
+	mgr.index.Accounts = append(mgr.index.Accounts, accAuto, accManual)
+	_ = mgr.saveIndexLocked()
+	mgr.mu.Unlock()
+
+	for _, id := range []string{accAuto.ID, accManual.ID} {
+		if err := mgr.WriteToken(id, OAuthTokenFile{
+			Token: OAuthTokenData{AccessToken: "token-" + id, Expiry: startNow.Add(24 * time.Hour)},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 1. 开启 AutoWarmup，首次 RefreshQuota 触发 1 次 generateContent，状态停在 pending_confirmation
+	if err := mgr.RefreshQuota(context.Background(), accAuto.ID); err != nil {
+		t.Fatalf("first RefreshQuota failed: %v", err)
+	}
+	if genCalls.Load() != 1 {
+		t.Fatalf("expected 1 generateContent call on floating auto warmup, got %d", genCalls.Load())
+	}
+	got1, _ := mgr.Get(accAuto.ID)
+	if got1.LastWarmup == nil || got1.LastWarmup.TargetResetAt != "initial" || got1.LastWarmup.Status != "pending_confirmation" {
+		t.Fatalf("expected TargetResetAt=initial and Status=pending_confirmation, got %+v", got1.LastWarmup)
+	}
+
+	// 2. 再次刷新（仍为浮动周期），不重复发 generateContent，仍保持 pending_confirmation
+	advanceClock(time.Minute)
+	if err := mgr.RefreshQuota(context.Background(), accAuto.ID); err != nil {
+		t.Fatalf("second RefreshQuota failed: %v", err)
+	}
+	if genCalls.Load() != 1 {
+		t.Fatalf("expected still 1 generateContent call on repeated floating refresh, got %d", genCalls.Load())
+	}
+	got2, _ := mgr.Get(accAuto.ID)
+	if got2.LastWarmup == nil || got2.LastWarmup.Status != "pending_confirmation" {
+		t.Fatalf("expected status to remain pending_confirmation while floating, got %+v", got2.LastWarmup)
+	}
+
+	// 3. 时钟前进 10 分钟，服务端返回固定 resetAt（预热时刻+7d），刷新后确认 success
+	confirmedReset := startNow.Add(7 * 24 * time.Hour).UTC()
+	fixedResetMu.Lock()
+	fixedReset = confirmedReset
+	fixedResetMu.Unlock()
+	advanceClock(10 * time.Minute)
+
+	if err := mgr.RefreshQuota(context.Background(), accAuto.ID); err != nil {
+		t.Fatalf("third RefreshQuota failed: %v", err)
+	}
+	if genCalls.Load() != 1 {
+		t.Fatalf("expected no extra generateContent call on confirmation, got %d", genCalls.Load())
+	}
+	got3, _ := mgr.Get(accAuto.ID)
+	wantResetStr := confirmedReset.Format(time.RFC3339)
+	if got3.LastWarmup == nil || got3.LastWarmup.Status != "success" || got3.LastWarmup.ConfirmedResetAt != wantResetStr {
+		t.Fatalf("expected Status=success and ConfirmedResetAt=%s, got %+v", wantResetStr, got3.LastWarmup)
+	}
+
+	// 4. 新账号处于浮动周期时，手动 Warmup 也会发 1 次 generateContent
+	fixedResetMu.Lock()
+	fixedReset = time.Time{}
+	fixedResetMu.Unlock()
+	if err := mgr.Warmup(context.Background(), accManual.ID); err != nil {
+		t.Fatalf("manual Warmup on floating account failed: %v", err)
+	}
+	if genCalls.Load() != 2 {
+		t.Fatalf("expected 1 generateContent call for manual floating warmup (total 2), got %d", genCalls.Load())
+	}
+}
+
+func TestWarmup_FloatingWindowNextCycle(t *testing.T) {
+	dataDir := t.TempDir()
+	now := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
+
+	var genCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1internal:loadCodeAssist":
+			_, _ = w.Write([]byte(`{"cloudaicompanionProject":"proj-next-cycle"}`))
+		case "/v1internal:fetchAvailableModels":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": map[string]any{
+					"gemini-2.5-flash": map[string]any{"displayName": "Gemini 2.5 Flash"},
+				},
+			})
+		case "/v1internal:retrieveUserQuotaSummary":
+			testGeminiWeeklyQuotaResponse(w, now.Add(7*24*time.Hour).UTC().Format(time.RFC3339))
+		case "/v1internal:generateContent":
+			genCalls.Add(1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"candidates":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	mgr, err := NewManager(Options{
+		DataDir:    dataDir,
+		HostHome:   t.TempDir(),
+		Now:        func() time.Time { return now },
+		QuotaHosts: []string{srv.URL},
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	acc := Account{
+		ID:     "acc-floating-next",
+		Name:   "Floating Next",
+		Status: StatusActive,
+		On:     true,
+		LastWarmup: &WarmupState{
+			TargetResetAt:    "initial",
+			Status:           "success",
+			ConfirmedResetAt: now.Add(-1 * time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	mgr.mu.Lock()
+	mgr.index.Accounts = append(mgr.index.Accounts, acc)
+	_ = mgr.saveIndexLocked()
+	mgr.mu.Unlock()
+	if err := mgr.WriteToken(acc.ID, OAuthTokenFile{
+		Token: OAuthTokenData{AccessToken: "token-next", Expiry: now.Add(time.Hour)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := mgr.Warmup(context.Background(), acc.ID); err != nil {
+		t.Fatalf("Warmup failed: %v", err)
+	}
+	if genCalls.Load() != 1 {
+		t.Fatalf("expected 1 generateContent call for next floating cycle, got %d", genCalls.Load())
+	}
+}
+
+func TestAutoWarmup_DisabledSkipsFloatingAndExpired(t *testing.T) {
+	dataDir := t.TempDir()
+	now := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
+
+	var genCalls atomic.Int32
+	var mode atomic.Int32 // 0: floating, 1: expired
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1internal:loadCodeAssist":
+			_, _ = w.Write([]byte(`{"cloudaicompanionProject":"proj-disabled-auto"}`))
+		case "/v1internal:fetchAvailableModels":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": map[string]any{
+					"gemini-2.5-flash": map[string]any{"displayName": "Gemini 2.5 Flash"},
+				},
+			})
+		case "/v1internal:retrieveUserQuotaSummary":
+			rTime := now.Add(7 * 24 * time.Hour)
+			if mode.Load() == 1 {
+				rTime = now.Add(-1 * time.Hour)
+			}
+			testGeminiWeeklyQuotaResponse(w, rTime.UTC().Format(time.RFC3339))
+		case "/v1internal:generateContent":
+			genCalls.Add(1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"candidates":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	mgr, err := NewManager(Options{
+		DataDir:    dataDir,
+		HostHome:   t.TempDir(),
+		Now:        func() time.Time { return now },
+		QuotaHosts: []string{srv.URL},
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.SetAutoWarmup(false); err != nil {
+		t.Fatal(err)
+	}
+
+	accFloating := Account{ID: "acc-off-floating", Name: "Off Floating", Status: StatusActive, On: true}
+	accExpired := Account{ID: "acc-off-expired", Name: "Off Expired", Status: StatusActive, On: true}
+	mgr.mu.Lock()
+	mgr.index.Accounts = append(mgr.index.Accounts, accFloating, accExpired)
+	_ = mgr.saveIndexLocked()
+	mgr.mu.Unlock()
+	for _, id := range []string{accFloating.ID, accExpired.ID} {
+		if err := mgr.WriteToken(id, OAuthTokenFile{
+			Token: OAuthTokenData{AccessToken: "token-" + id, Expiry: now.Add(time.Hour)},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mode.Store(0)
+	if err := mgr.RefreshQuota(context.Background(), accFloating.ID); err != nil {
+		t.Fatal(err)
+	}
+	mode.Store(1)
+	if err := mgr.RefreshQuota(context.Background(), accExpired.ID); err != nil {
+		t.Fatal(err)
+	}
+	if genCalls.Load() != 0 {
+		t.Fatalf("expected 0 generateContent calls when AutoWarmup is disabled, got %d", genCalls.Load())
+	}
+}
+
+func TestWarmup_SkipsInvalidAccount(t *testing.T) {
+	dataDir := t.TempDir()
+	now := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
+
+	var reqCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqCalls.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	mgr, err := NewManager(Options{
+		DataDir:    dataDir,
+		HostHome:   t.TempDir(),
+		Now:        func() time.Time { return now },
+		QuotaHosts: []string{srv.URL},
+		HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	acc := Account{
+		ID:           "acc-invalid",
+		Name:         "Invalid",
+		Status:       StatusInvalid,
+		StatusReason: "token revoked",
+		On:           true,
+	}
+	mgr.mu.Lock()
+	for i := range mgr.index.Accounts {
+		if mgr.index.Accounts[i].ID == SystemAccountID {
+			mgr.index.Accounts[i].On = false
+		}
+	}
+	mgr.index.Accounts = append(mgr.index.Accounts, acc)
+	_ = mgr.saveIndexLocked()
+	mgr.mu.Unlock()
+
+	if err := mgr.Warmup(context.Background(), ""); err != nil {
+		t.Fatalf("batch Warmup should skip invalid account without error, got: %v", err)
+	}
+	if reqCalls.Load() != 0 {
+		t.Fatalf("expected 0 HTTP requests for invalid account in batch Warmup, got %d", reqCalls.Load())
+	}
+
+	err = mgr.Warmup(context.Background(), acc.ID)
+	if err == nil || !strings.Contains(err.Error(), "needs re-login") {
+		t.Fatalf("expected needs re-login error for single invalid account Warmup, got: %v", err)
+	}
+	if reqCalls.Load() != 0 {
+		t.Fatalf("expected 0 HTTP requests for single invalid account Warmup, got %d", reqCalls.Load())
 	}
 }

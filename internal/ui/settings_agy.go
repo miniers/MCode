@@ -841,7 +841,7 @@ func renderAgyAccountsSection(c *ui.Context, st *SettingsState) {
 						Children(func() {
 							// 预热按钮
 							isWarming := warmupBusyIDs[accVal.ID]
-							canWarmup := accVal.On && accVal.Status != accounts.StatusDisabled && accVal.Status != accounts.StatusForbidden && !accVal.CoolingUntil.After(now)
+							canWarmup := accVal.On && accVal.Status != accounts.StatusDisabled && accVal.Status != accounts.StatusForbidden && accVal.Status != accounts.StatusInvalid && !accVal.CoolingUntil.After(now)
 							warmupBtn := ui.ButtonBase(c.Key(accKey+"-btn-warmup")).
 								Label("预热").
 								Radius(RadiusSM).

@@ -310,21 +310,11 @@ func (m *Manager) refreshQuota(ctx context.Context, acc Account) error {
 	if m.index.Accounts[idx].LastWarmup != nil {
 		lw := m.index.Accounts[idx].LastWarmup
 		if lw.Status == "pending_confirmation" || lw.Status == "network_unknown" {
-			newReset := res.Groups[quota.GroupGemini+" 7d"].ResetAt
-			if !newReset.IsZero() {
-				advanced := false
-				if lw.TargetResetAt == "initial" {
-					advanced = true
-				} else if t, err := time.Parse(time.RFC3339, lw.TargetResetAt); err == nil && newReset.After(t) {
-					advanced = true
-				}
-				if advanced {
-					lw.Status = "success"
-					lw.ConfirmedResetAt = newReset.UTC().Format(time.RFC3339)
-					lw.Message = "新周期已生效"
-					lw.Attempts = 0
-				}
+			var targetResetTime time.Time
+			if lw.TargetResetAt != "initial" {
+				targetResetTime, _ = time.Parse(time.RFC3339, lw.TargetResetAt)
 			}
+			advanceWarmupConfirmation(lw, res.Groups[quota.GroupGemini+" 7d"], lw.TargetResetAt, targetResetTime, m.opts.Now())
 		}
 	}
 
@@ -334,34 +324,43 @@ func (m *Manager) refreshQuota(ctx context.Context, acc Account) error {
 	}
 	m.mu.Unlock()
 
-	// 6. 自动预热：仅在开启自动预热且 Gemini 7d 周期已到期但服务端尚未更新时触发。
-	// 复用本次 Fetch 已有 accessToken、res.ProjectID、res.Candidates，跳过 disabled、forbidden、On=false、路由覆盖停用及冷却中账号。
+	// 6. 自动预热：在开启自动预热且 Gemini 7d 周期已到期（服务端尚未更新）或处于未开始的浮动周期时触发。
+	// 复用本次 Fetch 已有 accessToken、res.ProjectID、res.Candidates，跳过 disabled、forbidden、invalid、On=false、路由覆盖停用及冷却中账号。
 	if m.AutoWarmup() {
 		group := quota.GroupGemini
 		current, hasCurrent := res.Groups[group+" 7d"]
 
+		var trigger bool
+		var targetResetAt string
+		var targetResetTime time.Time
+
 		// 必须服务端明确返回真实可解析的 Gemini 7d 周 reset；缺失时不猜自动周期
 		if hasCurrent && !current.ResetAt.IsZero() && !current.ResetAt.After(now) {
-			shouldWarmup := true
+			trigger = true
 			// 若存在旧快照且旧 reset 尚未到期，则不应触发
 			if old, ok := acc.Quota[group+" 7d"]; ok {
 				if oldReset, err := time.Parse(time.RFC3339, old.ResetAt); err == nil && oldReset.After(now) {
-					shouldWarmup = false
+					trigger = false
 				}
 			}
+			if trigger {
+				targetResetTime = current.ResetAt
+				targetResetAt = targetResetTime.UTC().Format(time.RFC3339)
+			}
+		} else if hasCurrent && isFloatingWeeklyWindow(current, now) {
+			trigger = true
+			targetResetAt = "initial"
+		}
 
-			if shouldWarmup {
-				m.mu.Lock()
-				curAcc, curExists := m.findAccountLocked(id)
-				avail, _ := m.effectiveAccountStateLocked(curAcc, now)
-				m.mu.Unlock()
+		if trigger {
+			m.mu.Lock()
+			curAcc, curExists := m.findAccountLocked(id)
+			avail, _ := m.effectiveAccountStateLocked(curAcc, now)
+			m.mu.Unlock()
 
-				if curExists && avail {
-					targetResetTime := current.ResetAt
-					targetResetAt := targetResetTime.UTC().Format(time.RFC3339)
-					// 执行预热（预热失败不影响额度拉取结果，也不将账号标为 forbidden）
-					_ = m.executeWarmup(ctx, id, qc, accessToken, res.ProjectID, res.Candidates, targetResetAt, targetResetTime)
-				}
+			if curExists && avail {
+				// 执行预热（预热失败不影响额度拉取结果，也不将账号标为 forbidden）
+				_ = m.executeWarmup(ctx, id, qc, accessToken, res.ProjectID, res.Candidates, targetResetAt, targetResetTime)
 			}
 		}
 	}
