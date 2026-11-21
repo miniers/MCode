@@ -366,6 +366,9 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 			}
 		})
 	})
+	automationMu.Lock()
+	discardOpen := as.confirmDiscard
+	automationMu.Unlock()
 	if as.editorOpen {
 		open := true
 		modalDragModal(c, "automation-editor-modal", &open, func() {
@@ -375,11 +378,44 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 		})
 		if !open {
 			automationMu.Lock()
-			as.closeEditor()
+			if as.dirty() {
+				as.confirmDiscard = true
+			} else {
+				as.closeEditor()
+			}
 			automationMu.Unlock()
 			s.invalidate()
 		}
 	}
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:             "automation-discard-confirm",
+		Open:            discardOpen,
+		Tone:            ConfirmDanger,
+		Title:           "放弃未保存的修改？",
+		ConfirmLabel:    "放弃",
+		CancelLabel:     "继续编辑",
+		CancelAutoFocus: true,
+		OnConfirm: func() {
+			automationMu.Lock()
+			as.confirmDiscard = false
+			as.draftBaseline = as.draft()
+			as.closeEditor()
+			next := as.pendingLeave
+			as.pendingLeave = nil
+			automationMu.Unlock()
+			s.invalidate()
+			if next != nil {
+				next()
+			}
+		},
+		OnCancel: func() {
+			automationMu.Lock()
+			as.confirmDiscard = false
+			as.pendingLeave = nil
+			automationMu.Unlock()
+			s.invalidate()
+		},
+	})
 	RenderConfirmDialog(c, ConfirmDialog{
 		Key:          "automation-delete-confirm",
 		Open:         as.confirmDelete && selected.ID != "",

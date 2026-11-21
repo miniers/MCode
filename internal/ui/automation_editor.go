@@ -53,27 +53,6 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 			}})
 		})
 	}
-	if as.confirmDiscard {
-		ui.Row(c.Key("automation-discard-confirm")).Gap(Space2).Children(func() {
-			ui.Text(c, "放弃未保存的修改？").TextColor(ThemePrimaryText(c))
-			Button(c.Key("automation-discard-continue"), ButtonOpts{Text: "继续编辑", OnClick: func() { as.confirmDiscard = false; as.pendingLeave = nil }, Variant: ButtonSecondary})
-			Button(c.Key("automation-discard"), ButtonOpts{Text: "放弃", OnClick: func() {
-				as.confirmDiscard = false
-				as.editorOpen = false
-				as.stopSchedulePreview()
-				as.focusEditorTrigger = true
-				if as.isNew {
-					as.isNew = false
-				}
-				s.invalidate()
-				next := as.pendingLeave
-				as.pendingLeave = nil
-				if next != nil {
-					next()
-				}
-			}, Variant: ButtonDanger})
-		})
-	}
 
 	// 表单校验错误提示
 	if formErr != "" {
@@ -334,7 +313,16 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 			Button(c.Key("automation-editor-run"), ButtonOpts{Text: "立即运行", Disabled: saving || runningIDs[selectedID], OnClick: func() { s.requestAutomationRun(selectedID) }, Variant: ButtonSecondary})
 		}
 		ui.Box(c.Key("automation-editor-footer-spacer")).Grow(1)
-		Button(c.Key("automation-cancel"), ButtonOpts{Text: "取消", Label: "取消编辑", OnClick: func() { as.closeEditor(); s.invalidate() }, Variant: ButtonSecondary})
+		Button(c.Key("automation-cancel"), ButtonOpts{Text: "取消", Label: "取消编辑", OnClick: func() {
+			automationMu.Lock()
+			if as.dirty() {
+				as.confirmDiscard = true
+			} else {
+				as.closeEditor()
+			}
+			automationMu.Unlock()
+			s.invalidate()
+		}, Variant: ButtonSecondary})
 		label := "保存"
 		if isNew {
 			label = "创建并启用"

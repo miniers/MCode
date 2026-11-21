@@ -1395,31 +1395,17 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 
 					ui.Spacer(c)
 
-					closeBtn := ui.ButtonBase(c.Key("swarm-review-close-btn")).
-						Label("关闭").
-						Tooltip("关闭审查器").
-						Radius(RadiusSM).
-						Padding(Space1, Space3)
-					{
-						scale := motionPressScale(c, closeBtn, "button-press-scale", closeBtn.Pressed())
-						closeBtn.Scale(scale, scale)
-					}
-					if closeBtn.Hovered() {
-						closeBtn.Background(ThemeHover(c))
-					}
-					if closeBtn.Clicked() {
-						s.closeSwarmReview()
-					}
-					closeBtn.Children(func() {
-						ui.Row(c.Key("swarm-review-close-btn-inner")).
-							Gap(Space1).
-							AlignItems(ui.Center).
-							Children(func() {
-								ui.Icon(c, IconX()).Size(Space4, Space4).TextColor(ThemeSecondaryText(c))
-								ui.Text(c, "关闭").
-									FontSize(uiFont(TypeFootnote)).
-									TextColor(ThemeSecondaryText(c))
-							})
+					Button(c, ButtonOpts{
+						Key:     "swarm-review-close-btn",
+						Text:    "关闭",
+						Icon:    IconX(),
+						Label:   "关闭",
+						Tooltip: "关闭审查器",
+						Variant: ButtonGhost,
+						Size:    ControlSM,
+						OnClick: func() {
+							s.closeSwarmReview()
+						},
 					})
 				})
 
@@ -1547,51 +1533,35 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 													TextColor(ThemeSecondaryText(c))
 											})
 									} else {
-										approveBtn := ui.ButtonBase(c.Key("swarm-review-approve-btn")).
-											Label("批准合并").
-											Disabled(reviewLoading || len(reviewFiles) == 0).
-											Radius(RadiusXS).
-											Padding(Space1, Space3).
-											Background(ThemeAccent(c))
-										{
-											scale := motionPressScale(c, approveBtn, "button-press-scale", !(reviewLoading || len(reviewFiles) == 0) && approveBtn.Pressed())
-											approveBtn.Scale(scale, scale)
-										}
-										if approveBtn.Hovered() {
-											approveBtn.Background(ThemeAccent(c).Alpha(0.85))
-										}
-										if approveBtn.Clicked() {
-											s.approveSwarmMerge(curBee.ThreadID)
-										}
-										approveBtn.Children(func() {
-											ui.Text(c, "批准合并").
-												FontSize(uiFont(TypeFootnote)).
-												FontWeight(500).
-												TextColor(ThemeOnAccent(c))
+										approveDisabled := reviewLoading || len(reviewFiles) == 0
+										Button(c, ButtonOpts{
+											Key:      "swarm-review-approve-btn",
+											Text:     "批准合并",
+											Label:    "批准合并",
+											Variant:  ButtonPrimary,
+											Size:     ControlSM,
+											Disabled: approveDisabled,
+											OnClick: func() {
+												if approveDisabled {
+													return
+												}
+												s.approveSwarmMerge(curBee.ThreadID)
+											},
 										})
 
-										discardBtn := ui.ButtonBase(c.Key("swarm-review-discard-btn")).
-											Label("放弃").
-											Radius(RadiusXS).
-											Padding(Space1, Space3)
-										{
-											scale := motionPressScale(c, discardBtn, "button-press-scale", discardBtn.Pressed())
-											discardBtn.Scale(scale, scale)
-										}
-										if discardBtn.Hovered() {
-											discardBtn.Background(ThemeHover(c))
-										}
-										if discardBtn.Clicked() {
-											swarmPanelMu.Lock()
-											hp.discardBeeID = curBee.ThreadID
-											hp.discardConfirmOpen = true
-											swarmPanelMu.Unlock()
-											s.invalidate()
-										}
-										discardBtn.Children(func() {
-											ui.Text(c, "放弃").
-												FontSize(uiFont(TypeFootnote)).
-												TextColor(ThemeDanger(c))
+										Button(c, ButtonOpts{
+											Key:     "swarm-review-discard-btn",
+											Text:    "放弃",
+											Label:   "放弃",
+											Variant: ButtonDanger,
+											Size:    ControlSM,
+											OnClick: func() {
+												swarmPanelMu.Lock()
+												hp.discardBeeID = curBee.ThreadID
+												hp.discardConfirmOpen = true
+												swarmPanelMu.Unlock()
+												s.invalidate()
+											},
 										})
 									}
 								} else if curBee.Merged {

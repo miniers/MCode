@@ -1697,10 +1697,11 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 			e := entry
 			rowKey := "provider-row-" + e.Kind + "-" + e.ID
 			row := applySettingsRowFocus(c, ui.Row(c.Key(rowKey)).
-				Label(e.Name).Padding(Space3, settingsRowPadX).MinHeight(settingsRowMinHeight).AlignItems(ui.Center).Gap(Space4).FillWidth(), rowKey)
+				Label(e.Name).Padding(Space3, settingsRowPadX).MinHeight(settingsRowMinHeight).AlignItems(ui.Center).Gap(Space4).FillWidth().Focusable().Cursor(ui.CursorPointer), rowKey)
 			if row.Hovered() {
 				row.Background(ThemeHover(c))
 			}
+			focusRing(c, row)
 			childClicked := false
 			row.Children(func() {
 				renderProviderRowIcon(c, e.ID, 16)
@@ -1730,7 +1731,7 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 				}
 				ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 			})
-			if row.Clicked() && !childClicked {
+			if (row.Clicked() && !childClicked) || (row.Focused() && (row.Shortcut(0, ui.KeyEnter) || row.Shortcut(0, ui.KeySpace))) {
 				openProviderSheet(st, e.Kind, e.ID)
 			}
 		}
@@ -1738,16 +1739,17 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 	if len(agents)+len(api) > 0 || loadErr != "" {
 		renderSettingsDivider(c, "div-provider-add")
 	}
-	row := ui.Row(c.Key("row-provider-add")).Label("添加供应商").Padding(Space3, settingsRowPadX).MinHeight(settingsRowMinHeight).AlignItems(ui.Center).FillWidth()
+	row := applySettingsRowFocus(c, ui.Row(c.Key("row-provider-add")).Label("添加供应商").Padding(Space3, settingsRowPadX).MinHeight(settingsRowMinHeight).AlignItems(ui.Center).FillWidth().Focusable().Cursor(ui.CursorPointer), "row-provider-add")
 	if row.Hovered() {
 		row.Background(ThemeHover(c))
 	}
+	focusRing(c, row)
 	row.Children(func() {
 		ui.Text(c, "添加供应商").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 		ui.Box(c.Key("provider-add-spacer")).Grow(1)
 		ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 	})
-	if row.Clicked() {
+	if row.Clicked() || (row.Focused() && (row.Shortcut(0, ui.KeyEnter) || row.Shortcut(0, ui.KeySpace))) {
 		openSettingsSheet(st, "provider-add", "")
 	}
 }

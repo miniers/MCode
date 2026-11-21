@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -254,29 +255,36 @@ func (n numberControl) render(c *ui.Context, st *SettingsState, s setting) {
 func (n numberControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, disabled bool) {
 	if disabled {
 		st.clearNumberDraft(s.ID)
+		st.clearNumberError(s.ID)
 	}
 	txt, editing := st.numberDraft(s.ID)
 	if disabled || !editing {
 		txt = n.displayText(st)
 	}
 	oldTxt := txt
-	ui.Row(c.Key(s.ID + "-value")).AlignItems(ui.Center).Gap(Space2).Children(func() {
-		TextField(c, TextFieldProps{
-			Key:         s.ID + "-input",
-			Value:       &txt,
-			Placeholder: strconv.Itoa(n.b.def),
-			Width:       90,
-			Label:       "编辑" + s.Title,
-			Disabled:    disabled,
-			OnSubmit:    func(string) { n.commit(c, st, s) },
-			OnFocusChange: func(f bool) {
-				if !f {
-					n.commit(c, st, s)
-				}
-			},
+	errMsg := st.numberError(s.ID)
+	ui.Column(c.Key(s.ID + "-wrap")).AlignItems(ui.End).Gap(Space1).Children(func() {
+		ui.Row(c.Key(s.ID + "-value")).AlignItems(ui.Center).Gap(Space2).Children(func() {
+			TextField(c, TextFieldProps{
+				Key:         s.ID + "-input",
+				Value:       &txt,
+				Placeholder: strconv.Itoa(n.b.def),
+				Width:       90,
+				Label:       "编辑" + s.Title,
+				Disabled:    disabled,
+				OnSubmit:    func(string) { n.commit(c, st, s) },
+				OnFocusChange: func(f bool) {
+					if !f {
+						n.commit(c, st, s)
+					}
+				},
+			})
+			if n.unit != "" {
+				ui.Text(c, n.unit).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+			}
 		})
-		if n.unit != "" {
-			ui.Text(c, n.unit).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+		if errMsg != "" {
+			ui.Text(c, errMsg).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
 		}
 	})
 	if txt == oldTxt {
@@ -288,29 +296,39 @@ func (n numberControl) renderDisabled(c *ui.Context, st *SettingsState, s settin
 	}
 	// 还没定稿的输入只留在草稿里：中间值可能是「90」这种区间内但不完整的值，
 	// 边打边写会把用户还在敲的数字当成结果。
+	st.clearNumberError(s.ID)
 	st.setNumberDraft(s.ID, txt)
+	if errMsg != "" {
+		c.Invalidate()
+	}
 }
 
 // commit 在失焦或回车时定稿：区间内的值写进配置，其余丢掉输入框里的内容，
-// 显示回到配置当前值——不替用户改成边界值。
+// 显示回到配置当前值——不替用户改成边界值，并记录范围校验错误供界面展示。
 func (n numberControl) commit(c *ui.Context, st *SettingsState, s setting) {
 	txt, ok := st.numberDraft(s.ID)
 	if !ok {
 		return
 	}
+	committed := false
 	if parsed, valid := parseNumber(txt); valid {
 		if n.step > 1 {
 			parsed = int(math.Round(float64(parsed)/float64(n.step))) * n.step
 		}
 		if parsed >= n.min && parsed <= n.max {
 			n.write(st, parsed)
+			st.clearNumberError(s.ID)
+			committed = true
 		}
 	}
+	if !committed {
+		st.setNumberError(s.ID, fmt.Sprintf("请输入 %d–%d 之间的整数", n.min, n.max))
+	}
 	st.clearNumberDraft(s.ID)
-	if strings.TrimSpace(txt) == n.displayText(st) {
+	if committed && strings.TrimSpace(txt) == n.displayText(st) {
 		return
 	}
-	// 显示要变（越界被丢弃，或写法不同），补一帧让它立刻画出来。
+	// 显示要变（越界被丢弃，或写法不同，或需要展示错误提示），补一帧让它立刻画出来。
 	c.Invalidate()
 }
 
