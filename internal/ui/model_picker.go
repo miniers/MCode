@@ -1471,6 +1471,8 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 			if p.OnEffort != nil {
 				p.OnEffort(side, effort)
 			}
+			// 独立弹层闭包捕获宿主帧 props，切换档位后需主动请求重绘。
+			modelPickerInvalidate(p)
 		},
 		OnToggleFast: func() {
 			if p.OnToggleFast != nil {

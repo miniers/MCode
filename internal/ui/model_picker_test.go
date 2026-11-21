@@ -2761,3 +2761,34 @@ func TestModelPickerSimpleUsesSingleCard(t *testing.T) {
 		t.Fatal("Simple 模式不应渲染 Swarm 工具栏编排开关")
 	}
 }
+
+// 切换推理强度滑块后应同步触发 Invalidate，让独立浮层闭包及时刷新。
+func TestModelPickerEffortInvalidates(t *testing.T) {
+	providers := modelPickerTestProviders()
+	providers[0].Models[0].Efforts = []string{"low", "high"}
+	state := &ModelPickerState{}
+	gotEffort := ""
+	invalidates := 0
+	props := ModelPickerProps{
+		Mode:       ModelPickerSimple,
+		Inline:     true,
+		KeyPrefix:  "effort-invalidate-",
+		ScopeKey:   "effort-invalidate",
+		State:      state,
+		Providers:  providers,
+		Selection:  ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet", Effort: "low"},
+		OnEffort:   func(_ ModelPickerSide, effort string) { gotEffort = effort },
+		Invalidate: func() { invalidates++ },
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderModelPickerCard(c, props, state, ModelPickerSideLead)
+	}, modelPickerPanelWidth, 400)
+	tt.Frame()
+	clickEffortSlider(t, tt, 1)
+	if gotEffort != "high" {
+		t.Fatalf("上层 OnEffort 收到 %q，期望 %q", gotEffort, "high")
+	}
+	if invalidates < 1 {
+		t.Fatalf("切换推理强度后 Invalidate 调用次数 = %d，期望至少 1 次", invalidates)
+	}
+}
