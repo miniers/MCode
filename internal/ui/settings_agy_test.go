@@ -138,7 +138,7 @@ func TestSettingsAgy_RefreshAndRoutingErrorsVisible(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("刷新额度失败: quota unavailable") })
 	waitFor(t, tt, func() bool { return tt.HasText("保存路由配置失败: routing unreadable") })
 	// 路由错误挂在开关行下方：行标题与开关都还在，说明错误不是靠副标题撑住的。
-	for _, text := range []string{"调度", "冷却账号", "切换冷却账号"} {
+	for _, text := range []string{"调度", "冷却后的账号排到最后", "切换冷却后的账号排到最后"} {
 		if !tt.HasText(text) {
 			t.Fatalf("路由区缺少 %q: %v", text, tt.Texts())
 		}

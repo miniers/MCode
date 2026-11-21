@@ -371,7 +371,7 @@ func TestSettingsPageNowledge_Tree(t *testing.T) {
 		t.Fatalf("缺少节标题「记忆」: %v", tt.Texts())
 	}
 	// 进阶项交由高级页组装。
-	if tt.HasText("工作记忆预算") {
+	if tt.HasText("Working Memory 字数上限") {
 		t.Fatal("扩展页不应显示高级项")
 	}
 	if !tt.HasText("记忆后端") {

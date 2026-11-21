@@ -153,8 +153,8 @@ var remotePushSection = settingsSection{
 	Rows: []setting{
 		{
 			ID:      "row-remote-push-enabled",
-			Title:   "应用关闭时也推送",
-			Aliases: []string{"推送", "通知", "Web Push", "离线推送"},
+			Title:   "手机离线时推送",
+			Aliases: []string{"应用关闭时也推送", "推送", "通知", "Web Push", "离线推送"},
 			Control: remotePushToggleControl{},
 		},
 		{

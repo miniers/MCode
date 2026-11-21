@@ -162,12 +162,12 @@ func TestUIReview17_RemotePushToggleRollback(t *testing.T) {
 		return errors.New("disk full")
 	}
 
-	row := setting{ID: "row-remote-push", Title: "应用关闭时也推送", Control: remotePushToggleControl{}}
+	row := setting{ID: "row-remote-push", Title: "手机离线时推送", Control: remotePushToggleControl{}}
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderSettingsTreeSetting(c, st, row)
 	}, 900, 200)
 
-	if err := tt.Click("切换应用关闭时也推送"); err != nil {
+	if err := tt.Click("切换手机离线时推送"); err != nil {
 		t.Fatalf("点击推送开关失败: %v", err)
 	}
 	settingsSaveWriters.Wait()
@@ -186,7 +186,7 @@ func TestUIReview17_RemotePushToggleRollback(t *testing.T) {
 	}
 
 	st.saveConfigFn = nil
-	if err := tt.Click("切换应用关闭时也推送"); err != nil {
+	if err := tt.Click("切换手机离线时推送"); err != nil {
 		t.Fatalf("再次点击推送开关失败: %v", err)
 	}
 	settingsSaveWriters.Wait()

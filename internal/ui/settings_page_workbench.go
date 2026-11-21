@@ -154,8 +154,8 @@ var pageWorkbench = settingsPage{
 				},
 				{
 					ID:      "row-kanban-entry-ordinary",
-					Title:   "普通会话暴露单一入口",
-					Aliases: []string{"看板", "会话", "入口", "kanban", "tool"},
+					Title:   "普通会话可用看板",
+					Aliases: []string{"普通会话暴露单一入口", "看板", "会话", "入口", "kanban", "tool"},
 					Enabled: func(st *SettingsState) bool { return st.cfg.Workbench.KanbanMCPToolsEnabled() },
 					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Workbench.KanbanEntryOrdinary }, true)),
 				},

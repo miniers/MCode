@@ -185,8 +185,8 @@ var pageGeneral = settingsPage{
 				},
 				{
 					ID:      "row-automation-prevent-sleep",
-					Title:   "保持唤醒",
-					Aliases: []string{"定时任务前保持唤醒", "防休眠", "自动化", "休眠"},
+					Title:   "自动化运行时保持唤醒",
+					Aliases: []string{"保持唤醒", "定时任务前保持唤醒", "防休眠", "自动化", "休眠"},
 					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Automation.PreventSleep }, true)),
 				},
 			},

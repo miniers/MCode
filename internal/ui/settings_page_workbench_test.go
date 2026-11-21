@@ -126,7 +126,7 @@ func TestSettingsPageWorkbench_Tree(t *testing.T) {
 		"Instructions", "Overview", "Decisions", "Notes", "Api Design",
 		"看板", "任务执行", "MCP 工具", "默认视图", "列表",
 		"验收后自动合并工作树", "完成后自动送审", "在独立工作树中执行",
-		"注册看板 MCP 工具", "普通会话暴露单一入口", "创建后自动启动", "卡死任务自动救援", "无活动中断",
+		"注册看板 MCP 工具", "普通会话可用看板", "创建后自动启动", "卡死任务自动救援", "无活动中断",
 		"终端", "默认终端", "Web 预览", "捕获控制台输出",
 		"编辑器与文件树", "自动保存",
 		"打开方式", "提交信息生成", "工作区与工作树", "Worktree 清理", "存储清理", "高级", "注入字符上限", "回滚行数", "快捷端口",
@@ -337,7 +337,7 @@ func TestSettingsDependentControls(t *testing.T) {
 	if err := tt.Click("切换Api Design"); err != nil {
 		t.Fatalf("点击文档开关失败: %v", err)
 	}
-	if err := tt.Click("切换普通会话暴露单一入口"); err != nil {
+	if err := tt.Click("切换普通会话可用看板"); err != nil {
 		t.Fatalf("点击看板入口开关失败: %v", err)
 	}
 	if err := tt.Click("退出应用"); err != nil {
@@ -356,7 +356,7 @@ func TestSettingsDependentControls(t *testing.T) {
 	*st.cfg.Workbench.KanbanMCPEnabled = true
 	*st.cfg.Workbench.ContextInjectsGuidance = true
 	tt.Frame()
-	if err := tt.Click("切换普通会话暴露单一入口"); err != nil {
+	if err := tt.Click("切换普通会话可用看板"); err != nil {
 		t.Fatalf("点击已启用的看板入口开关失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return !st.cfg.Workbench.KanbanEntryOrdinarySessions() })

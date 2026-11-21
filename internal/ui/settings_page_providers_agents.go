@@ -2245,7 +2245,7 @@ func renderAgyChannelRow(c *ui.Context, st *SettingsState, locked bool) {
 		}
 	}
 	disabled := locked || saving || !loaded
-	renderSettingRow(c, "row-agy-channel", "通道", func() {
+	renderSettingRow(c, "row-agy-channel", "连接方式", func() {
 		Segmented(c, "agy-channel", &selected, []Segment{{Label: "自动", Disabled: disabled}, {Label: "ACP", Disabled: disabled}, {Label: "PrintMode", Disabled: disabled}}, func(i int) {
 			saveProviderRowSetting(st, "agy", func(s *ProviderSetting) { s.AgyChannel = values[i] })
 		})

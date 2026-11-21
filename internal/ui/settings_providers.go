@@ -1172,7 +1172,7 @@ func apiProviderSheetSections(st *SettingsState, kind, id string) []providerShee
 						})
 						renderProviderBalancePanel(c, st, id)
 						if state.credits.BreakdownText != "" {
-							renderSettingRow(c, "row-provider-balance-breakdown", "明细", func() {
+							renderSettingRow(c, "row-provider-balance-breakdown", "余额明细", func() {
 								ui.Text(c, state.credits.BreakdownText).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 							})
 						}

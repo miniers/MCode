@@ -20,8 +20,8 @@ var advancedConversation = settingsSection{
 		},
 		{
 			ID:      "row-bee-message-retention",
-			Title:   "压缩 30 天前的子代理消息",
-			Aliases: []string{"保留", "压缩", "子代理", "bee", "30 天", "工具输出", "思考", "不可恢复", "主会话"},
+			Title:   "自动压缩历史消息",
+			Aliases: []string{"压缩 30 天前的子代理消息", "保留", "压缩", "子代理", "bee", "30 天", "工具输出", "思考", "不可恢复", "主会话"},
 			Control: toggle(ptr(func(c *config.Config) **bool { return &c.Retention.BeeMessages }, true)),
 		},
 	},

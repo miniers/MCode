@@ -1340,8 +1340,8 @@ var agyRoutingSection = settingsSection{
 	Rows: []setting{
 		{
 			ID:      "sec-agy-routing-sink",
-			Title:   "冷却账号",
-			Aliases: []string{"账号", "额度", "队列", "冷却"},
+			Title:   "冷却后的账号排到最后",
+			Aliases: []string{"冷却账号", "账号", "额度", "队列", "冷却"},
 			Control: toggleFunc(agyRoutingSinkValue, func(st *SettingsState, on bool) {
 				st.updateAgyRouting(func(cfg *multiaccount.Config) {
 					cfg.Sink = on

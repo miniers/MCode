@@ -45,7 +45,7 @@ var settingsCopyCases = []settingsCopyCase{
 	// Agy 多账号页
 	{title: "调度策略", desc: "多个账号之间怎么轮换"},
 	{title: "会话保持模式", desc: "同一会话尽量用同一账号"},
-	{title: "冷却账号", desc: "额度用尽的账号排到调度队列末尾"},
+	{title: "冷却后的账号排到最后", desc: "额度用尽的账号排到调度队列末尾"},
 	{title: "到期自动预热", desc: "额度恢复时自动尝试一次，确认可用"},
 	// 锁定态统一说明（无独立标题）
 	{title: "", desc: "由启动参数指定，重启后生效"},

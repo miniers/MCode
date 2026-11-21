@@ -23,7 +23,7 @@ row row-archive 已归档会话
 row row-confirm-delete 删除会话前确认
 section advanced.conversation 高级
 row row-ask-compact-before-resume 恢复旧会话前询问压缩
-row row-bee-message-retention 压缩 30 天前的子代理消息
+row row-bee-message-retention 自动压缩历史消息
 page extensions
 section skills.list 技能
 row block-skills 
@@ -39,7 +39,7 @@ section nowledge.spaces 项目记忆空间
 row row-nowledge-project-spaces 
 section advanced.memory 高级
 row row-nowledge-inject-memory-tools-note 向新会话说明记忆工具用法
-row row-nowledge-working-memory-budget 工作记忆预算
+row row-nowledge-working-memory-budget Working Memory 字数上限
 row row-nowledge-sync-helper-threads 同步编排子代理会话
 row row-nowledge-sync-automation-threads 同步自动化运行会话
 page general
@@ -58,7 +58,7 @@ section general.startup 启动与托盘
 row row-tray 菜单栏图标
 row row-tray-quota 菜单栏显示额度百分比
 row row-quit-action 关闭窗口时
-row row-automation-prevent-sleep 保持唤醒
+row row-automation-prevent-sleep 自动化运行时保持唤醒
 section general.backup 备份与恢复
 row row-general-backup 备份
 row row-general-restore 恢复
@@ -122,7 +122,7 @@ row row-remote-tls-entry HTTPS 入口
 row row-remote-tls-status 证书状态
 row row-remote-tls-actions 证书操作
 section remote.push 手机推送
-row row-remote-push-enabled 应用关闭时也推送
+row row-remote-push-enabled 手机离线时推送
 row row-remote-push-subscriptions 已订阅设备
 page swarm
 section swarm.main 
@@ -188,7 +188,7 @@ row row-kanban-stuck-nudge-timeout 无活动提醒
 row row-kanban-stuck-interrupt-timeout 无活动中断
 section workbench.mcp MCP 工具
 row row-kanban-mcp-tools 注册看板 MCP 工具
-row row-kanban-entry-ordinary 普通会话暴露单一入口
+row row-kanban-entry-ordinary 普通会话可用看板
 section workbench.terminal 终端
 row row-terminal-shell 默认终端
 row row-command-shell 命令 shell
@@ -231,7 +231,7 @@ sheet provider 供应商
 section sec-agy-login 添加账号
 row row-agy-browser-login 浏览器授权登录
 section sec-agy-routing 调度
-row sec-agy-routing-sink 冷却账号
+row sec-agy-routing-sink 冷却后的账号排到最后
 row sec-agy-auto-warmup 到期自动预热
 section sec-agy-strategy 调度策略
 row sec-agy-routing-strategy 调度策略

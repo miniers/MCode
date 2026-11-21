@@ -124,8 +124,8 @@ var advancedMemory = settingsSection{
 		},
 		{
 			ID:      "row-nowledge-working-memory-budget",
-			Title:   "工作记忆预算",
-			Aliases: []string{"字符上限", "上限", "记忆预算", "截断", "8000"},
+			Title:   "Working Memory 字数上限",
+			Aliases: []string{"工作记忆预算", "字符上限", "上限", "记忆预算", "截断", "8000"},
 			Control: number(
 				val(func(c *config.Config) *int { return &c.Memory.WorkingMemoryMaxCharacters }, config.DefaultWorkingMemoryMaxCharacters),
 				"字符",

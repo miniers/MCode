@@ -244,7 +244,7 @@ func renderMagpieGatewaySheetBody(c *ui.Context, st *SettingsState, gatewayID st
 				).render(c, st, enabledSetting)
 			})
 			renderSettingsDivider(c, "div-magpie-gateway-operations")
-			renderSettingRow(c, "row-magpie-gateway-operations", "操作", func() {
+			renderSettingRow(c, "row-magpie-gateway-operations", "管理", func() {
 				ui.Row(c.Key("magpie-sheet-operations")).Gap(settingsCompactPadX).Children(func() {
 					refresh := ui.ButtonBase(c.Key("magpie-sheet-refresh")).Label("刷新").Disabled(busy)
 					if refresh.Clicked() {
