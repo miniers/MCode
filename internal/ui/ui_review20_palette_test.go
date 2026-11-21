@@ -241,14 +241,12 @@ func TestUIReview20OnboardingMagpieErrorStatus(t *testing.T) {
 	}
 
 	setAppReduceMotion(t, false)
-	u := onboardingState(s)
-	u.open, u.step = true, onboardingMagpie
-	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
+	tt := ui.NewTester(func(c *ui.Context) { onboardingMagpieRow(c, s, st, 0) }, 800, 700)
 	tt.Frame()
 	tt.Advance(2 * time.Second)
 	tt.Frame()
 	if !tt.HasText("连接失败") || tt.HasText("检查中") {
-		t.Fatalf("Magpie 错误页应显示「连接失败」而非「检查中」：%v", tt.Texts())
+		t.Fatalf("Magpie 错误行应显示「连接失败」而非「检查中」：%v", tt.Texts())
 	}
 	if tt.FramePending() {
 		t.Fatal("Magpie 连接失败时不应继续请求下一帧")

@@ -7,10 +7,8 @@ import (
 )
 
 const (
-	// onboardingNodeSize 是插画节点与完成页勾选圆的直径。
+	// onboardingNodeSize 是插画节点的直径。
 	onboardingNodeSize = Space8 + Space5
-	// onboardingCelebrationSize 是完成页勾选外框的尺寸。
-	onboardingCelebrationSize = Space8 + Space7
 	// onboardingLinkHeight 是插画节点连线的粗细。
 	onboardingLinkHeight = Space0
 	// onboardingHeroFrameInterval 是欢迎页 Draw 重画的帧间隔（约 30fps）。

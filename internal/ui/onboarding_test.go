@@ -9,28 +9,154 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// TestOnboardingSteps 验证新手引导的对应行为。
-func TestOnboardingSteps(t *testing.T) {
-	for _, tc := range []struct {
-		route onboardingRoute
-		steps []onboardingStep
-	}{
-		{onboardingRecommended, []onboardingStep{onboardingWelcome, onboardingAgents, onboardingMagpie, onboardingFinish}},
-		{onboardingDirect, []onboardingStep{onboardingWelcome, onboardingAgents, onboardingFinish}},
-	} {
-		for i, step := range tc.steps {
-			next, prev := step, step
-			if i+1 < len(tc.steps) {
-				next = tc.steps[i+1]
-			}
-			if i > 0 {
-				prev = tc.steps[i-1]
-			}
-			if onboardingNextStep(tc.route, step) != next || onboardingPrevStep(tc.route, step) != prev {
-				t.Fatalf("路线 %v 的步骤 %v 错误", tc.route, step)
+// TestOnboardingSinglePage 验证单页就绪清单：四行都渲染、已就绪无操作按钮、未就绪有操作按钮、计数正确且 codex 不再写死未知。
+func TestOnboardingSinglePage(t *testing.T) {
+	t.Run("四行与计数及操作按钮", func(t *testing.T) {
+		old := onboardingComplete
+		completed := 0
+		onboardingComplete = func() error {
+			completed++
+			return nil
+		}
+		t.Cleanup(func() { onboardingComplete = old })
+
+		s := newChatState(NewFakeClient())
+		t.Cleanup(s.close)
+		st := NewSettingsState(settingsTestDir(t), nil, s)
+		setChatSettings(s, st)
+		st.mu.Lock()
+		st.providerRows.loaded = true
+		st.providerRows.available = map[string]bool{"claude": true, "codex": true, "agy": false}
+		st.providerRows.versions = map[string]ProviderVersionInfo{
+			"claude": {Provider: "claude", Installed: "1.2.0"},
+			"codex":  {Provider: "codex", Installed: "0.5.0"},
+		}
+		st.providerRows.login = map[string]string{
+			"claude": ProviderLoginStateLoggedIn,
+			"codex":  ProviderLoginStateLoggedOut,
+		}
+		st.endpoints.loaded = true
+		st.endpoints.endpoints = []CustomEndpoint{{ID: "gw", Magpie: true, Enabled: true, HasAPIKey: true}}
+		st.piMagpie.loaded = true
+		st.piMagpie.endpoints = []PiMagpieEndpoint{{ID: "gw"}}
+		st.mu.Unlock()
+
+		u := onboardingState(s)
+		u.open = true
+		tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 900)
+		tt.UseScreenReader()
+		tt.Advance(time.Second)
+		tt.Frame()
+
+		for _, want := range []string{"欢迎使用 mcode", "Claude", "Codex", "Antigravity", "Magpie", "2/4 就绪", "稍后", "开始使用"} {
+			if !tt.HasText(want) {
+				t.Fatalf("未找到 %q：%v", want, tt.Texts())
 			}
 		}
-	}
+		if tt.HasText("登录状态未知") || tt.HasText("已安装，登录状态未知") {
+			t.Fatalf("codex 不应再显示「登录状态未知」：%v", tt.Texts())
+		}
+		if !tt.HasText("未登录（请在终端运行 codex login）") {
+			t.Fatalf("codex 未登录时应走登录态摘要：%v", tt.Texts())
+		}
+
+		var buttons []string
+		for _, a := range tt.AccessAll() {
+			if a.Role == ui.RoleButton {
+				buttons = append(buttons, a.Name)
+			}
+		}
+		// 仅 codex(打开设置) 与 agy(安装) 两行有操作按钮，加上关闭/稍后/开始使用共 5 个按钮。
+		if len(buttons) != 5 {
+			t.Fatalf("按钮数量 = %d (%v)，期望只有未就绪两行带操作按钮", len(buttons), buttons)
+		}
+		if _, ok := tt.AccessByRole(ui.RoleButton, "打开设置"); !ok {
+			t.Fatalf("未就绪的 codex 行应有「打开设置」按钮：%v", buttons)
+		}
+		if _, ok := tt.AccessByRole(ui.RoleButton, "安装"); !ok {
+			t.Fatalf("未安装的 agy 行应有「安装」按钮：%v", buttons)
+		}
+
+		// 全部就绪时 4/4，且没有任何行操作按钮。
+		st.mu.Lock()
+		st.providerRows.login["codex"] = ProviderLoginStateLoggedIn
+		st.providerRows.available["agy"] = true
+		st.agy.localLogin = true
+		st.mu.Unlock()
+		tt.Advance(time.Second)
+		tt.Frame()
+		if !tt.HasText("4/4 就绪") {
+			t.Fatalf("全部就绪时计数应为 4/4 就绪：%v", tt.Texts())
+		}
+		if _, ok := tt.AccessByRole(ui.RoleButton, "打开设置"); ok {
+			t.Fatal("全部就绪时不应再有「打开设置」按钮")
+		}
+		if _, ok := tt.AccessByRole(ui.RoleButton, "安装"); ok {
+			t.Fatal("全部就绪时不应再有「安装」按钮")
+		}
+		if _, ok := tt.AccessByRole(ui.RoleButton, "登录"); ok {
+			t.Fatal("全部就绪时不应再有「登录」按钮")
+		}
+
+		if err := tt.Click("稍后"); err != nil {
+			t.Fatalf("点击「稍后」失败：%v", err)
+		}
+		if completed != 1 {
+			t.Fatalf("点击「稍后」应标记引导完成，completed=%d", completed)
+		}
+		u.mu.Lock()
+		stillOpen := u.open
+		u.mu.Unlock()
+		if stillOpen {
+			t.Fatal("点击「稍后」后弹窗应关闭")
+		}
+	})
+
+	t.Run("单行已就绪与未就绪动作", func(t *testing.T) {
+		s := newChatState(NewFakeClient())
+		t.Cleanup(s.close)
+		st := NewSettingsState(settingsTestDir(t), nil, s)
+		st.mu.Lock()
+		st.providerRows.loaded = true
+		st.providerRows.available = map[string]bool{"claude": true, "codex": true, "agy": true}
+		st.providerRows.versions = map[string]ProviderVersionInfo{
+			"claude": {Provider: "claude", Installed: "1.2.0"},
+			"codex":  {Provider: "codex", Installed: "0.5.0"},
+		}
+		st.providerRows.login = map[string]string{
+			"claude": ProviderLoginStateLoggedIn,
+			"codex":  ProviderLoginStateUnknown,
+		}
+		st.endpoints.loaded = true
+		st.mu.Unlock()
+
+		// 已就绪的 claude 行没有按钮；unknown 的 codex 行同样就绪且不显示「登录状态未知」。
+		for _, id := range []string{"claude", "codex"} {
+			tt := ui.NewTester(func(c *ui.Context) { onboardingProviderRow(c, s, st, id, 0) }, 600, 120)
+			tt.UseScreenReader()
+			for _, a := range tt.AccessAll() {
+				if a.Role == ui.RoleButton {
+					t.Fatalf("已就绪行 %s 不应有操作按钮：%v", id, tt.AccessAll())
+				}
+			}
+			if tt.HasText("登录状态未知") {
+				t.Fatalf("%s 不应显示「登录状态未知」：%v", id, tt.Texts())
+			}
+		}
+
+		// 未登录的 agy 行有「登录」按钮；未连接的 Magpie 行有「打开设置」按钮。
+		ttAgy := ui.NewTester(func(c *ui.Context) { onboardingProviderRow(c, s, st, "agy", 2) }, 600, 120)
+		ttAgy.UseScreenReader()
+		if _, ok := ttAgy.AccessByRole(ui.RoleButton, "登录"); !ok {
+			t.Fatalf("未登录的 agy 行应显示「登录」按钮：%v", ttAgy.Texts())
+		}
+
+		ttMagpie := ui.NewTester(func(c *ui.Context) { onboardingMagpieRow(c, s, st, 3) }, 600, 120)
+		ttMagpie.UseScreenReader()
+		if _, ok := ttMagpie.AccessByRole(ui.RoleButton, "打开设置"); !ok {
+			t.Fatalf("未连接的 Magpie 行应显示「打开设置」按钮：%v", ttMagpie.Texts())
+		}
+	})
 }
 
 // TestOnboardingClose 验证新手引导的对应行为。
@@ -60,7 +186,6 @@ func TestOnboardingResume(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, s)
 	u := onboardingState(s)
 	u.open = true
-	u.step = onboardingMagpie
 	u.suspendedForSettings = true
 	st.mu.Lock()
 	st.open = true
@@ -71,8 +196,8 @@ func TestOnboardingResume(t *testing.T) {
 	st.mu.Lock()
 	st.open = false
 	st.mu.Unlock()
-	if !onboardingResume(s, st) || u.step != onboardingMagpie || u.suspendedForSettings {
-		t.Fatal("关闭设置后应恢复原步骤")
+	if !onboardingResume(s, st) || !u.open || u.suspendedForSettings {
+		t.Fatal("关闭设置后应恢复引导弹窗")
 	}
 }
 
@@ -88,13 +213,13 @@ func TestOnboardingIgnoresOtherSettingsWindow(t *testing.T) {
 	t.Cleanup(resetSettingsWindowForTest)
 
 	u := onboardingState(s)
-	u.open, u.step = true, onboardingWelcome
+	u.open = true
 	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
 	if !tt.HasText("欢迎使用 mcode") {
 		t.Fatalf("其他窗口的设置不应隐藏引导：%q", tt.Texts())
 	}
 
-	u.step, u.suspendedForSettings = onboardingMagpie, true
+	u.suspendedForSettings = true
 	st.mu.Lock()
 	st.open = true
 	st.mu.Unlock()
@@ -104,18 +229,27 @@ func TestOnboardingIgnoresOtherSettingsWindow(t *testing.T) {
 	st.mu.Lock()
 	st.open = false
 	st.mu.Unlock()
-	if !onboardingResume(s, st) || u.step != onboardingMagpie || u.suspendedForSettings {
-		t.Fatal("本窗口设置关闭后应恢复原步骤")
+	if !onboardingResume(s, st) || !u.open || u.suspendedForSettings {
+		t.Fatal("本窗口设置关闭后应恢复引导弹窗")
 	}
 }
 
-// TestOnboardingSummaryAndPrerequisites 验证新手引导的对应行为。
-func TestOnboardingSummaryAndPrerequisites(t *testing.T) {
-	if got := onboardingSummaryRoute(onboardingDirect, "未连接"); got != "已跳过" {
-		t.Fatal("直连路线应显示跳过")
+// TestOnboardingToneAndPrerequisites 验证状态药丸色调映射与安装前置条件。
+func TestOnboardingToneAndPrerequisites(t *testing.T) {
+	if got := onboardingStatusTone(providerRowStatus{Ready: true, Summary: "已安装"}, false); got != ToneSuccess {
+		t.Fatalf("就绪状态色调 = %v，期望 ToneSuccess", got)
 	}
-	if got := onboardingSummaryRoute(onboardingRecommended, "已连接"); got != "已连接" {
-		t.Fatal("推荐路线应沿用 Magpie 状态")
+	if got := onboardingStatusTone(providerRowStatus{Summary: "已安装 · v1.0 · 未登录"}, false); got != ToneWarning {
+		t.Fatalf("需要登录状态色调 = %v，期望 ToneWarning", got)
+	}
+	if got := onboardingStatusTone(providerRowStatus{Summary: "检查中"}, false); got != ToneWarning {
+		t.Fatalf("检查中状态色调 = %v，期望 ToneWarning", got)
+	}
+	if got := onboardingStatusTone(providerRowStatus{Summary: "未安装"}, true); got != ToneNeutral {
+		t.Fatalf("未安装状态色调 = %v，期望 ToneNeutral", got)
+	}
+	if got := onboardingStatusTone(providerRowStatus{Summary: "检测失败"}, false); got != ToneDanger {
+		t.Fatalf("失败状态色调 = %v，期望 ToneDanger", got)
 	}
 	if !onboardingInstallDisabled("claude", true, false, false) || onboardingInstallDisabled("agy", false, false, false) {
 		t.Fatal("安装前置条件错误")
@@ -143,35 +277,25 @@ func TestOnboardingRender(t *testing.T) {
 	t.Cleanup(s.close)
 	u := onboardingState(s)
 	u.open = true
-	u.step = onboardingWelcome
 	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
 	if !tt.HasText("欢迎使用 mcode") {
 		t.Fatalf("未找到标题：%q", tt.Texts())
 	}
 }
 
-// TestOnboardingStepRenderSmoke 验证主要步骤及减少动效模式可以渲染。
-func TestOnboardingStepRenderSmoke(t *testing.T) {
-	for _, tc := range []struct {
-		step    onboardingStep
-		texts   []string
-		reduced bool
-	}{
-		{onboardingWelcome, []string{"Magpie", "统一路由", "额度与人设", "子代理"}, false},
-		{onboardingAgents, []string{"选择你的智能体"}, false},
-		{onboardingFinish, []string{"准备好了"}, false},
-		{onboardingWelcome, []string{"Magpie"}, true},
-	} {
+// TestOnboardingSinglePageRenderSmoke 验证单页引导与减少动效模式可以渲染四行与底栏。
+func TestOnboardingSinglePageRenderSmoke(t *testing.T) {
+	for _, reduced := range []bool{false, true} {
 		s := newChatState(NewFakeClient())
 		u := onboardingState(s)
-		u.open, u.step = true, tc.step
-		tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
-		if tc.reduced {
+		u.open = true
+		tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 900)
+		if reduced {
 			tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
 		}
-		for _, text := range tc.texts {
+		for _, text := range []string{"欢迎使用 mcode", "Claude", "Codex", "Antigravity", "Magpie", "稍后", "0/4 就绪", "开始使用"} {
 			if !tt.HasText(text) {
-				t.Errorf("步骤 %d 未找到 %q：%q", tc.step, text, tt.Texts())
+				t.Errorf("reduced=%v 未找到 %q：%q", reduced, text, tt.Texts())
 			}
 		}
 		s.close()
@@ -201,8 +325,8 @@ func TestOnboardingSuspendKeepsSuspendedWithoutWindow(t *testing.T) {
 	}
 }
 
-// TestOnboardingMagpieStep 验证推荐路径到连接 Magpie 后直接进入完成页，不再要求选模型。
-func TestOnboardingMagpieStep(t *testing.T) {
+// TestOnboardingMagpieRow 验证单页引导展示 Magpie 状态行，不再有选模型步骤。
+func TestOnboardingMagpieRow(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	st := NewSettingsState(settingsTestDir(t), nil, s)
@@ -213,18 +337,18 @@ func TestOnboardingMagpieStep(t *testing.T) {
 	st.mu.Unlock()
 
 	u := onboardingState(s)
-	u.open, u.step = true, onboardingMagpie
-	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
-	if !tt.HasText("连接 Magpie") {
-		t.Fatalf("未找到标题：%q", tt.Texts())
+	u.open = true
+	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 900)
+	if !tt.HasText("Magpie") || !tt.HasText("未连接") {
+		t.Fatalf("未找到 Magpie 行：%q", tt.Texts())
 	}
 	if tt.HasText("为 mcode 选择模型") || tt.HasText("选择模型") {
-		t.Fatalf("不应再有选模型这一步：%q", tt.Texts())
+		t.Fatalf("不应再有选模型文案：%q", tt.Texts())
 	}
 }
 
-// TestOnboardingFinishReadyWithMagpie 验证推荐路径只要 Magpie 已连接就就绪，不要求勾选模型或安装 pi。
-func TestOnboardingFinishReadyWithMagpie(t *testing.T) {
+// TestOnboardingReadyCountWithMagpie 验证 Magpie 已连接时计数加 1，无需勾选模型或安装 pi。
+func TestOnboardingReadyCountWithMagpie(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	st := NewSettingsState(settingsTestDir(t), nil, s)
@@ -234,7 +358,7 @@ func TestOnboardingFinishReadyWithMagpie(t *testing.T) {
 	st.piMagpie.loaded = true
 	st.piMagpie.endpoints = []PiMagpieEndpoint{{ID: "gw"}}
 	st.providerRows.loaded = true
-	st.providerRows.available = map[string]bool{"pi": false}
+	st.providerRows.available = map[string]bool{"claude": false, "codex": false, "agy": false, "pi": false}
 	st.mu.Unlock()
 	if !providerRowNotInstalled(st, "pi") {
 		t.Fatal("测试前提：pi 应判定为未安装")
@@ -243,8 +367,8 @@ func TestOnboardingFinishReadyWithMagpie(t *testing.T) {
 	if !connected {
 		t.Fatal("测试前提：Magpie 应已连接")
 	}
-	if !onboardingFinishReady(onboardingRecommended, st, connected) {
-		t.Fatal("Magpie 已连接时应就绪，无需勾选模型")
+	if got := onboardingReadyCount(st); got != 1 {
+		t.Fatalf("仅 Magpie 已连接时就绪计数 = %d，期望 1", got)
 	}
 	st.mu.Lock()
 	st.endpoints.endpoints = []CustomEndpoint{{ID: "gw", Magpie: true, Enabled: true}}
@@ -253,8 +377,8 @@ func TestOnboardingFinishReadyWithMagpie(t *testing.T) {
 	if connected {
 		t.Fatal("测试前提：缺少 API Key 时 Magpie 应未连接")
 	}
-	if onboardingFinishReady(onboardingRecommended, st, connected) {
-		t.Fatal("Magpie 未连接时不应就绪")
+	if got := onboardingReadyCount(st); got != 0 {
+		t.Fatalf("Magpie 未连接时就绪计数 = %d，期望 0", got)
 	}
 }
 
@@ -271,26 +395,29 @@ func TestOnboardingProviderErrorMessage(t *testing.T) {
 	}
 }
 
-func TestOnboardingProbingDisablesRefresh(t *testing.T) {
+func TestOnboardingProbingDisablesInstall(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
+	st := NewSettingsState(settingsTestDir(t), nil, s)
+	st.mu.Lock()
+	st.providerRows.loaded = true
+	st.providerRows.available = map[string]bool{"claude": false}
+	st.mu.Unlock()
 	u := onboardingState(s)
-	u.open, u.step, u.probing = true, onboardingAgents, true
-	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
-	if !tt.HasText("检测中…") {
-		t.Fatalf("未显示检测状态：%v", tt.Texts())
-	}
+	u.open, u.probing = true, true
+	tt := ui.NewTester(func(c *ui.Context) { onboardingProviderRow(c, s, st, "claude", 0) }, 800, 200)
 	tt.UseScreenReader()
-	info, ok := tt.AccessByRole(ui.RoleButton, "检测中…")
+	info, ok := tt.AccessByRole(ui.RoleButton, "安装")
 	if !ok || !info.Disabled {
-		t.Fatalf("检测按钮未禁用：%+v", info)
+		t.Fatalf("前置条件探测期间安装按钮应禁用：%+v", info)
 	}
-	_ = tt.Click("检测中…")
 	u.mu.Lock()
-	probing := u.probing
+	u.probing, u.nodeOK, u.npmOK = false, true, true
 	u.mu.Unlock()
-	if !probing {
-		t.Fatal("检测中按钮不应启动新的检测")
+	tt.Frame()
+	info, ok = tt.AccessByRole(ui.RoleButton, "安装")
+	if !ok || info.Disabled {
+		t.Fatalf("探测完成且 node/npm 可用后安装按钮应启用：%+v", info)
 	}
 }
 
@@ -377,18 +504,18 @@ func TestOnboardingRemovedCopyAbsent(t *testing.T) {
 
 	u := onboardingState(s)
 	u.open = true
-	removed := map[onboardingStep][]string{
-		onboardingWelcome: {"深度整合", "也可以只用 Claude"},
-		onboardingAgents:  {"装好任意一个就能开始", "选择 Google 登录"},
-		onboardingMagpie:  {"填写网关地址和 API Key", "127.0.0.1:3425"},
+	tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 900)
+	banned := []string{
+		"深度整合", "也可以只用 Claude",
+		"装好任意一个就能开始", "选择 Google 登录",
+		"填写网关地址和 API Key", "127.0.0.1:3425",
+		"选择你的智能体", "连接 Magpie", "准备好了",
+		"统一路由", "额度与人设", "子代理",
+		"上一步", "使用推荐配置", "只用直连",
 	}
-	for step, banned := range removed {
-		u.step = step
-		tt := ui.NewTester(func(c *ui.Context) { renderOnboardingDialog(c, s) }, 800, 700)
-		for _, text := range banned {
-			if tt.HasText(text) {
-				t.Errorf("步骤 %d 不应再包含 %q：%v", step, text, tt.Texts())
-			}
+	for _, text := range banned {
+		if tt.HasText(text) {
+			t.Errorf("单页引导不应再包含 %q：%v", text, tt.Texts())
 		}
 	}
 }

@@ -99,33 +99,23 @@ func TestMotionContentNumberAnimation(t *testing.T) {
 	}
 }
 
-func TestMotionContentReducedOnboardingStep(t *testing.T) {
+func TestMotionContentReducedOnboarding(t *testing.T) {
 	setAppReduceMotion(t, true)
 	s := newChatState(NewFakeClient())
 	t.Cleanup(s.close)
 	u := onboardingState(s)
-	u.open, u.step = true, onboardingWelcome
+	u.open = true
 	tester := ui.NewTesterWith(func(c *ui.Context) {
 		renderOnboardingDialog(c, s)
 	}, 800, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
-	if !tester.HasText("欢迎使用 mcode") {
-		t.Fatal("未显示引导首页")
+	for _, want := range []string{"欢迎使用 mcode", "Claude", "Codex", "Antigravity", "Magpie"} {
+		if !tester.HasText(want) {
+			t.Fatalf("减少动效下未立即显示 %s", want)
+		}
 	}
-	for _, tc := range []struct {
-		step  onboardingStep
-		title string
-	}{{onboardingAgents, "选择你的智能体"}, {onboardingFinish, "准备好了"}} {
-		u.mu.Lock()
-		u.step = tc.step
-		u.mu.Unlock()
-		tester.Frame()
-		if !tester.HasText(tc.title) {
-			t.Fatalf("切换步骤后未立即显示 %s", tc.title)
-		}
-		first := append([]byte(nil), tester.Image().Pix...)
-		tester.Advance(time.Second)
-		if !bytes.Equal(first, tester.Image().Pix) {
-			t.Fatal("减少动效时步骤切换应立即到达最终画面")
-		}
+	first := append([]byte(nil), tester.Image().Pix...)
+	tester.Advance(time.Second)
+	if !bytes.Equal(first, tester.Image().Pix) || tester.FramePending() {
+		t.Fatal("减少动效时引导弹窗应立即到达最终画面且不继续排帧")
 	}
 }

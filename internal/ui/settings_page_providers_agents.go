@@ -36,7 +36,7 @@ type providerRowsState struct {
 	focusWindow         *mygo.Window
 	available           map[string]bool
 	versions            map[string]ProviderVersionInfo
-	login               map[string]string // Provider 登录态，取值见 ProviderLoginState*（目前只有 claude 有值）
+	login               map[string]string // Provider 登录态，取值见 ProviderLoginState*（claude / codex）
 	versionErr          map[string]string
 	updateBusy          map[string]bool
 	updateMsg           map[string]string
@@ -64,14 +64,14 @@ type providerRowsState struct {
 }
 
 // providerLoginStateReader 是 Provider 登录态的可选能力：Client 接口不强制要求，
-// 实现方（*app.Client）提供后 claude 行才展示登录态；未实现时行摘要与现状一致。
-// 方法会起子进程（claude auth status --json），只能在后台 goroutine 里调用。
+// 实现方（*app.Client）提供后 claude / codex 行才展示登录态；未实现时行摘要与现状一致。
+// 方法会起子进程（claude auth status --json / codex login status），只能在后台 goroutine 里调用。
 type providerLoginStateReader interface {
 	ProviderLoginState(ctx context.Context, provider string) string
 }
 
 // Provider 登录态的取值；CLI 型 Provider 已安装时据此在摘要里追加「已登录」/「未登录」。
-// 由 internal/app 的 claudeLoginState 产生，经 providerLoginStateReader 送进 providerRowsState.login。
+// 由 internal/app 的 claudeLoginState / codexLoginState 产生，经 providerLoginStateReader 送进 providerRowsState.login。
 const (
 	// ProviderLoginStateLoggedIn 表示本机已有可用的登录凭证。
 	ProviderLoginStateLoggedIn = "logged_in"
@@ -452,13 +452,18 @@ func (st *SettingsState) loadProviderRows() {
 			}
 		}
 
-		// 登录态：与版本探测同一条后台路径，只对已安装的 claude 读一次
-		// （internal/providers/claude 的 AuthChecker 自带 60 秒缓存与并发去重，不会卡住渲染线程）。
-		// 后端没实现可选接口（如远程客户端）或 claude 未安装时 map 为空，行摘要与现状一致。
+		// 登录态：与版本探测同一条后台路径，对已安装的 claude / codex 读一次
+		// （claude 的 AuthChecker 自带 60 秒缓存与并发去重，不会卡住渲染线程）。
+		// 后端没实现可选接口（如远程客户端）或对应 CLI 未安装时 map 不写入，行摘要与现状一致。
 		loginStates := make(map[string]string)
-		if reader, ok := client.(providerLoginStateReader); ok && providerVersionResolved(vers["claude"]) {
-			if state := strings.TrimSpace(reader.ProviderLoginState(ctx, "claude")); state != "" {
-				loginStates["claude"] = state
+		if reader, ok := client.(providerLoginStateReader); ok {
+			for _, id := range []string{"claude", "codex"} {
+				if !providerVersionResolved(vers[id]) && !avail[id] {
+					continue
+				}
+				if state := strings.TrimSpace(reader.ProviderLoginState(ctx, id)); state != "" {
+					loginStates[id] = state
+				}
 			}
 		}
 
@@ -790,6 +795,7 @@ type providerRowStatus struct {
 
 // providerStatusInput 是 providerStatusSummary 的入参快照，避免纯函数直接读 SettingsState。
 type providerStatusInput struct {
+	ID             string
 	Kind           providerKind
 	Loading        bool // 尚无任何结果（首次加载中）
 	Available      bool
@@ -829,8 +835,8 @@ func providerStatusSummary(in providerStatusInput) providerRowStatus {
 	installed := strings.TrimSpace(in.Version.Installed)
 	resolved := providerVersionResolved(in.Version)
 	isInstalled := in.Available || resolved
-	loginSuffix := providerLoginSuffix(in.LoginState)
-	// claude 已安装但本机未登录时用不了：摘要追加「未登录（请在终端运行 claude /login）」，
+	loginSuffix := providerLoginSuffix(in.ID, in.LoginState)
+	// claude / codex 已安装但本机未登录时用不了：摘要追加未登录提示，
 	// 并按其他 Provider 行的未就绪样式（警告色）渲染。
 	loggedOut := strings.TrimSpace(in.LoginState) == ProviderLoginStateLoggedOut
 	if !isInstalled {
@@ -856,11 +862,14 @@ func providerStatusSummary(in providerStatusInput) providerRowStatus {
 }
 
 // providerLoginSuffix 把登录态拼成摘要后缀；未上报或不需要登录时返回空串，摘要保持原样。
-func providerLoginSuffix(state string) string {
+func providerLoginSuffix(id, state string) string {
 	switch strings.TrimSpace(state) {
 	case ProviderLoginStateLoggedIn:
 		return " · 已登录"
 	case ProviderLoginStateLoggedOut:
+		if strings.ToLower(strings.TrimSpace(id)) == "codex" {
+			return " · 未登录（请在终端运行 codex login）"
+		}
 		return " · 未登录（请在终端运行 claude /login）"
 	}
 	return ""
@@ -871,6 +880,7 @@ func providerStatusFor(st *SettingsState, id string) providerRowStatus {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	in := providerStatusInput{
+		ID:      id,
 		Kind:    providerKindCLI,
 		Loading: st.providerRows.loading && !st.providerRows.loaded,
 	}

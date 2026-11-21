@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -105,30 +107,137 @@ func TestClaudeLoginStateSettingsAPIKey(t *testing.T) {
 	}
 }
 
-// TestProviderLoginStateOnlyClaude 验证可选接口只对 claude 起检测，其他 Provider 返回空串。
-func TestProviderLoginStateOnlyClaude(t *testing.T) {
+// stubCodexAuth 替换 codex 登录态检测的环境与探针：用例既不读真实登录 Shell 环境，也不起子进程。
+func stubCodexAuth(t *testing.T, env []string, probe func(ctx context.Context, binary string, env []string) ([]byte, error)) {
+	t.Helper()
+	prevEnv, prevProbe := codexAuthEnv, codexAuthProbe
+	codexAuthEnv = func() []string { return env }
+	codexAuthProbe = probe
+	t.Cleanup(func() {
+		codexAuthEnv = prevEnv
+		codexAuthProbe = prevProbe
+	})
+}
+
+// TestCodexLoginState 覆盖 codexLoginState 的三种结果及 Client.ProviderLoginState 对 codex 的分派。
+func TestCodexLoginState(t *testing.T) {
+	cases := []struct {
+		name      string
+		cancelCtx bool
+		out       string
+		err       error
+		want      string
+	}{
+		{
+			name: "已登录",
+			out:  "Logged in using ChatGPT\n",
+			err:  nil,
+			want: mcodeui.ProviderLoginStateLoggedIn,
+		},
+		{
+			name: "未登录",
+			out:  "Not logged in\n",
+			err:  errors.New("exit status 1"),
+			want: mcodeui.ProviderLoginStateLoggedOut,
+		},
+		{
+			name: "找不到命令",
+			out:  "",
+			err:  exec.ErrNotFound,
+			want: mcodeui.ProviderLoginStateUnknown,
+		},
+		{
+			name:      "超时或取消",
+			cancelCtx: true,
+			out:       "Not logged in",
+			err:       context.DeadlineExceeded,
+			want:      mcodeui.ProviderLoginStateUnknown,
+		},
+		{
+			name: "其他错误输出",
+			out:  "unexpected failure",
+			err:  errors.New("exit status 2"),
+			want: mcodeui.ProviderLoginStateUnknown,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBinary string
+			var hasDeadline bool
+			stubCodexAuth(t, []string{"HOME=/tmp"}, func(ctx context.Context, binary string, env []string) ([]byte, error) {
+				gotBinary = binary
+				_, hasDeadline = ctx.Deadline()
+				return []byte(tc.out), tc.err
+			})
+			ctx := context.Background()
+			if tc.cancelCtx {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			if got := codexLoginState(ctx, ""); got != tc.want {
+				t.Fatalf("codexLoginState = %q, want %q", got, tc.want)
+			}
+			if gotBinary != "codex" {
+				t.Fatalf("binary = %q, want %q", gotBinary, "codex")
+			}
+			if !hasDeadline {
+				t.Fatal("应为 codex 检测设置 5 秒超时")
+			}
+		})
+	}
+
+	t.Run("Client分派codex", func(t *testing.T) {
+		testenv.TempHome(t)
+		stubProviderBinaryFinder(t)
+		probes := 0
+		stubCodexAuth(t, []string{"HOME=/tmp"}, func(ctx context.Context, binary string, env []string) ([]byte, error) {
+			probes++
+			return []byte("Not logged in\n"), errors.New("exit status 1")
+		})
+		client := &Client{}
+		if got := client.ProviderLoginState(context.Background(), " Codex "); got != mcodeui.ProviderLoginStateLoggedOut {
+			t.Fatalf("ProviderLoginState(codex) = %q, want %q", got, mcodeui.ProviderLoginStateLoggedOut)
+		}
+		if probes != 1 {
+			t.Fatalf("codex 应执行一次检测，probes=%d", probes)
+		}
+	})
+}
+
+// TestProviderLoginStateUnsupported 验证未接入登录态检测的 Provider 返回空串，claude/codex 正常分派。
+func TestProviderLoginStateUnsupported(t *testing.T) {
 	testenv.TempHome(t)
 	stubProviderBinaryFinder(t)
 
-	probes := 0
+	claudeProbes := 0
 	stubClaudeAuth(t, []string{"HOME=/tmp"}, func(ctx context.Context, binary string, env []string) (claude.AuthStatus, bool) {
-		probes++
+		claudeProbes++
 		return claude.AuthStatus{Method: "none"}, true
+	})
+	codexProbes := 0
+	stubCodexAuth(t, []string{"HOME=/tmp"}, func(ctx context.Context, binary string, env []string) ([]byte, error) {
+		codexProbes++
+		return []byte("Logged in\n"), nil
 	})
 	client := &Client{}
 
-	if got := client.ProviderLoginState(context.Background(), "codex"); got != "" {
-		t.Fatalf("codex 没有登录态检测，got %q", got)
+	if got := client.ProviderLoginState(context.Background(), "pi"); got != "" {
+		t.Fatalf("pi 没有登录态检测，got %q", got)
 	}
-	if probes != 0 {
-		t.Fatalf("codex 不应触发检测，probes=%d", probes)
+	if claudeProbes != 0 || codexProbes != 0 {
+		t.Fatalf("不支持的 provider 不应触发检测，claude=%d codex=%d", claudeProbes, codexProbes)
 	}
 
 	// ID 大小写与空格不影响识别。
 	if got := client.ProviderLoginState(context.Background(), " Claude "); got != mcodeui.ProviderLoginStateLoggedOut {
 		t.Fatalf("claude 未登录应返回 %q，got %q", mcodeui.ProviderLoginStateLoggedOut, got)
 	}
-	if probes != 1 {
-		t.Fatalf("claude 应执行一次检测，probes=%d", probes)
+	if got := client.ProviderLoginState(context.Background(), "codex"); got != mcodeui.ProviderLoginStateLoggedIn {
+		t.Fatalf("codex 已登录应返回 %q，got %q", mcodeui.ProviderLoginStateLoggedIn, got)
+	}
+	if claudeProbes != 1 || codexProbes != 1 {
+		t.Fatalf("claude 与 codex 应各执行一次检测，claude=%d codex=%d", claudeProbes, codexProbes)
 	}
 }
