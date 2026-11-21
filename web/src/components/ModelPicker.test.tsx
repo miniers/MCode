@@ -6,7 +6,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { RemoteProviderListWithCatalog } from '../context/remoteTypes';
 import type { RemoteProvider, RemoteProviderModel } from '../types/contract';
 import { buildPickerSections } from '../utils/modelIndex';
-import { EffortTrack, ModelPickerPanel, ModelSummaryRow } from './ModelPicker';
+import {
+  EffortTrack,
+  ModelPickerPanel,
+  ModelRosterCard,
+  ModelSummaryRow,
+  formatEffortShortLabel
+} from './ModelPicker';
 
 function assertIncludes(haystack: string, needle: string): void {
   if (!haystack.includes(needle)) {
@@ -153,11 +159,76 @@ assertIncludes(reasonHtml, 'Claude');
 assertIncludes(reasonHtml, '未安装 Claude Code CLI');
 assertExcludes(reasonHtml, 'Codex');
 
-// EffortTrack 传 defaultLabel 时，最前面多一个“默认”档位。
+// EffortTrack 传 defaultLabel 时，最前面多一个“默认”档位，且采用触屏分段胶囊。
 const effortHtml = renderToStaticMarkup(
-  <EffortTrack efforts={['low', 'high']} value="" onChange={() => {}} defaultLabel="默认" />
+  <EffortTrack efforts={['low', 'medium', 'high']} value="medium" onChange={() => {}} defaultLabel="默认" />
 );
 assertIncludes(effortHtml, 'aria-label="思考档位: 默认"');
+assertIncludes(effortHtml, 'role="radiogroup"');
+assertIncludes(effortHtml, 'role="radio"');
+assertIncludes(effortHtml, 'min-h-[44px]');
+assertIncludes(effortHtml, '>Low<');
+assertIncludes(effortHtml, '>Med<');
+assertIncludes(effortHtml, '>High<');
+
+// formatEffortShortLabel：标准档位映射与未知值去空白透传。
+assertEqual(formatEffortShortLabel('minimal'), 'Min', 'minimal 短名');
+assertEqual(formatEffortShortLabel('none'), 'Off', 'none 短名');
+assertEqual(formatEffortShortLabel('low'), 'Low', 'low 短名');
+assertEqual(formatEffortShortLabel('medium'), 'Med', 'medium 短名');
+assertEqual(formatEffortShortLabel('high'), 'High', 'high 短名');
+assertEqual(formatEffortShortLabel('xhigh'), 'XHigh', 'xhigh 短名');
+assertEqual(formatEffortShortLabel('max'), 'Max', 'max 短名');
+assertEqual(formatEffortShortLabel('  turbo  '), 'turbo', '未知档位去空白原样返回');
+
+// ---- ModelRosterCard：方案 B 双槽同屏配对卡 ----
+let leadSelectCount = 0;
+let leadOpenCount = 0;
+let beesSelectCount = 0;
+let beesOpenCount = 0;
+const rosterSlots = [
+  {
+    key: 'lead',
+    role: '主代理',
+    modelName: 'Opus 4.6',
+    effortLabel: 'High',
+    active: true,
+    onSelect: () => { leadSelectCount += 1; },
+    onOpenList: () => { leadOpenCount += 1; }
+  },
+  {
+    key: 'bees',
+    role: '子代理',
+    modelName: '跟随主代理',
+    muted: true,
+    effortLabel: '默认',
+    active: false,
+    onSelect: () => { beesSelectCount += 1; },
+    onOpenList: () => { beesOpenCount += 1; }
+  }
+];
+const rosterHtml = renderToStaticMarkup(<ModelRosterCard slots={rosterSlots} />);
+assertIncludes(rosterHtml, '>主代理<');
+assertIncludes(rosterHtml, '>子代理<');
+assertIncludes(rosterHtml, '>Opus 4.6<');
+assertIncludes(rosterHtml, '>跟随主代理<');
+assertIncludes(rosterHtml, 'min-h-[52px]');
+assertIncludes(rosterHtml, 'min-h-[44px]');
+assertIncludes(rosterHtml, 'aria-label="更换主代理模型"');
+assertIncludes(rosterHtml, 'aria-label="更换子代理模型"');
+// 兄弟按钮布局：任意一个 <button> 内部不得再出现未闭合的 <button>。
+assertEqual(/<button\b(?:(?!(<\/button>)).)*<button\b/.test(rosterHtml), false, '配对卡不得嵌套 button');
+
+const rosterButtons = collectButtons(ModelRosterCard({ slots: rosterSlots }));
+assertEqual(rosterButtons.length, 4, '双槽配对卡按钮数量');
+rosterButtons[0]?.props.onClick?.();
+rosterButtons[1]?.props.onClick?.();
+rosterButtons[2]?.props.onClick?.();
+rosterButtons[3]?.props.onClick?.();
+assertEqual(leadSelectCount, 0, '已激活主槽点击主体直接进列表');
+assertEqual(leadOpenCount, 2, '主槽主体与右侧换模按钮均触发打开列表');
+assertEqual(beesSelectCount, 1, '未激活子槽点击主体切换激活侧');
+assertEqual(beesOpenCount, 1, '子槽右侧换模按钮打开列表');
 
 // ---- ModelSummaryRow：摘要页的入口行 ----
 const summaryRowHtml = renderToStaticMarkup(

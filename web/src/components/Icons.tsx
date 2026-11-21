@@ -227,3 +227,21 @@ export const ArrowUturnRightIcon: React.FC<IconProps> = ({ className = 'w-4 h-4'
     <path strokeLinecap="round" strokeLinejoin="round" d="m15 15 6-6m0 0-6-6m6 6H9a6 6 0 0 0 0 12h3" />
   </svg>
 );
+
+// 闪电图标：用于顶栏 Fast 模式开关
+export const BoltIcon: React.FC<IconProps> = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z" />
+  </svg>
+);
+
+// 树状编排图标：主节点连两个子节点，与桌面端编排图标一致
+export const SwarmIcon: React.FC<IconProps> = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="16" y="16" width="6" height="6" rx="1" />
+    <rect x="2" y="16" width="6" height="6" rx="1" />
+    <rect x="9" y="2" width="6" height="6" rx="1" />
+    <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" />
+    <path d="M12 12V8" />
+  </svg>
+);

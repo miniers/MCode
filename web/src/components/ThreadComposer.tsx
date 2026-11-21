@@ -56,13 +56,22 @@ import {
   pairUnavailableReason
 } from '../utils/modelIndex';
 import { isAutoPairName, modelShortDisplayName } from '../utils/modelShortName';
-import { EffortTrack, ModelPickerPanel, ModelSummaryRow } from './ModelPicker';
+import { useSheetDrag } from '../hooks/useSheetDrag';
+import {
+  EffortTrack,
+  ModelPickerPanel,
+  ModelRosterCard,
+  formatEffortShortLabel
+} from './ModelPicker';
+import type { ModelRosterSlot } from './ModelPicker';
 import { useRemoteMethodSupport } from './thread/useThreadMetaActions';
 import {
   ArrowUpIcon,
+  BoltIcon,
   CheckCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  SwarmIcon,
   XMarkIcon
 } from './Icons';
 import '../styles/send-morph.css';
@@ -564,6 +573,8 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   } = useRemoteStatic();
   const [activeSheet, setActiveSheet] = useState<ActiveSheetType>(null);
   const [modelSheetPage, setModelSheetPage] = useState<ModelSheetPage>('summary');
+  const [activeModelSide, setActiveModelSide] = useState<'lead' | 'bees'>('lead');
+  const [moreSettingsOpen, setMoreSettingsOpen] = useState(false);
   const [modelQuery, setModelQuery] = useState('');
   const [popoverAnchor, setPopoverAnchor] = useState<{
     left: number;
@@ -571,6 +582,15 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
     maxHeight: number;
   } | null>(null);
   const modelPillRef = useRef<HTMLButtonElement | null>(null);
+  const modelSheetRef = useRef<HTMLElement | null>(null);
+  const modelSheetHandleRef = useRef<HTMLDivElement | null>(null);
+  const closeActiveSheet = useCallback(() => setActiveSheet(null), []);
+  useSheetDrag(
+    modelSheetRef,
+    modelSheetHandleRef,
+    closeActiveSheet,
+    activeSheet !== null && !(activeSheet === 'model-effort' && popoverAnchor)
+  );
   const supportsMethod = useRemoteMethodSupport();
   const beeTiersSupported = supportsMethod('threads.swarm.setBeeTiers');
 
@@ -864,10 +884,11 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   const swarmOn = swarmEnabled ?? (composerOptions?.swarmEnabled === true);
   const beesAllowed = swarmPairsAllowed && Boolean(swarm?.enabled) && swarmOn;
   const effectiveSide = modelSheetPage === 'bees' && beesAllowed ? 'bees' : 'lead';
-  // 编排关掉后，停在子代理页就退回摘要页（停在摘要或主代理页则不动，避免打断浏览）
+  // 编排关掉后，激活侧退回主代理，停在子代理页则退回摘要页
   useEffect(() => {
-    if (beesAllowed || modelSheetPage !== 'bees') return;
-    setModelSheetPage('summary');
+    if (beesAllowed) return;
+    setActiveModelSide('lead');
+    if (modelSheetPage === 'bees') setModelSheetPage('summary');
   }, [beesAllowed, modelSheetPage]);
   // 档位覆盖按会话存：没有会话、编排未开启或宿主不支持时不显示入口
   const tiersSectionVisible = beesAllowed && Boolean(threadID) && beeTiersSupported;
@@ -1462,6 +1483,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                 onClick={() => {
                   setModelQuery('');
                   setModelSheetPage('summary');
+                  setActiveModelSide('lead');
                   setPopoverAnchor(computePopoverAnchor());
                   setActiveSheet('model-effort');
                 }}
@@ -1602,6 +1624,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             onRequestClose={() => setActiveSheet(null)}
             closeOnEscape={false}
             size="bare"
+            cardRef={modelSheetRef}
             layerClassName={activeSheet === 'model-effort' && popoverAnchor ? `${SHEET_LAYER_CLASS}--popover` : undefined}
             cardClassName={`settings-sheet${activeSheet === 'model-effort' ? ' model-sheet' : ''}${
               activeSheet === 'model-effort' && popoverAnchor ? ' model-popover' : ''
@@ -1617,26 +1640,87 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                 : undefined
             }
           >
-            <div className="sheet-handle" aria-hidden="true" />
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <h3 className="sheet-title text-base font-bold text-[var(--foreground)]">
-                {activeSheet === 'model-effort'
-                  ? '模型与思考设置'
-                  : activeSheet === 'mode'
-                  ? '选择模式'
-                  : activeSheet === 'permission'
-                  ? '选择权限模式'
-                  : '选择项目'}
-              </h3>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => setActiveSheet(null)}
-                aria-label="关闭"
-              >
-                <XMarkIcon className="h-5 w-5" />
-              </button>
-            </div>
+            <div ref={modelSheetHandleRef} className="sheet-handle" aria-hidden="true" />
+            {activeSheet === 'model-effort' && modelSheetPage === 'summary' ? (
+              <div className="flex items-center justify-between gap-2 mb-3">
+                {onToggleSwarm ? (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={swarmOn}
+                    aria-label="启用编排"
+                    title={swarm && !swarm.enabled ? '请先在 Mac 设置里开启编排' : '主代理派出多个子代理并行工作'}
+                    disabled={swarmToggleDisabled || (swarm ? !swarm.enabled : false)}
+                    onClick={() => onToggleSwarm(!swarmOn)}
+                    className={`touch-hit-44 touch-manipulation inline-flex min-h-[34px] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-45 ${
+                      swarmOn
+                        ? 'border-[var(--primary)]/35 bg-[var(--primary)]/10 text-[var(--foreground)]'
+                        : 'border-[var(--border)] bg-[var(--user-bubble)]/60 text-[var(--foreground-muted)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {swarmOn ? (
+                      <span className="swarm-mini-ring" aria-hidden="true">
+                        <span className="swarm-mini-ring-inner">
+                          <SwarmIcon className="w-3 h-3" />
+                        </span>
+                      </span>
+                    ) : (
+                      <SwarmIcon className="w-3.5 h-3.5 shrink-0" />
+                    )}
+                    <span>编排</span>
+                  </button>
+                ) : (
+                  <h3 className="sheet-title text-base font-bold text-[var(--foreground)]">模型与思考</h3>
+                )}
+                <div className="flex items-center gap-2">
+                  {(activeModelSide === 'lead' || !beesAllowed) && model?.supportsFast && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={fastMode}
+                      aria-label="Fast 模式"
+                      title="Fast 模式：更快的输出速度，可能消耗更多额度"
+                      onClick={() => onComposerOptionsChange?.({ ...composerOptions, fastMode: !fastMode })}
+                      className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border touch-hit-44 touch-manipulation transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] ${
+                        fastMode
+                          ? 'border-amber-500/40 bg-amber-500/15 text-amber-500'
+                          : 'border-[var(--border)] bg-[var(--user-bubble)]/50 text-[var(--foreground-muted)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      <BoltIcon className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setActiveSheet(null)}
+                    aria-label="关闭"
+                  >
+                    <XMarkIcon className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h3 className="sheet-title text-base font-bold text-[var(--foreground)]">
+                  {activeSheet === 'model-effort'
+                    ? '模型与思考设置'
+                    : activeSheet === 'mode'
+                    ? '选择模式'
+                    : activeSheet === 'permission'
+                    ? '选择权限模式'
+                    : '选择项目'}
+                </h3>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setActiveSheet(null)}
+                  aria-label="关闭"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+            )}
 
             {activeSheet === 'model-effort' && (
               <>
@@ -1653,279 +1737,252 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                           已保存的模型 {composerOptions?.swarmBeesProvider}/{composerOptions?.swarmBeesModel} 不在当前目录中，请重新选择
                         </p>
                       )}
+                    {onToggleSwarm && swarm && !swarm.enabled && (
+                      <p className="text-xs text-[var(--foreground-muted)]">
+                        请先在 Mac 设置里开启编排
+                      </p>
+                    )}
 
                     {swarmTemplateHeader}
 
-                    <ModelSummaryRow
-                      label="主代理"
-                      value={leadModelShortName || '未选择'}
-                      title={model?.name}
-                      detail={composerOptions?.effort || '默认档位'}
-                      onClick={() => {
-                        setModelSheetPage('lead');
-                        setModelQuery('');
-                      }}
+                    <ModelRosterCard
+                      slots={(() => {
+                        const slots: ModelRosterSlot[] = [
+                          {
+                            key: 'lead',
+                            role: '主代理',
+                            modelName: leadModelShortName || '未选择',
+                            title: model?.name,
+                            effortLabel: composerOptions?.effort
+                              ? formatEffortShortLabel(composerOptions.effort)
+                              : '默认',
+                            active: activeModelSide === 'lead' || !beesAllowed,
+                            onSelect: () => setActiveModelSide('lead'),
+                            onOpenList: () => {
+                              setActiveModelSide('lead');
+                              setModelSheetPage('lead');
+                              setModelQuery('');
+                            }
+                          }
+                        ];
+                        if (beesAllowed) {
+                          slots.push({
+                            key: 'bees',
+                            role: '子代理',
+                            modelName: beesModelShortName || '跟随主代理',
+                            muted: !beesModelShortName,
+                            title: beesModelName ?? undefined,
+                            effortLabel:
+                              beesModel && beesModel.efforts.length > 0
+                                ? composerOptions?.swarmBeesEffort
+                                  ? formatEffortShortLabel(composerOptions.swarmBeesEffort)
+                                  : '默认'
+                                : undefined,
+                            active: activeModelSide === 'bees',
+                            onSelect: () => setActiveModelSide('bees'),
+                            onOpenList: () => {
+                              setActiveModelSide('bees');
+                              setModelSheetPage('bees');
+                              setModelQuery('');
+                            }
+                          });
+                        }
+                        return slots;
+                      })()}
                     />
 
-                    <div className="model-picker-footer space-y-3">
-                      <EffortTrack
-                        efforts={model?.efforts ?? []}
-                        value={composerOptions?.effort ?? ''}
-                        defaultLabel="默认"
-                        displayValue={
-                          composerOptions?.effort ? undefined : `默认（${model?.preferredEffort ?? 'CLI'}）`
-                        }
-                        onChange={selectEffort}
-                      />
-                      {activePair?.leadEffort &&
-                        composerOptions?.effort &&
-                        activePair.leadEffort !== composerOptions.effort && (
-                          <p className="text-xs text-[var(--foreground-muted)]">
-                            已偏离组合预设档位（预设：{activePair.leadEffort}）
-                          </p>
-                        )}
-                      {model?.supportsFast && (
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-[var(--foreground)]">Fast 模式</div>
-                            <div className="text-xs text-[var(--foreground-muted)]">更快的输出速度，可能消耗更多额度</div>
-                          </div>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={fastMode}
-                            aria-label="Fast 模式"
-                            onClick={() => onComposerOptionsChange?.({ ...composerOptions, fastMode: !fastMode })}
-                            className={`relative h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 ${fastMode ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'}`}
-                          >
-                            <span aria-hidden="true" className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${fastMode ? 'translate-x-5' : ''}`} />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {beesAllowed && (
-                      <>
-                        <ModelSummaryRow
-                          label="子代理"
-                          value={beesModelShortName || '跟随主代理'}
-                          title={beesModelName ?? undefined}
-                          detail={beesProvider?.name}
-                          onClick={() => {
-                            setModelSheetPage('bees');
-                            setModelQuery('');
-                          }}
-                        />
-
-                        <div className="space-y-3">
-                          {beesModel && beesModel.efforts.length > 0 ? (
-                            <EffortTrack
-                              efforts={beesModel.efforts}
-                              value={composerOptions?.swarmBeesEffort ?? ''}
-                              defaultLabel="默认"
-                              onChange={selectBeesEffort}
+                    {(personaSupported || tiersSectionVisible) && (
+                      <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden">
+                        <button
+                          type="button"
+                          aria-expanded={moreSettingsOpen}
+                          onClick={() => setMoreSettingsOpen((previous) => !previous)}
+                          className="min-h-[44px] w-full flex items-center justify-between gap-2 px-3 py-2 text-left touch-manipulation transition-colors hover:bg-[var(--user-bubble)]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+                        >
+                          <span className="text-sm font-semibold text-[var(--foreground)]">更多设置</span>
+                          <span className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--foreground-muted)]">
+                            <span>
+                              {[
+                                personaSupported ? '人设' : null,
+                                tiersSectionVisible
+                                  ? overrideCount(tierDraft) > 0
+                                    ? `${overrideCount(tierDraft)} 个档位覆盖`
+                                    : '子代理档位'
+                                  : null
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                            <ChevronDownIcon
+                              className={`h-4 w-4 transition-transform ${moreSettingsOpen ? 'rotate-180' : ''}`}
                             />
-                          ) : (
-                            <p className="text-xs text-[var(--foreground-muted)]">
-                              {composerOptions?.swarmBeesProvider
-                                ? '该模型无思考档位选项'
-                                : '子代理跟随主代理的模型与档位'}
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    )}
+                          </span>
+                        </button>
 
-                    {(onToggleSwarm || personaSupported || tiersSectionVisible) && (
-                      <div>
-                        <div className="text-mc-caption font-semibold text-[var(--foreground-muted)]">
-                          更多设置
-                        </div>
+                        {moreSettingsOpen && (
+                          <div className="border-t border-[var(--border)] px-3 divide-y divide-[var(--border)]">
+                            {personaSupported && (
+                              <PersonaSection
+                                threadID={threadID}
+                                draftPersona={draftPersona}
+                                personas={personaOptions}
+                                saving={personaSwitching || (!threadID && (!onDraftPersonaChange || composerOptionsDisabled))}
+                                message={personaMessage}
+                                onSelect={selectPersona}
+                              />
+                            )}
 
-                        {onToggleSwarm && (
-                          <div className="mt-1.5 flex items-center justify-between gap-3 border-t border-[var(--border)] py-3">
-                            <div className="min-w-0">
-                              <div className="text-sm font-semibold text-[var(--foreground)]">编排</div>
-                              <div className="text-xs text-[var(--foreground-muted)]">
-                                {swarm && !swarm.enabled ? '请先在 Mac 设置里开启编排' : '主代理派出多个子代理并行工作'}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={swarmOn}
-                              aria-label="启用编排"
-                              disabled={swarmToggleDisabled || (swarm ? !swarm.enabled : false)}
-                              onClick={() => onToggleSwarm(!swarmOn)}
-                              className={`relative h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 disabled:opacity-40 ${swarmOn ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'}`}
-                            >
-                              <span aria-hidden="true" className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${swarmOn ? 'translate-x-5' : ''}`} />
-                            </button>
-                          </div>
-                        )}
-
-                        {personaSupported && (
-                          <div className="border-t border-[var(--border)]">
-                            <PersonaSection
-                              threadID={threadID}
-                              draftPersona={draftPersona}
-                              personas={personaOptions}
-                              saving={personaSwitching || (!threadID && (!onDraftPersonaChange || composerOptionsDisabled))}
-                              message={personaMessage}
-                              onSelect={selectPersona}
-                            />
-                          </div>
-                        )}
-
-                        {tiersSectionVisible && (
-                          <div className="border-t border-[var(--border)]">
-                            <button
-                              type="button"
-                              aria-expanded={tierPanelOpen}
-                              onClick={() => setTierPanelOpen((previous) => !previous)}
-                              className="w-full min-h-[44px] flex items-center justify-between gap-2 py-3 text-left"
-                            >
-                              <span className="min-w-0">
-                                <span className="block text-sm font-semibold text-[var(--foreground)]">子代理档位</span>
-                                <span className="block text-xs text-[var(--foreground-muted)]">
-                                  本会话派出子代理时用哪套 provider / model
-                                </span>
-                              </span>
-                              <span className="flex shrink-0 items-center gap-1 text-mc-caption text-[var(--foreground-muted)]">
-                                {overrideCount(tierDraft) > 0
-                                  ? `${overrideCount(tierDraft)} 个档位已覆盖`
-                                  : '跟随全局'}
-                                <ChevronDownIcon
-                                  className={`h-3.5 w-3.5 transition-transform ${tierPanelOpen ? 'rotate-180' : ''}`}
-                                />
-                              </span>
-                            </button>
-
-                            {tierPanelOpen && (
-                              <div className="pb-3 pl-3 space-y-2">
-                                {isLoadingTiers && (
-                                  <p className="text-mc-caption text-[var(--foreground-muted)]">正在读取档位…</p>
-                                )}
-                                {!isLoadingTiers && tiers && tiers.length === 0 && (
-                                  <p className="text-mc-caption text-[var(--foreground-muted)]">
-                                    宿主没有可用的子代理档位
-                                  </p>
-                                )}
-                                {tiers && tiers.length > 0 && (
-                                  <div className="space-y-2 max-h-[46dvh] overflow-y-auto pr-0.5">
-                                    {tiers.map((tier) => {
-                                      const override = tierDraft[tier.id];
-                                      const tierLabel = tier.name || tier.id;
-                                      const providerValue =
-                                        override && typeof override.provider === 'string' ? override.provider : '';
-                                      const modelValue =
-                                        override && typeof override.model === 'string' ? override.model : '';
-                                      // 只列设置里没关掉的 provider，但当前覆盖里的那一个必须留在列表顶部可见
-                                      const providerOptions = providers.filter((candidate) =>
-                                        providerVisible(candidate, providerValue)
-                                      );
-                                      const providerInList = providerOptions.some(
-                                        (candidate) => candidate.id === providerValue
-                                      );
-                                      const selectedProvider = providers.find(
-                                        (candidate) => candidate.id === providerValue
-                                      );
-                                      const modelOptions = selectedProvider?.models ?? [];
-                                      const modelInList = modelOptions.some((candidate) => candidate.id === modelValue);
-                                      return (
-                                        <div
-                                          key={tier.id}
-                                          className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] space-y-1.5"
-                                        >
-                                          <div className="flex items-center justify-between gap-2">
-                                            <span className="min-w-0 truncate text-mc-caption font-semibold text-[var(--foreground)]">
-                                              {tierLabel}
-                                            </span>
-                                            {override ? (
-                                              <button
-                                                type="button"
-                                                disabled={isSavingTiers}
-                                                onClick={() => resetTierDraft(tier.id)}
-                                                className="shrink-0 text-mc-caption font-medium text-[var(--primary)] disabled:opacity-50"
-                                              >
-                                                恢复默认
-                                              </button>
-                                            ) : (
-                                              <span className="shrink-0 text-mc-caption text-[var(--foreground-muted)]">
-                                                默认
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="grid grid-cols-2 gap-1.5">
-                                            <select
-                                              value={providerValue}
-                                              onChange={(event) => applyTierProvider(tier.id, event.target.value)}
-                                              aria-label={`${tierLabel} 的 provider 覆盖`}
-                                              disabled={isSavingTiers}
-                                              className={TIER_SELECT_CLASS}
-                                            >
-                                              <option value="">跟随默认</option>
-                                              {providerOptions.map((candidate) => (
-                                                <option
-                                                  key={candidate.id}
-                                                  value={candidate.id}
-                                                  disabled={!candidate.available}
-                                                >
-                                                  {candidate.available
-                                                    ? candidate.name || candidate.id
-                                                    : `${candidate.name || candidate.id}（不可用）`}
-                                                </option>
-                                              ))}
-                                              {/* 旧数据或自定义 provider 不在列表里时保留原值，避免一打开面板就被改掉 */}
-                                              {providerValue && !providerInList && (
-                                                <option value={providerValue}>{`${providerValue}（不在列表中）`}</option>
-                                              )}
-                                            </select>
-                                            <select
-                                              value={modelValue}
-                                              onChange={(event) =>
-                                                updateTierDraft(tier.id, 'model', event.target.value)
-                                              }
-                                              aria-label={`${tierLabel} 的 model 覆盖`}
-                                              disabled={isSavingTiers}
-                                              className={TIER_SELECT_CLASS}
-                                            >
-                                              <option value="">该 provider 默认</option>
-                                              {modelOptions.map((candidate) => (
-                                                <option key={candidate.id} value={candidate.id}>
-                                                  {candidate.name || candidate.id}
-                                                </option>
-                                              ))}
-                                              {modelValue && !modelInList && (
-                                                <option value={modelValue}>{`${modelValue}（不在列表中）`}</option>
-                                              )}
-                                            </select>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="min-w-0 text-mc-caption text-[var(--foreground-muted)]">
-                                    {tierNotice ||
-                                      (tierDirty ? '有未保存的改动' : '留空的档位跟随全局档位配置')}
+                            {tiersSectionVisible && (
+                              <div>
+                                <button
+                                  type="button"
+                                  aria-expanded={tierPanelOpen}
+                                  onClick={() => setTierPanelOpen((previous) => !previous)}
+                                  className="w-full min-h-[44px] flex items-center justify-between gap-2 py-3 text-left"
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block text-sm font-semibold text-[var(--foreground)]">子代理档位</span>
+                                    <span className="block text-xs text-[var(--foreground-muted)]">
+                                      本会话派出子代理时用哪套 provider / model
+                                    </span>
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleSaveTiers()}
-                                    disabled={isSavingTiers || !tierDirty}
-                                    className="min-h-[36px] shrink-0 px-3 rounded-xl text-xs font-semibold bg-[var(--primary)] text-white disabled:opacity-40 transition"
-                                  >
-                                    {isSavingTiers ? '保存中…' : '保存'}
-                                  </button>
-                                </div>
+                                  <span className="flex shrink-0 items-center gap-1 text-mc-caption text-[var(--foreground-muted)]">
+                                    {overrideCount(tierDraft) > 0
+                                      ? `${overrideCount(tierDraft)} 个档位已覆盖`
+                                      : '跟随全局'}
+                                    <ChevronDownIcon
+                                      className={`h-3.5 w-3.5 transition-transform ${tierPanelOpen ? 'rotate-180' : ''}`}
+                                    />
+                                  </span>
+                                </button>
 
-                                {tierError && (
-                                  <p className="text-mc-caption text-[var(--danger-foreground)]" role="alert">
-                                    {tierError}
-                                  </p>
+                                {tierPanelOpen && (
+                                  <div className="pb-3 pl-3 space-y-2">
+                                    {isLoadingTiers && (
+                                      <p className="text-mc-caption text-[var(--foreground-muted)]">正在读取档位…</p>
+                                    )}
+                                    {!isLoadingTiers && tiers && tiers.length === 0 && (
+                                      <p className="text-mc-caption text-[var(--foreground-muted)]">
+                                        宿主没有可用的子代理档位
+                                      </p>
+                                    )}
+                                    {tiers && tiers.length > 0 && (
+                                      <div className="space-y-2 max-h-[46dvh] overflow-y-auto pr-0.5">
+                                        {tiers.map((tier) => {
+                                          const override = tierDraft[tier.id];
+                                          const tierLabel = tier.name || tier.id;
+                                          const providerValue =
+                                            override && typeof override.provider === 'string' ? override.provider : '';
+                                          const modelValue =
+                                            override && typeof override.model === 'string' ? override.model : '';
+                                          // 只列设置里没关掉的 provider，但当前覆盖里的那一个必须留在列表顶部可见
+                                          const providerOptions = providers.filter((candidate) =>
+                                            providerVisible(candidate, providerValue)
+                                          );
+                                          const providerInList = providerOptions.some(
+                                            (candidate) => candidate.id === providerValue
+                                          );
+                                          const selectedProvider = providers.find(
+                                            (candidate) => candidate.id === providerValue
+                                          );
+                                          const modelOptions = selectedProvider?.models ?? [];
+                                          const modelInList = modelOptions.some((candidate) => candidate.id === modelValue);
+                                          return (
+                                            <div
+                                              key={tier.id}
+                                              className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--card)] space-y-1.5"
+                                            >
+                                              <div className="flex items-center justify-between gap-2">
+                                                <span className="min-w-0 truncate text-mc-caption font-semibold text-[var(--foreground)]">
+                                                  {tierLabel}
+                                                </span>
+                                                {override ? (
+                                                  <button
+                                                    type="button"
+                                                    disabled={isSavingTiers}
+                                                    onClick={() => resetTierDraft(tier.id)}
+                                                    className="shrink-0 text-mc-caption font-medium text-[var(--primary)] disabled:opacity-50"
+                                                  >
+                                                    恢复默认
+                                                  </button>
+                                                ) : (
+                                                  <span className="shrink-0 text-mc-caption text-[var(--foreground-muted)]">
+                                                    默认
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <div className="grid grid-cols-2 gap-1.5">
+                                                <select
+                                                  value={providerValue}
+                                                  onChange={(event) => applyTierProvider(tier.id, event.target.value)}
+                                                  aria-label={`${tierLabel} 的 provider 覆盖`}
+                                                  disabled={isSavingTiers}
+                                                  className={TIER_SELECT_CLASS}
+                                                >
+                                                  <option value="">跟随默认</option>
+                                                  {providerOptions.map((candidate) => (
+                                                    <option
+                                                      key={candidate.id}
+                                                      value={candidate.id}
+                                                      disabled={!candidate.available}
+                                                    >
+                                                      {candidate.available
+                                                        ? candidate.name || candidate.id
+                                                        : `${candidate.name || candidate.id}（不可用）`}
+                                                    </option>
+                                                  ))}
+                                                  {/* 旧数据或自定义 provider 不在列表里时保留原值，避免一打开面板就被改掉 */}
+                                                  {providerValue && !providerInList && (
+                                                    <option value={providerValue}>{`${providerValue}（不在列表中）`}</option>
+                                                  )}
+                                                </select>
+                                                <select
+                                                  value={modelValue}
+                                                  onChange={(event) =>
+                                                    updateTierDraft(tier.id, 'model', event.target.value)
+                                                  }
+                                                  aria-label={`${tierLabel} 的 model 覆盖`}
+                                                  disabled={isSavingTiers}
+                                                  className={TIER_SELECT_CLASS}
+                                                >
+                                                  <option value="">该 provider 默认</option>
+                                                  {modelOptions.map((candidate) => (
+                                                    <option key={candidate.id} value={candidate.id}>
+                                                      {candidate.name || candidate.id}
+                                                    </option>
+                                                  ))}
+                                                  {modelValue && !modelInList && (
+                                                    <option value={modelValue}>{`${modelValue}（不在列表中）`}</option>
+                                                  )}
+                                                </select>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="min-w-0 text-mc-caption text-[var(--foreground-muted)]">
+                                        {tierNotice ||
+                                          (tierDirty ? '有未保存的改动' : '留空的档位跟随全局档位配置')}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleSaveTiers()}
+                                        disabled={isSavingTiers || !tierDirty}
+                                        className="min-h-[36px] shrink-0 px-3 rounded-xl text-xs font-semibold bg-[var(--primary)] text-white disabled:opacity-40 transition"
+                                      >
+                                        {isSavingTiers ? '保存中…' : '保存'}
+                                      </button>
+                                    </div>
+
+                                    {tierError && (
+                                      <p className="text-mc-caption text-[var(--danger-foreground)]" role="alert">
+                                        {tierError}
+                                      </p>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -1933,6 +1990,53 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                         )}
                       </div>
                     )}
+
+                    <div className="model-picker-footer space-y-2.5">
+                      {beesAllowed && activeModelSide === 'bees' ? (
+                        beesModel && beesModel.efforts.length > 0 ? (
+                          <EffortTrack
+                            label="子代理 · 思考档位"
+                            efforts={beesModel.efforts}
+                            value={composerOptions?.swarmBeesEffort ?? ''}
+                            defaultLabel="默认"
+                            displayValue={
+                              composerOptions?.swarmBeesEffort
+                                ? undefined
+                                : `默认（${beesModel.preferredEffort ? formatEffortShortLabel(beesModel.preferredEffort) : 'CLI'}）`
+                            }
+                            onChange={selectBeesEffort}
+                          />
+                        ) : (
+                          <p className="py-1 text-center text-xs text-[var(--foreground-muted)]">
+                            {composerOptions?.swarmBeesProvider
+                              ? '该模型无思考档位选项'
+                              : '子代理跟随主代理的模型与档位'}
+                          </p>
+                        )
+                      ) : (
+                        <>
+                          <EffortTrack
+                            label={beesAllowed ? '主代理 · 思考档位' : '思考档位'}
+                            efforts={model?.efforts ?? []}
+                            value={composerOptions?.effort ?? ''}
+                            defaultLabel="默认"
+                            displayValue={
+                              composerOptions?.effort
+                                ? undefined
+                                : `默认（${model?.preferredEffort ? formatEffortShortLabel(model.preferredEffort) : 'CLI'}）`
+                            }
+                            onChange={selectEffort}
+                          />
+                          {activePair?.leadEffort &&
+                            composerOptions?.effort &&
+                            activePair.leadEffort !== composerOptions.effort && (
+                              <p className="text-xs text-[var(--foreground-muted)]">
+                                已偏离组合预设档位（预设：{activePair.leadEffort}）
+                              </p>
+                            )}
+                        </>
+                      )}
+                    </div>
 
                   </div>
                 ) : (

@@ -3,65 +3,118 @@ import type { PickerRow, PickerSections } from '../utils/modelIndex';
 import { isImeComposing } from '../utils/ime';
 import { CheckCircleIcon, ChevronRightIcon, SearchIcon } from './Icons';
 
+const EFFORT_SHORT_LABELS: Record<string, string> = {
+  minimal: 'Min',
+  none: 'Off',
+  low: 'Low',
+  medium: 'Med',
+  high: 'High',
+  xhigh: 'XHigh',
+  max: 'Max'
+};
+
+/** 思考档位短名映射：用于触屏胶囊与配对卡行尾展示。 */
+export function formatEffortShortLabel(effort: string): string {
+  const trimmed = effort.trim();
+  return EFFORT_SHORT_LABELS[trimmed.toLowerCase()] ?? trimmed;
+}
+
 export interface EffortTrackProps {
   efforts: string[];
   value: string;
   onChange: (effort: string) => void;
-  /** 头部右侧展示值，缺省为 `value || '默认（CLI）'` */
+  /** 头部右侧展示值，缺省为 `value ? formatEffortShortLabel(value) : '默认（CLI）'` */
   displayValue?: string;
   /** 传入时在最前面加一个“默认”档位，空字符串表示选中它 */
   defaultLabel?: string;
+  /** 头部左侧标题，缺省为「思考档位」 */
+  label?: string;
 }
 
-/** 思考档位轨道卡片，无档位时给出占位文案。 */
-export const EffortTrack: React.FC<EffortTrackProps> = ({ efforts, value, onChange, displayValue, defaultLabel }) => {
+/** 触屏友好的圆角分段胶囊思考档位条，单点直选且支持左右键切换。 */
+export const EffortTrack: React.FC<EffortTrackProps> = ({
+  efforts,
+  value,
+  onChange,
+  displayValue,
+  defaultLabel,
+  label = '思考档位'
+}) => {
+  const stopRefs = useRef<Array<HTMLButtonElement | null>>([]);
   // 档位节点：defaultLabel 存在时先放一个空字符串档位（交给 CLI 默认值）。
-  const stops: Array<{ key: string; label: string; selected: boolean; select: () => void }> = [];
+  const stops: Array<{
+    key: string;
+    label: string;
+    shortLabel: string;
+    selected: boolean;
+    select: () => void;
+  }> = [];
   if (defaultLabel) {
-    stops.push({ key: '__default__', label: defaultLabel, selected: value === '', select: () => onChange('') });
+    stops.push({
+      key: '__default__',
+      label: defaultLabel,
+      shortLabel: defaultLabel,
+      selected: value === '',
+      select: () => onChange('')
+    });
   }
   for (const eff of efforts) {
-    stops.push({ key: eff, label: eff, selected: value === eff, select: () => onChange(eff) });
+    stops.push({
+      key: eff,
+      label: eff,
+      shortLabel: formatEffortShortLabel(eff),
+      selected: value === eff,
+      select: () => onChange(eff)
+    });
   }
 
+  const hasSelected = stops.some((stop) => stop.selected);
+  const handleStopKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (stops.length === 0) return;
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const delta = event.key === 'ArrowRight' ? 1 : -1;
+    const nextIndex = (index + delta + stops.length) % stops.length;
+    stops[nextIndex].select();
+    stopRefs.current[nextIndex]?.focus();
+  };
+
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-xs font-semibold text-[var(--foreground)]">思考档位</span>
-        <span className="text-xs font-bold text-[var(--primary)]">{displayValue ?? (value || '默认（CLI）')}</span>
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3.5">
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-xs font-semibold text-[var(--foreground)]">{label}</span>
+        <span className="text-xs font-bold text-[var(--primary)]">
+          {displayValue ?? (value ? formatEffortShortLabel(value) : '默认（CLI）')}
+        </span>
       </div>
       {stops.length > 0 ? (
-        <div className="relative flex items-center justify-between w-full px-4 py-3">
-          {/* Track line behind dots */}
-          <div className="absolute left-6 right-6 top-[21px] h-0.5 bg-[var(--border)] -z-0" />
-          {stops.map((stop) => {
+        <div
+          role="radiogroup"
+          aria-label={label}
+          className="rounded-xl bg-[var(--screen)] p-1 flex flex-wrap sm:flex-nowrap gap-1"
+        >
+          {stops.map((stop, index) => {
             const isSelected = stop.selected;
             return (
               <button
                 key={stop.key}
+                ref={(node) => {
+                  stopRefs.current[index] = node;
+                }}
                 type="button"
-                onClick={stop.select}
-                className="relative z-10 flex flex-col items-center group cursor-pointer rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card)]"
+                role="radio"
+                aria-checked={isSelected}
                 aria-label={`思考档位: ${stop.label}`}
+                tabIndex={isSelected || (!hasSelected && index === 0) ? 0 : -1}
+                onClick={stop.select}
+                onKeyDown={(event) => handleStopKeyDown(event, index)}
+                className={`min-h-[44px] flex-1 min-w-[48px] px-2 rounded-lg text-xs touch-manipulation transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] ${
+                  isSelected
+                    ? 'bg-[var(--primary)] text-white font-semibold shadow-sm'
+                    : 'text-[var(--foreground-muted)] hover:text-[var(--foreground)] hover:bg-[var(--card)]/70'
+                }`}
               >
-                <div
-                  className={`w-5 h-5 rounded-full flex items-center justify-center transition-all ${
-                    isSelected
-                      ? 'bg-[var(--primary)] shadow-sm ring-4 ring-[var(--primary)]/20 scale-110'
-                      : 'bg-[var(--card)] border-2 border-[var(--border)] group-hover:border-[var(--primary)]'
-                  }`}
-                >
-                  {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                </div>
-                <span
-                  className={`mt-2 text-xs transition-colors ${
-                    isSelected
-                      ? 'font-bold text-[var(--primary)]'
-                      : 'font-medium text-[var(--foreground-muted)] group-hover:text-[var(--foreground)]'
-                  }`}
-                >
-                  {stop.label}
-                </span>
+                {stop.shortLabel}
               </button>
             );
           })}
@@ -72,6 +125,90 @@ export const EffortTrack: React.FC<EffortTrackProps> = ({ efforts, value, onChan
     </div>
   );
 };
+
+export interface ModelRosterSlot {
+  key: string;
+  role: string;
+  modelName: string;
+  title?: string;
+  effortLabel?: string;
+  muted?: boolean;
+  active: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+  onOpenList: () => void;
+}
+
+export interface ModelRosterCardProps {
+  slots: ModelRosterSlot[];
+}
+
+/** 方案 B 双槽同屏配对卡：同卡展示主代理/子代理，点主体切换激活侧（再点进列表），点右侧箭头直接换模型。 */
+export const ModelRosterCard: React.FC<ModelRosterCardProps> = ({ slots }) => (
+  <div className="rounded-2xl border border-[var(--border)] bg-[var(--card)] overflow-hidden divide-y divide-[var(--border)]">
+    {slots.map((slot) => (
+      <div
+        key={slot.key}
+        className={`relative flex items-center gap-1.5 min-h-[52px] px-2 py-1 transition-colors ${
+          slot.active ? 'bg-[var(--primary)]/10' : ''
+        }`}
+      >
+        {slot.active && (
+          <span
+            aria-hidden="true"
+            className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-[var(--primary)]"
+          />
+        )}
+        <button
+          type="button"
+          aria-pressed={slot.active}
+          title={slot.title}
+          disabled={slot.disabled}
+          onClick={slot.active ? slot.onOpenList : slot.onSelect}
+          className="flex flex-1 min-w-0 min-h-[44px] items-center justify-between gap-2 rounded-xl px-2 py-1.5 text-left touch-manipulation transition-colors hover:bg-[var(--user-bubble)]/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-45"
+        >
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <span
+              className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] leading-4 ${
+                slot.active
+                  ? 'bg-[var(--primary)]/15 text-[var(--primary)] font-semibold'
+                  : 'bg-[var(--user-bubble)] text-[var(--foreground-muted)] font-medium'
+              }`}
+            >
+              {slot.role}
+            </span>
+            <span
+              className={`min-w-0 truncate text-sm ${
+                slot.muted ? 'text-[var(--foreground-muted)] font-medium' : 'text-[var(--foreground)] font-semibold'
+              }`}
+            >
+              {slot.modelName}
+            </span>
+          </span>
+          {slot.effortLabel && (
+            <span
+              className={`shrink-0 text-xs ${
+                slot.active ? 'font-semibold text-[var(--foreground)]' : 'text-[var(--foreground-muted)]'
+              }`}
+            >
+              {slot.effortLabel}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          disabled={slot.disabled}
+          onClick={slot.onOpenList}
+          aria-label={`更换${slot.role}模型`}
+          title={`更换${slot.role}模型`}
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[var(--foreground-muted)] touch-manipulation transition-colors hover:bg-[var(--user-bubble)] hover:text-[var(--foreground)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:opacity-40"
+        >
+          <ChevronRightIcon className="w-4 h-4" />
+        </button>
+      </div>
+    ))}
+  </div>
+);
 
 /** 上下文窗口徽标：百万以上按百万取整，其余按千取整。 */
 function formatContextLimit(limit: number | undefined): string | null {
@@ -120,7 +257,7 @@ const PanelRow: React.FC<PanelRowProps> = ({ row, selected, allowedProviderID, o
       disabled={row.disabled || Boolean(allowedProviderID && row.provider.id !== allowedProviderID)}
       onClick={() => onSelect(row.provider.id, row.model.id)}
       onKeyDown={onKeyDown}
-      className="flex w-full items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-left transition-colors enabled:hover:bg-[var(--user-bubble)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40 disabled:opacity-40"
+      className="flex w-full min-h-[44px] touch-manipulation items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-left transition-colors enabled:hover:bg-[var(--user-bubble)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40 disabled:opacity-40"
     >
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold text-[var(--foreground)]">{row.model.name}</span>
