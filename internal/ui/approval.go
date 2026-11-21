@@ -6,11 +6,41 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/git"
 )
+
+// 记录当前正在提交审批响应的按钮 key，使该按钮展示 Loading 而同卡其余按钮保持禁用。
+var (
+	approvalActiveKeyMu sync.Mutex
+	approvalActiveKeys  = make(map[*chatState]string)
+)
+
+func setActiveApprovalKey(s *chatState, key string) {
+	if s == nil {
+		return
+	}
+	approvalActiveKeyMu.Lock()
+	if key == "" {
+		delete(approvalActiveKeys, s)
+	} else {
+		approvalActiveKeys[s] = key
+	}
+	approvalActiveKeyMu.Unlock()
+}
+
+func activeApprovalKey(s *chatState) string {
+	if s == nil {
+		return ""
+	}
+	approvalActiveKeyMu.Lock()
+	k := approvalActiveKeys[s]
+	approvalActiveKeyMu.Unlock()
+	return k
+}
 
 // findApprovalOption 查找指定 role 或标题对应的审批选项 ID。
 func findApprovalOption(approval Approval, role string) string {
@@ -388,6 +418,9 @@ func renderApproval(c *ui.Context, s *chatState) {
 	composerHasDraft := strings.TrimSpace(s.draft) != ""
 	otherFocused := s.questionOtherFocused
 	s.mu.Unlock()
+	if !responding {
+		setActiveApprovalKey(s, "")
+	}
 
 	// 快捷键仅对最上面一张卡片生效，且仅在 !responding 时生效。
 	if len(approvals) > 0 && !responding {
@@ -432,6 +465,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 					// 只认仍在待办列表中的同一张卡片：本轮已通过数字键批准的卡片不能再按 Esc 拒绝
 					if action.OptionID != "" {
 						if target, ok := pendingApprovalByID(s, top.RequestID); ok {
+							setActiveApprovalKey(s, "approval-opt-"+target.RequestID+"-"+action.OptionID)
 							s.respondApproval(target, action.OptionID)
 						}
 					}
@@ -454,11 +488,13 @@ func renderApproval(c *ui.Context, s *chatState) {
 				s.mu.Lock()
 				answers := buildQuestionAnswers(top.Questions, qDraft.selected, qDraft.others)
 				s.mu.Unlock()
+				setActiveApprovalKey(s, "question-submit-"+top.RequestID)
 				s.respondAnswers(top, "", answers, false)
 			case ApprovalActionApprove:
 				// 只认仍在待办列表中的同一张卡片：本轮已通过数字键批准的卡片不能再按 Esc 拒绝
 				if action.OptionID != "" {
 					if target, ok := pendingApprovalByID(s, top.RequestID); ok {
+						setActiveApprovalKey(s, "approval-opt-"+target.RequestID+"-"+action.OptionID)
 						s.respondApproval(target, action.OptionID)
 					}
 				}
@@ -471,12 +507,15 @@ func renderApproval(c *ui.Context, s *chatState) {
 			switch action.Kind {
 			case ApprovalActionDecline:
 				if top.Kind == ApprovalKindQuestion {
+					setActiveApprovalKey(s, "question-skip-"+top.RequestID)
 					s.respondAnswers(top, "", nil, true)
 				} else if top.Kind == ApprovalKindPlan {
+					setActiveApprovalKey(s, "plan-decline-"+top.RequestID)
 					s.declinePlanDraft(top, false)
 				} else {
 					if action.OptionID != "" {
 						if target, ok := pendingApprovalByID(s, top.RequestID); ok {
+							setActiveApprovalKey(s, "approval-opt-"+target.RequestID+"-"+action.OptionID)
 							s.respondApproval(target, action.OptionID)
 						}
 					}
@@ -489,6 +528,11 @@ func renderApproval(c *ui.Context, s *chatState) {
 	if target, ok := cmdReturnApprovalTarget(approvals, responding, composerFocused); ok {
 		if c.Shortcut(ui.Cmd, ui.KeyEnter) {
 			if optID := findApprovalOption(target, "approve"); optID != "" {
+				if target.Kind == ApprovalKindPlan {
+					setActiveApprovalKey(s, "plan-approve-"+target.RequestID)
+				} else {
+					setActiveApprovalKey(s, "approval-opt-"+target.RequestID+"-"+optID)
+				}
 				s.respondApproval(target, optID)
 			}
 		}
@@ -500,60 +544,53 @@ func renderApproval(c *ui.Context, s *chatState) {
 			Transition(motionListItem(c)).
 			Children(func() {
 				if len(batch) >= 2 {
-					ui.Row(c.Key("approval-batch-row")).AlignItems(ui.Center).Children(func() {
+					ui.Row(c.Key("approval-batch-row")).FillWidth().Wrap().Gap(Space2).AlignItems(ui.Center).Children(func() {
 						ui.Text(c, fmt.Sprintf("%d 个待审批", len(batch))).
 							Bold().
 							FontSize(uiFont(TypeBody)).
 							TextColor(ThemePrimaryText(c))
 						ui.Spacer(c)
-						ui.Row(c.Key("approval-batch-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
-							// 批量允许：主色实心胶囊
-							pressButton0 := ui.ButtonBase(c.Key("approval-batch-allow")).
-								Label("全部允许").
-								Tooltip("全部允许").
-								Disabled(responding).
-								Padding(Space1, Space4).
-								Radius(RadiusXL).
-								Background(ThemeAccent(c)).
-								OnClick(func() {
+						ui.Row(c.Key("approval-batch-actions")).Wrap().Gap(Space3).AlignItems(ui.Center).Children(func() {
+							allowKey := "approval-batch-allow"
+							allowLoading := responding && activeApprovalKey(s) == allowKey
+							Button(c, ButtonOpts{
+								Key:      allowKey,
+								Text:     "全部允许",
+								Variant:  ButtonPrimary,
+								Size:     ControlSM,
+								Loading:  allowLoading,
+								Disabled: responding && !allowLoading,
+								Tooltip:  "全部允许",
+								OnClick: func() {
+									setActiveApprovalKey(s, allowKey)
 									for _, appr := range batch {
 										optID := findApprovalOption(appr, "approve")
 										if optID != "" {
 											s.respondApproval(appr, optID)
 										}
 									}
-								})
-							pressScale0 := motionPressScale(c, pressButton0, "button-press-scale", !responding && pressButton0.Pressed())
-							pressButton0.Scale(pressScale0, pressScale0)
-							pressButton0.Children(func() {
-								ui.Text(c, "全部允许").
-									FontSize(uiFont(TypeFootnote)).
-									Bold().
-									TextColor(ThemeOnAccent(c))
+								},
 							})
 
-							// 批量拒绝：浅底胶囊
-							pressButton1 := ui.ButtonBase(c.Key("approval-batch-decline")).
-								Label("全部拒绝").
-								Tooltip("全部拒绝").
-								Disabled(responding).
-								Padding(Space1, Space4).
-								Radius(RadiusXL).
-								Background(ThemeHover(c)).
-								OnClick(func() {
+							declineKey := "approval-batch-decline"
+							declineLoading := responding && activeApprovalKey(s) == declineKey
+							Button(c, ButtonOpts{
+								Key:      declineKey,
+								Text:     "全部拒绝",
+								Variant:  ButtonSecondary,
+								Size:     ControlSM,
+								Loading:  declineLoading,
+								Disabled: responding && !declineLoading,
+								Tooltip:  "全部拒绝",
+								OnClick: func() {
+									setActiveApprovalKey(s, declineKey)
 									for _, appr := range batch {
 										optID := findApprovalOption(appr, "decline")
 										if optID != "" {
 											s.respondApproval(appr, optID)
 										}
 									}
-								})
-							pressScale1 := motionPressScale(c, pressButton1, "button-press-scale", !responding && pressButton1.Pressed())
-							pressButton1.Scale(pressScale1, pressScale1)
-							pressButton1.Children(func() {
-								ui.Text(c, "全部拒绝").
-									FontSize(uiFont(TypeFootnote)).
-									TextColor(ThemePrimaryText(c))
+								},
 							})
 						})
 					})
@@ -582,10 +619,10 @@ func renderApprovalCard(c *ui.Context, s *chatState, approval Approval, respondi
 		})
 	case ApprovalKindFileChange:
 		renderTypedApprovalCard(c, s, approval, responding, IconSquarePen(), func() {
-			// 路径取自 Title，等宽单行显示
+			// 路径取自 Title，等宽显示
 			if approval.Title != "" {
-				ui.Row(c.Key("approval-path-" + id)).Children(func() {
-					ui.Text(c, approval.Title).Font("monospace").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).Selectable()
+				ui.Row(c.Key("approval-path-" + id)).FillWidth().Children(func() {
+					ui.Text(c, approval.Title).Font("monospace").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0).Selectable()
 				})
 			}
 			if approval.Diff != "" {
@@ -666,22 +703,6 @@ func approvalReasonText(a Approval) string {
 	}
 }
 
-// renderApprovalReason 渲染审批原因说明，以及上次答复未送达的提示；两者都为空时什么都不画。
-// DeliveryError 非空说明上一次答复没有投递给 Agent，卡片保留以便用户重新选择，
-// 所以这里用危险色明确提示“上次没送达”，否则用户会以为答复已经生效。
-func renderApprovalReason(c *ui.Context, approval Approval) {
-	if reason := approvalReasonText(approval); reason != "" {
-		ui.Row(c.Key("approval-reason-row")).Children(func() {
-			ui.Text(c, reason).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Selectable()
-		})
-	}
-	if notice := approvalDeliveryNotice(approval.DeliveryError); notice != "" {
-		ui.Row(c.Key("approval-delivery-row")).Children(func() {
-			ui.Text(c, notice).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c)).Selectable()
-		})
-	}
-}
-
 // approvalDeliveryNotice 拼出“上次答复未送达”提示；没有送达错误时返回空串。
 func approvalDeliveryNotice(deliveryError string) string {
 	reason := strings.TrimSpace(deliveryError)
@@ -703,6 +724,25 @@ func approvalAuxText(approval Approval) string {
 	return strings.Join(parts, " · ")
 }
 
+// approvalBannerTone 在存在未送达错误时返回危险色调，其余原因说明保留警告色调。
+func approvalBannerTone(approval Approval) Tone {
+	if approvalDeliveryNotice(approval.DeliveryError) != "" {
+		return ToneDanger
+	}
+	return ToneWarning
+}
+
+// renderApprovalAuxBanner 渲染审批原因及“上次答复未送达”提示条；两者都为空时不渲染。
+func renderApprovalAuxBanner(c *ui.Context, approval Approval) {
+	if text := approvalAuxText(approval); text != "" {
+		Banner(c, BannerProps{
+			Key:  "approval-banner-" + approval.RequestID,
+			Tone: approvalBannerTone(approval),
+			Text: text,
+		})
+	}
+}
+
 // approvalCardFrame 渲染审批卡的统一外壳：SurfaceCard 底色加左侧 2px 语义色条。
 // 卡片需要左侧色条，因此这里用同一套令牌自绘。
 func approvalCardFrame(c *ui.Context, key string, accent ui.Color, body func()) {
@@ -714,7 +754,7 @@ func approvalCardFrame(c *ui.Context, key string, accent ui.Color, body func()) 
 		Gap(Space3).
 		Children(func() {
 			ui.Box(c.Key(key + "-accent")).Width(Space0).AlignSelf(ui.Stretch).Background(accent)
-			ui.Column(c.Key(key + "-content")).Grow(1).Gap(Space3).Padding(Space5).Children(body)
+			ui.Column(c.Key(key + "-content")).Grow(1).MinWidth(0).Gap(Space3).Padding(Space5).Children(body)
 		})
 }
 
@@ -723,93 +763,128 @@ func renderTypedApprovalCard(c *ui.Context, s *chatState, approval Approval, res
 	warnColor := ThemeWarning(c)
 
 	approvalCardFrame(c, "approval-"+approval.RequestID, warnColor, func() {
-		ui.Row(c.Key("approval-header-" + approval.RequestID)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, icon).Size(IconMD, IconMD).TextColor(warnColor)
-			ui.Text(c, approvalCardTitle(approval)).Bold().FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c)).Selectable()
+		ui.Row(c.Key("approval-header-" + approval.RequestID)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, icon).Size(IconMD, IconMD).TextColor(warnColor).Shrink(0)
+			ui.Text(c, approvalCardTitle(approval)).Bold().FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0).Selectable()
 		})
 		body()
-		if text := approvalAuxText(approval); text != "" {
-			Banner(c, BannerProps{Key: "approval-banner-" + approval.RequestID, Tone: ToneWarning, Text: text})
-		}
+		renderApprovalAuxBanner(c, approval)
 		renderApprovalOptions(c, s, approval, responding)
 	})
 }
 
-// renderApprovalOptions 渲染底部操作按钮栏：左侧 Spacer，按钮完全右对齐，批准按钮为主样式。
+// renderApprovalOptions 渲染底部操作按钮栏：右对齐并在窄窗下自动换行，批准按钮为主样式。
 func renderApprovalOptions(c *ui.Context, s *chatState, approval Approval, responding bool) {
-	ui.Row(c.Key("approval-options-" + approval.RequestID)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-		ui.Spacer(c)
+	ui.Row(c.Key("approval-options-" + approval.RequestID)).FillWidth().Wrap().Justify(ui.End).Gap(Space3).AlignItems(ui.Center).Children(func() {
 		for idx, opt := range approval.Options {
 			optID := opt.ID
 			shortcutHint := ""
 			if idx < 9 {
 				shortcutHint = fmt.Sprintf("%d", idx+1)
 			}
+			primary := opt.Role == "approve"
+			var tooltip string
 			switch opt.Role {
 			case "approve":
-				// 主高亮样式：强调色实心胶囊
-				tooltip := "批准 (" + shortcutDisplay("⌘↩") + " / " + shortcutDisplay("↩") + ")"
+				tooltip = "批准 (" + shortcutDisplay("⌘↩") + " / " + shortcutDisplay("↩") + ")"
 				if shortcutHint != "" {
 					tooltip = fmt.Sprintf("批准 (%s / %s / %s)", shortcutDisplay("⌘↩"), shortcutDisplay("↩"), shortcutHint)
 				}
-				pressButton2 := ui.ButtonBase(c.Key("approval-opt-"+approval.RequestID+"-"+opt.ID)).
-					Label(opt.Title).
-					Tooltip(tooltip).
-					Disabled(responding).
-					Padding(Space1, Space4).
-					Radius(RadiusXL).
-					Background(ThemeAccent(c)).
-					OnClick(func() {
-						s.respondApproval(approval, optID)
-					})
-				pressScale2 := motionPressScale(c, pressButton2, "button-press-scale", !responding && pressButton2.Pressed())
-				pressButton2.Scale(pressScale2, pressScale2)
-				pressButton2.Children(func() {
-					ui.Row(c.Key("approval-opt-row-" + approval.RequestID + "-" + opt.ID)).Gap(Space2).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, opt.Title).
-							FontSize(uiFont(TypeFootnote)).
-							Bold().
-							TextColor(ThemeOnAccent(c))
-						if shortcutHint != "" {
-							accentKeyBadge(c, "approval-opt-badge-"+approval.RequestID+"-"+opt.ID, shortcutHint)
-						}
-					})
-				})
+			case "decline":
+				tooltip = fmt.Sprintf("%s (Esc)", opt.Title)
+				if shortcutHint != "" {
+					tooltip = fmt.Sprintf("%s (Esc / %s)", opt.Title, shortcutHint)
+				}
 			default:
-				// 次级样式：浅底胶囊（含 decline 及始终允许等选项）
-				tooltip := opt.Title
-				if opt.Role == "decline" {
-					tooltip = fmt.Sprintf("%s (Esc)", opt.Title)
-					if shortcutHint != "" {
-						tooltip = fmt.Sprintf("%s (Esc / %s)", opt.Title, shortcutHint)
-					}
-				} else if shortcutHint != "" {
+				tooltip = opt.Title
+				if shortcutHint != "" {
 					tooltip = fmt.Sprintf("%s (%s)", opt.Title, shortcutHint)
 				}
-				pressButton3 := ui.ButtonBase(c.Key("approval-opt-"+approval.RequestID+"-"+opt.ID)).
-					Label(opt.Title).
-					Tooltip(tooltip).
-					Disabled(responding).
-					Padding(Space1, Space4).
-					Radius(RadiusXL).
-					Background(ThemeHover(c)).
-					OnClick(func() {
-						s.respondApproval(approval, optID)
-					})
-				pressScale3 := motionPressScale(c, pressButton3, "button-press-scale", !responding && pressButton3.Pressed())
-				pressButton3.Scale(pressScale3, pressScale3)
-				pressButton3.Children(func() {
-					ui.Row(c.Key("approval-opt-row-" + approval.RequestID + "-" + opt.ID)).Gap(Space2).AlignItems(ui.Center).Children(func() {
-						ui.Text(c, opt.Title).
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemePrimaryText(c))
-						if shortcutHint != "" {
-							Kbd(c, "approval-opt-badge-"+approval.RequestID+"-"+opt.ID, shortcutHint)
-						}
-					})
-				})
 			}
+			btnKey := "approval-opt-" + approval.RequestID + "-" + optID
+			renderApprovalOptionButton(c, btnKey, approval.RequestID, optID, opt.Title, tooltip, shortcutHint, primary, responding, responding && activeApprovalKey(s) == btnKey, func() {
+				setActiveApprovalKey(s, btnKey)
+				s.respondApproval(approval, optID)
+			})
 		}
+	})
+}
+
+// renderApprovalOptionButton 渲染带数字快捷键角标的审批选项按钮，统一焦点环、禁用色与加载态。
+func renderApprovalOptionButton(c *ui.Context, key, reqID, optID, title, tooltip, shortcutHint string, primary, disabled, loading bool, onClick func()) {
+	variant := ButtonSecondary
+	fg := ThemePrimaryText(c)
+	if primary {
+		variant = ButtonPrimary
+		fg = ThemeOnAccent(c)
+	}
+	wrapDisabledTooltip := disabled && tooltip != ""
+	buildBtn := func(btnCtx *ui.Context) ui.Element {
+		btn := ui.ButtonBase(btnCtx).
+			Label(title).
+			Height(ControlSM).
+			Padding(0, Space3).
+			Radius(RadiusSM).
+			Gap(Space2)
+		if wrapDisabledTooltip {
+			btn.Description(tooltip)
+		} else if tooltip != "" {
+			btn.Tooltip(tooltip)
+		}
+		if disabled {
+			btn.Disabled(true)
+		} else if onClick != nil {
+			btn.OnClick(onClick)
+		}
+		hoverTarget, pressTarget := float32(0), float32(0)
+		if !disabled && btn.Hovered() {
+			hoverTarget = 1
+		}
+		if !disabled && btn.Pressed() {
+			pressTarget = 1
+		}
+		hover := btn.AnimateTo("button-hover", hoverTarget, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap})
+		press := btn.AnimateTo("button-press", pressTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseSnap})
+		bg := buttonBackground(variant, false, windowActiveFor(c), hover, press, buttonColors{
+			accent: ThemeAccent(c), accentHover: ThemeAccentHover(c), accentPressed: ThemeAccentPressed(c),
+			tertiary: ThemeTertiaryText(c), overlaySelected: ThemeOverlaySelected(c),
+			overlayHover: ThemeOverlayHover(c), overlayPressed: ThemeOverlayPressed(c), danger: ThemeDanger(c),
+		})
+		if disabled && !loading {
+			fg = ThemeTertiaryText(c)
+		}
+		btn.Background(bg)
+		if variant == ButtonSecondary {
+			btn.Border(1, ThemeBorder(c))
+		}
+		focusRing(c, btn)
+		scale := motionPressScale(c, btn, "button-press-scale", !disabled && btn.Pressed())
+		btn.Scale(scale, scale).Children(func() {
+			ui.Row(c.Key("approval-opt-row-" + reqID + "-" + optID)).Gap(Space2).AlignItems(ui.Center).Children(func() {
+				if loading {
+					LoadingIndicator(c, nil, "", IconSM, fg)
+				}
+				t := ui.Text(c, title).FontSize(uiFont(TypeFootnote)).TextColor(fg)
+				if primary {
+					t.Bold()
+				}
+				if shortcutHint != "" {
+					if primary {
+						accentKeyBadge(c, "approval-opt-badge-"+reqID+"-"+optID, shortcutHint)
+					} else {
+						Kbd(c, "approval-opt-badge-"+reqID+"-"+optID, shortcutHint)
+					}
+				}
+			})
+		})
+		return btn
+	}
+	if !wrapDisabledTooltip {
+		buildBtn(c.Key(key))
+		return
+	}
+	ui.Box(c.Key(key)).Shrink(0).Tooltip(tooltip).Children(func() {
+		buildBtn(c)
 	})
 }
 
@@ -831,46 +906,32 @@ func renderLegacyApprovalCard(c *ui.Context, s *chatState, approval Approval, re
 
 	approvalCardFrame(c, "approval-"+approval.RequestID, warnColor, func() {
 		// 头部：警告图标加标题/工具名
-		ui.Row(c.Key("approval-header-" + approval.RequestID)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, IconOctagonAlert()).Size(IconMD, IconMD).TextColor(warnColor)
-			ui.Text(c, approval.Title).Bold().FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c)).Selectable()
+		ui.Row(c.Key("approval-header-" + approval.RequestID)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, IconOctagonAlert()).Size(IconMD, IconMD).TextColor(warnColor).Shrink(0)
+			ui.Text(c, approval.Title).Bold().FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0).Selectable()
 		})
 
 		// Detail：等宽代码框，最多显示 8 行，超长截断并支持滚动
 		renderApprovalCode(c, "approval-detail-"+approval.RequestID, approval.Detail)
-		if text := approvalAuxText(approval); text != "" {
-			Banner(c, BannerProps{Key: "approval-banner-" + approval.RequestID, Tone: ToneWarning, Text: text})
-		}
+		renderApprovalAuxBanner(c, approval)
 		renderApprovalOptions(c, s, approval, responding)
 	})
 }
 
-// renderApprovalButton 渲染卡片内的胶囊按钮，primary 为强调色实心样式。
+// renderApprovalButton 渲染卡片内操作按钮（供跨文件调用复用 Button 统一样式与焦点环）。
 func renderApprovalButton(c *ui.Context, key, label, tooltip string, primary, disabled bool, onClick func()) {
-	bg := ThemeHover(c)
-	fg := ThemePrimaryText(c)
+	variant := ButtonSecondary
 	if primary {
-		bg = ThemeAccent(c)
-		fg = ThemeOnAccent(c)
-		if disabled {
-			bg = bg.Alpha(0.45)
-		}
+		variant = ButtonPrimary
 	}
-	btn := ui.ButtonBase(c.Key(key)).
-		Label(label).
-		Tooltip(tooltip).
-		Disabled(disabled).
-		Padding(Space1, Space4).
-		Radius(RadiusXL).
-		Background(bg).
-		OnClick(onClick)
-	scale := motionPressScale(c, btn, "button-press-scale", !disabled && btn.Pressed())
-	btn.Scale(scale, scale)
-	btn.Children(func() {
-		t := ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(fg)
-		if primary {
-			t.Bold()
-		}
+	Button(c, ButtonOpts{
+		Key:      key,
+		Text:     label,
+		Variant:  variant,
+		Size:     ControlSM,
+		Disabled: disabled,
+		Tooltip:  tooltip,
+		OnClick:  onClick,
 	})
 }
 
@@ -882,20 +943,51 @@ func renderPlanCopyButton(c *ui.Context, key, planText string) {
 // renderPlanCard 只提供裁决操作，正文在时间线中阅读。
 func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding bool) {
 	id := approval.RequestID
-	ui.Row(c.Key("approval-"+id)).Radius(RadiusLG).
+	title := planTitle(approval.Detail)
+	declineKey := "plan-decline-" + id
+	approveKey := "plan-approve-" + id
+	declineLoading := responding && activeApprovalKey(s) == declineKey
+	approveLoading := responding && activeApprovalKey(s) == approveKey
+	ui.Column(c.Key("approval-"+id)).FillWidth().Radius(RadiusLG).
 		Background(ThemeSurface(c)).Border(Hairline, ThemeBorder(c)).
-		Padding(Space3).Gap(Space3).AlignItems(ui.Center).Children(func() {
-		ui.Icon(c, IconClipboardList()).Size(IconMD, IconMD).TextColor(ThemeAccent(c))
-		ui.Text(c, planTitle(approval.Detail)).Bold().FontSize(uiFont(TypeBody)).MaxLines(1).Shrink(1)
-		ui.Spacer(c)
-		renderApprovalButton(c, "plan-decline-"+id, "驳回", "驳回 (Esc)", false, responding, func() {
-			s.declinePlanDraft(approval, false)
+		Padding(Space3).Gap(Space2).Children(func() {
+		ui.Row(c.Key("plan-row-"+id)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, IconClipboardList()).Size(IconMD, IconMD).TextColor(ThemeAccent(c)).Shrink(0)
+			ui.Text(c, title).Bold().FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).
+				MaxLines(1).Ellipsis("…").MinWidth(0).Shrink(1).Tooltip(title)
+			ui.Spacer(c)
+			Button(c, ButtonOpts{
+				Key:      declineKey,
+				Text:     "驳回",
+				Variant:  ButtonSecondary,
+				Size:     ControlSM,
+				Loading:  declineLoading,
+				Disabled: responding && !declineLoading,
+				Tooltip:  "驳回 (Esc)",
+				OnClick: func() {
+					setActiveApprovalKey(s, declineKey)
+					s.declinePlanDraft(approval, false)
+				},
+			})
+			Button(c, ButtonOpts{
+				Key:      approveKey,
+				Text:     "批准计划",
+				Variant:  ButtonPrimary,
+				Size:     ControlSM,
+				Loading:  approveLoading,
+				Disabled: responding && !approveLoading,
+				Tooltip:  "批准计划 (" + shortcutDisplay("⌘↩") + ")",
+				OnClick: func() {
+					if optID := findApprovalOption(approval, "approve"); optID != "" {
+						setActiveApprovalKey(s, approveKey)
+						s.respondApproval(approval, optID)
+					}
+				},
+			})
 		})
-		renderApprovalButton(c, "plan-approve-"+id, "批准计划", "批准计划 ("+shortcutDisplay("⌘↩")+")", true, responding, func() {
-			if optID := findApprovalOption(approval, "approve"); optID != "" {
-				s.respondApproval(approval, optID)
-			}
-		})
+		if notice := approvalDeliveryNotice(approval.DeliveryError); notice != "" {
+			Banner(c, BannerProps{Key: "approval-banner-" + id, Tone: ToneDanger, Text: notice})
+		}
 	})
 }
 
@@ -924,61 +1016,101 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 		Gap(Space3).
 		Children(func() {
 			// 头部：图标、标题，多题时显示题号与上一题
-			ui.Row(c.Key("approval-header-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconBrain()).Size(IconMD, IconMD).TextColor(accent)
-				ui.Text(c, approvalCardTitle(approval)).Bold().FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c)).Selectable()
+			ui.Row(c.Key("approval-header-" + id)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, IconBrain()).Size(IconMD, IconMD).TextColor(accent).Shrink(0)
+				ui.Text(c, approvalCardTitle(approval)).Bold().FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c)).MinWidth(0).Shrink(1).Selectable()
 				ui.Spacer(c)
 				if len(qs) > 1 {
 					ui.Text(c, fmt.Sprintf("第 %d / %d 题", current+1, len(qs))).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Selectable()
-					renderApprovalButton(c, "question-prev-"+id, "上一题", "上一题", false, current == 0, func() {
-						s.mu.Lock()
-						if draft.current > 0 {
-							draft.current--
-						}
-						s.mu.Unlock()
-						s.invalidate()
+					Button(c, ButtonOpts{
+						Key:      "question-prev-" + id,
+						Text:     "上一题",
+						Variant:  ButtonSecondary,
+						Size:     ControlSM,
+						Disabled: responding || current == 0,
+						Tooltip:  "上一题",
+						OnClick: func() {
+							s.mu.Lock()
+							if draft.current > 0 {
+								draft.current--
+							}
+							s.mu.Unlock()
+							s.invalidate()
+						},
 					})
 				}
 			})
 
 			if len(qs) == 0 && approval.Detail != "" {
 				ui.Row(c.Key("question-detail-" + id)).Children(func() {
-					ui.Text(c, approval.Detail).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Selectable()
+					ui.Text(c, approval.Detail).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).MinWidth(0).Grow(1).Selectable()
 				})
 			}
 			if len(qs) > 0 {
-				renderQuestionBody(c, s, approval, draft, current)
+				renderQuestionBody(c, s, approval, draft, current, responding)
 			}
-			renderApprovalReason(c, approval)
+			renderApprovalAuxBanner(c, approval)
 
 			hasNext := len(qs) > 1 && current < len(qs)-1
-			ui.Row(c.Key("question-actions-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				if unanswered > 0 {
+			skipKey := "question-skip-" + id
+			skipLoading := responding && activeApprovalKey(s) == skipKey
+			ui.Row(c.Key("question-actions-" + id)).FillWidth().Wrap().Gap(Space3).AlignItems(ui.Center).Children(func() {
+				if len(qs) > 1 && unanswered > 0 {
 					ui.Text(c, fmt.Sprintf("还有 %d 题未回答", unanswered)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Selectable()
 				}
 				ui.Spacer(c)
-				renderApprovalButton(c, "question-skip-"+id, "跳过", "跳过提问 (Esc)", false, responding, func() {
-					s.respondAnswers(approval, "", nil, true)
+				Button(c, ButtonOpts{
+					Key:      skipKey,
+					Text:     "跳过",
+					Variant:  ButtonSecondary,
+					Size:     ControlSM,
+					Loading:  skipLoading,
+					Disabled: responding && !skipLoading,
+					Tooltip:  "跳过提问 (Esc)",
+					OnClick: func() {
+						setActiveApprovalKey(s, skipKey)
+						s.respondAnswers(approval, "", nil, true)
+					},
 				})
 				if hasNext {
-					renderApprovalButton(c, "question-next-"+id, "下一题", "下一题 (↩)", true, responding, func() {
-						s.mu.Lock()
-						if draft.current < len(qs)-1 {
-							draft.current++
-						}
-						s.mu.Unlock()
-						s.invalidate()
+					Button(c, ButtonOpts{
+						Key:      "question-next-" + id,
+						Text:     "下一题",
+						Variant:  ButtonPrimary,
+						Size:     ControlSM,
+						Disabled: responding,
+						Tooltip:  "下一题 (↩)",
+						OnClick: func() {
+							s.mu.Lock()
+							if draft.current < len(qs)-1 {
+								draft.current++
+							}
+							s.mu.Unlock()
+							s.invalidate()
+						},
 					})
 				} else {
+					submitKey := "question-submit-" + id
+					submitLoading := responding && activeApprovalKey(s) == submitKey
 					submitTooltip := "提交答案"
 					if unanswered == 0 && len(qs) > 0 {
 						submitTooltip = "提交答案 (↩)"
 					}
-					renderApprovalButton(c, "question-submit-"+id, "提交", submitTooltip, true, responding || unanswered > 0 || len(qs) == 0, func() {
-						s.mu.Lock()
-						answers := buildQuestionAnswers(qs, draft.selected, draft.others)
-						s.mu.Unlock()
-						s.respondAnswers(approval, "", answers, false)
+					Button(c, ButtonOpts{
+						Key:      submitKey,
+						Text:     "提交",
+						Variant:  ButtonPrimary,
+						Size:     ControlSM,
+						Loading:  submitLoading,
+						Disabled: (responding && !submitLoading) || unanswered > 0 || len(qs) == 0,
+						Tooltip:  submitTooltip,
+						OnClick: func() {
+							s.mu.Lock()
+							answers := buildQuestionAnswers(qs, draft.selected, draft.others)
+							s.mu.Unlock()
+							setActiveApprovalKey(s, submitKey)
+							s.respondAnswers(approval, "", answers, false)
+						},
 					})
 				}
 			})
@@ -986,7 +1118,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 }
 
 // renderQuestionBody 渲染当前题目：Header、Prompt、选项列表与填空输入框。
-func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi int) {
+func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi int, responding bool) {
 	id := approval.RequestID
 	q := approval.Questions[qi]
 	s.mu.Lock()
@@ -1006,16 +1138,18 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 			btn := ui.ButtonBase(c.Key(fmt.Sprintf("question-choice-%s-%d-%d", id, qi, ci))).
 				Label(choice.Label).
 				Tooltip(choice.Label).
+				Disabled(responding).
 				Padding(Space2, Space3).
 				Radius(RadiusSM)
 			if isSel {
 				btn.Background(ThemeSelected(c)).Border(Hairline, ThemeAccent(c).Alpha(0.6))
 			} else {
 				btn.Border(Hairline, ThemeBorder(c))
-				if btn.Hovered() {
+				if !responding && btn.Hovered() {
 					btn.Background(ThemeHover(c))
 				}
 			}
+			focusRing(c, btn)
 			btn.OnClick(func() {
 				s.mu.Lock()
 				if qi < len(draft.selected) {
@@ -1033,21 +1167,35 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 					// 选中显示勾选；多选未选中显示空方框，单选未选中留白对齐
 					switch {
 					case isSel:
-						ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+						iconColor := ThemeAccent(c)
+						if responding {
+							iconColor = ThemeTertiaryText(c)
+						}
+						ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(iconColor)
 					case q.AllowsMultiple:
-						ui.Icon(c, IconSquare()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+						iconColor := ThemeSecondaryText(c)
+						if responding {
+							iconColor = ThemeTertiaryText(c)
+						}
+						ui.Icon(c, IconSquare()).Size(IconSM, IconSM).TextColor(iconColor)
 					default:
 						// 固定宽度占位（不能用 Spacer：它会吃掉剩余空间把文字挤到右半边）
 						ui.Box(c).Size(IconSM, IconSM).Shrink(0)
 					}
-					ui.Column(c.Key(fmt.Sprintf("question-choice-text-%s-%d-%d", id, qi, ci))).Grow(1).Gap(Space0).Children(func() {
+					ui.Column(c.Key(fmt.Sprintf("question-choice-text-%s-%d-%d", id, qi, ci))).Grow(1).MinWidth(0).Gap(Space0).Children(func() {
+						titleColor := ThemePrimaryText(c)
+						detailColor := ThemeSecondaryText(c)
+						if responding {
+							titleColor = ThemeTertiaryText(c)
+							detailColor = ThemeTertiaryText(c)
+						}
 						// 标签里的推荐标注只在显示时去掉，提交给 provider 的仍是原始 Label
-						label := ui.Text(c, displayChoiceLabel(choice.Label)).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
+						label := ui.Text(c, displayChoiceLabel(choice.Label)).FontSize(uiFont(TypeBody)).TextColor(titleColor)
 						if isSel {
 							label.Bold()
 						}
 						if choice.Detail != "" {
-							ui.Text(c, choice.Detail).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, choice.Detail).FontSize(uiFont(TypeCaption)).TextColor(detailColor)
 						}
 					})
 					// 推荐项单独用胶囊标注，不再靠整行强调色
@@ -1075,6 +1223,7 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 			in := ui.TextInput(c.Key(fmt.Sprintf("question-other-%s-%d", id, qi)), &draft.others[qi]).
 				Label(placeholder).
 				Placeholder(placeholder).
+				Disabled(responding).
 				FontSize(uiFont(TypeBody)).
 				Padding(Space2, Space3).
 				Radius(RadiusMD).
@@ -1088,7 +1237,7 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 					s.mu.Unlock()
 					s.invalidate()
 				})
-			focused := in.Focused()
+			focused := !responding && in.Focused()
 			s.mu.Lock()
 			s.questionOtherFocused = focused
 			s.mu.Unlock()

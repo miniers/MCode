@@ -1248,3 +1248,212 @@ func TestApprovalCardSurfaceBackground(t *testing.T) {
 		t.Fatalf("卡片底色仍是整块警示底 %v", tint)
 	}
 }
+
+func TestUIReview4_SingleQuestionHidesUnansweredCount(t *testing.T) {
+	single := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-q-single",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{
+			{ID: "q1", Prompt: "只此一题", Choices: []ApprovalQuestionChoice{{Label: "甲"}, {Label: "乙"}}},
+		},
+	}
+	ttSingle := newQuestionCardTester(t, single)
+	waitFor(t, ttSingle, func() bool { return ttSingle.HasText("只此一题") })
+	if ttSingle.HasText("题未回答") {
+		t.Fatalf("只有 1 题时不应显示未回答计数，got %v", ttSingle.Texts())
+	}
+
+	multi := questionApproval()
+	ttMulti := newQuestionCardTester(t, multi)
+	waitFor(t, ttMulti, func() bool { return ttMulti.HasText("选择实现方案") })
+	if !ttMulti.HasText("还有 1 题未回答") {
+		t.Fatalf("多题且有未答题目时应显示未回答计数，got %v", ttMulti.Texts())
+	}
+}
+
+func TestUIReview4_DeliveryErrorUsesDangerTone(t *testing.T) {
+	if got := approvalBannerTone(Approval{Reason: "仅原因"}); got != ToneWarning {
+		t.Fatalf("无 DeliveryError 时应保持 ToneWarning，got %v", got)
+	}
+	if got := approvalBannerTone(Approval{DeliveryError: "pipe closed"}); got != ToneDanger {
+		t.Fatalf("有 DeliveryError 时应为 ToneDanger，got %v", got)
+	}
+
+	cards := []struct {
+		name string
+		appr Approval
+	}{
+		{
+			name: "command",
+			appr: Approval{
+				ThreadID:      "t1",
+				RequestID:     "r-err-cmd",
+				Kind:          ApprovalKindCommand,
+				Title:         "Bash",
+				Detail:        "ls",
+				DeliveryError: "pipe closed",
+				Options:       allowDenyOptions(),
+			},
+		},
+		{
+			name: "question",
+			appr: Approval{
+				ThreadID:      "t1",
+				RequestID:     "r-err-q",
+				Kind:          ApprovalKindQuestion,
+				DeliveryError: "pipe closed",
+				Questions: []ApprovalQuestion{
+					{ID: "q1", Prompt: "选哪个？", Choices: []ApprovalQuestionChoice{{Label: "甲"}}},
+				},
+			},
+		},
+		{
+			name: "plan",
+			appr: Approval{
+				ThreadID:      "t1",
+				RequestID:     "r-err-plan",
+				Kind:          ApprovalKindPlan,
+				Detail:        "# 计划标题\n\n步骤一",
+				DeliveryError: "pipe closed",
+				Options:       allowDenyOptions(),
+			},
+		},
+	}
+
+	for _, tc := range cards {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newChatState(NewFakeClient())
+			tt := ui.NewTester(func(c *ui.Context) {
+				cardBg := ThemeSurfaceCard(c)
+				switch tc.appr.Kind {
+				case ApprovalKindPlan:
+					cardBg = ThemeSurface(c)
+				case ApprovalKindQuestion:
+					cardBg = ThemeAccent(c).Alpha(0.06).Over(ThemeSurface(c))
+				}
+				ui.Column(c).FillWidth().Gap(Space2).Children(func() {
+					ui.Column(c).FillWidth().Gap(Space1).Background(cardBg).Children(func() {
+						Banner(c, BannerProps{Key: "ref-danger", Tone: ToneDanger, Text: "ref-danger"})
+						Banner(c, BannerProps{Key: "ref-warning", Tone: ToneWarning, Text: "ref-warning"})
+					})
+					renderApprovalCard(c, s, tc.appr, false)
+				})
+			}, 720, 480)
+
+			const wantNotice = "上次答复未送达：pipe closed，可重新选择"
+			waitFor(t, tt, func() bool { return tt.HasText(wantNotice) })
+
+			refDangerRect, ok := tt.Find("ref-danger")
+			if !ok {
+				t.Fatal("未找到 ref-danger")
+			}
+			refWarnRect, ok := tt.Find("ref-warning")
+			if !ok {
+				t.Fatal("未找到 ref-warning")
+			}
+			noticeRect, ok := tt.Find(wantNotice)
+			if !ok {
+				t.Fatalf("未找到送达错误文本 %q", wantNotice)
+			}
+
+			img := tt.Image()
+			samplePad := func(r ui.Rect) [3]int {
+				x := int(r.X + 4)
+				y := int(r.Y - 4)
+				if x < 0 || y < 0 || x >= img.Rect.Dx() || y >= img.Rect.Dy() {
+					t.Fatalf("采样点 (%d,%d) 超出画面 %v", x, y, img.Rect)
+				}
+				i := img.PixOffset(x, y)
+				return [3]int{int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])}
+			}
+			dangerBg := samplePad(refDangerRect)
+			warnBg := samplePad(refWarnRect)
+			gotBg := samplePad(noticeRect)
+			if !colorNear(gotBg, dangerBg, 3) {
+				t.Fatalf("%s DeliveryError Banner 背景应接近 ToneDanger %v，实际 %v", tc.name, dangerBg, gotBg)
+			}
+			if !colorNear(dangerBg, warnBg, 4) && colorNear(gotBg, warnBg, 2) {
+				t.Fatalf("%s DeliveryError Banner 背景不应是 ToneWarning %v", tc.name, warnBg)
+			}
+		})
+	}
+}
+
+func TestUIReview4_NarrowLayoutAndRespondingLock(t *testing.T) {
+	// 窄窗下长标题/路径/操作栏不把按钮挤出可视范围
+	s := newChatState(NewFakeClient())
+	plan := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-narrow-plan",
+		Kind:      ApprovalKindPlan,
+		Detail:    "# 这是一个非常非常非常长的计划标题在窄窗口下应当截断并保留按钮\n\n内容",
+		Options:   allowDenyOptions(),
+	}
+	fileAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-narrow-file",
+		Kind:      ApprovalKindFileChange,
+		Title:     "/Users/example/very/long/nested/directory/structure/that/must/not/overflow/the/narrow/approval/card.go",
+		Detail:    "diff",
+		Options:   allowDenyOptions(),
+	}
+	ttNarrow := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).FillWidth().Gap(Space3).Padding(Space2).Children(func() {
+			renderApprovalCard(c, s, plan, false)
+			renderApprovalCard(c, s, fileAppr, false)
+		})
+	}, 320, 600)
+	waitFor(t, ttNarrow, func() bool {
+		return ttNarrow.HasText("批准计划") && ttNarrow.HasText("允许")
+	})
+	for _, label := range []string{"驳回", "批准计划", "允许", "拒绝"} {
+		r, ok := ttNarrow.Find(label)
+		if !ok {
+			t.Fatalf("窄窗下未找到按钮 %q", label)
+		}
+		if r.X < 0 || r.X+r.W > 320 {
+			t.Fatalf("窄窗下按钮 %q 超出可视区：rect=%+v", label, r)
+		}
+	}
+
+	// 提交中（responding=true）时锁住选项和「其他」输入框
+	qAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-lock-q",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{{
+			ID:          "q1",
+			Prompt:      "锁定测试",
+			AllowsOther: true,
+			Choices:     []ApprovalQuestionChoice{{Label: "选项一"}, {Label: "选项二"}},
+		}},
+	}
+	sLock := newChatState(NewFakeClient())
+	ttLock := ui.NewTester(func(c *ui.Context) {
+		renderQuestionCard(c, sLock, qAppr, true)
+	}, 720, 480)
+	waitFor(t, ttLock, func() bool { return ttLock.HasText("锁定测试") })
+
+	if err := ttLock.Click("选项一"); err != nil {
+		t.Fatalf("点击选项一失败: %v", err)
+	}
+	ttLock.Frame()
+	sLock.mu.Lock()
+	draft := sLock.questionDraftFor(qAppr)
+	sel := slices.Clone(draftAt(draft.selected, 0))
+	sLock.mu.Unlock()
+	if len(sel) != 0 {
+		t.Fatalf("提交进行中不应允许切换选项，got %v", sel)
+	}
+
+	_ = ttLock.Click("输入其他答案")
+	ttLock.Type("禁止输入")
+	ttLock.Frame()
+	sLock.mu.Lock()
+	other := draftAt(draft.others, 0)
+	sLock.mu.Unlock()
+	if other != "" {
+		t.Fatalf("提交进行中应禁用「其他」输入框，got %q", other)
+	}
+}

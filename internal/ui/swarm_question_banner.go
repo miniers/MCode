@@ -104,12 +104,15 @@ func renderSwarmQuestionBannerRow(c *ui.Context, s *chatState, leadID string, h 
 			AlignItems(ui.Center).
 			Children(func() {
 				renderSwarmGlyph(c, key+"-avatar", h, 22)
-				ui.Text(c, swarmQuestionBannerSummary(h)).
+				fullSummary := swarmQuestionBannerFullSummary(h)
+				ui.Text(c, swarmQuestionSingleLine(fullSummary, swarmQuestionBannerMaxRunes)).
 					Grow(1).
 					MinWidth(0).
 					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c)).
-					MaxLines(1)
+					MaxLines(1).
+					Ellipsis("…").
+					Tooltip(fullSummary)
 				ui.Row(c.Key(key + "-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
 					if forwarded {
 						ui.Text(c, "已交给主线程，等待回答…").
@@ -117,21 +120,40 @@ func renderSwarmQuestionBannerRow(c *ui.Context, s *chatState, leadID string, h 
 							TextColor(ThemeSecondaryText(c)).
 							Selectable()
 					} else {
-						if hint := swarmQuestionAutoForwardHint(h.PendingQuestion, time.Now()); hint != "" {
-							afterNextSecond(c)
+						now := c.Now()
+						if hint := swarmQuestionAutoForwardHint(h.PendingQuestion, now); hint != "" {
+							if d, ok := swarmQuestionAutoForwardNextChange(h.PendingQuestion, now); ok {
+								c.After(d)
+							}
 							ui.Text(c, hint).
 								FontSize(uiFont(TypeFootnote)).
+								FontFeatures("tnum").
 								TextColor(ThemeSecondaryText(c)).
 								MaxLines(1)
 						}
-						renderApprovalButton(c, key+"-forward", "交给主线程回答", "把这个提问交给主线程代答", false, forwarding, func() {
-							forwardSwarmQuestion(s, leadID, h)
+						Button(c, ButtonOpts{
+							Key:     key + "-forward",
+							Text:    "交给主线程回答",
+							Variant: ButtonSecondary,
+							Size:    ControlSM,
+							Loading: forwarding,
+							Tooltip: "把这个提问交给主线程代答",
+							OnClick: func() {
+								forwardSwarmQuestion(s, leadID, h)
+							},
 						})
 					}
-					renderApprovalButton(c, key+"-open", "去回答", "打开该子线程浮窗自己回答", true, false, func() {
-						openSwarmFloatForBee(leadID, h.ThreadID)
-						markSwarmFailedBeeSeen(s, leadID, h)
-						s.invalidate()
+					Button(c, ButtonOpts{
+						Key:     key + "-open",
+						Text:    "去回答",
+						Variant: ButtonPrimary,
+						Size:    ControlSM,
+						Tooltip: "打开该子线程浮窗自己回答",
+						OnClick: func() {
+							openSwarmFloatForBee(leadID, h.ThreadID)
+							markSwarmFailedBeeSeen(s, leadID, h)
+							s.invalidate()
+						},
 					})
 				})
 			})
@@ -155,8 +177,8 @@ func swarmBeesWithPendingQuestion(bees []SwarmBee) []SwarmBee {
 	return res
 }
 
-// swarmQuestionBannerSummary 生成一行摘要：「<名字> 在提问：<题干>」，多题时补题数。
-func swarmQuestionBannerSummary(h SwarmBee) string {
+// swarmQuestionBannerFullSummary 生成完整的单行摘要，供截断后的 Tooltip 展示全文。
+func swarmQuestionBannerFullSummary(h SwarmBee) string {
 	name := strings.TrimSpace(h.Name)
 	if name == "" {
 		name = "子线程"
@@ -170,7 +192,12 @@ func swarmQuestionBannerSummary(h SwarmBee) string {
 			text += fmt.Sprintf("（共 %d 题）", len(q.Questions))
 		}
 	}
-	return swarmQuestionSingleLine(text, swarmQuestionBannerMaxRunes)
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// swarmQuestionBannerSummary 生成一行摘要：「<名字> 在提问：<题干>」，多题时补题数。
+func swarmQuestionBannerSummary(h SwarmBee) string {
+	return swarmQuestionSingleLine(swarmQuestionBannerFullSummary(h), swarmQuestionBannerMaxRunes)
 }
 
 // swarmQuestionAutoForwardHint 返回自动转交倒计时文案；未开启自动转交或已转交时返回空。
@@ -187,6 +214,31 @@ func swarmQuestionAutoForwardHint(q *SwarmBeeQuestion, now time.Time) string {
 	default:
 		return fmt.Sprintf("%d 秒后自动交给主线程", int((left+time.Second-1)/time.Second))
 	}
+}
+
+// swarmQuestionAutoForwardNextChange 返回倒计时文案下一次变化前的等待时长；
+// 已到期、已转交或未开启自动转交时不再变化，返回 false。
+func swarmQuestionAutoForwardNextChange(q *SwarmBeeQuestion, now time.Time) (time.Duration, bool) {
+	if q == nil || q.Forwarded || q.AutoForwardAt.IsZero() {
+		return 0, false
+	}
+	left := q.AutoForwardAt.Sub(now)
+	if left <= 0 {
+		return 0, false
+	}
+	if left > time.Minute {
+		if rem := left % time.Minute; rem > 0 {
+			return rem, true
+		}
+		return time.Minute, true
+	}
+	if left == time.Minute {
+		return time.Second, true
+	}
+	if rem := left % time.Second; rem > 0 {
+		return rem, true
+	}
+	return time.Second, true
 }
 
 // swarmQuestionPrompt 取第一题的题干：Prompt 为空时退回 Header。
