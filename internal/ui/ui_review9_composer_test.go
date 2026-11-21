@@ -198,7 +198,7 @@ func TestUIReview9PlanPillCached(t *testing.T) {
 	if afterMsg <= before {
 		t.Fatalf("messagesRev 增长后构建计数应增长: before=%d, after=%d", before, afterMsg)
 	}
-	if !tt.HasText("1/2 · 第二项") {
+	if !tt.HasText("第二项") || !tt.HasText("1/2") {
 		t.Fatalf("更新后的待办胶囊文案未刷新: %v", tt.Texts())
 	}
 

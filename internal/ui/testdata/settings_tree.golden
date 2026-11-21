@@ -158,6 +158,11 @@ row row-steward-quiet-enabled 启用安静时段
 row row-steward-quiet-range 时间范围
 section sec-steward-advanced 高级
 row row-steward-home-dir 主目录
+page storage
+section storage.cleanup 
+row row-storage-cleanup 
+section storage.worktree 
+row row-storage-worktree Worktree
 page swarm
 section swarm.main 
 row row-swarm-enabled 启用编排
