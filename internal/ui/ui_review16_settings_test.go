@@ -76,7 +76,7 @@ func TestUIReview16_MagpieMatrixCacheAndSingleLoading(t *testing.T) {
 }
 
 // TestUIReview16_RemotePortValidationError 验证：
-// (b) HTTP 端口输入 "0"、"80" 或 "abc"，以及 TLS 端口输入 "0" 或 "abc" 时显示「端口需为 1024–65535」，且不修改配置。
+// (b) HTTP 端口输入 "0"、"80" 或 "abc" 时显示「端口需为 1024–65535」，TLS 端口输入 "0" 或 "abc" 时显示「端口需为 1–65535」，且不修改配置。
 func TestUIReview16_RemotePortValidationError(t *testing.T) {
 	fake := NewFakeClient()
 	fake.mu.Lock()
@@ -126,7 +126,7 @@ func TestUIReview16_RemotePortValidationError(t *testing.T) {
 		tt.Command("selectAll")
 		tt.Type(bad)
 		tt.Frame()
-		if !tt.HasText("端口需为 1024–65535") {
+		if !tt.HasText("端口需为 1–65535") {
 			t.Fatalf("TLS 端口输入 %q 后未出现错误提示: %v", bad, tt.Texts())
 		}
 		st.mu.Lock()
