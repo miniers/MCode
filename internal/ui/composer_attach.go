@@ -360,9 +360,14 @@ func fallbackAttachmentMime(ext string, data []byte, guessByExt bool) string {
 	return "application/octet-stream"
 }
 
+// attachmentUploadTimeout 是单次附件上传的 RPC 超时上限；包级变量便于测试缩短验证超时收尾。
+var attachmentUploadTimeout = 2 * time.Minute
+
 // uploadAttachmentTask 异步向后端上传附件并更新附件状态。
 func (s *chatState) uploadAttachmentTask(locID, attName, attMime string, attData []byte) {
 	ctx := context.WithValue(context.Background(), "local_upload", true)
+	ctx, cancel := context.WithTimeout(ctx, attachmentUploadTimeout)
+	defer cancel()
 	res, err := s.client.UploadAttachment(ctx, attName, attMime, attData)
 	s.mu.Lock()
 	defer s.mu.Unlock()
