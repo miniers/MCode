@@ -381,3 +381,91 @@ func TestSidebarP1SortCacheUpdates(t *testing.T) {
 		}
 	})
 }
+
+func TestSidebarFingerprintTracksRunState(t *testing.T) {
+	now := time.Now()
+	base := []Thread{
+		{
+			ID:         "t1",
+			ProjectID:  "p1",
+			Title:      "会话一",
+			UpdatedAt:  now,
+			LastStatus: "completed",
+		},
+	}
+	baseFP := computeThreadsFingerprint(base)
+
+	cases := []struct {
+		name   string
+		mutate func(*Thread)
+	}{
+		{
+			name:   "IsRunning",
+			mutate: func(th *Thread) { th.IsRunning = !th.IsRunning },
+		},
+		{
+			name:   "SwarmBusy",
+			mutate: func(th *Thread) { th.SwarmBusy = !th.SwarmBusy },
+		},
+		{
+			name:   "HasPendingRequest",
+			mutate: func(th *Thread) { th.HasPendingRequest = !th.HasPendingRequest },
+		},
+		{
+			name:   "BackgroundTasks",
+			mutate: func(th *Thread) { th.BackgroundTasks = 1 },
+		},
+		{
+			name:   "LastStatus",
+			mutate: func(th *Thread) { th.LastStatus = "failed" },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			next := append([]Thread(nil), base...)
+			tc.mutate(&next[0])
+			if got := computeThreadsFingerprint(next); got == baseFP {
+				t.Fatalf("仅修改 %s 后 computeThreadsFingerprint 未变化: %+v", tc.name, got)
+			}
+		})
+	}
+
+	t.Run("split_cache_reflects_run_state_change", func(t *testing.T) {
+		testenv.TempHome(t)
+		resetSidebarHoverCardForTest()
+		t.Cleanup(resetSidebarHoverCardForTest)
+
+		fake := NewFakeClient()
+		fake.SetProjectsAndThreads(
+			[]Project{{ID: "p1", Name: "运行态缓存项目", Path: "/tmp/run-state-cache"}},
+			map[string][]Thread{
+				"p1": {
+					{ID: "t1", ProjectID: "p1", Title: "运行会话", IsRunning: true, UpdatedAt: now},
+				},
+			},
+		)
+
+		state, _ := buildRoot(fake, WithSettings(settingsTestDir(t), nil))
+		t.Cleanup(state.close)
+
+		topRun := []Thread{
+			{ID: "t1", ProjectID: "p1", Title: "运行会话", IsRunning: true, UpdatedAt: now},
+		}
+		active1, dormant1 := splitAndSortProjectThreads(state, "p1", topRun)
+		if len(active1) != 1 || len(dormant1) != 0 || !active1[0].IsRunning {
+			t.Fatalf("首次调用应返回 IsRunning=true 的会话: active=%+v dormant=%+v", active1, dormant1)
+		}
+
+		topIdle := []Thread{
+			{ID: "t1", ProjectID: "p1", Title: "运行会话", IsRunning: false, UpdatedAt: now},
+		}
+		active2, dormant2 := splitAndSortProjectThreads(state, "p1", topIdle)
+		if len(active2) != 1 || len(dormant2) != 0 {
+			t.Fatalf("第二次调用返回数量异常: active=%+v dormant=%+v", active2, dormant2)
+		}
+		if active2[0].IsRunning {
+			t.Fatalf("UpdatedAt 不变但 IsRunning 置为 false 后，缓存应返回 IsRunning=false，实际仍为 true")
+		}
+	})
+}

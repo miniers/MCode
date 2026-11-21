@@ -85,6 +85,11 @@ func computeThreadsFingerprint(threads []Thread) sidebarThreadsFingerprint {
 		h = hashStringFNV(h, th.Title)
 		h = hashStringFNV(h, th.ProjectID)
 		h = hashStringFNV(h, th.ParentThreadID)
+		h = hashStringFNV(h, th.LastStatus)
+		h = hashStringFNV(h, th.Provider)
+		h = hashStringFNV(h, th.Model)
+		h = hashStringFNV(h, th.SessionID)
+		// 缓存返回的是 Thread 副本，所以凡是渲染要读、又会在原地改写的字段，都必须纳入指纹，否则会显示旧状态。
 		var flags uint64
 		if th.Dormant {
 			flags |= 1 << 0
@@ -92,7 +97,26 @@ func computeThreadsFingerprint(threads []Thread) sidebarThreadsFingerprint {
 		if th.IsHelper {
 			flags |= 1 << 1
 		}
+		if th.IsRunning {
+			flags |= 1 << 2
+		}
+		if th.SwarmBusy {
+			flags |= 1 << 3
+		}
+		if th.HasPendingRequest {
+			flags |= 1 << 4
+		}
+		if th.HasUnread {
+			flags |= 1 << 5
+		}
+		if th.Pinned {
+			flags |= 1 << 6
+		}
+		if th.IsProvisional {
+			flags |= 1 << 7
+		}
 		h = hashUint64FNV(h, flags)
+		h = hashUint64FNV(h, uint64(th.BackgroundTasks))
 		h = hashUint64FNV(h, uint64(u))
 		h = hashUint64FNV(h, uint64(a))
 	}
