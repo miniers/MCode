@@ -484,6 +484,8 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			toolMsgIDs            = make(map[string]string)
 			// toolStreams 收集各工具条目运行期间的增量输出，同一 ToolID 的片段先合并节流再下发。
 			toolStreams         = make(map[string]*toolOutputStream)
+			toolLogTitles       = make(map[string]string)
+			toolLogHasOutput    = make(map[string]bool)
 			streamResetSent     bool
 			timingRefreshNeeded = true
 		)
@@ -535,6 +537,15 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 				text        string
 				previewText string
 			}
+			type logHubAction struct {
+				hub      *LogStreamHub
+				kind     string
+				streamID string
+				source   string
+				title    string
+				text     string
+				status   string
+			}
 
 			var (
 				msgToPublish   []wire.ThreadMessage
@@ -547,6 +558,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 				bgPersistMsgs     []wire.ThreadMessage
 				durationSummaries []wire.ThreadSummary
 				archiveTask       *toolOutputArchiveTask
+				logAction         *logHubAction
 			)
 
 			b.mu.Lock()
@@ -820,17 +832,53 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 				td.summary.UpdatedAt = now
 				currentSummary = b.summaryForPublishLocked(td)
 
+				if b.logHub == nil {
+					b.logHub = NewLogStreamHub()
+				}
+				logStreamID := e.ToolID
+				if logStreamID == "" {
+					logStreamID = toolMsgID
+				}
+				toolLogTitles[e.ToolID] = toolText
+				toolLogHasOutput[e.ToolID] = false
+				logAction = &logHubAction{
+					hub:      b.logHub,
+					kind:     "start",
+					streamID: logStreamID,
+					source:   "tool",
+					title:    toolText,
+				}
+
 			case harness.EventToolOutput:
 				// 运行中的增量输出：按 tool_id 追加到对应条目上，同一 ToolID 的片段先合并节流再下发；
 				// 找不到对应条目（tool_start 还没到或条目已结束）时静默忽略。
+				if b.logHub == nil {
+					b.logHub = NewLogStreamHub()
+				}
+				lh := b.logHub
+				logStreamID := e.ToolID
+				if logStreamID == "" {
+					logStreamID = toolMsgIDs[e.ToolID]
+				}
+				logTitle := toolLogTitles[e.ToolID]
+				if e.Text != "" {
+					toolLogHasOutput[e.ToolID] = true
+				}
+
 				stream, streamed := toolStreams[e.ToolID]
 				if !streamed {
 					b.mu.Unlock()
+					if e.Text != "" && logStreamID != "" {
+						lh.Append(threadID, logStreamID, "tool", logTitle, e.Text)
+					}
 					return
 				}
 				nowTime := b.nowLocked()
 				if !stream.append(e.Text, nowTime) {
 					b.mu.Unlock()
+					if e.Text != "" && logStreamID != "" {
+						lh.Append(threadID, logStreamID, "tool", logTitle, e.Text)
+					}
 					return
 				}
 				toolMsgID := toolMsgIDs[e.ToolID]
@@ -844,13 +892,35 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 				}
 				if len(msgToPublish) == 0 {
 					b.mu.Unlock()
+					if e.Text != "" && logStreamID != "" {
+						lh.Append(threadID, logStreamID, "tool", logTitle, e.Text)
+					}
 					return
 				}
 				td.summary.UpdatedAt = now
 				currentSummary = b.summaryForPublishLocked(td)
+				if e.Text != "" && logStreamID != "" {
+					logAction = &logHubAction{
+						hub:      lh,
+						kind:     "append",
+						streamID: logStreamID,
+						source:   "tool",
+						title:    logTitle,
+						text:     e.Text,
+					}
+				}
 
 			case harness.EventToolEnd:
 				toolMsgID, exists := toolMsgIDs[e.ToolID]
+				if b.logHub == nil {
+					b.logHub = NewLogStreamHub()
+				}
+				logStreamID := e.ToolID
+				if logStreamID == "" {
+					logStreamID = toolMsgID
+				}
+				logTitle := toolLogTitles[e.ToolID]
+				hasStreamedOutput := toolLogHasOutput[e.ToolID]
 				if exists {
 					for idx, m := range td.messages {
 						if m.ID == toolMsgID {
@@ -920,6 +990,27 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 				}
 				// 条目已落定，不再需要增量缓冲。
 				delete(toolStreams, e.ToolID)
+				delete(toolLogTitles, e.ToolID)
+				delete(toolLogHasOutput, e.ToolID)
+				if logStreamID != "" {
+					logStatus := "done"
+					if e.IsError {
+						logStatus = "error"
+					}
+					fallbackText := ""
+					if !hasStreamedOutput && e.Output != "" {
+						fallbackText = e.Output
+					}
+					logAction = &logHubAction{
+						hub:      b.logHub,
+						kind:     "finish",
+						streamID: logStreamID,
+						source:   "tool",
+						title:    logTitle,
+						text:     fallbackText,
+						status:   logStatus,
+					}
+				}
 				td.summary.UpdatedAt = now
 				currentSummary = b.summaryForPublishLocked(td)
 
@@ -1172,6 +1263,21 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 			// 流式钩子在锁外同步调用，保证与事件顺序一致。
 			if streamHook != nil {
 				streamHook(threadID, streamProject, false, streamDelta)
+			}
+
+			// 实时日志流推送必须在 b.mu 解锁后调用，防止持锁网络发送。
+			if logAction != nil && logAction.hub != nil {
+				switch logAction.kind {
+				case "start":
+					logAction.hub.Start(threadID, logAction.streamID, logAction.source, logAction.title)
+				case "append":
+					logAction.hub.Append(threadID, logAction.streamID, logAction.source, logAction.title, logAction.text)
+				case "finish":
+					if logAction.text != "" {
+						logAction.hub.Append(threadID, logAction.streamID, logAction.source, logAction.title, logAction.text)
+					}
+					logAction.hub.Finish(threadID, logAction.streamID, logAction.status)
+				}
 			}
 
 			if len(msgToPublish) > 0 {

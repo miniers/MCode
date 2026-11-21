@@ -1165,6 +1165,33 @@
     },
     {
       "$ref": "#/$defs/RemoteMemorySearchResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteContextListDocsRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteContextListDocsResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteContextReadDocRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteContextReadDocResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteLogsSubscribeRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteLogsSubscribeResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteLogsUnsubscribeRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteLogsUnsubscribeResponse"
+    },
+    {
+      "$ref": "#/$defs/LogsEventNotification"
     }
   ],
   "$defs": {
@@ -11430,6 +11457,18 @@
           },
           {
             "$ref": "#/$defs/RemoteThreadsMoveToProjectRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteContextListDocsRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteContextReadDocRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteLogsSubscribeRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteLogsUnsubscribeRequest"
           }
         ]
       },
@@ -11879,6 +11918,18 @@
           },
           {
             "$ref": "#/$defs/RemoteMemorySearchResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteContextListDocsResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteContextReadDocResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteLogsSubscribeResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteLogsUnsubscribeResponse"
           }
         ]
       }
@@ -20094,6 +20145,512 @@
           "jsonrpc",
           "result",
           "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteContextDocSummary": {
+        "type": "object",
+        "description": "项目知识库单篇文档的摘要信息。",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "standard": {
+            "type": "boolean"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "updatedAt": {
+            "$ref": "#/$defs/ISO8601DateTime"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "standard",
+          "exists",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteContextListDocsParams": {
+        "type": "object",
+        "description": "context.listDocs 的请求参数。",
+        "properties": {
+          "projectID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteContextListDocsResult": {
+        "type": "object",
+        "description": "context.listDocs 的结果。",
+        "properties": {
+          "projectID": {
+            "type": "string"
+          },
+          "docs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteContextDocSummary"
+            }
+          }
+        },
+        "required": [
+          "projectID",
+          "docs"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteContextListDocsRequest": {
+        "type": "object",
+        "description": "context.listDocs 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "context.listDocs"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteContextListDocsParams"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteContextListDocsResponse": {
+        "type": "object",
+        "description": "context.listDocs 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteContextListDocsResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteContextReadDocParams": {
+        "type": "object",
+        "description": "context.readDoc 的请求参数。",
+        "properties": {
+          "projectID": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectID",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteContextReadDocResult": {
+        "type": "object",
+        "description": "context.readDoc 的结果。",
+        "properties": {
+          "projectID": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "standard": {
+            "type": "boolean"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "content": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "$ref": "#/$defs/ISO8601DateTime"
+          }
+        },
+        "required": [
+          "projectID",
+          "name",
+          "title",
+          "standard",
+          "exists",
+          "content",
+          "size",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteContextReadDocRequest": {
+        "type": "object",
+        "description": "context.readDoc 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "context.readDoc"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteContextReadDocParams"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteContextReadDocResponse": {
+        "type": "object",
+        "description": "context.readDoc 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteContextReadDocResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogStreamInfo": {
+        "type": "object",
+        "description": "单条工具调用或脚本运行的日志流元信息。",
+        "properties": {
+          "streamID": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "tool",
+              "script"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "done",
+              "error"
+            ]
+          },
+          "startedAt": {
+            "$ref": "#/$defs/ISO8601DateTime"
+          },
+          "finishedAt": {
+            "$ref": "#/$defs/ISO8601DateTime"
+          }
+        },
+        "required": [
+          "streamID",
+          "source",
+          "title",
+          "status",
+          "startedAt"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogChunk": {
+        "type": "object",
+        "description": "单条增量日志片段。",
+        "properties": {
+          "seq": {
+            "type": "integer"
+          },
+          "streamID": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "tool",
+              "script"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "ts": {
+            "$ref": "#/$defs/ISO8601DateTime"
+          }
+        },
+        "required": [
+          "seq",
+          "streamID",
+          "source",
+          "text",
+          "ts"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogsSubscribeParams": {
+        "type": "object",
+        "description": "logs.subscribe 的请求参数。",
+        "properties": {
+          "threadID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogsSubscribeResult": {
+        "type": "object",
+        "description": "logs.subscribe 的结果。",
+        "properties": {
+          "threadID": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "streams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteLogStreamInfo"
+            }
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteLogChunk"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "threadID",
+          "sequence",
+          "streams",
+          "chunks",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogsSubscribeRequest": {
+        "type": "object",
+        "description": "logs.subscribe 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "logs.subscribe"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteLogsSubscribeParams"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogsSubscribeResponse": {
+        "type": "object",
+        "description": "logs.subscribe 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteLogsSubscribeResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogsUnsubscribeParams": {
+        "type": "object",
+        "description": "logs.unsubscribe 的请求参数。",
+        "properties": {
+          "threadID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadID"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogsUnsubscribeResult": {
+        "type": "object",
+        "description": "logs.unsubscribe 的结果。",
+        "properties": {
+          "unsubscribed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "unsubscribed"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogsUnsubscribeRequest": {
+        "type": "object",
+        "description": "logs.unsubscribe 的请求。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "logs.unsubscribe"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteLogsUnsubscribeParams"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogsUnsubscribeResponse": {
+        "type": "object",
+        "description": "logs.unsubscribe 的结果。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "result": {
+            "$ref": "#/$defs/RemoteLogsUnsubscribeResult"
+          },
+          "id": {
+            "$ref": "#/$defs/JSONRPCId"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "result",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "RemoteLogsEventNotificationParams": {
+        "type": "object",
+        "description": "logs.event 推送通知参数。",
+        "properties": {
+          "threadID": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "stream": {
+            "$ref": "#/$defs/RemoteLogStreamInfo"
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RemoteLogChunk"
+            }
+          }
+        },
+        "required": [
+          "threadID",
+          "sequence",
+          "chunks"
+        ],
+        "additionalProperties": false
+      },
+      "LogsEventNotification": {
+        "type": "object",
+        "description": "实时日志流增量推送通知。",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0"
+          },
+          "method": {
+            "const": "logs.event"
+          },
+          "params": {
+            "$ref": "#/$defs/RemoteLogsEventNotificationParams"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method",
+          "params"
         ],
         "additionalProperties": false
       }

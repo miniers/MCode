@@ -39,11 +39,15 @@ type cappedOutput struct {
 	buf       bytes.Buffer
 	limit     int
 	truncated int
+	onWrite   func(chunk string)
 }
 
 func (w *cappedOutput) Write(p []byte) (int, error) {
+	var (
+		cb        func(string)
+		chunkCopy []byte
+	)
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if room := w.limit - w.buf.Len(); room > 0 {
 		if len(p) <= room {
 			w.buf.Write(p)
@@ -53,6 +57,14 @@ func (w *cappedOutput) Write(p []byte) (int, error) {
 		}
 	} else {
 		w.truncated += len(p)
+	}
+	if w.onWrite != nil && len(p) > 0 {
+		cb = w.onWrite
+		chunkCopy = append([]byte(nil), p...)
+	}
+	w.mu.Unlock()
+	if cb != nil {
+		cb(string(chunkCopy))
 	}
 	return len(p), nil
 }
@@ -532,12 +544,22 @@ func (b *MemoryBackend) runScriptAsync(threadID, root, label string, build func(
 		createdAt: time.Now(),
 	})
 
+	var lh *LogStreamHub
+	if threadID != "" {
+		lh = b.ensureLogHub()
+		lh.Start(threadID, runID, "script", label)
+	}
+
 	go func() {
 		select {
 		case scriptRunSem <- struct{}{}:
 			defer func() { <-scriptRunSem }()
 		case <-time.After(10 * time.Second):
 			b.scriptRuns.update(runID, scriptRunStatusRejected, nil, "concurrency limit reached")
+			if lh != nil {
+				lh.Append(threadID, runID, "script", label, "concurrency limit reached")
+				lh.Finish(threadID, runID, "error")
+			}
 			return
 		}
 
@@ -551,6 +573,11 @@ func (b *MemoryBackend) runScriptAsync(threadID, root, label string, build func(
 			cmd.Env = loginenv.Environ()
 		}
 		combined := &cappedOutput{limit: maxScriptOutputBytes}
+		if lh != nil {
+			combined.onWrite = func(chunk string) {
+				lh.Append(threadID, runID, "script", label, chunk)
+			}
+		}
 		cmd.Stdout = combined
 		cmd.Stderr = combined
 		b.scriptRuns.setLive(runID, combined)
@@ -566,6 +593,13 @@ func (b *MemoryBackend) runScriptAsync(threadID, root, label string, build func(
 		}
 
 		b.scriptRuns.update(runID, scriptRunStatusFinished, &exitCode, combined.String())
+		if lh != nil {
+			logStatus := "done"
+			if err != nil || exitCode != 0 {
+				logStatus = "error"
+			}
+			lh.Finish(threadID, runID, logStatus)
+		}
 	}()
 
 	return runID

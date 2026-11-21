@@ -148,6 +148,8 @@ var defaultFeatures = []string{
 	"threads.media",
 	"files.read",
 	"git.readonly",
+	"context.readonly",
+	"logs.stream",
 	"threads.attachments",
 	"push",
 	"push.offline",

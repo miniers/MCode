@@ -99,6 +99,11 @@
 - `memory.search`：搜索记忆，参数可选 `projectID`（为空表示全部项目）、`query`、可选 `limit`（缺省 20，取值 1 到 50），结果为 `{ "results" }`，每项含 `id`、`title`、`content`、`unitType`?、`importance`、`labels`?、`createdAt`；无结果时 `results` 为空数组。参数不合法回 `InvalidParams`（`-32602`），服务未注入回 `MethodNotFound`（`-32601`）。
 - `memory.proposals.accept` 的参数新增可选 `title`、`content`、`type`、`importance`：提供时先按编辑后的内容更新提议再接受，等价于桌面端「保存编辑，再点接受」；字段为空串或 `importance` 越界回 `InvalidParams`（`-32602`）。`MemoryExtProposal` 新增可选 `scope`（`project` / `global`）。
 - `capabilities.get` 的结果新增可选 `appVersion`：宿主应用版本号，缺失时客户端按未知处理。
+- `context.listDocs`（能力标记 `context.readonly`）：只读列出指定项目的知识库文档清单，参数 `projectID`，结果为 `{ "projectID", "docs" }`，每项含 `name`、`title`、`standard`、`exists`、`size`、`updatedAt`?。自动通过 `projctx` 归并 Git worktree 至主仓库并检查符号链接重定向保护；始终列出 4 篇标准文档（`instructions` / `overview` / `decisions` / `notes`，无论磁盘文件是否存在）以及 `docs/` 下按 `name` 升序排列的自定义 `.md` 文档。`projectID` 为空回 `InvalidParams`（`-32602`），未知项目回 `ResourceNotFound`（`-32002`），符号链接越界回 `InvalidParams`（`-32602`）。
+- `context.readDoc`（能力标记 `context.readonly`）：只读读取指定项目知识库中的单篇 Markdown 文档，参数 `projectID`、`name`，结果为 `{ "projectID", "name", "title", "standard", "exists", "content", "size", "truncated", "updatedAt"? }`。`name` 经 `projctx.ParseRef` 校验，拒绝路径穿越（`..` / `\`）、符号链接逃逸、非 `.md` 文件及前 512 字节含 `0x00` 的二进制内容（均回 `InvalidParams` `-32602`）；单次读取上限 `256 KiB`，超限时按合法 UTF-8 边界截断并置 `truncated: true`。标准文档不存在时不报错，返回 `exists: false`、`content: ""`、`size: 0`、`truncated: false`；自定义文档或项目不存在回 `ResourceNotFound`（`-32002`）。
+- `logs.subscribe`（能力标记 `logs.stream`）：订阅指定会话的实时命令/脚本日志流，参数 `threadID`，结果为 `{ "threadID", "sequence", "streams", "chunks", "truncated" }`。返回最近最多 20 条工具/脚本流元信息（`streamID`、`source` 为 `"tool"` / `"script"`、`title`、`status` 为 `"running"` / `"done"` / `"error"`、`startedAt`、`finishedAt`?）与有界环缓冲中的近期日志片段（单线程上限 256 KiB / 500 条 chunk，超限 FIFO 淘汰并置 `truncated: true`）。`threadID` 为空回 `InvalidParams`（`-32602`），会话不存在回 `ResourceNotFound`（`-32002`）。
+- `logs.unsubscribe`（能力标记 `logs.stream`）：取消当前连接对指定会话实时日志流的订阅，参数 `threadID`，结果为 `{ "unsubscribed": true }`。连接断开时亦自动清理订阅。
+- `logs.event`（服务端推送通知，`method: "logs.event"`）：当已订阅会话产生工具调用或后台脚本起止/增量输出时推送，参数 `{ "threadID", "sequence", "stream"?, "chunks" }`。所有 `title` 与日志文本入环和推送前均经 `RedactSecrets` 脱敏；增量按 50ms / 4 KiB 节流批量发送，流起止立即发送，单次通知载荷上限 `64 KiB`。
 
 ### 新增一个远程方法
 

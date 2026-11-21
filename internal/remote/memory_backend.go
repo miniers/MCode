@@ -240,6 +240,7 @@ type MemoryBackend struct {
 	turnPersistMu          sync.Mutex
 	wg                     sync.WaitGroup
 	hub                    *StreamHub
+	logHub                 *LogStreamHub
 	projects               map[string]wire.ProjectSummary
 	threads                map[string]*memoryThread
 	usage                  map[string]map[int]harness.Usage
@@ -1271,6 +1272,7 @@ func NewMemoryBackend(hub *StreamHub) *MemoryBackend {
 	}
 	return &MemoryBackend{
 		hub:                      hub,
+		logHub:                   NewLogStreamHub(),
 		projects:                 make(map[string]wire.ProjectSummary),
 		threads:                  make(map[string]*memoryThread),
 		usage:                    make(map[string]map[int]harness.Usage),
@@ -1458,6 +1460,7 @@ func (b *MemoryBackend) Close() {
 	// 先在关闭会话与工作区状态前停掉本地内容服务，避免预览请求落在半关闭的后端上。
 	b.closeInspectorPreviewServer()
 	b.mu.Lock()
+	lh := b.logHub
 	for _, td := range b.threads {
 		if td.watchdogStop != nil {
 			td.watchdogStop()
@@ -1473,6 +1476,9 @@ func (b *MemoryBackend) Close() {
 		}
 	}
 	b.mu.Unlock()
+	if lh != nil {
+		lh.Close()
+	}
 	b.wg.Wait()
 	// 与在飞的待同步集合读改写做屏障，并把退出期间才置脏、尚未确保写进持久集合的会话
 	// 补做一次本地落盘（只读写本地 SQLite，不发网络）。否则本地已有消息、重启却没有待同步标记。
@@ -2056,10 +2062,34 @@ func matchSwarmPairID(pairs []wire.SwarmPair, leadProvider, leadModel, beesProvi
 	return ""
 }
 
+// ensureLogHub 返回后端关联的实时日志流中心，按需懒初始化。
+func (b *MemoryBackend) ensureLogHub() *LogStreamHub {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.logHub == nil {
+		b.logHub = NewLogStreamHub()
+	}
+	return b.logHub
+}
+
+// hasThread 检查会话是否存在于当前内存中。
+func (b *MemoryBackend) hasThread(threadID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.threads[threadID]
+	return ok
+}
+
 // RemoveConn 从事件推送中心移除指定连接。
 func (b *MemoryBackend) RemoveConn(c Conn) {
 	if b.hub != nil {
 		b.hub.RemoveConn(c)
+	}
+	b.mu.Lock()
+	lh := b.logHub
+	b.mu.Unlock()
+	if lh != nil {
+		lh.RemoveConn(c)
 	}
 }
 
