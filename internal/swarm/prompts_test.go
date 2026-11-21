@@ -519,3 +519,16 @@ func TestLeadPolicyPlansOnlyPlanDocs(t *testing.T) {
 		t.Fatalf("plansOnly=false 的策略不应包含 %q:\n%s", "Plan documents are yours", nonPlanOnly)
 	}
 }
+
+func TestLeadPolicyMentionsFiles(t *testing.T) {
+	t.Parallel()
+	for _, delegateTool := range []bool{false, true} {
+		got := LeadPolicy(false, "off", delegateTool)
+		if !strings.Contains(got, "files the repo-relative file paths this bee will edit") {
+			t.Fatalf("delegateTool=%v 策略缺少 files 字段说明:\n%s", delegateTool, got)
+		}
+		if delegateTool && !strings.Contains(got, "Use the same entry fields: task, prompt, bee, tier, skills, project, files, replaces and acceptance.") {
+			t.Fatalf("delegateTool=true 策略未在字段列表包含 files:\n%s", got)
+		}
+	}
+}

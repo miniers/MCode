@@ -22,7 +22,6 @@ import (
 	"mcode/internal/kanban"
 	"mcode/internal/procattr"
 	"mcode/internal/providers/loginenv"
-	"mcode/internal/reviewcheck"
 	"mcode/internal/store"
 )
 
@@ -551,64 +550,33 @@ type beeWriteScope struct {
 	paths []string
 }
 
-// writeScopePaths 只使用原始 brief，避免组装提示里的示例路径占用文件。
-func writeScopePaths(brief string, changed []string) []string {
-	paths := reviewcheck.ExtractPaths(dropReferenceClauses(brief))
-	if len(paths) == 0 {
+// writeScopePaths 归并显式声明的写入文件与已观测到的改动文件，用于并发派发冲突检测。
+func writeScopePaths(declared, changed []string) []string {
+	if len(declared) == 0 && len(changed) == 0 {
 		return nil
 	}
-	seen := make(map[string]struct{}, len(paths)+len(changed))
-	out := make([]string, 0, len(paths)+len(changed))
-	for _, p := range paths {
-		seen[p] = struct{}{}
-		out = append(out, p)
+	seen := make(map[string]struct{}, len(declared)+len(changed))
+	out := make([]string, 0, len(declared)+len(changed))
+	add := func(items []string) {
+		for _, raw := range items {
+			p := normalizeScopePath(raw)
+			if p == "" {
+				continue
+			}
+			if _, ok := seen[p]; ok {
+				continue
+			}
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
 	}
-	for _, p := range changed {
-		p = strings.TrimSpace(strings.TrimPrefix(p, "./"))
-		if p == "" {
-			continue
-		}
-		p = path.Clean(p)
-		if _, ok := seen[p]; ok {
-			continue
-		}
-		seen[p] = struct{}{}
-		out = append(out, p)
+	add(declared)
+	add(changed)
+	if len(out) == 0 {
+		return nil
 	}
 	sort.Strings(out)
 	return out
-}
-
-// 参考路径不会被写，不应让并行 bee 排队。
-var referenceClauseCues = []string{
-	"参考",
-	"对照",
-	"仿照",
-	"类似",
-	"不要改",
-	"不要修改",
-	"不得修改",
-	"不要动",
-}
-
-func dropReferenceClauses(brief string) string {
-	clauses := strings.FieldsFunc(brief, func(r rune) bool {
-		return r == '\n' || r == '\r' || r == '。' || r == '；' || r == ';' || r == '，' || r == ','
-	})
-	kept := make([]string, 0, len(clauses))
-	for _, clause := range clauses {
-		isRef := false
-		for _, cue := range referenceClauseCues {
-			if strings.Contains(clause, cue) {
-				isRef = true
-				break
-			}
-		}
-		if !isRef {
-			kept = append(kept, clause)
-		}
-	}
-	return strings.Join(kept, "\n")
 }
 
 func overlappingScope(a, b []string) []string {
@@ -639,7 +607,7 @@ func (m *Manager) activeWriteScopesLocked(leadThreadID string) []beeWriteScope {
 		if bee.ReadOnly || (bee.Status != StatusRunning && bee.ReviewState != ReviewRunning) {
 			continue
 		}
-		if paths := writeScopePaths(bee.Brief, bee.ChangedFiles); len(paths) > 0 {
+		if paths := writeScopePaths(bee.Files, bee.ChangedFiles); len(paths) > 0 {
 			out = append(out, beeWriteScope{name: bee.Name, paths: paths})
 		}
 	}
@@ -659,7 +627,7 @@ func (m *Manager) overlappingSpecLocked(leadThreadID string, spec BeeSpec) (stri
 	if spec.ReadOnly {
 		return "", nil
 	}
-	scope := beeWriteScope{name: spec.Name, paths: writeScopePaths(spec.Brief, nil)}
+	scope := beeWriteScope{name: spec.Name, paths: writeScopePaths(spec.Files, nil)}
 	if len(scope.paths) == 0 {
 		return "", nil
 	}
@@ -1513,6 +1481,7 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 		Task:              spec.Task,
 		Prompt:            spec.Prompt,
 		Brief:             spec.Brief,
+		Files:             append([]string(nil), spec.Files...),
 		Status:            StatusRunning,
 		StartedAt:         now,
 		LastProgressAt:    now,
@@ -1581,7 +1550,7 @@ func (m *Manager) processQueue(ctx context.Context) {
 			continue
 		}
 		if !q.spec.ReadOnly {
-			scope := beeWriteScope{name: q.spec.Name, paths: writeScopePaths(q.spec.Brief, nil)}
+			scope := beeWriteScope{name: q.spec.Name, paths: writeScopePaths(q.spec.Files, nil)}
 			if len(scope.paths) > 0 {
 				others := m.activeWriteScopesLocked(q.leadThreadID)
 				others = append(others, reservedScopes[q.leadThreadID]...)
@@ -1992,6 +1961,7 @@ func (m *Manager) planEntry(ctx context.Context, leadThreadID string, d Delegati
 		ReadOnly:    cfg.ReadOnly,
 		WritePaths:  append([]string(nil), cfg.WritePaths...),
 		Brief:       d.Prompt,
+		Files:       append([]string(nil), d.Files...),
 		Acceptance:  append([]string(nil), d.Acceptance...),
 		DirectModel: cfg.DirectModel,
 	}
@@ -2826,6 +2796,7 @@ func (m *Manager) Tick(ctx context.Context) {
 						RuntimeMode: tgt.bee.RuntimeMode,
 						DirectModel: tgt.bee.DirectModel,
 						Brief:       tgt.bee.Brief,
+						Files:       append([]string(nil), tgt.bee.Files...),
 					}
 					// 保留半成品：先统计失败前已有的改动，再决定是复用 worktree 接着做还是删掉重来。
 					m.recordPartialWork(ctx, &tgt.bee)
@@ -4644,6 +4615,7 @@ func (m *Manager) handbackConflict(ctx context.Context, leadThreadID, targetWork
 		WritePaths:      append([]string(nil), h.WritePaths...),
 		Acceptance:      append([]string(nil), h.Acceptance...),
 		Brief:           h.Brief,
+		Files:           append([]string(nil), h.Files...),
 		RuntimeMode:     h.RuntimeMode,
 		DirectModel:     h.DirectModel,
 	}
@@ -6712,6 +6684,7 @@ func (m *Manager) respawnBeeWithHandoff(ctx context.Context, leadThreadID string
 		WritePaths:  append([]string(nil), old.WritePaths...),
 		Acceptance:  append([]string(nil), old.Acceptance...),
 		Brief:       old.Brief,
+		Files:       append([]string(nil), old.Files...),
 		RuntimeMode: old.RuntimeMode,
 		DirectModel: old.DirectModel,
 	}

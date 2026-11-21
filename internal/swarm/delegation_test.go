@@ -893,3 +893,61 @@ func TestStreamParser_LegacyFence(t *testing.T) {
 		t.Fatal("旧围栏块结束后应标记为已闭合")
 	}
 }
+
+func TestParseEntryFiles(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		raw  any
+		want []string
+	}{
+		{
+			name: "any_slice_with_norm_dedup_and_filter",
+			raw: []any{
+				" `./internal/swarm/a.go:12` ",
+				`.\internal\swarm\b.go:10-20`,
+				"internal/swarm/a.go",
+				"dir/",
+				"/abs/a.go",
+				"../a.go",
+				"~/a.go",
+				"https://example.com/a.go",
+				".",
+				"..",
+				"",
+				123,
+			},
+			want: []string{"internal/swarm/a.go", "internal/swarm/b.go"},
+		},
+		{
+			name: "string_slice",
+			raw:  []string{`"./x/y.go"`, `x\y.go:5`, "x/z.go"},
+			want: []string{"x/y.go", "x/z.go"},
+		},
+		{
+			name: "single_string",
+			raw:  `.\pkg\main.go:1-9`,
+			want: []string{"pkg/main.go"},
+		},
+		{
+			name: "all_invalid",
+			raw:  []any{"dir/", "/abs/a.go", "../a.go"},
+			want: nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d, ok := ParseEntry(map[string]any{
+				"prompt": "test prompt",
+				"files":  tc.raw,
+			})
+			if !ok {
+				t.Fatal("ParseEntry should succeed")
+			}
+			if !reflect.DeepEqual(d.Files, tc.want) {
+				t.Fatalf("Files = %#v, want %#v", d.Files, tc.want)
+			}
+		})
+	}
+}

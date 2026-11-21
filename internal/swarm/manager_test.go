@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -3053,7 +3054,7 @@ func TestHandoffPromptIncludesLastOutput(t *testing.T) {
 	}
 }
 
-func TestDispatchQueuesOverlappingBrief(t *testing.T) {
+func TestDispatchQueuesOverlappingFiles(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
@@ -3061,7 +3062,7 @@ func TestDispatchQueuesOverlappingBrief(t *testing.T) {
 	mgr := NewManager(Options{Git: runner, Driver: newFakeDriver(), WorktreeDir: t.TempDir(), Persister: persister})
 	mgr.SetSettingsFunc(func() Settings { return Settings{Enabled: true, AutoDelegate: true, WorkspaceMode: "worktree"} })
 	leadID := "lead-scope-dispatch"
-	firstText := "```swarm\n[{\"task\":\"first\",\"prompt\":\"修改 internal/swarm/shared.go\"}]\n```"
+	firstText := "```swarm\n[{\"task\":\"first\",\"prompt\":\"修改 internal/swarm/shared.go\",\"files\":[\"./internal/swarm/shared.go\"]}]\n```"
 	bees, _, err := mgr.DispatchFromReply(ctx, ReplyDispatchRequest{LeadThreadID: leadID, ProjectID: "p", LeadWorkDir: dir, ReplyText: firstText})
 	if err != nil || len(bees) != 1 {
 		t.Fatalf("首条委派失败：bees=%d err=%v", len(bees), err)
@@ -3069,23 +3070,33 @@ func TestDispatchQueuesOverlappingBrief(t *testing.T) {
 	if !strings.Contains(bees[0].Prompt, "internal/ui/sidebar.go:865") {
 		t.Fatalf("组装后的提示应包含汇报示例路径：%q", bees[0].Prompt)
 	}
-	secondText := "```swarm\n[{\"task\":\"second\",\"prompt\":\"修改 internal/swarm/shared.go\"}]\n```"
+	secondText := "```swarm\n[{\"task\":\"second\",\"prompt\":\"修改 internal/swarm/shared.go\",\"files\":[\"internal/swarm/shared.go\"]}]\n```"
 	queued, _, err := mgr.DispatchFromReply(ctx, ReplyDispatchRequest{LeadThreadID: leadID, ProjectID: "p", LeadWorkDir: dir, ReplyText: secondText})
 	if err != nil {
 		t.Fatalf("重叠委派失败：%v", err)
 	}
 	if len(queued) != 0 || mgr.QueueLength() != 1 {
-		t.Fatalf("重叠 brief 应排队：bees=%d queued=%d", len(queued), mgr.QueueLength())
+		t.Fatalf("重叠 files 应排队：bees=%d queued=%d", len(queued), mgr.QueueLength())
 	}
-	thirdText := "```swarm\n[{\"task\":\"third\",\"prompt\":\"修改 internal/swarm/other.go\"}]\n```"
+	thirdText := "```swarm\n[{\"task\":\"third\",\"prompt\":\"修改 internal/swarm/other.go，参考 internal/swarm/shared.go 与 docs/\",\"files\":[\"internal/swarm/other.go\"]}]\n```"
 	started, _, err := mgr.DispatchFromReply(ctx, ReplyDispatchRequest{LeadThreadID: leadID, ProjectID: "p", LeadWorkDir: dir, ReplyText: thirdText})
 	if err != nil || len(started) != 1 {
-		t.Fatalf("不重叠 brief 应立即启动：bees=%d err=%v", len(started), err)
+		t.Fatalf("显式 files 不重叠时即使 prompt 提相同路径/目录也应立即并行启动：bees=%d err=%v", len(started), err)
 	}
 	if !strings.Contains(started[0].Prompt, "internal/ui/sidebar.go:865") {
 		t.Fatal("不同 brief 的组装提示也应包含同一个示例路径")
 	}
-	// 经 JSON 落盘再恢复，排队条目仍使用原始 brief，不从完整 Prompt 猜测范围。
+	fourthText := "```swarm\n[{\"task\":\"fourth\",\"prompt\":\"检查 docs/spec.md 与 internal/swarm/shared.go\"}]\n```"
+	fourth, _, err := mgr.DispatchFromReply(ctx, ReplyDispatchRequest{LeadThreadID: leadID, ProjectID: "p", LeadWorkDir: dir, ReplyText: fourthText})
+	if err != nil || len(fourth) != 1 {
+		t.Fatalf("未声明 files 时不应受其它条目路径影响：bees=%d err=%v", len(fourth), err)
+	}
+	fifthText := "```swarm\n[{\"task\":\"fifth\",\"prompt\":\"同样读取 docs/spec.md 与 internal/swarm/shared.go\"}]\n```"
+	fifth, _, err := mgr.DispatchFromReply(ctx, ReplyDispatchRequest{LeadThreadID: leadID, ProjectID: "p", LeadWorkDir: dir, ReplyText: fifthText})
+	if err != nil || len(fifth) != 1 {
+		t.Fatalf("未声明 files 且 prompt 共享路径/目录时应直接并行不入队：bees=%d err=%v", len(fifth), err)
+	}
+	// 经 JSON 落盘再恢复，排队条目保留 Files 与原始 Brief。
 	data, err := json.Marshal(persister.leads[leadID])
 	if err != nil {
 		t.Fatal(err)
@@ -3094,8 +3105,8 @@ func TestDispatchQueuesOverlappingBrief(t *testing.T) {
 	if err := json.Unmarshal(data, &rec); err != nil {
 		t.Fatal(err)
 	}
-	if len(rec.Queue) != 1 || rec.Queue[0].Spec.Brief != "修改 internal/swarm/shared.go" {
-		t.Fatalf("落盘排队条目丢失原始 brief：%+v", rec.Queue)
+	if len(rec.Queue) != 1 || rec.Queue[0].Spec.Brief != "修改 internal/swarm/shared.go" || !reflect.DeepEqual(rec.Queue[0].Spec.Files, []string{"internal/swarm/shared.go"}) {
+		t.Fatalf("落盘排队条目丢失 Files 或原始 Brief：%+v", rec.Queue)
 	}
 	if err := persister.SaveLead(ctx, rec); err != nil {
 		t.Fatal(err)
@@ -3104,8 +3115,9 @@ func TestDispatchQueuesOverlappingBrief(t *testing.T) {
 	if err := restored.Restore(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := restored.leads[leadID].heldQueue[0].spec.Brief; got != rec.Queue[0].Spec.Brief {
-		t.Fatalf("恢复后 brief = %q", got)
+	restoredSpec := restored.leads[leadID].heldQueue[0].spec
+	if restoredSpec.Brief != rec.Queue[0].Spec.Brief || !reflect.DeepEqual(restoredSpec.Files, rec.Queue[0].Spec.Files) {
+		t.Fatalf("恢复后 spec = %+v", restoredSpec)
 	}
 }
 
@@ -3118,18 +3130,17 @@ func TestDispatchScopeBoundaries(t *testing.T) {
 		otherLead bool
 		want      bool
 	}{
-		{name: "审查中", active: Bee{Status: StatusCompleted, ReviewState: ReviewRunning, Brief: "a.go"}, spec: BeeSpec{Brief: "a.go"}, want: true},
-		{name: "已有改动文件", active: Bee{Status: StatusRunning, Brief: "a.go", ChangedFiles: []string{"b.go"}}, spec: BeeSpec{Brief: "b.go"}, want: true},
-		{name: "只读新条目", active: Bee{Status: StatusRunning, Brief: "a.go"}, spec: BeeSpec{Brief: "a.go", ReadOnly: true}},
-		{name: "只读运行条目", active: Bee{Status: StatusRunning, Brief: "a.go", ReadOnly: true}, spec: BeeSpec{Brief: "a.go"}},
-		{name: "已结束", active: Bee{Status: StatusCompleted, Brief: "a.go"}, spec: BeeSpec{Brief: "a.go"}},
-		{name: "新条目范围未知", active: Bee{Status: StatusRunning, Brief: "a.go"}, spec: BeeSpec{Prompt: "a.go"}},
-		{name: "旧条目范围未知", active: Bee{Status: StatusRunning, Prompt: "a.go", ChangedFiles: []string{"a.go"}}, spec: BeeSpec{Brief: "a.go"}},
-		{name: "brief没有路径", active: Bee{Status: StatusRunning, Brief: "完成工作", ChangedFiles: []string{"a.go"}}, spec: BeeSpec{Brief: "a.go"}},
-		{name: "不同lead", active: Bee{Status: StatusRunning, Brief: "a.go"}, spec: BeeSpec{Brief: "a.go"}, otherLead: true},
-		{name: "参考路径不占范围", active: Bee{Status: StatusRunning, Brief: "修改 a.go。参考 b.go 的写法。"}, spec: BeeSpec{Brief: "修改 b.go"}, want: false},
-		{name: "新条目参考路径不占范围", active: Bee{Status: StatusRunning, Brief: "修改 b.go"}, spec: BeeSpec{Brief: "修改 a.go，对照 b.go"}, want: false},
-		{name: "同句修改路径仍占范围", active: Bee{Status: StatusRunning, Brief: "修改 a.go。参考 b.go 的写法。"}, spec: BeeSpec{Brief: "修改 a.go"}, want: true},
+		{name: "审查中", active: Bee{Status: StatusCompleted, ReviewState: ReviewRunning, Files: []string{"a.go"}}, spec: BeeSpec{Files: []string{"a.go"}}, want: true},
+		{name: "已有改动文件", active: Bee{Status: StatusRunning, Files: []string{"a.go"}, ChangedFiles: []string{"b.go"}}, spec: BeeSpec{Files: []string{"b.go"}}, want: true},
+		{name: "运行中Files为空但ChangedFiles命中", active: Bee{Status: StatusRunning, ChangedFiles: []string{"a.go"}}, spec: BeeSpec{Files: []string{"a.go"}}, want: true},
+		{name: "只读新条目", active: Bee{Status: StatusRunning, Files: []string{"a.go"}}, spec: BeeSpec{Files: []string{"a.go"}, ReadOnly: true}},
+		{name: "只读运行条目", active: Bee{Status: StatusRunning, Files: []string{"a.go"}, ReadOnly: true}, spec: BeeSpec{Files: []string{"a.go"}}},
+		{name: "已结束", active: Bee{Status: StatusCompleted, Files: []string{"a.go"}}, spec: BeeSpec{Files: []string{"a.go"}}},
+		{name: "仅Brief文本提同路径或目录不冲突", active: Bee{Status: StatusRunning, Brief: "修改 a.go 与 docs/"}, spec: BeeSpec{Brief: "修改 a.go 与 docs/"}},
+		{name: "仅Brief文本提路径与显式Files不冲突", active: Bee{Status: StatusRunning, Brief: "修改 a.go"}, spec: BeeSpec{Files: []string{"a.go"}}},
+		{name: "不同lead", active: Bee{Status: StatusRunning, Files: []string{"a.go"}}, spec: BeeSpec{Files: []string{"a.go"}}, otherLead: true},
+		{name: "目录项被忽略不冲突", active: Bee{Status: StatusRunning, Files: []string{"internal/swarm/"}}, spec: BeeSpec{Files: []string{"internal/swarm/"}}},
+		{name: "目录项被忽略不与文件冲突", active: Bee{Status: StatusRunning, Files: []string{"internal/swarm/"}}, spec: BeeSpec{Files: []string{"internal/swarm/a.go"}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -3147,7 +3158,7 @@ func TestDispatchScopeBoundaries(t *testing.T) {
 	}
 }
 
-func TestDispatchConcurrentOverlappingBrief(t *testing.T) {
+func TestDispatchConcurrentOverlappingFiles(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	runner, dir := initTestRepo(t)
@@ -3160,7 +3171,7 @@ func TestDispatchConcurrentOverlappingBrief(t *testing.T) {
 			defer wg.Done()
 			_, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
 				LeadThreadID: "lead-scope-race", ProjectID: "p", LeadWorkDir: dir,
-				Entry: Delegation{Task: "修改", Prompt: "修改 a.go"},
+				Entry: Delegation{Task: "修改", Prompt: "修改 a.go", Files: []string{"a.go"}},
 			})
 			if err != nil {
 				t.Errorf("派发失败：%v", err)
@@ -3183,10 +3194,10 @@ func TestProcessQueueHoldsOverlappingEntry(t *testing.T) {
 	leadID := "lead-scope-queue"
 	mgr.SetEnabled(leadID, true)
 	mgr.mu.Lock()
-	mgr.leads[leadID].bees = append(mgr.leads[leadID].bees, Bee{Name: "Running", Status: StatusRunning, Brief: "修改 internal/swarm/shared.go"})
+	mgr.leads[leadID].bees = append(mgr.leads[leadID].bees, Bee{Name: "Running", Status: StatusRunning, Files: []string{"internal/swarm/shared.go"}})
 	mgr.queue = []queuedBee{
-		{leadThreadID: leadID, projectID: "p", leadWorkDir: dir, index: 1, spec: BeeSpec{Name: "Queued-1", Task: "one", Prompt: "one", Brief: "修改 internal/swarm/shared.go"}},
-		{leadThreadID: leadID, projectID: "p", leadWorkDir: dir, index: 2, spec: BeeSpec{Name: "Queued-2", Task: "two", Prompt: "two", Brief: "修改 internal/swarm/shared.go"}},
+		{leadThreadID: leadID, projectID: "p", leadWorkDir: dir, index: 1, spec: BeeSpec{Name: "Queued-1", Task: "one", Prompt: "one", Files: []string{"internal/swarm/shared.go"}}},
+		{leadThreadID: leadID, projectID: "p", leadWorkDir: dir, index: 2, spec: BeeSpec{Name: "Queued-2", Task: "two", Prompt: "two", Files: []string{"internal/swarm/shared.go"}}},
 	}
 	mgr.mu.Unlock()
 
