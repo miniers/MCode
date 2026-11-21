@@ -280,6 +280,7 @@ func renderChatHeaderParentChip(c *ui.Context, s *chatState) {
 	if chip.Hovered() {
 		chip.Background(ThemeAccent(c).Alpha(0.18))
 	}
+	focusRing(c, chip)
 	if chip.Clicked() {
 		s.selectThread(parent.ID)
 	}
@@ -526,10 +527,11 @@ func gitBranchLabel(st GitState) string {
 	return label
 }
 
-// renderChatHeaderGit 加载 Git 状态并渲染分支/Worktree 胶囊；提交按钮在右侧动作胶囊组里。
-func renderChatHeaderGit(c *ui.Context, s *chatState, threadID string) {
+// syncChatHeaderGit 渲染 PR 只读弹窗并按会话变更拉取 Git 状态与头部脚本；
+// 若当前为有效 Git 仓库且已加载状态，返回缓存状态以供渲染分支胶囊。
+func syncChatHeaderGit(c *ui.Context, s *chatState, threadID string) (*chatHeaderState, GitState, bool) {
 	if threadID == "" {
-		return
+		return nil, GitState{}, false
 	}
 	// PR 只读查看弹窗由 Git 菜单打开，每帧在这里渲染：与其它 Git 弹窗一样叠在界面上，
 	// 关闭时自己从渲染树里消失。放在早期返回之前，保证分支胶囊不显示时弹窗仍能关闭。
@@ -577,9 +579,17 @@ func renderChatHeaderGit(c *ui.Context, s *chatState, threadID string) {
 	}
 	// 分支与 HEAD 都为空视为不是 Git 仓库：只加载状态，不渲染分支胶囊
 	if !ok || (st.Branch == "" && st.Head == "") {
+		return hs, st, false
+	}
+	return hs, st, true
+}
+
+// renderChatHeaderGit 加载 Git 状态并渲染分支/Worktree 胶囊；提交按钮在右侧动作胶囊组里。
+func renderChatHeaderGit(c *ui.Context, s *chatState, threadID string) {
+	hs, st, ok := syncChatHeaderGit(c, s, threadID)
+	if !ok {
 		return
 	}
-
 	renderGitBranchCapsule(c, s, hs, threadID, st)
 }
 
@@ -683,6 +693,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 	if trigger.Hovered() {
 		trigger.Background(ThemeHover(c))
 	}
+	focusRing(c, trigger)
 	trigger.Children(func() {
 		if switching {
 			LoadingIndicator(c, nil, "", IconSM)
@@ -1728,11 +1739,30 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 		Padding(Space3, rightInset, Space3, chatHeaderLeadingInsetFrom(titleBarLeadingInset(c), sidebarSlide)).
 		BorderWidth(0, 0, 1, 0).BorderColor(ThemeBorder(c)).AlignItems(ui.Center).Gap(Space2)
 	windowWidth, _ := c.Size()
-	collapsed := headerCollapseLevel(headerCollapseWidth(windowWidth, sidebarWidth, sidebarSlide)) > 0
+	headerWidth := headerCollapseWidth(windowWidth, sidebarWidth, sidebarSlide)
+	if inspectorOpen {
+		if paneW := chatAreaWidth(c, s); paneW > 0 && paneW < headerWidth {
+			headerWidth = paneW
+		}
+	}
+	collapseLevel := headerCollapseLevel(headerWidth)
+	if windowWidth > 0 && headerWidth <= 0 {
+		collapseLevel = 2
+	}
+	collapsed := collapseLevel > 0
+	collapseLeft := collapseLevel >= 2
 	header.Children(func() {
 		// 左侧依次是父芯片、侧栏开关、会话列表（侧栏收起时）、新建会话、编排、权限与分支胶囊，
 		// 之后是占满剩余宽度的标题；右侧只留动作胶囊组与辅助面板胶囊组。
-		ui.Row(c.Key("chat-header-left")).Gap(Space4).AlignItems(ui.Center).Grow(1).Shrink(1).MinWidth(0).ClipX().Children(func() {
+		// 较窄级别下将左侧非核心胶囊（权限与分支）对称折叠进「更多头部操作」弹层顶部，为标题留出可读宽度。
+		leftGap := Space4
+		if collapseLeft {
+			leftGap = Space2
+		}
+		var gitHS *chatHeaderState
+		var gitST GitState
+		var gitOK bool
+		ui.Row(c.Key("chat-header-left")).Gap(leftGap).AlignItems(ui.Center).Grow(1).Shrink(1).MinWidth(0).ClipX().Children(func() {
 			renderChatHeaderParentChip(c, s)
 			IconButton(c, IconButtonProps{Key: "chat-header-toggle-sidebar-btn", Icon: IconPanelLeft(), Size: ControlMD, Variant: ButtonGhost,
 				Label: "显示/隐藏侧边栏 " + shortcutDisplay("⌘B"), OnClick: func() { toggleSidebarPersisted(s) }})
@@ -1746,8 +1776,12 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 			IconButton(c, IconButtonProps{Key: "chat-header-new-thread-btn", Icon: IconMessageSquarePlus(), Size: ControlMD, Variant: ButtonGhost,
 				Label: "新建会话 " + shortcutDisplay("⌘N"), OnClick: s.headerNewThread})
 			renderSwarmHeaderButton(c, s)
-			renderHeaderPermissionCapsule(c, s, selectedID)
-			renderChatHeaderGit(c, s, selectedID)
+			if collapseLeft {
+				gitHS, gitST, gitOK = syncChatHeaderGit(c, s, selectedID)
+			} else {
+				renderHeaderPermissionCapsule(c, s, selectedID)
+				renderChatHeaderGit(c, s, selectedID)
+			}
 			renderChatHeaderTitle(c, s, selectedThread)
 		})
 		ui.Row(c.Key("chat-header-right")).Gap(Space2).AlignItems(ui.Center).Shrink(0).Children(func() {
@@ -1759,7 +1793,19 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 				more := IconButton(c, IconButtonProps{Key: "chat-header-more-btn", Icon: IconMoreHorizontal(), Size: ControlMD, Variant: ButtonGhost,
 					Label: "更多头部操作", Active: ts.morePopoverOpen, OnClick: func() { togglePopoverOpen(&ts.morePopoverOpen) }})
 				PopoverCard(c, more, PopoverProps{Key: "chat-header-more-popover", Open: &ts.morePopoverOpen, Align: BelowEnd}, func() {
-					renderChatHeaderAuxGroup(c, s)
+					if collapseLeft {
+						ui.Column(c.Key("chat-header-more-content")).Gap(Space2).Children(func() {
+							ui.Row(c.Key("chat-header-more-left-group")).Gap(Space2).AlignItems(ui.Center).Children(func() {
+								renderHeaderPermissionCapsule(c, s, selectedID)
+								if gitOK {
+									renderGitBranchCapsule(c, s, gitHS, selectedID, gitST)
+								}
+							})
+							renderChatHeaderAuxGroup(c, s)
+						})
+					} else {
+						renderChatHeaderAuxGroup(c, s)
+					}
 				})
 			} else {
 				renderChatHeaderAuxGroup(c, s)

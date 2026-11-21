@@ -18,8 +18,16 @@ func headerCollapseWidth(windowWidth, sidebarWidth, sidebarProgress float32) flo
 	return max(windowWidth-sidebarWidth*sidebarProgress, 0)
 }
 
+const (
+	headerCollapseCompactWidth float32 = 760
+	headerCollapseNarrowWidth  float32 = 560
+)
+
 func headerCollapseLevel(width float32) int {
-	if width > 0 && width < 760 {
+	if width > 0 && width < headerCollapseNarrowWidth {
+		return 2
+	}
+	if width > 0 && width < headerCollapseCompactWidth {
 		return 1
 	}
 	return 0

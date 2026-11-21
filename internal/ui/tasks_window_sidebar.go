@@ -63,7 +63,7 @@ func renderTasksWindowSidebar(c *ui.Context, s *chatState, ks *kanbanState, p ka
 		if p.destination == "automations" {
 			renderAutomationSidebarSection(c, s)
 		} else {
-			ui.Column(c.Key("tasks-sidebar-views")).FillWidth().Children(func() {
+			ui.Column(c.Key("tasks-sidebar-views")).Grow(1).MinHeight(0).FillWidth().Children(func() {
 				tasksSidebarRow(c, "tasks-sidebar-all-tasks", "全部任务", 0, p.goalID == "" && viewFilter == "", nil, func() {
 					kanbanMu.Lock()
 					ks.goalID, ks.viewFilter = "", ""
@@ -77,30 +77,32 @@ func renderTasksWindowSidebar(c *ui.Context, s *chatState, ks *kanbanState, p ka
 					s.invalidate()
 				})
 				if len(p.board.Goals) > 0 {
-					ui.Column(c.Key("tasks-sidebar-goals")).FillWidth().Padding(Space5, 0, 0, 0).Children(func() {
+					ui.Column(c.Key("tasks-sidebar-goals")).Grow(1).MinHeight(0).FillWidth().Padding(Space5, 0, 0, 0).Children(func() {
 						ui.Text(c, "目标").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
-						for _, goal := range p.board.Goals {
-							goal := goal
-							title := goal.Title
-							if title == "" {
-								title = goal.Prompt
-							}
-							var confirm func()
-							if goal.Status == "plan_review" {
-								confirm = func() {
+						ui.Scroll(c.Key("tasks-sidebar-goals-scroll")).Label("tasks-sidebar-goals-scroll").Grow(1).MinHeight(0).FillWidth().Children(func() {
+							for _, goal := range p.board.Goals {
+								goal := goal
+								title := goal.Title
+								if title == "" {
+									title = goal.Prompt
+								}
+								var confirm func()
+								if goal.Status == "plan_review" {
+									confirm = func() {
+										kanbanMu.Lock()
+										ks.goalID, ks.viewFilter, ks.goalDetailOpen = goal.ID, "", true
+										kanbanMu.Unlock()
+										s.invalidate()
+									}
+								}
+								tasksSidebarRow(c, "tasks-sidebar-goal-"+goal.ID, title, 0, p.goalID == goal.ID, confirm, func() {
 									kanbanMu.Lock()
-									ks.goalID, ks.viewFilter, ks.goalDetailOpen = goal.ID, "", true
+									ks.goalID, ks.viewFilter, ks.goalDetailOpen = goal.ID, "", false
 									kanbanMu.Unlock()
 									s.invalidate()
-								}
+								})
 							}
-							tasksSidebarRow(c, "tasks-sidebar-goal-"+goal.ID, title, 0, p.goalID == goal.ID, confirm, func() {
-								kanbanMu.Lock()
-								ks.goalID, ks.viewFilter, ks.goalDetailOpen = goal.ID, "", false
-								kanbanMu.Unlock()
-								s.invalidate()
-							})
-						}
+						})
 					})
 				}
 			})
@@ -116,6 +118,7 @@ func tasksDestinationRow(c *ui.Context, s *chatState, current, destination, titl
 	} else if row.Hovered() {
 		row = row.Background(ThemeHover(c))
 	}
+	focusRing(c, row)
 	row.Children(func() {
 		ui.Icon(c, icon).Size(IconMD, IconMD).TextColor(tasksSidebarIconColor(c, selected))
 		tasksSidebarText(c, title, selected)
@@ -126,30 +129,51 @@ func tasksDestinationRow(c *ui.Context, s *chatState, current, destination, titl
 }
 
 func tasksSidebarRow(c *ui.Context, key, title string, count int, selected bool, confirm, click func()) {
+	if confirm != nil {
+		row := ui.Row(c.Key(key + "-row")).FillWidth().Height(RowHeight).Padding(0, Space1, 0, Space3).Radius(RowCornerRadius).Gap(Space2).AlignItems(ui.Center)
+		if selected {
+			row = row.Background(ThemeSelected(c))
+		} else if row.Hovered() {
+			row = row.Background(ThemeHover(c))
+		}
+		row.Children(func() {
+			btn := ui.ButtonBase(c.Key(key)).Label(title).Grow(1).MinWidth(0).FillHeight().Radius(RowCornerRadius).Gap(Space3).AlignItems(ui.Center).OnClick(click)
+			focusRing(c, btn)
+			btn.Children(func() {
+				tasksSidebarText(c, title, selected)
+				if count > 0 {
+					ui.Text(c, fmt.Sprint(count)).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+				}
+			})
+			IconButton(c, IconButtonProps{
+				Key:     key + "-confirm",
+				Icon:    IconOctagonAlert(),
+				Label:   "确认目标计划 " + title,
+				Tooltip: "确认目标计划",
+				Size:    ControlSM,
+				Variant: ButtonGhost,
+				OnClick: confirm,
+			})
+		})
+		return
+	}
 	row := ui.ButtonBase(c.Key(key)).Label(title).FillWidth().Height(RowHeight).Padding(0, Space3).Radius(RowCornerRadius).Gap(Space3).AlignItems(ui.Center).OnClick(click)
 	if selected {
 		row = row.Background(ThemeSelected(c))
 	} else if row.Hovered() {
 		row = row.Background(ThemeHover(c))
 	}
+	focusRing(c, row)
 	row.Children(func() {
 		tasksSidebarText(c, title, selected)
 		if count > 0 {
 			ui.Text(c, fmt.Sprint(count)).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 		}
-		if confirm != nil {
-			btn := ui.ButtonBase(c.Key(key+"-confirm")).Label("确认目标计划 "+title).Size(IconMD, IconMD).Shrink(0).OnClick(confirm)
-			scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
-			btn.Scale(scale, scale)
-			btn.Children(func() {
-				ui.Icon(c, IconOctagonAlert()).Size(IconMD, IconMD).TextColor(ThemeWarning(c))
-			})
-		}
 	})
 }
 
 func tasksSidebarText(c *ui.Context, title string, selected bool) {
-	text := ui.Text(c, title).SingleLine().FontSize(uiFont(TypeBody)).Grow(1).MinWidth(0).TextColor(tasksSidebarTextColor(c, selected))
+	text := ui.Text(c, title).SingleLine().Ellipsis("…").Tooltip(title).FontSize(uiFont(TypeBody)).Grow(1).MinWidth(0).TextColor(tasksSidebarTextColor(c, selected))
 	if selected {
 		text.FontWeight(500)
 	}
