@@ -125,9 +125,11 @@ type automationState struct {
 	focusEditorTrigger   bool
 	detailTab            int
 	filter               int
+	originFilter         string
 	unreadOnly           bool
 	narrowDetail         bool
 	moreOpen             bool
+	detailWidth          float32
 }
 
 func getAutomationState(s *chatState) *automationState {
@@ -985,46 +987,6 @@ func automationRuntimeModeLabel(value string) string {
 	return automationRuntimeModeOptions[0].Label
 }
 
-// automationCardStatus 生成卡片状态胶囊：运行中、已结束（含失败原因）或上次运行结果。
-func automationCardStatus(auto Automation, running bool) (text string, kind string) {
-	switch {
-	case running || auto.LastRunStatus == "running":
-		return "运行中", "running"
-	case auto.Status == "completed":
-		// 停止条件命中、迭代次数用尽或一次性调度跑完：任务已结束，不是暂停。
-		return "已完成", "succeeded"
-	case !auto.Enabled && auto.Status == "failed" && auto.ConsecutiveFailures > 0:
-		return "连续失败后暂停", "failed"
-	case !auto.Enabled:
-		return "已暂停", "paused"
-	case auto.LastRunStatus == "failed":
-		return "上次失败", "failed"
-	case auto.LastRunStatus == "succeeded":
-		return "上次成功", "succeeded"
-	case auto.LastRunStatus == "stopped", auto.LastRunStatus == "canceled", auto.LastRunStatus == "cancelled":
-		return "已停止", "stopped"
-	}
-	return "", ""
-}
-
-// automationCardStatusColor 按胶囊类别返回配色。
-func automationCardStatusColor(c *ui.Context, kind string) ui.Color {
-	semantic := semanticNeutral
-	switch kind {
-	case "running":
-		semantic = semanticAccent
-	case "succeeded":
-		semantic = semanticSuccess
-	case "failed":
-		semantic = semanticDanger
-	case "paused":
-		semantic = semanticWarning
-	case "stopped":
-		semantic = semanticNeutral
-	}
-	return semanticStatusColor(c, semantic)
-}
-
 // automationSchedulerHint 把调度锁状态转成页面提示；active 或未知状态返回空串。
 func automationSchedulerHint(st AutomationSchedulerStatus) string {
 	switch st.State {
@@ -1211,6 +1173,21 @@ func filterAutomationStatus(autos []Automation, query string, filter int, unread
 			continue
 		}
 		out = append(out, a)
+	}
+	return out
+}
+
+// filterAutomationStatusWithOrigin 在状态/搜索/未读筛选基础上按来源筛选（originFilter 为 "steward" 时仅保留总管创建的自动化）。
+func filterAutomationStatusWithOrigin(autos []Automation, query string, filter int, originFilter string, unreadOnly bool, unread map[string]int) []Automation {
+	filtered := filterAutomationStatus(autos, query, filter, unreadOnly, unread)
+	if originFilter != "steward" {
+		return filtered
+	}
+	out := make([]Automation, 0, len(filtered))
+	for _, a := range filtered {
+		if isStewardAutomationOrigin(a.Origin) {
+			out = append(out, a)
+		}
 	}
 	return out
 }

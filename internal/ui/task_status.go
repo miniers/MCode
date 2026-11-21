@@ -167,6 +167,46 @@ func automationRunStatusDict(status string) (label string, kind string) {
 	}
 }
 
+// automationCardStatus 生成自动化定义/卡片状态胶囊：运行中、已结束（含失败原因）或上次运行结果。
+func automationCardStatus(auto Automation, running bool) (text string, kind string) {
+	switch {
+	case running || auto.LastRunStatus == "running":
+		return "运行中", "running"
+	case auto.Status == "completed":
+		// 停止条件命中、迭代次数用尽或一次性调度跑完：任务已结束，不是暂停。
+		return "已完成", "succeeded"
+	case !auto.Enabled && auto.Status == "failed" && auto.ConsecutiveFailures > 0:
+		return "连续失败后暂停", "failed"
+	case !auto.Enabled:
+		return "已暂停", "paused"
+	case auto.LastRunStatus == "failed":
+		return "上次失败", "failed"
+	case auto.LastRunStatus == "succeeded":
+		return "上次成功", "succeeded"
+	case auto.LastRunStatus == "stopped", auto.LastRunStatus == "canceled", auto.LastRunStatus == "cancelled":
+		return "已停止", "stopped"
+	}
+	return "", ""
+}
+
+// automationCardStatusColor 按自动化状态胶囊类别返回配色。
+func automationCardStatusColor(c *ui.Context, kind string) ui.Color {
+	semantic := semanticNeutral
+	switch kind {
+	case "running":
+		semantic = semanticAccent
+	case "succeeded":
+		semantic = semanticSuccess
+	case "failed":
+		semantic = semanticDanger
+	case "paused":
+		semantic = semanticWarning
+	case "stopped":
+		semantic = semanticNeutral
+	}
+	return semanticStatusColor(c, semantic)
+}
+
 // attentionKindTitle 返回收件箱事件类型的标准中文标题。
 func attentionKindTitle(kind string) string {
 	switch kind {

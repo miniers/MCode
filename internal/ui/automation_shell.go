@@ -18,20 +18,35 @@ func renderAutomationSidebarSection(c *ui.Context, s *chatState) {
 		return
 	}
 	as := getAutomationState(s)
+	sidebarRow := func(key, label, a11yLabel string, active bool, onSelect func()) {
+		row := ui.Row(c.Key(key)).FillWidth().Height(RowHeight).Radius(RowCornerRadius).Padding(0, Space3).AlignItems(ui.Center).Focusable().Label(a11yLabel)
+		if active {
+			row.Background(ThemeSelected(c))
+		} else if row.Hovered() {
+			row.Background(ThemeHover(c))
+		}
+		if row.Clicked() || (row.Focused() && row.Shortcut(0, ui.KeyEnter)) {
+			onSelect()
+			s.invalidate()
+		}
+		row.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)) })
+	}
 	ui.Column(c.Key("automation-sidebar-section")).FillWidth().Children(func() {
 		for i, label := range []string{"全部", "失败", "已暂停"} {
-			row := ui.Row(c.Key("automation-sidebar-"+label)).FillWidth().Height(RowHeight).Radius(RowCornerRadius).Padding(0, Space3).AlignItems(ui.Center).Focusable().Label(label)
-			if as.filter == i {
-				row.Background(ThemeSelected(c))
-			} else if row.Hovered() {
-				row.Background(ThemeHover(c))
-			}
-			if row.Clicked() || (row.Focused() && row.Shortcut(0, ui.KeyEnter)) {
-				as.filter = i
-				s.invalidate()
-			}
-			row.Children(func() { ui.Text(c, label).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)) })
+			i := i
+			sidebarRow("automation-sidebar-"+label, label, label, as.filter == i, func() { as.filter = i })
 		}
+		ui.Column(c.Key("automation-sidebar-origin")).FillWidth().Padding(Space2, 0, Space2, 0).Children(func() {
+			for _, opt := range []struct {
+				key, label, value string
+			}{
+				{key: "automation-origin-all", label: "全部来源", value: ""},
+				{key: "automation-origin-steward", label: "总管", value: "steward"},
+			} {
+				opt := opt
+				sidebarRow(opt.key, opt.label, opt.key, as.originFilter == opt.value, func() { as.originFilter = opt.value })
+			}
+		})
 		value := as.unreadOnly
 		if ui.Switch(c.Key("automation-unread-filter"), &value).Label("未读").Changed() {
 			as.unreadOnly = value
@@ -156,14 +171,14 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 	needLoad := as.projectID != p.ScopeID || !as.initialized
 	if as.projectID != p.ScopeID {
 		as.stopSchedulePreview()
-		*as = automationState{loadID: as.loadID, runsLoadID: as.runsLoadID, saveID: as.saveID, previewEpoch: as.previewEpoch, runRequest: as.runRequest + 1, selectionVersion: as.selectionVersion + 1, editSession: as.editSession + 1, watchStop: as.watchStop, runningIDs: make(map[string]bool), busyIDs: make(map[string]bool), projectID: p.ScopeID, filter: as.filter, unreadOnly: as.unreadOnly}
+		*as = automationState{loadID: as.loadID, runsLoadID: as.runsLoadID, saveID: as.saveID, previewEpoch: as.previewEpoch, runRequest: as.runRequest + 1, selectionVersion: as.selectionVersion + 1, editSession: as.editSession + 1, watchStop: as.watchStop, runningIDs: make(map[string]bool), busyIDs: make(map[string]bool), projectID: p.ScopeID, filter: as.filter, originFilter: as.originFilter, unreadOnly: as.unreadOnly, detailWidth: as.detailWidth}
 	}
 	automationMu.Unlock()
 	if needLoad && s.client != nil {
 		s.startAutomationWatch(p.ScopeID)
 		s.loadAutomations(p.ScopeID)
 	}
-	visible := filterAutomationStatus(as.autos, p.SearchText, as.filter, as.unreadOnly, as.unread)
+	visible := filterAutomationStatusWithOrigin(as.autos, p.SearchText, as.filter, as.originFilter, as.unreadOnly, as.unread)
 	automationMu.Lock()
 	runningIDs := make(map[string]bool, len(as.runningIDs))
 	for id, running := range as.runningIDs {
@@ -182,11 +197,125 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 		}
 	}
 	width, height := c.Size()
-	narrow := width < automationNarrowWidth
-	if !as.editorOpen && c.Shortcut(0, ui.KeyEscape) {
+	root := ui.Column(c.Key("automation-workspace-root")).Fill().Background(ThemeSurface(c))
+	availWidth := root.Bounds().W
+	if availWidth <= 0 {
+		availWidth = width
+		if s.tasksWindowView != "" && availWidth > TasksSidebarWidth {
+			availWidth -= TasksSidebarWidth
+		}
+	}
+	narrow := width < automationNarrowWidth || availWidth < KanbanBoardPaneMinWidth+sidePaneHandleWidth+KanbanDetailMinWidth
+	sheetHandlesEsc := narrow && as.narrowDetail && selected.ID != "" && !as.moreOpen && !as.confirmDelete && !as.confirmRun && !as.confirmDiscard && !as.chooseProjectOpen && as.openRunID == ""
+	if !as.editorOpen && !sheetHandlesEsc && c.Shortcut(0, ui.KeyEscape) {
 		handleAutomationEscape(s)
 	}
-	ui.Column(c.Key("automation-workspace-root")).Fill().Background(ThemeSurface(c)).Children(func() {
+	closeNarrow := func() {
+		automationMu.Lock()
+		as.narrowDetail = false
+		automationMu.Unlock()
+		s.invalidate()
+	}
+	renderList := func() {
+		ui.Column(c.Key("automation-list-col")).Fill().Children(func() {
+			names := map[string]string{}
+			for _, project := range s.projects {
+				names[project.ID] = project.Name
+			}
+			renderAutomationList(c, automationListProps{Visible: visible, SelectedID: as.selectedID, Unread: as.unread, RunningIDs: runningIDs, ScopeID: p.ScopeID, ProjectNames: names, Scroll: &as.listScroll, KeyboardFocusID: &as.keyboardFocusID, EditorOpen: as.editorOpen, Now: time.Now(), OnSelect: func(a Automation) { as.selectAutomation(a, s) }, OnEdit: func(a Automation) { automationMu.Lock(); as.fillAutomation(a); as.editorOpen = true; automationMu.Unlock(); s.invalidate() }})
+		})
+	}
+	renderDetail := func() {
+		ui.Column(c.Key("automation-detail-col")).Fill().MinWidth(0).Gap(0).Children(func() {
+			if selected.ID == "" {
+				ui.Column(c.Key("automation-select-prompt-wrap")).Label("automation-select-prompt").Grow(1).FillWidth().Center().Padding(Space5).Children(func() {
+					renderTaskDetailDrawerEmpty(c, "automation-select-prompt", "未选择自动化")
+				})
+				return
+			}
+			var leading func()
+			var onClose func()
+			if narrow {
+				leading = func() {
+					Button(c.Key("automation-back"), ButtonOpts{Text: "← 自动化", Variant: ButtonGhost, Size: ControlSM, OnClick: closeNarrow})
+				}
+				onClose = closeNarrow
+			}
+			statusText, statusKind := automationCardStatus(selected, runningIDs[selected.ID])
+			var statusColor ui.Color
+			if statusText != "" {
+				statusColor = automationCardStatusColor(c, statusKind)
+			}
+			projectName := ""
+			if p.ScopeID == "" {
+				projectName = projectNameFor(s, selected.ProjectID)
+			}
+			renderTaskDetailDrawerHeader(c, taskDetailDrawerHeaderOpts{
+				Key:           "automation-selected-header",
+				Leading:       leading,
+				OriginSteward: isStewardAutomationOrigin(selected.Origin),
+				StatusLabel:   statusText,
+				StatusColor:   statusColor,
+				Title:         selected.Name,
+				ProjectName:   projectName,
+				ExtraActions: func() {
+					enabled := selected.Enabled
+					if ui.Switch(c.Key("automation-detail-toggle"), &enabled).Label("启用自动化").Disabled(busyIDs[selected.ID]).Changed() {
+						s.setAutomationEnabled(selected, enabled)
+					}
+					Button(c.Key("automation-detail-run"), ButtonOpts{Text: "立即运行", Label: "立即运行", Disabled: runningIDs[selected.ID] || busyIDs[selected.ID], Variant: ButtonSecondary, Size: ControlSM, OnClick: func() { s.requestAutomationRun(selected.ID) }})
+					more := IconButton(c.Key("automation-detail-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "自动化更多操作", Variant: ButtonGhost, OnClick: func() { as.moreOpen = true }})
+					appPopover(c, more, &as.moreOpen, nil, func() {
+						popoverCard(c, ui.Column(c.Key("automation-more-menu"))).Padding(Space2, Space2).Children(func() {
+							Button(c.Key("automation-copy"), ButtonOpts{Text: "复制", Label: "复制自动化", Variant: ButtonGhost, OnClick: func() { as.moreOpen = false; s.duplicateAutomation(selected) }})
+							Button(c.Key("automation-delete"), ButtonOpts{Text: "删除", Variant: ButtonDanger, OnClick: func() { as.moreOpen = false; automationMu.Lock(); as.confirmDelete = true; automationMu.Unlock(); s.invalidate() }})
+						})
+					})
+				},
+				CloseKey:     "automation-detail-close",
+				CloseLabel:   "关闭自动化详情",
+				CloseTooltip: "关闭",
+				OnClose:      onClose,
+			})
+			ui.Column(c.Key("automation-detail-body")).Grow(1).FillWidth().MinHeight(0).Padding(0, Space5, Space5, Space5).Gap(Space3).Children(func() {
+				ui.Text(c, automationScheduleText(selected.Schedule)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+				detailTab := as.detailTab
+				Segmented(c, "automation-detail-tabs", &detailTab, []Segment{{Label: "运行记录"}, {Label: "配置"}}, func(i int) {
+					automationMu.Lock()
+					as.detailTab = i
+					automationMu.Unlock()
+					s.invalidate()
+				})
+				if as.detailTab == 0 {
+					unread := 0
+					for _, r := range as.runs {
+						if automationRunUnread(as.runRead, r.ID) {
+							unread++
+						}
+					}
+					scroll := ui.Scroll(c.Key("automation-history-scroll")).Grow(1).FillWidth()
+					if as.openRunID == "" {
+						scroll.TrackScroll(&as.historyScroll)
+					}
+					scroll.Children(func() {
+						renderAutomationRunHistory(c, s, as, false, selected.ID, unread, as.includeArchived, as.runsLoading, as.runsErr, as.runs, as.runRead, as.runArchived, as.openRunID)
+					})
+				} else {
+					Button(c.Key("automation-edit"), ButtonOpts{Text: "编辑", Variant: ButtonSecondary, OnClick: func() {
+						automationMu.Lock()
+						if !as.dirty() {
+							as.fillAutomation(selected)
+						}
+						as.editorOpen = true
+						automationMu.Unlock()
+						s.invalidate()
+					}})
+					renderAutomationConfig(c, selected)
+				}
+			})
+		})
+	}
+	root.Children(func() {
 		if hint := automationSchedulerHint(as.schedulerStatus); hint != "" {
 			ui.Text(c, hint).Key("automation-scheduler-hint").FontSize(uiFont(TypeFootnote)).TextColor(ThemeWarning(c))
 		}
@@ -205,7 +334,7 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 			ui.Text(c, "刷新失败: "+as.err).TextColor(ThemeDanger(c))
 		}
 		if len(visible) == 0 {
-			filtered := strings.TrimSpace(p.SearchText) != "" || as.filter != 0 || as.unreadOnly
+			filtered := strings.TrimSpace(p.SearchText) != "" || as.filter != 0 || as.originFilter != "" || as.unreadOnly
 			if filtered {
 				EmptyState(c, EmptyStateProps{
 					Key:   "automation-empty-full",
@@ -214,6 +343,7 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 					Action: func() {
 						Button(c.Key("automation-clear-filter"), ButtonOpts{Text: "清除筛选", Variant: ButtonSecondary, OnClick: func() {
 							as.filter = 0
+							as.originFilter = ""
 							as.unreadOnly = false
 							if p.ClearSearch != nil {
 								p.ClearSearch()
@@ -288,84 +418,50 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 			}
 			return
 		}
-		ui.Row(c.Key("automation-main-row")).Fill().Children(func() {
-			if !narrow || !as.narrowDetail || selected.ID == "" {
-				list := ui.Column(c.Key("automation-list-col")).FillHeight()
-				if narrow {
-					list.Grow(1)
-				} else {
-					list.Width(automationListWidth)
-				}
-				list.Children(func() {
-					names := map[string]string{}
-					for _, project := range s.projects {
-						names[project.ID] = project.Name
-					}
-					renderAutomationList(c, automationListProps{Visible: visible, SelectedID: as.selectedID, Unread: as.unread, RunningIDs: runningIDs, ScopeID: p.ScopeID, ProjectNames: names, Scroll: &as.listScroll, KeyboardFocusID: &as.keyboardFocusID, EditorOpen: as.editorOpen, Now: time.Now(), OnSelect: func(a Automation) { as.selectAutomation(a, s) }, OnEdit: func(a Automation) { automationMu.Lock(); as.fillAutomation(a); as.editorOpen = true; automationMu.Unlock(); s.invalidate() }})
-				})
-			}
-			if !narrow || (as.narrowDetail && selected.ID != "") {
-				ui.Column(c.Key("automation-detail-col")).Grow(1).FillHeight().BorderWidth(Hairline).BorderColor(ThemeDivider(c)).Padding(Space6, Space6).Gap(Space4).Children(func() {
-					if narrow {
-						Button(c.Key("automation-back"), ButtonOpts{Text: "← 自动化", Variant: ButtonGhost, OnClick: func() { automationMu.Lock(); as.narrowDetail = false; automationMu.Unlock(); s.invalidate() }})
-					}
-					if selected.ID == "" {
-						ui.Column(c.Key("automation-select-prompt")).Grow(1).Center().Children(func() { ui.Text(c, "未选择自动化").TextColor(ThemeSecondaryText(c)) })
-						return
-					}
-					ui.Row(c.Key("automation-selected-header")).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
-						ui.Text(c, selected.Name).FontSize(uiFont(TypeTitle)).TextColor(ThemePrimaryText(c)).Grow(1)
-						enabled := selected.Enabled
-						if ui.Switch(c.Key("automation-detail-toggle"), &enabled).Label("启用自动化").Disabled(busyIDs[selected.ID]).Changed() {
-							s.setAutomationEnabled(selected, enabled)
-						}
-						Button(c.Key("automation-detail-run"), ButtonOpts{Text: "立即运行", Label: "立即运行", Disabled: runningIDs[selected.ID] || busyIDs[selected.ID], Variant: ButtonSecondary, OnClick: func() { s.requestAutomationRun(selected.ID) }})
-						more := IconButton(c.Key("automation-detail-more"), IconButtonProps{Icon: IconMoreHorizontal(), Label: "自动化更多操作", Variant: ButtonGhost, OnClick: func() { as.moreOpen = true }})
-						appPopover(c, more, &as.moreOpen, nil, func() {
-							popoverCard(c, ui.Column(c.Key("automation-more-menu"))).Padding(Space2, Space2).Children(func() {
-								Button(c.Key("automation-copy"), ButtonOpts{Text: "复制", Label: "复制自动化", Variant: ButtonGhost, OnClick: func() { as.moreOpen = false; s.duplicateAutomation(selected) }})
-								Button(c.Key("automation-delete"), ButtonOpts{Text: "删除", Variant: ButtonDanger, OnClick: func() { as.moreOpen = false; automationMu.Lock(); as.confirmDelete = true; automationMu.Unlock(); s.invalidate() }})
-							})
-						})
-					})
-					ui.Text(c, automationScheduleText(selected.Schedule)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
-					detailTab := as.detailTab
-					Segmented(c, "automation-detail-tabs", &detailTab, []Segment{{Label: "运行记录"}, {Label: "配置"}}, func(i int) {
-						automationMu.Lock()
-						as.detailTab = i
-						automationMu.Unlock()
-						s.invalidate()
-					})
-					if as.detailTab == 0 {
-						unread := 0
-						for _, r := range as.runs {
-							if automationRunUnread(as.runRead, r.ID) {
-								unread++
-							}
-						}
-						scroll := ui.Scroll(c.Key("automation-history-scroll")).Grow(1).FillWidth()
-						if as.openRunID == "" {
-							scroll.TrackScroll(&as.historyScroll)
-						}
-						scroll.Children(func() {
-							renderAutomationRunHistory(c, s, as, false, selected.ID, unread, as.includeArchived, as.runsLoading, as.runsErr, as.runs, as.runRead, as.runArchived, as.openRunID)
-						})
-					} else {
-						Button(c.Key("automation-edit"), ButtonOpts{Text: "编辑", Variant: ButtonSecondary, OnClick: func() {
-							automationMu.Lock()
-							if !as.dirty() {
-								as.fillAutomation(selected)
-							}
-							as.editorOpen = true
-							automationMu.Unlock()
-							s.invalidate()
-						}})
-						renderAutomationConfig(c, selected)
-					}
-				})
-			}
-		})
+		if !narrow {
+			automationMu.Lock()
+			preferredWidth := as.detailWidth
+			automationMu.Unlock()
+			renderTaskDetailDrawerSplit(c, taskDetailDrawerSplitOpts{
+				AvailableWidth: availWidth,
+				PreferredWidth: preferredWidth,
+				SplitKey:       "automation-main-row",
+				BoardKey:       "automation-split-list",
+				HandleKey:      "automation-split-handle",
+				PaneKey:        "automation-split-detail",
+				OnWidthChange: func(w float32) {
+					automationMu.Lock()
+					as.detailWidth = w
+					automationMu.Unlock()
+					s.invalidate()
+				},
+				OnWidthCommit: func(w float32) {
+					automationMu.Lock()
+					as.detailWidth = w
+					automationMu.Unlock()
+					s.invalidate()
+				},
+				Board:  func(float32) { renderList() },
+				Detail: renderDetail,
+			})
+		} else {
+			ui.Row(c.Key("automation-main-row")).Fill().Children(renderList)
+		}
 	})
+	if narrow && as.narrowDetail && selected.ID != "" {
+		renderTaskDetailDrawerSheet(c, taskDetailDrawerSheetOpts{
+			SheetKey: "automation-detail-sheet",
+			OnClose: func() {
+				automationMu.Lock()
+				blocked := as.editorOpen || as.confirmDelete || as.confirmRun || as.confirmDiscard || as.chooseProjectOpen || as.moreOpen || as.openRunID != ""
+				automationMu.Unlock()
+				if !blocked {
+					closeNarrow()
+				}
+			},
+			Content: renderDetail,
+		})
+	}
 	automationMu.Lock()
 	discardOpen := as.confirmDiscard
 	automationMu.Unlock()
