@@ -3,10 +3,12 @@ package mcodeui
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -17,6 +19,32 @@ import (
 var (
 	approvalActiveKeyMu sync.Mutex
 	approvalActiveKeys  = make(map[*chatState]string)
+)
+
+// 可替换时钟与延时，便于测试打字期防误触与单选自动推进。
+var (
+	approvalNow              = time.Now
+	questionAutoAdvanceDelay = 200 * time.Millisecond
+)
+
+type approvalGuardState struct {
+	lastDraft      string
+	draftChangedAt time.Time
+	firstSeen      map[string]time.Time
+}
+
+type questionAutoAdvanceEntry struct {
+	timer *time.Timer
+	gen   uint64
+}
+
+var (
+	approvalGuardMu sync.Mutex
+	approvalGuards  = make(map[*chatState]*approvalGuardState)
+
+	questionAutoAdvanceMu      sync.Mutex
+	questionAutoAdvanceEntries = make(map[*chatState]map[string]questionAutoAdvanceEntry)
+	questionAutoAdvanceNextGen uint64
 )
 
 func setActiveApprovalKey(s *chatState, key string) {
@@ -186,6 +214,234 @@ func approvalShortcutAction(
 	return ApprovalShortcutAction{}
 }
 
+// shouldHoldApprovalShortcut 判断是否应暂缓审批快捷键：
+// 1. 高风险普通审批禁止无修饰键裸 Enter 直接批准；
+// 2. 输入框聚焦期间，最近 800ms 内草稿刚变动，或审批刚出现不足 600ms 时，暂缓 Enter 与数字键 1~9。
+func shouldHoldApprovalShortcut(top Approval, key ui.Key, composerFocused bool, now, draftChangedAt, firstSeenAt time.Time) bool {
+	if key == ui.KeyEnter && top.Kind != ApprovalKindQuestion && top.Kind != ApprovalKindPlan {
+		if _, _, highRisk := approvalRiskBadge(top); highRisk {
+			return true
+		}
+	}
+	if key != ui.KeyEnter && (key < ui.Key1 || key > ui.Key9) {
+		return false
+	}
+	if !composerFocused {
+		return false
+	}
+	if !draftChangedAt.IsZero() && now.Sub(draftChangedAt) < 800*time.Millisecond {
+		return true
+	}
+	if !firstSeenAt.IsZero() && now.Sub(firstSeenAt) < 600*time.Millisecond {
+		return true
+	}
+	return false
+}
+
+func syncApprovalGuard(s *chatState, draft string, approvals []Approval, now time.Time) (draftChangedAt, firstSeenAt time.Time) {
+	if s == nil {
+		return time.Time{}, time.Time{}
+	}
+	approvalGuardMu.Lock()
+	defer approvalGuardMu.Unlock()
+
+	g := approvalGuards[s]
+	if len(approvals) == 0 {
+		if g == nil {
+			if draft == "" {
+				return time.Time{}, time.Time{}
+			}
+			approvalGuards[s] = &approvalGuardState{
+				lastDraft:      draft,
+				draftChangedAt: now,
+			}
+			return now, time.Time{}
+		}
+		g.firstSeen = nil
+		if draft != g.lastDraft {
+			g.lastDraft = draft
+			g.draftChangedAt = now
+		}
+		if draft == "" && (g.draftChangedAt.IsZero() || now.Sub(g.draftChangedAt) >= 800*time.Millisecond) {
+			delete(approvalGuards, s)
+		}
+		return g.draftChangedAt, time.Time{}
+	}
+
+	if g == nil {
+		g = &approvalGuardState{}
+		approvalGuards[s] = g
+	}
+	if draft != g.lastDraft {
+		g.lastDraft = draft
+		g.draftChangedAt = now
+	}
+	if g.firstSeen == nil {
+		g.firstSeen = make(map[string]time.Time, len(approvals))
+	}
+	active := make(map[string]struct{}, len(approvals))
+	for _, a := range approvals {
+		if a.RequestID == "" {
+			continue
+		}
+		active[a.RequestID] = struct{}{}
+		if _, ok := g.firstSeen[a.RequestID]; !ok {
+			g.firstSeen[a.RequestID] = now
+		}
+	}
+	for id := range g.firstSeen {
+		if _, ok := active[id]; !ok {
+			delete(g.firstSeen, id)
+		}
+	}
+	if topID := approvals[0].RequestID; topID != "" {
+		firstSeenAt = g.firstSeen[topID]
+	}
+	return g.draftChangedAt, firstSeenAt
+}
+
+func cancelQuestionAutoAdvance(s *chatState, requestID string) {
+	if s == nil || requestID == "" {
+		return
+	}
+	questionAutoAdvanceMu.Lock()
+	byReq := questionAutoAdvanceEntries[s]
+	if entry, ok := byReq[requestID]; ok {
+		if entry.timer != nil {
+			entry.timer.Stop()
+		}
+		delete(byReq, requestID)
+		if len(byReq) == 0 {
+			delete(questionAutoAdvanceEntries, s)
+		}
+	}
+	questionAutoAdvanceMu.Unlock()
+}
+
+func pruneQuestionAutoAdvance(s *chatState, approvals []Approval) {
+	if s == nil {
+		return
+	}
+	questionAutoAdvanceMu.Lock()
+	byReq := questionAutoAdvanceEntries[s]
+	if len(byReq) == 0 {
+		questionAutoAdvanceMu.Unlock()
+		return
+	}
+	if len(approvals) == 0 {
+		for _, entry := range byReq {
+			if entry.timer != nil {
+				entry.timer.Stop()
+			}
+		}
+		delete(questionAutoAdvanceEntries, s)
+		questionAutoAdvanceMu.Unlock()
+		return
+	}
+	for reqID, entry := range byReq {
+		keep := false
+		for _, a := range approvals {
+			if a.RequestID == reqID {
+				keep = true
+				break
+			}
+		}
+		if !keep {
+			if entry.timer != nil {
+				entry.timer.Stop()
+			}
+			delete(byReq, reqID)
+		}
+	}
+	if len(byReq) == 0 {
+		delete(questionAutoAdvanceEntries, s)
+	}
+	questionAutoAdvanceMu.Unlock()
+}
+
+func scheduleQuestionAutoAdvance(s *chatState, approval Approval, qi int) {
+	if s == nil || approval.RequestID == "" {
+		return
+	}
+	delay := questionAutoAdvanceDelay
+	questionAutoAdvanceMu.Lock()
+	byReq := questionAutoAdvanceEntries[s]
+	if byReq == nil {
+		byReq = make(map[string]questionAutoAdvanceEntry)
+		questionAutoAdvanceEntries[s] = byReq
+	}
+	if old, ok := byReq[approval.RequestID]; ok && old.timer != nil {
+		old.timer.Stop()
+	}
+	questionAutoAdvanceNextGen++
+	gen := questionAutoAdvanceNextGen
+	timer := time.AfterFunc(delay, func() {
+		runQuestionAutoAdvance(s, approval.RequestID, qi, gen)
+	})
+	byReq[approval.RequestID] = questionAutoAdvanceEntry{timer: timer, gen: gen}
+	questionAutoAdvanceMu.Unlock()
+}
+
+func runQuestionAutoAdvance(s *chatState, requestID string, qi int, gen uint64) {
+	if s == nil || requestID == "" {
+		return
+	}
+	questionAutoAdvanceMu.Lock()
+	byReq := questionAutoAdvanceEntries[s]
+	entry, ok := byReq[requestID]
+	if !ok || entry.gen != gen {
+		questionAutoAdvanceMu.Unlock()
+		return
+	}
+	delete(byReq, requestID)
+	if len(byReq) == 0 {
+		delete(questionAutoAdvanceEntries, s)
+	}
+	questionAutoAdvanceMu.Unlock()
+
+	var (
+		found       Approval
+		hasApproval bool
+		advanceOnly bool
+		submit      bool
+		submitAns   map[string][]string
+	)
+
+	s.mu.Lock()
+	if s.respondingApproval == 0 && !s.questionOtherFocused {
+		for _, a := range s.approvals {
+			if a.RequestID == requestID {
+				found = a
+				hasApproval = true
+				break
+			}
+		}
+		if hasApproval && found.Kind == ApprovalKindQuestion {
+			draft := s.questionDraftFor(found)
+			qs := found.Questions
+			if draft != nil && draft.current == qi && qi >= 0 && qi < len(qs) && !qs[qi].AllowsMultiple && len(draftAt(draft.selected, qi)) > 0 {
+				if qi < len(qs)-1 {
+					draft.current++
+					advanceOnly = true
+				} else if unansweredQuestionCount(qs, draft.selected, draft.others) == 0 {
+					submitAns = buildQuestionAnswers(qs, draft.selected, draft.others)
+					submit = true
+				}
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if advanceOnly {
+		s.invalidate()
+		return
+	}
+	if submit {
+		setActiveApprovalKey(s, "question-submit-"+found.RequestID)
+		s.respondAnswers(found, "", submitAns, false)
+	}
+}
+
 // batchApprovals 返回可参与“全部允许/全部拒绝”的审批（排除提问与计划）。
 func batchApprovals(approvals []Approval) []Approval {
 	var res []Approval
@@ -240,6 +496,43 @@ func approvalCardTitle(a Approval) string {
 		return "提问"
 	}
 	return a.Title
+}
+
+var (
+	highRiskCmdRe    = regexp.MustCompile(`(?i)(?:\b(?:rm|rmdir|sudo|chmod|chown|mkfs|diskutil|truncate)\b|\bgit\s+(?:reset\s+--hard|clean)\b)`)
+	netInstallCmdRe  = regexp.MustCompile(`(?i)\b(?:curl|wget|(?:npm|pnpm|yarn|bun|pip|pip3|uv|brew)\s+(?:add|install|update|upgrade|sync))\b`)
+	readOnlySimpleRe = regexp.MustCompile(`^(?:pwd|ls|cat|head|tail|wc|stat)(?:\s+[\w./ -]+)?$`)
+)
+
+func approvalIsOutsideWorkspace(reason string) bool {
+	if reason == "" {
+		return false
+	}
+	lower := strings.ToLower(reason)
+	return strings.Contains(lower, "outside the workspace") ||
+		strings.Contains(reason, "工作区以外") ||
+		strings.Contains(reason, "工作区外")
+}
+
+// approvalRiskBadge 按审批来源、类型与命令内容判定风险徽章标签、色调与高风险标记。
+func approvalRiskBadge(a Approval) (label string, tone Tone, highRisk bool) {
+	if a.Reason == "credential" || a.Reason == "controlPlane" || approvalIsOutsideWorkspace(a.Reason) {
+		return "高风险", ToneDanger, true
+	}
+	if a.Kind == ApprovalKindCommand && highRiskCmdRe.MatchString(a.Detail) {
+		return "高风险", ToneDanger, true
+	}
+	if a.Kind == ApprovalKindCommand && netInstallCmdRe.MatchString(a.Detail) {
+		return "联网/依赖", ToneWarning, false
+	}
+	if a.Kind == ApprovalKindFileChange {
+		return "写入文件", ToneWarning, false
+	}
+	if a.Kind == ApprovalKindCommand && !strings.ContainsAny(a.Detail, "\r\n|><") &&
+		readOnlySimpleRe.MatchString(strings.Trim(a.Detail, " \t")) {
+		return "只读", ToneNeutral, false
+	}
+	return "", ToneNeutral, false
 }
 
 // commitApprovalPrompt 是提交类审批的说明文字。
@@ -405,9 +698,13 @@ func renderApproval(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
 	}
+	now := approvalNow()
 	s.mu.Lock()
+	draft := s.draft
 	if len(s.approvals) == 0 {
 		s.mu.Unlock()
+		syncApprovalGuard(s, draft, nil, now)
+		pruneQuestionAutoAdvance(s, nil)
 		return
 	}
 	approvals := make([]Approval, len(s.approvals))
@@ -415,12 +712,14 @@ func renderApproval(c *ui.Context, s *chatState) {
 	// 在途响应未全部返回前，卡片与批量按钮保持锁定：批量允许会并发发出多个请求。
 	responding := s.respondingApproval > 0
 	composerFocused := s.composerFocused
-	composerHasDraft := strings.TrimSpace(s.draft) != ""
+	composerHasDraft := strings.TrimSpace(draft) != ""
 	otherFocused := s.questionOtherFocused
 	s.mu.Unlock()
 	if !responding {
 		setActiveApprovalKey(s, "")
 	}
+	draftChangedAt, firstSeenAt := syncApprovalGuard(s, draft, approvals, now)
+	pruneQuestionAutoAdvance(s, approvals)
 
 	// 快捷键仅对最上面一张卡片生效，且仅在 !responding 时生效。
 	if len(approvals) > 0 && !responding {
@@ -447,7 +746,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 
 		// 数字键 1~9
 		for k := ui.Key1; k <= ui.Key9; k++ {
-			if c.Shortcut(0, k) {
+			if !shouldHoldApprovalShortcut(top, k, composerFocused, now, draftChangedAt, firstSeenAt) && c.Shortcut(0, k) {
 				action := approvalShortcutAction(top, k, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, questionHasNext, curChoicesCount)
 				switch action.Kind {
 				case ApprovalActionSelectChoice:
@@ -460,6 +759,11 @@ func renderApproval(c *ui.Context, s *chatState) {
 						}
 					}
 					s.mu.Unlock()
+					if !curQ.AllowsMultiple {
+						scheduleQuestionAutoAdvance(s, top, qi)
+					} else {
+						cancelQuestionAutoAdvance(s, top.RequestID)
+					}
 					s.invalidate()
 				case ApprovalActionOption:
 					// 只认仍在待办列表中的同一张卡片：本轮已通过数字键批准的卡片不能再按 Esc 拒绝
@@ -474,10 +778,11 @@ func renderApproval(c *ui.Context, s *chatState) {
 		}
 
 		// Enter 键
-		if top.Kind != ApprovalKindPlan && c.Shortcut(0, ui.KeyEnter) {
+		if top.Kind != ApprovalKindPlan && !shouldHoldApprovalShortcut(top, ui.KeyEnter, composerFocused, now, draftChangedAt, firstSeenAt) && c.Shortcut(0, ui.KeyEnter) {
 			action := approvalShortcutAction(top, ui.KeyEnter, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, questionHasNext, curChoicesCount)
 			switch action.Kind {
 			case ApprovalActionNext:
+				cancelQuestionAutoAdvance(s, top.RequestID)
 				s.mu.Lock()
 				if qDraft != nil && qDraft.current < len(top.Questions)-1 {
 					qDraft.current++
@@ -485,6 +790,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 				s.mu.Unlock()
 				s.invalidate()
 			case ApprovalActionSubmit:
+				cancelQuestionAutoAdvance(s, top.RequestID)
 				s.mu.Lock()
 				answers := buildQuestionAnswers(top.Questions, qDraft.selected, qDraft.others)
 				s.mu.Unlock()
@@ -507,6 +813,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 			switch action.Kind {
 			case ApprovalActionDecline:
 				if top.Kind == ApprovalKindQuestion {
+					cancelQuestionAutoAdvance(s, top.RequestID)
 					setActiveApprovalKey(s, "question-skip-"+top.RequestID)
 					s.respondAnswers(top, "", nil, true)
 				} else if top.Kind == ApprovalKindPlan {
@@ -760,12 +1067,19 @@ func approvalCardFrame(c *ui.Context, key string, accent ui.Color, body func()) 
 
 // renderTypedApprovalCard 渲染命令、文件修改、工具、权限与提交类审批卡片：图标标题、正文、原因与右下角操作按钮。
 func renderTypedApprovalCard(c *ui.Context, s *chatState, approval Approval, responding bool, icon *ui.SVG, body func()) {
-	warnColor := ThemeWarning(c)
+	label, tone, highRisk := approvalRiskBadge(approval)
+	accentColor := ThemeWarning(c)
+	if highRisk {
+		accentColor = ThemeDanger(c)
+	}
 
-	approvalCardFrame(c, "approval-"+approval.RequestID, warnColor, func() {
+	approvalCardFrame(c, "approval-"+approval.RequestID, accentColor, func() {
 		ui.Row(c.Key("approval-header-" + approval.RequestID)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, icon).Size(IconMD, IconMD).TextColor(warnColor).Shrink(0)
+			ui.Icon(c, icon).Size(IconMD, IconMD).TextColor(accentColor).Shrink(0)
 			ui.Text(c, approvalCardTitle(approval)).Bold().FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0).Selectable()
+			if label != "" {
+				Badge(c, "approval-risk-"+approval.RequestID, label, tone).Shrink(0)
+			}
 		})
 		body()
 		renderApprovalAuxBanner(c, approval)
@@ -1030,6 +1344,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 						Disabled: responding || current == 0,
 						Tooltip:  "上一题",
 						OnClick: func() {
+							cancelQuestionAutoAdvance(s, id)
 							s.mu.Lock()
 							if draft.current > 0 {
 								draft.current--
@@ -1054,7 +1369,27 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 			hasNext := len(qs) > 1 && current < len(qs)-1
 			skipKey := "question-skip-" + id
 			skipLoading := responding && activeApprovalKey(s) == skipKey
+			showCustomNote := len(qs) > 0 && current >= 0 && current < len(qs) && !questionShowsOther(qs[current])
 			ui.Row(c.Key("question-actions-" + id)).FillWidth().Wrap().Gap(Space3).AlignItems(ui.Center).Children(func() {
+				if showCustomNote {
+					Button(c, ButtonOpts{
+						Key:      "question-custom-note-" + id,
+						Text:     "补充要求",
+						Variant:  ButtonGhost,
+						Size:     ControlSM,
+						Disabled: responding,
+						Tooltip:  "在输入框补充要求",
+						OnClick: func() {
+							cancelQuestionAutoAdvance(s, id)
+							if s != nil {
+								s.mu.Lock()
+								s.composerFocusRequest = true
+								s.mu.Unlock()
+								s.invalidate()
+							}
+						},
+					})
+				}
 				if len(qs) > 1 && unanswered > 0 {
 					ui.Text(c, fmt.Sprintf("还有 %d 题未回答", unanswered)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Selectable()
 				}
@@ -1068,6 +1403,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 					Disabled: responding && !skipLoading,
 					Tooltip:  "跳过提问 (Esc)",
 					OnClick: func() {
+						cancelQuestionAutoAdvance(s, id)
 						setActiveApprovalKey(s, skipKey)
 						s.respondAnswers(approval, "", nil, true)
 					},
@@ -1081,6 +1417,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 						Disabled: responding,
 						Tooltip:  "下一题 (↩)",
 						OnClick: func() {
+							cancelQuestionAutoAdvance(s, id)
 							s.mu.Lock()
 							if draft.current < len(qs)-1 {
 								draft.current++
@@ -1105,6 +1442,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 						Disabled: (responding && !submitLoading) || unanswered > 0 || len(qs) == 0,
 						Tooltip:  submitTooltip,
 						OnClick: func() {
+							cancelQuestionAutoAdvance(s, id)
 							s.mu.Lock()
 							answers := buildQuestionAnswers(qs, draft.selected, draft.others)
 							s.mu.Unlock()
@@ -1159,6 +1497,11 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 					}
 				}
 				s.mu.Unlock()
+				if !q.AllowsMultiple {
+					scheduleQuestionAutoAdvance(s, approval, qi)
+				} else {
+					cancelQuestionAutoAdvance(s, id)
+				}
 				s.invalidate()
 			})
 			btn.Children(func() {
@@ -1230,6 +1573,7 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 				Background(ThemeSurface(c)).
 				Border(Hairline, ThemeBorder(c)).
 				OnChange(func() {
+					cancelQuestionAutoAdvance(s, id)
 					s.mu.Lock()
 					if !q.AllowsMultiple && strings.TrimSpace(draft.others[qi]) != "" {
 						draft.selected[qi] = nil
@@ -1238,6 +1582,9 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 					s.invalidate()
 				})
 			focused := !responding && in.Focused()
+			if focused {
+				cancelQuestionAutoAdvance(s, id)
+			}
 			s.mu.Lock()
 			s.questionOtherFocused = focused
 			s.mu.Unlock()

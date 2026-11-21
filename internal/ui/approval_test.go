@@ -6,6 +6,7 @@ import (
 	"image"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -1455,5 +1456,489 @@ func TestUIReview4_NarrowLayoutAndRespondingLock(t *testing.T) {
 	sLock.mu.Unlock()
 	if other != "" {
 		t.Fatalf("提交进行中应禁用「其他」输入框，got %q", other)
+	}
+}
+
+func TestApprovalRiskGrading(t *testing.T) {
+	cases := []struct {
+		name     string
+		a        Approval
+		wantText string
+		wantTone Tone
+		wantHigh bool
+	}{
+		{
+			name:     "rm_rf",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "rm -rf /tmp/demo"},
+			wantText: "高风险", wantTone: ToneDanger, wantHigh: true,
+		},
+		{
+			name:     "git_reset_hard",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "git reset --hard HEAD"},
+			wantText: "高风险", wantTone: ToneDanger, wantHigh: true,
+		},
+		{
+			name:     "git_clean_upper",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "GIT CLEAN -fd"},
+			wantText: "高风险", wantTone: ToneDanger, wantHigh: true,
+		},
+		{
+			name:     "credential",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "ls -la", Reason: "credential"},
+			wantText: "高风险", wantTone: ToneDanger, wantHigh: true,
+		},
+		{
+			name:     "controlPlane",
+			a:        Approval{Kind: ApprovalKindFileChange, Reason: "controlPlane"},
+			wantText: "高风险", wantTone: ToneDanger, wantHigh: true,
+		},
+		{
+			name:     "outside_workspace_en",
+			a:        Approval{Kind: ApprovalKindFileChange, Reason: "Path is outside the workspace"},
+			wantText: "高风险", wantTone: ToneDanger, wantHigh: true,
+		},
+		{
+			name:     "outside_workspace_zh",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "ls", Reason: "访问工作区以外目录"},
+			wantText: "高风险", wantTone: ToneDanger, wantHigh: true,
+		},
+		{
+			name:     "npm_install",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "npm install lodash"},
+			wantText: "联网/依赖", wantTone: ToneWarning, wantHigh: false,
+		},
+		{
+			name:     "curl",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "curl -fsSL https://example.com"},
+			wantText: "联网/依赖", wantTone: ToneWarning, wantHigh: false,
+		},
+		{
+			name:     "file_change",
+			a:        Approval{Kind: ApprovalKindFileChange, Title: "/workspace/main.go"},
+			wantText: "写入文件", wantTone: ToneWarning, wantHigh: false,
+		},
+		{
+			name:     "readonly_ls",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "ls -la"},
+			wantText: "只读", wantTone: ToneNeutral, wantHigh: false,
+		},
+		{
+			name:     "pipe_not_readonly",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "cat a.txt | grep x"},
+			wantText: "", wantTone: ToneNeutral, wantHigh: false,
+		},
+		{
+			name:     "multiline_not_readonly",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "ls\npwd"},
+			wantText: "", wantTone: ToneNeutral, wantHigh: false,
+		},
+		{
+			name:     "other_command",
+			a:        Approval{Kind: ApprovalKindCommand, Detail: "go test ./..."},
+			wantText: "", wantTone: ToneNeutral, wantHigh: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotLabel, gotTone, gotHigh := approvalRiskBadge(tc.a)
+			if gotLabel != tc.wantText || gotTone != tc.wantTone || gotHigh != tc.wantHigh {
+				t.Fatalf("approvalRiskBadge(%+v) = (%q, %v, %v), want (%q, %v, %v)",
+					tc.a, gotLabel, gotTone, gotHigh, tc.wantText, tc.wantTone, tc.wantHigh)
+			}
+		})
+	}
+
+	s := newChatState(NewFakeClient())
+	highAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-risk-high",
+		Kind:      ApprovalKindCommand,
+		Title:     "Bash",
+		Detail:    "rm -rf /tmp/demo",
+		Options:   allowDenyOptions(),
+	}
+	netAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-risk-net",
+		Kind:      ApprovalKindCommand,
+		Title:     "Bash",
+		Detail:    "npm install lodash",
+		Options:   allowDenyOptions(),
+	}
+	fileAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-risk-file",
+		Kind:      ApprovalKindFileChange,
+		Title:     "/workspace/a.go",
+		Detail:    "edit",
+		Options:   allowDenyOptions(),
+	}
+	roAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-risk-ro",
+		Kind:      ApprovalKindCommand,
+		Title:     "Bash",
+		Detail:    "ls -la",
+		Options:   allowDenyOptions(),
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).FillWidth().Gap(Space3).Children(func() {
+			ui.Row(c).Gap(Space3).Children(func() {
+				ui.Box(c.Key("danger-swatch")).Size(12, 12).Background(ThemeDanger(c)).Label("danger-swatch")
+				ui.Box(c.Key("warning-swatch")).Size(12, 12).Background(ThemeWarning(c)).Label("warning-swatch")
+			})
+			renderApprovalCard(c, s, highAppr, false)
+			renderApprovalCard(c, s, netAppr, false)
+			renderApprovalCard(c, s, fileAppr, false)
+			renderApprovalCard(c, s, roAppr, false)
+		})
+	}, 720, 900)
+
+	waitFor(t, tt, func() bool {
+		return tt.HasText("高风险") && tt.HasText("联网/依赖") && tt.HasText("写入文件") && tt.HasText("只读")
+	})
+
+	dangerRect, ok := tt.Find("danger-swatch")
+	if !ok {
+		t.Fatal("未找到 danger-swatch")
+	}
+	warnRect, ok := tt.Find("warning-swatch")
+	if !ok {
+		t.Fatal("未找到 warning-swatch")
+	}
+	highTitleRect, ok := tt.Find(approvalCardTitle(highAppr))
+	if !ok {
+		t.Fatalf("未找到高风险卡片标题 %q", approvalCardTitle(highAppr))
+	}
+
+	img := tt.Image()
+	dangerPx := confirmPixel(t, img, dangerRect)
+	warnPx := confirmPixel(t, img, warnRect)
+	y := int(highTitleRect.Y + highTitleRect.H/2)
+	matchedDanger := false
+	for x := 0; x < int(highTitleRect.X); x++ {
+		i := img.PixOffset(x, y)
+		px := [3]int{int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])}
+		if colorNear(px, dangerPx, 4) {
+			matchedDanger = true
+			break
+		}
+	}
+	if !matchedDanger {
+		t.Fatalf("高风险卡片左侧色条与图标应使用 ThemeDanger %v（对比 ThemeWarning %v）", dangerPx, warnPx)
+	}
+}
+
+func TestApprovalTypingHoldAndHighRiskEnter(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	normalCmd := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-hold-normal",
+		Kind:      ApprovalKindCommand,
+		Title:     "BashNormal",
+		Detail:    "go test ./...",
+		Reason:    "运行测试",
+		Options:   allowDenyOptions(),
+	}
+	highCmd := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-hold-high",
+		Kind:      ApprovalKindCommand,
+		Title:     "Bash",
+		Detail:    "rm -rf /tmp/demo",
+		Options:   allowDenyOptions(),
+	}
+
+	// 1. 纯函数判定：800ms 打字窗口、600ms 新弹窗窗口、高风险禁止裸 Enter
+	if !shouldHoldApprovalShortcut(normalCmd, ui.KeyEnter, true, now, now.Add(-400*time.Millisecond), now.Add(-2*time.Second)) {
+		t.Fatal("草稿变动 800ms 内聚焦输入框时应暂缓 Enter")
+	}
+	if !shouldHoldApprovalShortcut(normalCmd, ui.Key1, true, now, now.Add(-400*time.Millisecond), now.Add(-2*time.Second)) {
+		t.Fatal("草稿变动 800ms 内聚焦输入框时应暂缓数字键")
+	}
+	if !shouldHoldApprovalShortcut(normalCmd, ui.KeyEnter, true, now, now.Add(-2*time.Second), now.Add(-300*time.Millisecond)) {
+		t.Fatal("审批出现 600ms 内聚焦输入框时应暂缓 Enter")
+	}
+	if !shouldHoldApprovalShortcut(normalCmd, ui.Key2, true, now, now.Add(-2*time.Second), now.Add(-300*time.Millisecond)) {
+		t.Fatal("审批出现 600ms 内聚焦输入框时应暂缓数字键")
+	}
+	if shouldHoldApprovalShortcut(normalCmd, ui.KeyEnter, true, now, now.Add(-900*time.Millisecond), now.Add(-700*time.Millisecond)) {
+		t.Fatal("超出防误触窗口后应放行 Enter")
+	}
+	if shouldHoldApprovalShortcut(normalCmd, ui.Key1, true, now, now.Add(-900*time.Millisecond), now.Add(-700*time.Millisecond)) {
+		t.Fatal("超出防误触窗口后应放行数字键")
+	}
+	if shouldHoldApprovalShortcut(normalCmd, ui.KeyEscape, true, now, now.Add(-100*time.Millisecond), now.Add(-100*time.Millisecond)) {
+		t.Fatal("Esc 不应被防误触窗口暂缓")
+	}
+	if !shouldHoldApprovalShortcut(highCmd, ui.KeyEnter, false, now, time.Time{}, now.Add(-10*time.Second)) {
+		t.Fatal("高风险审批应始终拦截无修饰键裸 Enter")
+	}
+	if shouldHoldApprovalShortcut(highCmd, ui.Key1, false, now, time.Time{}, now.Add(-10*time.Second)) {
+		t.Fatal("未聚焦输入框且过窗口时高风险审批应放行明确数字键")
+	}
+
+	// 2. renderApproval 集成验证
+	oldNow := approvalNow
+	var clockMu sync.Mutex
+	curNow := now
+	approvalNow = func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return curNow
+	}
+	defer func() { approvalNow = oldNow }()
+	advance := func(d time.Duration) {
+		clockMu.Lock()
+		curNow = curNow.Add(d)
+		clockMu.Unlock()
+	}
+
+	fake := NewFakeClient()
+	s := newChatState(fake)
+	s.mu.Lock()
+	s.approvals = []Approval{highCmd}
+	s.composerFocused = false
+	s.mu.Unlock()
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderApproval(c, s)
+	}, 800, 600)
+	waitFor(t, tt, func() bool { return tt.HasText("高风险") })
+
+	// 高风险卡即使等待足够久且未聚焦输入框，裸 Enter 仍被拦截；按 1 则允许。
+	advance(2 * time.Second)
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if calls := fake.RespondCalls(); len(calls) != 0 {
+		t.Fatalf("高风险卡片不应响应裸 Enter，got %+v", calls)
+	}
+	tt.Key(0, ui.Key1)
+	waitFor(t, tt, func() bool {
+		calls := fake.RespondCalls()
+		return len(calls) == 1 && calls[0].Approval.RequestID == highCmd.RequestID && calls[0].OptionID == "allow"
+	})
+
+	// 切换为普通命令卡并聚焦输入框，验证 600ms 出现窗口和 800ms 打字窗口
+	s.mu.Lock()
+	s.approvals = []Approval{normalCmd}
+	s.composerFocused = true
+	s.draft = ""
+	s.mu.Unlock()
+	tt.Frame()
+	waitFor(t, tt, func() bool { return tt.HasText("运行测试") })
+
+	// 刚出现 200ms 内：拦截数字键和 Enter
+	advance(200 * time.Millisecond)
+	tt.Key(0, ui.Key1)
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if calls := fake.RespondCalls(); len(calls) != 1 {
+		t.Fatalf("审批刚出现 600ms 内不应响应快捷键，got %+v", calls)
+	}
+
+	// 过 600ms 后模拟打字再清空草稿，进入 800ms 打字保护期
+	advance(500 * time.Millisecond)
+	s.mu.Lock()
+	s.draft = "abc"
+	s.mu.Unlock()
+	s.invalidate()
+	tt.Frame()
+	s.mu.Lock()
+	s.draft = ""
+	s.mu.Unlock()
+	s.invalidate()
+	tt.Frame()
+
+	advance(300 * time.Millisecond)
+	tt.Key(0, ui.KeyEnter)
+	tt.Key(0, ui.Key1)
+	tt.Frame()
+	if calls := fake.RespondCalls(); len(calls) != 1 {
+		t.Fatalf("草稿变动 800ms 内不应响应快捷键，got %+v", calls)
+	}
+
+	// 超过 800ms 后放行 Enter
+	advance(600 * time.Millisecond)
+	tt.Key(0, ui.KeyEnter)
+	waitFor(t, tt, func() bool {
+		calls := fake.RespondCalls()
+		return len(calls) == 2 && calls[1].Approval.RequestID == normalCmd.RequestID && calls[1].OptionID == "allow"
+	})
+}
+
+func TestQuestionSingleAutoAdvanceAndFocusComposer(t *testing.T) {
+	oldDelay := questionAutoAdvanceDelay
+	defer func() { questionAutoAdvanceDelay = oldDelay }()
+
+	// 1. 单题单选无自由输入：显示「补充要求」按钮，点击选项后 15ms 自动提交
+	questionAutoAdvanceDelay = 15 * time.Millisecond
+	single := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-auto-single",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{{
+			ID:      "q1",
+			Prompt:  "单题单选自动提交",
+			Choices: []ApprovalQuestionChoice{{Label: "甲"}, {Label: "乙"}},
+		}},
+	}
+	fake1, tt1 := newApprovalTester(t, []Approval{single})
+	waitFor(t, tt1, func() bool { return tt1.HasText("单题单选自动提交") })
+	if !tt1.HasText("补充要求") {
+		t.Fatalf("不允许自由输入时应显示「补充要求」按钮，当前文本：%q", tt1.Texts())
+	}
+	if err := tt1.Click("乙"); err != nil {
+		t.Fatalf("click '乙' failed: %v", err)
+	}
+	waitFor(t, tt1, func() bool {
+		call, ok := fake1.LastRespondAnswers()
+		return ok && !call.Skip && reflect.DeepEqual(call.Answers, map[string][]string{"q1": {"乙"}})
+	})
+
+	// 允许自由输入时不显示「补充要求」按钮
+	withOther := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-with-other",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{{
+			ID:          "q1",
+			Prompt:      "带自由输入题",
+			AllowsOther: true,
+			Choices:     []ApprovalQuestionChoice{{Label: "甲"}},
+		}},
+	}
+	ttOther := newQuestionCardTester(t, withOther)
+	waitFor(t, ttOther, func() bool { return ttOther.HasText("带自由输入题") })
+	if ttOther.HasText("补充要求") {
+		t.Fatalf("允许自由输入时不应显示「补充要求」按钮，当前文本：%q", ttOther.Texts())
+	}
+
+	// 2. 多题单选：点击第 1 题选项自动前进到第 2 题，点击第 2 题选项自动提交
+	multi := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-auto-multi",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{
+			{ID: "q1", Prompt: "第一题", Choices: []ApprovalQuestionChoice{{Label: "一甲"}, {Label: "一乙"}}},
+			{ID: "q2", Prompt: "第二题", Choices: []ApprovalQuestionChoice{{Label: "二甲"}, {Label: "二乙"}}},
+		},
+	}
+	fake2, tt2 := newApprovalTester(t, []Approval{multi})
+	waitFor(t, tt2, func() bool { return tt2.HasText("第 1 / 2 题") && tt2.HasText("第一题") })
+	if err := tt2.Click("一甲"); err != nil {
+		t.Fatalf("click '一甲' failed: %v", err)
+	}
+	waitFor(t, tt2, func() bool { return tt2.HasText("第 2 / 2 题") && tt2.HasText("第二题") })
+	if _, ok := fake2.LastRespondAnswers(); ok {
+		t.Fatal("第一题自动前进到第二题时不应提前提交")
+	}
+	if err := tt2.Click("二乙"); err != nil {
+		t.Fatalf("click '二乙' failed: %v", err)
+	}
+	waitFor(t, tt2, func() bool {
+		call, ok := fake2.LastRespondAnswers()
+		return ok && !call.Skip && reflect.DeepEqual(call.Answers, map[string][]string{"q1": {"一甲"}, "q2": {"二乙"}})
+	})
+
+	// 3. 触发前手动点「跳过」取消旧定时器，不重复提交
+	questionAutoAdvanceDelay = 100 * time.Millisecond
+	skipAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-auto-cancel-skip",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{{
+			ID:      "q1",
+			Prompt:  "取消跳过测试",
+			Choices: []ApprovalQuestionChoice{{Label: "甲"}, {Label: "乙"}},
+		}},
+	}
+	fake3, tt3 := newApprovalTester(t, []Approval{skipAppr})
+	waitFor(t, tt3, func() bool { return tt3.HasText("取消跳过测试") })
+	if err := tt3.Click("甲"); err != nil {
+		t.Fatalf("click '甲' failed: %v", err)
+	}
+	if err := tt3.Click("跳过"); err != nil {
+		t.Fatalf("click '跳过' failed: %v", err)
+	}
+	waitFor(t, tt3, func() bool {
+		call, ok := fake3.LastRespondAnswers()
+		return ok && call.Skip
+	})
+	time.Sleep(140 * time.Millisecond)
+	fake3.mu.Lock()
+	skipCallCount := len(fake3.respondAnswersCalls)
+	fake3.mu.Unlock()
+	if skipCallCount != 1 {
+		t.Fatalf("手动跳过后应取消旧定时器，期望 1 次响应，实际 %d 次", skipCallCount)
+	}
+
+	// 4. 触发前改选：取消旧定时器并以新选项提交
+	reselectAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-auto-reselect",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{{
+			ID:      "q1",
+			Prompt:  "改选取消旧定时器",
+			Choices: []ApprovalQuestionChoice{{Label: "甲"}, {Label: "乙"}},
+		}},
+	}
+	fake4, tt4 := newApprovalTester(t, []Approval{reselectAppr})
+	waitFor(t, tt4, func() bool { return tt4.HasText("改选取消旧定时器") })
+	if err := tt4.Click("甲"); err != nil {
+		t.Fatalf("click '甲' failed: %v", err)
+	}
+	if err := tt4.Click("乙"); err != nil {
+		t.Fatalf("click '乙' failed: %v", err)
+	}
+	waitFor(t, tt4, func() bool {
+		call, ok := fake4.LastRespondAnswers()
+		return ok && !call.Skip && reflect.DeepEqual(call.Answers, map[string][]string{"q1": {"乙"}})
+	})
+	time.Sleep(140 * time.Millisecond)
+	fake4.mu.Lock()
+	reselectCount := len(fake4.respondAnswersCalls)
+	fake4.mu.Unlock()
+	if reselectCount != 1 {
+		t.Fatalf("改选后应只提交一次新选项，期望 1 次，实际 %d 次", reselectCount)
+	}
+
+	// 5. 点击「补充要求」取消定时器并请求聚焦主输入框
+	focusAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-auto-focus",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{{
+			ID:      "q1",
+			Prompt:  "补充要求测试",
+			Choices: []ApprovalQuestionChoice{{Label: "甲"}, {Label: "乙"}},
+		}},
+	}
+	fake5 := NewFakeClient()
+	s5 := newChatState(fake5)
+	s5.mu.Lock()
+	s5.approvals = []Approval{focusAppr}
+	s5.mu.Unlock()
+	tt5 := ui.NewTester(func(c *ui.Context) {
+		renderQuestionCard(c, s5, focusAppr, false)
+	}, 720, 480)
+	waitFor(t, tt5, func() bool { return tt5.HasText("补充要求") })
+	if err := tt5.Click("甲"); err != nil {
+		t.Fatalf("click '甲' failed: %v", err)
+	}
+	if err := tt5.Click("补充要求"); err != nil {
+		t.Fatalf("click '补充要求' failed: %v", err)
+	}
+	tt5.Frame()
+	s5.mu.Lock()
+	focusReq := s5.composerFocusRequest
+	s5.mu.Unlock()
+	if !focusReq {
+		t.Fatal("点击「补充要求」后应设置 composerFocusRequest=true")
+	}
+	time.Sleep(140 * time.Millisecond)
+	if _, ok := fake5.LastRespondAnswers(); ok {
+		t.Fatal("点击「补充要求」后应取消自动推进，不应自动提交")
 	}
 }
