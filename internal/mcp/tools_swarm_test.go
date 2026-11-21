@@ -216,6 +216,45 @@ func TestSwarmDelegateSchemaDeclaresReplaces(t *testing.T) {
 
 }
 
+func TestSwarmDelegateSchemaDeclaresFiles(t *testing.T) {
+	t.Parallel()
+	srv, _, _ := setupTestMCP(t)
+
+	tool, ok := srv.registry.Get(swarmDelegateToolName)
+	if !ok {
+		t.Fatal("swarm_delegate 应始终注册在 registry 中")
+	}
+	properties, _ := tool.InputSchema["properties"].(map[string]any)
+	tasks, _ := properties["tasks"].(map[string]any)
+	items, _ := tasks["items"].(map[string]any)
+	entryProps, _ := items["properties"].(map[string]any)
+
+	files, ok := entryProps["files"].(map[string]any)
+	if !ok {
+		t.Fatal("swarm_delegate 条目 schema 应声明 files")
+	}
+	if files["type"] != "array" {
+		t.Fatalf("files 类型期望 array, 实际为 %v", files["type"])
+	}
+	element, ok := files["items"].(map[string]any)
+	if !ok || element["type"] != "string" {
+		t.Fatalf("files items 期望 string, 实际为 %v", files["items"])
+	}
+	if req, ok := items["required"].([]string); ok {
+		for _, name := range req {
+			if name == "files" {
+				t.Fatalf("files 不应在 required 列表中: %v", req)
+			}
+		}
+	} else if reqAny, ok := items["required"].([]any); ok {
+		for _, item := range reqAny {
+			if item == "files" {
+				t.Fatalf("files 不应在 required 列表中: %v", reqAny)
+			}
+		}
+	}
+}
+
 func TestSwarmDelegateRejectsEntriesWithoutPrompt(t *testing.T) {
 	t.Parallel()
 	srv, st, _ := setupTestMCP(t)

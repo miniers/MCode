@@ -75,7 +75,7 @@ func (r *Registry) registerSwarmTools(s *Server) {
 			"properties": map[string]any{
 				"tasks": map[string]any{
 					"type":        "array",
-					"description": "Bees to start. Each is an object: prompt (required, full standalone instructions naming the files and acceptance criteria), task (short title), and optionally bee, tier, skills (array of names), project, provider, model, profile, pair, acceptance, replaces (name of a running bee this entry supersedes; mcode stops that bee before starting this one).",
+					"description": "Bees to start. Each is an object: prompt (required, full standalone instructions naming the files and acceptance criteria), task (short title), and optionally bee, tier, skills (array of names), files (array of repo-relative paths this bee will edit), project, provider, model, profile, pair, acceptance, replaces (name of a running bee this entry supersedes; mcode stops that bee before starting this one).",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
@@ -93,6 +93,7 @@ func (r *Registry) registerSwarmTools(s *Server) {
 							"pair":       str("Lead and bee model pair."),
 							"acceptance": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Shell commands mcode runs from the root of the bee's copy after it reports; use relative paths; the change merges only if every command exits 0"},
 							"skills":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+							"files":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional repo-relative paths of files this bee will edit; used to queue overlapping edits while letting disjoint bees run in parallel."},
 						},
 						"required": []string{"prompt"},
 					},
