@@ -209,20 +209,14 @@ func renderErrorCopyButton(c *ui.Context, s *chatState, m Message) {
 
 // renderErrorActionButton 渲染错误卡片里的文字小按钮（详情、重试共用）。
 func renderErrorActionButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG, iconColor ui.Color, onClick func()) {
-	btn := ui.ButtonBase(c.Key(key)).
-		Label(label).
-		Tooltip(tooltip).
-		Padding(Space0, Space2).
-		Radius(RadiusSM).
-		Cursor(ui.CursorPointer).
-		OnClick(onClick)
-	if btn.Hovered() {
-		btn.Background(ThemeSecondaryText(c).Alpha(0.12))
-	}
-	scale := motionPressScale(c, btn, "button-press-scale", true && btn.Pressed())
-	btn.Scale(scale, scale)
-	btn.Children(func() {
-		ui.Icon(c, icon).Size(inlineIconSize, inlineIconSize).TextColor(iconColor)
-		ui.Text(c, label).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+	_ = iconColor
+	Button(c.Key(key), ButtonOpts{
+		Text:    label,
+		Icon:    icon,
+		Label:   label,
+		Tooltip: tooltip,
+		Variant: ButtonGhost,
+		Size:    ControlSM,
+		OnClick: onClick,
 	})
 }

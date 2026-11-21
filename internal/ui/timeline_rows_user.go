@@ -363,8 +363,8 @@ func renderUserMessage(c *ui.Context, s *chatState, m Message) ui.Element {
 	}
 
 	row := ui.Row(c.Key("msg-user-" + m.ID)).FillWidth().Justify(ui.End).ContextMenu(messageContextMenu(c, s, m))
-	// 整行 hover：指针停在这个消息行上（气泡、附件或操作栏）都算
-	rowHovered := row.Hovered()
+	// 整行 hover 或键盘焦点进入：指针停在这个消息行上，或键盘聚焦其中按钮时，操作栏据此显隐
+	rowHovered := row.Hovered() || row.FocusWithin()
 
 	row.Children(func() {
 		ui.Spacer(c)

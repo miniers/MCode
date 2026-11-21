@@ -142,8 +142,8 @@ func renderAssistantMessage(c *ui.Context, s *chatState, m Message, liveID, last
 	col = col.ContextMenu(messageContextMenuWithSelection(c, s, m, func() []ui.SelectedText {
 		return col.SelectedTexts()
 	}))
-	// 整行 hover：指针停在这条消息的正文、元信息或操作栏上都算，操作栏据此显隐
-	rowHovered := col.Hovered()
+	// 整行 hover 或键盘焦点进入：指针停在这条消息的正文、元信息或操作栏上，或键盘聚焦其中元素时，操作栏据此显隐
+	rowHovered := col.Hovered() || col.FocusWithin()
 
 	col.Children(func() {
 		// 最终回复上方的元信息行：模型图标、模型名、耗时与时间戳
@@ -447,7 +447,12 @@ func renderReasoningMessage(c *ui.Context, s *chatState, m Message, liveID strin
 				s.toggleReasoning(m.ID)
 			})
 		if !isLive {
-			header.Cursor(ui.CursorPointer)
+			header.Cursor(ui.CursorPointer).Focusable().Role(ui.RoleButton)
+			focusRing(c, header)
+			if header.Focused() && (header.Shortcut(0, ui.KeyEnter) || header.Shortcut(0, ui.KeySpace)) {
+				s.toggleReasoning(m.ID)
+				s.invalidate()
+			}
 		}
 		chevronRotation := header.AnimateTo("think-chevron", chevronTarget, ui.Animation{Duration: animateDuration(c, motionUnfold), Ease: motionEaseStandard})
 		header.Children(func() {

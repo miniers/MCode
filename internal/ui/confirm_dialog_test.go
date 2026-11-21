@@ -504,3 +504,63 @@ func TestConfirmDialogConfirmTooltip(t *testing.T) {
 		t.Fatalf("确认按钮无障碍描述 = %q，期望 %q", node.Description, tip)
 	}
 }
+
+// TestConfirmDialogTabEnterFocus 验证用 Tab 切换按钮焦点后按 Enter 触发当前聚焦按钮的动作，不被根层硬劫持。
+func TestConfirmDialogTabEnterFocus(t *testing.T) {
+	t.Run("默认聚焦确认按钮时 Tab 切到取消后按 Enter 触发 OnCancel", func(t *testing.T) {
+		cnt := &confirmCounters{}
+		d := ConfirmDialog{
+			Key:          "test-tab-enter-default",
+			Open:         true,
+			Tone:         ConfirmDanger,
+			Title:        "删除这个会话？",
+			ConfirmLabel: "删除",
+			CancelLabel:  "取消",
+			OnConfirm:    func() { cnt.confirm++ },
+			OnCancel:     func() { cnt.cancel++ },
+		}
+		tt := ui.NewTester(func(c *ui.Context) { RenderConfirmDialog(c, d) }, 800, 600)
+		tt.Frame()
+
+		if !tt.Focused("删除") {
+			t.Fatal("默认情况下确认按钮应获焦")
+		}
+		tt.Key(0, ui.KeyTab)
+		if !tt.Focused("取消") {
+			t.Fatal("按 Tab 后取消按钮应获焦")
+		}
+		tt.Key(0, ui.KeyEnter)
+		if cnt.cancel != 1 || cnt.confirm != 0 {
+			t.Fatalf("Tab 切到取消按钮后按 Enter 应触发 OnCancel 且不触发 OnConfirm: cancel=%d confirm=%d", cnt.cancel, cnt.confirm)
+		}
+	})
+
+	t.Run("CancelAutoFocus 为 true 时 Tab 切到确认后按 Enter 触发 OnConfirm", func(t *testing.T) {
+		cnt := &confirmCounters{}
+		d := ConfirmDialog{
+			Key:             "test-tab-enter-cancel-autofocus",
+			Open:            true,
+			Tone:            ConfirmDanger,
+			Title:           "强制推送？",
+			ConfirmLabel:    "强制推送",
+			CancelLabel:     "取消",
+			CancelAutoFocus: true,
+			OnConfirm:       func() { cnt.confirm++ },
+			OnCancel:        func() { cnt.cancel++ },
+		}
+		tt := ui.NewTester(func(c *ui.Context) { RenderConfirmDialog(c, d) }, 800, 600)
+		tt.Frame()
+
+		if !tt.Focused("取消") {
+			t.Fatal("CancelAutoFocus=true 时取消按钮应获焦")
+		}
+		tt.Key(0, ui.KeyTab)
+		if !tt.Focused("强制推送") {
+			t.Fatal("按 Tab 后确认按钮应获焦")
+		}
+		tt.Key(0, ui.KeyEnter)
+		if cnt.confirm != 1 || cnt.cancel != 0 {
+			t.Fatalf("Tab 切到确认按钮后按 Enter 应触发 OnConfirm 且不触发 OnCancel: confirm=%d cancel=%d", cnt.confirm, cnt.cancel)
+		}
+	})
+}

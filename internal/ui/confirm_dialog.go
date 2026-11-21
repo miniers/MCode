@@ -130,17 +130,8 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 			}
 			return
 		}
-		if c.Shortcut(0, ui.KeyEnter) {
-			if d.Tone == ConfirmNotice {
-				closeNotice()
-			} else if d.CancelAutoFocus {
-				run(d.OnCancel)
-			} else if !d.ConfirmDisabled {
-				run(d.OnConfirm)
-			}
-			return
-		}
 
+		var cancelBtn, extraBtn, confirmBtn ui.Element
 		ui.Column(c.Key("confirm-" + key + "-card")).
 			Width(panelWidth).
 			MaxWidth(width - confirmDialogWindowInset).
@@ -195,7 +186,7 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 					Children(func() {
 						// 提示态没有取消与第三个动作，只有「知道了」。
 						if d.Tone != ConfirmNotice {
-							cancelBtn := Button(c.Key("confirm-"+key+"-cancel"), ButtonOpts{
+							cancelBtn = Button(c.Key("confirm-"+key+"-cancel"), ButtonOpts{
 								Text:    cancelText,
 								Label:   d.CancelA11y,
 								Variant: ButtonSecondary,
@@ -209,7 +200,7 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 								if d.Tone == ConfirmDanger {
 									extraVariant = ButtonDanger
 								}
-								Button(c.Key("confirm-"+key+"-extra"), ButtonOpts{
+								extraBtn = Button(c.Key("confirm-"+key+"-extra"), ButtonOpts{
 									Text:    d.ExtraLabel,
 									Variant: extraVariant,
 									OnClick: func() { run(d.OnExtra) },
@@ -218,7 +209,7 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 						}
 						// 默认焦点通常在确认按钮上，让 Enter 直接确认；
 						// CancelAutoFocus 为 true 时把焦点放到「取消」上，防止不可撤销操作误按 Enter。
-						confirmBtn := Button(c.Key("confirm-"+key+"-confirm"), ButtonOpts{
+						confirmBtn = Button(c.Key("confirm-"+key+"-confirm"), ButtonOpts{
 							Text:     confirmText,
 							Label:    d.ConfirmA11y,
 							Variant:  confirmVariant,
@@ -231,6 +222,29 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 						}
 					})
 			})
+		if c.Shortcut(0, ui.KeyEnter) {
+			switch {
+			case cancelBtn.Valid() && cancelBtn.Focused():
+				run(d.OnCancel)
+			case extraBtn.Valid() && extraBtn.Focused():
+				run(d.OnExtra)
+			case confirmBtn.Valid() && confirmBtn.Focused():
+				if d.Tone == ConfirmNotice {
+					closeNotice()
+				} else if !d.ConfirmDisabled {
+					run(d.OnConfirm)
+				}
+			default:
+				if d.Tone == ConfirmNotice {
+					closeNotice()
+				} else if d.CancelAutoFocus {
+					run(d.OnCancel)
+				} else if !d.ConfirmDisabled {
+					run(d.OnConfirm)
+				}
+			}
+			return
+		}
 	})
 
 	// 点遮罩关闭时 DialogBase 只把开关置回 false，这里补上取消回调。

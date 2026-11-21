@@ -554,22 +554,16 @@ func (s *chatState) sendToParentThread(leadID string, m Message) {
 
 // renderSendToParentButton 渲染助手操作栏的「回报父会话」按钮，只在子会话中显示。
 func renderSendToParentButton(c *ui.Context, s *chatState, m Message, leadID string) {
-	pressButton0 := ui.ButtonBase(c.Key("send-parent-btn-"+m.ID)).
-		Label("回报父会话").
-		Tooltip("发送回父会话").
-		Padding(Space0, Space2).
-		Radius(RadiusXS).
-		Background(ThemeHover(c)).
-		OnClick(func() {
+	Button(c.Key("send-parent-btn-"+m.ID), ButtonOpts{
+		Text:    "回报父会话",
+		Icon:    IconReply(),
+		Label:   "回报父会话",
+		Tooltip: "发送回父会话",
+		Variant: ButtonGhost,
+		Size:    ControlSM,
+		OnClick: func() {
 			s.sendToParentThread(leadID, m)
-		})
-	pressScale0 := motionPressScale(c, pressButton0, "button-press-scale", true && pressButton0.Pressed())
-	pressButton0.Scale(pressScale0, pressScale0)
-	pressButton0.Children(func() {
-		ui.Row(c.Key("send-parent-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, IconReply()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-			ui.Text(c, "回报父会话").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-		})
+		},
 	})
 }
 
@@ -581,22 +575,16 @@ var (
 // renderEditMessageButton 渲染用户消息操作栏的「修改」按钮：进入就地编辑，
 // 与右键菜单的「编辑」项同一条件（仅用户消息）与同一入口 startInlineEdit。
 func renderEditMessageButton(c *ui.Context, s *chatState, m Message) {
-	pressButton1 := ui.ButtonBase(c.Key("edit-btn-"+m.ID)).
-		Label("修改").
-		Tooltip("修改这条提问").
-		Padding(Space0, Space2).
-		Radius(RadiusXS).
-		Background(ThemeHover(c)).
-		OnClick(func() {
+	Button(c.Key("edit-btn-"+m.ID), ButtonOpts{
+		Text:    "修改",
+		Icon:    IconPencilLine(),
+		Label:   "修改",
+		Tooltip: "修改这条提问",
+		Variant: ButtonGhost,
+		Size:    ControlSM,
+		OnClick: func() {
 			startInlineEdit(s, m)
-		})
-	pressScale1 := motionPressScale(c, pressButton1, "button-press-scale", true && pressButton1.Pressed())
-	pressButton1.Scale(pressScale1, pressScale1)
-	pressButton1.Children(func() {
-		ui.Row(c.Key("edit-btn-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, IconPencilLine()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-			ui.Text(c, "修改").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-		})
+		},
 	})
 }
 
@@ -616,23 +604,17 @@ func branchPopoverState(msgID string) *bool {
 func renderBranchActionButton(c *ui.Context, s *chatState, m Message) {
 	open := branchPopoverState(m.ID)
 
-	btn := ui.ButtonBase(c.Key("branch-btn-"+m.ID)).
-		Label("分支").
-		Tooltip("从这条回复分支新会话").
-		Padding(Space0, Space2).
-		Radius(RadiusXS).
-		Background(ThemeHover(c)).
-		OnClick(func() {
+	btn := Button(c.Key("branch-btn-"+m.ID), ButtonOpts{
+		Text:    "分支",
+		Icon:    IconGitBranch(),
+		Label:   "分支",
+		Tooltip: "从这条回复分支新会话",
+		Variant: ButtonGhost,
+		Size:    ControlSM,
+		OnClick: func() {
 			*open = true
 			s.invalidate()
-		})
-	scale := motionPressScale(c, btn, "button-press-scale", true && btn.Pressed())
-	btn.Scale(scale, scale)
-	btn.Children(func() {
-		ui.Row(c.Key("branch-btn-row-" + m.ID)).Gap(Space1).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, IconGitBranch()).Size(inlineIconSize, inlineIconSize).TextColor(ThemeSecondaryText(c))
-			ui.Text(c, "分支").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-		})
+		},
 	})
 
 	appPopover(c.Key("branch-popover-"+m.ID), btn, open, nil, func() {

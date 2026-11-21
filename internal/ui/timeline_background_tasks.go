@@ -247,6 +247,7 @@ func renderBackgroundWaitBar(c *ui.Context, s *chatState, key string) ui.Element
 	return ui.Column(c.Key(key)).FillWidth().Gap(Space0).Children(func() {
 		btn := ui.ButtonBase(c.Key(key+"-button")).
 			FillWidth().
+			MinHeight(ControlSM).
 			Padding(Space0, 0).
 			Radius(RadiusMD).
 			AlignItems(ui.Center).
@@ -254,6 +255,7 @@ func renderBackgroundWaitBar(c *ui.Context, s *chatState, key string) ui.Element
 			Cursor(ui.CursorPointer).
 			Label("等待后台任务").
 			Tooltip("查看后台任务")
+		focusRing(c, btn)
 		if btn.Hovered() {
 			btn.Background(ThemeHover(c).Alpha(0.5))
 		}
@@ -480,6 +482,7 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 			btn := ui.ButtonBase(c.Key(rowKey+"/button")).Grow(1).Shrink(1).Height(ControlMD).
 				Padding(0, Space3).Radius(RadiusMD).Gap(Space3).AlignItems(ui.Center).
 				Justify(ui.Start).Cursor(ui.CursorPointer).Label(backgroundTaskDisplayTitle(m))
+			focusRing(c, btn)
 			if btn.Hovered() {
 				btn.Background(ThemeHover(c).Alpha(0.5))
 			}
@@ -519,16 +522,17 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 				arrow.Rotate(arrow.AnimateTo("rotation", angle, ui.Animation{Duration: animateDuration(c, DurFast), Ease: ui.EaseOut}))
 			})
 			if canStop {
-				stop := ui.ButtonBase(c.Key(rowKey+"/stop")).Size(18, 18).Label("停止").Tooltip("停止").Cursor(ui.CursorPointer)
-				scale := motionPressScale(c, stop, "button-press-scale", !stopping && stop.Pressed())
-				stop.Scale(scale, scale)
-				if stopping {
-					stop.Opacity(0.5)
-				}
-				if stop.Clicked() && !stopping {
-					stopBackgroundTask(s, threadID, m.ID)
-				}
-				stop.Children(func() { ui.Icon(c, IconStopFilled()).Size(10, 10).TextColor(ThemeSecondaryText(c)) })
+				IconButton(c.Key(rowKey+"/stop"), IconButtonProps{
+					Icon:     IconStopFilled(),
+					Label:    "停止",
+					Tooltip:  "停止",
+					Variant:  ButtonGhost,
+					Size:     ControlSM,
+					Disabled: stopping,
+					OnClick: func() {
+						stopBackgroundTask(s, threadID, m.ID)
+					},
+				})
 			}
 		})
 		motionUnfoldBody(c, rowKey+"/details", expanded, func() {
@@ -582,6 +586,7 @@ func renderBackgroundBeeRow(c *ui.Context, s *chatState, key string, index int, 
 		Cursor(ui.CursorPointer).
 		Label(backgroundTasksBeeLabel(name)).
 		Tooltip(name + " · " + status)
+	focusRing(c, btn)
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c).Alpha(0.5))
 	}

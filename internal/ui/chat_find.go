@@ -762,76 +762,47 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 			}
 
 			// 上一个 / 下一个命中
-			prevBtn := ui.ButtonBase(c.Key("chat-find-prev-btn")).
-				Size(ControlXS, ControlXS).
-				Radius(RadiusXS).
-				Center().
-				Label("上一个匹配 " + shortcutDisplay("⇧↩")).
-				Tooltip("上一个匹配 " + shortcutDisplay("⇧↩"))
-			{
-				scale := motionPressScale(c, prevBtn, "button-press-scale", prevBtn.Pressed())
-				prevBtn.Scale(scale, scale)
-			}
-			if prevBtn.Hovered() {
-				prevBtn.Background(ThemeHover(c))
-			}
-			if prevBtn.Clicked() {
-				stepChatFind(s, f, items, -1)
-				s.invalidate()
-			}
-			prevBtn.Children(func() {
-				ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).Rotate(180).TextColor(ThemeSecondaryText(c))
-			})
+			IconButton(c.Key("chat-find-prev-btn"), IconButtonProps{
+				Icon:    IconArrowUp(),
+				Label:   "上一个匹配 " + shortcutDisplay("⇧↩"),
+				Tooltip: "上一个匹配 " + shortcutDisplay("⇧↩"),
+				Variant: ButtonGhost,
+				Size:    ControlSM,
+				OnClick: func() {
+					stepChatFind(s, f, items, -1)
+					s.invalidate()
+				},
+			}).Shrink(0)
 
-			nextBtn := ui.ButtonBase(c.Key("chat-find-next-btn")).
-				Size(ControlXS, ControlXS).
-				Radius(RadiusXS).
-				Center().
-				Label("下一个匹配 " + shortcutDisplay("↩")).
-				Tooltip("下一个匹配 " + shortcutDisplay("↩"))
-			{
-				scale := motionPressScale(c, nextBtn, "button-press-scale", nextBtn.Pressed())
-				nextBtn.Scale(scale, scale)
-			}
-			if nextBtn.Hovered() {
-				nextBtn.Background(ThemeHover(c))
-			}
-			if nextBtn.Clicked() {
-				stepChatFind(s, f, items, 1)
-				s.invalidate()
-			}
-			nextBtn.Children(func() {
-				ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-			})
+			IconButton(c.Key("chat-find-next-btn"), IconButtonProps{
+				Icon:    IconChevronDown(),
+				Label:   "下一个匹配 " + shortcutDisplay("↩"),
+				Tooltip: "下一个匹配 " + shortcutDisplay("↩"),
+				Variant: ButtonGhost,
+				Size:    ControlSM,
+				OnClick: func() {
+					stepChatFind(s, f, items, 1)
+					s.invalidate()
+				},
+			}).Shrink(0)
 
 			// 区分大小写开关
-			caseBtn := ui.ButtonBase(c.Key("chat-find-case-btn")).
-				Size(ControlXS, ControlXS).
-				Radius(RadiusXS).
-				Center().
-				Label("区分大小写").
-				Tooltip("区分大小写")
-			{
-				scale := motionPressScale(c, caseBtn, "button-press-scale", caseBtn.Pressed())
-				caseBtn.Scale(scale, scale)
-			}
+			caseVariant := ButtonGhost
 			if f.caseSensitive {
-				caseBtn.Background(ThemeSelected(c))
-			} else if caseBtn.Hovered() {
-				caseBtn.Background(ThemeHover(c))
+				caseVariant = ButtonPrimary
 			}
-			if caseBtn.Clicked() {
-				f.caseSensitive = !f.caseSensitive
-				f.dirty = true
-				s.invalidate()
-			}
-			caseBtn.Children(func() {
-				color := ThemeSecondaryText(c)
-				if f.caseSensitive {
-					color = ThemeAccent(c)
-				}
-				ui.Text(c, "Aa").FontSize(uiFont(TypeCaption)).TextColor(color)
-			})
+			Button(c.Key("chat-find-case-btn"), ButtonOpts{
+				Text:    "Aa",
+				Label:   "区分大小写",
+				Tooltip: "区分大小写",
+				Variant: caseVariant,
+				Size:    ControlSM,
+				OnClick: func() {
+					f.caseSensitive = !f.caseSensitive
+					f.dirty = true
+					s.invalidate()
+				},
+			}).Shrink(0)
 
 			IconButton(c.Key("chat-find-close-btn"), IconButtonProps{
 				Icon:  IconX(),
@@ -840,7 +811,7 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 					s.closeChatFind()
 				},
 				Variant: ButtonGhost,
-				Size:    ControlXS,
-			})
+				Size:    ControlSM,
+			}).Shrink(0)
 		})
 }

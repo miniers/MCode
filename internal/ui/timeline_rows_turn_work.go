@@ -209,12 +209,17 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 				Label(headerLabel).
 				Tooltip(tooltip)
 			if !running {
-				header = header.Role(ui.RoleButton)
+				header = header.Role(ui.RoleButton).Focusable()
 			}
 			textColor := ThemeSecondaryText(c)
 			var rotation float32
 			if !running {
 				header.Cursor(ui.CursorPointer).OnClick(func() { s.setToolGroupOpen(item.id, !open) })
+				focusRing(c, header)
+				if header.Focused() && (header.Shortcut(0, ui.KeyEnter) || header.Shortcut(0, ui.KeySpace)) {
+					s.setToolGroupOpen(item.id, !open)
+					s.invalidate()
+				}
 				if header.Hovered() {
 					header.Background(ThemeHover(c).Alpha(0.35))
 					textColor = ThemePrimaryText(c)
@@ -408,17 +413,20 @@ func renderToolBeatReasoning(c *ui.Context, s *chatState, m Message, liveID stri
 // renderToolBeatReasoningToggle 渲染思考叙事末尾的小号「展开」/「收起」文字按钮。
 func renderToolBeatReasoningToggle(c *ui.Context, s *chatState, m Message, text string) {
 	label := text + "思考"
-	ui.ButtonBase(c.Key("tool-beat-think-toggle-"+m.ID)).
+	btn := ui.ButtonBase(c.Key("tool-beat-think-toggle-"+m.ID)).
+		Focusable().
+		Role(ui.RoleButton).
 		Label(label).
 		Tooltip(label).
 		Padding(0, Space0).
 		Cursor(ui.CursorPointer).
 		OnClick(func() {
 			s.toggleReasoning("beat-full:" + m.ID)
-		}).
-		Children(func() {
-			ui.Text(c, text).
-				FontSize(scaledFont(TypeCaption)).
-				TextColor(ThemeSecondaryText(c).Alpha(0.75))
 		})
+	focusRing(c, btn)
+	btn.Children(func() {
+		ui.Text(c, text).
+			FontSize(scaledFont(TypeCaption)).
+			TextColor(ThemeSecondaryText(c).Alpha(0.75))
+	})
 }

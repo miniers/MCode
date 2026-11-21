@@ -499,11 +499,18 @@ func renderToolGroupItem(c *ui.Context, s *chatState, tools []Message, groupID s
 			Radius(RadiusSM).
 			MinHeight(24).
 			Cursor(ui.CursorPointer).
+			Focusable().
+			Role(ui.RoleButton).
 			Label(btnLabel).
 			Tooltip(toolGroupHeaderTooltip(headerText, groupAt)).
 			OnClick(func() {
 				s.setToolGroupOpen(groupID, !open)
 			})
+		focusRing(c, header)
+		if header.Focused() && (header.Shortcut(0, ui.KeyEnter) || header.Shortcut(0, ui.KeySpace)) {
+			s.setToolGroupOpen(groupID, !open)
+			s.invalidate()
+		}
 		// hover 时摘要变为主色，只铺一层很淡的底，避免组头看起来像一个按钮
 		hovered := header.Hovered()
 		textColor := ThemeSecondaryText(c)
