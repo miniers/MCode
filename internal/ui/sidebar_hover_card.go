@@ -324,7 +324,7 @@ func renderSidebarScrollingTitle(c *ui.Context, key, title string, hovered bool,
 	var text ui.Element
 	clip := ui.Row(c.Key(key)).Grow(1).Shrink(1).MinWidth(0).ClipX()
 	clip.Children(func() {
-		text = ui.Text(c, title).SingleLine().FontSize(sidebarFont(size)).TextColor(color)
+		text = ui.Text(c, title).SingleLine().FontSize(sidebarFont(size)).TextColor(color).Tooltip(title)
 		if weight > 0 {
 			text.FontWeight(weight)
 		}

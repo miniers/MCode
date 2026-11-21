@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -103,11 +104,49 @@ func isActivityHiddenHelper(th Thread) bool {
 	return th.IsHelper || th.ParentThreadID != ""
 }
 
+// sidebarActivitySortBuilds 仅用于测试观测动态视图分组排序缓存的重算次数。
+var sidebarActivitySortBuilds atomic.Uint64
+
+const activityGroupCacheMaxEntries = 32
+
+type activityGroupCacheKey struct {
+	fp      sidebarThreadsFingerprint
+	dayUnix int64
+}
+
+type activityGroupCacheEntry struct {
+	key    activityGroupCacheKey
+	groups []activityGroup
+}
+
+var (
+	activityGroupCacheMu sync.Mutex
+	activityGroupCache   []activityGroupCacheEntry
+)
+
 // groupThreadsByActivity 把会话按最后活跃时间（UpdatedAt，本地日历日）分为
 // 今天 / 昨天 / 过去 7 天 / 更早；组内按时间倒序，空组省略。
 // 已休眠（isThreadDormantOrArchived）会话不进入动态视图：它们在项目树里另有折叠分组；
 // 子代理会话（isActivityHiddenHelper）同样不进入动态视图。
+// 结果按会话切片指纹与本地日历日缓存，避免空闲或动画帧每帧拷贝排序。
 func groupThreadsByActivity(threads []Thread, now time.Time) []activityGroup {
+	if len(threads) == 0 {
+		return nil
+	}
+	key := activityGroupCacheKey{
+		fp:      computeThreadsFingerprint(threads),
+		dayUnix: startOfLocalDay(now).Unix(),
+	}
+	activityGroupCacheMu.Lock()
+	for i := len(activityGroupCache) - 1; i >= 0; i-- {
+		if activityGroupCache[i].key == key {
+			groups := activityGroupCache[i].groups
+			activityGroupCacheMu.Unlock()
+			return groups
+		}
+	}
+	activityGroupCacheMu.Unlock()
+
 	buckets := make(map[string][]Thread, len(activityGroupTitles))
 	for _, th := range threads {
 		if isThreadDormantOrArchived(th) {
@@ -130,6 +169,27 @@ func groupThreadsByActivity(threads []Thread, now time.Time) []activityGroup {
 		})
 		groups = append(groups, activityGroup{Title: title, Threads: list})
 	}
+	sidebarActivitySortBuilds.Add(1)
+
+	activityGroupCacheMu.Lock()
+	// 并发下可能已有同 key 写入，覆盖或追加并保持容量上限。
+	replaced := false
+	for i := range activityGroupCache {
+		if activityGroupCache[i].key == key {
+			activityGroupCache[i].groups = groups
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		if len(activityGroupCache) >= activityGroupCacheMaxEntries {
+			copy(activityGroupCache, activityGroupCache[1:])
+			activityGroupCache[len(activityGroupCache)-1] = activityGroupCacheEntry{key: key, groups: groups}
+		} else {
+			activityGroupCache = append(activityGroupCache, activityGroupCacheEntry{key: key, groups: groups})
+		}
+	}
+	activityGroupCacheMu.Unlock()
 	return groups
 }
 

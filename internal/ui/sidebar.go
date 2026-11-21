@@ -23,12 +23,159 @@ import (
 var (
 	sidebarMu     sync.Mutex
 	sidebarSearch = make(map[*chatState]*sidebarSearchState)
+
+	// sidebarDormantSortBuilds 与 sidebarSearchCacheBuilds 仅用于测试观测侧栏排序/搜索缓存重算次数。
+	sidebarDormantSortBuilds atomic.Uint64
+	sidebarSearchCacheBuilds atomic.Uint64
 )
+
+const (
+	sidebarFNVOffset64 uint64 = 14695981039346656037
+	sidebarFNVPrime64  uint64 = 1099511628211
+)
+
+type sidebarThreadsFingerprint struct {
+	count          int
+	latestUpdated  int64
+	latestActivity int64
+	digest         uint64
+}
+
+func hashStringFNV(h uint64, s string) uint64 {
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= sidebarFNVPrime64
+	}
+	h ^= 0xff
+	h *= sidebarFNVPrime64
+	return h
+}
+
+func hashUint64FNV(h, v uint64) uint64 {
+	for i := 0; i < 8; i++ {
+		h ^= v & 0xff
+		h *= sidebarFNVPrime64
+		v >>= 8
+	}
+	return h
+}
+
+func computeThreadsFingerprint(threads []Thread) sidebarThreadsFingerprint {
+	h := sidebarFNVOffset64
+	h = hashUint64FNV(h, uint64(len(threads)))
+	var latestUpdated, latestActivity int64
+	for i := range threads {
+		th := &threads[i]
+		u := th.UpdatedAt.UnixNano()
+		if th.UpdatedAt.IsZero() {
+			u = 0
+		}
+		if u > latestUpdated {
+			latestUpdated = u
+		}
+		act := threadActivityTime(*th)
+		a := act.UnixNano()
+		if act.IsZero() {
+			a = 0
+		}
+		if a > latestActivity {
+			latestActivity = a
+		}
+		h = hashStringFNV(h, th.ID)
+		h = hashStringFNV(h, th.Title)
+		h = hashStringFNV(h, th.ProjectID)
+		h = hashStringFNV(h, th.ParentThreadID)
+		var flags uint64
+		if th.Dormant {
+			flags |= 1 << 0
+		}
+		if th.IsHelper {
+			flags |= 1 << 1
+		}
+		h = hashUint64FNV(h, flags)
+		h = hashUint64FNV(h, uint64(u))
+		h = hashUint64FNV(h, uint64(a))
+	}
+	return sidebarThreadsFingerprint{
+		count:          len(threads),
+		latestUpdated:  latestUpdated,
+		latestActivity: latestActivity,
+		digest:         h,
+	}
+}
+
+func computeProjectsFingerprint(projects []Project) uint64 {
+	h := sidebarFNVOffset64
+	h = hashUint64FNV(h, uint64(len(projects)))
+	for i := range projects {
+		h = hashStringFNV(h, projects[i].ID)
+		h = hashStringFNV(h, projects[i].Name)
+	}
+	return h
+}
+
+func computeThreadsByProjFingerprint(chatsProjID string, projects []Project, threadsByProj map[string][]Thread) sidebarThreadsFingerprint {
+	h := sidebarFNVOffset64
+	total := 0
+	var latestUpdated, latestActivity int64
+	mixSlice := func(pid string, list []Thread) {
+		fp := computeThreadsFingerprint(list)
+		total += fp.count
+		if fp.latestUpdated > latestUpdated {
+			latestUpdated = fp.latestUpdated
+		}
+		if fp.latestActivity > latestActivity {
+			latestActivity = fp.latestActivity
+		}
+		h = hashStringFNV(h, pid)
+		h = hashUint64FNV(h, uint64(fp.count))
+		h = hashUint64FNV(h, uint64(fp.latestUpdated))
+		h = hashUint64FNV(h, uint64(fp.latestActivity))
+		h = hashUint64FNV(h, fp.digest)
+	}
+	if chatsProjID != "" {
+		mixSlice(chatsProjID, threadsByProj[chatsProjID])
+	}
+	for i := range projects {
+		mixSlice(projects[i].ID, threadsByProj[projects[i].ID])
+	}
+	return sidebarThreadsFingerprint{
+		count:          total,
+		latestUpdated:  latestUpdated,
+		latestActivity: latestActivity,
+		digest:         h,
+	}
+}
+
+type sidebarDormantSplitCache struct {
+	fp      sidebarThreadsFingerprint
+	active  []Thread
+	dormant []Thread
+}
+
+type sidebarSearchCacheKey struct {
+	lowerQuery   string
+	activityView bool
+	filter       sidebarThreadFilter
+	chatsProjID  string
+	projectsFP   uint64
+	threadsFP    sidebarThreadsFingerprint
+	dayUnix      int64
+}
 
 type sidebarSearchState struct {
 	query               string
 	visible             []Thread
 	dormantProjectsOpen bool
+
+	searchValid            bool
+	searchKey              sidebarSearchCacheKey
+	cachedMatchesByProject map[string][]Thread
+	cachedChatsMatches     []Thread
+	cachedMatchingThreads  []Thread
+	cachedActivityGroups   []activityGroup
+
+	dormantByProj map[string]sidebarDormantSplitCache
 }
 
 const sidebarDormantProjectWindow = 14 * 24 * time.Hour
@@ -177,8 +324,47 @@ func isThreadDormantOrArchived(th Thread) bool {
 	return th.Dormant
 }
 
+const filterMatchCacheMaxEntries = 64
+
+type filterMatchCacheKey struct {
+	fp             sidebarThreadsFingerprint
+	lowerQuery     string
+	projectMatches bool
+	activityView   bool
+}
+
+type filterMatchCacheEntry struct {
+	key    filterMatchCacheKey
+	result []Thread
+}
+
+var (
+	filterMatchCacheMu sync.Mutex
+	filterMatchCache   []filterMatchCacheEntry
+)
+
 // filterMatchingThreads 按搜索词过滤单个项目的会话，保持活跃在前、休眠按活跃时间倒序在后。
+// 结果按会话切片指纹与过滤参数缓存，避免渲染帧重复过滤与排序休眠会话。
 func filterMatchingThreads(threads []Thread, lowerQuery string, projectMatches, activityView bool) []Thread {
+	if len(threads) == 0 {
+		return nil
+	}
+	key := filterMatchCacheKey{
+		fp:             computeThreadsFingerprint(threads),
+		lowerQuery:     lowerQuery,
+		projectMatches: projectMatches,
+		activityView:   activityView,
+	}
+	filterMatchCacheMu.Lock()
+	for i := len(filterMatchCache) - 1; i >= 0; i-- {
+		if filterMatchCache[i].key == key {
+			res := filterMatchCache[i].result
+			filterMatchCacheMu.Unlock()
+			return res
+		}
+	}
+	filterMatchCacheMu.Unlock()
+
 	var active, dormant []Thread
 	for _, th := range threads {
 		// 动态视图不显示子代理，这里同样跳过它们：否则方向键会落在看不见的行上。
@@ -194,10 +380,165 @@ func filterMatchingThreads(threads []Thread, lowerQuery string, projectMatches, 
 			}
 		}
 	}
-	sort.SliceStable(dormant, func(i, j int) bool {
-		return threadActivityTime(dormant[i]).After(threadActivityTime(dormant[j]))
-	})
-	return append(active, dormant...)
+	if len(dormant) > 1 {
+		sidebarDormantSortBuilds.Add(1)
+		sort.SliceStable(dormant, func(i, j int) bool {
+			return threadActivityTime(dormant[i]).After(threadActivityTime(dormant[j]))
+		})
+	}
+	result := make([]Thread, 0, len(active)+len(dormant))
+	result = append(result, active...)
+	result = append(result, dormant...)
+
+	filterMatchCacheMu.Lock()
+	replaced := false
+	for i := range filterMatchCache {
+		if filterMatchCache[i].key == key {
+			filterMatchCache[i].result = result
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		if len(filterMatchCache) >= filterMatchCacheMaxEntries {
+			copy(filterMatchCache, filterMatchCache[1:])
+			filterMatchCache[len(filterMatchCache)-1] = filterMatchCacheEntry{key: key, result: result}
+		} else {
+			filterMatchCache = append(filterMatchCache, filterMatchCacheEntry{key: key, result: result})
+		}
+	}
+	filterMatchCacheMu.Unlock()
+	return result
+}
+
+func splitAndSortProjectThreads(s *chatState, projectID string, topThs []Thread) (activeThs, dormantThs []Thread) {
+	if len(topThs) == 0 {
+		return nil, nil
+	}
+	fp := computeThreadsFingerprint(topThs)
+	if s != nil {
+		sidebarMu.Lock()
+		if state := sidebarSearch[s]; state != nil && state.dormantByProj != nil {
+			if entry, ok := state.dormantByProj[projectID]; ok && entry.fp == fp {
+				sidebarMu.Unlock()
+				return entry.active, entry.dormant
+			}
+		}
+		sidebarMu.Unlock()
+	}
+
+	for _, th := range topThs {
+		if th.Dormant {
+			dormantThs = append(dormantThs, th)
+		} else {
+			activeThs = append(activeThs, th)
+		}
+	}
+	// 已休眠会话按活跃时间（LastUserMessageAt，零值回退 UpdatedAt）倒序排列，与 SortThreads 一致
+	if len(dormantThs) > 1 {
+		sidebarDormantSortBuilds.Add(1)
+		sort.SliceStable(dormantThs, func(i, j int) bool {
+			return threadActivityTime(dormantThs[i]).After(threadActivityTime(dormantThs[j]))
+		})
+	}
+
+	if s != nil {
+		sidebarMu.Lock()
+		state := sidebarSearch[s]
+		if state == nil {
+			state = &sidebarSearchState{}
+			sidebarSearch[s] = state
+		}
+		if state.dormantByProj == nil {
+			state.dormantByProj = make(map[string]sidebarDormantSplitCache)
+		}
+		state.dormantByProj[projectID] = sidebarDormantSplitCache{
+			fp:      fp,
+			active:  activeThs,
+			dormant: dormantThs,
+		}
+		sidebarMu.Unlock()
+	}
+	return activeThs, dormantThs
+}
+
+func computeSidebarSearchResults(
+	s *chatState,
+	lowerQuery string,
+	activityView bool,
+	filter sidebarThreadFilter,
+	chatsProjID string,
+	projects []Project,
+	threadsByProj map[string][]Thread,
+	now time.Time,
+) (matchesByProject map[string][]Thread, chatsMatches []Thread, matchingThreads []Thread, activityGroups []activityGroup) {
+	if lowerQuery == "" {
+		return nil, nil, nil, nil
+	}
+	var dayUnix int64
+	if activityView {
+		dayUnix = startOfLocalDay(now).Unix()
+	}
+	key := sidebarSearchCacheKey{
+		lowerQuery:   lowerQuery,
+		activityView: activityView,
+		filter:       filter,
+		chatsProjID:  chatsProjID,
+		projectsFP:   computeProjectsFingerprint(projects),
+		threadsFP:    computeThreadsByProjFingerprint(chatsProjID, projects, threadsByProj),
+		dayUnix:      dayUnix,
+	}
+	if s != nil {
+		sidebarMu.Lock()
+		if state := sidebarSearch[s]; state != nil && state.searchValid && state.searchKey == key {
+			matchesByProject = state.cachedMatchesByProject
+			chatsMatches = state.cachedChatsMatches
+			matchingThreads = state.cachedMatchingThreads
+			activityGroups = state.cachedActivityGroups
+			sidebarMu.Unlock()
+			return matchesByProject, chatsMatches, matchingThreads, activityGroups
+		}
+		sidebarMu.Unlock()
+	}
+
+	matchesByProject = make(map[string][]Thread)
+	if chatsProjID != "" {
+		chatsMatches = filterMatchingThreads(threadsByProj[chatsProjID], lowerQuery, false, activityView)
+		matchingThreads = append(matchingThreads, chatsMatches...)
+	}
+	for _, p := range projects {
+		projectMatches := strings.Contains(strings.ToLower(p.Name), lowerQuery)
+		matched := filterMatchingThreads(threadsByProj[p.ID], lowerQuery, projectMatches, activityView)
+		if projectMatches || len(matched) > 0 {
+			matchesByProject[p.ID] = matched
+			matchingThreads = append(matchingThreads, matched...)
+		}
+	}
+	if activityView {
+		activityGroups = groupThreadsByActivity(matchingThreads, now)
+		matchingThreads = nil
+		for _, group := range activityGroups {
+			matchingThreads = append(matchingThreads, group.Threads...)
+		}
+	}
+	sidebarSearchCacheBuilds.Add(1)
+
+	if s != nil {
+		sidebarMu.Lock()
+		state := sidebarSearch[s]
+		if state == nil {
+			state = &sidebarSearchState{}
+			sidebarSearch[s] = state
+		}
+		state.searchValid = true
+		state.searchKey = key
+		state.cachedMatchesByProject = matchesByProject
+		state.cachedChatsMatches = chatsMatches
+		state.cachedMatchingThreads = matchingThreads
+		state.cachedActivityGroups = activityGroups
+		sidebarMu.Unlock()
+	}
+	return matchesByProject, chatsMatches, matchingThreads, activityGroups
 }
 
 // 侧边栏活跃会话分页参数：默认展示 sidebarThreadPageInit 条，每次「加载更多」追加 sidebarThreadPageStep 条。
@@ -658,30 +999,9 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	lowerQuery := strings.ToLower(searchQuery)
 
 	activityView := s.activityViewEnabled()
-	matchesByProject := make(map[string][]Thread)
-	var chatsMatches []Thread
-	var matchingThreads []Thread
-	if lowerQuery != "" {
-		if chatsProjID != "" {
-			chatsMatches = filterMatchingThreads(threadsByProj[chatsProjID], lowerQuery, false, activityView)
-			matchingThreads = append(matchingThreads, chatsMatches...)
-		}
-		for _, p := range projects {
-			projectMatches := strings.Contains(strings.ToLower(p.Name), lowerQuery)
-			matched := filterMatchingThreads(threadsByProj[p.ID], lowerQuery, projectMatches, activityView)
-			if projectMatches || len(matched) > 0 {
-				matchesByProject[p.ID] = matched
-				matchingThreads = append(matchingThreads, matched...)
-			}
-		}
-		if activityView {
-			groups := groupThreadsByActivity(matchingThreads, time.Now())
-			matchingThreads = nil
-			for _, group := range groups {
-				matchingThreads = append(matchingThreads, group.Threads...)
-			}
-		}
-	}
+	matchesByProject, chatsMatches, matchingThreads, searchActivityGroups := computeSidebarSearchResults(
+		s, lowerQuery, activityView, filter, chatsProjID, projects, threadsByProj, now,
+	)
 
 	// 状态分组：闩锁的 split 每次都会整体重建归属表，逐项目调用会互相覆盖，
 	// 所以整帧先对全部活跃会话切分一次，项目循环里再按 ID 取用。
@@ -809,7 +1129,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 			// 动态视图：不渲染项目树，按最后活跃时间分组平铺全部会话；搜索词非空时按标题过滤。
 			if activityView {
 				if lowerQuery != "" {
-					groups := groupThreadsByActivity(matchingThreads, time.Now())
+					groups := searchActivityGroups
 					if len(groups) == 0 && len(chatsMatches) == 0 {
 						renderSidebarNoResultsCard(c)
 						return
@@ -1178,20 +1498,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						}
 					}
 
-					var activeThs []Thread
-					var dormantThs []Thread
-					for _, th := range topThs {
-						if th.Dormant {
-							dormantThs = append(dormantThs, th)
-						} else {
-							activeThs = append(activeThs, th)
-						}
-					}
-
-					// 已休眠会话按活跃时间（LastUserMessageAt，零值回退 UpdatedAt）倒序排列，与 SortThreads 一致
-					sort.SliceStable(dormantThs, func(i, j int) bool {
-						return threadActivityTime(dormantThs[i]).After(threadActivityTime(dormantThs[j]))
-					})
+					activeThs, dormantThs := splitAndSortProjectThreads(s, pVal.ID, topThs)
 
 					renderThreadItem := func(th Thread, isDormant bool, needsYou bool) {
 						// 键盘高亮匹配判定
@@ -1289,25 +1596,14 @@ func renderSidebar(c *ui.Context, s *chatState) {
 								Radius(RowCornerRadius)
 
 							limitBar.Children(func() {
-								// 次级纯文字链（synara / droppy 风格）：无底色，悬停只把文字提亮到主文字色
+								// 分页文字按钮收口为 Button（保留原文案与无障碍标签，统一提供焦点环与按压动效）
 								barButton := func(key, label string, onClick func()) {
-									btn := ui.ButtonBase(c.Key(key)).
-										Padding(Space0, 0).
-										Label(label)
-									btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
-									btn.Scale(btnScale, btnScale)
-									if btn.Clicked() {
-										onClick()
-									}
-									textColor := secondaryText
-									if btn.Hovered() {
-										textColor = primaryText
-									}
-									btn.Children(func() {
-										ui.Text(c, label).
-											FontSize(sidebarFont(FontSizeDormantTitle)).
-											TextColor(textColor).
-											SingleLine()
+									Button(c.Key(key), ButtonOpts{
+										Text:    label,
+										Label:   label,
+										Variant: ButtonGhost,
+										Size:    ControlXS,
+										OnClick: onClick,
 									})
 								}
 
@@ -1528,6 +1824,7 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 		AlignItems(ui.Center).
 		Radius(RowCornerRadius).
 		Label(rowLabel).
+		Role(ui.RoleListItem).
 		Focusable().
 		KeepFocus()
 
@@ -1627,7 +1924,7 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 			renderSidebarScrollingTitle(c, "th-title-"+o.projectID+"-"+thVal.ID, title, rowHovered, 0, titleSize, titleWeight, titleColor)
 		} else {
 			tTitle := ui.Text(c, title).Grow(1).Shrink(1).MinWidth(0).MaxLines(2).Ellipsis("…").
-				FontSize(sidebarFont(titleSize)).TextColor(titleColor)
+				FontSize(sidebarFont(titleSize)).TextColor(titleColor).Tooltip(title)
 			if titleWeight > 0 {
 				tTitle.FontWeight(titleWeight)
 			}
@@ -1674,7 +1971,7 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 				Tooltip("有未发送草稿")
 		}
 
-		// 状态内容始终占位，悬停操作覆盖在右侧，避免标题宽度跳变。
+		// 状态内容始终占位，悬停或聚焦操作覆盖在行尾，避免标题宽度跳变与行高撑大。
 		ui.Row(c.Key("th-slot-" + thVal.ID)).MinWidth(ControlMD).Shrink(0).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 			status := ui.Row(c.Key("th-status-" + thVal.ID)).AlignItems(ui.Center)
 			if showRowActions {
@@ -1683,12 +1980,12 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 			status.Children(func() {
 				renderSidebarStatusSlot(c, s, thVal, secondaryText, o.needsYou)
 			})
-			if showRowActions {
-				ui.Row(c.Key("th-actions-" + thVal.ID)).Absolute().Right(0).Top(0).Bottom(0).AlignItems(ui.Center).Children(func() {
-					renderThreadRowHoverActions(c, s, o, thVal)
-				})
-			}
 		})
+		if showRowActions {
+			ui.Row(c.Key("th-actions-" + thVal.ID)).Absolute().Right(o.padX).Top(0).Bottom(0).AlignItems(ui.Center).Children(func() {
+				renderThreadRowHoverActions(c, s, o, thVal)
+			})
+		}
 	})
 
 	// 步骤 3: 渲染完父会话行之后调用 bee 子行（含全部空闲被自动隐藏时的展开触发行）
@@ -2030,29 +2327,18 @@ func threadContextMenu(c *ui.Context, s *chatState, projectID string, thVal Thre
 	}
 }
 
-// renderThreadRowHoverActions 渲染会话行悬停时右侧的「更多操作」按钮（ellipsis 图标，
-// 点击打开该会话的上下文菜单）。休眠入口只保留在右键菜单与项目菜单里，
+// renderThreadRowHoverActions 渲染会话行悬停或焦点进入时右侧的「更多操作」按钮（ellipsis 图标，
+// 热区至少 ControlSM，点击打开该会话的上下文菜单）。休眠入口只保留在右键菜单与项目菜单里，
 // 行悬停不再提供按钮，避免误点把会话休眠掉。
 func renderThreadRowHoverActions(c *ui.Context, s *chatState, o sidebarThreadRowOptions, thVal Thread) {
-	secondaryText := ThemeSecondaryText(c)
-	hoverBg := ThemeHover(c)
-
-	moreBtn := ui.ButtonBase(c.Key("th-more-"+thVal.ID)).
-		Label("更多操作").
-		Tooltip("更多操作").
-		Radius(RadiusSM).
-		Padding(Space0, Space1)
-	moreBtnScale := motionPressScale(c, moreBtn, "button-press-scale", moreBtn.Pressed())
-	moreBtn.Scale(moreBtnScale, moreBtnScale)
-	if moreBtn.Hovered() {
-		moreBtn.Background(hoverBg)
-	}
-	moreBtn.Menu(threadContextMenu(c, s, o.projectID, thVal))
-	moreBtn.Children(func() {
-		ui.Icon(c, IconMoreHorizontal()).
-			Size(14, 14).
-			TextColor(secondaryText)
-	})
+	IconButton(c, IconButtonProps{
+		Key:     "th-more-" + thVal.ID,
+		Icon:    IconMoreHorizontal(),
+		Size:    ControlSM,
+		Variant: ButtonGhost,
+		Label:   "更多操作",
+		Tooltip: "更多操作",
+	}).Menu(threadContextMenu(c, s, o.projectID, thVal))
 }
 
 // renderSidebarModals 统一渲染侧边栏相关的模态弹窗（重命名、删除会话、移除项目）。

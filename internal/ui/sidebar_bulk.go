@@ -130,76 +130,57 @@ func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 				Gap(Space2).
 				Padding(Space0, 0).
 				Children(func() {
-					// 包含置顶
-					pinnedRow := ui.Row(c.Key("bulk-check-pinned")).
-						Gap(Space3).
-						AlignItems(ui.Center).
-						Radius(RadiusXS).
-						Label("包含置顶")
-					if pinnedRow.Hovered() {
-						pinnedRow.Background(ThemeHover(c).Alpha(0.2))
+					renderBulkCheckRow := func(key, label string, checked bool, toggle func()) {
+						checkRow := ui.Row(c.Key(key)).
+							Gap(Space3).
+							AlignItems(ui.Center).
+							Radius(RadiusXS).
+							Label(label).
+							Role(ui.RoleCheckBox).
+							Checked(checked).
+							Focusable().
+							KeepFocus()
+						if checkRow.Hovered() {
+							checkRow.Background(ThemeHover(c).Alpha(0.2))
+						}
+						focusRing(c, checkRow)
+						if checkRow.Clicked() || (checkRow.Focused() && (checkRow.Shortcut(0, ui.KeyEnter) || checkRow.Shortcut(0, ui.KeySpace))) {
+							toggle()
+						}
+						checkRow.Children(func() {
+							box := ui.Box(c.Key(key + "-box")).
+								Size(14, 14).
+								Radius(RadiusXS).
+								Center()
+							if checked {
+								box.Background(ThemeAccent(c))
+								box.Children(func() {
+									ui.Icon(c, IconCheck()).
+										Size(10, 10).
+										TextColor(ThemeOnAccent(c))
+								})
+							} else {
+								box.Border(1, ThemeBorder(c)).
+									Background(ThemeHover(c).Alpha(0.1))
+							}
+							ui.Text(c, label).
+								FontSize(sidebarFont(TypeFootnote)).
+								TextColor(primaryText)
+						})
 					}
-					pinnedRow.OnClick(func() {
+
+					renderBulkCheckRow("bulk-check-pinned", "包含置顶", incPinned, func() {
 						s.mu.Lock()
 						s.bulkIncludePinned = !s.bulkIncludePinned
 						s.mu.Unlock()
 						s.invalidate()
 					})
-					pinnedRow.Children(func() {
-						box := ui.Box(c.Key("bulk-check-pinned-box")).
-							Size(14, 14).
-							Radius(RadiusXS).
-							Center()
-						if incPinned {
-							box.Background(ThemeAccent(c))
-							box.Children(func() {
-								ui.Icon(c, IconCheck()).
-									Size(10, 10).
-									TextColor(ThemeOnAccent(c))
-							})
-						} else {
-							box.Border(1, ThemeBorder(c)).
-								Background(ThemeHover(c).Alpha(0.1))
-						}
-						ui.Text(c, "包含置顶").
-							FontSize(sidebarFont(TypeFootnote)).
-							TextColor(primaryText)
-					})
 
-					// 包含已休眠
-					dormantRow := ui.Row(c.Key("bulk-check-dormant")).
-						Gap(Space3).
-						AlignItems(ui.Center).
-						Radius(RadiusXS).
-						Label("包含已休眠")
-					if dormantRow.Hovered() {
-						dormantRow.Background(ThemeHover(c).Alpha(0.2))
-					}
-					dormantRow.OnClick(func() {
+					renderBulkCheckRow("bulk-check-dormant", "包含已休眠", incDormant, func() {
 						s.mu.Lock()
 						s.bulkIncludeDormant = !s.bulkIncludeDormant
 						s.mu.Unlock()
 						s.invalidate()
-					})
-					dormantRow.Children(func() {
-						box := ui.Box(c.Key("bulk-check-dormant-box")).
-							Size(14, 14).
-							Radius(RadiusXS).
-							Center()
-						if incDormant {
-							box.Background(ThemeAccent(c))
-							box.Children(func() {
-								ui.Icon(c, IconCheck()).
-									Size(10, 10).
-									TextColor(ThemeOnAccent(c))
-							})
-						} else {
-							box.Border(1, ThemeBorder(c)).
-								Background(ThemeHover(c).Alpha(0.1))
-						}
-						ui.Text(c, "包含已休眠").
-							FontSize(sidebarFont(TypeFootnote)).
-							TextColor(primaryText)
 					})
 				})
 
