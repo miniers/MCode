@@ -542,3 +542,40 @@ func archivedThreadBodyPage(threadID string, msgs []Message, offset, limit int) 
 	}
 	return total, body[start:end]
 }
+
+// ArchivedHelperThreadIDs 返回已归档且最后活动时间早于 idleBefore 的子代理（is_helper = 1）会话 ID，
+// 按更新时间升序排列，最多返回 limit 个。
+func (s *Store) ArchivedHelperThreadIDs(ctx context.Context, idleBefore time.Time, limit int) ([]string, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("store is not initialized")
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+	SELECT t.id
+	FROM threads t
+	WHERE t.is_helper = 1
+	  AND t.archived = 1
+	  AND t.updated_at < ?
+	ORDER BY t.updated_at ASC
+	LIMIT ?
+	`, formatTime(idleBefore), limit)
+	if err != nil {
+		return nil, fmt.Errorf("query archived helper thread ids: %w", err)
+	}
+	defer rows.Close()
+
+	var threadIDs []string
+	for rows.Next() {
+		var threadID string
+		if err := rows.Scan(&threadID); err != nil {
+			return nil, fmt.Errorf("scan archived helper thread id: %w", err)
+		}
+		threadIDs = append(threadIDs, threadID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate archived helper thread ids: %w", err)
+	}
+	return threadIDs, nil
+}

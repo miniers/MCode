@@ -24,6 +24,12 @@ var advancedConversation = settingsSection{
 			Aliases: []string{"压缩 30 天前的子代理消息", "保留", "压缩", "子代理", "bee", "30 天", "工具输出", "思考", "不可恢复", "主会话"},
 			Control: toggle(ptr(func(c *config.Config) **bool { return &c.Retention.BeeMessages }, true)),
 		},
+		{
+			ID:      "row-archived-bee-cleanup",
+			Title:   "自动删除已归档子代理会话",
+			Aliases: []string{"子代理", "bee", "归档", "删除", "30 天", "空间"},
+			Control: toggle(ptr(func(c *config.Config) **bool { return &c.Retention.ArchivedBees }, true)),
+		},
 	},
 }
 

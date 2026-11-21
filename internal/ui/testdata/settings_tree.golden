@@ -24,6 +24,7 @@ row row-confirm-delete 删除会话前确认
 section advanced.conversation 高级
 row row-ask-compact-before-resume 恢复旧会话前询问压缩
 row row-bee-message-retention 自动压缩历史消息
+row row-archived-bee-cleanup 自动删除已归档子代理会话
 page extensions
 section skills.list 技能
 row block-skills 

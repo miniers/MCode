@@ -483,3 +483,69 @@ func TestColdArchiveCorruptPayload(t *testing.T) {
 		t.Fatalf("ThreadMessagesPage 应返回带会话 ID 的错误，实际: %v", err)
 	}
 }
+
+// TestArchivedHelperThreadIDs 验证只返回已归档、is_helper=1、更新时间早于 idleBefore 的会话，
+// 按时间升序排列且遵守 limit。
+func TestArchivedHelperThreadIDs(t *testing.T) {
+	t.Parallel()
+	s, projectID := caNewStore(t)
+	ctx := context.Background()
+	cutoff := coldArchiveTestNow.Add(-30 * 24 * time.Hour)
+
+	create := func(id string, isHelper, archived bool, updatedAt time.Time) {
+		t.Helper()
+		if err := s.CreateThread(ctx, Thread{
+			ID:        id,
+			ProjectID: projectID,
+			Title:     "会话 " + id,
+			Provider:  "openai",
+			IsHelper:  isHelper,
+			CreatedAt: updatedAt,
+			UpdatedAt: updatedAt,
+		}); err != nil {
+			t.Fatalf("CreateThread %s 失败: %v", id, err)
+		}
+		if archived {
+			if err := s.SetThreadArchived(ctx, id, true); err != nil {
+				t.Fatalf("SetThreadArchived %s 失败: %v", id, err)
+			}
+		}
+	}
+
+	// 符合条件的三条（故意乱序插入，验证按 updated_at 升序返回）
+	create("bee-mid", true, true, cutoff.Add(-48*time.Hour))
+	create("bee-oldest", true, true, cutoff.Add(-72*time.Hour))
+	create("bee-newest-ok", true, true, cutoff.Add(-1*time.Second))
+
+	// 不应返回的四条：主会话、未归档 bee、刚好等于边界、比边界新
+	create("main-old-archived", false, true, cutoff.Add(-96*time.Hour))
+	create("bee-old-unarchived", true, false, cutoff.Add(-96*time.Hour))
+	create("bee-at-cutoff", true, true, cutoff)
+	create("bee-recent", true, true, cutoff.Add(time.Hour))
+
+	got, err := s.ArchivedHelperThreadIDs(ctx, cutoff, 10)
+	if err != nil {
+		t.Fatalf("ArchivedHelperThreadIDs 失败: %v", err)
+	}
+	want := []string{"bee-oldest", "bee-mid", "bee-newest-ok"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ArchivedHelperThreadIDs = %v, want %v", got, want)
+	}
+
+	limited, err := s.ArchivedHelperThreadIDs(ctx, cutoff, 2)
+	if err != nil {
+		t.Fatalf("ArchivedHelperThreadIDs(limit=2) 失败: %v", err)
+	}
+	wantLimited := []string{"bee-oldest", "bee-mid"}
+	if !reflect.DeepEqual(limited, wantLimited) {
+		t.Fatalf("ArchivedHelperThreadIDs(limit=2) = %v, want %v", limited, wantLimited)
+	}
+
+	zero, err := s.ArchivedHelperThreadIDs(ctx, cutoff, 0)
+	if err != nil {
+		t.Fatalf("ArchivedHelperThreadIDs(limit=0) 失败: %v", err)
+	}
+	if len(zero) != 0 {
+		t.Fatalf("ArchivedHelperThreadIDs(limit=0) = %v, want empty", zero)
+	}
+}

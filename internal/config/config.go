@@ -620,6 +620,8 @@ type RetentionConfig struct {
 	BeeMessages *bool `json:"bee_messages,omitempty"`
 	// ColdArchive 表示是否执行会话冷归档任务，nil 视为开启。
 	ColdArchive *bool `json:"cold_archive,omitempty"`
+	// ArchivedBees 表示是否自动删除已归档且超期静默的 bee 子代理会话，nil 视为开启。
+	ArchivedBees *bool `json:"archived_bees,omitempty"`
 }
 
 // BeeMessagesEnabled 返回是否执行 bee 子代理会话消息保留任务，nil 视为开启。
@@ -636,6 +638,14 @@ func (r RetentionConfig) ColdArchiveEnabled() bool {
 		return true
 	}
 	return *r.ColdArchive
+}
+
+// ArchivedBeesEnabled 返回是否自动删除已归档的 bee 子代理会话，nil 视为开启。
+func (r RetentionConfig) ArchivedBeesEnabled() bool {
+	if r.ArchivedBees == nil {
+		return true
+	}
+	return *r.ArchivedBees
 }
 
 // SkillsInjectPromptEnabled 返回是否注入技能规则到提示词，nil 时默认开启。

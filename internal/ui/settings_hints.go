@@ -46,6 +46,7 @@ var settingHints = map[string]string{
 	"row-confirm-delete":            "打开后，删除会话前先弹出确认框。",
 	"row-ask-compact-before-resume": "打开超过 1 小时没动、上下文占用较高的旧会话时，先问你是否压缩。",
 	"row-bee-message-retention":     "后台压缩已结束会话里的工具和思考记录，内容不丢。满 30 天的子代理思考内容将被删除。",
+	"row-archived-bee-cleanup":      "后台自动清理已归档且超过 30 天未活动的子代理会话，保留任务结论。",
 
 	// 工作台
 	"row-global-instructions":            "编辑全局指令。指令对所有项目和会话生效。",

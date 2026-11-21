@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -1570,46 +1571,92 @@ func Open(opts Options) (*App, error) {
 	// 内置「对话」项目：无论总管是否启用都在后端可用后确保存在，供随手问答会话使用。
 	ensureChatsProject(context.Background(), backend, client, opts.DataDir)
 
-	// bee 消息保留：后台每天压缩一次已结束满 30 天的 bee 会话消息。
-	// 开关每次现读配置，读不到配置时跳过，不动数据。
+	// 数据保留与清理：后台每天按各自开关执行 bee 消息压缩、冷归档、已归档 bee 删除与空闲页回收。
+	// 每轮开头只读一次配置，读不到配置时跳过本轮，不动数据。
 	if dbStore != nil {
 		appInstance.retention = startMessageRetentionScheduler(
 			func(ctx context.Context) error {
-				if _, err := dbStore.RunBeeMessageRetention(ctx, store.BeeRetentionConfig{}); err != nil {
-					return err
+				cfg, err := config.Load(opts.DataDir)
+				if err != nil {
+					log.Printf("数据保留: 读取配置失败，跳过本轮: %v", err)
+					return nil
 				}
-				// 冷归档：把长期无消息的会话压进冷存储，开关每次现读配置，读不到就跳过这一步。
-				var coldErr error
-				if cfg, err := config.Load(opts.DataDir); err != nil {
-					log.Printf("冷归档: 读取配置失败，跳过本轮: %v", err)
-				} else if cfg.Retention.ColdArchiveEnabled() {
+
+				var firstErr error
+				if cfg.Retention.BeeMessagesEnabled() {
+					if _, err := dbStore.RunBeeMessageRetention(ctx, store.BeeRetentionConfig{}); err != nil {
+						if ctx.Err() != nil {
+							return err
+						}
+						log.Printf("bee 消息保留: 执行失败: %v", err)
+						firstErr = err
+					}
+				}
+
+				if ctx.Err() == nil && cfg.Retention.ColdArchiveEnabled() {
 					report, err := dbStore.RunColdArchive(ctx, store.ColdArchiveConfig{})
 					if err != nil {
+						if ctx.Err() != nil {
+							return err
+						}
 						log.Printf("冷归档: 执行失败: %v", err)
-						coldErr = err
+						if firstErr == nil {
+							firstErr = err
+						}
 					} else {
 						log.Printf("冷归档: 归档会话 %d 个、消息 %d 条，原始 %d 字节 -> 载荷 %d 字节",
 							report.ThreadsArchived, report.MessagesArchived, report.RawBytes, report.PayloadBytes)
 					}
 				}
+
+				if ctx.Err() == nil && cfg.Retention.ArchivedBeesEnabled() {
+					ids, err := dbStore.ArchivedHelperThreadIDs(ctx, time.Now().UTC().Add(-30*24*time.Hour), 200)
+					if err != nil {
+						if ctx.Err() != nil {
+							return err
+						}
+						log.Printf("已归档子代理清理: 查询失败: %v", err)
+						if firstErr == nil {
+							firstErr = err
+						}
+					} else {
+						deleted := 0
+						for _, id := range ids {
+							if ctx.Err() != nil {
+								return ctx.Err()
+							}
+							if err := backend.DeleteArchivedThread(ctx, id); err != nil {
+								if errors.Is(err, store.ErrNotFound) {
+									continue
+								}
+								if ctx.Err() != nil {
+									return ctx.Err()
+								}
+								log.Printf("已归档子代理清理: 删除会话 %s 失败: %v", id, err)
+								if firstErr == nil {
+									firstErr = err
+								}
+								continue
+							}
+							deleted++
+						}
+						log.Printf("已归档子代理清理: 删除会话 %d 个", deleted)
+					}
+				}
+
 				// 压缩/删除消息只腾出 freelist，接着把空闲页还给文件系统，文件才会真的变小。
-				reclaimed, err := dbStore.ReclaimFreePages(ctx, 0, 0)
-				if err != nil && coldErr == nil {
-					coldErr = err
+				if ctx.Err() == nil {
+					reclaimed, err := dbStore.ReclaimFreePages(ctx, 0, 0)
+					if err != nil && firstErr == nil {
+						firstErr = err
+					}
+					if reclaimed > 0 {
+						log.Printf("bee 消息保留: 回收空闲页 %d 页", reclaimed)
+					}
 				}
-				if reclaimed > 0 {
-					log.Printf("bee 消息保留: 回收空闲页 %d 页", reclaimed)
-				}
-				return coldErr
+				return firstErr
 			},
-			func() bool {
-				cfg, err := config.Load(opts.DataDir)
-				if err != nil {
-					log.Printf("bee 消息保留: 读取配置失败，跳过本轮: %v", err)
-					return false
-				}
-				return cfg.Retention.BeeMessagesEnabled()
-			},
+			nil,
 			messageRetentionFirstDelay,
 			messageRetentionInterval,
 		)

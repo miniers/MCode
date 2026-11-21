@@ -972,12 +972,129 @@ func (b *MemoryBackend) SetThreadDeletedHook(fn func(ctx context.Context, thread
 	b.threadDeletedHook = fn
 }
 
+// isSafeRelID 检查 ID 是否可安全作为单级路径名（非空、非 "."/".."、不含路径分隔符或 ".."）。
+func isSafeRelID(id string) bool {
+	if id == "" || id == "." || id == ".." {
+		return false
+	}
+	if strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return false
+	}
+	return true
+}
+
+// removeThreadFiles 清理单个会话的 tool-outputs、media 目录及未共享的 mcode/sessions/<sessionID>.jsonl。
+// 失败仅记录日志，不中断删除流程。
+func removeThreadFiles(dataDir, threadID, sessionID string) {
+	if dataDir == "" {
+		return
+	}
+	if isSafeRelID(threadID) {
+		if err := os.RemoveAll(filepath.Join(dataDir, "tool-outputs", threadID)); err != nil {
+			log.Printf("delete tool outputs for thread %s failed: %v", threadID, err)
+		}
+		if err := os.RemoveAll(filepath.Join(dataDir, "media", threadID)); err != nil {
+			log.Printf("delete media for thread %s failed: %v", threadID, err)
+		}
+	}
+	if isSafeRelID(sessionID) {
+		sessionPath := filepath.Join(dataDir, "mcode", "sessions", sessionID+".jsonl")
+		if err := os.Remove(sessionPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("delete session file %s for thread %s failed: %v", sessionID, threadID, err)
+		}
+	}
+}
+
+func (b *MemoryBackend) isSessionInUse(ctx context.Context, sessionID string) bool {
+	if !isSafeRelID(sessionID) {
+		return true
+	}
+	b.mu.Lock()
+	for _, td := range b.threads {
+		if td != nil && td.sessionID == sessionID {
+			b.mu.Unlock()
+			return true
+		}
+	}
+	s := b.store
+	b.mu.Unlock()
+
+	if s != nil {
+		used, err := s.HasThreadSession(ctx, sessionID)
+		if err != nil {
+			log.Printf("check session %s references failed: %v", sessionID, err)
+			return true
+		}
+		return used
+	}
+	return false
+}
+
+func (b *MemoryBackend) cleanupThreadFiles(ctx context.Context, dataDir, threadID, sessionID string) {
+	if dataDir == "" {
+		return
+	}
+	if sessionID != "" && b.isSessionInUse(ctx, sessionID) {
+		sessionID = ""
+	}
+	removeThreadFiles(dataDir, threadID, sessionID)
+}
+
 // DeleteThread 删除指定会话及其整个家族子会话：从叶子到根递归删除、触发删除钩子、清理临时定时器、中断运行轮次，并发出 threads.changed 通知。
 func (b *MemoryBackend) DeleteThread(ctx context.Context, threadID string) error {
+	return b.deleteThread(ctx, threadID, true, false)
+}
+
+// DeleteArchivedThread 删除已归档/后台清理的会话：跳过 Nowledge 同步，且在会话不在内存缓存时仍回退删除 store 行与磁盘文件。
+func (b *MemoryBackend) DeleteArchivedThread(ctx context.Context, threadID string) error {
+	return b.deleteThread(ctx, threadID, false, true)
+}
+
+func (b *MemoryBackend) deleteThread(ctx context.Context, threadID string, syncNowledge, fallbackToStore bool) error {
 	b.mu.Lock()
 	if _, ok := b.threads[threadID]; !ok {
+		if !fallbackToStore {
+			b.mu.Unlock()
+			return store.ErrNotFound
+		}
+		s := b.store
+		delHook := b.threadDeletedHook
+		gitRunner := b.git
+		dataDir := b.dataDir
+		hook := b.threadsChangedHook
 		b.mu.Unlock()
-		return store.ErrNotFound
+
+		if s == nil {
+			return store.ErrNotFound
+		}
+		th, err := s.GetThread(ctx, threadID)
+		if err != nil {
+			return err
+		}
+		if delHook != nil {
+			delHook(ctx, threadID)
+		}
+		if gitRunner != nil && th.WorktreePath != "" {
+			if root, err := gitRunner.RepoRoot(ctx, th.WorktreePath); err == nil && root != "" {
+				if err := gitRunner.DeleteCheckpoints(ctx, root, threadID); err != nil {
+					log.Printf("delete checkpoints for thread %s failed: %v", threadID, err)
+				}
+			}
+		}
+		if err := s.DeleteThread(ctx, threadID); err != nil {
+			return err
+		}
+		b.cleanupThreadFiles(ctx, dataDir, threadID, th.SessionID)
+		b.forgetNowledgeSync(threadID)
+
+		payload := wire.ThreadsChanged{
+			RemovedThreadIDs: []string{threadID},
+		}
+		b.hub.Notify(threadID, "threads.changed", payload)
+		if hook != nil {
+			hook(payload)
+		}
+		return nil
 	}
 	familyIDs := b.familyThreadIDsLocked(threadID)
 	b.mu.Unlock()
@@ -1036,6 +1153,10 @@ func (b *MemoryBackend) DeleteThread(ctx context.Context, threadID string) error
 		}
 
 		b.mu.Lock()
+		var sessionID string
+		if curTD := b.threads[targetID]; curTD != nil {
+			sessionID = curTD.sessionID
+		}
 		// 取消该线程的临时清理定时器
 		if timer, hasTimer := b.provisionalTimers[targetID]; hasTimer {
 			timer.Stop()
@@ -1052,6 +1173,7 @@ func (b *MemoryBackend) DeleteThread(ctx context.Context, threadID string) error
 			}
 		}
 		s := b.store
+		dataDir := b.dataDir
 		b.mu.Unlock()
 
 		// 会话已从内存移除，顺手释放该 thread 空闲常驻的后端进程（不能持锁调用）。
@@ -1060,21 +1182,21 @@ func (b *MemoryBackend) DeleteThread(ctx context.Context, threadID string) error
 		}
 
 		// 删除消息之前先把会话同步到 Nowledge：删除后本地不再有可导入的正文。
-		b.syncNowledgeThread(targetID, nowledgeSyncDeleteTimeout)
+		if syncNowledge {
+			b.syncNowledgeThread(targetID, nowledgeSyncDeleteTimeout)
+		}
 
 		if s != nil {
+			if sessionID == "" {
+				if th, err := s.GetThread(ctx, targetID); err == nil {
+					sessionID = th.SessionID
+				}
+			}
 			if err := s.DeleteThread(ctx, targetID); err != nil && !errors.Is(err, store.ErrNotFound) {
 				return err
 			}
 		}
-		b.mu.Lock()
-		dataDir := b.dataDir
-		b.mu.Unlock()
-		if dataDir != "" {
-			if err := os.RemoveAll(filepath.Join(dataDir, "tool-outputs", targetID)); err != nil {
-				log.Printf("delete tool outputs for thread %s failed: %v", targetID, err)
-			}
-		}
+		b.cleanupThreadFiles(ctx, dataDir, targetID, sessionID)
 		// 正文已删除：清掉该会话的同步状态与持久待同步标记。删除前同步失败的不再补传。
 		b.forgetNowledgeSync(targetID)
 
@@ -1096,7 +1218,7 @@ func (b *MemoryBackend) DeleteThread(ctx context.Context, threadID string) error
 	return nil
 }
 
-// RemoveProject 从内存与 store 中移除指定项目行，不删磁盘文件。
+// RemoveProject 从内存与 store 中移除指定项目行，并清理其下属会话的磁盘文件。
 // store 删除项目时会在同一事务里按外键级联删除该项目的会话，因此内存中也同步移除这些会话
 // （含以会话 ID 为键的用量、审批、定时器等缓存），否则它们会以悬挂项目分组的形式留在内存里。
 func (b *MemoryBackend) RemoveProject(ctx context.Context, projectID string) error {
@@ -1134,12 +1256,21 @@ func (b *MemoryBackend) RemoveProject(ctx context.Context, projectID string) err
 		}
 	}
 
+	type threadFileTarget struct {
+		threadID  string
+		sessionID string
+	}
+	fileTargets := make([]threadFileTarget, 0, len(removedIDs))
+	seenTargets := make(map[string]int, len(removedIDs))
+
 	b.mu.Lock()
 	for _, id := range removedIDs {
 		td := b.threads[id]
 		if td == nil {
 			continue
 		}
+		seenTargets[id] = len(fileTargets)
+		fileTargets = append(fileTargets, threadFileTarget{threadID: id, sessionID: td.sessionID})
 		// 中断后残留的取消函数与看门狗定时器一并关闭，避免它们继续引用已移除的会话。
 		if td.runCancel != nil {
 			td.runCancel()
@@ -1167,6 +1298,7 @@ func (b *MemoryBackend) RemoveProject(ctx context.Context, projectID string) err
 		}
 	}
 	s := b.store
+	dataDir := b.dataDir
 	changedHook := b.threadsChangedHook
 	b.mu.Unlock()
 
@@ -1190,9 +1322,26 @@ func (b *MemoryBackend) RemoveProject(ctx context.Context, projectID string) err
 	}
 
 	if s != nil {
+		if storeThreads, err := s.ListThreads(ctx, projectID, true); err != nil {
+			log.Printf("list store threads for removed project %s failed: %v", projectID, err)
+		} else {
+			for _, th := range storeThreads {
+				if idx, ok := seenTargets[th.ID]; ok {
+					if fileTargets[idx].sessionID == "" {
+						fileTargets[idx].sessionID = th.SessionID
+					}
+					continue
+				}
+				seenTargets[th.ID] = len(fileTargets)
+				fileTargets = append(fileTargets, threadFileTarget{threadID: th.ID, sessionID: th.SessionID})
+			}
+		}
 		if err := s.DeleteProject(ctx, projectID); err != nil && !errors.Is(err, store.ErrNotFound) {
 			return err
 		}
+	}
+	for _, target := range fileTargets {
+		b.cleanupThreadFiles(ctx, dataDir, target.threadID, target.sessionID)
 	}
 	return nil
 }

@@ -1505,6 +1505,22 @@ func (s *Store) ThreadAndSessionIDs(ctx context.Context) (threadIDs map[string]b
 	return threadIDs, sessionIDs, nil
 }
 
+// HasThreadSession 返回是否仍有存活或已归档的会话行引用指定的 session_id。
+func (s *Store) HasThreadSession(ctx context.Context, sessionID string) (bool, error) {
+	if s == nil || s.db == nil || sessionID == "" {
+		return false, nil
+	}
+	var exists int
+	err := s.db.QueryRowContext(ctx, "SELECT 1 FROM threads WHERE session_id = ? LIMIT 1", sessionID).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check thread session %s: %w", sessionID, err)
+	}
+	return true, nil
+}
+
 // UpdateThreadSession 更新线程的 sessionID。若线程不存在返回 ErrNotFound。
 func (s *Store) UpdateThreadSession(ctx context.Context, id, sessionID string) error {
 	res, err := s.db.ExecContext(ctx, "UPDATE threads SET session_id = ? WHERE id = ?", sessionID, id)

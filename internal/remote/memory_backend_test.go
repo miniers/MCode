@@ -1685,6 +1685,217 @@ func TestMemoryBackend_RemoveProject(t *testing.T) {
 	}
 }
 
+func seedThreadFilesForTest(t *testing.T, dataDir, threadID, sessionID string) (toolDir, mediaDir, jsonlPath string) {
+	t.Helper()
+	toolDir = filepath.Join(dataDir, "tool-outputs", threadID)
+	mediaDir = filepath.Join(dataDir, "media", threadID)
+	if err := os.MkdirAll(toolDir, 0o755); err != nil {
+		t.Fatalf("mkdir tool-outputs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(toolDir, "out.txt"), []byte("tool"), 0o600); err != nil {
+		t.Fatalf("write tool-output: %v", err)
+	}
+	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+		t.Fatalf("mkdir media: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mediaDir, "img.png"), []byte("png"), 0o600); err != nil {
+		t.Fatalf("write media: %v", err)
+	}
+	if sessionID != "" {
+		jsonlPath = filepath.Join(dataDir, "mcode", "sessions", sessionID+".jsonl")
+		if err := os.MkdirAll(filepath.Dir(jsonlPath), 0o755); err != nil {
+			t.Fatalf("mkdir sessions: %v", err)
+		}
+		if err := os.WriteFile(jsonlPath, []byte("{}\n"), 0o600); err != nil {
+			t.Fatalf("write session jsonl: %v", err)
+		}
+	}
+	return toolDir, mediaDir, jsonlPath
+}
+
+func assertPathMissingForTest(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected %s to be deleted, stat err=%v", path, err)
+	}
+}
+
+func assertPathExistsForTest(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected %s to exist, stat err=%v", path, err)
+	}
+}
+
+func TestDeleteThreadRemovesThreadFiles(t *testing.T) {
+	ctx := context.Background()
+	hub := NewStreamHub(StreamHubOptions{})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+
+	dataDir := t.TempDir()
+	backend.SetDataDir(dataDir)
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "delete_files.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer st.Close()
+	if err := backend.AttachStore(ctx, st); err != nil {
+		t.Fatalf("AttachStore: %v", err)
+	}
+
+	backend.AddProject(wire.ProjectSummary{ID: "p1", Name: "P1"})
+
+	// 1. 独占 sessionID 的会话删除后，tool-outputs、media、jsonl 全部清除
+	r1, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread r1: %v", err)
+	}
+	if err := st.UpdateThreadSession(ctx, r1.ThreadID, "sess-solo"); err != nil {
+		t.Fatalf("UpdateThreadSession r1: %v", err)
+	}
+	backend.mu.Lock()
+	backend.threads[r1.ThreadID].sessionID = "sess-solo"
+	backend.mu.Unlock()
+	t1Tool, t1Media, t1JSONL := seedThreadFilesForTest(t, dataDir, r1.ThreadID, "sess-solo")
+
+	if err := backend.DeleteThread(ctx, r1.ThreadID); err != nil {
+		t.Fatalf("DeleteThread r1: %v", err)
+	}
+	assertPathMissingForTest(t, t1Tool)
+	assertPathMissingForTest(t, t1Media)
+	assertPathMissingForTest(t, t1JSONL)
+
+	// 2. 共用 sessionID 时，删掉其中一个只删该会话自己的 tool-outputs 与 media，保留共享 jsonl；删掉最后一个再删 jsonl
+	r2, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread r2: %v", err)
+	}
+	r3, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread r3: %v", err)
+	}
+	for _, tid := range []string{r2.ThreadID, r3.ThreadID} {
+		if err := st.UpdateThreadSession(ctx, tid, "sess-shared"); err != nil {
+			t.Fatalf("UpdateThreadSession %s: %v", tid, err)
+		}
+		backend.mu.Lock()
+		backend.threads[tid].sessionID = "sess-shared"
+		backend.mu.Unlock()
+	}
+	t2Tool, t2Media, sharedJSONL := seedThreadFilesForTest(t, dataDir, r2.ThreadID, "sess-shared")
+	t3Tool, t3Media, _ := seedThreadFilesForTest(t, dataDir, r3.ThreadID, "")
+
+	if err := backend.DeleteThread(ctx, r2.ThreadID); err != nil {
+		t.Fatalf("DeleteThread r2: %v", err)
+	}
+	assertPathMissingForTest(t, t2Tool)
+	assertPathMissingForTest(t, t2Media)
+	assertPathExistsForTest(t, sharedJSONL)
+	assertPathExistsForTest(t, t3Tool)
+	assertPathExistsForTest(t, t3Media)
+
+	if err := backend.DeleteThread(ctx, r3.ThreadID); err != nil {
+		t.Fatalf("DeleteThread r3: %v", err)
+	}
+	assertPathMissingForTest(t, t3Tool)
+	assertPathMissingForTest(t, t3Media)
+	assertPathMissingForTest(t, sharedJSONL)
+
+	// 3. 不在内存缓存里、仅存在于 store 的已归档会话通过 DeleteArchivedThread 也能删库行和文件
+	now := time.Now().UTC()
+	if err := st.CreateThread(ctx, store.Thread{
+		ID:        "store-only-bee",
+		ProjectID: "p1",
+		Title:     "bee",
+		Provider:  "openai",
+		SessionID: "sess-store-only",
+		IsHelper:  true,
+		Archived:  true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateThread store-only-bee: %v", err)
+	}
+	soTool, soMedia, soJSONL := seedThreadFilesForTest(t, dataDir, "store-only-bee", "sess-store-only")
+	if err := backend.DeleteArchivedThread(ctx, "store-only-bee"); err != nil {
+		t.Fatalf("DeleteArchivedThread store-only-bee: %v", err)
+	}
+	if _, err := st.GetThread(ctx, "store-only-bee"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store-only-bee deleted from store, got %v", err)
+	}
+	assertPathMissingForTest(t, soTool)
+	assertPathMissingForTest(t, soMedia)
+	assertPathMissingForTest(t, soJSONL)
+}
+
+func TestRemoveProjectRemovesThreadFiles(t *testing.T) {
+	ctx := context.Background()
+	hub := NewStreamHub(StreamHubOptions{})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+
+	dataDir := t.TempDir()
+	backend.SetDataDir(dataDir)
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "remove_project_files.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer st.Close()
+	if err := backend.AttachStore(ctx, st); err != nil {
+		t.Fatalf("AttachStore: %v", err)
+	}
+
+	backend.AddProject(wire.ProjectSummary{ID: "p1", Name: "P1"})
+	backend.AddProject(wire.ProjectSummary{ID: "p2", Name: "P2"})
+
+	t1, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread t1: %v", err)
+	}
+	t2, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread t2: %v", err)
+	}
+	t3, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p2"})
+	if err != nil {
+		t.Fatalf("CreateThread t3: %v", err)
+	}
+
+	bind := func(tid, sid string) {
+		if err := st.UpdateThreadSession(ctx, tid, sid); err != nil {
+			t.Fatalf("UpdateThreadSession %s: %v", tid, err)
+		}
+		backend.mu.Lock()
+		backend.threads[tid].sessionID = sid
+		backend.mu.Unlock()
+	}
+	bind(t1.ThreadID, "sess-p1-only")
+	bind(t2.ThreadID, "sess-cross-project")
+	bind(t3.ThreadID, "sess-cross-project")
+
+	t1Tool, t1Media, p1JSONL := seedThreadFilesForTest(t, dataDir, t1.ThreadID, "sess-p1-only")
+	t2Tool, t2Media, sharedJSONL := seedThreadFilesForTest(t, dataDir, t2.ThreadID, "sess-cross-project")
+	t3Tool, t3Media, _ := seedThreadFilesForTest(t, dataDir, t3.ThreadID, "")
+
+	if err := backend.RemoveProject(ctx, "p1"); err != nil {
+		t.Fatalf("RemoveProject p1: %v", err)
+	}
+
+	assertPathMissingForTest(t, t1Tool)
+	assertPathMissingForTest(t, t1Media)
+	assertPathMissingForTest(t, p1JSONL)
+	assertPathMissingForTest(t, t2Tool)
+	assertPathMissingForTest(t, t2Media)
+	assertPathExistsForTest(t, sharedJSONL)
+	assertPathExistsForTest(t, t3Tool)
+	assertPathExistsForTest(t, t3Media)
+}
+
 func TestMemoryBackend_SetThreadRelation_ListThreads(t *testing.T) {
 	ctx := context.Background()
 	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})

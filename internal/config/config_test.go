@@ -3421,6 +3421,85 @@ func TestRetentionColdArchive(t *testing.T) {
 	})
 }
 
+// RetentionConfig：已归档 bee 清理开关缺省为开启，显式 false 能读出来，JSON 往返值不变。
+func TestRetentionArchivedBees(t *testing.T) {
+	if !Defaults().Retention.ArchivedBeesEnabled() {
+		t.Fatalf("Defaults() 的已归档 bee 清理应为开启")
+	}
+
+	t.Run("没有 retention 段时默认开启", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(ConfigPath(dir), []byte(`{"version": 8}`), 0o600); err != nil {
+			t.Fatalf("写配置文件失败: %v", err)
+		}
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load 失败: %v", err)
+		}
+		if !cfg.Retention.ArchivedBeesEnabled() {
+			t.Fatalf("没有 retention 段时应默认开启")
+		}
+		if cfg.Retention.ArchivedBees != nil {
+			t.Fatalf("没有 retention 段时不应被赋默认指针: %v", *cfg.Retention.ArchivedBees)
+		}
+	})
+
+	t.Run("显式 false 能读出", func(t *testing.T) {
+		dir := t.TempDir()
+		raw := `{"version": 8, "retention": {"archived_bees": false}}`
+		if err := os.WriteFile(ConfigPath(dir), []byte(raw), 0o600); err != nil {
+			t.Fatalf("写配置文件失败: %v", err)
+		}
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load 失败: %v", err)
+		}
+		if cfg.Retention.ArchivedBeesEnabled() {
+			t.Fatalf("archived_bees 为 false 时应读出关闭")
+		}
+	})
+
+	t.Run("保存后重新读取值不变", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := Defaults()
+		off := false
+		cfg.Retention.ArchivedBees = &off
+		if err := Save(dir, cfg); err != nil {
+			t.Fatalf("Save 失败: %v", err)
+		}
+		loaded, err := Load(dir)
+		if err != nil {
+			t.Fatalf("重新 Load 失败: %v", err)
+		}
+		if loaded.Retention.ArchivedBeesEnabled() {
+			t.Fatalf("保存的 archived_bees=false 未能读回")
+		}
+
+		on := true
+		loaded.Retention.ArchivedBees = &on
+		if err := Save(dir, loaded); err != nil {
+			t.Fatalf("Save 失败: %v", err)
+		}
+		loaded, err = Load(dir)
+		if err != nil {
+			t.Fatalf("重新 Load 失败: %v", err)
+		}
+		if !loaded.Retention.ArchivedBeesEnabled() {
+			t.Fatalf("保存的 archived_bees=true 未能读回")
+		}
+	})
+
+	t.Run("未设置时不写入 JSON", func(t *testing.T) {
+		data, err := json.Marshal(Defaults())
+		if err != nil {
+			t.Fatalf("json.Marshal defaults 失败: %v", err)
+		}
+		if strings.Contains(string(data), "archived_bees") {
+			t.Fatalf("未设置 archived_bees 时不应写入 JSON: %s", data)
+		}
+	})
+}
+
 // Normalize 对审查漏斗字段的处理：命令去空白并按字节截断，行数上限夹到 0..500。
 func TestNormalizeReviewFunnelConfig(t *testing.T) {
 	cfg := Defaults()
