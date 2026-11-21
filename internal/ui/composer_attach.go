@@ -587,7 +587,7 @@ func (sc *attachmentScan) walk(p string) {
 		return
 	}
 	if info.IsDir() {
-		entries, err := os.ReadDir(p)
+		entries, err := attachmentReadDir(p)
 		if err != nil {
 			sc.unreadable = append(sc.unreadable, filepath.Base(p))
 			return
@@ -615,26 +615,149 @@ func (sc *attachmentScan) walk(p string) {
 	sc.files = append(sc.files, p)
 }
 
+const attachmentDirCacheTTL = 5 * time.Second
+
+type attachmentDirScanResult struct {
+	files      []string
+	unreadable []string
+	truncated  bool
+}
+
+type attachmentDirCacheEntry struct {
+	path     string
+	res      attachmentDirScanResult
+	lastScan time.Time
+	scanning bool
+	done     chan struct{}
+}
+
+var (
+	attachmentDirCacheMu  sync.Mutex
+	attachmentDirCache    = make(map[string]attachmentDirCacheEntry)
+	attachmentDirCacheGen uint64
+	attachmentDirScanFn   = collectFilesFromPath
+	attachmentReadDir     = os.ReadDir
+)
+
+func clearAttachmentDirCache() {
+	attachmentDirCacheMu.Lock()
+	defer attachmentDirCacheMu.Unlock()
+	attachmentDirCache = make(map[string]attachmentDirCacheEntry)
+	attachmentDirCacheGen++
+}
+
+func cloneAttachmentDirResult(res attachmentDirScanResult) attachmentDirScanResult {
+	return attachmentDirScanResult{
+		files:      append([]string(nil), res.files...),
+		unreadable: append([]string(nil), res.unreadable...),
+		truncated:  res.truncated,
+	}
+}
+
+// getCachedAttachmentDir 只读取内存中的目录扫描缓存（5 秒 TTL）；
+// 未命中或已过期时不阻塞调用线程，仅派发一次后台 goroutine 扫描并排序，完成后写回缓存并调用 s.invalidate()。
+func getCachedAttachmentDir(s *chatState, p string) (attachmentDirScanResult, bool, <-chan struct{}) {
+	now := time.Now()
+	attachmentDirCacheMu.Lock()
+	entry, ok := attachmentDirCache[p]
+	fresh := ok && entry.path == p && !entry.lastScan.IsZero() && now.Sub(entry.lastScan) < attachmentDirCacheTTL
+	var res attachmentDirScanResult
+	if ok && entry.path == p && !entry.lastScan.IsZero() {
+		res = cloneAttachmentDirResult(entry.res)
+	}
+	if !fresh && !entry.scanning {
+		ch := make(chan struct{})
+		entry.path = p
+		entry.scanning = true
+		entry.done = ch
+		attachmentDirCache[p] = entry
+		gen := attachmentDirCacheGen
+		scanFn := attachmentDirScanFn
+		go func() {
+			files, unreadable, truncated := scanFn(p)
+			scanned := attachmentDirScanResult{
+				files:      files,
+				unreadable: unreadable,
+				truncated:  truncated,
+			}
+			attachmentDirCacheMu.Lock()
+			if attachmentDirCacheGen == gen {
+				cur := attachmentDirCache[p]
+				cur.path = p
+				cur.res = scanned
+				cur.lastScan = time.Now()
+				cur.scanning = false
+				cur.done = nil
+				attachmentDirCache[p] = cur
+			}
+			attachmentDirCacheMu.Unlock()
+			close(ch)
+			if s != nil {
+				s.invalidate()
+			}
+		}()
+	}
+	done := entry.done
+	attachmentDirCacheMu.Unlock()
+	return res, fresh, done
+}
+
 // addAttachmentFiles 读取外部文件并批量添加为附件（支持目录递归展开并跳过隐藏文件）。
-// 本函数只在 UI 线程做受上限约束的目录枚举；读盘与解码（含 TIFF 转码、缩略图生成）
-// 交给 readAttachmentFiles 在后台协程完成，避免拖拽/粘贴时同步读文件卡住界面。
+// 目录扫描命中 5 秒缓存时直接读取缓存切片，未命中或过期时由后台协程完成目录枚举与读盘解码，
+// 避免在渲染或交互帧内同步调用 os.ReadDir 卡住界面。
 func (s *chatState) addAttachmentFiles(paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	results := make([]attachmentDirScanResult, len(paths))
+	dones := make([]<-chan struct{}, len(paths))
+	allFresh := true
+	for i, p := range paths {
+		res, fresh, done := getCachedAttachmentDir(s, p)
+		results[i] = res
+		dones[i] = done
+		if !fresh {
+			allFresh = false
+		}
+	}
+	if allFresh {
+		s.enqueueAttachmentScanResults(paths, results, true)
+		return
+	}
+	pathsCopy := append([]string(nil), paths...)
+	go func() {
+		for i, p := range pathsCopy {
+			if dones[i] != nil {
+				<-dones[i]
+			}
+			res, fresh, done := getCachedAttachmentDir(s, p)
+			if !fresh && done != nil {
+				<-done
+				res, _, _ = getCachedAttachmentDir(s, p)
+			}
+			results[i] = res
+		}
+		s.enqueueAttachmentScanResults(pathsCopy, results, false)
+	}()
+}
+
+func (s *chatState) enqueueAttachmentScanResults(paths []string, results []attachmentDirScanResult, asyncRead bool) {
 	limit := s.attachmentLimit()
 	var allFiles []string
 	var rejected []rejectedAttachment
 
-	for _, p := range paths {
-		files, unreadable, truncated := collectFilesFromPath(p)
-		for _, u := range unreadable {
+	for i, p := range paths {
+		res := results[i]
+		for _, u := range res.unreadable {
 			rejected = append(rejected, rejectedAttachment{name: u, reason: "无法读取文件"})
 		}
-		if truncated {
+		if res.truncated {
 			rejected = append(rejected, rejectedAttachment{
 				name:   "目录 " + filepath.Base(p),
 				reason: fmt.Sprintf("文件过多，只处理前 %d 个", attachmentScanLimit),
 			})
 		}
-		allFiles = append(allFiles, files...)
+		allFiles = append(allFiles, res.files...)
 	}
 
 	s.mu.Lock()
@@ -658,7 +781,11 @@ func (s *chatState) addAttachmentFiles(paths []string) {
 	if len(allFiles) == 0 && len(rejected) == 0 {
 		return
 	}
-	go s.readAttachmentFiles(allFiles, rejected)
+	if asyncRead {
+		go s.readAttachmentFiles(allFiles, rejected)
+		return
+	}
+	s.readAttachmentFiles(allFiles, rejected)
 }
 
 // readAttachmentFiles 在后台读取并解码候选文件，逐个加入附件；结束后提示被拒绝的文件。
@@ -1021,11 +1148,12 @@ func renderAttachmentRemoveButton(c *ui.Context, s *chatState, a composerAttachm
 	btn := ui.ButtonBase(c.Key("composer-attach-remove-"+a.LocalID)).
 		Label("删除附件 "+a.Name).
 		Disabled(sending).
-		Size(IconMD, IconMD).
+		Size(ControlSM, ControlSM).
 		Radius(RadiusMD).
 		OnClick(func() {
 			s.removeAttachment(a.LocalID)
 		})
+	focusRing(c, btn)
 	scale := motionPressScale(c, btn, "button-press-scale", !sending && btn.Pressed())
 	btn.Scale(scale, scale)
 	if overlay {
@@ -1054,18 +1182,19 @@ func renderAttachmentRemoveButton(c *ui.Context, s *chatState, a composerAttachm
 		})
 }
 
-// renderAttachmentRetryButton 在失败附件上渲染 16pt 重试按钮：
+// renderAttachmentRetryButton 在失败附件上渲染重试按钮：
 // overlay 为 true 时叠在图片缩略图左下角（深色底），为 false 时内联在胶囊右侧。
 // 点击清掉 Err 并复用首次上传路径重新上传，悬停提示给出失败原因。
 func renderAttachmentRetryButton(c *ui.Context, s *chatState, a composerAttachment, overlay bool) {
 	btn := ui.ButtonBase(c.Key("composer-attach-retry-"+a.LocalID)).
 		Label("重试上传 "+a.Name).
 		Tooltip(a.Err).
-		Size(IconMD, IconMD).
+		Size(ControlSM, ControlSM).
 		Radius(RadiusMD).
 		OnClick(func() {
 			s.retryAttachment(a.LocalID)
 		})
+	focusRing(c, btn)
 	scale := motionPressScale(c, btn, "button-press-scale", true && btn.Pressed())
 	btn.Scale(scale, scale)
 	if overlay {

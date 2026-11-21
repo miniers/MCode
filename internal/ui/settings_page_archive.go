@@ -882,9 +882,53 @@ func archiveFilterThreads(threads []Thread, projects map[string]string, query st
 	return out
 }
 
+type archiveGroupCacheEntry struct {
+	valid  bool
+	fp     fpHash
+	count  int
+	groups []archiveProjectGroup
+}
+
+var (
+	archiveGroupCacheMu        sync.Mutex
+	archiveGroupCache          archiveGroupCacheEntry
+	archiveGroupCacheSortCount int64
+)
+
+func clearArchiveGroupCache() {
+	archiveGroupCacheMu.Lock()
+	archiveGroupCache = archiveGroupCacheEntry{}
+	archiveGroupCacheSortCount = 0
+	archiveGroupCacheMu.Unlock()
+}
+
+func archiveGroupFingerprint(threads []Thread, projects map[string]string) fpHash {
+	h := newFPHash()
+	h.int(len(threads))
+	for _, th := range threads {
+		h.str(th.ID)
+		h.str(th.ProjectID)
+		h.str(th.Title)
+		h.time(th.UpdatedAt)
+		h.time(th.LastUserMessageAt)
+		h.str(th.LastStatus)
+		h.str(projects[th.ProjectID])
+	}
+	return h
+}
+
 // archiveGroupByProject 把归档会话按项目名分组：组按项目名升序，组内按归档时间（UpdatedAt）降序；
-// 缺少项目信息的会话归入「未关联项目」一组。
+// 缺少项目信息的会话归入「未关联项目」一组。按会话列表与项目名映射指纹缓存排序结果。
 func archiveGroupByProject(threads []Thread, projects map[string]string) []archiveProjectGroup {
+	fp := archiveGroupFingerprint(threads, projects)
+	archiveGroupCacheMu.Lock()
+	if archiveGroupCache.valid && archiveGroupCache.fp == fp && archiveGroupCache.count == len(threads) {
+		cached := archiveGroupCache.groups
+		archiveGroupCacheMu.Unlock()
+		return cached
+	}
+	archiveGroupCacheMu.Unlock()
+
 	byID := make(map[string]*archiveProjectGroup, len(threads))
 	ids := make([]string, 0, len(threads))
 	for _, th := range threads {
@@ -910,6 +954,11 @@ func archiveGroupByProject(threads []Thread, projects map[string]string) []archi
 		groups = append(groups, *group)
 	}
 	sort.SliceStable(groups, func(i, j int) bool { return groups[i].name < groups[j].name })
+
+	archiveGroupCacheMu.Lock()
+	archiveGroupCache = archiveGroupCacheEntry{valid: true, fp: fp, count: len(threads), groups: groups}
+	archiveGroupCacheSortCount++
+	archiveGroupCacheMu.Unlock()
 	return groups
 }
 

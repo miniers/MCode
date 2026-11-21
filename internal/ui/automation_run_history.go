@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -68,6 +69,85 @@ func automationRunDuration(run AutomationRun) string {
 		return "—"
 	}
 	return formatDuration(run.FinishedAt.Sub(run.StartedAt))
+}
+
+type automationRunsCacheEntry struct {
+	fp      fpHash
+	count   int
+	firstID string
+	lastID  string
+	ordered []AutomationRun
+}
+
+var (
+	automationRunsCacheMu        sync.Mutex
+	automationRunsCache          = make(map[string]automationRunsCacheEntry)
+	automationRunsCacheSortCount int64
+)
+
+func clearAutomationRunsCache() {
+	automationRunsCacheMu.Lock()
+	automationRunsCache = make(map[string]automationRunsCacheEntry)
+	automationRunsCacheSortCount = 0
+	automationRunsCacheMu.Unlock()
+}
+
+func automationRunsFingerprint(runs []AutomationRun) (fpHash, string, string) {
+	h := newFPHash()
+	h.int(len(runs))
+	var firstID, lastID string
+	if len(runs) > 0 {
+		firstID = runs[0].ID
+		lastID = runs[len(runs)-1].ID
+	}
+	for _, r := range runs {
+		h.str(r.ID)
+		h.str(r.AutomationID)
+		h.str(r.ThreadID)
+		h.str(r.Status)
+		h.str(r.Summary)
+		h.str(r.Error)
+		h.str(r.Trigger)
+		h.int(r.MissedCount)
+		h.time(r.StartedAt)
+		h.time(r.FinishedAt)
+	}
+	return h, firstID, lastID
+}
+
+// sortedAutomationRuns 按 StartedAt 降序排序并截断前 100 条，按自动化 ID 与运行记录指纹缓存。
+func sortedAutomationRuns(selectedID string, runs []AutomationRun) []AutomationRun {
+	fp, firstID, lastID := automationRunsFingerprint(runs)
+	automationRunsCacheMu.Lock()
+	if entry, ok := automationRunsCache[selectedID]; ok &&
+		entry.fp == fp && entry.count == len(runs) &&
+		entry.firstID == firstID && entry.lastID == lastID {
+		ordered := entry.ordered
+		automationRunsCacheMu.Unlock()
+		return ordered
+	}
+	automationRunsCacheMu.Unlock()
+
+	ordered := append([]AutomationRun(nil), runs...)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].StartedAt.After(ordered[j].StartedAt) })
+	if len(ordered) > 100 {
+		ordered = ordered[:100]
+	}
+
+	automationRunsCacheMu.Lock()
+	if len(automationRunsCache) >= 32 {
+		automationRunsCache = make(map[string]automationRunsCacheEntry)
+	}
+	automationRunsCache[selectedID] = automationRunsCacheEntry{
+		fp:      fp,
+		count:   len(runs),
+		firstID: firstID,
+		lastID:  lastID,
+		ordered: ordered,
+	}
+	automationRunsCacheSortCount++
+	automationRunsCacheMu.Unlock()
+	return ordered
 }
 
 func openAutomationRun(as *automationState, runID string) {
@@ -212,11 +292,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 			ui.Text(c, "暂无运行记录").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
 			return
 		}
-		ordered := append([]AutomationRun(nil), runs...)
-		sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].StartedAt.After(ordered[j].StartedAt) })
-		if len(ordered) > 100 {
-			ordered = ordered[:100]
-		}
+		ordered := sortedAutomationRuns(selectedID, runs)
 		shown, lastDay := 0, ""
 		ui.Column(c.Key("runs-list-col")).FillWidth().Gap(Space0).Transition(motionTransition(c, ui.ElementTransition{Duration: DurBase, Enter: &ui.Motion{Opacity: 0}})).Children(func() {
 			for _, run := range ordered {

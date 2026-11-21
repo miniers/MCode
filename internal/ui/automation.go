@@ -1048,10 +1048,126 @@ func automationSearchMatch(a Automation, query string) bool {
 		strings.Contains(strings.ToLower(automationScheduleText(a.Schedule)), query)
 }
 
+type fpHash uint64
+
+const (
+	fpOffset64 fpHash = 14695981039346656037
+	fpPrime64  fpHash = 1099511628211
+)
+
+func newFPHash() fpHash { return fpOffset64 }
+
+func (h *fpHash) u64(x uint64) {
+	v := *h
+	for i := 0; i < 8; i++ {
+		v ^= fpHash(byte(x))
+		v *= fpPrime64
+		x >>= 8
+	}
+	*h = v
+}
+
+func (h *fpHash) i64(x int64) { h.u64(uint64(x)) }
+func (h *fpHash) int(x int)   { h.u64(uint64(int64(x))) }
+func (h *fpHash) bool(b bool) {
+	if b {
+		h.u64(1)
+	} else {
+		h.u64(0)
+	}
+}
+
+func (h *fpHash) str(s string) {
+	v := *h
+	for i := 0; i < len(s); i++ {
+		v ^= fpHash(s[i])
+		v *= fpPrime64
+	}
+	v ^= 0xff
+	v *= fpPrime64
+	*h = v
+}
+
+func (h *fpHash) time(t time.Time) {
+	if t.IsZero() {
+		h.u64(0)
+		return
+	}
+	h.u64(1)
+	h.i64(t.UnixNano())
+}
+
+type automationFilterCacheEntry struct {
+	fp    fpHash
+	count int
+	out   []Automation
+}
+
+var (
+	automationFilterCacheMu        sync.Mutex
+	automationFilterCache          = make(map[string]automationFilterCacheEntry)
+	automationFilterCacheSortCount int64
+)
+
+func clearAutomationFilterCache() {
+	automationFilterCacheMu.Lock()
+	automationFilterCache = make(map[string]automationFilterCacheEntry)
+	automationFilterCacheSortCount = 0
+	automationFilterCacheMu.Unlock()
+}
+
+func automationListFingerprint(autos []Automation) fpHash {
+	h := newFPHash()
+	h.int(len(autos))
+	for _, a := range autos {
+		h.str(a.ID)
+		h.str(a.ProjectID)
+		h.str(a.Name)
+		h.str(a.Prompt)
+		h.str(a.Status)
+		h.str(a.StopWhen)
+		h.str(a.LastRunStatus)
+		h.str(a.StopReason)
+		h.bool(a.Enabled)
+		h.bool(a.CatchUp)
+		h.time(a.NextRunAt)
+		h.time(a.LastRunAt)
+		h.int(a.TotalRunCount)
+		h.int(a.ConsecutiveFailures)
+		h.int(a.MaxConsecutiveFailures)
+		h.int(a.MaxIterations)
+		h.int(a.MaxRuns)
+		h.int(a.Revision)
+		h.str(a.Schedule.Type)
+		h.int(a.Schedule.Seconds)
+		h.time(a.Schedule.Date)
+		h.str(a.Schedule.TimeOfDay)
+		h.str(a.Schedule.Timezone)
+		h.int(a.Schedule.DayOfWeek)
+		h.str(a.Schedule.Expression)
+		h.str(a.Provider)
+		h.str(a.Model)
+		h.str(a.Effort)
+		h.str(a.RuntimeMode)
+		h.str(a.RunMode)
+	}
+	return h
+}
+
 // filterAutomations 按搜索词过滤后再排序：已启用优先 → NextRunAt 升序（零值最后）→ 名称升序。
-// 返回新切片，避免改动状态里保存的列表顺序。
+// 按归一化搜索词与自动化列表指纹缓存结果，避免渲染帧重复拷贝与排序。
 func filterAutomations(autos []Automation, query string) []Automation {
 	q := strings.ToLower(strings.TrimSpace(query))
+	fp := automationListFingerprint(autos)
+
+	automationFilterCacheMu.Lock()
+	if entry, ok := automationFilterCache[q]; ok && entry.fp == fp && entry.count == len(autos) {
+		out := entry.out
+		automationFilterCacheMu.Unlock()
+		return out
+	}
+	automationFilterCacheMu.Unlock()
+
 	out := make([]Automation, 0, len(autos))
 	for _, a := range autos {
 		if automationSearchMatch(a, q) {
@@ -1072,6 +1188,14 @@ func filterAutomations(autos []Automation, query string) []Automation {
 		}
 		return a.Name < b.Name
 	})
+
+	automationFilterCacheMu.Lock()
+	if len(automationFilterCache) >= 16 {
+		automationFilterCache = make(map[string]automationFilterCacheEntry)
+	}
+	automationFilterCache[q] = automationFilterCacheEntry{fp: fp, count: len(autos), out: out}
+	automationFilterCacheSortCount++
+	automationFilterCacheMu.Unlock()
 	return out
 }
 

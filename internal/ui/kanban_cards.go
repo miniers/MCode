@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo/ui"
 
@@ -38,9 +39,73 @@ type kanbanListGroup struct {
 	tasks  []KanbanTask
 }
 
+type kanbanListGroupsCacheEntry struct {
+	valid  bool
+	fp     fpHash
+	count  int
+	groups []kanbanListGroup
+}
+
+var (
+	kanbanListGroupsCacheMu        sync.Mutex
+	kanbanListGroupsCache          kanbanListGroupsCacheEntry
+	kanbanListGroupsCacheSortCount int64
+)
+
+func clearKanbanListGroupsCache() {
+	kanbanListGroupsCacheMu.Lock()
+	kanbanListGroupsCache = kanbanListGroupsCacheEntry{}
+	kanbanListGroupsCacheSortCount = 0
+	kanbanListGroupsCacheMu.Unlock()
+}
+
+func kanbanTasksFingerprint(tasks []KanbanTask) fpHash {
+	h := newFPHash()
+	h.int(len(tasks))
+	for _, t := range tasks {
+		h.str(t.ID)
+		h.str(t.ProjectID)
+		h.str(t.Title)
+		h.str(t.Status)
+		h.str(t.Priority)
+		h.str(t.Column)
+		h.time(t.UpdatedAt)
+		h.int(t.Revision)
+		h.int(t.AttemptCount)
+		h.bool(t.Blocked)
+		h.bool(t.CanStart)
+		h.bool(t.CanMove)
+		h.bool(t.CanReview)
+		h.bool(t.CanApprove)
+		h.str(t.ResultSummary)
+		h.str(t.WaitKind)
+		h.str(t.WakeAt)
+		h.str(t.LastFailureReason)
+		h.str(t.LastActivity)
+		h.int(len(t.DependsOn))
+		for _, dep := range t.DependsOn {
+			h.str(dep)
+		}
+		h.int(len(t.AttentionFlags))
+		for _, flag := range t.AttentionFlags {
+			h.str(flag)
+		}
+	}
+	return h
+}
+
 // kanbanListGroups 按固定状态顺序分组任务，未知状态追加在末尾；
-// 组内按更新时间倒序，更新时间相同则按标题排序。
+// 组内按更新时间倒序，更新时间相同则按标题排序。按任务列表指纹缓存排序结果。
 func kanbanListGroups(tasks []KanbanTask) []kanbanListGroup {
+	fp := kanbanTasksFingerprint(tasks)
+	kanbanListGroupsCacheMu.Lock()
+	if kanbanListGroupsCache.valid && kanbanListGroupsCache.fp == fp && kanbanListGroupsCache.count == len(tasks) {
+		cached := kanbanListGroupsCache.groups
+		kanbanListGroupsCacheMu.Unlock()
+		return cached
+	}
+	kanbanListGroupsCacheMu.Unlock()
+
 	order := []string{"todo", "in_progress", "needs_you", "review", "done"}
 	groups := make([]kanbanListGroup, 0, len(order))
 	index := make(map[string]int, len(order))
@@ -76,6 +141,11 @@ func kanbanListGroups(tasks []KanbanTask) []kanbanListGroup {
 		})
 		out = append(out, group)
 	}
+
+	kanbanListGroupsCacheMu.Lock()
+	kanbanListGroupsCache = kanbanListGroupsCacheEntry{valid: true, fp: fp, count: len(tasks), groups: out}
+	kanbanListGroupsCacheSortCount++
+	kanbanListGroupsCacheMu.Unlock()
 	return out
 }
 

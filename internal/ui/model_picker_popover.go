@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -137,8 +138,66 @@ func renderModelPickerPopoverWithNotice(c *ui.Context, st *SettingsState, ps *mo
 	})
 }
 
-// renderModelPickerSections 按供应商或分段和模型系列渲染选择行；搜索词为空时展示全部。
-func renderModelPickerSections(c *ui.Context, st *SettingsState, ps *modelsPageState, popoverKey string, items []modelPickerItem, query, emptyHint string, onToggle func(item modelPickerItem, checked bool)) {
+type modelPickerSectionGroup struct {
+	section     string
+	sectionName string
+	groups      []*modelPickerGroup
+}
+
+type modelPickerSortedSections struct {
+	byProvider bool
+	multi      bool
+	sections   []modelPickerSectionGroup
+}
+
+type modelPickerCacheEntry struct {
+	fp    fpHash
+	count int
+	query string
+	res   modelPickerSortedSections
+}
+
+var (
+	modelPickerCacheMu        sync.Mutex
+	modelPickerCache          = make(map[string]modelPickerCacheEntry)
+	modelPickerCacheSortCount int64
+)
+
+func clearModelPickerCache() {
+	modelPickerCacheMu.Lock()
+	modelPickerCache = make(map[string]modelPickerCacheEntry)
+	modelPickerCacheSortCount = 0
+	modelPickerCacheMu.Unlock()
+}
+
+func modelPickerItemsFingerprint(popoverKey string, items []modelPickerItem, query string) fpHash {
+	h := newFPHash()
+	h.str(popoverKey)
+	h.str(query)
+	h.int(len(items))
+	for _, item := range items {
+		h.str(item.Section)
+		h.str(item.ProviderID)
+		h.str(item.Key)
+		h.str(item.Name)
+		h.str(item.ID)
+		h.str(item.Detail)
+		h.bool(item.Checked)
+		h.bool(item.Disabled)
+	}
+	return h
+}
+
+func getSortedModelPickerSections(popoverKey string, items []modelPickerItem, query string) modelPickerSortedSections {
+	fp := modelPickerItemsFingerprint(popoverKey, items, query)
+	modelPickerCacheMu.Lock()
+	if entry, ok := modelPickerCache[popoverKey]; ok && entry.fp == fp && entry.count == len(items) && entry.query == query {
+		res := entry.res
+		modelPickerCacheMu.Unlock()
+		return res
+	}
+	modelPickerCacheMu.Unlock()
+
 	byProvider := false
 	for _, item := range items {
 		if item.ProviderID != "" {
@@ -173,39 +232,15 @@ func renderModelPickerSections(c *ui.Context, st *SettingsState, ps *modelsPageS
 		bySection[section] = append(bySection[section], item)
 	}
 
-	multi := len(sections) > 1
-	rendered := false
+	res := modelPickerSortedSections{
+		byProvider: byProvider,
+		multi:      len(sections) > 1,
+		sections:   make([]modelPickerSectionGroup, 0, len(sections)),
+	}
 	for _, section := range sections {
 		list := bySection[section]
 		if len(list) == 0 {
 			continue
-		}
-		if byProvider {
-			if rendered {
-				renderSettingsDivider(c, "model-picker-provider-div-"+section)
-			}
-			ui.Row(c.Key("model-picker-provider-"+section)).
-				AlignItems(ui.Center).
-				Gap(Space2).
-				Padding(Space2, Space1, Space1, Space1).
-				Children(func() {
-					ui.Box(c).Width(IconSM).Height(IconSM).Shrink(0).Children(func() {
-						renderProviderRowIcon(c, section, IconSM)
-					})
-					ui.Text(c, sectionNames[section]).
-						FontSize(uiFont(TypeCaption)).
-						FontWeight(600).
-						TextColor(ThemeSecondaryText(c)).
-						SingleLine()
-				})
-		}
-		rendered = true
-		if !byProvider && multi && section != "" {
-			ui.Text(c, section).
-				FontSize(uiFont(TypeCaption)).
-				FontWeight(600).
-				TextColor(ThemeSecondaryText(c)).
-				Padding(Space1, Space1, Space0, Space1)
 		}
 		// 段内按模型系列归组，组的排序沿用 Magpie 面板的规则。
 		var groups []*modelPickerGroup
@@ -227,8 +262,59 @@ func renderModelPickerSections(c *ui.Context, st *SettingsState, ps *modelsPageS
 			}
 			return groups[i].title < groups[j].title
 		})
-		for _, group := range groups {
-			if !byProvider {
+		res.sections = append(res.sections, modelPickerSectionGroup{
+			section:     section,
+			sectionName: sectionNames[section],
+			groups:      groups,
+		})
+	}
+
+	modelPickerCacheMu.Lock()
+	if len(modelPickerCache) >= 32 {
+		modelPickerCache = make(map[string]modelPickerCacheEntry)
+	}
+	modelPickerCache[popoverKey] = modelPickerCacheEntry{fp: fp, count: len(items), query: query, res: res}
+	modelPickerCacheSortCount++
+	modelPickerCacheMu.Unlock()
+	return res
+}
+
+// renderModelPickerSections 按供应商或分段和模型系列渲染选择行；搜索词为空时展示全部。
+func renderModelPickerSections(c *ui.Context, st *SettingsState, ps *modelsPageState, popoverKey string, items []modelPickerItem, query, emptyHint string, onToggle func(item modelPickerItem, checked bool)) {
+	layout := getSortedModelPickerSections(popoverKey, items, query)
+
+	rendered := false
+	for _, sec := range layout.sections {
+		section := sec.section
+		if layout.byProvider {
+			if rendered {
+				renderSettingsDivider(c, "model-picker-provider-div-"+section)
+			}
+			ui.Row(c.Key("model-picker-provider-"+section)).
+				AlignItems(ui.Center).
+				Gap(Space2).
+				Padding(Space2, Space1, Space1, Space1).
+				Children(func() {
+					ui.Box(c).Width(IconSM).Height(IconSM).Shrink(0).Children(func() {
+						renderProviderRowIcon(c, section, IconSM)
+					})
+					ui.Text(c, sec.sectionName).
+						FontSize(uiFont(TypeCaption)).
+						FontWeight(600).
+						TextColor(ThemeSecondaryText(c)).
+						SingleLine()
+				})
+		}
+		rendered = true
+		if !layout.byProvider && layout.multi && section != "" {
+			ui.Text(c, section).
+				FontSize(uiFont(TypeCaption)).
+				FontWeight(600).
+				TextColor(ThemeSecondaryText(c)).
+				Padding(Space1, Space1, Space0, Space1)
+		}
+		for _, group := range sec.groups {
+			if !layout.byProvider {
 				ui.Row(c).
 					AlignItems(ui.Center).
 					Gap(Space2).
