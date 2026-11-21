@@ -63,21 +63,30 @@ func initStartupLog(dataDir string) string {
 	}
 
 	crashPath := filepath.Join(dir, crashLogFileName)
-	cf, err := os.OpenFile(crashPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		log.Printf("failed to open crash log %s: %v", crashPath, err)
+	if err := redirectCrashOutput(crashPath); err != nil {
+		log.Printf("%v", err)
 	} else {
-		// SetCrashOutput 内部会 dup 文件描述符，返回后本地句柄可以立刻关闭。
-		if crashErr := debug.SetCrashOutput(cf, debug.CrashOptions{}); crashErr != nil {
-			log.Printf("failed to redirect crash output to %s: %v", crashPath, crashErr)
-		} else {
-			startupLogPaths.crashLog = crashPath
-		}
-		_ = cf.Close()
+		startupLogPaths.crashLog = crashPath
 	}
 
 	log.Printf("startup: pid=%d os=%s args=%q", os.Getpid(), runtime.GOOS, os.Args)
 	return startupLogPaths.startupLog
+}
+
+// redirectCrashOutput 打开 path 指定的崩溃日志文件，并通过 debug.SetCrashOutput
+// 将未捕获的崩溃输出重定向到该文件。
+func redirectCrashOutput(path string) error {
+	cf, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("failed to open crash log %s: %w", path, err)
+	}
+	// SetCrashOutput 内部会 dup 文件描述符，返回后本地句柄可以立刻关闭。
+	crashErr := debug.SetCrashOutput(cf, debug.CrashOptions{})
+	_ = cf.Close()
+	if crashErr != nil {
+		return fmt.Errorf("failed to redirect crash output to %s: %w", path, crashErr)
+	}
+	return nil
 }
 
 // fatalLogHint 返回致命错误时要提示用户的日志位置：优先 startup.log，其次 crash.log 与日志目录。

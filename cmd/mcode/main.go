@@ -586,6 +586,12 @@ func main() {
 	}
 
 	mygo.App.WhenReady(func() {
+		// mygo App.Run 会把崩溃输出改到 PathLogs，就绪后改回数据目录。
+		if startupLogPaths.crashLog != "" {
+			if err := redirectCrashOutput(startupLogPaths.crashLog); err != nil {
+				log.Printf("%v", err)
+			}
+		}
 		startuptrace.Mark("mygo ready")
 		// 只有 app.Open 真的开始整理数据库（首次切增量 auto_vacuum）时才弹加载窗口，
 		// 普通启动直接等结果开主窗口。
