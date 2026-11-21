@@ -1,19 +1,10 @@
-import type { TaskItem, TaskStatus } from '../../types/contract';
-
-const labels: Record<TaskStatus, string> = {
-  todo: '待处理', in_progress: '进行中', needs_approval: '等你决定', review: '待审阅',
-  rejected: '已驳回', done: '已完成', failed: '失败', cancelled: '已取消', waiting: '待处理'
-};
+import type { TaskItem } from '../../types/contract';
+import { stewardTaskStatusInfo } from '../../utils/taskStatus';
 
 type StewardTaskStatusTask = Pick<TaskItem, 'status'> & Partial<Pick<TaskItem, 'waitKind' | 'blocked' | 'displayColumn'>>;
 
 export function stewardTaskStatus(task: StewardTaskStatusTask): { label: string; color: string } {
-  const waitingOnHuman = task.status === 'waiting' && task.waitKind === 'human';
-  const color = task.status === 'failed' || task.status === 'rejected' ? 'thread-status--danger'
-    : task.status === 'needs_approval' || waitingOnHuman || task.blocked || task.displayColumn === 'needs_you' ? 'thread-status--warning'
-    : task.status === 'review' ? 'thread-status--primary'
-    : task.status === 'in_progress' ? 'thread-status--running' : '';
-  return { label: waitingOnHuman ? '等你决定' : labels[task.status], color };
+  return stewardTaskStatusInfo(task);
 }
 
 export function StewardTaskCard({ task, compact = false, onOpenThread }: {

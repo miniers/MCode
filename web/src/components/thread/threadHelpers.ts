@@ -3,6 +3,7 @@
 import type { RemoteFollowUp } from '../../types/contract';
 import type { RemoteThreadAction } from '../../context/RemoteContext';
 import type { RemoteSwarmBee } from '../../types/swarm';
+import { kanbanColumnLabel } from '../../utils/taskStatus';
 
 export function isUnresolvedAction(action?: RemoteThreadAction | null): boolean {
   return Boolean(
@@ -16,12 +17,7 @@ export function queueGroupID(followUp: RemoteFollowUp): string {
 }
 
 export function linkedTaskColumnLabel(value: string): string {
-  if (value === 'needs_you') return '待你处理';
-  if (value === 'review') return '待审';
-  if (value === 'in_progress') return '进行中';
-  if (value === 'todo') return '待办';
-  if (value === 'done') return '完成';
-  return '未知状态';
+  return kanbanColumnLabel(value);
 }
 
 export function formatHelperDuration(seconds: number): string {

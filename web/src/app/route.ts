@@ -7,7 +7,7 @@ import { usesSplitLayout } from '../utils/splitLayout';
 export type Route =
   | { kind: 'home' }
   | { kind: 'board' }
-  | { kind: 'automations' }
+  | { kind: 'automations'; automationID?: string }
   | { kind: 'settings'; page?: string }
   | { kind: 'draft'; projectID: string }
   | {
@@ -26,6 +26,14 @@ export function parseRoute(hash: string): Route {
   const value = hash.replace(/^#/, '') || '/';
   if (value === '/board') return { kind: 'board' };
   if (value === '/automations') return { kind: 'automations' };
+  const automationMatch = value.match(/^\/automations\/([^/]+)$/);
+  if (automationMatch) {
+    try {
+      return { kind: 'automations', automationID: decodeURIComponent(automationMatch[1]) };
+    } catch {
+      return { kind: 'automations' };
+    }
+  }
   if (value === '/settings') return { kind: 'settings' };
   // #/settings/<页面 id>：直接打开某个 tab，tab 切换用 replace 写，不压浏览历史。
   const settingsPageMatch = value.match(/^\/settings\/([^/]+)$/);

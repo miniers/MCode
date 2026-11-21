@@ -10,6 +10,7 @@ import {
   type RemoteAttentionSuggestion
 } from '../context/remoteAttentionApi';
 import { formatRelativeTime } from '../utils/date';
+import { ATTENTION_KIND_GROUPS } from '../utils/taskStatus';
 import { XMarkIcon } from './Icons';
 
 export interface AttentionSheetProps {
@@ -21,37 +22,40 @@ export interface AttentionSheetProps {
   projectName?: string;
 }
 
-/** 分组顺序与中文标题；取值与宿主 attention 的 kind 一致，未知取值归入「其他」。 */
-const KIND_GROUPS: { kind: string; label: string }[] = [
-  { kind: 'thread_stalled', label: '会话卡住' },
-  { kind: 'thread_failed', label: '会话出错' },
-  { kind: 'thread_quota', label: '额度用尽' },
-  { kind: 'thread_approval', label: '等待审批' },
-  { kind: 'kanban_failed', label: '看板失败' },
-  { kind: 'kanban_needs_approval', label: '看板待审批' },
-  { kind: 'kanban_review', label: '看板待验收' },
-  { kind: 'automation_failed', label: '自动化失败' },
-  { kind: 'automation_finished', label: '自动化完成' },
-  { kind: 'bee_failed', label: 'Bee 失败' },
-  { kind: 'thread_no_progress', label: '任务无进展' }
-];
-
 const OTHER_GROUP_LABEL = '其他';
 
 const ACTION_BASE =
   'shrink-0 min-h-[30px] px-2.5 rounded-xl text-mc-caption font-medium border disabled:opacity-45 transition';
 
-/** 按 kind 分组，保持 KIND_GROUPS 的顺序，未知 kind 落到「其他」。 */
+export function resolveAttentionTargetHash(
+  item: Pick<RemoteAttentionItem, 'subjectType' | 'subjectID' | 'threadID'>
+): string | null {
+  if (item.subjectType === 'kanban_task' && item.subjectID) {
+    return `#/task/${encodeURIComponent(item.subjectID)}`;
+  }
+  if (item.subjectType === 'kanban_goal' && item.subjectID) {
+    return `#/goal/${encodeURIComponent(item.subjectID)}`;
+  }
+  if (item.subjectType === 'automation' && item.subjectID) {
+    return `#/automations/${encodeURIComponent(item.subjectID)}`;
+  }
+  if (item.subjectType === 'automation_run') {
+    return item.threadID ? `#/t/${encodeURIComponent(item.threadID)}` : '#/automations';
+  }
+  return item.threadID ? `#/t/${encodeURIComponent(item.threadID)}` : null;
+}
+
+/** 按 kind 分组，保持 ATTENTION_KIND_GROUPS 的顺序，未知 kind 落到「其他」。 */
 function groupItems(items: RemoteAttentionItem[]): { label: string; items: RemoteAttentionItem[] }[] {
   const buckets = new Map<string, RemoteAttentionItem[]>();
-  KIND_GROUPS.forEach((group) => buckets.set(group.kind, []));
+  ATTENTION_KIND_GROUPS.forEach((group) => buckets.set(group.kind, []));
   const others: RemoteAttentionItem[] = [];
   items.forEach((item) => {
     const bucket = buckets.get(item.kind);
     if (bucket) bucket.push(item);
     else others.push(item);
   });
-  const groups = KIND_GROUPS.map((group) => ({
+  const groups = ATTENTION_KIND_GROUPS.map((group) => ({
     label: group.label,
     items: buckets.get(group.kind) ?? []
   })).filter((group) => group.items.length > 0);
@@ -89,9 +93,9 @@ const AttentionSheetBody: React.FC<AttentionSheetProps> = ({ onClose, projectID,
   const shownError = actionError || error;
   const groups = groupItems(items);
 
-  const openThread = (threadID: string) => {
+  const openTarget = (targetHash: string) => {
     onClose();
-    window.location.hash = `#/t/${encodeURIComponent(threadID)}`;
+    window.location.hash = targetHash;
   };
 
   const handleResolve = async (item: RemoteAttentionItem) => {
@@ -164,23 +168,33 @@ const AttentionSheetBody: React.FC<AttentionSheetProps> = ({ onClose, projectID,
             <div key={group.label} className="space-y-2">
               <p className="settings-label">{`${group.label}（${group.items.length}）`}</p>
               {group.items.map((item) => {
-                const canOpen = Boolean(item.threadID);
+                const targetHash = resolveAttentionTargetHash(item);
+                const canOpen = Boolean(targetHash);
                 const isBusy = busyID === item.id;
+                const openHint = !targetHash
+                  ? '无关联对象'
+                  : targetHash.startsWith('#/task/')
+                    ? '点此查看任务'
+                    : targetHash.startsWith('#/goal/')
+                      ? '点此查看目标'
+                      : targetHash.startsWith('#/automations')
+                        ? '点此查看自动化'
+                        : '点此打开会话';
                 return (
                   <article
                     key={item.id}
                     className={`p-3 rounded-2xl border border-slate-200/80 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 space-y-2 ${
                       canOpen ? 'cursor-pointer hover:border-slate-300 dark:hover:border-zinc-700' : ''
                     }`}
-                    onClick={canOpen ? () => openThread(item.threadID) : undefined}
+                    onClick={targetHash ? () => openTarget(targetHash) : undefined}
                     role={canOpen ? 'button' : undefined}
                     tabIndex={canOpen ? 0 : undefined}
                     onKeyDown={
-                      canOpen
+                      targetHash
                         ? (event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault();
-                              openThread(item.threadID);
+                              openTarget(targetHash);
                             }
                           }
                         : undefined
@@ -262,9 +276,7 @@ const AttentionSheetBody: React.FC<AttentionSheetProps> = ({ onClose, projectID,
                     )}
 
                     <div className="flex flex-wrap items-center justify-between gap-2 text-mc-caption text-slate-500 dark:text-zinc-400">
-                      <span className="min-w-0 break-words">
-                        {canOpen ? '点此打开会话' : '无关联会话'}
-                      </span>
+                      <span className="min-w-0 break-words">{openHint}</span>
                       <button
                         type="button"
                         onClick={(event) => {

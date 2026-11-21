@@ -7,6 +7,9 @@ function assertEqual(actual: unknown, expected: unknown): void {
 assertEqual(parseRoute('#/'), { kind: 'home' });
 assertEqual(parseRoute('#/board'), { kind: 'board' });
 assertEqual(parseRoute('#/automations'), { kind: 'automations' });
+assertEqual(parseRoute('#/automations/auto-1'), { kind: 'automations', automationID: 'auto-1' });
+assertEqual(parseRoute('#/automations/auto%201%2F2'), { kind: 'automations', automationID: 'auto 1/2' });
+assertEqual(parseRoute('#/automations/%E0%A4%A'), { kind: 'automations' });
 assertEqual(parseRoute('#/t/thread%201/review'), { kind: 'thread', threadID: 'thread 1', subview: 'review' });
 assertEqual(parseRoute('#/t/thread%201/context'), { kind: 'thread', threadID: 'thread 1', subview: 'context' });
 assertEqual(parseRoute('#/t/thread%201/logs'), { kind: 'thread', threadID: 'thread 1', subview: 'logs' });

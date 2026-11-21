@@ -2,7 +2,7 @@ import { SheetFrame } from './sheet/SheetFrame';
 // 看板首页：沿用会话列表的分区与行样式，展示宿主派生的五列。
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Goal, GoalStatus, KanbanDisplayColumn, TaskItem } from '../types/contract';
+import type { Goal, KanbanDisplayColumn, TaskItem } from '../types/contract';
 import type {
   KanbanDeleteTaskParams,
   KanbanRescueTaskParams,
@@ -31,6 +31,14 @@ import {
   XMarkIcon
 } from './Icons';
 import { formatRelativeTime } from '../utils/date';
+import {
+  goalStatusClass,
+  goalStatusLabel,
+  isStewardOrigin,
+  kanbanColumnLabel,
+  taskStatusLabel,
+  taskStatusToneClass
+} from '../utils/taskStatus';
 
 const COLUMN_ORDER: KanbanDisplayColumn[] = [
   'needs_you',
@@ -39,24 +47,6 @@ const COLUMN_ORDER: KanbanDisplayColumn[] = [
   'todo',
   'done'
 ];
-
-const COLUMN_LABELS: Record<KanbanDisplayColumn, string> = {
-  needs_you: '待你处理',
-  review: '待审',
-  in_progress: '进行中',
-  todo: '待办',
-  done: '完成'
-};
-
-const GOAL_STATUS_LABELS: Record<GoalStatus, string> = {
-  planning: '规划中',
-  plan_failed: '规划失败',
-  plan_review: '方案待审',
-  running: '运行中',
-  paused: '暂停',
-  completed: '完成',
-  cancelled: '已取消'
-};
 
 interface KanbanBoardProps {
   onSelectTask?: (task: TaskItem) => void;
@@ -101,24 +91,25 @@ function SectionHeading({ title, count, onClick, expanded = true }: {
   );
 }
 
-function goalStatusLabel(status: string): string {
-  return GOAL_STATUS_LABELS[status as GoalStatus] ?? '未知状态';
-}
-
 function taskStateLabel(task: TaskItem): string {
-  if (task.status === 'waiting') return '等待中';
-  if (task.status === 'cancelled') return '已取消';
-  if (task.lastFailureReason || task.status === 'rejected' || task.status === 'failed') return '失败';
+  if (
+    task.status === 'rejected' ||
+    task.status === 'failed' ||
+    task.status === 'waiting' ||
+    task.status === 'cancelled' ||
+    task.status === 'needs_approval'
+  ) {
+    return task.status === 'waiting' && task.waitKind === 'human'
+      ? kanbanColumnLabel('needs_you')
+      : taskStatusLabel(task.status);
+  }
   if (task.blocked) return `等待 ${Math.max(task.dependsOn.length, 1)} 项`;
-  return COLUMN_LABELS[task.displayColumn] ?? '未知状态';
+  return kanbanColumnLabel(task.displayColumn);
 }
 
 function taskStateClass(task: TaskItem): string {
-  if (task.lastFailureReason || task.status === 'rejected' || task.status === 'failed') return 'thread-status thread-status--danger';
-  if (task.blocked || task.displayColumn === 'needs_you') return 'thread-status thread-status--warning';
-  if (task.displayColumn === 'review') return 'thread-status thread-status--primary';
-  if (task.displayColumn === 'in_progress') return 'thread-status thread-status--running';
-  return 'thread-status';
+  const tone = taskStatusToneClass(task);
+  return tone ? `thread-status ${tone}` : 'thread-status';
 }
 
 /**
@@ -257,6 +248,11 @@ const TaskRow: React.FC<TaskRowProps> = ({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 pt-1 text-micro text-muted">
+          {isStewardOrigin(task.origin) && (
+            <span className="shrink-0 rounded bg-[var(--mc-accent-subtle)] px-1.5 py-0.5 text-micro font-medium text-[var(--primary)]">
+              总管
+            </span>
+          )}
           <span>更新于 {formatRelativeTime(task.updatedAt)}</span>
           {task.dependsOn.length > 0 && <span>依赖 {task.dependsOn.length} 项</span>}
           {task.reviewThreadID && onOpenReviewThread && (
@@ -314,7 +310,7 @@ const GoalRow: React.FC<GoalRowProps> = ({ goal, menuOpen, onOpen, onOpenOutputs
           <div className="flex items-center gap-2">
             <SparklesIcon className="h-4 w-4 shrink-0 text-primary" />
             <span className="truncate text-sm font-semibold text-foreground">{goal.title}</span>
-            <span className="shrink-0 text-mc-caption text-muted">{status}</span>
+            <span className={`shrink-0 text-mc-caption font-medium ${goalStatusClass(goal.status)}`}>{status}</span>
             {stalled && <span className="thread-status thread-status--warning shrink-0 text-mc-caption">卡住</span>}
           </div>
           <div className="mt-1 flex items-center gap-2 text-mc-caption text-muted">
@@ -947,10 +943,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     })() : visibleTasks.map(renderTask);
 
     return (
-      <section key={column} className="kanban-column" aria-label={COLUMN_LABELS[column]}>
+      <section key={column} className="kanban-column" aria-label={kanbanColumnLabel(column)}>
         <div className="kanban-column__header">
           <SectionHeading
-            title={COLUMN_LABELS[column]}
+            title={kanbanColumnLabel(column)}
             count={allTasks.length}
             onClick={column === 'done' ? () => setDoneExpanded((expanded) => !expanded) : undefined}
             expanded={doneExpanded}

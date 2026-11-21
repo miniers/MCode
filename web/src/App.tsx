@@ -427,6 +427,10 @@ const AppContent: React.FC = () => {
     <LazyBoundary label="正在加载自动化…">
       <AutomationPanel
         projectID={selectedProjectID}
+        initialAutomationID={route.kind === 'automations' ? route.automationID ?? null : null}
+        onSelectAutomation={(id) =>
+          navigate(id ? '#/automations/' + encodeURIComponent(id) : '#/automations', { replace: true })
+        }
         onOpenThread={(threadID) => {
           prefetchThreadViews();
           navigate(`#/t/${encodeURIComponent(threadID)}`);

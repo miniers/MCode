@@ -4,6 +4,7 @@ import { SheetFrame } from './sheet/SheetFrame';
 
 import React, { useMemo } from 'react';
 import type { Goal, KanbanDisplayColumn, TaskItem } from '../types/contract';
+import { taskStatusLabel, taskStatusToneClass } from '../utils/taskStatus';
 import { XMarkIcon } from './Icons';
 
 // 产物里的单条任务汇总：summary 优先取完成说明（评审总结），退化为 Notes。
@@ -35,34 +36,8 @@ export function goalOutputSummary(task: TaskItem): string {
   return task.notes;
 }
 
-// goalOutputStatusLabel 将任务状态映射为界面文案，未知状态原样返回。
-export function goalOutputStatusLabel(status: string): string {
-  switch (status) {
-    case 'waiting':
-      return '等待中';
-    case 'failed':
-      return '失败';
-    case 'cancelled':
-      return '已取消';
-    case 'todo':
-      return '待办';
-    case 'in_progress':
-      return '进行中';
-    case 'needs_approval':
-      return '待审批';
-    case 'review':
-      return '审查';
-    case 'done':
-      return '完成';
-    case 'rejected':
-      return '已驳回';
-    default:
-      return status;
-  }
-}
-
 // goalOutputs 从看板任务按目标汇总任务产物：只保留 goalID 匹配的任务，
-// 按看板列顺序（待办→进行中→待你处理→审查→完成）与标题稳定排序。
+// 按看板列顺序（待办→进行中→待你处理→待审阅→已完成）与标题稳定排序。
 export function goalOutputs(tasks: TaskItem[], goalID: string): GoalOutputTask[] {
   const normalized = goalID.trim();
   if (normalized === '') return [];
@@ -144,8 +119,8 @@ export const GoalOutputsSheet: React.FC<GoalOutputsSheetProps> = ({
                       {out.task.title || '未命名任务'}
                     </h3>
                   </button>
-                  <span className="shrink-0 rounded bg-border-subtle px-1.5 py-0.5 text-mc-caption text-muted">
-                    {goalOutputStatusLabel(out.task.status)}
+                  <span className={`shrink-0 rounded bg-border-subtle px-1.5 py-0.5 text-mc-caption font-medium ${taskStatusToneClass(out.task) || 'text-muted'}`}>
+                    {taskStatusLabel(out.task.status)}
                   </span>
                   <button
                     type="button"

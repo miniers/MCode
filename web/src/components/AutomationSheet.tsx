@@ -3,7 +3,7 @@ import { SheetFrame } from './sheet/SheetFrame';
 // 数据来自宿主扩展方法 automations.*（internal/remote/automation_ext_methods.go）。
 // 除查看、立即运行、标记已读与归档外，宿主声明写方法时还支持新建、编辑、暂停/恢复、重置、删除。
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useAutomationRuns,
   useProjectAutomations,
@@ -15,6 +15,7 @@ import {
 import { useRemoteStatic } from '../context/RemoteContext';
 import { pickableProjects } from '../utils/builtinProjects';
 import { formatRelativeTime } from '../utils/date';
+import { automationRunStatusInfo } from '../utils/taskStatus';
 import { AutomationEditForm } from './AutomationEditForm';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ArchiveBoxIcon, ChevronRightIcon, ClockIcon, DocumentTextIcon, PlayIcon, XMarkIcon } from './Icons';
@@ -22,34 +23,15 @@ import { ArchiveBoxIcon, ChevronRightIcon, ClockIcon, DocumentTextIcon, PlayIcon
 export interface AutomationSheetProps {
   /** 当前项目 ID；为 null（全部项目）时自动提供项目切换条并默认选中第一个项目。 */
   projectID: string | null;
+  /** 深链定位的自动化 ID（如 #/automations/:id）；非空时展开对应运行记录。 */
+  initialAutomationID?: string | null;
+  /** 选中某条自动化或返回列表时同步外部路由。 */
+  onSelectAutomation?: (id: string | null) => void;
   /** 为 true 时内联渲染在主区 .home-list 容器内，不再包 SheetFrame 弹窗。 */
   inline?: boolean;
   onClose?: () => void;
   /** 打开某次运行产生的会话；由调用方负责路由跳转。 */
   onOpenThread: (threadID: string) => void;
-}
-
-/** 运行状态的中文文案与配色，与桌面端 automationRunStatus 保持一致。 */
-function runStatusInfo(status: string): { label: string; className: string } {
-  switch (status) {
-    case 'running':
-      return { label: '运行中', className: 'text-[var(--status-running)]' };
-    case 'succeeded':
-    case 'success':
-    case 'completed':
-      return { label: '成功', className: 'text-[var(--mc-success)]' };
-    case 'failed':
-    case 'error':
-      return { label: '失败', className: 'text-[var(--mc-danger)]' };
-    case 'stopped':
-    case 'canceled':
-    case 'cancelled':
-      return { label: '已停止', className: 'text-[var(--foreground-muted)]' };
-    case '':
-      return { label: '未知', className: 'text-[var(--foreground-muted)]' };
-    default:
-      return { label: status, className: 'text-[var(--foreground-muted)]' };
-  }
 }
 
 /** 运行耗时文案，如「12s」「3m 05s」「1h 02m」；未结束或时间异常时返回空串。 */
@@ -76,6 +58,8 @@ const UNREAD_BADGE_CLASS =
 
 export const AutomationSheet: React.FC<AutomationSheetProps> = ({
   projectID,
+  initialAutomationID,
+  onSelectAutomation,
   inline = false,
   onClose,
   onOpenThread
@@ -97,16 +81,66 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
   }, [availableProjects, fallbackProjectID, projectID]);
 
   const { automations, loading, error, reload } = useProjectAutomations(effectiveProjectID);
-  const [activeID, setActiveID] = useState<string | null>(null);
+  const [activeID, setActiveID] = useState<string | null>(() => initialAutomationID ?? null);
   const [includeArchived, setIncludeArchived] = useState(false);
+  const prevProjectIDRef = useRef<string | null>(projectID);
 
   useEffect(() => {
+    if (initialAutomationID) {
+      setActiveID(initialAutomationID);
+      setIncludeArchived(false);
+      setEditor(null);
+      setActionError(null);
+      setNotice(null);
+    } else if (initialAutomationID === null) {
+      setActiveID(null);
+    }
+  }, [initialAutomationID]);
+
+  useEffect(() => {
+    if (prevProjectIDRef.current === projectID) return;
+    prevProjectIDRef.current = projectID;
     setActiveID(null);
     setIncludeArchived(false);
     setEditor(null);
     setActionError(null);
     setNotice(null);
-  }, [projectID]);
+    onSelectAutomation?.(null);
+  }, [onSelectAutomation, projectID]);
+
+  useEffect(() => {
+    if (
+      projectID !== null ||
+      !initialAutomationID ||
+      loading ||
+      !api.supportsList ||
+      availableProjects.length <= 1
+    ) {
+      return;
+    }
+    if (automations.some((item) => item.id === initialAutomationID)) return;
+
+    let cancelled = false;
+    void (async () => {
+      for (const candidate of availableProjects) {
+        if (candidate.id === effectiveProjectID) continue;
+        try {
+          const list = await api.listAutomations(candidate.id);
+          if (cancelled) return;
+          if (list.some((item) => item.id === initialAutomationID)) {
+            setFallbackProjectID(candidate.id);
+            return;
+          }
+        } catch {
+          // 忽略单个项目读取失败，继续检查其余项目。
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, automations, availableProjects, effectiveProjectID, initialAutomationID, loading, projectID]);
   const {
     runs,
     loading: runsLoading,
@@ -130,18 +164,23 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
 
   const active = useMemo(() => automations.find((item) => item.id === activeID) ?? null, [automations, activeID]);
 
-  const openRuns = useCallback((item: RemoteAutomationExtAutomation) => {
-    setActiveID(item.id);
-    setActionError(null);
-    setNotice(null);
-  }, []);
+  const openRuns = useCallback(
+    (item: RemoteAutomationExtAutomation) => {
+      setActiveID(item.id);
+      setActionError(null);
+      setNotice(null);
+      onSelectAutomation?.(item.id);
+    },
+    [onSelectAutomation]
+  );
 
   const backToList = useCallback(() => {
     setActiveID(null);
     setIncludeArchived(false);
     setActionError(null);
     setNotice(null);
-  }, []);
+    onSelectAutomation?.(null);
+  }, [onSelectAutomation]);
 
   const handleRunNow = useCallback(
     async (automationID: string) => {
@@ -618,7 +657,7 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
 
             <div className="space-y-3 pb-2">
               {runs.map((run) => {
-                const status = runStatusInfo(run.status);
+                const status = automationRunStatusInfo(run.status);
                 const duration = runDurationText(run);
                 const busy = busyRunID === run.id;
                 return (

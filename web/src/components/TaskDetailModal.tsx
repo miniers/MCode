@@ -2,7 +2,7 @@ import { SheetFrame as SharedSheetFrame } from './sheet/SheetFrame';
 // 任务与目标详情 sheet：所有写入都由宿主能力与 revision 约束。
 
 import React, { useEffect, useState } from 'react';
-import type { Goal, GoalStatus, TaskItem, TaskStatus } from '../types/contract';
+import type { Goal, TaskItem, TaskStatus } from '../types/contract';
 import { useRemoteStatic } from '../context/RemoteContext';
 import { DiffViewer } from './DiffViewer';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -21,6 +21,12 @@ import {
 } from './Icons';
 import { MarkdownView } from './MarkdownView';
 import { formatRelativeTime } from '../utils/date';
+import {
+  goalStatusClass,
+  goalStatusLabel,
+  taskStatusLabel,
+  taskStatusToneClass
+} from '../utils/taskStatus';
 
 interface TaskDetailModalProps {
   task: TaskItem;
@@ -39,36 +45,6 @@ interface GoalDetailModalProps {
   onOpenTask: (task: TaskItem) => void;
   onOpenThread?: (threadID: string) => void;
   onOpenReviewThread?: (threadID: string) => void;
-}
-
-const GOAL_STATUS_LABELS: Record<GoalStatus, string> = {
-  planning: '规划中',
-  plan_failed: '规划失败',
-  plan_review: '方案待审',
-  running: '运行中',
-  paused: '暂停',
-  completed: '完成',
-  cancelled: '已取消'
-};
-
-const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  todo: '待办',
-  in_progress: '进行中',
-  needs_approval: '等你',
-  waiting: '等待中',
-  review: '待审',
-  done: '完成',
-  rejected: '失败',
-  failed: '失败',
-  cancelled: '已取消'
-};
-
-function taskStatusLabel(status: string): string {
-  return TASK_STATUS_LABELS[status as TaskStatus] ?? '未知状态';
-}
-
-function goalStatusLabel(status: string): string {
-  return GOAL_STATUS_LABELS[status as GoalStatus] ?? '未知状态';
 }
 
 function actionErrorMessage(error: unknown): string {
@@ -339,7 +315,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {errorMessage && <div className="inline-alert inline-alert--danger min-w-0 break-words" role="alert"><ExclamationTriangleIcon className="h-4 w-4 shrink-0" /><span className="min-w-0 break-words [overflow-wrap:anywhere]">{errorMessage}</span></div>}
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted min-w-0">
-            <span className="thread-status">{taskStatusLabel(task.status)}</span>
+            <span className={`thread-status ${taskStatusToneClass(task)}`.trim()}>{taskStatusLabel(task.status)}</span>
             {projectName && <span className="truncate max-w-[200px]">{projectName}</span>}
             <span>更新于 {formatRelativeTime(task.updatedAt)}</span>
             {task.blocked && <span className="inline-flex items-center gap-1 text-warning"><LockIcon className="h-3.5 w-3.5 shrink-0" />等待 {Math.max(task.dependsOn.length, 1)} 项依赖</span>}
@@ -505,7 +481,7 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
         <div className="space-y-5 min-w-0 max-w-full w-full overflow-x-hidden">
           {errorMessage && <div className="inline-alert inline-alert--danger min-w-0 break-words" role="alert"><ExclamationTriangleIcon className="h-4 w-4 shrink-0" /><span className="min-w-0 break-words [overflow-wrap:anywhere]">{errorMessage}</span></div>}
           {isDisconnected && <div className="inline-alert inline-alert--warning min-w-0 break-words" role="status"><ExclamationTriangleIcon className="h-4 w-4 shrink-0" /><span>当前连接已断开，写入操作已禁用。</span></div>}
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted min-w-0"><span className="thread-status">{goalStatusLabel(goal.status)}</span>{projectName && <span className="truncate max-w-[200px]">{projectName}</span>}<span>{goal.progress.done}/{goal.progress.total} 完成</span>{goal.progress.failed > 0 && <span className="text-danger">失败 {goal.progress.failed}</span>}{goal.progress.blocked > 0 && <span className="text-warning">依赖阻塞 {goal.progress.blocked}</span>}{goal.progress.waitingOnYou > 0 && <span>等你 {goal.progress.waitingOnYou}</span>}</div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted min-w-0"><span className={`thread-status ${goalStatusClass(goal.status)}`.trim()}>{goalStatusLabel(goal.status)}</span>{projectName && <span className="truncate max-w-[200px]">{projectName}</span>}<span>{goal.progress.done}/{goal.progress.total} 完成</span>{goal.progress.failed > 0 && <span className="text-danger">失败 {goal.progress.failed}</span>}{goal.progress.blocked > 0 && <span className="text-warning">依赖阻塞 {goal.progress.blocked}</span>}{goal.progress.waitingOnYou > 0 && <span>等你 {goal.progress.waitingOnYou}</span>}</div>
 
           <section className="space-y-2 min-w-0">
             <h3 className="text-xs font-semibold text-muted">目标策略</h3>
@@ -558,7 +534,7 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
                         >
                           {task.title}
                         </button>
-                        <span className="shrink-0 text-xs text-muted">
+                        <span className={`shrink-0 text-xs font-medium ${taskStatusToneClass(task) || 'text-muted'}`}>
                           {taskStatusLabel(task.status)}
                         </span>
                       </div>
@@ -598,7 +574,7 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
 
           <section className="space-y-2 min-w-0">
             <h3 className="text-xs font-semibold text-muted">目标任务</h3>
-            {goalTasks.length === 0 ? <p className="text-sm text-muted">暂无任务快照。</p> : goalTasks.map((task) => <button key={task.id} type="button" className="flex w-full items-center justify-between gap-3 border-b border-border-subtle py-3 text-left last:border-0 min-w-0" onClick={() => onOpenTask(task)}><span className="min-w-0 truncate text-sm text-foreground">{task.title}</span><span className="shrink-0 text-xs text-muted">{taskStatusLabel(task.status)}{task.lastFailureReason ? ' · 失败' : ''}</span></button>)}
+            {goalTasks.length === 0 ? <p className="text-sm text-muted">暂无任务快照。</p> : goalTasks.map((task) => <button key={task.id} type="button" className="flex w-full items-center justify-between gap-3 border-b border-border-subtle py-3 text-left last:border-0 min-w-0" onClick={() => onOpenTask(task)}><span className="min-w-0 truncate text-sm text-foreground">{task.title}</span><span className={`shrink-0 text-xs font-medium ${taskStatusToneClass(task) || 'text-muted'}`}>{taskStatusLabel(task.status)}{task.lastFailureReason ? ' · 失败' : ''}</span></button>)}
           </section>
         </div>
       </SheetFrame>
