@@ -506,8 +506,9 @@ func TestModelPickerCard_PiSlashModelIDKeepsEfforts(t *testing.T) {
 			if tt.HasText("该模型未提供可调的推理强度") {
 				t.Fatalf("模型 %q 应渲染滑杆，而不是空态文案: %v", model, tt.Texts())
 			}
-			if !tt.HasText("Low") {
-				t.Fatalf("模型 %q 的卡片应显示默认档位 Low，实际 %v", model, tt.Texts())
+			info, ok := tt.Access("推理强度")
+			if !ok || info.Value != "Low" {
+				t.Fatalf("模型 %q 的推理强度滑块默认档位应为 Low，实际 (%+v, %v)，texts=%v", model, info, ok, tt.Texts())
 			}
 		})
 	}
