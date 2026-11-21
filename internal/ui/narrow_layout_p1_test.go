@@ -191,3 +191,83 @@ func TestNarrowLayoutP1ChatHeaderNarrow(t *testing.T) {
 		}
 	}
 }
+
+func TestNarrowLayoutP1PaneMinWidthContracts(t *testing.T) {
+	// 1. clampSidebarWidthForWindow：正常窗保持 [240, 420]，超窄窗保护主区 ≥ inspectorChatMinWidth (360)
+	sidebarCases := []struct {
+		winW, in, want float32
+	}{
+		{WindowMinWidth, 0, SidebarDefaultWidth},
+		{WindowMinWidth, 100, SidebarMinWidth},
+		{WindowMinWidth, SidebarMaxWidth, SidebarMaxWidth},
+		{WindowMinWidth, 999, SidebarMaxWidth},
+		{WindowDefaultWidth, 100, SidebarMinWidth},
+		{WindowDefaultWidth, SidebarMaxWidth, SidebarMaxWidth},
+		{WindowDefaultWidth, 999, SidebarMaxWidth},
+		{680, 420, 680 - inspectorChatMinWidth - 1},
+		{680, 300, 300},
+		{680, 100, SidebarMinWidth},
+		{500, 400, SidebarMinWidth},
+	}
+	for _, tc := range sidebarCases {
+		if got := clampSidebarWidthForWindow(tc.winW, tc.in); got != tc.want {
+			t.Fatalf("clampSidebarWidthForWindow(%v, %v) = %v, want %v", tc.winW, tc.in, got, tc.want)
+		}
+	}
+
+	// 2. chatAreaWidth：内联右侧面板保证聊天区 ≥ inspectorChatMinWidth；overlay 模式不误扣
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.selectedThreadID = "t1"
+	s.sidebarCollapsed = true
+	s.sidebarWidth = SidebarMinWidth
+	s.mu.Unlock()
+
+	inspectorSelect(s, sidePaneFileID, false)
+	p := activeSidePane(s)
+	if p == nil {
+		t.Fatal("预期右侧面板已开启")
+	}
+	wPtr := p.widthPointer(s)
+	if wPtr == nil {
+		t.Fatal("预期右侧面板宽度指针非 nil")
+	}
+	*wPtr = 800
+
+	measureChatArea := func(winW int) float32 {
+		var got float32
+		tt := ui.NewTester(func(c *ui.Context) {
+			got = chatAreaWidth(c, s)
+		}, winW, 600)
+		tt.Frame()
+		return got
+	}
+
+	// 内联模式（available = 1000 >= 687）：大偏好宽 800 仍保证主区保留 360px
+	if got := measureChatArea(1000); got != inspectorChatMinWidth {
+		t.Fatalf("内联右侧面板时 chatAreaWidth(1000) = %v, want %v", got, inspectorChatMinWidth)
+	}
+
+	// 打开侧边栏（available = 948 - 241 = 707 >= 687）：同样保证主区保留 360px
+	s.mu.Lock()
+	s.sidebarCollapsed = false
+	s.sidebarWidth = SidebarMinWidth
+	s.mu.Unlock()
+	if got := measureChatArea(WindowMinWidth); got != inspectorChatMinWidth {
+		t.Fatalf("含侧边栏内联右侧面板时 chatAreaWidth(948) = %v, want %v", got, inspectorChatMinWidth)
+	}
+
+	// 窄窗 overlay 模式（available = 900 - 241 = 659 < 687）：不扣减浮层宽度
+	if got := measureChatArea(900); got != 900-SidebarMinWidth-1 {
+		t.Fatalf("含侧边栏 overlay 模式 chatAreaWidth(900) = %v, want %v", got, 900-SidebarMinWidth-1)
+	}
+
+	// 折叠侧边栏 overlay 模式（available = 600 < 687）：不误扣为 0
+	s.mu.Lock()
+	s.sidebarCollapsed = true
+	s.mu.Unlock()
+	if got := measureChatArea(600); got != 600 {
+		t.Fatalf("overlay 模式 chatAreaWidth(600) = %v, want 600", got)
+	}
+}

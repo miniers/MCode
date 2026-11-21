@@ -163,8 +163,9 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			}
 			state.mu.Unlock()
 
-			// 限制侧边栏宽度在 SidebarMinWidth 与 SidebarMaxWidth 之间，默认 SidebarDefaultWidth。
-			state.sidebarWidth = clampSidebarWidth(state.sidebarWidth)
+			// 限制侧边栏宽度在 SidebarMinWidth 与 SidebarMaxWidth 之间（窄窗按主区最小宽度收紧上限）。
+			winW, _ := c.Size()
+			state.sidebarWidth = clampSidebarWidthForWindow(winW, state.sidebarWidth)
 
 			pal := getPaletteState(state)
 

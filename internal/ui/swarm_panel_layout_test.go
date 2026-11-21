@@ -40,6 +40,25 @@ func TestPanelLayoutWidthAndSides(t *testing.T) {
 	if got := pref.width(); got != panelMinWidth {
 		t.Fatalf("width 不应小于最小宽度: %v", got)
 	}
+
+	t.Run("极窄主区域不越界", func(t *testing.T) {
+		for _, paneW := range []float32{280, 30} {
+			for _, prefW := range []float32{0, 400} {
+				extreme := panelLayout{paneW: paneW, paneH: 900, composerAreaH: 100, stackDepth: 1, prefW: prefW}
+				w := extreme.width()
+				wantW := max(float32(0), paneW-2*panelSideMargin)
+				if w != wantW {
+					t.Fatalf("paneW=%v prefW=%v: width = %v, want %v", paneW, prefW, w, wantW)
+				}
+				for _, corner := range []panelCorner{cornerBottomTrailing, cornerBottomLeading, cornerTopTrailing, cornerTopLeading} {
+					origin := extreme.dockedOrigin(corner, panelReserve{})
+					if origin.x < 0 || origin.x+w > paneW {
+						t.Fatalf("paneW=%v corner=%v: dockedOrigin=%+v w=%v 越出 [0, %v]", paneW, corner, origin, w, paneW)
+					}
+				}
+			}
+		}
+	})
 }
 
 func TestPanelLayoutHeight(t *testing.T) {

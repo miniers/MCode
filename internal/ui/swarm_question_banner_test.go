@@ -1,6 +1,8 @@
 package mcodeui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -249,5 +251,140 @@ func TestUIReview4_SwarmQuestionCountdownNextChange(t *testing.T) {
 	tt.Advance(10 * time.Second)
 	if builds != before {
 		t.Fatalf("已到期后不应再请求下一帧：builds %d -> %d", before, builds)
+	}
+}
+
+func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
+	longPrompt := strings.Repeat("请确认数据库迁移策略与历史数据清理方案，避免上线回滚风险", 2)
+	makeState := func(baseTime time.Time) SwarmState {
+		return SwarmState{
+			LeadThreadID: "lead",
+			Available:    true,
+			Enabled:      true,
+			Bees: []SwarmBee{
+				{
+					ThreadID: "h1",
+					Name:     "快手",
+					Status:   "running",
+					PendingQuestion: &SwarmBeeQuestion{
+						RequestID: "req-wrap",
+						Questions: []ApprovalQuestion{
+							{ID: "q1", Prompt: longPrompt},
+							{ID: "q2", Prompt: "是否保留旧索引？"},
+						},
+						AutoForwardAt: baseTime.Add(150 * time.Second),
+					},
+				},
+			},
+		}
+	}
+
+	rectsOverlap := func(a, b ui.Rect) bool {
+		return a.X < b.X+b.W-0.5 && b.X < a.X+a.W-0.5 && a.Y < b.Y+b.H-0.5 && b.Y < a.Y+a.H-0.5
+	}
+
+	for _, winW := range []int{900, 460, 360} {
+		t.Run(fmt.Sprintf("width_%d", winW), func(t *testing.T) {
+			fake := NewFakeClient()
+			s := newChatState(fake)
+			t.Cleanup(s.close)
+			s.selectedThreadID = "lead"
+			hp := getSwarmPanelState(s)
+
+			var (
+				baseTime    time.Time
+				summaryText string
+			)
+			tt := ui.NewTester(func(c *ui.Context) {
+				if baseTime.IsZero() {
+					baseTime = c.Now()
+					st := makeState(baseTime)
+					summaryText = swarmQuestionSingleLine(swarmQuestionBannerFullSummary(st.Bees[0]), swarmQuestionBannerMaxRunes)
+					swarmPanelMu.Lock()
+					hp.loadedFor = "lead"
+					hp.setStateLocked(st)
+					swarmPanelMu.Unlock()
+				}
+				s.init(c)
+				renderSwarmQuestionBanner(c, s)
+			}, winW, 400)
+
+			tt.Frame()
+
+			avatarRect, ok := tt.Find("快手 头像")
+			if !ok {
+				t.Fatalf("winW=%d: 缺少头像元素", winW)
+			}
+			if avatarRect.W != 22 || avatarRect.H != 22 {
+				t.Fatalf("winW=%d: 头像尺寸应保持 22x22，got %+v", winW, avatarRect)
+			}
+
+			summaryRect, ok := tt.Find(summaryText)
+			if !ok || summaryRect.W <= 0 || summaryRect.H <= 0 {
+				t.Fatalf("winW=%d: 摘要布局异常 ok=%v rect=%+v texts=%v", winW, ok, summaryRect, tt.Texts())
+			}
+			hintRect, ok := tt.Find("3 分钟后自动交给主线程")
+			if !ok || hintRect.W <= 0 || hintRect.H <= 0 {
+				t.Fatalf("winW=%d: 倒计时布局异常 ok=%v rect=%+v", winW, ok, hintRect)
+			}
+			forwardInfo, ok := tt.AccessByRole(ui.RoleButton, "交给主线程回答")
+			if !ok || forwardInfo.Bounds.W <= 0 || forwardInfo.Bounds.H <= 0 {
+				t.Fatalf("winW=%d: 缺少「交给主线程回答」按钮", winW)
+			}
+			openInfo, ok := tt.AccessByRole(ui.RoleButton, "去回答")
+			if !ok || openInfo.Bounds.W <= 0 || openInfo.Bounds.H <= 0 {
+				t.Fatalf("winW=%d: 缺少「去回答」按钮", winW)
+			}
+			forwardRect := forwardInfo.Bounds
+			openRect := openInfo.Bounds
+
+			items := []struct {
+				name string
+				r    ui.Rect
+			}{
+				{"avatar", avatarRect},
+				{"summary", summaryRect},
+				{"hint", hintRect},
+				{"forward", forwardRect},
+				{"open", openRect},
+			}
+			for _, it := range items {
+				if it.r.X < -0.5 || it.r.X+it.r.W > float32(winW)+0.5 {
+					t.Fatalf("winW=%d: %s 越出容器边界: %+v", winW, it.name, it.r)
+				}
+			}
+			for i := 0; i < len(items); i++ {
+				for j := i + 1; j < len(items); j++ {
+					if rectsOverlap(items[i].r, items[j].r) {
+						t.Fatalf("winW=%d: %s (%+v) 与 %s (%+v) 重叠", winW, items[i].name, items[i].r, items[j].name, items[j].r)
+					}
+				}
+			}
+
+			if winW >= 900 {
+				if summaryRect.X+summaryRect.W > hintRect.X+0.5 {
+					t.Fatalf("winW=%d: 宽窗下摘要与操作栏应在同一行，summary=%+v hint=%+v", winW, summaryRect, hintRect)
+				}
+				if max(summaryRect.Y, openRect.Y) >= min(summaryRect.Y+summaryRect.H, openRect.Y+openRect.H) {
+					t.Fatalf("winW=%d: 宽窗下摘要与按钮应同一行对齐，summary=%+v open=%+v", winW, summaryRect, openRect)
+				}
+			} else {
+				if summaryRect.W < 120 {
+					t.Fatalf("winW=%d: 窄窗下摘要宽度过窄: %+v", winW, summaryRect)
+				}
+				for _, action := range []struct {
+					name string
+					r    ui.Rect
+				}{
+					{"hint", hintRect},
+					{"forward", forwardRect},
+					{"open", openRect},
+				} {
+					if action.r.Y < summaryRect.Y+summaryRect.H-0.5 {
+						t.Fatalf("winW=%d: 窄窗下 %s 应折到摘要下方，summary=%+v %s=%+v", winW, action.name, summaryRect, action.name, action.r)
+					}
+				}
+			}
+		})
 	}
 }

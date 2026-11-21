@@ -112,8 +112,22 @@ func setChatPaneWidth(s *chatState, width float32) {
 	s.chatPaneWidthBits.Store(math.Float32bits(max(width, 0)))
 }
 
+// clampSidebarWidthForWindow 在 clampSidebarWidth 的基础上按窗口宽度收紧上限，
+// 确保打开侧边栏时主内容区尽量保留 inspectorChatMinWidth（360px）；
+// WindowMinWidth(948) 及以上窗口中 948-360-1=587 > SidebarMaxWidth(420)，不改变 [240, 420] 范围。
+func clampSidebarWidthForWindow(winW, sidebarW float32) float32 {
+	w := clampSidebarWidth(sidebarW)
+	if winW > 0 {
+		maxAllowed := min(float32(SidebarMaxWidth), max(float32(SidebarMinWidth), winW-inspectorChatMinWidth-1))
+		if w > maxAllowed {
+			w = maxAllowed
+		}
+	}
+	return w
+}
+
 // chatAreaWidth 是聊天区与子代理浮窗共用的主区宽度口径：窗口宽度先扣掉左侧边栏，
-// 再扣掉右侧分栏（文件 / 预览 / 改动）打开时的宽度与 1pt 分隔线。
+// 再按 inspectorLayout 扣掉右侧分栏（内联模式扣实际宽度与手柄；浮层模式不扣减）。
 func chatAreaWidth(c *ui.Context, s *chatState) float32 {
 	if s == nil || c == nil {
 		return 0
@@ -125,7 +139,10 @@ func chatAreaWidth(c *ui.Context, s *chatState) float32 {
 	paneW := mainAreaWidth(winW, sidebarW, sidebarHidden)
 	if p := activeSidePane(s); p != nil {
 		if w := p.widthPointer(s); w != nil {
-			paneW = max(paneW-*w-1, 0)
+			overlay, actual := inspectorLayout(paneW, *w)
+			if !overlay {
+				paneW = max(paneW-actual-sidePaneHandleWidth, 0)
+			}
 		}
 	}
 	return paneW

@@ -104,6 +104,9 @@ type panelLayout struct {
 }
 
 func (l panelLayout) width() float32 {
+	if l.paneW > 0 && l.paneW < panelMinWidth+2*panelSideMargin {
+		return max(0, l.paneW-2*panelSideMargin)
+	}
 	w := l.prefW
 	if w <= 0 {
 		w = panelDefaultWidth

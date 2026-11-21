@@ -66,8 +66,8 @@ func renderSwarmQuestionBanner(c *ui.Context, s *chatState) {
 	}
 
 	accent := ThemeWarning(c)
-	ui.Row(c.Key("swarm-question-banner-container")).Justify(ui.Center).Padding(0, Space6, Space2, Space6).Children(func() {
-		ui.Column(c.Key("swarm-question-banner-stack")).Grow(1).MaxWidth(composerDockMaxWidth).Gap(Space2).Children(func() {
+	ui.Row(c.Key("swarm-question-banner-container")).FillWidth().MinWidth(0).Justify(ui.Center).Padding(0, Space6, Space2, Space6).Children(func() {
+		ui.Column(c.Key("swarm-question-banner-stack")).Grow(1).MinWidth(0).MaxWidth(composerDockMaxWidth).Gap(Space2).Children(func() {
 			for _, h := range shown {
 				renderSwarmQuestionBannerRow(c, s, leadID, h, accent)
 			}
@@ -93,9 +93,11 @@ func renderSwarmQuestionBannerRow(c *ui.Context, s *chatState, leadID string, h 
 
 	forwarded := h.PendingQuestion != nil && h.PendingQuestion.Forwarded
 
-	ui.Column(c.Key(key)).FillWidth().Gap(Space1).Children(func() {
+	ui.Column(c.Key(key)).FillWidth().MinWidth(0).Gap(Space1).Children(func() {
 		ui.Row(c.Key(key+"-row")).
 			FillWidth().
+			MinWidth(0).
+			Wrap().
 			Radius(RadiusXL).
 			Background(accent.Alpha(0.10).Over(ThemeSurface(c))).
 			Border(1, accent.Alpha(0.40)).
@@ -103,59 +105,79 @@ func renderSwarmQuestionBannerRow(c *ui.Context, s *chatState, leadID string, h 
 			Gap(Space3).
 			AlignItems(ui.Center).
 			Children(func() {
-				renderSwarmGlyph(c, key+"-avatar", h, 22)
-				fullSummary := swarmQuestionBannerFullSummary(h)
-				ui.Text(c, swarmQuestionSingleLine(fullSummary, swarmQuestionBannerMaxRunes)).
+				ui.Row(c.Key(key+"-summary")).
 					Grow(1).
+					Basis(240).
 					MinWidth(0).
-					FontSize(uiFont(TypeBody)).
-					TextColor(ThemePrimaryText(c)).
-					MaxLines(1).
-					Ellipsis("…").
-					Tooltip(fullSummary)
-				ui.Row(c.Key(key + "-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
-					if forwarded {
-						ui.Text(c, "已交给主线程，等待回答…").
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemeSecondaryText(c)).
-							Selectable()
-					} else {
-						now := c.Now()
-						if hint := swarmQuestionAutoForwardHint(h.PendingQuestion, now); hint != "" {
-							if d, ok := swarmQuestionAutoForwardNextChange(h.PendingQuestion, now); ok {
-								c.After(d)
-							}
-							ui.Text(c, hint).
+					Shrink(1).
+					Gap(Space3).
+					AlignItems(ui.Center).
+					Children(func() {
+						ui.Box(c.Key(key+"-avatar-wrap")).Label(h.Name+" 头像").Shrink(0).Children(func() {
+							renderSwarmGlyph(c, key+"-avatar", h, 22)
+						})
+						fullSummary := swarmQuestionBannerFullSummary(h)
+						ui.Text(c, swarmQuestionSingleLine(fullSummary, swarmQuestionBannerMaxRunes)).
+							Grow(1).
+							MinWidth(0).
+							Shrink(1).
+							Wrap().
+							FontSize(uiFont(TypeBody)).
+							TextColor(ThemePrimaryText(c)).
+							MaxLines(2).
+							Ellipsis("…").
+							Tooltip(fullSummary)
+					})
+				ui.Row(c.Key(key+"-actions")).
+					Wrap().
+					MinWidth(0).
+					Gap(Space2).
+					AlignItems(ui.Center).
+					Children(func() {
+						if forwarded {
+							ui.Text(c, "已交给主线程，等待回答…").
+								MinWidth(0).
+								Shrink(1).
 								FontSize(uiFont(TypeFootnote)).
-								FontFeatures("tnum").
 								TextColor(ThemeSecondaryText(c)).
-								MaxLines(1)
+								Selectable()
+						} else {
+							now := c.Now()
+							if hint := swarmQuestionAutoForwardHint(h.PendingQuestion, now); hint != "" {
+								if d, ok := swarmQuestionAutoForwardNextChange(h.PendingQuestion, now); ok {
+									c.After(d)
+								}
+								ui.Text(c, hint).
+									FontSize(uiFont(TypeFootnote)).
+									FontFeatures("tnum").
+									TextColor(ThemeSecondaryText(c)).
+									MaxLines(1)
+							}
+							Button(c, ButtonOpts{
+								Key:     key + "-forward",
+								Text:    "交给主线程回答",
+								Variant: ButtonSecondary,
+								Size:    ControlSM,
+								Loading: forwarding,
+								Tooltip: "把这个提问交给主线程代答",
+								OnClick: func() {
+									forwardSwarmQuestion(s, leadID, h)
+								},
+							})
 						}
 						Button(c, ButtonOpts{
-							Key:     key + "-forward",
-							Text:    "交给主线程回答",
-							Variant: ButtonSecondary,
+							Key:     key + "-open",
+							Text:    "去回答",
+							Variant: ButtonPrimary,
 							Size:    ControlSM,
-							Loading: forwarding,
-							Tooltip: "把这个提问交给主线程代答",
+							Tooltip: "打开该子线程浮窗自己回答",
 							OnClick: func() {
-								forwardSwarmQuestion(s, leadID, h)
+								openSwarmFloatForBee(leadID, h.ThreadID)
+								markSwarmFailedBeeSeen(s, leadID, h)
+								s.invalidate()
 							},
 						})
-					}
-					Button(c, ButtonOpts{
-						Key:     key + "-open",
-						Text:    "去回答",
-						Variant: ButtonPrimary,
-						Size:    ControlSM,
-						Tooltip: "打开该子线程浮窗自己回答",
-						OnClick: func() {
-							openSwarmFloatForBee(leadID, h.ThreadID)
-							markSwarmFailedBeeSeen(s, leadID, h)
-							s.invalidate()
-						},
 					})
-				})
 			})
 		if errText != "" {
 			ui.Text(c, "转交失败："+errText).

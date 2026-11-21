@@ -807,8 +807,12 @@ func swarmFloatFrameFor(c *ui.Context, s *chatState) swarmFloatFrame {
 	if !sidebarHidden {
 		f.mainLeft = sidebarW + 1
 	}
+	paneW := chatPaneWidth(s)
+	if paneW <= 0 {
+		paneW = chatAreaWidth(c, s)
+	}
 	f.scene = computeSwarmScene(sceneInput{
-		paneW:         chatAreaWidth(c, s),
+		paneW:         paneW,
 		paneH:         paneH,
 		composerAreaH: composerH,
 		contentMaxW:   timelineContentMaxWidth(s),
