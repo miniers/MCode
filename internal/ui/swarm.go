@@ -1460,7 +1460,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 						Key:     "swarm-review-close-btn",
 						Text:    "返回",
 						Icon:    IconArrowLeft(),
-						Label:   "关闭审查器",
+						Label:   "关闭",
 						Tooltip: "返回汇总列表",
 						Variant: ButtonGhost,
 						Size:    ControlSM,
@@ -2347,288 +2347,298 @@ func swarmTierName(s *chatState, tierID string) string {
 func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 	key := fmt.Sprintf("swarm-bee-%d-%s", h.Index, h.ThreadID)
 	rowLabel := fmt.Sprintf("#%d %s", h.Index, h.Name)
-	row := ui.ButtonBase(c.Key(key)).
-		Label(rowLabel).
+	row := ui.Row(c.Key(key)).
 		FillWidth().
 		MinWidth(0).
 		Padding(Space3, Space3).
+		Gap(Space2).
+		AlignItems(ui.Start).
 		Radius(RadiusSM).
 		Background(ThemeSurface(c)).
 		BorderWidth(1).
 		BorderColor(ThemeBorder(c))
-	focusRing(c, row)
-	if row.Hovered() {
-		row.Background(ThemeHover(c))
-	}
-	if row.Clicked() {
-		if h.PendingMerge || h.ReviewState == "rejected" {
-			s.openSwarmReview(h.ThreadID)
-		} else if h.ThreadID != "" {
-			leadID := s.swarmTargetLeadID()
-			openSwarmFloatForBee(leadID, h.ThreadID)
-			markSwarmFailedBeeSeen(s, leadID, h)
-			s.invalidate()
-		}
-	}
 	row.Children(func() {
-		ui.Column(c.Key(key + "-body")).
-			FillWidth().
+		openBtn := ui.ButtonBase(c.Key(key + "-open")).
+			Label(rowLabel).
 			Grow(1).
-			MinWidth(0).
-			Gap(Space1).
-			Children(func() {
-				ui.Row(c.Key(key + "-meta")).
-					FillWidth().
-					MinWidth(0).
-					Wrap().
-					AlignItems(ui.Center).
-					Gap(Space2).
-					Children(func() {
-						// #Index Name
-						title := fmt.Sprintf("#%d %s", h.Index, h.Name)
-						ui.Text(c, title).
-							FontSize(uiFont(TypeBody)).
-							FontWeight(600).
-							TextColor(ThemePrimaryText(c)).
-							SingleLine().
-							Ellipsis("…").
-							MinWidth(0).
-							Shrink(1)
+			MinWidth(0)
+		focusRing(c, openBtn)
+		if openBtn.Hovered() {
+			row.Background(ThemeHover(c))
+		}
+		if openBtn.Clicked() {
+			if h.PendingMerge || h.ReviewState == "rejected" {
+				s.openSwarmReview(h.ThreadID)
+			} else if h.ThreadID != "" {
+				leadID := s.swarmTargetLeadID()
+				openSwarmFloatForBee(leadID, h.ThreadID)
+				markSwarmFailedBeeSeen(s, leadID, h)
+				s.invalidate()
+			}
+		}
+		openBtn.Children(func() {
+			ui.Column(c.Key(key + "-body")).
+				FillWidth().
+				Grow(1).
+				MinWidth(0).
+				Gap(Space1).
+				Children(func() {
+					ui.Row(c.Key(key + "-meta")).
+						FillWidth().
+						MinWidth(0).
+						Wrap().
+						AlignItems(ui.Center).
+						Gap(Space2).
+						Children(func() {
+							// #Index Name
+							title := fmt.Sprintf("#%d %s", h.Index, h.Name)
+							ui.Text(c, title).
+								FontSize(uiFont(TypeBody)).
+								FontWeight(600).
+								TextColor(ThemePrimaryText(c)).
+								SingleLine().
+								Ellipsis("…").
+								MinWidth(0).
+								Shrink(1)
 
-						if h.Tier != "" {
-							renderSwarmTierChip(c, "bee-tier-"+h.ThreadID, swarmTierName(s, h.Tier), h.Tier, h.ReadOnly)
-						}
-
-						// status label in status color
-						_, statusColor := swarmStatusTone(c, h.Status)
-						ui.Text(c, swarmStatusLabel(h.Status)).
-							FontSize(uiFont(TypeFootnote)).
-							FontWeight(500).
-							TextColor(statusColor)
-
-						// provider/model small (show short model name: last path segment of Model)
-						provModel := strings.TrimSpace(h.Provider)
-						shortModel := strings.TrimSpace(h.Model)
-						if idx := strings.LastIndex(shortModel, "/"); idx != -1 {
-							shortModel = shortModel[idx+1:]
-						}
-						if shortModel != "" {
-							if provModel != "" {
-								provModel += " / " + shortModel
-							} else {
-								provModel = shortModel
+							if h.Tier != "" {
+								renderSwarmTierChip(c, "bee-tier-"+h.ThreadID, swarmTierName(s, h.Tier), h.Tier, h.ReadOnly)
 							}
-						}
-						if provModel != "" {
-							ui.Text(c, provModel).
+
+							// status label in status color
+							_, statusColor := swarmStatusTone(c, h.Status)
+							ui.Text(c, swarmStatusLabel(h.Status)).
+								FontSize(uiFont(TypeFootnote)).
+								FontWeight(500).
+								TextColor(statusColor)
+
+							// provider/model small (show short model name: last path segment of Model)
+							provModel := strings.TrimSpace(h.Provider)
+							shortModel := strings.TrimSpace(h.Model)
+							if idx := strings.LastIndex(shortModel, "/"); idx != -1 {
+								shortModel = shortModel[idx+1:]
+							}
+							if shortModel != "" {
+								if provModel != "" {
+									provModel += " / " + shortModel
+								} else {
+									provModel = shortModel
+								}
+							}
+							if provModel != "" {
+								ui.Text(c, provModel).
+									FontSize(uiFont(TypeCaption)).
+									TextColor(ThemeSecondaryText(c))
+							}
+
+							if h.DirectModel {
+								ui.Row(c.Key(key+"-direct-model-tag")).
+									BorderWidth(1).
+									BorderColor(ThemeAccent(c).Alpha(0.5)).
+									Radius(RadiusXS).
+									Padding(Space0, Space1).
+									Tooltip("用户在消息里点名了这个模型").
+									Children(func() {
+										ui.Text(c, "指定模型").
+											FontSize(uiFont(TypeCaption)).
+											TextColor(ThemeAccent(c))
+									})
+							}
+
+							// tokens & toolCalls
+							usageText := fmt.Sprintf("%s tokens · %d 工具调用", formatTokenCount(int64(h.Tokens)), h.ToolCalls)
+							ui.Text(c, usageText).
 								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
-						}
 
-						if h.DirectModel {
-							ui.Row(c.Key(key+"-direct-model-tag")).
-								BorderWidth(1).
-								BorderColor(ThemeAccent(c).Alpha(0.5)).
-								Radius(RadiusXS).
-								Padding(Space0, Space1).
-								Tooltip("用户在消息里点名了这个模型").
-								Children(func() {
-									ui.Text(c, "指定模型").
-										FontSize(uiFont(TypeCaption)).
-										TextColor(ThemeAccent(c))
-								})
-						}
-
-						// tokens & toolCalls
-						usageText := fmt.Sprintf("%s tokens · %d 工具调用", formatTokenCount(int64(h.Tokens)), h.ToolCalls)
-						ui.Text(c, usageText).
-							FontSize(uiFont(TypeCaption)).
-							TextColor(ThemeSecondaryText(c))
-
-						// 越权写入 tag when ReadOnlyViolation
-						if h.ReadOnlyViolation {
-							ui.Row(c.Key(key+"-read-only-violation-tag")).
-								Padding(Space0, Space1).
-								Radius(RadiusXS).
-								Background(ThemeDanger(c).Alpha(0.15)).
-								Tooltip("只读档子代理改动了文件，改动已丢弃，未合并").
-								Children(func() {
-									ui.Text(c, "越权写入").
-										FontSize(uiFont(TypeCaption)).
-										FontWeight(600).
-										TextColor(ThemeDanger(c))
-								})
-						} else if h.Credibility != nil && h.Credibility.Cited > 0 {
-							badgeColor := ThemeSuccess(c)
-							badgeIcon := IconCircleCheck()
-							if h.Credibility.Verified != h.Credibility.Cited ||
-								strings.Contains(h.Credibility.Summary, "未读却引用") ||
-								strings.Contains(h.Credibility.Summary, "不可核实") {
-								badgeColor = ThemeWarning(c)
-								badgeIcon = IconOctagonAlert()
+							// 越权写入 tag when ReadOnlyViolation
+							if h.ReadOnlyViolation {
+								ui.Row(c.Key(key+"-read-only-violation-tag")).
+									Padding(Space0, Space1).
+									Radius(RadiusXS).
+									Background(ThemeDanger(c).Alpha(0.15)).
+									Tooltip("只读档子代理改动了文件，改动已丢弃，未合并").
+									Children(func() {
+										ui.Text(c, "越权写入").
+											FontSize(uiFont(TypeCaption)).
+											FontWeight(600).
+											TextColor(ThemeDanger(c))
+									})
+							} else if h.Credibility != nil && h.Credibility.Cited > 0 {
+								badgeColor := ThemeSuccess(c)
+								badgeIcon := IconCircleCheck()
+								if h.Credibility.Verified != h.Credibility.Cited ||
+									strings.Contains(h.Credibility.Summary, "未读却引用") ||
+									strings.Contains(h.Credibility.Summary, "不可核实") {
+									badgeColor = ThemeWarning(c)
+									badgeIcon = IconOctagonAlert()
+								}
+								ui.Row(c.Key(key+"-credibility-badge")).
+									Padding(Space0, Space2).
+									Radius(RadiusXS).
+									Gap(Space1).
+									AlignItems(ui.Center).
+									Background(badgeColor.Alpha(0.15)).
+									Tooltip("可信度：" + h.Credibility.Summary).
+									Children(func() {
+										ui.Icon(c, badgeIcon).
+											Size(10, 10).
+											TextColor(badgeColor)
+										ui.Text(c, fmt.Sprintf("%d/%d", h.Credibility.Verified, h.Credibility.Cited)).
+											FontSize(uiFont(TypeCaption)).
+											FontWeight(600).
+											TextColor(badgeColor)
+									})
 							}
-							ui.Row(c.Key(key+"-credibility-badge")).
-								Padding(Space0, Space2).
-								Radius(RadiusXS).
-								Gap(Space1).
-								AlignItems(ui.Center).
-								Background(badgeColor.Alpha(0.15)).
-								Tooltip("可信度：" + h.Credibility.Summary).
-								Children(func() {
-									ui.Icon(c, badgeIcon).
-										Size(10, 10).
-										TextColor(badgeColor)
-									ui.Text(c, fmt.Sprintf("%d/%d", h.Credibility.Verified, h.Credibility.Cited)).
-										FontSize(uiFont(TypeCaption)).
-										FontWeight(600).
-										TextColor(badgeColor)
-								})
-						}
 
-						// 审查状态 tag：审查中、审查未通过或待审查
-						if h.ReviewState == "running" {
-							ui.Row(c.Key(key+"-review-running-tag")).
-								Padding(Space0, Space1).
-								Radius(RadiusXS).
-								Background(ThemeAccent(c).Alpha(0.15)).
-								Children(func() {
-									ui.Text(c, "审查中").
-										FontSize(uiFont(TypeCaption)).
-										TextColor(ThemeAccent(c))
-								})
-						} else if h.ReviewState == "rejected" {
-							ui.Row(c.Key(key+"-review-rejected-tag")).
-								Padding(Space0, Space1).
-								Radius(RadiusXS).
-								Background(ThemeDanger(c).Alpha(0.15)).
-								Children(func() {
-									ui.Text(c, "审查未通过").
-										FontSize(uiFont(TypeCaption)).
-										TextColor(ThemeDanger(c))
-								})
-						} else if h.PendingMerge {
-							ui.Row(c.Key(key+"-pending-merge-tag")).
-								Padding(Space0, Space1).
-								Radius(RadiusXS).
-								Background(ThemeAccent(c).Alpha(0.15)).
-								Children(func() {
-									ui.Text(c, "待审查").
-										FontSize(uiFont(TypeCaption)).
-										TextColor(ThemeAccent(c))
-								})
-						}
+							// 审查状态 tag：审查中、审查未通过或待审查
+							if h.ReviewState == "running" {
+								ui.Row(c.Key(key+"-review-running-tag")).
+									Padding(Space0, Space1).
+									Radius(RadiusXS).
+									Background(ThemeAccent(c).Alpha(0.15)).
+									Children(func() {
+										ui.Text(c, "审查中").
+											FontSize(uiFont(TypeCaption)).
+											TextColor(ThemeAccent(c))
+									})
+							} else if h.ReviewState == "rejected" {
+								ui.Row(c.Key(key+"-review-rejected-tag")).
+									Padding(Space0, Space1).
+									Radius(RadiusXS).
+									Background(ThemeDanger(c).Alpha(0.15)).
+									Children(func() {
+										ui.Text(c, "审查未通过").
+											FontSize(uiFont(TypeCaption)).
+											TextColor(ThemeDanger(c))
+									})
+							} else if h.PendingMerge {
+								ui.Row(c.Key(key+"-pending-merge-tag")).
+									Padding(Space0, Space1).
+									Radius(RadiusXS).
+									Background(ThemeAccent(c).Alpha(0.15)).
+									Children(func() {
+										ui.Text(c, "待审查").
+											FontSize(uiFont(TypeCaption)).
+											TextColor(ThemeAccent(c))
+									})
+							}
 
-						// 已合并 tag when Merged
-						if h.Merged {
-							ui.Row(c.Key(key+"-merged-tag")).
-								Padding(Space0, Space1).
-								Radius(RadiusXS).
-								Background(ThemeSuccess(c).Alpha(0.15)).
-								Children(func() {
-									ui.Text(c, "已合并").
-										FontSize(uiFont(TypeCaption)).
-										TextColor(ThemeSuccess(c))
-								})
-						}
+							// 已合并 tag when Merged
+							if h.Merged {
+								ui.Row(c.Key(key+"-merged-tag")).
+									Padding(Space0, Space1).
+									Radius(RadiusXS).
+									Background(ThemeSuccess(c).Alpha(0.15)).
+									Children(func() {
+										ui.Text(c, "已合并").
+											FontSize(uiFont(TypeCaption)).
+											TextColor(ThemeSuccess(c))
+									})
+							}
 
-						// 已放弃合并 tag when MergeDiscarded
-						if h.MergeDiscarded {
-							ui.Row(c.Key(key+"-discarded-tag")).
-								Padding(Space0, Space1).
-								Radius(RadiusXS).
-								Background(ThemeSecondaryText(c).Alpha(0.15)).
-								Children(func() {
-									ui.Text(c, "已放弃合并").
-										FontSize(uiFont(TypeCaption)).
-										TextColor(ThemeSecondaryText(c))
-								})
-						}
+							// 已放弃合并 tag when MergeDiscarded
+							if h.MergeDiscarded {
+								ui.Row(c.Key(key+"-discarded-tag")).
+									Padding(Space0, Space1).
+									Radius(RadiusXS).
+									Background(ThemeSecondaryText(c).Alpha(0.15)).
+									Children(func() {
+										ui.Text(c, "已放弃合并").
+											FontSize(uiFont(TypeCaption)).
+											TextColor(ThemeSecondaryText(c))
+									})
+							}
+						})
 
-						ui.Spacer(c)
+					// preview text in secondary color
+					preview := swarmBeePreview(h)
+					if preview != "" {
+						ui.Text(c, preview).
+							FontSize(uiFont(TypeFootnote)).
+							TextColor(ThemeSecondaryText(c)).
+							Wrap().
+							MinWidth(0)
+					}
 
-						// 审查 / 查看改动 / 停止 / 独立窗口 按钮
-						if h.PendingMerge || h.ReviewState == "rejected" {
-							Button(c, ButtonOpts{
-								Key:     key + "-review-btn",
-								Text:    "审查",
-								Label:   "审查",
-								Tooltip: "进入合并审查",
-								Variant: ButtonPrimary,
-								Size:    ControlXS,
-								OnClick: func() {
-									s.openSwarmReview(h.ThreadID)
-								},
-							})
-						} else if (h.Merged || len(h.ConflictFiles) > 0) && (h.Status == "completed" || h.Status == "failed") {
-							Button(c, ButtonOpts{
-								Key:     key + "-view-diff-btn",
-								Text:    "查看改动",
-								Label:   "查看改动",
-								Tooltip: "查看子代理改动",
-								Variant: ButtonSecondary,
-								Size:    ControlXS,
-								OnClick: func() {
-									s.openSwarmReview(h.ThreadID)
-								},
-							})
-						}
+					// conflict files line in error color
+					if len(h.ConflictFiles) > 0 {
+						conflictText := "冲突文件: " + strings.Join(h.ConflictFiles, ", ")
+						ui.Text(c, conflictText).
+							FontSize(uiFont(TypeFootnote)).
+							TextColor(ThemeDanger(c)).
+							Wrap().
+							MinWidth(0)
+					}
 
-						if h.Status == "running" {
-							Button(c, ButtonOpts{
-								Key:      key + "-stop-btn",
-								Text:     "停止",
-								Label:    "停止",
-								Tooltip:  "停止子代理",
-								Variant:  ButtonDanger,
-								Size:     ControlXS,
-								Disabled: s.swarmActionBusy("stop:" + h.ThreadID),
-								Loading:  s.swarmActionBusy("stop:" + h.ThreadID),
-								OnClick: func() {
-									s.stopSwarmBee(h.ThreadID)
-								},
-							})
-						} else if h.ThreadID != "" {
-							IconButton(c, IconButtonProps{
-								Key:     key + "-popout-btn",
-								Icon:    IconSquareArrowOutUpRight(),
-								Label:   "在独立窗口中打开 " + h.Name,
-								Tooltip: "在独立窗口中打开",
-								Size:    ControlXS,
-								Variant: ButtonGhost,
-								OnClick: func() {
-									openBeeWindow(s, h.ThreadID)
-								},
-							})
-						}
+					// MergeError in error color
+					if h.MergeError != "" {
+						ui.Text(c, "合并错误: "+h.MergeError).
+							FontSize(uiFont(TypeFootnote)).
+							TextColor(ThemeDanger(c)).
+							Wrap().
+							MinWidth(0)
+					}
+				})
+		})
+
+		ui.Row(c.Key(key + "-actions")).
+			AlignItems(ui.Center).
+			Gap(Space1).
+			Children(func() {
+				// 审查 / 查看改动 / 停止 / 独立窗口 按钮
+				if h.PendingMerge || h.ReviewState == "rejected" {
+					Button(c, ButtonOpts{
+						Key:     key + "-review-btn",
+						Text:    "审查",
+						Label:   "审查",
+						Tooltip: "进入合并审查",
+						Variant: ButtonPrimary,
+						Size:    ControlXS,
+						OnClick: func() {
+							s.openSwarmReview(h.ThreadID)
+						},
 					})
-
-				// preview text in secondary color
-				preview := swarmBeePreview(h)
-				if preview != "" {
-					ui.Text(c, preview).
-						FontSize(uiFont(TypeFootnote)).
-						TextColor(ThemeSecondaryText(c)).
-						Wrap().
-						MinWidth(0)
+				} else if (h.Merged || len(h.ConflictFiles) > 0) && (h.Status == "completed" || h.Status == "failed") {
+					Button(c, ButtonOpts{
+						Key:     key + "-view-diff-btn",
+						Text:    "查看改动",
+						Label:   "查看改动",
+						Tooltip: "查看子代理改动",
+						Variant: ButtonSecondary,
+						Size:    ControlXS,
+						OnClick: func() {
+							s.openSwarmReview(h.ThreadID)
+						},
+					})
 				}
 
-				// conflict files line in error color
-				if len(h.ConflictFiles) > 0 {
-					conflictText := "冲突文件: " + strings.Join(h.ConflictFiles, ", ")
-					ui.Text(c, conflictText).
-						FontSize(uiFont(TypeFootnote)).
-						TextColor(ThemeDanger(c)).
-						Wrap().
-						MinWidth(0)
-				}
-
-				// MergeError in error color
-				if h.MergeError != "" {
-					ui.Text(c, "合并错误: "+h.MergeError).
-						FontSize(uiFont(TypeFootnote)).
-						TextColor(ThemeDanger(c)).
-						Wrap().
-						MinWidth(0)
+				if h.Status == "running" {
+					Button(c, ButtonOpts{
+						Key:      key + "-stop-btn",
+						Text:     "停止",
+						Label:    "停止",
+						Tooltip:  "停止子代理",
+						Variant:  ButtonDanger,
+						Size:     ControlXS,
+						Disabled: s.swarmActionBusy("stop:" + h.ThreadID),
+						Loading:  s.swarmActionBusy("stop:" + h.ThreadID),
+						OnClick: func() {
+							s.stopSwarmBee(h.ThreadID)
+						},
+					})
+				} else if h.ThreadID != "" {
+					IconButton(c, IconButtonProps{
+						Key:     key + "-popout-btn",
+						Icon:    IconSquareArrowOutUpRight(),
+						Label:   "在独立窗口中打开 " + h.Name,
+						Tooltip: "在独立窗口中打开",
+						Size:    ControlXS,
+						Variant: ButtonGhost,
+						OnClick: func() {
+							openBeeWindow(s, h.ThreadID)
+						},
+					})
 				}
 			})
 	})

@@ -430,4 +430,103 @@ func TestSwarmSummaryPanelEntryAndFilter(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("卡片点击打开浮窗或审查且停止按钮独立可访问", func(t *testing.T) {
+		t.Cleanup(func() {
+			swarmFloatMu.Lock()
+			delete(swarmFloatPanelDismissed, leadID)
+			delete(swarmFloatDismissedBees, leadID)
+			delete(swarmFloatForced, leadID)
+			delete(swarmFloatForcedHadBees, leadID)
+			delete(swarmSelectedBeeID, leadID)
+			delete(swarmBeeAutoHideHandled, leadID)
+			delete(swarmBeeKeptOpen, leadID)
+			swarmFloatMu.Unlock()
+		})
+
+		fake := NewFakeClient()
+		st := SwarmState{
+			LeadThreadID: leadID,
+			Available:    true,
+			Enabled:      true,
+			Bees:         bees,
+		}
+		fake.SetSwarmState(leadID, st)
+
+		s := newChatState(fake)
+		t.Cleanup(s.close)
+		s.selectedThreadID = leadID
+
+		hp := getSwarmPanelState(s)
+		swarmPanelMu.Lock()
+		hp.open = true
+		hp.loaded = true
+		hp.loadedFor = leadID
+		hp.filter = swarmFilterAll
+		hp.setStateLocked(st)
+		swarmPanelMu.Unlock()
+
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			renderSwarmPanel(c, s)
+		}, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
+		tt.Frame()
+
+		if _, ok := tt.AccessByRole(ui.RoleButton, "#1 RunBee"); !ok {
+			t.Fatal("未找到左侧主体按钮 #1 RunBee")
+		}
+		stopNode, ok := tt.AccessByRole(ui.RoleButton, "停止")
+		if !ok {
+			t.Fatal("停止按钮应作为独立 RoleButton 可访问")
+		}
+		if stopNode.Disabled {
+			t.Fatal("初始状态下停止按钮不应禁用")
+		}
+
+		openRect, okOpen := tt.Find("#1 RunBee")
+		stopRect, okStop := tt.Find("停止")
+		if !okOpen || !okStop {
+			t.Fatalf("未找到卡片主体或停止按钮矩形: open=%v stop=%v", okOpen, okStop)
+		}
+		if stopRect.X < openRect.X+openRect.W {
+			t.Fatalf("停止按钮应位于左侧主体按钮右侧同级区域: open=%+v stop=%+v", openRect, stopRect)
+		}
+
+		if err := tt.Click("#1 RunBee"); err != nil {
+			t.Fatalf("点击 #1 RunBee 卡片主体失败: %v", err)
+		}
+		if !swarmFloatForcedFor(leadID) {
+			t.Fatal("点击普通卡片主体应打开浮窗")
+		}
+		swarmFloatMu.Lock()
+		selBee := swarmSelectedBeeID[leadID]
+		delete(swarmFloatForced, leadID)
+		delete(swarmSelectedBeeID, leadID)
+		swarmFloatMu.Unlock()
+		if selBee != "b-run" {
+			t.Fatalf("点击 #1 RunBee 后选中 bee = %q，期望 b-run", selBee)
+		}
+
+		if err := tt.Click("停止"); err != nil {
+			t.Fatalf("点击停止按钮失败: %v", err)
+		}
+		waitFor(t, tt, func() bool {
+			stopped := fake.StoppedBees()
+			return len(stopped) == 1 && stopped[0] == "b-run"
+		})
+		if swarmFloatForcedFor(leadID) {
+			t.Fatal("点击停止按钮不应触发打开浮窗")
+		}
+
+		tt.Frame()
+		if err := tt.Click("#2 RevBee"); err != nil {
+			t.Fatalf("点击 #2 RevBee 卡片主体失败: %v", err)
+		}
+		swarmPanelMu.Lock()
+		reviewOpen := hp.reviewOpen
+		reviewBeeID := hp.reviewBeeID
+		swarmPanelMu.Unlock()
+		if !reviewOpen || reviewBeeID != "b-rev" {
+			t.Fatalf("点击待审查卡片主体应进入合并审查: reviewOpen=%v reviewBeeID=%q", reviewOpen, reviewBeeID)
+		}
+	})
 }
