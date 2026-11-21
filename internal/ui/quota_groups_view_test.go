@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -55,6 +56,74 @@ func TestQuotaBarMotion(t *testing.T) {
 			tt.Frame()
 			if tt.FramePending() {
 				t.Fatal("动效应结束")
+			}
+		})
+	}
+}
+
+func TestQuotaBarSlotsStableAcrossHover(t *testing.T) {
+	cases := []struct {
+		name    string
+		used    float64
+		elapsed float64
+	}{
+		{name: "under-pace", used: 0.2, elapsed: 0.5},
+		{name: "ghost-crosses-marker", used: 0.3, elapsed: 0.5},
+		{name: "over-pace", used: 0.6, elapsed: 0.4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			segsOff := quotaBarSegments(tc.used, tc.elapsed, true, false)
+			segsOn := quotaBarSegments(tc.used, tc.elapsed, true, true)
+			slotsOff := quotaBarSlots("hover-test", segsOff)
+			slotsOn := quotaBarSlots("hover-test", segsOn)
+
+			if len(slotsOff) != 11 || len(slotsOn) != 11 {
+				t.Fatalf("槽位总数应为 11（10 槽 + 1 竖线），got off=%d on=%d", len(slotsOff), len(slotsOn))
+			}
+			for i := range slotsOff {
+				if slotsOff[i].key != slotsOn[i].key || slotsOff[i].kind != slotsOn[i].kind {
+					t.Fatalf("槽位 %d 不一致：off=(%s,%v) on=(%s,%v)", i, slotsOff[i].key, slotsOff[i].kind, slotsOn[i].key, slotsOn[i].kind)
+				}
+			}
+
+			for _, check := range []struct {
+				label string
+				segs  []quotaBarSegment
+				slots []quotaBarSlot
+			}{
+				{"projected=false", segsOff, slotsOff},
+				{"projected=true", segsOn, slotsOn},
+			} {
+				var sum float64
+				var nonZero []quotaBarSlot
+				for _, s := range check.slots {
+					if s.kind == quotaBarSegmentMarker {
+						continue
+					}
+					sum += float64(s.grow)
+					if s.grow > 0 {
+						nonZero = append(nonZero, s)
+					}
+				}
+				if math.Abs(sum-1) > 1e-6 {
+					t.Fatalf("%s grow 之和应为 1，got %v", check.label, sum)
+				}
+
+				var want []quotaBarSegment
+				for _, s := range check.segs {
+					if s.kind != quotaBarSegmentMarker {
+						want = append(want, s)
+					}
+				}
+				if len(nonZero) != len(want) {
+					t.Fatalf("%s 非零槽数量 %d 与段数 %d 不一致", check.label, len(nonZero), len(want))
+				}
+				for i := range want {
+					if nonZero[i].kind != want[i].kind || math.Abs(float64(nonZero[i].grow-want[i].grow)) > 1e-6 {
+						t.Fatalf("%s 非零槽[%d]=(%v,%v) 与段=(%v,%v) 不一致", check.label, i, nonZero[i].kind, nonZero[i].grow, want[i].kind, want[i].grow)
+					}
+				}
 			}
 		})
 	}
