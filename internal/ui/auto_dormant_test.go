@@ -180,15 +180,15 @@ func TestSettingsConversation_AutoDormantDaysRow(t *testing.T) {
 		return err == nil && cfg.Archive.SidebarAutoDormantDays != nil && *cfg.Archive.SidebarAutoDormantDays == 14
 	})
 
-	// 改为关闭 (0)：0 也要落到磁盘
+	// 改为关闭：0 也要落到磁盘
 	if err := settingsClick(t, tt, "14 天"); err != nil {
 		t.Fatalf("click select '14 天' failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("关闭 (0)")
+		return tt.HasText("关闭")
 	})
-	if err := tt.Click("关闭 (0)"); err != nil {
-		t.Fatalf("click option '关闭 (0)' failed: %v", err)
+	if err := tt.Click("关闭"); err != nil {
+		t.Fatalf("click option '关闭' failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		cfg, err := config.Load(dataDir)

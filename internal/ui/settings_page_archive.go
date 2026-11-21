@@ -736,8 +736,8 @@ func (autoDormantControl) reset(cfg *config.Config) {
 
 func renderAutoDormantControl(c *ui.Context, st *SettingsState) {
 	days := st.cfg.Archive.AutoDormantDays()
-	options := []string{"关闭 (0)", "1 天", "3 天", "7 天", "14 天", "30 天"}
-	curOpt := "关闭 (0)"
+	options := []string{"关闭", "1 天", "3 天", "7 天", "14 天", "30 天"}
+	curOpt := "关闭"
 	if days > 0 {
 		curOpt = fmt.Sprintf("%d 天", days)
 		known := false
@@ -755,7 +755,7 @@ func renderAutoDormantControl(c *ui.Context, st *SettingsState) {
 		Label("自动休眠天数").Width(settingsFieldWidth)
 	if sel.Changed() {
 		val := 0
-		if curOpt != "关闭 (0)" {
+		if curOpt != "关闭" {
 			fmt.Sscanf(curOpt, "%d", &val)
 		}
 		if val != days {

@@ -115,14 +115,14 @@ func TestSettingsPageWorkbench_Tree(t *testing.T) {
 	st.cfg.Workbench.StuckInterruptTimeout = 1800
 
 	tt := ui.NewTester(func(c *ui.Context) { renderPageWorkbench(c, st) }, 1000, 4000)
-	waitFor(t, tt, func() bool { return tt.HasText("标准 4 · 自定义 1") })
+	waitFor(t, tt, func() bool { return tt.HasText("Api Design") })
 
 	texts := make(map[string]bool)
 	for _, text := range tt.Texts() {
 		texts[text] = true
 	}
 	for _, want := range []string{
-		"项目文档", "注入项目说明", "注入文档", "标准 4 · 自定义 1",
+		"项目文档", "注入项目说明", "注入文档",
 		"Instructions", "Overview", "Decisions", "Notes", "Api Design",
 		"看板", "任务执行", "MCP 工具", "默认视图", "列表",
 		"验收后自动合并工作树", "完成后自动送审", "在独立工作树中执行",
@@ -413,7 +413,7 @@ func TestWorkbenchSettings_ToggleAndPersist(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, s)
 	tt := ui.NewTester(func(c *ui.Context) { renderPageWorkbench(c, st) }, 1000, 4000)
-	waitFor(t, tt, func() bool { return tt.HasText("标准 4 · 自定义 1") })
+	waitFor(t, tt, func() bool { return tt.HasText("Api Design") })
 
 	initialGuidance := st.cfg.Workbench.ContextGuidanceEnabled()
 	if err := tt.Click("切换注入项目说明"); err != nil {
@@ -470,7 +470,7 @@ func countText(tt *ui.Tester, text string) int {
 	return n
 }
 
-// TestWorkbenchSettings_NoCustomDocs 验证没有自定义文档时只显示计数，不再渲染整行空态说明。
+// TestWorkbenchSettings_NoCustomDocs 验证没有自定义文档时不渲染统计行或空态说明，仍列出标准文档。
 func TestWorkbenchSettings_NoCustomDocs(t *testing.T) {
 	fake := NewFakeClient()
 	s := newChatState(fake)
@@ -479,9 +479,9 @@ func TestWorkbenchSettings_NoCustomDocs(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, s)
 	tt := ui.NewTester(func(c *ui.Context) { renderPageWorkbench(c, st) }, 420, 4000)
 
-	waitFor(t, tt, func() bool { return tt.HasText("标准 4 · 自定义 0") })
-	if !tt.HasText("标准 4 · 自定义 0") {
-		t.Fatalf("计数应显示标准 4 与自定义 0: %v", tt.Texts())
+	waitFor(t, tt, func() bool { return tt.HasText("Notes") })
+	if tt.HasText("标准 ") || tt.HasText(" · 自定义 ") {
+		t.Fatalf("不应显示文档数量统计行: %v", tt.Texts())
 	}
 	if tt.HasText("暂无自定义文档") {
 		t.Fatalf("没有自定义文档时不该再渲染空态说明: %v", tt.Texts())

@@ -115,22 +115,22 @@ func TestQuickReplies_AddReorderDelete(t *testing.T) {
 	}
 
 	// 上移第二条：结构改动当场落盘。
-	if err := tt.Click("上移第 2 条"); err != nil {
-		t.Fatalf("click 上移第 2 条 failed: %v", err)
+	if err := tt.Click("上移 写测试"); err != nil {
+		t.Fatalf("click 上移 写测试 failed: %v", err)
 	}
 	tt.Frame()
 	assertQuickReplyOrder(t, dataDir, "写测试", "总结")
 
 	// 下移第 1 条：换回原顺序。
-	if err := tt.Click("下移第 1 条"); err != nil {
-		t.Fatalf("click 下移第 1 条 failed: %v", err)
+	if err := tt.Click("下移 写测试"); err != nil {
+		t.Fatalf("click 下移 写测试 failed: %v", err)
 	}
 	tt.Frame()
 	assertQuickReplyOrder(t, dataDir, "总结", "写测试")
 
 	// 删除要确认：弹窗出现后点确认才真的删。
-	if err := tt.Click("删除第 1 条"); err != nil {
-		t.Fatalf("click 删除第 1 条 failed: %v", err)
+	if err := tt.Click("删除 总结"); err != nil {
+		t.Fatalf("click 删除 总结 failed: %v", err)
 	}
 	tt.Frame()
 	if !tt.HasText("删除快捷回复") {
@@ -143,8 +143,8 @@ func TestQuickReplies_AddReorderDelete(t *testing.T) {
 	assertQuickReplyOrder(t, dataDir, "写测试")
 
 	// 取消删除：配置保持不动。
-	if err := tt.Click("删除第 1 条"); err != nil {
-		t.Fatalf("click 删除第 1 条 failed: %v", err)
+	if err := tt.Click("删除 写测试"); err != nil {
+		t.Fatalf("click 删除 写测试 failed: %v", err)
 	}
 	tt.Frame()
 	if err := tt.Click("取消删除快捷回复"); err != nil {
@@ -154,8 +154,8 @@ func TestQuickReplies_AddReorderDelete(t *testing.T) {
 	assertQuickReplyOrder(t, dataDir, "写测试")
 
 	// 删掉最后一条：列表回到空态，磁盘上也不再保留这一项。
-	if err := tt.Click("删除第 1 条"); err != nil {
-		t.Fatalf("click 删除第 1 条 failed: %v", err)
+	if err := tt.Click("删除 写测试"); err != nil {
+		t.Fatalf("click 删除 写测试 failed: %v", err)
 	}
 	tt.Frame()
 	if err := tt.Click("确认删除快捷回复"); err != nil {

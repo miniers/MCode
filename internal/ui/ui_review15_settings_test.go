@@ -230,7 +230,7 @@ func TestUIReview15_OpenInDeleteConfirmAndEndpointDeleteLabelAndCopyRemoval(t *t
 	}
 
 	ttOpenIn := ui.NewTester(func(c *ui.Context) { renderPageOpenIn(c, st) }, 800, 600)
-	if err := ttOpenIn.Click("删除"); err != nil {
+	if err := ttOpenIn.Click("删除 Cursor"); err != nil {
 		t.Fatalf("点击删除应用失败: %v", err)
 	}
 	waitFor(t, ttOpenIn, func() bool { return ttOpenIn.HasText("删除「Cursor」？") })
@@ -244,7 +244,7 @@ func TestUIReview15_OpenInDeleteConfirmAndEndpointDeleteLabelAndCopyRemoval(t *t
 	if len(st.cfg.Workbench.OpenInApps) != 1 {
 		t.Fatal("取消后不应删除应用")
 	}
-	if err := ttOpenIn.Click("删除"); err != nil {
+	if err := ttOpenIn.Click("删除 Cursor"); err != nil {
 		t.Fatalf("再次点击删除应用失败: %v", err)
 	}
 	waitFor(t, ttOpenIn, func() bool { return ttOpenIn.HasText("删除「Cursor」？") })

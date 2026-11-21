@@ -110,10 +110,10 @@ func openInDefaultBundleID(name, path string) string {
 }
 
 // openInIconButton 渲染打开方式行内的图标按钮：hover 时出现底色，danger 为 true 时用危险色。
-func openInIconButton(c *ui.Context, key, label string, icon *ui.SVG, danger bool, onClick func()) {
+func openInIconButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG, danger bool, onClick func()) {
 	btn := ui.ButtonBase(c.Key(key)).
 		Label(label).
-		Tooltip(label).
+		Tooltip(tooltip).
 		Size(ControlSM, ControlSM).
 		Radius(RadiusSM).
 		Center()
@@ -205,7 +205,7 @@ func renderOpenInAppRow(c *ui.Context, st *SettingsState, ps *openInPageState, a
 			},
 		).render(c, st, setting{ID: "openin-" + app.Name, Title: app.Name})
 
-		openInIconButton(c, "btn-openin-up-"+app.Name, "上移", IconArrowUp(), false, func() {
+		openInIconButton(c, "btn-openin-up-"+app.Name, "上移 "+app.Name, "上移", IconArrowUp(), false, func() {
 			if i == 0 {
 				return
 			}
@@ -215,7 +215,7 @@ func renderOpenInAppRow(c *ui.Context, st *SettingsState, ps *openInPageState, a
 			st.invalidate()
 		})
 
-		openInIconButton(c, "btn-openin-down-"+app.Name, "下移", IconMoveDown(), false, func() {
+		openInIconButton(c, "btn-openin-down-"+app.Name, "下移 "+app.Name, "下移", IconMoveDown(), false, func() {
 			if i >= len(apps)-1 {
 				return
 			}
@@ -225,7 +225,7 @@ func renderOpenInAppRow(c *ui.Context, st *SettingsState, ps *openInPageState, a
 			st.invalidate()
 		})
 
-		openInIconButton(c, "btn-openin-delete-"+app.Name, "删除", IconTrash2(), true, func() {
+		openInIconButton(c, "btn-openin-delete-"+app.Name, "删除 "+app.Name, "删除", IconTrash2(), true, func() {
 			ps.pendingDelete = true
 			ps.pendingDeleteIdx = i
 			ps.pendingDeleteName = app.Name
@@ -266,74 +266,80 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 			return
 		}
 
-		textFunc(
-			func(st *SettingsState) (string, bool) {
-				st.mu.Lock()
-				v := ps.draftName
-				st.mu.Unlock()
-				return v, false
-			},
-			func(st *SettingsState, v string) {
-				st.mu.Lock()
-				ps.draftName = v
-				st.mu.Unlock()
-			},
-			"例如 Cursor",
-		).render(c, st, setting{ID: "input-openin-name", Title: "应用名称"})
-		ui.Row(c.Key("row-openin-path")).Gap(Space2).AlignItems(ui.Center).Children(func() {
+		ui.Column(c.Key("field-openin-name")).Gap(Space1).Children(func() {
+			ui.Text(c, "应用名称").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			textFunc(
 				func(st *SettingsState) (string, bool) {
 					st.mu.Lock()
-					v := ps.draftPath
+					v := ps.draftName
 					st.mu.Unlock()
 					return v, false
 				},
 				func(st *SettingsState, v string) {
 					st.mu.Lock()
-					ps.draftPath = v
+					ps.draftName = v
 					st.mu.Unlock()
 				},
-				openInAppPathPlaceholder(),
-			).render(c, st, setting{ID: "input-openin-path", Title: "应用路径"})
-
-			// 复用系统的 mygo.Dialog.Open 选择 .app；对话框阻塞，放到后台，选完再由 UI 更新草稿。
-			chooseBtn := ui.ButtonBase(c.Key("btn-openin-choose")).
-				Label("选择…").
-				Padding(Space2, settingsCompactPadX).
-				Radius(RadiusSM).
-				Border(Hairline, ThemeBorder(c))
-			{
-				scale := motionPressScale(c, chooseBtn, "button-press-scale", chooseBtn.Pressed())
-				chooseBtn.Scale(scale, scale)
-			}
-			if chooseBtn.Hovered() {
-				chooseBtn.Background(ThemeHover(c))
-			}
-			if chooseBtn.Clicked() {
-				go func() {
-					path, ok, err := pickOpenInAppDialog()
-					if err != nil {
+				"例如 Cursor",
+			).render(c, st, setting{ID: "input-openin-name", Title: "应用名称"})
+		})
+		ui.Column(c.Key("field-openin-path")).Gap(Space1).Children(func() {
+			ui.Text(c, "应用路径").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+			ui.Row(c.Key("row-openin-path")).Gap(Space2).AlignItems(ui.Center).Children(func() {
+				textFunc(
+					func(st *SettingsState) (string, bool) {
 						st.mu.Lock()
-						ps.err = err.Error()
+						v := ps.draftPath
+						st.mu.Unlock()
+						return v, false
+					},
+					func(st *SettingsState, v string) {
+						st.mu.Lock()
+						ps.draftPath = v
+						st.mu.Unlock()
+					},
+					openInAppPathPlaceholder(),
+				).render(c, st, setting{ID: "input-openin-path", Title: "应用路径"})
+
+				// 复用系统的 mygo.Dialog.Open 选择 .app；对话框阻塞，放到后台，选完再由 UI 更新草稿。
+				chooseBtn := ui.ButtonBase(c.Key("btn-openin-choose")).
+					Label("选择…").
+					Padding(Space2, settingsCompactPadX).
+					Radius(RadiusSM).
+					Border(Hairline, ThemeBorder(c))
+				{
+					scale := motionPressScale(c, chooseBtn, "button-press-scale", chooseBtn.Pressed())
+					chooseBtn.Scale(scale, scale)
+				}
+				if chooseBtn.Hovered() {
+					chooseBtn.Background(ThemeHover(c))
+				}
+				if chooseBtn.Clicked() {
+					go func() {
+						path, ok, err := pickOpenInAppDialog()
+						if err != nil {
+							st.mu.Lock()
+							ps.err = err.Error()
+							st.mu.Unlock()
+							st.invalidate()
+							return
+						}
+						if !ok || strings.TrimSpace(path) == "" {
+							return
+						}
+						st.mu.Lock()
+						ps.draftPath = path
+						if strings.TrimSpace(ps.draftName) == "" {
+							ps.draftName = openInAppNameFromPath(path)
+						}
+						ps.err = ""
 						st.mu.Unlock()
 						st.invalidate()
-						return
-					}
-					if !ok || strings.TrimSpace(path) == "" {
-						return
-					}
-					st.mu.Lock()
-					ps.draftPath = path
-					if strings.TrimSpace(ps.draftName) == "" {
-						ps.draftName = openInAppNameFromPath(path)
-					}
-					ps.err = ""
-					st.mu.Unlock()
-					st.invalidate()
-				}()
-			}
-			chooseBtn.Children(func() {
-				ui.Text(c, "选择…").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
+					}()
+				}
+				chooseBtn.Children(func() {
+					ui.Text(c, "选择…").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
+				})
 			})
 		})
 

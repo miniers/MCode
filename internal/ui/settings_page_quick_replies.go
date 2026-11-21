@@ -235,40 +235,62 @@ func quickReplyRowErr(errs []string, i int) string {
 	return errs[i]
 }
 
+// quickReplyActionLabel 生成行内图标按钮的读屏标签：有标题时带上标题，空标题时退回序号。
+func quickReplyActionLabel(action, title string, idx int) string {
+	if trimmed := strings.TrimSpace(title); trimmed != "" {
+		return action + " " + trimmed
+	}
+	return fmt.Sprintf("%s第 %d 条", action, idx)
+}
+
 // renderQuickReplyRow 渲染一行快捷回复：标题、正文两个输入框，加上移/下移/删除按钮。
 func renderQuickReplyRow(c *ui.Context, st *SettingsState, page *quickRepliesPageState, i int, row *quickReplyRow, errText string, total int) {
 	idx := i + 1
 	ui.Column(c.Key("quick-replies-row-"+strconv.Itoa(i))).Padding(settingsRowPadY, settingsRowPadX).Gap(Space3).Children(func() {
-		textFunc(
-			func(*SettingsState) (string, bool) { return row.Label, false },
-			func(st *SettingsState, v string) {
-				row.Label = v
-				quickReplyTextChanged(st, page)
-			},
-			"按钮上的文字",
-		).render(c, st, setting{ID: "quick-reply-label-" + strconv.Itoa(i), Title: fmt.Sprintf("第 %d 条标题", idx)})
+		ui.Column(c.Key("quick-reply-label-field-" + strconv.Itoa(i))).Gap(Space1).Children(func() {
+			ui.Text(c, "标题").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+			textFunc(
+				func(*SettingsState) (string, bool) { return row.Label, false },
+				func(st *SettingsState, v string) {
+					row.Label = v
+					quickReplyTextChanged(st, page)
+				},
+				"按钮上的文字",
+			).render(c, st, setting{ID: "quick-reply-label-" + strconv.Itoa(i), Title: fmt.Sprintf("第 %d 条标题", idx)})
+		})
 
-		textFunc(
-			func(*SettingsState) (string, bool) { return row.Message, false },
-			func(st *SettingsState, v string) {
-				row.Message = v
-				quickReplyTextChanged(st, page)
-			},
-			"点击后填进输入框的内容",
-		).render(c, st, setting{ID: "quick-reply-message-" + strconv.Itoa(i), Title: fmt.Sprintf("第 %d 条内容", idx)})
+		ui.Column(c.Key("quick-reply-message-field-" + strconv.Itoa(i))).Gap(Space1).Children(func() {
+			ui.Text(c, "内容").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+			msg := row.Message
+			TextField(c, TextFieldProps{
+				Key:         "quick-reply-message-" + strconv.Itoa(i) + "-input",
+				Value:       &msg,
+				Label:       fmt.Sprintf("编辑第 %d 条内容", idx),
+				Placeholder: "点击后填进输入框的内容",
+				Multiline:   true,
+				MinHeight:   72,
+				MinLines:    3,
+				MaxLines:    6,
+				FillWidth:   true,
+				OnChange: func(v string) {
+					row.Message = v
+					quickReplyTextChanged(st, page)
+				},
+			})
+		})
 
 		if errText != "" {
 			ui.Text(c, errText).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 		}
 
 		ui.Row(c.Key("quick-replies-row-actions-" + strconv.Itoa(i))).Gap(Space1).AlignItems(ui.Center).Children(func() {
-			quickReplyIconButton(c, "btn-quick-reply-up-"+strconv.Itoa(i), fmt.Sprintf("上移第 %d 条", idx), IconArrowUp(), false, i == 0, func() {
+			quickReplyIconButton(c, "btn-quick-reply-up-"+strconv.Itoa(i), quickReplyActionLabel("上移", row.Label, idx), "上移", IconArrowUp(), false, i == 0, func() {
 				moveQuickReplyRow(st, page, i, -1)
 			})
-			quickReplyIconButton(c, "btn-quick-reply-down-"+strconv.Itoa(i), fmt.Sprintf("下移第 %d 条", idx), IconMoveDown(), false, i >= total-1, func() {
+			quickReplyIconButton(c, "btn-quick-reply-down-"+strconv.Itoa(i), quickReplyActionLabel("下移", row.Label, idx), "下移", IconMoveDown(), false, i >= total-1, func() {
 				moveQuickReplyRow(st, page, i, 1)
 			})
-			quickReplyIconButton(c, "btn-quick-reply-delete-"+strconv.Itoa(i), fmt.Sprintf("删除第 %d 条", idx), IconTrash2(), true, false, func() {
+			quickReplyIconButton(c, "btn-quick-reply-delete-"+strconv.Itoa(i), quickReplyActionLabel("删除", row.Label, idx), "删除", IconTrash2(), true, false, func() {
 				requestDeleteQuickReply(st, page, i)
 			})
 		})
@@ -334,10 +356,10 @@ func renderQuickReplyDeleteConfirm(c *ui.Context, st *SettingsState, page *quick
 }
 
 // quickReplyIconButton 渲染行内的方形图标按钮：hover 有底色，danger 用危险色，disabled 时不可点。
-func quickReplyIconButton(c *ui.Context, key, label string, icon *ui.SVG, danger, disabled bool, onClick func()) {
+func quickReplyIconButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG, danger, disabled bool, onClick func()) {
 	btn := ui.ButtonBase(c.Key(key)).
 		Label(label).
-		Tooltip(label).
+		Tooltip(tooltip).
 		Size(ControlSM, ControlSM).
 		Radius(RadiusSM).
 		Center()

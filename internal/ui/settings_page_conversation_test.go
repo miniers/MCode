@@ -66,7 +66,7 @@ func TestSettingsConversation_AutoDormantPreservesUnknownValue(t *testing.T) {
 	if err := tt.Click("23 天"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.Click("关闭 (0)"); err != nil {
+	if err := tt.Click("关闭"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return st.cfg.Archive.AutoDormantDays() == 0 })

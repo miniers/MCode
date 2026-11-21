@@ -283,19 +283,7 @@ func (d workbenchDocsControl) renderDisabled(c *ui.Context, st *SettingsState, s
 		settingStatus(c, s.ID+"-empty", "未建立项目文档")
 		return
 	}
-	standardCount := 0
-	customCount := 0
-	for _, doc := range docs {
-		if doc.standard {
-			standardCount++
-		} else {
-			customCount++
-		}
-	}
 	ui.Column(c.Key(s.ID + "-list")).Gap(settingsCompactPadX).Children(func() {
-		ui.Text(c, fmt.Sprintf("标准 %d · 自定义 %d", standardCount, customCount)).
-			FontSize(uiFont(TypeFootnote)).
-			TextColor(ThemeSecondaryText(c))
 		for _, doc := range docs {
 			doc := doc
 			always := doc.refID == projctx.DocInstructions || doc.refID == projctx.DocOverview
