@@ -118,7 +118,9 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 			Padding(Space2, Space3, Space1, Space1).
 			FillWidth().
 			Children(func() {
-				renderModelPickerBackButton(c, p.KeyPrefix, onBack)
+				if !p.ListOnly {
+					renderModelPickerBackButton(c, p.KeyPrefix, onBack)
+				}
 				SearchField(c, TextFieldProps{Key: p.KeyPrefix + "model-list-search", Value: &state.searchQuery, Label: "model-list-search-input", Placeholder: "搜索模型", FillWidth: true, AutoFocus: true, OnChange: func(string) { modelPickerInvalidate(p) }})
 			})
 		renderModelPickerListRegion(c, p, state, side, selection, query, providers, pinned, onPick)

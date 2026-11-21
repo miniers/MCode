@@ -769,16 +769,23 @@ func renderEffortSlider(c *ui.Context, p EffortSliderCardProps) {
 		p.OnEffort(p.Efforts[idx])
 	}
 
+	var tickLabels []string
+	if len(p.Roster) == 0 {
+		tickLabels = make([]string, n)
+		for i, eff := range p.Efforts {
+			tickLabels[i] = effortThumbLabel(eff)
+		}
+	}
 	pressed := slider.Pressed()
 	reduced := reduceMotion(c)
 	slider.Draw(func(painter *ui.Painter, r ui.Rect) {
-		drawEffortTrack(painter, r, n, curIdx, look, pressed, reduced, thumbText)
+		drawEffortTrack(painter, r, n, curIdx, look, pressed, reduced, thumbText, tickLabels)
 	})
 }
 
-// drawEffortTrack 绘制滑轨：白 10% 轨道、TrackLook 填充、刻度点（已越过的用 TrackLook 刻度色，
-// 其余白 32%），最后绘制带当前英文短档位名的毛玻璃胶囊手柄，保证在任意轨道填充色上文字对比度清晰。
-func drawEffortTrack(painter *ui.Painter, r ui.Rect, n, curIdx int, look effortTrackLook, pressed, reduced bool, thumbText string) {
+// drawEffortTrack 绘制滑轨：白 10% 轨道、TrackLook 填充、刻度点或短档位名（已越过的用 TrackLook 刻度色，
+// 其余白 32% 或至少 60% 不透明度的短名），最后绘制带当前英文短档位名的毛玻璃胶囊手柄，保证在任意轨道填充色上文字对比度清晰。
+func drawEffortTrack(painter *ui.Painter, r ui.Rect, n, curIdx int, look effortTrackLook, pressed, reduced bool, thumbText string, tickLabels []string) {
 	const inset = effortThumbW / 2
 
 	slideW := max(float32(0), r.W-effortThumbW)
@@ -795,12 +802,32 @@ func drawEffortTrack(painter *ui.Painter, r ui.Rect, n, curIdx int, look effortT
 	fillRect := ui.Rect{X: r.X, Y: trackRect.Y, W: curX - r.X + inset, H: effortTrackH}
 	painter.FillGradient(fillRect, ui.LinearGradient{Angle: 90, Stops: effortGradientStops(look.fill)}, effortTrackH/2)
 
+	showLabels := len(tickLabels) == n && n > 1 && slideW/float32(n-1) >= 36
 	passed := ColorTextSecondaryDark
 	if look.light {
 		passed = effortTickOnLight
 	}
-	for _, stop := range effortTickPositions(n, slideW) {
+	for i, stop := range effortTickPositions(n, slideW) {
 		stopX := r.X + inset + stop
+		if showLabels {
+			if i == curIdx {
+				continue
+			}
+			if label := strings.TrimSpace(tickLabels[i]); label != "" {
+				col := effortOnDark.Alpha(0.60)
+				if stopX <= curX+0.5 {
+					col = passed
+				}
+				layout := ui.ShapeRichText(
+					[]ui.Span{{Text: label, Color: col}},
+					ui.Font{Size: 11, Weight: 500},
+					0,
+				)
+				tw, th := layout.Size()
+				painter.TextLayout(layout, stopX-tw/2, midY-th/2, col)
+				continue
+			}
+		}
 		dot := effortOnDark.Alpha(0.32)
 		if stopX <= curX+0.5 {
 			dot = passed
@@ -1046,8 +1073,8 @@ func renderEffortSliderCard(c *ui.Context, p EffortSliderCardProps) {
 		return
 	}
 	ui.Column(c.Key(p.KeyPrefix+"effort-slider-card")).
-		Gap(Space5).
-		Padding(Space4, Space5, Space5, Space5).
+		Gap(Space3).
+		Padding(Space3, Space4, Space4, Space4).
 		Children(func() {
 			ui.Row(c.Key(p.KeyPrefix + "card-head-row")).
 				AlignItems(ui.Center).
@@ -1097,15 +1124,7 @@ const (
 )
 
 func renderEffortSliderSection(c *ui.Context, p EffortSliderCardProps) {
-	if len(p.Efforts) == 0 {
-		ui.Row(c.Key(p.KeyPrefix + "single-level-row")).
-			Center().
-			Height(effortThumbD).
-			Children(func() {
-				ui.Text(c, "不支持调节强度").
-					FontSize(uiFont(TypeFootnote)).
-					TextColor(ColorTextSecondaryDark)
-			})
+	if len(p.Efforts) <= 1 {
 		return
 	}
 	renderEffortSlider(c, p)

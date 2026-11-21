@@ -63,9 +63,6 @@ func swarmModelCapsuleProps(st *SettingsState, key, scopeKey string, sel ModelSe
 	}
 
 	state := modelPickerStateFor(keyPrefix + scopeKey)
-	if state.MenuOpen && (noEffort || swarmEmptySelection(sel)) && !state.listOpen(scopeKey, ModelPickerSideLead) {
-		state.setListOpen(scopeKey, ModelPickerSideLead, true)
-	}
 
 	var invalidate func()
 	if st != nil {
@@ -86,6 +83,7 @@ func swarmModelCapsuleProps(st *SettingsState, key, scopeKey string, sel ModelSe
 		CapsuleLabel:   capsuleLabel,
 		Tooltip:        capsuleTooltip,
 		NoEffortSignal: empty || noEffort,
+		ListOnly:       empty || noEffort,
 		TriggerLabel:   triggerLabel,
 		Disabled:       disabled,
 		OnPickModel: func(_ ModelPickerSide, prov ProviderInfo, m ModelInfo) {

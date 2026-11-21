@@ -267,15 +267,12 @@ func TestRenderModelPickerCard_DefaultIdentityVisible(t *testing.T) {
 			t.Fatalf("expected %q in card, got %v", want, tt.Texts())
 		}
 	}
-	// 滑块胶囊与行尾显示英文短档位名；旧版“当前：”行与轨道下方档位列表不再出现。
+	// 滑块胶囊显示英文短档位名；旧版“当前：”行与轨道下方档位列表不再出现，单卡也不渲染独立的槽位档位文字。
 	info, ok := tt.Access("推理强度")
 	if !ok || info.Value != "High" {
 		t.Fatalf("expected slider value High, got (%+v, %v)", info, ok)
 	}
-	if !tt.HasText("High") {
-		t.Fatalf("expected active slot effort label High, got %v", tt.Texts())
-	}
-	if tt.HasText("当前：") || tt.HasText("低") || tt.HasText("超高") || tt.HasText("Low") {
+	if tt.HasText("当前：") || tt.HasText("低") || tt.HasText("超高") || tt.HasText("Low") || tt.HasText("High") {
 		t.Fatalf("unexpected tier list text in card, got %v", tt.Texts())
 	}
 }
@@ -509,9 +506,6 @@ func TestModelPickerCard_PiSlashModelIDKeepsEfforts(t *testing.T) {
 				})
 			}, 320, 640)
 			tt.Frame()
-			if tt.HasText("不支持调节强度") {
-				t.Fatalf("模型 %q 应渲染滑杆，而不是空态文案: %v", model, tt.Texts())
-			}
 			info, ok := tt.Access("推理强度")
 			if !ok || info.Value != "Low" {
 				t.Fatalf("模型 %q 的推理强度滑块默认档位应为 Low，实际 (%+v, %v)，texts=%v", model, info, ok, tt.Texts())
@@ -2656,5 +2650,114 @@ func TestModelPickerPairedRosterShowsBothModelsAndToolbarStar(t *testing.T) {
 	}
 	if !tt.HasText("Claude 3.7 Sonnet") || tt.HasText("o3-mini") || magpieTestHasExactText(tt, "子") {
 		t.Fatalf("关闭编排后应只留主代理 1 行: %v", tt.Texts())
+	}
+}
+
+func TestModelPickerResolveCanonicalizesPrefixedModel(t *testing.T) {
+	providers := []ProviderInfo{{
+		ID:        "magpie",
+		Name:      "Magpie",
+		Available: true,
+		Models: []ModelInfo{{
+			ID:            "auto/deepseek-v4.1-flash",
+			Name:          "DeepSeek V4.1 Flash",
+			Efforts:       []string{"low", "medium", "high"},
+			DefaultEffort: "medium",
+		}},
+	}}
+
+	gotMissingProv := resolveModelPickerSelectionWith(
+		providers,
+		ModelSelection{Provider: "magpie-jp", Model: "magpie-jp/auto/deepseek-v4.1-flash"},
+		ModelSelection{},
+		false,
+		nil,
+	)
+	if gotMissingProv.Provider != "magpie" || gotMissingProv.Model != "auto/deepseek-v4.1-flash" {
+		t.Fatalf("不存在的 provider 应归一到命中的目录项，实际 %+v", gotMissingProv)
+	}
+
+	gotEmptyProv := resolveModelPickerSelectionWith(
+		providers,
+		ModelSelection{Provider: "", Model: "magpie-jp/auto/deepseek-v4.1-flash"},
+		ModelSelection{},
+		false,
+		nil,
+	)
+	if gotEmptyProv.Provider != "magpie" || gotEmptyProv.Model != "auto/deepseek-v4.1-flash" {
+		t.Fatalf("空 provider 应归一到命中的目录项，实际 %+v", gotEmptyProv)
+	}
+
+	// provider 存在但不含该模型时，不跨 provider 改写，原样返回。
+	providersWithOther := append([]ProviderInfo{{
+		ID:        "claude",
+		Name:      "Claude",
+		Available: true,
+		Models:    []ModelInfo{{ID: "claude-3-7-sonnet", Name: "Claude 3.7 Sonnet"}},
+	}}, providers...)
+	unmatched := ModelSelection{Provider: "claude", Model: "magpie-jp/auto/deepseek-v4.1-flash"}
+	gotUnmatched := resolveModelPickerSelectionWith(providersWithOther, unmatched, ModelSelection{}, false, nil)
+	if gotUnmatched != unmatched {
+		t.Fatalf("provider 存在但不含该模型时应原样返回 %+v，实际 %+v", unmatched, gotUnmatched)
+	}
+}
+
+func TestModelPickerSimpleUsesSingleCard(t *testing.T) {
+	testenv.TempHome(t)
+	t.Cleanup(func() {
+		modelPickerStatesMu.Lock()
+		modelPickerStates = make(map[string]*ModelPickerState)
+		modelPickerStatesMu.Unlock()
+	})
+
+	providers := modelPickerTestProviders()
+	providers[0].Models[0].Efforts = []string{"low", "medium", "high"}
+	state := &ModelPickerState{}
+	props := ModelPickerProps{
+		Mode:      ModelPickerSimple,
+		KeyPrefix: "simple-single-",
+		ScopeKey:  "simple-single",
+		State:     state,
+		Providers: providers,
+		Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet", Effort: "medium"},
+		Inline:    false,
+		OnReset:   func(ModelPickerSide) {},
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Width(420).Height(700).Children(func() {
+			ui.Box(c).Grow(1)
+			renderModelPicker(c, props)
+		})
+	}, 460, 740)
+	tt.Frame()
+
+	if err := tt.Click("选择模型"); err != nil {
+		t.Fatalf("打开模型选择器失败: %v", err)
+	}
+	settleModelPickerPage(tt)
+
+	titleRect, ok := tt.Find("选择其他模型")
+	if !ok {
+		t.Fatalf("Simple 模式非 Inline 应渲染单卡标题按钮: texts=%v", tt.Texts())
+	}
+	resetRect, ok := tt.Find("重置强度与快速模式")
+	if !ok {
+		t.Fatalf("Simple 模式非 Inline 应渲染单卡重置按钮: texts=%v", tt.Texts())
+	}
+	// 单卡的重置按钮（24x24）紧跟在标题右侧同一行内，而不是顶部工具栏（26x26）独立占一行。
+	if resetRect.W != effortResetButtonSize || resetRect.H != effortResetButtonSize {
+		t.Fatalf("单卡重置按钮尺寸应为 %vx%v，实际 %+v", effortResetButtonSize, effortResetButtonSize, resetRect)
+	}
+	if resetRect.Y+resetRect.H <= titleRect.Y || resetRect.X < titleRect.X+titleRect.W-1 {
+		t.Fatalf("单卡重置按钮应与标题同处一行右侧，不应落在顶部独立工具栏: title=%+v reset=%+v", titleRect, resetRect)
+	}
+	if tt.HasText("Med") || magpieTestHasExactText(tt, "主") {
+		t.Fatalf("Simple 模式不应渲染 Roster 槽位文本: %v", tt.Texts())
+	}
+	if _, ok := tt.Find("打开模型列表"); ok {
+		t.Fatal("Simple 模式不应渲染 Roster 槽位尾部按钮")
+	}
+	if _, ok := tt.Access("编排开关"); ok {
+		t.Fatal("Simple 模式不应渲染 Swarm 工具栏编排开关")
 	}
 }

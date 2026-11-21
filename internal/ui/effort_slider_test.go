@@ -101,13 +101,13 @@ func TestEffortSliderCardInteraction(t *testing.T) {
 
 func TestEffortSliderCardSingleLevel(t *testing.T) {
 	testenv.TempHome(t)
-	// 无档位时只显示说明文字；单档模型仍渲染滑轨，不出现说明。
+	// 无档位或只有 1 档时不显示说明文字也不渲染滑轨。
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderEffortSliderCard(c, EffortSliderCardProps{})
 	}, 330, 240)
 	tt.Frame()
-	if !tt.HasText("不支持调节强度") {
-		t.Fatalf("expected no-effort hint: %v", tt.Texts())
+	if tt.HasText("不支持调节强度") {
+		t.Fatalf("model without efforts must not show no-effort hint: %v", tt.Texts())
 	}
 	if _, ok := tt.Find("推理强度"); ok {
 		t.Fatalf("model without efforts must hide slider: %v", tt.Texts())
@@ -120,8 +120,38 @@ func TestEffortSliderCardSingleLevel(t *testing.T) {
 	if tt.HasText("不支持调节强度") {
 		t.Fatalf("single-level model must not show the no-effort hint: %v", tt.Texts())
 	}
-	if _, ok := tt.Find("推理强度"); !ok {
-		t.Fatalf("single-level model must still render the slider: %v", tt.Texts())
+	if _, ok := tt.Find("推理强度"); ok {
+		t.Fatalf("single-level model must hide the slider: %v", tt.Texts())
+	}
+}
+
+func TestEffortSliderHidesSingleEffort(t *testing.T) {
+	testenv.TempHome(t)
+	for _, tc := range []struct {
+		name       string
+		efforts    []string
+		wantSlider bool
+	}{
+		{name: "empty", efforts: nil, wantSlider: false},
+		{name: "single", efforts: []string{"medium"}, wantSlider: false},
+		{name: "two", efforts: []string{"low", "high"}, wantSlider: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tt := ui.NewTester(func(c *ui.Context) {
+				renderEffortSliderCard(c, EffortSliderCardProps{
+					ModelTitle: "Test Model",
+					Efforts:    tc.efforts,
+				})
+			}, 330, 240)
+			tt.Frame()
+			if tt.HasText("不支持调节强度") {
+				t.Fatalf("unexpected no-effort hint: %v", tt.Texts())
+			}
+			_, hasSlider := tt.Access("推理强度")
+			if hasSlider != tc.wantSlider {
+				t.Fatalf("hasSlider = %v, want %v (texts=%v)", hasSlider, tc.wantSlider, tt.Texts())
+			}
+		})
 	}
 }
 

@@ -123,6 +123,7 @@ type ModelPickerProps struct {
 
 	CapsuleLabel   string // 触发胶囊的主名称，不含推理强度
 	NoEffortSignal bool   // 胶囊不显示推理强度信号格（跟随默认、未选模型时用）
+	ListOnly       bool   // 没有强度可调：打开即是模型列表，没有卡片页与返回按钮
 	HideBeeName    bool   // 窄宽度时子代理区只留图标、不显示短名
 	Tooltip        string
 	TriggerLabel   string // 触发按钮的无障碍名，同一界面有多个胶囊时用来区分；为空时使用“选择模型”
@@ -491,15 +492,22 @@ func lastSelectionForProject(projectID string) (ModelSelection, bool) {
 // resolveModelPickerSelectionWith 是 resolveModelPickerSelection 的实现体：
 // last/hasLast 是「上次使用」的快照，由调用方按项目或全局选取。
 func resolveModelPickerSelectionWith(providers []ProviderInfo, sel ModelSelection, last ModelSelection, hasLast bool, pins []ModelPin) ModelSelection {
-	if strings.TrimSpace(sel.Provider) == "" && strings.TrimSpace(sel.Model) != "" {
+	if strings.TrimSpace(sel.Model) != "" {
+		if strings.TrimSpace(sel.Provider) != "" {
+			if prov, ok := findProviderInfo(providers, sel.Provider); ok {
+				if m, found := findModelInfo(prov.Models, sel.Model); found {
+					sel.Model = m.ID
+				}
+				return sel
+			}
+		}
 		for _, prov := range providers {
-			if _, ok := findModelInfo(prov.Models, sel.Model); ok {
+			if m, found := findModelInfo(prov.Models, sel.Model); found {
 				sel.Provider = prov.ID
+				sel.Model = m.ID
 				break
 			}
 		}
-	}
-	if strings.TrimSpace(sel.Model) != "" {
 		return sel
 	}
 	if strings.TrimSpace(sel.Provider) == "" {
@@ -1491,8 +1499,8 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 		}
 	}
 
-	// 非 Inline 模式下组装方案 B 的双槽同屏配对卡；Inline（设置页）保留单卡路径。
-	if !p.Inline {
+	// 双槽卡只用于 Composer 主面板（ModelPickerSwarm 且非 Inline）；Simple 模式只有一个槽，走单卡。
+	if !p.Inline && p.Mode == ModelPickerSwarm {
 		openListFor := func(targetSide ModelPickerSide, targetTab string) func() {
 			return func() {
 				state.Tab = targetTab

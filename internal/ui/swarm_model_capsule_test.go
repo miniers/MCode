@@ -462,3 +462,85 @@ func TestSwarmPairEditor_StaysOpenAfterNestedPick(t *testing.T) {
 		t.Fatalf("expected LeadProvider to be %q, got %q", config.ProviderClaude, loaded.Orchestration.Pairs[0].LeadProvider)
 	}
 }
+
+// TestSwarmModelCapsuleListOnly 验证 noEffort=true 或空选择时胶囊打开第一帧即是纯列表页：
+// 无卡片页、无返回按钮、无推理强度滑条。
+func TestSwarmModelCapsuleListOnly(t *testing.T) {
+	st, _ := newSwarmCapsuleTester(t)
+	catalog := modelPickerCatalog{
+		Providers: []ProviderInfo{
+			{
+				ID:        "claude",
+				Name:      "Claude",
+				Available: true,
+				Models: []ModelInfo{
+					{
+						ID:            "claude-3-7-sonnet",
+						Name:          "Claude 3.7 Sonnet",
+						IsDefault:     true,
+						Efforts:       []string{"low", "medium", "high"},
+						DefaultEffort: "medium",
+					},
+				},
+			},
+		},
+	}
+
+	t.Run("noEffort_selected_opens_list_directly", func(t *testing.T) {
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Column(c).Width(420).Height(700).Children(func() {
+				renderSwarmModelCapsuleCatalog(
+					c, st, "list-only-no-effort", "list-only-no-effort",
+					ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+					"自动", "选择前台模型", nil, catalog, true,
+				)
+			})
+		}, 460, 740)
+		tt.Frame()
+
+		if err := tt.Click("选择前台模型"); err != nil {
+			t.Fatalf("点击胶囊失败: %v", err)
+		}
+		if _, ok := tt.Find("model-list-search-input"); !ok {
+			t.Fatalf("第一帧应直接渲染列表页搜索框: texts=%v", tt.Texts())
+		}
+		if _, ok := tt.Find("list-only-no-effort-model-list-back"); ok {
+			t.Fatal("ListOnly 列表页不应渲染返回按钮")
+		}
+		if _, ok := tt.Find("返回"); ok {
+			t.Fatal("ListOnly 列表页不应出现返回按钮")
+		}
+		if _, ok := tt.Find("推理强度"); ok {
+			t.Fatal("ListOnly 列表页不应渲染推理强度滑条")
+		}
+	})
+
+	t.Run("empty_selection_opens_list_directly", func(t *testing.T) {
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Column(c).Width(420).Height(700).Children(func() {
+				renderSwarmModelCapsuleCatalog(
+					c, st, "list-only-empty", "list-only-empty",
+					ModelSelection{},
+					"跟随主代理", "选择子代理默认模型", nil, catalog, false,
+				)
+			})
+		}, 460, 740)
+		tt.Frame()
+
+		if err := tt.Click("选择子代理默认模型"); err != nil {
+			t.Fatalf("点击胶囊失败: %v", err)
+		}
+		if _, ok := tt.Find("model-list-search-input"); !ok {
+			t.Fatalf("空选择第一帧应直接渲染列表页搜索框: texts=%v", tt.Texts())
+		}
+		if _, ok := tt.Find("list-only-empty-model-list-back"); ok {
+			t.Fatal("空选择 ListOnly 列表页不应渲染返回按钮")
+		}
+		if _, ok := tt.Find("返回"); ok {
+			t.Fatal("空选择 ListOnly 列表页不应出现返回按钮")
+		}
+		if _, ok := tt.Find("推理强度"); ok {
+			t.Fatal("空选择 ListOnly 列表页不应渲染推理强度滑条")
+		}
+	})
+}

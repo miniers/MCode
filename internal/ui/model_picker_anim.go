@@ -21,10 +21,10 @@ const (
 
 // modelPickerPageDepth 返回某一侧当前渲染的页面深度：0 为推理强度卡片、1 为模型列表。
 func modelPickerPageDepth(p ModelPickerProps, state *ModelPickerState, side ModelPickerSide) int {
-	if !state.listOpen(p.ScopeKey, side) {
-		return 0
+	if p.ListOnly || state.listOpen(p.ScopeKey, side) {
+		return 1
 	}
-	return 1
+	return 0
 }
 
 // modelPickerPageTransition 给二级页内容加上换页时的横向滑入与淡入。

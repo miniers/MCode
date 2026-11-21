@@ -738,7 +738,7 @@ func TestComposerModel_SwarmSideTabs(t *testing.T) {
 	}
 }
 
-// 覆盖：Efforts 为空时出现“不支持调节强度”且不渲染滑条。
+// 覆盖：Efforts 为空时不出现“不支持调节强度”且不渲染滑条。
 func TestComposerModel_EffortsEmpty(t *testing.T) {
 	testenv.TempHome(t)
 	t.Setenv("MCODE_DATA", t.TempDir())
@@ -775,9 +775,16 @@ func TestComposerModel_EffortsEmpty(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("不支持调节强度")
+		_, ok := tt.Find("选择其他模型")
+		return ok
 	})
 
+	if tt.HasText("不支持调节强度") {
+		t.Fatalf("unexpected no-effort hint when efforts is empty: %v", tt.Texts())
+	}
+	if _, ok := tt.Find("推理强度"); ok {
+		t.Fatalf("unexpected effort slider rendered when efforts is empty")
+	}
 	// 确认不渲染滑条刻度
 	if tt.HasText("最低") || tt.HasText("超高") {
 		t.Fatalf("unexpected slider ticks rendered when efforts is empty")
