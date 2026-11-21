@@ -207,6 +207,67 @@ func TestReclaimFreePagesSkipsNonIncremental(t *testing.T) {
 	}
 }
 
+func TestReclaimFreePagesSchedulesCompactWhenFragmented(t *testing.T) {
+	oldMinBytes := compactRewriteMinBytes
+	t.Cleanup(func() { compactRewriteMinBytes = oldMinBytes })
+
+	for _, tc := range []struct {
+		name        string
+		shrink      bool
+		markerAge   time.Duration
+		wantRemoved bool
+	}{
+		{name: "碎片超阈值且标记八天前", shrink: true, markerAge: 8 * 24 * time.Hour, wantRemoved: true},
+		{name: "碎片超阈值但标记一天前", shrink: true, markerAge: 24 * time.Hour},
+		{name: "碎片很少且标记八天前", markerAge: 8 * 24 * time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s := openCompactTestStore(t)
+
+			if _, err := s.EnsureIncrementalAutoVacuum(ctx); err != nil {
+				t.Fatalf("切换增量 auto_vacuum 失败: %v", err)
+			}
+			seedCompactThread(t, s)
+			// 单行约 3800 字节贴近 4KB 页上限（不溢出），顺序插入时每页利用率 >90%，
+			// 足以压低空表页占用的基线碎片率。
+			insertCompactMessages(t, s, 1500, 3800)
+			if tc.shrink {
+				// 缩小单行正文，在 B 树叶页内制造大量 unused 空洞。
+				if _, err := s.db.ExecContext(ctx, "UPDATE messages SET text = ?", "short"); err != nil {
+					t.Fatalf("缩短消息正文失败: %v", err)
+				}
+			}
+			if err := s.execPragmaDrain(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+				t.Fatalf("截断 WAL 失败: %v", err)
+			}
+
+			compactRewriteMinBytes = 1
+			markerPath := s.filePath + compactMarkerSuffix
+			if err := os.WriteFile(markerPath, nil, 0o644); err != nil {
+				t.Fatalf("创建标记文件失败: %v", err)
+			}
+			markerTime := time.Now().Add(-tc.markerAge)
+			if err := os.Chtimes(markerPath, markerTime, markerTime); err != nil {
+				t.Fatalf("设置标记时间失败: %v", err)
+			}
+
+			if _, err := s.ReclaimFreePages(ctx, 0, 0); err != nil {
+				t.Fatalf("回收空闲页失败: %v", err)
+			}
+
+			_, statErr := os.Stat(markerPath)
+			if tc.wantRemoved {
+				if !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("碎片超阈值且标记满 7 天时应删除标记，err=%v", statErr)
+				}
+			} else if statErr != nil {
+				t.Fatalf("不应删除标记文件，err=%v", statErr)
+			}
+		})
+	}
+}
+
 func TestCompactForIncrementalVacuum(t *testing.T) {
 	ctx := context.Background()
 	path := createCompactTestDB(t)

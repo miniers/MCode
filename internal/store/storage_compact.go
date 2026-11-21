@@ -39,6 +39,9 @@ const (
 	compactBackupSuffix     = ".pre-compact"
 	compactMarkerSuffix     = ".compacted"
 	compactProgressInterval = 200 * time.Millisecond
+	// 页内碎片率（dbstat unused/pgsize）触发下次启动重写的阈值与最小标记间隔。
+	compactFragmentMinAge = 7 * 24 * time.Hour
+	compactFragmentRatio  = 0.15
 )
 
 var (
@@ -48,7 +51,8 @@ var (
 
 // CompactForIncrementalVacuum 在 store.Open 之前，用 VACUUM INTO 把整库重写成
 // 已切到增量 auto_vacuum 的新文件，校验后替换原库。
-// 已是增量模式的库仅在大小达到阈值且上次整理已满 30 天或没有整理记录时重写。
+// 已是增量模式的库仅在大小达到阈值且上次整理已满 30 天或没有整理记录（含碎片检查
+// 触发后删除整理标记）时重写。
 //
 // 与在已打开的库上原地 VACUUM 相比，这条路径能给出真实进度：VACUUM INTO 边写边落盘，
 // 轮询临时文件大小即可估算 done，启动界面据此显示进度条；同时新库先落在旁边，
@@ -431,7 +435,61 @@ func (s *Store) ReclaimFreePages(ctx context.Context, batchPages int, pause time
 			return reclaimed, err
 		}
 	}
+	s.scheduleCompactIfFragmented(ctx)
 	return reclaimed, nil
+}
+
+// scheduleCompactIfFragmented 检查增量模式库的页内碎片率；达到阈值且上次整理已满 7 天时，
+// 删除 .compacted 标记文件，让下次启动的 CompactForIncrementalVacuum 重写整库。
+// 检查过程中的错误只记日志，不影响 ReclaimFreePages 正常返回。
+func (s *Store) scheduleCompactIfFragmented(ctx context.Context) {
+	if s.filePath == "" || s.filePath == ":memory:" {
+		return
+	}
+	markerPath := s.filePath + compactMarkerSuffix
+	marker, err := os.Stat(markerPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("store: 检查碎片整理标记 %s 失败: %v", markerPath, err)
+		}
+		return
+	}
+	if time.Since(marker.ModTime()) < compactFragmentMinAge {
+		return
+	}
+
+	info, err := os.Stat(s.filePath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("store: 检查数据库大小 %s 失败: %v", s.filePath, err)
+		}
+		return
+	}
+	if info.Size() < compactRewriteMinBytes {
+		return
+	}
+
+	var totalBytes, unusedBytes sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, "SELECT SUM(pgsize), SUM(unused) FROM dbstat").Scan(&totalBytes, &unusedBytes); err != nil {
+		log.Printf("store: 查询 dbstat 碎片率失败: %v", err)
+		return
+	}
+	if !totalBytes.Valid || totalBytes.Int64 <= 0 || !unusedBytes.Valid {
+		return
+	}
+	ratio := float64(unusedBytes.Int64) / float64(totalBytes.Int64)
+	if ratio < compactFragmentRatio {
+		return
+	}
+
+	if err := os.Remove(markerPath); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("store: 删除碎片整理标记 %s 失败: %v", markerPath, err)
+		}
+		return
+	}
+	log.Printf("store: 页内碎片率 %.1f%% (%d/%d 字节) 达到阈值，已删除整理标记以安排下次启动重写库 %s",
+		ratio*100, unusedBytes.Int64, totalBytes.Int64, s.filePath)
 }
 
 // pragmaInt 读取返回单个整数的 PRAGMA（auto_vacuum、page_count、freelist_count）。
