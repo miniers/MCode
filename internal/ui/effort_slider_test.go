@@ -58,16 +58,18 @@ func TestEffortSliderCardInteraction(t *testing.T) {
 	current := "low"
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderEffortSliderCard(c, EffortSliderCardProps{
-			Efforts: efforts, Current: current,
-			OnEffort: func(effort string) { current = effort },
+			ModelTitle: "Claude 3.7 Sonnet",
+			Efforts:    efforts,
+			Current:    current,
+			OnEffort:   func(effort string) { current = effort },
 		})
-	}, 330, 240)
+	}, 352, 240)
 	tt.Frame()
 	r, ok := tt.Find("推理强度")
 	if !ok || r.W <= 24 {
 		t.Fatalf("missing slider: %+v", r)
 	}
-	// 滑轨左右各留半个滑块宽度（40）的内边距，取值范围在其间线性映射。
+	// 滑轨左右各留半个滑块宽度（32）的内边距，点击 0.55 处吸附到 high。
 	tt.ClickAt(r.X+40+(r.W-80)*0.55, r.Y+r.H/2)
 	if current != "high" {
 		t.Fatalf("click must snap to high, got %q", current)
@@ -80,15 +82,19 @@ func TestEffortSliderCardInteraction(t *testing.T) {
 	if current != "max" {
 		t.Fatalf("end must select max, got %q", current)
 	}
-	// 档位名不再铺在轨道下方，只出现在大标题（当前档 Max）与无障碍值里。
+	// 大标题展示模型名，档位只作为英文短标签画在滑块胶囊与无障碍值里，不再作为独立文本铺在卡片上。
 	tt.Frame()
-	for _, label := range []string{"Low", "Medium", "High", "低", "中", "高", "最大"} {
+	for _, label := range []string{"Low", "Med", "Medium", "High", "Max", "低", "中", "高", "最大"} {
 		if tt.HasText(label) {
-			t.Fatalf("tick label %q must not be rendered under the track", label)
+			t.Fatalf("tier label %q must not be rendered as standalone text", label)
 		}
 	}
-	if !tt.HasText("Max") {
-		t.Fatalf("expected title Max, got %v", tt.Texts())
+	if !tt.HasText("Claude 3.7 Sonnet") {
+		t.Fatalf("expected model title Claude 3.7 Sonnet, got %v", tt.Texts())
+	}
+	info, ok := tt.Access("推理强度")
+	if !ok || info.Value != "Max" {
+		t.Fatalf("expected slider value Max, got (%+v, %v)", info, ok)
 	}
 }
 
@@ -120,17 +126,22 @@ func TestEffortSliderCardSingleLevel(t *testing.T) {
 
 func TestEffortCardTitle(t *testing.T) {
 	testenv.TempHome(t)
-	p := EffortSliderCardProps{Efforts: []string{"low", "medium", "high"}}
-	if got := effortCardTitle(p); got != "Medium" {
-		t.Fatalf("default title = %q", got)
+	p := EffortSliderCardProps{
+		ModelTitle: "Claude Opus 4.6",
+		Subtitle:   "fallback",
+		Efforts:    []string{"low", "medium", "high"},
 	}
-	p.Current = "high"
-	if got := effortCardTitle(p); got != "High" {
-		t.Fatalf("selected title = %q", got)
+	if got := effortCardTitle(p); got != "Claude Opus 4.6" {
+		t.Fatalf("model title = %q", got)
 	}
-	p.Efforts = nil
+	p.ModelTitle = "  "
+	p.Subtitle = "  GPT-5  "
+	if got := effortCardTitle(p); got != "GPT-5" {
+		t.Fatalf("fallback subtitle title = %q", got)
+	}
+	p.Subtitle = ""
 	if got := effortCardTitle(p); got != "标准" {
-		t.Fatalf("single-level title = %q", got)
+		t.Fatalf("empty title fallback = %q", got)
 	}
 }
 
@@ -230,6 +241,34 @@ func TestEffortLabel(t *testing.T) {
 	for in, want := range cases {
 		if got := effortLabel(in); got != want {
 			t.Errorf("effortLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// 测试 effortThumbLabel 英文短档位映射。
+func TestEffortThumbLabel(t *testing.T) {
+	testenv.TempHome(t)
+
+	cases := map[string]string{
+		"minimal":    "Min",
+		"none":       "Off",
+		"low":        "Low",
+		"medium":     "Med",
+		"high":       "High",
+		" HIGH ":     "High",
+		"xhigh":      "XHigh",
+		"extra-high": "XHigh",
+		"extra_high": "XHigh",
+		"extra high": "XHigh",
+		"max":        "Max",
+		"ultra":      "Max",
+		"custom":     "Custom",
+		"":           "",
+		"   ":        "",
+	}
+	for in, want := range cases {
+		if got := effortThumbLabel(in); got != want {
+			t.Errorf("effortThumbLabel(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -397,22 +436,27 @@ func TestEffortTitleColors(t *testing.T) {
 	}
 }
 
-// 测试卡片大标题显示当前档位英文名，并在切换档位后同步更新；不再有“当前：”行。
+// 测试卡片大标题展示模型名，滑块无障碍值展示当前英文短档位名，切换档位后标题保持不变；不再有“当前：”行。
 func TestEffortSliderCardShowsCurrentTierTitle(t *testing.T) {
 	testenv.TempHome(t)
 	current := "low"
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderEffortSliderCard(c, EffortSliderCardProps{
-			Efforts: []string{"low", "medium", "high", "max"}, Current: current,
-			OnEffort: func(effort string) { current = effort },
+			ModelTitle: "Claude 3.7 Sonnet",
+			Efforts:    []string{"low", "medium", "high", "max"},
+			Current:    current,
+			OnEffort:   func(effort string) { current = effort },
 		})
-	}, 330, 260)
+	}, 352, 260)
 	tt.Frame()
-	if !tt.HasText("Low") {
-		t.Fatalf("expected title 'Low', got %v", tt.Texts())
+	if !tt.HasText("Claude 3.7 Sonnet") {
+		t.Fatalf("expected title 'Claude 3.7 Sonnet', got %v", tt.Texts())
 	}
-	if tt.HasText("当前：") {
-		t.Fatalf("current-tier row must be gone, got %v", tt.Texts())
+	if tt.HasText("Low") || tt.HasText("当前：") {
+		t.Fatalf("tier text and current-tier row must not appear as card text, got %v", tt.Texts())
+	}
+	if info, ok := tt.Access("推理强度"); !ok || info.Value != "Low" {
+		t.Fatalf("expected initial slider value 'Low', got (%+v, %v)", info, ok)
 	}
 
 	r, ok := tt.Find("推理强度")
@@ -424,8 +468,65 @@ func TestEffortSliderCardShowsCurrentTierTitle(t *testing.T) {
 		t.Fatalf("click must snap to max, got %q", current)
 	}
 	tt.Frame()
-	if !tt.HasText("Max") {
-		t.Fatalf("expected title 'Max' after change, got %v", tt.Texts())
+	if !tt.HasText("Claude 3.7 Sonnet") || tt.HasText("Max") {
+		t.Fatalf("title must remain model name and not show 'Max' as card text, got %v", tt.Texts())
+	}
+	if info, ok := tt.Access("推理强度"); !ok || info.Value != "Max" {
+		t.Fatalf("expected slider value 'Max' after change, got (%+v, %v)", info, ok)
+	}
+}
+
+// 测试卡片大标题显示模型名、不重复副标题行，且切换档位时滑块无障碍值同步更新为 Low -> Med -> High -> Max。
+func TestEffortSliderCardShowsModelTitleAndPillTier(t *testing.T) {
+	testenv.TempHome(t)
+	current := "low"
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderEffortSliderCard(c, EffortSliderCardProps{
+			ProviderID: "claude",
+			ModelTitle: "Claude Opus 4.6",
+			Efforts:    []string{"low", "medium", "high", "max"},
+			Current:    current,
+			OnEffort:   func(effort string) { current = effort },
+		})
+	}, 352, 260)
+	tt.Frame()
+
+	countText := func(target string) int {
+		n := 0
+		for _, s := range tt.Texts() {
+			if s == target {
+				n++
+			}
+		}
+		return n
+	}
+
+	if got := countText("Claude Opus 4.6"); got != 1 {
+		t.Fatalf("expected single model title without duplicate subtitle, got count=%d texts=%v", got, tt.Texts())
+	}
+	if tt.FramePending() {
+		t.Fatal("idle effort slider card must not request another frame")
+	}
+
+	r, ok := tt.Find("推理强度")
+	if !ok {
+		t.Fatal("missing slider")
+	}
+	// 点击首档聚焦滑块，再依次右移档位验证 Low -> Med -> High -> Max。
+	tt.ClickAt(r.X+32, r.Y+r.H/2)
+	wantTiers := []string{"Low", "Med", "High", "Max"}
+	for i, want := range wantTiers {
+		if i > 0 {
+			tt.Key(0, ui.KeyRight)
+		}
+		tt.Frame()
+		if got := countText("Claude Opus 4.6"); got != 1 {
+			t.Fatalf("step %d: expected model title once, got count=%d texts=%v", i, got, tt.Texts())
+		}
+		info, ok := tt.Access("推理强度")
+		if !ok || info.Value != want {
+			t.Fatalf("step %d: slider value = (%q, %v), want %q", i, info.Value, ok, want)
+		}
 	}
 }
 
@@ -439,13 +540,14 @@ func TestEffortLockedTip(t *testing.T) {
 	}
 }
 
-// 测试配对说明行：主模型、加号与子代理模型均能在卡片中正确渲染。
+// 测试配对说明行：主模型在标题行、加号与子代理模型在副标题行，主模型不重复出现。
 func TestEffortSliderCardPairedSubtitleRow(t *testing.T) {
 	testenv.TempHome(t)
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderEffortSliderCard(c, EffortSliderCardProps{
 			Paired:         true,
 			IsBees:         false,
+			ModelTitle:     "模型A",
 			Subtitle:       "模型A",
 			SubtitlePair:   "模型B",
 			ProviderID:     "claude",
@@ -457,5 +559,14 @@ func TestEffortSliderCardPairedSubtitleRow(t *testing.T) {
 		if _, ok := tt.Find(text); !ok {
 			t.Fatalf("missing %q in rendered card, texts: %v", text, tt.Texts())
 		}
+	}
+	count := 0
+	for _, s := range tt.Texts() {
+		if s == "模型A" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected lead model title once (not repeated in subtitle), got %d in %v", count, tt.Texts())
 	}
 }

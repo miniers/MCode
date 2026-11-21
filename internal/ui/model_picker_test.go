@@ -267,11 +267,12 @@ func TestRenderModelPickerCard_DefaultIdentityVisible(t *testing.T) {
 			t.Fatalf("expected %q in card, got %v", want, tt.Texts())
 		}
 	}
-	// 档位名只以英文大标题呈现，“当前：”行与轨道下方的档位文字都不再出现。
-	if !tt.HasText("High") {
-		t.Fatalf("expected tier title High, got %v", tt.Texts())
+	// 档位只展示在滑块胶囊与无障碍值里，“当前：”行与轨道下方的档位文字都不再出现。
+	info, ok := tt.Access("推理强度")
+	if !ok || info.Value != "High" {
+		t.Fatalf("expected slider value High, got (%+v, %v)", info, ok)
 	}
-	if tt.HasText("当前：") || tt.HasText("低") || tt.HasText("超高") || tt.HasText("Low") {
+	if tt.HasText("当前：") || tt.HasText("低") || tt.HasText("超高") || tt.HasText("Low") || tt.HasText("High") {
 		t.Fatalf("unexpected tier list text in card, got %v", tt.Texts())
 	}
 }
@@ -294,10 +295,10 @@ func TestModelPickerFlyoutSelection(t *testing.T) {
 	if err := host.Click("选择模型"); err != nil {
 		t.Fatal(err)
 	}
-	if len(capture.options) != 1 || capture.options[0].Width != 330 || capture.options[0].Placement != mygo.PlacementTopStart {
+	if len(capture.options) != 1 || capture.options[0].Width != 352 || capture.options[0].Placement != mygo.PlacementTopStart {
 		t.Fatalf("窗口参数: %+v", capture.options)
 	}
-	menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-model-model-popover"), 330, 600)
+	menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-model-model-popover"), 352, 600)
 	if err := menu.Click("快速模式"); err != nil {
 		t.Fatal(err)
 	}

@@ -1155,7 +1155,7 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 				return
 			}
 			if flyoutHostWindow(c.Services()) != nil {
-				appFlyoutPopover(c, p.KeyPrefix+"model-popover", anchor, &state.MenuOpen, nil, appFlyoutProps{Width: 330, Placement: mygo.PlacementTopStart, Background: &modelPickerPanelBg, RiseY: Space4}, func(fc *ui.Context) {
+				appFlyoutPopover(c, p.KeyPrefix+"model-popover", anchor, &state.MenuOpen, nil, appFlyoutProps{Width: modelPickerPanelWidth, Placement: mygo.PlacementTopStart, Background: &modelPickerPanelBg, RiseY: Space4}, func(fc *ui.Context) {
 					renderModelPickerMenuBody(fc, p, state)
 				})
 				return
@@ -1224,7 +1224,10 @@ var (
 	modelPickerTextSecondary = ColorTextSecondaryDark
 )
 
-// modelPickerPanelRadius 是模型选择面板的圆角：面板宽 330、内容成组，取比浮层常规圆角更大的一档。
+// modelPickerPanelWidth 是模型选择面板的宽度。
+const modelPickerPanelWidth = 352
+
+// modelPickerPanelRadius 是模型选择面板的圆角：面板宽 352、内容成组，取比浮层常规圆角更大的一档。
 const modelPickerPanelRadius = float32(22)
 
 // modelPickerSwarmReopenWindow 是「点执行段后等编排开关生效」的时间窗：超过这段时间还没开成，
@@ -1241,14 +1244,14 @@ const modelPickerRowHeightTwoLine = float32(46)
 // 与上行 IconSM、行距 Space0 相加正好等于发送按钮的 ControlMD。
 const modelPickerBeeLineHeight = Space4
 
-// renderModelPickerMenuBody 渲染模型选择面板的主体内容（宽 330）：
+// renderModelPickerMenuBody 渲染模型选择面板的主体内容（宽 352）：
 // Swarm 模式下最上方是主导/执行分段栏（左右 12、上 8、下 2），其下是强度卡片或二级模型列表。
 func renderModelPickerMenuBody(c *ui.Context, p ModelPickerProps, state *ModelPickerState) {
 	menu := ui.Column(c.Key(p.KeyPrefix + "model-menu-list"))
 	if p.NativeMenu != nil {
-		menu.MaxWidth(330).FillWidth()
+		menu.MaxWidth(modelPickerPanelWidth).FillWidth()
 	} else {
-		menu.Width(330)
+		menu.Width(modelPickerPanelWidth)
 	}
 	menu.Children(func() {
 		side := ModelPickerSideLead
@@ -1400,7 +1403,11 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 	}
 	paired := p.Mode == ModelPickerSwarm && p.SwarmOn && !bees.FollowsLead
 
-	subtitle := modelPickerSideCaption(p, side)
+	modelTitle := modelPickerModelTitle(p.Providers, cur)
+	var subtitle string
+	if side == ModelPickerSideBees && bees.FollowsLead {
+		subtitle = "跟随主代理"
+	}
 	var subtitlePair string
 	if side == ModelPickerSideLead && paired {
 		subtitlePair = modelPickerModelTitle(p.Providers, bees)
@@ -1439,6 +1446,7 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 		Paired:            paired,
 		IsBees:            side == ModelPickerSideBees,
 		SwarmOn:           p.SwarmOn,
+		ModelTitle:        modelTitle,
 		Subtitle:          subtitle,
 		SubtitlePair:      subtitlePair,
 		SubtitleAccessory: subtitleAccessory,

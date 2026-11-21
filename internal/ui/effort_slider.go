@@ -30,6 +30,7 @@ type EffortSliderCardProps struct {
 	Paired            bool
 	IsBees            bool          // 是否为执行侧 (Bees)
 	SwarmOn           bool          // Swarm 是否开启
+	ModelTitle        string        // 当前侧模型名称；为空时回退 Subtitle
 	Subtitle          string        // 说明行文案
 	SubtitlePair      string        // 配对时主导侧说明行“+”后面的子代理模型名，图标取 PairBrandID / PairProviderID
 	SubtitleAccessory func()        // 说明行右侧自定义小部件（如并发 Bee 上限胶囊）
@@ -137,6 +138,34 @@ func effortLabel(e string) string {
 	}
 }
 
+// effortThumbLabel 将推理强度档位转换为滑块胶囊上展示的英文短标签：
+// minimal→Min，none→Off，low→Low，medium→Med，high→High，xhigh→XHigh，max/ultra→Max；
+// 其他非空值回退 modelEffortTitle，空串返回 ""。
+func effortThumbLabel(e string) string {
+	trimmed := strings.TrimSpace(e)
+	if trimmed == "" {
+		return ""
+	}
+	switch strings.ToLower(trimmed) {
+	case "minimal":
+		return "Min"
+	case "none":
+		return "Off"
+	case "low":
+		return "Low"
+	case "medium":
+		return "Med"
+	case "high":
+		return "High"
+	case "xhigh", "extra-high", "extra_high", "extra high":
+		return "XHigh"
+	case "max", "ultra":
+		return "Max"
+	default:
+		return modelEffortTitle(trimmed)
+	}
+}
+
 // swarmSideTabLabel 生成分段标签展示文案：
 // “<角色> · <档位英文名>”，例如“主导 · Medium”“执行 · Max”，档位名与 modelEffortTitle 一致。
 // role 取 "lead" 或 "bees"；调用方应传入已回退到模型默认档位的 effort，
@@ -173,14 +202,17 @@ func effortLockedTip(p EffortSliderCardProps, fallback string) string {
 	return fallback
 }
 
+// effortResetButtonSize 是标题右侧紧凑重置按钮的直径。
+const effortResetButtonSize = float32(24)
+
 // renderEffortResetButton 渲染标题右侧的圆形重置按钮：
-// 30x30、静止透明，悬停时白 10% 圆底，图标为次要色。
+// 24x24、静止透明，悬停时白 10% 圆底，图标为次要色。
 func renderEffortResetButton(c *ui.Context, p EffortSliderCardProps) {
 	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"effort-reset-btn")).
 		Label("重置强度与快速模式").
 		Tooltip(effortLockedTip(p, "重置强度与快速模式")).
 		Disabled(p.Disabled).
-		Size(effortCardButtonSize, effortCardButtonSize).
+		Size(effortResetButtonSize, effortResetButtonSize).
 		Radius(RadiusPill).
 		Center()
 
@@ -195,7 +227,7 @@ func renderEffortResetButton(c *ui.Context, p EffortSliderCardProps) {
 
 	btn.Children(func() {
 		ui.Icon(c, iconRotateCcw).
-			Size(14, 14).
+			Size(13, 13).
 			TextColor(ColorTextSecondaryDark)
 	})
 }
@@ -246,36 +278,46 @@ func renderPairFavButton(c *ui.Context, p EffortSliderCardProps) {
 	})
 }
 
-// renderEffortBrandIcon 渲染 12 号 Provider/Brand 图标：
+// renderEffortBrandIconSize 渲染指定尺寸的 Provider/Brand 图标：
 // 若 brandID 非空且在 colorProviderIcons 中存在则优先使用，否则在 providerID 非空时回退 providerID。
-func renderEffortBrandIcon(c *ui.Context, brandID, providerID string) {
-	if brand := strings.TrimSpace(brandID); colorProviderIcons[brand] != nil {
-		renderProviderIcon(c, brand, 12)
-	} else if providerID != "" {
-		renderProviderIcon(c, providerID, 12)
+func renderEffortBrandIconSize(c *ui.Context, brandID, providerID string, size float32) {
+	brand := strings.TrimSpace(brandID)
+	prov := strings.TrimSpace(providerID)
+	if brand != "" && colorProviderIcons[brand] != nil {
+		renderProviderIcon(c, brand, size)
+	} else if prov != "" {
+		renderProviderIcon(c, prov, size)
+	} else if brand != "" {
+		renderProviderIcon(c, brand, size)
 	}
 }
 
-// renderEffortSubtitleRow 渲染标题下方的模型说明行：配对时左侧是收藏按钮，接着无论是否配对均渲染
-// 主代理 12 号图标与模型名；若配对且存在子代理模型名，再紧随“+”、子代理 12 号图标与子模型名；
-// 末尾可再附 SubtitleAccessory 自定义小部件（如并发 Bee 上限胶囊）。
+// renderEffortBrandIcon 渲染 12 号 Provider/Brand 图标。
+func renderEffortBrandIcon(c *ui.Context, brandID, providerID string) {
+	renderEffortBrandIconSize(c, brandID, providerID, 12)
+}
+
+// renderEffortSubtitleRow 渲染标题下方的副标题行：
+// 配对模式只渲染配对收藏按钮、“+”、子代理 12 号图标与子代理模型名，不再重复主模型名；
+// 非配对时仅在存在独立说明（如“跟随主代理”）或 SubtitleAccessory（如并发上限胶囊）时才渲染。
 func renderEffortSubtitleRow(c *ui.Context, p EffortSliderCardProps) {
+	hasPair := effortCardPaired(p) && strings.TrimSpace(p.SubtitlePair) != ""
+	sub := strings.TrimSpace(p.Subtitle)
+	hasNote := !hasPair && sub != "" && sub != effortCardTitle(p)
+	hasAcc := p.SubtitleAccessory != nil
+	if !hasPair && !hasNote && !hasAcc {
+		return
+	}
+
 	ui.Row(c.Key(p.KeyPrefix + "effort-subtitle-row")).
 		AlignItems(ui.Center).
+		Justify(ui.Center).
 		Gap(Space1).
 		Shrink(1).
 		MinWidth(0).
 		Children(func() {
-			if effortCardPaired(p) {
+			if hasPair {
 				renderPairFavButton(c, p)
-			}
-			renderEffortBrandIcon(c, p.BrandID, p.ProviderID)
-			ui.Text(c, p.Subtitle).
-				FontSize(uiFont(TypeBody)).
-				TextColor(effortTextSoft).
-				SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
-
-			if effortCardPaired(p) && strings.TrimSpace(p.SubtitlePair) != "" {
 				ui.Text(c, "+").
 					FontSize(uiFont(TypeBody)).
 					TextColor(effortTextSoft).
@@ -285,9 +327,18 @@ func renderEffortSubtitleRow(c *ui.Context, p EffortSliderCardProps) {
 					FontSize(uiFont(TypeBody)).
 					TextColor(effortTextSoft).
 					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+				if hasAcc {
+					p.SubtitleAccessory()
+				}
+				return
 			}
-
-			if p.SubtitleAccessory != nil {
+			if hasNote {
+				ui.Text(c, sub).
+					FontSize(uiFont(TypeBody)).
+					TextColor(effortTextSoft).
+					SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+			}
+			if hasAcc {
 				p.SubtitleAccessory()
 			}
 		})
@@ -665,15 +716,17 @@ func effortSampleColors(colors []ui.Color, t float32) ui.Color {
 
 const (
 	effortTrackH   = float32(34) // 轨道高度，全圆角
-	effortThumbD   = float32(42) // 玻璃滑块直径，比轨道高，滑轨整体高度取它
+	effortThumbD   = float32(42) // 滑轨整体高度，留足点击热区与按下微缩放空间
+	effortThumbW   = float32(64) // 固定毛玻璃胶囊手柄宽度，避免切换档位时刻度点左右抖动
+	effortThumbH   = float32(36) // 毛玻璃胶囊手柄高度
 	effortDotD     = float32(5)  // 档位刻度圆点直径
-	effortTitleSz  = float32(17) // 档位名字号（macOS .title2）
-	effortTitleWgt = 500         // 档位名字重（.medium）
+	effortTitleSz  = float32(16) // 标题模型名字号
+	effortTitleWgt = 500         // 标题模型名字重（.medium）
 )
 
 // renderEffortSlider 渲染推理强度滑轨：42 高的区域里居中一条 34 高的
-// 胶囊轨道，已选部分按 TrackLook 填色并一直填到滑块外缘，每档一个 5px 圆点，42 直径的玻璃圆滑块。
-// 首尾档位的圆点内缩半个滑块直径，使滑块在两端也完整可见。
+// 胶囊轨道，已选部分按 TrackLook 填色并一直填到胶囊右缘，每档一个 5px 圆点，上覆 64x36 的毛玻璃胶囊手柄。
+// 首尾档位的圆点内缩半个胶囊宽度（32px），使胶囊在两端也严丝合缝落在轨道内。
 func renderEffortSlider(c *ui.Context, p EffortSliderCardProps) {
 	n := len(p.Efforts)
 	if n == 0 {
@@ -681,15 +734,17 @@ func renderEffortSlider(c *ui.Context, p EffortSliderCardProps) {
 	}
 	curIdx := effortIndex(p.Efforts, p.Current, p.DefaultEffort)
 	look := effortTrackLookFor(p)
+	thumbText := effortThumbLabel(p.Efforts[curIdx])
+	const inset = effortThumbW / 2
 
 	value := float64(curIdx)
 	slider := ui.SliderBase(c.Key(p.KeyPrefix+"effort-slider"), &value, 0, float64(n-1)).
 		Step(1).
 		Label("推理强度").
-		Value(effortLabel(p.Efforts[curIdx])).
+		Value(thumbText).
 		Disabled(p.Disabled).
 		Height(effortThumbD).
-		PaddingX(effortThumbD / 2).
+		PaddingX(inset).
 		AlignSelf(ui.Stretch)
 
 	if slider.Changed() && p.OnEffort != nil {
@@ -698,17 +753,18 @@ func renderEffortSlider(c *ui.Context, p EffortSliderCardProps) {
 	}
 
 	pressed := slider.Pressed()
+	reduced := reduceMotion(c)
 	slider.Draw(func(painter *ui.Painter, r ui.Rect) {
-		drawEffortTrack(painter, r, n, curIdx, look, pressed)
+		drawEffortTrack(painter, r, n, curIdx, look, pressed, reduced, thumbText)
 	})
 }
 
 // drawEffortTrack 绘制滑轨：白 10% 轨道、TrackLook 填充、刻度点（已越过的用 TrackLook 刻度色，
-// 其余白 32%），最后是玻璃滑块——下垫一层模糊光晕，上面是白色半透明圆，浅色填充时加深色描边。
-func drawEffortTrack(painter *ui.Painter, r ui.Rect, n, curIdx int, look effortTrackLook, pressed bool) {
-	const inset = effortThumbD / 2
+// 其余白 32%），最后绘制带当前英文短档位名的毛玻璃胶囊手柄，保证在任意轨道填充色上文字对比度清晰。
+func drawEffortTrack(painter *ui.Painter, r ui.Rect, n, curIdx int, look effortTrackLook, pressed, reduced bool, thumbText string) {
+	const inset = effortThumbW / 2
 
-	slideW := max(float32(0), r.W-inset*2)
+	slideW := max(float32(0), r.W-effortThumbW)
 	frac := float32(0)
 	if n > 1 {
 		frac = float32(curIdx) / float32(n-1)
@@ -735,37 +791,61 @@ func drawEffortTrack(painter *ui.Painter, r ui.Rect, n, curIdx int, look effortT
 		painter.Fill(ui.Rect{X: stopX - effortDotD/2, Y: midY - effortDotD/2, W: effortDotD, H: effortDotD}, dot, effortDotD/2)
 	}
 
-	d := effortThumbD
-	if pressed {
-		d *= 1.06
+	w, h := effortThumbW, effortThumbH
+	if pressed && !reduced {
+		w *= 1.04
+		h *= 1.04
 	}
-	knob := ui.Rect{X: curX - d/2, Y: midY - d/2, W: d, H: d}
-	// MyGo 没有 Liquid Glass：用上亮下暗的白色半透明渐变加一圈高光边近似玻璃透镜。
-	tint := float32(0.32)
+	knob := ui.Rect{X: curX - w/2, Y: midY - h/2, W: w, H: h}
+	radius := h / 2
+
 	if look.light {
-		tint = 0.55
+		painter.Fill(knob, effortOnDark.Alpha(0.86), radius)
+		painter.FillGradient(knob, ui.LinearGradient{
+			Angle: 180,
+			Stops: []ui.GradientStop{
+				{Color: effortOnDark.Alpha(0.96), At: 0},
+				{Color: effortOnDark.Alpha(0.74), At: 1},
+			},
+		}, radius)
+		painter.Stroke(knob, effortKnobOnLight, radius, 1)
+	} else {
+		// 深色/彩色填充轨道用半透明深雾毛玻璃底叠柔白高光，确保纯白短档位文字对比度充足。
+		painter.Fill(knob, ColorSurfaceMainDark.Alpha(0.78), radius)
+		painter.FillGradient(knob, ui.LinearGradient{
+			Angle: 180,
+			Stops: []ui.GradientStop{
+				{Color: effortOnDark.Alpha(0.22), At: 0},
+				{Color: effortOnDark.Alpha(0.06), At: 1},
+			},
+		}, radius)
+		painter.Stroke(knob, ColorTextTertiaryDark, radius, 1)
 	}
-	painter.FillGradient(knob, ui.LinearGradient{
-		Angle: 180,
-		Stops: []ui.GradientStop{
-			{Color: effortOnDark.Alpha(tint + 0.14), At: 0},
-			{Color: effortOnDark.Alpha(tint - 0.06), At: 1},
-		},
-	}, d/2)
-	edge := ColorTextTertiaryDark
-	if look.light {
-		edge = effortKnobOnLight
+
+	if thumbText != "" {
+		textColor := effortOnDark
+		if look.light {
+			textColor = ColorTextPrimaryLight
+		}
+		layout := ui.ShapeRichText(
+			[]ui.Span{{Text: thumbText, Color: textColor}},
+			ui.Font{Size: 12, Weight: 600},
+			0,
+		)
+		tw, th := layout.Size()
+		painter.TextLayout(layout, knob.X+(knob.W-tw)/2, knob.Y+(knob.H-th)/2, textColor)
 	}
-	painter.Stroke(knob, edge, d/2, 1)
 }
 
-// effortCardTitle 返回卡片大标题：当前档位的英文名（与 modelEffortTitle 一致，如 Medium、Extra High），
-// 无可选档位时为“标准”。
+// effortCardTitle 返回卡片大标题：优先返回 ModelTitle，为空时回退 Subtitle，两者均为空时回退“标准”。
 func effortCardTitle(p EffortSliderCardProps) string {
-	if len(p.Efforts) == 0 {
-		return "标准"
+	if title := strings.TrimSpace(p.ModelTitle); title != "" {
+		return title
 	}
-	return modelEffortTitle(p.Efforts[effortIndex(p.Efforts, p.Current, p.DefaultEffort)])
+	if sub := strings.TrimSpace(p.Subtitle); sub != "" {
+		return sub
+	}
+	return "标准"
 }
 
 // effortTitleColors 返回标题文字水平渐变起始与终止颜色：
@@ -795,29 +875,77 @@ func effortTitleColors(c *ui.Context, p EffortSliderCardProps) (ui.Color, ui.Col
 	}
 }
 
-// renderEffortTitle 渲染档位名（17 号、medium），颜色取 effortTitleGradient：单色时直接着色，
-// 多色时逐字取渐变色。
+// fitEffortGradientText 将多色渐变标题裁剪到 maxW 以内（超出时末尾加省略号），
+// 保持与 SingleLine().Ellipsis("…") 一致的截断行为。
+func fitEffortGradientText(s string, font ui.Font, maxW float32) string {
+	if maxW <= 0 {
+		return s
+	}
+	w, _ := ui.ShapeText(s, font, 0).Size()
+	if w <= maxW+0.5 {
+		return s
+	}
+	runes := []rune(s)
+	lo, hi := 0, len(runes)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		cand := string(runes[:mid]) + "…"
+		cw, _ := ui.ShapeText(cand, font, 0).Size()
+		if cw <= maxW+0.5 {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	if lo <= 0 {
+		return "…"
+	}
+	return string(runes[:lo]) + "…"
+}
+
+// renderEffortTitle 渲染模型名标题（16 号、medium）：普通态用高对比主文字色，
+// 配对/快速/最高档时用柔和提亮的品牌或金色渐变，保证在深色面板上对比度 ≥ 4.5:1。
 func renderEffortTitle(c *ui.Context, p EffortSliderCardProps) {
 	title := effortCardTitle(p)
 	colors := effortTitleGradient(p)
-	text := ui.Text(c, title).FontSize(effortTitleSz).FontWeight(effortTitleWgt).SingleLine()
+	if effortTrackEffect(effortIsMax(p), p.SupportsFast && p.FastMode, effortCardPaired(p)) == "plain" {
+		colors = []ui.Color{ColorTextPrimaryDark}
+	}
+	text := ui.Text(c, title).
+		FontSize(effortTitleSz).
+		FontWeight(effortTitleWgt).
+		SingleLine().
+		Ellipsis("…").
+		Shrink(1).
+		MinWidth(0)
 	if len(colors) == 1 {
-		text.TextColor(colors[0])
+		col := colors[0]
+		if col != ColorTextPrimaryDark {
+			col = col.Mix(effortOnDark, 0.20)
+		}
+		text.TextColor(col)
 		return
 	}
+	soft := make([]ui.Color, len(colors))
+	for i, col := range colors {
+		soft[i] = col.Mix(effortOnDark, 0.20)
+	}
 	text.TextColor(ui.Transparent).Draw(func(painter *ui.Painter, r ui.Rect) {
+		font := ui.Font{Size: effortTitleSz, Weight: effortTitleWgt}
+		display := fitEffortGradientText(title, font, r.W)
 		// MyGo 无原生渐变文本 API：逐字符着色成富文本再整段绘制。
-		runes := []rune(title)
+		runes := []rune(display)
 		spans := make([]ui.Span, len(runes))
 		for i, ch := range runes {
 			t := float32(0)
 			if len(runes) > 1 {
 				t = float32(i) / float32(len(runes)-1)
 			}
-			spans[i] = ui.Span{Text: string(ch), Color: effortSampleColors(colors, t)}
+			spans[i] = ui.Span{Text: string(ch), Color: effortSampleColors(soft, t)}
 		}
-		layout := ui.ShapeRichText(spans, ui.Font{Size: effortTitleSz, Weight: effortTitleWgt}, 0)
-		painter.TextLayout(layout, r.X, r.Y, colors[0])
+		layout := ui.ShapeRichText(spans, font, 0)
+		_, th := layout.Size()
+		painter.TextLayout(layout, r.X, r.Y+(r.H-th)/2, soft[0])
 	})
 }
 
@@ -832,24 +960,25 @@ func effortTitleCaption(p EffortSliderCardProps) string {
 	return "选择模型"
 }
 
-// renderEffortTitleRow 渲染档位标题行：档位名 + 次要色“›”组成的标题按钮
-// （横向内边距 8、圆角 7，悬停白 8% 底，点击进入模型列表），重置按钮贴在其右侧 6 处。
-// 重置按钮不占位；这里在左侧垫一块等宽占位，让标题按钮仍居中。
+// renderEffortTitleRow 渲染模型名标题行：14px 品牌图标 + 模型名 + 次要色“›”组成的标题按钮
+// （点击进入模型列表），OnReset 非空时右侧紧跟 24x24 重置按钮。
 func renderEffortTitleRow(c *ui.Context, p EffortSliderCardProps) {
-	const resetGap = float32(6)
 	ui.Row(c.Key(p.KeyPrefix + "title-row")).
 		AlignItems(ui.Center).
-		Gap(resetGap).
+		Justify(ui.Center).
+		Gap(Space1).
+		Shrink(1).
+		MinWidth(0).
 		Children(func() {
-			ui.Box(c.Key(p.KeyPrefix+"title-balance")).Size(effortCardButtonSize, effortCardButtonSize)
-
 			canOpen := p.OnOpenModelList != nil
 			titleBtn := ui.ButtonBase(c.Key(p.KeyPrefix+"title-btn")).
 				Label("选择其他模型").
 				Tooltip(effortTitleCaption(p)).
 				Disabled(p.Disabled || !canOpen).
-				Padding(Space0, Space3).
-				Radius(RadiusSM)
+				Padding(Space0, Space2).
+				Radius(RadiusSM).
+				Shrink(1).
+				MinWidth(0)
 			scale := motionPressScale(c, titleBtn, "button-press-scale", !p.Disabled && canOpen && titleBtn.Pressed())
 			titleBtn.Scale(scale, scale)
 			if titleBtn.Hovered() && canOpen && !p.Disabled {
@@ -863,7 +992,12 @@ func renderEffortTitleRow(c *ui.Context, p EffortSliderCardProps) {
 				ui.Row(c.Key(p.KeyPrefix + "title-content")).
 					AlignItems(ui.Center).
 					Gap(Space1).
+					Shrink(1).
+					MinWidth(0).
 					Children(func() {
+						if strings.TrimSpace(p.BrandID) != "" || strings.TrimSpace(p.ProviderID) != "" {
+							renderEffortBrandIconSize(c, p.BrandID, p.ProviderID, 14)
+						}
 						renderEffortTitle(c, p)
 						if canOpen {
 							ui.Icon(c, IconChevronRight()).
@@ -873,7 +1007,9 @@ func renderEffortTitleRow(c *ui.Context, p EffortSliderCardProps) {
 					})
 			})
 
-			renderEffortResetButton(c, p)
+			if p.OnReset != nil {
+				renderEffortResetButton(c, p)
+			}
 		})
 }
 
