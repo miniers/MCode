@@ -348,7 +348,7 @@ func renderSidebarScrollingTitle(c *ui.Context, key, title string, hovered bool,
 		Size:   sidebarFont(size),
 		Weight: weight,
 	}
-	layout := ui.ShapeText(title, font, 0)
+	layout := cachedShapeText(title, font, 0)
 	natural, textH := layout.Size()
 	avail := clip.LayoutBounds().W
 	if !sidebarMarqueeActive(natural, avail, reserved, hovered) {

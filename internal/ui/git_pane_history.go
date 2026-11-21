@@ -735,8 +735,8 @@ func renderGitHistoryDetail(c *ui.Context, s *chatState, ps *gitPaneState, h *gi
 				if width <= 0 {
 					c.Invalidate()
 				}
-				_, fullHeight := c.MeasureText(width, ui.Span{Text: body, Size: uiFont(TypeFootnote)})
-				_, lineHeight := c.MeasureText(0, ui.Span{Text: "字", Size: uiFont(TypeFootnote)})
+				_, fullHeight := cachedMeasureText(c, width, ui.Span{Text: body, Size: uiFont(TypeFootnote)})
+				_, lineHeight := cachedMeasureText(c, 0, ui.Span{Text: "字", Size: uiFont(TypeFootnote)})
 				if expanded || strings.Count(body, "\n") >= 6 || (width > 0 && fullHeight > lineHeight*6+Hairline) {
 					label := "展开"
 					if expanded {

@@ -20,7 +20,7 @@ func quotaGroupTitleVisible(groupCount int, opts quotaGroupListOptions) bool {
 
 // quotaPercentWidth 按当前字体测量「100%」宽度并留出余量，确保不同字号与缩放下都能完整显示且按列对齐。
 func quotaPercentWidth(c *ui.Context) float32 {
-	w, _ := c.MeasureText(0, ui.Span{Text: "100%", Size: uiFont(TypeBody), Weight: 600, Features: "tnum"})
+	w, _ := cachedMeasureText(c, 0, ui.Span{Text: "100%", Size: uiFont(TypeBody), Weight: 600, Features: "tnum"})
 	w = float32(math.Ceil(float64(w))) + Space1
 	minW := 40 * uiScaleFactor()
 	if w < minW {
@@ -33,7 +33,7 @@ func quotaPercentWidth(c *ui.Context) float32 {
 func quotaResetDayWidth(c *ui.Context) float32 {
 	var maxW float32
 	for _, sample := range []string{"12/31", "23:59", "明天", "周三"} {
-		w, _ := c.MeasureText(0, ui.Span{Text: sample, Size: uiFont(TypeCaption)})
+		w, _ := cachedMeasureText(c, 0, ui.Span{Text: sample, Size: uiFont(TypeCaption)})
 		if w > maxW {
 			maxW = w
 		}

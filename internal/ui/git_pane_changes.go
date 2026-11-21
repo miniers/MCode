@@ -440,7 +440,7 @@ func renderGitCommitComposer(c *ui.Context, s *chatState, threadID string, ps *g
 				textWidth = max(ControlLG, width-Space8*2)
 			}
 			lineHeight := uiFont(TypeBody) * 1.4
-			_, textHeight := c.MeasureText(textWidth, ui.Span{Text: draft + "\n", Size: uiFont(TypeBody)})
+			_, textHeight := cachedMeasureText(c, textWidth, ui.Span{Text: draft + "\n", Size: uiFont(TypeBody)})
 			area.Height(min(max(textHeight+Space5, lineHeight*2+Space5), lineHeight*6+Space5))
 			area.OnChange(func() {
 				st.mu.Lock()

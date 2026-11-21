@@ -364,7 +364,7 @@ func turnFileStatusInk(c *ui.Context, status string) ui.Color {
 // turnFileStatColumnWidth 返回右侧增删数字列的宽度：按 4 个数字字符测量，
 // 各行共用同一宽度，右对齐后上下自然成列。
 func turnFileStatColumnWidth(c *ui.Context) float32 {
-	width, _ := c.MeasureText(0, ui.Span{Text: "0000", Size: scaledFont(11)})
+	width, _ := cachedMeasureText(c, 0, ui.Span{Text: "0000", Size: scaledFont(11)})
 	if width < 24 {
 		return 24
 	}

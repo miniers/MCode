@@ -506,7 +506,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 			MinWidth(0)
 		if props.entry.Path != "" {
 			if w := nameText.LayoutBounds().W; w > 0 {
-				naturalW, _ := c.MeasureText(0, ui.Span{Text: props.name, Size: uiFont(TypeFootnote)})
+				naturalW, _ := cachedMeasureText(c, 0, ui.Span{Text: props.name, Size: uiFont(TypeFootnote)})
 				if naturalW > w+Hairline {
 					nameText.Tooltip(props.entry.Path)
 				}
