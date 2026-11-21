@@ -342,7 +342,9 @@ type sceneInput struct {
 	teamDock   panelCorner
 	autoDocks  map[string]panelCorner
 	// autoHeld 是被送回团队面板、不再单独弹出的子代理。
-	autoHeld   map[string]bool
+	autoHeld map[string]bool
+	// autoForced 是用户显式弹出为独立浮窗的子代理，即使处于聚合态或为首个子代理也拆出独立面板。
+	autoForced map[string]bool
 	stackOrder []panelID
 }
 
@@ -387,12 +389,19 @@ func computeSwarmScene(in sceneInput) swarmScene {
 	if showsTeam {
 		placed = append(placed, placement{teamPanelID, in.teamDock})
 	}
-	if in.autoPops && showsTeam && len(in.bees) > 1 {
+	if showsTeam && len(in.bees) > 1 {
 		var candidates []SwarmBee
-		for _, h := range in.bees[1:] {
-			if !in.autoHeld[h.ThreadID] {
+		for i, h := range in.bees {
+			if in.autoHeld[h.ThreadID] {
+				continue
+			}
+			if in.autoForced[h.ThreadID] || (in.autoPops && i > 0) {
 				candidates = append(candidates, h)
 			}
+		}
+		// 团队面板至少保留 1 只子代理，避免出现“空团队面板 + 全员独立浮窗”。
+		if len(candidates) >= len(in.bees) {
+			candidates = candidates[1:]
 		}
 		// 已有停靠记录的子代理保持原位。
 		var rest []SwarmBee

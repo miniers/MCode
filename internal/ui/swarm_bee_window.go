@@ -332,18 +332,69 @@ func beeWindowChildRunning(child *chatState, beeID string) bool {
 	return false
 }
 
-// findBeeForWindow 从父会话的 Swarm 状态里取指定 bee 的最新快照，读时持 swarmPanelMu。
+// findBeeForWindow 从父会话的 Swarm 状态里取指定 bee 的最新快照；若已被 AutoClearFinished 清理，
+// 则回查父会话 threads 中对应的历史子线程并构造视图信息。
 func findBeeForWindow(parent *chatState, beeID string) (SwarmBee, bool) {
-	hp := getSwarmPanelState(parent)
-	if hp == nil {
+	if parent == nil || beeID == "" {
 		return SwarmBee{}, false
 	}
-	swarmPanelMu.Lock()
-	defer swarmPanelMu.Unlock()
-	for _, h := range hp.state.Bees {
-		if h.ThreadID == beeID {
-			return h, true
+	if hp := getSwarmPanelState(parent); hp != nil {
+		swarmPanelMu.Lock()
+		for _, h := range hp.state.Bees {
+			if h.ThreadID == beeID {
+				swarmPanelMu.Unlock()
+				return h, true
+			}
 		}
+		swarmPanelMu.Unlock()
+	}
+
+	parent.mu.Lock()
+	defer parent.mu.Unlock()
+	for _, th := range parent.threads {
+		if th.ID != beeID {
+			continue
+		}
+		name := strings.TrimSpace(th.Title)
+		if name == "" {
+			name = "子代理"
+		}
+		provider := th.Provider
+		if provider == "" {
+			provider = th.BeesProvider
+		}
+		model := th.Model
+		if model == "" {
+			model = th.BeesModel
+		}
+		running := th.IsRunning || th.SwarmBusy
+		status := MapBeeStatus(th.LastStatus, running)
+		var startedAt time.Time
+		var finishedAt *time.Time
+		dur := th.TotalDuration
+		if dur <= 0 {
+			dur = th.AIDuration
+		}
+		if !th.UpdatedAt.IsZero() {
+			if dur > 0 {
+				startedAt = th.UpdatedAt.Add(-dur)
+			} else if running {
+				startedAt = th.UpdatedAt
+			}
+			if !running {
+				fin := th.UpdatedAt
+				finishedAt = &fin
+			}
+		}
+		return SwarmBee{
+			ThreadID:   th.ID,
+			Name:       name,
+			Status:     status,
+			Provider:   provider,
+			Model:      model,
+			StartedAt:  startedAt,
+			FinishedAt: finishedAt,
+		}, true
 	}
 	return SwarmBee{}, false
 }
