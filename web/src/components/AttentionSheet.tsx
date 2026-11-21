@@ -125,7 +125,7 @@ const AttentionSheetBody: React.FC<AttentionSheetProps> = ({ onClose, projectID,
   };
 
   return (
-    <SheetFrame onRequestClose={onClose} size="bare" cardClassName="settings-sheet max-h-[85dvh] overflow-y-auto" labelledBy="attention-sheet-title">
+    <SheetFrame onRequestClose={onClose} size="bare" cardClassName="settings-sheet max-h-[calc(var(--app-height,100dvh)-32px)] overflow-y-auto" labelledBy="attention-sheet-title">
         <div className="sheet-handle" aria-hidden="true" />
 
         {/* 标题栏 */}

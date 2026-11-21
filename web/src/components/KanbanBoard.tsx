@@ -89,11 +89,11 @@ function SectionHeading({ title, count, onClick, expanded = true }: {
       {onClick && <ChevronDownIcon className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />}
       <span className="shrink-0">{title}</span>
       <span className="h-px flex-1 bg-border-subtle" aria-hidden="true" />
-      {onClick && <span className="text-micro font-normal text-muted">{count}</span>}
+      <span className="text-micro font-normal text-muted tabular-nums">{count}</span>
     </div>
   );
   return onClick ? (
-    <button type="button" className="w-full text-left" onClick={onClick} aria-expanded={expanded}>
+    <button type="button" className="touch-hit-44 w-full text-left" onClick={onClick} aria-expanded={expanded}>
       {content}
     </button>
   ) : (
@@ -947,28 +947,39 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     })() : visibleTasks.map(renderTask);
 
     return (
-      <section key={column} aria-label={COLUMN_LABELS[column]}>
-        <SectionHeading
-          title={COLUMN_LABELS[column]}
-          count={allTasks.length}
-          onClick={column === 'done' ? () => setDoneExpanded((expanded) => !expanded) : undefined}
-          expanded={doneExpanded}
-        />
-        {content || <p className="px-0 py-3 text-xs text-muted">完成区已折叠</p>}
-        {column === 'done' && doneExpanded && doneLimit < allTasks.length && (
-          <button type="button" className="load-more-button" onClick={() => setDoneLimit((limit) => limit + 25)}>
-            加载更多完成任务 ({Math.min(25, allTasks.length - doneLimit)})
-          </button>
-        )}
-        {column === 'todo' && canCreateTask && quickAddProjectID && (
-          <KanbanQuickAdd onSubmit={quickAddTask} />
-        )}
+      <section key={column} className="kanban-column" aria-label={COLUMN_LABELS[column]}>
+        <div className="kanban-column__header">
+          <SectionHeading
+            title={COLUMN_LABELS[column]}
+            count={allTasks.length}
+            onClick={column === 'done' ? () => setDoneExpanded((expanded) => !expanded) : undefined}
+            expanded={doneExpanded}
+          />
+        </div>
+        <div className="kanban-column__body">
+          {content === null ? (
+            <p className="px-3 py-3 text-xs text-muted">完成区已折叠</p>
+          ) : (
+            content
+          )}
+          {allTasks.length === 0 && (column !== 'done' || doneExpanded) && !(column === 'todo' && canCreateTask && quickAddProjectID) && (
+            <p className="kanban-column__empty">暂无任务</p>
+          )}
+          {column === 'done' && doneExpanded && doneLimit < allTasks.length && (
+            <button type="button" className="load-more-button" onClick={() => setDoneLimit((limit) => limit + 25)}>
+              加载更多完成任务 ({Math.min(25, allTasks.length - doneLimit)})
+            </button>
+          )}
+          {column === 'todo' && canCreateTask && quickAddProjectID && (
+            <KanbanQuickAdd onSubmit={quickAddTask} />
+          )}
+        </div>
       </section>
     );
   };
 
   return (
-    <div className="home-list min-h-0 flex-1">
+    <div className="home-list kanban-shell min-h-0 flex-1">
       {(isSyncing || !isConnected) && (
         <div className="floating-status" role="status">
           <div className={`floating-status__pill ${isConnected ? 'floating-status__pill--warning' : 'floating-status__pill--danger'}`}>
@@ -1003,7 +1014,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         </button>
       </div>
 
-      <div className="home-list__scroll">
+      <div className="home-list__scroll kanban-scroll">
         {!board ? (
           <div className="empty-state" role="status"><span className="loading-spinner" /><span>正在加载看板…</span></div>
         ) : filteredTasks.length === 0 && filteredGoals.length === 0 ? (
@@ -1018,23 +1029,27 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             )}
           </div>
         ) : (
-          <div className="thread-list" aria-live="polite">
+          <div className="thread-list kanban-board-body" aria-live="polite">
             {topGoals.length > 0 && (
-              <section aria-label="目标">
+              <section className="kanban-goals" aria-label="目标">
                 <SectionHeading title="目标" count={topGoals.length} />
-                {topGoals.map((goal) => (
-                  <GoalRow
-                    key={goal.id}
-                    goal={goal}
-                    menuOpen={menuGoalID === goal.id}
-                    onOpen={() => openGoal(goal)}
-                    onOpenOutputs={() => setOutputsGoalID(goal.id)}
-                    onToggleMenu={() => setMenuGoalID((current) => current === goal.id ? null : goal.id)}
-                  />
-                ))}
+                <div className="kanban-goals__list">
+                  {topGoals.map((goal) => (
+                    <GoalRow
+                      key={goal.id}
+                      goal={goal}
+                      menuOpen={menuGoalID === goal.id}
+                      onOpen={() => openGoal(goal)}
+                      onOpenOutputs={() => setOutputsGoalID(goal.id)}
+                      onToggleMenu={() => setMenuGoalID((current) => current === goal.id ? null : goal.id)}
+                    />
+                  ))}
+                </div>
               </section>
             )}
-            {COLUMN_ORDER.map(renderColumn)}
+            <div className="kanban-columns">
+              {COLUMN_ORDER.map(renderColumn)}
+            </div>
           </div>
         )}
       </div>

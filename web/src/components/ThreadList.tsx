@@ -30,7 +30,6 @@ import {
   useBulkThreadsApi,
   type BulkThreadsAction
 } from './BulkThreadsSheet';
-import { useProjectAutomations } from '../context/remoteAutomationApi';
 import { useAttentionInbox } from '../context/remoteAttentionApi';
 import { useOpenDecisionCount } from '../hooks/useOpenDecisionCount';
 import {
@@ -45,19 +44,11 @@ import {
 import { stewardAvatarText, stewardLabel } from '../utils/stewardIdentity';
 import { chatsProject, pickableProjects } from '../utils/builtinProjects';
 import { useRemoteSettingsApi } from '../context/remoteSettingsApi';
-import { LazyBoundary } from './LazyFallback';
 import { visibleFilterChips, type ThreadFilter } from '../utils/homeFilterChips';
 import { readHomeQuery, shouldCollapseOnBlur, writeHomeQuery } from '../utils/homeSearch';
 import { undoKind } from './threadListNotice';
 import { threadListTargetIndex } from './threadListKeys';
 import { recallThreadListWindow, rememberThreadListWindow } from './threadListWindow';
-
-// 自动化弹层只在用户点开时渲染。
-// BulkThreadsSheet 不懒加载：同一模块里的 useBulkThreadsApi 在列表主体里同步使用，
-// 保留那份导入就会把整个模块拉回主包。
-const AutomationSheet = React.lazy(() =>
-  import('./AutomationSheet').then((module) => ({ default: module.AutomationSheet }))
-);
 
 // 筛选 chip 的中文名，空态标题与 chip 文案保持一致。
 const FILTER_LABELS: Record<ThreadFilter, string> = {
@@ -925,19 +916,13 @@ function FilterChip({
 }
 
 function HomeMoreMenu({
-  automationAvailable,
-  automationUnreadTotal,
   canBulkOrganize,
   filter,
-  onAutomation,
   onBulkOrganize,
   onFilterChange
 }: {
-  automationAvailable: boolean;
-  automationUnreadTotal: number;
   canBulkOrganize: boolean;
   filter: ThreadFilter;
-  onAutomation: () => void;
   onBulkOrganize: () => void;
   onFilterChange: (filter: ThreadFilter) => void;
 }) {
@@ -964,20 +949,9 @@ function HomeMoreMenu({
     <div ref={containerRef} className="relative">
       <button type="button" className="icon-button relative" aria-label="更多" title="更多" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <EllipsisHorizontalIcon className="h-4 w-4" />
-        {automationUnreadTotal > 0 && <span className="absolute right-0 top-0 h-2 w-2 rounded-full bg-[var(--primary)]" aria-hidden="true" />}
       </button>
       {open && (
         <div className="scope-menu scope-menu--end animate-fadeIn" role="menu">
-          {automationAvailable && (
-            <button type="button" className="scope-menu__item" role="menuitem" onClick={() => { setOpen(false); onAutomation(); }}>
-              <span className="scope-menu__title">自动化</span>
-              {automationUnreadTotal > 0 && (
-                <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-mc-caption font-bold leading-none text-white" aria-label={`${automationUnreadTotal} 条未读运行记录`}>
-                  {automationUnreadTotal > 99 ? '99+' : automationUnreadTotal}
-                </span>
-              )}
-            </button>
-          )}
           {canBulkOrganize && (
             <button type="button" className="scope-menu__item" role="menuitem" onClick={() => { setOpen(false); onBulkOrganize(); }}>
               <span className="scope-menu__title">整理</span>
@@ -1210,7 +1184,6 @@ export const ThreadList: React.FC<ThreadListProps> = ({
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
   const [createProjectID, setCreateProjectID] = useState(projectID ?? chatsProject(projects)?.id ?? '');
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [automationOpen, setAutomationOpen] = useState(false);
   const [bulkNotice, setBulkNotice] = useState<{
     message: string;
     undoToken?: string;
@@ -1240,11 +1213,6 @@ export const ThreadList: React.FC<ThreadListProps> = ({
   const [stewardOpenBusy, setStewardOpenBusy] = useState(false);
 
   const bulkApi = useBulkThreadsApi();
-  // 自动化面板入口只在宿主声明 automations.list 且已选项目时出现；未读数直接复用列表 hook。
-  const automationSupported = Boolean(projectID && supportsMethod('automations.list'));
-  const { unreadTotal: automationUnreadTotal } = useProjectAutomations(
-    automationSupported ? projectID : null
-  );
 
   const projectName = projects.find((project) => project.id === projectID)?.name;
   const isConnected = connectionState === 'connected';
@@ -1293,7 +1261,6 @@ export const ThreadList: React.FC<ThreadListProps> = ({
     setDormantLimit(recallThreadListWindow(windowKey).dormantLimit);
     setOpenRowID(null);
     setBulkOpen(false);
-    setAutomationOpen(false);
     setArchivedLoaded(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectID]);
@@ -1557,20 +1524,6 @@ export const ThreadList: React.FC<ThreadListProps> = ({
     [archivedThreads, handleOpen, onSelectThread, projectID, threads]
   );
 
-  // 自动化运行记录里的「打开会话」：列表里有就复用 handleOpen，没有就跳占位摘要。
-  const handleOpenAutomationThread = useCallback(
-    (threadID: string) => {
-      const known = [...threads, ...archivedThreads].find((item) => item.id === threadID);
-      setAutomationOpen(false);
-      if (known) {
-        handleOpen(known);
-        return;
-      }
-      onSelectThread(threadSummaryStub(threadID, projectID ?? '', '自动化运行', ''));
-    },
-    [archivedThreads, handleOpen, onSelectThread, projectID, threads]
-  );
-
   // 传给行的滑开/关闭回调稳定化：行组件是 React.memo，内联箭头会让 memo 失效。
   const handleRowSwipeOpen = useCallback((threadID: string) => {
     setOpenRowID(threadID);
@@ -1646,11 +1599,8 @@ export const ThreadList: React.FC<ThreadListProps> = ({
     <div className="home-list">
       {headerActionsSlot && createPortal(
         <HomeMoreMenu
-          automationAvailable={Boolean(automationSupported && projectID)}
-          automationUnreadTotal={automationUnreadTotal}
           canBulkOrganize={canBulkOrganize}
           filter={filter}
-          onAutomation={() => setAutomationOpen(true)}
           onBulkOrganize={() => setBulkOpen(true)}
           onFilterChange={setFilter}
         />,
@@ -1960,16 +1910,6 @@ export const ThreadList: React.FC<ThreadListProps> = ({
             </button>
             {!canCreate && <p className="settings-note">当前 Mac 未声明新建会话能力。</p>}
           </SheetFrame>
-      )}
-
-      {automationOpen && projectID && (
-        <LazyBoundary label="正在加载自动化…">
-          <AutomationSheet
-            projectID={projectID}
-            onClose={() => setAutomationOpen(false)}
-            onOpenThread={handleOpenAutomationThread}
-          />
-        </LazyBoundary>
       )}
 
       {bulkOpen && projectID && (

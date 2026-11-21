@@ -16,6 +16,7 @@ export function routeDepth(route: NavRouteLike): number {
     case 'home':
       return 0;
     case 'board':
+    case 'automations':
     case 'settings':
     case 'draft':
     case 'thread':

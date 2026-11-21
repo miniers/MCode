@@ -3,7 +3,7 @@ import { SheetFrame } from './sheet/SheetFrame';
 // 数据来自宿主扩展方法 automations.*（internal/remote/automation_ext_methods.go）。
 // 除查看、立即运行、标记已读与归档外，宿主声明写方法时还支持新建、编辑、暂停/恢复、重置、删除。
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   useAutomationRuns,
   useProjectAutomations,
@@ -13,15 +13,19 @@ import {
   type RemoteAutomationExtRun
 } from '../context/remoteAutomationApi';
 import { useRemoteStatic } from '../context/RemoteContext';
+import { pickableProjects } from '../utils/builtinProjects';
 import { formatRelativeTime } from '../utils/date';
 import { AutomationEditForm } from './AutomationEditForm';
 import { ConfirmDialog } from './ConfirmDialog';
-import { ArchiveBoxIcon, ChevronRightIcon, PlayIcon, XMarkIcon } from './Icons';
+import { ArchiveBoxIcon, ChevronRightIcon, ClockIcon, DocumentTextIcon, PlayIcon, XMarkIcon } from './Icons';
 
-interface AutomationSheetProps {
-  projectID: string;
-  onClose: () => void;
-  /** 打开某次运行产生的会话；由 ThreadList 用它自己的 onSelectThread 实现。 */
+export interface AutomationSheetProps {
+  /** 当前项目 ID；为 null（全部项目）时自动提供项目切换条并默认选中第一个项目。 */
+  projectID: string | null;
+  /** 为 true 时内联渲染在主区 .home-list 容器内，不再包 SheetFrame 弹窗。 */
+  inline?: boolean;
+  onClose?: () => void;
+  /** 打开某次运行产生的会话；由调用方负责路由跳转。 */
   onOpenThread: (threadID: string) => void;
 }
 
@@ -29,14 +33,14 @@ interface AutomationSheetProps {
 function runStatusInfo(status: string): { label: string; className: string } {
   switch (status) {
     case 'running':
-      return { label: '运行中', className: 'text-sky-600 dark:text-sky-400' };
+      return { label: '运行中', className: 'text-[var(--status-running)]' };
     case 'succeeded':
     case 'success':
     case 'completed':
-      return { label: '成功', className: 'text-emerald-600 dark:text-emerald-400' };
+      return { label: '成功', className: 'text-[var(--mc-success)]' };
     case 'failed':
     case 'error':
-      return { label: '失败', className: 'text-rose-600 dark:text-rose-400' };
+      return { label: '失败', className: 'text-[var(--mc-danger)]' };
     case 'stopped':
     case 'canceled':
     case 'cancelled':
@@ -62,21 +66,47 @@ function runDurationText(run: RemoteAutomationExtRun): string {
 }
 
 const CARD_CLASS =
-  'rounded-2xl border border-slate-200/80 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 p-3.5 space-y-2.5';
+  'rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3.5 space-y-2.5';
 const SMALL_BUTTON_CLASS =
   'min-h-[32px] px-2.5 rounded-xl text-mc-caption font-medium border border-[var(--border)] bg-[var(--card)] ' +
-  'text-[var(--foreground)] hover:bg-[color-mix(in_srgb,var(--border)_48%,transparent)] disabled:opacity-45 transition';
+  'text-[var(--foreground)] hover:bg-[var(--mc-overlay-hover)] disabled:opacity-45 transition';
 const UNREAD_BADGE_CLASS =
   'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] px-1 ' +
   'text-mc-caption font-bold leading-none text-white';
 
-export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onClose, onOpenThread }) => {
+export const AutomationSheet: React.FC<AutomationSheetProps> = ({
+  projectID,
+  inline = false,
+  onClose,
+  onOpenThread
+}) => {
   const api = useRemoteAutomationApi();
-  // 项目列表用于新建时选择归属项目，默认选当前项目。
+  // 项目列表用于新建时选择归属项目，并在「全部项目」范围下提供紧凑项目切换条。
   const { projects } = useRemoteStatic();
-  const { automations, loading, error, reload } = useProjectAutomations(projectID);
+  const availableProjects = useMemo(() => {
+    const picked = pickableProjects(projects);
+    return picked.length > 0 ? picked : projects;
+  }, [projects]);
+  const [fallbackProjectID, setFallbackProjectID] = useState<string | null>(null);
+  const effectiveProjectID = useMemo(() => {
+    if (projectID) return projectID;
+    if (fallbackProjectID && availableProjects.some((project) => project.id === fallbackProjectID)) {
+      return fallbackProjectID;
+    }
+    return availableProjects[0]?.id ?? null;
+  }, [availableProjects, fallbackProjectID, projectID]);
+
+  const { automations, loading, error, reload } = useProjectAutomations(effectiveProjectID);
   const [activeID, setActiveID] = useState<string | null>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
+
+  useEffect(() => {
+    setActiveID(null);
+    setIncludeArchived(false);
+    setEditor(null);
+    setActionError(null);
+    setNotice(null);
+  }, [projectID]);
   const {
     runs,
     loading: runsLoading,
@@ -180,6 +210,7 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
           setNotice('已保存自动化');
         } else {
           await api.createAutomation(formProjectID, input);
+          if (!projectID && formProjectID) setFallbackProjectID(formProjectID);
           setNotice('已创建自动化');
         }
         setEditor(null);
@@ -239,36 +270,66 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
     }
   }, [api, confirm, reload]);
 
-  return (
-    <SheetFrame onRequestClose={onClose} size="bare" cardClassName="settings-sheet max-h-[85dvh] overflow-y-auto" labelledBy="automation-sheet-title">
-        <div className="sheet-handle" aria-hidden="true" />
+  const projectSwitcher =
+    projectID === null && availableProjects.length > 0 && !activeID && !editor ? (
+      <div className="filter-row !mt-0 py-1" role="toolbar" aria-label="选择项目查看自动化">
+        {availableProjects.map((project) => {
+          const selected = effectiveProjectID === project.id;
+          return (
+            <button
+              key={project.id}
+              type="button"
+              className={`filter-chip touch-hit-44 ${selected ? 'filter-chip--active' : ''}`}
+              aria-pressed={selected}
+              onClick={() => {
+                setFallbackProjectID(project.id);
+                setActiveID(null);
+                setIncludeArchived(false);
+                setActionError(null);
+                setNotice(null);
+              }}
+            >
+              <span>{project.name}</span>
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
 
-        {/* 标题栏：二级页显示返回 */}
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div className="flex min-w-0 items-center gap-2">
-            {activeID && (
-              <button
-                type="button"
-                className="icon-button"
-                onClick={backToList}
-                aria-label="返回自动化列表"
-                title="返回自动化列表"
-              >
-                <ChevronRightIcon className="h-4 w-4 rotate-180" />
-              </button>
-            )}
-            <div className="min-w-0">
-              <p className="eyebrow">自动化</p>
-              <h2 id="automation-sheet-title" className="sheet-title truncate">
-                {active ? active.name : '自动化与运行记录'}
-              </h2>
+  const panelBody = (
+    <>
+      {inline ? (
+        <div className="home-toolbar flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              {activeID && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={backToList}
+                  aria-label="返回自动化列表"
+                  title="返回自动化列表"
+                >
+                  <ChevronRightIcon className="h-4 w-4 rotate-180" />
+                </button>
+              )}
+              <div className="min-w-0">
+                <h2 id="automation-sheet-title" className="text-sm font-semibold text-[var(--foreground)] truncate">
+                  {active ? active.name : '自动化'}
+                </h2>
+                {!activeID && (
+                  <p className="text-mc-caption text-[var(--foreground-muted)] truncate">
+                    {effectiveProjectID
+                      ? `${availableProjects.find((project) => project.id === effectiveProjectID)?.name ?? '当前项目'} · ${automations.length} 个自动化`
+                      : '暂无可用项目'}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {api.supportsCreate && !editor && !activeID && (
+            {api.supportsCreate && !editor && !activeID && effectiveProjectID && (
               <button
                 type="button"
-                className="min-h-[32px] rounded-xl bg-[var(--primary)] px-3 text-mc-caption font-semibold text-white transition"
+                className="min-h-[36px] touch-hit-44 shrink-0 rounded-xl bg-[var(--primary)] px-3 text-mc-caption font-semibold text-white transition"
                 onClick={() => {
                   setEditor({ automation: null });
                   setEditError(null);
@@ -277,18 +338,62 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
                 新建自动化
               </button>
             )}
-            <button type="button" className="icon-button" onClick={onClose} aria-label="关闭自动化面板" title="关闭">
-              <XMarkIcon className="h-4 w-4" />
-            </button>
           </div>
+          {projectSwitcher}
         </div>
+      ) : (
+        <>
+          <div className="sheet-handle" aria-hidden="true" />
+          {/* 标题栏：二级页显示返回 */}
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex min-w-0 items-center gap-2">
+              {activeID && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={backToList}
+                  aria-label="返回自动化列表"
+                  title="返回自动化列表"
+                >
+                  <ChevronRightIcon className="h-4 w-4 rotate-180" />
+                </button>
+              )}
+              <div className="min-w-0">
+                <p className="eyebrow">自动化</p>
+                <h2 id="automation-sheet-title" className="sheet-title truncate">
+                  {active ? active.name : '自动化与运行记录'}
+                </h2>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {api.supportsCreate && !editor && !activeID && effectiveProjectID && (
+                <button
+                  type="button"
+                  className="min-h-[32px] touch-hit-44 rounded-xl bg-[var(--primary)] px-3 text-mc-caption font-semibold text-white transition"
+                  onClick={() => {
+                    setEditor({ automation: null });
+                    setEditError(null);
+                  }}
+                >
+                  新建自动化
+                </button>
+              )}
+              <button type="button" className="icon-button" onClick={onClose} aria-label="关闭自动化面板" title="关闭">
+                <XMarkIcon className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          {projectSwitcher && <div className="mb-3">{projectSwitcher}</div>}
+        </>
+      )}
 
+      <div className={inline ? 'home-list__scroll gutter-x pt-1' : ''}>
         {/* 编辑态：表单占满面板，避免窄屏嵌套弹窗 */}
         {editor && (
           <AutomationEditForm
             automation={editor.automation}
-            projects={projects}
-            defaultProjectID={projectID}
+            projects={availableProjects}
+            defaultProjectID={effectiveProjectID ?? ''}
             saving={savingEdit}
             error={editError}
             onCancel={() => {
@@ -331,15 +436,28 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
         {/* 一级：自动化列表（编辑时隐藏，让表单独占面板） */}
         {!activeID && !editor && (
           <>
-            {loading && <p className="py-8 text-center text-xs text-[var(--foreground-muted)]">加载中…</p>}
-            {!loading && automations.length === 0 && (
-              <div className="py-12 text-center text-xs text-[var(--foreground-muted)] space-y-2">
-                <div className="text-2xl">🕒</div>
-                <p>当前项目还没有自动化</p>
+            {!api.supportsList ? (
+              <div className="empty-state">
+                <div className="empty-state__icon"><ClockIcon className="h-6 w-6" aria-hidden="true" /></div>
+                <h2>当前 Mac 暂不支持自动化</h2>
+                <p>请升级 Mac 端后再使用定时自动化能力。</p>
+              </div>
+            ) : !effectiveProjectID ? (
+              <div className="empty-state">
+                <div className="empty-state__icon"><ClockIcon className="h-6 w-6" aria-hidden="true" /></div>
+                <h2>暂无可用项目</h2>
+                <p>先在 Mac 端打开或添加一个项目，之后即可在这里创建并查看自动化。</p>
+              </div>
+            ) : loading ? (
+              <p className="py-8 text-center text-xs text-[var(--foreground-muted)]">加载中…</p>
+            ) : automations.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state__icon"><ClockIcon className="h-6 w-6" aria-hidden="true" /></div>
+                <h2>当前项目还没有自动化</h2>
                 {api.supportsCreate ? (
                   <button
                     type="button"
-                    className="mx-auto min-h-[36px] rounded-xl bg-[var(--primary)] px-3 text-mc-caption font-semibold text-white transition"
+                    className="primary-button"
                     onClick={() => {
                       setEditor({ automation: null });
                       setEditError(null);
@@ -351,107 +469,108 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
                   <p>自动化在桌面端创建，创建后这里可以查看运行记录。</p>
                 )}
               </div>
-            )}
-            <div className="space-y-3 pb-2">
-              {automations.map((item) => (
-                <article key={item.id} className={CARD_CLASS}>
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      className="flex min-w-0 items-center gap-1.5 text-left text-xs font-semibold text-[var(--foreground)]"
-                      onClick={() => openRuns(item)}
-                      title="查看运行记录"
-                    >
-                      <span className="truncate">{item.name}</span>
-                      {item.unreadCount > 0 && (
-                        <span className={UNREAD_BADGE_CLASS} aria-label={`${item.unreadCount} 条未读运行记录`}>
-                          {item.unreadCount > 99 ? '99+' : item.unreadCount}
-                        </span>
-                      )}
-                    </button>
-                    <span
-                      className={`shrink-0 rounded px-1.5 py-0.5 text-mc-caption font-medium ${
-                        item.enabled
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
-                          : 'bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400'
-                      }`}
-                    >
-                      {item.enabled ? '已启用' : '已停用'}
-                    </span>
-                  </div>
-
-                  <p className="text-mc-caption text-[var(--foreground-muted)]">{item.scheduleText}</p>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="min-w-0 flex-1 truncate text-mc-caption text-[var(--foreground-muted)]">
-                      {item.lastRunAt ? `上次运行 ${formatRelativeTime(item.lastRunAt)}` : '尚未运行'}
-                    </span>
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      {api.supportsRuns && (
-                        <button type="button" className={SMALL_BUTTON_CLASS} onClick={() => openRuns(item)}>
-                          运行记录
-                        </button>
-                      )}
-                      {api.supportsRun && (
-                        <button
-                          type="button"
-                          className={SMALL_BUTTON_CLASS}
-                          onClick={() => void handleRunNow(item.id)}
-                          disabled={runningAutomationID === item.id}
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            <PlayIcon className="h-3 w-3" />
-                            {runningAutomationID === item.id ? '启动中…' : '立即运行'}
+            ) : (
+              <div className="space-y-3 pb-2">
+                {automations.map((item) => (
+                  <article key={item.id} className={CARD_CLASS}>
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        className="flex min-w-0 items-center gap-1.5 text-left text-xs font-semibold text-[var(--foreground)]"
+                        onClick={() => openRuns(item)}
+                        title="查看运行记录"
+                      >
+                        <span className="truncate">{item.name}</span>
+                        {item.unreadCount > 0 && (
+                          <span className={UNREAD_BADGE_CLASS} aria-label={`${item.unreadCount} 条未读运行记录`}>
+                            {item.unreadCount > 99 ? '99+' : item.unreadCount}
                           </span>
-                        </button>
-                      )}
-                      {api.supportsUpdate && (
-                        <button
-                          type="button"
-                          className={SMALL_BUTTON_CLASS}
-                          onClick={() => {
-                            setEditor({ automation: item });
-                            setEditError(null);
-                          }}
-                        >
-                          编辑
-                        </button>
-                      )}
-                      {api.supportsSetEnabled && (
-                        <button
-                          type="button"
-                          className={SMALL_BUTTON_CLASS}
-                          onClick={() => void handleToggleEnabled(item)}
-                          disabled={busyAutomationID === item.id}
-                        >
-                          {item.enabled ? '暂停' : '恢复'}
-                        </button>
-                      )}
-                      {api.supportsReset && (
-                        <button
-                          type="button"
-                          className={SMALL_BUTTON_CLASS}
-                          onClick={() => setConfirm({ kind: 'reset', automation: item })}
-                          disabled={busyAutomationID === item.id}
-                        >
-                          重置
-                        </button>
-                      )}
-                      {api.supportsDelete && (
-                        <button
-                          type="button"
-                          className={SMALL_BUTTON_CLASS}
-                          onClick={() => setConfirm({ kind: 'delete', automation: item })}
-                          disabled={busyAutomationID === item.id}
-                        >
-                          删除
-                        </button>
-                      )}
+                        )}
+                      </button>
+                      <span
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-mc-caption font-medium ${
+                          item.enabled
+                            ? 'bg-[color-mix(in_srgb,var(--mc-success)_14%,transparent)] text-[var(--mc-success)]'
+                            : 'bg-[var(--mc-overlay-hover)] text-[var(--foreground-muted)]'
+                        }`}
+                      >
+                        {item.enabled ? '已启用' : '已停用'}
+                      </span>
                     </div>
-                  </div>
-                </article>
-              ))}
-            </div>
+
+                    <p className="text-mc-caption text-[var(--foreground-muted)]">{item.scheduleText}</p>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="min-w-0 flex-1 truncate text-mc-caption text-[var(--foreground-muted)]">
+                        {item.lastRunAt ? `上次运行 ${formatRelativeTime(item.lastRunAt)}` : '尚未运行'}
+                      </span>
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        {api.supportsRuns && (
+                          <button type="button" className={SMALL_BUTTON_CLASS} onClick={() => openRuns(item)}>
+                            运行记录
+                          </button>
+                        )}
+                        {api.supportsRun && (
+                          <button
+                            type="button"
+                            className={SMALL_BUTTON_CLASS}
+                            onClick={() => void handleRunNow(item.id)}
+                            disabled={runningAutomationID === item.id}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <PlayIcon className="h-3 w-3" />
+                              {runningAutomationID === item.id ? '启动中…' : '立即运行'}
+                            </span>
+                          </button>
+                        )}
+                        {api.supportsUpdate && (
+                          <button
+                            type="button"
+                            className={SMALL_BUTTON_CLASS}
+                            onClick={() => {
+                              setEditor({ automation: item });
+                              setEditError(null);
+                            }}
+                          >
+                            编辑
+                          </button>
+                        )}
+                        {api.supportsSetEnabled && (
+                          <button
+                            type="button"
+                            className={SMALL_BUTTON_CLASS}
+                            onClick={() => void handleToggleEnabled(item)}
+                            disabled={busyAutomationID === item.id}
+                          >
+                            {item.enabled ? '暂停' : '恢复'}
+                          </button>
+                        )}
+                        {api.supportsReset && (
+                          <button
+                            type="button"
+                            className={SMALL_BUTTON_CLASS}
+                            onClick={() => setConfirm({ kind: 'reset', automation: item })}
+                            disabled={busyAutomationID === item.id}
+                          >
+                            重置
+                          </button>
+                        )}
+                        {api.supportsDelete && (
+                          <button
+                            type="button"
+                            className={SMALL_BUTTON_CLASS}
+                            onClick={() => setConfirm({ kind: 'delete', automation: item })}
+                            disabled={busyAutomationID === item.id}
+                          >
+                            删除
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
           </>
         )}
 
@@ -471,7 +590,7 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
                 aria-checked={includeArchived}
                 aria-label="切换显示已归档"
                 onClick={() => setIncludeArchived((value) => !value)}
-                className={`relative h-5 w-9 shrink-0 rounded-full transition ${
+                className={`touch-hit-44 relative h-5 w-9 shrink-0 rounded-full transition focus-visible:ring-2 focus-visible:ring-[var(--primary)] ${
                   includeArchived ? 'bg-mc-accent' : 'bg-[var(--border)]'
                 }`}
               >
@@ -490,9 +609,9 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
               <p className="py-8 text-center text-xs text-[var(--foreground-muted)]">加载中…</p>
             )}
             {!runsLoading && runs.length === 0 && (
-              <div className="py-12 text-center text-xs text-[var(--foreground-muted)] space-y-2">
-                <div className="text-2xl">📄</div>
-                <p>还没有运行记录</p>
+              <div className="empty-state">
+                <div className="empty-state__icon"><DocumentTextIcon className="h-6 w-6" aria-hidden="true" /></div>
+                <h2>还没有运行记录</h2>
                 <p>点「立即运行」可以手动触发一次。</p>
               </div>
             )}
@@ -514,7 +633,7 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
                           {formatRelativeTime(run.startedAt) || '时间未知'}
                         </span>
                         {run.archived && (
-                          <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-mc-caption text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
+                          <span className="shrink-0 rounded bg-[var(--mc-overlay-hover)] px-1.5 py-0.5 text-mc-caption text-[var(--foreground-muted)]">
                             已归档
                           </span>
                         )}
@@ -527,7 +646,7 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
                     {(run.error || run.summary) && (
                       <p
                         className={`whitespace-pre-wrap break-words text-mc-caption leading-relaxed ${
-                          run.error ? 'text-rose-600 dark:text-rose-400' : 'text-[var(--foreground)]'
+                          run.error ? 'text-[var(--mc-danger)]' : 'text-[var(--foreground)]'
                         }`}
                       >
                         {run.error || run.summary}
@@ -570,25 +689,45 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({ projectID, onC
             </div>
           </>
         )}
+      </div>
 
-        {/* 删除与重置的二次确认 */}
-        <ConfirmDialog
-          isOpen={confirm !== null}
-          title={confirm?.kind === 'delete' ? '删除自动化' : '重置连续失败计数'}
-          message={
-            confirm?.kind === 'delete'
-              ? `确定删除「${confirm.automation.name}」吗？删除后不可恢复。`
-              : `确定重置「${confirm?.automation.name ?? ''}」吗？重置会清零连续失败计数并恢复启用。`
-          }
-          confirmLabel={confirm?.kind === 'delete' ? '确认删除' : '确认重置'}
-          confirmVariant={confirm?.kind === 'delete' ? 'danger' : 'primary'}
-          isLoading={busyAutomationID !== null}
-          onConfirm={() => void handleConfirmAction()}
-          onCancel={() => {
-            if (busyAutomationID !== null) return;
-            setConfirm(null);
-          }}
-        />
-      </SheetFrame>
+      {/* 删除与重置的二次确认 */}
+      <ConfirmDialog
+        isOpen={confirm !== null}
+        title={confirm?.kind === 'delete' ? '删除自动化' : '重置连续失败计数'}
+        message={
+          confirm?.kind === 'delete'
+            ? `确定删除「${confirm.automation.name}」吗？删除后不可恢复。`
+            : `确定重置「${confirm?.automation.name ?? ''}」吗？重置会清零连续失败计数并恢复启用。`
+        }
+        confirmLabel={confirm?.kind === 'delete' ? '确认删除' : '确认重置'}
+        confirmVariant={confirm?.kind === 'delete' ? 'danger' : 'primary'}
+        isLoading={busyAutomationID !== null}
+        onConfirm={() => void handleConfirmAction()}
+        onCancel={() => {
+          if (busyAutomationID !== null) return;
+          setConfirm(null);
+        }}
+      />
+    </>
+  );
+
+  if (inline) {
+    return <div className="home-list min-h-0 flex-1">{panelBody}</div>;
+  }
+
+  return (
+    <SheetFrame
+      onRequestClose={() => onClose?.()}
+      size="bare"
+      cardClassName="settings-sheet max-h-[calc(var(--app-height,100dvh)-32px)] overflow-y-auto"
+      labelledBy="automation-sheet-title"
+    >
+      {panelBody}
+    </SheetFrame>
   );
 };
+
+export const AutomationPanel: React.FC<Omit<AutomationSheetProps, 'inline'>> = (props) => (
+  <AutomationSheet {...props} inline />
+);

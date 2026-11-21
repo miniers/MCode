@@ -1,6 +1,6 @@
 import { threadOpenMode, usesSplitLayout } from './splitLayout';
 
-const routeKinds = ['home', 'settings', 'thread', 'draft', 'board', 'task', 'goal'];
+const routeKinds = ['home', 'settings', 'thread', 'draft', 'board', 'automations', 'task', 'goal'];
 for (const routeKind of routeKinds) {
   const expected = ['home', 'settings', 'thread', 'draft'].includes(routeKind);
   if (usesSplitLayout(true, routeKind) !== expected || usesSplitLayout(false, routeKind)) {

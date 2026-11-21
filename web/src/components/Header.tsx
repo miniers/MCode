@@ -11,6 +11,10 @@ import {
   useAttentionInbox
 } from '../context/remoteAttentionApi';
 import {
+  REMOTE_AUTOMATIONS_LIST_METHOD,
+  useProjectAutomations
+} from '../context/remoteAutomationApi';
+import {
   REMOTE_MEMORY_PROPOSALS_LIST_METHOD,
   useMemoryProposals
 } from '../context/remoteMemoryApi';
@@ -24,7 +28,9 @@ import {
 import type { RemoteThreadSummary } from '../types/contract';
 import {
   ArrowPathIcon,
+  BellIcon,
   ChevronDownIcon,
+  ClockIcon,
   ComputerDesktopIcon,
   LayoutIcon,
   ListBulletIcon,
@@ -58,7 +64,7 @@ const MemoryProposalsSheet = React.lazy(() =>
   import('./MemoryProposalsSheet').then((module) => ({ default: module.MemoryProposalsSheet }))
 );
 
-type HomeView = 'sessions' | 'board';
+export type HomeView = 'sessions' | 'board' | 'automations';
 type HomePairingCode = { token: string; expiresAt: string };
 
 function issuedPairingToken(value: string): string | null {
@@ -147,15 +153,25 @@ const MemoryProposalSettingsRow: React.FC<MemoryProposalSettingsRowProps> = ({
 };
 
 interface AttentionSettingsRowProps {
-  projectID: string | null;
+  unresolvedCount: number;
   onOpen: () => void;
 }
 
-// 设置抽屉里的「待处理」入口：带未处理角标，点击打开待处理抽屉。
-// 只在抽屉打开时挂载，因此只有在设置里才会去拉未处理事项。
-const AttentionSettingsRow: React.FC<AttentionSettingsRowProps> = ({ projectID, onOpen }) => {
-  const { supportsMethod } = useRemoteCall();
+// 顶栏连接就绪后实时同步待处理计数，供顶栏角标与设置 → 总管页共同复用，避免打开设置时重复请求。
+const AttentionHeaderMonitor: React.FC<{
+  projectID: string | null;
+  onCountChange: (count: number) => void;
+}> = ({ projectID, onCountChange }) => {
   const { unresolvedCount } = useAttentionInbox(projectID);
+  useEffect(() => {
+    onCountChange(unresolvedCount);
+  }, [onCountChange, unresolvedCount]);
+  return null;
+};
+
+// 设置抽屉里的「待处理」入口：复用顶栏已拉取的未处理角标，点击打开待处理抽屉。
+const AttentionSettingsRow: React.FC<AttentionSettingsRowProps> = ({ unresolvedCount, onOpen }) => {
+  const { supportsMethod } = useRemoteCall();
 
   if (!supportsMethod(REMOTE_ATTENTION_LIST_METHOD)) return null;
 
@@ -230,6 +246,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [tiersOpen, setTiersOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [attentionOpen, setAttentionOpen] = useState(false);
+  const [attentionCount, setAttentionCount] = useState(0);
   const [renamingDevice, setRenamingDevice] = useState(false);
   const [deviceNameDraft, setDeviceNameDraft] = useState('');
   const [deviceRenameBusy, setDeviceRenameBusy] = useState(false);
@@ -443,7 +460,17 @@ export const Header: React.FC<HeaderProps> = ({
   // 设置导航只列真正有内容的页：远程设置相关页在旧宿主（不支持 settings.get）时不出现，
   // 「记忆」页跟着记忆提议能力走。
   const isAttentionSupported = supportsMethod(REMOTE_ATTENTION_LIST_METHOD);
+  const isAutomationSupported = supportsMethod(REMOTE_AUTOMATIONS_LIST_METHOD);
   const isMemorySupported = supportsMethod(REMOTE_MEMORY_PROPOSALS_LIST_METHOD);
+  const { unreadTotal: automationUnreadTotal } = useProjectAutomations(
+    connectionState === 'connected' && isAutomationSupported ? selectedProjectID : null
+  );
+
+  useEffect(() => {
+    if (connectionState !== 'connected' || !isAttentionSupported) {
+      setAttentionCount(0);
+    }
+  }, [connectionState, isAttentionSupported]);
   const visibleSettingsPageIDs = settingsApi.supportsSettings
     ? [
         'conversation',
@@ -561,9 +588,9 @@ export const Header: React.FC<HeaderProps> = ({
                   aria-selected={activeView === 'sessions'}
                   aria-label="会话"
                   onClick={() => onSwitchView('sessions')}
-                  className={`view-switch__item ${activeView === 'sessions' ? 'view-switch__item--active' : ''}`}
+                  className={`view-switch__item touch-hit-44 ${activeView === 'sessions' ? 'view-switch__item--active' : ''}`}
                 >
-                  <ListBulletIcon className="h-4 w-4" />
+                  <ListBulletIcon className="h-4 w-4 shrink-0" />
                   <span>会话</span>
                 </button>
                 <button
@@ -572,10 +599,27 @@ export const Header: React.FC<HeaderProps> = ({
                   aria-selected={activeView === 'board'}
                   aria-label="看板"
                   onClick={() => onSwitchView('board')}
-                  className={`view-switch__item ${activeView === 'board' ? 'view-switch__item--active' : ''}`}
+                  className={`view-switch__item touch-hit-44 ${activeView === 'board' ? 'view-switch__item--active' : ''}`}
                 >
-                  <LayoutIcon className="h-4 w-4" />
+                  <LayoutIcon className="h-4 w-4 shrink-0" />
                   <span>看板</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeView === 'automations'}
+                  aria-label="自动化"
+                  onClick={() => onSwitchView('automations')}
+                  className={`view-switch__item touch-hit-44 relative ${activeView === 'automations' ? 'view-switch__item--active' : ''}`}
+                >
+                  <ClockIcon className="h-4 w-4 shrink-0" />
+                  <span>自动化</span>
+                  {automationUnreadTotal > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="view-switch__dot h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--primary)]"
+                    />
+                  )}
                 </button>
               </div>
             ) : (
@@ -583,7 +627,10 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-1">
+          <div className="app-header__actions flex items-center justify-end gap-1">
+            {connectionState === 'connected' && isAttentionSupported && (
+              <AttentionHeaderMonitor projectID={selectedProjectID} onCountChange={setAttentionCount} />
+            )}
             {delayedStatus !== null && (
               <button
                 type="button"
@@ -601,6 +648,30 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
             <div ref={actionsSlotRef} className="contents" />
+            {isAttentionSupported && (
+              <button
+                type="button"
+                onClick={() => {
+                  setScopeOpen(false);
+                  setAttentionOpen(true);
+                }}
+                className="icon-button relative"
+                aria-label="待处理事项"
+                title={attentionCount > 0 ? `待处理事项（${attentionCount}）` : '待处理事项'}
+              >
+                <span className="relative inline-flex">
+                  <BellIcon className="h-4 w-4" />
+                  {attentionCount > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -right-2 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-mc-caption font-bold leading-none text-white tabular-nums"
+                    >
+                      {attentionCount > 99 ? '99+' : attentionCount}
+                    </span>
+                  )}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -690,7 +761,7 @@ export const Header: React.FC<HeaderProps> = ({
                       />
                     </LazyBoundary>
                     {isAttentionSupported && (
-                      <AttentionSettingsRow projectID={selectedProjectID} onOpen={openAttention} />
+                      <AttentionSettingsRow unresolvedCount={attentionCount} onOpen={openAttention} />
                     )}
                   </>
                 );

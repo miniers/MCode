@@ -9,7 +9,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RemoteProvider, useRemote } from './context/RemoteContext';
 import { useEdgeSwipeBack } from './hooks/useEdgeSwipeBack';
 import { useSheetDrag } from './hooks/useSheetDrag';
-import { Header } from './components/Header';
+import { Header, type HomeView } from './components/Header';
 import { ThreadList } from './components/ThreadList';
 import { SecureEntryHint } from './components/SecureEntryHint';
 import { PushEnableHint } from './components/PushEnableHint';
@@ -36,6 +36,9 @@ const ThreadDraftView = React.lazy(() =>
 // 因此做成懒加载组件：打开首页时不下载，进入 #/board、#/task、#/goal 时才加载。
 const KanbanBoard = React.lazy(() =>
   import('./components/KanbanBoard').then((module) => ({ default: module.KanbanBoard }))
+);
+const AutomationPanel = React.lazy(() =>
+  import('./components/AutomationSheet').then((module) => ({ default: module.AutomationPanel }))
 );
 const TaskDetailModal = React.lazy(() =>
   import('./components/TaskDetailModal').then((module) => ({ default: module.TaskDetailModal }))
@@ -110,10 +113,12 @@ const AppContent: React.FC = () => {
 
   const showPairingScreen = pairingInProgress || connectionState === 'unpaired' || connectionState === 'auth_failed';
   const boardRoute = route.kind === 'board' || route.kind === 'task' || route.kind === 'goal';
-  const activeView = boardRoute ? 'board' : 'sessions';
+  const automationsRoute = route.kind === 'automations';
+  const activeView: HomeView = boardRoute ? 'board' : automationsRoute ? 'automations' : 'sessions';
   const settingsOpen = route.kind === 'settings';
   const settingsPageID = route.kind === 'settings' ? route.page ?? null : null;
   const isHomeOrBoard = route.kind === 'home' || route.kind === 'board';
+  const isTopLevelTab = isHomeOrBoard || automationsRoute;
 
   // 新建会话 sheet 只接管把手拖动关闭（W-4）；非首页启用左边缘右滑返回（W-8）。
   const createSheetRef = useRef<HTMLElement | null>(null);
@@ -121,7 +126,7 @@ const AppContent: React.FC = () => {
   const closeCreateSheet = useCallback(() => setCreateKind(null), []);
   useSheetDrag(createSheetRef, createSheetHandleRef, closeCreateSheet, createKind === 'thread');
   useEdgeSwipeBack({
-    enabled: !isHomeOrBoard && !showPairingScreen && !split,
+    enabled: !isTopLevelTab && !showPairingScreen && !split,
     onCommit: () => goBack(boardRoute ? '#/board' : '#/', { skipTransition: true })
   });
 
@@ -418,6 +423,17 @@ const AppContent: React.FC = () => {
       />
     </LazyBoundary>
   );
+  const automationsScreen = (
+    <LazyBoundary label="正在加载自动化…">
+      <AutomationPanel
+        projectID={selectedProjectID}
+        onOpenThread={(threadID) => {
+          prefetchThreadViews();
+          navigate(`#/t/${encodeURIComponent(threadID)}`);
+        }}
+      />
+    </LazyBoundary>
+  );
   const sessionsScreen = (
     <>
       <SecureEntryHint />
@@ -447,10 +463,11 @@ const AppContent: React.FC = () => {
         leadingSlotRef={setHeaderLeadingSlot}
         activeView={activeView}
         onSwitchView={(view) => {
-          if (view === 'board') {
+          if (view !== 'sessions') {
             try { clearHomeQuery(window.sessionStorage); } catch { /* 存储不可用时忽略。 */ }
           }
-          navigate(view === 'board' ? '#/board' : '#/', { replace: true });
+          const target = view === 'board' ? '#/board' : view === 'automations' ? '#/automations' : '#/';
+          navigate(target, { replace: true });
         }}
         settingsOpen={settingsOpen}
         settingsPageID={settingsPageID}
@@ -465,7 +482,7 @@ const AppContent: React.FC = () => {
       />
       {buildNotice}
       <main className={`app-main${split || settingsOpen ? '' : ' mobile-page'}`}>
-        {boardRoute ? boardScreen : sessionsScreen}
+        {boardRoute ? boardScreen : automationsRoute ? automationsScreen : sessionsScreen}
       </main>
 
       {(isHomeOrBoard || split) && (
