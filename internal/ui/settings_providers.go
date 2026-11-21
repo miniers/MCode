@@ -338,6 +338,7 @@ func saveCustomEndpoint(st *SettingsState) {
 		} else {
 			st.refreshModels()
 		}
+		st.markSaved()
 		st.invalidate()
 	}()
 }
@@ -1557,6 +1558,7 @@ func savePresetProvider(st *SettingsState, s ProviderSetting, apiKey string) {
 		}
 		st.mu.Unlock()
 		st.refreshModels()
+		st.markSaved()
 		st.invalidate()
 	}()
 }

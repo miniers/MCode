@@ -1417,7 +1417,8 @@ func TestSettingsRemote_PortDraftDebounce(t *testing.T) {
 	clickRemoteSettingsLabel(t, tt, "编辑监听端口")
 	tt.Command("selectAll")
 	tt.Type("50000")
-	waitRemoteCondition(t, func() bool {
+	tt.Advance(600 * time.Millisecond)
+	waitFor(t, tt, func() bool {
 		loaded, err := config.Load(dataDir)
 		return err == nil && loaded.Remote.Listen == "0.0.0.0:50000"
 	})

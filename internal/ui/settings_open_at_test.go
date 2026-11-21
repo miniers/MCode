@@ -17,7 +17,7 @@ func TestOpenSettingsAt(t *testing.T) {
 	st.mu.Lock()
 	page, highlight, jump := st.currentPage, st.highlightItemID, st.jumpToItemID
 	st.mu.Unlock()
-	if !st.IsOpen() || page != "steward" || highlight != "row-steward-enabled" || jump != "row-steward-enabled" {
+	if !st.IsOpen() || page != "swarm" || highlight != "row-steward-enabled" || jump != "row-steward-enabled" {
 		t.Fatalf("设置项定位错误：打开 %v，页面 %q，高亮 %q，跳转 %q", st.IsOpen(), page, highlight, jump)
 	}
 
@@ -25,7 +25,7 @@ func TestOpenSettingsAt(t *testing.T) {
 	st.mu.Lock()
 	page, highlight = st.currentPage, st.highlightItemID
 	st.mu.Unlock()
-	if page != "appearance" || highlight != "" {
+	if page != "general" || highlight != "" {
 		t.Fatalf("页面回退错误：页面 %q，高亮 %q", page, highlight)
 	}
 }
@@ -71,7 +71,7 @@ func TestSettingsPagePaletteCommands(t *testing.T) {
 	}
 	items := buildPaletteItems(owner)
 	seen := make(map[string]bool)
-	var appearance *paletteItem
+	var general *paletteItem
 	for i := range items {
 		item := &items[i]
 		if !strings.HasPrefix(item.id, "cmd-settings-") {
@@ -85,18 +85,18 @@ func TestSettingsPagePaletteCommands(t *testing.T) {
 		if item.kind != "command" || item.title != "设置："+page.title || item.keywords != "设置 settings "+page.title+" "+strings.Join(page.keywords, " ") || item.run == nil {
 			t.Fatalf("设置命令错误：%+v", *item)
 		}
-		if item.id == "cmd-settings-appearance" {
-			appearance = item
+		if item.id == "cmd-settings-general" {
+			general = item
 		}
 	}
-	if len(seen) != len(pages) || !seen["cmd-settings-appearance"] || !seen["cmd-settings-models"] {
+	if len(seen) != len(pages) || !seen["cmd-settings-general"] || !seen["cmd-settings-models"] {
 		t.Fatalf("设置命令不完整：已找到 %d，期望 %d", len(seen), len(pages))
 	}
-	appearance.run(owner)
+	general.run(owner)
 	st.mu.Lock()
 	page := st.currentPage
 	st.mu.Unlock()
-	if !st.IsOpen() || page != "appearance" {
-		t.Fatalf("外观命令应打开外观页面，实际打开 %v，页面 %q", st.IsOpen(), page)
+	if !st.IsOpen() || page != "general" {
+		t.Fatalf("通用命令应打开通用页面，实际打开 %v，页面 %q", st.IsOpen(), page)
 	}
 }

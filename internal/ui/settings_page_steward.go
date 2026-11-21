@@ -322,10 +322,7 @@ func renderStewardQuietRange(c *ui.Context, st *SettingsState) {
 		})
 }
 
-func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageSteward) }
-
-// renderPageSteward 渲染「总管」设置页。
-// 这里只负责配置（昵称、头像、模型、安静时段与主目录），不含运行逻辑。
+// renderPageSteward 渲染总管相关分节；总管设置已并入编排页，保留此入口给既有调用方。
 func renderPageSteward(c *ui.Context, st *SettingsState) {
 	renderSettingsTreePage(c, st, pageSteward)
 }

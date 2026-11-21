@@ -163,27 +163,27 @@ func TestUIReview15_NavItemsTabFocusableAndActivatable(t *testing.T) {
 	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	st.open = true
-	st.currentPage = "general"
+	st.currentPage = "magpie"
 
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 400, 900)
 
-	focusedAppearance := false
+	focusedGeneral := false
 	for range 20 {
 		tt.Key(0, ui.KeyTab)
-		if tt.Focused("外观") {
-			focusedAppearance = true
+		if tt.Focused("通用") {
+			focusedGeneral = true
 			break
 		}
 	}
-	if !focusedAppearance {
-		t.Fatal("Tab 未能聚焦到左侧导航「外观」条目")
+	if !focusedGeneral {
+		t.Fatal("Tab 未能聚焦到左侧导航「通用」条目")
 	}
 
 	tt.Key(0, ui.KeyEnter)
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return st.currentPage == "appearance"
+		return st.currentPage == "general"
 	})
 
 	// 下一项用 Space 也能激活。
@@ -216,7 +216,7 @@ func TestUIReview15_NavItemsTabFocusableAndActivatable(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return st.currentPage == "appearance" && st.highlightItemID == "row-edit-themes"
+		return st.currentPage == "general" && st.highlightItemID == "row-edit-themes"
 	})
 }
 

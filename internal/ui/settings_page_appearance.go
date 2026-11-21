@@ -175,7 +175,7 @@ var appearanceFontsSection = settingsSection{
 	},
 }
 
-// pageAppearance 是「外观」页：主题、排版与字号。说明文字全部删除，检索词进 Aliases。
+// pageAppearance 是原「外观」页定义，现已并入「通用」页；保留变量供过渡期调用。
 var pageAppearance = settingsPage{
 	ID:       "appearance",
 	Title:    "外观",
@@ -184,10 +184,7 @@ var pageAppearance = settingsPage{
 	Sections: []settingsSection{appearanceThemeSection, appearanceFontsSection},
 }
 
-// 注册到页面树放在 init 里：包级变量不能引用页面的初始值，否则会和渲染链形成初始化循环。
-func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageAppearance) }
-
-// renderPageAppearance 渲染外观页；渲染器只认页面树，保留这个入口给既有调用方。
+// renderPageAppearance 渲染外观相关分节；主题与字体已并入通用页，保留此入口给既有调用方。
 func renderPageAppearance(c *ui.Context, st *SettingsState) {
 	syncAppearanceTheme(st)
 	renderSettingsTreePage(c, st, pageAppearance)

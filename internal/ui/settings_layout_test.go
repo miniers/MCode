@@ -25,7 +25,7 @@ func TestSettingsLayout_DetailColumnWidth(t *testing.T) {
 	const maxWidth float32 = 720
 
 	for _, width := range []int{1600, 1200} {
-		tt := newSettingsDetailOnlyTester(t, "appearance", width, 1000)
+		tt := newSettingsDetailOnlyTester(t, "general", width, 1000)
 		column, ok := tt.Find("设置详情列")
 		if !ok {
 			t.Fatalf("%d 宽窗口里找不到详情列：%v", width, tt.Texts())
@@ -43,7 +43,7 @@ func TestSettingsLayout_DetailColumnWidth(t *testing.T) {
 	}
 
 	// 窄于上限时按窗口自适应，不留出 720 的固定宽度。
-	tt := newSettingsDetailOnlyTester(t, "appearance", 700, 1000)
+	tt := newSettingsDetailOnlyTester(t, "general", 700, 1000)
 	column, ok := tt.Find("设置详情列")
 	if !ok {
 		t.Fatalf("700 宽窗口里找不到详情列：%v", tt.Texts())
@@ -90,7 +90,7 @@ func TestSettingsLayout_Dialog(t *testing.T) {
 func TestSettingsLayout_PageTitleSmallerThanLegacyTitle(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.open = true
-	st.currentPage = "appearance"
+	st.currentPage = "general"
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c.Key("test-legacy-title-probe")).Children(func() {
@@ -100,7 +100,7 @@ func TestSettingsLayout_PageTitleSmallerThanLegacyTitle(t *testing.T) {
 	}, 1200, 1600)
 	tt.Frame()
 
-	title, ok := tt.Find("外观")
+	title, ok := tt.Find("通用")
 	if !ok {
 		t.Fatalf("找不到页面标题：%v", tt.Texts())
 	}

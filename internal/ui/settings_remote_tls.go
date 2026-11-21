@@ -240,24 +240,18 @@ func (remoteTLSTokenControl) renderDisabled(c *ui.Context, st *SettingsState, s 
 			st.mu.Lock()
 			trimmed := strings.TrimSpace(st.remote.tlsTokenInput)
 			st.mu.Unlock()
-			saveBtn := ui.ButtonBase(c.Key("btn-remote-tls-token-save")).
-				Label("保存 Token").
-				Tooltip("保存 Cloudflare API Token").
-				Radius(RadiusSM).
-				Padding(Space1, settingsCompactPadX).
-				Background(ThemeHover(c))
-			{
-				scale := motionPressScale(c, saveBtn, "button-press-scale", saveBtn.Pressed())
-				saveBtn.Scale(scale, scale)
-			}
-			if disabled || busy || trimmed == "" {
-				saveBtn.Disabled(true)
-			}
-			if saveBtn.Clicked() && !disabled && !busy && trimmed != "" {
-				saveRemoteCloudflareToken(st, trimmed)
-			}
-			saveBtn.Children(func() {
-				ui.Text(c, "保存").FontSize(uiFont(TypeFootnote)).TextColor(ThemeAccent(c))
+			Button(c, ButtonOpts{
+				Key:      "btn-remote-tls-token-save",
+				Text:     "保存",
+				Label:    "保存 Token",
+				Tooltip:  "保存 Cloudflare API Token",
+				Variant:  ButtonSecondary,
+				Size:     ControlSM,
+				Disabled: disabled || busy || trimmed == "",
+				Loading:  busy,
+				OnClick: func() {
+					saveRemoteCloudflareToken(st, trimmed)
+				},
 			})
 
 			if hasToken {
@@ -656,6 +650,9 @@ func saveRemoteCloudflareToken(st *SettingsState, token string) {
 			st.remote.tlsResultErr = false
 		}
 		st.mu.Unlock()
+		if err == nil {
+			st.markSaved()
+		}
 		st.invalidate()
 	}()
 }

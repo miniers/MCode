@@ -248,6 +248,10 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 		return
 	}
 
+	st.mu.Lock()
+	confirmOpenBefore := st.sheetDiscardConfirmOpen
+	st.mu.Unlock()
+
 	open := true
 	windowWidth, windowHeight := c.Size()
 	defaultWidth := sh.Width
@@ -293,7 +297,7 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 			}
 			IconButton(c, IconButtonProps{
 				Key: "settings-sheet-close-" + sh.ID, Icon: IconX(), Label: "关闭" + sh.Title,
-				Size: ControlSM, Variant: ButtonGhost, OnClick: func() { closeSettingsSheet(st) },
+				Size: ControlSM, Variant: ButtonGhost, OnClick: func() { requestCloseSettingsSheet(st) },
 			}).Shrink(0)
 		})
 		headHeight = head.Bounds().H
@@ -354,10 +358,11 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 		if currentID != sh.ID {
 			modalDragReset(key)
 		}
-		if !open {
-			closeSettingsSheet(st)
+		if !open && !confirmOpenBefore {
+			requestCloseSettingsSheet(st)
 		}
 	}
+	renderSettingsSheetDiscardConfirm(c, st)
 }
 
 // renderSettingsSection 渲染设置页的分节：标题在卡片外，内容整体包进 SectionCard。
@@ -600,8 +605,282 @@ func openSettingsSheetFrom(st *SettingsState, sheet string, row string, sourceKe
 	st.sheetJumpRow = row
 	// sourceKey 为空也照写，用来清掉上一次打开残留的来源行。
 	st.sheetSourceRow = sourceKey
+	st.sheetDiscardConfirmOpen = false
 	st.mu.Unlock()
 	st.invalidate()
+}
+
+func magpieQuotaSelectionEqual(a, b map[string]bool) bool {
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	for k, v := range b {
+		if a[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// settingsSheetHasUnsavedChanges 判断当前打开的二级面板是否存在未保存的草稿修改。
+func settingsSheetHasUnsavedChanges(st *SettingsState) bool {
+	if st == nil {
+		return false
+	}
+	st.mu.Lock()
+	sheetID := st.openSheet
+	mcpSt := st.mcpPage
+	catSt := st.mcpCatalogPage
+	openInSt := st.openInPage
+
+	switch sheetID {
+	case "provider":
+		if st.presets.editingID != "" && !st.presets.saving {
+			for _, item := range st.presets.items {
+				if item.ID == st.presets.editingID {
+					dirty := strings.TrimSpace(st.presets.apiKeyDraft) != "" ||
+						strings.TrimSpace(st.presets.baseURLDraft) != strings.TrimSpace(item.BaseURL) ||
+						strings.TrimSpace(st.presets.modelDraft) != strings.TrimSpace(item.Model)
+					st.mu.Unlock()
+					return dirty
+				}
+			}
+		}
+		if st.endpoints.editing && st.endpoints.editScope == endpointFormScopeCustom && st.endpoints.editID != "" && !st.endpoints.saving {
+			for _, ep := range st.endpoints.endpoints {
+				if ep.ID == st.endpoints.editID {
+					dirty := strings.TrimSpace(st.endpoints.editAPIKey) != "" ||
+						strings.TrimSpace(st.endpoints.editName) != strings.TrimSpace(ep.Name) ||
+						strings.TrimSpace(st.endpoints.editBaseURL) != strings.TrimSpace(ep.BaseURL) ||
+						strings.TrimSpace(st.endpoints.editModel) != strings.TrimSpace(ep.Model)
+					st.mu.Unlock()
+					return dirty
+				}
+			}
+		}
+		st.mu.Unlock()
+		return false
+
+	case "provider-add":
+		dirty := false
+		if !st.presets.saving && !st.endpoints.saving {
+			if strings.TrimSpace(st.presets.apiKeyDraft) != "" {
+				dirty = true
+			} else if st.presets.addPresetID != "" {
+				for _, item := range st.presets.items {
+					if item.ID == st.presets.addPresetID {
+						dirty = strings.TrimSpace(st.presets.baseURLDraft) != strings.TrimSpace(item.BaseURL) ||
+							strings.TrimSpace(st.presets.modelDraft) != strings.TrimSpace(item.Model)
+						break
+					}
+				}
+			}
+			if !dirty && st.endpoints.editing && st.endpoints.editScope == endpointFormScopeCustom && st.endpoints.editID == "" {
+				dirty = strings.TrimSpace(st.endpoints.editName) != "" ||
+					strings.TrimSpace(st.endpoints.editBaseURL) != "" ||
+					strings.TrimSpace(st.endpoints.editModel) != "" ||
+					strings.TrimSpace(st.endpoints.editAPIKey) != ""
+			}
+		}
+		st.mu.Unlock()
+		return dirty
+
+	case "magpie-gateway", "magpie-personas":
+		dirty := false
+		if st.endpoints.editing && st.endpoints.editScope == endpointFormScopeMagpie && !st.endpoints.saving {
+			if st.endpoints.editID == "" {
+				dirty = strings.TrimSpace(st.endpoints.editName) != "Magpie" ||
+					strings.TrimSpace(st.endpoints.editBaseURL) != magpieDefaultBaseURL ||
+					strings.TrimSpace(st.endpoints.editModel) != "" ||
+					strings.TrimSpace(st.endpoints.editAPIKey) != "" ||
+					strings.TrimSpace(st.endpoints.editPersonaWebURL) != "" ||
+					strings.TrimSpace(st.endpoints.editWebKey) != "" ||
+					strings.TrimSpace(st.endpoints.editPersonasJSON) != "" ||
+					st.endpoints.editPersonaRules ||
+					len(st.endpoints.editQuotaProviders) > 0
+			} else {
+				for _, ep := range st.endpoints.endpoints {
+					if ep.ID == st.endpoints.editID {
+						baseQuota := resolveMagpieQuotaSelection(ep.QuotaProviders)
+						dirty = strings.TrimSpace(st.endpoints.editName) != strings.TrimSpace(ep.Name) ||
+							strings.TrimSpace(st.endpoints.editBaseURL) != strings.TrimSpace(ep.BaseURL) ||
+							strings.TrimSpace(st.endpoints.editModel) != strings.TrimSpace(ep.Model) ||
+							strings.TrimSpace(st.endpoints.editAPIKey) != "" ||
+							strings.TrimSpace(st.endpoints.editPersonaWebURL) != strings.TrimSpace(ep.PersonaWebURL) ||
+							strings.TrimSpace(st.endpoints.editWebKey) != "" ||
+							strings.TrimSpace(st.endpoints.editPersonasJSON) != strings.TrimSpace(ep.PersonasJSON) ||
+							st.endpoints.editPersonaRules != ep.PersonaRules ||
+							!magpieQuotaSelectionEqual(st.endpoints.editQuotaProviders, baseQuota)
+						break
+					}
+				}
+			}
+		}
+		st.mu.Unlock()
+		return dirty
+	}
+	st.mu.Unlock()
+
+	switch sheetID {
+	case "mcp-detail":
+		if mcpSt != nil {
+			mcpSt.mu.Lock()
+			dirty := mcpSt.isFormOpen && mcpSt.editingServer != "" && (mcpSt.nameInput != mcpSt.editBaseName ||
+				mcpSt.transportInput != mcpSt.editBaseTransport ||
+				mcpSt.commandInput != mcpSt.editBaseCommand ||
+				mcpSt.argsInput != mcpSt.editBaseArgs ||
+				mcpSt.urlInput != mcpSt.editBaseURL ||
+				mcpSt.envInput != mcpSt.editBaseEnv ||
+				mcpSt.headersInput != mcpSt.editBaseHeaders)
+			mcpSt.mu.Unlock()
+			return dirty
+		}
+	case "mcp-add":
+		if mcpSt != nil {
+			mcpSt.mu.Lock()
+			dirty := mcpSt.isFormOpen && mcpSt.editingServer == "" && (mcpSt.nameInput != "" ||
+				mcpSt.commandInput != "" ||
+				mcpSt.argsInput != "" ||
+				mcpSt.urlInput != "" ||
+				mcpSt.envInput != "" ||
+				mcpSt.headersInput != "" ||
+				(mcpSt.transportInput != "" && mcpSt.transportInput != "stdio"))
+			mcpSt.mu.Unlock()
+			if dirty {
+				return true
+			}
+		}
+		if catSt != nil {
+			catSt.mu.Lock()
+			dirty := catSt.dirty
+			catSt.mu.Unlock()
+			return dirty
+		}
+	case "open-in":
+		if openInSt != nil && openInSt.adding {
+			return strings.TrimSpace(openInSt.draftName) != "" || strings.TrimSpace(openInSt.draftPath) != ""
+		}
+	}
+	return false
+}
+
+// requestCloseSettingsSheet 关闭面板前检查未保存草稿；无修改直接关闭，有修改弹窗确认放弃。
+func requestCloseSettingsSheet(st *SettingsState) {
+	if st == nil {
+		return
+	}
+	if !settingsSheetHasUnsavedChanges(st) {
+		closeSettingsSheet(st)
+		return
+	}
+	st.mu.Lock()
+	st.sheetDiscardConfirmOpen = true
+	st.mu.Unlock()
+	st.invalidate()
+}
+
+func discardSettingsSheetDrafts(st *SettingsState, sheetID string) {
+	if st == nil || sheetID == "" {
+		return
+	}
+	st.mu.Lock()
+	switch sheetID {
+	case "provider":
+		st.presets.editingID = ""
+		st.presets.baseURLDraft = ""
+		st.presets.modelDraft = ""
+		st.presets.apiKeyDraft = ""
+		st.presets.saveErr = ""
+		if st.endpoints.editing && st.endpoints.editScope == endpointFormScopeCustom {
+			closeCustomEndpointForm(st)
+			st.endpoints.deleteConfirmID = ""
+		}
+	case "provider-add":
+		st.presets.addType = 0
+		st.presets.addPresetID = ""
+		st.presets.baseURLDraft = ""
+		st.presets.modelDraft = ""
+		st.presets.apiKeyDraft = ""
+		st.presets.saveErr = ""
+		if st.endpoints.editing && st.endpoints.editScope == endpointFormScopeCustom {
+			closeCustomEndpointForm(st)
+		}
+	case "magpie-gateway", "magpie-personas":
+		if st.endpoints.editing && st.endpoints.editScope == endpointFormScopeMagpie {
+			closeCustomEndpointForm(st)
+			st.endpoints.deleteConfirmID = ""
+		}
+	case "open-in":
+		if st.openInPage != nil {
+			st.openInPage.adding = false
+			st.openInPage.draftName = ""
+			st.openInPage.draftPath = ""
+			st.openInPage.err = ""
+		}
+	}
+	mcpSt := st.mcpPage
+	catSt := st.mcpCatalogPage
+	st.mu.Unlock()
+
+	if (sheetID == "mcp-detail" || sheetID == "mcp-add") && mcpSt != nil {
+		mcpSt.mu.Lock()
+		mcpSt.isFormOpen = false
+		mcpSt.formError = ""
+		mcpSt.editingServer = ""
+		mcpSt.editingScope = ""
+		mcpSt.nameInput = ""
+		mcpSt.transportInput = ""
+		mcpSt.commandInput = ""
+		mcpSt.argsInput = ""
+		mcpSt.urlInput = ""
+		mcpSt.envInput = ""
+		mcpSt.headersInput = ""
+		mcpSt.editBaseName = ""
+		mcpSt.editBaseTransport = ""
+		mcpSt.editBaseCommand = ""
+		mcpSt.editBaseArgs = ""
+		mcpSt.editBaseURL = ""
+		mcpSt.editBaseEnv = ""
+		mcpSt.editBaseHeaders = ""
+		mcpSt.mu.Unlock()
+	}
+	if sheetID == "mcp-add" && catSt != nil {
+		catSt.mu.Lock()
+		catSt.dirty = false
+		catSt.openEntry = ""
+		clear(catSt.errs)
+		clear(catSt.values)
+		catSt.mu.Unlock()
+	}
+}
+
+func renderSettingsSheetDiscardConfirm(c *ui.Context, st *SettingsState) {
+	if st == nil {
+		return
+	}
+	st.mu.Lock()
+	open := st.sheetDiscardConfirmOpen && st.openSheet != ""
+	st.mu.Unlock()
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:          "modal-drag-settings-sheet-discard",
+		Open:         open,
+		Tone:         ConfirmDanger,
+		Title:        "放弃未保存修改？",
+		Body:         "当前表单还有尚未保存的修改，关闭面板后将丢失这些改动。",
+		ConfirmLabel: "放弃",
+		CancelLabel:  "继续编辑",
+		OnCancel: func() {
+			st.mu.Lock()
+			st.sheetDiscardConfirmOpen = false
+			st.mu.Unlock()
+			st.invalidate()
+		},
+		OnConfirm: func() {
+			closeSettingsSheet(st)
+		},
+	})
 }
 
 // closeSettingsSheet 关闭面板，清空跳转行，并把高亮交还给打开面板的那一行。
@@ -609,15 +888,20 @@ func closeSettingsSheet(st *SettingsState) {
 	st.mu.Lock()
 	sourceKey := st.sheetSourceRow
 	sheetID := st.openSheet
-	changed := st.openSheet != "" || st.sheetJumpRow != "" || sourceKey != ""
+	changed := st.openSheet != "" || st.sheetJumpRow != "" || sourceKey != "" || st.sheetDiscardConfirmOpen
 	st.openSheet = ""
 	st.sheetJumpRow = ""
 	st.sheetSourceRow = ""
+	st.sheetDiscardConfirmOpen = false
 	if sourceKey != "" {
 		st.highlightItemID = sourceKey
 		st.highlightStartedAt = time.Now()
 	}
 	st.mu.Unlock()
+	if sheetID == "provider" {
+		st.flushTextSave(true)
+	}
+	discardSettingsSheetDrafts(st, sheetID)
 	if sheetID != "" {
 		modalDragReset("settings-sheet-" + sheetID)
 	}

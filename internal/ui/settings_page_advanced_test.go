@@ -12,11 +12,10 @@ func TestSettingsAdvancedPage_Sections(t *testing.T) {
 		t.Fatal("旧高级页不应再注册")
 	}
 	for pageID, sectionID := range map[string]string{
-		"conversation":  "advanced.conversation",
-		"swarm":         "advanced.orchestration",
-		"workbench":     "advanced.workbench",
-		"sourceControl": "advanced.sourceControl",
-		"nowledge":      "advanced.memory",
+		"conversation": "advanced.conversation",
+		"swarm":        "advanced.orchestration",
+		"workbench":    "advanced.workbench",
+		"extensions":   "advanced.memory",
 	} {
 		page, ok := settingsTreePageOf(pageID)
 		if !ok || len(page.Sections) == 0 {

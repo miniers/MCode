@@ -21,6 +21,7 @@ type mcpCatalogUIState struct {
 
 	search    string
 	openEntry string
+	dirty     bool
 	values    map[string]*string
 	errs      map[string]string
 	plan      *mcpCatalogPlan
@@ -344,7 +345,11 @@ func renderMCPCatalogCard(
 							}
 							set := func(st *SettingsState, text string) {
 								catSt.mu.Lock()
-								*catSt.valuePtrLocked(entryVal.ID, fieldVal.Key, fieldVal.Default) = text
+								ptr := catSt.valuePtrLocked(entryVal.ID, fieldVal.Key, fieldVal.Default)
+								if *ptr != text {
+									*ptr = text
+									catSt.dirty = true
+								}
 								catSt.mu.Unlock()
 								st.invalidate()
 							}
@@ -402,7 +407,11 @@ func renderMCPCatalogCard(
 							if cancelBtn.Clicked() {
 								catSt.mu.Lock()
 								catSt.openEntry = ""
+								catSt.dirty = false
 								delete(catSt.errs, entryVal.ID)
+								for _, field := range entryVal.Fields {
+									delete(catSt.values, entryVal.ID+"."+field.Key)
+								}
 								catSt.mu.Unlock()
 								st.invalidate()
 							}
@@ -452,11 +461,13 @@ func addMCPCatalogEntry(st *SettingsState, catSt *mcpCatalogUIState, entry agent
 	catSt.mu.Lock()
 	delete(catSt.errs, entryVal.ID)
 	catSt.openEntry = ""
+	catSt.dirty = false
 	for _, field := range entryVal.Fields {
 		delete(catSt.values, entryVal.ID+"."+field.Key)
 	}
 	catSt.mu.Unlock()
 
+	st.markSaved()
 	st.loadAgentConf(st.currentProjectDir())
 
 	// 目录声明了登录方式时自动发起登录：device 走设备流，auto/loopback 走授权码 + PKCE。

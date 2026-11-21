@@ -28,7 +28,7 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 	}
 
 	expectedTitles := []string{
-		"Magpie", "通用", "外观", "远程控制", "模型与供应商", "会话", "编排", "总管", "扩展", "记忆", "工作台", "版本控制", "存储", "关于",
+		"Magpie", "通用", "远程控制", "模型与供应商", "会话", "编排", "扩展", "工作台", "关于",
 	}
 	pages := settingsPages()
 	if len(pages) != len(expectedTitles) {
@@ -311,11 +311,10 @@ func TestSettings_NavSearchFilter(t *testing.T) {
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("通用") &&
-			tt.HasText("外观") &&
 			tt.HasText("模型与供应商") &&
 			tt.HasText("远程控制") &&
-			tt.HasText("版本控制") &&
-			tt.HasText("记忆")
+			tt.HasText("工作台") &&
+			tt.HasText("扩展")
 	})
 
 	// 点击搜索框聚焦并输入 "供应商" 进行筛选
@@ -325,7 +324,7 @@ func TestSettings_NavSearchFilter(t *testing.T) {
 	tt.Type("供应商")
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("模型与供应商") && !tt.HasText("外观") && !tt.HasText("远程控制")
+		return tt.HasText("模型与供应商") && !tt.HasText("工作台") && !tt.HasText("远程控制")
 	})
 }
 
@@ -495,8 +494,8 @@ func TestSettings_TextEditDebouncedSave(t *testing.T) {
 
 // TestSettingsPages_NewStructure 验证导航顺序。
 func TestSettingsPages_NewStructure(t *testing.T) {
-	expected := []string{"magpie", "general", "appearance", "remote", "models", "conversation", "swarm", "steward", "extensions", "nowledge", "workbench", "sourceControl", "storage", "about"}
-	groups := []string{"", "应用", "应用", "应用", "代理", "代理", "代理", "代理", "代理", "代理", "工作区", "工作区", "工作区", ""}
+	expected := []string{"magpie", "general", "remote", "models", "conversation", "swarm", "extensions", "workbench", "about"}
+	groups := []string{"", "应用", "应用", "代理", "代理", "代理", "代理", "工作区", ""}
 	pages := settingsPages()
 	if len(pages) != len(expected) {
 		t.Fatalf("导航应为 %d 页，实际 %d 页", len(expected), len(pages))
@@ -528,14 +527,12 @@ func TestSettingsPages_Keywords(t *testing.T) {
 		absent  []string
 		present []string
 	}{
-		{"general", []string{"token", "tokens", "activity", "usage", "panel", "limits", "credits", "heatmap", "daily", "weekly", "cumulative", "emoji", "symbol", "symbols", "project mark"}, []string{"permissions", "notifications", "sound", "keyboard"}},
-		{"appearance", []string{"catppuccin", "dracula", "tokyo", "nord", "gruvbox", "solarized", "github", "claude", "codex", "cursor", "matrix", "transparency", "transparent", "opacity", "glass", "accent", "tint", "wallpaper", "performance", "gpu"}, []string{"theme", "dark", "light", "font", "sidebar"}},
+		{"general", []string{"token", "tokens", "activity", "usage", "panel", "limits", "credits", "heatmap", "daily", "weekly", "cumulative", "emoji", "symbol", "symbols", "project mark"}, []string{"permissions", "notifications", "sound", "keyboard", "theme", "dark", "light", "font", "sidebar"}},
 		{"models", []string{"预算", "温度"}, []string{"model", "provider", "api key"}},
-		{"extensions", []string{"nowledge", "nmem", "memory", "working memory", "threads", "sync", "记忆", "notion", "linear", "figma", "supabase", "stripe", "resend", "email", "sentry", "netlify", "deploy", "hosting"}, []string{"skills", "mcp", "playwright"}},
-		{"workbench", []string{"quick", "reply", "replies", "canned", "snippet", "template", "快捷回复", "常用语", "短语", "git", "commit", "pull request", "titles", "text generation", "github", "clone", "repository", "repositories", "repo", "sign in", "token", "connect", "account", "版本控制", "仓库", "分支", "font", "size"}, []string{"kanban", "editor", "browser", "文件树"}},
-		{"sourceControl", []string{"sign in", "token", "connect", "account", "pull request", "github"}, []string{"git", "commit", "clone", "版本控制"}},
+		{"extensions", []string{"notion", "linear", "figma", "supabase", "stripe", "resend", "email", "sentry", "netlify", "deploy", "hosting"}, []string{"skills", "mcp", "playwright", "nowledge", "memory", "记忆"}},
+		{"workbench", []string{"quick", "reply", "replies", "canned", "snippet", "template", "快捷回复", "常用语", "短语", "sign in", "token", "connect", "account", "font", "size"}, []string{"kanban", "editor", "browser", "文件树", "git", "commit", "clone", "版本控制", "storage", "worktree", "清理"}},
 		{"conversation", nil, []string{"quick", "reply", "快捷回复"}},
-		{"nowledge", nil, []string{"nowledge", "memory", "记忆"}},
+		{"swarm", nil, []string{"steward", "总管", "默默"}},
 	}
 	pages := settingsPages()
 	for _, tc := range cases {
@@ -574,8 +571,8 @@ func TestSettingsNav_SearchPageKeywords(t *testing.T) {
 	}{
 		{"快捷回复", "会话", "工作台"},
 		{"reply", "会话", "工作台"},
-		{"commit", "版本控制", "工作台"},
-		{"nmem", "记忆", "扩展"},
+		{"commit", "工作台", "会话"},
+		{"nmem", "扩展", "工作台"},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
 			st := NewSettingsState(settingsTestDir(t), nil, nil)
@@ -594,7 +591,14 @@ func TestSettingsNav_SearchPageKeywords(t *testing.T) {
 
 func TestSettingsLegacyPageAndRowLinks(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
-	for _, tc := range []struct{ old, page string }{{"advanced", "general"}, {"sourceControl", "sourceControl"}, {"nowledge", "nowledge"}} {
+	for _, tc := range []struct{ old, page string }{
+		{"advanced", "general"},
+		{"appearance", "general"},
+		{"steward", "swarm"},
+		{"nowledge", "extensions"},
+		{"sourceControl", "workbench"},
+		{"storage", "workbench"},
+	} {
 		st.OpenPage(tc.old)
 		if st.currentPage != tc.page {
 			t.Errorf("页面 %q 定位到 %q，期望 %q", tc.old, st.currentPage, tc.page)
@@ -608,21 +612,21 @@ func TestSettingsLegacyPageAndRowLinks(t *testing.T) {
 		{"row-swarm-bee-timeout", "swarm", ""},
 		{"row-swarm-request-timeout", "swarm", ""},
 		{"row-swarm-review-max-lines", "swarm", ""},
-		{"row-steward-home-dir", "steward", ""},
-		{"row-steward-model", "steward", ""},
-		{"row-steward-task-model", "steward", ""},
-		{"row-steward-enabled", "steward", ""},
+		{"row-steward-home-dir", "swarm", ""},
+		{"row-steward-model", "swarm", ""},
+		{"row-steward-task-model", "swarm", ""},
+		{"row-steward-enabled", "swarm", ""},
 		{"row-context-inject-budget", "workbench", ""},
 		{"row-terminal-scrollback-lines", "workbench", ""},
 		{"row-browser-quick-ports", "workbench", ""},
 		{"row-kanban-stuck-interrupt-timeout", "workbench", ""},
-		{"row-nowledge-inject-memory-tools-note", "nowledge", ""},
-		{"row-nowledge-working-memory-budget", "nowledge", ""},
-		{"row-nowledge-sync-helper-threads", "nowledge", ""},
-		{"row-nowledge-sync-automation-threads", "nowledge", ""},
-		{"row-sc-init-submodules", "sourceControl", ""},
-		{"row-sc-clone-ignored", "sourceControl", ""},
-		{"row-sc-clone-ignored-patterns", "sourceControl", ""},
+		{"row-nowledge-inject-memory-tools-note", "extensions", ""},
+		{"row-nowledge-working-memory-budget", "extensions", ""},
+		{"row-nowledge-sync-helper-threads", "extensions", ""},
+		{"row-nowledge-sync-automation-threads", "extensions", ""},
+		{"row-sc-init-submodules", "workbench", ""},
+		{"row-sc-clone-ignored", "workbench", ""},
+		{"row-sc-clone-ignored-patterns", "workbench", ""},
 	}
 	st.cfg.Orchestration.Steward.Enabled = true
 	st.cfg.Orchestration.ReviewMode = config.ReviewModeAI
@@ -936,12 +940,12 @@ func TestSettings_NavSearchFieldHeight(t *testing.T) {
 	}
 }
 
-// TestSettings_AppearanceSectionsUseCards 验证外观页的每个分节都包进一张卡片：
+// TestSettings_AppearanceSectionsUseCards 验证外观合并进通用页后对应分节仍包进卡片：
 // 分节标题留在卡片外，卡片本身按「设置卡片 」Label 统计。
 func TestSettings_AppearanceSectionsUseCards(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.open = true
-	st.currentPage = "appearance"
+	st.currentPage = "general"
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderSettingsDetail(c, st)

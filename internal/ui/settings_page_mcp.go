@@ -126,6 +126,15 @@ type mcpPageUIState struct {
 	envInput       string
 	headersInput   string
 	formError      string
+
+	// editBase* 记录打开编辑表单时的基线，用于判断关闭面板前是否有未保存草稿。
+	editBaseName      string
+	editBaseTransport string
+	editBaseCommand   string
+	editBaseArgs      string
+	editBaseURL       string
+	editBaseEnv       string
+	editBaseHeaders   string
 	// 删除确认同时保存完整来源与扫描选项，避免同名服务或切项目后删错配置。
 	// 删除会连凭据库条目一起清掉且无法撤销，点一下就删风险太大（S-076）。
 	deleteConfirmTarget  agentconf.MCPServer
@@ -458,6 +467,13 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 					uiSt.isFormOpen = true
 					uiSt.editingServer = ""
 					uiSt.editingScope = ""
+					uiSt.editBaseName = ""
+					uiSt.editBaseTransport = ""
+					uiSt.editBaseCommand = ""
+					uiSt.editBaseArgs = ""
+					uiSt.editBaseURL = ""
+					uiSt.editBaseEnv = ""
+					uiSt.editBaseHeaders = ""
 					uiSt.mu.Unlock()
 					openSettingsSheet(st, "mcp-add", "")
 					st.invalidate()

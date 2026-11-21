@@ -35,7 +35,7 @@ func TestSettingsExtra_NavItems(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("扩展") && tt.HasText("通用") && tt.HasText("版本控制") && tt.HasText("记忆")
+		return tt.HasText("扩展") && tt.HasText("通用") && tt.HasText("工作台") && tt.HasText("编排")
 	})
 }
 

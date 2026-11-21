@@ -172,13 +172,14 @@ func applySettingsPageReset(st *SettingsState, page string) {
 		return
 	}
 	st.resetPendingPage = ""
+	page = normalizeSettingsPageID(page)
 	p, ok := settingsTreePageOf(page)
 	if !ok {
 		return
 	}
 	resetSettingsTreePage(st, p)
 
-	if page == "appearance" {
+	if page == "general" {
 		st.mu.Lock()
 		syncAppearanceTheme(st)
 		st.mu.Unlock()

@@ -105,7 +105,7 @@ func assertUIReview25SheetBounds(t *testing.T, tt *ui.Tester, winW, winH float32
 }
 
 func TestUIReview25_SettingsNarrow640_SourceControl(t *testing.T) {
-	tt, _ := newUIReview25SettingsTester(t, "sourceControl", 640, 700, nil)
+	tt, _ := newUIReview25SettingsTester(t, "workbench", 640, 700, nil)
 	assertUIReview25DetailBounds(t, tt, 640, "设置卡片 sourceControl.commit")
 	area, ok := tt.AccessByRole(ui.RoleTextField, "提交信息附加说明")
 	if !ok {
@@ -130,7 +130,7 @@ func TestUIReview25_SettingsNarrow640_Workbench(t *testing.T) {
 }
 
 func TestUIReview25_SettingsNarrow640_Nowledge(t *testing.T) {
-	tt, _ := newUIReview25SettingsTester(t, "nowledge", 640, 700, func(fc *FakeClient, chat *chatState, _ *SettingsState) {
+	tt, _ := newUIReview25SettingsTester(t, "extensions", 640, 700, func(fc *FakeClient, chat *chatState, _ *SettingsState) {
 		fc.SetMemorySpaces([]MemorySpace{{ID: "default", Name: "Default"}, {ID: "mcode", Name: "mcode"}})
 		chat.projects = []Project{
 			{ID: "p1", Name: "MCode", Path: "/repo/mcode"},
@@ -147,15 +147,15 @@ func TestUIReview25_SettingsNarrow640_GeneralAndAppearanceAndThemesSlider(t *tes
 		assertUIReview25DetailBounds(t, tt, 640, "设置卡片 general.permissions")
 	})
 
-	t.Run("外观页", func(t *testing.T) {
-		tt, _ := newUIReview25SettingsTester(t, "appearance", 640, 700, nil)
+	t.Run("通用页主题分节", func(t *testing.T) {
+		tt, _ := newUIReview25SettingsTester(t, "general", 640, 700, nil)
 		assertUIReview25DetailBounds(t, tt, 640, "设置卡片 appearance.theme")
 	})
 
 	t.Run("主题面板滑块", func(t *testing.T) {
 		modalDragReset("settings-sheet-themes")
 		t.Cleanup(func() { modalDragReset("settings-sheet-themes") })
-		tt, st := newUIReview25SettingsTester(t, "appearance", 640, 700, func(_ *FakeClient, _ *chatState, st *SettingsState) {
+		tt, st := newUIReview25SettingsTester(t, "general", 640, 700, func(_ *FakeClient, _ *chatState, st *SettingsState) {
 			openSettingsSheet(st, "themes", "")
 		})
 		t.Cleanup(func() { closeSettingsSheet(st) })
@@ -216,8 +216,8 @@ func TestUIReview25_SettingsWide960_PreserveSelectWidths(t *testing.T) {
 		}
 	})
 
-	t.Run("记忆页Select保持160", func(t *testing.T) {
-		tt, _ := newUIReview25SettingsTester(t, "nowledge", 960, 700, func(fc *FakeClient, chat *chatState, _ *SettingsState) {
+	t.Run("扩展页记忆空间Select保持160", func(t *testing.T) {
+		tt, _ := newUIReview25SettingsTester(t, "extensions", 960, 700, func(fc *FakeClient, chat *chatState, _ *SettingsState) {
 			fc.SetMemorySpaces([]MemorySpace{{ID: "default", Name: "Default"}, {ID: "mcode", Name: "mcode"}})
 			chat.projects = []Project{{ID: "p1", Name: "MCode", Path: "/repo/mcode"}}
 		})

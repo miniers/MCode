@@ -372,7 +372,6 @@ func renderOnboardingDialog(c *ui.Context, s *chatState) {
 				}
 				readyCount := onboardingReadyCount(st)
 				ui.Row(c.Key("onboarding-footer")).FillWidth().Gap(Space2).Padding(Space3, Space5, Space5, Space5).AlignItems(ui.Center).Children(func() {
-					onboardingButton(c, "onboarding-later", "稍后", false, func() { closeOnboarding(s, true) })
 					ui.Box(c).Grow(1)
 					ui.Text(c, fmt.Sprintf("%d/4 就绪", readyCount)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 					onboardingButton(c, "onboarding-start", "开始使用", true, func() { closeOnboarding(s, true) })

@@ -347,7 +347,22 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 						uiSt.formError = ""
 						uiSt.editingServer = ""
 						uiSt.editingScope = ""
+						uiSt.nameInput = ""
+						uiSt.transportInput = ""
+						uiSt.commandInput = ""
+						uiSt.argsInput = ""
+						uiSt.urlInput = ""
+						uiSt.envInput = ""
+						uiSt.headersInput = ""
+						uiSt.editBaseName = ""
+						uiSt.editBaseTransport = ""
+						uiSt.editBaseCommand = ""
+						uiSt.editBaseArgs = ""
+						uiSt.editBaseURL = ""
+						uiSt.editBaseEnv = ""
+						uiSt.editBaseHeaders = ""
 						uiSt.mu.Unlock()
+						st.markSaved()
 						if editingNameVal == "" {
 							closeSettingsSheet(st)
 						}
@@ -372,6 +387,22 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 						uiSt.mu.Lock()
 						uiSt.isFormOpen = false
 						uiSt.formError = ""
+						uiSt.editingServer = ""
+						uiSt.editingScope = ""
+						uiSt.nameInput = ""
+						uiSt.transportInput = ""
+						uiSt.commandInput = ""
+						uiSt.argsInput = ""
+						uiSt.urlInput = ""
+						uiSt.envInput = ""
+						uiSt.headersInput = ""
+						uiSt.editBaseName = ""
+						uiSt.editBaseTransport = ""
+						uiSt.editBaseCommand = ""
+						uiSt.editBaseArgs = ""
+						uiSt.editBaseURL = ""
+						uiSt.editBaseEnv = ""
+						uiSt.editBaseHeaders = ""
 						uiSt.mu.Unlock()
 						if editingName == "" {
 							closeSettingsSheet(st)
@@ -695,6 +726,13 @@ func renderMCPServerRow(
 							}
 							sort.Strings(headerParts)
 							uiSt.headersInput = strings.Join(headerParts, ", ")
+							uiSt.editBaseName = uiSt.nameInput
+							uiSt.editBaseTransport = uiSt.transportInput
+							uiSt.editBaseCommand = uiSt.commandInput
+							uiSt.editBaseArgs = uiSt.argsInput
+							uiSt.editBaseURL = uiSt.urlInput
+							uiSt.editBaseEnv = uiSt.envInput
+							uiSt.editBaseHeaders = uiSt.headersInput
 							uiSt.formError = ""
 							uiSt.mu.Unlock()
 							st.invalidate()

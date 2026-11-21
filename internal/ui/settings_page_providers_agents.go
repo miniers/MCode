@@ -1186,9 +1186,12 @@ func saveProviderRowSettingMarked(st *SettingsState, id, apiKey, marker string, 
 			}
 		}
 		st.mu.Unlock()
-		if err == nil && enabledChanged {
-			// 启用状态变化会影响选择器里的供应商与“我的模型”条目，同步会话缓存。
-			refreshCustomEndpointProviders(st, client)
+		if err == nil {
+			if enabledChanged {
+				// 启用状态变化会影响选择器里的供应商与“我的模型”条目，同步会话缓存。
+				refreshCustomEndpointProviders(st, client)
+			}
+			st.markSaved()
 		}
 		st.invalidate()
 	}()
@@ -1367,8 +1370,8 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 	if !accountSection {
 		// ACP 类 Provider（droid/cline/cursor/opencode/grok/devin）的配置改动需要重启生效
 		if id == "droid" || id == "cline" || id == "cursor" || id == "opencode" || id == "grok" || id == "devin" {
-			ui.Column(c.Key("provider-restart-hint-"+id)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Children(func() {
-				ui.Text(c, "修改后需重启 MCode 生效").
+			ui.Column(c.Key("provider-restart-hint-"+id)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Tooltip("修改后需重启 MCode 生效").Children(func() {
+				ui.Text(c, "需重启生效").
 					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
 			})
@@ -1859,10 +1862,11 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 					if name == "" {
 						name = providerDisplayName(id)
 					}
-					ui.Text(c, "来自 "+name+" 的模型目录，只读；常用模型请在「收藏模型」里添加").
+					ui.Text(c, "只读").
 						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c)).
-						Padding(settingsRowPadY, settingsRowPadX)
+						Padding(settingsRowPadY, settingsRowPadX).
+						Tooltip("来自 " + name + " 的模型目录，常用模型请在「收藏模型」里添加")
 					renderSettingsDivider(c, "div-provider-models-note")
 					for i, model := range view.models.Models {
 						if i > 0 {
@@ -2177,30 +2181,30 @@ func renderNativeProviderBinRow(c *ui.Context, st *SettingsState, id string) {
 	switch id {
 	case "claude":
 		renderSettingRow(c, "row-claude-bin", "Claude 可执行文件路径", func() {
-			renderNativeProviderBinInput(c, bin, "input-claude-bin", "可执行文件路径 Claude", locked, func(text string) {
+			renderNativeProviderBinInput(c, st, bin, "input-claude-bin", "可执行文件路径 Claude", locked, func(text string) {
 				st.mu.Lock()
 				st.cfgMu.Lock()
 				st.cfg.Providers.Claude.Bin = text
 				st.cfgMu.Unlock()
 				st.mu.Unlock()
-				st.save()
+				st.noteTextEdit()
 			})
 		})
 	case "codex":
 		renderSettingRow(c, "row-codex-bin", "Codex 可执行文件路径", func() {
-			renderNativeProviderBinInput(c, bin, "input-codex-bin", "可执行文件路径 Codex", locked, func(text string) {
+			renderNativeProviderBinInput(c, st, bin, "input-codex-bin", "可执行文件路径 Codex", locked, func(text string) {
 				st.mu.Lock()
 				st.cfgMu.Lock()
 				st.cfg.Providers.Codex.Bin = text
 				st.cfgMu.Unlock()
 				st.mu.Unlock()
-				st.save()
+				st.noteTextEdit()
 			})
 		})
 	}
 }
 
-func renderNativeProviderBinInput(c *ui.Context, bin, key, label string, locked bool, onChange func(string)) {
+func renderNativeProviderBinInput(c *ui.Context, st *SettingsState, bin, key, label string, locked bool, onChange func(string)) {
 	draft := bin
 	TextField(c, TextFieldProps{
 		Key:         key,
@@ -2211,6 +2215,9 @@ func renderNativeProviderBinInput(c *ui.Context, bin, key, label string, locked 
 		Disabled:    locked,
 		ReadOnly:    locked,
 		OnChange:    onChange,
+		OnSubmit: func(string) {
+			st.flushTextSave(true)
+		},
 	})
 }
 

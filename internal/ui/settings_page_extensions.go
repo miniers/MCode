@@ -14,7 +14,7 @@ var pageExtensions = settingsPage{
 }
 
 func init() {
-	pageExtensions.Sections = append([]settingsSection{sectionSkills}, mcpSections...)
+	pageExtensions.Sections = append(append(append([]settingsSection{sectionSkills}, mcpSections...), nowledgeSections...), advancedMemory)
 	settingsTreePageDefs = append(settingsTreePageDefs, pageExtensions)
 }
 

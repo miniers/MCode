@@ -48,10 +48,13 @@ func TestOnboardingSinglePage(t *testing.T) {
 		tt.Advance(time.Second)
 		tt.Frame()
 
-		for _, want := range []string{"欢迎使用 mcode", "Claude", "Codex", "Antigravity", "Magpie", "2/4 就绪", "稍后", "开始使用"} {
+		for _, want := range []string{"欢迎使用 mcode", "Claude", "Codex", "Antigravity", "Magpie", "2/4 就绪", "开始使用"} {
 			if !tt.HasText(want) {
 				t.Fatalf("未找到 %q：%v", want, tt.Texts())
 			}
+		}
+		if tt.HasText("稍后") {
+			t.Fatalf("引导页不应再渲染重复的「稍后」按钮：%v", tt.Texts())
 		}
 		if tt.HasText("登录状态未知") || tt.HasText("已安装，登录状态未知") {
 			t.Fatalf("codex 不应再显示「登录状态未知」：%v", tt.Texts())
@@ -66,8 +69,8 @@ func TestOnboardingSinglePage(t *testing.T) {
 				buttons = append(buttons, a.Name)
 			}
 		}
-		// 仅 codex(打开设置) 与 agy(安装) 两行有操作按钮，加上关闭/稍后/开始使用共 5 个按钮。
-		if len(buttons) != 5 {
+		// 仅 codex(打开设置) 与 agy(安装) 两行有操作按钮，加上关闭/开始使用共 4 个按钮。
+		if len(buttons) != 4 {
 			t.Fatalf("按钮数量 = %d (%v)，期望只有未就绪两行带操作按钮", len(buttons), buttons)
 		}
 		if _, ok := tt.AccessByRole(ui.RoleButton, "打开设置"); !ok {
@@ -98,17 +101,17 @@ func TestOnboardingSinglePage(t *testing.T) {
 			t.Fatal("全部就绪时不应再有「登录」按钮")
 		}
 
-		if err := tt.Click("稍后"); err != nil {
-			t.Fatalf("点击「稍后」失败：%v", err)
+		if err := tt.Click("开始使用"); err != nil {
+			t.Fatalf("点击「开始使用」失败：%v", err)
 		}
 		if completed != 1 {
-			t.Fatalf("点击「稍后」应标记引导完成，completed=%d", completed)
+			t.Fatalf("点击「开始使用」应标记引导完成，completed=%d", completed)
 		}
 		u.mu.Lock()
 		stillOpen := u.open
 		u.mu.Unlock()
 		if stillOpen {
-			t.Fatal("点击「稍后」后弹窗应关闭")
+			t.Fatal("点击「开始使用」后弹窗应关闭")
 		}
 	})
 
@@ -293,7 +296,7 @@ func TestOnboardingSinglePageRenderSmoke(t *testing.T) {
 		if reduced {
 			tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
 		}
-		for _, text := range []string{"欢迎使用 mcode", "Claude", "Codex", "Antigravity", "Magpie", "稍后", "0/4 就绪", "开始使用"} {
+		for _, text := range []string{"欢迎使用 mcode", "Claude", "Codex", "Antigravity", "Magpie", "0/4 就绪", "开始使用"} {
 			if !tt.HasText(text) {
 				t.Errorf("reduced=%v 未找到 %q：%q", reduced, text, tt.Texts())
 			}

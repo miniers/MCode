@@ -608,15 +608,16 @@ func TestSwarmReviewCheckCommandSave(t *testing.T) {
 	st.cfg.Orchestration.ReviewMode = config.ReviewModeAI
 	tt := newSwarmPageTester(st)
 
+	if tt.HasText("保存检查命令") {
+		t.Fatal("检查命令（本项目）不应渲染独立保存按钮")
+	}
 	if err := tt.Click("编辑检查命令（本项目）"); err != nil {
 		t.Fatalf("click check command input failed: %v", err)
 	}
 	tt.Type("go test ./...")
 	waitFor(t, tt, func() bool { return st.reviewCheckCommand == "go test ./..." })
 
-	if err := tt.Click("保存检查命令"); err != nil {
-		t.Fatalf("click save check command failed: %v", err)
-	}
+	tt.Key(0, ui.KeyEnter)
 	waitFor(t, tt, func() bool { return st.reviewCheckSaved && st.reviewCheckErr == "" })
 
 	got, err := reviewcheck.LoadProjectConfig(dataDir, projectDir)
@@ -671,8 +672,8 @@ func TestSettingsSwarm_TreeSectionsAndAdvanced(t *testing.T) {
 					t.Fatalf("高级行出现在错误分节 %s: %s", section.ID, row.ID)
 				}
 				delete(ids, row.ID)
-			} else if row.ID == "row-steward-home-dir" {
-				t.Fatalf("总管高级行出现在编排页: %s", row.ID)
+			} else if row.ID == "row-steward-home-dir" && section.ID != "sec-steward-advanced" {
+				t.Fatalf("总管高级行出现在错误分节 %s: %s", section.ID, row.ID)
 			}
 		}
 		if section.ID == "advanced.orchestration" {

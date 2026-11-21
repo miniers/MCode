@@ -52,6 +52,15 @@ type storagePageSnapshot struct {
 	confirmOpen bool
 }
 
+var storageCleanupSection = settingsSection{
+	ID:    "storage.cleanup",
+	Title: "存储清理",
+	Rows: []setting{{
+		ID:      "row-storage-cleanup",
+		Control: customFullWidth(renderStorageCleanupSection),
+	}},
+}
+
 var pageStorage = settingsPage{
 	ID:    "storage",
 	Title: "存储",
@@ -60,27 +69,8 @@ var pageStorage = settingsPage{
 		"存储", "清理", "空间", "storage", "cleanup",
 		"trash", "废纸篓", "日志", "补丁", "会话残留",
 	},
-	Sections: []settingsSection{
-		{
-			ID: "storage.cleanup",
-			Rows: []setting{{
-				ID:      "row-storage-cleanup",
-				Control: customFullWidth(renderStorageCleanupSection),
-			}},
-		},
-		{
-			ID: "storage.worktree",
-			Rows: []setting{{
-				ID:      "row-storage-worktree",
-				Title:   "Worktree",
-				Aliases: []string{"worktree", "工作树", "清理"},
-				Control: custom(renderStorageWorktreeGoControl),
-			}},
-		},
-	},
+	Sections: []settingsSection{storageCleanupSection},
 }
-
-func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageStorage) }
 
 func storageStateLocked(st *SettingsState) *storagePageState {
 	if st.storagePage == nil {
@@ -412,21 +402,5 @@ func renderStorageGroup(c *ui.Context, st *SettingsState, g storageGroupView, ch
 					}
 				})
 		}
-	})
-}
-
-func renderStorageWorktreeGoControl(c *ui.Context, st *SettingsState) {
-	Button(c, ButtonOpts{
-		Key:     "btn-storage-worktree-go",
-		Text:    "前往",
-		Variant: ButtonSecondary,
-		Size:    ControlMD,
-		OnClick: func() {
-			if st == nil {
-				return
-			}
-			st.selectSettingsPage("sourceControl")
-			openSettingsSheet(st, "worktree", "")
-		},
 	})
 }

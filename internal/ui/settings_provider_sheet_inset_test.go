@@ -14,7 +14,7 @@ func TestProviderSheetContentInsets(t *testing.T) {
 		{"codex", "cli", "codex", "sec-provider-account", "测试额度"},
 		{"agy", "cli", "agy", "sec-agy-accounts", "还没有 agy 账号"},
 		{"pi", "cli", "pi", "sec-provider-account", usageUnsupportedHint},
-		{"cline", "cli", "cline", "sec-provider-cli", "修改后需重启 MCode 生效"},
+		{"cline", "cli", "cline", "sec-provider-cli", "需重启生效"},
 		{"preset", "preset", "deepseek", "sec-provider-account", "测试额度"},
 		{"custom", "custom", "endpoint", "sec-provider-account", "接口地址（BaseURL）"},
 	}

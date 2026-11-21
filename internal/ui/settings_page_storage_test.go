@@ -47,8 +47,7 @@ func TestSettingsStoragePage_GroupsAndDefaultAllSelected(t *testing.T) {
 		"7.5 KB",
 		"总占用 10 KB",
 		"移到废纸篓（7.5 KB）",
-		"Worktree",
-		"前往",
+		"Worktree 清理",
 	} {
 		if !tt.HasText(want) {
 			t.Fatalf("页面缺少 %q，实际文本: %v", want, tt.Texts())
@@ -190,14 +189,14 @@ func TestSettingsStoragePage_CleanConfirmAndWorktreeNav(t *testing.T) {
 		return len(fake.StorageCleanCalls()) == 1 && tt.HasText("没有可清理的内容")
 	})
 
-	if err := tt.Click("前往"); err != nil {
-		t.Fatalf("点击 Worktree 前往失败: %v", err)
+	if err := tt.Click("Worktree 清理"); err != nil {
+		t.Fatalf("点击 Worktree 清理失败: %v", err)
 	}
 	tt.Frame()
 	st.mu.Lock()
 	page, sheet := st.currentPage, st.openSheet
 	st.mu.Unlock()
-	if page != "sourceControl" || sheet != "worktree" {
-		t.Fatalf("跳转目标错误: page=%q sheet=%q, want sourceControl/worktree", page, sheet)
+	if page != "workbench" || sheet != "worktree" {
+		t.Fatalf("跳转目标错误: page=%q sheet=%q, want workbench/worktree", page, sheet)
 	}
 }

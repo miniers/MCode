@@ -105,7 +105,6 @@ var pageNowledge = settingsPage{
 
 func init() {
 	pageNowledge.Sections = append(append([]settingsSection{}, nowledgeSections...), advancedMemory)
-	settingsTreePageDefs = append(settingsTreePageDefs, pageNowledge)
 }
 
 func renderPageNowledge(c *ui.Context, st *SettingsState) {

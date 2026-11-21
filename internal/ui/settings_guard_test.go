@@ -165,11 +165,9 @@ func countSettingsProseText(name string, file *ast.File) int {
 // TestSettingsGuard_ProseText 统计说明性 ui.Text 字面量，移除阶段：P2、P3。
 func TestSettingsGuard_ProseText(t *testing.T) {
 	allowed := map[string]int{
-		"settings_page_mcp.go":              1,
-		"settings_page_archive.go":          1,
-		"settings_page_swarm.go":            3,
-		"settings_page_mcp_catalog.go":      1,
-		"settings_page_providers_agents.go": 1,
+		"settings_page_mcp.go":         1,
+		"settings_page_archive.go":     1,
+		"settings_page_mcp_catalog.go": 1,
 	}
 	checkSettingsGuardBaseline(t, "ProseText", settingsGuardCounts(t, countSettingsProseText), allowed)
 }

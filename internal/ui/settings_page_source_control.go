@@ -6,10 +6,10 @@ import (
 	"mcode/internal/git"
 )
 
-// advancedSourceControl 是版本控制页的高级设置。
+// advancedSourceControl 是版本控制的高级设置（已并入工作台页）。
 var advancedSourceControl = settingsSection{
 	ID:    "advanced.sourceControl",
-	Title: "高级",
+	Title: "版本控制高级",
 	Rows: []setting{
 		{
 			ID:      "row-sc-init-submodules",
@@ -177,8 +177,6 @@ var pageSourceControl = settingsPage{
 		advancedSourceControl,
 	},
 }
-
-func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageSourceControl) }
 
 func renderPageSourceControl(c *ui.Context, st *SettingsState) {
 	renderSettingsTreePage(c, st, pageSourceControl)

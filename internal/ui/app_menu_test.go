@@ -238,10 +238,10 @@ func TestMenuAboutActionsOpenAboutPage(t *testing.T) {
 	defer owner.close()
 	st := NewSettingsState(settingsTestDir(t), nil, owner)
 	setChatSettings(owner, st)
-	openSettingsWindow(owner, "appearance")
+	openSettingsWindow(owner, "general")
 
 	for _, action := range []string{"open-about", "check-update"} {
-		st.selectSettingsPage("appearance")
+		st.selectSettingsPage("general")
 		DispatchMenuAction(action, 0)
 		st.mu.Lock()
 		page := st.currentPage

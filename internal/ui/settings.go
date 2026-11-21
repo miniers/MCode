@@ -140,8 +140,9 @@ type SettingsState struct {
 	workbenchCtx             workbenchContextCache
 
 	// openSheet 是当前打开的面板 id（空表示无），sheetJumpRow 是面板内要跳到的那一行。
-	openSheet    string
-	sheetJumpRow string
+	openSheet               string
+	sheetJumpRow            string
+	sheetDiscardConfirmOpen bool
 	// sheetSourceRow 是打开面板的来源行 key，关闭面板时把高亮交还给这一行；空串表示不回焦。
 	sheetSourceRow string
 	// providerAdvancedOpen 记录「高级」折叠区是否展开，providerAdvancedKey 记录它所属的面板
@@ -242,6 +243,8 @@ type SettingsState struct {
 	reviewCheckProjectDir string
 	// reviewCheckCommand 是本项目检查命令的编辑值，保存后写入 review-checks/<hash>.json。
 	reviewCheckCommand string
+	// reviewCheckDirty 表示本项目检查命令存在未落盘的编辑草稿。
+	reviewCheckDirty bool
 	// reviewCheckErr 是读写本项目检查命令失败的原因，显示在输入框下方。
 	reviewCheckErr string
 	// reviewCheckSaved 表示本项目检查命令最近一次保存成功，用于显示已保存提示。
@@ -534,6 +537,7 @@ func (s *SettingsState) Close() {
 	s.open = false
 	s.resetPendingPage = ""
 	s.shortcutResetConfirmOpen = false
+	s.sheetDiscardConfirmOpen = false
 	s.mcpPage = nil
 	s.mcpCatalogPage = nil
 	s.swarmTiersPage = nil
@@ -609,11 +613,27 @@ func (s *SettingsState) save() bool {
 	if !s.persist() {
 		return false
 	}
+	s.markSavedLocked(false)
+	return true
+}
+
+// markSaved 显示顶部「已保存」徽标 2 秒并安排重绘。
+func (s *SettingsState) markSaved() {
+	if s == nil {
+		return
+	}
+	s.markSavedLocked(true)
+}
+
+func (s *SettingsState) markSavedLocked(invalidateNow bool) {
 	s.cfgMu.Lock()
 	s.savedSeq++
 	seq := s.savedSeq
 	s.showSaved = true
 	s.cfgMu.Unlock()
+	if invalidateNow {
+		s.invalidate()
+	}
 	time.AfterFunc(2*time.Second, func() {
 		s.cfgMu.Lock()
 		if s.savedSeq != seq {
@@ -624,7 +644,6 @@ func (s *SettingsState) save() bool {
 		s.cfgMu.Unlock()
 		s.invalidate()
 	})
-	return true
 }
 
 func (s *SettingsState) savedBadgeVisible() bool {
@@ -773,6 +792,9 @@ func (s *SettingsState) flushTextSave(force bool) bool {
 		s.noteError(err.Error())
 		return false
 	}
+	if !s.saveReviewCheckCommand() {
+		return false
+	}
 	s.mu.Lock()
 	if s.textSaveDue == due {
 		s.textSavePending = false
@@ -915,16 +937,8 @@ func settingsPages() []settingsNavDef {
 				"permissions", "notifications", "startup", "tray", "quit",
 				"sound", "chime", "icon", "icons", "权限", "通知", "提示音", "托盘", "启动", "退出",
 				"keyboard", "keys", "快捷键", "按键",
-			},
-		},
-		{
-			id:    "appearance",
-			title: "外观",
-			group: "应用",
-			icon:  IconPalette(),
-			keywords: []string{
 				"appearance", "theme", "dark", "light", "text", "size", "font", "zoom", "sidebar",
-				"主题", "深色", "浅色", "文字大小", "字号",
+				"主题", "深色", "浅色", "文字大小", "字号", "字体", "缩放", "间距", "宽度", "侧边栏",
 			},
 		},
 		{
@@ -979,11 +993,9 @@ func settingsPages() []settingsNavDef {
 				"orchestrator", "worker", "pair", "pairs", "parallel", "delegate", "queue",
 				"stalled", "pending",
 				"规划", "并行", "编排", "主代理", "子代理",
+				"steward", "watchdog", "triage", "escalate", "dispatcher", "follow-up",
+				"默默", "总管", "昵称", "跟进者", "总调度", "待处理", "分诊", "值守", "moco", "看门狗", "安静时段", "免打扰",
 			},
-		},
-		{
-			id: "steward", title: "总管", group: "代理", icon: pageSteward.Icon,
-			keywords: []string{"steward", "watchdog", "triage", "escalate", "dispatcher", "follow-up", "默默", "总管", "昵称", "跟进者", "总调度", "待处理", "分诊", "值守", "moco", "看门狗", "安静时段", "免打扰"},
 		},
 		{
 			id:    "extensions",
@@ -994,9 +1006,9 @@ func settingsPages() []settingsNavDef {
 				"skills", "skill.md", "prompts", "rules", "instructions", "custom skills", "workflows", "技能",
 				"mcp", "model context protocol", "servers", "tools", "connect", "integrations",
 				"github", "playwright", "slack", "context7", "postgres", "browser", "上下文",
+				"nowledge", "nmem", "memory", "working memory", "threads", "sync", "记忆",
 			},
 		},
-		{id: "nowledge", title: "记忆", group: "代理", icon: pageNowledge.Icon, keywords: pageNowledge.Keywords},
 		{
 			id:    "workbench",
 			title: "工作台",
@@ -1009,10 +1021,11 @@ func settingsPages() []settingsNavDef {
 				"open in", "editors", "apps", "applications", "finder", "vscode",
 				"cursor", "zed", "xcode", "iterm", "terminal", "shell", "qspace", "打开方式", "编辑器", "应用",
 				"文件树",
+				"git", "commit", "titles", "text generation", "clone",
+				"repository", "repositories", "repo", "版本控制", "仓库", "分支", "worktree", "工作树",
+				"存储", "清理", "空间", "storage", "cleanup", "trash", "废纸篓", "日志", "补丁", "会话残留",
 			},
 		},
-		{id: "sourceControl", title: "版本控制", group: "工作区", icon: pageSourceControl.Icon, keywords: pageSourceControl.Keywords},
-		{id: "storage", title: "存储", group: "工作区", icon: pageStorage.Icon, keywords: pageStorage.Keywords},
 		{id: "about", title: "关于", icon: IconInfo(), keywords: []string{"version", "license", "关于", "版本", "update", "changelog", "更新", "更新日志", "检查更新", "诊断", "数据目录"}},
 	}
 }
@@ -1022,16 +1035,37 @@ func normalizeSettingsPageID(id string) string {
 	switch id {
 	case "providers":
 		return "models"
-	case "openIn":
+	case "openIn", "sourceControl", "storage":
 		return "workbench"
 	case "quickReplies", "archive":
 		return "conversation"
-	case "shortcuts", "advanced":
+	case "shortcuts", "advanced", "appearance":
 		return "general"
-	case "skills", "mcp":
+	case "skills", "mcp", "nowledge":
 		return "extensions"
+	case "steward":
+		return "swarm"
 	}
 	return id
+}
+
+func settingsLegacyPageJumpRow(id string) string {
+	if settingsLegacySheet(id) != "" {
+		return ""
+	}
+	switch id {
+	case "appearance":
+		return "row-theme"
+	case "steward":
+		return "row-steward-enabled"
+	case "nowledge":
+		return "row-memory-backend"
+	case "sourceControl":
+		return "row-sc-generate-commit-msg"
+	case "storage":
+		return "row-storage-cleanup"
+	}
+	return ""
 }
 
 func settingsLegacySheet(id string) string {
@@ -1098,18 +1132,27 @@ func (s *SettingsState) applyPendingPageSwitch() {
 	s.openLegacySettingsSheet(target)
 }
 
-// selectSettingsPage 切到目标页，并按需重置该页的延迟加载状态。直接点页名会清掉逐项跳转与高亮。
+// selectSettingsPage 切到目标页，并按需重置该页的延迟加载状态。直接点页名会清掉逐项跳转与高亮；
+// 传入已合并旧页 ID 且未打开旧面板时，自动定位到对应合并区首行。
 func (s *SettingsState) selectSettingsPage(id string) {
+	target := normalizeSettingsPageID(id)
+	s.mu.Lock()
+	switching := s.currentPage != target
+	s.mu.Unlock()
+	if switching {
+		s.flushTextSave(true)
+		s.flushShortcutDrafts(true)
+	}
 	s.mu.Lock()
 	loadProviders, disposeEditor := s.switchSettingsPageLocked(id)
-	s.jumpToItemID = ""
+	s.jumpToItemID = settingsLegacyPageJumpRow(id)
 	s.highlightItemID = ""
 	s.mu.Unlock()
 	if disposeEditor != nil {
 		disposeEditor()
 	}
 	s.loadSettingsPageData(loadProviders)
-	if normalizeSettingsPageID(id) == "storage" {
+	if target == "workbench" {
 		ensureStorageScan(s)
 	}
 	s.invalidate()
@@ -1139,13 +1182,17 @@ func (s *SettingsState) switchSettingsPageLocked(id string) (bool, func()) {
 	if s.currentPage != target && target == "magpie" {
 		loadProviders = true
 	}
-	if s.currentPage != target && target == "storage" {
+	if s.currentPage != target && target == "workbench" {
 		resetStoragePageForEntryLocked(s)
 	}
 	if s.currentPage != target {
 		// 面板属于打开它的页面：换页就收起，免得同一组行同时出现在页面和面板里。
 		s.openSheet = ""
 		s.sheetJumpRow = ""
+		s.sheetDiscardConfirmOpen = false
+	}
+	if jump := settingsLegacyPageJumpRow(id); jump != "" {
+		s.jumpToItemID = jump
 	}
 	s.currentPage = target
 	// 任何显式切页都作废渲染期攒下的请求，免得下一帧的 applyPendingPageSwitch
@@ -1515,13 +1562,6 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 				ui.Text(c, "无匹配结果").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Padding(Space4, Space3)
 			}
 		})
-		if st.chat != nil {
-			Button(c, ButtonOpts{Key: "settings-onboarding", Text: "新用户引导", Variant: ButtonGhost, OnClick: func() {
-				if closeSettingsWindowForOwner(st.chat) {
-					openOnboarding(st.chat)
-				}
-			}})
-		}
 	})
 }
 

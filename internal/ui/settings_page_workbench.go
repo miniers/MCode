@@ -49,6 +49,9 @@ var pageWorkbench = settingsPage{
 		"open in", "editors", "apps", "applications", "finder", "vscode",
 		"cursor", "zed", "xcode", "iterm", "terminal", "shell", "qspace", "打开方式", "编辑器", "应用",
 		"文件树",
+		"git", "commit", "titles", "text generation", "clone",
+		"repository", "repositories", "repo", "版本控制", "仓库", "分支",
+		"存储", "清理", "空间", "storage", "cleanup", "trash", "废纸篓", "日志", "补丁", "会话残留",
 	},
 	Sections: []settingsSection{
 		{
@@ -214,11 +217,13 @@ var pageWorkbench = settingsPage{
 				},
 			},
 		},
-		advancedWorkbench,
 	},
 }
 
 func init() {
+	// 并入原版本控制与存储清理分节，保持 advancedWorkbench 位于页面末尾。
+	pageWorkbench.Sections = append(pageWorkbench.Sections, pageSourceControl.Sections...)
+	pageWorkbench.Sections = append(pageWorkbench.Sections, storageCleanupSection, advancedWorkbench)
 	settingsTreePageDefs = append(settingsTreePageDefs, pageWorkbench)
 }
 

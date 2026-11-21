@@ -129,7 +129,7 @@ func TestSettingsPageWorkbench_Tree(t *testing.T) {
 		"注册看板 MCP 工具", "普通会话暴露单一入口", "创建后自动启动", "卡死任务自动救援", "无活动中断",
 		"终端", "默认终端", "Web 预览", "捕获控制台输出",
 		"编辑器与文件树", "自动保存",
-		"打开方式", "高级", "注入字符上限", "回滚行数", "快捷端口",
+		"打开方式", "提交信息生成", "工作区与工作树", "Worktree 清理", "存储清理", "高级", "注入字符上限", "回滚行数", "快捷端口",
 	} {
 		if !texts[want] {
 			t.Fatalf("工作台页缺少 %q: %v", want, tt.Texts())
@@ -138,7 +138,6 @@ func TestSettingsPageWorkbench_Tree(t *testing.T) {
 
 	// 旧说明句与旧折叠区文案已经删除。
 	for _, gone := range []string{
-		"提交信息生成", "工作区与工作树", "Worktree 清理",
 		"终端字号", "编辑器字号", "快捷回复列表",
 		"注入项目说明时允许使用的最大字符数",
 		"暂无自定义文档，可在项目 .mcode/context/docs 目录下添加 Markdown 文档后在此选择注入",
@@ -581,22 +580,27 @@ func TestSettingsWorkbench_WorktreeSheetAndSourceControl(t *testing.T) {
 	globalArchiveWorktreeState.mu.Unlock()
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderPageSourceControl(c, st)
+		renderPageWorkbench(c, st)
 		if id, _ := settingsTreeSheetState(st); id != "" {
 			if sh, ok := settingsTreeSheetOf(id); ok {
 				renderSettingsTreeSheet(c, st, sh)
 			}
 		}
 	}, 1000, 5000)
-	page, ok := settingsTreePageOf("sourceControl")
+	page, ok := settingsTreePageOf("workbench")
 	if !ok {
-		t.Fatal("版本控制页未注册")
+		t.Fatal("工作台页未注册")
 	}
 	rows := make(map[string]bool)
-	for _, section := range page.Sections {
+	var advSCSection *settingsSection
+	for i := range page.Sections {
+		section := page.Sections[i]
+		if section.ID == "advanced.sourceControl" {
+			advSCSection = &page.Sections[i]
+		}
 		for _, row := range section.Rows {
 			if rows[row.ID] {
-				t.Fatalf("版本控制页行 ID 重复: %q", row.ID)
+				t.Fatalf("工作台页行 ID 重复: %q", row.ID)
 			}
 			rows[row.ID] = true
 		}
@@ -607,14 +611,17 @@ func TestSettingsWorkbench_WorktreeSheetAndSourceControl(t *testing.T) {
 		"row-sc-worktree-cleanup",
 	} {
 		if !rows[id] {
-			t.Fatalf("版本控制页缺少版本控制行: %q", id)
+			t.Fatalf("工作台页缺少版本控制行: %q", id)
 		}
 	}
-	if len(page.Sections) == 0 || page.Sections[len(page.Sections)-1].ID != "advanced.sourceControl" {
-		t.Fatal("版本控制页末尾应为高级设置")
+	if advSCSection == nil {
+		t.Fatal("工作台页缺少版本控制高级设置分节")
+	}
+	if len(page.Sections) == 0 || page.Sections[len(page.Sections)-1].ID != "advanced.workbench" {
+		t.Fatal("工作台页末尾应为高级设置")
 	}
 	advancedRows := make(map[string]bool)
-	for _, row := range page.Sections[len(page.Sections)-1].Rows {
+	for _, row := range advSCSection.Rows {
 		advancedRows[row.ID] = true
 	}
 	for _, id := range []string{"row-sc-init-submodules", "row-sc-clone-ignored", "row-sc-clone-ignored-patterns"} {

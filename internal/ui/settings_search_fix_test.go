@@ -37,7 +37,7 @@ func TestSettingsSearchBodySheetTargets(t *testing.T) {
 	for _, tc := range []struct {
 		query, id, page, sheet string
 	}{
-		{"工作树清理", "block-archive-worktrees", "sourceControl", "worktree"},
+		{"工作树清理", "block-archive-worktrees", "workbench", "worktree"},
 		{"快捷回复", "block-quick-replies", "conversation", "quick-replies"},
 		{"已归档会话", "row-archive-", "conversation", "archive"},
 		{"打开方式", "row-openin-", "workbench", "open-in"},

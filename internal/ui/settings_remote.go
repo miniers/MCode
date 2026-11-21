@@ -1232,17 +1232,20 @@ func (remotePortControl) renderDisabled(c *ui.Context, st *SettingsState, s sett
 					st.mu.Lock()
 					st.remote.portText = text
 					st.remote.portInit = true
-					st.mu.Unlock()
-					port, err := strconv.Atoi(strings.TrimSpace(text))
-					if err != nil || port < 1024 || port > 65535 {
+					if port, err := strconv.Atoi(strings.TrimSpace(text)); err == nil && port >= 1024 && port <= 65535 {
+						st.cfgMu.Lock()
+						st.cfg.Remote.Listen = remoteListenWithPort(st.cfg.Remote.Listen, port)
+						st.cfgMu.Unlock()
+						st.mu.Unlock()
+						st.noteTextEdit()
 						return
 					}
-					commitSettingsControl(st, func(cfg *config.Config) {
-						cfg.Remote.Listen = remoteListenWithPort(cfg.Remote.Listen, port)
-					})
+					st.mu.Unlock()
 				},
 				strconv.Itoa(config.DefaultRemoteHTTPPort),
-			).renderDisabled(c, st, s, disabled)
+			).withSubmit(func(st *SettingsState, _ string) {
+				st.flushTextSave(true)
+			}).renderDisabled(c, st, s, disabled)
 			if errText != "" {
 				ui.Text(c, errText).
 					FontSize(uiFont(TypeFootnote)).
@@ -1272,13 +1275,16 @@ func (remoteHostsControl) renderDisabled(c *ui.Context, st *SettingsState, s set
 		func(st *SettingsState, text string) {
 			st.mu.Lock()
 			st.remoteHostsText = text
+			st.cfgMu.Lock()
+			st.cfg.Remote.ExtraHosts = parseHosts(text)
+			st.cfgMu.Unlock()
 			st.mu.Unlock()
-			commitSettingsControl(st, func(cfg *config.Config) {
-				cfg.Remote.ExtraHosts = parseHosts(text)
-			})
+			st.noteTextEdit()
 		},
 		"example.com, myhost.lan",
-	).renderDisabled(c, st, s, disabled)
+	).withSubmit(func(st *SettingsState, _ string) {
+		st.flushTextSave(true)
+	}).renderDisabled(c, st, s, disabled)
 }
 
 func (remoteHostsControl) reset(cfg *config.Config) { cfg.Remote.ExtraHosts = nil }

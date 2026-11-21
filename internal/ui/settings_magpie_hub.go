@@ -211,8 +211,9 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 			if personaWebURLNeedsHTTPSWarning(personaURLDraft) {
 				ui.Row(c.Key("row-hub-persona-weburl-warn")).
 					Padding(0, Space5, Space4, Space5).
+					Tooltip("明文 http 会暴露 web key，建议使用 https 或 SSH 隧道").
 					Children(func() {
-						ui.Text(c, "明文 http 会暴露 web key，建议使用 https 或 SSH 隧道").
+						ui.Text(c, "非加密 http，建议改用 https").
 							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeWarning(c))
 					})
@@ -341,8 +342,9 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 			if id == "" {
 				ui.Row(c.Key("row-hub-quota-unsaved")).
 					Padding(Space2, Space5, Space4, Space5).
+					Tooltip("保存后可选择要在菜单栏展示额度的供应商").
 					Children(func() {
-						ui.Text(c, "保存后可选择要在菜单栏展示额度的供应商").
+						ui.Text(c, "保存后可选").
 							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemeSecondaryText(c))
 					})

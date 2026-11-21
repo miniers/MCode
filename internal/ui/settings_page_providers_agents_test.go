@@ -832,7 +832,7 @@ func TestProviders_DroidAuthAndRestartNote(t *testing.T) {
 	})
 	selectProviderSheetSectionForTest(t, tt, st, "sec-provider-cli")
 	waitFor(t, tt, func() bool {
-		return tt.HasText("修改后需重启 MCode 生效")
+		return tt.HasText("需重启生效")
 	})
 }
 

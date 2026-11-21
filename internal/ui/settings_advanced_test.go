@@ -39,7 +39,7 @@ func openSettingsAdvancedPage(t *testing.T, tt *ui.Tester, st *SettingsState, pa
 
 // TestSettingsAdvanced_TreePagesHaveNoCollapsedArea 覆盖：已迁入页面树的页面没有页底高级折叠区。
 func TestSettingsAdvanced_TreePagesHaveNoCollapsedArea(t *testing.T) {
-	for _, id := range []string{"general", "appearance", "conversation", "swarm", "extensions", "workbench", "sourceControl", "nowledge", "remote"} {
+	for _, id := range []string{"general", "conversation", "swarm", "extensions", "workbench", "remote"} {
 		page, ok := settingsTreePageOf(id)
 		if !ok {
 			t.Fatalf("页 %q 应在页面树里", id)

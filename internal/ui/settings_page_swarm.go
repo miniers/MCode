@@ -668,6 +668,7 @@ func truncateReviewCheckCommand(s string) string {
 
 var pageSwarm = settingsPage{
 	ID: "swarm", Title: "编排", Icon: IconSwarm(),
+	Keywords: []string{"steward", "watchdog", "triage", "escalate", "dispatcher", "follow-up", "默默", "总管", "昵称", "跟进者", "总调度", "待处理", "分诊", "值守", "moco", "看门狗", "安静时段", "免打扰"},
 	Sections: []settingsSection{
 		{ID: "swarm.main", Title: "", Rows: []setting{
 			{
@@ -831,7 +832,16 @@ func swarmForwardQuestionSetting() setting {
 	}
 }
 
-func init() { settingsTreePageDefs = append(settingsTreePageDefs, pageSwarm) }
+func init() {
+	// 并入总管全部 4 个分节，保持 advancedOrchestration 位于页面末尾。
+	base := pageSwarm.Sections[:len(pageSwarm.Sections)-1]
+	last := pageSwarm.Sections[len(pageSwarm.Sections)-1]
+	merged := make([]settingsSection, 0, len(base)+5)
+	merged = append(merged, base...)
+	merged = append(merged, stewardMainSection(), stewardModelSection, stewardQuietSection, stewardAdvancedSection, last)
+	pageSwarm.Sections = merged
+	settingsTreePageDefs = append(settingsTreePageDefs, pageSwarm)
+}
 
 // renderPageSwarm 渲染 Swarm 设置页：多代理编排总开关、模型配对、并发与工作区、消息流向、默认模型及完成策略。
 func renderPageSwarm(c *ui.Context, st *SettingsState) { renderSettingsTreePage(c, st, pageSwarm) }
@@ -899,7 +909,7 @@ func renderSwarmPairsBody(c *ui.Context, st *SettingsState) {
 		ui.Row(c.Key("swarm-pairs-empty")).
 			Padding(settingsRowPadY, settingsRowPadX).
 			Children(func() {
-				ui.Text(c, "还没有配对，点击添加配对或从预设组合添加").
+				ui.Text(c, "暂无配对").
 					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeSecondaryText(c))
 			})
@@ -1002,7 +1012,7 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 		ui.Row(c.Key("swarm-tiers-empty")).
 			Padding(settingsRowPadY, settingsRowPadX).
 			Children(func() {
-				ui.Text(c, "暂无档位配置，点击添加档位创建").
+				ui.Text(c, "暂无档位").
 					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeSecondaryText(c))
 			})
@@ -1024,11 +1034,12 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 			Padding(settingsRowPadY, settingsRowPadX).
 			Gap(Space2).
 			AlignItems(ui.Center).
+			Tooltip("档位超过 5 个时，主代理更容易选错档位").
 			Children(func() {
 				ui.Icon(c, IconOctagonAlert()).
 					Size(IconSM, IconSM).
 					TextColor(ThemeWarning(c))
-				ui.Text(c, "档位超过 5 个时，主代理更容易选错档位").
+				ui.Text(c, "已超建议上限").
 					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeWarning(c))
 			})
@@ -1113,7 +1124,7 @@ func (m swarmModelControl) renderDisabled(c *ui.Context, st *SettingsState, s se
 	})
 }
 
-// swarmReviewCheckControl 渲染本项目检查命令：输入只改内存，保存按钮单独落盘。
+// swarmReviewCheckControl 渲染本项目检查命令：输入修改草稿后走统一防抖落盘。
 type swarmReviewCheckControl struct{}
 
 func (swarmReviewCheckControl) render(c *ui.Context, st *SettingsState, s setting) {
@@ -1123,16 +1134,21 @@ func (swarmReviewCheckControl) render(c *ui.Context, st *SettingsState, s settin
 func (swarmReviewCheckControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, disabled bool) {
 	// 项目级检查命令：只覆盖本项目的 Command，TimeoutSeconds 与 RunTests 保留原值。
 	checkDir := st.currentProjectDir()
+	st.mu.Lock()
 	if checkDir == "" {
 		st.reviewCheckLoaded = false
 		st.reviewCheckProjectDir = ""
 		st.reviewCheckCommand = ""
+		st.reviewCheckDirty = false
 		st.reviewCheckErr = ""
 		st.reviewCheckSaved = false
 	} else if !st.reviewCheckLoaded || st.reviewCheckProjectDir != checkDir {
+		st.mu.Unlock()
 		checkCfg, checkErr := reviewcheck.LoadProjectConfig(st.dataDir, checkDir)
+		st.mu.Lock()
 		st.reviewCheckLoaded = true
 		st.reviewCheckProjectDir = checkDir
+		st.reviewCheckDirty = false
 		st.reviewCheckSaved = false
 		if checkErr != nil {
 			st.reviewCheckErr = checkErr.Error()
@@ -1142,57 +1158,75 @@ func (swarmReviewCheckControl) renderDisabled(c *ui.Context, st *SettingsState, 
 			st.reviewCheckCommand = checkCfg.Command
 		}
 	}
+	errText := st.reviewCheckErr
+	st.mu.Unlock()
 
 	input := textFunc(func(st *SettingsState) (string, bool) {
+		st.mu.Lock()
+		defer st.mu.Unlock()
 		return st.reviewCheckCommand, false
 	}, func(st *SettingsState, text string) {
+		st.mu.Lock()
 		st.reviewCheckCommand = truncateReviewCheckCommand(text)
+		st.reviewCheckDirty = true
 		st.reviewCheckSaved = false
-	}, "留空使用全局默认").withDisabled(func(*SettingsState) bool { return checkDir == "" })
+		st.reviewCheckErr = ""
+		st.mu.Unlock()
+		st.noteTextEdit()
+	}, "留空使用全局默认").withDisabled(func(*SettingsState) bool { return checkDir == "" }).
+		withSubmit(func(st *SettingsState, _ string) {
+			st.flushTextSave(true)
+		})
 
 	ui.Column(c.Key(s.ID + "-wrap")).Gap(Space1).AlignItems(ui.End).Children(func() {
-		ui.Row(c.Key(s.ID + "-controls")).Gap(Space3).AlignItems(ui.Center).Children(func() {
-			input.renderDisabled(c, st, setting{ID: s.ID + "-text", Title: s.Title}, disabled)
-
-			btnSave := ui.ButtonBase(c.Key("btn-save-swarm-review-check-command")).
-				Label("保存检查命令").
-				Padding(Space1, settingsCompactPadX).
-				Radius(RadiusSM).
-				Background(ThemeAccent(c))
-			{
-				scale := motionPressScale(c, btnSave, "button-press-scale", checkDir != "" && !disabled && btnSave.Pressed())
-				btnSave.Scale(scale, scale)
-			}
-			if checkDir == "" || disabled {
-				btnSave.Disabled(true)
-			}
-			if btnSave.Clicked() && checkDir != "" && !disabled {
-				savedCfg, loadErr := reviewcheck.LoadProjectConfig(st.dataDir, checkDir)
-				if loadErr != nil {
-					st.reviewCheckErr = loadErr.Error()
-					st.reviewCheckSaved = false
-				} else {
-					savedCfg.Command = strings.TrimSpace(st.reviewCheckCommand)
-					if saveErr := reviewcheck.SaveProjectConfig(st.dataDir, checkDir, savedCfg); saveErr != nil {
-						st.reviewCheckErr = saveErr.Error()
-						st.reviewCheckSaved = false
-					} else {
-						st.reviewCheckErr = ""
-						st.reviewCheckSaved = true
-						st.reviewCheckCommand = savedCfg.Command
-					}
-				}
-			}
-			btnSave.Children(func() {
-				ui.Text(c, "保存检查命令").FontSize(uiFont(TypeFootnote)).TextColor(ThemeOnAccent(c))
-			})
-		})
-		if st.reviewCheckErr != "" {
-			ui.Text(c, st.reviewCheckErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
-		} else if st.reviewCheckSaved {
-			ui.Text(c, "已保存").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+		input.renderDisabled(c, st, setting{ID: s.ID + "-text", Title: s.Title}, disabled)
+		if errText != "" {
+			ui.Text(c, errText).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
 		}
 	})
+}
+
+func (s *SettingsState) saveReviewCheckCommand() bool {
+	if s == nil {
+		return true
+	}
+	s.mu.Lock()
+	dirty := s.reviewCheckDirty
+	checkDir := s.reviewCheckProjectDir
+	cmd := s.reviewCheckCommand
+	dataDir := s.dataDir
+	s.mu.Unlock()
+	if !dirty || checkDir == "" {
+		return true
+	}
+
+	savedCfg, loadErr := reviewcheck.LoadProjectConfig(dataDir, checkDir)
+	if loadErr != nil {
+		s.mu.Lock()
+		s.reviewCheckErr = loadErr.Error()
+		s.reviewCheckSaved = false
+		s.mu.Unlock()
+		return false
+	}
+	savedCfg.Command = strings.TrimSpace(cmd)
+	if saveErr := reviewcheck.SaveProjectConfig(dataDir, checkDir, savedCfg); saveErr != nil {
+		s.mu.Lock()
+		s.reviewCheckErr = saveErr.Error()
+		s.reviewCheckSaved = false
+		s.mu.Unlock()
+		return false
+	}
+
+	s.mu.Lock()
+	s.reviewCheckErr = ""
+	s.reviewCheckSaved = true
+	if s.reviewCheckCommand == cmd {
+		s.reviewCheckDirty = false
+		s.reviewCheckCommand = savedCfg.Command
+	}
+	s.mu.Unlock()
+	s.markSaved()
+	return true
 }
 
 // swarmDefaultModelSetting 是子代理默认模型行：派发指令未指定模型时使用。

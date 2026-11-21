@@ -20,7 +20,7 @@ func TestSettingsDetail_SyncAppearanceTheme(t *testing.T) {
 	appearanceThemeApplied = ""
 
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
-	st.currentPage = "appearance"
+	st.currentPage = "general"
 	st.cfg.Appearance.Theme = config.ThemeLight
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsDetail(c, st) }, 1000, 2400)
 	tt.Frame()
@@ -131,7 +131,7 @@ func TestSettingsAppearanceMotion(t *testing.T) {
 	if !st.cfg.Appearance.ReduceMotion || !reduced {
 		t.Fatal("关闭动效后应立即生效")
 	}
-	applySettingsPageReset(st, "appearance")
+	applySettingsPageReset(st, "general")
 	tt.Frame()
 	info, ok = tt.Access("切换动效")
 	if !ok || !info.Checked || st.cfg.Appearance.ReduceMotion || reduced {

@@ -50,7 +50,7 @@ var advancedOrchestration = settingsSection{
 
 var stewardAdvancedSection = settingsSection{
 	ID:    "sec-steward-advanced",
-	Title: "高级",
+	Title: "总管高级",
 	Rows: []setting{
 		{
 			ID: "row-steward-home-dir", Title: "主目录",

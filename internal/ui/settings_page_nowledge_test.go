@@ -345,7 +345,7 @@ func TestNowledgeSettings_SearchFindsRows(t *testing.T) {
 			t.Cleanup(s.close)
 			st := NewSettingsState(settingsTestDir(t), nil, s)
 			st.open = true
-			st.currentPage = "nowledge"
+			st.currentPage = "extensions"
 
 			// 旧说明文字里的检索词搬到了别名：搜「空闲」仍能命中会话同步行。
 			st.navSearch = "空闲"
