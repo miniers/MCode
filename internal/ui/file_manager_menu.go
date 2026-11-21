@@ -85,6 +85,18 @@ func openFileManagerInSplit(s *chatState, threadID, path string) {
 func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry FileEntry) func(*ui.Menu) {
 	payload, canReference := fileTreeDragReference(s, threadID, entry)
 	return func(m *ui.Menu) {
+		abs := fileManagerWorkspacePath(s, threadID, entry.Path)
+		root := turnFilesWorkDir(s, threadID)
+		if ps := getGitPaneState(s); ps != nil && ps.threadID == threadID {
+			ps.mu.Lock()
+			if ps.state.WorkDir != "" {
+				root = ps.state.WorkDir
+			}
+			ps.mu.Unlock()
+		}
+		rel, inGitRepo := gitRelativeFilePath(root, abs)
+		local := fileManagerLocalPath(abs)
+
 		if entry.IsDir {
 			if m.Item("打开").Chosen() {
 				s.loadFileManagerDir(threadID, entry.Path)
@@ -97,27 +109,17 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 				openFileManagerInSplit(s, threadID, entry.Path)
 			}
 		}
-		if !entry.IsDir {
-			root := turnFilesWorkDir(s, threadID)
-			if ps := getGitPaneState(s); ps != nil && ps.threadID == threadID {
-				ps.mu.Lock()
-				if ps.state.WorkDir != "" {
-					root = ps.state.WorkDir
+		if !entry.IsDir && inGitRepo {
+			if m.Item("文件历史").Chosen() {
+				inspectorSelect(s, sidePaneGitID, false)
+				if ps := getGitPaneState(s); ps != nil {
+					openGitFileHistory(ps, rel)
 				}
-				ps.mu.Unlock()
 			}
-			if rel, ok := gitRelativeFilePath(root, fileManagerWorkspacePath(s, threadID, entry.Path)); ok {
-				if m.Item("文件历史").Chosen() {
-					inspectorSelect(s, sidePaneGitID, false)
-					if ps := getGitPaneState(s); ps != nil {
-						openGitFileHistory(ps, rel)
-					}
-				}
-				if m.Item("逐行追溯").Chosen() {
-					inspectorSelect(s, sidePaneGitID, false)
-					if ps := getGitPaneState(s); ps != nil {
-						openGitBlame(ps, rel)
-					}
+			if m.Item("逐行追溯").Chosen() {
+				inspectorSelect(s, sidePaneGitID, false)
+				if ps := getGitPaneState(s); ps != nil {
+					openGitBlame(ps, rel)
 				}
 			}
 		}
@@ -125,7 +127,6 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 			s.addInspectorFileRefs(payload.refs())
 		}
 
-		abs := fileManagerWorkspacePath(s, threadID, entry.Path)
 		if m.Item("复制路径").Chosen() && abs != "" {
 			c.WriteClipboard(abs)
 			s.setToast("已复制路径")
@@ -135,7 +136,7 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 			s.setToast("已复制相对路径")
 		}
 		// 远程工作区里的文件本机不存在，不提供外部打开。
-		if fileManagerLocalPath(abs) {
+		if local {
 			if m.Item(revealInFileManagerLabel()).Chosen() {
 				openItemInFinder(abs)
 			}
@@ -168,6 +169,15 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 		if !entry.IsDir {
 			if m.Item("复制一份").Chosen() {
 				s.duplicateFileManagerEntry(entry.Path)
+			}
+		}
+		if inGitRepo && local {
+			if m.Item("从 Git 中忽略").Chosen() {
+				if err := gitChangesIgnore(root, rel); err != nil {
+					s.setToast("加入 .gitignore 失败: " + err.Error())
+				} else {
+					s.setToast("已加入 .gitignore")
+				}
 			}
 		}
 		if m.Item(trashActionLabel() + "…").Danger().Chosen() {

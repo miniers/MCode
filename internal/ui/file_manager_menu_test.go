@@ -38,7 +38,7 @@ func TestFileManagerEntryMenuCopyRelativePath(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		wantItems = append(wantItems, "快速查看")
 	}
-	wantItems = append(wantItems, "-", "重命名…", "复制一份", trashActionLabel()+"…")
+	wantItems = append(wantItems, "-", "重命名…", "复制一份", "从 Git 中忽略", trashActionLabel()+"…")
 	want := fmt.Sprint(wantItems)
 	if got := fmt.Sprint(tt.Menu()); got != want {
 		t.Fatalf("文件菜单应等于 %s，得到 %s", want, got)
@@ -352,6 +352,64 @@ func TestFileManagerEntryMenuQuickLook(t *testing.T) {
 	}
 	if got := tt.Menu(); slices.Contains(got, "快速查看") {
 		t.Fatalf("非 macOS 文件菜单不应包含「快速查看」，得到 %v", got)
+	}
+	tt.CloseMenu()
+}
+
+// 右键文件或文件夹选「从 Git 中忽略」时把相对路径写入工作区根目录的 .gitignore；远程工作区不显示此项。
+func TestFileManagerEntryMenuIgnoreInGit(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write temp file failed: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir temp dir failed: %v", err)
+	}
+	gitignorePath := filepath.Join(workDir, ".gitignore")
+	if err := os.WriteFile(gitignorePath, []byte("*.log"), 0o644); err != nil {
+		t.Fatalf("write .gitignore failed: %v", err)
+	}
+
+	fake, _, tt := openFileManagerForTest(t)
+	fake.SetThreadWorkDir(workDir)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") && tt.HasText("sub") })
+
+	if err := tt.RightClick("a.txt"); err != nil {
+		t.Fatalf("right click file row failed: %v", err)
+	}
+	if err := tt.ChooseMenuItem("从 Git 中忽略"); err != nil {
+		t.Fatalf("choose ignore file failed: %v", err)
+	}
+	got, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("read .gitignore failed: %v", err)
+	}
+	if want := "*.log\n/a.txt\n"; string(got) != want {
+		t.Fatalf(".gitignore 内容 = %q，期望 %q", string(got), want)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("已加入 .gitignore") })
+
+	if err := tt.RightClick("sub"); err != nil {
+		t.Fatalf("right click dir row failed: %v", err)
+	}
+	if err := tt.ChooseMenuItem("从 Git 中忽略"); err != nil {
+		t.Fatalf("choose ignore dir failed: %v", err)
+	}
+	got, err = os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("read .gitignore after dir failed: %v", err)
+	}
+	if want := "*.log\n/a.txt\n/sub\n"; string(got) != want {
+		t.Fatalf("忽略目录后 .gitignore 内容 = %q，期望 %q", string(got), want)
+	}
+
+	// 本机路径不存在（远程工作区）时不显示「从 Git 中忽略」。
+	fake.SetThreadWorkDir(filepath.Join(t.TempDir(), "remote"))
+	if err := tt.RightClick("a.txt"); err != nil {
+		t.Fatalf("right click remote file row failed: %v", err)
+	}
+	if gotMenu := tt.Menu(); slices.Contains(gotMenu, "从 Git 中忽略") {
+		t.Fatalf("远程工作区文件菜单不应包含「从 Git 中忽略」，得到 %v", gotMenu)
 	}
 	tt.CloseMenu()
 }
