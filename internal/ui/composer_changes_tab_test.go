@@ -28,6 +28,8 @@ func TestComposerChangesTab_ShowsStatsAndOpensDiffPanel(t *testing.T) {
 		Diff:         changesTabDiff,
 		FilesChanged: []string{"pkg/math.go"},
 	})
+	// 统计胶囊只取三个数字，走独立的 statOnly 通道。
+	fake.SetThreadDiffStats("t1", ThreadDiffStats{Files: 1, Additions: 1, Deletions: 1})
 
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)
@@ -61,6 +63,8 @@ func TestComposerChangesTab_QueueTakesPrecedence(t *testing.T) {
 		Diff:         changesTabDiff,
 		FilesChanged: []string{"pkg/math.go"},
 	})
+	// 统计胶囊只取三个数字，走独立的 statOnly 通道。
+	fake.SetThreadDiffStats("t1", ThreadDiffStats{Files: 1, Additions: 1, Deletions: 1})
 
 	s, view := buildRoot(fake)
 	t.Cleanup(s.close)

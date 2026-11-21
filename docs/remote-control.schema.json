@@ -7958,6 +7958,10 @@
         },
         "turnID": {
           "$ref": "#/$defs/UUID"
+        },
+        "statOnly": {
+          "type": "boolean",
+          "description": "只取改动统计（文件数、增删行数），不生成 diff 正文与轮次摘要。"
         }
       },
       "required": [
@@ -7985,6 +7989,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "additions": {
+          "type": "integer"
+        },
+        "deletions": {
+          "type": "integer"
         },
         "turns": {
           "type": "array",

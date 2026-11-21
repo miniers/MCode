@@ -1457,7 +1457,9 @@ func (s *chatState) selectThreadState(threadID string, knownEmpty bool, expected
 	s.revealProgress = nil
 	s.revealedMsgs = make(map[string]bool)
 	s.streamedRevealMsgs = make(map[string]struct{})
-	s.toolDiff = toolDiffState{generation: s.toolDiff.generation + 1}
+	// 改动缓存按会话保留：来回切换同一批会话时直接命中上次的 diff，不再重新起 git 子进程。
+	s.toolDiff.generation++
+	s.retainToolDiffThreadsLocked(threadID)
 	s.approvals = nil
 	s.threadUsage = ThreadUsage{}
 	s.lastLiveID = ""

@@ -7,20 +7,27 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
-	"mcode/internal/git"
 )
 
 // threadChangeStatsTTL 是空闲状态下改动统计缓存的刷新间隔。
-const threadChangeStatsTTL = 15 * time.Second
+// 一次统计要对最近 50 个轮次各起一个 git numstat，大会话上这是几十个子进程；
+// 数字只在一轮跑完时才会变（那种情况另有强制刷新），空闲期没有必要隔一分钟重算一次。
+const threadChangeStatsTTL = 5 * time.Minute
 
 var (
 	threadChangeStatsMu     sync.Mutex
 	threadChangeStatsStates = make(map[*chatState]*threadChangeStats)
 )
 
-// threadChangeStats 维护单个窗口的会话改动统计缓存。
+// threadChangeStats 维护单个窗口各会话的改动统计缓存。
+// 按会话分开保存：切换会话时直接命中该会话上一次的结果，不必重跑整会话 diff
+// （一轮统计要对最近 50 个轮次各起一个 git numstat，大会话切换时就是几十个子进程）。
 type threadChangeStats struct {
-	threadID    string
+	byThread map[string]*threadChangeStatsEntry
+}
+
+// threadChangeStatsEntry 是一个会话的改动统计与加载状态。
+type threadChangeStatsEntry struct {
 	additions   int
 	deletions   int
 	files       int
@@ -28,6 +35,10 @@ type threadChangeStats struct {
 	loadedAt    time.Time
 	lastRunning bool
 }
+
+// kThreadChangeStatsCache 是统计缓存保留的会话数上限，超出时淘汰最久未加载的会话。
+// 一条缓存只有三个数字，留几十个会话的开销可以忽略。
+const kThreadChangeStatsCache = 50
 
 // ensureThreadChangeStats 按需在后台刷新指定会话的增删行统计。
 // 会话切换、运行刚结束（isRunning 由 true 变 false）或空闲超过 15 秒时重新拉取。
@@ -37,77 +48,76 @@ func (s *chatState) ensureThreadChangeStats(threadID string, isRunning bool) {
 	}
 	threadChangeStatsMu.Lock()
 	st := threadChangeStatsStates[s]
-	if st == nil {
-		st = &threadChangeStats{}
+	if st == nil || st.byThread == nil {
+		st = &threadChangeStats{byThread: make(map[string]*threadChangeStatsEntry)}
 		threadChangeStatsStates[s] = st
 	}
-	switched := st.threadID != threadID
-	wasRunning := st.lastRunning
-	st.lastRunning = isRunning
+	entry := st.byThread[threadID]
+	if entry == nil {
+		entry = &threadChangeStatsEntry{}
+		st.byThread[threadID] = entry
+		trimThreadChangeStatsLocked(st)
+	}
+	wasRunning := entry.lastRunning
+	entry.lastRunning = isRunning
 	needLoad := false
 	switch {
-	case switched:
+	case entry.loadedAt.IsZero() && !entry.loading:
 		needLoad = true
-	case st.loading:
+	case entry.loading:
 		// 已有加载在途，等它落地。
 	case wasRunning && !isRunning:
 		// 运行刚结束，改动可能已经变化，强制刷新一次。
 		needLoad = true
-	case !isRunning && time.Since(st.loadedAt) > threadChangeStatsTTL:
+	case !isRunning && time.Since(entry.loadedAt) > threadChangeStatsTTL:
 		needLoad = true
 	}
 	if !needLoad {
 		threadChangeStatsMu.Unlock()
 		return
 	}
-	if switched {
-		// 切换会话时先清掉旧统计，避免显示上一个会话的数字。
-		st.additions, st.deletions, st.files = 0, 0, 0
-		st.loadedAt = time.Time{}
-		st.threadID = threadID
-	}
-	st.loading = true
+	entry.loading = true
 	threadChangeStatsMu.Unlock()
 
 	go func(tid string) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		data, err := s.client.Diff(ctx, tid, "")
+		// 只要三个数字：统计走 statOnly，不生成 diff 正文，也不逐个轮次起 git 子进程。
+		stats, err := s.client.DiffStats(context.Background(), tid)
 		add, del, files := 0, 0, 0
-		if err == nil && data.Diff != "" {
-			if parsed, parseErr := git.ParseUnifiedDiff([]byte(data.Diff)); parseErr == nil {
-				files = len(parsed)
-				for _, f := range parsed {
-					if f.IsDeferred {
-						add += f.Additions
-						del += f.Deletions
-						continue
-					}
-					for _, h := range f.Hunks {
-						for _, l := range h.Lines {
-							switch l.Kind {
-							case '+':
-								add++
-							case '-':
-								del++
-							}
-						}
-					}
-				}
-			}
+		if err == nil {
+			add, del, files = stats.Additions, stats.Deletions, stats.Files
 		}
 
 		threadChangeStatsMu.Lock()
 		defer threadChangeStatsMu.Unlock()
-		if st.threadID != tid {
-			return
+		if e := st.byThread[tid]; e != nil {
+			e.loading = false
+			e.loadedAt = time.Now()
+			// 出错或解析失败时清零，不提示。
+			e.additions, e.deletions, e.files = add, del, files
 		}
-		st.loading = false
-		st.loadedAt = time.Now()
-		// 出错或解析失败时清零，不提示。
-		st.additions, st.deletions, st.files = add, del, files
 		s.invalidate()
 	}(threadID)
+}
+
+// trimThreadChangeStatsLocked 把统计缓存裁剪到 kThreadChangeStatsCache 个会话。
+// 在途加载的条目没有加载时间，不参与淘汰。调用方需持有 threadChangeStatsMu。
+func trimThreadChangeStatsLocked(st *threadChangeStats) {
+	for len(st.byThread) > kThreadChangeStatsCache {
+		oldestID := ""
+		var oldest time.Time
+		for id, e := range st.byThread {
+			if e.loading {
+				continue
+			}
+			if oldestID == "" || e.loadedAt.Before(oldest) {
+				oldestID, oldest = id, e.loadedAt
+			}
+		}
+		if oldestID == "" {
+			return
+		}
+		delete(st.byThread, oldestID)
+	}
 }
 
 // releaseThreadChangeStats 在窗口关闭时清理改动统计缓存。
@@ -125,10 +135,14 @@ func threadChangeStatsFor(s *chatState, threadID string) (add, del, files int, o
 	threadChangeStatsMu.Lock()
 	defer threadChangeStatsMu.Unlock()
 	st := threadChangeStatsStates[s]
-	if st == nil || st.threadID != threadID || st.loadedAt.IsZero() {
+	if st == nil {
 		return 0, 0, 0, false
 	}
-	return st.additions, st.deletions, st.files, true
+	entry := st.byThread[threadID]
+	if entry == nil || entry.loadedAt.IsZero() {
+		return 0, 0, 0, false
+	}
+	return entry.additions, entry.deletions, entry.files, true
 }
 
 // renderThreadChangesTab 渲染输入框上方的紧凑统计行：

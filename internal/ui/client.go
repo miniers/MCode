@@ -358,6 +358,14 @@ type ThreadDiff struct {
 	FailureReason string
 }
 
+// ThreadDiffStats 是会话整体改动统计：改动文件数与增删行数。
+// 输入框上方的改动胶囊只需要这三个数字，取统计时不必生成 diff 正文。
+type ThreadDiffStats struct {
+	Files     int
+	Additions int
+	Deletions int
+}
+
 // ErrRevisionConflict 表示数据已被其他地方修改，调用方应提示用户刷新。
 var ErrRevisionConflict = errors.New("revision conflict")
 
@@ -1158,6 +1166,8 @@ type Client interface {
 	RemoveProject(projectID string) error
 	// Diff 获取指定会话或指定轮次的代码改动，turnID 为空表示整个会话。
 	Diff(ctx context.Context, threadID, turnID string) (ThreadDiff, error)
+	// DiffStats 只取指定会话的整体改动统计，不生成 diff 正文。
+	DiffStats(ctx context.Context, threadID string) (ThreadDiffStats, error)
 	// KanbanBoard 获取看板数据，projectID 为空返回全部。
 	KanbanBoard(ctx context.Context, projectID string) (KanbanBoard, error)
 	// CreateTask 在指定项目下创建新任务。

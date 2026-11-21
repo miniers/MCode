@@ -37,6 +37,7 @@ type toolDiffState struct {
 	entries    map[string]*toolDiffEntry       // 按 "threadID|turnID" 缓存；轮次尚未解析出时按 "threadID|#轮次序号" 临时记录
 	inline     map[string]*toolDiffInlineEntry // 按消息 ID 缓存 patch 解析结果
 	inlineSeq  []string                        // 内嵌 diff 缓存的最近使用顺序，超出上限时淘汰最旧条目
+	threads    []string                        // 最近访问的会话 ID（MRU），切换时据此保留改动缓存
 }
 
 // toolDiffInlineEntry 缓存一条消息的 patch 文件与增删统计；指纹变化时作废。
@@ -57,6 +58,98 @@ type toolDiffFileStats struct {
 type toolDiffInlineData struct {
 	files []git.FileDiff
 	stats []toolDiffFileStats
+}
+
+// 改动缓存按“会话 + 轮次”保留，切换会话时不再整表丢弃：来回切换同一批会话时，
+// 每次丢弃都会让可见的改动卡片重跑 git diff，子进程风暴与界面渲染抢 CPU。
+// 实测一个 954 条消息、26 轮的会话整份 diff 正文只有 53KB，缓存按会话多留几个很便宜；
+// 同时按估算字节数兜底，避免个别超大 diff 无限增长。
+const (
+	kToolDiffThreadCache = 8
+	kToolDiffCacheBytes  = 32 << 20
+)
+
+// retainToolDiffThreadsLocked 记录本次访问的会话并裁掉更早会话的改动缓存。
+// 在途加载按旧的 generation 已经作废，占位条目可以丢掉：留着会永远停在“正在读取改动”。
+// 调用方需持有 s.mu，并自行递增 generation。
+func (s *chatState) retainToolDiffThreadsLocked(threadID string) {
+	if threadID == "" {
+		return
+	}
+	keep := make([]string, 0, kToolDiffThreadCache)
+	seen := make(map[string]bool, kToolDiffThreadCache)
+	for _, tid := range append([]string{threadID}, s.toolDiff.threads...) {
+		if tid == "" || seen[tid] {
+			continue
+		}
+		seen[tid] = true
+		keep = append(keep, tid)
+		if len(keep) == kToolDiffThreadCache {
+			break
+		}
+	}
+	s.toolDiff.threads = keep
+	allowed := func(key string) bool {
+		tid, _, _ := strings.Cut(key, "|")
+		return seen[tid]
+	}
+	trim := func(entries map[string]*toolDiffEntry) {
+		for key, entry := range entries {
+			if entry != nil && entry.loading || !allowed(key) {
+				delete(entries, key)
+			}
+		}
+	}
+	trim(s.toolDiff.entries)
+	trim(s.toolDiff.reviews)
+	for key := range s.toolDiff.turnKey {
+		if !allowed(key) {
+			delete(s.toolDiff.turnKey, key)
+		}
+	}
+	seq := s.toolDiff.reviewSeq[:0]
+	for _, key := range s.toolDiff.reviewSeq {
+		if allowed(key) {
+			seq = append(seq, key)
+		}
+	}
+	s.toolDiff.reviewSeq = seq
+	// 字节兜底：从最久没访问的会话开始丢，当前会话不丢。
+	for len(s.toolDiff.threads) > 1 && s.toolDiffCacheBytesLocked() > kToolDiffCacheBytes {
+		drop := s.toolDiff.threads[len(s.toolDiff.threads)-1]
+		s.toolDiff.threads = s.toolDiff.threads[:len(s.toolDiff.threads)-1]
+		for key := range s.toolDiff.entries {
+			if tid, _, _ := strings.Cut(key, "|"); tid == drop {
+				delete(s.toolDiff.entries, key)
+			}
+		}
+		for key := range s.toolDiff.reviews {
+			if tid, _, _ := strings.Cut(key, "|"); tid == drop {
+				delete(s.toolDiff.reviews, key)
+			}
+		}
+		for key := range s.toolDiff.turnKey {
+			if tid, _, _ := strings.Cut(key, "|"); tid == drop {
+				delete(s.toolDiff.turnKey, key)
+			}
+		}
+	}
+}
+
+// toolDiffCacheBytesLocked 估算当前保留的改动缓存字节数。调用方需持有 s.mu。
+func (s *chatState) toolDiffCacheBytesLocked() int {
+	total := 0
+	for _, entry := range s.toolDiff.entries {
+		if entry != nil {
+			total += entry.bytes
+		}
+	}
+	return total
+}
+
+// toolDiffEntryBytes 估算一轮改动缓存占用的字节数：diff 正文按解析后的行与结构放大两倍。
+func toolDiffEntryBytes(diff string) int {
+	return len(diff)*2 + 512
 }
 
 // toolDiffFileStatsFor 统计单个文件的增删与总行数，只在解析或加载时调用一次。
@@ -156,6 +249,8 @@ type toolDiffEntry struct {
 	failure   string
 	files     []git.FileDiff
 	truncated bool
+	// bytes 是这条缓存占用的估算字节数：diff 正文长度乘 2（解析后的行与结构）。
+	bytes int
 }
 
 // fileEditToolNames 为算作文件修改的工具名（已转小写并去掉 _ 与 -）。
@@ -477,6 +572,7 @@ func (s *chatState) loadToolDiff(threadID string, turnIndex int, turnID string, 
 			case data.FailureReason != "":
 				entry.failure = data.FailureReason
 			default:
+				entry.bytes = toolDiffEntryBytes(data.Diff)
 				if data.Diff != "" {
 					files, parseErr := git.ParseUnifiedDiff([]byte(data.Diff))
 					if parseErr != nil {

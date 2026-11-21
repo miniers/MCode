@@ -1135,6 +1135,8 @@ type ProvidersListResult struct {
 type ThreadsGetDiffParams struct {
 	ThreadID string  `json:"threadID"`
 	TurnID   *string `json:"turnID,omitempty"`
+	// StatOnly 为真时只返回改动统计（文件数、增删行数），不生成 diff 正文与轮次摘要。
+	StatOnly bool `json:"statOnly,omitempty"`
 }
 
 // ReviewTurn 对应 RemoteReviewTurn
@@ -1155,6 +1157,8 @@ type ThreadsGetDiffResult struct {
 	Diff              string       `json:"diff"`
 	Truncated         bool         `json:"truncated"`
 	FilesChanged      []string     `json:"filesChanged"`
+	Additions         int          `json:"additions"`
+	Deletions         int          `json:"deletions"`
 	Turns             []ReviewTurn `json:"turns"`
 	FailureReason     *string      `json:"failureReason,omitempty"`
 	MetadataTruncated *bool        `json:"metadataTruncated,omitempty"`
