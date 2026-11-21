@@ -269,3 +269,59 @@ func TestStorageClean_TrustBoundaryAndPartialFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestScanDeletedSessionItemsCompressed(t *testing.T) {
+	dir, _, _, _, client := setupStorageTestEnv(t)
+
+	// 存活会话的 .jsonl.zst 不得列出；已删会话的 .jsonl.zst 必须列出并能按 ID 清理。
+	liveZst := filepath.Join(dir, "mcode", "sessions", "sess-live.jsonl.zst")
+	deletedZst := filepath.Join(dir, "mcode", "sessions", "sess-deleted-zst.jsonl.zst")
+	writeTestBytes(t, liveZst, 111)
+	writeTestBytes(t, deletedZst, 222)
+
+	report, err := client.StorageScan(context.Background())
+	if err != nil {
+		t.Fatalf("StorageScan: %v", err)
+	}
+
+	got := make(map[string]mcodeui.StorageItem, len(report.Items))
+	for _, it := range report.Items {
+		got[it.ID] = it
+	}
+	if _, ok := got["mcode/sessions/sess-live.jsonl.zst"]; ok {
+		t.Fatalf("存活会话的 .jsonl.zst 不应被扫描为可清理项")
+	}
+	wantID := "mcode/sessions/sess-deleted-zst.jsonl.zst"
+	item, ok := got[wantID]
+	if !ok {
+		t.Fatalf("未扫描到已删会话的压缩文件 %s, got=%+v", wantID, got)
+	}
+	if item.Category != mcodeui.StorageCategoryDeletedSessions || item.Bytes != 222 {
+		t.Fatalf("压缩文件条目不匹配: %+v", item)
+	}
+
+	var trashed []string
+	oldTrash := moveToTrash
+	moveToTrash = func(path string) error {
+		trashed = append(trashed, path)
+		return os.RemoveAll(path)
+	}
+	t.Cleanup(func() { moveToTrash = oldTrash })
+
+	freed, err := client.StorageClean(context.Background(), []string{wantID})
+	if err != nil {
+		t.Fatalf("StorageClean: %v", err)
+	}
+	if freed != 222 {
+		t.Fatalf("freed = %d, want 222", freed)
+	}
+	if len(trashed) != 1 || trashed[0] != deletedZst {
+		t.Fatalf("trashed = %v, want [%s]", trashed, deletedZst)
+	}
+	if _, err := os.Stat(deletedZst); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("%s 应已被清理, err=%v", deletedZst, err)
+	}
+	if _, err := os.Stat(liveZst); err != nil {
+		t.Fatalf("存活会话 %s 不应被删, err=%v", liveZst, err)
+	}
+}

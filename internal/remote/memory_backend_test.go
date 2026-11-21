@@ -1829,6 +1829,29 @@ func TestDeleteThreadRemovesThreadFiles(t *testing.T) {
 	assertPathMissingForTest(t, soTool)
 	assertPathMissingForTest(t, soMedia)
 	assertPathMissingForTest(t, soJSONL)
+
+	// 4. 仅存在 .jsonl.zst 压缩会话文件时，删除会话也能一并清除 .jsonl.zst
+	r4, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread r4: %v", err)
+	}
+	if err := st.UpdateThreadSession(ctx, r4.ThreadID, "sess-zst"); err != nil {
+		t.Fatalf("UpdateThreadSession r4: %v", err)
+	}
+	backend.mu.Lock()
+	backend.threads[r4.ThreadID].sessionID = "sess-zst"
+	backend.mu.Unlock()
+	zstTool, zstMedia, zstJSONL := seedThreadFilesForTest(t, dataDir, r4.ThreadID, "sess-zst")
+	zstPath := zstJSONL + ".zst"
+	if err := os.Rename(zstJSONL, zstPath); err != nil {
+		t.Fatalf("rename to .jsonl.zst: %v", err)
+	}
+	if err := backend.DeleteThread(ctx, r4.ThreadID); err != nil {
+		t.Fatalf("DeleteThread r4: %v", err)
+	}
+	assertPathMissingForTest(t, zstTool)
+	assertPathMissingForTest(t, zstMedia)
+	assertPathMissingForTest(t, zstPath)
 }
 
 func TestRemoveProjectRemovesThreadFiles(t *testing.T) {

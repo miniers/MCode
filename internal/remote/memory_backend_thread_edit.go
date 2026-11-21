@@ -983,7 +983,7 @@ func isSafeRelID(id string) bool {
 	return true
 }
 
-// removeThreadFiles 清理单个会话的 tool-outputs、media 目录及未共享的 mcode/sessions/<sessionID>.jsonl。
+// removeThreadFiles 清理单个会话的 tool-outputs、media 目录及未共享的 mcode/sessions/<sessionID>.jsonl（含 .jsonl.zst）。
 // 失败仅记录日志，不中断删除流程。
 func removeThreadFiles(dataDir, threadID, sessionID string) {
 	if dataDir == "" {
@@ -998,9 +998,11 @@ func removeThreadFiles(dataDir, threadID, sessionID string) {
 		}
 	}
 	if isSafeRelID(sessionID) {
-		sessionPath := filepath.Join(dataDir, "mcode", "sessions", sessionID+".jsonl")
-		if err := os.Remove(sessionPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.Printf("delete session file %s for thread %s failed: %v", sessionID, threadID, err)
+		for _, ext := range []string{".jsonl", ".jsonl.zst"} {
+			sessionPath := filepath.Join(dataDir, "mcode", "sessions", sessionID+ext)
+			if err := os.Remove(sessionPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				log.Printf("delete session file %s for thread %s failed: %v", sessionID+ext, threadID, err)
+			}
 		}
 	}
 }

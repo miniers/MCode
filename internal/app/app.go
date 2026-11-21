@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"mcode/internal/agent/llm"
+	"mcode/internal/agent/session"
 	"mcode/internal/agentconf"
 	"mcode/internal/apisource"
 	"mcode/internal/attention"
@@ -1641,6 +1642,19 @@ func Open(opts Options) (*App, error) {
 							deleted++
 						}
 						log.Printf("已归档子代理清理: 删除会话 %d 个", deleted)
+					}
+				}
+
+				if ctx.Err() == nil && opts.DataDir != "" {
+					sessionsDir := filepath.Join(opts.DataDir, "mcode", "sessions")
+					files, savedBytes, err := session.NewStore(sessionsDir).CompressIdle(7 * 24 * time.Hour)
+					if err != nil {
+						log.Printf("会话文件压缩: 执行失败（已压缩 %d 个，节省 %d 字节）: %v", files, savedBytes, err)
+						if firstErr == nil {
+							firstErr = err
+						}
+					} else {
+						log.Printf("会话文件压缩: 压缩 %d 个文件，节省 %d 字节", files, savedBytes)
 					}
 				}
 

@@ -202,10 +202,15 @@ func scanDeletedSessionItems(ctx context.Context, dataDir string, threadIDs, ses
 			continue
 		}
 		name := e.Name()
-		if !strings.HasSuffix(name, ".jsonl") {
+		var sid string
+		switch {
+		case strings.HasSuffix(name, ".jsonl.zst"):
+			sid = strings.TrimSuffix(name, ".jsonl.zst")
+		case strings.HasSuffix(name, ".jsonl"):
+			sid = strings.TrimSuffix(name, ".jsonl")
+		default:
 			continue
 		}
-		sid := strings.TrimSuffix(name, ".jsonl")
 		if sid == "" || sessionIDs[sid] {
 			continue
 		}
