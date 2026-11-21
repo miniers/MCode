@@ -27,10 +27,16 @@ import {
   EyeIcon,
   LockIcon,
   PlayIcon,
+  SearchIcon,
   SparklesIcon,
   XMarkIcon
 } from './Icons';
 import { formatRelativeTime } from '../utils/date';
+import {
+  filterKanbanGoals,
+  filterKanbanTasks,
+  type KanbanStatusFilter
+} from '../utils/taskFilter';
 import {
   goalStatusClass,
   goalStatusLabel,
@@ -46,6 +52,13 @@ const COLUMN_ORDER: KanbanDisplayColumn[] = [
   'in_progress',
   'todo',
   'done'
+];
+
+const KANBAN_FILTER_OPTIONS: readonly { value: KanbanStatusFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'needs_you', label: '待你处理' },
+  { value: 'review', label: '待审阅' },
+  { value: 'steward', label: '总管' }
 ];
 
 interface KanbanBoardProps {
@@ -625,18 +638,33 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const [taskActionBusyID, setTaskActionBusyID] = useState<string | null>(null);
   const [taskActionBusyText, setTaskActionBusyText] = useState<string | null>(null);
   const [taskActionError, setTaskActionError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<KanbanStatusFilter>('all');
 
   const projectMap = useMemo(() => new Map((board?.projects ?? []).map((project) => [project.id, project.name])), [board?.projects]);
   const goalMap = useMemo(() => new Map((board?.goals ?? []).map((goal) => [goal.id, goal])), [board?.goals]);
   const menuGoal = menuGoalID ? (goalMap.get(menuGoalID) ?? null) : null;
-  const filteredTasks = useMemo(
+  const projectTasks = useMemo(
     () => (board?.tasks ?? []).filter((task) => !selectedProjectID || task.projectID === selectedProjectID),
     [board?.tasks, selectedProjectID]
   );
-  const filteredGoals = useMemo(
+  const projectGoals = useMemo(
     () => (board?.goals ?? []).filter((goal) => !selectedProjectID || goal.projectID === selectedProjectID),
     [board?.goals, selectedProjectID]
   );
+  const filteredTasks = useMemo(
+    () => filterKanbanTasks(projectTasks, searchQuery, statusFilter),
+    [projectTasks, searchQuery, statusFilter]
+  );
+  const filteredGoals = useMemo(
+    () => filterKanbanGoals(projectGoals, searchQuery, statusFilter),
+    [projectGoals, searchQuery, statusFilter]
+  );
+  const hasActiveFilter = searchQuery.trim().length > 0 || statusFilter !== 'all';
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+  };
   const goalsWithoutTasks = useMemo(
     () => filteredGoals.filter((goal) => !filteredTasks.some((task) => task.goalID === goal.id)),
     [filteredGoals, filteredTasks]
@@ -662,18 +690,18 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
   const planReviewGoal = planReviewGoalID ? (goalMap.get(planReviewGoalID) ?? null) : null;
   const planReviewTasks = useMemo(
-    () => (planReviewGoal ? filteredTasks.filter((task) => task.goalID === planReviewGoal.id) : []),
-    [filteredTasks, planReviewGoal]
+    () => (planReviewGoal ? projectTasks.filter((task) => task.goalID === planReviewGoal.id) : []),
+    [projectTasks, planReviewGoal]
   );
 
   // plan_review 目标首次出现时自动打开一次规划审查，记录弹过的目标避免重复弹出
   useEffect(() => {
     if (planReviewGoalID) return;
-    const next = filteredGoals.find((goal) => goal.status === 'plan_review' && !planReviewSeenIDs.includes(goal.id));
+    const next = projectGoals.find((goal) => goal.status === 'plan_review' && !planReviewSeenIDs.includes(goal.id));
     if (!next) return;
     setPlanReviewSeenIDs((ids) => (ids.includes(next.id) ? ids : [...ids, next.id]));
     setPlanReviewGoalID(next.id);
-  }, [filteredGoals, planReviewGoalID, planReviewSeenIDs]);
+  }, [projectGoals, planReviewGoalID, planReviewSeenIDs]);
 
   const openPlanReview = (goal: Goal) => {
     setMenuGoalID(null);
@@ -996,34 +1024,96 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           <button type="button" className="inline-alert__action" onClick={() => setTaskActionError(null)}>关闭</button>
         </div>
       )}
-      <div className="home-toolbar home-toolbar--board">
-        <p className="min-w-0 truncate text-xs text-muted">
-          {filteredTasks.length} 个任务 · {filteredGoals.length} 个目标
-        </p>
-        <button
-          type="button"
-          className={`secondary-button min-h-9 shrink-0 whitespace-nowrap px-3 text-xs ${groupByGoal ? 'border-primary text-primary' : ''}`}
-          onClick={() => setGroupByGoal((value) => !value)}
-          aria-pressed={groupByGoal}
-        >
-          <SparklesIcon className="h-3.5 w-3.5" />按目标分组
-        </button>
+      <div className="home-toolbar home-toolbar--board flex-col !items-stretch !gap-2">
+        <div className="flex items-center justify-between gap-2.5">
+          <p className="min-w-0 truncate text-xs text-muted">
+            {filteredTasks.length} 个任务 · {filteredGoals.length} 个目标
+          </p>
+          <button
+            type="button"
+            className={`secondary-button min-h-9 shrink-0 whitespace-nowrap px-3 text-xs ${groupByGoal ? 'border-primary text-primary' : ''}`}
+            onClick={() => setGroupByGoal((value) => !value)}
+            aria-pressed={groupByGoal}
+          >
+            <SparklesIcon className="h-3.5 w-3.5" />按目标分组
+          </button>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="search-field min-w-0 sm:max-w-xs sm:flex-1">
+            <SearchIcon className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && searchQuery) {
+                  setSearchQuery('');
+                }
+              }}
+              placeholder="筛选任务或目标"
+              aria-label="筛选任务或目标"
+              className="text-base sm:text-sm"
+              enterKeyHint="search"
+              autoComplete="off"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="search-field__clear touch-hit-44"
+                aria-label="清除搜索"
+                onClick={() => setSearchQuery('')}
+              >
+                <XMarkIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="filter-row !mt-0" role="toolbar" aria-label="筛选任务状态">
+            {KANBAN_FILTER_OPTIONS.map((option) => {
+              const selected = statusFilter === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`filter-chip touch-hit-44 ${selected ? 'filter-chip--active' : ''}`}
+                  aria-pressed={selected}
+                  onClick={() => setStatusFilter(option.value)}
+                >
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="home-list__scroll kanban-scroll">
         {!board ? (
           <div className="empty-state" role="status"><span className="loading-spinner" /><span>正在加载看板…</span></div>
         ) : filteredTasks.length === 0 && filteredGoals.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state__icon"><CheckCircleIcon className="h-6 w-6" /></div>
-            <h2>{selectedProjectID ? '此项目暂无任务' : '还没有任务'}</h2>
-            <p>点右下角的 + 创建新任务或目标。</p>
-            {canCreateTask && quickAddProjectID && (
-              <div className="mt-3 w-full max-w-sm text-left">
-                <KanbanQuickAdd onSubmit={quickAddTask} />
-              </div>
-            )}
-          </div>
+          hasActiveFilter ? (
+            <div className="empty-state">
+              <div className="empty-state__icon"><SearchIcon className="h-6 w-6" aria-hidden="true" /></div>
+              <h2>没有匹配的任务</h2>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={clearFilters}
+              >
+                清除筛选
+              </button>
+            </div>
+          ) : (
+            <div className="empty-state">
+              <div className="empty-state__icon"><CheckCircleIcon className="h-6 w-6" /></div>
+              <h2>{selectedProjectID ? '此项目暂无任务' : '还没有任务'}</h2>
+              <p>点右下角的 + 创建新任务或目标。</p>
+              {canCreateTask && quickAddProjectID && (
+                <div className="mt-3 w-full max-w-sm text-left">
+                  <KanbanQuickAdd onSubmit={quickAddTask} />
+                </div>
+              )}
+            </div>
+          )
         ) : (
           <div className="thread-list kanban-board-body" aria-live="polite">
             {topGoals.length > 0 && (

@@ -16,9 +16,10 @@ import { useRemoteStatic } from '../context/RemoteContext';
 import { pickableProjects } from '../utils/builtinProjects';
 import { formatRelativeTime } from '../utils/date';
 import { automationRunStatusInfo } from '../utils/taskStatus';
+import { filterAutomations, type AutomationStatusFilter } from '../utils/taskFilter';
 import { AutomationEditForm } from './AutomationEditForm';
 import { ConfirmDialog } from './ConfirmDialog';
-import { ArchiveBoxIcon, ChevronRightIcon, ClockIcon, DocumentTextIcon, PlayIcon, XMarkIcon } from './Icons';
+import { ArchiveBoxIcon, ChevronRightIcon, ClockIcon, DocumentTextIcon, PlayIcon, SearchIcon, XMarkIcon } from './Icons';
 
 export interface AutomationSheetProps {
   /** 当前项目 ID；为 null（全部项目）时自动提供项目切换条并默认选中第一个项目。 */
@@ -55,6 +56,11 @@ const SMALL_BUTTON_CLASS =
 const UNREAD_BADGE_CLASS =
   'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] px-1 ' +
   'text-mc-caption font-bold leading-none text-white';
+const AUTOMATION_FILTER_OPTIONS: readonly { value: AutomationStatusFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'failed', label: '失败' },
+  { value: 'paused', label: '已暂停' }
+];
 
 export const AutomationSheet: React.FC<AutomationSheetProps> = ({
   projectID,
@@ -156,6 +162,8 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [busyAutomationID, setBusyAutomationID] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<AutomationStatusFilter>('all');
   // 删除与重置需要二次确认，对应桌面端的 confirmDelete 流程。
   const [confirm, setConfirm] = useState<{
     kind: 'delete' | 'reset';
@@ -163,6 +171,14 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
   } | null>(null);
 
   const active = useMemo(() => automations.find((item) => item.id === activeID) ?? null, [automations, activeID]);
+  const filteredAutomations = useMemo(
+    () => filterAutomations(automations, searchQuery, statusFilter),
+    [automations, searchQuery, statusFilter]
+  );
+  const clearFilters = useCallback(() => {
+    setSearchQuery('');
+    setStatusFilter('all');
+  }, []);
 
   const openRuns = useCallback(
     (item: RemoteAutomationExtAutomation) => {
@@ -335,6 +351,56 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
       </div>
     ) : null;
 
+  const filterControls =
+    !activeID && !editor ? (
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="search-field min-w-0 sm:max-w-xs sm:flex-1">
+          <SearchIcon className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && searchQuery) {
+                setSearchQuery('');
+              }
+            }}
+            placeholder="筛选自动化"
+            aria-label="筛选自动化"
+            className="text-base sm:text-sm"
+            enterKeyHint="search"
+            autoComplete="off"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className="search-field__clear touch-hit-44"
+              aria-label="清除搜索"
+              onClick={() => setSearchQuery('')}
+            >
+              <XMarkIcon className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="filter-row !mt-0" role="toolbar" aria-label="筛选自动化状态">
+          {AUTOMATION_FILTER_OPTIONS.map((option) => {
+            const selected = statusFilter === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`filter-chip touch-hit-44 ${selected ? 'filter-chip--active' : ''}`}
+                aria-pressed={selected}
+                onClick={() => setStatusFilter(option.value)}
+              >
+                <span>{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    ) : null;
+
   const panelBody = (
     <>
       {inline ? (
@@ -379,6 +445,7 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
             )}
           </div>
           {projectSwitcher}
+          {filterControls}
         </div>
       ) : (
         <>
@@ -423,6 +490,7 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
             </div>
           </div>
           {projectSwitcher && <div className="mb-3">{projectSwitcher}</div>}
+          {filterControls && <div className="mb-3">{filterControls}</div>}
         </>
       )}
 
@@ -508,9 +576,21 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
                   <p>自动化在桌面端创建，创建后这里可以查看运行记录。</p>
                 )}
               </div>
+            ) : filteredAutomations.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state__icon"><SearchIcon className="h-6 w-6" aria-hidden="true" /></div>
+                <h2>没有匹配的自动化</h2>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={clearFilters}
+                >
+                  清除筛选
+                </button>
+              </div>
             ) : (
               <div className="space-y-3 pb-2">
-                {automations.map((item) => (
+                {filteredAutomations.map((item) => (
                   <article key={item.id} className={CARD_CLASS}>
                     <div className="flex items-center justify-between gap-2">
                       <button
