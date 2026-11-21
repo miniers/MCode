@@ -646,38 +646,67 @@ func renderStewardDecisionDetailContent(c *ui.Context, s *chatState, ks *kanbanS
 		}
 	}
 
+	var projectName string
+	if found && s != nil {
+		var projectID string
+		if decision.TaskID != "" {
+			kanbanMu.Lock()
+			for _, task := range ks.board.Tasks {
+				if task.ID == decision.TaskID && task.ProjectID != "" {
+					projectID = task.ProjectID
+					break
+				}
+			}
+			kanbanMu.Unlock()
+		}
+		if projectID == "" && decision.ThreadID != "" {
+			s.mu.Lock()
+			for _, th := range s.threads {
+				if th.ID == decision.ThreadID && th.ProjectID != "" {
+					projectID = th.ProjectID
+					break
+				}
+			}
+			s.mu.Unlock()
+		}
+		if projectID != "" {
+			projectName = projectNameFor(s, projectID)
+		}
+	}
+
+	var onOpenThread func()
+	if found && decision.ThreadID != "" {
+		threadID := decision.ThreadID
+		onOpenThread = func() {
+			s.revealThread(threadID)
+		}
+	}
+
 	ui.Column(c.Key("kanban-decision-detail")).Label("kanban-decision-detail").Fill().MinWidth(0).Gap(0).Children(func() {
-		ui.Row(c.Key("kanban-decision-detail-header")).
-			FillWidth().
-			Padding(Space4, Space5).
-			AlignItems(ui.Center).
-			Gap(Space2).
-			BorderWidth(0, 0, Hairline, 0).
-			BorderColor(ThemeBorder(c)).
-			Children(func() {
-				renderStewardOriginBadge(c, "kanban-decision-detail-steward")
-				Badge(c, "kanban-decision-detail-status", "待你处理", ToneWarning).Shrink(0)
-				ui.Text(c, "决策详情").FontSize(uiFont(TypeBody)).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0)
-				IconButton(c.Key("kanban-decision-detail-close"), IconButtonProps{
-					Icon:    IconX(),
-					Label:   "关闭决策详情",
-					Tooltip: "关闭决策详情",
-					Variant: ButtonGhost,
-					OnClick: func() {
-						kanbanMu.Lock()
-						ks.detailDecisionID = ""
-						kanbanMu.Unlock()
-						s.invalidate()
-					},
-				})
-			})
+		renderTaskDetailDrawerHeader(c, taskDetailDrawerHeaderOpts{
+			Key:           "kanban-decision-detail-header",
+			OriginSteward: true,
+			StatusLabel:   "待你处理",
+			StatusColor:   ThemeWarning(c),
+			Title:         "决策详情",
+			ProjectName:   projectName,
+			ThreadID:      decision.ThreadID,
+			OnOpenThread:  onOpenThread,
+			CloseKey:      "kanban-decision-detail-close",
+			CloseLabel:    "关闭决策详情",
+			CloseTooltip:  "关闭决策详情",
+			OnClose: func() {
+				kanbanMu.Lock()
+				ks.detailDecisionID = ""
+				kanbanMu.Unlock()
+				s.invalidate()
+			},
+		})
 
 		if !found {
-			EmptyState(c, EmptyStateProps{
-				Key:     "kanban-decision-detail-empty",
-				Title:   "决策已处理",
-				Compact: true,
-			}).Fill().Center()
+			ui.Column(c.Key("kanban-decision-detail-empty-wrap")).Grow(1).FillWidth().Center().Padding(Space5).Children(func() {
+				renderTaskDetailDrawerEmpty(c, "kanban-decision-detail-empty", "决策已处理")
+			})
 			return
 		}
 

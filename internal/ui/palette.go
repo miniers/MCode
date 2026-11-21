@@ -58,6 +58,7 @@ type paletteState struct {
 	cachedTasks       []KanbanTask
 	cachedGoals       []KanbanGoal
 	cachedAutomations []Automation
+	cachedDecisions   []StewardDecisionItem
 	taskCacheSeq      uint64
 	taskCacheVer      uint64
 	cachedTaskVer     uint64
@@ -156,6 +157,26 @@ func readMemoryAutomationSnapshot(s *chatState) []Automation {
 	autos := make([]Automation, len(as.autos))
 	copy(autos, as.autos)
 	return autos
+}
+
+func readMemoryDecisionSnapshot(s *chatState) []StewardDecisionItem {
+	if s == nil {
+		return nil
+	}
+	stewardOpenMu.Lock()
+	st := stewardOpenStates[s]
+	stewardOpenMu.Unlock()
+	if st == nil {
+		return nil
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if len(st.openDecisions) == 0 {
+		return nil
+	}
+	decisions := make([]StewardDecisionItem, len(st.openDecisions))
+	copy(decisions, st.openDecisions)
+	return decisions
 }
 
 func paletteSlicesEqual[T any](a, b []T) bool {
@@ -344,12 +365,7 @@ func buildPaletteItems(s *chatState) []paletteItem {
 			})
 		}},
 		paletteItem{id: "cmd-tasks-attention", kind: "command", title: "待你处理", run: func(cs *chatState) {
-			paletteWithTasksWindow(cs, "tasks", func(ts *chatState) {
-				ks := getKanbanState(ts)
-				kanbanMu.Lock()
-				ks.viewFilter, ks.goalID = "attention", ""
-				kanbanMu.Unlock()
-			})
+			cs.openTasksWindowTarget(taskCenterTarget{Kind: "attention"})
 		}},
 	)
 	if automationCanCreate(s) {
@@ -473,6 +489,12 @@ func buildPaletteItems(s *chatState) []paletteItem {
 	for _, p := range projects {
 		projNames[p.ID] = p.Name
 	}
+	threadProjects := make(map[string]string, len(s.threads))
+	for _, th := range s.threads {
+		if th.ID != "" && th.ProjectID != "" {
+			threadProjects[th.ID] = th.ProjectID
+		}
+	}
 	s.mu.Unlock()
 
 	for _, th := range threads {
@@ -494,11 +516,12 @@ func buildPaletteItems(s *chatState) []paletteItem {
 		})
 	}
 
-	// 2.5 任务、目标与自动化（只读内存快照，严禁 IO）
+	// 2.5 未答决策、任务、目标与自动化（只读内存快照，严禁 IO）
 	var (
-		tasks []KanbanTask
-		goals []KanbanGoal
-		autos []Automation
+		tasks     []KanbanTask
+		goals     []KanbanGoal
+		autos     []Automation
+		decisions []StewardDecisionItem
 	)
 	if p := getPaletteState(s); p != nil {
 		paletteMu.Lock()
@@ -514,6 +537,10 @@ func buildPaletteItems(s *chatState) []paletteItem {
 			autos = make([]Automation, len(p.cachedAutomations))
 			copy(autos, p.cachedAutomations)
 		}
+		if len(p.cachedDecisions) > 0 {
+			decisions = make([]StewardDecisionItem, len(p.cachedDecisions))
+			copy(decisions, p.cachedDecisions)
+		}
 		paletteMu.Unlock()
 	}
 	if len(tasks) == 0 || len(goals) == 0 {
@@ -527,6 +554,67 @@ func buildPaletteItems(s *chatState) []paletteItem {
 	}
 	if len(autos) == 0 {
 		autos = readMemoryAutomationSnapshot(s)
+	}
+	if len(decisions) == 0 {
+		decisions = readMemoryDecisionSnapshot(s)
+	}
+
+	taskProjects := make(map[string]string, len(tasks))
+	for _, t := range tasks {
+		if t.ID != "" && t.ProjectID != "" {
+			taskProjects[t.ID] = t.ProjectID
+		}
+	}
+
+	for _, d := range decisions {
+		if d.ID == "" {
+			continue
+		}
+		if d.Status != "" && d.Status != "open" {
+			continue
+		}
+		decision := d
+		title := strings.TrimSpace(decision.Question)
+		if title == "" {
+			title = decision.ID
+		}
+		pid := ""
+		if decision.TaskID != "" {
+			pid = taskProjects[decision.TaskID]
+		}
+		if pid == "" && decision.ThreadID != "" {
+			pid = threadProjects[decision.ThreadID]
+		}
+		projName := projNames[pid]
+		subtitle := projName
+		if subtitle == "" {
+			subtitle = decision.TaskID
+		}
+		kwParts := []string{
+			"总管 决策 待你处理 decision steward",
+			decision.ID,
+			decision.TaskID,
+			projName,
+		}
+		items = append(items, paletteItem{
+			id:         "decision-" + decision.ID,
+			kind:       "decision",
+			title:      title,
+			subtitle:   subtitle,
+			statusText: "待你处理",
+			statusColor: func(c *ui.Context) ui.Color {
+				return ThemeWarning(c)
+			},
+			keywords: strings.Join(kwParts, " "),
+			run: func(cs *chatState) {
+				cs.openTasksWindowTarget(taskCenterTarget{
+					Kind:      "decision",
+					ID:        decision.ID,
+					ProjectID: pid,
+					Title:     decision.Question,
+				})
+			},
+		})
 	}
 
 	for _, t := range tasks {
@@ -826,9 +914,10 @@ func openPalette(s *chatState) {
 	clearMessageSearch(p)
 
 	var (
-		preTasks []KanbanTask
-		preGoals []KanbanGoal
-		preAutos []Automation
+		preTasks     []KanbanTask
+		preGoals     []KanbanGoal
+		preAutos     []Automation
+		preDecisions []StewardDecisionItem
 	)
 	if s != nil {
 		tasksWindowMu.Lock()
@@ -844,6 +933,11 @@ func openPalette(s *chatState) {
 		if len(preAutos) == 0 && ts != nil && ts != s {
 			preAutos = readMemoryAutomationSnapshot(ts)
 		}
+
+		preDecisions = readMemoryDecisionSnapshot(s)
+		if len(preDecisions) == 0 && ts != nil && ts != s {
+			preDecisions = readMemoryDecisionSnapshot(ts)
+		}
 	}
 
 	paletteMu.Lock()
@@ -856,6 +950,9 @@ func openPalette(s *chatState) {
 	if len(preAutos) > 0 {
 		p.cachedAutomations = preAutos
 	}
+	if len(preDecisions) > 0 {
+		p.cachedDecisions = preDecisions
+	}
 	p.taskCacheOpen = true
 	p.taskCacheSeq++
 	seq := p.taskCacheSeq
@@ -863,16 +960,19 @@ func openPalette(s *chatState) {
 
 	if s != nil && s.client != nil {
 		client := s.client
+		decClient, hasDecClient := client.(stewardDecisionListClient)
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
 			var (
-				board    KanbanBoard
-				boardErr error
-				autos    []Automation
-				autoErr  error
-				wg       sync.WaitGroup
+				board     KanbanBoard
+				boardErr  error
+				autos     []Automation
+				autoErr   error
+				decisions []StewardDecisionItem
+				decErr    error
+				wg        sync.WaitGroup
 			)
 			wg.Add(2)
 			go func() {
@@ -883,6 +983,13 @@ func openPalette(s *chatState) {
 				defer wg.Done()
 				autos, autoErr = client.Automations(ctx, "")
 			}()
+			if hasDecClient {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					decisions, decErr = decClient.StewardOpenDecisions(ctx)
+				}()
+			}
 			wg.Wait()
 
 			paletteMu.Lock()
@@ -904,6 +1011,12 @@ func openPalette(s *chatState) {
 			if autoErr == nil {
 				if !paletteSlicesEqual(p.cachedAutomations, autos) {
 					p.cachedAutomations = append([]Automation(nil), autos...)
+					changed = true
+				}
+			}
+			if hasDecClient && decErr == nil {
+				if !paletteSlicesEqual(p.cachedDecisions, decisions) {
+					p.cachedDecisions = append([]StewardDecisionItem(nil), decisions...)
 					changed = true
 				}
 			}
@@ -1145,6 +1258,8 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 										switch item.kind {
 										case "thread":
 											kindLabel = "会话"
+										case "decision":
+											kindLabel = "决策"
 										case "task":
 											kindLabel = "任务"
 										case "goal":

@@ -69,7 +69,8 @@ func TestPaletteCommandsAndBindings(t *testing.T) {
 
 func TestPaletteTaskCommands(t *testing.T) {
 	s := newChatState(NewFakeClient())
-	s.openTasksWindowFn = func(string) {}
+	var openedView string
+	s.openTasksWindowFn = func(view string) { openedView = view }
 	tasksWindowMu.Lock()
 	old := tasksWindowState
 	tasksWindowState = nil
@@ -116,14 +117,33 @@ func TestPaletteTaskCommands(t *testing.T) {
 	if ks.viewMode != config.KanbanViewKanban {
 		t.Fatal("未切换到看板")
 	}
-	ks.goalID = "goal"
 	paletteItemByID(items, "cmd-tasks-attention").run(s)
-	if ks.viewFilter != "attention" || ks.goalID != "" {
-		t.Fatal("未切换到待你处理")
+	if openedView != "attention" {
+		t.Fatalf("未切换到待你处理一级视图：openedView=%q", openedView)
 	}
 	s.projects = []Project{{ID: "p1"}}
 	if !paletteItemsHaveID(buildPaletteItems(s), "cmd-new-automation") {
 		t.Fatal("有项目时应出现新建自动化")
+	}
+}
+
+func TestPaletteCommandTasksAttention(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+
+	var got []taskCenterTarget
+	s.openTasksWindowTargetFn = func(target taskCenterTarget) {
+		got = append(got, target)
+	}
+
+	items := buildPaletteItems(s)
+	cmd := paletteItemByID(items, "cmd-tasks-attention")
+	if cmd == nil || cmd.run == nil {
+		t.Fatal("缺少命令 cmd-tasks-attention")
+	}
+	cmd.run(s)
+	if len(got) != 1 || got[0].Kind != "attention" {
+		t.Fatalf("cmd-tasks-attention 应触发 openTasksWindowTarget 且 Kind=attention，实际 %+v", got)
 	}
 }
 
@@ -863,5 +883,109 @@ func TestPaletteSearchesTasksGoalsAndAutomations(t *testing.T) {
 	if probe.boardCalls.Load() != bCalls || probe.autoCalls.Load() != aCalls {
 		t.Fatalf("渲染或 buildPaletteItems 期间不应触发额外 client IO：board %d->%d, auto %d->%d",
 			bCalls, probe.boardCalls.Load(), aCalls, probe.autoCalls.Load())
+	}
+}
+
+type paletteDecisionProbeClient struct {
+	*paletteSearchProbeClient
+	decCalls  atomic.Int32
+	decisions []StewardDecisionItem
+}
+
+func (c *paletteDecisionProbeClient) StewardOpenDecisions(_ context.Context) ([]StewardDecisionItem, error) {
+	c.decCalls.Add(1)
+	out := make([]StewardDecisionItem, len(c.decisions))
+	copy(out, c.decisions)
+	return out, nil
+}
+
+func TestPaletteSearchesStewardDecisions(t *testing.T) {
+	probe := &paletteDecisionProbeClient{
+		paletteSearchProbeClient: &paletteSearchProbeClient{FakeClient: NewFakeClient()},
+		decisions: []StewardDecisionItem{
+			{
+				ID:       "D-palette-1",
+				TaskID:   "task-dec-1",
+				ThreadID: "steward-1",
+				Question: "是否发布生产版本？",
+				Status:   "open",
+			},
+		},
+	}
+	probe.SetKanbanBoard(KanbanBoard{
+		Tasks: []KanbanTask{
+			{
+				ID:        "task-dec-1",
+				ProjectID: "p1",
+				Title:     "发布任务",
+				Status:    "needs_you",
+			},
+		},
+	})
+
+	state := newChatState(probe)
+	t.Cleanup(state.close)
+
+	var targets []taskCenterTarget
+	state.openTasksWindowTargetFn = func(target taskCenterTarget) {
+		targets = append(targets, target)
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		state.init(c)
+		if c.Shortcut(ui.Cmd, ui.KeyK) {
+			togglePalette(state)
+		}
+		renderCommandPalette(c, state)
+	}, 1000, 700)
+
+	waitFor(t, tt, func() bool {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return len(state.projects) > 0
+	})
+
+	tt.Key(ui.Cmd, ui.KeyK)
+	waitFor(t, tt, func() bool {
+		return probe.decCalls.Load() >= 1 && tt.HasText("是否发布生产版本？")
+	})
+
+	decCallsBefore := probe.decCalls.Load()
+	boardCallsBefore := probe.boardCalls.Load()
+	autoCallsBefore := probe.autoCalls.Load()
+
+	items := buildPaletteItems(state)
+	for _, query := range []string{"是否发布", "总管", "待你处理", "decision", "steward", "D-palette-1"} {
+		matched := filterPaletteItems(items, query)
+		if !paletteItemsHaveID(matched, "decision-D-palette-1") {
+			t.Errorf("搜索 %q 未命中 decision-D-palette-1，实际：%v", query, matched)
+		}
+	}
+
+	tt.Type("待你处理")
+	tt.Frame()
+	if !tt.HasText("决策") || !tt.HasText("是否发布生产版本？") {
+		t.Fatalf("命令面板应展示决策标签与问题标题：%v", tt.Texts())
+	}
+
+	for i := 0; i < 3; i++ {
+		_ = buildPaletteItems(state)
+		tt.Frame()
+	}
+	if probe.decCalls.Load() != decCallsBefore || probe.boardCalls.Load() != boardCallsBefore || probe.autoCalls.Load() != autoCallsBefore {
+		t.Fatalf("渲染与过滤期间不应触发额外 client IO：dec %d->%d, board %d->%d, auto %d->%d",
+			decCallsBefore, probe.decCalls.Load(),
+			boardCallsBefore, probe.boardCalls.Load(),
+			autoCallsBefore, probe.autoCalls.Load())
+	}
+
+	tt.Key(ui.Cmd, ui.KeyK)
+	tt.Key(ui.Cmd, ui.KeyK)
+	waitFor(t, tt, func() bool { return tt.HasText("是否发布生产版本？") })
+	tt.Type("是否发布生产版本")
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	if len(targets) != 1 || targets[0].Kind != "decision" || targets[0].ID != "D-palette-1" || targets[0].Title != "是否发布生产版本？" {
+		t.Fatalf("回车未直达决策详情：%v", targets)
 	}
 }

@@ -31,27 +31,26 @@ const attentionInboxPopoverMaxHeight float32 = 360
 // attentionInboxEmptyText 是列表为空时的简短空态文案。
 const attentionInboxEmptyText = "没有待处理"
 
-// attentionInboxKindGroup 是收件箱的一个分组：切片顺序就是浮层里的展示顺序。
+// attentionInboxKindGroup 是收件箱的一个分组：切片顺序就是浮层里的展示顺序，标题复用 attentionKindTitle。
 type attentionInboxKindGroup struct {
-	Kind  string // 对应 AttentionItem.Kind
-	Title string // 分组标题
+	kind string // 对应 AttentionItem.Kind
 }
 
-// attentionInboxGroups 是收件箱的分组顺序与标题：会话相关分组在前，看板、自动化、bee 在后。
+// attentionInboxGroups 是收件箱的分组顺序：会话相关分组在前，看板、自动化、bee 在后。
 var attentionInboxGroups = []attentionInboxKindGroup{
-	{Kind: "thread_stalled", Title: "会话卡住"},
-	{Kind: "thread_failed", Title: "会话出错"},
-	{Kind: "thread_quota", Title: "额度用尽"},
-	{Kind: "thread_approval", Title: "等待审批"},
-	{Kind: "kanban_failed", Title: "看板失败"},
-	{Kind: "kanban_needs_approval", Title: "看板待审批"},
-	{Kind: "kanban_review", Title: "看板待验收"},
-	{Kind: "merge_review_pending", Title: "合并待审阅"},
-	{Kind: "kanban_plan_failed", Title: "规划失败"},
-	{Kind: "automation_failed", Title: "自动化失败"},
-	{Kind: "automation_finished", Title: "自动化完成"},
-	{Kind: "bee_failed", Title: "子代理失败"},
-	{Kind: "thread_no_progress", Title: "任务无进展"},
+	{kind: "thread_stalled"},
+	{kind: "thread_failed"},
+	{kind: "thread_quota"},
+	{kind: "thread_approval"},
+	{kind: "kanban_failed"},
+	{kind: "kanban_needs_approval"},
+	{kind: "kanban_review"},
+	{kind: "merge_review_pending"},
+	{kind: "kanban_plan_failed"},
+	{kind: "automation_failed"},
+	{kind: "automation_finished"},
+	{kind: "bee_failed"},
+	{kind: "thread_no_progress"},
 }
 
 // attentionInboxOtherKind 是未登记 Kind 的归组键，保证后端新增类型的事件不会从列表里消失。
@@ -61,7 +60,7 @@ const attentionInboxOtherKind = "__other__"
 var attentionInboxKnownKinds = func() map[string]bool {
 	m := make(map[string]bool, len(attentionInboxGroups))
 	for _, g := range attentionInboxGroups {
-		m[g.Kind] = true
+		m[g.kind] = true
 	}
 	return m
 }()
@@ -405,6 +404,13 @@ func (s *chatState) openAttentionItem(item AttentionItem) {
 		st.open = false
 	}
 	switch item.SubjectType {
+	case "steward_decision", "decision":
+		s.openTasksWindowTarget(taskCenterTarget{
+			Kind:      "decision",
+			ID:        item.SubjectID,
+			ProjectID: item.ProjectID,
+			Title:     item.Title,
+		})
 	case "kanban_task":
 		if item.SubjectID != "" {
 			s.openTasksWindowTarget(taskCenterTarget{
@@ -414,7 +420,7 @@ func (s *chatState) openAttentionItem(item AttentionItem) {
 				Title:     item.Title,
 			})
 		} else {
-			s.openTasksWindow("tasks")
+			s.openTasksWindowTarget(taskCenterTarget{Kind: "attention"})
 		}
 	case "kanban_goal":
 		if item.SubjectID != "" {
@@ -425,7 +431,7 @@ func (s *chatState) openAttentionItem(item AttentionItem) {
 				Title:     item.Title,
 			})
 		} else {
-			s.openTasksWindow("tasks")
+			s.openTasksWindowTarget(taskCenterTarget{Kind: "attention"})
 		}
 	case "automation_run":
 		if item.SubjectID != "" {
@@ -727,8 +733,8 @@ func renderAttentionInboxPopover(c *ui.Context, s *chatState) {
 						Gap(Space0).
 						Children(func() {
 							for _, g := range attentionInboxGroups {
-								if list := groups[g.Kind]; len(list) > 0 {
-									renderAttentionInboxGroup(c, s, g.Kind, g.Title, list)
+								if list := groups[g.kind]; len(list) > 0 {
+									renderAttentionInboxGroup(c, s, g.kind, attentionKindTitle(g.kind), list)
 								}
 							}
 							if rest := groups[attentionInboxOtherKind]; len(rest) > 0 {

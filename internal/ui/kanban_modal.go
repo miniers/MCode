@@ -235,49 +235,31 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 	})
 
 	if !wideDetail && p.destination != "automations" && hasDetail {
-		open := true
-		backdropClicked := false
+		key := "kanban-goal-sheet"
 		if detailTaskID != "" {
-			contentWidth = winWidth
+			key = "kanban-detail-sheet"
+		} else if detailDecisionID != "" {
+			key = "kanban-decision-sheet"
 		}
-		ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-			backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))
-			ui.Box(c.Key("tasks-detail-backdrop")).Fill().OnClick(func() { backdropClicked = true })
-			_, height := c.Size()
-			panel.MaxWidth(contentWidth - Space8).MaxHeight(height - Space8).Padding(0)
-			sheetWidth, sheetHeight := min(settingsSheetWidth, contentWidth-Space8), height-Space8
-			key := "kanban-goal-sheet"
-			if detailTaskID != "" {
-				key = "kanban-detail-sheet"
-			} else if detailDecisionID != "" {
-				key = "kanban-decision-sheet"
-			}
-			ui.Column(c.Key(key)).Width(sheetWidth).Height(sheetHeight).Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(renderDetailContent)
-		})
-		if !open {
-			if !backdropClicked {
-				if detailDecisionID != "" && detailTaskID == "" && !goalDetailOpen {
+		renderTaskDetailDrawerSheet(c, taskDetailDrawerSheetOpts{
+			SheetKey: key,
+			OnClose: func() {
+				if detailTaskID != "" {
+					s.closeTaskDetail()
+				} else if goalDetailOpen {
+					kanbanMu.Lock()
+					ks.goalDetailOpen = false
+					kanbanMu.Unlock()
+					s.invalidate()
+				} else if detailDecisionID != "" {
 					kanbanMu.Lock()
 					ks.detailDecisionID = ""
 					kanbanMu.Unlock()
 					s.invalidate()
-				} else {
-					consumeKanbanEscape(s)
 				}
-			} else if detailTaskID != "" {
-				s.closeTaskDetail()
-			} else if goalDetailOpen {
-				kanbanMu.Lock()
-				ks.goalDetailOpen = false
-				kanbanMu.Unlock()
-				s.invalidate()
-			} else if detailDecisionID != "" {
-				kanbanMu.Lock()
-				ks.detailDecisionID = ""
-				kanbanMu.Unlock()
-				s.invalidate()
-			}
-		}
+			},
+			Content: renderDetailContent,
+		})
 	}
 }
 

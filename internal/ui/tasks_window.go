@@ -24,7 +24,7 @@ func (t taskCenterTarget) destinationView() string {
 	switch t.Kind {
 	case "automation", "automation_run":
 		return "automations"
-	case "decision":
+	case "attention", "decision":
 		return "attention"
 	default:
 		return "tasks"
@@ -285,6 +285,25 @@ func (s *chatState) consumePendingTasksTarget() {
 		ks.detailTaskID = ""
 		ks.goalDetailOpen = false
 		kanbanMu.Unlock()
+		hasDecision := false
+		if s != nil {
+			stewardOpenMu.Lock()
+			st := stewardOpenStates[s]
+			stewardOpenMu.Unlock()
+			if st != nil {
+				st.mu.Lock()
+				for _, d := range st.openDecisions {
+					if d.ID == target.ID {
+						hasDecision = true
+						break
+					}
+				}
+				st.mu.Unlock()
+			}
+			if !hasDecision {
+				refreshStewardOpenDecisions(s)
+			}
+		}
 		clearPending()
 		s.invalidate()
 		return

@@ -225,7 +225,12 @@ func TestTasksAttentionViewSelectOpensRightDetail(t *testing.T) {
 		kanbanMu.Lock()
 		defer kanbanMu.Unlock()
 		_, ok := tt.Find("kanban-decision-detail")
-		return ok && ks.detailDecisionID == "D-0009" && tt.HasText("方案 B 改动更小") && tt.HasText("推荐")
+		_, hasOrigin := tt.Find("kanban-decision-detail-header-origin")
+		_, hasStatus := tt.Find("kanban-decision-detail-header-status")
+		_, hasClose := tt.Find("关闭决策详情")
+		return ok && hasOrigin && hasStatus && hasClose && ks.detailDecisionID == "D-0009" &&
+			tt.HasText("决策详情") && tt.HasText("打开会话") &&
+			tt.HasText("方案 B 改动更小") && tt.HasText("推荐")
 	})
 
 	if err := tt.Click("采用方案 B"); err != nil {
@@ -306,5 +311,74 @@ func TestTasksAttentionViewDestinationNav(t *testing.T) {
 	kanbanMu.Unlock()
 	if dest != "attention" {
 		t.Fatalf("切回待你处理后 destination = %q", dest)
+	}
+}
+
+func TestTasksAttentionViewNarrowDetailSheet(t *testing.T) {
+	fake := &tasksAttentionFakeClient{
+		FakeClient: NewFakeClient(),
+		decisions: []StewardDecisionItem{
+			{
+				ID:          "D-narrow-1",
+				ThreadID:    "steward-feed",
+				Question:    "窄屏是否执行迁移？",
+				Context:     "预计耗时 3 分钟",
+				Options:     []string{"执行", "跳过"},
+				Recommended: "执行",
+				Status:      "open",
+				CreatedAt:   time.Now(),
+			},
+		},
+	}
+	fake.SetProjectsAndThreads([]Project{{ID: "p1", Name: "主项目"}}, nil)
+	fake.SetKanbanBoard(KanbanBoard{})
+
+	s, view := buildTasksRoot(fake, WithTasksWindowMode("attention"))
+	defer s.close()
+	tt := ui.NewTester(view, 640, 480)
+
+	waitFor(t, tt, func() bool {
+		return tt.HasText("窄屏是否执行迁移？")
+	})
+
+	if err := tt.Click("窄屏是否执行迁移？"); err != nil {
+		t.Fatalf("点击决策失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		_, hasSheet := tt.Find("kanban-decision-sheet")
+		_, hasOrigin := tt.Find("kanban-decision-detail-header-origin")
+		_, hasStatus := tt.Find("kanban-decision-detail-header-status")
+		return hasSheet && hasOrigin && hasStatus && tt.HasText("决策详情") && tt.HasText("预计耗时 3 分钟")
+	})
+
+	// 点击遮罩关闭窄屏详情弹层
+	tt.ClickAt(4, 4)
+	tt.Frame()
+	ks := getKanbanState(s)
+	kanbanMu.Lock()
+	closedByBackdrop := ks.detailDecisionID == ""
+	kanbanMu.Unlock()
+	if !closedByBackdrop {
+		t.Fatal("点击遮罩未关闭窄屏决策详情")
+	}
+	if _, ok := tt.Find("kanban-decision-sheet"); ok {
+		t.Fatal("关闭后不应再渲染 kanban-decision-sheet")
+	}
+
+	// 再次打开并用 Esc 关闭
+	if err := tt.Click("窄屏是否执行迁移？"); err != nil {
+		t.Fatalf("再次点击决策失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		_, hasSheet := tt.Find("kanban-decision-sheet")
+		return hasSheet
+	})
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	kanbanMu.Lock()
+	closedByEsc := ks.detailDecisionID == ""
+	kanbanMu.Unlock()
+	if !closedByEsc {
+		t.Fatal("Esc 未关闭窄屏决策详情")
 	}
 }

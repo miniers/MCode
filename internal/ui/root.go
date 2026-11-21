@@ -66,6 +66,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 	}
 	scriptResults := make(chan scriptResult, 1)
 	scriptLoading := false
+	attentionPrewarmed := false
 
 	view := func(c *ui.Context) {
 		if takeOnboardingAutoOpen(state) {
@@ -188,7 +189,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				view = ws.view
 				workspaceMu.Unlock()
 			}
-			if (view == "tasks" || view == "automations") && c.Shortcut(ui.Cmd, ui.KeyF) {
+			if (view == "attention" || view == "tasks" || view == "automations") && c.Shortcut(ui.Cmd, ui.KeyF) {
 				kanbanKeyboardSearchFocus(state, true)
 			}
 
@@ -199,7 +200,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				}
 			} else if view != "chat" && c.Shortcut(0, ui.KeyEscape) {
 				// 看板的快速添加与搜索框先消费 Esc（取消输入或清空搜索），工作区保持打开。
-				if (view != "tasks" && view != "automations") || (view == "automations" && !handleAutomationEscape(state) && !consumeKanbanEscape(state)) || (view == "tasks" && !consumeKanbanEscape(state)) {
+				if (view != "attention" && view != "tasks" && view != "automations") || (view == "automations" && !handleAutomationEscape(state) && !consumeKanbanEscape(state)) || ((view == "tasks" || view == "attention") && !consumeKanbanEscape(state)) {
 					state.closeWorkspace()
 					view = "chat"
 				}
@@ -379,10 +380,16 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			}
 
 			// 任务看板与新建任务 / 新建目标弹窗挂在根层，覆盖侧边栏与主区
-			if view == "tasks" || view == "automations" {
+			if view == "attention" || view == "tasks" || view == "automations" {
+				if view == "attention" && !attentionPrewarmed {
+					attentionPrewarmed = true
+					refreshStewardOpenDecisions(state)
+				}
 				renderKanbanWorkspace(c, state)
 				renderKanbanNewTaskSheet(c, state)
 				renderKanbanNewGoalSheet(c, state)
+			} else {
+				attentionPrewarmed = false
 			}
 
 			renderSidebarModals(c, state)
@@ -469,6 +476,9 @@ func consumeKanbanEscape(s *chatState) bool {
 			consumed = true
 		} else if ks.destination != "automations" && ks.goalDetailOpen && ks.detailTaskID == "" {
 			ks.goalDetailOpen = false
+			consumed = true
+		} else if ks.destination != "automations" && ks.detailDecisionID != "" {
+			ks.detailDecisionID = ""
 			consumed = true
 		} else if ks.destination != "automations" && (ks.detailTaskID != "" || ks.planReviewGoalID != "" || ks.outputsGoalID != "") {
 			// 任务详情关闭需恢复焦点及清理相关状态。
