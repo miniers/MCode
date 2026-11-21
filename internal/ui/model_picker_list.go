@@ -369,6 +369,17 @@ func renderModelPickerGroupedList(c *ui.Context, p ModelPickerProps, state *Mode
 		})
 }
 
+// modelPickerQuotaDisplay 根据已用百分比生成模型选择器中的配额展示文案、低余量标记与悬停提示。
+func modelPickerQuotaDisplay(usedPercent float64) (text string, lowRemaining bool, tooltip string) {
+	clamped := math.Max(0, math.Min(100, usedPercent))
+	used := int(math.Round(clamped))
+	remaining := 100 - used
+	if remaining <= 15 {
+		return fmt.Sprintf("剩 %d%%", remaining), true, fmt.Sprintf("配额即将用尽：已用 %d%%，剩余 %d%%", used, remaining)
+	}
+	return fmt.Sprintf("%d%%", used), false, fmt.Sprintf("已用 %d%%，剩余 %d%%", used, remaining)
+}
+
 // renderModelPickerQuotaPercent 渲染供应商配额已用百分比；未提供回调或无数据时不渲染。
 func renderModelPickerQuotaPercent(c *ui.Context, quotaUsed func(string) (float64, bool), providerID string) {
 	if quotaUsed == nil {
@@ -379,9 +390,17 @@ func renderModelPickerQuotaPercent(c *ui.Context, quotaUsed func(string) (float6
 		return
 	}
 	clamped := math.Max(0, math.Min(100, usedPercent))
-	ui.Text(c, fmt.Sprintf("%d%%", int(math.Round(clamped)))).
+	text, lowRemaining, tooltip := modelPickerQuotaDisplay(clamped)
+	if lowRemaining {
+		Badge(c, "model-picker-quota-low-"+providerID, text, ToneDanger).
+			Tooltip(tooltip).
+			Shrink(0)
+		return
+	}
+	ui.Text(c, text).
 		FontSize(uiFont(TypeCaption)).
 		TextColor(quotaPercentColor(c, clamped)).
+		Tooltip(tooltip).
 		SingleLine().
 		Shrink(0)
 }

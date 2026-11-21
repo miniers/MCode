@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -91,9 +92,10 @@ type memoryPanelState struct {
 	wmErr     string
 	wmLoaded  bool
 
-	pendingCount    int
-	pendingCountAt  time.Time
-	pendingFetching bool
+	pendingCount       int
+	pendingBaselineSet bool
+	pendingCountAt     time.Time
+	pendingFetching    bool
 }
 
 // getMemoryPanelState 获取或初始化当前 chatState 的记忆面板状态；窗口已关闭时顺手清理。
@@ -210,6 +212,7 @@ func (s *chatState) reloadMemoryProposals() {
 	}
 	go func() {
 		items, err := s.client.MemoryProposals(path, memoryPendingStatus)
+		var toastDelta int
 		memoryPanelMu.Lock()
 		if st.generation == gen {
 			st.loading = false
@@ -217,13 +220,35 @@ func (s *chatState) reloadMemoryProposals() {
 				st.err = err.Error()
 			} else {
 				st.proposals = items
-				st.pendingCount = len(items)
+				toastDelta = applyPendingMemoryCount(st, len(items), st.open)
 				st.pendingCountAt = time.Now()
 			}
 		}
 		memoryPanelMu.Unlock()
+		if toastDelta > 0 {
+			s.setToast(fmt.Sprintf("收到 %d 条新记忆提议，可在记忆面板审批", toastDelta))
+		}
 		s.invalidate()
 	}()
+}
+
+// applyPendingMemoryCount 更新待审提议计数并判定是否应触发一次性新到达提示。
+// 首次拉取只建立基线不弹窗；后续仅在面板关闭且数量净增加时返回增量。
+func applyPendingMemoryCount(st *memoryPanelState, newCount int, panelOpen bool) int {
+	if st == nil {
+		return 0
+	}
+	if !st.pendingBaselineSet {
+		st.pendingBaselineSet = true
+		st.pendingCount = newCount
+		return 0
+	}
+	delta := newCount - st.pendingCount
+	st.pendingCount = newCount
+	if delta > 0 && !panelOpen {
+		return delta
+	}
+	return 0
 }
 
 // refreshPendingMemoryCount 低频刷新标题栏角标数量；force 为真时忽略间隔。
@@ -246,13 +271,17 @@ func (s *chatState) refreshPendingMemoryCount(force bool) {
 	path := s.getSelectedProjectPath()
 	go func(p string) {
 		n, err := s.client.CountPendingMemoryProposals(p)
+		var toastDelta int
 		memoryPanelMu.Lock()
 		st.pendingFetching = false
 		st.pendingCountAt = time.Now()
 		if err == nil {
-			st.pendingCount = n
+			toastDelta = applyPendingMemoryCount(st, n, st.open)
 		}
 		memoryPanelMu.Unlock()
+		if toastDelta > 0 {
+			s.setToast(fmt.Sprintf("收到 %d 条新记忆提议，可在记忆面板审批", toastDelta))
+		}
 		if err == nil {
 			s.invalidate()
 		}

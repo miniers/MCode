@@ -2516,3 +2516,49 @@ func TestMaxBeesMenuSelection(t *testing.T) {
 		t.Fatal("选中并发上限后应关闭菜单")
 	}
 }
+
+func TestModelPickerQuotaLowRemainingHighlight(t *testing.T) {
+	if text, low, tip := modelPickerQuotaDisplay(35); text != "35%" || low || !strings.Contains(tip, "剩余 65%") {
+		t.Fatalf("modelPickerQuotaDisplay(35) = (%q, %v, %q)", text, low, tip)
+	}
+	if text, low, tip := modelPickerQuotaDisplay(90); text != "剩 10%" || !low || !strings.Contains(tip, "配额即将用尽") {
+		t.Fatalf("modelPickerQuotaDisplay(90) = (%q, %v, %q)", text, low, tip)
+	}
+	if text, low, tip := modelPickerQuotaDisplay(100); text != "剩 0%" || !low || !strings.Contains(tip, "剩余 0%") {
+		t.Fatalf("modelPickerQuotaDisplay(100) = (%q, %v, %q)", text, low, tip)
+	}
+
+	providers := modelPickerTestProviders()
+	state := &ModelPickerState{}
+	scope := "quota-low-highlight"
+	state.setListOpen(scope, ModelPickerSideLead, true)
+	props := ModelPickerProps{
+		Mode:      ModelPickerSimple,
+		KeyPrefix: "quota-low-",
+		ScopeKey:  scope,
+		State:     state,
+		Providers: providers,
+		Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+		QuotaUsed: func(id string) (float64, bool) {
+			switch id {
+			case "claude":
+				return 35, true
+			case "codex":
+				return 90, true
+			default:
+				return 0, false
+			}
+		},
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderModelPickerListPage(c, props, state, ModelPickerSideLead)
+	}, 330, 640)
+	settleModelPickerPage(tt)
+
+	if !magpieTestHasExactText(tt, "35%") {
+		t.Fatalf("35%% 配额应保持普通百分比文案: %v", tt.Texts())
+	}
+	if !magpieTestHasExactText(tt, "剩 10%") {
+		t.Fatalf("90%% 配额应展示低余量告警文案「剩 10%%」: %v", tt.Texts())
+	}
+}
