@@ -451,7 +451,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 						Gap(Space3).
 						AlignItems(ui.Center).
 						Children(func() {
-							ui.Text(c, "二维码入口").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+							ui.Text(c, "二维码入口").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Tooltip(settingHint("row-remote-pairing-target"))
 							for _, opt := range targetOptions {
 								selected := opt.Value == selectedTarget
 								btn := ui.ButtonBase(c.Key("btn-remote-pairing-target-"+opt.Value)).

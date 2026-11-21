@@ -285,7 +285,8 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 			Children(func() {
 				ui.Text(c, "用途说明").
 					FontSize(uiFont(TypeFootnote)).
-					TextColor(ThemeSecondaryText(c))
+					TextColor(ThemeSecondaryText(c)).
+					Tooltip(settingHint("swarm-tier-purpose"))
 				TextField(c, TextFieldProps{
 					Key:         "area-swarm-tier-desc-" + popKey,
 					Value:       &uiSt.draft.Description,
@@ -330,7 +331,8 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 					ui.Text(c, "写入白名单").
 						FontSize(uiFont(TypeFootnote)).
 						FontWeight(500).
-						TextColor(ThemePrimaryText(c))
+						TextColor(ThemePrimaryText(c)).
+						Tooltip(settingHint("swarm-tier-write-allow"))
 					TextField(c, TextFieldProps{
 						Key:         "area-swarm-tier-writepaths-" + popKey,
 						Value:       &uiSt.writePathsText,
@@ -351,7 +353,8 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 				ui.Text(c, "模型配置").
 					FontSize(uiFont(TypeFootnote)).
 					FontWeight(600).
-					TextColor(ThemePrimaryText(c))
+					TextColor(ThemePrimaryText(c)).
+					Tooltip(settingHint("swarm-tier-model"))
 
 				tierSel := ModelSelection{
 					Provider: uiSt.draft.Provider,
@@ -409,7 +412,8 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 			Children(func() {
 				ui.Text(c, "档位要求 (可选)").
 					FontSize(uiFont(TypeFootnote)).
-					TextColor(ThemeSecondaryText(c))
+					TextColor(ThemeSecondaryText(c)).
+					Tooltip(settingHint("swarm-tier-requirements"))
 				TextField(c, TextFieldProps{
 					Key:         "area-swarm-tier-prompt-" + popKey,
 					Value:       &uiSt.draft.SystemPrompt,

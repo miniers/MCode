@@ -355,7 +355,8 @@ func renderNowledgeSpaceRow(c *ui.Context, st *SettingsState, ps *nowledgeSpaceP
 					ui.Text(c, p.Name).
 						FontSize(uiFont(TypeProse)).
 						FontWeight(500).
-						TextColor(ThemePrimaryText(c))
+						TextColor(ThemePrimaryText(c)).
+						Tooltip(settingHint("row-memory-space"))
 					ui.Text(c, subtitle).
 						FontSize(uiFont(TypeFootnote)).
 						TextColor(ThemeSecondaryText(c))

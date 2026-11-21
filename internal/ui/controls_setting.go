@@ -26,7 +26,10 @@ func settingRow(c *ui.Context, key, title string, stacked bool, decorate func(ui
 			return
 		}
 		ui.Column(c.Key(key + "-header")).Gap(Space1).Children(func() {
-			ui.Text(c, title).FontSize(uiFont(TypeBody)).FontWeight(400).TextColor(ThemePrimaryText(c)).SingleLine()
+			titleEl := ui.Text(c, title).FontSize(uiFont(TypeBody)).FontWeight(400).TextColor(ThemePrimaryText(c)).SingleLine()
+			if h := settingHint(key); h != "" {
+				titleEl.Tooltip(h)
+			}
 		})
 		ui.Row(c.Key(key + "-control")).AlignItems(ui.Center).Children(control)
 	})
@@ -35,7 +38,10 @@ func settingRow(c *ui.Context, key, title string, stacked bool, decorate func(ui
 
 func settingRowContent(c *ui.Context, key, title string, control func()) {
 	ui.Column(c.Key(key + "-left")).MinWidth(0).Grow(1).Gap(Space1).Children(func() {
-		ui.Text(c, title).FontSize(uiFont(TypeBody)).FontWeight(400).TextColor(ThemePrimaryText(c))
+		titleEl := ui.Text(c, title).FontSize(uiFont(TypeBody)).FontWeight(400).TextColor(ThemePrimaryText(c))
+		if h := settingHint(key); h != "" {
+			titleEl.Tooltip(h)
+		}
 	})
 	settingRowRight(c, key+"-right", control)
 }

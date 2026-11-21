@@ -315,7 +315,7 @@ func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
 					ui.Text(c, "两次密码不一致").FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 				}
 				ui.Row(c.Key("backup-history-row")).FillWidth().AlignItems(ui.Center).Children(func() {
-					ui.Text(c, "包含会话历史").Grow(1).TextColor(ThemePrimaryText(c))
+					ui.Text(c, "包含会话历史").Grow(1).TextColor(ThemePrimaryText(c)).Tooltip(settingHint("backup-include-history"))
 					Switch(c, "backup-history", &backupUI.history, "包含会话历史", nil)
 				})
 			}

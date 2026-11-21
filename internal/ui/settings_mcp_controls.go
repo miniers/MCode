@@ -163,7 +163,8 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 					ui.Text(c, "传输方式:").
 						FontSize(uiFont(TypeBody)).
 						TextColor(ThemeSecondaryText(c)).
-						Width(80)
+						Width(80).
+						Tooltip(settingHint("row-form-transport"))
 
 					transIdx := 0
 					if strings.EqualFold(trans, "http") || strings.EqualFold(trans, "sse") {
@@ -965,7 +966,8 @@ func renderMCPServerRow(
 									}
 									ui.Text(c, "全部禁用").
 										FontSize(uiFont(TypeFootnote)).
-										TextColor(ThemeSecondaryText(c))
+										TextColor(ThemeSecondaryText(c)).
+										Tooltip(settingHint("mcp-tools-disable-all"))
 									toggleFunc(
 										func(*SettingsState) (bool, bool) { return allDisabled, false },
 										func(st *SettingsState, on bool) {
@@ -976,7 +978,8 @@ func renderMCPServerRow(
 
 									ui.Text(c, "全部免审批").
 										FontSize(uiFont(TypeFootnote)).
-										TextColor(ThemeSecondaryText(c))
+										TextColor(ThemeSecondaryText(c)).
+										Tooltip(settingHint("mcp-tools-approve-all"))
 									toggleFunc(
 										func(*SettingsState) (bool, bool) { return allApprove, false },
 										func(st *SettingsState, on bool) {
@@ -1011,7 +1014,8 @@ func renderMCPServerRow(
 										}
 										ui.Text(c, "禁用").
 											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeSecondaryText(c))
+											TextColor(ThemeSecondaryText(c)).
+											Tooltip(settingHint("mcp-tool-disable"))
 										toggleFunc(
 											func(*SettingsState) (bool, bool) { return toolDisabled, false },
 											func(st *SettingsState, on bool) {
@@ -1022,7 +1026,8 @@ func renderMCPServerRow(
 
 										ui.Text(c, "免审批").
 											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeSecondaryText(c))
+											TextColor(ThemeSecondaryText(c)).
+											Tooltip(settingHint("mcp-tool-approve"))
 										toggleFunc(
 											func(*SettingsState) (bool, bool) { return toolAutoApprove, false },
 											func(st *SettingsState, on bool) {

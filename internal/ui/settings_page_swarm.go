@@ -346,7 +346,8 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 							ui.Text(c, "主代理模型").
 								FontSize(uiFont(TypeFootnote)).
 								FontWeight(500).
-								TextColor(ThemePrimaryText(c))
+								TextColor(ThemePrimaryText(c)).
+								Tooltip(settingHint("swarm-pair-lead-model"))
 
 							leadEffort := ""
 							if uiSt.draft.LeadEffort != nil {
@@ -389,7 +390,8 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 							ui.Text(c, "子代理模型").
 								FontSize(uiFont(TypeFootnote)).
 								FontWeight(500).
-								TextColor(ThemePrimaryText(c))
+								TextColor(ThemePrimaryText(c)).
+								Tooltip(settingHint("swarm-pair-bee-model"))
 
 							workerEffort := ""
 							if uiSt.draft.WorkerEffort != nil {
@@ -955,7 +957,8 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 				Children(func() {
 					ui.Text(c, "默认档").
 						FontSize(uiFont(TypeFootnote)).
-						TextColor(ThemeSecondaryText(c))
+						TextColor(ThemeSecondaryText(c)).
+						Tooltip(settingHint("swarm-tiers-default"))
 
 					var tierOptions []string
 					tierIDToName := make(map[string]string)

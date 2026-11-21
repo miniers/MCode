@@ -548,11 +548,14 @@ func (r magpieAgentRouteControl) render(c *ui.Context, st *SettingsState, s sett
 	endpoints, _, loaded, _, _ := magpieEndpointsFor(st, r.agent)
 	ui.Column(c.Key(s.ID)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Gap(Space1).Children(func() {
 		ui.Row(c.Key(s.ID + "-mode")).FillWidth().AlignItems(ui.Center).Gap(Space3).Children(func() {
-			ui.Text(c, s.Title).
+			titleEl := ui.Text(c, s.Title).
 				FontSize(uiFont(TypeBody)).
 				TextColor(ThemePrimaryText(c)).
 				SingleLine().
 				Grow(1)
+			if h := settingHint(s.ID); h != "" {
+				titleEl.Tooltip(h)
+			}
 			magpieAgentRouteChoice(r.agent).render(c, st, setting{ID: s.ID + "-choice", Title: magpieAgentRouteLabel(s.Title)})
 		})
 		if !loaded && !known {
@@ -663,9 +666,22 @@ func magpieAgentRouteChoice(agent string) choiceFuncControl {
 	})
 }
 
+func magpieAgentRouteID(agent string) string {
+	switch agent {
+	case "claude":
+		return "row-magpie-agent-claude"
+	case "codex":
+		return "row-magpie-agent-codex"
+	case "pi":
+		return "row-magpie-agent-pi"
+	default:
+		return "row-magpie-agent-" + agent
+	}
+}
+
 // magpieAgentRouteRow 保留标题供页面树与索引使用，由具体控件接管整行布局。
 func magpieAgentRouteRow(agent string) setting {
-	return setting{ID: "row-magpie-agent-" + agent, Title: magpieAgentTitle(agent), Visible: func(st *SettingsState) bool {
+	return setting{ID: magpieAgentRouteID(agent), Title: magpieAgentTitle(agent), Visible: func(st *SettingsState) bool {
 		for _, installed := range magpieInstalledAgents(st) {
 			if installed == agent {
 				return true
