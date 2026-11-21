@@ -553,11 +553,11 @@ func TestSettingsNav_ItemJumpAndHighlight(t *testing.T) {
 
 	st.navSearch = "排队"
 	tt.Frame()
-	if !tt.HasText("settings-nav-hit-row-queue-while-running") {
+	if !tt.HasText("运行中排队消息") {
 		t.Fatalf("导航里没有列出命中项「运行中排队消息」: %v", tt.Texts())
 	}
 
-	if err := tt.Click("settings-nav-hit-row-queue-while-running"); err != nil {
+	if err := tt.Click("运行中排队消息"); err != nil {
 		t.Fatalf("点击命中项失败: %v", err)
 	}
 	tt.Frame()

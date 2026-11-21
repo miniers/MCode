@@ -1417,7 +1417,7 @@ func renderSettingsNavHits(c *ui.Context, st *SettingsState, hits []settingsItem
 			Focusable().
 			KeepFocus().
 			Cursor(ui.CursorPointer).
-			Label("settings-nav-hit-" + hit.Item.ID)
+			Label(hit.Item.Title)
 
 		if hitRow.Hovered() {
 			hitRow.Background(ThemeHover(c))
@@ -1746,6 +1746,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 									if refreshBtn.Hovered() {
 										refreshBtn.Background(ThemeHover(c))
 									}
+									focusRing(c, refreshBtn)
 									if refreshBtn.Clicked() {
 										if st.currentPage == "models" {
 											// 合并页同时刷新模型库与供应商目录。
@@ -1800,7 +1801,7 @@ func renderSettingsWindow(c *ui.Context, st *SettingsState) {
 		return
 	}
 	openSheet, _ := settingsTreeSheetState(st)
-	if openSheet == "" && st.resetPendingPage == "" && c.Shortcut(0, ui.KeyEscape) {
+	if openSheet == "" && st.resetPendingPage == "" && !st.shortcutResetConfirmOpen && c.Shortcut(0, ui.KeyEscape) {
 		closeSettingsWindowForOwner(st.chat)
 	}
 	width, _ := c.Size()

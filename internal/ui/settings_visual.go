@@ -18,7 +18,8 @@ func renderVisualPicker(c *ui.Context, key string, selected *string, options []v
 			isSelected := *selected == optVal.value
 
 			col := ui.ButtonBase(c.Key(key + "-tile-" + optVal.value)).
-				Label(optVal.value)
+				Label(optVal.label)
+			focusRing(c, col)
 
 			if disabled {
 				col.Disabled(true)

@@ -250,6 +250,7 @@ func renderShortcutResetAll(c *ui.Context, st *SettingsState) {
 	if resetAll.Hovered() {
 		resetAll.Background(ThemeOverlay(c, 0.15))
 	}
+	focusRing(c, resetAll)
 	if resetAll.Clicked() {
 		st.shortcutResetConfirmOpen = true
 		st.invalidate()
@@ -365,6 +366,7 @@ func renderShortcutOverrideControl(c *ui.Context, st *SettingsState, sc appShort
 						if reset.Hovered() {
 							reset.Background(ThemeHover(c))
 						}
+						focusRing(c, reset)
 						if reset.Clicked() {
 							st.applyShortcutOverride(sc.id, "")
 						}

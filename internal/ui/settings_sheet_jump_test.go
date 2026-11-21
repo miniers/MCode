@@ -24,8 +24,8 @@ func TestSettingsSearch_OpenInHitOpensSheet(t *testing.T) {
 		t.Fatalf("点击搜索框失败: %v", err)
 	}
 	tt.Type("Cursor")
-	waitFor(t, tt, func() bool { return tt.HasText("settings-nav-hit-row-openin-Cursor") })
-	if err := tt.Click("settings-nav-hit-row-openin-Cursor"); err != nil {
+	waitFor(t, tt, func() bool { return tt.HasText("Cursor") })
+	if err := tt.Click("Cursor"); err != nil {
 		t.Fatalf("点击应用搜索结果失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {

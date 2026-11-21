@@ -204,13 +204,13 @@ func TestUIReview15_NavItemsTabFocusableAndActivatable(t *testing.T) {
 	focusedHit := false
 	for range 20 {
 		tt.Key(0, ui.KeyTab)
-		if tt.Focused("settings-nav-hit-row-edit-themes") {
+		if tt.Focused("编辑主题") {
 			focusedHit = true
 			break
 		}
 	}
 	if !focusedHit {
-		t.Fatal("Tab 未能聚焦到搜索命中条目 settings-nav-hit-row-edit-themes")
+		t.Fatal("Tab 未能聚焦到搜索命中条目「编辑主题」")
 	}
 	tt.Key(0, ui.KeyEnter)
 	waitFor(t, tt, func() bool {

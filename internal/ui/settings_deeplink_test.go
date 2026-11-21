@@ -56,10 +56,10 @@ func TestSettingsAdvanced_SearchIdle(t *testing.T) {
 	st.navSearch = "空闲"
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 1000, 2500)
 	tt.Frame()
-	if !tt.HasText("settings-nav-hit-row-nowledge-sync-helper-threads") {
+	if !tt.HasText("同步编排子代理会话") {
 		t.Fatal("未命中扩展页的同步编排子代理会话")
 	}
-	if err := tt.Click("settings-nav-hit-row-nowledge-sync-helper-threads"); err != nil {
+	if err := tt.Click("同步编排子代理会话"); err != nil {
 		t.Fatal(err)
 	}
 	if st.currentPage != "extensions" {

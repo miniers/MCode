@@ -351,7 +351,7 @@ func TestNowledgeSettings_SearchFindsRows(t *testing.T) {
 			st.navSearch = "空闲"
 			tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 900, 1400)
 			tt.Frame()
-			if !tt.HasText("settings-nav-hit-row-nowledge-sync-threads") {
+			if !tt.HasText("同步会话到 Nowledge") {
 				t.Fatalf("%s 后端搜索空闲少了会话同步行：%v", backend, tt.Texts())
 			}
 		})

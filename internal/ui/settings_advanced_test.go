@@ -129,10 +129,10 @@ func TestSettingsModels_SearchExpandsProviderRow(t *testing.T) {
 	st.navSearch = "调度策略"
 	st.mu.Unlock()
 	tt.Frame()
-	if _, ok := tt.Find("settings-nav-hit-sec-agy-routing-strategy"); !ok {
+	if _, ok := tt.Find("调度策略"); !ok {
 		t.Fatalf("没有调度策略搜索结果: %v", tt.Texts())
 	}
-	if err := tt.Click("settings-nav-hit-sec-agy-routing-strategy"); err != nil {
+	if err := tt.Click("调度策略"); err != nil {
 		t.Fatalf("点击搜索结果失败: %v", err)
 	}
 	tt.Frame()

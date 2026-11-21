@@ -517,6 +517,9 @@ func (ch choiceFuncControl) renderDisabled(c *ui.Context, st *SettingsState, s s
 	pick := ui.Select(c.Key(s.ID+"-select"), &sel, ch.options).
 		Label(s.Title).
 		Width(160).
+		MinWidth(96).
+		MaxWidth(160).
+		Shrink(1).
 		Height(RowHeight).
 		Disabled(off)
 	if off || (sel == oldSel && !pick.Changed()) {
@@ -631,8 +634,12 @@ func link(value func(st *SettingsState) string, sheet string) linkControl {
 }
 
 func (l linkControl) render(c *ui.Context, st *SettingsState, s setting) {
+	l.renderValue(c, s, l.value(st))
+}
+
+func (l linkControl) renderValue(c *ui.Context, s setting, val string) {
 	ui.Row(c.Key(s.ID + "-link-body")).AlignItems(ui.Center).Gap(Space1).Children(func() {
-		ui.Text(c, l.value(st)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine()
+		ui.Text(c, val).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine()
 		ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 	})
 }

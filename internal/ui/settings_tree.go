@@ -591,9 +591,16 @@ func renderSettingsTreeSetting(c *ui.Context, st *SettingsState, s setting) {
 	case textControl, textFuncControl:
 		renderRow = renderStackedSettingRow
 	}
+	link, isLink := s.Control.(linkControl)
+	var linkVal string
+	if isLink {
+		linkVal = link.value(st)
+	}
 	control := func() {
 		ui.Row(c.Key(s.ID + "-control")).AlignItems(ui.Center).Gap(Space3).Children(func() {
-			if d, ok := s.Control.(settingDisableable); ok {
+			if isLink {
+				link.renderValue(c, s, linkVal)
+			} else if d, ok := s.Control.(settingDisableable); ok {
 				d.renderDisabled(c, st, s, disabled)
 			} else {
 				s.Control.render(c, st, s)
@@ -603,12 +610,13 @@ func renderSettingsTreeSetting(c *ui.Context, st *SettingsState, s setting) {
 			}
 		})
 	}
-	if link, ok := s.Control.(linkControl); ok {
-		button := ui.ButtonBase(c.Key(s.ID+"-link")).Label(s.Title+" "+link.value(st)).FillWidth().
+	if isLink {
+		button := ui.ButtonBase(c.Key(s.ID+"-link")).Label(s.Title+" "+linkVal).FillWidth().
 			Padding(settingsRowPadY, settingsRowPadX).MinHeight(settingsRowMinHeight).Disabled(disabled)
 		if !disabled && button.Hovered() {
 			button.Background(ThemeHover(c))
 		}
+		focusRing(c, button)
 		if !disabled && button.Clicked() {
 			openSettingsSheet(st, link.sheet, s.ID)
 		}
