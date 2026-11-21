@@ -169,8 +169,11 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			pal := getPaletteState(state)
 
 			// 命令面板与设置窗口互不遮挡。
-			if mods, key, ok := shortcutBindingFor("command-palette"); ok && c.Shortcut(mods, key) {
-				togglePalette(state)
+			// 终端聚焦时不注册也不消费命令面板快捷键，让按键直达终端视图（例如 ⌘K 清屏）。
+			if !terminalFocused(state) {
+				if mods, key, ok := shortcutBindingFor("command-palette"); ok && c.Shortcut(mods, key) {
+					togglePalette(state)
+				}
 			}
 			if mods, key, ok := shortcutBindingFor("toggle-sidebar"); ok && c.Shortcut(mods, key) {
 				toggleSidebarPersisted(state)
@@ -323,7 +326,9 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				case "toggle-memory":
 					state.toggleMemoryPanel()
 				case "command-palette":
-					togglePalette(state)
+					if !terminalFocused(state) {
+						togglePalette(state)
+					}
 				case "find-in-thread":
 					// 终端聚焦时优先打开终端搜索条；否则打开会话内查找条（由 chat_find.go 渲染）。
 					if !openTerminalSearchIfFocused(state) {

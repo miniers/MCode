@@ -959,6 +959,23 @@ func handleTerminalSearchStatus(s *chatState, status terminal.SearchStatus) {
 	}
 }
 
+// terminalFocused 在终端视图可见、聚焦且当前会话存在活动终端标签时返回 true。
+func terminalFocused(s *chatState) bool {
+	if s == nil {
+		return false
+	}
+	// 取 threadID 要先拿 s.mu，不能在持有 terminalMu 时取，避免与别处的加锁顺序相反。
+	threadID, _ := getSelectedThreadWorkDir(s)
+	terminalMu.Lock()
+	defer terminalMu.Unlock()
+	st, ok := terminalStates[s]
+	if !ok || !st.visible || !st.focused {
+		return false
+	}
+	tab := activeTerminalTab(st, threadID)
+	return tab != nil && tab.term != nil
+}
+
 // openTerminalSearchIfFocused 在终端视图聚焦且存在活动标签时打开终端搜索条并返回 true。
 func openTerminalSearchIfFocused(s *chatState) bool {
 	return openTerminalSearch(s, true)
@@ -968,11 +985,14 @@ func openTerminalSearch(s *chatState, requireFocus bool) bool {
 	if s == nil {
 		return false
 	}
+	if requireFocus && !terminalFocused(s) {
+		return false
+	}
 	// 取 threadID 要先拿 s.mu，不能在持有 terminalMu 时取，避免与别处的加锁顺序相反。
 	threadID, _ := getSelectedThreadWorkDir(s)
 	terminalMu.Lock()
 	st, ok := terminalStates[s]
-	if !ok || (requireFocus && (!st.visible || !st.focused)) {
+	if !ok {
 		terminalMu.Unlock()
 		return false
 	}
@@ -1619,11 +1639,16 @@ func renderTerminalDock(c *ui.Context, s *chatState) {
 			}
 		})
 
+	focusedChanged := false
 	terminalMu.Lock()
 	if st.focused != focused {
 		st.focused = focused
+		focusedChanged = true
 	}
 	terminalMu.Unlock()
+	if focusedChanged {
+		s.invalidate()
+	}
 }
 
 // runScriptInTerminal 确保当前工作目录的终端存在并可见，然后发送脚本命令行。
