@@ -34,7 +34,7 @@ func TestBeePreviewMatchesSessionAndReadOnly(t *testing.T) {
 	if request.RuntimeMode != "readonly" {
 		t.Fatalf("RuntimeMode = %q", request.RuntimeMode)
 	}
-	p, model, _, err := mgr.effectiveBeeRuntime("pi", "", "", Settings{DefaultModel: "other"}, ThreadContext{})
+	p, model, _, err := mgr.effectiveBeeRuntime("pi", "", "", "", Settings{DefaultModel: "other"}, ThreadContext{})
 	if err != nil || p != "pi" || model != "" {
 		t.Fatalf("显式 pi 来源被覆盖：%q %q %v", p, model, err)
 	}
@@ -538,4 +538,168 @@ func TestManager_DispatchSingleEntry_HostOverrideSwarmDisabled(t *testing.T) {
 	if bee.ThreadID != "" || len(notices) != 0 {
 		t.Fatalf("Host 为 nil 时不该派发 bee: bee=%+v notices=%v", bee, notices)
 	}
+}
+
+// 验证未指定模型的档位把自带 Effort 作为兜底：使用默认模型且设了 DefaultEffort 时优先用 DefaultEffort；
+// DefaultEffort 为空或最终模型非默认模型时回退档位 Effort；档位自带模型、会话显式强度、派发显式强度均保持原有高优先级。
+func TestDefaultEffortOverridesTierEffort(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	runner, dir := initTestRepo(t)
+
+	tiers := []Tier{
+		{ID: "edit", Effort: "medium"},
+		{ID: "deep_pinned", Provider: "openai", Model: "gpt-5", Effort: "high"},
+	}
+
+	newMgr := func(defaultEffort string, tcFn func(string) ThreadContext) (*Manager, *[]kanban.SessionRequest) {
+		driver := newFakeDriver()
+		var started []kanban.SessionRequest
+		driver.onStart = func(req kanban.SessionRequest) {
+			started = append(started, req)
+		}
+		mgr := NewManager(Options{
+			Git:           runner,
+			Driver:        driver,
+			WorktreeDir:   t.TempDir(),
+			ThreadContext: tcFn,
+		})
+		mgr.SetSettingsFunc(func() Settings {
+			return Settings{
+				Enabled:         true,
+				AutoDelegate:    true,
+				WorkspaceMode:   "worktree",
+				DefaultProvider: "anthropic",
+				DefaultModel:    "claude-sonnet",
+				DefaultEffort:   defaultEffort,
+				DefaultTier:     "edit",
+				Tiers:           tiers,
+			}
+		})
+		return mgr, &started
+	}
+
+	t.Run("a_无模型档位默认模型走DefaultEffort", func(t *testing.T) {
+		t.Parallel()
+		mgr, started := newMgr("max", nil)
+		preview := mgr.TierPreview("lead-a")
+		if rt := preview["edit"]; rt.Provider != "anthropic" || rt.Model != "claude-sonnet" || rt.Effort != "max" {
+			t.Fatalf("TierPreview[edit] = %+v，期望 anthropic/claude-sonnet/max", rt)
+		}
+		bee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+			LeadThreadID: "lead-a",
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Entry:        Delegation{Task: "T", Prompt: "P", Tier: "edit"},
+		})
+		if err != nil {
+			t.Fatalf("DispatchSingleEntry failed: %v", err)
+		}
+		if bee.Effort != "max" || len(*started) != 1 || (*started)[0].Effort != "max" {
+			t.Fatalf("派发结果未采用 DefaultEffort=max: bee=%q started=%+v", bee.Effort, *started)
+		}
+	})
+
+	t.Run("b_无模型档位且DefaultEffort为空回退档位Effort", func(t *testing.T) {
+		t.Parallel()
+		mgr, started := newMgr("", nil)
+		preview := mgr.TierPreview("lead-b")
+		if rt := preview["edit"]; rt.Provider != "anthropic" || rt.Model != "claude-sonnet" || rt.Effort != "medium" {
+			t.Fatalf("TierPreview[edit] = %+v，期望 anthropic/claude-sonnet/medium", rt)
+		}
+		bee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+			LeadThreadID: "lead-b",
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Entry:        Delegation{Task: "T", Prompt: "P", Tier: "edit"},
+		})
+		if err != nil {
+			t.Fatalf("DispatchSingleEntry failed: %v", err)
+		}
+		if bee.Effort != "medium" || len(*started) != 1 || (*started)[0].Effort != "medium" {
+			t.Fatalf("派发结果未回退档位 Effort=medium: bee=%q started=%+v", bee.Effort, *started)
+		}
+	})
+
+	t.Run("c_档位自带模型时保留档位Effort", func(t *testing.T) {
+		t.Parallel()
+		mgr, started := newMgr("max", nil)
+		preview := mgr.TierPreview("lead-c")
+		if rt := preview["deep_pinned"]; rt.Provider != "openai" || rt.Model != "gpt-5" || rt.Effort != "high" {
+			t.Fatalf("TierPreview[deep_pinned] = %+v，期望 openai/gpt-5/high", rt)
+		}
+		bee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+			LeadThreadID: "lead-c",
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Entry:        Delegation{Task: "T", Prompt: "P", Tier: "deep_pinned"},
+		})
+		if err != nil {
+			t.Fatalf("DispatchSingleEntry failed: %v", err)
+		}
+		if bee.Effort != "high" || len(*started) != 1 || (*started)[0].Effort != "high" {
+			t.Fatalf("派发结果未保留档位 Effort=high: bee=%q started=%+v", bee.Effort, *started)
+		}
+	})
+
+	t.Run("d_会话或派发显式effort优先于DefaultEffort", func(t *testing.T) {
+		t.Parallel()
+		sessionMgr, sessionStarted := newMgr("max", func(string) ThreadContext {
+			return ThreadContext{BeeEffort: "low"}
+		})
+		preview := sessionMgr.TierPreview("lead-d1")
+		if rt := preview["edit"]; rt.Provider != "anthropic" || rt.Model != "claude-sonnet" || rt.Effort != "low" {
+			t.Fatalf("会话显式 effort 时 TierPreview[edit] = %+v，期望 effort=low", rt)
+		}
+		bee1, _, err := sessionMgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+			LeadThreadID: "lead-d1",
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Entry:        Delegation{Task: "T", Prompt: "P", Tier: "edit"},
+		})
+		if err != nil {
+			t.Fatalf("DispatchSingleEntry(session effort) failed: %v", err)
+		}
+		if bee1.Effort != "low" || len(*sessionStarted) != 1 || (*sessionStarted)[0].Effort != "low" {
+			t.Fatalf("会话显式 effort 未生效: bee=%q started=%+v", bee1.Effort, *sessionStarted)
+		}
+
+		dispatchMgr, dispatchStarted := newMgr("max", nil)
+		bee2, _, err := dispatchMgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+			LeadThreadID: "lead-d2",
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Entry:        Delegation{Task: "T", Prompt: "P", Tier: "edit"},
+			Host:         &HostOverride{Effort: "low"},
+		})
+		if err != nil {
+			t.Fatalf("DispatchSingleEntry(host effort) failed: %v", err)
+		}
+		if bee2.Effort != "low" || len(*dispatchStarted) != 1 || (*dispatchStarted)[0].Effort != "low" {
+			t.Fatalf("派发显式 effort 未生效: bee=%q started=%+v", bee2.Effort, *dispatchStarted)
+		}
+	})
+
+	t.Run("e_最终模型非默认模型时回退档位Effort", func(t *testing.T) {
+		t.Parallel()
+		mgr, started := newMgr("max", func(string) ThreadContext {
+			return ThreadContext{BeeProvider: "google", BeeModel: "gemini-pro"}
+		})
+		preview := mgr.TierPreview("lead-e")
+		if rt := preview["edit"]; rt.Provider != "google" || rt.Model != "gemini-pro" || rt.Effort != "medium" {
+			t.Fatalf("非默认模型时 TierPreview[edit] = %+v，期望 google/gemini-pro/medium", rt)
+		}
+		bee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+			LeadThreadID: "lead-e",
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Entry:        Delegation{Task: "T", Prompt: "P", Tier: "edit"},
+		})
+		if err != nil {
+			t.Fatalf("DispatchSingleEntry failed: %v", err)
+		}
+		if bee.Effort != "medium" || len(*started) != 1 || (*started)[0].Effort != "medium" {
+			t.Fatalf("非默认模型时未回退档位 Effort=medium: bee=%q started=%+v", bee.Effort, *started)
+		}
+	})
 }

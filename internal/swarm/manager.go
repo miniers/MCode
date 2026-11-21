@@ -382,7 +382,7 @@ func (m *Manager) TierPreview(leadThreadID string) map[string]ResolvedTier {
 			SessionBeeModel:    tc.BeeModel,
 			SessionBeeEffort:   tc.BeeEffort,
 		})
-		provider, model, effort, _ := m.effectiveBeeRuntime(cfg.Provider, cfg.Model, cfg.Effort, st, tc)
+		provider, model, effort, _ := m.effectiveBeeRuntime(cfg.Provider, cfg.Model, cfg.Effort, cfg.FallbackEffort, st, tc)
 		out[t.ID] = ResolvedTier{Provider: provider, Model: model, Effort: effort}
 	}
 	return out
@@ -390,22 +390,28 @@ func (m *Manager) TierPreview(leadThreadID string) map[string]ResolvedTier {
 
 // resolveBeeRuntime 按设置里的默认值补齐一次派发的 provider/model/effort：
 // provider 为空时回退到默认 Provider，model 也为空时使用默认 Model；effort 为空且这次实际用的
-// 就是默认 Provider 与 Model 时回退到默认 Effort。真实派发与档位预览共用这一套规则。
-func resolveBeeRuntime(provider, model, effort string, settings Settings) (string, string, string) {
+// 就是默认 Provider 与 Model 时先回退到默认 Effort，仍为空再用 fallbackEffort（未配模型的档位自带强度）。
+// 真实派发与档位预览共用这一套规则。
+func resolveBeeRuntime(provider, model, effort, fallbackEffort string, settings Settings) (string, string, string) {
 	if provider == "" {
 		provider = settings.DefaultProvider
 		if model == "" {
 			model = settings.DefaultModel
 		}
 	}
-	if effort == "" && provider == settings.DefaultProvider && model == settings.DefaultModel {
-		effort = settings.DefaultEffort
+	if effort == "" {
+		if provider == settings.DefaultProvider && model == settings.DefaultModel {
+			effort = settings.DefaultEffort
+		}
+		if effort == "" {
+			effort = fallbackEffort
+		}
 	}
 	return provider, model, effort
 }
 
-func (m *Manager) effectiveBeeRuntime(provider, model, effort string, settings Settings, tc ThreadContext) (string, string, string, error) {
-	provider, model, effort = resolveBeeRuntime(provider, model, effort, settings)
+func (m *Manager) effectiveBeeRuntime(provider, model, effort, fallbackEffort string, settings Settings, tc ThreadContext) (string, string, string, error) {
+	provider, model, effort = resolveBeeRuntime(provider, model, effort, fallbackEffort, settings)
 	if m.opts.NormalizeBee != nil {
 		provider, model = m.opts.NormalizeBee(provider, model)
 	}
@@ -1321,7 +1327,7 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 		tc = m.opts.ThreadContext(leadThreadID)
 	}
 	settings := m.Settings()
-	provider, model, effort, err := m.effectiveBeeRuntime(spec.Provider, spec.Model, spec.Effort, settings, tc)
+	provider, model, effort, err := m.effectiveBeeRuntime(spec.Provider, spec.Model, spec.Effort, spec.FallbackEffort, settings, tc)
 	if err != nil {
 		return Bee{}, err
 	}
@@ -1412,8 +1418,8 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 	}
 
 	// 解析 bee 实际使用的提供方与模型：派发指令没有指定时回退到设置里的默认值。
-	// 推理强度：派发指令与配对/档位都没指定，且这次实际用的就是默认 provider 和 model 时，
-	// 回退到设置里的默认推理强度；配对与档位已有的优先级不变。规则与 TierPreview 共用。
+	// 推理强度：派发指令、会话、配对或带模型的档位都没指定且实际用默认 provider/model 时，
+	// 优先使用设置里的默认推理强度；未设或最终模型非默认模型时再用未配模型档位自带的兜底强度。规则与 TierPreview 共用。
 	sessionReq := kanban.SessionRequest{
 		LeadThreadID: leadThreadID,
 		ProjectID:    beeProjectID,
@@ -1952,10 +1958,11 @@ func (m *Manager) planEntry(ctx context.Context, leadThreadID string, d Delegati
 		Prompt:      prompt,
 		ProjectID:   targetProjectID,
 		WorkDir:     targetWorkDir,
-		Provider:    cfg.Provider,
-		Model:       cfg.Model,
-		Effort:      cfg.Effort,
-		FastMode:    cfg.FastMode,
+		Provider:       cfg.Provider,
+		Model:          cfg.Model,
+		Effort:         cfg.Effort,
+		FallbackEffort: cfg.FallbackEffort,
+		FastMode:       cfg.FastMode,
 		Profile:     cfg.Profile,
 		Tier:        cfg.Tier,
 		ReadOnly:    cfg.ReadOnly,

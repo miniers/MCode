@@ -113,7 +113,7 @@ verdict is one of approve, reject, needs_human. Use reject with a concrete reaso
 func (m *Manager) reviewRuntime(ctx context.Context, leadThreadID string) (provider, model, effort string) {
 	s := m.Settings()
 	if s.ReviewProvider != "" || s.ReviewModel != "" || s.ReviewEffort != "" {
-		return resolveBeeRuntime(s.ReviewProvider, s.ReviewModel, s.ReviewEffort, s)
+		return resolveBeeRuntime(s.ReviewProvider, s.ReviewModel, s.ReviewEffort, "", s)
 	}
 	if m.opts.Driver != nil {
 		if src, ok := m.opts.Driver.(LeadRuntimeSource); ok {
@@ -122,7 +122,7 @@ func (m *Manager) reviewRuntime(ctx context.Context, leadThreadID string) (provi
 			}
 		}
 	}
-	return resolveBeeRuntime("", "", "", s)
+	return resolveBeeRuntime("", "", "", "", s)
 }
 
 // saveReviewPatch 把待审查的补丁快照写到 <数据目录>/swarm-reviews/<leadID>-<index>.patch。

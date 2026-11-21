@@ -71,10 +71,12 @@ func FindProfile(ps []BeeProfile, name string) (BeeProfile, bool) {
 
 // BeeConfig 是一次 bee 派发最终生效的执行配置。
 type BeeConfig struct {
-	Provider     string
-	Model        string
-	Effort       string
-	FastMode     bool
+	Provider string
+	Model    string
+	Effort   string
+	// FallbackEffort 保存未指定模型的档位自带推理强度：不直接写进 Effort，交给 resolveBeeRuntime 在默认 Effort 之后兜底。
+	FallbackEffort string
+	FastMode       bool
 	SystemPrompt string
 	Profile      string
 	PairID       string
@@ -126,9 +128,14 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 		ref = strings.TrimSpace(in.DefaultTier)
 	}
 
-	// b. 匹配档位或降级匹配 legacy Profile
-	if tier, ok := FindTier(in.Tiers, ref); ok {
-		apply(tier.Provider, tier.Model, tier.Effort)
+	applyTier := func(tier Tier) {
+		tierEffort := tier.Effort
+		if strings.TrimSpace(tier.Provider) == "" && strings.TrimSpace(tier.Model) == "" {
+			// 档位自身未指定模型时，自带 Effort 降为兜底：最终用默认模型且配了 DefaultEffort 时让位。
+			cfg.FallbackEffort = tierEffort
+			tierEffort = ""
+		}
+		apply(tier.Provider, tier.Model, tierEffort)
 		cfg.FastMode = tier.FastMode
 		if tier.SystemPrompt != "" {
 			cfg.SystemPrompt = tier.SystemPrompt
@@ -136,6 +143,11 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 		cfg.ReadOnly = tier.ReadOnly
 		cfg.WritePaths = append([]string(nil), tier.WritePaths...)
 		cfg.Tier = tier.ID
+	}
+
+	// b. 匹配档位或降级匹配 legacy Profile
+	if tier, ok := FindTier(in.Tiers, ref); ok {
+		applyTier(tier)
 	} else if ref != "" {
 		if p, ok := FindProfile(in.Profiles, ref); ok {
 			apply(p.Provider, p.Model, p.Effort)
@@ -146,14 +158,7 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 		} else {
 			notes = append(notes, fmt.Sprintf("未找到档位 %q，已按默认档位 %q 派发", ref, in.DefaultTier))
 			if defTier, ok := FindTier(in.Tiers, in.DefaultTier); ok {
-				apply(defTier.Provider, defTier.Model, defTier.Effort)
-				cfg.FastMode = defTier.FastMode
-				if defTier.SystemPrompt != "" {
-					cfg.SystemPrompt = defTier.SystemPrompt
-				}
-				cfg.ReadOnly = defTier.ReadOnly
-				cfg.WritePaths = append([]string(nil), defTier.WritePaths...)
-				cfg.Tier = defTier.ID
+				applyTier(defTier)
 			}
 		}
 	}

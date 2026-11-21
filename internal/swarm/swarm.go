@@ -222,10 +222,12 @@ type BeeSpec struct {
 	Files []string `json:"files,omitempty"`
 	ProjectID string `json:"projectId,omitempty"`
 	WorkDir   string `json:"workDir,omitempty"`
-	Provider  string `json:"provider,omitempty"`
-	Model     string `json:"model,omitempty"`
-	Effort    string `json:"effort,omitempty"`
-	FastMode  bool   `json:"fastMode,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Effort   string `json:"effort,omitempty"`
+	// FallbackEffort 保存未指定模型的档位自带推理强度：只有默认 Effort 也不适用或为空时才兜底生效。
+	FallbackEffort string `json:"fallback_effort,omitempty"`
+	FastMode       bool   `json:"fastMode,omitempty"`
 	Profile   string `json:"profile,omitempty"`
 	Tier      string `json:"tier,omitempty"`
 	ReadOnly  bool   `json:"read_only,omitempty"`

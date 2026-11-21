@@ -393,7 +393,7 @@ func defaultDeepWritePaths() []string {
 
 // DefaultSwarmTiers 返回内置的四组子代理档位：只读、杂活、执行、攻坚。
 // 所有档位的 Provider 与 Model 均为空，默认跟随会话生效的子代理模型；
-// Effort 为各档默认推理强度，攻坚档用 high，其余用 medium。
+// Effort 为各档默认推理强度，攻坚档用 high，其余用 medium，设了子代理默认强度时让位。
 func DefaultSwarmTiers() []SwarmTier {
 	return []SwarmTier{
 		{
