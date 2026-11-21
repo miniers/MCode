@@ -1156,9 +1156,25 @@ func renderSidebar(c *ui.Context, s *chatState) {
 
 					// 设置页「侧边栏自动隐藏空闲子代理」打开时，统一过滤所有 lead 下已结束的子代理，
 					// 只保留运行中、等待回答的；当前选中的子代理始终保留，免得正在看的头像消失。
-					if cs := getChatSettings(s); cs != nil && cs.cfg.Orchestration.AutoHidesIdleBees {
+					// 若父会话处于「手动展开全部子代理」状态，则跳过过滤保留完整列表。
+					var allBeesByParent map[string][]Thread
+					var hiddenBeeCountByParent map[string]int
+					var showAllBeesByParent map[string]bool
+					if cs := getChatSettings(s); cs != nil && cs.cfg.Orchestration.AutoHidesIdleBees && len(beesByParent) > 0 {
+						allBeesByParent = make(map[string][]Thread, len(beesByParent))
+						hiddenBeeCountByParent = make(map[string]int, len(beesByParent))
+						showAllBeesByParent = make(map[string]bool, len(beesByParent))
 						for pID, list := range beesByParent {
-							beesByParent[pID] = FilterIdleSwarmBees(list, selectedID)
+							allBeesByParent[pID] = list
+							if IsBeeShowAll(pID) {
+								showAllBeesByParent[pID] = true
+								continue
+							}
+							filtered := FilterIdleSwarmBees(list, selectedID)
+							beesByParent[pID] = filtered
+							if diff := len(list) - len(filtered); diff > 0 {
+								hiddenBeeCountByParent[pID] = diff
+							}
 						}
 					}
 
@@ -1183,20 +1199,23 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							s.searchHighlightIndex >= 0 && s.searchHighlightIndex < len(matchingThreads) &&
 							matchingThreads[s.searchHighlightIndex].ID == th.ID)
 						renderSidebarThreadRow(c, s, sidebarThreadRowOptions{
-							projectID:   pVal.ID,
-							thread:      th,
-							bees:        beesByParent[th.ID],
-							dormant:     isDormant,
-							selected:    th.ID == selectedID,
-							highlighted: isHighlighted,
-							rowHeight:   threadRowHeight,
-							padY:        threadPadY,
-							padX:        threadPadX,
-							indent:      folderIndent,
-							compact:     isCompact,
-							providers:   providers,
-							latchHover:  true,
-							needsYou:    needsYou,
+							projectID:      pVal.ID,
+							thread:         th,
+							bees:           beesByParent[th.ID],
+							allBees:        allBeesByParent[th.ID],
+							hiddenBeeCount: hiddenBeeCountByParent[th.ID],
+							showAllBees:    showAllBeesByParent[th.ID],
+							dormant:        isDormant,
+							selected:       th.ID == selectedID,
+							highlighted:    isHighlighted,
+							rowHeight:      threadRowHeight,
+							padY:           threadPadY,
+							padX:           threadPadX,
+							indent:         folderIndent,
+							compact:        isCompact,
+							providers:      providers,
+							latchHover:     true,
+							needsYou:       needsYou,
 						})
 					}
 
@@ -1462,10 +1481,13 @@ func renderSidebar(c *ui.Context, s *chatState) {
 
 // sidebarThreadRowOptions 是会话行渲染的参数，项目树与动态视图两种模式共用。
 type sidebarThreadRowOptions struct {
-	projectID   string
-	thread      Thread
-	bees        []Thread // 所属 Swarm bee 会话列表（若无则为空切片）
-	dormant     bool     // 已休眠会话：标题使用次要灰度色与更小字号
+	projectID      string
+	thread         Thread
+	bees           []Thread // 所属 Swarm bee 会话列表（若无则为空切片）
+	allBees        []Thread // 过滤前的完整 Swarm bee 会话列表
+	hiddenBeeCount int      // 自动隐藏空闲子代理模式下被隐藏的子代理数量
+	showAllBees    bool     // 该父会话是否处于「手动展开全部子代理」状态
+	dormant        bool     // 已休眠会话：标题使用次要灰度色与更小字号
 	selected    bool
 	highlighted bool // 搜索键盘高亮命中
 	rowHeight   float32
@@ -1669,8 +1691,8 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 		})
 	})
 
-	// 步骤 3: 渲染完父会话行之后调用 bee 子行
-	if len(o.bees) > 0 {
+	// 步骤 3: 渲染完父会话行之后调用 bee 子行（含全部空闲被自动隐藏时的展开触发行）
+	if len(o.bees) > 0 || o.hiddenBeeCount > 0 {
 		renderSidebarBeeSubRow(c, s, o)
 	}
 

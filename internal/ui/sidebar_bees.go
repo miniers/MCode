@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	sidebarBeesMu    sync.Mutex
-	sidebarBeeFolded = make(map[string]bool)
+	sidebarBeesMu     sync.Mutex
+	sidebarBeeFolded  = make(map[string]bool)
+	sidebarBeeShowAll = make(map[string]bool)
 )
 
 // sidebarBeeGlyphRadius 是状态徽章里 3px 白色方块的圆角：只磨掉一丝棱角，仍读作方块。
@@ -43,6 +44,42 @@ func ToggleBeeFold(parentID string) {
 func ResetBeeFolded() {
 	sidebarBeesMu.Lock()
 	sidebarBeeFolded = make(map[string]bool)
+	sidebarBeesMu.Unlock()
+}
+
+// IsBeeShowAll 判断指定父会话是否手动展开了自动隐藏的空闲子代理。默认不展开（返回 false）。
+func IsBeeShowAll(parentID string) bool {
+	sidebarBeesMu.Lock()
+	defer sidebarBeesMu.Unlock()
+	return sidebarBeeShowAll[parentID]
+}
+
+// SetBeeShowAll 设置指定父会话是否手动展开全部子代理。
+func SetBeeShowAll(parentID string, showAll bool) {
+	sidebarBeesMu.Lock()
+	if showAll {
+		sidebarBeeShowAll[parentID] = true
+	} else {
+		delete(sidebarBeeShowAll, parentID)
+	}
+	sidebarBeesMu.Unlock()
+}
+
+// ToggleBeeShowAll 切换指定父会话「手动显示全部子代理」状态。
+func ToggleBeeShowAll(parentID string) {
+	sidebarBeesMu.Lock()
+	if sidebarBeeShowAll[parentID] {
+		delete(sidebarBeeShowAll, parentID)
+	} else {
+		sidebarBeeShowAll[parentID] = true
+	}
+	sidebarBeesMu.Unlock()
+}
+
+// ResetBeeShowAll 清空手动展开全部子代理状态，供测试或重置使用。
+func ResetBeeShowAll() {
+	sidebarBeesMu.Lock()
+	sidebarBeeShowAll = make(map[string]bool)
 	sidebarBeesMu.Unlock()
 }
 
@@ -207,6 +244,16 @@ func FilterIdleSwarmBees(bees []Thread, keepID string) []Thread {
 		}
 	}
 	return res
+}
+
+// hasIdleSwarmBee 判断子代理列表里是否存在会被 FilterIdleSwarmBees 隐藏的空闲子代理（零分配）。
+func hasIdleSwarmBee(bees []Thread, keepID string) bool {
+	for _, h := range bees {
+		if !h.IsRunning && !h.HasPendingRequest && h.ID != keepID {
+			return true
+		}
+	}
+	return false
 }
 
 // BeeFoldSummary 返回折叠状态下的统计信息：子行总数、是否有正在运行的子行，以及文案。
@@ -528,33 +575,34 @@ func beesEffectivelyFolded(s *chatState, parentID string, children []Thread) boo
 	return true
 }
 
-// renderSidebarBeeFoldLine 渲染折叠态的单行摘要（"› N 个子代理"），点击展开；
-// 有运行中的子行时右侧显示动态图标。
-func renderSidebarBeeFoldLine(c *ui.Context, s *chatState, o sidebarThreadRowOptions) {
+// renderSidebarBeeSummaryLine 渲染子代理折叠/隐藏摘要行（"› N 个子代理"），供手动折叠态与全空闲自动隐藏态共用。
+func renderSidebarBeeSummaryLine(c *ui.Context, s *chatState, o sidebarThreadRowOptions, keyPrefix, label, tooltip string, hasRunning bool, onClick func()) {
 	parentID := o.thread.ID
-	_, hasRunning, label := BeeFoldSummary(o.bees)
 	secondaryText := ThemeSecondaryText(c)
 
-	btn := ui.ButtonBase(c.Key("bee-fold-btn-"+o.projectID+"-"+parentID)).
+	btn := ui.ButtonBase(c.Key(keyPrefix+"-btn-"+o.projectID+"-"+parentID)).
 		Margin(Space0, ListInset, Space1, ListInset+o.indent+10).
 		Padding(Space0, Space1).
 		Radius(RadiusXS).
 		Justify(ui.Start).
 		AlignItems(ui.Center).
-		Label(label)
+		Label(label).
+		Tooltip(tooltip).
+		Focusable()
 	btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 	btn.Scale(btnScale, btnScale)
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c))
 	}
-	if btn.Clicked() {
-		ToggleBeeFold(parentID)
+	focusRing(c, btn)
+	if btn.Clicked() && onClick != nil {
+		onClick()
 		if s != nil {
 			s.invalidate()
 		}
 	}
 	btn.Children(func() {
-		ui.Row(c.Key("bee-fold-row-" + o.projectID + "-" + parentID)).
+		ui.Row(c.Key(keyPrefix + "-row-" + o.projectID + "-" + parentID)).
 			AlignItems(ui.Center).
 			Gap(Space1).
 			Children(func() {
@@ -566,20 +614,73 @@ func renderSidebarBeeFoldLine(c *ui.Context, s *chatState, o sidebarThreadRowOpt
 					TextColor(secondaryText).
 					SingleLine()
 				if hasRunning {
-					renderRunningGlyph(c, "bee-fold-run-"+o.projectID+"-"+parentID, 10, ThemeAccent(c))
+					renderRunningGlyph(c, keyPrefix+"-run-"+o.projectID+"-"+parentID, 10, ThemeAccent(c))
 				}
 			})
 	})
 }
 
-// renderSidebarBeeSubRow 在父会话行下方渲染圆角容器、虚线连接线，以及容器里的 bee 头像条。
+// renderSidebarBeeFoldLine 渲染折叠态的单行摘要（"› N 个子代理"），点击展开；
+// 有运行中的子行时右侧显示动态图标。
+func renderSidebarBeeFoldLine(c *ui.Context, s *chatState, o sidebarThreadRowOptions) {
+	parentID := o.thread.ID
+	_, hasRunning, label := BeeFoldSummary(o.bees)
+	renderSidebarBeeSummaryLine(c, s, o, "bee-fold", label, "展开子代理", hasRunning, func() {
+		ToggleBeeFold(parentID)
+	})
+}
+
+// renderSidebarBeeActionChip 渲染子代理容器末尾的紧凑胶囊按钮（如 "+N" 与 "收起"）。
+func renderSidebarBeeActionChip(c *ui.Context, s *chatState, key, text, label, tooltip string, onClick func()) {
+	btn := ui.ButtonBase(c.Key(key)).
+		Height(18).
+		MinWidth(18).
+		Padding(0, Space1).
+		Radius(RadiusPill).
+		Justify(ui.Center).
+		AlignItems(ui.Center).
+		Background(ThemeOverlayHover(c)).
+		Label(label).
+		Tooltip(tooltip).
+		Focusable()
+	btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(btnScale, btnScale)
+	textColor := ThemeSecondaryText(c)
+	if btn.Hovered() {
+		btn.Background(ThemeHover(c))
+		textColor = ThemePrimaryText(c)
+	}
+	focusRing(c, btn)
+	if btn.Clicked() && onClick != nil {
+		onClick()
+		if s != nil {
+			s.invalidate()
+		}
+	}
+	btn.Children(func() {
+		ui.Text(c, text).
+			FontSize(sidebarFont(TypeMicro)).
+			TextColor(textColor).
+			SingleLine()
+	})
+}
+
+// renderSidebarBeeSubRow 在父会话行下方渲染圆角容器、虚线连接线，以及容器里的 bee 头像条；
+// 自动隐藏空闲子代理开启时，补齐按会话展开/收起全部子代理的两态极简交互。
 func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptions) {
 	bees := o.bees
+	parentID := o.thread.ID
+
 	if len(bees) == 0 {
+		if o.hiddenBeeCount > 0 {
+			label := fmt.Sprintf("%d 个子代理", o.hiddenBeeCount)
+			renderSidebarBeeSummaryLine(c, s, o, "bee-hidden-expand", label, "显示全部子代理", false, func() {
+				SetBeeShowAll(parentID, true)
+				SetBeeFolded(parentID, false)
+			})
+		}
 		return
 	}
-
-	parentID := o.thread.ID
 
 	var selectedID string
 	if s != nil {
@@ -663,6 +764,16 @@ func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 						isBeeSelected := (selectedID == hVal.ID)
 						status := resolveBeeStatus(s, parentID, hVal)
 						renderSidebarSingleBeeAvatar(c, s, parentID, hVal, status, isBeeSelected)
+					}
+					if o.hiddenBeeCount > 0 {
+						expandLabel := fmt.Sprintf("+%d", o.hiddenBeeCount)
+						renderSidebarBeeActionChip(c, s, "bee-expand-btn-"+o.projectID+"-"+parentID, expandLabel, expandLabel, "显示全部子代理", func() {
+							SetBeeShowAll(parentID, true)
+						})
+					} else if o.showAllBees && hasIdleSwarmBee(bees, selectedID) {
+						renderSidebarBeeActionChip(c, s, "bee-collapse-btn-"+o.projectID+"-"+parentID, "收起", "收起", "恢复自动隐藏空闲子代理", func() {
+							SetBeeShowAll(parentID, false)
+						})
 					}
 				})
 		})
