@@ -76,6 +76,7 @@ type kanbanState struct {
 	// viewMode 保存任务的展示方式，destination 独立保存窗口目的。
 	viewMode                string
 	viewFilter              string
+	originFilter            string
 	doneExpanded            bool
 	detailWidth             float32
 	persistTasksDetailWidth bool

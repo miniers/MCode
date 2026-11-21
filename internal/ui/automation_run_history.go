@@ -12,22 +12,7 @@ import (
 var automationHistoryPopovers = make(map[*automationState]*struct{ filter, more bool })
 
 func automationRunStatus(status string) (string, string) {
-	switch status {
-	case "running":
-		return "运行中", "running"
-	case "succeeded", "success", "completed":
-		return "成功", "succeeded"
-	case "failed", "error":
-		return "失败", "failed"
-	case "skipped":
-		return "已跳过", "stopped"
-	case "stopped", "canceled", "cancelled":
-		return "已停止", "stopped"
-	case "":
-		return "未知", ""
-	default:
-		return status, ""
-	}
+	return automationRunStatusDict(status)
 }
 
 func automationRunTriggerBadge(run AutomationRun) string {

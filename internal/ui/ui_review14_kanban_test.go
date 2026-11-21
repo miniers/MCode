@@ -224,7 +224,7 @@ func TestUIReview14_KanbanCardEmptyTitleFallbackAndBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range tt.Menu() {
-		if item == "开始" || item == "移动到 审查" || item == "移动到 完成" {
+		if item == "开始" || item == "移动到 待审阅" || item == "移动到 已完成" {
 			t.Fatalf("忙碌卡片右键菜单不应出现可操作项: %v", tt.Menu())
 		}
 	}

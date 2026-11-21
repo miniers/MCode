@@ -171,7 +171,7 @@ func TestStewardTaskBoardRefreshAndOtherThread(t *testing.T) {
 	task.Status = "done"
 	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
 	fake.TriggerKanbanChange()
-	waitFor(t, tt, func() bool { return tt.HasText("已通过") })
+	waitFor(t, tt, func() bool { return tt.HasText("已完成") })
 	updated := s.assembledTimelineItems(nil)
 	if s.stewardBoardRev() <= oldRev || len(updated) == 0 || &first[0] == &updated[0] || find().Status != "done" {
 		t.Fatal("看板更新后应重新组装并更新任务状态")

@@ -98,10 +98,10 @@ func (s *chatState) performKanbanTarget(task KanbanTask, target string) {
 
 // 可移动的目标状态选项
 var moveTargetOptions = []moveTargetOption{
-	{status: "todo", label: "待办", key: "kanban-move-todo"},
-	{status: "review", label: "审查", key: "kanban-move-review"},
-	{status: "done", label: "完成", key: "kanban-move-done"},
-	{status: "rejected", label: "驳回", key: "kanban-move-rejected"},
+	{status: "todo", label: taskStatusLabel("todo"), key: "kanban-move-todo"},
+	{status: "review", label: taskStatusLabel("review"), key: "kanban-move-review"},
+	{status: "done", label: taskStatusLabel("done"), key: "kanban-move-done"},
+	{status: "rejected", label: taskStatusLabel("rejected"), key: "kanban-move-rejected"},
 }
 
 // moveTargetsFor 返回 from 状态可选的移动目标：跳过当前状态所在列，并按后端

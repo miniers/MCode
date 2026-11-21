@@ -25,11 +25,11 @@ type kanbanColumnDef struct {
 
 // 列定义：五列依次为待办、进行中、待你处理、待审阅、已完成。
 var kanbanColumnDefs = []kanbanColumnDef{
-	{key: "todo", label: "待办", color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "todo") }},
-	{key: "in_progress", label: "进行中", color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "in_progress") }},
-	{key: "needs_you", label: "待你处理", color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "needs_you") }},
-	{key: "review", label: "待审阅", color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "review") }},
-	{key: "done", label: "已完成", color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "done") }},
+	{key: "todo", label: kanbanColumnLabel("todo"), color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "todo") }},
+	{key: "in_progress", label: kanbanColumnLabel("in_progress"), color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "in_progress") }},
+	{key: "needs_you", label: kanbanColumnLabel("needs_you"), color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "needs_you") }},
+	{key: "review", label: kanbanColumnLabel("review"), color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "review") }},
+	{key: "done", label: kanbanColumnLabel("done"), color: func(c *ui.Context) ui.Color { return kanbanStatusColor(c, "done") }},
 }
 
 // kanbanListGroup 是列表视图里按状态聚合的一组任务。
@@ -224,6 +224,9 @@ func renderKanbanListRow(c *ui.Context, s *chatState, task KanbanTask) {
 			Grow(1).
 			SingleLine()
 
+		if isStewardTaskOrigin(task.Origin) {
+			renderStewardOriginBadge(c, "kanban-list-origin-"+task.ID)
+		}
 		if signal != "" {
 			ui.Text(c, signal).FontSize(uiFont(TypeCaption)).TextColor(kanbanSignalColor(c, tone)).SingleLine()
 		}
@@ -562,6 +565,9 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 			renderKanbanPriority(c, task)
 			ui.Text(c, task.Title).Label(task.Title).Tooltip(task.Title).FontSize(uiFont(TypeBody)).FontWeight(500).
 				MaxLines(2).TextColor(primaryText).Grow(1).MinWidth(0)
+			if isStewardTaskOrigin(task.Origin) {
+				renderStewardOriginBadge(c, "kanban-task-origin-"+task.ID)
+			}
 			ui.Row(c.Key("kanban-task-actions-" + task.ID)).Width(KanbanCardActionSlotWidth).Height(ControlXS).Shrink(0).AlignItems(ui.Center).Children(func() {
 				if card.Hovered() || card.FocusWithin() || menuOpen || busy {
 					if actions.primary == "开始" {
@@ -878,30 +884,7 @@ func kanbanColumnWidthFor(boardWidth float32, expandedCount, collapsedCount int)
 
 // kanbanStatusBadge 返回任务状态徽标的文案，未知状态返回空串。
 func kanbanStatusBadge(task KanbanTask) string {
-	switch task.Status {
-	case "waiting":
-		return "等待中"
-	case "failed":
-		return "失败"
-	case "cancelled":
-		return "已取消"
-	}
-	switch kanbanDisplayColumn(task) {
-	case "todo":
-		return "待办"
-	case "in_progress":
-		return "进行中"
-	case "needs_you":
-		return "待你处理"
-	case "review":
-		return "待审阅"
-	case "done":
-		return "已通过"
-	case "rejected":
-		return "需修改"
-	default:
-		return ""
-	}
+	return taskBadgeLabel(task)
 }
 
 // renderKanbanColumn 渲染看板单列容器：列头（13pt 状态图标、列名、数量、待办列的「+」）、

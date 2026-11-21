@@ -48,7 +48,7 @@ func TestStewardTaskBandApprovalStatus(t *testing.T) {
 	s.stewardTaskThreadID = "t1"
 	s.stewardTask = stewardTaskSnapshot{ID: "task-1", Status: "needs_approval"}
 	tt := ui.NewTester(func(c *ui.Context) { renderStewardTaskBand(c, s, "t1") }, 800, 300)
-	if !tt.HasText("待你处理") || tt.HasText("needs_approval") || tt.HasText("—") {
+	if !tt.HasText("待审批") || tt.HasText("needs_approval") || tt.HasText("—") {
 		t.Fatalf("任务状态显示错误: %q", tt.Texts())
 	}
 }

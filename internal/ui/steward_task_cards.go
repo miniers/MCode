@@ -222,8 +222,8 @@ func renderStewardTaskCard(c *ui.Context, s *chatState, key string, task KanbanT
 			renderStewardTaskDot(c, key+"-dot", task)
 			ui.Text(c, task.Title).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(task.Title)
 			status := kanbanStatusBadge(task)
-			if status == "" && task.Status == "needs_approval" {
-				status = "待你处理"
+			if task.Status == "waiting" && task.WaitKind == "human" {
+				status = kanbanColumnLabel("needs_you")
 			}
 			ui.Text(c.Key(key+"-status-"+status), status).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Shrink(0).Transition(motionListItem(c))
 		})

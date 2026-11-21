@@ -127,6 +127,7 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		deleteTaskID:     ks.deleteTaskID,
 		interruptTaskID:  ks.interruptTaskID,
 		viewFilter:       ks.viewFilter,
+		originFilter:     ks.originFilter,
 	}
 	// 搜索只改变展示，不改看板数据；看板与列表视图共用同一份过滤结果。
 	p.visibleBoard = p.board
@@ -144,6 +145,24 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		filtered := make([]KanbanTask, 0, len(p.visibleBoard.Tasks))
 		for _, task := range p.visibleBoard.Tasks {
 			if tasksNeedsAttention(task) {
+				filtered = append(filtered, task)
+			}
+		}
+		p.visibleBoard.Tasks = filtered
+	}
+	switch ks.originFilter {
+	case "owner":
+		filtered := make([]KanbanTask, 0, len(p.visibleBoard.Tasks))
+		for _, task := range p.visibleBoard.Tasks {
+			if task.Origin == "owner" {
+				filtered = append(filtered, task)
+			}
+		}
+		p.visibleBoard.Tasks = filtered
+	case "goal":
+		filtered := make([]KanbanTask, 0, len(p.visibleBoard.Tasks))
+		for _, task := range p.visibleBoard.Tasks {
+			if task.GoalID != "" {
 				filtered = append(filtered, task)
 			}
 		}
@@ -290,6 +309,7 @@ func renderTasksWindowHeader(c *ui.Context, s *chatState, ks *kanbanState, p kan
 type kanbanModalBodyProps struct {
 	boardWidth       float32
 	viewFilter       string
+	originFilter     string
 	projectID        string
 	scopeID          string
 	viewMode         string
@@ -626,7 +646,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 				})
 				return
 			}
-			if !p.loading && len(p.board.Tasks) == 0 && len(p.board.Goals) == 0 && !p.searching && p.goalID == "" {
+			if !p.loading && len(p.board.Tasks) == 0 && len(p.board.Goals) == 0 && !p.searching && p.goalID == "" && p.originFilter == "" {
 				EmptyState(c, EmptyStateProps{
 					Key:   "kanban-empty-box",
 					Icon:  IconColumns3(),
@@ -647,7 +667,11 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 				return
 			}
 
-			if (p.searching || p.goalID != "" || p.viewFilter == "attention") && len(p.visibleBoard.Tasks) == 0 && attentionGoals == 0 {
+			if p.destination == "tasks" && p.goalID == "" {
+				renderKanbanOriginFilterBar(c, s, ks, p.originFilter)
+			}
+
+			if (p.searching || p.goalID != "" || p.viewFilter == "attention" || p.originFilter != "") && len(p.visibleBoard.Tasks) == 0 && attentionGoals == 0 {
 				EmptyState(c, EmptyStateProps{
 					Key:   "kanban-search-empty",
 					Icon:  IconSearch(),
@@ -658,6 +682,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 							ks.searchText = ""
 							ks.goalID = ""
 							ks.viewFilter = ""
+							ks.originFilter = ""
 							kanbanMu.Unlock()
 							s.invalidate()
 						}})
@@ -700,5 +725,38 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 						})
 					}
 				})
+		})
+}
+
+func renderKanbanOriginFilterBar(c *ui.Context, s *chatState, ks *kanbanState, originFilter string) {
+	options := []struct {
+		key, label, value string
+	}{
+		{key: "kanban-origin-all", label: "全部", value: ""},
+		{key: "kanban-origin-owner", label: "总管", value: "owner"},
+		{key: "kanban-origin-goal", label: "目标", value: "goal"},
+	}
+	ui.Row(c.Key("kanban-origin-filter")).
+		FillWidth().
+		Shrink(0).
+		AlignItems(ui.Center).
+		Gap(Space2).
+		Children(func() {
+			for _, opt := range options {
+				opt := opt
+				Capsule(c, CapsuleProps{
+					Key:         opt.key,
+					Text:        opt.label,
+					Size:        ControlSM,
+					Interactive: true,
+					Selected:    originFilter == opt.value,
+					OnClick: func() {
+						kanbanMu.Lock()
+						ks.originFilter = opt.value
+						kanbanMu.Unlock()
+						s.invalidate()
+					},
+				}).Label(opt.key)
+			}
 		})
 }

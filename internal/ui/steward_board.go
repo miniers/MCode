@@ -218,13 +218,15 @@ func stewardBoardSignal(task KanbanTask, group int) string {
 		if reason := strings.TrimSpace(strings.SplitN(task.LastFailureReason, "\n", 2)[0]); reason != "" {
 			return reason
 		}
-		return "失败"
+		return taskStatusLabel("failed")
+	case "needs_approval":
+		return taskStatusLabel("needs_approval")
 	case "review":
-		return "待审阅"
+		return taskStatusLabel("review")
 	case "rejected":
-		return "已驳回"
+		return taskStatusLabel("rejected")
 	default:
-		return "等你决定"
+		return kanbanColumnLabel("needs_you")
 	}
 }
 

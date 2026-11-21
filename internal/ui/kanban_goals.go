@@ -11,23 +11,7 @@ import (
 // goalStatusBadgeText 把目标状态翻译成界面文案；未知状态统一显示「处理中」，
 // 避免后端新增状态时把内部枚举串直接展示给用户。
 func goalStatusBadgeText(status string) string {
-	switch status {
-	case "planning":
-		return "规划中"
-	case "running":
-		return "运行中"
-	case "completed":
-		return "已完成"
-	case "plan_failed":
-		return "规划失败"
-	case "plan_review":
-		return "规划就绪"
-	case "paused":
-		return "已暂停"
-	case "cancelled":
-		return "已取消"
-	}
-	return "处理中"
+	return goalStatusLabel(status)
 }
 
 func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
@@ -146,17 +130,7 @@ func renderGoalDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 
 // goalStatusBadgeColor 返回目标状态标签的强调色，与 goalStatusBadgeText 的映射保持一致。
 func goalStatusBadgeColor(c *ui.Context, status string) ui.Color {
-	switch status {
-	case "planning", "running", "plan_review":
-		return ThemeAccent(c)
-	case "completed":
-		return ThemeSuccess(c)
-	case "plan_failed":
-		return ThemeDanger(c)
-	case "paused":
-		return ThemeWarning(c)
-	}
-	return ThemeSecondaryText(c)
+	return semanticStatusColor(c, goalStatusSemantic(status))
 }
 
 // planLayers 按依赖关系用 Kahn 算法把规划任务分层：第 1 层是无依赖任务，
@@ -501,7 +475,7 @@ func renderPlanReviewTaskCard(c *ui.Context, s *chatState, task KanbanTask, numb
 						Radius(RadiusXS).
 						Background(ThemeHover(c)).
 						Children(func() {
-							ui.Text(c, task.Status).
+							ui.Text(c, taskStatusLabel(task.Status)).
 								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
 						})
@@ -582,28 +556,7 @@ func goalOutputSummary(task KanbanTask) string {
 
 // goalOutputStatusLabel 将任务状态映射为界面文案，未知状态原样返回。
 func goalOutputStatusLabel(status string) string {
-	switch status {
-	case "waiting":
-		return "等待中"
-	case "failed":
-		return "失败"
-	case "cancelled":
-		return "已取消"
-	case "todo":
-		return "待办"
-	case "in_progress":
-		return "进行中"
-	case "needs_approval":
-		return "待审批"
-	case "review":
-		return "审查"
-	case "done":
-		return "完成"
-	case "rejected":
-		return "已驳回"
-	default:
-		return status
-	}
+	return taskStatusLabel(status)
 }
 
 // renderGoalOutputRow 渲染目标产物弹窗中的单条任务行。

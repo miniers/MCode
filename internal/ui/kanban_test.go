@@ -114,13 +114,13 @@ func TestKanbanWorkspace_MoveTask(t *testing.T) {
 		}
 	}
 
-	// 目标移动到 review (审查)
+	// 目标移动到 review (待审阅)
 	waitFor(t, tt, func() bool {
-		return tt.HasText("审查")
+		return tt.HasText("待审阅")
 	})
 
 	if err := tt.Click("kanban-move-review"); err != nil {
-		if clickErr := tt.Click("审查"); clickErr != nil {
+		if clickErr := tt.Click("待审阅"); clickErr != nil {
 			t.Fatalf("click 'kanban-move-review' failed: %v", err)
 		}
 	}
@@ -176,11 +176,11 @@ func TestKanbanWorkspace_RevisionConflict(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("审查")
+		return tt.HasText("待审阅")
 	})
 
 	if err := tt.Click("kanban-move-review"); err != nil {
-		_ = tt.Click("审查")
+		_ = tt.Click("待审阅")
 	}
 
 	// 断言出现冲突提示横幅
@@ -276,10 +276,10 @@ func TestKanbanWorkspace_ReopenRestoresWatch(t *testing.T) {
 func TestGoalStatusBadgeText(t *testing.T) {
 	for _, tc := range []struct{ status, want string }{
 		{status: "planning", want: "规划中"},
-		{status: "running", want: "运行中"},
+		{status: "running", want: "进行中"},
 		{status: "completed", want: "已完成"},
 		{status: "plan_failed", want: "规划失败"},
-		{status: "plan_review", want: "规划就绪"},
+		{status: "plan_review", want: "方案待审"},
 		{status: "paused", want: "已暂停"},
 		{status: "cancelled", want: "已取消"},
 		{status: "future_status", want: "处理中"},
@@ -799,7 +799,7 @@ func TestKanbanWorkspace_ListView(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		_, todoGroup := tt.Find("kanban-list-group-todo")
 		_, doneGroup := tt.Find("kanban-list-group-done")
-		return todoGroup && doneGroup && tt.HasText("待办 · 2") && tt.HasText("完成 · 1")
+		return todoGroup && doneGroup && tt.HasText("待办 · 2") && tt.HasText("已完成 · 1")
 	})
 
 	if err := tt.Click("kanban-list-row-list-1"); err != nil {

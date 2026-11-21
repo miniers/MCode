@@ -414,7 +414,7 @@ type AutomationSchedule struct {
 
 // Automation 表示自动化任务配置与状态。
 type Automation struct {
-	ID, ProjectID, Name, Prompt, Status, StopWhen, LastRunStatus, StopReason                     string
+	ID, ProjectID, Name, Prompt, Status, StopWhen, LastRunStatus, StopReason, Origin string
 	Schedule                                                                                     AutomationSchedule
 	Enabled                                                                                      bool
 	NextRunAt, LastRunAt                                                                         time.Time

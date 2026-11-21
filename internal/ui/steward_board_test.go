@@ -80,8 +80,8 @@ func TestStewardBoardSignal(t *testing.T) {
 		{"failure fallback", KanbanTask{Status: "failed", LastFailureReason: " \nmore"}, 0, "失败"},
 		{"review", KanbanTask{Status: "review"}, 0, "待审阅"},
 		{"rejected", KanbanTask{Status: "rejected"}, 0, "已驳回"},
-		{"approval", KanbanTask{Status: "needs_approval"}, 0, "等你决定"},
-		{"human wait", KanbanTask{Status: "waiting", WaitKind: "human"}, 0, "等你决定"},
+		{"approval", KanbanTask{Status: "needs_approval"}, 0, "待审批"},
+		{"human wait", KanbanTask{Status: "waiting", WaitKind: "human"}, 0, "待你处理"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

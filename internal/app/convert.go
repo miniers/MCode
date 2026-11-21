@@ -699,6 +699,7 @@ func AutomationToUI(d automation.Definition) mcodeui.Automation {
 		StopWhen:               d.Spec.StopWhen,
 		LastRunStatus:          d.Spec.State.LastRunStatus,
 		StopReason:             d.Spec.State.StopReason,
+		Origin:                 d.Spec.Origin,
 		Schedule:               AutomationScheduleToUI(d.Spec.Schedule),
 		Enabled:                d.Enabled,
 		NextRunAt:              nextRunAt,
