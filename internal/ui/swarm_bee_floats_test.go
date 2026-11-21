@@ -143,7 +143,7 @@ func TestSwarmFloatFrameReservesSpaceBesideComposer(t *testing.T) {
 }
 
 // TestSwarmFloatFrameExcludesSidePane 验证浮窗的主区宽度同样扣掉右侧分栏：
-// 打开文件管理面板后 paneW 少掉面板宽度与 1pt 分隔线，面板停靠位置也不越过新的主区右缘。
+// 打开文件管理面板后 paneW 少掉面板宽度与 sidePaneHandleWidth 拖动手柄，面板停靠位置也不越过新的主区右缘。
 func TestSwarmFloatFrameExcludesSidePane(t *testing.T) {
 	s := newFloatTestState(t)
 	// 打开自动分散展示，让不开分栏时两个子代理分别停到左右两侧。
@@ -167,7 +167,7 @@ func TestSwarmFloatFrameExcludesSidePane(t *testing.T) {
 	ui.NewTester(func(c *ui.Context) {
 		frame = swarmFloatFrameFor(c, s)
 	}, 1600, 900)
-	if got, want := frame.scene.layout.paneW, baseW-paneW-1; got != want {
+	if got, want := frame.scene.layout.paneW, baseW-paneW-sidePaneHandleWidth; got != want {
 		t.Fatalf("打开分栏后 paneW = %v，want %v", got, want)
 	}
 	if len(frame.scene.slots) == 0 {

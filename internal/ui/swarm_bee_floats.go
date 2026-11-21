@@ -811,6 +811,12 @@ func swarmFloatFrameFor(c *ui.Context, s *chatState) swarmFloatFrame {
 	if paneW <= 0 {
 		paneW = chatAreaWidth(c, s)
 	}
+	// 极窄窗口下主区放不下一个最小宽浮窗时，允许浮窗作为全窗浮层向左侧边栏上方借用水平空间，
+	// 同时保持右边界严格停在 paneW 内，不侵占右侧内联分栏。
+	if f.mainLeft > 0 && paneW < panelMinWidth+2*panelSideMargin {
+		paneW += f.mainLeft
+		f.mainLeft = 0
+	}
 	f.scene = computeSwarmScene(sceneInput{
 		paneW:         paneW,
 		paneH:         paneH,
