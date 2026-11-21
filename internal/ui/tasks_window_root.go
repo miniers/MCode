@@ -26,6 +26,9 @@ func tasksRootView(s *chatState) func(*ui.Context) {
 		if !started {
 			started = true
 			s.setUIServices(c.Services())
+			if s.tasksWindowView != "" && !kanbanModalOpen(s) {
+				s.openWorkspace("tasks")
+			}
 			if s.client != nil {
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), settingsRPCTimeout)
@@ -49,6 +52,27 @@ func tasksRootView(s *chatState) func(*ui.Context) {
 						s.invalidate()
 					}
 				}()
+				if _, ok := s.attentionClient(); ok {
+					s.refreshAttentionInbox()
+					s.ensureAttentionWatch()
+				}
+				if _, ok := s.client.(stewardDecisionListClient); ok {
+					refreshStewardOpenDecisions(s)
+				}
+				kanbanMu.Lock()
+				scopeID := ks.scopeID
+				kanbanMu.Unlock()
+				as := getAutomationState(s)
+				automationMu.Lock()
+				needAuto := as != nil && !as.initialized && !as.loading
+				if needAuto {
+					as.projectID = scopeID
+				}
+				automationMu.Unlock()
+				if needAuto {
+					s.startAutomationWatch(scopeID)
+					s.loadAutomations(scopeID)
+				}
 			}
 		}
 		s.applyWorkspaceUpdates()
@@ -58,8 +82,22 @@ func tasksRootView(s *chatState) func(*ui.Context) {
 		if c.Shortcut(0, ui.KeyEscape) {
 			kanbanMu.Lock()
 			automations := ks.destination == "automations"
+			hasModal := ks.newMenuOpen || ks.showNewTask || ks.showNewGoal || ks.quickAddOpen
+			hasOtherDetail := ks.goalDetailOpen || ks.detailTaskID != "" || ks.planReviewGoalID != "" || ks.outputsGoalID != ""
+			hasDecision := ks.detailDecisionID != ""
 			kanbanMu.Unlock()
-			if !automations || !handleAutomationEscape(s) {
+			if automations && handleAutomationEscape(s) {
+				// handled by automation escape chain
+			} else if !automations && !hasModal && !hasOtherDetail && hasDecision {
+				if kanbanKeyboardClearSelection(s) {
+					s.invalidate()
+				} else {
+					kanbanMu.Lock()
+					ks.detailDecisionID = ""
+					kanbanMu.Unlock()
+					s.invalidate()
+				}
+			} else {
 				consumeKanbanEscape(s)
 			}
 		}

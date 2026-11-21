@@ -8,13 +8,16 @@ import (
 )
 
 func tasksNeedsAttention(task KanbanTask) bool {
+	if task.Status == "done" || task.Status == "cancelled" {
+		return false
+	}
 	for _, flag := range task.AttentionFlags {
 		switch flag {
 		case kanban.AttentionFlagFailed, kanban.AttentionFlagAwaitingApproval, kanban.AttentionFlagAwaitingInput, kanban.AttentionFlagNeedsReview:
 			return true
 		}
 	}
-	return task.Status == "needs_approval" || task.Status == "failed" || task.Status == "review" || task.Column == "review" || (task.Status == "waiting" && task.WaitKind == "human")
+	return task.Status == "needs_approval" || task.Status == "failed" || task.Status == "review" || task.Column == "review" || task.Status == "needs_you" || task.Column == "needs_you" || task.Status == "rejected" || (task.Status == "waiting" && task.WaitKind == "human")
 }
 
 func tasksAttentionCount(board KanbanBoard) int {
@@ -41,9 +44,11 @@ func renderTasksWindowSidebar(c *ui.Context, s *chatState, ks *kanbanState, p ka
 	if !known {
 		unread = 0
 	}
+	attentionBadgeCount := tasksCenterAttentionBadgeCount(s, p.board, p.scopeID)
 	ui.Column(c.Key("tasks-sidebar")).Label("tasks-sidebar").Width(TasksSidebarWidth).FillHeight().Background(ThemeSidebarBg(c)).Padding(Space3).Gap(Space5).Children(func() {
 		ui.Box(c.Key("tasks-sidebar-titlebar")).Height(HeaderHeight).FillWidth().DragWindow()
 		ui.Column(c.Key("tasks-sidebar-destinations")).FillWidth().Children(func() {
+			tasksDestinationRow(c, s, destination, "attention", "待你处理", IconTray(), attentionBadgeCount)
 			tasksDestinationRow(c, s, destination, "tasks", "任务", IconColumns3(), 0)
 			tasksDestinationRow(c, s, destination, "automations", "自动化", IconByName("automation"), unread)
 		})
@@ -62,7 +67,7 @@ func renderTasksWindowSidebar(c *ui.Context, s *chatState, ks *kanbanState, p ka
 		})
 		if p.destination == "automations" {
 			renderAutomationSidebarSection(c, s)
-		} else {
+		} else if p.destination == "tasks" {
 			ui.Column(c.Key("tasks-sidebar-views")).Grow(1).MinHeight(0).FillWidth().Children(func() {
 				tasksSidebarRow(c, "tasks-sidebar-all-tasks", "全部任务", 0, p.goalID == "" && viewFilter == "", nil, func() {
 					kanbanMu.Lock()

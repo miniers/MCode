@@ -55,6 +55,23 @@ type stewardDecisionAnswerClient interface {
 	AnswerStewardDecision(context.Context, string, string) error
 }
 
+// StewardDecisionItem 是总管未答决策卡的界面条目。
+type StewardDecisionItem struct {
+	ID          string
+	TaskID      string
+	ThreadID    string
+	Question    string
+	Context     string
+	Options     []string
+	Recommended string
+	Status      string
+	CreatedAt   time.Time
+}
+
+type stewardDecisionListClient interface {
+	StewardOpenDecisions(ctx context.Context) ([]StewardDecisionItem, error)
+}
+
 // stewardIdentityClient 是总管身份的可选客户端能力：昵称与头像字符都可改。
 // 按契约它返回昵称原文（可为空）与头像原文（可为空），兜底由界面这里做。
 type stewardIdentityClient interface {
@@ -140,6 +157,8 @@ type stewardOpenState struct {
 	decisionCountAt      time.Time
 	decisionCountLoading bool
 	decisionErrors       map[string]string
+	openDecisions        []StewardDecisionItem
+	decisionsLoading     bool
 }
 
 var (
@@ -290,6 +309,43 @@ func (s *chatState) stewardDecisionCount() (int, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	return st.decisionCount, true
+}
+
+// refreshStewardOpenDecisions 异步拉取未答总管决策卡列表并同步更新缓存与决策计数。
+func refreshStewardOpenDecisions(s *chatState) {
+	if s == nil || s.client == nil {
+		return
+	}
+	c, ok := s.client.(stewardDecisionListClient)
+	if !ok {
+		return
+	}
+	st := getStewardOpenState(s)
+	if st == nil {
+		return
+	}
+	st.mu.Lock()
+	if st.decisionsLoading {
+		st.mu.Unlock()
+		return
+	}
+	st.decisionsLoading = true
+	st.mu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		items, err := c.StewardOpenDecisions(ctx)
+		cancel()
+		st.mu.Lock()
+		st.decisionsLoading = false
+		if err == nil {
+			st.openDecisions = append([]StewardDecisionItem(nil), items...)
+			st.decisionCount = len(items)
+			st.decisionCountAt = time.Now()
+		}
+		st.mu.Unlock()
+		s.invalidate()
+	}()
 }
 
 // openStewardThread 打开总管会话：会话已存在时直接跳过去；还没有时先在后台创建，

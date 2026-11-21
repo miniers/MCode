@@ -24,6 +24,8 @@ func (t taskCenterTarget) destinationView() string {
 	switch t.Kind {
 	case "automation", "automation_run":
 		return "automations"
+	case "decision":
+		return "attention"
 	default:
 		return "tasks"
 	}
@@ -63,7 +65,7 @@ func (s *chatState) revealThread(threadID string) {
 func WithTasksWindowMode(view string) Option {
 	return func(s *chatState) {
 		s.tasksWindowView = "tasks"
-		if view == "automations" {
+		if view == "automations" || view == "attention" {
 			s.tasksWindowView = view
 		}
 		s.setTasksWindowView(view)
@@ -75,7 +77,7 @@ func WithTasksWindowTarget(target taskCenterTarget) Option {
 	return func(s *chatState) {
 		view := target.destinationView()
 		s.tasksWindowView = "tasks"
-		if view == "automations" {
+		if view == "automations" || view == "attention" {
 			s.tasksWindowView = view
 		}
 		s.applyTasksWindowTarget(target)
@@ -236,6 +238,9 @@ func (s *chatState) consumePendingTasksTarget() {
 			return
 		}
 		clearPending()
+		kanbanMu.Lock()
+		ks.detailDecisionID = ""
+		kanbanMu.Unlock()
 		s.openTaskDetail(*matched)
 		return
 	case "goal":
@@ -254,6 +259,7 @@ func (s *chatState) consumePendingTasksTarget() {
 				ks.goalID = g.ID
 				ks.goalDetailOpen = true
 				ks.detailTaskID = ""
+				ks.detailDecisionID = ""
 				matched = true
 				break
 			}
@@ -262,6 +268,23 @@ func (s *chatState) consumePendingTasksTarget() {
 		if !matched {
 			return
 		}
+		clearPending()
+		s.invalidate()
+		return
+	case "decision":
+		if target.ID == "" {
+			clearPending()
+			return
+		}
+		ks := getKanbanState(s)
+		if ks == nil {
+			return
+		}
+		kanbanMu.Lock()
+		ks.detailDecisionID = target.ID
+		ks.detailTaskID = ""
+		ks.goalDetailOpen = false
+		kanbanMu.Unlock()
 		clearPending()
 		s.invalidate()
 		return
@@ -370,7 +393,7 @@ func (s *chatState) closeTasksWindow() {
 
 func (s *chatState) setTasksWindowView(view string) {
 	ks := getKanbanState(s)
-	if view != "automations" {
+	if view != "automations" && view != "attention" {
 		view = "tasks"
 	}
 	kanbanMu.Lock()

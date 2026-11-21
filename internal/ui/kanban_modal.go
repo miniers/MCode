@@ -111,6 +111,7 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		viewMode:         ks.viewMode,
 		destination:      ks.destination,
 		automationSearch: ks.automationSearch,
+		searchText:       ks.searchText,
 		goalID:           ks.goalID,
 		overview:         ks.overview,
 		searching:        strings.TrimSpace(ks.searchText) != "",
@@ -170,6 +171,7 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 	}
 	detailTaskID := ks.detailTaskID
 	goalDetailOpen := ks.goalDetailOpen
+	detailDecisionID := ks.detailDecisionID
 	kanbanMu.Unlock()
 	if p.destination != "automations" {
 		kanbanKeyboardMu.Lock()
@@ -192,7 +194,26 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		contentWidth = width - TasksSidebarWidth
 	}
 	pane, _, _ := kanbanDetailLayout(contentWidth, ks.detailWidth)
-	wideDetail := pane && p.destination != "automations" && (detailTaskID != "" || goalDetailOpen)
+	hasDetail := detailTaskID != "" || goalDetailOpen || detailDecisionID != ""
+	wideDetail := pane && p.destination != "automations" && hasDetail
+	if wideDetail && detailDecisionID != "" && detailTaskID == "" && !goalDetailOpen && c.Shortcut(0, ui.KeyEscape) {
+		kanbanMu.Lock()
+		ks.detailDecisionID = ""
+		kanbanMu.Unlock()
+		detailDecisionID = ""
+		wideDetail = false
+		hasDetail = false
+		s.invalidate()
+	}
+	renderDetailContent := func() {
+		if detailTaskID != "" {
+			renderTaskDetailContent(c, s, ks)
+		} else if goalDetailOpen {
+			renderGoalDetailContent(c, s, ks)
+		} else {
+			renderStewardDecisionDetailContent(c, s, ks)
+		}
+	}
 	renderBody := func() {
 		if !wideDetail {
 			p.boardWidth = contentWidth
@@ -202,13 +223,7 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		renderKanbanDetailSplit(c, s, ks, contentWidth, func(width float32) {
 			p.boardWidth = width
 			renderKanbanModalBody(c, s, ks, p)
-		}, func() {
-			if detailTaskID != "" {
-				renderTaskDetailContent(c, s, ks)
-			} else {
-				renderGoalDetailContent(c, s, ks)
-			}
-		})
+		}, renderDetailContent)
 	}
 
 	ui.Row(c.Key("kanban-window-root")).Fill().Background(ThemeWindowBg(c)).Clip().Gap(0).Children(func() {
@@ -219,7 +234,7 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		})
 	})
 
-	if !wideDetail && p.destination != "automations" && (detailTaskID != "" || goalDetailOpen) {
+	if !wideDetail && p.destination != "automations" && hasDetail {
 		open := true
 		backdropClicked := false
 		if detailTaskID != "" {
@@ -234,23 +249,31 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 			key := "kanban-goal-sheet"
 			if detailTaskID != "" {
 				key = "kanban-detail-sheet"
+			} else if detailDecisionID != "" {
+				key = "kanban-decision-sheet"
 			}
-			ui.Column(c.Key(key)).Width(sheetWidth).Height(sheetHeight).Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(func() {
-				if detailTaskID != "" {
-					renderTaskDetailContent(c, s, ks)
-				} else {
-					renderGoalDetailContent(c, s, ks)
-				}
-			})
+			ui.Column(c.Key(key)).Width(sheetWidth).Height(sheetHeight).Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(renderDetailContent)
 		})
 		if !open {
 			if !backdropClicked {
-				consumeKanbanEscape(s)
+				if detailDecisionID != "" && detailTaskID == "" && !goalDetailOpen {
+					kanbanMu.Lock()
+					ks.detailDecisionID = ""
+					kanbanMu.Unlock()
+					s.invalidate()
+				} else {
+					consumeKanbanEscape(s)
+				}
 			} else if detailTaskID != "" {
 				s.closeTaskDetail()
-			} else {
+			} else if goalDetailOpen {
 				kanbanMu.Lock()
 				ks.goalDetailOpen = false
+				kanbanMu.Unlock()
+				s.invalidate()
+			} else if detailDecisionID != "" {
+				kanbanMu.Lock()
+				ks.detailDecisionID = ""
 				kanbanMu.Unlock()
 				s.invalidate()
 			}
@@ -263,6 +286,8 @@ func renderTasksWindowHeader(c *ui.Context, s *chatState, ks *kanbanState, p kan
 		title := "全部任务"
 		if p.destination == "automations" {
 			title = "自动化"
+		} else if p.destination == "attention" {
+			title = "待你处理"
 		} else if ks.viewFilter == "attention" {
 			title = "待你处理"
 		} else if p.goalID != "" {
@@ -277,7 +302,7 @@ func renderTasksWindowHeader(c *ui.Context, s *chatState, ks *kanbanState, p kan
 			}
 		}
 		ui.Text(c, title).SingleLine().FontSize(uiFont(TypeProse)).FontWeight(600).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0)
-		if p.destination != "automations" {
+		if p.destination == "tasks" {
 			idx := 0
 			if p.viewMode == config.KanbanViewList {
 				idx = 1
@@ -299,7 +324,7 @@ func renderTasksWindowHeader(c *ui.Context, s *chatState, ks *kanbanState, p kan
 		kanbanSearchRow(c, s, ks, &query)
 		if p.destination == "automations" {
 			renderTasksAutomationCreate(c, s, p.scopeID)
-		} else {
+		} else if p.destination == "tasks" {
 			kanbanCreateMenu(c, s, ks)
 		}
 	})
@@ -315,6 +340,7 @@ type kanbanModalBodyProps struct {
 	viewMode         string
 	destination      string
 	automationSearch string
+	searchText       string
 	goalID           string
 	overview         bool
 	searching        bool
@@ -547,6 +573,12 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 						s.invalidate()
 					}})
 				})
+				return
+			}
+
+			// 2b. 一级「待你处理」聚合视图
+			if p.destination == "attention" {
+				renderTasksAttentionView(c, s, ks, p)
 				return
 			}
 

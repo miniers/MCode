@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -29,6 +30,63 @@ func (c *Client) StewardOpenDecisionCount(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return len(decisions), nil
+}
+
+// StewardOpenDecisions 返回当前未答总管决策卡列表。
+// OptionsJSON 支持字符串数组（如 ["甲","乙"]），解析失败时容错为空切片。
+func (c *Client) StewardOpenDecisions(ctx context.Context) ([]mcodeui.StewardDecisionItem, error) {
+	if c == nil || c.backend == nil || c.backend.Store() == nil {
+		return nil, nil
+	}
+	decisions, err := c.backend.Store().ListStewardDecisions(ctx, "open", 200)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]mcodeui.StewardDecisionItem, 0, len(decisions))
+	for _, d := range decisions {
+		items = append(items, mcodeui.StewardDecisionItem{
+			ID:          d.ID,
+			TaskID:      d.TaskID,
+			ThreadID:    d.ThreadID,
+			Question:    d.Question,
+			Context:     d.Context,
+			Options:     parseStewardDecisionOptions(d.OptionsJSON),
+			Recommended: d.Recommended,
+			Status:      d.Status,
+			CreatedAt:   d.CreatedAt,
+		})
+	}
+	return items, nil
+}
+
+func parseStewardDecisionOptions(optionsJSON string) []string {
+	trimmed := strings.TrimSpace(optionsJSON)
+	if trimmed == "" {
+		return []string{}
+	}
+	var strs []string
+	if err := json.Unmarshal([]byte(trimmed), &strs); err == nil {
+		if strs == nil {
+			return []string{}
+		}
+		return strs
+	}
+	var objs []struct {
+		Key  string `json:"key"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &objs); err == nil && len(objs) > 0 {
+		out := make([]string, 0, len(objs))
+		for _, o := range objs {
+			if o.Text != "" {
+				out = append(out, o.Text)
+			} else if o.Key != "" {
+				out = append(out, o.Key)
+			}
+		}
+		return out
+	}
+	return []string{}
 }
 
 // StewardThreadID 返回已保存的前台会话 ID。
