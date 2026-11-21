@@ -41,3 +41,39 @@
 - 托盘加载时的 Spinner：只在加载时挂载，符合 AGENTS.md 第 10 条
 - 编辑器行号与软换行错位、400 行上限：待实机确认
 - 托盘固定 480 高度、额度条图例：会增加说明文案
+
+---
+
+# 2026-11-21 全项目 UI/UX 审查与后续规划
+
+来源：基于 `ui-ux-pro-max` 与 `AGENTS.md` 对桌面端与 Web 端全量界面审查。
+
+## P0：阻断体验 / 数据安全 / 规范破口（Round 1）
+- [x] **桌面浮层二次点击先关后开根治**：在 `controls_popover.go` 提供统一防重开原语，修复侧边栏、聊天页、聊天顶栏、输入区胶囊等 10+ 处 `appPopover`/`PopoverCard` 触发器
+- [x] **工作台破坏性操作防呆、并发锁与渲染副作用**：Git 历史（checkout/cherry-pick/revert/reset）、冲突整文件/全文件覆盖、PR 批准与合并策略确认、审查评论删除确认、脚本弹窗未保存确认；`git_pane.go` 强推分支加锁、`review_diff_view.go` `Draw` 加锁、`git_blame.go` 悬停重绘收敛
+- [x] **Swarm / Automation / 设置 P0 修复**：Swarm 合并审查批准按钮禁用态视觉与点击拦截；Automation 编辑器取消/Esc/遮罩未保存确认；供应商列表与添加行键盘聚焦与激活；`numberControl` 越界/非法输入显式报错与范围提示
+- [x] **Web 端可访问性与深色 Token 对齐**：恢复双指缩放、边缘右滑返回收敛至独立 PWA 并豁免横向滚动区、清除 `web/src/index.css` 硬编码深浅色覆写严格对齐 `--mc-*`、补齐 `role="switch"` 无障碍标签与焦点环、消除 `ThreadList`/`KanbanBoard` 中 `role="button"` 嵌套 `<button>`
+
+## P1：系统性专项治理（后续批次）
+- [x] **桌面控件与焦点系统收口**：聊天查找栏/消息操作栏/错误行/后台任务/任务侧栏等核心手写 `ui.ButtonBase` 收口至 `Button`/`IconButton`；时间线折叠头与侧栏批量复选行补焦点环与键盘激活；消息与侧栏行操作条响应 `FocusWithin`；`ConfirmDialog` 改为按当前聚焦按钮分发 `Enter` 不再覆盖 Tab 焦点
+- [x] **桌面视觉令牌、对比度与热区**：浅色三级文本与 6 个状态色前景调深满足 WCAG AA（≥4.5:1）并同步 `web/src/tokens.css`；清除生产 UI 残留原始 Emoji；升级附件/侧栏/后台任务/查找条等 <24px 热区至 `ControlSM` 并补齐侧栏/任务侧栏截断文案 Tooltip
+- [x] **桌面渲染期 IO 与每帧排序缓存**：外部打开 `os.Stat`、下载目录 `os.ReadDir`、附加文件目录 `os.ReadDir` 迁出渲染路径改后台 TTL 异步缓存；侧栏休眠/搜索/活动、归档、模型弹层、自动化、运行历史与看板列每帧 `sort.Slice` 接入指纹缓存
+- [x] **桌面长列表虚拟化与文本测量缓存（P1-3 剩余）**：大冲突/控制台/记忆列表（待审提议与搜索结果）接入 `ui.List` 虚拟化与稳定 Key，统一有界文本测量缓存（`ShapeText` 与 `MeasureText`）接入悬停卡跑马灯、Git 面板及高频列表热路径
+- [x] **桌面窄窗与边界布局（核心项）**：聊天顶栏 2 级对称折叠（保留右栏打开时核心开关直达）、侧栏底栏 240px 紧凑自适应、任务窗侧栏目标区独立滚动容器
+- [x] **桌面窄窗边界剩余项（P1-4 剩余）**：Swarm 提问横幅 360px–520px 窄窗自适应换行，收口侧边栏、右侧分栏、总管看板与 Swarm 浮窗的最小宽度契约
+- [x] **Web 端触控、焦点陷阱与弱网性能**：高频按钮 ≥44×44px、弹窗输入框 ≥16px、底部安全区 `env(safe-area-inset-bottom)` 与键盘 `--app-height`；5 处手写模态框收口至 `SheetFrame` 补焦点陷阱；去除 `.menu-stack` `height` 布局动画、拆分 `RemoteContext`（`useRemoteMeta`/`useRemoteActions`）、首屏改用 `skeleton.css` 骨架屏、清除硬编码 Tailwind 色与原始 Emoji
+
+## P2：中长期产品与信息架构规划
+- [x] **统一「任务中心」心智模型（总管 × 看板 × 自动化）**：统一桌面端（`task_status.go`）与 Web 端（`taskStatus.ts`）状态译名、语义色与「总管」来源标识（远控协议全链路透传 `Automation.origin`）；落地任务中心「待你处理 / 任务 / 自动化」三段导航、四源聚合与决策内联作答；抽离共享右侧详情抽屉（`task_detail_drawer.go`）统一承接任务/目标/决策/自动化与主窗总管任务卡/决策卡/结果胶囊；升级 `⌘K` 全局检索任务/目标/自动化/未答决策（零渲染期 IO）与 `taskCenterTarget` 深链直达；Web 端补齐看板状态 × 来源正交筛选、自动化来源筛选、`#/automations/:id`、总管任务卡直达 `#/task/:id` 与全项目总管入口
+- [x] **设置系统架构瘦身与表单语义收口**：14 一级页精简合并至 9 页（保留 3 分组、`magpie` 置顶与全部旧 ID 兼容深链），统一主页面防抖自动保存与二级弹层显式保存反馈+未保存关闭确认，削减冗余说明文案并收紧 `ProseText` 护栏基线，清除引导页与设置底栏重复按钮，补齐 640px 技能行防溢出布局
+- [x] **工作台双向联动闭环 & 统一「上下文草稿区」**：建立跨面板文件行号跳转总线（`file_jump_bus.go`），打通 Markdown/终端/Git/文件树/审阅评论/控制台报错跳行，并建立统一会话级上下文草稿区（`composer_context_draft.go`）支持跨来源预览、单条编辑重传、多条合并与清空
+- [x] **统一变更审查体验**：抽离共享现代 `editor.DiffView` + 审批/验收组件（`unified_change_review.go`），升级 Swarm 合并审查与 Kanban 任务审查（统一/并排、词级高亮、折叠、已查看、验收进度）并移除旧版 `renderDiffFileList`
+- [x] **Web 端导航提级与宽屏分栏看板（P2-5 前半段）**：待处理提级至顶栏一级带红点入口、自动化提级至一级 `#/automations` Tab（含全部项目切换支持）、宽屏看板（≥900px）升级 5 列独立滚动布局（注：`nowledge` 实为外部服务 Nowledge Mem 名称前缀，非拼写错误）
+- [x] **Web 端远控能力补齐（P2-5 后半段，需扩展远控协议与后端 RPC）**：新增只读项目知识库 RPC（`context.listDocs` / `context.readDoc`，含主仓库归并/符号链接/二进制/256KiB UTF-8 截断防护）与实时命令/脚本日志订阅流（`logs.subscribe` / `logs.unsubscribe` / `logs.event` + `LogStreamHub` + 全量 `RedactSecrets` 脱敏），同步契约与 Web 端 `ProjectContextSheet` / `LiveLogsPanel`（`#/t/<id>/context`、`#/t/<id>/logs` 与首页菜单）
+
+## 专项：子代理浮窗、胶囊、侧边栏与汇总面板重构（已完成）
+- [x] **已完成/已失败子代理胶囊支持重新打开浮窗**：时间线胶囊点击除查看报告外，提供直接打开子代理独立浮窗/完整会话的入口
+- [x] **侧边栏「自动隐藏空闲子代理」模式下补齐展开查看入口**：在主会话下提供明确交互展开/查看该会话的全部历史子代理并可点击进入
+- [x] **子代理浮窗左上角菜单布局重构**：重构「清理已结束」「全部聚合」「汇总面板」等各占一行的松散布局，改为紧凑有序的图标/分组操作栏
+- [x] **子代理浮窗与团队面板双向切换**：放回团队面板（或全部聚合）后，补齐将单个/多个子代理重新弹出为独立浮窗的逆向入口
+- [x] **汇总面板布局、交互重构与入口提级**：按 `ui-ux-pro-max` 与 `xiaoxin-t3code` 可借鉴方案重做汇总面板信息架构，并将入口从浮窗二级菜单提级到更浅的一级触点
