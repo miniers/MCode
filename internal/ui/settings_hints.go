@@ -136,9 +136,6 @@ var settingHints = map[string]string{
 	"sec-agy-auto-warmup":      "Gemini 周额度到期但没有刷新时，自动发一次请求开启新周期。",
 
 	// Magpie
-	"row-magpie-agent-claude":    "这个智能体怎样连接 Magpie 网关，以及默认模型。",
-	"row-magpie-agent-codex":     "这个智能体怎样连接 Magpie 网关，以及默认模型。",
-	"row-magpie-agent-pi":        "这个智能体怎样连接 Magpie 网关，以及默认模型。",
 	"row-magpie-gateway-enabled": "打开后，智能体和模型列表可以使用这个网关。",
 	"row-magpie-persona-weburl":  "Magpie 网页管理地址。填写后，自动拉取人设列表。",
 	"row-magpie-persona-json":    "手动填写人设列表。必须勾选下方「人设规则」才生效。",
@@ -181,6 +178,7 @@ var settingHints = map[string]string{
 // settingHintPrefixes 保存带动态后缀设置行的说明文案（按前缀匹配）。
 var settingHintPrefixes = map[string]string{
 	"row-mcp-newthread-": "打开后，新会话自动加载这个服务。关闭后，需要时手动打开。",
+	"row-magpie-agent-":  "这个智能体怎样连接 Magpie 网关，以及默认模型。",
 }
 
 // settingHint 按行 ID 返回悬停说明文案；未配置时返回空串。

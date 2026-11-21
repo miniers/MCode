@@ -74,6 +74,10 @@ func TestSettingHintCopy(t *testing.T) {
 	if got := settingHint("row-mcp-newthread-foo"); got != wantPrefix || got == "" {
 		t.Errorf("settingHint(%q) = %q, want %q", "row-mcp-newthread-foo", got, wantPrefix)
 	}
+	wantMagpie := "这个智能体怎样连接 Magpie 网关，以及默认模型。"
+	if got := settingHint("row-magpie-agent-claude"); got != wantMagpie {
+		t.Errorf("settingHint(%q) = %q, want %q", "row-magpie-agent-claude", got, wantMagpie)
+	}
 	if got := settingHint("row-nonexistent-key"); got != "" {
 		t.Errorf("settingHint(%q) = %q, want empty", "row-nonexistent-key", got)
 	}

@@ -666,22 +666,9 @@ func magpieAgentRouteChoice(agent string) choiceFuncControl {
 	})
 }
 
-func magpieAgentRouteID(agent string) string {
-	switch agent {
-	case "claude":
-		return "row-magpie-agent-claude"
-	case "codex":
-		return "row-magpie-agent-codex"
-	case "pi":
-		return "row-magpie-agent-pi"
-	default:
-		return "row-magpie-agent-" + agent
-	}
-}
-
 // magpieAgentRouteRow 保留标题供页面树与索引使用，由具体控件接管整行布局。
 func magpieAgentRouteRow(agent string) setting {
-	return setting{ID: magpieAgentRouteID(agent), Title: magpieAgentTitle(agent), Visible: func(st *SettingsState) bool {
+	return setting{ID: "row-magpie-agent-" + agent, Title: magpieAgentTitle(agent), Visible: func(st *SettingsState) bool {
 		for _, installed := range magpieInstalledAgents(st) {
 			if installed == agent {
 				return true
