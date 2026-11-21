@@ -1637,6 +1637,17 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 	}
 }
 
+// retryCustomEndpointsLoad 清除自定义端点加载错误与节流时间并重新加载。
+func retryCustomEndpointsLoad(st *SettingsState) {
+	st.mu.Lock()
+	st.endpoints.err = ""
+	st.endpoints.loaded = false
+	st.endpoints.failedAt = time.Time{}
+	st.mu.Unlock()
+	loadCustomEndpoints(st)
+	st.invalidate()
+}
+
 // renderProvidersCard 渲染全部模型供应商单卡片折叠行列表；lib 用于在供应商行里展示各自的模型。
 func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryView) {
 	settingsWindowMu.Lock()
@@ -1665,6 +1676,7 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 	api := apiProviderListEntries(st)
 	st.mu.Lock()
 	presetErr := st.presets.saveErr
+	endpointsErr := st.endpoints.err
 	st.mu.Unlock()
 	for i := range api {
 		if api[i].Kind == "preset" {
@@ -1684,6 +1696,27 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 	}
 	if loadErr != "" {
 		ui.Text(c, loadErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c)).Margin(Space2, settingsRowPadX)
+	}
+	if endpointsErr != "" {
+		ui.Row(c.Key("row-providers-endpoints-err")).
+			FillWidth().
+			Padding(Space2, settingsRowPadX).
+			AlignItems(ui.Center).
+			Gap(Space3).
+			Children(func() {
+				ui.Text(c, endpointsErr).
+					FontSize(uiFont(TypeFootnote)).
+					TextColor(ThemeDanger(c)).
+					Grow(1)
+				Button(c, ButtonOpts{
+					Key:     "btn-providers-endpoints-retry",
+					Text:    "重试",
+					Label:   "重试",
+					Variant: ButtonSecondary,
+					Size:    ControlSM,
+					OnClick: func() { retryCustomEndpointsLoad(st) },
+				})
+			})
 	}
 	for groupIndex, group := range []struct {
 		title   string
@@ -1739,7 +1772,7 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 			}
 		}
 	}
-	if len(agents)+len(api) > 0 || loadErr != "" {
+	if len(agents)+len(api) > 0 || loadErr != "" || endpointsErr != "" {
 		renderSettingsDivider(c, "div-provider-add")
 	}
 	row := applySettingsRowFocus(c, ui.Row(c.Key("row-provider-add")).Label("添加供应商").Padding(Space3, settingsRowPadX).MinHeight(settingsRowMinHeight).AlignItems(ui.Center).FillWidth().Focusable().Cursor(ui.CursorPointer), "row-provider-add")

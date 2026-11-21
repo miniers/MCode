@@ -21,12 +21,45 @@ func magpiePageHasInstalledAgents(st *SettingsState) bool {
 	return magpiePageHasGateways(st) && len(magpieInstalledAgents(st)) > 0
 }
 
+// retryPiMagpieLoad 清除 pi 端点的加载错误并重新发起拉取。
+func retryPiMagpieLoad(st *SettingsState) {
+	st.mu.Lock()
+	st.piMagpie.err = ""
+	st.piMagpie.loaded = false
+	st.mu.Unlock()
+	magpieLoadFor(st, "pi")()
+	st.invalidate()
+}
+
 var pageMagpie = settingsPage{
 	ID: "magpie", Title: "Magpie", Icon: IconNetwork(),
 	Sections: []settingsSection{
 		{ID: "sec-magpie-gateways", Title: "网关", Rows: []setting{{ID: "row-magpie-gateways", Control: customFullWidth(func(c *ui.Context, st *SettingsState) {
 			connected, known := magpieConnected(st)
 			if !known {
+				_, _, _, errText, _ := magpieEndpointsFor(st, "pi")
+				if errText != "" {
+					ui.Row(c.Key("row-magpie-gateways-load-err")).
+						FillWidth().
+						Padding(settingsRowPadY, settingsRowPadX).
+						AlignItems(ui.Center).
+						Gap(Space3).
+						Children(func() {
+							ui.Text(c, "加载失败："+errText).
+								FontSize(uiFont(TypeFootnote)).
+								TextColor(ThemeDanger(c)).
+								Grow(1)
+							Button(c, ButtonOpts{
+								Key:     "btn-magpie-gateways-retry",
+								Text:    "重试",
+								Label:   "重试",
+								Variant: ButtonSecondary,
+								Size:    ControlSM,
+								OnClick: func() { retryPiMagpieLoad(st) },
+							})
+						})
+					return
+				}
 				ui.Text(c, "正在加载…")
 				return
 			}

@@ -542,7 +542,6 @@ func (r magpieAgentRouteControl) render(c *ui.Context, st *SettingsState, s sett
 	st.mu.Lock()
 	state := st.agentMagpieFor(r.agent)
 	snapshot := state.setting
-	loadErr := state.err
 	defaultErr := state.defaultErr
 	st.mu.Unlock()
 	endpoints, _, loaded, _, _ := magpieEndpointsFor(st, r.agent)
@@ -560,9 +559,6 @@ func (r magpieAgentRouteControl) render(c *ui.Context, st *SettingsState, s sett
 		})
 		if !loaded && !known {
 			ui.Text(c, "正在加载…").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
-		}
-		if loadErr != "" {
-			ui.Text(c, "加载 Magpie 设置失败: "+loadErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 		}
 		if loaded {
 			renderMagpieAgentDefaultPicker(c, st, r.agent, endpoints, snapshot)
