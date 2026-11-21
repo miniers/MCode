@@ -298,9 +298,8 @@ func renderRemoteTailscaleRetryButton(c *ui.Context, busy bool, tooltip string, 
 
 // remoteTailscaleSection 是 Tailscale 开关；状态、入口、最近连接由后面几个条件区块补上。
 var remoteTailscaleSection = settingsSection{
-	ID:      "remote.tailscale",
-	Title:   "Tailscale",
-	Visible: remoteTailscaleVisible,
+	ID:    "remote.tailscale",
+	Title: "Tailscale",
 	Rows: append(append(append(append(append(append([]setting{{
 		ID:      "row-remote-tailscale-enabled",
 		Title:   "通过 Tailscale 访问",

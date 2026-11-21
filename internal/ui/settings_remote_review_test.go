@@ -75,18 +75,3 @@ func TestRemoteRevokeDeviceFailureKeepsList(t *testing.T) {
 		t.Fatal("deviceActionErr = empty, want non-empty error")
 	}
 }
-
-func TestRemoteTailscaleNodeRowsHiddenWhenNeverEnabled(t *testing.T) {
-	disabled := false
-	st := &SettingsState{cfg: config.Defaults()}
-	st.cfg.Remote.TailscaleOn = &disabled
-	st.remote.status = RemoteStatus{State: RemoteStateStopped}
-	st.remote.tailscaleErr = ""
-
-	rows := visibleSettingsRows(st, remoteTailscaleSection, false)
-	for _, row := range rows {
-		if row.ID == "row-remote-tailscale-hostname" || row.ID == "row-remote-tailscale-reset" {
-			t.Fatalf("unexpected visible row %q when remote stopped and tailscale never enabled", row.ID)
-		}
-	}
-}
