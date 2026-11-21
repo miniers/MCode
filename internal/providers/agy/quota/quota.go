@@ -679,16 +679,6 @@ func forbiddenResponse(body []byte) error {
 	return errors.New("agy: quota request rejected (403)")
 }
 
-// ActivateWeekly 消耗至多 1 个输出 token 激活新周期；动态获取可用候选后执行预热，不重试不确定的网络失败。
-func (c *Client) ActivateWeekly(ctx context.Context, accessToken, projectID string) error {
-	res, err := c.Fetch(ctx, accessToken, projectID)
-	if err != nil {
-		return err
-	}
-	_, err = c.Warmup(ctx, accessToken, projectID, res.Candidates, "")
-	return err
-}
-
 // RefreshAccessToken 调用官方 OAuth 端点刷新 access token，遇到网络错误或 invalid_grant 进行 500ms 短退避重试。
 func RefreshAccessToken(ctx context.Context, hc *http.Client, tokenURL, clientID, clientSecret, refreshToken string) (accessToken string, expiry time.Time, err error) {
 	if refreshToken == "" {

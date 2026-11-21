@@ -44,12 +44,6 @@ func TestWeeklyActivationMinimalRequestAndNoNetworkRetry(t *testing.T) {
 	genCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1internal:loadCodeAssist":
-			_, _ = w.Write([]byte(`{"cloudaicompanionProject":"test-proj"}`))
-		case "/v1internal:fetchAvailableModels":
-			_, _ = w.Write([]byte(`{"models":{"gemini-dynamic-model":{"displayName":"Gemini Dynamic Model"}}}`))
-		case "/v1internal:retrieveUserQuotaSummary":
-			_, _ = w.Write([]byte(`{}`))
 		case "/v1internal:generateContent":
 			genCalls++
 			var payload struct {
@@ -74,7 +68,8 @@ func TestWeeklyActivationMinimalRequestAndNoNetworkRetry(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := Client{HTTPClient: srv.Client(), Hosts: []string{srv.URL}}
-	if err := client.ActivateWeekly(context.Background(), "mock", "project"); err == nil {
+	candidates := []ModelCandidate{{ID: "gemini-dynamic-model"}}
+	if _, err := client.Warmup(context.Background(), "mock", "project", candidates, ""); err == nil {
 		t.Fatal("expected activation error")
 	}
 	if genCalls != 1 {
