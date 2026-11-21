@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -671,7 +672,52 @@ func CompletePending(ctx context.Context, dataDir string, s *store.Store) (Resul
 	if err := os.RemoveAll(pending); err != nil {
 		return Result{}, err
 	}
+	bkPruneRollbackDirs(dataDir, journal.RollbackDir)
 	return result, nil
+}
+
+// bkPruneRollbackDirs removes stale pre-restore-* directories under dataDir,
+// keeping rollbackDir (or the newest directory by name when rollbackDir is empty).
+func bkPruneRollbackDirs(dataDir, rollbackDir string) {
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		log.Printf("backup: list rollback dirs: %v", err)
+		return
+	}
+	var dirs []string
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "pre-restore-") {
+			continue
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
+			continue
+		}
+		dirs = append(dirs, entry.Name())
+	}
+	if len(dirs) == 0 {
+		return
+	}
+	var keepPath string
+	var keepName string
+	if rollbackDir != "" {
+		keepPath = filepath.Clean(rollbackDir)
+	} else {
+		sort.Strings(dirs)
+		keepName = dirs[len(dirs)-1]
+	}
+	for _, name := range dirs {
+		full := filepath.Join(dataDir, name)
+		if keepPath != "" {
+			if filepath.Clean(full) == keepPath {
+				continue
+			}
+		} else if name == keepName {
+			continue
+		}
+		if err := os.RemoveAll(full); err != nil {
+			log.Printf("backup: prune rollback dir %s: %v", name, err)
+		}
+	}
 }
 func TakeResult(dataDir string) (Result, error) {
 	var result Result
