@@ -436,6 +436,74 @@ func groupAttentionItems(items []AttentionItem) map[string][]AttentionItem {
 	return groups
 }
 
+// attentionKindIsInformational 判断事件类型是否仅为结果通知（非阻塞，不计入角标数字）。
+func attentionKindIsInformational(kind string) bool {
+	return kind == "automation_finished"
+}
+
+// attentionBadgeCounts 统计收件箱中阻塞待办与仅结果通知的数量。
+// 尚未拉回列表详情时回落为 (rawCount, 0)，保持仅返回计数时的兼容性。
+func attentionBadgeCounts(items []AttentionItem, loaded bool, rawCount int) (actionable int, infoOnly int) {
+	if !loaded {
+		return rawCount, 0
+	}
+	for _, item := range items {
+		if attentionKindIsInformational(item.Kind) {
+			infoOnly++
+		} else {
+			actionable++
+		}
+	}
+	return actionable, infoOnly
+}
+
+// attentionKindMark 返回事件类型对应的几何状态符号与语义色调，避免仅靠颜色区分状态。
+func attentionKindMark(kind string) (symbol string, tone Tone) {
+	switch kind {
+	case "thread_failed", "kanban_failed", "kanban_plan_failed", "automation_failed", "bee_failed":
+		return "▲", ToneDanger
+	case "thread_stalled", "thread_quota":
+		return "▲", ToneWarning
+	case "automation_finished":
+		return "○", ToneNeutral
+	default:
+		return "●", ToneAccent
+	}
+}
+
+func attentionToneColor(c *ui.Context, tone Tone) ui.Color {
+	switch tone {
+	case ToneDanger:
+		return ThemeDanger(c)
+	case ToneWarning:
+		return ThemeWarning(c)
+	case ToneAccent:
+		return ThemeAccent(c)
+	default:
+		return ThemeSecondaryText(c)
+	}
+}
+
+func renderAttentionKindMark(c *ui.Context, kind string) {
+	symbol, tone := attentionKindMark(kind)
+	ui.Text(c, symbol).
+		FontSize(scaledFont(TypeCaption)).
+		TextColor(attentionToneColor(c, tone)).
+		Width(IconSM).
+		TextAlign(ui.Center).
+		SingleLine().
+		Shrink(0)
+}
+
+func attentionInboxShortcutLabel() string {
+	if mods, key, ok := shortcutBindingFor("open-attention-inbox"); ok {
+		if s := formatShortcutKeys(mods, key); s != "" {
+			return s
+		}
+	}
+	return "⇧⌘I"
+}
+
 // renderAttentionCountBadge 渲染数量胶囊，label 是徽标的可访问性标签；count <= 0 时不渲染。
 // 返回徽标元素，调用方可以再给它挂点击（总管段里的徽标就是弹浮层的按钮）。
 func renderAttentionCountBadge(c *ui.Context, key, label string, count int) ui.Element {
@@ -461,7 +529,7 @@ func renderAttentionInboxEntry(c *ui.Context, s *chatState) {
 		return
 	}
 	st.mu.Lock()
-	count := st.count
+	actionable, infoOnly := attentionBadgeCounts(st.items, st.loaded, st.count)
 	st.mu.Unlock()
 
 	row := ui.Row(c.Key("sidebar-attention-inbox")).
@@ -487,6 +555,8 @@ func renderAttentionInboxEntry(c *ui.Context, s *chatState) {
 		s.invalidate()
 	}
 
+	showShortcut := row.Hovered() || row.FocusWithin()
+
 	row.Children(func() {
 		ui.Icon(c, IconTray()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 		ui.Text(c, "待你处理").
@@ -494,7 +564,24 @@ func renderAttentionInboxEntry(c *ui.Context, s *chatState) {
 			TextColor(ThemePrimaryText(c).Alpha(0.92)).
 			Grow(1).
 			SingleLine()
-		renderAttentionCountBadge(c, "sidebar-attention-inbox-count", fmt.Sprintf("待你处理 %d 条", count), count)
+		if showShortcut {
+			Kbd(c, "sidebar-attention-inbox-kbd", attentionInboxShortcutLabel()).Shrink(0)
+		}
+		if actionable > 0 {
+			renderAttentionCountBadge(c, "sidebar-attention-inbox-count", fmt.Sprintf("待你处理 %d 条", actionable), actionable)
+		} else if infoOnly > 0 {
+			ui.Row(c.Key("sidebar-attention-inbox-info-dot")).
+				Label("有新结果").
+				Tooltip("有新结果可查看").
+				AlignItems(ui.Center).
+				Shrink(0).
+				Children(func() {
+					ui.Text(c, "○").
+						FontSize(scaledFont(TypeCaption)).
+						TextColor(ThemeSecondaryText(c)).
+						SingleLine()
+				})
+		}
 	})
 
 	appPopover(c.Key("sidebar-attention-inbox-popover"), row, &st.open, func() {
@@ -525,32 +612,37 @@ func renderAttentionInboxPopover(c *ui.Context, s *chatState) {
 		Padding(Space2).
 		Gap(Space0)).
 		Children(func() {
-			ui.Row(c.Key("sidebar-attention-inbox-header")).
+			header := ui.Row(c.Key("sidebar-attention-inbox-header")).
 				FillWidth().
 				AlignItems(ui.Center).
-				Padding(Space0, Space2, Space1, Space2).
-				Children(func() {
-					ui.Text(c, "待你处理").
-						FontSize(scaledFont(TypeBody)).
-						FontWeight(600).
-						TextColor(ThemePrimaryText(c)).
-						Grow(1)
-					// 总管入口：只用于查看已存在的总管会话，还没有会话时不显示。
-					if s.stewardThreadID() != "" {
-						nickname, _ := s.stewardIdentity()
-						name := stewardName(nickname)
-						Button(c.Key("sidebar-attention-inbox-steward"), ButtonOpts{
-							Text:    name,
-							Label:   "打开与" + name + "的对话",
-							Size:    ControlXS,
-							Variant: ButtonSecondary,
-							OnClick: func() {
-								st.open = false
-								s.openStewardThread()
-							},
-						}).Margin(0, Space2, 0, 0)
-					}
-				})
+				Gap(Space2).
+				Padding(Space0, Space2, Space1, Space2)
+			headerHovered := header.Hovered()
+			header.Children(func() {
+				ui.Text(c, "待你处理").
+					FontSize(scaledFont(TypeBody)).
+					FontWeight(600).
+					TextColor(ThemePrimaryText(c)).
+					Grow(1)
+				if headerHovered {
+					Kbd(c, "sidebar-attention-inbox-header-kbd", attentionInboxShortcutLabel()).Shrink(0)
+				}
+				// 总管入口：只用于查看已存在的总管会话，还没有会话时不显示。
+				if s.stewardThreadID() != "" {
+					nickname, _ := s.stewardIdentity()
+					name := stewardName(nickname)
+					Button(c.Key("sidebar-attention-inbox-steward"), ButtonOpts{
+						Text:    name,
+						Label:   "打开与" + name + "的对话",
+						Size:    ControlXS,
+						Variant: ButtonSecondary,
+						OnClick: func() {
+							st.open = false
+							s.openStewardThread()
+						},
+					}).Margin(0, Space2, 0, 0)
+				}
+			})
 
 			if errText != "" {
 				ui.Row(c.Key("sidebar-attention-inbox-error")).
@@ -620,8 +712,10 @@ func renderAttentionInboxGroup(c *ui.Context, s *chatState, key, title string, i
 	ui.Row(c.Key("attention-group-"+key)).
 		FillWidth().
 		AlignItems(ui.Center).
+		Gap(Space2).
 		Padding(Space1, Space2, Space0, Space2).
 		Children(func() {
+			renderAttentionKindMark(c, key)
 			ui.Text(c, title).
 				FontSize(scaledFont(TypeCaption)).
 				FontWeight(600).
@@ -665,6 +759,7 @@ func renderAttentionInboxItem(c *ui.Context, s *chatState, item AttentionItem) {
 	}
 
 	row.Children(func() {
+		renderAttentionKindMark(c, item.Kind)
 		ui.Column(c.Key("attention-item-text-" + item.ID)).
 			Gap(Space0).
 			Grow(1).

@@ -618,3 +618,187 @@ func TestAttentionInboxShowsLoadErrorAndRetry(t *testing.T) {
 		t.Fatalf("重试成功后应清掉错误行，当前文本: %q", tt.Texts())
 	}
 }
+
+func countExactAttentionTexts(tt *ui.Tester, want string) int {
+	n := 0
+	for _, text := range tt.Texts() {
+		if strings.TrimSpace(text) == want {
+			n++
+		}
+	}
+	return n
+}
+
+func TestAttentionInboxActionableBadgeCount(t *testing.T) {
+	if !attentionKindIsInformational("automation_finished") {
+		t.Fatal("automation_finished 应判定为仅结果通知")
+	}
+	for _, kind := range []string{"thread_approval", "thread_failed", "kanban_review", "bee_failed"} {
+		if attentionKindIsInformational(kind) {
+			t.Fatalf("%s 不应判定为仅结果通知", kind)
+		}
+	}
+	if a, info := attentionBadgeCounts(nil, false, 4); a != 4 || info != 0 {
+		t.Fatalf("未加载时应回落 rawCount=4，实际 (%d, %d)", a, info)
+	}
+	if a, info := attentionBadgeCounts(nil, true, 4); a != 0 || info != 0 {
+		t.Fatalf("已加载空列表应返回 (0, 0)，实际 (%d, %d)", a, info)
+	}
+	mixedItems := []AttentionItem{
+		{Kind: "thread_approval"},
+		{Kind: "automation_finished"},
+		{Kind: "automation_finished"},
+	}
+	if a, info := attentionBadgeCounts(mixedItems, true, 3); a != 1 || info != 2 {
+		t.Fatalf("混合列表应返回 (1, 2)，实际 (%d, %d)", a, info)
+	}
+
+	t.Run("混合阻塞与结果通知时仅计阻塞项", func(t *testing.T) {
+		fake := newAttentionFakeClient(
+			attentionItem("a1", "thread_approval", "thread", "t1", "等待审批", time.Minute),
+			attentionItem("a2", "automation_finished", "automation_run", "", "自动化完成1", 2*time.Minute),
+			attentionItem("a3", "automation_finished", "automation_run", "", "自动化完成2", 3*time.Minute),
+		)
+		state, view := buildRoot(fake)
+		t.Cleanup(state.close)
+		tt := ui.NewTester(view, 1000, 700)
+
+		waitFor(t, tt, func() bool { return tt.HasText("待你处理 1 条") })
+		if tt.HasText("待你处理 3 条") {
+			t.Fatalf("角标不应被仅结果通知撑大，当前文本: %q", tt.Texts())
+		}
+		if tt.HasText("有新结果") {
+			t.Fatalf("有阻塞待办时不应同时显示信息圆点，当前文本: %q", tt.Texts())
+		}
+	})
+
+	t.Run("仅结果通知时不显示数字角标而显示空心圆", func(t *testing.T) {
+		fake := newAttentionFakeClient(
+			attentionItem("a1", "automation_finished", "automation_run", "", "自动化完成1", time.Minute),
+			attentionItem("a2", "automation_finished", "automation_run", "", "自动化完成2", 2*time.Minute),
+		)
+		state, view := buildRoot(fake)
+		t.Cleanup(state.close)
+		tt := ui.NewTester(view, 1000, 700)
+
+		waitFor(t, tt, func() bool { return tt.HasText("有新结果") })
+		if !hasExactText(tt, "○") {
+			t.Fatalf("仅结果通知时应显示 ○ 标记，当前文本: %q", tt.Texts())
+		}
+		if tt.HasText("待你处理 1 条") || tt.HasText("待你处理 2 条") || hasExactText(tt, "2") {
+			t.Fatalf("仅结果通知时不应显示数字角标，当前文本: %q", tt.Texts())
+		}
+	})
+
+	t.Run("未加载列表时回落显示原始计数", func(t *testing.T) {
+		fake := newAttentionFakeClient(
+			attentionItem("a1", "automation_finished", "automation_run", "", "自动化完成1", time.Minute),
+			attentionItem("a2", "thread_approval", "thread", "t1", "等待审批", 2*time.Minute),
+		)
+		fake.failList(errors.New("list error"))
+		state, view := buildRoot(fake)
+		t.Cleanup(state.close)
+		tt := ui.NewTester(view, 1000, 700)
+
+		waitFor(t, tt, func() bool { return tt.HasText("待你处理 2 条") })
+	})
+}
+
+func TestAttentionInboxKindSymbols(t *testing.T) {
+	cases := []struct {
+		kind   string
+		symbol string
+		tone   Tone
+	}{
+		{"thread_failed", "▲", ToneDanger},
+		{"kanban_failed", "▲", ToneDanger},
+		{"kanban_plan_failed", "▲", ToneDanger},
+		{"automation_failed", "▲", ToneDanger},
+		{"bee_failed", "▲", ToneDanger},
+		{"thread_stalled", "▲", ToneWarning},
+		{"thread_quota", "▲", ToneWarning},
+		{"automation_finished", "○", ToneNeutral},
+		{"thread_approval", "●", ToneAccent},
+		{"kanban_needs_approval", "●", ToneAccent},
+		{"kanban_review", "●", ToneAccent},
+		{"thread_no_progress", "●", ToneAccent},
+		{"future_unknown_kind", "●", ToneAccent},
+	}
+	for _, tc := range cases {
+		sym, tone := attentionKindMark(tc.kind)
+		if sym != tc.symbol || tone != tc.tone {
+			t.Fatalf("attentionKindMark(%q) = (%q, %v), 期望 (%q, %v)", tc.kind, sym, tone, tc.symbol, tc.tone)
+		}
+	}
+
+	fake := newAttentionFakeClient(
+		attentionItem("a1", "thread_failed", "thread", "t1", "会话出错项", time.Minute),
+		attentionItem("a2", "thread_approval", "thread", "t1", "等待审批项", 2*time.Minute),
+		attentionItem("a3", "automation_finished", "automation_run", "", "自动化完成项", 3*time.Minute),
+	)
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+
+	waitFor(t, tt, func() bool { return tt.HasText("待你处理 2 条") })
+	if err := tt.Click("待你处理"); err != nil {
+		t.Fatalf("点击入口失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("会话出错项") && tt.HasText("等待审批项") && tt.HasText("自动化完成项")
+	})
+
+	for _, sym := range []string{"▲", "●", "○"} {
+		if got := countExactAttentionTexts(tt, sym); got < 2 {
+			t.Fatalf("浮层中分组标题与条目均应渲染符号 %q，实际出现 %d 次，文本: %q", sym, got, tt.Texts())
+		}
+	}
+}
+
+func TestAttentionInboxHoverShortcutHint(t *testing.T) {
+	fake := newAttentionFakeClient(
+		attentionItem("a1", "thread_failed", "thread", "t1", "会话1出错", time.Minute),
+	)
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+
+	tt.Move(990, 690)
+	waitFor(t, tt, func() bool { return tt.HasText("待你处理 1 条") })
+	if tt.HasText("⇧⌘I") {
+		t.Fatalf("未悬停时不应显示快捷键提示，当前文本: %q", tt.Texts())
+	}
+
+	r, ok := tt.Find("待你处理")
+	if !ok {
+		t.Fatal("找不到侧栏收件箱入口")
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	waitFor(t, tt, func() bool { return tt.HasText("⇧⌘I") })
+
+	tt.Move(990, 690)
+	waitFor(t, tt, func() bool { return !tt.HasText("⇧⌘I") })
+
+	s := &chatState{client: newAttentionFakeClient()}
+	st := getAttentionInboxState(s)
+	st.loaded = true
+	pt := ui.NewTesterWith(func(c *ui.Context) {
+		renderAttentionInboxPopover(c, s)
+	}, 450, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	pt.Move(440, 290)
+	pt.Frame()
+	if pt.HasText("⇧⌘I") {
+		t.Fatalf("浮层标题行未悬停时不应显示快捷键提示，当前文本: %q", pt.Texts())
+	}
+	hr, ok := pt.Find("待你处理")
+	if !ok {
+		t.Fatal("找不到浮层标题行")
+	}
+	pt.Move(hr.X+hr.W/2, hr.Y+hr.H/2)
+	waitFor(t, pt, func() bool { return pt.HasText("⇧⌘I") })
+	pt.Move(440, 290)
+	pt.Frame()
+	if pt.HasText("⇧⌘I") {
+		t.Fatalf("移出浮层标题行后应隐藏快捷键提示，当前文本: %q", pt.Texts())
+	}
+}
