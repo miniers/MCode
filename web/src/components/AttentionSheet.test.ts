@@ -35,6 +35,26 @@ assertEqual(
   null
 );
 assertEqual(
+  resolveAttentionTargetHash({ kind: 'merge_review_pending', subjectType: 'bee', subjectID: 'bee-1', threadID: 'lead 1' }),
+  '#/t/lead%201/agents'
+);
+assertEqual(
+  resolveAttentionTargetHash({ kind: 'merge_review_pending', subjectType: 'kanban_task', subjectID: 'task-1', threadID: 'lead-2' }),
+  '#/t/lead-2/agents'
+);
+assertEqual(
+  resolveAttentionTargetHash({ kind: 'merge_review_pending', subjectType: 'bee', subjectID: 'bee-1', threadID: '' }),
+  null
+);
+assertEqual(
+  resolveAttentionTargetHash({ subjectType: 'steward_decision', subjectID: 'D-0001', threadID: 'steward 1' }),
+  '#/t/steward%201'
+);
+assertEqual(
+  resolveAttentionTargetHash({ subjectType: 'steward_decision', subjectID: 'D-0001', threadID: '' }),
+  null
+);
+assertEqual(
   resolveAttentionTargetHash({ subjectType: 'unknown', subjectID: 'x', threadID: '' }),
   null
 );

@@ -175,6 +175,8 @@ interface ThreadViewProps {
   filePath?: string;
   /** 推送点开时的一次性定位：messageID 定位消息，requestID 定位审批面板；nonce 变化即重新执行 */
   jumpRequest?: { messageID?: string; requestID?: string; nonce: number } | null;
+  /** 总管任务卡直达任务详情。 */
+  onOpenTask?: (taskID: string) => void;
 }
 
 // 草稿按会话隔离：内存 Map 作前置缓存，首次读取时回读 draftStorage（刷新后仍在），写入防抖落盘。
@@ -193,7 +195,7 @@ function readThreadDraft(threadID: string): string | undefined {
   return stored;
 }
 
-export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview, filePath, jumpRequest }) => {
+export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview, filePath, jumpRequest, onOpenTask }) => {
   const { supportsAnswer, answerDecision } = useRemoteStewardApi();
   const {
     getThreadHistory,
@@ -2704,6 +2706,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
             onSendStewardMessage={handleSend}
             onAnswerStewardDecision={supportsAnswer ? answerDecision : undefined}
             onOpenThread={replaceThreadByID}
+            onOpenTask={onOpenTask}
           />
 
         </div>

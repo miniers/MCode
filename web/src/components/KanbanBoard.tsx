@@ -35,6 +35,7 @@ import { formatRelativeTime } from '../utils/date';
 import {
   filterKanbanGoals,
   filterKanbanTasks,
+  type KanbanOriginFilter,
   type KanbanStatusFilter
 } from '../utils/taskFilter';
 import {
@@ -57,8 +58,13 @@ const COLUMN_ORDER: KanbanDisplayColumn[] = [
 const KANBAN_FILTER_OPTIONS: readonly { value: KanbanStatusFilter; label: string }[] = [
   { value: 'all', label: '全部' },
   { value: 'needs_you', label: '待你处理' },
-  { value: 'review', label: '待审阅' },
-  { value: 'steward', label: '总管' }
+  { value: 'review', label: '待审阅' }
+];
+
+const KANBAN_ORIGIN_OPTIONS: readonly { value: KanbanOriginFilter; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'steward', label: '总管' },
+  { value: 'goal', label: '目标' }
 ];
 
 interface KanbanBoardProps {
@@ -277,7 +283,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
                 onOpenReviewThread(task.reviewThreadID!);
               }}
             >
-              打开审查会话
+              打开审阅会话
             </button>
           )}
           {task.status === 'rejected' && onRetry && (
@@ -323,6 +329,11 @@ const GoalRow: React.FC<GoalRowProps> = ({ goal, menuOpen, onOpen, onOpenOutputs
           <div className="flex items-center gap-2">
             <SparklesIcon className="h-4 w-4 shrink-0 text-primary" />
             <span className="truncate text-sm font-semibold text-foreground">{goal.title}</span>
+            {isStewardOrigin(goal.owner) && (
+              <span className="shrink-0 rounded bg-[var(--mc-accent-subtle)] px-1.5 py-0.5 text-micro font-medium text-[var(--primary)]">
+                总管
+              </span>
+            )}
             <span className={`shrink-0 text-mc-caption font-medium ${goalStatusClass(goal.status)}`}>{status}</span>
             {stalled && <span className="thread-status thread-status--warning shrink-0 text-mc-caption">卡住</span>}
           </div>
@@ -338,7 +349,7 @@ const GoalRow: React.FC<GoalRowProps> = ({ goal, menuOpen, onOpen, onOpenOutputs
               {[
                 progress.failed > 0 ? `失败 ${progress.failed}` : null,
                 progress.blocked > 0 ? `依赖阻塞 ${progress.blocked}` : null,
-                progress.waitingOnYou > 0 ? `等你 ${progress.waitingOnYou}` : null
+                progress.waitingOnYou > 0 ? `待你处理 ${progress.waitingOnYou}` : null
               ].filter(Boolean).join(' · ')}
             </p>
           )}
@@ -465,11 +476,11 @@ const GoalPlanReviewDialog: React.FC<GoalPlanReviewDialogProps> = ({
   }, [tasks, layers]);
 
   return (
-    <SheetFrame onRequestClose={onClose} size="bare" cardClassName="settings-sheet flex flex-col outline-none w-full max-w-full min-w-0 overflow-x-hidden" ariaLabel="审查规划">
+    <SheetFrame onRequestClose={onClose} size="bare" cardClassName="settings-sheet flex flex-col outline-none w-full max-w-full min-w-0 overflow-x-hidden" ariaLabel="方案待审">
         <div className="sheet-handle shrink-0" aria-hidden="true" />
         <div className="flex shrink-0 items-start justify-between gap-3 min-w-0 w-full">
           <div className="min-w-0 flex-1">
-            <p className="eyebrow truncate">审查规划</p>
+            <p className="eyebrow truncate">方案待审</p>
             <h2 className="mt-1 break-words [overflow-wrap:anywhere] text-headline font-bold text-foreground">{goal.title || goal.prompt}</h2>
             {(goal.planSummary || goal.statusReason) && (
               <p className="mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm text-muted min-w-0">{goal.planSummary || goal.statusReason}</p>
@@ -640,6 +651,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const [taskActionError, setTaskActionError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<KanbanStatusFilter>('all');
+  const [originFilter, setOriginFilter] = useState<KanbanOriginFilter>('all');
 
   const projectMap = useMemo(() => new Map((board?.projects ?? []).map((project) => [project.id, project.name])), [board?.projects]);
   const goalMap = useMemo(() => new Map((board?.goals ?? []).map((goal) => [goal.id, goal])), [board?.goals]);
@@ -653,17 +665,19 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     [board?.goals, selectedProjectID]
   );
   const filteredTasks = useMemo(
-    () => filterKanbanTasks(projectTasks, searchQuery, statusFilter),
-    [projectTasks, searchQuery, statusFilter]
+    () => filterKanbanTasks(projectTasks, searchQuery, statusFilter, originFilter),
+    [projectTasks, searchQuery, statusFilter, originFilter]
   );
   const filteredGoals = useMemo(
-    () => filterKanbanGoals(projectGoals, searchQuery, statusFilter),
-    [projectGoals, searchQuery, statusFilter]
+    () => filterKanbanGoals(projectGoals, searchQuery, statusFilter, originFilter),
+    [projectGoals, searchQuery, statusFilter, originFilter]
   );
-  const hasActiveFilter = searchQuery.trim().length > 0 || statusFilter !== 'all';
+  const hasActiveFilter =
+    searchQuery.trim().length > 0 || statusFilter !== 'all' || originFilter !== 'all';
   const clearFilters = () => {
     setSearchQuery('');
     setStatusFilter('all');
+    setOriginFilter('all');
   };
   const goalsWithoutTasks = useMemo(
     () => filteredGoals.filter((goal) => !filteredTasks.some((task) => task.goalID === goal.id)),
@@ -1067,21 +1081,39 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
               </button>
             )}
           </div>
-          <div className="filter-row !mt-0" role="toolbar" aria-label="筛选任务状态">
-            {KANBAN_FILTER_OPTIONS.map((option) => {
-              const selected = statusFilter === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`filter-chip touch-hit-44 ${selected ? 'filter-chip--active' : ''}`}
-                  aria-pressed={selected}
-                  onClick={() => setStatusFilter(option.value)}
-                >
-                  <span>{option.label}</span>
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="filter-row !mt-0" role="toolbar" aria-label="筛选任务状态">
+              {KANBAN_FILTER_OPTIONS.map((option) => {
+                const selected = statusFilter === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`filter-chip touch-hit-44 ${selected ? 'filter-chip--active' : ''}`}
+                    aria-pressed={selected}
+                    onClick={() => setStatusFilter(option.value)}
+                  >
+                    <span>{option.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="filter-row !mt-0" role="toolbar" aria-label="筛选任务来源">
+              {KANBAN_ORIGIN_OPTIONS.map((option) => {
+                const selected = originFilter === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`filter-chip touch-hit-44 ${selected ? 'filter-chip--active' : ''}`}
+                    aria-pressed={selected}
+                    onClick={() => setOriginFilter(option.value)}
+                  >
+                    <span>{option.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>

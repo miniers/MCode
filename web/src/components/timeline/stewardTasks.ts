@@ -1,4 +1,5 @@
 import type { TaskItem } from '../../types/contract';
+import { isStewardOrigin } from '../../utils/taskStatus';
 import type { TimelineItem } from './projection';
 
 export interface StewardTurnTasks {
@@ -24,7 +25,7 @@ export function stewardTasksByTurnEnd(items: TimelineItem[], tasks: TaskItem[]):
     result.set(index, group);
   };
   for (const task of tasks) {
-    if (task.origin !== 'owner' || task.parentID) continue;
+    if (!isStewardOrigin(task.origin) || task.parentID) continue;
     add(task.sourceMessageID, task, 'created');
     for (const messageID of new Set(task.amendMessageIDs ?? [])) add(messageID, task, 'amended');
   }

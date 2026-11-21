@@ -76,6 +76,8 @@ type AutomationExtAutomation struct {
 	RuntimeMode string `json:"runtimeMode,omitempty"`
 	// RunMode 是运行方式（standalone/dedicated/heartbeat）；heartbeat 投递到已有会话，上面四项不生效。
 	RunMode string `json:"runMode,omitempty"`
+	// Origin 标明自动化来源（如 steward/owner 表示由总管创建），空表示手动创建。
+	Origin string `json:"origin,omitempty"`
 	// Revision 是乐观并发版本号，update/setEnabled/reset 需要原样回传。
 	Revision int `json:"revision"`
 }

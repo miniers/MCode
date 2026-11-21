@@ -450,6 +450,7 @@ function parseAutomation(raw: Partial<RemoteAutomationExtAutomation> | undefined
     consecutiveFailures: typeof item.consecutiveFailures === 'number' ? item.consecutiveFailures : 0,
     maxConsecutiveFailures: typeof item.maxConsecutiveFailures === 'number' ? item.maxConsecutiveFailures : 0,
     maxIterations: typeof item.maxIterations === 'number' ? item.maxIterations : 0,
+    origin: typeof item.origin === 'string' ? item.origin : undefined,
     revision: typeof item.revision === 'number' ? item.revision : 0
   };
 }

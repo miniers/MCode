@@ -211,21 +211,28 @@ export const StewardDecisionCard: React.FC<StewardDecisionCardProps> = ({ messag
 export interface StewardResultMessageProps {
   message: Pick<ThreadMessage, 'text'>;
   onOpenThread?: (threadID: string) => void;
+  onOpenTask?: (taskID: string) => void;
   task?: TaskItem;
 }
 
-export const StewardResultMessage: React.FC<StewardResultMessageProps> = ({ message, onOpenThread, task }) => {
+export const StewardResultMessage: React.FC<StewardResultMessageProps> = ({ message, onOpenThread, onOpenTask, task }) => {
   const result = parseStewardResult(message.text);
   if (!result) return null;
-  const threadID = task?.threadID || result.thread?.trim();
+  const threadID = task?.threadID || result.thread?.trim() || null;
+  const canOpenCard = Boolean(threadID || (task?.id && onOpenTask));
   return (
     <div className="mb-4 min-w-0 max-w-full text-sm leading-relaxed text-[var(--foreground)]">
       <p>
         {result.title}{result.status === 'failed' ? ' 没能完成：' : '：'}{result.summary}
       </p>
-      {threadID && (
+      {canOpenCard && (
         <div className="mt-1">
-          <StewardTaskCard compact task={task ? { ...task, threadID } : { title: result.task || result.title, status: result.status, threadID }} onOpenThread={onOpenThread} />
+          <StewardTaskCard
+            compact
+            task={task ? { ...task, threadID } : { title: result.task || result.title, status: result.status, threadID }}
+            onOpenThread={onOpenThread}
+            onOpenTask={onOpenTask}
+          />
         </div>
       )}
     </div>

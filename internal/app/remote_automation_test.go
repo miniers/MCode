@@ -232,3 +232,12 @@ func TestAutomationExtRunCarriesTrigger(t *testing.T) {
 		t.Fatalf("trigger/missedCount missing: %+v", out)
 	}
 }
+
+func TestAutomationExtAutomationCarriesOrigin(t *testing.T) {
+	for _, origin := range []string{"", "steward", "owner"} {
+		out := automationExtAutomation(mcodeui.Automation{ID: "auto-1", Origin: origin})
+		if out.Origin != origin {
+			t.Fatalf("origin mismatch: got %q want %q", out.Origin, origin)
+		}
+	}
+}

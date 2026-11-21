@@ -15,8 +15,12 @@ import {
 import { useRemoteStatic } from '../context/RemoteContext';
 import { pickableProjects } from '../utils/builtinProjects';
 import { formatRelativeTime } from '../utils/date';
-import { automationRunStatusInfo } from '../utils/taskStatus';
-import { filterAutomations, type AutomationStatusFilter } from '../utils/taskFilter';
+import { automationRunStatusInfo, isStewardOrigin } from '../utils/taskStatus';
+import {
+  filterAutomations,
+  type AutomationOriginFilter,
+  type AutomationStatusFilter
+} from '../utils/taskFilter';
 import { AutomationEditForm } from './AutomationEditForm';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ArchiveBoxIcon, ChevronRightIcon, ClockIcon, DocumentTextIcon, PlayIcon, SearchIcon, XMarkIcon } from './Icons';
@@ -60,6 +64,10 @@ const AUTOMATION_FILTER_OPTIONS: readonly { value: AutomationStatusFilter; label
   { value: 'all', label: '全部' },
   { value: 'failed', label: '失败' },
   { value: 'paused', label: '已暂停' }
+];
+const AUTOMATION_ORIGIN_OPTIONS: readonly { value: AutomationOriginFilter; label: string }[] = [
+  { value: 'all', label: '全部来源' },
+  { value: 'steward', label: '总管' }
 ];
 
 export const AutomationSheet: React.FC<AutomationSheetProps> = ({
@@ -164,6 +172,7 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
   const [busyAutomationID, setBusyAutomationID] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<AutomationStatusFilter>('all');
+  const [originFilter, setOriginFilter] = useState<AutomationOriginFilter>('all');
   // 删除与重置需要二次确认，对应桌面端的 confirmDelete 流程。
   const [confirm, setConfirm] = useState<{
     kind: 'delete' | 'reset';
@@ -172,12 +181,13 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
 
   const active = useMemo(() => automations.find((item) => item.id === activeID) ?? null, [automations, activeID]);
   const filteredAutomations = useMemo(
-    () => filterAutomations(automations, searchQuery, statusFilter),
-    [automations, searchQuery, statusFilter]
+    () => filterAutomations(automations, searchQuery, statusFilter, originFilter),
+    [automations, searchQuery, statusFilter, originFilter]
   );
   const clearFilters = useCallback(() => {
     setSearchQuery('');
     setStatusFilter('all');
+    setOriginFilter('all');
   }, []);
 
   const openRuns = useCallback(
@@ -382,21 +392,39 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
             </button>
           )}
         </div>
-        <div className="filter-row !mt-0" role="toolbar" aria-label="筛选自动化状态">
-          {AUTOMATION_FILTER_OPTIONS.map((option) => {
-            const selected = statusFilter === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                className={`filter-chip touch-hit-44 ${selected ? 'filter-chip--active' : ''}`}
-                aria-pressed={selected}
-                onClick={() => setStatusFilter(option.value)}
-              >
-                <span>{option.label}</span>
-              </button>
-            );
-          })}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="filter-row !mt-0" role="toolbar" aria-label="筛选自动化状态">
+            {AUTOMATION_FILTER_OPTIONS.map((option) => {
+              const selected = statusFilter === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`filter-chip touch-hit-44 ${selected ? 'filter-chip--active' : ''}`}
+                  aria-pressed={selected}
+                  onClick={() => setStatusFilter(option.value)}
+                >
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="filter-row !mt-0" role="toolbar" aria-label="筛选自动化来源">
+            {AUTOMATION_ORIGIN_OPTIONS.map((option) => {
+              const selected = originFilter === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`filter-chip touch-hit-44 ${selected ? 'filter-chip--active' : ''}`}
+                  aria-pressed={selected}
+                  onClick={() => setOriginFilter(option.value)}
+                >
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     ) : null;
@@ -419,9 +447,16 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
                 </button>
               )}
               <div className="min-w-0">
-                <h2 id="automation-sheet-title" className="text-sm font-semibold text-[var(--foreground)] truncate">
-                  {active ? active.name : '自动化'}
-                </h2>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <h2 id="automation-sheet-title" className="text-sm font-semibold text-[var(--foreground)] truncate">
+                    {active ? active.name : '自动化'}
+                  </h2>
+                  {active && isStewardOrigin(active.origin) && (
+                    <span className="shrink-0 rounded bg-[var(--mc-accent-subtle)] px-1.5 py-0.5 text-micro font-medium text-[var(--primary)]">
+                      总管
+                    </span>
+                  )}
+                </div>
                 {!activeID && (
                   <p className="text-mc-caption text-[var(--foreground-muted)] truncate">
                     {effectiveProjectID
@@ -466,9 +501,16 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
               )}
               <div className="min-w-0">
                 <p className="eyebrow">自动化</p>
-                <h2 id="automation-sheet-title" className="sheet-title truncate">
-                  {active ? active.name : '自动化与运行记录'}
-                </h2>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <h2 id="automation-sheet-title" className="sheet-title truncate">
+                    {active ? active.name : '自动化与运行记录'}
+                  </h2>
+                  {active && isStewardOrigin(active.origin) && (
+                    <span className="shrink-0 rounded bg-[var(--mc-accent-subtle)] px-1.5 py-0.5 text-micro font-medium text-[var(--primary)]">
+                      总管
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -600,6 +642,11 @@ export const AutomationSheet: React.FC<AutomationSheetProps> = ({
                         title="查看运行记录"
                       >
                         <span className="truncate">{item.name}</span>
+                        {isStewardOrigin(item.origin) && (
+                          <span className="shrink-0 rounded bg-[var(--mc-accent-subtle)] px-1.5 py-0.5 text-micro font-medium text-[var(--primary)]">
+                            总管
+                          </span>
+                        )}
                         {item.unreadCount > 0 && (
                           <span className={UNREAD_BADGE_CLASS} aria-label={`${item.unreadCount} 条未读运行记录`}>
                             {item.unreadCount > 99 ? '99+' : item.unreadCount}

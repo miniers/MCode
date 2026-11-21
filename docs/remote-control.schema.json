@@ -15738,6 +15738,10 @@
           "type": "string",
           "description": "运行方式；heartbeat 投递到已有会话，模型与权限设置不生效"
         },
+        "origin": {
+          "type": "string",
+          "description": "自动化来源标识（如 steward/owner 表示由总管创建）"
+        },
         "revision": {
           "type": "integer",
           "description": "乐观并发版本号；update/setEnabled/reset 需要原样回传"

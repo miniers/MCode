@@ -10,7 +10,11 @@ import {
 
 export type KanbanStatusFilter = 'all' | 'needs_you' | 'review' | 'steward';
 
+export type KanbanOriginFilter = 'all' | 'steward' | 'goal';
+
 export type AutomationStatusFilter = 'all' | 'failed' | 'paused';
+
+export type AutomationOriginFilter = 'all' | 'steward';
 
 function normalizeQuery(query: string): string {
   return query.trim().toLowerCase();
@@ -24,7 +28,8 @@ function matchesFields(needle: string, fields: string[]): boolean {
 export function filterKanbanTasks(
   tasks: TaskItem[],
   query: string,
-  statusFilter: KanbanStatusFilter
+  statusFilter: KanbanStatusFilter,
+  originFilter: KanbanOriginFilter = 'all'
 ): TaskItem[] {
   const needle = normalizeQuery(query);
   return tasks.filter((task) => {
@@ -42,6 +47,12 @@ export function filterKanbanTasks(
       if (!isStewardOrigin(task.origin)) return false;
     }
 
+    if (originFilter === 'steward') {
+      if (!isStewardOrigin(task.origin)) return false;
+    } else if (originFilter === 'goal') {
+      if (!task.goalID) return false;
+    }
+
     return matchesFields(needle, [
       task.title,
       task.notes ?? '',
@@ -55,7 +66,8 @@ export function filterKanbanTasks(
 export function filterKanbanGoals(
   goals: Goal[],
   query: string,
-  statusFilter: KanbanStatusFilter
+  statusFilter: KanbanStatusFilter,
+  originFilter: KanbanOriginFilter = 'all'
 ): Goal[] {
   const needle = normalizeQuery(query);
   return goals.filter((goal) => {
@@ -69,13 +81,18 @@ export function filterKanbanGoals(
     } else if (statusFilter === 'review') {
       if (goal.status !== 'plan_review') return false;
     } else if (statusFilter === 'steward') {
-      if (goal.owner !== 'steward') return false;
+      if (!isStewardOrigin(goal.owner)) return false;
+    }
+
+    if (originFilter === 'steward') {
+      if (!isStewardOrigin(goal.owner)) return false;
     }
 
     return matchesFields(needle, [
       goal.title,
       goal.prompt ?? '',
-      goalStatusLabel(goal.status)
+      goalStatusLabel(goal.status),
+      isStewardOrigin(goal.owner) ? '总管' : ''
     ]);
   });
 }
@@ -83,7 +100,8 @@ export function filterKanbanGoals(
 export function filterAutomations(
   items: RemoteAutomationExtAutomation[],
   query: string,
-  statusFilter: AutomationStatusFilter
+  statusFilter: AutomationStatusFilter,
+  originFilter: AutomationOriginFilter = 'all'
 ): RemoteAutomationExtAutomation[] {
   const needle = normalizeQuery(query);
   return items.filter((item) => {
@@ -93,11 +111,16 @@ export function filterAutomations(
       if (item.enabled && item.status !== 'paused') return false;
     }
 
+    if (originFilter === 'steward') {
+      if (!isStewardOrigin(item.origin)) return false;
+    }
+
     return matchesFields(needle, [
       item.name,
       item.prompt ?? '',
       item.lastRunStatus ? automationRunStatusInfo(item.lastRunStatus).label : '',
-      item.enabled ? '已启用' : '已暂停'
+      item.enabled ? '已启用' : '已暂停',
+      isStewardOrigin(item.origin) ? '总管' : ''
     ]);
   });
 }

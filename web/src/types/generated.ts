@@ -4024,6 +4024,7 @@ export type RemoteAutomationExtAutomation = {
   effort?: string;
   runtimeMode?: string;
   runMode?: string;
+  origin?: string;
   revision: number;
 };
 

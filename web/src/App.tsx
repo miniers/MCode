@@ -365,6 +365,7 @@ const AppContent: React.FC = () => {
               subview={route.subview}
               filePath={route.filePath}
               jumpRequest={jumpRequest}
+              onOpenTask={(taskID) => navigate(`#/task/${encodeURIComponent(taskID)}`)}
             />
           </MarkdownImageProvider>
         </LazyBoundary>
@@ -558,7 +559,7 @@ const AppContent: React.FC = () => {
         </LazyBoundary>
       )}
 
-      {inspectedTask && route.kind === 'task' && (
+      {route.kind === 'task' && (inspectedTask ? (
         <LazyBoundary label="正在加载任务详情…">
           <TaskDetailModal
             task={inspectedTask}
@@ -572,7 +573,59 @@ const AppContent: React.FC = () => {
             onOpenGoal={(goalID) => navigate(`#/goal/${encodeURIComponent(goalID)}`)}
           />
         </LazyBoundary>
-      )}
+      ) : (
+        <SheetFrame
+          onRequestClose={() => {
+            setInspectedTask(null);
+            goBack('#/board');
+          }}
+          size="bare"
+          cardClassName="settings-sheet flex flex-col outline-none w-full max-w-full min-w-0 overflow-x-hidden"
+          ariaLabel="任务详情"
+        >
+          <div className="sheet-handle shrink-0" aria-hidden="true" />
+          <div className="flex shrink-0 items-start justify-between gap-3">
+            <div>
+              <p className="eyebrow">任务详情</p>
+              <h2 className="mt-1 text-headline font-bold text-foreground">
+                {!board || isSyncing ? '正在加载任务详情…' : '未找到该任务'}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setInspectedTask(null);
+                goBack('#/board');
+              }}
+              aria-label="关闭"
+              title="关闭"
+              className="icon-button shrink-0"
+            >
+              <XMarkIcon className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="empty-state py-8">
+            {!board || isSyncing ? (
+              <>
+                <span className="loading-spinner" />
+                <p>正在同步看板任务数据，请稍候…</p>
+              </>
+            ) : (
+              <p>该任务可能已被删除，或尚未同步到当前看板。</p>
+            )}
+            <button
+              type="button"
+              className="secondary-button mt-2"
+              onClick={() => {
+                setInspectedTask(null);
+                navigate('#/board');
+              }}
+            >
+              返回看板
+            </button>
+          </div>
+        </SheetFrame>
+      ))}
       {inspectedGoal && route.kind === 'goal' && (
         <LazyBoundary label="正在加载目标详情…">
           <GoalDetailModal

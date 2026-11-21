@@ -676,6 +676,7 @@ interface TimelineEntryProps {
   onSendStewardMessage?: (text: string) => void | Promise<unknown>;
   onAnswerStewardDecision?: (id: string, answer: string) => void | Promise<unknown>;
   onOpenThread?: (threadID: string) => void;
+  onOpenTask?: (taskID: string) => void;
   resultTask?: TaskItem;
 }
 
@@ -963,6 +964,7 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
     onSendStewardMessage,
     onAnswerStewardDecision,
     onOpenThread,
+    onOpenTask,
     resultTask
   } = props;
   // 长按菜单（W-3）：只对窄屏、有正文的用户消息生效；长按成立先给中档触感。
@@ -1283,7 +1285,7 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
   if (message.kind === 'steward_result' && message.role === 'assistant') {
     const result = parseStewardResult(message.text);
     if (result) {
-      return <StewardResultMessage key={message.id} message={message} onOpenThread={onOpenThread} task={resultTask} />;
+      return <StewardResultMessage key={message.id} message={message} onOpenThread={onOpenThread} onOpenTask={onOpenTask} task={resultTask} />;
     }
   }
 
@@ -1809,6 +1811,7 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
   previous.onOpenFile === next.onOpenFile &&
   previous.resultTask === next.resultTask &&
   previous.onOpenThread === next.onOpenThread &&
+  previous.onOpenTask === next.onOpenTask &&
   previous.decisionAnswers === next.decisionAnswers &&
   previous.onSendStewardMessage === next.onSendStewardMessage &&
   previous.onAnswerStewardDecision === next.onAnswerStewardDecision
@@ -1884,6 +1887,8 @@ interface ThreadTimelineProps {
   onAnswerStewardDecision?: (id: string, answer: string) => void | Promise<unknown>;
   /** 总管结果卡的「打开任务」跳转。 */
   onOpenThread?: (threadID: string) => void;
+  /** 总管任务卡直达任务详情（#/task/:id）。 */
+  onOpenTask?: (taskID: string) => void;
 }
 
 interface VirtualTimelineProps extends ThreadTimelineProps {
@@ -1909,11 +1914,11 @@ interface VirtualTimelineProps extends ThreadTimelineProps {
   turnTasks: Map<number, StewardTurnTasks>;
 }
 
-function TurnTasks({ group, onOpenThread }: { group?: StewardTurnTasks; onOpenThread?: (threadID: string) => void }) {
+function TurnTasks({ group, onOpenThread, onOpenTask }: { group?: StewardTurnTasks; onOpenThread?: (threadID: string) => void; onOpenTask?: (taskID: string) => void }) {
   if (!group) return null;
   return <div className="mt-3 space-y-2">
-    {group.created.map((task) => <StewardTaskCard key={task.id} task={task} onOpenThread={onOpenThread} />)}
-    {group.amended.map((task) => <StewardTaskCard key={task.id} compact task={task} onOpenThread={onOpenThread} />)}
+    {group.created.map((task) => <StewardTaskCard key={task.id} task={task} onOpenThread={onOpenThread} onOpenTask={onOpenTask} />)}
+    {group.amended.map((task) => <StewardTaskCard key={task.id} compact task={task} onOpenThread={onOpenThread} onOpenTask={onOpenTask} />)}
   </div>;
 }
 
@@ -1967,7 +1972,8 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
   stewardTasks,
   onSendStewardMessage,
   onAnswerStewardDecision,
-  onOpenThread
+  onOpenThread,
+  onOpenTask
 }) => {
   const [minuteTick, setMinuteTick] = React.useState(0);
   React.useEffect(() => {
@@ -2121,6 +2127,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
           onSendStewardMessage={onSendStewardMessage}
           onAnswerStewardDecision={onAnswerStewardDecision}
           onOpenThread={onOpenThread}
+          onOpenTask={onOpenTask}
           resultTask={resultTaskForItem(item, stewardTasks)}
         />
       </div>
@@ -2180,7 +2187,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
               ref={virtualizer.measureElement}
             >
               {renderEntry(item)}
-              <TurnTasks group={turnTasks.get(virtualItem.index)} onOpenThread={onOpenThread} />
+              <TurnTasks group={turnTasks.get(virtualItem.index)} onOpenThread={onOpenThread} onOpenTask={onOpenTask} />
             </div>
           );
         })}
@@ -2221,7 +2228,8 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
   onOpenFile,
   onSendStewardMessage,
   onAnswerStewardDecision,
-  onOpenThread
+  onOpenThread,
+  onOpenTask
 }) => {
   const autoCollapse = useAutoCollapseReasoning();
   const backgroundTaskApi = useRemoteBackgroundTaskApi();
@@ -2449,6 +2457,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
           onSendStewardMessage={onSendStewardMessage}
           onAnswerStewardDecision={onAnswerStewardDecision}
           onOpenThread={onOpenThread}
+          onOpenTask={onOpenTask}
       />
     );
   }
@@ -2512,6 +2521,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
            onSendStewardMessage={onSendStewardMessage}
            onAnswerStewardDecision={onAnswerStewardDecision}
            onOpenThread={onOpenThread}
+           onOpenTask={onOpenTask}
           resultTask={resultTaskForItem(item, isSteward ? stewardTasks : undefined)}
         />
       </div>
@@ -2520,7 +2530,7 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
 
   return (
     <>
-      {visibleItems.map((item, index) => <React.Fragment key={timelineItemKey(item)}>{renderEntry(item)}<TurnTasks group={turnTasks.get(index)} onOpenThread={onOpenThread} /></React.Fragment>)}
+      {visibleItems.map((item, index) => <React.Fragment key={timelineItemKey(item)}>{renderEntry(item)}<TurnTasks group={turnTasks.get(index)} onOpenThread={onOpenThread} onOpenTask={onOpenTask} /></React.Fragment>)}
       <BackgroundTasksRow
         activity={activity}
         onActivityExpanded={setActivityExpanded}

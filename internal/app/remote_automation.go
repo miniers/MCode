@@ -321,6 +321,7 @@ func automationExtAutomation(a mcodeui.Automation) wire.AutomationExtAutomation 
 		Effort:                 a.Effort,
 		RuntimeMode:            a.RuntimeMode,
 		RunMode:                a.RunMode,
+		Origin:                 a.Origin,
 		Revision:               a.Revision,
 	}
 }

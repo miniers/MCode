@@ -7,22 +7,32 @@ export function stewardTaskStatus(task: StewardTaskStatusTask): { label: string;
   return stewardTaskStatusInfo(task);
 }
 
-export function StewardTaskCard({ task, compact = false, onOpenThread }: {
-  task: Pick<TaskItem, 'title' | 'status' | 'threadID'> & Partial<Pick<TaskItem, 'waitKind' | 'blocked' | 'displayColumn' | 'lastActivityText' | 'lastFailureReason' | 'resultSummary'>>;
+export function StewardTaskCard({ task, compact = false, onOpenThread, onOpenTask }: {
+  task: Pick<TaskItem, 'title' | 'status' | 'threadID'> & Partial<Pick<TaskItem, 'id' | 'waitKind' | 'blocked' | 'displayColumn' | 'lastActivityText' | 'lastFailureReason' | 'resultSummary'>>;
   compact?: boolean;
   onOpenThread?: (threadID: string) => void;
+  onOpenTask?: (taskID: string) => void;
 }) {
   const status = task.status;
   const { label, color } = stewardTaskStatus(task);
   const signal = status === 'in_progress' ? task.lastActivityText
     : status === 'failed' ? task.lastFailureReason
     : status === 'done' ? task.resultSummary : null;
+  const taskID = task.id?.trim();
   const threadID = task.threadID?.trim();
+  const canOpenTask = Boolean(taskID && onOpenTask);
+  const canOpenThread = Boolean(threadID && onOpenThread);
   return (
     <button
       type="button"
-      disabled={!threadID || !onOpenThread}
-      onClick={() => threadID && onOpenThread?.(threadID)}
+      disabled={!canOpenTask && !canOpenThread}
+      onClick={() => {
+        if (taskID && onOpenTask) {
+          onOpenTask(taskID);
+        } else if (threadID && onOpenThread) {
+          onOpenThread(threadID);
+        }
+      }}
       className={`animate-fadeIn min-w-0 max-w-full text-left transition-colors motion-reduce:animate-none motion-reduce:transition-none hover:bg-[var(--card-alt,var(--card))] disabled:cursor-default ${compact ? 'inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs' : 'block w-full rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-sm'}`}
     >
       <span className="flex min-w-0 items-center gap-2">

@@ -28,8 +28,12 @@ const ACTION_BASE =
   'shrink-0 min-h-[30px] px-2.5 rounded-xl text-mc-caption font-medium border disabled:opacity-45 transition';
 
 export function resolveAttentionTargetHash(
-  item: Pick<RemoteAttentionItem, 'subjectType' | 'subjectID' | 'threadID'>
+  item: Pick<RemoteAttentionItem, 'subjectType' | 'subjectID' | 'threadID'> &
+    Partial<Pick<RemoteAttentionItem, 'kind'>>
 ): string | null {
+  if (item.kind === 'merge_review_pending' && item.threadID) {
+    return `#/t/${encodeURIComponent(item.threadID)}/agents`;
+  }
   if (item.subjectType === 'kanban_task' && item.subjectID) {
     return `#/task/${encodeURIComponent(item.subjectID)}`;
   }
@@ -41,6 +45,9 @@ export function resolveAttentionTargetHash(
   }
   if (item.subjectType === 'automation_run') {
     return item.threadID ? `#/t/${encodeURIComponent(item.threadID)}` : '#/automations';
+  }
+  if (item.subjectType === 'steward_decision') {
+    return item.threadID ? `#/t/${encodeURIComponent(item.threadID)}` : null;
   }
   return item.threadID ? `#/t/${encodeURIComponent(item.threadID)}` : null;
 }
@@ -179,7 +186,9 @@ const AttentionSheetBody: React.FC<AttentionSheetProps> = ({ onClose, projectID,
                       ? '点此查看目标'
                       : targetHash.startsWith('#/automations')
                         ? '点此查看自动化'
-                        : '点此打开会话';
+                        : targetHash.endsWith('/agents')
+                          ? '点此查看合并审阅'
+                          : '点此打开会话';
                 return (
                   <article
                     key={item.id}

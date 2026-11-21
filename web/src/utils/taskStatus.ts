@@ -145,5 +145,6 @@ export function attentionKindLabel(kind: string): string {
 }
 
 export function isStewardOrigin(origin?: string): boolean {
-  return origin === 'owner' || origin === 'steward';
+  const normalized = origin?.trim().toLowerCase();
+  return normalized === 'owner' || normalized === 'steward';
 }

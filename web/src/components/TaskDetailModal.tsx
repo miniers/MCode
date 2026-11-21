@@ -24,6 +24,7 @@ import { formatRelativeTime } from '../utils/date';
 import {
   goalStatusClass,
   goalStatusLabel,
+  isStewardOrigin,
   taskStatusLabel,
   taskStatusToneClass
 } from '../utils/taskStatus';
@@ -316,6 +317,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted min-w-0">
             <span className={`thread-status ${taskStatusToneClass(task)}`.trim()}>{taskStatusLabel(task.status)}</span>
+            {isStewardOrigin(task.origin) && (
+              <span className="shrink-0 rounded bg-[var(--mc-accent-subtle)] px-1.5 py-0.5 text-micro font-medium text-[var(--primary)]">
+                总管
+              </span>
+            )}
             {projectName && <span className="truncate max-w-[200px]">{projectName}</span>}
             <span>更新于 {formatRelativeTime(task.updatedAt)}</span>
             {task.blocked && <span className="inline-flex items-center gap-1 text-warning"><LockIcon className="h-3.5 w-3.5 shrink-0" />等待 {Math.max(task.dependsOn.length, 1)} 项依赖</span>}
@@ -350,7 +356,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {(task.threadID || task.reviewThreadID || task.goalID) && (
             <section className="flex flex-wrap items-center gap-2 border-y border-border py-3 min-w-0">
               {task.threadID && onOpenThread && <button type="button" className="secondary-button" onClick={() => onOpenThread(task.threadID!)}><CodeBracketIcon className="h-4 w-4" />打开执行会话</button>}
-              {task.reviewThreadID && onOpenReviewThread && <button type="button" className="secondary-button" onClick={() => onOpenReviewThread(task.reviewThreadID!)}><EyeIcon className="h-4 w-4" />打开审查会话</button>}
+              {task.reviewThreadID && onOpenReviewThread && <button type="button" className="secondary-button" onClick={() => onOpenReviewThread(task.reviewThreadID!)}><EyeIcon className="h-4 w-4" />打开审阅会话</button>}
               {task.goalID && onOpenGoal && <button type="button" className="secondary-button" onClick={() => onOpenGoal(task.goalID!)}><SparklesIcon className="h-4 w-4" />打开目标</button>}
             </section>
           )}
@@ -481,12 +487,24 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
         <div className="space-y-5 min-w-0 max-w-full w-full overflow-x-hidden">
           {errorMessage && <div className="inline-alert inline-alert--danger min-w-0 break-words" role="alert"><ExclamationTriangleIcon className="h-4 w-4 shrink-0" /><span className="min-w-0 break-words [overflow-wrap:anywhere]">{errorMessage}</span></div>}
           {isDisconnected && <div className="inline-alert inline-alert--warning min-w-0 break-words" role="status"><ExclamationTriangleIcon className="h-4 w-4 shrink-0" /><span>当前连接已断开，写入操作已禁用。</span></div>}
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted min-w-0"><span className={`thread-status ${goalStatusClass(goal.status)}`.trim()}>{goalStatusLabel(goal.status)}</span>{projectName && <span className="truncate max-w-[200px]">{projectName}</span>}<span>{goal.progress.done}/{goal.progress.total} 完成</span>{goal.progress.failed > 0 && <span className="text-danger">失败 {goal.progress.failed}</span>}{goal.progress.blocked > 0 && <span className="text-warning">依赖阻塞 {goal.progress.blocked}</span>}{goal.progress.waitingOnYou > 0 && <span>等你 {goal.progress.waitingOnYou}</span>}</div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted min-w-0">
+            <span className={`thread-status ${goalStatusClass(goal.status)}`.trim()}>{goalStatusLabel(goal.status)}</span>
+            {isStewardOrigin(goal.owner) && (
+              <span className="shrink-0 rounded bg-[var(--mc-accent-subtle)] px-1.5 py-0.5 text-micro font-medium text-[var(--primary)]">
+                总管
+              </span>
+            )}
+            {projectName && <span className="truncate max-w-[200px]">{projectName}</span>}
+            <span>{goal.progress.done}/{goal.progress.total} 完成</span>
+            {goal.progress.failed > 0 && <span className="text-danger">失败 {goal.progress.failed}</span>}
+            {goal.progress.blocked > 0 && <span className="text-warning">依赖阻塞 {goal.progress.blocked}</span>}
+            {goal.progress.waitingOnYou > 0 && <span>待你处理 {goal.progress.waitingOnYou}</span>}
+          </div>
 
           <section className="space-y-2 min-w-0">
             <h3 className="text-xs font-semibold text-muted">目标策略</h3>
             <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm leading-relaxed text-foreground break-words [overflow-wrap:anywhere] min-w-0">
-              {goal.policy.maxConcurrency === 1 ? '串行执行' : `最多同时执行 ${goal.policy.maxConcurrency} 项`} · {goal.policy.previewPlan ? '先预览计划' : '直接执行'} · {goal.policy.autoAccept ? '自动验收：完成后自动标记完成' : '需人工验收：完成后进入待审'} · 最多 {goal.policy.maxAttempts} 次尝试
+              {goal.policy.maxConcurrency === 1 ? '串行执行' : `最多同时执行 ${goal.policy.maxConcurrency} 项`} · {goal.policy.previewPlan ? '先预览计划' : '直接执行'} · {goal.policy.autoAccept ? '自动验收：完成后自动标记完成' : '需人工验收：完成后进入待审阅'} · 最多 {goal.policy.maxAttempts} 次尝试
             </div>
           </section>
 

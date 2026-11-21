@@ -98,11 +98,11 @@ function makeAutomation(
 
 const tasks: TaskItem[] = [
   makeTask({ id: 't-todo', title: '整理接口文档', notes: '补充 WebSocket 契约', status: 'todo', displayColumn: 'todo' }),
-  makeTask({ id: 't-approval', title: '发布审批', status: 'needs_approval', displayColumn: 'needs_you' }),
+  makeTask({ id: 't-approval', title: '发布审批', status: 'needs_approval', displayColumn: 'needs_you', goalID: 'g-waiting' }),
   makeTask({ id: 't-failed', title: '构建镜像', status: 'failed', displayColumn: 'in_progress' }),
-  makeTask({ id: 't-rejected', title: '修复样式', status: 'rejected', displayColumn: 'todo' }),
+  makeTask({ id: 't-rejected', title: '修复样式', status: 'rejected', displayColumn: 'todo', goalID: 'g-review' }),
   makeTask({ id: 't-human', title: '确认部署参数', status: 'waiting', waitKind: 'human', displayColumn: 'in_progress' }),
-  makeTask({ id: 't-review', title: '验收登录页', status: 'review', displayColumn: 'review', origin: 'steward' }),
+  makeTask({ id: 't-review', title: '验收登录页', status: 'review', displayColumn: 'review', origin: 'steward', goalID: 'g-review' }),
   makeTask({ id: 't-owner', title: '总管巡检', status: 'in_progress', displayColumn: 'in_progress', origin: 'owner' })
 ];
 
@@ -110,6 +110,12 @@ assertIDs(filterKanbanTasks(tasks, '', 'all'), ['t-todo', 't-approval', 't-faile
 assertIDs(filterKanbanTasks(tasks, '', 'needs_you'), ['t-approval', 't-failed', 't-rejected', 't-human'], '看板任务 needs_you');
 assertIDs(filterKanbanTasks(tasks, '', 'review'), ['t-review'], '看板任务 review');
 assertIDs(filterKanbanTasks(tasks, '', 'steward'), ['t-review', 't-owner'], '看板任务 steward');
+assertIDs(filterKanbanTasks(tasks, '', 'all', 'all'), ['t-todo', 't-approval', 't-failed', 't-rejected', 't-human', 't-review', 't-owner'], '看板任务 origin=all');
+assertIDs(filterKanbanTasks(tasks, '', 'all', 'steward'), ['t-review', 't-owner'], '看板任务 origin=steward');
+assertIDs(filterKanbanTasks(tasks, '', 'all', 'goal'), ['t-approval', 't-rejected', 't-review'], '看板任务 origin=goal');
+assertIDs(filterKanbanTasks(tasks, '', 'needs_you', 'goal'), ['t-approval', 't-rejected'], '看板任务 needs_you + origin=goal');
+assertIDs(filterKanbanTasks(tasks, '', 'review', 'steward'), ['t-review'], '看板任务 review + origin=steward');
+assertIDs(filterKanbanTasks(tasks, '', 'needs_you', 'steward'), [], '看板任务 needs_you + origin=steward');
 assertIDs(filterKanbanTasks(tasks, '  websocket ', 'all'), ['t-todo'], '看板任务按 notes 大小写无关搜索');
 assertIDs(filterKanbanTasks(tasks, '待审阅', 'all'), ['t-review'], '看板任务按中文状态待审阅搜索');
 assertIDs(filterKanbanTasks(tasks, '已驳回', 'all'), ['t-rejected'], '看板任务按中文状态已驳回搜索');
@@ -158,22 +164,28 @@ assertIDs(filterKanbanGoals(goals, '', 'all'), ['g-review', 'g-failed', 'g-waiti
 assertIDs(filterKanbanGoals(goals, '', 'needs_you'), ['g-review', 'g-failed', 'g-waiting', 'g-prog-fail'], '目标 needs_you');
 assertIDs(filterKanbanGoals(goals, '', 'review'), ['g-review'], '目标 review');
 assertIDs(filterKanbanGoals(goals, '', 'steward'), ['g-review'], '目标 steward');
+assertIDs(filterKanbanGoals(goals, '', 'all', 'steward'), ['g-review'], '目标 origin=steward');
+assertIDs(filterKanbanGoals(goals, '', 'review', 'steward'), ['g-review'], '目标 review + origin=steward');
+assertIDs(filterKanbanGoals(goals, '总管', 'all'), ['g-review'], '目标按总管标识搜索');
 assertIDs(filterKanbanGoals(goals, '方案待审', 'all'), ['g-review'], '目标按中文状态方案待审搜索');
 assertIDs(filterKanbanGoals(goals, '规划失败', 'all'), ['g-failed'], '目标按中文状态规划失败搜索');
 assertIDs(filterKanbanGoals(goals, 'ROUTER', 'all'), ['g-review'], '目标按 prompt 大小写无关搜索');
 
 const automations: RemoteAutomationExtAutomation[] = [
   makeAutomation({ id: 'a-ok', name: '每日构建', prompt: '执行 build', enabled: true, lastRunStatus: 'succeeded' }),
-  makeAutomation({ id: 'a-fail', name: '回归测试', prompt: '跑集成测试', enabled: true, lastRunStatus: 'failed' }),
+  makeAutomation({ id: 'a-fail', name: '回归测试', prompt: '跑集成测试', enabled: true, lastRunStatus: 'failed', origin: 'steward' }),
   makeAutomation({ id: 'a-status-fail', name: '同步索引', enabled: true, status: 'failed' }),
-  makeAutomation({ id: 'a-paused', name: '周报汇总', prompt: '汇总本周 PR', enabled: false, lastRunStatus: 'succeeded' }),
+  makeAutomation({ id: 'a-paused', name: '周报汇总', prompt: '汇总本周 PR', enabled: false, lastRunStatus: 'succeeded', origin: 'OWNER' }),
   makeAutomation({ id: 'a-status-paused', name: '夜间清理', enabled: true, status: 'paused' })
 ];
 
 assertIDs(filterAutomations(automations, '', 'all'), ['a-ok', 'a-fail', 'a-status-fail', 'a-paused', 'a-status-paused'], '自动化 all');
 assertIDs(filterAutomations(automations, '', 'failed'), ['a-fail', 'a-status-fail'], '自动化 failed');
 assertIDs(filterAutomations(automations, '', 'paused'), ['a-paused', 'a-status-paused'], '自动化 paused');
+assertIDs(filterAutomations(automations, '', 'all', 'steward'), ['a-fail', 'a-paused'], '自动化 origin=steward');
+assertIDs(filterAutomations(automations, '', 'failed', 'steward'), ['a-fail'], '自动化 failed + origin=steward');
 assertIDs(filterAutomations(automations, '构建', 'all'), ['a-ok'], '自动化按名称搜索');
+assertIDs(filterAutomations(automations, '总管', 'all'), ['a-fail', 'a-paused'], '自动化按总管来源关键词搜索');
 assertIDs(filterAutomations(automations, '失败', 'all'), ['a-fail'], '自动化按运行状态中文名失败搜索');
 assertIDs(filterAutomations(automations, '已暂停', 'all'), ['a-paused'], '自动化按停用状态中文名已暂停搜索');
 assertIDs(filterAutomations(automations, 'pr', 'paused'), ['a-paused'], '自动化组合筛选 paused + prompt');
