@@ -156,6 +156,8 @@ export interface ThreadComposerProps {
   /** 输入框占位文字：会话空闲但仍在等后台任务时由调用方换成等待提示 */
   placeholder?: string;
   isRunning?: boolean;
+  quotaAccountRunning?: boolean;
+  quotaHasMessages?: boolean;
   isSteward?: boolean;
   onStop?: () => void;
   /** 子代理页：停止按钮走子代理停止确认流程时的可用条件 */
@@ -543,6 +545,8 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   onRemoveAttachment,
   placeholder,
   isRunning = false,
+  quotaAccountRunning,
+  quotaHasMessages,
   isSteward = false,
   onStop,
   stopDisabled = false,
@@ -1608,8 +1612,8 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
       {quotaScope && (
         <ComposerQuotaBar
           scope={quotaScope}
-          isRunning={isRunning}
-          hasMessages={hasMessages}
+          isRunning={quotaAccountRunning ?? (isRunning || isSending)}
+          hasMessages={quotaHasMessages ?? hasMessages}
           account={account}
           swarmBeesAccount={swarmBeesAccount}
           onAccountError={onQuotaAccountError}

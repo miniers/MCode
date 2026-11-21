@@ -11,6 +11,7 @@ export interface AgyAccountChoice {
   accountID: string;
   account: string;
   disabled: boolean;
+  anyWindowFull?: boolean;
 }
 
 export interface ComposerQuotaSheetProps {
@@ -221,6 +222,7 @@ interface AgyAccountEntry {
   account: string;
   allWindowsDisabled: boolean;
   fiveHourFull: boolean;
+  anyWindowFull: boolean;
 }
 
 function collectAgyAccounts(budgets: RemoteQuotaBudget[]): AgyAccountEntry[] {
@@ -260,11 +262,16 @@ function collectAgyAccounts(budgets: RemoteQuotaBudget[]): AgyAccountEntry[] {
     }
     const allWindowsDisabled = !windows.some((quotaWindow) => quotaWindow.disabled !== true);
     const fiveHourFull = windows.some((quotaWindow) => is5hWindow(quotaWindow) && quotaWindow.usedPercent >= 100);
+    const anyWindowFull = windows.some((quotaWindow) => {
+      const content = quotaWindowContent(quotaWindow);
+      return content.kind === 'percent' && content.usedPercent >= 100;
+    });
     return {
       accountID,
       account: account || accountID,
       allWindowsDisabled,
-      fiveHourFull
+      fiveHourFull,
+      anyWindowFull
     };
   });
 }
@@ -274,7 +281,8 @@ export function agyAccountChoices(budgets: RemoteQuotaBudget[]): AgyAccountChoic
   return collectAgyAccounts(budgets).map((entry) => ({
     accountID: entry.accountID,
     account: entry.account,
-    disabled: entry.allWindowsDisabled || entry.fiveHourFull
+    disabled: entry.allWindowsDisabled || entry.fiveHourFull,
+    anyWindowFull: entry.anyWindowFull
   }));
 }
 
@@ -286,20 +294,21 @@ export function agyAccountSelectable(budgets: RemoteQuotaBudget[], hasThread: bo
 
 /**
  * 判断主代理 agy 账号选择器是否锁定：
- * 运行中锁定；无消息解锁；有消息时默认锁定，但 currentAccountID 为空、不在 choices 里或对应项 disabled 时解锁。
+ * 运行中锁定；无消息解锁；有消息时默认锁定，
+ * 例外是线程显式指定的账号不在 choices 里、已禁用（全停用/5h 满额）或任一窗口满额时解锁允许换号。
  */
 export function agyLeadAccountLocked(opts: {
   isRunning: boolean;
   hasMessages: boolean;
   currentAccountID: string;
-  choices: readonly Pick<AgyAccountChoice, 'accountID' | 'disabled'>[];
+  choices: readonly Pick<AgyAccountChoice, 'accountID' | 'disabled' | 'anyWindowFull'>[];
 }): boolean {
   if (opts.isRunning) return true;
   if (!opts.hasMessages) return false;
   const currentID = opts.currentAccountID.trim();
-  if (!currentID) return false;
+  if (!currentID) return true;
   const matched = opts.choices.find((choice) => choice.accountID === currentID);
-  if (!matched || matched.disabled) return false;
+  if (!matched || matched.disabled || matched.anyWindowFull) return false;
   return true;
 }
 
@@ -347,6 +356,7 @@ export const ComposerQuotaSheet: React.FC<ComposerQuotaSheetProps> = ({
     : false;
 
   const handleSelectAccount = (accountID: string) => {
+    if (locked) return;
     onClose();
     onSelectAccount?.(accountID);
   };

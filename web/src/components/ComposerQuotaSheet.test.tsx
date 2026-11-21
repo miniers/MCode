@@ -93,10 +93,13 @@ assertEqual(choices.length, 3, 'agyAccountChoices 去重数量');
 assertEqual(choices[0].accountID, 'acc-1', 'choices[0].accountID');
 assertEqual(choices[0].account, '个人账号', 'choices[0].account');
 assertEqual(choices[0].disabled, false, 'choices[0].disabled（仅 7d 满不禁用）');
+assertEqual(choices[0].anyWindowFull, true, 'choices[0].anyWindowFull（7d 满为 true）');
 assertEqual(choices[1].accountID, 'acc-2', 'choices[1].accountID');
 assertEqual(choices[1].disabled, true, 'choices[1].disabled（5h 满禁用）');
+assertEqual(choices[1].anyWindowFull, true, 'choices[1].anyWindowFull（5h 满为 true）');
 assertEqual(choices[2].accountID, 'acc-3', 'choices[2].accountID');
 assertEqual(choices[2].disabled, true, 'choices[2].disabled（窗口全部 disabled）');
+assertEqual(choices[2].anyWindowFull, false, 'choices[2].anyWindowFull（未满为 false）');
 
 // ---- agyAccountSelectable：需 hasThread 且至少 2 个窗口未全部 disabled 的不同账号 ----
 assertEqual(agyAccountSelectable(choiceBudgets, false), false, '无 thread 时不可选');
@@ -113,36 +116,61 @@ assertEqual(
   '仅 1 个未全 disabled 账号时不可选'
 );
 
-// ---- agyLeadAccountLocked：运行中、无消息、有消息可用、有消息但 5h 满 ----
+// ---- agyLeadAccountLocked：运行中、无消息、有消息自动、有消息可用/缺席/停用/5h满/仅7d满 ----
+const healthyChoice = agyAccountChoices([
+  makeAgyBudget('acc-ok', '正常账号', [
+    { id: 'Gemini', period: '5h', title: '5h', usedPercent: 20, resetsAt: null },
+    { id: 'Claude 7d', period: '7d', title: '7d', usedPercent: 40, resetsAt: null }
+  ])
+]);
+assertEqual(healthyChoice[0].disabled, false, 'healthyChoice.disabled');
+assertEqual(healthyChoice[0].anyWindowFull, false, 'healthyChoice.anyWindowFull');
+const lockChoices = [...choices, ...healthyChoice];
+
 assertEqual(
-  agyLeadAccountLocked({ isRunning: true, hasMessages: false, currentAccountID: '', choices }),
+  agyLeadAccountLocked({ isRunning: true, hasMessages: false, currentAccountID: '', choices: lockChoices }),
   true,
-  '运行中锁定'
+  '运行中且无消息锁定'
 );
 assertEqual(
-  agyLeadAccountLocked({ isRunning: false, hasMessages: false, currentAccountID: 'acc-1', choices }),
-  false,
-  '无消息解锁'
-);
-assertEqual(
-  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: 'acc-1', choices }),
+  agyLeadAccountLocked({ isRunning: true, hasMessages: true, currentAccountID: 'acc-2', choices: lockChoices }),
   true,
-  '有消息且账号可用时锁定'
+  '运行中且指定账号 5h 满额仍锁定'
 );
 assertEqual(
-  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: 'acc-2', choices }),
+  agyLeadAccountLocked({ isRunning: false, hasMessages: false, currentAccountID: 'acc-ok', choices: lockChoices }),
   false,
-  '有消息且账号 5h 满时解锁'
+  '无消息且未运行解锁'
 );
 assertEqual(
-  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: '', choices }),
-  false,
-  '有消息但 currentAccountID 为空时解锁'
+  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: '', choices: lockChoices }),
+  true,
+  '有消息且自动模式锁定'
 );
 assertEqual(
-  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: 'missing', choices }),
+  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: 'acc-ok', choices: lockChoices }),
+  true,
+  '有消息且指定账号可用时锁定'
+);
+assertEqual(
+  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: 'missing', choices: lockChoices }),
   false,
-  '有消息但 currentAccountID 不在 choices 里时解锁'
+  '有消息且指定账号不在列表时解锁'
+);
+assertEqual(
+  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: 'acc-3', choices: lockChoices }),
+  false,
+  '有消息且指定账号全停用时解锁'
+);
+assertEqual(
+  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: 'acc-2', choices: lockChoices }),
+  false,
+  '有消息且指定账号 5h 满额时解锁'
+);
+assertEqual(
+  agyLeadAccountLocked({ isRunning: false, hasMessages: true, currentAccountID: 'acc-1', choices: lockChoices }),
+  false,
+  '有消息且指定账号仅 7d 满额时解锁'
 );
 
 // ---- ComposerQuotaSheet 渲染校验：已有会话显示 radiogroup 与「自动」，草稿保持只读 ----
@@ -178,3 +206,80 @@ const draftHtml = renderToStaticMarkup(
 );
 assertExcludes(draftHtml, 'role="radiogroup"');
 assertExcludes(draftHtml, '自动');
+
+const radioButtons = (html: string): string[] => html.match(/<button[^>]*role="radio"[^>]*>/g) ?? [];
+
+// lead 运行中：全部 radio 按钮均为禁用
+const leadRunningHtml = renderToStaticMarkup(
+  <ComposerQuotaSheet
+    isOpen
+    onClose={() => {}}
+    provider="agy"
+    role="lead"
+    budgets={choiceBudgets}
+    hasThread
+    selectedAccountID=""
+    isRunning
+    hasMessages={false}
+    onRefresh={() => {}}
+  />
+);
+const leadRunningRadios = radioButtons(leadRunningHtml);
+assertEqual(leadRunningRadios.length, 4, 'lead 运行中 radio 数量');
+for (const button of leadRunningRadios) {
+  assertIncludes(button, 'disabled=""');
+}
+
+// lead 未运行、有消息、自动模式：全部 radio 按钮均为禁用且「自动」保持 aria-checked="true"
+const leadAutoHasMessagesHtml = renderToStaticMarkup(
+  <ComposerQuotaSheet
+    isOpen
+    onClose={() => {}}
+    provider="agy"
+    role="lead"
+    budgets={choiceBudgets}
+    hasThread
+    selectedAccountID=""
+    isRunning={false}
+    hasMessages
+    onRefresh={() => {}}
+  />
+);
+const leadAutoHasMessagesRadios = radioButtons(leadAutoHasMessagesHtml);
+assertEqual(leadAutoHasMessagesRadios.length, 4, 'lead 有消息自动模式 radio 数量');
+for (const button of leadAutoHasMessagesRadios) {
+  assertIncludes(button, 'disabled=""');
+}
+assertIncludes(leadAutoHasMessagesRadios[0], 'aria-checked="true"');
+
+// bees 运行中且有消息：「自动」与可用账号未禁用，5h 满额/停用账号仍禁用
+const beesBudgets: RemoteQuotaBudget[] = [
+  makeAgyBudget('acc-ok', '正常账号', [{ id: 'Gemini', period: '5h', title: '5h', usedPercent: 20, resetsAt: null }], { role: 'bees' }),
+  makeAgyBudget('acc-2', '工作账号', [{ id: '5h', period: null, title: '5h', usedPercent: 100, resetsAt: null }], { role: 'bees' }),
+  makeAgyBudget(
+    'acc-3',
+    '已停用账号',
+    [{ id: 'Gemini', period: '5h', title: '5h', usedPercent: 15, resetsAt: null, disabled: true }],
+    { role: 'bees' }
+  )
+];
+const beesRunningHtml = renderToStaticMarkup(
+  <ComposerQuotaSheet
+    isOpen
+    onClose={() => {}}
+    provider="agy"
+    role="bees"
+    budgets={beesBudgets}
+    hasThread
+    selectedAccountID=""
+    isRunning
+    hasMessages
+    onRefresh={() => {}}
+  />
+);
+const beesRunningRadios = radioButtons(beesRunningHtml);
+assertEqual(beesRunningRadios.length, 4, 'bees radio 数量');
+assertExcludes(beesRunningRadios[0], 'disabled=""');
+assertExcludes(beesRunningRadios[1], 'disabled=""');
+assertIncludes(beesRunningRadios[2], 'disabled=""');
+assertIncludes(beesRunningRadios[3], 'disabled=""');
