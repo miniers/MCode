@@ -3523,3 +3523,44 @@ func TestLoadIgnoresRemovedBrowserStartURL(t *testing.T) {
 		t.Fatalf("废弃设置仍被序列化：%v", err)
 	}
 }
+
+func TestStewardModelEffortRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Defaults()
+	cfg.Orchestration.Steward.Effort = "high"
+	cfg.Orchestration.Steward.TaskEffort = "max"
+	if err := Save(dir, cfg); err != nil {
+		t.Fatalf("Save 失败: %v", err)
+	}
+
+	raw, err := os.ReadFile(ConfigPath(dir))
+	if err != nil {
+		t.Fatalf("读取保存后的配置失败: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("解析保存后的配置失败: %v", err)
+	}
+	orchestration, _ := doc["orchestration"].(map[string]any)
+	steward, _ := orchestration["steward"].(map[string]any)
+	if steward == nil {
+		t.Fatalf("保存后的配置缺少 orchestration.steward: %s", raw)
+	}
+	if got := steward["model_effort"]; got != "high" {
+		t.Fatalf("落盘 JSON steward.model_effort = %v, 期望 \"high\": %s", got, raw)
+	}
+	if _, ok := steward["effort"]; ok {
+		t.Fatalf("落盘 JSON steward 不应包含旧键 effort: %s", raw)
+	}
+
+	reloaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load 失败: %v", err)
+	}
+	if reloaded.Orchestration.Steward.Effort != "high" {
+		t.Errorf("Load 后 Steward.Effort = %q, 期望 \"high\"", reloaded.Orchestration.Steward.Effort)
+	}
+	if reloaded.Orchestration.Steward.TaskEffort != "max" {
+		t.Errorf("Load 后 Steward.TaskEffort = %q, 期望 \"max\"", reloaded.Orchestration.Steward.TaskEffort)
+	}
+}

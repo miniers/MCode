@@ -1361,7 +1361,7 @@ type StewardConfig struct {
 	Avatar        string `json:"avatar"`                   // 头像：一个 emoji 或一个字，空表示用昵称首字，无昵称用「总」
 	Provider      string `json:"provider"`                 // 总管使用的提供方，空表示跟随 Models.Provider
 	Model         string `json:"model"`                    // 总管使用的模型，空表示「自动」：该提供方的默认模型，没有默认时取目录第一个
-	Effort        string `json:"effort,omitempty"`         // 前台推理强度，空表示跟随模型默认
+	Effort        string `json:"model_effort,omitempty"`   // 前台推理强度，空表示跟随模型默认
 	HomeDir       string `json:"home_dir,omitempty"`       // 总管主目录，空表示数据目录下的 steward 子目录
 	TaskProvider  string `json:"task_provider,omitempty"`  // 总管下发任务使用的提供方，空表示跟随默认
 	TaskModel     string `json:"task_model,omitempty"`     // 总管下发任务使用的模型，空表示该提供方的默认模型
