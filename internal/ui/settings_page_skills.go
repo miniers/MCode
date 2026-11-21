@@ -207,16 +207,6 @@ func skillMatchesQuery(sk agentconf.Skill, query string) bool {
 	return false
 }
 
-// skillTitleMatchesQuery 判断技能标题是否匹配搜索关键字：只按标题做不区分大小写的包含匹配，
-// 空关键字视为全部命中（技能页顶部搜索框的过滤规则）。
-func skillTitleMatchesQuery(sk agentconf.Skill, query string) bool {
-	q := strings.ToLower(strings.TrimSpace(query))
-	if q == "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(sk.Name), q)
-}
-
 // getSkillsSearchText 返回技能页搜索框的文本指针：首次访问时在 st.mu 锁内创建，
 // SettingsState.Close 收尾时清空，页面状态不再常驻进程。调用方不要持有 st.mu。
 func getSkillsSearchText(st *SettingsState) *string {
@@ -261,7 +251,7 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 	defer renderSkillDeleteDialog(c, st)
 	renderSkillsActions(c, st, len(skills))
 
-	// 按技能标题过滤，空值显示全部。
+	// 按全字段过滤，空值显示全部。
 	searchText := getSkillsSearchText(st)
 	renderSkillsSearchBox(c, st, searchText)
 	searchQuery := strings.TrimSpace(*searchText)
@@ -286,7 +276,7 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 	// 3. 搜索过滤
 	var filtered []agentconf.Skill
 	for _, sk := range skills {
-		if skillTitleMatchesQuery(sk, searchQuery) {
+		if skillMatchesQuery(sk, searchQuery) {
 			filtered = append(filtered, sk)
 		}
 	}
@@ -567,20 +557,13 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 					})
 
 				// 标签行：窄窗下可折行，避免挤占顶部操作按钮空间。
+				// 作用域已由分组标题表达，全局组标题亦包含供应商，仅保留组内仍有区分意义的标签。
 				ui.Row(c.Key(skillKey + "-badges")).
 					FillWidth().
 					Wrap().
 					AlignItems(ui.Center).
 					Gap(Space2).
 					Children(func() {
-						scopeLabel := "全局"
-						if strings.EqualFold(skVal.Scope, "project") {
-							scopeLabel = "项目"
-						} else if !strings.EqualFold(skVal.Scope, "global") {
-							scopeLabel = "外部"
-						}
-						settingBadge(c, skillKey+"-badge-scope", scopeLabel)
-
 						// 注入状态按路径判定：Agent 标签与是否注入并不等价（~/.agents/skills 被标成 codex，
 						// 却是注入的主力目录）。
 						if projctx.IsSkillInjectedPath(projectDir, home, skVal.Path) {
@@ -589,7 +572,7 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 							settingBadge(c, skillKey+"-badge-inject", "Agent 自行加载")
 						}
 
-						if skVal.Agent != "" {
+						if !strings.EqualFold(skVal.Scope, "global") && skVal.Agent != "" {
 							settingBadge(c, skillKey+"-badge-agent", skillAgentLabel(skVal.Agent))
 						}
 

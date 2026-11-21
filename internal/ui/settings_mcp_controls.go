@@ -439,7 +439,7 @@ func renderMCPServerRow(
 	uiSt.mu.Lock()
 	serverKey := mcp.EndpointKey(srvVal.Agent, srvVal.Scope, srvVal.Name)
 	isExpanded := uiSt.expandedServers[serverKey]
-	tools := uiSt.toolsCache[serverKey]
+	tools, toolsProbed := uiSt.toolsCache[serverKey]
 	isLoadingTools := uiSt.toolsLoading[serverKey]
 	toolsErr := uiSt.toolsErr[serverKey]
 	uiSt.mu.Unlock()
@@ -951,7 +951,8 @@ func renderMCPServerRow(
 								}
 							}
 
-							ui.Row(c.Key(mcpKey + "-tools-batch-row")).
+							ui.Row(c.Key(mcpKey + "-tools-header-row")).
+								FillWidth().
 								Gap(Space3).
 								AlignItems(ui.Center).
 								Children(func() {
@@ -964,37 +965,61 @@ func renderMCPServerRow(
 									if srvVal.ReadOnly {
 										return
 									}
-									ui.Text(c, "全部禁用").
-										FontSize(uiFont(TypeFootnote)).
-										TextColor(ThemeSecondaryText(c)).
-										Tooltip(settingHint("mcp-tools-disable-all"))
-									toggleFunc(
-										func(*SettingsState) (bool, bool) { return allDisabled, false },
-										func(st *SettingsState, on bool) {
-											setMCPToolFlags(uiSt, uiSt.disabledTools, srvVal.Name, toolNames, on)
-											st.invalidate()
-										},
-									).render(c, st, setting{ID: mcpKey + "-batch-disable", Title: "全部禁用"})
-
-									ui.Text(c, "全部免审批").
-										FontSize(uiFont(TypeFootnote)).
-										TextColor(ThemeSecondaryText(c)).
-										Tooltip(settingHint("mcp-tools-approve-all"))
-									toggleFunc(
-										func(*SettingsState) (bool, bool) { return allApprove, false },
-										func(st *SettingsState, on bool) {
-											setMCPToolFlags(uiSt, uiSt.autoApproveTools, srvVal.Name, toolNames, on)
-											st.invalidate()
-										},
-									).render(c, st, setting{ID: mcpKey + "-batch-approve", Title: "全部免审批"})
+									mcpToolColumn(c, mcpKey+"-col-disable", func() {
+										ui.Text(c, "禁用").
+											FontSize(uiFont(TypeFootnote)).
+											TextColor(ThemeSecondaryText(c)).
+											Tooltip(settingHint("mcp-tool-disable"))
+									})
+									mcpToolColumn(c, mcpKey+"-col-approve", func() {
+										ui.Text(c, "免审批").
+											FontSize(uiFont(TypeFootnote)).
+											TextColor(ThemeSecondaryText(c)).
+											Tooltip(settingHint("mcp-tool-approve"))
+									})
 								})
+
+							if !srvVal.ReadOnly {
+								ui.Row(c.Key(mcpKey + "-tools-batch-row")).
+									FillWidth().
+									Gap(Space3).
+									AlignItems(ui.Center).
+									Children(func() {
+										ui.Text(c, "全部").
+											FontSize(uiFont(TypeFootnote)).
+											TextColor(ThemeSecondaryText(c))
+										ui.Spacer(c)
+
+										mcpToolColumn(c, mcpKey+"-batch-disable-col", func() {
+											toggleFunc(
+												func(*SettingsState) (bool, bool) { return allDisabled, false },
+												func(st *SettingsState, on bool) {
+													setMCPToolFlags(uiSt, uiSt.disabledTools, srvVal.Name, toolNames, on)
+													st.invalidate()
+												},
+											).render(c, st, setting{ID: mcpKey + "-batch-disable", Title: "全部禁用"})
+										}).Tooltip(settingHint("mcp-tools-disable-all"))
+
+										mcpToolColumn(c, mcpKey+"-batch-approve-col", func() {
+											toggleFunc(
+												func(*SettingsState) (bool, bool) { return allApprove, false },
+												func(st *SettingsState, on bool) {
+													setMCPToolFlags(uiSt, uiSt.autoApproveTools, srvVal.Name, toolNames, on)
+													st.invalidate()
+												},
+											).render(c, st, setting{ID: mcpKey + "-batch-approve", Title: "全部免审批"})
+										}).Tooltip(settingHint("mcp-tools-approve-all"))
+									})
+							}
 
 							for tIdx, t := range tools {
 								toolKey := mcpKey + "-tool-" + strconv.Itoa(tIdx)
 								toolDisabled := disabledFlags[t.Name]
 								toolAutoApprove := autoApproveFlags[t.Name]
 								ui.Row(c.Key(toolKey)).
+									FillWidth().
 									Gap(Space3).
+									AlignItems(ui.Center).
 									Children(func() {
 										ui.Text(c, "• "+t.Name).
 											FontSize(uiFont(TypeFootnote)).
@@ -1012,29 +1037,25 @@ func renderMCPServerRow(
 										if srvVal.ReadOnly {
 											return
 										}
-										ui.Text(c, "禁用").
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeSecondaryText(c)).
-											Tooltip(settingHint("mcp-tool-disable"))
-										toggleFunc(
-											func(*SettingsState) (bool, bool) { return toolDisabled, false },
-											func(st *SettingsState, on bool) {
-												setMCPToolFlag(uiSt, uiSt.disabledTools, srvVal.Name, t.Name, on)
-												st.invalidate()
-											},
-										).render(c, st, setting{ID: toolKey + "-disable", Title: "禁用 " + t.Name})
+										mcpToolColumn(c, toolKey+"-disable-col", func() {
+											toggleFunc(
+												func(*SettingsState) (bool, bool) { return toolDisabled, false },
+												func(st *SettingsState, on bool) {
+													setMCPToolFlag(uiSt, uiSt.disabledTools, srvVal.Name, t.Name, on)
+													st.invalidate()
+												},
+											).render(c, st, setting{ID: toolKey + "-disable", Title: "禁用 " + t.Name})
+										})
 
-										ui.Text(c, "免审批").
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeSecondaryText(c)).
-											Tooltip(settingHint("mcp-tool-approve"))
-										toggleFunc(
-											func(*SettingsState) (bool, bool) { return toolAutoApprove, false },
-											func(st *SettingsState, on bool) {
-												setMCPToolFlag(uiSt, uiSt.autoApproveTools, srvVal.Name, t.Name, on)
-												st.invalidate()
-											},
-										).render(c, st, setting{ID: toolKey + "-approve", Title: "免审批 " + t.Name})
+										mcpToolColumn(c, toolKey+"-approve-col", func() {
+											toggleFunc(
+												func(*SettingsState) (bool, bool) { return toolAutoApprove, false },
+												func(st *SettingsState, on bool) {
+													setMCPToolFlag(uiSt, uiSt.autoApproveTools, srvVal.Name, t.Name, on)
+													st.invalidate()
+												},
+											).render(c, st, setting{ID: toolKey + "-approve", Title: "免审批 " + t.Name})
+										})
 									})
 							}
 						} else if toolsErr != "" {
@@ -1067,6 +1088,10 @@ func renderMCPServerRow(
 											TextColor(ThemeAccent(c))
 									})
 								})
+						} else if toolsProbed {
+							ui.Text(c, "无可用工具").
+								FontSize(uiFont(TypeFootnote)).
+								TextColor(ThemeSecondaryText(c))
 						} else {
 							ui.Text(c, "连接后可见").
 								FontSize(uiFont(TypeFootnote)).
@@ -1075,6 +1100,18 @@ func renderMCPServerRow(
 					})
 			}
 		})
+}
+
+const mcpToolColWidth = float32(52)
+
+// mcpToolColumn 为工具列表的表头、批量行与各工具行提供固定宽度的居中列，保证开关与表头纵向对齐。
+func mcpToolColumn(c *ui.Context, key string, content func()) ui.Element {
+	return ui.Row(c.Key(key)).
+		Width(mcpToolColWidth).
+		Shrink(0).
+		Justify(ui.Center).
+		AlignItems(ui.Center).
+		Children(content)
 }
 
 // setMCPToolFlag 更新某服务下某工具的开关状态，并把整份策略持久化到文件。

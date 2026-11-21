@@ -13,6 +13,8 @@ func renderSkillsSearchBox(c *ui.Context, st *SettingsState, query *string) {
 		Label:       "搜索技能",
 		Placeholder: "搜索技能",
 		Grow:        true,
+		Clearable:   true,
+		ClearLabel:  "清除搜索",
 		OnChange: func(string) {
 			st.invalidate()
 		},
