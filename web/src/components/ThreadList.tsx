@@ -43,6 +43,7 @@ import {
   type ThreadRowStatus
 } from '../utils/threadRowStatus';
 import { stewardAvatarText, stewardLabel } from '../utils/stewardIdentity';
+import { resolveStewardOpenProjectID, shouldShowStewardRow } from '../utils/stewardEntry';
 import { chatsProject, pickableProjects } from '../utils/builtinProjects';
 import { useRemoteSettingsApi } from '../context/remoteSettingsApi';
 import { visibleFilterChips, type ThreadFilter } from '../utils/homeFilterChips';
@@ -341,9 +342,9 @@ function messageHitThreadStub(hit: RemoteMessageSearchHit, projectID: string): R
   return threadSummaryStub(hit.threadID, projectID, hit.threadTitle, hit.createdAt);
 }
 
-// 总管固定行：放在当前项目区最上面，点了打开总管主会话。
+// 总管固定行：放在列表最上面，点了打开总管主会话。
 // 行上没有归档 / 置顶等会话操作（桌面端的总管行同样只是一行入口），徽标口径同 internal/ui/sidebar_steward.go：
-// 显示未答决策与待处理事项数。只有在选中项目且宿主声明 steward.open 时才会挂载，不会多出轮询。
+// 显示未答决策与待处理事项数。只有在存在可用总管入口且宿主声明 steward.open 时才会挂载，不会多出轮询。
 const StewardFixedRow = React.memo(function StewardFixedRow({
   projectID,
   label,
@@ -352,7 +353,7 @@ const StewardFixedRow = React.memo(function StewardFixedRow({
   running,
   onOpen
 }: {
-  projectID: string;
+  projectID: string | null;
   label: string;
   avatar: string;
   /** 正在打开总管会话：按钮禁用并转圈。 */
@@ -1229,6 +1230,17 @@ export const ThreadList: React.FC<ThreadListProps> = ({
   const projectName = projects.find((project) => project.id === projectID)?.name;
   const isConnected = connectionState === 'connected';
   const { supportsOpen } = stewardApi;
+  const stewardOpenProjectID = useMemo(
+    () => resolveStewardOpenProjectID(projectID, projects, threads),
+    [projectID, projects, threads]
+  );
+  const showStewardRow = shouldShowStewardRow({
+    openProjectID: stewardOpenProjectID,
+    supportsOpen,
+    isConnected,
+    filter,
+    messageNeedle
+  });
 
   const handleOpen = useCallback((thread: RemoteThreadSummary) => {
     setOpenRowID(null);
@@ -1240,22 +1252,22 @@ export const ThreadList: React.FC<ThreadListProps> = ({
 
   // 总管固定行：打开总管主会话（没有就由宿主新建），再按会话 ID 跳到它。
   const handleOpenSteward = useCallback(async () => {
-    if (!projectID || !supportsOpen || stewardOpenBusy) return;
+    if (!stewardOpenProjectID || !supportsOpen || stewardOpenBusy) return;
     setStewardOpenBusy(true);
     setActionError(null);
     try {
-      const threadID = await stewardApi.openSteward(projectID);
+      const threadID = await stewardApi.openSteward(stewardOpenProjectID);
       if (!threadID) throw new Error('宿主没有返回总管会话');
       const known = threads.find((thread) => thread.id === threadID);
       handleOpen(
-        known ?? { ...threadSummaryStub(threadID, projectID, stewardDisplayLabel, new Date().toISOString()), hasUnread: true }
+        known ?? { ...threadSummaryStub(threadID, stewardOpenProjectID, stewardDisplayLabel, new Date().toISOString()), hasUnread: true }
       );
     } catch (error) {
       setActionError(stewardActionErrorText(error, '打开总管会话失败'));
     } finally {
       setStewardOpenBusy(false);
     }
-  }, [projectID, supportsOpen, stewardOpenBusy, stewardApi, handleOpen, threads, stewardDisplayLabel]);
+  }, [stewardOpenProjectID, supportsOpen, stewardOpenBusy, stewardApi, handleOpen, threads, stewardDisplayLabel]);
 
   const canCreate = Boolean(
     capabilities?.methods.includes('threads.create') &&
@@ -1421,13 +1433,14 @@ export const ThreadList: React.FC<ThreadListProps> = ({
   const filteredThreads = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
     const rows = scopedThreads
+      .filter((thread) => !(showStewardRow && thread.isSteward === true))
       .filter((thread) => !normalizedQuery || thread.title.toLocaleLowerCase().includes(normalizedQuery))
       .filter((thread) => matchesFilter(thread, filter));
     // 全部项目范围下各项目的 orderKey 互不可比（都是各自项目内的序），改按用户最后一条消息时间倒序；
     // 单项目范围保留宿主 orderKey，手动排序仍然生效。
     if (!projectID) return sortByActivityDesc(rows);
     return rows.sort((first, second) => (first.orderKey < second.orderKey ? -1 : first.orderKey > second.orderKey ? 1 : 0));
-  }, [filter, projectID, query, scopedThreads]);
+  }, [filter, projectID, query, scopedThreads, showStewardRow]);
 
   const activeThreads = filteredThreads.filter((thread) => !thread.isDormant);
   const dormantThreads = filteredThreads.filter((thread) => thread.isDormant);
@@ -1668,7 +1681,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
       )}
 
       <div ref={scrollRef} className="home-list__scroll">
-        {projectID && supportsOpen && isConnected && filter !== 'archived' && !messageNeedle && (
+        {showStewardRow && (
           <StewardFixedRow
             projectID={projectID}
             label={stewardDisplayLabel}
