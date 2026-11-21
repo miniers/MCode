@@ -16,12 +16,65 @@ export function shouldCommitEdgeBack(dx: number, velocity: number, width: number
   return dx > width * EDGE_SWIPE_COMMIT_RATIO;
 }
 
-/** 只在 PWA standalone 或窄屏（<768px）启用，避免桌面宽屏误触。 */
-export function isEdgeSwipeAvailable(): boolean {
+export interface EdgeSwipeEnv {
+  matchMedia?: (query: string) => { matches: boolean };
+  navigatorStandalone?: boolean;
+}
+
+export interface HorizontalScrollNodeLike {
+  scrollWidth?: number;
+  clientWidth?: number;
+  parentElement?: HorizontalScrollNodeLike | null;
+}
+
+export type GetComputedStyleLike = (element: HorizontalScrollNodeLike) => {
+  overflowX?: string;
+} | null | undefined;
+
+/** 仅在独立安装态（PWA standalone）启用边缘右滑返回；普通移动浏览器自带边缘返回，不再按窄屏强行接管。 */
+export function shouldEnableEdgeSwipeBack(env?: EdgeSwipeEnv): boolean {
+  if (env) {
+    const displayModeStandalone =
+      typeof env.matchMedia === 'function' && Boolean(env.matchMedia('(display-mode: standalone)').matches);
+    return displayModeStandalone || env.navigatorStandalone === true;
+  }
   if (typeof window === 'undefined') return false;
-  const standalone =
+  const displayModeStandalone =
     typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches;
-  return standalone || window.innerWidth < 768;
+  const iosStandalone =
+    typeof navigator !== 'undefined' && (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return displayModeStandalone || iosStandalone;
+}
+
+/** 沿事件目标向上遍历祖先，若处于可横向滚动容器（scrollWidth > clientWidth 且 overflow-x 为 auto/scroll）内则返回 true。 */
+export function isInsideHorizontalScrollable(
+  target: EventTarget | HorizontalScrollNodeLike | null,
+  getStyle: GetComputedStyleLike = (element) =>
+    typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
+      ? window.getComputedStyle(element as unknown as Element)
+      : null
+): boolean {
+  if (!target || typeof target !== 'object') return false;
+  let current: HorizontalScrollNodeLike | null = target as HorizontalScrollNodeLike;
+  while (current) {
+    if (
+      typeof current.scrollWidth === 'number' &&
+      typeof current.clientWidth === 'number' &&
+      current.scrollWidth > current.clientWidth
+    ) {
+      const overflowX = getStyle(current)?.overflowX;
+      if (overflowX === 'auto' || overflowX === 'scroll') {
+        return true;
+      }
+    }
+    current = current.parentElement ?? null;
+  }
+  return false;
+}
+
+/** 仅在 PWA standalone 启用边缘右滑返回。 */
+export function isEdgeSwipeAvailable(): boolean {
+  return shouldEnableEdgeSwipeBack();
 }
 
 export interface EdgeSwipeBackOptions {
@@ -40,7 +93,7 @@ export function useEdgeSwipeBack({ enabled, onCommit }: EdgeSwipeBackOptions): v
   }, [onCommit]);
 
   useEffect(() => {
-    if (!enabled || !isEdgeSwipeAvailable()) return;
+    if (!enabled || !shouldEnableEdgeSwipeBack()) return;
     const root = document.documentElement;
     let pointerID: number | null = null;
     let startX = 0;
@@ -100,6 +153,7 @@ export function useEdgeSwipeBack({ enabled, onCommit }: EdgeSwipeBackOptions): v
         if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
         if (target.closest('.sheet-layer, [aria-modal="true"]')) return;
       }
+      if (isInsideHorizontalScrollable(target)) return;
       pointerID = event.pointerId;
       startX = event.clientX;
       startY = event.clientY;

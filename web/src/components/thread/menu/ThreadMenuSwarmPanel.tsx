@@ -200,9 +200,10 @@ export function ThreadMenuSwarmPanel({
           type="button"
           role="switch"
           aria-checked={swarmEnabled}
+          aria-label="启用编排"
           disabled={!swarmAvailable || isTogglingSwarm}
           onClick={() => void handleToggleSwarm(!swarmEnabled)}
-          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none disabled:opacity-40 ${
+          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 disabled:opacity-40 ${
             swarmEnabled ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'
           }`}
         >
@@ -291,7 +292,7 @@ export function ThreadMenuSwarmPanel({
                   aria-label="切换主代理只规划"
                   disabled={isSettingPlansOnly}
                   onClick={() => void handleSetPlansOnly(!plansOnly)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out disabled:opacity-40 ${
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 disabled:opacity-40 ${
                     plansOnly ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'
                   }`}
                 >

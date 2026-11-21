@@ -6,24 +6,6 @@ import './index.css';
 import { computeViewport, isEditableElement } from './utils/viewport';
 // 数学公式（KaTeX）样式不再全局引入：由 utils/lazyMath.ts 在首次需要渲染公式时按需加载
 
-// 禁用双指捏合和双击缩放，保持单指正常滑动、文本选中与行交互
-if (typeof document !== 'undefined') {
-  document.documentElement.style.touchAction = 'pan-x pan-y';
-  const preventGesture = (event: Event) => event.preventDefault();
-  document.addEventListener('gesturestart', preventGesture, { passive: false });
-  document.addEventListener('gesturechange', preventGesture, { passive: false });
-  document.addEventListener('gestureend', preventGesture, { passive: false });
-  document.addEventListener(
-    'touchmove',
-    (event: TouchEvent) => {
-      if (event.touches.length > 1) {
-        event.preventDefault();
-      }
-    },
-    { passive: false }
-  );
-}
-
 // 维护 --app-height 与 --composer-bottom-inset。软键盘弹出时跟随可视视口。
 // 视口补充分两种状态栏处理：半透明状态栏（env(safe-area-inset-top) > 0）下 iOS 的
 // window.innerHeight 会少算顶部安全区，底部空出一截，这里按物理屏幕高度补回；

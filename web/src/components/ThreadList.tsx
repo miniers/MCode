@@ -458,6 +458,7 @@ const ThreadRow = React.memo(function ThreadRow({
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const suppressNextClickRef = useRef(false);
 
   const clearLongPress = () => {
     if (longPressTimerRef.current !== null) {
@@ -482,6 +483,7 @@ const ThreadRow = React.memo(function ThreadRow({
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    suppressNextClickRef.current = false;
     pointerStartRef.current = { x: event.clientX, y: event.clientY };
     longPressTriggeredRef.current = false;
     setIsDragging(false);
@@ -522,6 +524,7 @@ const ThreadRow = React.memo(function ThreadRow({
     setIsDragging(false);
 
     if (!start) return;
+    suppressNextClickRef.current = true;
     const dx = event.clientX - start.x;
     const wasDrag = Math.abs(dx) > 6;
 
@@ -583,12 +586,7 @@ const ThreadRow = React.memo(function ThreadRow({
         <span>{thread.isDormant ? '取消休眠' : '休眠'}</span>
       </button>
       <div
-        role="button"
-        data-thread-row={thread.id}
-        tabIndex={tabStop ? 0 : -1}
-        aria-label={`打开会话 ${thread.title || '未命名会话'}${rowStatusLabel ? `，${rowStatusLabel}` : ''}`}
-        aria-current={isSelected ? 'true' : undefined}
-        className={`relative z-10 min-h-[76px] ${threadRowSurfaceClass(isSelected)} gutter-x py-2.5 [@media(hover:none)]:pr-11 transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
+        className={`relative z-10 min-h-[76px] ${threadRowSurfaceClass(isSelected)} transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
         style={{
           transform: `translateX(${offset}px)`,
           transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(.22,1,.36,1)'
@@ -601,66 +599,87 @@ const ThreadRow = React.memo(function ThreadRow({
           event.preventDefault();
           onMenu(thread);
         }}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget || handleThreadRowKey(event, () => onMenu(thread))) return;
-          if (event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
+      >
+        <button
+          type="button"
+          data-thread-row={thread.id}
+          tabIndex={tabStop ? 0 : -1}
+          aria-label={`打开会话 ${thread.title || '未命名会话'}${rowStatusLabel ? `，${rowStatusLabel}` : ''}`}
+          aria-current={isSelected ? 'true' : undefined}
+          className="block w-full min-h-[76px] bg-transparent gutter-x py-2.5 [@media(hover:none)]:pr-11 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--primary)]"
+          onClick={() => {
+            if (suppressNextClickRef.current) {
+              suppressNextClickRef.current = false;
+              return;
+            }
             if (isOpen) {
               setOffset(0);
               onClose();
             } else {
               onOpen(thread);
             }
-          }
-        }}
-      >
-        <ThreadMenuButton onClick={() => onMenu(thread)} />
-        {/* Line 1: 左侧项目名 + 行首状态（运行中/待授权/待回答/失败，对应桌面端的行首图标位）；
-            行尾只保留 threadRowStatus 选出的一个状态位：待审批 > 未读 > 置顶 > 最近活动。 */}
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-            <span className="truncate text-footnote text-muted font-normal">
-              {projectName || '会话'}
+          }}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget || handleThreadRowKey(event, () => onMenu(thread))) return;
+            if (event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              if (isOpen) {
+                setOffset(0);
+                onClose();
+              } else {
+                onOpen(thread);
+              }
+            }
+          }}
+        >
+          {/* Line 1: 左侧项目名 + 行首状态（运行中/待授权/待回答/失败，对应桌面端的行首图标位）；
+              行尾只保留 threadRowStatus 选出的一个状态位：待审批 > 未读 > 置顶 > 最近活动。 */}
+          <span className="flex items-center justify-between gap-2 min-w-0">
+            <span className="flex items-center gap-1.5 min-w-0 flex-1">
+              <span className="truncate text-footnote text-muted font-normal">
+                {projectName || '会话'}
+              </span>
+              {status && (
+                <span className={`shrink-0 text-label tabular-nums ${status.className}`}>
+                  {status.label}
+                </span>
+              )}
             </span>
-            {status && (
-              <span className={`shrink-0 text-label tabular-nums ${status.className}`}>
-                {status.label}
-              </span>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <ThreadRowStatusSlot status={rowStatus} />
-          </div>
-        </div>
+            <span className="flex shrink-0 items-center gap-1.5">
+              <ThreadRowStatusSlot status={rowStatus} />
+            </span>
+          </span>
 
-        {/* Line 2: title (16/23, medium, max 2 lines) */}
-        <h3 className="mt-1 text-body font-medium text-foreground line-clamp-2 text-left">
-          {thread.title || '未命名会话'}
-        </h3>
+          {/* Line 2: title (16/23, medium, max 2 lines) */}
+          <span className="mt-1 block text-body font-medium text-foreground line-clamp-2 text-left">
+            {thread.title || '未命名会话'}
+          </span>
 
-        {/* Line 3: model/provider and task/goal badges, branch in monospace */}
-        {hasLine3 && (
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-label text-muted">
-            {branch && (
-              <span className="font-mono text-label text-muted">{branch}</span>
-            )}
-            {branch && modelOrProvider && <span aria-hidden="true">·</span>}
-            {modelOrProvider && (
-              <span>{modelOrProvider}</span>
-            )}
-            {thread.taskID && (
-              <span className="rounded bg-subtle-strong px-1.5 py-0.5 text-micro font-medium text-muted">
-                任务
-              </span>
-            )}
-            {thread.goalID && (
-              <span className="rounded bg-subtle-strong px-1.5 py-0.5 text-micro font-medium text-muted">
-                目标
-              </span>
-            )}
-          </div>
-        )}
+          {/* Line 3: model/provider and task/goal badges, branch in monospace */}
+          {hasLine3 && (
+            <span className="mt-1 flex flex-wrap items-center gap-2 text-label text-muted">
+              {branch && (
+                <span className="font-mono text-label text-muted">{branch}</span>
+              )}
+              {branch && modelOrProvider && <span aria-hidden="true">·</span>}
+              {modelOrProvider && (
+                <span>{modelOrProvider}</span>
+              )}
+              {thread.taskID && (
+                <span className="rounded bg-subtle-strong px-1.5 py-0.5 text-micro font-medium text-muted">
+                  任务
+                </span>
+              )}
+              {thread.goalID && (
+                <span className="rounded bg-subtle-strong px-1.5 py-0.5 text-micro font-medium text-muted">
+                  目标
+                </span>
+              )}
+            </span>
+          )}
+        </button>
+        <ThreadMenuButton onClick={() => onMenu(thread)} />
       </div>
       {showTrailingDivider && (
         <div className="gutter-ml h-px bg-border-subtle" />
@@ -689,6 +708,7 @@ const DormantThreadRow = React.memo(function DormantThreadRow({
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
+  const suppressNextClickRef = useRef(false);
 
   const clearLongPress = () => {
     if (longPressTimerRef.current !== null) {
@@ -713,6 +733,7 @@ const DormantThreadRow = React.memo(function DormantThreadRow({
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    suppressNextClickRef.current = false;
     pointerStartRef.current = { x: event.clientX, y: event.clientY };
     longPressTriggeredRef.current = false;
     setIsDragging(false);
@@ -753,6 +774,7 @@ const DormantThreadRow = React.memo(function DormantThreadRow({
     setIsDragging(false);
 
     if (!start) return;
+    suppressNextClickRef.current = true;
     const dx = event.clientX - start.x;
     const wasDrag = Math.abs(dx) > 6;
 
@@ -806,12 +828,7 @@ const DormantThreadRow = React.memo(function DormantThreadRow({
         <span>取消休眠</span>
       </button>
       <div
-        role="button"
-        data-thread-row={thread.id}
-        tabIndex={tabStop ? 0 : -1}
-        aria-label={`打开已休眠会话 ${thread.title || '未命名会话'}${rowStatusLabel ? `，${rowStatusLabel}` : ''}`}
-        aria-current={isSelected ? 'true' : undefined}
-        className={`relative z-10 flex h-[44px] min-h-[44px] items-center justify-between gap-2 ${threadRowSurfaceClass(isSelected)} gutter-x [@media(hover:none)]:pr-11 transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
+        className={`relative z-10 h-[44px] min-h-[44px] ${threadRowSurfaceClass(isSelected)} transition-colors hover:bg-row-hover active:bg-row-hover touch-pan-y${isDragging ? ' thread-row--dragging' : ''}`}
         style={{
           transform: `translateX(${offset}px)`,
           transition: isDragging ? 'none' : 'transform 280ms cubic-bezier(.22,1,.36,1)'
@@ -824,34 +841,55 @@ const DormantThreadRow = React.memo(function DormantThreadRow({
           event.preventDefault();
           onMenu(thread);
         }}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget || handleThreadRowKey(event, () => onMenu(thread))) return;
-          if (event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
+      >
+        <button
+          type="button"
+          data-thread-row={thread.id}
+          tabIndex={tabStop ? 0 : -1}
+          aria-label={`打开已休眠会话 ${thread.title || '未命名会话'}${rowStatusLabel ? `，${rowStatusLabel}` : ''}`}
+          aria-current={isSelected ? 'true' : undefined}
+          className="flex h-full w-full min-h-[44px] items-center justify-between gap-2 bg-transparent gutter-x [@media(hover:none)]:pr-11 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--primary)]"
+          onClick={() => {
+            if (suppressNextClickRef.current) {
+              suppressNextClickRef.current = false;
+              return;
+            }
             if (isOpen) {
               setOffset(0);
               onClose();
             } else {
               onOpen(thread);
             }
-          }
-        }}
-      >
-        <ThreadMenuButton onClick={() => onMenu(thread)} />
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {projectName && (
-            <span className="truncate text-footnote text-muted opacity-40 shrink-0 max-w-[100px]">
-              {projectName}
+          }}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget || handleThreadRowKey(event, () => onMenu(thread))) return;
+            if (event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              if (isOpen) {
+                setOffset(0);
+                onClose();
+              } else {
+                onOpen(thread);
+              }
+            }
+          }}
+        >
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            {projectName && (
+              <span className="truncate text-footnote text-muted opacity-40 shrink-0 max-w-[100px]">
+                {projectName}
+              </span>
+            )}
+            <span className="truncate text-footnote text-muted font-normal flex-1">
+              {thread.title || '未命名会话'}
             </span>
-          )}
-          <span className="truncate text-footnote text-muted font-normal flex-1">
-            {thread.title || '未命名会话'}
           </span>
-        </div>
-        <span className="ml-2 flex shrink-0 items-center gap-1.5">
-          <ThreadRowStatusSlot status={rowStatus} />
-        </span>
+          <span className="ml-2 flex shrink-0 items-center gap-1.5">
+            <ThreadRowStatusSlot status={rowStatus} />
+          </span>
+        </button>
+        <ThreadMenuButton onClick={() => onMenu(thread)} />
       </div>
       {showTrailingDivider && (
         <div className="gutter-ml h-px bg-border-subtle" />

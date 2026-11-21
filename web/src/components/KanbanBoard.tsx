@@ -187,32 +187,27 @@ const TaskRow: React.FC<TaskRowProps> = ({
   return (
     <div className="thread-row-wrap">
       <div
-        className={`relative z-10 min-h-[76px] bg-screen gutter-x py-2.5 transition-colors hover:bg-row-hover active:bg-row-hover cursor-pointer ${busy ? 'opacity-60' : ''}`}
-        role="button"
-        tabIndex={0}
-        aria-label={`打开任务 ${task.title}`}
-        onClick={onOpen}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onOpen();
-          }
-        }}
+        className={`relative z-10 min-h-[76px] bg-screen gutter-x py-2.5 transition-colors hover:bg-row-hover active:bg-row-hover ${busy ? 'opacity-60' : ''}`}
       >
         <div className="flex items-start justify-between gap-2 min-w-0">
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-1.5">
+          <button
+            type="button"
+            aria-label={`打开任务 ${task.title}`}
+            onClick={onOpen}
+            className="min-w-0 flex-1 rounded bg-transparent text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--primary)]"
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
               {task.blocked && <LockIcon className="h-3.5 w-3.5 shrink-0 text-warning" />}
-              <h3 className="text-body font-medium text-foreground line-clamp-2 text-left">{task.title}</h3>
-            </div>
-            {secondary && <p className="mt-1 text-label text-muted">{secondary}</p>}
+              <span className="text-body font-medium text-foreground line-clamp-2 text-left">{task.title}</span>
+            </span>
+            {secondary && <span className="mt-1 block text-label text-muted">{secondary}</span>}
             {(task.lastFailureReason || task.attentionFlags.length > 0) && (
-              <p className="mt-0.5 text-label text-danger">
+              <span className="mt-0.5 block text-label text-danger">
                 {task.lastFailureReason || task.attentionFlags.join(' · ')}
-              </p>
+              </span>
             )}
-            {busy && <p className="mt-0.5 text-label text-status-running">{busyText || '处理中…'}</p>}
-          </div>
+            {busy && <span className="mt-0.5 block text-label text-status-running">{busyText || '处理中…'}</span>}
+          </button>
           <div className="flex items-center gap-1.5 shrink-0">
             <span className={taskStateClass(task)}>{taskStateLabel(task)}</span>
             {task.goalID && onOpenGoal && (

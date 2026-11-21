@@ -19,30 +19,30 @@
     --screen: var(--mc-surface-main);
     --card: var(--mc-surface-card);
     --card-alt: var(--mc-surface-main);
-    --foreground: #27272a;
-    --foreground-muted: #6f6f79;
-    --border: #e4e4e7;
-    --border-subtle: rgba(228, 228, 231, 0.7);
-    --row-hover: #f4f4f5;
+    --foreground: var(--mc-text-primary);
+    --foreground-muted: var(--mc-text-secondary);
+    --border: var(--mc-border);
+    --border-subtle: var(--mc-hairline);
+    --row-hover: var(--mc-surface-canvas);
     --subtle-strong: var(--mc-surface-main);
-    --primary: #1b4ed8;
-    --quota-low: #16a34a;
+    --primary: var(--mc-accent);
+    --quota-low: var(--mc-success);
     --quota-mid: var(--mc-caution);
-    --quota-high: #ea580c;
+    --quota-high: var(--mc-warning);
     --quota-critical: var(--danger-foreground);
-    --warning-foreground: #bb4d00;
-    --danger-foreground: #c10007;
+    --warning-foreground: var(--mc-warning);
+    --danger-foreground: var(--mc-danger);
     --status-running: #0284c7;
     --status-input: #4f46e5;
-    --user-bubble: #efeff1;
+    --user-bubble: color-mix(in srgb, var(--mc-text-primary) 6%, var(--mc-surface-card));
     --code-keyword: #cf222e;
     --code-string: #0a3069;
     --code-comment: #6e7781;
     --code-number: #0550ae;
     --code-title: #8250df;
     --code-attr: #116329;
-    --composer-surface: rgba(244, 244, 245, .94);
-    --input-border: #d4d4d8;
+    --composer-surface: color-mix(in srgb, var(--mc-surface-canvas) 94%, transparent);
+    --input-border: var(--mc-border-strong);
     --sat: env(safe-area-inset-top, 0px);
     --sab: env(safe-area-inset-bottom, 0px);
     --sal: env(safe-area-inset-left, 0px);
@@ -54,33 +54,14 @@
   }
   :root.dark {
     color-scheme: dark;
-    --screen: #0a0a0a;
-    --card: #111111;
-    --card-alt: #111111;
-    --foreground: #f5f5f5;
-    --foreground-muted: #838383;
-    --border: #191919;
-    --border-subtle: rgba(25, 25, 25, 0.7);
-    --row-hover: var(--mc-surface-canvas);
-    --subtle-strong: #111111;
-    --primary: #346bf1;
-    --quota-low: var(--mc-success);
-    --quota-mid: var(--mc-caution);
-    --quota-high: var(--mc-warning);
-    --quota-critical: var(--danger-foreground);
-    --warning-foreground: #ffb900;
-    --danger-foreground: #ff6467;
     --status-running: #38bdf8;
     --status-input: #a5b4fc;
-    --user-bubble: #161616;
     --code-keyword: #ff7b72;
     --code-string: #a5d6ff;
     --code-comment: #8b949e;
     --code-number: #79c0ff;
     --code-title: #d2a8ff;
     --code-attr: #7ee787;
-    --composer-surface: rgba(26, 27, 27, .9);
-    --input-border: #1e1e1e;
   }
   *, *::before, *::after { box-sizing: border-box; }
   html, body, #root { width: 100%; height: var(--app-height); margin: 0; overflow: hidden; }

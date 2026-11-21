@@ -1694,10 +1694,11 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                             type="button"
                             role="switch"
                             aria-checked={fastMode}
+                            aria-label="Fast 模式"
                             onClick={() => onComposerOptionsChange?.({ ...composerOptions, fastMode: !fastMode })}
-                            className={`relative h-6 w-11 shrink-0 rounded-full transition ${fastMode ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'}`}
+                            className={`relative h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 ${fastMode ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'}`}
                           >
-                            <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${fastMode ? 'translate-x-5' : ''}`} />
+                            <span aria-hidden="true" className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${fastMode ? 'translate-x-5' : ''}`} />
                           </button>
                         </div>
                       )}
@@ -1753,11 +1754,12 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                               type="button"
                               role="switch"
                               aria-checked={swarmOn}
+                              aria-label="启用编排"
                               disabled={swarmToggleDisabled || (swarm ? !swarm.enabled : false)}
                               onClick={() => onToggleSwarm(!swarmOn)}
-                              className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-40 ${swarmOn ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'}`}
+                              className={`relative h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 disabled:opacity-40 ${swarmOn ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'}`}
                             >
-                              <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${swarmOn ? 'translate-x-5' : ''}`} />
+                              <span aria-hidden="true" className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${swarmOn ? 'translate-x-5' : ''}`} />
                             </button>
                           </div>
                         )}
