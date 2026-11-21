@@ -235,16 +235,6 @@ func TestStewardTaskCardAndChipOpen(t *testing.T) {
 func TestStewardTaskDetailSheetActions(t *testing.T) {
 	var gotTarget taskCenterTarget
 	var targetCalls int
-	s := newChatState(NewFakeClient())
-	s.openTasksWindowTargetFn = func(target taskCenterTarget) {
-		gotTarget = target
-		targetCalls++
-	}
-	t.Cleanup(s.close)
-	s.mu.Lock()
-	s.selectedThreadID = "steward"
-	s.mu.Unlock()
-
 	task := KanbanTask{
 		ID:            "t-steward",
 		ProjectID:     "p1",
@@ -254,6 +244,18 @@ func TestStewardTaskDetailSheetActions(t *testing.T) {
 		Status:        "done",
 		ResultSummary: "汇总完成",
 	}
+	fake := NewFakeClient()
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
+	s := newChatState(fake)
+	s.openTasksWindowTargetFn = func(target taskCenterTarget) {
+		gotTarget = target
+		targetCalls++
+	}
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.selectedThreadID = "steward"
+	s.mu.Unlock()
+
 	tt := ui.NewTesterWith(func(c *ui.Context) {
 		s.mu.Lock()
 		cur := s.selectedThreadID

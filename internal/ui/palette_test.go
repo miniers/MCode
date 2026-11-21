@@ -726,7 +726,7 @@ func TestPaletteSearchesTasksGoalsAndAutomations(t *testing.T) {
 	})
 
 	tt.Key(ui.Cmd, ui.KeyK)
-	if !tt.HasText("搜索会话、任务、自动化、项目或消息") {
+	if _, ok := tt.Find("搜索会话、任务、自动化、项目或消息"); !ok {
 		t.Fatalf("命令面板占位文案不正确：%v", tt.Texts())
 	}
 

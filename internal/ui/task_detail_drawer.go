@@ -112,7 +112,7 @@ func renderTaskDetailDrawerSheet(c *ui.Context, opts taskDetailDrawerSheetOpts) 
 	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 		backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))
 		panel.MaxWidth(winWidth - Space8).MaxHeight(winHeight - Space8).Padding(0)
-		ui.Column(c.Key(sheetKey)).Width(sheetWidth).Height(sheetHeight).
+		ui.Column(c.Key(sheetKey)).Label(sheetKey).Width(sheetWidth).Height(sheetHeight).
 			Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(func() {
 			if opts.Content != nil {
 				opts.Content()

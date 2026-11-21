@@ -1030,6 +1030,7 @@ func renderCommandPalette(c *ui.Context, s *chatState) {
 							TextColor(ThemeSecondaryText(c))
 
 						in := ui.TextInput(c.Key("palette-query-input"), &p.query).
+							Label("搜索会话、任务、自动化、项目或消息").
 							Placeholder("搜索会话、任务、自动化、项目或消息").
 							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c)).
