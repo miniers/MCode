@@ -12,6 +12,7 @@ type quotaGroupListOptions struct {
 	SelectedAccount      string
 	OnSelectAccount      func(account string)
 	AccountDisabled      func(account string) bool
+	HoveredAccount       string
 }
 
 func quotaGroupTitleVisible(groupCount int, opts quotaGroupListOptions) bool {
@@ -386,8 +387,9 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 
 							accDisabled := selectable && opts.AccountDisabled != nil && opts.AccountDisabled(curAcc.Account)
 							accSelected := selectable && opts.SelectedAccount != "" && curAcc.Account == opts.SelectedAccount
-							renderAccountBlock := func() {
-								ui.Column(c.Key(accKey)).
+							accHovered := opts.HoveredAccount != "" && curAcc.Account == opts.HoveredAccount
+							renderAccountBlock := func() ui.Element {
+								return ui.Column(c.Key(accKey)).
 									FillWidth().
 									Gap(Space3).
 									Children(func() {
@@ -468,7 +470,13 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									})
 							}
 							if !selectable {
-								renderAccountBlock()
+								accCol := renderAccountBlock()
+								accCol.Radius(RadiusSM).Transition(motionFeedback(c))
+								if accHovered {
+									accCol.Background(ThemeAccentSubtle(c))
+								} else {
+									accCol.Background(ui.Transparent)
+								}
 								continue
 							}
 							btn := ui.ButtonBase(c.Key(accKey+"-btn")).
@@ -477,17 +485,22 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 								Padding(Space2, Space3).
 								Radius(RadiusSM).
 								Checked(accSelected).
-								Disabled(accDisabled)
+								Disabled(accDisabled).
+								Transition(motionFeedback(c))
+							if accHovered {
+								btn.Background(ThemeAccentSubtle(c))
+							} else if !accDisabled && btn.Hovered() {
+								btn.Background(ThemeHover(c))
+							} else {
+								btn.Background(ui.Transparent)
+							}
 							if !accDisabled {
-								if btn.Hovered() {
-									btn.Background(ThemeHover(c))
-								}
 								focusRing(c, btn)
 								btn.OnClick(func() {
 									opts.OnSelectAccount(curAcc.Account)
 								})
 							}
-							btn.Children(renderAccountBlock)
+							btn.Children(func() { renderAccountBlock() })
 						}
 					})
 			}
