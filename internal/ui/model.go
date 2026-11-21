@@ -1449,6 +1449,14 @@ func (s *chatState) selectThreadState(threadID string, knownEmpty bool, expected
 	s.completionItems = nil
 	s.completionDismissedFor = ""
 	s.mentionSeq++
+	if oldThreadID != "" && oldThreadID != threadID && len(s.messages) > 0 {
+		if lastID := s.messages[len(s.messages)-1].ID; lastID != "" {
+			if s.toolDiff.lastSeen == nil {
+				s.toolDiff.lastSeen = make(map[string]string)
+			}
+			s.toolDiff.lastSeen[oldThreadID] = lastID
+		}
+	}
 	s.messages = nil
 	s.messagesRev++
 	// 切换会话时清空入场登记：新会话的消息要重新按时间窗判定，旧会话的流式记录也不再有用。
@@ -1459,6 +1467,9 @@ func (s *chatState) selectThreadState(threadID string, knownEmpty bool, expected
 	s.streamedRevealMsgs = make(map[string]struct{})
 	// 改动缓存按会话保留：来回切换同一批会话时直接命中上次的 diff，不再重新起 git 子进程。
 	s.toolDiff.generation++
+	if oldThreadID != "" && oldThreadID != threadID {
+		s.retainToolDiffThreadsLocked(oldThreadID)
+	}
 	s.retainToolDiffThreadsLocked(threadID)
 	s.approvals = nil
 	s.threadUsage = ThreadUsage{}
@@ -1547,6 +1558,7 @@ func (s *chatState) selectThreadState(threadID string, knownEmpty bool, expected
 				s.messagesRev++
 				// 打开会话时已有的正文立即完整显示，只有之后新流入的增量才逐字揭示。
 				s.markRevealBaselineLocked(s.messages)
+				s.reconcileToolDiffAfterHistoryLocked(tid, s.messages)
 			}
 			if aErr == nil {
 				s.approvals = approvals

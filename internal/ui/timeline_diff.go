@@ -38,6 +38,7 @@ type toolDiffState struct {
 	inline     map[string]*toolDiffInlineEntry // 按消息 ID 缓存 patch 解析结果
 	inlineSeq  []string                        // 内嵌 diff 缓存的最近使用顺序，超出上限时淘汰最旧条目
 	threads    []string                        // 最近访问的会话 ID（MRU），切换时据此保留改动缓存
+	lastSeen   map[string]string               // 会话 ID → 切走时最后一条消息 ID，用于切回后核对过期轮次
 }
 
 // toolDiffInlineEntry 缓存一条消息的 patch 文件与增删统计；指纹变化时作废。
@@ -114,6 +115,11 @@ func (s *chatState) retainToolDiffThreadsLocked(threadID string) {
 		}
 	}
 	s.toolDiff.reviewSeq = seq
+	for tid := range s.toolDiff.lastSeen {
+		if !seen[tid] {
+			delete(s.toolDiff.lastSeen, tid)
+		}
+	}
 	// 字节兜底：从最久没访问的会话开始丢，当前会话不丢。
 	for len(s.toolDiff.threads) > 1 && s.toolDiffCacheBytesLocked() > kToolDiffCacheBytes {
 		drop := s.toolDiff.threads[len(s.toolDiff.threads)-1]
@@ -133,6 +139,14 @@ func (s *chatState) retainToolDiffThreadsLocked(threadID string) {
 				delete(s.toolDiff.turnKey, key)
 			}
 		}
+		seq := s.toolDiff.reviewSeq[:0]
+		for _, key := range s.toolDiff.reviewSeq {
+			if tid, _, _ := strings.Cut(key, "|"); tid != drop {
+				seq = append(seq, key)
+			}
+		}
+		s.toolDiff.reviewSeq = seq
+		delete(s.toolDiff.lastSeen, drop)
 	}
 }
 
@@ -522,6 +536,36 @@ func (s *chatState) invalidateToolDiffTurnsLocked(threadID string, msgs []Messag
 			if e := s.toolDiff.entries[key]; e != nil {
 				e.stale = true
 			}
+		}
+	}
+}
+
+// reconcileToolDiffAfterHistoryLocked 在切回会话并重新加载历史后，按切走前最后一条消息核对缓存：
+// 未变轮次继续沿用，后续新增消息涉及的轮次标为待重取；若旧消息已不存在（回滚或截断），则把该会话的改动缓存全标为待重取。
+// 调用方需持有 s.mu。
+func (s *chatState) reconcileToolDiffAfterHistoryLocked(threadID string, msgs []Message) {
+	if threadID == "" {
+		return
+	}
+	lastID, ok := s.toolDiff.lastSeen[threadID]
+	if !ok {
+		return
+	}
+	delete(s.toolDiff.lastSeen, threadID)
+	found := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].ID == lastID {
+			found = i
+			break
+		}
+	}
+	if found >= 0 {
+		s.invalidateToolDiffTurnsLocked(threadID, msgs[found+1:])
+		return
+	}
+	for key, entry := range s.toolDiff.entries {
+		if tid, _, _ := strings.Cut(key, "|"); tid == threadID && entry != nil {
+			entry.stale = true
 		}
 	}
 }

@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -153,5 +154,135 @@ func TestThreadChangeStatsCacheLimit(t *testing.T) {
 	trimThreadChangeStatsLocked(st, "")
 	if got := len(st.byThread); got != kThreadChangeStatsCache {
 		t.Fatalf("全部条目在加载中时不应淘汰，实际 = %d", got)
+	}
+}
+
+// TestRetainToolDiffThreadsByteDropTrimsReviewSeq 校验字节兜底淘汰旧会话时，
+// 同步从 reviewSeq 与 lastSeen 移除该会话的 key，不留悬空键占用缓存名额。
+func TestRetainToolDiffThreadsByteDropTrimsReviewSeq(t *testing.T) {
+	s := &chatState{}
+	s.toolDiff.threads = []string{"t2", "t3"}
+	s.toolDiff.entries = map[string]*toolDiffEntry{
+		"t2|turn-a": {bytes: kToolDiffCacheBytes + 1024},
+		"t3|turn-b": {bytes: 1024},
+	}
+	s.toolDiff.reviews = map[string]*toolDiffEntry{
+		"t3|turn-b": {},
+		"t2|turn-a": {},
+		"t1|turn-0": {},
+	}
+	s.toolDiff.reviewSeq = []string{"t3|turn-b", "t2|turn-a", "t1|turn-0"}
+	s.toolDiff.lastSeen = map[string]string{
+		"t2": "m2",
+		"t3": "m3",
+	}
+
+	s.retainToolDiffThreadsLocked("t1")
+
+	for _, key := range s.toolDiff.reviewSeq {
+		if tid, _, _ := strings.Cut(key, "|"); tid == "t2" || tid == "t3" {
+			t.Fatalf("被字节兜底淘汰的会话 %s 仍残留 reviewSeq 键 %q", tid, key)
+		}
+	}
+	if len(s.toolDiff.reviewSeq) != 1 || s.toolDiff.reviewSeq[0] != "t1|turn-0" {
+		t.Fatalf("当前会话的 reviewSeq 应保留，实际 %v", s.toolDiff.reviewSeq)
+	}
+	if _, ok := s.toolDiff.lastSeen["t2"]; ok {
+		t.Fatal("被淘汰会话 t2 的 lastSeen 应删除")
+	}
+	if _, ok := s.toolDiff.lastSeen["t3"]; ok {
+		t.Fatal("被淘汰会话 t3 的 lastSeen 应删除")
+	}
+}
+
+// TestToolDiffSwitchBackMarksChangedTurnsStale 校验切走再切回会话时：
+// 离开期间未变化轮次继续沿用缓存，新增消息涉及的轮次以及回滚场景会标为 stale。
+func TestToolDiffSwitchBackMarksChangedTurnsStale(t *testing.T) {
+	fake := NewFakeClient()
+	initialA := []Message{
+		{ID: "m1", Role: "user", TurnIndex: 1, TurnID: "turn-1"},
+		{ID: "m2", Role: "tool", TurnIndex: 1, TurnID: "turn-1"},
+		{ID: "m3", Role: "user", TurnIndex: 2, TurnID: "turn-2"},
+		{ID: "m4", Role: "tool", TurnIndex: 2, TurnID: "turn-2"},
+	}
+	fake.SetMessages("tA", initialA)
+	fake.SetMessages("tB", []Message{{ID: "b1", Role: "user", TurnIndex: 1, TurnID: "turn-b"}})
+
+	s, _ := buildRoot(fake)
+	t.Cleanup(s.close)
+
+	s.mu.Lock()
+	s.toolDiff.entries = map[string]*toolDiffEntry{
+		"tA|turn-1": {},
+		"tA|turn-2": {},
+	}
+	s.toolDiff.turnKey = map[string]string{
+		"tA|#1": "tA|turn-1",
+		"tA|#2": "tA|turn-2",
+	}
+	s.mu.Unlock()
+
+	waitLoaded := func(tid string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			s.mu.Lock()
+			done := s.selectedThreadID == tid && s.timelineLoadingThread == ""
+			s.mu.Unlock()
+			if done {
+				return
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		t.Fatalf("会话 %s 历史未加载完成", tid)
+	}
+
+	s.selectThread("tA")
+	waitLoaded("tA")
+
+	s.selectThread("tB")
+	waitLoaded("tB")
+
+	// 离开期间 tA 第二轮多出一条 tool 消息，切回后只应使第二轮失效。
+	updatedA := append(append([]Message{}, initialA...), Message{
+		ID:        "m5",
+		Role:      "tool",
+		TurnIndex: 2,
+		TurnID:    "turn-2",
+	})
+	fake.SetMessages("tA", updatedA)
+
+	s.selectThread("tA")
+	waitLoaded("tA")
+
+	s.mu.Lock()
+	e1 := s.toolDiff.entries["tA|turn-1"]
+	e2 := s.toolDiff.entries["tA|turn-2"]
+	_, hasLastSeen := s.toolDiff.lastSeen["tA"]
+	s.mu.Unlock()
+
+	if e1 == nil || e1.stale {
+		t.Fatalf("未变化的第一轮不应标为 stale: %+v", e1)
+	}
+	if e2 == nil || !e2.stale {
+		t.Fatalf("离开期间有新增消息的第二轮应标为 stale: %+v", e2)
+	}
+	if hasLastSeen {
+		t.Fatal("切回处理完成后应清理 tA 的 lastSeen 记录")
+	}
+
+	// 再次切走并模拟 tA 回滚（切走时的最后一条消息 m5 消失），切回后该会话缓存应全部标为 stale。
+	s.selectThread("tB")
+	waitLoaded("tB")
+	fake.SetMessages("tA", initialA[:2])
+
+	s.selectThread("tA")
+	waitLoaded("tA")
+
+	s.mu.Lock()
+	e1AfterRollback := s.toolDiff.entries["tA|turn-1"]
+	s.mu.Unlock()
+	if e1AfterRollback == nil || !e1AfterRollback.stale {
+		t.Fatalf("历史回滚找不到切走前最后消息时，保留的条目应标为 stale: %+v", e1AfterRollback)
 	}
 }
