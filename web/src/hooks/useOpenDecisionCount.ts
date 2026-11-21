@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRemote } from '../context/RemoteContext';
+import { useRemoteMeta } from '../context/RemoteContext';
 import { loadOpenDecisionCount, REMOTE_STEWARD_DECISIONS_LIST_METHOD } from '../context/remoteStewardApi';
 import { useRemoteCall, useRemoteNotification } from '../context/useRemoteCall';
 
 export function useOpenDecisionCount(): number | null {
-  const { connectionState } = useRemote();
+  const { connectionState } = useRemoteMeta();
   const { call, supportsMethod } = useRemoteCall();
   const supported = supportsMethod(REMOTE_STEWARD_DECISIONS_LIST_METHOD);
   const [count, setCount] = useState<number | null>(null);

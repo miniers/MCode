@@ -64,7 +64,143 @@ export type {
 
 export type RemoteThreadsContextType = Pick<RemoteContextType, 'threads' | 'currentThread'>;
 export type RemoteStaticContextType = Omit<RemoteContextType, 'threads' | 'currentThread'>;
+export type RemoteActionsContextType = Pick<
+  RemoteContextType,
+  | 'setRememberDevice'
+  | 'renameDevice'
+  | 'forgetDevice'
+  | 'setSelectedProjectID'
+  | 'setTheme'
+  | 'setInspectedTask'
+  | 'setCurrentThread'
+  | 'callRemote'
+  | 'supportsMethod'
+  | 'onRemoteNotification'
+  | 'reconnect'
+  | 'pairWithToken'
+  | 'newPairingCode'
+  | 'clearAuth'
+  | 'refreshBoard'
+  | 'moveTask'
+  | 'startTask'
+  | 'reviewTask'
+  | 'getDiff'
+  | 'getThreadDiff'
+  | 'getThreadGitStatus'
+  | 'getThreadGitBranches'
+  | 'listThreadFiles'
+  | 'readThreadFile'
+  | 'searchThreadFiles'
+  | 'readThreadMedia'
+  | 'listThreadScripts'
+  | 'runThreadScript'
+  | 'getThreadScriptRunStatus'
+  | 'setThreadScriptFavorite'
+  | 'saveScripts'
+  | 'previewBulkThreads'
+  | 'archiveBulkThreads'
+  | 'markDormantBulkThreads'
+  | 'markBulkThreadsRead'
+  | 'undoBulkThreads'
+  | 'createTask'
+  | 'createGoal'
+  | 'startGoal'
+  | 'pauseGoal'
+  | 'cancelGoal'
+  | 'replanGoal'
+  | 'retryGoalTask'
+  | 'skipGoalTask'
+  | 'loadProjects'
+  | 'loadThreads'
+  | 'loadMoreThreads'
+  | 'resyncThreads'
+  | 'listArchivedThreads'
+  | 'updateThread'
+  | 'moveThread'
+  | 'createThread'
+  | 'sendThreadMessage'
+  | 'checkThreadAction'
+  | 'dismissThreadAction'
+  | 'refreshThread'
+  | 'subscribeThread'
+  | 'retryThreadSubscription'
+  | 'unsubscribeThread'
+  | 'openThread'
+  | 'openThreadByID'
+  | 'closeThread'
+  | 'getThreadHistory'
+  | 'listRequests'
+  | 'respondToRequest'
+  | 'interruptThread'
+  | 'killRunningCommand'
+  | 'listThreadQueue'
+  | 'updateThreadQueue'
+  | 'removeThreadQueue'
+  | 'moveThreadQueue'
+  | 'sendThreadQueueNow'
+  | 'interruptAndSendThread'
+  | 'editThreadQueueDraft'
+  | 'recallTurn'
+  | 'compactThread'
+  | 'forwardSwarmQuestion'
+  | 'subscribeCompactSuggestion'
+  | 'uploadAttachment'
+  | 'listProviders'
+  | 'rememberProviderSelection'
+  | 'getComposerQuota'
+  | 'getPushPublicKey'
+  | 'subscribePush'
+  | 'unsubscribePush'
+  | 'branchThread'
+  | 'forwardThread'
+  | 'loadThreadCommands'
+  | 'getThreadSwarm'
+  | 'setThreadSwarm'
+  | 'stopSwarmBee'
+  | 'stopAllSwarmBees'
+  | 'clearFinishedSwarmBees'
+  | 'getSwarmTiers'
+  | 'setSwarmTiers'
+  | 'forwardQuestion'
+  | 'getMergeDiff'
+  | 'approveMerge'
+  | 'discardMerge'
+  | 'addSwarmListener'
+  | 'setThreadSwarmMode'
+  | 'setThreadSwarmPlansOnly'
+  | 'setThreadSwarmBeeTiers'
+  | 'regenerateThreadTitle'
+  | 'limitProviderText'
+  | 'previewWorktreeMove'
+  | 'executeWorktreeMove'
+>;
+export type RemoteMetaContextType = Pick<
+  RemoteContextType,
+  | 'connectionState'
+  | 'connectionMessage'
+  | 'authError'
+  | 'pairingError'
+  | 'pairingInProgress'
+  | 'rememberDevice'
+  | 'deviceIdentity'
+  | 'credentialNotice'
+  | 'forgetInProgress'
+  | 'selectedProjectID'
+  | 'theme'
+  | 'isSyncing'
+  | 'projects'
+  | 'projectsLoading'
+  | 'projectsError'
+  | 'environmentID'
+  | 'capabilities'
+  | 'providers'
+  | 'swarm'
+  | 'providersLoading'
+  | 'providersError'
+>;
 
+const RemoteActionsContext = createContext<RemoteActionsContextType | null>(null);
+const RemoteMetaContext = createContext<RemoteMetaContextType | null>(null);
 const RemoteStaticContext = createContext<RemoteStaticContextType | null>(null);
 const RemoteThreadsContext = createContext<RemoteThreadsContextType | null>(null);
 
@@ -1326,47 +1462,14 @@ export const RemoteProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     void loadProjects(board.revision);
   }, [board, loadProjects]);
 
-  const staticValue = useMemo<RemoteStaticContextType>(() => ({
-    board,
-    connectionState,
-    connectionMessage,
-    authError,
-    pairingError,
-    pairingInProgress,
-    rememberDevice,
+  const actionsValue = useMemo<RemoteActionsContextType>(() => ({
     setRememberDevice,
-    deviceIdentity,
     renameDevice,
-    credentialNotice,
-    forgetInProgress,
     forgetDevice,
-    selectedProjectID,
     setSelectedProjectID,
-    theme,
     setTheme,
-    activeActionTaskID,
-    actionLoadingText,
-    isSyncing,
-    inspectedTask,
     setInspectedTask,
-    projects,
-    projectsLoading,
-    projectsError,
-    environmentID,
-    threadsLoading,
-    threadsLoadingMore,
-    threadsHasMore,
-    threadsError,
-    threadActions,
-    capabilities,
-    providers,
-    swarm,
-    providersLoading,
-    providersError,
-    openThreadError,
     setCurrentThread: setCurrentThreadFromContext,
-    requestSnapshots,
-    queueSnapshots,
     callRemote,
     supportsMethod,
     onRemoteNotification,
@@ -1380,6 +1483,22 @@ export const RemoteProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     reviewTask,
     getDiff,
     getThreadDiff,
+    getThreadGitStatus,
+    getThreadGitBranches,
+    listThreadFiles,
+    readThreadFile,
+    searchThreadFiles,
+    readThreadMedia,
+    listThreadScripts,
+    runThreadScript,
+    getThreadScriptRunStatus,
+    setThreadScriptFavorite,
+    saveScripts,
+    previewBulkThreads,
+    archiveBulkThreads,
+    markDormantBulkThreads,
+    markBulkThreadsRead,
+    undoBulkThreads,
     createTask,
     createGoal,
     startGoal,
@@ -1407,6 +1526,22 @@ export const RemoteProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     openThreadByID,
     closeThread,
     getThreadHistory,
+    listRequests,
+    respondToRequest,
+    interruptThread,
+    killRunningCommand,
+    listThreadQueue,
+    updateThreadQueue,
+    removeThreadQueue,
+    moveThreadQueue,
+    sendThreadQueueNow,
+    interruptAndSendThread,
+    editThreadQueueDraft,
+    recallTurn,
+    compactThread,
+    forwardSwarmQuestion,
+    subscribeCompactSuggestion,
+    uploadAttachment,
     listProviders,
     rememberProviderSelection,
     getComposerQuota,
@@ -1415,24 +1550,7 @@ export const RemoteProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     unsubscribePush,
     branchThread,
     forwardThread,
-    commandSnapshots,
     loadThreadCommands,
-    listRequests,
-    respondToRequest,
-    interruptThread,
-    killRunningCommand,
-    listThreadQueue,
-    updateThreadQueue,
-    removeThreadQueue,
-    sendThreadQueueNow,
-    moveThreadQueue,
-    interruptAndSendThread,
-    editThreadQueueDraft,
-    recallTurn,
-    compactThread,
-    forwardSwarmQuestion,
-    subscribeCompactSuggestion,
-    uploadAttachment,
     getThreadSwarm,
     setThreadSwarm,
     stopSwarmBee,
@@ -1452,36 +1570,86 @@ export const RemoteProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     limitProviderText,
     previewWorktreeMove,
     executeWorktreeMove,
-    getThreadGitStatus,
-    getThreadGitBranches,
-    listThreadFiles,
-    readThreadFile,
-    searchThreadFiles,
-    readThreadMedia,
-    listThreadScripts,
-    runThreadScript,
-    getThreadScriptRunStatus,
-    setThreadScriptFavorite,
-    saveScripts,
-    previewBulkThreads,
-    archiveBulkThreads,
-    markDormantBulkThreads,
-    markBulkThreadsRead,
-    undoBulkThreads,
   }), [
-    board, connectionState, connectionMessage, authError, pairingError, pairingInProgress, rememberDevice, setRememberDevice, deviceIdentity, renameDevice, credentialNotice, forgetInProgress, forgetDevice, selectedProjectID, setSelectedProjectID, theme, setTheme, activeActionTaskID, actionLoadingText, isSyncing, inspectedTask, setInspectedTask, projects, projectsLoading, projectsError, environmentID, threadsLoading, threadsLoadingMore, threadsHasMore, threadsError, threadActions, capabilities, providers, swarm, providersLoading, providersError, openThreadError, setCurrentThreadFromContext, requestSnapshots, queueSnapshots, callRemote, supportsMethod, onRemoteNotification, reconnect, pairWithToken, newPairingCode, clearAuth, refreshBoard, moveTask, startTask, reviewTask, getDiff, getThreadDiff, createTask, createGoal, startGoal, pauseGoal, cancelGoal, replanGoal, retryGoalTask, skipGoalTask, loadProjects, loadThreads, loadMoreThreads, resyncThreads, listArchivedThreads, updateThread, moveThread, createThread, sendThreadMessage, checkThreadActionUnified, dismissThreadAction, refreshThread, subscribeThread, retryThreadSubscription, unsubscribeThread, openThread, openThreadByID, closeThread, getThreadHistory, listProviders, rememberProviderSelection, getComposerQuota, getPushPublicKey, subscribePush, unsubscribePush, branchThread, forwardThread, commandSnapshots, loadThreadCommands, listRequests, respondToRequest, interruptThread, killRunningCommand, listThreadQueue, updateThreadQueue, removeThreadQueue, sendThreadQueueNow, moveThreadQueue, interruptAndSendThread, editThreadQueueDraft, recallTurn, compactThread, forwardSwarmQuestion, subscribeCompactSuggestion, uploadAttachment, getThreadSwarm, setThreadSwarm, stopSwarmBee, stopAllSwarmBees, clearFinishedSwarmBees, getSwarmTiers, setSwarmTiers, forwardQuestion, getMergeDiff, approveMerge, discardMerge, addSwarmListener, setThreadSwarmMode, setThreadSwarmPlansOnly, setThreadSwarmBeeTiers, regenerateThreadTitle, limitProviderText, previewWorktreeMove, executeWorktreeMove, getThreadGitStatus, getThreadGitBranches, listThreadFiles, readThreadFile, searchThreadFiles, readThreadMedia, listThreadScripts, runThreadScript, getThreadScriptRunStatus, setThreadScriptFavorite, previewBulkThreads, archiveBulkThreads, markDormantBulkThreads, markBulkThreadsRead, undoBulkThreads
+    setRememberDevice, renameDevice, forgetDevice, setSelectedProjectID, setTheme, setInspectedTask, setCurrentThreadFromContext, callRemote, supportsMethod, onRemoteNotification, reconnect, pairWithToken, newPairingCode, clearAuth, refreshBoard, moveTask, startTask, reviewTask, getDiff, getThreadDiff, getThreadGitStatus, getThreadGitBranches, listThreadFiles, readThreadFile, searchThreadFiles, readThreadMedia, listThreadScripts, runThreadScript, getThreadScriptRunStatus, setThreadScriptFavorite, saveScripts, previewBulkThreads, archiveBulkThreads, markDormantBulkThreads, markBulkThreadsRead, undoBulkThreads, createTask, createGoal, startGoal, pauseGoal, cancelGoal, replanGoal, retryGoalTask, skipGoalTask, loadProjects, loadThreads, loadMoreThreads, resyncThreads, listArchivedThreads, updateThread, moveThread, createThread, sendThreadMessage, checkThreadActionUnified, dismissThreadAction, refreshThread, subscribeThread, retryThreadSubscription, unsubscribeThread, openThread, openThreadByID, closeThread, getThreadHistory, listRequests, respondToRequest, interruptThread, killRunningCommand, listThreadQueue, updateThreadQueue, removeThreadQueue, moveThreadQueue, sendThreadQueueNow, interruptAndSendThread, editThreadQueueDraft, recallTurn, compactThread, forwardSwarmQuestion, subscribeCompactSuggestion, uploadAttachment, listProviders, rememberProviderSelection, getComposerQuota, getPushPublicKey, subscribePush, unsubscribePush, branchThread, forwardThread, loadThreadCommands, getThreadSwarm, setThreadSwarm, stopSwarmBee, stopAllSwarmBees, clearFinishedSwarmBees, getSwarmTiers, setSwarmTiers, forwardQuestion, getMergeDiff, approveMerge, discardMerge, addSwarmListener, setThreadSwarmMode, setThreadSwarmPlansOnly, setThreadSwarmBeeTiers, regenerateThreadTitle, limitProviderText, previewWorktreeMove, executeWorktreeMove
+  ]);
+
+  const metaValue = useMemo<RemoteMetaContextType>(() => ({
+    connectionState,
+    connectionMessage,
+    authError,
+    pairingError,
+    pairingInProgress,
+    rememberDevice,
+    deviceIdentity,
+    credentialNotice,
+    forgetInProgress,
+    selectedProjectID,
+    theme,
+    isSyncing,
+    projects,
+    projectsLoading,
+    projectsError,
+    environmentID,
+    capabilities,
+    providers,
+    swarm,
+    providersLoading,
+    providersError,
+  }), [
+    connectionState, connectionMessage, authError, pairingError, pairingInProgress, rememberDevice, deviceIdentity, credentialNotice, forgetInProgress, selectedProjectID, theme, isSyncing, projects, projectsLoading, projectsError, environmentID, capabilities, providers, swarm, providersLoading, providersError
+  ]);
+
+  const staticValue = useMemo<RemoteStaticContextType>(() => ({
+    ...metaValue,
+    ...actionsValue,
+    board,
+    activeActionTaskID,
+    actionLoadingText,
+    inspectedTask,
+    threadsLoading,
+    threadsLoadingMore,
+    threadsHasMore,
+    threadsError,
+    threadActions,
+    openThreadError,
+    requestSnapshots,
+    queueSnapshots,
+    commandSnapshots,
+  }), [
+    metaValue, actionsValue, board, activeActionTaskID, actionLoadingText, inspectedTask, threadsLoading, threadsLoadingMore, threadsHasMore, threadsError, threadActions, openThreadError, requestSnapshots, queueSnapshots, commandSnapshots
   ]);
 
   const threadsValue = useMemo<RemoteThreadsContextType>(() => ({ threads, currentThread }), [threads, currentThread]);
 
   return (
-    <RemoteStaticContext.Provider value={staticValue}>
-      <RemoteThreadsContext.Provider value={threadsValue}>
-        {children}
-      </RemoteThreadsContext.Provider>
-    </RemoteStaticContext.Provider>
+    <RemoteActionsContext.Provider value={actionsValue}>
+      <RemoteMetaContext.Provider value={metaValue}>
+        <RemoteStaticContext.Provider value={staticValue}>
+          <RemoteThreadsContext.Provider value={threadsValue}>
+            {children}
+          </RemoteThreadsContext.Provider>
+        </RemoteStaticContext.Provider>
+      </RemoteMetaContext.Provider>
+    </RemoteActionsContext.Provider>
   );
 };
+
+export function useRemoteActions(): RemoteActionsContextType {
+  const context = useContext(RemoteActionsContext);
+  if (!context) {
+    throw new Error('useRemoteActions 必须在 RemoteProvider 内部使用');
+  }
+  return context;
+}
+
+export function useRemoteMeta(): RemoteMetaContextType {
+  const context = useContext(RemoteMetaContext);
+  if (!context) {
+    throw new Error('useRemoteMeta 必须在 RemoteProvider 内部使用');
+  }
+  return context;
+}
 
 export function useRemoteStatic(): RemoteStaticContextType {
   const context = useContext(RemoteStaticContext);

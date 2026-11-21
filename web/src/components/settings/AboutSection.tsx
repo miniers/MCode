@@ -3,7 +3,7 @@
 // Web 端支持检查更新，不支持导出诊断。
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { useRemote } from '../../context/RemoteContext';
+import { useRemoteMeta } from '../../context/RemoteContext';
 import { isAppUpdateMethodNotFound, useRemoteAppUpdateApi, type RemoteAppUpdateApi } from '../../context/remoteAppUpdateApi';
 import type { AppUpdateStatus } from '../../types/generated';
 import { MarkdownView } from '../MarkdownView';
@@ -18,7 +18,7 @@ function pageBuildID(): string {
 const valueClass = 'text-sm font-medium break-all';
 
 export const AboutSection: React.FC = () => {
-  const { capabilities } = useRemote();
+  const { capabilities } = useRemoteMeta();
   const api = useRemoteAppUpdateApi();
   const appVersion = capabilities?.appVersion?.trim() ?? '';
   // 宿主没带 appVersion 时说明对面版本过旧，直接说明而不是留空。

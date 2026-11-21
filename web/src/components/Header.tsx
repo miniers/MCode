@@ -1,7 +1,7 @@
 // 移动首页顶栏：项目范围、视图切换、连接胶囊与设置 sheet。
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useRemote } from '../context/RemoteContext';
+import { useRemote, useRemoteActions, useRemoteMeta } from '../context/RemoteContext';
 import { isThreadBusy } from '../context/remoteGuards';
 import { AlwaysAllowedSection } from './AlwaysAllowedSection';
 import { AttentionSheet } from './AttentionSheet';
@@ -175,27 +175,29 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const {
     projects,
-    threads,
     selectedProjectID,
-    setSelectedProjectID,
     connectionState,
     isSyncing,
     theme,
+    rememberDevice,
+    deviceIdentity,
+    forgetInProgress,
+    capabilities
+  } = useRemoteMeta();
+  const {
+    setSelectedProjectID,
     setTheme,
     refreshBoard,
     reconnect,
     clearAuth,
-    rememberDevice,
     setRememberDevice,
-    deviceIdentity,
     renameDevice,
-    forgetInProgress,
     forgetDevice,
     newPairingCode,
     loadProjects,
-    loadThreads,
-    capabilities
-  } = useRemote();
+    loadThreads
+  } = useRemoteActions();
+  const { threads } = useRemote();
 
   // 「自动折叠思考过程」偏好与设置面板里的开关一一对应，默认开启
   const [autoCollapse, setAutoCollapse] = useState(() => getStoredAutoCollapse());

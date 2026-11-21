@@ -4,7 +4,7 @@
 // 校验写成导出的纯函数，Web 端没有测试框架，这里只保证调用方能直接复用。
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRemote } from '../context/RemoteContext';
+import { useRemoteMeta } from '../context/RemoteContext';
 import { useRemoteAutomationApi } from '../context/remoteAutomationApi';
 import type {
   RemoteAutomationExtAutomation,
@@ -418,7 +418,7 @@ export const AutomationEditForm: React.FC<AutomationEditFormProps> = ({
 
   // 供应商与模型列表来自 Web 端已有的 providers（与设置页的模型下拉同源）；
   // 旧值不在当前列表里时补一项，避免打开编辑表单就显示成第一项。
-  const { providers } = useRemote();
+  const { providers } = useRemoteMeta();
   const providerOptions = useMemo(() => {
     const list = providers.map((provider) => ({
       value: provider.id,
