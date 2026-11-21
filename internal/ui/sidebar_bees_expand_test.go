@@ -376,7 +376,7 @@ func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
 			return tt.HasText("另一个主会话") && tt.HasText("全空闲主会话")
 		})
 		// 不通过鼠标悬停切会话，避免 sidebar_hover_card 宽限期干扰 ReduceMotion 的零帧等待断言
-		state.selectThread("lead-1")
+		state.selectThreadState("lead-1", true, nil)
 		tt.Frame()
 		if tt.FramePending() {
 			t.Fatalf("ReduceMotion 下展开头像条不应请求下一帧")
@@ -405,7 +405,7 @@ func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
 			t.Fatalf("ReduceMotion 下重新展开应立即显示 Aspen，texts: %q", tt.Texts())
 		}
 
-		state.selectThread("other-1")
+		state.selectThreadState("other-1", true, nil)
 		tt.Frame()
 		if tt.FramePending() {
 			t.Fatalf("ReduceMotion 下切走隐藏头像条不应请求下一帧")
