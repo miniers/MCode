@@ -1478,11 +1478,13 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 			if p.OnToggleFast != nil {
 				p.OnToggleFast(side)
 			}
+			modelPickerInvalidate(p)
 		},
 		OnReset: func() {
 			if p.OnReset != nil {
 				p.OnReset(side)
 			}
+			modelPickerInvalidate(p)
 		},
 		OnOpenModelList: onOpenModelList,
 	}

@@ -77,11 +77,11 @@ type BeeConfig struct {
 	// FallbackEffort 保存未指定模型的档位自带推理强度：不直接写进 Effort，交给 resolveBeeRuntime 在默认 Effort 之后兜底。
 	FallbackEffort string
 	FastMode       bool
-	SystemPrompt string
-	Profile      string
-	PairID       string
-	Tier         string
-	ReadOnly     bool
+	SystemPrompt   string
+	Profile        string
+	PairID         string
+	Tier           string
+	ReadOnly       bool
 	// WritePaths 非空时该 bee 只能把匹配这些 glob 的改动合并回主工作区。
 	WritePaths  []string
 	DirectModel bool

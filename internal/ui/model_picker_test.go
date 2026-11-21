@@ -2792,3 +2792,52 @@ func TestModelPickerEffortInvalidates(t *testing.T) {
 		t.Fatalf("切换推理强度后 Invalidate 调用次数 = %d，期望至少 1 次", invalidates)
 	}
 }
+
+// 切换快速模式或重置后应同步触发 Invalidate，让独立浮层闭包及时刷新。
+func TestModelPickerFastAndResetInvalidate(t *testing.T) {
+	providers := modelPickerTestProviders()
+	providers[0].Models[0].Efforts = []string{"low", "high"}
+	providers[0].Models[0].DefaultEffort = "low"
+	providers[0].Models[0].SupportsFast = true
+	state := &ModelPickerState{}
+	toggledFast := false
+	resetCalled := false
+	invalidates := 0
+	props := ModelPickerProps{
+		Mode:         ModelPickerSimple,
+		Inline:       true,
+		KeyPrefix:    "fast-reset-invalidate-",
+		ScopeKey:     "fast-reset-invalidate",
+		State:        state,
+		Providers:    providers,
+		Selection:    ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet", Effort: "high"},
+		OnToggleFast: func(ModelPickerSide) { toggledFast = true },
+		OnReset:      func(ModelPickerSide) { resetCalled = true },
+		Invalidate:   func() { invalidates++ },
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderModelPickerCard(c, props, state, ModelPickerSideLead)
+	}, modelPickerPanelWidth, 400)
+	tt.Frame()
+
+	if err := tt.Click("快速模式"); err != nil {
+		t.Fatalf("点击快速模式失败: %v", err)
+	}
+	if !toggledFast {
+		t.Fatal("点击快速模式后未触发上层 OnToggleFast")
+	}
+	if invalidates < 1 {
+		t.Fatalf("切换快速模式后 Invalidate 调用次数 = %d，期望至少 1 次", invalidates)
+	}
+
+	invalidates = 0
+	if err := tt.Click("重置强度与快速模式"); err != nil {
+		t.Fatalf("点击重置失败: %v", err)
+	}
+	if !resetCalled {
+		t.Fatal("点击重置后未触发上层 OnReset")
+	}
+	if invalidates < 1 {
+		t.Fatalf("重置后 Invalidate 调用次数 = %d，期望至少 1 次", invalidates)
+	}
+}
