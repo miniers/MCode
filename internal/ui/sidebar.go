@@ -1474,29 +1474,9 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						}
 					}
 
-					// 设置页「侧边栏自动隐藏空闲子代理」打开时，统一过滤所有 lead 下已结束的子代理，
-					// 只保留运行中、等待回答的；当前选中的子代理始终保留，免得正在看的头像消失。
-					// 若父会话处于「手动展开全部子代理」状态，则跳过过滤保留完整列表。
-					var allBeesByParent map[string][]Thread
-					var hiddenBeeCountByParent map[string]int
-					var showAllBeesByParent map[string]bool
-					if cs := getChatSettings(s); cs != nil && cs.cfg.Orchestration.AutoHidesIdleBees && len(beesByParent) > 0 {
-						allBeesByParent = make(map[string][]Thread, len(beesByParent))
-						hiddenBeeCountByParent = make(map[string]int, len(beesByParent))
-						showAllBeesByParent = make(map[string]bool, len(beesByParent))
-						for pID, list := range beesByParent {
-							allBeesByParent[pID] = list
-							if IsBeeShowAll(pID) {
-								showAllBeesByParent[pID] = true
-								continue
-							}
-							filtered := FilterIdleSwarmBees(list, selectedID)
-							beesByParent[pID] = filtered
-							if diff := len(list) - len(filtered); diff > 0 {
-								hiddenBeeCountByParent[pID] = diff
-							}
-						}
-					}
+					// 设置页「侧边栏自动隐藏空闲子代理」打开时，统一过滤所有 lead 下已结束的子代理：
+					// 全空闲且未选中时完全隐藏，选中父会话或子代理后直接展开头像条；有活跃子代理时保留活跃项与当前选中项。
+					beesByParent, allBeesByParent, hiddenBeeCountByParent, showAllBeesByParent := filterSidebarBeesForAutoHide(s, beesByParent, selectedID)
 
 					activeThs, dormantThs := splitAndSortProjectThreads(s, pVal.ID, topThs)
 

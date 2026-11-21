@@ -183,6 +183,7 @@ func renderSidebarChatsSection(c *ui.Context, s *chatState, snap *sidebarSnapsho
 		topThs = snap.chatsTopThreads
 		beesByParent = snap.chatsBeesByParent
 	}
+	beesByParent, allBeesByParent, hiddenBeeCountByParent, showAllBeesByParent := filterSidebarBeesForAutoHide(s, beesByParent, selectedID)
 
 	m := currentSidebarMetrics(c, s)
 
@@ -224,16 +225,19 @@ func renderSidebarChatsSection(c *ui.Context, s *chatState, snap *sidebarSnapsho
 
 	for _, th := range topThs {
 		renderSidebarThreadRow(c, s, sidebarThreadRowOptions{
-			projectID: chatsProjID,
-			thread:    th,
-			bees:      beesByParent[th.ID],
-			dormant:   th.Dormant,
-			selected:  th.ID == selectedID,
-			rowHeight: m.rowHeight,
-			padY:      m.padY,
-			padX:      m.padX,
-			compact:   m.compact,
-			providers: providers,
+			projectID:      chatsProjID,
+			thread:         th,
+			bees:           beesByParent[th.ID],
+			allBees:        allBeesByParent[th.ID],
+			hiddenBeeCount: hiddenBeeCountByParent[th.ID],
+			showAllBees:    showAllBeesByParent[th.ID],
+			dormant:        th.Dormant,
+			selected:       th.ID == selectedID,
+			rowHeight:      m.rowHeight,
+			padY:           m.padY,
+			padX:           m.padX,
+			compact:        m.compact,
+			providers:      providers,
 		})
 	}
 

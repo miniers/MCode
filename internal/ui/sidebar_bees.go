@@ -256,6 +256,48 @@ func hasIdleSwarmBee(bees []Thread, keepID string) bool {
 	return false
 }
 
+// filterSidebarBeesForAutoHide 按「侧边栏自动隐藏空闲子代理」配置过滤各父会话的子代理列表。
+// 关闭自动隐藏或输入为空时原样返回 beesByParent（其余为 nil）；
+// 开启时：若手动开启「显示全部」则保留完整列表，若全部子代理都空闲且当前选中了父会话或其中某个子代理，
+// 也直接展开完整列表以便查看与切换，否则沿用 FilterIdleSwarmBees 只保留运行中、等待回答或当前选中的子代理。
+func filterSidebarBeesForAutoHide(s *chatState, beesByParent map[string][]Thread, selectedID string) (visible map[string][]Thread, all map[string][]Thread, hiddenCount map[string]int, showAll map[string]bool) {
+	if cs := getChatSettings(s); cs == nil || !cs.cfg.Orchestration.AutoHidesIdleBees || len(beesByParent) == 0 {
+		return beesByParent, nil, nil, nil
+	}
+	visible = make(map[string][]Thread, len(beesByParent))
+	all = make(map[string][]Thread, len(beesByParent))
+	hiddenCount = make(map[string]int, len(beesByParent))
+	showAll = make(map[string]bool, len(beesByParent))
+	for pID, list := range beesByParent {
+		all[pID] = list
+		hasLive := false
+		isGroupSelected := selectedID != "" && pID == selectedID
+		for _, h := range list {
+			if h.IsRunning || h.HasPendingRequest {
+				hasLive = true
+			}
+			if selectedID != "" && h.ID == selectedID {
+				isGroupSelected = true
+			}
+		}
+		if IsBeeShowAll(pID) {
+			visible[pID] = list
+			showAll[pID] = true
+			continue
+		}
+		if !hasLive && isGroupSelected {
+			visible[pID] = list
+			continue
+		}
+		filtered := FilterIdleSwarmBees(list, selectedID)
+		visible[pID] = filtered
+		if diff := len(list) - len(filtered); diff > 0 {
+			hiddenCount[pID] = diff
+		}
+	}
+	return visible, all, hiddenCount, showAll
+}
+
 // BeeFoldSummary 返回折叠状态下的统计信息：子行总数、是否有正在运行的子行，以及文案。
 func BeeFoldSummary(bees []Thread) (count int, hasRunning bool, label string) {
 	count = len(bees)
@@ -672,7 +714,7 @@ func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 	parentID := o.thread.ID
 
 	if len(bees) == 0 {
-		if o.hiddenBeeCount > 0 {
+		if o.hiddenBeeCount > 0 && o.selected {
 			label := fmt.Sprintf("%d 个子代理", o.hiddenBeeCount)
 			renderSidebarBeeSummaryLine(c, s, o, "bee-hidden-expand", label, "显示全部子代理", false, func() {
 				SetBeeShowAll(parentID, true)
@@ -697,7 +739,8 @@ func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 	// 子行整行容器：包含左侧连接线与右侧圆角容器
 	row := ui.Row(c.Key("bee-subrow-"+o.projectID+"-"+parentID)).
 		Margin(Space0, ListInset, Space1, ListInset+o.indent).
-		AlignItems(ui.Stretch)
+		AlignItems(ui.Stretch).
+		Transition(motionCollapse(c))
 
 	row.Children(func() {
 		// 1. 左侧虚线连接线：从父行引出，点击可折叠

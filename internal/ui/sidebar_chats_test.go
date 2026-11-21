@@ -1141,3 +1141,104 @@ func TestSidebarFilterWaitingIncludesFinishedUnseen(t *testing.T) {
 		t.Fatalf("已结束的会话不应归入运行中: %q", tt.Texts())
 	}
 }
+
+// TestSidebarChatsIdleBeesHiddenUntilSelected 验证内置「对话」段同样遵守空闲子代理默认隐藏、
+// 点击会话标题选中后直接展开头像条、切走后自动隐藏的规则。
+func TestSidebarChatsIdleBeesHiddenUntilSelected(t *testing.T) {
+	testenv.TempHome(t)
+	ResetBeeFolded()
+	ResetBeeShowAll()
+	resetSidebarHoverCardForTest()
+	t.Cleanup(func() {
+		ResetBeeFolded()
+		ResetBeeShowAll()
+		resetSidebarHoverCardForTest()
+	})
+
+	fake := NewFakeClient()
+	fake.SetChatsProjectID("chats-builtin")
+	now := time.Now()
+	fake.SetProjectsAndThreads(
+		[]Project{{ID: "chats-builtin", Name: "对话"}},
+		map[string][]Thread{
+			"chats-builtin": {
+				{ID: "c-other", ProjectID: "chats-builtin", Title: "对话其他", UpdatedAt: now},
+				{ID: "c-lead", ProjectID: "chats-builtin", Title: "对话主会话", UpdatedAt: now.Add(-time.Minute)},
+				{ID: "c-bee-1", ProjectID: "chats-builtin", Title: "Aspen: 对话子任务 1", ParentThreadID: "c-lead", IsHelper: true, LastStatus: "completed", UpdatedAt: now.Add(-3 * time.Minute)},
+				{ID: "c-bee-2", ProjectID: "chats-builtin", Title: "Birch: 对话子任务 2", ParentThreadID: "c-lead", IsHelper: true, LastStatus: "failed", UpdatedAt: now.Add(-2 * time.Minute)},
+			},
+		},
+	)
+
+	state, view := buildRoot(fake, WithSettings(settingsTestDir(t), nil))
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool {
+		return tt.HasText("对话其他") && tt.HasText("对话主会话")
+	})
+	if selectedThreadIDOf(state) != "c-other" {
+		if err := tt.Click("对话其他"); err != nil {
+			t.Fatalf("选中对话其他失败: %v", err)
+		}
+		waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "c-other" })
+	}
+	tt.Move(0, 0)
+	tt.Advance(DurSlow + 200*time.Millisecond)
+	tt.Frame()
+
+	if tt.HasText("2 个子代理") {
+		t.Fatalf("未选中对话主会话时不应显示 '2 个子代理'，texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Aspen"); ok {
+		t.Fatalf("未选中对话主会话时不应显示 Aspen，texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Birch"); ok {
+		t.Fatalf("未选中对话主会话时不应显示 Birch，texts: %q", tt.Texts())
+	}
+
+	if err := tt.Click("对话主会话"); err != nil {
+		t.Fatalf("点击对话主会话失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "c-lead" })
+	tt.Move(0, 0)
+	tt.Advance(DurSlow + 200*time.Millisecond)
+	tt.Frame()
+
+	if tt.HasText("2 个子代理") {
+		t.Fatalf("选中对话主会话后不应显示 '2 个子代理'，texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Aspen"); !ok {
+		t.Fatalf("选中对话主会话后应直接显示 Aspen，texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Birch"); !ok {
+		t.Fatalf("选中对话主会话后应直接显示 Birch，texts: %q", tt.Texts())
+	}
+
+	if err := tt.Click("Aspen"); err != nil {
+		t.Fatalf("点击子代理 Aspen 失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "c-bee-1" })
+	tt.Move(0, 0)
+	tt.Frame()
+	if _, ok := tt.Find("Birch"); !ok {
+		t.Fatalf("选中 Aspen 后 Birch 仍应保持可见，texts: %q", tt.Texts())
+	}
+
+	if err := tt.Click("对话其他"); err != nil {
+		t.Fatalf("切回对话其他失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "c-other" })
+	tt.Move(0, 0)
+	tt.Advance(DurSlow + 200*time.Millisecond)
+	tt.Frame()
+
+	if tt.HasText("2 个子代理") {
+		t.Fatalf("切走后不应显示 '2 个子代理'，texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Aspen"); ok {
+		t.Fatalf("切走后不应显示 Aspen，texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Birch"); ok {
+		t.Fatalf("切走后不应显示 Birch，texts: %q", tt.Texts())
+	}
+}
