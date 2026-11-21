@@ -607,3 +607,32 @@ func TestApplySkillEnabledOnlyTouchesSameAgent(t *testing.T) {
 		t.Fatalf("cursor 的 foo 不应受影响，实际 Enabled=%v Disabled=%v", st.skills[1].Enabled, st.skills[1].Disabled)
 	}
 }
+
+func TestSettingsPageSkills_Narrow640NoOverflow(t *testing.T) {
+	longName := "very-long-skill-name-for-narrow-640-window-layout-check"
+	tt, _ := newUIReview25SettingsTester(t, "extensions", 640, 700, func(_ *FakeClient, _ *chatState, st *SettingsState) {
+		st.agentConfLoaded = true
+		st.skills = []agentconf.Skill{
+			{
+				Agent:   "codex",
+				Scope:   "global",
+				Name:    longName,
+				Path:    "/tmp/.agents/skills/" + longName + "/SKILL.md",
+				Enabled: true,
+			},
+			{
+				Agent:   "claude",
+				Scope:   "external",
+				Plugin:  "superpowers-marketplace-plugin",
+				Name:    longName + "-plugin",
+				Path:    "/tmp/.claude/plugins/" + longName + "/SKILL.md",
+				Enabled: true,
+			},
+		}
+	})
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("删除技能「" + longName + "」")
+		return ok
+	})
+	assertUIReview25DetailBounds(t, tt, 640, "设置卡片 skills.list")
+}

@@ -496,43 +496,22 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 			Padding(settingsRowPadY, settingsRowPadX).
 			Gap(Space1).
 			Children(func() {
-				// 顶部行：名称、作用域标签、Agent 标签、在访达中显示按钮、启用开关
+				// 顶部行：技能名称（过长截断并悬浮完整名称）与右侧操作按钮。
 				ui.Row(c.Key(skillKey + "-header")).
+					FillWidth().
 					AlignItems(ui.Center).
-					Gap(Space3).
+					Gap(Space2).
 					Children(func() {
 						ui.Text(c, skVal.Name).
 							FontSize(uiFont(TypeProse)).
 							FontWeight(500).
 							TextColor(ThemePrimaryText(c)).
-							SingleLine()
-
-						scopeLabel := "全局"
-						if strings.EqualFold(skVal.Scope, "project") {
-							scopeLabel = "项目"
-						} else if !strings.EqualFold(skVal.Scope, "global") {
-							scopeLabel = "外部"
-						}
-						settingBadge(c, skillKey+"-badge-scope", scopeLabel)
-
-						// 注入状态按路径判定：Agent 标签与是否注入并不等价（~/.agents/skills 被标成 codex，
-						// 却是注入的主力目录）。
-						if projctx.IsSkillInjectedPath(projectDir, home, skVal.Path) {
-							settingBadge(c, skillKey+"-badge-inject", "mcode 注入")
-						} else {
-							settingBadge(c, skillKey+"-badge-inject", "Agent 自行加载")
-						}
-
-						if skVal.Agent != "" {
-							settingBadge(c, skillKey+"-badge-agent", skillAgentLabel(skVal.Agent))
-						}
-
-						if skVal.Plugin != "" {
-							settingBadge(c, skillKey+"-badge-plugin", "插件 · "+skVal.Plugin)
-						}
-
-						// 弹性占位推至右侧
-						ui.Spacer(c)
+							Grow(1).
+							Shrink(1).
+							MinWidth(0).
+							SingleLine().
+							Ellipsis("…").
+							Tooltip(skVal.Name)
 
 						settingRowRight(c, skillKey+"-actions", func() {
 							// 在访达中显示按钮
@@ -585,6 +564,38 @@ func renderSkillList(c *ui.Context, st *SettingsState, groupKey string, list []a
 
 							renderSkillToggle(c, st, skillKey, skVal)
 						})
+					})
+
+				// 标签行：窄窗下可折行，避免挤占顶部操作按钮空间。
+				ui.Row(c.Key(skillKey + "-badges")).
+					FillWidth().
+					Wrap().
+					AlignItems(ui.Center).
+					Gap(Space2).
+					Children(func() {
+						scopeLabel := "全局"
+						if strings.EqualFold(skVal.Scope, "project") {
+							scopeLabel = "项目"
+						} else if !strings.EqualFold(skVal.Scope, "global") {
+							scopeLabel = "外部"
+						}
+						settingBadge(c, skillKey+"-badge-scope", scopeLabel)
+
+						// 注入状态按路径判定：Agent 标签与是否注入并不等价（~/.agents/skills 被标成 codex，
+						// 却是注入的主力目录）。
+						if projctx.IsSkillInjectedPath(projectDir, home, skVal.Path) {
+							settingBadge(c, skillKey+"-badge-inject", "mcode 注入")
+						} else {
+							settingBadge(c, skillKey+"-badge-inject", "Agent 自行加载")
+						}
+
+						if skVal.Agent != "" {
+							settingBadge(c, skillKey+"-badge-agent", skillAgentLabel(skVal.Agent))
+						}
+
+						if skVal.Plugin != "" {
+							settingBadge(c, skillKey+"-badge-plugin", "插件 · "+skVal.Plugin)
+						}
 					})
 			})
 	}

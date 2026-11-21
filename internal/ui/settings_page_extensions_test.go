@@ -6,6 +6,9 @@ func TestSettingsExtensions_SectionsAndPageOwnership(t *testing.T) {
 	want := []struct{ id, title string }{
 		{"skills.list", "技能"},
 		{"mcp.custom", "MCP 服务"},
+		{"nowledge.memory", "记忆"},
+		{"nowledge.spaces", "项目记忆空间"},
+		{"advanced.memory", "高级"},
 	}
 	page, ok := settingsTreePageOf("extensions")
 	if !ok || len(page.Sections) != len(want) {
@@ -16,7 +19,7 @@ func TestSettingsExtensions_SectionsAndPageOwnership(t *testing.T) {
 			t.Errorf("第 %d 节 = %s / %s，期望 %s / %s", i, section.ID, section.Title, expected.id, expected.title)
 		}
 	}
-	for _, id := range []string{"skills", "mcp"} {
+	for _, id := range []string{"skills", "mcp", "nowledge"} {
 		if _, ok := settingsTreePageOf(id); ok {
 			t.Errorf("旧页面 %s 仍然注册", id)
 		}

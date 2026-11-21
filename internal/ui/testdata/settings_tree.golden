@@ -45,16 +45,6 @@ row row-nowledge-sync-automation-threads 同步自动化运行会话
 page general
 section general.permissions 权限
 row row-mode 默认权限
-section appearance.theme 主题与排版
-row row-theme 主题
-row row-edit-themes 编辑主题
-row row-conversation-density 界面密度
-row row-content-width 内容宽度
-row row-content-width-percent 比例宽度
-row row-sidebar-compact 紧凑侧边栏
-row row-motion 动效
-section appearance.fonts 字体
-row row-code-font 代码字体
 section general.notifications 通知与提示音
 row row-notify 完成后通知
 row row-notify-foreground 前台也发送通知
@@ -75,6 +65,16 @@ row row-general-restore 恢复
 section general.shortcuts 快捷键
 row row-global-shortcut 全局快捷键
 row row-shortcuts-all 全部快捷键
+section appearance.theme 主题与排版
+row row-theme 主题
+row row-edit-themes 编辑主题
+row row-conversation-density 界面密度
+row row-content-width 内容宽度
+row row-content-width-percent 比例宽度
+row row-sidebar-compact 紧凑侧边栏
+row row-motion 动效
+section appearance.fonts 字体
+row row-code-font 代码字体
 page magpie
 section sec-magpie-gateways 网关
 row row-magpie-gateways 
