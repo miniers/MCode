@@ -243,6 +243,7 @@ type SettingsState struct {
 	quickRepliesPage *quickRepliesPageState
 	nowledgePage     *nowledgeSpacePageState
 	themesPage       *themesSheetState
+	storagePage      *storagePageState
 }
 
 // applyThemeSource 在测试中会替换为空操作，因为 headless 下 SetSource 会阻塞。
@@ -525,6 +526,7 @@ func (s *SettingsState) Close() {
 	s.quickRepliesPage = nil
 	s.nowledgePage = nil
 	s.themesPage = nil
+	s.storagePage = nil
 	s.mu.Unlock()
 	if disposeEditor != nil {
 		disposeEditor()
@@ -992,6 +994,7 @@ func settingsPages() []settingsNavDef {
 			},
 		},
 		{id: "sourceControl", title: "版本控制", group: "工作区", icon: pageSourceControl.Icon, keywords: pageSourceControl.Keywords},
+		{id: "storage", title: "存储", group: "工作区", icon: pageStorage.Icon, keywords: pageStorage.Keywords},
 		{id: "about", title: "关于", icon: IconInfo(), keywords: []string{"version", "license", "关于", "版本", "update", "changelog", "更新", "更新日志", "检查更新", "诊断", "数据目录"}},
 	}
 }
@@ -1088,6 +1091,9 @@ func (s *SettingsState) selectSettingsPage(id string) {
 		disposeEditor()
 	}
 	s.loadSettingsPageData(loadProviders)
+	if normalizeSettingsPageID(id) == "storage" {
+		ensureStorageScan(s)
+	}
 	s.invalidate()
 }
 
@@ -1114,6 +1120,9 @@ func (s *SettingsState) switchSettingsPageLocked(id string) (bool, func()) {
 	}
 	if s.currentPage != target && target == "magpie" {
 		loadProviders = true
+	}
+	if s.currentPage != target && target == "storage" {
+		resetStoragePageForEntryLocked(s)
 	}
 	if s.currentPage != target {
 		// 面板属于打开它的页面：换页就收起，免得同一组行同时出现在页面和面板里。

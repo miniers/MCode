@@ -1065,6 +1065,29 @@ type CommandProc struct {
 	Command   string
 }
 
+// StorageCategory 表示存储清理候选项的类别。
+type StorageCategory string
+
+const (
+	StorageCategoryDeletedSessions StorageCategory = "deleted_sessions"
+	StorageCategoryOrphanPatches   StorageCategory = "orphan_patches"
+	StorageCategoryOldBackups      StorageCategory = "old_backups"
+	StorageCategoryOldLogs         StorageCategory = "old_logs"
+)
+
+// StorageItem 表示一条可安全移到废纸篓的存储残留项。
+type StorageItem struct {
+	ID       string
+	Category StorageCategory
+	Bytes    int64
+}
+
+// StorageReport 表示一次存储空间扫描的结果。
+type StorageReport struct {
+	TotalBytes int64
+	Items      []StorageItem
+}
+
 // Client 定义与后端服务通信的客户端接口。
 type Client interface {
 	// Projects 获取所有项目列表。
@@ -1513,4 +1536,8 @@ type Client interface {
 	AgentMagpieGlobalAction(ctx context.Context, agent, action string) error
 	// ProviderCredits 获取按量计费提供方的余额；提供方不支持时返回 ErrNotImplemented。
 	ProviderCredits(ctx context.Context, provider string) (ProviderCredits, error)
+	// StorageScan 扫描数据目录并返回总大小与可安全清理的残留项。
+	StorageScan(ctx context.Context) (StorageReport, error)
+	// StorageClean 将指定的扫描候选项移到废纸篓，返回实际释放的字节数。
+	StorageClean(ctx context.Context, ids []string) (freed int64, err error)
 }

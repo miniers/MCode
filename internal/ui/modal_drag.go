@@ -27,6 +27,7 @@ const (
 	modalDragArchiveDelete     = "modal-drag-archive-delete"
 	modalDragArchiveDeleteAll  = "modal-drag-archive-delete-all"
 	modalDragArchiveWorktree   = "modal-drag-archive-worktree"
+	modalDragStorageClean      = "modal-drag-storage-clean"
 	modalDragRevert            = "modal-drag-revert"
 	modalDragRenameThread      = "modal-drag-rename-thread"
 	modalDragDeleteThread      = "modal-drag-delete-thread"

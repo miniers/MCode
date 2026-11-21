@@ -308,6 +308,14 @@ type FakeClient struct {
 
 	queue              map[string][]QueuedFollowUp
 	enqueueCalls       []fakeQueueCall
+
+	storageReport    StorageReport
+	storageScanErr   error
+	storageScanHook  func(context.Context) (StorageReport, error)
+	storageCleanHook func(context.Context, []string) (int64, error)
+	storageCleanErr  error
+	storageScanCalls int
+	storageCleanIDs  [][]string
 	removeQueuedCalls  []fakeQueueCall
 	sendQueuedNowCalls []fakeQueueCall
 	moveQueuedCalls    []fakeQueueCall
@@ -5326,4 +5334,95 @@ func (f *FakeClient) ChatsProjectID() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.chatsProjectID
+}
+
+// SetStorageReport 设置 StorageScan 返回的扫描结果与错误。
+func (f *FakeClient) SetStorageReport(report StorageReport, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	items := append([]StorageItem(nil), report.Items...)
+	f.storageReport = StorageReport{TotalBytes: report.TotalBytes, Items: items}
+	f.storageScanErr = err
+}
+
+// SetStorageScanHook 设置自定义 StorageScan 回调。
+func (f *FakeClient) SetStorageScanHook(fn func(context.Context) (StorageReport, error)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.storageScanHook = fn
+}
+
+// SetStorageCleanHook 设置自定义 StorageClean 回调。
+func (f *FakeClient) SetStorageCleanHook(fn func(context.Context, []string) (int64, error)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.storageCleanHook = fn
+}
+
+// StorageScanCalls 返回 StorageScan 调用次数。
+func (f *FakeClient) StorageScanCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.storageScanCalls
+}
+
+// StorageCleanCalls 返回每次 StorageClean 传入的 ID 列表。
+func (f *FakeClient) StorageCleanCalls() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([][]string, len(f.storageCleanIDs))
+	for i, ids := range f.storageCleanIDs {
+		out[i] = append([]string(nil), ids...)
+	}
+	return out
+}
+
+// StorageScan 返回配置的存储扫描报告。
+func (f *FakeClient) StorageScan(ctx context.Context) (StorageReport, error) {
+	f.mu.Lock()
+	f.storageScanCalls++
+	hook := f.storageScanHook
+	report := StorageReport{
+		TotalBytes: f.storageReport.TotalBytes,
+		Items:      append([]StorageItem(nil), f.storageReport.Items...),
+	}
+	err := f.storageScanErr
+	f.mu.Unlock()
+	if hook != nil {
+		return hook(ctx)
+	}
+	return report, err
+}
+
+// StorageClean 模拟将指定存储候选项移到废纸篓并返回释放字节数。
+func (f *FakeClient) StorageClean(ctx context.Context, ids []string) (int64, error) {
+	f.mu.Lock()
+	f.storageCleanIDs = append(f.storageCleanIDs, append([]string(nil), ids...))
+	hook := f.storageCleanHook
+	cleanErr := f.storageCleanErr
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	var freed int64
+	var kept []StorageItem
+	for _, it := range f.storageReport.Items {
+		if idSet[it.ID] {
+			freed += it.Bytes
+		} else {
+			kept = append(kept, it)
+		}
+	}
+	if cleanErr == nil && hook == nil {
+		f.storageReport.Items = kept
+		f.storageReport.TotalBytes = max(int64(0), f.storageReport.TotalBytes-freed)
+	}
+	f.mu.Unlock()
+	if hook != nil {
+		return hook(ctx, ids)
+	}
+	if cleanErr != nil {
+		return 0, cleanErr
+	}
+	return freed, nil
 }

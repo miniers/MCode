@@ -28,7 +28,7 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 	}
 
 	expectedTitles := []string{
-		"Magpie", "通用", "外观", "远程控制", "模型与供应商", "会话", "编排", "总管", "扩展", "记忆", "工作台", "版本控制", "关于",
+		"Magpie", "通用", "外观", "远程控制", "模型与供应商", "会话", "编排", "总管", "扩展", "记忆", "工作台", "版本控制", "存储", "关于",
 	}
 	pages := settingsPages()
 	if len(pages) != len(expectedTitles) {
@@ -495,8 +495,8 @@ func TestSettings_TextEditDebouncedSave(t *testing.T) {
 
 // TestSettingsPages_NewStructure 验证导航顺序。
 func TestSettingsPages_NewStructure(t *testing.T) {
-	expected := []string{"magpie", "general", "appearance", "remote", "models", "conversation", "swarm", "steward", "extensions", "nowledge", "workbench", "sourceControl", "about"}
-	groups := []string{"", "应用", "应用", "应用", "代理", "代理", "代理", "代理", "代理", "代理", "工作区", "工作区", ""}
+	expected := []string{"magpie", "general", "appearance", "remote", "models", "conversation", "swarm", "steward", "extensions", "nowledge", "workbench", "sourceControl", "storage", "about"}
+	groups := []string{"", "应用", "应用", "应用", "代理", "代理", "代理", "代理", "代理", "代理", "工作区", "工作区", "工作区", ""}
 	pages := settingsPages()
 	if len(pages) != len(expected) {
 		t.Fatalf("导航应为 %d 页，实际 %d 页", len(expected), len(pages))

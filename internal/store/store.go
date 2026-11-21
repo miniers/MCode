@@ -1469,6 +1469,42 @@ func (s *Store) ListArchivedThreads(ctx context.Context, projectID string) ([]Th
 	return threads, nil
 }
 
+// ThreadAndSessionIDs 只读返回当前全部存活/冷归档线程 ID（threads.id 与 thread_archives.thread_id）
+// 以及全部线程绑定的非空 session_id 集合，供存储清理扫描排除仍在使用的会话目录与日志。
+func (s *Store) ThreadAndSessionIDs(ctx context.Context) (threadIDs map[string]bool, sessionIDs map[string]bool, err error) {
+	if s == nil || s.db == nil {
+		return nil, nil, errors.New("store is not initialized")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, COALESCE(session_id, '') FROM threads
+		UNION ALL
+		SELECT thread_id, '' FROM thread_archives
+	`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query thread and session ids: %w", err)
+	}
+	defer rows.Close()
+
+	threadIDs = make(map[string]bool)
+	sessionIDs = make(map[string]bool)
+	for rows.Next() {
+		var tid, sid string
+		if err := rows.Scan(&tid, &sid); err != nil {
+			return nil, nil, fmt.Errorf("scan thread and session id: %w", err)
+		}
+		if tid != "" {
+			threadIDs[tid] = true
+		}
+		if sid != "" {
+			sessionIDs[sid] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("iterate thread and session ids: %w", err)
+	}
+	return threadIDs, sessionIDs, nil
+}
+
 // UpdateThreadSession 更新线程的 sessionID。若线程不存在返回 ErrNotFound。
 func (s *Store) UpdateThreadSession(ctx context.Context, id, sessionID string) error {
 	res, err := s.db.ExecContext(ctx, "UPDATE threads SET session_id = ? WHERE id = ?", sessionID, id)

@@ -447,6 +447,31 @@ func (m *Manager) ActiveWorktreePaths() []string {
 	return paths
 }
 
+// PatchPathsInUse 返回当前所有 bee 记录中仍在引用的补丁文件路径（LandedPatchPath、
+// ArchivedPatchPath、ReviewPatchPath），供存储清理在加锁快照下排除仍在使用的补丁文件。
+func (m *Manager) PatchPathsInUse() []string {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var paths []string
+	for _, lead := range m.leads {
+		for _, h := range lead.bees {
+			if h.LandedPatchPath != "" {
+				paths = append(paths, h.LandedPatchPath)
+			}
+			if h.ArchivedPatchPath != "" {
+				paths = append(paths, h.ArchivedPatchPath)
+			}
+			if h.ReviewPatchPath != "" {
+				paths = append(paths, h.ReviewPatchPath)
+			}
+		}
+	}
+	return paths
+}
+
 // maxBeesLimit 返回每个 Lead 的并发 bee 上限：MaxBees 小于等于 0（表示不限制）时取 defaultMaxBees。
 func (m *Manager) maxBeesLimit() int {
 	if maxBees := m.Settings().MaxBees; maxBees > 0 {
