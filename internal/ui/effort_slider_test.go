@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -568,5 +569,96 @@ func TestEffortSliderCardPairedSubtitleRow(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected lead model title once (not repeated in subtitle), got %d in %v", count, tt.Texts())
+	}
+}
+
+func TestEffortSliderCardRosterPairedLayout(t *testing.T) {
+	testenv.TempHome(t)
+	var selectBeesCalls, openLeadCalls int
+	var favClicked bool
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Width(modelPickerPanelWidth).Background(modelPickerPanelBg).Children(func() {
+			renderEffortSliderCard(c, EffortSliderCardProps{
+				KeyPrefix:     "roster-",
+				ProviderID:    "claude",
+				SwarmOn:       true,
+				Paired:        true,
+				SupportsFast:  true,
+				Efforts:       []string{"low", "medium", "high"},
+				Current:       "high",
+				OnToggleSwarm: func() {},
+				OnToggleFast:  func() {},
+				OnReset:       func() {},
+				PairFav: &pairFavProps{
+					Matched:  false,
+					OnToggle: func() { favClicked = true },
+				},
+				Roster: []EffortRosterSlot{
+					{
+						Key:         "lead",
+						Role:        "主代理",
+						ProviderID:  "claude",
+						ModelTitle:  "Claude Opus 4.6",
+						EffortLabel: "High",
+						Active:      true,
+						OnSelect:    func() {},
+						OnOpenList:  func() { openLeadCalls++ },
+					},
+					{
+						Key:         "bees",
+						Role:        "子代理",
+						ProviderID:  "codex",
+						ModelTitle:  "o3-mini",
+						EffortLabel: "Med",
+						Active:      false,
+						OnSelect:    func() { selectBeesCalls++ },
+						OnOpenList:  func() {},
+					},
+				},
+			})
+		})
+	}, modelPickerPanelWidth, 300)
+	tt.Frame()
+
+	for _, want := range []string{"编排", "主代理", "Claude Opus 4.6", "High", "子代理", "o3-mini", "Med"} {
+		if !tt.HasText(want) {
+			t.Fatalf("缺少文案 %q, texts=%v", want, tt.Texts())
+		}
+	}
+	if tt.HasText("+") {
+		t.Fatalf("双槽配对卡不应渲染多余的 '+': %v", tt.Texts())
+	}
+	if _, ok := tt.Access("编排开关"); !ok {
+		t.Fatalf("缺少顶栏编排开关按钮: %v", tt.AccessAll())
+	}
+	if _, ok := tt.Access("存为配对"); !ok {
+		t.Fatalf("缺少顶栏收藏配对按钮: %v", tt.AccessAll())
+	}
+
+	if err := tt.Click("子代理"); err != nil {
+		t.Fatalf("点击未激活子代理行失败: %v", err)
+	}
+	if selectBeesCalls != 1 {
+		t.Fatalf("OnSelect 调用次数 = %d, want 1", selectBeesCalls)
+	}
+
+	if err := tt.Click("选择其他模型"); err != nil {
+		t.Fatalf("点击激活主代理行失败: %v", err)
+	}
+	if openLeadCalls != 1 {
+		t.Fatalf("OnOpenList 调用次数 = %d, want 1", openLeadCalls)
+	}
+
+	if err := tt.Click("存为配对"); err != nil {
+		t.Fatalf("点击存为配对按钮失败: %v", err)
+	}
+	if !favClicked {
+		t.Fatal("点击存为配对应触发 PairFav.OnToggle")
+	}
+
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("静止的双槽配对卡片不应持续请求重绘")
 	}
 }

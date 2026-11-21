@@ -450,7 +450,7 @@ func TestComposerModel_LeadEffort(t *testing.T) {
 		t.Fatalf("click model trigger failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("主代理 · Medium") && tt.HasText("子代理 · Medium")
+		return tt.HasText("主代理") && tt.HasText("子代理") && tt.HasText("Med")
 	})
 	// 滑轨拖到最右端选中最高档 High。
 	clickEffortSlider(t, tt, 1)
@@ -483,12 +483,16 @@ func TestComposerModel_BeesModel(t *testing.T) {
 	if err := tt.Click("选择模型"); err != nil {
 		t.Fatalf("click model trigger failed: %v", err)
 	}
-	if !waitText(t, tt, "子代理 · Medium") {
-		t.Fatalf("bees tab not rendered")
+	if !waitText(t, tt, "子代理") {
+		t.Fatalf("bees slot not rendered")
 	}
-	// 点击顶部“执行”分段进入执行侧卡片
-	tapText(t, tt, "子代理 · Medium")
-	tapText(t, tt, "选择其他模型")
+	// 点击“子代理”行切到执行侧，再点击进入模型列表
+	if err := tt.Click("子代理"); err != nil {
+		t.Fatalf("click bees slot failed: %v", err)
+	}
+	if err := tt.Click("选择其他模型"); err != nil {
+		t.Fatalf("click choose model failed: %v", err)
+	}
 	if !waitText(t, tt, "跟随主导模型") {
 		t.Fatalf("bees list should offer follow-lead")
 	}
@@ -533,10 +537,10 @@ func TestComposerModel_BeesEffort(t *testing.T) {
 		t.Fatalf("click model trigger failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("子代理 · Medium")
+		return tt.HasText("子代理") && tt.HasText("Med")
 	})
-	if err := tapTextErr(t, tt, "子代理 · Medium"); err != nil {
-		t.Fatalf("click Bees tab failed: %v", err)
+	if err := tt.Click("子代理"); err != nil {
+		t.Fatalf("click Bees slot failed: %v", err)
 	}
 	tt.Frame()
 	// 滑轨拖到最左端选中最低档 Low。
@@ -725,10 +729,13 @@ func TestComposerModel_SwarmSideTabs(t *testing.T) {
 		t.Fatalf("click model trigger failed: %v", err)
 	}
 
-	// 验证渲染出两段标签：档位用英文名，与各侧当前档位一致。
+	// 卡片页以双槽同屏呈现主/子代理与英文短档位，不再渲染顶部重复分段栏。
 	waitFor(t, tt, func() bool {
-		return tt.HasText("主代理 · Medium") && tt.HasText("子代理 · High")
+		return tt.HasText("主代理") && tt.HasText("子代理") && tt.HasText("Med") && tt.HasText("High")
 	})
+	if tt.HasText("主代理 · Medium") || tt.HasText("子代理 · High") {
+		t.Fatalf("card page should not render top segmented tabs: %v", tt.Texts())
+	}
 }
 
 // 覆盖：Efforts 为空时出现“该模型未提供可调的推理强度”且不渲染滑条。

@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -19,6 +20,23 @@ var (
 	// effortAccentBright 是普通档的 accent 提亮色（提亮 22%）。
 	effortAccentBright = ColorAccentDark.Mix(effortOnDark, 0.22)
 )
+
+// EffortRosterSlot 定义双槽配对卡片中单侧（主代理或子代理）的行配置。
+type EffortRosterSlot struct {
+	Key         string
+	Role        string // 如 "主代理" / "子代理"，单代理可为空
+	BrandID     string
+	ProviderID  string
+	ModelTitle  string
+	Placeholder string // 如 "跟随主代理"
+	EffortLabel string // 英文短档位名如 "High" / "Med"，无档位为空
+	Active      bool
+	Disabled    bool
+	LockedTip   string
+	Accessory   func() // 可选右侧配件（如子代理并发上限胶囊）
+	OnSelect    func() // 点击未激活行切换激活侧
+	OnOpenList  func() // 点击激活行或行尾箭头打开该侧模型列表
+}
 
 // EffortSliderCardProps 定义推理强度调节卡片的入参属性。
 type EffortSliderCardProps struct {
@@ -43,6 +61,7 @@ type EffortSliderCardProps struct {
 	SupportsFast      bool
 	FastMode          bool
 	Disabled          bool
+	Roster            []EffortRosterSlot // 非空时按双槽同屏配对卡渲染
 	OnEffort          func(string)
 	OnToggleFast      func()
 	OnReset           func()
@@ -906,14 +925,21 @@ func fitEffortGradientText(s string, font ui.Font, maxW float32) string {
 // renderEffortTitle 渲染模型名标题（16 号、medium）：普通态用高对比主文字色，
 // 配对/快速/最高档时用柔和提亮的品牌或金色渐变，保证在深色面板上对比度 ≥ 4.5:1。
 func renderEffortTitle(c *ui.Context, p EffortSliderCardProps) {
-	title := effortCardTitle(p)
+	renderEffortTitleWithStyle(c, p, effortCardTitle(p), effortTitleSz, effortTitleWgt)
+}
+
+// renderEffortTitleWithStyle 按指定字号与字重渲染渐变或高对比模型名。
+func renderEffortTitleWithStyle(c *ui.Context, p EffortSliderCardProps, title string, fontSize float32, fontWeight int) {
+	if strings.TrimSpace(title) == "" {
+		title = "标准"
+	}
 	colors := effortTitleGradient(p)
 	if effortTrackEffect(effortIsMax(p), p.SupportsFast && p.FastMode, effortCardPaired(p)) == "plain" {
 		colors = []ui.Color{ColorTextPrimaryDark}
 	}
 	text := ui.Text(c, title).
-		FontSize(effortTitleSz).
-		FontWeight(effortTitleWgt).
+		FontSize(fontSize).
+		FontWeight(fontWeight).
 		SingleLine().
 		Ellipsis("…").
 		Shrink(1).
@@ -931,7 +957,7 @@ func renderEffortTitle(c *ui.Context, p EffortSliderCardProps) {
 		soft[i] = col.Mix(effortOnDark, 0.20)
 	}
 	text.TextColor(ui.Transparent).Draw(func(painter *ui.Painter, r ui.Rect) {
-		font := ui.Font{Size: effortTitleSz, Weight: effortTitleWgt}
+		font := ui.Font{Size: fontSize, Weight: fontWeight}
 		display := fitEffortGradientText(title, font, r.W)
 		// MyGo 无原生渐变文本 API：逐字符着色成富文本再整段绘制。
 		runes := []rune(display)
@@ -1013,11 +1039,14 @@ func renderEffortTitleRow(c *ui.Context, p EffortSliderCardProps) {
 		})
 }
 
-// renderEffortSliderCard 渲染推理强度卡片：内边距上 14、左右 16、
-// 下 16，两行间距 16。首行左右是 30 的快速模式按钮与 Swarm 开关，中间一栏距卡片边 44、水平居中，
-// 依次是档位标题行与模型说明行；第二行是占满宽度的滑轨。
+// renderEffortSliderCard 渲染推理强度卡片：
+// 当 Roster 非空时按方案 B 渲染（顶部工具栏 + 双槽同屏配对卡 + 底部滑轨）；
+// 否则保留单卡布局以兼容设置页 Inline 模式与独立单测。
 func renderEffortSliderCard(c *ui.Context, p EffortSliderCardProps) {
-	n := len(p.Efforts)
+	if len(p.Roster) > 0 {
+		renderEffortRosterCard(c, p)
+		return
+	}
 	ui.Column(c.Key(p.KeyPrefix+"effort-slider-card")).
 		Gap(Space5).
 		Padding(Space4, Space5, Space5, Space5).
@@ -1053,17 +1082,514 @@ func renderEffortSliderCard(c *ui.Context, p EffortSliderCardProps) {
 					}
 				})
 
-			if n == 0 {
-				ui.Row(c.Key(p.KeyPrefix + "single-level-row")).
-					Center().
-					Height(effortThumbD).
-					Children(func() {
-						ui.Text(c, "该模型未提供可调的推理强度").
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ColorTextSecondaryDark)
+			renderEffortSliderSection(c, p)
+		})
+}
+
+const (
+	effortToolbarBtnSize  = float32(26)
+	effortToolbarIconSize = float32(13)
+	effortSwarmBadgeSize  = float32(20)
+	effortSwarmRingWidth  = float32(1.5)
+	effortSwarmIconSize   = float32(11)
+	effortRosterRowMinH   = float32(40)
+	effortRosterBarW      = float32(3)
+	effortRosterBarInsetY = float32(8)
+	effortRosterBarRadius = float32(1.5)
+)
+
+func renderEffortSliderSection(c *ui.Context, p EffortSliderCardProps) {
+	if len(p.Efforts) == 0 {
+		ui.Row(c.Key(p.KeyPrefix + "single-level-row")).
+			Center().
+			Height(effortThumbD).
+			Children(func() {
+				ui.Text(c, "该模型未提供可调的推理强度").
+					FontSize(uiFont(TypeFootnote)).
+					TextColor(ColorTextSecondaryDark)
+			})
+		return
+	}
+	renderEffortSlider(c, p)
+}
+
+func renderEffortRosterCard(c *ui.Context, p EffortSliderCardProps) {
+	ui.Column(c.Key(p.KeyPrefix+"effort-slider-card")).
+		Padding(Space3, Space4, Space4, Space4).
+		Gap(Space3).
+		Children(func() {
+			if p.OnToggleSwarm != nil || p.PairFav != nil || p.SupportsFast || p.OnReset != nil || p.TrailingAccessory != nil {
+				renderEffortRosterToolbar(c, p)
+			}
+			renderEffortRosterSlots(c, p)
+			renderEffortSliderSection(c, p)
+		})
+}
+
+func renderEffortRosterToolbar(c *ui.Context, p EffortSliderCardProps) {
+	ui.Row(c.Key(p.KeyPrefix + "card-toolbar")).
+		MinHeight(ControlMD).
+		AlignItems(ui.Center).
+		Justify(ui.SpaceBetween).
+		AlignSelf(ui.Stretch).
+		Children(func() {
+			switch {
+			case p.OnToggleSwarm != nil:
+				renderEffortSwarmCapsule(c, p)
+			case p.TrailingAccessory != nil:
+				p.TrailingAccessory()
+			default:
+				ui.Box(c.Key(p.KeyPrefix + "toolbar-spacer"))
+			}
+
+			ui.Row(c.Key(p.KeyPrefix + "toolbar-actions")).
+				AlignItems(ui.Center).
+				Gap(Space2).
+				Children(func() {
+					if p.PairFav != nil {
+						renderToolbarPairFavButton(c, p)
+					}
+					if p.SupportsFast {
+						renderToolbarFastModeButton(c, p)
+					}
+					if p.OnReset != nil {
+						renderToolbarResetButton(c, p)
+					}
+				})
+		})
+}
+
+func renderEffortSwarmCapsule(c *ui.Context, p EffortSliderCardProps) {
+	interactive := p.OnToggleSwarm != nil && !p.Disabled
+	tip := "开启编排模式"
+	if p.SwarmOn {
+		tip = "关闭编排模式"
+	}
+	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"avatar-btn")).
+		Label("编排开关").
+		Value(map[bool]string{true: "开启", false: "关闭"}[p.SwarmOn]).
+		Tooltip(effortLockedTip(p, tip)).
+		Disabled(p.Disabled).
+		Checked(p.SwarmOn).
+		Height(effortToolbarBtnSize).
+		Radius(RadiusXL).
+		Padding(0, Space3, 0, Space1).
+		Center()
+
+	scale := motionPressScale(c, btn, "button-press-scale", interactive && btn.Pressed())
+	btn.Scale(scale, scale)
+	hovered := btn.Hovered() && interactive
+	if p.SwarmOn {
+		bg := effortOnDark.Alpha(0.06)
+		if hovered {
+			bg = effortOnDark.Alpha(0.11)
+		}
+		btn.Background(bg).Border(1, effortOnDark.Alpha(0.10))
+	} else {
+		bg := effortOnDark.Alpha(0.04)
+		if hovered {
+			bg = effortOnDark.Alpha(0.09)
+		}
+		btn.Background(bg).Border(1, effortOnDark.Alpha(0.07))
+	}
+	if interactive {
+		btn.OnClick(p.OnToggleSwarm)
+	}
+
+	btn.Children(func() {
+		ui.Row(c.Key(p.KeyPrefix + "swarm-capsule-row")).
+			AlignItems(ui.Center).
+			Gap(Space2).
+			Children(func() {
+				badge := ui.Box(c.Key(p.KeyPrefix+"swarm-badge")).
+					Size(effortSwarmBadgeSize, effortSwarmBadgeSize).
+					Radius(effortSwarmBadgeSize / 2).
+					Center()
+				if p.SwarmOn {
+					badge.Draw(func(painter *ui.Painter, r ui.Rect) {
+						stops := make([]ui.GradientStop, 0, len(swarmRosterColors)+1)
+						for i, col := range swarmRosterColors {
+							stops = append(stops, ui.GradientStop{Color: col, At: float32(i) / float32(len(swarmRosterColors))})
+						}
+						stops = append(stops, ui.GradientStop{Color: swarmRosterColors[0], At: 1})
+						painter.FillConicGradient(r, ui.ConicGradient{Stops: stops}, r.W/2)
+						inner := ui.Rect{
+							X: r.X + effortSwarmRingWidth,
+							Y: r.Y + effortSwarmRingWidth,
+							W: r.W - effortSwarmRingWidth*2,
+							H: r.H - effortSwarmRingWidth*2,
+						}
+						painter.Fill(inner, modelPickerPanelBg, inner.W/2)
 					})
-			} else {
-				renderEffortSlider(c, p)
+					badge.Children(func() {
+						ui.Icon(c, IconSwarm()).Size(effortSwarmIconSize, effortSwarmIconSize).TextColor(effortOnDark)
+					})
+					ui.Text(c, "编排").
+						FontSize(uiFont(TypeFootnote)).
+						FontWeight(500).
+						TextColor(ColorTextPrimaryDark)
+				} else {
+					badge.Background(effortOnDark.Alpha(0.08))
+					badge.Children(func() {
+						ui.Icon(c, IconSwarm()).Size(effortSwarmIconSize, effortSwarmIconSize).TextColor(effortOnDark.Alpha(0.55))
+					})
+					ui.Text(c, "编排").
+						FontSize(uiFont(TypeFootnote)).
+						FontWeight(500).
+						TextColor(ColorTextSecondaryDark)
+				}
+			})
+	})
+}
+
+func renderToolbarPairFavButton(c *ui.Context, p EffortSliderCardProps) {
+	fav := p.PairFav
+	if fav == nil {
+		return
+	}
+	canToggle := !p.Disabled && fav.OnToggle != nil
+	icon := IconStar()
+	label := "存为配对"
+	tip := "存为配对"
+	iconColor := ColorTextSecondaryDark
+	if fav.Matched {
+		icon = IconStarFilled()
+		label = "已保存为配对"
+		tip = "已保存为配对：" + fav.Name + "（点击取消）"
+		iconColor = effortBoltYellow
+	}
+
+	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"effort-pair-fav-btn")).
+		Label(label).
+		Value(map[bool]string{true: "已收藏", false: "未收藏"}[fav.Matched]).
+		Tooltip(effortLockedTip(p, tip)).
+		Disabled(p.Disabled || fav.OnToggle == nil).
+		Checked(fav.Matched).
+		Size(effortToolbarBtnSize, effortToolbarBtnSize).
+		Radius(RadiusMD).
+		Center()
+
+	scale := motionPressScale(c, btn, "button-press-scale", canToggle && btn.Pressed())
+	btn.Scale(scale, scale)
+	hovered := btn.Hovered() && canToggle
+	if fav.Matched {
+		bg := effortBoltYellow.Alpha(0.14)
+		if hovered {
+			bg = effortBoltYellow.Alpha(0.22)
+		}
+		btn.Background(bg).Border(1, effortBoltYellow.Alpha(0.28))
+	} else {
+		bg := effortOnDark.Alpha(0.05)
+		if hovered {
+			bg = effortOnDark.Alpha(0.10)
+		}
+		btn.Background(bg).Border(1, effortOnDark.Alpha(0.06))
+	}
+	if canToggle {
+		btn.OnClick(fav.OnToggle)
+	}
+	btn.Children(func() {
+		ui.Icon(c, icon).Size(effortToolbarIconSize, effortToolbarIconSize).TextColor(iconColor)
+	})
+}
+
+func renderToolbarFastModeButton(c *ui.Context, p EffortSliderCardProps) {
+	state := "关闭"
+	tip := "快速模式"
+	if p.FastMode {
+		state = "开启"
+		tip = "快速模式已开启"
+	}
+	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"fast-mode-btn")).
+		Label("快速模式").
+		Value(state).
+		Tooltip(effortLockedTip(p, tip)).
+		Disabled(p.Disabled).
+		Checked(p.FastMode).
+		Size(effortToolbarBtnSize, effortToolbarBtnSize).
+		Radius(RadiusMD).
+		Center().
+		Transition(motionFeedback(c))
+
+	scale := motionPressScale(c, btn, "button-press-scale", !p.Disabled && btn.Pressed())
+	btn.Scale(scale, scale)
+	switch {
+	case p.FastMode:
+		btn.Background(effortBoltYellow.Alpha(0.18)).Border(1, effortBoltYellow.Alpha(0.32))
+	case btn.Hovered() && !p.Disabled:
+		btn.Background(effortOnDark.Alpha(0.10)).Border(1, effortOnDark.Alpha(0.06))
+	default:
+		btn.Background(effortOnDark.Alpha(0.05)).Border(1, effortOnDark.Alpha(0.06))
+	}
+	if p.OnToggleFast != nil && !p.Disabled {
+		btn.OnClick(p.OnToggleFast)
+	}
+	btn.Children(func() {
+		iconOn := float32(0)
+		icon := IconByName("zap")
+		if p.FastMode {
+			iconOn = 1
+			icon = iconFastBoltFilled
+		}
+		on := btn.AnimateTo(effortFastModeIconKey, iconOn, ui.Animation{Duration: animateDuration(c, effortFastModeDuration), Ease: ui.EaseOut})
+		ui.Icon(c, icon).Size(effortToolbarIconSize, effortToolbarIconSize).TextColor(ColorTextSecondaryDark.Mix(effortBoltYellow, on))
+	})
+}
+
+func renderToolbarResetButton(c *ui.Context, p EffortSliderCardProps) {
+	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"effort-reset-btn")).
+		Label("重置强度与快速模式").
+		Tooltip(effortLockedTip(p, "重置强度与快速模式")).
+		Disabled(p.Disabled).
+		Size(effortToolbarBtnSize, effortToolbarBtnSize).
+		Radius(RadiusMD).
+		Center()
+
+	scale := motionPressScale(c, btn, "button-press-scale", !p.Disabled && btn.Pressed())
+	btn.Scale(scale, scale)
+	bg := effortOnDark.Alpha(0.05)
+	if btn.Hovered() && !p.Disabled {
+		bg = effortOnDark.Alpha(0.10)
+	}
+	btn.Background(bg).Border(1, effortOnDark.Alpha(0.06))
+	if p.OnReset != nil && !p.Disabled {
+		btn.OnClick(p.OnReset)
+	}
+	btn.Children(func() {
+		ui.Icon(c, iconRotateCcw).
+			Size(effortToolbarIconSize, effortToolbarIconSize).
+			TextColor(effortTextSoft)
+	})
+}
+
+func renderEffortRosterSlots(c *ui.Context, p EffortSliderCardProps) {
+	ui.Column(c.Key(p.KeyPrefix + "roster-card")).
+		Radius(RadiusLG).
+		Background(effortOnDark.Alpha(0.035)).
+		Border(1, effortOnDark.Alpha(0.08)).
+		Clip().
+		AlignSelf(ui.Stretch).
+		Children(func() {
+			for i, slot := range p.Roster {
+				if i > 0 {
+					ui.Box(c.Key(p.KeyPrefix + "roster-div-" + strconv.Itoa(i))).
+						Height(Hairline).
+						Background(effortOnDark.Alpha(0.065)).
+						FillWidth()
+				}
+				renderEffortRosterSlot(c, p, i, slot)
 			}
 		})
+}
+
+func renderEffortRosterSlot(c *ui.Context, p EffortSliderCardProps, index int, slot EffortRosterSlot) {
+	rowKey := strings.TrimSpace(slot.Key)
+	if rowKey == "" {
+		rowKey = strconv.Itoa(index)
+	}
+
+	row := ui.Row(c.Key(p.KeyPrefix+"roster-row-"+rowKey)).
+		MinHeight(effortRosterRowMinH).
+		Padding(Space2, Space2, Space2, Space3).
+		AlignItems(ui.Center).
+		Gap(Space2).
+		AlignSelf(ui.Stretch)
+
+	if slot.Active {
+		row.Background(ColorAccentDark.Alpha(0.11)).
+			Draw(func(painter *ui.Painter, r ui.Rect) {
+				if r.H <= effortRosterBarInsetY*2 {
+					return
+				}
+				painter.Fill(ui.Rect{
+					X: r.X,
+					Y: r.Y + effortRosterBarInsetY,
+					W: effortRosterBarW,
+					H: r.H - effortRosterBarInsetY*2,
+				}, ColorAccentDark, effortRosterBarRadius)
+			})
+	}
+
+	row.Children(func() {
+		// 主体按钮与并发上限胶囊、行尾档位箭头按钮保持兄弟关系，禁止嵌套 ButtonBase。
+		mainLabel := slot.ModelTitle
+		var onMainClick func()
+		var mainTip string
+		if slot.Active {
+			if slot.OnOpenList != nil {
+				mainLabel = "选择其他模型"
+				if slot.Disabled {
+					mainTip = strings.TrimSpace(slot.LockedTip)
+					if mainTip == "" {
+						mainTip = effortLockedTip(p, "选择模型")
+					}
+				} else {
+					onMainClick = slot.OnOpenList
+					mainTip = "选择模型"
+				}
+			}
+		} else {
+			if strings.TrimSpace(slot.Role) != "" {
+				mainLabel = slot.Role
+			}
+			if slot.OnSelect != nil {
+				onMainClick = slot.OnSelect
+			}
+		}
+		canClickMain := onMainClick != nil
+		mainBtn := ui.ButtonBase(c.Key(p.KeyPrefix+"roster-main-"+rowKey)).
+			Label(mainLabel).
+			Tooltip(mainTip).
+			Disabled(!canClickMain).
+			Padding(Space0, Space1).
+			Radius(RadiusSM).
+			Grow(1).
+			MinWidth(0).
+			Justify(ui.Start)
+
+		mainScale := motionPressScale(c, mainBtn, "button-press-scale", canClickMain && mainBtn.Pressed())
+		mainBtn.Scale(mainScale, mainScale)
+		if mainBtn.Hovered() && canClickMain {
+			mainBtn.Background(effortOnDark.Alpha(0.05))
+		}
+		if canClickMain {
+			mainBtn.OnClick(onMainClick)
+		}
+
+		mainBtn.Children(func() {
+			ui.Row(c.Key(p.KeyPrefix+"roster-main-row-"+rowKey)).
+				AlignItems(ui.Center).
+				Gap(Space2).
+				MinWidth(0).
+				Children(func() {
+					if strings.TrimSpace(slot.Role) != "" {
+						badgeBg := effortOnDark.Alpha(0.06)
+						badgeFg := ColorTextSecondaryDark
+						badgeWeight := 500
+						if slot.Active {
+							badgeBg = ColorAccentDark.Alpha(0.22)
+							badgeFg = effortAccentBright
+							badgeWeight = 600
+						}
+						ui.Box(c.Key(p.KeyPrefix+"roster-role-"+rowKey)).
+							Padding(Space0, Space2).
+							Radius(RadiusXS).
+							Background(badgeBg).
+							Shrink(0).
+							Children(func() {
+								ui.Text(c, slot.Role).
+									FontSize(uiFont(TypeCaption)).
+									FontWeight(badgeWeight).
+									SingleLine().
+									TextColor(badgeFg)
+							})
+					}
+
+					hasBrand := strings.TrimSpace(slot.BrandID) != "" || strings.TrimSpace(slot.ProviderID) != ""
+					if strings.TrimSpace(slot.Placeholder) == "" && hasBrand {
+						iconBox := ui.Box(c.Key(p.KeyPrefix + "roster-icon-" + rowKey)).Shrink(0)
+						if !slot.Active {
+							iconBox.Opacity(0.80)
+						}
+						iconBox.Children(func() {
+							renderEffortBrandIconSize(c, slot.BrandID, slot.ProviderID, 14)
+						})
+					}
+
+					switch {
+					case strings.TrimSpace(slot.Placeholder) != "":
+						ui.Text(c, slot.Placeholder).
+							FontSize(uiFont(TypeProse)).
+							FontWeight(500).
+							SingleLine().
+							Ellipsis("…").
+							Shrink(1).
+							MinWidth(0).
+							TextColor(ColorTextSecondaryDark)
+					case slot.Active:
+						renderEffortTitleWithStyle(c, p, slot.ModelTitle, uiFont(TypeProse), 600)
+					default:
+						title := strings.TrimSpace(slot.ModelTitle)
+						if title == "" {
+							title = "标准"
+						}
+						ui.Text(c, title).
+							FontSize(uiFont(TypeProse)).
+							FontWeight(500).
+							SingleLine().
+							Ellipsis("…").
+							Shrink(1).
+							MinWidth(0).
+							TextColor(ColorTextPrimaryDark.Alpha(0.76))
+					}
+				})
+		})
+
+		if slot.Accessory != nil {
+			slot.Accessory()
+		}
+
+		if strings.TrimSpace(slot.EffortLabel) != "" || slot.OnOpenList != nil {
+			canOpen := slot.OnOpenList != nil && !slot.Disabled
+			trailLabel := "打开模型列表"
+			if strings.TrimSpace(slot.Role) != "" {
+				trailLabel = "选择" + slot.Role + "模型"
+			} else if strings.TrimSpace(slot.EffortLabel) != "" {
+				trailLabel = slot.EffortLabel
+			}
+			var trailTip string
+			if slot.OnOpenList != nil {
+				if slot.Disabled {
+					trailTip = strings.TrimSpace(slot.LockedTip)
+					if trailTip == "" {
+						trailTip = effortLockedTip(p, "选择模型")
+					}
+				} else {
+					trailTip = "选择模型"
+				}
+			}
+			trailBtn := ui.ButtonBase(c.Key(p.KeyPrefix+"roster-trail-"+rowKey)).
+				Label(trailLabel).
+				Tooltip(trailTip).
+				Disabled(!canOpen).
+				Padding(Space0, Space1).
+				Radius(RadiusSM).
+				Shrink(0).
+				Center()
+
+			trailScale := motionPressScale(c, trailBtn, "button-press-scale", canOpen && trailBtn.Pressed())
+			trailBtn.Scale(trailScale, trailScale)
+			if trailBtn.Hovered() && canOpen {
+				trailBtn.Background(effortOnDark.Alpha(0.06))
+			}
+			if canOpen {
+				trailBtn.OnClick(slot.OnOpenList)
+			}
+			trailBtn.Children(func() {
+				ui.Row(c.Key(p.KeyPrefix+"roster-trail-row-"+rowKey)).
+					AlignItems(ui.Center).
+					Gap(Space1).
+					Children(func() {
+						if strings.TrimSpace(slot.EffortLabel) != "" {
+							effColor := ColorTextSecondaryDark
+							effWeight := 500
+							if slot.Active {
+								effColor = ColorTextPrimaryDark.Alpha(0.90)
+								effWeight = 600
+							}
+							ui.Text(c, slot.EffortLabel).
+								FontSize(uiFont(TypeCaption)).
+								FontWeight(effWeight).
+								SingleLine().
+								TextColor(effColor)
+						}
+						if slot.OnOpenList != nil {
+							ui.Icon(c, IconChevronRight()).
+								Size(12, 12).
+								TextColor(ColorTextSecondaryDark)
+						}
+					})
+			})
+		}
+	})
 }

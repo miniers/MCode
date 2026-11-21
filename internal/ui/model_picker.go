@@ -1225,9 +1225,9 @@ var (
 )
 
 // modelPickerPanelWidth 是模型选择面板的宽度。
-const modelPickerPanelWidth = 352
+const modelPickerPanelWidth = 368
 
-// modelPickerPanelRadius 是模型选择面板的圆角：面板宽 352、内容成组，取比浮层常规圆角更大的一档。
+// modelPickerPanelRadius 是模型选择面板的圆角：面板宽 368、内容成组，取比浮层常规圆角更大的一档。
 const modelPickerPanelRadius = float32(22)
 
 // modelPickerSwarmReopenWindow 是「点执行段后等编排开关生效」的时间窗：超过这段时间还没开成，
@@ -1244,8 +1244,8 @@ const modelPickerRowHeightTwoLine = float32(46)
 // 与上行 IconSM、行距 Space0 相加正好等于发送按钮的 ControlMD。
 const modelPickerBeeLineHeight = Space4
 
-// renderModelPickerMenuBody 渲染模型选择面板的主体内容（宽 352）：
-// Swarm 模式下最上方是主导/执行分段栏（左右 12、上 8、下 2），其下是强度卡片或二级模型列表。
+// renderModelPickerMenuBody 渲染模型选择面板的主体内容（宽 368）：
+// 卡片页由双槽配对卡直接承载主/子模型切换与编排开关；二级模型列表页上方保留主导/执行分段栏。
 func renderModelPickerMenuBody(c *ui.Context, p ModelPickerProps, state *ModelPickerState) {
 	menu := ui.Column(c.Key(p.KeyPrefix + "model-menu-list"))
 	if p.NativeMenu != nil {
@@ -1260,6 +1260,10 @@ func renderModelPickerMenuBody(c *ui.Context, p ModelPickerProps, state *ModelPi
 			if p.SwarmOn && state.Tab == "bees" {
 				side = ModelPickerSideBees
 			}
+		}
+
+		depth := modelPickerPageDepth(p, state, side)
+		if p.Mode == ModelPickerSwarm && depth > 0 {
 			ui.Row(c.Key(p.KeyPrefix+"model-tabs-wrap")).
 				Padding(Space3, Space4, Space0, Space4).
 				AlignSelf(ui.Stretch).
@@ -1267,8 +1271,6 @@ func renderModelPickerMenuBody(c *ui.Context, p ModelPickerProps, state *ModelPi
 					renderModelPickerSideTabs(c, p, state)
 				})
 		}
-
-		depth := modelPickerPageDepth(p, state, side)
 		if depth > 0 {
 			// 换页过渡由列表页自己的容器负责，这里只给内边距，避免同一页动画挂在两层上。
 			wrap := ui.Box(c.Key(p.KeyPrefix + "model-list-wrap")).Padding(Space2)
@@ -1475,18 +1477,95 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 		OnOpenModelList: onOpenModelList,
 	}
 
-	// 只在能带团队的选择器里给卡片右侧放 Swarm 开关。
+	// 只在能带团队的选择器里给卡片顶栏放编排开关，并同步异步开启的拉回窗口。
 	if p.Mode == ModelPickerSwarm && p.OnToggleSwarm != nil {
 		props.OnToggleSwarm = func() {
 			if p.SwarmOn {
 				state.Tab = "lead"
+			} else {
+				state.reopenAfterSwarm = true
+				state.reopenDeadline = time.Now().Add(modelPickerSwarmReopenWindow)
 			}
 			p.OnToggleSwarm(!p.SwarmOn)
+			modelPickerInvalidate(p)
 		}
 	}
 
-	// 配对时说明行左侧的 Swarm 标记换成收藏按钮：实心星表示已存为配对，点击可保存或取消。
-	if paired && side == ModelPickerSideLead {
+	// 非 Inline 模式下组装方案 B 的双槽同屏配对卡；Inline（设置页）保留单卡路径。
+	if !p.Inline {
+		openListFor := func(targetSide ModelPickerSide, targetTab string) func() {
+			return func() {
+				state.Tab = targetTab
+				state.setListOpen(p.ScopeKey, targetSide, true)
+				if p.OnOpenList != nil {
+					p.OnOpenList()
+				}
+				modelPickerInvalidate(p)
+			}
+		}
+		leadRole := ""
+		if p.Mode == ModelPickerSwarm {
+			leadRole = "主代理"
+		}
+		leadEffort := ""
+		if len(lead.Model.Efforts) > 0 {
+			leadEffort = effortThumbLabel(modelPickerSideEffort(lead))
+		}
+		leadBrand := modelBrandKey(lead.Selection.Provider, lead.Selection.Model, modelPickerDisplayName(p.Providers, lead.Selection.Provider, lead.Selection.Model))
+		roster := []EffortRosterSlot{{
+			Key:         "lead",
+			Role:        leadRole,
+			BrandID:     leadBrand,
+			ProviderID:  lead.Selection.Provider,
+			ModelTitle:  modelPickerModelTitle(p.Providers, lead),
+			EffortLabel: leadEffort,
+			Active:      side == ModelPickerSideLead,
+			Disabled:    p.Disabled || p.LeadDisabled,
+			LockedTip:   effortCardLockedReason(p, ModelPickerSideLead),
+			OnSelect: func() {
+				state.Tab = "lead"
+				state.TierEditing = ""
+				modelPickerInvalidate(p)
+			},
+			OnOpenList: openListFor(ModelPickerSideLead, "lead"),
+		}}
+		if p.Mode == ModelPickerSwarm && p.SwarmOn {
+			beesEffort := ""
+			if len(bees.Model.Efforts) > 0 {
+				beesEffort = effortThumbLabel(modelPickerSideEffort(bees))
+			}
+			beesPlaceholder := ""
+			if bees.FollowsLead {
+				beesPlaceholder = "跟随主代理"
+			}
+			beesBrand := modelBrandKey(bees.Selection.Provider, bees.Selection.Model, modelPickerDisplayName(p.Providers, bees.Selection.Provider, bees.Selection.Model))
+			roster = append(roster, EffortRosterSlot{
+				Key:         "bees",
+				Role:        "子代理",
+				BrandID:     beesBrand,
+				ProviderID:  bees.Selection.Provider,
+				ModelTitle:  modelPickerModelTitle(p.Providers, bees),
+				Placeholder: beesPlaceholder,
+				EffortLabel: beesEffort,
+				Active:      side == ModelPickerSideBees,
+				Disabled:    p.Disabled || p.BeesDisabled,
+				LockedTip:   effortCardLockedReason(p, ModelPickerSideBees),
+				Accessory: func() {
+					renderModelPickerMaxBeesCapsule(c, p, state)
+				},
+				OnSelect: func() {
+					state.Tab = "bees"
+					state.TierEditing = ""
+					modelPickerInvalidate(p)
+				},
+				OnOpenList: openListFor(ModelPickerSideBees, "bees"),
+			})
+		}
+		props.Roster = roster
+	}
+
+	// 配对时顶栏右侧渲染收藏按钮：无论当前激活主代理还是子代理，收藏星均稳定可见。
+	if paired {
 		props.PairFav = swarmPairFavProps(p, lead, bees)
 	}
 
@@ -1517,8 +1596,8 @@ func renderModelPickerMaxBeesCapsule(c *ui.Context, p ModelPickerProps, state *M
 	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"bees-max-capsule")).
 		Label(label).
 		Tooltip("最多并发子代理数").
-		// 纵向 2 与卡片说明行同高，不换成 Space1，避免把强度卡片顶高。
-		Padding(Space0, Space3).
+		// 纵向 2 与卡片行内高度对齐，左右收紧为 Space2 使并发胶囊更紧凑。
+		Padding(Space0, Space2).
 		Radius(RadiusLG).
 		Center()
 

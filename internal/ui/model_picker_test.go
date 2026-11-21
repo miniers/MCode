@@ -267,12 +267,15 @@ func TestRenderModelPickerCard_DefaultIdentityVisible(t *testing.T) {
 			t.Fatalf("expected %q in card, got %v", want, tt.Texts())
 		}
 	}
-	// 档位只展示在滑块胶囊与无障碍值里，“当前：”行与轨道下方的档位文字都不再出现。
+	// 滑块胶囊与行尾显示英文短档位名；旧版“当前：”行与轨道下方档位列表不再出现。
 	info, ok := tt.Access("推理强度")
 	if !ok || info.Value != "High" {
 		t.Fatalf("expected slider value High, got (%+v, %v)", info, ok)
 	}
-	if tt.HasText("当前：") || tt.HasText("低") || tt.HasText("超高") || tt.HasText("Low") || tt.HasText("High") {
+	if !tt.HasText("High") {
+		t.Fatalf("expected active slot effort label High, got %v", tt.Texts())
+	}
+	if tt.HasText("当前：") || tt.HasText("低") || tt.HasText("超高") || tt.HasText("Low") {
 		t.Fatalf("unexpected tier list text in card, got %v", tt.Texts())
 	}
 }
@@ -295,10 +298,10 @@ func TestModelPickerFlyoutSelection(t *testing.T) {
 	if err := host.Click("选择模型"); err != nil {
 		t.Fatal(err)
 	}
-	if len(capture.options) != 1 || capture.options[0].Width != 352 || capture.options[0].Placement != mygo.PlacementTopStart {
+	if len(capture.options) != 1 || capture.options[0].Width != 368 || capture.options[0].Placement != mygo.PlacementTopStart {
 		t.Fatalf("窗口参数: %+v", capture.options)
 	}
-	menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-model-model-popover"), 352, 600)
+	menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-model-model-popover"), 368, 600)
 	if err := menu.Click("快速模式"); err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +418,7 @@ func TestProviderHasPinnedModelAllowsCustomModel(t *testing.T) {
 	}
 }
 
-// Swarm 开关异步生效：点执行段后 SwarmOn 仍为 false 的那几帧不能把 Tab 打回主导，开关生效后要切到执行侧。
+// 卡片页点击顶栏「编排开关」异步开启编排：设置拉回窗口，待 SwarmOn 生效后子代理槽展开。
 func TestModelPickerMenuBody_KeepsBeesTabUntilSwarmOn(t *testing.T) {
 	state := &ModelPickerState{MenuOpen: true}
 	swarmOn := false
@@ -434,22 +437,25 @@ func TestModelPickerMenuBody_KeepsBeesTabUntilSwarmOn(t *testing.T) {
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderModelPickerMenuBody(c, props(), state)
-	}, 330, 400)
+	}, modelPickerPanelWidth, 400)
 	tt.Frame()
-	if err := tt.Click("子代理 · 关闭"); err != nil {
+	if tt.HasText("子代理") {
+		t.Fatalf("Swarm 关闭时不应渲染子代理槽: %v", tt.Texts())
+	}
+	if err := tt.Click("编排开关"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
 	if !toggled {
-		t.Fatal("点执行段应请求开启编排")
+		t.Fatal("点编排开关应请求开启编排")
 	}
-	if state.Tab != "bees" {
-		t.Fatalf("Swarm 尚未生效时 Tab = %q, want bees", state.Tab)
+	if !state.reopenAfterSwarm {
+		t.Fatal("点编排开关开启时应记录 reopenAfterSwarm 拉回意图")
 	}
 	swarmOn = true
 	tt.Frame()
-	if state.Tab != "bees" {
-		t.Fatalf("Swarm 生效后 Tab = %q, want bees", state.Tab)
+	if !tt.HasText("子代理") {
+		t.Fatalf("Swarm 生效后应展示子代理槽: %v", tt.Texts())
 	}
 }
 
@@ -887,12 +893,12 @@ func TestModelPickerCardUsesSelectedSide(t *testing.T) {
 		Bees:      ModelSelection{Provider: "codex", Model: "o3-mini", Effort: "low"},
 		OnEffort:  func(side ModelPickerSide, effort string) { gotSide, gotEffort = side, effort },
 	}
-	tt := ui.NewTester(func(c *ui.Context) { renderModelPickerMenuBody(c, props, state) }, 330, 600)
-	if err := tt.Click("子代理 · Low"); err != nil {
+	tt := ui.NewTester(func(c *ui.Context) { renderModelPickerMenuBody(c, props, state) }, modelPickerPanelWidth, 600)
+	if err := tt.Click("子代理"); err != nil {
 		t.Fatal(err)
 	}
-	if !tt.HasText("o3-mini") || tt.HasText("Claude 3.7 Sonnet") {
-		t.Fatalf("执行侧卡片内容错误: %v", tt.Texts())
+	if !tt.HasText("o3-mini") || !tt.HasText("Claude 3.7 Sonnet") {
+		t.Fatalf("双槽卡片应同时保留主/子代理模型: %v", tt.Texts())
 	}
 	clickEffortSlider(t, tt, 1)
 	if gotSide != ModelPickerSideBees || gotEffort != "high" {
@@ -1099,18 +1105,18 @@ func TestModelPickerReopensBeesAfterSwarmEnable(t *testing.T) {
 		t.Fatalf("打开模型列表失败: %v", err)
 	}
 	settleModelPickerPage(tt)
-	if !state.MenuOpen || !tt.HasText("子代理") {
+	if !state.MenuOpen || !tt.HasText("编排") {
 		t.Fatalf("列表未打开: open=%v texts=%v", state.MenuOpen, tt.Texts())
 	}
 
-	if err := tapTextErr(t, tt, "子代理 · 关闭"); err != nil {
-		t.Fatalf("点击子代理失败: %v", err)
+	if err := tt.Click("编排开关"); err != nil {
+		t.Fatalf("点击编排开关失败: %v", err)
 	}
 	if len(toggles) != 1 || !toggles[0] {
-		t.Fatalf("点击执行侧应请求开启编排, got %v", toggles)
+		t.Fatalf("点击编排开关应请求开启编排, got %v", toggles)
 	}
 	if !state.reopenAfterSwarm {
-		t.Fatalf("点击执行侧应记下等开关生效后回到执行侧的意图")
+		t.Fatalf("点击编排开关应记下等开关生效后拉回浮层的意图")
 	}
 
 	// 模拟异步开启过程中的宿主重建把浮层关掉。
@@ -2562,5 +2568,93 @@ func TestModelPickerQuotaLowRemainingHighlight(t *testing.T) {
 	}
 	if !magpieTestHasExactText(tt, "剩 10%") {
 		t.Fatalf("90%% 配额应展示低余量告警文案「剩 10%%」: %v", tt.Texts())
+	}
+}
+
+func TestModelPickerPairedRosterShowsBothModelsAndToolbarStar(t *testing.T) {
+	testenv.TempHome(t)
+	t.Setenv("MCODE_DATA", t.TempDir())
+
+	fake := NewFakeClient()
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	st := NewSettingsState(settingsTestDir(t), nil, s)
+	setChatSettings(s, st)
+	win := &mygo.Window{}
+	registerChatWindow(win, s)
+	t.Cleanup(func() { unregisterChatWindow(win) })
+
+	providers := modelPickerTestProviders()
+	providers[0].Models[0].Efforts = []string{"low", "medium", "high"}
+	providers[1].Models[0].Efforts = []string{"low", "medium", "high"}
+
+	state := &ModelPickerState{MenuOpen: true}
+	swarmOn := true
+	props := func() ModelPickerProps {
+		return ModelPickerProps{
+			Mode:      ModelPickerSwarm,
+			KeyPrefix: "paired-roster-",
+			ScopeKey:  "paired-roster",
+			State:     state,
+			Providers: providers,
+			SwarmOn:   swarmOn,
+			Selection: ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet", Effort: "high"},
+			Bees:      ModelSelection{Provider: "codex", Model: "o3-mini", Effort: "high"},
+			OnToggleSwarm: func(on bool) {
+				swarmOn = on
+			},
+		}
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Width(modelPickerPanelWidth).Background(modelPickerPanelBg).Children(func() {
+			renderModelPickerMenuBody(c, props(), state)
+		})
+	}, modelPickerPanelWidth, 400)
+	tt.Frame()
+
+	// 卡片页不再渲染顶部重复分段栏。
+	if tt.HasText("主代理 · High") || tt.HasText("子代理 · High") {
+		t.Fatalf("卡片页不应渲染顶部重复分段栏: %v", tt.Texts())
+	}
+	// 主/子两行同屏展示，且顶栏存在收藏星标。
+	for _, want := range []string{"主代理", "Claude 3.7 Sonnet", "子代理", "o3-mini", "High"} {
+		if !tt.HasText(want) {
+			t.Fatalf("缺少文案 %q: %v", want, tt.Texts())
+		}
+	}
+	if _, ok := tt.Access("存为配对"); !ok {
+		t.Fatalf("顶栏应渲染收藏配对按钮: %v", tt.AccessAll())
+	}
+
+	// 切到子代理行后，主/子模型继续同屏展示，且顶栏收藏星标依然可见并可点击保存。
+	if err := tt.Click("子代理"); err != nil {
+		t.Fatalf("点击子代理行失败: %v", err)
+	}
+	tt.Frame()
+	if state.Tab != "bees" {
+		t.Fatalf("切到子代理后 state.Tab = %q, want bees", state.Tab)
+	}
+	if !tt.HasText("Claude 3.7 Sonnet") || !tt.HasText("o3-mini") {
+		t.Fatalf("切到子代理后主/子模型应同屏保留: %v", tt.Texts())
+	}
+	if err := tt.Click("存为配对"); err != nil {
+		t.Fatalf("切到子代理后顶栏收藏星标仍应可点击: %v", err)
+	}
+	tt.Frame()
+	if _, ok := tt.Access("已保存为配对"); !ok {
+		t.Fatalf("点击收藏后应切换为已保存为配对: %v", tt.AccessAll())
+	}
+
+	// 关闭编排后，子代理行收起只留主代理 1 行。
+	if err := tt.Click("编排开关"); err != nil {
+		t.Fatalf("点击编排开关关闭失败: %v", err)
+	}
+	tt.Frame()
+	if swarmOn {
+		t.Fatal("点击编排开关应关闭编排")
+	}
+	if !tt.HasText("Claude 3.7 Sonnet") || tt.HasText("o3-mini") || tt.HasText("子代理") {
+		t.Fatalf("关闭编排后应只留主代理 1 行: %v", tt.Texts())
 	}
 }
