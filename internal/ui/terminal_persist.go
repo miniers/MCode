@@ -577,26 +577,16 @@ func handleTerminalOpenLink(s *chatState, dir, link string) bool {
 	return true
 }
 
-// openTerminalLinkTarget 打开终端里点到的文件：带行号时优先用支持跳行的编辑器（VS Code、Cursor、Windsurf、Zed）
-// 直接打开到对应行；没有行号或找不到可用编辑器时，工作目录内用文件面板预览，目录外退回源码编辑器窗口。
+// openTerminalLinkTarget 打开终端里点到的文件：通过统一跳转总线优先使用外部编辑器（带行号直接跳行），
+// 不可用或失败时，工作目录内退回内置文件面板并保留行号高亮，目录外退回源码编辑器窗口。
 func openTerminalLinkTarget(s *chatState, path string, line, col int) {
 	if s == nil || path == "" {
 		return
 	}
-	if openPathAtLine(s, path, line, col) {
-		return
-	}
-	threadID, workDir := getSelectedThreadWorkDir(s)
-	if threadID != "" && workDir != "" {
-		if rel, err := filepath.Rel(workDir, path); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
-			if !isFileManagerOpen(s) {
-				toggleFileManager(s)
-			}
-			// 从终端路径打开的文件也是固定 tab，且属于外部入口：
-			// 关掉最后一个 tab 时收起整个侧栏。
-			s.openFileManagerFileExternal(threadID, rel)
-			return
-		}
-	}
-	openMiniEditorPath(path)
+	s.openFileAtLocation(fileJumpRequest{
+		Path:   path,
+		Line:   line,
+		Col:    col,
+		Target: fileJumpExternal,
+	})
 }

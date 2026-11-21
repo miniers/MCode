@@ -176,7 +176,7 @@ func renderReviewComment(c *ui.Context, s *chatState, dp *diffPanelState, commen
 		if comment.stale {
 			color = ThemeSecondaryText(c)
 		}
-		ui.Row(c.Key("header")).FillWidth().Height(ControlLG).Padding(Space2).Gap(Space2).Children(func() {
+		ui.Row(c.Key("header")).FillWidth().Height(ControlLG).Padding(Space2).Gap(Space2).AlignItems(ui.Center).Children(func() {
 			if comment.stale {
 				ui.Text(c, "过期").FontSize(uiFont(TypeCaption)).TextColor(ThemeWarning(c))
 			}
@@ -197,6 +197,35 @@ func renderReviewComment(c *ui.Context, s *chatState, dp *diffPanelState, commen
 				s.invalidate()
 			}
 			summary.Children(func() { ui.Text(c, comment.body).SingleLine().FontSize(uiFont(TypeFootnote)).TextColor(color) })
+			if comment.key.path != "" {
+				line := max(1, comment.lines.Start+1)
+				endLine := max(line, comment.lines.End+1)
+				lineText := fmt.Sprintf("L%d", line)
+				if endLine > line {
+					lineText = fmt.Sprintf("L%d-%d", line, endLine)
+				}
+				jumpLabel := fmt.Sprintf("跳转到 %s:%d", comment.key.path, line)
+				Button(c, ButtonOpts{
+					Key:     "jump",
+					Text:    lineText,
+					Label:   jumpLabel,
+					Tooltip: jumpLabel,
+					Variant: ButtonGhost,
+					Size:    ControlXS,
+					OnClick: func() {
+						if s != nil {
+							s.openFileAtLocation(fileJumpRequest{
+								Path:     comment.key.path,
+								WorkDir:  comment.key.workspace,
+								ThreadID: comment.key.threadID,
+								Line:     line,
+								EndLine:  endLine,
+								Target:   fileJumpBuiltIn,
+							})
+						}
+					},
+				}).Shrink(0)
+			}
 			if comment.confirmDelete {
 				Button(c, ButtonOpts{
 					Key:     "delete-confirm",

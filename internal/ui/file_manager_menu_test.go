@@ -33,7 +33,7 @@ func TestFileManagerEntryMenuCopyRelativePath(t *testing.T) {
 	}
 	wantItems := []string{
 		"打开", "在右侧分栏打开", "文件历史", "逐行追溯", "引用到输入框", "复制路径", "复制相对路径",
-		revealInFileManagerLabel(), "用默认应用打开",
+		revealInFileManagerLabel(), "在外部编辑器打开", "用默认应用打开",
 	}
 	if runtime.GOOS == "darwin" {
 		wantItems = append(wantItems, "快速查看")

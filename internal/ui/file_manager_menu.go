@@ -141,6 +141,13 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 				openItemInFinder(abs)
 			}
 			if !entry.IsDir {
+				if m.Item("在外部编辑器打开").Chosen() {
+					s.openFileAtLocation(fileJumpRequest{
+						Path:     abs,
+						ThreadID: threadID,
+						Target:   fileJumpExternal,
+					})
+				}
 				if m.Item("用默认应用打开").Chosen() {
 					_ = mygo.Shell.OpenPath(abs)
 				}

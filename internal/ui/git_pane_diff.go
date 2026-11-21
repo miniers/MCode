@@ -444,19 +444,12 @@ func moveGitHunk(current, delta, count int) int {
 	return max(0, min(count-1, current+delta))
 }
 
-func addGitDiffSelectionToConversation(s *chatState, key gitDiffKey, file git.FileDiff, selection editor.DiffLineRange) bool {
+func gitDiffSelectionLineRange(file git.FileDiff, selection editor.DiffLineRange) (first, last int, lines []string) {
 	if selection.Start < 0 || selection.End < selection.Start {
-		return false
-	}
-	s.mu.Lock()
-	current := s.selectedThreadID == key.threadID
-	s.mu.Unlock()
-	if !current {
-		return false
+		return 0, 0, nil
 	}
 	old := selection.Side == editor.DiffOld
-	index, first, last := 0, 0, 0
-	var lines []string
+	index := 0
 	for _, h := range file.Hunks {
 		for _, line := range h.Lines {
 			if line.Kind != ' ' && line.Kind != '-' && line.Kind != '+' || old && line.Kind == '+' || !old && line.Kind == '-' {
@@ -476,6 +469,23 @@ func addGitDiffSelectionToConversation(s *chatState, key gitDiffKey, file git.Fi
 			index++
 		}
 	}
+	if first == 0 || last < first {
+		return 0, 0, nil
+	}
+	return first, last, lines
+}
+
+func addGitDiffSelectionToConversation(s *chatState, key gitDiffKey, file git.FileDiff, selection editor.DiffLineRange) bool {
+	if selection.Start < 0 || selection.End < selection.Start {
+		return false
+	}
+	s.mu.Lock()
+	current := s.selectedThreadID == key.threadID
+	s.mu.Unlock()
+	if !current {
+		return false
+	}
+	first, last, lines := gitDiffSelectionLineRange(file, selection)
 	if first == 0 || last < first {
 		return false
 	}
@@ -640,9 +650,33 @@ func renderGitDiffMenu(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 				st.menuOpen = false
 				openGitBlame(ps, key.path)
 			}})
+			firstLine, lastLine := 0, 0
+			if st.view != nil && st.applied != nil {
+				if selection, has := st.view.SelectedLines(); has {
+					firstLine, lastLine, _ = gitDiffSelectionLineRange(st.applied.file, selection)
+				}
+			}
 			Button(c, ButtonOpts{Text: "在编辑器打开", Variant: ButtonGhost, OnClick: func() {
 				st.menuOpen = false
-				openInDefaultEditor(s, filepath.Join(key.root, filepath.FromSlash(key.path)))
+				s.openFileAtLocation(fileJumpRequest{
+					Path:     key.path,
+					WorkDir:  key.root,
+					ThreadID: key.threadID,
+					Line:     firstLine,
+					EndLine:  lastLine,
+					Target:   fileJumpExternal,
+				})
+			}})
+			Button(c, ButtonOpts{Text: "在文件面板中打开", Variant: ButtonGhost, OnClick: func() {
+				st.menuOpen = false
+				s.openFileAtLocation(fileJumpRequest{
+					Path:     key.path,
+					WorkDir:  key.root,
+					ThreadID: key.threadID,
+					Line:     firstLine,
+					EndLine:  lastLine,
+					Target:   fileJumpBuiltIn,
+				})
 			}})
 			if conflict != nil {
 				renderGitConflictMenu(c, s, ps, st, client, key, conflict, disabled)

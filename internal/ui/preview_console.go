@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -292,10 +293,45 @@ func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *browserTab, sna
 			st.consoleList.Key = func(i int) any {
 				return previewConsoleRowKey{generation: snap.token.generation, sequence: visible[i].Sequence}
 			}
+			threadID, workDir := getSelectedThreadWorkDir(s)
 			ui.List(c.Key("preview-console-scroll"), &st.consoleList, len(visible), func(i int) {
 				entry := visible[i]
 				checked := snap.consoleSelected[entry.Sequence]
-				ui.Checkbox(c.Key(fmt.Sprintf("preview-console-entry-%d-%d", snap.token.generation, entry.Sequence)), &checked, entry.Time+" "+previewConsoleEntryLine(entry)).FillWidth()
+				absPath, resolvedLine, canJump := parseConsoleSourceLocation(entry.Source, entry.Line, workDir)
+				ui.Row(c.Key(fmt.Sprintf("preview-console-row-%d-%d", snap.token.generation, entry.Sequence))).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
+					ui.Checkbox(c.Key(fmt.Sprintf("preview-console-entry-%d-%d", snap.token.generation, entry.Sequence)), &checked, entry.Time+" "+previewConsoleEntryLine(entry)).Grow(1).MinWidth(0)
+					if canJump {
+						relPath := filepath.ToSlash(turnFilePreviewPath(workDir, turnEditedFile{path: absPath, abs: absPath}))
+						if relPath == "" {
+							relPath = filepath.Base(absPath)
+						}
+						btnText := filepath.Base(absPath)
+						tip := relPath
+						if resolvedLine > 0 {
+							btnText = fmt.Sprintf("%s:%d", btnText, resolvedLine)
+							tip = fmt.Sprintf("%s:%d", tip, resolvedLine)
+						}
+						Button(c, ButtonOpts{
+							Key:     fmt.Sprintf("preview-console-jump-%d-%d", snap.token.generation, entry.Sequence),
+							Text:    btnText,
+							Label:   "跳转到 " + tip,
+							Tooltip: tip,
+							Variant: ButtonGhost,
+							Size:    ControlSM,
+							OnClick: func() {
+								if s != nil {
+									s.openFileAtLocation(fileJumpRequest{
+										Path:     absPath,
+										WorkDir:  workDir,
+										ThreadID: threadID,
+										Line:     resolvedLine,
+										Target:   fileJumpBuiltIn,
+									})
+								}
+							},
+						}).Shrink(0)
+					}
+				})
 				if checked != snap.consoleSelected[entry.Sequence] {
 					previewMu.Lock()
 					if tab := previewStateForTokenLocked(s, snap.token); tab != nil && tab.consoleRevision == snap.token.consoleRevision {

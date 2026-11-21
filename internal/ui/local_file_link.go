@@ -108,15 +108,16 @@ func openLocalFile(path string) {
 // 目录、工作区外的文件与无会话时沿用原有打开方式。
 func openLocalFilePreview(s *chatState, path string, first, last int) {
 	path = filepath.Clean(path)
-	info, err := os.Stat(path)
-	if err == nil && info.IsDir() {
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		openItemInFinder(path)
 		return
 	}
-	threadID, workDir := getSelectedThreadWorkDir(s)
-	if err == nil && info.Mode().IsRegular() && threadID != "" &&
-		turnFilePreviewPath(workDir, turnEditedFile{path: path, abs: path}) != "" {
-		openTurnFileAt(s, threadID, workDir, turnEditedFile{path: path, abs: path}, first, last)
+	if s != nil && s.openFileAtLocation(fileJumpRequest{
+		Path:    path,
+		Line:    first,
+		EndLine: last,
+		Target:  fileJumpBuiltIn,
+	}) {
 		return
 	}
 	openLocalFile(path)
@@ -175,6 +176,15 @@ func localRelativePath(s *chatState, path string) string {
 	return turnFilePreviewPath(workDir, turnEditedFile{path: p, abs: p})
 }
 
+func openFileWithAppAtLine(app openInApp, path string, line int) {
+	if line > 0 {
+		if link, ok := editorLineURL(app, path, line, 0); ok && openEditorURLRunner(link) == nil {
+			return
+		}
+	}
+	_ = openInWithApp(app, path)
+}
+
 func localFileLinkItems(s *chatState, menu *ui.Menu, path string, first, last int) {
 	if menu.Item("侧边栏预览").Chosen() {
 		openLocalFilePreview(s, path, first, last)
@@ -184,7 +194,7 @@ func localFileLinkItems(s *chatState, menu *ui.Menu, path string, first, last in
 		for _, app := range apps {
 			app := app
 			if sub.Item(app.Name).Chosen() {
-				openInWithApp(app, path)
+				openFileWithAppAtLine(app, path, first)
 			}
 		}
 		if sub.Item("默认程序").Chosen() {

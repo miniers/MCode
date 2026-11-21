@@ -209,7 +209,20 @@ func gitFileMenu(m *ui.Menu, c *ui.Context, s *chatState, threadID string, ps *g
 	}
 	m.Separator()
 	if m.Item("在编辑器打开").Disabled(entry.Worktree == 'D').Chosen() {
-		s.openFileManagerFileExternal(threadID, entry.Path)
+		s.openFileAtLocation(fileJumpRequest{
+			Path:     entry.Path,
+			WorkDir:  root,
+			ThreadID: threadID,
+			Target:   fileJumpBuiltIn,
+		})
+	}
+	if m.Item("在外部编辑器打开").Disabled(entry.Worktree == 'D').Chosen() {
+		s.openFileAtLocation(fileJumpRequest{
+			Path:     entry.Path,
+			WorkDir:  root,
+			ThreadID: threadID,
+			Target:   fileJumpExternal,
+		})
 	}
 	if m.Item("在文件面板中显示").Disabled(entry.Worktree == 'D').Chosen() {
 		inspectorSelect(s, sidePaneFileID, false)
