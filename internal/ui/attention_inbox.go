@@ -420,7 +420,7 @@ func (s *chatState) openAttentionItem(item AttentionItem) {
 				Title:     item.Title,
 			})
 		} else {
-			s.openTasksWindowTarget(taskCenterTarget{Kind: "attention"})
+			s.openTasksWindow("tasks")
 		}
 	case "kanban_goal":
 		if item.SubjectID != "" {
@@ -431,7 +431,7 @@ func (s *chatState) openAttentionItem(item AttentionItem) {
 				Title:     item.Title,
 			})
 		} else {
-			s.openTasksWindowTarget(taskCenterTarget{Kind: "attention"})
+			s.openTasksWindow("tasks")
 		}
 	case "automation_run":
 		if item.SubjectID != "" {

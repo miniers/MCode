@@ -243,6 +243,16 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		}
 		renderTaskDetailDrawerSheet(c, taskDetailDrawerSheetOpts{
 			SheetKey: key,
+			OnEscape: func() {
+				if detailDecisionID != "" && detailTaskID == "" && !goalDetailOpen {
+					kanbanMu.Lock()
+					ks.detailDecisionID = ""
+					kanbanMu.Unlock()
+					s.invalidate()
+				} else {
+					consumeKanbanEscape(s)
+				}
+			},
 			OnClose: func() {
 				if detailTaskID != "" {
 					s.closeTaskDetail()

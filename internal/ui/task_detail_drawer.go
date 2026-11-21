@@ -97,6 +97,7 @@ func renderTaskDetailDrawerSplit(c *ui.Context, opts taskDetailDrawerSplitOpts) 
 type taskDetailDrawerSheetOpts struct {
 	SheetKey string
 	OnClose  func()
+	OnEscape func()
 	Content  func()
 }
 
@@ -109,9 +110,11 @@ func renderTaskDetailDrawerSheet(c *ui.Context, opts taskDetailDrawerSheetOpts) 
 	winWidth, winHeight := c.Size()
 	sheetWidth, sheetHeight := min(settingsSheetWidth, winWidth-Space8), winHeight-Space8
 	open := true
+	backdropClicked := false
 	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 		backdrop.Absolute().Left(0).Top(0).Right(0).Bottom(0).Center().Background(ui.Color{}.Alpha(ScrimOpacity))
 		panel.MaxWidth(winWidth - Space8).MaxHeight(winHeight - Space8).Padding(0)
+		ui.Box(c.Key(sheetKey + "-backdrop")).Fill().OnClick(func() { backdropClicked = true })
 		ui.Column(c.Key(sheetKey)).Label(sheetKey).Width(sheetWidth).Height(sheetHeight).
 			Background(ThemeSurface(c)).Radius(RadiusLG).Transition(motionDialog(c)).Children(func() {
 			if opts.Content != nil {
@@ -119,8 +122,12 @@ func renderTaskDetailDrawerSheet(c *ui.Context, opts taskDetailDrawerSheetOpts) 
 			}
 		})
 	})
-	if (!open || c.Shortcut(0, ui.KeyEscape)) && opts.OnClose != nil {
-		opts.OnClose()
+	if escaped := c.Shortcut(0, ui.KeyEscape); escaped || !open {
+		if !backdropClicked && opts.OnEscape != nil {
+			opts.OnEscape()
+		} else if opts.OnClose != nil {
+			opts.OnClose()
+		}
 	}
 }
 
