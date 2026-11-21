@@ -37,64 +37,42 @@ func (c *Client) AddProject(ctx context.Context, path string) (mcodeui.Project, 
 	return ProjectSummaryToUI(p), nil
 }
 
-// Threads 调用 ListThreads 并按 projectID 过滤，通过循环分页取完全部会话。
+// Threads 调用 ListThreads 并按 projectID 过滤，单次取完全部会话（每次 ListThreads 都全量扫描排序，翻页会重复扫描）。
 func (c *Client) Threads(ctx context.Context, projectID string) ([]mcodeui.Thread, error) {
+	var params wire.ThreadListParams
+	if projectID != "" {
+		params.ProjectID = &projectID
+	}
+	res, err := c.backend.ListThreads(ctx, params)
+	if err != nil {
+		return nil, err
+	}
 	var all []wire.ThreadSummary
-	var cursor *string
-	limit := 100
-	for {
-		params := wire.ThreadListParams{
-			Cursor: cursor,
-			Limit:  &limit,
+	for _, t := range res.Threads {
+		if projectID == "" || t.ProjectID == projectID {
+			all = append(all, t)
 		}
-		if projectID != "" {
-			params.ProjectID = &projectID
-		}
-		res, err := c.backend.ListThreads(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		for _, t := range res.Threads {
-			if projectID == "" || t.ProjectID == projectID {
-				all = append(all, t)
-			}
-		}
-		if !res.HasMore || res.NextCursor == nil || *res.NextCursor == "" {
-			break
-		}
-		cursor = res.NextCursor
 	}
 	return ThreadsSummaryToUI(all), nil
 }
 
-// ArchivedThreads 调用 ListThreads 并查询所有已归档的会话列表，通过循环分页取完全部并按更新时间倒序返回。
+// ArchivedThreads 调用 ListThreads 并查询所有已归档的会话列表，单次取完全部并按更新时间倒序返回（每次 ListThreads 都全量扫描排序，翻页会重复扫描）。
 func (c *Client) ArchivedThreads(ctx context.Context) ([]mcodeui.Thread, error) {
 	if c.backend == nil {
 		return nil, nil
 	}
-	var all []wire.ThreadSummary
-	var cursor *string
-	limit := 100
 	incArchived := true
-	for {
-		params := wire.ThreadListParams{
-			Cursor:          cursor,
-			Limit:           &limit,
-			IncludeArchived: &incArchived,
+	res, err := c.backend.ListThreads(ctx, wire.ThreadListParams{
+		IncludeArchived: &incArchived,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var all []wire.ThreadSummary
+	for _, t := range res.Threads {
+		if t.IsArchived {
+			all = append(all, t)
 		}
-		res, err := c.backend.ListThreads(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		for _, t := range res.Threads {
-			if t.IsArchived {
-				all = append(all, t)
-			}
-		}
-		if !res.HasMore || res.NextCursor == nil || *res.NextCursor == "" {
-			break
-		}
-		cursor = res.NextCursor
 	}
 	return ThreadsSummaryToUI(all), nil
 }

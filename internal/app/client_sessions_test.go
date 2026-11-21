@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
 )
 
@@ -96,5 +99,75 @@ func TestResolveDeleteThreadWorktreeMainRootUnknown(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "file.txt")); err != nil {
 		t.Fatalf("主仓库文件被误删: %v", err)
+	}
+}
+
+func seedThreadsForListTest(t *testing.T, total, archived int) (*Client, map[string]bool, map[string]bool) {
+	t.Helper()
+	backend := remote.NewMemoryBackend(nil)
+	t.Cleanup(func() { backend.Close() })
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	archivedIDs := make(map[string]bool, archived)
+	activeIDs := make(map[string]bool, total-archived)
+	for i := 0; i < total; i++ {
+		isArchived := i < archived
+		id := fmt.Sprintf("active-%03d", i-archived)
+		if isArchived {
+			id = fmt.Sprintf("arch-%03d", i)
+			archivedIDs[id] = true
+		} else {
+			activeIDs[id] = true
+		}
+		backend.AddThread(wire.ThreadSummary{
+			ID:         id,
+			ProjectID:  "p1",
+			Provider:   "memory",
+			UpdatedAt:  base.Add(time.Duration(i) * time.Second).Format(time.RFC3339Nano),
+			IsArchived: isArchived,
+		}, nil)
+	}
+	return NewClient(backend), archivedIDs, activeIDs
+}
+
+func TestArchivedThreadsReturnsAllBeyondOnePage(t *testing.T) {
+	c, archivedIDs, _ := seedThreadsForListTest(t, 250, 130)
+	got, err := c.ArchivedThreads(context.Background())
+	if err != nil {
+		t.Fatalf("ArchivedThreads 失败: %v", err)
+	}
+	if len(got) != 130 {
+		t.Fatalf("ArchivedThreads 返回数量 = %d，期望 130", len(got))
+	}
+	seen := make(map[string]bool, len(got))
+	for _, th := range got {
+		if !archivedIDs[th.ID] {
+			t.Fatalf("ArchivedThreads 返回了非归档会话 %q", th.ID)
+		}
+		if seen[th.ID] {
+			t.Fatalf("ArchivedThreads 返回了重复会话 %q", th.ID)
+		}
+		seen[th.ID] = true
+	}
+}
+
+func TestThreadsReturnsAllBeyondOnePage(t *testing.T) {
+	c, _, activeIDs := seedThreadsForListTest(t, 250, 130)
+	got, err := c.Threads(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Threads 失败: %v", err)
+	}
+	if len(got) != 120 {
+		t.Fatalf("Threads 返回数量 = %d，期望 120", len(got))
+	}
+	seen := make(map[string]bool, len(got))
+	for _, th := range got {
+		if !activeIDs[th.ID] {
+			t.Fatalf("Threads 返回了意外或归档会话 %q", th.ID)
+		}
+		if seen[th.ID] {
+			t.Fatalf("Threads 返回了重复会话 %q", th.ID)
+		}
+		seen[th.ID] = true
 	}
 }
