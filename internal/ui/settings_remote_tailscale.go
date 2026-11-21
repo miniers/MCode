@@ -298,8 +298,9 @@ func renderRemoteTailscaleRetryButton(c *ui.Context, busy bool, tooltip string, 
 
 // remoteTailscaleSection 是 Tailscale 开关；状态、入口、最近连接由后面几个条件区块补上。
 var remoteTailscaleSection = settingsSection{
-	ID:    "remote.tailscale",
-	Title: "Tailscale",
+	ID:      "remote.tailscale",
+	Title:   "Tailscale",
+	Visible: remoteTailscaleVisible,
 	Rows: append(append(append(append(append(append([]setting{{
 		ID:      "row-remote-tailscale-enabled",
 		Title:   "通过 Tailscale 访问",
@@ -719,15 +720,16 @@ func renderRemoteTailscaleResetConfirmModal(c *ui.Context, st *SettingsState) {
 		st.invalidate()
 	}
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          modalDragRemoteTailscaleReset,
-		Open:         true,
-		Tone:         ConfirmDanger,
-		Title:        "重置 Tailscale 节点？",
-		Body:         "本机会退出 tailnet 并删除节点状态，HTTPS 入口随之下线；下次开启需要重新在浏览器中授权。",
-		ConfirmLabel: "重置节点",
-		ConfirmA11y:  "确认重置 Tailscale 节点",
-		CancelLabel:  "取消",
-		CancelA11y:   "取消重置 Tailscale 节点",
+		Key:             modalDragRemoteTailscaleReset,
+		Open:            true,
+		Tone:            ConfirmDanger,
+		Title:           "重置 Tailscale 节点？",
+		Body:            "本机会退出 tailnet 并删除节点状态，HTTPS 入口随之下线；下次开启需要重新在浏览器中授权。",
+		ConfirmLabel:    "重置节点",
+		ConfirmA11y:     "确认重置 Tailscale 节点",
+		CancelLabel:     "取消",
+		CancelA11y:      "取消重置 Tailscale 节点",
+		CancelAutoFocus: true,
 		OnConfirm: func() {
 			st.mu.Lock()
 			st.remote.tailscaleResetConfirm = false

@@ -291,15 +291,16 @@ func remoteEntryStatus(st *SettingsState, _ bool) string {
 	if !running {
 		return ""
 	}
-	if remoteCurrentLANIP() == "" {
+	ip := remoteCachedLANIP(st)
+	if ip == "" {
 		return "未找到活动的局域网 IPv4"
 	}
-	if remoteAddressChanged(status, remoteCurrentLANIP()) {
+	if remoteAddressChanged(status, ip) {
 		served := remoteServingIPv4(status)
 		if served == "" {
 			served = remoteServingHost(status)
 		}
-		return fmt.Sprintf("局域网 IP 从 %s 变为 %s，请在手机上重新保存入口", served, remoteCurrentLANIP())
+		return fmt.Sprintf("局域网 IP 从 %s 变为 %s，请在手机上重新保存入口", served, ip)
 	}
 	return ""
 }

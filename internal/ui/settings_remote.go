@@ -870,6 +870,7 @@ func revokeRemoteDevice(st *SettingsState, deviceID string) {
 	st.mu.Lock()
 	st.remote.revokeBusyID = deviceID
 	st.remote.revokeConfirmID = ""
+	st.remote.deviceActionErr = ""
 	st.mu.Unlock()
 	st.invalidate()
 
@@ -878,9 +879,9 @@ func revokeRemoteDevice(st *SettingsState, deviceID string) {
 		st.mu.Lock()
 		st.remote.revokeBusyID = ""
 		if err != nil {
-			st.remote.devicesErr = err.Error()
+			st.remote.deviceActionErr = err.Error()
 		} else {
-			st.remote.devicesErr = ""
+			st.remote.deviceActionErr = ""
 			if st.remote.renameDeviceID == deviceID {
 				st.remote.renameDeviceID = ""
 				st.remote.renameDraft = ""
@@ -1682,13 +1683,14 @@ func renderRemotePairingConfirmModal(c *ui.Context, st *SettingsState) {
 		st.invalidate()
 	}
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          modalDragRemotePairing,
-		Open:         true,
-		Tone:         ConfirmDanger,
-		Title:        "刷新配对码？",
-		Body:         body,
-		ConfirmLabel: "撤销所有设备",
-		CancelLabel:  "取消",
+		Key:             modalDragRemotePairing,
+		Open:            true,
+		Tone:            ConfirmDanger,
+		Title:           "刷新配对码？",
+		Body:            body,
+		ConfirmLabel:    "撤销所有设备",
+		CancelLabel:     "取消",
+		CancelAutoFocus: true,
 		OnConfirm: func() {
 			st.mu.Lock()
 			st.remote.pairingConfirm = false

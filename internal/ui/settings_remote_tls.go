@@ -151,12 +151,24 @@ func (remoteTLSPortControl) render(c *ui.Context, st *SettingsState, s setting) 
 	remoteTLSPortControl{}.renderDisabled(c, st, s, false)
 }
 
+// remoteTLSPortErrorText 校验 HTTPS 端口文本是否为 1–65535 的整数；未初始化的空草稿不报错。
+func remoteTLSPortErrorText(text string, initialized bool) string {
+	if !initialized && text == "" {
+		return ""
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil || port < 1 || port > 65535 {
+		return "端口需为 1–65535"
+	}
+	return ""
+}
+
 func (remoteTLSPortControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, disabled bool) {
 	st.mu.Lock()
 	portText := st.remote.tlsPortText
 	fieldsInit := st.remote.tlsFieldsInit
 	st.mu.Unlock()
-	errText := remotePortErrorText(portText, fieldsInit)
+	errText := remoteTLSPortErrorText(portText, fieldsInit)
 
 	ui.Column(c.Key("col-remote-tls-port-control")).Gap(Space1).Children(func() {
 		textFunc(
@@ -281,15 +293,16 @@ func (remoteTLSTokenControl) renderDisabled(c *ui.Context, st *SettingsState, s 
 		})
 
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          "modal-drag-remote-tls-token-clear",
-		Open:         clearConfirm,
-		Tone:         ConfirmDanger,
-		Title:        "清除 Cloudflare API Token？",
-		Body:         "清除后自动申请或续期证书时将无法使用 Cloudflare DNS 验证。",
-		ConfirmLabel: "清除",
-		ConfirmA11y:  "确认清除 Cloudflare API Token",
-		CancelLabel:  "取消",
-		CancelA11y:   "取消清除 Cloudflare API Token",
+		Key:             "modal-drag-remote-tls-token-clear",
+		Open:            clearConfirm,
+		Tone:            ConfirmDanger,
+		Title:           "清除 Cloudflare API Token？",
+		Body:            "清除后自动申请或续期证书时将无法使用 Cloudflare DNS 验证。",
+		ConfirmLabel:    "清除",
+		ConfirmA11y:     "确认清除 Cloudflare API Token",
+		CancelLabel:     "取消",
+		CancelA11y:      "取消清除 Cloudflare API Token",
+		CancelAutoFocus: true,
 		OnConfirm: func() {
 			st.mu.Lock()
 			st.remote.tlsTokenClearConfirm = false
@@ -463,15 +476,16 @@ func renderRemoteTLSRemoveConfirmModal(c *ui.Context, st *SettingsState) {
 		st.invalidate()
 	}
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          modalDragRemoteTLSRemove,
-		Open:         true,
-		Tone:         ConfirmDanger,
-		Title:        "移除证书？",
-		Body:         "移除后 HTTPS 入口会立即下线，手机需要改用局域网 HTTP 地址访问；域名与 Cloudflare API Token 会保留，可重新申请或导入证书。",
-		ConfirmLabel: "移除证书",
-		ConfirmA11y:  "确认移除证书",
-		CancelLabel:  "取消",
-		CancelA11y:   "取消移除证书",
+		Key:             modalDragRemoteTLSRemove,
+		Open:            true,
+		Tone:            ConfirmDanger,
+		Title:           "移除证书？",
+		Body:            "移除后 HTTPS 入口会立即下线，手机需要改用局域网 HTTP 地址访问；域名与 Cloudflare API Token 会保留，可重新申请或导入证书。",
+		ConfirmLabel:    "移除证书",
+		ConfirmA11y:     "确认移除证书",
+		CancelLabel:     "取消",
+		CancelA11y:      "取消移除证书",
+		CancelAutoFocus: true,
 		OnConfirm: func() {
 			st.mu.Lock()
 			st.remote.tlsRemoveConfirm = false
