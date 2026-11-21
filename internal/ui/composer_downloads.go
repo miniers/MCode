@@ -82,40 +82,73 @@ func downloadsDir() string {
 	return filepath.Join(home, "Downloads")
 }
 
+const downloadsCacheTTL = 5 * time.Second
+
+var downloadsScanFn = func(dir string) ([]downloadEntry, error) {
+	return recentDownloads(dir, 15)
+}
+
 type downloadsCacheEntry struct {
-	items     []downloadEntry
-	err       error
-	timestamp time.Time
+	dir      string
+	items    []downloadEntry
+	err      error
+	lastScan time.Time
+	scanning bool
 }
 
 var (
-	downloadsCacheMu sync.Mutex
-	downloadsCache   = make(map[string]downloadsCacheEntry)
+	downloadsCacheMu  sync.Mutex
+	downloadsCache    = make(map[string]downloadsCacheEntry)
+	downloadsCacheGen uint64
 )
 
 func clearDownloadsCache() {
 	downloadsCacheMu.Lock()
 	defer downloadsCacheMu.Unlock()
 	downloadsCache = make(map[string]downloadsCacheEntry)
+	downloadsCacheGen++
 }
 
-// getCachedDownloads 获取当前状态缓存的最近下载文件列表，5 秒内不重复扫描磁盘。
+// getCachedDownloads 只读当前内存缓存的最近下载文件列表；缓存为空或超过 5 秒 TTL 时
+// 仅派发一次后台 goroutine 扫描磁盘并在完成后调用 s.invalidate()，不在渲染路径同步调 os.ReadDir。
 func getCachedDownloads(s *chatState) ([]downloadEntry, error) {
-	downloadsCacheMu.Lock()
-	defer downloadsCacheMu.Unlock()
-
-	now := time.Now()
 	dir := downloadsDir()
-	if entry, ok := downloadsCache[dir]; ok && now.Sub(entry.timestamp) < 5*time.Second {
-		return entry.items, entry.err
-	}
+	now := time.Now()
 
-	items, err := recentDownloads(dir, 15)
-	downloadsCache[dir] = downloadsCacheEntry{
-		items:     items,
-		err:       err,
-		timestamp: now,
+	downloadsCacheMu.Lock()
+	entry, ok := downloadsCache[dir]
+	fresh := ok && entry.dir == dir && !entry.lastScan.IsZero() && now.Sub(entry.lastScan) < downloadsCacheTTL
+	var items []downloadEntry
+	var err error
+	if ok && entry.dir == dir && !entry.lastScan.IsZero() {
+		items = append([]downloadEntry(nil), entry.items...)
+		err = entry.err
 	}
+	if !fresh && !entry.scanning {
+		entry.dir = dir
+		entry.scanning = true
+		downloadsCache[dir] = entry
+		gen := downloadsCacheGen
+		scanFn := downloadsScanFn
+		go func() {
+			scanned, scanErr := scanFn(dir)
+			downloadsCacheMu.Lock()
+			if downloadsCacheGen == gen {
+				cur := downloadsCache[dir]
+				cur.dir = dir
+				cur.items = scanned
+				cur.err = scanErr
+				cur.lastScan = time.Now()
+				cur.scanning = false
+				downloadsCache[dir] = cur
+			}
+			downloadsCacheMu.Unlock()
+			if s != nil {
+				s.invalidate()
+			}
+		}()
+	}
+	downloadsCacheMu.Unlock()
 	return items, err
 }
 

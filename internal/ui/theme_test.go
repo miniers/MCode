@@ -159,8 +159,8 @@ func TestThemeRuntimeDefaultPalette(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		want := []ui.Color{
 			ui.Hex("#F5F5F3"), ui.Hex("#FAFAF9"), ui.Hex("#FFFFFF"), ui.Hex("#FFFFFF"), ui.Hex("#FFFFFF"),
-			ui.RGBA(0, 0, 0, 0.85), ui.RGBA(0, 0, 0, 0.60), ui.RGBA(0, 0, 0, 0.38), ui.Hex("#007AFF"), ui.Hex("#FF3B30"), ui.Hex("#FF9500"),
-			ui.Hex("#28CD41"), ui.Hex("#C9A227"), ui.Hex("#AF52DE"), ui.RGBA(0, 0, 0, 0.14), ui.RGBA(0, 0, 0, 0.22),
+			ui.RGBA(0, 0, 0, 0.85), ui.RGBA(0, 0, 0, 0.60), ui.RGBA(0, 0, 0, 0.58), ui.Hex("#0062CC"), ui.Hex("#C82333"), ui.Hex("#A85500"),
+			ui.Hex("#167936"), ui.Hex("#8A6700"), ui.Hex("#8A2BB8"), ui.RGBA(0, 0, 0, 0.14), ui.RGBA(0, 0, 0, 0.22),
 		}
 		if dark {
 			want = []ui.Color{

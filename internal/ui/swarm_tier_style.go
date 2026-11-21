@@ -73,7 +73,7 @@ func renderSwarmTierChipColored(c *ui.Context, key string, name string, col ui.C
 }
 
 // swarmModelCapsuleText 生成档位或模型选择胶囊的简短展示文案。
-// 模型为空时显示“跟随会话 Bee 模型”；指定模型后追加推理强度（如 · 高）与快速模式标记 (⚡)。
+// 模型为空时显示“跟随会话 Bee 模型”；指定模型后追加推理强度（如 · 高）与快速模式标记（· 极速）。
 func swarmModelCapsuleText(providers []ProviderInfo, provider, model, effort string, fast bool) string {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -89,7 +89,7 @@ func swarmModelCapsuleText(providers []ProviderInfo, provider, model, effort str
 		dispName = dispName + " · " + effortLabel(effort)
 	}
 	if fast {
-		dispName = dispName + " ⚡"
+		dispName = dispName + " · 极速"
 	}
 	return dispName
 }

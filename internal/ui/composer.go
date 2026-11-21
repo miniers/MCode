@@ -535,7 +535,9 @@ func renderDraftThreadMentions(c *ui.Context, s *chatState, mentions []ThreadMen
 					Border(Hairline, ThemeBorder(c)).
 					AlignItems(ui.Center).
 					Children(func() {
-						ui.Text(c, "💬").FontSize(uiFont(TypeCaption))
+						ui.Icon(c, IconMessageSquarePlus()).
+							Size(IconSM, IconSM).
+							TextColor(ThemeSecondaryText(c))
 						ui.Text(c, draftThreadMentionLabel(title)).
 							FontSize(uiFont(TypeFootnote)).
 							TextColor(ThemePrimaryText(c))

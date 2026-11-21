@@ -415,7 +415,7 @@ func renderGitBranchPopoverBody(c *ui.Context, s *chatState, threadID string, wi
 									ui.Text(c, fmt.Sprintf("↓%d", item.branch.Behind)).FontSize(uiFont(TypeCaption)).TextColor(ThemeWarning(c))
 								}
 								if item.branch.UpstreamGone {
-									ui.Text(c, "⚠").Tooltip("上游已删除").TextColor(ThemeWarning(c))
+									ui.Icon(c, IconAlertTriangle()).Size(IconSM, IconSM).TextColor(ThemeWarning(c)).Tooltip("上游已删除")
 								}
 								if branchOtherWorktree(item.branch, state.WorkDir) {
 									ui.Text(c, "◫").Tooltip(item.branch.WorktreePath)

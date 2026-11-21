@@ -19,24 +19,24 @@ var (
 	ColorTextSecondaryLight = ui.RGBA(0, 0, 0, 0.60)       // 近似 #4D4D4D
 	ColorTextSecondaryDark  = ui.RGBA(255, 255, 255, 0.60) // 近似 #B3B3B3
 
-	// 三级文本色 (38% tertiaryLabel)：读数、次要辅助信息
-	ColorTextTertiaryLight = ui.RGBA(0, 0, 0, 0.38)
+	// 三级文本色 (58% 浅色 / 38% 深色)：读数、次要辅助信息
+	ColorTextTertiaryLight = ui.RGBA(0, 0, 0, 0.58)
 	ColorTextTertiaryDark  = ui.RGBA(255, 255, 255, 0.38)
 
 	// 强调色 (accent)
-	ColorAccentLight = ui.Hex("#007AFF") // 系统强调色 (浅色默认)
+	ColorAccentLight = ui.Hex("#0062CC") // 系统强调色 (浅色默认，WCAG AA >= 4.5:1)
 	ColorAccentDark  = ui.Hex("#0A84FF") // 系统强调色 (深色默认)
 
 	// 状态语义色
-	ColorDangerLight  = ui.Hex("#FF3B30") // 危险/失败/删除 (浅色)
+	ColorDangerLight  = ui.Hex("#C82333") // 危险/失败/删除 (浅色，WCAG AA >= 4.5:1)
 	ColorDangerDark   = ui.Hex("#FF453A") // 危险/失败/删除 (深色)
-	ColorWarningLight = ui.Hex("#FF9500") // 警告/审批等待 (#FF9500)
+	ColorWarningLight = ui.Hex("#A85500") // 警告/审批等待 (#A85500，WCAG AA >= 4.5:1)
 	ColorWarningDark  = ui.Hex("#FF9F0A") // 警告/审批等待 (#FF9F0A)
-	ColorSuccessLight = ui.Hex("#28CD41") // 成功/已完成归档 (浅色)
+	ColorSuccessLight = ui.Hex("#167936") // 成功/已完成归档 (浅色，WCAG AA >= 4.5:1)
 	ColorSuccessDark  = ui.Hex("#30D158") // 成功/已完成归档 (深色)
-	ColorCautionLight = ui.Hex("#C9A227") // 配额黄色档 (配额使用过半, 浅色)
+	ColorCautionLight = ui.Hex("#8A6700") // 配额黄色档 (配额使用过半, 浅色，WCAG AA >= 4.5:1)
 	ColorCautionDark  = ui.Hex("#E8C15A") // 配额黄色档 (配额使用过半, 深色)
-	ColorPlanLight    = ui.Hex("#AF52DE") // Plan 模式高亮 (系统紫，浅色)
+	ColorPlanLight    = ui.Hex("#8A2BB8") // Plan 模式高亮 (系统紫，浅色，WCAG AA >= 4.5:1)
 	ColorPlanDark     = ui.Hex("#BF5AF2") // Plan 模式高亮 (系统紫，深色)
 
 	// 交互叠加态 (8% hover, 12% selected)
@@ -454,7 +454,7 @@ func ThemeSecondaryText(c *ui.Context) ui.Color {
 	return themeColor(c, "TextSecondary", paletteOf(c).TextSecondary)
 }
 
-// ThemeAccent 返回当前模式的强调色 (#0A84FF 深色 / #007AFF 浅色)。
+// ThemeAccent 返回当前模式的强调色 (#0A84FF 深色 / #0062CC 浅色)。
 func ThemeAccent(c *ui.Context) ui.Color {
 	p := paletteOf(c)
 	if p.AccentSystem && c != nil {
@@ -468,21 +468,21 @@ func ThemeAccent(c *ui.Context) ui.Color {
 // ThemeDanger 返回当前模式的危险色。
 func ThemeDanger(c *ui.Context) ui.Color { return themeColor(c, "Danger", paletteOf(c).Danger) }
 
-// ThemeWarning 返回当前模式的警告/审批等待色 (#FF9500 / #FF9F0A)。
+// ThemeWarning 返回当前模式的警告/审批等待色 (#A85500 / #FF9F0A)。
 func ThemeWarning(c *ui.Context) ui.Color { return themeColor(c, "Warning", paletteOf(c).Warning) }
 
 // ThemeSuccess 返回当前模式的成功/完成色。
 func ThemeSuccess(c *ui.Context) ui.Color { return themeColor(c, "Success", paletteOf(c).Success) }
 
-// ThemeCaution 返回当前模式的配额黄色档色 (#C9A227 / #E8C15A)：配额使用过半但尚未进入警告。
+// ThemeCaution 返回当前模式的配额黄色档色 (#8A6700 / #E8C15A)：配额使用过半但尚未进入警告。
 func ThemeCaution(c *ui.Context) ui.Color { return themeColor(c, "Caution", paletteOf(c).Caution) }
 
-// ThemeTertiaryText 返回当前模式的三级文本色 (38% 透明度)，用于低优先级的辅助读数。
+// ThemeTertiaryText 返回当前模式的三级文本色 (58% 浅色 / 38% 深色)，用于低优先级的辅助读数。
 func ThemeTertiaryText(c *ui.Context) ui.Color {
 	return themeColor(c, "TextTertiary", paletteOf(c).TextTertiary)
 }
 
-// ThemePlan 返回当前模式的 Plan 模式高亮紫色 (#AF52DE / #BF5AF2)。
+// ThemePlan 返回当前模式的 Plan 模式高亮紫色 (#8A2BB8 / #BF5AF2)。
 func ThemePlan(c *ui.Context) ui.Color { return themeColor(c, "Plan", paletteOf(c).Plan) }
 
 // ThemeWindowBg 返回当前模式的窗口底色。

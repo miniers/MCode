@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -661,20 +662,18 @@ func TestHeaderOpenInSkipsAppStatWhileClosed(t *testing.T) {
 
 	origStat := openInStatFn
 	t.Cleanup(func() { openInStatFn = origStat })
-	stats := 0
+	var stats atomic.Int32
 	openInStatFn = func(path string) bool {
-		stats++
+		stats.Add(1)
 		return path == "/Applications/Cursor.app"
 	}
 	tt.Frame()
-	if stats != 0 {
-		t.Fatalf("菜单关闭时检测应用 %d 次，期望 0 次", stats)
+	if got := stats.Load(); got != 0 {
+		t.Fatalf("菜单关闭时检测应用 %d 次，期望 0 次", got)
 	}
 	getChatHeaderState(s).openInMenuOpen = true
 	tt.Frame()
-	if stats == 0 || !tt.HasText("Cursor") {
-		t.Fatalf("菜单打开时检测次数 = %d，菜单文本 = %q", stats, tt.Texts())
-	}
+	waitFor(t, tt, func() bool { return stats.Load() > 0 && tt.HasText("Cursor") })
 }
 
 // 打开方式菜单：点访达传目录，点应用传 -a 加应用路径，复制路径写入剪贴板并 toast。
@@ -713,7 +712,7 @@ func TestChatHeaderOpenInMenu(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("访达")
-		return ok
+		return ok && tt.HasText("Cursor")
 	})
 	if !tt.HasText("访达") || !tt.HasText("Cursor") {
 		t.Fatalf("打开方式列表不完整, texts: %q", tt.Texts())

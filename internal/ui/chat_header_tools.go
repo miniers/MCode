@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
@@ -253,6 +254,106 @@ func installedOpenInApps(wb config.WorkbenchConfig, statFn func(string) bool) []
 	return apps
 }
 
+const openInAppsCacheTTL = 30 * time.Second
+
+type openInAppsCacheEntry struct {
+	fingerprint string
+	apps        []openInApp
+	hasValue    bool
+	updatedAt   time.Time
+	probing     bool
+}
+
+var (
+	openInAppsCacheMu  sync.Mutex
+	openInAppsCache    = make(map[*chatState]*openInAppsCacheEntry)
+	openInAppsCacheGen uint64
+)
+
+func clearOpenInAppsCache() {
+	openInAppsCacheMu.Lock()
+	defer openInAppsCacheMu.Unlock()
+	openInAppsCache = make(map[*chatState]*openInAppsCacheEntry)
+	openInAppsCacheGen++
+}
+
+func openInAppsConfigFingerprint(wb config.WorkbenchConfig, goos string) string {
+	apps := wb.OpenInAppsOrDefault()
+	var b strings.Builder
+	b.WriteString(goos)
+	for _, app := range apps {
+		b.WriteByte('|')
+		b.WriteString(app.Name)
+		b.WriteByte(0)
+		b.WriteString(app.AppPath)
+		b.WriteByte(0)
+		b.WriteString(app.BundleID)
+		b.WriteByte(0)
+		if app.Enabled {
+			b.WriteByte('1')
+		} else {
+			b.WriteByte('0')
+		}
+	}
+	return b.String()
+}
+
+// cachedOpenInApps 读取内存缓存的可用「打开方式」列表；缓存未命中或超过 30 秒 TTL 时
+// 仅派发一次后台 goroutine 探测本机应用并调用 s.invalidate()，不在渲染路径同步执行 os.Stat。
+func cachedOpenInApps(s *chatState, wb config.WorkbenchConfig) []openInApp {
+	fp := openInAppsConfigFingerprint(wb, openInGOOS)
+	now := time.Now()
+
+	openInAppsCacheMu.Lock()
+	entry := openInAppsCache[s]
+	if entry == nil {
+		entry = &openInAppsCacheEntry{}
+		openInAppsCache[s] = entry
+	}
+	var cached []openInApp
+	sameFP := entry.hasValue && entry.fingerprint == fp
+	if sameFP {
+		cached = append([]openInApp(nil), entry.apps...)
+	}
+	fresh := sameFP && now.Sub(entry.updatedAt) < openInAppsCacheTTL
+	if !fresh && !entry.probing {
+		entry.probing = true
+		statFn := openInStatFn
+		gen := openInAppsCacheGen
+		go func() {
+			probed := installedOpenInApps(wb, statFn)
+			openInAppsCacheMu.Lock()
+			if openInAppsCacheGen == gen {
+				if cur := openInAppsCache[s]; cur == entry {
+					cur.fingerprint = fp
+					cur.apps = probed
+					cur.hasValue = true
+					cur.updatedAt = time.Now()
+					cur.probing = false
+				}
+			}
+			openInAppsCacheMu.Unlock()
+			if s != nil {
+				s.invalidate()
+			}
+		}()
+	}
+	openInAppsCacheMu.Unlock()
+	return cached
+}
+
+func cachedOpenInAppsFresh(s *chatState, wb config.WorkbenchConfig) ([]openInApp, bool) {
+	fp := openInAppsConfigFingerprint(wb, openInGOOS)
+	now := time.Now()
+	openInAppsCacheMu.Lock()
+	defer openInAppsCacheMu.Unlock()
+	entry := openInAppsCache[s]
+	if entry != nil && entry.hasValue && entry.fingerprint == fp && now.Sub(entry.updatedAt) < openInAppsCacheTTL {
+		return append([]openInApp(nil), entry.apps...), true
+	}
+	return nil, false
+}
+
 func (s *chatState) openInWithApp(app openInApp, dir string) {
 	if err := openInWithApp(app, dir); err != nil {
 		s.setToast("打开失败: " + err.Error())
@@ -265,7 +366,12 @@ func openInDefaultEditor(s *chatState, dir string) {
 	if strings.TrimSpace(dir) == "" {
 		return
 	}
-	if apps := installedOpenInApps(currentWorkbenchConfig(s), openInStatFn); len(apps) > 0 {
+	wb := currentWorkbenchConfig(s)
+	apps, ok := cachedOpenInAppsFresh(s, wb)
+	if !ok {
+		apps = installedOpenInApps(wb, openInStatFn)
+	}
+	if len(apps) > 0 {
 		s.openInWithApp(apps[0], dir)
 		return
 	}
@@ -309,7 +415,7 @@ func renderHeaderOpenInButton(c *ui.Context, s *chatState, threadID string) {
 	appPopover(c.Key("chat-header-open-in-popover-unified"), trigger, &hs.openInMenuOpen, func() {
 		hs.openInMenuOpen = false
 	}, func() {
-		apps := installedOpenInApps(currentWorkbenchConfig(s), openInStatFn)
+		apps := cachedOpenInApps(s, currentWorkbenchConfig(s))
 		popoverCard(c, ui.Column(c.Key("chat-header-open-in-menu-unified"))).
 			Gap(Space0).
 			Padding(Space1).

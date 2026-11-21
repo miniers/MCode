@@ -137,6 +137,12 @@ func TestRenderDownloadsPanel_Empty(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderDownloadsPanel(c, s, nil)
 	}, 400, 400)
+	waitFor(t, tt, func() bool {
+		downloadsCacheMu.Lock()
+		e, ok := downloadsCache[dir]
+		downloadsCacheMu.Unlock()
+		return ok && !e.lastScan.IsZero() && !e.scanning
+	})
 
 	if !tt.HasText("最近下载") {
 		t.Fatalf("expected title '最近下载'")
@@ -174,9 +180,7 @@ func TestComposerDownloadFlyout(t *testing.T) {
 		t.Fatalf("窗口参数: %+v", capture.options)
 	}
 	menu := ui.NewTester(popoverTestView(t, entry.services, "composer-downloads-popover"), 360, 500)
-	if !menu.HasText("sample.txt") {
-		t.Fatalf("缺少下载项: %v", menu.Texts())
-	}
+	waitFor(t, menu, func() bool { return menu.HasText("sample.txt") })
 	if err := menu.Click("sample.txt"); err != nil {
 		t.Fatal(err)
 	}
@@ -214,9 +218,7 @@ func TestRenderDownloadsPanel_ClickItemAndFooter(t *testing.T) {
 		renderDownloadsPanel(c, s, onDone)
 	}, 400, 400)
 
-	if !tt.HasText("snap.png") {
-		t.Fatalf("expected file row 'snap.png'")
-	}
+	waitFor(t, tt, func() bool { return tt.HasText("snap.png") })
 
 	// 点击该行
 	if err := tt.Click("snap.png"); err != nil {
@@ -313,8 +315,10 @@ func TestDownloadsPanelScroll(t *testing.T) {
 	tt := ui.NewTesterWith(func(c *ui.Context) {
 		renderDownloadsPanel(c, s, nil)
 	}, 400, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
-	tt.Frame()
-
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("composer-downloads-scroll")
+		return ok
+	})
 	scrollRect, ok := tt.Find("composer-downloads-scroll")
 	if !ok {
 		t.Fatal("缺少最近下载滚动区 composer-downloads-scroll")
