@@ -273,6 +273,7 @@ func (c *Client) ScanWorktrees(ctx context.Context) ([]mcodeui.WorktreeInfo, err
 		return nil, err
 	}
 	inUse := c.worktreeInUseFunc()
+	seenPaths := make(map[string]bool)
 	var out []mcodeui.WorktreeInfo
 	for _, root := range roots {
 		// ctx 已取消或超时：不再对剩余仓库发起扫描，直接返回已收集的结果。
@@ -284,6 +285,11 @@ func (c *Client) ScanWorktrees(ctx context.Context) ([]mcodeui.WorktreeInfo, err
 			continue
 		}
 		for _, it := range items {
+			cleanPath := filepath.Clean(it.Path)
+			if seenPaths[cleanPath] {
+				continue
+			}
+			seenPaths[cleanPath] = true
 			out = append(out, mcodeui.WorktreeInfo{
 				Path:        it.Path,
 				Branch:      it.Branch,
@@ -301,6 +307,7 @@ func (c *Client) ScanWorktrees(ctx context.Context) ([]mcodeui.WorktreeInfo, err
 }
 
 // worktreeRepoRoots 返回全部项目对应的去重 git 仓库根目录。
+// 同一仓库的主目录与附属 worktree 共享相同的 git common dir，按共享 git 目录去重并只保留第一个根。
 func (c *Client) worktreeRepoRoots(ctx context.Context) ([]string, error) {
 	if c.backend == nil {
 		return nil, errors.New("backend 不可用")
@@ -309,14 +316,25 @@ func (c *Client) worktreeRepoRoots(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	runner := c.gitRunner()
 	seen := make(map[string]bool)
 	var roots []string
 	for _, p := range res.Projects {
-		root, err := c.gitRunner().RepoRoot(ctx, p.Path)
-		if err != nil || seen[root] {
+		root, err := runner.RepoRoot(ctx, p.Path)
+		if err != nil {
 			continue
 		}
-		seen[root] = true
+		dedupKey := root
+		if commonDir, cerr := runner.GitCommonDir(ctx, root); cerr == nil && commonDir != "" {
+			dedupKey = commonDir
+			if real, rerr := filepath.EvalSymlinks(commonDir); rerr == nil {
+				dedupKey = filepath.Clean(real)
+			}
+		}
+		if seen[dedupKey] {
+			continue
+		}
+		seen[dedupKey] = true
 		roots = append(roots, root)
 	}
 	return roots, nil

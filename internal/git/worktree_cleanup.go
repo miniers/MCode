@@ -64,9 +64,9 @@ type WorktreeScanItem struct {
 	SizeBytes int64
 }
 
-// MainRepoRoot 若 root 本身是 linked worktree，则经 --git-common-dir 回溯到主仓库根目录。
-func (r *Runner) MainRepoRoot(ctx context.Context, root string) (string, error) {
-	out, err := r.run(ctx, root, nil, "rev-parse", "--git-common-dir")
+// GitCommonDir 返回 dir 所属仓库共享 git 目录（--git-common-dir）的绝对路径并 Clean。
+func (r *Runner) GitCommonDir(ctx context.Context, dir string) (string, error) {
+	out, err := r.run(ctx, dir, nil, "rev-parse", "--git-common-dir")
 	if err != nil {
 		return "", ErrNotRepo
 	}
@@ -75,9 +75,21 @@ func (r *Runner) MainRepoRoot(ctx context.Context, root string) (string, error) 
 		return "", ErrNotRepo
 	}
 	if !filepath.IsAbs(common) {
-		common = filepath.Join(root, common)
+		base := dir
+		if absDir, absErr := filepath.Abs(dir); absErr == nil {
+			base = absDir
+		}
+		common = filepath.Join(base, common)
 	}
-	common = filepath.Clean(common)
+	return filepath.Clean(common), nil
+}
+
+// MainRepoRoot 若 root 本身是 linked worktree，则经 --git-common-dir 回溯到主仓库根目录。
+func (r *Runner) MainRepoRoot(ctx context.Context, root string) (string, error) {
+	common, err := r.GitCommonDir(ctx, root)
+	if err != nil {
+		return "", err
+	}
 	if filepath.Base(common) == ".git" {
 		return filepath.Dir(common), nil
 	}

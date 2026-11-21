@@ -19,7 +19,7 @@ var sheetWorktree = settingsSheet{
 	ID:    "worktree",
 	Title: "Worktree 清理",
 	Body: func(c *ui.Context, st *SettingsState) {
-		renderArchiveWorktreeSection(c, st)
+		renderArchiveWorktreeSectionWithTitle(c, st, "")
 	},
 }
 

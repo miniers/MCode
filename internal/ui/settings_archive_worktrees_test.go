@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func TestArchiveWtItemState(t *testing.T) {
@@ -174,4 +177,128 @@ func TestResetArchiveWorktreeState(t *testing.T) {
 			globalArchiveWorktreeState.confirmDirty, len(globalArchiveWorktreeState.items),
 			len(globalArchiveWorktreeState.selected))
 	}
+}
+
+func TestArchiveWorktreeCheckbox(t *testing.T) {
+	t.Run("SingleSelectable", func(t *testing.T) {
+		resetArchiveWorktreeStateForTest()
+		t.Cleanup(resetArchiveWorktreeStateForTest)
+
+		const wtPath = "/tmp/wt-alpha"
+		globalArchiveWorktreeState.mu.Lock()
+		globalArchiveWorktreeState.loaded = true
+		globalArchiveWorktreeState.items = []archiveWorktreeItem{
+			{Path: wtPath, Branch: "feat/alpha", RepoRoot: "/tmp/repo", SizeBytes: 1024, Clean: true},
+		}
+		globalArchiveWorktreeState.mu.Unlock()
+
+		st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+		openSettingsSheet(st, "worktree", "")
+		t.Cleanup(func() { closeSettingsSheet(st) })
+
+		tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreeSheet(c, st, sheetWorktree) }, 1000, 800)
+		waitFor(t, tt, func() bool { return tt.HasText(wtPath) })
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+
+		// sheet 标题与内部 section 不应重复出现「Worktree 清理」。
+		titleCount := 0
+		for _, txt := range tt.Texts() {
+			if txt == "Worktree 清理" {
+				titleCount++
+			}
+		}
+		if titleCount != 1 {
+			t.Fatalf("Worktree sheet 中「Worktree 清理」标题出现 %d 次，期望 1 次: %v", titleCount, tt.Texts())
+		}
+
+		// 未勾选前「清理所选」处于禁用态，点击不会弹出确认框。
+		_ = tt.Click("清理所选")
+		tt.Frame()
+		globalArchiveWorktreeState.mu.Lock()
+		confirmBefore := globalArchiveWorktreeState.confirmOpen
+		globalArchiveWorktreeState.mu.Unlock()
+		if confirmBefore {
+			t.Fatal("未勾选任何 worktree 时「清理所选」应保持禁用")
+		}
+
+		if err := tt.Click("wt-alpha"); err != nil {
+			t.Fatalf("点击 checkbox 失败: %v", err)
+		}
+		tt.Frame()
+
+		globalArchiveWorktreeState.mu.Lock()
+		checked := globalArchiveWorktreeState.selected[wtPath]
+		globalArchiveWorktreeState.mu.Unlock()
+		if !checked {
+			t.Fatal("点击 checkbox 后 globalArchiveWorktreeState.selected 应变为 true")
+		}
+
+		if err := tt.Click("清理所选"); err != nil {
+			t.Fatalf("点击「清理所选」失败: %v", err)
+		}
+		tt.Frame()
+		globalArchiveWorktreeState.mu.Lock()
+		confirmAfter := globalArchiveWorktreeState.confirmOpen
+		globalArchiveWorktreeState.mu.Unlock()
+		if !confirmAfter || !tt.HasText("确认删除") {
+			t.Fatalf("勾选后「清理所选」应变为可用并弹出确认框，texts: %v", tt.Texts())
+		}
+	})
+
+	t.Run("BackendDuplicatePaths", func(t *testing.T) {
+		resetArchiveWorktreeStateForTest()
+		t.Cleanup(resetArchiveWorktreeStateForTest)
+
+		const dupPath = "/tmp/wt-dup"
+		fake := NewFakeClient()
+		fake.scanWorktreesResult = []WorktreeInfo{
+			{Path: dupPath, Branch: "feat/dup", ProjectPath: "/tmp/repo", SizeBytes: 2048, Clean: true},
+			{Path: dupPath, Branch: "feat/dup", ProjectPath: "/tmp/repo", SizeBytes: 2048, Clean: true},
+		}
+
+		st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
+		openSettingsSheet(st, "worktree", "")
+		t.Cleanup(func() { closeSettingsSheet(st) })
+
+		tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreeSheet(c, st, sheetWorktree) }, 1000, 800)
+		waitFor(t, tt, func() bool {
+			globalArchiveWorktreeState.mu.Lock()
+			ready := globalArchiveWorktreeState.loaded && !globalArchiveWorktreeState.scanning
+			globalArchiveWorktreeState.mu.Unlock()
+			return ready && tt.HasText(dupPath)
+		})
+		tt.Advance(300 * time.Millisecond)
+		tt.Frame()
+
+		globalArchiveWorktreeState.mu.Lock()
+		itemCount := len(globalArchiveWorktreeState.items)
+		globalArchiveWorktreeState.mu.Unlock()
+		if itemCount != 1 {
+			t.Fatalf("后端返回重复路径时 UI 应去重为 1 项，实际 %d 项", itemCount)
+		}
+
+		if err := tt.Click("wt-dup"); err != nil {
+			t.Fatalf("点击重复路径去重后的 checkbox 失败: %v", err)
+		}
+		tt.Frame()
+
+		globalArchiveWorktreeState.mu.Lock()
+		checked := globalArchiveWorktreeState.selected[dupPath]
+		globalArchiveWorktreeState.mu.Unlock()
+		if !checked {
+			t.Fatal("后端返回重复路径时点击 checkbox 后 selected 应变为 true")
+		}
+
+		if err := tt.Click("清理所选"); err != nil {
+			t.Fatalf("点击「清理所选」失败: %v", err)
+		}
+		tt.Frame()
+		globalArchiveWorktreeState.mu.Lock()
+		confirmOpen := globalArchiveWorktreeState.confirmOpen
+		globalArchiveWorktreeState.mu.Unlock()
+		if !confirmOpen || !tt.HasText("确认删除") {
+			t.Fatalf("勾选后「清理所选」应变为可用并弹出确认框，texts: %v", tt.Texts())
+		}
+	})
 }

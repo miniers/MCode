@@ -212,7 +212,13 @@ func scanProjectWorktrees(client Client, dataDir string) ([]archiveWorktreeItem,
 		return nil, fmt.Errorf("扫描超时（超过 %d 秒），请稍后重试", int(archiveWorktreeScanTimeout.Seconds()))
 	}
 	items := make([]archiveWorktreeItem, 0, len(infos))
+	seen := make(map[string]bool, len(infos))
 	for _, it := range infos {
+		clean := filepath.Clean(it.Path)
+		if seen[clean] {
+			continue
+		}
+		seen[clean] = true
 		items = append(items, archiveWorktreeItem{
 			Path:      it.Path,
 			Branch:    it.Branch,
@@ -318,6 +324,11 @@ func closeArchiveWorktreeConfirm(st *SettingsState) {
 // renderArchiveWorktreeSection 渲染归档页「Worktree 清理」区块：
 // 列出各项目遗留的 worktree（含孤立目录、已合入、有未提交改动），勾选后确认清理。
 func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
+	renderArchiveWorktreeSectionWithTitle(c, st, "Worktree 清理")
+}
+
+// renderArchiveWorktreeSectionWithTitle 渲染「Worktree 清理」区块，允许按入口控制是否显示卡片外小标题。
+func renderArchiveWorktreeSectionWithTitle(c *ui.Context, st *SettingsState, title string) {
 	globalArchiveWorktreeState.mu.Lock()
 	loaded := globalArchiveWorktreeState.loaded
 	scanning := globalArchiveWorktreeState.scanning
@@ -343,7 +354,7 @@ func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
 		loadArchiveWorktrees(st)
 	}
 
-	renderSettingsSection(c, "sec-archive-worktrees", "Worktree 清理", func() {
+	renderSettingsSection(c, "sec-archive-worktrees", title, func() {
 		ui.Row(c.Key("archive-wt-header")).
 			Padding(settingsCardPad, Space5).
 			Gap(Space4).
@@ -416,10 +427,18 @@ func renderArchiveWorktreeSection(c *ui.Context, st *SettingsState) {
 				Padding(settingsCompactPadX, Space5)
 		default:
 			ui.Column(c.Key("archive-wt-list")).Gap(Space0).Padding(0, 0, Space2, 0).Children(func() {
-				for i, it := range items {
-					if i > 0 {
-						renderSettingsDivider(c, "div-archive-wt-"+it.Path)
+				rendered := make(map[string]bool, len(items))
+				rowIdx := 0
+				for _, it := range items {
+					cleanPath := filepath.Clean(it.Path)
+					if rendered[cleanPath] {
+						continue
 					}
+					rendered[cleanPath] = true
+					if rowIdx > 0 {
+						renderSettingsDivider(c, "div-archive-wt-"+cleanPath)
+					}
+					rowIdx++
 					renderArchiveWorktreeRow(c, st, it, selected[it.Path])
 				}
 			})
@@ -490,6 +509,7 @@ func renderArchiveWorktreeRow(c *ui.Context, st *SettingsState, it archiveWorktr
 				if st != nil {
 					st.invalidate()
 				}
+				c.Invalidate()
 			}
 
 			ui.Column(c.Key(key + "-info")).Grow(1).Gap(Space0).Children(func() {
