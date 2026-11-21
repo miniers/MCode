@@ -1,12 +1,12 @@
 // 会话菜单页面栈的页面模型：种类、路由映射、标题与尺寸分类。
-// 路由只覆盖五个详情页（agents/review/git/scripts/files），其余页面不改 hash。
+// 路由覆盖七个详情页（agents/review/git/scripts/files/context/logs），其余页面不改 hash。
 
 export type ThreadMenuPageKind =
   | 'main' | 'swarm' | 'workspace' | 'export'
-  | 'agents' | 'review' | 'git' | 'scripts' | 'files'
+  | 'agents' | 'review' | 'git' | 'scripts' | 'files' | 'context' | 'logs'
   | 'mcp' | 'worktree' | 'save-task' | 'forward' | 'move-to-project';
 
-export type ThreadSubview = 'agents' | 'review' | 'git' | 'scripts' | 'files';
+export type ThreadSubview = 'agents' | 'review' | 'git' | 'scripts' | 'files' | 'context' | 'logs';
 
 export interface ThreadMenuPageSpec {
   kind: ThreadMenuPageKind;
@@ -54,6 +54,8 @@ export const MENU_PAGE_TITLES: Record<ThreadMenuPageKind, string> = {
   git: 'Git 工作区',
   scripts: '运行脚本',
   files: '工作区文件',
+  context: '项目文档',
+  logs: '实时日志',
   mcp: 'MCP 服务器',
   worktree: '移到 worktree',
   'save-task': '存为看板任务',
@@ -74,6 +76,10 @@ export function routeForPage(page: ThreadMenuPageSpec): string | null {
       return '/scripts';
     case 'files':
       return page.filePath ? `/files/${encodeURIComponent(page.filePath)}` : '/files';
+    case 'context':
+      return '/context';
+    case 'logs':
+      return '/logs';
     default:
       return null;
   }

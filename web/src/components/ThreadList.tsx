@@ -30,6 +30,7 @@ import {
   useBulkThreadsApi,
   type BulkThreadsAction
 } from './BulkThreadsSheet';
+import { ProjectContextSheet } from './ProjectContextSheet';
 import { useAttentionInbox } from '../context/remoteAttentionApi';
 import { useOpenDecisionCount } from '../hooks/useOpenDecisionCount';
 import {
@@ -917,13 +918,17 @@ function FilterChip({
 
 function HomeMoreMenu({
   canBulkOrganize,
+  contextSupported,
   filter,
   onBulkOrganize,
+  onOpenContextDocs,
   onFilterChange
 }: {
   canBulkOrganize: boolean;
+  contextSupported: boolean;
   filter: ThreadFilter;
   onBulkOrganize: () => void;
+  onOpenContextDocs: () => void;
   onFilterChange: (filter: ThreadFilter) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -955,6 +960,11 @@ function HomeMoreMenu({
           {canBulkOrganize && (
             <button type="button" className="scope-menu__item" role="menuitem" onClick={() => { setOpen(false); onBulkOrganize(); }}>
               <span className="scope-menu__title">整理</span>
+            </button>
+          )}
+          {contextSupported && (
+            <button type="button" className="scope-menu__item" role="menuitem" onClick={() => { setOpen(false); onOpenContextDocs(); }}>
+              <span className="scope-menu__title">项目文档</span>
             </button>
           )}
           <button type="button" className="scope-menu__item" role="menuitemradio" aria-checked={filter === 'archived'} onClick={() => { setOpen(false); onFilterChange(filter === 'archived' ? 'all' : 'archived'); }}>
@@ -1184,6 +1194,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
   const [createProjectID, setCreateProjectID] = useState(projectID ?? chatsProject(projects)?.id ?? '');
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [contextDocsOpen, setContextDocsOpen] = useState(false);
   const [bulkNotice, setBulkNotice] = useState<{
     message: string;
     undoToken?: string;
@@ -1194,6 +1205,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // 消息内容搜索：仅在宿主声明 messages.search 且输入超过 1 个字时启用
   const { call: remoteCall, supportsMethod } = useRemoteCall();
+  const contextSupported = supportsMethod('context.listDocs');
   const messageSearchSupported = supportsMethod('messages.search');
   const messageNeedle = query.trim();
   const [messageHits, setMessageHits] = useState<RemoteMessageSearchHit[]>([]);
@@ -1600,8 +1612,10 @@ export const ThreadList: React.FC<ThreadListProps> = ({
       {headerActionsSlot && createPortal(
         <HomeMoreMenu
           canBulkOrganize={canBulkOrganize}
+          contextSupported={contextSupported}
           filter={filter}
           onBulkOrganize={() => setBulkOpen(true)}
+          onOpenContextDocs={() => setContextDocsOpen(true)}
           onFilterChange={setFilter}
         />,
         headerActionsSlot
@@ -1920,6 +1934,14 @@ export const ThreadList: React.FC<ThreadListProps> = ({
             setBulkOpen(false);
             setBulkNotice({ message, undoToken, action });
           }}
+        />
+      )}
+
+      {contextDocsOpen && (
+        <ProjectContextSheet
+          projectID={projectID}
+          isOpen={contextDocsOpen}
+          onClose={() => setContextDocsOpen(false)}
         />
       )}
 

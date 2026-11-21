@@ -475,6 +475,7 @@ html[data-keyboard-open] .settings-sheet.model-sheet { padding-bottom: 0; }
 /* 宽屏：设置弹层加宽成左右两栏，左栏常驻导航。 */
 @media (min-width: 900px) {
   .settings-sheet.settings-shell--wide { width: min(100%, 880px); height: min(760px, calc(var(--app-height) - 40px)); max-height: calc(var(--app-height) - 40px); align-self: center; border-bottom: 1px solid var(--border); border-radius: 18px; }
+  .settings-sheet.context-sheet-panel { width: min(100%, 880px); height: min(760px, calc(var(--app-height) - 40px)); max-height: calc(var(--app-height) - 40px); align-self: center; border-bottom: 1px solid var(--border); border-radius: 18px; }
   .settings-shell--wide .settings-shell-body { margin-top: 16px; }
   .settings-shell--wide .settings-nav { flex: 0 0 176px; width: 176px; gap: 12px; align-content: start; padding: 0 10px 8px 0; overflow-y: auto; border-right: 1px solid var(--border); }
   .settings-shell--wide .settings-nav-list { border: 0; }

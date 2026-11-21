@@ -10,6 +10,8 @@ export interface MenuRouteCaps {
   gitSupported: boolean;
   scriptsSupported: boolean;
   filesSupported: boolean;
+  contextSupported?: boolean;
+  logsSupported?: boolean;
 }
 
 export function menuBaseForRoute(
@@ -30,6 +32,12 @@ export function menuBaseForRoute(
       break;
     case 'files':
       if (!caps.filesSupported) return null;
+      break;
+    case 'context':
+      if (!caps.contextSupported) return null;
+      break;
+    case 'logs':
+      if (!caps.logsSupported) return null;
       break;
     default:
       break;

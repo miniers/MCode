@@ -19,6 +19,8 @@ import type { ThreadSwarmMode } from './useThreadMetaActions';
 import { useRegenerateThreadTitle, useRemoteMethodSupport } from './useThreadMetaActions';
 import { WorktreeMoveSheetBody } from './WorktreeMoveSheet';
 import { ThreadMCPServersSheetBody } from './ThreadMCPServersSheet';
+import { ProjectContextSheet } from '../ProjectContextSheet';
+import { LiveLogsPanel } from '../LiveLogsPanel';
 import { SheetFrame, nextFocusIndex } from '../sheet/SheetFrame';
 import { MenuGroup, MenuRow } from './menu/MenuRow';
 import { MenuSheetHeader } from './menu/MenuSheetHeader';
@@ -49,8 +51,8 @@ import {
 } from './menu/ThreadMenuMoveToProjectPanel';
 import { chatsProject, moveTargetProjects } from '../../utils/builtinProjects';
 import {
-  ArchiveBoxIcon, ArrowDownIcon, ArrowPathIcon, ArrowUturnRightIcon, CodeBracketIcon,
-  DocumentTextIcon, EyeIcon, FolderIcon, GitBranchIcon, LayoutIcon, ListBulletIcon,
+  ArchiveBoxIcon, ArrowDownIcon, ArrowPathIcon, ArrowUturnRightIcon, BookOpenIcon, CodeBracketIcon,
+  CommandLineIcon, DocumentTextIcon, EyeIcon, FolderIcon, GitBranchIcon, LayoutIcon, ListBulletIcon,
   MoonIcon, PencilIcon, PinIcon, PlayIcon, ServerIcon, SparklesIcon
 } from '../Icons';
 
@@ -474,8 +476,10 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
   const isChatsThread = Boolean(chatsProjectID && latestSummary.projectID === chatsProjectID);
   const showGitRow = gitSupported && !isChatsThread;
   const showWorkspaceRow = !isChatsThread;
+  const contextSupported = supportsMethod('context.listDocs') && Boolean(latestSummary.projectID);
+  const logsSupported = supportsMethod('logs.subscribe');
   const showOpenGroup =
-    swarmSupported || reviewSupported || showGitRow || scriptsSupported || filesSupported;
+    swarmSupported || reviewSupported || showGitRow || scriptsSupported || filesSupported || contextSupported || logsSupported;
   const showSwarmRow = swarmSupported && !swarmState?.isBee;
   const showMcpRow = mcpServersSupported && !latestSummary.isArchived;
   const showSaveTaskRow =
@@ -613,6 +617,12 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
                     )}
                     {filesSupported && (
                       <MenuRow icon={<FolderIcon className="h-4 w-4" />} label="文件" chevron onClick={() => pushPage({ kind: 'files' })} />
+                    )}
+                    {contextSupported && (
+                      <MenuRow icon={<BookOpenIcon className="h-4 w-4" />} label="项目文档" chevron onClick={() => pushPage({ kind: 'context' })} />
+                    )}
+                    {logsSupported && (
+                      <MenuRow icon={<CommandLineIcon className="h-4 w-4" />} label="实时日志" chevron onClick={() => pushPage({ kind: 'logs' })} />
                     )}
                   </MenuGroup>
                 )}
@@ -809,6 +819,26 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
                 `已移到 worktree：${result.branch}${transferred ? ` · 转移 ${result.transferredFiles} 个文件` : ''}`
               );
             }}
+          />
+        );
+        break;
+      case 'context':
+        body = (
+          <ProjectContextSheet
+            ref={handleRefFor(page.id)}
+            projectID={latestSummary.projectID || null}
+            embedded
+            onClose={dismissTop}
+          />
+        );
+        break;
+      case 'logs':
+        body = (
+          <LiveLogsPanel
+            ref={handleRefFor(page.id)}
+            threadID={threadID}
+            embedded
+            onClose={dismissTop}
           />
         );
         break;

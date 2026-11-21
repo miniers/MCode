@@ -112,7 +112,9 @@ const routedPages: ThreadMenuPageSpec[] = [
   { kind: 'review' },
   { kind: 'git' },
   { kind: 'scripts' },
-  { kind: 'files', filePath: 'web/src/App.tsx' }
+  { kind: 'files', filePath: 'web/src/App.tsx' },
+  { kind: 'context' },
+  { kind: 'logs' }
 ];
 
 for (const page of routedPages) {

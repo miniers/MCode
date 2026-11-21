@@ -7,14 +7,18 @@ const NO_CAPS: MenuRouteCaps = {
   reviewSupported: false,
   gitSupported: false,
   scriptsSupported: false,
-  filesSupported: false
+  filesSupported: false,
+  contextSupported: false,
+  logsSupported: false
 };
 
 const ALL_CAPS: MenuRouteCaps = {
   reviewSupported: true,
   gitSupported: true,
   scriptsSupported: true,
-  filesSupported: true
+  filesSupported: true,
+  contextSupported: true,
+  logsSupported: true
 };
 
 function assertKind(actual: { kind: string } | null, expected: string | null, what: string): void {
@@ -42,6 +46,10 @@ assertKind(menuBaseForRoute('git', undefined, ALL_CAPS), 'git', 'Git 能力开�
 assertKind(menuBaseForRoute('scripts', undefined, { ...ALL_CAPS, scriptsSupported: false }), null, '脚本能力关闭时的栈底');
 assertKind(menuBaseForRoute('scripts', undefined, ALL_CAPS), 'scripts', '脚本能力开启时的栈底');
 assertKind(menuBaseForRoute('files', undefined, { ...ALL_CAPS, filesSupported: false }), null, '文件能力关闭时的栈底');
+assertKind(menuBaseForRoute('context', undefined, { ...ALL_CAPS, contextSupported: false }), null, '项目文档能力关闭时的栈底');
+assertKind(menuBaseForRoute('context', undefined, ALL_CAPS), 'context', '项目文档能力开启时的栈底');
+assertKind(menuBaseForRoute('logs', undefined, { ...ALL_CAPS, logsSupported: false }), null, '实时日志能力关闭时的栈底');
+assertKind(menuBaseForRoute('logs', undefined, ALL_CAPS), 'logs', '实时日志能力开启时的栈底');
 
 // files：带路径时原样透传给页面（路由编码由 routeForPage 负责）。
 const filesPage = menuBaseForRoute('files', 'src/菜单 a.tsx', ALL_CAPS);

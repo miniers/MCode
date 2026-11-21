@@ -13,7 +13,7 @@ export type Route =
   | {
       kind: 'thread';
       threadID: string;
-      subview?: 'agents' | 'review' | 'git' | 'files' | 'scripts';
+      subview?: 'agents' | 'review' | 'git' | 'files' | 'scripts' | 'context' | 'logs';
       filePath?: string;
       /** 推送点开时要定位的消息与审批请求，仅用于一次性跳转。 */
       messageID?: string;
@@ -76,13 +76,13 @@ export function parseRoute(hash: string): Route {
       return { kind: 'home' };
     }
   }
-  const workspaceMatch = value.match(/^\/t\/([^/]+)\/(git|files|scripts)(?:\/([^/]+))?$/);
+  const workspaceMatch = value.match(/^\/t\/([^/]+)\/(git|files|scripts|context|logs)(?:\/([^/]+))?$/);
   if (workspaceMatch && (workspaceMatch[2] === 'files' || !workspaceMatch[3])) {
     try {
       return {
         kind: 'thread',
         threadID: decodeURIComponent(workspaceMatch[1]),
-        subview: workspaceMatch[2] as 'git' | 'files' | 'scripts',
+        subview: workspaceMatch[2] as 'git' | 'files' | 'scripts' | 'context' | 'logs',
         filePath: workspaceMatch[3] ? decodeURIComponent(workspaceMatch[3]) : undefined
       };
     } catch {

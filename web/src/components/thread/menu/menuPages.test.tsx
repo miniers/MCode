@@ -28,7 +28,9 @@ const ROUTABLE_ROUTES = [
   ['review', '/review'],
   ['git', '/git'],
   ['scripts', '/scripts'],
-  ['files', '/files']
+  ['files', '/files'],
+  ['context', '/context'],
+  ['logs', '/logs']
 ] as const;
 
 for (const [subview, route] of ROUTABLE_ROUTES) {
@@ -77,7 +79,7 @@ for (const kind of NON_ROUTABLE_KINDS) {
 
 // compact 页用 menu（内容高度），详情页用 panel（固定高度）。
 const COMPACT_KINDS = ['main', 'swarm', 'workspace', 'export', 'save-task', 'forward', 'move-to-project'] as const;
-const DETAIL_KINDS = ['agents', 'review', 'git', 'scripts', 'files', 'mcp', 'worktree'] as const;
+const DETAIL_KINDS = ['agents', 'review', 'git', 'scripts', 'files', 'context', 'logs', 'mcp', 'worktree'] as const;
 for (const kind of COMPACT_KINDS) {
   assertTrue(isCompactPageKind(kind), `${kind} 是 compact 页`);
   assertEqual(pageSizeFor(kind), 'menu', `${kind} 的尺寸`);
@@ -93,3 +95,5 @@ for (const kind of [...COMPACT_KINDS, ...DETAIL_KINDS]) {
 }
 assertEqual(MENU_PAGE_TITLES.agents, '子代理进度与汇报', '子代理页标题');
 assertEqual(MENU_PAGE_TITLES.review, '代码变更与审阅', '审阅页标题');
+assertEqual(MENU_PAGE_TITLES.context, '项目文档', '项目文档页标题');
+assertEqual(MENU_PAGE_TITLES.logs, '实时日志', '实时日志页标题');

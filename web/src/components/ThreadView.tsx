@@ -171,7 +171,7 @@ const ThreadFindBar = lazy(() =>
 interface ThreadViewProps {
   thread: RemoteThreadSummary;
   onBack?: () => void;
-  subview?: 'agents' | 'review' | 'git' | 'files' | 'scripts' | null;
+  subview?: 'agents' | 'review' | 'git' | 'files' | 'scripts' | 'context' | 'logs' | null;
   filePath?: string;
   /** 推送点开时的一次性定位：messageID 定位消息，requestID 定位审批面板；nonce 变化即重新执行 */
   jumpRequest?: { messageID?: string; requestID?: string; nonce: number } | null;
@@ -474,6 +474,11 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     capabilities?.features?.includes('threads.media') &&
     capabilities?.methods?.includes('threads.media.read')
   );
+  const contextSupported = Boolean(
+    capabilities?.methods?.includes('context.listDocs') &&
+    (thread.projectID || currentThread?.projectID)
+  );
+  const logsSupported = Boolean(capabilities?.methods?.includes('logs.subscribe'));
   const [contextBarOpen, setContextBarOpen] = useState(false);
   const swarmBees = swarmState?.bees ?? [];
   const swarmRunningCount = swarmBees.filter((bee) => bee.status === 'running').length;
@@ -1918,12 +1923,14 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
       reviewSupported,
       gitSupported,
       scriptsSupported,
-      filesSupported
+      filesSupported,
+      contextSupported,
+      logsSupported
     });
     if (!base || menuSheetOpenRef.current) return;
     setMenuInitialPage(base);
     setMenuSheetOpen(true);
-  }, [subview, filePath, reviewSupported, gitSupported, scriptsSupported, filesSupported]);
+  }, [subview, filePath, reviewSupported, gitSupported, scriptsSupported, filesSupported, contextSupported, logsSupported]);
 
   const shareActionsBlocked = !isConnected || isSyncing;
 
