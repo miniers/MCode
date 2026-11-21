@@ -45,11 +45,9 @@ func (themeControl) reset(cfg *config.Config) { cfg.Appearance.Theme = config.Th
 // 页面渲染时发现配置里的主题变了就立刻应用，避免要重启才生效。
 var appearanceThemeApplied string
 
-// syncAppearanceTheme 把配置里的主题同步到运行时主题源；值没变就不重复设置。
-func syncAppearanceTheme(st *SettingsState) {
-	st.cfgMu.Lock()
-	appearance := st.cfg.Appearance
-	source := appearance.Theme
+// appearanceThemeKey 计算配置对应的运行时主题源与去重键。
+func appearanceThemeKey(appearance config.AppearanceConfig) (source, key string) {
+	source = appearance.Theme
 	if source == "" {
 		source = config.ThemeSystem
 	}
@@ -64,7 +62,14 @@ func syncAppearanceTheme(st *SettingsState) {
 		Theme  string
 		Themes []config.ThemeDef
 	}{appearance.Theme, appearance.Themes})
-	key := source + string(content)
+	return source, source + string(content)
+}
+
+// syncAppearanceTheme 把配置里的主题同步到运行时主题源；值没变就不重复设置。
+func syncAppearanceTheme(st *SettingsState) {
+	st.cfgMu.Lock()
+	appearance := st.cfg.Appearance
+	source, key := appearanceThemeKey(appearance)
 	if key == appearanceThemeApplied {
 		st.cfgMu.Unlock()
 		return

@@ -385,6 +385,8 @@ func WithSettings(dataDir string, lockedKeys map[string]bool) Option {
 		setShortcutOverrides(st.cfg.Shortcuts.ShortcutOverrides)
 		// 主题与区域字号在启动时同步，无需先打开设置页。
 		setActiveTheme(st.cfg.Appearance)
+		// main 已在 App.Run 前应用主题，这里只记录已应用的值，避免首次打开设置时重新应用主题、让所有窗口重建。
+		_, appearanceThemeApplied = appearanceThemeKey(st.cfg.Appearance)
 	}
 }
 

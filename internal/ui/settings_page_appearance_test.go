@@ -55,6 +55,34 @@ func TestSettingsDetail_SyncAppearanceTheme(t *testing.T) {
 	}
 }
 
+func TestSettingsFirstOpenSkipsThemeReapply(t *testing.T) {
+	previousApply, previousTheme := applyThemeSource, appearanceThemeApplied
+	t.Cleanup(func() {
+		applyThemeSource = previousApply
+		appearanceThemeApplied = previousTheme
+		setActiveTheme(config.AppearanceConfig{})
+	})
+	var calls int
+	applyThemeSource = func(mygo.ThemeSource) { calls++ }
+	appearanceThemeApplied = ""
+
+	chat := newChatState(NewFakeClient())
+	t.Cleanup(chat.close)
+	WithSettings(settingsTestDir(t), nil)(chat)
+	st := getChatSettings(chat)
+
+	syncAppearanceTheme(st)
+	if calls != 0 {
+		t.Fatalf("首次打开设置不应重复应用主题，实际调用 %d 次", calls)
+	}
+
+	st.cfg.Appearance.Theme = config.ThemeDark
+	syncAppearanceTheme(st)
+	if calls != 1 {
+		t.Fatalf("修改主题后应应用 1 次，实际调用 %d 次", calls)
+	}
+}
+
 // TestSettingsPageAppearance_Tree 验证「外观」页已经走声明式页面树：
 // 两节标题都在、原高级区三行直接可见、锁定档位显示徽标、切换主题写回配置。
 func TestSettingsPageAppearance_Tree(t *testing.T) {
