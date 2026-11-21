@@ -467,12 +467,12 @@ func TestUIReview28_RevertDialogClosesByUser(t *testing.T) {
 
 // TestUIReview28_MiniEditorOnCloseFallback 验证关窗拦截的退路：
 // 1. 首次保存失败拦截关闭并记下 closeBlocked；
-// 2. 无新输入再关一次放行，用户有新输入则重置 closeBlocked；
+// 2. 用户有新输入则重置 closeBlocked；无新输入再关一次时拦截关闭并弹出放弃修改确认框（confirmDiscard=true）；
 // 3. 当前文本等于 baseline 时即使存在 saveErr 也直接放行。
 func TestUIReview28_MiniEditorOnCloseFallback(t *testing.T) {
 	dir := t.TempDir()
 
-	// 场景 A：首次失败拦截 + 新输入重置 closeBlocked + 无新输入再关放行
+	// 场景 A：首次失败拦截 + 新输入重置 closeBlocked + 无新输入再关弹出确认框
 	conflictPath := filepath.Join(dir, "fallback.go")
 	if err := os.WriteFile(conflictPath, []byte("init"), 0o644); err != nil {
 		t.Fatal(err)
@@ -530,11 +530,17 @@ func TestUIReview28_MiniEditorOnCloseFallback(t *testing.T) {
 		t.Fatalf("新输入重置 closeBlocked 后再次保存失败仍应拦截关闭")
 	}
 
-	// 没有新输入的前提下再关一次：直接放行
+	// 没有新输入的前提下再关一次：取消关闭并置 confirmDiscard=true（弹出「放弃未保存的修改？」确认框）
 	ev3 := &mygo.CloseEvent{}
 	st.onClose(ev3)
-	if ev3.DefaultPrevented() {
-		t.Fatalf("无新输入再次关窗时应直接放行")
+	if !ev3.DefaultPrevented() {
+		t.Fatalf("无新输入再次关窗时应取消关闭并等待用户确认")
+	}
+	st.mu.Lock()
+	confirmDiscard := st.confirmDiscard
+	st.mu.Unlock()
+	if !confirmDiscard {
+		t.Fatalf("无新输入再次关窗拦截后应记录 confirmDiscard=true")
 	}
 
 	// 场景 B：用户把文本改回原样（text == baseline），即使 saveErr 非空也直接放行

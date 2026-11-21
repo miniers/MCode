@@ -144,8 +144,7 @@ func TestUIReview25_SettingsNarrow640_Nowledge(t *testing.T) {
 func TestUIReview25_SettingsNarrow640_GeneralAndAppearanceAndThemesSlider(t *testing.T) {
 	t.Run("通用页下拉", func(t *testing.T) {
 		tt, _ := newUIReview25SettingsTester(t, "general", 640, 700, nil)
-		// 全局快捷键输入框（settings_extra.go）固定 Width(280) 不在本任务改动范围，此处排除。
-		assertUIReview25DetailBounds(t, tt, 640, "设置卡片 general.permissions", "全局快捷键输入")
+		assertUIReview25DetailBounds(t, tt, 640, "设置卡片 general.permissions")
 	})
 
 	t.Run("外观页", func(t *testing.T) {
@@ -162,7 +161,7 @@ func TestUIReview25_SettingsNarrow640_GeneralAndAppearanceAndThemesSlider(t *tes
 		t.Cleanup(func() { closeSettingsSheet(st) })
 		waitFor(t, tt, func() bool {
 			_, ok := tt.Find("设置面板 主题")
-			return ok && tt.HasText("sidebar字号")
+			return ok && tt.HasText("侧栏字号")
 		})
 		assertUIReview25SheetBounds(t, tt, 640, 700, "设置面板 主题")
 	})
