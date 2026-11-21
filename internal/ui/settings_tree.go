@@ -506,7 +506,7 @@ func applySettingsRowFocus(c *ui.Context, row ui.Element, key string) ui.Element
 		settingsRowFocus.highlightID = key
 	}
 	if settingsRowFocus.highlightID != "" && key == settingsRowFocus.highlightID {
-		pulse := float32(0)
+		pulse := float32(1)
 		if !reduceMotion(c) {
 			pulse = row.Keyframes(fmt.Sprintf("settings-search-pulse-%d", settingsRowFocus.pulseSeq), settingsSearchPulseKeyframes())
 		}

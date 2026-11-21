@@ -152,12 +152,12 @@ func renderSettingsResetConfirm(c *ui.Context, st *SettingsState) {
 		Body:  "只把本页对应的设置改回默认值，其他页不受影响。",
 		Detail: []string{
 			"重置范围：" + strings.Join(target.sections, "、"),
-			"快捷回复、模型组合、档位等列表类数据保留。",
 		},
-		ConfirmLabel: "恢复默认",
-		ConfirmA11y:  "确认恢复本页默认",
-		CancelLabel:  "取消",
-		OnConfirm:    func() { applySettingsPageReset(st, page) },
+		ConfirmLabel:    "恢复默认",
+		ConfirmA11y:     "确认恢复本页默认",
+		CancelLabel:     "取消",
+		CancelAutoFocus: true,
+		OnConfirm:       func() { applySettingsPageReset(st, page) },
 		OnCancel: func() {
 			st.resetPendingPage = ""
 			st.invalidate()

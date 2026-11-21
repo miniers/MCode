@@ -47,6 +47,7 @@ func TestMotionLoadingMigrationReduced(t *testing.T) {
 }
 
 func TestSettingsSearchFocusReduced(t *testing.T) {
+	setAppReduceMotion(t, true)
 	old := settingsRowFocus
 	t.Cleanup(func() { settingsRowFocus = old })
 	settingsRowFocus.jumpID = "target"
@@ -64,7 +65,7 @@ func TestSettingsSearchFocusReduced(t *testing.T) {
 	expected := ui.NewTesterWith(func(c *ui.Context) {
 		ui.Scroll(c).Fill().Children(func() {
 			ui.Row(c.Key("target")).FillWidth().Height(ControlMD).Background(ThemeSelected(c)).
-				Border(settingsSearchPulseBorder, ThemeAccent(c).Alpha(0)).Radius(settingsSearchPulseRadius).
+				Border(settingsSearchPulseBorder, ThemeAccent(c).Alpha(settingsSearchPulseMaxAlpha)).Radius(settingsSearchPulseRadius).
 				Children(func() { ui.Text(c, "目标") })
 		})
 	}, 300, 100, options)
@@ -74,7 +75,7 @@ func TestSettingsSearchFocusReduced(t *testing.T) {
 		t.Fatalf("跳转未完成：次数=%d，目标=%q", jumps, settingsRowFocus.jumpID)
 	}
 	if !bytes.Equal(actual.Image().Pix, expected.Image().Pix) {
-		t.Fatal("减少动效时搜索高亮未停在透明末帧或改变了选中底色")
+		t.Fatal("减少动效时搜索高亮未显示静态描边或改变了选中底色")
 	}
 	if actual.FramePending() {
 		t.Fatal("减少动效时搜索高亮仍请求后续帧")

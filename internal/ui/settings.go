@@ -21,10 +21,9 @@ import (
 
 // 设置页局部尺寸：以下取值不在 tokens.go 的刻度上，单独命名以保持现有布局与对齐。
 const (
-	settingsFieldTrailingPad float32 = 34 // 搜索框右侧给清除按钮留出的内边距
-	settingsTinyIcon         float32 = 11 // 22px 圆形小按钮内的图标
-	settingsSwatchIcon       float32 = 18 // 外观预览色块内的图标
-	settingsSelectedBorder   float32 = 2  // 外观预览选中态的描边粗细
+	settingsTinyIcon       float32 = 11 // 22px 圆形小按钮内的图标
+	settingsSwatchIcon     float32 = 18 // 外观预览色块内的图标
+	settingsSelectedBorder float32 = 2  // 外观预览选中态的描边粗细
 )
 
 // 设置页局部控件尺寸与面板宽度：一次性布局尺寸，不进全局令牌。
@@ -1447,7 +1446,7 @@ func renderSettingsNavHits(c *ui.Context, st *SettingsState, hits []settingsItem
 		ui.Text(c, fmt.Sprintf("还有 %d 项", more)).
 			FontSize(uiFont(TypeCaption)).
 			TextColor(ThemeSecondaryText(c)).
-			Padding(Space1, settingsFieldTrailingPad, Space2, Space3)
+			Padding(Space1, Space3, Space2, Space3)
 	}
 }
 
@@ -1457,28 +1456,31 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 
 	q := strings.TrimSpace(strings.ToLower(st.navSearch))
 
-	// 逐项命中：查询不足 2 个字符时只按页名过滤（matchSettingsItems 自身也会拦一道）。
+	// 逐项命中：查询为空时跳过索引构造与匹配；查询不足 2 个字符时只按页名过滤（matchSettingsItems 自身也会拦一道）。
 	// 本地记忆后端下部分行不渲染，搜索结果也要滤掉，否则点进去没有对应行。
-	localBackend := settingsMemoryBackend(st) == config.MemoryBackendLocal
-	hitsByPage := map[string][]settingsItemHit{}
-	items := settingsItems()
-	for _, item := range items {
-		if item.ID != "row-openin-" || !item.Dynamic {
-			continue
+	var hitsByPage map[string][]settingsItemHit
+	if strings.TrimSpace(st.navSearch) != "" {
+		localBackend := settingsMemoryBackend(st) == config.MemoryBackendLocal
+		hitsByPage = map[string][]settingsItemHit{}
+		items := settingsItems()
+		for _, item := range items {
+			if item.ID != "row-openin-" || !item.Dynamic {
+				continue
+			}
+			for _, app := range st.openInAppsDraft() {
+				row := item
+				row.ID += app.Name
+				row.Title = app.Name
+				row.Dynamic = false
+				items = append(items, row)
+			}
 		}
-		for _, app := range st.openInAppsDraft() {
-			row := item
-			row.ID += app.Name
-			row.Title = app.Name
-			row.Dynamic = false
-			items = append(items, row)
+		for _, h := range matchVisibleSettingsItemsIn(st, st.navSearch, items) {
+			if localBackend && h.Item.NmemOnly {
+				continue
+			}
+			hitsByPage[h.Item.Page] = append(hitsByPage[h.Item.Page], h)
 		}
-	}
-	for _, h := range matchVisibleSettingsItemsIn(st, st.navSearch, items) {
-		if localBackend && h.Item.NmemOnly {
-			continue
-		}
-		hitsByPage[h.Item.Page] = append(hitsByPage[h.Item.Page], h)
 	}
 
 	var visible []settingsNavDef
@@ -1536,6 +1538,8 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 					Value:       &st.navSearch,
 					Label:       "搜索设置",
 					Placeholder: "搜索",
+					Clearable:   true,
+					ClearLabel:  "清除搜索",
 					Grow:        true,
 					OnChange: func(string) {
 						st.invalidate()

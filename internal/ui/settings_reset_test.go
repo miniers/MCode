@@ -136,15 +136,15 @@ func TestSettingsReset_ConversationPage(t *testing.T) {
 	tt.Frame()
 
 	openSettingsResetDialog(t, tt, st, "conversation")
-	// 确认框要说清重置范围，并点明列表类数据不受影响。
+	// 确认框要说清重置范围，不再带与当前页无关的通用列表数据说明。
 	if !tt.HasText("只把本页对应的设置改回默认值，其他页不受影响。") {
 		t.Fatalf("确认框正文缺少适用范围说明: %q", tt.Texts())
 	}
 	if !tt.HasText("重置范围：回复与思考、消息与排队、保留与归档") {
 		t.Fatalf("确认框没有列出会话页的重置范围: %q", tt.Texts())
 	}
-	if !tt.HasText("快捷回复、模型组合、档位等列表类数据保留。") {
-		t.Fatalf("确认框没说明列表类数据不受影响: %q", tt.Texts())
+	if tt.HasText("快捷回复、模型组合、档位等列表类数据保留。") {
+		t.Fatalf("确认框不应再显示硬编码的列表数据保留说明: %q", tt.Texts())
 	}
 	confirmSettingsReset(t, tt, st)
 
