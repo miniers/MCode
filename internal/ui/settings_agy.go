@@ -1271,44 +1271,6 @@ func agyClipboardCopied(st *SettingsState, key string) bool {
 	return st.agy.clipboardKey == key && time.Since(st.agy.clipboardAt) < agyClipboardNoticeDuration
 }
 
-// agyStrategyNotes 记录各调度策略的选取逻辑，用于设置面板里随选中项切换的说明文字。
-var agyStrategyNotes = map[multiaccount.Strategy]string{
-	multiaccount.StrategySmart:  "先把账号按额度分成三档：已用低于 90% 的为「充足」，90%–98% 的为「偏紧」，98% 及以上的为「将耗尽」，依次往下选。充足档里，额度重置时间越早的账号越优先（按小时比较），这样即将重置的额度会先被用掉、不会浪费；重置时间相同时按序号排。偏紧档和将耗尽档按已用比例从低到高排。适合大多数场景。",
-	multiaccount.StrategyOrder:  "严格按账号列表的序号从上往下用：只要前面的账号还有额度，就一直用它；额度用满后才换下一个。额度都用满时，仍按序号依次尝试。适合有明确主账号、备用账号的情况。",
-	multiaccount.StrategyRotate: "每次请求依次换到下一个可用账号，循环往复，不看额度和用量，请求数在各账号之间平均分配。适合各账号额度相近、希望请求分散的情况。",
-	multiaccount.StrategyUsage:  "每次选额度已用比例最低的账号；比例相同时，选近期消耗 token 更少的账号，再相同就按序号。让各账号的额度消耗保持接近。",
-	multiaccount.StrategyPace:   "对每个账号计算「剩余额度 ÷ 距离重置的小时数」，得到它每小时还能用多少。数值高的账号先用；数值差距不到 10% 的账号视为同一档，同档内选近期消耗 token 更少的。目标是让各账号在各自重置前都能把额度均匀用完。",
-	multiaccount.StrategyWeight: "按每个账号设置的权重分配请求（没设置时按 100 计），权重 200 的账号拿到的请求大约是权重 100 账号的两倍。采用平滑加权轮询，同一账号的请求会穿插分布，不会扎堆连续出现。",
-}
-
-// agyStrategyCommonNote 是所有调度策略共用的账号过滤规则说明。
-var agyStrategyCommonNote = "已停用或正在冷却的账号不参与选择；开启「冷却账号」后，冷却过的账号排到队尾。"
-
-// agyAffinityNotes 记录各会话保持模式的绑定逻辑，同样用于随选中项切换的说明文字。
-var agyAffinityNotes = map[multiaccount.Affinity]string{
-	multiaccount.AffinitySession: "会话第一次请求时选定一个账号，之后一直沿用它。只有当这个账号被停用、额度用满、进入冷却，或在本轮被限流换下时，才会按调度策略重新选择，并把会话改绑到新账号。",
-	multiaccount.AffinityTurn:    "每一轮对话都按调度策略重新选择账号，不记录会话和账号的绑定。请求分散得最均匀，但同一会话可能在不同轮次落到不同账号上。",
-	multiaccount.AffinityStrict:  "会话第一次请求时选定账号后就固定使用，即使这个账号进入冷却、额度用满或被停用也不换号；只有账号被删除后才会重新选择。适合要求同一会话始终落在同一账号上的场景。",
-}
-
-// renderAgyRoutingNote 渲染路由设置项下方的说明文字：12 号次要色、允许自动换行，空字符串跳过。
-func renderAgyRoutingNote(c *ui.Context, key string, lines ...string) {
-	ui.Column(c.Key(key)).
-		FillWidth().
-		Gap(Space1).
-		Children(func() {
-			for i, line := range lines {
-				if line == "" {
-					continue
-				}
-				ui.Text(c, line).
-					Key(fmt.Sprintf("%s-%d", key, i)).
-					FontSize(uiFont(TypeFootnote)).
-					TextColor(ThemeSecondaryText(c))
-			}
-		})
-}
-
 // agyStrategySection 是调度策略分节。
 var agyStrategySection = settingsSection{
 	ID:    "sec-agy-strategy",
@@ -1427,12 +1389,10 @@ func renderAgyStrategyBody(c *ui.Context, st *SettingsState) {
 					cfg.Strategy = multiaccount.Strategy(val)
 				})
 			})
-			// 在 picker 之后读取 strategyStr，点选后当帧即显示新选项的说明。
-			renderAgyRoutingNote(c, "agy-strategy-note", agyStrategyNotes[multiaccount.Strategy(strategyStr)], agyStrategyCommonNote)
 		})
 }
 
-// renderAgyAffinityBody 画会话保持模式选择器与说明。
+// renderAgyAffinityBody 画会话保持模式选择器。
 func renderAgyAffinityBody(c *ui.Context, st *SettingsState) {
 	st.mu.Lock()
 	affStr := string(st.agy.routing.Affinity)
@@ -1455,7 +1415,6 @@ func renderAgyAffinityBody(c *ui.Context, st *SettingsState) {
 					cfg.Affinity = multiaccount.Affinity(val)
 				})
 			})
-			renderAgyRoutingNote(c, "agy-affinity-note", agyAffinityNotes[multiaccount.Affinity(affStr)])
 		})
 }
 

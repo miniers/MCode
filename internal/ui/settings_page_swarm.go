@@ -558,6 +558,7 @@ func resetSwarmPairCapabilities(pair *config.SwarmPair, lead bool) {
 
 // renderSwarmPairRow 渲染单条模型配对行。
 func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIState, p config.SwarmPair, providers []ProviderInfo) {
+	pairName := swarmPairTitle(p, providers)
 	ui.Row(c.Key("row-swarm-pair-"+p.ID)).
 		Padding(settingsRowPadY, settingsRowPadX).
 		AlignItems(ui.Center).
@@ -584,7 +585,7 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 					ui.Column(c.Key("texts-swarm-pair-" + p.ID)).
 						Gap(Space0).
 						Children(func() {
-							ui.Text(c, swarmPairTitle(p, providers)).
+							ui.Text(c, pairName).
 								FontSize(uiFont(TypeBody)).
 								FontWeight(500).
 								TextColor(ThemePrimaryText(c))
@@ -599,7 +600,7 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 				AlignItems(ui.Center).
 				Children(func() {
 					btnEdit := ui.ButtonBase(c.Key("btn-swarm-pair-edit-"+p.ID)).
-						Label("编辑").
+						Label("编辑 "+pairName).
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
 						Background(ThemeHover(c))
@@ -633,7 +634,7 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 					}
 
 					btnDelete := ui.ButtonBase(c.Key("btn-swarm-pair-delete-"+p.ID)).
-						Label("删除").
+						Label("删除 "+pairName).
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
 						Background(ui.Transparent)
@@ -980,7 +981,7 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 						curDefaultName = tierOptions[0]
 					}
 					selDefault := ui.Select(c.Key("sel-swarm-default-tier"), &curDefaultName, tierOptions).
-						Label("默认档").Width(settingsFieldNarrowWidth)
+						Label("默认档").MinWidth(90).MaxWidth(180)
 					if selDefault.Changed() {
 						newID := tierNameToID[curDefaultName]
 						if newID != "" && newID != st.cfg.Orchestration.DefaultTier {

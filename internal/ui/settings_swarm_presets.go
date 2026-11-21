@@ -494,12 +494,12 @@ func renderSwarmPresetsPanel(c *ui.Context, st *SettingsState, providers []Provi
 																FontWeight(600).
 																TextColor(ThemePrimaryText(c))
 
-															if item.Added {
-																renderPresetBadge(c, rowKey+"-badge-added", "已添加", ThemeSecondaryText(c), ThemeOverlay(c, 0.08))
-															} else if item.Ready {
-																renderPresetBadge(c, rowKey+"-badge-ready", "就绪", ThemeSuccess(c), ThemeOverlay(c, 0.12))
-															} else {
-																renderPresetBadge(c, rowKey+"-badge-waiting", "等待", ThemeSecondaryText(c), ThemeOverlay(c, 0.08))
+															if !item.Added {
+																if item.Ready {
+																	renderPresetBadge(c, rowKey+"-badge-ready", "就绪", ThemeSuccess(c), ThemeOverlay(c, 0.12))
+																} else {
+																	renderPresetBadge(c, rowKey+"-badge-waiting", "等待", ThemeSecondaryText(c), ThemeOverlay(c, 0.08))
+																}
 															}
 														})
 

@@ -299,23 +299,16 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 				})
 			})
 
-		// 4. 只读 switch 及辅助说明
+		// 4. 只读 switch
 		ui.Row(c.Key("row-swarm-tier-readonly-" + popKey)).
 			AlignItems(ui.Center).
 			Justify(ui.SpaceBetween).
 			Children(func() {
-				ui.Column(c.Key("col-swarm-tier-readonly-text-" + popKey)).
-					Gap(Space0).
-					MaxWidth(260).Grow(1).
-					Children(func() {
-						ui.Text(c, "只读模式").
-							FontSize(uiFont(TypeFootnote)).
-							FontWeight(500).
-							TextColor(ThemePrimaryText(c))
-						ui.Text(c, "只读档子代理在独立工作树里运行，改动一律丢弃").
-							FontSize(uiFont(TypeCaption)).
-							TextColor(ThemeSecondaryText(c))
-					})
+				ui.Text(c, "只读模式").
+					FontSize(uiFont(TypeFootnote)).
+					FontWeight(500).
+					TextColor(ThemePrimaryText(c)).
+					Tooltip("只读档子代理在独立工作树里运行，改动一律丢弃")
 				toggleFunc(func(*SettingsState) (bool, bool) {
 					return uiSt.draft.ReadOnly, false
 				}, func(_ *SettingsState, on bool) {
@@ -620,6 +613,8 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 				ui.Column(c.Key("col-swarm-tier-left-" + tier.ID)).
 					Gap(Space1).
 					Grow(1).
+					MinWidth(0).
+					Shrink(1).
 					Children(func() {
 						ui.Row(c.Key("row-swarm-tier-top-" + tier.ID)).
 							Gap(Space3).
@@ -657,6 +652,7 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 						Radius(RadiusMD).
 						Border(Hairline, ThemeBorder(c).Alpha(0.4)).
 						AlignItems(ui.Center).
+						Shrink(0).
 						Children(func() {
 							ui.Text(c, "跟随会话子代理模型").
 								FontSize(uiFont(TypeFootnote)).
@@ -670,6 +666,7 @@ func renderSwarmTierRow(c *ui.Context, st *SettingsState, uiSt *swarmTiersUIStat
 						Border(Hairline, ThemeBorder(c)).
 						AlignItems(ui.Center).
 						Gap(Space2).
+						Shrink(0).
 						Children(func() {
 							renderProviderIcon(c, tier.Provider, 14)
 							txt := swarmModelCapsuleText(providers, tier.Provider, tier.Model, tier.Effort, tier.FastMode)

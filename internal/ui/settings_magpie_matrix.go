@@ -501,7 +501,7 @@ func renderMagpieModelMatrix(c *ui.Context, st *SettingsState) {
 		}
 		showGateway := len(gateways) > 1
 		firstFamily := true
-		ui.Scroll(c.Key("magpie-matrix-scroll")).MaxHeight(640).FillWidth().Children(func() {
+		ui.Column(c.Key("magpie-matrix-scroll")).FillWidth().Children(func() {
 			ui.Column(c.Key("magpie-matrix-groups")).FillWidth().Gap(Space1).Children(func() {
 				for _, gateway := range gateways {
 					if showGateway {

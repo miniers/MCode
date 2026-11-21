@@ -1891,16 +1891,6 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 						renderSettingRow(c, "provider-models-empty", "暂无模型", func() {})
 						return
 					}
-					name := view.models.Name
-					if name == "" {
-						name = providerDisplayName(id)
-					}
-					ui.Text(c, "只读").
-						FontSize(uiFont(TypeFootnote)).
-						TextColor(ThemeSecondaryText(c)).
-						Padding(settingsRowPadY, settingsRowPadX).
-						Tooltip("来自 " + name + " 的模型目录，常用模型请在「收藏模型」里添加")
-					renderSettingsDivider(c, "div-provider-models-note")
 					for i, model := range view.models.Models {
 						if i > 0 {
 							renderSettingsDivider(c, fmt.Sprintf("div-provider-model-%d", i))
@@ -2279,7 +2269,7 @@ func renderAgyChannelRow(c *ui.Context, st *SettingsState, locked bool) {
 	}
 	disabled := locked || saving || !loaded
 	renderSettingRow(c, "row-agy-channel", "连接方式", func() {
-		Segmented(c, "agy-channel", &selected, []Segment{{Label: "自动", Disabled: disabled}, {Label: "ACP", Disabled: disabled}, {Label: "PrintMode", Disabled: disabled}}, func(i int) {
+		Segmented(c, "agy-channel", &selected, []Segment{{Label: "自动", Disabled: disabled}, {Label: "ACP", Disabled: disabled}, {Label: "单次输出", Disabled: disabled}}, func(i int) {
 			saveProviderRowSetting(st, "agy", func(s *ProviderSetting) { s.AgyChannel = values[i] })
 		})
 	})

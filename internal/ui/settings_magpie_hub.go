@@ -315,7 +315,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 			}
 
 		}
-		if mode == "hub" || mode == "gateway" {
+		if (mode == "hub" || mode == "gateway") && id != "" {
 			// 菜单栏额度
 			renderSettingsDivider(c, "div-hub-quota")
 
@@ -329,7 +329,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				if refreshBtn.Hovered() {
 					refreshBtn.Background(ThemeOverlay(c, 0.15))
 				}
-				if refreshBtn.Clicked() && id != "" {
+				if refreshBtn.Clicked() {
 					loadMagpieQuotaProviders(st, id)
 				}
 				refreshBtn.Children(func() {
@@ -339,16 +339,7 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				})
 			})
 
-			if id == "" {
-				ui.Row(c.Key("row-hub-quota-unsaved")).
-					Padding(Space2, Space5, Space4, Space5).
-					Tooltip("保存后可选择要在菜单栏展示额度的供应商").
-					Children(func() {
-						ui.Text(c, "保存后可选").
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemeSecondaryText(c))
-					})
-			} else if quotaLoading {
+			if quotaLoading {
 				ui.Row(c.Key("row-hub-quota-loading")).
 					Padding(Space2, Space5, Space4, Space5).
 					Children(func() {
