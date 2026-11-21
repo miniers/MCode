@@ -26,8 +26,70 @@ var (
 )
 
 type sidebarSearchState struct {
-	query   string
-	visible []Thread
+	query               string
+	visible             []Thread
+	dormantProjectsOpen bool
+}
+
+const sidebarDormantProjectWindow = 14 * 24 * time.Hour
+
+var sidebarProjectNow = time.Now
+
+func isSidebarDormantProjectsOpen(s *chatState) bool {
+	sidebarMu.Lock()
+	defer sidebarMu.Unlock()
+	if state := sidebarSearch[s]; state != nil {
+		return state.dormantProjectsOpen
+	}
+	return false
+}
+
+func setSidebarDormantProjectsOpen(s *chatState, open bool) {
+	sidebarMu.Lock()
+	defer sidebarMu.Unlock()
+	state := sidebarSearch[s]
+	if state == nil {
+		state = &sidebarSearchState{}
+		sidebarSearch[s] = state
+	}
+	state.dormantProjectsOpen = open
+}
+
+// splitRecentAndDormantProjects 将项目分为近期活跃（recent）与 14 天静默（dormant），保持各自原有顺序。
+// 空项目、含选中会话、含置顶/忙碌会话，或所有会话时间均为零值的项目保留在 recent 中。
+func splitRecentAndDormantProjects(projects []Project, allThreadsByProj map[string][]Thread, selectedThreadID string, busy func(Thread) bool, now time.Time) (recent, dormant []Project) {
+	for _, p := range projects {
+		ths := allThreadsByProj[p.ID]
+		if len(ths) == 0 {
+			recent = append(recent, p)
+			continue
+		}
+		keepRecent := false
+		hasKnownTime := false
+		for _, th := range ths {
+			if (selectedThreadID != "" && th.ID == selectedThreadID) || th.Pinned || (busy != nil && busy(th)) {
+				keepRecent = true
+				break
+			}
+			ts := th.UpdatedAt
+			if ts.IsZero() {
+				ts = th.LastUserMessageAt
+			}
+			if !ts.IsZero() {
+				hasKnownTime = true
+				if now.Sub(ts) <= sidebarDormantProjectWindow {
+					keepRecent = true
+					break
+				}
+			}
+		}
+		if keepRecent || !hasKnownTime {
+			recent = append(recent, p)
+		} else {
+			dormant = append(dormant, p)
+		}
+	}
+	return recent, dormant
 }
 
 type newThreadProviderContext struct {
@@ -331,11 +393,75 @@ type sidebarSnapshot struct {
 	bulkThreadsByProj map[string][]Thread
 	collapsed         map[string]bool
 	projectNames      map[string]string
+	draftThreads      map[string]bool
 	chatsTopThreads   []Thread
 	chatsBeesByParent map[string][]Thread
 	activityGroups    []activityGroup
 	activityMinute    time.Time
 	activityCached    bool
+}
+
+func composerDraftNonEmpty(d composerDraft) bool {
+	return strings.TrimSpace(d.Text) != "" || len(d.Attachments) > 0 || len(d.Snippets) > 0
+}
+
+func (s *chatState) buildDraftThreadsLocked() map[string]bool {
+	var out map[string]bool
+	for tid, d := range s.drafts {
+		if tid == "" || !composerDraftNonEmpty(d) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]bool, len(s.drafts)+1)
+		}
+		out[tid] = true
+	}
+	if s.selectedThreadID != "" && (strings.TrimSpace(s.draft) != "" || len(s.attachments) > 0 || len(s.snippets) > 0) {
+		if out == nil {
+			out = make(map[string]bool, 1)
+		}
+		out[s.selectedThreadID] = true
+	}
+	return out
+}
+
+func (s *chatState) refreshSidebarSnapshotDrafts(snap *sidebarSnapshot) {
+	if s == nil || snap == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	matched := 0
+	selectedHasDraft := s.selectedThreadID != "" && (strings.TrimSpace(s.draft) != "" || len(s.attachments) > 0 || len(s.snippets) > 0)
+	if selectedHasDraft {
+		if !snap.draftThreads[s.selectedThreadID] {
+			snap.draftThreads = s.buildDraftThreadsLocked()
+			return
+		}
+		matched++
+	}
+	for tid, d := range s.drafts {
+		if tid == "" || !composerDraftNonEmpty(d) {
+			continue
+		}
+		if !snap.draftThreads[tid] {
+			snap.draftThreads = s.buildDraftThreadsLocked()
+			return
+		}
+		if !(selectedHasDraft && tid == s.selectedThreadID) {
+			matched++
+		}
+	}
+	if matched != len(snap.draftThreads) {
+		snap.draftThreads = s.buildDraftThreadsLocked()
+	}
+}
+
+func (s *chatState) hasDraftThread(threadID string) bool {
+	if s == nil || threadID == "" || s.sidebarSnap == nil {
+		return false
+	}
+	return s.sidebarSnap.draftThreads[threadID]
 }
 
 func (snap *sidebarSnapshot) ensureActivityGroups(now time.Time) []activityGroup {
@@ -371,6 +497,7 @@ func (s *chatState) currentSidebarSnapshotKey(now time.Time) sidebarSnapshotKey 
 func (s *chatState) sidebarSnapshotForFrame(now time.Time) *sidebarSnapshot {
 	key := s.currentSidebarSnapshotKey(now)
 	if s.sidebarSnap != nil && s.sidebarSnap.key.equal(key) {
+		s.refreshSidebarSnapshotDrafts(s.sidebarSnap)
 		return s.sidebarSnap
 	}
 	snap := s.buildSidebarSnapshot(key, now)
@@ -403,6 +530,7 @@ func (s *chatState) buildSidebarSnapshot(key sidebarSnapshotKey, now time.Time) 
 	for pid, col := range s.collapsedProj {
 		collapsed[pid] = col
 	}
+	draftThreads := s.buildDraftThreadsLocked()
 	s.mu.Unlock()
 
 	// 总管 feed 已经在侧栏顶部单独成段：它的会话与所在项目不再在项目树、动态视图里重复出现。
@@ -454,6 +582,7 @@ func (s *chatState) buildSidebarSnapshot(key sidebarSnapshotKey, now time.Time) 
 		bulkThreadsByProj: bulkThreadsByProj,
 		collapsed:         collapsed,
 		projectNames:      projectNames,
+		draftThreads:      draftThreads,
 		chatsTopThreads:   chatsTopThreads,
 		chatsBeesByParent: chatsBeesByParent,
 	}
@@ -508,7 +637,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	}
 	s.mu.Unlock()
 
-	now := time.Now()
+	now := sidebarProjectNow()
 	snap := s.sidebarSnapshotForFrame(now)
 	projects := snap.projects
 	missingPaths := snap.missingPaths
@@ -729,9 +858,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				return
 			}
 
-			renderedProject := false
-			for _, p := range projects {
-				pVal := p
+			renderProjectBlock := func(pVal Project) bool {
 				isCollapsed := collapsed[pVal.ID] && lowerQuery == ""
 				// allThs 保留过滤前的会话，项目菜单的批量操作仍覆盖全部会话。
 				allThs := bulkThreadsByProj[pVal.ID]
@@ -740,14 +867,13 @@ func renderSidebar(c *ui.Context, s *chatState) {
 					var ok bool
 					ths, ok = matchesByProject[pVal.ID]
 					if !ok {
-						continue
+						return false
 					}
 				}
 				// 过滤后没有命中会话的项目不再占位；关闭过滤时空项目仍保留，方便直接新建会话。
 				if filter != sidebarFilterAll && len(ths) == 0 {
-					continue
+					return false
 				}
-				renderedProject = true
 
 				// 项目标题行：文件夹图标 + 名称（13 号 medium），右侧是会话数与“+”图标按钮
 				headerRow := ui.Row(c.Key("proj-header-"+pVal.ID)).
@@ -1255,6 +1381,69 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				// 项目行之间的间距（紧凑模式 6，常规模式 10）
 				ui.Box(c.Key("proj-gap-" + pVal.ID)).
 					Height(projectGap)
+				return true
+			}
+
+			renderedProject := false
+			if lowerQuery == "" && filter == sidebarFilterAll {
+				recentProjects, dormantProjects := splitRecentAndDormantProjects(projects, bulkThreadsByProj, selectedID, s.threadStillBusy, now)
+				for _, p := range recentProjects {
+					if renderProjectBlock(p) {
+						renderedProject = true
+					}
+				}
+				if len(dormantProjects) > 0 {
+					dormantProjectsOpen := isSidebarDormantProjectsOpen(s)
+					toggleLabel := "展开更多项目"
+					if dormantProjectsOpen {
+						toggleLabel = "收起更多项目"
+					}
+					toggleRow := ui.Row(c.Key("sidebar-dormant-projects-toggle")).
+						Height(threadRowHeight).
+						Padding(threadPadY, threadPadX).
+						Margin(1, ListInset, 1, ListInset).
+						Gap(Space2).
+						AlignItems(ui.Center).
+						Radius(RowCornerRadius).
+						Label(toggleLabel).
+						Focusable().
+						KeepFocus()
+					if toggleRow.Hovered() {
+						toggleRow.Background(hoverBg)
+					}
+					focusRing(c, toggleRow)
+					if toggleRow.Clicked() {
+						setSidebarDormantProjectsOpen(s, !dormantProjectsOpen)
+						s.invalidate()
+					}
+					toggleRow.Children(func() {
+						chevronIcon := IconChevronRight()
+						if dormantProjectsOpen {
+							chevronIcon = IconChevronDown()
+						}
+						ui.Icon(c, chevronIcon).
+							Size(10, 10).
+							TextColor(secondaryText)
+						ui.Text(c, fmt.Sprintf("更多项目 (%d)", len(dormantProjects))).
+							FontSize(sidebarFont(FontSizeDormantTitle)).
+							TextColor(secondaryText).
+							Grow(1).
+							SingleLine()
+					})
+					if dormantProjectsOpen {
+						for _, p := range dormantProjects {
+							if renderProjectBlock(p) {
+								renderedProject = true
+							}
+						}
+					}
+				}
+			} else {
+				for _, p := range projects {
+					if renderProjectBlock(p) {
+						renderedProject = true
+					}
+				}
 			}
 
 			// 过滤把「对话」段和所有项目会话都收窄掉时，明确告诉用户列表为空的原因。
@@ -1452,6 +1641,15 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 				Size(11, 11).
 				TextColor(accent).
 				Tooltip(stewardName(nickname))
+		}
+
+		// 未发送草稿标识：非当前选中且非运行中时，在标题右侧展示极简铅笔图标。
+		if !isSelected && !busy && s.hasDraftThread(thVal.ID) {
+			ui.Icon(c, IconSquarePen()).
+				Size(11, 11).
+				TextColor(accent.Alpha(0.75)).
+				Label("草稿").
+				Tooltip("有未发送草稿")
 		}
 
 		// 状态内容始终占位，悬停操作覆盖在右侧，避免标题宽度跳变。
