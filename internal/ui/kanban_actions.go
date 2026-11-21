@@ -28,7 +28,7 @@ func kanbanTaskBlockReason(task KanbanTask) string {
 		case "awaiting_input":
 			parts = append(parts, "等待你的补充信息")
 		case "needs_review":
-			parts = append(parts, "等待审查")
+			parts = append(parts, "待审阅")
 		default:
 			parts = append(parts, flag)
 		}

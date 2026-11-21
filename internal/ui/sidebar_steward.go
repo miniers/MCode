@@ -178,7 +178,10 @@ func renderSidebarStewardRow(c *ui.Context, s *chatState, threadID string) {
 				Margin(0, Space0, 0, Space0)
 		}
 		if decisionCountSupported && decisionCount > 0 {
-			renderAttentionCountBadge(c, "sidebar-steward-decisions", fmt.Sprintf("未答决策 %d 张", decisionCount), decisionCount)
+			renderAttentionCountBadge(c, "sidebar-steward-decisions", fmt.Sprintf("未答决策 %d 张", decisionCount), decisionCount).
+				OnClick(func() {
+					s.openTasksWindowTarget(taskCenterTarget{Kind: "attention"})
+				})
 		}
 		// 徽标本身就是按钮：只切换待处理浮层，不抢行走的「打开会话」。
 		if count > 0 {

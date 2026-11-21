@@ -244,7 +244,7 @@ func renderStewardTaskChip(c *ui.Context, s *chatState, key string, task KanbanT
 	if chip.Clicked() {
 		if strings.HasPrefix(key, "steward-result-open-") {
 			markStewardTaskSeen(s, task)
-			openStewardTask(s, stewardResult{Task: task.ID, Thread: task.ThreadID, Status: task.Status, Summary: task.ResultSummary})
+			openStewardTaskDetail(s, task)
 		} else {
 			stewardTaskOpen(s, task)
 		}

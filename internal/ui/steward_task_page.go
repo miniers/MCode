@@ -72,7 +72,14 @@ func renderStewardResult(c *ui.Context, s *chatState, m Message, liveID, lastLiv
 							Text:    "打开任务",
 							Variant: ButtonSecondary,
 							Size:    ControlMD,
-							OnClick: func() { openStewardTask(s, result) },
+							OnClick: func() {
+								if result.Task != "" {
+									markStewardTaskSeenByID(s, result.Task)
+									openStewardTaskDetail(s, KanbanTask{ID: result.Task, Title: result.Title, ThreadID: result.Thread, Status: result.Status, ResultSummary: result.Summary})
+									return
+								}
+								openStewardTask(s, result)
+							},
 						})
 					}
 				})
@@ -193,7 +200,7 @@ func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
 		if reason == "" {
 			switch snapshot.WaitKind {
 			case "human":
-				reason = "等待你的决定"
+				reason = "待你处理"
 			case "machine":
 				reason = "等待条件满足"
 			case "children":

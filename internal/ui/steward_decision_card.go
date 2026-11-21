@@ -220,9 +220,11 @@ func renderStewardDecisionCard(c *ui.Context, s *chatState, m Message) ui.Elemen
 			ui.Text(c, decision.ID).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
 			ui.Text(c, decision.Question).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).Wrap().Shrink(1).MinWidth(0)
 			if decision.Task != "" {
-				if decision.Thread != "" && decision.TaskID != "" {
+				if decision.TaskID != "" {
 					btn := ui.ButtonBase(c.Key("steward-decision-task-" + m.ID)).Label(decision.Task).Radius(RadiusSM).Shrink(1).MinWidth(0).
-						OnClick(func() { openStewardTask(s, stewardResult{Task: decision.TaskID, Thread: decision.Thread}) })
+						OnClick(func() {
+							openStewardTaskDetail(s, KanbanTask{ID: decision.TaskID, Title: decision.Task, ThreadID: decision.Thread})
+						})
 					focusRing(c, btn)
 					scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 					btn.Scale(scale, scale)

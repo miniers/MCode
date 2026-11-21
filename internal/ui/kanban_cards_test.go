@@ -29,7 +29,7 @@ func TestKanbanTaskSignals(t *testing.T) {
 		{KanbanTask{AttentionFlags: []string{"needs_review"}}, "需要审阅"},
 		{KanbanTask{AttentionFlags: []string{"unknown_flag"}}, ""},
 		{KanbanTask{Status: "waiting", ResultSummary: "等待文件", WakeAt: "2026-11-10T10:00:00Z"}, "等待文件 · " + stewardWakeLocalTime("2026-11-10T10:00:00Z")},
-		{KanbanTask{Status: "waiting", WaitKind: "human"}, "等待你的决定"},
+		{KanbanTask{Status: "waiting", WaitKind: "human"}, "待你处理"},
 		{KanbanTask{Status: "waiting", WaitKind: "machine"}, "等待条件满足"},
 		{KanbanTask{Status: "done", ResultSummary: "结果摘要"}, "结果摘要"},
 	}

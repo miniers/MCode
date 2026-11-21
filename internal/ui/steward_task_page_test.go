@@ -77,7 +77,7 @@ func TestStewardTaskBandRefreshesOnKanbanChange(t *testing.T) {
 }
 
 func TestStewardTaskResultOpensThreadAndShowsBand(t *testing.T) {
-	fake := NewFakeClient()
+	fake := newStewardFakeClient("feed")
 	fake.SetProjectsAndThreads([]Project{{ID: "p1", Name: "项目"}}, map[string][]Thread{
 		"p1": {
 			{ID: "feed", ProjectID: "p1", Title: "总管"},
@@ -102,6 +102,16 @@ func TestStewardTaskResultOpensThreadAndShowsBand(t *testing.T) {
 	}
 	if err := tt.Click("整理任务"); err != nil {
 		t.Fatalf("点击打开任务失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("kanban-task-detail")
+		return ok
+	})
+	if selectedThreadForTest(state) != "feed" {
+		t.Fatalf("点击结果胶囊不应直接切离当前会话: got %q", selectedThreadForTest(state))
+	}
+	if err := tt.Click("打开会话"); err != nil {
+		t.Fatalf("点击打开会话失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return selectedThreadForTest(state) == "task-thread" && tt.HasText("等待中") })
 	if !tt.HasText("等待文件") {

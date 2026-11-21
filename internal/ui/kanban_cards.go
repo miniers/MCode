@@ -279,7 +279,7 @@ func kanbanTaskSignal(task KanbanTask) (string, string) {
 		if text == "" {
 			switch task.WaitKind {
 			case "human":
-				text = "等待你的决定"
+				text = "待你处理"
 			case "machine":
 				text = "等待条件满足"
 			case "children":

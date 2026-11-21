@@ -342,8 +342,8 @@ func renderGoalCard(c *ui.Context, s *chatState, ks *kanbanState, goal KanbanGoa
 					// plan_review 时提供规划审查入口
 					if goal.Status == "plan_review" {
 						Button(c.Key("goal-plan-review-"+goal.ID), ButtonOpts{Disabled: busy != "",
-							Text:    "审查规划",
-							Label:   "审查规划",
+							Text:    "方案待审",
+							Label:   "方案待审",
 							Variant: ButtonSecondary,
 							OnClick: func() {
 								kanbanMu.Lock()

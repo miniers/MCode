@@ -393,3 +393,114 @@ func TestUIReview12_TaskCardAndChipTooltips(t *testing.T) {
 		}
 	})
 }
+
+func TestStewardResultChipOpensDetailSheetWithoutSwitchingThread(t *testing.T) {
+	task := KanbanTask{
+		ID:            "t-result",
+		ProjectID:     "p1",
+		ThreadID:      "worker",
+		Title:         "结果行胶囊任务",
+		Status:        "done",
+		ResultSummary: "结果已完成",
+	}
+	fake := NewFakeClient()
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.selectedThreadID = "steward"
+	s.mu.Unlock()
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		renderStewardTaskChip(c, s, "steward-result-open-m1", task)
+		renderStewardTaskDetailSheet(c, s)
+	}, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+
+	if err := tt.Click(task.Title); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	s.mu.Lock()
+	selected, detailID := s.selectedThreadID, s.stewardBoard.detailTaskID
+	s.mu.Unlock()
+	if selected != "steward" {
+		t.Fatalf("点击总管结果行胶囊不应切换当前会话, got %q", selected)
+	}
+	if detailID != task.ID {
+		t.Fatalf("detailTaskID = %q, want %q", detailID, task.ID)
+	}
+	if _, ok := tt.Find("steward-task-detail-sheet"); !ok {
+		t.Fatal("点击总管结果行胶囊应打开 steward-task-detail-sheet")
+	}
+}
+
+func TestStewardDecisionTaskLabelOpensDetailSheet(t *testing.T) {
+	task := KanbanTask{
+		ID:        "task-decision-1",
+		ProjectID: "p1",
+		Title:     "决策关联任务",
+		Status:    "waiting",
+		WaitKind:  "human",
+	}
+	fake := NewFakeClient()
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.selectedThreadID = "steward"
+	s.mu.Unlock()
+	msg := Message{
+		ID:   "m-decision-1",
+		Kind: stewardDecisionKind,
+		Text: `{"id":"D-1","question":"是否继续？","task_id":"task-decision-1","task":"决策关联任务","options":[{"key":"A","text":"继续"}]}`,
+	}
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		renderStewardDecisionCard(c, s, msg)
+		renderStewardTaskDetailSheet(c, s)
+	}, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+
+	if err := tt.Click("决策关联任务"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	s.mu.Lock()
+	selected, detailID := s.selectedThreadID, s.stewardBoard.detailTaskID
+	s.mu.Unlock()
+	if selected != "steward" {
+		t.Fatalf("点击总管决策卡关联任务标签不应切换当前会话, got %q", selected)
+	}
+	if detailID != task.ID {
+		t.Fatalf("detailTaskID = %q, want %q", detailID, task.ID)
+	}
+	if _, ok := tt.Find("steward-task-detail-sheet"); !ok {
+		t.Fatal("点击总管决策卡关联任务标签应打开 steward-task-detail-sheet")
+	}
+}
+
+func TestSidebarStewardDecisionBadgeOpensAttention(t *testing.T) {
+	base := stewardSectionFake()
+	fake := &stewardDecisionCountFakeClient{stewardFakeClient: base, count: 2}
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.selectedThreadID = "t1"
+	s.mu.Unlock()
+	var gotTarget taskCenterTarget
+	var targetCalls int
+	s.openTasksWindowTargetFn = func(target taskCenterTarget) {
+		gotTarget = target
+		targetCalls++
+	}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		renderSidebarStewardSection(c, s)
+	}, 360, 120, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+
+	waitFor(t, tt, func() bool { return tt.HasText("未答决策 2 张") })
+	if err := tt.Click("未答决策 2 张"); err != nil {
+		t.Fatalf("点击未答决策徽标失败: %v", err)
+	}
+	if targetCalls != 1 || gotTarget.Kind != "attention" {
+		t.Fatalf("点击未答决策徽标回调不匹配: calls=%d target=%+v", targetCalls, gotTarget)
+	}
+}
