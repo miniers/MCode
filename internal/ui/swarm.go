@@ -24,6 +24,16 @@ var (
 // modalDragSwarmDiscard 是「放弃这些改动？」二次确认框的拖拽 key。
 const modalDragSwarmDiscard = "modal-drag-swarm-discard"
 
+// swarmPanelFilter 表示汇总面板中的成员状态分段筛选。
+type swarmPanelFilter int
+
+const (
+	swarmFilterAll swarmPanelFilter = iota
+	swarmFilterRunning
+	swarmFilterReview
+	swarmFilterFinished
+)
+
 // swarmPanelState 维护当前会话的 Swarm 协作面板状态。
 type swarmPanelState struct {
 	open       bool
@@ -39,6 +49,7 @@ type swarmPanelState struct {
 	// reportDismissed 记录汇报浮窗刚被 PopoverBase 关闭（点外部或 Esc）的消息，供 shouldKeepSwarmReportOpen 使用；
 	// 与 reportOpen 一样只在 UI 线程读写。
 	reportDismissed map[string]bool
+	filter          swarmPanelFilter
 	reviewOpen      bool
 	reviewBeeID     string
 	reviewLoading   bool
@@ -249,6 +260,26 @@ func (s *chatState) toggleSwarmPanel() {
 	s.invalidate()
 }
 
+// openSwarmPanelWithFilter 打开汇总面板并切换到指定筛选视图。
+func (s *chatState) openSwarmPanelWithFilter(filter swarmPanelFilter) {
+	if s == nil {
+		return
+	}
+	hp := getSwarmPanelState(s)
+	if hp == nil {
+		return
+	}
+	swarmPanelMu.Lock()
+	hp.open = true
+	hp.reviewOpen = false
+	hp.filter = filter
+	swarmPanelMu.Unlock()
+
+	s.startSwarmWatch()
+	s.refreshSwarm()
+	s.invalidate()
+}
+
 func (s *chatState) refreshSwarm() {
 	s.mu.Lock()
 	tid := s.selectedThreadID
@@ -330,6 +361,7 @@ func (s *chatState) loadSwarm(threadID string) {
 	if changed {
 		hp.loaded = false
 		hp.setStateLocked(SwarmState{})
+		hp.filter = swarmFilterAll
 		hp.reviewOpen = false
 		hp.reviewBeeID = ""
 		hp.reviewFiles = nil
@@ -1125,99 +1157,121 @@ func renderSwarmHeaderButton(c *ui.Context, s *chatState) {
 	// 仓库尚无性能模式设置，固定按普通模式渲染。
 	haloSpec := swarmHaloStyle(enabled, runningCount, false)
 	on := haloSpec.Width > 0
+	panelOpen := hp.IsOpen()
 
-	// 容器包住待审查角标与按钮本身；等待/数量角标绝对定位叠在按钮右上角，不参与布局。
+	// 容器包住待审查胶囊、编排按钮及其角标、以及一级汇总面板图标按钮；
+	// 编排按钮与角标放进内层盒子，确保 Right(-6)/Right(18) 仅相对于编排按钮定位。
 	ui.Row(c.Key("chat-header-swarm-btn-wrap")).
 		AlignItems(ui.Center).
 		Children(func() {
-			// 待审查角标放在按钮左侧：数字角标按容器右边缘绝对定位，放在按钮后面会被挤离按钮。
+			// 待审查胶囊放在按钮左侧：点击直接打开汇总面板并切到「待审查」筛选视图。
 			if !isBee && reviewCount > 0 {
-				renderSwarmReviewBadge(c, reviewCount)
+				renderSwarmReviewBadge(c, s, reviewCount)
 			}
 
-			// 外观与模型选择面板里的编排开关完全一致：绘制 28 圆形，命中区 32；关闭时是白 6% 圆底
-			// （悬停 10%），开启时是名册色角向渐变环 + 内衬 accent 微光。
-			btn := ui.ButtonBase(c.Key("chat-header-swarm-btn")).
-				Label("编排").
-				Value(map[bool]string{true: "开启", false: "关闭"}[on]).
-				Tooltip(tooltip).
-				Size(swarmToggleHitSize, swarmToggleHitSize).
-				Radius(swarmToggleHitSize / 2).
-				Center()
-			{
-				scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
-				btn.Scale(scale, scale)
-			}
+			ui.Box(c.Key("chat-header-swarm-toggle-box")).
+				Shrink(0).
+				Children(func() {
+					// 外观与模型选择面板里的编排开关完全一致：绘制 28 圆形，命中区 32；关闭时是白 6% 圆底
+					// （悬停 10%），开启时是名册色角向渐变环 + 内衬 accent 微光。
+					btn := ui.ButtonBase(c.Key("chat-header-swarm-btn")).
+						Label("编排").
+						Value(map[bool]string{true: "开启", false: "关闭"}[on]).
+						Tooltip(tooltip).
+						Size(swarmToggleHitSize, swarmToggleHitSize).
+						Radius(swarmToggleHitSize / 2).
+						Center()
+					focusRing(c, btn)
+					{
+						scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+						btn.Scale(scale, scale)
+					}
 
-			hovered := btn.Hovered()
-			glow := swarmToggleGlow
-			if floatShown {
-				// 保留原来「浮窗已展开」的反馈：环内微光加深。
-				glow = swarmToggleGlowOpen
-			}
-			btn.Draw(func(painter *ui.Painter, r ui.Rect) {
-				paintSwarmToggle(c, painter, ui.Rect{
-					X: r.X + swarmToggleInset,
-					Y: r.Y + swarmToggleInset,
-					W: swarmToggleSize,
-					H: swarmToggleSize,
-				}, swarmTogglePaint{
-					On:      on,
-					Hovered: hovered,
-					RingW:   haloSpec.Width,
-					Glow:    glow,
-					InnerBg: ThemeWindowBg(c),
-				})
-			})
+					hovered := btn.Hovered()
+					glow := swarmToggleGlow
+					if floatShown {
+						// 保留原来「浮窗已展开」的反馈：环内微光加深。
+						glow = swarmToggleGlowOpen
+					}
+					btn.Draw(func(painter *ui.Painter, r ui.Rect) {
+						paintSwarmToggle(c, painter, ui.Rect{
+							X: r.X + swarmToggleInset,
+							Y: r.Y + swarmToggleInset,
+							W: swarmToggleSize,
+							H: swarmToggleSize,
+						}, swarmTogglePaint{
+							On:      on,
+							Hovered: hovered,
+							RingW:   haloSpec.Width,
+							Glow:    glow,
+							InnerBg: ThemeWindowBg(c),
+						})
+					})
 
-			if btn.Clicked() && leadID != "" && !isBee {
-				// 有待回答的提问时，左键直接打开第一个等待的子线程；否则只切换浮窗：
-				// 显示中则隐藏，隐藏中则清除关闭记录并强制显示（没有 bee 时是空团队面板）。
-				if len(waitingBees) > 0 {
-					openSwarmFloatForBee(leadID, waitingBees[0])
-				} else if floatShown {
-					dismissSwarmFloatPanel(leadID, activeBees)
-				} else {
-					undismissSwarmFloatPanel(leadID)
-				}
-				markSwarmFailedBeesSeen(s, leadID, activeBees)
-				s.invalidate()
-			}
-			// 右键菜单直接切换会话级工作模式；子线程（isBee）本身不承载主导角色，不挂菜单。
-			if !isBee {
-				btn.ContextMenu(func(m *ui.Menu) {
-					current := swarmModeOptionFor(s.threadSwarmMode(selected))
-					for _, opt := range swarmModeOptions {
-						o := opt
-						if m.Item(o.Label).Checked(o.Mode == current.Mode).Chosen() && o.Mode != current.Mode {
-							s.setThreadSwarmMode(selected, o.Mode)
+					if btn.Clicked() && leadID != "" && !isBee {
+						// 有待回答的提问时，左键直接打开第一个等待的子线程；否则只切换浮窗：
+						// 显示中则隐藏，隐藏中则清除关闭记录并强制显示（没有 bee 时是空团队面板）。
+						if len(waitingBees) > 0 {
+							openSwarmFloatForBee(leadID, waitingBees[0])
+						} else if floatShown {
+							dismissSwarmFloatPanel(leadID, activeBees)
+						} else {
+							undismissSwarmFloatPanel(leadID)
 						}
+						markSwarmFailedBeesSeen(s, leadID, activeBees)
+						s.invalidate()
+					}
+					// 右键菜单直接切换会话级工作模式；子线程（isBee）本身不承载主导角色，不挂菜单。
+					if !isBee {
+						btn.ContextMenu(func(m *ui.Menu) {
+							current := swarmModeOptionFor(s.threadSwarmMode(selected))
+							for _, opt := range swarmModeOptions {
+								o := opt
+								if m.Item(o.Label).Checked(o.Mode == current.Mode).Chosen() && o.Mode != current.Mode {
+									s.setThreadSwarmMode(selected, o.Mode)
+								}
+							}
+						})
+					}
+
+					btn.Children(func() {
+						// 图标两态取色与开关一致：关闭 60% 主文本色，开启或悬停为实色。
+						alpha := float32(0.6)
+						if on || hovered {
+							alpha = 1
+						}
+						ui.Row(c.Key("chat-header-swarm-btn-content")).
+							Gap(Space1).
+							AlignItems(ui.Center).
+							Children(func() {
+								ui.Icon(c, IconSwarm()).Size(IconMD, IconMD).TextColor(ThemePrimaryText(c).Alpha(alpha))
+							})
+					})
+
+					// 有待回答提问时优先显示危险色等待角标；否则在主导会话上显示运行中与排队中的子代理数量角标。
+					if len(waitingBees) > 0 {
+						renderSwarmHeaderBadge(c, "chat-header-swarm-waiting-badge", len(waitingBees), ThemeDanger(c))
+					} else if !isBee && pendingCount > 0 {
+						renderSwarmHeaderBadge(c, "chat-header-swarm-count-badge", pendingCount, ThemeAccent(c))
+					}
+					if !isBee && failedCount > 0 {
+						renderSwarmHeaderBadge(c, "chat-header-swarm-failed-badge", failedCount, ThemeDanger(c))
 					}
 				})
-			}
 
-			btn.Children(func() {
-				// 图标两态取色与开关一致：关闭 60% 主文本色，开启或悬停为实色。
-				alpha := float32(0.6)
-				if on || hovered {
-					alpha = 1
-				}
-				ui.Row(c.Key("chat-header-swarm-btn-content")).
-					Gap(Space1).
-					AlignItems(ui.Center).
-					Children(func() {
-						ui.Icon(c, IconSwarm()).Size(IconMD, IconMD).TextColor(ThemePrimaryText(c).Alpha(alpha))
-					})
-			})
-
-			// 有待回答提问时优先显示危险色等待角标；否则在主导会话上显示运行中与排队中的子代理数量角标。
-			if len(waitingBees) > 0 {
-				renderSwarmHeaderBadge(c, "chat-header-swarm-waiting-badge", len(waitingBees), ThemeDanger(c))
-			} else if !isBee && pendingCount > 0 {
-				renderSwarmHeaderBadge(c, "chat-header-swarm-count-badge", pendingCount, ThemeAccent(c))
-			}
-			if !isBee && failedCount > 0 {
-				renderSwarmHeaderBadge(c, "chat-header-swarm-failed-badge", failedCount, ThemeDanger(c))
+			if !isBee && (enabled || len(activeBees) > 0 || reviewCount > 0) {
+				IconButton(c, IconButtonProps{
+					Key:     "chat-header-swarm-panel-btn",
+					Icon:    IconLayoutDashboard(),
+					Label:   "子代理汇总面板",
+					Tooltip: "子代理汇总面板",
+					Size:    ControlMD,
+					Variant: ButtonGhost,
+					Active:  panelOpen,
+					OnClick: func() {
+						s.toggleSwarmPanel()
+					},
+				}).Margin(0, 0, 0, Space1)
 			}
 		})
 }
@@ -1252,15 +1306,22 @@ func swarmHeaderBadgeColors(c *ui.Context, bg ui.Color) (ui.Color, ui.Color) {
 	return ThemeOnAccent(c), bg
 }
 
-// renderSwarmReviewBadge 在编排按钮左侧显示「待审查 N」：配色与 bee 行内的「待审查」标签一致，
-// 只提示待审查数量，不改变运行中/排队中数字角标的语义。
-func renderSwarmReviewBadge(c *ui.Context, count int) {
-	Badge(c, "chat-header-swarm-review-badge", fmt.Sprintf("待审查 %d", count), ToneWarning).
-		Height(IconMD).
-		Padding(0, Space1).
-		Margin(0, Space1, 0, 0).
-		Radius(CapsuleRadius).
-		Center()
+// renderSwarmReviewBadge 在编排按钮左侧显示可点击的「待审查 N」胶囊：
+// 点击直接打开汇总面板并切换到「待审查」筛选视图。
+func renderSwarmReviewBadge(c *ui.Context, s *chatState, count int) {
+	cap := Capsule(c, CapsuleProps{
+		Key:         "chat-header-swarm-review-badge",
+		Text:        fmt.Sprintf("待审查 %d", count),
+		Tone:        ToneWarning,
+		Size:        ControlSM,
+		Interactive: true,
+		Tooltip:     "查看待审查子代理",
+		OnClick: func() {
+			s.openSwarmPanelWithFilter(swarmFilterReview)
+		},
+	})
+	cap.Shrink(0).Margin(0, Space1, 0, 0)
+	focusRing(c, cap)
 }
 
 // reviewBeeStatusTag 计算 bee 在审查器中的状态标签文本与语义颜色。
@@ -1397,10 +1458,10 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 
 					Button(c, ButtonOpts{
 						Key:     "swarm-review-close-btn",
-						Text:    "关闭",
-						Icon:    IconX(),
-						Label:   "关闭",
-						Tooltip: "关闭审查器",
+						Text:    "返回",
+						Icon:    IconArrowLeft(),
+						Label:   "关闭审查器",
+						Tooltip: "返回汇总列表",
 						Variant: ButtonGhost,
 						Size:    ControlSM,
 						OnClick: func() {
@@ -1422,9 +1483,11 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 				return
 			}
 
-			// bee 切换条
+			// bee 切换条：窄宽下允许自动换行并收缩长名字
 			ui.Row(c.Key("swarm-review-tabs")).
 				FillWidth().
+				MinWidth(0).
+				Wrap().
 				Gap(Space2).
 				AlignItems(ui.Center).
 				Children(func() {
@@ -1432,11 +1495,19 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 						beeItem := h
 						isSelected := beeItem.ThreadID == selectedBeeID
 						tagText, tagColor := reviewBeeStatusTag(c, beeItem)
+						displayName := beeItem.Name
+						if displayName == "" {
+							displayName = fmt.Sprintf("子代理 #%d", beeItem.Index)
+						}
 
 						tabBtn := ui.ButtonBase(c.Key("swarm-review-tab-"+beeItem.ThreadID)).
-							Label(beeItem.Name).
+							Label(displayName).
+							Tooltip(displayName+" · "+tagText).
+							MinWidth(0).
+							MaxWidthPercent(100).
 							Radius(RadiusSM).
 							Padding(Space1, Space3)
+						focusRing(c, tabBtn)
 						{
 							scale := motionPressScale(c, tabBtn, "button-press-scale", tabBtn.Pressed())
 							tabBtn.Scale(scale, scale)
@@ -1451,6 +1522,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 						}
 						tabBtn.Children(func() {
 							ui.Row(c.Key("swarm-review-tab-inner-" + beeItem.ThreadID)).
+								MinWidth(0).
 								Gap(Space1).
 								AlignItems(ui.Center).
 								Children(func() {
@@ -1458,18 +1530,20 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 									if isSelected {
 										titleColor = ThemeAccent(c)
 									}
-									displayName := beeItem.Name
-									if displayName == "" {
-										displayName = fmt.Sprintf("子代理 #%d", beeItem.Index)
-									}
 									ui.Text(c, displayName).
 										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
-										TextColor(titleColor)
+										TextColor(titleColor).
+										SingleLine().
+										Ellipsis("…").
+										MinWidth(0).
+										Shrink(1)
 
 									ui.Text(c, tagText).
 										FontSize(uiFont(TypeCaption)).
-										TextColor(tagColor)
+										TextColor(tagColor).
+										SingleLine().
+										Shrink(0)
 								})
 						})
 					}
@@ -1479,36 +1553,45 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 			if curBee != nil {
 				ui.Column(c.Key("swarm-review-bee-info")).
 					FillWidth().
+					MinWidth(0).
 					Padding(Space3, Space3).
 					Radius(RadiusSM).
 					Background(ThemeSurface(c)).
 					BorderWidth(1).
 					BorderColor(ThemeBorder(c)).
-					Gap(Space1).
+					Gap(Space2).
 					Children(func() {
-						// 改动统计与操作按钮
+						// 改动统计与操作按钮：窄宽下支持换行，不横向溢出
 						ui.Row(c.Key("swarm-review-action-row")).
 							FillWidth().
+							MinWidth(0).
+							Wrap().
 							AlignItems(ui.Center).
-							Gap(Space3).
+							Gap(Space2).
 							Children(func() {
 								fileCountText := fmt.Sprintf("%d 个改动文件", len(reviewFiles))
 								ui.Text(c, fileCountText).
 									FontSize(uiFont(TypeBody)).
 									FontWeight(500).
-									TextColor(ThemePrimaryText(c))
+									TextColor(ThemePrimaryText(c)).
+									SingleLine().
+									Shrink(0)
 
 								if adds > 0 {
 									ui.Text(c, fmt.Sprintf("+%d", adds)).
 										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
-										TextColor(ThemeSuccess(c))
+										TextColor(ThemeSuccess(c)).
+										SingleLine().
+										Shrink(0)
 								}
 								if dels > 0 {
 									ui.Text(c, fmt.Sprintf("-%d", dels)).
 										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
-										TextColor(ThemeDanger(c))
+										TextColor(ThemeDanger(c)).
+										SingleLine().
+										Shrink(0)
 								}
 
 								ui.Spacer(c)
@@ -1516,16 +1599,20 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 								if curBee.ReviewState == "running" {
 									ui.Text(c, "审查模型正在审查…").
 										FontSize(uiFont(TypeFootnote)).
-										TextColor(ThemeAccent(c))
+										TextColor(ThemeAccent(c)).
+										Shrink(0)
 								} else if curBee.ReviewState == "rejected" {
-									ui.Text(c, "改动未合入，补丁已保留，可让主代理派子代理按审查意见返工").
+									ui.Text(c, "审查未通过").
 										FontSize(uiFont(TypeFootnote)).
-										TextColor(ThemeDanger(c))
+										FontWeight(500).
+										TextColor(ThemeDanger(c)).
+										Shrink(0)
 								} else if curBee.PendingMerge {
 									if reviewBusy {
 										ui.Row(c.Key("swarm-review-busy-row")).
 											Gap(Space1).
 											AlignItems(ui.Center).
+											Shrink(0).
 											Children(func() {
 												renderRunningGlyph(c, "swarm-panel-run-merge-busy-"+curBee.ThreadID, 12, ThemeAccent(c))
 												ui.Text(c, "处理中…").
@@ -1568,38 +1655,42 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 									ui.Text(c, "已合并").
 										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
-										TextColor(ThemeSuccess(c))
+										TextColor(ThemeSuccess(c)).
+										Shrink(0)
 								} else if curBee.MergeDiscarded {
 									ui.Text(c, "已放弃合并").
 										FontSize(uiFont(TypeFootnote)).
-										TextColor(ThemeSecondaryText(c))
+										TextColor(ThemeSecondaryText(c)).
+										Shrink(0)
 								} else {
 									_, statusColor := swarmStatusTone(c, curBee.Status)
 									ui.Text(c, swarmStatusLabel(curBee.Status)).
 										FontSize(uiFont(TypeFootnote)).
-										TextColor(statusColor)
+										TextColor(statusColor).
+										Shrink(0)
 								}
 
 								// 把当前选中的 bee 弹出为独立窗口
-								popOutBtn := ui.ButtonBase(c.Key("swarm-review-pop-out-btn")).
-									Label("在独立窗口中打开").
-									Tooltip("在独立窗口中打开").
-									Radius(RadiusXS).
-									Padding(Space1, Space2)
-								{
-									scale := motionPressScale(c, popOutBtn, "button-press-scale", popOutBtn.Pressed())
-									popOutBtn.Scale(scale, scale)
-								}
-								if popOutBtn.Hovered() {
-									popOutBtn.Background(ThemeHover(c))
-								}
-								if popOutBtn.Clicked() {
-									s.popOutSwarmBee(curBee.ThreadID)
-								}
-								popOutBtn.Children(func() {
-									ui.Icon(c, IconSquareArrowOutUpRight()).Size(Space4, Space4).TextColor(ThemeSecondaryText(c))
+								IconButton(c, IconButtonProps{
+									Key:     "swarm-review-pop-out-btn",
+									Icon:    IconSquareArrowOutUpRight(),
+									Label:   "在独立窗口中打开",
+									Tooltip: "在独立窗口中打开",
+									Size:    ControlSM,
+									Variant: ButtonGhost,
+									OnClick: func() {
+										s.popOutSwarmBee(curBee.ThreadID)
+									},
 								})
 							})
+
+						if curBee.ReviewState == "rejected" {
+							ui.Text(c, "改动未合入，补丁已保留，可让主代理派子代理按审查意见返工").
+								FontSize(uiFont(TypeFootnote)).
+								TextColor(ThemeDanger(c)).
+								Wrap().
+								MinWidth(0)
+						}
 
 						// 审查决定层与 token 消耗
 						if curBee.ReviewLayer != "" {
@@ -1609,7 +1700,9 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 							}
 							ui.Text(c, layerText).
 								FontSize(uiFont(TypeCaption)).
-								TextColor(ThemeSecondaryText(c))
+								TextColor(ThemeSecondaryText(c)).
+								Wrap().
+								MinWidth(0)
 						}
 
 						// 审查意见：审查模型给出结论时展示原因
@@ -1620,7 +1713,9 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 							}
 							ui.Text(c, reasonLabel+curBee.ReviewReason).
 								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeSecondaryText(c))
+								TextColor(ThemeSecondaryText(c)).
+								Wrap().
+								MinWidth(0)
 						}
 
 						// 审查疑点：最多展示 10 条，避免撑爆面板
@@ -1631,39 +1726,27 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 							for _, concern := range concerns {
 								ui.Text(c, "· "+concern).
 									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeSecondaryText(c))
+									TextColor(ThemeSecondaryText(c)).
+									Wrap().
+									MinWidth(0)
 							}
 						}
 
 						// 有 AI 审查会话时，提供跳转到审查会话的入口
 						if curBee.ReviewThreadID != "" {
-							reviewThreadBtn := ui.ButtonBase(c.Key("swarm-review-open-review-thread-btn")).
-								Label("查看审查会话").
-								Tooltip("查看审查会话").
-								Radius(RadiusXS).
-								Padding(Space1, Space2)
-							{
-								scale := motionPressScale(c, reviewThreadBtn, "button-press-scale", reviewThreadBtn.Pressed())
-								reviewThreadBtn.Scale(scale, scale)
-							}
-							if reviewThreadBtn.Hovered() {
-								reviewThreadBtn.Background(ThemeHover(c))
-							}
-							if reviewThreadBtn.Clicked() {
-								reviewThreadID := curBee.ReviewThreadID
-								s.closeSwarmReview()
-								s.selectThread(reviewThreadID)
-							}
-							reviewThreadBtn.Children(func() {
-								ui.Row(c.Key("swarm-review-open-review-thread-btn-inner")).
-									Gap(Space1).
-									AlignItems(ui.Center).
-									Children(func() {
-										ui.Icon(c, IconEye()).Size(Space4, Space4).TextColor(ThemeSecondaryText(c))
-										ui.Text(c, "查看审查会话").
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeSecondaryText(c))
-									})
+							Button(c, ButtonOpts{
+								Key:     "swarm-review-open-review-thread-btn",
+								Text:    "查看审查会话",
+								Icon:    IconEye(),
+								Label:   "查看审查会话",
+								Tooltip: "查看审查会话",
+								Size:    ControlSM,
+								Variant: ButtonGhost,
+								OnClick: func() {
+									reviewThreadID := curBee.ReviewThreadID
+									s.closeSwarmReview()
+									s.selectThread(reviewThreadID)
+								},
 							})
 						}
 
@@ -1720,7 +1803,270 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 		})
 }
 
-// renderSwarmPanel 渲染 Swarm 浮动协作面板：不透明大圆角卡片，顶部条可拖拽，靠近左右边缘时吸附停靠。
+func swarmBeeMatchesFilter(h SwarmBee, filter swarmPanelFilter) bool {
+	switch filter {
+	case swarmFilterRunning:
+		return h.Status == "running"
+	case swarmFilterReview:
+		return h.PendingMerge || h.ReviewState == "running" || h.ReviewState == "rejected" || len(h.ConflictFiles) > 0
+	case swarmFilterFinished:
+		return h.Status != "running"
+	default:
+		return true
+	}
+}
+
+func swarmFilterCounts(bees []SwarmBee) (all, running, review, finished int) {
+	all = len(bees)
+	for _, h := range bees {
+		if swarmBeeMatchesFilter(h, swarmFilterRunning) {
+			running++
+		}
+		if swarmBeeMatchesFilter(h, swarmFilterReview) {
+			review++
+		}
+		if swarmBeeMatchesFilter(h, swarmFilterFinished) {
+			finished++
+		}
+	}
+	return all, running, review, finished
+}
+
+func swarmFilterBees(bees []SwarmBee, filter swarmPanelFilter) []SwarmBee {
+	if filter == swarmFilterAll {
+		return bees
+	}
+	filtered := make([]SwarmBee, 0, len(bees))
+	for _, h := range bees {
+		if swarmBeeMatchesFilter(h, filter) {
+			filtered = append(filtered, h)
+		}
+	}
+	return filtered
+}
+
+func swarmFilterEmptyText(filter swarmPanelFilter) string {
+	switch filter {
+	case swarmFilterRunning:
+		return "无运行中子代理"
+	case swarmFilterReview:
+		return "无待审查子代理"
+	case swarmFilterFinished:
+		return "无已结束子代理"
+	default:
+		return "暂无子代理"
+	}
+}
+
+func swarmPanelHeaderSummary(st SwarmState) string {
+	_, running, review, _ := swarmFilterCounts(st.Bees)
+	var parts []string
+	if running > 0 {
+		parts = append(parts, fmt.Sprintf("%d 运行", running))
+	}
+	if review > 0 {
+		parts = append(parts, fmt.Sprintf("%d 待审", review))
+	}
+	if len(parts) == 0 && len(st.Bees) > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个", len(st.Bees)))
+	}
+	if st.Queued > 0 {
+		parts = append(parts, fmt.Sprintf("%d 排队", st.Queued))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func renderSwarmPanelHeader(c *ui.Context, s *chatState, isLoading bool, errMsg string, st SwarmState, reviewOpen bool) {
+	normalReady := !isLoading && errMsg == "" && st.Available && !st.IsBee
+	header := ui.Row(c.Key("swarm-panel-header")).
+		FillWidth().
+		MinWidth(0).
+		Shrink(0).
+		AlignItems(ui.Center).
+		Gap(Space2).
+		Padding(Space3, Space4).
+		BorderWidth(0, 0, Hairline, 0).
+		BorderColor(ThemeBorder(c)).
+		Cursor(ui.CursorGrab).
+		Children(func() {
+			ui.Text(c, "子代理汇总").
+				FontSize(uiFont(TypeProse)).
+				FontWeight(600).
+				TextColor(ThemePrimaryText(c)).
+				SingleLine().
+				Shrink(0)
+
+			if normalReady {
+				if summary := swarmPanelHeaderSummary(st); summary != "" {
+					ui.Text(c, summary).
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeSecondaryText(c)).
+						SingleLine().
+						Ellipsis("…").
+						MinWidth(0).
+						Shrink(1)
+				}
+			}
+
+			ui.Spacer(c)
+
+			if normalReady && !reviewOpen {
+				if beeID := swarmPopOutBeeID(st); beeID != "" {
+					IconButton(c, IconButtonProps{
+						Key:     "swarm-pop-out-btn",
+						Icon:    IconSquareArrowOutUpRight(),
+						Label:   "在独立窗口中打开",
+						Tooltip: "在独立窗口中打开",
+						Size:    ControlSM,
+						Variant: ButtonGhost,
+						OnClick: func() {
+							s.popOutSwarmBee(beeID)
+						},
+					})
+				}
+			}
+
+			IconButton(c, IconButtonProps{
+				Key:     "swarm-panel-close-btn",
+				Icon:    IconX(),
+				Label:   "关闭汇总面板",
+				Tooltip: "关闭汇总面板",
+				Size:    ControlSM,
+				Variant: ButtonGhost,
+				OnClick: func() {
+					s.toggleSwarmPanel()
+				},
+			})
+		})
+
+	swarmDragHandle(s, header)
+}
+
+func renderSwarmPanelToolbar(c *ui.Context, s *chatState, hp *swarmPanelState, st SwarmState, filter swarmPanelFilter) {
+	var hasRunning, hasFinished bool
+	for _, h := range st.Bees {
+		if h.Status == "running" {
+			hasRunning = true
+		} else {
+			hasFinished = true
+		}
+	}
+	if st.Queued > 0 {
+		hasRunning = true
+	}
+
+	ui.Column(c.Key("swarm-panel-toolbar")).
+		FillWidth().
+		MinWidth(0).
+		Shrink(0).
+		Gap(Space2).
+		Padding(Space2, Space4, Space3, Space4).
+		BorderWidth(0, 0, Hairline, 0).
+		BorderColor(ThemeBorder(c)).
+		Children(func() {
+			ui.Row(c.Key("swarm-panel-actions")).
+				FillWidth().
+				MinWidth(0).
+				Wrap().
+				AlignItems(ui.Center).
+				Gap(Space2).
+				Children(func() {
+					if st.Enabled {
+						plansVariant := ButtonGhost
+						var plansIcon *ui.SVG
+						if st.PlansOnly {
+							plansVariant = ButtonSecondary
+							plansIcon = IconCheck()
+						}
+						Button(c, ButtonOpts{
+							Key:      "swarm-plans-only-btn",
+							Text:     "只规划",
+							Icon:     plansIcon,
+							Label:    "只规划",
+							Tooltip:  "仅允许主代理规划，不直接写文件",
+							Variant:  plansVariant,
+							Size:     ControlXS,
+							Disabled: s.swarmActionBusy("plans"),
+							Loading:  s.swarmActionBusy("plans"),
+							OnClick: func() {
+								s.setSwarmPlansOnly(!st.PlansOnly)
+							},
+						})
+					}
+
+					toggleLabel := "开启"
+					if st.Enabled {
+						toggleLabel = "关闭"
+					}
+					Button(c, ButtonOpts{
+						Key:      "swarm-toggle-btn",
+						Text:     toggleLabel,
+						Label:    toggleLabel,
+						Tooltip:  "开启或关闭多子代理编排",
+						Variant:  ButtonSecondary,
+						Size:     ControlXS,
+						Disabled: s.swarmActionBusy("enabled"),
+						Loading:  s.swarmActionBusy("enabled"),
+						OnClick: func() {
+							s.setSwarmEnabled(!st.Enabled)
+						},
+					})
+
+					if hasRunning {
+						Button(c, ButtonOpts{
+							Key:      "swarm-stop-all-btn",
+							Text:     "停止全部",
+							Label:    "停止全部",
+							Tooltip:  "停止全部运行中子代理",
+							Variant:  ButtonDanger,
+							Size:     ControlXS,
+							Disabled: s.swarmActionBusy("stop-all"),
+							Loading:  s.swarmActionBusy("stop-all"),
+							OnClick: func() {
+								s.stopAllSwarmBees()
+							},
+						})
+					}
+
+					if hasFinished {
+						Button(c, ButtonOpts{
+							Key:      "swarm-clear-finished-btn",
+							Text:     "清理已结束",
+							Label:    "清理已结束",
+							Tooltip:  "清理已结束的子代理记录",
+							Variant:  ButtonGhost,
+							Size:     ControlXS,
+							Disabled: s.swarmActionBusy("clear"),
+							Loading:  s.swarmActionBusy("clear"),
+							OnClick: func() {
+								s.clearFinishedSwarmBees()
+							},
+						})
+					}
+				})
+
+			if len(st.Bees) > 0 {
+				allCount, runningCount, reviewCount, finishedCount := swarmFilterCounts(st.Bees)
+				selected := int(filter)
+				if selected < 0 || selected > int(swarmFilterFinished) {
+					selected = 0
+				}
+				SegmentedFill(c, "swarm-panel-filter", &selected, []Segment{
+					{Label: "全部", Count: allCount},
+					{Label: "运行中", Count: runningCount},
+					{Label: "待审查", Count: reviewCount},
+					{Label: "已结束", Count: finishedCount},
+				}, func(idx int) {
+					swarmPanelMu.Lock()
+					hp.filter = swarmPanelFilter(idx)
+					swarmPanelMu.Unlock()
+					s.invalidate()
+				})
+			}
+		})
+}
+
+// renderSwarmPanel 渲染 Swarm 浮动协作面板：不透明大圆角卡片，固定顶栏可拖拽，靠近左右边缘时吸附停靠。
 func renderSwarmPanel(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
@@ -1733,6 +2079,13 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 	swarmPanelMu.Lock()
 	open := hp.open
 	loading := hp.loading
+	loaded := hp.loaded
+	errMsg := hp.err
+	st := hp.state
+	reviewOpen := hp.reviewOpen
+	filter := hp.filter
+	discardOpen := hp.discardConfirmOpen
+	discardBeeID := hp.discardBeeID
 	swarmPanelMu.Unlock()
 
 	if !open {
@@ -1747,26 +2100,32 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 		return
 	}
 
-	swarmPanelMu.Lock()
-	loading = hp.loading
-	loaded := hp.loaded
-	errMsg := hp.err
-	st := hp.state
-	reviewOpen := hp.reviewOpen
-	swarmPanelMu.Unlock()
-
-	panelMaxH := float32(280)
-	if reviewOpen {
-		panelMaxH = 420
+	if !discardOpen && c.Shortcut(0, ui.KeyEscape) {
+		swarmPanelMu.Lock()
+		hp.open = false
+		hp.reviewOpen = false
+		swarmPanelMu.Unlock()
+		s.invalidate()
+		return
 	}
 
 	winW, winH := c.Size()
-	panelW := min(swarmPanelWidth, max(0, winW-2*swarmPanelMargin))
+	availW := max(0, winW-2*swarmPanelMargin)
+	availH := max(0, winH-2*swarmPanelMargin)
+	targetW := float32(480)
+	targetH := float32(520)
+	if reviewOpen {
+		targetW = 680
+		targetH = 640
+	}
+	panelW := min(targetW, availW)
+	panelMaxH := min(targetH, availH)
+	isInitialLoading := loading && !loaded
 
 	ui.Overlay(c, func() {
 		card := ui.Column(c.Key("swarm-panel-root")).
 			Width(panelW).
-			MaxWidth(max(0, winW-2*swarmPanelMargin)).
+			MaxWidth(availW).
 			MaxHeight(panelMaxH).
 			Radius(swarmPanelRadius).
 			Background(ThemeSurface(c)).
@@ -1774,18 +2133,31 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 			BorderColor(ThemeBorder(c)).
 			Clip().
 			Children(func() {
+				// 1. 固定顶栏：所有状态分支统一共用固定顶栏与关闭按钮
+				renderSwarmPanelHeader(c, s, isInitialLoading, errMsg, st, reviewOpen)
+
+				// 2. 快捷操作与四态分段筛选条（常规视图下固定在滚动区上方）
+				if !isInitialLoading && errMsg == "" && st.Available && !st.IsBee && !reviewOpen {
+					renderSwarmPanelToolbar(c, s, hp, st, filter)
+				}
+
+				// 3. 独立内容滚动区
 				ui.Scroll(c.Key("swarm-panel-scroll")).
 					FillWidth().
-					MaxHeight(panelMaxH).
-					Padding(Space3, Space5).
+					MinHeight(0).
+					Shrink(1).
+					Padding(Space3, Space4).
 					Children(func() {
-						if loading && !loaded {
+						if isInitialLoading {
 							renderSkeletonRows(c, "swarm-skeleton", 3, uiFont(TypeBody)+2*Space3, Space2)
 							return
 						}
 
 						if errMsg != "" {
 							ui.Row(c.Key("swarm-error-row")).
+								FillWidth().
+								MinWidth(0).
+								Wrap().
 								Gap(Space3).
 								AlignItems(ui.Center).
 								Padding(Space2, Space3).
@@ -1794,25 +2166,19 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 								Children(func() {
 									ui.Text(c, errMsg).
 										FontSize(uiFont(TypeBody)).
-										TextColor(ThemeDanger(c))
-									retryBtn := ui.ButtonBase(c.Key("swarm-retry-btn")).
-										Label("重试").
-										Radius(RadiusXS).
-										Padding(Space1, Space2)
-									{
-										scale := motionPressScale(c, retryBtn, "button-press-scale", retryBtn.Pressed())
-										retryBtn.Scale(scale, scale)
-									}
-									if retryBtn.Hovered() {
-										retryBtn.Background(ThemeHover(c))
-									}
-									if retryBtn.Clicked() {
-										s.loadSwarm(selectedID)
-									}
-									retryBtn.Children(func() {
-										ui.Text(c, "重试").
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeAccent(c))
+										TextColor(ThemeDanger(c)).
+										MinWidth(0).
+										Shrink(1)
+									Button(c, ButtonOpts{
+										Key:     "swarm-retry-btn",
+										Text:    "重试",
+										Label:   "重试",
+										Tooltip: "重新加载子代理状态",
+										Variant: ButtonGhost,
+										Size:    ControlXS,
+										OnClick: func() {
+											s.loadSwarm(selectedID)
+										},
 									})
 								})
 							return
@@ -1820,6 +2186,7 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 
 						if !st.Available {
 							ui.Row(c.Key("swarm-unavailable-row")).
+								FillWidth().
 								Padding(Space2, Space3).
 								Radius(RadiusSM).
 								Background(ThemeHover(c)).
@@ -1841,13 +2208,16 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 								desc += " (" + leadShort + ")"
 							}
 							ui.Row(c.Key("swarm-is-bee-row")).
+								FillWidth().
 								Padding(Space2, Space3).
 								Radius(RadiusSM).
 								Background(ThemeHover(c)).
 								Children(func() {
 									ui.Text(c, desc).
 										FontSize(uiFont(TypeBody)).
-										TextColor(ThemeSecondaryText(c))
+										TextColor(ThemeSecondaryText(c)).
+										Wrap().
+										MinWidth(0)
 								})
 							return
 						}
@@ -1878,10 +2248,6 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 
 	// 放弃合并的二次确认挂在根层、且在浮动面板之后渲染：嵌在面板卡片里会被裁剪，
 	// 后渲染的弹窗同时能优先拿到 Esc。
-	swarmPanelMu.Lock()
-	discardOpen := hp.discardConfirmOpen
-	discardBeeID := hp.discardBeeID
-	swarmPanelMu.Unlock()
 	RenderConfirmDialog(c, ConfirmDialog{
 		Key:          modalDragSwarmDiscard,
 		Open:         discardOpen,
@@ -1907,200 +2273,8 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 	})
 }
 
-// renderSwarmNormal 渲染 normal 状态下的 Swarm 面板。
+// renderSwarmNormal 渲染 normal 状态下的 Swarm 成员列表内容区。
 func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
-	var hasRunning, hasFinished bool
-	for _, h := range st.Bees {
-		if h.Status == "running" {
-			hasRunning = true
-		} else {
-			hasFinished = true
-		}
-	}
-	// 只有排队条目时也要能停下来，否则它们仍会被后续 processQueue 启动。
-	if st.Queued > 0 {
-		hasRunning = true
-	}
-
-	// 顶部控制行：标题、进度、开启/关闭、停止全部、清理已结束；整行兼作浮动面板的拖拽手柄
-	topRow := ui.Row(c.Key("swarm-top-row")).
-		FillWidth().
-		MinWidth(0).
-		Wrap().
-		AlignItems(ui.Center).
-		Gap(Space3).
-		Margin(0, 0, Space3, 0).
-		Cursor(ui.CursorGrab).
-		Children(func() {
-			ui.Text(c, "编排").
-				FontSize(uiFont(TypeProse)).
-				FontWeight(600).
-				TextColor(ThemePrimaryText(c))
-
-			progress := swarmProgressText(st)
-			if progress != "" {
-				ui.Text(c, progress).
-					FontSize(uiFont(TypeFootnote)).
-					TextColor(ThemeSecondaryText(c))
-			}
-
-			ui.Spacer(c)
-
-			if st.Enabled {
-				plansOnlyLabel := "只规划"
-				plansOnlyBtn := ui.ButtonBase(c.Key("swarm-plans-only-btn")).
-					Label(plansOnlyLabel).
-					Shrink(0).
-					Radius(RadiusSM).
-					Padding(Space1, Space3)
-				{
-					scale := motionPressScale(c, plansOnlyBtn, "button-press-scale", !s.swarmActionBusy("plans") && plansOnlyBtn.Pressed())
-					plansOnlyBtn.Scale(scale, scale)
-				}
-				plansOnlyBtn.Disabled(s.swarmActionBusy("plans"))
-				if st.PlansOnly {
-					plansOnlyBtn.Background(ThemeAccent(c).Alpha(0.12)).
-						Border(1, ThemeAccent(c).Alpha(0.4))
-				} else if plansOnlyBtn.Hovered() {
-					plansOnlyBtn.Background(ThemeHover(c))
-				}
-				if plansOnlyBtn.Clicked() {
-					s.setSwarmPlansOnly(!st.PlansOnly)
-				}
-				plansOnlyBtn.Children(func() {
-					if s.swarmActionBusy("plans") {
-						LoadingIndicator(c, nil, "", IconSM)
-						return
-					}
-					txt := ui.Text(c, plansOnlyLabel).
-						FontSize(uiFont(TypeFootnote))
-					if st.PlansOnly {
-						txt.TextColor(ThemeAccent(c)).FontWeight(600)
-					} else {
-						txt.TextColor(ThemeSecondaryText(c))
-					}
-				})
-			}
-
-			toggleLabel := "开启"
-			if st.Enabled {
-				toggleLabel = "关闭"
-			}
-			toggleBtn := ui.ButtonBase(c.Key("swarm-toggle-btn")).
-				Label(toggleLabel).
-				Shrink(0).
-				Radius(RadiusSM).
-				Padding(Space1, Space3)
-			{
-				scale := motionPressScale(c, toggleBtn, "button-press-scale", !s.swarmActionBusy("enabled") && toggleBtn.Pressed())
-				toggleBtn.Scale(scale, scale)
-			}
-			toggleBtn.Disabled(s.swarmActionBusy("enabled"))
-			if toggleBtn.Hovered() {
-				toggleBtn.Background(ThemeHover(c))
-			}
-			if toggleBtn.Clicked() {
-				s.setSwarmEnabled(!st.Enabled)
-			}
-			toggleBtn.Children(func() {
-				if s.swarmActionBusy("enabled") {
-					LoadingIndicator(c, nil, "", IconSM)
-					return
-				}
-				ui.Text(c, toggleLabel).
-					FontSize(uiFont(TypeFootnote)).
-					TextColor(ThemePrimaryText(c))
-			})
-
-			if hasRunning {
-				stopAllBtn := ui.ButtonBase(c.Key("swarm-stop-all-btn")).
-					Label("停止全部").
-					Shrink(0).
-					Radius(RadiusSM).
-					Padding(Space1, Space3)
-				{
-					scale := motionPressScale(c, stopAllBtn, "button-press-scale", !s.swarmActionBusy("stop-all") && stopAllBtn.Pressed())
-					stopAllBtn.Scale(scale, scale)
-				}
-				stopAllBtn.Disabled(s.swarmActionBusy("stop-all"))
-				if stopAllBtn.Hovered() {
-					stopAllBtn.Background(ThemeHover(c))
-				}
-				if stopAllBtn.Clicked() {
-					s.stopAllSwarmBees()
-				}
-				stopAllBtn.Children(func() {
-					if s.swarmActionBusy("stop-all") {
-						LoadingIndicator(c, nil, "", IconSM)
-						return
-					}
-					ui.Text(c, "停止全部").
-						FontSize(uiFont(TypeFootnote)).
-						TextColor(ThemeDanger(c))
-				})
-			}
-
-			if hasFinished {
-				clearBtn := ui.ButtonBase(c.Key("swarm-clear-finished-btn")).
-					Label("清理已结束").
-					Shrink(0).
-					Radius(RadiusSM).
-					Padding(Space1, Space3)
-				{
-					scale := motionPressScale(c, clearBtn, "button-press-scale", !s.swarmActionBusy("clear") && clearBtn.Pressed())
-					clearBtn.Scale(scale, scale)
-				}
-				clearBtn.Disabled(s.swarmActionBusy("clear"))
-				if clearBtn.Hovered() {
-					clearBtn.Background(ThemeHover(c))
-				}
-				if clearBtn.Clicked() {
-					s.clearFinishedSwarmBees()
-				}
-				clearBtn.Children(func() {
-					if s.swarmActionBusy("clear") {
-						LoadingIndicator(c, nil, "", IconSM)
-						return
-					}
-					ui.Text(c, "清理已结束").
-						FontSize(uiFont(TypeFootnote)).
-						TextColor(ThemeSecondaryText(c))
-				})
-			}
-
-			// 把标题栏当前的 bee 弹出为独立窗口
-			if beeID := swarmPopOutBeeID(st); beeID != "" {
-				popOutBtn := ui.ButtonBase(c.Key("swarm-pop-out-btn")).
-					Label("在独立窗口中打开").
-					Shrink(0).
-					Tooltip("在独立窗口中打开").
-					Radius(RadiusSM).
-					Padding(Space1, Space2)
-				{
-					scale := motionPressScale(c, popOutBtn, "button-press-scale", popOutBtn.Pressed())
-					popOutBtn.Scale(scale, scale)
-				}
-				if popOutBtn.Hovered() {
-					popOutBtn.Background(ThemeHover(c))
-				}
-				if popOutBtn.Clicked() {
-					s.popOutSwarmBee(beeID)
-				}
-				popOutBtn.Children(func() {
-					ui.Icon(c, IconSquareArrowOutUpRight()).Size(13, 13).TextColor(ThemeSecondaryText(c))
-				})
-			}
-
-			IconButton(c, IconButtonProps{
-				Key: "swarm-panel-close-btn", Icon: IconX(), Label: "关闭汇总面板", Tooltip: "关闭汇总面板",
-				Size: ControlSM, Variant: ButtonGhost, OnClick: func() {
-					s.toggleSwarmPanel()
-				},
-			})
-		})
-
-	swarmDragHandle(s, topRow)
-
 	// 重启后被中断的子代理/排队条目：在 bee 列表上方给出一条续跑横幅；
 	// 子代理自己的会话视图由 renderSwarmPanel 提前返回，这里再兜一层 IsBee 判断。
 	if !st.IsBee {
@@ -2122,11 +2296,31 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 		return
 	}
 
+	filter := swarmFilterAll
+	if hp := getSwarmPanelState(s); hp != nil {
+		swarmPanelMu.Lock()
+		filter = hp.filter
+		swarmPanelMu.Unlock()
+	}
+
+	filtered := swarmFilterBees(st.Bees, filter)
+	if len(filtered) == 0 {
+		ui.Row(c.Key("swarm-filter-empty")).
+			FillWidth().
+			Padding(Space3, 0).
+			Children(func() {
+				ui.Text(c, swarmFilterEmptyText(filter)).
+					FontSize(uiFont(TypeFootnote)).
+					TextColor(ThemeSecondaryText(c))
+			})
+		return
+	}
+
 	ui.Column(c.Key("swarm-bees-list")).
 		FillWidth().
 		Gap(Space2).
 		Children(func() {
-			for i, h := range st.Bees {
+			for i, h := range filtered {
 				renderSwarmBeeRow(c, s, h, i)
 			}
 		})
@@ -2149,287 +2343,295 @@ func swarmTierName(s *chatState, tierID string) string {
 	return tierID
 }
 
-// renderSwarmBeeRow 渲染单个 bee 卡片。
+// renderSwarmBeeRow 渲染单个可点击的 bee 卡片行。
 func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 	key := fmt.Sprintf("swarm-bee-%d-%s", h.Index, h.ThreadID)
-	ui.Column(c.Key(key)).
+	rowLabel := fmt.Sprintf("#%d %s", h.Index, h.Name)
+	row := ui.ButtonBase(c.Key(key)).
+		Label(rowLabel).
 		FillWidth().
 		MinWidth(0).
 		Padding(Space3, Space3).
 		Radius(RadiusSM).
 		Background(ThemeSurface(c)).
 		BorderWidth(1).
-		BorderColor(ThemeBorder(c)).
-		Gap(Space1).
-		Children(func() {
-			ui.Row(c.Key(key + "-meta")).
-				FillWidth().
-				MinWidth(0).
-				Wrap().
-				AlignItems(ui.Center).
-				Gap(Space3).
-				Children(func() {
-					// #Index Name
-					title := fmt.Sprintf("#%d %s", h.Index, h.Name)
-					ui.Text(c, title).
-						FontSize(uiFont(TypeBody)).
-						FontWeight(600).
-						TextColor(ThemePrimaryText(c)).
-						SingleLine().
-						Ellipsis("…").
-						MinWidth(0).
-						Shrink(1)
+		BorderColor(ThemeBorder(c))
+	focusRing(c, row)
+	if row.Hovered() {
+		row.Background(ThemeHover(c))
+	}
+	if row.Clicked() {
+		if h.PendingMerge || h.ReviewState == "rejected" {
+			s.openSwarmReview(h.ThreadID)
+		} else if h.ThreadID != "" {
+			leadID := s.swarmTargetLeadID()
+			openSwarmFloatForBee(leadID, h.ThreadID)
+			markSwarmFailedBeeSeen(s, leadID, h)
+			s.invalidate()
+		}
+	}
+	row.Children(func() {
+		ui.Column(c.Key(key + "-body")).
+			FillWidth().
+			Grow(1).
+			MinWidth(0).
+			Gap(Space1).
+			Children(func() {
+				ui.Row(c.Key(key + "-meta")).
+					FillWidth().
+					MinWidth(0).
+					Wrap().
+					AlignItems(ui.Center).
+					Gap(Space2).
+					Children(func() {
+						// #Index Name
+						title := fmt.Sprintf("#%d %s", h.Index, h.Name)
+						ui.Text(c, title).
+							FontSize(uiFont(TypeBody)).
+							FontWeight(600).
+							TextColor(ThemePrimaryText(c)).
+							SingleLine().
+							Ellipsis("…").
+							MinWidth(0).
+							Shrink(1)
 
-					if h.Tier != "" {
-						renderSwarmTierChip(c, "bee-tier-"+h.ThreadID, swarmTierName(s, h.Tier), h.Tier, h.ReadOnly)
-					}
+						if h.Tier != "" {
+							renderSwarmTierChip(c, "bee-tier-"+h.ThreadID, swarmTierName(s, h.Tier), h.Tier, h.ReadOnly)
+						}
 
-					// status label in status color
-					_, statusColor := swarmStatusTone(c, h.Status)
-					ui.Text(c, swarmStatusLabel(h.Status)).
-						FontSize(uiFont(TypeFootnote)).
-						FontWeight(500).
-						TextColor(statusColor)
+						// status label in status color
+						_, statusColor := swarmStatusTone(c, h.Status)
+						ui.Text(c, swarmStatusLabel(h.Status)).
+							FontSize(uiFont(TypeFootnote)).
+							FontWeight(500).
+							TextColor(statusColor)
 
-					// provider/model small (show short model name: last path segment of Model)
-					provModel := strings.TrimSpace(h.Provider)
-					shortModel := strings.TrimSpace(h.Model)
-					if idx := strings.LastIndex(shortModel, "/"); idx != -1 {
-						shortModel = shortModel[idx+1:]
-					}
-					if shortModel != "" {
+						// provider/model small (show short model name: last path segment of Model)
+						provModel := strings.TrimSpace(h.Provider)
+						shortModel := strings.TrimSpace(h.Model)
+						if idx := strings.LastIndex(shortModel, "/"); idx != -1 {
+							shortModel = shortModel[idx+1:]
+						}
+						if shortModel != "" {
+							if provModel != "" {
+								provModel += " / " + shortModel
+							} else {
+								provModel = shortModel
+							}
+						}
 						if provModel != "" {
-							provModel += " / " + shortModel
-						} else {
-							provModel = shortModel
-						}
-					}
-					if provModel != "" {
-						ui.Text(c, provModel).
-							FontSize(uiFont(TypeCaption)).
-							TextColor(ThemeSecondaryText(c))
-					}
-
-					if h.DirectModel {
-						ui.Row(c.Key(key+"-direct-model-tag")).
-							BorderWidth(1).
-							BorderColor(ThemeAccent(c).Alpha(0.5)).
-							Radius(RadiusXS).
-							Padding(Space0, Space1).
-							Tooltip("用户在消息里点名了这个模型").
-							Children(func() {
-								ui.Text(c, "指定模型").
-									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeAccent(c))
-							})
-					}
-
-					// tokens & toolCalls
-					usageText := fmt.Sprintf("%s tokens · %d 工具调用", formatTokenCount(int64(h.Tokens)), h.ToolCalls)
-					ui.Text(c, usageText).
-						FontSize(uiFont(TypeCaption)).
-						TextColor(ThemeSecondaryText(c))
-
-					// 越权写入 tag when ReadOnlyViolation
-					if h.ReadOnlyViolation {
-						ui.Row(c.Key(key+"-read-only-violation-tag")).
-							Padding(Space0, Space1).
-							Radius(RadiusXS).
-							Background(ThemeDanger(c).Alpha(0.15)).
-							Tooltip("只读档子代理改动了文件，改动已丢弃，未合并").
-							Children(func() {
-								ui.Text(c, "越权写入").
-									FontSize(uiFont(TypeCaption)).
-									FontWeight(600).
-									TextColor(ThemeDanger(c))
-							})
-					} else if h.Credibility != nil && h.Credibility.Cited > 0 {
-						badgeColor := ThemeSuccess(c)
-						badgeIcon := IconCircleCheck()
-						if h.Credibility.Verified != h.Credibility.Cited ||
-							strings.Contains(h.Credibility.Summary, "未读却引用") ||
-							strings.Contains(h.Credibility.Summary, "不可核实") {
-							badgeColor = ThemeWarning(c)
-							badgeIcon = IconOctagonAlert()
-						}
-						ui.Row(c.Key(key+"-credibility-badge")).
-							Padding(Space0, Space2).
-							Radius(RadiusXS).
-							Gap(Space1).
-							AlignItems(ui.Center).
-							Background(badgeColor.Alpha(0.15)).
-							Tooltip("可信度：" + h.Credibility.Summary).
-							Children(func() {
-								ui.Icon(c, badgeIcon).
-									Size(10, 10).
-									TextColor(badgeColor)
-								ui.Text(c, fmt.Sprintf("%d/%d", h.Credibility.Verified, h.Credibility.Cited)).
-									FontSize(uiFont(TypeCaption)).
-									FontWeight(600).
-									TextColor(badgeColor)
-							})
-					}
-
-					// 审查状态 tag：审查中、审查未通过或待审查
-					if h.ReviewState == "running" {
-						ui.Row(c.Key(key+"-review-running-tag")).
-							Padding(Space0, Space1).
-							Radius(RadiusXS).
-							Background(ThemeAccent(c).Alpha(0.15)).
-							Children(func() {
-								ui.Text(c, "审查中").
-									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeAccent(c))
-							})
-					} else if h.ReviewState == "rejected" {
-						ui.Row(c.Key(key+"-review-rejected-tag")).
-							Padding(Space0, Space1).
-							Radius(RadiusXS).
-							Background(ThemeDanger(c).Alpha(0.15)).
-							Children(func() {
-								ui.Text(c, "审查未通过").
-									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeDanger(c))
-							})
-					} else if h.PendingMerge {
-						ui.Row(c.Key(key+"-pending-merge-tag")).
-							Padding(Space0, Space1).
-							Radius(RadiusXS).
-							Background(ThemeAccent(c).Alpha(0.15)).
-							Children(func() {
-								ui.Text(c, "待审查").
-									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeAccent(c))
-							})
-					}
-
-					// 已合并 tag when Merged
-					if h.Merged {
-						ui.Row(c.Key(key+"-merged-tag")).
-							Padding(Space0, Space1).
-							Radius(RadiusXS).
-							Background(ThemeSuccess(c).Alpha(0.15)).
-							Children(func() {
-								ui.Text(c, "已合并").
-									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeSuccess(c))
-							})
-					}
-
-					// 已放弃合并 tag when MergeDiscarded
-					if h.MergeDiscarded {
-						ui.Row(c.Key(key+"-discarded-tag")).
-							Padding(Space0, Space1).
-							Radius(RadiusXS).
-							Background(ThemeSecondaryText(c).Alpha(0.15)).
-							Children(func() {
-								ui.Text(c, "已放弃合并").
-									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeSecondaryText(c))
-							})
-					}
-
-					ui.Spacer(c)
-
-					// 审查按钮 (PendingMerge)
-					if h.PendingMerge {
-						reviewBtn := ui.ButtonBase(c.Key(key+"-review-btn")).
-							Label("审查").
-							Shrink(0).
-							Radius(RadiusXS).
-							Padding(Space1, Space2).
-							Background(ThemeAccent(c))
-						{
-							scale := motionPressScale(c, reviewBtn, "button-press-scale", reviewBtn.Pressed())
-							reviewBtn.Scale(scale, scale)
-						}
-						if reviewBtn.Hovered() {
-							reviewBtn.Background(ThemeAccent(c).Alpha(0.85))
-						}
-						if reviewBtn.Clicked() {
-							s.openSwarmReview(h.ThreadID)
-						}
-						reviewBtn.Children(func() {
-							ui.Text(c, "审查").
-								FontSize(uiFont(TypeCaption)).
-								TextColor(ThemeOnAccent(c))
-						})
-					} else if (h.Merged || len(h.ConflictFiles) > 0) && (h.Status == "completed" || h.Status == "failed") {
-						viewBtn := ui.ButtonBase(c.Key(key+"-view-diff-btn")).
-							Label("查看改动").
-							Shrink(0).
-							Radius(RadiusXS).
-							Padding(Space1, Space2)
-						{
-							scale := motionPressScale(c, viewBtn, "button-press-scale", viewBtn.Pressed())
-							viewBtn.Scale(scale, scale)
-						}
-						if viewBtn.Hovered() {
-							viewBtn.Background(ThemeHover(c))
-						}
-						if viewBtn.Clicked() {
-							s.openSwarmReview(h.ThreadID)
-						}
-						viewBtn.Children(func() {
-							ui.Text(c, "查看改动").
+							ui.Text(c, provModel).
 								FontSize(uiFont(TypeCaption)).
 								TextColor(ThemeSecondaryText(c))
-						})
-					}
+						}
 
-					// 停止 button only when status is running
-					if h.Status == "running" {
-						stopBtn := ui.ButtonBase(c.Key(key+"-stop-btn")).
-							Label("停止").
-							Shrink(0).
-							Radius(RadiusXS).
-							Padding(Space1, Space2)
-						{
-							scale := motionPressScale(c, stopBtn, "button-press-scale", !s.swarmActionBusy("stop:"+h.ThreadID) && stopBtn.Pressed())
-							stopBtn.Scale(scale, scale)
+						if h.DirectModel {
+							ui.Row(c.Key(key+"-direct-model-tag")).
+								BorderWidth(1).
+								BorderColor(ThemeAccent(c).Alpha(0.5)).
+								Radius(RadiusXS).
+								Padding(Space0, Space1).
+								Tooltip("用户在消息里点名了这个模型").
+								Children(func() {
+									ui.Text(c, "指定模型").
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeAccent(c))
+								})
 						}
-						stopBtn.Disabled(s.swarmActionBusy("stop:" + h.ThreadID))
-						if stopBtn.Hovered() {
-							stopBtn.Background(ThemeHover(c))
-						}
-						if stopBtn.Clicked() {
-							s.stopSwarmBee(h.ThreadID)
-						}
-						stopBtn.Children(func() {
-							if s.swarmActionBusy("stop:" + h.ThreadID) {
-								LoadingIndicator(c, nil, "", IconSM)
-								return
+
+						// tokens & toolCalls
+						usageText := fmt.Sprintf("%s tokens · %d 工具调用", formatTokenCount(int64(h.Tokens)), h.ToolCalls)
+						ui.Text(c, usageText).
+							FontSize(uiFont(TypeCaption)).
+							TextColor(ThemeSecondaryText(c))
+
+						// 越权写入 tag when ReadOnlyViolation
+						if h.ReadOnlyViolation {
+							ui.Row(c.Key(key+"-read-only-violation-tag")).
+								Padding(Space0, Space1).
+								Radius(RadiusXS).
+								Background(ThemeDanger(c).Alpha(0.15)).
+								Tooltip("只读档子代理改动了文件，改动已丢弃，未合并").
+								Children(func() {
+									ui.Text(c, "越权写入").
+										FontSize(uiFont(TypeCaption)).
+										FontWeight(600).
+										TextColor(ThemeDanger(c))
+								})
+						} else if h.Credibility != nil && h.Credibility.Cited > 0 {
+							badgeColor := ThemeSuccess(c)
+							badgeIcon := IconCircleCheck()
+							if h.Credibility.Verified != h.Credibility.Cited ||
+								strings.Contains(h.Credibility.Summary, "未读却引用") ||
+								strings.Contains(h.Credibility.Summary, "不可核实") {
+								badgeColor = ThemeWarning(c)
+								badgeIcon = IconOctagonAlert()
 							}
-							ui.Text(c, "停止").
-								FontSize(uiFont(TypeCaption)).
-								TextColor(ThemeDanger(c))
-						})
-					}
-				})
+							ui.Row(c.Key(key+"-credibility-badge")).
+								Padding(Space0, Space2).
+								Radius(RadiusXS).
+								Gap(Space1).
+								AlignItems(ui.Center).
+								Background(badgeColor.Alpha(0.15)).
+								Tooltip("可信度：" + h.Credibility.Summary).
+								Children(func() {
+									ui.Icon(c, badgeIcon).
+										Size(10, 10).
+										TextColor(badgeColor)
+									ui.Text(c, fmt.Sprintf("%d/%d", h.Credibility.Verified, h.Credibility.Cited)).
+										FontSize(uiFont(TypeCaption)).
+										FontWeight(600).
+										TextColor(badgeColor)
+								})
+						}
 
-			// preview text 2 lines max in secondary color
-			preview := swarmBeePreview(h)
-			if preview != "" {
-				ui.Text(c, preview).
-					FontSize(uiFont(TypeFootnote)).
-					TextColor(ThemeSecondaryText(c))
-			}
+						// 审查状态 tag：审查中、审查未通过或待审查
+						if h.ReviewState == "running" {
+							ui.Row(c.Key(key+"-review-running-tag")).
+								Padding(Space0, Space1).
+								Radius(RadiusXS).
+								Background(ThemeAccent(c).Alpha(0.15)).
+								Children(func() {
+									ui.Text(c, "审查中").
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeAccent(c))
+								})
+						} else if h.ReviewState == "rejected" {
+							ui.Row(c.Key(key+"-review-rejected-tag")).
+								Padding(Space0, Space1).
+								Radius(RadiusXS).
+								Background(ThemeDanger(c).Alpha(0.15)).
+								Children(func() {
+									ui.Text(c, "审查未通过").
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeDanger(c))
+								})
+						} else if h.PendingMerge {
+							ui.Row(c.Key(key+"-pending-merge-tag")).
+								Padding(Space0, Space1).
+								Radius(RadiusXS).
+								Background(ThemeAccent(c).Alpha(0.15)).
+								Children(func() {
+									ui.Text(c, "待审查").
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeAccent(c))
+								})
+						}
 
-			// conflict files line in error color
-			if len(h.ConflictFiles) > 0 {
-				conflictText := "冲突文件: " + strings.Join(h.ConflictFiles, ", ")
-				ui.Text(c, conflictText).
-					FontSize(uiFont(TypeFootnote)).
-					TextColor(ThemeDanger(c))
-			}
+						// 已合并 tag when Merged
+						if h.Merged {
+							ui.Row(c.Key(key+"-merged-tag")).
+								Padding(Space0, Space1).
+								Radius(RadiusXS).
+								Background(ThemeSuccess(c).Alpha(0.15)).
+								Children(func() {
+									ui.Text(c, "已合并").
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeSuccess(c))
+								})
+						}
 
-			// MergeError in error color
-			if h.MergeError != "" {
-				ui.Text(c, "合并错误: "+h.MergeError).
-					FontSize(uiFont(TypeFootnote)).
-					TextColor(ThemeDanger(c))
-			}
-		})
+						// 已放弃合并 tag when MergeDiscarded
+						if h.MergeDiscarded {
+							ui.Row(c.Key(key+"-discarded-tag")).
+								Padding(Space0, Space1).
+								Radius(RadiusXS).
+								Background(ThemeSecondaryText(c).Alpha(0.15)).
+								Children(func() {
+									ui.Text(c, "已放弃合并").
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeSecondaryText(c))
+								})
+						}
+
+						ui.Spacer(c)
+
+						// 审查 / 查看改动 / 停止 / 独立窗口 按钮
+						if h.PendingMerge || h.ReviewState == "rejected" {
+							Button(c, ButtonOpts{
+								Key:     key + "-review-btn",
+								Text:    "审查",
+								Label:   "审查",
+								Tooltip: "进入合并审查",
+								Variant: ButtonPrimary,
+								Size:    ControlXS,
+								OnClick: func() {
+									s.openSwarmReview(h.ThreadID)
+								},
+							})
+						} else if (h.Merged || len(h.ConflictFiles) > 0) && (h.Status == "completed" || h.Status == "failed") {
+							Button(c, ButtonOpts{
+								Key:     key + "-view-diff-btn",
+								Text:    "查看改动",
+								Label:   "查看改动",
+								Tooltip: "查看子代理改动",
+								Variant: ButtonSecondary,
+								Size:    ControlXS,
+								OnClick: func() {
+									s.openSwarmReview(h.ThreadID)
+								},
+							})
+						}
+
+						if h.Status == "running" {
+							Button(c, ButtonOpts{
+								Key:      key + "-stop-btn",
+								Text:     "停止",
+								Label:    "停止",
+								Tooltip:  "停止子代理",
+								Variant:  ButtonDanger,
+								Size:     ControlXS,
+								Disabled: s.swarmActionBusy("stop:" + h.ThreadID),
+								Loading:  s.swarmActionBusy("stop:" + h.ThreadID),
+								OnClick: func() {
+									s.stopSwarmBee(h.ThreadID)
+								},
+							})
+						} else if h.ThreadID != "" {
+							IconButton(c, IconButtonProps{
+								Key:     key + "-popout-btn",
+								Icon:    IconSquareArrowOutUpRight(),
+								Label:   "在独立窗口中打开 " + h.Name,
+								Tooltip: "在独立窗口中打开",
+								Size:    ControlXS,
+								Variant: ButtonGhost,
+								OnClick: func() {
+									openBeeWindow(s, h.ThreadID)
+								},
+							})
+						}
+					})
+
+				// preview text in secondary color
+				preview := swarmBeePreview(h)
+				if preview != "" {
+					ui.Text(c, preview).
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeSecondaryText(c)).
+						Wrap().
+						MinWidth(0)
+				}
+
+				// conflict files line in error color
+				if len(h.ConflictFiles) > 0 {
+					conflictText := "冲突文件: " + strings.Join(h.ConflictFiles, ", ")
+					ui.Text(c, conflictText).
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeDanger(c)).
+						Wrap().
+						MinWidth(0)
+				}
+
+				// MergeError in error color
+				if h.MergeError != "" {
+					ui.Text(c, "合并错误: "+h.MergeError).
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeDanger(c)).
+						Wrap().
+						MinWidth(0)
+				}
+			})
+	})
 }
 
 // swarmNoticePrefix 与 swarmReportPrefix 必须与 internal/swarm 的 NoticePrefix、ReportPrefix 一致，
@@ -3119,30 +3321,120 @@ func resolveSwarmReportTier(c *ui.Context, s *chatState, tierStr string) (chipCo
 	return ThemeSecondaryText(c), trimmed, false
 }
 
-// matchSwarmReportBee 为一条汇报条目找出归属的 bee，用作档位/模型/文件的回退来源。
+// matchSwarmReportBee 为一条汇报条目找出归属的 bee，用作档位/模型/文件/ThreadID 的回退来源。
 // 旧汇报没有文件快照，必须核对会话与完整任务内容，不能仅凭可复用的名字匹配；
-// 有文件快照的条目直接构造一个只带文件列表的 bee。找不到归属时返回 nil。
+// 有文件快照的条目若未在 SwarmState.Bees 命中，也会按 - ID： 或 s.threads 回查真实 ThreadID。
 func matchSwarmReportBee(s *chatState, hp *swarmPanelState, e swarmReportEntry) *SwarmBee {
-	if e.filesRecorded {
-		return &SwarmBee{ChangedFiles: e.ChangedFiles, ConflictFiles: e.ConflictFiles}
+	var selected string
+	if s != nil {
+		s.mu.Lock()
+		selected = s.selectedThreadID
+		s.mu.Unlock()
 	}
-	if hp == nil || s == nil {
-		return nil
+	leadID := strings.TrimSpace(selected)
+
+	var matched *SwarmBee
+	if hp != nil {
+		swarmPanelMu.Lock()
+		if hp.loadedFor == selected {
+			if lid := strings.TrimSpace(hp.state.LeadThreadID); lid != "" {
+				leadID = lid
+			}
+			beeID := strings.TrimSpace(e.BeeID)
+			for i := range hp.state.Bees {
+				h := hp.state.Bees[i]
+				if beeID != "" && strings.TrimSpace(h.ThreadID) == beeID {
+					cp := h
+					matched = &cp
+					break
+				}
+				if h.Name == e.Name && h.Task == e.Task &&
+					swarmReportStatusText(h.Status) == e.Status && strings.TrimSpace(h.Summary) == e.Summary {
+					cp := h
+					matched = &cp
+					break
+				}
+			}
+			if matched == nil && e.filesRecorded {
+				for i := range hp.state.Bees {
+					h := hp.state.Bees[i]
+					if h.Name == e.Name && h.Task == e.Task && swarmReportStatusText(h.Status) == e.Status {
+						cp := h
+						matched = &cp
+						break
+					}
+				}
+			}
+		}
+		swarmPanelMu.Unlock()
 	}
-	s.mu.Lock()
-	selected := s.selectedThreadID
-	s.mu.Unlock()
-	swarmPanelMu.Lock()
-	defer swarmPanelMu.Unlock()
-	for i := range hp.state.Bees {
-		h := hp.state.Bees[i]
-		if hp.loadedFor == selected && h.Name == e.Name && h.Task == e.Task &&
-			swarmReportStatusText(h.Status) == e.Status && strings.TrimSpace(h.Summary) == e.Summary {
-			cp := hp.state.Bees[i]
-			return &cp
+
+	beeThreadID := ""
+	if matched != nil {
+		beeThreadID = strings.TrimSpace(matched.ThreadID)
+	}
+	if beeThreadID == "" {
+		beeThreadID = strings.TrimSpace(e.BeeID)
+	}
+	if beeThreadID == "" && s != nil && leadID != "" {
+		if name := strings.TrimSpace(e.Name); name != "" {
+			s.mu.Lock()
+			var best *Thread
+			for i := range s.threads {
+				th := &s.threads[i]
+				if th.ID == "" || th.ParentThreadID != leadID {
+					continue
+				}
+				if extractBeeName(th.Title) != name {
+					continue
+				}
+				if best == nil || th.UpdatedAt.After(best.UpdatedAt) {
+					best = th
+				}
+			}
+			if best != nil {
+				beeThreadID = strings.TrimSpace(best.ID)
+			}
+			s.mu.Unlock()
+		}
+	}
+
+	if matched != nil {
+		if e.filesRecorded {
+			matched.ChangedFiles = e.ChangedFiles
+			matched.ConflictFiles = e.ConflictFiles
+		}
+		if strings.TrimSpace(matched.ThreadID) == "" && beeThreadID != "" {
+			matched.ThreadID = beeThreadID
+		}
+		return matched
+	}
+	if e.filesRecorded || beeThreadID != "" {
+		return &SwarmBee{
+			ThreadID:      beeThreadID,
+			Name:          e.Name,
+			ChangedFiles:  e.ChangedFiles,
+			ConflictFiles: e.ConflictFiles,
 		}
 	}
 	return nil
+}
+
+func swarmBeeInActiveState(hp *swarmPanelState, selectedID, beeThreadID string) bool {
+	if hp == nil || beeThreadID == "" {
+		return false
+	}
+	swarmPanelMu.Lock()
+	defer swarmPanelMu.Unlock()
+	if hp.loadedFor != selectedID {
+		return false
+	}
+	for _, h := range hp.state.Bees {
+		if strings.TrimSpace(h.ThreadID) == beeThreadID {
+			return true
+		}
+	}
+	return false
 }
 
 // renderSwarmReportEntryCard 渲染单个 bee 的汇报详情。
@@ -3150,6 +3442,24 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 	cardKey := fmt.Sprintf("swarm-report-card-%s-%d", msgID, idx)
 
 	matchedBee := matchSwarmReportBee(s, hp, e)
+	beeThreadID := strings.TrimSpace(e.BeeID)
+	if matchedBee != nil && strings.TrimSpace(matchedBee.ThreadID) != "" {
+		beeThreadID = strings.TrimSpace(matchedBee.ThreadID)
+	}
+	selectedID := ""
+	if s != nil {
+		s.mu.Lock()
+		selectedID = s.selectedThreadID
+		s.mu.Unlock()
+	}
+	leadID := strings.TrimSpace(selectedID)
+	if hp != nil {
+		swarmPanelMu.Lock()
+		if hp.loadedFor == selectedID && strings.TrimSpace(hp.state.LeadThreadID) != "" {
+			leadID = strings.TrimSpace(hp.state.LeadThreadID)
+		}
+		swarmPanelMu.Unlock()
+	}
 
 	tier := e.Tier
 	if tier == "" && matchedBee != nil {
@@ -3357,8 +3667,74 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 							}
 						})
 
-					if strings.TrimSpace(e.Summary) != "" {
-						renderSwarmReportCopyButton(c, s, cardKey, swarmReportDisplaySummary(s, e))
+					hasSummary := strings.TrimSpace(e.Summary) != ""
+					if beeThreadID != "" || hasSummary {
+						reportKey := fmt.Sprintf("%s#%d", msgID, idx)
+						popoverKey := "swarm-capsule-popover-" + reportKey
+						host := c.Services()
+						closeReportPopover := func() {
+							if hp != nil {
+								swarmPanelMu.Lock()
+								if hp.reportOpen != nil {
+									hp.reportOpen[reportKey] = false
+								}
+								swarmPanelMu.Unlock()
+							}
+							closeAppFlyoutPopover(host, popoverKey)
+							if host != (ui.Services{}) {
+								host.Invalidate()
+							}
+						}
+						ui.Row(c.Key(cardKey + "-actions")).
+							AlignItems(ui.Center).
+							Gap(Space1).
+							Shrink(0).
+							Children(func() {
+								if beeThreadID != "" {
+									inBees := swarmBeeInActiveState(hp, selectedID, beeThreadID)
+									floatTooltip := "打开子代理浮窗"
+									if !inBees {
+										floatTooltip = "在独立窗口中打开"
+									}
+									Button(c, ButtonOpts{
+										Key:     cardKey + "-open-float-btn",
+										Text:    "打开浮窗",
+										Label:   "打开浮窗",
+										Tooltip: floatTooltip,
+										Variant: ButtonGhost,
+										Size:    ControlXS,
+										OnClick: func() {
+											closeReportPopover()
+											if inBees {
+												undismissSwarmFloatPanel(leadID)
+												openSwarmFloatForBee(leadID, beeThreadID)
+												if s != nil {
+													s.invalidate()
+												}
+											} else {
+												openBeeWindow(s, beeThreadID)
+											}
+										},
+									})
+									Button(c, ButtonOpts{
+										Key:     cardKey + "-open-thread-btn",
+										Text:    "查看会话",
+										Label:   "查看会话",
+										Tooltip: "查看子代理完整会话",
+										Variant: ButtonGhost,
+										Size:    ControlXS,
+										OnClick: func() {
+											closeReportPopover()
+											if s != nil && s.client != nil {
+												s.selectThread(beeThreadID)
+											}
+										},
+									})
+								}
+								if hasSummary {
+									renderSwarmReportCopyButton(c, s, cardKey, swarmReportDisplaySummary(s, e))
+								}
+							})
 					}
 				})
 

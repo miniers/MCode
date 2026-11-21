@@ -451,6 +451,7 @@ func renderSwarmCapsuleButton(c *ui.Context, key string, view swarmCapsuleView, 
 		Padding(Space1, Space3, Space1, Space3).
 		Border(1, ThemeBorder(c)).
 		Background(ThemeSurface(c))
+	focusRing(c, btn)
 
 	if view.Tint.A > 0 {
 		if opened || btn.Hovered() {
@@ -667,33 +668,58 @@ func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key strin
 		})
 }
 
-// renderSwarmCapsuleOpenFloatButton 渲染浮窗里的「打开浮窗」按钮：
-// 点击后解除浮窗的关闭记录并把该子线程设为选中，让浮窗重新显示这个子线程。
+// renderSwarmCapsuleOpenFloatButton 渲染浮窗底部的「打开浮窗」与「查看会话」按钮：
+// 点击「打开浮窗」解除浮窗关闭记录并选中该子线程；点击「查看会话」跳转至子线程完整会话。
 func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID string, h SwarmBee, key string, onOpened func()) {
-	btn := ui.ButtonBase(c.Key("swarm-capsule-open-float-"+key)).
-		Label("打开浮窗").
-		Radius(RadiusSM).
-		Padding(Space1, Space3).
-		Background(ThemeAccent(c).Alpha(0.14))
-	{
-		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
-		btn.Scale(scale, scale)
-	}
-	if btn.Hovered() {
-		btn.Background(ThemeAccent(c).Alpha(0.24))
-	}
-	if btn.Clicked() && leadID != "" {
-		if onOpened != nil {
-			onOpened()
-		}
-		openSwarmFloatForBee(leadID, h.ThreadID)
-		markSwarmFailedBeeSeen(s, leadID, h)
-		s.invalidate()
-	}
-	btn.Children(func() {
-		ui.Text(c, "打开浮窗").
-			FontSize(scaledFont(TypeFootnote)).
-			FontWeight(500).
-			TextColor(ThemeAccent(c))
-	})
+	beeThreadID := strings.TrimSpace(h.ThreadID)
+	ui.Row(c.Key("swarm-capsule-actions-" + key)).
+		FillWidth().
+		Wrap().
+		AlignItems(ui.Center).
+		Gap(Space2).
+		Children(func() {
+			Button(c, ButtonOpts{
+				Key:     "swarm-capsule-open-float-" + key,
+				Text:    "打开浮窗",
+				Label:   "打开浮窗",
+				Tooltip: "打开子代理浮窗",
+				Variant: ButtonSecondary,
+				Size:    ControlSM,
+				OnClick: func() {
+					if leadID == "" {
+						return
+					}
+					if onOpened != nil {
+						onOpened()
+					}
+					openSwarmFloatForBee(leadID, h.ThreadID)
+					markSwarmFailedBeeSeen(s, leadID, h)
+					if s != nil {
+						s.invalidate()
+					}
+				},
+			})
+
+			if beeThreadID != "" {
+				Button(c, ButtonOpts{
+					Key:     "swarm-capsule-open-thread-" + key,
+					Text:    "查看会话",
+					Label:   "查看会话",
+					Tooltip: "查看子代理完整会话",
+					Variant: ButtonGhost,
+					Size:    ControlSM,
+					OnClick: func() {
+						if onOpened != nil {
+							onOpened()
+						}
+						if leadID != "" {
+							markSwarmFailedBeeSeen(s, leadID, h)
+						}
+						if s != nil && s.client != nil {
+							s.selectThread(beeThreadID)
+						}
+					},
+				})
+			}
+		})
 }
