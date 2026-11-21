@@ -660,7 +660,9 @@ func (s *chatState) reviewTask(taskID, decision, feedback string, revision int) 
 					ks.detailLoading = false
 					ks.detailErr = ""
 					ks.detailMessages = nil
-					ks.detailDiff = nil
+					if ks.detailReview != nil {
+						ks.detailReview.reset()
+					}
 					ks.detailFiles = nil
 					ks.detailDiffErr = ""
 					ks.detailDiffTruncated = false
@@ -701,7 +703,11 @@ func (s *chatState) loadTaskDetail(task KanbanTask, reset bool) {
 	if changed {
 		ks.detailErr = ""
 		ks.detailMessages = nil
-		ks.detailDiff = &diffPanelState{collapsed: make(map[string]bool)}
+		if ks.detailReview == nil {
+			ks.detailReview = newChangeReviewState()
+		} else {
+			ks.detailReview.reset()
+		}
 		ks.detailFiles = nil
 		ks.detailDiffErr = ""
 		ks.detailDiffTruncated = false
@@ -711,6 +717,9 @@ func (s *chatState) loadTaskDetail(task KanbanTask, reset bool) {
 	if reset {
 		ks.detailFeedback = ""
 		ks.detailConflict = false
+		if ks.detailReview != nil {
+			ks.detailReview.reset()
+		}
 	}
 	ks.detailLoadID++
 	curLoadID := ks.detailLoadID

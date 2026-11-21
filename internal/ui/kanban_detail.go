@@ -51,7 +51,9 @@ func (s *chatState) closeTaskDetail() {
 	ks.detailLoading = false
 	ks.detailErr = ""
 	ks.detailMessages = nil
-	ks.detailDiff = nil
+	if ks.detailReview != nil {
+		ks.detailReview.reset()
+	}
 	ks.detailFiles = nil
 	ks.detailDiffErr = ""
 	ks.detailFeedback = ""
@@ -84,7 +86,10 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 	kanbanMu.Lock()
 	taskID, threadID, revision := ks.detailTaskID, ks.detailThreadID, ks.detailRevision
 	tab, loading, detailErr, diffErr := ks.detailTab, ks.detailLoading, ks.detailErr, ks.detailDiffErr
-	messages, dp, files, truncated := ks.detailMessages, ks.detailDiff, ks.detailFiles, ks.detailDiffTruncated
+	if ks.detailReview == nil {
+		ks.detailReview = newChangeReviewState()
+	}
+	messages, detailReview, files, truncated := ks.detailMessages, ks.detailReview, ks.detailFiles, ks.detailDiffTruncated
 	conflict, boardLoading, boardErr := ks.detailConflict, ks.loading, ks.err
 	tasks, goals := ks.board.Tasks, ks.board.Goals
 	goalBack := ks.detailGoalID
@@ -243,19 +248,22 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 				}
 				switch tab {
 				case "diff":
-					if loading {
-						LoadingIndicator(c, nil, "正在加载改动…", IconSM)
-					} else if diffErr != "" {
-						ui.Text(c, "改动加载失败: "+diffErr).TextColor(ThemeDanger(c))
-						Button(c.Key("kanban-detail-diff-retry"), ButtonOpts{Text: "重试", Label: "重试改动", OnClick: func() { s.loadTaskDetail(*task, false) }})
-					} else if len(files) == 0 {
-						ui.Text(c, "无改动").TextColor(ThemeSecondaryText(c))
-					} else {
-						renderDiffFileList(c, s, dp, files)
-						if truncated {
-							ui.Text(c, "改动过多，已截断").TextColor(ThemeWarning(c))
-						}
-					}
+					renderChangeReviewDiff(c, "kanban-detail-diff", detailReview, changeReviewDiffOpts{
+						Files:              files,
+						Loading:            loading,
+						LoadingText:        "正在加载改动…",
+						Err:                diffErr,
+						ErrPrefix:          "改动加载失败: ",
+						Truncated:          truncated,
+						EmptyText:          "无改动",
+						OnRetry:            func() { s.loadTaskDetail(*task, false) },
+						RetryKey:           "kanban-detail-diff-retry",
+						RetryLabel:         "重试改动",
+						MaxExpandedDefault: changeReviewDefaultMaxExpand,
+						ShowReadToggle:     true,
+						ScopeKey:           taskID + ":" + threadID,
+						Invalidate:         s.invalidate,
+					})
 				case "session":
 					if task.ThreadID != "" {
 						Button(c.Key("kanban-detail-execution-thread"), ButtonOpts{Text: "执行会话", Label: "执行会话", OnClick: func() { s.revealThread(task.ThreadID) }})
@@ -327,11 +335,29 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 		})
 		ui.Column(c.Key("kanban-task-detail-footer")).FillWidth().Padding(Space4, Space5).Gap(Space3).Children(func() {
 			if task.CanReview || task.Column == "review" {
-				ui.TextInput(c.Key("kanban-task-detail-feedback-input"), &ks.detailFeedback).Label("kanban-task-detail-feedback").Placeholder("评审反馈").FillWidth()
 				busy := kanbanTaskBusy(ks, task.ID) || (conflict && boardErr != "")
-				ui.Row(c.Key("kanban-task-detail-review-actions")).Gap(Space3).Children(func() {
-					Button(c.Key("kanban-task-detail-reject"), ButtonOpts{Text: "退回修改", Label: "kanban-task-detail-reject", Variant: ButtonSecondary, Disabled: busy || !task.CanReview, OnClick: func() { s.reviewTask(task.ID, "reject", ks.detailFeedback, task.Revision) }})
-					Button(c.Key("kanban-task-detail-accept"), ButtonOpts{Text: "接受", Label: "kanban-task-detail-accept", Variant: ButtonPrimary, Disabled: busy || !task.CanApprove, OnClick: func() { s.reviewTask(task.ID, "accept", ks.detailFeedback, task.Revision) }})
+				renderChangeReviewApprovalBar(c, "kanban-task-detail", changeReviewApprovalBarOpts{
+					ShowFeedback:        true,
+					FeedbackKey:         "kanban-task-detail-feedback-input",
+					FeedbackLabel:       "kanban-task-detail-feedback",
+					FeedbackPlaceholder: "评审反馈",
+					Feedback:            &ks.detailFeedback,
+					Secondary: &changeReviewApprovalAction{
+						Key:      "kanban-task-detail-reject",
+						Text:     "退回修改",
+						Label:    "kanban-task-detail-reject",
+						Variant:  ButtonSecondary,
+						Disabled: busy || !task.CanReview,
+						OnClick:  func() { s.reviewTask(task.ID, "reject", ks.detailFeedback, task.Revision) },
+					},
+					Primary: &changeReviewApprovalAction{
+						Key:      "kanban-task-detail-accept",
+						Text:     "接受",
+						Label:    "kanban-task-detail-accept",
+						Variant:  ButtonPrimary,
+						Disabled: busy || !task.CanApprove,
+						OnClick:  func() { s.reviewTask(task.ID, "accept", ks.detailFeedback, task.Revision) },
+					},
 				})
 			} else if kanbanActions(*task, false).primary == "开始" {
 				Button(c.Key("kanban-task-detail-start"), ButtonOpts{Text: "开始", Label: "kanban-task-detail-start", Variant: ButtonPrimary, Loading: kanbanTaskBusy(ks, task.ID), Disabled: kanbanTaskBusy(ks, task.ID) || task.Blocked, OnClick: func() { s.performKanbanTarget(*task, "in_progress") }})

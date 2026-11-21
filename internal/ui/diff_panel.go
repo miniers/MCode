@@ -684,20 +684,6 @@ func renderDiffTurnSelector(c *ui.Context, s *chatState, dp *diffPanelState, dat
 	})
 }
 
-// renderDiffFileList 供合并审查器与看板复用；patch 使用各自有界的虚拟视口。
-func renderDiffFileList(c *ui.Context, s *chatState, dp *diffPanelState, files []git.FileDiff) {
-	if len(files) == 0 {
-		return
-	}
-	ui.Column(c.Key("diff-files-col")).
-		FillWidth().
-		Children(func() {
-			for _, file := range files {
-				renderLegacyDiffFile(c, s, dp, file)
-			}
-		})
-}
-
 // expandDeferredDiffFile 在后台展开延迟解析的大文件补丁，把结果记到面板状态的缓存里，
 // 下一帧就能渲染出真实的行内容；解析失败时保留占位行。
 // 同一文件重复点开（或事件重放）只排队一次解析。

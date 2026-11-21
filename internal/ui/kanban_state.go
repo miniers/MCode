@@ -154,7 +154,7 @@ type kanbanState struct {
 	detailLoading       bool
 	detailErr           string
 	detailMessages      []Message
-	detailDiff          *diffPanelState
+	detailReview        *changeReviewState
 	detailFiles         []git.FileDiff
 	detailDiffErr       string
 	detailDiffTruncated bool

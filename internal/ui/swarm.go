@@ -55,7 +55,8 @@ type swarmPanelState struct {
 	reviewLoading   bool
 	reviewErr       string
 	reviewFiles     []git.FileDiff
-	reviewDiff      *diffPanelState
+	reviewDiff      *diffPanelState // 保留旧测试赋值兼容，合并审查渲染使用 changeReview
+	changeReview    *changeReviewState
 	reviewBusy      bool
 	reviewLoadID    int
 	reviewActionID  int
@@ -91,6 +92,14 @@ func getSwarmPanelState(s *chatState) *swarmPanelState {
 		swarmPanelStates[s] = st
 	}
 	return st
+}
+
+// ensureChangeReviewLocked 懒初始化合并审查视图状态，调用方需持有 swarmPanelMu。
+func (hp *swarmPanelState) ensureChangeReviewLocked() *changeReviewState {
+	if hp.changeReview == nil {
+		hp.changeReview = newChangeReviewState()
+	}
+	return hp.changeReview
 }
 
 func (s *chatState) swarmActionBusy(key string) bool {
@@ -366,6 +375,9 @@ func (s *chatState) loadSwarm(threadID string) {
 		hp.reviewBeeID = ""
 		hp.reviewFiles = nil
 		hp.reviewDiff = nil
+		if hp.changeReview != nil {
+			hp.changeReview.reset()
+		}
 		hp.reviewErr = ""
 		hp.reviewLoading = false
 		hp.reviewBusy = false
@@ -598,6 +610,7 @@ func (s *chatState) openSwarmReview(beeID string) {
 			collapsed: make(map[string]bool),
 		}
 	}
+	hp.ensureChangeReviewLocked()
 	swarmPanelMu.Unlock()
 	s.selectSwarmReviewBee(beeID)
 }
@@ -625,6 +638,9 @@ func (s *chatState) selectSwarmReviewBee(beeID string) {
 	hp.reviewLoadID++
 	loadID := hp.reviewLoadID
 	hp.reviewDiff = &diffPanelState{collapsed: make(map[string]bool)}
+	if hp.changeReview != nil {
+		hp.changeReview.reset()
+	}
 	swarmPanelMu.Unlock()
 	s.invalidate()
 
@@ -1390,7 +1406,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 	reviewLoading := hp.reviewLoading
 	reviewErr := hp.reviewErr
 	reviewBusy := hp.reviewBusy
-	reviewDiff := hp.reviewDiff
+	changeReview := hp.ensureChangeReviewLocked()
 	reviewFiles := make([]git.FileDiff, len(hp.reviewFiles))
 	copy(reviewFiles, hp.reviewFiles)
 	swarmPanelMu.Unlock()
@@ -1422,21 +1438,7 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 	}
 
 	// 汇总增删行数
-	var adds, dels int
-	for _, f := range reviewFiles {
-		if !f.Binary {
-			for _, hunk := range f.Hunks {
-				for _, l := range hunk.Lines {
-					switch l.Kind {
-					case '+':
-						adds++
-					case '-':
-						dels++
-					}
-				}
-			}
-		}
-	}
+	adds, dels := changeReviewTotalStats(reviewFiles)
 
 	ui.Column(c.Key("swarm-review-root")).
 		FillWidth().
@@ -1551,17 +1553,57 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 
 			// 选中 bee 的元信息与操作栏
 			if curBee != nil {
-				ui.Column(c.Key("swarm-review-bee-info")).
-					FillWidth().
-					MinWidth(0).
-					Padding(Space3, Space3).
-					Radius(RadiusSM).
-					Background(ThemeSurface(c)).
-					BorderWidth(1).
-					BorderColor(ThemeBorder(c)).
-					Gap(Space2).
-					Children(func() {
-						// 改动统计与操作按钮：窄宽下支持换行，不横向溢出
+				beeSnapshot := *curBee
+				var warningNotice, metaText, reasonText, concernsTitle string
+				if beeSnapshot.ReviewState == "rejected" {
+					warningNotice = "改动未合入，补丁已保留，可让主代理派子代理按审查意见返工"
+				}
+				if beeSnapshot.ReviewLayer != "" {
+					metaText = reviewLayerLabel(beeSnapshot.ReviewLayer)
+					if beeSnapshot.ReviewTokens > 0 {
+						metaText += " · " + formatReviewTokenCount(beeSnapshot.ReviewTokens, beeSnapshot.ReviewTokensEstimated)
+					}
+				}
+				if beeSnapshot.ReviewReason != "" {
+					reasonLabel := "审查模型意见："
+					if beeSnapshot.ReviewState == "rejected" {
+						reasonLabel = "审查意见："
+					}
+					reasonText = reasonLabel + beeSnapshot.ReviewReason
+				}
+				concerns := swarm.DisplayReviewConcerns(beeSnapshot.ReviewConcerns)
+				if len(concerns) > 0 {
+					concernsTitle = "审查疑点"
+				}
+				var errLines []string
+				if len(beeSnapshot.ConflictFiles) > 0 {
+					errLines = append(errLines, "冲突文件: "+strings.Join(beeSnapshot.ConflictFiles, ", "))
+				}
+				if beeSnapshot.MergeError != "" {
+					errLines = append(errLines, "合并错误: "+beeSnapshot.MergeError)
+				}
+				var footerAction func()
+				if beeSnapshot.ReviewThreadID != "" {
+					reviewThreadID := beeSnapshot.ReviewThreadID
+					footerAction = func() {
+						Button(c, ButtonOpts{
+							Key:     "swarm-review-open-review-thread-btn",
+							Text:    "查看审查会话",
+							Icon:    IconEye(),
+							Label:   "查看审查会话",
+							Tooltip: "查看审查会话",
+							Size:    ControlSM,
+							Variant: ButtonGhost,
+							OnClick: func() {
+								s.closeSwarmReview()
+								s.selectThread(reviewThreadID)
+							},
+						})
+					}
+				}
+
+				renderChangeReviewBanner(c, "swarm-review-bee-info", changeReviewBannerOpts{
+					SummaryRow: func() {
 						ui.Row(c.Key("swarm-review-action-row")).
 							FillWidth().
 							MinWidth(0).
@@ -1596,75 +1638,34 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 
 								ui.Spacer(c)
 
-								if curBee.ReviewState == "running" {
+								switch {
+								case beeSnapshot.ReviewState == "running":
 									ui.Text(c, "审查模型正在审查…").
 										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeAccent(c)).
 										Shrink(0)
-								} else if curBee.ReviewState == "rejected" {
+								case beeSnapshot.ReviewState == "rejected":
 									ui.Text(c, "审查未通过").
 										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
 										TextColor(ThemeDanger(c)).
 										Shrink(0)
-								} else if curBee.PendingMerge {
-									if reviewBusy {
-										ui.Row(c.Key("swarm-review-busy-row")).
-											Gap(Space1).
-											AlignItems(ui.Center).
-											Shrink(0).
-											Children(func() {
-												renderRunningGlyph(c, "swarm-panel-run-merge-busy-"+curBee.ThreadID, 12, ThemeAccent(c))
-												ui.Text(c, "处理中…").
-													FontSize(uiFont(TypeFootnote)).
-													TextColor(ThemeSecondaryText(c))
-											})
-									} else {
-										approveDisabled := reviewLoading || len(reviewFiles) == 0
-										Button(c, ButtonOpts{
-											Key:      "swarm-review-approve-btn",
-											Text:     "批准合并",
-											Label:    "批准合并",
-											Variant:  ButtonPrimary,
-											Size:     ControlSM,
-											Disabled: approveDisabled,
-											OnClick: func() {
-												if approveDisabled {
-													return
-												}
-												s.approveSwarmMerge(curBee.ThreadID)
-											},
-										})
-
-										Button(c, ButtonOpts{
-											Key:     "swarm-review-discard-btn",
-											Text:    "放弃",
-											Label:   "放弃",
-											Variant: ButtonDanger,
-											Size:    ControlSM,
-											OnClick: func() {
-												swarmPanelMu.Lock()
-												hp.discardBeeID = curBee.ThreadID
-												hp.discardConfirmOpen = true
-												swarmPanelMu.Unlock()
-												s.invalidate()
-											},
-										})
-									}
-								} else if curBee.Merged {
+								case beeSnapshot.PendingMerge:
+									// 审批操作按钮由下方共享审批栏统一渲染
+								case beeSnapshot.Merged:
 									ui.Text(c, "已合并").
 										FontSize(uiFont(TypeFootnote)).
 										FontWeight(500).
 										TextColor(ThemeSuccess(c)).
 										Shrink(0)
-								} else if curBee.MergeDiscarded {
+								case beeSnapshot.MergeDiscarded:
 									ui.Text(c, "已放弃合并").
 										FontSize(uiFont(TypeFootnote)).
 										TextColor(ThemeSecondaryText(c)).
 										Shrink(0)
-								} else {
-									_, statusColor := swarmStatusTone(c, curBee.Status)
-									ui.Text(c, swarmStatusLabel(curBee.Status)).
+								default:
+									_, statusColor := swarmStatusTone(c, beeSnapshot.Status)
+									ui.Text(c, swarmStatusLabel(beeSnapshot.Status)).
 										FontSize(uiFont(TypeFootnote)).
 										TextColor(statusColor).
 										Shrink(0)
@@ -1679,127 +1680,77 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 									Size:    ControlSM,
 									Variant: ButtonGhost,
 									OnClick: func() {
-										s.popOutSwarmBee(curBee.ThreadID)
+										s.popOutSwarmBee(beeSnapshot.ThreadID)
 									},
 								})
 							})
 
-						if curBee.ReviewState == "rejected" {
-							ui.Text(c, "改动未合入，补丁已保留，可让主代理派子代理按审查意见返工").
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeDanger(c)).
-								Wrap().
-								MinWidth(0)
-						}
-
-						// 审查决定层与 token 消耗
-						if curBee.ReviewLayer != "" {
-							layerText := reviewLayerLabel(curBee.ReviewLayer)
-							if curBee.ReviewTokens > 0 {
-								layerText += " · " + formatReviewTokenCount(curBee.ReviewTokens, curBee.ReviewTokensEstimated)
-							}
-							ui.Text(c, layerText).
-								FontSize(uiFont(TypeCaption)).
-								TextColor(ThemeSecondaryText(c)).
-								Wrap().
-								MinWidth(0)
-						}
-
-						// 审查意见：审查模型给出结论时展示原因
-						if curBee.ReviewReason != "" {
-							reasonLabel := "审查模型意见："
-							if curBee.ReviewState == "rejected" {
-								reasonLabel = "审查意见："
-							}
-							ui.Text(c, reasonLabel+curBee.ReviewReason).
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeSecondaryText(c)).
-								Wrap().
-								MinWidth(0)
-						}
-
-						// 审查疑点：最多展示 10 条，避免撑爆面板
-						if concerns := swarm.DisplayReviewConcerns(curBee.ReviewConcerns); len(concerns) > 0 {
-							ui.Text(c, "审查疑点").
-								FontSize(uiFont(TypeCaption)).
-								TextColor(ThemeSecondaryText(c))
-							for _, concern := range concerns {
-								ui.Text(c, "· "+concern).
-									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeSecondaryText(c)).
-									Wrap().
-									MinWidth(0)
-							}
-						}
-
-						// 有 AI 审查会话时，提供跳转到审查会话的入口
-						if curBee.ReviewThreadID != "" {
-							Button(c, ButtonOpts{
-								Key:     "swarm-review-open-review-thread-btn",
-								Text:    "查看审查会话",
-								Icon:    IconEye(),
-								Label:   "查看审查会话",
-								Tooltip: "查看审查会话",
-								Size:    ControlSM,
-								Variant: ButtonGhost,
-								OnClick: func() {
-									reviewThreadID := curBee.ReviewThreadID
-									s.closeSwarmReview()
-									s.selectThread(reviewThreadID)
+						if beeSnapshot.PendingMerge && beeSnapshot.ReviewState != "running" && beeSnapshot.ReviewState != "rejected" {
+							approveDisabled := reviewLoading || len(reviewFiles) == 0
+							renderChangeReviewApprovalBar(c, "swarm-review-"+beeSnapshot.ThreadID, changeReviewApprovalBarOpts{
+								Busy:         reviewBusy,
+								BusyKey:      "swarm-panel-run-merge-busy-" + beeSnapshot.ThreadID,
+								BusyText:     "处理中…",
+								PrimaryFirst: true,
+								Primary: &changeReviewApprovalAction{
+									Key:      "swarm-review-approve-btn",
+									Text:     "批准合并",
+									Label:    "批准合并",
+									Variant:  ButtonPrimary,
+									Size:     ControlSM,
+									Disabled: approveDisabled,
+									OnClick: func() {
+										if approveDisabled {
+											return
+										}
+										s.approveSwarmMerge(beeSnapshot.ThreadID)
+									},
+								},
+								Secondary: &changeReviewApprovalAction{
+									Key:     "swarm-review-discard-btn",
+									Text:    "放弃",
+									Label:   "放弃",
+									Variant: ButtonDanger,
+									Size:    ControlSM,
+									OnClick: func() {
+										swarmPanelMu.Lock()
+										hp.discardBeeID = beeSnapshot.ThreadID
+										hp.discardConfirmOpen = true
+										swarmPanelMu.Unlock()
+										s.invalidate()
+									},
 								},
 							})
 						}
-
-						// 冲突文件列表
-						if len(curBee.ConflictFiles) > 0 {
-							conflictText := "冲突文件: " + strings.Join(curBee.ConflictFiles, ", ")
-							ui.Text(c, conflictText).
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeDanger(c))
-						}
-
-						// MergeError
-						if curBee.MergeError != "" {
-							ui.Text(c, "合并错误: "+curBee.MergeError).
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeDanger(c))
-						}
-					})
+					},
+					WarningNotice: warningNotice,
+					MetaText:      metaText,
+					ReasonText:    reasonText,
+					ConcernsTitle: concernsTitle,
+					Concerns:      concerns,
+					AcceptanceBee: &beeSnapshot,
+					FooterAction:  footerAction,
+					ErrorLines:    errLines,
+				})
 			}
 
-			// 下方差异文件列表
-			if reviewLoading {
-				ui.Row(c.Key("swarm-review-loading")).
-					Gap(Space3).
-					AlignItems(ui.Center).
-					Padding(Space4, 0).
-					Children(func() {
-						renderRunningGlyph(c, "swarm-panel-run-review-loading", 14, ThemeAccent(c))
-						ui.Text(c, "加载中…").
-							FontSize(uiFont(TypeBody)).
-							TextColor(ThemeSecondaryText(c))
-					})
-			} else if reviewErr != "" {
-				ui.Row(c.Key("swarm-review-err")).
-					Padding(Space3, Space3).
-					Radius(RadiusSM).
-					Background(ThemeDanger(c).Alpha(0.12)).
-					Children(func() {
-						ui.Text(c, reviewErr).
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemeDanger(c))
-					})
-			} else if len(reviewFiles) == 0 {
-				ui.Row(c.Key("swarm-review-empty")).
-					Padding(Space4, 0).
-					Children(func() {
-						ui.Text(c, "无改动").
-							FontSize(uiFont(TypeBody)).
-							TextColor(ThemeSecondaryText(c))
-					})
-			} else {
-				renderDiffFileList(c, s, reviewDiff, reviewFiles)
+			// 下方统一 DiffView 变更审查列表
+			curBeeID := ""
+			if curBee != nil {
+				curBeeID = curBee.ThreadID
 			}
+			renderChangeReviewDiff(c, "swarm-review-diff", changeReview, changeReviewDiffOpts{
+				Files:              reviewFiles,
+				Loading:            reviewLoading,
+				LoadingText:        "加载中…",
+				Err:                reviewErr,
+				EmptyText:          "无改动",
+				OnRetry:            func() { s.selectSwarmReviewBee(curBeeID) },
+				MaxExpandedDefault: changeReviewDefaultMaxExpand,
+				ShowReadToggle:     true,
+				ScopeKey:           curBeeID,
+				Invalidate:         s.invalidate,
+			})
 		})
 }
 
