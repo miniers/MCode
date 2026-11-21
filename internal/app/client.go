@@ -798,38 +798,45 @@ func gitPRChanges(ctx context.Context, workDir string) (string, string, string, 
 }
 
 func runGitDiffForCommit(ctx context.Context, workDir string, extraArgs ...string) string {
+	gitOutput := func(args ...string) (string, error) {
+		cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", args...)))
+		cmd.Dir = workDir
+		cmd.Env = loginenv.Environ()
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		err := cmd.Run()
+		return out.String(), err
+	}
+
+	// 索引里有已暂存改动时只取已暂存 diff，与提交按钮仅提交暂存区的语义保持一致。
+	if _, err := gitOutput("diff", "--cached", "--quiet"); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			cachedArgs := append([]string{"diff", "--cached", "--no-color"}, extraArgs...)
+			if out, err := gitOutput(cachedArgs...); err == nil {
+				return strings.TrimSpace(out)
+			}
+			return ""
+		}
+	}
+
 	args := append([]string{"diff", "HEAD", "--no-color"}, extraArgs...)
-	cmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", args...)))
-	cmd.Dir = workDir
-	cmd.Env = loginenv.Environ()
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err == nil {
-		return strings.TrimSpace(out.String())
+	if out, err := gitOutput(args...); err == nil {
+		return strings.TrimSpace(out)
 	}
 
 	var sb strings.Builder
 	cachedArgs := append([]string{"diff", "--cached", "--no-color"}, extraArgs...)
-	cachedCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", cachedArgs...)))
-	cachedCmd.Dir = workDir
-	cachedCmd.Env = loginenv.Environ()
-	var cachedOut bytes.Buffer
-	cachedCmd.Stdout = &cachedOut
-	if err := cachedCmd.Run(); err == nil && cachedOut.Len() > 0 {
-		sb.WriteString(cachedOut.String())
+	if cachedOut, err := gitOutput(cachedArgs...); err == nil && len(cachedOut) > 0 {
+		sb.WriteString(cachedOut)
 	}
 
 	unstagedArgs := append([]string{"diff", "--no-color"}, extraArgs...)
-	unstagedCmd := procattr.TerminateOnCancel(procattr.HideWindow(exec.CommandContext(ctx, "git", unstagedArgs...)))
-	unstagedCmd.Dir = workDir
-	unstagedCmd.Env = loginenv.Environ()
-	var unstagedOut bytes.Buffer
-	unstagedCmd.Stdout = &unstagedOut
-	if err := unstagedCmd.Run(); err == nil && unstagedOut.Len() > 0 {
+	if unstagedOut, err := gitOutput(unstagedArgs...); err == nil && len(unstagedOut) > 0 {
 		if sb.Len() > 0 {
 			sb.WriteString("\n")
 		}
-		sb.WriteString(unstagedOut.String())
+		sb.WriteString(unstagedOut)
 	}
 
 	return strings.TrimSpace(sb.String())

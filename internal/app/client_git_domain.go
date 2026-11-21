@@ -174,7 +174,7 @@ func (c *Client) GitStashPop(ctx context.Context, threadID string) error {
 	return c.backend.GitStashPop(ctx, threadID)
 }
 
-// GenerateCommitMessage 为指定会话的工作区未提交改动生成提交信息。
+// GenerateCommitMessage 为指定会话的工作区未提交改动生成提交信息；有已暂存改动时只按已暂存改动生成。
 func (c *Client) GenerateCommitMessage(ctx context.Context, threadID string) (string, error) {
 	if c.backend == nil {
 		return "", errors.New("backend 不可用")
