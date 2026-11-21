@@ -114,6 +114,12 @@ func beginArchiveLoad() bool {
 func loadArchivedThreads(st *SettingsState) {
 	client := archiveClient(st)
 	if client == nil {
+		globalArchiveState.mu.Lock()
+		globalArchiveState.loadErr = "客户端不可用"
+		globalArchiveState.mu.Unlock()
+		if st != nil {
+			st.invalidate()
+		}
 		return
 	}
 	if !beginArchiveLoad() {
@@ -158,7 +164,12 @@ func retryArchiveLoad(st *SettingsState) {
 	globalArchiveState.mu.Lock()
 	globalArchiveState.attempted = false
 	globalArchiveState.loadErr = ""
+	loaded := globalArchiveState.loaded
 	globalArchiveState.mu.Unlock()
+	if loaded {
+		loadArchivedThreads(st)
+		return
+	}
 	ensureArchiveLoaded(st)
 }
 
@@ -628,6 +639,28 @@ func renderPageArchive(c *ui.Context, st *SettingsState) {
 			renderArchiveBulkResult(c, view.bulkResult, view.bulkFailed)
 		}
 
+		renderLoadError := func() {
+			ui.Row(c.Key("row-archive-load-error")).
+				Label("row-archive-load-error").
+				Padding(Space7, Space5).
+				Gap(settingsCompactPadX).
+				AlignItems(ui.Center).
+				Justify(ui.Center).
+				Children(func() {
+					ui.Text(c, "加载失败："+view.loadErr).
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeDanger(c)).
+						SingleLine()
+					Button(c.Key("btn-archive-retry"), ButtonOpts{
+						Text:    "重试",
+						Label:   "重新加载已归档会话",
+						Variant: ButtonSecondary,
+						Size:    ControlMD,
+						OnClick: func() { retryArchiveLoad(st) },
+					})
+				})
+		}
+
 		if !view.loaded {
 			if view.loadErr == "" {
 				ui.Row(c.Key("row-archive-loading")).
@@ -639,26 +672,13 @@ func renderPageArchive(c *ui.Context, st *SettingsState) {
 						LoadingIndicator(c, nil, "加载中…", IconSM)
 					})
 			} else {
-				ui.Row(c.Key("row-archive-load-error")).
-					Padding(Space7, Space5).
-					Gap(settingsCompactPadX).
-					AlignItems(ui.Center).
-					Justify(ui.Center).
-					Children(func() {
-						ui.Text(c, "加载失败："+view.loadErr).
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemeDanger(c)).
-							SingleLine()
-						Button(c.Key("btn-archive-retry"), ButtonOpts{
-							Text:    "重试",
-							Label:   "重新加载已归档会话",
-							Variant: ButtonSecondary,
-							Size:    ControlMD,
-							OnClick: func() { retryArchiveLoad(st) },
-						})
-					})
+				renderLoadError()
 			}
 			return
+		}
+
+		if view.loadErr != "" {
+			renderLoadError()
 		}
 
 		if len(view.threads) == 0 {
@@ -766,13 +786,14 @@ func renderArchiveDeleteModal(c *ui.Context, st *SettingsState, target *Thread, 
 	}
 	deleteTarget := target
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          modalDragArchiveDelete,
-		Open:         *open,
-		Tone:         ConfirmDanger,
-		Title:        "删除已归档会话",
-		Body:         desc,
-		ConfirmLabel: "删除",
-		ConfirmA11y:  "确认删除单个已归档会话",
+		Key:             modalDragArchiveDelete,
+		Open:            *open,
+		Tone:            ConfirmDanger,
+		CancelAutoFocus: true,
+		Title:           "删除已归档会话",
+		Body:            desc,
+		ConfirmLabel:    "删除",
+		ConfirmA11y:     "确认删除单个已归档会话",
 		OnConfirm: func() {
 			closeModal()
 			deleteArchivedThread(st, deleteTarget)
@@ -796,12 +817,13 @@ func renderArchiveDeleteAllModal(c *ui.Context, st *SettingsState, open *bool, c
 		}
 	}
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          modalDragArchiveDeleteAll,
-		Open:         *open,
-		Tone:         ConfirmDanger,
-		Title:        "清空所有已归档会话",
-		Body:         fmt.Sprintf("确定要永久删除全部 %d 个已归档会话吗？", count),
-		ConfirmLabel: "全部删除",
+		Key:             modalDragArchiveDeleteAll,
+		Open:            *open,
+		Tone:            ConfirmDanger,
+		CancelAutoFocus: true,
+		Title:           "清空所有已归档会话",
+		Body:            fmt.Sprintf("确定要永久删除全部 %d 个已归档会话吗？", count),
+		ConfirmLabel:    "全部删除",
 		// startArchiveDeleteAll 内部会复位 deleteAllModal 并起 goroutine。
 		OnConfirm: func() { startArchiveDeleteAll(st) },
 		OnCancel:  closeModal,
@@ -824,14 +846,15 @@ func renderArchiveBulkDeleteModal(c *ui.Context, st *SettingsState, threads []Th
 		}
 	}
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          modalDragArchiveBulkDelete,
-		Open:         open,
-		Tone:         ConfirmDanger,
-		Title:        fmt.Sprintf("删除 %d 个已归档会话", count),
-		Body:         "确定要永久删除选中的会话吗？",
-		ConfirmLabel: "删除",
-		ConfirmA11y:  "确认删除已归档会话",
-		CancelA11y:   "取消删除已归档会话",
+		Key:             modalDragArchiveBulkDelete,
+		Open:            open,
+		Tone:            ConfirmDanger,
+		CancelAutoFocus: true,
+		Title:           fmt.Sprintf("删除 %d 个已归档会话", count),
+		Body:            "确定要永久删除选中的会话吗？",
+		ConfirmLabel:    "删除",
+		ConfirmA11y:     "确认删除已归档会话",
+		CancelA11y:      "取消删除已归档会话",
 		OnConfirm: func() {
 			closeModal()
 			runArchiveBulk(st, archiveClient(st), archiveBulkDelete)

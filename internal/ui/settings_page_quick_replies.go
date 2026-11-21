@@ -319,10 +319,11 @@ func renderQuickReplyDeleteConfirm(c *ui.Context, st *SettingsState, page *quick
 		}
 	}
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          modalDragQuickReplyDelete,
-		Open:         open,
-		Tone:         ConfirmDanger,
-		Title:        "删除快捷回复",
+		Key:             modalDragQuickReplyDelete,
+		Open:            open,
+		Tone:            ConfirmDanger,
+		CancelAutoFocus: true,
+		Title:           "删除快捷回复",
 		Body:         body,
 		ConfirmLabel: "删除",
 		ConfirmA11y:  "确认删除快捷回复",

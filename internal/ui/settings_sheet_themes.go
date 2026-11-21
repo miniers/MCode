@@ -340,6 +340,8 @@ func renderThemeActions(c *ui.Context, st *SettingsState, page *themesSheetState
 
 func renderThemeConfirm(c *ui.Context, st *SettingsState, page *themesSheetState) {
 	deleting := page.confirm == "delete"
+	tone := ConfirmDanger
+	cancelAutoFocus := false
 	title := "还原此主题"
 	body := "还原此主题的颜色与字号？"
 	label := "还原"
@@ -347,8 +349,9 @@ func renderThemeConfirm(c *ui.Context, st *SettingsState, page *themesSheetState
 		title = "删除主题"
 		body = "删除此主题？"
 		label = "删除"
+		cancelAutoFocus = true
 	}
-	RenderConfirmDialog(c, ConfirmDialog{Key: "theme-confirm", Open: page.confirm != "", Title: title, Body: body, ConfirmLabel: label, OnCancel: func() { page.confirm = "" }, OnConfirm: func() {
+	RenderConfirmDialog(c, ConfirmDialog{Key: "theme-confirm", Open: page.confirm != "", Tone: tone, CancelAutoFocus: cancelAutoFocus, Title: title, Body: body, ConfirmLabel: label, OnCancel: func() { page.confirm = "" }, OnConfirm: func() {
 		id := page.confirmID
 		mutateTheme(st, func(a *config.AppearanceConfig) {
 			if deleting {

@@ -195,6 +195,27 @@ func renderStorageCleanupSection(c *ui.Context, st *SettingsState) {
 		}
 	}
 
+	renderScanError := func() {
+		ui.Row(c.Key("storage-scan-error-row")).
+			Label("storage-scan-error-row").
+			Padding(settingsRowPadY, settingsRowPadX).
+			Gap(Space3).
+			AlignItems(ui.Center).
+			Children(func() {
+				ui.Text(c, snap.scanErr).
+					FontSize(uiFont(TypeBody)).
+					TextColor(ThemeDanger(c)).
+					Grow(1)
+				Button(c, ButtonOpts{
+					Key:     "btn-storage-retry",
+					Text:    "重试",
+					Variant: ButtonSecondary,
+					Size:    ControlMD,
+					OnClick: func() { startStorageScan(st) },
+				})
+			})
+	}
+
 	ui.Column(c.Key("storage-cleanup-root")).FillWidth().Children(func() {
 		switch {
 		case client == nil:
@@ -210,30 +231,20 @@ func renderStorageCleanupSection(c *ui.Context, st *SettingsState) {
 					LoadingIndicator(c, "storage-scanning-indicator", "正在扫描…", IconSM)
 				})
 		case snap.scanErr != "" && !snap.loaded:
-			ui.Row(c.Key("storage-scan-error-row")).
-				Padding(settingsRowPadY, settingsRowPadX).
-				Gap(Space3).
-				AlignItems(ui.Center).
-				Children(func() {
-					ui.Text(c, snap.scanErr).
-						FontSize(uiFont(TypeBody)).
-						TextColor(ThemeDanger(c)).
-						Grow(1)
-					Button(c, ButtonOpts{
-						Key:     "btn-storage-retry",
-						Text:    "重试",
-						Variant: ButtonSecondary,
-						Size:    ControlMD,
-						OnClick: func() { startStorageScan(st) },
-					})
-				})
+			renderScanError()
 		case snap.loaded && len(snap.report.Items) == 0:
+			if snap.scanErr != "" {
+				renderScanError()
+			}
 			EmptyState(c, EmptyStateProps{
 				Key:   "storage-empty-state",
 				Icon:  IconArchive(),
 				Title: "没有可清理的内容",
 			}).Padding(Space7, Space5)
 		default:
+			if snap.scanErr != "" {
+				renderScanError()
+			}
 			ui.Row(c.Key("storage-summary-row")).
 				Padding(settingsRowPadY, settingsRowPadX).
 				AlignItems(ui.Center).
@@ -304,14 +315,15 @@ func renderStorageCleanupSection(c *ui.Context, st *SettingsState) {
 	})
 
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          modalDragStorageClean,
-		Open:         snap.confirmOpen && len(selectedIDs) > 0,
-		Tone:         ConfirmDanger,
-		Title:        "确认清理",
-		Body:         fmt.Sprintf("将把所选 %d 项共 %s 移到废纸篓。", len(selectedIDs), formatFileSize(selectedBytes)),
-		ConfirmLabel: "移到废纸篓",
-		ConfirmA11y:  "确认移到废纸篓",
-		CancelLabel:  "取消",
+		Key:             modalDragStorageClean,
+		Open:            snap.confirmOpen && len(selectedIDs) > 0,
+		Tone:            ConfirmDanger,
+		CancelAutoFocus: true,
+		Title:           "确认清理",
+		Body:            fmt.Sprintf("将把所选 %d 项共 %s 移到废纸篓。", len(selectedIDs), formatFileSize(selectedBytes)),
+		ConfirmLabel:    "移到废纸篓",
+		ConfirmA11y:     "确认移到废纸篓",
+		CancelLabel:     "取消",
 		OnConfirm: func() {
 			startStorageClean(st, selectedIDs)
 		},

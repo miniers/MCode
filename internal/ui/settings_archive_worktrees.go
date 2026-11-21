@@ -571,6 +571,7 @@ func renderArchiveWorktreeConfirmModal(c *ui.Context, st *SettingsState, targets
 		Key:             modalDragArchiveWorktree,
 		Open:            true,
 		Tone:            ConfirmDanger,
+		CancelAutoFocus: true,
 		Title:           "清理 Worktree",
 		Body:            fmt.Sprintf("将彻底删除以下 %d 个 Worktree，共约 %s，目录删除后无法恢复：", len(targets), formatFileSize(archiveWtTotalSize(targets))),
 		Detail:          detail,

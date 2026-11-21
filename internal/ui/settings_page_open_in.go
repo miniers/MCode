@@ -158,14 +158,15 @@ func renderPageOpenIn(c *ui.Context, st *SettingsState) {
 		targetName = apps[ps.pendingDeleteIdx].Name
 	}
 	RenderConfirmDialog(c, ConfirmDialog{
-		Key:          "openin-delete",
-		Open:         ps.pendingDelete,
-		Tone:         ConfirmDanger,
-		Title:        "删除「" + targetName + "」？",
-		Body:         "将从打开方式列表中移除该应用。",
-		ConfirmLabel: "删除",
-		ConfirmA11y:  "确认删除 " + targetName,
-		CancelLabel:  "取消",
+		Key:             "openin-delete",
+		Open:            ps.pendingDelete,
+		Tone:            ConfirmDanger,
+		CancelAutoFocus: true,
+		Title:           "删除「" + targetName + "」？",
+		Body:            "将从打开方式列表中移除该应用。",
+		ConfirmLabel:    "删除",
+		ConfirmA11y:     "确认删除 " + targetName,
+		CancelLabel:     "取消",
 		OnConfirm: func() {
 			idx := ps.pendingDeleteIdx
 			ps.pendingDelete = false
@@ -250,8 +251,10 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				addBtn.Background(ThemeHover(c))
 			}
 			if addBtn.Clicked() {
+				st.mu.Lock()
 				ps.adding = true
 				ps.err = ""
+				st.mu.Unlock()
 				st.invalidate()
 			}
 			addBtn.Children(func() {
@@ -264,14 +267,32 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 		}
 
 		textFunc(
-			func(*SettingsState) (string, bool) { return ps.draftName, false },
-			func(_ *SettingsState, v string) { ps.draftName = v },
+			func(st *SettingsState) (string, bool) {
+				st.mu.Lock()
+				v := ps.draftName
+				st.mu.Unlock()
+				return v, false
+			},
+			func(st *SettingsState, v string) {
+				st.mu.Lock()
+				ps.draftName = v
+				st.mu.Unlock()
+			},
 			"例如 Cursor",
 		).render(c, st, setting{ID: "input-openin-name", Title: "应用名称"})
 		ui.Row(c.Key("row-openin-path")).Gap(Space2).AlignItems(ui.Center).Children(func() {
 			textFunc(
-				func(*SettingsState) (string, bool) { return ps.draftPath, false },
-				func(_ *SettingsState, v string) { ps.draftPath = v },
+				func(st *SettingsState) (string, bool) {
+					st.mu.Lock()
+					v := ps.draftPath
+					st.mu.Unlock()
+					return v, false
+				},
+				func(st *SettingsState, v string) {
+					st.mu.Lock()
+					ps.draftPath = v
+					st.mu.Unlock()
+				},
 				openInAppPathPlaceholder(),
 			).render(c, st, setting{ID: "input-openin-path", Title: "应用路径"})
 
@@ -291,13 +312,23 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 			if chooseBtn.Clicked() {
 				go func() {
 					path, ok, err := pickOpenInAppDialog()
-					if err != nil || !ok || strings.TrimSpace(path) == "" {
+					if err != nil {
+						st.mu.Lock()
+						ps.err = err.Error()
+						st.mu.Unlock()
+						st.invalidate()
 						return
 					}
+					if !ok || strings.TrimSpace(path) == "" {
+						return
+					}
+					st.mu.Lock()
 					ps.draftPath = path
 					if strings.TrimSpace(ps.draftName) == "" {
 						ps.draftName = openInAppNameFromPath(path)
 					}
+					ps.err = ""
+					st.mu.Unlock()
 					st.invalidate()
 				}()
 			}
@@ -306,8 +337,11 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 			})
 		})
 
-		if ps.err != "" {
-			ui.Text(c, ps.err).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
+		st.mu.Lock()
+		errMsg := ps.err
+		st.mu.Unlock()
+		if errMsg != "" {
+			ui.Text(c, errMsg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 		}
 
 		ui.Row(c.Key("row-openin-add-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
@@ -321,10 +355,14 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				add.Scale(scale, scale)
 			}
 			if add.Clicked() {
+				st.mu.Lock()
 				name := strings.TrimSpace(ps.draftName)
 				path := strings.TrimSpace(ps.draftPath)
+				st.mu.Unlock()
 				if path == "" || !strings.HasSuffix(strings.ToLower(path), openInAppPathSuffix()) {
+					st.mu.Lock()
 					ps.err = "请填写 " + openInAppPathSuffix() + " 应用的完整路径"
+					st.mu.Unlock()
 				} else {
 					if name == "" {
 						name = openInAppNameFromPath(path)
@@ -337,10 +375,12 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 					}
 					next := append(st.openInAppsDraft(), app)
 					st.saveOpenInApps(next)
+					st.mu.Lock()
 					ps.adding = false
 					ps.draftName = ""
 					ps.draftPath = ""
 					ps.err = ""
+					st.mu.Unlock()
 					st.invalidate()
 				}
 			}
@@ -360,8 +400,10 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				cancel.Background(ThemeHover(c))
 			}
 			if cancel.Clicked() {
+				st.mu.Lock()
 				ps.adding = false
 				ps.err = ""
+				st.mu.Unlock()
 				st.invalidate()
 			}
 			cancel.Children(func() {
