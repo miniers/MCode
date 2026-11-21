@@ -42,10 +42,11 @@ var attentionInboxGroups = []attentionInboxKindGroup{
 	{Kind: "thread_stalled", Title: "会话卡住"},
 	{Kind: "thread_failed", Title: "会话出错"},
 	{Kind: "thread_quota", Title: "额度用尽"},
-	{Kind: "thread_approval", Title: "等你审批"},
+	{Kind: "thread_approval", Title: "等待审批"},
 	{Kind: "kanban_failed", Title: "看板失败"},
 	{Kind: "kanban_needs_approval", Title: "看板待审批"},
 	{Kind: "kanban_review", Title: "看板待验收"},
+	{Kind: "merge_review_pending", Title: "合并待审阅"},
 	{Kind: "kanban_plan_failed", Title: "规划失败"},
 	{Kind: "automation_failed", Title: "自动化失败"},
 	{Kind: "automation_finished", Title: "自动化完成"},
@@ -404,13 +405,49 @@ func (s *chatState) openAttentionItem(item AttentionItem) {
 		st.open = false
 	}
 	switch item.SubjectType {
-	case "kanban_task", "kanban_goal":
-		// 与侧栏底栏看板按钮同一个入口。
-		s.openTasksWindow("tasks")
+	case "kanban_task":
+		if item.SubjectID != "" {
+			s.openTasksWindowTarget(taskCenterTarget{
+				Kind:      "task",
+				ID:        item.SubjectID,
+				ProjectID: item.ProjectID,
+				Title:     item.Title,
+			})
+		} else {
+			s.openTasksWindow("tasks")
+		}
+	case "kanban_goal":
+		if item.SubjectID != "" {
+			s.openTasksWindowTarget(taskCenterTarget{
+				Kind:      "goal",
+				ID:        item.SubjectID,
+				ProjectID: item.ProjectID,
+				Title:     item.Title,
+			})
+		} else {
+			s.openTasksWindow("tasks")
+		}
 	case "automation_run":
-		// 任务窗口没有「按 ID 打开某条自动化」的入口：有会话时退化为跳会话，否则打开自动化视图。
-		if item.ThreadID != "" {
+		if item.SubjectID != "" {
+			s.openTasksWindowTarget(taskCenterTarget{
+				Kind:      "automation_run",
+				ID:        item.SubjectID,
+				ProjectID: item.ProjectID,
+				Title:     item.Title,
+			})
+		} else if item.ThreadID != "" {
 			s.revealThread(item.ThreadID)
+		} else {
+			s.openTasksWindow("automations")
+		}
+	case "automation":
+		if item.SubjectID != "" {
+			s.openTasksWindowTarget(taskCenterTarget{
+				Kind:      "automation",
+				ID:        item.SubjectID,
+				ProjectID: item.ProjectID,
+				Title:     item.Title,
+			})
 		} else {
 			s.openTasksWindow("automations")
 		}
@@ -464,6 +501,8 @@ func attentionKindMark(kind string) (symbol string, tone Tone) {
 		return "▲", ToneDanger
 	case "thread_stalled", "thread_quota":
 		return "▲", ToneWarning
+	case "merge_review_pending":
+		return "●", ToneWarning
 	case "automation_finished":
 		return "○", ToneNeutral
 	default:

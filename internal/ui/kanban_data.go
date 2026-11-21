@@ -185,6 +185,9 @@ func (s *chatState) loadKanban(projectID string) {
 				ks.err = ""
 			}
 			kanbanMu.Unlock()
+			if err == nil {
+				s.consumePendingTasksTarget()
+			}
 			if pending {
 				s.loadKanban(pid)
 			}

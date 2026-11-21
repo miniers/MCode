@@ -397,12 +397,15 @@ type chatState struct {
 
 	pickFolder func() (string, bool) // 自定义文件夹选择对话框逻辑
 
-	window               func() *mygo.Window
-	openThreadWindow     func(threadID string)
-	openTasksWindowFn    func(view string)
-	revealThreadInMainFn func(threadID string)
-	tasksWindowView      string
-	initialThreadID      string
+	window                  func() *mygo.Window
+	openThreadWindow        func(threadID string)
+	openTasksWindowFn       func(view string)
+	openTasksWindowTargetFn func(taskCenterTarget)
+	tasksTargetMu           sync.Mutex
+	pendingTasksTarget      *taskCenterTarget
+	revealThreadInMainFn    func(threadID string)
+	tasksWindowView         string
+	initialThreadID         string
 
 	initialized          bool
 	closed               bool

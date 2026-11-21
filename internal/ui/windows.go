@@ -309,7 +309,28 @@ func openThreadWindow(client Client, threadID, title string, opts ...Option) (*m
 		state *chatState
 	)
 
-	allOpts := make([]Option, 0, len(opts)+4)
+	tasksWindowOpts := func() []Option {
+		if threadID != "" {
+			return opts
+		}
+		out := make([]Option, 0, len(opts)+1)
+		out = append(out, opts...)
+		out = append(out, WithRevealThreadInMain(func(id string) {
+			mygo.RunOnMain(func() {
+				if state != nil {
+					state.openWorkspace("chat")
+					state.selectThread(id)
+				}
+				if win != nil {
+					win.Show()
+					win.Focus()
+				}
+			})
+		}))
+		return out
+	}
+
+	allOpts := make([]Option, 0, len(opts)+5)
 	allOpts = append(allOpts, opts...)
 	allOpts = append(allOpts,
 		WithInitialThread(initialThreadID(threadID)),
@@ -318,22 +339,10 @@ func openThreadWindow(client Client, threadID, title string, opts ...Option) (*m
 			OpenThreadWindow(client, id, title, opts...)
 		}),
 		WithOpenTasksWindow(func(view string) {
-			if threadID != "" {
-				OpenTasksWindow(client, view, opts...)
-				return
-			}
-			OpenTasksWindow(client, view, append(opts, WithRevealThreadInMain(func(id string) {
-				mygo.RunOnMain(func() {
-					if state != nil {
-						state.openWorkspace("chat")
-						state.selectThread(id)
-					}
-					if win != nil {
-						win.Show()
-						win.Focus()
-					}
-				})
-			}))...)
+			OpenTasksWindow(client, view, tasksWindowOpts()...)
+		}),
+		WithOpenTasksWindowTarget(func(target taskCenterTarget) {
+			OpenTasksWindowTarget(client, target, tasksWindowOpts()...)
 		}),
 	)
 

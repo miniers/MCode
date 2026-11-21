@@ -263,6 +263,9 @@ func (s *chatState) loadAutomationList(projectID string, refreshForm bool) {
 				}
 			}
 			automationMu.Unlock()
+			if err == nil {
+				s.consumePendingTasksTarget()
+			}
 			s.invalidate()
 		})
 		// 未读运行记录数：入口角标依据
