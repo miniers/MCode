@@ -405,7 +405,7 @@ func TestLeadNoticePolicy(t *testing.T) {
 	if !strings.HasPrefix(plansOnlyGot, LeadNoticeReminder) {
 		t.Fatalf("只规划通知提示词应以基础提醒为前缀:\n%s", plansOnlyGot)
 	}
-	wantClause := "You only plan, every change goes to a bee."
+	wantClause := "You only plan, every code change goes to a bee."
 	if !strings.Contains(plansOnlyGot, wantClause) {
 		t.Fatalf("只规划通知提示词应包含 %q:\n%s", wantClause, plansOnlyGot)
 	}
@@ -494,5 +494,28 @@ func TestLeadPolicyAcceptance(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestLeadPolicyPlansOnlyPlanDocs(t *testing.T) {
+	t.Parallel()
+	for _, delegateTool := range []bool{false, true} {
+		got := LeadPolicy(true, "off", delegateTool)
+		for _, want := range []string{
+			"Every code change is sent to a bee.",
+			"write it yourself as markdown and tick its items yourself as bees merge",
+			"the briefs are the plan",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("plansOnly=true delegateTool=%v 的策略应包含 %q:\n%s", delegateTool, want, got)
+			}
+		}
+		if strings.Contains(got, "never edit, write or create a file") {
+			t.Fatalf("plansOnly=true delegateTool=%v 的策略不应再包含旧限制 %q:\n%s", delegateTool, "never edit, write or create a file", got)
+		}
+	}
+	nonPlanOnly := LeadPolicy(false, "off", false)
+	if strings.Contains(nonPlanOnly, "Plan documents are yours") {
+		t.Fatalf("plansOnly=false 的策略不应包含 %q:\n%s", "Plan documents are yours", nonPlanOnly)
 	}
 }

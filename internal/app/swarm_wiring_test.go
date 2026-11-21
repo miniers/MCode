@@ -634,7 +634,7 @@ func TestSwarmLeadPolicyTracker(t *testing.T) {
 		t.Fatalf("只规划后续通知轮次应返回只规划精简版: %+v", sec3Compact)
 	}
 	block3Compact := policy.Render(hostPolicyCaps(), sec3Compact)
-	if !strings.Contains(block3Compact, "You only plan, every change goes to a bee.") {
+	if !strings.Contains(block3Compact, "You only plan, every code change goes to a bee.") {
 		t.Fatalf("只规划精简版应包含仅规划提醒句子:\n%s", block3Compact)
 	}
 

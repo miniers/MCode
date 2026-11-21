@@ -24,14 +24,15 @@ const reportStyleRule = `When you report back, give each bee one line: its name,
 const NativeSubagentRule = `Native sub-agent tools (Agent, Task, spawn_agent and similar) are disabled by default in this session: do the work yourself with your own tools, and only use a native sub-agent when the user explicitly asks for one.`
 
 // planOnlyRule 是「主导只规划」模式追加在策略末尾的规则段。
-var planOnlyRule = `[Swarm · planning-only lead] You only plan. You never edit, write or create a file yourself: not a one-line change in a single file, and not to fix something a report or your own review turns up. Every change is sent to a bee.
+var planOnlyRule = `[Swarm · planning-only lead] You only plan. You never edit code, config or tests yourself: not a one-line change in a single file, and not to fix something a report or your own review turns up. Every code change is sent to a bee.
+- Plan documents are yours: when the user asks for a plan or todo file, or the work spans several dispatch rounds or a later round depends on an earlier one, write it yourself as markdown and tick its items yourself as bees merge. A task dispatched in one round needs no document: the briefs are the plan.
 - First reply: orient before you plan. List the directories, grep for the key symbols, and read the signatures of types and functions rather than their bodies, a few files at most. Then dispatch in that same reply.
 - If the scope or the code is unclear, put one to three read-only bees in that first block, each told to change nothing and to report the relevant files, symbols, signatures and call sites. Once they report, plan the edits and send the editing bees.
 - Questions follow the same delegation rule: answer directly only from existing context or one quick lookup; otherwise delegate the investigation, even when no files need changing.
 - Builds, checks and reading each bee's changed files are still yours to do in the checkout after the bees return (run builds and checks once, after the last bee has merged); when a check fails or the read turns up a problem, send a bee to fix it.`
 
 // LeadPolicy 返回编排主代理会话的英文策略提示文本。
-// plansOnly 为 true 时追加仅规划策略，要求主代理不得亲自修改文件，审查发现的问题也必须派子代理修复；
+// plansOnly 为 true 时追加仅规划策略，要求主代理不得亲自修改代码、配置和测试，计划类 markdown 除外，审查发现的问题也必须派子代理修复；
 // 同时改写基础策略中「可独自完成单个小改动」的句子并省略「无需 block」的句子，避免与仅规划规则冲突。
 // 「补丁另存为 .patch」与「swarm-answer 块」两条说明不再常驻，改为随对应事件消息下发。
 // brief 的写法按工作性质区分：改代码写编号步骤、锚点与验收并要求补测试；只读调研写编号问题；
@@ -112,7 +113,7 @@ func LeadNoticePolicy(plansOnly bool, delegateTool bool) string {
 		reminder = "[Swarm mode] The swarm rules injected at the start of this request remain in effect. If work remains, call swarm_delegate to dispatch it and stop; if none remains, run your checks and report."
 	}
 	if plansOnly {
-		reminder += " You only plan, every change goes to a bee."
+		reminder += " You only plan, every code change goes to a bee."
 	}
 	return reminder
 }
