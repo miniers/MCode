@@ -58,7 +58,7 @@ type gitDiffViewState struct {
 	appliedKey      gitDiffKey
 	view            *editor.DiffState
 	split, menuOpen bool
-	conflictScroll  ui.ScrollState
+	conflictList    ui.ListState
 	currentHunk     int
 }
 
@@ -295,7 +295,7 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 		}
 		st.applied, st.appliedKey, st.menuOpen = result, key, false
 		if !sameKey {
-			st.conflictScroll = ui.ScrollState{}
+			st.conflictList = ui.ListState{}
 		}
 		if st.view == nil && result != nil && !key.conflict && !result.file.Binary && !result.large && !gitDiffTooLarge(result.file) {
 			st.view = &editor.DiffState{Layout: editor.DiffUnified, Inline: editor.DiffInlineWordAlt, Indicators: editor.DiffClassic, Font: ui.Font{Size: uiFont(TypeCode)}}

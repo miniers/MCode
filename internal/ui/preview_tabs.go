@@ -53,6 +53,10 @@ type browserTab struct {
 	consoleErrors               []previewConsoleError
 	consoleOpen, consolePolling bool
 	consoleLastPoll             time.Time
+	consoleResetSeq             uint64
+	consoleList                 ui.ListState
+	consoleListReady            bool
+	consoleListResetSeq         uint64
 	annotating                  bool
 	annotations                 []previewAnnotation
 	annotPolling, annotSending  bool
@@ -96,7 +100,7 @@ func browserActiveTabLocked(st *previewState) *browserTab {
 		}
 	}
 	if st.empty == nil {
-		st.empty = &browserTab{owner: st, threadID: st.threadID, viewport: previewViewportDesktop, visible: st.visible}
+		st.empty = &browserTab{owner: st, threadID: st.threadID, viewport: previewViewportDesktop, visible: st.visible, consoleList: ui.ListState{FollowEnd: true}, consoleListReady: true}
 	}
 	return st.empty
 }
@@ -122,7 +126,7 @@ func browserNewTab(s *chatState) *browserTab {
 	st := current.owner
 	hideBrowserTab(s, current)
 	previewMu.Lock()
-	tab := &browserTab{owner: st, threadID: st.threadID, viewport: previewViewportDesktop, visible: st.visible}
+	tab := &browserTab{owner: st, threadID: st.threadID, viewport: previewViewportDesktop, visible: st.visible, consoleList: ui.ListState{FollowEnd: true}, consoleListReady: true}
 	browserPromoteTabLocked(tab)
 	previewMu.Unlock()
 	s.invalidate()

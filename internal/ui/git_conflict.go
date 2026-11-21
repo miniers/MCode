@@ -34,12 +34,61 @@ func gitConflictConfirmFor(st *gitDiffViewState) *gitConflictConfirmSlot {
 	return v.(*gitConflictConfirmSlot)
 }
 
+type gitConflictRow struct {
+	isRegionBar bool
+	regionIdx   int
+	text        string
+}
+
+type gitConflictRowKey struct {
+	key   gitDiffKey
+	bar   bool
+	index int
+}
+
 type gitConflictState struct {
 	text             string
 	regions          []git.ConflictRegion
+	rows             []gitConflictRow
+	rowsText         string
+	rowsBuilt        bool
 	choices          map[int]git.ConflictChoice
 	err              error
 	binary, tooLarge bool
+}
+
+func buildGitConflictRows(text string, regions []git.ConflictRegion) []gitConflictRow {
+	lines := strings.SplitAfter(text, "\n")
+	rows := make([]gitConflictRow, 0, len(lines)+len(regions))
+	pos := 0
+	for i, region := range regions {
+		start := min(max(region.Start, pos), len(lines))
+		for _, line := range lines[pos:start] {
+			rows = append(rows, gitConflictRow{text: strings.TrimSuffix(line, "\n")})
+		}
+		rows = append(rows, gitConflictRow{isRegionBar: true, regionIdx: i})
+		end := min(max(region.End+1, start), len(lines))
+		for _, line := range lines[start:end] {
+			rows = append(rows, gitConflictRow{text: strings.TrimSuffix(line, "\n")})
+		}
+		pos = end
+	}
+	for _, line := range lines[pos:] {
+		rows = append(rows, gitConflictRow{text: strings.TrimSuffix(line, "\n")})
+	}
+	return rows
+}
+
+func (cs *gitConflictState) ensureRows() {
+	if cs == nil || cs.err != nil || cs.binary || cs.tooLarge {
+		return
+	}
+	if cs.rowsBuilt && cs.rowsText == cs.text {
+		return
+	}
+	cs.rows = buildGitConflictRows(cs.text, cs.regions)
+	cs.rowsText = cs.text
+	cs.rowsBuilt = true
 }
 
 func gitConflictPath(root, path string) (string, error) {
@@ -86,6 +135,7 @@ func readGitConflict(root, path string) *gitConflictState {
 	if !cs.binary {
 		cs.text = string(data)
 		cs.regions = git.ParseConflicts(cs.text)
+		cs.ensureRows()
 	}
 	return cs
 }
@@ -174,37 +224,43 @@ func renderGitConflict(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDif
 		return
 	}
 	// 冲突需要在首行之前插入工具条；DiffAnnotation 只支持行后插入，因此使用等宽文本列表。
-	ui.Scroll(c.Key("git-conflict-content")).Grow(1).FillWidth().MinHeight(0).TrackScroll(&st.conflictScroll).Children(func() {
-		ui.Column(c).FillWidth().Children(func() {
-			pos := 0
-			lines := strings.SplitAfter(cs.text, "\n")
-			for i, region := range cs.regions {
-				renderGitConflictText(c, lines[pos:region.Start])
-				ui.Row(c.Key(fmt.Sprintf("git-conflict-region-%d", i))).Height(gitGroupHeaderHeight).Gap(Space1).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, fmt.Sprintf("第 %d/%d 处", i+1, len(cs.regions))).FontSize(uiFont(TypeFootnote))
-					for _, choice := range []struct {
-						value git.ConflictChoice
-						label string
-					}{{git.ConflictOurs, "保留 " + ours}, {git.ConflictTheirs, "保留 " + theirs}, {git.ConflictBoth, "都保留"}} {
-						b := Button(c, ButtonOpts{Key: fmt.Sprintf("choice-%d-%s", i, choice.value), Text: choice.label, Label: fmt.Sprintf("第 %d 处 %s", i+1, choice.label), Size: ControlSM, Variant: ButtonGhost, Disabled: disabled, OnClick: func() { cs.choices[i] = choice.value; s.invalidate() }}).Selected(cs.choices[i] == choice.value)
-						if cs.choices[i] == choice.value {
-							b.Background(ThemeSelected(c))
-						}
-					}
-				})
-				renderGitConflictText(c, lines[region.Start:region.End+1])
-				pos = region.End + 1
-			}
-			renderGitConflictText(c, lines[pos:])
-		})
-	})
-	renderGitConflictConfirm(c, s, ps, st, client, key, disabled)
-}
-
-func renderGitConflictText(c *ui.Context, lines []string) {
-	for _, line := range lines {
-		ui.Text(c, strings.TrimSuffix(line, "\n")).Font("monospace").FontSize(uiFont(TypeCode)).MinHeight(ControlXS).SingleLine().Selectable()
+	cs.ensureRows()
+	st.conflictList.Key = func(i int) any {
+		row := cs.rows[i]
+		if row.isRegionBar {
+			return gitConflictRowKey{key: key, bar: true, index: row.regionIdx}
+		}
+		return gitConflictRowKey{key: key, index: i}
 	}
+	ui.List(c.Key("git-conflict-content"), &st.conflictList, len(cs.rows), func(i int) {
+		row := cs.rows[i]
+		if row.isRegionBar {
+			regionIdx := row.regionIdx
+			ui.Row(c.Key(fmt.Sprintf("git-conflict-region-%d", regionIdx))).FillWidth().Height(gitGroupHeaderHeight).Gap(Space1).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, fmt.Sprintf("第 %d/%d 处", regionIdx+1, len(cs.regions))).FontSize(uiFont(TypeFootnote))
+				for _, choice := range []struct {
+					value git.ConflictChoice
+					label string
+				}{{git.ConflictOurs, "保留 " + ours}, {git.ConflictTheirs, "保留 " + theirs}, {git.ConflictBoth, "都保留"}} {
+					b := Button(c, ButtonOpts{Key: fmt.Sprintf("choice-%d-%s", regionIdx, choice.value), Text: choice.label, Label: fmt.Sprintf("第 %d 处 %s", regionIdx+1, choice.label), Size: ControlSM, Variant: ButtonGhost, Disabled: disabled, OnClick: func() {
+						if cs.choices == nil {
+							cs.choices = map[int]git.ConflictChoice{}
+						}
+						cs.choices[regionIdx] = choice.value
+						if s != nil {
+							s.invalidate()
+						}
+					}}).Selected(cs.choices[regionIdx] == choice.value)
+					if cs.choices[regionIdx] == choice.value {
+						b.Background(ThemeSelected(c))
+					}
+				}
+			})
+			return
+		}
+		ui.Text(c, row.text).Font("monospace").FontSize(uiFont(TypeCode)).MinHeight(ControlXS).SingleLine().Selectable()
+	}).Grow(1).FillWidth().MinHeight(0)
+	renderGitConflictConfirm(c, s, ps, st, client, key, disabled)
 }
 
 func saveGitConflict(s *chatState, ps *gitPaneState, st *gitDiffViewState, client gitDiffClient, key gitDiffKey, cs *gitConflictState) {

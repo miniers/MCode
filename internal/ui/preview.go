@@ -210,6 +210,7 @@ func clearPreviewConsoleErrors(s *chatState, st *browserTab) {
 	}
 	st.consoleErrors = nil
 	st.consoleSelected = nil
+	st.consoleResetSeq++
 	previewMu.Unlock()
 
 	if page != nil {

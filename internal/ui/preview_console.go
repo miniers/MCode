@@ -56,6 +56,7 @@ func previewApplyConsoleDrainLocked(tab *browserTab, packet previewConsoleDrain,
 		tab.consoleWatermark, tab.locationSequence = 0, 0
 		changed = len(tab.consoleErrors) > 0 || len(tab.consoleSelected) > 0
 		tab.consoleErrors, tab.consoleSelected = nil, nil
+		tab.consoleResetSeq++
 	}
 	tab.consoleAvailable = true
 	for _, entry := range packet.Entries {
@@ -201,6 +202,11 @@ func previewConsoleAddToConversation(s *chatState, threadID string, snap preview
 	return true
 }
 
+type previewConsoleRowKey struct {
+	generation uint64
+	sequence   uint64
+}
+
 func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *browserTab, snap previewSnapshot) {
 	// 框架保留退出阶段；高速追加的条目不播放逐条入场动画。
 	if snap.consoleOpen {
@@ -269,29 +275,42 @@ func renderPreviewConsoleDrawer(c *ui.Context, s *chatState, st *browserTab, sna
 				}
 				clear.Children(func() { ui.Text(c, "清空").FontSize(uiFont(TypeCaption)) })
 			})
-			ui.Scroll(c.Key("preview-console-scroll")).Grow(1).FillWidth().Children(func() {
+			visible := snap.consoleErrors
+			if snap.consoleFilter != "" {
+				visible = make([]previewConsoleError, 0, len(snap.consoleErrors))
 				for _, entry := range snap.consoleErrors {
-					if snap.consoleFilter != "" && entry.Kind != snap.consoleFilter {
-						continue
-					}
-					checked := snap.consoleSelected[entry.Sequence]
-					ui.Checkbox(c.Key(fmt.Sprintf("preview-console-entry-%d-%d", snap.token.generation, entry.Sequence)), &checked, entry.Time+" "+previewConsoleEntryLine(entry))
-					if checked != snap.consoleSelected[entry.Sequence] {
-						previewMu.Lock()
-						if tab := previewStateForTokenLocked(s, snap.token); tab != nil && tab.consoleRevision == snap.token.consoleRevision {
-							if tab.consoleSelected == nil {
-								tab.consoleSelected = make(map[uint64]bool)
-							}
-							if checked {
-								tab.consoleSelected[entry.Sequence] = true
-							} else {
-								delete(tab.consoleSelected, entry.Sequence)
-							}
-						}
-						previewMu.Unlock()
+					if entry.Kind == snap.consoleFilter {
+						visible = append(visible, entry)
 					}
 				}
-			})
+			}
+			if !st.consoleListReady || st.consoleListResetSeq != snap.consoleResetSeq {
+				st.consoleList = ui.ListState{FollowEnd: true}
+				st.consoleListReady = true
+				st.consoleListResetSeq = snap.consoleResetSeq
+			}
+			st.consoleList.Key = func(i int) any {
+				return previewConsoleRowKey{generation: snap.token.generation, sequence: visible[i].Sequence}
+			}
+			ui.List(c.Key("preview-console-scroll"), &st.consoleList, len(visible), func(i int) {
+				entry := visible[i]
+				checked := snap.consoleSelected[entry.Sequence]
+				ui.Checkbox(c.Key(fmt.Sprintf("preview-console-entry-%d-%d", snap.token.generation, entry.Sequence)), &checked, entry.Time+" "+previewConsoleEntryLine(entry)).FillWidth()
+				if checked != snap.consoleSelected[entry.Sequence] {
+					previewMu.Lock()
+					if tab := previewStateForTokenLocked(s, snap.token); tab != nil && tab.consoleRevision == snap.token.consoleRevision {
+						if tab.consoleSelected == nil {
+							tab.consoleSelected = make(map[uint64]bool)
+						}
+						if checked {
+							tab.consoleSelected[entry.Sequence] = true
+						} else {
+							delete(tab.consoleSelected, entry.Sequence)
+						}
+					}
+					previewMu.Unlock()
+				}
+			}).Grow(1).FillWidth().MinHeight(0)
 		})
 	}
 }

@@ -56,6 +56,7 @@ type previewSnapshot struct {
 	consoleOpen                      bool
 	consoleFilter                    string
 	consoleSelected                  map[uint64]bool
+	consoleResetSeq                  uint64
 	annotating                       bool
 	annotations                      []previewAnnotation
 	annotSending                     bool
@@ -75,7 +76,7 @@ func previewSnapshotLocked(st *browserTab) previewSnapshot {
 		addressEditing: st.addressEditing, canGoBack: st.canGoBack, canGoForward: st.canGoForward, loading: st.loading,
 		consoleErrors: append([]previewConsoleError(nil), st.consoleErrors...),
 		consoleOpen:   st.consoleOpen, annotating: st.annotating,
-		consoleFilter: st.consoleFilter, consoleSelected: selected,
+		consoleFilter: st.consoleFilter, consoleSelected: selected, consoleResetSeq: st.consoleResetSeq,
 		annotations: append([]previewAnnotation(nil), st.annotations...), annotSending: st.annotSending, annotFocus: st.annotFocus,
 	}
 }
@@ -103,6 +104,7 @@ func previewAdvanceGenerationLocked(st *browserTab) {
 	st.consoleOpen = false
 	st.consolePolling = false
 	st.consoleLastPoll = time.Time{}
+	st.consoleResetSeq++
 	// 隐藏也会换代但文档未变，保留水位；新文档由 drain 的 document 标识重置。
 	st.annotPolling = false
 	previewResetAnnotationsLocked(st)
