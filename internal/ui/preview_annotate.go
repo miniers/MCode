@@ -524,7 +524,8 @@ func (s *chatState) waitThreadAttachmentsReady(threadID string) (active bool, re
 		if time.Now().After(deadline) {
 			return true, false
 		}
-		time.Sleep(2 * time.Millisecond)
+		// 上传以秒计，50ms 足够及时，避免频繁抢 s.mu。
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
