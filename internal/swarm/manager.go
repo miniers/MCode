@@ -1228,7 +1228,7 @@ func (m *Manager) Busy(leadThreadID string) bool {
 		if lead.bees[i].Status == StatusRunning {
 			return true
 		}
-		if deliversReports && !lead.reportsHeld && !lead.bees[i].Reported {
+		if deliversReports && !lead.reportsHeld && !lead.bees[i].Reported && !lead.bees[i].AwaitingFinalize {
 			return true
 		}
 	}
@@ -2930,6 +2930,11 @@ func (m *Manager) Tick(ctx context.Context) {
 		tgt.bee.Status = StatusCompleted
 		tgt.bee.Summary = st.LastAssistantText
 		tgt.bee.ThinkingMinutes = 0
+		if isInteractiveSharedBee(&tgt.bee) && !tgt.bee.FinalizeRequested {
+			tgt.bee.AwaitingFinalize = true
+		} else {
+			tgt.bee.AwaitingFinalize = false
+		}
 
 		root := tgt.targetWorkDir
 		if root == "" {
@@ -3090,6 +3095,9 @@ func isReactivateCandidate(h Bee) bool {
 	if h.WorktreePath == "" && !h.SharedWorkspace && !h.SharedNoGit {
 		return false
 	}
+	if h.AwaitingFinalize {
+		return h.Status == StatusCompleted && !h.Interrupted
+	}
 	if h.Reported {
 		return true
 	}
@@ -3184,34 +3192,11 @@ func (m *Manager) detectReactivatedBees(ctx context.Context) {
 			m.mu.Unlock()
 			continue
 		}
-		bee.Status = StatusRunning
-		bee.Reported = false
-		bee.Merged = false
-		bee.MergeError = ""
-		bee.LandMessage = ""
-		bee.Delivered = false
-		bee.Credibility = nil
-		// 上一轮的合并与审查进度属于旧成果，续跑后要重新走流水线。
-		bee.ReviewState = ReviewNone
-		bee.ReviewStage = ""
-		bee.ReviewLayer = ""
-		bee.ReviewReason = ""
-		bee.ReviewConcerns = nil
-		bee.AutoMergeState = AutoMergeNone
-		bee.AutoMergeSHA = ""
-		bee.AutoMergeStage = ""
-		bee.AutoMergeError = ""
-		bee.PendingMerge = false
-		bee.MergeDiscarded = false
-		bee.MergeWaitSince = nil
-		bee.ThinkingMinutes = 0
-		bee.FinishedAt = nil
-		bee.LastProgressAt = now
+		m.resetBeeForNewRoundLocked(bee, now)
+		bee.FinalizeRequested = false
 		if baseCommit != "" {
 			bee.BaseCommit = baseCommit
 		}
-		delete(m.beeProgress, c.bee.ThreadID)
-		delete(m.reactivateSeen, c.bee.ThreadID)
 		m.mu.Unlock()
 
 		// 让空汇报催促、失败重试与中断续接在这一轮重新生效。
@@ -3235,6 +3220,105 @@ func (m *Manager) detectReactivatedBees(ctx context.Context) {
 		}
 	}
 	m.mu.Unlock()
+}
+
+const finalizeDesignPrompt = "用户已定稿，不要再修改设计稿。现在输出最终汇报：设计稿路径；用户在各轮里拍板的关键决定；实现时要注意的点。"
+
+// resetBeeForNewRoundLocked 在持锁状态下重置已结束 bee 的结果字段，使其重新进入运行态。
+// 不重置 FinalizeRequested，由调用方按需清理。
+func (m *Manager) resetBeeForNewRoundLocked(bee *Bee, now time.Time) {
+	bee.AwaitingFinalize = false
+	bee.Status = StatusRunning
+	bee.Reported = false
+	bee.Merged = false
+	bee.MergeError = ""
+	bee.LandMessage = ""
+	bee.Delivered = false
+	bee.Credibility = nil
+	// 上一轮的合并与审查进度属于旧成果，续跑后要重新走流水线。
+	bee.ReviewState = ReviewNone
+	bee.ReviewStage = ""
+	bee.ReviewLayer = ""
+	bee.ReviewReason = ""
+	bee.ReviewConcerns = nil
+	bee.AutoMergeState = AutoMergeNone
+	bee.AutoMergeSHA = ""
+	bee.AutoMergeStage = ""
+	bee.AutoMergeError = ""
+	bee.PendingMerge = false
+	bee.MergeDiscarded = false
+	bee.MergeWaitSince = nil
+	bee.ThinkingMinutes = 0
+	bee.FinishedAt = nil
+	bee.LastProgressAt = now
+	delete(m.beeProgress, bee.ThreadID)
+	delete(m.reactivateSeen, bee.ThreadID)
+}
+
+// FinalizeDesignBee 结束设计档位子代理的待定稿暂缓状态，通知其输出最终汇报并在本轮结束后放行给主代理。
+func (m *Manager) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
+	now := m.now()
+	m.mu.Lock()
+	lead, ok := m.leads[leadThreadID]
+	if !ok {
+		m.mu.Unlock()
+		return ErrLeadNotFound
+	}
+	var bee *Bee
+	for i := range lead.bees {
+		if lead.bees[i].ThreadID == beeThreadID {
+			bee = &lead.bees[i]
+			break
+		}
+	}
+	if bee == nil {
+		m.mu.Unlock()
+		return ErrBeeNotFound
+	}
+	if !isInteractiveSharedBee(bee) {
+		m.mu.Unlock()
+		return errors.New("该子代理不是设计档位")
+	}
+	if !bee.AwaitingFinalize {
+		m.mu.Unlock()
+		return errors.New("该设计子代理当前未处于待定稿状态")
+	}
+	prev := bee.clone()
+	m.resetBeeForNewRoundLocked(bee, now)
+	bee.FinalizeRequested = true
+	m.mu.Unlock()
+
+	var sentErr error
+	if messenger, ok := m.opts.Driver.(kanban.SessionMessenger); ok {
+		sentErr = messenger.SendFollowUp(ctx, beeThreadID, finalizeDesignPrompt)
+	} else {
+		sentErr = errors.New("driver does not support SessionMessenger")
+	}
+	if sentErr != nil {
+		m.mu.Lock()
+		if lead := m.leads[leadThreadID]; lead != nil {
+			for i := range lead.bees {
+				if lead.bees[i].ThreadID == beeThreadID {
+					b := &lead.bees[i]
+					if b.Status == StatusRunning && b.FinalizeRequested {
+						*b = prev
+						b.AwaitingFinalize = true
+						b.FinalizeRequested = false
+						b.Status = StatusCompleted
+					}
+					break
+				}
+			}
+		}
+		m.mu.Unlock()
+		return sentErr
+	}
+
+	m.resetEmptyNudge(beeThreadID)
+	m.setContinueNudge(beeThreadID, false)
+	m.setRetryCount(beeThreadID, 0)
+	m.notifyChange(leadThreadID)
+	return nil
 }
 
 // settleResumeBaseline 把 bee 工作副本的当前状态固化成一次提交并返回该提交的 sha，
@@ -3318,7 +3402,7 @@ func (m *Manager) checkReports(ctx context.Context) {
 			var uncommitted []Bee
 			ids := make(map[string]bool)
 			for i := range lead.bees {
-				if !lead.bees[i].Interrupted && !lead.bees[i].Reported && (lead.bees[i].Status == StatusCompleted || lead.bees[i].Status == StatusFailed || lead.bees[i].Status == StatusStopped) {
+				if !lead.bees[i].Interrupted && !lead.bees[i].Reported && !lead.bees[i].AwaitingFinalize && (lead.bees[i].Status == StatusCompleted || lead.bees[i].Status == StatusFailed || lead.bees[i].Status == StatusStopped) {
 					ids[lead.bees[i].ThreadID] = true
 					uncommitted = append(uncommitted, lead.bees[i].clone())
 				}
@@ -3541,7 +3625,7 @@ func (m *Manager) maybeFireBatchLanded(ctx context.Context, leadThreadID string)
 	var order []batchKey
 	for i := range lead.bees {
 		h := &lead.bees[i]
-		if !h.Merged || h.MergeError != "" || h.Delivered {
+		if h.AwaitingFinalize || !h.Merged || h.MergeError != "" || h.Delivered {
 			continue
 		}
 		projectID := h.ProjectID
@@ -3720,6 +3804,9 @@ func BuildReport(bees []Bee) string {
 		sb.WriteString(fmt.Sprintf("## %s：%s (%s)\n", h.Name, h.Task, statusText))
 		// 落地状态必须紧跟标题行：界面依赖该位置识别每个 bee 的分段。
 		sb.WriteString(fmt.Sprintf("- 合并结果：%s\n", mergeStateText(h)))
+		if h.FinalizeRequested {
+			sb.WriteString("- 用户已定稿：只向用户汇报设计稿路径与要点，等用户说开始实现再派实现任务。\n")
+		}
 		// 漏斗结论紧跟落地状态；off 档 ReviewLayer 为空，不输出任何审查行。
 		if line := reviewReportLine(h); line != "" {
 			sb.WriteString(line + "\n")
@@ -6365,7 +6452,7 @@ func (m *Manager) autoClearFinished(ctx context.Context) {
 				clearable = false
 				break
 			}
-			if h.Status == StatusRunning || h.ReviewState == ReviewRunning || h.PendingMerge || !h.Reported {
+			if h.Status == StatusRunning || h.ReviewState == ReviewRunning || h.PendingMerge || (!h.Reported && !isInteractiveSharedBee(h)) {
 				clearable = false
 				break
 			}
@@ -6375,12 +6462,12 @@ func (m *Manager) autoClearFinished(ctx context.Context) {
 				break
 			}
 			// 有批次落地回调时，已合入的 bee 必须先上报过才可清理。
-			if m.opts.OnBatchLanded != nil && h.Merged && !h.Delivered {
+			if m.opts.OnBatchLanded != nil && h.Merged && !h.Delivered && !isInteractiveSharedBee(h) {
 				clearable = false
 				break
 			}
 			// 开启 Codex 归档时，已完成的 bee 必须先归档再清理。
-			if settings.ArchivesCodexBees && h.Status == StatusCompleted && !h.ArchiveHandled {
+			if settings.ArchivesCodexBees && h.Status == StatusCompleted && !h.ArchiveHandled && !isInteractiveSharedBee(h) {
 				clearable = false
 				break
 			}

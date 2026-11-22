@@ -103,6 +103,10 @@ type Bee struct {
 	SharedWorkspace bool `json:"shared_workspace,omitempty"`
 	// Interactive 表示该 bee 可向用户提问，提问挂起等待用户回答，不自动代答也不自动转交。
 	Interactive bool `json:"interactive,omitempty"`
+	// AwaitingFinalize 表示设计档位 bee 已结束一轮但暂缓汇报，等待用户点定稿。
+	AwaitingFinalize bool `json:"awaiting_finalize,omitempty"`
+	// FinalizeRequested 表示用户已点定稿，本轮结束后不再暂缓汇报。
+	FinalizeRequested bool `json:"finalize_requested,omitempty"`
 	// WritePaths 是派发时档位带来的写入白名单，非空时只合并匹配这些 glob 的改动。
 	WritePaths []string `json:"write_paths,omitempty"`
 	Acceptance []string `json:"acceptance,omitempty"`

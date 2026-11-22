@@ -257,6 +257,7 @@ type FakeClient struct {
 	approveMergeCalls     []string
 	discardMergeCalls     []string
 	forwardQuestionCalls  []ForwardQuestionCall
+	FinalizedBees         []string
 	gitGenCommitMsgResult string
 	gitGenCommitMsgErr    error
 	setSwarmEnabledCalls  []struct {
@@ -291,33 +292,33 @@ type FakeClient struct {
 	// interruptAlreadyStopped 让 FakeClient.Interrupt 模拟后端返回 already_stopped。
 	interruptAlreadyStopped bool
 	// sendDelegated 让 FakeClient.Send/SendWithAttachments 模拟消息被交给子线程。
-	sendDelegated       bool
-	sendErr             error
-	deleteCalls         []string
-	addProjectCalls     []string
-	setRuntimeModeCalls   []setRuntimeModeCall
-	SetAgentCalls         []SetAgentCall
+	sendDelegated             bool
+	sendErr                   error
+	deleteCalls               []string
+	addProjectCalls           []string
+	setRuntimeModeCalls       []setRuntimeModeCall
+	SetAgentCalls             []SetAgentCall
 	setThreadAccountCalls     []setThreadAccountCall
 	setThreadAccountErr       error
 	setThreadBeesAccountCalls []setThreadAccountCall
 	setThreadBeesAccountErr   error
-	composerPrefsCalls    []composerPrefsCall
-	composerPrefsHook   func(string, ComposerPrefs) error
-	fastModeCalls       []FastModeCall
-	beeTiersCalls       []BeeTiersCall
-	swarmPairIDCalls    []SwarmPairIDCall
-	swarmModeCalls      []SwarmModeCall
+	composerPrefsCalls        []composerPrefsCall
+	composerPrefsHook         func(string, ComposerPrefs) error
+	fastModeCalls             []FastModeCall
+	beeTiersCalls             []BeeTiersCall
+	swarmPairIDCalls          []SwarmPairIDCall
+	swarmModeCalls            []SwarmModeCall
 
-	queue              map[string][]QueuedFollowUp
-	enqueueCalls       []fakeQueueCall
+	queue        map[string][]QueuedFollowUp
+	enqueueCalls []fakeQueueCall
 
-	storageReport    StorageReport
-	storageScanErr   error
-	storageScanHook  func(context.Context) (StorageReport, error)
-	storageCleanHook func(context.Context, []string) (int64, error)
-	storageCleanErr  error
-	storageScanCalls int
-	storageCleanIDs  [][]string
+	storageReport      StorageReport
+	storageScanErr     error
+	storageScanHook    func(context.Context) (StorageReport, error)
+	storageCleanHook   func(context.Context, []string) (int64, error)
+	storageCleanErr    error
+	storageScanCalls   int
+	storageCleanIDs    [][]string
 	removeQueuedCalls  []fakeQueueCall
 	sendQueuedNowCalls []fakeQueueCall
 	moveQueuedCalls    []fakeQueueCall
@@ -2734,6 +2735,32 @@ func (f *FakeClient) ForwardQuestionCalls() []ForwardQuestionCall {
 	res := make([]ForwardQuestionCall, len(f.forwardQuestionCalls))
 	copy(res, f.forwardQuestionCalls)
 	return res
+}
+
+// FinalizeDesignBee 记录设计子代理定稿调用，并在内存状态中更新该 bee 为运行中。
+func (f *FakeClient) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.FinalizedBees = append(f.FinalizedBees, beeThreadID)
+	if f.swarmErr != nil {
+		return f.swarmErr
+	}
+	if f.swarmStates != nil {
+		if st, ok := f.swarmStates[leadThreadID]; ok {
+			changed := false
+			for i := range st.Bees {
+				if st.Bees[i].ThreadID == beeThreadID {
+					st.Bees[i].AwaitingFinalize = false
+					st.Bees[i].Status = "running"
+					changed = true
+				}
+			}
+			if changed {
+				f.swarmStates[leadThreadID] = st
+			}
+		}
+	}
+	return nil
 }
 
 // SetSwarmReportSummary 设置指定 bee 的模拟存档汇报全文。

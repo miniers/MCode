@@ -414,7 +414,7 @@ type AutomationSchedule struct {
 
 // Automation 表示自动化任务配置与状态。
 type Automation struct {
-	ID, ProjectID, Name, Prompt, Status, StopWhen, LastRunStatus, StopReason, Origin string
+	ID, ProjectID, Name, Prompt, Status, StopWhen, LastRunStatus, StopReason, Origin             string
 	Schedule                                                                                     AutomationSchedule
 	Enabled                                                                                      bool
 	NextRunAt, LastRunAt                                                                         time.Time
@@ -519,6 +519,12 @@ type SwarmBee struct {
 	Tier string
 	// 只读调研模式，不允许修改文件
 	ReadOnly bool
+	// 共享主工作区运行，没有独立 worktree
+	SharedWorkspace bool
+	// 允许向用户提问的交互式子代理
+	Interactive bool
+	// 已结束一轮设计，暂缓向主代理汇报并等待用户定稿
+	AwaitingFinalize bool
 	// 用户直指模型而非档位默认模型
 	DirectModel bool
 	// 标记只读 Bee 发生了写文件违规
@@ -890,7 +896,7 @@ type ProviderQuotaWindow struct {
 	Label       string
 	UsedPercent float64
 	ResetsAt    time.Time
-	Account string
+	Account     string
 	// AccountID 是 agy 账号 ID，供会话指定账号使用；其它 provider 为空。
 	AccountID string
 	// Active 表示这是后端认定新会话当前会用到的账号。
@@ -1220,6 +1226,8 @@ type Client interface {
 	ClearFinishedSwarmBees(ctx context.Context, leadThreadID string) error
 	// ForwardBeeQuestion 把子线程提问转给主线程回答。
 	ForwardBeeQuestion(ctx context.Context, leadThreadID, beeThreadID, requestID string) error
+	// FinalizeDesignBee 通知设计档位子代理用户已定稿并触发最终汇报。
+	FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error
 	// SwarmMergeDiff 获取 bee 待合并改动（Diff 为 unified diff 文本，FilesChanged 为改动文件）。
 	SwarmMergeDiff(ctx context.Context, leadThreadID, beeThreadID string) (ThreadDiff, error)
 	// SwarmReportSummary 从存档读取 bee 的完整汇报总结；只能读该主会话自己的 bee，读不到时返回错误。
