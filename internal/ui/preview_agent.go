@@ -20,7 +20,7 @@ func OpenPreviewForThread(threadID, target string) error {
 	if !HasChatWindow() {
 		return errors.New("桌面窗口未打开")
 	}
-	s := chatStateForPreview(threadID)
+	s, slotThreadID := resolvePreviewTargetWindow(threadID)
 	if s == nil {
 		return errors.New("桌面窗口未打开")
 	}
@@ -31,13 +31,13 @@ func OpenPreviewForThread(threadID, target string) error {
 			return err
 		}
 	}
-	ok, isCurrent := setPendingPreview(s, threadID, target)
+	ok, isCurrent := setPendingPreviewFor(s, slotThreadID, threadID, target)
 	if !ok {
 		return errors.New("桌面窗口未打开")
 	}
 	if isCurrent && s.window != nil {
 		mygo.RunOnMain(func() {
-			consumePendingPreview(s, threadID)
+			consumePendingPreview(s, slotThreadID)
 		})
 	}
 	return nil
@@ -75,25 +75,12 @@ func (s *chatState) isClosed() bool {
 	return s.closed
 }
 
-// chatStateForPreview 优先返回当前正在查看 threadID 的窗口状态，否则退回活动窗口。
-func chatStateForPreview(threadID string) *chatState {
-	type windowEntry struct {
-		win   *mygo.Window
-		state *chatState
-	}
-	chatWindowsMu.RLock()
-	entries := make([]windowEntry, 0, len(chatWindows))
-	for win, state := range chatWindows {
-		if state != nil {
-			entries = append(entries, windowEntry{win: win, state: state})
-		}
-	}
-	chatWindowsMu.RUnlock()
+type previewWindowEntry struct {
+	win   *mygo.Window
+	state *chatState
+}
 
-	var focused *mygo.Window
-	if len(entries) > 1 {
-		focused = mygo.FocusedWindow()
-	}
+func previewWindowViewing(entries []previewWindowEntry, focused *mygo.Window, threadID string) *chatState {
 	var matched *chatState
 	for _, entry := range entries {
 		if entry.state.isClosed() || entry.state.chatSelectedThreadID() != threadID {
@@ -106,54 +93,156 @@ func chatStateForPreview(threadID string) *chatState {
 			matched = entry.state
 		}
 	}
-	if matched != nil {
-		return matched
+	return matched
+}
+
+func swarmLeadForPreviewBee(entries []previewWindowEntry, focused *mygo.Window, beeID string) (leadID string, owner *chatState) {
+	if beeID == "" || len(entries) == 0 {
+		return "", nil
 	}
-	return activeChatState()
+	ordered := make([]previewWindowEntry, 0, len(entries))
+	for _, entry := range entries {
+		if focused != nil && entry.win == focused {
+			ordered = append(ordered, entry)
+		}
+	}
+	for _, entry := range entries {
+		if focused == nil || entry.win != focused {
+			ordered = append(ordered, entry)
+		}
+	}
+	for _, entry := range ordered {
+		if entry.state.isClosed() {
+			continue
+		}
+		swarmPanelMu.Lock()
+		hp := swarmPanelStates[entry.state]
+		var foundLead string
+		if hp != nil && !hp.state.IsBee {
+			lid := strings.TrimSpace(hp.state.LeadThreadID)
+			if lid == "" {
+				lid = strings.TrimSpace(hp.loadedFor)
+			}
+			if lid != "" && lid != beeID {
+				for _, h := range hp.state.Bees {
+					if strings.TrimSpace(h.ThreadID) == beeID {
+						foundLead = lid
+						break
+					}
+				}
+			}
+		}
+		swarmPanelMu.Unlock()
+		if foundLead != "" {
+			return foundLead, entry.state
+		}
+	}
+	for _, entry := range ordered {
+		if entry.state.isClosed() {
+			continue
+		}
+		entry.state.mu.Lock()
+		var foundLead string
+		for _, th := range entry.state.threads {
+			if th.ID == beeID && strings.TrimSpace(th.ParentThreadID) != "" && th.ParentThreadID != beeID {
+				foundLead = strings.TrimSpace(th.ParentThreadID)
+				break
+			}
+		}
+		entry.state.mu.Unlock()
+		if foundLead != "" {
+			return foundLead, entry.state
+		}
+	}
+	return "", nil
+}
+
+// resolvePreviewTargetWindow 优先返回正在查看 threadID 的窗口与会话槽；
+// 若没有窗口显示它且它是某主会话的 bee，改为投递到显示其主会话的窗口（与主会话槽）。
+func resolvePreviewTargetWindow(threadID string) (s *chatState, slotThreadID string) {
+	chatWindowsMu.RLock()
+	entries := make([]previewWindowEntry, 0, len(chatWindows))
+	for win, state := range chatWindows {
+		if state != nil {
+			entries = append(entries, previewWindowEntry{win: win, state: state})
+		}
+	}
+	chatWindowsMu.RUnlock()
+
+	var focused *mygo.Window
+	if len(entries) > 1 {
+		focused = mygo.FocusedWindow()
+	}
+	if matched := previewWindowViewing(entries, focused, threadID); matched != nil {
+		return matched, threadID
+	}
+	if leadID, fallback := swarmLeadForPreviewBee(entries, focused, threadID); leadID != "" {
+		if matched := previewWindowViewing(entries, focused, leadID); matched != nil {
+			return matched, leadID
+		}
+		if active := activeChatState(); active != nil {
+			return active, leadID
+		}
+		return fallback, leadID
+	}
+	return activeChatState(), threadID
 }
 
 func setPendingPreview(s *chatState, threadID, target string) (ok bool, isCurrent bool) {
-	if s == nil || threadID == "" || target == "" {
+	return setPendingPreviewFor(s, threadID, threadID, target)
+}
+
+func setPendingPreviewFor(s *chatState, slotThreadID, previewThreadID, target string) (ok bool, isCurrent bool) {
+	if s == nil || slotThreadID == "" || target == "" {
 		return false, false
+	}
+	if previewThreadID == "" {
+		previewThreadID = slotThreadID
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return false, false
 	}
-	st := inspectorSessionLocked(s, threadID)
+	st := inspectorSessionLocked(s, slotThreadID)
 	st.pendingPreview = target
-	return true, s.selectedThreadID == threadID
+	st.pendingPreviewThreadID = previewThreadID
+	return true, s.selectedThreadID == slotThreadID
 }
 
-func takePendingPreview(s *chatState, threadID string) (string, bool) {
+func takePendingPreview(s *chatState, threadID string) (target, previewThreadID string, ok bool) {
 	if s == nil || threadID == "" {
-		return "", false
+		return "", "", false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.selectedThreadID != threadID {
-		return "", false
+		return "", "", false
 	}
 	st := inspectorExistingSessionLocked(s, threadID)
 	if st == nil || st.pendingPreview == "" {
-		return "", false
+		return "", "", false
 	}
-	target := st.pendingPreview
+	target = st.pendingPreview
+	previewThreadID = st.pendingPreviewThreadID
 	st.pendingPreview = ""
-	return target, true
+	st.pendingPreviewThreadID = ""
+	if previewThreadID == "" {
+		previewThreadID = threadID
+	}
+	return target, previewThreadID, true
 }
 
 func consumePendingPreview(s *chatState, threadID string) {
-	target, ok := takePendingPreview(s, threadID)
+	target, previewThreadID, ok := takePendingPreview(s, threadID)
 	if !ok {
 		return
 	}
 	if isPreviewHTTPURL(target) {
-		openPreviewURL(s, target)
+		openPreviewURLForThread(s, previewThreadID, target)
 		return
 	}
-	if !s.openInspectorPreview(threadID, target) {
+	if !s.openInspectorPreview(previewThreadID, target) {
 		s.setToast("无法打开预览")
 	}
 }

@@ -927,3 +927,188 @@ func TestPreviewAnnotateSendNow(t *testing.T) {
 		waitSentWithAttachments(t, client, 1)
 	})
 }
+
+func TestPreviewFeedbackSendsToBee(t *testing.T) {
+	waitSent := func(t *testing.T, client *inspectorContextClient, want int) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			client.mu.Lock()
+			got := len(client.sendCalls)
+			client.mu.Unlock()
+			if got >= want {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatal("等待 Send 超时")
+	}
+	waitSentWithAttachments := func(t *testing.T, client *inspectorContextClient, want int) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			client.mu.Lock()
+			got := len(client.sendWithAttachCalls)
+			client.mu.Unlock()
+			if got >= want {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatal("等待 SendWithAttachments 超时")
+	}
+
+	t.Run("owner_tab_hides_feedback_bar", func(t *testing.T) {
+		setAppReduceMotion(t, true)
+		s, _ := inspectorContextSetup(t)
+		tab := getPreviewState(s)
+		previewMu.Lock()
+		tab.visible = true
+		tab.previewThreadID = "t1"
+		previewMu.Unlock()
+
+		tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tester.Frame()
+		tester.Advance(time.Second)
+		if _, ok := tester.Find("修改意见"); ok {
+			t.Fatal("所属会话自己的标签不应显示意见输入栏")
+		}
+	})
+
+	t.Run("text_only_sends_to_bee_and_settles", func(t *testing.T) {
+		for _, reduced := range []bool{false, true} {
+			t.Run(fmt.Sprint(reduced), func(t *testing.T) {
+				setAppReduceMotion(t, reduced)
+				s, client := inspectorContextSetup(t)
+				s.mu.Lock()
+				s.draft = "主会话草稿"
+				s.mu.Unlock()
+				tab := getPreviewState(s)
+				previewMu.Lock()
+				tab.visible = true
+				tab.previewThreadID = "bee-1"
+				previewMu.Unlock()
+
+				tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
+				tester.Frame()
+				tester.Advance(time.Second)
+				if tester.FramePending() {
+					t.Fatal("输入栏静止后仍在请求帧")
+				}
+				if btn, ok := tester.Access("发送"); !ok || !btn.Disabled {
+					t.Fatalf("空输入时「发送」应禁用: ok=%v disabled=%v", ok, btn.Disabled)
+				}
+
+				if err := tester.Click("修改意见"); err != nil {
+					t.Fatalf("聚焦输入框失败: %v", err)
+				}
+				tester.Type("把按钮改大")
+				tester.Frame()
+				if btn, ok := tester.Access("发送"); !ok || btn.Disabled {
+					t.Fatalf("输入文字后「发送」应启用: ok=%v disabled=%v", ok, btn.Disabled)
+				}
+
+				previewMu.Lock()
+				tab.feedbackSending = true
+				previewMu.Unlock()
+				tester.Frame()
+				if in, ok := tester.Access("修改意见"); !ok || !in.Disabled {
+					t.Fatalf("发送中输入框应禁用: ok=%v disabled=%v", ok, in.Disabled)
+				}
+				if btn, ok := tester.Access("发送"); !ok || !btn.Disabled {
+					t.Fatalf("发送中「发送」应禁用: ok=%v disabled=%v", ok, btn.Disabled)
+				}
+
+				previewMu.Lock()
+				tab.feedbackSending = false
+				previewMu.Unlock()
+				tester.Frame()
+				if err := tester.Click("发送"); err != nil {
+					t.Fatalf("点击「发送」失败: %v", err)
+				}
+				waitSent(t, client, 1)
+				tester.Frame()
+				tester.Advance(time.Second)
+				if tester.FramePending() {
+					t.Fatal("发送完成静止后仍在请求帧")
+				}
+
+				client.mu.Lock()
+				call := client.sendCalls[0]
+				client.mu.Unlock()
+				if call.ThreadID != "bee-1" || call.Text != "把按钮改大" {
+					t.Fatalf("发送目标或内容错误: %+v", call)
+				}
+				s.mu.Lock()
+				selected := s.selectedThreadID
+				draft := s.draft
+				toast := s.toastMessage
+				s.mu.Unlock()
+				if selected != "t1" || draft != "主会话草稿" || toast != "已发送" {
+					t.Fatalf("状态异常: selected=%q draft=%q toast=%q", selected, draft, toast)
+				}
+				previewMu.Lock()
+				remText := tab.feedbackText
+				previewMu.Unlock()
+				if remText != "" {
+					t.Fatalf("发送成功后应清空输入框, got=%q", remText)
+				}
+			})
+		}
+	})
+
+	t.Run("annotations_and_text_send_together_to_bee", func(t *testing.T) {
+		setAppReduceMotion(t, true)
+		s, client := inspectorContextSetup(t)
+		tab := getPreviewState(s)
+		page := &screenshotTestPage{data: screenshotPNG(t)}
+		page.eval = func(string) (any, error) { return nil, nil }
+		previewMu.Lock()
+		tab.page, tab.web, tab.visible, tab.annotating = page, &mygo.WebView{}, true, true
+		tab.previewThreadID = "bee-1"
+		tab.feedbackText = "按标注调整"
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#cta", Comment: "圆角加大"}}
+		previewMu.Unlock()
+		s.mu.Lock()
+		s.draft = "主会话草稿保留"
+		s.mu.Unlock()
+
+		tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		// 标注抽屉的「发送」按钮也直接发给 bee（含标注附件与输入栏文本）。
+		if err := tester.Click("发送"); err != nil {
+			t.Fatalf("点击「发送」失败: %v", err)
+		}
+		for range 2 {
+			req := inspectorUpload(t, client)
+			req.finish <- nil
+		}
+		waitPreviewAnnotationSend(t, tab)
+		waitSentWithAttachments(t, client, 1)
+
+		client.mu.Lock()
+		call := client.sendWithAttachCalls[0]
+		client.mu.Unlock()
+		if call.ThreadID != "bee-1" || call.Text != "按标注调整" || len(call.AttachmentIDs) != 2 {
+			t.Fatalf("带标注发送参数错误: %+v", call)
+		}
+		s.mu.Lock()
+		selected := s.selectedThreadID
+		draft := s.draft
+		leadAtts := len(s.attachments)
+		toast := s.toastMessage
+		s.mu.Unlock()
+		if selected != "t1" || draft != "主会话草稿保留" || leadAtts != 0 || toast != "已发送" {
+			t.Fatalf("主会话状态被改动或 toast 错误: selected=%q draft=%q atts=%d toast=%q", selected, draft, leadAtts, toast)
+		}
+		previewMu.Lock()
+		remText := tab.feedbackText
+		remAnnots := len(tab.annotations)
+		previewMu.Unlock()
+		if remText != "" || remAnnots != 0 {
+			t.Fatalf("发送后未清空输入框或标注: text=%q annots=%d", remText, remAnnots)
+		}
+	})
+}

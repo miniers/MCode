@@ -418,6 +418,10 @@ func loadPreviewPage(s *chatState, st *browserTab) {
 
 // openPreviewURL 打开指定 URL 并显示预览面板。
 func openPreviewURL(s *chatState, raw string) {
+	openPreviewURLForThread(s, "", raw)
+}
+
+func openPreviewURLForThread(s *chatState, previewThreadID, raw string) {
 	if s == nil {
 		return
 	}
@@ -441,6 +445,7 @@ func openPreviewURL(s *chatState, raw string) {
 	st.html = ""
 	st.untrusted = false
 	st.localPreview = false
+	st.previewThreadID = previewThreadID
 	// 用户重新打开/改地址时重置失败标记，允许再试一次创建 WebView。
 	st.webFailed = false
 	previewMu.Unlock()
@@ -478,6 +483,7 @@ func openPreviewHTMLWith(s *chatState, html string, untrusted bool) {
 	st.addressEditing = false
 	st.untrusted = untrusted
 	st.localPreview = false
+	st.previewThreadID = ""
 	// 用户重新打开时重置失败标记，允许再试一次创建 WebView。
 	st.webFailed = false
 	previewMu.Unlock()
@@ -576,12 +582,15 @@ func disposeBrowserTab(s *chatState, st *browserTab) {
 	// 本地标签释放后清掉地址，避免再次加载已撤销的 URL。
 	threadID := st.previewThreadID
 	previewURL := st.localPreviewURL
+	wasLocal := st.localPreview
 	st.localPreviewURL = ""
 	st.previewThreadID = ""
+	st.feedbackText = ""
+	st.feedbackSending = false
 	// 现有接口按会话撤销，等最后一个同会话本地标签释放，避免使兄弟页失效。
 	if st.owner != nil && threadID != "" {
 		for _, tab := range st.owner.tabs {
-			if tab != st && tab.previewThreadID == threadID {
+			if tab != st && tab.localPreview && tab.previewThreadID == threadID {
 				threadID = ""
 				break
 			}
@@ -600,7 +609,7 @@ func disposeBrowserTab(s *chatState, st *browserTab) {
 			client.RevokeInspectorPreviewURL(previewURL)
 		}
 	}
-	if s != nil && threadID != "" {
+	if s != nil && wasLocal && threadID != "" {
 		if client, ok := s.client.(inspectorPreviewClient); ok {
 			client.RevokeInspectorPreviews(threadID)
 		}
@@ -836,6 +845,9 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 				if captureConsole {
 					renderPreviewConsoleDrawer(c, s, st, snap)
 				}
+			}
+			if snap.feedbackThreadID != "" {
+				renderPreviewFeedbackBar(c, s, snap)
 			}
 		})
 }

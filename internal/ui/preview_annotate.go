@@ -1,9 +1,11 @@
 package mcodeui
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -529,19 +531,100 @@ func (s *chatState) waitThreadAttachmentsReady(threadID string) (active bool, re
 	}
 }
 
+func (s *chatState) waitThreadAttachmentsByLocalIDs(threadID string, localIDs []string) ([]string, bool) {
+	deadline := time.Now().Add(attachmentUploadTimeout + 5*time.Second)
+	for {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return nil, false
+		}
+		atts := s.threadAttachmentsLocked(threadID)
+		byLocal := make(map[string]composerAttachment, len(atts))
+		for _, att := range atts {
+			byLocal[att.LocalID] = att
+		}
+		uploading, failed := false, false
+		attachmentIDs := make([]string, 0, len(localIDs))
+		for _, lid := range localIDs {
+			att, ok := byLocal[lid]
+			if !ok {
+				failed = true
+				break
+			}
+			if att.Uploading {
+				uploading = true
+				break
+			}
+			if att.Err != "" || att.ID == "" {
+				failed = true
+				break
+			}
+			attachmentIDs = append(attachmentIDs, att.ID)
+		}
+		s.mu.Unlock()
+		if failed {
+			return nil, false
+		}
+		if !uploading {
+			return attachmentIDs, true
+		}
+		if time.Now().After(deadline) {
+			return nil, false
+		}
+		// 上传以秒计，50ms 足够及时，避免频繁抢 s.mu。
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (s *chatState) sendToTargetThread(threadID, text string, attachmentIDs []string) error {
+	if s == nil || s.client == nil || threadID == "" {
+		return errors.New("会话不可用")
+	}
+	ctx := context.Background()
+	if err := s.prepareProvisionalSend(threadID); err != nil {
+		return err
+	}
+	var delegated bool
+	var err error
+	if len(attachmentIDs) > 0 {
+		delegated, err = s.client.SendWithAttachments(ctx, threadID, text, attachmentIDs)
+	} else {
+		delegated, err = s.client.Send(ctx, threadID, text)
+	}
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.markThreadRetainedLocked(threadID)
+	delete(s.interrupted, threadID)
+	s.markThreadUserMessageLocked(threadID, time.Now())
+	if !delegated {
+		s.markThreadRunningOptimisticallyLocked(threadID)
+	}
+	s.removeThreadAttachmentsLocked(threadID, nil, attachmentIDs)
+	s.mu.Unlock()
+	return nil
+}
+
 // previewSendAnnotations 把已标注元素作为附件加入发起时的会话。
 func previewSendAnnotations(s *chatState, token previewPageToken) {
 	previewSubmitAnnotations(s, token, false)
 }
 
 // previewSubmitAnnotations 把已标注元素作为附件加入发起时的会话；send 为真且仍处于该会话时立即发送草稿。
+// 若标签指向非面板所属会话的 bee，则把标注（及预览反馈输入框文本）直发该 bee 线程，不切换主窗口选中的会话。
 func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	selectedID := s.selectedThreadID
+	s.mu.Unlock()
+
 	previewMu.Lock()
 	st := previewStateForTokenLocked(s, token)
-	if st == nil || st.annotRevision != token.annotRevision || st.annotSending {
+	if st == nil || st.annotRevision != token.annotRevision || st.annotSending || st.feedbackSending {
 		previewMu.Unlock()
 		return
 	}
@@ -572,7 +655,16 @@ func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 			return
 		}
 		items := append([]previewAnnotation(nil), current.annotations...)
-		page, threadID, active := current.page, current.owner.threadID, current.annotating
+		ownerThreadID := ""
+		if current.owner != nil {
+			ownerThreadID = strings.TrimSpace(current.owner.threadID)
+		}
+		if ownerThreadID == "" {
+			ownerThreadID = strings.TrimSpace(selectedID)
+		}
+		beeThreadID := previewFeedbackThreadIDLocked(current, ownerThreadID)
+		feedbackText := current.feedbackText
+		page, active := current.page, current.annotating
 		current.annotHighlight = 0
 		previewMu.Unlock()
 		var data []byte
@@ -606,21 +698,32 @@ func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 					data, captureErr = boundPreviewPNG(data)
 				}
 			}
-			if !previewCaptureValid(s, token, threadID, page) {
+			if !previewCaptureValid(s, token, ownerThreadID, page) {
 				s.setToast("页面已变化，未添加标注")
 				return
 			}
 		}
+		targetThreadID := ownerThreadID
+		isBee := beeThreadID != ""
+		if isBee {
+			targetThreadID = beeThreadID
+		}
 		prompt := previewAnnotationsPrompt(items)
-		if !s.addAttachmentToThread(threadID, "浏览器标注.txt", "text/plain", []byte(prompt), nil) {
+		txtLocalID, ok := s.addAttachmentToThreadID(targetThreadID, "浏览器标注.txt", "text/plain", []byte(prompt), nil)
+		if !ok {
 			if page != nil && active {
 				_, _ = page.Eval(previewAnnotateStartScript)
 			}
 			s.setToast("添加标注附件失败")
 			return
 		}
-		if captureErr == nil && !s.addAttachmentToThread(threadID, "浏览器标注.png", "image/png", data, nil) {
-			captureErr = fmt.Errorf("无法添加截图附件")
+		addedLocalIDs := []string{txtLocalID}
+		if captureErr == nil {
+			if imgLocalID, imgOK := s.addAttachmentToThreadID(targetThreadID, "浏览器标注.png", "image/png", data, nil); imgOK {
+				addedLocalIDs = append(addedLocalIDs, imgLocalID)
+			} else {
+				captureErr = fmt.Errorf("无法添加截图附件")
+			}
 		}
 		previewMu.Lock()
 		current = previewStateForTokenLocked(s, token)
@@ -639,11 +742,42 @@ func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 			_, _ = page.Eval(previewAnnotateClearMarksScript + previewAnnotateStopScript)
 		}
 		if !send {
-			plan := previewAnnotationSendDecision(false, threadID, "", "", len(items), captureErr)
+			plan := previewAnnotationSendDecision(false, targetThreadID, "", "", len(items), captureErr)
 			s.setToast(plan.toast)
 			return
 		}
-		activeThread, ready := s.waitThreadAttachmentsReady(threadID)
+		if isBee {
+			attachmentIDs, ready := s.waitThreadAttachmentsByLocalIDs(targetThreadID, addedLocalIDs)
+			if !ready {
+				s.mu.Lock()
+				s.removeThreadAttachmentsLocked(targetThreadID, addedLocalIDs, nil)
+				existingToast := s.toastMessage
+				s.mu.Unlock()
+				if existingToast == "" {
+					s.setToast("标注上传失败")
+				}
+				return
+			}
+			if err := s.sendToTargetThread(targetThreadID, strings.TrimSpace(feedbackText), attachmentIDs); err != nil {
+				s.mu.Lock()
+				s.removeThreadAttachmentsLocked(targetThreadID, addedLocalIDs, nil)
+				s.mu.Unlock()
+				s.setToast("发送失败: " + err.Error())
+				return
+			}
+			previewMu.Lock()
+			if token.state != nil && token.state.feedbackText == feedbackText {
+				token.state.feedbackText = ""
+			}
+			previewMu.Unlock()
+			toast := "已发送"
+			if captureErr != nil {
+				toast = "已发送，截图失败：" + captureErr.Error()
+			}
+			s.setToast(toast)
+			return
+		}
+		activeThread, ready := s.waitThreadAttachmentsReady(ownerThreadID)
 		s.mu.Lock()
 		if s.closed {
 			s.mu.Unlock()
@@ -652,7 +786,7 @@ func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 		activeID, draft := s.selectedThreadID, s.draft
 		existingToast := s.toastMessage
 		s.mu.Unlock()
-		plan := previewAnnotationSendDecision(true, threadID, activeID, draft, len(items), captureErr)
+		plan := previewAnnotationSendDecision(true, ownerThreadID, activeID, draft, len(items), captureErr)
 		if !plan.shouldSend {
 			s.setToast(plan.toast)
 			return
@@ -663,9 +797,122 @@ func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 			}
 			return
 		}
-		s.sendDraft(threadID, plan.draftText)
+		s.sendDraft(ownerThreadID, plan.draftText)
 		s.setToast(plan.toast)
 	}()
+}
+
+// previewSubmitFeedback 从预览底部意见栏发送意见到标签指向的 bee 线程；
+// 若已有标注则沿用标注采集流程一起发送，否则仅发送文字。
+func previewSubmitFeedback(s *chatState, token previewPageToken) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	selectedID := s.selectedThreadID
+	s.mu.Unlock()
+
+	previewMu.Lock()
+	st := previewStateForTokenLocked(s, token)
+	if st == nil || st.feedbackSending || st.annotSending {
+		previewMu.Unlock()
+		return
+	}
+	ownerThreadID := ""
+	if st.owner != nil {
+		ownerThreadID = strings.TrimSpace(st.owner.threadID)
+	}
+	if ownerThreadID == "" {
+		ownerThreadID = strings.TrimSpace(selectedID)
+	}
+	beeThreadID := previewFeedbackThreadIDLocked(st, ownerThreadID)
+	if beeThreadID == "" {
+		previewMu.Unlock()
+		return
+	}
+	if len(st.annotations) > 0 {
+		token = previewPageTokenLocked(st)
+		previewMu.Unlock()
+		previewSubmitAnnotations(s, token, true)
+		return
+	}
+	text := strings.TrimSpace(st.feedbackText)
+	if text == "" {
+		previewMu.Unlock()
+		return
+	}
+	rawText := st.feedbackText
+	st.feedbackSending = true
+	previewMu.Unlock()
+	s.invalidate()
+
+	go func() {
+		err := s.sendToTargetThread(beeThreadID, text, nil)
+		previewMu.Lock()
+		if token.state != nil {
+			token.state.feedbackSending = false
+			if err == nil && token.state.feedbackText == rawText {
+				token.state.feedbackText = ""
+			}
+		}
+		previewMu.Unlock()
+		if err != nil {
+			s.setToast("发送失败: " + err.Error())
+		} else {
+			s.setToast("已发送")
+		}
+		s.invalidate()
+	}()
+}
+
+// renderPreviewFeedbackBar 在 bee 预览标签底部渲染单行意见输入栏与发送按钮。
+func renderPreviewFeedbackBar(c *ui.Context, s *chatState, snap previewSnapshot) {
+	sending := snap.feedbackSending || snap.annotSending
+	draft := snap.feedbackText
+	hasContent := strings.TrimSpace(draft) != "" || len(snap.annotations) > 0
+	submit := func() {
+		previewSubmitFeedback(s, snap.token)
+	}
+	ui.Row(c.Key("preview-feedback-bar")).
+		Transition(motionCollapse(c)).
+		FillWidth().
+		Shrink(0).
+		Padding(Space2, Space3).
+		Gap(Space2).
+		AlignItems(ui.Center).
+		Background(ThemeWindowBg(c)).
+		BorderWidth(Hairline, 0, 0, 0).
+		BorderColor(ThemeBorder(c)).
+		Children(func() {
+			in := ui.TextInput(c.Key(fmt.Sprintf("preview-feedback-input-%p", snap.token.state)), &draft).
+				Label("修改意见").
+				Placeholder("输入修改意见").
+				Disabled(sending).
+				FontSize(uiFont(TypeFootnote)).
+				MinWidth(0).
+				Grow(1)
+			if draft != snap.feedbackText {
+				previewMu.Lock()
+				if current := snap.token.state; current != nil && current.previewThreadID == snap.feedbackThreadID {
+					current.feedbackText = draft
+				}
+				previewMu.Unlock()
+				hasContent = strings.TrimSpace(draft) != "" || len(snap.annotations) > 0
+			}
+			if in.Submitted() && !sending && hasContent {
+				submit()
+			}
+			Button(c, ButtonOpts{
+				Key:      "preview-feedback-send",
+				Text:     "发送",
+				Label:    "发送",
+				Size:     ControlXS,
+				Variant:  ButtonPrimary,
+				Disabled: sending || !hasContent,
+				Loading:  sending,
+				OnClick:  submit,
+			})
+		})
 }
 
 // renderPreviewAnnotateDrawer 渲染底部标注抽屉：已选元素 chip（可删除）、单行评论与发送按钮。
@@ -674,6 +921,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 	items := append([]previewAnnotation(nil), snap.annotations...)
 	var removeID, hoveredPID uint64
 	clearItems := false
+	sending := snap.annotSending || snap.feedbackSending
 	submit := func(send bool) {
 		if previewCommitAnnotationEdits(s, snap.token, items, 0, false) {
 			previewSubmitAnnotations(s, snap.token, send)
@@ -693,7 +941,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 				Label:    "添加到对话",
 				Size:     ControlXS,
 				Variant:  ButtonSecondary,
-				Disabled: snap.annotSending,
+				Disabled: sending,
 				OnClick:  func() { submit(false) },
 			})
 			Button(c, ButtonOpts{
@@ -702,10 +950,10 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 				Label:    "发送",
 				Size:     ControlXS,
 				Variant:  ButtonPrimary,
-				Disabled: snap.annotSending,
+				Disabled: sending,
 				OnClick:  func() { submit(true) },
 			})
-			IconButton(c, IconButtonProps{Key: "preview-annotate-clear", Icon: IconTrash2(), Label: "清空", Tooltip: "清空所有标注", Size: ControlXS, Variant: ButtonGhost, Disabled: snap.annotSending, OnClick: func() { clearItems = true }})
+			IconButton(c, IconButtonProps{Key: "preview-annotate-clear", Icon: IconTrash2(), Label: "清空", Tooltip: "清空所有标注", Size: ControlXS, Variant: ButtonGhost, Disabled: sending, OnClick: func() { clearItems = true }})
 		})
 		ui.Scroll(c.Key("preview-annotate-scroll")).Grow(1).FillWidth().Padding(Space1, Space3).Children(func() {
 			for i := range items {

@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -61,6 +62,27 @@ type previewSnapshot struct {
 	annotations                      []previewAnnotation
 	annotSending                     bool
 	annotFocus                       uint64
+	feedbackThreadID                 string
+	feedbackText                     string
+	feedbackSending                  bool
+}
+
+func previewFeedbackThreadIDLocked(st *browserTab, ownerThreadID string) string {
+	if st == nil {
+		return ""
+	}
+	beeID := strings.TrimSpace(st.previewThreadID)
+	if beeID == "" {
+		return ""
+	}
+	ownerID := strings.TrimSpace(ownerThreadID)
+	if ownerID == "" && st.owner != nil {
+		ownerID = strings.TrimSpace(st.owner.threadID)
+	}
+	if beeID == ownerID {
+		return ""
+	}
+	return beeID
 }
 
 // previewSnapshotLocked 调用方须持有 previewMu。
@@ -78,6 +100,9 @@ func previewSnapshotLocked(st *browserTab) previewSnapshot {
 		consoleOpen:   st.consoleOpen, annotating: st.annotating,
 		consoleFilter: st.consoleFilter, consoleSelected: selected, consoleResetSeq: st.consoleResetSeq,
 		annotations: append([]previewAnnotation(nil), st.annotations...), annotSending: st.annotSending, annotFocus: st.annotFocus,
+		feedbackThreadID: previewFeedbackThreadIDLocked(st, ""),
+		feedbackText:     st.feedbackText,
+		feedbackSending:  st.feedbackSending,
 	}
 }
 

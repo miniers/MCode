@@ -72,9 +72,11 @@ func (s *chatState) openInspectorPreview(threadID, filePath string) bool {
 	}
 	previewMu.Lock()
 	var existingID uint64
+	var existingTab *browserTab
 	for _, tab := range active.owner.tabs {
 		if tab.localPreview && tab.previewThreadID == threadID && tab.localPath == filePath {
 			existingID = tab.tabID
+			existingTab = tab
 			break
 		}
 	}
@@ -88,11 +90,25 @@ func (s *chatState) openInspectorPreview(threadID, filePath string) bool {
 			inspectorPreviewInflight[s] = make(map[string]bool)
 		}
 		inspectorPreviewInflight[s][key] = true
+	} else if existingTab != nil {
+		existingTab.webFailed = false
+		if existingTab.localPreviewURL != "" && existingTab.url != existingTab.localPreviewURL {
+			existingTab.url = existingTab.localPreviewURL
+			if !existingTab.addressEditing {
+				existingTab.addr = existingTab.localPreviewURL
+			}
+		}
 	}
 	previewMu.Unlock()
 	if existingID != 0 {
 		browserActivateTab(s, active.owner, existingID)
 		inspectorSelect(s, sidePanePreviewID, false)
+		if existingTab != nil {
+			if !ensureWebView(s, existingTab) {
+				loadPreviewPage(s, existingTab)
+			}
+			s.invalidate()
+		}
 		return true
 	}
 	s.invalidate()
@@ -114,6 +130,9 @@ func (s *chatState) openInspectorPreview(threadID, filePath string) bool {
 			return
 		}
 		tab := browserNewTab(s)
+		if tab == nil {
+			return
+		}
 		openPreviewLocalURL(s, threadID, target)
 		previewMu.Lock()
 		tab.localPath, tab.title = filePath, path.Base(filePath)

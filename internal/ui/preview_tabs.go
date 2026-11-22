@@ -59,11 +59,13 @@ type browserTab struct {
 	consoleListResetSeq         uint64
 	annotating                  bool
 	annotations                 []previewAnnotation
-	annotPolling, annotSending  bool
-	annotOps                    previewAnnotationOps
-	annotHighlight, annotFocus  uint64
-	annotLastPoll               time.Time
-	pollDone                    chan struct{}
+	annotPolling, annotSending bool
+	annotOps                   previewAnnotationOps
+	annotHighlight, annotFocus uint64
+	annotLastPoll              time.Time
+	feedbackText               string
+	feedbackSending            bool
+	pollDone                   chan struct{}
 	pollCancel                  context.CancelFunc
 }
 

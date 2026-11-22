@@ -512,9 +512,15 @@ func (s *chatState) addAttachment(name, mime string, data []byte) bool {
 
 // addAttachmentToThread 复用附件限额与上传；引用明确指定文本类型，不能按被引用路径的后缀解码。
 func (s *chatState) addAttachmentToThread(threadID, name, mime string, data []byte, ref *inspectorFileRef) bool {
+	_, ok := s.addAttachmentToThreadID(threadID, name, mime, data, ref)
+	return ok
+}
+
+// addAttachmentToThreadID 与 addAttachmentToThread 相同，并额外返回本地附件 ID。
+func (s *chatState) addAttachmentToThreadID(threadID, name, mime string, data []byte, ref *inspectorFileRef) (string, bool) {
 	if len(data) == 0 {
 		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：内容为空", name))
-		return false
+		return "", false
 	}
 
 	detectedMime, ok := mime, true
@@ -523,7 +529,7 @@ func (s *chatState) addAttachmentToThread(threadID, name, mime string, data []by
 	}
 	if !ok || detectedMime == "" {
 		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：不支持的文件类型", name))
-		return false
+		return "", false
 	}
 	mime = detectedMime
 
@@ -543,7 +549,7 @@ func (s *chatState) addAttachmentToThread(threadID, name, mime string, data []by
 
 	if len(data) > maxAttachmentBytes {
 		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：超过单个 20MB 上限", name))
-		return false
+		return "", false
 	}
 
 	limit := s.attachmentLimit()
@@ -556,14 +562,14 @@ func (s *chatState) addAttachmentToThread(threadID, name, mime string, data []by
 		for _, att := range atts {
 			if att.InspectorRef != nil && *att.InspectorRef == *ref {
 				s.mu.Unlock()
-				return false
+				return "", false
 			}
 		}
 	}
 	if len(atts) >= limit {
 		s.mu.Unlock()
 		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：超过最多 %d 个附件上限", name, limit))
-		return false
+		return "", false
 	}
 
 	var totalSize int
@@ -573,7 +579,7 @@ func (s *chatState) addAttachmentToThread(threadID, name, mime string, data []by
 	if totalSize+len(data) > maxTotalAttachmentBytes {
 		s.mu.Unlock()
 		s.setAttachmentNotice(fmt.Sprintf("已忽略 %s：超过总计 50MB 上限", name))
-		return false
+		return "", false
 	}
 
 	localID := nextLocalAttachmentID()
@@ -607,7 +613,54 @@ func (s *chatState) addAttachmentToThread(threadID, name, mime string, data []by
 
 	go s.retainProvisionalThread(threadID)
 	s.startAttachmentUpload(localID, att.uploadName(), mime, data)
-	return true
+	return localID, true
+}
+
+// threadAttachmentsLocked 返回指定会话当前持有的附件列表；调用方需持有 s.mu。
+func (s *chatState) threadAttachmentsLocked(threadID string) []composerAttachment {
+	if threadID == s.selectedThreadID {
+		return s.attachments
+	}
+	return s.drafts[threadID].Attachments
+}
+
+// removeThreadAttachmentsLocked 按本地 ID 或上传 ID 清理指定会话的临时附件；调用方需持有 s.mu。
+func (s *chatState) removeThreadAttachmentsLocked(threadID string, localIDs, uploadedIDs []string) {
+	if len(localIDs) == 0 && len(uploadedIDs) == 0 {
+		return
+	}
+	dropLocal := make(map[string]bool, len(localIDs))
+	for _, id := range localIDs {
+		if id != "" {
+			dropLocal[id] = true
+		}
+	}
+	dropUploaded := make(map[string]bool, len(uploadedIDs))
+	for _, id := range uploadedIDs {
+		if id != "" {
+			dropUploaded[id] = true
+		}
+	}
+	filter := func(atts []composerAttachment) []composerAttachment {
+		kept := atts[:0]
+		for _, att := range atts {
+			if dropLocal[att.LocalID] || (att.ID != "" && dropUploaded[att.ID]) {
+				attachmentTokenCache.Delete(att.LocalID)
+				attachmentUploadGen.Delete(att.LocalID)
+				continue
+			}
+			kept = append(kept, att)
+		}
+		return kept
+	}
+	if threadID == s.selectedThreadID {
+		s.attachments = filter(s.attachments)
+		return
+	}
+	if draft, ok := s.drafts[threadID]; ok {
+		draft.Attachments = filter(draft.Attachments)
+		s.drafts[threadID] = draft
+	}
 }
 
 // removeAttachment 根据 localID 移除附件。

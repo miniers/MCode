@@ -231,3 +231,179 @@ func TestPreviewOpenResolveAgentTarget(t *testing.T) {
 		t.Fatal("空 workDir 应返回错误")
 	}
 }
+
+func TestPreviewOpenBeeRoutesToLead(t *testing.T) {
+	t.Run("lead_currently_displayed", func(t *testing.T) {
+		workDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(workDir, "docs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(workDir, "docs", "design.html"), []byte("<h1>bee</h1>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		client := &inspectorPreviewTestClient{
+			FakeClient: NewFakeClient(),
+			target:     "http://127.0.0.1:4321/p/bee/docs/design.html",
+		}
+		client.SetThreadWorkDir(workDir)
+		s := &chatState{client: client, selectedThreadID: "lead-1"}
+		defer inspectorDisposeAllSessions(s)
+		registerTestChatWindow(t, s)
+
+		swarmPanelMu.Lock()
+		swarmPanelStates[s] = &swarmPanelState{
+			state: SwarmState{
+				LeadThreadID: "lead-1",
+				Bees:         []SwarmBee{{ThreadID: "bee-1", Name: "Aspen", Status: "running"}},
+			},
+		}
+		swarmPanelMu.Unlock()
+		t.Cleanup(func() {
+			swarmPanelMu.Lock()
+			delete(swarmPanelStates, s)
+			swarmPanelMu.Unlock()
+		})
+
+		if err := OpenPreviewForThread("bee-1", "docs/design.html"); err != nil {
+			t.Fatalf("OpenPreviewForThread 失败: %v", err)
+		}
+
+		s.mu.Lock()
+		leadSlot := s.inspector.Sessions["lead-1"]
+		beeSlot := s.inspector.Sessions["bee-1"]
+		var pending, pendingBee string
+		if leadSlot != nil {
+			pending = leadSlot.pendingPreview
+			pendingBee = leadSlot.pendingPreviewThreadID
+		}
+		s.mu.Unlock()
+		if beeSlot != nil && beeSlot.pendingPreview != "" {
+			t.Fatalf("不应写进 bee 槽, got=%q", beeSlot.pendingPreview)
+		}
+		if pending != "docs/design.html" || pendingBee != "bee-1" {
+			t.Fatalf("主会话待打开项错误: pending=%q bee=%q", pending, pendingBee)
+		}
+
+		consumePendingPreview(s, "lead-1")
+		waitInspectorPreview(t, s, "bee-1", "docs/design.html")
+
+		calls := client.callsSnapshot()
+		if len(calls) != 1 || calls[0].threadID != "bee-1" || calls[0].path != "docs/design.html" {
+			t.Fatalf("InspectorPreviewURL 参数错误: %+v", calls)
+		}
+		tab := getPreviewState(s)
+		previewMu.Lock()
+		gotPreviewThread := ""
+		if tab != nil {
+			gotPreviewThread = tab.previewThreadID
+		}
+		previewMu.Unlock()
+		if gotPreviewThread != "bee-1" {
+			t.Fatalf("标签 previewThreadID=%q, want %q", gotPreviewThread, "bee-1")
+		}
+	})
+
+	t.Run("lead_not_displayed_remembers_bee_until_switch", func(t *testing.T) {
+		workDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(workDir, "docs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(workDir, "docs", "design.html"), []byte("<h1>bee2</h1>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		client := &inspectorPreviewTestClient{
+			FakeClient: NewFakeClient(),
+			target:     "http://127.0.0.1:4321/p/bee2/docs/design.html",
+		}
+		client.SetThreadWorkDir(workDir)
+		s := &chatState{
+			client:           client,
+			selectedThreadID: "other",
+			threads: []Thread{
+				{ID: "lead-2", Title: "主会话"},
+				{ID: "bee-2", ParentThreadID: "lead-2", IsHelper: true, Title: "Birch"},
+			},
+		}
+		defer inspectorDisposeAllSessions(s)
+		registerTestChatWindow(t, s)
+
+		if err := OpenPreviewForThread("bee-2", "docs/design.html"); err != nil {
+			t.Fatalf("OpenPreviewForThread 失败: %v", err)
+		}
+
+		s.mu.Lock()
+		leadSlot := s.inspector.Sessions["lead-2"]
+		var pending, pendingBee string
+		if leadSlot != nil {
+			pending = leadSlot.pendingPreview
+			pendingBee = leadSlot.pendingPreviewThreadID
+		}
+		s.mu.Unlock()
+		if pending != "docs/design.html" || pendingBee != "bee-2" {
+			t.Fatalf("待打开项未记住来源 bee: pending=%q bee=%q", pending, pendingBee)
+		}
+		if inspectorPaneOpen(s, sidePanePreviewID) {
+			t.Fatal("主会话不在显示时不应打开当前预览面板")
+		}
+
+		s.mu.Lock()
+		s.selectedThreadID = "lead-2"
+		s.mu.Unlock()
+		inspectorSwitchThread(s, "other")
+		waitInspectorPreview(t, s, "bee-2", "docs/design.html")
+
+		calls := client.callsSnapshot()
+		if len(calls) != 1 || calls[0].threadID != "bee-2" || calls[0].path != "docs/design.html" {
+			t.Fatalf("切回主会话后应按 bee 打开预览: %+v", calls)
+		}
+		tab := getPreviewState(s)
+		previewMu.Lock()
+		gotPreviewThread := ""
+		if tab != nil {
+			gotPreviewThread = tab.previewThreadID
+		}
+		previewMu.Unlock()
+		if gotPreviewThread != "bee-2" {
+			t.Fatalf("切回主会话后标签 previewThreadID=%q, want %q", gotPreviewThread, "bee-2")
+		}
+	})
+}
+
+func TestPreviewOpenReloadsExisting(t *testing.T) {
+	client := &inspectorPreviewTestClient{
+		FakeClient: NewFakeClient(),
+		target:     "http://127.0.0.1:4321/p/bee/docs/design.html",
+	}
+	s := newInspectorPreviewState(t, client)
+	s.mu.Lock()
+	s.selectedThreadID = "lead-1"
+	s.mu.Unlock()
+
+	if !s.openInspectorPreview("bee-1", "docs/design.html") {
+		t.Fatal("首次打开本地预览失败")
+	}
+	waitInspectorPreview(t, s, "bee-1", "docs/design.html")
+	first := getPreviewState(s)
+	page := inspectorAttachPage(s)
+
+	if !s.openInspectorPreview("lead-1", "docs/other.html") {
+		t.Fatal("打开第二标签失败")
+	}
+	waitInspectorPreview(t, s, "lead-1", "docs/other.html")
+	if getPreviewState(s) == first {
+		t.Fatal("未切换到新标签")
+	}
+
+	if !s.openInspectorPreview("bee-1", "docs/design.html") {
+		t.Fatal("再次打开已有标签失败")
+	}
+	if getPreviewState(s) != first {
+		t.Fatal("未激活已有标签")
+	}
+	if calls := client.callsSnapshot(); len(calls) != 2 {
+		t.Fatalf("命中已有标签不应重新签发 URL, calls=%+v", calls)
+	}
+	if got := page.loaded.Load(); got != 1 {
+		t.Fatalf("命中已有标签后应重新加载页面 1 次, 实际 %d 次", got)
+	}
+}

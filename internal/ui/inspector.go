@@ -33,9 +33,10 @@ type inspectorSessionState struct {
 	Git            *gitPaneState
 	Browser        *previewState
 	follow         *inspectorFollowState
-	workspace      string
-	workspaceKnown bool
-	pendingPreview string
+	workspace              string
+	workspaceKnown         bool
+	pendingPreview         string
+	pendingPreviewThreadID string
 }
 
 func inspectorSession(s *chatState) *inspectorSessionState {
