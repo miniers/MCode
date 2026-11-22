@@ -359,3 +359,76 @@ func TestLocalFileLinkMarkdownIntegration(t *testing.T) {
 		}
 	})
 }
+
+func TestChatLinkHTMLPreview(t *testing.T) {
+	workDir := filepath.Join(t.TempDir(), "workspace")
+	outsideDir := filepath.Join(t.TempDir(), "outside")
+
+	cases := []struct {
+		name    string
+		path    string
+		workDir string
+		first   int
+		wantRel string
+		wantOK  bool
+	}{
+		{
+			name:    "工作区内 html 无行号",
+			path:    filepath.Join(workDir, "docs", "index.html"),
+			workDir: workDir,
+			first:   0,
+			wantRel: "docs/index.html",
+			wantOK:  true,
+		},
+		{
+			name:    "带行号不直接预览",
+			path:    filepath.Join(workDir, "docs", "index.html"),
+			workDir: workDir,
+			first:   12,
+			wantRel: "",
+			wantOK:  false,
+		},
+		{
+			name:    "工作区外不直接预览",
+			path:    filepath.Join(outsideDir, "index.html"),
+			workDir: workDir,
+			first:   0,
+			wantRel: "",
+			wantOK:  false,
+		},
+		{
+			name:    "go 文件不直接预览",
+			path:    filepath.Join(workDir, "main.go"),
+			workDir: workDir,
+			first:   0,
+			wantRel: "",
+			wantOK:  false,
+		},
+		{
+			name:    "工作区内 htm 无行号",
+			path:    filepath.Join(workDir, "page.htm"),
+			workDir: workDir,
+			first:   0,
+			wantRel: "page.htm",
+			wantOK:  true,
+		},
+		{
+			name:    "工作目录为空不直接预览",
+			path:    "index.html",
+			workDir: "",
+			first:   0,
+			wantRel: "",
+			wantOK:  false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rel, ok := chatLinkHTMLPreviewPath(tc.path, tc.workDir, tc.first)
+			if ok != tc.wantOK || rel != tc.wantRel {
+				t.Fatalf("chatLinkHTMLPreviewPath(%q, %q, %d) = (%q, %v)，期望 (%q, %v)",
+					tc.path, tc.workDir, tc.first, rel, ok, tc.wantRel, tc.wantOK)
+			}
+		})
+	}
+}

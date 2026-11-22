@@ -104,7 +104,21 @@ func openLocalFile(path string) {
 	_ = mygo.Shell.OpenPath(path)
 }
 
-// openLocalFilePreview 在有会话工作目录时把工作区内的文件开在右侧文件面板预览；
+// chatLinkHTMLPreviewPath 判断聊天文件链接是否应在右侧浏览器直接预览，
+// 并在满足条件（无行号、属于 HTML 类型且位于当前工作区内）时返回相对工作区的 slash 路径。
+func chatLinkHTMLPreviewPath(path, workDir string, first int) (rel string, ok bool) {
+	if first != 0 || strings.TrimSpace(workDir) == "" || !isInspectorHTMLPath(filepath.ToSlash(strings.TrimSpace(path))) {
+		return "", false
+	}
+	_, rel = resolveFileJumpPaths(workDir, path)
+	if rel == "" {
+		return "", false
+	}
+	return rel, true
+}
+
+// openLocalFilePreview 在有会话工作目录时把工作区内的文件开在右侧预览：
+// 不带行号的 HTML 文件直接切到右侧浏览器预览，其余与带行号的链接打开文件面板，
 // 目录、工作区外的文件与无会话时沿用原有打开方式。
 func openLocalFilePreview(s *chatState, path string, first, last int) {
 	path = filepath.Clean(path)
@@ -112,13 +126,20 @@ func openLocalFilePreview(s *chatState, path string, first, last int) {
 		openItemInFinder(path)
 		return
 	}
-	if s != nil && s.openFileAtLocation(fileJumpRequest{
-		Path:    path,
-		Line:    first,
-		EndLine: last,
-		Target:  fileJumpBuiltIn,
-	}) {
-		return
+	if s != nil {
+		if threadID, workDir := getSelectedThreadWorkDir(s); threadID != "" {
+			if rel, ok := chatLinkHTMLPreviewPath(path, workDir, first); ok && s.openInspectorPreview(threadID, rel) {
+				return
+			}
+		}
+		if s.openFileAtLocation(fileJumpRequest{
+			Path:    path,
+			Line:    first,
+			EndLine: last,
+			Target:  fileJumpBuiltIn,
+		}) {
+			return
+		}
 	}
 	openLocalFile(path)
 }
