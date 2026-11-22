@@ -348,6 +348,69 @@ func TestParsePRReviewBracketPreamble(t *testing.T) {
 	}
 }
 
+// TestGitPRAIReviewParseVerdictObject 覆盖新版结论对象格式及旧数组格式兼容性。
+func TestGitPRAIReviewParseVerdictObject(t *testing.T) {
+	tests := []struct {
+		name    string
+		out     string
+		want    []git.PRReviewComment
+		wantErr bool
+	}{
+		{
+			name: "对象格式带说明文字前缀并按 diff 校验",
+			out: "说明文字 {前置说明} 如下：\n```json\n" +
+				`{"verdict":"fix","summary":"发现一处问题","comments":[{"path":"a.go","line":2,"body":"缺少空值判断"},{"path":"a.go","line":99,"body":"越界行应被过滤"}]}` +
+				"\n```\n以上。",
+			want: []git.PRReviewComment{{Path: "a.go", Line: 2, Side: "RIGHT", Body: "缺少空值判断"}},
+		},
+		{
+			name: "summary 含方括号与花括号字符",
+			out:  `{"verdict":"comment","summary":"涉及 [配置] 与 {上下文} 的边界","comments":[{"path":"b.go","line":2,"body":"建议补充断言"}]}`,
+			want: []git.PRReviewComment{{Path: "b.go", Line: 2, Side: "RIGHT", Body: "建议补充断言"}},
+		},
+		{
+			name: "对象 comments 为空数组",
+			out:  `{"verdict":"merge","summary":"整体通过","comments":[]}`,
+			want: []git.PRReviewComment{},
+		},
+		{
+			name: "旧数组格式仍可用",
+			out:  `[{"path":"a.go","line":1,"body":"旧格式评论"}]`,
+			want: []git.PRReviewComment{{Path: "a.go", Line: 1, Side: "RIGHT", Body: "旧格式评论"}},
+		},
+		{
+			name:    "对象缺少 comments 键",
+			out:     `{"verdict":"merge","summary":"只有结论"}`,
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parsePRAIReview(tc.out, prReviewTestPatch)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "AI 审查结果无法解析") {
+					t.Fatalf("错误 = %v，期望解析失败", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("解析失败: %v", err)
+			}
+			if got == nil {
+				t.Fatal("空结果也必须是空切片，不能是 nil")
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("条数 = %d, 期望 %d: %+v", len(got), len(tc.want), got)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("第 %d 条 = %+v, 期望 %+v", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestGitPRDiffQuotedPath(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git 不可用")

@@ -322,28 +322,41 @@ type prReviewResult struct {
 	Body string `json:"body"`
 }
 
-// parsePRAIReview 解析模型输出：容忍代码围栏与数组前后的说明文字，
-// 只保留落在 diff 新侧有效行号上的评论，按 path+line 去重，最多 10 条。
+// parsePRAIReview 解析模型输出，同时兼容新版结论对象（含 comments 字段）与旧版评论数组，
+// 容忍代码围栏与前后的说明文字，只保留落在 diff 新侧有效行号上的评论，
+// 按 path+line 去重，最多 10 条。
 func parsePRAIReview(out, patch string) ([]git.PRReviewComment, error) {
 	var items []prReviewResult
 	var lastErr error
-	parsed := false
-	for offset := 0; offset < len(out); {
-		rel := strings.IndexByte(out[offset:], '[')
-		if rel < 0 {
-			break
+	parsed, err := findPRAIReviewJSON(out, '{', func(dec *json.Decoder) (bool, error) {
+		var candidate struct {
+			Comments *[]prReviewResult `json:"comments"`
 		}
-		start := offset + rel
-		var candidate []prReviewResult
-		dec := json.NewDecoder(strings.NewReader(out[start:]))
-		if err := dec.Decode(&candidate); err == nil {
-			items = candidate
-			parsed = true
-			break
-		} else {
+		if err := dec.Decode(&candidate); err != nil {
+			return false, err
+		}
+		if candidate.Comments == nil {
+			return false, nil
+		}
+		items = *candidate.Comments
+		return true, nil
+	})
+	if !parsed {
+		if err != nil {
 			lastErr = err
 		}
-		offset = start + 1
+		var arrErr error
+		parsed, arrErr = findPRAIReviewJSON(out, '[', func(dec *json.Decoder) (bool, error) {
+			var candidate []prReviewResult
+			if err := dec.Decode(&candidate); err != nil {
+				return false, err
+			}
+			items = candidate
+			return true, nil
+		})
+		if !parsed && arrErr != nil {
+			lastErr = arrErr
+		}
 	}
 	if !parsed {
 		if lastErr != nil {
@@ -371,6 +384,28 @@ func parsePRAIReview(out, patch string) ([]git.PRReviewComment, error) {
 		}
 	}
 	return comments, nil
+}
+
+// findPRAIReviewJSON 从 out 中按指定起始分隔符依次尝试 JSON 解码，直到 decode 返回 true。
+func findPRAIReviewJSON(out string, open byte, decode func(*json.Decoder) (bool, error)) (bool, error) {
+	var lastErr error
+	for offset := 0; offset < len(out); {
+		rel := strings.IndexByte(out[offset:], open)
+		if rel < 0 {
+			break
+		}
+		start := offset + rel
+		dec := json.NewDecoder(strings.NewReader(out[start:]))
+		ok, err := decode(dec)
+		if err == nil && ok {
+			return true, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+		offset = start + 1
+	}
+	return false, lastErr
 }
 
 // prDiffNewLines 解析 unified diff，返回每个文件新侧的有效行号集合
