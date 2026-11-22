@@ -93,6 +93,7 @@ type diffPanelState struct {
 	prReviewEvent  string
 	prReviewNumber int
 	prReviewErr    string
+	prReviewBody   string
 
 	// prAIBusy 是正在生成 AI 审查草稿的 PR 编号，0 表示空闲。
 	prAIBusy int

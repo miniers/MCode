@@ -681,10 +681,14 @@ func submitReviewPR(s *chatState, dp *diffPanelState, tid, event string) bool {
 	if !ok || tid == "" {
 		return false
 	}
+	if event != "comment" && event != "approve" && event != "request-changes" {
+		return false
+	}
 	workspace := reviewWorkspace(s, tid)
 	diffPanelMu.Lock()
 	comments := reviewPRComments(dp, tid, workspace)
-	if dp.scope != "pr" || dp.prNumber <= 0 || dp.prReviewEvent != "" || len(comments) == 0 {
+	body := strings.TrimSpace(dp.prReviewBody)
+	if dp.scope != "pr" || dp.prNumber <= 0 || dp.prReviewEvent != "" || (event != "approve" && len(comments) == 0 && body == "") {
 		diffPanelMu.Unlock()
 		return false
 	}
@@ -695,7 +699,7 @@ func submitReviewPR(s *chatState, dp *diffPanelState, tid, event string) bool {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		err := client.GitPRSubmitReview(ctx, tid, number, event, "", reviewCommentsToPR(comments))
+		err := client.GitPRSubmitReview(ctx, tid, number, event, body, reviewCommentsToPR(comments))
 		diffPanelMu.Lock()
 		dp.prReviewEvent = ""
 		if err != nil {
@@ -707,6 +711,9 @@ func submitReviewPR(s *chatState, dp *diffPanelState, tid, event string) bool {
 				ids[comment.id] = true
 			}
 			dp.comments = slices.DeleteFunc(dp.comments, func(comment *reviewComment) bool { return ids[comment.id] })
+			if dp.prNumber == number && strings.TrimSpace(dp.prReviewBody) == body {
+				dp.prReviewBody = ""
+			}
 		}
 		diffPanelMu.Unlock()
 		if err == nil {
@@ -727,6 +734,7 @@ func renderReviewPRAction(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 	workspace := reviewWorkspace(s, tid)
 	diffPanelMu.Lock()
 	count := len(reviewPRComments(dp, tid, workspace))
+	body := dp.prReviewBody
 	busy, errText := dp.prReviewEvent, dp.prReviewErr
 	current := dp.prReviewNumber == dp.prNumber
 	if !current {
@@ -738,30 +746,47 @@ func renderReviewPRAction(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 		aiErr = ""
 	}
 	showLoading := ai && number > 0 && aiBusy == number
-	if count == 0 && !showLoading && aiErr == "" && errText == "" {
-		return
-	}
+	canSubmit := count > 0 || strings.TrimSpace(body) != ""
 	ui.Row(c.Key("review-pr-actions")).FillWidth().Wrap().Gap(Space2).AlignItems(ui.Center).Children(func() {
+		TextField(c, TextFieldProps{
+			Key:         "review-pr-body",
+			Value:       &body,
+			Placeholder: "总评",
+			Label:       "总评",
+			Size:        ControlSM,
+			Grow:        true,
+			MinWidth:    120,
+			Disabled:    current && busy != "",
+			OnChange: func(v string) {
+				diffPanelMu.Lock()
+				dp.prReviewBody = v
+				diffPanelMu.Unlock()
+				s.invalidate()
+			},
+		})
+		if count > 0 {
+			ui.Text(c, fmt.Sprintf("%d 条评论", count)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine().Shrink(0)
+		}
+		for _, action := range []struct{ event, title string }{{"comment", "评论"}, {"request-changes", "要求修改"}, {"approve", "批准"}} {
+			event := action.event
+			variant := ButtonSecondary
+			if event == "approve" {
+				variant = ButtonPrimary
+			}
+			disabled := (busy != "" && (!current || busy != event)) || (event != "approve" && !canSubmit)
+			Button(c, ButtonOpts{Key: "review-pr-" + event, Text: action.title, Variant: variant, Size: ControlSM, Loading: current && busy == event, Disabled: disabled, OnClick: func() { submitReviewPR(s, dp, tid, event) }})
+		}
 		if showLoading {
 			LoadingIndicator(c, "review-pr-ai-loading", "AI 审查中", IconSM)
 		}
-		if count > 0 {
-			for _, action := range []struct{ event, title string }{{"comment", "评论"}, {"approve", "批准"}, {"request-changes", "要求修改"}} {
-				variant := ButtonSecondary
-				if action.event == "comment" {
-					variant = ButtonPrimary
-				}
-				Button(c, ButtonOpts{Key: "review-pr-" + action.event, Text: action.title, Variant: variant, Size: ControlSM, Loading: current && busy == action.event, Disabled: busy != "" && (!current || busy != action.event), OnClick: func() { submitReviewPR(s, dp, tid, action.event) }})
-			}
-		}
 		if aiErr != "" {
-			ui.Text(c, aiErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
+			ui.Text(c, aiErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c)).Shrink(1).MinWidth(0)
 			if ai {
 				Button(c, ButtonOpts{Key: "review-pr-ai-retry", Text: "重试", Variant: ButtonGhost, Size: ControlSM, Disabled: aiBusy != 0, OnClick: func() { startReviewPRAI(s, dp, tid) }})
 			}
 		}
 		if errText != "" {
-			ui.Text(c, errText).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
+			ui.Text(c, errText).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c)).Shrink(1).MinWidth(0)
 		}
 	})
 }
@@ -794,8 +819,10 @@ func toggleReviewRead(dp *diffPanelState, key string) {
 	}
 }
 
-func selectReviewFile(s *chatState, dp *diffPanelState, tid, path string) {
-	inspectorFollowPause(s, tid)
+func selectReviewFile(s *chatState, dp *diffPanelState, tid, path string, rh reviewHost) {
+	if !rh.dialog {
+		inspectorFollowPause(s, tid)
+	}
 	selectReviewFileAt(s, dp, tid, path)
 }
 

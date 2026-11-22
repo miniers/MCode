@@ -254,6 +254,38 @@ func updateReviewPanelWidth(dp *diffPanelState, rawWidth float32) bool {
 	return changed
 }
 
+// reviewHost 区分改动内容渲染的宿主环境，避免弹窗内操作误触侧栏。
+type reviewHost struct {
+	dialog bool
+}
+
+func renderReviewBody(c *ui.Context, s *chatState, dp *diffPanelState, host ui.Element, tid string, rh reviewHost) {
+	diffPanelMu.Lock()
+	snapshot, loading, errMsg := dp.snapshot, dp.loading, dp.err
+	turn, scope := dp.turnID, reviewScope(dp.scope)
+	diffPanelMu.Unlock()
+	var g *reviewGit
+	if !rh.dialog {
+		g = reviewGitFor(s, scope)
+	}
+	ui.Column(c.Key("review-body")).Grow(1).MinHeight(0).FillWidth().Children(func() {
+		switch {
+		case tid == "":
+			renderDiffEmptyState(c)
+		case errMsg != "":
+			renderDiffStatusState(c, "review-error", IconOctagonAlert(), errMsg, "", func() { s.loadDiff(tid, turn) })
+		case snapshot.Unavailable != "":
+			renderDiffStatusState(c, "review-unavailable", iconFileSearch, snapshot.Unavailable, "", nil)
+		case len(snapshot.Files) == 0:
+			if !loading {
+				renderDiffEmptyState(c)
+			}
+		default:
+			renderReviewCards(c, s, dp, host, tid, snapshot, g, rh)
+		}
+	})
+}
+
 func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 	s.mu.Lock()
 	tid := s.selectedThreadID
@@ -265,7 +297,7 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 		s.loadDiff(tid, "")
 	}
 	diffPanelMu.Lock()
-	snapshot, loading, errMsg := dp.snapshot, dp.loading, dp.err
+	loading := dp.loading
 	turn, scope, detail := dp.turnID, reviewScope(dp.scope), dp.gitDetail
 	diffPanelMu.Unlock()
 	g := reviewGitFor(s, scope)
@@ -300,22 +332,7 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 				return
 			}
 		}
-		ui.Column(c.Key("review-body")).Grow(1).MinHeight(0).FillWidth().Children(func() {
-			switch {
-			case tid == "":
-				renderDiffEmptyState(c)
-			case errMsg != "":
-				renderDiffStatusState(c, "review-error", IconOctagonAlert(), errMsg, "", func() { s.loadDiff(tid, turn) })
-			case snapshot.Unavailable != "":
-				renderDiffStatusState(c, "review-unavailable", iconFileSearch, snapshot.Unavailable, "", nil)
-			case len(snapshot.Files) == 0:
-				if !loading {
-					renderDiffEmptyState(c)
-				}
-			default:
-				renderReviewCards(c, s, dp, panel, tid, snapshot, g)
-			}
-		})
+		renderReviewBody(c, s, dp, panel, tid, reviewHost{})
 		if g != nil {
 			renderGitPaneUndo(c, g.ps)
 			renderGitPaneForceConfirm(c, g.ps)

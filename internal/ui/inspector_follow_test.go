@@ -97,7 +97,7 @@ func TestInspectorFollowPausesOnUserNavigation(t *testing.T) {
 			case "file-tab":
 				s.activateFileManagerTab("a.txt")
 			case "review-file":
-				selectReviewFile(s, getDiffPanelState(s), "t1", "a.txt")
+				selectReviewFile(s, getDiffPanelState(s), "t1", "a.txt", reviewHost{})
 			case "review-scope":
 				s.selectReviewScope(getDiffPanelState(s), "session")
 			case "scroll":

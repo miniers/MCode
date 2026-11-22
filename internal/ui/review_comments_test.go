@@ -372,7 +372,7 @@ func TestReviewSelectedFileRestored(t *testing.T) {
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(waitUIStateWrites)
 	WithUIStatePersistence()(s)
-	selectReviewFile(s, dp, "t1", "a.go")
+	selectReviewFile(s, dp, "t1", "a.go", reviewHost{})
 	waitUIStateWrites()
 	restarted := newChatState(client)
 	restarted.selectedThreadID = "t1"

@@ -69,15 +69,13 @@ func (f *gitPRActionFake) GitPRCheckoutWorktree(context.Context, string, int, st
 
 func TestGitPRRunAction(t *testing.T) {
 	for _, tc := range []struct {
-		kind, method, body, value string
-		fail                      bool
+		kind, method, value string
+		fail                bool
 	}{
-		{"approve", "", "批准评论", "批准评论", false},
-		{"request-changes", "", "需要调整", "需要调整", false},
-		{"merge", "rebase", "草稿", "rebase", false},
-		{"approve", "", "草稿", "草稿", true},
+		{"merge", "rebase", "rebase", false},
+		{"merge", "squash", "squash", true},
 	} {
-		t.Run(tc.kind+tc.method+tc.value, func(t *testing.T) {
+		t.Run(tc.kind+tc.method, func(t *testing.T) {
 			f := &gitPRActionFake{FakeClient: NewFakeClient(), calls: make(chan gitPRActionCall, 1)}
 			if tc.fail {
 				f.err = errors.New("操作失败")
@@ -86,7 +84,7 @@ func TestGitPRRunAction(t *testing.T) {
 			s.selectedThreadID = "thread-1"
 			st := getGitPRDialogState(s)
 			st.mu.Lock()
-			st.open, st.threadID, st.selected, st.reviewBody = true, "thread-1", 42, tc.body
+			st.open, st.threadID, st.selected = true, "thread-1", 42
 			st.detail = &git.PRDetail{PRSummary: git.PRSummary{Number: 42, State: "open"}}
 			st.mu.Unlock()
 			s.runGitPRAction(tc.kind, tc.method)
@@ -101,14 +99,14 @@ func TestGitPRRunAction(t *testing.T) {
 			deadline := time.Now().Add(time.Second)
 			for {
 				st.mu.Lock()
-				busy, body, errText := st.actionBusy, st.reviewBody, st.actionErr
+				busy, errText := st.actionBusy, st.actionErr
 				st.mu.Unlock()
 				if busy == "" {
 					if tc.fail && errText == "" {
 						t.Error("缺少错误信息")
 					}
-					if !tc.fail && (body != "" || errText != "") {
-						t.Errorf("草稿 %q，错误 %q", body, errText)
+					if !tc.fail && errText != "" {
+						t.Errorf("错误 %q", errText)
 					}
 					break
 				}
@@ -251,6 +249,7 @@ type gitPRDialogFake struct {
 	checkoutCalls []gitPRCheckoutCall
 	checkoutPath  string
 	checkoutErr   error
+	reviewGetPR   func(context.Context, string, int, string) (ReviewSnapshot, error)
 }
 
 type gitPRConflictCall struct {
@@ -353,7 +352,10 @@ func (f *gitPRDialogFake) reviewCallsSnapshot() []gitPRActionCall {
 }
 
 // ReviewGetPR 让 AI 审查后的改动视图能读到 PR 数据，满足 reviewPRClient。
-func (f *gitPRDialogFake) ReviewGetPR(context.Context, string, int, string) (ReviewSnapshot, error) {
+func (f *gitPRDialogFake) ReviewGetPR(ctx context.Context, tid string, number int, path string) (ReviewSnapshot, error) {
+	if f.reviewGetPR != nil {
+		return f.reviewGetPR(ctx, tid, number, path)
+	}
 	return ReviewSnapshot{Scope: "pr"}, nil
 }
 
@@ -838,63 +840,6 @@ func TestGitPRDialogCrossRepoBlocksResolve(t *testing.T) {
 	st.mu.Unlock()
 	if !open || busy != "" {
 		t.Errorf("弹窗状态 open=%v busy=%q", open, busy)
-	}
-}
-
-func TestGitPRRunActionComment(t *testing.T) {
-	for _, tc := range []struct {
-		name, body string
-		want       bool
-	}{{"有正文", "评论正文", true}, {"空正文", "  ", false}} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := &gitPRActionFake{FakeClient: NewFakeClient(), calls: make(chan gitPRActionCall, 1)}
-			s := newChatState(f)
-			s.selectedThreadID = "thread-1"
-			st := getGitPRDialogState(s)
-			st.mu.Lock()
-			st.open, st.threadID, st.selected, st.reviewBody = true, "thread-1", 42, tc.body
-			st.detail = &git.PRDetail{PRSummary: git.PRSummary{Number: 42, State: "open"}}
-			st.mu.Unlock()
-			s.runGitPRAction("comment", "")
-			if !tc.want {
-				select {
-				case got := <-f.calls:
-					t.Fatalf("空正文仍调用了评论: %+v", got)
-				case <-time.After(20 * time.Millisecond):
-				}
-				st.mu.Lock()
-				busy := st.actionBusy
-				st.mu.Unlock()
-				if busy != "" {
-					t.Fatalf("空正文进入了忙碌状态 %q", busy)
-				}
-				return
-			}
-			select {
-			case got := <-f.calls:
-				if want := (gitPRActionCall{"thread-1", 42, "comment", "评论正文"}); got != want {
-					t.Errorf("调用 = %+v，期望 %+v", got, want)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("评论未执行")
-			}
-			deadline := time.Now().Add(time.Second)
-			for {
-				st.mu.Lock()
-				busy, body := st.actionBusy, st.reviewBody
-				st.mu.Unlock()
-				if busy == "" {
-					if body != "" {
-						t.Errorf("评论成功后正文 = %q", body)
-					}
-					break
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("评论未完成")
-				}
-				time.Sleep(time.Millisecond)
-			}
-		})
 	}
 }
 
@@ -1578,23 +1523,115 @@ func TestGitPRDialogStatusActionsAndBrowser(t *testing.T) {
 	if len(merges) != 1 || merges[0] != (gitPRActionCall{threadID: "thread-1", number: 42, kind: "merge", value: "rebase"}) {
 		t.Fatalf("合并调用 = %+v，期望 rebase", merges)
 	}
+}
 
-	// 概览底部批准确认。
-	if err := tt.Click("批准"); err != nil {
-		t.Fatalf("点击批准: %v", err)
+// TestGitPRDialogChangesTab 覆盖弹窗内「改动」Tab 与「开始评审」的切换、文件卡片与评审栏渲染、不改侧栏与动画收束。
+func TestGitPRDialogChangesTab(t *testing.T) {
+	prFake := &reviewPRFake{FakeClient: NewFakeClient()}
+	f := &gitPRDialogFake{
+		FakeClient: NewFakeClient(),
+		prs:        []git.PRSummary{{Number: 42, Title: "弹窗改动", State: "open", ReviewDecision: "REVIEW_REQUIRED"}},
+		detail: git.PRDetail{
+			PRSummary:    git.PRSummary{Number: 42, Title: "弹窗改动", State: "open", ReviewDecision: "REVIEW_REQUIRED"},
+			ChangedFiles: 2,
+		},
+		reviewGetPR: prFake.ReviewGetPR,
+	}
+	s := newGitPRDialogTestState(t, f)
+	inspectorSelect(s, sidePaneFileID, false)
+
+	s.openGitPRDialog()
+	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool {
+		return st.selected == 42 && st.detail != nil && !st.detailLoading
+	})
+
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
+
+	if err := tt.Click("改动 2"); err != nil {
+		t.Fatalf("点击改动 Tab: %v", err)
+	}
+	dp := getDiffPanelState(s)
+	waitReviewComments(t, func() bool {
+		diffPanelMu.Lock()
+		defer diffPanelMu.Unlock()
+		return !dp.loading && len(dp.snapshot.Files) == 2
+	})
+	tt.Advance(time.Second)
+
+	st := getGitPRDialogState(s)
+	st.mu.Lock()
+	open, tab := st.open, st.tab
+	st.mu.Unlock()
+	if !open || tab != "changes" {
+		t.Fatalf("点击改动后状态 open=%v tab=%q，期望 open=true tab=changes", open, tab)
+	}
+	diffPanelMu.Lock()
+	scope, prNum, reviewW := dp.scope, dp.prNumber, dp.reviewWidth
+	diffPanelMu.Unlock()
+	if scope != "pr" || prNum != 42 {
+		t.Fatalf("diffPanelState scope=%q prNumber=%d，期望 pr/42", scope, prNum)
+	}
+	if reviewW <= 0 {
+		t.Fatalf("弹窗未更新 dp.reviewWidth: %v", reviewW)
+	}
+	if !tt.HasText("a.go") || !tt.HasText("b.go") {
+		t.Fatalf("弹窗未渲染文件卡片，文本: %v", tt.Texts())
+	}
+	if _, ok := tt.Access("总评"); !ok {
+		t.Fatal("弹窗未渲染「总评」输入框")
+	}
+	if !inspectorPaneOpen(s, sidePaneFileID) || inspectorPaneOpen(s, sidePaneDiffID) {
+		t.Fatal("切到弹窗改动 Tab 不应改变侧栏选中项")
+	}
+
+	// 点文件卡片不会改变侧栏选中项或暂停跟随，且展开后动画会收敛。
+	if err := tt.Click("a.go"); err != nil {
+		t.Fatalf("点击文件卡片 a.go: %v", err)
 	}
 	tt.Frame()
-	if len(f.reviewCallsSnapshot()) != 0 {
-		t.Fatal("未确认批准前不应调用 GitPRReview")
-	}
-	if err := tt.Click("确认批准"); err != nil {
-		t.Fatalf("点击确认批准: %v", err)
-	}
-	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool {
-		return st.actionBusy == "" && !st.detailLoading && !st.listLoading
+	list, _ := reviewFixture()
+	list.Scope, list.Number, list.TurnID = "pr", 42, ""
+	keyA := reviewKey(s, "thread-1", list, "a.go")
+	waitReviewComments(t, func() bool {
+		diffPanelMu.Lock()
+		defer diffPanelMu.Unlock()
+		entry := dp.contents[keyA]
+		return entry != nil && !entry.loading
 	})
-	reviews := f.reviewCallsSnapshot()
-	if len(reviews) != 1 || reviews[0] != (gitPRActionCall{threadID: "thread-1", number: 42, kind: "approve", value: ""}) {
-		t.Fatalf("批准调用 = %+v", reviews)
+	tt.Advance(time.Second)
+	if !inspectorPaneOpen(s, sidePaneFileID) || inspectorFollowPaused(s) {
+		t.Fatal("弹窗内点击文件卡片改变了侧栏或跟随状态")
+	}
+	if tt.FramePending() {
+		t.Fatal("弹窗改动 Tab 动画推进结束后仍在请求下一帧")
+	}
+
+	// 切回概览后，「等待评审」状态点「开始评审」同样切到 changes 且不关弹窗、不切侧栏。
+	if err := tt.Click("概览"); err != nil {
+		t.Fatalf("切回概览 Tab: %v", err)
+	}
+	tt.Advance(time.Second)
+	if err := tt.Click("开始评审"); err != nil {
+		t.Fatalf("点击开始评审: %v", err)
+	}
+	waitReviewComments(t, func() bool {
+		diffPanelMu.Lock()
+		defer diffPanelMu.Unlock()
+		return !dp.loading && len(dp.snapshot.Files) == 2
+	})
+	tt.Advance(time.Second)
+
+	st.mu.Lock()
+	open, tab = st.open, st.tab
+	st.mu.Unlock()
+	if !open || tab != "changes" {
+		t.Fatalf("点击开始评审后状态 open=%v tab=%q，期望 open=true tab=changes", open, tab)
+	}
+	if !inspectorPaneOpen(s, sidePaneFileID) || inspectorPaneOpen(s, sidePaneDiffID) {
+		t.Fatal("点击开始评审不应改变侧栏选中项")
+	}
+	if tt.FramePending() {
+		t.Fatal("开始评审动画推进结束后仍在请求下一帧")
 	}
 }

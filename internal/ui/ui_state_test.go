@@ -196,11 +196,11 @@ func TestReviewUIStateChangesDuringWrite(t *testing.T) {
 	uiStateBeforeWriteHook = func() {
 		once.Do(func() {
 			toggleReviewRead(dp, readKey)
-			selectReviewFile(s, dp, "t1", "new.go")
+			selectReviewFile(s, dp, "t1", "new.go", reviewHost{})
 			persistInspectorPreference("t2", pendingInspectorPreference{Preference: InspectorPreference{Width: 500}})
 		})
 	}
-	selectReviewFile(s, dp, "t1", "old.go")
+	selectReviewFile(s, dp, "t1", "old.go", reviewHost{})
 	waitUIStateWrites()
 	file, ok := loadUIStateFile()
 	if !ok || file.ReviewSessions["t1"].SelectedPath != "new.go" || !reflect.DeepEqual(file.ReviewSessions["t1"].ReadKeys, []string{readKey}) || file.InspectorSessions["t2"].Width != 500 {

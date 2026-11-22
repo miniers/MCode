@@ -71,7 +71,7 @@ func reviewCardLoading(c *ui.Context, key string) {
 }
 
 // renderReviewCards 把改动渲染为连续滚动的文件卡片：文件头吸顶，正文展开时才读取全文。
-func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.Element, tid string, snapshot ReviewSnapshot, g *reviewGit) {
+func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.Element, tid string, snapshot ReviewSnapshot, g *reviewGit, rh reviewHost) {
 	files := snapshot.Files
 	base := reviewKey(s, tid, snapshot, "")
 	diffPanelMu.Lock()
@@ -113,7 +113,7 @@ func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.
 	}
 	focus := func(i int) {
 		i = min(max(i, 0), len(files)-1)
-		selectReviewFile(s, dp, tid, files[i].Path)
+		selectReviewFile(s, dp, tid, files[i].Path, rh)
 		diffPanelMu.Lock()
 		dp.scrolledPath = files[i].Path
 		diffPanelMu.Unlock()
@@ -124,7 +124,7 @@ func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.
 		setReviewCardOpenLocked(dp, files[i].Path, !opens[i])
 		dp.scrolledPath = files[i].Path
 		diffPanelMu.Unlock()
-		selectReviewFile(s, dp, tid, files[i].Path)
+		selectReviewFile(s, dp, tid, files[i].Path, rh)
 	}
 	toggleRead := func(i int) {
 		key := base
@@ -168,7 +168,7 @@ func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.
 		i := row / 2
 		file := files[i]
 		if row%2 == 0 {
-			renderReviewCardHead(c, s, dp, tid, file, opens[i], reads[i], file.Path == selected, g, func() { toggleCard(i) }, func() { toggleRead(i) })
+			renderReviewCardHead(c, s, dp, tid, file, opens[i], reads[i], file.Path == selected, g, rh, func() { toggleCard(i) }, func() { toggleRead(i) })
 			return
 		}
 		motionUnfoldBody(c, "review-card-body-"+file.Path, opens[i], func() {
@@ -178,9 +178,12 @@ func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.
 }
 
 // renderReviewCardHead 渲染吸顶文件头：暂存勾选、开合箭头、状态、文件名与目录、增删行数、悬停操作与已查看。
-func renderReviewCardHead(c *ui.Context, s *chatState, dp *diffPanelState, tid string, file ReviewFile, open, read, selected bool, g *reviewGit, onToggle, onRead func()) {
+func renderReviewCardHead(c *ui.Context, s *chatState, dp *diffPanelState, tid string, file ReviewFile, open, read, selected bool, g *reviewGit, rh reviewHost, onToggle, onRead func()) {
 	// 吸顶时下方正文会滚过，底色必须不透明。
 	bg := ThemeWindowBg(c)
+	if rh.dialog {
+		bg = ThemeSurface(c)
+	}
 	head := ui.Row(c.Key("review-card-head-"+file.Path)).Label(file.Path).FillWidth().Height(reviewCardHeadHeight).Padding(0, Space2, 0, Space1).Gap(Space1).AlignItems(ui.Center).BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Focusable().OnClick(onToggle)
 	hovered := head.Hovered()
 	switch {
@@ -190,7 +193,7 @@ func renderReviewCardHead(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 		bg = bg.Mix(ThemePrimaryText(c), 0.04)
 	}
 	head.Background(bg)
-	menu := func(m *ui.Menu) { reviewFileMenu(m, c, s, dp, tid, file, g) }
+	menu := func(m *ui.Menu) { reviewFileMenu(m, c, s, dp, tid, file, g, rh) }
 	head.ContextMenu(menu)
 	head.Children(func() {
 		if g != nil {
@@ -269,7 +272,7 @@ func renderReviewReadButton(c *ui.Context, filePath string, read, hovered bool, 
 }
 
 // reviewFileMenu 是文件头「⋯」与右键菜单：「未提交」范围复用 Git 文件菜单，其余范围只给通用项。
-func reviewFileMenu(m *ui.Menu, c *ui.Context, s *chatState, dp *diffPanelState, tid string, file ReviewFile, g *reviewGit) {
+func reviewFileMenu(m *ui.Menu, c *ui.Context, s *chatState, dp *diffPanelState, tid string, file ReviewFile, g *reviewGit, rh reviewHost) {
 	if g != nil {
 		entry, ok := g.entries[file.Path]
 		if !ok {
@@ -284,17 +287,19 @@ func reviewFileMenu(m *ui.Menu, c *ui.Context, s *chatState, dp *diffPanelState,
 		return
 	}
 	deleted := reviewStatusCode(file.Status) == 'D'
-	if m.Item("在编辑器打开").Disabled(deleted).Chosen() {
-		s.openFileManagerFileExternal(tid, file.Path)
-	}
-	if m.Item("在文件面板中显示").Disabled(deleted).Chosen() {
-		inspectorSelect(s, sidePaneFileID, false)
-		dir := path.Dir(file.Path)
-		if dir == "." {
-			dir = ""
+	if !rh.dialog {
+		if m.Item("在编辑器打开").Disabled(deleted).Chosen() {
+			s.openFileManagerFileExternal(tid, file.Path)
 		}
-		s.fileTreeRevealDir(tid, dir)
-		s.fileTreeSelect(file.Path, 0)
+		if m.Item("在文件面板中显示").Disabled(deleted).Chosen() {
+			inspectorSelect(s, sidePaneFileID, false)
+			dir := path.Dir(file.Path)
+			if dir == "." {
+				dir = ""
+			}
+			s.fileTreeRevealDir(tid, dir)
+			s.fileTreeSelect(file.Path, 0)
+		}
 	}
 	if m.Item("复制路径").Chosen() {
 		c.WriteClipboard(file.Path)

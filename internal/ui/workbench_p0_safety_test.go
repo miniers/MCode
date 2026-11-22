@@ -431,27 +431,35 @@ func TestWorkbenchP0DestructiveConfirm(t *testing.T) {
 		st.detail = &pr
 		st.mu.Unlock()
 
-		tt := ui.NewTester(func(c *ui.Context) { renderGitPRActions(c, s, pr) }, 760, 320)
+		tt := ui.NewTester(func(c *ui.Context) { renderGitPRDetail(c, s, pr, 600) }, 760, 620)
 		tt.Frame()
 
 		for _, item := range []struct {
 			menuLabel string
-			wantText  string
 		}{
-			{"Squash 合并", "使用 Squash 合并（squash） 合并 #42？"},
-			{"合并提交", "使用 合并提交（merge） 合并 #42？"},
-			{"变基合并", "使用 变基合并（rebase） 合并 #42？"},
+			{"Squash 合并"},
+			{"合并提交"},
+			{"变基合并"},
 		} {
-			if err := tt.Click("合并 ▾"); err != nil {
+			if err := tt.Click("选择合并方式"); err != nil {
 				t.Fatal(err)
 			}
-			tt.Frame()
+			tt.Advance(time.Second)
+			if err := tt.Click(item.menuLabel); err != nil {
+				t.Fatal(err)
+			}
+			tt.Advance(time.Second)
 			if err := tt.Click(item.menuLabel); err != nil {
 				t.Fatal(err)
 			}
 			tt.Frame()
-			if !tt.HasText(item.wantText) {
-				t.Fatalf("合并确认文案缺少策略说明 %q，实际：%v", item.wantText, tt.Texts())
+			if !tt.HasText("确认合并") || !tt.HasText("取消") {
+				t.Fatalf("合并后未进入二次确认：%v", tt.Texts())
+			}
+			select {
+			case got := <-f.calls:
+				t.Fatalf("未确认前不应合并 PR：%v", got)
+			default:
 			}
 			if err := tt.Click("取消"); err != nil {
 				t.Fatal(err)
@@ -459,42 +467,21 @@ func TestWorkbenchP0DestructiveConfirm(t *testing.T) {
 			tt.Frame()
 		}
 
-		// 点批准进入确认态，不直接发送批准请求。
-		if err := tt.Click("批准"); err != nil {
+		// 二次确认后才发出 merge。
+		if err := tt.Click("变基合并"); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
-		select {
-		case got := <-f.calls:
-			t.Fatalf("未确认前不应直接批准 PR：%v", got)
-		default:
-		}
-		if !tt.HasText("批准 #42？") || !tt.HasText("确认批准") {
-			t.Fatalf("批准后未进入确认态：%v", tt.Texts())
-		}
-		if err := tt.Click("取消"); err != nil {
-			t.Fatal(err)
-		}
-		tt.Frame()
-		if !tt.HasText("批准") {
-			t.Fatalf("取消批准确认后应恢复操作按钮：%v", tt.Texts())
-		}
-
-		// 二次确认后才发出 approve。
-		if err := tt.Click("批准"); err != nil {
-			t.Fatal(err)
-		}
-		tt.Frame()
-		if err := tt.Click("确认批准"); err != nil {
+		if err := tt.Click("确认合并"); err != nil {
 			t.Fatal(err)
 		}
 		select {
 		case got := <-f.calls:
-			if got.kind != "approve" || got.number != 42 {
-				t.Fatalf("批准确认后调用参数异常：%v", got)
+			if got.kind != "merge" || got.number != 42 || got.value != "rebase" {
+				t.Fatalf("合并确认后调用参数异常：%v", got)
 			}
 		case <-time.After(time.Second):
-			t.Fatal("批准确认后未发起请求")
+			t.Fatal("合并确认后未发起请求")
 		}
 	})
 

@@ -40,7 +40,6 @@ type gitPRClient interface {
 
 type gitPRActionClient interface {
 	GitPRMerge(ctx context.Context, threadID string, number int, method string) error
-	GitPRReview(ctx context.Context, threadID string, number int, event, body string) error
 }
 
 // gitPRConflictClient 是预演冲突文件与创建冲突解决 worktree 需要的后端能力。
@@ -68,13 +67,12 @@ type gitPRDialogState struct {
 	query       string
 
 	selected          int // 选中项编号，0 表示还没选
+	tab               string // "" 表示概览，"changes" 表示改动
 	detailLoading     bool
 	detailErr         string
 	detail            *git.PRDetail
-	reviewBody        string
 	actionBusy        string
 	actionErr         string
-	approveConfirm    bool
 	mergeConfirm      string
 	mergeMethod       string
 	mergeMenuOpen     bool
@@ -93,8 +91,7 @@ type gitPRDialogState struct {
 }
 
 func (st *gitPRDialogState) resetActions() {
-	st.reviewBody, st.actionBusy, st.actionErr, st.mergeConfirm = "", "", "", ""
-	st.approveConfirm = false
+	st.actionBusy, st.actionErr, st.mergeConfirm = "", "", ""
 	st.mergeMenuOpen = false
 	st.moreMenuOpen = false
 }
@@ -157,6 +154,7 @@ func (s *chatState) openGitPRDialog() {
 	st.prs = nil
 	st.query = ""
 	st.selected = 0
+	st.tab = ""
 	st.detail = nil
 	st.detailErr = ""
 	st.detailLoading = false
@@ -187,6 +185,7 @@ func (s *chatState) closeGitPRDialog() {
 	st.detailErr = ""
 	st.query = ""
 	st.selected = 0
+	st.tab = ""
 	st.detail = nil
 	st.statusDetailsOpen = false
 	st.checksOpen = false
@@ -257,6 +256,7 @@ func (s *chatState) fetchGitPRList() {
 			}
 			if !found {
 				st.selected = 0
+				st.tab = ""
 				st.detail = nil
 				st.detailErr = ""
 				st.detailLoading = false
@@ -292,6 +292,7 @@ func (s *chatState) selectGitPR(number int) {
 		return
 	}
 	st.selected = number
+	st.tab = ""
 	st.detail = nil
 	st.detailErr = ""
 	st.detailLoading = true
@@ -337,33 +338,28 @@ func (s *chatState) runGitPRAction(kind, method string) {
 	}
 	st := getGitPRDialogState(s)
 	st.mu.Lock()
-	if !st.open || st.selected == 0 || st.detail == nil || st.actionBusy != "" || !gitPRActionsVisible(*st.detail) || ((kind == "request-changes" || kind == "comment") && strings.TrimSpace(st.reviewBody) == "") || (kind == "merge" && (method == "" || gitPRMergeBlocked(*st.detail))) || (kind != "approve" && kind != "comment" && kind != "request-changes" && kind != "merge") {
+	if !st.open || st.selected == 0 || st.detail == nil || st.actionBusy != "" || !gitPRActionsVisible(*st.detail) || kind != "merge" || method == "" || gitPRMergeBlocked(*st.detail) {
 		st.mu.Unlock()
 		return
 	}
-	number, threadID, body, seq := st.selected, st.threadID, st.reviewBody, st.detailSeq
+	number, threadID, seq := st.selected, st.threadID, st.detailSeq
 	st.actionBusy, st.actionErr = kind, ""
 	st.mu.Unlock()
 	s.invalidate()
 	go func() {
-		var err error
 		var cleanupCh chan struct{}
-		if kind == "merge" {
-			err = client.GitPRMerge(context.Background(), threadID, number, method)
-			if cleanup, ok := s.client.(gitPRConflictClient); err == nil && ok {
-				cleanupCh = make(chan struct{})
-				go func() {
-					<-cleanupCh
-					reason, err := cleanup.GitPRCleanupWorktree(context.Background(), threadID, number)
-					if err != nil {
-						s.setToast(err.Error())
-					} else if reason != "" {
-						s.setToast(fmt.Sprintf("已保留 PR #%d 的工作区：%s", number, reason))
-					}
-				}()
-			}
-		} else {
-			err = client.GitPRReview(context.Background(), threadID, number, kind, body)
+		err := client.GitPRMerge(context.Background(), threadID, number, method)
+		if cleanup, ok := s.client.(gitPRConflictClient); err == nil && ok {
+			cleanupCh = make(chan struct{})
+			go func() {
+				<-cleanupCh
+				reason, err := cleanup.GitPRCleanupWorktree(context.Background(), threadID, number)
+				if err != nil {
+					s.setToast(err.Error())
+				} else if reason != "" {
+					s.setToast(fmt.Sprintf("已保留 PR #%d 的工作区：%s", number, reason))
+				}
+			}()
 		}
 		st.mu.Lock()
 		if !st.open || st.detailSeq != seq || st.selected != number {
@@ -397,9 +393,7 @@ func (s *chatState) runGitPRAction(kind, method string) {
 		s.invalidate()
 		s.fetchGitPRDetail(number, seq)
 		s.fetchGitPRList()
-		if kind == "merge" {
-			s.loadGitState(threadID)
-		}
+		s.loadGitState(threadID)
 	}()
 }
 
@@ -1228,6 +1222,7 @@ func renderGitPRDetail(c *ui.Context, s *chatState, detail git.PRDetail, content
 	}
 	st := getGitPRDialogState(s)
 	st.mu.Lock()
+	tab := st.tab
 	busy := st.actionBusy
 	actionErr := st.actionErr
 	moreOpen := st.moreMenuOpen
@@ -1397,16 +1392,56 @@ func renderGitPRDetail(c *ui.Context, s *chatState, detail git.PRDetail, content
 					TabButton(c, TabButtonProps{
 						Key:    "modal-git-pr-tab-overview",
 						Label:  "概览",
-						Active: true,
-					}, nil)
+						Active: tab == "",
+					}, nil).OnClick(func() {
+						st.mu.Lock()
+						st.tab = ""
+						st.mu.Unlock()
+						s.invalidate()
+					})
 					TabButton(c, TabButtonProps{
 						Key:    "modal-git-pr-tab-changes",
 						Label:  changesLabel,
-						Active: false,
+						Active: tab == "changes",
 					}, nil).OnClick(func() {
-						openReviewPR(s, detail.Number)
+						st.mu.Lock()
+						st.tab = "changes"
+						st.mu.Unlock()
+						preparePRReview(s, detail.Number)
+						s.invalidate()
 					})
 				})
+
+			if tab == "changes" {
+				dp := getDiffPanelState(s)
+				tid := s.gitPRThreadID()
+				changesPane := ui.Column(c.Key("modal-git-pr-changes")).
+					FillWidth().
+					Grow(1).
+					MinHeight(0).
+					Gap(Space3)
+				changesPane.Draw(func(_ *ui.Painter, r ui.Rect) {
+					if updateReviewPanelWidth(dp, r.W) {
+						c.Invalidate()
+					}
+				})
+				changesPane.Children(func() {
+					if dp == nil {
+						return
+					}
+					renderReviewBody(c, s, dp, changesPane, tid, reviewHost{dialog: true})
+					ui.Column(c.Key("modal-git-pr-review-bar")).
+						FillWidth().
+						Shrink(0).
+						Padding(Space3, 0, 0, 0).
+						BorderWidth(Hairline, 0, 0, 0).
+						BorderColor(ThemeHairline(c)).
+						Children(func() {
+							renderReviewPRAction(c, s, dp, tid)
+						})
+				})
+				return
+			}
 
 			// 概览滚动正文。
 			ui.Scroll(c.Key("modal-git-pr-detail-scroll")).
@@ -1435,10 +1470,6 @@ func renderGitPRDetail(c *ui.Context, s *chatState, detail git.PRDetail, content
 											renderGitPRCommentRow(c, s, fmt.Sprintf("modal-git-pr-detail-comment-%d", i), comment)
 										}
 									})
-							}
-
-							if canAction && gitPRActionsVisible(detail) {
-								renderGitPRActions(c, s, detail)
 							}
 						})
 				})
@@ -1705,7 +1736,13 @@ func renderGitPRStatusStrip(
 										Size:     ControlSM,
 										Disabled: busy != "",
 										Tooltip:  gitPRActionTip(busy, "", ""),
-										OnClick:  func() { openReviewPR(s, detail.Number) },
+										OnClick: func() {
+											st.mu.Lock()
+											st.tab = "changes"
+											st.mu.Unlock()
+											preparePRReview(s, detail.Number)
+											s.invalidate()
+										},
 									})
 								case "conflict":
 									if !canResolve {
@@ -1807,23 +1844,42 @@ func renderGitPRChecksCard(c *ui.Context, s *chatState, st *gitPRDialogState, de
 		})
 }
 
-func openReviewPR(s *chatState, number int) {
+func preparePRReview(s *chatState, number int) {
+	if s == nil {
+		return
+	}
 	if _, ok := s.client.(reviewPRClient); !ok {
 		return
 	}
-	s.closeGitPRDialog()
-	inspectorSelect(s, sidePaneDiffID, false)
 	dp := getDiffPanelState(s)
 	if dp == nil {
 		return
 	}
 	tid := s.gitPRThreadID()
-	inspectorFollowPause(s, tid)
 	diffPanelMu.Lock()
+	changed := dp.scope != "pr" || dp.prNumber != number
 	dp.scope, dp.prNumber = "pr", number
 	dp.selectedPath, dp.pendingPath = "", ""
+	if changed {
+		dp.snapshot = ReviewSnapshot{}
+		dp.prReviewBody = ""
+		dp.prReviewErr = ""
+	}
 	diffPanelMu.Unlock()
 	s.loadDiff(tid, "")
+}
+
+func openReviewPR(s *chatState, number int) {
+	if s == nil {
+		return
+	}
+	if _, ok := s.client.(reviewPRClient); !ok {
+		return
+	}
+	s.closeGitPRDialog()
+	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorFollowPause(s, s.gitPRThreadID())
+	preparePRReview(s, number)
 }
 
 func gitPRActionTip(busy, self, reason string) string {
@@ -1844,32 +1900,6 @@ func gitPRMergeMethodLabel(method string) string {
 	default:
 		return method
 	}
-}
-
-func renderGitPRActions(c *ui.Context, s *chatState, detail git.PRDetail) {
-	st := getGitPRDialogState(s)
-	st.mu.Lock()
-	body, busy, approveConfirm := st.reviewBody, st.actionBusy, st.approveConfirm
-	st.mu.Unlock()
-	area := ui.TextArea(c.Key("modal-git-pr-review-body"), &body).Placeholder("评论").Lines(4, 10).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Background(ThemeHover(c)).Border(Hairline, ThemeBorder(c)).Radius(RadiusSM).Padding(Space2, Space3).FillWidth()
-	area.OnChange(func() { st.mu.Lock(); st.reviewBody = body; st.mu.Unlock() })
-	commentEmpty := strings.TrimSpace(body) == ""
-	commentTip := ""
-	if commentEmpty {
-		commentTip = "先在上方输入评论内容"
-	}
-	ui.Row(c.Key("modal-git-pr-review-actions")).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
-		if approveConfirm {
-			ui.Text(c, fmt.Sprintf("批准 #%d？", detail.Number)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
-			ui.Spacer(c)
-			Button(c, ButtonOpts{Key: "modal-git-pr-approve-confirm", Text: "确认批准", Variant: ButtonPrimary, Loading: busy == "approve", Disabled: busy != "" && busy != "approve", Tooltip: gitPRActionTip(busy, "approve", ""), OnClick: func() { s.runGitPRAction("approve", "") }})
-			Button(c, ButtonOpts{Key: "modal-git-pr-approve-cancel", Text: "取消", Variant: ButtonSecondary, Disabled: busy != "", Tooltip: gitPRActionTip(busy, "", ""), OnClick: func() { st.mu.Lock(); st.approveConfirm = false; st.mu.Unlock(); s.invalidate() }})
-			return
-		}
-		Button(c, ButtonOpts{Key: "modal-git-pr-approve", Text: "批准", Variant: ButtonSecondary, Loading: busy == "approve", Disabled: busy != "" && busy != "approve", Tooltip: gitPRActionTip(busy, "approve", ""), OnClick: func() { st.mu.Lock(); st.approveConfirm = true; st.mu.Unlock(); s.invalidate() }})
-		Button(c, ButtonOpts{Key: "modal-git-pr-comment", Text: "评论", Variant: ButtonSecondary, Loading: busy == "comment", Disabled: (busy != "" && busy != "comment") || commentEmpty, Tooltip: gitPRActionTip(busy, "comment", commentTip), OnClick: func() { s.runGitPRAction("comment", "") }})
-		Button(c, ButtonOpts{Key: "modal-git-pr-request-changes", Text: "要求修改", Variant: ButtonSecondary, Loading: busy == "request-changes", Disabled: (busy != "" && busy != "request-changes") || commentEmpty, Tooltip: gitPRActionTip(busy, "request-changes", commentTip), OnClick: func() { s.runGitPRAction("request-changes", "") }})
-	})
 }
 
 // renderGitPRConflicts 渲染冲突文件数量与路径列表。

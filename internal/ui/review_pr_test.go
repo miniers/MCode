@@ -384,8 +384,13 @@ func TestReviewPRAIAddsDrafts(t *testing.T) {
 	if tt.HasText("导入 AI 审查") {
 		t.Fatal("不应再显示导入 AI 审查按钮")
 	}
-	if tt.HasText("批准") || tt.HasText("要求修改") {
-		t.Fatal("没有草稿时显示了提交审阅按钮")
+	for _, label := range []string{"评论", "要求修改"} {
+		if node, ok := tt.Access(label); !ok || !node.Disabled {
+			t.Fatalf("没有草稿与总评时「%s」应禁用: ok=%v node=%+v", label, ok, node)
+		}
+	}
+	if node, ok := tt.Access("批准"); !ok || node.Disabled {
+		t.Fatalf("没有草稿时「批准」应可用: ok=%v node=%+v", ok, node)
 	}
 	calls := atomic.Int32{}
 	var first atomic.Bool
@@ -453,8 +458,10 @@ func TestReviewPRAIAddsDrafts(t *testing.T) {
 		t.Fatalf("重复请求产生了 %d 条草稿", count)
 	}
 	tt.Frame()
-	if !tt.HasText("批准") || !tt.HasText("要求修改") {
-		t.Fatal("有草稿时缺少提交审阅按钮")
+	for _, label := range []string{"评论", "批准", "要求修改"} {
+		if node, ok := tt.Access(label); !ok || node.Disabled {
+			t.Fatalf("有草稿时「%s」应可用: ok=%v node=%+v", label, ok, node)
+		}
 	}
 }
 
@@ -678,4 +685,64 @@ func TestReviewPRAIAutoImport(t *testing.T) {
 			return calls.Load() == 1 && dp.prAIBusy == 0 && len(dp.comments) == 1
 		})
 	})
+}
+
+func TestReviewPRSubmitWithBody(t *testing.T) {
+	s, f, dp := reviewPRSetup(t)
+	calls := make(chan reviewPRCall, 2)
+	f.submit = func(_ context.Context, call reviewPRCall) error {
+		calls <- call
+		return nil
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) { renderReviewPRAction(c, s, dp, "t1") }, 800, 100)
+	tt.Frame()
+
+	// 总评和待发评论都为空时，评论与要求修改禁用，批准仍可用。
+	for _, label := range []string{"评论", "要求修改"} {
+		node, ok := tt.Access(label)
+		if !ok || !node.Disabled {
+			t.Fatalf("无总评且无待发评论时「%s」应禁用: ok=%v node=%+v", label, ok, node)
+		}
+		_ = tt.Click(label)
+	}
+	if node, ok := tt.Access("批准"); !ok || node.Disabled {
+		t.Fatalf("「批准」应可用: ok=%v node=%+v", ok, node)
+	}
+	select {
+	case got := <-calls:
+		t.Fatalf("禁用状态不应触发提交: %+v", got)
+	default:
+	}
+
+	// 仅有总评、无待发评论时，评论可用并把去空白的总评作为 body 传入，成功后清空。
+	if err := tt.Click("总评"); err != nil {
+		t.Fatalf("聚焦总评输入框: %v", err)
+	}
+	tt.Type("  总体逻辑清晰  ")
+	tt.Frame()
+	if node, ok := tt.Access("评论"); !ok || node.Disabled {
+		t.Fatalf("有总评时「评论」应可用: ok=%v node=%+v", ok, node)
+	}
+	if err := tt.Click("评论"); err != nil {
+		t.Fatalf("点击评论: %v", err)
+	}
+	select {
+	case got := <-calls:
+		want := reviewPRCall{threadID: "t1", number: 7, event: "comment", body: "总体逻辑清晰", comments: []git.PRReviewComment{}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("提交参数 = %+v，期望 %+v", got, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("未调用 GitPRSubmitReview")
+	}
+	waitReviewComments(t, func() bool {
+		diffPanelMu.Lock()
+		defer diffPanelMu.Unlock()
+		return dp.prReviewEvent == "" && dp.prReviewBody == ""
+	})
+	tt.Frame()
+	if node, ok := tt.Access("评论"); !ok || !node.Disabled {
+		t.Fatalf("提交清空后「评论」应重新禁用: ok=%v node=%+v", ok, node)
+	}
 }

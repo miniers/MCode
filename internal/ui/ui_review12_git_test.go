@@ -213,23 +213,35 @@ func TestUIReview12PRApproveAndMergeToasts(t *testing.T) {
 	st.detail = &pr
 	st.mu.Unlock()
 
-	s.runGitPRAction("approve", "")
-	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool {
-		return st.actionBusy == "" && !st.detailLoading && !st.listLoading
-	})
-	s.mu.Lock()
-	approveToast := s.toastMessage
-	s.toastMessage = ""
-	s.mu.Unlock()
-	if approveToast != "已批准" {
-		t.Fatalf("PR 批准后 toast = %q，期望 %q", approveToast, "已批准")
+	dp := getDiffPanelState(s)
+	diffPanelMu.Lock()
+	dp.scope, dp.prNumber = "pr", 42
+	diffPanelMu.Unlock()
+
+	if !submitReviewPR(s, dp, "thread-1", "approve") {
+		t.Fatal("PR 批准未启动")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		s.mu.Lock()
+		approveToast := s.toastMessage
+		if approveToast == "已批准" {
+			s.toastMessage = ""
+			s.mu.Unlock()
+			break
+		}
+		s.mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatalf("PR 批准后 toast = %q，期望 %q", approveToast, "已批准")
+		}
+		time.Sleep(time.Millisecond)
 	}
 
 	s.runGitPRAction("merge", "squash")
 	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool {
 		return st.actionBusy == "" && !st.detailLoading && !st.listLoading
 	})
-	deadline := time.Now().Add(3 * time.Second)
+	deadline = time.Now().Add(3 * time.Second)
 	for {
 		s.mu.Lock()
 		mergeToast := s.toastMessage
