@@ -181,6 +181,8 @@ type ApprovalResponse struct {
 	Answers  map[string][]string
 	Skipped  bool
 	Feedback string
+	// AutoDenied 表示该次拒绝由权限策略/门禁自动判定（未向用户弹窗询问），用于区分自动策略拒批与用户手动拒绝。
+	AutoDenied bool
 }
 
 // Interactor 是 Approver 的可选扩展，支持提问与计划类请求的完整答复。

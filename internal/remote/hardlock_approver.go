@@ -32,7 +32,11 @@ func (a *hardLockApprover) Approve(ctx context.Context, req harness.ApprovalRequ
 func (a *hardLockApprover) Interact(ctx context.Context, req harness.ApprovalRequest) (harness.ApprovalResponse, error) {
 	if reason, denied := a.hardLockDenial(req); denied {
 		a.notice(reason)
-		return harness.ApprovalResponse{Decision: harness.DecisionDeny}, nil
+		return harness.ApprovalResponse{
+			Decision:   harness.DecisionDeny,
+			Feedback:   reason,
+			AutoDenied: true,
+		}, nil
 	}
 	if interactor, ok := a.inner.(harness.Interactor); ok && interactor != nil {
 		return interactor.Interact(ctx, req)

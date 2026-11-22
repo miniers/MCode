@@ -3269,3 +3269,216 @@ func TestApprovals_ReadOnlyHelperAllowsBuiltinReadOnlyMCP(t *testing.T) {
 		t.Error("只读档拦截/放行都不应向前端推送 requests.changed")
 	}
 }
+
+func TestAutoDeniedFlag(t *testing.T) {
+	t.Run("readonly_helper_write_command", func(t *testing.T) {
+		hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+		defer hub.Close()
+		backend := NewMemoryBackend(hub)
+		defer backend.Close()
+
+		ctx := context.Background()
+		threadID := "00000000-0000-0000-0000-0000000001a1"
+		backend.AddThread(wire.ThreadSummary{
+			ID:          threadID,
+			Title:       "ReadOnly Helper",
+			RuntimeMode: string(harness.ModeReadOnly),
+		}, nil)
+		backend.SetThreadRelation(threadID, "00000000-0000-0000-0000-000000000001", true)
+
+		var resp harness.ApprovalResponse
+		var interactErr error
+		doneCh := make(chan struct{})
+		backend.SetHarness(&mockHarness{
+			runFunc: func(runCtx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+				defer close(doneCh)
+				resp, interactErr = turn.Approver.(harness.Interactor).Interact(runCtx, harness.ApprovalRequest{
+					ToolName: "bash",
+					Kind:     harness.RequestKindCommand,
+					Input:    json.RawMessage(`{"command":"rm -rf build"}`),
+				})
+				return nil
+			},
+		}, "/workspace", harness.ModeReadOnly)
+
+		if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+			ThreadID: threadID,
+			Text:     "写命令",
+			ActionID: newUUID(),
+		}); err != nil {
+			t.Fatalf("SendMessage failed: %v", err)
+		}
+		<-doneCh
+		waitThreadIdle(t, backend, ctx, threadID)
+
+		if interactErr != nil {
+			t.Fatalf("Interact failed: %v", interactErr)
+		}
+		if resp.Decision != harness.DecisionDeny || !resp.AutoDenied || resp.Feedback == "" {
+			t.Fatalf("unexpected response: %+v", resp)
+		}
+	})
+
+	t.Run("unattended_subagent_sensitive_path", func(t *testing.T) {
+		hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+		defer hub.Close()
+		backend := NewMemoryBackend(hub)
+		defer backend.Close()
+
+		ctx := context.Background()
+		threadID := "00000000-0000-0000-0000-0000000001a2"
+		backend.AddThread(wire.ThreadSummary{
+			ID:          threadID,
+			Title:       "Unattended Helper",
+			RuntimeMode: string(harness.ModeAuto),
+		}, nil)
+		backend.SetThreadRelation(threadID, "00000000-0000-0000-0000-000000000001", true)
+
+		var resp harness.ApprovalResponse
+		var interactErr error
+		doneCh := make(chan struct{})
+		backend.SetHarness(&mockHarness{
+			runFunc: func(runCtx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+				defer close(doneCh)
+				resp, interactErr = turn.Approver.(harness.Interactor).Interact(runCtx, harness.ApprovalRequest{
+					ToolName:  "read_file",
+					Kind:      harness.RequestKindTool,
+					ReadOnly:  true,
+					Sensitive: "credential",
+					Input:     json.RawMessage(`{"path":"~/.ssh/id_rsa"}`),
+				})
+				return nil
+			},
+		}, "/workspace", harness.ModeAuto)
+
+		if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+			ThreadID: threadID,
+			Text:     "读敏感路径",
+			ActionID: newUUID(),
+		}); err != nil {
+			t.Fatalf("SendMessage failed: %v", err)
+		}
+		<-doneCh
+		waitThreadIdle(t, backend, ctx, threadID)
+
+		if interactErr != nil {
+			t.Fatalf("Interact failed: %v", interactErr)
+		}
+		if resp.Decision != harness.DecisionDeny || !resp.AutoDenied || resp.Feedback == "" {
+			t.Fatalf("unexpected response: %+v", resp)
+		}
+	})
+
+	t.Run("manual_user_deny", func(t *testing.T) {
+		hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+		defer hub.Close()
+		backend := NewMemoryBackend(hub)
+		defer backend.Close()
+
+		ctx := context.Background()
+		threadID := "00000000-0000-0000-0000-0000000001a3"
+		backend.AddThread(wire.ThreadSummary{ID: threadID, Title: "Manual Deny"}, nil)
+
+		var resp harness.ApprovalResponse
+		var interactErr error
+		backend.SetHarness(&mockHarness{
+			runFunc: func(runCtx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+				resp, interactErr = turn.Approver.(harness.Interactor).Interact(runCtx, harness.ApprovalRequest{
+					ToolName: "bash",
+					Kind:     harness.RequestKindCommand,
+					Input:    json.RawMessage(`{"command":"rm -rf tmp"}`),
+				})
+				return nil
+			},
+		}, "/workspace", harness.ModeAgent)
+
+		conn := newMockStreamConn()
+		changedCh := make(chan wire.RequestsChangedParams, 10)
+		conn.notifyFn = func(method string, params any) error {
+			if method == "requests.changed" {
+				if p, ok := params.(wire.RequestsChangedParams); ok && len(p.Requests) > 0 {
+					changedCh <- p
+				}
+			}
+			return nil
+		}
+		if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+			t.Fatalf("Subscribe failed: %v", err)
+		}
+		if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+			ThreadID: threadID,
+			Text:     "手动拒绝",
+			ActionID: newUUID(),
+		}); err != nil {
+			t.Fatalf("SendMessage failed: %v", err)
+		}
+
+		var change wire.RequestsChangedParams
+		select {
+		case change = <-changedCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for requests.changed")
+		}
+		optDeny := "deny"
+		if _, err := backend.RespondRequest(ctx, wire.RequestsRespondParams{
+			ThreadID:  threadID,
+			RunID:     change.Requests[0].RunID,
+			RequestID: change.Requests[0].RequestID,
+			OptionID:  &optDeny,
+		}); err != nil {
+			t.Fatalf("RespondRequest failed: %v", err)
+		}
+		waitThreadIdle(t, backend, ctx, threadID)
+
+		if interactErr != nil {
+			t.Fatalf("Interact failed: %v", interactErr)
+		}
+		if resp.Decision != harness.DecisionDeny || resp.AutoDenied {
+			t.Fatalf("manual deny should have AutoDenied=false: %+v", resp)
+		}
+	})
+
+	t.Run("working_swarm_bees_silent_plan_deny", func(t *testing.T) {
+		hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+		defer hub.Close()
+		backend := NewMemoryBackend(hub)
+		defer backend.Close()
+		backend.SetSwarmQueueHooks(func(string) bool { return true }, nil)
+
+		ctx := context.Background()
+		threadID := "00000000-0000-0000-0000-0000000001a4"
+		backend.AddThread(wire.ThreadSummary{ID: threadID, Title: "Working Bees Plan"}, nil)
+
+		var resp harness.ApprovalResponse
+		var interactErr error
+		doneCh := make(chan struct{})
+		backend.SetHarness(&mockHarness{
+			runFunc: func(runCtx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+				defer close(doneCh)
+				resp, interactErr = turn.Approver.(harness.Interactor).Interact(runCtx, harness.ApprovalRequest{
+					ToolName: "ExitPlanMode",
+					Kind:     harness.RequestKindPlan,
+					Plan:     "plan body",
+				})
+				return nil
+			},
+		}, "/workspace", harness.ModeAgent)
+
+		if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+			ThreadID: threadID,
+			Text:     "提交计划",
+			ActionID: newUUID(),
+		}); err != nil {
+			t.Fatalf("SendMessage failed: %v", err)
+		}
+		<-doneCh
+		waitThreadIdle(t, backend, ctx, threadID)
+
+		if interactErr != nil {
+			t.Fatalf("Interact failed: %v", interactErr)
+		}
+		if resp.Decision != harness.DecisionDeny || resp.AutoDenied {
+			t.Fatalf("working swarm bees plan deny should have AutoDenied=false: %+v", resp)
+		}
+	})
+}

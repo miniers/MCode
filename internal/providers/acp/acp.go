@@ -70,7 +70,44 @@ var agyStepPollInterval = 30 * time.Second
 
 // 6 分钟长于 agy 内部约 5 分钟的静默重试，为成功重试留出窗口。
 var agyStepErrorStall = 6 * time.Minute
+var agyAutoDenyMaxContinuations = 3
 var beforeAgyPromptSelect func()
+
+type agyAutoDenial struct {
+	toolName string
+	summary  string
+	feedback string
+}
+
+func buildAgyAutoDenyContinuationPrompt(denials []agyAutoDenial) string {
+	var b strings.Builder
+	b.WriteString("以下工具调用已被权限策略自动拦截，请不要重试被拦截的操作，也不要就此中断，请换一种允许的做法继续完成当前任务：\n")
+	seen := make(map[string]bool, len(denials))
+	for _, d := range denials {
+		target := strings.TrimSpace(d.summary)
+		if target == "" {
+			target = strings.TrimSpace(d.toolName)
+		}
+		if target == "" {
+			target = "未命名工具"
+		}
+		reason := strings.TrimSpace(d.feedback)
+		if reason == "" {
+			reason = "当前权限策略不允许该操作"
+		}
+		key := target + "\x00" + reason
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		b.WriteString("- ")
+		b.WriteString(target)
+		b.WriteString("：")
+		b.WriteString(reason)
+		b.WriteByte('\n')
+	}
+	return strings.TrimSpace(b.String())
+}
 
 var launchGate struct {
 	mu   sync.Mutex
@@ -729,6 +766,9 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 	writtenPaths := make(map[string]bool)
 	toolsFinished := false
 	var receivedText bool
+	var autoDenyMu sync.Mutex
+	var autoDenials []agyAutoDenial
+	var userDenied bool
 
 	setRequestHandler, setNotificationHandler, detach := h.roundHandlers(p)
 	defer detach()
@@ -916,6 +956,8 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 			var decision harness.Decision
 			var approveReq harness.ApprovalRequest
 			var approveErr error
+			var autoDenied bool
+			var feedback string
 			lockedCommand := isCommandCall && turn.HardLocked && strings.TrimSpace(turn.HardLockOverride) == ""
 			// plan 回合的 Mode 会被改成只读，用户选的档位存放在 PlanExitMode 里，需要一并判断。
 			autoApproveAgy := h.opts.Agent == AgentAgy && (turn.Mode == harness.ModeFullAccess || turn.PlanExitMode == harness.ModeFullAccess) && !lockedCommand
@@ -947,7 +989,17 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 						}
 					}
 				}
-				dec, err := turn.Approver.Approve(ctx, approveReq)
+				var dec harness.Decision
+				var err error
+				if interactor, ok := turn.Approver.(harness.Interactor); ok && interactor != nil {
+					var resp harness.ApprovalResponse
+					resp, err = interactor.Interact(ctx, approveReq)
+					dec = resp.Decision
+					autoDenied = resp.AutoDenied
+					feedback = strings.TrimSpace(resp.Feedback)
+				} else {
+					dec, err = turn.Approver.Approve(ctx, approveReq)
+				}
 				if err != nil {
 					approveErr = err
 					harness.AckDelivery(turn.Approver, approveReq, err)
@@ -981,6 +1033,23 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 						decision = harness.DecisionAllow
 					}
 				}
+				if decision == harness.DecisionDeny && !planExit {
+					autoDenied = true
+					feedback = "当前权限模式不允许该操作"
+				}
+			}
+			if h.opts.Agent == AgentAgy && decision == harness.DecisionDeny && approveErr == nil && !planExit {
+				autoDenyMu.Lock()
+				if autoDenied {
+					autoDenials = append(autoDenials, agyAutoDenial{
+						toolName: toolName,
+						summary:  summary,
+						feedback: feedback,
+					})
+				} else {
+					userDenied = true
+				}
+				autoDenyMu.Unlock()
 			}
 
 			var selectedID string
@@ -1792,60 +1861,149 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 	if spontaneous {
 		promptResult.StopReason = "end_turn"
 	} else if promptErr == nil {
-		params := map[string]any{
-			"sessionId": sid,
-			"prompt":    promptItems,
-		}
 		if agyPrompt {
 			stopCancelWatcher()
-			if agyDBPath != "" {
-				promptCtx, cancelPrompt := context.WithCancel(ctx)
-				pollStop := make(chan struct{})
-				pollDone := make(chan struct{})
-				stallErrCh := make(chan error, 1)
-				go func() {
-					defer close(pollDone)
-					ticker := time.NewTicker(agyStepPollInterval)
-					defer ticker.Stop()
-					var firstErrAt time.Time
-					for {
-						select {
-						case <-pollStop:
-							return
-						case <-promptCtx.Done():
-							return
-						case <-ticker.C:
-							if text, ok := agyNewStepError(agyDBPath, agyStepStart); ok {
-								now := time.Now()
-								if firstErrAt.IsZero() {
-									firstErrAt = now
+			callAgyPromptOnce := func(items []any) error {
+				params := map[string]any{
+					"sessionId": sid,
+					"prompt":    items,
+				}
+				if agyDBPath != "" {
+					promptCtx, cancelPrompt := context.WithCancel(ctx)
+					pollStop := make(chan struct{})
+					pollDone := make(chan struct{})
+					stallErrCh := make(chan error, 1)
+					go func() {
+						defer close(pollDone)
+						ticker := time.NewTicker(agyStepPollInterval)
+						defer ticker.Stop()
+						var firstErrAt time.Time
+						for {
+							select {
+							case <-pollStop:
+								return
+							case <-promptCtx.Done():
+								return
+							case <-ticker.C:
+								if text, ok := agyNewStepError(agyDBPath, agyStepStart); ok {
+									now := time.Now()
+									if firstErrAt.IsZero() {
+										firstErrAt = now
+									}
+									if now.Sub(firstErrAt) >= agyStepErrorStall {
+										stallErrCh <- fmt.Errorf("agy turn failed: %s", text)
+										cancelPrompt()
+										return
+									}
+								} else {
+									firstErrAt = time.Time{}
 								}
-								if now.Sub(firstErrAt) >= agyStepErrorStall {
-									stallErrCh <- fmt.Errorf("agy turn failed: %s", text)
-									cancelPrompt()
-									return
-								}
-							} else {
-								firstErrAt = time.Time{}
 							}
 						}
+					}()
+					err := conn.callAgyPrompt(promptCtx, params, &promptResult)
+					close(pollStop)
+					<-pollDone
+					cancelPrompt()
+					select {
+					case detectedStallErr := <-stallErrCh:
+						if ctx.Err() == nil && detectedStallErr != nil {
+							err = detectedStallErr
+						}
+					default:
 					}
-				}()
-				promptErr = conn.callAgyPrompt(promptCtx, params, &promptResult)
-				close(pollStop)
-				<-pollDone
-				cancelPrompt()
+					return err
+				}
+				return conn.callAgyPrompt(ctx, params, &promptResult)
+			}
+
+			var totalUsage acpPromptUsage
+			currentItems := promptItems
+			for cont := 0; ; cont++ {
+				promptResult = struct {
+					StopReason string         `json:"stopReason"`
+					Usage      acpPromptUsage `json:"usage"`
+				}{}
+				promptErr = callAgyPromptOnce(currentItems)
+				totalUsage.InputTokens += promptResult.Usage.InputTokens
+				totalUsage.OutputTokens += promptResult.Usage.OutputTokens
+				totalUsage.ThoughtTokens += promptResult.Usage.ThoughtTokens
+				totalUsage.CachedReadTokens += promptResult.Usage.CachedReadTokens
+
+				autoDenyMu.Lock()
+				denials := autoDenials
+				hadUserDeny := userDenied
+				autoDenials = nil
+				userDenied = false
+				autoDenyMu.Unlock()
+
+				connClosed := false
 				select {
-				case detectedStallErr := <-stallErrCh:
-					if ctx.Err() == nil && detectedStallErr != nil {
-						promptErr = detectedStallErr
-					}
+				case <-conn.closed:
+					connClosed = true
 				default:
 				}
-			} else {
-				promptErr = conn.callAgyPrompt(ctx, params, &promptResult)
+				stepErr := false
+				if agyDBPath != "" {
+					_, stepErr = agyNewStepError(agyDBPath, agyStepStart)
+				}
+				if promptErr != nil ||
+					ctx.Err() != nil ||
+					promptResult.StopReason == "refusal" ||
+					promptResult.StopReason == "cancelled" ||
+					len(denials) == 0 ||
+					hadUserDeny ||
+					cont >= agyAutoDenyMaxContinuations ||
+					connClosed ||
+					stepErr {
+					break
+				}
+
+				toolsMu.Lock()
+				var settleIDs []string
+				for id, pending := range pendingTools {
+					if !pending.background {
+						settleIDs = append(settleIDs, id)
+					}
+				}
+				sort.Strings(settleIDs)
+				if len(settleIDs) > 0 {
+					settled := make(map[string]bool, len(settleIDs))
+					for _, id := range settleIDs {
+						settled[id] = true
+						delete(pendingTools, id)
+					}
+					keptOrder := pendingOrder[:0]
+					for _, id := range pendingOrder {
+						if !settled[id] {
+							keptOrder = append(keptOrder, id)
+						}
+					}
+					pendingOrder = keptOrder
+					for _, id := range settleIDs {
+						_ = harness.Emit(emit, harness.Event{
+							Type:    harness.EventToolEnd,
+							ToolID:  id,
+							IsError: true,
+							Output:  "工具调用已被权限策略拦截，正在换用其他方式继续",
+						})
+					}
+				}
+				toolsMu.Unlock()
+
+				currentItems = []any{
+					map[string]any{
+						"type": "text",
+						"text": buildAgyAutoDenyContinuationPrompt(denials),
+					},
+				}
 			}
+			promptResult.Usage = totalUsage
 		} else {
+			params := map[string]any{
+				"sessionId": sid,
+				"prompt":    promptItems,
+			}
 			promptErr = conn.Call(ctx, "session/prompt", params, &promptResult)
 		}
 	}

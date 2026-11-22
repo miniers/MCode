@@ -223,8 +223,9 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 		if kind != harness.RequestKindQuestion {
 			a.b.mu.Unlock()
 			return harness.ApprovalResponse{
-				Decision: harness.DecisionDeny,
-				Feedback: "只读档子代理不允许写操作",
+				Decision:   harness.DecisionDeny,
+				Feedback:   "只读档子代理不允许写操作",
+				AutoDenied: true,
 			}, nil
 		}
 	}
@@ -242,8 +243,9 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 		if req.Sensitive != "" {
 			a.b.mu.Unlock()
 			return harness.ApprovalResponse{
-				Decision: harness.DecisionDeny,
-				Feedback: "子代理无人值守，敏感操作已自动拒绝，请换一种不涉及该路径的做法",
+				Decision:   harness.DecisionDeny,
+				Feedback:   "子代理无人值守，敏感操作已自动拒绝，请换一种不涉及该路径的做法",
+				AutoDenied: true,
 			}, nil
 		}
 		if kind == harness.RequestKindQuestion && !autoForwardQuestion {

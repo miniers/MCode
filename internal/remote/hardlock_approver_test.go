@@ -113,3 +113,24 @@ func TestHardLockApproverForwardsOtherRequests(t *testing.T) {
 		})
 	}
 }
+
+func TestHardLockApproverInteractAutoDenied(t *testing.T) {
+	approver, inner, _, _ := newHardLockTestApprover(t, true, "")
+
+	resp, err := approver.Interact(context.Background(), commandRequest("gh pr merge 12"))
+	if err != nil {
+		t.Fatalf("Interact 失败: %v", err)
+	}
+	if inner.calls != 0 {
+		t.Fatalf("命中硬锁后不应转给内层，实际调用 %d 次", inner.calls)
+	}
+	if resp.Decision != harness.DecisionDeny {
+		t.Fatalf("Decision = %v, want deny", resp.Decision)
+	}
+	if !resp.AutoDenied {
+		t.Fatal("AutoDenied = false, want true")
+	}
+	if !strings.Contains(resp.Feedback, "危险操作已锁定，需要用户答决策卡后解锁") {
+		t.Fatalf("Feedback = %q, want hard lock reason", resp.Feedback)
+	}
+}

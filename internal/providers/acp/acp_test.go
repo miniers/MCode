@@ -1097,6 +1097,61 @@ func runFakeACPFeatures(mode string) {
 				}})
 				read()
 			}
+			if mode == "feature_agy_auto_deny_continue" {
+				if promptCount == 1 {
+					write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"update": map[string]any{
+						"sessionUpdate": "tool_call",
+						"toolCallId":    "denied-call-1",
+						"name":          "run_command",
+						"title":         "Run rm -rf build",
+						"rawInput":      map[string]any{"CommandLine": "rm -rf build"},
+					}}})
+					write(map[string]any{"jsonrpc": "2.0", "id": 9201, "method": "session/request_permission", "params": map[string]any{
+						"toolCall": map[string]any{"toolCallId": "denied-call-1", "name": "run_command", "title": "Run rm -rf build", "rawInput": map[string]any{"CommandLine": "rm -rf build"}},
+						"options":  []any{map[string]any{"optionId": "allow", "kind": "allow_once"}, map[string]any{"optionId": "reject", "kind": "reject_once"}},
+					}})
+					if read() == nil {
+						return
+					}
+					result["usage"] = map[string]any{"inputTokens": 100, "outputTokens": 20, "thoughtTokens": 5, "cachedReadTokens": 10}
+					result["stopReason"] = "end_turn"
+					write(map[string]any{"jsonrpc": "2.0", "id": msg["id"], "result": result})
+					continue
+				}
+				write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"update": map[string]any{
+					"sessionUpdate": "agent_message_chunk",
+					"content":       map[string]any{"text": "已改用只读方式完成"},
+				}}})
+				result["usage"] = map[string]any{"inputTokens": 150, "outputTokens": 30, "thoughtTokens": 8, "cachedReadTokens": 20}
+			}
+			if mode == "feature_agy_auto_deny_mixed" && promptCount == 1 {
+				for i := 1; i <= 2; i++ {
+					callID := fmt.Sprintf("mixed-call-%d", i)
+					write(map[string]any{"jsonrpc": "2.0", "id": 9210 + i, "method": "session/request_permission", "params": map[string]any{
+						"toolCall": map[string]any{"toolCallId": callID, "name": "run_command", "title": fmt.Sprintf("Mixed cmd %d", i)},
+						"options":  []any{map[string]any{"optionId": "allow", "kind": "allow_once"}, map[string]any{"optionId": "reject", "kind": "reject_once"}},
+					}})
+					if read() == nil {
+						return
+					}
+				}
+			}
+			if mode == "feature_agy_auto_deny_loop" {
+				callID := fmt.Sprintf("loop-call-%d", promptCount)
+				write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"update": map[string]any{
+					"sessionUpdate": "tool_call",
+					"toolCallId":    callID,
+					"name":          "run_command",
+					"title":         "Blocked command",
+				}}})
+				write(map[string]any{"jsonrpc": "2.0", "id": 9300 + promptCount, "method": "session/request_permission", "params": map[string]any{
+					"toolCall": map[string]any{"toolCallId": callID, "name": "run_command", "title": "Blocked command"},
+					"options":  []any{map[string]any{"optionId": "allow", "kind": "allow_once"}, map[string]any{"optionId": "reject", "kind": "reject_once"}},
+				}})
+				if read() == nil {
+					return
+				}
+			}
 			if mode == "feature_command_kind" {
 				calls := []map[string]any{
 					{"toolCallId": "kind-execute", "name": "execute", "kind": "execute", "rawInput": map[string]any{"command": "ls"}},
@@ -3698,4 +3753,176 @@ func TestACPWriteTextFileBlockedInReadOnlyAndPlan(t *testing.T) {
 			}
 		})
 	}
+}
+
+type agyDenyTestInteractor struct {
+	mu        sync.Mutex
+	responses []harness.ApprovalResponse
+	idx       int
+}
+
+func (a *agyDenyTestInteractor) Approve(ctx context.Context, req harness.ApprovalRequest) (harness.Decision, error) {
+	resp, err := a.Interact(ctx, req)
+	return resp.Decision, err
+}
+
+func (a *agyDenyTestInteractor) Interact(_ context.Context, _ harness.ApprovalRequest) (harness.ApprovalResponse, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.responses) == 0 {
+		return harness.ApprovalResponse{Decision: harness.DecisionDeny}, nil
+	}
+	i := a.idx
+	if i >= len(a.responses) {
+		i = len(a.responses) - 1
+	} else {
+		a.idx++
+	}
+	return a.responses[i], nil
+}
+
+func TestAgyAutoDenyTransparentContinuation(t *testing.T) {
+	promptText := func(p map[string]any) string {
+		items, _ := p["prompt"].([]any)
+		var out strings.Builder
+		for _, item := range items {
+			m, _ := item.(map[string]any)
+			if txt, _ := m["text"].(string); txt != "" {
+				out.WriteString(txt)
+			}
+		}
+		return out.String()
+	}
+
+	t.Run("auto_denied_continues_same_session", func(t *testing.T) {
+		approver := &agyDenyTestInteractor{
+			responses: []harness.ApprovalResponse{
+				{Decision: harness.DecisionDeny, AutoDenied: true, Feedback: "只读档子代理不允许写操作"},
+			},
+		}
+		messages, events, err := runACPFeature(t, "feature_agy_auto_deny_continue", AgentAgy, harness.Turn{
+			Prompt:   "请清理构建产物",
+			Approver: approver,
+		})
+		if err != nil {
+			t.Fatalf("runACPFeature failed: %v", err)
+		}
+
+		prompts := featureParams(messages, "session/prompt")
+		if len(prompts) != 2 {
+			t.Fatalf("session/prompt count = %d, want 2", len(prompts))
+		}
+		if prompts[0]["sessionId"] != "feature-session" || prompts[1]["sessionId"] != "feature-session" {
+			t.Fatalf("sessionIds = (%v, %v), want feature-session", prompts[0]["sessionId"], prompts[1]["sessionId"])
+		}
+		contText := promptText(prompts[1])
+		if !strings.Contains(contText, "Run rm -rf build") || !strings.Contains(contText, "只读档子代理不允许写操作") {
+			t.Fatalf("continuation prompt = %q, want blocked tool and feedback", contText)
+		}
+
+		var doneCount int
+		var replyText strings.Builder
+		var usage *harness.Usage
+		var toolEnd *harness.Event
+		for i := range events {
+			e := events[i]
+			switch e.Type {
+			case harness.EventDone:
+				doneCount++
+			case harness.EventText:
+				replyText.WriteString(e.Text)
+			case harness.EventUsage:
+				usage = e.Usage
+			case harness.EventToolEnd:
+				if e.ToolID == "denied-call-1" {
+					ev := e
+					toolEnd = &ev
+				}
+			}
+		}
+		if doneCount != 1 {
+			t.Fatalf("EventDone count = %d, want 1", doneCount)
+		}
+		if replyText.String() != "已改用只读方式完成" {
+			t.Fatalf("replyText = %q, want %q", replyText.String(), "已改用只读方式完成")
+		}
+		if usage == nil || usage.InputTokens != 250 || usage.OutputTokens != 50 || usage.CachedTokens != 30 {
+			t.Fatalf("accumulated usage = %+v, want input=250 output=50 cached=30", usage)
+		}
+		if toolEnd == nil || !toolEnd.IsError || toolEnd.Output != "工具调用已被权限策略拦截，正在换用其他方式继续" {
+			t.Fatalf("toolEnd for denied-call-1 = %+v, want error EventToolEnd", toolEnd)
+		}
+	})
+
+	t.Run("manual_deny_does_not_continue", func(t *testing.T) {
+		approver := &agyDenyTestInteractor{
+			responses: []harness.ApprovalResponse{
+				{Decision: harness.DecisionDeny, AutoDenied: false, Feedback: "用户拒绝"},
+			},
+		}
+		messages, _, err := runACPFeature(t, "feature_agy_auto_deny_continue", AgentAgy, harness.Turn{
+			Prompt:   "请清理构建产物",
+			Approver: approver,
+		})
+		if err != nil {
+			t.Fatalf("runACPFeature failed: %v", err)
+		}
+		prompts := featureParams(messages, "session/prompt")
+		if len(prompts) != 1 {
+			t.Fatalf("session/prompt count = %d, want 1", len(prompts))
+		}
+	})
+
+	t.Run("mixed_auto_and_manual_deny_does_not_continue", func(t *testing.T) {
+		approver := &agyDenyTestInteractor{
+			responses: []harness.ApprovalResponse{
+				{Decision: harness.DecisionDeny, AutoDenied: true, Feedback: "自动拒绝"},
+				{Decision: harness.DecisionDeny, AutoDenied: false, Feedback: "用户拒绝"},
+			},
+		}
+		messages, _, err := runACPFeature(t, "feature_agy_auto_deny_mixed", AgentAgy, harness.Turn{
+			Prompt:   "混合拒绝",
+			Approver: approver,
+		})
+		if err != nil {
+			t.Fatalf("runACPFeature failed: %v", err)
+		}
+		prompts := featureParams(messages, "session/prompt")
+		if len(prompts) != 1 {
+			t.Fatalf("session/prompt count = %d, want 1", len(prompts))
+		}
+	})
+
+	t.Run("stops_at_max_continuations", func(t *testing.T) {
+		oldMax := agyAutoDenyMaxContinuations
+		agyAutoDenyMaxContinuations = 2
+		t.Cleanup(func() { agyAutoDenyMaxContinuations = oldMax })
+
+		approver := &agyDenyTestInteractor{
+			responses: []harness.ApprovalResponse{
+				{Decision: harness.DecisionDeny, AutoDenied: true, Feedback: "策略拦截"},
+			},
+		}
+		messages, events, err := runACPFeature(t, "feature_agy_auto_deny_loop", AgentAgy, harness.Turn{
+			Prompt:   "持续拦截",
+			Approver: approver,
+		})
+		if err != nil {
+			t.Fatalf("runACPFeature failed: %v", err)
+		}
+		prompts := featureParams(messages, "session/prompt")
+		wantPrompts := 1 + agyAutoDenyMaxContinuations
+		if len(prompts) != wantPrompts {
+			t.Fatalf("session/prompt count = %d, want %d", len(prompts), wantPrompts)
+		}
+		var doneCount int
+		for _, e := range events {
+			if e.Type == harness.EventDone {
+				doneCount++
+			}
+		}
+		if doneCount != 1 {
+			t.Fatalf("EventDone count = %d, want 1", doneCount)
+		}
+	})
 }
