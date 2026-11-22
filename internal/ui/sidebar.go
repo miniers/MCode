@@ -1788,17 +1788,17 @@ type sidebarThreadRowOptions struct {
 	hiddenBeeCount int      // 自动隐藏空闲子代理模式下被隐藏的子代理数量
 	showAllBees    bool     // 该父会话是否处于「手动展开全部子代理」状态
 	dormant        bool     // 已休眠会话：标题使用次要灰度色与更小字号
-	selected    bool
-	highlighted bool // 搜索键盘高亮命中
-	rowHeight   float32
-	padY        float32
-	padX        float32
-	indent      float32 // 行左缩进：项目树用文件夹缩进，动态视图为 0
-	compact     bool
-	providers   []ProviderInfo
-	needsYou    bool
-	latchHover  bool   // 项目树：把行悬停写进状态分组闩锁（动态视图不传，保持按帧实时分组）
-	projectName string // 动态视图：行内展示的所属项目名（弱化色小字），空则不展示
+	selected       bool
+	highlighted    bool // 搜索键盘高亮命中
+	rowHeight      float32
+	padY           float32
+	padX           float32
+	indent         float32 // 行左缩进：项目树用文件夹缩进，动态视图为 0
+	compact        bool
+	providers      []ProviderInfo
+	needsYou       bool
+	latchHover     bool   // 项目树：把行悬停写进状态分组闩锁（动态视图不传，保持按帧实时分组）
+	projectName    string // 动态视图：行内展示的所属项目名（弱化色小字），空则不展示
 }
 
 // renderSidebarThreadRow 渲染一条会话行：状态前缀、标题、模型徽章与状态点，右侧是相对时间
@@ -1829,8 +1829,7 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 		Radius(RowCornerRadius).
 		Label(rowLabel).
 		Role(ui.RoleListItem).
-		Focusable().
-		KeepFocus()
+		Focusable()
 
 	if !o.dormant && !thVal.Dormant {
 		sidebarMu.Lock()

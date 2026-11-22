@@ -563,18 +563,18 @@ type chatState struct {
 	sending     bool
 	sentDraft   *string
 
-	providers            []ProviderInfo
-	catalogRequestSeq    uint64
-	catalogAppliedSeq    uint64
-	catalogRefreshing    bool
-	newThreadProvider    string
+	providers         []ProviderInfo
+	catalogRequestSeq uint64
+	catalogAppliedSeq uint64
+	catalogRefreshing bool
+	newThreadProvider string
 	// sidebarFilter/sidebarFilterOpen 是侧栏会话过滤条件与下拉框开合状态（入口在「对话」段标题行，
 	// 但条件作用于整个侧栏会话列表）。只在 UI 线程读写：渲染时直接读取，点击回调里写入后 invalidate。
 	sidebarFilter     sidebarThreadFilter
 	sidebarFilterOpen bool
 	// 缓存以此为失效信号，直接改字段而不调 invalidate 的代码看不到更新。
-	invalidateGen atomic.Uint64
-	sidebarSnap   *sidebarSnapshot
+	invalidateGen        atomic.Uint64
+	sidebarSnap          *sidebarSnapshot
 	creatingThread       bool // 创建请求进行中，防止重复点击；受 s.mu 保护
 	provisionalWorktrees map[string]bool
 	provisionalRetains   map[string]*provisionalRetain
@@ -635,6 +635,11 @@ type chatState struct {
 
 	// pendingActions 是菜单派发的待执行动作队列，由根视图下一帧出队执行（受 s.mu 保护）。
 	pendingActions []pendingMenuAction
+
+	// fileMenuRowKey 是文件行「更多操作」菜单打开期间钉住按钮的行 key（受 s.mu 保护）。
+	// 菜单选中项只交给下一帧仍在构建的那个按钮，而按钮平时只在行悬停时渲染；指针移进
+	// 菜单后行失去悬停，不钉住则按钮被卸掉，选择无处交付。
+	fileMenuRowKey string
 
 	// attentionInbox 是侧栏「待处理」收件箱的数量、列表与订阅状态，懒创建（受 s.mu 保护）。
 	attentionInbox *attentionInboxState

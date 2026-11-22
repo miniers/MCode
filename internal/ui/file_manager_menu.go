@@ -84,6 +84,12 @@ func openFileManagerInSplit(s *chatState, threadID, path string) {
 // fileManagerEntryMenu 返回文件 / 目录行的菜单：行右键与行尾「更多操作」按钮共用。
 func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry FileEntry) func(*ui.Menu) {
 	payload, canReference := fileTreeDragReference(s, threadID, entry)
+	// unpin 解除文件行按钮的钉子：菜单项命中后按钮不再需要留在行上。
+	unpin := func() {
+		s.mu.Lock()
+		s.fileMenuRowKey = ""
+		s.mu.Unlock()
+	}
 	return func(m *ui.Menu) {
 		abs := fileManagerWorkspacePath(s, threadID, entry.Path)
 		root := turnFilesWorkDir(s, threadID)
@@ -99,24 +105,29 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 
 		if entry.IsDir {
 			if m.Item("打开").Chosen() {
+				unpin()
 				s.loadFileManagerDir(threadID, entry.Path)
 			}
 		} else {
 			if m.Item("打开").Chosen() {
+				unpin()
 				s.openFileManagerFile(threadID, entry.Path, true)
 			}
 			if m.Item("在右侧分栏打开").Chosen() {
+				unpin()
 				openFileManagerInSplit(s, threadID, entry.Path)
 			}
 		}
 		if !entry.IsDir && inGitRepo {
 			if m.Item("文件历史").Chosen() {
+				unpin()
 				inspectorSelect(s, sidePaneGitID, false)
 				if ps := getGitPaneState(s); ps != nil {
 					openGitFileHistory(ps, rel)
 				}
 			}
 			if m.Item("逐行追溯").Chosen() {
+				unpin()
 				inspectorSelect(s, sidePaneGitID, false)
 				if ps := getGitPaneState(s); ps != nil {
 					openGitBlame(ps, rel)
@@ -124,24 +135,29 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 			}
 		}
 		if m.Item("引用到输入框").Disabled(!canReference).Chosen() {
+			unpin()
 			s.addInspectorFileRefs(payload.refs())
 		}
 
 		if m.Item("复制路径").Chosen() && abs != "" {
+			unpin()
 			c.WriteClipboard(abs)
 			s.setToast("已复制路径")
 		}
 		if m.Item("复制相对路径").Chosen() {
+			unpin()
 			c.WriteClipboard(entry.Path)
 			s.setToast("已复制相对路径")
 		}
 		// 远程工作区里的文件本机不存在，不提供外部打开。
 		if local {
 			if m.Item(revealInFileManagerLabel()).Chosen() {
+				unpin()
 				openItemInFinder(abs)
 			}
 			if !entry.IsDir {
 				if m.Item("在外部编辑器打开").Chosen() {
+					unpin()
 					s.openFileAtLocation(fileJumpRequest{
 						Path:     abs,
 						ThreadID: threadID,
@@ -149,9 +165,11 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 					})
 				}
 				if m.Item("用默认应用打开").Chosen() {
+					unpin()
 					_ = mygo.Shell.OpenPath(abs)
 				}
 				if fileManagerGOOS == "darwin" && m.Item("快速查看").Chosen() {
+					unpin()
 					_ = fileManagerPreviewItem(abs)
 				}
 			}
@@ -164,22 +182,27 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 		m.Separator()
 		if entry.IsDir {
 			if m.Item("在此新建文件…").Chosen() {
+				unpin()
 				openFileManagerNewDialog(s, entry.Path, false)
 			}
 			if m.Item("在此新建文件夹…").Chosen() {
+				unpin()
 				openFileManagerNewDialog(s, entry.Path, true)
 			}
 		}
 		if m.Item("重命名…").Chosen() {
+			unpin()
 			openFileManagerRenameDialog(s, entry.Path)
 		}
 		if !entry.IsDir {
 			if m.Item("复制一份").Chosen() {
+				unpin()
 				s.duplicateFileManagerEntry(entry.Path)
 			}
 		}
 		if inGitRepo && local {
 			if m.Item("从 Git 中忽略").Chosen() {
+				unpin()
 				if err := gitChangesIgnore(root, rel); err != nil {
 					s.setToast("加入 .gitignore 失败: " + err.Error())
 				} else {
@@ -188,6 +211,7 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 			}
 		}
 		if m.Item(trashActionLabel() + "…").Danger().Chosen() {
+			unpin()
 			openFileManagerTrashDialog(s, entry.Path)
 		}
 	}
