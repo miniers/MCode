@@ -789,6 +789,9 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 			if err := json.Unmarshal(params, &p); err != nil {
 				return nil, err
 			}
+			if turn.Mode == harness.ModeReadOnly || turn.InteractionMode == "plan" {
+				return nil, fmt.Errorf("read-only mode does not allow writing files: %s", p.Path)
+			}
 			target, rel, err := resolveWorkDirPath(turn.WorkDir, p.Path, turn.AdditionalDirs...)
 			if err != nil {
 				return nil, err

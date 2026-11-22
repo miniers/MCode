@@ -1072,6 +1072,24 @@ func runFakeACPFeatures(mode string) {
 					notify(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "client-read-second", "status": "failed"})
 				}
 			}
+			if mode == "feature_write_text_file" {
+				workDir := sessionWorkDir
+				if workDir == "" {
+					workDir, _ = os.Getwd()
+				}
+				write(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      9130,
+					"method":  "fs/write_text_file",
+					"params": map[string]any{
+						"path":    filepath.Join(workDir, "nested", "write-test.txt"),
+						"content": "written content",
+					},
+				})
+				if read() == nil {
+					return
+				}
+			}
 			if mode == "feature_agy_command" {
 				write(map[string]any{"jsonrpc": "2.0", "id": 9101, "method": "session/request_permission", "params": map[string]any{
 					"toolCall": map[string]any{"toolCallId": "command_test", "name": "run", "rawInput": map[string]any{"CommandLine": "cat README.md"}},
@@ -3582,5 +3600,102 @@ func TestACPOptionsTimingOverrides(t *testing.T) {
 	// 零值 DisableLaunchSpacing 仍遵守全局 launchGate 与 ctx 取消。
 	if err := def.waitLaunchSlot(canceledCtx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("default waitLaunchSlot(canceled) = %v, want context.Canceled", err)
+	}
+}
+
+func TestACPWriteTextFileBlockedInReadOnlyAndPlan(t *testing.T) {
+	findWriteResp := func(messages []map[string]any) map[string]any {
+		for _, msg := range messages {
+			if msg["id"] == float64(9130) {
+				return msg
+			}
+		}
+		return nil
+	}
+
+	cases := []struct {
+		name            string
+		mode            harness.PermissionMode
+		interactionMode string
+		wantAllowed     bool
+	}{
+		{
+			name:            "read_only_build",
+			mode:            harness.ModeReadOnly,
+			interactionMode: "build",
+			wantAllowed:     false,
+		},
+		{
+			name:            "auto_plan",
+			mode:            harness.ModeAuto,
+			interactionMode: "plan",
+			wantAllowed:     false,
+		},
+		{
+			name:            "auto_build",
+			mode:            harness.ModeAuto,
+			interactionMode: "build",
+			wantAllowed:     true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			messages, events, err := runACPFeature(t, "feature_write_text_file", AgentCline, harness.Turn{
+				WorkDir:         workDir,
+				Mode:            tc.mode,
+				InteractionMode: tc.interactionMode,
+			})
+			if err != nil {
+				t.Fatalf("runACPFeature failed: %v", err)
+			}
+
+			resp := findWriteResp(messages)
+			if resp == nil {
+				t.Fatal("missing JSON-RPC response for fs/write_text_file (id=9130)")
+			}
+
+			target := filepath.Join(workDir, "nested", "write-test.txt")
+			var fileChanges []harness.Event
+			for _, e := range events {
+				if e.Type == harness.EventFileChange {
+					fileChanges = append(fileChanges, e)
+				}
+			}
+
+			if tc.wantAllowed {
+				if resp["error"] != nil {
+					t.Fatalf("unexpected JSON-RPC error: %v", resp["error"])
+				}
+				if resp["result"] == nil {
+					t.Fatalf("expected JSON-RPC result, got nil: %v", resp)
+				}
+				got, readErr := os.ReadFile(target)
+				if readErr != nil {
+					t.Fatalf("expected written file %s: %v", target, readErr)
+				}
+				if string(got) != "written content" {
+					t.Fatalf("written content = %q, want %q", string(got), "written content")
+				}
+				if len(fileChanges) != 1 || filepath.ToSlash(fileChanges[0].Path) != "nested/write-test.txt" {
+					t.Fatalf("fileChanges = %+v, want 1 EventFileChange for nested/write-test.txt", fileChanges)
+				}
+				return
+			}
+
+			if resp["error"] == nil {
+				t.Fatalf("expected JSON-RPC error for blocked fs/write_text_file, got response: %v", resp)
+			}
+			if _, statErr := os.Stat(filepath.Join(workDir, "nested")); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("expected parent directory not to be created, stat err = %v", statErr)
+			}
+			if _, statErr := os.Stat(target); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("expected target file not to be created, stat err = %v", statErr)
+			}
+			if len(fileChanges) != 0 {
+				t.Fatalf("unexpected EventFileChange events: %+v", fileChanges)
+			}
+		})
 	}
 }
