@@ -5793,8 +5793,16 @@ func (m *Manager) markReviewNeedsHuman(leadThreadID, beeThreadID, reason string)
 	m.maybeFireBatchLanded(context.Background(), leadThreadID)
 }
 
+func isInteractiveSharedBee(h *Bee) bool {
+	return h.Interactive && h.SharedWorkspace && !h.ReadOnly
+}
+
 // ClearFinished 清理已结束的子会话；待审查或尚待汇报的审查结果必须保留。
 func (m *Manager) ClearFinished(ctx context.Context, leadThreadID string) error {
+	return m.clearFinished(ctx, leadThreadID, false)
+}
+
+func (m *Manager) clearFinished(ctx context.Context, leadThreadID string, keepInteractiveShared bool) error {
 	mergeMu := m.getLeadMergeMutex(leadThreadID)
 	mergeMu.Lock()
 	m.mu.Lock()
@@ -5814,6 +5822,10 @@ func (m *Manager) ClearFinished(ctx context.Context, leadThreadID string) error 
 		// 因 MCode 重启被打断的 bee 保留到用户续跑或放弃，不能当成已结束的 bee 清掉；
 		// 正在沿用改动续做交接中的 bee 也必须跳过，避免删掉将被新会话复用的副本与记录。
 		if h.Interrupted || m.retryingBees[h.ThreadID] {
+			continue
+		}
+		// 设计 bee 会被用户反复续跑，清掉后续跑就不可见。
+		if keepInteractiveShared && isInteractiveSharedBee(h) {
 			continue
 		}
 		if h.Status != StatusRunning && h.ReviewState != ReviewRunning && !h.PendingMerge && !awaitingReport {
@@ -6345,7 +6357,9 @@ func (m *Manager) autoClearFinished(ctx context.Context) {
 			continue
 		}
 		clearable := true
-		for _, h := range lead.bees {
+		hasClearableBee := false
+		for i := range lead.bees {
+			h := &lead.bees[i]
 			// 因 MCode 重启被打断的 bee 要等用户续跑或放弃，不能自动清理。
 			if h.Interrupted {
 				clearable = false
@@ -6370,8 +6384,11 @@ func (m *Manager) autoClearFinished(ctx context.Context) {
 				clearable = false
 				break
 			}
+			if !isInteractiveSharedBee(h) {
+				hasClearableBee = true
+			}
 		}
-		if !clearable {
+		if !clearable || !hasClearableBee {
 			continue
 		}
 		for _, q := range m.queue {
@@ -6387,7 +6404,7 @@ func (m *Manager) autoClearFinished(ctx context.Context) {
 	m.mu.Unlock()
 
 	for _, leadID := range leadIDs {
-		_ = m.ClearFinished(ctx, leadID)
+		_ = m.clearFinished(ctx, leadID, true)
 	}
 }
 

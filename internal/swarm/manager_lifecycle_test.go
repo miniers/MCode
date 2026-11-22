@@ -164,6 +164,59 @@ func TestManager_AutoClearFinished(t *testing.T) {
 	}
 }
 
+// AutoClearFinished 打开时，可提问的共享 bee（设计 bee）不会被自动清理，手动 ClearFinished 仍会清理。
+func TestManager_AutoClearFinished_KeepsInteractiveShared(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	runner, dir := initTestRepo(t)
+	driver := newFakeDriver()
+
+	mgr := NewManager(Options{
+		Git:         runner,
+		Driver:      driver,
+		WorktreeDir: t.TempDir(),
+		OnReport:    func(string, string) error { return nil },
+	})
+	mgr.SetSettingsFunc(func() Settings {
+		return Settings{Enabled: true, AutoDelegate: true, WorkspaceMode: "worktree", AutoClearFinished: true}
+	})
+
+	leadID := "lead-auto-clear-interactive-shared"
+	bees, err := mgr.Dispatch(ctx, DispatchRequest{
+		LeadThreadID: leadID,
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Bees: []BeeSpec{
+			{Name: "Bee-Normal", Task: "T1", Prompt: "P1"},
+			{Name: "Bee-Design", Task: "T2", Prompt: "P2", SharedWorkspace: true, Interactive: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+	driver.setSessionState(bees[0].ThreadID, kanban.SessionState{Running: false, LastAssistantText: "done"})
+	driver.setSessionState(bees[1].ThreadID, kanban.SessionState{Running: false, LastAssistantText: "design done"})
+	mgr.Tick(ctx)
+
+	got := mgr.State(leadID).Bees
+	if len(got) != 1 || got[0].ThreadID != bees[1].ThreadID {
+		t.Fatalf("自动清理后应只保留设计 bee，实际: %+v", got)
+	}
+
+	mgr.Tick(ctx)
+	got = mgr.State(leadID).Bees
+	if len(got) != 1 || got[0].ThreadID != bees[1].ThreadID {
+		t.Fatalf("再次 Tick 后设计 bee 仍应保留，实际: %+v", got)
+	}
+
+	if err := mgr.ClearFinished(ctx, leadID); err != nil {
+		t.Fatalf("ClearFinished failed: %v", err)
+	}
+	if got := mgr.State(leadID).Bees; len(got) != 0 {
+		t.Fatalf("手动 ClearFinished 后应清理设计 bee，实际剩 %d 个", len(got))
+	}
+}
+
 // AutoClearFinished 打开但仍有 running bee 时不清理。
 func TestManager_AutoClearFinished_KeepsRunningLead(t *testing.T) {
 	t.Parallel()
